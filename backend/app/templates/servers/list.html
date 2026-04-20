@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}서버 목록 — ZConverter Assessment{% endblock %}
+
+{% block content %}
+<h1>서버 목록</h1>
+
+{% if servers %}
+<table>
+  <thead>
+    <tr>
+      <th>Hostname</th>
+      <th>CPU (core)</th>
+      <th>Memory (MB)</th>
+      <th>디스크</th>
+      <th>Internal IP</th>
+      <th>마지막 수집</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in servers %}
+    <tr>
+      <td><a href="/servers/{{ s.id }}">{{ s.hostname }}</a></td>
+      <td>{{ s.nproc if s.nproc is not none else '-' }}</td>
+      <td>{{ s.mem_total_mb if s.mem_total_mb is not none else '-' }}</td>
+      <td>
+        {% if s.disks %}
+          {% for d in s.disks %}<span class="badge">{{ d.name }} {{ d.size }}</span> {% endfor %}
+        {% else %}-{% endif %}
+      </td>
+      <td>{{ s.ip_internal | join(', ') if s.ip_internal else '-' }}</td>
+      <td>{{ s.updated_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:#64748b;">등록된 서버가 없습니다.</p>
+{% endif %}
+{% endblock %}
