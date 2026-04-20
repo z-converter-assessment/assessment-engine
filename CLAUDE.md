@@ -22,9 +22,12 @@ backend/app/
     interface.py         # IServerRepository (ABC) — 도메인 모델 반환
     server.py            # 구현체 — ORM → 도메인 변환 책임
   api/
-    deps.py              # DI 조립 (get_repo)
+    deps.py              # DI 조립 (get_repo, get_service)
     ingestion.py         # 수신/검증 후 celery_app.send_task
-    query.py             # IServerRepository만 참조, Jinja2 SSR 렌더링
+    query.py             # Jinja2 SSR 렌더링, ServerService 참조
+    schemas.py           # View 전용 dataclass (ServerListItem, ServerDetail 등)
+  services/
+    server.py            # ServerService — repo 호출 + 뷰 모델 변환
   workers/
     database.py          # NullPool 엔진 (Celery 전용)
     tasks.py             # process_metric 태스크
@@ -42,12 +45,14 @@ tools/agent/             # 별도 컨테이너, push.sh 기반
 ```
 domain/          ← 아무것도 모름
 contracts/       ← 아무것도 모름
+api/schemas      ← 아무것도 모름
 
 repositories/interface  ← domain만 앎
 repositories/server     ← ORM + domain + interface
 
-api/deps         ← interface + server (조립만)
-api/query        ← interface + deps만 앎
+services/server  ← interface + api/schemas
+api/deps         ← interface + repositories/server + services/server (조립만)
+api/query        ← deps + services/server만 앎
 api/ingestion    ← celery_app + contracts만 앎
 
 workers/tasks    ← celery_app + contracts + repositories/server + workers/database
@@ -93,9 +98,9 @@ GET /servers/                    # 서버 목록 (HTML)
 GET /servers/{server_id}         # 서버 최신 데이터 (HTML)
 GET /servers/{server_id}/history # 서버 시계열 전체 (HTML)
 ```
-- 라우터는 IServerRepository만 참조
+- 라우터는 ServerService만 참조 (IServerRepository 직접 참조 금지)
 - 쓰기(INSERT/UPDATE) 쿼리 금지
-- disks 표시 시 `size == "0B"` 항목 필터링 (query.py의 `_real_disks()`)
+- disks 표시 시 `size == "0B"` 항목 필터링 (services/server.py의 `_real_disks()`)
 
 ## Ingestion API
 ```
