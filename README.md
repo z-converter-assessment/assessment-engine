@@ -2,6 +2,12 @@
 
 온프레미스 서버 인벤토리를 수집·저장하는 B2B 내부 포털.
 
+## 사전 요구사항
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Docker Compose v2 포함)
+
+---
+
 ## 스택
 
 | 구성 | 기술 |
@@ -11,7 +17,7 @@
 | Worker | Celery |
 | 메시지 브로커 | RabbitMQ |
 | DB | PostgreSQL (SQLAlchemy async + asyncpg) |
-| Agent | Alpine + bash |
+| Agent | Alpine + bash (테스트용) |
 
 ---
 
@@ -44,6 +50,9 @@ cd tools/agent
 cp .env.example .env
 # INGEST_API_URL, AGENT_HOSTNAME 설정
 docker compose up -d
+```
+
+```bash
 docker compose logs -f agent
 ```
 
