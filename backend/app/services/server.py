@@ -1,10 +1,17 @@
 from __future__ import annotations
 import uuid
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from app.api.schemas import DiskInfo, MetricHistoryItem, ServerDetail, ServerListItem
 from app.domain.server import ServerMetricDomain
 from app.repositories.interface import IServerRepository
+
+_KST = timezone(timedelta(hours=9))
+
+
+def _fmt(dt: datetime) -> str:
+    return dt.astimezone(_KST).strftime("%Y-%m-%d %H:%M:%S")
 
 
 class ServerService:
@@ -36,7 +43,7 @@ class ServerService:
             result.append(ServerListItem(
                 id=s.id,
                 hostname=s.hostname,
-                updated_at=s.updated_at.strftime("%Y-%m-%d %H:%M:%S"),
+                updated_at=_fmt(s.updated_at),
                 nproc=nproc,
                 mem_total_mb=mem,
                 disks=disks,
@@ -54,7 +61,7 @@ class ServerService:
         return ServerDetail(
             id=server.id,
             hostname=server.hostname,
-            updated_at=server.updated_at.strftime("%Y-%m-%d %H:%M:%S"),
+            updated_at=_fmt(server.updated_at),
             nproc=nproc,
             mem_total_mb=mem,
             disks=disks,
@@ -69,7 +76,7 @@ class ServerService:
         history = await self.repo.metric_history(server_id)
         items = [
             MetricHistoryItem(
-                recorded_at=m.recorded_at.strftime("%Y-%m-%d %H:%M:%S"),
+                recorded_at=_fmt(m.recorded_at),
                 nproc=m.nproc,
                 mem_total_mb=m.mem_total_mb,
                 disks=self._real_disks(m.disks),
@@ -81,7 +88,7 @@ class ServerService:
         return ServerDetail(
             id=server.id,
             hostname=server.hostname,
-            updated_at=server.updated_at.strftime("%Y-%m-%d %H:%M:%S"),
+            updated_at=_fmt(server.updated_at),
             nproc=None,
             mem_total_mb=None,
         ), items
