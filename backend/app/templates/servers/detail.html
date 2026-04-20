@@ -9,22 +9,22 @@
   <h2>시스템 정보</h2>
   <dl class="kv">
     <dt>Server ID</dt><dd>{{ server.id }}</dd>
-    <dt>CPU (core)</dt><dd>{{ metric.nproc if metric and metric.nproc is not none else '-' }}</dd>
-    <dt>Memory (MB)</dt><dd>{{ metric.mem_total_mb if metric and metric.mem_total_mb is not none else '-' }}</dd>
+    <dt>CPU (core)</dt><dd>{{ server.nproc if server.nproc is not none else '-' }}</dd>
+    <dt>Memory (MB)</dt><dd>{{ server.mem_total_mb if server.mem_total_mb is not none else '-' }}</dd>
     <dt>마지막 수집</dt><dd>{{ server.updated_at }}</dd>
   </dl>
 </div>
 
-{% if metric %}
+{% if server.disks or server.ip_internal or server.ip_external %}
 <div class="card">
   <h2>디스크</h2>
-  {% if metric.disks %}
+  {% if server.disks %}
   <table>
     <thead>
       <tr><th>Name</th><th>Size</th></tr>
     </thead>
     <tbody>
-      {% for disk in metric.disks %}
+      {% for disk in server.disks %}
       <tr>
         <td>{{ disk.name }}</td>
         <td>{{ disk.size }}</td>
@@ -41,9 +41,9 @@
   <h2>네트워크</h2>
   <dl class="kv">
     <dt>Internal IP</dt>
-    <dd>{{ metric.ip_internal | join(', ') if metric.ip_internal else '-' }}</dd>
+    <dd>{{ server.ip_internal | join(', ') if server.ip_internal else '-' }}</dd>
     <dt>External IP</dt>
-    <dd>{{ metric.ip_external | join(', ') if metric.ip_external else '-' }}</dd>
+    <dd>{{ server.ip_external | join(', ') if server.ip_external else '-' }}</dd>
   </dl>
 </div>
 {% endif %}
