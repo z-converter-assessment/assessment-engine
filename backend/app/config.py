@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # 메타데이터
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     postgres_db: str = "assessment"
@@ -23,7 +24,7 @@ class Settings(BaseSettings):
         )
 
     @property
-    def celery_broker_url(self) -> str:
+    def broker_url(self) -> str:
         return (
             f"amqp://{self.rabbitmq_user}:{self.rabbitmq_pass}"
             f"@{self.rabbitmq_host}:{self.rabbitmq_port}//"

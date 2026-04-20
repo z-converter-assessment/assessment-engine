@@ -50,7 +50,7 @@ services:
 
   worker:
     build: ./backend
-    command: celery -A app.celery_app worker --loglevel=info --queues=default
+    command: taskiq worker app.broker:broker app.workers.tasks
     volumes:
       - ./backend:/app
     env_file: .env

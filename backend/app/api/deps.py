@@ -1,15 +1,15 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.database import get_db
-from app.repositories.interface import IServerRepository
-from app.repositories.server import ServerRepository
-from app.services.server import ServerService
+from app.session import get_db
+from app.repositories.i_read_repository import IReadRepository
+from app.repositories.read_repository import ReadRepository
+from app.services.query_service import QueryService
 
 
-def get_repo(db: AsyncSession = Depends(get_db)) -> IServerRepository:
-    return ServerRepository(db)
+def get_read_repo(db: AsyncSession = Depends(get_db)) -> IReadRepository:
+    return ReadRepository(db)
 
 
-def get_service(repo: IServerRepository = Depends(get_repo)) -> ServerService:
-    return ServerService(repo)
+def get_service(repo: IReadRepository = Depends(get_read_repo)) -> QueryService:
+    return QueryService(repo)

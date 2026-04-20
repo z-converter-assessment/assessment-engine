@@ -1,4 +1,4 @@
-# assessment-worker
+# assessment-portal
 
 온프레미스 서버 인벤토리를 수집·저장하는 B2B 내부 포털.
 
@@ -14,7 +14,7 @@
 |------|------|
 | Ingestion API | FastAPI |
 | Query (SSR) | FastAPI + Jinja2 |
-| Worker | Celery |
+| Worker | taskiq + aio-pika |
 | 메시지 브로커 | RabbitMQ |
 | DB | PostgreSQL (SQLAlchemy async + asyncpg) |
 | Agent | Alpine + bash (테스트용) |
@@ -48,7 +48,7 @@ docker compose down -v   # 데이터 삭제
 ```bash
 cd tools/agent
 cp .env.example .env
-# INGEST_API_URL, AGENT_HOSTNAME 설정
+# INGEST_API_URL 설정
 docker compose up -d
 ```
 
@@ -80,8 +80,8 @@ curl -X POST http://localhost:8000/ingest/ \
   -d '{
     "hostname": "test-server",
     "nproc": "4",
-    "free": {"mem_total_mb": 8192},
-    "lsblk_raw": [{"name": "sda", "size": "100G"}],
-    "ip_raw": {"internal": ["10.0.0.1"], "external": []}
+    "mem_total_mb": 8192,
+    "disks": [{"name": "sda", "size": "100G"}],
+    "ip": {"internal": ["10.0.0.1"], "external": []}
   }'
 ```

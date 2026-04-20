@@ -7,29 +7,30 @@ ZConverter Cloud Assessment Portal.
 ## 디렉토리 구조
 ```
 backend/app/
-  celery_app.py          # Celery 인스턴스 (공유 인프라)
-  config.py
-  main.py
-  contracts/
-    task_names.py        # 태스크명 상수 (ingestion ↔ worker 계약)
-  domain/
-    server.py            # 순수 도메인 모델 (ORM 무관)
+  broker.py              # taskiq AioPikaBroker
+  config.py              # pydantic-settings (Settings)
+  session.py             # SQLAlchemy 엔진, 세션
+  main.py                # FastAPI 앱, lifespan
+  dto/
+    inbound.py           # pydantic 태스크 입력 모델 (ServerMetricInput 등)
+    outbound.py          # dataclass 레포지토리 출력 모델 (ServerDTO, ServerMetricDTO)
   models/
     base.py              # SQLAlchemy Base
-    database.py          # 엔진, 세션 (FastAPI용)
-    server.py            # ORM 모델
+    server_entity.py     # ServerEntity ORM (servers 테이블)
+    metric_snapshot.py   # MetricSnapshot ORM (metric_snapshots 테이블)
   repositories/
-    interface.py         # IServerRepository (ABC) — 도메인 모델 반환
-    server.py            # 구현체 — ORM → 도메인 변환 책임
+    i_read_repository.py   # IReadRepository (ABC)
+    i_write_repository.py  # IWriteRepository (ABC)
+    read_repository.py     # 읽기 구현체
+    write_repository.py    # 쓰기 구현체
   api/
-    deps.py              # DI 조립 (get_repo, get_service)
-    ingestion.py         # 수신/검증 후 celery_app.send_task
-    query.py             # Jinja2 SSR 렌더링, ServerService 참조
-    schemas.py           # View 전용 dataclass (ServerListItem, ServerDetail 등)
+    deps.py              # DI 조립
+    ingestion.py         # 수신/검증 후 process_metric.kiq()
+    query.py             # Jinja2 SSR 렌더링
+    views.py             # 뷰 전용 dataclass (ServerItem, MetricHistoryItem 등)
   services/
-    server.py            # ServerService — repo 호출 + 뷰 모델 변환
+    query_service.py     # QueryService — 조회 + 뷰 모델 변환
   workers/
-    database.py          # NullPool 엔진 (Celery 전용)
     tasks.py             # process_metric 태스크
   templates/
     base.html
@@ -38,24 +39,24 @@ backend/app/
       detail.html        # GET /servers/{id}
       history.html       # GET /servers/{id}/history
 
-tools/agent/             # 별도 컨테이너, push.sh 기반
+tools/agent/             # 별도 컨테이너, push.sh 기반 (테스트용)
 ```
 
 ## 모듈 의존 관계
 ```
-domain/          ← 아무것도 모름
-contracts/       ← 아무것도 모름
-api/schemas      ← 아무것도 모름
+dto/inbound, dto/outbound  ← 아무것도 모름
+api/views                  ← 아무것도 모름
 
-repositories/interface  ← domain만 앎
-repositories/server     ← ORM + domain + interface
+repositories/i_*           ← dto/outbound만 앎
+repositories/read          ← ORM + dto/outbound + i_read
+repositories/write         ← ORM + dto/outbound + i_write
 
-services/server  ← interface + api/schemas
-api/deps         ← interface + repositories/server + services/server (조립만)
-api/query        ← deps + services/server만 앎
-api/ingestion    ← celery_app + contracts만 앎
+services/query_service     ← i_read + api/views
+api/deps                   ← repositories + services (조립만)
+api/query                  ← deps + query_service만 앎
+api/ingestion              ← broker + dto/inbound + workers/tasks
 
-workers/tasks    ← celery_app + contracts + repositories/server + workers/database
+workers/tasks              ← broker + dto/inbound + session + write_repository
 ```
 
 ## 테이블 구조
@@ -68,29 +69,29 @@ workers/tasks    ← celery_app + contracts + repositories/server + workers/data
 | created_at | timestamp | not null |
 | updated_at | timestamp | not null |
 
-### server_metrics
+### metric_snapshots
 | 컬럼 | 타입 | 제약 |
 |------|------|------|
 | id | UUID | PK |
-| server_id | UUID | FK → servers.id |
+| server_id | UUID | FK → servers.id, not null |
 | recorded_at | timestamp | not null |
-| nproc | integer | |
-| mem_total_mb | bigint | |
-| disks | JSONB | |
-| ip_internal | JSONB | |
-| ip_external | JSONB | |
+| nproc | integer | not null |
+| mem_total_mb | bigint | not null |
+| disks | JSONB | not null |
+| ip_internal | JSONB | not null |
+| ip_external | JSONB | not null |
 | created_at | timestamp | not null |
 
 ## ORM 설계 원칙
-- 타임스탬프 컬럼은 각 모델에 직접 선언 (믹스인 사용 금지)
 - 타임스탬프는 `server_default=func.now()` 사용. flush 후 반드시 `await session.refresh(orm)` 호출
 - disks, ip_internal, ip_external은 별도 테이블 없이 JSONB로 관리
-- 도메인 모델(dataclass)과 ORM 모델은 분리, 변환은 repository 구현체 책임
+- DTO(dataclass)와 ORM 모델은 분리, 변환은 repository 구현체 책임
+- 읽기/쓰기 레포지토리 분리: ReadRepository, WriteRepository
 
-## Worker DB 설계 원칙
-- Celery는 `asyncio.run()`을 태스크마다 호출 → 이벤트 루프가 매번 재생성됨
-- 커넥션 풀은 루프 간 커넥션을 재사용하려다 충돌 → `workers/database.py`에서 `NullPool` 사용
-- FastAPI용 엔진(`models/database.py`)과 Worker용 엔진(`workers/database.py`)은 분리
+## Worker 설계 원칙
+- taskiq + aio-pika 기반 순수 비동기 워커
+- 단일 이벤트 루프 유지 → 커넥션 풀 정상 사용 (NullPool 불필요)
+- FastAPI와 동일한 세션(`session.py`) 공유
 
 ## Query API
 ```
@@ -98,9 +99,8 @@ GET /servers/                    # 서버 목록 (HTML)
 GET /servers/{server_id}         # 서버 최신 데이터 (HTML)
 GET /servers/{server_id}/history # 서버 시계열 전체 (HTML)
 ```
-- 라우터는 ServerService만 참조 (IServerRepository 직접 참조 금지)
-- 쓰기(INSERT/UPDATE) 쿼리 금지
-- disks 표시 시 `size == "0B"` 항목 필터링 (services/server.py의 `_real_disks()`)
+- 라우터는 QueryService만 참조
+- disks 표시 시 `size == "0B"` 항목 필터링 (`_real_disks()`)
 
 ## Ingestion API
 ```
@@ -112,9 +112,9 @@ POST /ingest/   # 에이전트 데이터 수신 → RabbitMQ 발행
 {
   "hostname": "server01",
   "nproc": "4",
-  "free": { "mem_total_mb": 16384 },
-  "lsblk_raw": [{ "name": "vda", "size": "30G" }],
-  "ip_raw": { "internal": ["10.0.0.1"], "external": ["1.2.3.4"] }
+  "mem_total_mb": 16384,
+  "disks": [{ "name": "vda", "size": "30G" }],
+  "ip": { "internal": ["10.0.0.1"], "external": ["1.2.3.4"] }
 }
 ```
 
