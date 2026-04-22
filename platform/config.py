@@ -1,20 +1,14 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings(BaseSettings):
-    # 메타데이터
+class WebSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    postgres_db: str = "assessment"
-    postgres_user: str = "postgres"
-    postgres_password: str = "postgres"
-    postgres_host: str = "postgres"
-    postgres_port: int = 5432
-
-    rabbitmq_user: str = "guest"
-    rabbitmq_pass: str = "guest"
-    rabbitmq_host: str = "rabbitmq"
-    rabbitmq_port: int = 5672
+    postgres_db: str
+    postgres_user: str
+    postgres_password: str
+    postgres_host: str
+    postgres_port: int
 
     @property
     def database_url(self) -> str:
@@ -23,6 +17,14 @@ class Settings(BaseSettings):
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
+
+class ConsumerSettings(WebSettings):
+    rabbitmq_user: str
+    rabbitmq_pass: str
+    rabbitmq_host: str
+    rabbitmq_port: int
+    rabbitmq_queue: str
+
     @property
     def broker_url(self) -> str:
         return (
@@ -30,5 +32,3 @@ class Settings(BaseSettings):
             f"@{self.rabbitmq_host}:{self.rabbitmq_port}//"
         )
 
-
-settings = Settings()

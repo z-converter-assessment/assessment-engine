@@ -1,14 +1,13 @@
 from __future__ import annotations
 from typing import List, Optional
-from uuid import UUID
 
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dto.outbound import ServerDTO, ServerMetricDTO
-from app.models.server_entity import ServerEntity
-from app.models.metric_snapshot import MetricSnapshot
-from app.repositories.i_read_repository import IReadRepository
+from db.repositories.dto import ServerDTO, ServerMetricDTO
+from db.models.server_entity import ServerEntity
+from db.models.metric_snapshot import MetricSnapshot
+from db.repositories.i_query_repository import IQueryRepository
 
 
 def _to_server_dto(orm: ServerEntity) -> ServerDTO:
@@ -34,11 +33,11 @@ def _to_metric_dto(orm: MetricSnapshot) -> ServerMetricDTO:
     )
 
 
-class ReadRepository(IReadRepository):
+class QueryRepository(IQueryRepository):
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_by_id(self, server_id: UUID) -> Optional[ServerDTO]:
+    async def get_by_id(self, server_id: int) -> Optional[ServerDTO]:
         result = await self.session.execute(select(ServerEntity).where(ServerEntity.id == server_id))
         orm: ServerEntity | None = result.scalar_one_or_none()
         return _to_server_dto(orm) if orm else None
@@ -47,7 +46,7 @@ class ReadRepository(IReadRepository):
         result = await self.session.execute(select(ServerEntity).order_by(ServerEntity.hostname))
         return [_to_server_dto(s) for s in result.scalars().all()]
 
-    async def latest_metric(self, server_id: UUID) -> Optional[ServerMetricDTO]:
+    async def latest_metric(self, server_id: int) -> Optional[ServerMetricDTO]:
         result = await self.session.execute(
             select(MetricSnapshot)
             .where(MetricSnapshot.server_id == server_id)
@@ -57,7 +56,7 @@ class ReadRepository(IReadRepository):
         orm: MetricSnapshot | None = result.scalar_one_or_none()
         return _to_metric_dto(orm) if orm else None
 
-    async def metric_history(self, server_id: UUID) -> List[ServerMetricDTO]:
+    async def metric_history(self, server_id: int) -> List[ServerMetricDTO]:
         result = await self.session.execute(
             select(MetricSnapshot)
             .where(MetricSnapshot.server_id == server_id)

@@ -1,4 +1,3 @@
-from uuid import UUID
 from dataclasses import dataclass, field
 
 
@@ -10,7 +9,7 @@ class DiskInfo:
 
 @dataclass
 class ServerItem:
-    id: UUID
+    id: int
     hostname: str
     updated_at: str
     nproc: int

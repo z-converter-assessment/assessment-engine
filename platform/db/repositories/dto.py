@@ -1,11 +1,10 @@
 from dataclasses import dataclass
 from datetime import datetime
-from uuid import UUID
 
 
 @dataclass
 class ServerDTO:
-    id: UUID
+    id: int
     hostname: str
     created_at: datetime
     updated_at: datetime
@@ -13,8 +12,8 @@ class ServerDTO:
 
 @dataclass
 class ServerMetricDTO:
-    id: UUID
-    server_id: UUID
+    id: int
+    server_id: int
     recorded_at: datetime
     created_at: datetime
     nproc: int
