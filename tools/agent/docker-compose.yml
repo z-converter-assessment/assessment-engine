@@ -1,18 +1,12 @@
-# 고객사 서버 모사 에이전트 컨테이너
-# 사용법: docker compose up -d
+# 테스트용 에이전트 시뮬레이터 — MQ 직접 발행 검증용
+# 스케일: docker compose up --scale agent=3
 
 services:
   agent:
     build: .
-    image: zconverter-agent:latest
-    container_name: zconverter-agent
+    image: agent:latest
     restart: unless-stopped
     env_file: .env
-    environment:
-      INGEST_API_URL: "${INGEST_API_URL}"
-      PUSH_INTERVAL: "${PUSH_INTERVAL}"
-    hostname: "${AGENT_HOSTNAME}"
-#    network_mode: "host"    # 실제 Ubuntu 서버 배포 시 활성화 (호스트 네트워크 그대로 수집)
     deploy:
       resources:
         limits:
