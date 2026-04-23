@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 from testcontainers.postgres import PostgresContainer
 
-from db.models import metric_snapshot, server_entity  # noqa: F401 — ORM 모델 등록
+from db.models import server_metrics, server_inventory  # noqa: F401 — ORM 모델 등록
 from db.models.base import Base
 
 

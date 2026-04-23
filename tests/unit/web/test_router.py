@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest_asyncio
 
-from web.app import app
+from web.main import app
 from web.deps import get_service
 
 # 서비스 목 객체 생성
@@ -53,7 +53,7 @@ class TestListServers:
 class TestGetServer:
     async def test_found_returns_200(self, client, server_item):
         override(_make_service(get_server=server_item))
-        response = await client.get("/servers/" + server_item.id)
+        response = await client.get("/servers/" + str(server_item.id))
         assert response.status_code == 200
 
     async def test_not_found_returns_404(self, client):

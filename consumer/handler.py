@@ -1,5 +1,6 @@
+from __future__ import annotations
+
 import asyncio
-import json
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -7,53 +8,93 @@ from aio_pika.abc import AbstractIncomingMessage
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from consumer.schemas import ServerMetricInput
-from db.repositories.i_collect_repository import ICollectRepository
-
-RepoFactory = Callable[[AsyncSession], ICollectRepository]
+from consumer.schemas import ErrorInput, InventoryInput, MetricsInput
+from db.repositories.base_collect_repository import BaseCollectRepository
 
 
-async def _save(repo: ICollectRepository, payload: ServerMetricInput) -> None:
-    server_id = await repo.find_server(payload.hostname)
-    if server_id is None:
-        server_id = await repo.create_server(payload.hostname)
-    await repo.insert_metric(
-        server_id=server_id,
-        nproc=payload.nproc,
-        mem_total_mb=payload.mem_total_mb,
-        disks=[d.model_dump() for d in payload.disks],
-        ip_internal=[str(ip) for ip in payload.ip.internal],
-        ip_external=[str(ip) for ip in payload.ip.external],
-    )
-
-
-def make_handler(
+async def _db_retry(
     session_factory: async_sessionmaker[AsyncSession],
-    repo_factory: RepoFactory,
+    repo_factory: Callable[[AsyncSession], BaseCollectRepository],
+    fn: Callable[[BaseCollectRepository], Coroutine[Any, Any, None]],
+) -> None:
+    for attempt in range(3):
+        try:
+            async with session_factory() as session:
+                await fn(repo_factory(session))
+                await session.commit()
+            return
+        except Exception as e:
+            if attempt == 2:
+                logger.error("db error after 3 attempts: {}", e)
+                raise
+            logger.warning("db error attempt={} error={}", attempt + 1, e)
+            await asyncio.sleep(2 ** attempt)
+
+
+def make_inventory_handler(
+    session_factory: async_sessionmaker[AsyncSession],
+    repo_factory: Callable[[AsyncSession], BaseCollectRepository],
 ) -> Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]:
     async def _handle(message: AbstractIncomingMessage) -> None:
-        async with message.process():
+        async with message.process(requeue=False):
             try:
-                payload = ServerMetricInput(**json.loads(message.body))
+                data = InventoryInput.model_validate_json(message.body)
             except Exception as e:
-                # TODO: 파싱 실패 처리 전략 검토 (DLQ 등)
-                logger.error("invalid message body: {}", e)
-                return
+                logger.error("inventory parse error: {}", e)
+                raise
 
-            for attempt in range(3):
-                try:
-                    async with session_factory() as session:
-                        repo = repo_factory(session)
-                        await _save(repo, payload)
-                        await session.commit()
-                    break
-                except Exception as e:
-                    if attempt == 2:
-                        logger.error("db error after 3 attempts: {}", e)
-                        raise
-                    logger.warning("db error attempt={} error={}", attempt + 1, e)
-                    await asyncio.sleep(2 ** attempt)
+            await _db_retry(
+                session_factory, repo_factory,
+                lambda repo: repo.upsert_server(data),
+            )
+            logger.info("inventory stored machine_id={}", data.machine_id)
 
-            logger.info("stored hostname={}", payload.hostname)
+    return _handle
+
+
+def make_metrics_handler(
+    session_factory: async_sessionmaker[AsyncSession],
+    repo_factory: Callable[[AsyncSession], BaseCollectRepository],
+) -> Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]:
+    async def _handle(message: AbstractIncomingMessage) -> None:
+        async with message.process(requeue=False):
+            try:
+                data = MetricsInput.model_validate_json(message.body)
+            except Exception as e:
+                logger.error("metrics parse error: {}", e)
+                raise
+
+            async def _save(repo: BaseCollectRepository) -> None:
+                server_id = await repo.find_server_id(data.hostname)
+                if server_id is None:
+                    logger.warning(
+                        "metrics dropped — server not registered hostname={}",
+                        data.hostname,
+                    )
+                    return
+                await repo.insert_metric(server_id, data)
+
+            await _db_retry(session_factory, repo_factory, _save)
+            logger.info("metrics stored hostname={}", data.hostname)
+
+    return _handle
+
+
+def make_error_handler() -> Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]:
+    async def _handle(message: AbstractIncomingMessage) -> None:
+        async with message.process(requeue=False):
+            try:
+                data = ErrorInput.model_validate_json(message.body)
+            except Exception as e:
+                logger.error("error message parse error: {}", e)
+                raise
+
+            logger.warning(
+                "agent error hostname={} component={} code={} msg={}",
+                data.hostname,
+                data.failed_component,
+                data.error_code,
+                data.error_message,
+            )
 
     return _handle

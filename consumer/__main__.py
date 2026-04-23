@@ -1,4 +1,4 @@
 import asyncio
-from consumer.app import run
+from consumer.main import main
 
-asyncio.run(run())
+asyncio.run(main())
