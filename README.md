@@ -32,13 +32,15 @@ cp .env.example .env
 
 ### 2. 메인 스택 실행
 ```bash
+# 실행
 docker compose up --build -d
 ```
 
 ```bash
 # web 로그
 docker compose logs -f web
-
+```
+```bash
 # consumer 로그
 docker compose logs -f consumer
 ```
@@ -46,21 +48,68 @@ docker compose logs -f consumer
 ```bash
 # 종료 [데이터 유지]
 docker compose down
-
+```
+```bash
 # 종료 [데이터 삭제]
 docker compose down -v
 ```
 
 ---
 
-## 테스트
+## 모듈·통합 테스트
+
+`platform/` 디렉토리에서 실행한다.
+
+```bash
+cd assess
+```
+
+### 단위 테스트 (Docker 불필요)
+
+```bash
+pytest tests/unit
+```
+
+### 통합 테스트 (Docker 필요 — testcontainers가 PostgreSQL 컨테이너를 자동으로 띄움)
+
+```bash
+pytest tests/integration
+```
+
+### 전체 실행
+
+```bash
+pytest
+```
+
+---
+
+## 시나리오 테스트
 
 실제 에이전트(C99 바이너리) 대신 컨테이너로 메트릭 수집·발행을 검증한다.  
 메인 스택(`docker compose up`)이 실행 중인 상태에서 진행한다.
 
+#### 메인 스택 환경변수 (루트 `.env`)
+
+| 키 | 기본값 | 설명 |
+|----|--------|------|
+| `POSTGRES_DB` | `assessment` | |
+| `POSTGRES_USER` | `assessment` | |
+| `POSTGRES_PASSWORD` | `assessment` | |
+| `POSTGRES_PORT` | `5432` | |
+| `RABBITMQ_USER` | `assessment` | |
+| `RABBITMQ_PASS` | `assessment` | |
+| `RABBITMQ_PORT` | `5672` | |
+| `RABBITMQ_MANAGEMENT_PORT` | `15672` | RabbitMQ 관리 콘솔 포트 |
+| `RABBITMQ_QUEUE` | `metric` | 시뮬레이터의 `RABBITMQ_ROUTING_KEY`와 일치해야 함 |
+| `WEB_PORT` | `8000` | |
+
 ### 1. 시뮬레이터 환경변수 설정
 ```bash
 cd tools/agent
+```
+
+```bash
 cp .env.example .env
 ```
 
@@ -100,16 +149,10 @@ docker compose down
 
 ### 3. 결과 확인
 
-메인 스택의 consumer 로그에서 수신 확인:
 ```bash
-# 루트 디렉토리에서
 docker compose logs -f consumer
 ```
-
-웹 UI에서 수집된 서버 목록 확인:
-```
-http://localhost:8000/servers/
-```
+> http://localhost:8000/servers/
 
 ---
 
@@ -118,5 +161,7 @@ http://localhost:8000/servers/
 | 주소 | 설명 |
 |------|------|
 | http://localhost:8000/servers/ | 서버 인벤토리 웹 UI |
+| http://localhost:8000/docs | FastAPI Swagger UI |
+| http://localhost:8000/redoc | FastAPI ReDoc |
 | http://localhost:15672 | RabbitMQ 관리 콘솔 |
 | localhost:5432 | PostgreSQL |

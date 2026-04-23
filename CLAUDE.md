@@ -9,47 +9,47 @@ ZConverter Cloud Assessment Portal.
 네트워크 내 각 서버에는 **C99/C++03 기반 에이전트**가 탑재되어 메트릭을 수집하고,
 HTTP를 거치지 않고 **MQ에 직접 발행**한다. Consumer가 이를 소비해 DB에 저장한다.
 
-> MQ 스펙(프로토콜, 포맷, Exchange/Queue 설계)은 미확정. 현재 구현은 RabbitMQ + AMQP 기준이나 변경될 수 있다.
-
 ## 디렉토리 구조
 ```
-platform/
-  config.py              # WebSettings, ConsumerSettings(WebSettings)
-  db/                    # 데이터 접근 계층 (web/consumer 공유)
-    session.py           # SQLAlchemy 엔진, 세션 (WebSettings() 직접 생성)
-    models/
-      base.py
-      server_entity.py
-      metric_snapshot.py
-    repositories/
-      dto.py             # dataclass 출력 모델 (ServerDTO, ServerMetricDTO)
-      i_collect_repository.py
-      i_query_repository.py
-      collect_repository.py
-      query_repository.py
-  web/                   # FastAPI 서비스 (python -m web)
-    __main__.py          # 진입점
-    app.py               # FastAPI 앱, lifespan (테이블 auto-create)
-    deps.py              # DI 조립 (get_service)
-    api/
-      router.py          # Jinja2 SSR 라우터
-      items.py           # 뷰 전용 dataclass (ServerItem, MetricHistoryItem 등)
-    services/
-      query_service.py   # QueryService — 조회 + 뷰 모델 변환
-    templates/
-      base.html
-      servers/
-        list.html        # GET /servers/
-        detail.html      # GET /servers/{id}
-        history.html     # GET /servers/{id}/history
-  consumer/              # Consumer 서비스 (python -m consumer)
-    __main__.py          # 진입점
-    app.py               # MQ 연결 + run() (ConsumerSettings() 직접 생성)
-    deps.py              # 의존성 조립 (세션 + 레포 → handler)
-    consumer.py          # 메시지 파싱 + DB 저장 로직
-    schemas.py           # 에이전트 MQ 메시지 스키마 (ServerMetricInput 등)
-
-tools/agent/             # 테스트용 에이전트 시뮬레이터 (MQ 직접 발행 검증용)
+(git root = PyCharm 프로젝트 루트 = .venv 위치)
+config.py              # WebSettings, ConsumerSettings(WebSettings)
+db/                    # 데이터 접근 계층 (web/consumer 공유)
+  session.py           # SQLAlchemy 엔진, 세션 (WebSettings() 직접 생성)
+  models/
+    base.py
+    server_entity.py
+    metric_snapshot.py
+  repositories/
+    dto.py             # dataclass 출력 모델 (ServerDTO, ServerMetricDTO)
+    i_collect_repository.py
+    i_query_repository.py
+    collect_repository.py
+    query_repository.py
+web/                   # FastAPI 서비스 (python -m web)
+  __main__.py          # 진입점
+  app.py               # FastAPI 앱, lifespan (테이블 auto-create)
+  deps.py              # DI 조립 (get_service)
+  api/
+    router.py          # Jinja2 SSR 라우터
+    items.py           # 뷰 전용 dataclass (ServerItem, MetricHistoryItem 등)
+  services/
+    query_service.py   # QueryService — 조회 + 뷰 모델 변환
+  templates/
+    base.html
+    servers/
+      list.html        # GET /servers/
+      detail.html      # GET /servers/{id}
+      history.html     # GET /servers/{id}/history
+consumer/              # Consumer 서비스 (python -m consumer)
+  __main__.py          # 진입점
+  app.py               # MQ 연결 + run() (ConsumerSettings() 직접 생성)
+  deps.py              # 의존성 조립 (세션 + 레포 → handler)
+  handler.py           # 메시지 파싱 + DB 저장 로직
+  schemas.py           # 에이전트 MQ 메시지 스키마 (ServerMetricInput 등)
+tests/                 # pytest (unit + integration)
+Dockerfile
+docker-compose.yml
+pyproject.toml
 ```
 
 ## 모듈 의존 관계
@@ -71,11 +71,10 @@ web/__main__               ← web/app (진입점)
 
 # consumer 모듈 (python -m consumer)
 consumer/schemas           ← pydantic (ipaddress, pydantic만)
-consumer/consumer          ← consumer/schemas + db/repositories/i_collect
-consumer/deps              ← db/repositories/collect + db/session + consumer/consumer
+consumer/handler           ← consumer/schemas + db/repositories/i_collect
+consumer/deps              ← db/repositories/collect + db/session + consumer/handler
 consumer/app               ← ConsumerSettings + consumer/deps
 consumer/__main__          ← consumer/app (진입점)
-  # 에이전트가 MQ에 직접 발행 → consumer가 소비 → DB 저장 (HTTP 수신 경로 없음)
 ```
 
 ## 설정 (config.py)
@@ -83,13 +82,18 @@ consumer/__main__          ← consumer/app (진입점)
 모듈 레벨 인스턴스 없음. 각 진입점에서 직접 생성.
 
 ```python
-class WebSettings(BaseSettings):       # postgres 접속 정보
+from pydantic_settings import BaseSettings
+
+class WebSettings(BaseSettings):  # postgres 접속 정보
     ...
+
     @property
     def database_url(self) -> str: ...
 
-class ConsumerSettings(WebSettings):   # postgres + RabbitMQ 접속 정보
+
+class ConsumerSettings(WebSettings):  # postgres + RabbitMQ 접속 정보
     ...
+
     @property
     def broker_url(self) -> str: ...
 ```
@@ -134,7 +138,7 @@ class ConsumerSettings(WebSettings):   # postgres + RabbitMQ 접속 정보
 - aio-pika 기반 순수 비동기 컨슈머 (FastAPI와 독립 프로세스)
 - 단일 이벤트 루프 유지 → 커넥션 풀 정상 사용 (NullPool 불필요)
 - FastAPI와 동일한 세션(`session.py`) 공유
-- 파싱 실패: nack without requeue (TODO: DLQ 전략 검토)
+- 파싱 실패: nack without requeue
 - DB 실패: 지수 백오프 3회 재시도 후 raise → aio-pika requeue
 
 ## Query API
@@ -150,7 +154,7 @@ GET /health                      # 헬스체크 (JSON)
 ## 메시지 수신 (agent → MQ → consumer)
 에이전트는 HTTP API를 거치지 않고 MQ에 직접 발행한다. `api/ingestion.py`는 존재하지 않는다.
 
-### 메시지 페이로드 (현재 기준, 스펙 미확정)
+### 메시지 페이로드
 ```json
 {
   "hostname": "server01",
@@ -160,8 +164,6 @@ GET /health                      # 헬스체크 (JSON)
   "ip": { "internal": ["10.0.0.1"], "external": ["1.2.3.4"] }
 }
 ```
-
-> MQ 스펙(Exchange 타입, routing key, 직렬화 포맷 등)은 확정 전. 에이전트 구현체는 C99/C++03 기반.
 
 ## 실행 환경
 - 개발 머신: MacBook Air (Apple Silicon)

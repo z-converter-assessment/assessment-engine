@@ -4,11 +4,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class WebSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    postgres_db: str
-    postgres_user: str
-    postgres_password: str
-    postgres_host: str
-    postgres_port: int
+    postgres_db: str = "assessment"
+    postgres_user: str = "assessment"
+    postgres_password: str = "assessment"
+    postgres_host: str = "postgres"
+    postgres_port: int = 5432
 
     @property
     def database_url(self) -> str:
@@ -19,11 +19,11 @@ class WebSettings(BaseSettings):
 
 
 class ConsumerSettings(WebSettings):
-    rabbitmq_user: str
-    rabbitmq_pass: str
-    rabbitmq_host: str
-    rabbitmq_port: int
-    rabbitmq_queue: str
+    rabbitmq_user: str = "assessment"
+    rabbitmq_pass: str = "assessment"
+    rabbitmq_host: str = "rabbitmq"
+    rabbitmq_port: int = 5672
+    rabbitmq_queue: str = "metric"
 
     @property
     def broker_url(self) -> str:

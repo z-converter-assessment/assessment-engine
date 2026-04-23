@@ -1,12 +1,16 @@
 import asyncio
 import json
-from typing import Callable
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from aio_pika.abc import AbstractIncomingMessage
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from consumer.schemas import ServerMetricInput
 from db.repositories.i_collect_repository import ICollectRepository
+
+RepoFactory = Callable[[AsyncSession], ICollectRepository]
 
 
 async def _save(repo: ICollectRepository, payload: ServerMetricInput) -> None:
@@ -23,7 +27,10 @@ async def _save(repo: ICollectRepository, payload: ServerMetricInput) -> None:
     )
 
 
-def make_handler(session_factory, repo_cls) -> Callable:
+def make_handler(
+    session_factory: async_sessionmaker[AsyncSession],
+    repo_factory: RepoFactory,
+) -> Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]:
     async def _handle(message: AbstractIncomingMessage) -> None:
         async with message.process():
             try:
@@ -36,7 +43,7 @@ def make_handler(session_factory, repo_cls) -> Callable:
             for attempt in range(3):
                 try:
                     async with session_factory() as session:
-                        repo = repo_cls(session)
+                        repo = repo_factory(session)
                         await _save(repo, payload)
                         await session.commit()
                     break

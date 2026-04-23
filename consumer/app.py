@@ -20,7 +20,3 @@ async def run() -> None:
         await queue.consume(handler)
         logger.info("waiting for messages on queue={}", settings.rabbitmq_queue)
         await asyncio.Future()
-
-
-if __name__ == "__main__":
-    asyncio.run(run())
