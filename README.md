@@ -102,7 +102,7 @@ pytest
 | `POSTGRES_PORT` | `5432` | |
 | `RABBITMQ_HOST` | `rabbitmq` | 컨슈머 접속용 |
 | `RABBITMQ_USER` | `assessment` | |
-| `RABBITMQ_PASS` | `assessment` | |
+| `RABBITMQ_PASSWORD` | `assessment` | |
 | `RABBITMQ_PORT` | `5672` | |
 | `RABBITMQ_MANAGEMENT_PORT` | `15672` | RabbitMQ 관리 콘솔 포트 |
 | `RABBITMQ_EXCHANGE` | `assessment` | |

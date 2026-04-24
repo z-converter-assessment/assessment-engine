@@ -2,12 +2,12 @@
 
 ## 프로젝트 개요
 ZConverter Cloud Assessment Portal.
-온프레미스 서버 인벤토리를 수집·저장하는 B2B 내부 포털.
+고객사 내부 네트워크의 각각의 호스트 인벤토리를 수집·저장하는 B2B 내부 포털.
 
 ### 배포 시나리오
 고객사 네트워크 내에 서버 엔진(web + consumer + MQ + DB)이 설치된다.
 네트워크 내 각 서버에는 **C99/C++03 기반 에이전트**가 탑재되어 메트릭을 수집하고,
-HTTP를 거치지 않고 **MQ에 직접 발행**한다. Consumer가 이를 소비해 DB에 저장한다.
+**MQ에 직접 발행**한다. Consumer가 이를 소비해 DB에 저장한다.
 
 ## 테이블 구조
 
@@ -62,7 +62,6 @@ HTTP를 거치지 않고 **MQ에 직접 발행**한다. Consumer가 이를 소�
 
 ## Consumer 설계 원칙
 - aio-pika 기반 순수 비동기 컨슈머 (FastAPI와 독립 프로세스)
-- 단일 이벤트 루프 유지 → 커넥션 풀 정상 사용 (NullPool 불필요)
 - FastAPI와 동일한 세션(`session.py`) 공유
 - 파싱 실패: raise → nack(requeue=False) → DLX → DLQ
 - DB 실패: 지수 백오프 3회 재시도 후 raise → nack(requeue=False) → DLX → DLQ
@@ -165,19 +164,95 @@ Exchange: `assessment` (topic, durable) / DLX: `assessment.dlx`
 }
 ```
 
-## Query API
-```
-GET /servers/                    # 서버 목록 (HTML)
-GET /servers/{server_id}         # 서버 최신 인벤토리 + 최근 메트릭 (HTML)
-GET /servers/{server_id}/history # 메트릭 시계열 전체 (HTML)
-GET /health                      # 헬스체크 (JSON)
-```
-- 라우터는 QueryService만 참조
+# Query API Design
+
+## Base URL
+GET /api/v1/
+
+## Endpoints
+
+### 서버 목록
+GET /servers
+- query: page, limit, search(hostname), is_online(bool)
+- response: id, hostname, os_name, os_version, cpu_cores,
+            memory_total_mb, internal_ip, is_online, last_seen_at
+
+### 서버 단건 (1차 화면)
+GET /servers/{server_id}
+- response:
+    system: hostname, os, kernel, cpu_cores, cpu_model,
+            memory_total_mb, last_seen_at
+    disks[]: device, size_bytes, type, fstype, mountpoint
+    networks[]: interface, address, scope(Internal|External)
+
+### 스토리지 상세 (2차 화면 상단)
+GET /servers/{server_id}/storage
+- response:
+    summary: physical_disks, partitions, uses_lvm, root_fs
+    disks[]: device, type, size_bytes, fstype, mountpoint, uuid
+    lvm:
+      pvs[]: pv_name, vg_name, size_bytes, free_bytes
+      vgs[]: vg_name, size_bytes, free_bytes, lv_count
+      lvs[]: lv_name, vg_name, lv_path, size_bytes, mountpoint
+    filesystems[]: filesystem, fstype, size_bytes, used_bytes,
+                   use_percent, mountpoint,
+                   status(ok|needs_check|danger)
+
+### 네트워크 상세 (2차 화면 하단)
+GET /servers/{server_id}/network
+- response:
+    summary: primary_nic, speed_mbps, gateway, dns_servers[]
+    interfaces[]: name, address, mac, speed_mbps, duplex,
+                  driver, is_up, scope
+    routes[]: destination, gateway, interface, is_default
+    dns[]: entry_type(nameserver|search), value
+
+### 컬렉션 상태 (2차 화면 뱃지)
+GET /servers/{server_id}/collection-status
+- response:
+    items[]: category, status(ok|needs_check|failed), source_path, message
+
+### 메트릭 최신값 (UI 카드 게이지)
+GET /servers/{server_id}/metrics/latest
+- response:
+    cpu_usage_percent, memory_usage_percent,
+    swap_usage_percent, collected_at
+    disks[]: mountpoint, use_percent, status
+    interfaces[]: name, rx_bps, tx_bps
+
+### 메트릭 시계열 (차트)
+GET /servers/{server_id}/metrics
+- query: metric_type, dimension, start, end,
+         bucket(5m|1h|1d), agg(avg|max|p95)
+- response:
+    series[]: time, value
+- metric_type 예시:
+    cpu.usage_percent
+    memory.usage_percent
+    disk.read_iops / disk.write_iops      (dimension=장치명)
+    fs.usage_percent                       (dimension=mountpoint)
+    net.rx_bytes_per_sec                   (dimension=NIC명)
+
+## 공통 규칙
+- 인증: Bearer token (헤더)
+- 날짜: ISO 8601 (UTC)
+- 에러: { code, message, detail }
+- 페이지: { data[], total, page, limit }
+- server_id: UUID
 
 ## 실행 환경
-- 개발 머신: MacBook Air (Apple Silicon)
-- 메인 스택: docker compose (web, consumer, rabbitmq, postgres)
+- 메인 스택: docker compose (web, consumer, rabbitmq, postgres, redis)
 - 실제 에이전트: C99/C++03 바이너리, 고객사 네트워크 내 각 서버에 배포
+
+## Redis 역할
+- 최신 상태 캐싱: 서버별 최신 인벤토리·메트릭 스냅샷을 캐싱해 DB 조회 부하 절감
+- 태스크 멱등성: `message_id` 기반 중복 처리 방지
+- 온라인 TTL: 마지막 메트릭 수신 시각을 TTL 키로 관리해 서버 온라인 상태 판단
+- PUB/SUB: 메트릭 수신 이벤트를 web 레이어로 실시간 전달하기 위한 채널
+
+## TimescaleDB
+PostgreSQL에 TimescaleDB 확장을 사용한다.
+`server_metrics` 테이블을 hypertable로 관리해 시계열 조회·집계 성능을 확보한다.
 
 ## 환경변수
 루트 `.env`에서 주입. 키 목록은 `.env.example` 참조.
@@ -192,6 +267,8 @@ GET /health                      # 헬스체크 (JSON)
 | chore/xxx | 설정 변경 |
 
 ## 커밋 컨벤션
+설명은 한글로 작성
+
 | 타입 | 설명 |
 |------|------|
 | feat | 새로운 기능 추가 |
