@@ -1,66 +1,48 @@
 """
 QueryService 행동 테스트.
-DTO 필드 값은 검증하지 않는다 — 반환 여부(None / not None)와 컬렉션 크기에만 집중.
+- 서비스가 레포 메서드를 올바른 인자로 호출하는지
+- None / 빈 리스트 반환 처리가 올바른지
+- 헬퍼 변환 후 결과를 위로 전달하는지
 """
-from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from db.repositories.base_query_repository import ServerDTO, ServerMetricDTO
-from web.services.query_service import QueryService, _fmt
-
-_KST = timezone(timedelta(hours=9))
-
-
-# ---------------------------------------------------------------------------
-# 헬퍼 — 최소 필드만 채운 DTO 생성
-# ---------------------------------------------------------------------------
-
-def _server(server_id: int = 1, hostname: str = "host01") -> ServerDTO:
-    now = datetime.now(timezone.utc)
-    return ServerDTO(
-        id=server_id, hostname=hostname,
-        cpu_cores=4, mem_total_mb=8192,
-        created_at=now, updated_at=now,
-    )
-
-
-def _metric(server_id: int = 1) -> ServerMetricDTO:
-    now = datetime.now(timezone.utc)
-    return ServerMetricDTO(
-        id=1, server_id=server_id, collected_at=now, created_at=now,
-        cpu_user_pct=20.0, cpu_system_pct=5.0, cpu_iowait_pct=1.0,
-        mem_used_mb=4096, mem_available_mb=None, swap_used_mb=0,
-        disk_read_iops=None, disk_write_iops=None,
-        disk_read_bytes=None, disk_write_bytes=None,
-        disk_usage=[], net_rx_bytes=None, net_tx_bytes=None,
-        load_1m=1.0,
-    )
+from db.repositories.dto import (
+    CollectionStatusResponse,
+    MetricSeriesResponse,
+    NetworkResponse,
+    ServerListItemResponse,
+    ServerMetricResponse,
+    ServerResponse,
+    StorageResponse,
+)
+from web.view_models import (
+    CollectionStatusItem,
+    MetricLatestResponse,
+    MetricSeriesItem,
+    NetworkDetailResponse,
+    ServerDetailResponse,
+    ServerListItem,
+    StorageDetailResponse,
+)
+from web.services.query_service import QueryService
 
 
-@pytest.fixture
-def repo() -> AsyncMock:
+def _repo(**overrides) -> AsyncMock:
     r = AsyncMock()
-    r.list_all = AsyncMock(return_value=[])
-    r.get_by_id = AsyncMock(return_value=None)
+    r.list_servers = AsyncMock(return_value=[])
+    r.get_server = AsyncMock(return_value=None)
+    r.get_storage = AsyncMock(return_value=None)
+    r.get_network = AsyncMock(return_value=None)
+    r.get_collection_status = AsyncMock(return_value=[])
     r.latest_metric = AsyncMock(return_value=None)
-    r.metric_history = AsyncMock(return_value=[])
+    r.metric_snapshots = AsyncMock(return_value=[])
+    r.metric_chart = AsyncMock(return_value=[])
+    for k, v in overrides.items():
+        setattr(r, k, v)
     return r
-
-
-# ---------------------------------------------------------------------------
-# _fmt
-# ---------------------------------------------------------------------------
-
-class TestFmt:
-    def test_utc_converted_to_kst(self):
-        dt = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        assert _fmt(dt) == "2024-01-01 09:00:00"
-
-    def test_output_format(self):
-        dt = datetime(2024, 6, 15, 12, 30, 45, tzinfo=timezone.utc)
-        assert _fmt(dt) == "2024-06-15 21:30:45"
 
 
 # ---------------------------------------------------------------------------
@@ -68,29 +50,26 @@ class TestFmt:
 # ---------------------------------------------------------------------------
 
 class TestListServers:
-    async def test_empty_repo_returns_empty(self, repo):
-        assert await QueryService(repo).list_servers() == []
+    async def test_empty_repo_returns_empty(self):
+        result = await QueryService(_repo()).list_servers(1, 20, None, None)
+        assert result == []
 
-    async def test_server_without_metric_excluded(self, repo):
-        repo.list_all.return_value = [_server()]
-        repo.latest_metric.return_value = None
-        assert await QueryService(repo).list_servers() == []
+    async def test_passes_args_to_repo(self):
+        repo = _repo()
+        await QueryService(repo).list_servers(2, 50, "web", True)
+        repo.list_servers.assert_called_once_with(2, 50, "web", True)
 
-    async def test_server_with_metric_included(self, repo):
-        repo.list_all.return_value = [_server(server_id=1)]
-        repo.latest_metric.return_value = _metric(server_id=1)
-        result = await QueryService(repo).list_servers()
-        assert len(result) == 1
+    async def test_maps_all_results(self):
+        dtos = [ServerListItemResponse(), ServerListItemResponse()]
+        repo = _repo(list_servers=AsyncMock(return_value=dtos))
+        with patch("web.services.query_service._to_server_list_item", return_value=ServerListItem()):
+            result = await QueryService(repo).list_servers(1, 20, None, None)
+        assert len(result) == 2
 
-    async def test_multiple_servers_all_included(self, repo):
-        repo.list_all.return_value = [_server(1, "a"), _server(2, "b")]
-        repo.latest_metric.side_effect = [_metric(1), _metric(2)]
-        assert len(await QueryService(repo).list_servers()) == 2
-
-    async def test_partial_metrics_excludes_missing(self, repo):
-        repo.list_all.return_value = [_server(1), _server(2)]
-        repo.latest_metric.side_effect = [_metric(1), None]
-        assert len(await QueryService(repo).list_servers()) == 1
+    async def test_search_none_passed_through(self):
+        repo = _repo()
+        await QueryService(repo).list_servers(1, 20, None, None)
+        repo.list_servers.assert_called_once_with(1, 20, None, None)
 
 
 # ---------------------------------------------------------------------------
@@ -98,43 +77,157 @@ class TestListServers:
 # ---------------------------------------------------------------------------
 
 class TestGetServer:
-    async def test_server_not_found_returns_none(self, repo):
-        assert await QueryService(repo).get_server(1) is None
+    async def test_not_found_returns_none(self):
+        assert await QueryService(_repo()).get_server(1) is None
 
-    async def test_server_without_metric_returns_none(self, repo):
-        repo.get_by_id.return_value = _server()
-        assert await QueryService(repo).get_server(1) is None
+    async def test_passes_server_id(self):
+        repo = _repo()
+        await QueryService(repo).get_server(42)
+        repo.get_server.assert_called_once_with(42)
 
-    async def test_server_with_metric_returns_item(self, repo):
-        repo.get_by_id.return_value = _server()
-        repo.latest_metric.return_value = _metric()
-        assert await QueryService(repo).get_server(1) is not None
-
-    async def test_returned_item_has_correct_hostname(self, repo):
-        repo.get_by_id.return_value = _server(hostname="web-01")
-        repo.latest_metric.return_value = _metric()
-        result = await QueryService(repo).get_server(1)
-        assert result.hostname == "web-01"
-
-
-# ---------------------------------------------------------------------------
-# get_history
-# ---------------------------------------------------------------------------
-
-class TestGetHistory:
-    async def test_server_not_found_returns_none(self, repo):
-        assert await QueryService(repo).get_history(1) is None
-
-    async def test_returns_tuple_of_server_and_list(self, repo):
-        repo.get_by_id.return_value = _server()
-        repo.metric_history.return_value = [_metric(), _metric()]
-        result = await QueryService(repo).get_history(1)
+    async def test_found_returns_view_model(self):
+        repo = _repo(get_server=AsyncMock(return_value=ServerResponse()))
+        with patch("web.services.query_service._to_server_detail", return_value=ServerDetailResponse()):
+            result = await QueryService(repo).get_server(1)
         assert result is not None
-        server, history = result
-        assert len(history) == 2
 
-    async def test_empty_history_returns_empty_list(self, repo):
-        repo.get_by_id.return_value = _server()
-        repo.metric_history.return_value = []
-        _, history = await QueryService(repo).get_history(1)
-        assert history == []
+
+# ---------------------------------------------------------------------------
+# get_storage
+# ---------------------------------------------------------------------------
+
+class TestGetStorage:
+    async def test_not_found_returns_none(self):
+        assert await QueryService(_repo()).get_storage(1) is None
+
+    async def test_passes_server_id(self):
+        repo = _repo()
+        await QueryService(repo).get_storage(7)
+        repo.get_storage.assert_called_once_with(7)
+
+    async def test_found_returns_view_model(self):
+        repo = _repo(get_storage=AsyncMock(return_value=StorageResponse()))
+        with patch("web.services.query_service._to_storage_detail", return_value=StorageDetailResponse()):
+            result = await QueryService(repo).get_storage(1)
+        assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# get_network
+# ---------------------------------------------------------------------------
+
+class TestGetNetwork:
+    async def test_not_found_returns_none(self):
+        assert await QueryService(_repo()).get_network(1) is None
+
+    async def test_passes_server_id(self):
+        repo = _repo()
+        await QueryService(repo).get_network(3)
+        repo.get_network.assert_called_once_with(3)
+
+    async def test_found_returns_view_model(self):
+        repo = _repo(get_network=AsyncMock(return_value=NetworkResponse()))
+        with patch("web.services.query_service._to_network_detail", return_value=NetworkDetailResponse()):
+            result = await QueryService(repo).get_network(1)
+        assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# get_collection_status
+# ---------------------------------------------------------------------------
+
+class TestGetCollectionStatus:
+    async def test_empty_returns_empty_list(self):
+        result = await QueryService(_repo()).get_collection_status(1)
+        assert result == []
+
+    async def test_passes_server_id(self):
+        repo = _repo()
+        await QueryService(repo).get_collection_status(5)
+        repo.get_collection_status.assert_called_once_with(5)
+
+    async def test_maps_all_results(self):
+        dtos = [CollectionStatusResponse(), CollectionStatusResponse()]
+        repo = _repo(get_collection_status=AsyncMock(return_value=dtos))
+        with patch("web.services.query_service._to_collection_status_item", return_value=CollectionStatusItem()):
+            result = await QueryService(repo).get_collection_status(1)
+        assert len(result) == 2
+
+
+# ---------------------------------------------------------------------------
+# get_latest_metric
+# ---------------------------------------------------------------------------
+
+class TestGetLatestMetric:
+    async def test_not_found_returns_none(self):
+        assert await QueryService(_repo()).get_latest_metric(1) is None
+
+    async def test_passes_server_id(self):
+        repo = _repo()
+        await QueryService(repo).get_latest_metric(9)
+        repo.latest_metric.assert_called_once_with(9)
+
+    async def test_found_returns_view_model(self):
+        repo = _repo(latest_metric=AsyncMock(return_value=ServerMetricResponse()))
+        with patch("web.services.query_service._to_metric_latest", return_value=MetricLatestResponse()):
+            result = await QueryService(repo).get_latest_metric(1)
+        assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# get_metric_snapshots
+# ---------------------------------------------------------------------------
+
+class TestGetMetricSnapshots:
+    async def test_empty_returns_empty_list(self):
+        result = await QueryService(_repo()).get_metric_snapshots(1, None, 10)
+        assert result == []
+
+    async def test_passes_args_to_repo(self):
+        repo = _repo()
+        cursor = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        await QueryService(repo).get_metric_snapshots(1, cursor, 5)
+        repo.metric_snapshots.assert_called_once_with(1, cursor, 5)
+
+    async def test_cursor_none_passed_through(self):
+        repo = _repo()
+        await QueryService(repo).get_metric_snapshots(1, None, 10)
+        repo.metric_snapshots.assert_called_once_with(1, None, 10)
+
+    async def test_maps_all_results(self):
+        dtos = [MetricSeriesResponse(), MetricSeriesResponse(), MetricSeriesResponse()]
+        repo = _repo(metric_snapshots=AsyncMock(return_value=dtos))
+        with patch("web.services.query_service._to_metric_series_item", return_value=MetricSeriesItem()):
+            result = await QueryService(repo).get_metric_snapshots(1, None, 10)
+        assert len(result) == 3
+
+
+# ---------------------------------------------------------------------------
+# get_metric_chart
+# ---------------------------------------------------------------------------
+
+class TestGetMetricChart:
+    async def test_empty_returns_empty_list(self):
+        result = await QueryService(_repo()).get_metric_chart(
+            1, "cpu.usage_percent", None, "1h", "5m", "avg"
+        )
+        assert result == []
+
+    async def test_passes_all_args_to_repo(self):
+        repo = _repo()
+        await QueryService(repo).get_metric_chart(1, "cpu.usage_percent", "cpu0", "6h", "1h", "max")
+        repo.metric_chart.assert_called_once_with(1, "cpu.usage_percent", "cpu0", "6h", "1h", "max")
+
+    async def test_dimension_none_passed_through(self):
+        repo = _repo()
+        await QueryService(repo).get_metric_chart(1, "net.rx_bytes_per_sec", None, "1h", "5m", "avg")
+        repo.metric_chart.assert_called_once_with(1, "net.rx_bytes_per_sec", None, "1h", "5m", "avg")
+
+    async def test_maps_all_results(self):
+        dtos = [MetricSeriesResponse(), MetricSeriesResponse()]
+        repo = _repo(metric_chart=AsyncMock(return_value=dtos))
+        with patch("web.services.query_service._to_metric_series_item", return_value=MetricSeriesItem()):
+            result = await QueryService(repo).get_metric_chart(
+                1, "cpu.usage_percent", None, "1h", "5m", "avg"
+            )
+        assert len(result) == 2

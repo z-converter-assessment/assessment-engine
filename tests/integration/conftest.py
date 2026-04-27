@@ -3,24 +3,25 @@ from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 from testcontainers.postgres import PostgresContainer
 
-from db.models import server_metrics, server_inventory  # noqa: F401 — ORM 모델 등록
+from db.models import server_inventory, server_metrics  # noqa: F401 — ORM 모델 등록
+from db.models import server_storage_detail, server_network_detail  # noqa: F401
 from db.models.base import Base
 
 
 @pytest.fixture(scope="session")
 def pg_url():
-    with PostgresContainer("postgres:16-alpine") as pg:
+    # TimescaleDB 이미지 사용 — server_metrics 는 hypertable 로 관리된다
+    with PostgresContainer("timescale/timescaledb:latest-pg16") as pg:
         yield pg.get_connection_url().replace("postgresql+psycopg2", "postgresql+asyncpg")
 
 
 @pytest.fixture(scope="session")
 def engine(pg_url):
-    # NullPool: 이벤트 루프 간 커넥션 재사용을 막는다
     return create_async_engine(pg_url, poolclass=NullPool)
 
 
@@ -28,11 +29,17 @@ def engine(pg_url):
 def setup_schema(engine):
     async def _create():
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)  # type: ignore[arg-type]
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE"))
+            await conn.run_sync(Base.metadata.create_all)
+            # create_hypertable 는 server_metrics 에 collected_at 컬럼이 추가된 이후에 활성화한다.
+            # await conn.execute(text(
+            #     "SELECT create_hypertable('server_metrics', 'collected_at')"
+            # ))
 
     async def _drop():
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)  # type: ignore[arg-type]
+            await conn.execute(text("DROP SCHEMA public CASCADE"))
+            await conn.execute(text("CREATE SCHEMA public"))
 
     asyncio.run(_create())
     yield

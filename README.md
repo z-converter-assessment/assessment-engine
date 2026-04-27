@@ -17,8 +17,32 @@
 | Query (SSR) | FastAPI + Jinja2 |
 | Consumer | aio-pika (순수 비동기 컨슈머) |
 | 메시지 브로커 | RabbitMQ |
-| DB | PostgreSQL (SQLAlchemy async + asyncpg) |
+| DB | TimescaleDB (PostgreSQL + SQLAlchemy async + asyncpg) |
+| 캐시 / 온라인 상태 | Redis 7 |
 | 실제 에이전트 | C99/C++03 바이너리 (MQ 직접 발행) |
+
+---
+
+## 환경변수 (루트 `.env`)
+
+| 키 | 기본값 | 설명 |
+|---|---|---|
+| `POSTGRES_HOST` | `postgres` | |
+| `POSTGRES_DB` | `assessment` | |
+| `POSTGRES_USER` | `assessment` | |
+| `POSTGRES_PASSWORD` | `assessment` | |
+| `POSTGRES_PORT` | `5432` | |
+| `RABBITMQ_HOST` | `rabbitmq` | 컨슈머 접속용 |
+| `RABBITMQ_USER` | `assessment` | |
+| `RABBITMQ_PASSWORD` | `assessment` | |
+| `RABBITMQ_PORT` | `5672` | |
+| `RABBITMQ_MANAGEMENT_PORT` | `15672` | RabbitMQ 관리 콘솔 포트 |
+| `RABBITMQ_EXCHANGE` | `assessment` | |
+| `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | 에이전트 ↔ 컨슈머 계약 |
+| `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | 에이전트 ↔ 컨슈머 계약 |
+| `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | 에이전트 ↔ 컨슈머 계약 |
+| `REDIS_PORT` | `6379` | |
+| `WEB_PORT` | `8000` | |
 
 ---
 
@@ -91,33 +115,12 @@ pytest
 
 ---
 
-## 환경변수 (루트 `.env`)
-
-| 키 | 기본값 | 설명 |
-|---|---|---|
-| `POSTGRES_HOST` | `postgres` | |
-| `POSTGRES_DB` | `assessment` | |
-| `POSTGRES_USER` | `assessment` | |
-| `POSTGRES_PASSWORD` | `assessment` | |
-| `POSTGRES_PORT` | `5432` | |
-| `RABBITMQ_HOST` | `rabbitmq` | 컨슈머 접속용 |
-| `RABBITMQ_USER` | `assessment` | |
-| `RABBITMQ_PASSWORD` | `assessment` | |
-| `RABBITMQ_PORT` | `5672` | |
-| `RABBITMQ_MANAGEMENT_PORT` | `15672` | RabbitMQ 관리 콘솔 포트 |
-| `RABBITMQ_EXCHANGE` | `assessment` | |
-| `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | 에이전트 ↔ 컨슈머 계약 |
-| `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | 에이전트 ↔ 컨슈머 계약 |
-| `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | 에이전트 ↔ 컨슈머 계약 |
-| `WEB_PORT` | `8000` | |
-
----
-
 ## 접속
 
 | 주소 | 설명 |
 |---|---|
 | http://localhost:8000/servers/ | 서버 인벤토리 웹 UI |
+| http://localhost:8000/health | 헬스체크 |
 | http://localhost:8000/docs | FastAPI Swagger UI |
 | http://localhost:8000/redoc | FastAPI ReDoc |
 | http://localhost:15672 | RabbitMQ 관리 콘솔 |

@@ -1,51 +1,62 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, List
+from typing import TYPE_CHECKING
 
-
-@dataclass
-class ServerDTO:
-    id: int
-    hostname: str
-    cpu_cores: int
-    mem_total_mb: int
-    created_at: datetime
-    updated_at: datetime
-
-
-@dataclass
-class ServerMetricDTO:
-    id: int
-    server_id: int
-    collected_at: datetime
-    created_at: datetime
-    cpu_user_pct: float
-    cpu_system_pct: float
-    cpu_iowait_pct: float
-    mem_used_mb: int
-    mem_available_mb: int | None
-    swap_used_mb: int
-    disk_read_iops: int | None
-    disk_write_iops: int | None
-    disk_read_bytes: int | None
-    disk_write_bytes: int | None
-    disk_usage: list
-    net_rx_bytes: int | None
-    net_tx_bytes: int | None
-    load_1m: float
+if TYPE_CHECKING:
+    from db.repositories.dto import (
+        ServerListItemResponse,
+        ServerResponse,
+        StorageResponse,
+        NetworkResponse,
+        CollectionStatusResponse,
+        ServerMetricResponse,
+        MetricSeriesResponse,
+    )
 
 
 class BaseQueryRepository(ABC):
 
     @abstractmethod
-    async def get_by_id(self, server_id: int) -> Optional[ServerDTO]: ...
+    async def list_servers(
+        self,
+        page: int,
+        limit: int,
+        search: str | None,
+        is_online: bool | None,
+    ) -> list[ServerListItemResponse]: ...
 
     @abstractmethod
-    async def list_all(self) -> List[ServerDTO]: ...
+    async def get_server(self, server_id: int) -> ServerResponse | None: ...
 
     @abstractmethod
-    async def latest_metric(self, server_id: int) -> Optional[ServerMetricDTO]: ...
+    async def get_storage(self, server_id: int) -> StorageResponse | None: ...
 
     @abstractmethod
-    async def metric_history(self, server_id: int) -> List[ServerMetricDTO]: ...
+    async def get_network(self, server_id: int) -> NetworkResponse | None: ...
+
+    @abstractmethod
+    async def get_collection_status(self, server_id: int) -> list[CollectionStatusResponse]: ...
+
+    @abstractmethod
+    async def latest_metric(self, server_id: int) -> ServerMetricResponse | None: ...
+
+    @abstractmethod
+    async def metric_snapshots(
+        self,
+        server_id: int,
+        cursor: datetime | None,
+        limit: int,
+    ) -> list[MetricSeriesResponse]: ...
+
+    @abstractmethod
+    async def metric_chart(
+        self,
+        server_id: int,
+        metric_type: str,
+        dimension: str | None,
+        time_range: str,
+        bucket: str,
+        agg: str,
+    ) -> list[MetricSeriesResponse]: ...

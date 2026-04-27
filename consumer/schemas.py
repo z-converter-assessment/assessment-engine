@@ -30,6 +30,34 @@ class InventoryDiskUsage(BaseModel):
     avail_mb: int = Field(ge=0)
 
 
+# ---------- 2차 스토리지 상세 ----------
+
+class DiskPartitionInfo(BaseModel):
+    pass
+
+
+class LvmInfo(BaseModel):
+    pass
+
+
+class FilesystemInfo(BaseModel):
+    pass
+
+
+# ---------- 2차 네트워크 상세 ----------
+
+class NetworkInterfaceInfo(BaseModel):
+    pass
+
+
+class RouteInfo(BaseModel):
+    pass
+
+
+class DnsInfo(BaseModel):
+    pass
+
+
 class InventoryInput(MessageBase):
     message_type: Literal["inventory"]
 
@@ -49,6 +77,16 @@ class InventoryInput(MessageBase):
     ip_internal: list[str] = Field(default_factory=list)
     disks: list[DiskInfo] = Field(default_factory=list)
     disk_usage: list[InventoryDiskUsage] = Field(default_factory=list)
+
+    # Empty-OK — 2차 스토리지 상세
+    disk_partitions: list[DiskPartitionInfo] = Field(default_factory=list)
+    lvm_volumes: list[LvmInfo] = Field(default_factory=list)
+    filesystems: list[FilesystemInfo] = Field(default_factory=list)
+
+    # Empty-OK — 2차 네트워크 상세
+    network_interfaces: list[NetworkInterfaceInfo] = Field(default_factory=list)
+    routes: list[RouteInfo] = Field(default_factory=list)
+    dns: list[DnsInfo] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

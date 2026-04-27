@@ -4,7 +4,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from db.models.base import Base
 
 
-class ServerInventory(Base):
-    __tablename__ = "server_inventory"
+class ServerNetworkDetail(Base):
+    __tablename__ = "server_network_detail"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

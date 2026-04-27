@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}네트워크 — {{ network.hostname }} — ZConverter Assessment{% endblock %}
+
+{% block content %}
+<a class="back" href="/servers/{{ network.server_id }}">← {{ network.hostname }}</a>
+<h1>{{ network.hostname }} — 네트워크</h1>
+
+<div class="card">
+  <h2>요약</h2>
+  <dl class="kv">
+    <dt>Primary NIC</dt><dd>{{ network.summary.primary_nic }}</dd>
+    <dt>Speed</dt><dd>{{ network.summary.speed_mbps }} Mb/s</dd>
+    <dt>Gateway</dt><dd>{{ network.summary.gateway }}</dd>
+    <dt>DNS</dt><dd>{{ network.summary.dns_servers | join(', ') }}</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <h2>인터페이스</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Interface</th><th>IP</th><th>MAC</th>
+        <th>Speed</th><th>Duplex</th><th>Driver</th><th>상태</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for i in network.interfaces %}
+      <tr>
+        <td>{{ i.name }}</td>
+        <td>{{ i.address or '-' }}</td>
+        <td>{{ i.mac or '-' }}</td>
+        <td>{{ i.speed_mbps or 'Unknown' }}</td>
+        <td>{{ i.duplex or 'Unknown' }}</td>
+        <td>{{ i.driver or '-' }}</td>
+        <td>
+          {% if i.is_up %}
+            <span class="badge badge-ok">UP</span>
+          {% else %}
+            <span class="badge badge-warn">미사용</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Routing Table</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Destination</th><th>Gateway</th><th>Interface</th><th>Default</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in network.routes %}
+      <tr>
+        <td>{{ r.destination }}</td>
+        <td>{{ r.gateway or '-' }}</td>
+        <td>{{ r.interface }}</td>
+        <td>{% if r.is_default %}<span class="badge">기본</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>DNS / Resolver</h2>
+  <table>
+    <thead>
+      <tr><th>Type</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+      {% for d in network.dns %}
+      <tr>
+        <td>{{ d.entry_type }}</td>
+        <td>{{ d.value }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
