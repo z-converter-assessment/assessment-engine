@@ -1,8 +1,13 @@
+import dataclasses
+import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from redis.asyncio import Redis
 
-from web.deps import get_service
+from config import consumer_settings
+from web.deps import get_redis_client, get_service
 from web.services.query_service import QueryService
 
 api_router = APIRouter(prefix="/api/v1/servers", tags=["api"])
@@ -24,7 +29,7 @@ async def get_latest_metric(
     result = await service.get_latest_metric(server_id)
     if not result:
         raise HTTPException(status_code=404)
-    return result
+    return dataclasses.asdict(result)
 
 
 @api_router.get("/{server_id}/metrics/snapshots")
@@ -48,3 +53,32 @@ async def get_metric_chart(
     service: QueryService = Depends(get_service),
 ):
     return await service.get_metric_chart(server_id, metric_type, dimension, time_range, bucket, agg)
+
+
+@api_router.get("/{server_id}/metrics/stream")
+async def metrics_stream(
+    server_id: int,
+    redis: Redis = Depends(get_redis_client),
+):
+    """SSE: consumer가 metrics.events 채널에 publish하면 해당 server_id 이벤트를 전달."""
+    async def event_stream():
+        async with redis.pubsub() as pubsub:
+            await pubsub.subscribe(consumer_settings.redis_channel_metrics)
+            try:
+                async for message in pubsub.listen():
+                    if message["type"] != "message":
+                        continue
+                    try:
+                        payload = json.loads(message["data"])
+                    except (ValueError, TypeError):
+                        continue
+                    if payload.get("server_id") == server_id:
+                        yield f"data: {message['data']}\n\n"
+            except Exception:
+                pass
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

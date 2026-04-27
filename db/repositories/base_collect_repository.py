@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 
-from db.repositories.dto import ServerInventoryCreate, ServerMetricCreate
+from db.repositories.inbound import ServerInventoryCreate, ServerMetricCreate
 
 
 class BaseCollectRepository(ABC):

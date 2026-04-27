@@ -5,14 +5,14 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from db.repositories.dto import (
+    from db.repositories.outbound import (
+        CollectionStatusResponse,
+        DashboardRaw,
+        MetricSeriesResponse,
+        NetworkWithIoResponse,
         ServerListItemResponse,
         ServerResponse,
-        StorageResponse,
-        NetworkResponse,
-        CollectionStatusResponse,
-        ServerMetricResponse,
-        MetricSeriesResponse,
+        StorageWithUsageResponse,
     )
 
 
@@ -31,16 +31,16 @@ class BaseQueryRepository(ABC):
     async def get_server(self, server_id: int) -> ServerResponse | None: ...
 
     @abstractmethod
-    async def get_storage(self, server_id: int) -> StorageResponse | None: ...
+    async def get_storage(self, server_id: int) -> StorageWithUsageResponse | None: ...
 
     @abstractmethod
-    async def get_network(self, server_id: int) -> NetworkResponse | None: ...
+    async def get_network(self, server_id: int) -> NetworkWithIoResponse | None: ...
 
     @abstractmethod
     async def get_collection_status(self, server_id: int) -> list[CollectionStatusResponse]: ...
 
     @abstractmethod
-    async def latest_metric(self, server_id: int) -> ServerMetricResponse | None: ...
+    async def latest_dashboard(self, server_id: int) -> DashboardRaw | None: ...
 
     @abstractmethod
     async def metric_snapshots(

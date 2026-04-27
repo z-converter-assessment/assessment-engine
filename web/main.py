@@ -5,14 +5,14 @@ from sqlalchemy import text
 from db.models.base import Base
 from db.session import engine
 from db.models import server_inventory, server_metrics  # noqa: F401
-from db.models import server_storage_detail, server_network_detail  # noqa: F401
+from db.models import server_disk_io, server_net_io, server_mount_usage  # noqa: F401
 from db.redis import close_pool
 from web.routers.pages import pages_router
 from web.routers.api import api_router
 
 
 @asynccontextmanager
-async def lifespan(a: FastAPI):
+async def lifespan(_app: FastAPI):
     # [개발 전용] 기동할 때마다 스키마를 전부 날리고 새로 만든다.
     # TimescaleDB hypertable의 내부 청크 의존성 때문에 drop_all 대신 DROP SCHEMA CASCADE 사용.
     #
@@ -26,9 +26,11 @@ async def lifespan(a: FastAPI):
         await conn.execute(text("CREATE SCHEMA public"))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE"))
         await conn.run_sync(Base.metadata.create_all)
-        await conn.execute(text(
-            "SELECT create_hypertable('server_metrics', 'collected_at')"
-        ))
+        # chunk_time_interval 반영 필요
+        await conn.execute(text("SELECT create_hypertable('server_metrics', 'collected_at')"))
+        await conn.execute(text("SELECT create_hypertable('server_disk_io', 'collected_at')"))
+        await conn.execute(text("SELECT create_hypertable('server_net_io', 'collected_at')"))
+        await conn.execute(text("SELECT create_hypertable('server_mount_usage', 'collected_at')"))
     yield
     await close_pool()
 

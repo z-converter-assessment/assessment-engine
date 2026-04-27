@@ -5,82 +5,79 @@
 <a class="back" href="/servers/{{ network.server_id }}">← {{ network.hostname }}</a>
 <h1>{{ network.hostname }} — 네트워크</h1>
 
+<!-- IP 주소 -->
 <div class="card">
-  <h2>요약</h2>
+  <h2>IP 주소</h2>
   <dl class="kv">
-    <dt>Primary NIC</dt><dd>{{ network.summary.primary_nic }}</dd>
-    <dt>Speed</dt><dd>{{ network.summary.speed_mbps }} Mb/s</dd>
-    <dt>Gateway</dt><dd>{{ network.summary.gateway }}</dd>
-    <dt>DNS</dt><dd>{{ network.summary.dns_servers | join(', ') }}</dd>
+    <dt>Internal</dt>
+    <dd>
+      {% if network.ip_internal %}
+        {% for ip in network.ip_internal %}
+          <code style="margin-right:6px;">{{ ip }}</code>
+        {% endfor %}
+      {% else %}-{% endif %}
+    </dd>
+    <dt>External</dt>
+    <dd>
+      {% if network.ip_external %}
+        {% for ip in network.ip_external %}
+          <code style="margin-right:6px;">{{ ip }}</code>
+        {% endfor %}
+      {% else %}-{% endif %}
+    </dd>
   </dl>
 </div>
 
+<!-- 인터페이스 현황 -->
 <div class="card">
-  <h2>인터페이스</h2>
+  <h2>인터페이스 현황</h2>
+  <p style="font-size:12px; color:#94a3b8; margin-bottom:14px; margin-top:-8px;">
+    연속 2회 측정의 delta 기반 처리량 — 페이지 로드 시점의 스냅샷
+  </p>
+  {% if network.interfaces %}
   <table>
     <thead>
       <tr>
-        <th>Interface</th><th>IP</th><th>MAC</th>
-        <th>Speed</th><th>Duplex</th><th>Driver</th><th>상태</th>
+        <th>Interface</th>
+        <th>RX (kBps)</th>
+        <th>TX (kBps)</th>
+        <th>RX (pps)</th>
+        <th>TX (pps)</th>
       </tr>
     </thead>
     <tbody>
-      {% for i in network.interfaces %}
+      {% for iface in network.interfaces %}
       <tr>
-        <td>{{ i.name }}</td>
-        <td>{{ i.address or '-' }}</td>
-        <td>{{ i.mac or '-' }}</td>
-        <td>{{ i.speed_mbps or 'Unknown' }}</td>
-        <td>{{ i.duplex or 'Unknown' }}</td>
-        <td>{{ i.driver or '-' }}</td>
+        <td><code>{{ iface.interface }}</code></td>
         <td>
-          {% if i.is_up %}
-            <span class="badge badge-ok">UP</span>
-          {% else %}
-            <span class="badge badge-warn">미사용</span>
-          {% endif %}
+          {% if iface.rx_kbps is not none %}
+            {% if iface.rx_kbps >= 1024 %}
+              <strong>{{ (iface.rx_kbps / 1024) | round(1) }} MBps</strong>
+            {% else %}
+              {{ iface.rx_kbps }}
+            {% endif %}
+          {% else %}<span style="color:#94a3b8;">—</span>{% endif %}
         </td>
+        <td>
+          {% if iface.tx_kbps is not none %}
+            {% if iface.tx_kbps >= 1024 %}
+              <strong>{{ (iface.tx_kbps / 1024) | round(1) }} MBps</strong>
+            {% else %}
+              {{ iface.tx_kbps }}
+            {% endif %}
+          {% else %}<span style="color:#94a3b8;">—</span>{% endif %}
+        </td>
+        <td>{{ iface.rx_pps if iface.rx_pps is not none else '—' }}</td>
+        <td>{{ iface.tx_pps if iface.tx_pps is not none else '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-</div>
-
-<div class="card">
-  <h2>Routing Table</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Destination</th><th>Gateway</th><th>Interface</th><th>Default</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in network.routes %}
-      <tr>
-        <td>{{ r.destination }}</td>
-        <td>{{ r.gateway or '-' }}</td>
-        <td>{{ r.interface }}</td>
-        <td>{% if r.is_default %}<span class="badge">기본</span>{% endif %}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<div class="card">
-  <h2>DNS / Resolver</h2>
-  <table>
-    <thead>
-      <tr><th>Type</th><th>Value</th></tr>
-    </thead>
-    <tbody>
-      {% for d in network.dns %}
-      <tr>
-        <td>{{ d.entry_type }}</td>
-        <td>{{ d.value }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% else %}
+  <p style="color:#94a3b8; font-size:13px;">
+    수집된 네트워크 I/O 데이터가 없습니다.
+    에이전트가 최소 2회 메트릭을 전송하면 표시됩니다.
+  </p>
+  {% endif %}
 </div>
 {% endblock %}

@@ -8,9 +8,12 @@ from db.repositories.query_repository import QueryRepository
 from web.services.query_service import QueryService
 
 
-def get_service(db: AsyncSession = Depends(get_db)) -> QueryService:
-    return QueryService(QueryRepository(db))
-
-
 def get_redis_client() -> Redis:
     return get_redis()
+
+
+def get_service(
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis_client),
+) -> QueryService:
+    return QueryService(QueryRepository(db), redis)

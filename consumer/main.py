@@ -5,6 +5,7 @@ from loguru import logger
 
 from config import consumer_settings
 from consumer.deps import error_handler, inventory_handler, metrics_handler
+from db.redis import close_pool
 
 _EXCHANGE = consumer_settings.rabbitmq_exchange
 _DLX      = f"{_EXCHANGE}.dlx"
@@ -56,4 +57,7 @@ async def main() -> None:
             await queue.consume(handler)
             logger.info("consuming queue={} routing_key={}", queue_name, routing_key)
 
-        await asyncio.Future()
+        try:
+            await asyncio.Future()
+        finally:
+            await close_pool()

@@ -2,3 +2,5 @@
 .git/
 .github/
 docs/
+_archive/
+_tests/

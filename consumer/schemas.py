@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -8,6 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class MessageBase(BaseModel):
+    machine_id: str = Field(min_length=1, max_length=64)
     agent_version: str = Field(min_length=1, max_length=32)
     collected_at: datetime
     hostname: str = Field(min_length=1, max_length=255)
@@ -20,106 +19,96 @@ class MessageBase(BaseModel):
 
 class DiskInfo(BaseModel):
     name: str = Field(min_length=1, max_length=64)
-    size_bytes: int = Field(ge=0)
+    size_bytes: int | None = Field(default=None, ge=0)
+    type: str | None = Field(default=None, max_length=32)
 
 
-class InventoryDiskUsage(BaseModel):
+class InventoryMountInfo(BaseModel):
     mount: str = Field(min_length=1, max_length=255)
-    total_mb: int = Field(ge=0)
-    used_mb: int = Field(ge=0)
-    avail_mb: int = Field(ge=0)
-
-
-# ---------- 2차 스토리지 상세 ----------
-
-class DiskPartitionInfo(BaseModel):
-    pass
-
-
-class LvmInfo(BaseModel):
-    pass
-
-
-class FilesystemInfo(BaseModel):
-    pass
-
-
-# ---------- 2차 네트워크 상세 ----------
-
-class NetworkInterfaceInfo(BaseModel):
-    pass
-
-
-class RouteInfo(BaseModel):
-    pass
-
-
-class DnsInfo(BaseModel):
-    pass
+    total_bytes: int | None = Field(default=None, ge=0)
+    free_bytes: int | None = Field(default=None, ge=0)
+    avail_bytes: int | None = Field(default=None, ge=0)
+    fstype: str | None = Field(default=None, max_length=32)
 
 
 class InventoryInput(MessageBase):
     message_type: Literal["inventory"]
 
-    # Required — syscall/파일 보장
-    machine_id: str = Field(min_length=1, max_length=64)
-    kernel_version: str = Field(min_length=1, max_length=64)
-    cpu_cores: int = Field(gt=0)
-    mem_total_mb: int = Field(gt=0)
-
-    # Optional — 환경에 따라 수집 불가
     os_id: str | None = Field(default=None, max_length=64)
     os_version: str | None = Field(default=None, max_length=64)
+    os_codename: str | None = Field(default=None, max_length=64)
+    kernel_version: str | None = Field(default=None, max_length=64)
+    cpu_cores: int | None = Field(default=None, gt=0)
     cpu_model: str | None = Field(default=None, max_length=255)
-    ip_external: list[str] | None = None  # None=수집 실패, []=external IP 없음
+    mem_total_kb: int | None = Field(default=None, ge=0)
+    swap_total_kb: int | None = Field(default=None, ge=0)
+    boot_time: datetime | None = None
 
-    # Empty-OK — 빈 배열도 유효
     ip_internal: list[str] = Field(default_factory=list)
+    ip_external: list[str] | None = None
+
     disks: list[DiskInfo] = Field(default_factory=list)
-    disk_usage: list[InventoryDiskUsage] = Field(default_factory=list)
-
-    # Empty-OK — 2차 스토리지 상세
-    disk_partitions: list[DiskPartitionInfo] = Field(default_factory=list)
-    lvm_volumes: list[LvmInfo] = Field(default_factory=list)
-    filesystems: list[FilesystemInfo] = Field(default_factory=list)
-
-    # Empty-OK — 2차 네트워크 상세
-    network_interfaces: list[NetworkInterfaceInfo] = Field(default_factory=list)
-    routes: list[RouteInfo] = Field(default_factory=list)
-    dns: list[DnsInfo] = Field(default_factory=list)
+    mounts: list[InventoryMountInfo] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
 # metrics
 # ---------------------------------------------------------------------------
 
-class MetricsDiskUsage(BaseModel):
+class CpuStat(BaseModel):
+    user: int = Field(ge=0)
+    nice: int = Field(ge=0)
+    system: int = Field(ge=0)
+    idle: int = Field(ge=0)
+    iowait: int = Field(ge=0)
+    irq: int = Field(ge=0)
+    softirq: int = Field(ge=0)
+    steal: int = Field(ge=0)
+
+
+class DiskIoInfo(BaseModel):
+    device: str = Field(min_length=1, max_length=64)
+    reads_completed: int | None = Field(default=None, ge=0)
+    writes_completed: int | None = Field(default=None, ge=0)
+    sectors_read: int | None = Field(default=None, ge=0)
+    sectors_written: int | None = Field(default=None, ge=0)
+
+
+class MetricsMountInfo(BaseModel):
     mount: str = Field(min_length=1, max_length=255)
-    usage_pct: float = Field(ge=0.0, le=100.0)
+    total_bytes: int | None = Field(default=None, ge=0)
+    free_bytes: int | None = Field(default=None, ge=0)
+    avail_bytes: int | None = Field(default=None, ge=0)
+
+
+class NetIoInfo(BaseModel):
+    interface: str = Field(min_length=1, max_length=64)
+    rx_bytes: int | None = Field(default=None, ge=0)
+    tx_bytes: int | None = Field(default=None, ge=0)
+    rx_packets: int | None = Field(default=None, ge=0)
+    tx_packets: int | None = Field(default=None, ge=0)
+    rx_errors: int | None = Field(default=None, ge=0)
+    tx_errors: int | None = Field(default=None, ge=0)
 
 
 class MetricsInput(MessageBase):
     message_type: Literal["metrics"]
 
-    # Required — 모든 타겟 커널에서 보장
-    cpu_user_pct: float = Field(ge=0.0, le=100.0)
-    cpu_system_pct: float = Field(ge=0.0, le=100.0)
-    cpu_iowait_pct: float = Field(ge=0.0, le=100.0)
-    mem_used_mb: int = Field(ge=0)
-    swap_used_mb: int = Field(ge=0)
-    load_1m: float = Field(ge=0.0)
+    cpu_stat: CpuStat | None = None
+    mem_total_kb: int | None = Field(default=None, ge=0)
+    mem_free_kb: int | None = Field(default=None, ge=0)
+    mem_available_kb: int | None = Field(default=None, ge=0)
+    mem_buffers_kb: int | None = Field(default=None, ge=0)
+    mem_cached_kb: int | None = Field(default=None, ge=0)
+    swap_total_kb: int | None = Field(default=None, ge=0)
+    swap_free_kb: int | None = Field(default=None, ge=0)
+    load_1m: float | None = Field(default=None, ge=0.0)
+    load_5m: float | None = Field(default=None, ge=0.0)
+    load_15m: float | None = Field(default=None, ge=0.0)
 
-    # Optional — CentOS 7.0~7.1 fallback 실패 or 기동 직후 delta 없음
-    mem_available_mb: int | None = Field(default=None, ge=0)
-    disk_read_iops: int | None = Field(default=None, ge=0)
-    disk_write_iops: int | None = Field(default=None, ge=0)
-    disk_read_bytes: int | None = Field(default=None, ge=0)
-    disk_write_bytes: int | None = Field(default=None, ge=0)
-    net_rx_bytes: int | None = Field(default=None, ge=0)
-    net_tx_bytes: int | None = Field(default=None, ge=0)
-
-    # Empty-OK
-    disk_usage: list[MetricsDiskUsage] = Field(default_factory=list)
+    disk_io: list[DiskIoInfo] = Field(default_factory=list)
+    mounts: list[MetricsMountInfo] = Field(default_factory=list)
+    net_io: list[NetIoInfo] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -131,11 +120,10 @@ class ErrorInput(MessageBase):
     error_code: str = Field(min_length=1, max_length=64)
     error_message: str = Field(min_length=1)
     failed_component: Literal["collect", "publish"]
-    timestamp: datetime
 
 
 # ---------------------------------------------------------------------------
-# discriminated union — 핸들러에서 routing key 별 분기 전 타입 안전 파싱용
+# discriminated union
 # ---------------------------------------------------------------------------
 
 AgentMessage = Annotated[

@@ -1,7 +1,7 @@
 import pytest
 
 from db.repositories.collect_repository import CollectRepository
-from db.repositories.dto import ServerInventoryCreate, ServerMetricCreate
+from db.repositories.inbound import ServerInventoryCreate, ServerMetricCreate
 
 pytestmark = pytest.mark.integration
 
