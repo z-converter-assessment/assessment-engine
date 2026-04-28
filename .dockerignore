@@ -4,6 +4,10 @@ __pycache__/
 .pytest_cache/
 tests/
 .git/
+.github/
 .idea/
-tools.bak/
-assess/
+.vagrant/
+
+_archive/
+_docs/
+_tests/
