@@ -22,16 +22,7 @@
             <span class="badge">{{ d.type }}</span>
           {% else %}-{% endif %}
         </td>
-        <td>
-          {% if d.size_bytes %}
-            {% set gb = (d.size_bytes / 1024**3) | round(1) %}
-            {% if gb >= 1024 %}
-              {{ (gb / 1024) | round(1) }} TB
-            {% else %}
-              {{ gb }} GB
-            {% endif %}
-          {% else %}-{% endif %}
-        </td>
+        <td>{{ d.size_gb | disksize }}</td>
       </tr>
       {% endfor %}
     </tbody>

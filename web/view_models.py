@@ -5,7 +5,7 @@ from datetime import datetime
 @dataclass
 class DiskItem:
     name: str
-    size_bytes: int | None
+    size_gb: float | None
     type: str | None
 
 
@@ -18,7 +18,7 @@ class ServerListItem:
     os_id: str | None
     os_version: str | None
     cpu_cores: int | None
-    mem_total_kb: int | None
+    mem_total_gb: float | None
     last_seen_at: datetime | None
     is_online: bool
 
@@ -37,8 +37,8 @@ class ServerDetailResponse:
     kernel_version: str | None
     cpu_cores: int | None
     cpu_model: str | None
-    mem_total_kb: int | None
-    swap_total_kb: int | None
+    mem_total_gb: float | None
+    swap_total_gb: float | None
     boot_time: datetime | None
     ip_internal: list[str]
     ip_external: list[str] | None
@@ -66,36 +66,7 @@ class StorageDetailResponse:
     mounts: list[MountUsageItem]
 
 
-# ---------- 네트워크 (IPs + 실시간 인터페이스 현황) ----------
-
-@dataclass
-class NetInterfaceItem:
-    interface: str
-    rx_kbps: float | None
-    tx_kbps: float | None
-    rx_pps: float | None
-    tx_pps: float | None
-
-
-@dataclass
-class NetworkDetailResponse:
-    server_id: int
-    hostname: str
-    ip_internal: list[str]
-    ip_external: list[str] | None
-    interfaces: list[NetInterfaceItem]
-
-
-# ---------- 수집 상태 ----------
-
-@dataclass
-class CollectionStatusItem:
-    last_metric_at: datetime | None
-    last_inventory_at: datetime | None
-    is_online: bool
-
-
-# ---------- 메트릭 대시보드 (AJAX /metrics/latest) ----------
+# ---------- 메트릭 대시보드 스냅샷 (AJAX /metrics/latest) ----------
 
 @dataclass
 class CpuSnapshot:
@@ -161,6 +132,27 @@ class MetricDashboard:
     disk_io: list[DiskIoSnapshot]
     net_io: list[NetIoSnapshot]
     mounts: list[MountDashSnapshot]
+
+
+# ---------- 네트워크 (IPs + 실시간 인터페이스 현황) ----------
+# NetIoSnapshot을 재사용 — 필드 구조가 동일하므로 별도 타입 불필요
+
+@dataclass
+class NetworkDetailResponse:
+    server_id: int
+    hostname: str
+    ip_internal: list[str]
+    ip_external: list[str] | None
+    interfaces: list[NetIoSnapshot]
+
+
+# ---------- 수집 상태 ----------
+
+@dataclass
+class CollectionStatusItem:
+    last_metric_at: datetime | None
+    last_inventory_at: datetime | None
+    is_online: bool
 
 
 # ---------- 시계열 ----------

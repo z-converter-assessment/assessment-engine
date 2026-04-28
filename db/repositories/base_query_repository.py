@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from db.repositories.outbound import (
@@ -15,6 +15,18 @@ if TYPE_CHECKING:
         StorageWithUsageResponse,
     )
 
+MetricType = Literal[
+    "cpu.usage_percent",
+    "disk.read_iops",
+    "disk.write_iops",
+    "fs.usage_percent",
+    "net.rx_bytes_per_sec",
+    "net.tx_bytes_per_sec",
+]
+TimeRange  = Literal["15m", "1h", "6h", "24h", "7d"]
+BucketSize = Literal["5m", "1h", "1d"]
+AggFunc    = Literal["avg", "max", "p95"]
+
 
 class BaseQueryRepository(ABC):
 
@@ -24,7 +36,6 @@ class BaseQueryRepository(ABC):
         page: int,
         limit: int,
         search: str | None,
-        is_online: bool | None,
     ) -> list[ServerListItemResponse]: ...
 
     @abstractmethod
@@ -54,9 +65,9 @@ class BaseQueryRepository(ABC):
     async def metric_chart(
         self,
         server_id: int,
-        metric_type: str,
+        metric_type: MetricType,
         dimension: str | None,
-        time_range: str,
-        bucket: str,
-        agg: str,
+        time_range: TimeRange,
+        bucket: BucketSize,
+        agg: AggFunc,
     ) -> list[MetricSeriesResponse]: ...

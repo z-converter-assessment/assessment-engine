@@ -47,11 +47,7 @@
         {% if not s.os_id and not s.os_version %}-{% endif %}
       </td>
       <td>{{ s.cpu_cores if s.cpu_cores is not none else '-' }}</td>
-      <td>
-        {% if s.mem_total_kb %}
-          {{ (s.mem_total_kb / 1024 / 1024) | round(1) }} GB
-        {% else %}-{% endif %}
-      </td>
+      <td>{{ s.mem_total_gb ~ ' GB' if s.mem_total_gb is not none else '-' }}</td>
       <td style="color:#64748b; font-size:13px;">{{ s.last_seen_at | kst }}</td>
       <td>
         <a href="/servers/{{ s.id }}" class="btn" style="font-size:12px; padding:4px 10px;">상세 →</a>

@@ -39,8 +39,8 @@
     <thead>
       <tr>
         <th>Interface</th>
-        <th>RX (kBps)</th>
-        <th>TX (kBps)</th>
+        <th>RX</th>
+        <th>TX</th>
         <th>RX (pps)</th>
         <th>TX (pps)</th>
       </tr>
@@ -49,24 +49,8 @@
       {% for iface in network.interfaces %}
       <tr>
         <td><code>{{ iface.interface }}</code></td>
-        <td>
-          {% if iface.rx_kbps is not none %}
-            {% if iface.rx_kbps >= 1024 %}
-              <strong>{{ (iface.rx_kbps / 1024) | round(1) }} MBps</strong>
-            {% else %}
-              {{ iface.rx_kbps }}
-            {% endif %}
-          {% else %}<span style="color:#94a3b8;">—</span>{% endif %}
-        </td>
-        <td>
-          {% if iface.tx_kbps is not none %}
-            {% if iface.tx_kbps >= 1024 %}
-              <strong>{{ (iface.tx_kbps / 1024) | round(1) }} MBps</strong>
-            {% else %}
-              {{ iface.tx_kbps }}
-            {% endif %}
-          {% else %}<span style="color:#94a3b8;">—</span>{% endif %}
-        </td>
+        <td>{{ iface.rx_kbps | kbps }}</td>
+        <td>{{ iface.tx_kbps | kbps }}</td>
         <td>{{ iface.rx_pps if iface.rx_pps is not none else '—' }}</td>
         <td>{{ iface.tx_pps if iface.tx_pps is not none else '—' }}</td>
       </tr>

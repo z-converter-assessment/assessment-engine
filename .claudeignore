@@ -1,6 +1,4 @@
 .venv/
 .git/
 .github/
-_docs/
-_archive/
 _tests/

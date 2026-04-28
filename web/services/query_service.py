@@ -3,12 +3,18 @@ from __future__ import annotations
 import dataclasses
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, get_args
 
 from redis.asyncio import Redis
 
 from config import consumer_settings
-from db.repositories.base_query_repository import BaseQueryRepository
+from db.repositories.base_query_repository import (
+    AggFunc,
+    BaseQueryRepository,
+    BucketSize,
+    MetricType,
+    TimeRange,
+)
 from web.view_models import (
     CpuSnapshot,
     DiskItem,
@@ -18,7 +24,6 @@ from web.view_models import (
     MetricSeriesItem,
     MountDashSnapshot,
     MountUsageItem,
-    NetInterfaceItem,
     NetIoSnapshot,
     NetworkDetailResponse,
     CollectionStatusItem,
@@ -45,6 +50,16 @@ if TYPE_CHECKING:
 
 
 # ============================================================
+# 차트 파라미터 화이트리스트 — Literal 정의에서 단일 출처 파생
+# ============================================================
+
+_VALID_METRIC_TYPES = frozenset(get_args(MetricType))
+_VALID_TIME_RANGES  = frozenset(get_args(TimeRange))
+_VALID_BUCKETS      = frozenset(get_args(BucketSize))
+_VALID_AGGS         = frozenset(get_args(AggFunc))
+
+
+# ============================================================
 # Inventory → ViewModel 변환
 # ============================================================
 
@@ -55,7 +70,7 @@ def _to_server_list_item(dto: ServerListItemResponse) -> ServerListItem:
         os_id=dto.os_id,
         os_version=dto.os_version,
         cpu_cores=dto.cpu_cores,
-        mem_total_kb=dto.mem_total_kb,
+        mem_total_gb=_kb_to_gb(dto.mem_total_kb),
         last_seen_at=dto.last_seen_at,
         is_online=False,
     )
@@ -73,13 +88,13 @@ def _to_server_detail(dto: ServerResponse) -> ServerDetailResponse:
         kernel_version=dto.kernel_version,
         cpu_cores=dto.cpu_cores,
         cpu_model=dto.cpu_model,
-        mem_total_kb=dto.mem_total_kb,
-        swap_total_kb=dto.swap_total_kb,
+        mem_total_gb=_kb_to_gb(dto.mem_total_kb),
+        swap_total_gb=_kb_to_gb(dto.swap_total_kb),
         boot_time=dto.boot_time,
         ip_internal=dto.ip_internal,
         ip_external=dto.ip_external,
         disks=[
-            DiskItem(name=d.get("name", ""), size_bytes=d.get("size_bytes"), type=d.get("type"))
+            DiskItem(name=d.get("name", ""), size_gb=_bytes_to_gb(d.get("size_bytes")), type=d.get("type"))
             for d in dto.disks
         ],
         last_seen_at=dto.last_seen_at,
@@ -117,7 +132,7 @@ def _to_storage_detail(dto: StorageWithUsageResponse) -> StorageDetailResponse:
         server_id=dto.server_id,
         hostname=dto.hostname,
         disks=[
-            DiskItem(name=d.get("name", ""), size_bytes=d.get("size_bytes"), type=d.get("type"))
+            DiskItem(name=d.get("name", ""), size_gb=_bytes_to_gb(d.get("size_bytes")), type=d.get("type"))
             for d in dto.disks
         ],
         mounts=sorted(mounts, key=lambda m: m.mount),
@@ -336,6 +351,10 @@ def _bytes_to_gb(b: int | None) -> float | None:
     return round(b / 1024 ** 3, 2) if b is not None else None
 
 
+def _kb_to_gb(kb: int | None) -> float | None:
+    return round(kb / 1024 ** 2, 1) if kb else None
+
+
 def _usage_pct(used: int | None, total: int | None) -> float | None:
     if used is None or not total:
         return None
@@ -367,6 +386,8 @@ def _server_detail_from_json(raw: str) -> ServerDetailResponse:
     for field in ("boot_time", "last_seen_at"):
         if isinstance(data.get(field), str):
             data[field] = datetime.fromisoformat(data[field])
+    data.pop("mem_total_kb", None)
+    data.pop("swap_total_kb", None)
     return ServerDetailResponse(**data)
 
 
@@ -409,7 +430,7 @@ class QueryService:
         search: str | None,
         is_online: bool | None,
     ) -> list[ServerListItem]:
-        dtos = await self.repo.list_servers(page, limit, search, None)
+        dtos = await self.repo.list_servers(page, limit, search)
         items: list[ServerListItem] = []
         for dto in dtos:
             item = _to_server_list_item(dto)
@@ -470,11 +491,17 @@ class QueryService:
     async def get_metric_chart(
         self,
         server_id: int,
-        metric_type: str,
+        metric_type: MetricType,
         dimension: str | None,
-        time_range: str,
-        bucket: str,
-        agg: str,
+        time_range: TimeRange,
+        bucket: BucketSize,
+        agg: AggFunc,
     ) -> list[MetricSeriesItem]:
+        if (metric_type not in _VALID_METRIC_TYPES
+                or time_range not in _VALID_TIME_RANGES
+                or bucket not in _VALID_BUCKETS
+                or agg not in _VALID_AGGS):
+            return []
+
         dtos = await self.repo.metric_chart(server_id, metric_type, dimension, time_range, bucket, agg)
         return [_to_metric_series_item(dto) for dto in dtos]

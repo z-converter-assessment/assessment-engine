@@ -7,7 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.server_inventory import ServerInventory
 from db.models.server_metrics import ServerMetrics
-from db.repositories.base_query_repository import BaseQueryRepository
+from db.repositories.base_query_repository import (
+    AggFunc,
+    BaseQueryRepository,
+    BucketSize,
+    MetricType,
+    TimeRange,
+)
 from db.repositories.outbound import (
     CollectionStatusResponse,
     DashboardRaw,
@@ -65,7 +71,6 @@ class QueryRepository(BaseQueryRepository):
         page: int,
         limit: int,
         search: str | None,
-        is_online: bool | None,
     ) -> list[ServerListItemResponse]:
         last_metric_sq = (
             select(
@@ -382,15 +387,12 @@ class QueryRepository(BaseQueryRepository):
     async def metric_chart(
         self,
         server_id: int,
-        metric_type: str,
+        metric_type: MetricType,
         dimension: str | None,
-        time_range: str,
-        bucket: str,
-        agg: str,
+        time_range: TimeRange,
+        bucket: BucketSize,
+        agg: AggFunc,
     ) -> list[MetricSeriesResponse]:
-        if time_range not in _TIME_RANGE or bucket not in _BUCKET or agg not in _AGG:
-            return []
-
         start = datetime.now(timezone.utc) - _TIME_RANGE[time_range]
         bi = _BUCKET[bucket]
         ae = _AGG[agg]
@@ -458,11 +460,11 @@ class QueryRepository(BaseQueryRepository):
                 FROM server_disk_io
                 WHERE server_id = :sid
                   AND collected_at >= :window_start
-                  AND (:dim::text IS NULL OR device = :dim)
+                  AND (CAST(:dim AS text) IS NULL OR device = :dim)
             ),
             deltas AS (
                 SELECT collected_at, device,
-                    GREATEST(0, cnt - LAG(cnt) OVER (PARTITION BY device ORDER BY collected_at)) AS d_val,
+                    cnt - LAG(cnt) OVER (PARTITION BY device ORDER BY collected_at) AS d_val,
                     EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER (PARTITION BY device ORDER BY collected_at))) AS dt
                 FROM raw
             )
@@ -471,9 +473,9 @@ class QueryRepository(BaseQueryRepository):
                    device                                      AS dimension
             FROM (
                 SELECT collected_at, device,
-                       CASE WHEN dt > 0 THEN d_val / dt END AS v
+                       CASE WHEN dt > 0 AND d_val >= 0 THEN d_val / dt END AS v
                 FROM deltas
-                WHERE collected_at >= :start AND dt > 0
+                WHERE collected_at >= :start AND dt > 0 AND d_val >= 0
             ) sub
             GROUP BY ts, device
             ORDER BY ts, device
@@ -491,11 +493,11 @@ class QueryRepository(BaseQueryRepository):
                 FROM server_net_io
                 WHERE server_id = :sid
                   AND collected_at >= :window_start
-                  AND (:dim::text IS NULL OR interface = :dim)
+                  AND (CAST(:dim AS text) IS NULL OR interface = :dim)
             ),
             deltas AS (
                 SELECT collected_at, interface,
-                    GREATEST(0, cnt - LAG(cnt) OVER (PARTITION BY interface ORDER BY collected_at)) AS d_val,
+                    cnt - LAG(cnt) OVER (PARTITION BY interface ORDER BY collected_at) AS d_val,
                     EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER (PARTITION BY interface ORDER BY collected_at))) AS dt
                 FROM raw
             )
@@ -504,9 +506,9 @@ class QueryRepository(BaseQueryRepository):
                    interface                                   AS dimension
             FROM (
                 SELECT collected_at, interface,
-                       CASE WHEN dt > 0 THEN d_val / dt END AS v
+                       CASE WHEN dt > 0 AND d_val >= 0 THEN d_val / dt END AS v
                 FROM deltas
-                WHERE collected_at >= :start AND dt > 0
+                WHERE collected_at >= :start AND dt > 0 AND d_val >= 0
             ) sub
             GROUP BY ts, interface
             ORDER BY ts, interface
@@ -529,7 +531,7 @@ class QueryRepository(BaseQueryRepository):
                 FROM server_mount_usage
                 WHERE server_id = :sid
                   AND collected_at >= :start
-                  AND (:dim::text IS NULL OR mount = :dim)
+                  AND (CAST(:dim AS text) IS NULL OR mount = :dim)
             ) sub
             GROUP BY ts, mount
             ORDER BY ts, mount

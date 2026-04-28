@@ -188,11 +188,6 @@ vagrant ssh web-server-01 -c "journalctl -u assessment-agent -f"
 http://localhost:8000/servers/ 에서 서버 3대 온라인 확인.
 60초 주기로 메트릭이 갱신되며 각 서버의 상세 페이지에서 CPU·메모리·디스크·네트워크 확인.
 
-### VM 시작
-```bash
-vagrant up                      # 전체 재기동 (에이전트 자동 재시작)
-```
-
 ### VM 관리
 ```bash
 vagrant halt                    # 전체 정지 (machine-id 유지)

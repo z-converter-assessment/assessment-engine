@@ -18,8 +18,26 @@ def _kst(dt: datetime | None) -> str:
     return dt.astimezone(_KST).strftime("%Y-%m-%d %H:%M")
 
 
+def _disksize(gb: float | None) -> str:
+    if gb is None:
+        return "-"
+    if gb >= 1024:
+        return f"{round(gb / 1024, 1)} TB"
+    return f"{gb} GB"
+
+
+def _kbps(kb: float | None) -> str:
+    if kb is None:
+        return "—"
+    if kb >= 1024:
+        return f"{round(kb / 1024, 1)} MBps"
+    return f"{kb} kBps"
+
+
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
-templates.env.filters["kst"] = _kst
+templates.env.filters["kst"]      = _kst
+templates.env.filters["disksize"] = _disksize
+templates.env.filters["kbps"]     = _kbps
 
 pages_router = APIRouter(prefix="/servers", tags=["pages"])
 
