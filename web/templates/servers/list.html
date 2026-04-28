@@ -52,7 +52,7 @@
           {{ (s.mem_total_kb / 1024 / 1024) | round(1) }} GB
         {% else %}-{% endif %}
       </td>
-      <td style="color:#64748b; font-size:13px;">{{ s.last_seen_at or '-' }}</td>
+      <td style="color:#64748b; font-size:13px;">{{ s.last_seen_at | kst }}</td>
       <td>
         <a href="/servers/{{ s.id }}" class="btn" style="font-size:12px; padding:4px 10px;">상세 →</a>
       </td>

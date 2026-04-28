@@ -19,7 +19,7 @@ ZConverter Cloud Assessment Portal.
 | consumer | 로컬 빌드 | aio-pika 컨슈머 |
 
 - **scheduler**는 코드(`scheduler/`)는 있으나 docker-compose 서비스로 미등록. `run_diagnostics()` NotImplementedError 상태.
-- `consumer depends_on web: condition: service_healthy` — **DEV 전용**: web 기동 시 lifespan이 `DROP SCHEMA CASCADE → create_all → create_hypertable` 를 수행하므로, consumer가 web health 확인 후 시작해야 스키마가 존재함. 프로덕션에서는 Alembic으로 대체하고 이 의존성 제거.
+- `consumer depends_on web: condition: service_healthy` — **DEV 전용**: web 기동 시 lifespan이 `CREATE EXTENSION + create_all + create_hypertable` 를 수행하므로, consumer가 web health 확인 후 시작해야 스키마가 존재함. 프로덕션에서는 Alembic으로 대체하고 이 의존성 제거.
 - `db/session.py`와 `db/redis.py`는 `web_settings`를 사용. consumer도 이 파일을 공유하며, docker-compose의 `POSTGRES_HOST: postgres` / `REDIS_HOST: redis` environment 오버라이드로 동작함.
 
 ## ORM 모델
@@ -44,6 +44,7 @@ ZConverter Cloud Assessment Portal.
 - ViewModel: `web/view_models.py` — Service → Router (Jinja2 컨텍스트 또는 JSON)
 - Consumer 파싱: Pydantic `AgentMessage` discriminated union (정의됨) → 실제 핸들러는 routing key별로 구체 타입(`InventoryInput`, `MetricsInput`, `ErrorInput`)을 직접 파싱
 - inventory upsert 및 metrics 서버 조회 기준: `machine_id` (미등록 서버면 drop)
+- `last_seen_at`: `list_servers()`에서 `COALESCE(MAX(server_metrics.collected_at), server_inventory.last_seen_at)` subquery JOIN으로 산출 — "마지막 메트릭 수신 시각" 의미. 인벤토리 등록 시각이 아님.
 
 ## 에이전트 메시지 스키마 (`agent_version` = 계약 버전)
 
@@ -86,12 +87,13 @@ ZConverter Cloud Assessment Portal.
 
 - aio-pika 기반 순수 비동기 컨슈머 (FastAPI와 독립 프로세스)
 - 파싱 실패: raise → nack(requeue=False) → DLX → DLQ
-- DB 실패: 지수 백오프(`2^attempt` s) 3회 재시도 후 raise → nack → DLQ
-- TTL 만료(60초): 브로커가 자동으로 DLX → DLQ
+- DB 실패: 지수 백오프(`2^attempt` s) 3회 재시도 후 raise → nack(requeue=False) → DLX → DLQ
+- TTL 만료: 브로커가 자동으로 DLX → DLQ. 큐별 TTL 상이 — inventory: 없음(one-shot), metrics/error: 60s
 - `error` 메시지: 파싱 후 로깅만. DB 저장 없음
 
 ### 멱등성 처리
 메시지 수신 시 `SET idempotent:{message_id} 1 EX 86400 NX` — 원자적 체크. 이미 처리된 message_id면 ack 후 조기 리턴.
+- **at-most-once 주의**: SET NX는 DB 커밋 이전에 실행. 커밋 전 프로세스 크래시 시 RabbitMQ 재전송 메시지가 중복으로 판정되어 조용히 드롭됨 (데이터 유실 가능). 현재 설계상 허용된 트레이드오프.
 
 ### metrics 저장 후 Redis 처리 순서
 1. `SET online:{server_id} 1 EX 90`
@@ -99,7 +101,7 @@ ZConverter Cloud Assessment Portal.
 3. `PUBLISH metrics.events {"server_id": ..., "machine_id": ...}` — 브라우저 SSE 트리거
 
 ### MQ 토폴로지
-Exchange: `assessment` (topic, durable) / DLX: `assessment.dlx` (direct, durable)
+Exchange: `assessment` (direct, durable) / DLX: `assessment.dlx` (direct, durable)
 
 | routing key | 큐 | DLQ |
 |-------------|-----|-----|
@@ -122,6 +124,7 @@ Exchange: `assessment` (topic, durable) / DLX: `assessment.dlx` (direct, durable
 | GET /servers/{server_id} | servers/detail.html | 인벤토리 정적 정보 (메트릭은 AJAX) |
 | GET /servers/{server_id}/storage | servers/storage.html | 인벤토리 disks + 최신 mount_usage |
 | GET /servers/{server_id}/network | servers/network.html | IP + 최신 net_io delta |
+| GET /servers/{server_id}/chart | servers/chart.html | Chart.js 시계열 차트 (API AJAX) |
 
 ### API 엔드포인트 (AJAX / SSE)
 | 경로 | 응답 | 설명 |
@@ -149,6 +152,14 @@ Exchange: `assessment` (topic, durable) / DLX: `assessment.dlx` (direct, durable
 - `bucket`: 5m / 1h / 1d
 - `agg`: avg / max / p95
 
+### Jinja2 KST 필터
+`web/routers/pages.py`에 `_kst(dt)` 필터 정의 → `templates.env.filters["kst"] = _kst` 등록.
+datetime(UTC) → KST `"YYYY-MM-DD HH:MM"` 변환. Redis 캐시에서 복원 시 datetime 필드는 `datetime.fromisoformat()`으로 파싱해야 필터가 동작함 (`json.loads`는 str 반환).
+
+### asyncpg 파라미터 주의사항
+`collected_at >= :start - interval '5 minutes'` 형태는 asyncpg가 `:start` 타입을 추론하지 못해 런타임 오류 발생.
+`window_start = start - timedelta(minutes=5)`로 Python에서 미리 계산 후 `:window_start` 파라미터로 전달할 것.
+
 ## Redis 전략
 
 ### 키 설계
@@ -166,13 +177,25 @@ Exchange: `assessment` (topic, durable) / DLX: `assessment.dlx` (direct, durable
 
 ## TimescaleDB
 - `server_metrics`·`server_disk_io`·`server_net_io`·`server_mount_usage` 4개 모두 hypertable (`collected_at` 기준 파티셔닝)
-- **개발**: 기동 시 `DROP SCHEMA public CASCADE` → 재생성 → `CREATE EXTENSION` → `create_hypertable` (web lifespan)
+- **개발**: 기동 시 `CREATE EXTENSION IF NOT EXISTS timescaledb` → `Base.metadata.create_all` (없는 테이블만 생성) → `create_hypertable(..., if_not_exists => true)`. web 재시작 시 기존 데이터 보존.
+- 완전 초기화가 필요하면 `docker compose down -v` 후 재기동.
 - **프로덕션**: Alembic 마이그레이션. `create_hypertable`은 최초 생성 마이그레이션에 수동 작성
 
 ## 환경변수
 루트 `.env`에서 주입. 키 목록은 `.env.example` 참조.
 docker-compose `environment`에는 서비스명 오버라이드(`POSTGRES_HOST`, `RABBITMQ_HOST`, `REDIS_HOST`)와 이미지 요구 변수명 매핑만 명시.
 - `REDIS_HOST`는 `.env.example` 미기재 (기본값 "redis"가 docker-compose 환경과 일치하므로 생략)
+
+## Vagrant 에이전트 배포 규약
+
+에이전트 바이너리는 VirtualBox shared folder(`/home/vagrant/assessment-agent/`)에서 직접 실행 불가 — SELinux(Rocky Linux 9) 및 vboxsf 마운트 제약.
+
+| 항목 | 경로 | 이유 |
+|------|------|------|
+| 바이너리 | `/usr/local/bin/assessment-agent` | systemd가 vboxsf 경유 바이너리를 실행 못함 |
+| 환경변수 파일 | `/etc/assessment-agent.env` | SELinux가 `/home/vagrant/` 내 파일 systemd 읽기 차단 |
+
+Vagrantfile step 3에서 `cp` + `chmod 755`, step 2에서 `/etc/assessment-agent.env` 작성. `ExecStart=/usr/local/bin/assessment-agent`, `EnvironmentFile=/etc/assessment-agent.env`.
 
 ## 브랜치 전략
 | 브랜치 | 용도 |

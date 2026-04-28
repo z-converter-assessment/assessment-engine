@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -6,7 +7,19 @@ from fastapi.templating import Jinja2Templates
 from web.deps import get_service
 from web.services.query_service import QueryService
 
+_KST = timezone(timedelta(hours=9))
+
+
+def _kst(dt: datetime | None) -> str:
+    if dt is None:
+        return "-"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_KST).strftime("%Y-%m-%d %H:%M")
+
+
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+templates.env.filters["kst"] = _kst
 
 pages_router = APIRouter(prefix="/servers", tags=["pages"])
 
@@ -57,6 +70,22 @@ async def get_storage(
         request=request,
         name="servers/storage.html",
         context={"storage": result},
+    )
+
+
+@pages_router.get("/{server_id}/chart")
+async def get_chart(
+    server_id: int,
+    request: Request,
+    service: QueryService = Depends(get_service),
+):
+    result = await service.get_server(server_id)
+    if not result:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request=request,
+        name="servers/chart.html",
+        context={"server": result},
     )
 
 

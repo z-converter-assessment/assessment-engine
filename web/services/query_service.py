@@ -364,6 +364,9 @@ def _server_detail_to_json(v: ServerDetailResponse) -> str:
 def _server_detail_from_json(raw: str) -> ServerDetailResponse:
     data = json.loads(raw)
     data["disks"] = [DiskItem(**d) for d in data.get("disks") or []]
+    for field in ("boot_time", "last_seen_at"):
+        if isinstance(data.get(field), str):
+            data[field] = datetime.fromisoformat(data[field])
     return ServerDetailResponse(**data)
 
 

@@ -48,7 +48,7 @@
       {% else %}-{% endif %}
     </dd>
     <dt>Boot Time</dt>
-    <dd>{{ server.boot_time or '-' }}</dd>
+    <dd>{{ server.boot_time | kst }}</dd>
     <dt>Internal IP</dt>
     <dd>
       {% if server.ip_internal %}
@@ -62,7 +62,7 @@
       {% else %}-{% endif %}
     </dd>
     <dt>Last Seen</dt>
-    <dd style="color:#64748b; font-size:13px;">{{ server.last_seen_at or '-' }}</dd>
+    <dd style="color:#64748b; font-size:13px;">{{ server.last_seen_at | kst }}</dd>
   </dl>
 </div>
 
@@ -237,6 +237,7 @@
 
 <!-- 페이지 이동 -->
 <div style="display:flex; gap:10px; margin-top:4px;">
+  <a href="/servers/{{ server.id }}/chart"   class="btn">시계열 차트 →</a>
   <a href="/servers/{{ server.id }}/storage" class="btn">스토리지 상세 →</a>
   <a href="/servers/{{ server.id }}/network" class="btn">네트워크 상세 →</a>
 </div>

@@ -10,10 +10,13 @@ from db.redis import close_pool
 _EXCHANGE = consumer_settings.rabbitmq_exchange
 _DLX      = f"{_EXCHANGE}.dlx"
 
+# (queue_name, routing_key, handler, ttl_ms | None)
+# inventory는 기동 시 1회만 발행되는 one-shot 메시지 → TTL 없음
+# metrics/error는 주기적으로 재발행되므로 60s TTL로 낡은 데이터 방지
 _QUEUES = [
-    (consumer_settings.rabbitmq_routing_key_inventory, consumer_settings.rabbitmq_routing_key_inventory, inventory_handler),
-    (consumer_settings.rabbitmq_routing_key_metrics,   consumer_settings.rabbitmq_routing_key_metrics,   metrics_handler),
-    (consumer_settings.rabbitmq_routing_key_error,     consumer_settings.rabbitmq_routing_key_error,     error_handler),
+    (consumer_settings.rabbitmq_routing_key_inventory, consumer_settings.rabbitmq_routing_key_inventory, inventory_handler, None),
+    (consumer_settings.rabbitmq_routing_key_metrics,   consumer_settings.rabbitmq_routing_key_metrics,   metrics_handler,   60_000),
+    (consumer_settings.rabbitmq_routing_key_error,     consumer_settings.rabbitmq_routing_key_error,     error_handler,     60_000),
 ]
 
 
@@ -33,29 +36,32 @@ async def main() -> None:
 
         exchange = await channel.declare_exchange(
             _EXCHANGE,
-            aio_pika.ExchangeType.TOPIC,
+            aio_pika.ExchangeType.DIRECT,
             durable=True,
         )
 
-        for queue_name, routing_key, handler in _QUEUES:
+        for queue_name, routing_key, handler, ttl_ms in _QUEUES:
             dlq = await channel.declare_queue(
                 f"{queue_name}.dead",
                 durable=True,
             )
             await dlq.bind(dlx, routing_key=queue_name)
 
+            args: dict = {
+                "x-dead-letter-exchange":    _DLX,
+                "x-dead-letter-routing-key": queue_name,
+            }
+            if ttl_ms is not None:
+                args["x-message-ttl"] = ttl_ms
+
             queue = await channel.declare_queue(
                 queue_name,
                 durable=True,
-                arguments={
-                    "x-dead-letter-exchange":     _DLX,
-                    "x-dead-letter-routing-key":  queue_name,
-                    "x-message-ttl":              60_000,
-                },
+                arguments=args,
             )
             await queue.bind(exchange, routing_key=routing_key)
             await queue.consume(handler)
-            logger.info("consuming queue={} routing_key={}", queue_name, routing_key)
+            logger.info("consuming queue={} routing_key={} ttl_ms={}", queue_name, routing_key, ttl_ms)
 
         try:
             await asyncio.Future()

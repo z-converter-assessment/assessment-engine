@@ -37,6 +37,14 @@ _BUCKET: dict[str, str] = {
     "1d": "1 day",
 }
 
+# chart helper에서 raw CTE window start를 Python에서 계산해 파라미터로 전달
+# (asyncpg가 :start - interval '...' 표현의 타입을 추론하지 못함)
+_BUCKET_TD: dict[str, timedelta] = {
+    "5 minutes": timedelta(minutes=5),
+    "1 hour":    timedelta(hours=1),
+    "1 day":     timedelta(days=1),
+}
+
 _AGG: dict[str, str] = {
     "avg": "avg(v)",
     "max": "max(v)",
@@ -59,27 +67,42 @@ class QueryRepository(BaseQueryRepository):
         search: str | None,
         is_online: bool | None,
     ) -> list[ServerListItemResponse]:
-        stmt = select(ServerInventory).order_by(
-            ServerInventory.last_seen_at.desc().nullslast()
+        last_metric_sq = (
+            select(
+                ServerMetrics.server_id,
+                func.max(ServerMetrics.collected_at).label("last_metric_at"),
+            )
+            .group_by(ServerMetrics.server_id)
+            .subquery()
+        )
+
+        last_seen_expr = func.coalesce(
+            last_metric_sq.c.last_metric_at,
+            ServerInventory.last_seen_at,
+        )
+
+        stmt = (
+            select(ServerInventory, last_seen_expr.label("last_seen_at"))
+            .outerjoin(last_metric_sq, last_metric_sq.c.server_id == ServerInventory.id)
+            .order_by(last_seen_expr.desc().nullslast())
         )
         if search:
             stmt = stmt.where(ServerInventory.hostname.ilike(f"%{search}%"))
-        # is_online 필터는 Redis 연동 후 service 레이어에서 처리
         stmt = stmt.offset((page - 1) * limit).limit(limit)
 
         result = await self.session.execute(stmt)
         return [
             ServerListItemResponse(
-                id=r.id,
-                machine_id=r.machine_id,
-                hostname=r.hostname,
-                os_id=r.os_id,
-                os_version=r.os_version,
-                cpu_cores=r.cpu_cores,
-                mem_total_kb=r.mem_total_kb,
+                id=r.ServerInventory.id,
+                machine_id=r.ServerInventory.machine_id,
+                hostname=r.ServerInventory.hostname,
+                os_id=r.ServerInventory.os_id,
+                os_version=r.ServerInventory.os_version,
+                cpu_cores=r.ServerInventory.cpu_cores,
+                mem_total_kb=r.ServerInventory.mem_total_kb,
                 last_seen_at=r.last_seen_at,
             )
-            for r in result.scalars().all()
+            for r in result.all()
         ]
 
     async def get_server(self, server_id: int) -> ServerResponse | None:
@@ -402,7 +425,7 @@ class QueryRepository(BaseQueryRepository):
                     cpu_user+cpu_nice+cpu_system+cpu_idle+cpu_iowait+cpu_irq+cpu_softirq+cpu_steal AS total_j
                 FROM server_metrics
                 WHERE server_id = :sid
-                  AND collected_at >= :start - interval '{bi}'
+                  AND collected_at >= :window_start
             ),
             deltas AS (
                 SELECT collected_at,
@@ -422,7 +445,7 @@ class QueryRepository(BaseQueryRepository):
             GROUP BY ts
             ORDER BY ts
         """)
-        result = await self.session.execute(sql, {"sid": server_id, "start": start})
+        result = await self.session.execute(sql, {"sid": server_id, "start": start, "window_start": start - _BUCKET_TD[bi]})
         return result.all()
 
     async def _chart_disk_iops(
@@ -434,7 +457,7 @@ class QueryRepository(BaseQueryRepository):
                 SELECT collected_at, device, {col} AS cnt
                 FROM server_disk_io
                 WHERE server_id = :sid
-                  AND collected_at >= :start - interval '{bi}'
+                  AND collected_at >= :window_start
                   AND (:dim::text IS NULL OR device = :dim)
             ),
             deltas AS (
@@ -455,7 +478,7 @@ class QueryRepository(BaseQueryRepository):
             GROUP BY ts, device
             ORDER BY ts, device
         """)
-        result = await self.session.execute(sql, {"sid": server_id, "start": start, "dim": dimension})
+        result = await self.session.execute(sql, {"sid": server_id, "start": start, "window_start": start - _BUCKET_TD[bi], "dim": dimension})
         return result.all()
 
     async def _chart_net(
@@ -467,7 +490,7 @@ class QueryRepository(BaseQueryRepository):
                 SELECT collected_at, interface, {col} AS cnt
                 FROM server_net_io
                 WHERE server_id = :sid
-                  AND collected_at >= :start - interval '{bi}'
+                  AND collected_at >= :window_start
                   AND (:dim::text IS NULL OR interface = :dim)
             ),
             deltas AS (
@@ -488,7 +511,7 @@ class QueryRepository(BaseQueryRepository):
             GROUP BY ts, interface
             ORDER BY ts, interface
         """)
-        result = await self.session.execute(sql, {"sid": server_id, "start": start, "dim": dimension})
+        result = await self.session.execute(sql, {"sid": server_id, "start": start, "window_start": start - _BUCKET_TD[bi], "dim": dimension})
         return result.all()
 
     async def _chart_fs(

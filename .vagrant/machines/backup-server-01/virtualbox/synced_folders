@@ -1,0 +1,1 @@
+{"virtualbox":{"/home/vagrant/assessment-agent":{"guestpath":"/home/vagrant/assessment-agent","hostpath":"/Users/whdcks/PycharmProjects/assessment-agent","disabled":false,"__vagrantfile":true},"/vagrant":{"guestpath":"/vagrant","hostpath":"/Users/whdcks/PycharmProjects/assessment-engine","disabled":false,"__vagrantfile":true}}}
