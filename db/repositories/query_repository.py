@@ -1,12 +1,13 @@
-from __future__ import annotations
-
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from db.models.server_disk_io import ServerDiskIo
 from db.models.server_inventory import ServerInventory
 from db.models.server_metrics import ServerMetrics
+from db.models.server_mount_usage import ServerMountUsage
+from db.models.server_net_io import ServerNetIo
 from db.repositories.base_query_repository import (
     AggFunc,
     BaseQueryRepository,
@@ -98,24 +99,24 @@ class QueryRepository(BaseQueryRepository):
         result = await self.session.execute(stmt)
         return [
             ServerListItemResponse(
-                id=r.ServerInventory.id,
-                machine_id=r.ServerInventory.machine_id,
-                hostname=r.ServerInventory.hostname,
-                os_id=r.ServerInventory.os_id,
-                os_version=r.ServerInventory.os_version,
-                cpu_cores=r.ServerInventory.cpu_cores,
-                mem_total_kb=r.ServerInventory.mem_total_kb,
-                last_seen_at=r.last_seen_at,
+                id=row.ServerInventory.id,
+                machine_id=row.ServerInventory.machine_id,
+                hostname=row.ServerInventory.hostname,
+                os_id=row.ServerInventory.os_id,
+                os_version=row.ServerInventory.os_version,
+                cpu_cores=row.ServerInventory.cpu_cores,
+                mem_total_kb=row.ServerInventory.mem_total_kb,
+                last_seen_at=row.last_seen_at,
             )
-            for r in result.all()
+            for row in result.all()
         ]
 
     async def get_server(self, server_id: int) -> ServerResponse | None:
         result = await self.session.execute(
             select(ServerInventory).where(ServerInventory.id == server_id)
         )
-        r = result.scalar_one_or_none()
-        if not r:
+        r = result.scalars().one_or_none()
+        if r is None:
             return None
         return ServerResponse(
             id=r.id,
@@ -152,10 +153,10 @@ class QueryRepository(BaseQueryRepository):
             return None
 
         mu_result = await self.session.execute(
-            text("""
+            text(f"""
                 SELECT DISTINCT ON (mount)
                     mount, total_bytes, avail_bytes, free_bytes
-                FROM server_mount_usage
+                FROM {ServerMountUsage.__tablename__}
                 WHERE server_id = :sid
                 ORDER BY mount, collected_at DESC
             """),
@@ -193,13 +194,13 @@ class QueryRepository(BaseQueryRepository):
             return None
 
         n_result = await self.session.execute(
-            text("""
+            text(f"""
                 SELECT interface, collected_at,
                        rx_bytes, tx_bytes, rx_packets, tx_packets, rx_errors, tx_errors
                 FROM (
                     SELECT *,
                         ROW_NUMBER() OVER (PARTITION BY interface ORDER BY collected_at DESC) AS rn
-                    FROM server_net_io
+                    FROM {ServerNetIo.__tablename__}
                     WHERE server_id = :sid
                 ) t WHERE rn <= 2
                 ORDER BY interface, collected_at DESC
@@ -283,13 +284,13 @@ class QueryRepository(BaseQueryRepository):
 
         # 디바이스당 최신 2행 disk_io
         d_result = await self.session.execute(
-            text("""
+            text(f"""
                 SELECT device, collected_at,
                        reads_completed, writes_completed, sectors_read, sectors_written
                 FROM (
                     SELECT *,
                         ROW_NUMBER() OVER (PARTITION BY device ORDER BY collected_at DESC) AS rn
-                    FROM server_disk_io
+                    FROM {ServerDiskIo.__tablename__}
                     WHERE server_id = :sid
                 ) t WHERE rn <= 2
                 ORDER BY device, collected_at DESC
@@ -310,13 +311,13 @@ class QueryRepository(BaseQueryRepository):
 
         # 인터페이스당 최신 2행 net_io
         n_result = await self.session.execute(
-            text("""
+            text(f"""
                 SELECT interface, collected_at,
                        rx_bytes, tx_bytes, rx_packets, tx_packets, rx_errors, tx_errors
                 FROM (
                     SELECT *,
                         ROW_NUMBER() OVER (PARTITION BY interface ORDER BY collected_at DESC) AS rn
-                    FROM server_net_io
+                    FROM {ServerNetIo.__tablename__}
                     WHERE server_id = :sid
                 ) t WHERE rn <= 2
                 ORDER BY interface, collected_at DESC
@@ -339,10 +340,10 @@ class QueryRepository(BaseQueryRepository):
 
         # 마운트당 최신 1행 mount_usage
         mu_result = await self.session.execute(
-            text("""
+            text(f"""
                 SELECT DISTINCT ON (mount)
                     mount, total_bytes, avail_bytes, free_bytes
-                FROM server_mount_usage
+                FROM {ServerMountUsage.__tablename__}
                 WHERE server_id = :sid
                 ORDER BY mount, collected_at DESC
             """),
@@ -411,8 +412,8 @@ class QueryRepository(BaseQueryRepository):
             return []
 
         return [
-            MetricSeriesResponse(collected_at=r.ts, value=r.value, dimension=r.dimension)
-            for r in rows
+            MetricSeriesResponse(collected_at=row.ts, value=row.value, dimension=row.dimension)
+            for row in rows
         ]
 
     # -------------------------------------------------------------------------
@@ -425,7 +426,7 @@ class QueryRepository(BaseQueryRepository):
                 SELECT collected_at,
                     cpu_user+cpu_nice+cpu_system+cpu_iowait+cpu_irq+cpu_softirq+cpu_steal   AS active_j,
                     cpu_user+cpu_nice+cpu_system+cpu_idle+cpu_iowait+cpu_irq+cpu_softirq+cpu_steal AS total_j
-                FROM server_metrics
+                FROM {ServerMetrics.__tablename__}
                 WHERE server_id = :sid
                   AND collected_at >= :window_start
             ),
@@ -457,7 +458,7 @@ class QueryRepository(BaseQueryRepository):
         sql = text(f"""
             WITH raw AS (
                 SELECT collected_at, device, {col} AS cnt
-                FROM server_disk_io
+                FROM {ServerDiskIo.__tablename__}
                 WHERE server_id = :sid
                   AND collected_at >= :window_start
                   AND (CAST(:dim AS text) IS NULL OR device = :dim)
@@ -490,7 +491,7 @@ class QueryRepository(BaseQueryRepository):
         sql = text(f"""
             WITH raw AS (
                 SELECT collected_at, interface, {col} AS cnt
-                FROM server_net_io
+                FROM {ServerNetIo.__tablename__}
                 WHERE server_id = :sid
                   AND collected_at >= :window_start
                   AND (CAST(:dim AS text) IS NULL OR interface = :dim)
@@ -528,7 +529,7 @@ class QueryRepository(BaseQueryRepository):
                        CASE WHEN total_bytes > 0
                             THEN (total_bytes - avail_bytes)::float / total_bytes * 100
                        END AS v
-                FROM server_mount_usage
+                FROM {ServerMountUsage.__tablename__}
                 WHERE server_id = :sid
                   AND collected_at >= :start
                   AND (CAST(:dim AS text) IS NULL OR mount = :dim)

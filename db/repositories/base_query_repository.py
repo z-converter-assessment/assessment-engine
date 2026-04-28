@@ -1,19 +1,16 @@
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
-if TYPE_CHECKING:
-    from db.repositories.outbound import (
-        CollectionStatusResponse,
-        DashboardRaw,
-        MetricSeriesResponse,
-        NetworkWithIoResponse,
-        ServerListItemResponse,
-        ServerResponse,
-        StorageWithUsageResponse,
-    )
+from db.repositories.outbound import (
+    CollectionStatusResponse,
+    DashboardRaw,
+    MetricSeriesResponse,
+    NetworkWithIoResponse,
+    ServerListItemResponse,
+    ServerResponse,
+    StorageWithUsageResponse,
+)
 
 MetricType = Literal[
     "cpu.usage_percent",

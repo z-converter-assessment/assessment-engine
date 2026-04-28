@@ -20,7 +20,7 @@ class CollectRepository(BaseCollectRepository):
                                             .where(ServerInventory.machine_id == machine_id))
         return result.scalar_one_or_none()
 
-    async def upsert_server(self, data: ServerInventoryCreate) -> None:
+    async def upsert_server(self, data: ServerInventoryCreate) -> int:
         stmt = pg_insert(ServerInventory).values(
             machine_id=data.machine_id,
             hostname=data.hostname,
@@ -59,8 +59,9 @@ class CollectRepository(BaseCollectRepository):
                 "mounts": data.mounts,
                 "last_seen_at": data.collected_at,
             },
-        )
-        await self.session.execute(stmt)
+        ).returning(ServerInventory.id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
     async def insert_metric(self, server_id: int, data: ServerMetricCreate) -> None:
         self.session.add(ServerMetrics(

@@ -20,5 +20,21 @@ dependencies = [
 ]
 
 
+[project.optional-dependencies]
+test = [
+    "pytest>=9.0",
+    "pytest-asyncio>=1.0",
+    "pytest-mock>=3.14",
+    "httpx>=0.27",
+    "testcontainers[postgres]>=4.0",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["web", "consumer", "db", "scheduler"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "unit: 단위 테스트 (외부 의존성 없음)",
+    "integration: 통합 테스트 (testcontainers Docker 필요)",
+]

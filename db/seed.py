@@ -1,6 +1,4 @@
 """개발용 더미 데이터. web/main.py lifespan에서 호출 — 주석 처리 시 시딩 건너뜀."""
-from __future__ import annotations
-
 from datetime import datetime, timezone, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession

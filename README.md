@@ -10,40 +10,55 @@
 
 ---
 
+## IDE 인식을 위한 로컬 개발 환경 세팅 (선택)
+
+런타임은 Docker 컨테이너에서 동작하지만, IDE의 자동완성·타입 체크·import 인식을 위해 로컬 가상환경에 의존성을 설치한다.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install uv
+uv pip install -e ".[test]"      # 런타임 + 테스트 의존성 설치
+```
+
+> `.venv`를 Python Interpreter로 지정하면 자동으로 인식된다.  
+
+---
+
 ## 스택
 
-| 구성 | 기술 |
-|---|---|
-| Query (SSR) | FastAPI + Jinja2 |
-| Consumer | aio-pika (순수 비동기 컨슈머) |
-| 메시지 브로커 | RabbitMQ |
-| DB | TimescaleDB (PostgreSQL + SQLAlchemy async + asyncpg) |
-| 캐시 / 온라인 상태 | Redis 7 |
-| 실제 에이전트 | C99/C++03 바이너리 (MQ 직접 발행) |
+| 구성            | 기술                                                    |
+|---------------|-------------------------------------------------------|
+| Query (SSR)   | FastAPI + Jinja2                                      |
+| Consumer      | aio-pika (순수 비동기 컨슈머)                                 |
+| 메시지 브로커       | RabbitMQ                                              |
+| DB            | TimescaleDB (PostgreSQL + SQLAlchemy async + asyncpg) |
+| 캐시 / 온라인 상태   | Redis 7                                               |
+| 실제 에이전트 (미포함) | C99/C++03 바이너리 (MQ 직접 발행)                             |
 
 ---
 
 ## 환경변수 (루트 `.env`)
 
-| 키 | 기본값 | 설명 |
-|---|---|---|
-| `POSTGRES_HOST` | `postgres` | |
-| `POSTGRES_DB` | `assessment` | |
-| `POSTGRES_USER` | `assessment` | |
-| `POSTGRES_PASSWORD` | `assessment` | |
-| `POSTGRES_PORT` | `5432` | |
-| `RABBITMQ_HOST` | `rabbitmq` | 컨슈머 접속용 |
-| `RABBITMQ_USER` | `assessment` | |
-| `RABBITMQ_PASSWORD` | `assessment` | |
-| `RABBITMQ_PORT` | `5672` | |
-| `RABBITMQ_MANAGEMENT_PORT` | `15672` | RabbitMQ 관리 콘솔 포트 |
-| `RABBITMQ_EXCHANGE` | `assessment` | |
-| `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | 에이전트 ↔ 컨슈머 계약 |
-| `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | 에이전트 ↔ 컨슈머 계약 |
-| `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | 에이전트 ↔ 컨슈머 계약 |
-| `REDIS_HOST` | `redis` | docker-compose가 서비스명으로 오버라이드 — `.env` 설정 불필요 |
-| `REDIS_PORT` | `6379` | |
-| `WEB_PORT` | `8000` | |
+| 키                                | 기본값                | 설명                                           |
+|----------------------------------|--------------------|----------------------------------------------|
+| `POSTGRES_HOST`                  | `postgres`         |                                              |
+| `POSTGRES_DB`                    | `assessment`       |                                              |
+| `POSTGRES_USER`                  | `assessment`       |                                              |
+| `POSTGRES_PASSWORD`              | `assessment`       |                                              |
+| `POSTGRES_PORT`                  | `5432`             |                                              |
+| `RABBITMQ_HOST`                  | `rabbitmq`         | 컨슈머 접속용                                      |
+| `RABBITMQ_USER`                  | `assessment`       |                                              |
+| `RABBITMQ_PASSWORD`              | `assessment`       |                                              |
+| `RABBITMQ_PORT`                  | `5672`             |                                              |
+| `RABBITMQ_MANAGEMENT_PORT`       | `15672`            | RabbitMQ 관리 콘솔 포트                            |
+| `RABBITMQ_EXCHANGE`              | `assessment`       |                                              |
+| `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | 에이전트 ↔ 컨슈머 계약                                |
+| `RABBITMQ_ROUTING_KEY_METRICS`   | `server.metrics`   | 에이전트 ↔ 컨슈머 계약                                |
+| `RABBITMQ_ROUTING_KEY_ERROR`     | `server.error`     | 에이전트 ↔ 컨슈머 계약                                |
+| `REDIS_HOST`                     | `redis`            | docker-compose가 서비스명으로 오버라이드 — `.env` 설정 불필요 |
+| `REDIS_PORT`                     | `6379`             |                                              |
+| `WEB_PORT`                       | `8000`             |                                              |
 
 ---
 
@@ -82,14 +97,60 @@ docker compose down -v
 
 ## 접속
 
-| 주소 | 설명 |
-|---|---|
-| http://localhost:8000/servers/ | 서버 인벤토리 웹 UI |
-| http://localhost:8000/health | 헬스체크 |
-| http://localhost:8000/docs | FastAPI Swagger UI |
-| http://localhost:8000/redoc | FastAPI ReDoc |
-| http://localhost:15672 | RabbitMQ 관리 콘솔 |
-| localhost:5432 | PostgreSQL |
+| 주소                             | 설명                 |
+|--------------------------------|--------------------|
+| http://localhost:8000/servers/ | 서버 인벤토리 웹 UI       |
+| http://localhost:8000/health   | 헬스체크               |
+| http://localhost:8000/docs     | FastAPI Swagger UI |
+| http://localhost:8000/redoc    | FastAPI ReDoc      |
+| http://localhost:15672         | RabbitMQ 관리 콘솔     |
+| localhost:5432                 | PostgreSQL         |
+
+---
+
+## 테스트
+
+### 사전 준비
+
+로컬 개발 환경이 세팅되어 있지 않다면 먼저 설치한다.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install uv
+uv pip install -e ".[test]"
+```
+
+### 단위 테스트
+
+Docker 없이 실행 가능. Mock을 사용해 외부 의존성(DB·Redis·RabbitMQ)을 제거한다.
+
+```bash
+pytest tests/unit/ -v
+```
+
+### 통합 테스트 (DB)
+
+testcontainers가 TimescaleDB 컨테이너를 자동으로 기동·종료한다. **Docker daemon 필요.**
+
+```bash
+pytest tests/integration/ -v
+```
+
+### 전체 실행
+
+```bash
+pytest tests/ -v
+```
+
+### 마커로 선택 실행
+
+```bash
+pytest tests/ -m unit          # 단위 테스트만
+```
+```bash
+pytest tests/ -m integration   # 통합 테스트만
+```
 
 ---
 
@@ -101,26 +162,31 @@ docker compose down -v
 │                                 HOST MACHINE                                 │
 │                                                                              │
 │   ┌──────────────────────────────────────────────────────────────────────┐   │
-│   │                 DOCKER COMPOSE (Assessment Engine)                   │   │
+│   │                 DOCKER COMPOSE (assessment-engine)                   │   │
 │   │                                                                      │   │
-│   │   [ FastAPI ] <───> [ RabbitMQ ] <─── [ Redis ]                      │   │
-│   │      :8000              :5672             (Cache)                    │   │
-│   │        │                  ▲                                          │   │
-│   │        │                  │                                          │   │
-│   │   [ PostgreSQL ] <── [ Consumer ]                                    │   │
-│   │      :5432           (Task Engine)                                   │   │
-│   └───────────────────────────┬──────────────────────────────────────────┘   │
-│                               │ 10.0.2.2 (Gateway)                           │
-│           ┌───────────────────┼───────────────────┐                          │
+│   │        ┌─────────────┐              ┌─────────────┐                  │   │
+│   │        │   FastAPI   │              │   RabbitMQ  │                  │   │
+│   │        │   (:8000)   │              │   (:5672)   │                  │   │
+│   │        └──────┬──────┘              └──────┬──────┘                  │   │
+│   │               ▲                            │                         │   │
+│   │               │ (4) QUERY                  │ (2) DISPATCH            │   │
+│   │               │                            ▼                         │   │
+│   │        ┌──────┴──────┐              ┌─────────────┐                  │   │
+│   │        │ PostgreSQL  │              │   Consumer  │                  │   │
+│   │        │   (:5432)   │ <─────────── │             │                  │   │
+│   │        └─────────────┘  (3) PERSIST └─────────────┘                  │   │
+│   │                                                                      │   │
+│   └───────────────────────────▲──────────────────────────────────────────┘   │
+│                               │                                              │
+│                               │ (1) PUBLISH TASK                             │
+│                               │     (Target: 10.0.2.2)                       │
+│           ┌───────────────────┴───────────────────┐                          │
 │           │                   │                   │                          │
-│   ┌───────▼───────┐   ┌───────▼───────┐   ┌───────▼───────┐                  │
-│   │     VM 1      │   │     VM 2      │   │     VM 3      │                  │
-│   │ (Ubuntu 22.04)│   │ (Rocky Linux9)│   │  (Debian 12)  │                  │
+│   ┌───────┴───────┐   ┌───────┴───────┐   ┌───────┴───────┐                  │
+│   │     VM 01     │   │     VM 02     │   │     VM 03     │                  │
+│   │   (Ubuntu)    │   │    (Rocky)    │   │   (Debian)    │                  │
 │   ├───────────────┤   ├───────────────┤   ├───────────────┤                  │
-│   │ web-server-01 │   │ db-server-01  │   │backup-srv-01  │                  │
-│   │ - /proc       │   │ - /proc       │   │ - /proc       │                  │
-│   │ - machine-id  │   │ - machine-id  │   │ - machine-id  │                  │
-│   │ - Agent (C99) │   │ - Agent (C99) │   │ - Agent (C99) │                  │
+│   │  Agent (C99)  │   │  Agent (C99)  │   │  Agent (C99)  │                  │
 │   └───────────────┘   └───────────────┘   └───────────────┘                  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -130,10 +196,10 @@ docker compose down -v
 
 ### 추가 사전 요구사항
 
-| 소프트웨어 | 설치 방법 | 용도 |
-|-----------|----------|------|
+| 소프트웨어           | 설치 방법                                         | 용도        |
+|-----------------|-----------------------------------------------|-----------|
 | VirtualBox 7.1+ | [virtualbox.org](https://www.virtualbox.org/) | VM 하이퍼바이저 |
-| Vagrant 2.4.x | [vagrantup.com](https://www.vagrantup.com/) | VM 프로비저닝 |
+| Vagrant 2.4.x   | [vagrantup.com](https://www.vagrantup.com/)   | VM 프로비저닝  |
 
 > **Apple Silicon (ARM64)**: VirtualBox 7.1+부터 ARM VM 지원. bento 박스가 arm64 변형을 자동으로 선택한다.
 > **x86 Windows / Linux**: 동일한 Vagrantfile에서 x86_64 박스가 자동 선택되며 더 안정적으로 동작한다.
@@ -148,11 +214,11 @@ docker compose down -v
 
 ### VM 구성
 
-| VM | Box | OS | 시뮬레이션 |
-|----|-----|----|-----------|
-| `web-server-01` | bento/ubuntu-22.04 | Ubuntu 22.04 | 웹 서버 |
-| `db-server-01` | bento/rockylinux-9 | Rocky Linux 9 | DB 서버 (RHEL 계열) |
-| `backup-server-01` | bento/debian-12 | Debian 12 | 백업 서버 |
+| VM                 | Box                | OS            | 시뮬레이션           |
+|--------------------|--------------------|---------------|-----------------|
+| `web-server-01`    | bento/ubuntu-22.04 | Ubuntu 22.04  | 웹 서버            |
+| `db-server-01`     | bento/rockylinux-9 | Rocky Linux 9 | DB 서버 (RHEL 계열) |
+| `backup-server-01` | bento/debian-12    | Debian 12     | 백업 서버           |
 
 > Rocky Linux 9는 프로비저닝 시 EPEL + CRB 저장소를 자동으로 활성화해 빌드 의존성을 설치한다.
 
@@ -162,7 +228,7 @@ docker compose down -v
 # 1. assessment-engine 기동
 cd assessment-engine
 cp .env.example .env
-docker compose up -d
+docker compose up --build -d
 ```
 
 ```bash

@@ -6,15 +6,15 @@ import pytest_asyncio
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
+from testcontainers.postgres import PostgresContainer
 
-from db.models import server_inventory, server_metrics  # noqa: F401 — ORM 모델 등록
-from db.models import server_disk_io, server_net_io, server_mount_usage  # noqa: F401
+from db.models import server_disk_io, server_inventory, server_metrics  # noqa: F401
+from db.models import server_mount_usage, server_net_io  # noqa: F401
 from db.models.base import Base
 
 
 @pytest.fixture(scope="session")
 def pg_url():
-    # TimescaleDB 이미지 사용 — server_metrics 는 hypertable 로 관리된다
     with PostgresContainer("timescale/timescaledb:latest-pg16") as pg:
         yield pg.get_connection_url().replace("postgresql+psycopg2", "postgresql+asyncpg")
 

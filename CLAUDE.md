@@ -153,7 +153,7 @@ Exchange: `assessment` (direct, durable) / DLX: `assessment.dlx` (direct, durabl
 - `agg`: avg / max / p95
 
 ### Jinja2 KST 필터
-`web/routers/pages.py`에 `_kst(dt)` 필터 정의 → `templates.env.filters["kst"] = _kst` 등록.
+`web/template_filters.py`에 `kst`, `disksize`, `kbps` 정의 → `web/routers/pages.py`에서 `templates.env.filters`에 등록.
 datetime(UTC) → KST `"YYYY-MM-DD HH:MM"` 변환. Redis 캐시에서 복원 시 datetime 필드는 `datetime.fromisoformat()`으로 파싱해야 필터가 동작함 (`json.loads`는 str 반환).
 
 ### asyncpg 파라미터 주의사항
@@ -202,22 +202,53 @@ docker-compose `environment`에는 서비스명 오버라이드(`POSTGRES_HOST`,
 
 Vagrantfile step 3에서 `cp` + `chmod 755`, step 2에서 `/etc/assessment-agent.env` 작성. `ExecStart=/usr/local/bin/assessment-agent`, `EnvironmentFile=/etc/assessment-agent.env`.
 
+## 서비스 계층 구조
+
+`web/services/` 하위 모듈 분리:
+
+| 모듈 | 역할 |
+|------|------|
+| `query_service.py` | QueryService 클래스 (Redis + repo 오케스트레이션) |
+| `mappers.py` | outbound DTO → ViewModel 변환 |
+| `metrics_calculator.py` | CPU/Mem/Disk/Net delta 계산 |
+| `cache_serializer.py` | Redis serde (ServerDetailResponse, MetricDashboard) |
+| `units.py` | `_kb_to_gb`, `_bytes_to_gb`, `_usage_pct`, `_sector_to_kbps` |
+
 ## ViewModel 설계 원칙
 
 - 단위 변환(KB→GB, bytes→GB/TB, kBps→MBps)은 **서비스 계층**에서 수행. 템플릿은 이미 변환된 값을 사용.
-- `_kb_to_gb(kb)`, `_bytes_to_gb(b)` — `query_service.py` 내 유틸 함수.
-- 표시 포맷(숫자 → "1.2 TB", "3.4 kBps") 은 Jinja2 필터 `disksize` / `kbps`로 위임 (`web/routers/pages.py` 등록).
+- `_kb_to_gb(kb)`, `_bytes_to_gb(b)` — `web/services/units.py` 유틸 함수.
+- 표시 포맷(숫자 → "1.2 TB", "3.4 kBps") 은 Jinja2 필터 `disksize` / `kbps`로 위임 (`web/template_filters.py` 정의, `web/routers/pages.py`에서 등록).
 - `NetInterfaceItem`은 제거되었음. `NetworkDetailResponse.interfaces`는 `list[NetIoSnapshot]` 재사용 — 필드 구조가 동일하므로 별도 타입 불필요.
+
+## 타입 어노테이션 규칙
+
+- **`from __future__ import annotations` 절대 금지** — 전 파일.
+- `TYPE_CHECKING` 블록은 순환 임포트가 실제로 발생하는 경우에만 사용. 순환 임포트 없는 경우 직접 임포트. Python 3.12에서 어노테이션은 즉시 평가되므로 `TYPE_CHECKING` 블록의 import는 런타임 `NameError`를 유발함.
+- 타입 좁히기용 데드코드(`assert x is not None` 등) 작성 금지.
 
 ## 테스트 구조
 
-테스트 코드는 `_tests/` 디렉토리에 위치. `pyproject.toml`에 pytest 설정 및 test 의존성은 미포함 — 현재 단위/통합 테스트는 코드만 관리하며 CI 파이프라인에서 별도 실행.
+테스트 코드는 `tests/` 디렉토리에 위치. 전략 문서: `_docs/TEST_STRATEGY.md`.
 
-| 경로 | 내용 |
-|------|------|
-| `_tests/unit/consumer/test_handler.py` | handler 행동 테스트 (redis mock 포함) |
-| `_tests/unit/web/test_router.py` | 라우터 404/200 + 파라미터 전달 검증 |
-| `_tests/integration/conftest.py` | testcontainers TimescaleDB 픽스처 |
+```
+tests/
+├── unit/
+│   ├── consumer/          # test_schemas.py, test_handler.py
+│   └── web/
+│       ├── services/      # test_metrics_calculator.py, test_mappers.py, test_query_service.py
+│       └── routers/       # test_pages.py, test_api.py
+└── integration/
+    └── db/                # test_collect_repository.py, test_query_repository.py
+```
+
+테스트 의존성은 optional group으로 관리 (`pyproject.toml [project.optional-dependencies] test`):
+
+```bash
+uv pip install -e ".[test]"
+pytest tests/unit/ -v          # 단위 테스트 (Docker 불필요)
+pytest tests/integration/ -v   # 통합 테스트 (Docker daemon 필요)
+```
 
 ## 브랜치 전략
 | 브랜치 | 용도 |

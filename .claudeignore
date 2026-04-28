@@ -1,4 +1,6 @@
-.venv/
 .git/
 .github/
-_tests/
+.vagrant/
+.venv/
+
+_docs/

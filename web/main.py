@@ -31,6 +31,7 @@ async def lifespan(_app: FastAPI):
     #     await seed_demo_data(session)
 
     yield
+
     await close_pool()
 
 

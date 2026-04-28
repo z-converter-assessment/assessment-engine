@@ -1,4 +1,3 @@
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -6,38 +5,12 @@ from fastapi.templating import Jinja2Templates
 
 from web.deps import get_service
 from web.services.query_service import QueryService
-
-_KST = timezone(timedelta(hours=9))
-
-
-def _kst(dt: datetime | None) -> str:
-    if dt is None:
-        return "-"
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(_KST).strftime("%Y-%m-%d %H:%M")
-
-
-def _disksize(gb: float | None) -> str:
-    if gb is None:
-        return "-"
-    if gb >= 1024:
-        return f"{round(gb / 1024, 1)} TB"
-    return f"{gb} GB"
-
-
-def _kbps(kb: float | None) -> str:
-    if kb is None:
-        return "—"
-    if kb >= 1024:
-        return f"{round(kb / 1024, 1)} MBps"
-    return f"{kb} kBps"
-
+from web.template_filters import disksize, kbps, kst
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
-templates.env.filters["kst"]      = _kst
-templates.env.filters["disksize"] = _disksize
-templates.env.filters["kbps"]     = _kbps
+templates.env.filters["kst"]      = kst
+templates.env.filters["disksize"] = disksize
+templates.env.filters["kbps"]     = kbps
 
 pages_router = APIRouter(prefix="/servers", tags=["pages"])
 

@@ -135,11 +135,18 @@ def make_inventory_handler(
                 return
 
             dto = _to_inventory_create(data)
-            await _db_retry(
-                session_factory,
-                repo_factory,
-                lambda repo: repo.upsert_server(dto),
-            )
+            resolved_server_id: int | None = None
+
+            async def _upsert(repo: BaseCollectRepository) -> None:
+                nonlocal resolved_server_id
+                resolved_server_id = await repo.upsert_server(dto)
+
+            await _db_retry(session_factory, repo_factory, _upsert)
+
+            if resolved_server_id is not None:
+                online_key = consumer_settings.redis_key_online.format(resolved_server_id)
+                await redis.set(online_key, 1, ex=consumer_settings.redis_ttl_online)
+
             logger.info("inventory stored machine_id={}", data.machine_id)
 
     return _handle
