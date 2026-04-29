@@ -20,7 +20,7 @@ ZConverter Cloud Assessment Portal.
 
 - **scheduler**는 코드(`scheduler/`)는 있으나 docker-compose 서비스로 미등록. `run_diagnostics()` NotImplementedError 상태.
 - `consumer depends_on web: condition: service_healthy` — **DEV 전용**: web 기동 시 lifespan이 `CREATE EXTENSION + create_all + create_hypertable` 를 수행하므로, consumer가 web health 확인 후 시작해야 스키마가 존재함. 프로덕션에서는 Alembic으로 대체하고 이 의존성 제거.
-- `db/session.py`와 `db/redis.py`는 `web_settings`를 사용. consumer도 이 파일을 공유하며, docker-compose의 `POSTGRES_HOST: postgres` / `REDIS_HOST: redis` environment 오버라이드로 동작함.
+- `db/session.py`와 `db/redis.py`는 `web_settings`를 사용. `ConsumerSettings`는 `WebSettings`를 상속하여 RabbitMQ 설정을 추가하며, docker-compose의 `POSTGRES_HOST: postgres` / `REDIS_HOST: redis` environment 오버라이드로 동작함.
 
 ## ORM 모델
 
@@ -33,7 +33,7 @@ ZConverter Cloud Assessment Portal.
 | ServerMountUsage | server_mount_usage | BigInteger | 마운트 사용량 시계열. TimescaleDB hypertable |
 
 - 대리키(surrogate key) 패턴 — 내부 참조는 정수 PK, 비즈니스 식별자는 unique 제약
-- 시계열 4개 테이블 모두 BigInteger PK — 무한 누적 대비
+- 시계열 4개 테이블 모두 복합 PK `(id BIGINT, collected_at TIMESTAMPTZ)` — TimescaleDB hypertable 파티션 키 포함, 무한 누적 대비
 - `server_disk_io`·`server_net_io`·`server_mount_usage`는 per-device/per-interface/per-mount 행 분리 — 차트 API `dimension` 파라미터에 대응
 
 ## 데이터 흐름 설계
@@ -45,6 +45,7 @@ ZConverter Cloud Assessment Portal.
 - Consumer 파싱: Pydantic `AgentMessage` discriminated union (정의됨) → 실제 핸들러는 routing key별로 구체 타입(`InventoryInput`, `MetricsInput`, `ErrorInput`)을 직접 파싱
 - inventory upsert 및 metrics 서버 조회 기준: `machine_id` (미등록 서버면 drop)
 - `last_seen_at`: `list_servers()`에서 `COALESCE(MAX(server_metrics.collected_at), server_inventory.last_seen_at)` subquery JOIN으로 산출 — "마지막 메트릭 수신 시각" 의미. 인벤토리 등록 시각이 아님.
+- `CollectionStatusItem`은 `last_metric_at`(마지막 메트릭 수신)과 `last_inventory_at`(마지막 인벤토리 수신)을 별도 필드로 분리 반환 — `/collection-status` API에서 두 시각을 모두 노출.
 
 ## 에이전트 메시지 스키마 (`agent_version` = 계약 버전)
 
@@ -101,7 +102,7 @@ ZConverter Cloud Assessment Portal.
 3. `PUBLISH metrics.events {"server_id": ..., "machine_id": ...}` — 브라우저 SSE 트리거
 
 ### MQ 토폴로지
-Exchange: `assessment` (direct, durable) / DLX: `assessment.dlx` (direct, durable)
+Exchange: `assessment` (direct, durable) / DLX: `assessment.dlx` (direct, durable) / prefetch_count: 10
 
 | routing key | 큐 | DLQ |
 |-------------|-----|-----|
@@ -229,7 +230,7 @@ Vagrantfile step 3에서 `cp` + `chmod 755`, step 2에서 `/etc/assessment-agent
 
 ## 테스트 구조
 
-테스트 코드는 `tests/` 디렉토리에 위치. 전략 문서: `_docs/TEST_STRATEGY.md`.
+테스트 코드는 `tests/` 디렉토리에 위치. 전략 문서: `docs/TEST_STRATEGY.md`.
 
 ```
 tests/
