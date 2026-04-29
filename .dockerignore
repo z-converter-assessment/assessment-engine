@@ -1,0 +1,27 @@
+# 런타임 생성물
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 버전 관리 / IDE
+.git/
+.github/
+.idea/
+
+# 인프라 (이미지 내 불필요)
+.vagrant/
+Vagrantfile
+docker-compose.yml
+
+# 시크릿 — 절대 이미지에 포함되면 안 됨
+.env
+
+# 문서 (이미지 내 불필요)
+.env.example
+README.md
+CLAUDE.md
+docs/
+
+# 테스트
+tests/

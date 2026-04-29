@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}스토리지 — {{ storage.hostname }} — ZConverter Assessment{% endblock %}
+
+{% block content %}
+<a class="back" href="/servers/{{ storage.server_id }}">← {{ storage.hostname }}</a>
+<h1>{{ storage.hostname }} — 스토리지</h1>
+
+<!-- 물리 디스크 (인벤토리) -->
+<div class="card">
+  <h2>물리 디스크</h2>
+  {% if storage.disks %}
+  <table>
+    <thead>
+      <tr><th>Device</th><th>Type</th><th>Capacity</th></tr>
+    </thead>
+    <tbody>
+      {% for d in storage.disks %}
+      <tr>
+        <td><code>{{ d.name }}</code></td>
+        <td>
+          {% if d.type %}
+            <span class="badge">{{ d.type }}</span>
+          {% else %}-{% endif %}
+        </td>
+        <td>{{ d.size_gb | disksize }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:#94a3b8; font-size:13px;">디스크 정보 없음</p>
+  {% endif %}
+</div>
+
+<!-- 파일시스템 사용량 (인벤토리 + 실시간 server_mount_usage) -->
+<div class="card">
+  <h2>파일시스템 사용량</h2>
+  <p style="font-size:12px; color:#94a3b8; margin-bottom:14px; margin-top:-8px;">
+    가용 공간은 최근 수집 기준 — 페이지 로드 시점의 스냅샷
+  </p>
+  {% if storage.mounts %}
+  <table>
+    <thead>
+      <tr>
+        <th>Mount Point</th>
+        <th>Filesystem</th>
+        <th>Total</th>
+        <th>Used</th>
+        <th>Available</th>
+        <th style="min-width:180px;">Usage</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in storage.mounts %}
+      <tr>
+        <td><code>{{ m.mount }}</code></td>
+        <td>{{ m.fstype or '-' }}</td>
+        <td>{{ m.total_gb ~ ' GB' if m.total_gb is not none else '-' }}</td>
+        <td>{{ m.used_gb ~ ' GB' if m.used_gb is not none else '-' }}</td>
+        <td>{{ m.avail_gb ~ ' GB' if m.avail_gb is not none else '-' }}</td>
+        <td>
+          {% if m.usage_pct is not none %}
+            <div style="display:flex; align-items:center; gap:8px;">
+              {% if m.usage_pct >= 90 %}
+                <span class="badge badge-danger">{{ m.usage_pct }}%</span>
+              {% elif m.usage_pct >= 75 %}
+                <span class="badge badge-warn">{{ m.usage_pct }}%</span>
+              {% else %}
+                <span class="badge badge-ok">{{ m.usage_pct }}%</span>
+              {% endif %}
+              <div class="progress-bar" style="flex:1; min-width:80px;">
+                <div class="progress-fill" style="
+                  width:{{ m.usage_pct }}%;
+                  background:{% if m.usage_pct >= 90 %}#ef4444{% elif m.usage_pct >= 75 %}#f59e0b{% else %}#22c55e{% endif %};
+                "></div>
+              </div>
+            </div>
+          {% else %}
+            <span style="color:#94a3b8; font-size:12px;">수집 대기 중</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:#94a3b8; font-size:13px;">마운트 정보 없음</p>
+  {% endif %}
+</div>
+{% endblock %}

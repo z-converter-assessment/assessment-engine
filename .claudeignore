@@ -1,0 +1,7 @@
+.idea/
+.git/
+.github/
+.vagrant/
+.venv/
+
+docs/

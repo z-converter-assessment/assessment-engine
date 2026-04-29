@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}서버 목록 — ZConverter Assessment{% endblock %}
+
+{% block content %}
+<h1>서버 목록</h1>
+
+<form method="get" class="search-row">
+  <input type="text" name="search" value="{{ request.query_params.get('search', '') }}" placeholder="hostname 검색">
+  <label>
+    <input type="checkbox" name="is_online" value="true"
+      {% if request.query_params.get('is_online') == 'true' %}checked{% endif %}>
+    온라인만
+  </label>
+  <button type="submit">검색</button>
+  {% if request.query_params.get('search') or request.query_params.get('is_online') %}
+  <a href="/servers/" class="clear-btn" style="display:inline-flex;align-items:center;text-decoration:none;">초기화</a>
+  {% endif %}
+</form>
+
+{% if servers %}
+<table>
+  <thead>
+    <tr>
+      <th>상태</th>
+      <th>Hostname</th>
+      <th>OS</th>
+      <th>CPU (cores)</th>
+      <th>Memory</th>
+      <th>마지막 수집</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in servers %}
+    <tr>
+      <td>
+        {% if s.is_online %}
+          <span class="badge badge-ok"><span class="dot dot-ok"></span>온라인</span>
+        {% else %}
+          <span class="badge"><span class="dot dot-off"></span>오프라인</span>
+        {% endif %}
+      </td>
+      <td><a href="/servers/{{ s.id }}"><strong>{{ s.hostname }}</strong></a></td>
+      <td style="color:#64748b;">
+        {% if s.os_id %}{{ s.os_id }}{% endif %}
+        {% if s.os_version %} {{ s.os_version }}{% endif %}
+        {% if not s.os_id and not s.os_version %}-{% endif %}
+      </td>
+      <td>{{ s.cpu_cores if s.cpu_cores is not none else '-' }}</td>
+      <td>{{ s.mem_total_gb ~ ' GB' if s.mem_total_gb is not none else '-' }}</td>
+      <td style="color:#64748b; font-size:13px;">{{ s.last_seen_at | kst }}</td>
+      <td>
+        <a href="/servers/{{ s.id }}" class="btn" style="font-size:12px; padding:4px 10px;">상세 →</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card" style="text-align:center; padding:40px; color:#64748b;">
+  등록된 서버가 없습니다.
+</div>
+{% endif %}
+{% endblock %}

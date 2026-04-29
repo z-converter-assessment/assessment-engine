@@ -1,10 +1,21 @@
+# 시크릿
 .env
+
+# IDE
 .idea/
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
 .venv/
-venv/
 *.egg-info/
+
+# macOS
 .DS_Store
-tools/agent/.env
+
+# 테스트 / 빌드 캐시
+.pytest_cache/
+
+# 인프라 상태
+.vagrant/
