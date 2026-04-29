@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ server.hostname }} — ZConverter Assessment{% endblock %}
+
+{% block content %}
+<a class="back" href="/servers/">← 서버 목록</a>
+<h1>{{ server.hostname }}</h1>
+
+<div class="card">
+  <h2>시스템 정보</h2>
+  <dl class="kv">
+    <dt>Server ID</dt><dd>{{ server.id }}</dd>
+    <dt>CPU (core)</dt><dd>{{ server.nproc if server.nproc is not none else '-' }}</dd>
+    <dt>Memory (MB)</dt><dd>{{ server.mem_total_mb if server.mem_total_mb is not none else '-' }}</dd>
+    <dt>마지막 수집</dt><dd>{{ server.updated_at }}</dd>
+  </dl>
+</div>
+
+{% if server.disks or server.ip_internal or server.ip_external %}
+<div class="card">
+  <h2>디스크</h2>
+  {% if server.disks %}
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Size</th></tr>
+    </thead>
+    <tbody>
+      {% for disk in server.disks %}
+      <tr>
+        <td>{{ disk.name }}</td>
+        <td>{{ disk.size }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:#64748b;">디스크 정보 없음</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>네트워크</h2>
+  <dl class="kv">
+    <dt>Internal IP</dt>
+    <dd>{{ server.ip_internal | join(', ') if server.ip_internal else '-' }}</dd>
+    <dt>External IP</dt>
+    <dd>{{ server.ip_external | join(', ') if server.ip_external else '-' }}</dd>
+  </dl>
+</div>
+{% endif %}
+
+<p style="margin-top:16px;">
+  <a href="/servers/{{ server.id }}/history">시계열 히스토리 보기 →</a>
+</p>
+{% endblock %}
