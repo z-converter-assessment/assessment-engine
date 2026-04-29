@@ -4,4 +4,4 @@
 .vagrant/
 .venv/
 
-_docs/
+docs/

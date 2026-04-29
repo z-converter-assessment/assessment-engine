@@ -35,7 +35,9 @@ Vagrant.configure("2") do |config|
       node.vm.box = vm[:box]
       node.vm.hostname = vm[:name]
 
-      node.vm.synced_folder "../assessment-agent", "/home/vagrant/assessment-agent"
+      node.vm.synced_folder "../assessment-agent", "/home/vagrant/assessment-agent",
+        type: "rsync",
+        rsync__exclude: [".git/", "*.o", "*.a", "assessment-agent"]
 
       node.vm.provider "virtualbox" do |vb|
         vb.name   = vm[:name]
@@ -55,8 +57,8 @@ Vagrant.configure("2") do |config|
         SHELL
       else
         node.vm.provision "shell", inline: <<~SHELL
-          dnf install -y epel-release
-          /usr/bin/crb enable
+          dnf install -y epel-release dnf-plugins-core
+          dnf config-manager --set-enabled crb
           dnf install -y gcc make pkg-config librabbitmq-devel cjson-devel
         SHELL
       end

@@ -21,7 +21,7 @@ docker-compose.yml
 .env.example
 README.md
 CLAUDE.md
-_docs/
+docs/
 
 # 테스트
 tests/
