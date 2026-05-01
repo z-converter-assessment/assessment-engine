@@ -42,8 +42,9 @@ def dashboard_to_json(v: MetricDashboard) -> str:
 
 def dashboard_from_json(raw: str) -> MetricDashboard:
     data = json.loads(raw)
+    raw_ca = data.get("collected_at")
     return MetricDashboard(
-        collected_at=data.get("collected_at"),
+        collected_at=datetime.fromisoformat(raw_ca) if isinstance(raw_ca, str) else None,
         cpu=CpuSnapshot(**data["cpu"]) if data.get("cpu") else None,
         load_1m=data.get("load_1m"),
         load_5m=data.get("load_5m"),

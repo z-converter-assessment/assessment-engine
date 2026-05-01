@@ -20,7 +20,7 @@ docker-compose.yml
 # 문서 (이미지 내 불필요)
 .env.example
 README.md
-CLAUDE.md
+.claude/
 docs/
 
 # 테스트
