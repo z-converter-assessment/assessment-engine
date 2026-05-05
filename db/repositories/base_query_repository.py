@@ -14,14 +14,25 @@ from db.repositories.outbound import (
 
 MetricType = Literal[
     "cpu.usage_percent",
+    "cpu.user_percent",
+    "cpu.system_percent",
+    "cpu.iowait_percent",
+    "load.1m",
+    "load.5m",
+    "load.15m",
+    "mem.usage_percent",
+    "mem.available_percent",
+    "mem.cached_percent",
+    "mem.buffers_percent",
+    "swap.usage_percent",
     "disk.read_iops",
     "disk.write_iops",
     "fs.usage_percent",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
 ]
-TimeRange  = Literal["15m", "1h", "6h", "24h", "7d"]
-BucketSize = Literal["5m", "1h", "1d"]
+TimeRange  = Literal["15m", "1h", "6h", "24h", "7d", "30d"]
+BucketSize = Literal["1m", "5m", "15m", "1h", "3h", "12h", "1d"]
 AggFunc    = Literal["avg", "max", "p95"]
 
 

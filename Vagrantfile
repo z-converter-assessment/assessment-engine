@@ -22,9 +22,9 @@ RABBITMQ_KEY_MET  = dot_env.fetch("RABBITMQ_ROUTING_KEY_METRICS",   "server.metr
 RABBITMQ_KEY_ERR  = dot_env.fetch("RABBITMQ_ROUTING_KEY_ERROR",     "server.error")
 
 VMS = [
-  { name: "web-server-01",    box: "bento/ubuntu-22.04",  family: :deb },
-  { name: "db-server-01",     box: "bento/rockylinux-9",  family: :rpm },
-  { name: "backup-server-01", box: "bento/debian-12",     family: :deb },
+  { name: "web-server-01",    box: "bento/ubuntu-22.04",  family: :deb, extra_mounts: [] },
+  { name: "db-server-01",     box: "bento/rockylinux-9",  family: :rpm, extra_mounts: ["/data"] },
+  { name: "backup-server-01", box: "bento/debian-12",     family: :deb, extra_mounts: ["/backup"] },
 ]
 
 Vagrant.configure("2") do |config|

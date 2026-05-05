@@ -1,13 +1,19 @@
 {% extends "base.html" %}
-{% block title %}네트워크 — {{ network.hostname }} — ZConverter Assessment{% endblock %}
+{% block title %}ZConverter Assessment — {{ network.hostname }} 네트워크{% endblock %}
 
 {% block content %}
-<a class="back" href="/servers/{{ network.server_id }}">← {{ network.hostname }}</a>
-<h1>{{ network.hostname }} — 네트워크</h1>
+<a class="back no-print" href="/servers/{{ network.server_id }}">← {{ network.hostname }}</a>
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+  <h1 style="margin:0;">{{ network.hostname }} — 네트워크</h1>
+  <button class="btn no-print" onclick="window.print()">인쇄</button>
+</div>
 
 <!-- IP 주소 -->
 <div class="card">
-  <h2>IP 주소</h2>
+  <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px;">
+    <h2 style="margin:0;">IP 주소</h2>
+    <span style="font-size:12px; color:#94a3b8;">인벤토리 수집: {{ network.inventory_at | kst if network.inventory_at else '-' }}</span>
+  </div>
   <dl class="kv">
     <dt>Internal</dt>
     <dd>
@@ -30,12 +36,19 @@
 
 <!-- 인터페이스 현황 -->
 <div class="card">
-  <h2>인터페이스 현황</h2>
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+    <h2 style="margin:0;">인터페이스 현황</h2>
+    <div id="sse-status" class="no-print" style="display:flex; align-items:center; gap:5px; font-size:11px; color:#94a3b8; white-space:nowrap;">
+      <span id="sse-dot" class="dot dot-off"></span>
+      <span id="sse-label">연결 중...</span>
+      <span id="net-snapshot-ts" style="margin-left:4px;"></span>
+    </div>
+  </div>
   <p style="font-size:12px; color:#94a3b8; margin-bottom:14px; margin-top:-8px;">
-    연속 2회 측정의 delta 기반 처리량 — 페이지 로드 시점의 스냅샷
+    연속 2회 측정의 delta 기반 처리량
   </p>
-  {% if network.interfaces %}
-  <table>
+  <div id="net-snapshot-loading" style="color:#94a3b8; font-size:13px;">불러오는 중...</div>
+  <table id="net-snapshot-table" style="display:none;">
     <thead>
       <tr>
         <th>Interface</th>
@@ -45,23 +58,323 @@
         <th>TX (pps)</th>
       </tr>
     </thead>
-    <tbody>
-      {% for iface in network.interfaces %}
-      <tr>
-        <td><code>{{ iface.interface }}</code></td>
-        <td>{{ iface.rx_kbps | kbps }}</td>
-        <td>{{ iface.tx_kbps | kbps }}</td>
-        <td>{{ iface.rx_pps if iface.rx_pps is not none else '—' }}</td>
-        <td>{{ iface.tx_pps if iface.tx_pps is not none else '—' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
+    <tbody id="net-snapshot-tbody"></tbody>
   </table>
-  {% else %}
-  <p style="color:#94a3b8; font-size:13px;">
+  <div id="net-snapshot-empty" style="display:none; color:#94a3b8; font-size:13px;">
     수집된 네트워크 I/O 데이터가 없습니다.
     에이전트가 최소 2회 메트릭을 전송하면 표시됩니다.
-  </p>
-  {% endif %}
+  </div>
 </div>
+
+<!-- 네트워크 I/O 추이 -->
+<div class="card">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <h2 style="margin:0;">네트워크 I/O 추이<span class="print-only" id="net-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+      <span id="net-bucket-label" style="font-size:11px; color:#94a3b8;"></span>
+    </div>
+    <div class="toggle-group no-print" id="net-range-btns">
+      <button class="toggle" data-val="15m">15분</button>
+      <button class="toggle active" data-val="1h">1시간</button>
+      <button class="toggle" data-val="6h">6시간</button>
+      <button class="toggle" data-val="24h">24시간</button>
+      <button class="toggle" data-val="7d">7일</button>
+    </div>
+  </div>
+  <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+    <canvas id="net-chart-canvas"></canvas>
+  </div>
+  <div id="net-chart-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+    해당 기간에 수집된 데이터가 없습니다.
+  </div>
+  <div id="net-legend" style="display:flex; flex-direction:column; gap:6px; margin-top:12px;"></div>
+  <p style="font-size:11px; color:#94a3b8; margin:8px 0 0;">
+    음영 영역: 집계 구간 내 순간 최대 처리량과 평균의 차이.
+  </p>
+</div>
+
+<style>
+  .toggle-group { display:flex; gap:4px; flex-wrap:wrap; }
+  .toggle {
+    padding:5px 12px; border:1px solid #e2e8f0; border-radius:5px;
+    background:#fff; color:#475569; font-size:12px; cursor:pointer;
+    transition: background .12s, color .12s, border-color .12s;
+  }
+  .toggle:hover { background:#f8fafc; border-color:#cbd5e1; }
+  .toggle.active { background:#0f172a; color:#fff; border-color:#0f172a; }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+const SERVER_ID  = {{ network.server_id }};
+const RANGE_LABEL = { '15m':'15분', '1h':'1시간', '6h':'6시간', '24h':'24시간', '7d':'7일' };
+const NET_Y_SUGGESTED_MAX = 2048; // B/s 기본 기준선 (≈2 kB/s). 조정 가능.
+
+function fmtKst(iso) {
+  return new Date(iso).toLocaleString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+}
+
+function fmtKbps(v) {
+  if (v == null) return '—';
+  if (v >= 1024) return (v / 1024).toFixed(1) + ' MBps';
+  return v.toFixed(1) + ' kBps';
+}
+function fmtPps(v) { return v != null ? Math.round(v) + ' pps' : '—'; }
+
+async function loadNetSnapshot() {
+  try {
+    const res = await fetch(`/api/v1/servers/${SERVER_ID}/metrics/latest`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const netIo = data.net_io || [];
+    document.getElementById('net-snapshot-loading').style.display = 'none';
+    if (!netIo.length) {
+      document.getElementById('net-snapshot-empty').style.display = '';
+      return;
+    }
+    document.getElementById('net-snapshot-tbody').innerHTML = netIo.map(iface => `
+      <tr>
+        <td><code>${iface.interface}</code></td>
+        <td>${fmtKbps(iface.rx_kbps)}</td>
+        <td>${fmtKbps(iface.tx_kbps)}</td>
+        <td>${fmtPps(iface.rx_pps)}</td>
+        <td>${fmtPps(iface.tx_pps)}</td>
+      </tr>
+    `).join('');
+    document.getElementById('net-snapshot-table').style.display = '';
+    if (data.collected_at) document.getElementById('net-snapshot-ts').textContent = '수집 기준: ' + fmtKst(data.collected_at);
+  } catch(e) { console.error(e); }
+}
+const COLORS = ['#3b82f6','#f59e0b','#22c55e','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
+const AUTO_BUCKET  = { '15m':'1m', '1h':'1m', '6h':'5m', '24h':'15m', '7d':'3h' };
+const BUCKET_LABEL = { '1m':'1분 집계', '5m':'5분 집계', '15m':'15분 집계', '1h':'1시간 집계', '3h':'3시간 집계', '1d':'1일 집계' };
+const RANGE_MS  = { '15m':9e5, '1h':36e5, '6h':216e5, '24h':864e5, '7d':6048e5 };
+const BUCKET_MS = { '1m':6e4, '5m':3e5, '15m':9e5, '3h':108e5 };
+
+function makeBucketGrid(rangeKey, bucketKey) {
+  const now   = Date.now();
+  const bMs   = BUCKET_MS[bucketKey];
+  const start = now - RANGE_MS[rangeKey];
+  const first = Math.ceil(start / bMs) * bMs;
+  const grid  = [];
+  for (let t = first; t <= now; t += bMs) grid.push(t);
+  return grid;
+}
+
+function joinToGrid(grid, rows, bMs) {
+  const map = {};
+  for (const r of rows) {
+    const t = Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs;
+    map[t] = r.value;
+  }
+  return grid.map(t => map[t] ?? null);
+}
+
+let netRange = '1h';
+let netChart = null;
+let netAvgRows = [];
+let netMaxRows = [];
+
+function updateNetBucketLabel() {
+  document.getElementById('net-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[netRange]] || '';
+}
+
+function fmtKbChart(v) {
+  if (v == null) return '';
+  if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + ' MB/s';
+  if (v >= 1024) return (v / 1024).toFixed(1) + ' kB/s';
+  return v.toFixed(0) + ' B/s';
+}
+
+function fmtNetLabel(ts) {
+  const d = new Date(ts);
+  const opts = netRange === '7d'
+    ? { timeZone:'Asia/Seoul', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12: false }
+    : { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit', hour12: false };
+  return d.toLocaleString('ko-KR', opts);
+}
+
+function renderNetChart() {
+  const empty  = document.getElementById('net-chart-empty');
+  const canvas = document.getElementById('net-chart-canvas');
+
+  if (!netAvgRows.length) {
+    canvas.style.display = 'none';
+    empty.style.display  = '';
+    if (netChart) { netChart.destroy(); netChart = null; }
+    return;
+  }
+
+  canvas.style.display = '';
+  empty.style.display  = 'none';
+
+  const bMs    = BUCKET_MS[AUTO_BUCKET[netRange]];
+  const grid   = makeBucketGrid(netRange, AUTO_BUCKET[netRange]);
+  const labels = grid.map(t => fmtNetLabel(new Date(t).toISOString()));
+
+  const dims = [...new Set(netAvgRows.map(r => r.dimension))];
+  const datasets = [];
+  dims.forEach((dim, i) => {
+    const color = COLORS[i % COLORS.length];
+    const avgMap = {}, maxMap = {};
+    for (const r of netAvgRows.filter(r => r.dimension === dim))
+      avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
+    for (const r of netMaxRows.filter(r => r.dimension === dim))
+      maxMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
+
+    datasets.push({
+      label: dim,
+      data: grid.map(t => avgMap[t] ?? null),
+      borderColor: color,
+      backgroundColor: color + '28',
+      borderWidth: 2,
+      pointRadius: 1,
+      pointHoverRadius: 3,
+      tension: 0.3,
+      fill: '+1',
+      spanGaps: false,
+    });
+    const realMaxData = grid.map(t => maxMap[t] ?? null);
+    const bufferedMaxData = grid.map(t => {
+      const avgVal = avgMap[t];
+      if (avgVal == null) return null;
+      return maxMap[t] ?? avgVal;
+    });
+    datasets.push({
+      label: dim + '__max',
+      data: bufferedMaxData,
+      realData: realMaxData,
+      borderColor: 'transparent',
+      backgroundColor: 'transparent',
+      borderWidth: 0,
+      pointRadius: 0,
+      pointHoverRadius: 0,
+      tension: 0.3,
+      fill: false,
+      spanGaps: false,
+    });
+  });
+
+  if (netChart) {
+    netChart.data.labels   = labels;
+    netChart.data.datasets = datasets;
+    netChart.update('none');
+    return;
+  }
+
+  netChart = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode:'index', intersect:false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          filter: item => item.datasetIndex % 2 === 0,
+          callbacks: {
+            label: ctx => {
+              const avg = ctx.parsed.y;
+              const maxDs = netChart?.data.datasets[ctx.datasetIndex + 1];
+              const realMax = maxDs?.realData?.[ctx.dataIndex];
+              if (realMax != null)
+                return ` ${ctx.dataset.label}: 평균 ${fmtKbChart(avg)} / 최대 ${fmtKbChart(realMax)}`;
+              return ` ${ctx.dataset.label}: ${fmtKbChart(avg)}`;
+            }
+          },
+        },
+      },
+      scales: {
+        x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
+        y: {
+          title: { display:true, text:'처리량', font:{size:11}, color:'#94a3b8' },
+          ticks: { callback: v => fmtKbChart(v), font:{size:11}, color:'#64748b' },
+          grid:  { color:'#f1f5f9' },
+          beginAtZero: true,
+          suggestedMax: NET_Y_SUGGESTED_MAX,
+        },
+      },
+    },
+  });
+}
+
+function buildNetLegend() {
+  const container = document.getElementById('net-legend');
+  if (!netChart) { container.innerHTML = ''; return; }
+  const avgDatasets = netChart.data.datasets.filter((_, i) => i % 2 === 0);
+  container.innerHTML = avgDatasets.map((ds, i) => `
+    <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#475569; cursor:pointer; user-select:none;">
+      <input type="checkbox" data-avg="${i * 2}" data-max="${i * 2 + 1}" checked
+        style="accent-color:${ds.borderColor}; width:13px; height:13px; cursor:pointer;">
+      <span>${ds.label}</span>
+    </label>
+  `).join('');
+  container.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      netChart.getDatasetMeta(+cb.dataset.avg).hidden = !cb.checked;
+      netChart.getDatasetMeta(+cb.dataset.max).hidden = !cb.checked;
+      netChart.update();
+    });
+  });
+}
+
+async function loadNetChart() {
+  const bucket = AUTO_BUCKET[netRange];
+  const mkP = (type, agg) => new URLSearchParams({ metric_type: type, time_range: netRange, bucket, agg });
+  try {
+    const [rxAvg, rxMax, txAvg, txMax] = await Promise.all([
+      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('net.rx_bytes_per_sec', 'avg')}`).then(r => r.json()),
+      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('net.rx_bytes_per_sec', 'max')}`).then(r => r.json()),
+      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('net.tx_bytes_per_sec', 'avg')}`).then(r => r.json()),
+      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('net.tx_bytes_per_sec', 'max')}`).then(r => r.json()),
+    ]);
+    netAvgRows = [
+      ...rxAvg.map(r => ({ ...r, dimension: `${r.dimension} RX` })),
+      ...txAvg.map(r => ({ ...r, dimension: `${r.dimension} TX` })),
+    ];
+    netMaxRows = [
+      ...rxMax.map(r => ({ ...r, dimension: `${r.dimension} RX` })),
+      ...txMax.map(r => ({ ...r, dimension: `${r.dimension} TX` })),
+    ];
+    if (netChart) { netChart.destroy(); netChart = null; }
+    renderNetChart();
+    buildNetLegend();
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+function bindToggle(groupId, onChange) {
+  document.getElementById(groupId).addEventListener('click', e => {
+    const btn = e.target.closest('.toggle');
+    if (!btn) return;
+    document.querySelectorAll(`#${groupId} .toggle`).forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    onChange(btn.dataset.val);
+  });
+}
+
+bindToggle('net-range-btns', v => { netRange = v; updateNetBucketLabel(); document.getElementById('net-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadNetChart(); });
+
+/* ── SSE ── */
+const es = new EventSource(`/api/v1/servers/${SERVER_ID}/metrics/stream`);
+es.onopen = () => {
+  document.getElementById('sse-dot').className = 'dot dot-ok';
+  document.getElementById('sse-label').textContent = '자동 갱신 중';
+};
+es.onmessage = () => loadNetSnapshot();
+es.onerror = () => {
+  document.getElementById('sse-dot').className = 'dot dot-off';
+  document.getElementById('sse-label').textContent = '자동 갱신 중단 — 재연결 중...';
+};
+
+updateNetBucketLabel();
+loadNetSnapshot();
+loadNetChart();
+</script>
 {% endblock %}

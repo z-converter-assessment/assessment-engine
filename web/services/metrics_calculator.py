@@ -5,6 +5,7 @@ from db.repositories.outbound import (
     MountUsageRaw,
     NetIoRaw,
 )
+from web.services.filters import is_virtual_mount
 from web.services.units import _bytes_to_gb, _sector_to_kbps, _usage_pct
 from web.view_models import (
     CpuSnapshot,
@@ -166,6 +167,8 @@ def compute_net_io(pairs: list[NetIoRaw]) -> list[NetIoSnapshot]:
 def compute_mounts(mounts: list[MountUsageRaw]) -> list[MountDashSnapshot]:
     result = []
     for m in sorted(mounts, key=lambda x: x.mount):
+        if is_virtual_mount(None, m.mount):
+            continue
         used_bytes = (m.total_bytes - m.avail_bytes) if (m.total_bytes and m.avail_bytes is not None) else None
         result.append(MountDashSnapshot(
             mount=m.mount,

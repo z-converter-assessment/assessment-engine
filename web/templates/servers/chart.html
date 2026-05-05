@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}차트 — {{ server.hostname }} — ZConverter Assessment{% endblock %}
+{% block title %}ZConverter Assessment — {{ server.hostname }} 차트{% endblock %}
 
 {% block content %}
 <a class="back" href="/servers/{{ server.id }}">← {{ server.hostname }}</a>
@@ -94,8 +94,8 @@ let chart      = null;
 function fmtLabel(ts) {
   const d = new Date(ts);
   const opts = timeRange === '7d'
-    ? { timeZone:'Asia/Seoul', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }
-    : { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit' };
+    ? { timeZone:'Asia/Seoul', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12: false }
+    : { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit', hour12: false };
   return d.toLocaleString('ko-KR', opts);
 }
 
@@ -138,8 +138,8 @@ function buildDatasets(rows) {
       borderColor:     color,
       backgroundColor: color + '22',
       borderWidth:     2,
-      pointRadius:     allTs.length > 60 ? 0 : 3,
-      pointHoverRadius:5,
+      pointRadius:     1,
+      pointHoverRadius:3,
       tension:         0.3,
       fill:            Object.keys(byDim).length === 1,
       spanGaps:        false,
