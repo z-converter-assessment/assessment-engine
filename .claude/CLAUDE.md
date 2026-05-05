@@ -222,11 +222,69 @@ Vagrantfile step 3에서 `cp` + `chmod 755`, step 2에서 `/etc/assessment-agent
 - 표시 포맷(숫자 → "1.2 TB", "3.4 kBps") 은 Jinja2 필터 `disksize` / `kbps`로 위임 (`web/template_filters.py` 정의, `web/routers/pages.py`에서 등록).
 - `NetInterfaceItem`은 제거되었음. `NetworkDetailResponse.interfaces`는 `list[NetIoSnapshot]` 재사용 — 필드 구조가 동일하므로 별도 타입 불필요.
 
+## 템플릿 차트 UI 설계 원칙
+
+Chart.js 4.4.3 사용. 아래 패턴을 전 차트 템플릿에 동일하게 적용한다.
+
+### avg+max 음영 패턴
+avg 데이터셋과 max ghost 데이터셋을 쌍(짝수·홀수 인덱스)으로 구성한다.
+
+- avg: `fill: '+1'`, `pointRadius: 1`, `pointHoverRadius: 3`, 실선
+- max ghost: `borderColor:'transparent'`, `backgroundColor:'transparent'`, `pointRadius: 0`, `pointHoverRadius: 0`
+- ghost 데이터: `bufferedMaxData` — avg가 null인 버킷은 max도 null (빈 구간 음영 방지)
+- 실제 max 값은 `realData` 커스텀 속성에 보관 → 툴팁 콜백에서 `ds.realData[idx]`로 참조
+- 툴팁: `filter: item => item.datasetIndex % 2 === 0` — avg 데이터셋만 표시
+
+### 포인트 크기 규칙 (전 차트 통일)
+- avg/실데이터: `pointRadius: 1`, `pointHoverRadius: 3`
+- ghost(max): `pointRadius: 0`, `pointHoverRadius: 0`
+
+### suggestedMax 상수화
+Y축 기본 기준선은 스크립트 상단에 명명 상수로 분리한다.
+```javascript
+const NET_Y_SUGGESTED_MAX = 2048; // B/s 기본 기준선 (≈2 kB/s). 조정 가능.
+```
+`suggestedMax`는 soft ceiling — 실데이터가 초과하면 자동 확장된다.
+
+### 네트워크 I/O Y축
+- 데이터: 서버에서 넘어온 B/s 원값 그대로 (나누기 없음)
+- 포매터 `fmtKbChart(v)`: `v >= 1024*1024` → MB/s, `v >= 1024` → kB/s, else B/s
+- Y축 title: `'처리량'` (단위가 값에 따라 동적이므로 고정 단위명 부적합)
+- `NET_Y_SUGGESTED_MAX = 2048`
+
+### 스왑 Y축
+`beginAtZero: true, suggestedMax: 25` — 스왑 사용률이 낮아도 추이 가시성을 위해 최소 0–25% 스케일 유지.
+
+### IOPS 차트 Y축
+`ticks: { precision: 0 }` — 정수값만 표시. `stepSize: 1` + 정수 callback 조합 불필요.
+
+### SSE 상태 + 수집기준시간 레이아웃
+SSE dot/label과 수집기준시간 span은 반드시 단일 flex 컨테이너 안에 두어 줄바꿈을 방지한다.
+```html
+<div id="sse-status" style="display:flex; align-items:center; gap:5px; font-size:11px; color:#94a3b8; white-space:nowrap;">
+  <span id="sse-dot" class="dot dot-off"></span>
+  <span id="sse-label">연결 중...</span>
+  <span id="xxx-snapshot-ts" style="margin-left:4px;"></span>
+</div>
+```
+타임스탬프 span을 SSE div 밖에 두면 flex-wrap으로 분리될 수 있다.
+
+### 헤더 브랜드 네비게이션
+`base.html`의 `ZConverter Assessment` 브랜드는 `/servers/`로 이동하는 `<a>` 태그.
+별도 "서버 목록" nav 링크는 제거 (브랜드 클릭으로 대체).
+
 ## 타입 어노테이션 규칙
 
 - **`from __future__ import annotations` 절대 금지** — 전 파일.
 - `TYPE_CHECKING` 블록은 순환 임포트가 실제로 발생하는 경우에만 사용. 순환 임포트 없는 경우 직접 임포트. Python 3.12에서 어노테이션은 즉시 평가되므로 `TYPE_CHECKING` 블록의 import는 런타임 `NameError`를 유발함.
 - 타입 좁히기용 데드코드(`assert x is not None` 등) 작성 금지.
+
+## 테스트 정책
+
+현재 코드 변경 및 리팩토링 진행 중으로 테스트는 실패 상태다.
+- 테스트 실행 금지 — 명시적 요청이 있을 때만 수행
+- 테스트 파일 확인·분석·제안 금지 — 명시적 요청이 있을 때만 수행
+- 작업 완료 확인 수단으로 pytest를 사용하지 않음
 
 ## 테스트 구조
 

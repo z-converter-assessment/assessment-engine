@@ -24,6 +24,7 @@ async def list_servers(
     is_online: bool | None = Query(None),
     service: QueryService = Depends(get_service),
 ):
+
     servers = await service.list_servers(page, limit, search, is_online)
     return templates.TemplateResponse(
         request=request,
@@ -64,8 +65,8 @@ async def get_storage(
     )
 
 
-@pages_router.get("/{server_id}/chart")
-async def get_chart(
+@pages_router.get("/{server_id}/cpu")
+async def get_cpu(
     server_id: int,
     request: Request,
     service: QueryService = Depends(get_service),
@@ -75,7 +76,23 @@ async def get_chart(
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(
         request=request,
-        name="servers/chart.html",
+        name="servers/cpu.html",
+        context={"server": result},
+    )
+
+
+@pages_router.get("/{server_id}/memory")
+async def get_memory(
+    server_id: int,
+    request: Request,
+    service: QueryService = Depends(get_service),
+):
+    result = await service.get_server(server_id)
+    if not result:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request=request,
+        name="servers/memory.html",
         context={"server": result},
     )
 

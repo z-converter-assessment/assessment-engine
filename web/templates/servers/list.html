@@ -1,10 +1,13 @@
 {% extends "base.html" %}
-{% block title %}서버 목록 — ZConverter Assessment{% endblock %}
+{% block title %}ZConverter Assessment — 서버 목록{% endblock %}
 
 {% block content %}
-<h1>서버 목록</h1>
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+  <h1 style="margin:0;">서버 목록</h1>
+  <button class="btn no-print" onclick="window.print()">인쇄</button>
+</div>
 
-<form method="get" class="search-row">
+<form method="get" class="search-row no-print">
   <input type="text" name="search" value="{{ request.query_params.get('search', '') }}" placeholder="hostname 검색">
   <label>
     <input type="checkbox" name="is_online" value="true"
@@ -24,10 +27,11 @@
       <th>상태</th>
       <th>Hostname</th>
       <th>OS</th>
-      <th>CPU (cores)</th>
+      <th>Cores</th>
       <th>Memory</th>
+      <th>네트워크</th>
       <th>마지막 수집</th>
-      <th></th>
+      <th class="action-col"></th>
     </tr>
   </thead>
   <tbody>
@@ -40,7 +44,9 @@
           <span class="badge"><span class="dot dot-off"></span>오프라인</span>
         {% endif %}
       </td>
-      <td><a href="/servers/{{ s.id }}"><strong>{{ s.hostname }}</strong></a></td>
+      <td>
+        <a href="/servers/{{ s.id }}"><strong>{{ s.hostname }}</strong></a>
+      </td>
       <td style="color:#64748b;">
         {% if s.os_id %}{{ s.os_id }}{% endif %}
         {% if s.os_version %} {{ s.os_version }}{% endif %}
@@ -48,8 +54,16 @@
       </td>
       <td>{{ s.cpu_cores if s.cpu_cores is not none else '-' }}</td>
       <td>{{ s.mem_total_gb ~ ' GB' if s.mem_total_gb is not none else '-' }}</td>
-      <td style="color:#64748b; font-size:13px;">{{ s.last_seen_at | kst }}</td>
       <td>
+        {% if s.ip_external %}
+          <span class="badge badge-ok" style="font-size:11px;">퍼블릭</span>
+          {% for ip in s.ip_external %}<code style="font-size:11px;">{{ ip }}</code> {% endfor %}
+        {% else %}
+          <span style="color:#94a3b8; font-size:12px;">내부망</span>
+        {% endif %}
+      </td>
+      <td style="color:#64748b; font-size:13px;">{{ s.last_seen_at | kst }}</td>
+      <td class="action-col">
         <a href="/servers/{{ s.id }}" class="btn" style="font-size:12px; padding:4px 10px;">상세 →</a>
       </td>
     </tr>

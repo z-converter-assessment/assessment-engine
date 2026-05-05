@@ -12,6 +12,7 @@ class ServerListItemResponse:
     cpu_cores: int | None
     mem_total_kb: int | None
     last_seen_at: datetime | None
+    ip_external: list[str] | None
 
 
 @dataclass
@@ -95,6 +96,7 @@ class MountUsageRaw:
     total_bytes: int | None
     avail_bytes: int | None
     free_bytes: int | None
+    collected_at: datetime | None
 
 
 @dataclass
@@ -114,6 +116,7 @@ class StorageWithUsageResponse:
     disks: list[dict]            # 인벤토리 JSONB: {name, size_bytes, type}
     inventory_mounts: list[dict] # 인벤토리 JSONB: {mount, fstype, total_bytes}
     mount_usage: list[MountUsageRaw]
+    inventory_at: datetime | None
 
 
 @dataclass
@@ -123,6 +126,7 @@ class NetworkWithIoResponse:
     ip_internal: list[str]
     ip_external: list[str] | None
     net_io: list[NetIoRaw]       # 인터페이스당 최대 2행 (delta 계산용)
+    inventory_at: datetime | None
 
 
 # ---------- Series ----------

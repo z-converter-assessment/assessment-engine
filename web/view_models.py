@@ -21,6 +21,7 @@ class ServerListItem:
     mem_total_gb: float | None
     last_seen_at: datetime | None
     is_online: bool
+    ip_external: list[str] | None
 
 
 # ---------- 서버 상세 ----------
@@ -64,6 +65,8 @@ class StorageDetailResponse:
     hostname: str
     disks: list[DiskItem]
     mounts: list[MountUsageItem]
+    snapshot_at: datetime | None
+    inventory_at: datetime | None
 
 
 # ---------- 메트릭 대시보드 스냅샷 (AJAX /metrics/latest) ----------
@@ -144,6 +147,8 @@ class NetworkDetailResponse:
     ip_internal: list[str]
     ip_external: list[str] | None
     interfaces: list[NetIoSnapshot]
+    inventory_at: datetime | None
+    snapshot_at: datetime | None
 
 
 # ---------- 수집 상태 ----------

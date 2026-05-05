@@ -10,7 +10,8 @@
     header { background: #0f172a; color: #fff; padding: 0 24px; height: 52px; display: flex; align-items: center; gap: 24px; }
     header a { color: #94a3b8; text-decoration: none; font-size: 13px; }
     header a:hover { color: #fff; }
-    header .brand { color: #fff; font-weight: 700; font-size: 15px; margin-right: 16px; letter-spacing: -.3px; }
+    header .brand { color: #fff; font-weight: 700; font-size: 15px; margin-right: 16px; letter-spacing: -.3px; text-decoration: none; }
+    header .brand:hover { color: rgba(255,255,255,.75); }
     main { max-width: 1160px; margin: 28px auto; padding: 0 24px; }
     h1 { font-size: 20px; font-weight: 700; margin-bottom: 20px; color: #0f172a; }
     h2 { font-size: 14px; font-weight: 600; margin: 0 0 14px; color: #475569; text-transform: uppercase; letter-spacing: .05em; }
@@ -43,6 +44,9 @@
     .stat-label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
     .stat-value { font-size: 20px; font-weight: 700; color: #0f172a; }
     .stat-unit { font-size: 12px; font-weight: 400; color: #64748b; margin-left: 2px; }
+    .stat-grid-sm { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; }
+    .stat-grid-sm .stat-box { padding: 6px 10px; }
+    .stat-grid-sm .stat-value { font-size: 15px; }
 
     /* Section header within card */
     .section-title { font-size: 13px; font-weight: 600; color: #334155; margin: 20px 0 10px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
@@ -69,12 +73,27 @@
 
     /* sse status */
     #sse-status { font-size: 11px; color: #94a3b8; margin-top: 6px; display: flex; align-items: center; gap: 5px; }
+
+    .print-only { display: none; }
+
+    /* ── Print ── */
+    @media print {
+      .no-print { display: none !important; }
+      .print-only { display: revert !important; }
+      body { background: #fff; }
+      main { max-width: 100%; margin: 0; padding: 16px; }
+      .card { box-shadow: none !important; border: 1px solid #d1d5db; page-break-inside: avoid; }
+      table { box-shadow: none !important; }
+      a { color: #1a1a1a !important; text-decoration: none !important; }
+      .action-col { display: none !important; }
+      .progress-fill, .progress-bar, .badge { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      #realtime-metrics-card { page-break-before: always; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <span class="brand">ZConverter Assessment</span>
-    <a href="/servers/">서버 목록</a>
+  <header class="no-print">
+    <a href="/servers/" class="brand">ZConverter Assessment</a>
   </header>
   <main>
     {% block content %}{% endblock %}

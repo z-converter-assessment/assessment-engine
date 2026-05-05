@@ -8,7 +8,7 @@ def kst(dt: datetime | None) -> str:
         return "-"
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(_KST).strftime("%Y-%m-%d %H:%M")
+    return dt.astimezone(_KST).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def disksize(gb: float | None) -> str:
