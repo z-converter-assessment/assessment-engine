@@ -3,7 +3,10 @@
 
 {% block content %}
 <a class="back no-print" href="/servers/{{ server.public_id }}">← {{ server.hostname }}</a>
-<h1>서비스 / 포트 — {{ server.hostname }}</h1>
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+  <h1 style="margin:0;">{{ server.hostname }} — 서비스 / 포트</h1>
+  <button class="btn no-print" onclick="window.print()">인쇄</button>
+</div>
 
 <!-- 서비스 목록 -->
 <div class="card">

@@ -62,8 +62,8 @@
       </div>
       <div style="width:1px; height:22px; background:#e2e8f0; margin:0 8px;" class="no-print"></div>
       <div class="toggle-group no-print" id="usage-range-btns">
-        <button class="toggle" data-val="15m">15분</button>
-        <button class="toggle active" data-val="1h">1시간</button>
+        <button class="toggle active" data-val="15m">15분</button>
+        <button class="toggle" data-val="1h">1시간</button>
         <button class="toggle" data-val="6h">6시간</button>
         <button class="toggle" data-val="24h">24시간</button>
         <button class="toggle" data-val="7d">7일</button>
@@ -91,8 +91,8 @@
       <span id="comp-bucket-label" style="font-size:11px; color:#94a3b8;"></span>
     </div>
     <div class="toggle-group no-print" id="comp-range-btns">
-      <button class="toggle" data-val="15m">15분</button>
-      <button class="toggle active" data-val="1h">1시간</button>
+      <button class="toggle active" data-val="15m">15분</button>
+      <button class="toggle" data-val="1h">1시간</button>
       <button class="toggle" data-val="6h">6시간</button>
       <button class="toggle" data-val="24h">24시간</button>
       <button class="toggle" data-val="7d">7일</button>
@@ -115,8 +115,8 @@
       <span id="load-bucket-label" style="font-size:11px; color:#94a3b8;"></span>
     </div>
     <div class="toggle-group no-print" id="load-range-btns">
-      <button class="toggle" data-val="15m">15분</button>
-      <button class="toggle active" data-val="1h">1시간</button>
+      <button class="toggle active" data-val="15m">15분</button>
+      <button class="toggle" data-val="1h">1시간</button>
       <button class="toggle" data-val="6h">6시간</button>
       <button class="toggle" data-val="24h">24시간</button>
       <button class="toggle" data-val="7d">7일</button>
@@ -221,7 +221,7 @@ async function loadSnapshot() {
 }
 
 /* ── 단일 라인 차트 (CPU 사용률) ── */
-let usageRange = '1h';
+let usageRange = '15m';
 let usageAgg   = 'avg';
 let usageChart = null;
 
@@ -299,7 +299,7 @@ bindToggle('usage-agg-btns',   v => { usageAgg   = v; loadUsageChart(); });
 bindToggle('usage-range-btns', v => { usageRange = v; updateUsageBucketLabel(); document.getElementById('usage-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadUsageChart(); });
 
 /* ── CPU 분류 추이 (user / system / iowait) ── */
-let compRange   = '1h';
+let compRange   = '15m';
 let compChart   = null;
 let compAllRows = [];
 
@@ -411,7 +411,7 @@ async function loadCompChart() {
 bindToggle('comp-range-btns', v => { compRange = v; updateCompBucketLabel(); document.getElementById('comp-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadCompChart(); });
 
 /* ── 로드 평균 추이 ── */
-let loadRange   = '1h';
+let loadRange   = '15m';
 let loadChart   = null;
 let loadAllRows = [];
 
