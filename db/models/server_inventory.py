@@ -1,8 +1,8 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Integer, String, Text
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy import BigInteger, DateTime, Integer, String, Text, text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.models.base import Base
@@ -12,6 +12,12 @@ class ServerInventory(Base):
     __tablename__ = "server_inventory"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        server_default=text("gen_random_uuid()"),
+        unique=True,
+        nullable=False,
+    )
     machine_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     agent_version: Mapped[str | None] = mapped_column(String(32))
@@ -33,5 +39,7 @@ class ServerInventory(Base):
 
     disks: Mapped[list[Any] | None] = mapped_column(JSONB)
     mounts: Mapped[list[Any] | None] = mapped_column(JSONB)
+    services: Mapped[list[Any] | None] = mapped_column(JSONB)
+    listen_ports: Mapped[list[Any] | None] = mapped_column(JSONB)
 
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

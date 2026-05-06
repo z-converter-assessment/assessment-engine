@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
@@ -9,26 +9,54 @@ class DiskItem:
     type: str | None
 
 
+@dataclass
+class ServiceItem:
+    unit: str
+    sub: str
+    category: str
+    ports: list[dict]
+    display_name: str = ""
+
+
+@dataclass
+class ListenPortItem:
+    proto: str
+    addr: str
+    port: int
+    uid: int
+    pid: int | None
+    comm: str | None
+
+
 # ---------- 서버 목록 ----------
 
 @dataclass
 class ServerListItem:
     id: int
+    public_id: str
     hostname: str
     os_id: str | None
     os_version: str | None
     cpu_cores: int | None
     mem_total_gb: float | None
+    storage_total_gb: float | None
     last_seen_at: datetime | None
     is_online: bool
     ip_external: list[str] | None
+    services: list[ServiceItem] | None
+    listen_ports: list[ListenPortItem]
+    known_services: list[ServiceItem] = field(default_factory=list)
+    show_unknown_badge: bool = False
+    os_display: str = ""
 
 
 # ---------- 서버 상세 ----------
 
+
 @dataclass
 class ServerDetailResponse:
     id: int
+    public_id: str
     machine_id: str
     hostname: str
     agent_version: str | None
@@ -44,7 +72,15 @@ class ServerDetailResponse:
     ip_internal: list[str]
     ip_external: list[str] | None
     disks: list[DiskItem]
+    services: list[ServiceItem] | None
+    listen_ports: list[ListenPortItem]
     last_seen_at: datetime | None
+    known_services: list[ServiceItem] = field(default_factory=list)
+    show_unknown_badge: bool = False
+    key_listen_ports: list[ListenPortItem] = field(default_factory=list)
+    os_display: str = ""
+    cpu_display: str = ""
+    disk_total_gb: float | None = None
 
 
 # ---------- 스토리지 (인벤토리 + 실시간 사용량) ----------
@@ -57,11 +93,14 @@ class MountUsageItem:
     used_gb: float | None
     avail_gb: float | None
     usage_pct: float | None
+    badge_class: str = ""
+    bar_color: str = ""
 
 
 @dataclass
 class StorageDetailResponse:
     server_id: int
+    public_id: str
     hostname: str
     disks: list[DiskItem]
     mounts: list[MountUsageItem]
@@ -143,6 +182,7 @@ class MetricDashboard:
 @dataclass
 class NetworkDetailResponse:
     server_id: int
+    public_id: str
     hostname: str
     ip_internal: list[str]
     ip_external: list[str] | None

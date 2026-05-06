@@ -2,7 +2,7 @@
 {% block title %}ZConverter Assessment — {{ storage.hostname }} 스토리지{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="/servers/{{ storage.server_id }}">← {{ storage.hostname }}</a>
+<a class="back no-print" href="/servers/{{ storage.public_id }}">← {{ storage.hostname }}</a>
 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
   <h1 style="margin:0;">{{ storage.hostname }} — 스토리지</h1>
   <button class="btn no-print" onclick="window.print()">인쇄</button>
@@ -12,7 +12,7 @@
 <div class="card">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px;">
     <h2 style="margin:0;">물리 디스크</h2>
-    <span style="font-size:12px; color:#94a3b8;">인벤토리 수집: {{ storage.inventory_at | kst if storage.inventory_at else '-' }}</span>
+    <span style="font-size:12px; color:#94a3b8;">인벤토리 수집: {{ storage.inventory_at | kst }}</span>
   </div>
   {% if storage.disks %}
   <table>
@@ -42,7 +42,7 @@
 <div class="card">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px;">
     <h2 style="margin:0;">파일시스템 사용량</h2>
-    <span style="font-size:12px; color:#94a3b8;">수집 기준: {{ storage.snapshot_at | kst if storage.snapshot_at else '-' }}</span>
+    <span style="font-size:12px; color:#94a3b8;">수집 기준: {{ storage.snapshot_at | kst }}</span>
   </div>
   {% if storage.mounts %}
   <table>
@@ -61,24 +61,15 @@
       <tr>
         <td><code>{{ m.mount }}</code></td>
         <td>{{ m.fstype or '-' }}</td>
-        <td>{{ m.total_gb ~ ' GB' if m.total_gb is not none else '-' }}</td>
-        <td>{{ m.used_gb ~ ' GB' if m.used_gb is not none else '-' }}</td>
-        <td>{{ m.avail_gb ~ ' GB' if m.avail_gb is not none else '-' }}</td>
+        <td>{{ m.total_gb | disksize }}</td>
+        <td>{{ m.used_gb | disksize }}</td>
+        <td>{{ m.avail_gb | disksize }}</td>
         <td>
           {% if m.usage_pct is not none %}
             <div style="display:flex; align-items:center; gap:8px;">
-              {% if m.usage_pct >= 90 %}
-                <span class="badge badge-danger">{{ m.usage_pct }}%</span>
-              {% elif m.usage_pct >= 75 %}
-                <span class="badge badge-warn">{{ m.usage_pct }}%</span>
-              {% else %}
-                <span class="badge badge-ok">{{ m.usage_pct }}%</span>
-              {% endif %}
+              <span class="badge {{ m.badge_class }}">{{ m.usage_pct }}%</span>
               <div class="progress-bar" style="flex:1; min-width:80px;">
-                <div class="progress-fill" style="
-                  width:{{ m.usage_pct }}%;
-                  background:{% if m.usage_pct >= 90 %}#ef4444{% elif m.usage_pct >= 75 %}#f59e0b{% else %}#22c55e{% endif %};
-                "></div>
+                <div class="progress-fill" style="width:{{ m.usage_pct }}%; background:{{ m.bar_color }};"></div>
               </div>
             </div>
           {% else %}
@@ -117,7 +108,7 @@
     수집된 I/O 데이터가 없습니다. 에이전트가 최소 2회 메트릭을 전송하면 표시됩니다.
   </div>
 
-  <div id="io-lvm-section" style="display:none;">
+  <div id="io-lvm-section" style="display:none; margin-top:16px;">
     <div class="section-title" id="io-lvm-section-title">논리 볼륨 (LVM / RAID)</div>
     <table id="io-lvm-table" style="display:none;">
       <thead>
@@ -212,7 +203,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
-const SERVER_ID = {{ storage.server_id }};
+const SERVER_ID = "{{ storage.public_id }}";
 const RANGE_LABEL = { '15m':'15분', '1h':'1시간', '6h':'6시간', '24h':'24시간', '7d':'7일', '30d':'30일' };
 const IS_PHYS = /^(sd[a-z]|vd[a-z]|hd[a-z]|xvd[a-z]|nvme\d+n\d+)$/;
 const IS_LVM  = /^(dm-\d+|md\d+)$/;

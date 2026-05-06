@@ -5,12 +5,14 @@ from fastapi.templating import Jinja2Templates
 
 from web.deps import get_service
 from web.services.query_service import QueryService
-from web.template_filters import disksize, kbps, kst
+from web.template_filters import disksize, kbps, kst, or_dash, service_badge_class
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
-templates.env.filters["kst"]      = kst
-templates.env.filters["disksize"] = disksize
-templates.env.filters["kbps"]     = kbps
+templates.env.filters["kst"]                = kst
+templates.env.filters["disksize"]           = disksize
+templates.env.filters["kbps"]              = kbps
+templates.env.filters["service_badge_class"] = service_badge_class
+templates.env.filters["or_dash"]            = or_dash
 
 pages_router = APIRouter(prefix="/servers", tags=["pages"])
 
@@ -33,13 +35,21 @@ async def list_servers(
     )
 
 
+async def _resolve(public_id: str, service: QueryService) -> int:
+    server_id = await service.resolve_server_id(public_id)
+    if server_id is None:
+        raise HTTPException(status_code=404)
+    return server_id
+
+
 @pages_router.get("/{server_id}")
 async def get_server(
-    server_id: int,
+    server_id: str,
     request: Request,
     service: QueryService = Depends(get_service),
 ):
-    result = await service.get_server(server_id)
+    internal_id = await _resolve(server_id, service)
+    result = await service.get_server(internal_id)
     if not result:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(
@@ -51,11 +61,12 @@ async def get_server(
 
 @pages_router.get("/{server_id}/storage")
 async def get_storage(
-    server_id: int,
+    server_id: str,
     request: Request,
     service: QueryService = Depends(get_service),
 ):
-    result = await service.get_storage(server_id)
+    internal_id = await _resolve(server_id, service)
+    result = await service.get_storage(internal_id)
     if not result:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(
@@ -67,11 +78,12 @@ async def get_storage(
 
 @pages_router.get("/{server_id}/cpu")
 async def get_cpu(
-    server_id: int,
+    server_id: str,
     request: Request,
     service: QueryService = Depends(get_service),
 ):
-    result = await service.get_server(server_id)
+    internal_id = await _resolve(server_id, service)
+    result = await service.get_server(internal_id)
     if not result:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(
@@ -83,11 +95,12 @@ async def get_cpu(
 
 @pages_router.get("/{server_id}/memory")
 async def get_memory(
-    server_id: int,
+    server_id: str,
     request: Request,
     service: QueryService = Depends(get_service),
 ):
-    result = await service.get_server(server_id)
+    internal_id = await _resolve(server_id, service)
+    result = await service.get_server(internal_id)
     if not result:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(
@@ -99,15 +112,33 @@ async def get_memory(
 
 @pages_router.get("/{server_id}/network")
 async def get_network(
-    server_id: int,
+    server_id: str,
     request: Request,
     service: QueryService = Depends(get_service),
 ):
-    result = await service.get_network(server_id)
+    internal_id = await _resolve(server_id, service)
+    result = await service.get_network(internal_id)
     if not result:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(
         request=request,
         name="servers/network.html",
         context={"network": result},
+    )
+
+
+@pages_router.get("/{server_id}/services")
+async def get_services(
+    server_id: str,
+    request: Request,
+    service: QueryService = Depends(get_service),
+):
+    internal_id = await _resolve(server_id, service)
+    result = await service.get_server(internal_id)
+    if not result:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request=request,
+        name="servers/services.html",
+        context={"server": result},
     )

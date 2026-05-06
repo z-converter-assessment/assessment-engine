@@ -7,7 +7,6 @@ from db.session import engine, AsyncSessionLocal
 from db.models import server_inventory, server_metrics  # noqa: F401
 from db.models import server_disk_io, server_net_io, server_mount_usage  # noqa: F401
 from db.redis import close_pool
-from db.seed import seed_demo_data  # 시딩 비활성화: 이 줄과 아래 호출 주석 처리
 from web.routers.pages import pages_router
 from web.routers.api import api_router
 
@@ -25,10 +24,6 @@ async def lifespan(_app: FastAPI):
             await conn.execute(text(
                 f"SELECT create_hypertable('{table}', 'collected_at', if_not_exists => true)"
             ))
-
-    # ── 개발용 더미 데이터 ── 비활성화 시 아래 두 줄 주석 처리
-    # async with AsyncSessionLocal() as session:
-    #     await seed_demo_data(session)
 
     yield
 

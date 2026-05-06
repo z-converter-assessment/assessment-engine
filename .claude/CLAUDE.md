@@ -6,7 +6,7 @@ ZConverter Cloud Assessment Portal.
 
 ### 배포 시나리오
 고객사 네트워크 내에 서버 엔진(web + consumer + MQ + DB)이 설치된다.
-각 서버의 **C99/C++03 기반 에이전트**가 메트릭을 수집해 MQ에 직접 발행하고, Consumer가 소비해 DB에 저장한다.
+각 서버의 **C 기반 에이전트**가 메트릭을 수집해 MQ에 직접 발행하고, Consumer가 소비해 DB에 저장한다.
 
 ## docker-compose 구성
 
@@ -33,8 +33,10 @@ ZConverter Cloud Assessment Portal.
 | ServerMountUsage | server_mount_usage | BigInteger | 마운트 사용량 시계열. TimescaleDB hypertable |
 
 - 대리키(surrogate key) 패턴 — 내부 참조는 정수 PK, 비즈니스 식별자는 unique 제약
+- `server_inventory.public_id` — `UUID DEFAULT gen_random_uuid()`. URL 식별자. 정수 PK는 내부 참조 전용.
 - 시계열 4개 테이블 모두 복합 PK `(id BIGINT, collected_at TIMESTAMPTZ)` — TimescaleDB hypertable 파티션 키 포함, 무한 누적 대비
 - `server_disk_io`·`server_net_io`·`server_mount_usage`는 per-device/per-interface/per-mount 행 분리 — 차트 API `dimension` 파라미터에 대응
+- `server_inventory`에 `services` (JSONB), `listen_ports` (JSONB) 컬럼 추가됨. **`create_all`은 기존 테이블에 컬럼을 추가하지 않으므로**, 스키마 변경 후 최초 기동 시 `docker compose down -v` 로 볼륨 초기화 필요.
 
 ## 데이터 흐름 설계
 
@@ -42,7 +44,7 @@ ZConverter Cloud Assessment Portal.
 - Inbound DTO: `ServerInventoryCreate`, `ServerMetricCreate` (`db/repositories/inbound.py`) — Consumer → Repository
 - Outbound DTO: `XxxResponse`, `DashboardRaw`, `StorageWithUsageResponse`, `NetworkWithIoResponse` (`db/repositories/outbound.py`) — Repository → Service
 - ViewModel: `web/view_models.py` — Service → Router (Jinja2 컨텍스트 또는 JSON)
-- Consumer 파싱: Pydantic `AgentMessage` discriminated union (정의됨) → 실제 핸들러는 routing key별로 구체 타입(`InventoryInput`, `MetricsInput`, `ErrorInput`)을 직접 파싱
+- Consumer 파싱: routing key별로 구체 타입(`InventoryInput`, `MetricsInput`, `ErrorInput`)을 직접 파싱. `consumer/mappers.py`에서 Pydantic 스키마 → Inbound DTO 변환.
 - inventory upsert 및 metrics 서버 조회 기준: `machine_id` (미등록 서버면 drop)
 - `last_seen_at`: `list_servers()`에서 `COALESCE(MAX(server_metrics.collected_at), server_inventory.last_seen_at)` subquery JOIN으로 산출 — "마지막 메트릭 수신 시각" 의미. 인벤토리 등록 시각이 아님.
 - `CollectionStatusItem`은 `last_metric_at`(마지막 메트릭 수신)과 `last_inventory_at`(마지막 인벤토리 수신)을 별도 필드로 분리 반환 — `/collection-status` API에서 두 시각을 모두 노출.
@@ -63,6 +65,10 @@ ZConverter Cloud Assessment Portal.
 
 ### `server.inventory` (기동 시 1회)
 정적 인프라 정보. OS·kernel·CPU·메모리/스왑 총량, `disks[]` (name·size·type), `mounts[]` (fstype·total_bytes 포함), `ip_internal[]`/`ip_external[]`, `boot_time`.
+
+추가 필드:
+- `services[]`: `{unit, sub}` — systemctl 수집. non-systemd 호스트는 `null`
+- `listen_ports[]`: `{proto, addr, port, uid, pid, comm}` — `/proc/net/{tcp,udp}{,6}` 기반. 수집 실패 시 빈 배열
 
 - `InventoryMountInfo`에 `free_bytes`/`avail_bytes` 필드가 있으나 핸들러에서 무시됨 — 인벤토리엔 static 정보(total_bytes)만 저장하고 동적 사용량은 `server_mount_usage`에 분리 저장
 
@@ -112,6 +118,11 @@ Exchange: `assessment` (direct, durable) / DLX: `assessment.dlx` (direct, durabl
 
 ## Query API 설계
 
+### URL 식별자
+라우터의 `{server_id}` 경로 파라미터는 `public_id` (UUID 문자열). 정수 PK는 노출하지 않는다.
+- `QueryService.resolve_server_id(public_id) -> int | None` — UUID → 정수 PK 변환 브릿지
+- `pages.py` / `api.py` 공통 `_resolve()` 헬퍼에서 404 처리
+
 ### 라우터 구조
 | 모듈 | 변수 | 접두사 | 응답 |
 |------|------|--------|------|
@@ -126,6 +137,7 @@ Exchange: `assessment` (direct, durable) / DLX: `assessment.dlx` (direct, durabl
 | GET /servers/{server_id}/storage | servers/storage.html | 인벤토리 disks + 최신 mount_usage |
 | GET /servers/{server_id}/network | servers/network.html | IP + 최신 net_io delta |
 | GET /servers/{server_id}/chart | servers/chart.html | Chart.js 시계열 차트 (API AJAX) |
+| GET /servers/{server_id}/services | servers/services.html | 서비스 전체 목록 + 포트 전체 현황 |
 
 ### API 엔드포인트 (AJAX / SSE)
 | 경로 | 응답 | 설명 |
@@ -153,9 +165,18 @@ Exchange: `assessment` (direct, durable) / DLX: `assessment.dlx` (direct, durabl
 - `bucket`: 5m / 1h / 1d
 - `agg`: avg / max / p95
 
-### Jinja2 KST 필터
-`web/template_filters.py`에 `kst`, `disksize`, `kbps` 정의 → `web/routers/pages.py`에서 `templates.env.filters`에 등록.
-datetime(UTC) → KST `"YYYY-MM-DD HH:MM"` 변환. Redis 캐시에서 복원 시 datetime 필드는 `datetime.fromisoformat()`으로 파싱해야 필터가 동작함 (`json.loads`는 str 반환).
+### Jinja2 필터
+`web/template_filters.py`에 정의 → `web/routers/pages.py`에서 `templates.env.filters`에 등록.
+
+| 필터 | 동작 |
+|------|------|
+| `kst` | datetime(UTC) → KST `"YYYY-MM-DD HH:MM:SS"`. None → `"-"` |
+| `disksize` | float(GB) → `"1.2 TB"` / `"3.4 GB"`. None → `"-"` |
+| `kbps` | float(kBps) → `"1.2 MBps"` / `"3.4 kBps"`. None → `"—"` |
+| `service_badge_class` | category 문자열 → CSS 클래스명 (`badge-cat-web` 등) |
+| `or_dash` | 값 → `str(값)`. None → `"-"` |
+
+Redis 캐시에서 복원 시 datetime 필드는 `datetime.fromisoformat()`으로 파싱해야 필터가 동작함 (`json.loads`는 str 반환).
 
 ### asyncpg 파라미터 주의사항
 두 가지 패턴이 런타임 오류를 유발한다.
@@ -203,24 +224,98 @@ docker-compose `environment`에는 서비스명 오버라이드(`POSTGRES_HOST`,
 
 Vagrantfile step 3에서 `cp` + `chmod 755`, step 2에서 `/etc/assessment-agent.env` 작성. `ExecStart=/usr/local/bin/assessment-agent`, `EnvironmentFile=/etc/assessment-agent.env`.
 
+### 개발 시나리오별 Vagrant 구성
+
+| 파일 | 기동 스크립트 | VM 수 | 리소스 |
+|------|-------------|-------|--------|
+| `Vagrantfile` | `dev-up.sh` / `dev-down.sh` | 3 | 1024MB / 2CPU |
+| `Vagrantfile.single` | `dev-up-single.sh` / `dev-down-single.sh` | 1 | 512MB / 1CPU |
+
+- 단일 VM 시나리오는 `VAGRANT_VAGRANTFILE=Vagrantfile.single` 환경변수로 선택. 기존 Vagrantfile 미수정.
+- `Vagrantfile.single` VM 박스: `bento/ubuntu-22.04`. 패키지 관리자: `apt`.
+- VM명: `dev-node-01`. RABBITMQ_HOST: `10.0.2.2` (NAT → 호스트머신 docker-compose).
+
+## Repository 계층 구조
+
+Consumer와 Web이 각자 별도 인터페이스·구현체를 사용한다.
+
+| 파일 | 용도 |
+|------|------|
+| `db/repositories/base_collect_repository.py` | Consumer용 추상 인터페이스 (`find_server_id`, `upsert_server`, `insert_metric`) |
+| `db/repositories/collect_repository.py` | Consumer용 구현체. `AsyncSession`을 생성자에서 주입받음 |
+| `db/repositories/base_query_repository.py` | Web용 추상 인터페이스 (`resolve_server_id` 포함) |
+| `db/repositories/query_repository.py` | Web용 구현체 |
+
 ## 서비스 계층 구조
 
 `web/services/` 하위 모듈 분리:
 
 | 모듈 | 역할 |
 |------|------|
-| `query_service.py` | QueryService 클래스 (Redis + repo 오케스트레이션) |
-| `mappers.py` | outbound DTO → ViewModel 변환 |
+| `query_service.py` | QueryService 클래스 (Redis + repo 오케스트레이션, `resolve_server_id` 위임) |
+| `mappers.py` | outbound DTO → ViewModel 변환. `enrich_server_detail()` 포함 |
 | `metrics_calculator.py` | CPU/Mem/Disk/Net delta 계산 |
-| `cache_serializer.py` | Redis serde (ServerDetailResponse, MetricDashboard) |
+| `cache_serializer.py` | Redis serde (ServerDetailResponse, MetricDashboard). 역직렬화 후 `enrich_server_detail()` 재계산 |
 | `units.py` | `_kb_to_gb`, `_bytes_to_gb`, `_usage_pct`, `_sector_to_kbps` |
+| `service_classifier.py` | `classify(unit) -> str`, `matched_ports(unit, listen_ports) -> list[dict]` |
+
+## 서비스 카테고리 분류
+
+`service_classifier.py`의 `classify(unit)` 함수. 서비스명에서 `.service` suffix 제거 후 소문자 substring 매칭. 매칭 없으면 `"unknown"` 반환.
+
+| 카테고리 | 키워드 예시 |
+|---------|-----------|
+| `web` | nginx, httpd, apache, caddy, lighttpd, traefik, haproxy |
+| `db` | postgresql, mariadb, mysqld, mongod, cassandra, influxdb |
+| `cache` | redis, memcached, varnish |
+| `mq` | rabbitmq, kafka, activemq, nats |
+| `container` | docker, containerd, kubelet |
+| `monitor` | prometheus, grafana, datadog, node_exporter, zabbix |
+
+`matched_ports(unit, listen_ports)` — 서비스 유닛에 매핑되는 포트 목록 반환.
+- comm 기반 매칭 우선. comm 없으면 `_SERVICE_PORTS` well-known 포트 테이블로 폴백.
+- `(proto, port)` 기준 dedup. 반환 형식: `[{"proto": "tcp", "port": 80}, ...]`
+
+- 분류·포트 매핑 로직은 **서비스 계층**(`service_classifier.py`)에서 수행. 매퍼가 호출해 `ServiceItem`을 채움.
+- `service_badge_class` Jinja2 필터는 category → CSS 클래스명 변환만 담당.
+
+### 서비스 3단계 표시 계층
+| 화면 | 표시 내용 |
+|------|---------|
+| 서버 목록 (`list.html`) | known 카테고리 뱃지만. 전부 unknown이면 unknown 단일 배지 |
+| 서버 상세 (`detail.html`) | known 카테고리 뱃지 + 매핑 포트 칩 + 주요 Listen 포트(≤1024, 서비스 매핑 포트 제외) |
+| 서비스 상세 (`services.html`) | 서비스 전체 테이블 (unit/sub/category) + 포트 전체 테이블 |
 
 ## ViewModel 설계 원칙
 
-- 단위 변환(KB→GB, bytes→GB/TB, kBps→MBps)은 **서비스 계층**에서 수행. 템플릿은 이미 변환된 값을 사용.
-- `_kb_to_gb(kb)`, `_bytes_to_gb(b)` — `web/services/units.py` 유틸 함수.
-- 표시 포맷(숫자 → "1.2 TB", "3.4 kBps") 은 Jinja2 필터 `disksize` / `kbps`로 위임 (`web/template_filters.py` 정의, `web/routers/pages.py`에서 등록).
-- `NetInterfaceItem`은 제거되었음. `NetworkDetailResponse.interfaces`는 `list[NetIoSnapshot]` 재사용 — 필드 구조가 동일하므로 별도 타입 불필요.
+### 레이어 원칙
+- **템플릿(HTML)은 순수 표시만** 담당. 분기·계산·필터링은 서비스 계층에서 사전 처리.
+- 단위 변환(KB→GB, bytes→GB/TB)은 **서비스 계층**에서 수행. 포맷팅(숫자 → "1.2 TB")은 Jinja2 필터 위임.
+- `enrich_server_detail(detail)` — `ServerDetailResponse` 생성 후 또는 캐시 역직렬화 후 반드시 호출. display 전용 파생 필드를 계산한다.
+
+### 주요 ViewModel 필드
+
+`ServiceItem(unit, sub, category, ports, display_name)`
+- `display_name`: `unit.removesuffix(".service")` — mapper에서 계산
+- `ports`: `matched_ports()` 결과 — detail mapper에서 계산, list mapper는 `[]`
+
+`ServerListItem` 추가 필드 (mapper에서 계산)
+- `known_services`: category != "unknown" 인 서비스만
+- `show_unknown_badge`: services 있고 전부 unknown일 때 True
+- `os_display`: `[os_id, os_version]` 공백 join
+
+`ServerDetailResponse` 추가 필드 (`enrich_server_detail`에서 계산)
+- `known_services`: 글로벌 dedup된 chips 포함
+- `show_unknown_badge`
+- `key_listen_ports`: port ≤ 1024이고 서비스 매핑 포트 번호 제외, port·proto 정렬
+- `os_display`, `cpu_display`, `disk_total_gb`
+
+`MountUsageItem` 추가 필드 (`_build_mount_item`에서 계산)
+- `badge_class`: usage_pct 임계값(90/75) 기반 CSS 클래스
+- `bar_color`: 동일 임계값 기반 hex color
+
+### Redis 캐시 역직렬화 호환성
+`cache_serializer.py`의 `server_detail_from_json`은 display 파생 필드(`known_services`, `key_listen_ports`, `os_display`, `cpu_display`, `disk_total_gb`, `show_unknown_badge`)를 data에서 제거한 후 `ServerDetailResponse`를 생성하고 `enrich_server_detail()`로 재계산한다. 구버전 캐시 엔트리와 호환.
 
 ## 템플릿 차트 UI 설계 원칙
 
@@ -281,33 +376,30 @@ SSE dot/label과 수집기준시간 span은 반드시 단일 flex 컨테이너 �
 
 ## 테스트 정책
 
-현재 코드 변경 및 리팩토링 진행 중으로 테스트는 실패 상태다.
-- 테스트 실행 금지 — 명시적 요청이 있을 때만 수행
-- 테스트 파일 확인·분석·제안 금지 — 명시적 요청이 있을 때만 수행
-- 작업 완료 확인 수단으로 pytest를 사용하지 않음
+- 모듈 단위 테스트(pytest) 없음 — 추후 별도 작업
+- E2E 검증은 Vagrant VM → Docker compose 파이프라인으로 수행 (`docs/TESTING.md` 참조)
+- 테스트 관련 작업은 명시적 요청이 있을 때만 수행
 
-## 테스트 구조
+## 문서 구조
 
-테스트 코드는 `tests/` 디렉토리에 위치. 전략 문서: `docs/TEST_STRATEGY.md`.
+| 디렉토리 | 용도 |
+|----------|------|
+| `docs/` | README 연계 문서 (실행·환경변수·파이프라인 검증) |
+| `_design/` | 설계·개념 문서 (컴포넌트 설계, UI 규약, 트레이드오프 등) |
+| `_internals/` | 기술 구현 문서 (Python 문법·라이브러리 적용 상세) |
 
-```
-tests/
-├── unit/
-│   ├── consumer/          # test_schemas.py, test_handler.py
-│   └── web/
-│       ├── services/      # test_metrics_calculator.py, test_mappers.py, test_query_service.py
-│       └── routers/       # test_pages.py, test_api.py
-└── integration/
-    └── db/                # test_collect_repository.py, test_query_repository.py
-```
-
-테스트 의존성은 optional group으로 관리 (`pyproject.toml [project.optional-dependencies] test`):
-
-```bash
-uv pip install -e ".[test]"
-pytest tests/unit/ -v          # 단위 테스트 (Docker 불필요)
-pytest tests/integration/ -v   # 통합 테스트 (Docker daemon 필요)
-```
+| 파일 | 내용 |
+|------|------|
+| `docs/TESTING.md` | 파이프라인 검증 (Vagrant VM) |
+| `docs/ENV.md` | 환경변수 전체 키 목록 |
+| `_design/CONSUMER.md` | Consumer 스키마·핸들러 흐름·MQ 토폴로지 |
+| `_design/DB.md` | Repository 계층·DTO·세션 획득 방식 |
+| `_design/UI_CONVENTIONS.md` | 템플릿 설계 규약·Chart.js 패턴 |
+| `_design/LISTEN_PORTS.md` | Listen 포트 수집 구조 |
+| `_design/DESIGN_DECISIONS.md` | 설계 결정·트레이드오프·개선 방향 |
+| `_design/REPORT_DESIGN.md` | 보고서 설계 (미구현) |
+| `_internals/consumer.md` | schemas.py·handler.py·main.py 기술 구현 |
+| `_internals/db.md` | session.py·collect_repository.py 기술 구현 |
 
 ## 브랜치 전략
 | 브랜치 | 용도 |

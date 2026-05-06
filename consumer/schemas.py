@@ -1,8 +1,9 @@
 from datetime import datetime
-from typing import Annotated, Literal
+from ipaddress import ip_address
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class MessageBase(BaseModel):
@@ -31,6 +32,20 @@ class InventoryMountInfo(BaseModel):
     fstype: str | None = Field(default=None, max_length=32)
 
 
+class InventoryServiceInfo(BaseModel):
+    unit: str = Field(min_length=1, max_length=255)
+    sub: str = Field(min_length=1, max_length=64)
+
+
+class InventoryListenPortInfo(BaseModel):
+    proto: Literal["tcp", "tcp6", "udp", "udp6"]
+    addr: str = Field(min_length=1, max_length=64)
+    port: int = Field(ge=1, le=65535)
+    uid: int = Field(ge=0)
+    pid: int | None = None
+    comm: str | None = Field(default=None, max_length=64)
+
+
 class InventoryInput(MessageBase):
     message_type: Literal["inventory"]
 
@@ -47,8 +62,19 @@ class InventoryInput(MessageBase):
     ip_internal: list[str] = Field(default_factory=list)
     ip_external: list[str] | None = None
 
+    @field_validator("ip_internal", "ip_external", mode="before")
+    @classmethod
+    def validate_ip_list(cls, v: object) -> object:
+        if v is None:
+            return v
+        for item in v:
+            ip_address(str(item))
+        return v
+
     disks: list[DiskInfo] = Field(default_factory=list)
     mounts: list[InventoryMountInfo] = Field(default_factory=list)
+    services: list[InventoryServiceInfo] | None = None
+    listen_ports: list[InventoryListenPortInfo] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -122,11 +148,3 @@ class ErrorInput(MessageBase):
     failed_component: Literal["collect", "publish"]
 
 
-# ---------------------------------------------------------------------------
-# discriminated union
-# ---------------------------------------------------------------------------
-
-AgentMessage = Annotated[
-    InventoryInput | MetricsInput | ErrorInput,
-    Field(discriminator="message_type"),
-]

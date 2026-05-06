@@ -34,6 +34,19 @@
     padding: 14px 16px 4px;
     margin-bottom: 4px;
   }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: #64748b;
+  }
+  .legend-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    display: inline-block;
+  }
 </style>
 <a class="back no-print" href="/servers/">← 서버 목록</a>
 
@@ -49,51 +62,40 @@
 <div class="card">
   <h2>시스템 정보</h2>
   <dl class="kv">
-    <dt>Server ID</dt>
-    <dd>{{ server.id }}</dd>
-    <dt>Machine ID</dt>
-    <dd><code>{{ server.machine_id }}</code></dd>
-    <dt>Agent Version</dt>
-    <dd>{{ server.agent_version or '-' }}</dd>
     <dt>OS</dt>
-    <dd>
-      {{ server.os_id or '' }} {{ server.os_version or '' }}
-      {% if server.os_codename %}({{ server.os_codename }}){% endif %}
-      {% if not server.os_id and not server.os_version %}-{% endif %}
-    </dd>
+    <dd>{{ server.os_display }}{% if server.os_codename %} ({{ server.os_codename }}){% endif %}</dd>
     <dt>Kernel</dt>
-    <dd>{{ server.kernel_version or '-' }}</dd>
+    <dd>{% if server.kernel_version %}<code>{{ server.kernel_version }}</code>{% else %}-{% endif %}</dd>
     <dt>CPU</dt>
-    <dd>
-      {% if server.cpu_model %}{{ server.cpu_model }}{% endif %}
-      {% if server.cpu_cores %} {{ server.cpu_cores }} cores{% endif %}
-      {% if not server.cpu_model and not server.cpu_cores %}-{% endif %}
-    </dd>
+    <dd>{{ server.cpu_display }}</dd>
     <dt>Memory</dt>
-    <dd>{{ server.mem_total_gb ~ ' GB' if server.mem_total_gb is not none else '-' }}</dd>
+    <dd>{{ server.mem_total_gb | disksize }}</dd>
     <dt>Swap</dt>
-    <dd>{{ server.swap_total_gb ~ ' GB' if server.swap_total_gb is not none else '-' }}</dd>
+    <dd>{{ server.swap_total_gb | disksize }}</dd>
     <dt>Boot Time</dt>
     <dd>{{ server.boot_time | kst }}</dd>
     <dt>Internal IP</dt>
-    <dd>
-      {% if server.ip_internal %}
-        {% for ip in server.ip_internal %}<code>{{ ip }}</code> {% endfor %}
-      {% else %}-{% endif %}
-    </dd>
+    <dd>{% for ip in server.ip_internal %}<code>{{ ip }}</code> {% else %}-{% endfor %}</dd>
     <dt>External IP</dt>
     <dd>
       {% if server.ip_external %}
-        <span class="badge badge-ok" style="font-size:11px; margin-right:6px;">퍼블릭</span>
         {% for ip in server.ip_external %}<code>{{ ip }}</code> {% endfor %}
       {% else %}
         <span style="color:#94a3b8;">내부망</span>
       {% endif %}
     </dd>
+    <dt>Agent Version</dt>
+    <dd>{{ server.agent_version or '-' }}</dd>
+    <dt>Machine ID</dt>
+    <dd><code>{{ server.machine_id }}</code></dd>
     <dt>Last Inventory</dt>
     <dd style="color:#64748b; font-size:13px;">{{ server.last_seen_at | kst }}</dd>
     {% if server.disks %}
-    <dt style="grid-column: 1 / -1; color:#64748b; font-size:13px; margin-top:6px;">디스크</dt>
+    <dt>Storage</dt>
+    <dd>
+      {{ server.disk_total_gb | disksize }}
+      <span style="color:#94a3b8; font-size:12px; margin-left:4px;">({{ server.disks | length }}개 디바이스)</span>
+    </dd>
     <dd style="grid-column: 1 / -1;">
       <table style="margin:0;">
         <thead>
@@ -112,6 +114,54 @@
     </dd>
     {% endif %}
   </dl>
+</div>
+
+<!-- 서비스 / 포트 요약 -->
+<div class="card">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+    <h2 style="margin:0;">서비스 / 포트</h2>
+    <a href="/servers/{{ server.public_id }}/services" class="btn no-print" style="font-size:12px; padding:4px 10px;">전체 현황 →</a>
+  </div>
+
+  <!-- 카테고리 뱃지 + 매핑 포트 -->
+  <div style="margin-bottom:16px;">
+    <div class="sub-label" style="margin-top:0; margin-bottom:8px;">실행 중인 서비스 카테고리</div>
+    {% if server.services is none %}
+      <span style="color:#94a3b8; font-size:13px;">수집 불가 (비-systemd 호스트)</span>
+    {% elif server.services %}
+      <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+        {% for svc in server.known_services %}
+        <span style="display:inline-flex; align-items:center; gap:4px; flex-wrap:wrap;">
+          <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}<span style="font-weight:400; opacity:0.75; margin-left:5px;">{{ svc.display_name }}</span></span>
+          {% for p in svc.ports %}
+          <span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:4px 10px; font-size:12px;"><code style="background:none; padding:0; font-size:12px; color:#3b82f6;">{{ p.proto }}</code><strong>{{ p.port }}</strong></span>
+          {% endfor %}
+        </span>
+        {% endfor %}
+        {% if server.show_unknown_badge %}
+          <span class="badge badge-cat-unknown">unknown</span>
+        {% endif %}
+      </div>
+    {% else %}
+      <span style="color:#94a3b8; font-size:13px;">실행 중인 서비스 없음</span>
+    {% endif %}
+  </div>
+
+  <!-- 주요 포트 (≤ 1024) -->
+  {% if server.key_listen_ports %}
+  <div>
+    <div class="sub-label" style="margin-bottom:8px;">주요 Listen 포트 <span style="font-weight:400; color:#94a3b8; font-size:11px;">(port ≤ 1024)</span></div>
+    <div style="display:flex; flex-wrap:wrap; gap:8px;">
+      {% for p in server.key_listen_ports %}
+      <span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:4px 10px; font-size:12px;">
+        <code style="background:none; padding:0; font-size:12px; color:#3b82f6;">{{ p.proto }}</code>
+        <strong>{{ p.port }}</strong>
+        {% if p.comm %}<span style="color:#64748b;">{{ p.comm }}</span>{% endif %}
+      </span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 <!-- 실시간 메트릭 대시보드 (AJAX + SSE) -->
@@ -141,7 +191,7 @@
     <div class="group-header" style="margin-top:8px;">
       <span class="group-label">CPU</span>
       <div class="group-line"></div>
-      <a href="/servers/{{ server.id }}/cpu" class="btn no-print" style="font-size:11px; padding:3px 10px;">CPU 상세 →</a>
+      <a href="/servers/{{ server.public_id }}/cpu" class="btn no-print" style="font-size:11px; padding:3px 10px;">CPU 상세 →</a>
     </div>
     <div class="group-panel">
       <div class="sub-label" style="margin-top:0;">CPU / Load</div>
@@ -184,7 +234,7 @@
     <div class="group-header">
       <span class="group-label">메모리</span>
       <div class="group-line"></div>
-      <a href="/servers/{{ server.id }}/memory" class="btn no-print" style="font-size:11px; padding:3px 10px;">메모리 상세 →</a>
+      <a href="/servers/{{ server.public_id }}/memory" class="btn no-print" style="font-size:11px; padding:3px 10px;">메모리 상세 →</a>
     </div>
     <div class="group-panel">
       <div class="sub-label" style="margin-top:0;">Memory</div>
@@ -214,18 +264,12 @@
       <div class="progress-bar" style="margin-bottom:8px; display:flex; overflow:hidden; border-radius:99px;">
         <div id="mem-used-bar"   style="height:6px; transition:width .3s; background:#3b82f6;"></div>
         <div id="mem-cached-bar" style="height:6px; transition:width .3s; background:#93c5fd;"></div>
-        <div id="mem-buf-bar"    style="height:6px; transition:width .3s; background:#ef4444;"></div>
+        <div id="mem-buf-bar"    style="height:6px; transition:width .3s; background:#818cf8;"></div>
       </div>
       <div style="display:flex; gap:14px; margin-bottom:14px;">
-        <span style="display:flex; align-items:center; gap:5px; font-size:11px; color:#64748b;">
-          <span style="width:10px; height:10px; border-radius:2px; background:#3b82f6; display:inline-block;"></span>Used
-        </span>
-        <span style="display:flex; align-items:center; gap:5px; font-size:11px; color:#64748b;">
-          <span style="width:10px; height:10px; border-radius:2px; background:#93c5fd; display:inline-block;"></span>Cached
-        </span>
-        <span style="display:flex; align-items:center; gap:5px; font-size:11px; color:#64748b;">
-          <span style="width:10px; height:10px; border-radius:2px; background:#ef4444; display:inline-block;"></span>Buffers
-        </span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#3b82f6;"></span>Used</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#93c5fd;"></span>Cached</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#818cf8;"></span>Buffers</span>
       </div>
 
       <!-- Swap -->
@@ -256,7 +300,7 @@
       <div class="group-header">
         <span class="group-label">스토리지</span>
         <div class="group-line"></div>
-        <a href="/servers/{{ server.id }}/storage" class="btn no-print" style="font-size:11px; padding:3px 10px;">스토리지 상세 →</a>
+        <a href="/servers/{{ server.public_id }}/storage" class="btn no-print" style="font-size:11px; padding:3px 10px;">스토리지 상세 →</a>
       </div>
       <div class="group-panel">
         <div id="disk-io-section">
@@ -284,37 +328,38 @@
       <div class="group-header">
         <span class="group-label">네트워크</span>
         <div class="group-line"></div>
-        <a href="/servers/{{ server.id }}/network" class="btn no-print" style="font-size:11px; padding:3px 10px;">네트워크 상세 →</a>
+        <a href="/servers/{{ server.public_id }}/network" class="btn no-print" style="font-size:11px; padding:3px 10px;">네트워크 상세 →</a>
       </div>
       <div class="group-panel">
-      <div class="sub-label" style="margin-top:0;">Network I/O <small style="font-size:11px; color:#94a3b8; font-weight:400;">(연속 2회 측정 delta)</small></div>
-      <table id="net-io-table" style="margin-bottom:14px;">
-        <thead>
-          <tr>
-            <th>Interface</th>
-            <th>RX kBps</th><th>TX kBps</th>
-            <th>RX pps</th><th>TX pps</th>
-          </tr>
-        </thead>
-        <tbody id="net-io-body"></tbody>
-      </table>
-      </div><!-- /group-panel -->
-    </div><!-- /net-io-section -->
+        <div class="sub-label" style="margin-top:0;">Network I/O <small style="font-size:11px; color:#94a3b8; font-weight:400;">(연속 2회 측정 delta)</small></div>
+        <table id="net-io-table" style="margin-bottom:14px;">
+          <thead>
+            <tr>
+              <th>Interface</th>
+              <th>RX kBps</th><th>TX kBps</th>
+              <th>RX pps</th><th>TX pps</th>
+            </tr>
+          </thead>
+          <tbody id="net-io-body"></tbody>
+        </table>
+      </div>
+    </div>
 
   </div><!-- /metrics-content -->
 </div>
 
 <!-- 페이지 이동 -->
-<div class="no-print" style="display:flex; gap:10px; margin-top:4px;">
-  <a href="/servers/{{ server.id }}/cpu"     class="btn">CPU 상세 →</a>
-  <a href="/servers/{{ server.id }}/memory"  class="btn">메모리 상세 →</a>
-  <a href="/servers/{{ server.id }}/storage" class="btn">스토리지 상세 →</a>
-  <a href="/servers/{{ server.id }}/network" class="btn">네트워크 상세 →</a>
+<div class="no-print" style="display:flex; gap:10px; margin-top:4px; flex-wrap:wrap;">
+  <a href="/servers/{{ server.public_id }}/cpu"      class="btn">CPU 상세 →</a>
+  <a href="/servers/{{ server.public_id }}/memory"   class="btn">메모리 상세 →</a>
+  <a href="/servers/{{ server.public_id }}/storage"  class="btn">스토리지 상세 →</a>
+  <a href="/servers/{{ server.public_id }}/network"  class="btn">네트워크 상세 →</a>
+  <a href="/servers/{{ server.public_id }}/services" class="btn">서비스/포트 →</a>
 </div>
 
 
 <script>
-const SERVER_ID = {{ server.id }};
+const SERVER_ID = "{{ server.public_id }}";
 
 /* -------- 포맷 유틸 -------- */
 function fmtPct(v)  { return v != null ? v.toFixed(1) + '%' : '—'; }

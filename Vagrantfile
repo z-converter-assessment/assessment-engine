@@ -22,9 +22,12 @@ RABBITMQ_KEY_MET  = dot_env.fetch("RABBITMQ_ROUTING_KEY_METRICS",   "server.metr
 RABBITMQ_KEY_ERR  = dot_env.fetch("RABBITMQ_ROUTING_KEY_ERROR",     "server.error")
 
 VMS = [
-  { name: "web-server-01",    box: "bento/ubuntu-22.04",  family: :deb, extra_mounts: [] },
-  { name: "db-server-01",     box: "bento/rockylinux-9",  family: :rpm, extra_mounts: ["/data"] },
-  { name: "backup-server-01", box: "bento/debian-12",     family: :deb, extra_mounts: ["/backup"] },
+  # cache-server-01: redis 설치 → "cache" 카테고리 뱃지
+  { name: "cache-server-01",  box: "bento/ubuntu-22.04",  family: :deb, extra_mounts: [],        services: :redis, ext_ip: nil },
+  # app-server-01:   Rocky Linux, 별도 서비스 없음 → "unknown" 뱃지만
+  { name: "app-server-01",    box: "bento/rockylinux-9",  family: :rpm, extra_mounts: ["/data"], services: :none,  ext_ip: nil },
+  # web-server-01: nginx 설치 → "web" 카테고리 뱃지, 외부 노출 서버
+  { name: "web-server-01",    box: "bento/debian-12",     family: :deb, extra_mounts: [],        services: :nginx, ext_ip: "203.0.113.10" },
 ]
 
 Vagrant.configure("2") do |config|
@@ -63,6 +66,21 @@ Vagrant.configure("2") do |config|
         SHELL
       end
 
+      # 1-1. 추가 서비스 설치
+      if vm[:services] == :redis
+        node.vm.provision "shell", inline: <<~SHELL
+          apt-get install -y --no-install-recommends redis-server
+          systemctl enable redis-server
+          systemctl start redis-server
+        SHELL
+      elsif vm[:services] == :nginx
+        node.vm.provision "shell", inline: <<~SHELL
+          apt-get install -y --no-install-recommends nginx
+          systemctl enable nginx
+          systemctl start nginx
+        SHELL
+      end
+
       # 2. .env를 /etc/assessment-agent.env에 생성
       #    - synced_folder 바깥 → VM별 AGENT_HOSTNAME_OVERRIDE 독립 유지
       #    - /etc/ 하위 → SELinux(Rocky Linux 9)에서 systemd가 읽기 가능
@@ -79,6 +97,7 @@ RABBITMQ_ROUTING_KEY_METRICS=#{RABBITMQ_KEY_MET}
 RABBITMQ_ROUTING_KEY_ERROR=#{RABBITMQ_KEY_ERR}
 AGENT_HOSTNAME_OVERRIDE=#{vm[:name]}
 AGENT_INTERVAL_SEC=60
+#{vm[:ext_ip] ? "AGENT_EXTERNAL_IP=#{vm[:ext_ip]}" : ''}
 EOF
         chmod 644 /etc/assessment-agent.env
         echo "[provision] .env written to /etc/assessment-agent.env"

@@ -2,7 +2,7 @@
 {% block title %}ZConverter Assessment — {{ server.hostname }} 히스토리{% endblock %}
 
 {% block content %}
-<a class="back" href="/servers/{{ server.id }}">← {{ server.hostname }}</a>
+<a class="back" href="/servers/{{ server.public_id }}">← {{ server.hostname }}</a>
 <h1>{{ server.hostname }} — 시계열 히스토리</h1>
 
 {% if history %}

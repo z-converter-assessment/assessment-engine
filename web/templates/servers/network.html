@@ -2,7 +2,7 @@
 {% block title %}ZConverter Assessment — {{ network.hostname }} 네트워크{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="/servers/{{ network.server_id }}">← {{ network.hostname }}</a>
+<a class="back no-print" href="/servers/{{ network.public_id }}">← {{ network.hostname }}</a>
 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
   <h1 style="margin:0;">{{ network.hostname }} — 네트워크</h1>
   <button class="btn no-print" onclick="window.print()">인쇄</button>
@@ -12,7 +12,7 @@
 <div class="card">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px;">
     <h2 style="margin:0;">IP 주소</h2>
-    <span style="font-size:12px; color:#94a3b8;">인벤토리 수집: {{ network.inventory_at | kst if network.inventory_at else '-' }}</span>
+    <span style="font-size:12px; color:#94a3b8;">인벤토리 수집: {{ network.inventory_at | kst }}</span>
   </div>
   <dl class="kv">
     <dt>Internal</dt>
@@ -106,7 +106,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
-const SERVER_ID  = {{ network.server_id }};
+const SERVER_ID  = "{{ network.public_id }}";
 const RANGE_LABEL = { '15m':'15분', '1h':'1시간', '6h':'6시간', '24h':'24시간', '7d':'7일' };
 const NET_Y_SUGGESTED_MAX = 2048; // B/s 기본 기준선 (≈2 kB/s). 조정 가능.
 

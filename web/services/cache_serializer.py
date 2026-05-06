@@ -6,13 +6,20 @@ from web.view_models import (
     CpuSnapshot,
     DiskIoSnapshot,
     DiskItem,
+    ListenPortItem,
     MemSnapshot,
     MetricDashboard,
     MountDashSnapshot,
     NetIoSnapshot,
     ServerDetailResponse,
+    ServiceItem,
     SwapSnapshot,
 )
+
+_DETAIL_DISPLAY_FIELDS = frozenset({
+    "known_services", "show_unknown_badge", "key_listen_ports",
+    "os_display", "cpu_display", "disk_total_gb",
+})
 
 
 def _json_default(obj: object) -> str:
@@ -26,14 +33,23 @@ def server_detail_to_json(v: ServerDetailResponse) -> str:
 
 
 def server_detail_from_json(raw: str) -> ServerDetailResponse:
+    from web.services.mappers import enrich_server_detail
     data = json.loads(raw)
     data["disks"] = [DiskItem(**d) for d in data.get("disks") or []]
-    for field in ("boot_time", "last_seen_at"):
-        if isinstance(data.get(field), str):
-            data[field] = datetime.fromisoformat(data[field])
-    data.pop("mem_total_kb", None)
-    data.pop("swap_total_kb", None)
-    return ServerDetailResponse(**data)
+    raw_services = data.get("services")
+    data["services"] = (
+        [ServiceItem(unit=s["unit"], sub=s["sub"], category=s.get("category") or "unknown", ports=s.get("ports") or [], display_name=s.get("display_name") or s["unit"].removesuffix(".service")) for s in raw_services]
+        if raw_services is not None else None
+    )
+    data["listen_ports"] = [ListenPortItem(**p) for p in data.get("listen_ports") or []]
+    for f in ("boot_time", "last_seen_at"):
+        if isinstance(data.get(f), str):
+            data[f] = datetime.fromisoformat(data[f])
+    for key in ("mem_total_kb", "swap_total_kb", *_DETAIL_DISPLAY_FIELDS):
+        data.pop(key, None)
+    if "public_id" not in data:
+        data["public_id"] = ""
+    return enrich_server_detail(ServerDetailResponse(**data))
 
 
 def dashboard_to_json(v: MetricDashboard) -> str:

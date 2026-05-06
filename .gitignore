@@ -18,3 +18,6 @@ __pycache__/
 
 # 인프라 상태
 .vagrant/
+
+_design/
+_internals/

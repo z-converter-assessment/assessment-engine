@@ -3,13 +3,13 @@ from datetime import datetime
 from typing import Literal
 
 from db.repositories.outbound import (
-    CollectionStatusResponse,
+    CollectionStatus,
     DashboardRaw,
-    MetricSeriesResponse,
-    NetworkWithIoResponse,
-    ServerListItemResponse,
-    ServerResponse,
-    StorageWithUsageResponse,
+    MetricSeries,
+    NetworkWithIo,
+    ServerSummary,
+    ServerDetail,
+    StorageWithUsage,
 )
 
 MetricType = Literal[
@@ -39,24 +39,27 @@ AggFunc    = Literal["avg", "max", "p95"]
 class BaseQueryRepository(ABC):
 
     @abstractmethod
+    async def resolve_server_id(self, public_id: str) -> int | None: ...
+
+    @abstractmethod
     async def list_servers(
         self,
         page: int,
         limit: int,
         search: str | None,
-    ) -> list[ServerListItemResponse]: ...
+    ) -> list[ServerSummary]: ...
 
     @abstractmethod
-    async def get_server(self, server_id: int) -> ServerResponse | None: ...
+    async def get_server(self, server_id: int) -> ServerDetail | None: ...
 
     @abstractmethod
-    async def get_storage(self, server_id: int) -> StorageWithUsageResponse | None: ...
+    async def get_storage(self, server_id: int) -> StorageWithUsage | None: ...
 
     @abstractmethod
-    async def get_network(self, server_id: int) -> NetworkWithIoResponse | None: ...
+    async def get_network(self, server_id: int) -> NetworkWithIo | None: ...
 
     @abstractmethod
-    async def get_collection_status(self, server_id: int) -> list[CollectionStatusResponse]: ...
+    async def get_collection_status(self, server_id: int) -> CollectionStatus | None: ...
 
     @abstractmethod
     async def latest_dashboard(self, server_id: int) -> DashboardRaw | None: ...
@@ -67,7 +70,7 @@ class BaseQueryRepository(ABC):
         server_id: int,
         cursor: datetime | None,
         limit: int,
-    ) -> list[MetricSeriesResponse]: ...
+    ) -> list[MetricSeries]: ...
 
     @abstractmethod
     async def metric_chart(
@@ -78,4 +81,4 @@ class BaseQueryRepository(ABC):
         time_range: TimeRange,
         bucket: BucketSize,
         agg: AggFunc,
-    ) -> list[MetricSeriesResponse]: ...
+    ) -> list[MetricSeries]: ...

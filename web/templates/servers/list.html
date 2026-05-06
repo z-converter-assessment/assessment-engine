@@ -26,10 +26,12 @@
     <tr>
       <th>상태</th>
       <th>Hostname</th>
-      <th>OS</th>
+      <th>서비스</th>
+      <th>네트워크</th>
       <th>Cores</th>
       <th>Memory</th>
-      <th>네트워크</th>
+      <th>Storage</th>
+      <th>OS</th>
       <th>마지막 수집</th>
       <th class="action-col"></th>
     </tr>
@@ -45,26 +47,36 @@
         {% endif %}
       </td>
       <td>
-        <a href="/servers/{{ s.id }}"><strong>{{ s.hostname }}</strong></a>
+        <a href="/servers/{{ s.public_id }}"><strong>{{ s.hostname }}</strong></a>
       </td>
-      <td style="color:#64748b;">
-        {% if s.os_id %}{{ s.os_id }}{% endif %}
-        {% if s.os_version %} {{ s.os_version }}{% endif %}
-        {% if not s.os_id and not s.os_version %}-{% endif %}
+      <td>
+        {% if s.services is none %}
+          <span style="color:#cbd5e1; font-size:12px;">—</span>
+        {% elif s.services %}
+          {% for svc in s.known_services %}
+            <span class="badge {{ svc.category | service_badge_class }}" style="margin-right:3px;">{{ svc.category }}<span style="font-weight:400; opacity:0.75; margin-left:5px;">{{ svc.display_name }}</span></span>
+          {% endfor %}
+          {% if s.show_unknown_badge %}
+            <span class="badge badge-cat-unknown">unknown</span>
+          {% endif %}
+        {% else %}
+          <span style="color:#94a3b8; font-size:12px;">없음</span>
+        {% endif %}
       </td>
-      <td>{{ s.cpu_cores if s.cpu_cores is not none else '-' }}</td>
-      <td>{{ s.mem_total_gb ~ ' GB' if s.mem_total_gb is not none else '-' }}</td>
       <td>
         {% if s.ip_external %}
-          <span class="badge badge-ok" style="font-size:11px;">퍼블릭</span>
           {% for ip in s.ip_external %}<code style="font-size:11px;">{{ ip }}</code> {% endfor %}
         {% else %}
           <span style="color:#94a3b8; font-size:12px;">내부망</span>
         {% endif %}
       </td>
+      <td>{{ s.cpu_cores | or_dash }}</td>
+      <td>{{ s.mem_total_gb | disksize }}</td>
+      <td>{{ s.storage_total_gb | disksize }}</td>
+      <td style="color:#64748b;">{{ s.os_display }}</td>
       <td style="color:#64748b; font-size:13px;">{{ s.last_seen_at | kst }}</td>
       <td class="action-col">
-        <a href="/servers/{{ s.id }}" class="btn" style="font-size:12px; padding:4px 10px;">상세 →</a>
+        <a href="/servers/{{ s.public_id }}" class="btn" style="font-size:12px; padding:4px 10px;">상세 →</a>
       </td>
     </tr>
     {% endfor %}
@@ -75,4 +87,5 @@
   등록된 서버가 없습니다.
 </div>
 {% endif %}
+
 {% endblock %}

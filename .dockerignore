@@ -22,6 +22,5 @@ docker-compose.yml
 README.md
 .claude/
 docs/
-
-# 테스트
-tests/
+_design/
+_internals/

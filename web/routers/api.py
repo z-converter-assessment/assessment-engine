@@ -4,27 +4,35 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from db.repositories.base_query_repository import AggFunc, BucketSize, MetricType, TimeRange
 from web.deps import get_service
-from web.services.query_service import QueryService
+from web.services.query_service import AggFunc, BucketSize, MetricType, QueryService, TimeRange
 
 api_router = APIRouter(prefix="/api/v1/servers", tags=["api"])
 
 
+async def _resolve(public_id: str, service: QueryService) -> int:
+    server_id = await service.resolve_server_id(public_id)
+    if server_id is None:
+        raise HTTPException(status_code=404)
+    return server_id
+
+
 @api_router.get("/{server_id}/collection-status")
 async def get_collection_status(
-    server_id: int,
+    server_id: str,
     service: QueryService = Depends(get_service),
 ):
-    return await service.get_collection_status(server_id)
+    internal_id = await _resolve(server_id, service)
+    return await service.get_collection_status(internal_id)
 
 
 @api_router.get("/{server_id}/metrics/latest")
 async def get_latest_metric(
-    server_id: int,
+    server_id: str,
     service: QueryService = Depends(get_service),
 ):
-    result = await service.get_latest_metric(server_id)
+    internal_id = await _resolve(server_id, service)
+    result = await service.get_latest_metric(internal_id)
     if not result:
         raise HTTPException(status_code=404)
     return dataclasses.asdict(result)
@@ -32,17 +40,18 @@ async def get_latest_metric(
 
 @api_router.get("/{server_id}/metrics/snapshots")
 async def get_metric_snapshots(
-    server_id: int,
+    server_id: str,
     cursor: datetime | None = Query(None),
     limit: int = Query(10, ge=1, le=100),
     service: QueryService = Depends(get_service),
 ):
-    return await service.get_metric_snapshots(server_id, cursor, limit)
+    internal_id = await _resolve(server_id, service)
+    return await service.get_metric_snapshots(internal_id, cursor, limit)
 
 
 @api_router.get("/{server_id}/metrics/chart")
 async def get_metric_chart(
-    server_id: int,
+    server_id: str,
     metric_type: MetricType = Query(...),
     dimension: str | None = Query(None),
     time_range: TimeRange = Query("1h"),
@@ -50,16 +59,19 @@ async def get_metric_chart(
     agg: AggFunc = Query("avg"),
     service: QueryService = Depends(get_service),
 ):
-    return await service.get_metric_chart(server_id, metric_type, dimension, time_range, bucket, agg)
+    internal_id = await _resolve(server_id, service)
+    return await service.get_metric_chart(internal_id, metric_type, dimension, time_range, bucket, agg)
 
 
 @api_router.get("/{server_id}/metrics/stream")
 async def metrics_stream(
-    server_id: int,
+    server_id: str,
     service: QueryService = Depends(get_service),
 ):
+    internal_id = await _resolve(server_id, service)
+
     async def event_stream():
-        async for data in service.stream_metrics_events(server_id):
+        async for data in service.stream_metrics_events(internal_id):
             yield f"data: {data}\n\n"
 
     return StreamingResponse(
