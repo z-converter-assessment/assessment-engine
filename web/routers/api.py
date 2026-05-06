@@ -1,4 +1,3 @@
-import dataclasses
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -35,7 +34,7 @@ async def get_latest_metric(
     result = await service.get_latest_metric(internal_id)
     if not result:
         raise HTTPException(status_code=404)
-    return dataclasses.asdict(result)
+    return result
 
 
 @api_router.get("/{server_id}/metrics/snapshots")
@@ -57,10 +56,12 @@ async def get_metric_chart(
     time_range: TimeRange = Query("1h"),
     bucket: BucketSize = Query("5m"),
     agg: AggFunc = Query("avg"),
+    end: datetime | None = Query(None),
+    device_category: str | None = Query(None),
     service: QueryService = Depends(get_service),
 ):
     internal_id = await _resolve(server_id, service)
-    return await service.get_metric_chart(internal_id, metric_type, dimension, time_range, bucket, agg)
+    return await service.get_metric_chart(internal_id, metric_type, dimension, time_range, bucket, agg, end, device_category)
 
 
 @api_router.get("/{server_id}/metrics/stream")

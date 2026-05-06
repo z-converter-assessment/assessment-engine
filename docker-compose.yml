@@ -1,5 +1,6 @@
 services:
   postgres:
+    restart: unless-stopped
     image: timescale/timescaledb:latest-pg16
     env_file: .env
     environment:
@@ -17,6 +18,7 @@ services:
       retries: 5
 
   rabbitmq:
+    restart: unless-stopped
     image: rabbitmq:3.13-management-alpine
     env_file: .env
     environment:
@@ -32,6 +34,7 @@ services:
       retries: 5
 
   redis:
+    restart: unless-stopped
     image: redis:7-alpine
     command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru
     healthcheck:
@@ -41,6 +44,7 @@ services:
       retries: 5
 
   web:
+    restart: unless-stopped
     build: .
     command: python -m web
     volumes:
@@ -64,6 +68,7 @@ services:
       start_period: 10s
 
   consumer:
+    restart: unless-stopped
     build: .
     command: python -m consumer
     volumes:

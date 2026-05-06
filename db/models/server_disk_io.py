@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.models.base import Base
@@ -8,6 +8,9 @@ from db.models.base import Base
 
 class ServerDiskIo(Base):
     __tablename__ = "server_disk_io"
+    __table_args__ = (
+        UniqueConstraint("server_id", "device", "collected_at", name="uq_server_disk_io_sid_dev_ts"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)

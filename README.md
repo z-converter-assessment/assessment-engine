@@ -76,7 +76,7 @@
 
 ## 환경변수
 
-루트 `.env`에서 주입. 전체 키 목록과 주의사항은 [docs/ENV.md](docs/ENV.md) 참조.
+루트 `.env`에서 주입. 전체 키 목록과 주의사항은 [docs/env.md](docs/env.md) 참조.
 
 ---
 
@@ -84,7 +84,6 @@
 
 런타임은 Docker 컨테이너에서 동작하지만, 자동완성·타입 체크를 위해 로컬 가상환경에 의존성을 설치한다.
 
-`assessment-engine/` 루트에서 실행한다.
 
 ```bash
 python -m venv .venv
@@ -99,26 +98,29 @@ uv pip install -e "."
 
 ### Docker만 (포털 서버 단독)
 
-`assessment-engine/` 루트에서 실행한다.
 
 ```bash
 # 1. 환경변수 설정
 cp .env.example .env
-
+```
+```bash
 # 2. 실행
 docker compose up --build -d
-
-# 3. 로그 확인
+```
+```bash
+# 3-1. 로그 (web)
 docker compose logs -f web
+
+# 3-2. 로그 (consumer)
 docker compose logs -f consumer
 ```
 
 ```bash
-# 종료 (데이터 유지)
-docker compose down
-
-# 종료 (데이터 삭제)
+# 4-1. 종료 (데이터 삭제)
 docker compose down -v
+
+# 4-2. 종료 (데이터 유지)
+docker compose down
 ```
 
 ---
@@ -140,4 +142,14 @@ docker compose down -v
 에이전트(C 바이너리) → RabbitMQ → Consumer → DB → Web UI 전체 파이프라인을 실제 VM 환경에서 검증한다.
 Vagrant로 VM 3대(Ubuntu / Rocky Linux / Debian)를 띄우고, 각 VM에서 에이전트가 메트릭을 발행해 포털에 수집되는 것을 직접 확인한다.
 
-→ [docs/TESTING.md](docs/TESTING.md)
+→ [docs/pipeline.md](docs/pipeline.md)
+
+---
+
+## 개발 문서
+
+- [`docs/components/`](docs/components/) — 컴포넌트별 설계·기술 구현 (agent·consumer·db·redis·web)
+- [`docs/infra/`](docs/infra/) — 인프라 구성 (Docker·Vagrant)
+- [`docs/pipeline.md`](docs/pipeline.md) — 파이프라인 검증 절차 (Vagrant VM)
+- [`docs/tradeoffs.md`](docs/tradeoffs.md) — 설계 선택으로 인한 트레이드오프 (멱등성·캐시 일관성·시계열 누적 등)
+- [`docs/env.md`](docs/env.md) — 환경변수 전체 키 목록

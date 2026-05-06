@@ -2,6 +2,7 @@ import dataclasses
 import json
 from datetime import datetime
 
+from web.services.mappers import enrich_server_detail
 from web.view_models import (
     CpuSnapshot,
     DiskIoSnapshot,
@@ -19,6 +20,7 @@ from web.view_models import (
 _DETAIL_DISPLAY_FIELDS = frozenset({
     "known_services", "show_unknown_badge", "key_listen_ports",
     "os_display", "cpu_display", "disk_total_gb",
+    "sorted_services", "sorted_listen_ports",
 })
 
 
@@ -33,7 +35,6 @@ def server_detail_to_json(v: ServerDetailResponse) -> str:
 
 
 def server_detail_from_json(raw: str) -> ServerDetailResponse:
-    from web.services.mappers import enrich_server_detail
     data = json.loads(raw)
     data["disks"] = [DiskItem(**d) for d in data.get("disks") or []]
     raw_services = data.get("services")
@@ -41,11 +42,18 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
         [ServiceItem(unit=s["unit"], sub=s["sub"], category=s.get("category") or "unknown", ports=s.get("ports") or [], display_name=s.get("display_name") or s["unit"].removesuffix(".service")) for s in raw_services]
         if raw_services is not None else None
     )
-    data["listen_ports"] = [ListenPortItem(**p) for p in data.get("listen_ports") or []]
+    data["listen_ports"] = [
+        ListenPortItem(
+            proto=p["proto"], addr=p["addr"], port=p["port"], uid=p["uid"],
+            pid=p.get("pid"), comm=p.get("comm"),
+            is_well_known=p.get("is_well_known", p.get("port", 0) <= 1024),
+        )
+        for p in data.get("listen_ports") or []
+    ]
     for f in ("boot_time", "last_seen_at"):
         if isinstance(data.get(f), str):
             data[f] = datetime.fromisoformat(data[f])
-    for key in ("mem_total_kb", "swap_total_kb", *_DETAIL_DISPLAY_FIELDS):
+    for key in _DETAIL_DISPLAY_FIELDS:
         data.pop(key, None)
     if "public_id" not in data:
         data["public_id"] = ""
@@ -67,7 +75,9 @@ def dashboard_from_json(raw: str) -> MetricDashboard:
         load_15m=data.get("load_15m"),
         memory=MemSnapshot(**data["memory"]) if data.get("memory") else None,
         swap=SwapSnapshot(**data["swap"]) if data.get("swap") else None,
-        disk_io=[DiskIoSnapshot(**d) for d in data.get("disk_io") or []],
+        disk_io_phys=[DiskIoSnapshot(**d) for d in data.get("disk_io_phys") or []],
+        disk_io_lvm=[DiskIoSnapshot(**d) for d in data.get("disk_io_lvm") or []],
+        disk_io_part=[DiskIoSnapshot(**d) for d in data.get("disk_io_part") or []],
         net_io=[NetIoSnapshot(**n) for n in data.get("net_io") or []],
         mounts=[MountDashSnapshot(**m) for m in data.get("mounts") or []],
     )

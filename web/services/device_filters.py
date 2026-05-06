@@ -6,6 +6,8 @@
 import re
 
 _PHYS_DISK_RE = re.compile(r'^(sd[a-z]+|vd[a-z]+|hd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$')
+_LVM_DISK_RE  = re.compile(r'^(dm-\d+|md\d+)$')
+_PART_DISK_RE = re.compile(r'^(sd[a-z]+\d+|vd[a-z]+\d+|hd[a-z]+\d+|xvd[a-z]+\d+|nvme\d+n\d+p\d+|mmcblk\d+p\d+)$')
 
 _VIRTUAL_FSTYPES: frozenset[str] = frozenset({
     'proc', 'sysfs', 'devtmpfs', 'devpts',
@@ -27,6 +29,14 @@ _VIRTUAL_MOUNT_PREFIXES: tuple[str, ...] = (
 
 def is_physical_disk(name: str) -> bool:
     return bool(_PHYS_DISK_RE.match(name))
+
+
+def is_lvm_disk(name: str) -> bool:
+    return bool(_LVM_DISK_RE.match(name))
+
+
+def is_partition(name: str) -> bool:
+    return bool(_PART_DISK_RE.match(name))
 
 
 def is_virtual_mount(fstype: str | None, mount: str) -> bool:

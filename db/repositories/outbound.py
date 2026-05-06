@@ -12,11 +12,9 @@ class ServerSummary:
     os_version: str | None
     cpu_cores: int | None
     mem_total_kb: int | None
-    last_seen_at: datetime | None
     ip_external: list[str] | None
     disks: list[dict]
     services: list[dict] | None
-    listen_ports: list[dict]
 
 
 @dataclass

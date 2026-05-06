@@ -146,5 +146,9 @@ class ErrorInput(MessageBase):
     error_code: str = Field(min_length=1, max_length=64)
     error_message: str = Field(min_length=1)
     failed_component: Literal["collect", "publish"]
+    # 재시도 요약 보고 시점에만 포함 (스키마 v3, payload-schema.md "발행 정책" 참조)
+    retry_count: int | None = Field(default=None, ge=0)
+    first_failed_at: datetime | None = None
+    recovered_at: datetime | None = None
 
 

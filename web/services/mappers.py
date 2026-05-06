@@ -1,3 +1,29 @@
+from db.repositories.outbound import (
+    CollectionStatus,
+    MetricSeries,
+    NetworkWithIo,
+    ServerSummary,
+    ServerDetail,
+    StorageWithUsage,
+)
+from web.services.device_filters import is_physical_disk, is_virtual_mount
+from web.services.metrics_calculator import compute_net_io
+from web.services.service_classifier import classify, matched_ports
+from web.services.units import bytes_to_gb, kb_to_gb, usage_pct
+from web.view_models import (
+    CollectionStatusItem,
+    DiskItem,
+    ListenPortItem,
+    MetricSeriesItem,
+    MountUsageItem,
+    NetworkDetailResponse,
+    ServerDetailResponse,
+    ServerListItem,
+    ServiceItem,
+    StorageDetailResponse,
+)
+
+
 def _usage_badge_class(pct: float | None) -> str:
     if pct is None:
         return ""
@@ -18,42 +44,22 @@ def _usage_bar_color(pct: float | None) -> str:
     return "#22c55e"
 
 
-from db.repositories.outbound import (
-    CollectionStatus,
-    MetricSeries,
-    NetworkWithIo,
-    ServerSummary,
-    ServerDetail,
-    StorageWithUsage,
-)
-from web.services.filters import is_physical_disk, is_virtual_mount
-from web.services.metrics_calculator import compute_net_io
-from web.services.service_classifier import classify, matched_ports
-from web.services.units import _bytes_to_gb, _kb_to_gb, _usage_pct
-from web.view_models import (
-    CollectionStatusItem,
-    DiskItem,
-    ListenPortItem,
-    MetricSeriesItem,
-    MountUsageItem,
-    NetworkDetailResponse,
-    ServerDetailResponse,
-    ServerListItem,
-    ServiceItem,
-    StorageDetailResponse,
-)
-
-
 def to_server_list_item(dto: ServerSummary) -> ServerListItem:
     physical = [d for d in dto.disks if is_physical_disk(d.get("name", ""))]
-    raw_total = sum(_bytes_to_gb(d.get("size_bytes")) or 0.0 for d in physical)
+    raw_total = sum(bytes_to_gb(d.get("size_bytes")) or 0.0 for d in physical)
     storage_total_gb = round(raw_total, 1) if physical else None
 
     services = (
         [ServiceItem(unit=s.get("unit", ""), sub=s.get("sub", ""), category=classify(s.get("unit", "")), ports=[], display_name=s.get("unit", "").removesuffix(".service")) for s in dto.services]
         if dto.services is not None else None
     )
-    known_services = [s for s in services if s.category != "unknown"] if services is not None else []
+    _known = [s for s in services if s.category != "unknown"] if services is not None else []
+    seen: set[str] = set()
+    known_services: list[ServiceItem] = []
+    for s in _known:
+        if s.category not in seen:
+            seen.add(s.category)
+            known_services.append(s)
     show_unknown_badge = services is not None and bool(services) and not known_services
 
     os_parts = [p for p in [dto.os_id, dto.os_version] if p]
@@ -66,23 +72,11 @@ def to_server_list_item(dto: ServerSummary) -> ServerListItem:
         os_id=dto.os_id,
         os_version=dto.os_version,
         cpu_cores=dto.cpu_cores,
-        mem_total_gb=_kb_to_gb(dto.mem_total_kb),
+        mem_total_gb=kb_to_gb(dto.mem_total_kb),
         storage_total_gb=storage_total_gb,
-        last_seen_at=dto.last_seen_at,
         is_online=False,
         ip_external=dto.ip_external,
         services=services,
-        listen_ports=[
-            ListenPortItem(
-                proto=p.get("proto", ""),
-                addr=p.get("addr", ""),
-                port=p.get("port", 0),
-                uid=p.get("uid", 0),
-                pid=p.get("pid"),
-                comm=p.get("comm"),
-            )
-            for p in dto.listen_ports
-        ],
         known_services=known_services,
         show_unknown_badge=show_unknown_badge,
         os_display=os_display,
@@ -102,13 +96,13 @@ def to_server_detail(dto: ServerDetail) -> ServerDetailResponse:
         kernel_version=dto.kernel_version,
         cpu_cores=dto.cpu_cores,
         cpu_model=dto.cpu_model,
-        mem_total_gb=_kb_to_gb(dto.mem_total_kb),
-        swap_total_gb=_kb_to_gb(dto.swap_total_kb),
+        mem_total_gb=kb_to_gb(dto.mem_total_kb),
+        swap_total_gb=kb_to_gb(dto.swap_total_kb),
         boot_time=dto.boot_time,
         ip_internal=dto.ip_internal,
         ip_external=dto.ip_external,
         disks=[
-            DiskItem(name=d.get("name", ""), size_gb=_bytes_to_gb(d.get("size_bytes")), type=d.get("type"))
+            DiskItem(name=d.get("name", ""), size_gb=bytes_to_gb(d.get("size_bytes")), type=d.get("type"))
             for d in dto.disks
             if is_physical_disk(d.get("name", ""))
         ],
@@ -124,6 +118,7 @@ def to_server_detail(dto: ServerDetail) -> ServerDetailResponse:
                 uid=p.get("uid", 0),
                 pid=p.get("pid"),
                 comm=p.get("comm"),
+                is_well_known=p.get("port", 0) <= 1024,
             )
             for p in dto.listen_ports
         ],
@@ -153,7 +148,6 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
             avail_bytes=usage.avail_bytes if usage else None,
         ))
 
-    # live 데이터에만 존재하는 마운트 (인벤토리 갱신 전 edge case)
     for path, usage in usage_by_mount.items():
         if path not in seen:
             if is_virtual_mount(None, path):
@@ -172,7 +166,7 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
         public_id=dto.public_id,
         hostname=dto.hostname,
         disks=[
-            DiskItem(name=d.get("name", ""), size_gb=_bytes_to_gb(d.get("size_bytes")), type=d.get("type"))
+            DiskItem(name=d.get("name", ""), size_gb=bytes_to_gb(d.get("size_bytes")), type=d.get("type"))
             for d in dto.disks
             if is_physical_disk(d.get("name", ""))
         ],
@@ -186,13 +180,13 @@ def _build_mount_item(
     mount: str, fstype: str | None, total_bytes: int | None, avail_bytes: int | None,
 ) -> MountUsageItem:
     used_bytes = (total_bytes - avail_bytes) if (total_bytes and avail_bytes is not None) else None
-    pct = _usage_pct(used_bytes, total_bytes)
+    pct = usage_pct(used_bytes, total_bytes)
     return MountUsageItem(
         mount=mount,
         fstype=fstype,
-        total_gb=_bytes_to_gb(total_bytes),
-        used_gb=_bytes_to_gb(used_bytes),
-        avail_gb=_bytes_to_gb(avail_bytes),
+        total_gb=bytes_to_gb(total_bytes),
+        used_gb=bytes_to_gb(used_bytes),
+        avail_gb=bytes_to_gb(avail_bytes),
         usage_pct=pct,
         badge_class=_usage_badge_class(pct),
         bar_color=_usage_bar_color(pct),
@@ -231,7 +225,6 @@ def to_metric_series_item(dto: MetricSeries) -> MetricSeriesItem:
 
 
 def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
-    """display 전용 파생 필드를 계산한다. 캐시 역직렬화 후에도 호출한다."""
     services = detail.services or []
     seen_chip_keys: set[str] = set()
     shown_port_numbers: set[int] = set()
@@ -257,9 +250,13 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
         detail.services is not None and bool(detail.services) and not known
     )
     detail.key_listen_ports = sorted(
-        [lp for lp in detail.listen_ports if lp.port <= 1024 and lp.port not in shown_port_numbers],
+        [lp for lp in detail.listen_ports if lp.is_well_known and lp.port not in shown_port_numbers],
         key=lambda lp: (lp.port, lp.proto),
     )
+
+    # 템플릿(P3)이 sort 못 하도록 mapper에서 한 번만 정렬
+    detail.sorted_services = sorted(detail.services or [], key=lambda s: s.unit) if detail.services else []
+    detail.sorted_listen_ports = sorted(detail.listen_ports, key=lambda lp: (lp.port, lp.proto))
 
     os_parts = [p for p in [detail.os_id, detail.os_version] if p]
     detail.os_display = " ".join(os_parts) or "-"

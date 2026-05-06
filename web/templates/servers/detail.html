@@ -50,12 +50,15 @@
 </style>
 <a class="back no-print" href="/servers/">← 서버 목록</a>
 
-<div style="display:flex; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
+<div style="display:flex; align-items:baseline; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
   <h1 style="margin:0;">{{ server.hostname }}</h1>
   <span id="online-badge" class="badge no-print" style="font-size:12px;">
     <span class="dot dot-off"></span>확인 중...
   </span>
-  <button class="btn no-print" onclick="window.print()" style="margin-left:auto;">인쇄</button>
+  <a href="/servers/{{ server.public_id }}/performance" class="no-print" style="margin-left:auto; display:inline-flex; align-items:center; gap:7px; padding:8px 18px; background:#334155; color:#fff; border-radius:7px; font-size:13px; font-weight:600; letter-spacing:.01em; text-decoration:none; box-shadow:0 1px 3px rgba(0,0,0,.15); transition:background .15s, box-shadow .15s;" onmouseover="this.style.background='#475569'; this.style.boxShadow='0 3px 8px rgba(0,0,0,.22)'" onmouseout="this.style.background='#334155'; this.style.boxShadow='0 1px 3px rgba(0,0,0,.15)'">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    성능 리포트
+  </a>
 </div>
 
 <!-- 정적 인벤토리 정보 -->
@@ -120,7 +123,7 @@
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
     <h2 style="margin:0;">서비스 / 포트</h2>
-    <a href="/servers/{{ server.public_id }}/services" class="btn no-print" style="font-size:12px; padding:4px 10px;">전체 현황 →</a>
+    <a href="/servers/{{ server.public_id }}/services" class="btn no-print" style="font-size:12px; padding:4px 10px;">서비스/포트 상세 →</a>
   </div>
 
   <!-- 카테고리 뱃지 + 매핑 포트 -->
@@ -350,16 +353,24 @@
 
 <!-- 페이지 이동 -->
 <div class="no-print" style="display:flex; gap:10px; margin-top:4px; flex-wrap:wrap;">
-  <a href="/servers/{{ server.public_id }}/cpu"      class="btn">CPU 상세 →</a>
-  <a href="/servers/{{ server.public_id }}/memory"   class="btn">메모리 상세 →</a>
-  <a href="/servers/{{ server.public_id }}/storage"  class="btn">스토리지 상세 →</a>
-  <a href="/servers/{{ server.public_id }}/network"  class="btn">네트워크 상세 →</a>
-  <a href="/servers/{{ server.public_id }}/services" class="btn">서비스/포트 →</a>
+  <a href="/servers/{{ server.public_id }}/cpu"         class="btn">CPU 상세 →</a>
+  <a href="/servers/{{ server.public_id }}/memory"      class="btn">메모리 상세 →</a>
+  <a href="/servers/{{ server.public_id }}/storage"     class="btn">스토리지 상세 →</a>
+  <a href="/servers/{{ server.public_id }}/network"     class="btn">네트워크 상세 →</a>
+  <a href="/servers/{{ server.public_id }}/services"    class="btn">서비스/포트 상세 →</a>
+  <a href="/servers/{{ server.public_id }}/performance" class="btn">성능 리포트 →</a>
 </div>
 
 
 <script>
 const SERVER_ID = "{{ server.public_id }}";
+
+/* -------- 표시 임계값 (서버 mappers._usage_bar_color와 동일 기준) -------- */
+const USAGE_DANGER_PCT = 90;
+const USAGE_WARN_PCT   = 75;
+const COLOR_OK     = '#3b82f6';
+const COLOR_WARN   = '#f59e0b';
+const COLOR_DANGER = '#ef4444';
 
 /* -------- 포맷 유틸 -------- */
 function fmtPct(v)  { return v != null ? v.toFixed(1) + '%' : '—'; }
@@ -374,10 +385,10 @@ function fmtKb(kb) {
   return kb + ' KB';
 }
 function barColor(pct) {
-  if (pct == null) return '#3b82f6';
-  if (pct >= 90)   return '#ef4444';
-  if (pct >= 75)   return '#f59e0b';
-  return '#3b82f6';
+  if (pct == null)              return COLOR_OK;
+  if (pct >= USAGE_DANGER_PCT)  return COLOR_DANGER;
+  if (pct >= USAGE_WARN_PCT)    return COLOR_WARN;
+  return COLOR_OK;
 }
 function show(id) { document.getElementById(id).style.display = ''; }
 function hide(id) { document.getElementById(id).style.display = 'none'; }
@@ -417,14 +428,11 @@ function renderMetrics(d) {
   setTxt('mem-avail',   fmtKb(mem.available_kb));
   setTxt('mem-cached',  fmtKb(mem.cached_kb));
   setTxt('mem-buffers', fmtKb(mem.buffers_kb));
-  const total = mem.total_kb || 1;
-  const usedPct   = mem.usage_pct ?? 0;
-  const cachedPct = mem.cached_kb  != null ? Math.min(100 - usedPct, mem.cached_kb  / total * 100) : 0;
-  const bufPct    = mem.buffers_kb != null ? Math.min(100 - usedPct - cachedPct, mem.buffers_kb / total * 100) : 0;
-  el('mem-used-bar').style.width      = usedPct + '%';
+  // P5: 누적 비율은 서버 metrics_calculator.compute_mem 에서 계산. 클라이언트는 표시만.
+  el('mem-used-bar').style.width      = (mem.usage_pct ?? 0) + '%';
   el('mem-used-bar').style.background = barColor(mem.usage_pct);
-  el('mem-cached-bar').style.width    = cachedPct + '%';
-  el('mem-buf-bar').style.width       = bufPct + '%';
+  el('mem-cached-bar').style.width    = (mem.cached_pct ?? 0) + '%';
+  el('mem-buf-bar').style.width       = (mem.buffers_pct ?? 0) + '%';
 
   /* Swap */
   const swap = d.swap || {};
@@ -438,7 +446,7 @@ function renderMetrics(d) {
   }
 
   /* Disk I/O */
-  const diskIo = (d.disk_io || []).filter(dk => /^(sd[a-z]|vd[a-z]|hd[a-z]|xvd[a-z]|nvme\d+n\d+)$/.test(dk.device));
+  const diskIo = d.disk_io_phys || [];
   if (diskIo.length > 0) {
     el('disk-io-body').innerHTML = diskIo.map(dk => `
       <tr>

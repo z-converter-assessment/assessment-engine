@@ -19,5 +19,5 @@ __pycache__/
 # 인프라 상태
 .vagrant/
 
-_design/
-_internals/
+# Claude Code 런타임 상태 (CLAUDE.md는 프로젝트 규약이므로 제외)
+.claude/*.lock

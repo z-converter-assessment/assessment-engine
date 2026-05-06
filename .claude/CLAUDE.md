@@ -1,14 +1,20 @@
 # CLAUDE.md
 
-## 프로젝트 개요
-ZConverter Cloud Assessment Portal.
-고객사 내부 네트워크의 각 호스트 인벤토리를 수집·저장하는 B2B 내부 포털.
+> 본 파일은 본 프로젝트의 **규약 단일 진실 (single source of truth)**.
+> 실제 동작은 코드, 흐름은 `docs/components/` · `docs/infra/`, 트레이드오프는 `docs/tradeoffs.md`. 본 파일은 그 위에 얹는 **결정 사항·원칙·금지 사항**만 담는다.
+>
+> 섹션 번호 규약: **A 시스템 → B 데이터 계약 → C 데이터 계층 → D Consumer → E Web → F 운영 규약**.
+> 각 섹션은 자기 계층 책임만 다룬다. 계층 충돌 시 §E1 원칙(P1~P5) 우선순위로 해결.
 
-### 배포 시나리오
-고객사 네트워크 내에 서버 엔진(web + consumer + MQ + DB)이 설치된다.
-각 서버의 **C 기반 에이전트**가 메트릭을 수집해 MQ에 직접 발행하고, Consumer가 소비해 DB에 저장한다.
+---
 
-## docker-compose 구성
+# A. 시스템
+
+## A1. 프로젝트 개요
+ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 인벤토리 수집·저장 B2B 내부 포털.
+고객사 네트워크 내에 엔진(web + consumer + MQ + DB)이 설치되고, 각 서버의 **C 기반 에이전트**가 메트릭을 MQ에 직접 발행하여 Consumer가 DB에 저장한다.
+
+## A2. 컨테이너 구성
 
 | 서비스 | 이미지 | 역할 |
 |--------|--------|------|
@@ -18,204 +24,24 @@ ZConverter Cloud Assessment Portal.
 | web | 로컬 빌드 | FastAPI SSR + API |
 | consumer | 로컬 빌드 | aio-pika 컨슈머 |
 
-- **scheduler**는 코드(`scheduler/`)는 있으나 docker-compose 서비스로 미등록. `run_diagnostics()` NotImplementedError 상태.
-- `consumer depends_on web: condition: service_healthy` — **DEV 전용**: web 기동 시 lifespan이 `CREATE EXTENSION + create_all + create_hypertable` 를 수행하므로, consumer가 web health 확인 후 시작해야 스키마가 존재함. 프로덕션에서는 Alembic으로 대체하고 이 의존성 제거.
-- `db/session.py`와 `db/redis.py`는 `web_settings`를 사용. `ConsumerSettings`는 `WebSettings`를 상속하여 RabbitMQ 설정을 추가하며, docker-compose의 `POSTGRES_HOST: postgres` / `REDIS_HOST: redis` environment 오버라이드로 동작함.
+운영 결정:
+- `consumer depends_on web: condition: service_healthy` — **DEV 한정**. web lifespan이 `CREATE EXTENSION + create_all + create_hypertable`을 수행하므로 consumer는 web 헬스체크 후 시작. 프로덕션은 Alembic 도입 후 이 의존성 제거.
+- `db/session.py` · `db/redis.py`는 `web_settings`만 사용. `ConsumerSettings`는 `WebSettings` 상속 + RabbitMQ 설정 추가. docker-compose의 `POSTGRES_HOST`/`REDIS_HOST`/`RABBITMQ_HOST` env 오버라이드로 컨테이너 내부 host 결정.
+- `scheduler/` 코드는 있으나 docker-compose 미등록 + `run_diagnostics()` NotImplementedError. 미사용.
 
-## ORM 모델
+## A3. 환경변수
+루트 `.env`에서 주입. 키 목록·기본값·사용처(config.py / docker-compose / Vagrantfile)는 `docs/env.md`.
 
-| 모델 | 테이블 | PK 타입 | 설명 |
-|------|--------|---------|------|
-| ServerInventory | server_inventory | Integer | 기본 인벤토리. machine_id 기준 upsert |
-| ServerMetrics | server_metrics | BigInteger | 스칼라 메트릭 시계열. TimescaleDB hypertable |
-| ServerDiskIo | server_disk_io | BigInteger | 디스크 I/O 시계열. TimescaleDB hypertable |
-| ServerNetIo | server_net_io | BigInteger | 네트워크 I/O 시계열. TimescaleDB hypertable |
-| ServerMountUsage | server_mount_usage | BigInteger | 마운트 사용량 시계열. TimescaleDB hypertable |
+**핵심 규칙**:
+- HOST 변수(`POSTGRES_HOST`/`RABBITMQ_HOST`/`REDIS_HOST`)의 기본값은 docker-compose 서비스명. 호스트 직접 실행 시(IDE 디버깅) `localhost`로 변경.
+- docker-compose `environment:` 블록이 컨테이너 내부에서 HOST를 강제 오버라이드 — `.env` 값 변경해도 컨테이너 안에서는 무시.
+- 에이전트는 본 `.env`를 사용하지 않음 — Vagrantfile이 RabbitMQ 인증·routing 키만 fetch해 VM 안 `/etc/assessment-agent.env`로 옮기고, `RABBITMQ_HOST`는 `10.0.2.2`(NAT)로 별도 주입.
+- `EXCHANGE`/`ROUTING_KEY_*` 변경 시 에이전트·컨슈머 양쪽 동기화 필수.
 
-- 대리키(surrogate key) 패턴 — 내부 참조는 정수 PK, 비즈니스 식별자는 unique 제약
-- `server_inventory.public_id` — `UUID DEFAULT gen_random_uuid()`. URL 식별자. 정수 PK는 내부 참조 전용.
-- 시계열 4개 테이블 모두 복합 PK `(id BIGINT, collected_at TIMESTAMPTZ)` — TimescaleDB hypertable 파티션 키 포함, 무한 누적 대비
-- `server_disk_io`·`server_net_io`·`server_mount_usage`는 per-device/per-interface/per-mount 행 분리 — 차트 API `dimension` 파라미터에 대응
-- `server_inventory`에 `services` (JSONB), `listen_ports` (JSONB) 컬럼 추가됨. **`create_all`은 기존 테이블에 컬럼을 추가하지 않으므로**, 스키마 변경 후 최초 기동 시 `docker compose down -v` 로 볼륨 초기화 필요.
+## A4. Vagrant 에이전트 배포 규약
 
-## 데이터 흐름 설계
-
-- DTO(dataclass)와 ORM 모델은 분리, 변환은 repository 구현체 책임
-- Inbound DTO: `ServerInventoryCreate`, `ServerMetricCreate` (`db/repositories/inbound.py`) — Consumer → Repository
-- Outbound DTO: `XxxResponse`, `DashboardRaw`, `StorageWithUsageResponse`, `NetworkWithIoResponse` (`db/repositories/outbound.py`) — Repository → Service
-- ViewModel: `web/view_models.py` — Service → Router (Jinja2 컨텍스트 또는 JSON)
-- Consumer 파싱: routing key별로 구체 타입(`InventoryInput`, `MetricsInput`, `ErrorInput`)을 직접 파싱. `consumer/mappers.py`에서 Pydantic 스키마 → Inbound DTO 변환.
-- inventory upsert 및 metrics 서버 조회 기준: `machine_id` (미등록 서버면 drop)
-- `last_seen_at`: `list_servers()`에서 `COALESCE(MAX(server_metrics.collected_at), server_inventory.last_seen_at)` subquery JOIN으로 산출 — "마지막 메트릭 수신 시각" 의미. 인벤토리 등록 시각이 아님.
-- `CollectionStatusItem`은 `last_metric_at`(마지막 메트릭 수신)과 `last_inventory_at`(마지막 인벤토리 수신)을 별도 필드로 분리 반환 — `/collection-status` API에서 두 시각을 모두 노출.
-
-## 에이전트 메시지 스키마 (`agent_version` = 계약 버전)
-
-3가지 `message_type`을 routing key로 분기. 모든 메시지에 공통 메타데이터 포함.
-
-### 공통 메타데이터
-| 필드 | 설명 |
-|------|------|
-| `message_type` | "inventory" / "metrics" / "error" |
-| `machine_id` | `/etc/machine-id` 기준. 표준 Linux는 32 hex, 가상화 환경은 UUID(하이픈 포함 36자) 가능. DB/스키마 max 64자 |
-| `agent_version` | 빌드 시 정의. 계약 버전 역할 |
-| `collected_at` | ISO 8601 UTC |
-| `hostname` | 보조 식별자 (가변) |
-| `message_id` | UUID v4 (멱등성 키) |
-
-### `server.inventory` (기동 시 1회)
-정적 인프라 정보. OS·kernel·CPU·메모리/스왑 총량, `disks[]` (name·size·type), `mounts[]` (fstype·total_bytes 포함), `ip_internal[]`/`ip_external[]`, `boot_time`.
-
-추가 필드:
-- `services[]`: `{unit, sub}` — systemctl 수집. non-systemd 호스트는 `null`
-- `listen_ports[]`: `{proto, addr, port, uid, pid, comm}` — `/proc/net/{tcp,udp}{,6}` 기반. 수집 실패 시 빈 배열
-
-- `InventoryMountInfo`에 `free_bytes`/`avail_bytes` 필드가 있으나 핸들러에서 무시됨 — 인벤토리엔 static 정보(total_bytes)만 저장하고 동적 사용량은 `server_mount_usage`에 분리 저장
-
-### `server.metrics` (1분 주기)
-**모두 raw 누적값**. 분석 엔진이 두 시점의 차로 delta·% 계산.
-- `cpu_stat` (user/system/idle/iowait/… jiffies)
-- 메모리·스왑 (총량·free·available·buffers·cached)
-- `load_1m` / `load_5m` / `load_15m`
-- `disk_io[]` per device (reads/writes_completed, sectors)
-- `mounts[]` per mount (현재 사용량 — inventory의 정적 정보와 별도)
-- `net_io[]` per interface (rx/tx bytes·packets·errors)
-
-### `server.error`
-에이전트 측 수집/발행 실패. `error_code`·`error_message`·`failed_component` (collect/publish).
-
-### 규약
-- **단위**: 메모리=`kb`, 디스크/네트워크=`bytes`. `/proc` 출력 관례를 따름
-- **옵셔널 필드**: 수집 실패 시 `null` 전송. 수집 실패와 데이터 없음을 구분하지 않음
-- **counter reset**: 재부팅·에이전트 재시작 시 카운터 0 리셋. 현재 구현은 delta < 0 이면 `None` 처리(UI에서 "—" 표시). boot_time 기반 delta 건너뛰기는 미구현.
-- **2차 상세 (파티션·LVM·파일시스템·라우팅·DNS)**: 현 스키마 미포함. 추후 별도 `message_type`으로 확장 여지
-
-## Consumer 설계
-
-- aio-pika 기반 순수 비동기 컨슈머 (FastAPI와 독립 프로세스)
-- 파싱 실패: raise → nack(requeue=False) → DLX → DLQ
-- DB 실패: 지수 백오프(`2^attempt` s) 3회 재시도 후 raise → nack(requeue=False) → DLX → DLQ
-- TTL 만료: 브로커가 자동으로 DLX → DLQ. 큐별 TTL 상이 — inventory: 없음(one-shot), metrics/error: 60s
-- `error` 메시지: 파싱 후 로깅만. DB 저장 없음
-
-### 멱등성 처리
-메시지 수신 시 `SET idempotent:{message_id} 1 EX 86400 NX` — 원자적 체크. 이미 처리된 message_id면 ack 후 조기 리턴.
-- **at-most-once 주의**: SET NX는 DB 커밋 이전에 실행. 커밋 전 프로세스 크래시 시 RabbitMQ 재전송 메시지가 중복으로 판정되어 조용히 드롭됨 (데이터 유실 가능). 현재 설계상 허용된 트레이드오프.
-
-### metrics 저장 후 Redis 처리 순서
-1. `SET online:{server_id} 1 EX 90`
-2. `DELETE cache:metrics:{server_id}` — 캐시 즉시 무효화
-3. `PUBLISH metrics.events {"server_id": ..., "machine_id": ...}` — 브라우저 SSE 트리거
-
-### MQ 토폴로지
-Exchange: `assessment` (direct, durable) / DLX: `assessment.dlx` (direct, durable) / prefetch_count: 10
-
-| routing key | 큐 | DLQ |
-|-------------|-----|-----|
-| `server.inventory` | `server.inventory` | `server.inventory.dead` |
-| `server.metrics` | `server.metrics` | `server.metrics.dead` |
-| `server.error` | `server.error` | `server.error.dead` |
-
-## Query API 설계
-
-### URL 식별자
-라우터의 `{server_id}` 경로 파라미터는 `public_id` (UUID 문자열). 정수 PK는 노출하지 않는다.
-- `QueryService.resolve_server_id(public_id) -> int | None` — UUID → 정수 PK 변환 브릿지
-- `pages.py` / `api.py` 공통 `_resolve()` 헬퍼에서 404 처리
-
-### 라우터 구조
-| 모듈 | 변수 | 접두사 | 응답 |
-|------|------|--------|------|
-| `web/routers/pages.py` | `pages_router` | `/servers` | HTML (Jinja2) |
-| `web/routers/api.py` | `api_router` | `/api/v1/servers` | JSON |
-
-### SSR 페이지 엔드포인트
-| 경로 | 템플릿 | 데이터 |
-|------|--------|--------|
-| GET /servers/ | servers/list.html | 인벤토리 목록 + Redis online 상태 |
-| GET /servers/{server_id} | servers/detail.html | 인벤토리 정적 정보 (메트릭은 AJAX) |
-| GET /servers/{server_id}/storage | servers/storage.html | 인벤토리 disks + 최신 mount_usage |
-| GET /servers/{server_id}/network | servers/network.html | IP + 최신 net_io delta |
-| GET /servers/{server_id}/chart | servers/chart.html | Chart.js 시계열 차트 (API AJAX) |
-| GET /servers/{server_id}/services | servers/services.html | 서비스 전체 목록 + 포트 전체 현황 |
-
-### API 엔드포인트 (AJAX / SSE)
-| 경로 | 응답 | 설명 |
-|------|------|------|
-| GET /api/v1/servers/{id}/collection-status | CollectionStatusItem | 수집 상태 + Redis online 뱃지 |
-| GET /api/v1/servers/{id}/metrics/latest | MetricDashboard (JSON) | 계산된 CPU%·mem%·IOPS·kBps·FS% |
-| GET /api/v1/servers/{id}/metrics/snapshots | list[MetricSeriesItem] | 히스토리 (커서 페이지네이션) |
-| GET /api/v1/servers/{id}/metrics/chart | list[MetricSeriesItem] | 차트 시계열 (time_bucket + LAG delta) |
-| GET /api/v1/servers/{id}/metrics/stream | SSE (text/event-stream) | metrics.events 구독, 브라우저 실시간 갱신 |
-
-### MetricDashboard 구조
-`/metrics/latest` 응답. raw jiffies가 아닌 **계산된 값** 반환.
-- `cpu`: usage_pct / user_pct / system_pct / iowait_pct (연속 2회 readings delta)
-- `memory`: total_kb / used_kb / available_kb / cached_kb / buffers_kb / usage_pct (단일 시점)
-- `swap`: total_kb / used_kb / usage_pct
-- `load_1m` / `load_5m` / `load_15m`
-- `disk_io[]`: device / read_iops / write_iops / read_kbps / write_kbps (2회 delta)
-- `net_io[]`: interface / rx_kbps / tx_kbps / rx_pps / tx_pps (2회 delta)
-- `mounts[]`: mount / total_gb / used_gb / avail_gb / usage_pct (단일 시점)
-
-### 메트릭 차트 쿼리 파라미터
-- `metric_type`: cpu.usage_percent / disk.read_iops / disk.write_iops / fs.usage_percent / net.rx_bytes_per_sec / net.tx_bytes_per_sec
-- `dimension`: 복수 인스턴스 메트릭의 특정 대상 (장치명·mountpoint·NIC명)
-- `time_range`: 15m / 1h / 6h / 24h / 7d (기본 1h)
-- `bucket`: 5m / 1h / 1d
-- `agg`: avg / max / p95
-
-### Jinja2 필터
-`web/template_filters.py`에 정의 → `web/routers/pages.py`에서 `templates.env.filters`에 등록.
-
-| 필터 | 동작 |
-|------|------|
-| `kst` | datetime(UTC) → KST `"YYYY-MM-DD HH:MM:SS"`. None → `"-"` |
-| `disksize` | float(GB) → `"1.2 TB"` / `"3.4 GB"`. None → `"-"` |
-| `kbps` | float(kBps) → `"1.2 MBps"` / `"3.4 kBps"`. None → `"—"` |
-| `service_badge_class` | category 문자열 → CSS 클래스명 (`badge-cat-web` 등) |
-| `or_dash` | 값 → `str(값)`. None → `"-"` |
-
-Redis 캐시에서 복원 시 datetime 필드는 `datetime.fromisoformat()`으로 파싱해야 필터가 동작함 (`json.loads`는 str 반환).
-
-### asyncpg 파라미터 주의사항
-두 가지 패턴이 런타임 오류를 유발한다.
-
-1. **interval 산술**: `collected_at >= :start - interval '5 minutes'` — asyncpg가 `:start` 타입을 추론하지 못함.  
-   → Python에서 `window_start = start - timedelta(minutes=5)` 계산 후 `:window_start` 파라미터로 전달.
-
-2. **named parameter + PostgreSQL cast**: `:dim::text` 형태는 SQLAlchemy가 named parameter 뒤 `::`를 파싱하지 못해 SQL에 `:dim` 그대로 남음.  
-   → `CAST(:dim AS text)` 로 대체.
-
-## Redis 전략
-
-### 키 설계
-| 용도 | 키 | TTL |
-|------|----|-----|
-| 인벤토리 캐시 | `cache:inventory:{server_id}` | 300s (read-through) |
-| 메트릭 캐시 | `cache:metrics:{server_id}` | 60s + consumer가 새 metrics 저장 시 즉시 DELETE |
-| 멱등성 | `idempotent:{message_id}` | 24h |
-| 온라인 TTL | `online:{server_id}` | 90s |
-| 인증 토큰 | `token:{token}` | 1h |
-
-- PUB/SUB 채널: `metrics.events` (consumer 발행 → web SSE 구독 → 브라우저 AJAX 재요청)
-- eviction 정책: `volatile-lru`, maxmemory 256mb
-- 의존성 주입: web은 `web/deps.py`의 `get_redis_client()`, consumer는 `db/redis.py`의 `get_redis()` 직접 호출 — 둘 다 내부적으로 `web_settings.redis_url` 사용
-
-## TimescaleDB
-- `server_metrics`·`server_disk_io`·`server_net_io`·`server_mount_usage` 4개 모두 hypertable (`collected_at` 기준 파티셔닝)
-- **개발**: 기동 시 `CREATE EXTENSION IF NOT EXISTS timescaledb` → `Base.metadata.create_all` (없는 테이블만 생성) → `create_hypertable(..., if_not_exists => true)`. web 재시작 시 기존 데이터 보존.
-- 완전 초기화가 필요하면 `docker compose down -v` 후 재기동.
-- **프로덕션**: Alembic 마이그레이션. `create_hypertable`은 최초 생성 마이그레이션에 수동 작성
-
-## 환경변수
-루트 `.env`에서 주입. 키 목록은 `.env.example` 참조.
-docker-compose `environment`에는 서비스명 오버라이드(`POSTGRES_HOST`, `RABBITMQ_HOST`, `REDIS_HOST`)와 이미지 요구 변수명 매핑만 명시.
-- `REDIS_HOST`는 `.env.example` 미기재 (기본값 "redis"가 docker-compose 환경과 일치하므로 생략)
-
-## Vagrant 에이전트 배포 규약
-
-에이전트 바이너리는 VirtualBox shared folder(`/home/vagrant/assessment-agent/`)에서 직접 실행 불가 — SELinux(Rocky Linux 9) 및 vboxsf 마운트 제약.
+### 파일 배치
+에이전트 바이너리는 VirtualBox shared folder(`/home/vagrant/assessment-agent/`)에서 직접 실행 불가 — SELinux(Rocky 9) 및 vboxsf 마운트 제약.
 
 | 항목 | 경로 | 이유 |
 |------|------|------|
@@ -224,44 +50,417 @@ docker-compose `environment`에는 서비스명 오버라이드(`POSTGRES_HOST`,
 
 Vagrantfile step 3에서 `cp` + `chmod 755`, step 2에서 `/etc/assessment-agent.env` 작성. `ExecStart=/usr/local/bin/assessment-agent`, `EnvironmentFile=/etc/assessment-agent.env`.
 
-### 개발 시나리오별 Vagrant 구성
+### 시나리오 구성
 
-| 파일 | 기동 스크립트 | VM 수 | 리소스 |
-|------|-------------|-------|--------|
-| `Vagrantfile` | `dev-up.sh` / `dev-down.sh` | 3 | 1024MB / 2CPU |
-| `Vagrantfile.single` | `dev-up-single.sh` / `dev-down-single.sh` | 1 | 512MB / 1CPU |
+`Vagrantfile` 1개. VM 3대(`cache-server-01` / `app-server-01` / `web-server-01`), VM당 1024MB / 2CPU.
+기동: `dev-up.sh` (docker compose up + web 헬스체크 대기 + vagrant up). 종료: `dev-down.sh` (vagrant destroy + docker compose down -v).
+단일 VM 시나리오는 미구현 — 필요하면 `Vagrantfile`의 `VMS` 배열에서 일부 VM을 주석 처리 또는 `vagrant up cache-server-01` 처럼 개별 기동.
 
-- 단일 VM 시나리오는 `VAGRANT_VAGRANTFILE=Vagrantfile.single` 환경변수로 선택. 기존 Vagrantfile 미수정.
-- `Vagrantfile.single` VM 박스: `bento/ubuntu-22.04`. 패키지 관리자: `apt`.
-- VM명: `dev-node-01`. RABBITMQ_HOST: `10.0.2.2` (NAT → 호스트머신 docker-compose).
+### 운영 노트 — broker 재기동 시 에이전트 수동 재시작
+**증상**: docker compose의 RabbitMQ를 down/up(또는 `down -v`) 후 재기동하면 VM 안 C 에이전트가 broker 재연결을 silent하게 포기. systemd 상태는 `active(running)`이지만 publish 로그가 끊김.
+**대응**: 각 VM에서 `sudo systemctl restart assessment-agent`. 재시작 직후 첫 inventory + 60s 주기 metrics가 다시 발행.
+**원인**: C 에이전트의 publish 루프에 `connect_robust` 같은 자동 재연결 없음 (현 scope 외). `docs/tradeoffs.md` T7 참조.
 
-## Repository 계층 구조
+---
 
-Consumer와 Web이 각자 별도 인터페이스·구현체를 사용한다.
+# B. 데이터 계약 (Agent → Engine)
+
+정식 정의는 `assessment-agent/docs/payload-schema.md`. 본 절은 엔진 측 핸들링 관점 요약 + 엔진의 책임/무시 항목만.
+
+## B1. 공통 메타데이터
+모든 메시지(`inventory` / `metrics` / `error`)에 포함.
+
+| 필드 | 설명 |
+|------|------|
+| `message_type` | `"inventory"` / `"metrics"` / `"error"` |
+| `machine_id` | `/etc/machine-id` 기준. 표준 Linux 32 hex, 가상화 환경 UUID(36자) 가능. DB max 64자 |
+| `agent_version` | 에이전트 빌드 버전. **계약 버전 역할** |
+| `collected_at` | ISO 8601 UTC |
+| `hostname` | 보조 식별자 (가변) |
+| `message_id` | UUID v4. **멱등성 키** |
+
+## B2. 메시지 타입
+
+### `server.inventory` (기동 시 1회 + 정적 정보 변경 시)
+정적 인프라 — OS·kernel·CPU·메모리/스왑 총량, `disks[]`, `mounts[]`(fstype·total_bytes), `ip_internal[]`/`ip_external[]`, `boot_time`, `services[]` (`{unit, sub}`. non-systemd는 `null`), `listen_ports[]` (`{proto, addr, port, uid, pid, comm}`. 수집 실패는 빈 배열).
+
+엔진 핸들링 노트:
+- `InventoryMountInfo.free_bytes`/`avail_bytes`는 핸들러에서 무시. 인벤토리는 정적(total_bytes)만 저장, 동적 사용량은 `server_mount_usage` 시계열로.
+- `disks[]`/`mounts[]`/`disk_io[]`의 `major`/`minor`는 Pydantic `extra=ignore`로 통과 후 사용 안 함 (현재 엔진은 활용 X).
+
+### `server.metrics` (1분 주기)
+**모두 raw 누적값**. 엔진이 두 시점 차로 delta·% 계산.
+- `cpu_stat` (user/nice/system/idle/iowait/irq/softirq/steal jiffies)
+- 메모리·스왑 (total·free·available·buffers·cached, kB)
+- `load_1m` / `load_5m` / `load_15m`
+- `disk_io[]` per device (`reads_completed` / `writes_completed` / `sectors_read` / `sectors_written`)
+- `mounts[]` per mount (`total_bytes` / `free_bytes` / `avail_bytes`)
+- `net_io[]` per interface (`rx_bytes` / `tx_bytes` / `rx_packets` / `tx_packets` / `rx_errors` / `tx_errors`)
+
+### `server.error`
+에이전트 자가 보고. 핵심 필드 `error_code` / `error_message` / `failed_component` (`collect`/`publish`).
+재시도 요약 보고 시점 옵셔널: `retry_count` / `first_failed_at` / `recovered_at` (스키마 v3).
+컨슈머는 파싱 + idempotent 후 로깅만. DB 저장 없음.
+
+## B3. 단위·옵션 규약
+- 단위: 메모리=`kb`, 디스크/네트워크=`bytes` (`/proc` 출력 관례).
+- 옵셔널 필드: 수집 실패 시 `null` 발행. 수집 실패와 데이터 없음을 구분하지 않음.
+- counter reset: 재부팅·에이전트 재시작 시 카운터 0 리셋 → 엔진은 `delta < 0` 시 `None` 처리. boot_time 비교 기반 delta 건너뛰기는 미구현.
+
+## B4. MQ 토폴로지
+Exchange `assessment` (direct, durable) / DLX `assessment.dlx` (direct, durable) / prefetch_count 10.
+
+| routing key | 큐 | DLQ | 큐 TTL |
+|-------------|-----|-----|--------|
+| `server.inventory` | `server.inventory` | `server.inventory.dead` | 없음 (one-shot) |
+| `server.metrics` | `server.metrics` | `server.metrics.dead` | 300s |
+| `server.error` | `server.error` | `server.error.dead` | 300s |
+
+DLQ 라우팅: 컨슈머 측 NAK / 큐 TTL 만료 / `x-max-length` 초과 시 자동.
+
+---
+
+# C. 데이터 계층
+
+## C1. ORM 모델 / TimescaleDB
+
+| 모델 | 테이블 | PK 타입 | 설명 |
+|------|--------|---------|------|
+| ServerInventory | server_inventory | Integer | machine_id 기준 upsert |
+| ServerMetrics | server_metrics | BigInteger | 스칼라 메트릭. hypertable |
+| ServerDiskIo | server_disk_io | BigInteger | per-device 시계열. hypertable |
+| ServerNetIo | server_net_io | BigInteger | per-interface 시계열. hypertable |
+| ServerMountUsage | server_mount_usage | BigInteger | per-mount 시계열. hypertable |
+
+### 키·제약
+- **대리키 패턴** — 내부 참조는 정수 PK, 비즈니스 식별자는 unique 제약.
+- `server_inventory.machine_id` UNIQUE — upsert 키.
+- `server_inventory.public_id` — `UUID DEFAULT gen_random_uuid()`. URL 식별자. 정수 PK는 노출 금지.
+- 시계열 4개 테이블 복합 PK `(id BIGINT, collected_at TIMESTAMPTZ)` — TimescaleDB 파티션 키 포함, 무한 누적 대비.
+- 시계열 4개 테이블 자연키 UNIQUE 제약 (멱등성 안전망 §D2):
+  - `server_metrics`: `UNIQUE(server_id, collected_at)`
+  - `server_disk_io`: `UNIQUE(server_id, device, collected_at)`
+  - `server_net_io`: `UNIQUE(server_id, interface, collected_at)`
+  - `server_mount_usage`: `UNIQUE(server_id, mount, collected_at)`
+
+### TimescaleDB 운영
+- 4개 시계열 테이블 모두 hypertable (`collected_at` 파티션).
+- **DEV**: web lifespan에서 `CREATE EXTENSION IF NOT EXISTS timescaledb` → `Base.metadata.create_all` (없는 테이블만) → `create_hypertable(if_not_exists => true)`. web 재시작 시 데이터 보존.
+- **`create_all`은 기존 테이블에 컬럼/제약(UniqueConstraint) 추가하지 않음** — 모델 변경 후 최초 기동은 `docker compose down -v` 필요.
+- **PROD**: Alembic 마이그레이션 + `create_hypertable` 수동 작성.
+
+## C2. Repository 계층
+
+Consumer와 Web이 별도 인터페이스·구현체. 라우터/핸들러는 인터페이스에만 의존.
 
 | 파일 | 용도 |
 |------|------|
-| `db/repositories/base_collect_repository.py` | Consumer용 추상 인터페이스 (`find_server_id`, `upsert_server`, `insert_metric`) |
-| `db/repositories/collect_repository.py` | Consumer용 구현체. `AsyncSession`을 생성자에서 주입받음 |
-| `db/repositories/base_query_repository.py` | Web용 추상 인터페이스 (`resolve_server_id` 포함) |
-| `db/repositories/query_repository.py` | Web용 구현체 |
+| `db/repositories/base_collect_repository.py` | Consumer용 추상: `find_server_id`, `upsert_server`, `insert_metric` |
+| `db/repositories/collect_repository.py` | Consumer 구현. session 주입. INSERT는 `pg_insert.on_conflict_do_nothing` 통일 |
+| `db/repositories/base_query_repository.py` | Web용 추상 + `MetricType`/`TimeRange`/`BucketSize`/`AggFunc` Literal |
+| `db/repositories/query_repository.py` | Web 구현. asyncpg 직접 SQL + ORM 혼용 |
 
-## 서비스 계층 구조
+### Inbound·Outbound DTO
+- Inbound (`inbound.py`) `ServerInventoryCreate`, `ServerMetricCreate` — Pydantic 스키마 → mapper → Inbound DTO → Repository.
+- Outbound (`outbound.py`) `ServerSummary` / `ServerDetail` / `StorageWithUsage` / `NetworkWithIo` / `DashboardRaw` / `CollectionStatus` / `MetricSeries` — Repository → Service. **raw 단위 그대로** (P1).
 
-`web/services/` 하위 모듈 분리:
+### `list_servers` SELECT 정책
+`select(ServerInventory)` 풀로우 대신 11개 컬럼 명시 SELECT — `mounts`/`listen_ports`/`kernel_version` 등 큰 JSONB·텍스트는 list 화면 미사용이므로 제외. `docs/tradeoffs.md` T8.
 
-| 모듈 | 역할 |
+### asyncpg 파라미터 함정
+1. **interval 산술**: `collected_at >= :start - interval '5 minutes'` — asyncpg가 `:start` 타입 추론 못함.
+   → Python에서 `window_start = start - timedelta(minutes=5)` 계산 후 `:window_start` 파라미터 전달.
+2. **named parameter + cast**: `:dim::text`는 SQLAlchemy가 `::` 뒤를 파싱 못해 `:dim`이 그대로 SQL에 남음.
+   → `CAST(:dim AS text)` 사용.
+
+## C3. Redis 전략
+
+### 키 설계
+| 용도 | 키 | TTL · 무효화 |
+|------|----|-----|
+| public_id 조회 캐시 | `cache:resolve:{public_id}` | TTL 없음 (public_id 불변) |
+| 인벤토리 캐시 | `cache:inventory:{server_id}` | 300s + consumer가 새 inventory 저장 시 즉시 DELETE |
+| 메트릭 캐시 | `cache:metrics:{server_id}` | 60s + consumer가 새 metrics 저장 시 즉시 DELETE |
+| 멱등성 | `idempotent:{message_id}` | 24h |
+| 온라인 TTL | `online:{server_id}` | 90s. consumer가 inventory·metrics 양쪽에서 갱신 |
+| 인증 토큰 | `token:{token}` | 1h |
+
+### 채널·정책
+- PUB/SUB 채널: `metrics.events` (consumer publish → web SSE 구독 → 브라우저 AJAX 재요청).
+- eviction `volatile-lru`, maxmemory 256mb.
+- 의존성 주입: web `web/deps.py`에서 `Depends(get_redis)`, consumer는 `get_redis()` 직접 호출. 둘 다 내부적으로 `web_settings.redis_url`.
+- Redis 키 패턴은 `WebSettings`에 정의 (consumer는 상속). `query_service.py`는 `web_settings` 직접 참조.
+
+### 효율 패턴
+- 목록 페이지의 N개 서버 온라인 상태 조회는 N번 직렬 `EXISTS` 대신 `redis.mget([online:{id}, ...])` 1회로. `query_service.list_servers` 참조.
+
+---
+
+# D. Consumer
+
+## D1. 구조
+- aio-pika 비동기 컨슈머 (FastAPI 독립 프로세스).
+- routing key별 핸들러 팩토리: `make_inventory_handler` / `make_metrics_handler` / `make_error_handler` (`consumer/handler.py`).
+- 파싱: routing key별 구체 타입(`InventoryInput` / `MetricsInput` / `ErrorInput`) 직접 파싱. `consumer/mappers.py`에서 Pydantic → Inbound DTO 변환.
+- 서버 식별 기준: **`machine_id`** (inventory upsert + metrics 서버 조회). 미등록이면 metrics drop.
+
+### 실패 처리
+- 파싱 실패 → raise → nack(requeue=False) → DLX → DLQ.
+- DB 실패 → `_db_retry`로 지수 백오프(`5 ** (attempt + 1)`s = 5s/25s/125s, 합 155s) 3회 후 raise → nack → DLX → DLQ.
+- 큐 TTL 만료 → 브로커 자동 DLX → DLQ. metrics/error 300s, inventory 없음.
+- `error` 메시지: 파싱 + idempotent + 로깅만 (재시도 컨텍스트 포함). DB 저장 없음.
+
+## D2. 멱등성: 2단 방어 (at-most-once)
+
+**1단 — Redis 키**: 메시지 수신 직후 `SET idempotent:{message_id} 1 EX 86400 NX`. 24h 동안 동일 message_id 재전송을 차단. 가장 빠른 RTT 1회.
+
+**2단 — DB UNIQUE 제약**: 시계열 4개 테이블 자연키 UNIQUE (§C1) + `pg_insert(...).on_conflict_do_nothing(index_elements=...)`. Redis 키 만료·evict·재시작·수동 flush 등으로 1단이 깨져도 DB 레벨에서 silent no-op 흡수.
+
+**at-most-once 트레이드오프**: SET NX는 DB 커밋 이전 실행. 커밋 전 프로세스 크래시 시 broker 재전송 메시지가 idempotent 충돌로 silent 드롭 → 데이터 유실 가능. DB UNIQUE도 같은 시나리오는 못 막음. 한계와 outbox 대안은 `docs/tradeoffs.md` T1.
+
+## D3. 저장 후 Redis 처리
+
+### inventory
+1. `SET online:{server_id} 1 EX 90` — 등록 즉시 온라인 판정.
+2. `DELETE cache:inventory:{server_id}` — 인벤토리 변경(서비스/포트/디스크 등) 즉시 반영. 300s TTL 만료 대기 제거.
+
+### metrics
+1. `SET online:{server_id} 1 EX 90`.
+2. `DELETE cache:metrics:{server_id}` — 캐시 즉시 무효화.
+3. `PUBLISH metrics.events {"server_id": ..., "machine_id": ...}` — 브라우저 SSE 트리거.
+
+**캐시-aside race**: web의 `get_latest_metric`이 cache MISS → DB query 직후 `SET cache:metrics`를 수행하기 전에 consumer가 새 metrics 커밋 + cache DELETE를 끝낼 수 있음. 이 경우 web의 SET이 stale 데이터를 60s TTL로 캐싱. SSE가 즉시 다음 fetch를 trigger하므로 실용적 영향은 최대 1회 표시 지연. `docs/tradeoffs.md` T2.
+
+---
+
+# E. Web
+
+## E1. 렌더링 레이어 원칙 (표시 계층 단일 진실)
+
+> **표시 코드를 어디에 둘지 결정할 때 P1~P5 우선순위로 적용.**
+> 충돌 시 P1 > P2 > P3 > P5 > P4 (P4는 P3의 명시 예외).
+
+### P1. Repository는 raw 데이터만 (절대)
+- raw 단위 그대로 outbound DTO에 담음 (KB·bytes·jiffies·sectors).
+- delta·percent·단위 변환·임계값 분류·dedup·정렬·요약 — **금지**.
+- **이유**: repo가 표현을 알면 동일 raw 데이터를 다른 화면에서 재가공할 때 우회 변환이 필요해진다. 표현 결정을 한 단계 위로 미뤄야 재사용이 깨지지 않는다.
+
+### P2. 서비스 계층이 표현 변환 단일 소스 (절대)
+- Service → mapper → ViewModel 흐름에서 모든 파생 데이터를 계산.
+- 단위 변환(KB→GB)·델타(jiffies→%)·임계값 분류(`badge_class`/`bar_color`)·dedup·정렬·합계·풀네임 — 전부 mapper.
+- 동일 ViewModel 인스턴스가 SSR(`templates.TemplateResponse`)·JSON(`/api/...` 응답)·Redis 캐시(역직렬화 후) 어느 경로로도 동일하게 일관.
+- 캐시 역직렬화 직후에도 `enrich_*()` 같은 동일 파생 함수를 호출 (`server_detail_from_json` → `enrich_server_detail`).
+
+### P3. Jinja2 템플릿은 순수 렌더링만 (절대)
+- 허용: 표시에 필요한 분기(`{% if %}`)·반복(`{% for %}`)·Jinja2 필터(포맷팅 전용).
+- 금지: 계산(`+`, `*`, `length`, `sort`, `selectattr`로 데이터 가공)·dedup·임계값 비교(`{% if pct >= 90 %}`)·단위 변환.
+- 포맷팅(`1234.5` → `"1.2 GB"`)은 ViewModel에 raw 값 + Jinja2 필터(`disksize`/`kbps`/`kst`)가 변환.
+- **임계값 기반 분기조차 금지** — `badge_class`/`bar_color`/`is_well_known` 같은 boolean·CSS 클래스를 ViewModel에 미리 계산.
+- 정렬은 mapper에서 한 번만 (`sort(attribute='unit')` 같은 템플릿 내 sort 금지) — `sorted_*` 필드를 ViewModel에 둠.
+
+### P4. 클라이언트 차트 JS는 P3 명시 예외
+브라우저 인터랙션(range 토글·anchor 변경·legend 체크박스)에 즉시 반응해야 하므로 서버 라운드트립 없이 처리해야 하는 동적 시각화에 한해 JS에 연산 허용.
+
+**허용 연산**:
+- 버킷 그리드 생성·서버 응답을 그리드 인덱스로 join·라벨 포매팅(KST 변환·MM/DD HH:mm)
+- Chart.js 옵션·데이터셋 객체 조립·legend 체크박스 토글
+- 표시 전용 단위 결정(`fmtKbChart`: B/s vs kB/s vs MB/s)
+
+**여전히 금지**:
+- 비즈니스 임계값 분류 — 색상/danger 분류는 서버 ViewModel 또는 차트 옵션 명명 상수에서.
+- API 응답을 가공해 다시 통계 계산(평균·합계). 서버 `agg=avg|max|p95` 파라미터로 요청해 raw 시계열을 받음.
+
+**의무 규약 (모두 적용)**:
+
+| 규약 | 내용 |
 |------|------|
-| `query_service.py` | QueryService 클래스 (Redis + repo 오케스트레이션, `resolve_server_id` 위임) |
-| `mappers.py` | outbound DTO → ViewModel 변환. `enrich_server_detail()` 포함 |
-| `metrics_calculator.py` | CPU/Mem/Disk/Net delta 계산 |
-| `cache_serializer.py` | Redis serde (ServerDetailResponse, MetricDashboard). 역직렬화 후 `enrich_server_detail()` 재계산 |
-| `units.py` | `_kb_to_gb`, `_bytes_to_gb`, `_usage_pct`, `_sector_to_kbps` |
-| `service_classifier.py` | `classify(unit) -> str`, `matched_ports(unit, listen_ports) -> list[dict]` |
+| (a) sequence counter | 모든 비동기 차트 로더에 `let xxxSeq=0; const seq=++xxxSeq; ... if (seq !== xxxSeq) return;`. range 토글 / anchor 변경 시 in-flight 응답 stale 처리 |
+| (b) capture-before-await | 전역 state(range·anchor)는 `await` 직전 로컬 변수로 캡처. 렌더 함수도 전역 참조 금지·파라미터로 받음 |
+| (c) 응답 형식 방어 | `Array.isArray(rows)` 검사 후 `.map()`. 서버 5xx가 JSON 오브젝트를 반환할 수 있음 (`safeArray()` 사용 권장) |
+| (d) 404 분기 | `/metrics/latest` 등 데이터 부재 응답(404)은 try/catch 이전에 `res.status === 404`로 분기. 그렇지 않으면 `r.json()` 파싱 실패가 "불러오기 실패"로 오인됨 |
+| (e) suggestedMax 명명 상수 | Y축 기본 기준선은 스크립트 상단 `const PERF_IOPS_SUGGESTED_MAX = 200;` 형식으로 분리. 임계값 색상도 `USAGE_DANGER_PCT`/`COLOR_DANGER` 등 명명 상수 |
 
-## 서비스 카테고리 분류
+### P5. 동일 표현 데이터는 서버에서 한 번만 (P2의 따름)
+- ViewModel과 JSON API 응답에 같은 파생 필드를 중복 계산하지 않음.
+- 클라이언트 JS는 임계값 분류·dedup·합계·정렬을 다시 수행하지 않고, 서버가 내려준 결과(또는 raw 시계열 + agg 파라미터)를 그대로 표시.
+- 예: `MemSnapshot.cached_pct` / `buffers_pct`는 서버 `compute_mem`이 stacked-bar 누적 비율로 미리 계산. 클라이언트는 `style.width = m.cached_pct + '%'`만.
+- 예: `ListenPortItem.is_well_known`은 mapper가 계산. 템플릿은 `{% if p.is_well_known %}`만.
 
-`service_classifier.py`의 `classify(unit)` 함수. 서비스명에서 `.service` suffix 제거 후 소문자 substring 매칭. 매칭 없으면 `"unknown"` 반환.
+## E2. 데이터 흐름
+
+```
+RabbitMQ → Consumer → Repository.upsert/insert → DB
+                          │
+                          └─ Redis (online · cache invalidate · pubsub)
+
+Browser → Router → deps.get_service → QueryService
+                                          │
+                          ┌───────────────┼───────────────┐
+                          ▼               ▼               ▼
+                       Redis cache    Repository     PUB/SUB
+                                          │
+                                          ▼
+                                 OutboundDTO (raw)
+                                          │
+                                          ▼
+                                   mapper → ViewModel
+                                          │
+                                          ▼
+                                  Template / JSON
+```
+
+기준:
+- DTO(dataclass) ↔ ORM 모델은 분리 — 변환은 repository 책임.
+- inventory upsert·metrics 저장·server_id 조회 모두 `machine_id` 기준. 미등록 metrics는 drop.
+- `last_seen_at`: `ServerDetail`(단일 조회)에만 포함. `ServerSummary`(목록)는 Redis `online:{id}` TTL로 표시 — 불필요.
+- `CollectionStatusItem`은 `last_metric_at` + `last_inventory_at` 별도 필드. `/collection-status` API에서 두 시각 모두 노출.
+
+## E3. 서비스 계층 모듈
+
+`web/services/`:
+
+| 모듈 | 책임 |
+|------|------|
+| `query_service.py` | Redis + repo 오케스트레이션. `resolve_server_id` 위임. `get_metric_chart`에서 가상 마운트 필터 + device_category 분류 |
+| `mappers.py` | Outbound DTO → ViewModel. `_usage_badge_class`/`_usage_bar_color`. `enrich_server_detail()` |
+| `metrics_calculator.py` | CPU/Mem/Disk/Net delta 계산. `compute_mem`은 stacked-bar 누적 비율(`cached_pct`/`buffers_pct`)도 계산 |
+| `cache_serializer.py` | Redis serde. 역직렬화 후 `enrich_server_detail()` 재계산 |
+| `units.py` | `kb_to_gb` / `bytes_to_gb` / `usage_pct` / `sector_to_kbps` |
+| `device_filters.py` | `is_physical_disk` / `is_lvm_disk` / `is_partition` / `is_virtual_mount` — raw 에이전트 데이터에서 가상 항목 제거 + 디스크 분류 |
+| `service_classifier.py` | `classify(unit) -> str` / `matched_ports(unit, listen_ports) -> list[dict]` |
+
+## E4. ViewModel 설계 (P2 적용)
+
+### 주요 파생 필드 (mapper 계산)
+
+`ServiceItem(unit, sub, category, ports, display_name)`
+- `display_name`: `unit.removesuffix(".service")`.
+- `ports`: detail mapper에서 `matched_ports()` 결과. list mapper는 `[]`.
+
+`ListenPortItem` 추가 필드
+- `is_well_known`: `port <= 1024`. **템플릿이 임계값 비교 못 하도록** mapper가 계산.
+
+`ServerListItem` (mapper에서 계산)
+- `known_services`: category != "unknown" 서비스만, category 기준 dedup.
+- `show_unknown_badge`: services 있고 known_services 빈 배열일 때 True.
+- `os_display`: `[os_id, os_version]` 공백 join.
+
+`ServerDetailResponse` (`enrich_server_detail`에서 계산)
+- `known_services`: 글로벌 dedup된 chips 포함.
+- `show_unknown_badge`.
+- `key_listen_ports`: `is_well_known` AND 서비스 매핑 포트 번호 제외, port·proto 정렬.
+- `sorted_services`: unit ASC. **템플릿 `| sort` 금지**.
+- `sorted_listen_ports`: (port, proto) ASC.
+- `os_display`, `cpu_display`, `disk_total_gb`.
+
+`MountUsageItem` (`_build_mount_item`에서 계산)
+- `badge_class`: usage_pct 임계값(90/75) 기반 CSS 클래스.
+- `bar_color`: 동일 임계값 기반 hex color.
+
+`MemSnapshot` (`compute_mem`에서 계산)
+- `cached_pct` / `buffers_pct`: stacked-bar 누적 비율. **클라이언트가 다시 계산하지 않도록** 서버에서 미리 잘라냄.
+
+### Redis 캐시 역직렬화 호환성
+`cache_serializer.server_detail_from_json`은 display 파생 필드를 `_DETAIL_DISPLAY_FIELDS` 셋으로 제거 후 `ServerDetailResponse` 생성 → `enrich_server_detail()` 재계산. 새 파생 필드 추가 시 이 셋도 갱신.
+
+`ListenPortItem.is_well_known`은 옛 캐시 호환을 위해 `p.get("is_well_known", p.get("port", 0) <= 1024)` 폴백.
+
+## E5. Query API
+
+### URL 식별자
+라우터 `{server_id}` 경로 파라미터는 `public_id` (UUID 문자열). 정수 PK 노출 금지.
+- `QueryService.resolve_server_id(public_id) -> int | None` — UUID → 정수 PK 변환 브릿지.
+- `pages.py` / `api.py` 공통 `_resolve()` 헬퍼에서 404 처리.
+
+### 라우터
+| 모듈 | 변수 | 접두사 | 응답 |
+|------|------|--------|------|
+| `web/routers/pages.py` | `pages_router` | `/servers` | HTML (Jinja2) |
+| `web/routers/api.py` | `api_router` | `/api/v1/servers` | JSON |
+
+### 의존성 주입
+`web/deps.py:get_service`가 composition root: `QueryRepository(db)`를 생성해 `QueryService(BaseQueryRepository, Redis)`로 주입. 라우터는 `Depends(get_service)`만 안다.
+
+### SSR 페이지
+| 경로 | 템플릿 | 데이터 |
+|------|--------|--------|
+| GET /servers/ | servers/list.html | 인벤토리 목록 + Redis online (mget) |
+| GET /servers/{id} | servers/detail.html | 인벤토리 정적 정보 (메트릭 AJAX) |
+| GET /servers/{id}/storage | servers/storage.html | 인벤토리 disks + 최신 mount_usage |
+| GET /servers/{id}/network | servers/network.html | IP + 최신 net_io delta |
+| GET /servers/{id}/services | servers/services.html | 서비스 전체 + 포트 전체 |
+| GET /servers/{id}/cpu | servers/cpu.html | CPU 추이 차트 (API AJAX) |
+| GET /servers/{id}/memory | servers/memory.html | 메모리 추이 차트 (API AJAX) |
+| GET /servers/{id}/performance | servers/performance.html | 성능 리포트 (1일/7일/30일 집계) |
+
+### API
+| 경로 | 응답 | 설명 |
+|------|------|------|
+| GET /api/v1/servers/{id}/collection-status | CollectionStatusItem | 수집 상태 + Redis online |
+| GET /api/v1/servers/{id}/metrics/latest | MetricDashboard | 계산된 CPU%·mem%·IOPS·kBps·FS% |
+| GET /api/v1/servers/{id}/metrics/snapshots | list[MetricSeriesItem] | 히스토리 (커서) |
+| GET /api/v1/servers/{id}/metrics/chart | list[MetricSeriesItem] | 차트 시계열 (time_bucket + LAG delta) |
+| GET /api/v1/servers/{id}/metrics/stream | SSE | metrics.events 구독 |
+
+### MetricDashboard 구조
+`/metrics/latest` 응답. raw jiffies가 아닌 **계산된 값** 반환.
+- `cpu`: usage_pct / user_pct / system_pct / iowait_pct (연속 2회 readings delta)
+- `memory`: total_kb / used_kb / available_kb / cached_kb / buffers_kb / usage_pct / **cached_pct / buffers_pct** (단일 시점, stacked bar용 미리 계산)
+- `swap`: total_kb / used_kb / usage_pct
+- `load_1m` / `load_5m` / `load_15m`
+- `disk_io_phys[]`: 물리 디스크 (sd*/vd*/nvme*/mmcblk*) — device / read_iops / write_iops / read_kbps / write_kbps
+- `disk_io_lvm[]`: LVM 논리볼륨 — 같은 구조
+- `disk_io_part[]`: 파티션 폴백 (LVM 없을 때) — 같은 구조
+- `net_io[]`: interface / rx_kbps / tx_kbps / rx_pps / tx_pps
+- `mounts[]`: mount / total_gb / used_gb / avail_gb / usage_pct
+
+### 차트 쿼리 파라미터
+- `metric_type`: `cpu.usage_percent` / `cpu.user_percent` / `cpu.system_percent` / `cpu.iowait_percent` / `load.{1,5,15}m` / `mem.{usage,available,cached,buffers}_percent` / `swap.usage_percent` / `disk.{read,write}_iops` / `fs.usage_percent` / `net.{rx,tx}_bytes_per_sec`
+- `dimension`: 복수 인스턴스 메트릭의 특정 대상 (장치명·mountpoint·NIC명)
+- `time_range`: `15m` / `1h` / `6h` / `24h` / `7d` / `30d`
+- `bucket`: `1m` / `5m` / `15m` / `30m` / `1h` / `3h` / `12h` / `1d`
+- `agg`: `avg` / `max` / `p95`
+- `device_category`: `phys` / `logical` (LVM 우선, 없으면 파티션 폴백) — disk.{read,write}_iops에만 적용
+- 검증: 라우터 `Query(MetricType)` Literal Pydantic이 처리 — 서비스 계층 중복 검증 없음.
+
+## E6. Jinja2 인프라
+
+### 템플릿 인스턴스 — `web/template_setup.py`
+`Jinja2Templates` 단일 인스턴스 + filter 등록을 한 모듈에 격리. 라우터는 import만. 라우터에 표시 셋업 책임을 두지 않기 위함.
+
+### 필터
+`web/template_filters.py` 정의 → `template_setup.py`에서 `templates.env.filters` 등록.
+
+| 필터 | 동작 |
+|------|------|
+| `kst` | datetime(UTC) → KST `"YYYY-MM-DD HH:MM:SS"`. None → `"-"` |
+| `disksize` | float(GB) → `"1.2 TB"` / `"3.4 GB"`. None → `"-"` |
+| `kbps` | float(kBps) → `"1.2 MBps"` / `"3.4 kBps"`. None → `"—"` |
+| `service_badge_class` | category → CSS 클래스명 (`badge-cat-web` 등) |
+| `or_dash` | 값 → `str(값)`. None → `"-"` |
+
+Redis 캐시에서 datetime은 `datetime.fromisoformat()`으로 파싱 필수 (`json.loads`는 str 반환 → 필터 오작동).
+
+## E7. 정적 자원 — `web/static/js/chart-utils.js`
+
+`web/main.py`에서 `app.mount("/static", StaticFiles(directory=STATIC_DIR))`. `base.html` 하단에서 `/static/js/chart-utils.js` 단일 로드 → 전역 `ChartUtils`.
+
+| 항목 | 제공 |
+|------|------|
+| 상수 | `RANGE_LABEL` / `AUTO_BUCKET` / `BUCKET_LABEL` / `RANGE_MS` / `BUCKET_MS` / `COLORS` |
+| 시간 포매팅 | `fmtKst(iso)` / `fmtLabel(ts, range)` |
+| 처리량 포매팅 | `fmtKbChart(v)` (B/s ↔ kB/s ↔ MB/s) |
+| anchor 입력 | `getAnchorEnd(inputId)` / `initAnchor(inputId)` |
+| 버킷 그리드 | `makeBucketGrid(rangeKey, bucketKey, anchorEnd)` / `joinToGrid(grid, rows, bMs)` |
+| 토글 그룹 | `bindToggle(groupId, onChange)` |
+| SSE | `initSse(serverId, onMessage)` — dot/label 자동 갱신 + 재연결 메시지 |
+| 응답 방어 | `safeArray(arr)` |
+
+각 차트 템플릿은 상단에서 `const { ... } = ChartUtils;`로 destructure. 인라인 중복 정의 금지.
+
+## E8. 도메인 룰: 서비스 카테고리 분류
+
+`service_classifier.py` `classify(unit)`. `.service` suffix 제거 후 소문자 substring 매칭. 매칭 없으면 `"unknown"`.
 
 | 카테고리 | 키워드 예시 |
 |---------|-----------|
@@ -272,89 +471,120 @@ Consumer와 Web이 각자 별도 인터페이스·구현체를 사용한다.
 | `container` | docker, containerd, kubelet |
 | `monitor` | prometheus, grafana, datadog, node_exporter, zabbix |
 
-`matched_ports(unit, listen_ports)` — 서비스 유닛에 매핑되는 포트 목록 반환.
-- comm 기반 매칭 우선. comm 없으면 `_SERVICE_PORTS` well-known 포트 테이블로 폴백.
-- `(proto, port)` 기준 dedup. 반환 형식: `[{"proto": "tcp", "port": 80}, ...]`
+`matched_ports(unit, listen_ports)`:
+- comm 매칭 우선 → comm 없으면 `_SERVICE_PORTS` well-known 포트 폴백.
+- `(proto, port)` dedup. 반환 `[{"proto": "tcp", "port": 80}, ...]`.
 
-- 분류·포트 매핑 로직은 **서비스 계층**(`service_classifier.py`)에서 수행. 매퍼가 호출해 `ServiceItem`을 채움.
-- `service_badge_class` Jinja2 필터는 category → CSS 클래스명 변환만 담당.
+분류·포트 매핑 로직은 **서비스 계층** (P2). 매퍼가 호출해 `ServiceItem` 채움. `service_badge_class` 필터는 category → CSS 클래스명 변환만 (P3).
 
 ### 서비스 3단계 표시 계층
-| 화면 | 표시 내용 |
-|------|---------|
-| 서버 목록 (`list.html`) | known 카테고리 뱃지만. 전부 unknown이면 unknown 단일 배지 |
-| 서버 상세 (`detail.html`) | known 카테고리 뱃지 + 매핑 포트 칩 + 주요 Listen 포트(≤1024, 서비스 매핑 포트 제외) |
-| 서비스 상세 (`services.html`) | 서비스 전체 테이블 (unit/sub/category) + 포트 전체 테이블 |
+| 화면 | 표시 |
+|------|------|
+| 목록 (`list.html`) | known 카테고리 뱃지 (category dedup, display_name 없음). 전부 unknown이면 unknown 단일 |
+| 상세 (`detail.html`) | known 카테고리 뱃지 + 매핑 포트 칩 + 주요 Listen 포트 (`is_well_known` AND 서비스 매핑 포트 제외) |
+| 서비스 상세 (`services.html`) | 서비스 전체 테이블 + 포트 전체 테이블 (mapper에서 정렬된 `sorted_*` 사용) |
 
-## ViewModel 설계 원칙
+## E9. 차트 UI 디테일 (P4 적용)
 
-### 레이어 원칙
-- **템플릿(HTML)은 순수 표시만** 담당. 분기·계산·필터링은 서비스 계층에서 사전 처리.
-- 단위 변환(KB→GB, bytes→GB/TB)은 **서비스 계층**에서 수행. 포맷팅(숫자 → "1.2 TB")은 Jinja2 필터 위임.
-- `enrich_server_detail(detail)` — `ServerDetailResponse` 생성 후 또는 캐시 역직렬화 후 반드시 호출. display 전용 파생 필드를 계산한다.
+Chart.js 4.4.3.
 
-### 주요 ViewModel 필드
+### 뱃지 CSS 통일
+`padding: 4px 10px; border-radius: 6px; font-size: 12px`.
 
-`ServiceItem(unit, sub, category, ports, display_name)`
-- `display_name`: `unit.removesuffix(".service")` — mapper에서 계산
-- `ports`: `matched_ports()` 결과 — detail mapper에서 계산, list mapper는 `[]`
+### 비동기 차트 로더 표준 템플릿
 
-`ServerListItem` 추가 필드 (mapper에서 계산)
-- `known_services`: category != "unknown" 인 서비스만
-- `show_unknown_badge`: services 있고 전부 unknown일 때 True
-- `os_display`: `[os_id, os_version]` 공백 join
+```javascript
+const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
+        fmtLabel, getAnchorEnd, initAnchor, makeBucketGrid, joinToGrid,
+        bindToggle, initSse, safeArray } = ChartUtils;
 
-`ServerDetailResponse` 추가 필드 (`enrich_server_detail`에서 계산)
-- `known_services`: 글로벌 dedup된 chips 포함
-- `show_unknown_badge`
-- `key_listen_ports`: port ≤ 1024이고 서비스 매핑 포트 번호 제외, port·proto 정렬
-- `os_display`, `cpu_display`, `disk_total_gb`
+let xxxSeq = 0;
+async function loadXxxChart() {
+  const seq = ++xxxSeq;                               // (a)
+  const capturedRange  = xxxRange;                    // (b)
+  const capturedAnchor = getAnchorEnd('xxx-anchor');
+  try {
+    const rows = await fetch(`/api/...`).then(r => r.json());
+    if (seq !== xxxSeq) return;                       // (a)
+    const safe = safeArray(rows);                     // (c)
+    renderXxxChart(safe, capturedRange, capturedAnchor);  // (b)
+  } catch(e) { console.error(e); }
+}
 
-`MountUsageItem` 추가 필드 (`_build_mount_item`에서 계산)
-- `badge_class`: usage_pct 임계값(90/75) 기반 CSS 클래스
-- `bar_color`: 동일 임계값 기반 hex color
+async function loadSnapshot() {                       // (d) 404 분기
+  const res = await fetch(`/api/v1/servers/${SERVER_ID}/metrics/latest`);
+  if (res.status === 404) { showEmpty(); return; }
+  if (!res.ok) return;
+  renderSnapshot(await res.json());
+}
 
-### Redis 캐시 역직렬화 호환성
-`cache_serializer.py`의 `server_detail_from_json`은 display 파생 필드(`known_services`, `key_listen_ports`, `os_display`, `cpu_display`, `disk_total_gb`, `show_unknown_badge`)를 data에서 제거한 후 `ServerDetailResponse`를 생성하고 `enrich_server_detail()`로 재계산한다. 구버전 캐시 엔트리와 호환.
-
-## 템플릿 차트 UI 설계 원칙
-
-Chart.js 4.4.3 사용. 아래 패턴을 전 차트 템플릿에 동일하게 적용한다.
+initSse(SERVER_ID, loadSnapshot);                     // SSE 단일 헬퍼
+```
 
 ### avg+max 음영 패턴
-avg 데이터셋과 max ghost 데이터셋을 쌍(짝수·홀수 인덱스)으로 구성한다.
+avg 데이터셋(짝수 인덱스)과 max ghost 데이터셋(홀수 인덱스) 쌍.
 
 - avg: `fill: '+1'`, `pointRadius: 1`, `pointHoverRadius: 3`, 실선
-- max ghost: `borderColor:'transparent'`, `backgroundColor:'transparent'`, `pointRadius: 0`, `pointHoverRadius: 0`
+- max ghost: `borderColor: 'transparent'`, `backgroundColor: 'transparent'`, `pointRadius: 0`, `pointHoverRadius: 0`
 - ghost 데이터: `bufferedMaxData` — avg가 null인 버킷은 max도 null (빈 구간 음영 방지)
-- 실제 max 값은 `realData` 커스텀 속성에 보관 → 툴팁 콜백에서 `ds.realData[idx]`로 참조
-- 툴팁: `filter: item => item.datasetIndex % 2 === 0` — avg 데이터셋만 표시
+- 실제 max는 `realData` 커스텀 속성 → 툴팁 콜백 `ds.realData[idx]` 참조
+- 툴팁 filter: `item.datasetIndex % 2 === 0` — avg 데이터셋만
 
-### 포인트 크기 규칙 (전 차트 통일)
-- avg/실데이터: `pointRadius: 1`, `pointHoverRadius: 3`
-- ghost(max): `pointRadius: 0`, `pointHoverRadius: 0`
+### Y축 정책 — 두 축 (이중 정책)
 
-### suggestedMax 상수화
-Y축 기본 기준선은 스크립트 상단에 명명 상수로 분리한다.
+차트의 목적에 따라 Y축 기준이 달라진다. 새 차트 추가 시 어느 쪽에 속하는지 먼저 결정.
+
+| 정책 | 적용 대상 | 기준 |
+|------|---------|------|
+| **A. 분해력 (상세 추이)** | `cpu/memory/storage/network.html`의 추이 차트, 특히 다중 라인 | 변화·이상 탐지가 목적. idle 환경의 작은 값도 시각적으로 보이도록 낮은 `suggestedMax` (soft ceiling) |
+| **B. 절대 기준 (진단 리포트)** | `performance.html` | "이 값이 전체 그림에서 위험한가" 판단이 목적. 물리적 한계·% 절대값·비즈니스 임계값 고정 |
+
+같은 metric이 두 페이지에서 다른 스케일을 가질 수 있다 — 의도된 차이.
+
+### Y축 명명 상수 (P4 (e))
+
+스크립트 상단에 분리. 변경 시 의도 추적 가능. **magic number 금지**.
+
 ```javascript
-const NET_Y_SUGGESTED_MAX = 2048; // B/s 기본 기준선 (≈2 kB/s). 조정 가능.
+// ── 정책 A: 분해력 (상세 추이) ─────────────────────────────────
+const NET_Y_SUGGESTED_MAX        = 2048;  // B/s ≈ 2 kB/s — network.html 다중 iface×RX/TX
+const STORAGE_IOPS_SUGGESTED_MAX = 5;     // storage.html 다중 device×R/W (idle 0.1 IOPS 분해)
+// (cpu.html 로드 추이는 CPU_CORES 변수를 suggestedMax로 사용 — A+B 하이브리드)
+
+// ── 정책 B: 절대 기준 (진단 리포트 performance.html) ─────────
+const PERF_IOPS_SUGGESTED_MAX = 200;               // HDD 랜덤 I/O 한계
+const PERF_NET_SUGGESTED_MAX  = 10 * 1024 * 1024;  // 10 MB/s — 1 Gbps의 8%
+
+// ── 색상 임계값 — 서버 mappers._usage_bar_color 와 동일 기준. 변경 시 양쪽 동기화.
+const USAGE_DANGER_PCT = 90;
+const USAGE_WARN_PCT   = 75;
+const SWAP_DANGER_PCT  = 0.1;
+const COLOR_OK = '#3b82f6'; const COLOR_WARN = '#f59e0b';
+const COLOR_DANGER = '#ef4444'; const COLOR_NEUTRAL = '#64748b';
 ```
-`suggestedMax`는 soft ceiling — 실데이터가 초과하면 자동 확장된다.
 
-### 네트워크 I/O Y축
-- 데이터: 서버에서 넘어온 B/s 원값 그대로 (나누기 없음)
-- 포매터 `fmtKbChart(v)`: `v >= 1024*1024` → MB/s, `v >= 1024` → kB/s, else B/s
-- Y축 title: `'처리량'` (단위가 값에 따라 동적이므로 고정 단위명 부적합)
-- `NET_Y_SUGGESTED_MAX = 2048`
+### 차트별 Y축 매트릭스
 
-### 스왑 Y축
-`beginAtZero: true, suggestedMax: 25` — 스왑 사용률이 낮아도 추이 가시성을 위해 최소 0–25% 스케일 유지.
-
-### IOPS 차트 Y축
-`ticks: { precision: 0 }` — 정수값만 표시. `stepSize: 1` + 정수 callback 조합 불필요.
+| 페이지 | 차트 | Y축 | 정책 |
+|--------|------|-----|------|
+| performance | CPU·Memory·Mount 사용률 | `min:0, max:100` | B 절대 |
+| performance | Swap | `suggestedMax: 25` | B 부분절대 (낮은값 부각) |
+| performance | Load 15m (단일) | `suggestedMax: cpu_cores ∥ 4` | B 물리 포화 |
+| performance | Disk Read/Write IOPS | `suggestedMax: PERF_IOPS_SUGGESTED_MAX` (200) | B 물리 한계 |
+| performance | Net RX/TX | `suggestedMax: PERF_NET_SUGGESTED_MAX` (10 MB/s) | B 비즈니스 기준 |
+| cpu | CPU 사용률 추이 (단일+ghost) | `min:0, max:100` | B 절대 |
+| cpu | CPU 분류 추이 (3선 user/system/iowait) | `beginAtZero, auto` | A 분해력 |
+| cpu | 로드 평균 추이 (3선 1m/5m/15m) | `beginAtZero, suggestedMax: CPU_CORES` | **A+B 하이브리드** (분해력+포화 임계 시각화) |
+| memory | Memory 사용률 추이 (단일+ghost) | `min:0, max:100` | B 절대 |
+| memory | Memory 구성 추이 (4선 used/avail/cached/buffers) | `beginAtZero, auto` | A 분해력 |
+| memory | Swap 사용률 추이 (단일+ghost) | `suggestedMax: 25` | B 부분절대 |
+| storage | 물리/논리 I/O 추이 (다중 device×R/W) | `suggestedMax: STORAGE_IOPS_SUGGESTED_MAX` (5), `precision:0` | A 분해력 |
+| storage | 파일시스템 사용량 추이 (다중 mount) | `min:0, max:100` | B 절대 (% 단위) |
+| network | 네트워크 I/O 추이 (다중 iface×RX/TX) | `suggestedMax: NET_Y_SUGGESTED_MAX` (2 kB/s), 동적 단위 (`fmtKbChart`) | A 분해력 |
 
 ### SSE 상태 + 수집기준시간 레이아웃
-SSE dot/label과 수집기준시간 span은 반드시 단일 flex 컨테이너 안에 두어 줄바꿈을 방지한다.
+SSE dot/label과 수집기준시간 span은 **단일 flex 컨테이너** 안에 두어 줄바꿈 방지.
+
 ```html
 <div id="sse-status" style="display:flex; align-items:center; gap:5px; font-size:11px; color:#94a3b8; white-space:nowrap;">
   <span id="sse-dot" class="dot dot-off"></span>
@@ -362,61 +592,61 @@ SSE dot/label과 수집기준시간 span은 반드시 단일 flex 컨테이너 �
   <span id="xxx-snapshot-ts" style="margin-left:4px;"></span>
 </div>
 ```
-타임스탬프 span을 SSE div 밖에 두면 flex-wrap으로 분리될 수 있다.
 
-### 헤더 브랜드 네비게이션
-`base.html`의 `ZConverter Assessment` 브랜드는 `/servers/`로 이동하는 `<a>` 태그.
-별도 "서버 목록" nav 링크는 제거 (브랜드 클릭으로 대체).
+### 헤더 브랜드
+`base.html`의 `ZConverter Assessment` 브랜드는 `/servers/`로 이동하는 `<a>`. 별도 nav 링크 없음.
 
-## 타입 어노테이션 규칙
+---
 
+# F. 운영 규약
+
+## F1. 타입 어노테이션
 - **`from __future__ import annotations` 절대 금지** — 전 파일.
-- `TYPE_CHECKING` 블록은 순환 임포트가 실제로 발생하는 경우에만 사용. 순환 임포트 없는 경우 직접 임포트. Python 3.12에서 어노테이션은 즉시 평가되므로 `TYPE_CHECKING` 블록의 import는 런타임 `NameError`를 유발함.
-- 타입 좁히기용 데드코드(`assert x is not None` 등) 작성 금지.
+- `TYPE_CHECKING` 블록은 순환 임포트가 실제로 발생하는 경우에만. Python 3.12 어노테이션은 즉시 평가되어 `NameError` 유발.
+- 타입 좁히기용 데드코드(`assert x is not None`) 금지.
 
-## 테스트 정책
+## F2. 테스트 정책
+- 모듈 단위 테스트(pytest) 없음 — 추후 별도 작업.
+- E2E 검증은 Vagrant VM → Docker compose 파이프라인 (`docs/pipeline.md`).
+- 테스트 관련 작업은 명시적 요청 시에만 수행.
 
-- 모듈 단위 테스트(pytest) 없음 — 추후 별도 작업
-- E2E 검증은 Vagrant VM → Docker compose 파이프라인으로 수행 (`docs/TESTING.md` 참조)
-- 테스트 관련 작업은 명시적 요청이 있을 때만 수행
-
-## 문서 구조
+## F3. 문서 구조
 
 | 디렉토리 | 용도 |
 |----------|------|
-| `docs/` | README 연계 문서 (실행·환경변수·파이프라인 검증) |
-| `_design/` | 설계·개념 문서 (컴포넌트 설계, UI 규약, 트레이드오프 등) |
-| `_internals/` | 기술 구현 문서 (Python 문법·라이브러리 적용 상세) |
+| `docs/` | README 연계 문서 |
+| `docs/components/` | 컴포넌트별 통합 문서 (설계·규약·기술 구현) |
+| `docs/infra/` | 인프라 문서 (Docker·Vagrant) |
 
 | 파일 | 내용 |
 |------|------|
-| `docs/TESTING.md` | 파이프라인 검증 (Vagrant VM) |
-| `docs/ENV.md` | 환경변수 전체 키 목록 |
-| `_design/CONSUMER.md` | Consumer 스키마·핸들러 흐름·MQ 토폴로지 |
-| `_design/DB.md` | Repository 계층·DTO·세션 획득 방식 |
-| `_design/UI_CONVENTIONS.md` | 템플릿 설계 규약·Chart.js 패턴 |
-| `_design/LISTEN_PORTS.md` | Listen 포트 수집 구조 |
-| `_design/DESIGN_DECISIONS.md` | 설계 결정·트레이드오프·개선 방향 |
-| `_design/REPORT_DESIGN.md` | 보고서 설계 (미구현) |
-| `_internals/consumer.md` | schemas.py·handler.py·main.py 기술 구현 |
-| `_internals/db.md` | session.py·collect_repository.py 기술 구현 |
+| `docs/pipeline.md` | 파이프라인 검증 (Vagrant VM) |
+| `docs/env.md` | 환경변수 전체 키 목록 |
+| `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T8) |
+| `docs/components/agent.md` | 에이전트 메시지 스키마 / 포트 수집 / 디스크 필터링 |
+| `docs/components/consumer.md` | schemas / handler / main / MQ 토폴로지 / 멱등성 |
+| `docs/components/db.md` | ORM 모델 / DTO / Repository / TimescaleDB |
+| `docs/components/redis.md` | 키 설계 / TTL / PUB/SUB / 멱등성 / 캐시 무효화 / mget |
+| `docs/components/web.md` | 레이어 원칙 / 서비스 모듈 / ViewModel / Jinja2 / 차트 UI / chart-utils.js |
+| `docs/infra/docker.md` | Dockerfile / docker-compose (볼륨·헬스체크·기동 순서·env) |
+| `docs/infra/vagrant.md` | Vagrant 사용 맥락 / VM 구성 / 프로비저닝 흐름 |
 
-## 브랜치 전략
+## F4. 브랜치 전략
 | 브랜치 | 용도 |
 |--------|------|
 | main | 배포용. 직접 push 금지 |
 | develop | 개발 통합. PR로만 머지 |
-| feature/xxx | 기능 개발 |
-| fix/xxx | 버그 수정 |
-| chore/xxx | 설정 변경 |
+| feature/xxx | 기능 |
+| fix/xxx | 버그 |
+| chore/xxx | 설정 |
 
-## 커밋 컨벤션
-설명은 한글로 작성
+## F5. 커밋 컨벤션
+설명은 한글.
 
 | 타입 | 설명 |
 |------|------|
-| feat | 새로운 기능 추가 |
+| feat | 새 기능 |
 | fix | 버그 수정 |
-| chore | 설정, 패키지 변경 |
+| chore | 설정·패키지 변경 |
 | refactor | 리팩토링 |
 | test | 테스트 코드 |

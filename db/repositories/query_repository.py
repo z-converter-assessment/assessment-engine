@@ -43,6 +43,7 @@ _BUCKET: dict[str, str] = {
     "1m":  "1 minute",
     "5m":  "5 minutes",
     "15m": "15 minutes",
+    "30m": "30 minutes",
     "1h":  "1 hour",
     "3h":  "3 hours",
     "12h": "12 hours",
@@ -55,6 +56,7 @@ _BUCKET_TD: dict[str, timedelta] = {
     "1 minute":   timedelta(minutes=1),
     "5 minutes":  timedelta(minutes=5),
     "15 minutes": timedelta(minutes=15),
+    "30 minutes": timedelta(minutes=30),
     "1 hour":     timedelta(hours=1),
     "3 hours":    timedelta(hours=3),
     "12 hours":   timedelta(hours=12),
@@ -88,23 +90,20 @@ class QueryRepository(BaseQueryRepository):
         limit: int,
         search: str | None,
     ) -> list[ServerSummary]:
-        last_metric_sq = (
-            select(
-                ServerMetrics.server_id,
-                func.max(ServerMetrics.collected_at).label("last_metric_at"),
-            )
-            .group_by(ServerMetrics.server_id)
-            .subquery()
-        )
-
-        last_seen_expr = func.coalesce(
-            last_metric_sq.c.last_metric_at,
-            ServerInventory.last_seen_at,
-        )
-
         stmt = (
-            select(ServerInventory, last_seen_expr.label("last_seen_at"))
-            .outerjoin(last_metric_sq, last_metric_sq.c.server_id == ServerInventory.id)
+            select(
+                ServerInventory.id,
+                ServerInventory.public_id,
+                ServerInventory.machine_id,
+                ServerInventory.hostname,
+                ServerInventory.os_id,
+                ServerInventory.os_version,
+                ServerInventory.cpu_cores,
+                ServerInventory.mem_total_kb,
+                ServerInventory.ip_external,
+                ServerInventory.disks,
+                ServerInventory.services,
+            )
             .order_by(ServerInventory.hostname.asc())
         )
         if search:
@@ -114,21 +113,19 @@ class QueryRepository(BaseQueryRepository):
         result = await self.session.execute(stmt)
         return [
             ServerSummary(
-                id=row.ServerInventory.id,
-                public_id=row.ServerInventory.public_id,
-                machine_id=row.ServerInventory.machine_id,
-                hostname=row.ServerInventory.hostname,
-                os_id=row.ServerInventory.os_id,
-                os_version=row.ServerInventory.os_version,
-                cpu_cores=row.ServerInventory.cpu_cores,
-                mem_total_kb=row.ServerInventory.mem_total_kb,
-                last_seen_at=row.last_seen_at,
-                ip_external=row.ServerInventory.ip_external,
-                disks=row.ServerInventory.disks or [],
-                services=row.ServerInventory.services,
-                listen_ports=row.ServerInventory.listen_ports or [],
+                id=r.id,
+                public_id=r.public_id,
+                machine_id=r.machine_id,
+                hostname=r.hostname,
+                os_id=r.os_id,
+                os_version=r.os_version,
+                cpu_cores=r.cpu_cores,
+                mem_total_kb=r.mem_total_kb,
+                ip_external=r.ip_external,
+                disks=r.disks or [],
+                services=r.services,
             )
-            for row in result.all()
+            for r in result.all()
         ]
 
     async def get_server(self, server_id: int) -> ServerDetail | None:
@@ -427,33 +424,35 @@ class QueryRepository(BaseQueryRepository):
         time_range: TimeRange,
         bucket: BucketSize,
         agg: AggFunc,
+        end: datetime | None = None,
     ) -> list[MetricSeries]:
-        start = datetime.now(timezone.utc) - _TIME_RANGE[time_range]
+        end_dt = end or datetime.now(timezone.utc)
+        start  = end_dt - _TIME_RANGE[time_range]
         bi = _BUCKET[bucket]
         ae = _AGG[agg]
 
         if metric_type == "cpu.usage_percent":
-            rows = await self._chart_cpu(server_id, start, bi, ae)
+            rows = await self._chart_cpu(server_id, start, end_dt, bi, ae)
         elif metric_type in ("cpu.user_percent", "cpu.system_percent", "cpu.iowait_percent"):
             col_map = {
                 "cpu.user_percent":   "cpu_user",
                 "cpu.system_percent": "cpu_system",
                 "cpu.iowait_percent": "cpu_iowait",
             }
-            rows = await self._chart_cpu_component(server_id, start, bi, ae, col_map[metric_type])
+            rows = await self._chart_cpu_component(server_id, start, end_dt, bi, ae, col_map[metric_type])
         elif metric_type in ("load.1m", "load.5m", "load.15m"):
             col_map = {"load.1m": "load_1m", "load.5m": "load_5m", "load.15m": "load_15m"}
-            rows = await self._chart_load(server_id, start, bi, ae, col_map[metric_type])
+            rows = await self._chart_load(server_id, start, end_dt, bi, ae, col_map[metric_type])
         elif metric_type in ("mem.usage_percent", "mem.available_percent", "mem.cached_percent", "mem.buffers_percent", "swap.usage_percent"):
-            rows = await self._chart_mem(server_id, start, bi, ae, metric_type)
+            rows = await self._chart_mem(server_id, start, end_dt, bi, ae, metric_type)
         elif metric_type in ("disk.read_iops", "disk.write_iops"):
             col = "reads_completed" if metric_type == "disk.read_iops" else "writes_completed"
-            rows = await self._chart_disk_iops(server_id, start, bi, ae, dimension, col)
+            rows = await self._chart_disk_iops(server_id, start, end_dt, bi, ae, dimension, col)
         elif metric_type in ("net.rx_bytes_per_sec", "net.tx_bytes_per_sec"):
             col = "rx_bytes" if metric_type == "net.rx_bytes_per_sec" else "tx_bytes"
-            rows = await self._chart_net(server_id, start, bi, ae, dimension, col)
+            rows = await self._chart_net(server_id, start, end_dt, bi, ae, dimension, col)
         elif metric_type == "fs.usage_percent":
-            rows = await self._chart_fs(server_id, start, bi, ae, dimension)
+            rows = await self._chart_fs(server_id, start, end_dt, bi, ae, dimension)
         else:
             return []
 
@@ -466,7 +465,7 @@ class QueryRepository(BaseQueryRepository):
     # chart helpers  (bi, ae = whitelisted — safe to format into SQL)
     # -------------------------------------------------------------------------
 
-    async def _chart_cpu(self, server_id: int, start: datetime, bi: str, ae: str):
+    async def _chart_cpu(self, server_id: int, start: datetime, end: datetime, bi: str, ae: str):
         sql = text(f"""
             WITH raw AS (
                 SELECT collected_at,
@@ -475,6 +474,7 @@ class QueryRepository(BaseQueryRepository):
                 FROM {ServerMetrics.__tablename__}
                 WHERE server_id = :sid
                   AND collected_at >= :window_start
+                  AND collected_at <= :end
             ),
             deltas AS (
                 SELECT collected_at,
@@ -494,11 +494,11 @@ class QueryRepository(BaseQueryRepository):
             GROUP BY ts
             ORDER BY ts
         """)
-        result = await self.session.execute(sql, {"sid": server_id, "start": start, "window_start": start - _BUCKET_TD[bi]})
+        result = await self.session.execute(sql, {"sid": server_id, "start": start, "end": end, "window_start": start - _BUCKET_TD[bi]})
         return result.all()
 
     async def _chart_disk_iops(
-        self, server_id: int, start: datetime, bi: str, ae: str,
+        self, server_id: int, start: datetime, end: datetime, bi: str, ae: str,
         dimension: str | None, col: str,
     ):
         sql = text(f"""
@@ -507,6 +507,7 @@ class QueryRepository(BaseQueryRepository):
                 FROM {ServerDiskIo.__tablename__}
                 WHERE server_id = :sid
                   AND collected_at >= :window_start
+                  AND collected_at <= :end
                   AND (CAST(:dim AS text) IS NULL OR device = :dim)
             ),
             deltas AS (
@@ -527,11 +528,11 @@ class QueryRepository(BaseQueryRepository):
             GROUP BY ts, device
             ORDER BY ts, device
         """)
-        result = await self.session.execute(sql, {"sid": server_id, "start": start, "window_start": start - _BUCKET_TD[bi], "dim": dimension})
+        result = await self.session.execute(sql, {"sid": server_id, "start": start, "end": end, "window_start": start - _BUCKET_TD[bi], "dim": dimension})
         return result.all()
 
     async def _chart_net(
-        self, server_id: int, start: datetime, bi: str, ae: str,
+        self, server_id: int, start: datetime, end: datetime, bi: str, ae: str,
         dimension: str | None, col: str,
     ):
         sql = text(f"""
@@ -540,6 +541,7 @@ class QueryRepository(BaseQueryRepository):
                 FROM {ServerNetIo.__tablename__}
                 WHERE server_id = :sid
                   AND collected_at >= :window_start
+                  AND collected_at <= :end
                   AND (CAST(:dim AS text) IS NULL OR interface = :dim)
             ),
             deltas AS (
@@ -560,11 +562,11 @@ class QueryRepository(BaseQueryRepository):
             GROUP BY ts, interface
             ORDER BY ts, interface
         """)
-        result = await self.session.execute(sql, {"sid": server_id, "start": start, "window_start": start - _BUCKET_TD[bi], "dim": dimension})
+        result = await self.session.execute(sql, {"sid": server_id, "start": start, "end": end, "window_start": start - _BUCKET_TD[bi], "dim": dimension})
         return result.all()
 
     async def _chart_fs(
-        self, server_id: int, start: datetime, bi: str, ae: str, dimension: str | None,
+        self, server_id: int, start: datetime, end: datetime, bi: str, ae: str, dimension: str | None,
     ):
         sql = text(f"""
             SELECT time_bucket(interval '{bi}', collected_at) AS ts,
@@ -578,16 +580,17 @@ class QueryRepository(BaseQueryRepository):
                 FROM {ServerMountUsage.__tablename__}
                 WHERE server_id = :sid
                   AND collected_at >= :start
+                  AND collected_at <= :end
                   AND (CAST(:dim AS text) IS NULL OR mount = :dim)
             ) sub
             GROUP BY ts, mount
             ORDER BY ts, mount
         """)
-        result = await self.session.execute(sql, {"sid": server_id, "start": start, "dim": dimension})
+        result = await self.session.execute(sql, {"sid": server_id, "start": start, "end": end, "dim": dimension})
         return result.all()
 
     async def _chart_cpu_component(
-        self, server_id: int, start: datetime, bi: str, ae: str, col: str,
+        self, server_id: int, start: datetime, end: datetime, bi: str, ae: str, col: str,
     ):
         sql = text(f"""
             WITH raw AS (
@@ -597,6 +600,7 @@ class QueryRepository(BaseQueryRepository):
                 FROM {ServerMetrics.__tablename__}
                 WHERE server_id = :sid
                   AND collected_at >= :window_start
+                  AND collected_at <= :end
             ),
             deltas AS (
                 SELECT collected_at,
@@ -618,12 +622,12 @@ class QueryRepository(BaseQueryRepository):
         """)
         result = await self.session.execute(
             sql,
-            {"sid": server_id, "start": start, "window_start": start - _BUCKET_TD[bi]},
+            {"sid": server_id, "start": start, "end": end, "window_start": start - _BUCKET_TD[bi]},
         )
         return result.all()
 
     async def _chart_load(
-        self, server_id: int, start: datetime, bi: str, ae: str, col: str,
+        self, server_id: int, start: datetime, end: datetime, bi: str, ae: str, col: str,
     ):
         sql = text(f"""
             SELECT time_bucket(interval '{bi}', collected_at) AS ts,
@@ -634,16 +638,17 @@ class QueryRepository(BaseQueryRepository):
                 FROM {ServerMetrics.__tablename__}
                 WHERE server_id = :sid
                   AND collected_at >= :start
+                  AND collected_at <= :end
                   AND {col} IS NOT NULL
             ) sub
             GROUP BY ts
             ORDER BY ts
         """)
-        result = await self.session.execute(sql, {"sid": server_id, "start": start})
+        result = await self.session.execute(sql, {"sid": server_id, "start": start, "end": end})
         return result.all()
 
     async def _chart_mem(
-        self, server_id: int, start: datetime, bi: str, ae: str, metric_type: str,
+        self, server_id: int, start: datetime, end: datetime, bi: str, ae: str, metric_type: str,
     ):
         expr_map = {
             "mem.usage_percent":     "CASE WHEN mem_total_kb > 0 THEN (mem_total_kb - mem_available_kb)::float / mem_total_kb * 100 END",
@@ -662,10 +667,11 @@ class QueryRepository(BaseQueryRepository):
                 FROM {ServerMetrics.__tablename__}
                 WHERE server_id = :sid
                   AND collected_at >= :start
+                  AND collected_at <= :end
             ) sub
             WHERE v IS NOT NULL
             GROUP BY ts
             ORDER BY ts
         """)
-        result = await self.session.execute(sql, {"sid": server_id, "start": start})
+        result = await self.session.execute(sql, {"sid": server_id, "start": start, "end": end})
         return result.all()

@@ -5,8 +5,8 @@ from db.repositories.outbound import (
     MountUsageRaw,
     NetIoRaw,
 )
-from web.services.filters import is_virtual_mount
-from web.services.units import _bytes_to_gb, _sector_to_kbps, _usage_pct
+from web.services.device_filters import is_lvm_disk, is_partition, is_physical_disk, is_virtual_mount
+from web.services.units import bytes_to_gb, sector_to_kbps, usage_pct
 from web.view_models import (
     CpuSnapshot,
     DiskIoSnapshot,
@@ -22,6 +22,7 @@ def build_dashboard(raw: DashboardRaw) -> MetricDashboard:
     cur = raw.metrics[0] if raw.metrics else None
     prev = raw.metrics[1] if len(raw.metrics) >= 2 else None
 
+    phys, lvm, part = compute_disk_io(raw.disk_io)
     return MetricDashboard(
         collected_at=cur.collected_at if cur else None,
         cpu=compute_cpu(cur, prev),
@@ -30,7 +31,9 @@ def build_dashboard(raw: DashboardRaw) -> MetricDashboard:
         load_15m=cur.load_15m if cur else None,
         memory=compute_mem(cur),
         swap=compute_swap(cur),
-        disk_io=compute_disk_io(raw.disk_io),
+        disk_io_phys=phys,
+        disk_io_lvm=lvm,
+        disk_io_part=part,
         net_io=compute_net_io(raw.net_io),
         mounts=compute_mounts(raw.mounts),
     )
@@ -75,13 +78,29 @@ def compute_mem(cur: MetricPairRaw | None) -> MemSnapshot | None:
     if cur is None or cur.mem_total_kb is None:
         return None
     used = (cur.mem_total_kb - cur.mem_available_kb) if cur.mem_available_kb is not None else None
+    used_pct = usage_pct(used, cur.mem_total_kb)
+    # stacked bar용: cached/buffers 비율을 used 위에 누적할 수 있도록 잘라낸다
+    # (used + cached + buffers > 100 가능성: Linux available은 cached/buffers 일부를 포함하므로)
+    raw_cached_pct = usage_pct(cur.mem_cached_kb, cur.mem_total_kb)
+    raw_buffers_pct = usage_pct(cur.mem_buffers_kb, cur.mem_total_kb)
+    cached_pct = (
+        round(min(max(0.0, 100.0 - (used_pct or 0.0)), raw_cached_pct), 1)
+        if raw_cached_pct is not None else None
+    )
+    buf_room = 100.0 - (used_pct or 0.0) - (cached_pct or 0.0)
+    buffers_pct = (
+        round(min(max(0.0, buf_room), raw_buffers_pct), 1)
+        if raw_buffers_pct is not None else None
+    )
     return MemSnapshot(
         total_kb=cur.mem_total_kb,
         used_kb=used,
         available_kb=cur.mem_available_kb,
         cached_kb=cur.mem_cached_kb,
         buffers_kb=cur.mem_buffers_kb,
-        usage_pct=_usage_pct(used, cur.mem_total_kb),
+        usage_pct=used_pct,
+        cached_pct=cached_pct,
+        buffers_pct=buffers_pct,
     )
 
 
@@ -92,40 +111,52 @@ def compute_swap(cur: MetricPairRaw | None) -> SwapSnapshot | None:
     return SwapSnapshot(
         total_kb=cur.swap_total_kb,
         used_kb=used,
-        usage_pct=_usage_pct(used, cur.swap_total_kb),
+        usage_pct=usage_pct(used, cur.swap_total_kb),
     )
 
 
-def compute_disk_io(pairs: list[DiskIoRaw]) -> list[DiskIoSnapshot]:
+def compute_disk_io(
+    pairs: list[DiskIoRaw],
+) -> tuple[list[DiskIoSnapshot], list[DiskIoSnapshot], list[DiskIoSnapshot]]:
     by_device: dict[str, list[DiskIoRaw]] = {}
     for r in pairs:
         by_device.setdefault(r.device, []).append(r)
 
-    result = []
+    phys: list[DiskIoSnapshot] = []
+    lvm:  list[DiskIoSnapshot] = []
+    part: list[DiskIoSnapshot] = []
+
     for device, rows in sorted(by_device.items()):
         if len(rows) < 2:
-            result.append(DiskIoSnapshot(device=device, read_iops=None, write_iops=None,
-                                         read_kbps=None, write_kbps=None))
-            continue
-        cur, prev = rows[0], rows[1]
-        dt = (cur.collected_at - prev.collected_at).total_seconds()
-        if dt <= 0:
-            result.append(DiskIoSnapshot(device=device, read_iops=None, write_iops=None,
-                                         read_kbps=None, write_kbps=None))
-            continue
+            snap = DiskIoSnapshot(device=device, read_iops=None, write_iops=None,
+                                  read_kbps=None, write_kbps=None)
+        else:
+            cur, prev = rows[0], rows[1]
+            dt = (cur.collected_at - prev.collected_at).total_seconds()
+            if dt <= 0:
+                snap = DiskIoSnapshot(device=device, read_iops=None, write_iops=None,
+                                      read_kbps=None, write_kbps=None)
+            else:
+                def iorate(c: int, p: int) -> float | None:
+                    d = c - p
+                    return None if d < 0 else round(d / dt, 1)
 
-        def iorate(c: int, p: int) -> float | None:
-            d = c - p
-            return None if d < 0 else round(d / dt, 1)
+                snap = DiskIoSnapshot(
+                    device=device,
+                    read_iops=iorate(cur.reads_completed, prev.reads_completed),
+                    write_iops=iorate(cur.writes_completed, prev.writes_completed),
+                    read_kbps=sector_to_kbps(cur.sectors_read, prev.sectors_read, dt),
+                    write_kbps=sector_to_kbps(cur.sectors_written, prev.sectors_written, dt),
+                )
 
-        result.append(DiskIoSnapshot(
-            device=device,
-            read_iops=iorate(cur.reads_completed, prev.reads_completed),
-            write_iops=iorate(cur.writes_completed, prev.writes_completed),
-            read_kbps=_sector_to_kbps(cur.sectors_read, prev.sectors_read, dt),
-            write_kbps=_sector_to_kbps(cur.sectors_written, prev.sectors_written, dt),
-        ))
-    return result
+        if is_physical_disk(device):
+            phys.append(snap)
+        elif is_lvm_disk(device):
+            lvm.append(snap)
+        elif is_partition(device):
+            part.append(snap)
+
+    return phys, lvm, part
 
 
 def compute_net_io(pairs: list[NetIoRaw]) -> list[NetIoSnapshot]:
@@ -172,9 +203,9 @@ def compute_mounts(mounts: list[MountUsageRaw]) -> list[MountDashSnapshot]:
         used_bytes = (m.total_bytes - m.avail_bytes) if (m.total_bytes and m.avail_bytes is not None) else None
         result.append(MountDashSnapshot(
             mount=m.mount,
-            total_gb=_bytes_to_gb(m.total_bytes),
-            used_gb=_bytes_to_gb(used_bytes),
-            avail_gb=_bytes_to_gb(m.avail_bytes),
-            usage_pct=_usage_pct(used_bytes, m.total_bytes),
+            total_gb=bytes_to_gb(m.total_bytes),
+            used_gb=bytes_to_gb(used_bytes),
+            avail_gb=bytes_to_gb(m.avail_bytes),
+            usage_pct=usage_pct(used_bytes, m.total_bytes),
         ))
     return result
