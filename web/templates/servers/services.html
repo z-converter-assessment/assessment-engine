@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}ZConverter Assessment — {{ server.hostname }} 서비스/포트{% endblock %}
+
+{% block content %}
+<a class="back no-print" href="/servers/{{ server.public_id }}">← {{ server.hostname }}</a>
+<h1>서비스 / 포트 — {{ server.hostname }}</h1>
+
+<!-- 서비스 목록 -->
+<div class="card">
+  <h2>
+    실행 중인 서비스
+    {% if server.services is not none %}
+      <span style="font-size:12px; font-weight:400; color:#94a3b8; text-transform:none; letter-spacing:0;">
+        {{ server.services | length }}개
+      </span>
+    {% endif %}
+  </h2>
+
+  {% if server.services is none %}
+    <p style="color:#94a3b8; font-size:13px; margin:0;">수집 불가 — 비-systemd 호스트</p>
+  {% elif not server.services %}
+    <p style="color:#94a3b8; font-size:13px; margin:0;">실행 중인 서비스 없음</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr>
+          <th>Unit</th>
+          <th>상태</th>
+          <th>카테고리</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for svc in server.services | sort(attribute='unit') %}
+        <tr>
+          <td><code>{{ svc.unit }}</code></td>
+          <td><span style="color:#16a34a; font-size:12px;">{{ svc.sub }}</span></td>
+          <td>
+            <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; padding:12px 14px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0;">
+    {% for cat, examples in [
+      ('web',       'nginx, apache, haproxy'),
+      ('db',        'postgresql, mysql, mongodb'),
+      ('cache',     'redis, memcached'),
+      ('mq',        'rabbitmq, kafka'),
+      ('container', 'docker, containerd'),
+      ('monitor',   'prometheus, grafana'),
+    ] %}
+    <span style="display:inline-flex; align-items:center; gap:6px;">
+      <span class="badge {{ cat | service_badge_class }}">{{ cat }}</span>
+      <span style="font-size:11px; color:#94a3b8;">{{ examples }}</span>
+    </span>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- 포트 목록 -->
+<div class="card">
+  <h2>
+    Listen 포트
+    <span style="font-size:12px; font-weight:400; color:#94a3b8; text-transform:none; letter-spacing:0;">
+      {{ server.listen_ports | length }}개
+    </span>
+  </h2>
+
+  {% if not server.listen_ports %}
+    <p style="color:#94a3b8; font-size:13px; margin:0;">수집된 포트 없음</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr>
+          <th>Proto</th>
+          <th>Addr</th>
+          <th>Port</th>
+          <th>UID</th>
+          <th>PID</th>
+          <th>Process</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in server.listen_ports | sort(attribute='port') %}
+        <tr>
+          <td><code>{{ p.proto }}</code></td>
+          <td><code style="color:#94a3b8;">{{ p.addr }}</code></td>
+          <td>
+            {% if p.port <= 1024 %}
+              <strong style="color:#0f172a;">{{ p.port }}</strong>
+            {% else %}
+              {{ p.port }}
+            {% endif %}
+          </td>
+          <td style="color:#64748b;">{{ p.uid }}</td>
+          <td style="color:#64748b;">{{ p.pid if p.pid is not none else '—' }}</td>
+          <td>
+            {% if p.comm %}
+              <code>{{ p.comm }}</code>
+            {% else %}
+              <span style="color:#cbd5e1;">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+{% endblock %}

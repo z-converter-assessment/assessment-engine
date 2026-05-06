@@ -4,66 +4,66 @@ import aio_pika
 from loguru import logger
 
 from config import consumer_settings
-from consumer.deps import error_handler, inventory_handler, metrics_handler
-from db.redis import close_pool
+from db.redis import close_pool, get_redis
+from db.repositories.collect_repository import CollectRepository
+from db.session import AsyncSessionLocal
+from consumer.handler import make_error_handler, make_inventory_handler, make_metrics_handler
 
 _EXCHANGE = consumer_settings.rabbitmq_exchange
 _DLX      = f"{_EXCHANGE}.dlx"
-
-# (queue_name, routing_key, handler, ttl_ms | None)
-# inventory는 기동 시 1회만 발행되는 one-shot 메시지 → TTL 없음
-# metrics/error는 주기적으로 재발행되므로 60s TTL로 낡은 데이터 방지
-_QUEUES = [
-    (consumer_settings.rabbitmq_routing_key_inventory, consumer_settings.rabbitmq_routing_key_inventory, inventory_handler, None),
-    (consumer_settings.rabbitmq_routing_key_metrics,   consumer_settings.rabbitmq_routing_key_metrics,   metrics_handler,   60_000),
-    (consumer_settings.rabbitmq_routing_key_error,     consumer_settings.rabbitmq_routing_key_error,     error_handler,     60_000),
-]
 
 
 async def main() -> None:
     logger.info("consumer starting exchange={}", _EXCHANGE)
 
-    conn = await aio_pika.connect_robust(consumer_settings.broker_url)
-    async with conn:
-        channel = await conn.channel()
-        await channel.set_qos(prefetch_count=10)
+    redis = get_redis()
+    try:
+        queues = [
+            (consumer_settings.rabbitmq_routing_key_inventory, make_inventory_handler(AsyncSessionLocal, CollectRepository, redis), None),
+            (consumer_settings.rabbitmq_routing_key_metrics,   make_metrics_handler(AsyncSessionLocal, CollectRepository, redis),   60_000),
+            (consumer_settings.rabbitmq_routing_key_error,     make_error_handler(redis),                                          60_000),
+        ]
 
-        dlx = await channel.declare_exchange(
-            _DLX,
-            aio_pika.ExchangeType.DIRECT,
-            durable=True,
-        )
+        conn = await aio_pika.connect_robust(consumer_settings.broker_url)
+        async with conn:
+            async with conn.channel() as channel:
+                await channel.set_qos(prefetch_count=10)
 
-        exchange = await channel.declare_exchange(
-            _EXCHANGE,
-            aio_pika.ExchangeType.DIRECT,
-            durable=True,
-        )
+                dlx = await channel.declare_exchange(
+                    _DLX,
+                    aio_pika.ExchangeType.DIRECT,
+                    durable=True,
+                )
 
-        for queue_name, routing_key, handler, ttl_ms in _QUEUES:
-            dlq = await channel.declare_queue(
-                f"{queue_name}.dead",
-                durable=True,
-            )
-            await dlq.bind(dlx, routing_key=queue_name)
+                exchange = await channel.declare_exchange(
+                    _EXCHANGE,
+                    aio_pika.ExchangeType.DIRECT,
+                    durable=True,
+                )
 
-            args: dict = {
-                "x-dead-letter-exchange":    _DLX,
-                "x-dead-letter-routing-key": queue_name,
-            }
-            if ttl_ms is not None:
-                args["x-message-ttl"] = ttl_ms
+                for key, handler, ttl_ms in queues:
+                    dlq = await channel.declare_queue(
+                        f"{key}.dead",
+                        durable=True,
+                    )
+                    await dlq.bind(dlx, routing_key=key)
 
-            queue = await channel.declare_queue(
-                queue_name,
-                durable=True,
-                arguments=args,
-            )
-            await queue.bind(exchange, routing_key=routing_key)
-            await queue.consume(handler)
-            logger.info("consuming queue={} routing_key={} ttl_ms={}", queue_name, routing_key, ttl_ms)
+                    args: dict = {
+                        "x-dead-letter-exchange":    _DLX,
+                        "x-dead-letter-routing-key": key,
+                    }
+                    if ttl_ms is not None:
+                        args["x-message-ttl"] = ttl_ms
 
-        try:
-            await asyncio.Future()
-        finally:
-            await close_pool()
+                    queue = await channel.declare_queue(
+                        key,
+                        durable=True,
+                        arguments=args,
+                    )
+                    await queue.bind(exchange, routing_key=key)
+                    await queue.consume(handler)
+                    logger.info("consuming queue={} ttl_ms={}", key, ttl_ms)
+
+                await asyncio.Future()
+    finally:
+        await close_pool()

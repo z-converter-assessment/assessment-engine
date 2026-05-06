@@ -16,17 +16,17 @@ from db.repositories.base_query_repository import (
     TimeRange,
 )
 from db.repositories.outbound import (
-    CollectionStatusResponse,
+    CollectionStatus,
     DashboardRaw,
     DiskIoRaw,
     MetricPairRaw,
-    MetricSeriesResponse,
+    MetricSeries,
     MountUsageRaw,
     NetIoRaw,
-    NetworkWithIoResponse,
-    ServerListItemResponse,
-    ServerResponse,
-    StorageWithUsageResponse,
+    NetworkWithIo,
+    ServerSummary,
+    ServerDetail,
+    StorageWithUsage,
 )
 
 _TIME_RANGE: dict[str, timedelta] = {
@@ -76,12 +76,18 @@ class QueryRepository(BaseQueryRepository):
     # inventory
     # -------------------------------------------------------------------------
 
+    async def resolve_server_id(self, public_id: str) -> int | None:
+        result = await self.session.execute(
+            select(ServerInventory.id).where(ServerInventory.public_id == public_id)
+        )
+        return result.scalar_one_or_none()
+
     async def list_servers(
         self,
         page: int,
         limit: int,
         search: str | None,
-    ) -> list[ServerListItemResponse]:
+    ) -> list[ServerSummary]:
         last_metric_sq = (
             select(
                 ServerMetrics.server_id,
@@ -99,7 +105,7 @@ class QueryRepository(BaseQueryRepository):
         stmt = (
             select(ServerInventory, last_seen_expr.label("last_seen_at"))
             .outerjoin(last_metric_sq, last_metric_sq.c.server_id == ServerInventory.id)
-            .order_by(last_seen_expr.desc().nullslast())
+            .order_by(ServerInventory.hostname.asc())
         )
         if search:
             stmt = stmt.where(ServerInventory.hostname.ilike(f"%{search}%"))
@@ -107,8 +113,9 @@ class QueryRepository(BaseQueryRepository):
 
         result = await self.session.execute(stmt)
         return [
-            ServerListItemResponse(
+            ServerSummary(
                 id=row.ServerInventory.id,
+                public_id=row.ServerInventory.public_id,
                 machine_id=row.ServerInventory.machine_id,
                 hostname=row.ServerInventory.hostname,
                 os_id=row.ServerInventory.os_id,
@@ -117,19 +124,23 @@ class QueryRepository(BaseQueryRepository):
                 mem_total_kb=row.ServerInventory.mem_total_kb,
                 last_seen_at=row.last_seen_at,
                 ip_external=row.ServerInventory.ip_external,
+                disks=row.ServerInventory.disks or [],
+                services=row.ServerInventory.services,
+                listen_ports=row.ServerInventory.listen_ports or [],
             )
             for row in result.all()
         ]
 
-    async def get_server(self, server_id: int) -> ServerResponse | None:
+    async def get_server(self, server_id: int) -> ServerDetail | None:
         result = await self.session.execute(
             select(ServerInventory).where(ServerInventory.id == server_id)
         )
         r = result.scalars().one_or_none()
         if r is None:
             return None
-        return ServerResponse(
+        return ServerDetail(
             id=r.id,
+            public_id=r.public_id,
             machine_id=r.machine_id,
             hostname=r.hostname,
             agent_version=r.agent_version,
@@ -146,13 +157,16 @@ class QueryRepository(BaseQueryRepository):
             ip_external=r.ip_external,
             disks=r.disks or [],
             mounts=r.mounts or [],
+            services=r.services,
+            listen_ports=r.listen_ports or [],
             last_seen_at=r.last_seen_at,
         )
 
-    async def get_storage(self, server_id: int) -> StorageWithUsageResponse | None:
+    async def get_storage(self, server_id: int) -> StorageWithUsage | None:
         inv_result = await self.session.execute(
             select(
                 ServerInventory.id,
+                ServerInventory.public_id,
                 ServerInventory.hostname,
                 ServerInventory.disks,
                 ServerInventory.mounts,
@@ -184,8 +198,9 @@ class QueryRepository(BaseQueryRepository):
             for row in mu_result.all()
         ]
 
-        return StorageWithUsageResponse(
+        return StorageWithUsage(
             server_id=r.id,
+            public_id=r.public_id,
             hostname=r.hostname,
             disks=r.disks or [],
             inventory_mounts=r.mounts or [],
@@ -193,10 +208,11 @@ class QueryRepository(BaseQueryRepository):
             inventory_at=r.last_seen_at,
         )
 
-    async def get_network(self, server_id: int) -> NetworkWithIoResponse | None:
+    async def get_network(self, server_id: int) -> NetworkWithIo | None:
         inv_result = await self.session.execute(
             select(
                 ServerInventory.id,
+                ServerInventory.public_id,
                 ServerInventory.hostname,
                 ServerInventory.ip_internal,
                 ServerInventory.ip_external,
@@ -235,8 +251,9 @@ class QueryRepository(BaseQueryRepository):
             for row in n_result.all()
         ]
 
-        return NetworkWithIoResponse(
+        return NetworkWithIo(
             server_id=r.id,
+            public_id=r.public_id,
             hostname=r.hostname,
             ip_internal=r.ip_internal or [],
             ip_external=r.ip_external,
@@ -248,21 +265,22 @@ class QueryRepository(BaseQueryRepository):
     # collection status
     # -------------------------------------------------------------------------
 
-    async def get_collection_status(self, server_id: int) -> list[CollectionStatusResponse]:
+    async def get_collection_status(self, server_id: int) -> CollectionStatus | None:
         inv_result = await self.session.execute(
             select(ServerInventory.last_seen_at).where(ServerInventory.id == server_id)
         )
+        row = inv_result.scalar_one_or_none()
+        if row is None:
+            return None
         metric_result = await self.session.execute(
             select(func.max(ServerMetrics.collected_at)).where(
                 ServerMetrics.server_id == server_id
             )
         )
-        return [
-            CollectionStatusResponse(
-                last_metric_at=metric_result.scalar_one_or_none(),
-                last_inventory_at=inv_result.scalar_one_or_none(),
-            )
-        ]
+        return CollectionStatus(
+            last_metric_at=metric_result.scalar_one_or_none(),
+            last_inventory_at=row,
+        )
 
     # -------------------------------------------------------------------------
     # metrics dashboard (delta 계산용 2행 페어 반환)
@@ -386,7 +404,7 @@ class QueryRepository(BaseQueryRepository):
         server_id: int,
         cursor: datetime | None,
         limit: int,
-    ) -> list[MetricSeriesResponse]:
+    ) -> list[MetricSeries]:
         stmt = (
             select(ServerMetrics.collected_at)
             .where(ServerMetrics.server_id == server_id)
@@ -397,7 +415,7 @@ class QueryRepository(BaseQueryRepository):
             stmt = stmt.where(ServerMetrics.collected_at < cursor)
         result = await self.session.execute(stmt)
         return [
-            MetricSeriesResponse(collected_at=ts, value=None, dimension=None)
+            MetricSeries(collected_at=ts, value=None, dimension=None)
             for ts in result.scalars().all()
         ]
 
@@ -409,7 +427,7 @@ class QueryRepository(BaseQueryRepository):
         time_range: TimeRange,
         bucket: BucketSize,
         agg: AggFunc,
-    ) -> list[MetricSeriesResponse]:
+    ) -> list[MetricSeries]:
         start = datetime.now(timezone.utc) - _TIME_RANGE[time_range]
         bi = _BUCKET[bucket]
         ae = _AGG[agg]
@@ -440,7 +458,7 @@ class QueryRepository(BaseQueryRepository):
             return []
 
         return [
-            MetricSeriesResponse(collected_at=row.ts, value=row.value, dimension=row.dimension)
+            MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension)
             for row in rows
         ]
 

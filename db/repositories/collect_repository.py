@@ -38,6 +38,8 @@ class CollectRepository(BaseCollectRepository):
             ip_external=data.ip_external,
             disks=data.disks,
             mounts=data.mounts,
+            services=data.services,
+            listen_ports=data.listen_ports,
             last_seen_at=data.collected_at,
         ).on_conflict_do_update(
             index_elements=["machine_id"],
@@ -57,6 +59,8 @@ class CollectRepository(BaseCollectRepository):
                 "ip_external": data.ip_external,
                 "disks": data.disks,
                 "mounts": data.mounts,
+                "services": data.services,
+                "listen_ports": data.listen_ports,
                 "last_seen_at": data.collected_at,
             },
         ).returning(ServerInventory.id)
@@ -64,6 +68,7 @@ class CollectRepository(BaseCollectRepository):
         return result.scalar_one()
 
     async def insert_metric(self, server_id: int, data: ServerMetricCreate) -> None:
+        # 영속성 컨텍스트에 등록만 함. SQL은 아래 execute() 호출 시 autoflush로 먼저 발행됨
         self.session.add(ServerMetrics(
             server_id=server_id,
             collected_at=data.collected_at,
@@ -88,6 +93,7 @@ class CollectRepository(BaseCollectRepository):
         ))
 
         if data.disk_io:
+            # autoflush → ServerMetrics INSERT 먼저 발행, 이후 벌크 INSERT
             await self.session.execute(
                 insert(ServerDiskIo),
                 [{"server_id": server_id, "collected_at": data.collected_at, **d} for d in data.disk_io],

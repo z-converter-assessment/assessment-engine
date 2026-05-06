@@ -13,6 +13,7 @@ from db.repositories.base_query_repository import (
     MetricType,
     TimeRange,
 )
+
 from web.services.cache_serializer import (
     dashboard_from_json,
     dashboard_to_json,
@@ -48,6 +49,9 @@ class QueryService:
     def __init__(self, repo: BaseQueryRepository, redis: Redis):
         self.repo = repo
         self.redis = redis
+
+    async def resolve_server_id(self, public_id: str) -> int | None:
+        return await self.repo.resolve_server_id(public_id)
 
     async def _is_online(self, server_id: int) -> bool:
         return bool(await self.redis.exists(consumer_settings.redis_key_online.format(server_id)))
@@ -90,10 +94,12 @@ class QueryService:
         dto = await self.repo.get_network(server_id)
         return to_network_detail(dto) if dto else None
 
-    async def get_collection_status(self, server_id: int) -> list[CollectionStatusItem]:
-        dtos = await self.repo.get_collection_status(server_id)
+    async def get_collection_status(self, server_id: int) -> CollectionStatusItem | None:
+        dto = await self.repo.get_collection_status(server_id)
+        if dto is None:
+            return None
         online = await self._is_online(server_id)
-        return [to_collection_status_item(dto, online) for dto in dtos]
+        return to_collection_status_item(dto, online)
 
     async def get_latest_metric(self, server_id: int) -> MetricDashboard | None:
         cache_key = consumer_settings.redis_key_cache_metrics.format(server_id)

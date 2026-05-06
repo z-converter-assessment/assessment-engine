@@ -19,8 +19,10 @@ class ServerInventoryCreate:
     boot_time: datetime | None
     ip_internal: list[str]
     ip_external: list[str] | None
-    disks: list[dict]   # [{name, size_bytes, type}]
-    mounts: list[dict]  # [{mount, fstype, total_bytes}]
+    disks: list[dict]         # [{name, size_bytes, type}]
+    mounts: list[dict]        # [{mount, fstype, total_bytes}]
+    services: list[dict] | None   # [{unit, sub}] | null (non-systemd host)
+    listen_ports: list[dict]  # [{proto, addr, port, uid, pid, comm}]
 
 
 @dataclass

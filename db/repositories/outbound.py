@@ -3,8 +3,9 @@ from datetime import datetime
 
 
 @dataclass
-class ServerListItemResponse:
+class ServerSummary:
     id: int
+    public_id: str
     machine_id: str
     hostname: str
     os_id: str | None
@@ -13,11 +14,15 @@ class ServerListItemResponse:
     mem_total_kb: int | None
     last_seen_at: datetime | None
     ip_external: list[str] | None
+    disks: list[dict]
+    services: list[dict] | None
+    listen_ports: list[dict]
 
 
 @dataclass
-class ServerResponse:
+class ServerDetail:
     id: int
+    public_id: str
     machine_id: str
     hostname: str
     agent_version: str | None
@@ -34,11 +39,13 @@ class ServerResponse:
     ip_external: list[str] | None
     disks: list[dict]
     mounts: list[dict]
+    services: list[dict] | None
+    listen_ports: list[dict]
     last_seen_at: datetime | None
 
 
 @dataclass
-class CollectionStatusResponse:
+class CollectionStatus:
     last_metric_at: datetime | None
     last_inventory_at: datetime | None
 
@@ -110,8 +117,9 @@ class DashboardRaw:
 # ---------- Storage / Network 풍부화 DTOs ----------
 
 @dataclass
-class StorageWithUsageResponse:
+class StorageWithUsage:
     server_id: int
+    public_id: str
     hostname: str
     disks: list[dict]            # 인벤토리 JSONB: {name, size_bytes, type}
     inventory_mounts: list[dict] # 인벤토리 JSONB: {mount, fstype, total_bytes}
@@ -120,8 +128,9 @@ class StorageWithUsageResponse:
 
 
 @dataclass
-class NetworkWithIoResponse:
+class NetworkWithIo:
     server_id: int
+    public_id: str
     hostname: str
     ip_internal: list[str]
     ip_external: list[str] | None
@@ -132,7 +141,7 @@ class NetworkWithIoResponse:
 # ---------- Series ----------
 
 @dataclass
-class MetricSeriesResponse:
+class MetricSeries:
     collected_at: datetime
     value: float | None
     dimension: str | None
