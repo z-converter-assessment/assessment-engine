@@ -22,7 +22,7 @@
     tr:hover td { background: #f8fafc; }
     a { color: #2563eb; text-decoration: none; }
     a:hover { text-decoration: underline; }
-    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; background: #e2e8f0; color: #475569; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; background: #e2e8f0; color: #475569; }
     .badge-ok   { background: #dcfce7; color: #166534; }
     .badge-warn { background: #fef3c7; color: #92400e; }
     .badge-danger { background: #fee2e2; color: #991b1b; }
@@ -105,5 +105,6 @@
   <main>
     {% block content %}{% endblock %}
   </main>
+  <script src="/static/js/chart-utils.js"></script>
 </body>
 </html>

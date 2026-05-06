@@ -1,0 +1,110 @@
+// 차트 템플릿 공통 유틸. 모든 차트 페이지가 import.
+// CLAUDE.md §E1 P4 의무 규약(sequence counter, capture-before-await,
+// Array.isArray 방어, 404 분기, suggestedMax 명명 상수)의 도구 모음.
+
+(function (root) {
+  // ── 시간 범위 / 버킷 매핑 ──
+  const RANGE_LABEL  = { '15m':'15분', '1h':'1시간', '6h':'6시간', '24h':'1일', '7d':'7일', '30d':'30일' };
+  const AUTO_BUCKET  = { '15m':'1m', '1h':'5m', '6h':'15m', '24h':'30m', '7d':'3h', '30d':'12h' };
+  const BUCKET_LABEL = { '1m':'1분 집계', '5m':'5분 집계', '15m':'15분 집계', '30m':'30분 집계',
+                         '1h':'1시간 집계', '3h':'3시간 집계', '12h':'12시간 집계', '1d':'1일 집계' };
+  const RANGE_MS  = { '15m':9e5, '1h':36e5, '6h':216e5, '24h':864e5, '7d':6048e5, '30d':2592e6 };
+  const BUCKET_MS = { '1m':6e4, '5m':3e5, '15m':9e5, '30m':18e5, '1h':36e5, '3h':108e5, '12h':432e5, '1d':864e5 };
+
+  // ── 색상 팔레트 ──
+  const COLORS = ['#3b82f6','#f59e0b','#22c55e','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
+
+  // ── 시간 포매팅 (KST) ──
+  function fmtKst(isoStr) {
+    const d = new Date(isoStr);
+    const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+    return kst.toISOString().replace('T', ' ').slice(0, 19);
+  }
+
+  function fmtLabel(ts, range) {
+    const d = new Date(new Date(ts).getTime() + 9 * 60 * 60 * 1000);
+    const MM = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const DD = String(d.getUTCDate()).padStart(2, '0');
+    const HH = String(d.getUTCHours()).padStart(2, '0');
+    const mm = String(d.getUTCMinutes()).padStart(2, '0');
+    if (range === '30d') return `${MM}/${DD} ${HH}:00`;
+    if (range === '7d')  return `${MM}/${DD} ${HH}:${mm}`;
+    return `${HH}:${mm}`;
+  }
+
+  // ── 처리량 포매터 (B/s → kB/s → MB/s) ──
+  function fmtKbChart(v) {
+    if (v == null) return '';
+    if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + ' MB/s';
+    if (v >= 1024) return (v / 1024).toFixed(1) + ' kB/s';
+    return v.toFixed(0) + ' B/s';
+  }
+
+  // ── 앵커 datetime 입력 처리 ──
+  function getAnchorEnd(inputId) {
+    const val = document.getElementById(inputId).value;
+    if (!val) return null;
+    const d = new Date(val + ':00+09:00');
+    return d >= new Date() ? null : d;
+  }
+
+  function initAnchor(inputId) {
+    const input = document.getElementById(inputId);
+    const kstNow = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 16).replace(' ', 'T');
+    input.max = kstNow;
+    input.value = kstNow;
+  }
+
+  // ── 버킷 그리드 생성 ──
+  function makeBucketGrid(rangeKey, bucketKey, anchorEnd) {
+    const endMs = (anchorEnd || new Date()).getTime();
+    const bMs   = BUCKET_MS[bucketKey];
+    const start = endMs - RANGE_MS[rangeKey];
+    const first = Math.ceil(start / bMs) * bMs;
+    const grid  = [];
+    for (let t = first; t <= endMs; t += bMs) grid.push(t);
+    return grid;
+  }
+
+  function joinToGrid(grid, rows, bMs) {
+    const map = {};
+    for (const r of rows) {
+      const t = Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs;
+      map[t] = r.value;
+    }
+    return grid.map(t => map[t] ?? null);
+  }
+
+  // ── 토글 그룹 바인딩 ──
+  function bindToggle(groupId, onChange) {
+    document.getElementById(groupId).addEventListener('click', e => {
+      const btn = e.target.closest('.toggle');
+      if (!btn) return;
+      document.querySelectorAll(`#${groupId} .toggle`).forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      onChange(btn.dataset.val);
+    });
+  }
+
+  // ── SSE 초기화 ──
+  function initSse(serverId, onMessage) {
+    const es = new EventSource(`/api/v1/servers/${serverId}/metrics/stream`);
+    const dot = document.getElementById('sse-dot');
+    const lbl = document.getElementById('sse-label');
+    es.onopen    = () => { if (dot) dot.className = 'dot dot-ok'; if (lbl) lbl.textContent = '자동 갱신 중'; };
+    es.onmessage = () => onMessage();
+    es.onerror   = () => { if (dot) dot.className = 'dot dot-off'; if (lbl) lbl.textContent = '자동 갱신 중단 — 재연결 중...'; };
+    return es;
+  }
+
+  // ── 응답 안전 변환 ──
+  function safeArray(arr) { return Array.isArray(arr) ? arr : []; }
+
+  root.ChartUtils = {
+    RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, RANGE_MS, BUCKET_MS, COLORS,
+    fmtKst, fmtLabel, fmtKbChart,
+    getAnchorEnd, initAnchor,
+    makeBucketGrid, joinToGrid,
+    bindToggle, initSse, safeArray,
+  };
+})(window);

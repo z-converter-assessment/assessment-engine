@@ -32,7 +32,7 @@ MetricType = Literal[
     "net.tx_bytes_per_sec",
 ]
 TimeRange  = Literal["15m", "1h", "6h", "24h", "7d", "30d"]
-BucketSize = Literal["1m", "5m", "15m", "1h", "3h", "12h", "1d"]
+BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "12h", "1d"]
 AggFunc    = Literal["avg", "max", "p95"]
 
 
@@ -81,4 +81,5 @@ class BaseQueryRepository(ABC):
         time_range: TimeRange,
         bucket: BucketSize,
         agg: AggFunc,
+        end: datetime | None = None,
     ) -> list[MetricSeries]: ...

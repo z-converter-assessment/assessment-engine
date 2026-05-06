@@ -1,5 +1,8 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from db.models.base import Base
@@ -31,6 +34,9 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="ZConverter Assessment Portal", lifespan=lifespan)
+
+_STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 app.include_router(pages_router)
 app.include_router(api_router)

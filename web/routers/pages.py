@@ -1,18 +1,8 @@
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.templating import Jinja2Templates
 
 from web.deps import get_service
 from web.services.query_service import QueryService
-from web.template_filters import disksize, kbps, kst, or_dash, service_badge_class
-
-templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
-templates.env.filters["kst"]                = kst
-templates.env.filters["disksize"]           = disksize
-templates.env.filters["kbps"]              = kbps
-templates.env.filters["service_badge_class"] = service_badge_class
-templates.env.filters["or_dash"]            = or_dash
+from web.template_setup import templates
 
 pages_router = APIRouter(prefix="/servers", tags=["pages"])
 
@@ -141,4 +131,21 @@ async def get_services(
         request=request,
         name="servers/services.html",
         context={"server": result},
+    )
+
+
+@pages_router.get("/{server_id}/performance")
+async def get_performance(
+    server_id: str,
+    request: Request,
+    service: QueryService = Depends(get_service),
+):
+    internal_id = await _resolve(server_id, service)
+    server = await service.get_server(internal_id)
+    if not server:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request=request,
+        name="servers/performance.html",
+        context={"server": server},
     )

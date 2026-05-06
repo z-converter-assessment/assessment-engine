@@ -34,7 +34,7 @@ async def _db_retry(
                 logger.error("db error after 3 attempts: {}", e)
                 raise
             logger.warning("db error attempt={} error={}", attempt + 1, e)
-            await asyncio.sleep(2 ** attempt)
+            await asyncio.sleep(5 ** (attempt + 1))
     raise AssertionError("unreachable")
 
 
@@ -63,14 +63,16 @@ def make_inventory_handler(
 
             dto = to_inventory_create(data)
 
-            async def upsert(repo: BaseCollectRepository) -> int | None:
+            async def upsert(repo: BaseCollectRepository) -> int:
                 return await repo.upsert_server(dto)
 
             resolved_server_id = await _db_retry(session_factory, repo_factory, upsert)
 
-            if resolved_server_id is not None:
-                online_key = consumer_settings.redis_key_online.format(resolved_server_id)
-                await redis.set(online_key, 1, ex=consumer_settings.redis_ttl_online)
+            online_key    = consumer_settings.redis_key_online.format(resolved_server_id)
+            inventory_key = consumer_settings.redis_key_cache_inventory.format(resolved_server_id)
+            await redis.set(online_key, 1, ex=consumer_settings.redis_ttl_online)
+            # 인벤토리 변경(서비스/포트/디스크 등) 즉시 반영 — TTL 만료 대기 제거
+            await redis.delete(inventory_key)
 
             logger.info("inventory stored machine_id={}", data.machine_id)
 
@@ -108,17 +110,18 @@ def make_metrics_handler(
                 return server_id
 
             resolved_server_id = await _db_retry(session_factory, repo_factory, save)
+            if resolved_server_id is None:
+                return
 
-            if resolved_server_id is not None:
-                online_key = consumer_settings.redis_key_online.format(resolved_server_id)
-                cache_key = consumer_settings.redis_key_cache_metrics.format(resolved_server_id)
-                await redis.set(online_key, 1, ex=consumer_settings.redis_ttl_online)
-                await redis.delete(cache_key)
-                await redis.publish(
-                    consumer_settings.redis_channel_metrics,
-                    json.dumps({"server_id": resolved_server_id, "machine_id": data.machine_id}),
-                )
-                logger.info("metrics stored machine_id={}", data.machine_id)
+            online_key = consumer_settings.redis_key_online.format(resolved_server_id)
+            cache_key  = consumer_settings.redis_key_cache_metrics.format(resolved_server_id)
+            await redis.set(online_key, 1, ex=consumer_settings.redis_ttl_online)
+            await redis.delete(cache_key)
+            await redis.publish(
+                consumer_settings.redis_channel_metrics,
+                json.dumps({"server_id": resolved_server_id, "machine_id": data.machine_id}),
+            )
+            logger.info("metrics stored machine_id={}", data.machine_id)
 
     return _handle
 
@@ -139,11 +142,15 @@ def make_error_handler(
                 return
 
             logger.warning(
-                "agent error machine_id={} component={} code={} msg={}",
+                "agent error machine_id={} component={} code={} msg={} "
+                "retry_count={} first_failed_at={} recovered_at={}",
                 data.machine_id,
                 data.failed_component,
                 data.error_code,
                 data.error_message,
+                data.retry_count,
+                data.first_failed_at,
+                data.recovered_at,
             )
 
     return _handle

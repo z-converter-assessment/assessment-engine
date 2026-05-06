@@ -61,11 +61,11 @@
 
 ### VM 구성
 
-| VM | Box | OS | 시뮬레이션 |
+| VM | Box | OS | 설치 서비스 |
 |----|-----|----|----------|
-| `web-server-01` | bento/ubuntu-22.04 | Ubuntu 22.04 | 웹 서버 |
-| `db-server-01` | bento/rockylinux-9 | Rocky Linux 9 | DB 서버 (RHEL 계열) |
-| `backup-server-01` | bento/debian-12 | Debian 12 | 백업 서버 |
+| `cache-server-01` | bento/ubuntu-22.04 | Ubuntu 22.04 | redis-server |
+| `app-server-01` | bento/rockylinux-9 | Rocky Linux 9 | (없음) |
+| `web-server-01` | bento/debian-12 | Debian 12 | nginx |
 
 ### 실행
 
@@ -92,13 +92,6 @@ VM 프로비저닝 중 자동으로 수행되는 작업:
 
 ### 결과 확인
 
-`assessment-engine/` 루트에서 실행한다.
-
-```bash
-# 에이전트 로그
-vagrant ssh web-server-01 -c "journalctl -u assessment-agent -f"
-```
-
 http://localhost:8000/servers/ 에서 서버 3대 온라인 확인.
 60초 주기로 메트릭이 갱신되며 각 서버의 상세 페이지에서 CPU·메모리·디스크·네트워크 확인.
 
@@ -109,14 +102,4 @@ http://localhost:8000/servers/ 에서 서버 3대 온라인 확인.
 ```bash
 # 전체 환경 종료 (Vagrant VM 제거 → Docker 볼륨 삭제)
 ./dev-down.sh
-```
-
-### VM 관리
-
-`assessment-engine/` 루트에서 실행한다.
-
-```bash
-vagrant halt                    # 전체 정지 (machine-id 유지)
-vagrant reload web-server-01    # 특정 VM 재기동
-vagrant destroy -f              # 전체 삭제 (재기동 시 새 machine-id → 새 서버로 DB 등록)
 ```

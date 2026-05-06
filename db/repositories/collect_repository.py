@@ -1,4 +1,4 @@
-from sqlalchemy import insert, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,8 +68,9 @@ class CollectRepository(BaseCollectRepository):
         return result.scalar_one()
 
     async def insert_metric(self, server_id: int, data: ServerMetricCreate) -> None:
-        # 영속성 컨텍스트에 등록만 함. SQL은 아래 execute() 호출 시 autoflush로 먼저 발행됨
-        self.session.add(ServerMetrics(
+        # ON CONFLICT DO NOTHING — Redis 멱등성 키(24h TTL) 만료/evict 후 중복 메시지가 들어와도
+        # 자연키 UNIQUE 위반을 silent no-op으로 처리. 4개 테이블 모두 동일 정책.
+        metric_stmt = pg_insert(ServerMetrics).values(
             server_id=server_id,
             collected_at=data.collected_at,
             cpu_user=data.cpu_user,
@@ -90,23 +91,23 @@ class CollectRepository(BaseCollectRepository):
             load_1m=data.load_1m,
             load_5m=data.load_5m,
             load_15m=data.load_15m,
-        ))
+        ).on_conflict_do_nothing(index_elements=["server_id", "collected_at"])
+        await self.session.execute(metric_stmt)
 
         if data.disk_io:
-            # autoflush → ServerMetrics INSERT 먼저 발행, 이후 벌크 INSERT
-            await self.session.execute(
-                insert(ServerDiskIo),
-                [{"server_id": server_id, "collected_at": data.collected_at, **d} for d in data.disk_io],
-            )
+            stmt = pg_insert(ServerDiskIo).values(
+                [{"server_id": server_id, "collected_at": data.collected_at, **d} for d in data.disk_io]
+            ).on_conflict_do_nothing(index_elements=["server_id", "device", "collected_at"])
+            await self.session.execute(stmt)
 
         if data.net_io:
-            await self.session.execute(
-                insert(ServerNetIo),
-                [{"server_id": server_id, "collected_at": data.collected_at, **d} for d in data.net_io],
-            )
+            stmt = pg_insert(ServerNetIo).values(
+                [{"server_id": server_id, "collected_at": data.collected_at, **n} for n in data.net_io]
+            ).on_conflict_do_nothing(index_elements=["server_id", "interface", "collected_at"])
+            await self.session.execute(stmt)
 
         if data.mounts:
-            await self.session.execute(
-                insert(ServerMountUsage),
-                [{"server_id": server_id, "collected_at": data.collected_at, **d} for d in data.mounts],
-            )
+            stmt = pg_insert(ServerMountUsage).values(
+                [{"server_id": server_id, "collected_at": data.collected_at, **m} for m in data.mounts]
+            ).on_conflict_do_nothing(index_elements=["server_id", "mount", "collected_at"])
+            await self.session.execute(stmt)

@@ -20,8 +20,8 @@ async def main() -> None:
     try:
         queues = [
             (consumer_settings.rabbitmq_routing_key_inventory, make_inventory_handler(AsyncSessionLocal, CollectRepository, redis), None),
-            (consumer_settings.rabbitmq_routing_key_metrics,   make_metrics_handler(AsyncSessionLocal, CollectRepository, redis),   60_000),
-            (consumer_settings.rabbitmq_routing_key_error,     make_error_handler(redis),                                          60_000),
+            (consumer_settings.rabbitmq_routing_key_metrics,   make_metrics_handler(AsyncSessionLocal, CollectRepository, redis),   300_000),
+            (consumer_settings.rabbitmq_routing_key_error,     make_error_handler(redis),                                          300_000),
         ]
 
         conn = await aio_pika.connect_robust(consumer_settings.broker_url)

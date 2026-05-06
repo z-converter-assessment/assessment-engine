@@ -26,6 +26,7 @@ class ListenPortItem:
     uid: int
     pid: int | None
     comm: str | None
+    is_well_known: bool = False  # port <= 1024. mapper에서 계산 (P2)
 
 
 # ---------- 서버 목록 ----------
@@ -40,11 +41,9 @@ class ServerListItem:
     cpu_cores: int | None
     mem_total_gb: float | None
     storage_total_gb: float | None
-    last_seen_at: datetime | None
     is_online: bool
     ip_external: list[str] | None
     services: list[ServiceItem] | None
-    listen_ports: list[ListenPortItem]
     known_services: list[ServiceItem] = field(default_factory=list)
     show_unknown_badge: bool = False
     os_display: str = ""
@@ -75,6 +74,9 @@ class ServerDetailResponse:
     services: list[ServiceItem] | None
     listen_ports: list[ListenPortItem]
     last_seen_at: datetime | None
+    # 이하 mapper(enrich_server_detail)에서 채우는 파생 필드 — default 필수 (dataclass 순서 제약)
+    sorted_services: list[ServiceItem] = field(default_factory=list)       # P3: unit ASC 정렬
+    sorted_listen_ports: list[ListenPortItem] = field(default_factory=list) # P3: port ASC 정렬
     known_services: list[ServiceItem] = field(default_factory=list)
     show_unknown_badge: bool = False
     key_listen_ports: list[ListenPortItem] = field(default_factory=list)
@@ -126,6 +128,9 @@ class MemSnapshot:
     cached_kb: int | None
     buffers_kb: int | None
     usage_pct: float | None
+    # stacked bar 표시용 비율 (P5: 클라이언트가 다시 계산하지 않음). metrics_calculator에서 산출.
+    cached_pct: float | None = None
+    buffers_pct: float | None = None
 
 
 @dataclass
@@ -171,7 +176,9 @@ class MetricDashboard:
     load_15m: float | None
     memory: MemSnapshot | None
     swap: SwapSnapshot | None
-    disk_io: list[DiskIoSnapshot]
+    disk_io_phys: list[DiskIoSnapshot]
+    disk_io_lvm: list[DiskIoSnapshot]
+    disk_io_part: list[DiskIoSnapshot]
     net_io: list[NetIoSnapshot]
     mounts: list[MountDashSnapshot]
 

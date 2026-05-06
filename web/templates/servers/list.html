@@ -2,10 +2,7 @@
 {% block title %}ZConverter Assessment — 서버 목록{% endblock %}
 
 {% block content %}
-<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-  <h1 style="margin:0;">서버 목록</h1>
-  <button class="btn no-print" onclick="window.print()">인쇄</button>
-</div>
+<h1>서버 목록</h1>
 
 <form method="get" class="search-row no-print">
   <input type="text" name="search" value="{{ request.query_params.get('search', '') }}" placeholder="hostname 검색">
@@ -32,7 +29,6 @@
       <th>Memory</th>
       <th>Storage</th>
       <th>OS</th>
-      <th>마지막 수집</th>
       <th class="action-col"></th>
     </tr>
   </thead>
@@ -54,7 +50,7 @@
           <span style="color:#cbd5e1; font-size:12px;">—</span>
         {% elif s.services %}
           {% for svc in s.known_services %}
-            <span class="badge {{ svc.category | service_badge_class }}" style="margin-right:3px;">{{ svc.category }}<span style="font-weight:400; opacity:0.75; margin-left:5px;">{{ svc.display_name }}</span></span>
+            <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}</span>
           {% endfor %}
           {% if s.show_unknown_badge %}
             <span class="badge badge-cat-unknown">unknown</span>
@@ -74,7 +70,6 @@
       <td>{{ s.mem_total_gb | disksize }}</td>
       <td>{{ s.storage_total_gb | disksize }}</td>
       <td style="color:#64748b;">{{ s.os_display }}</td>
-      <td style="color:#64748b; font-size:13px;">{{ s.last_seen_at | kst }}</td>
       <td class="action-col">
         <a href="/servers/{{ s.public_id }}" class="btn" style="font-size:12px; padding:4px 10px;">상세 →</a>
       </td>

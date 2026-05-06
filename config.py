@@ -22,6 +22,7 @@ class WebSettings(BaseSettings):
     # Key prefixes
     redis_key_cache_inventory: str = "cache:inventory:{}"
     redis_key_cache_metrics: str = "cache:metrics:{}"
+    redis_key_cache_resolve: str = "cache:resolve:{}"
     redis_key_idempotent: str = "idempotent:{}"
     redis_key_online: str = "online:{}"
     redis_key_token: str = "token:{}"

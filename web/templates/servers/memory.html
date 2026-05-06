@@ -3,10 +3,7 @@
 
 {% block content %}
 <a class="back no-print" href="/servers/{{ server.public_id }}">← {{ server.hostname }}</a>
-<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-  <h1 style="margin:0;">{{ server.hostname }} — 메모리 상세</h1>
-  <button class="btn no-print" onclick="window.print()">인쇄</button>
-</div>
+<h1>{{ server.hostname }} — 메모리 상세</h1>
 
 <!-- 현재 상태 -->
 <div class="card">
@@ -44,15 +41,18 @@
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
     <div style="display:flex; align-items:center; gap:12px;">
       <h2 style="margin:0;">메모리 사용률 추이<span class="print-only" id="mem-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-      <span id="mem-bucket-label" style="font-size:11px; color:#94a3b8;"></span>
+      <span id="mem-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
     </div>
     <div class="toggle-group no-print" id="mem-range-btns">
       <button class="toggle active" data-val="15m">15분</button>
       <button class="toggle" data-val="1h">1시간</button>
       <button class="toggle" data-val="6h">6시간</button>
-      <button class="toggle" data-val="24h">24시간</button>
+      <button class="toggle" data-val="24h">1일</button>
       <button class="toggle" data-val="7d">7일</button>
+      <button class="toggle" data-val="30d">30일</button>
     </div>
+    <input type="datetime-local" id="mem-anchor"
+      style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
   </div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="mem-canvas"></canvas>
@@ -70,15 +70,18 @@
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
     <div style="display:flex; align-items:center; gap:12px;">
       <h2 style="margin:0;">메모리 구성 추이<span class="print-only" id="comp-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-      <span id="comp-bucket-label" style="font-size:11px; color:#94a3b8;"></span>
+      <span id="comp-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
     </div>
     <div class="toggle-group no-print" id="comp-range-btns">
       <button class="toggle active" data-val="15m">15분</button>
       <button class="toggle" data-val="1h">1시간</button>
       <button class="toggle" data-val="6h">6시간</button>
-      <button class="toggle" data-val="24h">24시간</button>
+      <button class="toggle" data-val="24h">1일</button>
       <button class="toggle" data-val="7d">7일</button>
+      <button class="toggle" data-val="30d">30일</button>
     </div>
+    <input type="datetime-local" id="comp-anchor"
+      style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
   </div>
   <p style="font-size:12px; color:#94a3b8; margin:-8px 0 14px;">전체 메모리 대비 비율 — Used / Cached / Buffers</p>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
@@ -95,15 +98,18 @@
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
     <div style="display:flex; align-items:center; gap:12px;">
       <h2 style="margin:0;">스왑 사용률 추이<span class="print-only" id="swap-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-      <span id="swap-bucket-label" style="font-size:11px; color:#94a3b8;"></span>
+      <span id="swap-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
     </div>
     <div class="toggle-group no-print" id="swap-range-btns">
       <button class="toggle active" data-val="15m">15분</button>
       <button class="toggle" data-val="1h">1시간</button>
       <button class="toggle" data-val="6h">6시간</button>
-      <button class="toggle" data-val="24h">24시간</button>
+      <button class="toggle" data-val="24h">1일</button>
       <button class="toggle" data-val="7d">7일</button>
+      <button class="toggle" data-val="30d">30일</button>
     </div>
+    <input type="datetime-local" id="swap-anchor"
+      style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
   </div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="swap-canvas"></canvas>
@@ -129,46 +135,12 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
+// ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
+const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
+        fmtKst, fmtLabel, getAnchorEnd, initAnchor,
+        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray } = ChartUtils;
+
 const SERVER_ID = "{{ server.public_id }}";
-const RANGE_LABEL = { '15m':'15분', '1h':'1시간', '6h':'6시간', '24h':'24시간', '7d':'7일' };
-const AUTO_BUCKET  = { '15m':'1m', '1h':'1m', '6h':'5m', '24h':'15m', '7d':'3h' };
-const BUCKET_LABEL = { '1m':'1분 집계', '5m':'5분 집계', '15m':'15분 집계', '3h':'3시간 집계' };
-
-function fmtKst(isoStr) {
-  const d = new Date(isoStr);
-  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-  return kst.toISOString().replace('T', ' ').slice(0, 19);
-}
-
-const RANGE_MS  = { '15m':9e5, '1h':36e5, '6h':216e5, '24h':864e5, '7d':6048e5, '30d':25920e5 };
-const BUCKET_MS = { '1m':6e4, '5m':3e5, '15m':9e5, '1h':36e5, '3h':108e5, '12h':432e5, '1d':864e5 };
-
-function makeBucketGrid(rangeKey, bucketKey) {
-  const now   = Date.now();
-  const bMs   = BUCKET_MS[bucketKey];
-  const start = now - RANGE_MS[rangeKey];
-  const first = Math.ceil(start / bMs) * bMs;
-  const grid  = [];
-  for (let t = first; t <= now; t += bMs) grid.push(t);
-  return grid;
-}
-
-function joinToGrid(grid, rows, bMs) {
-  const map = {};
-  for (const r of rows) {
-    const t = Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs;
-    map[t] = r.value;
-  }
-  return grid.map(t => map[t] ?? null);
-}
-
-function fmtLabel(ts, range) {
-  const d = new Date(ts);
-  const opts = range === '7d'
-    ? { timeZone:'Asia/Seoul', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12: false }
-    : { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit', hour12: false };
-  return d.toLocaleString('ko-KR', opts);
-}
 
 function fmtKb(kb) {
   if (kb == null) return '—';
@@ -177,21 +149,14 @@ function fmtKb(kb) {
   return kb + ' KB';
 }
 
-function bindToggle(groupId, onChange) {
-  document.getElementById(groupId).addEventListener('click', e => {
-    const btn = e.target.closest('.toggle');
-    if (!btn) return;
-    document.querySelectorAll(`#${groupId} .toggle`).forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    onChange(btn.dataset.val);
-  });
-}
-
 /* ── 스냅샷 ── */
 async function loadSnapshot() {
   try {
-    const data = await fetch(`/api/v1/servers/${SERVER_ID}/metrics/latest`).then(r => r.json());
+    const res = await fetch(`/api/v1/servers/${SERVER_ID}/metrics/latest`);
     document.getElementById('snap-loading').style.display = 'none';
+    if (res.status === 404) { document.getElementById('snap-empty').style.display = ''; return; }
+    if (!res.ok) return;
+    const data = await res.json();
     const mem  = data.memory;
     const swap = data.swap;
     if (!mem) { document.getElementById('snap-empty').style.display = ''; return; }
@@ -264,32 +229,38 @@ function makeSingleChart(canvas, opts) {
 /* ── 메모리 사용률 추이 ── */
 let memRange = '15m';
 let memChart = null;
+let memSeq   = 0;
 
 function updateMemBucketLabel() {
   document.getElementById('mem-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[memRange]] || '';
 }
 
 async function loadMemChart() {
+  const seq = ++memSeq;
+  const capturedRange  = memRange;
+  const capturedAnchor = getAnchorEnd('mem-anchor');
   const canvas = document.getElementById('mem-canvas');
   const empty  = document.getElementById('mem-empty');
-  const mkP = agg => new URLSearchParams({
-    metric_type: 'mem.usage_percent', time_range: memRange,
-    bucket: AUTO_BUCKET[memRange], agg,
-  });
+  const mkP = agg => {
+    const p = new URLSearchParams({ metric_type: 'mem.usage_percent', time_range: capturedRange, bucket: AUTO_BUCKET[capturedRange], agg });
+    if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
+    return p;
+  };
   try {
     const [avgRows, maxRows] = await Promise.all([
       fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('avg')}`).then(r => r.json()),
       fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('max')}`).then(r => r.json()),
     ]);
-    if (!avgRows.length) {
+    if (seq !== memSeq) return;
+    if (!Array.isArray(avgRows) || !avgRows.length) {
       canvas.style.display = 'none'; empty.style.display = '';
       if (memChart) { memChart.destroy(); memChart = null; }
       return;
     }
     canvas.style.display = ''; empty.style.display = 'none';
-    const bMs  = BUCKET_MS[AUTO_BUCKET[memRange]];
-    const grid = makeBucketGrid(memRange, AUTO_BUCKET[memRange]);
-    const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), memRange));
+    const bMs  = BUCKET_MS[AUTO_BUCKET[capturedRange]];
+    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
+    const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
 
     const avgMap = {}, maxMap = {};
     for (const r of avgRows) avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
@@ -379,21 +350,21 @@ async function loadMemChart() {
 bindToggle('mem-range-btns', v => { memRange = v; updateMemBucketLabel(); document.getElementById('mem-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadMemChart(); });
 
 /* ── 메모리 구성 추이 (used / cached / buffers %) ── */
-let compRange   = '15m';
-let compChart   = null;
-let compAllRows = [];
+let compRange = '15m';
+let compChart = null;
+let compSeq   = 0;
 
 function updateCompBucketLabel() {
   document.getElementById('comp-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[compRange]] || '';
 }
 
-function renderCompChart() {
+function renderCompChart(rows, range, anchorEnd) {
   const canvas = document.getElementById('comp-canvas');
   const empty  = document.getElementById('comp-empty');
-  const rows   = compAllRows;
   if (!rows.length) {
     canvas.style.display = 'none'; empty.style.display = '';
     if (compChart) { compChart.destroy(); compChart = null; }
+    buildCompLegend();
     return;
   }
   canvas.style.display = ''; empty.style.display = 'none';
@@ -404,13 +375,13 @@ function renderCompChart() {
     cached:    { label: 'Cached',    color: '#22c55e' },
     buffers:   { label: 'Buffers',   color: '#f59e0b' },
   };
-  const bMs    = BUCKET_MS[AUTO_BUCKET[compRange]];
-  const grid   = makeBucketGrid(compRange, AUTO_BUCKET[compRange]);
-  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), compRange));
+  const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
+  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
   const byDim  = {};
   for (const r of rows) { (byDim[r.dimension] = byDim[r.dimension] || []).push(r); }
   const datasets = Object.entries(byDim).map(([dim, pts]) => {
-    const map  = {};
+    const map = {};
     for (const p of pts) { map[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value; }
     const meta = COMP_META[dim] || { label: dim, color: '#8b5cf6' };
     return {
@@ -429,7 +400,9 @@ function renderCompChart() {
 
   if (compChart) {
     compChart.data.labels = labels; compChart.data.datasets = datasets;
-    compChart.update('none'); return;
+    compChart.update('none');
+    buildCompLegend();
+    return;
   }
   compChart = new Chart(canvas, {
     type: 'line',
@@ -453,6 +426,7 @@ function renderCompChart() {
       },
     },
   });
+  buildCompLegend();
 }
 
 function buildCompLegend() {
@@ -474,8 +448,15 @@ function buildCompLegend() {
 }
 
 async function loadCompChart() {
-  const bucket = AUTO_BUCKET[compRange];
-  const mkP = type => new URLSearchParams({ metric_type: type, time_range: compRange, bucket, agg: 'avg' });
+  const seq = ++compSeq;
+  const capturedRange  = compRange;
+  const capturedAnchor = getAnchorEnd('comp-anchor');
+  const bucket = AUTO_BUCKET[capturedRange];
+  const mkP = type => {
+    const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg: 'avg' });
+    if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
+    return p;
+  };
   try {
     const [usedRows, availRows, cachedRows, buffersRows] = await Promise.all([
       fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('mem.usage_percent')}`).then(r => r.json()),
@@ -483,14 +464,15 @@ async function loadCompChart() {
       fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('mem.cached_percent')}`).then(r => r.json()),
       fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('mem.buffers_percent')}`).then(r => r.json()),
     ]);
-    compAllRows = [
-      ...usedRows.map(r    => ({ ...r, dimension: 'used' })),
-      ...availRows.map(r   => ({ ...r, dimension: 'available' })),
-      ...cachedRows.map(r  => ({ ...r, dimension: 'cached' })),
-      ...buffersRows.map(r => ({ ...r, dimension: 'buffers' })),
+    if (seq !== compSeq) return;
+    const toRows = (arr, dim) => Array.isArray(arr) ? arr.map(r => ({ ...r, dimension: dim })) : [];
+    const rows = [
+      ...toRows(usedRows,    'used'),
+      ...toRows(availRows,   'available'),
+      ...toRows(cachedRows,  'cached'),
+      ...toRows(buffersRows, 'buffers'),
     ];
-    renderCompChart();
-    buildCompLegend();
+    renderCompChart(rows, capturedRange, capturedAnchor);
   } catch(e) { console.error(e); }
 }
 
@@ -499,32 +481,38 @@ bindToggle('comp-range-btns', v => { compRange = v; updateCompBucketLabel(); doc
 /* ── 스왑 사용률 추이 ── */
 let swapRange = '15m';
 let swapChart = null;
+let swapSeq   = 0;
 
 function updateSwapBucketLabel() {
   document.getElementById('swap-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[swapRange]] || '';
 }
 
 async function loadSwapChart() {
+  const seq = ++swapSeq;
+  const capturedRange  = swapRange;
+  const capturedAnchor = getAnchorEnd('swap-anchor');
   const canvas = document.getElementById('swap-canvas');
   const empty  = document.getElementById('swap-empty');
-  const mkP = agg => new URLSearchParams({
-    metric_type: 'swap.usage_percent', time_range: swapRange,
-    bucket: AUTO_BUCKET[swapRange], agg,
-  });
+  const mkP = agg => {
+    const p = new URLSearchParams({ metric_type: 'swap.usage_percent', time_range: capturedRange, bucket: AUTO_BUCKET[capturedRange], agg });
+    if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
+    return p;
+  };
   try {
     const [avgRows, maxRows] = await Promise.all([
       fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('avg')}`).then(r => r.json()),
       fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('max')}`).then(r => r.json()),
     ]);
-    if (!avgRows.length) {
+    if (seq !== swapSeq) return;
+    if (!Array.isArray(avgRows) || !avgRows.length) {
       canvas.style.display = 'none'; empty.style.display = '';
       if (swapChart) { swapChart.destroy(); swapChart = null; }
       return;
     }
     canvas.style.display = ''; empty.style.display = 'none';
-    const bMs  = BUCKET_MS[AUTO_BUCKET[swapRange]];
-    const grid = makeBucketGrid(swapRange, AUTO_BUCKET[swapRange]);
-    const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), swapRange));
+    const bMs  = BUCKET_MS[AUTO_BUCKET[capturedRange]];
+    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
+    const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
 
     const avgMap = {}, maxMap = {};
     for (const r of avgRows) avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
@@ -614,16 +602,15 @@ async function loadSwapChart() {
 bindToggle('swap-range-btns', v => { swapRange = v; updateSwapBucketLabel(); document.getElementById('swap-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadSwapChart(); });
 
 /* ── SSE ── */
-const es = new EventSource(`/api/v1/servers/${SERVER_ID}/metrics/stream`);
-es.onopen = () => {
-  document.getElementById('sse-dot').className = 'dot dot-ok';
-  document.getElementById('sse-label').textContent = '자동 갱신 중';
-};
-es.onmessage = () => loadSnapshot();
-es.onerror = () => {
-  document.getElementById('sse-dot').className = 'dot dot-off';
-  document.getElementById('sse-label').textContent = '자동 갱신 중단 — 재연결 중...';
-};
+initSse(SERVER_ID, loadSnapshot);
+
+/* ── 기준일 초기화 ── */
+initAnchor('mem-anchor');
+initAnchor('comp-anchor');
+initAnchor('swap-anchor');
+document.getElementById('mem-anchor').addEventListener('change', () => loadMemChart());
+document.getElementById('comp-anchor').addEventListener('change', () => loadCompChart());
+document.getElementById('swap-anchor').addEventListener('change', () => loadSwapChart());
 
 /* ── 초기 로드 ── */
 loadSnapshot();

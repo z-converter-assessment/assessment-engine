@@ -3,10 +3,7 @@
 
 {% block content %}
 <a class="back no-print" href="/servers/{{ server.public_id }}">← {{ server.hostname }}</a>
-<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-  <h1 style="margin:0;">{{ server.hostname }} — 서비스 / 포트</h1>
-  <button class="btn no-print" onclick="window.print()">인쇄</button>
-</div>
+<h1>{{ server.hostname }} — 서비스 / 포트</h1>
 
 <!-- 서비스 목록 -->
 <div class="card">
@@ -33,7 +30,7 @@
         </tr>
       </thead>
       <tbody>
-        {% for svc in server.services | sort(attribute='unit') %}
+        {% for svc in server.sorted_services %}
         <tr>
           <td><code>{{ svc.unit }}</code></td>
           <td><span style="color:#16a34a; font-size:12px;">{{ svc.sub }}</span></td>
@@ -46,19 +43,9 @@
     </table>
   {% endif %}
 
-  <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; padding:12px 14px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0;">
-    {% for cat, examples in [
-      ('web',       'nginx, apache, haproxy'),
-      ('db',        'postgresql, mysql, mongodb'),
-      ('cache',     'redis, memcached'),
-      ('mq',        'rabbitmq, kafka'),
-      ('container', 'docker, containerd'),
-      ('monitor',   'prometheus, grafana'),
-    ] %}
-    <span style="display:inline-flex; align-items:center; gap:6px;">
-      <span class="badge {{ cat | service_badge_class }}">{{ cat }}</span>
-      <span style="font-size:11px; color:#94a3b8;">{{ examples }}</span>
-    </span>
+  <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:8px; margin-top:16px; padding:12px 14px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0;">
+    {% for cat in ['web', 'db', 'cache', 'mq', 'container', 'monitor'] %}
+    <span class="badge {{ cat | service_badge_class }}">{{ cat }}</span>
     {% endfor %}
   </div>
 </div>
@@ -87,12 +74,12 @@
         </tr>
       </thead>
       <tbody>
-        {% for p in server.listen_ports | sort(attribute='port') %}
+        {% for p in server.sorted_listen_ports %}
         <tr>
           <td><code>{{ p.proto }}</code></td>
           <td><code style="color:#94a3b8;">{{ p.addr }}</code></td>
           <td>
-            {% if p.port <= 1024 %}
+            {% if p.is_well_known %}
               <strong style="color:#0f172a;">{{ p.port }}</strong>
             {% else %}
               {{ p.port }}

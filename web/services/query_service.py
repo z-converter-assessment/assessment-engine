@@ -1,11 +1,13 @@
 import json
 from datetime import datetime
-from typing import AsyncIterator, get_args
+from typing import AsyncIterator
+
+from web.services.device_filters import is_lvm_disk, is_partition, is_physical_disk, is_virtual_mount
 
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
-from config import consumer_settings
+from config import web_settings
 from db.repositories.base_query_repository import (
     AggFunc,
     BaseQueryRepository,
@@ -39,10 +41,16 @@ from web.view_models import (
     StorageDetailResponse,
 )
 
-_VALID_METRIC_TYPES = frozenset(get_args(MetricType))
-_VALID_TIME_RANGES  = frozenset(get_args(TimeRange))
-_VALID_BUCKETS      = frozenset(get_args(BucketSize))
-_VALID_AGGS         = frozenset(get_args(AggFunc))
+_DISK_METRIC_TYPES = frozenset({"disk.read_iops", "disk.write_iops"})
+
+
+def _filter_disk_category(dtos: list, category: str) -> list:
+    if category == "phys":
+        return [d for d in dtos if is_physical_disk(d.dimension)]
+    if category == "logical":
+        lvm = [d for d in dtos if is_lvm_disk(d.dimension)]
+        return lvm if lvm else [d for d in dtos if is_partition(d.dimension)]
+    return dtos
 
 
 class QueryService:
@@ -51,10 +59,17 @@ class QueryService:
         self.redis = redis
 
     async def resolve_server_id(self, public_id: str) -> int | None:
-        return await self.repo.resolve_server_id(public_id)
+        cache_key = web_settings.redis_key_cache_resolve.format(public_id)
+        cached = await self.redis.get(cache_key)
+        if cached:
+            return int(cached)
+        server_id = await self.repo.resolve_server_id(public_id)
+        if server_id is not None:
+            await self.redis.set(cache_key, str(server_id))
+        return server_id
 
     async def _is_online(self, server_id: int) -> bool:
-        return bool(await self.redis.exists(consumer_settings.redis_key_online.format(server_id)))
+        return bool(await self.redis.exists(web_settings.redis_key_online.format(server_id)))
 
     async def list_servers(
         self,
@@ -64,17 +79,21 @@ class QueryService:
         is_online: bool | None,
     ) -> list[ServerListItem]:
         dtos = await self.repo.list_servers(page, limit, search)
+        if not dtos:
+            return []
+        keys = [web_settings.redis_key_online.format(dto.id) for dto in dtos]
+        online_flags = await self.redis.mget(keys)
         items: list[ServerListItem] = []
-        for dto in dtos:
+        for dto, flag in zip(dtos, online_flags):
             item = to_server_list_item(dto)
-            item.is_online = await self._is_online(dto.id)
+            item.is_online = flag is not None
             items.append(item)
         if is_online is not None:
             items = [i for i in items if i.is_online == is_online]
         return items
 
     async def get_server(self, server_id: int) -> ServerDetailResponse | None:
-        cache_key = consumer_settings.redis_key_cache_inventory.format(server_id)
+        cache_key = web_settings.redis_key_cache_inventory.format(server_id)
         cached = await self.redis.get(cache_key)
         if cached:
             return server_detail_from_json(cached)
@@ -102,7 +121,7 @@ class QueryService:
         return to_collection_status_item(dto, online)
 
     async def get_latest_metric(self, server_id: int) -> MetricDashboard | None:
-        cache_key = consumer_settings.redis_key_cache_metrics.format(server_id)
+        cache_key = web_settings.redis_key_cache_metrics.format(server_id)
         cached = await self.redis.get(cache_key)
         if cached:
             return dashboard_from_json(cached)
@@ -131,19 +150,20 @@ class QueryService:
         time_range: TimeRange,
         bucket: BucketSize,
         agg: AggFunc,
+        end: datetime | None = None,
+        device_category: str | None = None,
     ) -> list[MetricSeriesItem]:
-        if (metric_type not in _VALID_METRIC_TYPES
-                or time_range not in _VALID_TIME_RANGES
-                or bucket not in _VALID_BUCKETS
-                or agg not in _VALID_AGGS):
-            return []
-
-        dtos = await self.repo.metric_chart(server_id, metric_type, dimension, time_range, bucket, agg)
+        # 검증은 라우터의 Query(MetricType) Literal Pydantic 단계에서 이미 처리됨.
+        dtos = await self.repo.metric_chart(server_id, metric_type, dimension, time_range, bucket, agg, end)
+        if metric_type == "fs.usage_percent":
+            dtos = [d for d in dtos if not is_virtual_mount(None, d.dimension)]
+        if device_category is not None and metric_type in _DISK_METRIC_TYPES:
+            dtos = _filter_disk_category(dtos, device_category)
         return [to_metric_series_item(dto) for dto in dtos]
 
     async def stream_metrics_events(self, server_id: int) -> AsyncIterator[str]:
         async with self.redis.pubsub() as pubsub:
-            await pubsub.subscribe(consumer_settings.redis_channel_metrics)
+            await pubsub.subscribe(web_settings.redis_channel_metrics)
             try:
                 async for message in pubsub.listen():
                     if message["type"] != "message":

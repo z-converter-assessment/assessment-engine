@@ -3,10 +3,7 @@
 
 {% block content %}
 <a class="back no-print" href="/servers/{{ network.public_id }}">← {{ network.hostname }}</a>
-<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-  <h1 style="margin:0;">{{ network.hostname }} — 네트워크</h1>
-  <button class="btn no-print" onclick="window.print()">인쇄</button>
-</div>
+<h1>{{ network.hostname }} — 네트워크</h1>
 
 <!-- IP 주소 -->
 <div class="card">
@@ -71,15 +68,18 @@
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
     <div style="display:flex; align-items:center; gap:12px;">
       <h2 style="margin:0;">네트워크 I/O 추이<span class="print-only" id="net-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-      <span id="net-bucket-label" style="font-size:11px; color:#94a3b8;"></span>
+      <span id="net-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
     </div>
     <div class="toggle-group no-print" id="net-range-btns">
       <button class="toggle active" data-val="15m">15분</button>
       <button class="toggle" data-val="1h">1시간</button>
       <button class="toggle" data-val="6h">6시간</button>
-      <button class="toggle" data-val="24h">24시간</button>
+      <button class="toggle" data-val="24h">1일</button>
       <button class="toggle" data-val="7d">7일</button>
+      <button class="toggle" data-val="30d">30일</button>
     </div>
+    <input type="datetime-local" id="net-anchor"
+      style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
   </div>
   <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="net-chart-canvas"></canvas>
@@ -106,17 +106,16 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
-const SERVER_ID  = "{{ network.public_id }}";
-const RANGE_LABEL = { '15m':'15분', '1h':'1시간', '6h':'6시간', '24h':'24시간', '7d':'7일' };
-const NET_Y_SUGGESTED_MAX = 2048; // B/s 기본 기준선 (≈2 kB/s). 조정 가능.
+// ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
+const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
+        fmtKst, fmtKbChart, getAnchorEnd, initAnchor,
+        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray } = ChartUtils;
 
-function fmtKst(iso) {
-  return new Date(iso).toLocaleString('ko-KR', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  });
-}
+const SERVER_ID  = "{{ network.public_id }}";
+// 추이 차트의 분해력 기준 (다중 interface × RX/TX 다중 라인 — idle 환경 트래픽도 보이도록).
+// 진단 리포트(performance.html)는 다른 정책: PERF_NET_SUGGESTED_MAX = 10 MB/s (1 Gbps의 8%).
+// 실데이터가 본 값을 초과하면 자동 확장 (soft ceiling). Y축 단위는 fmtKbChart로 동적 표기.
+const NET_Y_SUGGESTED_MAX = 2048; // B/s ≈ 2 kB/s
 
 function fmtKbps(v) {
   if (v == null) return '—';
@@ -128,10 +127,14 @@ function fmtPps(v) { return v != null ? Math.round(v) + ' pps' : '—'; }
 async function loadNetSnapshot() {
   try {
     const res = await fetch(`/api/v1/servers/${SERVER_ID}/metrics/latest`);
+    document.getElementById('net-snapshot-loading').style.display = 'none';
+    if (res.status === 404) {
+      document.getElementById('net-snapshot-empty').style.display = '';
+      return;
+    }
     if (!res.ok) return;
     const data = await res.json();
     const netIo = data.net_io || [];
-    document.getElementById('net-snapshot-loading').style.display = 'none';
     if (!netIo.length) {
       document.getElementById('net-snapshot-empty').style.display = '';
       return;
@@ -149,60 +152,21 @@ async function loadNetSnapshot() {
     if (data.collected_at) document.getElementById('net-snapshot-ts').textContent = '수집 기준: ' + fmtKst(data.collected_at);
   } catch(e) { console.error(e); }
 }
-const COLORS = ['#3b82f6','#f59e0b','#22c55e','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
-const AUTO_BUCKET  = { '15m':'1m', '1h':'1m', '6h':'5m', '24h':'15m', '7d':'3h' };
-const BUCKET_LABEL = { '1m':'1분 집계', '5m':'5분 집계', '15m':'15분 집계', '1h':'1시간 집계', '3h':'3시간 집계', '1d':'1일 집계' };
-const RANGE_MS  = { '15m':9e5, '1h':36e5, '6h':216e5, '24h':864e5, '7d':6048e5 };
-const BUCKET_MS = { '1m':6e4, '5m':3e5, '15m':9e5, '3h':108e5 };
-
-function makeBucketGrid(rangeKey, bucketKey) {
-  const now   = Date.now();
-  const bMs   = BUCKET_MS[bucketKey];
-  const start = now - RANGE_MS[rangeKey];
-  const first = Math.ceil(start / bMs) * bMs;
-  const grid  = [];
-  for (let t = first; t <= now; t += bMs) grid.push(t);
-  return grid;
-}
-
-function joinToGrid(grid, rows, bMs) {
-  const map = {};
-  for (const r of rows) {
-    const t = Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs;
-    map[t] = r.value;
-  }
-  return grid.map(t => map[t] ?? null);
-}
-
 let netRange = '15m';
 let netChart = null;
-let netAvgRows = [];
-let netMaxRows = [];
+let netSeq   = 0;
 
 function updateNetBucketLabel() {
   document.getElementById('net-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[netRange]] || '';
 }
 
-function fmtKbChart(v) {
-  if (v == null) return '';
-  if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + ' MB/s';
-  if (v >= 1024) return (v / 1024).toFixed(1) + ' kB/s';
-  return v.toFixed(0) + ' B/s';
-}
+const fmtNetLabel = ChartUtils.fmtLabel;
 
-function fmtNetLabel(ts) {
-  const d = new Date(ts);
-  const opts = netRange === '7d'
-    ? { timeZone:'Asia/Seoul', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12: false }
-    : { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit', hour12: false };
-  return d.toLocaleString('ko-KR', opts);
-}
-
-function renderNetChart() {
+function renderNetChart(avgRows, maxRows, range, anchorEnd) {
   const empty  = document.getElementById('net-chart-empty');
   const canvas = document.getElementById('net-chart-canvas');
 
-  if (!netAvgRows.length) {
+  if (!avgRows.length) {
     canvas.style.display = 'none';
     empty.style.display  = '';
     if (netChart) { netChart.destroy(); netChart = null; }
@@ -212,18 +176,18 @@ function renderNetChart() {
   canvas.style.display = '';
   empty.style.display  = 'none';
 
-  const bMs    = BUCKET_MS[AUTO_BUCKET[netRange]];
-  const grid   = makeBucketGrid(netRange, AUTO_BUCKET[netRange]);
-  const labels = grid.map(t => fmtNetLabel(new Date(t).toISOString()));
+  const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
+  const labels = grid.map(t => fmtNetLabel(new Date(t).toISOString(), range));
 
-  const dims = [...new Set(netAvgRows.map(r => r.dimension))];
+  const dims = [...new Set(avgRows.map(r => r.dimension))];
   const datasets = [];
   dims.forEach((dim, i) => {
     const color = COLORS[i % COLORS.length];
     const avgMap = {}, maxMap = {};
-    for (const r of netAvgRows.filter(r => r.dimension === dim))
+    for (const r of avgRows.filter(r => r.dimension === dim))
       avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
-    for (const r of netMaxRows.filter(r => r.dimension === dim))
+    for (const r of maxRows.filter(r => r.dimension === dim))
       maxMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
 
     datasets.push({
@@ -324,8 +288,15 @@ function buildNetLegend() {
 }
 
 async function loadNetChart() {
-  const bucket = AUTO_BUCKET[netRange];
-  const mkP = (type, agg) => new URLSearchParams({ metric_type: type, time_range: netRange, bucket, agg });
+  const seq = ++netSeq;
+  const capturedRange = netRange;
+  const capturedAnchor = getAnchorEnd('net-anchor');
+  const bucket = AUTO_BUCKET[capturedRange];
+  const mkP = (type, agg) => {
+    const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg });
+    if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
+    return p;
+  };
   try {
     const [rxAvg, rxMax, txAvg, txMax] = await Promise.all([
       fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('net.rx_bytes_per_sec', 'avg')}`).then(r => r.json()),
@@ -333,46 +304,31 @@ async function loadNetChart() {
       fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('net.tx_bytes_per_sec', 'avg')}`).then(r => r.json()),
       fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('net.tx_bytes_per_sec', 'max')}`).then(r => r.json()),
     ]);
-    netAvgRows = [
-      ...rxAvg.map(r => ({ ...r, dimension: `${r.dimension} RX` })),
-      ...txAvg.map(r => ({ ...r, dimension: `${r.dimension} TX` })),
+    if (seq !== netSeq) return;
+    const safe = arr => Array.isArray(arr) ? arr : [];
+    const avgRows = [
+      ...safe(rxAvg).map(r => ({ ...r, dimension: `${r.dimension} RX` })),
+      ...safe(txAvg).map(r => ({ ...r, dimension: `${r.dimension} TX` })),
     ];
-    netMaxRows = [
-      ...rxMax.map(r => ({ ...r, dimension: `${r.dimension} RX` })),
-      ...txMax.map(r => ({ ...r, dimension: `${r.dimension} TX` })),
+    const maxRows = [
+      ...safe(rxMax).map(r => ({ ...r, dimension: `${r.dimension} RX` })),
+      ...safe(txMax).map(r => ({ ...r, dimension: `${r.dimension} TX` })),
     ];
     if (netChart) { netChart.destroy(); netChart = null; }
-    renderNetChart();
+    renderNetChart(avgRows, maxRows, capturedRange, capturedAnchor);
     buildNetLegend();
   } catch(e) {
     console.error(e);
   }
 }
 
-function bindToggle(groupId, onChange) {
-  document.getElementById(groupId).addEventListener('click', e => {
-    const btn = e.target.closest('.toggle');
-    if (!btn) return;
-    document.querySelectorAll(`#${groupId} .toggle`).forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    onChange(btn.dataset.val);
-  });
-}
-
 bindToggle('net-range-btns', v => { netRange = v; updateNetBucketLabel(); document.getElementById('net-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadNetChart(); });
+document.getElementById('net-anchor').addEventListener('change', () => loadNetChart());
 
 /* ── SSE ── */
-const es = new EventSource(`/api/v1/servers/${SERVER_ID}/metrics/stream`);
-es.onopen = () => {
-  document.getElementById('sse-dot').className = 'dot dot-ok';
-  document.getElementById('sse-label').textContent = '자동 갱신 중';
-};
-es.onmessage = () => loadNetSnapshot();
-es.onerror = () => {
-  document.getElementById('sse-dot').className = 'dot dot-off';
-  document.getElementById('sse-label').textContent = '자동 갱신 중단 — 재연결 중...';
-};
+initSse(SERVER_ID, loadNetSnapshot);
 
+initAnchor('net-anchor');
 updateNetBucketLabel();
 loadNetSnapshot();
 loadNetChart();
