@@ -47,8 +47,8 @@
       <span id="mem-bucket-label" style="font-size:11px; color:#94a3b8;"></span>
     </div>
     <div class="toggle-group no-print" id="mem-range-btns">
-      <button class="toggle" data-val="15m">15분</button>
-      <button class="toggle active" data-val="1h">1시간</button>
+      <button class="toggle active" data-val="15m">15분</button>
+      <button class="toggle" data-val="1h">1시간</button>
       <button class="toggle" data-val="6h">6시간</button>
       <button class="toggle" data-val="24h">24시간</button>
       <button class="toggle" data-val="7d">7일</button>
@@ -73,8 +73,8 @@
       <span id="comp-bucket-label" style="font-size:11px; color:#94a3b8;"></span>
     </div>
     <div class="toggle-group no-print" id="comp-range-btns">
-      <button class="toggle" data-val="15m">15분</button>
-      <button class="toggle active" data-val="1h">1시간</button>
+      <button class="toggle active" data-val="15m">15분</button>
+      <button class="toggle" data-val="1h">1시간</button>
       <button class="toggle" data-val="6h">6시간</button>
       <button class="toggle" data-val="24h">24시간</button>
       <button class="toggle" data-val="7d">7일</button>
@@ -98,8 +98,8 @@
       <span id="swap-bucket-label" style="font-size:11px; color:#94a3b8;"></span>
     </div>
     <div class="toggle-group no-print" id="swap-range-btns">
-      <button class="toggle" data-val="15m">15분</button>
-      <button class="toggle active" data-val="1h">1시간</button>
+      <button class="toggle active" data-val="15m">15분</button>
+      <button class="toggle" data-val="1h">1시간</button>
       <button class="toggle" data-val="6h">6시간</button>
       <button class="toggle" data-val="24h">24시간</button>
       <button class="toggle" data-val="7d">7일</button>
@@ -262,7 +262,7 @@ function makeSingleChart(canvas, opts) {
 }
 
 /* ── 메모리 사용률 추이 ── */
-let memRange = '1h';
+let memRange = '15m';
 let memChart = null;
 
 function updateMemBucketLabel() {
@@ -379,7 +379,7 @@ async function loadMemChart() {
 bindToggle('mem-range-btns', v => { memRange = v; updateMemBucketLabel(); document.getElementById('mem-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadMemChart(); });
 
 /* ── 메모리 구성 추이 (used / cached / buffers %) ── */
-let compRange   = '1h';
+let compRange   = '15m';
 let compChart   = null;
 let compAllRows = [];
 
@@ -497,7 +497,7 @@ async function loadCompChart() {
 bindToggle('comp-range-btns', v => { compRange = v; updateCompBucketLabel(); document.getElementById('comp-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadCompChart(); });
 
 /* ── 스왑 사용률 추이 ── */
-let swapRange = '1h';
+let swapRange = '15m';
 let swapChart = null;
 
 function updateSwapBucketLabel() {

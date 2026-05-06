@@ -24,8 +24,8 @@
     <div>
       <div style="font-size:11px; color:#94a3b8; text-transform:uppercase; letter-spacing:.05em; margin-bottom:6px;">조회 범위</div>
       <div class="toggle-group" id="range-btns">
-        <button class="toggle" data-val="15m">최근 15분</button>
-        <button class="toggle active" data-val="1h">최근 1시간</button>
+        <button class="toggle active" data-val="15m">최근 15분</button>
+        <button class="toggle" data-val="1h">최근 1시간</button>
         <button class="toggle" data-val="6h">최근 6시간</button>
         <button class="toggle" data-val="24h">최근 24시간</button>
         <button class="toggle" data-val="7d">최근 7일</button>
@@ -86,7 +86,7 @@ const METRIC_LABELS = {
 const AUTO_BUCKET = { '15m':'5m', '1h':'5m', '6h':'1h', '24h':'1h', '7d':'1d' };
 
 let metricType = 'cpu.usage_percent';
-let timeRange  = '1h';
+let timeRange  = '15m';
 let agg        = 'avg';
 let chart      = null;
 
