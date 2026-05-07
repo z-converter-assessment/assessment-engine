@@ -3,7 +3,7 @@
 FastAPI 기반 SSR + JSON API 서버.
 
 ```
-web/
+src/assessment_engine/web/
 ├── main.py                  — FastAPI 앱, lifespan, 라우터 등록, StaticFiles 마운트
 ├── deps.py                  — 의존성 주입 (composition root)
 ├── view_models.py           — Service → Router ViewModel (dataclass)
@@ -55,7 +55,7 @@ def get_service(db: AsyncSession = Depends(get_db), redis: Redis = Depends(get_r
 
 `QueryService`는 `BaseQueryRepository`(인터페이스)를 생성자에서 받는다. `deps.py`(composition root)에서 구체 구현체 `QueryRepository`를 생성해 주입.
 
-`get_redis`는 `db/redis.py`에서 직접 임포트. `get_redis_client()` 같은 래퍼 없음.
+`get_redis`는 `src/assessment_engine/db/redis.py`에서 직접 임포트. `get_redis_client()` 같은 래퍼 없음.
 
 ---
 
@@ -96,9 +96,20 @@ Outbound DTO → ViewModel 변환. 모든 분기·필터링·파생 필드 계�
 - `sorted_services` (unit ASC), `sorted_listen_ports` ((port, proto) ASC) — **템플릿 `| sort` 금지** 위함
 - `os_display`, `cpu_display`, `disk_total_gb`
 
-`_usage_badge_class(pct)` / `_usage_bar_color(pct)`: 임계값(90/75) → CSS 클래스/hex 색상. `MountUsageItem.badge_class` / `bar_color`로 사전 계산해 템플릿에서 임계값 비교 제거.
+**임계값 단일화**: 모듈 상단 `_USAGE_DANGER_PCT = 90`, `_USAGE_WARN_PCT = 75`. `_usage_severity(pct) -> Literal["ok","warn","danger"]`이 분류, `_BADGE_CLASS_BY_SEVERITY`/`_BAR_COLOR_BY_SEVERITY` 매핑이 CSS 클래스·hex 색상 결정. 차트 JS의 동일 이름 상수(`USAGE_DANGER_PCT`/`USAGE_WARN_PCT`)와 동기화 — 변경 시 양쪽 갱신.
+
+**raw dict → ViewModel 단일 진입점**: `_to_disk_item(d)`, `_to_listen_port_item(p)`, `_to_service_item(s, listen_ports)` 세 함수가 dict 키 매핑 책임을 가짐. `to_server_list_item`/`to_server_detail`/`enrich_server_detail` 모두 이들을 재사용 → 매핑 로직 중복 제거.
+
+**`enrich_server_detail` idempotent**: 두 번 호출해도 결과 동일 (`cache_serializer.server_detail_from_json`이 역직렬화 후 재호출하는 시나리오 안전). `_DETAIL_DISPLAY_FIELDS` 셋으로 파생 필드 제거 후 재계산.
 
 ### metrics_calculator.py
+
+**공통 helper**:
+- `_group_by_dim(rows, key)` — device·interface 등 dimension별 시계열 그룹화. `compute_disk_io`/`compute_net_io` 양쪽 사용.
+- `_delta_rate(cur, prev, dt)` — 누적 카운터의 시간당 변화율. `cur < prev` (counter reset) 시 None — "측정 불가" 표시.
+- `_clip_to_remaining(raw_pct, remaining_room)` — stacked bar 누적용. used 위에 cached, 그 위에 buffers를 덧붙일 때 100% 초과 방지 (Linux available이 cached/buffers 일부 포함하므로 단순 합산 시 초과 가능).
+
+snapshot 빌더: `_disk_io_snapshot`/`_net_io_snapshot` private — 페어 가드(len<2, dt<=0)와 rate 호출을 단일 위치에.
 
 raw 누적값 → 계산된 스냅샷 변환.
 
@@ -148,7 +159,7 @@ datetime 필드는 `datetime.fromisoformat()`으로 파싱 필수 (`json.loads`�
 
 `classify(unit) -> str`: 서비스명에서 `.service` suffix 제거 후 소문자 substring 매칭. 매칭 없으면 `"unknown"`.
 
-`matched_ports(unit, listen_ports) -> list[dict]`: comm 기반 매칭 우선 → 없으면 `_SERVICE_PORTS` well-known 포트 테이블 폴백. `(proto, port)` 기준 dedup.
+`matched_ports(unit, listen_ports) -> list[MatchedPort]`: comm 기반 매칭 우선 → 없으면 `_SERVICE_PORTS` well-known 포트 테이블 폴백. `(proto, port)` 기준 dedup.
 
 ---
 
@@ -186,6 +197,18 @@ list.html에서 뱃지는 `svc.category`만 표시 (display_name 없음). "마�
 
 - `badge_class`: usage_pct 임계값(90/75) 기반 CSS 클래스 (`badge-danger` / `badge-warn` / `badge-ok`).
 - `bar_color`: 동일 임계값 기반 hex color.
+- `device_name`: 마운트가 어느 물리 디스크 위에 있는지 (parent disk 이름). `device_filters.find_parent_disk(major, minor, disks)` 결과. 가상 마운트(major=0)나 매핑 실패 시 None → 템플릿이 "—" 표시.
+
+### mount↔disk 매핑 (Linux 디바이스 식별 표준 활용)
+
+inventory의 `disks[].major/minor`와 `mounts[].major/minor`(payload v3에 발행됨)를 (major, minor) 조인 키로 매칭. `src/assessment_engine/web/services/device_filters.find_parent_disk()`가 다음 규칙으로 매핑:
+
+1. `mount.major == 0` 또는 (major, minor) 누락 → None (가상 파일시스템)
+2. `mount.major == disk.major` 이면 같은 디스크 후보
+3. `mount.minor == disk.minor` 이면 디스크 자체에 마운트
+4. `0 < (mount.minor - disk.minor) < 16` 이면 그 디스크의 파티션 (SCSI/virtio 관례)
+
+storage.html mounts 표의 "Device" 컬럼에 결과 노출. 이전의 정규식 휴리스틱(`is_physical_disk` name 기반)을 보강하지 않고 (major, minor) 직접 활용 — 이름 규칙 가정 의존 제거.
 
 ### `MemSnapshot` (`compute_mem`에서 채움)
 
@@ -200,7 +223,7 @@ ViewModel dataclass에 default 있는 필드(`field(default_factory=...)`)와 de
 ## Jinja2 인프라
 
 ### template_setup.py — 단일 인스턴스
-`Jinja2Templates` 인스턴스와 filter 등록을 `web/template_setup.py`에 격리. 라우터(`pages.py`)는 `from web.template_setup import templates`만 한다 — 라우터에 표시 셋업 책임을 두지 않기 위함.
+`Jinja2Templates` 인스턴스와 filter 등록을 `src/assessment_engine/web/template_setup.py`에 격리. 라우터(`pages.py`)는 `from web.template_setup import templates`만 한다 — 라우터에 표시 셋업 책임을 두지 않기 위함.
 
 ### template_filters.py — 필터 함수
 `template_setup.py`에서 `templates.env.filters`에 등록.
@@ -215,9 +238,9 @@ ViewModel dataclass에 default 있는 필드(`field(default_factory=...)`)와 de
 
 ---
 
-## 정적 자원 — `web/static/js/chart-utils.js`
+## 정적 자원 — `src/assessment_engine/web/static/js/chart-utils.js`
 
-`web/main.py`에서 `app.mount("/static", StaticFiles(directory=STATIC_DIR))`. `base.html` 하단에서 `/static/js/chart-utils.js` 단일 로드 → 전역 `ChartUtils`.
+`src/assessment_engine/web/main.py`에서 `app.mount("/static", StaticFiles(directory=STATIC_DIR))`. `base.html` `<head>`에서 `/static/js/chart-utils.js` 단일 로드 → 전역 `ChartUtils`. (자식 template의 `<main>` 안 inline script가 `ChartUtils`를 즉시 destructure하므로 head에서 먼저 로드되어야 함)
 
 | 항목 | 제공 |
 |------|------|
@@ -434,5 +457,5 @@ docker compose exec redis redis-cli DEL "cache:inventory:1" "cache:metrics:1" "c
 | 차트가 비어있음 (데이터 있음에도) | `/metrics/chart` 응답이 `[]` — time_range 안에 데이터 없음 | range 더 길게 |
 | range 토글 후 차트가 옛 데이터로 잠깐 깜빡임 | sequence counter 누락 | 해당 차트 로더에 P4 (a) 적용 |
 | 차트 색상이 명세와 다름 | `USAGE_DANGER_PCT` 같은 명명 상수 변경 누락 | mapper의 `_usage_bar_color`와 동기화 |
-| `/static/js/chart-utils.js` 404 | StaticFiles 마운트 누락 또는 경로 오타 | `web/main.py`의 `app.mount("/static", ...)` 확인 |
+| `/static/js/chart-utils.js` 404 | StaticFiles 마운트 누락 또는 경로 오타 | `src/assessment_engine/web/main.py`의 `app.mount("/static", ...)` 확인 |
 | 캐시 역직렬화 후 `KeyError` | ViewModel 필드 추가 후 `_DETAIL_DISPLAY_FIELDS` set 갱신 누락 | `cache_serializer.py` 확인 + `down -v` 또는 `DEL cache:*` |

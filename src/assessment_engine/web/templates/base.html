@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}ZConverter Assessment{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; color: #1a1a1a; background: #f1f5f9; }
+    header { background: #0f172a; color: #fff; padding: 0 24px; height: 52px; display: flex; align-items: center; gap: 24px; }
+    header a { color: #94a3b8; text-decoration: none; font-size: 13px; }
+    header a:hover { color: #fff; }
+    header .brand { color: #fff; font-weight: 700; font-size: 15px; margin-right: 16px; letter-spacing: -.3px; text-decoration: none; }
+    header .brand:hover { color: rgba(255,255,255,.75); }
+    main { max-width: 1160px; margin: 28px auto; padding: 0 24px; }
+    h1 { font-size: 20px; font-weight: 700; margin-bottom: 20px; color: #0f172a; }
+    h2 { font-size: 14px; font-weight: 600; margin: 0 0 14px; color: #475569; text-transform: uppercase; letter-spacing: .05em; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+    thead { background: #f8fafc; }
+    th { padding: 9px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid #e2e8f0; }
+    td { padding: 11px 14px; border-top: 1px solid #f1f5f9; color: #334155; vertical-align: middle; }
+    tr:hover td { background: #f8fafc; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; background: #e2e8f0; color: #475569; }
+    .badge-ok   { background: #dcfce7; color: #166534; }
+    .badge-warn { background: #fef3c7; color: #92400e; }
+    .badge-danger { background: #fee2e2; color: #991b1b; }
+    .badge-cat-web       { background: #dbeafe; color: #1d4ed8; }
+    .badge-cat-db        { background: #fce7f3; color: #9d174d; }
+    .badge-cat-cache     { background: #fef3c7; color: #92400e; }
+    .badge-cat-mq        { background: #f3e8ff; color: #6b21a8; }
+    .badge-cat-container { background: #e0f2fe; color: #075985; }
+    .badge-cat-monitor   { background: #fef9c3; color: #713f12; }
+    .badge-cat-unknown   { background: #f1f5f9; color: #64748b; }
+    .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07); padding: 20px 24px; margin-bottom: 18px; }
+    .kv { display: grid; grid-template-columns: 160px 1fr; gap: 7px 16px; }
+    .kv dt { color: #64748b; font-size: 13px; }
+    .kv dd { color: #0f172a; font-weight: 500; font-size: 13px; }
+    .back { font-size: 13px; color: #64748b; margin-bottom: 14px; display: inline-block; }
+    .back:hover { color: #0f172a; text-decoration: none; }
+    code { background: #f1f5f9; padding: 1px 6px; border-radius: 3px; font-size: 12px; font-family: monospace; color: #475569; }
+
+    /* Progress bars */
+    .progress-bar { height: 6px; background: #e2e8f0; border-radius: 99px; overflow: hidden; position: relative; }
+    .progress-fill { height: 100%; border-radius: 99px; transition: width .3s ease; }
+
+    /* Stat mini cards */
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; margin-bottom: 12px; }
+    .stat-box { background: #f8fafc; border-radius: 6px; padding: 10px 12px; }
+    .stat-label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+    .stat-value { font-size: 20px; font-weight: 700; color: #0f172a; }
+    .stat-unit { font-size: 12px; font-weight: 400; color: #64748b; margin-left: 2px; }
+    .stat-grid-sm { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; }
+    .stat-grid-sm .stat-box { padding: 6px 10px; }
+    .stat-grid-sm .stat-value { font-size: 15px; }
+
+    /* Section header within card */
+    .section-title { font-size: 13px; font-weight: 600; color: #334155; margin: 20px 0 10px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
+    .section-title:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+
+    /* Dot indicators */
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .dot-ok { background: #22c55e; box-shadow: 0 0 0 2px #dcfce7; }
+    .dot-off { background: #94a3b8; }
+
+    /* Nav buttons */
+    .btn { display: inline-block; padding: 7px 14px; background: #f1f5f9; border-radius: 6px; font-size: 13px; color: #334155; font-weight: 500; transition: background .15s; }
+    .btn:hover { background: #e2e8f0; text-decoration: none; }
+
+    /* Form controls */
+    .search-row { display: flex; gap: 8px; margin-bottom: 18px; align-items: center; }
+    .search-row input[type=text] { padding: 7px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; width: 240px; outline: none; }
+    .search-row input[type=text]:focus { border-color: #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
+    .search-row label { font-size: 13px; color: #475569; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+    .search-row button { padding: 7px 14px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; font-weight: 500; }
+    .search-row button:hover { background: #1d4ed8; }
+    .search-row .clear-btn { padding: 7px 12px; background: #f1f5f9; color: #64748b; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
+    .search-row .clear-btn:hover { background: #e2e8f0; }
+
+    /* sse status */
+    #sse-status { font-size: 11px; color: #94a3b8; margin-top: 6px; display: flex; align-items: center; gap: 5px; }
+
+    .print-only { display: none; }
+
+    /* ── Print ── */
+    @media print {
+      .no-print { display: none !important; }
+      .print-only { display: revert !important; }
+      body { background: #fff; }
+      main { max-width: 100%; margin: 0; padding: 16px; }
+      .card { box-shadow: none !important; border: 1px solid #d1d5db; page-break-inside: avoid; }
+      table { box-shadow: none !important; }
+      a { color: #1a1a1a !important; text-decoration: none !important; }
+      .action-col { display: none !important; }
+      .progress-fill, .progress-bar, .badge { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      #realtime-metrics-card { page-break-before: always; }
+    }
+  </style>
+  <!-- 자식 template의 inline script(<main> 안)에서 ChartUtils를 즉시 destructure하므로
+       chart-utils.js는 자식 script 실행 전에 로드되어야 한다. <head>에 둠. -->
+  <script src="/static/js/chart-utils.js"></script>
+</head>
+<body>
+  <header class="no-print">
+    <a href="/servers/" class="brand">ZConverter Assessment</a>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

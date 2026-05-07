@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block title %}ZConverter Assessment — {{ server.hostname }} 성능 리포트{% endblock %}
+
+{% block content %}
+<a class="back no-print" href="/servers/{{ server.public_id }}">← {{ server.hostname }}</a>
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+  <h1 style="margin:0;">{{ server.hostname }} — 성능 리포트</h1>
+  <button class="no-print" onclick="window.print()" style="display:flex; align-items:center; gap:6px; padding:7px 16px; border:1px solid #e2e8f0; border-radius:6px; background:#fff; color:#374151; font-size:13px; font-weight:500; cursor:pointer; box-shadow:0 1px 2px rgba(0,0,0,.06); transition:background .12s, box-shadow .12s;" onmouseover="this.style.background='#f8fafc'; this.style.boxShadow='0 2px 6px rgba(0,0,0,.10)'" onmouseout="this.style.background='#fff'; this.style.boxShadow='0 1px 2px rgba(0,0,0,.06)'">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+    인쇄
+  </button>
+</div>
+
+<!-- 전역 기간 선택 -->
+<div style="display:flex; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
+  <span id="bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+  <div style="width:1px; height:18px; background:#cbd5e1;"></div>
+  <div class="toggle-group" id="global-range-btns">
+    <button class="toggle" data-val="15m">15분</button>
+    <button class="toggle" data-val="1h">1시간</button>
+    <button class="toggle" data-val="6h">6시간</button>
+    <button class="toggle active" data-val="24h">1일</button>
+    <button class="toggle" data-val="7d">7일</button>
+    <button class="toggle" data-val="30d">30일</button>
+  </div>
+  <div style="width:1px; height:18px; background:#cbd5e1;"></div>
+  <input type="datetime-local" id="anchor-date"
+    style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;">
+  <div style="display:flex; align-items:center; gap:5px; margin-left:auto;">
+    <span style="font-size:11px; color:#94a3b8;">최근 수집</span>
+    <span id="last-metric-ts" style="font-size:11px; color:#64748b; font-weight:500;">로딩 중...</span>
+  </div>
+</div>
+
+<!-- 2열 그리드 -->
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+
+  <!-- 서버 정보 -->
+  <div class="card">
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
+      <h2 style="margin:0;">서버 정보</h2>
+      {% if server.services is not none %}
+      <div style="display:flex; flex-wrap:wrap; gap:6px; margin-left:8px;">
+        {% for svc in server.known_services %}
+        <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}<span style="font-weight:400; opacity:0.75; margin-left:5px;">{{ svc.display_name }}</span></span>
+        {% endfor %}
+        {% if server.show_unknown_badge %}
+        <span class="badge badge-cat-unknown">unknown</span>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    <dl class="kv">
+      <dt>OS</dt>
+      <dd>{{ server.os_display }}{% if server.os_codename %} ({{ server.os_codename }}){% endif %}</dd>
+      <dt>Kernel</dt>
+      <dd>{% if server.kernel_version %}<code>{{ server.kernel_version }}</code>{% else %}-{% endif %}</dd>
+      {% if server.cpu_model %}
+      <dt>CPU Model</dt>
+      <dd style="word-break:break-word;">{{ server.cpu_model }}</dd>
+      {% endif %}
+      <dt>CPU Cores</dt>
+      <dd>{{ server.cpu_cores | or_dash }} 코어</dd>
+      <dt>Memory</dt>
+      <dd>{{ server.mem_total_gb | disksize }}</dd>
+      {% if server.swap_total_gb %}
+      <dt>Swap</dt>
+      <dd>{{ server.swap_total_gb | disksize }}</dd>
+      {% endif %}
+      {% if server.disk_total_gb %}
+      <dt>Storage</dt>
+      <dd>{{ server.disk_total_gb | disksize }}</dd>
+      {% endif %}
+      <dt>Boot Time</dt>
+      <dd>{{ server.boot_time | kst }}</dd>
+      <dt>Machine ID</dt>
+      <dd><code style="font-size:11px;">{{ server.machine_id }}</code></dd>
+      <dt>Agent</dt>
+      <dd>{{ server.agent_version | or_dash }}</dd>
+    </dl>
+  </div>
+
+  <!-- 마운트 사용률 -->
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+      <h2 style="margin:0;">마운트 사용률</h2>
+      <span id="mount-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
+    </div>
+    <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="mount-canvas"></canvas>
+    </div>
+    <div id="mount-empty" style="display:none; text-align:center; padding:30px 0; color:#94a3b8; font-size:13px;">해당 기간에 수집된 데이터가 없습니다.</div>
+    <div id="mount-legend" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:10px;"></div>
+  </div>
+
+  <!-- CPU 사용률 -->
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+      <h2 style="margin:0;">CPU 사용률</h2>
+      <span id="cpu-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
+    </div>
+    <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="cpu-canvas"></canvas>
+    </div>
+    <div id="cpu-empty" style="display:none; text-align:center; padding:30px 0; color:#94a3b8; font-size:13px;">해당 기간에 수집된 데이터가 없습니다.</div>
+  </div>
+
+  <!-- CPU I/O Wait -->
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+      <h2 style="margin:0;">CPU I/O Wait</h2>
+      <span id="iowait-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
+    </div>
+    <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">디스크 병목으로 CPU가 대기하는 비율 — 높으면 I/O 병목 의심</div>
+    <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="iowait-canvas"></canvas>
+    </div>
+    <div id="iowait-empty" style="display:none; text-align:center; padding:30px 0; color:#94a3b8; font-size:13px;">해당 기간에 수집된 데이터가 없습니다.</div>
+  </div>
+
+  <!-- CPU User / System -->
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+      <h2 style="margin:0;">CPU User / System</h2>
+      <span id="cpuus-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
+    </div>
+    <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">user: 앱 부하 / system: 커널 처리 — 둘의 합이 전체 CPU 사용의 주요 구성</div>
+    <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="cpuus-canvas"></canvas>
+    </div>
+    <div id="cpuus-empty" style="display:none; text-align:center; padding:30px 0; color:#94a3b8; font-size:13px;">해당 기간에 수집된 데이터가 없습니다.</div>
+    <div id="cpuus-legend" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:10px;"></div>
+  </div>
+
+  <!-- Load Average 15m -->
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+      <h2 style="margin:0;">Load Average 15m{% if server.cpu_cores %} <span style="font-size:13px; font-weight:400; color:#94a3b8;">({{ server.cpu_cores }}코어)</span>{% endif %}</h2>
+      <span id="load-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
+    </div>
+    <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">15분 평균 실행 대기 프로세스 수 — 코어 수 초과 시 CPU 포화 상태</div>
+    <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="load-canvas"></canvas>
+    </div>
+    <div id="load-empty" style="display:none; text-align:center; padding:30px 0; color:#94a3b8; font-size:13px;">해당 기간에 수집된 데이터가 없습니다.</div>
+  </div>
+
+  <!-- 메모리 사용률 -->
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+      <h2 style="margin:0;">메모리 사용률</h2>
+      <span id="mem-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
+    </div>
+    <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="mem-canvas"></canvas>
+    </div>
+    <div id="mem-empty" style="display:none; text-align:center; padding:30px 0; color:#94a3b8; font-size:13px;">해당 기간에 수집된 데이터가 없습니다.</div>
+  </div>
+
+  <!-- 스왑 사용률 -->
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+      <h2 style="margin:0;">스왑 사용률</h2>
+      <span id="swap-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
+    </div>
+    <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">스왑 사용이 감지되면 최대값 빨간색 표시</div>
+    <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="swap-canvas"></canvas>
+    </div>
+    <div id="swap-empty" style="display:none; text-align:center; padding:30px 0; color:#94a3b8; font-size:13px;">해당 기간에 수집된 데이터가 없습니다.</div>
+  </div>
+
+  <!-- 디스크 읽기 IOPS -->
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+      <h2 style="margin:0;">디스크 읽기 IOPS</h2>
+      <span id="dread-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
+    </div>
+    <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">Y축 기준: HDD 랜덤 I/O 한계 ~200 IOPS (SSD 초과 시 자동 확장)</div>
+    <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="dread-canvas"></canvas>
+    </div>
+    <div id="dread-empty" style="display:none; text-align:center; padding:30px 0; color:#94a3b8; font-size:13px;">해당 기간에 수집된 데이터가 없습니다.</div>
+    <div id="dread-legend" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:10px;"></div>
+    <div style="font-size:10px; color:#cbd5e1; margin-top:6px;">실선 물리 디스크 · 점선 가상/LVM</div>
+  </div>
+
+  <!-- 디스크 쓰기 IOPS -->
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+      <h2 style="margin:0;">디스크 쓰기 IOPS</h2>
+      <span id="dwrite-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
+    </div>
+    <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">Y축 기준: HDD 랜덤 I/O 한계 ~200 IOPS (SSD 초과 시 자동 확장)</div>
+    <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="dwrite-canvas"></canvas>
+    </div>
+    <div id="dwrite-empty" style="display:none; text-align:center; padding:30px 0; color:#94a3b8; font-size:13px;">해당 기간에 수집된 데이터가 없습니다.</div>
+    <div id="dwrite-legend" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:10px;"></div>
+    <div style="font-size:10px; color:#cbd5e1; margin-top:6px;">실선 물리 디스크 · 점선 가상/LVM</div>
+  </div>
+
+  <!-- 네트워크 수신 -->
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+      <h2 style="margin:0;">네트워크 수신 (RX)</h2>
+      <span id="netrx-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
+    </div>
+    <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">Y축 기준: 10 MB/s (1 Gbps 이더넷의 약 8%, 유의미한 트래픽 기준선)</div>
+    <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="netrx-canvas"></canvas>
+    </div>
+    <div id="netrx-empty" style="display:none; text-align:center; padding:30px 0; color:#94a3b8; font-size:13px;">해당 기간에 수집된 데이터가 없습니다.</div>
+    <div id="netrx-legend" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:10px;"></div>
+  </div>
+
+  <!-- 네트워크 송신 -->
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+      <h2 style="margin:0;">네트워크 송신 (TX)</h2>
+      <span id="nettx-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
+    </div>
+    <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">Y축 기준: 10 MB/s (1 Gbps 이더넷의 약 8%, 유의미한 트래픽 기준선)</div>
+    <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="nettx-canvas"></canvas>
+    </div>
+    <div id="nettx-empty" style="display:none; text-align:center; padding:30px 0; color:#94a3b8; font-size:13px;">해당 기간에 수집된 데이터가 없습니다.</div>
+    <div id="nettx-legend" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:10px;"></div>
+  </div>
+
+</div><!-- /grid -->
+
+<style>
+  .toggle-group { display:flex; gap:4px; }
+  .toggle {
+    padding:5px 12px; border:1px solid #e2e8f0; border-radius:5px;
+    background:#fff; color:#475569; font-size:12px; cursor:pointer;
+    transition: background .12s, color .12s, border-color .12s;
+  }
+  .toggle:hover { background:#f8fafc; border-color:#cbd5e1; }
+  .toggle.active { background:#0f172a; color:#fff; border-color:#0f172a; }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
+<script>
+  // 페이지별 Jinja2 변수 — 외부 performance.js가 사용 (window 없이 글로벌 const)
+  const SERVER_ID = "{{ server.public_id }}";
+  const CPU_CORES = {{ server.cpu_cores if server.cpu_cores is not none else 'null' }};
+</script>
+<script src="/static/js/pages/performance.js" defer></script>
+{% endblock %}

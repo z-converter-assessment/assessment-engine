@@ -76,7 +76,7 @@
 
 ## 환경변수
 
-루트 `.env`에서 주입. 전체 키 목록과 주의사항은 [docs/env.md](docs/env.md) 참조.
+dev는 루트 `.env` 평문, prod는 `secrets/*` Docker secrets로 주입. 전체 키 목록은 [docs/env.md](docs/env.md), 정책·dev/prod 분리는 [docs/dev-prod.md](docs/dev-prod.md) 참조.
 
 ---
 
@@ -84,9 +84,11 @@
 
 런타임은 Docker 컨테이너에서 동작하지만, 자동완성·타입 체크를 위해 로컬 가상환경에 의존성을 설치한다.
 
+**전제**: Python 3.12 이상 (`pyproject.toml`의 `requires-python = ">=3.12"`).
+미설치 시 [python.org](https://www.python.org/downloads/) 또는 OS 패키지 매니저(`brew install python@3.12` / `apt install python3.12` 등).
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install uv
 uv pip install -e "."
@@ -96,32 +98,63 @@ uv pip install -e "."
 
 ## 실행
 
-### Docker만 (포털 서버 단독)
-
+세 가지 시나리오: **Docker만 (dev)** / **Docker + Vagrant 풀 파이프라인 (dev)** / **prod**.
+어떤 시나리오든 시작 전에 `.env` 부터 준비.
 
 ```bash
-# 1. 환경변수 설정
-cp .env.example .env
+cp .env.example .env                       # 엔진 환경변수 (모든 시나리오 공통)
 ```
+
+### A. Docker만 (포털 서버 단독, dev)
+
+에이전트 없이 web/consumer/DB/MQ/Redis만 띄움. UI 확인·DB 접속 검증용.
+
 ```bash
-# 2. 실행
+# 기동 (docker-compose.override.yml 자동 적용 — APP_ENV=dev)
 docker compose up --build -d
-```
-```bash
-# 3-1. 로그 (web)
+
+# 로그
 docker compose logs -f web
-
-# 3-2. 로그 (consumer)
 docker compose logs -f consumer
+
+# 종료 (데이터 유지)
+docker compose down
+
+# 종료 + 데이터 삭제 (postgres_data 볼륨 제거)
+docker compose down -v
 ```
+
+### B. Docker + Vagrant 풀 파이프라인 (dev)
+
+VM 3대 + 에이전트까지 — 실제 메트릭 흐름 검증. 자세한 절차는 [docs/pipeline.md](docs/pipeline.md).
 
 ```bash
-# 4-1. 종료 (데이터 삭제)
-docker compose down -v
+cp infra/agent.env.example infra/agent.env  # 에이전트 secret 채널 (최초 1회)
 
-# 4-2. 종료 (데이터 유지)
-docker compose down
+./dev-up.sh    # docker compose up + web 헬스체크 + vagrant up
+./dev-down.sh  # vagrant destroy + docker compose down -v
 ```
+
+### C. prod 기동 (참고)
+
+`secrets/*` 파일 + 명시적 compose 호출. dev override 자동 적용 안 됨.
+
+```bash
+# 1. secret 파일 작성 (강한 random)
+printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
+printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
+chmod 0400 secrets/postgres_password secrets/rabbitmq_password
+
+# 2. Alembic으로 schema 사전 적용 (lifespan은 prod에서 schema bootstrap skip)
+
+# 3. 기동
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# 종료
+docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+```
+
+운영 체크리스트: [docs/dev-prod.md](docs/dev-prod.md) §10.
 
 ---
 
@@ -137,19 +170,32 @@ docker compose down
 
 ---
 
+## 테스트
+
+```bash
+pip install -e ".[dev]"   # 최초 1회
+python -m pytest          # 전체 (unit + integration)
+```
+
+실행 명령·설정·Fixture·테스트 작성 패턴은 [docs/testing.md](docs/testing.md).
+
+---
+
 ## 파이프라인 검증 (Vagrant VM)
 
 에이전트(C 바이너리) → RabbitMQ → Consumer → DB → Web UI 전체 파이프라인을 실제 VM 환경에서 검증한다.
 Vagrant로 VM 3대(Ubuntu / Rocky Linux / Debian)를 띄우고, 각 VM에서 에이전트가 메트릭을 발행해 포털에 수집되는 것을 직접 확인한다.
 
-→ [docs/pipeline.md](docs/pipeline.md)
+기동·종료 명령은 위 [실행 §B](#b-docker--vagrant-풀-파이프라인-dev) 참조. 자세한 절차·VM 구성·트러블슈팅은 [docs/pipeline.md](docs/pipeline.md).
 
 ---
 
 ## 개발 문서
 
-- [`docs/components/`](docs/components/) — 컴포넌트별 설계·기술 구현 (agent·consumer·db·redis·web)
-- [`docs/infra/`](docs/infra/) — 인프라 구성 (Docker·Vagrant)
+- [`docs/components/`](docs/components) — 컴포넌트별 설계·기술 구현 (agent·consumer·db·redis·web)
+- [`docs/infra/`](docs/infra) — 인프라 구성 (Docker·Vagrant)
 - [`docs/pipeline.md`](docs/pipeline.md) — 파이프라인 검증 절차 (Vagrant VM)
 - [`docs/tradeoffs.md`](docs/tradeoffs.md) — 설계 선택으로 인한 트레이드오프 (멱등성·캐시 일관성·시계열 누적 등)
 - [`docs/env.md`](docs/env.md) — 환경변수 전체 키 목록
+- [`docs/dev-prod.md`](docs/dev-prod.md) — dev/prod 환경 전략 + secret 정책 + 운영 체크리스트
+- [`docs/testing.md`](docs/testing.md) — 단위·통합 테스트 실행·설정·작성 패턴

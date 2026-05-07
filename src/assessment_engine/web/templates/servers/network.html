@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}ZConverter Assessment — {{ network.hostname }} 네트워크{% endblock %}
+
+{% block content %}
+<a class="back no-print" href="/servers/{{ network.public_id }}">← {{ network.hostname }}</a>
+<h1>{{ network.hostname }} — 네트워크</h1>
+
+<!-- IP 주소 -->
+<div class="card">
+  <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px;">
+    <h2 style="margin:0;">IP 주소</h2>
+    <span style="font-size:12px; color:#94a3b8;">인벤토리 수집: {{ network.inventory_at | kst }}</span>
+  </div>
+  <dl class="kv">
+    <dt>Internal</dt>
+    <dd>
+      {% if network.ip_internal %}
+        {% for ip in network.ip_internal %}
+          <code style="margin-right:6px;">{{ ip }}</code>
+        {% endfor %}
+      {% else %}-{% endif %}
+    </dd>
+    <dt>External</dt>
+    <dd>
+      {% if network.ip_external %}
+        {% for ip in network.ip_external %}
+          <code style="margin-right:6px;">{{ ip }}</code>
+        {% endfor %}
+      {% else %}-{% endif %}
+    </dd>
+  </dl>
+</div>
+
+<!-- 인터페이스 현황 -->
+<div class="card">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+    <h2 style="margin:0;">인터페이스 현황</h2>
+    <div id="sse-status" class="no-print" style="display:flex; align-items:center; gap:5px; font-size:11px; color:#94a3b8; white-space:nowrap;">
+      <span id="sse-dot" class="dot dot-off"></span>
+      <span id="sse-label">연결 중...</span>
+      <span id="net-snapshot-ts" style="margin-left:4px;"></span>
+    </div>
+  </div>
+  <p style="font-size:12px; color:#94a3b8; margin-bottom:14px; margin-top:-8px;">
+    연속 2회 측정의 delta 기반 처리량
+  </p>
+  <div id="net-snapshot-loading" style="color:#94a3b8; font-size:13px;">불러오는 중...</div>
+  <table id="net-snapshot-table" style="display:none;">
+    <thead>
+      <tr>
+        <th>Interface</th>
+        <th>RX</th>
+        <th>TX</th>
+        <th>RX (pps)</th>
+        <th>TX (pps)</th>
+      </tr>
+    </thead>
+    <tbody id="net-snapshot-tbody"></tbody>
+  </table>
+  <div id="net-snapshot-empty" style="display:none; color:#94a3b8; font-size:13px;">
+    수집된 네트워크 I/O 데이터가 없습니다.
+    에이전트가 최소 2회 메트릭을 전송하면 표시됩니다.
+  </div>
+</div>
+
+<!-- 네트워크 I/O 추이 -->
+<div class="card">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <h2 style="margin:0;">네트워크 I/O 추이<span class="print-only" id="net-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+      <span id="net-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    </div>
+    <div class="toggle-group no-print" id="net-range-btns">
+      <button class="toggle active" data-val="15m">15분</button>
+      <button class="toggle" data-val="1h">1시간</button>
+      <button class="toggle" data-val="6h">6시간</button>
+      <button class="toggle" data-val="24h">1일</button>
+      <button class="toggle" data-val="7d">7일</button>
+      <button class="toggle" data-val="30d">30일</button>
+    </div>
+    <input type="datetime-local" id="net-anchor"
+      style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
+  </div>
+  <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+    <canvas id="net-chart-canvas"></canvas>
+  </div>
+  <div id="net-chart-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+    해당 기간에 수집된 데이터가 없습니다.
+  </div>
+  <div id="net-legend" style="display:flex; flex-direction:column; gap:6px; margin-top:12px;"></div>
+  <p style="font-size:11px; color:#94a3b8; margin:8px 0 0;">
+    음영 영역: 집계 구간 내 순간 최대 처리량과 평균의 차이.
+  </p>
+</div>
+
+<style>
+  .toggle-group { display:flex; gap:4px; flex-wrap:wrap; }
+  .toggle {
+    padding:5px 12px; border:1px solid #e2e8f0; border-radius:5px;
+    background:#fff; color:#475569; font-size:12px; cursor:pointer;
+    transition: background .12s, color .12s, border-color .12s;
+  }
+  .toggle:hover { background:#f8fafc; border-color:#cbd5e1; }
+  .toggle.active { background:#0f172a; color:#fff; border-color:#0f172a; }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
+<script>
+  const SERVER_ID = {{ network.public_id | tojson }};
+</script>
+<script src="/static/js/pages/network.js" defer></script>
+{% endblock %}

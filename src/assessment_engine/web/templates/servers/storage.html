@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}ZConverter Assessment — {{ storage.hostname }} 스토리지{% endblock %}
+
+{% block content %}
+<a class="back no-print" href="/servers/{{ storage.public_id }}">← {{ storage.hostname }}</a>
+<h1>{{ storage.hostname }} — 스토리지</h1>
+
+<!-- 물리 디스크 (인벤토리) -->
+<div class="card">
+  <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px;">
+    <h2 style="margin:0;">물리 디스크</h2>
+    <span style="font-size:12px; color:#94a3b8;">인벤토리 수집: {{ storage.inventory_at | kst }}</span>
+  </div>
+  {% if storage.disks %}
+  <table>
+    <thead>
+      <tr><th>Device</th><th>Type</th><th>Capacity</th></tr>
+    </thead>
+    <tbody>
+      {% for d in storage.disks %}
+      <tr>
+        <td><code>{{ d.name }}</code></td>
+        <td>
+          {% if d.type %}
+            <span class="badge">{{ d.type }}</span>
+          {% else %}-{% endif %}
+        </td>
+        <td>{{ d.size_gb | disksize }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:#94a3b8; font-size:13px;">디스크 정보 없음</p>
+  {% endif %}
+</div>
+
+<!-- 파일시스템 사용량 (인벤토리 + 실시간 server_mount_usage) -->
+<div class="card">
+  <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px;">
+    <h2 style="margin:0;">파일시스템 사용량</h2>
+    <span style="font-size:12px; color:#94a3b8;">수집 기준: {{ storage.snapshot_at | kst }}</span>
+  </div>
+  {% if storage.mounts %}
+  <table>
+    <thead>
+      <tr>
+        <th>Mount Point</th>
+        <th>Device</th>
+        <th>Filesystem</th>
+        <th>Total</th>
+        <th>Used</th>
+        <th>Available</th>
+        <th style="min-width:180px;">Usage</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in storage.mounts %}
+      <tr>
+        <td><code>{{ m.mount }}</code></td>
+        <td>
+          {% if m.device_name %}
+            <code>{{ m.device_name }}</code>
+          {% else %}
+            <span style="color:#cbd5e1;">—</span>
+          {% endif %}
+        </td>
+        <td>{{ m.fstype or '-' }}</td>
+        <td>{{ m.total_gb | disksize }}</td>
+        <td>{{ m.used_gb | disksize }}</td>
+        <td>{{ m.avail_gb | disksize }}</td>
+        <td>
+          {% if m.usage_pct is not none %}
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="badge {{ m.badge_class }}">{{ m.usage_pct }}%</span>
+              <div class="progress-bar" style="flex:1; min-width:80px;">
+                <div class="progress-fill" style="width:{{ m.usage_pct }}%; background:{{ m.bar_color }};"></div>
+              </div>
+            </div>
+          {% else %}
+            <span style="color:#94a3b8; font-size:12px;">수집 대기 중</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:#94a3b8; font-size:13px;">마운트 정보 없음</p>
+  {% endif %}
+</div>
+
+<!-- 디스크 I/O 현황 -->
+<div class="card">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+    <h2 style="margin:0;">디스크 I/O 현황</h2>
+    <div style="display:flex; align-items:center; gap:8px; font-size:11px; color:#94a3b8;">
+      <span id="sse-dot" class="dot dot-off no-print"></span>
+      <span id="sse-label" class="no-print">연결 중...</span>
+      <span id="io-snapshot-ts" style="font-size:12px;"></span>
+    </div>
+  </div>
+  <div id="io-snapshot-loading" style="color:#94a3b8; font-size:13px;">불러오는 중...</div>
+
+  <div class="section-title">물리 디바이스</div>
+  <table id="io-phys-table" style="display:none;">
+    <thead>
+      <tr><th>Device</th><th>Read IOPS</th><th>Write IOPS</th><th>Read</th><th>Write</th></tr>
+    </thead>
+    <tbody id="io-phys-tbody"></tbody>
+  </table>
+  <div id="io-phys-empty" style="display:none; color:#94a3b8; font-size:13px;">
+    수집된 I/O 데이터가 없습니다. 에이전트가 최소 2회 메트릭을 전송하면 표시됩니다.
+  </div>
+
+  <div id="io-lvm-section" style="display:none; margin-top:16px;">
+    <div class="section-title" id="io-lvm-section-title">논리 볼륨 (LVM / RAID)</div>
+    <table id="io-lvm-table" style="display:none;">
+      <thead>
+        <tr><th>Device</th><th>Read IOPS</th><th>Write IOPS</th><th>Read</th><th>Write</th></tr>
+      </thead>
+      <tbody id="io-lvm-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 물리 계층 I/O 추이 -->
+<div class="card">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <h2 style="margin:0;">물리 계층 I/O 추이<span class="print-only" id="io-phys-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+      <span id="io-phys-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    </div>
+    <div class="toggle-group no-print" id="io-phys-range-btns">
+      <button class="toggle active" data-val="15m">15분</button>
+      <button class="toggle" data-val="1h">1시간</button>
+      <button class="toggle" data-val="6h">6시간</button>
+      <button class="toggle" data-val="24h">1일</button>
+      <button class="toggle" data-val="7d">7일</button>
+      <button class="toggle" data-val="30d">30일</button>
+    </div>
+    <input type="datetime-local" id="phys-anchor"
+      style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
+  </div>
+  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+    <canvas id="io-phys-canvas"></canvas>
+  </div>
+  <div id="io-phys-chart-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+    해당 기간에 수집된 데이터가 없습니다.
+  </div>
+  <div id="io-phys-legend" style="display:flex; flex-direction:column; gap:6px; margin-top:12px;"></div>
+  <p style="font-size:11px; color:#94a3b8; margin:8px 0 0;">음영 영역: 집계 구간 내 순간 최대 IOPS와 평균의 차이.</p>
+</div>
+
+<!-- 논리 계층 I/O 추이 (LVM / RAID) -->
+<div class="card" id="io-lvm-chart-card" style="display:none;">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <h2 style="margin:0;"><span id="io-lvm-chart-title">논리 계층 I/O 추이</span><span class="print-only" id="lvm-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+      <span id="lvm-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    </div>
+    <div class="toggle-group no-print" id="io-lvm-range-btns">
+      <button class="toggle active" data-val="15m">15분</button>
+      <button class="toggle" data-val="1h">1시간</button>
+      <button class="toggle" data-val="6h">6시간</button>
+      <button class="toggle" data-val="24h">1일</button>
+      <button class="toggle" data-val="7d">7일</button>
+      <button class="toggle" data-val="30d">30일</button>
+    </div>
+    <input type="datetime-local" id="lvm-anchor"
+      style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
+  </div>
+  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+    <canvas id="io-lvm-canvas"></canvas>
+  </div>
+  <div id="io-lvm-chart-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+    해당 기간에 수집된 데이터가 없습니다.
+  </div>
+  <div id="io-lvm-legend" style="display:flex; flex-direction:column; gap:6px; margin-top:12px;"></div>
+  <p style="font-size:11px; color:#94a3b8; margin:8px 0 0;">음영 영역: 집계 구간 내 순간 최대 IOPS와 평균의 차이.</p>
+</div>
+
+<!-- 파일시스템 사용량 추이 -->
+<div class="card">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <h2 style="margin:0;">파일시스템 사용량 추이<span class="print-only" id="fs-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 15분</span></h2>
+      <span id="fs-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    </div>
+    <div class="toggle-group no-print" id="fs-range-btns">
+      <button class="toggle active" data-val="15m">15분</button>
+      <button class="toggle" data-val="1h">1시간</button>
+      <button class="toggle" data-val="6h">6시간</button>
+      <button class="toggle" data-val="24h">1일</button>
+      <button class="toggle" data-val="7d">7일</button>
+      <button class="toggle" data-val="30d">30일</button>
+    </div>
+    <input type="datetime-local" id="fs-anchor"
+      style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
+  </div>
+  <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+    <canvas id="fs-chart-canvas"></canvas>
+  </div>
+  <div id="fs-chart-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+    해당 기간에 수집된 데이터가 없습니다.
+  </div>
+  <div id="fs-legend" style="display:flex; flex-direction:column; gap:6px; margin-top:12px;"></div>
+  <p style="font-size:11px; color:#94a3b8; margin:8px 0 0;">음영 영역: 집계 구간 내 순간 최대 사용률과 평균의 차이.</p>
+</div>
+
+<style>
+  .toggle-group { display:flex; gap:4px; flex-wrap:wrap; }
+  .toggle {
+    padding:5px 12px; border:1px solid #e2e8f0; border-radius:5px;
+    background:#fff; color:#475569; font-size:12px; cursor:pointer;
+    transition: background .12s, color .12s, border-color .12s;
+  }
+  .toggle:hover { background:#f8fafc; border-color:#cbd5e1; }
+  .toggle.active { background:#0f172a; color:#fff; border-color:#0f172a; }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
+<script>
+  const SERVER_ID = {{ storage.public_id | tojson }};
+</script>
+<script src="/static/js/pages/storage.js" defer></script>
+{% endblock %}

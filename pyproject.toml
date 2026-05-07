@@ -20,5 +20,23 @@ dependencies = [
 ]
 
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "testcontainers[postgres]>=4.0",
+]
+
 [tool.hatch.build.targets.wheel]
-packages = ["web", "consumer", "db", "scheduler"]
+packages = ["src/assessment_engine"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# session-scope async fixture(엔진·컨테이너)가 function-scope 테스트와 같은 event loop를 공유하도록
+# fixture·test 양쪽 default loop scope를 session으로 통일. (pytest-asyncio v1+ 정책)
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+filterwarnings = [
+    "ignore::DeprecationWarning:testcontainers.*",
+]

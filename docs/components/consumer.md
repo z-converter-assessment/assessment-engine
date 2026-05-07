@@ -3,7 +3,7 @@
 aio-pika 기반 순수 비동기 컨슈머. FastAPI와 독립 프로세스로 실행된다.
 
 ```
-consumer/
+src/assessment_engine/consumer/
 ├── schemas.py   — 에이전트 메시지 파싱·검증 계약 (Pydantic)
 ├── mappers.py   — Pydantic 스키마 → Inbound DTO 변환
 ├── handler.py   — 메시지 처리 흐름 (멱등성·DB 저장·Redis 후처리)
@@ -108,8 +108,14 @@ DB 저장 (지수 백오프 재시도, _db_retry)
 ### error 후처리
 없음. 파싱 + 멱등성 + 로깅만 (재시도 컨텍스트 `retry_count`/`first_failed_at`/`recovered_at` 포함).
 
-### 미등록 서버 metrics 드롭
-metrics 핸들러는 `find_server_id(machine_id)` 실패 시 server_id를 받지 못해 INSERT 자체를 건너뛰고 ack로 종료. Redis 후처리도 실행 안 됨. 에이전트가 다음 60s 주기에 다시 발행하므로 inventory 등록 후 자연 복구.
+### 미등록 서버 metrics — auto-register
+metrics 핸들러는 `repo.ensure_server_id(machine_id, placeholder)`로 한 번에 처리 — find 실패 시 fallback placeholder 사용. `(server_id, auto_registered)` 튜플 반환으로 handler가 auto-register 시점만 운영 로그를 남김.
+
+placeholder는 `mappers.placeholder_inventory_from_metrics`가 생성. machine_id/hostname/agent_version만 실값, 나머지 정적 정보(OS·CPU·메모리·디스크 등)는 None/빈 배열. 다음 진짜 inventory 도착 시 ON CONFLICT DO UPDATE로 풀 정보 자동 덮어씀 (machine_id UNIQUE 제약).
+
+metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 4개 시계열 테이블 INSERT를 facade로 묶어 처리. 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
+
+→ metrics drop 0. inventory one-shot 정책으로 인한 영구 미등록 시나리오 해소. 에이전트 변경 없이 엔진 단독 안전망.
 
 ### 팩토리 함수 + 클로저
 
@@ -133,7 +139,7 @@ async def _db_retry(
 
 ### DB 재시도 정책
 
-`5 ** (attempt + 1)` — 5, 25, 125초 대기 후 최종 실패. 메시지 큐 TTL(300초) 내에서 DB 재시작을 커버하도록 설계.
+`5 ** (attempt + 1)` — 5, 25, 125초 대기 후 최종 실패. 합 155초로 inventory/metrics 모두 큐 TTL(없음·72h) 내에서 DB 재시작을 커버. error 큐는 TTL 300s지만 error 핸들러는 DB 접근 안 해 영향 없음.
 
 ---
 
@@ -141,16 +147,12 @@ async def _db_retry(
 
 ### MQ 토폴로지
 
-Exchange: `assessment` (direct, durable) / DLX: `assessment.dlx` / prefetch_count: 10
+토폴로지 정의(vhost·exchange·DLX·큐·TTL·x-max-length·정책 근거)와 dev/prod 분기는 `docs/components/rabbitmq.md` 단일 진실. 본 절은 consumer가 그 토폴로지를 코드로 어떻게 declare·subscribe하는지만 다룬다.
 
-| routing key | 큐 | DLQ | TTL |
-|-------------|-----|-----|-----|
-| `server.inventory` | `server.inventory` | `server.inventory.dead` | 없음 |
-| `server.metrics` | `server.metrics` | `server.metrics.dead` | 300s |
-| `server.error` | `server.error` | `server.error.dead` | 300s |
-
-inventory TTL 없음: one-shot 메시지로 소실 시 에이전트 재시작 전까지 복구 불가.
-metrics/error 300s TTL: consumer 다운 중 쌓인 메시지를 TTL 내 복구 시 처리. web healthcheck 대기(최대 120초) + 재시작 시간을 커버하도록 설정.
+핵심 동작 요약:
+- 기동 시 `_DLX = "{exchange}.dlx"` 먼저 선언 → 정상 exchange 선언 → routing key별로 DLQ 선언·DLX 바인딩 → 정상 큐 선언(`x-dead-letter-exchange`/`x-dead-letter-routing-key`/옵셔널 `x-message-ttl`/옵셔널 `x-max-length`) → exchange 바인딩 → consume 시작.
+- prefetch_count 10 (`channel.set_qos`).
+- TTL/max-length 값은 `src/assessment_engine/consumer/main.py` 상단 `_METRICS_TTL_MS`/`_METRICS_MAX_LEN`/`_ERROR_TTL_MS` 명명 상수.
 
 ### aio-pika
 
@@ -193,9 +195,12 @@ RabbitMQ 전용 비동기 클라이언트. AMQP 0-9-1 프로토콜만 지원.
 
 Redis 장애 시 멱등성 체크 예외 → nack → DLQ. fail-open(장애 시 체크 생략)으로 바꾸면 중복 처리 가능성이 생긴다. Redis는 캐시·PUB/SUB·온라인 TTL로 이미 hard dependency이므로 새로운 단일 장애점이 추가되는 구조가 아니다.
 
-### 미등록 서버 메트릭 드롭
+### 미등록 서버 메트릭 — auto-register (drop 0)
 
-inventory 처리 전 metrics가 도달하면(레이스 컨디션, inventory DLQ) 메트릭이 유실된다. 에이전트가 계속 메트릭을 발행하므로 inventory 등록 후 다음 주기(최대 60초)부터 자동 재개된다. 미등록 메트릭을 임시 저장하는 구조는 고아 데이터 관리 복잡도를 높인다.
+inventory 처리 전 metrics가 도달하면(레이스 컨디션, DB 초기화 후 inventory 미수신, inventory DLQ 등) **이전엔 metrics drop**이었으나, 현재는 **placeholder inventory 자동 생성으로 처리** (`handler.py` + `mappers.placeholder_inventory_from_metrics`). 정적 정보는 None/빈 배열로 채우고 다음 진짜 inventory 도착 시 upsert가 풀 정보로 덮어씀.
+
+장점: metrics 시계열 손실 0. inventory의 one-shot 약점 해소. 에이전트 변경 없이 엔진 단독 처리.
+한계: placeholder 상태 동안 web UI에 OS/CPU/메모리 등 정적 정보 미표시 — 다음 inventory 도착 시 자동 채워짐. 에이전트 정상 운영 시 분 단위 짧음.
 
 ### inventory 수신 시 online 즉시 마킹
 
@@ -203,7 +208,7 @@ upsert 성공 후 `SET online:{server_id} EX 90`. 첫 메트릭 수신 전(최�
 
 ### InventoryMountInfo 미사용 필드
 
-`free_bytes`, `avail_bytes`가 스키마에 있으나 `consumer/mappers.py:to_inventory_create`에서 명시적으로 drop된다 (`{"mount": ..., "fstype": ..., "total_bytes": ...}`만 매핑). 인벤토리에는 정적 정보만 저장하고, 동적 사용량은 metrics 메시지의 `mounts[]` → `server_mount_usage` 시계열 테이블로 분리한다.
+`free_bytes`, `avail_bytes`가 스키마에 있으나 `src/assessment_engine/consumer/mappers.py:to_inventory_create`에서 명시적으로 drop된다 (`{"mount": ..., "fstype": ..., "total_bytes": ...}`만 매핑). 인벤토리에는 정적 정보만 저장하고, 동적 사용량은 metrics 메시지의 `mounts[]` → `server_mount_usage` 시계열 테이블로 분리한다.
 
 스키마 v3에 추가된 `disks[].major/minor`, `mounts[].major/minor`, `disk_io[].major/minor`도 Pydantic `extra=ignore`로 통과 후 사용 안 한다. 활용·제거 결정은 다음 agent_version 협의 시점.
 
@@ -222,15 +227,15 @@ docker compose logs consumer 2>&1 | grep -E "ERROR|WARNING"     # 에러만
 기대 정상 로그 예:
 ```
 consumer.main - consumer starting exchange=assessment
-consumer.main - consuming queue=server.inventory ttl_ms=None
-consumer.main - consuming queue=server.metrics ttl_ms=300000
-consumer.main - consuming queue=server.error ttl_ms=300000
+consumer.main - consuming queue=server.inventory ttl_ms=None max_len=None
+consumer.main - consuming queue=server.metrics ttl_ms=259200000 max_len=1000000
+consumer.main - consuming queue=server.error ttl_ms=300000 max_len=None
 consumer.handler - inventory stored machine_id=f1e90cdc...
 consumer.handler - metrics stored machine_id=f1e90cdc...
 ```
 
 문제 신호:
-- `metrics dropped — server not registered machine_id=...` → inventory 미수신 (broker 재기동 후 흔함)
+- `auto-registered server from metrics machine_id=...` → DB에 미등록 서버 metrics 수신 시 placeholder 자동 등록. 정상 동작 (drop 아님)
 - `db error attempt=N error=...` → DB 일시 장애. attempt 1~2는 정상 자동 복구
 - `db error after 3 attempts: ...` → 최종 실패 → DLQ 라우팅
 
@@ -278,5 +283,5 @@ docker compose restart consumer
 |------|------|------|
 | consumer는 떴지만 메시지 처리 안 됨 | broker queue가 아직 declare 안 됐거나 connection 실패 | 로그에 `consuming queue=...` 라인이 있는지 확인 |
 | 같은 메시지가 반복 처리되어 보임 | 사실은 처리 중인 메시지가 timeout으로 nack → 재전송 | DB 응답 시간 확인. `_db_retry`가 1회 처리에 최대 155s 소요 |
-| Pydantic ValidationError 누적 | 에이전트가 새 필드 추가 + 컨슈머 스키마 미반영 | `consumer/schemas.py`에 필드 추가 또는 `extra=ignore`로 통과 |
+| Pydantic ValidationError 누적 | 에이전트가 새 필드 추가 + 컨슈머 스키마 미반영 | `src/assessment_engine/consumer/schemas.py`에 필드 추가 또는 `extra=ignore`로 통과 |
 | `agent error` 로그 다량 | 에이전트가 `error` 메시지를 발행 중 | 에이전트 로그(`vagrant ssh ... journalctl`) 확인 |

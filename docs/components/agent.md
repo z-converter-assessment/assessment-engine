@@ -64,7 +64,7 @@ C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_ve
 | `first_failed_at` | datetime \| null | 재시도 요약 보고 시점에만 |
 | `recovered_at` | datetime \| null | 복구 보고 시점에만 |
 
-엔진 처리: 파싱 + 멱등성 체크 후 로깅만 수행. DB 저장 없음. 재시도 컨텍스트(`retry_count` 등)도 같이 로그 (`consumer/handler.py` `make_error_handler`).
+엔진 처리: 파싱 + 멱등성 체크 후 로깅만 수행. DB 저장 없음. 재시도 컨텍스트(`retry_count` 등)도 같이 로그 (`src/assessment_engine/consumer/handler.py` `make_error_handler`).
 
 ### 규약
 
@@ -78,10 +78,16 @@ C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_ve
 
 | 필드 | 위치 | 무시 사유 |
 |------|------|-----------|
-| `disks[].major/minor` | inventory | mounts dedup·diskstats 매칭 키이지만 엔진이 아직 활용 안 함 |
-| `mounts[].major/minor` | inventory + metrics | 동일 |
-| `disk_io[].major/minor` | metrics | 동일 |
-| `mounts[].free_bytes/avail_bytes` | inventory | 인벤토리는 정적 정보(total_bytes)만 저장. 동적 사용량은 `server_mount_usage` 시계열로 분리 (`consumer/mappers.py:to_inventory_create`) |
+| `mounts[].major/minor` | metrics | 시계열 테이블(`server_mount_usage`)에 컬럼 없음. inventory의 동일 필드만 활용 (mount↔disk 조인). 시계열에서도 활용 시 스키마 변경(`down -v`) 필요 |
+| `disk_io[].major/minor` | metrics | 동일 — `server_disk_io` 시계열 테이블에 컬럼 없음. compute_disk_io의 분류는 device 이름 정규식 유지 |
+| `mounts[].free_bytes/avail_bytes` | inventory | 인벤토리는 정적 정보(total_bytes)만 저장. 동적 사용량은 `server_mount_usage` 시계열로 분리 (`src/assessment_engine/consumer/mappers.py:to_inventory_create`) |
+
+### 활용 중인 필드 (이전엔 무시였음)
+
+| 필드 | 위치 | 활용 방식 |
+|------|------|----------|
+| `disks[].major/minor` | inventory | `src/assessment_engine/web/services/device_filters.find_parent_disk()`에서 mount↔disk 조인 키 |
+| `mounts[].major/minor` | inventory | `src/assessment_engine/web/services/mappers.to_storage_detail`에서 disks 리스트와 매칭 → `MountUsageItem.device_name` 채움 → storage.html "Device" 컬럼 |
 
 ---
 

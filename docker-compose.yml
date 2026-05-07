@@ -1,18 +1,21 @@
+# 환경 무관 baseline. 단독 기동은 의도적으로 불완전 — password·외부 포트 노출은
+# override(dev) 또는 docker-compose.prod.yml(prod)에서 추가한다.
+#
+# - dev: `docker compose up`  (override.yml 자동 적용)
+# - prod: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
+
 services:
   postgres:
     restart: unless-stopped
     image: timescale/timescaledb:latest-pg16
-    env_file: .env
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-assessment}
+      POSTGRES_USER: ${POSTGRES_USER:-assessment}
+      # POSTGRES_PASSWORD / POSTGRES_PASSWORD_FILE: override / prod 파일에서 주입
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-assessment}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -20,13 +23,10 @@ services:
   rabbitmq:
     restart: unless-stopped
     image: rabbitmq:3.13-management-alpine
-    env_file: .env
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-    ports:
-      - "${RABBITMQ_PORT:-5672}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-assessment}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/assessment}
+      # RABBITMQ_DEFAULT_PASS / _FILE: override / prod 파일에서 주입
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 10s
@@ -46,13 +46,11 @@ services:
   web:
     restart: unless-stopped
     build: .
-    command: python -m web
-    volumes:
-      - ./:/app
-    ports:
-      - "${WEB_PORT:-8000}:8000"
-    env_file: .env
+    command: python -m assessment_engine.web
+    expose:
+      - "8000"   # 컨테이너 간만. 외부 노출은 override / prod.
     environment:
+      APP_ENV: ${APP_ENV:-prod}
       POSTGRES_HOST: postgres
       REDIS_HOST: redis
     depends_on:
@@ -70,11 +68,9 @@ services:
   consumer:
     restart: unless-stopped
     build: .
-    command: python -m consumer
-    volumes:
-      - ./:/app
-    env_file: .env
+    command: python -m assessment_engine.consumer
     environment:
+      APP_ENV: ${APP_ENV:-prod}
       POSTGRES_HOST: postgres
       RABBITMQ_HOST: rabbitmq
       REDIS_HOST: redis

@@ -1,7 +1,7 @@
 # DB 레이어
 
 ```
-db/
+src/assessment_engine/db/
 ├── session.py                          — 엔진·세션 팩토리
 ├── redis.py                            — Redis 커넥션 풀
 ├── models/                             — ORM 모델
@@ -96,13 +96,23 @@ Repository → Service 반환 타입. `dataclass`로 정의. **모두 raw 단위
 
 ### 인터페이스 — `BaseCollectRepository`
 
-Consumer 핸들러가 의존하는 추상 계약.
+Consumer 핸들러가 의존하는 추상 계약. 트랜잭션 경계는 호출자(`_db_retry`)가 관리.
 
 | 메서드 | 설명 |
 |--------|------|
-| `find_server_id(machine_id)` | machine_id로 서버 PK 조회. 미등록이면 `None` |
-| `upsert_server(data)` | machine_id 기준 INSERT or UPDATE. 서버 PK 반환 |
-| `insert_metric(server_id, data)` | 메트릭 4개 테이블에 저장 |
+| `find_server_id(machine_id) -> int \| None` | machine_id로 서버 PK 조회. 미등록이면 `None` |
+| `upsert_server(data) -> int` | machine_id 기준 INSERT or UPDATE. 서버 PK 반환 |
+| `ensure_server_id(machine_id, fallback) -> tuple[int, bool]` | find 시도 → 없으면 fallback으로 upsert. `(server_id, auto_registered)` 반환. metrics 핸들러 auto-register 흐름 캡슐화 |
+| `record_metrics(server_id, data) -> MetricInsertResult` | 4개 시계열 테이블에 INSERT. `MetricInsertResult(metrics, disk_io, net_io, mount_usage)`로 각 테이블 행 수 반환 |
+
+### Inbound DTO 타입 정책 — `inbound.py`
+
+| DTO | 컬렉션 필드 | 형태 | 이유 |
+|-----|----------|------|------|
+| `ServerInventoryCreate` | `disks` / `mounts` / `services` / `listen_ports` | `list[dict]` | JSONB 컬럼 직렬화. dict가 자연스러움 |
+| `ServerMetricCreate` | `disk_io` / `mounts` / `net_io` | `list[DiskIoEntry]` / `list[MountUsageEntry]` / `list[NetIoEntry]` | 시계열 4테이블 행 매핑이라 컴파일 타임 타입 보장 |
+
+`DiskIoEntry`/`NetIoEntry`/`MountUsageEntry`는 nested dataclass. dict 키 오타가 mapper 단계에서 차단된다. INSERT 시 `dataclasses.asdict(entry)`로 키 풀어쓰기.
 
 ### 구현체 — `CollectRepository`
 
@@ -110,18 +120,33 @@ Consumer 핸들러가 의존하는 추상 계약.
 
 #### `upsert_server`
 
-PostgreSQL `INSERT ... ON CONFLICT DO UPDATE`. `machine_id` unique 제약 충돌 시 전체 필드를 덮어쓰고 PK를 `RETURNING`으로 반환.
+PostgreSQL `INSERT ... ON CONFLICT DO UPDATE`. `machine_id` unique 제약 충돌 시 전체 필드를 덮어쓰고 PK를 `RETURNING`으로 반환. values·set_ dict는 한 번 만들어 재사용 (`set_`는 `machine_id` 제외) — 컬럼 추가 시 한 곳만 수정.
 
 ```python
-stmt = pg_insert(ServerInventory).values(...).on_conflict_do_update(
-    index_elements=["machine_id"],
-    set_={...},
+row = {"machine_id": ..., "hostname": ..., ...}
+update_set = {k: v for k, v in row.items() if k != "machine_id"}
+stmt = pg_insert(ServerInventory).values(**row).on_conflict_do_update(
+    index_elements=["machine_id"], set_=update_set,
 ).returning(ServerInventory.id)
 ```
 
-#### `insert_metric`
+#### `ensure_server_id`
 
-4개 테이블 모두 `pg_insert(...).on_conflict_do_nothing(index_elements=...)`로 통일. UNIQUE 위반 시 silent no-op이라 멱등성 키(Redis) 만료 후 중복 메시지가 들어와도 데이터 정합성이 유지된다.
+```python
+async def ensure_server_id(self, machine_id, fallback) -> tuple[int, bool]:
+    server_id = await self.find_server_id(machine_id)
+    if server_id is not None:
+        return server_id, False           # 기존 서버 — fallback 미사용
+    return await self.upsert_server(fallback), True  # auto-registered
+```
+
+handler가 placeholder 생성 비용 부담을 일부 안지만 흐름이 1줄로 단순화 + auto-register 시점만 운영 로그.
+
+#### `record_metrics`
+
+4개 테이블 INSERT를 facade로 묶는다. 내부 4개 private helper 분리: `_insert_scalar_metrics` / `_insert_disk_io` / `_insert_net_io` / `_insert_mount_usage`. 각각 `result.rowcount`를 반환.
+
+모두 `pg_insert(...).on_conflict_do_nothing(index_elements=...)`로 통일. UNIQUE 위반 시 silent no-op이라 멱등성 키(Redis) 만료·evict·Redis 장애 후 중복 메시지가 들어와도 데이터 정합성이 유지된다.
 
 | 모델 | conflict 키 |
 |------|-----|
@@ -130,7 +155,7 @@ stmt = pg_insert(ServerInventory).values(...).on_conflict_do_update(
 | `ServerNetIo` | `(server_id, interface, collected_at)` |
 | `ServerMountUsage` | `(server_id, mount, collected_at)` |
 
-`pg_insert(Model).values([...]).on_conflict_do_nothing(index_elements=[...])` 형태. 디스크/넷/마운트는 한 메시지에 여러 행이 들어오므로 list 형태로 `.values([...])`.
+반환 `MetricInsertResult`의 각 카운트는 ON CONFLICT DO NOTHING 충돌 시 0. handler 로그가 이를 노출해 누락·중복을 운영 관측 가능.
 
 #### `.returning()` + `scalar_one` / `scalar_one_or_none`
 
@@ -281,5 +306,5 @@ retention policy 도입 시점은 `docs/tradeoffs.md` T3 참조.
 | `relation "server_metrics" does not exist` | consumer가 web 헬스체크 전에 시작 (depends_on 누락) | docker-compose의 `depends_on: web: service_healthy` 확인 |
 | `extension "timescaledb" does not exist` | `timescale/timescaledb` 이미지가 아닌 일반 postgres 이미지 사용 | docker-compose `image:` 확인 |
 | `non-default argument 'X' follows default argument` | Python dataclass 필드 순서 위반 (default factory 필드 뒤에 non-default) | non-default 필드를 모두 위로 이동 |
-| `MissingGreenlet` | `expire_on_commit=True`로 commit 후 lazy-load 시도 | `db/session.py`의 `expire_on_commit=False` 유지 |
-| `UniqueViolation` | UNIQUE 제약은 있지만 `pg_insert.on_conflict_do_nothing` 누락 | `collect_repository.insert_metric` 검토 |
+| `MissingGreenlet` | `expire_on_commit=True`로 commit 후 lazy-load 시도 | `src/assessment_engine/db/session.py`의 `expire_on_commit=False` 유지 |
+| `UniqueViolation` | UNIQUE 제약은 있지만 `pg_insert.on_conflict_do_nothing` 누락 | `collect_repository._insert_*` helper 검토 |

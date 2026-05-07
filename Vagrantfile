@@ -1,13 +1,17 @@
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
 
-# .env에서 RabbitMQ 설정을 읽어 에이전트 .env 생성에 재사용
-# RABBITMQ_HOST만 예외: 엔진 .env는 "rabbitmq"(도커 서비스명)이지만
-# VM → 호스트는 Vagrant NAT 주소인 10.0.2.2를 사용해야 한다
+# 에이전트 secret 채널: infra/agent.env (엔진 .env와 분리).
+# RABBITMQ_HOST만 예외: 엔진은 "rabbitmq"(도커 서비스명)이지만 VM → 호스트는 Vagrant NAT 주소.
 RABBITMQ_HOST = "10.0.2.2"
 
+agent_env_path = "infra/agent.env"
+unless File.exist?(agent_env_path)
+  raise "#{agent_env_path}이 없다. 'cp infra/agent.env.example infra/agent.env' 후 운영 값으로 수정하라."
+end
+
 dot_env = {}
-File.foreach(".env") do |line|
+File.foreach(agent_env_path) do |line|
   line = line.strip
   next if line.empty? || line.start_with?("#")
   key, val = line.split("=", 2)
@@ -88,7 +92,7 @@ Vagrant.configure("2") do |config|
         cat > /etc/assessment-agent.env <<EOF
 RABBITMQ_HOST=#{RABBITMQ_HOST}
 RABBITMQ_PORT=5672
-RABBITMQ_VHOST=/
+RABBITMQ_VHOST=/assessment
 RABBITMQ_USER=#{RABBITMQ_USER}
 RABBITMQ_PASS=#{RABBITMQ_PASS}
 RABBITMQ_EXCHANGE=#{RABBITMQ_EXCHANGE}
@@ -134,6 +138,105 @@ EOF
         systemctl enable assessment-agent
         systemctl start assessment-agent || true
         echo "[provision] assessment-agent service started"
+      SHELL
+
+      # 5. 합성 부하(synthetic load) — 메트릭 추이 가시화 용도.
+      #    1분 주기 systemd timer가 짧은 burst(CPU/MEM/DISK/NET) 실행. 풀 부하 X — 컴퓨터에 무리 없는 수준.
+      #    app-server-01만 heavy 프로파일 (모든 자원 유의미한 부하), 나머지 VM은 light.
+      load_profile = (vm[:name] == "app-server-01" ? "heavy" : "light")
+      node.vm.provision "shell", inline: <<~SHELL
+        cat > /usr/local/bin/synthetic-load-light.sh <<'EOF'
+#!/bin/bash
+# 가벼운 합성 부하 — 메트릭 차트에 추이가 보이게 하는 용도.
+# CPU 1~3초 burst + 메모리 5~20MB + 작은 디스크 I/O + 호스트 NAT 트래픽.
+
+sleep $(( RANDOM % 30 ))
+
+# CPU 짧은 burst (1~3초)
+duration=$(( (RANDOM % 3) + 1 ))
+timeout ${duration}s sha256sum /dev/zero > /dev/null 2>&1 || true
+
+# 메모리 일시 할당 (5~20 MB)
+size=$(( (RANDOM % 16) + 5 ))
+head -c ${size}M /dev/urandom > /tmp/synthetic-load 2>/dev/null || true
+sync
+rm -f /tmp/synthetic-load
+
+# 디스크 I/O (200KB~600KB)
+count=$(( (RANDOM % 100) + 50 ))
+dd if=/dev/zero of=/tmp/synthetic-io bs=4k count=${count} 2>/dev/null || true
+sync
+rm -f /tmp/synthetic-io
+
+# 네트워크 — 호스트(10.0.2.2)로 트래픽 (eth0 통과)
+ping -c $(( (RANDOM % 5) + 3 )) -q 10.0.2.2 > /dev/null 2>&1 || true
+curl -s -m 2 http://10.0.2.2:8000/health > /dev/null 2>&1 || true
+if [ $((RANDOM % 2)) -eq 0 ]; then
+  curl -s -m 2 http://10.0.2.2:8000/static/js/chart-utils.js > /dev/null 2>&1 || true
+fi
+EOF
+
+        cat > /usr/local/bin/synthetic-load-heavy.sh <<'EOF'
+#!/bin/bash
+# 유의미한 합성 부하 — app-server-01 전용. 모든 자원에 차트 spike 명확히 보이는 강도.
+# VM 1024MB / 2CPU 기준이라 호스트(macOS) 부담은 작음.
+
+sleep $(( RANDOM % 15 ))
+
+# CPU: 5~12초 burst — 2 코어 동시 (VM은 2 CPU)
+duration=$(( (RANDOM % 8) + 5 ))
+for i in 1 2; do
+  timeout ${duration}s sha256sum /dev/zero > /dev/null 2>&1 &
+done
+wait || true
+
+# 메모리: 100~250MB 일시 할당 (VM 메모리의 10~25%)
+size=$(( (RANDOM % 150) + 100 ))
+head -c ${size}M /dev/urandom > /tmp/synthetic-load-mem 2>/dev/null || true
+sleep 2
+sync
+rm -f /tmp/synthetic-load-mem
+
+# 디스크 I/O: 5~15MB write (light의 ~25배)
+count=$(( (RANDOM % 2500) + 1250 ))
+dd if=/dev/zero of=/tmp/synthetic-io bs=4k count=${count} 2>/dev/null || true
+sync
+sleep 1
+rm -f /tmp/synthetic-io
+
+# 네트워크: 다중 fetch + 다수 ping
+for i in 1 2 3; do
+  curl -s -m 5 http://10.0.2.2:8000/static/js/chart-utils.js > /dev/null 2>&1 || true
+done
+curl -s -m 5 "http://10.0.2.2:8000/servers/" > /dev/null 2>&1 || true
+ping -c $(( (RANDOM % 10) + 10 )) -q 10.0.2.2 > /dev/null 2>&1 || true
+EOF
+
+        chmod 755 /usr/local/bin/synthetic-load-light.sh /usr/local/bin/synthetic-load-heavy.sh
+        # 프로파일에 맞는 스크립트를 활성 위치(/usr/local/bin/synthetic-load.sh)로 link
+        ln -sf /usr/local/bin/synthetic-load-#{load_profile}.sh /usr/local/bin/synthetic-load.sh
+
+        cat > /etc/systemd/system/synthetic-load.service <<'EOF'
+[Unit]
+Description=Synthetic load (metrics visualization aid)
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/synthetic-load.sh
+EOF
+
+        cat > /etc/systemd/system/synthetic-load.timer <<'EOF'
+[Unit]
+Description=Run synthetic-load every minute
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+[Install]
+WantedBy=timers.target
+EOF
+        systemctl daemon-reload
+        systemctl enable synthetic-load.timer
+        systemctl start synthetic-load.timer
+        echo "[provision] synthetic-load.timer started (1min interval)"
       SHELL
     end
   end

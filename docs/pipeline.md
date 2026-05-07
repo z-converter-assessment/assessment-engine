@@ -73,11 +73,16 @@
 
 ```bash
 # 환경변수 설정 (최초 1회)
-cp .env.example .env
+cp .env.example .env                       # 엔진(web/consumer) 환경변수
+cp infra/agent.env.example infra/agent.env # 에이전트(VM) 전용 secret 채널
 
 # 전체 환경 기동 (Docker → web 헬스체크 → Vagrant VM 순서)
 ./dev-up.sh
 ```
+
+> **두 .env 파일을 분리하는 이유**: 엔진의 `.env`는 docker-compose로 web/consumer에 주입,
+> `infra/agent.env`는 Vagrantfile이 read해 VM 안 `/etc/assessment-agent.env`로 옮긴다.
+> 정책·근거는 [docs/dev-prod.md](dev-prod.md) §9 (에이전트 secret 채널 분리).
 
 `dev-up.sh` 실행 순서:
 1. `docker compose up --build -d`
@@ -86,7 +91,7 @@ cp .env.example .env
 
 VM 프로비저닝 중 자동으로 수행되는 작업:
 1. 빌드 의존성 패키지 설치 (gcc, librabbitmq-dev, libcjson-dev 등)
-2. `.env` 생성 (`RABBITMQ_HOST=10.0.2.2` 포함)
+2. `infra/agent.env` 값으로 `/etc/assessment-agent.env` 생성 (`RABBITMQ_HOST=10.0.2.2` 별도 주입)
 3. `make` — 에이전트 빌드
 4. systemd `assessment-agent.service` 등록 및 시작
 
@@ -100,6 +105,20 @@ http://localhost:8000/servers/ 에서 서버 3대 온라인 확인.
 `assessment-engine/` 루트에서 실행한다.
 
 ```bash
-# 전체 환경 종료 (Vagrant VM 제거 → Docker 볼륨 삭제)
+# 전체 환경 종료 (Vagrant VM 제거 → Docker 볼륨 삭제, 데이터 초기화)
 ./dev-down.sh
 ```
+
+`dev-down.sh` 실행 순서:
+1. `vagrant destroy -f` — VM 3대 제거 (각 VM의 `/etc/assessment-agent.env`·바이너리·systemd unit 모두 사라짐)
+2. `docker compose down -v` — 컨테이너 + `postgres_data` 볼륨 + 네트워크 제거 (DB 데이터 삭제)
+
+#### 부분 종료 (선택)
+
+| 시나리오 | 명령 |
+|---------|------|
+| Docker만 종료, VM은 유지 | `docker compose down` (데이터 유지) / `docker compose down -v` (데이터 삭제) |
+| VM만 종료, Docker는 유지 | `vagrant destroy -f` 또는 일시 정지 `vagrant halt` |
+| 특정 VM만 종료 | `vagrant destroy -f cache-server-01` |
+
+VM `halt`(일시 정지) 후 `vagrant up`은 프로비저닝 다시 안 함 (재기동만). `destroy` 후엔 다음 `vagrant up`이 풀 프로비저닝 (수분 소요).
