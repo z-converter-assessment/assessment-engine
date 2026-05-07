@@ -1,5 +1,7 @@
 # 시크릿
 .env
+infra/agent.env
+# secrets/ 내부는 secrets/.gitignore가 별도 관리 (README/.gitignore만 커밋, 나머지 전부 제외)
 
 # IDE
 .idea/

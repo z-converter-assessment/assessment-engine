@@ -1,0 +1,440 @@
+/**
+ * storage 페이지 차트 로직.
+ *
+ * 외부 의존:
+ * - ChartUtils (base.html에서 chart-utils.js 로드)
+ * - Chart.js (페이지에서 chart.umd.min.js 로드)
+ * - SERVER_ID (페이지 inline <script>가 Jinja2로 정의)
+ */
+// ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
+const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
+        fmtKst, getAnchorEnd, initAnchor,
+        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray } = ChartUtils;
+
+
+// 추이 차트의 분해력 기준 (다중 device × Read/Write 다중 라인 — idle VM에서 0.1 IOPS도 보이도록).
+// 진단 리포트(performance.html)는 다른 정책: PERF_IOPS_SUGGESTED_MAX = 200 (HDD 물리 한계).
+// 실데이터가 본 값을 초과하면 자동 확장 (soft ceiling).
+const STORAGE_IOPS_SUGGESTED_MAX = 5;
+
+function kbps(kb) {
+  if (kb == null) return '—';
+  if (kb >= 1024) return (kb / 1024).toFixed(1) + ' MBps';
+  return kb.toFixed(1) + ' kBps';
+}
+function iops(v) { return v == null ? '—' : v.toFixed(1) + ' IOPS'; }
+
+/* ── I/O 현황 스냅샷 ── */
+async function loadIoSnapshot() {
+  try {
+    const res = await fetch(`/api/v1/servers/${SERVER_ID}/metrics/latest`);
+    document.getElementById('io-snapshot-loading').style.display = 'none';
+    if (res.status === 404) {
+      document.getElementById('io-phys-empty').style.display = '';
+      return;
+    }
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const physDisks   = data.disk_io_phys || [];
+    const lvmDisks    = data.disk_io_lvm  || [];
+    const partDisks   = data.disk_io_part || [];
+    const logicalDisks = lvmDisks.length ? lvmDisks : partDisks;
+
+    const row = d => `<tr>
+      <td><code>${d.device}</code></td>
+      <td>${iops(d.read_iops)}</td><td>${iops(d.write_iops)}</td>
+      <td>${kbps(d.read_kbps)}</td><td>${kbps(d.write_kbps)}</td>
+    </tr>`;
+
+    if (physDisks.length) {
+      document.getElementById('io-phys-tbody').innerHTML = physDisks.map(row).join('');
+      document.getElementById('io-phys-table').style.display = '';
+    } else {
+      document.getElementById('io-phys-empty').style.display = '';
+    }
+    if (logicalDisks.length) {
+      document.getElementById('io-lvm-section').style.display = '';
+      if (!lvmDisks.length)
+        document.getElementById('io-lvm-section-title').textContent = '파티션 (LVM 없음)';
+      document.getElementById('io-lvm-tbody').innerHTML = logicalDisks.map(row).join('');
+      document.getElementById('io-lvm-table').style.display = '';
+    }
+    if (data.collected_at)
+      document.getElementById('io-snapshot-ts').textContent = '수집 기준: ' + fmtKst(data.collected_at);
+  } catch(e) {
+    document.getElementById('io-snapshot-loading').textContent = '불러오기 실패';
+  }
+}
+
+/* ── I/O 추이 차트 ── */
+let physRange = '15m';
+let lvmRange  = '15m';
+let physChart = null;
+let lvmChart  = null;
+let physSeq   = 0;
+let lvmSeq    = 0;
+
+const fmtLabel = ChartUtils.fmtLabel;
+
+function makeIoDatasets(avgRows, maxRows, range, anchorEnd) {
+  const bucket = AUTO_BUCKET[range];
+  const bMs    = BUCKET_MS[bucket];
+  const grid   = makeBucketGrid(range, bucket, anchorEnd);
+  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+
+  const avgByDim = {};
+  const maxByDim = {};
+  for (const r of avgRows) (avgByDim[r.dimension] = avgByDim[r.dimension] || []).push(r);
+  for (const r of maxRows) (maxByDim[r.dimension] = maxByDim[r.dimension] || []).push(r);
+
+  const dims = Object.keys(avgByDim);
+  const datasets = [];
+  dims.forEach((dim, i) => {
+    const color   = COLORS[i % COLORS.length];
+    const avgPts  = avgByDim[dim] || [];
+    const maxPts  = maxByDim[dim] || [];
+    const avgMap  = {};
+    const maxMap  = {};
+    for (const p of avgPts) avgMap[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value;
+    for (const p of maxPts) maxMap[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value;
+    const avgData = grid.map(t => avgMap[t] ?? null);
+    const realMax = grid.map(t => maxMap[t] ?? null);
+    const bufData = grid.map(t => {
+      const a = avgMap[t];
+      if (a == null) return null;
+      return maxMap[t] ?? a;
+    });
+    datasets.push({
+      label: dim, data: avgData,
+      borderColor: color, backgroundColor: color + '33',
+      borderWidth: 2, pointRadius: 1, pointHoverRadius: 3,
+      tension: 0.3, fill: '+1', spanGaps: false,
+    });
+    datasets.push({
+      label: dim + ' (최대)', data: bufData, realData: realMax,
+      borderColor: 'transparent', backgroundColor: 'transparent',
+      borderWidth: 0, pointRadius: 0,
+      tension: 0.3, fill: false, spanGaps: false,
+    });
+  });
+  return { labels, datasets };
+}
+
+function ioChartOptions() {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode:'index', intersect:false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        filter: item => item.datasetIndex % 2 === 0,
+        callbacks: {
+          label: ctx => {
+            const avgVal = ctx.parsed.y;
+            if (avgVal == null) return null;
+            const maxDs  = ctx.chart.data.datasets[ctx.datasetIndex + 1];
+            const maxVal = maxDs?.realData?.[ctx.dataIndex];
+            if (maxVal != null)
+              return ` ${ctx.dataset.label}: 평균 ${avgVal.toFixed(1)} / 최대 ${maxVal.toFixed(1)} IOPS`;
+            return ` ${ctx.dataset.label}: ${avgVal.toFixed(1)} IOPS`;
+          },
+        },
+      },
+    },
+    scales: {
+      x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
+      y: {
+        title: { display:true, text:'IOPS', font:{size:11}, color:'#94a3b8' },
+        ticks: { precision:0, font:{size:11}, color:'#64748b' },
+        grid: { color:'#f1f5f9' }, beginAtZero: true, suggestedMax: STORAGE_IOPS_SUGGESTED_MAX,
+      },
+    },
+  };
+}
+
+function renderIoChartTo(canvasId, emptyId, legendId, avgRows, maxRows, range, chartRef, anchorEnd) {
+  const canvas = document.getElementById(canvasId);
+  const empty  = document.getElementById(emptyId);
+  if (!avgRows.length) {
+    canvas.style.display = 'none'; empty.style.display = '';
+    if (chartRef) { chartRef.destroy(); }
+    return null;
+  }
+  canvas.style.display = ''; empty.style.display = 'none';
+  const { labels, datasets } = makeIoDatasets(avgRows, maxRows, range, anchorEnd);
+  if (chartRef) {
+    chartRef.data.labels = labels; chartRef.data.datasets = datasets;
+    chartRef.update('none'); return chartRef;
+  }
+  const chart = new Chart(canvas, { type:'line', data:{labels, datasets}, options: ioChartOptions() });
+  const container = document.getElementById(legendId);
+  container.innerHTML = datasets
+    .filter((_, i) => i % 2 === 0)
+    .map((ds, i) => `
+      <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#475569; cursor:pointer; user-select:none;">
+        <input type="checkbox" data-avg="${i * 2}" checked style="accent-color:${ds.borderColor}; width:13px; height:13px; cursor:pointer;">
+        <span>${ds.label}</span>
+      </label>
+    `).join('');
+  container.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const avgIdx = +cb.dataset.avg;
+      chart.getDatasetMeta(avgIdx).hidden     = !cb.checked;
+      chart.getDatasetMeta(avgIdx + 1).hidden = !cb.checked;
+      chart.update();
+    });
+  });
+  return chart;
+}
+
+function updatePhysBucketLabel() {
+  document.getElementById('io-phys-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[physRange]] || '';
+}
+function updateLvmBucketLabel() {
+  document.getElementById('lvm-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[lvmRange]] || '';
+}
+
+async function loadPhysChart() {
+  const seq = ++physSeq;
+  const capturedRange = physRange;
+  const capturedAnchor = getAnchorEnd('phys-anchor');
+  const bucket = AUTO_BUCKET[capturedRange];
+  const mkQ = (type, agg) => {
+    const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg, device_category: 'phys' });
+    if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
+    return p;
+  };
+  try {
+    const [readAvg, readMax, writeAvg, writeMax] = await Promise.all([
+      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_iops',  'avg')}`).then(r => r.json()),
+      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_iops',  'max')}`).then(r => r.json()),
+      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'avg')}`).then(r => r.json()),
+      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'max')}`).then(r => r.json()),
+    ]);
+    if (seq !== physSeq) return;
+    const safe = arr => Array.isArray(arr) ? arr : [];
+    const physAvgRows = [
+      ...safe(readAvg).map(r  => ({ ...r, dimension: `${r.dimension} Read` })),
+      ...safe(writeAvg).map(r => ({ ...r, dimension: `${r.dimension} Write` })),
+    ];
+    const physMaxRows = [
+      ...safe(readMax).map(r  => ({ ...r, dimension: `${r.dimension} Read` })),
+      ...safe(writeMax).map(r => ({ ...r, dimension: `${r.dimension} Write` })),
+    ];
+    if (physChart) { physChart.destroy(); physChart = null; }
+    physChart = renderIoChartTo('io-phys-canvas', 'io-phys-chart-empty', 'io-phys-legend', physAvgRows, physMaxRows, capturedRange, null, capturedAnchor);
+  } catch(e) { console.error(e); }
+}
+
+async function loadLvmChart() {
+  const seq = ++lvmSeq;
+  const capturedRange = lvmRange;
+  const capturedAnchor = getAnchorEnd('lvm-anchor');
+  const bucket = AUTO_BUCKET[capturedRange];
+  const mkQ = (type, agg) => {
+    const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg, device_category: 'logical' });
+    if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
+    return p;
+  };
+  try {
+    const [readAvg, readMax, writeAvg, writeMax] = await Promise.all([
+      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_iops',  'avg')}`).then(r => r.json()),
+      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_iops',  'max')}`).then(r => r.json()),
+      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'avg')}`).then(r => r.json()),
+      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'max')}`).then(r => r.json()),
+    ]);
+    if (seq !== lvmSeq) return;
+    const safe = arr => Array.isArray(arr) ? arr : [];
+    const logicalAvgRows = [
+      ...safe(readAvg).map(r  => ({ ...r, dimension: `${r.dimension} Read` })),
+      ...safe(writeAvg).map(r => ({ ...r, dimension: `${r.dimension} Write` })),
+    ];
+    const logicalMaxRows = [
+      ...safe(readMax).map(r  => ({ ...r, dimension: `${r.dimension} Read` })),
+      ...safe(writeMax).map(r => ({ ...r, dimension: `${r.dimension} Write` })),
+    ];
+    if (logicalAvgRows.length) {
+      document.getElementById('io-lvm-chart-card').style.display = '';
+      document.getElementById('io-lvm-chart-title').textContent = '논리 계층 I/O 추이';
+      document.getElementById('lvm-range-print').textContent = ' — ' + RANGE_LABEL[capturedRange];
+      updateLvmBucketLabel();
+      if (lvmChart) { lvmChart.destroy(); lvmChart = null; }
+      lvmChart = renderIoChartTo('io-lvm-canvas', 'io-lvm-chart-empty', 'io-lvm-legend', logicalAvgRows, logicalMaxRows, capturedRange, null, capturedAnchor);
+    }
+  } catch(e) { console.error(e); }
+}
+
+
+bindToggle('io-phys-range-btns', v => {
+  physRange = v;
+  updatePhysBucketLabel();
+  document.getElementById('io-phys-range-print').textContent = ' — ' + RANGE_LABEL[v];
+  loadPhysChart();
+});
+bindToggle('io-lvm-range-btns', v => {
+  lvmRange = v;
+  updateLvmBucketLabel();
+  document.getElementById('lvm-range-print').textContent = ' — ' + RANGE_LABEL[v];
+  loadLvmChart();
+});
+
+initAnchor('phys-anchor');
+initAnchor('lvm-anchor');
+initAnchor('fs-anchor');
+document.getElementById('phys-anchor').addEventListener('change', () => loadPhysChart());
+document.getElementById('lvm-anchor').addEventListener('change', () => loadLvmChart());
+document.getElementById('fs-anchor').addEventListener('change', () => loadFsChart());
+
+loadIoSnapshot();
+updatePhysBucketLabel();
+loadPhysChart();
+loadLvmChart();
+
+/* ── 파일시스템 사용량 추이 ── */
+let fsRange = '15m';
+let fsChart = null;
+let fsSeq   = 0;
+
+function updateFsBucketLabel() {
+  document.getElementById('fs-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[fsRange]] || '';
+}
+
+function renderFsChart(avgRows, maxRows, range, anchorEnd) {
+  const empty  = document.getElementById('fs-chart-empty');
+  const canvas = document.getElementById('fs-chart-canvas');
+
+  if (!avgRows.length) {
+    canvas.style.display = 'none'; empty.style.display = '';
+    if (fsChart) { fsChart.destroy(); fsChart = null; }
+    buildFsLegend();
+    return;
+  }
+  canvas.style.display = ''; empty.style.display = 'none';
+
+  const bucket = AUTO_BUCKET[range];
+  const bMs    = BUCKET_MS[bucket];
+  const grid   = makeBucketGrid(range, bucket, anchorEnd);
+  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+
+  const avgByDim = {};
+  const maxByDim = {};
+  for (const r of avgRows) (avgByDim[r.dimension] = avgByDim[r.dimension] || []).push(r);
+  for (const r of maxRows) (maxByDim[r.dimension] = maxByDim[r.dimension] || []).push(r);
+
+  const dims = Object.keys(avgByDim);
+  const datasets = [];
+  dims.forEach((dim, i) => {
+    const color  = COLORS[i % COLORS.length];
+    const avgMap = {}, maxMap = {};
+    for (const p of (avgByDim[dim] || [])) avgMap[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value;
+    for (const p of (maxByDim[dim] || [])) maxMap[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value;
+    const avgData  = grid.map(t => avgMap[t] ?? null);
+    const realMax  = grid.map(t => maxMap[t] ?? null);
+    const bufData  = grid.map(t => avgMap[t] == null ? null : (maxMap[t] ?? avgMap[t]));
+    datasets.push({
+      label: dim, data: avgData,
+      borderColor: color, backgroundColor: color + '28',
+      borderWidth: 2, pointRadius: 1, pointHoverRadius: 3,
+      tension: 0.3, fill: '+1', spanGaps: false,
+    });
+    datasets.push({
+      label: dim + '__max', data: bufData, realData: realMax,
+      borderColor: 'transparent', backgroundColor: 'transparent',
+      borderWidth: 0, pointRadius: 0, pointHoverRadius: 0,
+      fill: false, spanGaps: false,
+    });
+  });
+
+  if (fsChart) {
+    fsChart.data.labels = labels; fsChart.data.datasets = datasets;
+    fsChart.update('none');
+    buildFsLegend();
+    return;
+  }
+
+  fsChart = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode:'index', intersect:false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          filter: item => !item.dataset.label.endsWith('__max'),
+          callbacks: {
+            label: ctx => {
+              const avg = ctx.parsed.y;
+              const maxDs = ctx.chart.data.datasets[ctx.datasetIndex + 1];
+              const realMax = maxDs?.realData?.[ctx.dataIndex];
+              if (realMax != null)
+                return ` ${ctx.dataset.label}: 평균 ${avg?.toFixed(1)}% / 최대 ${realMax?.toFixed(1)}%`;
+              return ` ${ctx.dataset.label}: ${avg?.toFixed(1)}%`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
+        y: {
+          title: { display:true, text:'%', font:{size:11}, color:'#94a3b8' },
+          ticks: { callback: v => v + '%', font:{size:11}, color:'#64748b' },
+          grid:  { color:'#f1f5f9' },
+          min: 0, max: 100,
+        },
+      },
+    },
+  });
+  buildFsLegend();
+}
+
+async function loadFsChart() {
+  const seq = ++fsSeq;
+  const capturedRange  = fsRange;
+  const capturedAnchor = getAnchorEnd('fs-anchor');
+  const mkP = agg => {
+    const p = new URLSearchParams({ metric_type: 'fs.usage_percent', time_range: capturedRange, bucket: AUTO_BUCKET[capturedRange], agg });
+    if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
+    return p;
+  };
+  try {
+    const [avgRows, maxRows] = await Promise.all([
+      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('avg')}`).then(r => r.json()),
+      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('max')}`).then(r => r.json()),
+    ]);
+    if (seq !== fsSeq) return;
+    if (!Array.isArray(avgRows)) return;
+    renderFsChart(avgRows, Array.isArray(maxRows) ? maxRows : [], capturedRange, capturedAnchor);
+  } catch(e) { console.error(e); }
+}
+
+function buildFsLegend() {
+  const container = document.getElementById('fs-legend');
+  if (!fsChart) { container.innerHTML = ''; return; }
+  const avgDatasets = fsChart.data.datasets.filter((_, i) => i % 2 === 0);
+  container.innerHTML = avgDatasets.map((ds, i) => `
+    <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#475569; cursor:pointer; user-select:none;">
+      <input type="checkbox" data-avg="${i * 2}" checked
+        style="accent-color:${ds.borderColor}; width:13px; height:13px; cursor:pointer;">
+      <span>${ds.label}</span>
+    </label>
+  `).join('');
+  container.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const avgIdx = +cb.dataset.avg;
+      fsChart.getDatasetMeta(avgIdx).hidden     = !cb.checked;
+      fsChart.getDatasetMeta(avgIdx + 1).hidden = !cb.checked;
+      fsChart.update();
+    });
+  });
+}
+
+bindToggle('fs-range-btns', v => { fsRange = v; updateFsBucketLabel(); document.getElementById('fs-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadFsChart(); });
+
+updateFsBucketLabel();
+loadFsChart();
+
+/* ── SSE ── */
+initSse(SERVER_ID, loadIoSnapshot);

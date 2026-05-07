@@ -1,16 +1,19 @@
 # Redis 전략
 
 캐시·온라인 TTL·멱등성·PUB/SUB의 4가지 역할을 한 인스턴스로 처리한다.
-Consumer / Web 양쪽이 같은 키 네임스페이스를 공유하며, 키 패턴은 `WebSettings`에 정의한다 (`config.py`).
+Consumer / Web 양쪽이 같은 키 네임스페이스를 공유하며, 키 패턴은 `WebSettings`에 정의한다 (`src/assessment_engine/config.py`).
 
 ```
-db/
+src/assessment_engine/db/
 └── redis.py        — ConnectionPool 싱글턴 + get_redis()
 
-config.py           — redis_key_*, redis_ttl_*, redis_channel_*
+src/assessment_engine/config.py
+                    — redis_key_*, redis_ttl_*, redis_channel_*
 
-consumer/handler.py — _check_idempotent, online SET, cache DEL, PUBLISH
-web/services/query_service.py — cache GET/SET, mget(online), pubsub.subscribe
+src/assessment_engine/consumer/handler.py
+                    — _check_idempotent, online SET, cache DEL, PUBLISH
+src/assessment_engine/web/services/query_service.py
+                    — cache GET/SET, mget(online), pubsub.subscribe
 ```
 
 ---
@@ -162,12 +165,12 @@ async def close_pool() -> None: ...
 
 ### web 측 — DI
 
-`web/deps.py:get_service`가 `Depends(get_redis)`로 주입받아 `QueryService`에 전달.
-`web/main.py` lifespan 종료 시 `close_pool()` 호출.
+`src/assessment_engine/web/deps.py:get_service`가 `Depends(get_redis)`로 주입받아 `QueryService`에 전달.
+`src/assessment_engine/web/main.py` lifespan 종료 시 `close_pool()` 호출.
 
 ### consumer 측 — 직접 호출
 
-`consumer/main.py`가 `get_redis()`를 직접 호출해 핸들러 팩토리에 전달. lifespan 종료 시 `close_pool()`.
+`src/assessment_engine/consumer/main.py`가 `get_redis()`를 직접 호출해 핸들러 팩토리에 전달. lifespan 종료 시 `close_pool()`.
 
 ---
 
@@ -179,9 +182,27 @@ async def close_pool() -> None: ...
 ### 키 패턴 정의 위치
 모든 키 패턴(`redis_key_online`, `redis_key_cache_*`, `redis_key_idempotent`, `redis_channel_metrics`)은 `WebSettings`에 정의. `ConsumerSettings`는 `WebSettings`를 상속하므로 동일 키 사용. `query_service.py`는 `web_settings`를 직접 참조 — consumer/web 모두 같은 키 네임스페이스.
 
-### Redis 장애 시 동작 — fail-close
-멱등성 체크가 critical path에 포함되어 있어 Redis 장애 시 핸들러가 예외 → nack → DLQ.
-fail-open(장애 시 멱등성 체크 생략)으로 바꾸면 중복 처리 가능성이 생긴다. Redis는 캐시·PUB/SUB·온라인 TTL로 이미 hard dependency이므로 새로운 단일 장애점이 추가되는 구조가 아니다.
+### Redis 장애 시 동작 — fail-open
+
+모든 Redis 호출을 `src/assessment_engine/db/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`)로 감싸 silent fallback. 정확성 보장은 2단 안전망(DB UNIQUE / DB query / `last_seen_at` 컬럼)에 위임.
+
+| 역할 | 평시 | Redis 장애 시 |
+|------|------|-------------|
+| 캐시 GET (`get_server`/`get_latest_metric`/`resolve_server_id`) | hit/miss | DB 직접 조회 (응답 정상, 느려질 뿐) |
+| 캐시 SET | TTL 적용 | silent skip (다음 요청도 MISS) |
+| 멱등성 1단 (`_check_idempotent`) | SET NX | True 반환 → 처리 진행 → DB UNIQUE(2단)이 중복 흡수 |
+| consumer cache DELETE / online SET / publish | 정상 호출 | 로그만, 메시지 처리 정상 진행 |
+| list mget (`list_servers`) | 1회 mget | `last_seen_at > now() - 90s` fallback (TTL 임계와 동일) |
+| SSE pubsub (`stream_metrics_events`) | subscribe + listen | RedisError 캐치 → 스트림 종료 (브라우저 자동 재연결) |
+
+**약화되는 보장**:
+- 멱등성 1단: 평시 1회 RTT 차단 → 장애 시 매번 DB INSERT 시도 + UNIQUE 충돌 흡수. 트래픽 규모에서 영향 미미.
+- list 화면 online: Redis 90s TTL 기반 → DB `last_seen_at` 기반. 정밀도 거의 동일, DB N개 행 비교 부하 추가.
+- SSE: 끊김. 브라우저가 자동 재연결.
+
+**약화되지 않는 보장**: 데이터 정확성. 멱등성 fail-open은 1단 차단을 잃지만 시계열 4개 테이블의 `(server_id, [dim,] collected_at)` UNIQUE 제약이 중복 INSERT를 silent no-op으로 흡수.
+
+상세 의사결정과 옵션 비교는 `docs/decisions/redis-decoupling.md`.
 
 ---
 
@@ -267,16 +288,19 @@ docker compose exec redis redis-cli INFO stats | grep evicted_keys
 # Redis 컨테이너 stop
 docker compose stop redis
 
-# 영향:
-# - consumer: SET NX 실패 → 핸들러 raise → nack(requeue=False) → DLQ 누적
-# - web: cache GET 실패 → 500 응답 (또는 fail-open 코드 없음)
-# - SSE 스트림: 끊김
+# 영향 (fail-open 적용 후):
+# - consumer: 핸들러는 정상 처리 진행 (멱등성 1단 우회). DB UNIQUE가 중복 흡수.
+#             online SET / cache DEL / publish 실패는 warning 로그만 남기고 무시.
+#             DLQ 누적 없음.
+# - web: cache GET 실패 → DB 직접 조회 → 응답 정상 (느려질 뿐).
+#        list 화면은 last_seen_at 기반으로 online 판정 (TTL 임계와 동일).
+# - SSE 스트림: pubsub 끊김 → 브라우저 자동 재연결 시도.
 
 # 복구
 docker compose start redis
 ```
 
-fail-close 정책이라 Redis가 곧 복구되지 않으면 DLQ에 메시지가 쌓이고 사용자에게 503에 가까운 경험. 운영에서 Redis HA(Sentinel/Cluster) 도입 시 검토.
+평시·장애 시 동작 차이는 위 "Redis 장애 시 동작 — fail-open" 표 참조. Redis HA(Sentinel/Cluster) 도입은 fail-open 정책과 별개로 평시 latency·hit rate 개선 목적으로 검토.
 
 ### 흔한 트러블
 

@@ -6,33 +6,40 @@
 각 항목은 다음 형식이다:
 
 > **선택**: 채택한 방식
+> 
 > **대안**: 대신 가능했던 방식
+> 
 > **트레이드오프**: 무엇을 얻고 무엇을 포기했는가
+> 
 > **언제 다시 봐야 하는가**: 이 선택이 더 이상 유효하지 않은 시점
 
 ---
 
-## T1. 멱등성: at-most-once + 2단 방어
+## T1. 멱등성: at-most-once + 2단 방어 (fail-open 1단)
 
-> **관련 코드**: `consumer/handler.py` `_check_idempotent`, `db/repositories/collect_repository.py` `insert_metric`
-> **관련 문서**: CLAUDE.md §D2
+> **관련 코드**: `src/assessment_engine/consumer/handler.py` `_check_idempotent`, `src/assessment_engine/db/redis.py` `safe_set_nx`, `src/assessment_engine/db/repositories/collect_repository.py` `insert_metric`
+>
+> **관련 문서**: CLAUDE.md §D2, `docs/decisions/redis-decoupling.md`
 
 **선택**
-1. Redis `SET idempotent:{message_id} 1 EX 86400 NX` (DB 커밋 이전).
-2. 시계열 4개 테이블에 `(server_id, [dim,] collected_at)` UNIQUE + `pg_insert.on_conflict_do_nothing`.
+1. Redis `SET idempotent:{message_id} 1 EX 86400 NX` (DB 커밋 이전). **fail-open** — Redis 장애 시 처리 진행.
+2. 시계열 4개 테이블에 `(server_id, [dim,] collected_at)` UNIQUE + `pg_insert.on_conflict_do_nothing`. Redis 장애·evict로 1단이 깨져도 2단이 silent no-op으로 흡수.
 
 **대안**
 - **at-least-once + outbox 패턴**: DB 커밋과 message ack를 동일 트랜잭션에 묶고, ack 실패 시 outbox 테이블에서 재처리. 메시지 유실 0건 보장.
 - **at-least-once + 자연키 멱등 INSERT만**: SET NX를 빼고 DB UNIQUE만으로 중복 차단. 메시지 유실은 막지만 중복 처리 비용 발생.
 
 **트레이드오프**
-- **얻은 것**: 가장 빠른 중복 차단 (Redis 1회 RTT), 단순한 구현 (outbox 테이블·트랜잭션 동기화 불필요).
-- **포기한 것**: SET NX 후 DB 커밋 전 프로세스가 크래시하면 RabbitMQ 재전송 메시지가 idempotent 키 충돌로 silent 드롭됨 → **데이터 유실** 가능. 1단(Redis)이 먼저 차단하므로 2단(DB UNIQUE)도 이 시나리오는 해결 못 함.
+- **얻은 것**: 가장 빠른 중복 차단 (Redis 1회 RTT), 단순한 구현 (outbox 테이블·트랜잭션 동기화 불필요). Redis 장애 시 시스템 회복력 확보 (fail-open).
+- **포기한 것**:
+  - **at-most-once 한계**: SET NX 후 DB 커밋 전 프로세스가 크래시하면 RabbitMQ 재전송 메시지가 idempotent 키 충돌로 silent 드롭 → 데이터 유실 가능. 1단(Redis)이 먼저 차단하므로 2단(DB UNIQUE)도 이 시나리오는 해결 못 함.
+  - **fail-open의 비용**: Redis 장애 동안 1단의 빠른 차단(RTT)이 사라지고 매 메시지가 DB UNIQUE까지 도달. 트래픽 규모에서 영향 미미하지만 트래픽 증가 시 재평가 필요.
 
 **왜 받아들였나**
 - 1분 주기 metrics는 1건 유실의 시각화 영향이 작음 (다음 사이클에서 회복).
 - inventory는 에이전트 재시작 시 재발행 (one-shot 보장이 약하지만 운영상 충분).
 - B2B 내부 포털이라 통계 정확성보다 간결한 운영을 우선.
+- fail-open은 2단(DB UNIQUE)의 흡수력에 명시적으로 의존 — 시계열 4개 테이블 UNIQUE 제약이 정상 동작해야 함.
 
 **언제 다시 봐야 하는가**
 - exactly-once 보장이 계약상 필요해질 때 (감사 로그·과금 연동 등).
@@ -43,7 +50,7 @@
 
 ## T2. 캐시 일관성: cache-aside (write-around)
 
-> **관련 코드**: `web/services/query_service.py` `get_latest_metric`, `consumer/handler.py` metrics handler
+> **관련 코드**: `src/assessment_engine/web/services/query_service.py` `get_latest_metric`, `src/assessment_engine/consumer/handler.py` metrics handler
 > **관련 문서**: CLAUDE.md §D4
 
 **선택**
@@ -71,7 +78,7 @@
 
 ## T3. 시계열 무한 누적
 
-> **관련 코드**: `db/models/server_metrics.py`, `db/models/server_disk_io.py` 등
+> **관련 코드**: `src/assessment_engine/db/models/server_metrics.py`, `src/assessment_engine/db/models/server_disk_io.py` 등
 > **관련 문서**: CLAUDE.md §C1
 
 **선택**
@@ -96,14 +103,15 @@
 
 ---
 
-## T4. DEV 스키마 관리: web lifespan + create_all
+## T4. DEV 스키마 관리: web lifespan + create_all (prod skip)
 
-> **관련 코드**: `web/main.py` lifespan, `db/models/`
-> **관련 문서**: CLAUDE.md §C1, A2
+> **관련 코드**: `src/assessment_engine/web/main.py` lifespan, `src/assessment_engine/db/models/`, `src/assessment_engine/config.py` `app_env`
+> **관련 문서**: CLAUDE.md §C1, A2, `docs/dev-prod.md` §4 APP_ENV 마커
 
 **선택**
 - web 기동 시 `CREATE EXTENSION timescaledb` → `Base.metadata.create_all` → `create_hypertable(if_not_exists)`.
 - consumer는 `depends_on web: condition: service_healthy`로 web 헬스체크 후 시작.
+- **`APP_ENV=prod`일 때 lifespan이 자동 skip** — Alembic이 schema 관리 책임. `consumer depends_on web` 의존성도 단계적 제거 가능.
 
 **대안**
 - **Alembic**: 마이그레이션 스크립트로 스키마 관리. consumer가 web에 의존하지 않음.
@@ -125,7 +133,7 @@
 
 ## T5. SSE 단일 채널 + 서버 측 필터링
 
-> **관련 코드**: `web/services/query_service.py` `stream_metrics_events`, `consumer/handler.py` `redis.publish`
+> **관련 코드**: `src/assessment_engine/web/services/query_service.py` `stream_metrics_events`, `src/assessment_engine/consumer/handler.py` `redis.publish`
 
 **선택**
 - 모든 SSE 클라이언트가 `metrics.events` 단일 채널 구독. 서버 측에서 `payload.server_id == subscribed_server_id`로 필터링.
@@ -150,7 +158,7 @@
 
 ## T6. 클라이언트 차트 JS는 P3 명시 예외 (P4)
 
-> **관련 코드**: `web/templates/servers/*.html` `<script>` 블록, `web/static/js/chart-utils.js`
+> **관련 코드**: `src/assessment_engine/web/templates/servers/*.html` `<script>` 블록, `src/assessment_engine/web/static/js/chart-utils.js`
 > **관련 문서**: CLAUDE.md §E1 P4
 
 **선택**
@@ -169,40 +177,42 @@
 - 동적 인터랙션이 필요한 차트가 ~10개. 서버 사이드 이미지 차트는 인터랙션 비용 큼.
 - 프레임워크는 빌드/배포 파이프라인 도입 비용이 본 포털 규모와 맞지 않음.
 
-**현재 상태 (2026-05-06 갱신)**
+**현재 상태 (2026-05-08 갱신)**
 - 5개 규약 모두 cpu/memory/storage/network/performance 템플릿에 적용 완료.
-- 공통 유틸은 `web/static/js/chart-utils.js`로 추출 (T9 참조). 인라인 중복 제거됨.
+- 공통 유틸은 `src/assessment_engine/web/static/js/chart-utils.js`로 추출 (T9).
+- **inline `<script>` 본문 외부화 완료** — 5개 페이지 모두 `static/js/pages/{name}.js` 별도 파일. 페이지 간 회귀 격리·node syntax check 가능. 회귀 사례(sed 일괄 변환의 부작용으로 인한 `ReferenceError`)는 외부화로 한 파일 안에 가둠. 추후 ESLint·TS 도입 시 진입점 명확.
 
 ---
 
-## T7. 에이전트 broker 자동 재연결 없음
+## T7. 에이전트 broker 자동 재연결 (이미 구현됨 — 진단 정정)
 
-> **관련 코드**: `assessment-agent/src/publish.c` (외부 레포)
-> **관련 문서**: CLAUDE.md §A4 운영 노트
+> **관련 코드**: `assessment-agent/src/publish.c`, `src/main.c` (외부 레포)
+> **상태**: 이전 항목의 진단(자동 재연결 부재)은 **사실 오류**. 직접 코드 확인 결과 이미 구현되어 있음.
 
-**선택**
-- C 에이전트의 publish 루프는 broker 끊김에 대한 자동 재연결을 시도하지 않음. 첫 publish 실패 후 silent.
+**실제 구현 (2026-05-07 확인)**
+- `publish.c`: 매 publish가 fresh connection lifecycle (`amqp_new_connection` → `socket_open` → `login` → `channel_open` → publish → close → destroy). connection 재사용 안 함.
+- `publish.c`: publisher confirm 모드 활성화 (`amqp_confirm_select(conn, 1)`) + wall-clock deadline ack 대기 (`wait_confirm`, 기본 5초 `RABBITMQ_CONFIRM_TIMEOUT_SEC`).
+- `main.c` `publish_with_retry`: 지수 백오프 (1s → 2s → 4s → ... → max=AGENT_INTERVAL_SEC, 기본 60s) 무한 retry. `g_stop` 시그널 전까지.
+- 복구 시 `PUBLISH_RECOVERED` error 메시지 자동 발행 (`retry_count`, `first_failed_at`, `recovered_at` 포함).
 
-**대안**
-- **librabbitmq + 재연결 wrapper**: connect 실패 시 백오프 재시도. aio-pika의 `connect_robust` 같은 구조.
+**즉 broker 재기동 시 자동 회복**
+- broker 죽음 → 에이전트 publish 실패 → 백오프 retry 시작 → broker 살아남 → 다음 retry 사이클에서 publish 성공 → `PUBLISH_RECOVERED` 알림 메시지 → 정상 운영 복구.
+- 사람이 `systemctl restart assessment-agent` 할 필요 없음.
 
-**트레이드오프**
-- **얻은 것**: C 코드 단순. 에이전트가 RabbitMQ 클라이언트 라이브러리에 깊게 의존하지 않음.
-- **포기한 것**: docker compose RabbitMQ 재기동 후 VM 안 에이전트 수동 재시작 (`systemctl restart assessment-agent`) 필요.
+**예전 운영 사례의 진짜 원인**
+- "broker 재기동 후 systemctl restart 필요"로 잘못 해석된 시나리오의 실제 원인은 **`docker compose down -v`로 DB까지 초기화된 후 inventory가 one-shot이라 재발행 안 됨**.
+- 에이전트는 broker 재연결 정상 → metrics는 정상 publish → DB의 server_inventory가 비어있어 `metrics dropped — server not registered` 누적.
+- 의제 A(주기 inventory 재발행, `docs/meetings/2026-05-08-agent-protocol.md`) + 엔진 측 auto-register(`src/assessment_engine/consumer/handler.py`)로 본질적 해결됨.
 
-**왜 받아들였나**
-- 에이전트는 Vagrant 개발 시나리오에서 broker 재기동이 드물고, 프로덕션 환경에서는 broker가 안정적.
-- 자동 재연결은 별도 작업 (현 scope 외).
-
-**언제 다시 봐야 하는가**
-- 운영 환경에서 RabbitMQ 재기동·네트워크 파티션이 잦을 때.
-- → C 에이전트에 백오프 재연결 추가 또는 systemd `Restart=on-failure` + healthcheck로 외부 supervisor가 재시작.
+**남은 한계**
+- broker가 영구 down이면 에이전트는 백오프 상한(60s) 간격으로 영원히 재시도 — 정상 동작이지만 로그·CPU 미세 부담.
+- inventory 메시지 자체가 broker down 동안 발행 시도되면 retry로 해결되나, **에이전트 기동 직후 inventory 1회 발행 후 다시 안 보내는 정책**은 별도 약점 (의제 A로 해결).
 
 ---
 
 ## T8. ListServers ORM 부분 SELECT vs full row
 
-> **관련 코드**: `db/repositories/query_repository.py` `list_servers`
+> **관련 코드**: `src/assessment_engine/db/repositories/query_repository.py` `list_servers`
 
 **선택**
 - `select(ServerInventory.id, .public_id, .machine_id, ...)`로 11개 컬럼만 명시 SELECT. `mounts`/`listen_ports`/`kernel_version`/`boot_time`/`swap_total_kb`/`agent_version`/`last_seen_at`/`ip_internal`/`os_codename`/`cpu_model` 제외.
@@ -227,7 +237,7 @@
 
 ## T9. 차트 공통 JS — 인라인 중복 제거 (chart-utils.js 추출)
 
-> **관련 코드**: `web/static/js/chart-utils.js`, `web/main.py` `StaticFiles` 마운트, `web/templates/servers/*.html`
+> **관련 코드**: `src/assessment_engine/web/static/js/chart-utils.js`, `src/assessment_engine/web/main.py` `StaticFiles` 마운트, `src/assessment_engine/web/templates/servers/*.html`
 
 **선택**
 - 5개 차트 템플릿에 흩어진 공통 정의(`fmtKst` / `bindToggle` / `COLORS` / `AUTO_BUCKET` / `BUCKET_MS` / `makeBucketGrid` / `joinToGrid` / `fmtLabel` / `getAnchorEnd` / `initAnchor` / SSE 초기화)를 `/static/js/chart-utils.js`로 추출. `base.html`에서 단일 로드 → 전역 `ChartUtils` IIFE 객체 노출.
@@ -243,18 +253,24 @@
 - **포기한 것**: 모듈 시스템(import/export) 없음. `ChartUtils.X` 또는 destructure 형태로만 노출. 의존 그래프가 명시적이지 않음. 타입체크 없음 (TS 도입 X).
 
 **왜 받아들였나**
-- 본 포털은 정적 자원이 chart-utils 1개뿐. 번들러 운영 비용(node_modules·빌드 스텝·소스맵·CI 변경) 대비 이득 작음.
+- 본 포털은 번들러 운영 비용(node_modules·빌드 스텝·소스맵·CI 변경) 대비 이득 작음.
 - IIFE + 단일 로드는 브라우저 캐싱 친화적이고 디버깅이 단순.
 
+**현재 상태 (2026-05-08 갱신) — Phase 6**
+- 5개 페이지 inline `<script>` 본문 외부화 완료: `src/assessment_engine/web/static/js/pages/{cpu,memory,storage,network,performance}.js`.
+- 페이지 .html은 짧은 inline `<script>`로 Jinja2 변수만 정의(`SERVER_ID`, `CPU_CORES`) + 외부 .js를 `defer` 로드.
+- 정적 자원 6개: `chart-utils.js` + 5개 페이지 .js. **node 의존성 0** — 빌드 단계 추가 없이 외부화만으로 회귀 격리 + node syntax check 가능.
+
 **언제 다시 봐야 하는가**
-- 정적 자원이 3개 이상으로 늘거나 TS 타입체크 필요성이 생길 때.
-- → Vite + ESM으로 마이그레이션. `app.mount("/static", ...)`을 `dist/`로 변경.
+- TS 타입체크 또는 ESLint 정적 검증 필요성이 명확해질 때.
+- → 의존 최소: `tsc --checkJs --noEmit` (빌드 산출 없음, JSDoc 주석으로 타입) 또는 `eslint --rule no-undef` (npm 1개).
+- 빌드 도입은 Vite/esbuild — `app.mount("/static", ...)`을 `dist/`로 변경.
 
 ---
 
 ## T10. ViewModel 비대화 vs 클라이언트 재계산 (P5 적용)
 
-> **관련 코드**: `web/view_models.py`, `web/services/mappers.py`, `web/services/metrics_calculator.py`
+> **관련 코드**: `src/assessment_engine/web/view_models.py`, `src/assessment_engine/web/services/mappers.py`, `src/assessment_engine/web/services/metrics_calculator.py`
 > **관련 문서**: CLAUDE.md §E1 P5 / §E4
 
 **선택**
@@ -281,29 +297,35 @@
 
 ---
 
-## T11. 단일 Redis 인스턴스 — 캐시·멱등성·PubSub 한 통합
+## T11. 단일 Redis 인스턴스 — 캐시·멱등성·PubSub 한 통합 (fail-open)
 
-> **관련 코드**: `db/redis.py`, `consumer/handler.py`, `web/services/query_service.py`
-> **관련 문서**: `docs/components/redis.md`
+> **관련 코드**: `src/assessment_engine/db/redis.py` `safe_*` helper, `src/assessment_engine/consumer/handler.py`, `src/assessment_engine/web/services/query_service.py`
+> **관련 문서**: `docs/components/redis.md`, `docs/decisions/redis-decoupling.md`
 
 **선택**
-- 한 Redis 인스턴스에서 4가지 역할 동시 처리: 캐시 / 온라인 TTL / 멱등성 / PUB/SUB.
+- 한 Redis 인스턴스에서 5가지 역할 동시 처리: 캐시 / 온라인 TTL / 멱등성 / PUB/SUB / public_id 해석.
 - eviction 정책 `volatile-lru` (TTL 있는 키만 evict 대상).
+- 모든 Redis 호출은 `src/assessment_engine/db/redis.py`의 `safe_*` helper 경유 — **fail-open 정책**.
+- list 화면 online 표시는 `last_seen_at` 컬럼 fallback 보유.
 
 **대안**
 - **분리**: 캐시용 / 멱등성용 / PUB/SUB용 인스턴스 분리.
 - **외부 시스템**: idempotency를 PostgreSQL `INSERT ... ON CONFLICT DO NOTHING` 으로 (멱등성 키 테이블).
+- **인터페이스 추상화 (옵션 E)**: `BaseCache`/`BaseEventBus`/`BasePresenceTracker` 추상으로 Redis 자체를 옵션화. Redis를 다른 캐시로 교체할 계획이 없으므로 채택 안 함.
 
 **트레이드오프**
-- **얻은 것**: 운영 단순. docker compose 1개 컨테이너. 코드의 `get_redis()` 1개 함수.
+- **얻은 것**:
+  - 운영 단순. docker compose 1개 컨테이너. 코드의 `get_redis()` 1개 함수.
+  - **fail-open 정책으로 운영 결합도가 통상 수준 도달** — Redis 장애 시 web은 느려질 뿐 응답 가능, consumer는 DLQ 누적 없이 처리 진행.
 - **포기한 것**:
-  - 멱등성 키도 `volatile-lru` 대상 — maxmemory 압박 시 evict 가능 → 1단 방어 깨짐 (T1과 연결).
+  - 멱등성 키도 `volatile-lru` 대상 — maxmemory 압박 시 evict 가능 → 1단 방어 깨짐. fail-open과 동일하게 DB UNIQUE(2단)이 흡수 (T1과 연결).
   - PUB/SUB 부하가 캐시 hit/miss 응답 latency에 영향 가능.
-  - Redis 단일 장애 시 4가지 역할 모두 down — 캐시뿐 아니라 멱등성·온라인 표시·SSE 모두 마비. consumer는 fail-close로 nack → DLQ 누적.
+  - Redis 단일 장애 시 5가지 역할 모두 영향 — 단 fail-open으로 시스템 다운은 회피. SSE는 끊김(브라우저 자동 재연결), 멱등성 1단은 우회(DB가 흡수), 캐시는 DB 직접 조회.
 
 **왜 받아들였나**
 - B2B 내부 포털 — 동시 요청 수·멱등성 키 수가 작아 evict 시나리오 드묾.
 - 단일 인스턴스로 운영 비용 최소화.
+- Redis를 다른 캐시 시스템으로 교체할 계획 없음 — 인터페이스 추상화는 무의미한 복잡도 증가.
 
 **언제 다시 봐야 하는가**
 - 멱등성 키 evict가 실제 관찰될 때 (Redis `INFO stats` `evicted_keys` 모니터링).

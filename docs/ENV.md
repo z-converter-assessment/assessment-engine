@@ -1,10 +1,14 @@
-# 환경변수
+# 환경변수 (현황 카탈로그)
 
-루트 `.env`에서 주입. `.env.example`을 복사해 시작한다.
+> **본 문서는 키 카탈로그**다. 정책·dev/prod 분리·secret 단계는 [dev-prod.md](dev-prod.md) 참조.
+
+루트 `.env`에서 주입 (dev). `.env.example`을 복사해 시작한다.
 
 ```bash
 cp .env.example .env
 ```
+
+prod에선 `.env` 대신 Docker secrets로 자격을 주입한다 — 자세한 정책은 `dev-prod.md` §7.
 
 ## 주입 흐름
 
@@ -48,6 +52,7 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 
 | 키 | 기본값 | 사용처 | 설명 |
 |----|--------|--------|------|
+| `APP_ENV` | `dev` | config.py / docker-compose | 환경 마커. `dev`/`staging`/`prod`. `prod`일 때 model_validator가 약한 default 거부 |
 | `POSTGRES_HOST` | `postgres` | config.py / docker-compose | PostgreSQL 호스트 (docker-compose 서비스명) |
 | `POSTGRES_PORT` | `5432` | config.py / docker-compose | |
 | `POSTGRES_DB` | `assessment` | config.py / docker-compose | |
@@ -55,6 +60,7 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 | `POSTGRES_PASSWORD` | `assessment` | config.py / docker-compose | |
 | `RABBITMQ_HOST` | `rabbitmq` | config.py | 컨슈머 broker 접속 (docker-compose 서비스명). 에이전트는 본 키를 사용하지 않음 — Vagrantfile이 `10.0.2.2`(NAT) 별도 주입 |
 | `RABBITMQ_PORT` | `5672` | config.py / docker-compose | |
+| `RABBITMQ_VHOST` | `/assessment` | config.py / docker-compose / Vagrantfile | 전용 vhost. 에이전트와 동일 값 사용. AMQP URL의 `/`는 `%2F`로 인코딩 (config.py `broker_url` 자동 처리) |
 | `RABBITMQ_USER` | `assessment` | config.py / docker-compose / Vagrantfile | |
 | `RABBITMQ_PASSWORD` | `assessment` | config.py / docker-compose / Vagrantfile | |
 | `RABBITMQ_MANAGEMENT_PORT` | `15672` | docker-compose | RabbitMQ 관리 콘솔 포트 노출 (config.py 미사용) |
@@ -79,19 +85,23 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 
 docker-compose `environment:` 오버라이드는 `web` / `consumer` 양쪽에 명시되어 있어 컨테이너 내부에서는 `.env` HOST 값을 변경해도 효과 없음. 호스트 직접 실행 시에만 의미 있다.
 
-### Vagrantfile의 `.env` 사용
+### Vagrantfile의 secret 채널 (분리됨)
 
-Vagrantfile은 `.env`를 직접 파싱해 다음 키만 fetch한다 (`config.py`도 docker-compose도 아닌 별도 경로):
+Vagrantfile은 엔진의 `.env`를 직접 파싱하지 않는다. 별도 파일 `infra/agent.env`에서만 read:
 
 - `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_EXCHANGE`, `RABBITMQ_ROUTING_KEY_INVENTORY`, `RABBITMQ_ROUTING_KEY_METRICS`, `RABBITMQ_ROUTING_KEY_ERROR`
 
-이 값들이 VM 안 `/etc/assessment-agent.env`에 옮겨지고, `RABBITMQ_HOST`는 Vagrantfile 상단의 `RABBITMQ_HOST = "10.0.2.2"` (VirtualBox NAT → 호스트머신) 상수로 별도 주입된다 — 본 `.env`의 `RABBITMQ_HOST`는 에이전트에 전달되지 않는다.
+`infra/agent.env`가 없으면 Vagrantfile이 즉시 에러. `cp infra/agent.env.example infra/agent.env` 후 운영 값으로 수정.
 
-`.env` 변경 후 VM에 반영하려면 `vagrant provision` 필요.
+이 값들이 VM 안 `/etc/assessment-agent.env`에 옮겨지고, `RABBITMQ_HOST`는 Vagrantfile 상단의 `RABBITMQ_HOST = "10.0.2.2"` (VirtualBox NAT → 호스트머신) 상수로 별도 주입된다.
+
+`infra/agent.env` 변경 후 VM에 반영하려면 `vagrant provision` 필요.
+
+분리 근거: `dev-prod.md` §9.
 
 ### config.py가 환경변수로 받지 않는 키
 
-다음은 `.env.example`에 없고 `config.py`의 default로만 정의된다 — 운영 중 변경 빈도가 낮아 의도적으로 환경변수화하지 않음:
+다음은 `.env.example`에 없고 `src/assessment_engine/config.py`의 default로만 정의된다 — 운영 중 변경 빈도가 낮아 의도적으로 환경변수화하지 않음:
 
 - `redis_ttl_idempotent` (24h), `redis_ttl_online` (90s), `redis_ttl_token` (1h)
 - `redis_key_*` 패턴

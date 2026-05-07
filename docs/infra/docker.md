@@ -39,8 +39,8 @@ web·consumer 양쪽이 **같은 이미지**를 쓰고, docker-compose의 `comma
 
 | 서비스 | command | 진입점 |
 |--------|---------|--------|
-| web | `python -m web` | `web/__main__.py` → uvicorn 기동 (reload 모드) |
-| consumer | `python -m consumer` | `consumer/__main__.py` → `asyncio.run(consumer.main.main())` |
+| web | `python -m web` | `src/assessment_engine/web/__main__.py` → uvicorn 기동 (reload 모드) |
+| consumer | `python -m consumer` | `src/assessment_engine/consumer/__main__.py` → `asyncio.run(consumer.main.main())` |
 
 이미지가 1개라 빌드/푸시·패치 운영 비용이 최소화된다. 의존성 패키지(SQLAlchemy·aio-pika·redis·FastAPI 등)도 양쪽이 모두 사용하므로 분리 이득이 적다.
 
@@ -126,11 +126,11 @@ consumer:
 호스트 프로젝트 루트를 컨테이너 `/app`에 마운트. `Dockerfile`의 `COPY . .`는 빌드 시점 복사라 이후 호스트 변경이 반영 안 되지만, 이 마운트가 위에 덮여 **코드 변경이 컨테이너 내부에 즉시 노출**된다.
 
 조합 효과:
-- `web`: uvicorn `reload=True` (`web/__main__.py`)가 파일 변경 감지 → 자동 재기동. 새로고침만으로 변경 확인.
+- `web`: uvicorn `reload=True` (`src/assessment_engine/web/__main__.py`)가 파일 변경 감지 → 자동 재기동. 새로고침만으로 변경 확인.
 - `consumer`: reload 없음. 변경 후 `docker compose restart consumer` 필요.
-- `web/static/js/chart-utils.js` 같은 정적 자원도 별도 빌드 없이 즉시 서빙.
+- `src/assessment_engine/web/static/js/chart-utils.js` 같은 정적 자원도 별도 빌드 없이 즉시 서빙.
 
-**프로덕션 마이그레이션 가이드**: `volumes: ./:/app` 제거 → `Dockerfile`의 `COPY . .` 결과만 사용. uvicorn `reload=True`도 제거 (`web/__main__.py`).
+**프로덕션 마이그레이션 가이드**: `volumes: ./:/app` 제거 → `Dockerfile`의 `COPY . .` 결과만 사용. uvicorn `reload=True`도 제거 (`src/assessment_engine/web/__main__.py`).
 
 **보안 — `.env` 노출**: 코드 마운트의 부작용으로 호스트 `.env`가 컨테이너 안 `/app/.env`에 그대로 노출된다 (`-rw-r--r--` root 소유). `.dockerignore`에 `.env`가 명시되어 있어 **이미지 빌드(`COPY . .`) 시점에는 제외**되지만, 런타임 코드 마운트는 빌드 산출물이 아니므로 `.dockerignore`가 적용되지 않는다. 프로덕션에서 코드 마운트를 제거하면 `.env`도 자동으로 컨테이너 안에서 사라진다.
 
@@ -259,6 +259,12 @@ docker compose ps                                # 컨테이너 상태
 | 증상 | 원인 | 해결 |
 |------|------|------|
 | web 헬스체크 unhealthy | lifespan에서 모델 로딩 실패 (`TypeError: non-default argument follows default` 등) | `docker compose logs web` 확인 후 코드 수정 → reload 자동 처리 |
-| consumer가 inventory를 받지만 metrics drop | 이전 `docker compose down -v` 직후 첫 inventory 도달 전 metrics가 먼저 옴. 또는 broker 재기동 후 에이전트 재연결 실패 | VM에서 `sudo systemctl restart assessment-agent` |
+| consumer가 metrics 받았지만 server 미등록 | inventory 도착 전 metrics가 먼저 옴 (DB 초기화 직후 등) | 자동 처리됨 — consumer가 placeholder inventory 생성 후 정상 저장 (`auto-registered server from metrics ...` 로그). 다음 inventory 도착 시 풀 정보로 자동 업데이트 |
 | `docker compose up` 후 시간 초과 | 첫 빌드는 의존성 설치(60s+) + TimescaleDB 이미지 풀(~200MB) 필요 | 첫 기동만 5분 정도 여유 |
 | `pg_isready` 통과했지만 web에서 connection refused | postgres healthcheck는 `--listen` 단계 통과 후 수행되지만 TimescaleDB 확장 로딩이 진행 중일 수 있음 | start_period(`web` 측) 활용 — 이미 적용됨 |
+
+---
+
+## RabbitMQ 운영
+
+본 문서는 docker-compose 관점(컨테이너 정의·볼륨·헬스체크)만 다룬다. RabbitMQ broker 자체의 운영 — vhost 개념·권한 모델·토폴로지·dev/prod 분기·Production 전환 체크리스트는 `docs/components/rabbitmq.md` 단일 진실.

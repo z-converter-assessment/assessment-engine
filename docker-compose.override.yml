@@ -1,0 +1,44 @@
+# dev 자동 적용 override. `docker compose up` 시 base와 자동 머지.
+# prod 기동(`-f docker-compose.yml -f docker-compose.prod.yml`)에는 적용되지 않는다.
+#
+# 핵심 차이 (base 대비):
+# - .env 평문 주입 (POSTGRES_PASSWORD 등)
+# - 모든 백킹 서비스 포트를 호스트로 노출 (디버깅·redis-cli 직결 등)
+# - web/consumer에 코드 마운트 (volumes: ./:/app) — 빠른 반복
+# - APP_ENV=dev 강제 (config.py model_validator의 prod 검증 우회)
+
+services:
+  postgres:
+    env_file: .env
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-assessment}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  rabbitmq:
+    env_file: .env
+    environment:
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-assessment}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+
+  redis:
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+  web:
+    volumes:
+      - ./:/app
+    env_file: .env
+    environment:
+      APP_ENV: dev
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+
+  consumer:
+    volumes:
+      - ./:/app
+    env_file: .env
+    environment:
+      APP_ENV: dev
