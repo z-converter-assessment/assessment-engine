@@ -100,11 +100,86 @@
   // ── 응답 안전 변환 ──
   function safeArray(arr) { return Array.isArray(arr) ? arr : []; }
 
+  // ── reboot / agent restart 이벤트 (차트 vertical marker용) ──
+  // 백엔드 API: GET /api/v1/servers/{id}/events/reboot?time_range=...&end=...
+  // 응답: [{collected_at, boot_time, agent_started_at, kind: "reboot"|"restart"}]
+  async function fetchRebootEvents(serverId, range, anchor) {
+    const p = new URLSearchParams({ time_range: range });
+    if (anchor) p.append('end', anchor.toISOString());
+    const res = await fetch(`/api/v1/servers/${serverId}/events/reboot?${p}`);
+    if (res.status === 404 || !res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  }
+
+  // grid는 timestamp(ms) 오름차순 배열. ts에 가장 가까운(<=) 인덱스 반환. 없으면 -1.
+  function _findGridIndex(grid, ts) {
+    if (!grid.length || ts < grid[0]) return -1;
+    let lo = 0, hi = grid.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (grid[mid] <= ts) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+  }
+
+  // Chart.js custom plugin — 차트 options.plugins.rebootMarkers.{events, gridMs} 읽어
+  // vertical dashed line + 작은 라벨 그림. afterDraw로 dataset 위에 덮어 그림.
+  // 색상: reboot=red(#ef4444), restart=amber(#f59e0b). 기존 USAGE_DANGER/WARN 색과 일치.
+  const rebootMarkersPlugin = {
+    id: 'rebootMarkers',
+    afterDraw(chart) {
+      const opts = chart.options.plugins?.rebootMarkers;
+      if (!opts || !Array.isArray(opts.events) || !opts.events.length) return;
+      const grid = opts.gridMs;
+      if (!Array.isArray(grid) || !grid.length) return;
+      const xScale = chart.scales.x;
+      if (!xScale) return;
+      const area = chart.chartArea;
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'left';
+      for (const ev of opts.events) {
+        const ts = new Date(ev.collected_at).getTime();
+        const idx = _findGridIndex(grid, ts);
+        if (idx < 0) continue;
+        const x = xScale.getPixelForValue(idx);
+        if (x < area.left || x > area.right) continue;
+        const color = ev.kind === 'reboot' ? '#ef4444' : '#f59e0b';
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(x, area.top);
+        ctx.lineTo(x, area.bottom);
+        ctx.stroke();
+        ctx.fillStyle = color;
+        ctx.fillText(ev.kind === 'reboot' ? '재부팅' : '재시작', x + 3, area.top + 11);
+      }
+      ctx.restore();
+    },
+  };
+  // Chart.js 4.x global plugin 등록. base.html에서 chart.umd.min.js 로드 후 본 파일 실행.
+  if (root.Chart && typeof root.Chart.register === 'function') {
+    root.Chart.register(rebootMarkersPlugin);
+  }
+
+  // 차트 인스턴스에 marker 옵션 주입 + animation 없이 redraw.
+  // 호출자: 모든 chart load 후 (한 번에 모든 차트에 적용)
+  function applyRebootMarkers(chart, events, gridMs) {
+    if (!chart || !chart.options) return;
+    chart.options.plugins = chart.options.plugins || {};
+    chart.options.plugins.rebootMarkers = { events, gridMs };
+    chart.update('none');
+  }
+
   root.ChartUtils = {
     RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, RANGE_MS, BUCKET_MS, COLORS,
     fmtKst, fmtLabel, fmtKbChart,
     getAnchorEnd, initAnchor,
     makeBucketGrid, joinToGrid,
     bindToggle, initSse, safeArray,
+    fetchRebootEvents, applyRebootMarkers,
   };
 })(window);

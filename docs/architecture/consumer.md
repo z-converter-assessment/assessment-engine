@@ -103,6 +103,7 @@ DB 저장 (지수 백오프 재시도, _db_retry)
 1. SET online:{server_id} 1 EX 90        — 온라인 상태 갱신
 2. DELETE cache:metrics:{server_id}      — 캐시 즉시 무효화
 3. PUBLISH metrics.events {...}          — 브라우저 SSE 트리거
+4. _track_agent_restart                  — 직전 agent_started_at과 비교, 변경 시 1h 슬라이딩 카운터 INCR. threshold 도달 시 warning
 ```
 
 ### error 후처리
@@ -113,7 +114,7 @@ metrics 핸들러는 `repo.ensure_server_id(machine_id, placeholder)`로 한 번
 
 placeholder는 `mappers.placeholder_inventory_from_metrics`가 생성. machine_id/hostname/agent_version만 실값, 나머지 정적 정보(OS·CPU·메모리·디스크 등)는 None/빈 배열. 다음 진짜 inventory 도착 시 ON CONFLICT DO UPDATE로 풀 정보 자동 덮어씀 (machine_id UNIQUE 제약).
 
-metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 4개 시계열 테이블 INSERT를 facade로 묶어 처리. 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
+metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 4개 시계열 테이블 INSERT를 facade로 묶어 처리. `boot_time`·`agent_started_at`은 시계열 4개 테이블 모두에 동일 시점값으로 함께 저장 → metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 비교로 시스템 재부팅 시 delta 건너뛰기 (CLAUDE.md B1). mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅 단일 테이블 SELECT 위해 보존. 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
 
 → metrics drop 0. inventory one-shot 정책으로 인한 영구 미등록 시나리오 해소. 에이전트 변경 없이 엔진 단독 안전망.
 
@@ -211,6 +212,25 @@ upsert 성공 후 `SET online:{server_id} EX 90`. 첫 메트릭 수신 전(최�
 `free_bytes`, `avail_bytes`가 스키마에 있으나 `src/assessment_engine/consumer/mappers.py:to_inventory_create`에서 명시적으로 drop된다 (`{"mount": ..., "fstype": ..., "total_bytes": ...}`만 매핑). 인벤토리에는 정적 정보만 저장하고, 동적 사용량은 metrics 메시지의 `mounts[]` → `server_mount_usage` 시계열 테이블로 분리한다.
 
 스키마 v3에 추가된 `disks[].major/minor`, `mounts[].major/minor`, `disk_io[].major/minor`도 Pydantic `extra=ignore`로 통과 후 사용 안 한다. 활용·제거 결정은 다음 agent_version 협의 시점.
+
+### metrics 공통 메타 — boot_time / agent_started_at
+
+이전엔 metrics 메시지의 `boot_time`/`agent_started_at`을 mapper에서 무시했으나, 현재는 `to_metric_create`가 `ServerMetricCreate`에 매핑 + `record_metrics`가 시계열 4개 테이블 모두에 함께 저장. metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 비교로 시스템 재부팅 시 delta 건너뛰기 (CLAUDE.md B1). 차트 SQL(`_chart_cpu_delta` / `_chart_rate_per_dimension`)도 동일 정책 적용 — `LAG(boot_time)` 추출 후 CASE에서 reset 식별. mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅 단일 테이블 SELECT 위해 보존. 옛 데이터(컬럼 NULL)는 d<0 휴리스틱 fallback. 활용 카탈로그는 `agent.md` "활용 중인 필드" 표 참조.
+
+### 부가 시그널 — 운영 가시성
+
+handler 본 처리 흐름과 별개로 두 가지 부가 시그널을 발행 (모두 fail-open · 처리 ack 영향 없음):
+
+1. `_log_time_invariants(data)` — 모든 핸들러(inventory/metrics/error)에서 멱등성 체크 직후 호출.
+   - `boot_time > agent_started_at` → systemd 시작 순서 또는 시계 동기화 비정상 (드뭄)
+   - `agent_started_at > collected_at` → VM 시계 동기화 문제 (가장 흔함, VM resume 직후)
+   위반 시 warning 로그만. DLQ 안 보냄 — 시계 문제는 데이터 reject 의미 없음.
+
+2. `_track_agent_restart(redis, server_id, machine_id, agent_started_at)` — metrics 핸들러 후처리 끝에서 호출.
+   - `last_agent_start:{sid}` (24h)에서 직전 값 비교 → 변경 시 `agent_restarts:{sid}` (1h 슬라이딩) INCR
+   - `agent_restart_alert_threshold` (기본 3) 도달 시 warning (운영자가 crash loop 인지)
+   - 시스템 재부팅도 같은 카운터 — 1h 내 3회 재부팅도 unusual이라 alert 적정
+   - Redis 장애 시 silent skip (옛 휴리스틱과 동일 효과)
 
 ---
 

@@ -15,8 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.config import consumer_settings
 from assessment_engine.consumer.mappers import placeholder_inventory_from_metrics, to_inventory_create, to_metric_create
-from assessment_engine.consumer.schemas import ErrorInput, InventoryInput, MetricsInput
-from assessment_engine.db.redis import safe_delete, safe_publish, safe_set, safe_set_nx
+from assessment_engine.consumer.schemas import ErrorInput, InventoryInput, MessageBase, MetricsInput
+from assessment_engine.db.redis import (
+    safe_delete,
+    safe_get,
+    safe_incr_with_ttl,
+    safe_publish,
+    safe_set,
+    safe_set_nx,
+)
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository, MetricInsertResult
 
 
@@ -62,6 +69,50 @@ async def _check_idempotent(redis: Redis, message_id: UUID) -> bool:
     return True if result is None else result
 
 
+def _log_time_invariants(data: MessageBase) -> None:
+    """시계·systemd 시작 순서 invariant 검증. warning 로그만, 처리는 그대로 진행.
+
+    - boot_time > agent_started_at: systemd 시작 순서 비정상 또는 시계 동기화 문제 (드뭄)
+    - agent_started_at > collected_at: VM 시계 동기화 문제 (가장 흔함 — VM resume 직후)
+    DLQ로 보내지 않음 — 시계 문제는 데이터 reject 의미 없고 운영자 인지가 목적.
+    """
+    if data.boot_time > data.agent_started_at:
+        logger.warning(
+            "time invariant violated boot_time>agent_started_at machine_id={} boot_time={} agent_started_at={}",
+            data.machine_id, data.boot_time, data.agent_started_at,
+        )
+    if data.agent_started_at > data.collected_at:
+        logger.warning(
+            "time invariant violated agent_started_at>collected_at machine_id={} agent_started_at={} collected_at={}",
+            data.machine_id, data.agent_started_at, data.collected_at,
+        )
+
+
+async def _track_agent_restart(redis: Redis, server_id: int, machine_id: str, agent_started_at) -> None:
+    """직전 agent_started_at과 비교 → 변경 시 1h 슬라이딩 윈도우 카운터 INCR.
+
+    threshold 도달 시 warning 로그 (운영자가 "에이전트 crash loop"으로 인지). 시스템 재부팅도
+    agent_started_at이 자연히 변경되므로 같은 카운터에 포함 — 시스템 재부팅이 1h 내 3회면
+    그것도 unusual이라 alert 적정.
+
+    fail-open — Redis 장애 시 silent skip. 정확성 보장 안 됨 (옛 휴리스틱과 동일).
+    """
+    last_key    = consumer_settings.redis_key_last_agent_start.format(server_id)
+    counter_key = consumer_settings.redis_key_agent_restarts.format(server_id)
+    current_iso = agent_started_at.isoformat()
+
+    last_iso = await safe_get(redis, last_key)
+    if last_iso and last_iso != current_iso:
+        count = await safe_incr_with_ttl(redis, counter_key, consumer_settings.redis_ttl_agent_restarts)
+        if count is not None and count >= consumer_settings.agent_restart_alert_threshold:
+            logger.warning(
+                "agent restart frequency alert machine_id={} server_id={} count={}/h threshold={}",
+                machine_id, server_id, count, consumer_settings.agent_restart_alert_threshold,
+            )
+
+    await safe_set(redis, last_key, current_iso, ex=consumer_settings.redis_ttl_last_agent_start)
+
+
 def make_inventory_handler(
     session_factory: async_sessionmaker[AsyncSession],
     repo_factory: Callable[[AsyncSession], BaseCollectRepository],
@@ -78,6 +129,8 @@ def make_inventory_handler(
             if not await _check_idempotent(redis, data.message_id):
                 logger.info("inventory duplicate skipped message_id={}", data.message_id)
                 return
+
+            _log_time_invariants(data)
 
             dto = to_inventory_create(data)
 
@@ -114,6 +167,8 @@ def make_metrics_handler(
                 logger.info("metrics duplicate skipped message_id={}", data.message_id)
                 return
 
+            _log_time_invariants(data)
+
             dto = to_metric_create(data)
             placeholder = placeholder_inventory_from_metrics(data)
 
@@ -143,6 +198,7 @@ def make_metrics_handler(
                 consumer_settings.redis_channel_metrics,
                 json.dumps({"server_id": resolved_server_id, "machine_id": data.machine_id}),
             )
+            await _track_agent_restart(redis, resolved_server_id, data.machine_id, data.agent_started_at)
             logger.info(
                 "metrics stored machine_id={} rows metrics={} disk_io={} net_io={} mount_usage={}",
                 data.machine_id,
@@ -167,6 +223,8 @@ def make_error_handler(
             if not await _check_idempotent(redis, data.message_id):
                 logger.info("error duplicate skipped message_id={}", data.message_id)
                 return
+
+            _log_time_invariants(data)
 
             logger.warning(
                 "agent error machine_id={} component={} code={} msg={} "

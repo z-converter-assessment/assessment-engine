@@ -9,7 +9,8 @@
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
         fmtKst, fmtKbChart, getAnchorEnd, initAnchor,
-        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray } = ChartUtils;
+        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray,
+        fetchRebootEvents, applyRebootMarkers } = ChartUtils;
 
 // 추이 차트의 분해력 기준 (다중 interface × RX/TX 다중 라인 — idle 환경 트래픽도 보이도록).
 // 진단 리포트(performance.html)는 다른 정책: PERF_NET_SUGGESTED_MAX = 10 MB/s (1 Gbps의 8%).
@@ -216,6 +217,10 @@ async function loadNetChart() {
     if (netChart) { netChart.destroy(); netChart = null; }
     renderNetChart(avgRows, maxRows, capturedRange, capturedAnchor);
     buildNetLegend();
+    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
+    if (seq !== netSeq) return;
+    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
+    applyRebootMarkers(netChart, events, grid);
   } catch(e) {
     console.error(e);
   }

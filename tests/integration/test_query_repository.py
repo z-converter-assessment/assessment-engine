@@ -278,6 +278,135 @@ async def test_metric_chart_disk_read_iops_per_device(
             assert r.value >= 0  # 음수 IOPS 없음
 
 
+async def test_metric_chart_cpu_excludes_boot_time_change_point(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """_chart_cpu_delta — boot_time 변경 시점은 reset 확정 → 차트 missing (CLAUDE.md B1).
+
+    재부팅 후 jiffies는 0부터 시작이지만 드물게 prev보다 큰 값일 수도. 옛 d<0 휴리스틱은
+    못 잡지만 boot_time 비교는 spike 방지.
+    """
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-rst-cpu-1"))
+    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=10)
+    boot_a = datetime(2026, 5, 9, 10, 0, tzinfo=timezone.utc)
+    boot_b = datetime(2026, 5, 9, 11, 0, tzinfo=timezone.utc)
+
+    # 시점 0~1: boot_a 정상 누적 / 시점 2: boot_b + 양수 d (재부팅 후 큰 값으로 가정)
+    # 옛 휴리스틱(d<0)으론 못 잡고 boot_time 비교만 잡는 케이스
+    cases = [(0, boot_a, 1000, 8000), (5, boot_a, 1100, 8800), (10, boot_b, 2000, 16000)]
+    for offset, bt, cu, ci in cases:
+        await collect_repo.record_metrics(sid, make_metrics(
+            collected_at=base_ts + timedelta(minutes=offset),
+            boot_time=bt, agent_started_at=bt + timedelta(seconds=10),
+            cpu_user=cu, cpu_idle=ci,
+        ))
+
+    end = base_ts + timedelta(minutes=15)
+    rows = await query_repo.metric_chart(
+        server_id=sid, metric_type="cpu.usage_percent", dimension=None,
+        time_range="30m", bucket="1m", agg="avg", end=end,
+    )
+    # reset 처리됐으면 시점 2(boot_b 첫 측정)는 NULL → 그 버킷 차트에서 제외.
+    # 시점 1은 정상 (boot_a 동일) → 정상 percent. 결과 ≥ 1행, 모두 0~100.
+    assert all(0 <= r.value <= 100 for r in rows if r.value is not None)
+    reset_bucket_ts = base_ts + timedelta(minutes=10)
+    reset_bucket_in_result = any(
+        r.collected_at.replace(tzinfo=timezone.utc) == reset_bucket_ts.replace(second=0)
+        for r in rows
+    )
+    assert not reset_bucket_in_result, "reset 시점 차트에 포함됨 — boot_time 비교 미적용"
+
+
+async def test_metric_chart_rate_excludes_boot_time_change_point(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """_chart_rate_per_dimension — boot_time 변경 시 d_val 양수여도 reset 확정 → 차트 missing."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-rst-rate-1"))
+    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=10)
+    boot_a = datetime(2026, 5, 9, 10, 0, tzinfo=timezone.utc)
+    boot_b = datetime(2026, 5, 9, 11, 0, tzinfo=timezone.utc)
+
+    # 시점 2의 d_val 양수(100→300)지만 boot_time 변경 → reset 확정
+    cases = [(0, boot_a, 100), (5, boot_a, 200), (10, boot_b, 300)]
+    for offset, bt, reads in cases:
+        await collect_repo.record_metrics(sid, make_metrics(
+            collected_at=base_ts + timedelta(minutes=offset),
+            boot_time=bt, agent_started_at=bt + timedelta(seconds=10),
+            disk_io=[DiskIoEntry(device="sda", reads_completed=reads, writes_completed=0,
+                                 sectors_read=0, sectors_written=0)],
+            mounts=[], net_io=[],
+        ))
+
+    end = base_ts + timedelta(minutes=15)
+    rows = await query_repo.metric_chart(
+        server_id=sid, metric_type="disk.read_iops", dimension="sda",
+        time_range="30m", bucket="1m", agg="avg", end=end,
+    )
+    # 시점 2의 ts 버킷이 결과에 없어야 함 (reset 처리됐다면)
+    reset_bucket_ts = (base_ts + timedelta(minutes=10)).replace(second=0)
+    reset_bucket_in_result = any(
+        r.collected_at.replace(tzinfo=timezone.utc) == reset_bucket_ts for r in rows
+    )
+    assert not reset_bucket_in_result, "rate 차트가 reset 시점 spike 표시 — boot_time 비교 미적용"
+    # 그 외 행은 비음수 (음수 IOPS는 옛 휴리스틱이 이미 거름)
+    assert all(r.value >= 0 for r in rows if r.value is not None)
+
+
+async def test_reboot_events_classifies_boot_time_change_as_reboot(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """server_inventory_history에 boot_time 변경 시점 → kind='reboot'."""
+    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=2)
+    boot_a = datetime(2026, 5, 9, 10, 0, tzinfo=timezone.utc)
+    boot_b = datetime(2026, 5, 9, 12, 0, tzinfo=timezone.utc)
+    agent_a = boot_a + timedelta(seconds=10)
+    agent_b = boot_b + timedelta(seconds=10)
+
+    # upsert_server가 _inventory_changed 감지 + history append. boot_time 변경이 trigger.
+    await collect_repo.upsert_server(make_inventory(
+        machine_id="q-rb-1", collected_at=base_ts, boot_time=boot_a, agent_started_at=agent_a,
+    ))
+    await collect_repo.upsert_server(make_inventory(
+        machine_id="q-rb-1", collected_at=base_ts + timedelta(hours=1),
+        boot_time=boot_b, agent_started_at=agent_b,
+    ))
+
+    sid = await collect_repo.find_server_id("q-rb-1")
+    events = await query_repo.reboot_events(
+        sid, start=base_ts - timedelta(minutes=1), end=base_ts + timedelta(hours=2),
+    )
+    # 첫 등록(prev_boot=NULL → reboot) + boot_time 변경(reboot) → 2건
+    assert len(events) == 2
+    assert all(ev.kind == "reboot" for ev in events)
+
+
+async def test_reboot_events_classifies_agent_only_change_as_restart(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """boot_time 동일 + agent_started_at만 변경 → kind='restart'."""
+    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=2)
+    boot = datetime(2026, 5, 9, 10, 0, tzinfo=timezone.utc)
+    agent_a = boot + timedelta(seconds=10)
+    agent_b = boot + timedelta(minutes=30)  # 같은 부팅, 에이전트만 재시작
+
+    await collect_repo.upsert_server(make_inventory(
+        machine_id="q-rb-2", collected_at=base_ts, boot_time=boot, agent_started_at=agent_a,
+    ))
+    await collect_repo.upsert_server(make_inventory(
+        machine_id="q-rb-2", collected_at=base_ts + timedelta(hours=1),
+        boot_time=boot, agent_started_at=agent_b,
+    ))
+
+    sid = await collect_repo.find_server_id("q-rb-2")
+    events = await query_repo.reboot_events(
+        sid, start=base_ts - timedelta(minutes=1), end=base_ts + timedelta(hours=2),
+    )
+    # 첫 등록(reboot) + agent 변경(restart) → 2건
+    assert len(events) == 2
+    assert events[0].kind == "reboot"
+    assert events[1].kind == "restart"
+
+
 async def test_metric_chart_dimension_filter(
     collect_repo: CollectRepository, query_repo: QueryRepository,
 ):

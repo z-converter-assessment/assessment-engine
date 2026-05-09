@@ -16,6 +16,10 @@ from assessment_engine.db.repositories.inbound import (
 )
 
 
+_DEFAULT_BOOT_TIME = datetime(2026, 1, 1, tzinfo=timezone.utc)
+_DEFAULT_AGENT_STARTED_AT = datetime(2026, 1, 1, 0, 5, tzinfo=timezone.utc)
+
+
 def make_inventory(
     *,
     machine_id: str = "test-machine-id-0001",
@@ -24,6 +28,8 @@ def make_inventory(
     collected_at: datetime | None = None,
     cpu_cores: int | None = 4,
     mem_total_kb: int | None = 8 * 1024 * 1024,
+    boot_time: datetime | None = _DEFAULT_BOOT_TIME,
+    agent_started_at: datetime | None = _DEFAULT_AGENT_STARTED_AT,
     disks: list[dict] | None = None,
     mounts: list[dict] | None = None,
     services: list[dict] | None = None,
@@ -43,7 +49,8 @@ def make_inventory(
         cpu_model="test-cpu",
         mem_total_kb=mem_total_kb,
         swap_total_kb=2 * 1024 * 1024,
-        boot_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        boot_time=boot_time,
+        agent_started_at=agent_started_at,
         ip_internal=["10.0.0.1"],
         ip_external=None,
         disks=disks if disks is not None else [
@@ -60,6 +67,8 @@ def make_inventory(
 def make_metrics(
     *,
     collected_at: datetime,
+    boot_time: datetime | None = _DEFAULT_BOOT_TIME,
+    agent_started_at: datetime | None = _DEFAULT_AGENT_STARTED_AT,
     cpu_user: int = 1000,
     cpu_nice: int = 0,
     cpu_system: int = 200,
@@ -85,6 +94,8 @@ def make_metrics(
     """raw 누적값. 시간 흐름 시뮬은 호출자가 collected_at + 누적 카운터 증가로."""
     return ServerMetricCreate(
         collected_at=collected_at,
+        boot_time=boot_time,
+        agent_started_at=agent_started_at,
         cpu_user=cpu_user, cpu_nice=cpu_nice, cpu_system=cpu_system,
         cpu_idle=cpu_idle, cpu_iowait=cpu_iowait, cpu_irq=cpu_irq,
         cpu_softirq=cpu_softirq, cpu_steal=cpu_steal,

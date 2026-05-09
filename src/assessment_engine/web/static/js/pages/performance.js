@@ -8,7 +8,7 @@
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, RANGE_MS, COLORS,
-        fmtKbChart, safeArray } = ChartUtils;
+        fmtKbChart, safeArray, fetchRebootEvents, applyRebootMarkers } = ChartUtils;
 
 
 const PERF_IOPS_SUGGESTED_MAX = 200;              // HDD 랜덤 I/O 한계(~100–200 IOPS) 기준
@@ -382,7 +382,9 @@ async function loadAllCharts() {
   const capturedRange  = globalRange;
   const capturedAnchor = getAnchorEnd();
   updateBucketLabel(capturedRange);
-  await Promise.all([
+  // 차트 + reboot events 병렬 fetch — events는 모든 차트 공유 (단일 grid).
+  const [events] = await Promise.all([
+    fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor),
     loadMountChart(seq, capturedRange, capturedAnchor),
     loadCpuChart(seq, capturedRange, capturedAnchor), loadIowaitChart(seq, capturedRange, capturedAnchor),
     loadCpuUserSystemChart(seq, capturedRange, capturedAnchor), loadLoadChart(seq, capturedRange, capturedAnchor),
@@ -390,6 +392,12 @@ async function loadAllCharts() {
     loadDiskReadChart(seq, capturedRange, capturedAnchor), loadDiskWriteChart(seq, capturedRange, capturedAnchor),
     loadNetRxChart(seq, capturedRange, capturedAnchor), loadNetTxChart(seq, capturedRange, capturedAnchor),
   ]);
+  // 모든 차트 setup 완료 후 marker 일괄 적용 (P4(a) seq 검사로 stale 방지).
+  if (seq !== globalSeq) return;
+  const grid = makeBucketGrid(capturedRange, capturedAnchor);
+  for (const cid of Object.keys(chartInstances)) {
+    applyRebootMarkers(chartInstances[cid], events, grid);
+  }
 }
 
 /* ── 최근 수집 시간 ── */

@@ -14,6 +14,7 @@ from assessment_engine.db.repositories.base_query_repository import (
     BaseQueryRepository,
     BucketSize,
     MetricType,
+    TIME_RANGE_TD,
     TimeRange,
 )
 from assessment_engine.db.repositories.outbound import (
@@ -25,6 +26,7 @@ from assessment_engine.db.repositories.outbound import (
     MountUsageRaw,
     NetIoRaw,
     NetworkWithIo,
+    RebootEvent,
     ServerSummary,
     ServerDetail,
     StorageWithUsage,
@@ -32,15 +34,7 @@ from assessment_engine.db.repositories.outbound import (
 
 
 # ─── 시간 매핑 ─────────────────────────────────────────────────────────────
-
-_TIME_RANGE: dict[str, timedelta] = {
-    "15m": timedelta(minutes=15),
-    "1h":  timedelta(hours=1),
-    "6h":  timedelta(hours=6),
-    "24h": timedelta(hours=24),
-    "7d":  timedelta(days=7),
-    "30d": timedelta(days=30),
-}
+# TimeRange→timedelta는 base_query_repository에서 import (TIME_RANGE_TD) — service와 공유.
 
 # (SQL interval 문자열, Python timedelta) — bucket 단위를 SQL과 Python 양쪽에서 사용
 _BUCKET_INFO: dict[str, tuple[str, timedelta]] = {
@@ -205,6 +199,8 @@ class QueryRepository(BaseQueryRepository):
                 avail_bytes=row.avail_bytes,
                 free_bytes=row.free_bytes,
                 collected_at=row.collected_at,
+                boot_time=row.boot_time,
+                agent_started_at=row.agent_started_at,
             )
             for row in rows
         ]
@@ -303,6 +299,7 @@ class QueryRepository(BaseQueryRepository):
                 mem_cached_kb=m.mem_cached_kb, swap_total_kb=m.swap_total_kb,
                 swap_free_kb=m.swap_free_kb,
                 load_1m=m.load_1m, load_5m=m.load_5m, load_15m=m.load_15m,
+                boot_time=m.boot_time, agent_started_at=m.agent_started_at,
             )
             for m in m_result.scalars().all()
         ]
@@ -316,6 +313,8 @@ class QueryRepository(BaseQueryRepository):
                 writes_completed=row.writes_completed,
                 sectors_read=row.sectors_read,
                 sectors_written=row.sectors_written,
+                boot_time=row.boot_time,
+                agent_started_at=row.agent_started_at,
             )
             for row in d_rows
         ]
@@ -331,6 +330,8 @@ class QueryRepository(BaseQueryRepository):
                 tx_packets=row.tx_packets,
                 rx_errors=row.rx_errors,
                 tx_errors=row.tx_errors,
+                boot_time=row.boot_time,
+                agent_started_at=row.agent_started_at,
             )
             for row in n_rows
         ]
@@ -343,6 +344,8 @@ class QueryRepository(BaseQueryRepository):
                 avail_bytes=row.avail_bytes,
                 free_bytes=row.free_bytes,
                 collected_at=row.collected_at,
+                boot_time=row.boot_time,
+                agent_started_at=row.agent_started_at,
             )
             for row in mu_rows
         ]
@@ -382,7 +385,7 @@ class QueryRepository(BaseQueryRepository):
         end: datetime | None = None,
     ) -> list[MetricSeries]:
         end_dt = end or datetime.now(timezone.utc)
-        start = end_dt - _TIME_RANGE[time_range]
+        start = end_dt - TIME_RANGE_TD[time_range]
         bi, bucket_td = _BUCKET_INFO[bucket]
         ae = _AGG[agg]
 
@@ -461,10 +464,16 @@ class QueryRepository(BaseQueryRepository):
         """LAG 기반 CPU jiffies delta. numerator_expr만 다른 cpu_active / cpu_user / cpu_system / cpu_iowait 통합.
 
         window_start = start - bucket_td (LAG 시 첫 행의 d_total/d_active 계산을 위해 한 버킷 앞 데이터 필요).
+
+        reset 식별 (calculator와 동일 정책 — CLAUDE.md B1):
+        - boot_time != prev_boot → 시스템 재부팅 → NULL (단순 음수가 아닌 진짜 reset)
+        - d_total <= 0 또는 d_num < 0 → NULL (옛 데이터 휴리스틱 fallback / wrap-around)
+        - 정상: d_num * 100 / d_total
+        시간차(dt)는 percent 계산엔 무관 (jiffies 비율이라 자연 정규화).
         """
         sql = text(f"""
             WITH raw AS (
-                SELECT collected_at,
+                SELECT collected_at, boot_time,
                     {numerator_expr}    AS num_j,
                     {_CPU_TOTAL_EXPR}   AS total_j
                 FROM {ServerMetrics.__tablename__}
@@ -473,9 +482,10 @@ class QueryRepository(BaseQueryRepository):
                   AND collected_at <= :end
             ),
             deltas AS (
-                SELECT collected_at,
-                    GREATEST(0, num_j   - LAG(num_j)   OVER (ORDER BY collected_at)) AS d_num,
-                    GREATEST(0, total_j - LAG(total_j) OVER (ORDER BY collected_at)) AS d_total
+                SELECT collected_at, boot_time,
+                    LAG(boot_time) OVER (ORDER BY collected_at) AS prev_boot,
+                    num_j   - LAG(num_j)   OVER (ORDER BY collected_at) AS d_num,
+                    total_j - LAG(total_j) OVER (ORDER BY collected_at) AS d_total
                 FROM raw
             )
             SELECT time_bucket(interval '{bi}', collected_at) AS ts,
@@ -483,10 +493,15 @@ class QueryRepository(BaseQueryRepository):
                    NULL::text                                  AS dimension
             FROM (
                 SELECT collected_at,
-                       CASE WHEN d_total > 0 THEN d_num * 100.0 / d_total END AS v
+                       CASE
+                           WHEN boot_time IS NOT NULL AND prev_boot IS NOT NULL AND boot_time != prev_boot THEN NULL
+                           WHEN d_total IS NULL OR d_total <= 0 OR d_num < 0 THEN NULL
+                           ELSE d_num * 100.0 / d_total
+                       END AS v
                 FROM deltas
-                WHERE collected_at >= :start AND d_total > 0
+                WHERE collected_at >= :start
             ) sub
+            WHERE v IS NOT NULL
             GROUP BY ts
             ORDER BY ts
         """)
@@ -547,10 +562,16 @@ class QueryRepository(BaseQueryRepository):
 
         table·dim_col·value_col은 _RATE_PER_DIM dispatch 매핑으로 whitelist.
         dimension이 있으면 그 dimension만 필터.
+
+        reset 식별 우선순위 (calculator와 동일 정책 — CLAUDE.md B1):
+        ① dt 검증: dt <= 0 (동일 시점·역행) → NULL. dt 자체는 분모일 뿐 1분/3분 무관 — 실제 시간으로 자연 정규화.
+        ② boot_time 검증: boot_time != prev_boot → 시스템 재부팅 → NULL (reset 확정).
+        ③ 음수 delta: d_val < 0 → NULL (옛 데이터 휴리스틱 fallback / wrap-around).
+        ④ 정상: d_val / dt
         """
         sql = text(f"""
             WITH raw AS (
-                SELECT collected_at, {dim_col} AS dim, {value_col} AS cnt
+                SELECT collected_at, boot_time, {dim_col} AS dim, {value_col} AS cnt
                 FROM {table}
                 WHERE server_id = :sid
                   AND collected_at >= :window_start
@@ -558,7 +579,8 @@ class QueryRepository(BaseQueryRepository):
                   AND (CAST(:dim_filter AS text) IS NULL OR {dim_col} = :dim_filter)
             ),
             deltas AS (
-                SELECT collected_at, dim,
+                SELECT collected_at, dim, boot_time,
+                    LAG(boot_time) OVER (PARTITION BY dim ORDER BY collected_at) AS prev_boot,
                     cnt - LAG(cnt) OVER (PARTITION BY dim ORDER BY collected_at) AS d_val,
                     EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER (PARTITION BY dim ORDER BY collected_at))) AS dt
                 FROM raw
@@ -568,10 +590,16 @@ class QueryRepository(BaseQueryRepository):
                    dim                                         AS dimension
             FROM (
                 SELECT collected_at, dim,
-                       CASE WHEN dt > 0 AND d_val >= 0 THEN d_val / dt END AS v
+                       CASE
+                           WHEN dt IS NULL OR dt <= 0 THEN NULL
+                           WHEN boot_time IS NOT NULL AND prev_boot IS NOT NULL AND boot_time != prev_boot THEN NULL
+                           WHEN d_val IS NULL OR d_val < 0 THEN NULL
+                           ELSE d_val / dt
+                       END AS v
                 FROM deltas
-                WHERE collected_at >= :start AND dt > 0 AND d_val >= 0
+                WHERE collected_at >= :start
             ) sub
+            WHERE v IS NOT NULL
             GROUP BY ts, dim
             ORDER BY ts, dim
         """)
@@ -620,3 +648,61 @@ class QueryRepository(BaseQueryRepository):
             {"sid": server_id, "start": start, "end": end, "dim_filter": dimension},
         )
         return [MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension) for row in result.all()]
+
+    # ─── reboot / agent restart 이벤트 (차트 vertical marker용) ────────────
+
+    async def reboot_events(
+        self,
+        server_id: int,
+        start: datetime,
+        end: datetime,
+    ) -> list[RebootEvent]:
+        """server_inventory_history에서 boot_time / agent_started_at 변경 시점 추출.
+
+        history는 변경 trigger 시 행이 추가되므로 행 자체가 변경 이벤트. LAG 비교로
+        boot_time / agent_started_at 변경만 필터 (services / listen_ports만 변경된 행은 제외).
+
+        range 시작 직전 1행도 LAG 베이스로 포함 — start로 자르면 첫 변경의 prev 정보 없어
+        분류 불가. start보다 이른 행은 결과에서 제외, LAG 계산용으로만 사용.
+
+        NULL-safe 비교는 `IS DISTINCT FROM` (PostgreSQL) — 일반 != 는 NULL 비교 시 NULL 반환.
+        """
+        sql = text("""
+            WITH base AS (
+                SELECT collected_at, boot_time, agent_started_at,
+                    LAG(boot_time)        OVER (ORDER BY collected_at) AS prev_boot,
+                    LAG(agent_started_at) OVER (ORDER BY collected_at) AS prev_agent
+                FROM server_inventory_history
+                WHERE server_id = :sid
+                  AND collected_at <= :end
+            )
+            SELECT collected_at, boot_time, agent_started_at,
+                CASE
+                    WHEN prev_boot IS NULL                            THEN 'reboot'
+                    WHEN boot_time IS DISTINCT FROM prev_boot         THEN 'reboot'
+                    WHEN agent_started_at IS DISTINCT FROM prev_agent THEN 'restart'
+                    ELSE NULL
+                END AS kind
+            FROM base
+            WHERE collected_at >= :start
+              AND (
+                  prev_boot IS NULL
+                  OR boot_time        IS DISTINCT FROM prev_boot
+                  OR agent_started_at IS DISTINCT FROM prev_agent
+              )
+            ORDER BY collected_at
+        """)
+        result = await self.session.execute(
+            sql,
+            {"sid": server_id, "start": start, "end": end},
+        )
+        return [
+            RebootEvent(
+                collected_at=row.collected_at,
+                boot_time=row.boot_time,
+                agent_started_at=row.agent_started_at,
+                kind=row.kind,
+            )
+            for row in result.all()
+            if row.kind is not None
+        ]

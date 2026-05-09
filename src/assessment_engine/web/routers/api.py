@@ -67,6 +67,21 @@ async def get_metric_chart(
     )
 
 
+@api_router.get("/{server_id}/events/reboot")
+async def get_reboot_events(
+    time_range: TimeRange = Query("24h"),
+    end: datetime | None = Query(None),
+    internal_id: int = Depends(resolve_internal_id),
+    service: QueryService = Depends(get_service),
+):
+    """차트 vertical marker용 — 지정 time_range 내 시스템 재부팅·에이전트 재시작 시점.
+
+    응답: `[{collected_at, boot_time, agent_started_at, kind}]`
+    kind: "reboot" (시스템 재부팅 또는 첫 등록) | "restart" (에이전트만 재시작)
+    """
+    return await service.get_reboot_events(internal_id, time_range, end)
+
+
 @api_router.get("/{server_id}/metrics/stream")
 async def metrics_stream(
     internal_id: int = Depends(resolve_internal_id),

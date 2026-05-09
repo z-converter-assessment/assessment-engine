@@ -23,3 +23,7 @@ class ServerNetIo(Base):
     tx_packets: Mapped[int | None] = mapped_column(BigInteger)
     rx_errors: Mapped[int | None] = mapped_column(Integer)
     tx_errors: Mapped[int | None] = mapped_column(Integer)
+
+    # counter reset 정밀 식별용 (server_metrics와 동일 정책).
+    boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    agent_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

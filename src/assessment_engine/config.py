@@ -38,9 +38,11 @@ class WebSettings(BaseSettings):
     redis_port: int = 6379
 
     # TTL (seconds)
-    redis_ttl_idempotent: int = 86400   # 24h — 재발행 메시지 중복 차단
-    redis_ttl_online: int = 90          # 90s — 마지막 메트릭 수신 후 오프라인 판단
-    redis_ttl_token: int = 3600         # 1h  — 인증 토큰
+    redis_ttl_idempotent: int = 86400          # 24h — 재발행 메시지 중복 차단
+    redis_ttl_online: int = 90                  # 90s — 마지막 메트릭 수신 후 오프라인 판단
+    redis_ttl_token: int = 3600                 # 1h  — 인증 토큰
+    redis_ttl_last_agent_start: int = 86400     # 24h — 직전 agent_started_at 캐시 (재시작 감지용)
+    redis_ttl_agent_restarts: int = 3600        # 1h  — 슬라이딩 윈도우 카운터
 
     # Key prefixes
     redis_key_cache_inventory: str = "cache:inventory:{}"
@@ -49,6 +51,8 @@ class WebSettings(BaseSettings):
     redis_key_idempotent: str = "idempotent:{}"
     redis_key_online: str = "online:{}"
     redis_key_token: str = "token:{}"
+    redis_key_last_agent_start: str = "last_agent_start:{}"
+    redis_key_agent_restarts: str = "agent_restarts:{}"
 
     # PUB/SUB channels
     redis_channel_metrics: str = "metrics.events"
@@ -89,6 +93,9 @@ class ConsumerSettings(WebSettings):
     rabbitmq_routing_key_inventory: str = "server.inventory"
     rabbitmq_routing_key_metrics: str = "server.metrics"
     rabbitmq_routing_key_error: str = "server.error"
+
+    # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수)
+    agent_restart_alert_threshold: int = 3
 
     @property
     def broker_url(self) -> str:

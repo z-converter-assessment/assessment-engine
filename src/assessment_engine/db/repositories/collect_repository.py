@@ -207,10 +207,13 @@ class CollectRepository(BaseCollectRepository):
         # ON CONFLICT DO NOTHING — Redis 멱등성 키(24h TTL) 만료/evict/Redis 장애로 중복 메시지가
         # 들어와도 자연키 UNIQUE 위반을 silent no-op으로 처리. 4개 테이블 모두 동일 정책.
         # `pg_insert(...).on_conflict_do_nothing(...)` 결과의 rowcount는 실제 INSERT된 행 수.
+        # boot_time/agent_started_at은 시계열 4개 테이블 모두에 동일 시점값으로 함께 저장.
+        # metrics/disk_io/net_io는 calculator가 두 시점 비교로 counter reset 정밀 식별.
+        # mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 위해 보존.
         metrics_n = await self._insert_scalar_metrics(server_id, data)
-        disk_io_n = await self._insert_disk_io(server_id, data.collected_at, data.disk_io)
-        net_io_n  = await self._insert_net_io(server_id, data.collected_at, data.net_io)
-        mount_n   = await self._insert_mount_usage(server_id, data.collected_at, data.mounts)
+        disk_io_n = await self._insert_disk_io(server_id, data, data.disk_io)
+        net_io_n  = await self._insert_net_io(server_id, data, data.net_io)
+        mount_n   = await self._insert_mount_usage(server_id, data, data.mounts)
         return MetricInsertResult(
             metrics=metrics_n,
             disk_io=disk_io_n,
@@ -244,6 +247,8 @@ class CollectRepository(BaseCollectRepository):
             load_1m=data.load_1m,
             load_5m=data.load_5m,
             load_15m=data.load_15m,
+            boot_time=data.boot_time,
+            agent_started_at=data.agent_started_at,
         ).on_conflict_do_nothing(index_elements=["server_id", "collected_at"])
         result = await self.session.execute(stmt)
         return result.rowcount or 0
@@ -251,13 +256,19 @@ class CollectRepository(BaseCollectRepository):
     async def _insert_disk_io(
         self,
         server_id: int,
-        collected_at: datetime,
+        data: ServerMetricCreate,
         entries: list[DiskIoEntry],
     ) -> int:
         if not entries:
             return 0
         stmt = pg_insert(ServerDiskIo).values([
-            {"server_id": server_id, "collected_at": collected_at, **dataclasses.asdict(e)}
+            {
+                "server_id": server_id,
+                "collected_at": data.collected_at,
+                "boot_time": data.boot_time,
+                "agent_started_at": data.agent_started_at,
+                **dataclasses.asdict(e),
+            }
             for e in entries
         ]).on_conflict_do_nothing(index_elements=["server_id", "device", "collected_at"])
         result = await self.session.execute(stmt)
@@ -266,13 +277,19 @@ class CollectRepository(BaseCollectRepository):
     async def _insert_net_io(
         self,
         server_id: int,
-        collected_at: datetime,
+        data: ServerMetricCreate,
         entries: list[NetIoEntry],
     ) -> int:
         if not entries:
             return 0
         stmt = pg_insert(ServerNetIo).values([
-            {"server_id": server_id, "collected_at": collected_at, **dataclasses.asdict(e)}
+            {
+                "server_id": server_id,
+                "collected_at": data.collected_at,
+                "boot_time": data.boot_time,
+                "agent_started_at": data.agent_started_at,
+                **dataclasses.asdict(e),
+            }
             for e in entries
         ]).on_conflict_do_nothing(index_elements=["server_id", "interface", "collected_at"])
         result = await self.session.execute(stmt)
@@ -281,13 +298,19 @@ class CollectRepository(BaseCollectRepository):
     async def _insert_mount_usage(
         self,
         server_id: int,
-        collected_at: datetime,
+        data: ServerMetricCreate,
         entries: list[MountUsageEntry],
     ) -> int:
         if not entries:
             return 0
         stmt = pg_insert(ServerMountUsage).values([
-            {"server_id": server_id, "collected_at": collected_at, **dataclasses.asdict(e)}
+            {
+                "server_id": server_id,
+                "collected_at": data.collected_at,
+                "boot_time": data.boot_time,
+                "agent_started_at": data.agent_started_at,
+                **dataclasses.asdict(e),
+            }
             for e in entries
         ]).on_conflict_do_nothing(index_elements=["server_id", "mount", "collected_at"])
         result = await self.session.execute(stmt)

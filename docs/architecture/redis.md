@@ -28,6 +28,8 @@ src/assessment_engine/web/services/query_service.py
 | 멱등성 | `idempotent:{message_id}` | 24h | TTL 만료만 |
 | 온라인 TTL | `online:{server_id}` | 90s | consumer가 inventory·metrics 양쪽에서 매번 갱신 |
 | 인증 토큰 | `token:{token}` | 1h | TTL 만료만 |
+| 직전 agent_started_at | `last_agent_start:{server_id}` | 24h | metrics 처리 시 매번 SET (직전 값과 비교 → 재시작 감지) |
+| 재시작 카운터 (1h 슬라이딩) | `agent_restarts:{server_id}` | 1h | `_track_agent_restart`가 변경 감지 시 INCR + EXPIRE reset (마지막 INCR 후 1h 유지) |
 
 ### TTL 값 근거
 
@@ -35,6 +37,8 @@ src/assessment_engine/web/services/query_service.py
 - `cache:metrics:{server_id}` 60s — metrics 주기와 동일. consumer DELETE가 없어도 1주기 후 자연 갱신.
 - `cache:inventory:{server_id}` 300s — inventory 변경 빈도가 낮음. consumer DELETE가 즉시 반영.
 - `idempotent:{message_id}` 24h — message_id는 UUID v4이므로 24h 동안 unique 보장. broker 재전송 윈도우 충분히 커버.
+- `last_agent_start:{server_id}` 24h — 직전 비교용 캐시. evict 시 다음 메시지에서 재시작 감지 1회 누락만 — 다음 정상 sample에서 회복.
+- `agent_restarts:{server_id}` 1h — 슬라이딩 윈도우 (마지막 INCR 후 1h). `agent_restart_alert_threshold` (기본 3) 도달 시 warning 로그.
 
 ---
 

@@ -70,7 +70,7 @@ C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_ve
 
 - 단위: 메모리 = `kb`, 디스크/네트워크 = `bytes` (`/proc` 출력 관례)
 - 옵셔널 필드: 수집 실패 시 `null` 전송. 수집 실패와 데이터 없음 미구분
-- counter reset: 재부팅·에이전트 재시작 시 카운터 0 리셋. 포털은 delta < 0이면 `None` 처리 (UI에서 "—"). boot_time 기반 delta 건너뛰기는 미구현
+- counter reset: 재부팅·에이전트 재시작 시 카운터 0 리셋. 포털은 1순위로 두 시점 boot_time 비교(`web/services/metrics_calculator._is_counter_reset`) → 시스템 재부팅이면 delta 건너뛰기(None). 옛 데이터(boot_time NULL)는 2순위로 `delta < 0` 휴리스틱 fallback (UI에서 "—"). agent_started_at만 다르면 에이전트 재시작이고 /proc 카운터는 그대로라 정상 delta
 
 ### 엔진이 받지만 사용하지 않는 필드
 
@@ -81,8 +81,8 @@ C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_ve
 | `mounts[].major/minor` | metrics | 시계열 테이블(`server_mount_usage`)에 컬럼 없음. inventory의 동일 필드만 활용 (mount↔disk 조인). 시계열에서도 활용 시 스키마 변경(`down -v`) 필요 |
 | `disk_io[].major/minor` | metrics | 동일 — `server_disk_io` 시계열 테이블에 컬럼 없음. compute_disk_io의 분류는 device 이름 정규식 유지 |
 | `mounts[].free_bytes/avail_bytes` | inventory | 인벤토리는 정적 정보(total_bytes)만 저장. 동적 사용량은 `server_mount_usage` 시계열로 분리 (`src/assessment_engine/consumer/mappers.py:to_inventory_create`) |
-| `boot_time` | metrics·error | inventory 본문(공통 메타 격상 후) 경로만 사용 — `server_inventory.boot_time` 컬럼 + `server_inventory_history` 변경이력. metrics counter reset 정밀 식별(`metrics_calculator.py`에서 prev↔curr boot_time 비교) 미구현. error는 로깅 외 활용처 없음 |
-| `agent_started_at` | metrics·error | 동일 — inventory 본문에서만 사용(`server_inventory.agent_started_at` + history). metrics에서 에이전트 재시작 sub-1h 감지 가능하지만 현재 미구현. error는 로깅 외 활용처 없음 |
+| `boot_time` (error) | error | error 메시지는 로깅 외 활용처 없음 — counter reset 식별과 무관 |
+| `agent_started_at` (error) | error | 동일 — error 메시지에서만 미사용 |
 
 ### 활용 중인 필드 (이전엔 무시였음)
 
@@ -92,6 +92,8 @@ C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_ve
 | `mounts[].major/minor` | inventory | `src/assessment_engine/web/services/mappers.to_storage_detail`에서 disks 리스트와 매칭 → `MountUsageItem.device_name` 채움 → storage.html "Device" 컬럼 |
 | `boot_time` (inventory) | inventory | `server_inventory.boot_time` 컬럼 저장 + `server_inventory_history` append 시 비교 대상. detail.html / performance.html에 KST 표시 |
 | `agent_started_at` (inventory) | inventory | `server_inventory.agent_started_at` 컬럼 저장 + history 변경 trigger. 에이전트 재시작 이벤트 감지의 1차 단서 |
+| `boot_time` (metrics) | metrics | 시계열 4개 테이블 모두(`server_metrics`·`server_disk_io`·`server_net_io`·`server_mount_usage`) `boot_time` 컬럼 저장 — 메타데이터 일관성. metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 비교 → 시스템 재부팅 시 delta 건너뛰기 (counter reset 정밀 식별의 1차 신호). mount_usage는 시점값이라 calculator 직접 활용 없으나 운영 디버깅·미래 활용 위해 보존. CLAUDE.md C1 + B1 |
+| `agent_started_at` (metrics) | metrics | 동일 4개 테이블 컬럼 저장. boot_time과 함께 비교 — boot_time 동일·agent_started_at만 다름 → 에이전트 재시작 (counter는 /proc 기반이라 그대로 → 정상 delta) |
 
 ---
 

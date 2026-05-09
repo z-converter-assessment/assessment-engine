@@ -90,7 +90,7 @@ Compose 호출:
 
 3가지 routing key (`server.inventory` / `server.metrics` / `server.error`). 메시지 타입별 필드 카탈로그·공통 메타데이터·서브모델 구조는 `docs/architecture/agent.md` "메시지 타입" 절.
 
-공통 메타데이터에 `agent_started_at` (에이전트 프로세스 기동 시각) + `boot_time` (시스템 부팅 시각) 포함 — 두 값 비교로 시스템 재부팅 vs 에이전트 재시작 구분 가능. counter reset 식별의 정확도가 이 두 필드에 의존.
+공통 메타데이터에 `agent_started_at` (에이전트 프로세스 기동 시각) + `boot_time` (시스템 부팅 시각) 포함 — 두 값 비교로 시스템 재부팅 vs 에이전트 재시작 구분. 시계열 4개 테이블 모두에 컬럼으로 영구 보존 (#C1) → metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 boot_time 비교 → 다르면 None 반환(reset 확정), agent_started_at만 다르면 정상 delta(/proc 카운터는 그대로). 둘 다 NULL(옛 데이터)이면 d<0 휴리스틱 fallback. mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 위해 동일 보존.
 
 inventory는 기동 시 1회 + 정적 정보 변경 시 + 1시간 주기 자동 재발행. 엔진 측 데이터 손실(DB 장애·메시지 유실) 발생 시 자동 회복 트리거 역할.
 
@@ -104,7 +104,7 @@ inventory는 기동 시 1회 + 정적 정보 변경 시 + 1시간 주기 자동 
 ## B2. 단위·옵션 규약
 - 단위: 메모리=`kb`, 디스크/네트워크=`bytes` (`/proc` 출력 관례).
 - 옵셔널 필드: 수집 실패 시 `null` 발행. 수집 실패와 데이터 없음을 구분하지 않음.
-- counter reset: 재부팅·에이전트 재시작 시 카운터 0 리셋 → 엔진은 `delta < 0` 시 `None` 처리. 두 시점의 `boot_time` 차이 시 시스템 재부팅 → delta 계산 건너뛰기. 두 시점의 `agent_started_at`만 다르면 에이전트 재시작 → 카운터는 그대로라 delta 정상 계산 가능.
+- counter reset: 1순위 — 두 시점 `boot_time` 차이 시 시스템 재부팅 → delta 건너뛰기 (`metrics_calculator._is_counter_reset` 적용). `agent_started_at`만 다르면 에이전트 재시작이고 /proc 카운터는 그대로라 정상 delta. 2순위 — 둘 다 NULL(옛 데이터) 또는 한쪽만 NULL이면 `delta < 0` 휴리스틱 fallback. 시계열 4개 테이블에 boot_time 컬럼 보존 (#C1) — 메타데이터 일관성.
 
 ## B3. MQ 토폴로지
 
@@ -152,6 +152,7 @@ ORM 모델 카탈로그(6개 테이블) / Inbound·Outbound DTO 카탈로그 / T
   - `server_net_io`: `UNIQUE(server_id, interface, collected_at)`
   - `server_mount_usage`: `UNIQUE(server_id, mount, collected_at)`
   - `server_inventory_history`: `UNIQUE(server_id, collected_at)` — append-only 변경 이력. upsert_server에서 직전 행 비교 후 변경 시에만 INSERT.
+- 시계열 4개 테이블(`server_metrics` · `server_disk_io` · `server_net_io` · `server_mount_usage`) `boot_time TIMESTAMPTZ NULL` + `agent_started_at TIMESTAMPTZ NULL` — 메시지 공통 메타 균일 보존. metrics·disk_io·net_io는 `metrics_calculator`가 두 시점 boot_time 비교로 counter reset 정밀 식별 (#B1, 시스템 재부팅 시 delta 건너뛰기). `mount_usage`는 시점값(델타 없음)이라 calculator 직접 활용은 없으나 운영 디버깅(단일 테이블 SELECT로 재부팅 여부 확인) + 미래 활용 + 시계열 메타데이터 일관성을 위해 보존. 둘 다 NULL(옛 데이터)이면 calculator는 d<0 휴리스틱 fallback.
 
 스키마 변경 운영 결정: DEV에서 `create_all`은 기존 테이블에 컬럼/제약 추가하지 않음 — 모델 변경 후 최초 기동은 `docker compose down -v` 필요. PROD는 Alembic + `create_hypertable` 수동.
 
@@ -171,7 +172,7 @@ repo 메서드 카탈로그·asyncpg 함정·`_chart_*` 패턴: `docs/architectu
 
 ## C3. Redis 전략 — fail-open 의무
 
-모든 Redis 호출은 `src/assessment_engine/db/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`) 경유. RedisError 시 silent fallback + warning 로그. 직접 redis client 호출 금지.
+모든 Redis 호출은 `src/assessment_engine/db/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`/`safe_incr_with_ttl`) 경유. RedisError 시 silent fallback + warning 로그. 직접 redis client 호출 금지.
 
 fail-open 핵심 결과(다른 계층이 의존):
 - 멱등성 1단 fail-open → DB UNIQUE(#D2 2단)이 중복 흡수 — 시계열 4테이블 UNIQUE(#C1) 누락 시 보장 깨짐.
@@ -216,7 +217,11 @@ fail-open 의존성: 1단 fail-open은 2단 UNIQUE의 흡수력에 명시적으�
 
 inventory·metrics 저장 성공 시 routing key별 Redis 후처리는 모두 `safe_*` helper 경유 (#C3) — 부수 작업 실패가 메시지 처리 ack를 막지 않는다. 캐시-aside race(web SET이 stale 데이터를 캐싱) 한계는 `docs/adr/tradeoffs.md` T2.
 
-후처리 시퀀스(inventory: online SET + cache DELETE / metrics: online SET + cache DELETE + PUBLISH metrics.events): `docs/architecture/consumer.md` "handler.py" 절.
+후처리 시퀀스(inventory: online SET + cache DELETE / metrics: online SET + cache DELETE + PUBLISH metrics.events + 에이전트 재시작 추적): `docs/architecture/consumer.md` "handler.py" 절.
+
+부가 시그널 (메시지 처리 흐름 외 운영 가시성):
+- `_log_time_invariants`: 모든 핸들러 멱등성 체크 직후. `boot_time > agent_started_at` 또는 `agent_started_at > collected_at` 위반 시 warning. 시계 동기화·systemd 시작 순서 문제 조기 감지. DLQ 미사용 — 데이터 reject 의미 없음.
+- `_track_agent_restart`: metrics 핸들러 후처리 끝. 직전 `agent_started_at`(`last_agent_start:{sid}`)과 비교 → 변경 시 1h 슬라이딩 윈도우 카운터(`agent_restarts:{sid}`) INCR. `agent_restart_alert_threshold` 도달 시 warning (운영자가 "에이전트 crash loop"으로 인지). fail-open — Redis 장애 시 silent skip.
 
 ## D4. 실패 처리 매트릭스 (silent drop · ack · nack)
 
@@ -327,6 +332,8 @@ mapper에서 모든 파생 필드 계산 — 단위 변환·정렬·dedup·임�
 신규 차트 로직은 외부 `.js` 파일에 작성. inline `<script>`에 차트 로직 신규 추가 금지 (F9 자동화 변환 검증의 "Frontend JS" 항목과 연결 — 페이지 간 회귀 격리 / 정적 분석 / 자동화 변환 안전성). 페이지 `.html`은 Jinja2 변수 정의 + 외부 `.js` `defer` 로드만 허용.
 
 `base.html` `<head>`에서 `chart-utils.js` 단일 로드 → 전역 `ChartUtils`. 각 페이지 .js가 destructure하여 사용. 인라인 중복 정의 금지.
+
+`ChartUtils` API에 `fetchRebootEvents(serverId, range, anchor)` + `applyRebootMarkers(chart, events, gridMs)` + `rebootMarkersPlugin` (Chart.js 글로벌 등록) 포함 — `/api/v1/servers/{id}/events/reboot` 응답으로 차트에 reboot/restart vertical marker 표시. 5개 페이지(performance/cpu/memory/network/storage) 모든 차트가 자기 range/anchor로 events fetch 후 marker 적용 (P4(a) seq 검사 의무).
 
 디렉토리 구조 / `ChartUtils` API 카탈로그 / 페이지별 .js 파일 구성: `docs/architecture/web.md` "정적 자원" 절.
 

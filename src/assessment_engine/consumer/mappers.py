@@ -85,8 +85,11 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
     cpu = data.cpu_stat
     return ServerMetricCreate(
         # ─── 공통 메타데이터 ─────────────────────────────────────────────────
-        # machine_id·boot_time·agent_started_at은 handler가 직접 사용. DTO엔 collected_at만.
+        # machine_id는 handler가 server_id 해석에 직접 사용. boot_time·agent_started_at은
+        # 시계열 행에 저장 — counter reset 정밀 식별 (CLAUDE.md B1).
         collected_at=data.collected_at,
+        boot_time=data.boot_time,
+        agent_started_at=data.agent_started_at,
         # ─── /proc/stat CPU jiffies ──────────────────────────────────────────
         cpu_user=cpu.user if cpu else None,
         cpu_nice=cpu.nice if cpu else None,

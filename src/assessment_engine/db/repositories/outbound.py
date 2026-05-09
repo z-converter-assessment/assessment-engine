@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
 
 @dataclass
@@ -72,6 +73,9 @@ class MetricPairRaw:
     load_1m: float | None
     load_5m: float | None
     load_15m: float | None
+    # counter reset 정밀 식별 (calculator가 prev↔cur 비교).
+    boot_time: datetime | None = None
+    agent_started_at: datetime | None = None
 
 
 @dataclass
@@ -82,6 +86,8 @@ class DiskIoRaw:
     writes_completed: int
     sectors_read: int
     sectors_written: int
+    boot_time: datetime | None = None
+    agent_started_at: datetime | None = None
 
 
 @dataclass
@@ -94,6 +100,8 @@ class NetIoRaw:
     tx_packets: int
     rx_errors: int
     tx_errors: int
+    boot_time: datetime | None = None
+    agent_started_at: datetime | None = None
 
 
 @dataclass
@@ -103,6 +111,9 @@ class MountUsageRaw:
     avail_bytes: int | None
     free_bytes: int | None
     collected_at: datetime | None
+    # 시계열 4개 테이블 메타데이터 일관성 — calculator는 시점값이라 활용 안 하지만 보존.
+    boot_time: datetime | None = None
+    agent_started_at: datetime | None = None
 
 
 @dataclass
@@ -144,3 +155,19 @@ class MetricSeries:
     collected_at: datetime
     value: float | None
     dimension: str | None
+
+
+# ---------- Reboot / Agent restart 이벤트 (차트 vertical marker용) ----------
+
+@dataclass
+class RebootEvent:
+    """server_inventory_history에서 boot_time / agent_started_at 변경 시점 추출.
+
+    kind 분류:
+    - "reboot": boot_time 변경 (시스템 재부팅) 또는 첫 등록 (이전 행 없음)
+    - "restart": boot_time 동일 + agent_started_at 변경 (에이전트 단독 재시작)
+    """
+    collected_at: datetime
+    boot_time: datetime | None
+    agent_started_at: datetime | None
+    kind: Literal["reboot", "restart"]
