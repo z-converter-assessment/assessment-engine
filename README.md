@@ -176,6 +176,7 @@ printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
 chmod 0400 secrets/postgres_password secrets/rabbitmq_password
 
 # 2. Alembic으로 schema 사전 적용 (lifespan은 prod에서 schema bootstrap skip)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm web alembic upgrade head
 
 # 3. 기동
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
