@@ -44,11 +44,12 @@ description: TRIGGER when user requests commit ("커밋", "/commit", "commit it"
    ```bash
    git commit -m "$(cat <<'EOF'
    refactor: ...
-
-   Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
    EOF
    )"
    ```
+
+   **Co-Authored-By footer 절대 추가 금지** — 본 프로젝트 정책. Claude가 작성했다는
+   메타데이터(Co-Authored-By, "Generated with Claude Code", 🤖 이모지 등) 일체 포함하지 않음.
 
 6. `git status`로 결과 확인.
 

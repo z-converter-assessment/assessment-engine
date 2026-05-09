@@ -304,7 +304,7 @@ async def test_metric_chart_cpu_excludes_boot_time_change_point(
     end = base_ts + timedelta(minutes=15)
     rows = await query_repo.metric_chart(
         server_id=sid, metric_type="cpu.usage_percent", dimension=None,
-        time_range="30m", bucket="1m", agg="avg", end=end,
+        time_range="1h", bucket="1m", agg="avg", end=end,
     )
     # reset 처리됐으면 시점 2(boot_b 첫 측정)는 NULL → 그 버킷 차트에서 제외.
     # 시점 1은 정상 (boot_a 동일) → 정상 percent. 결과 ≥ 1행, 모두 0~100.
@@ -340,7 +340,7 @@ async def test_metric_chart_rate_excludes_boot_time_change_point(
     end = base_ts + timedelta(minutes=15)
     rows = await query_repo.metric_chart(
         server_id=sid, metric_type="disk.read_iops", dimension="sda",
-        time_range="30m", bucket="1m", agg="avg", end=end,
+        time_range="1h", bucket="1m", agg="avg", end=end,
     )
     # 시점 2의 ts 버킷이 결과에 없어야 함 (reset 처리됐다면)
     reset_bucket_ts = (base_ts + timedelta(minutes=10)).replace(second=0)

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Assessment Report{% endblock %}
+
+{% block content %}
+<style>
+  .report-meta { color:#64748b; font-size:13px; margin-bottom:18px; }
+  .kpi-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:24px; }
+  .kpi { background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:14px 16px; }
+  .kpi span { display:block; color:#64748b; font-size:12px; }
+  .kpi strong { display:block; font-size:24px; font-weight:700; color:#1e293b; margin-top:4px; }
+  .report-section { margin-top:32px; }
+  .report-section h2 { font-size:18px; color:#1e293b; margin:0 0 14px; padding-bottom:8px; border-bottom:1px solid #e2e8f0; }
+  .rec-idle, .rec-shutdown      { background:#f1f5f9; color:#64748b; }
+  .rec-over_provisioned         { background:#fef3c7; color:#92400e; }
+  .rec-under_provisioned        { background:#fee2e2; color:#b91c1c; }
+  .rec-optimal                  { background:#dcfce7; color:#15803d; }
+  .rec-insufficient_data        { background:#f1f5f9; color:#94a3b8; }
+  .rec-badge { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+  .num-cell { text-align:right; font-variant-numeric: tabular-nums; }
+  .source-note { color:#94a3b8; font-size:11px; margin-top:6px; }
+
+  @media print {
+    .report-section { page-break-inside: avoid; }
+    .kpi-grid { page-break-inside: avoid; }
+    body { background: #fff; }
+  }
+</style>
+
+<h1>Assessment Report</h1>
+<div class="report-meta">
+  데이터 기준 기간: 최근 {{ period_days }}일 ·
+  대상 서버 {{ kpi.total }}대 ·
+  분류 기준: USE Method (Brendan Gregg) + AWS Compute Optimizer / Azure Advisor / GCP Recommender
+</div>
+
+<!-- ─── 양식 A: KPI + 요약 (고객 제출용) ─── -->
+<div class="kpi-grid">
+  <div class="kpi"><span>대상 서버</span><strong>{{ kpi.total }}</strong></div>
+  <div class="kpi"><span>온라인</span><strong style="color:#15803d;">{{ kpi.online }}</strong></div>
+  <div class="kpi"><span>과다 프로비저닝</span><strong style="color:#92400e;">{{ kpi.over }}</strong></div>
+  <div class="kpi"><span>리소스 부족</span><strong style="color:#b91c1c;">{{ kpi.under }}</strong></div>
+</div>
+
+<div class="report-section">
+  <h2>요약 (양식 A · 고객 제출용)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>SERVER</th>
+        <th>ROLE</th>
+        <th>OS</th>
+        <th class="num-cell">CPU p95</th>
+        <th class="num-cell">MEM p95</th>
+        <th>분류</th>
+        <th>상태</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><strong>{{ r.hostname }}</strong></td>
+        <td>{{ r.role }}</td>
+        <td>{{ r.os_display }}</td>
+        <td class="num-cell">{% if r.cpu_p95_pct is not none %}{{ "%.1f"|format(r.cpu_p95_pct) }}%{% else %}—{% endif %}</td>
+        <td class="num-cell">{% if r.mem_p95_pct is not none %}{{ "%.1f"|format(r.mem_p95_pct) }}%{% else %}—{% endif %}</td>
+        <td><span class="rec-badge rec-{{ r.recommendation }}">{{ r.recommendation_label }}</span></td>
+        <td>{% if r.is_online %}<span style="color:#15803d;">●</span> 온라인{% else %}<span style="color:#94a3b8;">●</span> 오프라인{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="source-note">
+    분류 기준: AWS Compute Optimizer · Azure Advisor · GCP Recommender · Kleinrock(1975) · Linux page cache
+    · 14일 기본 윈도우 (현재 {{ period_days }}일)
+  </div>
+</div>
+
+<!-- ─── 양식 B: 엔지니어 검토용 상세 ─── -->
+<div class="report-section">
+  <h2>상세 (양식 B · 엔지니어 검토용)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>SERVER</th>
+        <th>ROLE</th>
+        <th>INTERNAL IP</th>
+        <th>OS / KERNEL</th>
+        <th class="num-cell">CPU p95</th>
+        <th class="num-cell">CPU peak</th>
+        <th class="num-cell">MEM p95</th>
+        <th class="num-cell">MEM peak</th>
+        <th class="num-cell">LOAD 15m max</th>
+        <th>SWAP</th>
+        <th>분류</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><strong>{{ r.hostname }}</strong></td>
+        <td>{{ r.role }}</td>
+        <td><code style="font-size:11px;">{{ r.internal_ip or "—" }}</code></td>
+        <td>{{ r.os_display }}{% if r.kernel_version %} / {{ r.kernel_version }}{% endif %}</td>
+        <td class="num-cell">{% if r.cpu_p95_pct is not none %}{{ "%.1f"|format(r.cpu_p95_pct) }}%{% else %}—{% endif %}</td>
+        <td class="num-cell">{% if r.cpu_peak_pct is not none %}{{ "%.1f"|format(r.cpu_peak_pct) }}%{% else %}—{% endif %}</td>
+        <td class="num-cell">{% if r.mem_p95_pct is not none %}{{ "%.1f"|format(r.mem_p95_pct) }}%{% else %}—{% endif %}</td>
+        <td class="num-cell">{% if r.mem_peak_pct is not none %}{{ "%.1f"|format(r.mem_peak_pct) }}%{% else %}—{% endif %}</td>
+        <td class="num-cell">{% if r.load_15m_max is not none %}{{ "%.2f"|format(r.load_15m_max) }}{% else %}—{% endif %}</td>
+        <td>{% if r.swap_used %}<span style="color:#b91c1c;">사용</span>{% else %}<span style="color:#94a3b8;">—</span>{% endif %}</td>
+        <td><span class="rec-badge rec-{{ r.recommendation }}">{{ r.recommendation_label }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="source-note">
+    p95 = TimescaleDB <code>percentile_cont(0.95)</code>. CPU%는 jiffies delta(boot_time 변경 시 reset 제외) 기반.
+    MEM% = (1 − available/total) × 100. Net I/O · iowait · idle/shutdown 판정은 추후 단계 (deliverables.md §5 "1차 구현 범위").
+  </div>
+</div>
+{% endblock %}

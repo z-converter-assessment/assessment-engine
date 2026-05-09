@@ -43,6 +43,7 @@ class WebSettings(BaseSettings):
     redis_ttl_token: int = 3600                 # 1h  — 인증 토큰
     redis_ttl_last_agent_start: int = 86400     # 24h — 직전 agent_started_at 캐시 (재시작 감지용)
     redis_ttl_agent_restarts: int = 3600        # 1h  — 슬라이딩 윈도우 카운터
+    redis_ttl_task_pending: int = 86400         # 24h — pending task hot path 캐시 (DB가 source of truth)
 
     # Key prefixes
     redis_key_cache_inventory: str = "cache:inventory:{}"
@@ -53,6 +54,7 @@ class WebSettings(BaseSettings):
     redis_key_token: str = "token:{}"
     redis_key_last_agent_start: str = "last_agent_start:{}"
     redis_key_agent_restarts: str = "agent_restarts:{}"
+    redis_key_task_pending: str = "task:pending:{}"  # {machine_id} → JSON full payload
 
     # PUB/SUB channels
     redis_channel_metrics: str = "metrics.events"
@@ -93,6 +95,7 @@ class ConsumerSettings(WebSettings):
     rabbitmq_routing_key_inventory: str = "server.inventory"
     rabbitmq_routing_key_metrics: str = "server.metrics"
     rabbitmq_routing_key_error: str = "server.error"
+    rabbitmq_routing_key_task_result: str = "task.result"  # agent → engine 작업 결과 보고
 
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수)
     agent_restart_alert_threshold: int = 3

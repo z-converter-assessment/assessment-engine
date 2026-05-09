@@ -14,12 +14,16 @@ from assessment_engine.db.models import (  # noqa: F401
     server_metrics,
     server_mount_usage,
     server_net_io,
+    task,
 )
 from assessment_engine.db.models.base import Base
 from assessment_engine.db.redis import close_pool
 from assessment_engine.db.session import engine
 from assessment_engine.web.routers.api import api_router
+from assessment_engine.web.routers.discovery import discovery_router
+from assessment_engine.web.routers.exports import exports_router
 from assessment_engine.web.routers.pages import pages_router
+from assessment_engine.web.routers.tasks import tasks_router
 
 
 @asynccontextmanager
@@ -60,6 +64,9 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 app.include_router(pages_router)
 app.include_router(api_router)
+app.include_router(discovery_router)
+app.include_router(tasks_router)
+app.include_router(exports_router)
 
 
 @app.get("/health")

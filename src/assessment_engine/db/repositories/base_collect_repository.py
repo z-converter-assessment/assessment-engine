@@ -1,7 +1,12 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from assessment_engine.db.repositories.inbound import ServerInventoryCreate, ServerMetricCreate
+from assessment_engine.db.repositories.inbound import (
+    ServerInventoryCreate,
+    ServerMetricCreate,
+    TaskCreate,
+    TaskResultUpdate,
+)
 
 
 @dataclass
@@ -49,6 +54,17 @@ class BaseCollectRepository(ABC):
             - auto_registered=True: machine_id가 server_inventory에 없어서 fallback으로 새로 등록.
               호출자는 placeholder임을 인지하고 운영 로그 남김.
             - auto_registered=False: 기존 server_id 사용. fallback 미사용.
+        """
+
+    @abstractmethod
+    async def create_task(self, data: TaskCreate) -> str:
+        """task 1건 INSERT. 반환: public_id (UUID 문자열). agent에 노출되는 식별자."""
+
+    @abstractmethod
+    async def complete_task(self, data: TaskResultUpdate) -> bool:
+        """agent 결과 보고 수신 — status/completed_at/result_message UPDATE.
+
+        반환: True 정상 update / False public_id 미존재 (DLQ 또는 silent ack 결정).
         """
 
     @abstractmethod

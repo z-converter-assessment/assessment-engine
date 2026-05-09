@@ -17,7 +17,9 @@ from assessment_engine.db.repositories.base_query_repository import (
     TIME_RANGE_TD,
     TimeRange,
 )
-from assessment_engine.db.repositories.outbound import RebootEvent
+from assessment_engine.db.repositories.outbound import InventoryExportEntry, RebootEvent, ReportRow
+from assessment_engine.web.services import recommendation
+from assessment_engine.web.services.mappers import _infer_role  # type: ignore[attr-defined]
 
 # disk metric_type에서만 의미를 갖는 service 레벨 분기. 라우터에서 Literal로 검증 (F3 단일 경로).
 DeviceCategory = Literal["phys", "logical"]
@@ -30,6 +32,7 @@ from assessment_engine.web.services.cache_serializer import (
 )
 from assessment_engine.web.services.mappers import (
     to_collection_status_item,
+    to_inventory_export_entry,
     to_metric_series_item,
     to_network_detail,
     to_server_detail,
@@ -176,6 +179,66 @@ class QueryService:
         if device_category is not None and metric_type in _DISK_METRIC_TYPES:
             dtos = _filter_disk_category(dtos, device_category)
         return [to_metric_series_item(dto) for dto in dtos]
+
+    async def get_report(
+        self,
+        server_ids: list[int],
+        period_days: int = recommendation.WINDOW_DAYS,
+        end: datetime | None = None,
+    ) -> list[ReportRow]:
+        """Assessment 보고서 — N서버 통계 + role + is_online + recommendation 분류.
+
+        repo는 raw stats만 산출. 본 함수가 service 계층에서 enrich (P2):
+        - role: ServerDetail.services로 추론
+        - is_online: Redis online:{id} EXISTS (장애 시 last_seen_at fallback)
+        - recommendation: USE Method 분류 (recommendation.classify)
+        """
+        end_dt = end or datetime.now(timezone.utc)
+        rows = await self.repo.report_aggregate(server_ids, period_days, end_dt)
+
+        # Redis 일괄 mget으로 is_online (N+1 회피)
+        online_keys = [web_settings.redis_key_online.format(r.server_id) for r in rows]
+        flags = await safe_mget(self.redis, online_keys)
+        threshold = end_dt - timedelta(seconds=web_settings.redis_ttl_online)
+
+        for i, r in enumerate(rows):
+            # role
+            detail = await self.repo.get_server(r.server_id)
+            r.role = _infer_role(detail.services if detail else None)
+
+            # is_online
+            if flags is None:
+                # Redis 장애 fallback — last_seen_at 기준 (DTO에 직접 없으므로 detail에서)
+                r.is_online = bool(detail and detail.last_seen_at and detail.last_seen_at > threshold)
+            else:
+                r.is_online = flags[i] is not None
+
+            # recommendation 분류 (USE Method)
+            stats = recommendation.ResourceStats(
+                cpu_p95_pct=r.cpu_p95_pct,
+                cpu_peak_pct=r.cpu_peak_pct,
+                mem_p95_pct=r.mem_p95_pct,
+                swap_used=r.swap_used,
+                net_avg_kbps=None,  # 1차 MVP — net 집계 미구현 (idle/shutdown 판정 skip)
+            )
+            r.recommendation = recommendation.classify(stats)
+            r.recommendation_label = recommendation.LABEL_KO[r.recommendation]
+
+        return rows
+
+    async def get_inventory_export(self, server_ids: list[int]) -> list[InventoryExportEntry]:
+        """선택 서버 N대의 정제 inventory JSON 항목 list.
+
+        각 서버는 ServerDetail(outbound) → mapper로 변환. 누락된 server_id는 silent skip
+        (운영자가 발행 시점에 삭제했을 가능성 — 부분 결과 반환).
+        """
+        entries: list[InventoryExportEntry] = []
+        for sid in server_ids:
+            detail = await self.repo.get_server(sid)
+            if detail is None:
+                continue
+            entries.append(to_inventory_export_entry(detail))
+        return entries
 
     async def get_reboot_events(
         self,

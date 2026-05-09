@@ -4,7 +4,12 @@ import aio_pika
 from loguru import logger
 
 from assessment_engine.config import consumer_settings
-from assessment_engine.consumer.handler import make_error_handler, make_inventory_handler, make_metrics_handler
+from assessment_engine.consumer.handler import (
+    make_error_handler,
+    make_inventory_handler,
+    make_metrics_handler,
+    make_task_result_handler,
+)
 from assessment_engine.db.redis import close_pool, get_redis
 from assessment_engine.db.repositories.collect_repository import CollectRepository
 from assessment_engine.db.session import AsyncSessionLocal
@@ -16,9 +21,12 @@ _DLX = f"{_EXCHANGE}.dlx"
 # - metrics: 1분 주기 발행 + 단기 장애 회복 여유.
 #   TTL 72h + max-length 1M(≈70KB/msg → broker 디스크 ~70GB), 둘 중 먼저 도달 시 oldest→DLX
 # - error: 운영 알림용. 노이즈 방지를 위해 단기 TTL 유지
+# - task.result: 결과 보고. 24h TTL로 운영자 처리 시간 확보, max-length로 백로그 폭주 방어
 _METRICS_TTL_MS = 72 * 60 * 60 * 1000  # 72h
 _METRICS_MAX_LEN = 1_000_000  # 큐 폭주 방어 (초과 시 oldest → DLX)
 _ERROR_TTL_MS = 300_000  # 5분
+_TASK_RESULT_TTL_MS = 24 * 60 * 60 * 1000  # 24h
+_TASK_RESULT_MAX_LEN = 100_000
 
 
 async def main() -> None:
@@ -41,8 +49,15 @@ async def main() -> None:
             ),
             (
                 consumer_settings.rabbitmq_routing_key_error,
-             make_error_handler(redis),
-             _ERROR_TTL_MS, None
+                make_error_handler(redis),
+                _ERROR_TTL_MS,
+                None,
+            ),
+            (
+                consumer_settings.rabbitmq_routing_key_task_result,
+                make_task_result_handler(AsyncSessionLocal, CollectRepository, redis),
+                _TASK_RESULT_TTL_MS,
+                _TASK_RESULT_MAX_LEN,
             ),
         ]
 
