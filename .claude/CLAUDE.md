@@ -14,7 +14,7 @@
 |----------|------|------|
 | [docs/README.md](../docs/README.md) | 인덱스 — 어떤 문서를 언제 보는지 길잡이 | 영구·갱신 |
 | `docs/architecture/` | 컴포넌트별 deep dive (모듈 설계·기술 구현) | 영구·갱신 |
-| `docs/operations/` | 운영·환경·배포·검증 (Docker·Vagrant·dev-prod·env·testing·pipeline) | 영구·갱신 |
+| `docs/operations/` | 운영·환경·배포·검증 (Docker·Vagrant·dev-prod·env·testing·pipeline·alembic) | 영구·갱신 |
 | [docs/adr/README.md](../docs/adr/README.md) | Architecture Decision Records — "왜 이렇게 결정했나" + 트레이드오프 | 영구·불변 (정정만, 덮어쓰기 금지) |
 | `docs/meetings/` | 미팅 합의·일회성 메모 (`YYYY-MM-DD-주제.md` 형식) | 임시 (영구 정책은 다른 영구 문서로 승격) |
 
@@ -25,6 +25,7 @@
 | [docs/operations/pipeline.md](../docs/operations/pipeline.md) | 파이프라인 검증 (Vagrant VM) |
 | [docs/operations/env.md](../docs/operations/env.md) | 환경변수 전체 키 목록 (카탈로그) |
 | [docs/operations/dev-prod.md](../docs/operations/dev-prod.md) | dev/prod 환경 전략 + secret 정책 + 운영 체크리스트 |
+| [docs/operations/alembic.md](../docs/operations/alembic.md) | PROD schema 마이그레이션 (Alembic) — DEV `create_all` 보완 |
 | [docs/operations/testing.md](../docs/operations/testing.md) | 단위·통합 테스트 실행·설정·Fixture·작성 패턴 |
 | [docs/adr/tradeoffs.md](../docs/adr/tradeoffs.md) | 의식적 설계 선택과 그 한계 (T1~T11) |
 | [docs/architecture/agent.md](../docs/architecture/agent.md) | 에이전트 메시지 스키마 / 포트 수집 / 디스크 필터링 |
@@ -151,7 +152,7 @@ ORM 7개 모델 / DTO / TimescaleDB / asyncpg / 자연키 UNIQUE 표: `docs/arch
 - 시계열 5개 테이블 자연키 UNIQUE 보존 의무 (#D2 2단 방어 — 누락 시 멱등성 깨짐). 변경 시 db/models.md 표 동시 갱신.
 - 시계열 4개 테이블 `boot_time` + `agent_started_at` 컬럼 보존 의무 (#B1 counter reset 정밀 식별).
 - `tasks` 부분 UNIQUE `WHERE status='pending'` — 운영자 더블클릭 방어. service가 `IntegrityError` → 409.
-- 스키마 변경: DEV는 `docker compose down -v` 필수 (`create_all`은 기존 테이블에 컬럼 추가 안 함). PROD는 Alembic + `create_hypertable` 수동.
+- 스키마 변경: DEV는 `docker compose down -v` 필수 (`create_all`은 기존 테이블에 컬럼 추가 안 함). PROD는 Alembic — `migrations/` (env.py + versions/) + 운영 절차는 `docs/operations/alembic.md`. 시계열 신규 테이블은 마이그레이션 파일에 `op.execute("SELECT create_hypertable(...)")` 수동 보강 의무 (autogenerate 미지원).
 
 ## C2. Repository 계층 — 인터페이스 우선 (F4)
 

@@ -213,7 +213,7 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 - [ ] `secrets/` 디렉토리에 의도하지 않은 파일이 없는지 확인 (`git status secrets/`)
 - [ ] `docker-compose.prod.yml`의 `secrets:` 블록과 `secrets/` 파일명 일치
 - [ ] `APP_ENV=prod` 환경변수 또는 `docker-compose.prod.yml`의 `environment` 블록으로 명시
-- [ ] Alembic 마이그레이션 사전 적용 (lifespan은 prod에서 schema bootstrap skip)
+- [ ] Alembic 마이그레이션 사전 적용 (`docker compose -f ... -f docker-compose.prod.yml run --rm web alembic upgrade head`). 상세 절차·troubleshooting은 [`docs/operations/alembic.md`](alembic.md)
 - [ ] `docker compose -f docker-compose.yml -f docker-compose.prod.yml config` 로 머지 결과 검증
 - [ ] DB·MQ·Redis 외부 포트 노출 없음 확인 (`docker compose ... ps` / `netstat`)
 - [ ] web만 reverse proxy 뒤 또는 직접 노출 결정
