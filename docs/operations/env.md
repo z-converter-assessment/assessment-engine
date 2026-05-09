@@ -1,6 +1,6 @@
 # 환경변수 (현황 카탈로그)
 
-> **본 문서는 키 카탈로그**다. 정책·dev/prod 분리·secret 단계는 [dev-prod.md](dev-prod.md) 참조.
+> 본 문서는 키 카탈로그다. 정책·dev/prod 분리·secret 단계는 [dev-prod.md](dev-prod.md) 참조.
 
 루트 `.env`에서 주입 (dev). `.env.example`을 복사해 시작한다.
 
@@ -8,7 +8,7 @@
 cp .env.example .env
 ```
 
-prod에선 `.env` 대신 Docker secrets로 자격을 주입한다 — 자세한 정책은 `dev-prod.md` §7.
+prod에선 `.env` 대신 Docker secrets로 자격을 주입한다 — 자세한 정책은 `dev-prod.md` #7.
 
 ## 주입 흐름
 
@@ -33,11 +33,11 @@ prod에선 `.env` 대신 Docker secrets로 자격을 주입한다 — 자세한 
 ```
 
 ### 우선순위 (pydantic-settings)
-1. **OS 환경변수** (docker-compose가 컨테이너에 주입한 값 / 호스트 셸 export)
-2. **`.env` 파일** (cwd 기준 — 컨테이너 안에서는 `/app/.env`)
-3. **config.py default**
+1. OS 환경변수 (docker-compose가 컨테이너에 주입한 값 / 호스트 셸 export)
+2. `.env` 파일 (cwd 기준 — 컨테이너 안에서는 `/app/.env`)
+3. config.py default
 
-docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되어 **마지막 덮어쓰기**가 된다 — 즉 컨테이너 안에서는 `environment:`가 항상 우선.
+docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되어 마지막 덮어쓰기가 된다 — 즉 컨테이너 안에서는 `environment:`가 항상 우선.
 
 ### 컨테이너 안의 `/app/.env` (DEV 한정)
 
@@ -46,7 +46,7 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 - pydantic-settings의 `env_file=".env"` 설정이 이 파일도 read → 환경변수가 우선이라 동작에 영향 없음 (redundant read).
 - 컨테이너 안에 secret이 노출 — DEV는 OK, 프로덕션은 위험.
 
-**프로덕션 정책**: `docker-compose.yml`의 `volumes: ./:/app` 제거. 이미 `.dockerignore`에 `.env`가 있어 `Dockerfile`의 `COPY . .` 단계에서는 제외되므로, 코드 마운트만 제거하면 컨테이너 안에 `.env`가 사라진다.
+프로덕션 정책: `docker-compose.yml`의 `volumes: ./:/app` 제거. 이미 `.dockerignore`에 `.env`가 있어 `Dockerfile`의 `COPY . .` 단계에서는 제외되므로, 코드 마운트만 제거하면 컨테이너 안에 `.env`가 사라진다.
 
 ## 전체 키 목록 (`.env.example` 순서)
 
@@ -64,7 +64,7 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 | `RABBITMQ_USER` | `assessment` | config.py / docker-compose / Vagrantfile | |
 | `RABBITMQ_PASSWORD` | `assessment` | config.py / docker-compose / Vagrantfile | |
 | `RABBITMQ_MANAGEMENT_PORT` | `15672` | docker-compose | RabbitMQ 관리 콘솔 포트 노출 (config.py 미사용) |
-| `RABBITMQ_EXCHANGE` | `assessment` | config.py / Vagrantfile | 에이전트 ↔ consumer routing 계약. **변경 시 양쪽 동기화** |
+| `RABBITMQ_EXCHANGE` | `assessment` | config.py / Vagrantfile | 에이전트 ↔ consumer routing 계약. 변경 시 양쪽 동기화 |
 | `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | config.py / Vagrantfile | 동일 |
 | `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | config.py / Vagrantfile | 동일 |
 | `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | config.py / Vagrantfile | 동일 |
@@ -76,7 +76,7 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 
 ### 호스트명 정책
 
-기본값의 호스트명(`postgres`, `rabbitmq`, `redis`)은 **docker-compose 서비스명**이다. docker-compose 네트워크 내부에서만 해석된다.
+기본값의 호스트명(`postgres`, `rabbitmq`, `redis`)은 docker-compose 서비스명이다. docker-compose 네트워크 내부에서만 해석된다.
 
 | 실행 환경 | HOST 값 | 비고 |
 |----------|---------|------|
@@ -97,7 +97,7 @@ Vagrantfile은 엔진의 `.env`를 직접 파싱하지 않는다. 별도 파일 
 
 `infra/agent.env` 변경 후 VM에 반영하려면 `vagrant provision` 필요.
 
-분리 근거: `dev-prod.md` §9.
+분리 근거: `dev-prod.md` #9.
 
 ### config.py가 환경변수로 받지 않는 키
 
@@ -107,4 +107,4 @@ Vagrantfile은 엔진의 `.env`를 직접 파싱하지 않는다. 별도 파일 
 - `redis_key_*` 패턴
 - `redis_channel_metrics`
 
-운영 환경에서 조정 필요 시 `BaseSettings` 필드라 환경변수로도 주입 가능하며, 이 경우 `.env`에 키 추가 + `docs/env.md` 갱신. 현재 시점에는 default 값이 적절. `docs/tradeoffs.md` T2 개선 방향 참조.
+운영 환경에서 조정 필요 시 `BaseSettings` 필드라 환경변수로도 주입 가능하며, 이 경우 `.env`에 키 추가 + `docs/operations/env.md` 갱신. 현재 시점에는 default 값이 적절. `docs/adr/tradeoffs.md` T2 개선 방향 참조.

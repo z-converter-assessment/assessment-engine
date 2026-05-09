@@ -38,9 +38,9 @@
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- Vagrant NAT 환경에서 VM → 호스트 접근 주소: **`10.0.2.2`**
+- Vagrant NAT 환경에서 VM → 호스트 접근 주소: `10.0.2.2`
 - 3개 VM이 동시에 각자의 메트릭을 발행 → Web UI에서 서버 3대로 확인
-- `vagrant up` 완료 시 각 VM에서 에이전트가 **자동 빌드 → systemd 서비스 등록 → 시작**
+- `vagrant up` 완료 시 각 VM에서 에이전트가 자동 빌드 → systemd 서비스 등록 → 시작
 
 ### 사전 요구사항
 
@@ -49,7 +49,7 @@
 | VirtualBox 7.1+ | [virtualbox.org](https://www.virtualbox.org/) | VM 하이퍼바이저 |
 | Vagrant 2.4.x | [vagrantup.com](https://www.vagrantup.com/) | VM 프로비저닝 |
 
-> **Apple Silicon (ARM64)**: VirtualBox 7.1+부터 ARM VM 지원. bento 박스가 arm64 변형을 자동으로 선택한다.
+> Apple Silicon (ARM64): VirtualBox 7.1+부터 ARM VM 지원. bento 박스가 arm64 변형을 자동으로 선택한다.
 
 ### 디렉토리 구조 전제
 
@@ -80,9 +80,9 @@ cp infra/agent.env.example infra/agent.env # 에이전트(VM) 전용 secret 채�
 ./dev-up.sh
 ```
 
-> **두 .env 파일을 분리하는 이유**: 엔진의 `.env`는 docker-compose로 web/consumer에 주입,
+> 두 .env 파일을 분리하는 이유: 엔진의 `.env`는 docker-compose로 web/consumer에 주입,
 > `infra/agent.env`는 Vagrantfile이 read해 VM 안 `/etc/assessment-agent.env`로 옮긴다.
-> 정책·근거는 [docs/dev-prod.md](dev-prod.md) §9 (에이전트 secret 채널 분리).
+> 정책·근거는 [docs/operations/dev-prod.md](dev-prod.md) #9 (에이전트 secret 채널 분리).
 
 `dev-up.sh` 실행 순서:
 1. `docker compose up --build -d`

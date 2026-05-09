@@ -4,8 +4,8 @@ prod 기동 시 Docker secrets로 마운트되는 파일들의 호스트 경로.
 
 ## 정책
 
-- **dev**: 본 디렉토리의 secret 파일은 **사용하지 않음**. dev는 `.env` 평문이 자격을 주입.
-- **prod**: 아래 파일들이 반드시 존재해야 한다. `docker-compose.prod.yml`이 `secrets:` 블록으로 마운트.
+- dev: 본 디렉토리의 secret 파일은 사용하지 않음. dev는 `.env` 평문이 자격을 주입.
+- prod: 아래 파일들이 반드시 존재해야 한다. `docker-compose.prod.yml`이 `secrets:` 블록으로 마운트.
 
 ## 필수 파일 (prod)
 

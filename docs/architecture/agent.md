@@ -3,7 +3,7 @@
 C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_version` 필드가 계약 버전 역할을 한다.
 
 > 정식 정의는 별도 레포의 `assessment-agent/docs/payload-schema.md`. 본 문서는 엔진 측 핸들링 관점 요약 + 엔진의 책임/무시 항목.
-> 현재 엔진이 호환하는 스키마: **v3 (2026-05-06)** — `services[]` / `listen_ports[]` / `error.{retry_count, first_failed_at, recovered_at}` 옵셔널 필드 포함.
+> 현재 엔진이 호환하는 스키마: v3 (2026-05-06) — `services[]` / `listen_ports[]` / `error.{retry_count, first_failed_at, recovered_at}` 옵셔널 필드 포함.
 
 ---
 
@@ -40,7 +40,7 @@ C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_ve
 
 ### server.metrics (1분 주기)
 
-**모두 raw 누적값**. 포털이 연속 2회 readings의 차(delta)로 CPU%·IOPS·kBps를 계산한다.
+모두 raw 누적값. 포털이 연속 2회 readings의 차(delta)로 CPU%·IOPS·kBps를 계산한다.
 
 | 필드 | 설명 |
 |------|------|
@@ -68,9 +68,9 @@ C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_ve
 
 ### 규약
 
-- **단위**: 메모리 = `kb`, 디스크/네트워크 = `bytes` (`/proc` 출력 관례)
-- **옵셔널 필드**: 수집 실패 시 `null` 전송. 수집 실패와 데이터 없음 미구분
-- **counter reset**: 재부팅·에이전트 재시작 시 카운터 0 리셋. 포털은 delta < 0이면 `None` 처리 (UI에서 "—"). boot_time 기반 delta 건너뛰기는 미구현
+- 단위: 메모리 = `kb`, 디스크/네트워크 = `bytes` (`/proc` 출력 관례)
+- 옵셔널 필드: 수집 실패 시 `null` 전송. 수집 실패와 데이터 없음 미구분
+- counter reset: 재부팅·에이전트 재시작 시 카운터 0 리셋. 포털은 delta < 0이면 `None` 처리 (UI에서 "—"). boot_time 기반 delta 건너뛰기는 미구현
 
 ### 엔진이 받지만 사용하지 않는 필드
 
@@ -81,6 +81,8 @@ C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_ve
 | `mounts[].major/minor` | metrics | 시계열 테이블(`server_mount_usage`)에 컬럼 없음. inventory의 동일 필드만 활용 (mount↔disk 조인). 시계열에서도 활용 시 스키마 변경(`down -v`) 필요 |
 | `disk_io[].major/minor` | metrics | 동일 — `server_disk_io` 시계열 테이블에 컬럼 없음. compute_disk_io의 분류는 device 이름 정규식 유지 |
 | `mounts[].free_bytes/avail_bytes` | inventory | 인벤토리는 정적 정보(total_bytes)만 저장. 동적 사용량은 `server_mount_usage` 시계열로 분리 (`src/assessment_engine/consumer/mappers.py:to_inventory_create`) |
+| `boot_time` | metrics·error | inventory 본문(공통 메타 격상 후) 경로만 사용 — `server_inventory.boot_time` 컬럼 + `server_inventory_history` 변경이력. metrics counter reset 정밀 식별(`metrics_calculator.py`에서 prev↔curr boot_time 비교) 미구현. error는 로깅 외 활용처 없음 |
+| `agent_started_at` | metrics·error | 동일 — inventory 본문에서만 사용(`server_inventory.agent_started_at` + history). metrics에서 에이전트 재시작 sub-1h 감지 가능하지만 현재 미구현. error는 로깅 외 활용처 없음 |
 
 ### 활용 중인 필드 (이전엔 무시였음)
 
@@ -88,6 +90,8 @@ C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_ve
 |------|------|----------|
 | `disks[].major/minor` | inventory | `src/assessment_engine/web/services/device_filters.find_parent_disk()`에서 mount↔disk 조인 키 |
 | `mounts[].major/minor` | inventory | `src/assessment_engine/web/services/mappers.to_storage_detail`에서 disks 리스트와 매칭 → `MountUsageItem.device_name` 채움 → storage.html "Device" 컬럼 |
+| `boot_time` (inventory) | inventory | `server_inventory.boot_time` 컬럼 저장 + `server_inventory_history` append 시 비교 대상. detail.html / performance.html에 KST 표시 |
+| `agent_started_at` (inventory) | inventory | `server_inventory.agent_started_at` 컬럼 저장 + history 변경 trigger. 에이전트 재시작 이벤트 감지의 1차 단서 |
 
 ---
 
@@ -108,11 +112,11 @@ C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_ve
 
 ### 데몬 모델별 동작
 
-**fork 모델** (Apache prefork, sshd): 마스터 프로세스가 소켓을 열고 listen. `fork()`로 자식을 생성해 처리. 연결 수만큼 프로세스가 늘어난다.
+fork 모델 (Apache prefork, sshd): 마스터 프로세스가 소켓을 열고 listen. `fork()`로 자식을 생성해 처리. 연결 수만큼 프로세스가 늘어난다.
 
-**이벤트/스레드 모델** (nginx, redis, Node.js): 단일 프로세스(또는 고정 worker)가 이벤트 루프로 다수 연결 처리. 연결이 와도 프로세스 수는 변하지 않는다.
+이벤트/스레드 모델 (nginx, redis, Node.js): 단일 프로세스(또는 고정 worker)가 이벤트 루프로 다수 연결 처리. 연결이 와도 프로세스 수는 변하지 않는다.
 
-**소켓 액티베이션** (systemd socket activation): systemd가 소켓을 열어두고, 첫 연결 시점에만 데몬을 기동. 평소에는 프로세스가 없어 `pid` / `comm`이 null. 주로 가끔 호출되는 시스템 서비스(cups, avahi 등)에 쓰인다. postgresql, redis 같은 상시 고성능 서비스는 사용하지 않는다.
+소켓 액티베이션 (systemd socket activation): systemd가 소켓을 열어두고, 첫 연결 시점에만 데몬을 기동. 평소에는 프로세스가 없어 `pid` / `comm`이 null. 주로 가끔 호출되는 시스템 서비스(cups, avahi 등)에 쓰인다. postgresql, redis 같은 상시 고성능 서비스는 사용하지 않는다.
 
 ### UI 표현
 
@@ -135,18 +139,18 @@ loop 디바이스 I/O는 sda에도 이미 반영된다 (`앱 read → loop0(squa
 
 ### 에이전트 계약 변경 사항 (다음 agent_version 협의 필요)
 
-**`disks[]`**:
+`disks[]`:
 - 물리 스토리지 디바이스만 포함
 - 제외: `loop*`(snap/ISO), `ram*`(RAM disk), `zram*`(압축 RAM), `sr*`(광학 드라이브)
 - 포함: `sd*`, `vd*`, `hd*`, `xvd*`, `nvme*n*`, `mmcblk*`
 - 판별: `/sys/block/<dev>/device/` 디렉토리 존재 여부 또는 `/sys/block/<dev>/loop/` 심링크 부재
 
-**`mounts[]`**:
+`mounts[]`:
 - 사용자 공간 파일시스템만 포함. 커널·가상 마운트 제외
 - 제외 fstype: `proc`, `sysfs`, `devtmpfs`, `devpts`, `squashfs`, `overlay`, `cgroup`, `cgroup2` 등
-- **`device` 필드 추가 필요**: `/proc/mounts` 첫 번째 컬럼(마운트 소스). 포털에서 파일시스템 ↔ 물리 디스크 연결 표시 및 `device_filters.py` 의존도 감소 가능
+- `device` 필드 추가 필요: `/proc/mounts` 첫 번째 컬럼(마운트 소스). 포털에서 파일시스템 ↔ 물리 디스크 연결 표시 및 `device_filters.py` 의존도 감소 가능
 
-**개선 방향(P2)**: 에이전트 업데이트(`device` 필드 추가 + 가상 마운트 필터링) 후 `device_filters.py`의 `is_virtual_mount()`, `is_physical_disk()` 제거.
+개선 방향(P2): 에이전트 업데이트(`device` 필드 추가 + 가상 마운트 필터링) 후 `device_filters.py`의 `is_virtual_mount()`, `is_physical_disk()` 제거.
 
 ---
 
@@ -195,7 +199,7 @@ docker compose exec rabbitmq rabbitmqadmin -u assessment -p assessment \
 
 | 상황 | 명령 |
 |------|------|
-| broker 재기동 후 silent retry | `sudo systemctl restart assessment-agent` (CRITICAL — `docs/infra/vagrant.md` 운영 노트) |
+| broker 재기동 후 silent retry | `sudo systemctl restart assessment-agent` (CRITICAL — `docs/operations/vagrant.md` 운영 노트) |
 | 에이전트 소스 변경 | `vagrant rsync && vagrant ssh <vm>` → `cd /home/vagrant/assessment-agent && make && sudo cp assessment-agent /usr/local/bin/ && sudo systemctl restart assessment-agent` |
 | 환경변수 (`/etc/assessment-agent.env`) 변경 | `vagrant provision` 또는 직접 수정 + `sudo systemctl restart assessment-agent` |
 | `AGENT_INTERVAL_SEC` 변경 | 위와 동일 |

@@ -75,7 +75,7 @@ Redis 키 만료·evict·재시작·수동 flush 등으로 1단이 깨져도 DB 
 
 ### at-most-once 트레이드오프
 
-`SET NX` 후 DB 커밋 이전에 프로세스 크래시 시 broker 재전송 메시지가 idempotent 충돌로 silent 드롭 → 데이터 유실 가능. 1단이 먼저 차단하므로 2단 UNIQUE도 못 막음. `docs/tradeoffs.md` T1 참조.
+`SET NX` 후 DB 커밋 이전에 프로세스 크래시 시 broker 재전송 메시지가 idempotent 충돌로 silent 드롭 → 데이터 유실 가능. 1단이 먼저 차단하므로 2단 UNIQUE도 못 막음. `docs/adr/tradeoffs.md` T1 참조.
 
 ---
 
@@ -104,7 +104,7 @@ Redis 키 만료·evict·재시작·수동 flush 등으로 1단이 깨져도 DB 
 
 web의 `get_latest_metric`이 cache MISS 후 DB query를 마쳤지만 SET을 수행하기 전에 consumer가 새 metrics 커밋 + DELETE를 끝낼 수 있다. 이 경우 web의 SET이 stale 데이터를 60s TTL로 캐싱.
 
-실용적 영향은 최대 1회 표시 지연 (SSE가 즉시 다음 fetch 트리거). exactly-once 캐시 일관성 대신 단순성 선택. `docs/tradeoffs.md` T2.
+실용적 영향은 최대 1회 표시 지연 (SSE가 즉시 다음 fetch 트리거). exactly-once 캐시 일관성 대신 단순성 선택. `docs/adr/tradeoffs.md` T2.
 
 ---
 
@@ -195,14 +195,14 @@ async def close_pool() -> None: ...
 | list mget (`list_servers`) | 1회 mget | `last_seen_at > now() - 90s` fallback (TTL 임계와 동일) |
 | SSE pubsub (`stream_metrics_events`) | subscribe + listen | RedisError 캐치 → 스트림 종료 (브라우저 자동 재연결) |
 
-**약화되는 보장**:
+약화되는 보장:
 - 멱등성 1단: 평시 1회 RTT 차단 → 장애 시 매번 DB INSERT 시도 + UNIQUE 충돌 흡수. 트래픽 규모에서 영향 미미.
 - list 화면 online: Redis 90s TTL 기반 → DB `last_seen_at` 기반. 정밀도 거의 동일, DB N개 행 비교 부하 추가.
 - SSE: 끊김. 브라우저가 자동 재연결.
 
-**약화되지 않는 보장**: 데이터 정확성. 멱등성 fail-open은 1단 차단을 잃지만 시계열 4개 테이블의 `(server_id, [dim,] collected_at)` UNIQUE 제약이 중복 INSERT를 silent no-op으로 흡수.
+약화되지 않는 보장: 데이터 정확성. 멱등성 fail-open은 1단 차단을 잃지만 시계열 4개 테이블의 `(server_id, [dim,] collected_at)` UNIQUE 제약이 중복 INSERT를 silent no-op으로 흡수.
 
-상세 의사결정과 옵션 비교는 `docs/decisions/redis-decoupling.md`.
+상세 의사결정과 옵션 비교는 `docs/adr/0001-redis-decoupling.md`.
 
 ---
 
@@ -210,10 +210,10 @@ async def close_pool() -> None: ...
 
 | 항목 | 위치 |
 |------|------|
-| at-most-once 멱등성 한계 | `docs/tradeoffs.md` T1 |
-| cache-aside race | `docs/tradeoffs.md` T2 |
-| SSE 단일 채널 + 서버 측 필터링 | `docs/tradeoffs.md` T5 |
-| 단일 Redis 인스턴스 | `docs/tradeoffs.md` T11 |
+| at-most-once 멱등성 한계 | `docs/adr/tradeoffs.md` T1 |
+| cache-aside race | `docs/adr/tradeoffs.md` T2 |
+| SSE 단일 채널 + 서버 측 필터링 | `docs/adr/tradeoffs.md` T5 |
+| 단일 Redis 인스턴스 | `docs/adr/tradeoffs.md` T11 |
 
 ---
 

@@ -7,13 +7,19 @@ from loguru import logger
 from sqlalchemy import text
 
 from assessment_engine.config import web_settings
+from assessment_engine.db.models import (  # noqa: F401
+    server_disk_io,
+    server_inventory,
+    server_inventory_history,
+    server_metrics,
+    server_mount_usage,
+    server_net_io,
+)
 from assessment_engine.db.models.base import Base
-from assessment_engine.db.session import engine, AsyncSessionLocal
-from assessment_engine.db.models import server_inventory, server_metrics  # noqa: F401
-from assessment_engine.db.models import server_disk_io, server_net_io, server_mount_usage  # noqa: F401
 from assessment_engine.db.redis import close_pool
-from assessment_engine.web.routers.pages import pages_router
+from assessment_engine.db.session import engine
 from assessment_engine.web.routers.api import api_router
+from assessment_engine.web.routers.pages import pages_router
 
 
 @asynccontextmanager
@@ -29,7 +35,14 @@ async def lifespan(_app: FastAPI):
         async with engine.begin() as conn:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE"))
             await conn.run_sync(Base.metadata.create_all)
-            for table in ("server_metrics", "server_disk_io", "server_net_io", "server_mount_usage"):
+            hypertables = (
+                "server_metrics",
+                "server_disk_io",
+                "server_net_io",
+                "server_mount_usage",
+                "server_inventory_history",
+            )
+            for table in hypertables:
                 await conn.execute(text(
                     f"SELECT create_hypertable('{table}', 'collected_at', if_not_exists => true)"
                 ))

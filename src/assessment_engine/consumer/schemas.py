@@ -12,11 +12,14 @@ class MessageBase(BaseModel):
     collected_at: datetime
     hostname: str = Field(min_length=1, max_length=255)
     message_id: UUID
+    agent_started_at: datetime
+    boot_time: datetime
 
 
 # ---------------------------------------------------------------------------
 # inventory
 # ---------------------------------------------------------------------------
+
 
 class DiskInfo(BaseModel):
     name: str = Field(min_length=1, max_length=64)
@@ -63,7 +66,6 @@ class InventoryInput(MessageBase):
     cpu_model: str | None = Field(default=None, max_length=255)
     mem_total_kb: int | None = Field(default=None, ge=0)
     swap_total_kb: int | None = Field(default=None, ge=0)
-    boot_time: datetime | None = None
 
     ip_internal: list[str] = Field(default_factory=list)
     ip_external: list[str] | None = None
@@ -71,8 +73,11 @@ class InventoryInput(MessageBase):
     @field_validator("ip_internal", "ip_external", mode="before")
     @classmethod
     def validate_ip_list(cls, v: object) -> object:
+        # mode="before" — Pydantic 검증 전이라 v는 임의 타입(JSON 파싱 직후). list/tuple만 허용.
         if v is None:
             return v
+        if not isinstance(v, (list, tuple)):
+            raise TypeError(f"expected list or tuple of IP strings, got {type(v).__name__}")
         for item in v:
             ip_address(str(item))
         return v
@@ -86,6 +91,7 @@ class InventoryInput(MessageBase):
 # ---------------------------------------------------------------------------
 # metrics
 # ---------------------------------------------------------------------------
+
 
 class CpuStat(BaseModel):
     user: int = Field(ge=0)
@@ -151,6 +157,7 @@ class MetricsInput(MessageBase):
 # error
 # ---------------------------------------------------------------------------
 
+
 class ErrorInput(MessageBase):
     message_type: Literal["error"]
     error_code: str = Field(min_length=1, max_length=64)
@@ -160,5 +167,3 @@ class ErrorInput(MessageBase):
     retry_count: int | None = Field(default=None, ge=0)
     first_failed_at: datetime | None = None
     recovered_at: datetime | None = None
-
-

@@ -139,7 +139,7 @@ async def _db_retry(
 
 ### DB 재시도 정책
 
-`5 ** (attempt + 1)` — 5, 25, 125초 대기 후 최종 실패. 합 155초로 inventory/metrics 모두 큐 TTL(없음·72h) 내에서 DB 재시작을 커버. error 큐는 TTL 300s지만 error 핸들러는 DB 접근 안 해 영향 없음.
+`5  (attempt + 1)` — 5, 25, 125초 대기 후 최종 실패. 합 155초로 inventory/metrics 모두 큐 TTL(없음·72h) 내에서 DB 재시작을 커버. error 큐는 TTL 300s지만 error 핸들러는 DB 접근 안 해 영향 없음.
 
 ---
 
@@ -147,7 +147,7 @@ async def _db_retry(
 
 ### MQ 토폴로지
 
-토폴로지 정의(vhost·exchange·DLX·큐·TTL·x-max-length·정책 근거)와 dev/prod 분기는 `docs/components/rabbitmq.md` 단일 진실. 본 절은 consumer가 그 토폴로지를 코드로 어떻게 declare·subscribe하는지만 다룬다.
+토폴로지 정의(vhost·exchange·DLX·큐·TTL·x-max-length·정책 근거)와 dev/prod 분기는 `docs/architecture/rabbitmq.md` 단일 진실. 본 절은 consumer가 그 토폴로지를 코드로 어떻게 declare·subscribe하는지만 다룬다.
 
 핵심 동작 요약:
 - 기동 시 `_DLX = "{exchange}.dlx"` 먼저 선언 → 정상 exchange 선언 → routing key별로 DLQ 선언·DLX 바인딩 → 정상 큐 선언(`x-dead-letter-exchange`/`x-dead-letter-routing-key`/옵셔널 `x-message-ttl`/옵셔널 `x-max-length`) → exchange 바인딩 → consume 시작.
@@ -178,9 +178,9 @@ RabbitMQ 전용 비동기 클라이언트. AMQP 0-9-1 프로토콜만 지원.
 
 ### 멱등성: 2단 방어 (at-most-once)
 
-**1단 — Redis 키**: `SET idempotent:{message_id} 1 EX 86400 NX`. 24h 동안 동일 message_id 재전송을 가장 빠르게 차단.
+1단 — Redis 키: `SET idempotent:{message_id} 1 EX 86400 NX`. 24h 동안 동일 message_id 재전송을 가장 빠르게 차단.
 
-**2단 — DB UNIQUE 제약**: 시계열 4개 테이블에 자연키 UNIQUE + `pg_insert(...).on_conflict_do_nothing(index_elements=...)` 적용. Redis 키 만료·evict·재시작·수동 flush로 1단이 깨져도 DB 레벨에서 중복 INSERT가 silent no-op으로 흡수된다.
+2단 — DB UNIQUE 제약: 시계열 4개 테이블에 자연키 UNIQUE + `pg_insert(...).on_conflict_do_nothing(index_elements=...)` 적용. Redis 키 만료·evict·재시작·수동 flush로 1단이 깨져도 DB 레벨에서 중복 INSERT가 silent no-op으로 흡수된다.
 
 | 테이블 | 자연키 |
 |--------|-------|
@@ -189,7 +189,7 @@ RabbitMQ 전용 비동기 클라이언트. AMQP 0-9-1 프로토콜만 지원.
 | `server_net_io` | `(server_id, interface, collected_at)` |
 | `server_mount_usage` | `(server_id, mount, collected_at)` |
 
-**at-most-once 트레이드오프**: SET NX는 DB 커밋 이전에 실행. 커밋 전 프로세스 크래시 시 RabbitMQ 재전송 메시지가 중복으로 판정되어 조용히 드롭됨. DB UNIQUE로도 해결 못 함 — 1단이 먼저 차단하기 때문. exactly-once가 필요하면 outbox 패턴으로 전환해야 한다 (`docs/tradeoffs.md`).
+at-most-once 트레이드오프: SET NX는 DB 커밋 이전에 실행. 커밋 전 프로세스 크래시 시 RabbitMQ 재전송 메시지가 중복으로 판정되어 조용히 드롭됨. DB UNIQUE로도 해결 못 함 — 1단이 먼저 차단하기 때문. exactly-once가 필요하면 outbox 패턴으로 전환해야 한다 (`docs/adr/tradeoffs.md`).
 
 ### Redis: 멱등성 체크 critical path 포함
 
@@ -197,7 +197,7 @@ Redis 장애 시 멱등성 체크 예외 → nack → DLQ. fail-open(장애 시 
 
 ### 미등록 서버 메트릭 — auto-register (drop 0)
 
-inventory 처리 전 metrics가 도달하면(레이스 컨디션, DB 초기화 후 inventory 미수신, inventory DLQ 등) **이전엔 metrics drop**이었으나, 현재는 **placeholder inventory 자동 생성으로 처리** (`handler.py` + `mappers.placeholder_inventory_from_metrics`). 정적 정보는 None/빈 배열로 채우고 다음 진짜 inventory 도착 시 upsert가 풀 정보로 덮어씀.
+inventory 처리 전 metrics가 도달하면(레이스 컨디션, DB 초기화 후 inventory 미수신, inventory DLQ 등) 이전엔 metrics drop이었으나, 현재는 placeholder inventory 자동 생성으로 처리 (`handler.py` + `mappers.placeholder_inventory_from_metrics`). 정적 정보는 None/빈 배열로 채우고 다음 진짜 inventory 도착 시 upsert가 풀 정보로 덮어씀.
 
 장점: metrics 시계열 손실 0. inventory의 one-shot 약점 해소. 에이전트 변경 없이 엔진 단독 처리.
 한계: placeholder 상태 동안 web UI에 OS/CPU/메모리 등 정적 정보 미표시 — 다음 inventory 도착 시 자동 채워짐. 에이전트 정상 운영 시 분 단위 짧음.

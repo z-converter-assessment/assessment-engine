@@ -20,7 +20,8 @@ src/assessment_engine/db/
 
 | 모델 | 테이블 | PK | 설명 |
 |------|--------|----|------|
-| `ServerInventory` | `server_inventory` | Integer | 기본 인벤토리. machine_id 기준 upsert |
+| `ServerInventory` | `server_inventory` | Integer | 기본 인벤토리. machine_id 기준 upsert (현재 상태 단일 행) |
+| `ServerInventoryHistory` | `server_inventory_history` | BigInteger | 인벤토리 변경 이력. append-only. TimescaleDB hypertable |
 | `ServerMetrics` | `server_metrics` | BigInteger | 스칼라 메트릭 시계열. TimescaleDB hypertable |
 | `ServerDiskIo` | `server_disk_io` | BigInteger | 디스크 I/O 시계열. TimescaleDB hypertable |
 | `ServerNetIo` | `server_net_io` | BigInteger | 네트워크 I/O 시계열. TimescaleDB hypertable |
@@ -28,13 +29,22 @@ src/assessment_engine/db/
 
 - 대리키(surrogate key) 패턴 — 내부 참조는 정수 PK, 비즈니스 식별자는 unique 제약
 - `server_inventory.public_id` — `UUID DEFAULT gen_random_uuid()`. URL 식별자. 정수 PK는 내부 참조 전용
-- 시계열 4개 테이블 복합 PK `(id BIGINT, collected_at TIMESTAMPTZ)` — TimescaleDB 파티션 키 포함
-- 시계열 4개 테이블 자연키 UNIQUE 제약 (멱등성 안전망):
+- 시계열 5개 테이블 복합 PK `(id BIGINT, collected_at TIMESTAMPTZ)` — TimescaleDB 파티션 키 포함
+- 시계열 5개 테이블 자연키 UNIQUE 제약 (멱등성 안전망):
   - `server_metrics`: `UNIQUE(server_id, collected_at)`
   - `server_disk_io`: `UNIQUE(server_id, device, collected_at)`
   - `server_net_io`: `UNIQUE(server_id, interface, collected_at)`
   - `server_mount_usage`: `UNIQUE(server_id, mount, collected_at)`
+  - `server_inventory_history`: `UNIQUE(server_id, collected_at)`
 - per-device/per-interface/per-mount 행 분리 — 차트 API `dimension` 파라미터에 대응
+
+### server_inventory_history — append-only 변경 이력
+
+`upsert_server`에서 직전 `server_inventory` 행과 비교 후 비교 대상 컬럼 중 하나라도 다르면 한 행 INSERT (앱 레벨 trigger). 비교 제외: `collected_at` · `last_seen_at` (매번 변경되므로 noise). 변경 발생 trigger 빈도가 가장 높은 필드는 `agent_started_at` (에이전트 재시작) · `boot_time` (시스템 재부팅) · `services` · `listen_ports`.
+
+스키마: `server_inventory`의 컬럼을 거의 그대로 미러링(Shadow). `machine_id`/`public_id`는 제외 — `server_id` FK로 충분. 1시간 주기 재발행이라도 정적 정보 동일하면 history 그대로 → noise 없음.
+
+`ON CONFLICT DO NOTHING(server_id, collected_at)` — broker 재전송·동시 워커 race 시 중복 INSERT 흡수.
 
 ---
 
@@ -74,7 +84,7 @@ Consumer가 파싱한 Pydantic 스키마를 Repository에 전달하는 중간 �
 
 ## Outbound DTO (`outbound.py`)
 
-Repository → Service 반환 타입. `dataclass`로 정의. **모두 raw 단위** (P1) — KB·bytes·jiffies·sectors 그대로. 변환은 service 계층의 `metrics_calculator`/`mappers`에서.
+Repository → Service 반환 타입. `dataclass`로 정의. 모두 raw 단위 (P1) — KB·bytes·jiffies·sectors 그대로. 변환은 service 계층의 `metrics_calculator`/`mappers`에서.
 
 | DTO | 용도 |
 |-----|------|
@@ -125,7 +135,7 @@ PostgreSQL `INSERT ... ON CONFLICT DO UPDATE`. `machine_id` unique 제약 충돌
 ```python
 row = {"machine_id": ..., "hostname": ..., ...}
 update_set = {k: v for k, v in row.items() if k != "machine_id"}
-stmt = pg_insert(ServerInventory).values(**row).on_conflict_do_update(
+stmt = pg_insert(ServerInventory).values(row).on_conflict_do_update(
     index_elements=["machine_id"], set_=update_set,
 ).returning(ServerInventory.id)
 ```
@@ -175,31 +185,31 @@ Web 서비스가 의존하는 추상 계약. `QueryService`는 이 인터페이�
 
 ### 타입 별칭
 
-`base_query_repository.py`에 `MetricType`, `TimeRange`, `BucketSize`, `AggFunc` Literal 타입 정의. `api.py` 라우터가 이 타입을 Query 파라미터 타입으로 사용. FastAPI Pydantic이 라우터 단계에서 검증하므로 **service 계층에서 중복 검증 금지**.
+`base_query_repository.py`에 `MetricType`, `TimeRange`, `BucketSize`, `AggFunc` Literal 타입 정의. `api.py` 라우터가 이 타입을 Query 파라미터 타입으로 사용. FastAPI Pydantic이 라우터 단계에서 검증하므로 service 계층에서 중복 검증 금지.
 
 ### `list_servers` SELECT 정책
 
 목록 화면이 사용하는 11개 컬럼만 명시 SELECT (`id`, `public_id`, `machine_id`, `hostname`, `os_id`, `os_version`, `cpu_cores`, `mem_total_kb`, `ip_external`, `disks`, `services`).
 
-`select(ServerInventory)` 풀로우 SELECT 대신 부분 SELECT를 쓰는 이유: `mounts` / `listen_ports` JSONB는 페이지당 N행에서 직렬화 비용이 크고 list 화면 미사용. `kernel_version` / `boot_time` / `swap_total_kb` / `agent_version` / `last_seen_at` / `ip_internal` / `os_codename` / `cpu_model`도 list 화면 미표시. 트레이드오프 정리는 `docs/tradeoffs.md` T8.
+`select(ServerInventory)` 풀로우 SELECT 대신 부분 SELECT를 쓰는 이유: `mounts` / `listen_ports` JSONB는 페이지당 N행에서 직렬화 비용이 크고 list 화면 미사용. `kernel_version` / `boot_time` / `swap_total_kb` / `agent_version` / `last_seen_at` / `ip_internal` / `os_codename` / `cpu_model`도 list 화면 미표시. 트레이드오프 정리는 `docs/adr/tradeoffs.md` T8.
 
 ### 차트 SQL 패턴 (`_chart_*` 헬퍼)
 
 7개 메트릭 타입별 헬퍼 (`_chart_cpu`, `_chart_cpu_component`, `_chart_load`, `_chart_mem`, `_chart_disk_iops`, `_chart_net`, `_chart_fs`). 공통 패턴:
 
-1. **window_start 확장**: `LAG`로 첫 버킷 delta를 계산할 수 있도록 요청 `start`보다 한 bucket 만큼 더 과거부터 raw를 읽음 (`window_start = start - _BUCKET_TD[bi]`).
-2. **delta CTE**: `LAG(...) OVER (PARTITION BY device ORDER BY collected_at)`로 누적 카운터 차 계산. 음수면 reset → `NULL` 처리.
-3. **time_bucket 집계**: TimescaleDB `time_bucket(interval '5m', collected_at)` + `agg`(avg/max/p95) 적용.
-4. **dimension 필터**: `(CAST(:dim AS text) IS NULL OR device = :dim)` — None이면 전체, 지정 시 그 dimension만.
+1. window_start 확장: `LAG`로 첫 버킷 delta를 계산할 수 있도록 요청 `start`보다 한 bucket 만큼 더 과거부터 raw를 읽음 (`window_start = start - _BUCKET_TD[bi]`).
+2. delta CTE: `LAG(...) OVER (PARTITION BY device ORDER BY collected_at)`로 누적 카운터 차 계산. 음수면 reset → `NULL` 처리.
+3. time_bucket 집계: TimescaleDB `time_bucket(interval '5m', collected_at)` + `agg`(avg/max/p95) 적용.
+4. dimension 필터: `(CAST(:dim AS text) IS NULL OR device = :dim)` — None이면 전체, 지정 시 그 dimension만.
 
 ---
 
 ## TimescaleDB
 
 - 시계열 4개 테이블 모두 hypertable (`collected_at` 기준 파티셔닝)
-- **개발**: web lifespan에서 `CREATE EXTENSION IF NOT EXISTS timescaledb` → `create_all` → `create_hypertable(if_not_exists => true)`
-- **주의**: `create_all`은 기존 테이블에 컬럼/제약(UniqueConstraint 등)을 추가하지 않음. 스키마 변경 시 `docker compose down -v` 후 재기동
-- **프로덕션**: Alembic 마이그레이션. `create_hypertable`은 최초 생성 마이그레이션에 수동 작성
+- 개발: web lifespan에서 `CREATE EXTENSION IF NOT EXISTS timescaledb` → `create_all` → `create_hypertable(if_not_exists => true)`
+- 주의: `create_all`은 기존 테이블에 컬럼/제약(UniqueConstraint 등)을 추가하지 않음. 스키마 변경 시 `docker compose down -v` 후 재기동
+- 프로덕션: Alembic 마이그레이션. `create_hypertable`은 최초 생성 마이그레이션에 수동 작성
 
 ---
 
@@ -297,7 +307,7 @@ WHERE hypertable_name = 'server_metrics'
 ORDER BY range_start DESC LIMIT 5;
 ```
 
-retention policy 도입 시점은 `docs/tradeoffs.md` T3 참조.
+retention policy 도입 시점은 `docs/adr/tradeoffs.md` T3 참조.
 
 ### 흔한 에러
 

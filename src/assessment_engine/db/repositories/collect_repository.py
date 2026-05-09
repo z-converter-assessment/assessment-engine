@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.db.models.server_disk_io import ServerDiskIo
 from assessment_engine.db.models.server_inventory import ServerInventory
+from assessment_engine.db.models.server_inventory_history import ServerInventoryHistory
 from assessment_engine.db.models.server_metrics import ServerMetrics
 from assessment_engine.db.models.server_mount_usage import ServerMountUsage
 from assessment_engine.db.models.server_net_io import ServerNetIo
@@ -33,6 +34,13 @@ class CollectRepository(BaseCollectRepository):
         return result.scalar_one_or_none()
 
     async def upsert_server(self, data: ServerInventoryCreate) -> int:
+        # 변경 감지: 직전 행과 비교 후 다를 때만 history 한 행 INSERT (앱 레벨 trigger).
+        # 1시간 주기 재발행이라도 정적 정보 동일하면 history는 그대로 — noise 차단.
+        prev_q = await self.session.execute(
+            select(ServerInventory).where(ServerInventory.machine_id == data.machine_id)
+        )
+        prev = prev_q.scalar_one_or_none()
+
         # values()와 set_={}에 같은 컬럼 dict를 재사용 — 컬럼 추가 시 한 곳만 수정.
         # machine_id는 conflict 키이므로 set_에서 제외 (자기 자신을 자기 값으로 덮어쓰는 무의미한 동작 회피).
         row = {
@@ -48,6 +56,7 @@ class CollectRepository(BaseCollectRepository):
             "mem_total_kb":   data.mem_total_kb,
             "swap_total_kb":  data.swap_total_kb,
             "boot_time":      data.boot_time,
+            "agent_started_at": data.agent_started_at,
             "ip_internal":    data.ip_internal,
             "ip_external":    data.ip_external,
             "disks":          data.disks,
@@ -65,7 +74,68 @@ class CollectRepository(BaseCollectRepository):
             .returning(ServerInventory.id)
         )
         result = await self.session.execute(stmt)
-        return result.scalar_one()
+        server_id = result.scalar_one()
+
+        # history append: 신규(prev=None) 또는 비교 대상 필드 차이 발생 시.
+        # placeholder가 만든 prev에 None이 많아도 비교 결과 다르면 자연스럽게 첫 history 행 생성.
+        if prev is None or self._inventory_changed(prev, data):
+            await self._append_inventory_history(server_id, data)
+
+        return server_id
+
+    @staticmethod
+    def _inventory_changed(prev: ServerInventory, new: ServerInventoryCreate) -> bool:
+        """변경 감지. collected_at·last_seen_at 제외한 모든 컬럼 비교."""
+        return (
+            prev.hostname        != new.hostname
+            or prev.agent_version    != new.agent_version
+            or prev.os_id            != new.os_id
+            or prev.os_version       != new.os_version
+            or prev.os_codename      != new.os_codename
+            or prev.kernel_version   != new.kernel_version
+            or prev.cpu_cores        != new.cpu_cores
+            or prev.cpu_model        != new.cpu_model
+            or prev.mem_total_kb     != new.mem_total_kb
+            or prev.swap_total_kb    != new.swap_total_kb
+            or prev.boot_time        != new.boot_time
+            or prev.agent_started_at != new.agent_started_at
+            or prev.ip_internal      != new.ip_internal
+            or prev.ip_external      != new.ip_external
+            or prev.disks            != new.disks
+            or prev.mounts           != new.mounts
+            or prev.services         != new.services
+            or prev.listen_ports     != new.listen_ports
+        )
+
+    async def _append_inventory_history(self, server_id: int, data: ServerInventoryCreate) -> None:
+        """직전 행과 다른(또는 첫) 인벤토리 스냅샷을 history에 append.
+
+        ON CONFLICT DO NOTHING — broker 재전송·동시 워커 race로 동일 (server_id, collected_at)
+        2번째 INSERT가 와도 silent no-op (시계열 4개 테이블과 동일 안전망).
+        """
+        stmt = pg_insert(ServerInventoryHistory).values(
+            server_id=server_id,
+            collected_at=data.collected_at,
+            hostname=data.hostname,
+            agent_version=data.agent_version,
+            os_id=data.os_id,
+            os_version=data.os_version,
+            os_codename=data.os_codename,
+            kernel_version=data.kernel_version,
+            cpu_cores=data.cpu_cores,
+            cpu_model=data.cpu_model,
+            mem_total_kb=data.mem_total_kb,
+            swap_total_kb=data.swap_total_kb,
+            boot_time=data.boot_time,
+            agent_started_at=data.agent_started_at,
+            ip_internal=data.ip_internal,
+            ip_external=data.ip_external,
+            disks=data.disks,
+            mounts=data.mounts,
+            services=data.services,
+            listen_ports=data.listen_ports,
+        ).on_conflict_do_nothing(index_elements=["server_id", "collected_at"])
+        await self.session.execute(stmt)
 
     async def ensure_server_id(
         self,
@@ -109,6 +179,7 @@ class CollectRepository(BaseCollectRepository):
             "mem_total_kb":   data.mem_total_kb,
             "swap_total_kb":  data.swap_total_kb,
             "boot_time":      data.boot_time,
+            "agent_started_at": data.agent_started_at,
             "ip_internal":    data.ip_internal,
             "ip_external":    data.ip_external,
             "disks":          data.disks,

@@ -10,9 +10,10 @@ class MetricInsertResult:
 
     ON CONFLICT DO NOTHING이므로 멱등성 충돌 시 0. 관측·디버깅 용도.
     """
-    metrics: int      # server_metrics: 0 또는 1
-    disk_io: int      # server_disk_io
-    net_io: int       # server_net_io
+
+    metrics: int  # server_metrics: 0 또는 1
+    disk_io: int  # server_disk_io
+    net_io: int  # server_net_io
     mount_usage: int  # server_mount_usage
 
 
@@ -28,7 +29,11 @@ class BaseCollectRepository(ABC):
 
     @abstractmethod
     async def upsert_server(self, data: ServerInventoryCreate) -> int:
-        """machine_id 기준 ON CONFLICT DO UPDATE upsert. server_inventory.id 반환."""
+        """machine_id 기준 ON CONFLICT DO UPDATE upsert. server_inventory.id 반환.
+
+        부수효과: 직전 행과 비교 시 변경(또는 신규) 감지되면 server_inventory_history에
+        한 행 append (앱 레벨 trigger). 1시간 주기 재발행이라도 정적 정보 동일하면 history 그대로.
+        """
 
     @abstractmethod
     async def ensure_server_id(
