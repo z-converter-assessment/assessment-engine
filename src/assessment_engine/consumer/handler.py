@@ -7,13 +7,12 @@ T = TypeVar("T")
 
 from uuid import UUID
 
+from aio_pika import DeliveryMode, Message
 from aio_pika.abc import AbstractIncomingMessage
 from loguru import logger
 from redis.asyncio import Redis
 from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-from aio_pika import Message, DeliveryMode
 
 from assessment_engine.config import consumer_settings
 from assessment_engine.consumer.mappers import placeholder_inventory_from_metrics, to_inventory_create, to_metric_create
@@ -28,7 +27,6 @@ from assessment_engine.db.redis import (
 )
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository, MetricInsertResult
 from assessment_engine.db.repositories.inbound import TaskResultUpdate
-
 
 # retry 가치가 있는 예외(connection lost, deadlock 등)와 영구 장애(스키마 위반·UNIQUE 등)를 분리.
 # - OperationalError: connection·timeout·deadlock 등 일시 장애.

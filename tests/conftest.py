@@ -15,7 +15,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
-from assessment_engine.db.models.base import Base
 # ORM 모델을 Base.metadata에 등록 (side-effect import)
 from assessment_engine.db.models import (  # noqa: F401
     server_disk_io,
@@ -24,7 +23,7 @@ from assessment_engine.db.models import (  # noqa: F401
     server_mount_usage,
     server_net_io,
 )
-
+from assessment_engine.db.models.base import Base
 
 _HYPERTABLES = (
     "server_metrics",

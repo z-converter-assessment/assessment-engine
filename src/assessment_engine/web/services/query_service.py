@@ -2,24 +2,21 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Literal
 
-from assessment_engine.web.services.device_filters import is_lvm_disk, is_partition, is_physical_disk, is_virtual_mount
-
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from assessment_engine.config import web_settings
-from assessment_engine.db.redis import safe_delete, safe_get, safe_mget, safe_set
+from assessment_engine.db.redis import safe_get, safe_mget, safe_set
 from assessment_engine.db.repositories.base_query_repository import (
+    TIME_RANGE_TD,
     AggFunc,
     BaseQueryRepository,
     BucketSize,
     MetricType,
-    TIME_RANGE_TD,
     TimeRange,
 )
-from assessment_engine.db.repositories.outbound import InventoryExportEntry, RebootEvent, ReportRow
-from assessment_engine.web.services import recommendation
-from assessment_engine.web.services.mappers import _infer_role  # type: ignore[attr-defined]
+from assessment_engine.db.repositories.outbound import InventoryExportEntry, RebootEvent
+from assessment_engine.web.services.device_filters import is_lvm_disk, is_partition, is_physical_disk, is_virtual_mount
 
 # disk metric_type에서만 의미를 갖는 service 레벨 분기. 라우터에서 Literal로 검증 (F3 단일 경로).
 DeviceCategory = Literal["phys", "logical"]
@@ -35,6 +32,7 @@ from assessment_engine.web.services.mappers import (
     to_inventory_export_entry,
     to_metric_series_item,
     to_network_detail,
+    to_report_row_item,
     to_server_detail,
     to_server_list_item,
     to_storage_detail,
@@ -45,6 +43,8 @@ from assessment_engine.web.view_models import (
     MetricDashboard,
     MetricSeriesItem,
     NetworkDetailResponse,
+    ReportRowItem,
+    ReportSummary,
     ServerDetailResponse,
     ServerListItem,
     StorageDetailResponse,
@@ -183,48 +183,38 @@ class QueryService:
     async def get_report(
         self,
         server_ids: list[int],
-        period_days: int = recommendation.WINDOW_DAYS,
+        period_days: int = 14,
         end: datetime | None = None,
-    ) -> list[ReportRow]:
-        """Assessment 보고서 — N서버 통계 + role + is_online + recommendation 분류.
+    ) -> ReportSummary:
+        """Assessment 보고서 — raw → ViewModel + KPI 집계 (P2 단일 변환).
 
-        repo는 raw stats만 산출. 본 함수가 service 계층에서 enrich (P2):
-        - role: ServerDetail.services로 추론
-        - is_online: Redis online:{id} EXISTS (장애 시 last_seen_at fallback)
-        - recommendation: USE Method 분류 (recommendation.classify)
+        repo는 raw stats(`ReportRowRaw`)만 산출. mapper(`to_report_row_item`)가 표시 파생
+        (role/recommendation/badge_class/os_display) 채움. KPI도 service 책임.
+        is_online은 Redis mget 일괄 (N+1 회피, fail-open 시 last_seen_at fallback).
         """
         end_dt = end or datetime.now(timezone.utc)
-        rows = await self.repo.report_aggregate(server_ids, period_days, end_dt)
+        raws = await self.repo.report_aggregate(server_ids, period_days, end_dt)
 
-        # Redis 일괄 mget으로 is_online (N+1 회피)
-        online_keys = [web_settings.redis_key_online.format(r.server_id) for r in rows]
+        online_keys = [web_settings.redis_key_online.format(r.server_id) for r in raws]
         flags = await safe_mget(self.redis, online_keys)
         threshold = end_dt - timedelta(seconds=web_settings.redis_ttl_online)
 
-        for i, r in enumerate(rows):
-            # role
-            detail = await self.repo.get_server(r.server_id)
-            r.role = _infer_role(detail.services if detail else None)
-
-            # is_online
+        items: list[ReportRowItem] = []
+        for i, raw in enumerate(raws):
             if flags is None:
-                # Redis 장애 fallback — last_seen_at 기준 (DTO에 직접 없으므로 detail에서)
-                r.is_online = bool(detail and detail.last_seen_at and detail.last_seen_at > threshold)
+                online = bool(raw.last_seen_at and raw.last_seen_at > threshold)
             else:
-                r.is_online = flags[i] is not None
+                online = flags[i] is not None
+            items.append(to_report_row_item(raw, online))
 
-            # recommendation 분류 (USE Method)
-            stats = recommendation.ResourceStats(
-                cpu_p95_pct=r.cpu_p95_pct,
-                cpu_peak_pct=r.cpu_peak_pct,
-                mem_p95_pct=r.mem_p95_pct,
-                swap_used=r.swap_used,
-                net_avg_kbps=None,  # 1차 MVP — net 집계 미구현 (idle/shutdown 판정 skip)
-            )
-            r.recommendation = recommendation.classify(stats)
-            r.recommendation_label = recommendation.LABEL_KO[r.recommendation]
-
-        return rows
+        return ReportSummary(
+            rows=items,
+            period_days=period_days,
+            total=len(items),
+            online=sum(1 for it in items if it.is_online),
+            over=sum(1 for it in items if it.recommendation == "over_provisioned"),
+            under=sum(1 for it in items if it.recommendation == "under_provisioned"),
+        )
 
     async def get_inventory_export(self, server_ids: list[int]) -> list[InventoryExportEntry]:
         """선택 서버 N대의 정제 inventory JSON 항목 list.

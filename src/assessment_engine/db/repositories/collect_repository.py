@@ -1,5 +1,4 @@
 import dataclasses
-from datetime import datetime
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert

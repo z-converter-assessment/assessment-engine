@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 import pytest
 
 from assessment_engine.db.repositories.outbound import (
-    NetworkWithIo,
     ServerDetail,
     ServerSummary,
     StorageWithUsage,
@@ -21,7 +20,6 @@ from assessment_engine.web.services.mappers import (
     to_server_list_item,
     to_storage_detail,
 )
-
 
 # ─── 임계값·severity ──────────────────────────────────────────────────────
 

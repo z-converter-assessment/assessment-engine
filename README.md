@@ -82,7 +82,7 @@
 - **USE Method 보고서** — Brendan Gregg USE Method + AWS Compute Optimizer / Azure Advisor / GCP Recommender 임계값 기반 right-sizing 분류 (양식 A 요약 + 양식 B 상세).
 - **ZConverter Install task** — 선택 서버에 변환 도구 설치 명령 발행. RPC piggyback (`amq.rabbitmq.reply-to`)으로 에이전트가 다음 metrics 발행 시 명령 수신 → 실행 → `task.result` 큐로 결과 보고.
 
-상세 정의: [`docs/assessment-deliverables.md`](docs/assessment-deliverables.md), [`docs/task-agent-workflow.md`](docs/task-agent-workflow.md), [`docs/ai_roadmap.md`](docs/ai_roadmap.md).
+상세 정의: [`docs/assessment-deliverables.md`](docs/assessment-deliverables.md), [`docs/architecture/agent.md`](docs/architecture/agent.md) "Task RPC piggyback" 절, [`docs/ai_roadmap.md`](docs/ai_roadmap.md).
 
 ---
 
@@ -228,13 +228,16 @@ Vagrant로 VM 3대(Ubuntu / Rocky Linux / Debian)를 띄우고, 각 VM에서 에
 ## 개발 문서
 
 ### 시스템 설계
-- [`docs/architecture/`](docs/architecture) — 컴포넌트별 deep dive (agent·consumer·db·redis·rabbitmq·web)
+- [`docs/architecture/`](docs/architecture) — 컴포넌트별 deep dive
+  - `agent.md` / `consumer.md` / `redis.md` / `rabbitmq.md` (단일 파일)
+  - `db/` — models / dtos / repositories / timescaledb
+  - `web/` — layering / routers / services / view-models / static-assets
 - [`docs/operations/`](docs/operations) — 인프라·환경·배포 (docker·vagrant·dev-prod·env·testing·pipeline)
 - [`docs/adr/`](docs/adr) — Architecture Decision Records + 트레이드오프
 
 ### 산출물·워크플로우 정의
 - [`docs/assessment-deliverables.md`](docs/assessment-deliverables.md) — JSON Export · USE Method 보고서 양식
-- [`docs/task-agent-workflow.md`](docs/task-agent-workflow.md) — ZConverter Install task 등록·실행 흐름
+- [`docs/architecture/agent.md`](docs/architecture/agent.md) "Task RPC piggyback" — ZConverter Install task 등록·실행 흐름 (ADR 0002 결정)
 - [`docs/ai_roadmap.md`](docs/ai_roadmap.md) — Phase 2~3 분석·추천·LLM 도입 설계
 
 ### 핵심 운영 가이드

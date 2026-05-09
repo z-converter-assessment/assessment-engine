@@ -21,7 +21,6 @@ from assessment_engine.db.redis import (
     safe_set_nx,
 )
 
-
 pytestmark = pytest.mark.asyncio
 
 

@@ -36,7 +36,6 @@ from assessment_engine.web.view_models import (
     SwapSnapshot,
 )
 
-
 T = TypeVar("T")
 
 

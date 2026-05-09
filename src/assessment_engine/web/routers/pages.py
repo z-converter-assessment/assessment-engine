@@ -71,22 +71,11 @@ async def report(
     if not server_ids:
         raise HTTPException(status_code=404, detail="no valid server ids")
 
-    rows = await service.get_report(server_ids, period_days)
-
-    # KPI 집계 (양식 A 헤더)
-    total = len(rows)
-    online = sum(1 for r in rows if r.is_online)
-    over = sum(1 for r in rows if r.recommendation == "over_provisioned")
-    under = sum(1 for r in rows if r.recommendation == "under_provisioned")
-
+    summary = await service.get_report(server_ids, period_days)
     return templates.TemplateResponse(
         request=request,
         name="servers/report.html",
-        context={
-            "rows": rows,
-            "period_days": period_days,
-            "kpi": {"total": total, "online": online, "over": over, "under": under},
-        },
+        context={"summary": summary},
     )
 
 

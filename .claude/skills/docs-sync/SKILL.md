@@ -18,15 +18,19 @@ description: TRIGGER when user requests doc sync after code changes ("문서 동
 | 코드 경로 | 관련 문서 |
 |-----------|-----------|
 | `src/assessment_engine/consumer/` | `docs/architecture/consumer.md`, CLAUDE.md §D |
-| `src/assessment_engine/web/` | `docs/architecture/web.md`, CLAUDE.md §E |
-| `src/assessment_engine/db/` (모델·repository) | `docs/architecture/db.md`, CLAUDE.md §C1·C2 |
+| `src/assessment_engine/web/routers/` | `docs/architecture/web/routers.md` |
+| `src/assessment_engine/web/services/` | `docs/architecture/web/services.md`, CLAUDE.md §E3 |
+| `src/assessment_engine/web/view_models.py` | `docs/architecture/web/view-models.md`, CLAUDE.md §E4 |
+| `src/assessment_engine/web/static/` / `templates/` | `docs/architecture/web/static-assets.md`, CLAUDE.md §E7·E9 |
+| `src/assessment_engine/db/models/` | `docs/architecture/db/models.md`, CLAUDE.md §C1 |
+| `src/assessment_engine/db/repositories/` | `docs/architecture/db/repositories.md` (+ `db/dtos.md` for DTO 변경), CLAUDE.md §C2 |
 | `src/assessment_engine/db/redis.py` + 키 패턴 | `docs/architecture/redis.md`, CLAUDE.md §C3 |
 | `docker-compose*.yml`, `Dockerfile*` | `docs/operations/docker.md`, `docs/operations/dev-prod.md` |
 | `Vagrantfile`, `infra/agent.env`, `synthetic-load*.sh` | `docs/operations/vagrant.md`, CLAUDE.md §A4 |
 | `src/assessment_engine/config.py` | `docs/operations/env.md`, `docs/operations/dev-prod.md`, CLAUDE.md §A3 |
 | `src/assessment_engine/consumer/schemas.py` | `docs/architecture/agent.md`, `docs/architecture/consumer.md`, CLAUDE.md §B |
 | `src/assessment_engine/consumer/handler.py` | `docs/architecture/consumer.md`, CLAUDE.md §D2·D3 |
-| Pydantic Input/DTO 변경 | `docs/architecture/db.md` (DTO 절), CLAUDE.md §B5 |
+| Pydantic Input/DTO 변경 | `docs/architecture/db/dtos.md`, CLAUDE.md §B5 |
 
 3. 각 매핑된 문서 Read → 코드 변경이 문서에 반영돼야 할 지점 식별 (예: 새 함수/필드/메서드 시그니처, 정책 변경, 설정 키 변경).
 
@@ -40,9 +44,10 @@ description: TRIGGER when user requests doc sync after code changes ("문서 동
 | 변경 유형 | 동기화 검토 |
 |-----------|-------------|
 | 새 ENV 키 추가 | `docs/operations/env.md` 카탈로그 추가 + `docs/operations/dev-prod.md` (해당되면) |
-| 새 Pydantic 필드 | `docs/architecture/agent.md` 스키마 + `docs/architecture/db.md` Inbound DTO + CLAUDE.md §B2 |
-| 새 라우터 엔드포인트 | `docs/architecture/web.md` API 절 + CLAUDE.md §E5 |
-| 새 Repository 메서드 | `docs/architecture/db.md` Repository 절 |
+| 새 Pydantic 필드 | `docs/architecture/agent.md` 스키마 + `docs/architecture/db/dtos.md` + CLAUDE.md §B2 |
+| 새 라우터 엔드포인트 | `docs/architecture/web/routers.md` + CLAUDE.md §E5 |
+| 새 Repository 메서드 | `docs/architecture/db/repositories.md` |
+| 새 ViewModel·파생 필드 | `docs/architecture/web/view-models.md` + cache_serializer `_DETAIL_DISPLAY_FIELDS` 동기화 |
 | 새 Redis 키 | `docs/architecture/redis.md` 키 카탈로그 + CLAUDE.md §C3 표 |
 | 큐 토폴로지 변경 | `docs/architecture/rabbitmq.md` + CLAUDE.md §B4 |
 

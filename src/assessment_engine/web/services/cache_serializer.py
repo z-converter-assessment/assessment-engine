@@ -18,7 +18,6 @@ from assessment_engine.web.view_models import (
     SwapSnapshot,
 )
 
-
 _WELL_KNOWN_PORT_MAX = 1024  # 옛 cache 호환용 fallback (mappers와 동일 값)
 
 _DETAIL_DISPLAY_FIELDS = frozenset({

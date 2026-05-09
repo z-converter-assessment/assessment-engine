@@ -29,10 +29,10 @@
 | [docs/adr/tradeoffs.md](../docs/adr/tradeoffs.md) | 의식적 설계 선택과 그 한계 (T1~T11) |
 | [docs/architecture/agent.md](../docs/architecture/agent.md) | 에이전트 메시지 스키마 / 포트 수집 / 디스크 필터링 |
 | [docs/architecture/consumer.md](../docs/architecture/consumer.md) | schemas / handler / main / 멱등성 / 재시도 |
-| [docs/architecture/db.md](../docs/architecture/db.md) | ORM 모델 / DTO / Repository / TimescaleDB |
+| [docs/architecture/db/](../docs/architecture/db/) | models / dtos / repositories / timescaledb (4분할) |
 | [docs/architecture/redis.md](../docs/architecture/redis.md) | 키 설계 / TTL / PUB/SUB / 멱등성 / 캐시 무효화 / mget |
 | [docs/architecture/rabbitmq.md](../docs/architecture/rabbitmq.md) | vhost·권한 모델 / 토폴로지 / dev/prod 분기 / prod 전환 체크리스트 |
-| [docs/architecture/web.md](../docs/architecture/web.md) | 레이어 원칙 / 서비스 모듈 / ViewModel / Jinja2 / 차트 UI / chart-utils.js |
+| [docs/architecture/web/](../docs/architecture/web/) | layering / routers / services / view-models / static-assets (5분할) |
 | [docs/operations/docker.md](../docs/operations/docker.md) | Dockerfile / docker-compose (볼륨·헬스체크·기동 순서·env) |
 | [docs/operations/vagrant.md](../docs/operations/vagrant.md) | Vagrant 사용 맥락 / VM 구성 / 프로비저닝 흐름 |
 | [docs/adr/0001-redis-decoupling.md](../docs/adr/0001-redis-decoupling.md) | Redis fail-open 전환 의사결정 + 옵션 비교 + 구현 결과 |
@@ -88,18 +88,15 @@ Compose 호출:
 
 ## B1. 메시지 타입 — 엔진 측 결정
 
-4가지 routing key (`server.inventory` / `server.metrics` / `server.error` / `task.result`). `task.result`는 agent → engine 작업 결과 보고 (양방향 채널 중 agent → engine 방향). 메시지 타입별 필드 카탈로그·공통 메타데이터·서브모델 구조는 `docs/architecture/agent.md` "메시지 타입" 절.
+4가지 routing key (`server.inventory` / `server.metrics` / `server.error` / `task.result`). 메시지 스키마·공통 메타·미사용 필드 카탈로그는 `docs/architecture/agent.md`.
 
-공통 메타데이터에 `agent_started_at` (에이전트 프로세스 기동 시각) + `boot_time` (시스템 부팅 시각) 포함 — 두 값 비교로 시스템 재부팅 vs 에이전트 재시작 구분. 시계열 4개 테이블 모두에 컬럼으로 영구 보존 (#C1) → metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 boot_time 비교 → 다르면 None 반환(reset 확정), agent_started_at만 다르면 정상 delta(/proc 카운터는 그대로). 둘 다 NULL(옛 데이터)이면 d<0 휴리스틱 fallback. mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 위해 동일 보존.
-
-inventory는 기동 시 1회 + 정적 정보 변경 시 + 1시간 주기 자동 재발행. 엔진 측 데이터 손실(DB 장애·메시지 유실) 발생 시 자동 회복 트리거 역할.
-
-엔진 핸들링 결정:
-- `InventoryMountInfo.free_bytes`/`avail_bytes`는 핸들러에서 무시. 인벤토리는 정적(total_bytes)만 저장, 동적 사용량은 `server_mount_usage` 시계열로 분리.
-- `inventory.disks[]/mounts[]`의 `major`/`minor`는 활용 — `src/assessment_engine/web/services/device_filters.find_parent_disk()`가 mount↔disk 조인 키로 사용 (storage.html "Device" 컬럼).
-- `metrics.disk_io[]/mounts[]`의 `major`/`minor`는 시계열 테이블에 컬럼 없어 미저장. 시계열에서도 활용하려면 `ServerDiskIo`/`ServerMountUsage` 컬럼 추가 + `down -v` 필요.
-- `server.metrics`는 raw 누적값으로 발행 — 엔진이 두 시점 차로 delta·% 계산 (P1: repository는 raw만 저장, 변환은 service).
-- `server.error`는 파싱 + idempotent + 로깅만. DB 저장 없음.
+본 절 결정:
+- `boot_time` + `agent_started_at`은 시계열 4테이블 모두 보존 (#C1) — `metrics_calculator._is_counter_reset`이 두 시점 비교로 시스템 재부팅 식별. agent_started_at만 다르면 에이전트 재시작(/proc 카운터는 그대로 → 정상 delta). NULL(옛 데이터)은 d<0 휴리스틱 fallback. mount_usage는 시점값이라 활용 없으나 메타 일관성 위해 동일 보존.
+- inventory는 기동 1회 + 정적 변경 시 + 1시간 주기 자동 재발행 — 데이터 손실 자동 회복 트리거.
+- raw 누적값 발행 — 엔진이 delta·% 계산 (P1: repo는 raw, 변환은 service).
+- `server.error`는 파싱 + 멱등성 + 로깅만. DB 저장 없음.
+- `inventory.mounts.free_bytes/avail_bytes`는 mapper에서 drop (인벤토리는 정적 total만, 동적은 `server_mount_usage` 시계열).
+- `disks[]/mounts[]`의 `major`/`minor`는 mount↔disk 조인 키로 활용 (`device_filters.find_parent_disk`).
 
 ## B2. 단위·옵션 규약
 - 단위: 메모리=`kb`, 디스크/네트워크=`bytes` (`/proc` 출력 관례).
@@ -108,20 +105,12 @@ inventory는 기동 시 1회 + 정적 정보 변경 시 + 1시간 주기 자동 
 
 ## B3. MQ 토폴로지
 
-핵심 파라미터(에이전트·컨슈머 동기화 필수):
+토폴로지 표(routing key·큐·DLQ·TTL·x-max-length) + 정책 근거(72h/1M 산정 / vhost 권한 / AMQPS·TLS / prod 전환): `docs/architecture/rabbitmq.md` 단일 진실.
 
-| routing key | 큐 | DLQ | 큐 TTL | x-max-length |
-|-------------|-----|-----|--------|--------------|
-| `server.inventory` | `server.inventory` | `server.inventory.dead` | 없음 (one-shot) | 없음 |
-| `server.metrics` | `server.metrics` | `server.metrics.dead` | 72h | 1,000,000 |
-| `server.error` | `server.error` | `server.error.dead` | 300s | 없음 |
-| `task.result` | `task.result` | `task.result.dead` | 24h | 100,000 |
-
-별도 queue 없는 양방향 채널: `server.metrics` 메시지의 `reply_to` (agent 명시 시 `amq.rabbitmq.reply-to` 빌트인 pseudo-queue)로 engine이 task 명령을 reply — RPC piggyback (#B6).
-
-Vhost `/assessment` / Exchange `assessment` (direct, durable) / DLX `assessment.dlx` / prefetch_count 10. dev/prod 공통.
-
-큐 인자 변경 시 broker가 기존 큐 재선언을 PRECONDITION_FAILED로 reject — 큐 삭제 또는 rabbitmq 재생성 후 consumer 재기동 필요. 정책 근거(72h/1M 산정 / DLQ 라우팅 트리거 / 변경 절차) / vhost 권한 모델 / AMQPS·TLS / prod 전환 체크리스트의 단일 진실은 `docs/architecture/rabbitmq.md`.
+본 절 결정:
+- 4 routing key + DLX `assessment.dlx` (dev/prod 공통). prefetch_count 10.
+- 별도 task queue 없음 — `server.metrics`의 `reply_to` (RabbitMQ 빌트인 `amq.rabbitmq.reply-to`)로 task 명령 RPC piggyback (#B6, ADR 0002).
+- 큐 인자 변경 시 broker `PRECONDITION_FAILED` reject — 큐 삭제 후 consumer 재기동 필요.
 
 ## B6. Task 명령 — RPC piggyback (engine → agent)
 
@@ -154,23 +143,15 @@ Vhost `/assessment` / Exchange `assessment` (direct, durable) / DLX `assessment.
 
 ## C1. 키·제약 — 멱등성 의존
 
-ORM 모델 카탈로그(6개 테이블) / Inbound·Outbound DTO 카탈로그 / TimescaleDB 운영 / asyncpg 파라미터 함정: `docs/architecture/db.md` "ORM 모델" · "Inbound DTO" · "Outbound DTO" · "TimescaleDB" · "차트 dimension 필터" 절.
+ORM 7개 모델 / DTO / TimescaleDB / asyncpg / 자연키 UNIQUE 표: `docs/architecture/db/models.md` · `db/dtos.md` · `db/timescaledb.md` · `db/repositories.md` 단일 진실.
 
-본 절의 결정/금지(D2 멱등성·E5 URL 식별자에 직접 의존):
-
+본 절 결정/금지(D2 멱등성·E5 URL 식별자에 직접 의존):
 - 대리키 패턴 — 내부 참조는 정수 PK, 비즈니스 식별자는 unique 제약.
-- `server_inventory.machine_id` UNIQUE — upsert 키.
-- `server_inventory.public_id` — `UUID DEFAULT gen_random_uuid()`. URL 식별자. 정수 PK는 노출 금지.
-- 시계열 5개 테이블 복합 PK `(id BIGINT, collected_at TIMESTAMPTZ)` — TimescaleDB 파티션 키 포함.
-- 시계열 5개 테이블 자연키 UNIQUE (#D2 멱등성 2단 방어 의존 — 누락 시 멱등성 보장 자체 깨짐):
-  - `server_metrics`: `UNIQUE(server_id, collected_at)`
-  - `server_disk_io`: `UNIQUE(server_id, device, collected_at)`
-  - `server_net_io`: `UNIQUE(server_id, interface, collected_at)`
-  - `server_mount_usage`: `UNIQUE(server_id, mount, collected_at)`
-  - `server_inventory_history`: `UNIQUE(server_id, collected_at)` — append-only 변경 이력. upsert_server에서 직전 행 비교 후 변경 시에만 INSERT.
-- 시계열 4개 테이블(`server_metrics` · `server_disk_io` · `server_net_io` · `server_mount_usage`) `boot_time TIMESTAMPTZ NULL` + `agent_started_at TIMESTAMPTZ NULL` — 메시지 공통 메타 균일 보존. metrics·disk_io·net_io는 `metrics_calculator`가 두 시점 boot_time 비교로 counter reset 정밀 식별 (#B1, 시스템 재부팅 시 delta 건너뛰기). `mount_usage`는 시점값(델타 없음)이라 calculator 직접 활용은 없으나 운영 디버깅(단일 테이블 SELECT로 재부팅 여부 확인) + 미래 활용 + 시계열 메타데이터 일관성을 위해 보존. 둘 다 NULL(옛 데이터)이면 calculator는 d<0 휴리스틱 fallback.
-
-스키마 변경 운영 결정: DEV에서 `create_all`은 기존 테이블에 컬럼/제약 추가하지 않음 — 모델 변경 후 최초 기동은 `docker compose down -v` 필요. PROD는 Alembic + `create_hypertable` 수동.
+- `server_inventory.public_id` (UUID) — URL 식별자. 정수 PK 노출 금지.
+- 시계열 5개 테이블 자연키 UNIQUE 보존 의무 (#D2 2단 방어 — 누락 시 멱등성 깨짐). 변경 시 db/models.md 표 동시 갱신.
+- 시계열 4개 테이블 `boot_time` + `agent_started_at` 컬럼 보존 의무 (#B1 counter reset 정밀 식별).
+- `tasks` 부분 UNIQUE `WHERE status='pending'` — 운영자 더블클릭 방어. service가 `IntegrityError` → 409.
+- 스키마 변경: DEV는 `docker compose down -v` 필수 (`create_all`은 기존 테이블에 컬럼 추가 안 함). PROD는 Alembic + `create_hypertable` 수동.
 
 ## C2. Repository 계층 — 인터페이스 우선 (F4)
 
@@ -184,7 +165,7 @@ INSERT 통일: 시계열은 `pg_insert(...).on_conflict_do_nothing(index_element
 
 `list_servers`는 `select(ServerInventory)` 풀로우 대신 11개 컬럼 명시 SELECT (큰 JSONB·텍스트 제외). 트레이드오프 근거 `docs/adr/tradeoffs.md` T8.
 
-repo 메서드 카탈로그·asyncpg 함정·`_chart_*` 패턴: `docs/architecture/db.md` "Collect 계층" · "Query 계층" · "차트 SQL 패턴" · "차트 dimension 필터" 절.
+repo 메서드 카탈로그·asyncpg 함정·`_chart_*` 패턴: `docs/architecture/db/repositories.md` + `db/timescaledb.md`.
 
 ## C3. Redis 전략 — fail-open 의무
 
@@ -204,20 +185,15 @@ fail-open 핵심 결과(다른 계층이 의존):
 # D. Consumer
 
 ## D1. 구조
-- aio-pika 비동기 컨슈머 (FastAPI 독립 프로세스).
-- routing key별 핸들러 팩토리: `make_inventory_handler` / `make_metrics_handler` / `make_error_handler` (`src/assessment_engine/consumer/handler.py`).
-- 파싱: routing key별 구체 타입(`InventoryInput` / `MetricsInput` / `ErrorInput`) 직접 파싱. `src/assessment_engine/consumer/mappers.py`에서 Pydantic → Inbound DTO 변환.
-- 서버 식별 기준: `machine_id` (inventory upsert + metrics 서버 조회).
-- metrics 핸들러 흐름: `repo.ensure_server_id(machine_id, placeholder)` → `repo.record_metrics(server_id, dto)`. find→upsert 분기는 repository에 캡슐화. `ensure_server_id`가 `(server_id, auto_registered)` 반환 → handler가 auto-register 시점만 운영 로그.
-- auto-register: placeholder inventory(machine_id/hostname/agent_version만 실값, 정적 정보 None) → 다음 진짜 inventory 도착 시 ON CONFLICT DO UPDATE로 풀 정보 자동 덮어씀. (`src/assessment_engine/consumer/mappers.placeholder_inventory_from_metrics`)
-- record_metrics 반환: `MetricInsertResult(metrics, disk_io, net_io, mount_usage)` — 각 테이블별 INSERT 행 수. handler가 로그에 노출하여 누락·중복 관측 가능.
 
-### 실패 처리
-- 파싱 실패 → raise → nack(requeue=False) → DLX → DLQ.
-- DB 일시 장애 (`OperationalError` / `DBAPIError`): `_db_retry`로 지수 백오프(`5  (attempt + 1)`s = 5s/25s/125s, 합 155s) 3회 후 raise → nack → DLX → DLQ.
-- DB 영구 장애 (`IntegrityError` 등): `_db_retry`가 즉시 raise (retry 무의미) → nack → DLX → DLQ. 단 시계열 INSERT는 `ON CONFLICT DO NOTHING`이라 IntegrityError 도달 거의 없음.
-- 큐 TTL 만료 → 브로커 자동 DLX → DLQ. metrics 72h, error 300s, inventory 없음.
-- `error` 메시지: 파싱 + idempotent + 로깅만 (재시도 컨텍스트 포함). DB 저장 없음.
+핸들러 팩토리·메시지 처리 흐름·실패 처리 매트릭스·`_db_retry` 백오프·auto-register 흐름: `docs/architecture/consumer.md` 단일 진실.
+
+본 절 결정:
+- aio-pika 비동기 컨슈머 (FastAPI 독립 프로세스).
+- 4 routing key 핸들러 팩토리 (`make_{inventory,metrics,error,task_result}_handler`).
+- 서버 식별 기준 = `machine_id` (inventory upsert + metrics 서버 조회).
+- metrics 흐름: `ensure_server_id` (find→placeholder 분기 캡슐화) → `record_metrics` (4 시계열 행 수 반환).
+- auto-register: placeholder inventory → 다음 진짜 inventory 도착 시 `ON CONFLICT DO UPDATE`로 풀 정보 자동 덮어씀.
 
 ## D2. 멱등성: 2단 방어 (at-most-once, fail-open 1단)
 
@@ -239,11 +215,11 @@ inventory·metrics 저장 성공 시 routing key별 Redis 후처리는 모두 `s
 - `_log_time_invariants`: 모든 핸들러 멱등성 체크 직후. `boot_time > agent_started_at` 또는 `agent_started_at > collected_at` 위반 시 warning. 시계 동기화·systemd 시작 순서 문제 조기 감지. DLQ 미사용 — 데이터 reject 의미 없음.
 - `_track_agent_restart`: metrics 핸들러 후처리 끝. 직전 `agent_started_at`(`last_agent_start:{sid}`)과 비교 → 변경 시 1h 슬라이딩 윈도우 카운터(`agent_restarts:{sid}`) INCR. `agent_restart_alert_threshold` 도달 시 warning (운영자가 "에이전트 crash loop"으로 인지). fail-open — Redis 장애 시 silent skip.
 
-## D4. 실패 처리 매트릭스 (silent drop · ack · nack)
+## D4. 실패 처리 매트릭스
 
-원칙: 메시지 자체 결함 → DLQ. 일시 외부 장애 → 재시도 후 DLQ. 의미상 처리 불가 → silent ack. DB는 fail-close, Redis는 fail-open.
+원칙: 메시지 자체 결함 → DLQ. 일시 외부 장애 → retry 후 DLQ. 의미상 처리 불가 → silent ack. DB fail-close, Redis fail-open.
 
-상세(시나리오별 매트릭스·재시도 백오프·DLQ 운영): `docs/architecture/consumer.md` "handler.py — 메시지 처리 흐름" · "DB 재시도 정책" · "DLQ 메시지 검사" 절.
+상세 매트릭스·DLQ 운영: `docs/architecture/consumer.md`.
 
 ---
 
@@ -312,13 +288,16 @@ inventory·metrics 저장 성공 시 routing key별 Redis 후처리는 모두 `s
 - `last_seen_at`은 `ServerDetail`(단일 조회)에만 포함. `ServerSummary`(목록)는 Redis `online:{id}` TTL로 표시.
 - `CollectionStatusItem`은 `last_metric_at` + `last_inventory_at` 별도 필드.
 
-다이어그램 / 라우터 모듈 표 / SSR 페이지 표 / JSON API 표 / MetricDashboard 구조 / 차트 쿼리 파라미터: `docs/architecture/web.md` "데이터 흐름" · "라우터" 절.
+다이어그램 / 라우터 모듈 표 / SSR 페이지 표 / JSON API 표: `docs/architecture/web/layering.md` + `web/routers.md`.
 
 ## E3. 서비스 계층 모듈
 
-`src/assessment_engine/web/services/` 하위 7개 모듈 (`query_service` / `mappers` / `metrics_calculator` / `cache_serializer` / `units` / `device_filters` / `service_classifier`)의 책임 분리 — 모듈별 상세 책임은 `docs/architecture/web.md` "서비스 계층 모듈" 절.
+9 모듈 카탈로그·책임 분리: `docs/architecture/web/services.md`.
 
-본 절의 결정/원칙: P2(서비스 계층 단일 변환)에 따라 모든 표시 파생은 `mappers.py`로 집중. `enrich_server_detail()`은 idempotent — cache 역직렬화 후 재호출 안전. 임계값 상수(`_USAGE_DANGER_PCT=90`/`_USAGE_WARN_PCT=75`)는 mapper에서만 정의 — 템플릿/JS 중복 정의 금지.
+본 절 결정 (P2 단일 변환):
+- 모든 표시 파생은 `mappers.py`에 집중. `enrich_server_detail()`은 idempotent — cache 역직렬화 후 재호출 안전.
+- UI badge 임계값(`_USAGE_DANGER_PCT=90`/`_USAGE_WARN_PCT=75`)은 mapper에만 정의 — 템플릿/JS 중복 금지.
+- USE Method right-sizing 임계값은 별 도메인(`recommendation.py`, ai_roadmap.md §3.C 출처). UI badge 임계값과 혼용 금지.
 
 ## E4. ViewModel·Mapper 파생 필드 (P2)
 
@@ -326,7 +305,7 @@ mapper에서 모든 파생 필드 계산 — 단위 변환·정렬·dedup·임�
 
 새 display 파생 필드 추가 시 `cache_serializer._DETAIL_DISPLAY_FIELDS` 셋 동기화 필수 — 누락 시 캐시 역직렬화가 옛 값 사용.
 
-상세 필드 카탈로그(`ServiceItem` / `ListenPortItem` / `ServerListItem` / `ServerDetailResponse` / `MountUsageItem` / `MemSnapshot` 파생 명세, 캐시 호환성 폴백): `docs/architecture/web.md` "ViewModel 설계" 절.
+ViewModel 카탈로그·파생 필드 정책: `docs/architecture/web/view-models.md`.
 
 ## E5. URL 식별자 — 정수 PK 노출 금지
 
@@ -341,29 +320,28 @@ mapper에서 모든 파생 필드 계산 — 단위 변환·정렬·dedup·임�
 
 `Jinja2Templates` 단일 인스턴스 + 필터 등록은 `src/assessment_engine/web/template_setup.py`에 격리. 라우터는 import만 하고 표시 셋업 책임을 갖지 않음. Redis 캐시에서 datetime은 `datetime.fromisoformat()`로 파싱 필수 (`json.loads` str 그대로 두면 `kst` 필터 오작동).
 
-필터 카탈로그(`kst` / `disksize` / `kbps` / `service_badge_class` / `or_dash`): `docs/architecture/web.md` "Jinja2 인프라" 절.
+Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_dash`): `docs/architecture/web/services.md`.
 
 ## E7. 정적 자원 — JS 외부화 의무
 
-신규 차트 로직은 외부 `.js` 파일에 작성. inline `<script>`에 차트 로직 신규 추가 금지 (F9 자동화 변환 검증의 "Frontend JS" 항목과 연결 — 페이지 간 회귀 격리 / 정적 분석 / 자동화 변환 안전성). 페이지 `.html`은 Jinja2 변수 정의 + 외부 `.js` `defer` 로드만 허용.
+본 절 결정·금지:
+- 신규 차트 로직은 외부 `.js` 파일에. inline `<script>` 차트 로직 신규 추가 금지 (F9 자동화 변환 검증과 연동).
+- 페이지 `.html`은 Jinja2 변수 정의 + 외부 `.js` `defer` 로드만 허용.
+- `chart-utils.js`는 base.html에서 단일 로드 → 전역 `ChartUtils`. 인라인 중복 정의 금지.
 
-`base.html` `<head>`에서 `chart-utils.js` 단일 로드 → 전역 `ChartUtils`. 각 페이지 .js가 destructure하여 사용. 인라인 중복 정의 금지.
-
-`ChartUtils` API에 `fetchRebootEvents(serverId, range, anchor)` + `applyRebootMarkers(chart, events, gridMs)` + `rebootMarkersPlugin` (Chart.js 글로벌 등록) 포함 — `/api/v1/servers/{id}/events/reboot` 응답으로 차트에 reboot/restart vertical marker 표시. 5개 페이지(performance/cpu/memory/network/storage) 모든 차트가 자기 range/anchor로 events fetch 후 marker 적용 (P4(a) seq 검사 의무).
-
-디렉토리 구조 / `ChartUtils` API 카탈로그 / 페이지별 .js 파일 구성: `docs/architecture/web.md` "정적 자원" 절.
+디렉토리 구조 / `ChartUtils` API / 페이지별 .js / Reboot marker plugin: `docs/architecture/web/static-assets.md`.
 
 ## E8. 도메인 분류 책임 (P2)
 
 서비스 카테고리 분류(`classify`)·포트 매핑(`matched_ports`)은 서비스 계층(`service_classifier.py`)에서 수행. 매퍼가 호출해 `ServiceItem`에 채움. 템플릿은 `service_badge_class` 필터로 category → CSS 클래스 변환만 (P3).
 
-키워드 매칭 표 / `_SERVICE_PORTS` 폴백 / 서비스 3단계 표시 계층(목록·상세·services 페이지): `docs/architecture/web.md` "service_classifier.py" 절.
+키워드 매칭 표 / `_SERVICE_PORTS` 폴백 / 서비스 3단계 표시 계층: `docs/architecture/web/services.md` "서비스 분류" 절.
 
 ## E9. 차트 UI 디테일 (P4 적용)
 
 원칙: Y축은 분해력(추이 차트) vs 절대 기준(진단 리포트) 두 정책 중 어디 속하는지 먼저 결정. magic number 금지(명명 상수). 비동기 로더는 P4 (a)~(e) 의무 규약(sequence counter / capture-before-await / Array.isArray / 404 분기 / suggestedMax 상수).
 
-상세(차트별 Y축 매트릭스·suggestedMax 상수 정의·avg+max ghost 패턴·로더 표준 템플릿): `docs/architecture/web.md` "템플릿 차트 UI 설계" 절.
+차트 Y축·suggestedMax·avg+max ghost·loader 표준: `docs/architecture/web/static-assets.md`.
 
 ---
 

@@ -4,7 +4,6 @@ from typing import Literal
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 # pydantic-settings의 secrets_dir은 디렉토리가 존재하지 않으면 무시되지만,
 # 일부 환경에서 경로 문제로 noisy 경고가 발생할 수 있어 명시적으로 분기.
 # - prod 컨테이너: docker-compose `secrets:` 블록이 /run/secrets 에 마운트

@@ -10,7 +10,6 @@ UI badge 임계값(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도�
 from dataclasses import dataclass
 from typing import Literal
 
-
 # ─── 임계값 (모두 ai_roadmap.md §3.C 출처. 변경 시 양쪽 동기화) ─────────────
 
 # 관찰 윈도우 — AWS Compute Optimizer 기본값
@@ -98,12 +97,13 @@ LABEL_KO: dict[str, str] = {
     "insufficient_data":  "데이터 부족",
 }
 
-# 양식 A의 RISK 컬러 매핑 (high/mid/low/normal — UI badge 색상)
+# 양식 A의 RISK 색상 매핑 — report.html `.rec-{recommendation}` CSS와 짝.
+# 서로 다른 분류에 다른 클래스 — over=노랑(비용), under=빨강(위험), optimal=녹색.
 BADGE_CLASS: dict[str, str] = {
-    "idle":               "badge-cat-unknown",
-    "shutdown":           "badge-cat-unknown",
-    "over_provisioned":   "badge-cat-cache",       # 노란 — 비용 낭비
-    "under_provisioned":  "badge-cat-cache",       # 빨간 — 성능 위험 (UI 정의에 맞춰)
-    "optimal":            "badge-cat-online",      # 녹색
-    "insufficient_data":  "",
+    "idle":               "rec-idle",
+    "shutdown":           "rec-shutdown",
+    "over_provisioned":   "rec-over_provisioned",
+    "under_provisioned":  "rec-under_provisioned",
+    "optimal":            "rec-optimal",
+    "insufficient_data":  "rec-insufficient_data",
 }

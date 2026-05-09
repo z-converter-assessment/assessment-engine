@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 from assessment_engine.web.deps import get_service
 from assessment_engine.web.services.query_service import QueryService
 
-
 exports_router = APIRouter(prefix="/api/v1/exports", tags=["exports"])
 
 

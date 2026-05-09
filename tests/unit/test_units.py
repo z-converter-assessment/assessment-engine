@@ -8,7 +8,6 @@ from assessment_engine.web.services.units import (
     usage_pct,
 )
 
-
 # ─── bytes_to_gb ──────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("b, expected", [

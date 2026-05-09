@@ -224,3 +224,40 @@ class MetricSeriesItem:
     collected_at: datetime
     value: float | None
     dimension: str | None
+
+
+# ---------- Assessment 보고서 ----------
+
+@dataclass
+class ReportRowItem:
+    """ReportRowRaw + 표시 파생. 모든 표시 결정(role/recommendation/badge)은 mapper에서 채움 (P2)."""
+    server_id: int
+    public_id: str
+    hostname: str
+    role: str
+    is_online: bool
+    os_display: str
+    kernel_version: str | None
+    internal_ip: str | None
+
+    cpu_p95_pct: float | None
+    cpu_peak_pct: float | None
+    mem_p95_pct: float | None
+    mem_peak_pct: float | None
+    load_15m_max: float | None
+    swap_used: bool
+
+    recommendation: str          # enum 값
+    recommendation_label: str    # 한국어
+    badge_class: str             # CSS 클래스
+
+
+@dataclass
+class ReportSummary:
+    """get_report 응답 — 행 list + KPI 집계 (KPI도 service 책임)."""
+    rows: list[ReportRowItem]
+    period_days: int
+    total: int
+    online: int
+    over: int
+    under: int

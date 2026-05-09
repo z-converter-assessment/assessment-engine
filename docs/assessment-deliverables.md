@@ -2,7 +2,6 @@
 
 본 portal의 출력단 — 수집된 메트릭·인벤토리를 **사람이 의사결정 가능한 보고서** + **자동화 도구가 입력으로 받을 수 있는 JSON**으로 변환한다.
 
-원형 예시: `docs/zconverter_agent_dashboard_example.html` "보고서 산출물 예시" 절.
 
 ---
 
@@ -254,7 +253,7 @@ MVP에서 net 의존 분류(`idle`·`shutdown`)는 잠정 미발동 — 분류 �
 
 ## 7. 변환 lifecycle 안에서의 의존 관계
 
-본 산출물은 `task-agent-workflow.md`의 입력 측이기도 함:
+본 산출물은 ZConverter Install task의 입력 측이기도 함 (ADR 0002 RPC piggyback):
 - 보고서 → 의사결정 → "이 N대 install" → ZConverter Install task 발행
 - 정제 JSON → 자동화 파이프라인 → 별도 도구 (Terraform·OpenStack 등)
 
