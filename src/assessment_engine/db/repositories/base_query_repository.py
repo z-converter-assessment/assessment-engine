@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 
 from assessment_engine.db.repositories.outbound import (
@@ -7,6 +7,7 @@ from assessment_engine.db.repositories.outbound import (
     DashboardRaw,
     MetricSeries,
     NetworkWithIo,
+    RebootEvent,
     ServerSummary,
     ServerDetail,
     StorageWithUsage,
@@ -34,6 +35,16 @@ MetricType = Literal[
 TimeRange  = Literal["15m", "1h", "6h", "24h", "7d", "30d"]
 BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "12h", "1d"]
 AggFunc    = Literal["avg", "max", "p95"]
+
+# TimeRange → timedelta. metric_chart·reboot_events 양쪽 사용 (service·repo 중복 방지).
+TIME_RANGE_TD: dict[str, timedelta] = {
+    "15m": timedelta(minutes=15),
+    "1h":  timedelta(hours=1),
+    "6h":  timedelta(hours=6),
+    "24h": timedelta(hours=24),
+    "7d":  timedelta(days=7),
+    "30d": timedelta(days=30),
+}
 
 
 class BaseQueryRepository(ABC):
@@ -83,3 +94,11 @@ class BaseQueryRepository(ABC):
         agg: AggFunc,
         end: datetime | None = None,
     ) -> list[MetricSeries]: ...
+
+    @abstractmethod
+    async def reboot_events(
+        self,
+        server_id: int,
+        start: datetime,
+        end: datetime,
+    ) -> list[RebootEvent]: ...

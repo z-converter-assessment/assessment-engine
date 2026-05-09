@@ -9,7 +9,8 @@
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtKst, fmtLabel, getAnchorEnd, initAnchor,
-        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray } = ChartUtils;
+        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray,
+        fetchRebootEvents, applyRebootMarkers } = ChartUtils;
 
 // 로드 추이의 분해력+포화 기준 하이브리드 — 작은 값은 그대로 보여주되
 // suggestedMax(=cpu_cores)를 두어 "코어수=포화" 임계선이 시각에 자연스럽게 노출.
@@ -121,6 +122,10 @@ async function loadUsageChart() {
         },
       },
     });
+    // reboot/restart vertical marker (P4(a) seq 검사로 stale 응답 방지)
+    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
+    if (seq !== usageSeq) return;
+    applyRebootMarkers(usageChart, events, grid);
   } catch(e) { console.error(e); }
 }
 
@@ -244,6 +249,10 @@ async function loadCompChart() {
     ];
     renderCompChart(capturedRange, capturedAnchor);
     buildCompLegend();
+    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
+    if (seq !== compSeq) return;
+    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
+    applyRebootMarkers(compChart, events, grid);
   } catch(e) { console.error(e); }
 }
 
@@ -367,6 +376,10 @@ async function loadLoadChart() {
     if (loadChart) { loadChart.destroy(); loadChart = null; }
     renderLoadChart(capturedRange, capturedAnchor);
     buildLoadLegend();
+    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
+    if (seq !== loadSeq) return;
+    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
+    applyRebootMarkers(loadChart, events, grid);
   } catch(e) { console.error(e); }
 }
 

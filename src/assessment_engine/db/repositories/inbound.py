@@ -66,9 +66,12 @@ class MountUsageEntry:
 @dataclass
 class ServerMetricCreate:
     # ─── 공통 메타데이터 ────────────────────────────────────────────────────
-    # machine_id·boot_time·agent_started_at는 consumer 단에서 직접 사용 (server_id 해석/
-    # placeholder 생성). 본 DTO는 시계열 INSERT에 필요한 collected_at만 보유.
+    # machine_id는 consumer 단에서 server_id 해석에 사용. 본 DTO엔 안 담음.
+    # boot_time/agent_started_at은 시계열 행마다 함께 저장 — calculator가 두 시점
+    # 비교로 counter reset(시스템 재부팅) 정밀 식별 (CLAUDE.md B1 정책).
     collected_at: datetime
+    boot_time: datetime | None
+    agent_started_at: datetime | None
 
     # ─── /proc/stat CPU jiffies (raw 누적값) ─────────────────────────────────
     cpu_user: int | None

@@ -203,3 +203,29 @@ async def test_record_metrics_per_device_unique(
     )
     result = await collect_repo.record_metrics(sid, m)
     assert result.disk_io == 3
+
+
+# ─── boot_time / agent_started_at 보존 (counter reset 정밀 식별 의존) ───────
+
+async def test_record_metrics_persists_boot_time_to_all_four_tables(
+    collect_repo: CollectRepository, db_session,
+):
+    """boot_time/agent_started_at은 시계열 4개 테이블 모두에 동일 시점값으로 저장.
+    server_metrics·disk_io·net_io는 calculator의 reset 판정에 활용. mount_usage는 시점값이라
+    calculator 활용 없으나 메타데이터 일관성 + 운영 디버깅 단일 SELECT 위해 보존 (CLAUDE.md C1).
+    """
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="mid-bt-1"))
+    ts = datetime.now(timezone.utc)
+    boot = datetime(2026, 5, 9, 12, 0, tzinfo=timezone.utc)
+    started = datetime(2026, 5, 9, 12, 5, tzinfo=timezone.utc)
+    m = make_metrics(collected_at=ts, boot_time=boot, agent_started_at=started)
+    await collect_repo.record_metrics(sid, m)
+
+    for table in ("server_metrics", "server_disk_io", "server_net_io", "server_mount_usage"):
+        row = (await db_session.execute(
+            text(f"SELECT boot_time, agent_started_at FROM {table} "
+                 f"WHERE server_id = :sid AND collected_at = :ts LIMIT 1"),
+            {"sid": sid, "ts": ts},
+        )).one()
+        assert row.boot_time == boot, f"{table} boot_time mismatch"
+        assert row.agent_started_at == started, f"{table} agent_started_at mismatch"

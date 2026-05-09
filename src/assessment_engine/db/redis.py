@@ -90,3 +90,20 @@ async def safe_publish(redis: Redis, channel: str, message: str) -> bool:
     except RedisError as e:
         logger.warning("redis publish failed channel={} err={}", channel, e)
         return False
+
+
+async def safe_incr_with_ttl(redis: Redis, key: str, ttl: int) -> int | None:
+    """슬라이딩 윈도우 카운터 — INCR + EXPIRE를 pipeline으로 묶어 1 RTT.
+
+    EXPIRE를 매번 reset하므로 "마지막 INCR 후 ttl초 내 N회"를 추적 (fixed window 아님).
+    실패 시 None — 호출자는 카운터를 못 읽었다고 간주 (alert는 다음 호출 기회에).
+    """
+    try:
+        async with redis.pipeline(transaction=False) as pipe:
+            pipe.incr(key)
+            pipe.expire(key, ttl)
+            results = await pipe.execute()
+        return int(results[0])
+    except RedisError as e:
+        logger.warning("redis incr_with_ttl failed key={} err={}", key, e)
+        return None

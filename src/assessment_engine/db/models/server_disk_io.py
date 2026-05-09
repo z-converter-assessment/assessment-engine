@@ -21,3 +21,7 @@ class ServerDiskIo(Base):
     writes_completed: Mapped[int | None] = mapped_column(BigInteger)
     sectors_read: Mapped[int | None] = mapped_column(BigInteger)
     sectors_written: Mapped[int | None] = mapped_column(BigInteger)
+
+    # counter reset 정밀 식별용 (server_metrics와 동일 정책).
+    boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    agent_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

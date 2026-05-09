@@ -36,3 +36,9 @@ class ServerMetrics(Base):
     load_1m: Mapped[float | None] = mapped_column(Float)
     load_5m: Mapped[float | None] = mapped_column(Float)
     load_15m: Mapped[float | None] = mapped_column(Float)
+
+    # 메시지 공통 메타. counter reset 정밀 식별용 — 두 시점 boot_time 차이=재부팅,
+    # agent_started_at만 차이=에이전트 재시작(/proc 카운터는 그대로).
+    # 옛 데이터는 NULL — calculator가 둘 다 NULL이면 d<0 휴리스틱 fallback.
+    boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    agent_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

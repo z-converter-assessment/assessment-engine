@@ -518,6 +518,21 @@ consumer가 새 메트릭 저장 후 캐시를 직접 갱신하지 않고 `DEL c
 
 5개 차트 템플릿이 `fmtKst` / `bindToggle` / `COLORS` / `AUTO_BUCKET` / `BUCKET_MS` / `makeBucketGrid` / `joinToGrid` / `fmtLabel` / SSE 초기화 등을 동일하게 정의하던 중복을 `static/js/chart-utils.js`로 추출. `StaticFiles` 마운트 + `base.html` script 1회 로드 → 전역 `ChartUtils`로 destructure. 트레이드오프(번들 도구 미도입 대신 단순한 IIFE 노출)는 `docs/adr/tradeoffs.md` T9.
 
+추가 helper (Reboot/Restart 차트 vertical marker):
+- `fetchRebootEvents(serverId, range, anchor)` — `/api/v1/servers/{id}/events/reboot?time_range=...&end=...` 호출. 4xx/5xx는 빈 배열 정규화.
+- `applyRebootMarkers(chart, events, gridMs)` — 차트 인스턴스의 `options.plugins.rebootMarkers = { events, gridMs }` 주입 + `chart.update('none')`. 옛 marker 자동 교체.
+- `rebootMarkersPlugin` — Chart.js 글로벌 plugin (afterDraw에서 vertical dashed line + 'reboot'/'restart' 라벨). 색상: reboot=`#ef4444`, restart=`#f59e0b`. base.html이 chart.umd 로드 후 chart-utils.js 실행 시 `Chart.register(rebootMarkersPlugin)` 자동 호출.
+
+각 페이지 .js의 적용 패턴 (P4(a) seq 검사 의무):
+```js
+// 차트 setup/update 후
+const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
+if (seq !== xxxSeq) return;
+const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
+applyRebootMarkers(xxxChart, events, grid);
+```
+performance.js는 `loadAllCharts` 끝에서 `chartInstances` 객체 순회로 일괄 적용. 다른 4개 페이지는 차트별 loader 끝에 개별 적용.
+
 ---
 
 ## 운영 / 디버깅

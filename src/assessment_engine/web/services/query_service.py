@@ -14,8 +14,10 @@ from assessment_engine.db.repositories.base_query_repository import (
     BaseQueryRepository,
     BucketSize,
     MetricType,
+    TIME_RANGE_TD,
     TimeRange,
 )
+from assessment_engine.db.repositories.outbound import RebootEvent
 
 # disk metric_type에서만 의미를 갖는 service 레벨 분기. 라우터에서 Literal로 검증 (F3 단일 경로).
 DeviceCategory = Literal["phys", "logical"]
@@ -174,6 +176,21 @@ class QueryService:
         if device_category is not None and metric_type in _DISK_METRIC_TYPES:
             dtos = _filter_disk_category(dtos, device_category)
         return [to_metric_series_item(dto) for dto in dtos]
+
+    async def get_reboot_events(
+        self,
+        server_id: int,
+        time_range: TimeRange,
+        end: datetime | None = None,
+    ) -> list[RebootEvent]:
+        """차트 vertical marker용 — 지정 time_range 내 시스템 재부팅·에이전트 재시작 시점.
+
+        outbound DTO 그대로 반환 (raw 그대로 — P1). 별도 ViewModel 변환 없음 — 파생 필드
+        없고 datetime / Literal kind 그대로 JSON 직렬화 가능 (cache_serializer._json_default).
+        """
+        end_dt = end or datetime.now(timezone.utc)
+        start = end_dt - TIME_RANGE_TD[time_range]
+        return await self.repo.reboot_events(server_id, start, end_dt)
 
     async def stream_metrics_events(self, server_id: int) -> AsyncIterator[str]:
         async with self.redis.pubsub() as pubsub:

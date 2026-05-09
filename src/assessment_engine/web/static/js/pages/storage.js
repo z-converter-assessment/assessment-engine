@@ -9,7 +9,8 @@
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
         fmtKst, getAnchorEnd, initAnchor,
-        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray } = ChartUtils;
+        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray,
+        fetchRebootEvents, applyRebootMarkers } = ChartUtils;
 
 
 // 추이 차트의 분해력 기준 (다중 device × Read/Write 다중 라인 — idle VM에서 0.1 IOPS도 보이도록).
@@ -224,6 +225,10 @@ async function loadPhysChart() {
     ];
     if (physChart) { physChart.destroy(); physChart = null; }
     physChart = renderIoChartTo('io-phys-canvas', 'io-phys-chart-empty', 'io-phys-legend', physAvgRows, physMaxRows, capturedRange, null, capturedAnchor);
+    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
+    if (seq !== physSeq) return;
+    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
+    applyRebootMarkers(physChart, events, grid);
   } catch(e) { console.error(e); }
 }
 
@@ -262,6 +267,10 @@ async function loadLvmChart() {
       if (lvmChart) { lvmChart.destroy(); lvmChart = null; }
       lvmChart = renderIoChartTo('io-lvm-canvas', 'io-lvm-chart-empty', 'io-lvm-legend', logicalAvgRows, logicalMaxRows, capturedRange, null, capturedAnchor);
     }
+    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
+    if (seq !== lvmSeq) return;
+    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
+    applyRebootMarkers(lvmChart, events, grid);
   } catch(e) { console.error(e); }
 }
 
@@ -407,6 +416,10 @@ async function loadFsChart() {
     if (seq !== fsSeq) return;
     if (!Array.isArray(avgRows)) return;
     renderFsChart(avgRows, Array.isArray(maxRows) ? maxRows : [], capturedRange, capturedAnchor);
+    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
+    if (seq !== fsSeq) return;
+    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
+    applyRebootMarkers(fsChart, events, grid);
   } catch(e) { console.error(e); }
 }
 

@@ -2,10 +2,14 @@
 
 원칙:
 - raw 누적 카운터 2시점 페어로 delta 계산 (CPU, disk_io, net_io)
-- counter reset(d < 0) 시 None 반환 — "잘못된 음수 값" 대신 "측정 불가"
-- 시점 값은 그대로 변환 (mem, swap, mount usage)
+- counter reset 식별 우선순위:
+  1) 두 시점의 boot_time이 다르면 시스템 재부팅 → delta 계산 건너뛰기 (None)
+     agent_started_at만 다르면 에이전트 재시작이고 /proc 카운터는 그대로라 정상 계산
+  2) boot_time 둘 다 NULL(옛 데이터)이면 d < 0 휴리스틱 fallback (CLAUDE.md B1)
+- 시점 값은 그대로 변환 (mem, swap, mount usage) — reset 무관
 """
 from collections.abc import Callable
+from datetime import datetime
 from typing import TypeVar
 
 from assessment_engine.db.repositories.outbound import (
@@ -47,13 +51,27 @@ def _group_by_dim(rows: list[T], key: Callable[[T], str]) -> dict[str, list[T]]:
 
 
 def _delta_rate(cur: int | None, prev: int | None, dt: float) -> float | None:
-    """누적 카운터 두 시점의 시간당 변화율 (count/sec). counter reset(d<0) 시 None."""
+    """누적 카운터 두 시점의 시간당 변화율 (count/sec). counter reset(d<0) 시 None.
+
+    호출자가 boot_time 비교로 reset을 미리 거른 경우 d<0은 거의 발생 안 함 (counter wrap-around 정도).
+    """
     if cur is None or prev is None:
         return None
     d = cur - prev
     if d < 0:
         return None
     return round(d / dt, 1)
+
+
+def _is_counter_reset(cur_boot: datetime | None, prev_boot: datetime | None) -> bool:
+    """두 시점의 boot_time이 다르면 시스템 재부팅 → counter reset 확정.
+
+    둘 다 NULL(옛 데이터·에이전트가 보내지 않음)이면 False — 호출자는 d<0 휴리스틱 fallback.
+    한쪽만 NULL이면 부분 정보라 reset 단정 못 함 → False (휴리스틱 의존).
+    """
+    if cur_boot is None or prev_boot is None:
+        return False
+    return cur_boot != prev_boot
 
 
 def _clip_to_remaining(raw_pct: float | None, remaining_room: float) -> float | None:
@@ -102,6 +120,10 @@ def compute_cpu(cur: MetricPairRaw | None, prev: MetricPairRaw | None) -> CpuSna
         return None if any(v is None for v in vals) else sum(vals)  # type: ignore[arg-type]
 
     if prev is None:
+        return CpuSnapshot(usage_pct=None, user_pct=None, system_pct=None, iowait_pct=None)
+
+    # 시스템 재부팅 → /proc/stat jiffies 0으로 리셋 → delta 계산 무의미.
+    if _is_counter_reset(cur.boot_time, prev.boot_time):
         return CpuSnapshot(usage_pct=None, user_pct=None, system_pct=None, iowait_pct=None)
 
     dt_total = cpu_total(cur)
@@ -204,6 +226,10 @@ def _disk_io_snapshot(device: str, rows: list[DiskIoRaw]) -> DiskIoSnapshot:
     if dt <= 0:
         return DiskIoSnapshot(device=device, read_iops=None, write_iops=None,
                               read_kbps=None, write_kbps=None)
+    # 시스템 재부팅 → /proc/diskstats 카운터 리셋 → delta 무의미.
+    if _is_counter_reset(cur.boot_time, prev.boot_time):
+        return DiskIoSnapshot(device=device, read_iops=None, write_iops=None,
+                              read_kbps=None, write_kbps=None)
     return DiskIoSnapshot(
         device=device,
         read_iops=_delta_rate(cur.reads_completed, prev.reads_completed, dt),
@@ -225,6 +251,10 @@ def _net_io_snapshot(iface: str, rows: list[NetIoRaw]) -> NetIoSnapshot:
     cur, prev = rows[0], rows[1]
     dt = (cur.collected_at - prev.collected_at).total_seconds()
     if dt <= 0:
+        return NetIoSnapshot(interface=iface, rx_kbps=None, tx_kbps=None,
+                             rx_pps=None, tx_pps=None)
+    # 시스템 재부팅 → /proc/net/dev 카운터 리셋 → delta 무의미.
+    if _is_counter_reset(cur.boot_time, prev.boot_time):
         return NetIoSnapshot(interface=iface, rx_kbps=None, tx_kbps=None,
                              rx_pps=None, tx_pps=None)
 

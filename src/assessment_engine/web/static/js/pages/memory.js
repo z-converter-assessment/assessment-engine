@@ -9,7 +9,8 @@
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtKst, fmtLabel, getAnchorEnd, initAnchor,
-        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray } = ChartUtils;
+        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray,
+        fetchRebootEvents, applyRebootMarkers } = ChartUtils;
 
 
 // Y축 정책 B (부분절대) — Swap 차트는 낮은 사용률(보통 0~10%)이 의미 큼.
@@ -153,9 +154,18 @@ async function loadMemChart() {
       memChart.data.datasets[0].data = avgData;
       memChart.data.datasets[1].data = bufferedMaxData;
       memChart.data.datasets[1].realData = realMaxData;
-      memChart.update('none'); return;
+      memChart.update('none');
+    } else {
+      memChart = _newMemChart(canvas, labels, avgData, bufferedMaxData, realMaxData);
     }
-    memChart = new Chart(canvas, {
+    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
+    if (seq !== memSeq) return;
+    applyRebootMarkers(memChart, events, grid);
+  } catch(e) { console.error(e); }
+}
+
+function _newMemChart(canvas, labels, avgData, bufferedMaxData, realMaxData) {
+    return new Chart(canvas, {
       type: 'line',
       data: {
         labels,
@@ -218,7 +228,6 @@ async function loadMemChart() {
         },
       },
     });
-  } catch(e) { console.error(e); }
 }
 
 bindToggle('mem-range-btns', v => { memRange = v; updateMemBucketLabel(); document.getElementById('mem-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadMemChart(); });
@@ -347,6 +356,10 @@ async function loadCompChart() {
       ...toRows(buffersRows, 'buffers'),
     ];
     renderCompChart(rows, capturedRange, capturedAnchor);
+    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
+    if (seq !== compSeq) return;
+    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
+    applyRebootMarkers(compChart, events, grid);
   } catch(e) { console.error(e); }
 }
 
@@ -405,9 +418,9 @@ async function loadSwapChart() {
       swapChart.data.datasets[0].data = avgData;
       swapChart.data.datasets[1].data = bufferedMaxData;
       swapChart.data.datasets[1].realData = realMaxData;
-      swapChart.update('none'); return;
-    }
-    swapChart = new Chart(canvas, {
+      swapChart.update('none');
+    } else {
+      swapChart = new Chart(canvas, {
       type: 'line',
       data: {
         labels,
@@ -470,6 +483,10 @@ async function loadSwapChart() {
         },
       },
     });
+    }
+    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
+    if (seq !== swapSeq) return;
+    applyRebootMarkers(swapChart, events, grid);
   } catch(e) { console.error(e); }
 }
 

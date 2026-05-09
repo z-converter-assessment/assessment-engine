@@ -37,6 +37,7 @@ src/assessment_engine/db/
   - `server_mount_usage`: `UNIQUE(server_id, mount, collected_at)`
   - `server_inventory_history`: `UNIQUE(server_id, collected_at)`
 - per-device/per-interface/per-mount 행 분리 — 차트 API `dimension` 파라미터에 대응
+- 시계열 4개 테이블 모두(`server_metrics` · `server_disk_io` · `server_net_io` · `server_mount_usage`) `boot_time` + `agent_started_at` `TIMESTAMPTZ NULL` 컬럼 — 메시지 공통 메타 균일 보존. metrics·disk_io·net_io는 `metrics_calculator._is_counter_reset`이 두 시점 비교로 시스템 재부팅 시 delta 건너뛰기 (CLAUDE.md B1·C1). mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅을 위해 보존
 
 ### server_inventory_history — append-only 변경 이력
 
@@ -78,7 +79,7 @@ Consumer가 파싱한 Pydantic 스키마를 Repository에 전달하는 중간 �
 | DTO | 대응 테이블 |
 |-----|------------|
 | `ServerInventoryCreate` | `server_inventory` |
-| `ServerMetricCreate` | `server_metrics` + 시계열 3개 |
+| `ServerMetricCreate` | `server_metrics` + 시계열 3개 (disk_io / net_io / mount_usage). 모두 `boot_time` / `agent_started_at` 메타데이터 함께 저장 |
 
 ---
 
@@ -93,10 +94,10 @@ Repository → Service 반환 타입. `dataclass`로 정의. 모두 raw 단위 (
 | `StorageWithUsage` | 스토리지 + 마운트 사용량 |
 | `NetworkWithIo` | 네트워크 IP + 인터페이스 현황 |
 | `DashboardRaw` | 메트릭 대시보드 raw (4개 raw DTO 컨테이너) |
-| `MetricPairRaw` | server_metrics 단일 행 raw (CPU jiffies / mem KB / load) |
-| `DiskIoRaw` | server_disk_io 단일 행 raw (per device) |
-| `NetIoRaw` | server_net_io 단일 행 raw (per interface) |
-| `MountUsageRaw` | server_mount_usage 단일 행 raw (per mount) |
+| `MetricPairRaw` | server_metrics 단일 행 raw (CPU jiffies / mem KB / load + `boot_time`/`agent_started_at`) |
+| `DiskIoRaw` | server_disk_io 단일 행 raw (per device + `boot_time`/`agent_started_at`) |
+| `NetIoRaw` | server_net_io 단일 행 raw (per interface + `boot_time`/`agent_started_at`) |
+| `MountUsageRaw` | server_mount_usage 단일 행 raw (per mount + `boot_time`/`agent_started_at`) |
 | `CollectionStatus` | 수집 상태 (`last_metric_at`, `last_inventory_at`) |
 | `MetricSeries` | 시계열 차트 단일 포인트 (`collected_at`, `value`, `dimension`) |
 
@@ -198,9 +199,15 @@ Web 서비스가 의존하는 추상 계약. `QueryService`는 이 인터페이�
 7개 메트릭 타입별 헬퍼 (`_chart_cpu`, `_chart_cpu_component`, `_chart_load`, `_chart_mem`, `_chart_disk_iops`, `_chart_net`, `_chart_fs`). 공통 패턴:
 
 1. window_start 확장: `LAG`로 첫 버킷 delta를 계산할 수 있도록 요청 `start`보다 한 bucket 만큼 더 과거부터 raw를 읽음 (`window_start = start - _BUCKET_TD[bi]`).
-2. delta CTE: `LAG(...) OVER (PARTITION BY device ORDER BY collected_at)`로 누적 카운터 차 계산. 음수면 reset → `NULL` 처리.
-3. time_bucket 집계: TimescaleDB `time_bucket(interval '5m', collected_at)` + `agg`(avg/max/p95) 적용.
-4. dimension 필터: `(CAST(:dim AS text) IS NULL OR device = :dim)` — None이면 전체, 지정 시 그 dimension만.
+2. delta CTE: `LAG(...) OVER (PARTITION BY device ORDER BY collected_at)`로 누적 카운터 차 + `LAG(boot_time)`으로 직전 boot_time 동시 추출.
+3. reset 식별 CASE — calculator의 `_is_counter_reset`과 동일 정책 (CLAUDE.md B1):
+   ① `dt IS NULL OR dt <= 0` → NULL (페어 미충족 / 동일 시점 / 역행)
+   ② `boot_time != prev_boot` → NULL (시스템 재부팅 확정)
+   ③ `d_val < 0` → NULL (옛 데이터 boot_time NULL일 때 휴리스틱 fallback / wrap-around)
+   ④ 정상 → `d_val / dt` 또는 `d_num * 100 / d_total`
+   `dt`는 검증이 아니라 분모 — 1분이든 3분이든 실제 시간으로 자연 정규화. CPU percent는 jiffies 비율이라 `dt` 무관.
+4. time_bucket 집계: TimescaleDB `time_bucket(interval '5m', collected_at)` + `agg`(avg/max/p95) 적용. WHERE `v IS NOT NULL`로 reset 시점 차트 제외 (missing point로 자연 표시).
+5. dimension 필터: `(CAST(:dim AS text) IS NULL OR device = :dim)` — None이면 전체, 지정 시 그 dimension만.
 
 ---
 

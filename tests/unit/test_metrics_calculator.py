@@ -13,6 +13,7 @@ from assessment_engine.web.services.metrics_calculator import (
     _clip_to_remaining,
     _delta_rate,
     _group_by_dim,
+    _is_counter_reset,
     compute_cpu,
     compute_disk_io,
     compute_mem,
@@ -20,6 +21,10 @@ from assessment_engine.web.services.metrics_calculator import (
     compute_net_io,
     compute_swap,
 )
+
+
+_BOOT_A = datetime(2026, 1, 1, tzinfo=timezone.utc)
+_BOOT_B = datetime(2026, 5, 9, tzinfo=timezone.utc)
 
 
 # ─── helper 단위 ──────────────────────────────────────────────────────────
@@ -53,7 +58,8 @@ def test_clip_to_remaining(raw, room, expected):
 
 # ─── compute_cpu ──────────────────────────────────────────────────────────
 
-def _cpu_pair(t: datetime, user, idle) -> MetricPairRaw:
+def _cpu_pair(t: datetime, user, idle, *, boot_time: datetime | None = None,
+              agent_started_at: datetime | None = None) -> MetricPairRaw:
     return MetricPairRaw(
         collected_at=t,
         cpu_user=user, cpu_nice=0, cpu_system=0, cpu_idle=idle,
@@ -62,6 +68,7 @@ def _cpu_pair(t: datetime, user, idle) -> MetricPairRaw:
         mem_buffers_kb=None, mem_cached_kb=None,
         swap_total_kb=None, swap_free_kb=None,
         load_1m=None, load_5m=None, load_15m=None,
+        boot_time=boot_time, agent_started_at=agent_started_at,
     )
 
 
@@ -88,12 +95,46 @@ def test_compute_cpu_calculates_percent_from_jiffies_delta():
 
 
 def test_compute_cpu_handles_counter_reset():
-    """delta_total <= 0이면 모든 percent None."""
+    """delta_total <= 0이면 모든 percent None (옛 데이터 fallback — boot_time NULL)."""
     t1 = datetime.now(timezone.utc)
     prev = _cpu_pair(t1, 200, 1700)
     cur = _cpu_pair(t1 + timedelta(seconds=60), 100, 900)  # 감소
     snap = compute_cpu(cur, prev)
     assert snap.usage_pct is None
+
+
+def test_compute_cpu_returns_none_when_boot_time_changed():
+    """두 시점의 boot_time이 다르면 시스템 재부팅 → reset 확정 (delta는 양수여도 무시)."""
+    t1 = datetime.now(timezone.utc)
+    prev = _cpu_pair(t1, 100, 900, boot_time=_BOOT_A)
+    cur = _cpu_pair(t1 + timedelta(seconds=60), 200, 1700, boot_time=_BOOT_B)
+    snap = compute_cpu(cur, prev)
+    assert snap.usage_pct is None
+    assert snap.user_pct is None
+
+
+def test_compute_cpu_normal_when_only_agent_restart():
+    """agent_started_at만 다름·boot_time 동일 → 에이전트 재시작이지 시스템 재부팅 아님 → 정상 delta."""
+    t1 = datetime.now(timezone.utc)
+    agent1 = datetime(2026, 5, 9, 1, tzinfo=timezone.utc)
+    agent2 = datetime(2026, 5, 9, 2, tzinfo=timezone.utc)
+    prev = _cpu_pair(t1, 100, 900, boot_time=_BOOT_A, agent_started_at=agent1)
+    cur = _cpu_pair(t1 + timedelta(seconds=60), 200, 1700, boot_time=_BOOT_A, agent_started_at=agent2)
+    snap = compute_cpu(cur, prev)
+    assert snap.usage_pct is not None  # 정상 계산
+
+
+# ─── _is_counter_reset helper ─────────────────────────────────────────────
+
+@pytest.mark.parametrize("cur, prev, expected", [
+    (_BOOT_A, _BOOT_A, False),       # 동일
+    (_BOOT_A, _BOOT_B, True),        # 다름 → reset
+    (None, _BOOT_A, False),          # 한쪽 NULL → fallback
+    (_BOOT_A, None, False),
+    (None, None, False),             # 둘 다 NULL (옛 데이터)
+])
+def test_is_counter_reset(cur, prev, expected):
+    assert _is_counter_reset(cur, prev) is expected
 
 
 # ─── compute_mem ──────────────────────────────────────────────────────────
@@ -148,11 +189,13 @@ def test_compute_swap_returns_none_when_total_zero():
 
 # ─── compute_disk_io ──────────────────────────────────────────────────────
 
-def _disk(device, t, reads, writes, sr=0, sw=0) -> DiskIoRaw:
+def _disk(device, t, reads, writes, sr=0, sw=0, *,
+          boot_time: datetime | None = None) -> DiskIoRaw:
     return DiskIoRaw(
         device=device, collected_at=t,
         reads_completed=reads, writes_completed=writes,
         sectors_read=sr, sectors_written=sw,
+        boot_time=boot_time, agent_started_at=None,
     )
 
 
@@ -178,14 +221,30 @@ def test_compute_disk_io_single_row_returns_none_rates():
     assert snap_list[0].write_iops is None
 
 
+def test_compute_disk_io_returns_none_on_system_reboot():
+    """boot_time 변경 시 reset 확정 — delta가 양수여도 무시."""
+    t1 = datetime.now(timezone.utc)
+    t2 = t1 + timedelta(seconds=60)
+    rows = [
+        _disk("sda", t2, 200, 100, boot_time=_BOOT_B),
+        _disk("sda", t1, 100, 50, boot_time=_BOOT_A),
+    ]
+    phys, _, _ = compute_disk_io(rows)
+    assert phys[0].read_iops is None
+    assert phys[0].write_iops is None
+    assert phys[0].read_kbps is None
+
+
 # ─── compute_net_io ───────────────────────────────────────────────────────
 
-def _net(iface, t, rx, tx, rxp=0, txp=0) -> NetIoRaw:
+def _net(iface, t, rx, tx, rxp=0, txp=0, *,
+         boot_time: datetime | None = None) -> NetIoRaw:
     return NetIoRaw(
         interface=iface, collected_at=t,
         rx_bytes=rx, tx_bytes=tx,
         rx_packets=rxp, tx_packets=txp,
         rx_errors=0, tx_errors=0,
+        boot_time=boot_time, agent_started_at=None,
     )
 
 
@@ -202,6 +261,20 @@ def test_compute_net_io_rate():
     assert snap.tx_kbps == pytest.approx(0.5, abs=0.1)
     assert snap.rx_pps == pytest.approx(10.0, abs=0.1)
     assert snap.tx_pps == pytest.approx(5.0, abs=0.1)
+
+
+def test_compute_net_io_returns_none_on_system_reboot():
+    """boot_time 변경 시 reset 확정 — delta가 양수여도 무시."""
+    t1 = datetime.now(timezone.utc)
+    t2 = t1 + timedelta(seconds=10)
+    rows = [
+        _net("eth0", t2, 10240, 5120, 100, 50, boot_time=_BOOT_B),
+        _net("eth0", t1, 0, 0, 0, 0, boot_time=_BOOT_A),
+    ]
+    snap = compute_net_io(rows)[0]
+    assert snap.rx_kbps is None
+    assert snap.tx_kbps is None
+    assert snap.rx_pps is None
 
 
 # ─── compute_mounts ───────────────────────────────────────────────────────
