@@ -105,8 +105,10 @@ Vagrantfile은 엔진의 `.env`를 직접 파싱하지 않는다. 별도 파일 
 
 - `redis_ttl_idempotent` (24h), `redis_ttl_online` (90s), `redis_ttl_token` (1h)
 - `redis_ttl_last_agent_start` (24h), `redis_ttl_agent_restarts` (1h 슬라이딩 윈도우)
-- `redis_key_*` 패턴 (cache:* / idempotent / online / token / last_agent_start / agent_restarts)
+- `redis_ttl_task_pending` (24h — pending task hot path 캐시)
+- `redis_key_*` 패턴 (cache:* / idempotent / online / token / last_agent_start / agent_restarts / task:pending)
 - `redis_channel_metrics`
+- `rabbitmq_routing_key_task_result` (`task.result` — agent → engine 작업 결과 보고)
 - `agent_restart_alert_threshold` (3 — 1h 내 재시작 N회 도달 시 warning)
 
 운영 환경에서 조정 필요 시 `BaseSettings` 필드라 환경변수로도 주입 가능하며, 이 경우 `.env`에 키 추가 + `docs/operations/env.md` 갱신. 현재 시점에는 default 값이 적절. `docs/adr/tradeoffs.md` T2 개선 방향 참조.

@@ -8,9 +8,11 @@ from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.db.redis import get_redis
-from assessment_engine.db.session import get_db
+from assessment_engine.db.repositories.collect_repository import CollectRepository
 from assessment_engine.db.repositories.query_repository import QueryRepository
+from assessment_engine.db.session import AsyncSessionLocal, get_db
 from assessment_engine.web.services.query_service import QueryService
+from assessment_engine.web.services.task_service import TaskService
 
 
 def get_service(
@@ -18,6 +20,23 @@ def get_service(
     redis=Depends(get_redis),
 ) -> QueryService:
     return QueryService(QueryRepository(db), redis)
+
+
+def get_task_service(
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+) -> TaskService:
+    """TaskService DI — router는 추상만 본다 (F4).
+
+    query_repo는 request-scoped(get_db)지만 collect_repo는 task INSERT용 별도 트랜잭션
+    필요(서버별 독립 commit)이라 session_factory + factory 패턴.
+    """
+    return TaskService(
+        query_repo=QueryRepository(db),
+        session_factory=AsyncSessionLocal,
+        collect_repo_factory=CollectRepository,
+        redis=redis,
+    )
 
 
 async def resolve_internal_id(

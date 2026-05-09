@@ -23,7 +23,6 @@ from assessment_engine.db.repositories.inbound import (
 )
 from tests.factories import make_inventory, make_metrics
 
-
 pytestmark = pytest.mark.asyncio
 
 

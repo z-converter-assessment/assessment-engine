@@ -1,8 +1,9 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, func, text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from assessment_engine.db.models.base import Base
@@ -12,9 +13,20 @@ class Task(Base):
     """ZConverter 등 원격 작업 명령 + 실행 이력. 영구 보존 (source of truth).
 
     Redis(`task:pending:{machine_id}`)는 hot path 캐시. DB가 진실, Redis는 빠른 확인용.
+
+    pending 상태 부분 UNIQUE — 같은 (target_server_id, task_type) 조합으로 동시 다중 pending
+    INSERT 차단. 운영자 더블클릭 방어. UniqueViolation은 service가 catch해서 409 반환.
     """
 
     __tablename__ = "tasks"
+    __table_args__ = (
+        Index(
+            "uq_tasks_pending_per_server_type",
+            "target_server_id", "task_type",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     public_id: Mapped[str] = mapped_column(

@@ -20,7 +20,6 @@ from assessment_engine.db.repositories.inbound import (
 from assessment_engine.db.repositories.query_repository import QueryRepository
 from tests.factories import make_inventory, make_metrics
 
-
 pytestmark = pytest.mark.asyncio
 
 

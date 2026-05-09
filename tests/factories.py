@@ -15,7 +15,6 @@ from assessment_engine.db.repositories.inbound import (
     ServerMetricCreate,
 )
 
-
 _DEFAULT_BOOT_TIME = datetime(2026, 1, 1, tzinfo=timezone.utc)
 _DEFAULT_AGENT_STARTED_AT = datetime(2026, 1, 1, 0, 5, tzinfo=timezone.utc)
 

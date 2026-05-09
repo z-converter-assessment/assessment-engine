@@ -8,9 +8,9 @@ from assessment_engine.db.repositories.outbound import (
     MetricSeries,
     NetworkWithIo,
     RebootEvent,
-    ReportRow,
-    ServerSummary,
+    ReportRowRaw,
     ServerDetail,
+    ServerSummary,
     StorageWithUsage,
 )
 
@@ -110,4 +110,4 @@ class BaseQueryRepository(ABC):
         server_ids: list[int],
         period_days: int,
         end: datetime,
-    ) -> list[ReportRow]: ...
+    ) -> list[ReportRowRaw]: ...

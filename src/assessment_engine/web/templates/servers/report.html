@@ -28,17 +28,17 @@
 
 <h1>Assessment Report</h1>
 <div class="report-meta">
-  데이터 기준 기간: 최근 {{ period_days }}일 ·
-  대상 서버 {{ kpi.total }}대 ·
+  데이터 기준 기간: 최근 {{ summary.period_days }}일 ·
+  대상 서버 {{ summary.total }}대 ·
   분류 기준: USE Method (Brendan Gregg) + AWS Compute Optimizer / Azure Advisor / GCP Recommender
 </div>
 
 <!-- ─── 양식 A: KPI + 요약 (고객 제출용) ─── -->
 <div class="kpi-grid">
-  <div class="kpi"><span>대상 서버</span><strong>{{ kpi.total }}</strong></div>
-  <div class="kpi"><span>온라인</span><strong style="color:#15803d;">{{ kpi.online }}</strong></div>
-  <div class="kpi"><span>과다 프로비저닝</span><strong style="color:#92400e;">{{ kpi.over }}</strong></div>
-  <div class="kpi"><span>리소스 부족</span><strong style="color:#b91c1c;">{{ kpi.under }}</strong></div>
+  <div class="kpi"><span>대상 서버</span><strong>{{ summary.total }}</strong></div>
+  <div class="kpi"><span>온라인</span><strong style="color:#15803d;">{{ summary.online }}</strong></div>
+  <div class="kpi"><span>과다 프로비저닝</span><strong style="color:#92400e;">{{ summary.over }}</strong></div>
+  <div class="kpi"><span>리소스 부족</span><strong style="color:#b91c1c;">{{ summary.under }}</strong></div>
 </div>
 
 <div class="report-section">
@@ -56,14 +56,14 @@
       </tr>
     </thead>
     <tbody>
-      {% for r in rows %}
+      {% for r in summary.rows %}
       <tr>
         <td><strong>{{ r.hostname }}</strong></td>
         <td>{{ r.role }}</td>
         <td>{{ r.os_display }}</td>
         <td class="num-cell">{% if r.cpu_p95_pct is not none %}{{ "%.1f"|format(r.cpu_p95_pct) }}%{% else %}—{% endif %}</td>
         <td class="num-cell">{% if r.mem_p95_pct is not none %}{{ "%.1f"|format(r.mem_p95_pct) }}%{% else %}—{% endif %}</td>
-        <td><span class="rec-badge rec-{{ r.recommendation }}">{{ r.recommendation_label }}</span></td>
+        <td><span class="rec-badge {{ r.badge_class }}">{{ r.recommendation_label }}</span></td>
         <td>{% if r.is_online %}<span style="color:#15803d;">●</span> 온라인{% else %}<span style="color:#94a3b8;">●</span> 오프라인{% endif %}</td>
       </tr>
       {% endfor %}
@@ -71,7 +71,7 @@
   </table>
   <div class="source-note">
     분류 기준: AWS Compute Optimizer · Azure Advisor · GCP Recommender · Kleinrock(1975) · Linux page cache
-    · 14일 기본 윈도우 (현재 {{ period_days }}일)
+    · 14일 기본 윈도우 (현재 {{ summary.period_days }}일)
   </div>
 </div>
 
@@ -95,7 +95,7 @@
       </tr>
     </thead>
     <tbody>
-      {% for r in rows %}
+      {% for r in summary.rows %}
       <tr>
         <td><strong>{{ r.hostname }}</strong></td>
         <td>{{ r.role }}</td>
@@ -107,7 +107,7 @@
         <td class="num-cell">{% if r.mem_peak_pct is not none %}{{ "%.1f"|format(r.mem_peak_pct) }}%{% else %}—{% endif %}</td>
         <td class="num-cell">{% if r.load_15m_max is not none %}{{ "%.2f"|format(r.load_15m_max) }}{% else %}—{% endif %}</td>
         <td>{% if r.swap_used %}<span style="color:#b91c1c;">사용</span>{% else %}<span style="color:#94a3b8;">—</span>{% endif %}</td>
-        <td><span class="rec-badge rec-{{ r.recommendation }}">{{ r.recommendation_label }}</span></td>
+        <td><span class="rec-badge {{ r.badge_class }}">{{ r.recommendation_label }}</span></td>
       </tr>
       {% endfor %}
     </tbody>

@@ -1,5 +1,5 @@
 from loguru import logger
-from redis.asyncio import Redis, ConnectionPool
+from redis.asyncio import ConnectionPool, Redis
 from redis.exceptions import RedisError
 
 from assessment_engine.config import web_settings

@@ -160,21 +160,21 @@ class MetricSeries:
 # ---------- Reboot / Agent restart 이벤트 (차트 vertical marker용) ----------
 
 @dataclass
-class ReportRow:
-    """Assessment 보고서 한 행 — 서버 1대의 USE Method 통계 + recommendation.
+class ReportRowRaw:
+    """Assessment 보고서 한 행의 raw stats — repository가 반환 (P1).
 
-    1차 MVP: CPU p95/peak + MEM p95/peak + swap_used + load_15m max.
-    추후 확장: net_avg_kbps (idle/shutdown 활성), iowait_p95 (Saturation 차원).
+    표시 파생(role/is_online/recommendation/os_display 등)은 service mapper에서 ReportRowItem으로.
     근거: docs/assessment-deliverables.md "RISK 분류" + docs/ai_roadmap.md §3.B·C.
     """
     server_id: int
     public_id: str
     hostname: str
-    role: str                   # service_classifier 추론
-    is_online: bool
-    os_display: str
+    os_id: str | None
+    os_version: str | None
     kernel_version: str | None
-    internal_ip: str | None
+    ip_internal: list[str] | None
+    services: list[dict] | None  # service_classifier 입력 (role 추론용)
+    last_seen_at: datetime | None
 
     # USE Method Utilization (p95)
     cpu_p95_pct: float | None
@@ -185,10 +185,6 @@ class ReportRow:
     # USE Method Saturation
     load_15m_max: float | None
     swap_used: bool
-
-    # 분류 결과 (recommendation.classify 결과)
-    recommendation: str         # idle | shutdown | over_provisioned | under_provisioned | optimal | insufficient_data
-    recommendation_label: str   # 한국어 라벨
 
 
 @dataclass

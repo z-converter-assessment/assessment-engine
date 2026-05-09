@@ -234,8 +234,9 @@ async function submitInstall() {
       return;
     }
     const data = await res.json();
-    const lines = data.map(t => `· ${rows.find(r => r.dataset.publicId === t.target_public_id)?.dataset.hostname || t.target_public_id} → task ${t.task_public_id.slice(0, 8)}…`);
-    renderInstallResult(`✅ ${data.length}건 발행 완료<br><div style="margin-top:6px; font-family:monospace; font-size:12px;">${lines.join('<br>')}</div>`, 'ok');
+    const list = Array.isArray(data) ? data : [];   // 5xx가 JSON object 반환 시 TypeError 방어
+    const lines = list.map(t => `· ${rows.find(r => r.dataset.publicId === t.target_public_id)?.dataset.hostname || t.target_public_id} → task ${t.task_public_id.slice(0, 8)}…`);
+    renderInstallResult(`✅ ${list.length}건 발행 완료<br><div style="margin-top:6px; font-family:monospace; font-size:12px;">${lines.join('<br>')}</div>`, 'ok');
   } catch (e) {
     renderInstallResult('❌ 요청 실패: ' + e.message, 'err');
   } finally {

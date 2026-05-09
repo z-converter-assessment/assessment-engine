@@ -271,7 +271,7 @@
 ## T10. ViewModel 비대화 vs 클라이언트 재계산 (P5 적용)
 
 > 관련 코드: `src/assessment_engine/web/view_models.py`, `src/assessment_engine/web/services/mappers.py`, `src/assessment_engine/web/services/metrics_calculator.py`
-> 관련 문서: CLAUDE.md #E1 P5 / #E4, `docs/architecture/web.md` "ViewModel 설계"
+> 관련 문서: CLAUDE.md #E1 P5 / #E4, `docs/architecture/web/view-models.md`
 
 선택
 - `ListenPortItem.is_well_known` (port ≤ 1024 boolean)

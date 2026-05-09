@@ -10,11 +10,11 @@ from assessment_engine.db.models.server_metrics import ServerMetrics
 from assessment_engine.db.models.server_mount_usage import ServerMountUsage
 from assessment_engine.db.models.server_net_io import ServerNetIo
 from assessment_engine.db.repositories.base_query_repository import (
+    TIME_RANGE_TD,
     AggFunc,
     BaseQueryRepository,
     BucketSize,
     MetricType,
-    TIME_RANGE_TD,
     TimeRange,
 )
 from assessment_engine.db.repositories.outbound import (
@@ -27,12 +27,11 @@ from assessment_engine.db.repositories.outbound import (
     NetIoRaw,
     NetworkWithIo,
     RebootEvent,
-    ReportRow,
-    ServerSummary,
+    ReportRowRaw,
     ServerDetail,
+    ServerSummary,
     StorageWithUsage,
 )
-
 
 # ─── 시간 매핑 ─────────────────────────────────────────────────────────────
 # TimeRange→timedelta는 base_query_repository에서 import (TIME_RANGE_TD) — service와 공유.
@@ -657,16 +656,15 @@ class QueryRepository(BaseQueryRepository):
         server_ids: list[int],
         period_days: int,
         end: datetime,
-    ) -> list[ReportRow]:
-        """N서버 × period_days 통계 → ReportRow list. recommendation 분류는 service에서.
+    ) -> list[ReportRowRaw]:
+        """N서버 × period_days 통계 → ReportRowRaw list. role/recommendation 등 표시 파생은 service에서.
 
         SQL 구조:
         - cpu_pct CTE: LAG로 jiffies delta → (1 - d_idle/d_total) × 100. boot_time 변경 시 reset 제외.
         - mem_pct CTE: 시점값 (1 - mem_available/mem_total) × 100. swap_used flag 동시 추출.
         - 통계: percentile_cont(0.95) + MAX. server_id별 GROUP BY.
-        - server_inventory LEFT JOIN — metric 없는 서버도 행 반환 (recommendation=insufficient_data).
+        - server_inventory LEFT JOIN — metric 없는 서버도 행 반환. services JSONB 동시 SELECT (N+1 회피).
         """
-        from datetime import timedelta
         start = end - timedelta(days=period_days)
 
         sql = text("""
@@ -731,6 +729,7 @@ class QueryRepository(BaseQueryRepository):
                 s.os_version    AS os_version,
                 s.kernel_version AS kernel_version,
                 s.ip_internal   AS ip_internal,
+                s.services      AS services,
                 s.last_seen_at  AS last_seen_at,
                 cs.cpu_p95      AS cpu_p95,
                 cs.cpu_peak     AS cpu_peak,
@@ -747,29 +746,26 @@ class QueryRepository(BaseQueryRepository):
         """)
         result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
 
-        # ReportRow 생성은 raw 컬럼만 채움. role / os_display / is_online / recommendation은
-        # service 계층에서 추론 — repository는 raw 데이터만 (P1).
-        rows: list[ReportRow] = []
-        for r in result.all():
-            rows.append(ReportRow(
+        return [
+            ReportRowRaw(
                 server_id=r.server_id,
                 public_id=str(r.public_id),
                 hostname=r.hostname,
-                role="",                  # service에서 채움
-                is_online=False,          # service에서 last_seen_at + Redis로 채움
-                os_display=f"{r.os_id or ''} {r.os_version or ''}".strip() or "—",
+                os_id=r.os_id,
+                os_version=r.os_version,
                 kernel_version=r.kernel_version,
-                internal_ip=(r.ip_internal[0] if r.ip_internal else None),
+                ip_internal=r.ip_internal,
+                services=r.services,
+                last_seen_at=r.last_seen_at,
                 cpu_p95_pct=r.cpu_p95,
                 cpu_peak_pct=r.cpu_peak,
                 mem_p95_pct=r.mem_p95,
                 mem_peak_pct=r.mem_peak,
                 load_15m_max=r.load_15m_max,
                 swap_used=bool(r.swap_used),
-                recommendation="insufficient_data",  # service에서 채움
-                recommendation_label="",
-            ))
-        return rows
+            )
+            for r in result.all()
+        ]
 
     # ─── reboot / agent restart 이벤트 (차트 vertical marker용) ────────────
 

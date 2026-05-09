@@ -22,7 +22,6 @@ from assessment_engine.web.services.metrics_calculator import (
     compute_swap,
 )
 
-
 _BOOT_A = datetime(2026, 1, 1, tzinfo=timezone.utc)
 _BOOT_B = datetime(2026, 5, 9, tzinfo=timezone.utc)
 

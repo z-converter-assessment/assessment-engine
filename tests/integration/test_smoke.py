@@ -7,7 +7,6 @@ import pytest
 from assessment_engine.db.repositories.collect_repository import CollectRepository
 from tests.factories import make_inventory
 
-
 pytestmark = pytest.mark.asyncio
 
 

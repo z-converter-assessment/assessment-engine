@@ -12,10 +12,12 @@ from assessment_engine.db.repositories.outbound import (
     InventoryExportEntry,
     MetricSeries,
     NetworkWithIo,
-    ServerSummary,
+    ReportRowRaw,
     ServerDetail,
+    ServerSummary,
     StorageWithUsage,
 )
+from assessment_engine.web.services import recommendation
 from assessment_engine.web.services.device_filters import (
     find_parent_disk,
     is_physical_disk,
@@ -31,12 +33,12 @@ from assessment_engine.web.view_models import (
     MetricSeriesItem,
     MountUsageItem,
     NetworkDetailResponse,
+    ReportRowItem,
     ServerDetailResponse,
     ServerListItem,
     ServiceItem,
     StorageDetailResponse,
 )
-
 
 # ─── 임계값 상수 ──────────────────────────────────────────────────────────
 # (차트 JS의 USAGE_DANGER_PCT/USAGE_WARN_PCT와 동기화)
@@ -361,7 +363,7 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
 # ─── Inventory JSON Export (assessment-deliverables.md §3) ─────────────────
 
 
-def _infer_role(services: list[dict] | None) -> str:
+def infer_role(services: list[dict] | None) -> str:
     """services[].unit를 service_classifier로 분류 → 가장 빈도 높은 카테고리.
 
     "unknown"은 결정에서 제외. 모두 unknown이면 "unknown" 반환.
@@ -407,13 +409,46 @@ def _split_disks(disks: list[dict], mounts: list[dict]) -> tuple[int | None, lis
     return (boot_gb, additional)
 
 
+def to_report_row_item(raw: ReportRowRaw, is_online: bool) -> ReportRowItem:
+    """ReportRowRaw(repo) + is_online → ReportRowItem(ViewModel) — P2 단일 변환.
+
+    표시 파생 (role / recommendation / badge_class / os_display / internal_ip[0])은 모두 여기서.
+    """
+    rec = recommendation.classify(recommendation.ResourceStats(
+        cpu_p95_pct=raw.cpu_p95_pct,
+        cpu_peak_pct=raw.cpu_peak_pct,
+        mem_p95_pct=raw.mem_p95_pct,
+        swap_used=raw.swap_used,
+        net_avg_kbps=None,  # 1차 MVP — net 집계 미구현
+    ))
+    return ReportRowItem(
+        server_id=raw.server_id,
+        public_id=raw.public_id,
+        hostname=raw.hostname,
+        role=infer_role(raw.services),
+        is_online=is_online,
+        os_display=_os_display(raw.os_id, raw.os_version),
+        kernel_version=raw.kernel_version,
+        internal_ip=raw.ip_internal[0] if raw.ip_internal else None,
+        cpu_p95_pct=raw.cpu_p95_pct,
+        cpu_peak_pct=raw.cpu_peak_pct,
+        mem_p95_pct=raw.mem_p95_pct,
+        mem_peak_pct=raw.mem_peak_pct,
+        load_15m_max=raw.load_15m_max,
+        swap_used=raw.swap_used,
+        recommendation=rec,
+        recommendation_label=recommendation.LABEL_KO[rec],
+        badge_class=recommendation.BADGE_CLASS[rec],
+    )
+
+
 def to_inventory_export_entry(detail: ServerDetail) -> InventoryExportEntry:
     """ServerDetail(outbound) → InventoryExportEntry(JSON export 항목)."""
     boot_gb, additional = _split_disks(detail.disks, detail.mounts)
     return InventoryExportEntry(
         name=detail.hostname,
         machine_id=detail.machine_id,
-        role=_infer_role(detail.services),
+        role=infer_role(detail.services),
         os={
             "family": detail.os_id,
             "version": detail.os_version,

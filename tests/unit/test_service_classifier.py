@@ -3,7 +3,6 @@ import pytest
 
 from assessment_engine.web.services.service_classifier import classify, matched_ports
 
-
 # ─── classify ─────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("unit, expected", [

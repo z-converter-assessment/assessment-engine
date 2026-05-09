@@ -9,7 +9,6 @@ from assessment_engine.web.services.device_filters import (
     is_virtual_mount,
 )
 
-
 # ─── is_physical_disk ─────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("name, expected", [
