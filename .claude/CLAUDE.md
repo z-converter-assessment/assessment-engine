@@ -181,6 +181,31 @@ fail-open 핵심 결과(다른 계층이 의존):
 
 키 설계 표 / TTL 근거 / PUB/SUB 채널 / 캐시-aside race 한계 / 장애 매트릭스 전체: `docs/architecture/redis.md`. 의사결정 ADR: `docs/adr/0001-redis-decoupling.md`.
 
+## C4. 스키마 변경 — 3중 일관성 의무
+
+DEV `create_all` ↔ PROD Alembic ↔ ORM 모델 셋이 같은 schema를 만들 책임. 한 곳만 갱신하면 환경 간 drift 발생 → 멱등성·쿼리 경로 깨짐.
+
+본 절 결정/의무 (#C1 키·제약, `docs/operations/alembic.md` 절차의 강제 채널):
+- 모델 변경 시 동시 갱신 의무: (1) `src/assessment_engine/db/models/*.py` (2) `migrations/versions/*.py` 신규 revision (3) `alembic check` 통과 — drift 0건. 한 곳만 수정 후 PR 금지.
+- DEV 검증: `docker compose down -v` 후 재기동 (`create_all`은 ALTER TABLE 안 함 — 기존 테이블 컬럼 추가 무반응).
+- PROD 검증: `alembic upgrade head` → `alembic downgrade -1` → `alembic upgrade head` 라운드트립 통과 의무. `downgrade()`는 autogenerate 결과여도 검토.
+- autogenerate 미지원 카탈로그 (수동 `op.execute()` 보강 의무): `create_hypertable` / `CREATE EXTENSION` / TimescaleDB retention·continuous aggregate 정책 / partial index `postgresql_where` 일부 / CHECK 제약 / JSONB GIN 옵션 일부.
+- TimescaleDB 자동 생성 객체(`{table}_collected_at_idx` 5개)는 `migrations/env.py:_include_object`로 autogenerate 비교에서 제외. 신규 자동 객체 패턴(예: continuous aggregate 도입 시 `_materialized_*`) 발견 시 여기 추가 의무.
+- 시계열 신규 테이블: 마이그레이션 파일에 `op.execute("SELECT create_hypertable('table', 'collected_at', if_not_exists => true)")` 보강 + 자연키 UNIQUE(#C1) + `boot_time`/`agent_started_at` 컬럼(#B1) 동시 검토.
+
+상세 명령·워크플로우: `docs/operations/alembic.md`.
+
+## C5. 쿼리 안전성 — 의무·금지
+
+본 절 결정/금지 (T8 부분 SELECT 트레이드오프 + N+1 회피 사고 반면교사):
+- hypertable 조회는 `WHERE collected_at >= ?` 술어 의무 — partition pruning. 누락 시 모든 chunk full scan → 시간 데이터 증가 따라 latency 악화. `_chart_*` 헬퍼·repo 메서드 모두 적용.
+- raw SQL의 사용자 입력은 `text()` + bound parameter만. f-string으로 사용자 입력 직접 삽입 금지 — SQL injection + asyncpg statement cache 키 폭증. 단 dispatch table whitelist 상수(`_chart_*` 헬퍼의 `_BUCKET_INFO`/`_AGG`/`_RATE_PER_DIM` 등 Pydantic Literal → enum 매핑 후 정적 상수만)는 f-string 허용 — 사용자 입력 차단이 룰 정신.
+- N+1 금지: 목록 조회에서 row마다 추가 쿼리 발생 패턴 금지. join (selectinload·joinedload) 또는 단일 SQL로 JSONB merge (`docs/architecture/db/repositories.md` `report_aggregate` 패턴 — 단일 SQL JSONB 집계).
+- `select(Model)` 풀로우는 큰 JSONB·TEXT 컬럼 동반 — 목록·집계는 명시 컬럼 select (T8).
+- INSERT 시 ON CONFLICT는 `pg_insert(...).on_conflict_do_*` 통일 — raw SQL 분기 금지 (#D2 멱등성 2단 방어 일관성).
+- 트랜잭션 경계: consumer는 1 메시지 = 1 트랜잭션 (`session_factory()` 컨텍스트), web은 1 request = 1 세션 (`Depends(get_session)`). autocommit 금지·세션 공유·중첩 금지.
+- placeholder INSERT는 `ON CONFLICT DO NOTHING` 의무 — auto-register race가 진짜 inventory 덮어쓰는 사고 방지 (#F9 누적 사고 패턴). 진짜 inventory upsert는 `DO UPDATE` (#D1 auto-register 후속 흐름 — placeholder INSERT와 별개 메서드).
+
 ---
 
 # D. Consumer
@@ -484,3 +509,93 @@ Hook 강제 영역은 메인이 또 grep으로 확인하지 않는다 (중복). 
 - inline JS 변경은 도구 적용 어려움 → 외부 `.js`로 옮긴 후 변경.
 
 누락 시 사용자 회귀 사고 발견의 책임은 검증 누락에 있음. 같은 패턴 재발 시 본 절 "누적 사고 패턴"에 추가하고 검증 절차에 누락된 단계 보강.
+
+## F10. 에러 처리·실패 모델
+
+원칙: **외부 의존은 fail-close/fail-open을 컴포넌트 단위로 미리 결정** — 결정 근거 없으면 새 통합 도입 금지.
+
+본 절 결정/금지:
+- DB는 fail-close — 실패 시 raise → 컨슈머는 nack/DLQ, web은 5xx. silent skip 금지 (데이터 무결성 깨짐).
+- Redis는 fail-open — `safe_*` helper 경유 의무 (#C3). RedisError 흡수 + warning 로그 + 다음 계층(DB UNIQUE·TTL fallback)이 결과 보장.
+- HTTP 외부 호출(discovery probe·LLM API 후보)은 timeout·재시도 정책 명시 의무. 무한 대기·무한 retry 금지.
+- `except Exception` 광범위 catch 금지 — 잡으려는 예외 타입 명시 (`OperationalError`/`IntegrityError`/`RedisError`/`asyncio.TimeoutError` 등). 광범위 catch가 불가피하면 reraise + 컨텍스트 로그.
+- 재시도 분류: 일시 장애만 백오프 재시도 (`OperationalError`·5xx·timeout). 영구 오류는 즉시 raise — `IntegrityError`·4xx는 재시도해도 결과 같음.
+- timeout 의무: `asyncio.wait_for` 또는 클라이언트 옵션 (`aiohttp.ClientTimeout`·asyncpg `command_timeout`·redis `socket_timeout`).
+
+매트릭스:
+
+| 외부 의존 | 실패 모드 | 처리 | 시그널 |
+|-----------|-----------|------|--------|
+| PostgreSQL | fail-close | `_db_retry` 백오프 후 raise → DLQ | ERROR 로그 |
+| Redis | fail-open | `safe_*` 흡수 → 다음 계층 fallback | WARNING 로그 |
+| RabbitMQ broker | fail-close | aio-pika 자동 재연결, persistent 메시지 | ERROR 로그 |
+| HTTP discovery probe | fail-open | timeout → "unreachable" 결과 | INFO 로그 |
+
+소비자 측 상세 매트릭스: `docs/architecture/consumer.md` "실패 처리" 절.
+
+## F11. 로깅·관측
+
+원칙: **로그는 운영 시그널** — 로그 양이 많으면 시그널이 묻힌다. 레벨·내용·빈도 모두 의도 있게.
+
+본 절 결정/금지:
+- `print` / `sys.stdout.write` 금지 — 모듈별 logger 인스턴스 사용 (stdlib `logging.getLogger(__name__)` 또는 `loguru.logger`). 본 프로젝트는 `loguru` 채택 — 일관성 의무, 라이브러리 혼용 금지.
+- 레벨 가이드:
+
+  | 레벨 | 용도 |
+  |------|------|
+  | ERROR | 처리 실패 + 사용자/메시지 영향 (DB raise, DLQ 전송, 5xx) |
+  | WARNING | 정상 흐름이지만 운영 시그널 (시계 invariant 위반, 재시작 burst 임계 초과, Redis fail-open, counter reset 감지) |
+  | INFO | 상태 전이 (auto-register placeholder→real, schema bootstrap, consumer ready, DLQ enqueue) |
+  | DEBUG | 루프 내부·메시지별 처리 흐름 — 운영 기본 비활성 |
+
+- payload·secret raw dump 금지 — 식별자(machine_id·routing key·message_id·server_id)와 카운트만. metrics 행 전체를 INFO로 찍지 않음.
+- 시그널 로그(`_log_time_invariants`·`_track_agent_restart`)는 서버별 쿨다운 또는 슬라이딩 윈도우 카운터 의무 — 동일 시그널 매 메시지 발생 시 로그 스팸으로 진짜 시그널 매몰. 상세 시그널 동작: `docs/architecture/consumer.md` "부가 시그널" 절.
+- 예외 로깅: stdlib `logger.exception()`·loguru `logger.exception()` 모두 except 블록 안에서만 (자동 traceback 캡처). 두 번째 인자에 예외 객체 e 전달 시 traceback 중복 가능 — 메시지 format 인자만 사용. 일반 ERROR는 `logger.error("...", extra={...})` (stdlib) 또는 `logger.bind(...).error(...)` (loguru).
+- 새 시그널 도입 시 (a) 레벨 결정 (b) 빈도 제어 (c) 운영자가 어떤 행동을 해야 하는지 — 셋 다 명시.
+
+## F12. 시크릿·PII 노출 금지
+
+원칙: **로그·예외·HTTP 응답·ViewModel·캐시 어디에도 비밀번호·토큰·전체 메시지 payload·고객사 식별 가능 정보 노출 금지**. 한 번 새면 영구.
+
+본 절 결정/금지:
+- pydantic Settings의 비밀 필드는 `SecretStr` — `__repr__`이 자동 마스킹. 현재 일부만 적용 → 신규 필드는 의무.
+- `.env` / `secrets/*` 파일 commit 금지 — `.gitignore` 의존. PR diff에 `password`/`secret`/`token`/`key` 패턴 포함 시 검토 의무.
+- 예외 메시지에 raw payload·접속 문자열 금지 — `OperationalError(...connection: postgres://user:PASSWORD@...)` 같은 형태가 로그에 그대로 흘러감. 잡아서 sanitize 후 reraise.
+- HTTP 응답·ViewModel·JSON export에 내부 비밀번호·토큰·machine_id 외 PII 포함 금지. 운영 식별자는 `public_id`(UUID)만 노출 (#E5).
+- Redis·DB에 raw payload 캐싱 금지 — Outbound DTO·ViewModel 단계에서 sanitize 후 캐싱.
+- 에이전트 ↔ 엔진 메시지의 `machine_id`는 식별자라 로깅 OK. payload 본문은 로깅 금지.
+
+상세: secret 채널·prod 약한 default 자동 검증(`_validate_prod_*`)은 `docs/operations/dev-prod.md` §2 채널 분류 / §7 자동 검증.
+
+## F13. 변경 영향도 체크리스트
+
+원칙: **단일 진실 보장은 변경 시점에서만 가능**. 한 곳 수정 후 PR 금지 — 영향받는 모든 곳 동시 갱신 의무.
+
+| 변경 유형 | 동시 갱신 의무 위치 |
+|-----------|---------------------|
+| 시계열 컬럼 추가 | (1) ORM 모델 (2) Alembic revision (3) Inbound DTO·mapper (4) Outbound DTO·mapper (5) `cache_serializer._DETAIL_DISPLAY_FIELDS` (6) ViewModel (7) 템플릿·외부 .js |
+| inventory 컬럼 추가 | 위 (1)~(7) + agent payload 합의 (`payload-schema.md`) + #B1 엔진 핸들링 결정 갱신 |
+| 신규 routing key | (1) 에이전트 발행 (2) consumer 핸들러 팩토리 + dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 (4) #B1 메시지 타입 표 |
+| 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) `docker-compose.yml` `environment:` (4) prod secret이면 `secrets/*` + `dev-prod.md` + `docker-compose.prod.yml` |
+| ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass 필드도 (P5) |
+| 신규 외부 의존 (HTTP·LLM·외부 큐) | (1) fail-open/close 결정 (#F10) (2) timeout·재시도 정책 (3) Settings 필드 (4) 매트릭스 갱신 |
+| 신규 의존성 (`pyproject.toml`) | (1) `uv pip install -e .` 후 `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토 |
+
+이 표는 F9 자동화 변환 검증과 분리 — F9는 변환 도구의 false-negative 방어, 본 절은 의미적 단일 진실 보장.
+
+## F14. 명명·타입 규약 (F1 보강)
+
+원칙: **이름이 단위·의미·형태를 자체 표현**. type checker 만족용 보조 정보 아닌 코드 가독성·grep 가능성·신규 진입자 학습 비용을 위한 결정.
+
+| 카테고리 | 규약 | 예 |
+|----------|------|------|
+| 단위 접미사 의무 | scalar: `*_kb` (메모리·디스크 KB), `*_bytes` (네트워크·디스크 raw), `*_pct` (0~100 백분율), `*_ms` (밀리초), `*_at` (UTC datetime), `*_seq` (단조 카운터). rate: `*_kbps` (KB/s), `*_iops` (I/O ops/s), `*_pps` (packets/s), `*_per_sec` (그 외 ops/s) | `mem_total_kb`, `rx_bytes`, `cpu_pct`, `collected_at`, `net_avg_kbps`, `disk_iops` |
+| boolean | `is_*` (속성), `has_*` (소유), `auto_*` (자동 동작) | `is_well_known`, `has_internet`, `auto_register` |
+| 식별자 | `*_id` (정수 PK), `public_id` (UUID), `machine_id` (에이전트 식별), `message_id` (멱등성 키) | `server_id`, `task_id` |
+| 시간 표기 | UTC datetime은 `*_at` 의무. 로컬 표시 변환은 `kst` 필터/JS만 (#F2). 예외: `boot_time`/`agent_started_at` — agent payload 합의 명명 (TIMESTAMPTZ datetime이지만 `*_at` suffix 미적용 historical naming, 변경 시 에이전트 payload 동시 갱신 비용 큼) | `last_seen_at`, `collected_at`, `boot_time`(historical) |
+| DTO 경계 | Inbound = Pydantic (외부 검증), Outbound·ViewModel = dataclass (내부 raw·표시), Settings = pydantic BaseSettings | `consumer/schemas.py`(Inbound) ↔ `repositories/outbound.py`(Outbound) |
+| routing key | `{entity}.{event}` 소문자 dot 구분 | `server.metrics`, `server.inventory`, `task.result` |
+| Redis 키 | `{namespace}:{id}` (TTL 있음) — namespace는 단수 (`online:{id}`, `idempotent:{message_id}`), 카운터는 `{action}:{id}` (`agent_restarts:{sid}`) | `online:42`, `task:pending:abc-123` |
+| Service 메서드 | `get_*` (단일 조회·404 가능), `list_*` (목록·empty OK), `record_*` (시계열 INSERT), `ensure_*` (멱등 upsert), `compute_*`/`enrich_*` (파생 계산) | `get_server_detail`, `list_servers`, `record_metrics`, `ensure_server_id`, `enrich_server_detail` |
+
+신규 도메인 컬럼·필드 도입 시 본 표 패턴 우선 적용. 패턴 외 명명은 PR에 사유 명시.

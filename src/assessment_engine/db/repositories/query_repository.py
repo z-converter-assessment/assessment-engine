@@ -98,6 +98,16 @@ class QueryRepository(BaseQueryRepository):
         )
         return result.scalar_one_or_none()
 
+    async def resolve_server_ids(self, public_ids: list[str]) -> dict[str, int]:
+        if not public_ids:
+            return {}
+        result = await self.session.execute(
+            select(ServerInventory.public_id, ServerInventory.id).where(
+                ServerInventory.public_id.in_(public_ids)
+            )
+        )
+        return {str(r.public_id): r.id for r in result.all()}
+
     async def list_servers(
         self,
         page: int,
@@ -145,13 +155,8 @@ class QueryRepository(BaseQueryRepository):
             for r in result.all()
         ]
 
-    async def get_server(self, server_id: int) -> ServerDetail | None:
-        result = await self.session.execute(
-            select(ServerInventory).where(ServerInventory.id == server_id)
-        )
-        r = result.scalars().one_or_none()
-        if r is None:
-            return None
+    @staticmethod
+    def _row_to_server_detail(r: ServerInventory) -> ServerDetail:
         return ServerDetail(
             id=r.id,
             public_id=r.public_id,
@@ -175,6 +180,21 @@ class QueryRepository(BaseQueryRepository):
             listen_ports=r.listen_ports or [],
             last_seen_at=r.last_seen_at,
         )
+
+    async def get_server(self, server_id: int) -> ServerDetail | None:
+        result = await self.session.execute(
+            select(ServerInventory).where(ServerInventory.id == server_id)
+        )
+        r = result.scalars().one_or_none()
+        return self._row_to_server_detail(r) if r is not None else None
+
+    async def get_servers(self, server_ids: list[int]) -> list[ServerDetail]:
+        if not server_ids:
+            return []
+        result = await self.session.execute(
+            select(ServerInventory).where(ServerInventory.id.in_(server_ids))
+        )
+        return [self._row_to_server_detail(r) for r in result.scalars().all()]
 
     async def get_storage(self, server_id: int) -> StorageWithUsage | None:
         inv_result = await self.session.execute(
@@ -421,7 +441,9 @@ class QueryRepository(BaseQueryRepository):
         """{table}에서 (server_id 한정) {dim_col}별 최신 n행 반환.
 
         n=1: DISTINCT ON (가장 단순), n>=2: PARTITION BY + ROW_NUMBER.
-        table·dim_col은 ORM 모델의 정적 attribute로 whitelisted — SQL에 직접 포맷.
+        table·dim_col은 ORM 모델의 정적 attribute로 whitelisted — SQL에 직접 포맷 (C5 예외 — dispatch table whitelist만).
+
+        C5: hypertable partition pruning 의무. 30d 윈도우 — 30d 이상 오프라인 서버는 metrics 조회 의미 약함 + 7d chunk 기준 4~5 chunk만 스캔.
         """
         if n == 1:
             sql = text(f"""
@@ -429,7 +451,7 @@ class QueryRepository(BaseQueryRepository):
                 FROM (
                     SELECT DISTINCT ON ({dim_col}) *
                     FROM {table}
-                    WHERE server_id = :sid
+                    WHERE server_id = :sid AND collected_at >= now() - interval '30 days'
                     ORDER BY {dim_col}, collected_at DESC
                 ) s
                 ORDER BY {dim_col}
@@ -442,7 +464,7 @@ class QueryRepository(BaseQueryRepository):
                     SELECT *,
                         ROW_NUMBER() OVER (PARTITION BY {dim_col} ORDER BY collected_at DESC) AS rn
                     FROM {table}
-                    WHERE server_id = :sid
+                    WHERE server_id = :sid AND collected_at >= now() - interval '30 days'
                 ) t
                 WHERE rn <= :n
                 ORDER BY {dim_col}, collected_at DESC

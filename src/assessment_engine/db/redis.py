@@ -14,6 +14,8 @@ def get_pool() -> ConnectionPool:
         pool = ConnectionPool.from_url(
             web_settings.redis_url,
             decode_responses=True,
+            socket_timeout=5,
+            socket_connect_timeout=3,
         )
         _pool = pool
     return pool

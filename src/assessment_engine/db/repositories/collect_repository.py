@@ -35,13 +35,36 @@ class CollectRepository(BaseCollectRepository):
         )
         return result.scalar_one_or_none()
 
+    # C5: full row select 대신 비교 대상 컬럼만 (id/public_id/last_seen_at/machine_id 제외).
+    # 매 inventory 메시지 hot path — 불필요 컬럼 read 비용 절약.
+    _INVENTORY_COMPARE_COLS = (
+        ServerInventory.hostname,
+        ServerInventory.agent_version,
+        ServerInventory.os_id,
+        ServerInventory.os_version,
+        ServerInventory.os_codename,
+        ServerInventory.kernel_version,
+        ServerInventory.cpu_cores,
+        ServerInventory.cpu_model,
+        ServerInventory.mem_total_kb,
+        ServerInventory.swap_total_kb,
+        ServerInventory.boot_time,
+        ServerInventory.agent_started_at,
+        ServerInventory.ip_internal,
+        ServerInventory.ip_external,
+        ServerInventory.disks,
+        ServerInventory.mounts,
+        ServerInventory.services,
+        ServerInventory.listen_ports,
+    )
+
     async def upsert_server(self, data: ServerInventoryCreate) -> int:
         # 변경 감지: 직전 행과 비교 후 다를 때만 history 한 행 INSERT (앱 레벨 trigger).
         # 1시간 주기 재발행이라도 정적 정보 동일하면 history는 그대로 — noise 차단.
         prev_q = await self.session.execute(
-            select(ServerInventory).where(ServerInventory.machine_id == data.machine_id)
+            select(*self._INVENTORY_COMPARE_COLS).where(ServerInventory.machine_id == data.machine_id)
         )
-        prev = prev_q.scalar_one_or_none()
+        prev = prev_q.first()
 
         # values()와 set_={}에 같은 컬럼 dict를 재사용 — 컬럼 추가 시 한 곳만 수정.
         # machine_id는 conflict 키이므로 set_에서 제외 (자기 자신을 자기 값으로 덮어쓰는 무의미한 동작 회피).

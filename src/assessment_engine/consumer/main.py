@@ -61,7 +61,7 @@ async def main() -> None:
             ),
         ]
 
-        conn = await aio_pika.connect_robust(consumer_settings.broker_url)
+        conn = await aio_pika.connect_robust(consumer_settings.broker_url, timeout=10)
         async with conn:
             async with conn.channel() as channel:
                 await channel.set_qos(prefetch_count=10)

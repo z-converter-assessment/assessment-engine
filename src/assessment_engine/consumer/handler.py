@@ -9,7 +9,9 @@ from uuid import UUID
 
 from aio_pika import DeliveryMode, Message
 from aio_pika.abc import AbstractIncomingMessage
+from aio_pika.exceptions import AMQPException
 from loguru import logger
+from pydantic import ValidationError
 from redis.asyncio import Redis
 from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -35,6 +37,24 @@ from assessment_engine.db.repositories.inbound import TaskResultUpdate
 _RETRYABLE_DB_EXC = (OperationalError, DBAPIError)
 
 
+def _format_db_err(e: DBAPIError) -> str:
+    """DB 예외에서 SQL·param·connection string 제외한 진단 메타만 추출 (F12).
+
+    - SQLAlchemy 클래스명 (OperationalError·IntegrityError 등)
+    - asyncpg origin 클래스 (`UniqueViolationError`·`ConnectionDoesNotExistError` 등) — `e.orig`
+    - PostgreSQL SQLSTATE 5자 코드 — asyncpg `e.orig.sqlstate`
+    """
+    sa_cls = type(e).__name__
+    orig = getattr(e, "orig", None)
+    if orig is None:
+        return f"sa={sa_cls}"
+    orig_cls = type(orig).__name__
+    sqlstate = getattr(orig, "sqlstate", None)
+    if sqlstate:
+        return f"sa={sa_cls} orig={orig_cls} sqlstate={sqlstate}"
+    return f"sa={sa_cls} orig={orig_cls}"
+
+
 async def _db_retry(
     session_factory: async_sessionmaker[AsyncSession],
     repo_factory: Callable[[AsyncSession], BaseCollectRepository],
@@ -48,13 +68,15 @@ async def _db_retry(
             return result
         except IntegrityError as e:
             # 영구 장애 — retry 의미 없음. 즉시 raise → 핸들러가 nack → DLQ.
-            logger.error("db integrity error (non-retryable): {}", e)
+            # F12: e.orig 메시지엔 SQL·param·테이블 컬럼 노출 가능 — 진단용 메타만 로깅.
+            logger.error("db integrity error (non-retryable) {}", _format_db_err(e))
             raise
         except _RETRYABLE_DB_EXC as e:
+            # F12: connection string·param 노출 가능 — 진단용 메타만 로깅.
             if attempt == 2:
-                logger.error("db error after 3 attempts: {}", e)
+                logger.error("db error after 3 attempts {}", _format_db_err(e))
                 raise
-            logger.warning("db error attempt={} error={}", attempt + 1, e)
+            logger.warning("db error attempt={} {}", attempt + 1, _format_db_err(e))
             await asyncio.sleep(5 ** (attempt + 1))
     raise AssertionError("unreachable")
 
@@ -70,13 +92,22 @@ async def _check_idempotent(redis: Redis, message_id: UUID) -> bool:
     return True if result is None else result
 
 
-def _log_time_invariants(data: MessageBase) -> None:
+async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
     """시계·systemd 시작 순서 invariant 검증. warning 로그만, 처리는 그대로 진행.
 
     - boot_time > agent_started_at: systemd 시작 순서 비정상 또는 시계 동기화 문제 (드뭄)
     - agent_started_at > collected_at: VM 시계 동기화 문제 (가장 흔함 — VM resume 직후)
     DLQ로 보내지 않음 — 시계 문제는 데이터 reject 의미 없고 운영자 인지가 목적.
+
+    F11: 같은 서버 시계 문제 지속 시 매 메시지 warning → 1h 쿨다운 (Redis 키)으로 스팸 방지.
+    Redis 장애 시 fail-open — 쿨다운 없이 매번 출력 (장애 자체가 시그널).
     """
+    if data.boot_time <= data.agent_started_at and data.agent_started_at <= data.collected_at:
+        return  # invariant 정상 — 즉시 종료
+    cooldown_key = consumer_settings.redis_key_time_invariant_warned.format(data.machine_id)
+    set_result = await safe_set_nx(redis, cooldown_key, "1", consumer_settings.redis_ttl_time_invariant_warned)
+    if set_result is False:
+        return  # 쿨다운 윈도우 안 — silent skip
     if data.boot_time > data.agent_started_at:
         logger.warning(
             "time invariant violated boot_time>agent_started_at machine_id={} boot_time={} agent_started_at={}",
@@ -118,8 +149,8 @@ async def _reply_pending_task_if_any(
             routing_key=message.reply_to,
         )
         logger.info("task piggyback replied machine_id={} correlation_id={}", machine_id, message.correlation_id)
-    except Exception as e:
-        logger.warning("task piggyback reply failed machine_id={} err={}", machine_id, e)
+    except (AMQPException, asyncio.TimeoutError) as e:
+        logger.warning("task piggyback reply failed machine_id={} err_type={}", machine_id, type(e).__name__)
 
 
 async def _track_agent_restart(redis: Redis, server_id: int, machine_id: str, agent_started_at) -> None:
@@ -156,15 +187,15 @@ def make_inventory_handler(
         async with message.process(requeue=False):
             try:
                 data = InventoryInput.model_validate_json(message.body)
-            except Exception as e:
-                logger.error("inventory parse error: {}", e)
+            except ValidationError as e:
+                logger.error("inventory parse error count={}", len(e.errors()))
                 raise
 
             if not await _check_idempotent(redis, data.message_id):
                 logger.info("inventory duplicate skipped message_id={}", data.message_id)
                 return
 
-            _log_time_invariants(data)
+            await _log_time_invariants(redis, data)
 
             dto = to_inventory_create(data)
 
@@ -193,15 +224,15 @@ def make_metrics_handler(
         async with message.process(requeue=False):
             try:
                 data = MetricsInput.model_validate_json(message.body)
-            except Exception as e:
-                logger.error("metrics parse error: {}", e)
+            except ValidationError as e:
+                logger.error("metrics parse error count={}", len(e.errors()))
                 raise
 
             if not await _check_idempotent(redis, data.message_id):
                 logger.info("metrics duplicate skipped message_id={}", data.message_id)
                 return
 
-            _log_time_invariants(data)
+            await _log_time_invariants(redis, data)
 
             dto = to_metric_create(data)
             placeholder = placeholder_inventory_from_metrics(data)
@@ -237,7 +268,8 @@ def make_metrics_handler(
             # RPC piggyback — agent가 reply_to를 명시한 경우 pending task 확인 후 reply.
             # latency 같지만 별도 polling endpoint·queue 불필요 (CLAUDE.md B6).
             await _reply_pending_task_if_any(message, redis, data.machine_id)
-            logger.info(
+            # F11: 메시지별 처리 흐름은 DEBUG — 1만 서버 시 분당 1만 line 방지.
+            logger.debug(
                 "metrics stored machine_id={} rows metrics={} disk_io={} net_io={} mount_usage={}",
                 data.machine_id,
                 insert_result.metrics, insert_result.disk_io,
@@ -261,15 +293,15 @@ def make_task_result_handler(
         async with message.process(requeue=False):
             try:
                 data = TaskResultInput.model_validate_json(message.body)
-            except Exception as e:
-                logger.error("task_result parse error: {}", e)
+            except ValidationError as e:
+                logger.error("task_result parse error count={}", len(e.errors()))
                 raise
 
             if not await _check_idempotent(redis, data.message_id):
                 logger.info("task_result duplicate skipped message_id={}", data.message_id)
                 return
 
-            _log_time_invariants(data)
+            await _log_time_invariants(redis, data)
 
             update = TaskResultUpdate(
                 public_id=str(data.task_public_id),
@@ -303,15 +335,15 @@ def make_error_handler(
         async with message.process(requeue=False):
             try:
                 data = ErrorInput.model_validate_json(message.body)
-            except Exception as e:
-                logger.error("error message parse error: {}", e)
+            except ValidationError as e:
+                logger.error("error message parse error count={}", len(e.errors()))
                 raise
 
             if not await _check_idempotent(redis, data.message_id):
                 logger.info("error duplicate skipped message_id={}", data.message_id)
                 return
 
-            _log_time_invariants(data)
+            await _log_time_invariants(redis, data)
 
             logger.warning(
                 "agent error machine_id={} component={} code={} msg={} "

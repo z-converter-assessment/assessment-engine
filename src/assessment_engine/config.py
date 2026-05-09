@@ -43,6 +43,7 @@ class WebSettings(BaseSettings):
     redis_ttl_last_agent_start: int = 86400     # 24h — 직전 agent_started_at 캐시 (재시작 감지용)
     redis_ttl_agent_restarts: int = 3600        # 1h  — 슬라이딩 윈도우 카운터
     redis_ttl_task_pending: int = 86400         # 24h — pending task hot path 캐시 (DB가 source of truth)
+    redis_ttl_time_invariant_warned: int = 3600 # 1h  — 시계 invariant 위반 로그 쿨다운 (스팸 방지)
 
     # Key prefixes
     redis_key_cache_inventory: str = "cache:inventory:{}"
@@ -54,6 +55,7 @@ class WebSettings(BaseSettings):
     redis_key_last_agent_start: str = "last_agent_start:{}"
     redis_key_agent_restarts: str = "agent_restarts:{}"
     redis_key_task_pending: str = "task:pending:{}"  # {machine_id} → JSON full payload
+    redis_key_time_invariant_warned: str = "time_invariant_warned:{}"  # {machine_id} 쿨다운 마커
 
     # PUB/SUB channels
     redis_channel_metrics: str = "metrics.events"

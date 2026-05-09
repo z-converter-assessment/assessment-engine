@@ -76,6 +76,16 @@ class QueryService:
             await safe_set(self.redis, cache_key, str(server_id))
         return server_id
 
+    async def resolve_server_ids(self, public_ids: list[str]) -> dict[str, int]:
+        """N개 public_id → {public_id: server_id} 단일 SQL (C5 N+1 회피).
+
+        cache 활용 안 함 — batch 미스 시 DB는 어차피 단일 SQL이라 cache mget 복잡도 감수 대비 이득 미미.
+        단건 path(`resolve_server_id`)는 cache 그대로.
+        """
+        if not public_ids:
+            return {}
+        return await self.repo.resolve_server_ids(public_ids)
+
     async def _is_online(self, server_id: int) -> bool:
         flag = await safe_get(self.redis, web_settings.redis_key_online.format(server_id))
         return flag is not None
@@ -221,14 +231,13 @@ class QueryService:
 
         각 서버는 ServerDetail(outbound) → mapper로 변환. 누락된 server_id는 silent skip
         (운영자가 발행 시점에 삭제했을 가능성 — 부분 결과 반환).
+
+        C5: `get_servers` 단일 SQL — 입력 server_ids 순서로 정렬 후 반환.
         """
-        entries: list[InventoryExportEntry] = []
-        for sid in server_ids:
-            detail = await self.repo.get_server(sid)
-            if detail is None:
-                continue
-            entries.append(to_inventory_export_entry(detail))
-        return entries
+        details = await self.repo.get_servers(server_ids)
+        order = {sid: i for i, sid in enumerate(server_ids)}
+        details.sort(key=lambda d: order.get(d.id, len(server_ids)))
+        return [to_inventory_export_entry(d) for d in details]
 
     async def get_reboot_events(
         self,
