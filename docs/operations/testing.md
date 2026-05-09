@@ -7,8 +7,8 @@
 
 | 계층 | 위치 | 인프라 | 격리 단위 |
 |------|------|--------|---------|
-| **Unit** | `tests/unit/` | `AsyncMock` (Redis 등) | 외부 의존 없음 |
-| **Integration** | `tests/integration/` | `testcontainers[postgres]`로 TimescaleDB 컨테이너 | function-scope `db_session` transaction rollback |
+| Unit | `tests/unit/` | `AsyncMock` (Redis 등) | 외부 의존 없음 |
+| Integration | `tests/integration/` | `testcontainers[postgres]`로 TimescaleDB 컨테이너 | function-scope `db_session` transaction rollback |
 
 ## 2. 실행
 
@@ -101,3 +101,10 @@ async def test_dispatcher(metric_type, query_repo):
 ```
 
 17개 metric_type 일괄 검증 — 누락 metric_type 즉시 발견.
+
+## 5. 원칙
+
+- 새 코드 추가 시 테스트도 함께 작성 — 코드 리뷰 시 누락 지적.
+- 리팩토링은 테스트 통과 baseline 위에서만 진행 — 회귀 즉시 식별.
+- E2E (Vagrant) 검증은 pytest 범위 외 — `pipeline.md` 참조.
+- pytest 자동 실행 금지 — 사용자 명시 요청 시에만 (개발 중 회귀 상태일 수 있음).

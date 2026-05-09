@@ -25,6 +25,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "testcontainers[postgres]>=4.0",
+    "ruff>=0.15",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -40,3 +41,11 @@ asyncio_default_test_loop_scope = "session"
 filterwarnings = [
     "ignore::DeprecationWarning:testcontainers.*",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# PyCharm 기본 inspection과 유사: pycodestyle errors(E) + pyflakes(F) + isort(I)
+select = ["E", "F", "I"]

@@ -2,7 +2,7 @@
 
 ## 사용 맥락
 
-docker-compose는 **엔진 그 자체**다. web·consumer·DB·MQ·Redis 전체 스택을 단일 `docker-compose.yml`로 구성하며, 이 묶음이 고객사 네트워크 내에 설치되는 배포 단위다.
+docker-compose는 엔진 그 자체다. web·consumer·DB·MQ·Redis 전체 스택을 단일 `docker-compose.yml`로 구성하며, 이 묶음이 고객사 네트워크 내에 설치되는 배포 단위다.
 
 개발 환경에서는 호스트 머신에서 docker-compose를 올리고, Vagrant VM들이 에이전트를 실행해 RabbitMQ에 메시지를 발행하는 구조로 전체 파이프라인을 검증한다 (`dev-up.sh`가 두 단계를 순서대로 기동).
 
@@ -35,7 +35,7 @@ COPY . .
 
 ### 단일 이미지 + command 분기
 
-web·consumer 양쪽이 **같은 이미지**를 쓰고, docker-compose의 `command` 필드로 진입점을 분기한다.
+web·consumer 양쪽이 같은 이미지를 쓰고, docker-compose의 `command` 필드로 진입점을 분기한다.
 
 | 서비스 | command | 진입점 |
 |--------|---------|--------|
@@ -104,8 +104,8 @@ volumes:
 
 | 동작 | 명령 | postgres_data |
 |------|------|---------------|
-| 일반 종료 | `docker compose down` | **보존** |
-| 완전 초기화 | `docker compose down -v` | **삭제** |
+| 일반 종료 | `docker compose down` | 보존 |
+| 완전 초기화 | `docker compose down -v` | 삭제 |
 
 `down -v`가 필요한 시나리오:
 - ORM 모델에 컬럼/제약(`UniqueConstraint` 등) 추가 — `create_all`은 기존 테이블에 변경 적용 안 함.
@@ -123,16 +123,16 @@ consumer:
   volumes: [./:/app]
 ```
 
-호스트 프로젝트 루트를 컨테이너 `/app`에 마운트. `Dockerfile`의 `COPY . .`는 빌드 시점 복사라 이후 호스트 변경이 반영 안 되지만, 이 마운트가 위에 덮여 **코드 변경이 컨테이너 내부에 즉시 노출**된다.
+호스트 프로젝트 루트를 컨테이너 `/app`에 마운트. `Dockerfile`의 `COPY . .`는 빌드 시점 복사라 이후 호스트 변경이 반영 안 되지만, 이 마운트가 위에 덮여 코드 변경이 컨테이너 내부에 즉시 노출된다.
 
 조합 효과:
 - `web`: uvicorn `reload=True` (`src/assessment_engine/web/__main__.py`)가 파일 변경 감지 → 자동 재기동. 새로고침만으로 변경 확인.
 - `consumer`: reload 없음. 변경 후 `docker compose restart consumer` 필요.
 - `src/assessment_engine/web/static/js/chart-utils.js` 같은 정적 자원도 별도 빌드 없이 즉시 서빙.
 
-**프로덕션 마이그레이션 가이드**: `volumes: ./:/app` 제거 → `Dockerfile`의 `COPY . .` 결과만 사용. uvicorn `reload=True`도 제거 (`src/assessment_engine/web/__main__.py`).
+프로덕션 마이그레이션 가이드: `volumes: ./:/app` 제거 → `Dockerfile`의 `COPY . .` 결과만 사용. uvicorn `reload=True`도 제거 (`src/assessment_engine/web/__main__.py`).
 
-**보안 — `.env` 노출**: 코드 마운트의 부작용으로 호스트 `.env`가 컨테이너 안 `/app/.env`에 그대로 노출된다 (`-rw-r--r--` root 소유). `.dockerignore`에 `.env`가 명시되어 있어 **이미지 빌드(`COPY . .`) 시점에는 제외**되지만, 런타임 코드 마운트는 빌드 산출물이 아니므로 `.dockerignore`가 적용되지 않는다. 프로덕션에서 코드 마운트를 제거하면 `.env`도 자동으로 컨테이너 안에서 사라진다.
+보안 — `.env` 노출: 코드 마운트의 부작용으로 호스트 `.env`가 컨테이너 안 `/app/.env`에 그대로 노출된다 (`-rw-r--r--` root 소유). `.dockerignore`에 `.env`가 명시되어 있어 이미지 빌드(`COPY . .`) 시점에는 제외되지만, 런타임 코드 마운트는 빌드 산출물이 아니므로 `.dockerignore`가 적용되지 않는다. 프로덕션에서 코드 마운트를 제거하면 `.env`도 자동으로 컨테이너 안에서 사라진다.
 
 ### Redis 인라인 설정
 
@@ -143,8 +143,8 @@ command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru
 별도 설정 파일 없이 커맨드라인으로 redis.conf 옵션을 전달.
 
 - `maxmemory 256mb` — B2B 내부 포털 규모 기준. 키 수·값 크기가 작아 충분.
-- `volatile-lru` — TTL이 설정된 키만 evict 대상. **TTL 없는 `cache:resolve:{public_id}` 키를 보호**하면서 만료 임박 캐시·온라인 키를 우선 제거.
-- 멱등성 키(`idempotent:{message_id}`)는 24h TTL이 있어 evict 가능 → at-most-once 트레이드오프와 연결 (`docs/tradeoffs.md` T1, T11).
+- `volatile-lru` — TTL이 설정된 키만 evict 대상. TTL 없는 `cache:resolve:{public_id}` 키를 보호하면서 만료 임박 캐시·온라인 키를 우선 제거.
+- 멱등성 키(`idempotent:{message_id}`)는 24h TTL이 있어 evict 가능 → at-most-once 트레이드오프와 연결 (`docs/adr/tradeoffs.md` T1, T11).
 
 ### 환경변수 주입
 
@@ -173,7 +173,7 @@ environment:
 | postgres | `pg_isready -U <user>` | 5s | 5s | 5 | — |
 | rabbitmq | `rabbitmq-diagnostics ping` | 10s | 5s | 5 | — |
 | redis | `redis-cli ping` | 5s | 5s | 5 | — |
-| web | `python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"` | 5s | 5s | 5 | **10s** |
+| web | `python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"` | 5s | 5s | 5 | 10s |
 
 `web` healthcheck:
 - 명령으로 `python -c ...`를 쓰는 이유: `curl`이 python:3.12-slim 이미지에 없음. python 표준 라이브러리로 해결.
@@ -190,12 +190,12 @@ redis ─────┤                              ↑
 rabbitmq ─────────────────────────────────┘
 ```
 
-**consumer가 web 헬스체크 통과 후 기동**하는 이유:
+consumer가 web 헬스체크 통과 후 기동하는 이유:
 1. web lifespan이 `CREATE EXTENSION timescaledb` + `Base.metadata.create_all` + `create_hypertable(...)` 수행.
 2. consumer가 먼저 DB 접근하면 테이블이 없어 INSERT 실패 → DLQ 누적.
 3. web 헬스체크 통과 = 스키마 준비 완료.
 
-이 의존 관계는 **DEV 전용**. 프로덕션에서는 Alembic 마이그레이션을 분리해 별도 잡으로 실행하고 `consumer depends_on web` 제거 — `docs/tradeoffs.md` T4.
+이 의존 관계는 DEV 전용. 프로덕션에서는 Alembic 마이그레이션을 분리해 별도 잡으로 실행하고 `consumer depends_on web` 제거 — `docs/adr/tradeoffs.md` T4.
 
 ### restart 정책
 
@@ -241,7 +241,7 @@ rabbitmq ───────────────────────�
 | `pyproject.toml` (의존성) | 미반영 | 미반영 | `docker compose up --build -d` (의존성 레이어 재빌드) |
 | `Dockerfile` | 미반영 | 미반영 | `docker compose up --build -d` |
 | `docker-compose.yml` | 부분 | 부분 | `docker compose up -d` (변경된 서비스만 재생성) |
-| ORM 모델 (컬럼·제약 추가) | 새 모델 로드는 reload되나 **DB 스키마는 미반영** | 동일 | `docker compose down -v && docker compose up -d --build` |
+| ORM 모델 (컬럼·제약 추가) | 새 모델 로드는 reload되나 DB 스키마는 미반영 | 동일 | `docker compose down -v && docker compose up -d --build` |
 
 ### 디버깅 유용 명령
 
@@ -267,4 +267,4 @@ docker compose ps                                # 컨테이너 상태
 
 ## RabbitMQ 운영
 
-본 문서는 docker-compose 관점(컨테이너 정의·볼륨·헬스체크)만 다룬다. RabbitMQ broker 자체의 운영 — vhost 개념·권한 모델·토폴로지·dev/prod 분기·Production 전환 체크리스트는 `docs/components/rabbitmq.md` 단일 진실.
+본 문서는 docker-compose 관점(컨테이너 정의·볼륨·헬스체크)만 다룬다. RabbitMQ broker 자체의 운영 — vhost 개념·권한 모델·토폴로지·dev/prod 분기·Production 전환 체크리스트는 `docs/architecture/rabbitmq.md` 단일 진실.

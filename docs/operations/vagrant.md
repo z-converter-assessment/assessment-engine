@@ -2,7 +2,7 @@
 
 ## 사용 맥락
 
-Vagrant는 **에이전트 E2E 테스트**를 위해 사용한다.
+Vagrant는 에이전트 E2E 테스트를 위해 사용한다.
 
 엔진(docker-compose)은 호스트 머신에서 실행된다. Vagrant는 에이전트를 실제 Linux 환경에서 돌릴 VM을 띄운다. 에이전트가 RabbitMQ에 메시지를 발행하면 consumer가 소비해 DB에 저장하고, web UI에서 결과를 확인하는 전체 파이프라인을 검증한다.
 
@@ -26,9 +26,9 @@ Vagrant는 **에이전트 E2E 테스트**를 위해 사용한다.
 | `app-server-01` | `bento/rockylinux-9` | dnf | (없음) | `/data` | — | "unknown" 뱃지 + RPM 계열 + SELinux + 마운트 추가 |
 | `web-server-01` | `bento/debian-12` | apt | nginx | — | `203.0.113.10` | "web" 카테고리 + 외부 IP 오버라이드 + Debian 회귀 |
 
-**리소스 (VM 공통)**: 1024MB RAM / 2 CPU / VirtualBox 오디오·USB·VRAM 최소화 (`Vagrantfile` provider 블록).
+리소스 (VM 공통): 1024MB RAM / 2 CPU / VirtualBox 오디오·USB·VRAM 최소화 (`Vagrantfile` provider 블록).
 
-**설정 분기**:
+설정 분기:
 - `family: :deb` 또는 `:rpm` → Step 1의 패키지 매니저 분기.
 - `services: :redis | :nginx | :none` → Step 1-1 추가 서비스 설치.
 - `extra_mounts: ["/data"]` → 추가 마운트 (현재 코드에서는 마운트 마운트 자체는 하지 않고 정의만 있음 — 실제로는 호스트 박스 기본 디스크 사용).
@@ -54,7 +54,7 @@ RABBITMQ_HOST = "10.0.2.2"
 
 이 값을 호스트의 docker-compose 포트 매핑(`${RABBITMQ_PORT:-5672}:5672`)이 받아 컨테이너로 포워딩한다.
 
-**VM 간 통신은 사용 안 함**. 각 VM은 독립적으로 동작하며 서로의 존재를 모름. 모든 통신은 호스트의 RabbitMQ를 경유한다.
+VM 간 통신은 사용 안 함. 각 VM은 독립적으로 동작하며 서로의 존재를 모름. 모든 통신은 호스트의 RabbitMQ를 경유한다.
 
 ---
 
@@ -105,12 +105,12 @@ EOF
 chmod 644 /etc/assessment-agent.env
 ```
 
-**`/etc/`에 두는 이유**:
+`/etc/`에 두는 이유:
 - synced_folder(`/home/vagrant/assessment-agent/`)는 호스트와 양방향 → VM별 값(`AGENT_HOSTNAME_OVERRIDE`) 분리 어려움.
 - SELinux(Rocky 9)는 systemd가 `/home/vagrant/` 내부 파일을 `EnvironmentFile=`로 읽는 것을 차단.
 - `/etc/`는 systemd가 자유롭게 읽을 수 있고 VM 로컬에 격리된다.
 
-**환경변수 의미**:
+환경변수 의미:
 - `AGENT_HOSTNAME_OVERRIDE`: hostname 필드 강제 — VM 박스의 기본 hostname 대신 사용. 메시지 hostname이 VM명과 일치하도록.
 - `AGENT_INTERVAL_SEC=60`: metrics 발행 주기 60초.
 - `AGENT_EXTERNAL_IP`: 클라우드 메타데이터 API 미접근 환경에서 외부 IP를 수동 주입.
@@ -148,15 +148,15 @@ systemctl enable assessment-agent
 systemctl start assessment-agent || true
 ```
 
-**바이너리를 `/usr/local/bin/`으로 복사하는 이유**:
+바이너리를 `/usr/local/bin/`으로 복사하는 이유:
 - VirtualBox 공유 폴더(vboxsf)는 SELinux(Rocky 9) 환경에서 systemd가 직접 실행 불가.
 - rsync로 VM 내부에 들어왔지만 `/home/vagrant/` 권한·SELinux 컨텍스트가 systemd 실행에 부적합.
 - `/usr/local/bin/`은 표준 실행 경로로 SELinux/AppArmor 모두 통과.
 
-**`Restart=on-failure RestartSec=10`**:
+`Restart=on-failure RestartSec=10`:
 - 비정상 종료(exit != 0) 시 10초 후 재시작.
 - 에이전트가 broker 연결을 끝까지 포기하고 exit하면 재시작이 도움.
-- 그러나 **broker 재연결을 silent하게 포기**(exit 안 함)할 때는 systemd가 재시작 트리거를 못 받음 — 운영 노트 참조.
+- 그러나 broker 재연결을 silent하게 포기(exit 안 함)할 때는 systemd가 재시작 트리거를 못 받음 — 운영 노트 참조.
 
 ---
 
@@ -194,15 +194,15 @@ node.vm.synced_folder "../assessment-agent", "/home/vagrant/assessment-agent",
   rsync__exclude: [".git/", "*.o", "*.a", "assessment-agent"]
 ```
 
-**`rsync` 타입 선택 이유**:
+`rsync` 타입 선택 이유:
 - `vboxsf` (기본): SELinux 차단으로 systemd가 vboxsf 경유 바이너리 실행 못함.
 - `nfs`: macOS 호스트에서 권한 설정 번거로움.
 - `rsync`: `vagrant up` 시점 1회 단방향 복사. 이후 호스트 변경은 `vagrant rsync` 또는 `vagrant rsync-auto`로 동기화.
 
-**제외 패턴**:
+제외 패턴:
 - `.git/`: 불필요 + 큰 디렉토리.
 - `*.o`, `*.a`: 호스트 빌드 산출물 — VM에서 다시 빌드함.
-- `assessment-agent`: 호스트 바이너리 (macOS Mach-O) — VM 리눅스에서 못 씀. **VM에서 빌드한 ELF 바이너리를 호스트 바이너리로 덮어쓰지 않기 위해서**.
+- `assessment-agent`: 호스트 바이너리 (macOS Mach-O) — VM 리눅스에서 못 씀. VM에서 빌드한 ELF 바이너리를 호스트 바이너리로 덮어쓰지 않기 위해서.
 
 ---
 
@@ -231,16 +231,16 @@ node.vm.synced_folder "../assessment-agent", "/home/vagrant/assessment-agent",
 
 ### broker 재기동 시 에이전트 수동 재시작 (CRITICAL)
 
-**증상**: docker compose의 RabbitMQ를 down/up 또는 `down -v` 후 재기동하면 VM 안 C 에이전트가 broker 재연결을 silent하게 포기. systemd 상태는 `active(running)`이지만 publish 로그가 끊김.
+증상: docker compose의 RabbitMQ를 down/up 또는 `down -v` 후 재기동하면 VM 안 C 에이전트가 broker 재연결을 silent하게 포기. systemd 상태는 `active(running)`이지만 publish 로그가 끊김.
 
-**대응**:
+대응:
 ```bash
 for vm in cache-server-01 app-server-01 web-server-01; do
   vagrant ssh $vm -c "sudo systemctl restart assessment-agent"
 done
 ```
 
-**원인**: C 에이전트 publish 루프에 `connect_robust` 같은 자동 재연결 없음. exit하지 않고 silent retry만 하므로 systemd `Restart=on-failure`도 트리거되지 않음.
+원인: C 에이전트 publish 루프에 `connect_robust` 같은 자동 재연결 없음. exit하지 않고 silent retry만 하므로 systemd `Restart=on-failure`도 트리거되지 않음.
 
 ### VM 시간 동기화
 

@@ -16,29 +16,45 @@ def placeholder_inventory_from_metrics(data: MetricsInput) -> ServerInventoryCre
     채우고, 다음 진짜 inventory가 도착하면 `upsert_server`의 `ON CONFLICT DO UPDATE`로
     자동 풀 정보 덮어씀 (machine_id UNIQUE 제약).
 
+    공통 메타(boot_time·agent_started_at)는 metrics에도 포함되므로 placeholder도 채움 (option A).
     placeholder 상태에서 web UI는 정보 부족 표시(현재 ViewModel의 None 처리로 자연 노출).
     """
     return ServerInventoryCreate(
+        # ─── 공통 메타데이터 ─────────────────────────────────────────────────
         machine_id=data.machine_id,
         hostname=data.hostname,
         agent_version=data.agent_version,
         collected_at=data.collected_at,
-        os_id=None, os_version=None, os_codename=None, kernel_version=None,
-        cpu_cores=None, cpu_model=None,
-        mem_total_kb=None, swap_total_kb=None,
-        boot_time=None,
-        ip_internal=[], ip_external=None,
-        disks=[], mounts=[],
-        services=None, listen_ports=[],
+        boot_time=data.boot_time,
+        agent_started_at=data.agent_started_at,
+        # ─── inventory 본문 (placeholder는 모두 None/빈 배열) ────────────────
+        os_id=None,
+        os_version=None,
+        os_codename=None,
+        kernel_version=None,
+        cpu_cores=None,
+        cpu_model=None,
+        mem_total_kb=None,
+        swap_total_kb=None,
+        ip_internal=[],
+        ip_external=None,
+        disks=[],
+        mounts=[],
+        services=None,
+        listen_ports=[],
     )
 
 
 def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
     return ServerInventoryCreate(
+        # ─── 공통 메타데이터 ─────────────────────────────────────────────────
         machine_id=data.machine_id,
         hostname=data.hostname,
         agent_version=data.agent_version,
         collected_at=data.collected_at,
+        boot_time=data.boot_time,
+        agent_started_at=data.agent_started_at,
+        # ─── inventory 본문 ──────────────────────────────────────────────────
         os_id=data.os_id,
         os_version=data.os_version,
         os_codename=data.os_codename,
@@ -47,17 +63,14 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
         cpu_model=data.cpu_model,
         mem_total_kb=data.mem_total_kb,
         swap_total_kb=data.swap_total_kb,
-        boot_time=data.boot_time,
         ip_internal=data.ip_internal,
         ip_external=data.ip_external,
         disks=[
-            {"name": d.name, "size_bytes": d.size_bytes, "type": d.type,
-             "major": d.major, "minor": d.minor}
+            {"name": d.name, "size_bytes": d.size_bytes, "type": d.type, "major": d.major, "minor": d.minor}
             for d in data.disks
         ],
         mounts=[
-            {"mount": m.mount, "fstype": m.fstype, "total_bytes": m.total_bytes,
-             "major": m.major, "minor": m.minor}
+            {"mount": m.mount, "fstype": m.fstype, "total_bytes": m.total_bytes, "major": m.major, "minor": m.minor}
             for m in data.mounts
         ],
         services=[{"unit": s.unit, "sub": s.sub} for s in data.services] if data.services is not None else None,
@@ -71,7 +84,10 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
 def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
     cpu = data.cpu_stat
     return ServerMetricCreate(
+        # ─── 공통 메타데이터 ─────────────────────────────────────────────────
+        # machine_id·boot_time·agent_started_at은 handler가 직접 사용. DTO엔 collected_at만.
         collected_at=data.collected_at,
+        # ─── /proc/stat CPU jiffies ──────────────────────────────────────────
         cpu_user=cpu.user if cpu else None,
         cpu_nice=cpu.nice if cpu else None,
         cpu_system=cpu.system if cpu else None,
@@ -80,6 +96,7 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         cpu_irq=cpu.irq if cpu else None,
         cpu_softirq=cpu.softirq if cpu else None,
         cpu_steal=cpu.steal if cpu else None,
+        # ─── 메모리·스왑 (kB) ────────────────────────────────────────────────
         mem_total_kb=data.mem_total_kb,
         mem_free_kb=data.mem_free_kb,
         mem_available_kb=data.mem_available_kb,
@@ -87,11 +104,13 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         mem_cached_kb=data.mem_cached_kb,
         swap_total_kb=data.swap_total_kb,
         swap_free_kb=data.swap_free_kb,
+        # ─── load average ────────────────────────────────────────────────────
         load_1m=data.load_1m,
         load_5m=data.load_5m,
         load_15m=data.load_15m,
-        # metrics 시계열 테이블에는 major/minor 컬럼 없음 — inventory 매핑으로 충분.
-        # 차후 시계열에도 활용 시 ServerDiskIo/ServerMountUsage 모델에 컬럼 추가 필요 (스키마 변경 → down -v)
+        # ─── 시계열 4개 테이블 nested 행 매핑 ────────────────────────────────
+        # major/minor는 시계열 테이블에 컬럼 없어 미저장. 활용 시 ServerDiskIo/
+        # ServerMountUsage 모델에 컬럼 추가 + 스키마 변경(down -v) 필요.
         disk_io=[
             DiskIoEntry(
                 device=d.device,
