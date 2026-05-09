@@ -43,10 +43,16 @@ async def list_servers(
     service: QueryService = Depends(get_service),
 ):
     servers = await service.list_servers(page, limit, search, is_online)
+    # 첫 페이지 + 검색·필터 미사용일 때만 risk_top·attention 노출 (검색 결과 화면에서 무관)
+    risk_top = []
+    attention = None
+    if page == 1 and not search and is_online is None:
+        risk_top = await service.get_risk_top(limit=3)
+        attention = await service.get_attention_signals()
     return templates.TemplateResponse(
         request=request,
         name="servers/list.html",
-        context={"servers": servers},
+        context={"servers": servers, "risk_top": risk_top, "attention": attention},
     )
 
 

@@ -43,3 +43,20 @@ storage 페이지 mount → disk 매칭 + `_split_disks` (Inventory JSON Export�
 - Linux page cache: under (MEM p95 ≥80%)
 
 UI badge 임계값(`mappers._USAGE_DANGER_PCT=90`/`_USAGE_WARN_PCT=75`)과는 별 도메인 — 시점 사용량 시각 신호 vs 14일 통계 right-sizing 결정.
+
+## 목록 화면 상단 요약 — risk_top + attention
+
+`/servers/` 첫 페이지에서 두 시선의 "주의 필요" 신호를 표시. 시간 축·도메인 차별 (#E1 P5 — 동일 데이터 한 번만).
+
+| 시선 | service 메서드 | repo SQL | 시간 축 | 분류 |
+|------|----------------|----------|---------|------|
+| risk_top | `get_risk_top(limit=3)` | `list_server_ids` + `report_aggregate(period_days=1)` | 24h USE 통계 (만성) | 오프라인·스왑·MEM·CPU 우선순위 |
+| attention.disk_warnings | `get_attention_signals` | `disk_usage_warnings(threshold_pct=85)` 단일 SQL | 7d 안 mount latest (현재) | 사용률 ≥85% |
+| attention.gap_warnings | `get_attention_signals` | `metric_gap_warnings(gap_min=5, recent_h=24)` 단일 SQL | 5min~24h 갭 (단기) | "한때 살아있다 끊김" |
+
+설계 결정:
+- risk_top은 `report_aggregate` 재사용 — 새 SQL 안 만듦. service에서 score 계산 + sort.
+- `list_server_ids()`는 정수 PK만 fetch — `list_servers`(disks JSONB 등 11컬럼) 대비 페이로드 절감 (T8 패턴 동일 적용).
+- partition pruning binding 통일: gap SQL의 `recent_hours`가 동적 binding (`(:recent_h * interval '1 hour')`) — service 인자와 SQL 결합을 SQL 본문 hardcode로 묵시화하지 않음 (#F3·#F13).
+- 검색·온라인필터 사용 시 두 섹션 자동 격리 — 라우터 `pages.py` 분기.
+- ViewModel·mapper 카탈로그: `docs/architecture/web/view-models.md` "목록 화면 상단 요약" 절.

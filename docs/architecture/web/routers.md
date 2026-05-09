@@ -14,7 +14,7 @@
 
 | 경로 | 핸들러 | 비고 |
 |------|--------|------|
-| `GET /servers/` | `list_servers` | 목록 + 검색·온라인 필터 + 4 액션 버튼 (발견/Install/Export/보고서) |
+| `GET /servers/` | `list_servers` | 목록 + 검색·온라인 필터 + 4 액션 버튼 (발견/Install/Export/보고서). page=1 + 검색·필터 미사용 시 상단에 risk_top·attention 두 섹션 노출 (`docs/architecture/web/services.md` "목록 화면 상단 요약") |
 | `GET /servers/report?ids=&period_days=` | `report` | USE Method 보고서 (양식 A·B 한 페이지) |
 | `GET /servers/{server_id}` | `get_server` | detail 탭 |
 | `GET /servers/{server_id}/{cpu,memory,services,performance}` | 동일 helper | `_render_server_tab` 5 탭 공유 |

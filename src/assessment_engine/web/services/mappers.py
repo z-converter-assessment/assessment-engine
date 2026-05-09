@@ -5,11 +5,14 @@
 - 변환은 idempotent해야 한다 (cache_serializer가 역직렬화 후 enrich_server_detail 재호출).
 - 임계값(usage 90/75)은 모듈 상단 상수. 동일 의미의 차트 JS 상수와 동기화.
 """
+from datetime import datetime
 from typing import Literal
 
 from assessment_engine.db.repositories.outbound import (
     CollectionStatus,
+    DiskUsageWarningRaw,
     InventoryExportEntry,
+    MetricGapWarningRaw,
     MetricSeries,
     NetworkWithIo,
     ReportRowRaw,
@@ -29,12 +32,15 @@ from assessment_engine.web.services.units import bytes_to_gb, kb_to_gb, usage_pc
 from assessment_engine.web.view_models import (
     CollectionStatusItem,
     DiskItem,
+    DiskWarningItem,
+    GapWarningItem,
     ListenPortItem,
     MetricSeriesItem,
     MountUsageItem,
     NetworkDetailResponse,
     ReportRowItem,
     ServerDetailResponse,
+    RiskServerItem,
     ServerListItem,
     ServiceItem,
     StorageDetailResponse,
@@ -46,6 +52,14 @@ _USAGE_DANGER_PCT = 90
 _USAGE_WARN_PCT   = 75
 # IANA well-known port 상한. listen_port의 well-known 표시 분기에 사용.
 _WELL_KNOWN_PORT_MAX = 1024
+# attention 신호 — metric 갭이 30분 이상이면 위험 색 (5~30분은 경고).
+_GAP_DANGER_MINUTES = 30
+# risk_top 게이지 색 임계 — score ≥ DANGER 빨강 (위험 분기 85+), ≥ WARN 노랑 (정상 분기 상위), 그 외 초록.
+_RISK_DANGER_SCORE = 85
+_RISK_WARN_SCORE   = 55
+_RISK_COLOR_DANGER = "#ef4444"
+_RISK_COLOR_WARN   = "#f59e0b"
+_RISK_COLOR_OK     = "#22c55e"
 
 _Severity = Literal["ok", "warn", "danger"]
 
@@ -407,6 +421,108 @@ def _split_disks(disks: list[dict], mounts: list[dict]) -> tuple[int | None, lis
         size_gb = (d["size_bytes"] // 10**9) if d.get("size_bytes") else None
         additional.append({"mount_hint": mount_hint, "size_gb": size_gb, "fstype": fstype})
     return (boot_gb, additional)
+
+
+def to_disk_warning_item(raw: DiskUsageWarningRaw) -> DiskWarningItem:
+    """DiskUsageWarningRaw → DiskWarningItem (P2: 단위 변환·badge 분류 단일 변환).
+
+    threshold(85%)는 repo가 이미 거름 — mapper는 단위 + badge만. SQL이 total_bytes>0를 거름.
+    """
+    used_pct = (1 - raw.avail_bytes / raw.total_bytes) * 100
+    free_gb = raw.avail_bytes / 1024 ** 3
+    total_gb = raw.total_bytes / 1024 ** 3
+    badge = "rec-under_provisioned" if used_pct >= _USAGE_DANGER_PCT else "rec-right_size"
+    return DiskWarningItem(
+        public_id=raw.public_id,
+        hostname=raw.hostname,
+        mount=raw.mount,
+        used_pct=used_pct,
+        free_gb=free_gb,
+        total_gb=total_gb,
+        last_metric_at=raw.last_metric_at,
+        badge_class=badge,
+    )
+
+
+def to_gap_warning_item(raw: MetricGapWarningRaw, now: datetime) -> GapWarningItem:
+    """MetricGapWarningRaw → GapWarningItem (P2: gap_minutes·badge 단일 변환)."""
+    gap_min = int((now - raw.last_metric_at).total_seconds() // 60)
+    badge = "rec-under_provisioned" if gap_min >= _GAP_DANGER_MINUTES else "rec-right_size"
+    return GapWarningItem(
+        public_id=raw.public_id,
+        hostname=raw.hostname,
+        last_metric_at=raw.last_metric_at,
+        gap_minutes=gap_min,
+        badge_class=badge,
+    )
+
+
+def to_risk_server_item(
+    raw: ReportRowRaw,
+    is_online: bool,
+    disk_max_pct: float | None = None,
+) -> RiskServerItem:
+    """ReportRowRaw + is_online + disk_max_pct → RiskServerItem (P2).
+
+    위험 유무 무관 무조건 ViewModel 반환 — caller `get_risk_top`이 risk_score DESC 정렬 후 limit N.
+
+    risk_score 계산 (ViewModel 필드로 노출):
+    - 위험 분기 (분류 라벨 + 고정 score): 오프라인 100 > 스왑 95 > MEM≥90 90 > CPU≥90 85 > MEM≥75 60 > CPU≥75 55
+    - 정상 분기: max(cpu, mem, disk) 비율(0~75) — 위험 score(55+)와 같은 0~100 스케일이라 정렬 자연스러움
+
+    disk_max_pct는 카드 표시용 + 정상 분기 score 계산에 참여 (디스크 부족은 attention.disk_warnings가 별도 신호라 위험 분기엔 미반영).
+    """
+    cpu = raw.cpu_p95_pct
+    mem = raw.mem_p95_pct
+    if not is_online:
+        concern = "오프라인"
+        badge = "rec-under_provisioned"
+        score: float = 100
+    elif raw.swap_used:
+        concern = "스왑 활성"
+        badge = "rec-under_provisioned"
+        score = 95
+    elif mem is not None and mem >= _USAGE_DANGER_PCT:
+        concern = f"MEM p95 {mem:.0f}%"
+        badge = "rec-under_provisioned"
+        score = 90
+    elif cpu is not None and cpu >= _USAGE_DANGER_PCT:
+        concern = f"CPU p95 {cpu:.0f}%"
+        badge = "rec-under_provisioned"
+        score = 85
+    elif mem is not None and mem >= _USAGE_WARN_PCT:
+        concern = f"MEM p95 {mem:.0f}%"
+        badge = "rec-right_size"
+        score = 60
+    elif cpu is not None and cpu >= _USAGE_WARN_PCT:
+        concern = f"CPU p95 {cpu:.0f}%"
+        badge = "rec-right_size"
+        score = 55
+    else:
+        # 정상 분기 — 정렬은 max(cpu, mem, disk_max) 기준. 메트릭 모두 None이면 score 0.
+        candidates = [v for v in (cpu, mem, disk_max_pct) if v is not None]
+        score = max(candidates) if candidates else 0.0
+        concern = "정상"
+        badge = "rec-optimal"
+    if score >= _RISK_DANGER_SCORE:
+        score_color = _RISK_COLOR_DANGER
+    elif score >= _RISK_WARN_SCORE:
+        score_color = _RISK_COLOR_WARN
+    else:
+        score_color = _RISK_COLOR_OK
+    return RiskServerItem(
+        public_id=raw.public_id,
+        hostname=raw.hostname,
+        risk_score=score,
+        risk_score_color=score_color,
+        primary_concern=concern,
+        badge_class=badge,
+        cpu_p95_pct=cpu,
+        mem_p95_pct=mem,
+        disk_max_pct=disk_max_pct,
+        swap_used=raw.swap_used,
+        is_online=is_online,
+    )
 
 
 def to_report_row_item(raw: ReportRowRaw, is_online: bool) -> ReportRowItem:

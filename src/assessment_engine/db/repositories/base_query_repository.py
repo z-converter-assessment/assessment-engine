@@ -5,6 +5,8 @@ from typing import Literal
 from assessment_engine.db.repositories.outbound import (
     CollectionStatus,
     DashboardRaw,
+    DiskUsageWarningRaw,
+    MetricGapWarningRaw,
     MetricSeries,
     NetworkWithIo,
     RebootEvent,
@@ -121,3 +123,35 @@ class BaseQueryRepository(ABC):
         period_days: int,
         end: datetime,
     ) -> list[ReportRowRaw]: ...
+
+    @abstractmethod
+    async def list_server_ids(self, limit: int = 1000) -> list[int]:
+        """등록 서버 정수 PK 모음 — ID만 필요한 batch 호출용 (risk_top 등). disks JSONB 같은 큰 컬럼 미포함 (T8)."""
+        ...
+
+    @abstractmethod
+    async def latest_disk_max_pct(self, server_ids: list[int]) -> dict[int, float]:
+        """서버별 mount latest 중 max 사용률 % — 위험 카드 표시용. 7d partition pruning.
+
+        반환: {server_id: max_used_pct}. metric 없는 server_id는 dict에서 누락.
+        """
+        ...
+
+    @abstractmethod
+    async def disk_usage_warnings(
+        self,
+        threshold_pct: float,
+        limit: int,
+    ) -> list[DiskUsageWarningRaw]:
+        """전체 mount 중 사용률 임계 초과만 단일 SQL. mount당 latest 1건 → ORDER BY DESC LIMIT N."""
+        ...
+
+    @abstractmethod
+    async def metric_gap_warnings(
+        self,
+        gap_minutes: int,
+        recent_hours: int,
+        limit: int,
+    ) -> list[MetricGapWarningRaw]:
+        """metric 발행 갭이 gap_minutes 초과 + 최근 recent_hours 안 발행 있던 서버 — '한때 살아있다 끊김'."""
+        ...
