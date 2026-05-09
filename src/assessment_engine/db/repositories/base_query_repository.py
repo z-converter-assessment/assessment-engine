@@ -54,6 +54,16 @@ class BaseQueryRepository(ABC):
     async def resolve_server_id(self, public_id: str) -> int | None: ...
 
     @abstractmethod
+    async def resolve_server_ids(self, public_ids: list[str]) -> dict[str, int]:
+        """N개 public_id → {public_id: server_id} 단일 SQL. 미존재 public_id는 dict에서 누락."""
+        ...
+
+    @abstractmethod
+    async def get_servers(self, server_ids: list[int]) -> list[ServerDetail]:
+        """N개 server_id → ServerDetail 리스트 단일 SQL. 순서는 DB 임의 — caller 정렬 책임."""
+        ...
+
+    @abstractmethod
     async def list_servers(
         self,
         page: int,

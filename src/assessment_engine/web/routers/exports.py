@@ -27,12 +27,11 @@ async def export_inventory(
 
     응답을 클라이언트가 파일로 저장 (브라우저 download). 서버에서 파일 생성 안 함 — stateless.
     """
-    server_ids: list[int] = []
-    for public_id in req.target_public_ids:
-        sid = await service.repo.resolve_server_id(public_id)
-        if sid is None:
-            raise HTTPException(status_code=404, detail=f"server not found: {public_id}")
-        server_ids.append(sid)
+    sid_map = await service.resolve_server_ids(req.target_public_ids)
+    missing = [pid for pid in req.target_public_ids if pid not in sid_map]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"server not found: {','.join(missing[:5])}")
+    server_ids = [sid_map[pid] for pid in req.target_public_ids]
 
     entries = await service.get_inventory_export(server_ids)
     return {

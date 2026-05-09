@@ -75,7 +75,7 @@ async def probe_http(req: ProbeRequest) -> ProbeResponse:
         elapsed_ms = int((time.monotonic() - started) * 1000)
         logger.info("probe timeout ip={} port={} timeout_s={}", req.ip, req.port, _PROBE_TIMEOUT_S)
         return ProbeResponse(reachable=False, elapsed_ms=elapsed_ms, error=f"timeout after {_PROBE_TIMEOUT_S}s")
-    except Exception as e:
+    except httpx.RequestError as e:
         elapsed_ms = int((time.monotonic() - started) * 1000)
-        logger.warning("probe error ip={} port={} err={}", req.ip, req.port, e)
-        raise HTTPException(status_code=500, detail=f"probe failed: {e}")
+        logger.warning("probe error ip={} port={} err_type={}", req.ip, req.port, type(e).__name__)
+        raise HTTPException(status_code=500, detail="probe failed")

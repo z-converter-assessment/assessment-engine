@@ -54,13 +54,19 @@ class TaskService:
         best-effort — 부분 실패는 응답 누락으로 운영자가 인지. 트랜잭션 단일이 아님 (서버별
         독립). 미존재 public_id는 즉시 raise (운영자가 stale UI 인지).
         """
+        # C5 N+1 회피: resolve + get_server를 batch SQL 2회로. INSERT는 서버별 트랜잭션 분리 유지.
+        sid_map = await self.query_repo.resolve_server_ids(target_public_ids)
+        missing = [pid for pid in target_public_ids if pid not in sid_map]
+        if missing:
+            raise _NotFound(f"server not found: {','.join(missing[:5])}")
+        server_ids = [sid_map[pid] for pid in target_public_ids]
+        details = await self.query_repo.get_servers(server_ids)
+        detail_by_id = {d.id: d for d in details}
+
         created: list[TaskCreated] = []
         for public_id in target_public_ids:
-            server_id = await self.query_repo.resolve_server_id(public_id)
-            if server_id is None:
-                raise _NotFound(f"server not found: {public_id}")
-
-            detail = await self.query_repo.get_server(server_id)
+            server_id = sid_map[public_id]
+            detail = detail_by_id.get(server_id)
             if detail is None:
                 raise _NotFound(f"server detail missing: {public_id}")
 

@@ -63,11 +63,8 @@ async def report(
     데이터 소스: USE Method 통계 (CPU/MEM p95·peak + swap + load_15m max). 분류는 service 측.
     """
     public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
-    server_ids: list[int] = []
-    for pid in public_ids:
-        sid = await service.repo.resolve_server_id(pid)
-        if sid is not None:
-            server_ids.append(sid)
+    sid_map = await service.resolve_server_ids(public_ids)
+    server_ids = [sid_map[pid] for pid in public_ids if pid in sid_map]
     if not server_ids:
         raise HTTPException(status_code=404, detail="no valid server ids")
 

@@ -228,3 +228,39 @@ async def test_record_metrics_persists_boot_time_to_all_four_tables(
         )).one()
         assert row.boot_time == boot, f"{table} boot_time mismatch"
         assert row.agent_started_at == started, f"{table} agent_started_at mismatch"
+
+
+# ─── 명시 select 후 _inventory_changed 회귀 (C5) ──────────────────────────
+
+async def test_upsert_server_history_appended_on_change(
+    collect_repo: CollectRepository, db_session,
+):
+    """C5 명시 select(_INVENTORY_COMPARE_COLS) 후에도 변경 감지 동일 — history 한 행 append."""
+    inv1 = make_inventory(machine_id="mid-hist-1", hostname="h1", cpu_cores=4)
+    inv2 = make_inventory(machine_id="mid-hist-1", hostname="h2", cpu_cores=8)  # 2개 컬럼 변경
+    await collect_repo.upsert_server(inv1)
+    await collect_repo.upsert_server(inv2)
+    sid = await collect_repo.find_server_id("mid-hist-1")
+    count = (await db_session.execute(
+        text("SELECT COUNT(*) FROM server_inventory_history WHERE server_id = :sid"),
+        {"sid": sid},
+    )).scalar_one()
+    assert count == 2, "첫 등록 + 변경 = history 2건이어야 함"
+
+
+async def test_upsert_server_history_not_appended_when_unchanged(
+    collect_repo: CollectRepository, db_session,
+):
+    """비교 컬럼 동일 + collected_at만 다름 (1h 주기 재발행 시뮬) → history 추가 없음."""
+    inv1 = make_inventory(machine_id="mid-hist-2", hostname="h1", cpu_cores=4,
+                          collected_at=datetime.now(timezone.utc) - timedelta(hours=1))
+    inv2 = make_inventory(machine_id="mid-hist-2", hostname="h1", cpu_cores=4,
+                          collected_at=datetime.now(timezone.utc))  # 모든 비교 컬럼 동일
+    await collect_repo.upsert_server(inv1)
+    await collect_repo.upsert_server(inv2)
+    sid = await collect_repo.find_server_id("mid-hist-2")
+    count = (await db_session.execute(
+        text("SELECT COUNT(*) FROM server_inventory_history WHERE server_id = :sid"),
+        {"sid": sid},
+    )).scalar_one()
+    assert count == 1, "변경 없는 재발행은 history 그대로 — noise 차단"

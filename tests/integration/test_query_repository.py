@@ -455,3 +455,92 @@ async def test_metric_snapshots_cursor_pagination(
     cursor = base_ts + timedelta(minutes=2)
     rows = await query_repo.metric_snapshots(sid, cursor=cursor, limit=10)
     assert all(r.collected_at < cursor for r in rows)
+
+
+# ─── batch resolve / get_servers (C5 N+1 회피) ────────────────────────────
+
+async def test_resolve_server_ids_batch_returns_dict(
+    collect_repo: CollectRepository, query_repo: QueryRepository, db_session,
+):
+    """N개 public_id → {public_id: server_id} 단일 SQL."""
+    sid_a = await collect_repo.upsert_server(make_inventory(machine_id="q-batch-a"))
+    sid_b = await collect_repo.upsert_server(make_inventory(machine_id="q-batch-b"))
+    pid_a = (await db_session.execute(
+        __import__("sqlalchemy").text("SELECT public_id FROM server_inventory WHERE id=:i"),
+        {"i": sid_a},
+    )).scalar_one()
+    pid_b = (await db_session.execute(
+        __import__("sqlalchemy").text("SELECT public_id FROM server_inventory WHERE id=:i"),
+        {"i": sid_b},
+    )).scalar_one()
+    result = await query_repo.resolve_server_ids([str(pid_a), str(pid_b)])
+    assert result == {str(pid_a): sid_a, str(pid_b): sid_b}
+
+
+async def test_resolve_server_ids_skips_missing(
+    collect_repo: CollectRepository, query_repo: QueryRepository, db_session,
+):
+    """미존재 public_id는 dict에서 누락 — caller가 missing 분기."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-batch-missing"))
+    pid = (await db_session.execute(
+        __import__("sqlalchemy").text("SELECT public_id FROM server_inventory WHERE id=:i"),
+        {"i": sid},
+    )).scalar_one()
+    fake_pid = "00000000-0000-0000-0000-000000000000"
+    result = await query_repo.resolve_server_ids([str(pid), fake_pid])
+    assert str(pid) in result
+    assert fake_pid not in result
+
+
+async def test_resolve_server_ids_empty_input(query_repo: QueryRepository):
+    """빈 입력 → 빈 dict (DB 쿼리 0건)."""
+    assert await query_repo.resolve_server_ids([]) == {}
+
+
+async def test_get_servers_batch_returns_all_details(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """N개 server_id → N개 ServerDetail 단일 SQL."""
+    sid_a = await collect_repo.upsert_server(make_inventory(machine_id="q-gs-a", hostname="host-a"))
+    sid_b = await collect_repo.upsert_server(make_inventory(machine_id="q-gs-b", hostname="host-b"))
+    details = await query_repo.get_servers([sid_a, sid_b])
+    assert len(details) == 2
+    by_host = {d.hostname: d for d in details}
+    assert by_host["host-a"].id == sid_a
+    assert by_host["host-b"].id == sid_b
+
+
+async def test_get_servers_skips_missing(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """미존재 server_id는 결과에서 누락 — caller가 dict로 매핑."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-gs-missing"))
+    details = await query_repo.get_servers([sid, 999_999])
+    assert len(details) == 1
+    assert details[0].id == sid
+
+
+async def test_get_servers_empty_input(query_repo: QueryRepository):
+    """빈 입력 → 빈 list (DB 쿼리 0건)."""
+    assert await query_repo.get_servers([]) == []
+
+
+# ─── partition pruning (C5 _latest_per_dimension 30d 윈도우) ──────────────
+
+async def test_latest_per_dimension_excludes_data_older_than_30d(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """_latest_per_dimension은 30d 윈도우. 31일 전 mount 데이터는 get_storage 결과에서 제외."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-prune-1"))
+    old_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=31)
+
+    await collect_repo.record_metrics(sid, make_metrics(
+        collected_at=old_ts,
+        mounts=[MountUsageEntry(mount="/old", total_bytes=10**12,
+                                free_bytes=10**11, avail_bytes=10**11)],
+        disk_io=[], net_io=[],
+    ))
+    storage = await query_repo.get_storage(sid)
+    assert storage is not None
+    mount_names = [m.mount for m in storage.mount_usage]
+    assert "/old" not in mount_names, "30d 이상 오래된 mount가 결과에 포함됨 — partition pruning 미적용"
