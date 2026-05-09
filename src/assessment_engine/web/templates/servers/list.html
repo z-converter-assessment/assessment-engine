@@ -64,6 +64,42 @@
 
 <script src="/static/js/pages/list.js" defer></script>
 
+{% if attention and attention.has_any %}
+<section class="attention no-print" style="margin:16px 0; padding:14px 16px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px;">
+  <h3 style="margin:0 0 10px; font-size:14px; color:#1e40af;">주의 필요 신호 (현재 시점)</h3>
+
+  {% if attention.disk_warnings %}
+  <div style="margin-bottom:{% if attention.gap_warnings %}10px{% else %}0{% endif %};">
+    <div style="font-size:12px; color:#1e40af; margin-bottom:4px;">디스크 임박 (≥85%)</div>
+    <ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px;">
+      {% for d in attention.disk_warnings %}
+      <li style="display:flex; align-items:center; gap:12px; font-size:13px;">
+        <span class="badge {{ d.badge_class }}" style="min-width:80px; text-align:center;">{{ "%.0f"|format(d.used_pct) }}%</span>
+        <a href="/servers/{{ d.public_id }}/storage" style="font-weight:600; color:#1e293b; text-decoration:none;">{{ d.hostname }}</a>
+        <span style="color:#64748b; font-size:12px;">{{ d.mount }} · 잔여 {{ "%.1f"|format(d.free_gb) }} / {{ "%.1f"|format(d.total_gb) }} GB · 측정 {{ d.last_metric_at | kst }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if attention.gap_warnings %}
+  <div>
+    <div style="font-size:12px; color:#1e40af; margin-bottom:4px;">메트릭 갭 (≥5분 끊김)</div>
+    <ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px;">
+      {% for g in attention.gap_warnings %}
+      <li style="display:flex; align-items:center; gap:12px; font-size:13px;">
+        <span class="badge {{ g.badge_class }}" style="min-width:80px; text-align:center;">{{ g.gap_minutes }}분</span>
+        <a href="/servers/{{ g.public_id }}" style="font-weight:600; color:#1e293b; text-decoration:none;">{{ g.hostname }}</a>
+        <span style="color:#64748b; font-size:12px;">마지막 metric {{ g.last_metric_at | kst }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if servers %}
 <table>
   <thead>
@@ -130,6 +166,42 @@
 <div class="card" style="text-align:center; padding:40px; color:#64748b;">
   등록된 서버가 없습니다.
 </div>
+{% endif %}
+
+{% if risk_top %}
+<section class="risk-cards no-print" style="margin:24px 0 16px; padding:16px; background:#fff7ed; border:1px solid #fed7aa; border-radius:8px;">
+  <h3 style="margin:0 0 14px; font-size:14px; color:#9a3412;">리스크 상위 {{ risk_top | length }}개 서버 — 24h USE</h3>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
+    {% for r in risk_top %}
+    <div class="risk-card" style="background:#fff; border:1px solid #fed7aa; border-radius:6px; padding:14px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; gap:8px;">
+        <a href="/servers/{{ r.public_id }}" style="font-weight:600; color:#1e293b; text-decoration:none; font-size:14px;">{{ r.hostname }}</a>
+        <span class="badge {{ r.badge_class }}" style="font-size:11px;">{{ r.primary_concern }}</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+        <span style="font-size:10px; color:#64748b; min-width:40px;">위험도</span>
+        <div style="flex:1; height:6px; background:#f1f5f9; border-radius:3px; overflow:hidden;">
+          <div style="width:{{ r.risk_score }}%; height:100%; background:{{ r.risk_score_color }}; transition:width 0.3s;"></div>
+        </div>
+        <span style="font-size:11px; font-weight:600; color:{{ r.risk_score_color }}; min-width:24px; text-align:right;">{{ "%.0f"|format(r.risk_score) }}</span>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; min-width:0;">
+        <div class="risk-donut-cell" style="position:relative; height:80px; min-width:0;">
+          <canvas data-pct="{{ r.cpu_p95_pct if r.cpu_p95_pct is not none else -1 }}" data-label="CPU"></canvas>
+        </div>
+        <div class="risk-donut-cell" style="position:relative; height:80px; min-width:0;">
+          <canvas data-pct="{{ r.mem_p95_pct if r.mem_p95_pct is not none else -1 }}" data-label="MEM"></canvas>
+        </div>
+        <div class="risk-donut-cell" style="position:relative; height:80px; min-width:0;">
+          <canvas data-pct="{{ r.disk_max_pct if r.disk_max_pct is not none else -1 }}" data-label="DISK"></canvas>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
+<script src="/static/js/pages/list-risk-cards.js" defer></script>
 {% endif %}
 
 {% endblock %}

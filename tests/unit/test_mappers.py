@@ -1,5 +1,5 @@
 """mappers — Outbound DTO → ViewModel + enrich idempotent 검증."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -269,3 +269,147 @@ def test_to_storage_detail_device_name_via_major_minor():
     )
     resp = to_storage_detail(storage)
     assert resp.mounts[0].device_name == "sda"
+
+
+# ─── attention 신호 mapper (P2 단위 변환 + badge 분기) ────────────────────
+
+from assessment_engine.db.repositories.outbound import (
+    DiskUsageWarningRaw,
+    MetricGapWarningRaw,
+    ReportRowRaw,
+)
+from assessment_engine.web.services.mappers import (
+    to_disk_warning_item,
+    to_gap_warning_item,
+    to_risk_server_item,
+)
+
+
+def test_to_disk_warning_item_under_provisioned_at_90():
+    """90% 이상 → rec-under_provisioned (위험 색)."""
+    raw = DiskUsageWarningRaw(
+        public_id="pid", hostname="h", mount="/data",
+        total_bytes=100 * 1024 ** 3,
+        avail_bytes=10 * 1024 ** 3,  # 사용률 90%
+        last_metric_at=datetime(2026, 5, 9, 12, 0, tzinfo=timezone.utc),
+    )
+    item = to_disk_warning_item(raw)
+    assert item.used_pct == 90.0
+    assert item.free_gb == 10.0
+    assert item.total_gb == 100.0
+    assert item.badge_class == "rec-under_provisioned"
+
+
+def test_to_disk_warning_item_right_size_below_90():
+    """85~90% → rec-right_size (경고 색). last_metric_at은 raw 그대로 전달."""
+    ts = datetime(2026, 5, 9, 12, 0, tzinfo=timezone.utc)
+    raw = DiskUsageWarningRaw(
+        public_id="pid", hostname="h", mount="/var",
+        total_bytes=100 * 1024 ** 3,
+        avail_bytes=12 * 1024 ** 3,  # 사용률 88%
+        last_metric_at=ts,
+    )
+    item = to_disk_warning_item(raw)
+    assert 87.9 < item.used_pct < 88.1
+    assert item.badge_class == "rec-right_size"
+    assert item.last_metric_at == ts
+
+
+def test_to_gap_warning_item_under_provisioned_at_30min():
+    """30분+ 갭 → rec-under_provisioned."""
+    now = datetime(2026, 5, 9, 12, 30, tzinfo=timezone.utc)
+    raw = MetricGapWarningRaw(
+        public_id="pid", hostname="h",
+        last_metric_at=now - timedelta(minutes=35),
+    )
+    item = to_gap_warning_item(raw, now)
+    assert item.gap_minutes == 35
+    assert item.badge_class == "rec-under_provisioned"
+
+
+def test_to_gap_warning_item_right_size_short_gap():
+    """5~30분 갭 → rec-right_size."""
+    now = datetime(2026, 5, 9, 12, 30, tzinfo=timezone.utc)
+    raw = MetricGapWarningRaw(
+        public_id="pid", hostname="h",
+        last_metric_at=now - timedelta(minutes=10),
+    )
+    item = to_gap_warning_item(raw, now)
+    assert item.gap_minutes == 10
+    assert item.badge_class == "rec-right_size"
+
+
+# ─── risk_top mapper (우선순위 분기) ──────────────────────────────────────
+
+def _report_raw(*, cpu=None, mem=None, swap=False):
+    return ReportRowRaw(
+        server_id=1, public_id="pid", hostname="h",
+        os_id=None, os_version=None, kernel_version=None,
+        ip_internal=None, services=None, last_seen_at=None,
+        cpu_p95_pct=cpu, cpu_peak_pct=cpu,
+        mem_p95_pct=mem, mem_peak_pct=mem,
+        load_15m_max=None, swap_used=swap,
+    )
+
+
+def test_risk_top_offline_highest_priority():
+    """오프라인이 모든 분기 중 최우선 — 통계와 무관히 risk_score 100 + 빨강 게이지."""
+    item = to_risk_server_item(_report_raw(cpu=10, mem=10), is_online=False)
+    assert item.primary_concern == "오프라인"
+    assert item.risk_score == 100
+    assert item.risk_score_color == "#ef4444"  # 위험 분기 ≥85 빨강
+
+
+def test_risk_top_swap_active():
+    """온라인 + 스왑 활성 → risk_score 95."""
+    item = to_risk_server_item(_report_raw(cpu=20, mem=50, swap=True), is_online=True)
+    assert item.primary_concern == "스왑 활성"
+    assert item.risk_score == 95
+
+
+def test_risk_top_mem_high_above_cpu_high():
+    """MEM≥90이 CPU≥90보다 우선 (메모리 OOM 위험이 더 큼)."""
+    item = to_risk_server_item(_report_raw(cpu=95, mem=92), is_online=True)
+    assert "MEM p95" in item.primary_concern
+    assert item.risk_score == 90
+
+
+def test_risk_top_disk_max_pct_passthrough_no_score_effect_in_danger_branch():
+    """위험 분기(CPU≥90)에선 disk_max_pct가 점수 안 흔듬 — 카드 표시값으로만 사용."""
+    item = to_risk_server_item(
+        _report_raw(cpu=95, mem=50), is_online=True, disk_max_pct=88.0,
+    )
+    assert item.cpu_p95_pct == 95
+    assert item.disk_max_pct == 88.0
+    assert item.risk_score == 85  # CPU≥90 분류 그대로
+
+
+def test_risk_top_normal_returns_optimal_with_max_metric_score():
+    """위험 임계 미만 → 정상 분류 + risk_score = max(cpu, mem, disk) (정렬용) + 초록 게이지."""
+    item = to_risk_server_item(
+        _report_raw(cpu=20, mem=30), is_online=True, disk_max_pct=50.0,
+    )
+    assert item.primary_concern == "정상"
+    assert item.badge_class == "rec-optimal"
+    assert item.risk_score == 50.0  # max(20, 30, 50)
+    assert item.risk_score_color == "#22c55e"  # <55 초록
+
+
+def test_risk_top_score_color_warn_band():
+    """위험 분기 score 60(MEM≥75) → 노랑 게이지."""
+    item = to_risk_server_item(_report_raw(cpu=20, mem=80), is_online=True)
+    assert item.risk_score == 60
+    assert item.risk_score_color == "#f59e0b"  # 55 ≤ score < 85 노랑
+
+
+def test_risk_top_data_missing_returns_optimal_zero_score():
+    """metric 없음(cpu/mem/disk 모두 None) + 온라인 + swap 없음 → 정상 + risk_score 0 (정렬 꼬리)."""
+    item = to_risk_server_item(_report_raw(cpu=None, mem=None), is_online=True)
+    assert item.primary_concern == "정상"
+    assert item.risk_score == 0
+
+
+def test_risk_top_disk_max_pct_none_when_omitted():
+    """disk_max_pct 인자 미전달 → ViewModel에서 None (도넛 미표시 신호)."""
+    item = to_risk_server_item(_report_raw(cpu=95), is_online=True)
+    assert item.disk_max_pct is None

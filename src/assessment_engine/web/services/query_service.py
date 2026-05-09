@@ -29,22 +29,27 @@ from assessment_engine.web.services.cache_serializer import (
 )
 from assessment_engine.web.services.mappers import (
     to_collection_status_item,
+    to_disk_warning_item,
+    to_gap_warning_item,
     to_inventory_export_entry,
     to_metric_series_item,
     to_network_detail,
     to_report_row_item,
+    to_risk_server_item,
     to_server_detail,
     to_server_list_item,
     to_storage_detail,
 )
 from assessment_engine.web.services.metrics_calculator import build_dashboard
 from assessment_engine.web.view_models import (
+    AttentionSignals,
     CollectionStatusItem,
     MetricDashboard,
     MetricSeriesItem,
     NetworkDetailResponse,
     ReportRowItem,
     ReportSummary,
+    RiskServerItem,
     ServerDetailResponse,
     ServerListItem,
     StorageDetailResponse,
@@ -189,6 +194,57 @@ class QueryService:
         if device_category is not None and metric_type in _DISK_METRIC_TYPES:
             dtos = _filter_disk_category(dtos, device_category)
         return [to_metric_series_item(dto) for dto in dtos]
+
+    async def get_attention_signals(
+        self,
+        disk_threshold_pct: float = 85,
+        gap_minutes: int = 5,
+        gap_recent_hours: int = 24,
+        limit_each: int = 5,
+    ) -> AttentionSignals:
+        """list 화면 상단 "주의 필요 신호" — risk_top과 차별 (시간 축·도메인).
+
+        - disk_warnings: 마이그레이션 전 cleanup 직접 액션 (스토리지 임박 mount).
+        - gap_warnings: 모니터링 사각지대 (한때 살아있다 끊김).
+        둘 다 단일 SQL — N+1 없음. limit_each로 표시 부담 제어.
+        """
+        disk_raws = await self.repo.disk_usage_warnings(disk_threshold_pct, limit_each)
+        gap_raws = await self.repo.metric_gap_warnings(gap_minutes, gap_recent_hours, limit_each)
+        now = datetime.now(timezone.utc)
+        return AttentionSignals(
+            disk_warnings=[to_disk_warning_item(r) for r in disk_raws],
+            gap_warnings=[to_gap_warning_item(r, now) for r in gap_raws],
+        )
+
+    async def get_risk_top(self, limit: int = 3) -> list[RiskServerItem]:
+        """주의 필요 상위 N서버 — 24h USE 통계 + 온라인 상태 기반.
+
+        흐름: list_server_ids (ID만 fetch) → report_aggregate (단일 SQL) → mapper score 계산 + 정렬.
+        page=1 첫 호출에서만 사용 (scroll·검색 화면은 미사용 — context 의존성 격리).
+        """
+        server_ids = await self.repo.list_server_ids()
+        if not server_ids:
+            return []
+        end_dt = datetime.now(timezone.utc)
+        raws = await self.repo.report_aggregate(server_ids, period_days=1, end=end_dt)
+        # 카드 도넛 3개 중 disk는 별도 SQL — server_metrics와 별 테이블이라 단일 SQL 부담 회피.
+        disk_max_map = await self.repo.latest_disk_max_pct([r.server_id for r in raws])
+
+        online_keys = [web_settings.redis_key_online.format(r.server_id) for r in raws]
+        flags = await safe_mget(self.redis, online_keys)
+        threshold = end_dt - timedelta(seconds=web_settings.redis_ttl_online)
+
+        items: list[RiskServerItem] = []
+        for i, raw in enumerate(raws):
+            if flags is None:
+                online = bool(raw.last_seen_at and raw.last_seen_at > threshold)
+            else:
+                online = flags[i] is not None
+            items.append(
+                to_risk_server_item(raw, online, disk_max_pct=disk_max_map.get(raw.server_id))
+            )
+        items.sort(key=lambda item: item.risk_score, reverse=True)
+        return items[:limit]
 
     async def get_report(
         self,

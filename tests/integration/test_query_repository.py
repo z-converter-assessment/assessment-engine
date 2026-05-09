@@ -544,3 +544,159 @@ async def test_latest_per_dimension_excludes_data_older_than_30d(
     assert storage is not None
     mount_names = [m.mount for m in storage.mount_usage]
     assert "/old" not in mount_names, "30d 이상 오래된 mount가 결과에 포함됨 — partition pruning 미적용"
+
+
+# ─── attention 신호: disk_usage_warnings ──────────────────────────────────
+
+async def test_disk_usage_warnings_excludes_below_threshold(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """avail/total 사용률이 임계 미만이면 결과에서 제외."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-disk-low"))
+    ts = datetime.now(timezone.utc).replace(microsecond=0)
+    # 사용률 50% — 임계 85% 미만
+    await collect_repo.record_metrics(sid, make_metrics(
+        collected_at=ts,
+        mounts=[MountUsageEntry(mount="/root", total_bytes=100_000_000_000,
+                                free_bytes=50_000_000_000, avail_bytes=50_000_000_000)],
+        disk_io=[], net_io=[],
+    ))
+    rows = await query_repo.disk_usage_warnings(threshold_pct=85, limit=10)
+    assert all(r.hostname != "test-host-01" or r.mount != "/root" for r in rows)
+
+
+async def test_disk_usage_warnings_includes_above_threshold(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """사용률 임계 초과 mount는 결과에 포함 — 정렬은 사용률 DESC."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-disk-high", hostname="disk-high-host"))
+    ts = datetime.now(timezone.utc).replace(microsecond=0)
+    # 사용률 92% (avail 8GB / total 100GB)
+    await collect_repo.record_metrics(sid, make_metrics(
+        collected_at=ts,
+        mounts=[MountUsageEntry(mount="/data", total_bytes=100_000_000_000,
+                                free_bytes=8_000_000_000, avail_bytes=8_000_000_000)],
+        disk_io=[], net_io=[],
+    ))
+    rows = await query_repo.disk_usage_warnings(threshold_pct=85, limit=10)
+    matching = [r for r in rows if r.hostname == "disk-high-host" and r.mount == "/data"]
+    assert len(matching) == 1
+    assert matching[0].total_bytes == 100_000_000_000
+    assert matching[0].avail_bytes == 8_000_000_000
+    assert matching[0].last_metric_at == ts  # latest mount 시점
+
+
+async def test_disk_usage_warnings_uses_latest_per_mount(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """같은 mount의 여러 시점 중 latest 1건만 평가 — 옛 시점은 임계 초과여도 제외 안 되고,
+    latest가 임계 미만이면 제외."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-disk-latest", hostname="latest-host"))
+    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=5)
+    # T0: 95% (위험), T1: 50% (정상) — latest=T1만 평가 → 결과 제외
+    for i, (mins, avail) in enumerate([(0, 5_000_000_000), (3, 50_000_000_000)]):
+        await collect_repo.record_metrics(sid, make_metrics(
+            collected_at=base_ts + timedelta(minutes=mins),
+            mounts=[MountUsageEntry(mount="/var", total_bytes=100_000_000_000,
+                                    free_bytes=avail, avail_bytes=avail)],
+            disk_io=[], net_io=[],
+        ))
+    rows = await query_repo.disk_usage_warnings(threshold_pct=85, limit=10)
+    assert all(r.hostname != "latest-host" or r.mount != "/var" for r in rows)
+
+
+async def test_disk_usage_warnings_excludes_zero_total(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """total_bytes=0(가상 mount 시뮬) — 0으로 나누기 회피, 결과 제외."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-disk-virt", hostname="virt-host"))
+    ts = datetime.now(timezone.utc).replace(microsecond=0)
+    await collect_repo.record_metrics(sid, make_metrics(
+        collected_at=ts,
+        mounts=[MountUsageEntry(mount="/proc", total_bytes=0,
+                                free_bytes=0, avail_bytes=0)],
+        disk_io=[], net_io=[],
+    ))
+    rows = await query_repo.disk_usage_warnings(threshold_pct=85, limit=10)
+    assert all(r.mount != "/proc" or r.hostname != "virt-host" for r in rows)
+
+
+# ─── attention 신호: metric_gap_warnings ──────────────────────────────────
+
+async def test_metric_gap_warnings_excludes_recent_metric(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """방금 metric 발행한 서버는 갭 없음 — 결과 제외."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-gap-fresh", hostname="fresh-host"))
+    await collect_repo.record_metrics(sid, make_metrics(collected_at=datetime.now(timezone.utc)))
+    rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
+    assert all(r.hostname != "fresh-host" for r in rows)
+
+
+async def test_metric_gap_warnings_includes_gap_in_window(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """5분~24h 윈도우 안에 마지막 metric → 결과 포함."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-gap-mid", hostname="gap-host"))
+    last_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=10)
+    await collect_repo.record_metrics(sid, make_metrics(collected_at=last_ts))
+    rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
+    matching = [r for r in rows if r.hostname == "gap-host"]
+    assert len(matching) == 1
+    assert matching[0].last_metric_at == last_ts
+
+
+async def test_metric_gap_warnings_excludes_dead_server(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """24h 이상 metric 없는 dead 서버는 갭 결과 제외 (한때 살아있던 서버 대상이 아님)."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-gap-dead", hostname="dead-host"))
+    long_ago = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=48)
+    await collect_repo.record_metrics(sid, make_metrics(collected_at=long_ago))
+    rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
+    assert all(r.hostname != "dead-host" for r in rows)
+
+
+async def test_metric_gap_warnings_no_metric_excluded(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """metric 한 번도 발행 안 한 서버 — JOIN 조건으로 제외."""
+    await collect_repo.upsert_server(make_inventory(machine_id="q-gap-none", hostname="never-host"))
+    rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
+    assert all(r.hostname != "never-host" for r in rows)
+
+
+# ─── attention 신호: latest_disk_max_pct (risk 카드 도넛용) ────────────────
+
+async def test_latest_disk_max_pct_returns_max_per_server(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """서버별 mount 중 가장 높은 사용률 반환 — 단일 SQL GROUP BY MAX."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-dmax-1"))
+    ts = datetime.now(timezone.utc).replace(microsecond=0)
+    # /var=70%, /data=92% → max 92%
+    await collect_repo.record_metrics(sid, make_metrics(
+        collected_at=ts,
+        mounts=[
+            MountUsageEntry(mount="/var",  total_bytes=100_000_000_000, free_bytes=30_000_000_000, avail_bytes=30_000_000_000),
+            MountUsageEntry(mount="/data", total_bytes=100_000_000_000, free_bytes=8_000_000_000,  avail_bytes=8_000_000_000),
+        ],
+        disk_io=[], net_io=[],
+    ))
+    result = await query_repo.latest_disk_max_pct([sid])
+    assert sid in result
+    assert 91.9 < result[sid] < 92.1  # max는 /data 92%
+
+
+async def test_latest_disk_max_pct_empty_input(query_repo: QueryRepository):
+    """빈 입력 → 빈 dict (DB 쿼리 0건)."""
+    assert await query_repo.latest_disk_max_pct([]) == {}
+
+
+async def test_latest_disk_max_pct_skips_server_without_metrics(
+    collect_repo: CollectRepository, query_repo: QueryRepository,
+):
+    """metric 없는 서버는 dict 누락 — caller가 None 처리."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-dmax-empty"))
+    result = await query_repo.latest_disk_max_pct([sid])
+    assert sid not in result

@@ -21,6 +21,8 @@ from assessment_engine.db.repositories.outbound import (
     CollectionStatus,
     DashboardRaw,
     DiskIoRaw,
+    DiskUsageWarningRaw,
+    MetricGapWarningRaw,
     MetricPairRaw,
     MetricSeries,
     MountUsageRaw,
@@ -845,4 +847,123 @@ class QueryRepository(BaseQueryRepository):
             )
             for row in result.all()
             if row.kind is not None
+        ]
+
+    # ─── 주의 신호 (목록 화면 상단 — risk_top 보완) ─────────────────────────
+
+    async def list_server_ids(self, limit: int = 1000) -> list[int]:
+        result = await self.session.execute(
+            select(ServerInventory.id).order_by(ServerInventory.id.asc()).limit(limit)
+        )
+        return [r for r in result.scalars().all()]
+
+    async def latest_disk_max_pct(self, server_ids: list[int]) -> dict[int, float]:
+        if not server_ids:
+            return {}
+        sql = text("""
+            WITH mount_latest AS (
+                SELECT server_id, total_bytes, avail_bytes,
+                    ROW_NUMBER() OVER (PARTITION BY server_id, mount ORDER BY collected_at DESC) AS rn
+                FROM server_mount_usage
+                WHERE server_id = ANY(:sids)
+                  AND collected_at >= now() - interval '7 days'
+            )
+            SELECT server_id, MAX((1 - avail_bytes::float / total_bytes) * 100) AS disk_max_pct
+            FROM mount_latest
+            WHERE rn = 1 AND total_bytes > 0 AND avail_bytes IS NOT NULL
+            GROUP BY server_id
+        """)
+        result = await self.session.execute(sql, {"sids": server_ids})
+        return {r.server_id: r.disk_max_pct for r in result.all()}
+
+    async def disk_usage_warnings(
+        self,
+        threshold_pct: float,
+        limit: int,
+    ) -> list[DiskUsageWarningRaw]:
+        """전체 mount 중 latest 사용률 임계 초과만 단일 SQL.
+
+        - mount당 최신 1행 (PARTITION BY server_id, mount ORDER BY collected_at DESC)
+        - 7d partition pruning — attention은 "현재 시점 단기 신호" 의도. 7d 이상 안 갱신된 mount는 stale (metric_gap이 별도 담당)
+        - 가상 mount (`free_bytes IS NULL` 등) 제외 — total_bytes > 0
+        """
+        sql = text("""
+            WITH mount_latest AS (
+                SELECT server_id, mount, total_bytes, avail_bytes, collected_at,
+                    ROW_NUMBER() OVER (PARTITION BY server_id, mount ORDER BY collected_at DESC) AS rn
+                FROM server_mount_usage
+                WHERE collected_at >= now() - interval '7 days'
+            )
+            SELECT s.public_id AS public_id,
+                   s.hostname  AS hostname,
+                   m.mount     AS mount,
+                   m.total_bytes AS total_bytes,
+                   m.avail_bytes AS avail_bytes,
+                   m.collected_at AS last_metric_at
+            FROM mount_latest m
+            JOIN server_inventory s ON s.id = m.server_id
+            WHERE m.rn = 1
+              AND m.total_bytes > 0
+              AND m.avail_bytes IS NOT NULL
+              AND (1 - m.avail_bytes::float / m.total_bytes) >= :threshold
+            ORDER BY (1 - m.avail_bytes::float / m.total_bytes) DESC
+            LIMIT :limit
+        """)
+        result = await self.session.execute(
+            sql,
+            {"threshold": threshold_pct / 100.0, "limit": limit},
+        )
+        return [
+            DiskUsageWarningRaw(
+                public_id=str(r.public_id),
+                hostname=r.hostname,
+                mount=r.mount,
+                total_bytes=r.total_bytes,
+                avail_bytes=r.avail_bytes,
+                last_metric_at=r.last_metric_at,
+            )
+            for r in result.all()
+        ]
+
+    async def metric_gap_warnings(
+        self,
+        gap_minutes: int,
+        recent_hours: int,
+        limit: int,
+    ) -> list[MetricGapWarningRaw]:
+        """metric 발행 갭 — '한때 살아있다 끊김' 패턴.
+
+        - last_metric_at < now() - gap_minutes (현재 끊김)
+        - last_metric_at > now() - recent_hours (한때는 살아있음 — 완전 dead 서버 제외)
+        - partition pruning: recent_hours를 동적 binding + LEAST 168h(7d) cap.
+          호출자 실수로 큰 값 넘겨도 자동 cap — 7d 이상은 metric_gap 의미 없음 (다른 신호 영역).
+        """
+        sql = text("""
+            WITH metric_max AS (
+                SELECT server_id, MAX(collected_at) AS last_metric_at
+                FROM server_metrics
+                WHERE collected_at >= now() - (LEAST(:recent_h, 168) * interval '1 hour')
+                GROUP BY server_id
+            )
+            SELECT s.public_id AS public_id,
+                   s.hostname  AS hostname,
+                   mm.last_metric_at AS last_metric_at
+            FROM server_inventory s
+            JOIN metric_max mm ON mm.server_id = s.id
+            WHERE mm.last_metric_at < now() - (:gap_min * interval '1 minute')
+              AND mm.last_metric_at > now() - (:recent_h * interval '1 hour')
+            ORDER BY mm.last_metric_at ASC
+            LIMIT :limit
+        """)
+        result = await self.session.execute(
+            sql,
+            {"gap_min": gap_minutes, "recent_h": recent_hours, "limit": limit},
+        )
+        return [
+            MetricGapWarningRaw(
+                public_id=str(r.public_id),
+                hostname=r.hostname,
+                last_metric_at=r.last_metric_at,
+            )
+            for r in result.all()
         ]
