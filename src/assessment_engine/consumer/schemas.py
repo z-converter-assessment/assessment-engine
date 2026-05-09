@@ -167,3 +167,20 @@ class ErrorInput(MessageBase):
     retry_count: int | None = Field(default=None, ge=0)
     first_failed_at: datetime | None = None
     recovered_at: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
+# task.result — agent → engine 작업 결과 보고 (routing_key=task.result)
+# ---------------------------------------------------------------------------
+
+
+class TaskResultInput(MessageBase):
+    """agent가 task 실행 후 결과 보고 메시지.
+
+    공통 메타(machine_id 등)는 MessageBase. task 식별은 task_public_id(engine이
+    reply에 담아 보낸 값을 agent가 그대로 회신).
+    """
+    message_type: Literal["task_result"]
+    task_public_id: UUID
+    status: Literal["success", "failed"]
+    result_message: str | None = Field(default=None, max_length=4000)

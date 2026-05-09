@@ -9,6 +9,7 @@ from typing import Literal
 
 from assessment_engine.db.repositories.outbound import (
     CollectionStatus,
+    InventoryExportEntry,
     MetricSeries,
     NetworkWithIo,
     ServerSummary,
@@ -355,3 +356,80 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     detail.disk_total_gb = round(sum(d.size_gb or 0.0 for d in detail.disks), 1) if detail.disks else None
 
     return detail
+
+
+# ─── Inventory JSON Export (assessment-deliverables.md §3) ─────────────────
+
+
+def _infer_role(services: list[dict] | None) -> str:
+    """services[].unit를 service_classifier로 분류 → 가장 빈도 높은 카테고리.
+
+    "unknown"은 결정에서 제외. 모두 unknown이면 "unknown" 반환.
+    """
+    if not services:
+        return "unknown"
+    from collections import Counter
+    counter: Counter[str] = Counter()
+    for s in services:
+        unit = s.get("unit") if isinstance(s, dict) else None
+        if not unit:
+            continue
+        cat = classify(unit)
+        if cat != "unknown":
+            counter[cat] += 1
+    if not counter:
+        return "unknown"
+    return counter.most_common(1)[0][0]
+
+
+def _split_disks(disks: list[dict], mounts: list[dict]) -> tuple[int | None, list[dict]]:
+    """disks 중 가장 큰 1개를 boot, 나머지를 additional로 분리.
+
+    additional의 mount_hint는 find_parent_disk(mount.major/minor → disk) 역방향 매칭.
+    fstype은 동일 mount의 fstype 필드.
+    """
+    if not disks:
+        return (None, [])
+    sorted_disks = sorted(disks, key=lambda d: d.get("size_bytes") or 0, reverse=True)
+    boot = sorted_disks[0]
+    boot_gb = (boot["size_bytes"] // 10**9) if boot.get("size_bytes") else None
+    additional: list[dict] = []
+    for d in sorted_disks[1:]:
+        mount_hint = None
+        fstype = None
+        for m in mounts or []:
+            if find_parent_disk(m.get("major"), m.get("minor"), [d]) == d.get("name"):
+                mount_hint = m.get("mount")
+                fstype = m.get("fstype")
+                break
+        size_gb = (d["size_bytes"] // 10**9) if d.get("size_bytes") else None
+        additional.append({"mount_hint": mount_hint, "size_gb": size_gb, "fstype": fstype})
+    return (boot_gb, additional)
+
+
+def to_inventory_export_entry(detail: ServerDetail) -> InventoryExportEntry:
+    """ServerDetail(outbound) → InventoryExportEntry(JSON export 항목)."""
+    boot_gb, additional = _split_disks(detail.disks, detail.mounts)
+    return InventoryExportEntry(
+        name=detail.hostname,
+        machine_id=detail.machine_id,
+        role=_infer_role(detail.services),
+        os={
+            "family": detail.os_id,
+            "version": detail.os_version,
+            "kernel": detail.kernel_version,
+        },
+        compute={
+            "vcpus": detail.cpu_cores,
+            "memory_mb": (detail.mem_total_kb // 1024) if detail.mem_total_kb else None,
+        },
+        storage={
+            "boot_disk_gb": boot_gb,
+            "additional_disks": additional,
+        },
+        network={
+            "hostname": detail.hostname,
+            "internal_ip": detail.ip_internal[0] if detail.ip_internal else None,
+            "external_ip": detail.ip_external[0] if detail.ip_external else None,
+        },
+    )

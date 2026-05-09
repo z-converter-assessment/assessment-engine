@@ -51,6 +51,21 @@ C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_ve
 | `mounts[]` | per mount — 현재 사용량 (total/avail bytes) |
 | `net_io[]` | per interface — rx/tx bytes·packets·errors |
 
+### task.result (agent → engine, 작업 결과 보고)
+
+원격 작업(현재 `zconverter_install`) 실행 후 결과를 engine에 보고. routing key `task.result`.
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| 공통 메타 | — | `MessageBase`와 동일 (machine_id, agent_version, collected_at, hostname, message_id, agent_started_at, boot_time) |
+| `message_type` | `"task_result"` | Literal |
+| `task_public_id` | UUID | engine이 RPC reply에 담아 보낸 값을 그대로 회신 (correlation 식별자) |
+| `status` | `"success"` \| `"failed"` | 실행 결과 |
+| `result_message` | str \| null (max 4000) | 실패 사유·로그 요약. success도 채울 수 있음 |
+
+엔진 처리: 멱등성 → DB UPDATE (status·completed_at·result_message) → Redis `task:pending:{machine_id}` DEL.
+public_id 미존재 시 silent ack — 운영자가 task 삭제했을 가능성, DLQ 부적합.
+
 ### server.error
 
 에이전트 측 수집·발행 실패.
@@ -96,6 +111,55 @@ C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_ve
 | `agent_started_at` (metrics) | metrics | 동일 4개 테이블 컬럼 저장. boot_time과 함께 비교 — boot_time 동일·agent_started_at만 다름 → 에이전트 재시작 (counter는 /proc 기반이라 그대로 → 정상 delta) |
 
 ---
+
+## Task RPC piggyback (engine → agent)
+
+**용도**: engine이 등록한 작업 명령을 agent에게 전달. 별도 polling endpoint·task queue 불필요 — 기존 `server.metrics` 발행 응답 채널에 piggyback.
+
+### 흐름
+
+```
+agent: metrics publish
+  props.reply_to       = "amq.rabbitmq.reply-to"   ← RabbitMQ 빌트인 pseudo-queue
+  props.correlation_id = <UUID>                    ← agent 생성, reply에서 그대로 회신됨
+
+engine consumer: metrics 처리 후
+  - Redis EXISTS task:pending:{machine_id}
+  - 있으면 GET → reply publish to props.reply_to (correlation_id 동일)
+  - 없으면 reply 생략 — agent는 timeout 두지 않음 (다음 metrics 주기 자연 폴)
+```
+
+### Reply 메시지 스키마
+
+```json
+{
+  "task_public_id": "<UUID>",
+  "task_type": "zconverter_install",
+  "params": { "zdm_ip": "192.168.0.3" }
+}
+```
+
+agent는 `task_type`으로 미리 컴파일된 핸들러 dispatch. 핸들러가 `params` 사용해 실행.
+
+### task_type enum (engine·agent 합의 필수)
+
+| task_type | params 스키마 | agent 동작 |
+|-----------|--------------|-----------|
+| `zconverter_install` | `{"zdm_ip": str}` | `curl http://{zdm_ip}/zconverter.tar.gz` → `tar -xzf` → `bash install.sh` |
+
+새 task_type 도입 시 양쪽 동시 갱신 + agent_version bump. 미지원 task_type 수신 시 agent는 `task.result` `failed` 보고 (`result_message="unknown task_type"`).
+
+### Latency·동작 가정
+
+- agent가 reply_to를 명시한 경우만 piggyback 작동. 옛 agent(미구현)는 reply_to 없이 발행 → engine consumer가 reply 생략 (no-op).
+- latency = metrics 발행 주기. 즉시성 필요하면 별도 push queue 도입 검토 (현재 미사용).
+- engine consumer는 Redis 1 GET만 — 99% no-op. DB 직접 조회 안 함 (hot path 보호).
+
+### 구현 메모
+
+- Reply 채널은 `amq.rabbitmq.reply-to` (RabbitMQ 빌트인 pseudo-queue) 권장. 큐 선언·정리 불필요. `basic.consume`으로 같은 channel 위에서 reply 수신.
+- correlation_id 매칭 책임은 agent. engine은 받은 값 그대로 회신만.
+- reply 메시지는 `delivery_mode=NOT_PERSISTENT` (transient) — 빠른 처리·broker 디스크 부담 0. agent가 못 받아도 다음 주기에 다시 piggyback.
 
 ## Listen 포트 수집
 

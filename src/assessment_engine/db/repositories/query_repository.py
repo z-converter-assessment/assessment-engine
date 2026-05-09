@@ -27,6 +27,7 @@ from assessment_engine.db.repositories.outbound import (
     NetIoRaw,
     NetworkWithIo,
     RebootEvent,
+    ReportRow,
     ServerSummary,
     ServerDetail,
     StorageWithUsage,
@@ -648,6 +649,127 @@ class QueryRepository(BaseQueryRepository):
             {"sid": server_id, "start": start, "end": end, "dim_filter": dimension},
         )
         return [MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension) for row in result.all()]
+
+    # ─── Assessment 보고서 집계 (USE Method, ai_roadmap.md §3.B) ──────────
+
+    async def report_aggregate(
+        self,
+        server_ids: list[int],
+        period_days: int,
+        end: datetime,
+    ) -> list[ReportRow]:
+        """N서버 × period_days 통계 → ReportRow list. recommendation 분류는 service에서.
+
+        SQL 구조:
+        - cpu_pct CTE: LAG로 jiffies delta → (1 - d_idle/d_total) × 100. boot_time 변경 시 reset 제외.
+        - mem_pct CTE: 시점값 (1 - mem_available/mem_total) × 100. swap_used flag 동시 추출.
+        - 통계: percentile_cont(0.95) + MAX. server_id별 GROUP BY.
+        - server_inventory LEFT JOIN — metric 없는 서버도 행 반환 (recommendation=insufficient_data).
+        """
+        from datetime import timedelta
+        start = end - timedelta(days=period_days)
+
+        sql = text("""
+            WITH cpu_deltas AS (
+                SELECT server_id,
+                    boot_time,
+                    LAG(boot_time) OVER (PARTITION BY server_id ORDER BY collected_at) AS prev_boot,
+                    cpu_idle - LAG(cpu_idle) OVER (PARTITION BY server_id ORDER BY collected_at) AS d_idle,
+                    (cpu_user + cpu_nice + cpu_system + cpu_idle + cpu_iowait + cpu_irq + cpu_softirq + cpu_steal)
+                      - LAG(cpu_user + cpu_nice + cpu_system + cpu_idle + cpu_iowait + cpu_irq + cpu_softirq + cpu_steal)
+                        OVER (PARTITION BY server_id ORDER BY collected_at) AS d_total
+                FROM server_metrics
+                WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
+            ),
+            cpu_pct AS (
+                SELECT server_id,
+                    CASE WHEN d_total > 0 AND d_idle IS NOT NULL
+                         THEN GREATEST(0, (1 - d_idle::float / d_total) * 100)
+                    END AS pct
+                FROM cpu_deltas
+                WHERE d_total > 0
+                  AND (boot_time IS NULL OR prev_boot IS NULL OR boot_time = prev_boot)
+            ),
+            cpu_stats AS (
+                SELECT server_id,
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY pct) AS cpu_p95,
+                    MAX(pct) AS cpu_peak
+                FROM cpu_pct GROUP BY server_id
+            ),
+            mem_pct AS (
+                SELECT server_id,
+                    CASE WHEN mem_total_kb > 0 AND mem_available_kb IS NOT NULL
+                         THEN (1 - mem_available_kb::float / mem_total_kb) * 100
+                    END AS pct,
+                    CASE WHEN swap_total_kb > 0 AND swap_free_kb IS NOT NULL
+                              AND swap_free_kb < swap_total_kb
+                         THEN 1 ELSE 0
+                    END AS swap_in_use
+                FROM server_metrics
+                WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
+            ),
+            mem_stats AS (
+                SELECT server_id,
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY pct) AS mem_p95,
+                    MAX(pct) AS mem_peak,
+                    MAX(swap_in_use) > 0 AS swap_used
+                FROM mem_pct
+                WHERE pct IS NOT NULL
+                GROUP BY server_id
+            ),
+            load_stats AS (
+                SELECT server_id, MAX(load_15m) AS load_15m_max
+                FROM server_metrics
+                WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
+                GROUP BY server_id
+            )
+            SELECT
+                s.id            AS server_id,
+                s.public_id     AS public_id,
+                s.hostname      AS hostname,
+                s.os_id         AS os_id,
+                s.os_version    AS os_version,
+                s.kernel_version AS kernel_version,
+                s.ip_internal   AS ip_internal,
+                s.last_seen_at  AS last_seen_at,
+                cs.cpu_p95      AS cpu_p95,
+                cs.cpu_peak     AS cpu_peak,
+                ms.mem_p95      AS mem_p95,
+                ms.mem_peak     AS mem_peak,
+                COALESCE(ms.swap_used, false) AS swap_used,
+                ls.load_15m_max AS load_15m_max
+            FROM server_inventory s
+            LEFT JOIN cpu_stats  cs ON cs.server_id = s.id
+            LEFT JOIN mem_stats  ms ON ms.server_id = s.id
+            LEFT JOIN load_stats ls ON ls.server_id = s.id
+            WHERE s.id = ANY(:sids)
+            ORDER BY s.hostname
+        """)
+        result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
+
+        # ReportRow 생성은 raw 컬럼만 채움. role / os_display / is_online / recommendation은
+        # service 계층에서 추론 — repository는 raw 데이터만 (P1).
+        rows: list[ReportRow] = []
+        for r in result.all():
+            rows.append(ReportRow(
+                server_id=r.server_id,
+                public_id=str(r.public_id),
+                hostname=r.hostname,
+                role="",                  # service에서 채움
+                is_online=False,          # service에서 last_seen_at + Redis로 채움
+                os_display=f"{r.os_id or ''} {r.os_version or ''}".strip() or "—",
+                kernel_version=r.kernel_version,
+                internal_ip=(r.ip_internal[0] if r.ip_internal else None),
+                cpu_p95_pct=r.cpu_p95,
+                cpu_peak_pct=r.cpu_peak,
+                mem_p95_pct=r.mem_p95,
+                mem_peak_pct=r.mem_peak,
+                load_15m_max=r.load_15m_max,
+                swap_used=bool(r.swap_used),
+                recommendation="insufficient_data",  # service에서 채움
+                recommendation_label="",
+            ))
+        return rows
 
     # ─── reboot / agent restart 이벤트 (차트 vertical marker용) ────────────
 

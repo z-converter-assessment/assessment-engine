@@ -1,7 +1,7 @@
 import dataclasses
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,7 @@ from assessment_engine.db.models.server_inventory_history import ServerInventory
 from assessment_engine.db.models.server_metrics import ServerMetrics
 from assessment_engine.db.models.server_mount_usage import ServerMountUsage
 from assessment_engine.db.models.server_net_io import ServerNetIo
+from assessment_engine.db.models.task import Task
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository, MetricInsertResult
 from assessment_engine.db.repositories.inbound import (
     DiskIoEntry,
@@ -18,6 +19,8 @@ from assessment_engine.db.repositories.inbound import (
     NetIoEntry,
     ServerInventoryCreate,
     ServerMetricCreate,
+    TaskCreate,
+    TaskResultUpdate,
 )
 
 
@@ -196,6 +199,36 @@ class CollectRepository(BaseCollectRepository):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    # ─── tasks ─────────────────────────────────────────────────────────────
+
+    async def create_task(self, data: TaskCreate) -> str:
+        stmt = (
+            pg_insert(Task)
+            .values(
+                target_server_id=data.target_server_id,
+                target_machine_id=data.target_machine_id,
+                task_type=data.task_type,
+                params=data.params,
+                status="pending",
+            )
+            .returning(Task.public_id)
+        )
+        result = await self.session.execute(stmt)
+        return str(result.scalar_one())
+
+    async def complete_task(self, data: TaskResultUpdate) -> bool:
+        stmt = (
+            update(Task)
+            .where(Task.public_id == data.public_id)
+            .values(
+                status=data.status,
+                result_message=data.result_message,
+                completed_at=func.now(),
+            )
+        )
+        result = await self.session.execute(stmt)
+        return (result.rowcount or 0) > 0
 
     # ─── 시계열 (record_metrics) ───────────────────────────────────────────
 

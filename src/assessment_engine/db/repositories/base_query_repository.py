@@ -8,6 +8,7 @@ from assessment_engine.db.repositories.outbound import (
     MetricSeries,
     NetworkWithIo,
     RebootEvent,
+    ReportRow,
     ServerSummary,
     ServerDetail,
     StorageWithUsage,
@@ -102,3 +103,11 @@ class BaseQueryRepository(ABC):
         start: datetime,
         end: datetime,
     ) -> list[RebootEvent]: ...
+
+    @abstractmethod
+    async def report_aggregate(
+        self,
+        server_ids: list[int],
+        period_days: int,
+        end: datetime,
+    ) -> list[ReportRow]: ...

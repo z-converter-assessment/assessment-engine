@@ -63,6 +63,26 @@ class MountUsageEntry:
     avail_bytes: int | None
 
 
+# ─── Task DTO ──────────────────────────────────────────────────────────────
+
+
+@dataclass
+class TaskCreate:
+    """task 등록 시 — web router → repository."""
+    target_server_id: int
+    target_machine_id: str
+    task_type: str
+    params: dict | None
+
+
+@dataclass
+class TaskResultUpdate:
+    """task 결과 보고 — agent → MQ → consumer → repository."""
+    public_id: str   # agent가 응답에 포함한 task public_id
+    status: str      # "success" | "failed"
+    result_message: str | None
+
+
 @dataclass
 class ServerMetricCreate:
     # ─── 공통 메타데이터 ────────────────────────────────────────────────────

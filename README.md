@@ -9,28 +9,40 @@
 ## 아키텍처
 
 ```
- Agent (C)
- 각 서버에서 실행
- /proc 기반 수집
-      │
-      │ inventory / metrics / error
-      ▼
- RabbitMQ ──────────────────── DLX / DLQ
- 메시지 브로커                  nack · TTL 만료
- 라우팅 · TTL
-      │
-      ▼
- Consumer (aio-pika)
- 파싱 · 멱등성 · 저장
-      │                  │
-      ▼                  ▼
- TimescaleDB          Redis
- 시계열 저장           캐시 · 온라인 상태
- hypertable           PUB/SUB
-      ▲                  │
-      │                  │ metrics.events
-      └──── FastAPI ─────┘
-            SSR · REST API · SSE
+ ┌──────────────────────────────────────────────────────────────────┐
+ │  Agent (C)                                                       │
+ │  /proc collection + remote task execution                        │
+ └─────┬─────────────────────────────────────────────▲──────────────┘
+       │                                             │
+       │ inventory · metrics · error · task.result   │ task command
+       │                                             │ (reply_to:
+       ▼                                             │  amq.rabbitmq
+                                                     │  .reply-to)
+ ┌──────────────────────────────────────────────────────────────────┐
+ │  RabbitMQ — 4 routing keys + RPC piggyback     DLX / DLQ         │
+ └─────┬─────────────────────────────────────────────▲──────────────┘
+       │                                             │
+       ▼                                             │
+ ┌──────────────────────────────────────────────────────────────────┐
+ │  Consumer (aio-pika)                                             │
+ │  · parse · idempotency · persist                                 │
+ │  · time invariants · agent restart counter                       │
+ │  · RPC piggyback (Redis pending task → reply_to publish) ────────┤
+ └─────┬─────────────────────────────────────┬──────────────────────┘
+       ▼                                     ▼
+ ┌────────────────────────────┐    ┌────────────────────────────────┐
+ │  TimescaleDB               │    │  Redis                         │
+ │  · 4 timeseries tables     │    │  · cache · online TTL          │
+ │  · server_inventory + hist │    │  · pending task                │
+ │  · tasks (audit log)       │    │  · agent restart counter       │
+ │                            │    │  · PUB/SUB metrics.events      │
+ └────────────────────────────┘    └────────────────────────────────┘
+       ▲                                     │
+       │                                     │
+       └──────── FastAPI ────────────────────┘
+                · SSR: server list, detail, USE Method report
+                · REST: discovery, tasks, exports, chart
+                · SSE: live metrics updates
 ```
 
 ---
@@ -50,9 +62,27 @@
 
 ## 핵심 설계
 
+### 데이터 수집·저장
 - 에이전트는 `/proc` 기반 raw 누적값을 발행. CPU%·IOPS·kBps는 Web이 두 시점의 delta로 계산.
 - 메트릭은 TimescaleDB hypertable에 시계열 저장. 온라인 상태는 Redis TTL(90s)로 판정.
 - Consumer 저장 → Redis PUB/SUB → Web SSE → 브라우저 AJAX — 실시간 갱신 파이프라인.
+
+### Counter reset 정밀 식별
+- 시계열 4테이블에 `boot_time` / `agent_started_at` 컬럼 보존. 두 시점의 boot_time 비교로 시스템 재부팅 시 delta 건너뛰기 (옛 데이터는 d<0 휴리스틱 fallback).
+- Calculator(dashboard)와 차트 SQL(`LAG`+`IS DISTINCT FROM`) 동일 정책 적용.
+- Reboot/Restart 이벤트 차트 vertical marker로 운영 가시성.
+
+### 운영 가시성·시그널
+- 시계 invariant 로그 — `boot_time > agent_started_at` 또는 `agent_started_at > collected_at` 위반 시 warning (VM 시계 동기화 문제 조기 감지).
+- 에이전트 재시작 카운터 — 1h 슬라이딩 윈도우, 임계값 초과 시 crash loop alert.
+
+### Assessment 산출물 (출력단)
+- **서버 발견** — IP HTTP probe로 미등록 서버 도달성 검사 (Ansible 배포 워크플로우 1단계).
+- **JSON Export** — 선택 서버의 정제 inventory를 OpenStack/Terraform/SDK 입력용 표준 JSON으로 다운로드.
+- **USE Method 보고서** — Brendan Gregg USE Method + AWS Compute Optimizer / Azure Advisor / GCP Recommender 임계값 기반 right-sizing 분류 (양식 A 요약 + 양식 B 상세).
+- **ZConverter Install task** — 선택 서버에 변환 도구 설치 명령 발행. RPC piggyback (`amq.rabbitmq.reply-to`)으로 에이전트가 다음 metrics 발행 시 명령 수신 → 실행 → `task.result` 큐로 결과 보고.
+
+상세 정의: [`docs/assessment-deliverables.md`](docs/assessment-deliverables.md), [`docs/task-agent-workflow.md`](docs/task-agent-workflow.md), [`docs/ai_roadmap.md`](docs/ai_roadmap.md).
 
 ---
 
@@ -162,9 +192,10 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 
 | 주소 | 설명 |
 |------|------|
-| http://localhost:8000/servers/ | 서버 인벤토리 Web UI |
+| http://localhost:8000/servers/ | 서버 인벤토리 Web UI (목록 / 발견 / Install / Export / 보고서 진입점) |
+| http://localhost:8000/servers/report?ids=...&period_days=14 | USE Method 보고서 (선택 서버 N대) |
 | http://localhost:8000/health | 헬스체크 |
-| http://localhost:8000/docs | FastAPI Swagger UI |
+| http://localhost:8000/docs | FastAPI Swagger UI (discovery·tasks·exports·chart 모든 endpoint) |
 | http://localhost:15672 | RabbitMQ 관리 콘솔 |
 | localhost:5432 | PostgreSQL |
 
@@ -172,9 +203,13 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 
 ## 테스트
 
+`.venv` 활성화 + dev extras (pytest·testcontainers·ruff) 설치 후 실행. 통합 테스트는 testcontainers가 TimescaleDB 컨테이너를 자동 spawn하므로 Docker daemon 필요.
+
 ```bash
-pip install -e ".[dev]"   # 최초 1회
-python -m pytest          # 전체 (unit + integration)
+source .venv/bin/activate
+uv pip install -e ".[dev]"   # 최초 1회 (위 IDE 세팅과 같은 venv에 dev extras 추가)
+python -m pytest             # 전체 (unit + integration)
+python -m pytest tests/unit/ # 단위만 — DB 무관, 빠름 (~0.2s)
 ```
 
 실행 명령·설정·Fixture·테스트 작성 패턴은 [docs/operations/testing.md](docs/operations/testing.md).
@@ -192,10 +227,17 @@ Vagrant로 VM 3대(Ubuntu / Rocky Linux / Debian)를 띄우고, 각 VM에서 에
 
 ## 개발 문서
 
-- [`docs/architecture/`](docs/components) — 컴포넌트별 설계·기술 구현 (agent·consumer·db·redis·web)
-- [`docs/operations/`](docs/infra) — 인프라 구성 (Docker·Vagrant)
-- [`docs/operations/pipeline.md`](docs/operations/pipeline.md) — 파이프라인 검증 절차 (Vagrant VM)
-- [`docs/adr/tradeoffs.md`](docs/adr/tradeoffs.md) — 설계 선택으로 인한 트레이드오프 (멱등성·캐시 일관성·시계열 누적 등)
+### 시스템 설계
+- [`docs/architecture/`](docs/architecture) — 컴포넌트별 deep dive (agent·consumer·db·redis·rabbitmq·web)
+- [`docs/operations/`](docs/operations) — 인프라·환경·배포 (docker·vagrant·dev-prod·env·testing·pipeline)
+- [`docs/adr/`](docs/adr) — Architecture Decision Records + 트레이드오프
+
+### 산출물·워크플로우 정의
+- [`docs/assessment-deliverables.md`](docs/assessment-deliverables.md) — JSON Export · USE Method 보고서 양식
+- [`docs/task-agent-workflow.md`](docs/task-agent-workflow.md) — ZConverter Install task 등록·실행 흐름
+- [`docs/ai_roadmap.md`](docs/ai_roadmap.md) — Phase 2~3 분석·추천·LLM 도입 설계
+
+### 핵심 운영 가이드
+- [`docs/operations/pipeline.md`](docs/operations/pipeline.md) — Vagrant VM E2E 검증 절차
+- [`docs/operations/dev-prod.md`](docs/operations/dev-prod.md) — dev/prod 분리 + secret 정책 + 운영 체크리스트
 - [`docs/operations/env.md`](docs/operations/env.md) — 환경변수 전체 키 목록
-- [`docs/operations/dev-prod.md`](docs/operations/dev-prod.md) — dev/prod 환경 전략 + secret 정책 + 운영 체크리스트
-- [`docs/operations/testing.md`](docs/operations/testing.md) — 단위·통합 테스트 실행·설정·작성 패턴

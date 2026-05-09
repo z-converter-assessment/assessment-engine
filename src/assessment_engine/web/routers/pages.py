@@ -50,6 +50,46 @@ async def list_servers(
     )
 
 
+@pages_router.get("/report")
+async def report(
+    request: Request,
+    ids: str = Query(..., description="comma-separated public_id 목록"),
+    period_days: int = Query(14, ge=1, le=90),
+    service: QueryService = Depends(get_service),
+):
+    """Assessment 보고서 — 양식 A(요약) + 양식 B(상세) 한 페이지.
+
+    ids는 query string으로 받음 (선택 N대 → 새 탭). 큰 N이면 URL 길이 한계 — 추후 POST·session.
+    데이터 소스: USE Method 통계 (CPU/MEM p95·peak + swap + load_15m max). 분류는 service 측.
+    """
+    public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
+    server_ids: list[int] = []
+    for pid in public_ids:
+        sid = await service.repo.resolve_server_id(pid)
+        if sid is not None:
+            server_ids.append(sid)
+    if not server_ids:
+        raise HTTPException(status_code=404, detail="no valid server ids")
+
+    rows = await service.get_report(server_ids, period_days)
+
+    # KPI 집계 (양식 A 헤더)
+    total = len(rows)
+    online = sum(1 for r in rows if r.is_online)
+    over = sum(1 for r in rows if r.recommendation == "over_provisioned")
+    under = sum(1 for r in rows if r.recommendation == "under_provisioned")
+
+    return templates.TemplateResponse(
+        request=request,
+        name="servers/report.html",
+        context={
+            "rows": rows,
+            "period_days": period_days,
+            "kpi": {"total": total, "online": online, "over": over, "under": under},
+        },
+    )
+
+
 # ─── server 컨텍스트로 렌더링하는 5개 탭 ───────────────────────────────────
 
 @pages_router.get("/{server_id}")

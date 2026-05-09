@@ -88,7 +88,7 @@ Compose 호출:
 
 ## B1. 메시지 타입 — 엔진 측 결정
 
-3가지 routing key (`server.inventory` / `server.metrics` / `server.error`). 메시지 타입별 필드 카탈로그·공통 메타데이터·서브모델 구조는 `docs/architecture/agent.md` "메시지 타입" 절.
+4가지 routing key (`server.inventory` / `server.metrics` / `server.error` / `task.result`). `task.result`는 agent → engine 작업 결과 보고 (양방향 채널 중 agent → engine 방향). 메시지 타입별 필드 카탈로그·공통 메타데이터·서브모델 구조는 `docs/architecture/agent.md` "메시지 타입" 절.
 
 공통 메타데이터에 `agent_started_at` (에이전트 프로세스 기동 시각) + `boot_time` (시스템 부팅 시각) 포함 — 두 값 비교로 시스템 재부팅 vs 에이전트 재시작 구분. 시계열 4개 테이블 모두에 컬럼으로 영구 보존 (#C1) → metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 boot_time 비교 → 다르면 None 반환(reset 확정), agent_started_at만 다르면 정상 delta(/proc 카운터는 그대로). 둘 다 NULL(옛 데이터)이면 d<0 휴리스틱 fallback. mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 위해 동일 보존.
 
@@ -115,10 +115,26 @@ inventory는 기동 시 1회 + 정적 정보 변경 시 + 1시간 주기 자동 
 | `server.inventory` | `server.inventory` | `server.inventory.dead` | 없음 (one-shot) | 없음 |
 | `server.metrics` | `server.metrics` | `server.metrics.dead` | 72h | 1,000,000 |
 | `server.error` | `server.error` | `server.error.dead` | 300s | 없음 |
+| `task.result` | `task.result` | `task.result.dead` | 24h | 100,000 |
+
+별도 queue 없는 양방향 채널: `server.metrics` 메시지의 `reply_to` (agent 명시 시 `amq.rabbitmq.reply-to` 빌트인 pseudo-queue)로 engine이 task 명령을 reply — RPC piggyback (#B6).
 
 Vhost `/assessment` / Exchange `assessment` (direct, durable) / DLX `assessment.dlx` / prefetch_count 10. dev/prod 공통.
 
 큐 인자 변경 시 broker가 기존 큐 재선언을 PRECONDITION_FAILED로 reject — 큐 삭제 또는 rabbitmq 재생성 후 consumer 재기동 필요. 정책 근거(72h/1M 산정 / DLQ 라우팅 트리거 / 변경 절차) / vhost 권한 모델 / AMQPS·TLS / prod 전환 체크리스트의 단일 진실은 `docs/architecture/rabbitmq.md`.
+
+## B6. Task 명령 — RPC piggyback (engine → agent)
+
+운영자가 web에서 `POST /api/v1/tasks/install` 발행 → DB INSERT(이력) + Redis SET `task:pending:{machine_id}` (hot path 캐시, TTL 24h). agent는 별도 polling 없이 다음 `server.metrics` 발행 시 reply_to·correlation_id를 명시 → consumer가 metrics 처리 후 Redis EXISTS → 있으면 reply publish.
+
+핵심 결정:
+- Reply 채널: `amq.rabbitmq.reply-to` (RabbitMQ 빌트인 pseudo-queue) — 큐 선언·정리 불필요, broker 부하 0
+- Latency = metrics 주기 (즉시 push 아님 — 별도 polling endpoint·task queue 안 만드는 대가)
+- Redis는 hot path 캐시 — 99% no-op 응답을 < 1ms로 흡수, DB 직접 조회 안 함. Redis 장애 시 silent skip (다음 주기 재시도)
+- task_type enum + params 스키마는 engine·agent 합의 — 새 type 도입 시 양쪽 동시 갱신 + agent_version bump
+- 결과 보고는 `task.result` 큐 (agent → engine 단방향). consumer가 DB UPDATE + Redis pending DEL
+
+상세 메시지 스키마·핸들러 흐름·task_type 카탈로그: `docs/architecture/agent.md` "Task RPC piggyback" 절.
 
 ## B4. 계약 진화 정책 (Forward Compatibility)
 

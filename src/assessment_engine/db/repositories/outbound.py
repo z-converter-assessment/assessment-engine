@@ -160,6 +160,54 @@ class MetricSeries:
 # ---------- Reboot / Agent restart 이벤트 (차트 vertical marker용) ----------
 
 @dataclass
+class ReportRow:
+    """Assessment 보고서 한 행 — 서버 1대의 USE Method 통계 + recommendation.
+
+    1차 MVP: CPU p95/peak + MEM p95/peak + swap_used + load_15m max.
+    추후 확장: net_avg_kbps (idle/shutdown 활성), iowait_p95 (Saturation 차원).
+    근거: docs/assessment-deliverables.md "RISK 분류" + docs/ai_roadmap.md §3.B·C.
+    """
+    server_id: int
+    public_id: str
+    hostname: str
+    role: str                   # service_classifier 추론
+    is_online: bool
+    os_display: str
+    kernel_version: str | None
+    internal_ip: str | None
+
+    # USE Method Utilization (p95)
+    cpu_p95_pct: float | None
+    cpu_peak_pct: float | None
+    mem_p95_pct: float | None
+    mem_peak_pct: float | None
+
+    # USE Method Saturation
+    load_15m_max: float | None
+    swap_used: bool
+
+    # 분류 결과 (recommendation.classify 결과)
+    recommendation: str         # idle | shutdown | over_provisioned | under_provisioned | optimal | insufficient_data
+    recommendation_label: str   # 한국어 라벨
+
+
+@dataclass
+class InventoryExportEntry:
+    """정제 inventory JSON 항목 — 자동화 도구(OpenStack/Terraform/SDK) 입력용 표준 스키마.
+
+    벤더 중립 — 특정 vendor flavor 식별자 없음. v1: VM 생성 최소 정보(vcpus·memory·disk·network).
+    상세 정의: docs/assessment-deliverables.md "정제 Inventory JSON" 절.
+    """
+    name: str
+    machine_id: str
+    role: str
+    os: dict           # {"family", "version", "kernel"}
+    compute: dict      # {"vcpus", "memory_mb"}
+    storage: dict      # {"boot_disk_gb", "additional_disks":[{"mount_hint","size_gb","fstype"}]}
+    network: dict      # {"hostname", "internal_ip", "external_ip"}
+
+
+@dataclass
 class RebootEvent:
     """server_inventory_history에서 boot_time / agent_started_at 변경 시점 추출.
 

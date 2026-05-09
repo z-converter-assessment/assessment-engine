@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Infra Assessment Dashboard & Report Example</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --primary: #4f46e5;
+      --primary-dark: #4338ca;
+      --green-bg: #dcfce7;
+      --green-text: #15803d;
+      --yellow-bg: #fef3c7;
+      --yellow-text: #92400e;
+      --blue-bg: #e0e7ff;
+      --blue-text: #3730a3;
+      --red-bg: #fee2e2;
+      --red-text: #b91c1c;
+      --dark: #12162a;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, "Noto Sans KR", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .topbar {
+      height: 56px;
+      background: var(--dark);
+    }
+
+    .container {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 36px 28px 60px;
+    }
+
+    .page-title {
+      margin: 0 0 28px;
+      font-size: 28px;
+      font-weight: 800;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+      overflow: hidden;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 20px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .toolbar-left,
+    .toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    input[type="text"] {
+      height: 42px;
+      min-width: 280px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      font-size: 14px;
+      outline: none;
+      background: #fff;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+    }
+
+    label.check-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 14px;
+      user-select: none;
+    }
+
+    button {
+      height: 42px;
+      padding: 0 16px;
+      border: none;
+      border-radius: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 0.15s ease;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .btn-primary:hover { background: var(--primary-dark); }
+
+    .btn-secondary {
+      background: #eef2ff;
+      color: var(--blue-text);
+    }
+
+    .btn-danger {
+      background: var(--red-bg);
+      color: var(--red-text);
+    }
+
+    .btn-disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 16px 18px;
+      text-align: left;
+      border-bottom: 1px solid #f0f2f6;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    th {
+      color: #7b8496;
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      background: #fbfcff;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    .hostname {
+      color: var(--primary);
+      font-weight: 800;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .badge-online { background: var(--green-bg); color: var(--green-text); }
+    .badge-service { background: var(--blue-bg); color: var(--blue-text); }
+    .badge-cache { background: var(--yellow-bg); color: var(--yellow-text); }
+    .badge-unknown { background: #f1f5f9; color: #64748b; }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .selected-summary {
+      padding: 14px 20px;
+      background: #fbfcff;
+      color: var(--muted);
+      font-size: 14px;
+      border-top: 1px solid var(--line);
+    }
+
+    .architecture {
+      margin-top: 34px;
+    }
+
+    .section-title {
+      font-size: 22px;
+      font-weight: 800;
+      margin: 0 0 16px;
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .flow-card {
+      position: relative;
+      min-height: 150px;
+      padding: 18px;
+      border-radius: 16px;
+      background: #fff;
+      border: 1px solid var(--line);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+    }
+
+    .flow-card h3 {
+      margin: 0 0 10px;
+      font-size: 16px;
+    }
+
+    .flow-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .arrow {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: var(--primary);
+      font-weight: 900;
+      font-size: 22px;
+    }
+
+    .flow-row {
+      display: grid;
+      grid-template-columns: 1fr 40px 1fr 40px 1fr 40px 1fr 40px 1fr;
+      gap: 0;
+      align-items: center;
+    }
+
+    .note {
+      margin-top: 18px;
+      padding: 18px 20px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 14px;
+    }
+
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.48);
+      z-index: 10;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .modal {
+      width: 100%;
+      max-width: 520px;
+      background: #fff;
+      border-radius: 18px;
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
+      overflow: hidden;
+    }
+
+    .modal-header {
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .modal-header h2 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .modal-body {
+      padding: 22px 24px;
+    }
+
+    .modal-body p {
+      color: var(--muted);
+      margin: 0 0 16px;
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    .modal-body input {
+      width: 100%;
+      min-width: unset;
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 18px 24px 24px;
+    }
+
+    .toast {
+      display: none;
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      width: min(460px, calc(100vw - 48px));
+      padding: 16px 18px;
+      background: #111827;
+      color: #fff;
+      border-radius: 14px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+      font-size: 14px;
+      line-height: 1.5;
+      z-index: 20;
+    }
+
+    code {
+      background: #eef2ff;
+      color: #3730a3;
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+
+    @media (max-width: 980px) {
+      .flow-row {
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+      .arrow { transform: rotate(90deg); }
+      .toolbar { align-items: flex-start; flex-direction: column; }
+      input[type="text"] { min-width: 220px; width: 100%; }
+      .toolbar-left, .toolbar-right { width: 100%; }
+    }
+  
+
+    .report-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 34px 0 18px;
+    }
+
+    .tab-card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+    }
+
+    .tab-card h3 {
+      margin: 0 0 8px;
+      font-size: 17px;
+    }
+
+    .tab-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .report-layout {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .report-card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 22px;
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+    }
+
+    .report-card h3 {
+      margin: 0 0 14px;
+      font-size: 18px;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin: 14px 0 18px;
+    }
+
+    .kpi {
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 14px;
+    }
+
+    .kpi span {
+      display: block;
+      color: #94a3b8;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+    }
+
+    .kpi strong {
+      font-size: 22px;
+    }
+
+    .risk-low { color: #15803d; }
+    .risk-mid { color: #92400e; }
+    .risk-high { color: #b91c1c; }
+
+    .mini-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.8;
+    }
+
+    .schema-box {
+      margin-top: 18px;
+      background: #0f172a;
+      color: #e5e7eb;
+      border-radius: 16px;
+      padding: 20px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .schema-box code {
+      background: transparent;
+      color: inherit;
+      padding: 0;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .pill {
+      display: inline-flex;
+      padding: 6px 10px;
+      background: #eef2ff;
+      color: #3730a3;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    @media (max-width: 980px) {
+      .report-tabs,
+      .kpi-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar"></div>
+
+  <main class="container">
+    <h1 class="page-title">서버 목록</h1>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <input id="searchInput" type="text" placeholder="hostname 검색" oninput="filterRows()" />
+          <label class="check-label">
+            <input id="onlineOnly" type="checkbox" onchange="filterRows()" /> 온라인만
+          </label>
+          <button class="btn-primary" onclick="filterRows()">검색</button>
+        </div>
+        <div class="toolbar-right">
+          <button id="installBtn" class="btn-primary btn-disabled" onclick="openInstallModal()" disabled>
+            ZConverter Install
+          </button>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th><input type="checkbox" id="selectAll" onchange="toggleAll(this)" /></th>
+            <th>상태</th>
+            <th>HOSTNAME</th>
+            <th>서비스</th>
+            <th>네트워크</th>
+            <th>OS</th>
+            <th>CORES</th>
+            <th>MEMORY</th>
+          </tr>
+        </thead>
+        <tbody id="serverTableBody">
+          <tr data-hostname="backup-server-01" data-online="true">
+            <td><input class="row-check" type="checkbox" onchange="updateSelected()" /></td>
+            <td><span class="badge badge-online"><span class="dot"></span>온라인</span></td>
+            <td class="hostname">backup-server-01</td>
+            <td><span class="badge badge-unknown">unknown</span></td>
+            <td>내부망</td>
+            <td>debian 12</td>
+            <td>2</td>
+            <td>0.8 GB</td>
+          </tr>
+          <tr data-hostname="app-server-01" data-online="true">
+            <td><input class="row-check" type="checkbox" onchange="updateSelected()" /></td>
+            <td><span class="badge badge-online"><span class="dot"></span>온라인</span></td>
+            <td class="hostname">app-server-01</td>
+            <td><span class="badge badge-service">ssh</span></td>
+            <td>내부망</td>
+            <td>rocky 9.6</td>
+            <td>2</td>
+            <td>0.8 GB</td>
+          </tr>
+          <tr data-hostname="cache-server-01" data-online="true">
+            <td><input class="row-check" type="checkbox" onchange="updateSelected()" /></td>
+            <td><span class="badge badge-online"><span class="dot"></span>온라인</span></td>
+            <td class="hostname">cache-server-01</td>
+            <td><span class="badge badge-cache">cache</span></td>
+            <td>내부망</td>
+            <td>ubuntu 22.04</td>
+            <td>2</td>
+            <td>0.8 GB</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div id="selectedSummary" class="selected-summary">선택된 서버: 0대</div>
+    </section>
+
+    <section class="architecture">
+      <h2 class="section-title">작업 등록 및 Agent 실행 플로우</h2>
+
+      <div class="flow-row">
+        <div class="flow-card">
+          <h3>1. Web UI</h3>
+          <p>서버 체크박스 선택 후 <b>ZConverter Install</b> 버튼 클릭. ZDM 주소를 입력받는다.</p>
+        </div>
+        <div class="arrow">→</div>
+        <div class="flow-card">
+          <h3>2. FastAPI</h3>
+          <p>선택 서버별 task 생성. DB에는 작업 이력, Redis에는 pending task를 등록한다.</p>
+        </div>
+        <div class="arrow">→</div>
+        <div class="flow-card">
+          <h3>3. Redis</h3>
+          <p>선택 서버 기준의 pending task를 Redis에 등록하고 Agent가 이후 주기에서 확인할 수 있도록 한다.</p>
+        </div>
+        <div class="arrow">→</div>
+        <div class="flow-card">
+          <h3>4. Agent</h3>
+          <p>주기적으로 metrics를 MQ에 publish한 뒤 HTTP GET으로 자기 서버의 task 존재 여부를 확인한다.</p>
+        </div>
+        <div class="arrow">→</div>
+        <div class="flow-card">
+          <h3>5. Execute & Report</h3>
+          <p>task가 있으면 curl → tar → install.sh 실행. 결과는 FastAPI 또는 MQ로 보고한다.</p>
+        </div>
+      </div>
+
+      <div class="note">
+        Agent는 주기적으로 metrics 및 상태 정보를 MQ로 전송하고 이후 HTTP GET 기반으로 작업 존재 여부를 확인한다.
+        웹에서는 서버 선택 후 작업을 등록하며 Redis 및 DB를 활용하여 작업 상태와 실행 흐름을 관리하는 구조를 가정한다.
+      </div>
+    </section>
+  
+
+    <section class="architecture">
+      <h2 class="section-title">보고서 산출물 예시</h2>
+
+      <div class="report-tabs">
+        <div class="tab-card">
+          <h3>고객 제출용 보고서</h3>
+          <p>대상 서버 현황, 리소스 사용률, 위험도, 프로비저닝 적정성 요약을 비기술 담당자도 이해하기 쉬운 형태로 제공한다.</p>
+        </div>
+        <div class="tab-card">
+          <h3>엔지니어 검토용 보고서</h3>
+          <p>서버별 OS, Kernel, CPU, Memory, Disk, Network, Filesystem, Load, I/O 수치를 판단 가능한 상세 정보로 제공한다.</p>
+        </div>
+        <div class="tab-card">
+          <h3>정제 Inventory JSON</h3>
+          <p>OpenStack VM 생성, Terraform, 벤더 SDK 연동을 고려해 인벤토리 데이터를 표준화된 JSON 형태로 추출한다.</p>
+        </div>
+      </div>
+
+      <div class="report-layout">
+        <div class="report-card">
+          <h3>고객 제출용 요약 리포트</h3>
+          <div class="kpi-grid">
+            <div class="kpi"><span>대상 서버</span><strong>24</strong></div>
+            <div class="kpi"><span>온라인</span><strong class="risk-low">22</strong></div>
+            <div class="kpi"><span>주의 필요</span><strong class="risk-mid">5</strong></div>
+            <div class="kpi"><span>고위험</span><strong class="risk-high">2</strong></div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>SERVER</th>
+                <th>ROLE</th>
+                <th>OS</th>
+                <th>CPU AVG</th>
+                <th>MEM AVG</th>
+                <th>RISK</th>
+                <th>상태</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="hostname">db-server-01</td>
+                <td>database</td>
+                <td>rocky 9.6</td>
+                <td>87%</td>
+                <td>91%</td>
+                <td><span class="badge badge-cache">high</span></td>
+                <td>검토 필요</td>
+              </tr>
+              <tr>
+                <td class="hostname">app-server-01</td>
+                <td>application</td>
+                <td>ubuntu 22.04</td>
+                <td>28%</td>
+                <td>42%</td>
+                <td><span class="badge badge-online">normal</span></td>
+                <td>정상</td>
+              </tr>
+              <tr>
+                <td class="hostname">backup-server-01</td>
+                <td>backup</td>
+                <td>debian 12</td>
+                <td>4%</td>
+                <td>16%</td>
+                <td><span class="badge badge-unknown">low</span></td>
+                <td>관찰</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <ul class="mini-list" style="margin-top:18px;">
+            <li>Database 계열 서버에서 평균 CPU 및 Memory 사용률이 높게 관찰됨.</li>
+            <li>일부 서버는 장기간 낮은 사용률을 보이며 향후 프로비저닝 조정 검토 가능.</li>
+            <li>현재 보고서는 현황 분석 및 리소스 사용률 기반의 평가 중심으로 구성.</li>
+            <li>향후 확장 단계에서는 권장 Flavor, vCPU, Memory 추천 기능 추가 가능.</li>
+          </ul>
+
+          <div class="pill-row">
+            <span class="pill">현황 분석</span>
+            <span class="pill">리소스 사용률</span>
+            <span class="pill">위험도 분류</span>
+            <span class="pill">프로비저닝 검토</span>
+          </div>
+        </div>
+
+        <div class="report-card">
+          <h3>엔지니어 검토용 상세 리포트</h3>
+
+          <table>
+            <thead>
+              <tr>
+                <th>SERVER</th>
+                <th>ROLE</th>
+                <th>INTERNAL IP</th>
+                <th>OS / KERNEL</th>
+                <th>CPU</th>
+                <th>MEM</th>
+                <th>LOAD</th>
+                <th>I/O WAIT</th>
+                <th>DISK I/O</th>
+                <th>판단</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="hostname">db-server-01</td>
+                <td>database</td>
+                <td>10.0.2.15</td>
+                <td>rocky 9.6 / 5.14.el9</td>
+                <td>100%</td>
+                <td>93.3%</td>
+                <td>3.60</td>
+                <td>0.7%</td>
+                <td>294657 KB/s</td>
+                <td><span class="badge badge-cache">DB 병목 검토</span></td>
+              </tr>
+              <tr>
+                <td class="hostname">app-server-01</td>
+                <td>application</td>
+                <td>10.0.2.20</td>
+                <td>ubuntu 22.04 / 6.8</td>
+                <td>12%</td>
+                <td>41%</td>
+                <td>0.21</td>
+                <td>0.1%</td>
+                <td>normal</td>
+                <td><span class="badge badge-online">정상</span></td>
+              </tr>
+              <tr>
+                <td class="hostname">backup-server-01</td>
+                <td>backup</td>
+                <td>10.0.2.30</td>
+                <td>debian 12 / 6.1</td>
+                <td>4%</td>
+                <td>18%</td>
+                <td>0.02</td>
+                <td>0.0%</td>
+                <td>low</td>
+                <td><span class="badge badge-unknown">저사용률</span></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="note">
+            엔지니어용 보고서는 단순 평균 사용률이 아닌 OS, Kernel, IP, Load Average, I/O Wait, Filesystem 및 Interface Traffic 기반으로 병목 구간과 비정상 패턴을 판단할 수 있도록 구성한다.
+            향후에는 Hypervisor, RAID, Multipath, Container Runtime, Mount 정보까지 확장 가능하도록 고려한다.
+          </div>
+        </div>
+      </div>
+
+      <div class="report-card" style="margin-top:18px;">
+        <h3>정제 Inventory JSON 예시</h3>
+        <div class="note" style="margin-top:0; margin-bottom:16px;">
+          선택된 서버들의 인벤토리 정보를 VM 생성 가능한 형태로 정제하여 JSON 파일로 추출하는 예시이다.
+          추출된 JSON은 이후 OpenStack, KVM, Public Cloud 또는 Terraform/SDK 기반 자동화 영역으로 확장 가능하도록 활용할 수 있다.
+          현재 단계에서는 특정 벤더 종속 구조보다는 VM 생성에 필요한 최소 인벤토리 데이터 중심으로 구성한다.
+        </div>
+
+        <div class="schema-box"><pre><code>{
+  "inventory_export": {
+    "generated_at": "2026-04-30T11:07:20Z",
+    "servers": [
+      {
+        "name": "db-server-01",
+        "role": "database",
+        "os": {
+          "family": "rocky",
+          "version": "9.6"
+        },
+        "compute": {
+          "vcpus": 2,
+          "memory_mb": 1024
+        },
+        "storage": {
+          "boot_disk_gb": 64,
+          "additional_disks": []
+        },
+        "network": {
+          "hostname": "db-server-01",
+          "internal_ip": "10.0.2.15"
+        }
+      },
+      {
+        "name": "app-server-01",
+        "role": "application",
+        "os": {
+          "family": "ubuntu",
+          "version": "22.04"
+        },
+        "compute": {
+          "vcpus": 4,
+          "memory_mb": 4096
+        },
+        "storage": {
+          "boot_disk_gb": 120,
+          "additional_disks": [
+            {
+              "mount_hint": "/data",
+              "size_gb": 500
+            }
+          ]
+        },
+        "network": {
+          "hostname": "app-server-01",
+          "internal_ip": "10.0.2.20"
+        }
+      }
+    ]
+  }
+}</code></pre></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="modalBackdrop" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>ZConverter Install 작업 등록</h2>
+      </div>
+      <div class="modal-body">
+        <p>
+          선택한 서버에 설치 작업을 등록합니다. Agent는 다음 주기에서 HTTP GET으로 해당 서버의 task를 확인하고,
+          작업이 있으면 지정된 ZDM 주소를 기준으로 설치 스크립트를 수행합니다.
+        </p>
+        <input id="zdmIp" type="text" placeholder="ZDM 주소 입력 예: 192.168.0.3" />
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeInstallModal()">취소</button>
+        <button class="btn-primary" onclick="registerTask()">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    function getVisibleRows() {
+      return Array.from(document.querySelectorAll('#serverTableBody tr'))
+        .filter(row => row.style.display !== 'none');
+    }
+
+    function getSelectedRows() {
+      return Array.from(document.querySelectorAll('#serverTableBody tr'))
+        .filter(row => row.querySelector('.row-check').checked);
+    }
+
+    function updateSelected() {
+      const selected = getSelectedRows();
+      const installBtn = document.getElementById('installBtn');
+      document.getElementById('selectedSummary').textContent = `선택된 서버: ${selected.length}대`;
+      installBtn.disabled = selected.length === 0;
+      installBtn.classList.toggle('btn-disabled', selected.length === 0);
+    }
+
+    function toggleAll(source) {
+      getVisibleRows().forEach(row => {
+        row.querySelector('.row-check').checked = source.checked;
+      });
+      updateSelected();
+    }
+
+    function filterRows() {
+      const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
+      const onlineOnly = document.getElementById('onlineOnly').checked;
+      const rows = Array.from(document.querySelectorAll('#serverTableBody tr'));
+
+      rows.forEach(row => {
+        const hostname = row.dataset.hostname.toLowerCase();
+        const online = row.dataset.online === 'true';
+        const matched = hostname.includes(keyword) && (!onlineOnly || online);
+        row.style.display = matched ? '' : 'none';
+      });
+
+      document.getElementById('selectAll').checked = false;
+      updateSelected();
+    }
+
+    function openInstallModal() {
+      if (getSelectedRows().length === 0) return;
+      document.getElementById('modalBackdrop').style.display = 'flex';
+      document.getElementById('zdmIp').focus();
+    }
+
+    function closeInstallModal() {
+      document.getElementById('modalBackdrop').style.display = 'none';
+      document.getElementById('zdmIp').value = '';
+    }
+
+    function isValidIPv4(value) {
+      const regex = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+      return regex.test(value);
+    }
+
+    function registerTask() {
+      const zdmIp = document.getElementById('zdmIp').value.trim();
+      const selected = getSelectedRows();
+
+      if (!isValidIPv4(zdmIp)) {
+        showToast('ZDM 주소 형식이 올바르지 않습니다. 예: 192.168.0.3');
+        return;
+      }
+
+      const tasks = selected.map(row => ({
+        target_server: row.dataset.hostname,
+        task_type: 'zconverter_install',
+        zdm_ip: zdmIp,
+        status: 'pending'
+      }));
+
+      console.log('POST /api/tasks/install payload:', tasks);
+      closeInstallModal();
+      showToast(`${selected.length}대 서버에 install task를 등록했습니다.`);
+    }
+
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.style.display = 'block';
+      setTimeout(() => { toast.style.display = 'none'; }, 4200);
+    }
+  </script>
+</body>
+</html>
