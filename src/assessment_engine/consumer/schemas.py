@@ -25,7 +25,7 @@ class DiskInfo(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     size_bytes: int | None = Field(default=None, ge=0)
     type: str | None = Field(default=None, max_length=32)
-    # Linux 디바이스 식별 표준 (POSIX). mount↔disk 조인 키.
+    # Linux 디바이스 식별 표준 (POSIX). mount-disk 조인 키.
     # 옛 에이전트 호환 위해 옵셔널.
     major: int | None = Field(default=None, ge=0)
     minor: int | None = Field(default=None, ge=0)

@@ -6,6 +6,8 @@ public_id resolve + 404 분기를 직접 다루지 않는다.
 5개 detail 탭(detail/cpu/memory/services/performance)이 동일 흐름이라 `_render_server_tab` helper로
 중복 제거. 다른 service 메서드를 쓰는 storage/network는 별도 핸들러.
 """
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from assessment_engine.web.deps import get_service, resolve_internal_id
@@ -43,17 +45,27 @@ async def list_servers(
     service: QueryService = Depends(get_service),
 ):
     servers = await service.list_servers(page, limit, search, is_online)
-    # 첫 페이지 + 검색·필터 미사용일 때만 risk_top·attention 노출 (검색 결과 화면에서 무관)
-    risk_top = []
+    # 첫 페이지 + 검색·필터 미사용일 때만 환경 요약·신호 노출 (검색 결과 화면에서 무관)
+    overview = None
     attention = None
     if page == 1 and not search and is_online is None:
-        risk_top = await service.get_risk_top(limit=3)
+        overview = await service.get_environment_overview()
         attention = await service.get_attention_signals()
     return templates.TemplateResponse(
         request=request,
         name="servers/list.html",
-        context={"servers": servers, "risk_top": risk_top, "attention": attention},
+        context={
+            "servers": servers,
+            "overview": overview,
+            "attention": attention,
+        },
     )
+
+
+_REPORT_VIEW_TITLES: dict[str, str] = {
+    "customer": "고객 제출용 (양식 A)",
+    "engineer": "엔지니어 검토용 (양식 B)",
+}
 
 
 @pages_router.get("/report")
@@ -61,11 +73,12 @@ async def report(
     request: Request,
     ids: str = Query(..., description="comma-separated public_id 목록"),
     period_days: int = Query(14, ge=1, le=90),
+    view: Literal["customer", "engineer"] = Query("customer", description="고객용(A) / 엔지니어용(B) 분기"),
     service: QueryService = Depends(get_service),
 ):
-    """Assessment 보고서 — 양식 A(요약) + 양식 B(상세) 한 페이지.
+    """Assessment 보고서 — view 파라미터로 양식 A/B 분기 (한 endpoint, 같은 SQL).
 
-    ids는 query string으로 받음 (선택 N대 → 새 탭). 큰 N이면 URL 길이 한계 — 추후 POST·session.
+    ids는 query string으로 받음 (선택 N대 -> 새 탭). 큰 N이면 URL 길이 한계 — 추후 POST·session.
     데이터 소스: USE Method 통계 (CPU/MEM p95·peak + swap + load_15m max). 분류는 service 측.
     """
     public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
@@ -78,7 +91,11 @@ async def report(
     return templates.TemplateResponse(
         request=request,
         name="servers/report.html",
-        context={"summary": summary},
+        context={
+            "summary": summary,
+            "view": view,
+            "view_title": _REPORT_VIEW_TITLES[view],
+        },
     )
 
 

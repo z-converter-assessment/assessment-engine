@@ -1,6 +1,6 @@
 # DB DTO 카탈로그
 
-Repository ↔ Service 경계 dataclass. ORM 모델 직접 노출 안 함.
+Repository - Service 경계 dataclass. ORM 모델 직접 노출 안 함.
 
 ## Inbound DTO (`inbound.py`) — Service → Repository
 

@@ -11,8 +11,8 @@ description: TRIGGER when user requests test writing for current/specified file 
 
 1. 대상 파일 Read.
 2. 레이어 결정:
-   - DB·Redis·외부 의존 없음(단순 함수·dataclass·계산) → **unit** (`tests/unit/`)
-   - Repository / DB query / Schema 통합 → **integration** (`tests/integration/`)
+   - DB·Redis·외부 의존 없음(단순 함수·dataclass·계산) -> unit (`tests/unit/`)
+   - Repository / DB query / Schema 통합 -> integration (`tests/integration/`)
    - 라우터·E2E → 별도 (E2E는 Vagrant 검증, pytest 범위 외)
 3. `tests/{layer}/`에서 비슷한 파일이 이미 있는지 확인 → 있으면 그 패턴 그대로 따름. 없으면 새 파일.
 4. 픽스처는 `tests/conftest.py` / `tests/integration/conftest.py`에서 가져옴. 새로 만들지 말 것.

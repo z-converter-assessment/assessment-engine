@@ -48,15 +48,15 @@
     display: inline-block;
   }
 </style>
-<a class="back no-print" href="/servers/">← 서버 목록</a>
+<a class="back no-print" href="/servers/">← 대시보드</a>
 
 <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
   <h1 style="margin:0;">{{ server.hostname }}</h1>
   <span id="online-badge" class="badge no-print" style="font-size:12px;">
     <span class="dot dot-off"></span>확인 중...
   </span>
-  <a href="/servers/{{ server.public_id }}/performance" class="no-print" style="margin-left:auto; display:inline-flex; align-items:center; gap:7px; padding:8px 18px; background:#334155; color:#fff; border-radius:7px; font-size:13px; font-weight:600; letter-spacing:.01em; text-decoration:none; box-shadow:0 1px 3px rgba(0,0,0,.15); transition:background .15s, box-shadow .15s;" onmouseover="this.style.background='#475569'; this.style.boxShadow='0 3px 8px rgba(0,0,0,.22)'" onmouseout="this.style.background='#334155'; this.style.boxShadow='0 1px 3px rgba(0,0,0,.15)'">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+  <a href="/servers/{{ server.public_id }}/performance" class="no-print" style="margin-left:auto; display:inline-flex; align-items:center; gap:6px; padding:7px 16px; border:1px solid #e2e8f0; border-radius:6px; background:#fff; color:#374151; font-size:13px; font-weight:500; text-decoration:none; box-shadow:0 1px 2px rgba(0,0,0,.06); transition:background .12s, box-shadow .12s;" onmouseover="this.style.background='#f8fafc'; this.style.boxShadow='0 2px 6px rgba(0,0,0,.10)'" onmouseout="this.style.background='#fff'; this.style.boxShadow='0 1px 2px rgba(0,0,0,.06)'">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
     성능 리포트
   </a>
 </div>
@@ -97,7 +97,7 @@
     <dt>Storage</dt>
     <dd>
       {{ server.disk_total_gb | disksize }}
-      <span style="color:#94a3b8; font-size:12px; margin-left:4px;">({{ server.disks | length }}개 디바이스)</span>
+      <span style="color:#94a3b8; font-size:12px; margin-left:4px;">({{ server.disks_count }}개 디바이스)</span>
     </dd>
     <dd style="grid-column: 1 / -1;">
       <table style="margin:0;">
@@ -402,9 +402,8 @@ function renderMetrics(d) {
   show('metrics-content');
 
   if (d.collected_at) {
-    const _d = new Date(d.collected_at);
-    const _kst = new Date(_d.getTime() + 9 * 60 * 60 * 1000);
-    el('metrics-ts').textContent = '수집: ' + _kst.toISOString().replace('T', ' ').slice(0, 19);
+    // F2: KST 변환은 ChartUtils.fmtKst 단일 경계
+    el('metrics-ts').textContent = '수집: ' + ChartUtils.fmtKst(d.collected_at);
   }
 
   /* CPU */

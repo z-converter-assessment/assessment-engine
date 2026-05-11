@@ -14,7 +14,7 @@ src/assessment_engine/consumer/
 
 ## schemas.py — 에이전트 메시지 계약
 
-에이전트(C99)가 RabbitMQ로 발행하는 3가지 메시지 타입의 파싱·검증 계약.
+에이전트(C99)가 RabbitMQ로 발행하는 4가지 메시지 타입의 파싱·검증 계약.
 `model_validate_json(raw)` 한 번으로 파싱·타입 검증이 동시에 일어난다.
 
 ### 공통 메타데이터 (MessageBase)
@@ -26,10 +26,12 @@ src/assessment_engine/consumer/
 | `collected_at` | `datetime` | 수집 시각 (ISO 8601 UTC) |
 | `hostname` | `str` (max 255) | 보조 식별자. 가변이므로 식별 기준으로 사용 안 함 |
 | `message_id` | `UUID` | 멱등성 키 (UUID v4) |
+| `agent_started_at` | `datetime` | 에이전트 프로세스 시작 시각 (v4부터 공통 메타) |
+| `boot_time` | `datetime` | 시스템 부팅 시각 (v4부터 공통 메타 — inventory 본문 필드에서 격상). 시계열 4테이블 컬럼으로 보존 |
 
-### InventoryInput — `server.inventory` (기동 시 1회)
+### InventoryInput — `server.inventory` (기동 시 1회 + 1시간 주기 자동 재발행 + 정적 정보 변경 시)
 
-정적 인프라 정보. OS·kernel·CPU·메모리/스왑 총량, `disks[]`, `mounts[]`, IP, `boot_time`, `services[]`, `listen_ports[]`.
+정적 인프라 정보. OS·kernel·CPU·메모리/스왑 총량, `disks[]`, `mounts[]`, IP, `services[]`, `listen_ports[]`.
 
 서브모델:
 - `DiskInfo`: 물리 디스크 1개 (`name`, `size_bytes`, `type`)
@@ -61,13 +63,26 @@ src/assessment_engine/consumer/
 
 파싱 후 로깅만 수행. DB 저장 없음. 재시도 요약 옵셔널 필드는 스키마 v3 (`payload-schema.md` "발행 정책") 참조.
 
+### TaskResultInput — `task.result` (agent → engine, 작업 결과 보고)
+
+운영자가 등록한 작업(현재 `zconverter_install`) 실행 결과를 보고. routing key `task.result`.
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `message_type` | `Literal["task_result"]` | 메시지 타입 식별 |
+| `task_public_id` | `UUID` | engine이 RPC reply에 담아 보낸 값을 그대로 회신 (correlation 식별자) |
+| `status` | `Literal["success", "failed"]` | 실행 결과 |
+| `result_message` | `str \| None` (max 4000) | 실패 사유·로그 요약. success도 채울 수 있음. 초과 시 truncate |
+
+엔진 처리: 멱등성 -> DB UPDATE(`tasks.status`/`completed_at`/`result_message`) -> Redis `task:pending:{machine_id}` DEL. `task_public_id` 미존재 시 silent ack (운영자가 task 삭제했을 가능성, DLQ 부적합).
+
 ### Pydantic Field 제약
 
 | 인자 | 의미 |
 |------|------|
 | `min_length` / `max_length` | 문자열 길이 제한 |
-| `ge` | greater or equal (≥) — 숫자 하한 |
-| `gt` | greater than (>) — 0 초과 |
+| `ge` | greater or equal (`>=`) — 숫자 하한 |
+| `gt` | greater than (`>`) — 0 초과 |
 | `default` | 필드 누락 시 기본값 |
 | `default_factory=list` | 리스트 기본값. `default=[]` 쓰면 인스턴스 간 객체 공유 버그 |
 
@@ -104,10 +119,17 @@ DB 저장 (지수 백오프 재시도, _db_retry)
 2. DELETE cache:metrics:{server_id}      — 캐시 즉시 무효화
 3. PUBLISH metrics.events {...}          — 브라우저 SSE 트리거
 4. _track_agent_restart                  — 직전 agent_started_at과 비교, 변경 시 1h 슬라이딩 카운터 INCR. threshold 도달 시 warning
+5. _reply_pending_task_if_any            — Task RPC piggyback: message.reply_to 있고 Redis task:pending:{machine_id} GET 성공 시 reply publish (correlation_id 회신, NOT_PERSISTENT). agent reply_to 미명시 시 no-op (옛 agent 호환)
 ```
 
 ### error 후처리
 없음. 파싱 + 멱등성 + 로깅만 (재시도 컨텍스트 `retry_count`/`first_failed_at`/`recovered_at` 포함).
+
+### task_result 후처리
+```
+1. DB UPDATE — complete_task(public_id, status, result_message). public_id 미존재 시 silent ack
+2. DELETE task:pending:{machine_id}    — agent가 같은 task 재요청 안 하도록. 성공/실패 분기 무관 동일 처리
+```
 
 ### 미등록 서버 metrics — auto-register
 metrics 핸들러는 `repo.ensure_server_id(machine_id, placeholder)`로 한 번에 처리 — find 실패 시 fallback placeholder 사용. `(server_id, auto_registered)` 튜플 반환으로 handler가 auto-register 시점만 운영 로그를 남김.
@@ -177,11 +199,9 @@ RabbitMQ 전용 비동기 클라이언트. AMQP 0-9-1 프로토콜만 지원.
 
 ## 설계 결정
 
-### 멱등성: 2단 방어 (at-most-once)
+### 멱등성: 2단 방어
 
-1단 — Redis 키: `SET idempotent:{message_id} 1 EX 86400 NX`. 24h 동안 동일 message_id 재전송을 가장 빠르게 차단.
-
-2단 — DB UNIQUE 제약: 시계열 4개 테이블에 자연키 UNIQUE + `pg_insert(...).on_conflict_do_nothing(index_elements=...)` 적용. Redis 키 만료·evict·재시작·수동 flush로 1단이 깨져도 DB 레벨에서 중복 INSERT가 silent no-op으로 흡수된다.
+정책 단일 진실: CLAUDE.md #D2 (1단 Redis fail-open + 2단 DB UNIQUE). 본 절은 시계열 자연키 카탈로그만 (#D2가 의존하는 UNIQUE 보존 의무 — 누락 시 멱등성 깨짐).
 
 | 테이블 | 자연키 |
 |--------|-------|
@@ -190,18 +210,7 @@ RabbitMQ 전용 비동기 클라이언트. AMQP 0-9-1 프로토콜만 지원.
 | `server_net_io` | `(server_id, interface, collected_at)` |
 | `server_mount_usage` | `(server_id, mount, collected_at)` |
 
-at-most-once 트레이드오프: SET NX는 DB 커밋 이전에 실행. 커밋 전 프로세스 크래시 시 RabbitMQ 재전송 메시지가 중복으로 판정되어 조용히 드롭됨. DB UNIQUE로도 해결 못 함 — 1단이 먼저 차단하기 때문. exactly-once가 필요하면 outbox 패턴으로 전환해야 한다 (`docs/adr/tradeoffs.md`).
-
-### Redis: 멱등성 체크 critical path 포함
-
-Redis 장애 시 멱등성 체크 예외 → nack → DLQ. fail-open(장애 시 체크 생략)으로 바꾸면 중복 처리 가능성이 생긴다. Redis는 캐시·PUB/SUB·온라인 TTL로 이미 hard dependency이므로 새로운 단일 장애점이 추가되는 구조가 아니다.
-
-### 미등록 서버 메트릭 — auto-register (drop 0)
-
-inventory 처리 전 metrics가 도달하면(레이스 컨디션, DB 초기화 후 inventory 미수신, inventory DLQ 등) 이전엔 metrics drop이었으나, 현재는 placeholder inventory 자동 생성으로 처리 (`handler.py` + `mappers.placeholder_inventory_from_metrics`). 정적 정보는 None/빈 배열로 채우고 다음 진짜 inventory 도착 시 upsert가 풀 정보로 덮어씀.
-
-장점: metrics 시계열 손실 0. inventory의 one-shot 약점 해소. 에이전트 변경 없이 엔진 단독 처리.
-한계: placeholder 상태 동안 web UI에 OS/CPU/메모리 등 정적 정보 미표시 — 다음 inventory 도착 시 자동 채워짐. 에이전트 정상 운영 시 분 단위 짧음.
+at-most-once 한계·outbox 대안: `docs/tradeoffs.md` T1.
 
 ### inventory 수신 시 online 즉시 마킹
 
@@ -211,11 +220,7 @@ upsert 성공 후 `SET online:{server_id} EX 90`. 첫 메트릭 수신 전(최�
 
 `free_bytes`, `avail_bytes`가 스키마에 있으나 `src/assessment_engine/consumer/mappers.py:to_inventory_create`에서 명시적으로 drop된다 (`{"mount": ..., "fstype": ..., "total_bytes": ...}`만 매핑). 인벤토리에는 정적 정보만 저장하고, 동적 사용량은 metrics 메시지의 `mounts[]` → `server_mount_usage` 시계열 테이블로 분리한다.
 
-스키마 v3에 추가된 `disks[].major/minor`, `mounts[].major/minor`, `disk_io[].major/minor`도 Pydantic `extra=ignore`로 통과 후 사용 안 한다. 활용·제거 결정은 다음 agent_version 협의 시점.
-
-### metrics 공통 메타 — boot_time / agent_started_at
-
-이전엔 metrics 메시지의 `boot_time`/`agent_started_at`을 mapper에서 무시했으나, 현재는 `to_metric_create`가 `ServerMetricCreate`에 매핑 + `record_metrics`가 시계열 4개 테이블 모두에 함께 저장. metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 비교로 시스템 재부팅 시 delta 건너뛰기 (CLAUDE.md B1). 차트 SQL(`_chart_cpu_delta` / `_chart_rate_per_dimension`)도 동일 정책 적용 — `LAG(boot_time)` 추출 후 CASE에서 reset 식별. mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅 단일 테이블 SELECT 위해 보존. 옛 데이터(컬럼 NULL)는 d<0 휴리스틱 fallback. 활용 카탈로그는 `agent.md` "활용 중인 필드" 표 참조.
+`disks[].major/minor`와 inventory `mounts[].major/minor`는 v3 이후 mount-disk 조인 키로 활용 중 (`web/services/device_filters.find_parent_disk`, mapper의 `MountUsageItem.device_name` 채움). 반면 metrics `mounts[].major/minor`·`disk_io[].major/minor`는 시계열 테이블에 컬럼 없어 Pydantic `extra=ignore`로 통과 후 미저장 — 정확한 활용 카탈로그는 `agent.md` "활용 중인 필드" / "엔진이 받지만 사용하지 않는 필드" 표.
 
 ### 부가 시그널 — 운영 가시성
 

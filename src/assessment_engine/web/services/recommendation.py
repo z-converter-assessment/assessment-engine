@@ -1,7 +1,6 @@
 """Right-sizing 분류 — USE Method (Brendan Gregg) + 공식 cloud advisor 임계값.
 
-전체 근거: docs/ai_roadmap.md §3.B (USE Method) + §3.C (룰 기반 추천 엔진).
-deliverables.md §5 "RISK 분류" 표 참조.
+분류 enum: idle / shutdown / over_provisioned / under_provisioned / optimal.
 
 UI badge 임계값(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인:
 - mapper 90/75 = 시점 사용량 시각 신호 (위험·주의·정상)
@@ -10,7 +9,7 @@ UI badge 임계값(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도�
 from dataclasses import dataclass
 from typing import Literal
 
-# ─── 임계값 (모두 ai_roadmap.md §3.C 출처. 변경 시 양쪽 동기화) ─────────────
+# ─── 임계값 ─────────────
 
 # 관찰 윈도우 — AWS Compute Optimizer 기본값
 WINDOW_DAYS = 14
@@ -68,12 +67,12 @@ def classify(stats: ResourceStats) -> Recommendation:
            and stats.cpu_peak_pct <= IDLE_CPU_PEAK_PCT \
            and stats.net_avg_kbps <= IDLE_NET_KBPS:
             return "idle"
-        # net_avg_kbps(KB/s) → Mbps 변환: × 8 / 1000
+        # net_avg_kbps(KB/s) → Mbps 변환: x 8 / 1000
         if stats.cpu_p95_pct <= SHUTDOWN_CPU_P95_PCT \
            and (stats.net_avg_kbps * 8 / 1000) <= SHUTDOWN_NET_MBPS:
             return "shutdown"
 
-    # Swap 사용 = 메모리 부족 신호 → 업사이즈로 short-circuit (ai_roadmap.md §3.C 판정 순서)
+    # Swap 사용 = 메모리 부족 신호 → 업사이즈로 short-circuit
     if stats.swap_used:
         return "under_provisioned"
 

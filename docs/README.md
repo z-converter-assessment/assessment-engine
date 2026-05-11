@@ -11,7 +11,7 @@
 | 특정 컴포넌트가 어떻게 동작하나 (consumer / web / db / redis / rabbitmq / agent) | `architecture/` |
 | 어떻게 띄우고·배포하고·검증하나 (Docker / Vagrant / dev·prod 분리 / env / testing / E2E pipeline) | `operations/` |
 | 왜 그렇게 결정했나 (의사결정 기록) | `adr/` |
-| 의식적 트레이드오프와 한계 (T1~T11) | `adr/tradeoffs.md` |
+| 의식적 트레이드오프와 한계 (T1~T11) | `docs/tradeoffs.md` (루트) |
 | 협의·미팅 메모 (임시) | `meetings/` |
 
 ## 디렉토리
@@ -22,11 +22,13 @@ docs/
 ├── architecture/          컴포넌트별 deep dive (영구·갱신)
 │   ├── agent.md           에이전트 메시지 스키마·포트 수집·디스크 필터링
 │   ├── consumer.md        schemas / handler / main / 멱등성 / 재시도
-│   ├── db.md              ORM 모델 / DTO / Repository / TimescaleDB
 │   ├── rabbitmq.md        vhost·권한 모델 / 토폴로지 / dev·prod 분기
 │   ├── redis.md           키 설계 / TTL / PUB/SUB / 멱등성 / 캐시 무효화 / mget
-│   └── web.md             레이어 원칙 / 서비스 모듈 / ViewModel / Jinja2 / 차트 UI
+│   ├── db/                models / dtos / repositories / timescaledb (4분할)
+│   ├── web/               layering / routers / services / view-models / static-assets (5분할)
+│   └── inventory-export.md  정제 Inventory JSON Export 스키마·정제 원칙·자동화 도구 매핑 (v2)
 ├── operations/            운영·환경·검증 (영구·갱신)
+│   ├── alembic.md         PROD schema 마이그레이션 (Alembic) — DEV create_all 보완
 │   ├── dev-prod.md        dev/prod 환경 전략 + secret 정책 + 운영 체크리스트
 │   ├── docker.md          Dockerfile / docker-compose (볼륨·헬스체크·기동·env)
 │   ├── env.md             환경변수 전체 키 카탈로그
@@ -36,8 +38,9 @@ docs/
 ├── adr/                   Architecture Decision Records (영구·불변)
 │   ├── README.md          ADR 인덱스
 │   ├── 0001-redis-decoupling.md
-│   └── tradeoffs.md       의식적 설계 선택과 한계 (T1~T11)
-└── meetings/              협의·메모 (임시, 현재 비어있음)
+│   └── 0002-task-rpc-piggyback-vs-polling.md
+├── tradeoffs.md           의식적 설계 선택과 한계 (T1~T11) — ADR 형식 아닌 카탈로그
+└── meetings/              협의·메모 (임시)
 ```
 
 ## 라이프사이클 규약

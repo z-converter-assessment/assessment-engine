@@ -38,21 +38,18 @@ Consumer / Web 양쪽 별도 인터페이스 — `BaseCollectRepository` / `Base
 
 ### 타입 별칭 (`base_query_repository.py`)
 - `MetricType` Literal — 17개 chart metric
-- `TimeRange` Literal — 15m/1h/6h/24h/7d/30d
-- `BucketSize` Literal — 1m/5m/15m/30m/1h/3h/12h/1d
+- `TimeRange` Literal — 15m/1h/6h/24h/7d/14d/30d. 14d는 right-sizing 윈도우(`recommendation.WINDOW_DAYS`)와 동일 — F15 단일 진실
+- `BucketSize` Literal — 1m/5m/15m/30m/1h/3h/6h/12h/1d. 6h는 14d 토글 자동 매핑용
 - `AggFunc` Literal — avg/max/p95
-- `TIME_RANGE_TD` — TimeRange → timedelta 매핑 (repo·service 공유)
+- `TIME_RANGE_TD` — TimeRange -> timedelta 매핑 (repo·service 공유)
+- 신규 range·bucket 추가 시 backend Literal·`_BUCKET_INFO`·`chart-utils.js` `RANGE_LABEL`/`AUTO_BUCKET`/`BUCKET_LABEL`/`RANGE_MS`/`BUCKET_MS`·UI 토글 4곳 동시 갱신 의무 (F15)
 
 ### `list_servers` 부분 SELECT 정책
-`select(ServerInventory)` 풀 row 대신 11컬럼 명시. `mounts`/`listen_ports` JSONB는 페이지당 N행에서 직렬화 비용 큼 + 목록 미사용. 트레이드오프: `docs/adr/tradeoffs.md` T8.
+`select(ServerInventory)` 풀 row 대신 11컬럼 명시. `mounts`/`listen_ports` JSONB는 페이지당 N행에서 직렬화 비용 큼 + 목록 미사용. 트레이드오프: `docs/tradeoffs.md` T8.
 
 ## INSERT 통일 — `pg_insert` + `on_conflict_do_nothing`
 
-시계열 4테이블 모두 동일 패턴. 멱등성 2단 방어 (#D2):
-- 1단: Redis `idempotent:{message_id}` SET NX
-- 2단: 자연키 UNIQUE + `ON CONFLICT DO NOTHING`
-
-Redis 장애·키 만료·broker 재전송 어떤 경우에도 silent no-op 흡수.
+시계열 4테이블 모두 동일 패턴 적용 (CLAUDE.md #D2 2단 방어). 자연키 카탈로그는 `docs/architecture/redis.md` "멱등성 — 시계열 자연키 카탈로그" 절.
 
 ## `.returning()` + `scalar_one`
 

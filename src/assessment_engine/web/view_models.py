@@ -54,29 +54,10 @@ class ServerListItem:
     known_services: list[ServiceItem] = field(default_factory=list)
     show_unknown_badge: bool = False
     os_display: str = ""
-
-
-@dataclass
-class RiskServerItem:
-    """리스크 상위 서버 — list 화면 카드 섹션. 24h USE 통계 + 디스크 latest 기반.
-
-    risk_score: 정렬 기준 (높을수록 위험). 위험 분기 100/95/90/85/60/55 고정값,
-                정상 분기는 max(cpu, mem, disk_max). 카드 헤더에 정렬 근거로 표시.
-    primary_concern: 한국어 라벨 (카드 상단 배지) — "오프라인" / "스왑 활성" / "MEM p95 92%" / "정상" 등.
-    badge_class: recommendation.py BADGE_CLASS와 같은 CSS 패밀리(`rec-{...}`).
-    cpu/mem/disk_max_pct: 카드 안 도넛 3개(CPU/MEM/DISK) 채움. None은 회색 도넛 + "—" 표시.
-    """
-    public_id: str
-    hostname: str
-    risk_score: float          # 정렬 기준 + 카드 헤더 게이지 채움
-    risk_score_color: str      # 게이지 바 색상 — 임계(≥85 빨강 / ≥55 노랑 / 그 외 초록), mapper 단일 결정 (P3)
-    primary_concern: str       # "오프라인" | "스왑 활성" | "MEM p95 92%" 등
-    badge_class: str           # rec-under_provisioned / rec-right_size 등
-    cpu_p95_pct: float | None
-    mem_p95_pct: float | None
-    disk_max_pct: float | None  # 서버별 mount latest 중 max 사용률
-    swap_used: bool
-    is_online: bool
+    # 권장 조치 — 14일 USE Method 분류. 색은 도넛 _DONUT_SEGMENT_DEFS와 동기화. mapper 단일 결정 (P2).
+    # raws_period 부재 시 빈 문자열 (도넛/분류 데이터 없음 — 페이지 2+ 또는 신규 등록 직후).
+    recommendation_label: str = ""
+    recommendation_color: str = ""
 
 
 @dataclass
@@ -103,18 +84,156 @@ class GapWarningItem:
 
 
 @dataclass
-class AttentionSignals:
-    """list 화면 "주의 필요 신호" 섹션 묶음 — risk_top과 시간 축·도메인 차별.
+class CapacityTriggerBadge:
+    """자원 부족 trigger 하나 — 본문 한 줄에 3종 모두 표시 (active False는 비활성 시각).
 
-    disk_warnings: 마이그레이션 전 cleanup 직접 액션.
-    gap_warnings: 모니터링 사각지대 (네트워크·VM resume 일시 끊김).
+    label: "스왑" / "CPU" / "메모리"
+    color: 범례 색과 동기화 hex (mapper _CAPACITY_TRIGGER_COLORS 단일 진실)
+    active: True면 본 자원 임계 초과 (색 채워진 배지), False면 비활성 (흐리게)
+    """
+    label: str
+    color: str
+    active: bool = True
+
+
+@dataclass
+class CapacityWarningItem:
+    """14일 평균 자원 부족 서버 — 마이그레이션 capacity 산정 시 instance type 상향 검토.
+
+    triggers: 활성화된 부족 자원 list. 한 서버에 여러 trigger 동시 가능 (예: CPU + 메모리).
+    분류 조건:
+    - swap_used=True → "스왑"
+    - cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU"
+    - mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리"
+    under_provisioned 분류라 최소 1개 trigger 존재.
+    """
+    public_id: str
+    hostname: str
+    cpu_p95_pct: float | None
+    mem_p95_pct: float | None
+    swap_used: bool
+    triggers: list[CapacityTriggerBadge] = field(default_factory=list)
+
+
+@dataclass
+class DiskDaysWarningItem:
+    """디스크 잔여 N일 안 — fill_rate 추정 기반."""
+    public_id: str
+    hostname: str
+    mount: str
+    days_until_full: int
+    used_pct: float | None
+
+
+@dataclass
+class OSEolWarningItem:
+    """OS End-of-Life 임박/지남 — 정적 매핑."""
+    public_id: str
+    hostname: str
+    os_display: str             # "centos 7.9"
+    eol_date: str               # ISO 날짜 ("2024-06-30")
+
+
+@dataclass
+class AgentUnstableItem:
+    """에이전트 재시작 빈번 — Redis 1h 슬라이딩 카운터 기반."""
+    public_id: str
+    hostname: str
+    restart_count: int          # 1h 윈도우 안 재시작 횟수
+
+
+@dataclass
+class CapacityBreakdownEntry:
+    """capacity_warnings 카드 우측 범례 — 트리거 자원별 카운트.
+
+    label: "스왑" / "CPU" / "메모리" / "CPU/메모리".
+    count: 해당 트리거로 분류된 서버 수.
+    color: badge_class와 동기화된 시각 색.
+    """
+    label: str
+    count: int
+    color: str
+
+
+@dataclass
+class AttentionSignals:
+    """list 화면 통합 신호 카드 — 현재 시점·평가 기간 신호 묶음.
+
+    disk_warnings: 마이그레이션 전 cleanup 직접 액션 (사용률 85%+ mount).
+    gap_warnings: 모니터링 사각지대 (5분+ 끊김).
+    capacity_warnings: 14일 평균 기준 자원 부족 의심 서버 (보고서·right-sizing 윈도우 동일).
+    days_until_full_warnings: 디스크 잔여 30일 안 (fill_rate 추정).
+    os_eol_warnings: OS EOL 임박/지남 (정적 매핑).
+    agent_unstable: 1h 윈도우 안 재시작 임계 초과 서버.
+    has_any: 6 카탈로그 중 1개라도 비어있지 않으면 True.
     """
     disk_warnings: list[DiskWarningItem]
     gap_warnings: list[GapWarningItem]
+    capacity_warnings: list[CapacityWarningItem] = field(default_factory=list)
+    capacity_breakdown: list[CapacityBreakdownEntry] = field(default_factory=list)
+    days_until_full_warnings: list[DiskDaysWarningItem] = field(default_factory=list)
+    os_eol_warnings: list[OSEolWarningItem] = field(default_factory=list)
+    agent_unstable: list[AgentUnstableItem] = field(default_factory=list)
 
     @property
     def has_any(self) -> bool:
-        return bool(self.disk_warnings or self.gap_warnings)
+        return any([
+            self.disk_warnings, self.gap_warnings,
+            self.capacity_warnings, self.days_until_full_warnings,
+            self.os_eol_warnings, self.agent_unstable,
+        ])
+
+
+@dataclass
+class UtilizationBar:
+    """환경 평균 자원 활용률 도넛 1개 — list 화면 상단.
+
+    pct: None이면 표본 부재 ("—" 표시). bar_color: P3 임계 분기 결과 (mapper 단일 결정).
+    dash_length: SVG stroke-dasharray 길이 (도넛 원호). 원주 ≈ 264, pct 0~100 → 0~264.
+    템플릿이 산술 못 하므로 mapper가 미리 계산 (P3).
+    """
+    label: str             # "CPU" / "메모리" / "디스크"
+    pct: float | None
+    bar_color: str         # 임계별 hex 색 — mapper 결정 (P3 분기 금지)
+    dash_length: float     # SVG dasharray — mapper 비례 산술 (P3)
+
+
+@dataclass
+class RiskDonutSegment:
+    """위험도 분포 도넛 1 segment — 4개 카테고리(고위험·주의·저사용·정상) 중 하나.
+
+    dash_length·dash_offset: SVG stroke-dasharray + stroke-dashoffset (다중 segment 누적).
+    템플릿에서 산술 못 하므로 mapper가 미리 계산 (P3).
+    """
+    key: str               # "high" / "attention" / "low_usage" / "normal"
+    label: str             # "고위험" / "주의" / "저사용" / "정상"
+    color: str             # hex
+    count: int             # 해당 카테고리 서버 수
+    dash_length: float     # 본 segment 원호 길이
+    dash_offset: float     # 시계방향 시작 위치 (이전 segments 누적 음수)
+
+
+@dataclass
+class EnvironmentOverview:
+    """list 화면 상단 환경 요약 — 총 N대·온라인/오프라인·자원 합계·역할 분포·평균 활용률.
+
+    total_memory_gb: float — 소수 1자리 (작은 환경에서 정수로 묶이면 정보 손실 — 예: 2.5 GB → 2 GB).
+    total_disk_gb: int — TB·PB 스케일에서 소수점 의미 적음.
+    utilization: 3개 막대(CPU·메모리·디스크) — 환경 평균 활용률. 표본 부재 시 빈 list.
+    util_sample_size: 활용률 평균 표본 서버 수 (UI에 "N대 기준" 표시).
+    """
+    total: int
+    online: int
+    offline: int
+    total_vcpus: int
+    total_memory_gb: float
+    total_disk_gb: int
+    role_distribution: dict[str, int] = field(default_factory=dict)
+    utilization: list[UtilizationBar] = field(default_factory=list)
+    util_sample_size: int = 0
+    risk_donut: list[RiskDonutSegment] = field(default_factory=list)
+    risk_donut_total: int = 0          # 도넛 중심 표시용 (분류된 서버 수)
+    risk_high_count: int = 0           # 도넛 중심 강조 — "위험 N대"
 
 
 # ---------- 서버 상세 ----------
@@ -151,6 +270,10 @@ class ServerDetailResponse:
     os_display: str = ""
     cpu_display: str = ""
     disk_total_gb: float | None = None
+    # P3: 템플릿이 `| length` 못 쓰도록 count를 mapper에서 미리 계산
+    services_count: int = 0
+    listen_ports_count: int = 0
+    disks_count: int = 0
 
 
 # ---------- 스토리지 (인벤토리 + 실시간 사용량) ----------
@@ -308,9 +431,62 @@ class ReportRowItem:
     load_15m_max: float | None
     swap_used: bool
 
-    recommendation: str          # enum 값
+    recommendation: str          # USE Method enum 값 (양식 B에 노출)
     recommendation_label: str    # 한국어
-    badge_class: str             # CSS 클래스
+    badge_class: str             # CSS 클래스 (USE 분류용)
+
+    # 옵션 B 매핑 — UI 친화 위험도 (양식 A KPI·표 노출)
+    risk_level: str              # "high" / "attention" / "normal" / "low_usage"
+    risk_label: str              # "고위험" / "주의 필요" / "정상" / "저사용"
+    risk_badge_class: str        # rec-under_provisioned / rec-right_size 등 재사용
+
+    # I/O wait — 디스크 병목 신호 (양식 B 컬럼)
+    iowait_p95_pct: float | None = None
+    iowait_peak_pct: float | None = None
+
+    # Mount 최악 — 서버 안에서 가장 채워진 마운트 1건 (양식 B 컬럼)
+    worst_mount: str | None = None
+    worst_mount_used_pct: float | None = None
+    worst_mount_days_until_full: int | None = None
+
+    # Uptime + 재부팅 (양식 B 컬럼)
+    uptime_days: int | None = None
+    reboot_count: int = 0
+
+    # Saturation — load_15m_max / cpu_cores. 1 이상이면 saturated. mapper에서 계산.
+    saturation_ratio: float | None = None
+
+    # 이상치 변동성 — peak/p95 비율. 1.5 이상이면 변동 큼.
+    cpu_variance_ratio: float | None = None
+    mem_variance_ratio: float | None = None
+
+    # Disk I/O — baseline(평균) + p95 + peak (양식 B 컬럼 + inventory-export)
+    disk_iops_baseline: int | None = None
+    disk_iops_p95: float | None = None
+    disk_iops_peak: float | None = None
+    disk_throughput_kbps: float | None = None
+    disk_throughput_kbps_p95: float | None = None
+    disk_throughput_kbps_peak: float | None = None
+
+    # Net I/O — baseline(평균) + p95 + peak (양식 B 컬럼 + inventory-export)
+    net_rx_kbps: float | None = None
+    net_rx_kbps_p95: float | None = None
+    net_rx_kbps_peak: float | None = None
+    net_tx_kbps: float | None = None
+    net_tx_kbps_p95: float | None = None
+    net_tx_kbps_peak: float | None = None
+
+    # 진단 텍스트 — saturation·variance·iowait·disk·swap 종합 자동 진단 (양식 B "판단" 컬럼)
+    # mapper.build_diagnosis 결정. 우선순위: 메모리 압박 → 디스크 병목 → CPU saturation → 변동성 → 적정
+    diagnosis: str = ""
+
+
+@dataclass
+class ReportTotals:
+    """양식 A 묶음 자원 총량 — 마이그레이션 capacity 산정 입력."""
+    total_vcpus: int
+    total_memory_gb: int
+    total_disk_gb: int
 
 
 @dataclass
@@ -320,5 +496,10 @@ class ReportSummary:
     period_days: int
     total: int
     online: int
-    over: int
-    under: int
+    risk_attention: int          # 주의 필요 — over_provisioned·idle·shutdown 합산
+    risk_high: int               # 고위험 — under_provisioned
+    totals: ReportTotals = field(default_factory=lambda: ReportTotals(0, 0, 0))
+    # 양식 A 정성 요약 — mapper에서 자동 생성 (P2). 컨설턴트가 고객 보고서 첨부 시 활용.
+    summary_bullets: list[str] = field(default_factory=list)
+    # 양식 A 상단 역할 분포 — {"web": 8, "db": 5, "cache": 3, ...}. service_classifier 카테고리 집계.
+    role_distribution: dict[str, int] = field(default_factory=dict)

@@ -1,7 +1,7 @@
 # 테스트
 
 단위·통합 테스트 실행 방법.
-운영 환경 풀 파이프라인 검증(에이전트 → MQ → Consumer → DB → Web)은 [pipeline.md](pipeline.md).
+운영 환경 풀 파이프라인 검증(에이전트 -> MQ -> Consumer -> DB -> Web)은 `docs/operations/pipeline.md`.
 
 ## 1. 계층
 
@@ -106,5 +106,5 @@ async def test_dispatcher(metric_type, query_repo):
 
 - 새 코드 추가 시 테스트도 함께 작성 — 코드 리뷰 시 누락 지적.
 - 리팩토링은 테스트 통과 baseline 위에서만 진행 — 회귀 즉시 식별.
-- E2E (Vagrant) 검증은 pytest 범위 외 — `pipeline.md` 참조.
+- E2E (Vagrant) 검증은 pytest 범위 외 — `docs/operations/pipeline.md` 참조.
 - pytest 자동 실행 금지 — 사용자 명시 요청 시에만 (개발 중 회귀 상태일 수 있음).

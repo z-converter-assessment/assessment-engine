@@ -41,12 +41,12 @@ gh pr create --title "fix: cache 역직렬화 시 datetime 복원 누락" --body
 ## Test plan
 - [ ] /servers/<id> 진입 시 last_seen_at 정상 표시
 - [ ] tests/unit/test_cache_serializer.py 통과
-- [ ] cache MISS → SET → HIT 사이클 수동 검증
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+- [ ] cache MISS / SET / HIT 사이클 수동 검증
 EOF
 )"
 ```
+
+AI 메타데이터 footer 추가 금지 — "Generated with Claude Code" / "Co-Authored-By: Claude ..." / AI 이모지 등 본 프로젝트 산출물 일체 포함 안 함 (글로벌 CLAUDE.md).
 
 ## 결과
 

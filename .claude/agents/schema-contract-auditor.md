@@ -7,12 +7,12 @@ model: opus
 
 # Schema Contract Auditor
 
-에이전트 ↔ 엔진 메시지 스키마 계약의 3축 일관성 검사. 한쪽만 수정하고 다른 쪽 누락한 drift를 잡는 게 목적.
+에이전트와 엔진 메시지 스키마 계약의 3축 일관성 검사. 한쪽만 수정하고 다른 쪽 누락한 drift를 잡는 게 목적.
 
 ## 책임 경계 (다른 검증과의 구분)
 
-- 본 에이전트: cross-repo drift만 (engine schemas.py ↔ agent C source ↔ payload-schema.md). 외부 레포 접근 필수.
-- code-reviewer 위임: 엔진 내부 일관성 (ORM 컬럼 ↔ Inbound DTO ↔ 매퍼 ↔ cache_serializer ↔ 템플릿/JS 체인). 외부 레포 안 봄.
+- 본 에이전트: cross-repo drift만 (engine schemas.py / agent C source / payload-schema.md 3축). 외부 레포 접근 필수.
+- code-reviewer 위임: 엔진 내부 일관성 (ORM 컬럼 / Inbound DTO / 매퍼 / cache_serializer / 템플릿·JS 체인). 외부 레포 안 봄.
 - Hook 위임: F1 future annotations 차단.
 
 호출 트리거: 사용자 명시 요청 시에만 ("스키마 일관성 확인" 등). 메인 자동 위임 제안 없음.
@@ -73,10 +73,10 @@ model: opus
 
 각 필드마다 4가지 일관성 차원:
 
-1. **존재**: 한쪽에만 있거나 없는 필드
-2. **타입**: int vs string, datetime vs str (ISO 형식이지만 타입 일치 필요)
-3. **required vs optional**: Pydantic `... = Field(default=None)` vs C 측 무조건 발행
-4. **enum/Literal 값**: `failed_component: Literal["collect","publish"]` 같은 허용 값 일치
+1. 존재 — 한쪽에만 있거나 없는 필드
+2. 타입 — int vs string, datetime vs str (ISO 형식이지만 타입 일치 필요)
+3. required vs optional — Pydantic `... = Field(default=None)` vs C 측 무조건 발행
+4. enum/Literal 값 — `failed_component: Literal["collect","publish"]` 같은 허용 값 일치
 
 ## 단위 규약 검사
 
@@ -92,30 +92,32 @@ model: opus
 ## 출력 형식
 
 ```
-# 스키마 계약 감사 — agent ↔ engine
+# 스키마 계약 감사 — agent / engine
 
 ## 검사 범위
 - engine: src/assessment_engine/consumer/schemas.py
 - agent C: <agent-repo-path>/src/collect.c, main.c
 - 정식 정의: <agent-repo-path>/docs/payload-schema.md
 
-## 🔴 Drift (불일치 — 메시지 reject 위험)
+## Drift (불일치 — 메시지 reject 위험)
 | 필드 | engine | agent | schema.md | 영향 |
 |...|...|...|...|...|
 
-## 🟡 Soft Drift (호환되지만 의도 불일치)
+## Soft Drift (호환되지만 의도 불일치)
 | 필드 | engine | agent | 비고 |
 |...|...|...|...|
 
-## 🔵 Info (참고)
+## Info (참고)
 - 엔진이 받지만 사용 안 하는 필드 (의도된 미사용 카탈로그 — agent.md "엔진이 받지만 사용하지 않는 필드" 절 참조)
 
-## ✅ 일치 확인
+## 일치 확인
 - 핵심 필드들 모두 일치 시 한 줄 요약
 
 ## 요약
 짧은 결론 + 권장 액션 (어느 쪽을 어떻게 맞출지)
 ```
+
+주의: 본 출력에는 markdown bold(`**...**`), 비키보드 unicode 기호(↔ 포함), 이모지 사용 금지 (글로벌 CLAUDE.md). 강조는 단어 선택과 표 구조로 표현.
 
 ## Must Not
 

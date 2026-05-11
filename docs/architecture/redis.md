@@ -30,6 +30,7 @@ src/assessment_engine/web/services/query_service.py
 | 인증 토큰 | `token:{token}` | 1h | TTL 만료만 |
 | 직전 agent_started_at | `last_agent_start:{server_id}` | 24h | metrics 처리 시 매번 SET (직전 값과 비교 → 재시작 감지) |
 | 재시작 카운터 (1h 슬라이딩) | `agent_restarts:{server_id}` | 1h | `_track_agent_restart`가 변경 감지 시 INCR + EXPIRE reset (마지막 INCR 후 1h 유지) |
+| Task RPC pending (hot path 캐시) | `task:pending:{machine_id}` | 24h | web의 `task_service`가 SET (DB INSERT 후), consumer의 `make_task_result_handler`가 결과 수신 시 DEL |
 
 ### TTL 값 근거
 
@@ -39,6 +40,7 @@ src/assessment_engine/web/services/query_service.py
 - `idempotent:{message_id}` 24h — message_id는 UUID v4이므로 24h 동안 unique 보장. broker 재전송 윈도우 충분히 커버.
 - `last_agent_start:{server_id}` 24h — 직전 비교용 캐시. evict 시 다음 메시지에서 재시작 감지 1회 누락만 — 다음 정상 sample에서 회복.
 - `agent_restarts:{server_id}` 1h — 슬라이딩 윈도우 (마지막 INCR 후 1h). `agent_restart_alert_threshold` (기본 3) 도달 시 warning 로그.
+- `task:pending:{machine_id}` 24h — 작업 발행 후 24h 안에 agent reply 안 오면 stale 판정·자동 정리. DB `tasks`는 단일 진실(영구 보존), Redis는 hot path 캐시 — consumer가 metrics 처리할 때마다 EXISTS 한 번 (99% no-op, DB 직접 조회 회피). Redis 장애 시 silent skip + 다음 metrics 주기 재시도.
 
 ---
 
@@ -52,34 +54,16 @@ src/assessment_engine/web/services/query_service.py
 
 ---
 
-## 멱등성 처리 (2단 방어)
+## 멱등성 — 시계열 자연키 카탈로그
 
-### 1단 — Redis 키 (consumer/handler.py `_check_idempotent`)
-
-```python
-SET idempotent:{message_id} 1 EX 86400 NX
-```
-
-- 메시지 수신 직후, 파싱 성공 후 첫 처리 단계.
-- `NX` 옵션으로 원자적 set-if-not-exists. 이미 처리된 message_id면 ack 후 조기 리턴.
-- 24h 동안 동일 message_id 재전송을 가장 빠르게 차단.
-
-### 2단 — DB UNIQUE 제약 (db/repositories/collect_repository.py `insert_metric`)
-
-시계열 4개 테이블 자연키 UNIQUE + `pg_insert(...).on_conflict_do_nothing(index_elements=...)`.
+정책 단일 진실: CLAUDE.md #D2 (2단 방어 메커니즘·at-most-once 트레이드오프·fail-open 의존). 본 절은 #D2가 의존하는 DB UNIQUE 키 카탈로그만 (변경 시 #D2 깨짐).
 
 | 테이블 | conflict 키 |
 |--------|-----|
-| server_metrics | (server_id, collected_at) |
-| server_disk_io | (server_id, device, collected_at) |
-| server_net_io | (server_id, interface, collected_at) |
-| server_mount_usage | (server_id, mount, collected_at) |
-
-Redis 키 만료·evict·재시작·수동 flush 등으로 1단이 깨져도 DB 레벨에서 silent no-op 흡수.
-
-### at-most-once 트레이드오프
-
-`SET NX` 후 DB 커밋 이전에 프로세스 크래시 시 broker 재전송 메시지가 idempotent 충돌로 silent 드롭 → 데이터 유실 가능. 1단이 먼저 차단하므로 2단 UNIQUE도 못 막음. `docs/adr/tradeoffs.md` T1 참조.
+| `server_metrics` | `(server_id, collected_at)` |
+| `server_disk_io` | `(server_id, device, collected_at)` |
+| `server_net_io` | `(server_id, interface, collected_at)` |
+| `server_mount_usage` | `(server_id, mount, collected_at)` |
 
 ---
 
@@ -108,7 +92,7 @@ Redis 키 만료·evict·재시작·수동 flush 등으로 1단이 깨져도 DB 
 
 web의 `get_latest_metric`이 cache MISS 후 DB query를 마쳤지만 SET을 수행하기 전에 consumer가 새 metrics 커밋 + DELETE를 끝낼 수 있다. 이 경우 web의 SET이 stale 데이터를 60s TTL로 캐싱.
 
-실용적 영향은 최대 1회 표시 지연 (SSE가 즉시 다음 fetch 트리거). exactly-once 캐시 일관성 대신 단순성 선택. `docs/adr/tradeoffs.md` T2.
+실용적 영향은 최대 1회 표시 지연 (SSE가 즉시 다음 fetch 트리거). exactly-once 캐시 일관성 대신 단순성 선택. `docs/tradeoffs.md` T2.
 
 ---
 
@@ -134,15 +118,15 @@ for dto, flag in zip(dtos, online_flags):
 `get_server`, `get_latest_metric`이 read-through 패턴.
 
 ```python
-cached = await self.redis.get(cache_key)
+cached = await safe_get(self.redis, cache_key)
 if cached:
     return server_detail_from_json(cached)
 result = ...  # DB 조회 + ViewModel 변환
-await self.redis.set(cache_key, server_detail_to_json(result), ex=300)
+await safe_set(self.redis, cache_key, server_detail_to_json(result), ex=300)
 return result
 ```
 
-cache_serializer가 dataclass↔JSON serde 담당. 역직렬화 직후 `enrich_server_detail()` 재호출로 파생 필드 일관성 유지.
+cache_serializer가 dataclass-JSON serde 담당. 역직렬화 직후 `enrich_server_detail()` 재호출로 파생 필드 일관성 유지.
 
 ---
 
@@ -188,7 +172,9 @@ async def close_pool() -> None: ...
 
 ### Redis 장애 시 동작 — fail-open
 
-모든 Redis 호출을 `src/assessment_engine/db/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`)로 감싸 silent fallback. 정확성 보장은 2단 안전망(DB UNIQUE / DB query / `last_seen_at` 컬럼)에 위임.
+정책 단일 진실: CLAUDE.md #C3 (fail-open + `safe_*` helper 경유 의무) + #F10 (외부 의존 실패 매트릭스). 본 절은 위임 결과의 운영 동작 매트릭스만.
+
+`safe_*` helper 카탈로그: `safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`/`safe_incr_with_ttl` (`src/assessment_engine/db/redis.py`). 정확성 보장은 2단 안전망(DB UNIQUE / DB query / `last_seen_at` 컬럼)에 위임.
 
 | 역할 | 평시 | Redis 장애 시 |
 |------|------|-------------|
@@ -214,10 +200,10 @@ async def close_pool() -> None: ...
 
 | 항목 | 위치 |
 |------|------|
-| at-most-once 멱등성 한계 | `docs/adr/tradeoffs.md` T1 |
-| cache-aside race | `docs/adr/tradeoffs.md` T2 |
-| SSE 단일 채널 + 서버 측 필터링 | `docs/adr/tradeoffs.md` T5 |
-| 단일 Redis 인스턴스 | `docs/adr/tradeoffs.md` T11 |
+| at-most-once 멱등성 한계 | `docs/tradeoffs.md` T1 |
+| cache-aside race | `docs/tradeoffs.md` T2 |
+| SSE 단일 채널 + 서버 측 필터링 | `docs/tradeoffs.md` T5 |
+| 단일 Redis 인스턴스 | `docs/tradeoffs.md` T11 |
 
 ---
 
@@ -312,5 +298,5 @@ docker compose start redis
 |------|------|------|
 | 새 inventory가 web에 반영 안 됨 | consumer의 cache:inventory DELETE 실패 또는 web 캐시 stale | `DEL cache:inventory:{id}` 수동 / consumer 로그 확인 |
 | 같은 message_id가 두 번 처리되어 중복 행 | Redis 키 만료 또는 evict | DB UNIQUE 제약(2단)이 흡수 — 중복 행 없으면 정상 |
-| 온라인 뱃지가 깜빡임 (online↔offline) | metrics 발행 주기(60s) > online TTL(90s) 거의 한계 | 주기 단축 또는 TTL 연장 |
+| 온라인 뱃지가 깜빡임 (online-offline) | metrics 발행 주기(60s) > online TTL(90s) 거의 한계 | 주기 단축 또는 TTL 연장 |
 | SSE 클라이언트가 못 받음 | metrics.events 채널에 이미 publish됐지만 구독 시작 전 — Redis pubsub은 fire-and-forget | 클라이언트가 SUBSCRIBE 후 즉시 `/metrics/latest` 1회 fetch로 보완 (현재 구현) |

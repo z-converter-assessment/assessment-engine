@@ -47,7 +47,7 @@ class TaskService:
     async def create_install_tasks(
         self,
         target_public_ids: list[str],
-        zdm_ip: str,
+        source_host: str,
     ) -> list[TaskCreated]:
         """선택 서버 N대에 ZConverter Install task 발행.
 
@@ -77,7 +77,7 @@ class TaskService:
                         target_server_id=server_id,
                         target_machine_id=detail.machine_id,
                         task_type="zconverter_install",
-                        params={"zdm_ip": zdm_ip},
+                        params={"source_host": source_host},
                     ))
                     await session.commit()
                 except IntegrityError:
@@ -90,7 +90,7 @@ class TaskService:
             payload: dict[str, Any] = {
                 "task_public_id": task_public_id,
                 "task_type": "zconverter_install",
-                "params": {"zdm_ip": zdm_ip},
+                "params": {"source_host": source_host},
             }
             await safe_set(
                 self.redis,

@@ -274,7 +274,7 @@
 > 관련 문서: CLAUDE.md #E1 P5 / #E4, `docs/architecture/web/view-models.md`
 
 선택
-- `ListenPortItem.is_well_known` (port ≤ 1024 boolean)
+- `ListenPortItem.is_well_known` (port <= 1024 boolean)
 - `ServerDetailResponse.sorted_services` / `sorted_listen_ports` (mapper 정렬 결과)
 - `MountUsageItem.badge_class` / `bar_color` (임계값 → CSS 클래스/hex)
 - `MemSnapshot.cached_pct` / `buffers_pct` (stacked-bar 누적 비율)

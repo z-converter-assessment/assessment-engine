@@ -16,7 +16,7 @@
 agent가 metrics 발행과 같은 주기로 `GET /api/tasks/{hostname}` 호출. engine이 Redis pending 키 조회 후 응답.
 
 - 장점: HTTP 단순, 양방향 큐 토폴로지 추가 없음
-- 단점: 별도 polling RTT 추가 (metrics 1회 + task 1회 = 2 RTT/주기). N대 × 60s = 분당 N회 추가 요청
+- 단점: 별도 polling RTT 추가 (metrics 1회 + task 1회 = 2 RTT/주기). N대 X 60s = 분당 N회 추가 요청
 
 ### B. RPC piggyback (`amq.rabbitmq.reply-to`)
 agent가 `server.metrics` 발행 시 `reply_to=amq.rabbitmq.reply-to` + `correlation_id` 명시. consumer가 metrics 처리 후 Redis EXISTS → 있으면 reply publish.
@@ -38,12 +38,12 @@ agent가 long-running GET → engine이 task 생길 때 한 줄 push.
 
 ## Decision
 
-**옵션 B (RPC piggyback) 채택.**
+옵션 B (RPC piggyback) 채택.
 
 근거:
 1. Latency 60s 허용 가정 — 운영자 "Install 클릭 후 1분 이내" 충분
-2. **인프라 재활용** — 새 queue·endpoint 신설 0 (기존 `server.metrics` channel 위에 piggyback)
-3. **agent 코드 변경 최소** — `reply_to` props 추가 + 같은 channel에서 reply consume (correlation_id 매칭)
+2. 인프라 재활용 — 새 queue·endpoint 신설 0 (기존 `server.metrics` channel 위에 piggyback)
+3. agent 코드 변경 최소 — `reply_to` props 추가 + 같은 channel에서 reply consume (correlation_id 매칭)
 4. `amq.rabbitmq.reply-to` 빌트인 pseudo-queue — 큐 declare·정리 불필요, broker 부하 0
 5. C(MQ push)는 운영 부담 큼 (per-hostname queue + orphan 정리 정책). 즉시성이 진짜 필요해질 때 전환
 
@@ -56,7 +56,7 @@ agent가 long-running GET → engine이 task 생길 때 한 줄 push.
 - DB·Redis 책임 분리 명확: DB는 audit log (영구), Redis는 hot path (24h TTL)
 
 ### 부정·한계
-- **Latency = metrics 주기** — 즉시성 필요 시 옵션 C로 전환 필요 (별도 작업)
+- Latency = metrics 주기 — 즉시성 필요 시 옵션 C로 전환 필요 (별도 작업)
 - consumer가 task 조회 책임 추가 — 매 metrics 메시지마다 Redis EXISTS 1회. 99% no-op이라 hot path 영향 미미
 - agent의 reply_to 미지원 시 task 영구 미실행 — 단 옛 agent 호환 (reply_to 없으면 consumer가 reply 생략 → 다음 주기 재시도 가능)
 - task_type enum 동기화 필수 — engine·agent 양쪽 합의. 새 type 도입 시 `agent_version` bump
@@ -75,3 +75,7 @@ agent가 long-running GET → engine이 task 생길 때 한 줄 push.
 - Redis 키 정책: `docs/architecture/redis.md` `task:pending` 항목
 - 부가 시그널 + consumer 흐름: `docs/architecture/consumer.md` "metrics 후처리" + "부가 시그널"
 - CLAUDE.md B6: 결정 요약
+
+## 정정 이력
+
+- 2026-05-11: `task_type` dispatcher와 함께 `params` 스키마도 engine-agent 양쪽 합의 + `agent_version` bump 대상이라는 점 명시. 현재 `zconverter_install`의 params 키는 `source_host`(단일 진실은 코드·agent.md). 본 ADR은 명명을 박지 않음 — 명명 변경은 코드 변경으로 처리.

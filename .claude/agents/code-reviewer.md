@@ -21,11 +21,11 @@ model: opus
 
 ### E1. 표시 계층 P1~P5
 
-- **P1**: Repository(`db/repositories/`)에 단위 변환·delta·dedup·임계값 분류 등 표시 로직 들어갔는지
-- **P2**: Service의 mapper 단일 변환 — 같은 파생 필드를 여러 곳에서 재계산하는지
-- **P3**: Jinja2 템플릿(`templates/`)에 계산·sort·임계값 비교·단위 변환
-- **P4**: 차트 JS의 5개 의무 규약 (sequence counter / capture-before-await / Array.isArray / 404 분기 / suggestedMax 명명 상수)
-- **P5**: 클라이언트가 임계값/dedup/통계를 다시 계산하는지
+- P1: Repository(`db/repositories/`)에 단위 변환·delta·dedup·임계값 분류 등 표시 로직 들어갔는지 (단 SQL 표현식은 P1 예외 — dispatch table whitelist 상수에 한해 허용)
+- P2: Service의 mapper 단일 변환 — 같은 파생 필드를 여러 곳에서 재계산하는지
+- P3: Jinja2 템플릿(`templates/`)에 계산·sort·임계값 비교·단위 변환·`| length` 같은 카운트
+- P4: 차트 JS의 5개 의무 규약 (sequence counter / capture-before-await / Array.isArray / 404 분기 / suggestedMax 명명 상수)
+- P5: 클라이언트가 임계값/dedup/통계를 다시 계산하는지
 
 ### F4. 인터페이스 우선
 
@@ -51,7 +51,7 @@ model: opus
 - 새 hypertable 모델 시 `web/main.py` lifespan의 `create_hypertable` 루프에 추가 누락
 - ORM 컬럼 변경했는데 inbound DTO·매퍼 동기화 누락
 - `pg_insert.on_conflict_do_nothing(index_elements=...)` 패턴 깨짐
-- 본 항목은 엔진 내부 일관성만 검토. 에이전트 ↔ 엔진 cross-repo drift(필드 추가·이름 변경·타입 차이)는 schema-contract-auditor 위임.
+- 본 항목은 엔진 내부 일관성만 검토. 에이전트와 엔진 사이 cross-repo drift(필드 추가·이름 변경·타입 차이)는 schema-contract-auditor 위임.
 
 ### D2. 멱등성 2단
 
@@ -76,21 +76,23 @@ model: opus
 ```
 # 코드 리뷰 — 변경 N개 파일
 
-## 🔴 Error (반드시 수정)
+## Error (반드시 수정)
 - [파일:줄] 위반 내용 + 근거 규약 (예: P1 위반)
 
-## 🟡 Warning (수정 권장)
+## Warning (수정 권장)
 - [파일:줄] 내용 + 근거
 
-## 🔵 Info (참고)
+## Info (참고)
 - [파일:줄] 내용
 
-## ✅ 잘 된 점
+## 잘 된 점
 - 짚어둘 만한 모범 패턴
 
 ## 요약
 한두 문장 결론
 ```
+
+주의: 본 출력에는 markdown bold(`**...**`), 비키보드 unicode 기호, 이모지 사용 금지 (글로벌 CLAUDE.md). 강조는 단어 선택과 표 구조로 표현.
 
 ## Must Not
 

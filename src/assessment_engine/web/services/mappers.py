@@ -39,8 +39,8 @@ from assessment_engine.web.view_models import (
     MountUsageItem,
     NetworkDetailResponse,
     ReportRowItem,
+    ReportTotals,
     ServerDetailResponse,
-    RiskServerItem,
     ServerListItem,
     ServiceItem,
     StorageDetailResponse,
@@ -54,12 +54,6 @@ _USAGE_WARN_PCT   = 75
 _WELL_KNOWN_PORT_MAX = 1024
 # attention 신호 — metric 갭이 30분 이상이면 위험 색 (5~30분은 경고).
 _GAP_DANGER_MINUTES = 30
-# risk_top 게이지 색 임계 — score ≥ DANGER 빨강 (위험 분기 85+), ≥ WARN 노랑 (정상 분기 상위), 그 외 초록.
-_RISK_DANGER_SCORE = 85
-_RISK_WARN_SCORE   = 55
-_RISK_COLOR_DANGER = "#ef4444"
-_RISK_COLOR_WARN   = "#f59e0b"
-_RISK_COLOR_OK     = "#22c55e"
 
 _Severity = Literal["ok", "warn", "danger"]
 
@@ -169,13 +163,30 @@ def _os_display(os_id: str | None, os_version: str | None) -> str:
 
 # ─── 1차 매핑 (Outbound → ViewModel) ──────────────────────────────────────
 
-def to_server_list_item(dto: ServerSummary) -> ServerListItem:
+def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
+    """ServerSummary -> ServerListItem. raw_period(ReportRowRaw)가 있으면 권장 조치 분류 채움.
+
+    분류 색·라벨은 _DONUT_SEGMENT_FROM_REC + _DONUT_SEGMENT_DEFS와 동기화 (P2 단일 진실).
+    raw_period=None이면 미분류 — 빈 문자열 (페이지 2+ 등 raws_period 부재).
+    """
     physical = [d for d in dto.disks if is_physical_disk(d.get("name", ""))]
     raw_total = sum(bytes_to_gb(d.get("size_bytes")) or 0.0 for d in physical)
     storage_total_gb = round(raw_total, 1) if physical else None
 
     services = _services_or_none(dto.services, listen_ports=None)
     known, show_unknown = _dedup_known(services)
+
+    rec_label, rec_color = "", ""
+    if raw_period is not None:
+        rec = recommendation.classify(recommendation.ResourceStats(
+            cpu_p95_pct=raw_period.cpu_p95_pct, cpu_peak_pct=raw_period.cpu_peak_pct,
+            mem_p95_pct=raw_period.mem_p95_pct, swap_used=raw_period.swap_used, net_avg_kbps=None,
+        ))
+        seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "normal")
+        for key, label, color in _DONUT_SEGMENT_DEFS:
+            if key == seg_key:
+                rec_label, rec_color = label, color
+                break
 
     return ServerListItem(
         id=dto.id,
@@ -192,6 +203,8 @@ def to_server_list_item(dto: ServerSummary) -> ServerListItem:
         known_services=known,
         show_unknown_badge=show_unknown,
         os_display=_os_display(dto.os_id, dto.os_version),
+        recommendation_label=rec_label,
+        recommendation_color=rec_color,
     )
 
 
@@ -371,10 +384,15 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
 
     detail.disk_total_gb = round(sum(d.size_gb or 0.0 for d in detail.disks), 1) if detail.disks else None
 
+    # P3 — count는 mapper에서 한 번만 계산. 템플릿이 `| length` 못 쓰도록.
+    detail.services_count = len(detail.services or [])
+    detail.listen_ports_count = len(detail.listen_ports)
+    detail.disks_count = len(detail.disks)
+
     return detail
 
 
-# ─── Inventory JSON Export (assessment-deliverables.md §3) ─────────────────
+# ─── Inventory JSON Export ─────────────────
 
 
 def infer_role(services: list[dict] | None) -> str:
@@ -401,8 +419,8 @@ def infer_role(services: list[dict] | None) -> str:
 def _split_disks(disks: list[dict], mounts: list[dict]) -> tuple[int | None, list[dict]]:
     """disks 중 가장 큰 1개를 boot, 나머지를 additional로 분리.
 
-    additional의 mount_hint는 find_parent_disk(mount.major/minor → disk) 역방향 매칭.
-    fstype은 동일 mount의 fstype 필드.
+    additional의 mount_point는 find_parent_disk(mount.major/minor -> disk) 역방향 매칭.
+    fstype은 동일 mount의 fstype 필드. iops_baseline은 mapper 호출자가 별도 주입.
     """
     if not disks:
         return (None, [])
@@ -411,16 +429,81 @@ def _split_disks(disks: list[dict], mounts: list[dict]) -> tuple[int | None, lis
     boot_gb = (boot["size_bytes"] // 10**9) if boot.get("size_bytes") else None
     additional: list[dict] = []
     for d in sorted_disks[1:]:
-        mount_hint = None
+        mount_point = None
         fstype = None
         for m in mounts or []:
             if find_parent_disk(m.get("major"), m.get("minor"), [d]) == d.get("name"):
-                mount_hint = m.get("mount")
+                mount_point = m.get("mount")
                 fstype = m.get("fstype")
                 break
         size_gb = (d["size_bytes"] // 10**9) if d.get("size_bytes") else None
-        additional.append({"mount_hint": mount_hint, "size_gb": size_gb, "fstype": fstype})
+        additional.append({
+            "mount_point": mount_point,
+            "size_gb": size_gb,
+            "fstype": fstype,
+        })
     return (boot_gb, additional)
+
+
+def _network_addresses(ip_internal: list[str] | None, ip_external: list[str] | None) -> list[dict]:
+    """v4·v6 family 자동 분류 — `:` 포함 시 v6, 아니면 v4. scope는 input 파라미터로 결정."""
+    out: list[dict] = []
+    for ip in ip_internal or []:
+        out.append({"scope": "internal", "family": "v6" if ":" in ip else "v4", "address": ip})
+    for ip in ip_external or []:
+        out.append({"scope": "external", "family": "v6" if ":" in ip else "v4", "address": ip})
+    return out
+
+
+def _services_for_export(services: list[dict] | None, listen_ports: list[dict] | None = None) -> list[dict]:
+    """services[] + listen_ports[] -> [{category, unit, listeners}] for SG 자동화 입력.
+
+    `unknown` 카테고리는 제외 — 보안그룹 룰 자동 생성에 의미 없음.
+    listeners: ports 매핑별 실제 (proto, address) 정보 — listen_ports inventory와 매칭.
+    매칭 실패 시 service_classifier의 `_SERVICE_PORTS` 폴백 (proto=tcp, address=0.0.0.0 가정).
+    """
+    if not services:
+        return []
+    from assessment_engine.web.services.service_classifier import _SERVICE_PORTS  # noqa: PLC0415
+    # listen_ports를 port → list of (proto, addr) 인덱스 (서비스가 여러 인터페이스 listen할 수 있음)
+    by_port: dict[int, list[dict]] = {}
+    for lp in listen_ports or []:
+        if not isinstance(lp, dict):
+            continue
+        port = lp.get("port")
+        if port is None:
+            continue
+        by_port.setdefault(port, []).append({
+            "proto": lp.get("proto") or "tcp",
+            "address": lp.get("addr") or "0.0.0.0",
+        })
+
+    out: list[dict] = []
+    for s in services:
+        unit = s.get("unit") if isinstance(s, dict) else None
+        if not unit:
+            continue
+        cat = classify(unit)
+        if cat == "unknown":
+            continue
+        # _SERVICE_PORTS는 unit normalized 이름(`nginx`/`postgresql` 등) 키 — classifier와 동일 normalize 의무.
+        unit_normalized = unit.lower().removesuffix(".service")
+        port_list: list[int] = []
+        for keyword, ports in _SERVICE_PORTS.items():
+            if keyword in unit_normalized:
+                port_list = ports
+                break
+        listeners: list[dict] = []
+        for port in port_list:
+            matched = by_port.get(port, [])
+            if matched:
+                for m in matched:
+                    listeners.append({"port": port, "proto": m["proto"], "address": m["address"]})
+            else:
+                # 폴백 — 카테고리 표준 포트만 명시 (proto/address는 자동화 도구가 기본 가정 사용)
+                listeners.append({"port": port, "proto": "tcp", "address": "0.0.0.0"})
+        out.append({"category": cat, "unit": unit, "listeners": listeners})
+    return out
 
 
 def to_disk_warning_item(raw: DiskUsageWarningRaw) -> DiskWarningItem:
@@ -457,78 +540,163 @@ def to_gap_warning_item(raw: MetricGapWarningRaw, now: datetime) -> GapWarningIt
     )
 
 
-def to_risk_server_item(
-    raw: ReportRowRaw,
-    is_online: bool,
-    disk_max_pct: float | None = None,
-) -> RiskServerItem:
-    """ReportRowRaw + is_online + disk_max_pct → RiskServerItem (P2).
+def build_report_summary_bullets(rows: list, raws: list | None = None) -> list[str]:
+    """양식 A 자동 분석 요약 문장 생성 — 정량 신호 기반 정성 요약 (P2).
 
-    위험 유무 무관 무조건 ViewModel 반환 — caller `get_risk_top`이 risk_score DESC 정렬 후 limit N.
-
-    risk_score 계산 (ViewModel 필드로 노출):
-    - 위험 분기 (분류 라벨 + 고정 score): 오프라인 100 > 스왑 95 > MEM≥90 90 > CPU≥90 85 > MEM≥75 60 > CPU≥75 55
-    - 정상 분기: max(cpu, mem, disk) 비율(0~75) — 위험 score(55+)와 같은 0~100 스케일이라 정렬 자연스러움
-
-    disk_max_pct는 카드 표시용 + 정상 분기 score 계산에 참여 (디스크 부족은 attention.disk_warnings가 별도 신호라 위험 분기엔 미반영).
+    호출자는 ReportRowItem list + 선택적 ReportRowRaw list 전달.
+    raws가 있으면 OS EOL 신호 생성 (raws.os_id/os_version 사용).
+    빈 리스트면 ["대상 서버 없음"] 반환.
     """
-    cpu = raw.cpu_p95_pct
-    mem = raw.mem_p95_pct
-    if not is_online:
-        concern = "오프라인"
-        badge = "rec-under_provisioned"
-        score: float = 100
-    elif raw.swap_used:
-        concern = "스왑 활성"
-        badge = "rec-under_provisioned"
-        score = 95
-    elif mem is not None and mem >= _USAGE_DANGER_PCT:
-        concern = f"MEM p95 {mem:.0f}%"
-        badge = "rec-under_provisioned"
-        score = 90
-    elif cpu is not None and cpu >= _USAGE_DANGER_PCT:
-        concern = f"CPU p95 {cpu:.0f}%"
-        badge = "rec-under_provisioned"
-        score = 85
-    elif mem is not None and mem >= _USAGE_WARN_PCT:
-        concern = f"MEM p95 {mem:.0f}%"
-        badge = "rec-right_size"
-        score = 60
-    elif cpu is not None and cpu >= _USAGE_WARN_PCT:
-        concern = f"CPU p95 {cpu:.0f}%"
-        badge = "rec-right_size"
-        score = 55
-    else:
-        # 정상 분기 — 정렬은 max(cpu, mem, disk_max) 기준. 메트릭 모두 None이면 score 0.
-        candidates = [v for v in (cpu, mem, disk_max_pct) if v is not None]
-        score = max(candidates) if candidates else 0.0
-        concern = "정상"
-        badge = "rec-optimal"
-    if score >= _RISK_DANGER_SCORE:
-        score_color = _RISK_COLOR_DANGER
-    elif score >= _RISK_WARN_SCORE:
-        score_color = _RISK_COLOR_WARN
-    else:
-        score_color = _RISK_COLOR_OK
-    return RiskServerItem(
-        public_id=raw.public_id,
-        hostname=raw.hostname,
-        risk_score=score,
-        risk_score_color=score_color,
-        primary_concern=concern,
-        badge_class=badge,
-        cpu_p95_pct=cpu,
-        mem_p95_pct=mem,
-        disk_max_pct=disk_max_pct,
-        swap_used=raw.swap_used,
-        is_online=is_online,
+    if not rows:
+        return ["대상 서버 없음."]
+
+    bullets: list[str] = []
+    n_high = sum(1 for r in rows if r.risk_level == "high")
+    n_attention = sum(1 for r in rows if r.risk_level == "attention")
+
+    if n_high:
+        hosts = [r.hostname for r in rows if r.risk_level == "high"][:3]
+        suffix = " 외" if n_high > 3 else ""
+        bullets.append(f"고위험 {n_high}대 ({', '.join(hosts)}{suffix}) — 자원 부족 신호. 즉시 instance type 상향 검토.")
+    if n_attention:
+        hosts = [r.hostname for r in rows if r.risk_level == "attention"][:3]
+        suffix = " 외" if n_attention > 3 else ""
+        bullets.append(f"주의 필요 {n_attention}대 ({', '.join(hosts)}{suffix}) — 저사용·과다 프로비저닝. 다운사이즈 검토 후보.")
+
+    # 역할별 평균 CPU·MEM — 가장 자원 집약 역할 1개 식별
+    from collections import defaultdict  # noqa: PLC0415
+    role_cpu: defaultdict[str, list[float]] = defaultdict(list)
+    for r in rows:
+        if r.cpu_p95_pct is not None:
+            role_cpu[r.role].append(r.cpu_p95_pct)
+    if role_cpu:
+        top_cpu_role = max(role_cpu, key=lambda k: sum(role_cpu[k]) / len(role_cpu[k]))
+        top_cpu_avg = sum(role_cpu[top_cpu_role]) / len(role_cpu[top_cpu_role])
+        if top_cpu_avg >= 70.0:
+            bullets.append(f"{top_cpu_role} 계열 서버의 평균 CPU p95가 {top_cpu_avg:.0f}%로 높게 관찰됨.")
+
+    # I/O wait 신호 — p95 >= 20% 서버 카운트
+    n_iowait = sum(1 for r in rows if r.iowait_p95_pct is not None and r.iowait_p95_pct >= 20.0)
+    if n_iowait:
+        hosts = [r.hostname for r in rows if r.iowait_p95_pct is not None and r.iowait_p95_pct >= 20.0][:3]
+        suffix = " 외" if n_iowait > 3 else ""
+        bullets.append(f"I/O wait p95 20%+ {n_iowait}대 ({', '.join(hosts)}{suffix}) — 디스크 병목. SSD/iops 상향 검토.")
+
+    # Mount 임박 — 30일 안 채워질 마운트가 있는 서버 카운트
+    n_mount = sum(
+        1 for r in rows
+        if r.worst_mount_days_until_full is not None and r.worst_mount_days_until_full <= 30
     )
+    if n_mount:
+        hosts = []
+        for r in rows:
+            if r.worst_mount_days_until_full is not None and r.worst_mount_days_until_full <= 30:
+                hosts.append(f"{r.hostname}({r.worst_mount} {r.worst_mount_days_until_full}일)")
+                if len(hosts) >= 3:
+                    break
+        suffix = " 외" if n_mount > 3 else ""
+        bullets.append(f"디스크 채움 임박 {n_mount}대 ({', '.join(hosts)}{suffix}) — 디스크 증설 또는 정리 검토.")
+
+    # 재부팅 빈번 — period 안 3회 이상
+    n_reboot = sum(1 for r in rows if r.reboot_count >= 3)
+    if n_reboot:
+        hosts = [f"{r.hostname}({r.reboot_count}회)" for r in rows if r.reboot_count >= 3][:3]
+        suffix = " 외" if n_reboot > 3 else ""
+        bullets.append(f"재부팅 빈번 {n_reboot}대 ({', '.join(hosts)}{suffix}) — 안정성 점검 필요.")
+
+    # Saturation — load_15m_max / cpu_cores >= 1.0 (saturated)
+    n_sat = sum(1 for r in rows if r.saturation_ratio is not None and r.saturation_ratio >= 1.0)
+    if n_sat:
+        hosts = [f"{r.hostname}({r.saturation_ratio:.1f})" for r in rows
+                 if r.saturation_ratio is not None and r.saturation_ratio >= 1.0][:3]
+        suffix = " 외" if n_sat > 3 else ""
+        bullets.append(f"Saturation {n_sat}대 ({', '.join(hosts)}{suffix}) — load가 cpu_cores 초과. 처리 한계 신호.")
+
+    # 변동성 큼 — cpu peak/p95 >= 1.5
+    n_var = sum(1 for r in rows if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= 1.5)
+    if n_var:
+        hosts = [r.hostname for r in rows
+                 if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= 1.5][:3]
+        suffix = " 외" if n_var > 3 else ""
+        bullets.append(f"CPU 부하 변동 큼 {n_var}대 ({', '.join(hosts)}{suffix}) — 일시 spike 빈번. 평균보다 peak 기준 sizing 권장.")
+
+    # OS EOL 신호 — raws 있을 때만
+    if raws:
+        eol_hosts: list[str] = []
+        for r in raws:
+            key = (r.os_id or "", (r.os_version or "").split(".")[0])
+            # 버전 prefix 매칭 (예: ubuntu 18.04 -> ("ubuntu", "18"))
+            for (eol_os, eol_ver), date in _OS_EOL.items():
+                if r.os_id == eol_os and (r.os_version or "").startswith(eol_ver):
+                    eol_hosts.append(f"{r.hostname}({r.os_id} {r.os_version}, EOL {date})")
+                    break
+        if eol_hosts:
+            shown = eol_hosts[:3]
+            suffix = " 외" if len(eol_hosts) > 3 else ""
+            bullets.append(f"OS EOL {len(eol_hosts)}대 ({', '.join(shown)}{suffix}) — 마이그레이션 전 OS 업그레이드 검토.")
+
+    if not bullets:
+        bullets.append("전체 서버가 정상 범위. 추가 조치 불필요.")
+    return bullets
 
 
-def to_report_row_item(raw: ReportRowRaw, is_online: bool) -> ReportRowItem:
-    """ReportRowRaw(repo) + is_online → ReportRowItem(ViewModel) — P2 단일 변환.
+_RISK_FROM_RECOMMENDATION: dict[str, tuple[str, str, str]] = {
+    # USE Method 분류 -> (risk_level, 한글 라벨, badge CSS 클래스)
+    # 옵션 B 매핑 — 양식 A(고객용) KPI 3단계 압축:
+    #   under_provisioned → 고위험 (자원 부족, 즉시 조치)
+    #   shutdown·idle·over_provisioned → 주의 (저사용·과다 — 운영자 점검)
+    #   optimal·insufficient_data → 정상 (또는 데이터 부족)
+    "under_provisioned":  ("high",      "고위험",   "rec-under_provisioned"),
+    "shutdown":           ("attention", "주의 필요", "rec-over_provisioned"),
+    "idle":               ("attention", "주의 필요", "rec-over_provisioned"),
+    "over_provisioned":   ("attention", "주의 필요", "rec-over_provisioned"),
+    "optimal":            ("normal",    "정상",     "rec-right_size"),
+    "insufficient_data":  ("normal",    "정상",     "rec-right_size"),
+}
 
-    표시 파생 (role / recommendation / badge_class / os_display / internal_ip[0])은 모두 여기서.
+
+def _build_diagnosis(raw: ReportRowRaw, saturation: float | None,
+                     cpu_variance: float | None, mem_variance: float | None) -> str:
+    """saturation·variance·iowait·disk·swap·mem·cpu 종합 자동 진단 — 양식 B "판단" 컬럼.
+
+    우선순위 (가장 시급한 신호 1개 선택):
+    1. swap_used → "메모리 부족 (스왑 발생)" — paging 활성, 1차 강신호
+    2. iowait_p95 >= 20% → "디스크 I/O 병목"
+    3. saturation >= 1.0 → "CPU saturation (LOAD > cores)"
+    4. mem_p95 >= 80% → "메모리 압박"
+    5. cpu_p95 >= 70% → "CPU 압박"
+    6. cpu_variance >= 1.5 또는 mem_variance >= 1.5 → "변동성 큼 (burst)"
+    7. cpu_p95 <= 3% → "거의 미사용"
+    8. cpu_p95 <= 30% and mem_p95 <= 50% → "여유 있음 (축소 검토)"
+    9. 그 외 → "정상"
+    """
+    if raw.swap_used:
+        return "메모리 부족 (스왑 발생)"
+    if raw.iowait_p95_pct is not None and raw.iowait_p95_pct >= 20:
+        return "디스크 I/O 병목"
+    if saturation is not None and saturation >= 1.0:
+        return "CPU saturation"
+    if raw.mem_p95_pct is not None and raw.mem_p95_pct >= recommendation.MEM_UPSIZE_P95_PCT:
+        return "메모리 압박"
+    if raw.cpu_p95_pct is not None and raw.cpu_p95_pct >= recommendation.CPU_UPSIZE_P95_PCT:
+        return "CPU 압박"
+    if (cpu_variance is not None and cpu_variance >= 1.5) or (mem_variance is not None and mem_variance >= 1.5):
+        return "변동성 큼 (burst)"
+    if raw.cpu_p95_pct is not None and raw.cpu_p95_pct <= recommendation.SHUTDOWN_CPU_P95_PCT:
+        return "거의 미사용"
+    if (raw.cpu_p95_pct is not None and raw.cpu_p95_pct <= recommendation.CPU_DOWNSIZE_P95_PCT
+            and raw.mem_p95_pct is not None and raw.mem_p95_pct <= recommendation.MEM_DOWNSIZE_P95_PCT):
+        return "여유 있음 (축소 검토)"
+    return "정상"
+
+
+def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> ReportRowItem:
+    """ReportRowRaw(repo) + is_online + now -> ReportRowItem(ViewModel) — P2 단일 변환.
+
+    `now`로 uptime_days 계산 (now - boot_time).
+    표시 파생 (role / recommendation / risk_level / badge_class / os_display / internal_ip[0])은 모두 여기서.
+    USE Method 분류(`recommendation`)는 양식 B(엔지니어용)·`risk_level`은 양식 A(고객용) KPI/표 노출.
+    `diagnosis`는 양식 B "판단" 컬럼 자동 해석.
     """
     rec = recommendation.classify(recommendation.ResourceStats(
         cpu_p95_pct=raw.cpu_p95_pct,
@@ -537,6 +705,22 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool) -> ReportRowItem:
         swap_used=raw.swap_used,
         net_avg_kbps=None,  # 1차 MVP — net 집계 미구현
     ))
+    risk_level, risk_label, risk_badge_class = _RISK_FROM_RECOMMENDATION[rec]
+    uptime_days: int | None = None
+    if raw.boot_time is not None:
+        delta = now - raw.boot_time
+        uptime_days = max(0, int(delta.total_seconds() // 86400))
+
+    saturation = None
+    if raw.load_15m_max is not None and raw.cpu_cores and raw.cpu_cores > 0:
+        saturation = raw.load_15m_max / raw.cpu_cores
+
+    cpu_variance = None
+    if raw.cpu_p95_pct and raw.cpu_peak_pct and raw.cpu_p95_pct > 0:
+        cpu_variance = raw.cpu_peak_pct / raw.cpu_p95_pct
+    mem_variance = None
+    if raw.mem_p95_pct and raw.mem_peak_pct and raw.mem_p95_pct > 0:
+        mem_variance = raw.mem_peak_pct / raw.mem_p95_pct
     return ReportRowItem(
         server_id=raw.server_id,
         public_id=raw.public_id,
@@ -555,32 +739,368 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool) -> ReportRowItem:
         recommendation=rec,
         recommendation_label=recommendation.LABEL_KO[rec],
         badge_class=recommendation.BADGE_CLASS[rec],
+        risk_level=risk_level,
+        risk_label=risk_label,
+        risk_badge_class=risk_badge_class,
+        iowait_p95_pct=raw.iowait_p95_pct,
+        iowait_peak_pct=raw.iowait_peak_pct,
+        worst_mount=raw.worst_mount,
+        worst_mount_used_pct=raw.worst_mount_used_pct,
+        worst_mount_days_until_full=raw.worst_mount_days_until_full,
+        uptime_days=uptime_days,
+        reboot_count=raw.reboot_count,
+        saturation_ratio=saturation,
+        cpu_variance_ratio=cpu_variance,
+        mem_variance_ratio=mem_variance,
+        disk_iops_baseline=raw.disk_iops_baseline,
+        disk_iops_p95=raw.disk_iops_p95,
+        disk_iops_peak=raw.disk_iops_peak,
+        disk_throughput_kbps=raw.disk_throughput_kbps,
+        disk_throughput_kbps_p95=raw.disk_throughput_kbps_p95,
+        disk_throughput_kbps_peak=raw.disk_throughput_kbps_peak,
+        net_rx_kbps=raw.net_rx_kbps,
+        net_rx_kbps_p95=raw.net_rx_kbps_p95,
+        net_rx_kbps_peak=raw.net_rx_kbps_peak,
+        net_tx_kbps=raw.net_tx_kbps,
+        net_tx_kbps_p95=raw.net_tx_kbps_p95,
+        net_tx_kbps_peak=raw.net_tx_kbps_peak,
+        diagnosis=_build_diagnosis(raw, saturation, cpu_variance, mem_variance),
     )
 
 
-def to_inventory_export_entry(detail: ServerDetail) -> InventoryExportEntry:
-    """ServerDetail(outbound) → InventoryExportEntry(JSON export 항목)."""
+def build_role_distribution(raws: list) -> dict[str, int]:
+    """ReportRowRaw list -> 역할별 서버 수 dict. 양식 A 상단 표시용 (M4)."""
+    from collections import Counter  # noqa: PLC0415
+    counter: Counter[str] = Counter()
+    for r in raws:
+        counter[infer_role(r.services)] += 1
+    return dict(counter.most_common())
+
+
+# UtilizationBar 임계 — 환경 평균 활용률 색 결정 (P3 임계 분기 금지 → mapper 단일)
+_UTIL_LOW_PCT  = 60        # 미만 → 녹색 (여유)
+_UTIL_HIGH_PCT = 80        # 이상 → 빨강 (압박)
+_UTIL_COLOR_LOW  = "#22c55e"
+_UTIL_COLOR_MID  = "#f59e0b"
+_UTIL_COLOR_HIGH = "#ef4444"
+_UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재
+
+# 도넛 SVG 원주 — r=42, 2*pi*r ≈ 263.89. pct 0~100을 0~_UTIL_DONUT_CIRC로 매핑.
+_UTIL_DONUT_CIRC = 263.89
+
+# ─── 프로비저닝 분포 도넛 (3 카테고리) ──────────────────────────────────
+# idle/shutdown은 over_provisioned의 극단으로 흡수 — 사용자가 사양 큰 상태 통합 표시 원함.
+# 보고서 KPI(_RISK_FROM_RECOMMENDATION)는 그대로 3단계(high/attention/normal) 유지.
+_DONUT_SEGMENT_FROM_REC: dict[str, str] = {
+    "under_provisioned": "under",
+    "over_provisioned":  "over",
+    "shutdown":          "over",   # 사양 큰 상태 극단 — over로 흡수
+    "idle":              "over",
+    "optimal":           "normal",
+    "insufficient_data": "normal",
+}
+
+# 도넛 그리는 순서(언더 12시 방향 시작) + 범례 순서. (key, label, hex)
+_DONUT_SEGMENT_DEFS: list[tuple[str, str, str]] = [
+    ("under",  "언더 프로비저닝", "#ef4444"),  # 자원 부족 — 사양 상향
+    ("over",   "오버 프로비저닝", "#f59e0b"),  # 자원 여유 — 사양 축소 또는 종료
+    ("normal", "정상",           "#22c55e"),  # 적정
+]
+
+
+def _bar_color(pct: float | None) -> str:
+    if pct is None:
+        return _UTIL_COLOR_NONE
+    if pct >= _UTIL_HIGH_PCT:
+        return _UTIL_COLOR_HIGH
+    if pct >= _UTIL_LOW_PCT:
+        return _UTIL_COLOR_MID
+    return _UTIL_COLOR_LOW
+
+
+def _dash_length(pct: float | None) -> float:
+    if pct is None:
+        return 0.0
+    return max(0.0, min(pct, 100.0)) / 100.0 * _UTIL_DONUT_CIRC
+
+
+def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, int]:
+    """카테고리별 카운트 -> (RiskDonutSegment list, total, under_count).
+
+    risk_counts 예: {"under": 1, "over": 2, "normal": 7}.
+    누락 키는 0으로 취급. dash_length·dash_offset은 누적 비례 계산.
+    under_count는 도넛 중앙 강조용 (가장 시급한 카테고리).
+    """
+    from assessment_engine.web.view_models import RiskDonutSegment  # noqa: PLC0415
+    total = sum(risk_counts.values())
+    segments: list = []
+    cum_offset = 0.0
+    for key, label, color in _DONUT_SEGMENT_DEFS:
+        count = risk_counts.get(key, 0)
+        if total > 0 and count > 0:
+            dash_length = (count / total) * _UTIL_DONUT_CIRC
+        else:
+            dash_length = 0.0
+        segments.append(RiskDonutSegment(
+            key=key, label=label, color=color, count=count,
+            dash_length=dash_length, dash_offset=-cum_offset,  # 음수 offset = 시계방향 이동
+        ))
+        cum_offset += dash_length
+    under_count = risk_counts.get("under", 0)
+    return segments, total, under_count
+
+
+def build_environment_overview(details: list, online_count: int, utilization=None, risk_counts=None):
+    """ServerDetail list + online_count + EnvironmentUtilizationRaw + risk_counts -> EnvironmentOverview.
+
+    list 화면 상단 환경 요약 — 총 N대·자원 합계·역할 분포·온라인/오프라인·평균 활용률·위험도 분포.
+    utilization=None이면 활용률 빈 list. risk_counts=None이면 위험도 도넛 빈 list.
+    """
+    from assessment_engine.web.view_models import EnvironmentOverview, UtilizationBar  # noqa: PLC0415
+    from collections import Counter  # noqa: PLC0415
+
+    total = len(details)
+    total_vcpus = sum(d.cpu_cores or 0 for d in details)
+    total_mem_kb = sum(d.mem_total_kb or 0 for d in details)
+    total_disk_bytes = 0
+    for d in details:
+        for disk in d.disks or []:
+            total_disk_bytes += disk.get("size_bytes") or 0
+    role_counter: Counter[str] = Counter()
+    for d in details:
+        role_counter[infer_role(d.services)] += 1
+
+    util_bars: list = []
+    util_sample = 0
+    if utilization is not None:
+        util_sample = utilization.sample_size
+        util_bars = [
+            UtilizationBar(label="CPU",     pct=utilization.cpu_avg_pct,
+                           bar_color=_bar_color(utilization.cpu_avg_pct),
+                           dash_length=_dash_length(utilization.cpu_avg_pct)),
+            UtilizationBar(label="메모리", pct=utilization.mem_avg_pct,
+                           bar_color=_bar_color(utilization.mem_avg_pct),
+                           dash_length=_dash_length(utilization.mem_avg_pct)),
+            UtilizationBar(label="디스크", pct=utilization.disk_avg_pct,
+                           bar_color=_bar_color(utilization.disk_avg_pct),
+                           dash_length=_dash_length(utilization.disk_avg_pct)),
+        ]
+
+    risk_segments: list = []
+    risk_total = 0
+    risk_under = 0
+    if risk_counts is not None:
+        risk_segments, risk_total, risk_under = build_risk_donut_segments(risk_counts)
+
+    return EnvironmentOverview(
+        total=total,
+        online=online_count,
+        offline=total - online_count,
+        total_vcpus=total_vcpus,
+        total_memory_gb=round(total_mem_kb / 1024 / 1024, 1),
+        total_disk_gb=int(total_disk_bytes / 10**9),
+        role_distribution=dict(role_counter.most_common()),
+        utilization=util_bars,
+        util_sample_size=util_sample,
+        risk_donut=risk_segments,
+        risk_donut_total=risk_total,
+        risk_high_count=risk_under,
+    )
+
+
+# capacity trigger 3종 색 — hue 명확 분리. 본문 badge와 범례 단일 진실.
+# 한 서버에 여러 trigger 동시 발동 가능 (CPU + 메모리 등). 묶음 카테고리 없이 각각 표시.
+_CAPACITY_TRIGGER_COLORS: dict[str, str] = {
+    "스왑":   "#dc2626",   # 빨강 — 메모리 부족 1차 신호 (paging 발생)
+    "CPU":    "#2563eb",   # 파랑 — CPU 임계 초과
+    "메모리": "#8b5cf6",   # 보라 — 메모리 임계 초과
+}
+
+# 범례 표시 순서 (count 무관 — 모든 항목 노출)
+_CAPACITY_BREAKDOWN_ORDER: tuple[str, ...] = ("스왑", "CPU", "메모리")
+
+
+def build_capacity_breakdown(items: list) -> list:
+    """CapacityWarningItem list -> CapacityBreakdownEntry list (trigger 자원별 카운트).
+
+    한 서버가 여러 trigger 발동이면 각 trigger 모두 카운트 (예: CPU + 메모리 둘 다 부족 서버 1대 →
+    CPU 카운트 1, 메모리 카운트 1). 본 카운트 = "이 자원이 부족한 서버 수".
+    모든 trigger 3종 항상 노출 (count 0 포함) — 카드 본질 명시.
+    """
+    from assessment_engine.web.view_models import CapacityBreakdownEntry  # noqa: PLC0415
+    from collections import Counter  # noqa: PLC0415
+    counter: Counter[str] = Counter()
+    for item in items:
+        for t in item.triggers:
+            if t.active:
+                counter[t.label] += 1
+    return [
+        CapacityBreakdownEntry(
+            label=label,
+            count=counter.get(label, 0),
+            color=_CAPACITY_TRIGGER_COLORS[label],
+        )
+        for label in _CAPACITY_BREAKDOWN_ORDER
+    ]
+
+
+def to_capacity_warning_item(raw):
+    """ReportRowRaw -> CapacityWarningItem. caller가 under_provisioned 필터링 후 호출.
+
+    triggers list — 3종(스왑/CPU/메모리) 항상 포함, active로 분기:
+    - swap_used=True → "스왑" active (메모리 부족 1차 신호)
+    - cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU" active
+    - mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리" active
+    비활성 trigger도 list에 포함 (시각 일관 — "이 카드는 3종 자원 추적" 명시).
+    """
+    from assessment_engine.web.view_models import CapacityTriggerBadge, CapacityWarningItem  # noqa: PLC0415
+    swap_active = bool(raw.swap_used)
+    cpu_active = (raw.cpu_p95_pct or 0) >= recommendation.CPU_UPSIZE_P95_PCT
+    mem_active = (raw.mem_p95_pct or 0) >= recommendation.MEM_UPSIZE_P95_PCT
+    triggers = [
+        CapacityTriggerBadge(label="스왑",   color=_CAPACITY_TRIGGER_COLORS["스왑"],   active=swap_active),
+        CapacityTriggerBadge(label="CPU",    color=_CAPACITY_TRIGGER_COLORS["CPU"],    active=cpu_active),
+        CapacityTriggerBadge(label="메모리", color=_CAPACITY_TRIGGER_COLORS["메모리"], active=mem_active),
+    ]
+    return CapacityWarningItem(
+        public_id=raw.public_id,
+        hostname=raw.hostname,
+        cpu_p95_pct=raw.cpu_p95_pct,
+        mem_p95_pct=raw.mem_p95_pct,
+        swap_used=raw.swap_used,
+        triggers=triggers,
+    )
+
+
+def to_disk_days_warning_item(public_id, hostname, mount, days_until_full, used_pct):
+    """raw tuple -> DiskDaysWarningItem. caller가 days <= 30 필터링 후 호출."""
+    from assessment_engine.web.view_models import DiskDaysWarningItem  # noqa: PLC0415
+    return DiskDaysWarningItem(
+        public_id=public_id, hostname=hostname,
+        mount=mount, days_until_full=days_until_full, used_pct=used_pct,
+    )
+
+
+def to_os_eol_warning_item(raw):
+    """ReportRowRaw -> OSEolWarningItem if matches _OS_EOL, else None."""
+    from assessment_engine.web.view_models import OSEolWarningItem  # noqa: PLC0415
+    for (eol_os, eol_ver), date in _OS_EOL.items():
+        if raw.os_id == eol_os and (raw.os_version or "").startswith(eol_ver):
+            return OSEolWarningItem(
+                public_id=raw.public_id, hostname=raw.hostname,
+                os_display=_os_display(raw.os_id, raw.os_version),
+                eol_date=date,
+            )
+    return None
+
+
+def to_agent_unstable_item(public_id, hostname, restart_count):
+    """raw -> AgentUnstableItem. caller가 임계 필터링 후 호출."""
+    from assessment_engine.web.view_models import AgentUnstableItem  # noqa: PLC0415
+    return AgentUnstableItem(
+        public_id=public_id, hostname=hostname, restart_count=restart_count,
+    )
+
+
+# OS EOL (End-of-Life) 정적 매핑 — 정성 요약에서 legacy OS 신호 생성용.
+# 확장 시 본 dict에 (os_id, os_version_prefix) 키 추가. ISO 날짜 문자열만.
+_OS_EOL: dict[tuple[str, str], str] = {
+    ("centos", "7"):       "2024-06-30",
+    ("rhel",   "7"):       "2024-06-30",
+    ("ubuntu", "18.04"):   "2023-05-31",
+    ("debian", "10"):      "2024-06-30",
+}
+
+
+def compute_report_totals_from_raw(raws: list) -> ReportTotals:
+    """ReportRowRaw list -> 묶음 자원 총량. cpu_cores·mem_total_kb·disks 합산 (P2).
+
+    양식 A 상단의 마이그레이션 capacity 산정 입력 — "총 N대 = 총 X vCPU·Y GB·Z TB".
+    """
+    total_vcpus = sum(r.cpu_cores or 0 for r in raws)
+    total_mem_kb = sum(r.mem_total_kb or 0 for r in raws)
+    total_disk_bytes = 0
+    for r in raws:
+        for d in r.disks or []:
+            total_disk_bytes += d.get("size_bytes") or 0
+    return ReportTotals(
+        total_vcpus=total_vcpus,
+        total_memory_gb=int(total_mem_kb / 1024 / 1024),       # KB -> GB
+        total_disk_gb=int(total_disk_bytes / 10**9),           # bytes -> GB (벤더 표기 관례)
+    )
+
+
+def to_inventory_export_entry(
+    detail: ServerDetail,
+    stats: ReportRowRaw | None = None,
+) -> InventoryExportEntry:
+    """ServerDetail(outbound) + 선택적 ReportRowRaw -> InventoryExportEntry v2.
+
+    `stats`가 None이면 right-sizing 필드 null로 발행 — 신규 서버 / 데이터 부족 시.
+    스키마·정제 원칙·사용처: docs/architecture/inventory-export.md.
+    """
     boot_gb, additional = _split_disks(detail.disks, detail.mounts)
+    if stats is not None:
+        rec = recommendation.classify(recommendation.ResourceStats(
+            cpu_p95_pct=stats.cpu_p95_pct,
+            cpu_peak_pct=stats.cpu_peak_pct,
+            mem_p95_pct=stats.mem_p95_pct,
+            swap_used=stats.swap_used,
+            net_avg_kbps=None,  # 현재 net 집계 미통합 — idle/shutdown 판정 skip
+        ))
+        cpu_p95 = stats.cpu_p95_pct
+        cpu_peak = stats.cpu_peak_pct
+        mem_p95 = stats.mem_p95_pct
+        mem_peak = stats.mem_peak_pct
+        load_15m_max = stats.load_15m_max
+        swap_used = stats.swap_used
+    else:
+        rec = "insufficient_data"
+        cpu_p95 = cpu_peak = mem_p95 = mem_peak = load_15m_max = None
+        swap_used = False
+
     return InventoryExportEntry(
-        name=detail.hostname,
         machine_id=detail.machine_id,
+        hostname=detail.hostname,
         role=infer_role(detail.services),
+        last_seen_at=detail.last_seen_at,
+        services=_services_for_export(detail.services, detail.listen_ports),
         os={
             "family": detail.os_id,
             "version": detail.os_version,
             "kernel": detail.kernel_version,
         },
         compute={
-            "vcpus": detail.cpu_cores,
+            "vcpu_count": detail.cpu_cores,
             "memory_mb": (detail.mem_total_kb // 1024) if detail.mem_total_kb else None,
+            "cpu_p95_pct": cpu_p95,
+            "cpu_peak_pct": cpu_peak,
+            "mem_p95_pct": mem_p95,
+            "mem_peak_pct": mem_peak,
+            "load_15m_max": load_15m_max,
+            "swap_used": swap_used,
+            "recommended_size_class": {
+                "key": rec,
+                "label": recommendation.LABEL_KO.get(rec, rec),
+            },
         },
         storage={
             "boot_disk_gb": boot_gb,
+            "iops_baseline": stats.disk_iops_baseline if stats else None,
+            "iops_p95": stats.disk_iops_p95 if stats else None,
+            "iops_peak": stats.disk_iops_peak if stats else None,
+            "throughput_kbps_baseline": stats.disk_throughput_kbps if stats else None,
+            "throughput_kbps_p95": stats.disk_throughput_kbps_p95 if stats else None,
+            "throughput_kbps_peak": stats.disk_throughput_kbps_peak if stats else None,
             "additional_disks": additional,
         },
         network={
-            "hostname": detail.hostname,
-            "internal_ip": detail.ip_internal[0] if detail.ip_internal else None,
-            "external_ip": detail.ip_external[0] if detail.ip_external else None,
+            "addresses": _network_addresses(detail.ip_internal, detail.ip_external),
+            "rx_kbps_baseline": stats.net_rx_kbps if stats else None,
+            "rx_kbps_p95": stats.net_rx_kbps_p95 if stats else None,
+            "rx_kbps_peak": stats.net_rx_kbps_peak if stats else None,
+            "tx_kbps_baseline": stats.net_tx_kbps if stats else None,
+            "tx_kbps_p95": stats.net_tx_kbps_p95 if stats else None,
+            "tx_kbps_peak": stats.net_tx_kbps_peak if stats else None,
         },
     )

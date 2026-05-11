@@ -21,9 +21,10 @@ end
 RABBITMQ_USER     = dot_env.fetch("RABBITMQ_USER",                  "assessment")
 RABBITMQ_PASS     = dot_env.fetch("RABBITMQ_PASSWORD",              "assessment")
 RABBITMQ_EXCHANGE = dot_env.fetch("RABBITMQ_EXCHANGE",              "assessment")
-RABBITMQ_KEY_INV  = dot_env.fetch("RABBITMQ_ROUTING_KEY_INVENTORY", "server.inventory")
-RABBITMQ_KEY_MET  = dot_env.fetch("RABBITMQ_ROUTING_KEY_METRICS",   "server.metrics")
-RABBITMQ_KEY_ERR  = dot_env.fetch("RABBITMQ_ROUTING_KEY_ERROR",     "server.error")
+RABBITMQ_KEY_INV  = dot_env.fetch("RABBITMQ_ROUTING_KEY_INVENTORY",   "server.inventory")
+RABBITMQ_KEY_MET  = dot_env.fetch("RABBITMQ_ROUTING_KEY_METRICS",     "server.metrics")
+RABBITMQ_KEY_ERR  = dot_env.fetch("RABBITMQ_ROUTING_KEY_ERROR",       "server.error")
+RABBITMQ_KEY_TASK = dot_env.fetch("RABBITMQ_ROUTING_KEY_TASK_RESULT", "task.result")
 
 VMS = [
   # cache-server-01: redis 설치 → "cache" 카테고리 뱃지
@@ -99,6 +100,7 @@ RABBITMQ_EXCHANGE=#{RABBITMQ_EXCHANGE}
 RABBITMQ_ROUTING_KEY_INVENTORY=#{RABBITMQ_KEY_INV}
 RABBITMQ_ROUTING_KEY_METRICS=#{RABBITMQ_KEY_MET}
 RABBITMQ_ROUTING_KEY_ERROR=#{RABBITMQ_KEY_ERR}
+RABBITMQ_ROUTING_KEY_TASK_RESULT=#{RABBITMQ_KEY_TASK}
 AGENT_HOSTNAME_OVERRIDE=#{vm[:name]}
 AGENT_INTERVAL_SEC=60
 #{vm[:ext_ip] ? "AGENT_EXTERNAL_IP=#{vm[:ext_ip]}" : ''}

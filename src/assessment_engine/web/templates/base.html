@@ -33,6 +33,13 @@
     .badge-cat-container { background: #e0f2fe; color: #075985; }
     .badge-cat-monitor   { background: #fef9c3; color: #713f12; }
     .badge-cat-unknown   { background: #f1f5f9; color: #64748b; }
+    /* USE Method 분류 badge — list/report 공유 (단일 진실). rec-swap은 메모리 부족 1차 신호 강조. */
+    .rec-under_provisioned { background: #fee2e2; color: #b91c1c; }
+    .rec-right_size        { background: #fef3c7; color: #92400e; }
+    .rec-over_provisioned  { background: #fef3c7; color: #92400e; }
+    .rec-optimal           { background: #dcfce7; color: #15803d; }
+    .rec-idle, .rec-shutdown { background: #f1f5f9; color: #64748b; }
+    .rec-swap              { background: #b91c1c; color: #fef2f2; }
     .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07); padding: 20px 24px; margin-bottom: 18px; }
     .kv { display: grid; grid-template-columns: 160px 1fr; gap: 7px 16px; }
     .kv dt { color: #64748b; font-size: 13px; }
@@ -100,6 +107,7 @@
   <!-- 자식 template의 inline script(<main> 안)에서 ChartUtils를 즉시 destructure하므로
        chart-utils.js는 자식 script 실행 전에 로드되어야 한다. <head>에 둠. -->
   <script src="/static/js/chart-utils.js"></script>
+  <script src="/static/js/toast-utils.js"></script>
 </head>
 <body>
   <header class="no-print">

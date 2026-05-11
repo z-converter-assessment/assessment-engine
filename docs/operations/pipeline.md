@@ -82,7 +82,7 @@ cp infra/agent.env.example infra/agent.env # 에이전트(VM) 전용 secret 채�
 
 > 두 .env 파일을 분리하는 이유: 엔진의 `.env`는 docker-compose로 web/consumer에 주입,
 > `infra/agent.env`는 Vagrantfile이 read해 VM 안 `/etc/assessment-agent.env`로 옮긴다.
-> 정책·근거는 [docs/operations/dev-prod.md](dev-prod.md) #9 (에이전트 secret 채널 분리).
+> 정책·근거는 `docs/operations/dev-prod.md` #9 (에이전트 secret 채널 분리).
 
 `dev-up.sh` 실행 순서:
 1. `docker compose up --build -d`
