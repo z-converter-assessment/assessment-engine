@@ -1,6 +1,6 @@
 # 환경변수 (현황 카탈로그)
 
-> 본 문서는 키 카탈로그다. 정책·dev/prod 분리·secret 단계는 [dev-prod.md](dev-prod.md) 참조.
+> 본 문서는 키 카탈로그다. 정책·dev/prod 분리·secret 단계는 `docs/operations/dev-prod.md` 참조.
 
 루트 `.env`에서 주입 (dev). `.env.example`을 복사해 시작한다.
 
@@ -8,7 +8,7 @@
 cp .env.example .env
 ```
 
-prod에선 `.env` 대신 Docker secrets로 자격을 주입한다 — 자세한 정책은 `dev-prod.md` #7.
+prod에선 `.env` 대신 Docker secrets로 자격을 주입한다 — 자세한 정책은 `docs/operations/dev-prod.md` "Secret 정책".
 
 ## 주입 흐름
 
@@ -64,10 +64,11 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 | `RABBITMQ_USER` | `assessment` | config.py / docker-compose / Vagrantfile | |
 | `RABBITMQ_PASSWORD` | `assessment` | config.py / docker-compose / Vagrantfile | |
 | `RABBITMQ_MANAGEMENT_PORT` | `15672` | docker-compose | RabbitMQ 관리 콘솔 포트 노출 (config.py 미사용) |
-| `RABBITMQ_EXCHANGE` | `assessment` | config.py / Vagrantfile | 에이전트 ↔ consumer routing 계약. 변경 시 양쪽 동기화 |
+| `RABBITMQ_EXCHANGE` | `assessment` | config.py / Vagrantfile | 에이전트 - consumer routing 계약. 변경 시 양쪽 동기화 |
 | `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | config.py / Vagrantfile | 동일 |
 | `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | config.py / Vagrantfile | 동일 |
 | `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | config.py / Vagrantfile | 동일 |
+| `RABBITMQ_ROUTING_KEY_TASK_RESULT` | `task.result` | config.py / Vagrantfile | agent -> engine 작업 결과 보고. v4 신설 |
 | `REDIS_HOST` | `redis` | config.py | (docker-compose 서비스명) |
 | `REDIS_PORT` | `6379` | config.py | |
 | `WEB_PORT` | `8000` | config.py / docker-compose | Web UI 접속 포트. 충돌 시 변경 |
@@ -89,7 +90,7 @@ docker-compose `environment:` 오버라이드는 `web` / `consumer` 양쪽에 �
 
 Vagrantfile은 엔진의 `.env`를 직접 파싱하지 않는다. 별도 파일 `infra/agent.env`에서만 read:
 
-- `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_EXCHANGE`, `RABBITMQ_ROUTING_KEY_INVENTORY`, `RABBITMQ_ROUTING_KEY_METRICS`, `RABBITMQ_ROUTING_KEY_ERROR`
+- `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_EXCHANGE`, `RABBITMQ_ROUTING_KEY_INVENTORY`, `RABBITMQ_ROUTING_KEY_METRICS`, `RABBITMQ_ROUTING_KEY_ERROR`, `RABBITMQ_ROUTING_KEY_TASK_RESULT`
 
 `infra/agent.env`가 없으면 Vagrantfile이 즉시 에러. `cp infra/agent.env.example infra/agent.env` 후 운영 값으로 수정.
 
@@ -97,7 +98,7 @@ Vagrantfile은 엔진의 `.env`를 직접 파싱하지 않는다. 별도 파일 
 
 `infra/agent.env` 변경 후 VM에 반영하려면 `vagrant provision` 필요.
 
-분리 근거: `dev-prod.md` #9.
+분리 근거: `docs/operations/dev-prod.md` "에이전트 secret 채널 분리" 절.
 
 ### config.py가 환경변수로 받지 않는 키
 
@@ -108,7 +109,6 @@ Vagrantfile은 엔진의 `.env`를 직접 파싱하지 않는다. 별도 파일 
 - `redis_ttl_task_pending` (24h — pending task hot path 캐시)
 - `redis_key_*` 패턴 (cache:* / idempotent / online / token / last_agent_start / agent_restarts / task:pending)
 - `redis_channel_metrics`
-- `rabbitmq_routing_key_task_result` (`task.result` — agent → engine 작업 결과 보고)
 - `agent_restart_alert_threshold` (3 — 1h 내 재시작 N회 도달 시 warning)
 
-운영 환경에서 조정 필요 시 `BaseSettings` 필드라 환경변수로도 주입 가능하며, 이 경우 `.env`에 키 추가 + `docs/operations/env.md` 갱신. 현재 시점에는 default 값이 적절. `docs/adr/tradeoffs.md` T2 개선 방향 참조.
+운영 환경에서 조정 필요 시 `BaseSettings` 필드라 환경변수로도 주입 가능하며, 이 경우 `.env`에 키 추가 + `docs/operations/env.md` 갱신. 현재 시점에는 default 값이 적절. `docs/tradeoffs.md` T2 개선 방향 참조.

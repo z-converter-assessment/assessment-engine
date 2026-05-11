@@ -1,6 +1,6 @@
 # 환경변수·인프라 전략
 
-> 위치: 본 문서는 정책이다. "키가 무엇인가"는 [docs/operations/env.md](env.md), 트레이드오프는 [docs/adr/tradeoffs.md](tradeoffs.md), 호환되는 dev 운영 명령은 [README.md](../README.md) 참조.
+> 위치: 본 문서는 정책이다. "키가 무엇인가"는 `docs/operations/env.md`, 트레이드오프는 `docs/tradeoffs.md`, 호환되는 dev 운영 명령은 `README.md` 참조.
 
 본 프로젝트는 12-Factor App의 III. Config 원칙을 기준으로 환경변수와 dev/prod 분리를 설계한다. 코드·이미지는 환경에 무관하게 동일하고, 환경별 동작은 환경변수와 secret 주입 채널로만 결정된다.
 
@@ -46,11 +46,11 @@
 
 ```
 [lowest]  코드 default (config.py)
-       ↓
+       v
        .env 파일 (cwd 또는 /app/.env)
-       ↓
+       v
        secrets_dir 파일 (/run/secrets/<field_name>)
-       ↓
+       v
        OS 환경변수 (docker-compose env / orchestrator inject)
 [highest] 명시적 init kwargs (테스트용)
 ```
@@ -102,8 +102,8 @@ docker-compose의 `${VAR}` 치환은 별개 레이어: compose는 YAML 파싱 �
 | Compose 파일 | `docker-compose.yml` + `docker-compose.override.yml` (자동) | `docker-compose.yml` + `docker-compose.prod.yml` (명시 호출) |
 | Compose 호출 | `docker compose up` | `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d` |
 | `APP_ENV` | `dev` (override가 강제) | `prod` (prod.yml이 강제) |
-| 코드 마운트 (`./:/app`) | ✅ 빠른 반복 | ❌ 이미지 불변성 |
-| 백킹 서비스 포트 외부 노출 | ✅ 5432·5672·6379·15672 | ❌ web만 (또는 reverse proxy 뒤) |
+| 코드 마운트 (`./:/app`) | OK 빠른 반복 | NG 이미지 불변성 |
+| 백킹 서비스 포트 외부 노출 | OK 5432·5672·6379·15672 | NG web만 (또는 reverse proxy 뒤) |
 | Password 주입 | `.env` 평문 (`env_file: .env`) | Docker secrets (`/run/secrets/*` + `_FILE` 환경변수) |
 | Schema 생성 | web `lifespan`이 자동 | Alembic 사전 적용 (lifespan skip) |
 | Fail-fast 검증 | 약한 default 허용 | `_WEAK_VALUES` 거부 → 시작 자체 실패 |
@@ -217,7 +217,7 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 - [ ] `secrets/` 디렉토리에 의도하지 않은 파일이 없는지 확인 (`git status secrets/`)
 - [ ] `docker-compose.prod.yml`의 `secrets:` 블록과 `secrets/` 파일명 일치
 - [ ] `APP_ENV=prod` 환경변수 또는 `docker-compose.prod.yml`의 `environment` 블록으로 명시
-- [ ] Alembic 마이그레이션 사전 적용 (`docker compose -f ... -f docker-compose.prod.yml run --rm web alembic upgrade head`). 상세 절차·troubleshooting은 [`docs/operations/alembic.md`](alembic.md)
+- [ ] Alembic 마이그레이션 사전 적용 (`docker compose -f ... -f docker-compose.prod.yml run --rm web alembic upgrade head`). 상세 절차·troubleshooting은 `docs/operations/alembic.md`
 - [ ] `docker compose -f docker-compose.yml -f docker-compose.prod.yml config` 로 머지 결과 검증
 - [ ] DB·MQ·Redis 외부 포트 노출 없음 확인 (`docker compose ... ps` / `netstat`)
 - [ ] web만 reverse proxy 뒤 또는 직접 노출 결정

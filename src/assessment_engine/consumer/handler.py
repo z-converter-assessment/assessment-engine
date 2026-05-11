@@ -85,7 +85,7 @@ async def _check_idempotent(redis: Redis, message_id: UUID) -> bool:
     """SET NX 멱등성 체크. 첫 처리면 True, 중복이면 False.
 
     Redis 장애 시 fail-open (True 반환) — 처리 진행. DB UNIQUE 제약(2단)이 중복 INSERT를 흡수.
-    docs/decisions/redis-decoupling.md §6 단계 4 참조.
+    CLAUDE.md #D2 (멱등성 2단 방어) 참조.
     """
     key = consumer_settings.redis_key_idempotent.format(message_id.hex)
     result = await safe_set_nx(redis, key, "1", consumer_settings.redis_ttl_idempotent)

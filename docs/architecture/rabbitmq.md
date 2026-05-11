@@ -1,39 +1,16 @@
 # RabbitMQ
 
-본 문서는 RabbitMQ broker 운영의 단일 진실. 코드(`src/assessment_engine/consumer/main.py`)·인프라(`docker-compose.yml`)·계약(에이전트 ↔ 엔진)에 흩어진 broker 관련 결정을 한 곳에 모은다. 토폴로지 코드 동작 관점은 `docs/architecture/consumer.md`.
+본 문서는 RabbitMQ broker 운영의 단일 진실. 코드(`src/assessment_engine/consumer/main.py`)·인프라(`docker-compose.yml`)·계약(에이전트 - 엔진)에 흩어진 broker 관련 결정을 한 곳에 모은다. 토폴로지 코드 동작 관점은 `docs/architecture/consumer.md`.
 
 ---
 
-## 1. 개념
+## 1. 본 시스템 결정
 
-### vhost (virtual host)
+vhost: `/assessment` 단일 사용. broker 한 대를 다른 도메인 시스템과 나눠 쓸 때만 추가 vhost 도입. AMQP URL은 `amqp://user:pass@host:port/%2Fassessment` 형식 — `/`는 `%2F`로 인코딩 (config.py 자동 처리).
 
-단일 broker 안에서 논리적으로 분리된 namespace. HTTP virtual host와 발상 비슷.
+권한 모델: RabbitMQ는 `(user, vhost)` 쌍에 configure/write/read 3비트를 정규식 패턴으로 부여. dev는 단일 user `assessment`가 셋 모두 보유. prod는 4-user least-privilege로 분리 (#3 dev/prod 분기).
 
-| 격리 단위 | 내용 |
-|----------|------|
-| Exchange / Queue / Binding | 다른 vhost와 이름 겹쳐도 충돌 없음 — `/assessment` vhost의 `assessment` exchange와 `/`(기본) vhost의 `assessment` exchange는 별개 |
-| User permission | user 단위가 아니라 `(user, vhost)` 쌍으로 read·write·configure 권한 부여 |
-| 메시지 흐름 | vhost 간 메시지 흐름 없음. 같은 broker라도 통신 안 됨 |
-| 운영 사고 격리 | 한 vhost의 큐 폭주가 다른 vhost에 직접 영향 없음 (자원 한계 내) |
-
-AMQP URL 표기: `amqp://user:pass@host:port/<vhost>`. vhost 이름에 `/`가 포함되면 `%2F`로 인코딩 — 본 시스템 `broker_url`은 `amqp://assessment:assessment@rabbitmq:5672/%2Fassessment` (config.py에서 자동 처리).
-
-기본 vhost: `/` (슬래시 한 글자). 아무 설정 안 하면 모든 user가 여기로 접속.
-
-본 시스템에서의 의의: 현재 broker는 `/assessment` 단일 vhost만 운영하고 그 안의 모든 메시지(inventory/metrics/error)는 호스트 인벤토리·메트릭 수집 도메인. 같은 broker 위에 별도 vhost를 추가하면 다른 도메인 시스템(알림 큐·작업 큐·결제 이벤트 등)이 namespace·permission·자원 격리된 상태로 공존 가능. 즉 vhost = broker 한 대를 여러 시스템이 안전하게 나눠 쓰는 격리 단위.
-
-### 권한 모델
-
-RabbitMQ는 user마다 vhost 단위로 3가지 권한 비트 부여. 각 비트는 정규식 패턴으로 적용 대상 제한.
-
-| 권한 비트 | 의미 |
-|----------|------|
-| configure | exchange / queue / binding을 declare(생성·수정·삭제) |
-| write | exchange에 메시지 publish |
-| read | queue에서 메시지 consume (read + ack) |
-
-dev 단일 user `assessment`는 셋 다 가짐 (admin). production은 #3에서 4-user로 분리.
+도구 일반론(vhost·권한 비트 의미)은 RabbitMQ 공식 문서.
 
 ---
 
@@ -53,18 +30,24 @@ dev 단일 user `assessment`는 셋 다 가짐 (admin). production은 #3에서 4
 
 | routing key | 큐 | DLQ | TTL | x-max-length |
 |-------------|-----|-----|-----|--------------|
-| `server.inventory` | `server.inventory` | `server.inventory.dead` | 없음 (one-shot) | 없음 |
+| `server.inventory` | `server.inventory` | `server.inventory.dead` | 없음 (1시간 주기 자동 재발행으로 보강) | 없음 |
 | `server.metrics` | `server.metrics` | `server.metrics.dead` | 72h | 1,000,000 |
 | `server.error` | `server.error` | `server.error.dead` | 300s | 없음 |
+| `task.result` | `task.result` | `task.result.dead` | 24h | 100,000 |
 
 `server.metrics` 정책 근거:
 - 72h TTL: 1분 주기 발행 + consumer/DB 단기 장애(최대 3일) 내 회복 시 누적 메시지 정상 처리.
-- 1M 메시지 상한: ~3KB × 1M = ~3GB 디스크/메모리 → broker 폭주 방어.
+- 1M 메시지 상한: 약 3KB X 1M = 약 3GB 디스크/메모리 -> broker 폭주 방어.
 - 초과 시 oldest 메시지부터 DLX(`server.metrics.dead`)로 routing.
 
 `server.error` 300s TTL: 알림용 노이즈 방지. DB 저장 없어 짧은 TTL로 충분.
 
-`server.inventory` TTL/상한 없음: one-shot 메시지로 소실 시 에이전트 재시작 전까지 복구 불가. 미팅 의제 A(주기 재발행) 채택 시 보강.
+`server.inventory` TTL/상한 없음: one-shot 메시지가 소실되면 다음 1시간 주기 재발행으로 자동 회복 (CLAUDE.md #B1).
+
+`task.result` 정책 근거:
+- 24h TTL: 운영자가 install 결과를 하루 안에 확인. 누적 적재 방지.
+- 100K 상한: 머신당 install pending 최대 1건(`tasks` 부분 UNIQUE) + 결과 메시지 약 4KB라 1만 머신 X 1 buffer로 충분.
+- Task RPC piggyback의 reply 자체는 별도 큐 declare 없이 `amq.rabbitmq.reply-to` pseudo-queue로 발행 — 본 표에 등재하지 않음 (큐 declare 불필요, broker 내부 처리).
 
 ### DLQ 라우팅 트리거
 
@@ -118,9 +101,9 @@ prod: 각 역할에 필요한 권한 비트만 부여 (least privilege).
 
 | user | configure / write / read | 역할 |
 |------|--------------------------|------|
-| `agent-publisher` | `none / ^assessment$ / none` | 에이전트가 사용. exchange `assessment`에 inventory/metrics/error publish만. queue declare 불가, consume 불가 |
-| `worker-consumer` | `none / none / ^server\.(inventory\|metrics\|error)$` | 엔진 consumer가 사용. 정상 큐 read·ack만. publish·declare 불가 |
-| `dlq-handler` | `none / none / ^server\.(inventory\|metrics\|error)\.dead$` | DLQ 메시지 분석·재처리 도구용 (별도 운영 도구). DLQ만 read |
+| `agent-publisher` | `none / ^assessment$ / ^amq\.rabbitmq\.reply-to.*$` | 에이전트가 사용. exchange `assessment`에 inventory/metrics/error/task_result publish + `amq.rabbitmq.reply-to` pseudo-queue로 Task RPC reply 수신. queue declare 불가, 정상 큐 consume 불가 |
+| `worker-consumer` | `none / ^assessment$ / ^(server\.(inventory\|metrics\|error)\|task\.result)$` | 엔진 consumer가 사용. 정상 큐 read·ack + Task RPC reply publish(`amq.rabbitmq.reply-to`로). DLQ·declare 불가 |
+| `dlq-handler` | `none / none / ^(server\.(inventory\|metrics\|error)\|task\.result)\.dead$` | DLQ 메시지 분석·재처리 도구용 (별도 운영 도구). DLQ만 read |
 | `topology-admin` | `.* / .* / .*` | 시스템 초기 셋업 시 1회만 사용. exchange / queue / DLX declare 후 권한 회수 또는 user 삭제. 평시 credential 노출 없음 |
 
 왜 4개로 나누나 — 침해 시 blast radius 제한:
@@ -154,7 +137,7 @@ dev → production 시 #3 "분기 유지" 항목을 적용:
 - 에이전트 측 credentials를 `agent-publisher`로 배포
 
 ### 4.3 단일 broker → HA cluster 검토 (선택)
-본 시스템 단일 인스턴스 정책은 `docs/adr/tradeoffs.md` T11. SLA 요구가 강해질 때 재검토.
+본 시스템 단일 인스턴스 정책은 `docs/tradeoffs.md` T11. SLA 요구가 강해질 때 재검토.
 
 ### 4.4 broker disk 용량 정책
 `server.metrics` 큐의 `x-max-length` / TTL 보강 — 운영 환경 메시지 발생량·디스크 SLA에 맞춰 별도 결정.
@@ -167,4 +150,4 @@ dev → production 시 #3 "분기 유지" 항목을 적용:
 - `docs/architecture/agent.md` — 에이전트 측 publish 동작 / publisher confirm / retry
 - `docs/operations/docker.md` — RabbitMQ 컨테이너 정의 / 헬스체크 / 환경변수
 - `docs/operations/env.md` — `RABBITMQ_*` 환경변수 키 목록
-- `docs/adr/tradeoffs.md` T7 — 에이전트 broker 자동 재연결 (이미 구현됨)
+- `docs/tradeoffs.md` T7 — 에이전트 broker 자동 재연결 (이미 구현됨)

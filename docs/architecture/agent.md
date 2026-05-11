@@ -93,17 +93,17 @@ public_id 미존재 시 silent ack — 운영자가 task 삭제했을 가능성,
 
 | 필드 | 위치 | 무시 사유 |
 |------|------|-----------|
-| `mounts[].major/minor` | metrics | 시계열 테이블(`server_mount_usage`)에 컬럼 없음. inventory의 동일 필드만 활용 (mount↔disk 조인). 시계열에서도 활용 시 스키마 변경(`down -v`) 필요 |
+| `mounts[].major/minor` | metrics | 시계열 테이블(`server_mount_usage`)에 컬럼 없음. inventory의 동일 필드만 활용 (mount-disk 조인). 시계열에서도 활용 시 스키마 변경(`down -v`) 필요 |
 | `disk_io[].major/minor` | metrics | 동일 — `server_disk_io` 시계열 테이블에 컬럼 없음. compute_disk_io의 분류는 device 이름 정규식 유지 |
 | `mounts[].free_bytes/avail_bytes` | inventory | 인벤토리는 정적 정보(total_bytes)만 저장. 동적 사용량은 `server_mount_usage` 시계열로 분리 (`src/assessment_engine/consumer/mappers.py:to_inventory_create`) |
 | `boot_time` (error) | error | error 메시지는 로깅 외 활용처 없음 — counter reset 식별과 무관 |
 | `agent_started_at` (error) | error | 동일 — error 메시지에서만 미사용 |
 
-### 활용 중인 필드 (이전엔 무시였음)
+### 활용 중인 필드
 
 | 필드 | 위치 | 활용 방식 |
 |------|------|----------|
-| `disks[].major/minor` | inventory | `src/assessment_engine/web/services/device_filters.find_parent_disk()`에서 mount↔disk 조인 키 |
+| `disks[].major/minor` | inventory | `src/assessment_engine/web/services/device_filters.find_parent_disk()`에서 mount-disk 조인 키 |
 | `mounts[].major/minor` | inventory | `src/assessment_engine/web/services/mappers.to_storage_detail`에서 disks 리스트와 매칭 → `MountUsageItem.device_name` 채움 → storage.html "Device" 컬럼 |
 | `boot_time` (inventory) | inventory | `server_inventory.boot_time` 컬럼 저장 + `server_inventory_history` append 시 비교 대상. detail.html / performance.html에 KST 표시 |
 | `agent_started_at` (inventory) | inventory | `server_inventory.agent_started_at` 컬럼 저장 + history 변경 trigger. 에이전트 재시작 이벤트 감지의 1차 단서 |
@@ -114,7 +114,7 @@ public_id 미존재 시 silent ack — 운영자가 task 삭제했을 가능성,
 
 ## Task RPC piggyback (engine → agent)
 
-**용도**: engine이 등록한 작업 명령을 agent에게 전달. 별도 polling endpoint·task queue 불필요 — 기존 `server.metrics` 발행 응답 채널에 piggyback.
+용도: engine이 등록한 작업 명령을 agent에게 전달. 별도 polling endpoint·task queue 불필요 — 기존 `server.metrics` 발행 응답 채널에 piggyback.
 
 ### 흐름
 
@@ -135,7 +135,7 @@ engine consumer: metrics 처리 후
 {
   "task_public_id": "<UUID>",
   "task_type": "zconverter_install",
-  "params": { "zdm_ip": "192.168.0.3" }
+  "params": { "source_host": "192.168.0.3" }
 }
 ```
 
@@ -145,7 +145,7 @@ agent는 `task_type`으로 미리 컴파일된 핸들러 dispatch. 핸들러가 
 
 | task_type | params 스키마 | agent 동작 |
 |-----------|--------------|-----------|
-| `zconverter_install` | `{"zdm_ip": str}` | `curl http://{zdm_ip}/zconverter.tar.gz` → `tar -xzf` → `bash install.sh` |
+| `zconverter_install` | `{"source_host": str}` | `curl http://{source_host}/zconverter.tar.gz` → `tar -xzf` → `bash install.sh` |
 
 새 task_type 도입 시 양쪽 동시 갱신 + agent_version bump. 미지원 task_type 수신 시 agent는 `task.result` `failed` 보고 (`result_message="unknown task_type"`).
 
@@ -186,7 +186,7 @@ fork 모델 (Apache prefork, sshd): 마스터 프로세스가 소켓을 열고 l
 
 ### UI 표현
 
-- `port ≤ 1024`: well-known 포트 (root 전용 바인딩). 서버 상세 페이지에서 강조 표시.
+- `port <= 1024`: well-known 포트 (root 전용 바인딩). 서버 상세 페이지에서 강조 표시.
 - `pid` / `comm` null: 소켓 액티베이션 소켓. UI에서 "—" 표시.
 
 ---
@@ -214,9 +214,9 @@ loop 디바이스 I/O는 sda에도 이미 반영된다 (`앱 read → loop0(squa
 `mounts[]`:
 - 사용자 공간 파일시스템만 포함. 커널·가상 마운트 제외
 - 제외 fstype: `proc`, `sysfs`, `devtmpfs`, `devpts`, `squashfs`, `overlay`, `cgroup`, `cgroup2` 등
-- `device` 필드 추가 필요: `/proc/mounts` 첫 번째 컬럼(마운트 소스). 포털에서 파일시스템 ↔ 물리 디스크 연결 표시 및 `device_filters.py` 의존도 감소 가능
+- mount-disk 연결은 이미 발행 중인 `major`/`minor` 키로 처리 (#B1 활용 필드, `find_parent_disk`). `/proc/mounts` 첫 컬럼을 별도 `device` 필드로 발행할 필요 없음 — redundant.
 
-개선 방향(P2): 에이전트 업데이트(`device` 필드 추가 + 가상 마운트 필터링) 후 `device_filters.py`의 `is_virtual_mount()`, `is_physical_disk()` 제거.
+개선 방향(P2): 에이전트가 1차 노이즈 차단(`disks[]`·`mounts[]` 필터링)을 수행하더라도 서버측 `device_filters.py`(`is_virtual_mount()`, `is_physical_disk()`)는 유지. defense in depth — (a) 옛 버전 에이전트 비대칭 배포(#B4) 대응 (b) 새 가상 fstype·디바이스 패턴 등장 시 서버 단독 hot-fix 가능 (c) 에이전트 필터 버그 시 서버측이 최종 방어선.
 
 ---
 

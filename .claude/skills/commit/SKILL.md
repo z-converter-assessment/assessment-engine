@@ -1,6 +1,6 @@
 ---
 name: commit
-description: TRIGGER when user requests commit ("커밋", "/commit", "commit it"). Drafts a commit per project convention (한글 설명, type prefix), safely stages specific files, commits with HEREDOC body and Co-Authored-By footer.
+description: TRIGGER when user requests commit ("커밋", "/commit", "commit it"). Drafts a commit per project convention (한글 설명, type prefix), safely stages specific files, commits with HEREDOC body. AI 메타데이터 footer(Co-Authored-By / Generated with Claude Code / AI 이모지) 추가 금지.
 ---
 
 # commit — 프로젝트 규약 기반 커밋
@@ -48,8 +48,8 @@ description: TRIGGER when user requests commit ("커밋", "/commit", "commit it"
    )"
    ```
 
-   **Co-Authored-By footer 절대 추가 금지** — 본 프로젝트 정책. Claude가 작성했다는
-   메타데이터(Co-Authored-By, "Generated with Claude Code", 🤖 이모지 등) 일체 포함하지 않음.
+   Co-Authored-By footer 추가 금지 — 본 프로젝트 정책. Claude·Anthropic·LLM이 작성했다는
+   메타데이터(Co-Authored-By, "Generated with Claude Code", AI 이모지 등) 일체 포함하지 않음 (글로벌 CLAUDE.md).
 
 6. `git status`로 결과 확인.
 

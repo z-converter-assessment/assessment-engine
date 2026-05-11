@@ -24,6 +24,7 @@ _DETAIL_DISPLAY_FIELDS = frozenset({
     "known_services", "show_unknown_badge", "key_listen_ports",
     "os_display", "cpu_display", "disk_total_gb",
     "sorted_services", "sorted_listen_ports",
+    "services_count", "listen_ports_count", "disks_count",
 })
 
 

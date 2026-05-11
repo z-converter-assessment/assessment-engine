@@ -144,7 +144,7 @@ command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru
 
 - `maxmemory 256mb` — B2B 내부 포털 규모 기준. 키 수·값 크기가 작아 충분.
 - `volatile-lru` — TTL이 설정된 키만 evict 대상. TTL 없는 `cache:resolve:{public_id}` 키를 보호하면서 만료 임박 캐시·온라인 키를 우선 제거.
-- 멱등성 키(`idempotent:{message_id}`)는 24h TTL이 있어 evict 가능 → at-most-once 트레이드오프와 연결 (`docs/adr/tradeoffs.md` T1, T11).
+- 멱등성 키(`idempotent:{message_id}`)는 24h TTL이 있어 evict 가능 → at-most-once 트레이드오프와 연결 (`docs/tradeoffs.md` T1, T11).
 
 ### 환경변수 주입
 
@@ -185,7 +185,7 @@ environment:
 ```
 postgres ──┐
            ├──▶ web (service_healthy) ──▶ consumer
-redis ─────┤                              ↑
+redis ─────┤                              ^
            └──────────────────────────────┤
 rabbitmq ─────────────────────────────────┘
 ```
@@ -195,7 +195,7 @@ consumer가 web 헬스체크 통과 후 기동하는 이유:
 2. consumer가 먼저 DB 접근하면 테이블이 없어 INSERT 실패 → DLQ 누적.
 3. web 헬스체크 통과 = 스키마 준비 완료.
 
-이 의존 관계는 DEV 전용. 프로덕션에서는 Alembic 마이그레이션을 분리해 별도 잡으로 실행하고 `consumer depends_on web` 제거 — `docs/adr/tradeoffs.md` T4.
+이 의존 관계는 DEV 전용. 프로덕션에서는 Alembic 마이그레이션을 분리해 별도 잡으로 실행하고 `consumer depends_on web` 제거 — `docs/tradeoffs.md` T4.
 
 ### restart 정책
 

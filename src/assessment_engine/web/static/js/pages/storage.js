@@ -13,7 +13,7 @@ const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
         fetchRebootEvents, applyRebootMarkers } = ChartUtils;
 
 
-// 추이 차트의 분해력 기준 (다중 device × Read/Write 다중 라인 — idle VM에서 0.1 IOPS도 보이도록).
+// 추이 차트의 분해력 기준 (다중 device x Read/Write 다중 라인 — idle VM에서 0.1 IOPS도 보이도록).
 // 진단 리포트(performance.html)는 다른 정책: PERF_IOPS_SUGGESTED_MAX = 200 (HDD 물리 한계).
 // 실데이터가 본 값을 초과하면 자동 확장 (soft ceiling).
 const STORAGE_IOPS_SUGGESTED_MAX = 5;

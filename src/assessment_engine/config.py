@@ -57,6 +57,9 @@ class WebSettings(BaseSettings):
     redis_key_task_pending: str = "task:pending:{}"  # {machine_id} → JSON full payload
     redis_key_time_invariant_warned: str = "time_invariant_warned:{}"  # {machine_id} 쿨다운 마커
 
+    # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
+    agent_restart_alert_threshold: int = 3
+
     # PUB/SUB channels
     redis_channel_metrics: str = "metrics.events"
 
@@ -97,9 +100,6 @@ class ConsumerSettings(WebSettings):
     rabbitmq_routing_key_metrics: str = "server.metrics"
     rabbitmq_routing_key_error: str = "server.error"
     rabbitmq_routing_key_task_result: str = "task.result"  # agent → engine 작업 결과 보고
-
-    # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수)
-    agent_restart_alert_threshold: int = 3
 
     @property
     def broker_url(self) -> str:

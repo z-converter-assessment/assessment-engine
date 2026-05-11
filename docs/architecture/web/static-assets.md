@@ -1,6 +1,6 @@
 # Web 정적 자원 — JS·차트 UI
 
-CLAUDE.md §F9 "Frontend JS 외부화 의무" — 신규 차트 로직은 외부 `.js` 파일에. inline `<script>` 신규 금지.
+CLAUDE.md F9 "Frontend JS 외부화 의무" — 신규 차트 로직은 외부 `.js` 파일에. inline `<script>` 신규 금지.
 
 ```
 src/assessment_engine/web/static/js/
@@ -70,7 +70,7 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 }
 ```
 
-`.no-print` 클래스로 navbar/검색폼/버튼 인쇄 시 숨김 (base.html). 컨설턴트가 브라우저 인쇄 → PDF/PPT 캡처. 백엔드 PDF export는 미도입 (deliverables.md §5 결정).
+`.no-print` 클래스로 navbar/검색폼/버튼 인쇄 시 숨김 (base.html). 컨설턴트가 브라우저 인쇄 → PDF/PPT 캡처. 백엔드 PDF export는 미도입 (deliverables.md 5 결정).
 
 ## 의존성
 
@@ -79,4 +79,4 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 | Chart.js (`chart.umd.min.js`) | 차트 페이지에서 `<script src=...>` |
 | ChartUtils | base.html `<head>`에서 단일 로드 |
 
-번들 도구 미도입 — IIFE 노출 패턴 (`docs/adr/tradeoffs.md` T9).
+번들 도구 미도입 — IIFE 노출 패턴 (`docs/tradeoffs.md` T9).

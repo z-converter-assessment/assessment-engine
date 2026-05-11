@@ -4,15 +4,12 @@
 
 ## 인덱스
 
-| 번호 | 제목 | Status | 요약 |
+| 파일 | 제목 | Status | 요약 |
 |------|------|--------|------|
-| [0001](0001-redis-decoupling.md) | Redis fail-open 전환 | Accepted | 멱등성·캐시·부수 작업의 Redis 의존을 fail-open으로 분리 — DB UNIQUE 2단이 정확성 보장 |
+| `docs/adr/0001-redis-decoupling.md` | Redis fail-open 전환 | Accepted | 멱등성·캐시·부수 작업의 Redis 의존을 fail-open으로 분리 — DB UNIQUE 2단이 정확성 보장 |
+| `docs/adr/0002-task-rpc-piggyback-vs-polling.md` | Task RPC piggyback vs polling | Accepted | 운영자 작업 명령을 `server.metrics` reply 채널에 piggyback — 별도 polling endpoint·큐 신설 0 |
 
-## 보조 문서
-
-| 파일 | 내용 |
-|------|------|
-| [tradeoffs.md](tradeoffs.md) | 의식적 설계 선택과 한계 (T1~T11). 단일 결정 단위가 아니라 누적 트레이드오프 카탈로그라 별도 파일 |
+본 디렉토리는 형식 ADR(한 결정 = 한 파일)만 둔다. 누적 트레이드오프 카탈로그(T1~T11)는 ADR 형식과 안 맞아 `docs/tradeoffs.md`(루트)로 분리.
 
 ## 새 ADR 작성 형식
 

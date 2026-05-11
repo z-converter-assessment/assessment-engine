@@ -1,17 +1,20 @@
-# Assessment 서비스 — AI 활용 로드맵
+# ADR 0003 — AI / LLM 활용 로드맵
+
+Status: Proposed
+Date: 2026-05-09 (raw) / 2026-05-12 (ADR 승격)
 
 Phase 2~3 (분석 / 추천 / 비용 / 리포트) 도입 설계 문서.
-Phase 1 (수집 / 인벤토리 / 대시보드) 은 별도 문서 참조.
+Phase 1 (수집 / 인벤토리 / 대시보드) 은 본 라운드 구현 완료 — 본 ADR은 후속 단계 기록.
 
 ---
 
 ## 1. 핵심 원칙
 
-1. **수치는 SQL과 룰이 산출하고, 자연어 설명은 LLM이 담당한다.**
+1. 수치는 SQL과 룰이 산출하고, 자연어 설명은 LLM이 담당한다.
    LLM이 수치를 직접 생성하면 추적·감사가 불가능하고 hallucination 위험이 있다.
-2. **AI 모델은 LLM 1종으로 시작한다.** Embedding 모델과 Classical ML 은 필요해진 시점에 추가한다.
-3. **모든 임계값은 공식 표준에 근거를 둔다.** 코드 주석에 출처를 명시한다.
-4. **외부 의존은 공식 API와 표준 스펙 위주로 한다.** OSS 패키지를 무리하게 도입하지 않는다.
+2. AI 모델은 LLM 1종으로 시작한다. Embedding 모델과 Classical ML 은 필요해진 시점에 추가한다.
+3. 모든 임계값은 공식 표준에 근거를 둔다. 코드 주석에 출처를 명시한다.
+4. 외부 의존은 공식 API와 표준 스펙 위주로 한다. OSS 패키지를 무리하게 도입하지 않는다.
 
 ---
 
@@ -43,13 +46,13 @@ Phase 1 (수집 / 인벤토리 / 대시보드) 은 별도 문서 참조.
 | Recommendation accuracy | 추천 적용 후 30일간 p95 가 60~80% 구간 유지 비율 | 자체 정의 |
 | Cost forecast accuracy | MAPE (실제 vs 예측) | 시계열 표준 |
 
-**작업 항목**
+작업 항목
 - 라벨드 셋 30~50건 구축
 - `recommendation_outcome` 테이블 추가 (예측 vs 실제 6개월 추적)
 
 ### B. 통계 베이스라인
 
-Brendan Gregg 의 **USE Method** (Utilization / Saturation / Errors) 를 채택한다.
+Brendan Gregg 의 USE Method (Utilization / Saturation / Errors) 를 채택한다.
 
 | 리소스 | Utilization | Saturation | Errors |
 |---|---|---|---|
@@ -58,7 +61,7 @@ Brendan Gregg 의 **USE Method** (Utilization / Saturation / Errors) 를 채택�
 | Disk | iostat %util | await, queue depth | I/O errors |
 | Network | bytes/s ÷ 회선 용량 | drops, retransmits | rx/tx errors |
 
-**구현**
+구현
 - TimescaleDB `time_bucket` + `percentile_cont` 로 일 / 주 / 월 집계
 - p95 (Azure 기준) 와 p99.5 (AWS 기준) 둘 다 산출
 
@@ -89,7 +92,7 @@ SHUTDOWN_CPU_P95  = 3       # Azure Advisor
 SHUTDOWN_NET_MBPS = 2
 ```
 
-**판정 순서**
+판정 순서
 1. Idle (peak 기준)
 2. Swap 사용 (메모리 부족)
 3. Over-provisioned (다운사이즈)
@@ -99,7 +102,7 @@ SHUTDOWN_NET_MBPS = 2
 ### D. Pricing Adapter
 
 - AWS Pricing List API · Azure Retail Prices API · GCP Cloud Billing Catalog API 를 직접 호출한다.
-- 응답을 **FOCUS 1.x** 컬럼으로 정규화한다 (`instance_type`, `region`, `vCPU`, `memory_gb`, `unit_price_usd`).
+- 응답을 FOCUS 1.x 컬럼으로 정규화한다 (`instance_type`, `region`, `vCPU`, `memory_gb`, `unit_price_usd`).
 - 환율은 한국은행 ECOS API 를 사용한다.
 - Redis 24 시간 캐시.
 
@@ -113,7 +116,7 @@ C 단계 정확도가 부족할 때 진입한다.
 
 ### F. 템플릿 리포트
 
-AWS **Well-Architected — Cost Optimization Pillar** 의 Best Practice 목차를 차용한다.
+AWS Well-Architected — Cost Optimization Pillar 의 Best Practice 목차를 차용한다.
 
 | Pillar 항목 | 리포트 섹션 |
 |---|---|
@@ -123,17 +126,17 @@ AWS **Well-Architected — Cost Optimization Pillar** 의 Best Practice 목차�
 | Manage demand and supply | 워크로드 패턴 분석 |
 | Optimize over time | 6 개월 후 재평가 권고 |
 
-**구현**
+구현
 - Jinja2 → HTML / Markdown
 - WeasyPrint → PDF
 
 ### G. LLM 내러티브
 
-- **입력**: C 단계 산출 JSON (수치 포함)
-- **출력**: Executive Summary, 권장 사유, 위험 요인 narrative
-- **제약**: 입력 JSON 에 존재하는 수치 외에는 어떤 숫자도 생성하지 않는다.
-- **검증**: LLM 응답에서 숫자 토큰을 정규식 추출하여 입력 JSON 에 존재하는지 확인한다. 미존재 시 거부 후 재생성한다.
-- **모델**:
+- 입력: C 단계 산출 JSON (수치 포함)
+- 출력: Executive Summary, 권장 사유, 위험 요인 narrative
+- 제약: 입력 JSON 에 존재하는 수치 외에는 어떤 숫자도 생성하지 않는다.
+- 검증: LLM 응답에서 숫자 토큰을 정규식 추출하여 입력 JSON 에 존재하는지 확인한다. 미존재 시 거부 후 재생성한다.
+- 모델:
   - 외부 API 허용 시 Claude Haiku 4.5
   - 온프레 강제 시 Llama 3.3 70B (Ollama / vLLM)
 
@@ -145,7 +148,7 @@ AWS **Well-Architected — Cost Optimization Pillar** 의 Best Practice 목차�
 | 임베딩 | bge-m3 | 다국어 지원, 온프레 가능 |
 | 인덱스 | HNSW | pgvector 기본 |
 
-**인덱싱 단위**: 1 케이스 = 워크로드 메타데이터 + 추천 결과 + **사후 outcome**.
+인덱싱 단위: 1 케이스 = 워크로드 메타데이터 + 추천 결과 + 사후 outcome.
 사후 outcome 까지 인덱싱해야 "유사 사례 + 그 추천이 성공했는지" 검색이 가능하다.
 
 ### I. RAG 활용
@@ -185,7 +188,7 @@ LLM 출력에 `[case#N]` 인용을 강제한다.
 | ISO/IEC 27018 | 클라우드 PII — 고객사 식별자 보호 |
 | CSAP (KISA) | 공공 영업 시 필수 |
 
-**데이터 거주성 정책**
+데이터 거주성 정책
 - Engine · Consumer · DB 는 고객사 네트워크 내부에 배치한다.
 - 외부 LLM API 호출은 계약 단위 토글로 제어한다 (default off).
 - 외부 LLM 사용 시 식별자 (machine_id, hostname, IP) 를 마스킹한다.
@@ -235,19 +238,19 @@ FinOps Framework 의 "Optimize over time" 원칙에 따른다. 1 회성 산출�
 
 ## 7. 참고 자료
 
-**임계값 / 방법론**
+임계값 / 방법론
 - AWS Compute Optimizer 사용자 가이드
 - AWS Well-Architected — Cost Optimization Pillar
 - Azure Advisor — Cost recommendations
 - GCP Recommender — VM rightsizing
 
-**표준**
+표준
 - FinOps Framework (finops.org)
 - FOCUS Specification 1.x (focus.finops.org)
 - ISO/IEC 27001, 27017, 27018
 - CSAP (한국 KISA)
 
-**참고 서적 / 논문**
+참고 서적 / 논문
 - Brendan Gregg — *Systems Performance* (2nd ed.)
 - Google SRE Book / SRE Workbook
 - Kleinrock — *Queueing Systems* (1975)

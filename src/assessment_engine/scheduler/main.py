@@ -21,8 +21,8 @@ async def main() -> None:
             await run_diagnostics()
         except NotImplementedError:
             logger.warning("run_diagnostics not implemented yet, skipping")
-        except Exception as e:
-            logger.exception("diagnostics failed: {}", e)
+        except (OSError, RuntimeError):
+            logger.exception("diagnostics failed")
 
         elapsed = loop.time() - start
         await asyncio.sleep(max(0, interval - elapsed))

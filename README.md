@@ -40,7 +40,7 @@
        ▲                                     │
        │                                     │
        └──────── FastAPI ────────────────────┘
-                · SSR: server list, detail, USE Method report
+                · SSR: dashboard, detail, USE Method report
                 · REST: discovery, tasks, exports, chart
                 · SSE: live metrics updates
 ```
@@ -68,7 +68,7 @@
 - Consumer 저장 → Redis PUB/SUB → Web SSE → 브라우저 AJAX — 실시간 갱신 파이프라인.
 
 ### Counter reset 정밀 식별
-- 시계열 4테이블에 `boot_time` / `agent_started_at` 컬럼 보존. 두 시점의 boot_time 비교로 시스템 재부팅 시 delta 건너뛰기 (옛 데이터는 d<0 휴리스틱 fallback).
+- 시계열 4테이블에 `boot_time` / `agent_started_at` 컬럼 보존. 두 시점의 boot_time 비교로 시스템 재부팅 시 delta 건너뛰기 (d<0 일 때, fallback).
 - Calculator(dashboard)와 차트 SQL(`LAG`+`IS DISTINCT FROM`) 동일 정책 적용.
 - Reboot/Restart 이벤트 차트 vertical marker로 운영 가시성.
 
@@ -76,13 +76,20 @@
 - 시계 invariant 로그 — `boot_time > agent_started_at` 또는 `agent_started_at > collected_at` 위반 시 warning (VM 시계 동기화 문제 조기 감지).
 - 에이전트 재시작 카운터 — 1h 슬라이딩 윈도우, 임계값 초과 시 crash loop alert.
 
-### Assessment 산출물 (출력단)
-- **서버 발견** — IP HTTP probe로 미등록 서버 도달성 검사 (Ansible 배포 워크플로우 1단계).
-- **JSON Export** — 선택 서버의 정제 inventory를 OpenStack/Terraform/SDK 입력용 표준 JSON으로 다운로드.
-- **USE Method 보고서** — Brendan Gregg USE Method + AWS Compute Optimizer / Azure Advisor / GCP Recommender 임계값 기반 right-sizing 분류 (양식 A 요약 + 양식 B 상세).
-- **ZConverter Install task** — 선택 서버에 변환 도구 설치 명령 발행. RPC piggyback (`amq.rabbitmq.reply-to`)으로 에이전트가 다음 metrics 발행 시 명령 수신 → 실행 → `task.result` 큐로 결과 보고.
+### 대시보드
+- 환경 요약 — 총 N대 / 온라인·오프라인 / 자원 합계(vCPU·메모리·디스크) / 역할 분포 pill.
+- 환경 평균 활용률 도넛 — CPU/메모리/디스크 14일 평균 사용률 (`recommendation.WINDOW_DAYS` 윈도우, 임계 색 분기 60·80%).
+- 프로비저닝 분포 도넛 — 14일 USE Method 분류 3 카테고리(언더·정상·오버 프로비저닝) + 중앙 "언더 프로비저닝 N대" 강조.
+- 주의 신호 카드 — 통신 끊김·디스크 사용률 임박·자원 부족(trigger 3종 활성/비활성)·디스크 잔여 30일·OS EOL·에이전트 재시작 빈번 6 카탈로그.
+- 행별 권장 조치 컬럼 — 도넛 색과 동기 라벨(상향·축소·종료·조치 불필요).
 
-상세 정의: [`docs/assessment-deliverables.md`](docs/assessment-deliverables.md), [`docs/architecture/agent.md`](docs/architecture/agent.md) "Task RPC piggyback" 절, [`docs/ai_roadmap.md`](docs/ai_roadmap.md).
+### Assessment 산출물
+- 서버 발견 — IP HTTP probe로 미등록 서버 도달성 검사 (Ansible 배포 워크플로우 1단계).
+- JSON Export v3 — 선택 서버의 정제 inventory + 사용량 통계(p95·peak)를 OpenStack/Terraform/SDK 입력용 표준 JSON으로 다운로드. envelope에 `period_window` + `size_class_guide` 포함 — 자동화 도구 reproducibility.
+- 보고서 (양식 A 고객용 / 양식 B 엔지니어용) — Brendan Gregg USE Method + AWS Compute Optimizer / Azure Advisor / GCP Recommender 임계값 기반 right-sizing 분류. 양식 A는 KPI + 위험도 요약, 양식 B는 15컬럼 정량 표 + 자동 진단 텍스트.
+- ZConverter Install task — 선택 서버에 변환 도구 설치 명령 발행. RPC piggyback (`amq.rabbitmq.reply-to`)으로 에이전트가 다음 metrics 발행 시 명령 수신 -> 실행 -> `task.result` 큐로 결과 보고.
+
+상세 정의: `docs/architecture/agent.md` "Task RPC piggyback" 절 + `docs/architecture/inventory-export.md` v3 스키마.
 
 ---
 
@@ -106,7 +113,7 @@
 
 ## 환경변수
 
-dev는 루트 `.env` 평문, prod는 `secrets/*` Docker secrets로 주입. 전체 키 목록은 [docs/operations/env.md](docs/operations/env.md), 정책·dev/prod 분리는 [docs/operations/dev-prod.md](docs/operations/dev-prod.md) 참조.
+dev는 루트 `.env` 평문, prod는 `secrets/*` Docker secrets로 주입. 전체 키 목록은 `docs/operations/env.md`, 정책·dev/prod 분리는 `docs/operations/dev-prod.md` 참조.
 
 ---
 
@@ -156,7 +163,7 @@ docker compose down -v
 
 ### B. Docker + Vagrant 풀 파이프라인 (dev)
 
-VM 3대 + 에이전트까지 — 실제 메트릭 흐름 검증. 자세한 절차는 [docs/operations/pipeline.md](docs/operations/pipeline.md).
+VM 3대 + 에이전트까지 — 실제 메트릭 흐름 검증. 자세한 절차는 `docs/operations/pipeline.md`.
 
 ```bash
 cp infra/agent.env.example infra/agent.env  # 에이전트 secret 채널 (최초 1회)
@@ -185,7 +192,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 ```
 
-운영 체크리스트: [docs/operations/dev-prod.md](docs/operations/dev-prod.md) §10.
+운영 체크리스트: `docs/operations/dev-prod.md` 10.
 
 ---
 
@@ -193,8 +200,9 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 
 | 주소 | 설명 |
 |------|------|
-| http://localhost:8000/servers/ | 서버 인벤토리 Web UI (목록 / 발견 / Install / Export / 보고서 진입점) |
-| http://localhost:8000/servers/report?ids=...&period_days=14 | USE Method 보고서 (선택 서버 N대) |
+| http://localhost:8000/servers/ | 대시보드 Web UI (목록 / 활용률·프로비저닝 도넛 / 주의 신호 / 발견 / Install / Export / 보고서 진입점) |
+| http://localhost:8000/servers/report?ids=...&view=customer&period_days=14 | 고객 보고서 (양식 A — KPI + 위험도 요약) |
+| http://localhost:8000/servers/report?ids=...&view=engineer&period_days=14 | 엔지니어 보고서 (양식 B — 15컬럼 정량 + 자동 진단) |
 | http://localhost:8000/health | 헬스체크 |
 | http://localhost:8000/docs | FastAPI Swagger UI (discovery·tasks·exports·chart 모든 endpoint) |
 | http://localhost:15672 | RabbitMQ 관리 콘솔 |
@@ -206,14 +214,14 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 
 `.venv` 활성화 + dev extras (pytest·testcontainers·ruff) 설치 후 실행. 통합 테스트는 testcontainers가 TimescaleDB 컨테이너를 자동 spawn하므로 Docker daemon 필요.
 
-```bash
+```
 source .venv/bin/activate
 uv pip install -e ".[dev]"   # 최초 1회 (위 IDE 세팅과 같은 venv에 dev extras 추가)
 python -m pytest             # 전체 (unit + integration)
 python -m pytest tests/unit/ # 단위만 — DB 무관, 빠름 (~0.2s)
 ```
 
-실행 명령·설정·Fixture·테스트 작성 패턴은 [docs/operations/testing.md](docs/operations/testing.md).
+실행 명령·설정·Fixture·테스트 작성 패턴은 `docs/operations/testing.md`.
 
 ---
 
@@ -222,26 +230,24 @@ python -m pytest tests/unit/ # 단위만 — DB 무관, 빠름 (~0.2s)
 에이전트(C 바이너리) → RabbitMQ → Consumer → DB → Web UI 전체 파이프라인을 실제 VM 환경에서 검증한다.
 Vagrant로 VM 3대(Ubuntu / Rocky Linux / Debian)를 띄우고, 각 VM에서 에이전트가 메트릭을 발행해 포털에 수집되는 것을 직접 확인한다.
 
-기동·종료 명령은 위 [실행 §B](#b-docker--vagrant-풀-파이프라인-dev) 참조. 자세한 절차·VM 구성·트러블슈팅은 [docs/operations/pipeline.md](docs/operations/pipeline.md).
+기동·종료 명령은 위 [실행 B](#b-docker--vagrant-풀-파이프라인-dev) 참조. 자세한 절차·VM 구성·트러블슈팅은 `docs/operations/pipeline.md`.
 
 ---
 
 ## 개발 문서
 
 ### 시스템 설계
-- [`docs/architecture/`](docs/architecture) — 컴포넌트별 deep dive
+- `docs/architecture` — 컴포넌트별 deep dive
   - `agent.md` / `consumer.md` / `redis.md` / `rabbitmq.md` (단일 파일)
   - `db/` — models / dtos / repositories / timescaledb
   - `web/` — layering / routers / services / view-models / static-assets
-- [`docs/operations/`](docs/operations) — 인프라·환경·배포 (docker·vagrant·dev-prod·env·testing·pipeline)
-- [`docs/adr/`](docs/adr) — Architecture Decision Records + 트레이드오프
+- `docs/operations` — 인프라·환경·배포 (docker·vagrant·dev-prod·env·testing·pipeline)
+- `docs/adr` — Architecture Decision Records + 트레이드오프
 
 ### 산출물·워크플로우 정의
-- [`docs/assessment-deliverables.md`](docs/assessment-deliverables.md) — JSON Export · USE Method 보고서 양식
-- [`docs/architecture/agent.md`](docs/architecture/agent.md) "Task RPC piggyback" — ZConverter Install task 등록·실행 흐름 (ADR 0002 결정)
-- [`docs/ai_roadmap.md`](docs/ai_roadmap.md) — Phase 2~3 분석·추천·LLM 도입 설계
+- `docs/architecture/agent.md` "Task RPC piggyback" — ZConverter Install task 등록·실행 흐름 (ADR 0002 결정)
 
 ### 핵심 운영 가이드
-- [`docs/operations/pipeline.md`](docs/operations/pipeline.md) — Vagrant VM E2E 검증 절차
-- [`docs/operations/dev-prod.md`](docs/operations/dev-prod.md) — dev/prod 분리 + secret 정책 + 운영 체크리스트
-- [`docs/operations/env.md`](docs/operations/env.md) — 환경변수 전체 키 목록
+- `docs/operations/pipeline.md` — Vagrant VM E2E 검증 절차
+- `docs/operations/dev-prod.md` — dev/prod 분리 + secret 정책 + 운영 체크리스트
+- `docs/operations/env.md` — 환경변수 전체 키 목록

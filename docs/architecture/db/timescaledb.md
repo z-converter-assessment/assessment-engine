@@ -5,6 +5,13 @@
 시계열 5개 테이블 모두 hypertable (`collected_at` 기준 파티셔닝):
 - `server_metrics` / `server_disk_io` / `server_net_io` / `server_mount_usage` / `server_inventory_history`
 
+### 4테이블 `boot_time`/`agent_started_at` 컬럼 보존
+
+`server_metrics`/`server_disk_io`/`server_net_io`/`server_mount_usage` 4개 테이블은 행마다 `boot_time`/`agent_started_at` 컬럼을 함께 저장한다 (CLAUDE.md #C1·#B1). 근거:
+- metrics/disk_io/net_io는 `_chart_*` 헬퍼와 `metrics_calculator._is_counter_reset`이 `LAG(boot_time)`로 시스템 재부팅 식별 -> counter reset 시 delta 건너뛰기.
+- mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅 시 단일 테이블 SELECT로 boot_time까지 같이 보고 싶어서 보존.
+- 옛 데이터(컬럼 NULL)는 `d_val < 0` 휴리스틱 fallback (CASE 3순위).
+
 ## DEV / PROD 스키마 관리
 
 | 환경 | 방식 |
@@ -24,16 +31,16 @@
 
 ### 공통 패턴
 
-1. **window_start 확장** — `LAG`로 첫 버킷 delta 계산 위해 요청 `start`보다 한 bucket 더 과거부터 raw 읽음 (`window_start = start - bucket_td`)
-2. **delta CTE** — `LAG(...) OVER (PARTITION BY device ORDER BY collected_at)`로 누적 카운터 차 + `LAG(boot_time)`로 직전 boot_time 동시 추출
-3. **reset 식별 CASE** — calculator의 `_is_counter_reset`과 동일 정책 (CLAUDE.md B1):
+1. window_start 확장 — `LAG`로 첫 버킷 delta 계산 위해 요청 `start`보다 한 bucket 더 과거부터 raw 읽음 (`window_start = start - bucket_td`)
+2. delta CTE — `LAG(...) OVER (PARTITION BY device ORDER BY collected_at)`로 누적 카운터 차 + `LAG(boot_time)`로 직전 boot_time 동시 추출
+3. reset 식별 CASE — calculator의 `_is_counter_reset`과 동일 정책 (CLAUDE.md B1):
    ① `dt IS NULL OR dt <= 0` → NULL
    ② `boot_time != prev_boot` → NULL (시스템 재부팅)
    ③ `d_val < 0` → NULL (옛 데이터 휴리스틱)
    ④ 정상 → `d_val / dt` 또는 `d_num * 100 / d_total`
    `dt`는 검증이 아니라 분모 — 실제 시간으로 자연 정규화
-4. **time_bucket 집계** — TimescaleDB `time_bucket(interval '5m', collected_at)` + `agg`(avg/max/p95)
-5. **dimension 필터** — `(CAST(:dim AS text) IS NULL OR device = :dim)` — None이면 전체
+4. time_bucket 집계 — TimescaleDB `time_bucket(interval '5m', collected_at)` + `agg`(avg/max/p95)
+5. dimension 필터 — `(CAST(:dim AS text) IS NULL OR device = :dim)` — None이면 전체
 
 ### Reset 시점 차트 표시
 
@@ -41,7 +48,7 @@
 
 ## 보고서 집계 — `report_aggregate` SQL
 
-USE Method (Brendan Gregg) 기반 N서버 × period_days 통계:
+USE Method (Brendan Gregg) 기반 N서버 X period_days 통계:
 
 ```sql
 WITH cpu_deltas AS (

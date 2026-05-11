@@ -73,7 +73,7 @@ class MetricPairRaw:
     load_1m: float | None
     load_5m: float | None
     load_15m: float | None
-    # counter reset 정밀 식별 (calculator가 prev↔cur 비교).
+    # counter reset 정밀 식별 (calculator가 prev-cur 비교).
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
 
@@ -148,6 +148,19 @@ class NetworkWithIo:
     inventory_at: datetime | None
 
 
+@dataclass
+class EnvironmentUtilizationRaw:
+    """환경 전체 latest 메트릭 평균 — list 화면 진행 막대용.
+
+    CPU는 두 시점 delta (ROW_NUMBER + self-join). MEM은 latest 1행. DISK는 서버별 max mount.
+    1시간 안 메트릭 없는 서버 자동 제외 (offline 필터).
+    """
+    cpu_avg_pct: float | None
+    mem_avg_pct: float | None
+    disk_avg_pct: float | None
+    sample_size: int       # 어느 metric이든 데이터 들어온 서버 수 — UI에 표본 표시 (예: "12대 기준")
+
+
 # ---------- Series ----------
 
 @dataclass
@@ -164,7 +177,7 @@ class ReportRowRaw:
     """Assessment 보고서 한 행의 raw stats — repository가 반환 (P1).
 
     표시 파생(role/is_online/recommendation/os_display 등)은 service mapper에서 ReportRowItem으로.
-    근거: docs/assessment-deliverables.md "RISK 분류" + docs/ai_roadmap.md §3.B·C.
+    USE Method (Utilization/Saturation/Errors) 기반 — Utilization p95/peak + Saturation(load/swap).
     """
     server_id: int
     public_id: str
@@ -186,21 +199,59 @@ class ReportRowRaw:
     load_15m_max: float | None
     swap_used: bool
 
+    # I/O wait (cpu_stat.iowait jiffies / total non-idle 비율) — 디스크 병목 신호
+    iowait_p95_pct: float | None = None
+    iowait_peak_pct: float | None = None
+
+    # Inventory 합계 산정용 — query_service.get_report가 totals 계산 시 사용
+    cpu_cores: int | None = None
+    mem_total_kb: int | None = None
+    disks: list[dict] | None = None       # 합계 산정 위해 size_bytes 합산
+    boot_time: datetime | None = None     # uptime_days = now - boot_time
+
+    # Mount worst — 별도 SQL(`report_mount_worst`)에서 채움. mapper는 그 결과를 zip
+    worst_mount: str | None = None
+    worst_mount_used_pct: float | None = None
+    worst_mount_days_until_full: int | None = None
+
+    # Uptime + period 내 재부팅 횟수 — 별도 SQL(`report_uptime_stats`)에서 채움
+    reboot_count: int = 0
+
+    # Disk I/O — baseline(평균) + p95 + peak (모든 device 시점별 합산 후 통계)
+    disk_iops_baseline: int | None = None
+    disk_iops_p95: float | None = None
+    disk_iops_peak: float | None = None
+    disk_throughput_kbps: float | None = None
+    disk_throughput_kbps_p95: float | None = None
+    disk_throughput_kbps_peak: float | None = None
+
+    # Net I/O — baseline(평균) + p95 + peak (모든 interface 시점별 합산 후 통계)
+    net_rx_kbps: float | None = None
+    net_rx_kbps_p95: float | None = None
+    net_rx_kbps_peak: float | None = None
+    net_tx_kbps: float | None = None
+    net_tx_kbps_p95: float | None = None
+    net_tx_kbps_peak: float | None = None
+
 
 @dataclass
 class InventoryExportEntry:
-    """정제 inventory JSON 항목 — 자동화 도구(OpenStack/Terraform/SDK) 입력용 표준 스키마.
+    """정제 inventory JSON 항목 — 자동화 도구(Terraform/OpenStack/Ansible/CSP SDK) 입력 표준.
 
-    벤더 중립 — 특정 vendor flavor 식별자 없음. v1: VM 생성 최소 정보(vcpus·memory·disk·network).
-    상세 정의: docs/assessment-deliverables.md "정제 Inventory JSON" 절.
+    스키마·정제 원칙·사용처: docs/architecture/inventory-export.md (v2).
+    벤더 중립 — recommended_size_class만 노출, 도구가 자기 도메인 instance type에 매핑.
     """
-    name: str
     machine_id: str
+    hostname: str
     role: str
-    os: dict           # {"family", "version", "kernel"}
-    compute: dict      # {"vcpus", "memory_mb"}
-    storage: dict      # {"boot_disk_gb", "additional_disks":[{"mount_hint","size_gb","fstype"}]}
-    network: dict      # {"hostname", "internal_ip", "external_ip"}
+    last_seen_at: datetime | None
+    services: list[dict]  # [{"category": str, "unit": str, "ports": [int]}]
+    os: dict              # {"family", "version", "kernel"}
+    compute: dict         # {"vcpu_count", "memory_mb", "cpu_p95_pct", "cpu_peak_pct",
+                          #  "mem_p95_pct", "mem_peak_pct", "load_15m_max", "swap_used",
+                          #  "recommended_size_class"}
+    storage: dict         # {"boot_disk_gb", "additional_disks":[{"mount_point","size_gb","fstype"}]}
+    network: dict         # {"addresses": [{"scope","family","address"}]}
 
 
 @dataclass

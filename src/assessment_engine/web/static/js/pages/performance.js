@@ -409,19 +409,13 @@ async function loadLastMetricTs() {
   try {
     const data = await res.json();
     if (!data.last_metric_at) { el.textContent = '—'; return; }
-    const d = new Date(new Date(data.last_metric_at).getTime() + 9 * 60 * 60 * 1000);
-    const pad = n => String(n).padStart(2, '0');
-    el.textContent = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+    // F2: KST 변환은 ChartUtils.fmtKst 단일 경계 — "YYYY-MM-DD HH:MM:SS" 반환 → 분 단위만 표시
+    el.textContent = ChartUtils.fmtKst(data.last_metric_at).slice(0, 16);
   } catch { el.textContent = '—'; }
 }
 
-/* ── 날짜 인풋 초기화 ── */
-(function initAnchorDate() {
-  const input = document.getElementById('anchor-date');
-  const kstNow = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 16).replace(' ', 'T');
-  input.max   = kstNow;
-  input.value = kstNow;
-})();
+/* ── 날짜 인풋 초기화 (ChartUtils.initAnchor 단일 경계) ── */
+ChartUtils.initAnchor('anchor-date');
 
 document.getElementById('global-range-btns').addEventListener('click', e => {
   const btn = e.target.closest('.toggle');

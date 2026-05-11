@@ -2,7 +2,7 @@
 
 > 상태: 옵션 B + list mget fallback 적용 완료 (2026-05-07).
 > 작성: 2026-05-07
-> 관련 문서: `docs/architecture/redis.md` (현황), `docs/adr/tradeoffs.md` T1·T2·T5·T11
+> 관련 문서: `docs/architecture/redis.md` (현황), `docs/tradeoffs.md` T1·T2·T5·T11
 > 관련 코드: `src/assessment_engine/db/redis.py`, `src/assessment_engine/consumer/handler.py`, `src/assessment_engine/web/services/query_service.py`, `src/assessment_engine/web/deps.py`, `src/assessment_engine/web/services/cache_serializer.py`, `src/assessment_engine/config.py`
 
 ---
@@ -289,7 +289,7 @@ async def safe_set(redis: Redis, key: str, value: str, ex: int | None = None) ->
 
 ### 단계 5 — 문서 갱신
 - `docs/architecture/redis.md` "Redis 장애 시 동작" 섹션 갱신: fail-close → fail-open, 단계별 영향 명시.
-- `docs/adr/tradeoffs.md` T1, T11 갱신.
+- `docs/tradeoffs.md` T1, T11 갱신.
 - CLAUDE.md #C3, #D4 갱신: fail-open 정책 반영.
 
 ---
@@ -313,7 +313,7 @@ async def safe_set(redis: Redis, key: str, value: str, ex: int | None = None) ->
 | 일자 | 결정 | 근거 |
 |------|------|------|
 | 2026-05-07 | 옵션 B + list mget fallback 채택, 옵션 E 기각 | 옵션 B로 운영 결합도를 통상 수준으로 낮출 수 있음. 옵션 E(인터페이스 추상화)는 Redis를 다른 캐시로 교체할 계획이 없으므로 무의미한 복잡도 증가. |
-| 2026-05-07 | 구현 완료 | 변경 파일: `src/assessment_engine/db/redis.py`(safe_* helper 6종 추가), `src/assessment_engine/web/services/query_service.py`(모든 redis 호출 helper 경유 + last_seen_at fallback), `src/assessment_engine/consumer/handler.py`(`_check_idempotent` fail-open + 부수 작업 helper 경유), `src/assessment_engine/db/repositories/outbound.py`·`src/assessment_engine/db/repositories/query_repository.py`(ServerSummary에 last_seen_at 추가). 문서: `docs/architecture/redis.md`·`docs/adr/tradeoffs.md` T1·T11·CLAUDE.md #C3·#D2·#D3·#D4 갱신. |
+| 2026-05-07 | 구현 완료 | 변경 파일: `src/assessment_engine/db/redis.py`(safe_* helper 6종 추가), `src/assessment_engine/web/services/query_service.py`(모든 redis 호출 helper 경유 + last_seen_at fallback), `src/assessment_engine/consumer/handler.py`(`_check_idempotent` fail-open + 부수 작업 helper 경유), `src/assessment_engine/db/repositories/outbound.py`·`src/assessment_engine/db/repositories/query_repository.py`(ServerSummary에 last_seen_at 추가). 문서: `docs/architecture/redis.md`·`docs/tradeoffs.md` T1·T11·CLAUDE.md #C3·#D2·#D3·#D4 갱신. |
 
 ## 9. 구현 결과 요약
 

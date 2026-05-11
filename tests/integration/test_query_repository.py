@@ -666,37 +666,57 @@ async def test_metric_gap_warnings_no_metric_excluded(
     assert all(r.hostname != "never-host" for r in rows)
 
 
-# ─── attention 신호: latest_disk_max_pct (risk 카드 도넛용) ────────────────
+# ─── latest_disk_max_pct는 2026-05-12 cleanup으로 제거됨 ────────────────
+# risk_top 카드 dead code화 결과. mount 사용률 신호는 report_mount_worst로 흡수
+# (tests/integration/test_query_repository_report.py).
 
-async def test_latest_disk_max_pct_returns_max_per_server(
+
+# ─── environment_utilization ──────────────────────────────────────────────
+
+async def test_environment_utilization_returns_averages(
     collect_repo: CollectRepository, query_repo: QueryRepository,
 ):
-    """서버별 mount 중 가장 높은 사용률 반환 — 단일 SQL GROUP BY MAX."""
-    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-dmax-1"))
-    ts = datetime.now(timezone.utc).replace(microsecond=0)
-    # /var=70%, /data=92% → max 92%
+    """CPU·MEM·DISK 평균이 정상 산출 — 두 시점 jiffies delta + latest mem + max mount."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-util-01", hostname="util-host"))
+    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=2)
+    # T0: 누적 100 (busy 30, idle 70) → 30%, mem available 50/100, mount used 60%
     await collect_repo.record_metrics(sid, make_metrics(
-        collected_at=ts,
-        mounts=[
-            MountUsageEntry(mount="/var",  total_bytes=100_000_000_000, free_bytes=30_000_000_000, avail_bytes=30_000_000_000),
-            MountUsageEntry(mount="/data", total_bytes=100_000_000_000, free_bytes=8_000_000_000,  avail_bytes=8_000_000_000),
-        ],
+        collected_at=base_ts,
+        cpu_user=20, cpu_system=10, cpu_idle=70,
+        mem_total_kb=100, mem_available_kb=50,
+        mounts=[MountUsageEntry(mount="/", total_bytes=100, free_bytes=40, avail_bytes=40)],
         disk_io=[], net_io=[],
     ))
-    result = await query_repo.latest_disk_max_pct([sid])
-    assert sid in result
-    assert 91.9 < result[sid] < 92.1  # max는 /data 92%
+    # T1: 누적 200 (busy 80, idle 120) — delta: busy 50, total 100 → 50%
+    await collect_repo.record_metrics(sid, make_metrics(
+        collected_at=base_ts + timedelta(minutes=1),
+        cpu_user=60, cpu_system=20, cpu_idle=120,
+        mem_total_kb=100, mem_available_kb=30,    # latest → 사용률 70%
+        mounts=[MountUsageEntry(mount="/", total_bytes=100, free_bytes=20, avail_bytes=20)],  # latest → 80%
+        disk_io=[], net_io=[],
+    ))
+    # 24h 평균: 두 시점만 있을 때 LAG pair 1개 = 그 delta가 곧 평균
+    util = await query_repo.environment_utilization(period_days=1)
+    assert util.cpu_avg_pct is not None and 49.0 <= util.cpu_avg_pct <= 51.0
+    # MEM 24h 평균 = (50% + 70%) / 2 = 60%
+    assert util.mem_avg_pct is not None and 59.0 <= util.mem_avg_pct <= 61.0
+    # DISK 24h 평균 = mount별 평균 (60+80)/2 = 70% → 서버별 max 1개 = 70%
+    assert util.disk_avg_pct is not None and 69.0 <= util.disk_avg_pct <= 71.0
+    assert util.sample_size >= 1
 
 
-async def test_latest_disk_max_pct_empty_input(query_repo: QueryRepository):
-    """빈 입력 → 빈 dict (DB 쿼리 0건)."""
-    assert await query_repo.latest_disk_max_pct([]) == {}
-
-
-async def test_latest_disk_max_pct_skips_server_without_metrics(
+async def test_environment_utilization_excludes_outside_window(
     collect_repo: CollectRepository, query_repo: QueryRepository,
 ):
-    """metric 없는 서버는 dict 누락 — caller가 None 처리."""
-    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-dmax-empty"))
-    result = await query_repo.latest_disk_max_pct([sid])
-    assert sid not in result
+    """기간 밖 메트릭은 평균에서 제외."""
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="q-util-stale"))
+    # 30일 전 메트릭 — 기본 period_days=1 밖
+    stale_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=30)
+    await collect_repo.record_metrics(sid, make_metrics(
+        collected_at=stale_ts,
+        cpu_user=50, cpu_idle=50,
+        mem_total_kb=100, mem_available_kb=10,
+        mounts=[], disk_io=[], net_io=[],
+    ))
+    util = await query_repo.environment_utilization(period_days=1)
+    assert util is not None  # 정상 호출 + 기간 밖 데이터로 인한 예외 없음

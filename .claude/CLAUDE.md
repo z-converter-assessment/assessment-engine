@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 > 본 파일은 본 프로젝트의 규약 단일 진실 (single source of truth).
-> 실제 동작은 코드, 흐름은 `docs/architecture/` · `docs/operations/`, 트레이드오프는 `docs/adr/tradeoffs.md`. 본 파일은 그 위에 얹는 결정 사항·원칙·금지 사항만 담는다.
+> 실제 동작은 코드, 흐름은 `docs/architecture/` · `docs/operations/`, 트레이드오프는 `docs/tradeoffs.md`. 본 파일은 그 위에 얹는 결정 사항·원칙·금지 사항만 담는다.
 >
 > 섹션 번호 규약: A 시스템 → B 데이터 계약 → C 데이터 계층 → D Consumer → E Web → F 운영 규약.
 > 각 섹션은 자기 계층 책임만 다룬다. 계층 충돌 시 #E1 원칙(P1~P5) 우선순위로 해결.
@@ -12,31 +12,35 @@
 
 | 디렉토리 | 용도 | 수명 |
 |----------|------|------|
-| [docs/README.md](../docs/README.md) | 인덱스 — 어떤 문서를 언제 보는지 길잡이 | 영구·갱신 |
+| `docs/README.md` | 인덱스 — 어떤 문서를 언제 보는지 길잡이 | 영구·갱신 |
 | `docs/architecture/` | 컴포넌트별 deep dive (모듈 설계·기술 구현) | 영구·갱신 |
 | `docs/operations/` | 운영·환경·배포·검증 (Docker·Vagrant·dev-prod·env·testing·pipeline·alembic) | 영구·갱신 |
-| [docs/adr/README.md](../docs/adr/README.md) | Architecture Decision Records — "왜 이렇게 결정했나" + 트레이드오프 | 영구·불변 (정정만, 덮어쓰기 금지) |
-| `docs/meetings/` | 미팅 합의·일회성 메모 (`YYYY-MM-DD-주제.md` 형식) | 임시 (영구 정책은 다른 영구 문서로 승격) |
+| `docs/adr/` | Architecture Decision Records — "왜 이렇게 결정했나" + 트레이드오프. ADR은 정정만, 덮어쓰기 금지 | 영구·불변 |
 
 `temp` 키워드 들어간 파일(`docs/temp.md` 등)은 작업 중 임시 메모로 항상 무시.
 
+`docs/references/` · `docs/meetings/` 등 임시 디렉토리는 도입 시점에 본 표에 등록·도입 사유 명시 필수. 코드·영구 문서에서 인용 금지 — 본 디렉토리 자체가 사라져도 작업이 정상 진행돼야 한다. 정책·결정이 영구화되면 다른 영구 문서로 승격 후 임시 파일 삭제.
+
 | 파일 | 내용 |
 |------|------|
-| [docs/operations/pipeline.md](../docs/operations/pipeline.md) | 파이프라인 검증 (Vagrant VM) |
-| [docs/operations/env.md](../docs/operations/env.md) | 환경변수 전체 키 목록 (카탈로그) |
-| [docs/operations/dev-prod.md](../docs/operations/dev-prod.md) | dev/prod 환경 전략 + secret 정책 + 운영 체크리스트 |
-| [docs/operations/alembic.md](../docs/operations/alembic.md) | PROD schema 마이그레이션 (Alembic) — DEV `create_all` 보완 |
-| [docs/operations/testing.md](../docs/operations/testing.md) | 단위·통합 테스트 실행·설정·Fixture·작성 패턴 |
-| [docs/adr/tradeoffs.md](../docs/adr/tradeoffs.md) | 의식적 설계 선택과 그 한계 (T1~T11) |
-| [docs/architecture/agent.md](../docs/architecture/agent.md) | 에이전트 메시지 스키마 / 포트 수집 / 디스크 필터링 |
-| [docs/architecture/consumer.md](../docs/architecture/consumer.md) | schemas / handler / main / 멱등성 / 재시도 |
-| [docs/architecture/db/](../docs/architecture/db/) | models / dtos / repositories / timescaledb (4분할) |
-| [docs/architecture/redis.md](../docs/architecture/redis.md) | 키 설계 / TTL / PUB/SUB / 멱등성 / 캐시 무효화 / mget |
-| [docs/architecture/rabbitmq.md](../docs/architecture/rabbitmq.md) | vhost·권한 모델 / 토폴로지 / dev/prod 분기 / prod 전환 체크리스트 |
-| [docs/architecture/web/](../docs/architecture/web/) | layering / routers / services / view-models / static-assets (5분할) |
-| [docs/operations/docker.md](../docs/operations/docker.md) | Dockerfile / docker-compose (볼륨·헬스체크·기동 순서·env) |
-| [docs/operations/vagrant.md](../docs/operations/vagrant.md) | Vagrant 사용 맥락 / VM 구성 / 프로비저닝 흐름 |
-| [docs/adr/0001-redis-decoupling.md](../docs/adr/0001-redis-decoupling.md) | Redis fail-open 전환 의사결정 + 옵션 비교 + 구현 결과 |
+| `docs/operations/pipeline.md` | 파이프라인 검증 (Vagrant VM) |
+| `docs/operations/env.md` | 환경변수 전체 키 목록 (카탈로그) |
+| `docs/operations/dev-prod.md` | dev/prod 환경 전략 + secret 정책 + 운영 체크리스트 |
+| `docs/operations/alembic.md` | PROD schema 마이그레이션 (Alembic) — DEV `create_all` 보완 |
+| `docs/operations/testing.md` | 단위·통합 테스트 실행·설정·Fixture·작성 패턴 |
+| `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T11) |
+| `docs/architecture/agent.md` | 에이전트 메시지 스키마 / 포트 수집 / 디스크 필터링 |
+| `docs/architecture/consumer.md` | schemas / handler / main / 멱등성 / 재시도 |
+| `docs/architecture/db/` | models / dtos / repositories / timescaledb (4분할) |
+| `docs/architecture/redis.md` | 키 설계 / TTL / PUB/SUB / 멱등성 / 캐시 무효화 / mget |
+| `docs/architecture/rabbitmq.md` | vhost·권한 모델 / 토폴로지 / dev/prod 분기 / prod 전환 체크리스트 |
+| `docs/architecture/web/` | layering / routers / services / view-models / static-assets (5분할) |
+| `docs/architecture/inventory-export.md` | 정제 Inventory JSON Export 스키마·정제 원칙·자동화 도구 매핑 (v3) |
+| `docs/operations/docker.md` | Dockerfile / docker-compose (볼륨·헬스체크·기동 순서·env) |
+| `docs/operations/vagrant.md` | Vagrant 사용 맥락 / VM 구성 / 프로비저닝 흐름 |
+| `docs/adr/0001-redis-decoupling.md` | Redis fail-open 전환 의사결정 + 옵션 비교 + 구현 결과 |
+| `docs/adr/0002-task-rpc-piggyback-vs-polling.md` | Task 명령 RPC piggyback 채택 사유 |
+| `docs/adr/0003-ai-llm-activation.md` | AI / LLM 활용 로드맵 (Phase 2~3 — 분석·추천·비용·리포트·RAG) |
 
 ---
 
@@ -51,11 +55,11 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 5개 서비스(postgres / rabbitmq / redis / web / consumer)로 구성. 이미지·역할·command 분기·빌드 캐시 전략은 `docs/operations/docker.md`.
 
 운영 결정:
-- `consumer depends_on web: condition: service_healthy` — dev/staging 한정. web lifespan이 `CREATE EXTENSION + create_all + create_hypertable`을 수행하므로 consumer는 web 헬스체크 후 시작. prod에서는 lifespan이 schema bootstrap skip(Alembic 위임)이므로 의존성 제거 가능 — 단계적 전환 (dev-prod.md #10 운영 체크리스트).
+- `consumer depends_on web: condition: service_healthy` — dev/staging 한정. web lifespan이 `CREATE EXTENSION + create_all + create_hypertable`을 수행하므로 consumer는 web 헬스체크 후 시작. prod에서는 lifespan이 schema bootstrap skip(Alembic 위임)이므로 의존성 제거 가능 — 단계적 전환 (`docs/operations/dev-prod.md` #10 운영 체크리스트).
 - `src/assessment_engine/db/session.py` · `src/assessment_engine/db/redis.py`는 `web_settings`만 사용. `ConsumerSettings`는 `WebSettings` 상속 + RabbitMQ 설정 추가. docker-compose의 `POSTGRES_HOST`/`REDIS_HOST`/`RABBITMQ_HOST` env 오버라이드로 컨테이너 내부 host 결정.
 - `src/assessment_engine/scheduler/` 코드는 있으나 docker-compose 미등록 + `run_diagnostics()` NotImplementedError. 미사용.
 
-Compose 파일 분리 (dev-prod.md #6):
+Compose 파일 분리 (`docs/operations/dev-prod.md` #6):
 - `docker-compose.yml` — prod-safe baseline (password·외부 포트 노출 없음)
 - `docker-compose.override.yml` — dev 자동 적용 (.env 평문, 포트 노출, 코드 마운트, APP_ENV=dev)
 - `docker-compose.prod.yml` — prod 명시 호출 (Docker secrets, APP_ENV=prod)
@@ -68,7 +72,7 @@ Compose 파일 분리 (dev-prod.md #6):
 - HOST 변수(`POSTGRES_HOST`/`RABBITMQ_HOST`/`REDIS_HOST`)의 기본값은 docker-compose 서비스명. 호스트 직접 실행 시(IDE 디버깅) `localhost`로 변경.
 - docker-compose `environment:` 블록이 컨테이너 내부에서 HOST를 강제 오버라이드 — `.env` 값 변경해도 컨테이너 안에서는 무시.
 - prod secret은 `.env` 안 쓰고 `secrets/*` 파일 + `docker-compose.prod.yml` `secrets:` 마운트. pydantic `secrets_dir="/run/secrets"`가 자동 read.
-- 에이전트는 엔진의 `.env`를 사용하지 않음 — Vagrantfile이 `infra/agent.env`에서 RabbitMQ 인증·routing 키만 fetch해 VM 안 `/etc/assessment-agent.env`로 옮기고, `RABBITMQ_HOST`는 `10.0.2.2`(NAT)로 별도 주입. (secret 채널 분리 — dev-prod.md #9)
+- 에이전트는 엔진의 `.env`를 사용하지 않음 — Vagrantfile이 `infra/agent.env`에서 RabbitMQ 인증·routing 키만 fetch해 VM 안 `/etc/assessment-agent.env`로 옮기고, `RABBITMQ_HOST`는 `10.0.2.2`(NAT)로 별도 주입. (secret 채널 분리 — `docs/operations/dev-prod.md` #9)
 - `EXCHANGE`/`ROUTING_KEY_*` 변경 시 에이전트·컨슈머 양쪽 동기화 필수.
 
 Compose 호출:
@@ -97,7 +101,7 @@ Compose 호출:
 - raw 누적값 발행 — 엔진이 delta·% 계산 (P1: repo는 raw, 변환은 service).
 - `server.error`는 파싱 + 멱등성 + 로깅만. DB 저장 없음.
 - `inventory.mounts.free_bytes/avail_bytes`는 mapper에서 drop (인벤토리는 정적 total만, 동적은 `server_mount_usage` 시계열).
-- `disks[]/mounts[]`의 `major`/`minor`는 mount↔disk 조인 키로 활용 (`device_filters.find_parent_disk`).
+- `disks[]/mounts[]`의 `major`/`minor`는 mount-disk 조인 키로 활용 (`device_filters.find_parent_disk`).
 
 ## B2. 단위·옵션 규약
 - 단위: 메모리=`kb`, 디스크/네트워크=`bytes` (`/proc` 출력 관례).
@@ -128,7 +132,7 @@ Compose 호출:
 
 ## B4. 계약 진화 정책 (Forward Compatibility)
 
-에이전트 ↔ 엔진은 독립 배포되므로 한쪽이 먼저 새 필드를 도입할 수 있다. 비대칭 배포에서 엔진이 죽지 않도록:
+에이전트와 엔진은 독립 배포되므로 한쪽이 먼저 새 필드를 도입할 수 있다. 비대칭 배포에서 엔진이 죽지 않도록:
 
 - Pydantic Input 모델은 `extra=ignore` 유지 — 에이전트가 새 필드를 추가해도 엔진은 통과시키고 무시.
 - 엔진이 활용하지 않는 필드는 #B1 "엔진 핸들링 결정"에 명시 (현재 `disks/mounts/disk_io.major/minor`, `inventory.mounts.free_bytes/avail_bytes`). 카탈로그는 `docs/architecture/agent.md` "엔진이 받지만 사용하지 않는 필드".
@@ -144,12 +148,12 @@ Compose 호출:
 
 ## C1. 키·제약 — 멱등성 의존
 
-ORM 7개 모델 / DTO / TimescaleDB / asyncpg / 자연키 UNIQUE 표: `docs/architecture/db/models.md` · `db/dtos.md` · `db/timescaledb.md` · `db/repositories.md` 단일 진실.
+ORM 7개 모델 / DTO / TimescaleDB / asyncpg / 자연키 UNIQUE 표: `docs/architecture/db/models.md` · `docs/architecture/db/dtos.md` · `docs/architecture/db/timescaledb.md` · `docs/architecture/db/repositories.md` 단일 진실.
 
 본 절 결정/금지(D2 멱등성·E5 URL 식별자에 직접 의존):
 - 대리키 패턴 — 내부 참조는 정수 PK, 비즈니스 식별자는 unique 제약.
 - `server_inventory.public_id` (UUID) — URL 식별자. 정수 PK 노출 금지.
-- 시계열 5개 테이블 자연키 UNIQUE 보존 의무 (#D2 2단 방어 — 누락 시 멱등성 깨짐). 변경 시 db/models.md 표 동시 갱신.
+- 시계열 5개 테이블 자연키 UNIQUE 보존 의무 (#D2 2단 방어 — 누락 시 멱등성 깨짐). 변경 시 `docs/architecture/db/models.md` 표 동시 갱신.
 - 시계열 4개 테이블 `boot_time` + `agent_started_at` 컬럼 보존 의무 (#B1 counter reset 정밀 식별).
 - `tasks` 부분 UNIQUE `WHERE status='pending'` — 운영자 더블클릭 방어. service가 `IntegrityError` → 409.
 - 스키마 변경: DEV는 `docker compose down -v` 필수 (`create_all`은 기존 테이블에 컬럼 추가 안 함). PROD는 Alembic — `migrations/` (env.py + versions/) + 운영 절차는 `docs/operations/alembic.md`. 시계열 신규 테이블은 마이그레이션 파일에 `op.execute("SELECT create_hypertable(...)")` 수동 보강 의무 (autogenerate 미지원).
@@ -164,9 +168,9 @@ DTO 흐름:
 
 INSERT 통일: 시계열은 `pg_insert(...).on_conflict_do_nothing(index_elements=...)` — 멱등성 2단 방어(#D2).
 
-`list_servers`는 `select(ServerInventory)` 풀로우 대신 11개 컬럼 명시 SELECT (큰 JSONB·텍스트 제외). 트레이드오프 근거 `docs/adr/tradeoffs.md` T8.
+`list_servers`는 `select(ServerInventory)` 풀로우 대신 11개 컬럼 명시 SELECT (큰 JSONB·텍스트 제외). 트레이드오프 근거 `docs/tradeoffs.md` T8.
 
-repo 메서드 카탈로그·asyncpg 함정·`_chart_*` 패턴: `docs/architecture/db/repositories.md` + `db/timescaledb.md`.
+repo 메서드 카탈로그·asyncpg 함정·`_chart_*` 패턴: `docs/architecture/db/repositories.md` + `docs/architecture/db/timescaledb.md`.
 
 ## C3. Redis 전략 — fail-open 의무
 
@@ -183,7 +187,7 @@ fail-open 핵심 결과(다른 계층이 의존):
 
 ## C4. 스키마 변경 — 3중 일관성 의무
 
-DEV `create_all` ↔ PROD Alembic ↔ ORM 모델 셋이 같은 schema를 만들 책임. 한 곳만 갱신하면 환경 간 drift 발생 → 멱등성·쿼리 경로 깨짐.
+DEV `create_all` / PROD Alembic / ORM 모델 세 가지가 같은 schema를 만들 책임. 한 곳만 갱신하면 환경 간 drift 발생 → 멱등성·쿼리 경로 깨짐.
 
 본 절 결정/의무 (#C1 키·제약, `docs/operations/alembic.md` 절차의 강제 채널):
 - 모델 변경 시 동시 갱신 의무: (1) `src/assessment_engine/db/models/*.py` (2) `migrations/versions/*.py` 신규 revision (3) `alembic check` 통과 — drift 0건. 한 곳만 수정 후 PR 금지.
@@ -227,13 +231,13 @@ DEV `create_all` ↔ PROD Alembic ↔ ORM 모델 셋이 같은 schema를 만들 
 
 2단 — DB UNIQUE 제약: 시계열 4개 테이블 자연키 UNIQUE (#C1) + `pg_insert(...).on_conflict_do_nothing(index_elements=...)`. Redis 키 만료·evict·재시작·수동 flush·Redis 장애 등으로 1단이 깨져도 DB 레벨에서 silent no-op 흡수.
 
-at-most-once 트레이드오프: SET NX는 DB 커밋 이전 실행. 커밋 전 프로세스 크래시 시 broker 재전송 메시지가 idempotent 충돌로 silent 드롭 → 데이터 유실 가능. DB UNIQUE도 같은 시나리오는 못 막음. 한계와 outbox 대안은 `docs/adr/tradeoffs.md` T1.
+at-most-once 트레이드오프: SET NX는 DB 커밋 이전 실행. 커밋 전 프로세스 크래시 시 broker 재전송 메시지가 idempotent 충돌로 silent 드롭 → 데이터 유실 가능. DB UNIQUE도 같은 시나리오는 못 막음. 한계와 outbox 대안은 `docs/tradeoffs.md` T1.
 
 fail-open 의존성: 1단 fail-open은 2단 UNIQUE의 흡수력에 명시적으로 의존. 시계열 4개 테이블 UNIQUE 제약(#C1) 누락 시 멱등성 보장 자체가 깨짐. 모델 변경 시 검증 필수.
 
 ## D3. 저장 후 Redis 처리 — fail-open
 
-inventory·metrics 저장 성공 시 routing key별 Redis 후처리는 모두 `safe_*` helper 경유 (#C3) — 부수 작업 실패가 메시지 처리 ack를 막지 않는다. 캐시-aside race(web SET이 stale 데이터를 캐싱) 한계는 `docs/adr/tradeoffs.md` T2.
+inventory·metrics 저장 성공 시 routing key별 Redis 후처리는 모두 `safe_*` helper 경유 (#C3) — 부수 작업 실패가 메시지 처리 ack를 막지 않는다. 캐시-aside race(web SET이 stale 데이터를 캐싱) 한계는 `docs/tradeoffs.md` T2.
 
 후처리 시퀀스(inventory: online SET + cache DELETE / metrics: online SET + cache DELETE + PUBLISH metrics.events + 에이전트 재시작 추적): `docs/architecture/consumer.md` "handler.py" 절.
 
@@ -258,8 +262,9 @@ inventory·metrics 저장 성공 시 routing key별 Redis 후처리는 모두 `s
 
 ### P1. Repository는 raw 데이터만 (절대)
 - raw 단위 그대로 outbound DTO에 담음 (KB·bytes·jiffies·sectors).
-- delta·percent·단위 변환·임계값 분류·dedup·정렬·요약 — 금지.
-- 이유: repo가 표현을 알면 동일 raw 데이터를 다른 화면에서 재가공할 때 우회 변환이 필요해진다. 표현 결정을 한 단계 위로 미뤄야 재사용이 깨지지 않는다.
+- Python 레이어 변환 금지: delta·percent·단위 변환·임계값 분류·dedup·정렬·요약을 repo 함수 본문에서 수행 안 함.
+- SQL 표현식 예외: 차트·보고서 집계 SQL은 hypertable scan 1회로 끝나야 하므로 percent·delta·집계를 SQL 안에서 계산 가능 (`_chart_*` / `report_aggregate` / `_METRIC_EXPR`의 percent 표현식 등). 단 SQL 변환은 dispatch table whitelist 상수에만 들어가야 함 — 사용자 입력 f-string 삽입 금지(#C5).
+- 이유: repo의 Python 코드가 표현을 알면 동일 raw 데이터를 다른 화면에서 재가공할 때 우회 변환이 필요해진다. SQL 안 표현식은 단일 fetch에 묶여 있어 재사용 단위가 다름 — 분리 가능.
 
 ### P2. 서비스 계층이 표현 변환 단일 소스 (절대)
 - Service → mapper → ViewModel 흐름에서 모든 파생 데이터를 계산.
@@ -309,12 +314,12 @@ inventory·metrics 저장 성공 시 routing key별 Redis 후처리는 모두 `s
 
 ## E2. 데이터 흐름 결정
 
-- DTO(dataclass) ↔ ORM 모델 분리 — 변환은 repository 책임.
+- DTO(dataclass)와 ORM 모델 분리 — 변환은 repository 책임.
 - inventory upsert·metrics 저장·server_id 조회 모두 `machine_id` 기준. 미등록 metrics는 drop.
 - `last_seen_at`은 `ServerDetail`(단일 조회)에만 포함. `ServerSummary`(목록)는 Redis `online:{id}` TTL로 표시.
 - `CollectionStatusItem`은 `last_metric_at` + `last_inventory_at` 별도 필드.
 
-다이어그램 / 라우터 모듈 표 / SSR 페이지 표 / JSON API 표: `docs/architecture/web/layering.md` + `web/routers.md`.
+다이어그램 / 라우터 모듈 표 / SSR 페이지 표 / JSON API 표: `docs/architecture/web/layering.md` + `docs/architecture/web/routers.md`.
 
 ## E3. 서비스 계층 모듈
 
@@ -323,7 +328,7 @@ inventory·metrics 저장 성공 시 routing key별 Redis 후처리는 모두 `s
 본 절 결정 (P2 단일 변환):
 - 모든 표시 파생은 `mappers.py`에 집중. `enrich_server_detail()`은 idempotent — cache 역직렬화 후 재호출 안전.
 - UI badge 임계값(`_USAGE_DANGER_PCT=90`/`_USAGE_WARN_PCT=75`)은 mapper에만 정의 — 템플릿/JS 중복 금지.
-- USE Method right-sizing 임계값은 별 도메인(`recommendation.py`, ai_roadmap.md §3.C 출처). UI badge 임계값과 혼용 금지.
+- USE Method right-sizing 임계값은 별 도메인(`recommendation.py` 자체가 단일 진실 — 모듈 상단 명명 상수). UI badge 임계값과 혼용 금지.
 
 ## E4. ViewModel·Mapper 파생 필드 (P2)
 
@@ -369,6 +374,17 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 
 차트 Y축·suggestedMax·avg+max ghost·loader 표준: `docs/architecture/web/static-assets.md`.
 
+## E10. 도넛·진행 막대 시각화 (P3 보강)
+
+원칙: SVG `stroke-dasharray`·`stroke-dashoffset` 비례 산술은 mapper에서 미리 계산. 템플릿은 `style="background:..."` 또는 `stroke-dasharray="{precomputed} {circ}"` 형태로 raw 값만 삽입 (P3 산술 금지).
+
+본 절 결정/금지:
+- ViewModel 필드 명시: `dash_length: float` (segment 원호 길이) / `dash_offset: float` (multi-segment 누적 음수 시작 위치) / `bar_color: str` (임계 분기 hex). 모두 mapper 결정.
+- SVG 원주 상수 = `mappers._UTIL_DONUT_CIRC` (r=42 기준 2*pi*r ≈ 263.89). 본 단일 상수 활용 — 템플릿이 264 같은 magic number 직접 사용 금지.
+- 임계 색 단일 진실: 활용률 (`_UTIL_COLOR_LOW/MID/HIGH/NONE`) + 프로비저닝 분포 (`_DONUT_SEGMENT_DEFS`) + capacity trigger (`_CAPACITY_TRIGGER_COLORS`). 동일 의미는 동일 hex (예: 위험 = `#ef4444` 또는 `#dc2626` 계열 빨강) — 시각 메시지 통일.
+- 모든 카테고리 항상 노출 (count 0 포함) 정책: 카드 본질이 "N종 자원 추적"임을 활성화 데이터에 의존 않고 명시. 비활성 표시는 옅은 배경(`#f8fafc`) + 연한 글자(`#cbd5e1`) — dashed border 등 부가 장식 금지.
+- 도넛 중앙 강조 라벨은 가장 시급한 카테고리 카운트 1개만 (예: 프로비저닝 분포 = `risk_high_count` = under_provisioned 카운트). 의미 없는 합계나 ratio 노출 금지.
+
 ---
 
 # F. 운영 규약
@@ -395,9 +411,15 @@ Warning 처리 우선순위:
 
 `.claude/hooks/` PostToolUse hook이 강제하는 위반(exit 2 → system-reminder 피드백)은 본 표의 Warning 우선순위와 별개의 강제 채널 — 즉시 수정. IDE Info-Hint와 달리 Claude 컨텍스트로 직접 피드백되므로 묻힐 위험 없음.
 
-| 위반 | Hook |
-|------|------|
-| `from __future__ import annotations` 추가 | `conventions-check.sh` |
+| 위반 | 적용 범위 | Hook |
+|------|----------|------|
+| F1 — `from __future__ import annotations` | `.py` | `conventions-check.sh` |
+| F11 — `print(` / `sys.stdout.write` | `.py` | `conventions-check.sh` |
+| C3 — `safe_*` 미경유 redis 클라이언트 직접 호출 (`redis.set/get/delete/publish/incr/exists/mget/expire/setnx`) | `.py` (`db/redis.py` 본인 제외) | `conventions-check.sh` |
+| 글로벌 — `**...**` markdown bold | 모든 파일 | `conventions-check.sh` |
+| 글로벌 — 비키보드 unicode 기호·이모지 (`§ ↔ ↑ ↓ ✓ ✗ ✅ ⚠ ❌ × ÷ >= <= != • ◦ ▪ ▫` 등) | 모든 파일 | `conventions-check.sh` |
+
+hook 파일 자체(`.claude/hooks/*`)는 패턴 정의를 포함하므로 self-skip — `.claude/hooks/` 경로는 검사 안 함.
 
 ruff 위반(E501 line-too-long · F841 unused · I001 import 정렬 등)은 hook 자동 차단 채널 없음 — PyCharm IDE 경고 또는 수동 `.venv/bin/ruff check <file>` 실행으로 검증. 위 표의 Warning 우선순위로 처리.
 
@@ -414,10 +436,12 @@ ruff 위반(E501 line-too-long · F841 unused · I001 import 정렬 등)은 hook
 | API 응답 (JSON) | ISO 8601 UTC | dataclass `asdict` + `_json_default` |
 | Jinja2 SSR 표시 | `"YYYY-MM-DD HH:MM:SS"` (KST) | `kst` 필터 — 표시 직전 단일 변환 |
 | 클라이언트 차트 라벨 | KST `MM/DD HH:mm` | `ChartUtils.fmtLabel(iso, range)` — 표시 직전 단일 변환 |
+| 클라이언트 timestamp 표시 | KST `"YYYY-MM-DD HH:MM:SS"` | `ChartUtils.fmtKst(iso)` — 표시 직전 단일 변환 |
+| 클라이언트 datetime-local input 초기화 | KST `"YYYY-MM-DDTHH:MM"` | `ChartUtils.initAnchor(inputId)` — 단일 함수 |
 
 원칙:
 - DB·내부 계층 어디에서도 KST 변환 금지. Service에서 KST로 비교/필터링하면 다른 화면 재사용 시 깨진다.
-- 변환 경계는 정확히 두 곳: Jinja2 `kst` 필터, JS `fmtLabel`. 새 표시 추가 시 이 둘 중 하나 사용.
+- 변환 경계는 정확히 위 4가지 함수 (`kst` 필터 / `ChartUtils.fmtLabel` / `ChartUtils.fmtKst` / `ChartUtils.initAnchor`). 새 표시 추가 시 이 중 하나 사용 — 인라인 `new Date(... + 9*60*60*1000)` 금지.
 - naive datetime 금지 — `cache_serializer`처럼 외부에서 문자열 받을 때 `datetime.fromisoformat()`으로 tzinfo 보존.
 
 ## F3. 검증의 단일 경로
@@ -512,7 +536,7 @@ Hook 강제 영역은 메인이 또 grep으로 확인하지 않는다 (중복). 
 
 ## F10. 에러 처리·실패 모델
 
-원칙: **외부 의존은 fail-close/fail-open을 컴포넌트 단위로 미리 결정** — 결정 근거 없으면 새 통합 도입 금지.
+원칙: 외부 의존은 fail-close/fail-open을 컴포넌트 단위로 미리 결정 — 결정 근거 없으면 새 통합 도입 금지.
 
 본 절 결정/금지:
 - DB는 fail-close — 실패 시 raise → 컨슈머는 nack/DLQ, web은 5xx. silent skip 금지 (데이터 무결성 깨짐).
@@ -535,7 +559,7 @@ Hook 강제 영역은 메인이 또 grep으로 확인하지 않는다 (중복). 
 
 ## F11. 로깅·관측
 
-원칙: **로그는 운영 시그널** — 로그 양이 많으면 시그널이 묻힌다. 레벨·내용·빈도 모두 의도 있게.
+원칙: 로그는 운영 시그널 — 로그 양이 많으면 시그널이 묻힌다. 레벨·내용·빈도 모두 의도 있게.
 
 본 절 결정/금지:
 - `print` / `sys.stdout.write` 금지 — 모듈별 logger 인스턴스 사용 (stdlib `logging.getLogger(__name__)` 또는 `loguru.logger`). 본 프로젝트는 `loguru` 채택 — 일관성 의무, 라이브러리 혼용 금지.
@@ -555,7 +579,7 @@ Hook 강제 영역은 메인이 또 grep으로 확인하지 않는다 (중복). 
 
 ## F12. 시크릿·PII 노출 금지
 
-원칙: **로그·예외·HTTP 응답·ViewModel·캐시 어디에도 비밀번호·토큰·전체 메시지 payload·고객사 식별 가능 정보 노출 금지**. 한 번 새면 영구.
+원칙: 로그·예외·HTTP 응답·ViewModel·캐시 어디에도 비밀번호·토큰·전체 메시지 payload·고객사 식별 가능 정보 노출 금지. 한 번 새면 영구.
 
 본 절 결정/금지:
 - pydantic Settings의 비밀 필드는 `SecretStr` — `__repr__`이 자동 마스킹. 현재 일부만 적용 → 신규 필드는 의무.
@@ -563,20 +587,20 @@ Hook 강제 영역은 메인이 또 grep으로 확인하지 않는다 (중복). 
 - 예외 메시지에 raw payload·접속 문자열 금지 — `OperationalError(...connection: postgres://user:PASSWORD@...)` 같은 형태가 로그에 그대로 흘러감. 잡아서 sanitize 후 reraise.
 - HTTP 응답·ViewModel·JSON export에 내부 비밀번호·토큰·machine_id 외 PII 포함 금지. 운영 식별자는 `public_id`(UUID)만 노출 (#E5).
 - Redis·DB에 raw payload 캐싱 금지 — Outbound DTO·ViewModel 단계에서 sanitize 후 캐싱.
-- 에이전트 ↔ 엔진 메시지의 `machine_id`는 식별자라 로깅 OK. payload 본문은 로깅 금지.
+- 에이전트와 엔진 사이 메시지의 `machine_id`는 식별자라 로깅 OK. payload 본문은 로깅 금지.
 
-상세: secret 채널·prod 약한 default 자동 검증(`_validate_prod_*`)은 `docs/operations/dev-prod.md` §2 채널 분류 / §7 자동 검증.
+상세: secret 채널·prod 약한 default 자동 검증(`_validate_prod_*`)은 `docs/operations/dev-prod.md` "변수 분류" 절 + "Fail-fast 검증" 절.
 
 ## F13. 변경 영향도 체크리스트
 
-원칙: **단일 진실 보장은 변경 시점에서만 가능**. 한 곳 수정 후 PR 금지 — 영향받는 모든 곳 동시 갱신 의무.
+원칙: 단일 진실 보장은 변경 시점에서만 가능. 한 곳 수정 후 PR 금지 — 영향받는 모든 곳 동시 갱신 의무.
 
 | 변경 유형 | 동시 갱신 의무 위치 |
 |-----------|---------------------|
 | 시계열 컬럼 추가 | (1) ORM 모델 (2) Alembic revision (3) Inbound DTO·mapper (4) Outbound DTO·mapper (5) `cache_serializer._DETAIL_DISPLAY_FIELDS` (6) ViewModel (7) 템플릿·외부 .js |
 | inventory 컬럼 추가 | 위 (1)~(7) + agent payload 합의 (`payload-schema.md`) + #B1 엔진 핸들링 결정 갱신 |
 | 신규 routing key | (1) 에이전트 발행 (2) consumer 핸들러 팩토리 + dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 (4) #B1 메시지 타입 표 |
-| 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) `docker-compose.yml` `environment:` (4) prod secret이면 `secrets/*` + `dev-prod.md` + `docker-compose.prod.yml` |
+| 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) `docker-compose.yml` `environment:` (4) prod secret이면 `secrets/*` + `docs/operations/dev-prod.md` + `docker-compose.prod.yml` |
 | ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass 필드도 (P5) |
 | 신규 외부 의존 (HTTP·LLM·외부 큐) | (1) fail-open/close 결정 (#F10) (2) timeout·재시도 정책 (3) Settings 필드 (4) 매트릭스 갱신 |
 | 신규 의존성 (`pyproject.toml`) | (1) `uv pip install -e .` 후 `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토 |
@@ -585,7 +609,7 @@ Hook 강제 영역은 메인이 또 grep으로 확인하지 않는다 (중복). 
 
 ## F14. 명명·타입 규약 (F1 보강)
 
-원칙: **이름이 단위·의미·형태를 자체 표현**. type checker 만족용 보조 정보 아닌 코드 가독성·grep 가능성·신규 진입자 학습 비용을 위한 결정.
+원칙: 이름이 단위·의미·형태를 자체 표현. type checker 만족용 보조 정보 아닌 코드 가독성·grep 가능성·신규 진입자 학습 비용을 위한 결정.
 
 | 카테고리 | 규약 | 예 |
 |----------|------|------|
@@ -593,9 +617,22 @@ Hook 강제 영역은 메인이 또 grep으로 확인하지 않는다 (중복). 
 | boolean | `is_*` (속성), `has_*` (소유), `auto_*` (자동 동작) | `is_well_known`, `has_internet`, `auto_register` |
 | 식별자 | `*_id` (정수 PK), `public_id` (UUID), `machine_id` (에이전트 식별), `message_id` (멱등성 키) | `server_id`, `task_id` |
 | 시간 표기 | UTC datetime은 `*_at` 의무. 로컬 표시 변환은 `kst` 필터/JS만 (#F2). 예외: `boot_time`/`agent_started_at` — agent payload 합의 명명 (TIMESTAMPTZ datetime이지만 `*_at` suffix 미적용 historical naming, 변경 시 에이전트 payload 동시 갱신 비용 큼) | `last_seen_at`, `collected_at`, `boot_time`(historical) |
-| DTO 경계 | Inbound = Pydantic (외부 검증), Outbound·ViewModel = dataclass (내부 raw·표시), Settings = pydantic BaseSettings | `consumer/schemas.py`(Inbound) ↔ `repositories/outbound.py`(Outbound) |
+| DTO 경계 | Inbound = Pydantic (외부 검증), Outbound·ViewModel = dataclass (내부 raw·표시), Settings = pydantic BaseSettings | `consumer/schemas.py`(Inbound) - `repositories/outbound.py`(Outbound) |
 | routing key | `{entity}.{event}` 소문자 dot 구분 | `server.metrics`, `server.inventory`, `task.result` |
 | Redis 키 | `{namespace}:{id}` (TTL 있음) — namespace는 단수 (`online:{id}`, `idempotent:{message_id}`), 카운터는 `{action}:{id}` (`agent_restarts:{sid}`) | `online:42`, `task:pending:abc-123` |
 | Service 메서드 | `get_*` (단일 조회·404 가능), `list_*` (목록·empty OK), `record_*` (시계열 INSERT), `ensure_*` (멱등 upsert), `compute_*`/`enrich_*` (파생 계산) | `get_server_detail`, `list_servers`, `record_metrics`, `ensure_server_id`, `enrich_server_detail` |
 
 신규 도메인 컬럼·필드 도입 시 본 표 패턴 우선 적용. 패턴 외 명명은 PR에 사유 명시.
+
+## F15. 평가 윈도우 · 차트 시계열 옵션 — 단일 진실
+
+원칙: 보고서·대시보드·차트 모두 같은 평가 윈도우와 같은 시계열 옵션 카탈로그를 참조한다. 윈도우 또는 옵션이 분기 문서·코드 여러 곳에 산재하면 운영자가 본 화면에서 본 값이 다른 화면과 다른 의미를 갖게 된다.
+
+본 절 결정/금지:
+- 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 14, AWS Compute Optimizer 표준). 대시보드(`get_environment_overview` 활용률 도넛·프로비저닝 분포 도넛·행 권장 조치 컬럼·attention 신호) + 보고서 라우터 기본값(`Query(14)`) + ADR 0003 모두 본 상수 참조.
+- 보고서 라우터만 사용자가 `?period_days=N`으로 override 가능 (단기·장기 비교용). 대시보드는 override 없음 — 산업 표준 윈도우 고정.
+- TimeRange/BucketSize Literal 단일 진실 = `base_query_repository.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js` (`RANGE_LABEL`/`AUTO_BUCKET`/`BUCKET_LABEL`/`RANGE_MS`/`BUCKET_MS`). 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
+- 신규 TimeRange 값 → AUTO_BUCKET 매핑 신설 의무 (운영자가 토글 변경 시 적절한 버킷이 자동 적용돼야 단일 토글 UX).
+- 인쇄/Export 등 보고서 형태 산출물은 윈도우를 envelope·표제에 명시 — 자동화 도구가 reproducibility 확보. JSON Export `period_window{days, start, end}` 의무 필드 (#B6 같은 계약 진화 정책).
+
+신규 윈도우·옵션 추가 시 F13 변경 영향도 체크리스트 (1) recommendation 상수 (2) Literal·dispatch table (3) JS chart-utils (4) UI 토글 (5) Export envelope 동시 갱신.

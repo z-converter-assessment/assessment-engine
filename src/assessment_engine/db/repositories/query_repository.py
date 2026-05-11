@@ -22,6 +22,7 @@ from assessment_engine.db.repositories.outbound import (
     DashboardRaw,
     DiskIoRaw,
     DiskUsageWarningRaw,
+    EnvironmentUtilizationRaw,
     MetricGapWarningRaw,
     MetricPairRaw,
     MetricSeries,
@@ -46,6 +47,7 @@ _BUCKET_INFO: dict[str, tuple[str, timedelta]] = {
     "30m": ("30 minutes", timedelta(minutes=30)),
     "1h":  ("1 hour",     timedelta(hours=1)),
     "3h":  ("3 hours",    timedelta(hours=3)),
+    "6h":  ("6 hours",    timedelta(hours=6)),
     "12h": ("12 hours",   timedelta(hours=12)),
     "1d":  ("1 day",      timedelta(days=1)),
 }
@@ -673,7 +675,7 @@ class QueryRepository(BaseQueryRepository):
         )
         return [MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension) for row in result.all()]
 
-    # ─── Assessment 보고서 집계 (USE Method, ai_roadmap.md §3.B) ──────────
+    # ─── Assessment 보고서 집계 (USE Method) ──────────
 
     async def report_aggregate(
         self,
@@ -681,11 +683,11 @@ class QueryRepository(BaseQueryRepository):
         period_days: int,
         end: datetime,
     ) -> list[ReportRowRaw]:
-        """N서버 × period_days 통계 → ReportRowRaw list. role/recommendation 등 표시 파생은 service에서.
+        """N서버 x period_days 통계 → ReportRowRaw list. role/recommendation 등 표시 파생은 service에서.
 
         SQL 구조:
-        - cpu_pct CTE: LAG로 jiffies delta → (1 - d_idle/d_total) × 100. boot_time 변경 시 reset 제외.
-        - mem_pct CTE: 시점값 (1 - mem_available/mem_total) × 100. swap_used flag 동시 추출.
+        - cpu_pct CTE: LAG로 jiffies delta → (1 - d_idle/d_total) x 100. boot_time 변경 시 reset 제외.
+        - mem_pct CTE: 시점값 (1 - mem_available/mem_total) x 100. swap_used flag 동시 추출.
         - 통계: percentile_cont(0.95) + MAX. server_id별 GROUP BY.
         - server_inventory LEFT JOIN — metric 없는 서버도 행 반환. services JSONB 동시 SELECT (N+1 회피).
         """
@@ -697,6 +699,7 @@ class QueryRepository(BaseQueryRepository):
                     boot_time,
                     LAG(boot_time) OVER (PARTITION BY server_id ORDER BY collected_at) AS prev_boot,
                     cpu_idle - LAG(cpu_idle) OVER (PARTITION BY server_id ORDER BY collected_at) AS d_idle,
+                    cpu_iowait - LAG(cpu_iowait) OVER (PARTITION BY server_id ORDER BY collected_at) AS d_iowait,
                     (cpu_user + cpu_nice + cpu_system + cpu_idle + cpu_iowait + cpu_irq + cpu_softirq + cpu_steal)
                       - LAG(cpu_user + cpu_nice + cpu_system + cpu_idle + cpu_iowait + cpu_irq + cpu_softirq + cpu_steal)
                         OVER (PARTITION BY server_id ORDER BY collected_at) AS d_total
@@ -707,7 +710,10 @@ class QueryRepository(BaseQueryRepository):
                 SELECT server_id,
                     CASE WHEN d_total > 0 AND d_idle IS NOT NULL
                          THEN GREATEST(0, (1 - d_idle::float / d_total) * 100)
-                    END AS pct
+                    END AS pct,
+                    CASE WHEN d_total > 0 AND d_iowait IS NOT NULL
+                         THEN GREATEST(0, d_iowait::float / d_total * 100)
+                    END AS iowait_pct
                 FROM cpu_deltas
                 WHERE d_total > 0
                   AND (boot_time IS NULL OR prev_boot IS NULL OR boot_time = prev_boot)
@@ -715,7 +721,9 @@ class QueryRepository(BaseQueryRepository):
             cpu_stats AS (
                 SELECT server_id,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY pct) AS cpu_p95,
-                    MAX(pct) AS cpu_peak
+                    MAX(pct) AS cpu_peak,
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY iowait_pct) AS iowait_p95,
+                    MAX(iowait_pct) AS iowait_peak
                 FROM cpu_pct GROUP BY server_id
             ),
             mem_pct AS (
@@ -755,8 +763,14 @@ class QueryRepository(BaseQueryRepository):
                 s.ip_internal   AS ip_internal,
                 s.services      AS services,
                 s.last_seen_at  AS last_seen_at,
+                s.cpu_cores     AS cpu_cores,
+                s.mem_total_kb  AS mem_total_kb,
+                s.disks         AS disks,
+                s.boot_time     AS boot_time,
                 cs.cpu_p95      AS cpu_p95,
                 cs.cpu_peak     AS cpu_peak,
+                cs.iowait_p95   AS iowait_p95,
+                cs.iowait_peak  AS iowait_peak,
                 ms.mem_p95      AS mem_p95,
                 ms.mem_peak     AS mem_peak,
                 COALESCE(ms.swap_used, false) AS swap_used,
@@ -787,9 +801,262 @@ class QueryRepository(BaseQueryRepository):
                 mem_peak_pct=r.mem_peak,
                 load_15m_max=r.load_15m_max,
                 swap_used=bool(r.swap_used),
+                iowait_p95_pct=r.iowait_p95,
+                iowait_peak_pct=r.iowait_peak,
+                cpu_cores=r.cpu_cores,
+                mem_total_kb=r.mem_total_kb,
+                disks=r.disks,
+                boot_time=r.boot_time,
             )
             for r in result.all()
         ]
+
+    async def report_mount_worst(
+        self,
+        server_ids: list[int],
+        period_days: int,
+        end: datetime,
+    ) -> dict[int, tuple[str | None, float | None, int | None]]:
+        """마운트별 max used_pct + fill_rate 기반 days_until_full 추정. 서버당 최악 1건만 반환.
+
+        SQL 구조:
+        - mount_stats CTE: (server_id, mount)별 max used_pct + FIRST/LAST avail_bytes로 fill_rate
+        - 서버당 worst = used_pct DESC 첫 행 (used_pct 동률 시 days_until_full ASC)
+        """
+        start = end - timedelta(days=period_days)
+
+        sql = text("""
+            WITH usage_max AS (
+                -- (server_id, mount)별 max used_pct
+                SELECT server_id, mount,
+                    MAX((1 - avail_bytes::float / total_bytes) * 100) AS max_used_pct
+                FROM server_mount_usage
+                WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
+                  AND total_bytes > 0
+                GROUP BY server_id, mount
+            ),
+            fill_rate AS (
+                -- (server_id, mount)별 시작·종료 avail_bytes (FIRST/LAST 윈도우)
+                SELECT DISTINCT server_id, mount,
+                    FIRST_VALUE(avail_bytes) OVER w AS avail_start,
+                    LAST_VALUE(avail_bytes) OVER w AS avail_end
+                FROM server_mount_usage
+                WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
+                  AND total_bytes > 0
+                WINDOW w AS (
+                    PARTITION BY server_id, mount ORDER BY collected_at
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+                )
+            ),
+            mount_per AS (
+                SELECT um.server_id, um.mount, um.max_used_pct,
+                    CASE WHEN (fr.avail_start - fr.avail_end) > 0
+                              AND :period_days > 0 AND fr.avail_end >= 0
+                         THEN GREATEST(0, FLOOR(
+                                fr.avail_end / ((fr.avail_start - fr.avail_end)::float / :period_days)
+                              ))::int
+                    END AS days_until_full
+                FROM usage_max um
+                LEFT JOIN fill_rate fr ON fr.server_id = um.server_id AND fr.mount = um.mount
+            ),
+            ranked AS (
+                SELECT server_id, mount, max_used_pct, days_until_full,
+                    ROW_NUMBER() OVER (PARTITION BY server_id
+                                       ORDER BY max_used_pct DESC NULLS LAST,
+                                                days_until_full ASC NULLS LAST) AS rk
+                FROM mount_per
+            )
+            SELECT server_id, mount, max_used_pct, days_until_full
+            FROM ranked WHERE rk = 1
+        """)
+        result = await self.session.execute(
+            sql, {"sids": server_ids, "start": start, "end": end, "period_days": period_days},
+        )
+        return {
+            r.server_id: (r.mount, r.max_used_pct, r.days_until_full)
+            for r in result.all()
+        }
+
+    async def report_uptime_stats(
+        self,
+        server_ids: list[int],
+        period_days: int,
+        end: datetime,
+    ) -> dict[int, int]:
+        """period 안 server_inventory_history의 boot_time DISTINCT count - 1 (=재부팅 횟수).
+
+        SQL: server_inventory_history의 boot_time DISTINCT - 1 (현재 boot_time 포함이라 -1).
+        period 안 1회 부팅이면 reboot_count=0, 2회면 1 (=1회 재부팅).
+        """
+        start = end - timedelta(days=period_days)
+
+        sql = text("""
+            SELECT server_id, GREATEST(0, COUNT(DISTINCT boot_time) - 1) AS reboot_count
+            FROM server_inventory_history
+            WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
+              AND boot_time IS NOT NULL
+            GROUP BY server_id
+        """)
+        result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
+        return {r.server_id: int(r.reboot_count) for r in result.all()}
+
+    async def report_disk_io_baseline(
+        self,
+        server_ids: list[int],
+        period_days: int,
+        end: datetime,
+    ) -> dict[int, tuple[int | None, float | None, float | None, float | None, float | None, float | None]]:
+        """server_id -> (iops_baseline, throughput_kbps_baseline,
+                          iops_p95, iops_peak, throughput_kbps_p95, throughput_kbps_peak).
+
+        - baseline(평균) = SUM(delta) / SUM(dt) — 기존 의미 유지
+        - p95/peak = 시점별 (서버, collected_at) device 합산 rate에서 percentile_cont(0.95) + MAX
+        - reset 행 제외: dt > 0 AND delta >= 0
+        """
+        start = end - timedelta(days=period_days)
+
+        sql = text("""
+            WITH disk_deltas AS (
+                SELECT server_id, device, collected_at,
+                    reads_completed - LAG(reads_completed)
+                        OVER (PARTITION BY server_id, device ORDER BY collected_at) AS d_reads,
+                    writes_completed - LAG(writes_completed)
+                        OVER (PARTITION BY server_id, device ORDER BY collected_at) AS d_writes,
+                    sectors_read - LAG(sectors_read)
+                        OVER (PARTITION BY server_id, device ORDER BY collected_at) AS d_sec_r,
+                    sectors_written - LAG(sectors_written)
+                        OVER (PARTITION BY server_id, device ORDER BY collected_at) AS d_sec_w,
+                    EXTRACT(EPOCH FROM (collected_at - LAG(collected_at)
+                        OVER (PARTITION BY server_id, device ORDER BY collected_at))) AS dt
+                FROM server_disk_io
+                WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
+            ),
+            disk_clean AS (
+                SELECT server_id, collected_at,
+                       (d_reads + d_writes) AS ops,
+                       (d_sec_r + d_sec_w) * 512 AS bytes,
+                       dt
+                FROM disk_deltas
+                WHERE dt > 0 AND d_reads >= 0 AND d_writes >= 0
+                  AND d_sec_r >= 0 AND d_sec_w >= 0
+            ),
+            disk_baseline AS (
+                SELECT server_id,
+                    SUM(ops::float)            AS total_ops,
+                    SUM(bytes::float)          AS total_bytes,
+                    SUM(dt)                    AS total_seconds
+                FROM disk_clean
+                GROUP BY server_id
+            ),
+            disk_rate_per_time AS (
+                SELECT server_id, collected_at,
+                       SUM(ops::float / dt)             AS server_iops,
+                       SUM(bytes::float / dt / 1024)    AS server_kbps
+                FROM disk_clean
+                GROUP BY server_id, collected_at
+            ),
+            disk_stats AS (
+                SELECT server_id,
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY server_iops) AS iops_p95,
+                    MAX(server_iops) AS iops_peak,
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY server_kbps) AS kbps_p95,
+                    MAX(server_kbps) AS kbps_peak
+                FROM disk_rate_per_time
+                GROUP BY server_id
+            )
+            SELECT b.server_id,
+                CASE WHEN b.total_seconds > 0 THEN b.total_ops / b.total_seconds END AS iops_baseline,
+                CASE WHEN b.total_seconds > 0 THEN b.total_bytes / b.total_seconds / 1024 END AS throughput_kbps_baseline,
+                s.iops_p95, s.iops_peak, s.kbps_p95, s.kbps_peak
+            FROM disk_baseline b
+            LEFT JOIN disk_stats s ON s.server_id = b.server_id
+        """)
+        result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
+        return {
+            r.server_id: (
+                int(r.iops_baseline) if r.iops_baseline is not None else None,
+                float(r.throughput_kbps_baseline) if r.throughput_kbps_baseline is not None else None,
+                float(r.iops_p95) if r.iops_p95 is not None else None,
+                float(r.iops_peak) if r.iops_peak is not None else None,
+                float(r.kbps_p95) if r.kbps_p95 is not None else None,
+                float(r.kbps_peak) if r.kbps_peak is not None else None,
+            )
+            for r in result.all()
+        }
+
+    async def report_net_io_baseline(
+        self,
+        server_ids: list[int],
+        period_days: int,
+        end: datetime,
+    ) -> dict[int, tuple[float | None, float | None, float | None, float | None, float | None, float | None]]:
+        """server_id -> (rx_kbps_baseline, tx_kbps_baseline,
+                          rx_kbps_p95, rx_kbps_peak, tx_kbps_p95, tx_kbps_peak).
+
+        시점별 interface 합산 rate에서 percentile_cont(0.95) + MAX. baseline은 SUM/SUM (기존 의미).
+        """
+        start = end - timedelta(days=period_days)
+
+        sql = text("""
+            WITH net_deltas AS (
+                SELECT server_id, interface, collected_at,
+                    rx_bytes - LAG(rx_bytes)
+                        OVER (PARTITION BY server_id, interface ORDER BY collected_at) AS d_rx,
+                    tx_bytes - LAG(tx_bytes)
+                        OVER (PARTITION BY server_id, interface ORDER BY collected_at) AS d_tx,
+                    EXTRACT(EPOCH FROM (collected_at - LAG(collected_at)
+                        OVER (PARTITION BY server_id, interface ORDER BY collected_at))) AS dt
+                FROM server_net_io
+                WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
+            ),
+            net_clean AS (
+                SELECT server_id, collected_at, d_rx, d_tx, dt
+                FROM net_deltas
+                WHERE dt > 0 AND d_rx >= 0 AND d_tx >= 0
+            ),
+            net_baseline AS (
+                SELECT server_id,
+                    SUM(d_rx::float) AS total_rx_bytes,
+                    SUM(d_tx::float) AS total_tx_bytes,
+                    SUM(dt)          AS total_seconds
+                FROM net_clean
+                GROUP BY server_id
+            ),
+            net_rate_per_time AS (
+                SELECT server_id, collected_at,
+                       SUM(d_rx::float / dt / 1024) AS server_rx_kbps,
+                       SUM(d_tx::float / dt / 1024) AS server_tx_kbps
+                FROM net_clean
+                GROUP BY server_id, collected_at
+            ),
+            net_stats AS (
+                SELECT server_id,
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY server_rx_kbps) AS rx_p95,
+                    MAX(server_rx_kbps) AS rx_peak,
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY server_tx_kbps) AS tx_p95,
+                    MAX(server_tx_kbps) AS tx_peak
+                FROM net_rate_per_time
+                GROUP BY server_id
+            )
+            SELECT b.server_id,
+                CASE WHEN b.total_seconds > 0 THEN b.total_rx_bytes / b.total_seconds / 1024 END AS rx_kbps_baseline,
+                CASE WHEN b.total_seconds > 0 THEN b.total_tx_bytes / b.total_seconds / 1024 END AS tx_kbps_baseline,
+                s.rx_p95, s.rx_peak, s.tx_p95, s.tx_peak
+            FROM net_baseline b
+            LEFT JOIN net_stats s ON s.server_id = b.server_id
+        """)
+        result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
+        return {
+            r.server_id: (
+                float(r.rx_kbps_baseline) if r.rx_kbps_baseline is not None else None,
+                float(r.tx_kbps_baseline) if r.tx_kbps_baseline is not None else None,
+                float(r.rx_p95) if r.rx_p95 is not None else None,
+                float(r.rx_peak) if r.rx_peak is not None else None,
+                float(r.tx_p95) if r.tx_p95 is not None else None,
+                float(r.tx_peak) if r.tx_peak is not None else None,
+            )
+            for r in result.all()
+        }
 
     # ─── reboot / agent restart 이벤트 (차트 vertical marker용) ────────────
 
@@ -856,25 +1123,6 @@ class QueryRepository(BaseQueryRepository):
             select(ServerInventory.id).order_by(ServerInventory.id.asc()).limit(limit)
         )
         return [r for r in result.scalars().all()]
-
-    async def latest_disk_max_pct(self, server_ids: list[int]) -> dict[int, float]:
-        if not server_ids:
-            return {}
-        sql = text("""
-            WITH mount_latest AS (
-                SELECT server_id, total_bytes, avail_bytes,
-                    ROW_NUMBER() OVER (PARTITION BY server_id, mount ORDER BY collected_at DESC) AS rn
-                FROM server_mount_usage
-                WHERE server_id = ANY(:sids)
-                  AND collected_at >= now() - interval '7 days'
-            )
-            SELECT server_id, MAX((1 - avail_bytes::float / total_bytes) * 100) AS disk_max_pct
-            FROM mount_latest
-            WHERE rn = 1 AND total_bytes > 0 AND avail_bytes IS NOT NULL
-            GROUP BY server_id
-        """)
-        result = await self.session.execute(sql, {"sids": server_ids})
-        return {r.server_id: r.disk_max_pct for r in result.all()}
 
     async def disk_usage_warnings(
         self,
@@ -967,3 +1215,82 @@ class QueryRepository(BaseQueryRepository):
             )
             for r in result.all()
         ]
+
+    async def environment_utilization(
+        self,
+        period_days: int = 1,
+    ) -> EnvironmentUtilizationRaw:
+        """환경 전체 서버 N일 평균 활용률.
+
+        - cpu_avg: 모든 서버, 모든 인접 시점 LAG delta 평균
+        - mem_avg: 모든 서버, 모든 시점 (1 - avail/total) 평균
+        - disk_avg: mount별 평균 → 서버별 max → 서버 간 평균
+        - sample_size: 기간 내 metric 발행 서버 distinct count
+        partition pruning 의무 (C5). period_days <= 30 cap (DB scan 보호).
+        """
+        capped = max(1, min(period_days, 30))
+        sql = text("""
+            WITH cpu_series AS (
+                SELECT server_id, collected_at,
+                       (COALESCE(cpu_user,0)+COALESCE(cpu_nice,0)+COALESCE(cpu_system,0)
+                        +COALESCE(cpu_iowait,0)+COALESCE(cpu_irq,0)+COALESCE(cpu_softirq,0)
+                        +COALESCE(cpu_steal,0)) AS busy,
+                       (COALESCE(cpu_user,0)+COALESCE(cpu_nice,0)+COALESCE(cpu_system,0)
+                        +COALESCE(cpu_iowait,0)+COALESCE(cpu_irq,0)+COALESCE(cpu_softirq,0)
+                        +COALESCE(cpu_steal,0)+COALESCE(cpu_idle,0)) AS total
+                FROM server_metrics
+                WHERE collected_at >= now() - (:days * interval '1 day')
+            ),
+            cpu_pairs AS (
+                SELECT server_id,
+                       busy, total,
+                       LAG(busy)  OVER (PARTITION BY server_id ORDER BY collected_at) AS prev_busy,
+                       LAG(total) OVER (PARTITION BY server_id ORDER BY collected_at) AS prev_total
+                FROM cpu_series
+            ),
+            cpu_pct AS (
+                SELECT server_id,
+                       CASE WHEN total > prev_total AND (total - prev_total) > 0
+                            THEN ((busy - prev_busy)::float / (total - prev_total)) * 100
+                       END AS pct
+                FROM cpu_pairs
+                WHERE prev_total IS NOT NULL
+            ),
+            mem_pct AS (
+                SELECT server_id,
+                       CASE WHEN mem_total_kb > 0 AND mem_available_kb IS NOT NULL
+                            THEN (1 - mem_available_kb::float / mem_total_kb) * 100
+                       END AS pct
+                FROM server_metrics
+                WHERE collected_at >= now() - (:days * interval '1 day')
+            ),
+            disk_per_mount AS (
+                SELECT server_id, mount,
+                       AVG(CASE WHEN total_bytes > 0 AND avail_bytes IS NOT NULL
+                                THEN ((total_bytes - avail_bytes)::float / total_bytes) * 100
+                           END) AS avg_pct
+                FROM server_mount_usage
+                WHERE collected_at >= now() - (:days * interval '1 day')
+                GROUP BY server_id, mount
+            ),
+            disk_max AS (
+                SELECT server_id, MAX(avg_pct) AS pct
+                FROM disk_per_mount
+                WHERE avg_pct IS NOT NULL
+                GROUP BY server_id
+            )
+            SELECT
+                (SELECT AVG(pct) FROM cpu_pct  WHERE pct IS NOT NULL) AS cpu_avg,
+                (SELECT AVG(pct) FROM mem_pct  WHERE pct IS NOT NULL) AS mem_avg,
+                (SELECT AVG(pct) FROM disk_max WHERE pct IS NOT NULL) AS disk_avg,
+                (SELECT COUNT(DISTINCT server_id) FROM server_metrics
+                 WHERE collected_at >= now() - (:days * interval '1 day')) AS sample_size
+        """)
+        result = await self.session.execute(sql, {"days": capped})
+        row = result.one()
+        return EnvironmentUtilizationRaw(
+            cpu_avg_pct=float(row.cpu_avg) if row.cpu_avg is not None else None,
+            mem_avg_pct=float(row.mem_avg) if row.mem_avg is not None else None,
+            disk_avg_pct=float(row.disk_avg) if row.disk_avg is not None else None,
+            sample_size=int(row.sample_size or 0),
+        )
