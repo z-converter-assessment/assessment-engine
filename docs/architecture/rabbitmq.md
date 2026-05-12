@@ -28,12 +28,13 @@ vhost: `/assessment` 단일 사용. broker 한 대를 다른 도메인 시스템
 
 ### 큐 정책
 
-| routing key | 큐 | DLQ | TTL | x-max-length |
-|-------------|-----|-----|-----|--------------|
-| `server.inventory` | `server.inventory` | `server.inventory.dead` | 없음 (1시간 주기 자동 재발행으로 보강) | 없음 |
-| `server.metrics` | `server.metrics` | `server.metrics.dead` | 72h | 1,000,000 |
-| `server.error` | `server.error` | `server.error.dead` | 300s | 없음 |
-| `task.result` | `task.result` | `task.result.dead` | 24h | 100,000 |
+| routing key | 발행 주체 | 큐 | DLQ | TTL | x-max-length |
+|-------------|-----------|-----|-----|-----|--------------|
+| `server.inventory` | agent | `server.inventory` | `server.inventory.dead` | 없음 (1시간 주기 자동 재발행으로 보강) | 없음 |
+| `server.metrics` | agent | `server.metrics` | `server.metrics.dead` | 72h | 1,000,000 |
+| `server.error` | agent | `server.error` | `server.error.dead` | 300s | 없음 |
+| `task.result` | agent | `task.result` | `task.result.dead` | 24h | 100,000 |
+| `diagnostic.request` | engine 내부 (web·스케줄러 → 워커, ADR 0004) | `diagnostic.request` | `diagnostic.request.dead` | 24h | 100,000 |
 
 `server.metrics` 정책 근거:
 - 72h TTL: 1분 주기 발행 + consumer/DB 단기 장애(최대 3일) 내 회복 시 누적 메시지 정상 처리.
@@ -48,6 +49,12 @@ vhost: `/assessment` 단일 사용. broker 한 대를 다른 도메인 시스템
 - 24h TTL: 운영자가 install 결과를 하루 안에 확인. 누적 적재 방지.
 - 100K 상한: 머신당 install pending 최대 1건(`tasks` 부분 UNIQUE) + 결과 메시지 약 4KB라 1만 머신 X 1 buffer로 충분.
 - Task RPC piggyback의 reply 자체는 별도 큐 declare 없이 `amq.rabbitmq.reply-to` pseudo-queue로 발행 — 본 표에 등재하지 않음 (큐 declare 불필요, broker 내부 처리).
+
+`diagnostic.request` 정책 근거 (ADR 0004):
+- engine 내부 (agent 발행 아님) — web POST /api/v1/diagnostics + 스케줄러 매일 03시 → 워커 소비.
+- 24h TTL: 진단 1건 처리 cap 5분. 24h 안 미처리는 운영자 개입 신호.
+- 100K 상한: 활성 서버 N대 + ad-hoc → 일일 N+α 발생. 100K로 충분.
+- 워커 prefetch_count 1 — LLM 호출 동시 1건만 (rate limit 자연 throttle). adhoc/scheduled 큐 분리 안 함.
 
 ### DLQ 라우팅 트리거
 

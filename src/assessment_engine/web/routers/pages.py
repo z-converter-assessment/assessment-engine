@@ -10,7 +10,8 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from assessment_engine.web.deps import get_service, resolve_internal_id
+from assessment_engine.web.deps import get_diagnostic_service, get_service, resolve_internal_id
+from assessment_engine.web.services.diagnostic_service import DiagnosticService, to_panel_payload
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.template_setup import templates
 
@@ -43,14 +44,17 @@ async def list_servers(
     search: str | None = Query(None),
     is_online: bool | None = Query(None),
     service: QueryService = Depends(get_service),
+    diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     servers = await service.list_servers(page, limit, search, is_online)
-    # 첫 페이지 + 검색·필터 미사용일 때만 환경 요약·신호 노출 (검색 결과 화면에서 무관)
+    # 첫 페이지 + 검색·필터 미사용일 때만 환경 요약·신호 + 환경 진단(latest) 노출
     overview = None
     attention = None
+    last_env_diagnostic = None
     if page == 1 and not search and is_online is None:
         overview = await service.get_environment_overview()
         attention = await service.get_attention_signals()
+        last_env_diagnostic = await diag_service.get_latest("environment", None, "14d")
     return templates.TemplateResponse(
         request=request,
         name="servers/list.html",
@@ -58,6 +62,7 @@ async def list_servers(
             "servers": servers,
             "overview": overview,
             "attention": attention,
+            "last_env_diagnostic": to_panel_payload(last_env_diagnostic),
         },
     )
 
@@ -75,11 +80,13 @@ async def report(
     period_days: int = Query(14, ge=1, le=90),
     view: Literal["customer", "engineer"] = Query("customer", description="고객용(A) / 엔지니어용(B) 분기"),
     service: QueryService = Depends(get_service),
+    diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """Assessment 보고서 — view 파라미터로 양식 A/B 분기 (한 endpoint, 같은 SQL).
 
     ids는 query string으로 받음 (선택 N대 -> 새 탭). 큰 N이면 URL 길이 한계 — 추후 POST·session.
     데이터 소스: USE Method 통계 (CPU/MEM p95·peak + swap + load_15m max). 분류는 service 측.
+    AI 진단 컬럼: 14일 latest succeeded 진단 N개 batch fetch (#C5 N+1 회피).
     """
     public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
     sid_map = await service.resolve_server_ids(public_ids)
@@ -88,6 +95,7 @@ async def report(
         raise HTTPException(status_code=404, detail="no valid server ids")
 
     summary = await service.get_report(server_ids, period_days)
+    diagnostics_by_pid = await diag_service.get_many_latest_server(public_ids, "14d")
     return templates.TemplateResponse(
         request=request,
         name="servers/report.html",
@@ -95,6 +103,7 @@ async def report(
             "summary": summary,
             "view": view,
             "view_title": _REPORT_VIEW_TITLES[view],
+            "diagnostics_by_pid": diagnostics_by_pid,
         },
     )
 
@@ -106,9 +115,20 @@ async def get_server(
     request: Request,
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
+    diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    return await _render_server_tab(request, "servers/detail.html",
-                                    internal_id=internal_id, service=service)
+    server = await service.get_server(internal_id)
+    if not server:
+        raise HTTPException(status_code=404)
+    last_server_diagnostic = await diag_service.get_latest("server", str(server.public_id), "14d")
+    return templates.TemplateResponse(
+        request=request,
+        name="servers/detail.html",
+        context={
+            "server": server,
+            "last_server_diagnostic": to_panel_payload(last_server_diagnostic),
+        },
+    )
 
 
 @pages_router.get("/{server_id}/cpu")

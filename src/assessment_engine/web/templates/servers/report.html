@@ -24,6 +24,10 @@
   .engineer-table .stat-line { display:block; line-height:1.35; }
   .engineer-table .stat-line .lbl { color:#94a3b8; font-size:10px; margin-right:3px; }
 
+  /* AI 진단 컬럼 — 좁은 너비 + 줄바꿈 금지로 인쇄 시 column 폭 안정 (ADR 0004 단계 5) */
+  .ai-diag-cell { white-space:nowrap; max-width:120px; }
+  .ai-diag-cell .stat-line { display:block; line-height:1.35; }
+
   @media print {
     .report-section { page-break-inside: avoid; }
     .kpi-grid { page-break-inside: avoid; }
@@ -33,6 +37,8 @@
     .engineer-table th { font-size:8px; }
     .engineer-table th .sub { font-size:7px; }
     .engineer-table .stat-line .lbl { font-size:8px; }
+    .ai-diag-cell { font-size:8px; max-width:80px; }
+    .ai-diag-cell .rec-badge { font-size:8px; padding:1px 4px; }
   }
 </style>
 
@@ -89,6 +95,7 @@
         <th class="num-cell">메모리 사용률 (p95)</th>
         <th>위험도</th>
         <th>상태</th>
+        <th>AI 진단<span class="sub">14일</span></th>
       </tr>
     </thead>
     <tbody>
@@ -101,6 +108,20 @@
         <td class="num-cell">{% if r.mem_p95_pct is not none %}{{ "%.1f"|format(r.mem_p95_pct) }}%{% else %}—{% endif %}</td>
         <td><span class="rec-badge {{ r.risk_badge_class }}">{{ r.risk_label }}</span></td>
         <td>{% if r.is_online %}<span style="color:#15803d;">●</span> 온라인{% else %}<span style="color:#94a3b8;">●</span> 오프라인{% endif %}</td>
+        <td class="ai-diag-cell">
+          {% set d = diagnostics_by_pid.get(r.public_id) %}
+          {% if d and d.result %}
+            {% set cls = d.result.classification %}
+            <span class="rec-badge {% if cls == 'over_provisioned' %}badge-warn{% elif cls == 'under_provisioned' %}badge-danger{% elif cls == 'optimal' %}badge-ok{% elif cls == 'idle' or cls == 'shutdown' %}badge-warn{% else %}badge{% endif %}">
+              {% if cls == 'over_provisioned' %}over-prov{% elif cls == 'under_provisioned' %}under-prov{% elif cls == 'optimal' %}optimal{% elif cls == 'idle' %}idle{% elif cls == 'shutdown' %}shutdown{% else %}데이터 부족{% endif %}
+            </span>
+            {% if d.result.recommendation and d.result.recommendation.action and d.result.recommendation.action != 'no_action' %}
+            <span class="stat-line" style="color:#475569; font-size:10px;">{{ d.result.recommendation.action }}</span>
+            {% endif %}
+          {% else %}
+            <span style="color:#94a3b8;">—</span>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -162,6 +183,7 @@
         <th>SWAP / Mount</th>
         <th class="num-cell">Uptime<span class="sub">재부팅</span></th>
         <th>분류 / 판단</th>
+        <th>AI 진단<span class="sub">14일</span></th>
       </tr>
     </thead>
     <tbody>
@@ -224,6 +246,18 @@
         <td>
           <span class="stat-line"><span class="rec-badge {{ r.badge_class }}">{{ r.recommendation_label }}</span></span>
           <span class="stat-line" style="color:#475569; font-size:10px;">{{ r.diagnosis }}</span>
+        </td>
+        <td class="ai-diag-cell">
+          {% set d = diagnostics_by_pid.get(r.public_id) %}
+          {% if d and d.result %}
+            {% set cls = d.result.classification %}
+            <span class="stat-line"><span class="rec-badge {% if cls == 'over_provisioned' %}badge-warn{% elif cls == 'under_provisioned' %}badge-danger{% elif cls == 'optimal' %}badge-ok{% elif cls == 'idle' or cls == 'shutdown' %}badge-warn{% else %}badge{% endif %}">
+              {% if cls == 'over_provisioned' %}over-prov{% elif cls == 'under_provisioned' %}under-prov{% elif cls == 'optimal' %}optimal{% elif cls == 'idle' %}idle{% elif cls == 'shutdown' %}shutdown{% else %}—{% endif %}
+            </span></span>
+            <span class="stat-line" style="color:#475569; font-size:10px;">{{ d.result.recommendation.action if d.result.recommendation else '' }}</span>
+          {% else %}
+            <span style="color:#94a3b8;">—</span>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}

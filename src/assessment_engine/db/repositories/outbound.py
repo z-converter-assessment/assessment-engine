@@ -290,3 +290,26 @@ class MetricGapWarningRaw:
     public_id: str
     hostname: str
     last_metric_at: datetime
+
+
+# --- AI 진단 job 조회 결과 (ADR 0004) ---
+
+
+@dataclass
+class DiagnosticJobRecord:
+    """진단 job 단건 — 라우터 polling 응답·워커 작업 단위 표현.
+
+    id는 UUID 문자열 (PG_UUID as_uuid=False). result·error_message는 status 따라 둘 중 하나만 채움.
+    """
+    id: str
+    scope: str
+    input_params: dict
+    input_hash: str
+    status: str
+    progress_stage: str | None
+    result: dict | None
+    error_message: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    requested_by: str | None

@@ -43,6 +43,20 @@ services:
       timeout: 5s
       retries: 5
 
+  # 마이그레이션 1회성 작업 (init-container 패턴) — postgres healthy 후 alembic upgrade head 실행하고 종료.
+  # 모든 앱 서비스는 본 컨테이너 완료 후에만 기동 (depends_on: service_completed_successfully).
+  # schema는 dev·staging·prod 모두 Alembic 단일 진실. lifespan의 create_all 자동 분기 제거됨.
+  migrate:
+    build: .
+    command: alembic upgrade head
+    environment:
+      APP_ENV: ${APP_ENV:-prod}
+      POSTGRES_HOST: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   web:
     restart: unless-stopped
     build: .
@@ -53,11 +67,16 @@ services:
       APP_ENV: ${APP_ENV:-prod}
       POSTGRES_HOST: postgres
       REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq                # AI 진단 publish용 (ADR 0004)
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 5s
@@ -81,8 +100,50 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      web:
+      migrate:
+        condition: service_completed_successfully
+
+  # AI 진단 워커 — RabbitMQ `diagnostic.request` 소비, LLM 호출, DB 저장 (ADR 0004).
+  # LLM_PROVIDER 기본 mock (과금 발생 외부 API 호출 금지 — 운영자 정책).
+  diagnostic-worker:
+    restart: unless-stopped
+    build: .
+    command: python -m assessment_engine.diagnostic
+    environment:
+      APP_ENV: ${APP_ENV:-prod}
+      POSTGRES_HOST: postgres
+      RABBITMQ_HOST: rabbitmq
+      REDIS_HOST: redis
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+    depends_on:
+      postgres:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # AI 진단 스케줄러 — cron 발화로 활성 서버 N대 + environment job enqueue + retention DELETE.
+  diagnostic-scheduler:
+    restart: unless-stopped
+    build: .
+    command: python -m assessment_engine.diagnostic.scheduler
+    environment:
+      APP_ENV: ${APP_ENV:-prod}
+      POSTGRES_HOST: postgres
+      RABBITMQ_HOST: rabbitmq
+      REDIS_HOST: redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:

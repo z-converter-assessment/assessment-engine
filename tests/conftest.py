@@ -1,36 +1,26 @@
 """세션 전체에서 단 1회 spawn하는 TimescaleDB 컨테이너 + async engine.
 
 정석 fixture 계층:
-- session scope: 컨테이너 + engine + schema (한 번 띄우고 모든 테스트 공유)
+- session scope: 컨테이너 + Alembic migration 적용 + engine (한 번 띄우고 모든 테스트 공유)
 - function scope: session + repository + transaction rollback (각 테스트 격리)
+
+schema는 alembic upgrade head로 적용 — 운영(dev/staging/prod)과 동일 경로.
+TimescaleDB extension·hypertable·partial index 등 모두 마이그레이션에 포함되어 자동 적용.
 
 session-scope async fixture를 쓰려면 pyproject의
 `asyncio_default_fixture_loop_scope = "session"` 설정이 필수.
 """
+import os
+import subprocess
 from collections.abc import AsyncGenerator, AsyncIterator
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
-# ORM 모델을 Base.metadata에 등록 (side-effect import)
-from assessment_engine.db.models import (  # noqa: F401
-    server_disk_io,
-    server_inventory,
-    server_metrics,
-    server_mount_usage,
-    server_net_io,
-)
-from assessment_engine.db.models.base import Base
-
-_HYPERTABLES = (
-    "server_metrics",
-    "server_disk_io",
-    "server_net_io",
-    "server_mount_usage",
-)
+_REPO_ROOT = Path(__file__).parent.parent
 
 
 @pytest.fixture(scope="session")
@@ -41,7 +31,7 @@ def _postgres_container() -> PostgresContainer:
         username="test",
         password="test",
         dbname="assessment_test",
-        driver=None,  # asyncpg는 별도 URL 조립
+        driver=None,
     )
     with container as pg:
         yield pg
@@ -49,21 +39,26 @@ def _postgres_container() -> PostgresContainer:
 
 @pytest_asyncio.fixture(scope="session")
 async def engine(_postgres_container: PostgresContainer) -> AsyncIterator[AsyncEngine]:
-    """asyncpg 드라이버 + TimescaleDB extension + 모든 테이블 + hypertable 생성."""
+    """asyncpg 드라이버 + Alembic 마이그레이션 적용 (dev/staging/prod와 동일 경로)."""
     host = _postgres_container.get_container_host_ip()
     port = _postgres_container.get_exposed_port(5432)
-    url = f"postgresql+asyncpg://test:test@{host}:{port}/assessment_test"
+    async_url = f"postgresql+asyncpg://test:test@{host}:{port}/assessment_test"
 
-    eng = create_async_engine(url, echo=False, future=True)
+    # alembic upgrade head — subprocess로 호출 (async fixture 내 nested asyncio 회피).
+    # web_settings.database_url을 env var 기반으로 만들도록 POSTGRES_* 주입.
+    env = os.environ.copy()
+    env["POSTGRES_HOST"] = host
+    env["POSTGRES_PORT"] = str(port)
+    env["POSTGRES_USER"] = "test"
+    env["POSTGRES_PASSWORD"] = "test"
+    env["POSTGRES_DB"] = "assessment_test"
+    env["APP_ENV"] = "dev"  # prod model_validator 우회 (테스트 자격은 약한 default)
+    subprocess.run(
+        ["alembic", "-c", str(_REPO_ROOT / "alembic.ini"), "upgrade", "head"],
+        env=env, check=True, capture_output=True,
+    )
 
-    async with eng.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE"))
-        await conn.run_sync(Base.metadata.create_all)
-        for table in _HYPERTABLES:
-            await conn.execute(text(
-                f"SELECT create_hypertable('{table}', 'collected_at', if_not_exists => true)"
-            ))
-
+    eng = create_async_engine(async_url, echo=False, future=True)
     yield eng
     await eng.dispose()
 

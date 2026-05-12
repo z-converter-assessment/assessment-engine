@@ -1,0 +1,60 @@
+name: alembic-check
+
+# ORM 모델 변경 + 마이그레이션 누락 자동 검출.
+# 운영 정책 단일 진실: CLAUDE.md #C4 + docs/operations/alembic.md.
+
+on:
+  pull_request:
+    paths:
+      - 'src/assessment_engine/db/models/**'
+      - 'migrations/**'
+      - 'pyproject.toml'
+      - '.github/workflows/alembic-check.yml'
+  push:
+    branches: [main]
+
+jobs:
+  alembic-check:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_DB: assessment_ci
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      APP_ENV: dev
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: assessment_ci
+      POSTGRES_USER: ci
+      POSTGRES_PASSWORD: ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install project
+        run: uv pip install --system -e ".[dev]"
+
+      - name: alembic upgrade head
+        run: alembic upgrade head
+
+      - name: alembic check (ORM vs migrations drift)
+        run: alembic check

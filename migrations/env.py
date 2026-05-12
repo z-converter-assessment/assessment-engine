@@ -16,6 +16,7 @@ from alembic import context
 
 from assessment_engine.config import web_settings
 from assessment_engine.db.models import (  # noqa: F401  — Base.metadata 등록
+    diagnostic_job,
     server_disk_io,
     server_inventory,
     server_inventory_history,

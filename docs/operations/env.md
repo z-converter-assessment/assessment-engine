@@ -72,6 +72,20 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 | `REDIS_HOST` | `redis` | config.py | (docker-compose 서비스명) |
 | `REDIS_PORT` | `6379` | config.py | |
 | `WEB_PORT` | `8000` | config.py / docker-compose | Web UI 접속 포트. 충돌 시 변경 |
+| `SQLALCHEMY_ECHO` | `false` | config.py | SQLAlchemy 엔진 SQL 로깅. dev 디버깅 시 true (운영 환경은 false 유지 — 로그 폭증·secret 노출 위험) |
+| `PGADMIN_PORT` | `5050` | docker-compose dev override | pgAdmin GUI 포트 (dev 전용) |
+| `LLM_PROVIDER` | `mock` | config.py / docker-compose | AI 진단 LLM 클라이언트 (ADR 0004). `mock` 또는 `ollama`. 과금 발생 외부 API는 운영자 정책상 금지 |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | config.py | LLM_PROVIDER=ollama 시 사용 |
+| `OLLAMA_MODEL` | `llama3.1:8b` | config.py | ollama 모델명 |
+| `LLM_TIMEOUT_SECONDS` | `60` | config.py | LLM 호출 cap |
+| `LLM_MOCK_LATENCY_SECONDS` | `2.0` | config.py | mock client 응답 sleep (UI progress 단계 표시 확인용) |
+| `DIAGNOSTIC_ROUTING_KEY` | `diagnostic.request` | config.py | engine 내부 routing key (web·worker·scheduler 공통) |
+| `DIAGNOSTIC_QUEUE_TTL_MS` | `86400000` | config.py | 큐 메시지 TTL 24h |
+| `DIAGNOSTIC_QUEUE_MAX_LEN` | `100000` | config.py | 큐 max length |
+| `DIAGNOSTIC_RETENTION_DAYS` | `90` | config.py | diagnostic_jobs 보존 일수 — 스케줄러가 발화 시 함께 DELETE |
+| `DIAGNOSTIC_SCHEDULE_CRON` | `0 3 * * *` | config.py | 스케줄러 cron (KST 03시 매일) |
+| `DIAGNOSTIC_ACTIVE_SERVER_WINDOW_HOURS` | `24` | config.py | 활성 서버 정의 — last_seen_at 윈도우 |
+| `WORKER_JOB_TIMEOUT_SECONDS` | `300` | config.py | 워커 진단 1건 전체 cap (클라이언트 polling timeout과 정렬) |
 
 ## 주의사항
 

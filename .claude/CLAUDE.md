@@ -17,8 +17,6 @@
 | `docs/operations/` | 운영·환경·배포·검증 (Docker·Vagrant·dev-prod·env·testing·pipeline·alembic) | 영구·갱신 |
 | `docs/adr/` | Architecture Decision Records — "왜 이렇게 결정했나" + 트레이드오프. ADR은 정정만, 덮어쓰기 금지 | 영구·불변 |
 
-`temp` 키워드 들어간 파일(`docs/temp.md` 등)은 작업 중 임시 메모로 항상 무시.
-
 `docs/references/` · `docs/meetings/` 등 임시 디렉토리는 도입 시점에 본 표에 등록·도입 사유 명시 필수. 코드·영구 문서에서 인용 금지 — 본 디렉토리 자체가 사라져도 작업이 정상 진행돼야 한다. 정책·결정이 영구화되면 다른 영구 문서로 승격 후 임시 파일 삭제.
 
 | 파일 | 내용 |
@@ -26,7 +24,7 @@
 | `docs/operations/pipeline.md` | 파이프라인 검증 (Vagrant VM) |
 | `docs/operations/env.md` | 환경변수 전체 키 목록 (카탈로그) |
 | `docs/operations/dev-prod.md` | dev/prod 환경 전략 + secret 정책 + 운영 체크리스트 |
-| `docs/operations/alembic.md` | PROD schema 마이그레이션 (Alembic) — DEV `create_all` 보완 |
+| `docs/operations/alembic.md` | DB schema 마이그레이션 (Alembic — 모든 환경 단일 진실, migrate 컨테이너 자동 적용) |
 | `docs/operations/testing.md` | 단위·통합 테스트 실행·설정·Fixture·작성 패턴 |
 | `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T11) |
 | `docs/architecture/agent.md` | 에이전트 메시지 스키마 / 포트 수집 / 디스크 필터링 |
@@ -41,6 +39,8 @@
 | `docs/adr/0001-redis-decoupling.md` | Redis fail-open 전환 의사결정 + 옵션 비교 + 구현 결과 |
 | `docs/adr/0002-task-rpc-piggyback-vs-polling.md` | Task 명령 RPC piggyback 채택 사유 |
 | `docs/adr/0003-ai-llm-activation.md` | AI / LLM 활용 로드맵 (Phase 2~3 — 분석·추천·비용·리포트·RAG) |
+| `docs/adr/0004-diagnostic-worker.md` | AI 진단 워커 아키텍처 (Phase 2 실행 인프라 — 워커·스케줄러·diagnostic_jobs·LLM 토글) |
+| `docs/adr/0005-db-schema-management.md` | DB Schema 관리 표준화 — Alembic 단일 진실, migrate init-container 패턴, alembic check CI |
 
 ---
 
@@ -55,9 +55,10 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 5개 서비스(postgres / rabbitmq / redis / web / consumer)로 구성. 이미지·역할·command 분기·빌드 캐시 전략은 `docs/operations/docker.md`.
 
 운영 결정:
-- `consumer depends_on web: condition: service_healthy` — dev/staging 한정. web lifespan이 `CREATE EXTENSION + create_all + create_hypertable`을 수행하므로 consumer는 web 헬스체크 후 시작. prod에서는 lifespan이 schema bootstrap skip(Alembic 위임)이므로 의존성 제거 가능 — 단계적 전환 (`docs/operations/dev-prod.md` #10 운영 체크리스트).
+- `migrate` 서비스 — postgres healthy 후 `alembic upgrade head` 1회 실행하고 종료 (restart "no"). 모든 앱 서비스(web/consumer/diagnostic-worker/diagnostic-scheduler)는 `depends_on: migrate (service_completed_successfully)`로 그 뒤에 기동 — schema 준비 의무 명시. (#C4)
 - `src/assessment_engine/db/session.py` · `src/assessment_engine/db/redis.py`는 `web_settings`만 사용. `ConsumerSettings`는 `WebSettings` 상속 + RabbitMQ 설정 추가. docker-compose의 `POSTGRES_HOST`/`REDIS_HOST`/`RABBITMQ_HOST` env 오버라이드로 컨테이너 내부 host 결정.
-- `src/assessment_engine/scheduler/` 코드는 있으나 docker-compose 미등록 + `run_diagnostics()` NotImplementedError. 미사용.
+- `src/assessment_engine/scheduler/` 코드는 있으나 docker-compose 미등록 + `run_diagnostics()` NotImplementedError. 미사용. Phase 2 진단 워커·스케줄러(ADR 0004) 구현 시 재평가 (재사용 또는 폐기).
+- Phase 2 결정 박제: AI 진단 워커(`diagnostic-worker`) + 진단 스케줄러(`diagnostic-scheduler`) 신규 docker-compose 서비스 추가 예정 (ADR 0004). 코드 구현 시 본 절 서비스 카운트·역할·기동 의존성 정식 갱신.
 
 Compose 파일 분리 (`docs/operations/dev-prod.md` #6):
 - `docker-compose.yml` — prod-safe baseline (password·외부 포트 노출 없음)
@@ -93,7 +94,7 @@ Compose 호출:
 
 ## B1. 메시지 타입 — 엔진 측 결정
 
-4가지 routing key (`server.inventory` / `server.metrics` / `server.error` / `task.result`). 메시지 스키마·공통 메타·미사용 필드 카탈로그는 `docs/architecture/agent.md`.
+5가지 routing key (`server.inventory` / `server.metrics` / `server.error` / `task.result` / `diagnostic.request`). 메시지 스키마·공통 메타·미사용 필드 카탈로그는 `docs/architecture/agent.md`. `diagnostic.request`는 engine 내부 (web·스케줄러 → 진단 워커, ADR 0004).
 
 본 절 결정:
 - `boot_time` + `agent_started_at`은 시계열 4테이블 모두 보존 (#C1) — `metrics_calculator._is_counter_reset`이 두 시점 비교로 시스템 재부팅 식별. agent_started_at만 다르면 에이전트 재시작(/proc 카운터는 그대로 → 정상 delta). NULL(옛 데이터)은 d<0 휴리스틱 fallback. mount_usage는 시점값이라 활용 없으나 메타 일관성 위해 동일 보존.
@@ -113,8 +114,9 @@ Compose 호출:
 토폴로지 표(routing key·큐·DLQ·TTL·x-max-length) + 정책 근거(72h/1M 산정 / vhost 권한 / AMQPS·TLS / prod 전환): `docs/architecture/rabbitmq.md` 단일 진실.
 
 본 절 결정:
-- 4 routing key + DLX `assessment.dlx` (dev/prod 공통). prefetch_count 10.
+- 5 routing key + DLX `assessment.dlx` (dev/prod 공통). agent 발행 4개(consumer prefetch_count 10) + engine 내부 `diagnostic.request` 1개(워커 prefetch_count 1).
 - 별도 task queue 없음 — `server.metrics`의 `reply_to` (RabbitMQ 빌트인 `amq.rabbitmq.reply-to`)로 task 명령 RPC piggyback (#B6, ADR 0002).
+- `diagnostic.request` 큐 (ADR 0004): exchange `assessment` (DIRECT, durable), DLX `assessment.dlx`, `x-message-ttl=24h`, `x-max-length=100000`. 워커 prefetch_count 1 — LLM rate limit 자연 throttle. adhoc·scheduled 큐 분리 안 함.
 - 큐 인자 변경 시 broker `PRECONDITION_FAILED` reject — 큐 삭제 후 consumer 재기동 필요.
 
 ## B6. Task 명령 — RPC piggyback (engine → agent)
@@ -156,7 +158,7 @@ ORM 7개 모델 / DTO / TimescaleDB / asyncpg / 자연키 UNIQUE 표: `docs/arch
 - 시계열 5개 테이블 자연키 UNIQUE 보존 의무 (#D2 2단 방어 — 누락 시 멱등성 깨짐). 변경 시 `docs/architecture/db/models.md` 표 동시 갱신.
 - 시계열 4개 테이블 `boot_time` + `agent_started_at` 컬럼 보존 의무 (#B1 counter reset 정밀 식별).
 - `tasks` 부분 UNIQUE `WHERE status='pending'` — 운영자 더블클릭 방어. service가 `IntegrityError` → 409.
-- 스키마 변경: DEV는 `docker compose down -v` 필수 (`create_all`은 기존 테이블에 컬럼 추가 안 함). PROD는 Alembic — `migrations/` (env.py + versions/) + 운영 절차는 `docs/operations/alembic.md`. 시계열 신규 테이블은 마이그레이션 파일에 `op.execute("SELECT create_hypertable(...)")` 수동 보강 의무 (autogenerate 미지원).
+- 스키마 변경: 모든 환경 Alembic 단일 진실. ORM 모델 변경 시 `alembic revision --autogenerate` 의무. docker-compose `migrate` 컨테이너가 자동 적용 후 종료. 시계열 신규 테이블은 마이그레이션 파일에 `op.execute("SELECT create_hypertable(...)")` 수동 보강 의무 (autogenerate 미지원). 상세 #C4·`docs/operations/alembic.md`.
 
 ## C2. Repository 계층 — 인터페이스 우선 (F4)
 
@@ -185,17 +187,18 @@ fail-open 핵심 결과(다른 계층이 의존):
 
 키 설계 표 / TTL 근거 / PUB/SUB 채널 / 캐시-aside race 한계 / 장애 매트릭스 전체: `docs/architecture/redis.md`. 의사결정 ADR: `docs/adr/0001-redis-decoupling.md`.
 
-## C4. 스키마 변경 — 3중 일관성 의무
+## C4. 스키마 변경 — Alembic 단일 진실
 
-DEV `create_all` / PROD Alembic / ORM 모델 세 가지가 같은 schema를 만들 책임. 한 곳만 갱신하면 환경 간 drift 발생 → 멱등성·쿼리 경로 깨짐.
+dev·staging·prod·테스트 모든 환경이 Alembic 마이그레이션 1개 진실로 schema를 관리. docker-compose의 `migrate` 컨테이너가 `alembic upgrade head` 자동 적용 후 종료 → web/consumer/worker/scheduler는 `depends_on: service_completed_successfully`로 그 다음 기동. lifespan의 `create_all` 자동 분기는 제거됨 (drift 위험 해소).
 
 본 절 결정/의무 (#C1 키·제약, `docs/operations/alembic.md` 절차의 강제 채널):
-- 모델 변경 시 동시 갱신 의무: (1) `src/assessment_engine/db/models/*.py` (2) `migrations/versions/*.py` 신규 revision (3) `alembic check` 통과 — drift 0건. 한 곳만 수정 후 PR 금지.
-- DEV 검증: `docker compose down -v` 후 재기동 (`create_all`은 ALTER TABLE 안 함 — 기존 테이블 컬럼 추가 무반응).
-- PROD 검증: `alembic upgrade head` → `alembic downgrade -1` → `alembic upgrade head` 라운드트립 통과 의무. `downgrade()`는 autogenerate 결과여도 검토.
+- 모델 변경 시 동시 갱신 의무: (1) `src/assessment_engine/db/models/*.py` (2) `migrations/versions/*.py` 신규 revision (3) `alembic check` 통과 — drift 0건. 한 곳만 수정 후 PR 금지. dev에서도 마이그레이션 없이는 schema가 갱신되지 않는다.
+- 검증 의무 (환경 무관): `alembic upgrade head` → `alembic downgrade -1` → `alembic upgrade head` 라운드트립 통과. `downgrade()`는 autogenerate 결과여도 검토.
 - autogenerate 미지원 카탈로그 (수동 `op.execute()` 보강 의무): `create_hypertable` / `CREATE EXTENSION` / TimescaleDB retention·continuous aggregate 정책 / partial index `postgresql_where` 일부 / CHECK 제약 / JSONB GIN 옵션 일부.
 - TimescaleDB 자동 생성 객체(`{table}_collected_at_idx` 5개)는 `migrations/env.py:_include_object`로 autogenerate 비교에서 제외. 신규 자동 객체 패턴(예: continuous aggregate 도입 시 `_materialized_*`) 발견 시 여기 추가 의무.
 - 시계열 신규 테이블: 마이그레이션 파일에 `op.execute("SELECT create_hypertable('table', 'collected_at', if_not_exists => true)")` 보강 + 자연키 UNIQUE(#C1) + `boot_time`/`agent_started_at` 컬럼(#B1) 동시 검토.
+- CI 강제 채널: `.github/workflows/alembic-check.yml`이 PR 단계에서 `alembic check` 실행. 모델 변경 + 마이그레이션 누락 시 PR 차단.
+- 테스트도 동일 경로: `tests/conftest.py`의 testcontainers fixture가 `alembic upgrade head` subprocess 실행 (create_all 안 씀).
 
 상세 명령·워크플로우: `docs/operations/alembic.md`.
 

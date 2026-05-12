@@ -4,13 +4,15 @@
 """
 from uuid import UUID
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.db.redis import get_redis
 from assessment_engine.db.repositories.collect_repository import CollectRepository
+from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
 from assessment_engine.db.repositories.query_repository import QueryRepository
 from assessment_engine.db.session import AsyncSessionLocal, get_db
+from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.task_service import TaskService
 
@@ -35,6 +37,26 @@ def get_task_service(
         query_repo=QueryRepository(db),
         session_factory=AsyncSessionLocal,
         collect_repo_factory=CollectRepository,
+        redis=redis,
+    )
+
+
+def get_diagnostic_service(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+) -> DiagnosticService:
+    """DiagnosticService DI (ADR 0004).
+
+    query_repo는 request-scoped(get_db)로 resolve_server_ids 1회. diagnostic_repo는 별도
+    session(session_factory)로 enqueue/조회 트랜잭션 분리 — task_service 동일 패턴.
+    broker_channel은 lifespan에서 app.state에 저장한 영속 channel 재사용.
+    """
+    return DiagnosticService(
+        query_repo=QueryRepository(db),
+        session_factory=AsyncSessionLocal,
+        diagnostic_repo_factory=DiagnosticRepository,
+        broker_channel=request.app.state.broker_channel,
         redis=redis,
     )
 

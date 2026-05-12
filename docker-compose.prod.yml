@@ -25,15 +25,36 @@ services:
     secrets:
       - rabbitmq_password
 
+  migrate:
+    environment:
+      APP_ENV: prod
+    secrets:
+      - postgres_password
+
   web:
     environment:
       APP_ENV: prod
     secrets:
       - postgres_password
+      - rabbitmq_password   # AI 진단 publish용 (ADR 0004)
     ports:
       - "${WEB_PORT:-8000}:8000"   # 일반적으로 reverse proxy 뒤로. 직접 노출이 필요하면 그대로.
 
   consumer:
+    environment:
+      APP_ENV: prod
+    secrets:
+      - postgres_password
+      - rabbitmq_password
+
+  diagnostic-worker:
+    environment:
+      APP_ENV: prod
+    secrets:
+      - postgres_password
+      - rabbitmq_password
+
+  diagnostic-scheduler:
     environment:
       APP_ENV: prod
     secrets:

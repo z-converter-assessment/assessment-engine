@@ -36,6 +36,9 @@ class WebSettings(BaseSettings):
     redis_host: str = "redis"
     redis_port: int = 6379
 
+    # SQLAlchemy 엔진 로깅 — dev에서 SQL 디버깅 시 true. 운영 환경은 false 유지 (로그 폭증·secret 노출 위험).
+    sqlalchemy_echo: bool = False
+
     # TTL (seconds)
     redis_ttl_idempotent: int = 86400          # 24h — 재발행 메시지 중복 차단
     redis_ttl_online: int = 90                  # 90s — 마지막 메트릭 수신 후 오프라인 판단
@@ -129,6 +132,39 @@ class SchedulerSettings(WebSettings):
     scheduler_interval_seconds: int = 3600  # 기본 1시간
 
 
+class DiagnosticSettings(ConsumerSettings):
+    """AI 진단 워커·스케줄러·웹 공통 설정 (ADR 0004).
+
+    ConsumerSettings 상속 — broker_url·prod secret 검증 그대로 활용. 진단 워크플로 고유 필드만 추가.
+    """
+    # routing key + TTL (모두 RabbitMQ broker — 큐 인자 변경 시 broker 재선언 의무)
+    diagnostic_routing_key: str = "diagnostic.request"
+    diagnostic_queue_ttl_ms: int = 24 * 60 * 60 * 1000   # 24h — pending job 처리 못 하면 DLQ
+    diagnostic_queue_max_len: int = 100_000
+
+    # retention
+    diagnostic_retention_days: int = 90
+
+    # Redis polling 캐시 (워커가 각 단계 후 SET, web polling이 우선 read)
+    redis_key_diagnostic_progress: str = "diagnostic:job:{}"   # {job_id}
+    redis_ttl_diagnostic_progress: int = 3600
+
+    # 스케줄러
+    diagnostic_schedule_cron: str = "0 3 * * *"          # 매일 03시 KST
+    diagnostic_active_server_window_hours: int = 24      # last_seen_at 기준 활성 서버 정의
+
+    # LLM — 과금 발생 외부 API 호출 금지 (운영자 정책). 외부 API 도입은 별도 ADR 정정.
+    llm_provider: Literal["mock", "ollama"] = "mock"
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.1:8b"
+    llm_timeout_seconds: int = 60
+    llm_mock_latency_seconds: float = 2.0                # mock latency 시뮬레이션 (UI progress 단계 확인용)
+
+    # 워커 단계별 timeout cap (단일 진단 1건 전체) — 클라이언트 polling timeout(5분)과 정렬
+    worker_job_timeout_seconds: int = 300
+
+
 web_settings       = WebSettings()
 consumer_settings  = ConsumerSettings()
 scheduler_settings = SchedulerSettings()
+diagnostic_settings = DiagnosticSettings()
