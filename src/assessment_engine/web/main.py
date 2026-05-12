@@ -14,6 +14,7 @@ from assessment_engine.web.routers.diagnostics import diagnostics_router
 from assessment_engine.web.routers.discovery import discovery_router
 from assessment_engine.web.routers.exports import exports_router
 from assessment_engine.web.routers.pages import pages_router
+from assessment_engine.web.routers.payloads import payloads_router
 from assessment_engine.web.routers.tasks import tasks_router
 
 
@@ -75,6 +76,7 @@ app.include_router(tasks_router)
 app.include_router(diagnostics_router)
 app.include_router(diagnostic_results_router)
 app.include_router(exports_router)
+app.include_router(payloads_router)
 
 
 @app.get("/health")

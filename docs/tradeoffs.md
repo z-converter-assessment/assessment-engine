@@ -177,36 +177,28 @@
 - 동적 인터랙션이 필요한 차트가 ~10개. 서버 사이드 이미지 차트는 인터랙션 비용 큼.
 - 프레임워크는 빌드/배포 파이프라인 도입 비용이 본 포털 규모와 맞지 않음.
 
-현재 상태 (2026-05-08 갱신)
-- 5개 규약 모두 cpu/memory/storage/network/performance 템플릿에 적용 완료.
-- 공통 유틸은 `src/assessment_engine/web/static/js/chart-utils.js`로 추출 (T9).
-- inline `<script>` 본문 외부화 완료 — 5개 페이지 모두 `static/js/pages/{name}.js` 별도 파일. 페이지 간 회귀 격리·node syntax check 가능. 회귀 사례(sed 일괄 변환의 부작용으로 인한 `ReferenceError`)는 외부화로 한 파일 안에 가둠. 추후 ESLint·TS 도입 시 진입점 명확.
+P4 5 의무 규약(a~e) 적용 위치: 5개 차트 페이지(cpu/memory/storage/network/performance) inline `<script>` 본문은 `static/js/pages/{name}.js` 외부 .js로 격리. 페이지 .html은 Jinja2 변수 정의(`SERVER_ID`, `CPU_CORES`) + `defer` 로드만. 공통 유틸은 `static/js/chart-utils.js` (T9 추출).
 
 ---
 
-## T7. 에이전트 broker 자동 재연결 (이미 구현됨 — 진단 정정)
+## T7. 에이전트 broker 자동 재연결
 
 > 관련 코드: `assessment-agent/src/publish.c`, `src/main.c` (외부 레포)
-> 상태: 이전 항목의 진단(자동 재연결 부재)은 사실 오류. 직접 코드 확인 결과 이미 구현되어 있음.
 
-실제 구현 (2026-05-07 확인)
+구현
 - `publish.c`: 매 publish가 fresh connection lifecycle (`amqp_new_connection` → `socket_open` → `login` → `channel_open` → publish → close → destroy). connection 재사용 안 함.
 - `publish.c`: publisher confirm 모드 활성화 (`amqp_confirm_select(conn, 1)`) + wall-clock deadline ack 대기 (`wait_confirm`, 기본 5초 `RABBITMQ_CONFIRM_TIMEOUT_SEC`).
 - `main.c` `publish_with_retry`: 지수 백오프 (1s → 2s → 4s → ... → max=AGENT_INTERVAL_SEC, 기본 60s) 무한 retry. `g_stop` 시그널 전까지.
 - 복구 시 `PUBLISH_RECOVERED` error 메시지 자동 발행 (`retry_count`, `first_failed_at`, `recovered_at` 포함).
 
-즉 broker 재기동 시 자동 회복
+broker 재기동 시 자동 회복
 - broker 죽음 → 에이전트 publish 실패 → 백오프 retry 시작 → broker 살아남 → 다음 retry 사이클에서 publish 성공 → `PUBLISH_RECOVERED` 알림 메시지 → 정상 운영 복구.
-- 사람이 `systemctl restart assessment-agent` 할 필요 없음.
+- `systemctl restart assessment-agent` 불요.
 
-예전 운영 사례의 진짜 원인
-- "broker 재기동 후 systemctl restart 필요"로 잘못 해석된 시나리오의 실제 원인은 `docker compose down -v`로 DB까지 초기화된 후 inventory가 one-shot이라 재발행 안 됨.
-- 에이전트는 broker 재연결 정상 → metrics는 정상 publish → DB의 server_inventory가 비어있어 `metrics dropped — server not registered` 누적.
-- 에이전트 측 1시간 주기 inventory 재발행 + 엔진 측 auto-register(`src/assessment_engine/consumer/handler.py`)로 본질적 해결됨.
+inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 주기 inventory 재발행 + 엔진 auto-register(`src/assessment_engine/consumer/handler.py`)로 해결.
 
 남은 한계
-- broker가 영구 down이면 에이전트는 백오프 상한(60s) 간격으로 영원히 재시도 — 정상 동작이지만 로그·CPU 미세 부담.
-- inventory 메시지 자체가 broker down 동안 발행 시도되면 retry로 해결되나, 에이전트 기동 직후 inventory 1회 발행 후 다시 안 보내는 정책은 별도 약점 (의제 A로 해결).
+- broker 영구 down 시 에이전트는 백오프 상한(60s) 간격으로 영원히 재시도 — 정상 동작이나 로그·CPU 미세 부담.
 
 ---
 
@@ -256,10 +248,10 @@
 - 본 포털은 번들러 운영 비용(node_modules·빌드 스텝·소스맵·CI 변경) 대비 이득 작음.
 - IIFE + 단일 로드는 브라우저 캐싱 친화적이고 디버깅이 단순.
 
-현재 상태 (2026-05-08 갱신) — Phase 6
-- 5개 페이지 inline `<script>` 본문 외부화 완료: `src/assessment_engine/web/static/js/pages/{cpu,memory,storage,network,performance}.js`.
-- 페이지 .html은 짧은 inline `<script>`로 Jinja2 변수만 정의(`SERVER_ID`, `CPU_CORES`) + 외부 .js를 `defer` 로드.
-- 정적 자원 6개: `chart-utils.js` + 5개 페이지 .js. node 의존성 0 — 빌드 단계 추가 없이 외부화만으로 회귀 격리 + node syntax check 가능.
+외부화 형태:
+- 5개 페이지 inline `<script>` 본문은 `src/assessment_engine/web/static/js/pages/{cpu,memory,storage,network,performance}.js`.
+- 페이지 .html은 Jinja2 변수만 정의(`SERVER_ID`, `CPU_CORES`) + 외부 .js `defer` 로드.
+- 정적 자원: `chart-utils.js` + 5개 페이지 .js. node 의존성 0 — node syntax check만으로 회귀 격리.
 
 언제 다시 봐야 하는가
 - TS 타입체크 또는 ESLint 정적 검증 필요성이 명확해질 때.

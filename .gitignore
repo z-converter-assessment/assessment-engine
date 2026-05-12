@@ -17,6 +17,7 @@ __pycache__/
 
 # 테스트 / 빌드 캐시
 .pytest_cache/
+.ruff_cache/
 
 # 인프라 상태
 .vagrant/
@@ -25,3 +26,13 @@ __pycache__/
 .claude/*.lock
 # Claude Code 개인 로컬 오버라이드 (settings.json은 팀 공유, .local.json은 개인용)
 .claude/settings.local.json
+
+# OpenStack staging (ADR 0006)
+deploy/openstack/terraform/terraform.tfvars
+deploy/openstack/terraform/.terraform/
+deploy/openstack/terraform/.terraform.lock.hcl
+deploy/openstack/terraform/terraform.tfstate
+deploy/openstack/terraform/terraform.tfstate.backup
+deploy/openstack/ansible/inventory.yml
+deploy/openstack/compose/secrets/
+deploy/openstack/compose/.env

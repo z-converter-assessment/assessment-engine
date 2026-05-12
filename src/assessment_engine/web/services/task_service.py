@@ -80,12 +80,12 @@ class TaskService:
                         params={"source_host": source_host},
                     ))
                     await session.commit()
-                except IntegrityError:
+                except IntegrityError as e:
                     # 부분 UNIQUE(uq_tasks_pending_per_server_type) 위반 — 같은 server에
                     # 같은 task_type pending 이미 존재. 운영자 더블클릭 방어.
                     raise _DuplicatePending(
                         f"pending task already exists for {public_id} (zconverter_install)"
-                    )
+                    ) from e
 
             payload: dict[str, Any] = {
                 "task_public_id": task_public_id,

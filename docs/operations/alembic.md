@@ -6,7 +6,7 @@ dev·staging·prod 모든 환경의 DB schema를 Alembic 마이그레이션 1개
 
 ## 본 프로젝트의 Alembic
 
-ORM(`Base.metadata`)과 DB schema의 diff를 `migrations/versions/*.py` revision 파일로 기록하고 `alembic upgrade head` 한 줄로 누적 적용한다. DB의 `alembic_version` 테이블이 현재 적용된 revision id를 보관 — 환경마다 자기 상태를 알아 누락 revision만 자동 실행. 도구 일반론은 공식 문서.
+ORM(`Base.metadata`)과 DB schema의 diff를 `migrations/versions/*.py` revision 파일로 기록하고 `alembic upgrade head` 한 줄로 누적 적용한다. DB의 `alembic_version` 테이블이 적용 revision id를 보관 — 환경마다 자기 상태를 알아 누락 revision만 자동 실행.
 
 핵심 용어 (본 문서에서 사용)
 
@@ -159,6 +159,51 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 | 검증 | pytest (testcontainers + alembic) + staging smoke test |
 
 모든 환경이 같은 마이그레이션 파일을 적용하므로 drift 가능성이 코드 단에서 차단된다. `alembic check`가 PR 단계에서 한 번 더 검증.
+
+## Backward compatibility — 무중단 deploy 시 schema 변경 단계 (#C4)
+
+본 프로젝트 현재 dev `down -v` 흔하고 prod도 init container 패턴이라 한 번에 적용되지만, 컨테이너 rolling restart 도입(예: blue-green / 오랫동안 실행되는 worker가 옛 schema 가정으로 INSERT 시도) 시 backward compatibility 단계 적용 의무. CLAUDE.md #C4 정책의 운영 절차.
+
+### Column 추가
+
+NULL 허용 또는 `server_default` 의무. 한 release에서 끝남.
+
+```python
+op.add_column("server_metrics", sa.Column("new_field", sa.Integer(), nullable=True))
+# 또는
+op.add_column("server_metrics", sa.Column("new_field", sa.Integer(), nullable=False, server_default="0"))
+```
+
+옛 컨테이너의 INSERT는 새 컬럼을 모르지만 NULL/default로 채워져 통과.
+
+### Column 제거 — 2 release 분리 의무
+
+| Release | 마이그레이션 | 코드 변경 |
+|---------|--------------|-----------|
+| R1 | (마이그레이션 없음) | 새 코드가 해당 컬럼 read·write 안 함을 확인. ORM 모델에선 column 유지 |
+| R2 | `op.drop_column("table", "old_col")` | ORM 모델에서 column 정의 제거 |
+
+단일 release에서 ORM column 제거 + `op.drop_column`은 금지 — R1 deploy 중 옛 컨테이너가 잠시 column 가정으로 INSERT 시도하면 실패.
+
+### Column 이름 변경 (rename) — 3 release 분리 의무
+
+| Release | 마이그레이션 | 코드 변경 |
+|---------|--------------|-----------|
+| R1 | `op.add_column("new_col", nullable=True)` | 새 코드가 옛 + 새 둘 다 write (dual-write). read는 옛 column |
+| R1.5 | `op.execute("UPDATE table SET new_col = old_col WHERE new_col IS NULL")` (배치 또는 별도 스크립트) | (없음 — 데이터 동기) |
+| R2 | (마이그레이션 없음) | read를 새 column으로 전환. write는 dual 유지 |
+| R3 | `op.drop_column("old_col")` | 옛 column 코드 제거 |
+
+단일 release rename(`op.alter_column(..., new_name="...")` 또는 `op.rename_column(...)`)은 금지.
+
+### 비-trivial 데이터 변형 — 마이그레이션 분리
+
+`op.execute("UPDATE big_table SET ...")` 큰 트랜잭션은 테이블 lock으로 prod traffic block 가능. 다음 패턴 의무:
+- 마이그레이션 안에는 schema 변경(컬럼 추가·인덱스)만 + NULL 허용
+- 별도 backfill 스크립트(`scripts/backfill_*.py`) — 운영자가 배치(LIMIT + OFFSET 또는 keyset pagination) 처리
+- backfill 완료 후 다음 release에서 NOT NULL 강제 또는 옛 컬럼 drop
+
+본 프로젝트 현재 비-trivial 데이터 변형 사례 없음 — 도입 시 본 절 갱신.
 
 ## 트러블슈팅
 

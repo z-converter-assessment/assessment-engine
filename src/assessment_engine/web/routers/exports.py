@@ -4,7 +4,7 @@
 v3: envelope 강화(engine_id·schema_doc·period_window) + I/O p95/peak + recommended_size_class 객체화
    + services.listeners (proto·address) — listen_ports inventory 매칭.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -46,7 +46,7 @@ async def export_inventory(
         raise HTTPException(status_code=404, detail=f"server not found: {','.join(missing[:5])}")
     server_ids = [sid_map[pid] for pid in req.target_public_ids]
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     period_start = now - timedelta(days=req.period_days)
     entries = await service.get_inventory_export(server_ids, req.period_days)
     return {

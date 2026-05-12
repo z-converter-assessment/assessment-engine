@@ -81,6 +81,15 @@ class WebSettings(BaseSettings):
     def _validate_prod_web_secrets(self) -> "WebSettings":
         if self.app_env != "prod":
             return self
+        # secrets 마운트 누락 fail-fast — 운영자가 `docker-compose.prod.yml` 없이 prod 기동한 사고 방지.
+        # /run/secrets는 Docker secrets가 tmpfs로 마운트하는 경로. 디렉토리 자체가 없으면 secret 채널이
+        # 끊긴 상태이고, pydantic-settings는 env·default로 fallback해 weak default를 통과시킬 수 있다.
+        if _SECRETS_DIR is None:
+            raise ValueError(
+                "APP_ENV=prod but /run/secrets is not mounted. "
+                "Use `docker compose -f docker-compose.yml -f docker-compose.prod.yml up` "
+                "to ensure Docker secrets are mounted."
+            )
         if self.postgres_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(
                 "POSTGRES_PASSWORD is unset or uses a dev default in prod. "
@@ -128,10 +137,6 @@ class ConsumerSettings(WebSettings):
         return self
 
 
-class SchedulerSettings(WebSettings):
-    scheduler_interval_seconds: int = 3600  # 기본 1시간
-
-
 class DiagnosticSettings(ConsumerSettings):
     """AI 진단 워커·스케줄러·웹 공통 설정 (ADR 0004).
 
@@ -164,7 +169,6 @@ class DiagnosticSettings(ConsumerSettings):
     worker_job_timeout_seconds: int = 300
 
 
-web_settings       = WebSettings()
-consumer_settings  = ConsumerSettings()
-scheduler_settings = SchedulerSettings()
+web_settings        = WebSettings()
+consumer_settings   = ConsumerSettings()
 diagnostic_settings = DiagnosticSettings()

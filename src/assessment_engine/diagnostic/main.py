@@ -50,36 +50,35 @@ async def main() -> None:
 
     try:
         conn = await aio_pika.connect_robust(diagnostic_settings.broker_url, timeout=10)
-        async with conn:
-            async with conn.channel() as channel:
-                await channel.set_qos(prefetch_count=1)
+        async with conn, conn.channel() as channel:
+            await channel.set_qos(prefetch_count=1)
 
-                dlx = await channel.declare_exchange(
-                    dlx_name, aio_pika.ExchangeType.DIRECT, durable=True,
-                )
-                exchange = await channel.declare_exchange(
-                    diagnostic_settings.rabbitmq_exchange,
-                    aio_pika.ExchangeType.DIRECT,
-                    durable=True,
-                )
+            dlx = await channel.declare_exchange(
+                dlx_name, aio_pika.ExchangeType.DIRECT, durable=True,
+            )
+            exchange = await channel.declare_exchange(
+                diagnostic_settings.rabbitmq_exchange,
+                aio_pika.ExchangeType.DIRECT,
+                durable=True,
+            )
 
-                dlq = await channel.declare_queue(f"{routing_key}.dead", durable=True)
-                await dlq.bind(dlx, routing_key=routing_key)
+            dlq = await channel.declare_queue(f"{routing_key}.dead", durable=True)
+            await dlq.bind(dlx, routing_key=routing_key)
 
-                queue = await channel.declare_queue(
-                    routing_key,
-                    durable=True,
-                    arguments={
-                        "x-dead-letter-exchange":    dlx_name,
-                        "x-dead-letter-routing-key": routing_key,
-                        "x-message-ttl":             diagnostic_settings.diagnostic_queue_ttl_ms,
-                        "x-max-length":              diagnostic_settings.diagnostic_queue_max_len,
-                    },
-                )
-                await queue.bind(exchange, routing_key=routing_key)
-                await queue.consume(handler)
-                logger.info("diagnostic worker ready — consuming queue={}", routing_key)
+            queue = await channel.declare_queue(
+                routing_key,
+                durable=True,
+                arguments={
+                    "x-dead-letter-exchange":    dlx_name,
+                    "x-dead-letter-routing-key": routing_key,
+                    "x-message-ttl":             diagnostic_settings.diagnostic_queue_ttl_ms,
+                    "x-max-length":              diagnostic_settings.diagnostic_queue_max_len,
+                },
+            )
+            await queue.bind(exchange, routing_key=routing_key)
+            await queue.consume(handler)
+            logger.info("diagnostic worker ready — consuming queue={}", routing_key)
 
-                await asyncio.Future()
+            await asyncio.Future()
     finally:
         await close_pool()

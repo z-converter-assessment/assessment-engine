@@ -163,31 +163,44 @@ Stage 4·5로의 전환 트리거:
 
 ---
 
-## 8. Fail-fast 검증
+## 8. Fail-fast 검증 (3 layer defense in depth)
 
-`src/assessment_engine/config.py`의 `model_validator(mode="after")`는 인스턴스 생성 직후 호출된다. `app_env=prod`일 때 약한 default 거부:
+prod 환경에서 secret 사고를 막기 위해 3 layer로 분리. 한 layer가 뚫려도 다음 layer가 잡는다.
+
+| Layer | 위치 | 검증 대상 | 강제 시점 |
+|-------|------|-----------|-----------|
+| 1 | `./scripts/check-prod-secrets.sh` (호스트 측) | 호스트 `secrets/*.txt` 파일의 mode·git tracking·최소 길이 | 운영자가 `compose up` 직전 수동 실행 (`docs/operations/dev-prod.md` 10절 체크리스트) |
+| 2 | `config.py` `model_validator` — `/run/secrets` 마운트 존재 | prod인데 secret 디렉토리 부재 시 `ValueError`로 즉시 fail | 컨테이너 진입 시점 (앱 import 직후) |
+| 3 | `config.py` `model_validator` — `_WEAK_VALUES` 거부 | prod인데 password가 dev default(`assessment` 등)면 fail | 컨테이너 진입 시점 |
 
 ```python
 @model_validator(mode="after")
 def _validate_prod_web_secrets(self) -> "WebSettings":
     if self.app_env != "prod":
         return self
+    # Layer 2: secrets 마운트 존재
+    if _SECRETS_DIR is None:
+        raise ValueError(
+            "APP_ENV=prod but /run/secrets is not mounted. "
+            "Use `docker compose -f docker-compose.yml -f docker-compose.prod.yml up`."
+        )
+    # Layer 3: 값 약함
     if self.postgres_password.get_secret_value() in _WEAK_VALUES:
         raise ValueError(
-            "POSTGRES_PASSWORD is unset or uses a dev default in prod. "
-            "Provide via Docker secret (/run/secrets/postgres_password) or env var."
+            "POSTGRES_PASSWORD is unset or uses a dev default in prod."
         )
     return self
 ```
 
 효과:
-- `APP_ENV=prod`로 기동 시 password가 누락/약한 default면 web/consumer 컨테이너가 즉시 ValueError로 종료 → docker-compose가 unhealthy로 표시 → 배포자가 즉시 인지.
-- `assessment-portal`이 약한 자격으로 운영되는 사고 예방.
+- 운영자가 `docker compose up`(prod.yml 누락)으로 잘못 기동 → Layer 2가 `/run/secrets` 부재 잡고 fail-fast (이전엔 env·default로 fallback해 weak default 통과 가능했음).
+- `APP_ENV=prod`로 기동 시 password가 누락/약한 default면 web/consumer 컨테이너가 즉시 `ValueError`로 종료 → docker-compose가 unhealthy로 표시 → 배포자가 즉시 인지.
+- 호스트 측 secret 파일이 world-readable이거나 git tracked면 Layer 1이 사전에 차단.
 
 확장 포인트 (필요 시):
-- `SECRET_KEY` (FastAPI session 등) 도입 시 동일 패턴 적용.
+- `SECRET_KEY` (FastAPI session 등) 도입 시 동일 패턴 적용 + `check-prod-secrets.sh`의 `REQUIRED_SECRETS` 배열에 추가.
 - `REDIS_PASSWORD` 도입 시 동일.
-- pydantic `Field(min_length=N)`로 password 길이 강제.
+- pydantic `Field(min_length=N)`로 password 길이 강제 (현재는 Layer 1의 `MIN_LENGTH=32`로 호스트 측에서 강제).
 
 ---
 
@@ -214,10 +227,10 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 ## 10. 운영 체크리스트 (prod 배포 전)
 
 - [ ] `secrets/postgres_password`, `secrets/rabbitmq_password` 파일 작성 (강한 random, root 0400, trailing newline 없음)
-- [ ] `secrets/` 디렉토리에 의도하지 않은 파일이 없는지 확인 (`git status secrets/`)
+- [ ] `./scripts/check-prod-secrets.sh` 실행 — 파일 존재·mode(0400/0600 only)·git untracked·최소 32바이트 자동 검증 (defense in depth: config.py의 weak default 검증 외 호스트 측 layer)
 - [ ] `docker-compose.prod.yml`의 `secrets:` 블록과 `secrets/` 파일명 일치
 - [ ] `APP_ENV=prod` 환경변수 또는 `docker-compose.prod.yml`의 `environment` 블록으로 명시
-- [ ] Alembic 마이그레이션 사전 적용 (`docker compose -f ... -f docker-compose.prod.yml run --rm web alembic upgrade head`). 상세 절차·troubleshooting은 `docs/operations/alembic.md`
+- [ ] Alembic 마이그레이션 사전 적용 — `docker-compose.prod.yml`의 `migrate` 컨테이너가 자동 실행하지만, 큰 schema 변경은 사전에 `alembic history` / `alembic current` 검토 권장. 상세 절차는 `docs/operations/alembic.md`
 - [ ] `docker compose -f docker-compose.yml -f docker-compose.prod.yml config` 로 머지 결과 검증
 - [ ] DB·MQ·Redis 외부 포트 노출 없음 확인 (`docker compose ... ps` / `netstat`)
 - [ ] web만 reverse proxy 뒤 또는 직접 노출 결정

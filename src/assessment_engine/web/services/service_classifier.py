@@ -1,3 +1,5 @@
+from assessment_engine.web.view_models import MatchedPort
+
 _PATTERNS: tuple[tuple[str, str], ...] = (
     ("nginx",         "web"),
     ("httpd",         "web"),
@@ -69,16 +71,12 @@ def classify(unit: str) -> str:
     return "unknown"
 
 
-def matched_ports(unit: str, listen_ports: list[dict]) -> list["MatchedPort"]:
+def matched_ports(unit: str, listen_ports: list[dict]) -> list[MatchedPort]:
     """서비스 유닛에 해당하는 listen 포트 목록을 반환한다.
 
     comm 기반 매칭을 우선하고, comm이 없으면 well-known 포트 테이블로 폴백한다.
     동일 포트라도 proto(tcp/tcp6/udp 등)가 다르면 별도 항목으로 반환한다.
     """
-    # ViewModel import는 함수 안에 — view_models가 service 계층보다 높은 레이어이므로
-    # 모듈 상단에 두면 import 순서가 어색해질 수 있음 (view_models는 service 결과를 담는 그릇).
-    from assessment_engine.web.view_models import MatchedPort
-
     name = unit.removesuffix(".service").lower()
     well_known = set(_SERVICE_PORTS.get(name, []))
     result: list[MatchedPort] = []

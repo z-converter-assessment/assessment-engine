@@ -62,47 +62,46 @@ async def main() -> None:
         ]
 
         conn = await aio_pika.connect_robust(consumer_settings.broker_url, timeout=10)
-        async with conn:
-            async with conn.channel() as channel:
-                await channel.set_qos(prefetch_count=10)
+        async with conn, conn.channel() as channel:
+            await channel.set_qos(prefetch_count=10)
 
-                dlx = await channel.declare_exchange(
-                    _DLX,
-                    aio_pika.ExchangeType.DIRECT,
+            dlx = await channel.declare_exchange(
+                _DLX,
+                aio_pika.ExchangeType.DIRECT,
+                durable=True,
+            )
+
+            exchange = await channel.declare_exchange(
+                _EXCHANGE,
+                aio_pika.ExchangeType.DIRECT,
+                durable=True,
+            )
+
+            for key, handler, ttl_ms, max_len in queues:
+                dlq = await channel.declare_queue(
+                    f"{key}.dead",
                     durable=True,
                 )
+                await dlq.bind(dlx, routing_key=key)
 
-                exchange = await channel.declare_exchange(
-                    _EXCHANGE,
-                    aio_pika.ExchangeType.DIRECT,
+                args: dict = {
+                    "x-dead-letter-exchange": _DLX,
+                    "x-dead-letter-routing-key": key,
+                }
+                if ttl_ms is not None:
+                    args["x-message-ttl"] = ttl_ms
+                if max_len is not None:
+                    args["x-max-length"] = max_len
+
+                queue = await channel.declare_queue(
+                    key,
                     durable=True,
+                    arguments=args,
                 )
+                await queue.bind(exchange, routing_key=key)
+                await queue.consume(handler)
+                logger.info("consuming queue={} ttl_ms={} max_len={}", key, ttl_ms, max_len)
 
-                for key, handler, ttl_ms, max_len in queues:
-                    dlq = await channel.declare_queue(
-                        f"{key}.dead",
-                        durable=True,
-                    )
-                    await dlq.bind(dlx, routing_key=key)
-
-                    args: dict = {
-                        "x-dead-letter-exchange": _DLX,
-                        "x-dead-letter-routing-key": key,
-                    }
-                    if ttl_ms is not None:
-                        args["x-message-ttl"] = ttl_ms
-                    if max_len is not None:
-                        args["x-max-length"] = max_len
-
-                    queue = await channel.declare_queue(
-                        key,
-                        durable=True,
-                        arguments=args,
-                    )
-                    await queue.bind(exchange, routing_key=key)
-                    await queue.consume(handler)
-                    logger.info("consuming queue={} ttl_ms={} max_len={}", key, ttl_ms, max_len)
-
-                await asyncio.Future()
+            await asyncio.Future()
     finally:
         await close_pool()

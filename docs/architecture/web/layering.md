@@ -25,17 +25,20 @@ Browser → Router → deps.get_service → QueryService
 
 ## 의존성 주입 (deps.py — composition root)
 
-```python
-def get_service(db, redis) -> QueryService:
-    return QueryService(QueryRepository(db), redis)
+3 service 모두 `deps.py`에서 추상 인터페이스만 받도록 주입 — 구체 구현체 import는 본 모듈 1곳 (#F4).
 
-def get_task_service(db, redis) -> TaskService:
-    return TaskService(QueryRepository(db), AsyncSessionLocal, CollectRepository, redis)
-```
+| 헬퍼 | 반환 | 주입 인자 |
+|------|------|-----------|
+| `get_service(db, redis)` | `QueryService` | `BaseQueryRepository` (QueryRepository) + redis |
+| `get_task_service(db, redis)` | `TaskService` | query_repo + session_factory + `BaseCollectRepository` factory + redis |
+| `get_diagnostic_service(request, db, redis)` | `DiagnosticService` (ADR 0004) | query_repo + session_factory + `BaseDiagnosticRepository` factory + broker_channel + redis |
+| `resolve_internal_id(server_id, service)` | `int` | path UUID → 정수 PK + 422/404 자동 |
 
-서비스는 추상(`BaseQueryRepository`/`BaseCollectRepository`)만 받음. 구체 import는 `deps.py` 1곳. 라우터는 `Depends(get_*_service)` 주입만.
-
-`TaskService`는 task INSERT용 별도 트랜잭션 필요(서버별 독립 commit) → `session_factory` + `repo_factory` 주입 패턴.
+설계 결정:
+- `query_repo`는 request-scoped(`get_db`) — 한 요청 안 다중 read에 동일 트랜잭션
+- `collect_repo`·`diagnostic_repo`는 별도 트랜잭션 필요라 `session_factory` + factory 패턴 — service가 트랜잭션 경계 자체 관리. 서버별 독립 commit(task INSERT 실패 1건이 다른 서버 commit에 영향 X)
+- `broker_channel`은 lifespan에서 `app.state.broker_channel`에 저장한 영속 channel 재사용 — 매 진단 발행마다 connection open/close 안 함 (오버헤드 0)
+- 라우터는 `Depends(get_*_service)` 주입만. 구체 import 금지.
 
 ## URL 식별자 — public_id (UUID)
 
@@ -52,7 +55,7 @@ def get_task_service(db, redis) -> TaskService:
 |------|-----------|
 | HTTP query string | 라우터 `Query(MetricType/TimeRange/...)` Literal Pydantic |
 | HTTP path UUID | `resolve_internal_id` Depends — 422/404 자동 |
-| HTTP body JSON | 라우터 Pydantic `BaseModel` (`InstallRequest`, `ProbeRequest`, `InventoryExportRequest`) |
+| HTTP body JSON | 라우터 Pydantic `BaseModel` (`InstallRequest`, `ProbeRequest`, `InventoryExportRequest`, `DiagnosticRequest`) |
 
 Service에서 재검증 금지 (`_VALID_*` frozenset 비교 같은 패턴 안 만든다).
 

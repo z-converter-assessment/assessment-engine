@@ -65,8 +65,6 @@
 - `agent_restart_alert_threshold = 3` — 1h 윈도우 재시작 임계 (web_settings)
 - `_OS_EOL` — `(os_id, os_version_prefix) -> EOL 날짜 string` 정적 dict (mapper)
 
-risk_top 카드는 제거됨 (2026-05-12) — 자원 부족 신호는 `CapacityWarningItem`/프로비저닝 도넛으로 흡수, period 평가는 보고서 영역(`docs/architecture/inventory-export.md` 외)으로 격리.
-
 ## dataclass 필드 순서 주의 (F1)
 
 default 있는 필드는 default 없는 필드 뒤에. 안 그러면 `non-default argument follows default` `TypeError` 즉시 발생. 새 ViewModel 추가 시 항상 점검.

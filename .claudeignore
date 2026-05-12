@@ -1,8 +1,20 @@
+# 버전 관리 / IDE
 .idea/
 .git/
 .github/
+
+# 런타임 / 캐시
 .vagrant/
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
+
+# 테스트 (CLAUDE.md #F9 — 리팩토링 중 실패 상태. 사용자 명시 요청 시에만 접근)
+tests/
+
+# 시크릿 (#F12 — Claude 응답·로그에 노출되면 영구)
+.env
+infra/agent.env
+secrets/

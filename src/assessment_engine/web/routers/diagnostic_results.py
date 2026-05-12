@@ -36,7 +36,7 @@ async def show_results(
     ordered = [by_id.get(jid) for jid in job_ids]
     jobs = [
         {"job_id": jid, "payload": to_panel_payload(rec)}
-        for jid, rec in zip(job_ids, ordered)
+        for jid, rec in zip(job_ids, ordered, strict=True)
     ]
     return templates.TemplateResponse(
         request=request,

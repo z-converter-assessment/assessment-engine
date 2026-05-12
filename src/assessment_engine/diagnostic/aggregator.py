@@ -4,7 +4,7 @@ ADR 0004 result 카탈로그 구축: server scope = 1대 USE Method + classifica
 environment scope = N대 분포 카운트 + USE Method 분포 + top_actions + saturation_alerts.
 ADR 0003 D단계 Pricing Adapter 미도입 — cost 필드는 None 자리 잡음 (forward compatibility).
 """
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
@@ -19,7 +19,7 @@ async def extract_server(
     time_range: str = "14d",
 ) -> dict[str, Any]:
     if end is None:
-        end = datetime.now(timezone.utc)
+        end = datetime.now(UTC)
 
     sid = await query_repo.resolve_server_id(server_public_id)
     if sid is None:
@@ -70,7 +70,7 @@ async def extract_environment(
     time_range: str = "14d",
 ) -> dict[str, Any]:
     if end is None:
-        end = datetime.now(timezone.utc)
+        end = datetime.now(UTC)
     sids = await query_repo.list_server_ids()
     rows = await query_repo.report_aggregate(sids, period_days, end) if sids else []
 

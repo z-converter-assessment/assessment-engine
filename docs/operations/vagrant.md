@@ -26,7 +26,7 @@ Vagrant는 에이전트 E2E 테스트를 위해 사용한다.
 | `app-server-01` | `bento/rockylinux-9` | dnf | (없음) | `/data` | — | "unknown" 뱃지 + RPM 계열 + SELinux + 마운트 추가 |
 | `web-server-01` | `bento/debian-12` | apt | nginx | — | `203.0.113.10` | "web" 카테고리 + 외부 IP 오버라이드 + Debian 회귀 |
 
-리소스 (VM 공통): 1024MB RAM / 2 CPU / VirtualBox 오디오·USB·VRAM 최소화 (`Vagrantfile` provider 블록).
+리소스 (VM 공통): 기본 1024MB RAM / 2 CPU. 환경변수로 override — `VAGRANT_VM_CPUS=1 VAGRANT_VM_MEM_MB=512 vagrant up`. VirtualBox 오디오·USB·VRAM 최소화 (`Vagrantfile` provider 블록).
 
 설정 분기:
 - `family: :deb` 또는 `:rpm` → Step 1의 패키지 매니저 분기.

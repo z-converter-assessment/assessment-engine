@@ -52,11 +52,11 @@ async def submit(
         )
         return JobIdsResponse(job_ids=job_ids)
     except _BadRequest as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except _NotFound as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except _RaceMiss as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e
 
 
 @diagnostics_router.get("")
@@ -74,8 +74,8 @@ async def list_status(
     for j in job_ids:
         try:
             UUID(j)
-        except ValueError:
-            raise HTTPException(status_code=422, detail="invalid job_id format")
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail="invalid job_id format") from e
 
     records = await service.get_many(job_ids)
     return [to_view(r).to_dict() for r in records]

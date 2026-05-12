@@ -30,6 +30,6 @@ async def install(
     try:
         return await service.create_install_tasks(req.target_public_ids, req.source_host)
     except _NotFound as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except _DuplicatePending as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e

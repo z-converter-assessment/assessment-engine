@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select, text
@@ -408,7 +408,7 @@ class QueryRepository(BaseQueryRepository):
         agg: AggFunc,
         end: datetime | None = None,
     ) -> list[MetricSeries]:
-        end_dt = end or datetime.now(timezone.utc)
+        end_dt = end or datetime.now(UTC)
         start = end_dt - TIME_RANGE_TD[time_range]
         bi, bucket_td = _BUCKET_INFO[bucket]
         ae = _AGG[agg]

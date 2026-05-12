@@ -1,0 +1,31 @@
+# engine-db VM 전용 — postgres만.
+# ADR 0006. 같은 사내 사설망의 engine-app VM이 5432로 connect.
+# SG로 외부 접근 차단 (5432 inbound from engine-app SG only).
+# secret 파일은 ./secrets/postgres_password (Ansible Vault가 복호화 후 생성, mode 0400).
+
+services:
+  postgres:
+    restart: unless-stopped
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-assessment}
+      POSTGRES_USER: ${POSTGRES_USER:-assessment}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    secrets:
+      - postgres_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-assessment}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+
+volumes:
+  postgres_data:

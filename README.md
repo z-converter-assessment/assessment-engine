@@ -9,54 +9,115 @@
 ## 아키텍처
 
 ```
- ┌──────────────────────────────────────────────────────────────────┐
- │  Agent (C)                                                       │
- │  /proc collection + remote task execution                        │
- └─────┬─────────────────────────────────────────────▲──────────────┘
-       │                                             │
-       │ inventory · metrics · error · task.result   │ task command
-       │                                             │ (reply_to:
-       ▼                                             │  amq.rabbitmq
-                                                     │  .reply-to)
- ┌──────────────────────────────────────────────────────────────────┐
- │  RabbitMQ — 4 routing keys + RPC piggyback     DLX / DLQ         │
- └─────┬─────────────────────────────────────────────▲──────────────┘
-       │                                             │
-       ▼                                             │
- ┌──────────────────────────────────────────────────────────────────┐
- │  Consumer (aio-pika)                                             │
- │  · parse · idempotency · persist                                 │
- │  · time invariants · agent restart counter                       │
- │  · RPC piggyback (Redis pending task → reply_to publish) ────────┤
- └─────┬─────────────────────────────────────┬──────────────────────┘
-       ▼                                     ▼
- ┌────────────────────────────┐    ┌────────────────────────────────┐
- │  TimescaleDB               │    │  Redis                         │
- │  · 4 timeseries tables     │    │  · cache · online TTL          │
- │  · server_inventory + hist │    │  · pending task                │
- │  · tasks (audit log)       │    │  · agent restart counter       │
- │                            │    │  · PUB/SUB metrics.events      │
- └────────────────────────────┘    └────────────────────────────────┘
-       ▲                                     │
-       │                                     │
-       └──────── FastAPI ────────────────────┘
-                · SSR: dashboard, detail, USE Method report
-                · REST: discovery, tasks, exports, chart
-                · SSE: live metrics updates
+ +------------------------------------------------------------------+
+ |  Agent (C)                                                       |
+ |  /proc collection + remote task execution                        |
+ +-----+-----------------------------------------------+------------+
+       |                                               ^
+       | inventory / metrics / error / task.result     | task command
+       | (4 routing keys, agent -> engine)             | (RPC piggyback
+       v                                               |  via reply_to)
+ +------------------------------------------------------------------+
+ |  RabbitMQ                                                        |
+ |  - 4 routing keys agent->engine + 1 routing key engine internal  |
+ |    (diagnostic.request)                                          |
+ |  - DLX (dead letter exchange) / DLQ (dead letter queue)          |
+ +-----+-----------------------------------------------+------------+
+       |                                               ^
+       v                                               |
+ +------------------------------------------------------------------+
+ |  Consumer (aio-pika) + Diagnostic Worker (aio-pika, ADR 0004)    |
+ |  - parse / idempotency / persist                                 |
+ |  - time invariants / agent restart counter                       |
+ |  - RPC piggyback (Redis pending task -> reply_to publish) -------+
+ |  - diagnostic worker: LLM call (mock / ollama)                   |
+ +-----+---------------------------------------+--------------------+
+       v                                       v
+ +----------------------------+    +----------------------------------+
+ |  TimescaleDB               |    |  Redis                           |
+ |  - 5 timeseries tables     |    |  - cache / online TTL            |
+ |  - server_inventory + hist |    |  - pending task                  |
+ |  - tasks (audit log)       |    |  - agent restart counter         |
+ |  - diagnostic_jobs         |    |  - PUB/SUB metrics.events        |
+ +----------------------------+    +----------------------------------+
+       ^                                       |
+       |                                       |
+       +-------- FastAPI ----------------------+
+                - SSR: dashboard / detail / USE Method report
+                - REST: discovery / tasks / exports / chart / diagnostics
+                - SSE: live metrics updates (Consumer PUB -> Redis -> SSE)
 ```
+
+### 통신 패턴 용어
+
+본 다이어그램에 등장하는 두 가지 약어는 풀네임을 풀면 다음과 같다.
+
+- RPC piggyback (Remote Procedure Call piggyback — 원격 프로시저 호출 업혀가기)
+  - 별도의 task 명령 큐나 polling endpoint를 만들지 않고, 에이전트가 주기적으로 발행하는 `server.metrics` 메시지의 `reply_to` 필드에 명령을 얹어 회신하는 방식.
+  - reply 채널은 RabbitMQ 빌트인 pseudo-queue `amq.rabbitmq.reply-to`. 큐 선언·정리 불필요, broker 부하 0.
+  - 흐름: 운영자 `POST /api/v1/tasks/install` -> DB `tasks` INSERT + Redis `task:pending:{machine_id}` SET -> 다음 `server.metrics` 도착 시 consumer가 Redis EXISTS 확인 후 `message.reply_to`로 명령 publish -> 에이전트 실행 -> `task.result` 큐로 결과 보고.
+  - 트레이드오프: latency = metrics 주기(즉시 push 아님). 별도 polling endpoint나 task queue를 만들지 않는 대가 (ADR 0002).
+
+- SSE (Server-Sent Events — 서버 전송 이벤트)
+  - 브라우저가 HTTP 연결을 열어두고 서버가 단방향으로 이벤트를 push하는 W3C 표준 (WebSocket과 달리 양방향 아님, HTTP 위에서 동작).
+  - 응답 헤더 `Content-Type: text/event-stream`로 FastAPI `StreamingResponse`가 송출.
+  - 흐름: Consumer가 메트릭 저장 후 Redis `PUBLISH metrics.events {...}` -> Web의 SSE endpoint가 Redis `SUBSCRIBE`로 받음 -> 브라우저로 event push -> 페이지 JS가 AJAX로 최신 데이터 fetch (PUB/SUB는 트리거, 데이터 자체는 별도 fetch).
+
+- Ollama (오라마) — 로컬 LLM(Large Language Model) 런타임
+  - 오픈소스 Go 기반 도구. 한 바이너리에 모델 패키지 매니저 + inference 서버 + HTTP API가 다 들어있음. Docker가 컨테이너 런타임이듯 ollama는 LLM 런타임.
+  - 사용 흐름: `ollama pull llama3.1:8b`로 모델 다운로드 -> `ollama serve`(또는 백그라운드 자동 실행)가 `localhost:11434`에서 HTTP API 제공 -> 앱은 `POST /api/generate` 같은 endpoint로 호출. CUDA·tokenizer를 직접 다룰 필요 없음.
+  - GGUF(GPT-Generated Unified Format) 모델 지원 — Llama / Mistral / Gemma / Qwen / Phi 등. CPU만으로도 동작, GPU(CUDA·Apple Metal) 있으면 자동 가속. 8B 모델은 RAM 약 8GB 필요.
+  - 본 엔진 활용 (ADR 0004): 진단 워커가 외부 유료 API(Anthropic·OpenAI 등) 대신 같은 호스트 또는 사내 GPU 머신의 ollama로 HTTP 호출. 데이터(서버 메트릭·hostname·IP) 외부 유출 0, 비용 0 — 운영자 정책 "과금 발생 외부 API 호출 금지" 충족.
+  - 현재 상태: `LLM_PROVIDER=ollama` 분기는 미구현(`NotImplementedError`) — 1차는 `mock` 전용. ollama 클라이언트는 Phase 2 별도 PR에서 활성화 예정 (ADR 0004 정정 이력).
 
 ---
 
 ## 스택
 
-| 구성 | 기술 |
-|------|------|
-| Query (SSR) | FastAPI + Jinja2 |
-| Consumer | aio-pika (순수 비동기 컨슈머) |
-| 메시지 브로커 | RabbitMQ |
-| DB | TimescaleDB (PostgreSQL + SQLAlchemy async + asyncpg) |
-| 캐시 / 온라인 상태 | Redis 7 |
-| 에이전트 (별도 레포) | C 기반 바이너리 |
+애플리케이션 (Python 3.12)
+
+| 구성 | 기술 | 비고 |
+|------|------|------|
+| Web — SSR (Server-Side Rendering) + REST + SSE | FastAPI + Jinja2 + uvicorn | dev는 reload 모드 |
+| Consumer | aio-pika (순수 비동기 컨슈머) | 4 routing key (agent -> engine) 소비 |
+| Diagnostic Worker | aio-pika + LLM client (mock / ollama) | ADR 0004 — `diagnostic.request` 큐 소비 |
+| Diagnostic Scheduler | croniter (cron 발화) | ADR 0004 — 주기 진단 job enqueue + retention DELETE |
+| Migrate (init container) | Alembic | ADR 0005 — postgres healthy 후 1회 실행 후 종료, 앱 4종이 그 뒤 기동 |
+| ORM / DB driver | SQLAlchemy async + asyncpg | |
+| 로깅 | loguru | print/sys.stdout 금지 (#F11) |
+| HTTP 클라이언트 | httpx | discovery probe 등 외부 HTTP 호출 |
+| 패키지 매니저 | uv | pip 호환, 의존성 해결·설치 속도 |
+
+인프라 / 데이터
+
+| 구성 | 기술 | 비고 |
+|------|------|------|
+| 메시지 브로커 | RabbitMQ 3.13 (+ management UI) | DLX/DLQ, `amq.rabbitmq.reply-to` 빌트인 RPC piggyback |
+| DB | TimescaleDB (PostgreSQL 16 + hypertable) | 5 시계열 테이블 + inventory + tasks + diagnostic_jobs |
+| 캐시 / 온라인 상태 | Redis 7 | cache / pending task / restart counter / metrics.events PUB/SUB |
+| 컨테이너 | Docker + docker-compose | dev override 자동 적용, prod는 명시 호출 (#A2) |
+
+배포 / 검증
+
+| 구성 | 기술 | 비고 |
+|------|------|------|
+| dev 파이프라인 검증 VM | Vagrant + VirtualBox | Ubuntu / Rocky / Debian 3대 + 에이전트 발행 검증 (`docs/operations/pipeline.md`) |
+| OpenStack staging | Terraform + Ansible (vault 암호화) | 4 VM 분산 — bastion + DB + MW + 앱 (ADR 0006) |
+| 테스트 | pytest + pytest-asyncio + testcontainers + ruff | `docs/operations/testing.md` |
+
+Frontend (정적 자원)
+
+| 구성 | 기술 | 비고 |
+|------|------|------|
+| 차트 라이브러리 | Chart.js (CDN) | 번들러 미도입, IIFE 노출 (`docs/tradeoffs.md` T9) |
+| JS 모듈화 | 외부 `.js` 파일 + `defer` 로드 | 인라인 `<script>` 신규 금지 (#E7·#F9) |
+| 실시간 갱신 | SSE (Server-Sent Events) | Consumer PUB -> Redis -> Web SSE -> 브라우저 |
+
+에이전트
+
+| 구성 | 기술 | 비고 |
+|------|------|------|
+| 에이전트 (별도 레포) | C 기반 바이너리 | `/proc` raw 수집 + RabbitMQ 직접 publish (`assessment-agent` 레포) |
 
 ---
 
@@ -69,7 +130,10 @@
 
 ### Counter reset 정밀 식별
 - 시계열 4테이블에 `boot_time` / `agent_started_at` 컬럼 보존. 두 시점의 boot_time 비교로 시스템 재부팅 시 delta 건너뛰기 (d<0 일 때, fallback).
-- Calculator(dashboard)와 차트 SQL(`LAG`+`IS DISTINCT FROM`) 동일 정책 적용.
+- Calculator(dashboard)와 차트 SQL이 동일 정책 적용 — 차트 SQL은 PostgreSQL window function `LAG()` + `IS DISTINCT FROM` 조합 사용.
+  - `LAG(컬럼) OVER (PARTITION BY ... ORDER BY collected_at)` — 같은 partition 안에서 직전 row의 컬럼 값을 가져오는 SQL 표준 window function. `LAG`는 "지연·뒤로"의 그 LAG이고 약어가 아님 (반대 함수는 `LEAD`).
+  - `IS DISTINCT FROM` — NULL-safe 부등 비교. 일반 `<>`/`!=`는 한쪽이 NULL이면 결과도 NULL이라 조건문에서 false로 처리되지만, `IS DISTINCT FROM`은 NULL과 값을 다르다고 판정 (옛 데이터의 boot_time NULL fallback 처리).
+  - 함께 쓰면: 현재 row의 `boot_time`이 직전 row의 `LAG(boot_time)`과 다른 시점이면 시스템 재부팅으로 판정 -> 해당 구간 delta 폐기.
 - Reboot/Restart 이벤트 차트 vertical marker로 운영 가시성.
 
 ### 운영 가시성·시그널
@@ -179,6 +243,33 @@ cp infra/agent.env.example infra/agent.env  # 에이전트 secret 채널 (최초
 ./dev-up.sh    # docker compose up + web 헬스체크 + vagrant up
 ./dev-down.sh  # vagrant destroy + docker compose down -v
 ```
+
+### D. OpenStack staging (분산 3 VM)
+
+사내 폐쇄망 OpenStack tenant에 분산 배포 (ADR 0006). bastion VM(수동 생성)에서 다음 실행:
+
+```bash
+cd deploy/openstack
+
+# 사전 준비
+cp terraform/terraform.tfvars.example terraform/terraform.tfvars   # 실 값 채움
+cp ansible/group_vars/all/vault.yml.example ansible/group_vars/all/vault.yml
+ansible-vault encrypt ansible/group_vars/all/vault.yml --vault-password-file ~/.vault-pass
+
+export OS_CLOUD=assessment-engine                    # ~/.config/openstack/clouds.yaml의 cloud 키
+export OPENSTACK_KEY_PATH=~/.ssh/openstack-key.pem
+
+# 전체 배포 (인프라 + DB + MW + 앱)
+./scripts/deploy.sh up
+
+# 코드만 재배포
+./scripts/deploy.sh update-app
+
+# 전체 제거
+./scripts/deploy.sh down
+```
+
+자세한 절차·트러블슈팅은 `deploy/openstack/README.md`.
 
 ### C. prod 기동 (참고)
 

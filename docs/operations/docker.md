@@ -13,12 +13,16 @@ Python 애플리케이션(web·consumer)만 로컬 빌드(`Dockerfile`)하고, �
 ## 파일 구조
 
 ```
-Dockerfile            — web·consumer 공용 이미지
-docker-compose.yml    — 전체 스택 (5개 서비스 + 네임드 볼륨)
-.dockerignore         — COPY . . 시 제외 경로
-dev-up.sh             — Docker → web 헬스체크 → Vagrant 순서 기동
-dev-down.sh           — Vagrant destroy → docker compose down -v
+Dockerfile                    — web·consumer·diagnostic-worker·diagnostic-scheduler 공용 이미지
+docker-compose.yml            — prod-safe baseline (password·외부 포트 노출 없음)
+docker-compose.override.yml   — dev 자동 적용 (.env 평문, 포트 노출, 코드 마운트, APP_ENV=dev, pgadmin)
+docker-compose.prod.yml       — prod 명시 호출 (Docker secrets, APP_ENV=prod). secret 정책: docs/operations/dev-prod.md #7
+.dockerignore                 — COPY . . 시 제외 경로
+dev-up.sh                     — Docker → web 헬스체크 → Vagrant 순서 기동
+dev-down.sh                   — Vagrant destroy → docker compose down -v
 ```
+
+OpenStack staging 분산 배포(`deploy/openstack/compose/` 분리 compose 3종)는 ADR 0006 단일 진실.
 
 ---
 
@@ -35,12 +39,15 @@ COPY . .
 
 ### 단일 이미지 + command 분기
 
-web·consumer 양쪽이 같은 이미지를 쓰고, docker-compose의 `command` 필드로 진입점을 분기한다.
+web·consumer·diagnostic 워커·스케줄러·migrate 모두 같은 이미지를 쓰고, docker-compose의 `command` 필드로 진입점을 분기한다.
 
 | 서비스 | command | 진입점 |
 |--------|---------|--------|
-| web | `python -m web` | `src/assessment_engine/web/__main__.py` → uvicorn 기동 (reload 모드) |
-| consumer | `python -m consumer` | `src/assessment_engine/consumer/__main__.py` → `asyncio.run(consumer.main.main())` |
+| web | `python -m assessment_engine.web` | `src/assessment_engine/web/__main__.py` → uvicorn 기동 (override에서 reload) |
+| consumer | `python -m assessment_engine.consumer` | `src/assessment_engine/consumer/__main__.py` → `asyncio.run(consumer.main.main())` |
+| diagnostic-worker | `python -m assessment_engine.diagnostic.worker` | ADR 0004 — `diagnostic.request` 큐 소비, LLM 호출 |
+| diagnostic-scheduler | `python -m assessment_engine.diagnostic.scheduler` | ADR 0004 — 주기 진단 작업 enqueue |
+| migrate | `alembic upgrade head` | postgres healthy 후 1회 실행하고 종료 (`restart: "no"`). ADR 0005 |
 
 이미지가 1개라 빌드/푸시·패치 운영 비용이 최소화된다. 의존성 패키지(SQLAlchemy·aio-pika·redis·FastAPI 등)도 양쪽이 모두 사용하므로 분리 이득이 적다.
 
@@ -72,15 +79,19 @@ COPY . .                            # ← 소스 코드
 
 ## docker-compose.yml
 
-### 서비스 구성
+### 서비스 구성 (dev 9개, prod 8개 — pgadmin 제외)
 
-| 서비스 | 이미지 | 역할 |
-|--------|--------|------|
-| `postgres` | `timescale/timescaledb:latest-pg16` | 메인 DB + TimescaleDB 확장 |
-| `rabbitmq` | `rabbitmq:3.13-management-alpine` | 메시지 브로커 (AMQP + 관리 UI) |
-| `redis` | `redis:7-alpine` | 캐시·온라인 TTL·PUB/SUB |
-| `web` | 로컬 빌드 | FastAPI SSR + API + StaticFiles |
-| `consumer` | 로컬 빌드 | aio-pika 컨슈머 |
+| 서비스 | 이미지 | 역할 | 적용 환경 |
+|--------|--------|------|-----------|
+| `postgres` | `timescale/timescaledb:latest-pg16` | 메인 DB + TimescaleDB 확장 | dev / prod |
+| `rabbitmq` | `rabbitmq:3.13-management-alpine` | 메시지 브로커 (AMQP + 관리 UI) | dev / prod |
+| `redis` | `redis:7-alpine` | 캐시·온라인 TTL·PUB/SUB | dev / prod |
+| `migrate` | 로컬 빌드 | `alembic upgrade head` 1회 실행 후 종료 (ADR 0005). 앱 서비스 4종이 `depends_on: service_completed_successfully`로 그 뒤 기동 | dev / prod |
+| `web` | 로컬 빌드 | FastAPI SSR + API + StaticFiles | dev / prod |
+| `consumer` | 로컬 빌드 | aio-pika 컨슈머 (server.* + task.result 큐) | dev / prod |
+| `diagnostic-worker` | 로컬 빌드 | `diagnostic.request` 큐 소비, LLM 호출 (ADR 0004) | dev / prod |
+| `diagnostic-scheduler` | 로컬 빌드 | 주기 진단 작업 enqueue (ADR 0004) | dev / prod |
+| `pgadmin` | `dpage/pgadmin4` | DB GUI (override.yml 전용, prod 미배포) | dev only |
 
 ### 포트 노출
 
@@ -155,7 +166,7 @@ env_file: .env
 environment:
   POSTGRES_HOST: postgres   # .env의 localhost 값 오버라이드
   REDIS_HOST: redis
-  RABBITMQ_HOST: rabbitmq   # consumer만 — web은 RabbitMQ 직접 사용 안 함
+  RABBITMQ_HOST: rabbitmq   # consumer·diagnostic-worker·diagnostic-scheduler — web은 RabbitMQ 직접 사용 안 함
 ```
 
 호스트에서 직접 실행 시 `.env`의 기본값(`localhost`)을 쓰고, 컨테이너에서는 `environment` 블록이 오버라이드.
@@ -164,7 +175,7 @@ environment:
 |------|-------------|---------|
 | POSTGRES_HOST | `localhost` (.env) | `postgres` (compose) |
 | REDIS_HOST | `localhost` (.env, 명시 없음) | `redis` (compose) |
-| RABBITMQ_HOST | `localhost` (.env) | `rabbitmq` (compose, consumer만) |
+| RABBITMQ_HOST | `localhost` (.env) | `rabbitmq` (compose, MQ 사용 서비스 한정) |
 
 ### healthcheck
 
@@ -183,19 +194,18 @@ environment:
 ### 기동 순서 (`depends_on`)
 
 ```
-postgres ──┐
-           ├──▶ web (service_healthy) ──▶ consumer
-redis ─────┤                              ^
-           └──────────────────────────────┤
-rabbitmq ─────────────────────────────────┘
+postgres ─ healthy ─▶ migrate (alembic upgrade head, 1회 실행 후 exit)
+                          │
+                          ▼ service_completed_successfully
+            ┌──────┬──────┴───────────┬──────────────────────┐
+            ▼      ▼                  ▼                      ▼
+           web   consumer    diagnostic-worker    diagnostic-scheduler
+            ▲      ▲                  ▲                      ▲
+   redis ───┴──────┴──────────────────┴──────────────────────┤
+rabbitmq ──────────┴──────────────────┴──────────────────────┘
 ```
 
-consumer가 web 헬스체크 통과 후 기동하는 이유:
-1. web lifespan이 `CREATE EXTENSION timescaledb` + `Base.metadata.create_all` + `create_hypertable(...)` 수행.
-2. consumer가 먼저 DB 접근하면 테이블이 없어 INSERT 실패 → DLQ 누적.
-3. web 헬스체크 통과 = 스키마 준비 완료.
-
-이 의존 관계는 DEV 전용. 프로덕션에서는 Alembic 마이그레이션을 분리해 별도 잡으로 실행하고 `consumer depends_on web` 제거 — `docs/tradeoffs.md` T4.
+ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migrate` 컨테이너가 schema 준비 완료를 보장한 뒤 앱 4종 기동.
 
 ### restart 정책
 
@@ -224,7 +234,7 @@ consumer가 web 헬스체크 통과 후 기동하는 이유:
 [2/2] docker compose down -v
 ```
 
-`-v`로 postgres_data 볼륨 삭제. 다음 `dev-up.sh`는 빈 DB에서 시작하므로 lifespan이 모든 hypertable 신규 생성.
+`-v`로 postgres_data 볼륨 삭제. 다음 `dev-up.sh`는 빈 DB에서 시작하므로 `migrate` 컨테이너가 `alembic upgrade head`로 모든 schema·hypertable 신규 생성 후 exit.
 
 ---
 
@@ -241,7 +251,7 @@ consumer가 web 헬스체크 통과 후 기동하는 이유:
 | `pyproject.toml` (의존성) | 미반영 | 미반영 | `docker compose up --build -d` (의존성 레이어 재빌드) |
 | `Dockerfile` | 미반영 | 미반영 | `docker compose up --build -d` |
 | `docker-compose.yml` | 부분 | 부분 | `docker compose up -d` (변경된 서비스만 재생성) |
-| ORM 모델 (컬럼·제약 추가) | 새 모델 로드는 reload되나 DB 스키마는 미반영 | 동일 | `docker compose down -v && docker compose up -d --build` |
+| ORM 모델 (컬럼·제약 추가) | 새 모델 로드는 reload되나 DB 스키마는 미반영 | 동일 | (ADR 0005) `alembic revision --autogenerate` → `docker compose restart migrate` → 앱 서비스 재기동. 마이그레이션 누락 시 `alembic check` 차단 |
 
 ### 디버깅 유용 명령
 
