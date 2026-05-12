@@ -32,7 +32,7 @@ services:
   pgadmin:
     image: dpage/pgadmin4:latest
     environment:
-      PGADMIN_DEFAULT_EMAIL: dev@local
+      PGADMIN_DEFAULT_EMAIL: dev@example.com    # pgAdmin이 RFC 형식(TLD 필요) 검증 — local 도메인은 reject
       PGADMIN_DEFAULT_PASSWORD: dev
       PGADMIN_LISTEN_PORT: 80
       PGADMIN_CONFIG_SERVER_MODE: 'False'

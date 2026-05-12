@@ -165,6 +165,10 @@ docker compose down -v
 
 처음 기동이면 첫 alembic upgrade가 모든 테이블·hypertable·extension을 자동 생성. 모델·마이그레이션 변경 후 재기동하면 변경분만 적용.
 
+기존에 `Base.metadata.create_all` 자동 분기로 schema가 만들어진 dev 환경에서 Alembic 도입한 PR을 처음 pull받았다면 `alembic_version` 테이블이 없어 첫 `migrate` 실행이 `DuplicateTableError`로 실패한다. 둘 중 하나로 해결:
+- 데이터 폐기 OK: `docker compose down -v && docker compose up -d` (가장 단순, dev 권장)
+- 데이터 보존 필수: `docker compose run --rm migrate alembic stamp head` 후 `docker compose up -d` (head revision이 현재 schema와 일치한다고 강제 표시)
+
 ### B. Docker + Vagrant 풀 파이프라인 (dev)
 
 VM 3대 + 에이전트까지 — 실제 메트릭 흐름 검증. 자세한 절차는 `docs/operations/pipeline.md`.
