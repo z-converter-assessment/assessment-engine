@@ -1,6 +1,6 @@
 """Install payload router — agent가 `curl http://{source_host}/zconverter.tar.gz`로 fetch하는 tar 번들 제공.
 
-흐름 (#B6 Task RPC piggyback + docs/architecture/agent.md "Task RPC piggyback"):
+흐름 (#B5 Task RPC piggyback + docs/architecture/agent.md "Task RPC piggyback"):
   1. 운영자 web UI에서 서버 체크 + source_host 입력(예: `web:8000`) → POST /api/v1/tasks/install
   2. 다음 metrics 발행 때 consumer가 RPC piggyback으로 task 명령 회신 (params={"source_host": ...})
   3. agent가 `http://{source_host}/zconverter.tar.gz` fetch → `tar -xzf` → `bash install.sh`
@@ -9,7 +9,7 @@
 본 endpoint는 본 엔진이 직접 호스팅하는 install 번들. 운영자가 source_host에 엔진 host를 입력하면 agent fetch URL이
 본 endpoint가 된다. source_host가 외부 호스트를 가리키면 agent는 외부 tar를 fetch — 본 endpoint와 무관.
 
-F17 예외 — agent 계약 endpoint는 URL versioning(`/api/v1/`) 없음. agent.md의 hardcoded path 계약 우선.
+F13 예외 — agent 계약 endpoint는 URL versioning(`/api/v1/`) 없음. agent.md의 hardcoded path 계약 우선.
 """
 import io
 import tarfile
@@ -65,7 +65,7 @@ _BUNDLE_CACHE = _build_install_bundle()
 async def get_install_bundle() -> Response:
     """agent의 hardcoded fetch path. agent.md "Task RPC piggyback" 절 계약 일치.
 
-    인증 없음 — 폐쇄망 가정 (#F12). 외부 노출 시 별도 ADR로 인증·rate limit 도입.
+    인증 없음 — 폐쇄망 가정 (#F8). 외부 노출 시 별도 ADR로 인증·rate limit 도입.
     """
     return Response(
         content=_BUNDLE_CACHE,

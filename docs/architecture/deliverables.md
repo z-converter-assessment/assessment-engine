@@ -26,7 +26,7 @@ POST /api/v1/discovery/probe
 - 타임아웃 5초 — 폐쇄망 LAN 가정. 폐쇄망에서 HTTP 80/443은 보통 열려있어 가벼운 도달성 검사로 적합.
 - SSRF 방지(localhost·메타데이터 IP 차단) 미적용 — 폐쇄망 가정상 운영자 의도 입력으로 간주.
 - ICMP 미사용 — raw socket 권한 필요라 회피.
-- fail-open — HTTP 도달은 SSH 도달을 의미하지 않음. 1차 필터일 뿐 (#F10).
+- fail-open — HTTP 도달은 SSH 도달을 의미하지 않음. 1차 필터일 뿐 (#F6).
 - 추후 SSH credential 등록 + ansible-playbook 실행 흐름이 본 단계 위에 얹힘.
 
 ## ZConverter Install task
@@ -84,7 +84,7 @@ POST /api/v1/exports/inventory
 
 주요 envelope 필드:
 - `engine_id` / `schema_version: "v3"` / `schema_doc` — reproducibility
-- `period_window: {days, start, end}` — F15 평가 윈도우 일관성
+- `period_window: {days, start, end}` — F11 평가 윈도우 일관성
 - `size_class_guide` — recommended_size_class -> 자동화 도구가 자기 도메인 instance type 매핑할 때 참고용
 - I/O p95/peak·recommended_size_class 객체화·services.listeners (proto·address) — listen_ports inventory 매칭
 
@@ -112,7 +112,7 @@ GET /servers/report?ids=p1,p2,...&period_days=14&view=customer|engineer
 | 행 단위 | (없음 — 환경 요약) | 서버 1대 = 1 행 |
 | 표시 정밀도 | 분류 라벨 + 색상 | p95·peak 숫자 + 셀 안 multi-line |
 | 인쇄 | navbar·검색폼·버튼 hide (`.no-print`) | 동일 + `engineer-table` 압축 폰트 |
-| 시간 축 | `period_days` (기본 14, F15 윈도우) | 동일 |
+| 시간 축 | `period_days` (기본 14, F11 윈도우) | 동일 |
 
 분기 위치: `web/templates/servers/report.html` `{% if view == "customer" %} ... {% endif %}` / `{% if view == "engineer" %} ... {% endif %}`. CSS는 `.engineer-table`이 양식 B 전용.
 
@@ -121,7 +121,7 @@ AI 진단 카드: 양쪽 양식 모두 server detail card + report 행에 latest
 설계 결정:
 - 한 endpoint·한 SQL·한 템플릿 — 양식별 데이터 fetch 분기 없음. URL `?view=` 토글만으로 시각 차이.
 - 컨설턴트가 브라우저 인쇄 -> PDF/PPT 캡처. 백엔드 PDF export 미도입 (`docs/architecture/web/static-assets.md` "report.html print CSS" 참조).
-- `period_days`는 `Query(14, ge=1, le=90)` 명시 — 라우터 단일 검증 (F3). 기본값 14는 F15 평가 윈도우 단일 진실(`recommendation.WINDOW_DAYS`).
+- `period_days`는 `Query(14, ge=1, le=90)` 명시 — 라우터 단일 검증 (F3). 기본값 14는 F11 평가 윈도우 단일 진실(`recommendation.WINDOW_DAYS`).
 
 USE Method 분류 임계값 출처(AWS Compute Optimizer / Azure Advisor / GCP Recommender / Kleinrock 큐잉 / Linux page cache): `docs/architecture/web/services.md` "Recommendation 분류" 절.
 

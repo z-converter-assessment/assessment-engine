@@ -172,7 +172,7 @@ async def close_pool() -> None: ...
 
 ### Redis 장애 시 동작 — fail-open
 
-정책 단일 진실: CLAUDE.md #C3 (fail-open + `safe_*` helper 경유 의무) + #F10 (외부 의존 실패 매트릭스). 본 절은 위임 결과의 운영 동작 매트릭스만.
+정책 단일 진실: CLAUDE.md #C3 (fail-open + `safe_*` helper 경유 의무) + #F6 (외부 의존 실패 매트릭스). 본 절은 위임 결과의 운영 동작 매트릭스만.
 
 `safe_*` helper 카탈로그: `safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`/`safe_incr_with_ttl` (`src/assessment_engine/db/redis.py`). 정확성 보장은 2단 안전망(DB UNIQUE / DB query / `last_seen_at` 컬럼)에 위임.
 

@@ -36,7 +36,7 @@ export OPENSTACK_KEY_PATH=~/.ssh/openstack-key.pem
 
 ## 운영 결정 (ADR 0006 + #A2)
 
-- 운영 secret은 Ansible Vault로 암호화 commit (`group_vars/all/vault.yml`) — 로컬 dev의 `.env` 평문 / prod의 Docker secrets와 다른 secret 채널 (#F12).
+- 운영 secret은 Ansible Vault로 암호화 commit (`group_vars/all/vault.yml`) — 로컬 dev의 `.env` 평문 / prod의 Docker secrets와 다른 secret 채널 (#F8).
 - `migrate` 컨테이너는 app VM에서 외부 DB로 connect 후 `alembic upgrade head` 실행 (#C4 ADR 0005). 사설망 latency·Security Group 의존 — VM 간 네트워크 검증 필수.
 - pgadmin은 staging 미배포 — 운영자가 사내 GUI 또는 psql 직접 사용 (#A2 컨테이너 구성).
 - depends_on service_healthy가 VM 간 안 됨 — Ansible playbook 순서로 보장 (db -> mw -> app).

@@ -86,7 +86,7 @@ async def _run_loop(broker_channel, redis) -> None:
         try:
             await _run_once(broker_channel, redis)
         except Exception:
-            # 발화 1회 실패가 루프 자체를 중단시키지 않게 격리 (#F10 fail-close는 메시지 처리에만)
+            # 발화 1회 실패가 루프 자체를 중단시키지 않게 격리 (#F6 fail-close는 메시지 처리에만)
             logger.exception("scheduler run_once failed")
 
 

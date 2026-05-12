@@ -157,7 +157,7 @@ agent는 `task_type`으로 미리 컴파일된 핸들러 dispatch. 핸들러가 
 - 외부 mirror 호스팅 운영자는 외부 host(`mirror.internal:8080`) 입력 가능 — agent는 동일 path(`/zconverter.tar.gz`)로 fetch라 외부도 같은 path 규약 의무.
 - 엔진 endpoint는 in-memory에서 tar.gz 생성. 안의 `install.sh`는 `mode=0o755`로 메타 박혀서 agent `tar -xzf` 시 실행 권한 그대로 복원.
 - `install.sh` 내용은 코드 안 상수(`_INSTALL_SCRIPT`) — 수정 후 web 컨테이너 재기동(또는 uvicorn auto-reload) 시 즉시 반영. mtime=epoch 고정이라 같은 코드면 같은 bytes.
-- F17 예외 — 본 endpoint는 agent.md 계약(hardcoded `/zconverter.tar.gz`) 우선이라 `/api/v1/` prefix 없음.
+- F13 예외 — 본 endpoint는 agent.md 계약(hardcoded `/zconverter.tar.gz`) 우선이라 `/api/v1/` prefix 없음.
 
 신규 task_type이 다른 bundle path 사용 시 본 절에 path + endpoint 라우터 위치 추가.
 

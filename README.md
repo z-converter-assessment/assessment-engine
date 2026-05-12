@@ -1,8 +1,8 @@
 # assessment-portal
 
-온프레미스 서버 인벤토리를 수집·저장하는 B2B 내부 포털.
+온프레미스 서버 인벤토리·메트릭을 수집·저장하고, 수집된 데이터를 기반으로 자원 사용량을 진단해 운영 의사결정을 보조하는 B2B 내부 포털.
 
-고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장한다.
+고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, 진단 워커가 USE Method 룰 + LLM(mock/ollama, ADR 0004)으로 서버별·환경 전체 right-sizing 분류와 자연어 진단 narrative를 생성한다. 운영자는 web UI에서 대시보드(활용률·프로비저닝 분포 도넛·주의 신호 카드)와 보고서(고객용 양식 A / 엔지니어용 양식 B)·JSON Export v3 산출물로 다음 단계 클라우드 마이그레이션 또는 right-sizing 결정을 진행한다.
 
 ---
 
@@ -68,7 +68,7 @@
   - 사용 흐름: `ollama pull llama3.1:8b`로 모델 다운로드 -> `ollama serve`(또는 백그라운드 자동 실행)가 `localhost:11434`에서 HTTP API 제공 -> 앱은 `POST /api/generate` 같은 endpoint로 호출. CUDA·tokenizer를 직접 다룰 필요 없음.
   - GGUF(GPT-Generated Unified Format) 모델 지원 — Llama / Mistral / Gemma / Qwen / Phi 등. CPU만으로도 동작, GPU(CUDA·Apple Metal) 있으면 자동 가속. 8B 모델은 RAM 약 8GB 필요.
   - 본 엔진 활용 (ADR 0004): 진단 워커가 외부 유료 API(Anthropic·OpenAI 등) 대신 같은 호스트 또는 사내 GPU 머신의 ollama로 HTTP 호출. 데이터(서버 메트릭·hostname·IP) 외부 유출 0, 비용 0 — 운영자 정책 "과금 발생 외부 API 호출 금지" 충족.
-  - 현재 상태: `LLM_PROVIDER=ollama` 분기는 미구현(`NotImplementedError`) — 1차는 `mock` 전용. ollama 클라이언트는 Phase 2 별도 PR에서 활성화 예정 (ADR 0004 정정 이력).
+  - `LLM_PROVIDER=ollama` 분기는 미구현(`NotImplementedError`) — `mock` 전용. 도입 시 ADR 0004.
 
 ---
 
@@ -84,7 +84,7 @@
 | Diagnostic Scheduler | croniter (cron 발화) | ADR 0004 — 주기 진단 job enqueue + retention DELETE |
 | Migrate (init container) | Alembic | ADR 0005 — postgres healthy 후 1회 실행 후 종료, 앱 4종이 그 뒤 기동 |
 | ORM / DB driver | SQLAlchemy async + asyncpg | |
-| 로깅 | loguru | print/sys.stdout 금지 (#F11) |
+| 로깅 | loguru | print/sys.stdout 금지 (#F7) |
 | HTTP 클라이언트 | httpx | discovery probe 등 외부 HTTP 호출 |
 | 패키지 매니저 | uv | pip 호환, 의존성 해결·설치 속도 |
 
@@ -110,7 +110,7 @@ Frontend (정적 자원)
 | 구성 | 기술 | 비고 |
 |------|------|------|
 | 차트 라이브러리 | Chart.js (CDN) | 번들러 미도입, IIFE 노출 (`docs/tradeoffs.md` T9) |
-| JS 모듈화 | 외부 `.js` 파일 + `defer` 로드 | 인라인 `<script>` 신규 금지 (#E7·#F9) |
+| JS 모듈화 | 외부 `.js` 파일 + `defer` 로드 | 인라인 `<script>` 신규 금지 (#E7·#F5) |
 | 실시간 갱신 | SSE (Server-Sent Events) | Consumer PUB -> Redis -> Web SSE -> 브라우저 |
 
 에이전트
@@ -229,10 +229,6 @@ docker compose down -v
 
 처음 기동이면 첫 alembic upgrade가 모든 테이블·hypertable·extension을 자동 생성. 모델·마이그레이션 변경 후 재기동하면 변경분만 적용.
 
-기존에 `Base.metadata.create_all` 자동 분기로 schema가 만들어진 dev 환경에서 Alembic 도입한 PR을 처음 pull받았다면 `alembic_version` 테이블이 없어 첫 `migrate` 실행이 `DuplicateTableError`로 실패한다. 둘 중 하나로 해결:
-- 데이터 폐기 OK: `docker compose down -v && docker compose up -d` (가장 단순, dev 권장)
-- 데이터 보존 필수: `docker compose run --rm migrate alembic stamp head` 후 `docker compose up -d` (head revision이 현재 schema와 일치한다고 강제 표시)
-
 ### B. Docker + Vagrant 풀 파이프라인 (dev)
 
 VM 3대 + 에이전트까지 — 실제 메트릭 흐름 검증. 자세한 절차는 `docs/operations/pipeline.md`.
@@ -243,6 +239,32 @@ cp infra/agent.env.example infra/agent.env  # 에이전트 secret 채널 (최초
 ./dev-up.sh    # docker compose up + web 헬스체크 + vagrant up
 ./dev-down.sh  # vagrant destroy + docker compose down -v
 ```
+
+### C. prod 기동 (참고)
+
+`secrets/*` 파일 + 명시적 compose 호출. dev override 자동 적용 안 됨.
+
+```bash
+# 1. secret 파일 작성 (강한 random)
+printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
+printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
+chmod 0400 secrets/postgres_password secrets/rabbitmq_password
+
+# 2. 호스트 측 secret 사전 검증 (mode·git tracking·길이 — Layer 1)
+./scripts/check-prod-secrets.sh
+
+# 3. 기동 (migrate 서비스가 alembic upgrade head를 자동 실행 후 종료, 그 다음 web/others 기동)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# 큰 schema 변경 전 미리 검토하고 싶으면 (선택):
+docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate alembic history
+docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate alembic current
+
+# 종료
+docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+```
+
+운영 체크리스트: `docs/operations/dev-prod.md` 10절.
 
 ### D. OpenStack staging (분산 3 VM)
 
@@ -271,29 +293,6 @@ export OPENSTACK_KEY_PATH=~/.ssh/openstack-key.pem
 
 자세한 절차·트러블슈팅은 `deploy/openstack/README.md`.
 
-### C. prod 기동 (참고)
-
-`secrets/*` 파일 + 명시적 compose 호출. dev override 자동 적용 안 됨.
-
-```bash
-# 1. secret 파일 작성 (강한 random)
-printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
-printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
-chmod 0400 secrets/postgres_password secrets/rabbitmq_password
-
-# 2. 기동 (migrate 서비스가 alembic upgrade head를 자동 실행 후 종료, 그 다음 web/others 기동)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-
-# 큰 schema 변경 전 미리 검토하고 싶으면 (선택):
-docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate alembic history
-docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate alembic current
-
-# 종료
-docker compose -f docker-compose.yml -f docker-compose.prod.yml down
-```
-
-운영 체크리스트: `docs/operations/dev-prod.md` 10.
-
 ---
 
 ## 데이터베이스 스키마 관리 (Alembic)
@@ -302,7 +301,7 @@ dev/staging/prod 모든 환경이 Alembic 마이그레이션 1개 진실로 sche
 
 ### 핵심 원칙
 
-- ORM 모델 (`src/assessment_engine/db/models/*.py`)을 변경하면 반드시 마이그레이션 파일을 함께 만들어야 한다. dev 환경도 마이그레이션 없이는 schema가 갱신되지 않는다 (`Base.metadata.create_all` 자동 분기는 제거됨).
+- ORM 모델 (`src/assessment_engine/db/models/*.py`)을 변경하면 반드시 마이그레이션 파일을 함께 만들어야 한다. dev 환경도 마이그레이션 없이는 schema가 갱신되지 않는다.
 - 마이그레이션 파일은 `migrations/versions/<revision>_<설명>.py`. PR에 ORM 모델 변경과 함께 commit.
 - 마이그레이션 파일은 `upgrade()` + `downgrade()` 양방향이어야 한다. autogenerate가 만든 downgrade도 반드시 검토.
 
@@ -371,8 +370,9 @@ docker compose run --rm migrate alembic check         # ORM 모델 vs 마이그�
 | http://localhost:8000/servers/ | 대시보드 Web UI (목록 / 활용률·프로비저닝 도넛 / 주의 신호 / 발견 / Install / Export / 보고서 진입점) |
 | http://localhost:8000/servers/report?ids=...&view=customer&period_days=14 | 고객 보고서 (양식 A — KPI + 위험도 요약) |
 | http://localhost:8000/servers/report?ids=...&view=engineer&period_days=14 | 엔지니어 보고서 (양식 B — 15컬럼 정량 + 자동 진단) |
-| http://localhost:8000/health | 헬스체크 |
-| http://localhost:8000/docs | FastAPI Swagger UI (discovery·tasks·exports·chart 모든 endpoint) |
+| http://localhost:8000/health | 헬스체크 (#F14 shallow) |
+| http://localhost:8000/docs | FastAPI Swagger UI (discovery·tasks·exports·diagnostics·chart 모든 endpoint) |
+| http://localhost:8000/zconverter.tar.gz | Agent install bundle (mode=0o755, ADR 0002·deliverables.md) |
 | http://localhost:15672 | RabbitMQ 관리 콘솔 |
 | http://localhost:5050 | pgAdmin (dev override 전용 — DB GUI). server는 미리 등록되어 password만 입력 |
 | localhost:5432 | PostgreSQL |
@@ -407,14 +407,16 @@ Vagrant로 VM 3대(Ubuntu / Rocky Linux / Debian)를 띄우고, 각 VM에서 에
 
 ### 시스템 설계
 - `docs/architecture` — 컴포넌트별 deep dive
-  - `agent.md` / `consumer.md` / `redis.md` / `rabbitmq.md` (단일 파일)
+  - `agent.md` / `consumer.md` / `diagnostic.md` / `redis.md` / `rabbitmq.md`
   - `db/` — models / dtos / repositories / timescaledb
   - `web/` — layering / routers / services / view-models / static-assets
-- `docs/operations` — 인프라·환경·배포 (docker·vagrant·dev-prod·env·testing·pipeline)
+  - `deliverables.md` — 산출물 흐름 (서버 발견 / Install task / JSON Export v3 / 보고서 양식 A·B)
+- `docs/operations` — 인프라·환경·배포 (docker·vagrant·openstack·dev-prod·env·alembic·testing·pipeline·automation-conventions)
 - `docs/adr` — Architecture Decision Records + 트레이드오프
 
 ### 산출물·워크플로우 정의
-- `docs/architecture/agent.md` "Task RPC piggyback" — ZConverter Install task 등록·실행 흐름 (ADR 0002 결정)
+- `docs/architecture/agent.md` "Task RPC piggyback" — ZConverter Install task 등록·실행 흐름 (ADR 0002)
+- `docs/architecture/deliverables.md` — 4 산출물 흐름 통합 진입점
 
 ### 핵심 운영 가이드
 - `docs/operations/pipeline.md` — Vagrant VM E2E 검증 절차

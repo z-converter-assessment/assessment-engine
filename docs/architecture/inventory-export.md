@@ -188,7 +188,7 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
 - 트레이드오프: 도구마다 매핑 테이블 필요 — `m5.large` 같은 직접 값보다 한 단계 변환 비용
 
 ### 측정값 포함 — period 기준
-- 결정: envelope `period_window.days` 기본 7. 운영자가 endpoint에서 변경 가능 (1~30일). 보고서 라우터 기본 14는 별도 (F15 단일 진실 — `recommendation.WINDOW_DAYS`).
+- 결정: envelope `period_window.days` 기본 7. 운영자가 endpoint에서 변경 가능 (1~30일). 보고서 라우터 기본 14는 별도 (F11 단일 진실 — `recommendation.WINDOW_DAYS`).
 - 근거: AWS Compute Optimizer 기본 14일 / Azure Advisor 7일. 단기 export는 7일도 의미 있음
 - 데이터 부족: 윈도우 안 metrics가 적은 신규 서버 — p95·peak 필드가 null. 자동화 도구는 null이면 size_class 추천만 사용
 

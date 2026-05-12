@@ -35,7 +35,7 @@ _RETRYABLE_DB_EXC = (OperationalError, DBAPIError)
 
 
 def _format_db_err(e: DBAPIError) -> str:
-    """DB 예외에서 SQL·param·connection string 제외한 진단 메타만 추출 (F12).
+    """DB 예외에서 SQL·param·connection string 제외한 진단 메타만 추출 (F8).
 
     - SQLAlchemy 클래스명 (OperationalError·IntegrityError 등)
     - asyncpg origin 클래스 (`UniqueViolationError`·`ConnectionDoesNotExistError` 등) — `e.orig`
@@ -65,11 +65,11 @@ async def _db_retry[T](
             return result
         except IntegrityError as e:
             # 영구 장애 — retry 의미 없음. 즉시 raise → 핸들러가 nack → DLQ.
-            # F12: e.orig 메시지엔 SQL·param·테이블 컬럼 노출 가능 — 진단용 메타만 로깅.
+            # F8: e.orig 메시지엔 SQL·param·테이블 컬럼 노출 가능 — 진단용 메타만 로깅.
             logger.error("db integrity error (non-retryable) {}", _format_db_err(e))
             raise
         except _RETRYABLE_DB_EXC as e:
-            # F12: connection string·param 노출 가능 — 진단용 메타만 로깅.
+            # F8: connection string·param 노출 가능 — 진단용 메타만 로깅.
             if attempt == 2:
                 logger.error("db error after 3 attempts {}", _format_db_err(e))
                 raise
@@ -96,7 +96,7 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
     - agent_started_at > collected_at: VM 시계 동기화 문제 (가장 흔함 — VM resume 직후)
     DLQ로 보내지 않음 — 시계 문제는 데이터 reject 의미 없고 운영자 인지가 목적.
 
-    F11: 같은 서버 시계 문제 지속 시 매 메시지 warning → 1h 쿨다운 (Redis 키)으로 스팸 방지.
+    F7: 같은 서버 시계 문제 지속 시 매 메시지 warning → 1h 쿨다운 (Redis 키)으로 스팸 방지.
     Redis 장애 시 fail-open — 쿨다운 없이 매번 출력 (장애 자체가 시그널).
     """
     if data.boot_time <= data.agent_started_at and data.agent_started_at <= data.collected_at:
@@ -263,9 +263,9 @@ def make_metrics_handler(
             await _track_agent_restart(redis, resolved_server_id, data.machine_id, data.agent_started_at)
 
             # RPC piggyback — agent가 reply_to를 명시한 경우 pending task 확인 후 reply.
-            # latency 같지만 별도 polling endpoint·queue 불필요 (CLAUDE.md B6).
+            # latency 같지만 별도 polling endpoint·queue 불필요 (CLAUDE.md B5).
             await _reply_pending_task_if_any(message, redis, data.machine_id)
-            # F11: 메시지별 처리 흐름은 DEBUG — 1만 서버 시 분당 1만 line 방지.
+            # F7: 메시지별 처리 흐름은 DEBUG — 1만 서버 시 분당 1만 line 방지.
             logger.debug(
                 "metrics stored machine_id={} rows metrics={} disk_io={} net_io={} mount_usage={}",
                 data.machine_id,

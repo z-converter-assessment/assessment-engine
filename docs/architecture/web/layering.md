@@ -63,4 +63,4 @@ Service에서 재검증 금지 (`_VALID_*` frozenset 비교 같은 패턴 안 �
 
 페이지 자체는 SSR로 즉시 first paint(`서버 목록`, `상세`, `보고서`). 차트·실시간 메트릭은 페이지 로드 후 AJAX(`/api/v1/servers/{id}/metrics/chart`) 또는 SSE(`/metrics/stream`)로 갱신.
 
-근거: SPA 도구 미도입 → 빠른 시연·운영. 동적 영역만 JS로 격리 — `static/js/pages/{page}.js` 외부 파일 (CLAUDE.md F9 "Frontend JS 외부화 의무").
+근거: SPA 도구 미도입 → 빠른 시연·운영. 동적 영역만 JS로 격리 — `static/js/pages/{page}.js` 외부 파일 (CLAUDE.md F5 "Frontend JS 외부화 의무").
