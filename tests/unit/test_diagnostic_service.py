@@ -10,13 +10,12 @@ from assessment_engine.db.repositories.outbound import DiagnosticJobRecord
 from assessment_engine.web.services.diagnostic_service import (
     DiagnosticService,
     _BadRequest,
-    _NotFound,
     _build_input_params,
     _compute_hash,
     _normalize_anchor,
+    _NotFound,
     to_panel_payload,
 )
-
 
 _FIXED_ANCHOR = datetime(2026, 5, 12, 0, 0, 0, tzinfo=timezone.utc)
 

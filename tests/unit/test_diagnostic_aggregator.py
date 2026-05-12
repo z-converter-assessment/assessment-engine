@@ -7,7 +7,6 @@ from assessment_engine.diagnostic.aggregator import (
     _top_actions,
 )
 
-
 # ─── _server_recommendation ──────────────────────────────────────────────
 
 @pytest.mark.parametrize("classification, expected_action", [

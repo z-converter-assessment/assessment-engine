@@ -2,7 +2,6 @@
 
 수치 검증 핵심: narrative에 등장하는 모든 숫자가 payload 안에 존재해야 한다 (ADR 0003 3G절).
 """
-import re
 
 import pytest
 
@@ -11,7 +10,6 @@ from assessment_engine.diagnostic.llm.mock import (
     _environment_narrative,
     _server_narrative,
 )
-
 
 # ─── _server_narrative ────────────────────────────────────────────────────
 
