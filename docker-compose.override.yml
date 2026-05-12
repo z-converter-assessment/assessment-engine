@@ -27,6 +27,31 @@ services:
     ports:
       - "${REDIS_PORT:-6379}:6379"
 
+  # pgAdmin — dev DB GUI. ServerMode=False → 로그인 없이 즉시 사용.
+  # 서버 등록은 infra/pgadmin-servers.json으로 자동 (postgres host·user 미리 채워짐). password는 첫 접속 시 입력.
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: dev@local
+      PGADMIN_DEFAULT_PASSWORD: dev
+      PGADMIN_LISTEN_PORT: 80
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    volumes:
+      - ./infra/pgadmin-servers.json:/pgadmin4/servers.json:ro
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  migrate:
+    volumes:
+      - ./:/app
+    env_file: .env
+    environment:
+      APP_ENV: dev
+
   web:
     volumes:
       - ./:/app
@@ -37,6 +62,20 @@ services:
       - "${WEB_PORT:-8000}:8000"
 
   consumer:
+    volumes:
+      - ./:/app
+    env_file: .env
+    environment:
+      APP_ENV: dev
+
+  diagnostic-worker:
+    volumes:
+      - ./:/app
+    env_file: .env
+    environment:
+      APP_ENV: dev
+
+  diagnostic-scheduler:
     volumes:
       - ./:/app
     env_file: .env

@@ -121,3 +121,19 @@ class ServerMetricCreate:
     disk_io: list[DiskIoEntry]
     mounts: list[MountUsageEntry]
     net_io: list[NetIoEntry]
+
+
+# --- AI 진단 job INSERT 입력 (ADR 0004) ---
+
+
+@dataclass
+class DiagnosticJobCreate:
+    """진단 job INSERT 입력 — id·created_at·status는 DB default가 채움.
+
+    scope: 'server' | 'environment'
+    input_hash: sha256(scope + canonical(input_params)) — 캐시·active UNIQUE 키
+    """
+    scope: str
+    input_params: dict
+    input_hash: str
+    requested_by: str | None = None

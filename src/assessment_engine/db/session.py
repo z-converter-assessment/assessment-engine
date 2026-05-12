@@ -6,7 +6,7 @@ from assessment_engine.config import web_settings
 
 engine = create_async_engine(
     web_settings.database_url,
-    echo=False,
+    echo=web_settings.sqlalchemy_echo,
     connect_args={"command_timeout": 30, "timeout": 10},
     pool_pre_ping=True,
 )

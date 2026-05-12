@@ -155,5 +155,5 @@
   const SERVER_ID = {{ server.public_id | tojson }};
   const CPU_CORES = {{ server.cpu_cores if server.cpu_cores is not none else 'null' }} || 4;
 </script>
-<script src="/static/js/pages/cpu.js" defer></script>
+<script src="/static/js/pages/cpu.js?v={{ asset_v }}" defer></script>
 {% endblock %}

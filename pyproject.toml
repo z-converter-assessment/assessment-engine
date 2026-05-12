@@ -19,6 +19,7 @@ dependencies = [
     "redis[hiredis]>=5.0.0",
     "httpx>=0.27",
     "alembic>=1.13",
+    "croniter>=2.0",   # 진단 스케줄러 cron 파싱 (ADR 0004)
 ]
 
 

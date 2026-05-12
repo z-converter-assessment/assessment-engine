@@ -3,6 +3,7 @@
 라우터(`pages.py`)에 직접 인스턴스를 두면 라우터가 표시 셋업 책임까지 떠안게 된다.
 filter 등록을 한 곳으로 모아 다른 라우터/모듈도 동일 인스턴스를 import할 수 있게 한다.
 """
+import time
 from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
@@ -20,3 +21,9 @@ env.filters["disksize"]            = disksize
 env.filters["kbps"]                = kbps
 env.filters["service_badge_class"] = service_badge_class
 env.filters["or_dash"]             = or_dash
+
+# Static asset versioning — process startup time hex를 모든 페이지 static URL의 querystring에 부착.
+# 코드 변경 후 web 재시작 → 새 token → 브라우저가 새 URL로 인식 → 강제 재다운로드.
+# dev/staging/prod 동일 패턴. 정식 deploy에는 commit hash 등으로 대체 가능 — 그때는 ASSET_V 갱신.
+ASSET_V: str = format(int(time.time()), "x")
+env.globals["asset_v"] = ASSET_V

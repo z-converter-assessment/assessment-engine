@@ -248,5 +248,5 @@
   const SERVER_ID = "{{ server.public_id }}";
   const CPU_CORES = {{ server.cpu_cores if server.cpu_cores is not none else 'null' }};
 </script>
-<script src="/static/js/pages/performance.js" defer></script>
+<script src="/static/js/pages/performance.js?v={{ asset_v }}" defer></script>
 {% endblock %}

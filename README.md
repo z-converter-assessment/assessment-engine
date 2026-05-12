@@ -148,18 +148,22 @@ cp .env.example .env                       # 엔진 환경변수 (모든 시나�
 
 ```bash
 # 기동 (docker-compose.override.yml 자동 적용 — APP_ENV=dev)
+# postgres healthy → migrate(alembic upgrade head) 자동 → web/consumer/worker/scheduler 기동
 docker compose up --build -d
 
 # 로그
 docker compose logs -f web
 docker compose logs -f consumer
+docker compose logs migrate          # 마이그레이션 적용 로그 (한 번만 실행 후 종료)
 
-# 종료 (데이터 유지)
+# 종료 (데이터 유지 — 다음 up 시 schema·데이터 그대로 복원)
 docker compose down
 
-# 종료 + 데이터 삭제 (postgres_data 볼륨 제거)
+# 종료 + 데이터 삭제 (postgres_data 볼륨 제거 — 완전 초기화)
 docker compose down -v
 ```
+
+처음 기동이면 첫 alembic upgrade가 모든 테이블·hypertable·extension을 자동 생성. 모델·마이그레이션 변경 후 재기동하면 변경분만 적용.
 
 ### B. Docker + Vagrant 풀 파이프라인 (dev)
 
@@ -182,17 +186,86 @@ printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
 printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
 chmod 0400 secrets/postgres_password secrets/rabbitmq_password
 
-# 2. Alembic으로 schema 사전 적용 (lifespan은 prod에서 schema bootstrap skip)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm web alembic upgrade head
-
-# 3. 기동
+# 2. 기동 (migrate 서비스가 alembic upgrade head를 자동 실행 후 종료, 그 다음 web/others 기동)
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# 큰 schema 변경 전 미리 검토하고 싶으면 (선택):
+docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate alembic history
+docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate alembic current
 
 # 종료
 docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 ```
 
 운영 체크리스트: `docs/operations/dev-prod.md` 10.
+
+---
+
+## 데이터베이스 스키마 관리 (Alembic)
+
+dev/staging/prod 모든 환경이 Alembic 마이그레이션 1개 진실로 schema를 관리한다. `docker compose up` 시 자동으로 `migrate` 컨테이너가 `alembic upgrade head`를 1회 실행하고 종료한 뒤, 그 결과 위에 web/consumer/worker/scheduler가 기동한다.
+
+### 핵심 원칙
+
+- ORM 모델 (`src/assessment_engine/db/models/*.py`)을 변경하면 반드시 마이그레이션 파일을 함께 만들어야 한다. dev 환경도 마이그레이션 없이는 schema가 갱신되지 않는다 (`Base.metadata.create_all` 자동 분기는 제거됨).
+- 마이그레이션 파일은 `migrations/versions/<revision>_<설명>.py`. PR에 ORM 모델 변경과 함께 commit.
+- 마이그레이션 파일은 `upgrade()` + `downgrade()` 양방향이어야 한다. autogenerate가 만든 downgrade도 반드시 검토.
+
+### 일상 작업 흐름
+
+A. 모델을 변경했을 때 — 새 마이그레이션 만들기
+
+```bash
+# 1) ORM 모델 (src/assessment_engine/db/models/*.py) 수정한 후
+
+# 2) DB가 띄워진 상태에서 autogenerate로 마이그레이션 stub 생성
+docker compose run --rm migrate alembic revision --autogenerate -m "add server_uuid column"
+
+# 3) 생성된 migrations/versions/<revision>_*.py 파일 열어 검토
+#    - 잘못 추론된 부분 수정 (autogenerate 한계)
+#    - hypertable·CREATE EXTENSION·partial index·CHECK 제약 등은 수동 op.execute() 보강
+#    - downgrade()도 확인
+
+# 4) 마이그레이션 적용 (dev — up이 자동 실행하지만, 변경분만 즉시 적용하고 싶으면)
+docker compose run --rm migrate alembic upgrade head
+
+# 5) 라운드트립 검증 — 한 단계 내렸다가 다시 올려보고 깨지지 않는지 확인
+docker compose run --rm migrate alembic downgrade -1
+docker compose run --rm migrate alembic upgrade head
+
+# 6) commit 시 (1) ORM 모델 (2) 마이그레이션 파일 함께 — 한쪽만 올리면 다른 개발자 환경이 깨진다
+git add src/assessment_engine/db/models/ migrations/versions/
+git commit -m "..."
+```
+
+B. 다른 개발자의 변경을 pull 받았을 때
+
+```bash
+git pull
+docker compose up -d   # migrate 컨테이너가 새 마이그레이션 자동 적용
+```
+
+별도 명령 없음 — `up`만으로 schema가 최신화된다. 만약 위 자동 적용이 미덥지 않다면 `docker compose run --rm migrate alembic upgrade head`를 명시 실행.
+
+C. 현재 상태 확인
+
+```bash
+docker compose run --rm migrate alembic current       # 현재 적용된 revision
+docker compose run --rm migrate alembic history       # 마이그레이션 이력
+docker compose run --rm migrate alembic heads         # 적용 가능한 head (branch 분기가 있는 경우만 의미)
+docker compose run --rm migrate alembic check         # ORM 모델 vs 마이그레이션 drift 검출
+```
+
+`alembic check`는 CI에서도 돌아간다 (`.github/workflows/alembic-check.yml`). 모델만 바꾸고 마이그레이션을 안 만들면 PR이 막힌다.
+
+### 안전 규약
+
+- 절대 같은 `revision` ID를 두 개 만들지 말 것 (autogenerate가 처리하지만 수동 작성 시 주의).
+- prod에 적용하기 전 staging에서 똑같은 마이그레이션을 먼저 적용해 검증.
+- 마이그레이션 안에 `op.execute("DROP TABLE ...")` 같은 파괴적 SQL을 쓸 때는 데이터 백업 확인.
+- 새 hypertable·extension·partial index는 autogenerate가 못 잡으므로 직접 `op.execute()` 작성.
+
+자세한 운영 절차·트러블슈팅은 `docs/operations/alembic.md`.
 
 ---
 
@@ -206,6 +279,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 | http://localhost:8000/health | 헬스체크 |
 | http://localhost:8000/docs | FastAPI Swagger UI (discovery·tasks·exports·chart 모든 endpoint) |
 | http://localhost:15672 | RabbitMQ 관리 콘솔 |
+| http://localhost:5050 | pgAdmin (dev override 전용 — DB GUI). server는 미리 등록되어 password만 입력 |
 | localhost:5432 | PostgreSQL |
 
 ---
