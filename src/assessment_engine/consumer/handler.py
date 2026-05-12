@@ -1,10 +1,7 @@
 import asyncio
 import json
 from collections.abc import Callable, Coroutine
-from typing import Any, TypeVar
-
-T = TypeVar("T")
-
+from typing import Any
 from uuid import UUID
 
 from aio_pika import DeliveryMode, Message
@@ -55,7 +52,7 @@ def _format_db_err(e: DBAPIError) -> str:
     return f"sa={sa_cls} orig={orig_cls}"
 
 
-async def _db_retry(
+async def _db_retry[T](
     session_factory: async_sessionmaker[AsyncSession],
     repo_factory: Callable[[AsyncSession], BaseCollectRepository],
     fn: Callable[[BaseCollectRepository], Coroutine[Any, Any, T]],
@@ -149,7 +146,7 @@ async def _reply_pending_task_if_any(
             routing_key=message.reply_to,
         )
         logger.info("task piggyback replied machine_id={} correlation_id={}", machine_id, message.correlation_id)
-    except (AMQPException, asyncio.TimeoutError) as e:
+    except (TimeoutError, AMQPException) as e:
         logger.warning("task piggyback reply failed machine_id={} err_type={}", machine_id, type(e).__name__)
 
 

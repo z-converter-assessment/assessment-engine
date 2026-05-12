@@ -7,6 +7,20 @@
 # - web/consumer에 코드 마운트 (volumes: ./:/app) — 빠른 반복
 # - APP_ENV=dev 강제 (config.py model_validator의 prod 검증 우회)
 
+# YAML anchor — dev 5 앱 서비스(migrate/web/consumer/diagnostic-worker/diagnostic-scheduler)가
+# 공유하는 코드 마운트 + .env 주입 + APP_ENV=dev 강제. 신규 앱 서비스 추가 시 *dev-app 한 줄로 dev 호환.
+#
+# user: "0:0" — Dockerfile은 prod 정석으로 USER app(uid 1000)을 적용하지만, dev는 `./:/app`로 호스트 코드를
+# bind mount하므로 컨테이너 uid 1000이 호스트 파일(macOS 보통 501) 쓰기 실패 가능. dev에선 root로 되돌려
+# uvicorn auto-reload·__pycache__ 생성 충돌 회피. prod는 base만 적용되므로 영향 없음.
+x-dev-app: &dev-app
+  user: "0:0"
+  volumes:
+    - ./:/app
+  env_file: .env
+  environment:
+    APP_ENV: dev
+
 services:
   postgres:
     env_file: .env
@@ -46,38 +60,18 @@ services:
         condition: service_healthy
 
   migrate:
-    volumes:
-      - ./:/app
-    env_file: .env
-    environment:
-      APP_ENV: dev
+    <<: *dev-app
 
   web:
-    volumes:
-      - ./:/app
-    env_file: .env
-    environment:
-      APP_ENV: dev
+    <<: *dev-app
     ports:
       - "${WEB_PORT:-8000}:8000"
 
   consumer:
-    volumes:
-      - ./:/app
-    env_file: .env
-    environment:
-      APP_ENV: dev
+    <<: *dev-app
 
   diagnostic-worker:
-    volumes:
-      - ./:/app
-    env_file: .env
-    environment:
-      APP_ENV: dev
+    <<: *dev-app
 
   diagnostic-scheduler:
-    volumes:
-      - ./:/app
-    env_file: .env
-    environment:
-      APP_ENV: dev
+    <<: *dev-app

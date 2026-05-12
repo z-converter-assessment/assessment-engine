@@ -110,13 +110,10 @@
         <td>{% if r.is_online %}<span style="color:#15803d;">●</span> 온라인{% else %}<span style="color:#94a3b8;">●</span> 오프라인{% endif %}</td>
         <td class="ai-diag-cell">
           {% set d = diagnostics_by_pid.get(r.public_id) %}
-          {% if d and d.result %}
-            {% set cls = d.result.classification %}
-            <span class="rec-badge {% if cls == 'over_provisioned' %}badge-warn{% elif cls == 'under_provisioned' %}badge-danger{% elif cls == 'optimal' %}badge-ok{% elif cls == 'idle' or cls == 'shutdown' %}badge-warn{% else %}badge{% endif %}">
-              {% if cls == 'over_provisioned' %}over-prov{% elif cls == 'under_provisioned' %}under-prov{% elif cls == 'optimal' %}optimal{% elif cls == 'idle' %}idle{% elif cls == 'shutdown' %}shutdown{% else %}데이터 부족{% endif %}
-            </span>
-            {% if d.result.recommendation and d.result.recommendation.action and d.result.recommendation.action != 'no_action' %}
-            <span class="stat-line" style="color:#475569; font-size:10px;">{{ d.result.recommendation.action }}</span>
+          {% if d and d.classification %}
+            <span class="rec-badge {{ d.classification_badge_class }}">{{ d.classification_label_kr }}</span>
+            {% if d.recommendation_action and d.recommendation_action != 'no_action' %}
+            <span class="stat-line" style="color:#475569; font-size:10px;">{{ d.recommendation_action }}</span>
             {% endif %}
           {% else %}
             <span style="color:#94a3b8;">—</span>
@@ -205,11 +202,11 @@
         </td>
         <td class="num-cell">
           <span class="stat-line">{% if r.load_15m_max is not none %}{{ "%.2f"|format(r.load_15m_max) }}{% else %}—{% endif %}</span>
-          <span class="stat-line" style="color:{% if r.saturation_ratio is not none and r.saturation_ratio >= 1.0 %}#b91c1c{% else %}#94a3b8{% endif %};">{% if r.saturation_ratio is not none %}{{ "%.2f"|format(r.saturation_ratio) }}{% else %}—{% endif %}</span>
+          <span class="stat-line" style="color:{{ r.saturation_color }};">{% if r.saturation_ratio is not none %}{{ "%.2f"|format(r.saturation_ratio) }}{% else %}—{% endif %}</span>
         </td>
         <td class="num-cell">
-          <span class="stat-line" style="color:{% if r.cpu_variance_ratio is not none and r.cpu_variance_ratio >= 1.5 %}#92400e{% else %}#1e293b{% endif %};">{% if r.cpu_variance_ratio is not none %}{{ "%.2f"|format(r.cpu_variance_ratio) }}{% else %}—{% endif %}</span>
-          <span class="stat-line" style="color:{% if r.mem_variance_ratio is not none and r.mem_variance_ratio >= 1.5 %}#92400e{% else %}#94a3b8{% endif %};">{% if r.mem_variance_ratio is not none %}{{ "%.2f"|format(r.mem_variance_ratio) }}{% else %}—{% endif %}</span>
+          <span class="stat-line" style="color:{{ r.cpu_variance_color }};">{% if r.cpu_variance_ratio is not none %}{{ "%.2f"|format(r.cpu_variance_ratio) }}{% else %}—{% endif %}</span>
+          <span class="stat-line" style="color:{{ r.mem_variance_color }};">{% if r.mem_variance_ratio is not none %}{{ "%.2f"|format(r.mem_variance_ratio) }}{% else %}—{% endif %}</span>
         </td>
         <td class="num-cell">
           <span class="stat-line">{% if r.iowait_p95_pct is not none %}{{ "%.1f"|format(r.iowait_p95_pct) }}%{% else %}—{% endif %}</span>
@@ -235,13 +232,13 @@
           <span class="stat-line" style="color:{% if r.swap_used %}#b91c1c{% else %}#94a3b8{% endif %};">{% if r.swap_used %}swap 사용{% else %}swap —{% endif %}</span>
           <span class="stat-line" style="color:#64748b;">
             {%- if r.worst_mount -%}
-              <code style="font-size:10px;">{{ r.worst_mount }}</code>{% if r.worst_mount_used_pct is not none %} {{ "%.0f"|format(r.worst_mount_used_pct) }}%{% endif %}{% if r.worst_mount_days_until_full is not none and r.worst_mount_days_until_full <= 30 %} <span style="color:#b91c1c;">{{ r.worst_mount_days_until_full }}일</span>{% endif %}
+              <code style="font-size:10px;">{{ r.worst_mount }}</code>{% if r.worst_mount_used_pct is not none %} {{ "%.0f"|format(r.worst_mount_used_pct) }}%{% endif %}{% if r.worst_mount_days_until_full is not none %} <span style="color:{{ r.worst_mount_days_color }};">{{ r.worst_mount_days_until_full }}일</span>{% endif %}
             {%- else -%}—{%- endif -%}
           </span>
         </td>
         <td class="num-cell">
           <span class="stat-line">{% if r.uptime_days is not none %}{{ r.uptime_days }}일{% else %}—{% endif %}</span>
-          <span class="stat-line" style="color:{% if r.reboot_count >= 3 %}#b91c1c{% else %}#94a3b8{% endif %};">{% if r.reboot_count > 0 %}{{ r.reboot_count }}회{% else %}—{% endif %}</span>
+          <span class="stat-line" style="color:{{ r.reboot_count_color }};">{% if r.reboot_count > 0 %}{{ r.reboot_count }}회{% else %}—{% endif %}</span>
         </td>
         <td>
           <span class="stat-line"><span class="rec-badge {{ r.badge_class }}">{{ r.recommendation_label }}</span></span>
@@ -249,12 +246,9 @@
         </td>
         <td class="ai-diag-cell">
           {% set d = diagnostics_by_pid.get(r.public_id) %}
-          {% if d and d.result %}
-            {% set cls = d.result.classification %}
-            <span class="stat-line"><span class="rec-badge {% if cls == 'over_provisioned' %}badge-warn{% elif cls == 'under_provisioned' %}badge-danger{% elif cls == 'optimal' %}badge-ok{% elif cls == 'idle' or cls == 'shutdown' %}badge-warn{% else %}badge{% endif %}">
-              {% if cls == 'over_provisioned' %}over-prov{% elif cls == 'under_provisioned' %}under-prov{% elif cls == 'optimal' %}optimal{% elif cls == 'idle' %}idle{% elif cls == 'shutdown' %}shutdown{% else %}—{% endif %}
-            </span></span>
-            <span class="stat-line" style="color:#475569; font-size:10px;">{{ d.result.recommendation.action if d.result.recommendation else '' }}</span>
+          {% if d and d.classification %}
+            <span class="stat-line"><span class="rec-badge {{ d.classification_badge_class }}">{{ d.classification_label_kr }}</span></span>
+            <span class="stat-line" style="color:#475569; font-size:10px;">{{ d.recommendation_action or '' }}</span>
           {% else %}
             <span style="color:#94a3b8;">—</span>
           {% endif %}

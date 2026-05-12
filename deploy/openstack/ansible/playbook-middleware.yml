@@ -1,0 +1,54 @@
+---
+# engine-mw VM: Docker + rabbitmq + redis compose up (ADR 0006).
+
+- hosts: engine-mw
+  become: true
+  vars_files:
+    - group_vars/all/vault.yml
+  roles:
+    - docker
+  tasks:
+    - name: 디렉토리 생성
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+      loop:
+        - /opt/assessment-engine
+        - /opt/assessment-engine/deploy/openstack/compose
+        - /opt/assessment-engine/deploy/openstack/compose/secrets
+
+    - name: compose 파일 배포
+      copy:
+        src: ../compose/docker-compose.middleware.yml
+        dest: /opt/assessment-engine/deploy/openstack/compose/docker-compose.middleware.yml
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+
+    - name: rabbitmq_password secret 파일
+      copy:
+        content: "{{ rabbitmq_password }}"
+        dest: /opt/assessment-engine/deploy/openstack/compose/secrets/rabbitmq_password
+        owner: ubuntu
+        group: ubuntu
+        mode: '0400'
+      no_log: true
+
+    - name: docker compose up
+      command:
+        cmd: docker compose -f docker-compose.middleware.yml up -d
+        chdir: /opt/assessment-engine/deploy/openstack/compose
+      become_user: ubuntu
+
+    - name: rabbitmq + redis 기동 대기
+      command:
+        cmd: docker compose -f docker-compose.middleware.yml ps --status running
+        chdir: /opt/assessment-engine/deploy/openstack/compose
+      register: mw_status
+      retries: 12
+      delay: 5
+      until: "'rabbitmq' in mw_status.stdout and 'redis' in mw_status.stdout"
+      become_user: ubuntu

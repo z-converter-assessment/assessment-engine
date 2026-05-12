@@ -1,0 +1,9 @@
+# 본 파일을 `vault.yml`로 복사 후 실 값 채움.
+# 그 다음 `ansible-vault encrypt vault.yml --vault-password-file ~/.vault-pass`로 암호화.
+# 암호화된 vault.yml은 commit OK (gitignore 아님). 평문 .example은 commit (참고용).
+
+# PostgreSQL DB 비밀번호 — 강한 random 권장 (`openssl rand -base64 32`)
+postgres_password: REPLACE_ME_STRONG_RANDOM
+
+# RabbitMQ 비밀번호
+rabbitmq_password: REPLACE_ME_STRONG_RANDOM

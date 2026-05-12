@@ -3,7 +3,7 @@
 C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_version` 필드가 계약 버전 역할을 한다.
 
 > 정식 정의는 별도 레포의 `assessment-agent/docs/payload-schema.md`. 본 문서는 엔진 측 핸들링 관점 요약 + 엔진의 책임/무시 항목.
-> 현재 엔진이 호환하는 스키마: v3 (2026-05-06) — `services[]` / `listen_ports[]` / `error.{retry_count, first_failed_at, recovered_at}` 옵셔널 필드 포함.
+> 엔진 호환 스키마: v3 — `services[]` / `listen_ports[]` / `error.{retry_count, first_failed_at, recovered_at}` 옵셔널 필드 포함.
 
 ---
 
@@ -148,6 +148,18 @@ agent는 `task_type`으로 미리 컴파일된 핸들러 dispatch. 핸들러가 
 | `zconverter_install` | `{"source_host": str}` | `curl http://{source_host}/zconverter.tar.gz` → `tar -xzf` → `bash install.sh` |
 
 새 task_type 도입 시 양쪽 동시 갱신 + agent_version bump. 미지원 task_type 수신 시 agent는 `task.result` `failed` 보고 (`result_message="unknown task_type"`).
+
+### Install bundle endpoint (`GET /zconverter.tar.gz`)
+
+`source_host`가 본 엔진을 가리키는 경우 agent의 fetch URL이 본 엔진의 `web/routers/payloads.py` 라우터로 들어온다. 운영 흐름:
+
+- 운영자가 web UI에서 서버 체크 + `source_host` 입력. 보통 본 엔진 host(`<engine-fqdn>:8000`)를 입력 — 엔진이 self-host하는 bundle 활용.
+- 외부 mirror 호스팅 운영자는 외부 host(`mirror.internal:8080`) 입력 가능 — agent는 동일 path(`/zconverter.tar.gz`)로 fetch라 외부도 같은 path 규약 의무.
+- 엔진 endpoint는 in-memory에서 tar.gz 생성. 안의 `install.sh`는 `mode=0o755`로 메타 박혀서 agent `tar -xzf` 시 실행 권한 그대로 복원.
+- `install.sh` 내용은 코드 안 상수(`_INSTALL_SCRIPT`) — 수정 후 web 컨테이너 재기동(또는 uvicorn auto-reload) 시 즉시 반영. mtime=epoch 고정이라 같은 코드면 같은 bytes.
+- F17 예외 — 본 endpoint는 agent.md 계약(hardcoded `/zconverter.tar.gz`) 우선이라 `/api/v1/` prefix 없음.
+
+신규 task_type이 다른 bundle path 사용 시 본 절에 path + endpoint 라우터 위치 추가.
 
 ### Latency·동작 가정
 

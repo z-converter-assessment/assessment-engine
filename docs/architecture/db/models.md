@@ -1,6 +1,6 @@
 # DB ORM 모델 카탈로그
 
-`src/assessment_engine/db/models/` — 7개 모델.
+`src/assessment_engine/db/models/` — 8개 모델.
 
 | 모델 | 테이블 | PK | 종류 | 설명 |
 |------|--------|----|----|------|
@@ -11,6 +11,7 @@
 | `ServerNetIo` | `server_net_io` | BigInteger + collected_at | hypertable | per interface I/O 누적 카운터 |
 | `ServerMountUsage` | `server_mount_usage` | BigInteger + collected_at | hypertable | per mount 시점 사용량 |
 | `Task` | `tasks` | BigInteger | 단일 행 (audit log) | 원격 작업 명령 + 실행 이력 |
+| `DiagnosticJob` | `diagnostic_jobs` | UUID | 일반 테이블 (hypertable 아님) | AI 진단 job (ADR 0004) — 스케줄러·웹 enqueue → 워커 처리. UUID PK는 URL 노출용 (E5) |
 
 ## 식별자 규약 (CLAUDE.md C1)
 
@@ -54,5 +55,9 @@ CREATE UNIQUE INDEX uq_tasks_pending_per_server_type
 
 ## 스키마 변경 운영
 
-- DEV: `create_all`은 기존 테이블에 컬럼/제약 추가 안 함 — 모델 변경 후 최초 기동은 `docker compose down -v` 필요
-- PROD: Alembic + `create_hypertable` 수동
+dev·staging·prod 모든 환경 Alembic 단일 진실 (ADR 0005).
+
+- 모델 변경 시 (1) ORM 모델 (2) `alembic revision --autogenerate` (3) `alembic check` 통과 의무 — drift 0건 (#C4)
+- TimescaleDB hypertable 신규 테이블은 마이그레이션에 `op.execute("SELECT create_hypertable(...)")` 수동 보강 (autogenerate 미지원)
+- `migrate` 컨테이너가 모든 환경에서 `alembic upgrade head` 자동 적용 후 종료. 앱 서비스는 `depends_on: migrate (service_completed_successfully)`로 그 다음 기동
+- 상세: `docs/operations/alembic.md` + ADR 0005

@@ -21,24 +21,32 @@ docs/
 ├── README.md              ← 본 파일 (인덱스)
 ├── architecture/          컴포넌트별 deep dive (영구·갱신)
 │   ├── agent.md           에이전트 메시지 스키마·포트 수집·디스크 필터링
-│   ├── consumer.md        schemas / handler / main / 멱등성 / 재시도
+│   ├── consumer.md        schemas / handler / main / 멱등성 / 재시도 / 부가 시그널
+│   ├── diagnostic.md      AI 진단 워커·스케줄러·LLM 토글·diagnostic_jobs (ADR 0004 실행 인프라)
 │   ├── rabbitmq.md        vhost·권한 모델 / 토폴로지 / dev·prod 분기
 │   ├── redis.md           키 설계 / TTL / PUB/SUB / 멱등성 / 캐시 무효화 / mget
 │   ├── db/                models / dtos / repositories / timescaledb (4분할)
 │   ├── web/               layering / routers / services / view-models / static-assets (5분할)
-│   └── inventory-export.md  정제 Inventory JSON Export 스키마·정제 원칙·자동화 도구 매핑 (v2)
+│   ├── deliverables.md    서버 발견 / Install task / JSON Export / 보고서 양식 A/B 워크플로우 통합
+│   └── inventory-export.md  정제 Inventory JSON Export 스키마·정제 원칙·자동화 도구 매핑 (v3)
 ├── operations/            운영·환경·검증 (영구·갱신)
-│   ├── alembic.md         PROD schema 마이그레이션 (Alembic) — DEV create_all 보완
+│   ├── alembic.md         DB schema 마이그레이션 (Alembic — 모든 환경 단일 진실)
+│   ├── automation-conventions.md  자동화 변환 책임 분담 상세 매뉴얼 + 누적 사고 패턴
 │   ├── dev-prod.md        dev/prod 환경 전략 + secret 정책 + 운영 체크리스트
-│   ├── docker.md          Dockerfile / docker-compose (볼륨·헬스체크·기동·env)
+│   ├── docker.md          Dockerfile / docker-compose (9 서비스 / 볼륨 / 헬스체크 / 기동 순서)
 │   ├── env.md             환경변수 전체 키 카탈로그
+│   ├── openstack.md       OpenStack 분산 staging 배포 진입점 (ADR 0006 + deploy/openstack/README.md)
 │   ├── pipeline.md        E2E 파이프라인 검증 (Vagrant VM)
 │   ├── testing.md         단위·통합 테스트 실행·Fixture·작성 패턴
 │   └── vagrant.md         Vagrant 사용 맥락 / VM 구성 / 프로비저닝
 ├── adr/                   Architecture Decision Records (영구·불변)
 │   ├── README.md          ADR 인덱스
 │   ├── 0001-redis-decoupling.md
-│   └── 0002-task-rpc-piggyback-vs-polling.md
+│   ├── 0002-task-rpc-piggyback-vs-polling.md
+│   ├── 0003-ai-llm-activation.md          AI/LLM 활용 로드맵 (Phase 2~3)
+│   ├── 0004-diagnostic-worker.md          진단 워커·스케줄러·diagnostic_jobs·LLM 토글
+│   ├── 0005-db-schema-management.md       Alembic 단일 진실 + migrate init-container
+│   └── 0006-openstack-staging.md          OpenStack 분산 staging 4 VM 토폴로지
 ├── tradeoffs.md           의식적 설계 선택과 한계 (T1~T11) — ADR 형식 아닌 카탈로그
 └── meetings/              협의·메모 (임시)
 ```

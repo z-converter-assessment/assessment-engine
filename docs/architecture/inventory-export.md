@@ -197,44 +197,12 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
 - 근거: 실제 운영 환경에 NIC 2개 이상 또는 v4+v6 dual stack 있음. 단일 `internal_ip`만 노출하면 손실
 
 ### Schema versioning
-- 결정: envelope에 `schema_version` 필수. v3 현행 (v1/v2 deprecated)
-- 근거: 자동화 도구가 양쪽 형식 모두 처리할 수 있도록 분기 진입점 명시. 양식 진화 시 옛 도구가 silent break 안 됨
+- 결정: envelope에 `schema_version` 필수. 현행 v3. 외부 자동화 도구는 `schema_version == "3"`만 처리.
+- 근거: 양식 진화 시 옛 도구가 silent break 안 되도록 분기 진입점 명시. v1·v2 미지원.
 
-## 6. v2 -> v3 변경 카탈로그
+## 6. 추후 추가 권고 필드 (현재 contract 미수집)
 
-| 항목 | v2 | v3 |
-|------|----|----|
-| envelope `schema_doc` | 없음 | 추가 — 본 문서 경로 (자동화 도구가 매핑 규약 참조) |
-| envelope `engine_id` | `source`로 표기 | 명명 `engine_id`로 명확화 |
-| envelope `assessment_period_days` | 단일 int | `period_window{days, start, end}`로 객체화 — start/end timestamp로 reproducibility |
-| envelope `size_class_guide` | 없음 | 추가 — `recommended_size_class.key` -> 한국어 조치 매핑. 자동화 도구가 별도 참조 없이 바로 변환 |
-| `services[].ports` | 단순 `int[]` | `listeners[]{port, proto, address}`로 확장. listen_ports inventory 매칭 — SG·firewall 자동화 정밀화 |
-| `compute.recommended_size_class` | enum string (`"under_provisioned"` 등) | 객체 `{key, label}` — `label`은 한국어 라벨 (KO i18n) |
-| `storage.iops_p95`/`iops_peak` | 없음 | 추가 — instance type 결정 시 burst 부하 산정 |
-| `storage.throughput_kbps_p95`/`peak` | 없음 | 추가 — 디스크 처리량 sizing |
-| `network.rx_kbps_p95`/`peak`/`tx_kbps_p95`/`peak` | 없음 | 추가 — 네트워크 대역폭 sizing |
-| `storage.throughput_kbps` 명명 | 단일 baseline 명명 | `throughput_kbps_baseline`로 명확화 (baseline/p95/peak 3개 형제 일관) |
-
-호환성 정책: v1·v2 deprecated. 자동화 도구는 `schema_version == "3"`으로 분기. 본 프로젝트는 prod 운영 시작 전이라 옛 버전 보존 코드 제거.
-
-## 6b. v1 -> v2 변경 카탈로그 (역사)
-
-| 항목 | v1 | v2 |
-|------|----|----|
-| envelope `assessment_period_days` | 없음 | 추가 (기본 7) |
-| envelope `generated_at` | 있음 | 명명 `exported_at`으로 통일 (CSP·Terraform 표준 어휘) |
-| `name` | hostname 중복 | 제거 (`hostname`만) |
-| `compute.vcpus` | int | `vcpu_count`로 명명 (#F14 단위 접미사) |
-| `compute.cpu_*_pct` / `mem_*_pct` / `load_15m_max` / `swap_used` | 없음 | 추가 — right-sizing 데이터 (USE Method 산출) |
-| `compute.recommended_size_class` | 없음 | 추가 — `recommendation.py` 결과 노출 |
-| `storage.additional_disks[].mount_hint` | 비표준 명명 | `mount_point` (Terraform/OpenStack 표준) |
-| `network.internal_ip` / `external_ip` (단일 1개) | 첫 IP만 | `addresses[]` 배열 — 멀티 NIC·dual stack 보존 |
-| `services[]` | 없음 | 추가 — category + unit + ports (SG 자동화 입력) |
-| `last_seen_at` | 없음 | 추가 — 신선도 추적 |
-
-## 7. 추후 추가 권고 필드 (현재 contract 미수집)
-
-본 주(2026-05-12) 기준 에이전트 ↔ 엔진 contract는 확정 상태. 다음 필드는 자동화 가치는 분명하나 현재 contract에 없으므로 v2 스키마에 포함하지 않는다. 추후 contract 확장 시 별도 라운드로 도입.
+다음 필드는 자동화 가치 분명하나 현재 agent contract 부재. contract 확장 후 별도 라운드 도입.
 
 | 필드 | 사용처 | 도입 조건 |
 |------|--------|----------|
@@ -242,14 +210,10 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
 | `compute.cpu_model_family` | "Skylake" / "Graviton" 등 generation 매칭 | 에이전트가 `/proc/cpuinfo` family·model 발행 |
 | `storage.io_pattern` | "random" / "sequential" — SSD vs HDD 결정 | sectors_read/written + io_time 활용. 엔진 측 계산 가능 — 별도 라운드 |
 
-엔진 자체 계산 가능한 baseline 필드는 v2 본문(3절)에 이미 통합됨:
-- `storage.iops_baseline` / `storage.throughput_kbps` — `server_disk_io` sectors·ops delta 평균 (2026-05-12 도입)
-- `network.rx_kbps_baseline` / `network.tx_kbps_baseline` — `server_net_io` bytes delta 평균 (2026-05-12 도입)
-
 도입 절차:
 1. 에이전트 의존(`os.arch`, `cpu_model_family`)은 `assessment-agent` contract 확장 합의 + `agent_version` major bump.
-2. 엔진 자체 계산(`io_pattern`)은 본 프로젝트 SQL·service 추가만으로 가능 — 도입 결정 시 별도 작업.
-3. 본 절에서 3절(스키마 본문)로 승격, 6절(v1->v2 변경) 다음에 v2.x 변경 카탈로그 추가, 자동화 도구별 매핑 가이드 갱신.
+2. 엔진 자체 계산(`io_pattern`)은 본 프로젝트 SQL·service 추가만으로 가능 — 별도 결정.
+3. 도입 시 3절(스키마 본문)에 승격 + 본 절에서 제거.
 
 ## 관련 문서
 

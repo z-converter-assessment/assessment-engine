@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 _KST = timezone(timedelta(hours=9))
 
@@ -21,7 +21,7 @@ def kst(dt: datetime | None) -> str:
     if dt is None:
         return "-"
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt.astimezone(_KST).strftime("%Y-%m-%d %H:%M:%S")
 
 

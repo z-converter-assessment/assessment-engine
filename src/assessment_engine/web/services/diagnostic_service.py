@@ -10,7 +10,7 @@
 import hashlib
 import json
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aio_pika
 from aio_pika.abc import AbstractChannel
@@ -216,10 +216,10 @@ def _normalize_anchor(at: datetime | None) -> datetime:
     None이면 now() UTC 분 단위. 명시 시 timezone-aware 후 UTC 변환 + 분 단위.
     """
     if at is None:
-        at = datetime.now(timezone.utc)
+        at = datetime.now(UTC)
     elif at.tzinfo is None:
-        at = at.replace(tzinfo=timezone.utc)
-    return at.astimezone(timezone.utc).replace(second=0, microsecond=0)
+        at = at.replace(tzinfo=UTC)
+    return at.astimezone(UTC).replace(second=0, microsecond=0)
 
 
 def to_panel_payload(rec: DiagnosticJobRecord | None) -> dict | None:

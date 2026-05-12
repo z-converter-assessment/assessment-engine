@@ -50,5 +50,34 @@ line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
-# PyCharm 기본 inspection과 유사: pycodestyle errors(E) + pyflakes(F) + isort(I)
-select = ["E", "F", "I"]
+# E   pycodestyle errors
+# F   pyflakes (undefined name·unused import 등)
+# I   isort
+# B   flake8-bugbear (mutable default arg·broad except·raise from 누락 같은 진짜 버그 catch)
+# UP  pyupgrade (py312 target이면 무료 modernization — `dict|dict` syntax, f-string, walrus 등)
+# SIM flake8-simplify (or-default·dict get·중복 분기 같은 가독성)
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI `Depends()` / `Query()` 등은 default-argument로 호출되는 표준 패턴이라 B008 false positive 발생.
+# 본 호출들을 immutable로 취급해 B008에서 제외 — FastAPI 공식 권장.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Cookie",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Security",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# raw SQL `CASE WHEN ... END` 표현식·`LAG() OVER (PARTITION BY ...)` window function이 한 줄에
+# 자연스러운 의미 단위를 이룸. 줄바꿈하면 가독성 더 떨어져서 본 파일만 E501 line-too-long 예외.
+# 일반 Python 코드의 line-too-long은 그대로 강제.
+"src/assessment_engine/db/repositories/query_repository.py" = ["E501"]
+# 매퍼의 긴 한글 주석·테이블·dict 매핑 한 줄 표현이 line-length 초과. 의미 단위 보존을 위해 본 파일만 예외.
+"src/assessment_engine/web/services/mappers.py" = ["E501"]

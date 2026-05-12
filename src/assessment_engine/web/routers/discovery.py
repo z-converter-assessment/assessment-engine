@@ -65,7 +65,10 @@ async def probe_http(req: ProbeRequest) -> ProbeResponse:
         async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT_S, follow_redirects=False) as client:
             resp = await client.head(url)
         elapsed_ms = int((time.monotonic() - started) * 1000)
-        logger.info("probe success ip={} port={} status={} elapsed_ms={}", req.ip, req.port, resp.status_code, elapsed_ms)
+        logger.info(
+            "probe success ip={} port={} status={} elapsed_ms={}",
+            req.ip, req.port, resp.status_code, elapsed_ms,
+        )
         return ProbeResponse(reachable=True, status_code=resp.status_code, elapsed_ms=elapsed_ms)
     except httpx.ConnectError as e:
         elapsed_ms = int((time.monotonic() - started) * 1000)
@@ -78,4 +81,4 @@ async def probe_http(req: ProbeRequest) -> ProbeResponse:
     except httpx.RequestError as e:
         elapsed_ms = int((time.monotonic() - started) * 1000)
         logger.warning("probe error ip={} port={} err_type={}", req.ip, req.port, type(e).__name__)
-        raise HTTPException(status_code=500, detail="probe failed")
+        raise HTTPException(status_code=500, detail="probe failed") from e

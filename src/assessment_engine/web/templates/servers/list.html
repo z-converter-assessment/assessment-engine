@@ -244,7 +244,7 @@
       <span style="display:inline-flex; align-items:center; gap:6px;">
         <span style="display:inline-block; width:10px; height:10px; background:{{ b.color }}; border-radius:2px;"></span>
         <span>{{ b.label }}</span>
-        <strong style="color:{% if b.count > 0 %}#1e293b{% else %}#cbd5e1{% endif %};">{{ b.count }}</strong>
+        <strong style="color:{{ b.count_color }};">{{ b.count }}</strong>
       </span>
       {% endfor %}
     </div>

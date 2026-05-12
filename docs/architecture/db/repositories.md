@@ -1,6 +1,6 @@
 # Repository 계층
 
-Consumer / Web 양쪽 별도 인터페이스 — `BaseCollectRepository` / `BaseQueryRepository`. 라우터·핸들러는 추상에만 의존, 구체 구현체 import는 composition root(`web/deps.py` / `consumer/main.py`)만.
+Consumer / Web / Diagnostic 워커 — 3개 추상 인터페이스 `BaseCollectRepository` / `BaseQueryRepository` / `BaseDiagnosticRepository` (ADR 0004). 라우터·핸들러·서비스는 추상에만 의존, 구체 구현체 import는 composition root(`web/deps.py` / `consumer/main.py` / `diagnostic/main.py` / `diagnostic/scheduler.py`)만.
 
 ## Collect 계층 — `BaseCollectRepository` (Consumer)
 
@@ -24,17 +24,40 @@ Consumer / Web 양쪽 별도 인터페이스 — `BaseCollectRepository` / `Base
 
 | 메서드 | 설명 |
 |--------|------|
-| `resolve_server_id(public_id)` | UUID → 정수 PK |
-| `list_servers(page, limit, search, is_online)` | 목록 — 11개 컬럼 명시 SELECT (큰 JSONB 제외) |
-| `get_server(server_id)` | full row |
+| `resolve_server_id(public_id)` | 단건 UUID → 정수 PK |
+| `resolve_server_ids(public_ids)` | N건 batch — 단일 SQL (C5 N+1 회피) |
+| `list_server_ids(limit=1000)` | 정수 PK만 fetch (페이로드 절감, T8 패턴) |
+| `list_servers(page, limit, search)` | 목록 — 11개 컬럼 명시 SELECT (큰 JSONB 제외) |
+| `get_server(server_id)` / `get_servers(server_ids)` | 단건 / batch full row |
 | `get_storage(server_id)` | inventory + mount_usage |
 | `get_network(server_id)` | inventory IP + net_io |
 | `get_collection_status(server_id)` | last_metric_at + last_inventory_at |
 | `latest_dashboard(server_id)` | 4 raw DTO (CPU/Mem/Disk/Net delta 계산용) |
-| `metric_snapshots(server_id, cursor, limit)` | 시계열 페이지네이션 |
+| `metric_snapshots(server_id, cursor, limit)` | 시계열 cursor pagination |
 | `metric_chart(server_id, type, dim, range, bucket, agg, end)` | 차트 dispatcher (17 metric_type) |
 | `reboot_events(server_id, start, end)` | server_inventory_history boot_time/agent_started_at 변경 시점 |
 | `report_aggregate(server_ids, period_days, end)` | USE Method 통계 (CPU p95/peak + MEM p95/peak + load_15m max + swap_used) |
+| `report_mount_worst(server_ids, period_days, end)` | mount별 worst usage + fill_rate (days_until_full 산출) |
+| `report_uptime_stats(server_ids, period_days, end)` | 가동률 통계 |
+| `report_disk_io_baseline` / `report_net_io_baseline` | I/O baseline (Export `recommended_size_class` 입력) |
+| `disk_usage_warnings(threshold_pct)` | 사용률 임계 초과 mount (attention 신호) |
+| `metric_gap_warnings(gap_min, recent_h)` | 메트릭 갭(통신 끊김) 후보 |
+| `environment_utilization(period_days, end)` | 대시보드 환경 평균 활용률 도넛 |
+
+## Diagnostic 계층 — `BaseDiagnosticRepository` (ADR 0004)
+
+| 메서드 | 설명 |
+|--------|------|
+| `enqueue(job: DiagnosticJobCreate) -> str \| None` | active partial UNIQUE 충돌 시 None (기존 job 그대로 반환) |
+| `get_active_by_hash(scope, input_hash)` | 더블클릭 방어 lookup — pending/running 활성 job 1건 반환 |
+| `get_latest_succeeded(scope, server_public_id, time_range)` | SSR latest 카드 |
+| `get_latest_by_context(scope, time_range, server_public_id?)` | anchor_at 무관 (JSONB 검색) 최근 결과 |
+| `get_many_latest_by_context_server(public_ids, time_range)` | 보고서 batch fetch (#C5 N+1 회피) |
+| `get_by_id(job_id)` / `get_many_by_ids(job_ids)` | polling 응답 단건/batch |
+| `mark_running(job_id, stage)` / `update_progress_stage` | 워커 stage UPDATE |
+| `mark_succeeded(job_id, result)` / `mark_failed(job_id, error_message)` | 최종 상태 전이 |
+| `list_recent(scope?, limit, offset)` | 진단 이력 페이지 |
+| `delete_retention(older_than_days)` | 스케줄러 retention DELETE |
 
 ### 타입 별칭 (`base_query_repository.py`)
 - `MetricType` Literal — 17개 chart metric

@@ -149,10 +149,12 @@ class CapacityBreakdownEntry:
     label: "스왑" / "CPU" / "메모리" / "CPU/메모리".
     count: 해당 트리거로 분류된 서버 수.
     color: badge_class와 동기화된 시각 색.
+    count_color: 카운트 표시 색 — count>0이면 #1e293b, 0이면 #cbd5e1 (P3 — 템플릿 분기 금지).
     """
     label: str
     count: int
     color: str
+    count_color: str = "#cbd5e1"
 
 
 @dataclass
@@ -479,6 +481,14 @@ class ReportRowItem:
     # 진단 텍스트 — saturation·variance·iowait·disk·swap 종합 자동 진단 (양식 B "판단" 컬럼)
     # mapper.build_diagnosis 결정. 우선순위: 메모리 압박 → 디스크 병목 → CPU saturation → 변동성 → 적정
     diagnosis: str = ""
+
+    # 임계값 분류 색 (P3 — 템플릿 산술·분기 금지. mapper에서 미리 계산)
+    # 모두 #b91c1c (danger) / #92400e (warn) / #94a3b8 (muted) / #1e293b (default) hex 중 하나.
+    saturation_color: str = "#94a3b8"
+    cpu_variance_color: str = "#1e293b"
+    mem_variance_color: str = "#94a3b8"
+    worst_mount_days_color: str = "#64748b"      # days_until_full 표시색 — 30일 이하 시 danger
+    reboot_count_color: str = "#94a3b8"          # 3회 이상 시 danger
 
 
 @dataclass

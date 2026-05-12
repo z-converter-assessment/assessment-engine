@@ -14,7 +14,7 @@
 |----------|------|------|
 | `docs/README.md` | 인덱스 — 어떤 문서를 언제 보는지 길잡이 | 영구·갱신 |
 | `docs/architecture/` | 컴포넌트별 deep dive (모듈 설계·기술 구현) | 영구·갱신 |
-| `docs/operations/` | 운영·환경·배포·검증 (Docker·Vagrant·dev-prod·env·testing·pipeline·alembic) | 영구·갱신 |
+| `docs/operations/` | 운영·환경·배포·검증 (Docker·Vagrant·dev-prod·env·testing·pipeline·alembic·automation-conventions) | 영구·갱신 |
 | `docs/adr/` | Architecture Decision Records — "왜 이렇게 결정했나" + 트레이드오프. ADR은 정정만, 덮어쓰기 금지 | 영구·불변 |
 
 `docs/references/` · `docs/meetings/` 등 임시 디렉토리는 도입 시점에 본 표에 등록·도입 사유 명시 필수. 코드·영구 문서에서 인용 금지 — 본 디렉토리 자체가 사라져도 작업이 정상 진행돼야 한다. 정책·결정이 영구화되면 다른 영구 문서로 승격 후 임시 파일 삭제.
@@ -26,21 +26,26 @@
 | `docs/operations/dev-prod.md` | dev/prod 환경 전략 + secret 정책 + 운영 체크리스트 |
 | `docs/operations/alembic.md` | DB schema 마이그레이션 (Alembic — 모든 환경 단일 진실, migrate 컨테이너 자동 적용) |
 | `docs/operations/testing.md` | 단위·통합 테스트 실행·설정·Fixture·작성 패턴 |
+| `docs/operations/automation-conventions.md` | 자동화 변환 책임 분담 상세 매뉴얼 (변환 유형별 추가 체크 + 누적 사고 패턴 — #F9 매뉴얼) |
 | `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T11) |
 | `docs/architecture/agent.md` | 에이전트 메시지 스키마 / 포트 수집 / 디스크 필터링 |
-| `docs/architecture/consumer.md` | schemas / handler / main / 멱등성 / 재시도 |
+| `docs/architecture/consumer.md` | schemas / handler / main / 멱등성 / 재시도 / 부가 시그널 |
+| `docs/architecture/diagnostic.md` | AI 진단 워커·스케줄러·LLM 토글·diagnostic_jobs·운영 노트 (ADR 0004 실행 인프라) |
 | `docs/architecture/db/` | models / dtos / repositories / timescaledb (4분할) |
 | `docs/architecture/redis.md` | 키 설계 / TTL / PUB/SUB / 멱등성 / 캐시 무효화 / mget |
 | `docs/architecture/rabbitmq.md` | vhost·권한 모델 / 토폴로지 / dev/prod 분기 / prod 전환 체크리스트 |
 | `docs/architecture/web/` | layering / routers / services / view-models / static-assets (5분할) |
+| `docs/architecture/deliverables.md` | 서버 발견 / Install task / JSON Export / 보고서 양식 A/B 워크플로우 통합 |
 | `docs/architecture/inventory-export.md` | 정제 Inventory JSON Export 스키마·정제 원칙·자동화 도구 매핑 (v3) |
 | `docs/operations/docker.md` | Dockerfile / docker-compose (볼륨·헬스체크·기동 순서·env) |
+| `docs/operations/openstack.md` | OpenStack 분산 staging 배포 진입점 (ADR 0006 + deploy/openstack/README.md 단일 진실 포인터) |
 | `docs/operations/vagrant.md` | Vagrant 사용 맥락 / VM 구성 / 프로비저닝 흐름 |
 | `docs/adr/0001-redis-decoupling.md` | Redis fail-open 전환 의사결정 + 옵션 비교 + 구현 결과 |
 | `docs/adr/0002-task-rpc-piggyback-vs-polling.md` | Task 명령 RPC piggyback 채택 사유 |
 | `docs/adr/0003-ai-llm-activation.md` | AI / LLM 활용 로드맵 (Phase 2~3 — 분석·추천·비용·리포트·RAG) |
 | `docs/adr/0004-diagnostic-worker.md` | AI 진단 워커 아키텍처 (Phase 2 실행 인프라 — 워커·스케줄러·diagnostic_jobs·LLM 토글) |
 | `docs/adr/0005-db-schema-management.md` | DB Schema 관리 표준화 — Alembic 단일 진실, migrate init-container 패턴, alembic check CI |
+| `docs/adr/0006-openstack-staging.md` | OpenStack 분산 staging 배포 — 4 VM 토폴로지(bastion + DB + MW + 앱), `deploy/openstack/` 디렉토리, Terraform + Ansible + 분산 compose |
 
 ---
 
@@ -52,17 +57,16 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 
 ## A2. 컨테이너 구성
 
-5개 서비스(postgres / rabbitmq / redis / web / consumer)로 구성. 이미지·역할·command 분기·빌드 캐시 전략은 `docs/operations/docker.md`.
+서비스 카탈로그(dev 9개 / prod 8개)·이미지·command 분기·빌드 캐시 전략·기동 순서: `docs/operations/docker.md`. OpenStack staging 분산 배포(4 VM — bastion + engine-db + engine-mw + engine-app): ADR 0006 단일 진실.
 
-운영 결정:
-- `migrate` 서비스 — postgres healthy 후 `alembic upgrade head` 1회 실행하고 종료 (restart "no"). 모든 앱 서비스(web/consumer/diagnostic-worker/diagnostic-scheduler)는 `depends_on: migrate (service_completed_successfully)`로 그 뒤에 기동 — schema 준비 의무 명시. (#C4)
-- `src/assessment_engine/db/session.py` · `src/assessment_engine/db/redis.py`는 `web_settings`만 사용. `ConsumerSettings`는 `WebSettings` 상속 + RabbitMQ 설정 추가. docker-compose의 `POSTGRES_HOST`/`REDIS_HOST`/`RABBITMQ_HOST` env 오버라이드로 컨테이너 내부 host 결정.
-- `src/assessment_engine/scheduler/` 코드는 있으나 docker-compose 미등록 + `run_diagnostics()` NotImplementedError. 미사용. Phase 2 진단 워커·스케줄러(ADR 0004) 구현 시 재평가 (재사용 또는 폐기).
-- Phase 2 결정 박제: AI 진단 워커(`diagnostic-worker`) + 진단 스케줄러(`diagnostic-scheduler`) 신규 docker-compose 서비스 추가 예정 (ADR 0004). 코드 구현 시 본 절 서비스 카운트·역할·기동 의존성 정식 갱신.
+본 절 결정:
+- `migrate` 서비스 — postgres healthy 후 `alembic upgrade head` 1회 실행하고 종료 (restart "no"). 모든 앱 서비스(web/consumer/diagnostic-worker/diagnostic-scheduler)는 `depends_on: migrate (service_completed_successfully)`로 그 뒤에 기동 — schema 준비 의무 명시. (#C4, ADR 0005)
+- `src/assessment_engine/db/session.py` · `src/assessment_engine/db/redis.py`는 `web_settings`만 사용. `ConsumerSettings`는 `WebSettings` 상속 + RabbitMQ 설정 추가. docker-compose `environment:` 오버라이드로 컨테이너 내부 host 결정.
+- 진단 워커·스케줄러는 `src/assessment_engine/diagnostic/` 모듈 (ADR 0004).
 
 Compose 파일 분리 (`docs/operations/dev-prod.md` #6):
 - `docker-compose.yml` — prod-safe baseline (password·외부 포트 노출 없음)
-- `docker-compose.override.yml` — dev 자동 적용 (.env 평문, 포트 노출, 코드 마운트, APP_ENV=dev)
+- `docker-compose.override.yml` — dev 자동 적용 (.env 평문, 포트 노출, 코드 마운트, APP_ENV=dev, pgadmin)
 - `docker-compose.prod.yml` — prod 명시 호출 (Docker secrets, APP_ENV=prod)
 
 ## A3. 환경변수
@@ -189,7 +193,7 @@ fail-open 핵심 결과(다른 계층이 의존):
 
 ## C4. 스키마 변경 — Alembic 단일 진실
 
-dev·staging·prod·테스트 모든 환경이 Alembic 마이그레이션 1개 진실로 schema를 관리. docker-compose의 `migrate` 컨테이너가 `alembic upgrade head` 자동 적용 후 종료 → web/consumer/worker/scheduler는 `depends_on: service_completed_successfully`로 그 다음 기동. lifespan의 `create_all` 자동 분기는 제거됨 (drift 위험 해소).
+dev·staging·prod·테스트 모든 환경이 Alembic 마이그레이션 1개 진실로 schema를 관리. docker-compose의 `migrate` 컨테이너가 `alembic upgrade head` 자동 적용 후 종료 → web/consumer/worker/scheduler는 `depends_on: service_completed_successfully`로 그 다음 기동.
 
 본 절 결정/의무 (#C1 키·제약, `docs/operations/alembic.md` 절차의 강제 채널):
 - 모델 변경 시 동시 갱신 의무: (1) `src/assessment_engine/db/models/*.py` (2) `migrations/versions/*.py` 신규 revision (3) `alembic check` 통과 — drift 0건. 한 곳만 수정 후 PR 금지. dev에서도 마이그레이션 없이는 schema가 갱신되지 않는다.
@@ -199,6 +203,13 @@ dev·staging·prod·테스트 모든 환경이 Alembic 마이그레이션 1개 �
 - 시계열 신규 테이블: 마이그레이션 파일에 `op.execute("SELECT create_hypertable('table', 'collected_at', if_not_exists => true)")` 보강 + 자연키 UNIQUE(#C1) + `boot_time`/`agent_started_at` 컬럼(#B1) 동시 검토.
 - CI 강제 채널: `.github/workflows/alembic-check.yml`이 PR 단계에서 `alembic check` 실행. 모델 변경 + 마이그레이션 누락 시 PR 차단.
 - 테스트도 동일 경로: `tests/conftest.py`의 testcontainers fixture가 `alembic upgrade head` subprocess 실행 (create_all 안 씀).
+
+Backward compatibility 의무 (prod 무중단 deploy 향 — ADR 0006 staging 이후 단계):
+- add column: NULL 허용 또는 `server_default` 의무. NOT NULL 직접 추가 금지 — 기존 row INSERT 시 실패 + 옛 컨테이너가 새 컬럼 모르고 INSERT 시 실패.
+- drop column: 새 코드가 read·write 안 함을 한 release에서 확인 → 다음 release에서 drop. 단일 release 안 add code change + drop column 금지.
+- rename column: add new column + dual-write (옛·새 둘 다 write) → backfill SQL → 옛 code 제거 → 다음 release drop old. 단일 release rename 금지.
+- 비-trivial 데이터 변형: 마이그레이션 안 `op.execute("UPDATE ...")` 큰 트랜잭션 금지 — 테이블 lock으로 prod traffic block 가능. 별도 backfill 스크립트 + 배치 처리.
+- 본 프로젝트 현재 dev `down -v` 흔하고 prod도 ADR 0005 init container 패턴이지만, 컨테이너 rolling restart 도입 시(예: blue-green) 옛 컨테이너가 잠시 옛 schema 가정으로 동작. 본 정책 의무.
 
 상세 명령·워크플로우: `docs/operations/alembic.md`.
 
@@ -244,9 +255,7 @@ inventory·metrics 저장 성공 시 routing key별 Redis 후처리는 모두 `s
 
 후처리 시퀀스(inventory: online SET + cache DELETE / metrics: online SET + cache DELETE + PUBLISH metrics.events + 에이전트 재시작 추적): `docs/architecture/consumer.md` "handler.py" 절.
 
-부가 시그널 (메시지 처리 흐름 외 운영 가시성):
-- `_log_time_invariants`: 모든 핸들러 멱등성 체크 직후. `boot_time > agent_started_at` 또는 `agent_started_at > collected_at` 위반 시 warning. 시계 동기화·systemd 시작 순서 문제 조기 감지. DLQ 미사용 — 데이터 reject 의미 없음.
-- `_track_agent_restart`: metrics 핸들러 후처리 끝. 직전 `agent_started_at`(`last_agent_start:{sid}`)과 비교 → 변경 시 1h 슬라이딩 윈도우 카운터(`agent_restarts:{sid}`) INCR. `agent_restart_alert_threshold` 도달 시 warning (운영자가 "에이전트 crash loop"으로 인지). fail-open — Redis 장애 시 silent skip.
+부가 시그널(`_log_time_invariants`·`_track_agent_restart`): 메시지 처리 흐름 외 운영 가시성. 모두 fail-open — Redis 장애 시 silent skip, 처리 ack 영향 없음. 시그널 발생 조건·임계값·동작 상세: `docs/architecture/consumer.md` "부가 시그널" 절. 로그 빈도 제어 의무는 #F11.
 
 ## D4. 실패 처리 매트릭스
 
@@ -294,20 +303,7 @@ inventory·metrics 저장 성공 시 routing key별 Redis 후처리는 모두 `s
 - 비즈니스 임계값 분류 — 색상/danger 분류는 서버 ViewModel 또는 차트 옵션 명명 상수에서.
 - API 응답을 가공해 다시 통계 계산(평균·합계). 서버 `agg=avg|max|p95` 파라미터로 요청해 raw 시계열을 받음.
 
-의무 규약 (모두 적용):
-
-| 규약 | 내용 |
-|------|------|
-| (a) sequence counter | 모든 비동기 차트 로더에 `let xxxSeq=0; const seq=++xxxSeq; ... if (seq !== xxxSeq) return;`. range 토글 / anchor 변경 시 in-flight 응답 stale 처리 |
-| (b) capture-before-await | 전역 state(range·anchor)는 `await` 직전 로컬 변수로 캡처. 렌더 함수도 전역 참조 금지·파라미터로 받음 |
-| (c) 응답 형식 방어 | `Array.isArray(rows)` 검사 후 `.map()`. 서버 5xx가 JSON 오브젝트를 반환할 수 있음 (`safeArray()` 사용 권장) |
-| (d) 404 분기 | `/metrics/latest` 등 데이터 부재 응답(404)은 try/catch 이전에 `res.status === 404`로 분기. 그렇지 않으면 `r.json()` 파싱 실패가 "불러오기 실패"로 오인됨. fetchChart 같은 헬퍼는 404를 빈 배열로 정규화해 호출자가 status 분기 안 해도 되게 |
-| (e) suggestedMax 명명 상수 | Y축 기본 기준선은 스크립트 상단 `const PERF_IOPS_SUGGESTED_MAX = 200;` 형식으로 분리. 임계값 색상도 `USAGE_DANGER_PCT`/`COLOR_DANGER` 등 명명 상수 |
-
-적용 현황 (Phase 5 검증):
-- cpu/memory/storage/network/performance.html 5개 모두 (a)~(e) 적용 완료.
-- 특히 performance.html은 11개 차트 로더가 `(seq, capturedRange, capturedAnchor)` 시그니처 + `loadAllCharts`가 최상위에서 캡처해 모든 로더에 전달 — race condition 방지.
-- `fetchChart`가 404·!ok를 빈 배열로 정규화해 각 로더가 status 분기 안 해도 됨.
+비동기 차트 로더 5 의무 규약 — (a) sequence counter / (b) capture-before-await / (c) `Array.isArray` 응답 방어 / (d) 404 분기 / (e) suggestedMax·임계 명명 상수. 표·시그니처 표준·적용 현황은 `docs/architecture/web/static-assets.md` "P4 차트 JS 5 의무 규약" 절 단일 진실. 신규 차트 로더 추가 시 5건 모두 적용 의무.
 
 ### P5. 동일 표현 데이터는 서버에서 한 번만 (P2의 따름)
 - ViewModel과 JSON API 응답에 같은 파생 필드를 중복 계산하지 않음.
@@ -321,6 +317,12 @@ inventory·metrics 저장 성공 시 routing key별 Redis 후처리는 모두 `s
 - inventory upsert·metrics 저장·server_id 조회 모두 `machine_id` 기준. 미등록 metrics는 drop.
 - `last_seen_at`은 `ServerDetail`(단일 조회)에만 포함. `ServerSummary`(목록)는 Redis `online:{id}` TTL로 표시.
 - `CollectionStatusItem`은 `last_metric_at` + `last_inventory_at` 별도 필드.
+
+Pagination 정책:
+- 목록 endpoint(`list_servers` 등 정적 row): page 기반 — `page=1`, `limit=20` (max 100). 라우터 Query Pydantic 검증.
+- 시계열 endpoint(`metric_snapshots` 등): cursor 기반 — `cursor: datetime | None` + `limit`. 시간 역순 스크롤. page 번호 의미 없음 (계속 새 데이터 들어옴).
+- 응답 envelope에 `total_count` / `has_more` 미포함 — `SELECT COUNT(*)` 별도 쿼리 비용 + UX는 빈 결과로 자연 종료 신호.
+- 신규 목록 endpoint 추가 시 위 두 패턴 중 하나 선택 — 정적 row면 page, 시간 흐름이면 cursor.
 
 다이어그램 / 라우터 모듈 표 / SSR 페이지 표 / JSON API 표: `docs/architecture/web/layering.md` + `docs/architecture/web/routers.md`.
 
@@ -472,9 +474,7 @@ ruff 위반(E501 line-too-long · F841 unused · I001 import 정렬 등)은 hook
 | Composition Root | web=`src/assessment_engine/web/deps.py`, consumer=`src/assessment_engine/consumer/main.py` |
 | 새 Repository 추가 | `src/assessment_engine/db/repositories/base_*.py` 추상 우선 → `src/assessment_engine/db/repositories/*.py` 구현 → composition root에서 주입 |
 
-현재 적용:
-- `QueryService(repo: BaseQueryRepository, redis: Redis)` — `src/assessment_engine/web/deps.get_service`가 `QueryRepository(db)` 주입.
-- `make_*_handler(session_factory, repo_factory: Callable[[AsyncSession], BaseCollectRepository], redis)` — `src/assessment_engine/consumer/main`이 `CollectRepository`를 팩토리로 주입.
+추상 인터페이스 카탈로그: `BaseQueryRepository` (web) / `BaseCollectRepository` (consumer) / `BaseDiagnosticRepository` (워커·스케줄러·web, ADR 0004). 모든 service·handler는 추상 + factory만 의존.
 
 금지:
 - Service/Handler 안에서 `from db.repositories.collect_repository import CollectRepository` 같은 구체 import.
@@ -517,25 +517,9 @@ Hook 강제 영역은 메인이 또 grep으로 확인하지 않는다 (중복). 
 - 명시 요청 없이 pytest 실행하거나 "테스트 통과 확인했음"을 검증 결과로 보고.
 - Hook 강제 영역(F1 future annotations) 메인이 또 확인 — 중복.
 
-### 변환 유형별 추가 체크
+### 변환 유형별 추가 체크 + 누적 사고 패턴 (반면교사)
 
-| 유형 | 추가 검증 |
-|------|---------|
-| sed / Edit `replace_all` | 들여쓰기 무관 패턴 (`^[[:space:]]*` 사용 여부), 줄 시작·끝 스코프, 문자열 리터럴 안까지 영향 위치 grep |
-| 디렉토리 mv | `from X` import (들여쓰기 포함), `import X` (단순), 문자열 형태 모듈 경로 (`"web.main:app"`, target=`"X.Y"` 등), 동적 import (`importlib.import_module`) 모두 grep |
-| DTO·모델 타입 변경 | mapper / cache serializer / 템플릿 / inline JS / view_models 체인 — 한 곳 누락 시 cache 역직렬화 또는 attribute access 깨짐 |
-| 동시성 코드 (consumer / 핸들러) | placeholder는 `ON CONFLICT DO NOTHING` 의무 (`DO UPDATE`는 진짜 데이터에만). race 시나리오 명시 검증 |
-| Frontend JS | 외부 `.js` 파일에서 작업 (inline 신규 금지). 변환 후 `node --check` + 사용자 IDE에서 경고 0건 |
-
-### 누적 사고 패턴 (반면교사)
-
-- sed `^from` 패턴이 함수 안 들여쓰기 import 놓침 → `^[[:space:]]*from` 또는 별도 grep 라운드.
-- sed가 함수-local 변수(예: `globalRange→capturedRange`)를 함수 외부까지 변환 → awk로 함수 경계 마킹 후 사용 위치 검증.
-- 문자열 형태 모듈 경로 (`uvicorn.run("web.main:app")`) 잔존 → import 변환 후 `grep '"[a-z_.]*:'` 별도 라운드.
-- placeholder upsert(`ON CONFLICT DO UPDATE`)가 진짜 inventory 덮어쓰는 race → placeholder 전용 메서드는 `ON CONFLICT DO NOTHING` + 충돌 시 다시 find.
-- inline JS 변경은 도구 적용 어려움 → 외부 `.js`로 옮긴 후 변경.
-
-누락 시 사용자 회귀 사고 발견의 책임은 검증 누락에 있음. 같은 패턴 재발 시 본 절 "누적 사고 패턴"에 추가하고 검증 절차에 누락된 단계 보강.
+변환 유형별 체크리스트(sed / 디렉토리 mv / DTO 타입 변경 / 동시성 코드 / Frontend JS)와 과거 사고 패턴 5건은 `docs/operations/automation-conventions.md` 단일 진실. 본 절은 채널 분담·자가 검증 의무·Must Not 결정만 담는다. 같은 패턴 재발 시 본 절 채널 분담은 그대로 두고 automation-conventions.md "누적 사고 패턴"에 사례 추가.
 
 ## F10. 에러 처리·실패 모델
 
@@ -579,6 +563,11 @@ Hook 강제 영역은 메인이 또 grep으로 확인하지 않는다 (중복). 
 - 시그널 로그(`_log_time_invariants`·`_track_agent_restart`)는 서버별 쿨다운 또는 슬라이딩 윈도우 카운터 의무 — 동일 시그널 매 메시지 발생 시 로그 스팸으로 진짜 시그널 매몰. 상세 시그널 동작: `docs/architecture/consumer.md` "부가 시그널" 절.
 - 예외 로깅: stdlib `logger.exception()`·loguru `logger.exception()` 모두 except 블록 안에서만 (자동 traceback 캡처). 두 번째 인자에 예외 객체 e 전달 시 traceback 중복 가능 — 메시지 format 인자만 사용. 일반 ERROR는 `logger.error("...", extra={...})` (stdlib) 또는 `logger.bind(...).error(...)` (loguru).
 - 새 시그널 도입 시 (a) 레벨 결정 (b) 빈도 제어 (c) 운영자가 어떤 행동을 해야 하는지 — 셋 다 명시.
+
+Request/Correlation ID — 분산 trace (정석 미적용, 도입 트리거 명시):
+- 정석 패턴: HTTP 요청 진입 시 `X-Request-ID` 헤더 read 또는 신규 UUID 생성 → `contextvars`로 보관 → 모든 로그에 자동 박힘 (loguru `logger.contextualize(request_id=...)`). MQ 메시지는 `message.message_id`를 같은 contextvars로 보관해 같은 흐름.
+- 본 프로젝트 현재 미적용 — HTTP 측 `X-Request-ID` 없음, MQ `message_id`는 멱등성 키로만 활용. 로그는 식별자(machine_id·server_id)별 grep으로 trace.
+- 도입 트리거: (1) prod 운영에서 요청 trace 어려움 발생, (2) 분산 trace (OpenTelemetry) 도입. 두 시점이면 별도 ADR + middleware 추가 + loguru contextualize 패턴 일관화. middleware 위치는 `web/main.py` lifespan 뒤.
 
 ## F12. 시크릿·PII 노출 금지
 
@@ -639,3 +628,56 @@ Hook 강제 영역은 메인이 또 grep으로 확인하지 않는다 (중복). 
 - 인쇄/Export 등 보고서 형태 산출물은 윈도우를 envelope·표제에 명시 — 자동화 도구가 reproducibility 확보. JSON Export `period_window{days, start, end}` 의무 필드 (#B6 같은 계약 진화 정책).
 
 신규 윈도우·옵션 추가 시 F13 변경 영향도 체크리스트 (1) recommendation 상수 (2) Literal·dispatch table (3) JS chart-utils (4) UI 토글 (5) Export envelope 동시 갱신.
+
+## F16. Disposability — Graceful shutdown (12-factor IX)
+
+원칙: 컨테이너는 언제든 SIGTERM으로 종료될 수 있다 (Docker stop·운영자 재기동·OpenStack VM evacuation·OOM kill). 종료 시 in-flight 작업은 손실 0이어야 하고, 다음 기동 시 stale 상태가 남지 않아야 한다.
+
+본 절 결정/의무:
+- web (`__main__.py`): uvicorn `timeout_graceful_shutdown=3s` 명시. SIGTERM 후 진행 중 HTTP 요청 완료까지 대기 → exit. 3s 초과 시 강제 종료. SSE 연결은 client가 reconnect.
+- consumer / diagnostic-worker (aio-pika): `async with message.process(requeue=False)` 컨텍스트가 본질적 보장. 컨텍스트 안 raise → broker가 NACK + DLQ 라우팅, 정상 exit → ACK. 즉 메시지 손실 0이 컨텍스트 매니저 의무.
+- diagnostic-scheduler (croniter loop): cron 발화 사이 SIGTERM은 즉시 안전 종료. publish 중 SIGTERM은 broker 측 transaction 보장 (`message.confirm()` 또는 aio-pika `connect_robust`).
+- diagnostic-worker 진행 중 job (`status='running'`): SIGTERM 시 DB는 `'running'`으로 남는다. 다음 기동 시 재처리 정책 — 운영자가 `worker_job_timeout_seconds`(기본 300s) 초과한 stale `'running'`을 수동 `'failed'` UPDATE 또는 timeout 기반 자동 정리는 후속 결정 (현재 미구현). prod 도입 전 ADR 0004 정정 또는 별도 ADR 의무.
+
+금지:
+- `signal.signal(SIGTERM, ...)` 직접 핸들러 — uvicorn / asyncio가 자체 처리. 중복 핸들러는 종료 race 유발.
+- `os._exit()` 호출 — graceful shutdown 우회. 메시지 in-flight 손실 위험.
+- `message.process()` 컨텍스트 밖에서 비동기 작업 — 컨텍스트 종료 후 진행 중 작업은 ACK·NACK 둘 다 안 됨.
+
+상세 시그널 처리는 `docs/architecture/consumer.md`·`docs/architecture/diagnostic.md` "Disposability" 절.
+
+## F17. API versioning
+
+원칙: 외부 클라이언트(자동화 도구·CLI·SDK)가 의존할 수 있는 endpoint는 URL prefix versioning. breaking change는 별도 버전 분기, 기존 버전은 deprecated 기간 후 제거.
+
+본 절 결정/의무:
+- URL prefix 통일 — `/api/v1/...`. 라우터 `APIRouter(prefix="/api/v1/...")` 명시. 신규 API 도입 시 같은 prefix.
+- SSR endpoint (`/servers/...`)는 versioning 없음 — 내부 UI 전용. JSON 응답 안 함, 템플릿만.
+- agent 계약 endpoint(`/zconverter.tar.gz` 등)는 versioning 없음 — agent.md의 hardcoded path 계약이 우선이고, 에이전트는 자체 `agent_version`으로 별도 진화 채널 (#B4). path 변경 시 양쪽 동시 갱신 + agent_version major bump.
+- backward-compatible 변경 (응답 필드 추가, 옵셔널 query param 추가, 새 endpoint)은 `/v1/` 유지.
+- breaking change (응답 필드 제거·의미 변경·required field 추가·HTTP 메서드 변경) 시:
+  1. `/api/v2/...` 신규 분기 + 기존 `/api/v1/...` 유지
+  2. `/v1/` 응답 헤더 `Deprecation: true`, `Sunset: <ISO 8601 date>` 6개월 후 제거 예정 표시 (RFC 8594)
+  3. 6개월 후 `/v1/` 라우터 제거
+- 단일 API 안 `/v1/...`과 `/v2/...`이 공존할 때 service 계층은 가능한 한 단일 진실 — 라우터에서 v1 응답 변환 layer만 분기.
+
+상세 endpoint 카탈로그: `docs/architecture/web/routers.md`.
+
+## F18. Health check
+
+원칙: 컨테이너 healthcheck는 단일 책임 — "프로세스가 살아있고 HTTP 요청 받을 수 있나"만 검증. DB·Redis·MQ 연결 검사는 별도 — 본 검사가 의존 외부 장애로 unhealthy 표시되면 자동 재기동 폭주.
+
+본 절 결정/의무:
+- `/health` — shallow check. 단순 `{"status": "ok"}` JSON 반환. 외부 의존 검사 안 함.
+- docker-compose `healthcheck`는 `/health` 단일 — 결과로 `depends_on: service_healthy` 결정.
+- 외부 의존(DB·Redis·MQ)이 죽어도 web 프로세스는 healthy 유지. 개별 요청에서 fail-fast로 5xx 반환 (#F10 fail-close DB).
+- Kubernetes 마이그레이션 시 분리 검토:
+  - `/livez` — process alive (shallow, 본 `/health`와 동일)
+  - `/readyz` — DB·MQ ready (deep, traffic 받을 준비)
+  - 본 프로젝트 현재 docker-compose라 분리 안 함 (의무 0). 도입 시 별도 ADR.
+
+금지:
+- `/health`에 DB 쿼리·Redis ping·MQ connect 추가 — 외부 장애 시 컨테이너 재기동 폭주 사고.
+- start_period 없이 lifespan이 긴 컨테이너 healthcheck — 초기화 중 retries 소진. 현재 `web`은 `start_period: 10s` 명시.
+
+---

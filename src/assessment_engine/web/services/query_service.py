@@ -1,6 +1,7 @@
 import json
-from datetime import datetime, timedelta, timezone
-from typing import AsyncIterator, Literal
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
@@ -16,18 +17,14 @@ from assessment_engine.db.repositories.base_query_repository import (
     TimeRange,
 )
 from assessment_engine.db.repositories.outbound import InventoryExportEntry, RebootEvent
-from assessment_engine.web.services.device_filters import is_lvm_disk, is_partition, is_physical_disk, is_virtual_mount
-
-# disk metric_type에서만 의미를 갖는 service 레벨 분기. 라우터에서 Literal로 검증 (F3 단일 경로).
-DeviceCategory = Literal["phys", "logical"]
-
+from assessment_engine.web.services import recommendation
 from assessment_engine.web.services.cache_serializer import (
     dashboard_from_json,
     dashboard_to_json,
     server_detail_from_json,
     server_detail_to_json,
 )
-from assessment_engine.web.services import recommendation
+from assessment_engine.web.services.device_filters import is_lvm_disk, is_partition, is_physical_disk, is_virtual_mount
 from assessment_engine.web.services.mappers import (
     _DONUT_SEGMENT_FROM_REC,
     build_capacity_breakdown,
@@ -70,6 +67,9 @@ from assessment_engine.web.view_models import (
 )
 
 _DISK_METRIC_TYPES = frozenset({"disk.read_iops", "disk.write_iops"})
+
+# disk metric_type에서만 의미를 갖는 service 레벨 분기. 라우터에서 Literal로 검증 (F3 단일 경로).
+DeviceCategory = Literal["phys", "logical"]
 
 
 def _filter_disk_category(dtos: list, category: DeviceCategory) -> list:
@@ -125,20 +125,21 @@ class QueryService:
         # 14일 USE Method 분류 — 페이지 서버만 별도 SQL 1회. 보고서·right-sizing과 동일 윈도우.
         page_server_ids = [dto.id for dto in dtos]
         raws_period = await self.repo.report_aggregate(
-            page_server_ids, period_days=recommendation.WINDOW_DAYS, end=datetime.now(timezone.utc),
+            page_server_ids, period_days=recommendation.WINDOW_DAYS, end=datetime.now(UTC),
         )
         raws_by_id: dict[int, object] = {r.server_id: r for r in raws_period}
 
         items: list[ServerListItem] = []
         if online_flags is None:
             # Redis 장애 fallback: last_seen_at 기반 판정 (TTL 임계와 동일)
-            threshold = datetime.now(timezone.utc) - timedelta(seconds=web_settings.redis_ttl_online)
+            threshold = datetime.now(UTC) - timedelta(seconds=web_settings.redis_ttl_online)
             for dto in dtos:
                 item = to_server_list_item(dto, raws_by_id.get(dto.id))
                 item.is_online = dto.last_seen_at is not None and dto.last_seen_at > threshold
                 items.append(item)
         else:
-            for dto, flag in zip(dtos, online_flags):
+            # dtos와 online_flags는 동일 길이 보장 — mget이 키 개수만큼 반환.
+            for dto, flag in zip(dtos, online_flags, strict=True):
                 item = to_server_list_item(dto, raws_by_id.get(dto.id))
                 item.is_online = flag is not None
                 items.append(item)
@@ -236,7 +237,7 @@ class QueryService:
         """
         disk_raws = await self.repo.disk_usage_warnings(disk_threshold_pct, limit_each)
         gap_raws = await self.repo.metric_gap_warnings(gap_minutes, gap_recent_hours, limit_each)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # 평가 기간 신호 — 14일 period 전체 서버 대상 (보고서·right-sizing 윈도우와 동일)
         server_ids = await self.repo.list_server_ids()
@@ -246,7 +247,9 @@ class QueryService:
         raws_period = []
         if server_ids:
             raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
-            mount_worst = await self.repo.report_mount_worst(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
+            mount_worst = await self.repo.report_mount_worst(
+                server_ids, period_days=recommendation.WINDOW_DAYS, end=now,
+            )
             for raw in raws_period:
                 rec = recommendation.classify(recommendation.ResourceStats(
                     cpu_p95_pct=raw.cpu_p95_pct, cpu_peak_pct=raw.cpu_peak_pct,
@@ -276,7 +279,8 @@ class QueryService:
                 threshold_n = web_settings.agent_restart_alert_threshold
                 # raws_period에 hostname·public_id 있어 zip 가능
                 raws_by_id = {r.server_id: r for r in raws_period}
-                for sid, count_str in zip(server_ids, counts):
+                # server_ids와 counts는 동일 길이 보장 — mget이 키 개수만큼 반환.
+                for sid, count_str in zip(server_ids, counts, strict=True):
                     if count_str is None:
                         continue
                     try:
@@ -322,7 +326,7 @@ class QueryService:
         util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS)
 
         # 프로비저닝 분포 — 14일 윈도우 USE Method 분류 후 도넛 3 카테고리 카운트
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         risk_counts: dict[str, int] = {"under": 0, "over": 0, "normal": 0}
         raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
         for raw in raws_period:
@@ -335,7 +339,7 @@ class QueryService:
 
         online_keys = [web_settings.redis_key_online.format(d.id) for d in details]
         flags = await safe_mget(self.redis, online_keys)
-        threshold = datetime.now(timezone.utc) - timedelta(seconds=web_settings.redis_ttl_online)
+        threshold = datetime.now(UTC) - timedelta(seconds=web_settings.redis_ttl_online)
         online_count = 0
         for i, d in enumerate(details):
             if flags is None:
@@ -356,7 +360,7 @@ class QueryService:
         (role/recommendation/badge_class/os_display) 채움. KPI도 service 책임.
         is_online은 Redis mget 일괄 (N+1 회피, fail-open 시 last_seen_at fallback).
         """
-        end_dt = end or datetime.now(timezone.utc)
+        end_dt = end or datetime.now(UTC)
         # 5개 SQL 단일 round-trip씩. 결과 dict는 server_id 키로 zip.
         raws = await self.repo.report_aggregate(server_ids, period_days, end_dt)
         mount_worst = await self.repo.report_mount_worst(server_ids, period_days, end_dt)
@@ -387,10 +391,11 @@ class QueryService:
 
         items: list[ReportRowItem] = []
         for i, raw in enumerate(raws):
-            if flags is None:
-                online = bool(raw.last_seen_at and raw.last_seen_at > threshold)
-            else:
-                online = flags[i] is not None
+            online = (
+                bool(raw.last_seen_at and raw.last_seen_at > threshold)
+                if flags is None
+                else flags[i] is not None
+            )
             items.append(to_report_row_item(raw, online, end_dt))
 
         return ReportSummary(
@@ -421,7 +426,7 @@ class QueryService:
         C5: `get_servers` + `report_aggregate` 단일 SQL 각 1회 — 입력 server_ids 순서 보존.
         스키마·정제 원칙·사용처: docs/architecture/inventory-export.md.
         """
-        end_dt = datetime.now(timezone.utc)
+        end_dt = datetime.now(UTC)
         details = await self.repo.get_servers(server_ids)
         stats_rows = await self.repo.report_aggregate(server_ids, period_days, end_dt)
         disk_io = await self.repo.report_disk_io_baseline(server_ids, period_days, end_dt)
@@ -456,7 +461,7 @@ class QueryService:
         outbound DTO 그대로 반환 (raw 그대로 — P1). 별도 ViewModel 변환 없음 — 파생 필드
         없고 datetime / Literal kind 그대로 JSON 직렬화 가능 (cache_serializer._json_default).
         """
-        end_dt = end or datetime.now(timezone.utc)
+        end_dt = end or datetime.now(UTC)
         start = end_dt - TIME_RANGE_TD[time_range]
         return await self.repo.reboot_events(server_id, start, end_dt)
 

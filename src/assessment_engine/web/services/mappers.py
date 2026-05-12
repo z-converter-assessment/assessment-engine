@@ -624,7 +624,6 @@ def build_report_summary_bullets(rows: list, raws: list | None = None) -> list[s
     if raws:
         eol_hosts: list[str] = []
         for r in raws:
-            key = (r.os_id or "", (r.os_version or "").split(".")[0])
             # 버전 prefix 매칭 (예: ubuntu 18.04 -> ("ubuntu", "18"))
             for (eol_os, eol_ver), date in _OS_EOL.items():
                 if r.os_id == eol_os and (r.os_version or "").startswith(eol_ver):
@@ -765,6 +764,15 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         net_tx_kbps_p95=raw.net_tx_kbps_p95,
         net_tx_kbps_peak=raw.net_tx_kbps_peak,
         diagnosis=_build_diagnosis(raw, saturation, cpu_variance, mem_variance),
+        # P3 임계 분류 색 — 템플릿 산술·임계 분기 금지 (#E1 P3)
+        saturation_color=("#b91c1c" if (saturation is not None and saturation >= 1.0) else "#94a3b8"),
+        cpu_variance_color=("#92400e" if (cpu_variance is not None and cpu_variance >= 1.5) else "#1e293b"),
+        mem_variance_color=("#92400e" if (mem_variance is not None and mem_variance >= 1.5) else "#94a3b8"),
+        worst_mount_days_color=(
+            "#b91c1c" if (raw.worst_mount_days_until_full is not None and raw.worst_mount_days_until_full <= 30)
+            else "#64748b"
+        ),
+        reboot_count_color=("#b91c1c" if raw.reboot_count >= 3 else "#94a3b8"),
     )
 
 
@@ -837,10 +845,7 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
     cum_offset = 0.0
     for key, label, color in _DONUT_SEGMENT_DEFS:
         count = risk_counts.get(key, 0)
-        if total > 0 and count > 0:
-            dash_length = (count / total) * _UTIL_DONUT_CIRC
-        else:
-            dash_length = 0.0
+        dash_length = (count / total) * _UTIL_DONUT_CIRC if (total > 0 and count > 0) else 0.0
         segments.append(RiskDonutSegment(
             key=key, label=label, color=color, count=count,
             dash_length=dash_length, dash_offset=-cum_offset,  # 음수 offset = 시계방향 이동
@@ -856,8 +861,9 @@ def build_environment_overview(details: list, online_count: int, utilization=Non
     list 화면 상단 환경 요약 — 총 N대·자원 합계·역할 분포·온라인/오프라인·평균 활용률·위험도 분포.
     utilization=None이면 활용률 빈 list. risk_counts=None이면 위험도 도넛 빈 list.
     """
-    from assessment_engine.web.view_models import EnvironmentOverview, UtilizationBar  # noqa: PLC0415
     from collections import Counter  # noqa: PLC0415
+
+    from assessment_engine.web.view_models import EnvironmentOverview, UtilizationBar  # noqa: PLC0415
 
     total = len(details)
     total_vcpus = sum(d.cpu_cores or 0 for d in details)
@@ -927,8 +933,9 @@ def build_capacity_breakdown(items: list) -> list:
     CPU 카운트 1, 메모리 카운트 1). 본 카운트 = "이 자원이 부족한 서버 수".
     모든 trigger 3종 항상 노출 (count 0 포함) — 카드 본질 명시.
     """
-    from assessment_engine.web.view_models import CapacityBreakdownEntry  # noqa: PLC0415
     from collections import Counter  # noqa: PLC0415
+
+    from assessment_engine.web.view_models import CapacityBreakdownEntry  # noqa: PLC0415
     counter: Counter[str] = Counter()
     for item in items:
         for t in item.triggers:
@@ -939,6 +946,7 @@ def build_capacity_breakdown(items: list) -> list:
             label=label,
             count=counter.get(label, 0),
             color=_CAPACITY_TRIGGER_COLORS[label],
+            count_color=("#1e293b" if counter.get(label, 0) > 0 else "#cbd5e1"),
         )
         for label in _CAPACITY_BREAKDOWN_ORDER
     ]

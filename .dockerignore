@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
 
 # 버전 관리 / IDE
 .git/
@@ -13,12 +14,23 @@ __pycache__/
 .vagrant/
 Vagrantfile
 docker-compose.yml
+docker-compose.override.yml
+docker-compose.prod.yml
 
-# 시크릿 — 절대 이미지에 포함되면 안 됨
+# 시크릿 — 절대 이미지에 포함되면 안 됨 (#F12)
 .env
+secrets/
+infra/
+
+# 배포 도구 (OpenStack staging — ADR 0006). 엔진 이미지 불필요 + terraform 상태·tfvars 노출 위험
+deploy/
+
+# 테스트 (이미지 내 불필요)
+tests/
 
 # 문서 (이미지 내 불필요)
 .env.example
 README.md
 .claude/
+.claudeignore
 docs/

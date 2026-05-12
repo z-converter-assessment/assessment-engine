@@ -4,6 +4,26 @@
 # - dev: `docker compose up`  (override.yml 자동 적용)
 # - prod: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
 
+# YAML anchor — 앱 4종(web/consumer/diagnostic-worker/diagnostic-scheduler)이 공유하는
+# build / depends_on / 공통 environment를 단일 진실로 정의. 신규 앱 서비스 추가 시 anchor만 참조.
+x-app-base: &app-base
+  build: .
+  restart: unless-stopped
+  environment: &app-env
+    APP_ENV: ${APP_ENV:-prod}
+    POSTGRES_HOST: postgres
+    REDIS_HOST: redis
+    RABBITMQ_HOST: rabbitmq
+  depends_on: &app-depends
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
+
 services:
   postgres:
     restart: unless-stopped
@@ -58,25 +78,10 @@ services:
     restart: "no"
 
   web:
-    restart: unless-stopped
-    build: .
+    <<: *app-base
     command: python -m assessment_engine.web
     expose:
       - "8000"   # 컨테이너 간만. 외부 노출은 override / prod.
-    environment:
-      APP_ENV: ${APP_ENV:-prod}
-      POSTGRES_HOST: postgres
-      REDIS_HOST: redis
-      RABBITMQ_HOST: rabbitmq                # AI 진단 publish용 (ADR 0004)
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 5s
@@ -85,65 +90,22 @@ services:
       start_period: 10s
 
   consumer:
-    restart: unless-stopped
-    build: .
+    <<: *app-base
     command: python -m assessment_engine.consumer
-    environment:
-      APP_ENV: ${APP_ENV:-prod}
-      POSTGRES_HOST: postgres
-      RABBITMQ_HOST: rabbitmq
-      REDIS_HOST: redis
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
 
   # AI 진단 워커 — RabbitMQ `diagnostic.request` 소비, LLM 호출, DB 저장 (ADR 0004).
   # LLM_PROVIDER 기본 mock (과금 발생 외부 API 호출 금지 — 운영자 정책).
   diagnostic-worker:
-    restart: unless-stopped
-    build: .
+    <<: *app-base
     command: python -m assessment_engine.diagnostic
     environment:
-      APP_ENV: ${APP_ENV:-prod}
-      POSTGRES_HOST: postgres
-      RABBITMQ_HOST: rabbitmq
-      REDIS_HOST: redis
+      <<: *app-env
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
 
   # AI 진단 스케줄러 — cron 발화로 활성 서버 N대 + environment job enqueue + retention DELETE.
   diagnostic-scheduler:
-    restart: unless-stopped
-    build: .
+    <<: *app-base
     command: python -m assessment_engine.diagnostic.scheduler
-    environment:
-      APP_ENV: ${APP_ENV:-prod}
-      POSTGRES_HOST: postgres
-      RABBITMQ_HOST: rabbitmq
-      REDIS_HOST: redis
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
 
 volumes:
   postgres_data:

@@ -1,0 +1,118 @@
+# engine-app VM 전용 — stateless 컴포넌트.
+# ADR 0006. ENGINE_DB_HOST·ENGINE_MW_HOST는 Ansible이 inventory 기반 .env로 주입.
+# migrate 컨테이너 init-container (ADR 0005)는 외부 DB connect → alembic upgrade head 후 종료.
+
+services:
+  migrate:
+    build:
+      context: ../../../
+    command: alembic upgrade head
+    environment:
+      APP_ENV: ${APP_ENV:-prod}
+      POSTGRES_HOST: ${ENGINE_DB_HOST}
+      POSTGRES_USER: ${POSTGRES_USER:-assessment}
+      POSTGRES_DB: ${POSTGRES_DB:-assessment}
+    secrets:
+      - postgres_password
+    restart: "no"
+
+  web:
+    restart: unless-stopped
+    build:
+      context: ../../../
+    command: python -m assessment_engine.web
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: ${APP_ENV:-prod}
+      POSTGRES_HOST: ${ENGINE_DB_HOST}
+      POSTGRES_USER: ${POSTGRES_USER:-assessment}
+      POSTGRES_DB: ${POSTGRES_DB:-assessment}
+      RABBITMQ_HOST: ${ENGINE_MW_HOST}
+      RABBITMQ_USER: ${RABBITMQ_USER:-assessment}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/assessment}
+      REDIS_HOST: ${ENGINE_MW_HOST}
+    secrets:
+      - postgres_password
+      - rabbitmq_password
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  consumer:
+    restart: unless-stopped
+    build:
+      context: ../../../
+    command: python -m assessment_engine.consumer
+    environment:
+      APP_ENV: ${APP_ENV:-prod}
+      POSTGRES_HOST: ${ENGINE_DB_HOST}
+      POSTGRES_USER: ${POSTGRES_USER:-assessment}
+      POSTGRES_DB: ${POSTGRES_DB:-assessment}
+      RABBITMQ_HOST: ${ENGINE_MW_HOST}
+      RABBITMQ_USER: ${RABBITMQ_USER:-assessment}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/assessment}
+      REDIS_HOST: ${ENGINE_MW_HOST}
+    secrets:
+      - postgres_password
+      - rabbitmq_password
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      web:
+        condition: service_healthy
+
+  diagnostic-worker:
+    restart: unless-stopped
+    build:
+      context: ../../../
+    command: python -m assessment_engine.diagnostic
+    environment:
+      APP_ENV: ${APP_ENV:-prod}
+      POSTGRES_HOST: ${ENGINE_DB_HOST}
+      POSTGRES_USER: ${POSTGRES_USER:-assessment}
+      POSTGRES_DB: ${POSTGRES_DB:-assessment}
+      RABBITMQ_HOST: ${ENGINE_MW_HOST}
+      RABBITMQ_USER: ${RABBITMQ_USER:-assessment}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/assessment}
+      REDIS_HOST: ${ENGINE_MW_HOST}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+    secrets:
+      - postgres_password
+      - rabbitmq_password
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  diagnostic-scheduler:
+    restart: unless-stopped
+    build:
+      context: ../../../
+    command: python -m assessment_engine.diagnostic.scheduler
+    environment:
+      APP_ENV: ${APP_ENV:-prod}
+      POSTGRES_HOST: ${ENGINE_DB_HOST}
+      POSTGRES_USER: ${POSTGRES_USER:-assessment}
+      POSTGRES_DB: ${POSTGRES_DB:-assessment}
+      RABBITMQ_HOST: ${ENGINE_MW_HOST}
+      RABBITMQ_USER: ${RABBITMQ_USER:-assessment}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/assessment}
+      REDIS_HOST: ${ENGINE_MW_HOST}
+    secrets:
+      - postgres_password
+      - rabbitmq_password
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  rabbitmq_password:
+    file: ./secrets/rabbitmq_password

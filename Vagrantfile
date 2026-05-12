@@ -5,16 +5,28 @@
 # RABBITMQ_HOST만 예외: 엔진은 "rabbitmq"(도커 서비스명)이지만 VM → 호스트는 Vagrant NAT 주소.
 RABBITMQ_HOST = "10.0.2.2"
 
+# VM 자원 — 호스트 환경에 따라 환경변수로 override 가능 (CI·저사양 노트북 호환).
+#   VAGRANT_VM_CPUS=1 VAGRANT_VM_MEM_MB=512 vagrant up
+VM_CPUS   = Integer(ENV.fetch("VAGRANT_VM_CPUS",   "2"))
+VM_MEM_MB = Integer(ENV.fetch("VAGRANT_VM_MEM_MB", "1024"))
+
 agent_env_path = "infra/agent.env"
 unless File.exist?(agent_env_path)
   raise "#{agent_env_path}이 없다. 'cp infra/agent.env.example infra/agent.env' 후 운영 값으로 수정하라."
 end
 
+# .env 파싱: 단순 KEY=VALUE 라인만 처리. 값의 양쪽 따옴표(`"value"` / `'value'`)는 제거 — dotenv 표준 호환.
+# (운영 값에 escape·multiline·command substitution이 들어가면 dotenv gem 도입 검토)
 dot_env = {}
 File.foreach(agent_env_path) do |line|
   line = line.strip
   next if line.empty? || line.start_with?("#")
   key, val = line.split("=", 2)
+  next if val.nil?
+  val = val.strip
+  if (val.start_with?('"') && val.end_with?('"')) || (val.start_with?("'") && val.end_with?("'"))
+    val = val[1..-2]
+  end
   dot_env[key] = val
 end
 
@@ -49,8 +61,8 @@ Vagrant.configure("2") do |config|
 
       node.vm.provider "virtualbox" do |vb|
         vb.name   = vm[:name]
-        vb.memory = 1024
-        vb.cpus   = 2
+        vb.memory = VM_MEM_MB
+        vb.cpus   = VM_CPUS
         vb.customize ["modifyvm", :id, "--audio", "none"]
         vb.customize ["modifyvm", :id, "--usb",   "off"]
         vb.customize ["modifyvm", :id, "--vram",  "8"]
@@ -109,8 +121,9 @@ EOF
         echo "[provision] .env written to /etc/assessment-agent.env"
       SHELL
 
-      # 3. 에이전트 빌드
+      # 3. 에이전트 빌드 — 실패 시 fail-fast (set -e). systemd 등록까지 진행할 의미 없음.
       node.vm.provision "shell", privileged: false, inline: <<~SHELL
+        set -e
         cd /home/vagrant/assessment-agent
         make
       SHELL

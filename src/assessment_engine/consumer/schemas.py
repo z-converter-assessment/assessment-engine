@@ -3,10 +3,13 @@ from ipaddress import ip_address
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class MessageBase(BaseModel):
+    # B4 계약 진화 정책 — `extra=ignore`로 agent가 새 필드 추가해도 엔진은 통과·무시. 자식 클래스 상속.
+    model_config = ConfigDict(extra="ignore")
+
     machine_id: str = Field(min_length=1, max_length=64)
     agent_version: str = Field(min_length=1, max_length=32)
     collected_at: datetime

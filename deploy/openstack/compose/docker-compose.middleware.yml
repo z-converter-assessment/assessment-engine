@@ -1,0 +1,38 @@
+# engine-mw VM 전용 — rabbitmq + redis.
+# ADR 0006. engine-app VM이 5672(broker)·6379(cache)로 connect.
+# 15672(관리 콘솔)는 사내망(bastion·jump host)에서 운영자 접근.
+
+services:
+  rabbitmq:
+    restart: unless-stopped
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-assessment}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/assessment}
+      RABBITMQ_DEFAULT_PASS_FILE: /run/secrets/rabbitmq_password
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    secrets:
+      - rabbitmq_password
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    restart: unless-stopped
+    image: redis:7-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+secrets:
+  rabbitmq_password:
+    file: ./secrets/rabbitmq_password

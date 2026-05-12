@@ -10,7 +10,6 @@
 """
 from collections.abc import Callable
 from datetime import datetime
-from typing import TypeVar
 
 from assessment_engine.db.repositories.outbound import (
     DashboardRaw,
@@ -36,12 +35,9 @@ from assessment_engine.web.view_models import (
     SwapSnapshot,
 )
 
-T = TypeVar("T")
-
-
 # ─── 공통 helper ──────────────────────────────────────────────────────────
 
-def _group_by_dim(rows: list[T], key: Callable[[T], str]) -> dict[str, list[T]]:
+def _group_by_dim[T](rows: list[T], key: Callable[[T], str]) -> dict[str, list[T]]:
     """raw 시계열 행을 dimension(device·interface 등)별로 묶는다."""
     by_dim: dict[str, list[T]] = {}
     for r in rows:
