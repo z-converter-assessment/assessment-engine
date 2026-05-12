@@ -2,7 +2,7 @@
 
 온프레미스 서버 인벤토리·메트릭을 수집·저장하고, 수집된 데이터를 기반으로 자원 사용량을 진단해 운영 의사결정을 보조하는 B2B 내부 포털.
 
-고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, 진단 워커가 USE Method 룰 + LLM(mock/ollama, ADR 0004)으로 서버별·환경 전체 right-sizing 분류와 자연어 진단 narrative를 생성한다. 운영자는 web UI에서 대시보드(활용률·프로비저닝 분포 도넛·주의 신호 카드)와 보고서(고객용 양식 A / 엔지니어용 양식 B)·JSON Export v3 산출물로 다음 단계 클라우드 마이그레이션 또는 right-sizing 결정을 진행한다.
+고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, 진단 워커가 수집된 데이터를 분석해 진단 결과를 생성한다(ADR 0004 — 진단 로직 상세는 미정, 인프라만 결정). 운영자는 web UI에서 대시보드·보고서·JSON Export 산출물을 활용해 다음 단계 의사결정을 진행한다.
 
 ---
 
@@ -43,7 +43,7 @@
        ^                                       |
        |                                       |
        +-------- FastAPI ----------------------+
-                - SSR: dashboard / detail / USE Method report
+                - SSR: dashboard / detail / report
                 - REST: discovery / tasks / exports / chart / diagnostics
                 - SSE: live metrics updates (Consumer PUB -> Redis -> SSE)
 ```
@@ -143,14 +143,14 @@ Frontend (정적 자원)
 ### 대시보드
 - 환경 요약 — 총 N대 / 온라인·오프라인 / 자원 합계(vCPU·메모리·디스크) / 역할 분포 pill.
 - 환경 평균 활용률 도넛 — CPU/메모리/디스크 14일 평균 사용률 (`recommendation.WINDOW_DAYS` 윈도우, 임계 색 분기 60·80%).
-- 프로비저닝 분포 도넛 — 14일 USE Method 분류 3 카테고리(언더·정상·오버 프로비저닝) + 중앙 "언더 프로비저닝 N대" 강조.
+- 프로비저닝 분포 도넛 — 14일 측정값 기반 분류 3 카테고리(언더·정상·오버 프로비저닝) + 중앙 "언더 프로비저닝 N대" 강조.
 - 주의 신호 카드 — 통신 끊김·디스크 사용률 임박·자원 부족(trigger 3종 활성/비활성)·디스크 잔여 30일·OS EOL·에이전트 재시작 빈번 6 카탈로그.
 - 행별 권장 조치 컬럼 — 도넛 색과 동기 라벨(상향·축소·종료·조치 불필요).
 
 ### Assessment 산출물
 - 서버 발견 — IP HTTP probe로 미등록 서버 도달성 검사 (Ansible 배포 워크플로우 1단계).
 - JSON Export v3 — 선택 서버의 정제 inventory + 사용량 통계(p95·peak)를 OpenStack/Terraform/SDK 입력용 표준 JSON으로 다운로드. envelope에 `period_window` + `size_class_guide` 포함 — 자동화 도구 reproducibility.
-- 보고서 (양식 A 고객용 / 양식 B 엔지니어용) — Brendan Gregg USE Method + AWS Compute Optimizer / Azure Advisor / GCP Recommender 임계값 기반 right-sizing 분류. 양식 A는 KPI + 위험도 요약, 양식 B는 15컬럼 정량 표 + 자동 진단 텍스트.
+- 보고서 (양식 A 고객용 / 양식 B 엔지니어용) — 측정값 기반 자원 사용 진단. 양식 A는 KPI + 위험도 요약, 양식 B는 15컬럼 정량 표 + 자동 진단 텍스트.
 - ZConverter Install task — 선택 서버에 변환 도구 설치 명령 발행. RPC piggyback (`amq.rabbitmq.reply-to`)으로 에이전트가 다음 metrics 발행 시 명령 수신 -> 실행 -> `task.result` 큐로 결과 보고.
 
 상세 정의: `docs/architecture/agent.md` "Task RPC piggyback" 절 + `docs/architecture/inventory-export.md` v3 스키마.
