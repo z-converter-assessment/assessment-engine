@@ -1,6 +1,6 @@
 # 자동화 변환 규약 — 검증 책임 분담
 
-본 문서는 `.claude/CLAUDE.md` F9 "자동화 변환 — 책임 분담"의 상세 매뉴얼. CLAUDE.md는 채널 분담·자가 검증 의무·금지 사항 등 결정만 담고, 본 문서는 변환 유형별 추가 체크리스트와 과거에 발생한 사고 패턴(반면교사)을 보존한다.
+본 문서는 `.claude/CLAUDE.md` F5 "자동화 변환 — 책임 분담"의 상세 매뉴얼. CLAUDE.md는 채널 분담·자가 검증 의무·금지 사항 등 결정만 담고, 본 문서는 변환 유형별 추가 체크리스트와 과거에 발생한 사고 패턴(반면교사)을 보존한다.
 
 ## 변환 유형별 추가 체크
 
@@ -20,10 +20,10 @@
 - placeholder upsert(`ON CONFLICT DO UPDATE`)가 진짜 inventory 덮어쓰는 race → placeholder 전용 메서드는 `ON CONFLICT DO NOTHING` + 충돌 시 다시 find.
 - inline JS 변경은 도구 적용 어려움 → 외부 `.js`로 옮긴 후 변경.
 
-누락 시 사용자 회귀 사고 발견의 책임은 검증 누락에 있음. 같은 패턴 재발 시 본 절에 추가하고 CLAUDE.md F9 메인 자가 검증 절차에 누락된 단계 보강.
+누락 시 사용자 회귀 사고 발견의 책임은 검증 누락에 있음. 같은 패턴 재발 시 본 절에 추가하고 CLAUDE.md F5 메인 자가 검증 절차에 누락된 단계 보강.
 
 ## 관련 문서
 
-- `.claude/CLAUDE.md` #F9 — 채널별 책임·메인 자가 검증 의무·Must Not (정책 단일 진실)
-- `.claude/CLAUDE.md` #F13 — 변경 영향도 체크리스트 (의미적 단일 진실 보장, F9와 분리)
+- `.claude/CLAUDE.md` #F5 — 채널별 책임·메인 자가 검증 의무·Must Not (정책 단일 진실)
+- `.claude/CLAUDE.md` #F9 — 변경 영향도 체크리스트 (의미적 단일 진실 보장, F9와 분리)
 - `.claude/hooks/conventions-check.sh` — Hook 강제 위반 패턴 카탈로그

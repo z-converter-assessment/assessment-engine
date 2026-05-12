@@ -1,6 +1,6 @@
 # Web 정적 자원 — JS·차트 UI
 
-CLAUDE.md F9 "Frontend JS 외부화 의무" — 신규 차트 로직은 외부 `.js` 파일에. inline `<script>` 신규 금지.
+CLAUDE.md F5 "Frontend JS 외부화 의무" — 신규 차트 로직은 외부 `.js` 파일에. inline `<script>` 신규 금지.
 
 ```
 src/assessment_engine/web/static/js/

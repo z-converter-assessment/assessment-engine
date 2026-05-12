@@ -1,7 +1,7 @@
 """Tasks router — 운영자가 등록 서버에 원격 작업 명령 발행.
 
 책임: HTTP I/O만. 비즈니스 로직(DB·Redis·트랜잭션)은 TaskService에 위임 (F4).
-정의·근거: CLAUDE.md B6 (RPC piggyback) + docs/architecture/agent.md "Task RPC piggyback" 절.
+정의·근거: CLAUDE.md B5 (RPC piggyback) + docs/architecture/agent.md "Task RPC piggyback" 절.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field

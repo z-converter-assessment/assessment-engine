@@ -11,7 +11,7 @@
 | `routers/diagnostic_results.py` | `diagnostic_results_router` | `/diagnostics` | HTML (SSR — 결과·이력 페이지) |
 | `routers/payloads.py` | `payloads_router` | (root) | application/gzip — agent install bundle |
 
-라우터 책임은 HTTP I/O만 — 비즈니스 로직은 service에 위임 (F4). API versioning은 #F17 (`/api/v1/`).
+라우터 책임은 HTTP I/O만 — 비즈니스 로직은 service에 위임 (F4). API versioning은 #F13 (`/api/v1/`).
 
 ## SSR 페이지 (`pages.py`)
 
@@ -40,7 +40,7 @@
 ### `discovery.py` — 도달성 검사
 | 경로 | 용도 |
 |------|------|
-| `POST /probe` | IP HTTP probe (Ansible 배포 워크플로우 1단계). httpx 5초 timeout, ipaddress 형식 검증, fail-open (#F10) |
+| `POST /probe` | IP HTTP probe (Ansible 배포 워크플로우 1단계). httpx 5초 timeout, ipaddress 형식 검증, fail-open (#F6) |
 
 ### `tasks.py` — 원격 작업 발행
 | 경로 | 용도 |
@@ -68,7 +68,7 @@
 ### `payloads.py` — agent install bundle
 | 경로 | 용도 |
 |------|------|
-| `GET /zconverter.tar.gz` | agent의 hardcoded fetch path. in-memory tar.gz 생성, `install.sh` mode=0o755 메타 박힘. `/api/v1/` prefix 없음 — agent 계약 path 우선 (#F17 예외) |
+| `GET /zconverter.tar.gz` | agent의 hardcoded fetch path. in-memory tar.gz 생성, `install.sh` mode=0o755 메타 박힘. `/api/v1/` prefix 없음 — agent 계약 path 우선 (#F13 예외) |
 
 ## 검증·에러 매핑
 

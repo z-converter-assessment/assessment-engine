@@ -236,13 +236,13 @@ handler 본 처리 흐름과 별개로 두 가지 부가 시그널을 발행 (�
    - 시스템 재부팅도 같은 카운터 — 1h 내 3회 재부팅도 unusual이라 alert 적정
    - Redis 장애 시 silent skip (옛 휴리스틱과 동일 효과)
 
-### Disposability — SIGTERM 흐름 (#F16)
+### Disposability — SIGTERM 흐름 (#F12)
 
 `async with message.process(requeue=False)` 컨텍스트가 본질적 보장. SIGTERM이 와도 진행 중 메시지는 다음 둘 중 하나:
 - 정상 종료 → broker ACK → 메시지 사라짐
 - 예외 raise → broker NACK + DLX 라우팅 → DLQ로 이동
 
-따라서 메시지 손실 0이 코드 패턴의 자연 결과. 신규 핸들러 추가 시 본 컨텍스트 안에서 모든 await 완료를 보장하면 됨 — `signal.signal()` 또는 `os._exit()` 같은 우회 호출 금지 (#F16).
+따라서 메시지 손실 0이 코드 패턴의 자연 결과. 신규 핸들러 추가 시 본 컨텍스트 안에서 모든 await 완료를 보장하면 됨 — `signal.signal()` 또는 `os._exit()` 같은 우회 호출 금지 (#F12).
 
 aio-pika `connect_robust`는 connection 단계 SIGTERM에서도 안전 종료 — `async with conn`이 자체 cleanup.
 

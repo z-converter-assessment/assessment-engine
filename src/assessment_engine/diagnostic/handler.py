@@ -40,7 +40,7 @@ def make_diagnostic_handler(
                 job_id = body["job_id"]
             except (json.JSONDecodeError, KeyError) as e:
                 # 메시지 자체 결함 — silent ack + 로그 (DLQ 보낼 가치 X, 운영자 개입 의미 없음).
-                # #F12 — body raw dump 금지. message_id·길이·예외 타입만 로깅.
+                # #F8 — body raw dump 금지. message_id·길이·예외 타입만 로깅.
                 logger.error("invalid diagnostic message message_id={} body_size={} err_type={}",
                              message.message_id, len(message.body or b""), type(e).__name__)
                 return

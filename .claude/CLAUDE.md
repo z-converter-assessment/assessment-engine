@@ -26,7 +26,7 @@
 | `docs/operations/dev-prod.md` | dev/prod 환경 전략 + secret 정책 + 운영 체크리스트 |
 | `docs/operations/alembic.md` | DB schema 마이그레이션 (Alembic — 모든 환경 단일 진실, migrate 컨테이너 자동 적용) |
 | `docs/operations/testing.md` | 단위·통합 테스트 실행·설정·Fixture·작성 패턴 |
-| `docs/operations/automation-conventions.md` | 자동화 변환 책임 분담 상세 매뉴얼 (변환 유형별 추가 체크 + 누적 사고 패턴 — #F9 매뉴얼) |
+| `docs/operations/automation-conventions.md` | 자동화 변환 책임 분담 상세 매뉴얼 (변환 유형별 추가 체크 + 누적 사고 패턴 — #F5 매뉴얼) |
 | `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T11) |
 | `docs/architecture/agent.md` | 에이전트 메시지 스키마 / 포트 수집 / 디스크 필터링 |
 | `docs/architecture/consumer.md` | schemas / handler / main / 멱등성 / 재시도 / 부가 시그널 |
@@ -119,22 +119,9 @@ Compose 호출:
 
 본 절 결정:
 - 5 routing key + DLX `assessment.dlx` (dev/prod 공통). agent 발행 4개(consumer prefetch_count 10) + engine 내부 `diagnostic.request` 1개(워커 prefetch_count 1).
-- 별도 task queue 없음 — `server.metrics`의 `reply_to` (RabbitMQ 빌트인 `amq.rabbitmq.reply-to`)로 task 명령 RPC piggyback (#B6, ADR 0002).
+- 별도 task queue 없음 — `server.metrics`의 `reply_to` (RabbitMQ 빌트인 `amq.rabbitmq.reply-to`)로 task 명령 RPC piggyback (#B5, ADR 0002).
 - `diagnostic.request` 큐 (ADR 0004): exchange `assessment` (DIRECT, durable), DLX `assessment.dlx`, `x-message-ttl=24h`, `x-max-length=100000`. 워커 prefetch_count 1 — LLM rate limit 자연 throttle. adhoc·scheduled 큐 분리 안 함.
 - 큐 인자 변경 시 broker `PRECONDITION_FAILED` reject — 큐 삭제 후 consumer 재기동 필요.
-
-## B6. Task 명령 — RPC piggyback (engine → agent)
-
-운영자가 web에서 `POST /api/v1/tasks/install` 발행 → DB INSERT(이력) + Redis SET `task:pending:{machine_id}` (hot path 캐시, TTL 24h). agent는 별도 polling 없이 다음 `server.metrics` 발행 시 reply_to·correlation_id를 명시 → consumer가 metrics 처리 후 Redis EXISTS → 있으면 reply publish.
-
-핵심 결정:
-- Reply 채널: `amq.rabbitmq.reply-to` (RabbitMQ 빌트인 pseudo-queue) — 큐 선언·정리 불필요, broker 부하 0
-- Latency = metrics 주기 (즉시 push 아님 — 별도 polling endpoint·task queue 안 만드는 대가)
-- Redis는 hot path 캐시 — 99% no-op 응답을 < 1ms로 흡수, DB 직접 조회 안 함. Redis 장애 시 silent skip (다음 주기 재시도)
-- task_type enum + params 스키마는 engine·agent 합의 — 새 type 도입 시 양쪽 동시 갱신 + agent_version bump
-- 결과 보고는 `task.result` 큐 (agent → engine 단방향). consumer가 DB UPDATE + Redis pending DEL
-
-상세 메시지 스키마·핸들러 흐름·task_type 카탈로그: `docs/architecture/agent.md` "Task RPC piggyback" 절.
 
 ## B4. 계약 진화 정책 (Forward Compatibility)
 
@@ -147,6 +134,19 @@ Compose 호출:
 - 금지: 의미 모르는 필드를 추측으로 미리 매퍼에 추가 — 잘못 저장하면 후속 정정 비용 큼.
 
 `agent_version` 의미: 새 필드 추가는 minor bump, 기존 필드 의미 변경/제거는 major bump (운영자 알림). 본 엔진은 minor만 silent 호환, major는 코드 수정 트리거.
+
+## B5. Task 명령 — RPC piggyback (engine → agent)
+
+운영자가 web에서 `POST /api/v1/tasks/install` 발행 → DB INSERT(이력) + Redis SET `task:pending:{machine_id}` (hot path 캐시, TTL 24h). agent는 별도 polling 없이 다음 `server.metrics` 발행 시 reply_to·correlation_id를 명시 → consumer가 metrics 처리 후 Redis EXISTS → 있으면 reply publish.
+
+핵심 결정:
+- Reply 채널: `amq.rabbitmq.reply-to` (RabbitMQ 빌트인 pseudo-queue) — 큐 선언·정리 불필요, broker 부하 0
+- Latency = metrics 주기 (즉시 push 아님 — 별도 polling endpoint·task queue 안 만드는 대가)
+- Redis는 hot path 캐시 — 99% no-op 응답을 < 1ms로 흡수, DB 직접 조회 안 함. Redis 장애 시 silent skip (다음 주기 재시도)
+- task_type enum + params 스키마는 engine·agent 합의 — 새 type 도입 시 양쪽 동시 갱신 + agent_version bump
+- 결과 보고는 `task.result` 큐 (agent → engine 단방향). consumer가 DB UPDATE + Redis pending DEL
+
+상세 메시지 스키마·핸들러 흐름·task_type 카탈로그: `docs/architecture/agent.md` "Task RPC piggyback" 절.
 
 ---
 
@@ -222,7 +222,7 @@ Backward compatibility 의무 (prod 무중단 deploy 향 — ADR 0006 staging �
 - `select(Model)` 풀로우는 큰 JSONB·TEXT 컬럼 동반 — 목록·집계는 명시 컬럼 select (T8).
 - INSERT 시 ON CONFLICT는 `pg_insert(...).on_conflict_do_*` 통일 — raw SQL 분기 금지 (#D2 멱등성 2단 방어 일관성).
 - 트랜잭션 경계: consumer는 1 메시지 = 1 트랜잭션 (`session_factory()` 컨텍스트), web은 1 request = 1 세션 (`Depends(get_session)`). autocommit 금지·세션 공유·중첩 금지.
-- placeholder INSERT는 `ON CONFLICT DO NOTHING` 의무 — auto-register race가 진짜 inventory 덮어쓰는 사고 방지 (#F9 누적 사고 패턴). 진짜 inventory upsert는 `DO UPDATE` (#D1 auto-register 후속 흐름 — placeholder INSERT와 별개 메서드).
+- placeholder INSERT는 `ON CONFLICT DO NOTHING` 의무 — auto-register race가 진짜 inventory 덮어쓰는 사고 방지 (#F5 누적 사고 패턴). 진짜 inventory upsert는 `DO UPDATE` (#D1 auto-register 후속 흐름 — placeholder INSERT와 별개 메서드).
 
 ---
 
@@ -255,7 +255,7 @@ inventory·metrics 저장 성공 시 routing key별 Redis 후처리는 모두 `s
 
 후처리 시퀀스(inventory: online SET + cache DELETE / metrics: online SET + cache DELETE + PUBLISH metrics.events + 에이전트 재시작 추적): `docs/architecture/consumer.md` "handler.py" 절.
 
-부가 시그널(`_log_time_invariants`·`_track_agent_restart`): 메시지 처리 흐름 외 운영 가시성. 모두 fail-open — Redis 장애 시 silent skip, 처리 ack 영향 없음. 시그널 발생 조건·임계값·동작 상세: `docs/architecture/consumer.md` "부가 시그널" 절. 로그 빈도 제어 의무는 #F11.
+부가 시그널(`_log_time_invariants`·`_track_agent_restart`): 메시지 처리 흐름 외 운영 가시성. 모두 fail-open — Redis 장애 시 silent skip, 처리 ack 영향 없음. 시그널 발생 조건·임계값·동작 상세: `docs/architecture/consumer.md` "부가 시그널" 절. 로그 빈도 제어 의무는 #F7.
 
 ## D4. 실패 처리 매트릭스
 
@@ -361,7 +361,7 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 ## E7. 정적 자원 — JS 외부화 의무
 
 본 절 결정·금지:
-- 신규 차트 로직은 외부 `.js` 파일에. inline `<script>` 차트 로직 신규 추가 금지 (F9 자동화 변환 검증과 연동).
+- 신규 차트 로직은 외부 `.js` 파일에. inline `<script>` 차트 로직 신규 추가 금지 (F5 자동화 변환 검증과 연동).
 - 페이지 `.html`은 Jinja2 변수 정의 + 외부 `.js` `defer` 로드만 허용.
 - `chart-utils.js`는 base.html에서 단일 로드 → 전역 `ChartUtils`. 인라인 중복 정의 금지.
 
@@ -419,7 +419,7 @@ Warning 처리 우선순위:
 | 위반 | 적용 범위 | Hook |
 |------|----------|------|
 | F1 — `from __future__ import annotations` | `.py` | `conventions-check.sh` |
-| F11 — `print(` / `sys.stdout.write` | `.py` | `conventions-check.sh` |
+| F7 — `print(` / `sys.stdout.write` | `.py` | `conventions-check.sh` |
 | C3 — `safe_*` 미경유 redis 클라이언트 직접 호출 (`redis.set/get/delete/publish/incr/exists/mget/expire/setnx`) | `.py` (`db/redis.py` 본인 제외) | `conventions-check.sh` |
 | 글로벌 — `**...**` markdown bold | 모든 파일 | `conventions-check.sh` |
 | 글로벌 — 비키보드 unicode 기호·이모지 (`§ ↔ ↑ ↓ ✓ ✗ ✅ ⚠ ❌ × ÷ >= <= != • ◦ ▪ ▫` 등) | 모든 파일 | `conventions-check.sh` |
@@ -482,7 +482,7 @@ ruff 위반(E501 line-too-long · F841 unused · I001 import 정렬 등)은 hook
 
 이유: 테스트·배포 환경 변경 시 구현체 교체 가능 (예: in-memory repo로 테스트, 새 DB 백엔드 시범 도입). 컴포넌트 경계가 코드로 강제된다.
 
-## F9. 자동화 변환 — 책임 분담
+## F5. 자동화 변환 — 책임 분담
 
 자동화 변환(sed / Edit `replace_all` / 디렉토리 mv / Python 일괄 갱신) 직후 사용자 발견 전에 검증 책임을 다음 3채널로 분담한다.
 
@@ -521,7 +521,7 @@ Hook 강제 영역은 메인이 또 grep으로 확인하지 않는다 (중복). 
 
 변환 유형별 체크리스트(sed / 디렉토리 mv / DTO 타입 변경 / 동시성 코드 / Frontend JS)와 과거 사고 패턴 5건은 `docs/operations/automation-conventions.md` 단일 진실. 본 절은 채널 분담·자가 검증 의무·Must Not 결정만 담는다. 같은 패턴 재발 시 본 절 채널 분담은 그대로 두고 automation-conventions.md "누적 사고 패턴"에 사례 추가.
 
-## F10. 에러 처리·실패 모델
+## F6. 에러 처리·실패 모델
 
 원칙: 외부 의존은 fail-close/fail-open을 컴포넌트 단위로 미리 결정 — 결정 근거 없으면 새 통합 도입 금지.
 
@@ -544,7 +544,7 @@ Hook 강제 영역은 메인이 또 grep으로 확인하지 않는다 (중복). 
 
 소비자 측 상세 매트릭스: `docs/architecture/consumer.md` "실패 처리" 절.
 
-## F11. 로깅·관측
+## F7. 로깅·관측
 
 원칙: 로그는 운영 시그널 — 로그 양이 많으면 시그널이 묻힌다. 레벨·내용·빈도 모두 의도 있게.
 
@@ -569,7 +569,7 @@ Request/Correlation ID — 분산 trace (정석 미적용, 도입 트리거 명�
 - 본 프로젝트 현재 미적용 — HTTP 측 `X-Request-ID` 없음, MQ `message_id`는 멱등성 키로만 활용. 로그는 식별자(machine_id·server_id)별 grep으로 trace.
 - 도입 트리거: (1) prod 운영에서 요청 trace 어려움 발생, (2) 분산 trace (OpenTelemetry) 도입. 두 시점이면 별도 ADR + middleware 추가 + loguru contextualize 패턴 일관화. middleware 위치는 `web/main.py` lifespan 뒤.
 
-## F12. 시크릿·PII 노출 금지
+## F8. 시크릿·PII 노출 금지
 
 원칙: 로그·예외·HTTP 응답·ViewModel·캐시 어디에도 비밀번호·토큰·전체 메시지 payload·고객사 식별 가능 정보 노출 금지. 한 번 새면 영구.
 
@@ -583,7 +583,7 @@ Request/Correlation ID — 분산 trace (정석 미적용, 도입 트리거 명�
 
 상세: secret 채널·prod 약한 default 자동 검증(`_validate_prod_*`)은 `docs/operations/dev-prod.md` "변수 분류" 절 + "Fail-fast 검증" 절.
 
-## F13. 변경 영향도 체크리스트
+## F9. 변경 영향도 체크리스트
 
 원칙: 단일 진실 보장은 변경 시점에서만 가능. 한 곳 수정 후 PR 금지 — 영향받는 모든 곳 동시 갱신 의무.
 
@@ -594,12 +594,12 @@ Request/Correlation ID — 분산 trace (정석 미적용, 도입 트리거 명�
 | 신규 routing key | (1) 에이전트 발행 (2) consumer 핸들러 팩토리 + dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 (4) #B1 메시지 타입 표 |
 | 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) `docker-compose.yml` `environment:` (4) prod secret이면 `secrets/*` + `docs/operations/dev-prod.md` + `docker-compose.prod.yml` |
 | ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass 필드도 (P5) |
-| 신규 외부 의존 (HTTP·LLM·외부 큐) | (1) fail-open/close 결정 (#F10) (2) timeout·재시도 정책 (3) Settings 필드 (4) 매트릭스 갱신 |
+| 신규 외부 의존 (HTTP·LLM·외부 큐) | (1) fail-open/close 결정 (#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) 매트릭스 갱신 |
 | 신규 의존성 (`pyproject.toml`) | (1) `uv pip install -e .` 후 `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토 |
 
-이 표는 F9 자동화 변환 검증과 분리 — F9는 변환 도구의 false-negative 방어, 본 절은 의미적 단일 진실 보장.
+이 표는 F5 자동화 변환 검증과 분리 — F9는 변환 도구의 false-negative 방어, 본 절은 의미적 단일 진실 보장.
 
-## F14. 명명·타입 규약 (F1 보강)
+## F10. 명명·타입 규약 (F1 보강)
 
 원칙: 이름이 단위·의미·형태를 자체 표현. type checker 만족용 보조 정보 아닌 코드 가독성·grep 가능성·신규 진입자 학습 비용을 위한 결정.
 
@@ -616,7 +616,7 @@ Request/Correlation ID — 분산 trace (정석 미적용, 도입 트리거 명�
 
 신규 도메인 컬럼·필드 도입 시 본 표 패턴 우선 적용. 패턴 외 명명은 PR에 사유 명시.
 
-## F15. 평가 윈도우 · 차트 시계열 옵션 — 단일 진실
+## F11. 평가 윈도우 · 차트 시계열 옵션 — 단일 진실
 
 원칙: 보고서·대시보드·차트 모두 같은 평가 윈도우와 같은 시계열 옵션 카탈로그를 참조한다. 윈도우 또는 옵션이 분기 문서·코드 여러 곳에 산재하면 운영자가 본 화면에서 본 값이 다른 화면과 다른 의미를 갖게 된다.
 
@@ -625,11 +625,11 @@ Request/Correlation ID — 분산 trace (정석 미적용, 도입 트리거 명�
 - 보고서 라우터만 사용자가 `?period_days=N`으로 override 가능 (단기·장기 비교용). 대시보드는 override 없음 — 산업 표준 윈도우 고정.
 - TimeRange/BucketSize Literal 단일 진실 = `base_query_repository.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js` (`RANGE_LABEL`/`AUTO_BUCKET`/`BUCKET_LABEL`/`RANGE_MS`/`BUCKET_MS`). 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
 - 신규 TimeRange 값 → AUTO_BUCKET 매핑 신설 의무 (운영자가 토글 변경 시 적절한 버킷이 자동 적용돼야 단일 토글 UX).
-- 인쇄/Export 등 보고서 형태 산출물은 윈도우를 envelope·표제에 명시 — 자동화 도구가 reproducibility 확보. JSON Export `period_window{days, start, end}` 의무 필드 (#B6 같은 계약 진화 정책).
+- 인쇄/Export 등 보고서 형태 산출물은 윈도우를 envelope·표제에 명시 — 자동화 도구가 reproducibility 확보. JSON Export `period_window{days, start, end}` 의무 필드 (#B5 같은 계약 진화 정책).
 
-신규 윈도우·옵션 추가 시 F13 변경 영향도 체크리스트 (1) recommendation 상수 (2) Literal·dispatch table (3) JS chart-utils (4) UI 토글 (5) Export envelope 동시 갱신.
+신규 윈도우·옵션 추가 시 F9 변경 영향도 체크리스트 (1) recommendation 상수 (2) Literal·dispatch table (3) JS chart-utils (4) UI 토글 (5) Export envelope 동시 갱신.
 
-## F16. Disposability — Graceful shutdown (12-factor IX)
+## F12. Disposability — Graceful shutdown (12-factor IX)
 
 원칙: 컨테이너는 언제든 SIGTERM으로 종료될 수 있다 (Docker stop·운영자 재기동·OpenStack VM evacuation·OOM kill). 종료 시 in-flight 작업은 손실 0이어야 하고, 다음 기동 시 stale 상태가 남지 않아야 한다.
 
@@ -646,7 +646,7 @@ Request/Correlation ID — 분산 trace (정석 미적용, 도입 트리거 명�
 
 상세 시그널 처리는 `docs/architecture/consumer.md`·`docs/architecture/diagnostic.md` "Disposability" 절.
 
-## F17. API versioning
+## F13. API versioning
 
 원칙: 외부 클라이언트(자동화 도구·CLI·SDK)가 의존할 수 있는 endpoint는 URL prefix versioning. breaking change는 별도 버전 분기, 기존 버전은 deprecated 기간 후 제거.
 
@@ -663,14 +663,14 @@ Request/Correlation ID — 분산 trace (정석 미적용, 도입 트리거 명�
 
 상세 endpoint 카탈로그: `docs/architecture/web/routers.md`.
 
-## F18. Health check
+## F14. Health check
 
 원칙: 컨테이너 healthcheck는 단일 책임 — "프로세스가 살아있고 HTTP 요청 받을 수 있나"만 검증. DB·Redis·MQ 연결 검사는 별도 — 본 검사가 의존 외부 장애로 unhealthy 표시되면 자동 재기동 폭주.
 
 본 절 결정/의무:
 - `/health` — shallow check. 단순 `{"status": "ok"}` JSON 반환. 외부 의존 검사 안 함.
 - docker-compose `healthcheck`는 `/health` 단일 — 결과로 `depends_on: service_healthy` 결정.
-- 외부 의존(DB·Redis·MQ)이 죽어도 web 프로세스는 healthy 유지. 개별 요청에서 fail-fast로 5xx 반환 (#F10 fail-close DB).
+- 외부 의존(DB·Redis·MQ)이 죽어도 web 프로세스는 healthy 유지. 개별 요청에서 fail-fast로 5xx 반환 (#F6 fail-close DB).
 - Kubernetes 마이그레이션 시 분리 검토:
   - `/livez` — process alive (shallow, 본 `/health`와 동일)
   - `/readyz` — DB·MQ ready (deep, traffic 받을 준비)
@@ -678,6 +678,6 @@ Request/Correlation ID — 분산 trace (정석 미적용, 도입 트리거 명�
 
 금지:
 - `/health`에 DB 쿼리·Redis ping·MQ connect 추가 — 외부 장애 시 컨테이너 재기동 폭주 사고.
-- start_period 없이 lifespan이 긴 컨테이너 healthcheck — 초기화 중 retries 소진. 현재 `web`은 `start_period: 10s` 명시.
+- start_period 없이 lifespan이 긴 컨테이너 health check — 초기화 중 retries 소진. 현재 `web`은 `start_period: 10s` 명시.
 
 ---

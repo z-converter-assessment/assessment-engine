@@ -35,7 +35,7 @@
 
 대시보드 첫 페이지 + 검색·필터 미사용일 때만 두 섹션 노출 — `EnvironmentOverview`(환경 요약 KPI + 활용률 도넛 + 프로비저닝 분포 도넛) + `AttentionSignals`(통합 신호 카드 6종). 검색 결과·페이지네이션 화면에선 자동 격리(라우터 분기).
 
-시간 축은 F15 단일 윈도우 — `recommendation.WINDOW_DAYS=14`.
+시간 축은 F11 단일 윈도우 — `recommendation.WINDOW_DAYS=14`.
 
 | ViewModel | 채우는 mapper | 데이터 소스 | 시간 축 | 색상 톤 |
 |-----------|---------------|-------------|---------|---------|

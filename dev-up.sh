@@ -12,19 +12,20 @@ readonly TIMEOUT=180
 # - service_exit_code: 종료된 컨테이너의 exit code (성공 0 / 실패 != 0)
 service_state() {
   local cid
-  cid="$(docker compose ps -q "$1" 2>/dev/null)"
+  # `-a` 의무 — `migrate`처럼 exited 후 자동 제거 안 된 init container 포함.
+  cid="$(docker compose ps -aq "$1" 2>/dev/null | head -1)"
   [ -z "$cid" ] && { echo "missing"; return; }
   docker inspect --format='{{.State.Status}}' "$cid" 2>/dev/null || echo "missing"
 }
 service_health() {
   local cid
-  cid="$(docker compose ps -q "$1" 2>/dev/null)"
+  cid="$(docker compose ps -aq "$1" 2>/dev/null | head -1)"
   [ -z "$cid" ] && { echo "none"; return; }
   docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid" 2>/dev/null || echo "none"
 }
 service_exit_code() {
   local cid
-  cid="$(docker compose ps -q "$1" 2>/dev/null)"
+  cid="$(docker compose ps -aq "$1" 2>/dev/null | head -1)"
   [ -z "$cid" ] && { echo "-1"; return; }
   docker inspect --format='{{.State.ExitCode}}' "$cid" 2>/dev/null || echo "-1"
 }

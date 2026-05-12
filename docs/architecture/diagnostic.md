@@ -73,7 +73,7 @@ stage 라벨 단일 진실은 `web/services/diagnostic_mapper._PROGRESS_LABEL_KR
 
 | 분류 | 처리 |
 |------|------|
-| 메시지 자체 결함 (JSON 파싱·job_id 누락) | silent ack + ERROR 로그 (DLQ 보내봐야 운영자 개입 의미 없음, #F10) |
+| 메시지 자체 결함 (JSON 파싱·job_id 누락) | silent ack + ERROR 로그 (DLQ 보내봐야 운영자 개입 의미 없음, #F6) |
 | job_id 미존재·이미 처리됨 | silent ack + INFO/WARNING |
 | 일시 장애 (DB OperationalError · LLM timeout · 5xx) | `_db_retry` 백오프 후 raise -> DLQ |
 | 영구 오류 (입력 검증 실패 · LLM 응답 수치 검증 2회 실패) | `status='failed', error_message` UPDATE 후 ack (DLQ 아님 — 사용자가 결과 페이지에서 본다) |
@@ -136,13 +136,13 @@ ORM: `src/assessment_engine/db/models/diagnostic_job.py`. TimescaleDB hypertable
 
 모두 `safe_*` helper 경유 (#C3). Redis 장애 시 silent skip — DB fallback이 흡수.
 
-## Disposability — SIGTERM 흐름 (#F16)
+## Disposability — SIGTERM 흐름 (#F12)
 
 워커: consumer와 동일 패턴 — `async with message.process(requeue=False)` 컨텍스트가 메시지 손실 0 보장.
 
 스케줄러: croniter 발화 사이 SIGTERM은 즉시 안전 종료. publish 중 SIGTERM은 broker 측 transaction 보장 (`connect_robust`).
 
-진행 중 job 운영 정책 (#F16 본문 + ADR 0004 후속 결정 영역):
+진행 중 job 운영 정책 (#F12 본문 + ADR 0004 후속 결정 영역):
 - SIGTERM 시 `status='running'`인 job은 DB에 그대로 남는다. 다음 워커 기동 시 본 job은 retrieve 안 됨 (consumer는 `pending` 만 fetch).
 - `worker_job_timeout_seconds` (기본 300s) 초과한 stale `'running'`은 운영자가 수동 `'failed'` UPDATE 또는 timeout 기반 자동 정리. 현재 미구현 — prod 도입 전 별도 ADR 의무.
 - 임시 대응: SQL `UPDATE diagnostic_jobs SET status='failed', error_message='stale running cleanup' WHERE status='running' AND started_at < now() - interval '5 minutes'` 운영자 manual 실행.
@@ -177,4 +177,4 @@ diagnostic.handler   - diagnostic job stage=succeeded job_id=...
 - `docs/architecture/consumer.md` — 워커 구현 시 참조 패턴 (F4·D2·C3 공유)
 - `docs/architecture/web/services.md` — `diagnostic_service.py`·`diagnostic_mapper.py` 책임 분리
 - `docs/operations/alembic.md` — `diagnostic_jobs` 마이그레이션 절차
-- `.claude/CLAUDE.md` #A2·#B3·#C1·#D2·#F4·#F10 — 결정·금지 사항 단일 진실
+- `.claude/CLAUDE.md` #A2·#B3·#C1·#D2·#F4·#F6 — 결정·금지 사항 단일 진실
