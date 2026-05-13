@@ -11,13 +11,13 @@ Lima는 에이전트 E2E + 시연 분류 분포 가시화. 엔진(docker-compose
 [VM: offline-server-01  ]   attention.gap_warnings (5m+ 끊김) + insufficient_data
 [VM: app-server-01      ]   under_provisioned (swap_used 트리거)         -> RabbitMQ -> consumer -> DB -> web UI
 [VM: monitor-server-01  ]   optimal (medium 부하 + swap reset)
-[VM: mq-server-01       ]   over (light 부하 + zypper family + reverse-sshfs mount)
+[VM: mq-server-01       ]   over (light 부하, Debian 12)
 [VM: cache-server-01    ]   over (light 부하)
 [VM: db-server-01       ]   over (light 부하 + RPM postgresql-setup --initdb)
 ```
 
 7 VM이 서로 다른 OS + 서로 다른 서비스 뱃지 + 의도적 분류 분포를 가지는 이유:
-- OS 다양성: 패키지 매니저 분기(apt/dnf/zypper) + systemd + GLIBC major + cloud-init 호환 동시 검증.
+- OS 다양성: 패키지 매니저 분기(apt/dnf) + systemd + GLIBC major + cloud-init 호환 동시 검증.
 - 서비스 뱃지 다양성: `service_classifier.py` 7 카테고리(web·db·cache·mq·container·monitor·unknown) 100% 커버.
 - 분류 분포: right-sizing 분류(over/optimal/under/insufficient_data)가 한쪽에 쏠리지 않게 합성 부하 프로파일 4단계로 분기. attention 카탈로그(`AttentionSignals`) 6 카테고리 중 2개(agent_unstable·gap_warnings) 의도 발화.
 
@@ -34,8 +34,8 @@ Lima + Apple Virtualization Framework / QEMU 채택 이유: Apple Silicon에서 
 | 1 | `web-server-01` | Debian 12 (bookworm) | apt | 1 CPU / 512 MiB / 5 GiB | nginx | web | medium | optimal | agent_unstable (1m boot + 3m 주기, 시간당 20회) |
 | 2 | `offline-server-01` | Debian 13 (trixie) | apt | 1 CPU / 512 MiB / 5 GiB | (없음) | unknown | (offline-once) | insufficient_data | gap_warnings (5m+ 끊김) |
 | 3 | `app-server-01` | Ubuntu 24.04 LTS (noble) | apt | 1 CPU / 1280 MiB / 5 GiB | docker.io | container | swap_trigger | under_provisioned | (분류 도넛에서만) |
-| 4 | `monitor-server-01` | CentOS Stream 9 | dnf | 1 CPU / 1280 MiB / 10 GiB | zabbix-agent | monitor | medium | optimal | (분류 도넛에서만) |
-| 5 | `mq-server-01` | openSUSE Leap 15 | zypper | 1 CPU / 1280 MiB / 10 GiB | mosquitto | mq | light | over_provisioned | (분류 도넛에서만) |
+| 4 | `monitor-server-01` | Rocky Linux 9 | dnf | 1 CPU / 1280 MiB / 10 GiB | zabbix-agent | monitor | medium | optimal | (분류 도넛에서만) |
+| 5 | `mq-server-01` | Debian 12 (bookworm) | apt | 1 CPU / 512 MiB / 5 GiB | mosquitto | mq | light | over_provisioned | (분류 도넛에서만) |
 | 6 | `cache-server-01` | Rocky Linux 9 | dnf | 1 CPU / 1280 MiB / 10 GiB | redis | cache | light | over_provisioned | (분류 도넛에서만) |
 | 7 | `db-server-01` | AlmaLinux 9 | dnf | 1 CPU / 1280 MiB / 10 GiB | postgresql-server | db | light | over_provisioned | (분류 도넛에서만) |
 
@@ -46,16 +46,14 @@ Lima + Apple Virtualization Framework / QEMU 채택 이유: Apple Silicon에서 
 - 4번 monitor — swap install 부담 (OOM 회피 swap reset 적용)
 - 5~7번 mq/cache/db — 정상 분류 (over/over/over) — 후순위
 
-OS 다양성 매트릭스 (7 distro 모두 다름, 0 중복):
+OS 다양성 매트릭스 (5 distro + Debian 12·Rocky 9 각 1회 중복 — monitor가 CentOS Stream 9 baseos metalink stale로 Rocky 9 fallback(사고 #13), mq가 openSUSE Leap 15 zypper 누적 불안정으로 Debian 12 fallback(사고 #15). 사용자 결정으로 OS 다양성보다 프로비저닝 안정성 우선):
 
 | OS | VM | family |
 |----|----|----|
-| Debian 12 | web | apt |
+| Debian 12 | web, mq | apt |
 | Debian 13 trixie | offline | apt |
 | Ubuntu 24.04 LTS | app | apt |
-| CentOS Stream 9 | monitor | dnf |
-| openSUSE Leap 15 | mq | zypper |
-| Rocky Linux 9 | cache | dnf |
+| Rocky Linux 9 | monitor, cache | dnf |
 | AlmaLinux 9 | db | dnf |
 
 뱃지 분배 (`service_classifier.py` 7 카탈로그 100% 커버):
@@ -74,7 +72,6 @@ OS 다양성 매트릭스 (7 distro 모두 다름, 0 중복):
 - 1 CPU 공통 — 최소 자원, cpu_p95 시연 1 코어 기준.
 - apt family는 512 MiB / 5 GiB 기본. app-server는 docker 데몬 ~100 MiB + swap-trigger 1100 MB burst라 1280 MiB로 보수.
 - dnf family는 1280 MiB / 10 GiB — dnf install transaction 1 GiB OOM 확인 후 1.25 GiB 보수. disk는 RPM cloud image qcow2 raw 강제.
-- zypper family도 1280 MiB / 10 GiB.
 
 ---
 
@@ -148,7 +145,7 @@ VM 간 통신 사용 안 함 — 각 VM은 독립적, 모든 통신은 host Rabb
 
 ## Mount 정책
 
-기본 `mountType` 미명시 — Lima vz default(virtiofs) 사용. 단 `mq-server-01`(openSUSE Leap 15)은 yaml에 `mountType: "reverse-sshfs"` 명시 — virtiofs guest mount가 silent fail (kernel 6.4+ 임에도 mount table에 안 잡힘) 확인 후 fallback. reverse-sshfs는 host에서 sshfs로 push, guest distro 무관 + sshfs binary 자동 install (lima ensureRequirement).
+기본 `mountType` 미명시 — Lima vz default(virtiofs) 사용. 모든 활성 VM이 virtiofs 정상 동작. (이전 openSUSE Leap 15 시기 mq-server-01에 `mountType: "reverse-sshfs"` 적용했으나(사고 #2), mq distro가 Debian 12로 교체(사고 #15)되며 reverse-sshfs 필요성 사라짐.)
 
 ```yaml
 mounts:
@@ -208,23 +205,22 @@ AGENT_EXTERNAL_IP=203.0.113.10   # web-server-01만
 | family | 명령 |
 |--------|------|
 | Ubuntu/Debian (apt) | `apt-get install -y --no-install-recommends gcc make pkg-config libc6-dev librabbitmq-dev libcjson-dev curl iputils-ping ${svc_pkg}` |
-| Rocky 8/9 / AlmaLinux 8/9 / CentOS Stream 9 (dnf) | `dnf install -y epel-release dnf-plugins-core` → `dnf config-manager --set-enabled crb \|\| --set-enabled powertools` → `dnf install -y gcc make pkg-config librabbitmq-devel cjson-devel curl iputils ${svc_pkg}` |
-| openSUSE Leap 15 (zypper) | `zypper --gpg-auto-import-keys --non-interactive refresh` → `zypper --non-interactive install -y gcc make pkg-config librabbitmq-devel cJSON-devel curl iputils ${svc_pkg}` |
+| Rocky 8/9 / AlmaLinux 8/9 (dnf) | `dnf install -y epel-release dnf-plugins-core` → `dnf config-manager --set-enabled crb \|\| --set-enabled powertools` → `dnf install -y gcc make pkg-config librabbitmq-devel cjson-devel curl iputils ${svc_pkg}` |
 | CentOS 7 (yum, EOL — vault.centos.org redirect) | (코드 잔존, 현 활성 VM 없음) |
 
-RPM family는 `librabbitmq-devel`이 EPEL + CRB(RHEL 9) 또는 PowerTools(RHEL 8) 저장소에 있어 활성화 의무. zypper는 cJSON-devel(대문자 J — Debian/RHEL의 `libcjson-devel`과 다름).
+RPM family는 `librabbitmq-devel`이 EPEL + CRB(RHEL 9) 또는 PowerTools(RHEL 8) 저장소에 있어 활성화 의무.
 
 서비스 dispatch:
 
-| VM | service | apt 패키지 | dnf 패키지 | zypper 패키지 | systemd 유닛 |
-|----|---------|-----------|-----------|--------------|-------------|
-| cache-server-01 | `redis` | `redis-server` | `redis` (rocky/rhel/almalinux) | — | `redis` (현 cache는 Rocky 9) |
-| app-server-01 | `docker` | `docker.io` | (미지원 — podman default + docker-ce 외부 repo 필요) | — | `docker` |
-| web-server-01 | `nginx` | `nginx` | `nginx` | `nginx` | `nginx` |
-| db-server-01 | `postgres` | `postgresql` | `postgresql-server` (현 db는 AlmaLinux 9 — RPM 분기 + `postgresql-setup --initdb` 자동) | — | `postgresql` |
-| mq-server-01 | `mosquitto` | `mosquitto` | `mosquitto` | `mosquitto` | `mosquitto` |
-| monitor-server-01 | `zabbix_agent` | `zabbix-agent` | `zabbix-agent` (centos/rocky/rhel/almalinux) | — | `zabbix-agent` |
-| offline-server-01 | `none` | (없음) | (없음) | (없음) | (없음) |
+| VM | service | apt 패키지 | dnf 패키지 | systemd 유닛 |
+|----|---------|-----------|-----------|-------------|
+| cache-server-01 | `redis` | `redis-server` | `redis` (rocky/rhel/almalinux) | `redis` (현 cache는 Rocky 9) |
+| app-server-01 | `docker` | `docker.io` | (미지원 — podman default + docker-ce 외부 repo 필요) | `docker` |
+| web-server-01 | `nginx` | `nginx` | `nginx` | `nginx` |
+| db-server-01 | `postgres` | `postgresql` | `postgresql-server` (현 db는 AlmaLinux 9 — RPM 분기 + `postgresql-setup --initdb` 자동) | `postgresql` |
+| mq-server-01 | `mosquitto` | `mosquitto` (현 mq는 Debian 12) | `mosquitto` | `mosquitto` |
+| monitor-server-01 | `zabbix_agent` | `zabbix-agent` | `zabbix-agent` (centos/rocky/rhel/almalinux) | `zabbix-agent` |
+| offline-server-01 | `none` | (없음) | (없음) | (없음) |
 
 dispatch 단일 진실은 `dev-up.sh`의 `case "${ID}:$service"` 블록. 새 service 도입 시 본 표 + dev-up.sh 동시 갱신 의무.
 
@@ -300,8 +296,11 @@ post_provision_vm 끝에 `if [ "$vm" = "monitor-server-01" ]` → `swapoff /swap
 | 10 | offline-server-01 OL9 자체 boot 시간 부담 + AWS 특화 OS 부적합 | OL9 자체가 시연 가치 약함 | Debian 13 (trixie) fallback — Lima 공식 검증, ~30~45s boot, apt 재사용 |
 | 11 | dev-down.sh가 LIMA_VMS 3 VM hardcoded (cache/app/web) — 7 VM과 sync 안 됨 | 옛 hardcoded LIMA_VMS 잔재 | dev-down.sh를 `source dev-up.sh`로 LIMA_VMS 단일 진실로 변경 |
 | 12 | dev-up.sh source 시 `BASH_SOURCE[0]: parameter not set` (zsh 환경) | zsh에 BASH_SOURCE array 없음 + dev-up.sh의 main 호출 가드 누락 | bash subshell 명시 + source guard `if [ "${BASH_SOURCE[0]:-}" = "${0:-}" ]; then main "$@"; fi` 추가 |
+| 13 | monitor-server-01 (CentOS Stream 9) dnf install 시 `baseos` repomd.xml sha512 mismatch — "Downloading successful, but checksum doesn't match. All mirrors were tried" | mirrors.centos.org metalink 응답 expected hash가 mirror 풀의 실제 repomd.xml과 구조적으로 불일치 (2 stale 버전이 deterministic하게 반복 수신). `fastestmirror=False` + `dnf makecache --refresh` 3회 retry 모두 동일 실패 (mirror lag 일시 현상 아님) | distro 교체 — monitor-server-01을 Rocky 9으로 fallback. dl.rockylinux.org mirror 인프라가 별개라 metalink expected 일관성 OK. cache-server-01과 family 1회 중복은 OS 다양성 매트릭스 7→6+1중복으로 진술 정정 |
+| 14 | mq-server-01 (openSUSE Leap 15) post-provision 진입 직후 zypper exit 7 — "System management is locked by the application with pid <N> (zypper). Close this application before trying again." | Lima cloud-init이 첫 boot 시 system 갱신을 위해 zypper를 점유 (zypp.lock). dev-up.sh가 즉시 zypper refresh/install 호출하면 lock fail | (1차) `zypper --lock-timeout`은 해당 옵션 자체 미존재(exit 2). (2차) heredoc 헤더에 `cloud-init status --wait` 추가 — VM에서 cloud-init이 PATH로 안 잡혀 silent skip, mq boot 78s 동안 lock 자연 해소되어 통과했으나 보장 없음 + stderr noise. (3차) dev-up.sh zypper 분기에 `pgrep -x zypper` lock retry loop(10회 x 10s) 추가 — distro-specific lock mechanism 직접 polling. heredoc 본문 line 335 주석의 백틱(`` ` ``)이 host bash command substitution을 발동시키는 부산 noise도 ASCII quote로 교체. (사고 #15에서 distro 자체가 교체되어 zypper 분기 자체가 dead code로 제거됨) |
+| 15 | mq-server-01 (openSUSE Leap 15) zypper install 중 `Retrieving: glibc-devel-...rpm [.not found]` — 패키지 메타데이터엔 있지만 mirror 풀 일부가 .rpm 파일 sync 안 됨. zypper 자체 fallback으로 다른 mirror 시도 결국 통과했으나 매번 보장 없음 + 사고 #2 (virtiofs silent fail) + 사고 #3 (`cJSON-devel` 명명 차이) + 사고 #14 (cloud-init zypper hold) 누적 3중 불안정 | openSUSE Leap 15 + 일부 mirror의 update repo sync lag (CentOS Stream 9 사고 #13과 유사한 패턴). zypper retry/refresh 보강만으로는 deterministic 안 됨 | distro 교체 — mq-server-01을 Debian 12로 fallback. 사용자 결정: OS 다양성(zypper family 검증)보다 프로비저닝 안정성 우선 (apt + dpkg + cloud.debian.org mirror 가장 견고). 영향 반영: dev-up.sh zypper 분기 + opensuse 매칭 dead code 제거, mq yaml mountType reverse-sshfs 제거(virtiofs default), lima.md OS 다양성 매트릭스 7→5+(web·mq 중복, monitor·cache 중복), mq family memory note·dispatch 카탈로그 zypper 컬럼 정리, 사고 #2·#3 역사 기록 유지 |
 
-12 사고 패턴 → 진행 검증 사이클 + 단계별 fix → 최종 7 VM 모두 boot OK + post-provision exit 0 + agent message 발행.
+15 사고 패턴 → 진행 검증 사이클 + 단계별 fix → 최종 7 VM 모두 boot OK + post-provision exit 0 + agent message 발행.
 
 ---
 

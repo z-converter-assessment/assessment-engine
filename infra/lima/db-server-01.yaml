@@ -13,7 +13,7 @@ images:
   arch: "aarch64"
 
 cpus: 1
-# AlmaLinux 9도 dnf transaction이라 1.25 GiB 보수 (Rocky 8/Rocky 9/CentOS Stream 9와 동일 family).
+# AlmaLinux 9 dnf transaction 보수 1.25 GiB (monitor-server-01·cache-server-01 Rocky 9와 동일 RHEL 9 family).
 memory: "1280MiB"
 # AlmaLinux 9 cloud image qcow2 raw가 10 GiB 강제 (RPM family 동일).
 disk: "10GiB"
