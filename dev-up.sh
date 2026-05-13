@@ -21,9 +21,9 @@ readonly TIMEOUT=180                         # docker compose / migrate / web �
 #                           → attention.gap_warnings 5m 후 발화 + insufficient_data 분류
 #   (3) app-server-01     — Ubuntu 24.04 + docker.io + boot-time swap-trigger.service
 #                           → under_provisioned 발화 (swap_used 트리거)
-#   (4) monitor-server-01 — CentOS Stream 9 + EPEL 9 + zabbix-agent + swap 256M (OOM 회피용)
+#   (4) monitor-server-01 — Rocky 9 + EPEL 9 + zabbix-agent + swap 256M (OOM 회피용)
 #                           → optimal 분류 (medium 부하)
-#   (5) mq-server-01      — openSUSE Leap 15 + zypper + reverse-sshfs mount + mosquitto
+#   (5) mq-server-01      — Debian 12 + mosquitto (openSUSE Leap 15 zypper 누적 불안정으로 fallback, 사고 #15)
 #                           → over_provisioned (light 부하, attention 카탈로그에 mq 매핑 없어 정상 분류)
 #   (6) cache-server-01   — Rocky 9 + redis  → over_provisioned (light)
 #   (7) db-server-01      — AlmaLinux 9 + postgresql-server  → over_provisioned (light, RPM initdb)
@@ -331,8 +331,8 @@ case "\${ID}:\${os_major}" in
   rocky:*|rhel:*|almalinux:*|centos:8|centos:9|centos:10)
     # install_weak_deps=False — Recommends 차단으로 transaction 메모리·디스크 절약 (1GiB OOM 회피).
     # tsflags=nodocs — man/info 등 문서 skip.
-    # CRB enable: Rocky 9/AlmaLinux 9/CentOS Stream 9는 crb, Rocky 8/AlmaLinux 8은 powertools.
-    # config-manager가 둘 다 시도 — 미존재 repo는 silent skip (`|| true` 안 해도 미발견 OK).
+    # CRB enable: Rocky 9/AlmaLinux 9는 crb, Rocky 8/AlmaLinux 8은 powertools.
+    # config-manager가 둘 다 시도 — 미존재 repo는 silent skip ("|| true" 안 해도 미발견 OK).
     dnf_opts="--setopt=install_weak_deps=False --setopt=tsflags=nodocs"
     dnf install -y \${dnf_opts} epel-release dnf-plugins-core
     dnf config-manager --set-enabled crb 2>/dev/null || dnf config-manager --set-enabled powertools 2>/dev/null || true
@@ -349,15 +349,6 @@ case "\${ID}:\${os_major}" in
     sed -i 's/^mirrorlist=/#mirrorlist=/' /etc/yum.repos.d/epel*.repo 2>/dev/null || true
     sed -i 's|^#\?baseurl=https\?://download.fedoraproject.org/pub|baseurl=https://archives.fedoraproject.org/pub/archive|' /etc/yum.repos.d/epel*.repo 2>/dev/null || true
     yum install -y gcc make pkgconfig librabbitmq-devel cjson-devel \\
-      curl iputils \${svc_pkg}
-    ;;
-  opensuse-leap:*|opensuse-tumbleweed:*|opensuse:*)
-    # SUSE family — zypper. 패키지명 확인 (Leap 15.6 기준):
-    #   librabbitmq-devel (다른 distro와 동일)
-    #   cJSON-devel (대문자 J — Debian/RHEL의 libcjson-devel과 다른 명명 규약)
-    zypper --gpg-auto-import-keys --non-interactive refresh
-    zypper --non-interactive install -y \\
-      gcc make pkg-config librabbitmq-devel cJSON-devel \\
       curl iputils \${svc_pkg}
     ;;
   *) echo "지원 안 하는 OS: \${ID}:\${os_major}" >&2; exit 1 ;;
