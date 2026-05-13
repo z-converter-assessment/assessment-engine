@@ -171,13 +171,20 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         await self.session.execute(stmt)
 
     async def list_recent(
-        self, days: int, scope: str | None = None, limit: int = 200,
+        self, days: int, scope: str | None = None,
+        server_public_ids: list[str] | None = None, limit: int = 200,
     ) -> list[DiagnosticJobRecord]:
         stmt = select(DiagnosticJob).where(
             DiagnosticJob.created_at > func.now() - text(f"interval '{days} days'"),
         )
         if scope:
             stmt = stmt.where(DiagnosticJob.scope == scope)
+        if server_public_ids:
+            # input_params JSONB의 server_public_id 추출 후 ANY 매칭.
+            # server scope job만 본 키 보유 — environment scope는 자연스럽게 제외됨.
+            stmt = stmt.where(
+                DiagnosticJob.input_params["server_public_id"].astext.in_(server_public_ids),
+            )
         stmt = stmt.order_by(DiagnosticJob.created_at.desc()).limit(limit)
         result = await self.session.execute(stmt)
         return [_to_record(row) for row in result.scalars().all()]

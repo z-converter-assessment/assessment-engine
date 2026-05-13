@@ -27,7 +27,6 @@ from assessment_engine.web.services.cache_serializer import (
 from assessment_engine.web.services.device_filters import is_lvm_disk, is_partition, is_physical_disk, is_virtual_mount
 from assessment_engine.web.services.mappers import (
     _DONUT_SEGMENT_FROM_REC,
-    build_capacity_breakdown,
     build_environment_overview,
     build_report_summary_bullets,
     build_role_distribution,
@@ -49,16 +48,14 @@ from assessment_engine.web.services.mappers import (
 )
 from assessment_engine.web.services.metrics_calculator import build_dashboard
 from assessment_engine.web.view_models import (
-    AgentUnstableItem,
+    AttentionRow,
     AttentionSignals,
     CapacityWarningItem,
     CollectionStatusItem,
-    DiskDaysWarningItem,
     EnvironmentOverview,
     MetricDashboard,
     MetricSeriesItem,
     NetworkDetailResponse,
-    OSEolWarningItem,
     ReportRowItem,
     ReportSummary,
     ServerDetailResponse,
@@ -242,8 +239,8 @@ class QueryService:
         # 평가 기간 신호 — 14일 period 전체 서버 대상 (보고서·right-sizing 윈도우와 동일)
         server_ids = await self.repo.list_server_ids()
         capacity_warnings: list[CapacityWarningItem] = []
-        days_warnings: list[DiskDaysWarningItem] = []
-        os_eol_warnings: list[OSEolWarningItem] = []
+        days_warnings: list[AttentionRow] = []
+        os_eol_warnings: list[AttentionRow] = []
         raws_period = []
         if server_ids:
             raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
@@ -269,7 +266,7 @@ class QueryService:
                         ))
 
         # Agent 재시작 빈번 — Redis 1h 카운터 mget
-        agent_unstable: list[AgentUnstableItem] = []
+        agent_unstable: list[AttentionRow] = []
         if server_ids:
             restart_keys = [
                 web_settings.redis_key_agent_restarts.format(sid) for sid in server_ids
@@ -295,10 +292,9 @@ class QueryService:
                             ))
 
         return AttentionSignals(
-            disk_warnings=[to_disk_warning_item(r) for r in disk_raws],
+            disk_warnings=[to_disk_warning_item(r, now) for r in disk_raws],
             gap_warnings=[to_gap_warning_item(r, now) for r in gap_raws],
             capacity_warnings=capacity_warnings,
-            capacity_breakdown=build_capacity_breakdown(capacity_warnings),
             days_until_full_warnings=days_warnings,
             os_eol_warnings=os_eol_warnings,
             agent_unstable=agent_unstable,

@@ -1,0 +1,39 @@
+# offline-server-01: Debian 13 (trixie) — offline 시연용 (apt family, 빠른 boot).
+# 검증 의도: 시연용 오프라인 더미 — agent inventory 1회 발행 후 stop. 5분 후 gap_warnings 발화.
+# offline-once mode이라 부하 없음 — OS 무관, 빠른 boot + post-provision이 핵심.
+# 1차 Ubuntu 20.04 LTS → cloud image 다운로드 timeout, fallback.
+# 2차 Oracle Linux 9 → boot scripts must finished 단계 5분+ stuck (lima vz 호환), fallback.
+# 3차 Debian 13 trixie — Lima 공식 debian-13 template 검증, ~30초 boot, apt 재사용.
+#
+# yaml 책임: boot + mount만 (합성 부하 timer 없음 — offline이라 publish 안 함).
+# 패키지 설치·에이전트 빌드·systemd unit은 dev-up.sh post-provision (debian:* 분기 재사용).
+# offline mode 분기: dev-up.sh의 finalize_vm()이 inventory 1회 발행 후 agent stop.
+
+images:
+- location: "https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-genericcloud-amd64-daily.qcow2"
+  arch: "x86_64"
+- location: "https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-genericcloud-arm64-daily.qcow2"
+  arch: "aarch64"
+
+cpus: 1
+# apt family — offline-once mode이라 부하 0, 메모리 압박 없음. 512 MiB로 최소화.
+memory: "512MiB"
+disk: "5GiB"
+
+containerd:
+  system: false
+  user: false
+
+param:
+  AgentSrc: ""
+
+mounts:
+- location: "{{.Param.AgentSrc}}"
+  mountPoint: "/mnt/agent-src"
+  writable: false
+
+# 합성 부하 timer 없음 — offline이라 의미 없음.
+
+message: |
+  offline-server-01 (Debian 13 trixie) ready.
+  Agent install pending — dev-up.sh post-provision이 1회 발행 후 stop (offline 시연용).

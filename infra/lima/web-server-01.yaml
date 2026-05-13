@@ -1,0 +1,109 @@
+# web-server-01: Debian 12 + nginx + AGENT_EXTERNAL_IP override (dev-up.sh post-provision).
+# 검증 의도: apt 분기(다른 OS 계열) + nginx 설치 -> service_classifier "web" 카테고리 + 외부 IP 표시.
+# medium 합성 부하 -> right-sizing optimal 발화 (cpu_p95 30~70% AND mem_p95 50~80%).
+#
+# yaml 책임: boot + mount + 합성 부하 timer.
+# 패키지 설치·에이전트 빌드·systemd unit은 dev-up.sh가 limactl shell로 후처리.
+
+images:
+- location: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
+  arch: "x86_64"
+- location: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-arm64.qcow2"
+  arch: "aarch64"
+
+cpus: 1
+memory: "512MiB"
+disk: "5GiB"
+
+containerd:
+  system: false
+  user: false
+
+param:
+  AgentSrc: ""
+
+mounts:
+- location: "{{.Param.AgentSrc}}"
+  mountPoint: "/mnt/agent-src"
+  writable: false
+
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    # 합성 부하 (medium) — right-sizing optimal 발화 목표.
+    # cpu sustained 20~28s (1분 timer 33~47% 점유 → cpu_p95 ~40~60%) +
+    # mem 240~300MB burst x 25s 점유 (512MiB의 47~58% → mem_p95 50~70%).
+    set -euo pipefail
+    cat > /usr/local/bin/synthetic-load.sh <<'EOF'
+    #!/bin/bash
+    duration=$(( (RANDOM % 9) + 20 ))      # 20~28s sustained CPU
+    timeout ${duration}s sha256sum /dev/zero > /dev/null 2>&1 &
+    cpu_pid=$!
+    size=$(( (RANDOM % 61) + 240 ))        # 240~300MB — 512MiB VM의 47~58%
+    head -c ${size}M /dev/urandom > /tmp/synthetic-load-mem 2>/dev/null || true
+    sleep 25                                # 25s 메모리 점유
+    sync
+    rm -f /tmp/synthetic-load-mem
+    count=$(( (RANDOM % 200) + 200 ))
+    dd if=/dev/zero of=/tmp/synthetic-io bs=4k count=${count} 2>/dev/null || true
+    sync
+    rm -f /tmp/synthetic-io
+    ping -c $(( (RANDOM % 5) + 3 )) -q host.lima.internal > /dev/null 2>&1 || true
+    curl -s -m 2 http://host.lima.internal:8000/health > /dev/null 2>&1 || true
+    curl -s -m 2 http://host.lima.internal:8000/static/js/chart-utils.js > /dev/null 2>&1 || true
+    wait ${cpu_pid} 2>/dev/null || true
+    EOF
+    chmod 755 /usr/local/bin/synthetic-load.sh
+    cat > /etc/systemd/system/synthetic-load.service <<'EOF'
+    [Unit]
+    Description=Synthetic load (metrics visualization aid)
+    [Service]
+    Type=oneshot
+    ExecStart=/usr/local/bin/synthetic-load.sh
+    EOF
+    cat > /etc/systemd/system/synthetic-load.timer <<'EOF'
+    [Unit]
+    Description=Run synthetic-load every minute
+    [Timer]
+    OnBootSec=2min
+    OnUnitActiveSec=1min
+    [Install]
+    WantedBy=timers.target
+    EOF
+    systemctl daemon-reload
+    systemctl enable synthetic-load.timer
+    systemctl start synthetic-load.timer
+
+# attention 시연용 — 본 VM만 agent를 주기 restart해 agent_unstable 카테고리 항상 발화.
+# 1시간 슬라이딩 윈도우 임계 3회(CLAUDE.md A3 `agent_restart_alert_threshold`)를 큰 마진으로 초과.
+# OnBootSec=1min — 부팅 직후 1분만에 첫 restart (시연 즉시 가시화).
+# OnUnitActiveSec=3min — 3분 간격이라 1시간 약 20회. 임계 3회 대비 6배 마진으로 안정 발화.
+- mode: system
+  script: |
+    #!/bin/bash
+    set -euo pipefail
+    cat > /etc/systemd/system/agent-restart-demo.service <<'EOF'
+    [Unit]
+    Description=Agent restart demo (attention.agent_unstable 시연용)
+    [Service]
+    Type=oneshot
+    ExecStart=/bin/systemctl restart assessment-agent
+    EOF
+    cat > /etc/systemd/system/agent-restart-demo.timer <<'EOF'
+    [Unit]
+    Description=Restart assessment-agent every 3 minutes (demo, 시간당 20회 — 임계 3회의 6배 마진)
+    [Timer]
+    OnBootSec=1min
+    OnUnitActiveSec=3min
+    [Install]
+    WantedBy=timers.target
+    EOF
+    systemctl daemon-reload
+    systemctl enable agent-restart-demo.timer
+    systemctl start agent-restart-demo.timer
+
+message: |
+  web-server-01 (Debian 12) ready.
+  Agent install pending — run dev-up.sh post-provision step (AGENT_EXTERNAL_IP=203.0.113.10).
+  agent-restart-demo.timer enabled — attention.agent_unstable 항상 발화 시연용.

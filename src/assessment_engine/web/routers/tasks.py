@@ -19,7 +19,10 @@ tasks_router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 
 class InstallRequest(BaseModel):
     target_public_ids: list[str] = Field(min_length=1, max_length=1000)
-    source_host: str = Field(min_length=1, max_length=45)
+    # agent가 `curl {source_url}`로 그대로 fetch하는 전체 URL — scheme·host·port·path 자유.
+    # 본 엔진 self-host 예: "http://host.lima.internal:8000/zconverter.tar.gz".
+    # 외부 mirror 예: "https://mirror.example.com/dist/zconverter-v1.tar.gz".
+    source_url: str = Field(min_length=1, max_length=2048)
 
 
 @tasks_router.post("/install", response_model=list[TaskCreated])
@@ -28,7 +31,7 @@ async def install(
     service: TaskService = Depends(get_task_service),
 ):
     try:
-        return await service.create_install_tasks(req.target_public_ids, req.source_host)
+        return await service.create_install_tasks(req.target_public_ids, req.source_url)
     except _NotFound as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except _DuplicatePending as e:

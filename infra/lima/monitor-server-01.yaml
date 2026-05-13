@@ -1,0 +1,101 @@
+# monitor-server-01: CentOS Stream 9 + zabbix-agent (EPEL 9 표준 monitor 카테고리).
+# 검증 의도: monitor 카테고리 뱃지 + RHEL upstream distro (Rocky/AlmaLinux와 다른 distro, 같은 RPM family).
+# dev-up.sh의 centos:9 dispatch 이미 가용 — 추가 분기 없이 기존 dnf 흐름 재사용.
+# medium 합성 부하 -> right-sizing optimal 발화 (cpu_p95 30~70% AND mem_p95 50~80%).
+# 1차 후보 node_exporter -> EPEL 9에 `golang-github-prometheus-node-exporter` 패키지 자체 미존재, fallback.
+# 2차 zabbix-agent (EPEL 9 가용) — service_classifier "zabbix" -> monitor 카테고리 매칭.
+#
+# yaml 책임: boot + mount + 합성 부하 timer (medium) + swap 256M(OOM 회피) + swappiness=1.
+# 패키지 설치(zabbix-agent)·에이전트 빌드·systemd unit은 dev-up.sh post-provision.
+
+images:
+- location: "https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2"
+  arch: "x86_64"
+- location: "https://cloud.centos.org/centos/9-stream/aarch64/images/CentOS-Stream-GenericCloud-9-latest.aarch64.qcow2"
+  arch: "aarch64"
+
+cpus: 1
+# CentOS Stream 9도 dnf transaction이라 1.25 GiB 보수 (Rocky/AlmaLinux와 동일 family).
+# node_exporter 자체는 ~10MB로 매우 가벼움 — 메모리 압박은 dnf install 단계만.
+memory: "1280MiB"
+# CentOS Stream 9 cloud image qcow2 raw가 10 GiB — 더 줄일 수 없음 (lima reject).
+disk: "10GiB"
+
+containerd:
+  system: false
+  user: false
+
+param:
+  AgentSrc: ""
+
+mounts:
+- location: "{{.Param.AgentSrc}}"
+  mountPoint: "/mnt/agent-src"
+  writable: false
+
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    # Step 1: swap file 256MB — CentOS Stream 9 + EPEL 9 dnf install 시 OOM 회피만 의도.
+    # (1280MiB만으로는 dnf transaction + zabbix-agent install 동시에 OOM 발생, exit 137 확인).
+    # swappiness=1 영구 설정 — kernel이 swap을 거의 사용 안 함 (swap_used=0 유지). 단 OOM 직전엔
+    # swap 사용. 따라서 monitor는 right-sizing optimal 발화 (under_provisioned 안 발화) 의도.
+    # swap_used 트리거는 app-server-01 한 곳만 — 분류 분배 일관성.
+    set -euo pipefail
+    if [ ! -f /swapfile ]; then
+      fallocate -l 256M /swapfile
+      chmod 600 /swapfile
+      mkswap /swapfile
+      swapon /swapfile
+      echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    fi
+    echo 'vm.swappiness=1' > /etc/sysctl.d/99-swap.conf
+    sysctl -p /etc/sysctl.d/99-swap.conf
+
+    # Step 2: 합성 부하 (medium) — right-sizing optimal 발화 목표.
+    # cpu sustained 20~28s (1분 timer 33~47% 점유 → cpu_p95 ~40~60%) +
+    # mem 700~850MB burst x 25s 점유 (1280MiB의 55~66% → mem_p95 50~70%).
+    cat > /usr/local/bin/synthetic-load.sh <<'EOF'
+    #!/bin/bash
+    duration=$(( (RANDOM % 9) + 20 ))      # 20~28s sustained CPU
+    timeout ${duration}s sha256sum /dev/zero > /dev/null 2>&1 &
+    cpu_pid=$!
+    size=$(( (RANDOM % 151) + 700 ))       # 700~850MB — 1280MiB VM의 55~66%
+    head -c ${size}M /dev/urandom > /tmp/synthetic-load-mem 2>/dev/null || true
+    sleep 25                                # 25s 메모리 점유
+    sync
+    rm -f /tmp/synthetic-load-mem
+    count=$(( (RANDOM % 200) + 200 ))
+    dd if=/dev/zero of=/tmp/synthetic-io bs=4k count=${count} 2>/dev/null || true
+    sync
+    rm -f /tmp/synthetic-io
+    ping -c $(( (RANDOM % 5) + 3 )) -q host.lima.internal > /dev/null 2>&1 || true
+    curl -s -m 2 http://host.lima.internal:8000/health > /dev/null 2>&1 || true
+    curl -s -m 2 http://host.lima.internal:8000/static/js/chart-utils.js > /dev/null 2>&1 || true
+    wait ${cpu_pid} 2>/dev/null || true
+    EOF
+    chmod 755 /usr/local/bin/synthetic-load.sh
+    cat > /etc/systemd/system/synthetic-load.service <<'EOF'
+    [Unit]
+    Description=Synthetic load (metrics visualization aid)
+    [Service]
+    Type=oneshot
+    ExecStart=/usr/local/bin/synthetic-load.sh
+    EOF
+    cat > /etc/systemd/system/synthetic-load.timer <<'EOF'
+    [Unit]
+    Description=Run synthetic-load every minute
+    [Timer]
+    OnBootSec=2min
+    OnUnitActiveSec=1min
+    [Install]
+    WantedBy=timers.target
+    EOF
+    systemctl daemon-reload
+    systemctl enable synthetic-load.timer
+    systemctl start synthetic-load.timer
+
+message: |
+  monitor-server-01 (CentOS Stream 9 + zabbix-agent) ready.
+  Agent install pending — run dev-up.sh post-provision step.

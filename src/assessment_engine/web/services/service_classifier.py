@@ -23,6 +23,7 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
     ("kafka",         "mq"),
     ("activemq",      "mq"),
     ("nats",          "mq"),
+    ("mosquitto",     "mq"),  # MQTT broker (가장 가벼운 mq — EPEL 표준 패키지)
     ("docker",        "container"),
     ("containerd",    "container"),
     ("kubelet",       "container"),
@@ -60,6 +61,7 @@ _SERVICE_PORTS: dict[str, list[int]] = {
     "kafka":            [9092],
     "nats-server":      [4222, 8222],
     "activemq":         [61616, 8161],
+    "mosquitto":        [1883, 8883],  # MQTT default + TLS
 }
 
 

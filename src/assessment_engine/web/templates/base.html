@@ -41,6 +41,23 @@
     .rec-idle, .rec-shutdown { background: #f1f5f9; color: #64748b; }
     .rec-swap              { background: #b91c1c; color: #fef2f2; }
     .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07); padding: 20px 24px; margin-bottom: 18px; }
+
+    /* Attention card 6 sub-section 표준 — list.html attention 전용. inline style 흩어짐 방지. */
+    .attention-block { margin-bottom: 10px; }
+    .attention-block:last-child { margin-bottom: 0; }
+    .attention-block-label { font-size: 12px; color: #1e293b; margin-bottom: 4px; }
+    .attention-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+    .attention-item { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+    .attention-badge { min-width: 80px; justify-content: center; }
+    .attention-link { font-weight: 600; text-decoration: underline; }
+    .attention-meta { color: #64748b; font-size: 12px; }
+    /* mount path는 긴 경우 단일 줄 ellipsis + hover title 전체 노출 — 카드 행 높이 안정. */
+    .attention-mount { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px; color: #475569; }
+    /* 주의 신호 카탈로그 범례 — 6 카테고리 항상 표시 (count 0 포함). active=발화·inactive=무. */
+    .attention-catalog { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; }
+    .attention-cat-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #f1f5f9; color: #94a3b8; }
+    .attention-cat-item[data-active="True"] { background: #fef3c7; color: #92400e; font-weight: 600; }
+    .attention-cat-item strong { font-weight: 700; }
     .kv { display: grid; grid-template-columns: 160px 1fr; gap: 7px 16px; }
     .kv dt { color: #64748b; font-size: 13px; }
     .kv dd { color: #0f172a; font-weight: 500; font-size: 13px; }
@@ -75,13 +92,24 @@
     .btn { display: inline-block; padding: 7px 14px; background: #f1f5f9; border-radius: 6px; font-size: 13px; color: #334155; font-weight: 500; transition: background .15s; }
     .btn:hover { background: #e2e8f0; text-decoration: none; }
 
+    /* AI 진단 액션 버튼 — list.html(환경 진단) / detail.html(서버 진단) 공통 패턴. inline 중복 방지. */
+    .btn-action { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #374151; font-size: 13px; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; cursor: pointer; }
+    .btn-action:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); text-decoration: none; }
+    .btn-action svg { width: 14px; height: 14px; }
+
     /* Form controls */
     .search-row { display: flex; gap: 8px; margin-bottom: 18px; align-items: center; }
     .search-row input[type=text] { padding: 7px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; width: 240px; outline: none; }
     .search-row input[type=text]:focus { border-color: #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
     .search-row label { font-size: 13px; color: #475569; display: flex; align-items: center; gap: 5px; cursor: pointer; }
-    .search-row button { padding: 7px 14px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; font-weight: 500; }
-    .search-row button:hover { background: #1d4ed8; }
+    /* 검색 버튼은 secondary 톤 — selection 그룹(.btn-primary 파란색)과 분리. + 서버 발견 버튼(.btn-action)과 동일 톤. */
+    .search-row button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #374151; font-size: 13px; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; cursor: pointer; }
+    .search-row button:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); }
+
+    /* Primary action 버튼 — selection 그룹(보고서·Export·AI 진단·Install) 공통 톤. 검색 버튼과 같은 파란색. */
+    .btn-primary { padding: 5px 11px; background: #2563eb; color: #fff; border: none; border-radius: 5px; font-size: 12px; cursor: pointer; font-weight: 500; transition: background .15s; }
+    .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+    .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; opacity: 0.7; }
     .search-row .clear-btn { padding: 7px 12px; background: #f1f5f9; color: #64748b; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
     .search-row .clear-btn:hover { background: #e2e8f0; }
 
@@ -116,5 +144,16 @@
   <main>
     {% block content %}{% endblock %}
   </main>
+  <script>
+    /* .back 링크 공통 동작 — 브라우저 history 있으면 직전 페이지, 없으면(새 탭·직접 URL) href fallback. */
+    document.querySelectorAll('a.back').forEach(a => {
+      a.addEventListener('click', e => {
+        if (history.length > 1) {
+          e.preventDefault();
+          history.back();
+        }
+      });
+    });
+  </script>
 </body>
 </html>

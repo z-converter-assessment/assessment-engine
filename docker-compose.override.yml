@@ -43,8 +43,11 @@ services:
 
   # pgAdmin — dev DB GUI. ServerMode=False → 로그인 없이 즉시 사용.
   # 서버 등록은 infra/pgadmin-servers.json으로 자동 (postgres host·user 미리 채워짐). password는 첫 접속 시 입력.
+  # profiles: [gui] — 기본 `docker compose up`엔 미포함, 명시 호출 시만 띄움 (idle 250MiB 절감).
+  #   띄우려면: `docker compose --profile gui up -d pgadmin`
   pgadmin:
     image: dpage/pgadmin4:latest
+    profiles: [gui]
     environment:
       PGADMIN_DEFAULT_EMAIL: dev@example.com    # pgAdmin이 RFC 형식(TLD 필요) 검증 — local 도메인은 reject
       PGADMIN_DEFAULT_PASSWORD: dev

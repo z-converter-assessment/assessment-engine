@@ -1,8 +1,10 @@
-# OpenStack Staging 배포
+# OpenStack Staging 배포 (예상 시나리오)
 
-ADR 0006 채택 — 사내 폐쇄망 OpenStack tenant에 엔진을 4 VM 분산 배포한다. 로컬 dev(`docker-compose.yml` + Vagrant)와 무관하게 독립 동작.
+ADR 0006 — 사내 폐쇄망 OpenStack tenant에 엔진을 4 VM 분산 배포 예상 설계. 본 디렉토리 전체(`deploy/openstack/` terraform·ansible·compose·scripts)는 본 시점 검토 중인 안 — 실 OpenStack tenant 도입 시 토폴로지·자원·구성 모두 변경 가능. 도입 시점에 별도 ADR 정정 의무.
 
-본 문서는 docs/ 진입점. 실제 절차·디렉토리 구조·트러블슈팅은 `deploy/openstack/README.md` 단일 진실. 배포 결정·옵션 비교·VM 토폴로지 근거는 `docs/adr/0006-openstack-staging.md`.
+로컬 dev(`docker-compose.yml` + Lima 7 VM)와 무관하게 독립 동작 의도. 실 검증된 dev 파이프라인은 `docs/operations/lima.md` + `docs/operations/pipeline.md` 단일 진실.
+
+본 문서는 docs/ 진입점. 예상 절차·디렉토리 구조·트러블슈팅은 `deploy/openstack/README.md`. 배포 결정·옵션 비교·VM 토폴로지 근거는 `docs/adr/0006-openstack-staging.md`.
 
 ## VM 토폴로지 요약 (ADR 0006)
 
@@ -44,7 +46,7 @@ export OPENSTACK_KEY_PATH=~/.ssh/openstack-key.pem
 
 ## 영역 밖 (현 ADR 미해결)
 
-- agent VM 배포·파이프라인 검증은 로컬 Vagrant 유지 (`docs/operations/pipeline.md` + `docs/operations/vagrant.md`)
+- agent VM 배포·파이프라인 검증은 로컬 Lima 유지 (`docs/operations/pipeline.md` + `docs/operations/lima.md`)
 - 외부 노출·LB·DNS·인증서 (사내망이라 불필요)
 - HA·수평 확장 자동화 (1차 수직 확장)
 - 운영 secret store (Vault·Barbican) (1차 Ansible Vault)

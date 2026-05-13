@@ -4,7 +4,7 @@
 
 docker-compose는 엔진 그 자체다. web·consumer·DB·MQ·Redis 전체 스택을 단일 `docker-compose.yml`로 구성하며, 이 묶음이 고객사 네트워크 내에 설치되는 배포 단위다.
 
-개발 환경에서는 호스트 머신에서 docker-compose를 올리고, Vagrant VM들이 에이전트를 실행해 RabbitMQ에 메시지를 발행하는 구조로 전체 파이프라인을 검증한다 (`dev-up.sh`가 두 단계를 순서대로 기동).
+개발 환경에서는 호스트 머신에서 docker-compose를 올리고, Lima VM들이 에이전트를 실행해 RabbitMQ에 메시지를 발행하는 구조로 전체 파이프라인을 검증한다 (`dev-up.sh`가 두 단계를 순서대로 기동).
 
 Python 애플리케이션(web·consumer)만 로컬 빌드(`Dockerfile`)하고, 나머지 인프라 서비스(postgres·rabbitmq·redis)는 공식 이미지를 그대로 사용한다.
 
@@ -15,11 +15,11 @@ Python 애플리케이션(web·consumer)만 로컬 빌드(`Dockerfile`)하고, �
 ```
 Dockerfile                    — web·consumer·diagnostic-worker·diagnostic-scheduler 공용 이미지
 docker-compose.yml            — prod-safe baseline (password·외부 포트 노출 없음)
-docker-compose.override.yml   — dev 자동 적용 (.env 평문, 포트 노출, 코드 마운트, APP_ENV=dev, pgadmin)
+docker-compose.override.yml   — dev 자동 적용 (.env 평문, 포트 노출, 코드 마운트, APP_ENV=dev, pgadmin은 profiles:[gui] 분리)
 docker-compose.prod.yml       — prod 명시 호출 (Docker secrets, APP_ENV=prod). secret 정책: docs/operations/dev-prod.md #7
 .dockerignore                 — COPY . . 시 제외 경로
-dev-up.sh                     — Docker → web 헬스체크 → Vagrant 순서 기동
-dev-down.sh                   — Vagrant destroy → docker compose down -v
+dev-up.sh                     — Docker → migrate → web 헬스체크 → Lima(limactl start + agent install) 순서 기동
+dev-down.sh                   — Lima(limactl stop + delete) → docker compose down -v
 ```
 
 OpenStack staging 분산 배포(`deploy/openstack/compose/` 분리 compose 3종)는 ADR 0006 단일 진실.
@@ -79,7 +79,7 @@ COPY . .                            # ← 소스 코드
 
 ## docker-compose.yml
 
-### 서비스 구성 (dev 9개, prod 8개 — pgadmin 제외)
+### 서비스 구성 (기본 8개 — pgadmin은 profiles:[gui]로 분리, 명시 호출 시만 가동)
 
 | 서비스 | 이미지 | 역할 | 적용 환경 |
 |--------|--------|------|-----------|
@@ -91,14 +91,14 @@ COPY . .                            # ← 소스 코드
 | `consumer` | 로컬 빌드 | aio-pika 컨슈머 (server.* + task.result 큐) | dev / prod |
 | `diagnostic-worker` | 로컬 빌드 | `diagnostic.request` 큐 소비, LLM 호출 (ADR 0004) | dev / prod |
 | `diagnostic-scheduler` | 로컬 빌드 | 주기 진단 작업 enqueue (ADR 0004) | dev / prod |
-| `pgadmin` | `dpage/pgadmin4` | DB GUI (override.yml 전용, prod 미배포) | dev only |
+| `pgadmin` | `dpage/pgadmin4` | DB GUI (override.yml `profiles:[gui]` 전용, prod 미배포). `docker compose --profile gui up -d pgadmin`으로 명시 호출 — idle 250 MiB 절감 | dev gui only |
 
 ### 포트 노출
 
 | 서비스 | 호스트 포트 | 컨테이너 포트 | 용도 |
 |--------|------------|--------------|------|
 | postgres | `${POSTGRES_PORT:-5432}` | 5432 | psql 직접 접속 (디버그) |
-| rabbitmq | `${RABBITMQ_PORT:-5672}` | 5672 | AMQP — Vagrant VM 에이전트가 `10.0.2.2:5672`로 접근 |
+| rabbitmq | `${RABBITMQ_PORT:-5672}` | 5672 | AMQP — Lima VM 에이전트가 `host.lima.internal:5672`로 접근 |
 | rabbitmq | `${RABBITMQ_MANAGEMENT_PORT:-15672}` | 15672 | 관리 UI |
 | web | `${WEB_PORT:-8000}` | 8000 | HTTP — 브라우저 + `/static/*` 정적 자원 |
 
@@ -191,6 +191,22 @@ environment:
 - `start_period: 10s` — web lifespan(`CREATE EXTENSION + create_all + create_hypertable`)이 완료될 시간 확보. 이 구간의 실패는 `retries`에 포함되지 않는다.
 - 헬스 엔드포인트(`/health`)는 단순 `{"status": "ok"}` JSON. DB·Redis 연결 검사 안 함 (deep healthcheck 안 함).
 
+### Kubernetes Health Probes 분리 (#F14 도입 시)
+
+본 프로젝트 현재 docker-compose 단일 healthcheck (`/health` shallow) — 의무 0. Kubernetes 마이그레이션 시 분리 검토:
+
+| Probe | 경로 | 검증 범위 | 실패 시 동작 |
+|-------|------|----------|-------------|
+| livenessProbe | `/livez` (현 `/health`와 동일 — shallow) | 프로세스 alive | 컨테이너 재시작 |
+| readinessProbe | `/readyz` (deep — DB·MQ·Redis ready) | 외부 의존 ready | Service endpoint에서 제외, 트래픽 차단 (재시작 안 함) |
+
+분리 사유: 현재 단일 `/health`에 deep check를 추가하면 외부 장애 시 컨테이너 재기동 폭주 사고 발생 (#F14 금지 항목). Kubernetes는 두 probe를 분리해 외부 의존 장애와 프로세스 사망을 다르게 처리한다.
+
+도입 시 의무:
+- 별도 ADR (분리 사유·외부 의존 timeout·ready 판정 기준 명시)
+- `/readyz` 안 외부 의존 검사는 짧은 timeout (DB ping 1s, Redis ping 500ms 등) — probe 자체가 트래픽 부하가 되지 않도록.
+- `/livez`는 본 `/health`와 동일 단순 응답 유지.
+
 ### 기동 순서 (`depends_on`)
 
 ```
@@ -220,17 +236,18 @@ ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migra
 
 ### dev-up.sh
 ```
-[1/3] docker compose up -d --build
-[2/3] web 헬스체크 대기 (최대 120초)
-[3/3] vagrant up
+[1/4] docker compose up -d --build
+[2/4] migrate(alembic upgrade head) 완료 대기 (최대 180초)
+[3/4] web 헬스체크 대기 (최대 180초)
+[4/4] limactl start + agent install (7 VM, 시연 가시화 순서 — `docs/operations/lima.md`)
 ```
 
-- web 헬스체크 통과 후에만 vagrant up 진입 — 에이전트가 처음 inventory를 발행할 때 RabbitMQ가 healthy 상태여야 정상 처리.
-- 헬스체크 타임아웃(120s) 초과 시 web 로그 30라인 dump 후 exit.
+- web 헬스체크 통과 후에만 limactl start 진입 — 에이전트가 처음 inventory를 발행할 때 RabbitMQ가 healthy 상태여야 정상 처리.
+- 헬스체크 타임아웃(180s) 초과 시 migrate/web 로그 30라인 dump 후 exit.
 
 ### dev-down.sh
 ```
-[1/2] vagrant destroy -f (VM이 존재할 때만)
+[1/2] limactl stop -f + delete -f (7 VM, source dev-up.sh로 LIMA_VMS 단일 진실)
 [2/2] docker compose down -v
 ```
 

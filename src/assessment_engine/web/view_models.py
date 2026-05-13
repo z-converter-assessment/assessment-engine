@@ -61,26 +61,27 @@ class ServerListItem:
 
 
 @dataclass
-class DiskWarningItem:
-    """디스크 사용률 임박 mount 1건 — 특정 서버 + 특정 mount."""
-    public_id: str
-    hostname: str
-    mount: str
-    used_pct: float       # 0~100
-    free_gb: float
-    total_gb: float
-    last_metric_at: datetime  # 해당 mount의 latest 시점 — 운영자 stale 판단
-    badge_class: str      # 90+ → rec-under_provisioned, 85~90 → rec-right_size
+class AttentionRow:
+    """주의 신호 카드 안 1행 — 5 카테고리(gap/disk/days_until_full/os_eol/agent_unstable) 통합 표현.
 
+    P2 단일 진실 — 모든 표시 string은 mapper가 결정. template은 attribute access만.
 
-@dataclass
-class GapWarningItem:
-    """metric 발행 갭 — 한때 살아있다 끊긴 서버."""
-    public_id: str
-    hostname: str
-    last_metric_at: datetime
-    gap_minutes: int      # 표시 헬퍼 (template에서 계산 안 함 — P3)
-    badge_class: str      # 30분+ → rec-under_provisioned, 5~30분 → rec-right_size
+    badge_class: badge CSS class (rec-* — base.html 단일 진실)
+    badge_text:  badge 안 텍스트 ("5분", "92%", "EOL", ...)
+    link_href:   상세 페이지 경로 ("/servers/{public_id}" 또는 "/servers/{public_id}/storage")
+    link_text:   링크 표시 텍스트 (보통 hostname)
+    mount_path:  mount path 별도 attribute — 긴 path는 CSS ellipsis + title hover (template에서 처리).
+                 None이면 macro는 mount 표시 생략. mount path 없는 카테고리(gap/os_eol/agent_unstable)에 적용.
+    meta_text:   meta 영역 정적 텍스트 (mount path 제외한 나머지 — "잔여 12 / 100 GB" 등)
+    meta_at:     KST 표시 datetime (있으면 meta_text 뒤에 kst 필터로 표시). KST 변환은 template 필터만 (#F2)
+    """
+    badge_class: str
+    badge_text: str
+    link_href: str
+    link_text: str
+    mount_path: str | None = None
+    meta_text: str = ""
+    meta_at: datetime | None = None
 
 
 @dataclass
@@ -90,10 +91,14 @@ class CapacityTriggerBadge:
     label: "스왑" / "CPU" / "메모리"
     color: 범례 색과 동기화 hex (mapper _CAPACITY_TRIGGER_COLORS 단일 진실)
     active: True면 본 자원 임계 초과 (색 채워진 배지), False면 비활성 (흐리게)
+    bg_color/fg_color: 표시용 hex — mapper가 active/inactive 분기로 미리 결정 (P3 단일 진실).
+                       템플릿은 inline 색 분기 안 함.
     """
     label: str
     color: str
     active: bool = True
+    bg_color: str = ""
+    fg_color: str = ""
 
 
 @dataclass
@@ -116,45 +121,16 @@ class CapacityWarningItem:
 
 
 @dataclass
-class DiskDaysWarningItem:
-    """디스크 잔여 N일 안 — fill_rate 추정 기반."""
-    public_id: str
-    hostname: str
-    mount: str
-    days_until_full: int
-    used_pct: float | None
+class AttentionCatalogEntry:
+    """주의 신호 카드 상단 범례 1개 — 6 카탈로그 중 1개.
 
-
-@dataclass
-class OSEolWarningItem:
-    """OS End-of-Life 임박/지남 — 정적 매핑."""
-    public_id: str
-    hostname: str
-    os_display: str             # "centos 7.9"
-    eol_date: str               # ISO 날짜 ("2024-06-30")
-
-
-@dataclass
-class AgentUnstableItem:
-    """에이전트 재시작 빈번 — Redis 1h 슬라이딩 카운터 기반."""
-    public_id: str
-    hostname: str
-    restart_count: int          # 1h 윈도우 안 재시작 횟수
-
-
-@dataclass
-class CapacityBreakdownEntry:
-    """capacity_warnings 카드 우측 범례 — 트리거 자원별 카운트.
-
-    label: "스왑" / "CPU" / "메모리" / "CPU/메모리".
-    count: 해당 트리거로 분류된 서버 수.
-    color: badge_class와 동기화된 시각 색.
-    count_color: 카운트 표시 색 — count>0이면 #1e293b, 0이면 #cbd5e1 (P3 — 템플릿 분기 금지).
+    label: 카테고리 이름 (sub-section 헤더와 동일)
+    count: 발화 건수 (list 길이)
+    active: count > 0 — 시각 강조 분기 (P3 — 템플릿 분기 금지)
     """
     label: str
     count: int
-    color: str
-    count_color: str = "#cbd5e1"
+    active: bool
 
 
 @dataclass
@@ -167,15 +143,31 @@ class AttentionSignals:
     days_until_full_warnings: 디스크 잔여 30일 안 (fill_rate 추정).
     os_eol_warnings: OS EOL 임박/지남 (정적 매핑).
     agent_unstable: 1h 윈도우 안 재시작 임계 초과 서버.
+    catalog: 카드 상단 범례 — 6 카탈로그 label·count·active (발화 0건도 노출).
     has_any: 6 카탈로그 중 1개라도 비어있지 않으면 True.
     """
-    disk_warnings: list[DiskWarningItem]
-    gap_warnings: list[GapWarningItem]
+    disk_warnings: list[AttentionRow]
+    gap_warnings: list[AttentionRow]
     capacity_warnings: list[CapacityWarningItem] = field(default_factory=list)
-    capacity_breakdown: list[CapacityBreakdownEntry] = field(default_factory=list)
-    days_until_full_warnings: list[DiskDaysWarningItem] = field(default_factory=list)
-    os_eol_warnings: list[OSEolWarningItem] = field(default_factory=list)
-    agent_unstable: list[AgentUnstableItem] = field(default_factory=list)
+    days_until_full_warnings: list[AttentionRow] = field(default_factory=list)
+    os_eol_warnings: list[AttentionRow] = field(default_factory=list)
+    agent_unstable: list[AttentionRow] = field(default_factory=list)
+
+    @property
+    def catalog(self) -> list[AttentionCatalogEntry]:
+        """6 카탈로그 범례 — sub-section 표시 순서와 일치. 발화 0건 카테고리도 포함."""
+        return [
+            AttentionCatalogEntry("통신 끊김",       len(self.gap_warnings),              bool(self.gap_warnings)),
+            AttentionCatalogEntry("디스크 사용률",   len(self.disk_warnings),             bool(self.disk_warnings)),
+            AttentionCatalogEntry("언더 프로비저닝", len(self.capacity_warnings),         bool(self.capacity_warnings)),
+            AttentionCatalogEntry(
+                "디스크 추세",
+                len(self.days_until_full_warnings),
+                bool(self.days_until_full_warnings),
+            ),
+            AttentionCatalogEntry("OS 지원종료",     len(self.os_eol_warnings),           bool(self.os_eol_warnings)),
+            AttentionCatalogEntry("에이전트 재시작", len(self.agent_unstable),            bool(self.agent_unstable)),
+        ]
 
     @property
     def has_any(self) -> bool:

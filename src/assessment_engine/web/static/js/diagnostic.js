@@ -145,6 +145,8 @@
         const data = await res.json();
         const ids = (data.job_ids || []).join(',');
         if (!ids) throw new Error('job_id not returned');
+        // navigate 전 모달 close — 결과 페이지에서 뒤로가기 시 BFCache 복원되어도 모달 떠있지 않게.
+        this._closeModal();
         // 결과 페이지로 이동 — polling은 거기서 진행
         window.location.href = `/diagnostics?ids=${encodeURIComponent(ids)}`;
       } catch (e) {
@@ -256,5 +258,13 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-diagnostic-panel]').forEach(el => new DiagnosticPanel(el));
+  });
+
+  // BFCache 복원 시(진단 발행 후 결과 페이지에서 뒤로가기) fresh SSR 보장 — 옛 SSR(빈 카드) 그대로 복원 회피.
+  // panel 있는 페이지(list/server detail)만 reload — 다른 페이지는 정상 BFCache 활용.
+  window.addEventListener('pageshow', e => {
+    if (e.persisted && document.querySelector('[data-diagnostic-panel]')) {
+      location.reload();
+    }
   });
 })();

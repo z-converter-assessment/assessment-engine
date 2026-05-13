@@ -30,10 +30,9 @@ from assessment_engine.web.services.metrics_calculator import compute_net_io
 from assessment_engine.web.services.service_classifier import classify, matched_ports
 from assessment_engine.web.services.units import bytes_to_gb, kb_to_gb, usage_pct
 from assessment_engine.web.view_models import (
+    AttentionRow,
     CollectionStatusItem,
     DiskItem,
-    DiskWarningItem,
-    GapWarningItem,
     ListenPortItem,
     MetricSeriesItem,
     MountUsageItem,
@@ -54,6 +53,9 @@ _USAGE_WARN_PCT   = 75
 _WELL_KNOWN_PORT_MAX = 1024
 # attention 신호 — metric 갭이 30분 이상이면 위험 색 (5~30분은 경고).
 _GAP_DANGER_MINUTES = 30
+# disk_warnings stale 임계 — last_metric_at이 24h 이상 안 갱신된 mount는 meta에 "마지막 수집 ..." 추가 표시.
+# 7d cutoff(SQL) 안에서도 1d 이상 stale은 운영자가 인지해야 함.
+_DISK_STALE_HOURS = 24
 
 _Severity = Literal["ok", "warn", "danger"]
 
@@ -183,10 +185,12 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
             mem_p95_pct=raw_period.mem_p95_pct, swap_used=raw_period.swap_used, net_avg_kbps=None,
         ))
         seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "normal")
-        for key, label, color in _DONUT_SEGMENT_DEFS:
+        # 색은 풀네임 def에서 추출, 라벨은 약어 dict — 셀 좁은 칸 대응.
+        for key, _label, color in _DONUT_SEGMENT_DEFS:
             if key == seg_key:
-                rec_label, rec_color = label, color
+                rec_color = color
                 break
+        rec_label = _DONUT_SEGMENT_SHORT_LABEL.get(seg_key, "")
 
     return ServerListItem(
         id=dto.id,
@@ -506,37 +510,46 @@ def _services_for_export(services: list[dict] | None, listen_ports: list[dict] |
     return out
 
 
-def to_disk_warning_item(raw: DiskUsageWarningRaw) -> DiskWarningItem:
-    """DiskUsageWarningRaw → DiskWarningItem (P2: 단위 변환·badge 분류 단일 변환).
+def to_disk_warning_item(raw: DiskUsageWarningRaw, now: datetime) -> AttentionRow:
+    """DiskUsageWarningRaw → AttentionRow (P2: 단위 변환·badge 분류·표시 string·stale 분기 단일 변환).
 
-    threshold(85%)는 repo가 이미 거름 — mapper는 단위 + badge만. SQL이 total_bytes>0를 거름.
+    threshold(85%)는 repo가 이미 거름 — mapper는 단위 + badge + 표시 string만. SQL이 total_bytes>0를 거름.
+    last_metric_at이 _DISK_STALE_HOURS 이상 안 갱신된 mount는 meta_at 채워서 "마지막 수집" 표시 활성.
     """
     used_pct = (1 - raw.avail_bytes / raw.total_bytes) * 100
     free_gb = raw.avail_bytes / 1024 ** 3
     total_gb = raw.total_bytes / 1024 ** 3
     badge = "rec-under_provisioned" if used_pct >= _USAGE_DANGER_PCT else "rec-right_size"
-    return DiskWarningItem(
-        public_id=raw.public_id,
-        hostname=raw.hostname,
-        mount=raw.mount,
-        used_pct=used_pct,
-        free_gb=free_gb,
-        total_gb=total_gb,
-        last_metric_at=raw.last_metric_at,
+    is_stale = (now - raw.last_metric_at).total_seconds() / 3600 >= _DISK_STALE_HOURS
+    meta_text = f"잔여 {free_gb:.1f} / {total_gb:.1f} GB"
+    if is_stale:
+        meta_text += " · 마지막 수집 "
+    return AttentionRow(
         badge_class=badge,
+        badge_text=f"{used_pct:.0f}%",
+        link_href=f"/servers/{raw.public_id}/storage",
+        link_text=raw.hostname,
+        mount_path=raw.mount,
+        meta_text=meta_text,
+        meta_at=raw.last_metric_at if is_stale else None,
     )
 
 
-def to_gap_warning_item(raw: MetricGapWarningRaw, now: datetime) -> GapWarningItem:
-    """MetricGapWarningRaw → GapWarningItem (P2: gap_minutes·badge 단일 변환)."""
+def to_gap_warning_item(raw: MetricGapWarningRaw, now: datetime) -> AttentionRow:
+    """MetricGapWarningRaw → AttentionRow (P2: gap_minutes·badge·표시 string 단일 변환).
+
+    last_metric_at은 KST 표시 위해 meta_at으로 그대로 전달 (KST 변환은 template kst 필터 #F2).
+    mount path 없는 카테고리 — mount_path=None.
+    """
     gap_min = int((now - raw.last_metric_at).total_seconds() // 60)
     badge = "rec-under_provisioned" if gap_min >= _GAP_DANGER_MINUTES else "rec-right_size"
-    return GapWarningItem(
-        public_id=raw.public_id,
-        hostname=raw.hostname,
-        last_metric_at=raw.last_metric_at,
-        gap_minutes=gap_min,
+    return AttentionRow(
         badge_class=badge,
+        badge_text=f"{gap_min}분",
+        link_href=f"/servers/{raw.public_id}",
+        link_text=raw.hostname,
+        meta_text="마지막 수집 ",
+        meta_at=raw.last_metric_at,
     )
 
 
@@ -809,11 +822,20 @@ _DONUT_SEGMENT_FROM_REC: dict[str, str] = {
 }
 
 # 도넛 그리는 순서(언더 12시 방향 시작) + 범례 순서. (key, label, hex)
+# 색 정책: 빨강(위험)·초록(정상) 이분과 헷갈리지 않게 over는 청록 — 운영자가 "검토 영역" 직관 인지.
+# 도넛 범례는 풀네임(공간 충분), 서버 목록 셀은 _SHORT_LABEL 별도 (좁은 칸).
 _DONUT_SEGMENT_DEFS: list[tuple[str, str, str]] = [
-    ("under",  "언더 프로비저닝", "#ef4444"),  # 자원 부족 — 사양 상향
-    ("over",   "오버 프로비저닝", "#f59e0b"),  # 자원 여유 — 사양 축소 또는 종료
-    ("normal", "정상",           "#22c55e"),  # 적정
+    ("under",  "언더 프로비저닝", "#ef4444"),  # 자원 부족 — 사양 상향 (빨강 = 위험)
+    ("over",   "오버 프로비저닝", "#06b6d4"),  # 자원 여유 — 사양 축소·종료 검토 (청록 = 정보 검토)
+    ("normal", "정상",           "#22c55e"),  # 적정 (초록 = 안전)
 ]
+
+# 서버 목록 셀 안 표시용 약어 — 좁은 칸. 도넛 범례(풀네임)와 별도 매핑.
+_DONUT_SEGMENT_SHORT_LABEL: dict[str, str] = {
+    "under":  "Under",
+    "over":   "Over",
+    "normal": "Normal",
+}
 
 
 def _bar_color(pct: float | None) -> str:
@@ -922,34 +944,9 @@ _CAPACITY_TRIGGER_COLORS: dict[str, str] = {
     "메모리": "#8b5cf6",   # 보라 — 메모리 임계 초과
 }
 
-# 범례 표시 순서 (count 무관 — 모든 항목 노출)
-_CAPACITY_BREAKDOWN_ORDER: tuple[str, ...] = ("스왑", "CPU", "메모리")
-
-
-def build_capacity_breakdown(items: list) -> list:
-    """CapacityWarningItem list -> CapacityBreakdownEntry list (trigger 자원별 카운트).
-
-    한 서버가 여러 trigger 발동이면 각 trigger 모두 카운트 (예: CPU + 메모리 둘 다 부족 서버 1대 →
-    CPU 카운트 1, 메모리 카운트 1). 본 카운트 = "이 자원이 부족한 서버 수".
-    모든 trigger 3종 항상 노출 (count 0 포함) — 카드 본질 명시.
-    """
-    from collections import Counter  # noqa: PLC0415
-
-    from assessment_engine.web.view_models import CapacityBreakdownEntry  # noqa: PLC0415
-    counter: Counter[str] = Counter()
-    for item in items:
-        for t in item.triggers:
-            if t.active:
-                counter[t.label] += 1
-    return [
-        CapacityBreakdownEntry(
-            label=label,
-            count=counter.get(label, 0),
-            color=_CAPACITY_TRIGGER_COLORS[label],
-            count_color=("#1e293b" if counter.get(label, 0) > 0 else "#cbd5e1"),
-        )
-        for label in _CAPACITY_BREAKDOWN_ORDER
-    ]
+# inactive trigger badge 톤 — active 색은 위 dict, inactive는 본 상수. 둘 다 mapper 단일 진실.
+_CAPACITY_TRIGGER_INACTIVE_BG = "#f8fafc"
+_CAPACITY_TRIGGER_INACTIVE_FG = "#cbd5e1"
 
 
 def to_capacity_warning_item(raw):
@@ -965,10 +962,19 @@ def to_capacity_warning_item(raw):
     swap_active = bool(raw.swap_used)
     cpu_active = (raw.cpu_p95_pct or 0) >= recommendation.CPU_UPSIZE_P95_PCT
     mem_active = (raw.mem_p95_pct or 0) >= recommendation.MEM_UPSIZE_P95_PCT
+
+    def _badge(label: str, active: bool) -> CapacityTriggerBadge:
+        color = _CAPACITY_TRIGGER_COLORS[label]
+        if active:
+            bg, fg = color, "#fff"
+        else:
+            bg, fg = _CAPACITY_TRIGGER_INACTIVE_BG, _CAPACITY_TRIGGER_INACTIVE_FG
+        return CapacityTriggerBadge(label=label, color=color, active=active, bg_color=bg, fg_color=fg)
+
     triggers = [
-        CapacityTriggerBadge(label="스왑",   color=_CAPACITY_TRIGGER_COLORS["스왑"],   active=swap_active),
-        CapacityTriggerBadge(label="CPU",    color=_CAPACITY_TRIGGER_COLORS["CPU"],    active=cpu_active),
-        CapacityTriggerBadge(label="메모리", color=_CAPACITY_TRIGGER_COLORS["메모리"], active=mem_active),
+        _badge("스왑",   swap_active),
+        _badge("CPU",    cpu_active),
+        _badge("메모리", mem_active),
     ]
     return CapacityWarningItem(
         public_id=raw.public_id,
@@ -980,33 +986,55 @@ def to_capacity_warning_item(raw):
     )
 
 
-def to_disk_days_warning_item(public_id, hostname, mount, days_until_full, used_pct):
-    """raw tuple -> DiskDaysWarningItem. caller가 days <= 30 필터링 후 호출."""
-    from assessment_engine.web.view_models import DiskDaysWarningItem  # noqa: PLC0415
-    return DiskDaysWarningItem(
-        public_id=public_id, hostname=hostname,
-        mount=mount, days_until_full=days_until_full, used_pct=used_pct,
+def to_disk_days_warning_item(
+    public_id: str,
+    hostname: str,
+    mount: str,
+    days_until_full: int,
+    used_pct: float | None,
+) -> AttentionRow:
+    """raw tuple -> AttentionRow. caller가 days <= 30 필터링 후 호출.
+
+    badge=N일 (rec-under_provisioned), mount_path 별도 attribute, meta="{used_pct}%" (없으면 빈 string).
+    """
+    meta = ""
+    if used_pct is not None:
+        meta = f"{used_pct:.0f}%"
+    return AttentionRow(
+        badge_class="rec-under_provisioned",
+        badge_text=f"{days_until_full}일",
+        link_href=f"/servers/{public_id}/storage",
+        link_text=hostname,
+        mount_path=mount,
+        meta_text=meta,
     )
 
 
-def to_os_eol_warning_item(raw):
-    """ReportRowRaw -> OSEolWarningItem if matches _OS_EOL, else None."""
-    from assessment_engine.web.view_models import OSEolWarningItem  # noqa: PLC0415
+def to_os_eol_warning_item(raw) -> AttentionRow | None:
+    """ReportRowRaw -> AttentionRow if matches _OS_EOL, else None.
+
+    badge=EOL 라벨 + meta="{os_display} · EOL {eol_date}".
+    """
     for (eol_os, eol_ver), date in _OS_EOL.items():
         if raw.os_id == eol_os and (raw.os_version or "").startswith(eol_ver):
-            return OSEolWarningItem(
-                public_id=raw.public_id, hostname=raw.hostname,
-                os_display=_os_display(raw.os_id, raw.os_version),
-                eol_date=date,
+            return AttentionRow(
+                badge_class="rec-over_provisioned",
+                badge_text="EOL",
+                link_href=f"/servers/{raw.public_id}",
+                link_text=raw.hostname,
+                meta_text=f"{_os_display(raw.os_id, raw.os_version)} · EOL {date}",
             )
     return None
 
 
-def to_agent_unstable_item(public_id, hostname, restart_count):
-    """raw -> AgentUnstableItem. caller가 임계 필터링 후 호출."""
-    from assessment_engine.web.view_models import AgentUnstableItem  # noqa: PLC0415
-    return AgentUnstableItem(
-        public_id=public_id, hostname=hostname, restart_count=restart_count,
+def to_agent_unstable_item(public_id: str, hostname: str, restart_count: int) -> AttentionRow:
+    """raw -> AttentionRow. caller가 임계 필터링 후 호출."""
+    return AttentionRow(
+        badge_class="rec-over_provisioned",
+        badge_text=f"{restart_count}회",
+        link_href=f"/servers/{public_id}",
+        link_text=hostname,
+        meta_text="신뢰도 낮음",
     )
 
 
@@ -1017,6 +1045,8 @@ _OS_EOL: dict[tuple[str, str], str] = {
     ("rhel",   "7"):       "2024-06-30",
     ("ubuntu", "18.04"):   "2023-05-31",
     ("debian", "10"):      "2024-06-30",
+    ("debian", "11"):      "2024-07-14",  # standard support EOL (LTS는 2026-08까지)
+    ("centos", "8"):       "2024-05-31",  # CentOS Stream 8 (RHEL 8 family 중 Stream만 EOL — AlmaLinux/Rocky 8은 2029까지 active)
 }
 
 

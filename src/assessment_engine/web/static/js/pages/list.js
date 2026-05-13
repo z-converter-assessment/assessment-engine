@@ -19,9 +19,25 @@ const portInput   = document.getElementById('probe-port');
 const schemeInput = document.getElementById('probe-scheme');
 const resultEl    = document.getElementById('probe-result');
 
+// probe target default — 브라우저 접근 host 우선, localhost 시 Lima dev fallback.
+// dev 환경: web 컨테이너 → host.docker.internal (Docker Desktop magic — macOS host 도달 가능).
+//   Lima vmnet IP(192.168.5.2)는 docker network 격리로 도달 불가라 docker host alias 사용.
+// 운영 환경: window.location.hostname 그대로 — IP·hostname 둘 다 backend가 받음 (ProbeRequest.target).
+function _defaultProbeTarget() {
+  const h = window.location.hostname;
+  if (h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '') {
+    return 'host.docker.internal';
+  }
+  return h;
+}
+
 function showModal() {
   modal.style.display = 'flex';
+  if (!ipInput.value.trim()) {
+    ipInput.value = _defaultProbeTarget();
+  }
   ipInput.focus();
+  ipInput.select();
   resultEl.style.display = 'none';
   resultEl.innerHTML = '';
 }
@@ -53,11 +69,11 @@ function renderResult(data, errMsg) {
 }
 
 async function runProbe() {
-  const ip     = ipInput.value.trim();
+  const target = ipInput.value.trim();
   const port   = parseInt(portInput.value, 10);
   const scheme = schemeInput.value;
 
-  if (!ip) { renderResult(null, 'IP를 입력하세요'); return; }
+  if (!target) { renderResult(null, '대상(IP 또는 hostname)을 입력하세요'); return; }
   if (!port || port < 1 || port > 65535) { renderResult(null, '포트는 1~65535 범위'); return; }
 
   // 진행 표시
@@ -72,7 +88,7 @@ async function runProbe() {
     const res = await fetch('/api/v1/discovery/probe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ip, port, scheme }),
+      body: JSON.stringify({ target, port, scheme }),
     });
     if (res.status === 422) {
       const detail = await res.json();
@@ -111,37 +127,67 @@ const installBtn              = document.getElementById('install-btn');
 const installCloseBtn         = document.getElementById('install-close');
 const installSubmitBtn        = document.getElementById('install-submit');
 const installCountEl          = document.getElementById('install-count');
-const installSourceHostInput  = document.getElementById('install-source-host');
+const installSourceUrlInput   = document.getElementById('install-source-url');
 const selectAllCb      = document.getElementById('select-all');
 
-// IPv4 검증 — 0~255 octet 4개. 모달 submit 직전 호출. invalid 입력이 백엔드로 가지 않게 차단.
-function isValidIPv4(s) {
-  const re = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
-  return re.test(s);
+// URL 검증 — 전체 URL (scheme + host[:port] + path 자유). agent가 `curl {source_url}`로 그대로 fetch.
+// URL constructor 활용 — typo 차단 + scheme 허용 화이트리스트(http/https).
+function isValidUrl(s) {
+  try {
+    const u = new URL(s);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+// 운영자가 web UI에 접근한 host를 install URL의 default로. agent도 같은 내부 네트워크 가정 (A1 폐쇄망).
+// Lima dev 시연(브라우저 localhost) 시 VM agent 입장에서는 localhost가 자기 자신 — host.lima.internal로 fallback.
+// 운영 환경에선 운영자가 도메인으로 접근 → window.location.host 그대로 사용.
+// path는 본 엔진 self-host endpoint `/zconverter.tar.gz` hardcoded (web/routers/payloads.py 단일 진실).
+function _defaultSourceUrl() {
+  const hostname = window.location.hostname;
+  let host;
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '') {
+    host = `host.lima.internal:${window.location.port || '80'}`;
+  } else {
+    host = window.location.host;
+  }
+  return `http://${host}/zconverter.tar.gz`;
 }
 
 function selectedRows() {
   return [...document.querySelectorAll('.row-select:checked')];
 }
 
+// selection 버튼 상태 갱신 — CSS .btn-primary:disabled가 시각 분기 (opacity inline 불필요).
 function refreshInstallButton() {
   const n = selectedRows().length;
   installBtn.textContent = `ZConverter Install (${n})`;
   installBtn.disabled = n === 0;
-  installBtn.style.opacity = n === 0 ? '0.5' : '1';
   exportBtn.textContent = `JSON Export (${n})`;
   exportBtn.disabled = n === 0;
-  exportBtn.style.opacity = n === 0 ? '0.5' : '1';
   reportCustomerBtn.textContent = `고객 보고서 (${n})`;
   reportCustomerBtn.disabled = n === 0;
-  reportCustomerBtn.style.opacity = n === 0 ? '0.5' : '1';
   reportEngineerBtn.textContent = `엔지니어 보고서 (${n})`;
   reportEngineerBtn.disabled = n === 0;
-  reportEngineerBtn.style.opacity = n === 0 ? '0.5' : '1';
+  diagHistoryBtn.textContent = `AI 진단 이력 (${n})`;
+  diagHistoryBtn.disabled = n === 0;
 }
 
 const reportCustomerBtn = document.getElementById('report-customer-btn');
 const reportEngineerBtn = document.getElementById('report-engineer-btn');
+const diagHistoryBtn    = document.getElementById('diag-history-btn');
+
+// 선택된 서버들의 진단 이력 페이지로 이동 — multi server_public_ids query 반복.
+function openDiagHistory() {
+  const rows = selectedRows();
+  if (!rows.length) return;
+  const params = rows.map(r => `server_public_ids=${encodeURIComponent(r.dataset.publicId)}`).join('&');
+  window.location.href = `/diagnostics/history?${params}`;
+}
+
+diagHistoryBtn.addEventListener('click', openDiagHistory);
 
 function openReport(view) {
   const rows = selectedRows();
@@ -200,8 +246,13 @@ function showInstallModal() {
   const rows = selectedRows();
   if (rows.length === 0) return;
   installCountEl.textContent = rows.length;
+  // 비어있을 때만 default 채움 — 운영자가 한 번 수정한 값은 페이지 세션 동안 보존.
+  if (!installSourceUrlInput.value.trim()) {
+    installSourceUrlInput.value = _defaultSourceUrl();
+  }
   installModal.style.display = 'flex';
-  installSourceHostInput.focus();
+  installSourceUrlInput.focus();
+  installSourceUrlInput.select();
 }
 
 function hideInstallModal() {
@@ -209,10 +260,10 @@ function hideInstallModal() {
 }
 
 async function submitInstall() {
-  const sourceHost = installSourceHostInput.value.trim();
+  const sourceUrl = installSourceUrlInput.value.trim();
   const rows = selectedRows();
-  if (!sourceHost) { ToastUtils.show('다운로드 호스트를 입력하세요', 'err'); return; }
-  if (!isValidIPv4(sourceHost)) { ToastUtils.show('IPv4 형식이 아닙니다 (예: 192.168.0.3)', 'err'); return; }
+  if (!sourceUrl) { ToastUtils.show('다운로드 URL을 입력하세요', 'err'); return; }
+  if (!isValidUrl(sourceUrl)) { ToastUtils.show('URL 형식이 아닙니다 (http/https + host[:port]/path)', 'err'); return; }
   if (rows.length === 0) { ToastUtils.show('선택된 서버 없음', 'err'); return; }
 
   const pending = ToastUtils.show(`Install 발행 중 (${rows.length}대)...`, 'pending');
@@ -224,7 +275,7 @@ async function submitInstall() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         target_public_ids: rows.map(r => r.dataset.publicId),
-        source_host: sourceHost,
+        source_url: sourceUrl,
       }),
     });
     pending.remove();
@@ -266,7 +317,7 @@ installBtn.addEventListener('click', showInstallModal);
 installCloseBtn.addEventListener('click', hideInstallModal);
 installModal.addEventListener('click', e => { if (e.target === installModal) hideInstallModal(); });
 installSubmitBtn.addEventListener('click', submitInstall);
-installSourceHostInput.addEventListener('keypress', e => { if (e.key === 'Enter') submitInstall(); });
+installSourceUrlInput.addEventListener('keypress', e => { if (e.key === 'Enter') submitInstall(); });
 
 // --- AI 진단 batch 발행 (ADR 0004 단계 3) ---
 const diagModal     = document.getElementById('diagnose-modal');

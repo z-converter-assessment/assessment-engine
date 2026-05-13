@@ -101,8 +101,8 @@
 
 | 구성 | 기술 | 비고 |
 |------|------|------|
-| dev 파이프라인 검증 VM | Vagrant + VirtualBox | Ubuntu / Rocky / Debian 3대 + 에이전트 발행 검증 (`docs/operations/pipeline.md`) |
-| OpenStack staging | Terraform + Ansible (vault 암호화) | 4 VM 분산 — bastion + DB + MW + 앱 (ADR 0006) |
+| dev 파이프라인 검증 VM | Lima + Apple Virtualization Framework (macOS) | 7 VM (Debian 12/13 · Ubuntu 24.04 · CentOS Stream 9 · openSUSE Leap 15 · Rocky 9 · AlmaLinux 9) + 시연 분류·attention 분포 (`docs/operations/lima.md`·`docs/operations/pipeline.md`) |
+| OpenStack staging | Terraform + Ansible (vault 암호화) | 예상 시나리오 — 4 VM 분산(bastion + DB + MW + 앱) ADR 0006 (실제 도입 시점에 정정 의무, `deploy/openstack/` 전체 예상 설계) |
 | 테스트 | pytest + pytest-asyncio + testcontainers + ruff | `docs/operations/testing.md` |
 
 Frontend (정적 자원)
@@ -166,12 +166,11 @@ Frontend (정적 자원)
 | macOS | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | 4.x+ |
 | Linux | [Docker Engine](https://docs.docker.com/engine/install/) + [Docker Compose](https://docs.docker.com/compose/install/) | Engine 27.x · Compose v2 |
 
-에이전트 포함 전체 환경 (추가)
+에이전트 포함 전체 환경 (추가, macOS)
 
 | 소프트웨어 | 버전 | 비고 |
 |-----------|------|------|
-| [VirtualBox](https://www.virtualbox.org/) | 7.1+ | Apple Silicon 포함 |
-| [Vagrant](https://www.vagrantup.com/) | 2.4.x | |
+| [Lima](https://lima-vm.io/) | 1.0+ | `brew install lima` (Apple Virtualization Framework / QEMU 백엔드) |
 
 ---
 
@@ -199,7 +198,7 @@ uv pip install -e "."
 
 ## 실행
 
-세 가지 시나리오: Docker만 (dev) / Docker + Vagrant 풀 파이프라인 (dev) / prod.
+세 가지 시나리오: Docker만 (dev) / Docker + Lima 풀 파이프라인 (dev) / prod.
 어떤 시나리오든 시작 전에 `.env` 부터 준비.
 
 ```bash
@@ -229,15 +228,15 @@ docker compose down -v
 
 처음 기동이면 첫 alembic upgrade가 모든 테이블·hypertable·extension을 자동 생성. 모델·마이그레이션 변경 후 재기동하면 변경분만 적용.
 
-### B. Docker + Vagrant 풀 파이프라인 (dev)
+### B. Docker + Lima 풀 파이프라인 (dev)
 
-VM 3대 + 에이전트까지 — 실제 메트릭 흐름 검증. 자세한 절차는 `docs/operations/pipeline.md`.
+Lima 7 VM + 에이전트까지 — 실제 메트릭 흐름 + 시연 분류 분포(over/optimal/under/insufficient_data) + attention 발화(agent_unstable·gap_warnings) 검증. 자세한 절차는 `docs/operations/lima.md` + `docs/operations/pipeline.md`.
 
 ```bash
 cp infra/agent.env.example infra/agent.env  # 에이전트 secret 채널 (최초 1회)
 
-./dev-up.sh    # docker compose up + web 헬스체크 + vagrant up
-./dev-down.sh  # vagrant destroy + docker compose down -v
+./dev-up.sh    # docker compose up + web 헬스체크 + limactl start + agent install (7 VM)
+./dev-down.sh  # limactl delete + docker compose down -v (LIMA_VMS 단일 진실 source)
 ```
 
 ### C. prod 기동 (참고)
@@ -266,9 +265,9 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 
 운영 체크리스트: `docs/operations/dev-prod.md` 10절.
 
-### D. OpenStack staging (분산 3 VM)
+### D. OpenStack staging (분산 4 VM, 예상 시나리오)
 
-사내 폐쇄망 OpenStack tenant에 분산 배포 (ADR 0006). bastion VM(수동 생성)에서 다음 실행:
+사내 폐쇄망 OpenStack tenant에 분산 배포 예상 시나리오 (ADR 0006 — 본 시점 검토 중인 안, 실 도입 시 변경 가능). bastion VM(수동 생성)에서 다음 실행:
 
 ```bash
 cd deploy/openstack
@@ -394,12 +393,19 @@ python -m pytest tests/unit/ # 단위만 — DB 무관, 빠름 (~0.2s)
 
 ---
 
-## 파이프라인 검증 (Vagrant VM)
+## 파이프라인 검증 (Lima VM)
 
 에이전트(C 바이너리) → RabbitMQ → Consumer → DB → Web UI 전체 파이프라인을 실제 VM 환경에서 검증한다.
-Vagrant로 VM 3대(Ubuntu / Rocky Linux / Debian)를 띄우고, 각 VM에서 에이전트가 메트릭을 발행해 포털에 수집되는 것을 직접 확인한다.
+Lima로 VM 7대를 띄우고(Debian 12/13 · Ubuntu 24.04 · CentOS Stream 9 · openSUSE Leap 15 · Rocky 9 · AlmaLinux 9), 각 VM에서 에이전트가 메트릭을 발행해 포털에 수집되는 것 + 시연 분류 분포·attention 발화를 직접 확인한다.
 
-기동·종료 명령은 위 [실행 B](#b-docker--vagrant-풀-파이프라인-dev) 참조. 자세한 절차·VM 구성·트러블슈팅은 `docs/operations/pipeline.md`.
+진행 순서는 시연 가시화 우선:
+1. `web-server-01` — attention.agent_unstable (1m 후 첫 restart, 시간당 20회)
+2. `offline-server-01` — gap_warnings (5m+ 끊김 후 발화) + insufficient_data
+3. `app-server-01` — under_provisioned (boot-time swap_trigger)
+4. `monitor-server-01` — optimal (medium 부하)
+5. `mq-server-01` / `cache-server-01` / `db-server-01` — over_provisioned (light)
+
+기동·종료 명령은 위 [실행 B](#b-docker--lima-풀-파이프라인-dev) 참조. VM 매트릭스·OS 다양성·합성 부하 프로파일·dispatch 분기·누적 사고 패턴 12건: `docs/operations/lima.md`. 절차 요약은 `docs/operations/pipeline.md`.
 
 ---
 
@@ -411,7 +417,7 @@ Vagrant로 VM 3대(Ubuntu / Rocky Linux / Debian)를 띄우고, 각 VM에서 에
   - `db/` — models / dtos / repositories / timescaledb
   - `web/` — layering / routers / services / view-models / static-assets
   - `deliverables.md` — 산출물 흐름 (서버 발견 / Install task / JSON Export v3 / 보고서 양식 A·B)
-- `docs/operations` — 인프라·환경·배포 (docker·vagrant·openstack·dev-prod·env·alembic·testing·pipeline·automation-conventions)
+- `docs/operations` — 인프라·환경·배포 (docker·lima·openstack·dev-prod·env·alembic·testing·pipeline·automation-conventions)
 - `docs/adr` — Architecture Decision Records + 트레이드오프
 
 ### 산출물·워크플로우 정의
@@ -419,6 +425,6 @@ Vagrant로 VM 3대(Ubuntu / Rocky Linux / Debian)를 띄우고, 각 VM에서 에
 - `docs/architecture/deliverables.md` — 4 산출물 흐름 통합 진입점
 
 ### 핵심 운영 가이드
-- `docs/operations/pipeline.md` — Vagrant VM E2E 검증 절차
+- `docs/operations/pipeline.md` — Lima VM E2E 검증 절차
 - `docs/operations/dev-prod.md` — dev/prod 분리 + secret 정책 + 운영 체크리스트
 - `docs/operations/env.md` — 환경변수 전체 키 목록

@@ -210,17 +210,17 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 
 | 항목 | 엔진 | 에이전트 |
 |------|------|---------|
-| secret 파일 | `.env` (dev) / `secrets/*` (prod) | `infra/agent.env` (Vagrant), prod에선 별도 프로비저닝 도구 (Ansible vault 등) |
-| 주입 경로 | docker-compose env / secrets | Vagrantfile이 `infra/agent.env` read → `/etc/assessment-agent.env` (VM 안), `EnvironmentFile=` |
-| 호스트 (broker) | docker 서비스명 `rabbitmq` | `10.0.2.2` (Vagrant NAT, 호스트머신) |
+| secret 파일 | `.env` (dev) / `secrets/*` (prod) | `infra/agent.env` (Lima dev), prod에선 별도 프로비저닝 도구 (Ansible vault 등) |
+| 주입 경로 | docker-compose env / secrets | dev-up.sh가 `infra/agent.env` source → limactl shell heredoc → `/etc/assessment-agent.env` (VM 안), `EnvironmentFile=` |
+| 호스트 (broker) | docker 서비스명 `rabbitmq` | `host.lima.internal` (Lima user-mode network alias) |
 
 왜 분리하나:
 - 엔진 `.env` 변경이 에이전트 동작에 의도치 않게 영향 미치는 경로 차단.
 - 에이전트의 secret 라이프사이클(VM 재프로비저닝 시점)이 엔진(컨테이너 재기동 시점)과 독립.
 - prod에서는 에이전트가 K8s/Docker 내부에 있지 않으므로 Docker secrets 적용 불가 — 별도 secret 도구 필요.
 
-현재 dev: `infra/agent.env.example` 복사 → 운영 값으로 수정 → `vagrant up`.
-향후 prod: Ansible vault 또는 SaltStack pillar로 `/etc/assessment-agent.env` 생성 — Vagrantfile은 dev 전용으로 격리.
+현재 dev: `infra/agent.env.example` 복사 → 운영 값으로 수정 → `./dev-up.sh`.
+향후 prod: Ansible vault 또는 SaltStack pillar로 `/etc/assessment-agent.env` 생성 — Lima 구성은 dev 전용으로 격리.
 
 ---
 
@@ -235,7 +235,7 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 - [ ] DB·MQ·Redis 외부 포트 노출 없음 확인 (`docker compose ... ps` / `netstat`)
 - [ ] web만 reverse proxy 뒤 또는 직접 노출 결정
 - [ ] 약한 default가 어디서도 새지 않는지 확인 (`grep -r "assessment" docker-compose.prod.yml secrets/` 결과 없어야)
-- [ ] 에이전트는 별도 채널 (Vagrant 안 쓰면 Ansible 등) — `.env`에 의존 없음 확인
+- [ ] 에이전트는 별도 채널 (Lima 안 쓰면 Ansible 등) — `.env`에 의존 없음 확인
 
 ---
 

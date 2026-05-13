@@ -1,15 +1,17 @@
-"""Install payload router — agent가 `curl http://{source_host}/zconverter.tar.gz`로 fetch하는 tar 번들 제공.
+"""Install payload router — agent가 `curl {source_url}`로 fetch하는 tar 번들 제공.
 
 흐름 (#B5 Task RPC piggyback + docs/architecture/agent.md "Task RPC piggyback"):
-  1. 운영자 web UI에서 서버 체크 + source_host 입력(예: `web:8000`) → POST /api/v1/tasks/install
-  2. 다음 metrics 발행 때 consumer가 RPC piggyback으로 task 명령 회신 (params={"source_host": ...})
-  3. agent가 `http://{source_host}/zconverter.tar.gz` fetch → `tar -xzf` → `bash install.sh`
+  1. 운영자 web UI에서 서버 체크 + source_url 입력 (전체 URL, 예: `http://host.lima.internal:8000/zconverter.tar.gz`)
+     → POST /api/v1/tasks/install
+  2. 다음 metrics 발행 때 consumer가 RPC piggyback으로 task 명령 회신 (params={"source_url": ...})
+  3. agent가 `curl {source_url}` 그대로 fetch → `tar -xzf` → `bash install.sh`
   4. agent가 task.result 큐로 결과 보고
 
-본 endpoint는 본 엔진이 직접 호스팅하는 install 번들. 운영자가 source_host에 엔진 host를 입력하면 agent fetch URL이
-본 endpoint가 된다. source_host가 외부 호스트를 가리키면 agent는 외부 tar를 fetch — 본 endpoint와 무관.
+본 endpoint는 본 엔진이 직접 호스팅하는 install 번들. 운영자가 source_url에 본 엔진 `/zconverter.tar.gz` URL을 박으면
+agent fetch URL이 본 endpoint가 된다. source_url이 외부 mirror를 가리키면 agent는 외부 tar를 fetch — 본 endpoint와 무관.
+scheme(http/https)·port·path 자유 — agent는 URL을 변환 없이 curl.
 
-F13 예외 — agent 계약 endpoint는 URL versioning(`/api/v1/`) 없음. agent.md의 hardcoded path 계약 우선.
+F13 예외 — 본 endpoint path(/zconverter.tar.gz)는 self-host default일 뿐이고 agent가 hardcode 안 함.
 """
 import io
 import tarfile

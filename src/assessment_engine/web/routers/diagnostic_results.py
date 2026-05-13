@@ -50,11 +50,21 @@ async def history(
     request: Request,
     days: int = Query(7, ge=1, le=90, description="최근 N일"),
     scope: Literal["all", "server", "environment"] = Query("all"),
+    server_public_ids: list[str] | None = Query(
+        None,
+        description=(
+            "server scope 이력을 특정 서버들로 필터 (반복 query param 또는 단일)."
+            " 1대=단일 link, 다중=multi-select 진입"
+        ),
+    ),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """진단 발행 이력 — 운영자 회고용. created_at DESC, 최근 N일."""
+    """진단 발행 이력 — 운영자 회고용. created_at DESC, 최근 N일.
+
+    server_public_ids 지정 시 input_params JSONB ANY 매칭으로 해당 서버들 진단만 노출 (server scope job 자연 필터).
+    """
     scope_filter = None if scope == "all" else scope
-    records = await diag_service.list_recent(days, scope_filter)
+    records = await diag_service.list_recent(days, scope_filter, server_public_ids)
     items = [
         {
             "job_id":            r.id,
@@ -72,5 +82,5 @@ async def history(
     return templates.TemplateResponse(
         request=request,
         name="diagnostics/history.html",
-        context={"items": items, "days": days, "scope": scope},
+        context={"items": items, "days": days, "scope": scope, "server_public_ids": server_public_ids},
     )

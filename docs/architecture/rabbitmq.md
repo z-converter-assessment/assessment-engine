@@ -82,7 +82,7 @@ production 표준을 dev에도 적용 — namespace 격리·내구성 외 부담
 
 | 항목 | 적용 |
 |------|------|
-| Vhost `/assessment` | `docker-compose.yml`의 `RABBITMQ_DEFAULT_VHOST` + `src/assessment_engine/config.py`의 `rabbitmq_vhost` + Vagrantfile의 `RABBITMQ_VHOST` 모두 `/assessment` |
+| Vhost `/assessment` | `docker-compose.yml`의 `RABBITMQ_DEFAULT_VHOST` + `src/assessment_engine/config.py`의 `rabbitmq_vhost` + dev-up.sh가 VM 안 `/etc/assessment-agent.env`에 쓰는 `RABBITMQ_VHOST` 모두 `/assessment` |
 | Exchange `assessment` (direct, durable) | 동일 |
 | DLX `assessment.dlx` (direct, durable) | 동일 |
 | 메시지 `delivery_mode=persistent` (2) | 에이전트 publish 측 설정 |

@@ -1,6 +1,10 @@
-# OpenStack Staging 배포
+# OpenStack Staging 배포 (예상 시나리오)
 
-엔진을 OpenStack 분산 환경에 배포한다 (ADR 0006). 로컬 dev는 루트의 `docker-compose.yml`·`dev-up.sh` 그대로 사용 — 본 디렉토리는 그것과 무관하게 독립 동작한다.
+본 디렉토리 전체(terraform·ansible·compose·scripts·README)는 OpenStack 분산 staging 배포 예상 설계 — 실제 OpenStack tenant 도입 시점에 토폴로지·자원·구성·도구 모두 변경 가능 (ADR 0006 — "예상 시나리오" 상태). 본 시점에는 lima 기반 dev 파이프라인(`docs/operations/lima.md`)만 검증됨.
+
+엔진을 OpenStack 분산 환경에 배포한다는 가정 (ADR 0006). 로컬 dev는 루트의 `docker-compose.yml`·`dev-up.sh` 그대로 사용 — 본 디렉토리는 그것과 무관하게 독립 동작 의도.
+
+OpenStack tenant 실 도입 시 의무: ADR 0006 정정 + 본 디렉토리 구조·코드 새 환경에 맞게 갱신.
 
 ## 구성
 

@@ -11,8 +11,7 @@ __pycache__/
 .idea/
 
 # 인프라 (이미지 내 불필요)
-.vagrant/
-Vagrantfile
+infra/lima/
 docker-compose.yml
 docker-compose.override.yml
 docker-compose.prod.yml
