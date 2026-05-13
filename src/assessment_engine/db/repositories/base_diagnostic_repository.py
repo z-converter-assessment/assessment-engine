@@ -119,11 +119,14 @@ class BaseDiagnosticRepository(ABC):
 
     @abstractmethod
     async def list_recent(
-        self, days: int, scope: str | None = None, limit: int = 200,
+        self, days: int, scope: str | None = None,
+        server_public_ids: list[str] | None = None, limit: int = 200,
     ) -> list["DiagnosticJobRecord"]:
-        """최근 N일 진단 발행 이력. scope 필터 옵션. created_at DESC.
+        """최근 N일 진단 발행 이력. scope·server_public_ids 필터 옵션. created_at DESC.
 
         이력 페이지(`/diagnostics/history`)용. 모든 상태(pending/running/succeeded/failed) 포함.
+        server_public_ids 지정 시 input_params JSONB에서 ANY 매칭 (server scope job만 자연 필터).
+        단일 서버 필터도 1-원소 list로 전달.
         """
         ...
 

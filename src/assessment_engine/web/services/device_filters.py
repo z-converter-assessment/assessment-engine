@@ -18,12 +18,15 @@ _VIRTUAL_FSTYPES: frozenset[str] = frozenset({
     'cgroup', 'cgroup2',
     'pstore', 'bpf', 'fusectl', 'efivarfs',
     'configfs', 'securityfs', 'mqueue', 'ramfs',
+    'iso9660',    # ISO 이미지 read-only 마운트 (Lima cidata, CD-ROM 등) — 본질적으로 100% used
+    'udf',        # DVD/Blu-ray UDF 파일시스템 — 동일 사유
 })
 
 # trailing slash 없이 통일 — startswith(p + '/') 에서 이중 슬래시 방지
 _VIRTUAL_MOUNT_PREFIXES: tuple[str, ...] = (
     '/proc', '/sys', '/dev/pts', '/snap',
     '/run/snapd', '/sys/fs', '/sys/kernel',
+    '/mnt/lima-cidata',  # Lima가 cloud-init 메타데이터를 ISO로 attach (iso9660). 운영 무관
 )
 
 

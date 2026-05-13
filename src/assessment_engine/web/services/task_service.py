@@ -47,9 +47,12 @@ class TaskService:
     async def create_install_tasks(
         self,
         target_public_ids: list[str],
-        source_host: str,
+        source_url: str,
     ) -> list[TaskCreated]:
         """선택 서버 N대에 ZConverter Install task 발행.
+
+        params.source_url은 agent가 `curl {source_url}`로 그대로 fetch하는 전체 URL.
+        host:port 뿐 아니라 scheme(http/https)·path·외부 mirror 자유 (#B5 agent 계약).
 
         best-effort — 부분 실패는 응답 누락으로 운영자가 인지. 트랜잭션 단일이 아님 (서버별
         독립). 미존재 public_id는 즉시 raise (운영자가 stale UI 인지).
@@ -77,7 +80,7 @@ class TaskService:
                         target_server_id=server_id,
                         target_machine_id=detail.machine_id,
                         task_type="zconverter_install",
-                        params={"source_host": source_host},
+                        params={"source_url": source_url},
                     ))
                     await session.commit()
                 except IntegrityError as e:
@@ -90,7 +93,7 @@ class TaskService:
             payload: dict[str, Any] = {
                 "task_public_id": task_public_id,
                 "task_type": "zconverter_install",
-                "params": {"source_host": source_host},
+                "params": {"source_url": source_url},
             }
             await safe_set(
                 self.redis,

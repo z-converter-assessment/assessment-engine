@@ -9,7 +9,7 @@
 | 시스템 한눈에 / 처음 진입 | 루트 `README.md` |
 | 결정된 규약·금지 사항·계층 책임 | `.claude/CLAUDE.md` |
 | 특정 컴포넌트가 어떻게 동작하나 (consumer / web / db / redis / rabbitmq / agent) | `architecture/` |
-| 어떻게 띄우고·배포하고·검증하나 (Docker / Vagrant / dev·prod 분리 / env / testing / E2E pipeline) | `operations/` |
+| 어떻게 띄우고·배포하고·검증하나 (Docker / Lima / dev·prod 분리 / env / testing / E2E pipeline) | `operations/` |
 | 왜 그렇게 결정했나 (의사결정 기록) | `adr/` |
 | 의식적 트레이드오프와 한계 (T1~T11) | `docs/tradeoffs.md` (루트) |
 | 협의·미팅 메모 (임시) | `meetings/` |
@@ -36,9 +36,9 @@ docs/
 │   ├── docker.md          Dockerfile / docker-compose (9 서비스 / 볼륨 / 헬스체크 / 기동 순서)
 │   ├── env.md             환경변수 전체 키 카탈로그
 │   ├── openstack.md       OpenStack 분산 staging 배포 진입점 (ADR 0006 + deploy/openstack/README.md)
-│   ├── pipeline.md        E2E 파이프라인 검증 (Vagrant VM)
-│   ├── testing.md         단위·통합 테스트 실행·Fixture·작성 패턴
-│   └── vagrant.md         Vagrant 사용 맥락 / VM 구성 / 프로비저닝
+│   ├── lima.md            Lima 사용 맥락 / VM 구성 / 프로비저닝
+│   ├── pipeline.md        E2E 파이프라인 검증 (Lima VM)
+│   └── testing.md         단위·통합 테스트 실행·Fixture·작성 패턴
 ├── adr/                   Architecture Decision Records (영구·불변)
 │   ├── README.md          ADR 인덱스
 │   ├── 0001-redis-decoupling.md

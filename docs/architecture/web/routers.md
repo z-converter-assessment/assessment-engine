@@ -78,3 +78,15 @@
 | 404 | 리소스 없음 | `resolve_internal_id` 또는 service `_NotFound` exception |
 | 409 | 충돌 | `tasks/install` pending 중복 (`_DuplicatePending` exception) |
 | 500 | 서버 오류 | service 측 일반 Exception (probe 외부 네트워크 비정형 응답 등) |
+
+## Breaking change 진화 절차 (#F13)
+
+`/api/v1/...` endpoint에 backward-compatible 변경(응답 필드 추가·옵셔널 query param 추가·새 endpoint)은 `/v1/` 유지. backward-incompatible 변경(응답 필드 제거·의미 변경·required field 추가·HTTP 메서드 변경)이 필요한 경우 다음 절차:
+
+1. `/api/v2/...` 신규 분기 + 기존 `/api/v1/...` 유지 — 라우터 모듈 분리 또는 동일 모듈 안 prefix 분기 어느 쪽이든. service 계층은 가능한 한 단일 진실, 라우터에서 v1 응답 변환 layer만 분기.
+2. `/v1/` 응답 헤더 `Deprecation: true` + `Sunset: <ISO 8601 date>` 추가 (RFC 8594) — 6개월 후 제거 예정 표시.
+3. 6개월 후 `/v1/` 라우터 제거.
+
+본 프로젝트 현재 첫 v2 분기 사례 없음 — 도입 시 본 절 갱신.
+
+agent 계약 endpoint(`/zconverter.tar.gz` 등)는 versioning 없음 — agent.md의 hardcoded path 계약이 우선이고, 에이전트는 자체 `agent_version`으로 별도 진화 채널 (#B4). path 변경 시 에이전트·엔진 양쪽 동시 갱신 + agent_version major bump.

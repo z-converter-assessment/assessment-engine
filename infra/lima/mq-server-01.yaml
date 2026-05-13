@@ -1,0 +1,86 @@
+# mq-server-01: openSUSE Leap 15 + Mosquitto (MQTT — 가장 가벼운 MQ).
+# 검증 의도: SUSE family (zypper — apt/dnf 외 새 패키지 매니저 분기) + mq 카테고리 + over 분류.
+# Lima 공식 template image URL 활용.
+# light 합성 부하 -> right-sizing over_provisioned 발화 (cache·db와 동일 — attention 카탈로그에
+# idle/shutdown 매핑 없어 발화 가치 없음, 정상 분류로 분포 명확).
+#
+# yaml 책임: boot + mount + 합성 부하 timer (light).
+# 패키지 설치(mosquitto)·에이전트 빌드·systemd unit은 dev-up.sh post-provision (zypper 분기).
+
+images:
+- location: "https://download.opensuse.org/distribution/leap/15.6/appliances/openSUSE-Leap-15.6-Minimal-VM.x86_64-Cloud.qcow2"
+  arch: "x86_64"
+- location: "https://download.opensuse.org/distribution/leap/15.6/appliances/openSUSE-Leap-15.6-Minimal-VM.aarch64-Cloud.qcow2"
+  arch: "aarch64"
+
+cpus: 1
+# openSUSE Leap 15 cloud image — zypper transaction 보수 1.25GiB (RHEL family와 동일 수준).
+memory: "1280MiB"
+# openSUSE Leap 15 cloud image qcow2 raw 강제 (lima reject) — 10GiB 보수.
+disk: "10GiB"
+
+containerd:
+  system: false
+  user: false
+
+# openSUSE Leap 15 cloud image는 lima vz의 virtiofs guest mount가 silent fail (기본 virtiofs 미동작 — kernel 6.4+ 임에도 mount table에 안 잡힘).
+# reverse-sshfs로 명시 — host에서 guest로 sshfs push 방식. 약간 느리지만 guest distro 무관.
+mountType: "reverse-sshfs"
+
+param:
+  AgentSrc: ""
+
+mounts:
+- location: "{{.Param.AgentSrc}}"
+  mountPoint: "/mnt/agent-src"
+  writable: false
+
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    # 합성 부하 (light) — cache·db와 동일 패턴. over_provisioned 분류 발화.
+    set -euo pipefail
+    cat > /usr/local/bin/synthetic-load.sh <<'EOF'
+    #!/bin/bash
+    sleep $(( RANDOM % 30 ))
+    duration=$(( (RANDOM % 3) + 1 ))
+    timeout ${duration}s sha256sum /dev/zero > /dev/null 2>&1 || true
+    size=$(( (RANDOM % 16) + 5 ))
+    head -c ${size}M /dev/urandom > /tmp/synthetic-load 2>/dev/null || true
+    sync
+    rm -f /tmp/synthetic-load
+    count=$(( (RANDOM % 100) + 50 ))
+    dd if=/dev/zero of=/tmp/synthetic-io bs=4k count=${count} 2>/dev/null || true
+    sync
+    rm -f /tmp/synthetic-io
+    ping -c $(( (RANDOM % 5) + 3 )) -q host.lima.internal > /dev/null 2>&1 || true
+    curl -s -m 2 http://host.lima.internal:8000/health > /dev/null 2>&1 || true
+    if [ $((RANDOM % 2)) -eq 0 ]; then
+      curl -s -m 2 http://host.lima.internal:8000/static/js/chart-utils.js > /dev/null 2>&1 || true
+    fi
+    EOF
+    chmod 755 /usr/local/bin/synthetic-load.sh
+    cat > /etc/systemd/system/synthetic-load.service <<'EOF'
+    [Unit]
+    Description=Synthetic load (metrics visualization aid)
+    [Service]
+    Type=oneshot
+    ExecStart=/usr/local/bin/synthetic-load.sh
+    EOF
+    cat > /etc/systemd/system/synthetic-load.timer <<'EOF'
+    [Unit]
+    Description=Run synthetic-load every minute
+    [Timer]
+    OnBootSec=2min
+    OnUnitActiveSec=1min
+    [Install]
+    WantedBy=timers.target
+    EOF
+    systemctl daemon-reload
+    systemctl enable synthetic-load.timer
+    systemctl start synthetic-load.timer
+
+message: |
+  mq-server-01 (openSUSE Leap 15 + Mosquitto, light load → over) ready.
+  Agent install pending — run dev-up.sh post-provision step (zypper 분기).

@@ -26,7 +26,7 @@ description: TRIGGER when user requests doc sync after code changes ("문서 동
 | `src/assessment_engine/db/repositories/` | `docs/architecture/db/repositories.md` (+ `db/dtos.md` for DTO 변경), CLAUDE.md #C2 |
 | `src/assessment_engine/db/redis.py` + 키 패턴 | `docs/architecture/redis.md`, CLAUDE.md #C3 |
 | `docker-compose*.yml`, `Dockerfile*` | `docs/operations/docker.md`, `docs/operations/dev-prod.md` |
-| `Vagrantfile`, `infra/agent.env`, `synthetic-load*.sh` | `docs/operations/vagrant.md`, CLAUDE.md #A4 |
+| `infra/lima/*.yaml`, `infra/agent.env`, `dev-up.sh`/`dev-down.sh` | `docs/operations/lima.md`, `docs/operations/pipeline.md`, CLAUDE.md #A4 |
 | `src/assessment_engine/config.py` | `docs/operations/env.md`, `docs/operations/dev-prod.md`, CLAUDE.md #A3 |
 | `src/assessment_engine/consumer/schemas.py` | `docs/architecture/agent.md`, `docs/architecture/consumer.md`, CLAUDE.md #B |
 | `src/assessment_engine/consumer/handler.py` | `docs/architecture/consumer.md`, CLAUDE.md #D2·D3 |

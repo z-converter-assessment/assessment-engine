@@ -55,8 +55,8 @@
   <span id="online-badge" class="badge no-print" style="font-size:12px;">
     <span class="dot dot-off"></span>확인 중...
   </span>
-  <a href="/servers/{{ server.public_id }}/performance" class="no-print" style="margin-left:auto; display:inline-flex; align-items:center; gap:6px; padding:7px 16px; border:1px solid #e2e8f0; border-radius:6px; background:#fff; color:#374151; font-size:13px; font-weight:500; text-decoration:none; box-shadow:0 1px 2px rgba(0,0,0,.06); transition:background .12s, box-shadow .12s;" onmouseover="this.style.background='#f8fafc'; this.style.boxShadow='0 2px 6px rgba(0,0,0,.10)'" onmouseout="this.style.background='#fff'; this.style.boxShadow='0 1px 2px rgba(0,0,0,.06)'">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+  <a href="/servers/{{ server.public_id }}/performance" class="btn-action no-print" style="margin-left:auto; text-decoration:none;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
     성능 리포트
   </a>
 </div>
@@ -351,26 +351,13 @@
   </div><!-- /metrics-content -->
 </div>
 
-<!-- 페이지 이동 -->
-<div class="no-print" style="display:flex; gap:10px; margin-top:4px; flex-wrap:wrap;">
-  <a href="/servers/{{ server.public_id }}/cpu"         class="btn">CPU 상세 →</a>
-  <a href="/servers/{{ server.public_id }}/memory"      class="btn">메모리 상세 →</a>
-  <a href="/servers/{{ server.public_id }}/storage"     class="btn">스토리지 상세 →</a>
-  <a href="/servers/{{ server.public_id }}/network"     class="btn">네트워크 상세 →</a>
-  <a href="/servers/{{ server.public_id }}/services"    class="btn">서비스/포트 상세 →</a>
-  <a href="/servers/{{ server.public_id }}/performance" class="btn">성능 리포트 →</a>
-</div>
-
-
-<script>
-window.SERVER_ID = "{{ server.public_id }}";
-</script>
-<script src="/static/js/pages/detail.js" defer></script>
-
 <div class="card" data-diagnostic-panel data-scope="server" data-server-public-id="{{ server.public_id }}">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
     <h2 style="margin:0;">AI 진단</h2>
-    <button class="diag-submit btn no-print" type="button">AI 진단</button>
+    <button class="diag-submit btn-action no-print" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      AI 진단
+    </button>
   </div>
   <div class="diag-status" style="color:#64748b; font-size:13px; margin-bottom:10px;">
     {% if last_server_diagnostic %}최근 진단 결과 표시. 새 발행은 AI 진단 버튼.
@@ -412,5 +399,21 @@ window.SERVER_ID = "{{ server.public_id }}";
   <script type="application/json">{{ last_server_diagnostic | tojson }}</script>
   {% endif %}
 </div>
+
+<!-- 페이지 이동 -->
+<div class="no-print" style="display:flex; gap:10px; margin-top:4px; flex-wrap:wrap;">
+  <a href="/servers/{{ server.public_id }}/cpu"         class="btn">CPU 상세 →</a>
+  <a href="/servers/{{ server.public_id }}/memory"      class="btn">메모리 상세 →</a>
+  <a href="/servers/{{ server.public_id }}/storage"     class="btn">스토리지 상세 →</a>
+  <a href="/servers/{{ server.public_id }}/network"     class="btn">네트워크 상세 →</a>
+  <a href="/servers/{{ server.public_id }}/services"    class="btn">서비스/포트 상세 →</a>
+  <a href="/servers/{{ server.public_id }}/performance" class="btn">성능 리포트 →</a>
+  <a href="/diagnostics/history?server_public_ids={{ server.public_id }}" class="btn">AI 진단 이력 →</a>
+</div>
+
+<script>
+window.SERVER_ID = "{{ server.public_id }}";
+</script>
+<script src="/static/js/pages/detail.js" defer></script>
 <script src="/static/js/diagnostic.js?v={{ asset_v }}" defer></script>
 {% endblock %}

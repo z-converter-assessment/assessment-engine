@@ -36,7 +36,7 @@ POST /api/v1/discovery/probe
 흐름:
 ```
 POST /api/v1/tasks/install
-  body: {target_public_ids: [...], source_host}
+  body: {target_public_ids: [...], source_url}
   -> TaskService.create_install_tasks (트랜잭션 경계)
     -> resolve_server_ids -> DB INSERT (tasks 행, status='pending')
     -> Redis SET task:pending:{machine_id} (hot path 캐시, TTL 24h)
@@ -46,18 +46,18 @@ agent 측 (별도):
   agent가 다음 server.metrics 발행 시 reply_to·correlation_id 명시
     -> consumer가 metrics 처리 후 Redis EXISTS task:pending:{machine_id}
       -> 있으면 reply publish (amq.rabbitmq.reply-to)
-  agent가 source_host에서 install bundle fetch:
-    -> curl http://{source_host}/zconverter.tar.gz   # source_host=엔진이면 본 엔진 self-host (payloads.py)
-    -> tar -xzf zconverter.tar.gz                    # install.sh가 mode=0o755로 풀림
-    -> bash install.sh                               # 실제 실행
+  agent가 source_url 그대로 fetch:
+    -> curl {source_url}                              # scheme·host·path 자유
+    -> tar -xzf zconverter.tar.gz                     # install.sh가 mode=0o755로 풀림
+    -> bash install.sh                                # 실제 실행
   agent가 task.result 큐로 결과 보고
     -> consumer가 DB UPDATE (status·result_message·completed_at) + Redis pending DEL
 ```
 
 Install bundle 호스팅:
-- `web/routers/payloads.py` `GET /zconverter.tar.gz` — 본 엔진 self-host. 운영자가 `source_host=<engine-fqdn>:8000` 입력 시 활용.
+- `web/routers/payloads.py` `GET /zconverter.tar.gz` — 본 엔진 self-host default endpoint. 운영자가 `source_url=http://<engine-fqdn>:8000/zconverter.tar.gz` 입력 시 활용.
 - in-memory tar.gz 생성. `install.sh` 내용은 코드 안 `_INSTALL_SCRIPT` 상수 + `mode=0o755` 메타 박힘.
-- 외부 mirror 호스팅도 가능 — agent path 계약(`/zconverter.tar.gz`) 동일하면 source_host만 외부로.
+- 외부 mirror 호스팅 가능 — agent는 source_url을 변환 없이 curl, scheme(http/https)·port·path 자유.
 - 상세는 `docs/architecture/agent.md` "Install bundle endpoint" 절.
 
 설계 결정:

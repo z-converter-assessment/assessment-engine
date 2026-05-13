@@ -145,7 +145,7 @@ docker compose up -d   # migrate 자동 적용
 
 ### 미해결 (다음 단계)
 - 마이그레이션 squash 정책 (100개 누적 시점)
-- dev seed data 자동 주입 (현재 Vagrant 에이전트가 자연 메트릭 발행이라 무관)
+- dev seed data 자동 주입 (현재 Lima 에이전트가 자연 메트릭 발행이라 무관)
 - 큰 데이터 마이그레이션(수백만 행 ALTER) 운영 정책 — 향후 도입 시 별도 ADR
 
 ## 관련 문서

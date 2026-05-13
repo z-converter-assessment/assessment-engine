@@ -135,7 +135,7 @@ engine consumer: metrics 처리 후
 {
   "task_public_id": "<UUID>",
   "task_type": "zconverter_install",
-  "params": { "source_host": "192.168.0.3" }
+  "params": { "source_url": "http://host.lima.internal:8000/zconverter.tar.gz" }
 }
 ```
 
@@ -145,21 +145,21 @@ agent는 `task_type`으로 미리 컴파일된 핸들러 dispatch. 핸들러가 
 
 | task_type | params 스키마 | agent 동작 |
 |-----------|--------------|-----------|
-| `zconverter_install` | `{"source_host": str}` | `curl http://{source_host}/zconverter.tar.gz` → `tar -xzf` → `bash install.sh` |
+| `zconverter_install` | `{"source_url": str}` | `curl {source_url}` → `tar -xzf` → `bash install.sh`. source_url은 scheme(http/https)·host·port·path 자유 |
 
 새 task_type 도입 시 양쪽 동시 갱신 + agent_version bump. 미지원 task_type 수신 시 agent는 `task.result` `failed` 보고 (`result_message="unknown task_type"`).
 
 ### Install bundle endpoint (`GET /zconverter.tar.gz`)
 
-`source_host`가 본 엔진을 가리키는 경우 agent의 fetch URL이 본 엔진의 `web/routers/payloads.py` 라우터로 들어온다. 운영 흐름:
+본 엔진은 self-host install 번들 endpoint를 `/zconverter.tar.gz` path로 제공 (`web/routers/payloads.py`). 운영 흐름:
 
-- 운영자가 web UI에서 서버 체크 + `source_host` 입력. 보통 본 엔진 host(`<engine-fqdn>:8000`)를 입력 — 엔진이 self-host하는 bundle 활용.
-- 외부 mirror 호스팅 운영자는 외부 host(`mirror.internal:8080`) 입력 가능 — agent는 동일 path(`/zconverter.tar.gz`)로 fetch라 외부도 같은 path 규약 의무.
+- 운영자가 web UI에서 서버 체크 + `source_url` 입력 (전체 URL). 본 엔진 self-host 시 `http://<engine-fqdn>:8000/zconverter.tar.gz` 입력 — 엔진 endpoint로 들어옴.
+- 외부 mirror 호스팅 시 외부 URL(`https://mirror.example.com/dist/zconverter-v1.tar.gz`) 입력 가능 — scheme·port·path 자유. agent는 URL 변환 없이 그대로 curl.
 - 엔진 endpoint는 in-memory에서 tar.gz 생성. 안의 `install.sh`는 `mode=0o755`로 메타 박혀서 agent `tar -xzf` 시 실행 권한 그대로 복원.
 - `install.sh` 내용은 코드 안 상수(`_INSTALL_SCRIPT`) — 수정 후 web 컨테이너 재기동(또는 uvicorn auto-reload) 시 즉시 반영. mtime=epoch 고정이라 같은 코드면 같은 bytes.
-- F13 예외 — 본 endpoint는 agent.md 계약(hardcoded `/zconverter.tar.gz`) 우선이라 `/api/v1/` prefix 없음.
+- F13 예외 — 본 endpoint path는 self-host default일 뿐. agent는 URL을 hardcode 안 하고 source_url 그대로 사용.
 
-신규 task_type이 다른 bundle path 사용 시 본 절에 path + endpoint 라우터 위치 추가.
+신규 task_type이 다른 bundle endpoint 사용 시 본 절에 URL 예시 추가.
 
 ### Latency·동작 가정
 
@@ -238,13 +238,14 @@ loop 디바이스 I/O는 sda에도 이미 반영된다 (`앱 read → loop0(squa
 
 ```bash
 # 단일 VM
-vagrant ssh cache-server-01 -c "sudo systemctl status assessment-agent --no-pager"
-vagrant ssh cache-server-01 -c "sudo journalctl -u assessment-agent --no-pager -n 50"
+limactl shell cache-server-01 sudo systemctl status assessment-agent --no-pager
+limactl shell cache-server-01 sudo journalctl -u assessment-agent --no-pager -n 50
 
-# 3대 일괄
-for vm in cache-server-01 app-server-01 web-server-01; do
+# 7 VM 일괄 (LIMA_VMS와 sync — dev-up.sh 단일 진실)
+for vm in web-server-01 offline-server-01 app-server-01 monitor-server-01 \
+          mq-server-01 cache-server-01 db-server-01; do
   echo "=== $vm ==="
-  vagrant ssh $vm -c "sudo systemctl is-active assessment-agent"
+  limactl shell "$vm" sudo systemctl is-active assessment-agent
 done
 ```
 
@@ -277,16 +278,16 @@ docker compose exec rabbitmq rabbitmqadmin -u assessment -p assessment \
 
 | 상황 | 명령 |
 |------|------|
-| broker 재기동 후 silent retry | `sudo systemctl restart assessment-agent` (CRITICAL — `docs/operations/vagrant.md` 운영 노트) |
-| 에이전트 소스 변경 | `vagrant rsync && vagrant ssh <vm>` → `cd /home/vagrant/assessment-agent && make && sudo cp assessment-agent /usr/local/bin/ && sudo systemctl restart assessment-agent` |
-| 환경변수 (`/etc/assessment-agent.env`) 변경 | `vagrant provision` 또는 직접 수정 + `sudo systemctl restart assessment-agent` |
+| broker 재기동 후 silent retry | `limactl shell <vm> sudo systemctl restart assessment-agent` (CRITICAL — `docs/operations/lima.md` 운영 노트) |
+| 에이전트 소스 변경 | `./dev-up.sh` 재실행 — 각 VM에서 `/mnt/agent-src` -> `/tmp/build` cp + make + install + restart 자동 |
+| 환경변수 (`/etc/assessment-agent.env`) 변경 | `./dev-up.sh` 재실행 (env 재생성 + restart 자동) 또는 직접 수정 + `limactl shell <vm> sudo systemctl restart assessment-agent` |
 | `AGENT_INTERVAL_SEC` 변경 | 위와 동일 |
 
 ### 발행 메시지 추적 (end-to-end)
 
 ```bash
 # 1. 에이전트가 발행했는지
-vagrant ssh cache-server-01 -c "sudo journalctl -u assessment-agent --since '5 min ago' | grep -E 'published|publish'"
+limactl shell cache-server-01 sudo bash -c "journalctl -u assessment-agent --since '5 min ago' | grep -E 'published|publish'"
 
 # 2. broker에 도달했는지 (큐 적재량 또는 처리량)
 docker compose exec rabbitmq rabbitmqctl list_queues name messages_ready message_stats.publish_details.rate

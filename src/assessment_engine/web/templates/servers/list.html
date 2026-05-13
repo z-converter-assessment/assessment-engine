@@ -13,10 +13,10 @@
     </div>
     <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">
       선택된 <span id="install-count" style="font-weight:600; color:#1e293b;">0</span>대 서버에 ZConverter 설치 작업을 발행합니다.
-      각 agent는 다음 metrics 발행 시점에 명령을 받아 지정된 호스트에서 다운로드 -> 설치를 실행합니다.
+      각 agent는 다음 metrics 발행 시점에 명령을 받아 지정된 URL에서 다운로드 -> 설치를 실행합니다.
     </p>
-    <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">다운로드 호스트 (IPv4)</label>
-    <input type="text" id="install-source-host" placeholder="예: 192.168.0.3" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; font-family:monospace; box-sizing:border-box;">
+    <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">다운로드 URL (전체)</label>
+    <input type="text" id="install-source-url" placeholder="예: http://host.lima.internal:8000/zconverter.tar.gz 또는 https://mirror.example.com/zconverter.tar.gz" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; font-family:monospace; box-sizing:border-box;">
     <button type="button" id="install-submit" class="btn" style="background:#3b82f6; color:#fff; padding:8px 16px; cursor:pointer; border:none; margin-top:12px;">발행</button>
   </div>
 </div>
@@ -61,10 +61,10 @@
       <button type="button" id="discover-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
     </div>
     <p style="margin:0 0 16px; font-size:12px; color:#64748b; line-height:1.5;">
-      대상 서버 IP에 HTTP HEAD 요청을 보내 네트워크 도달성을 확인합니다. (1차 검사 — SSH 도달 보장 안 함)
+      대상 서버 IP 또는 hostname에 HTTP HEAD 요청을 보내 네트워크 도달성을 확인합니다. (1차 검사 — SSH 도달 보장 안 함)
     </p>
     <div style="display:grid; grid-template-columns:1fr 80px 100px; gap:8px; margin-bottom:12px;">
-      <input type="text" id="probe-ip" placeholder="IP (예: 192.168.0.42)" style="padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; font-family:monospace;">
+      <input type="text" id="probe-ip" placeholder="IP 또는 hostname (예: 192.168.0.42 또는 engine.internal)" style="padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; font-family:monospace;">
       <input type="number" id="probe-port" value="80" min="1" max="65535" style="padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
       <select id="probe-scheme" style="padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
         <option value="http">http</option>
@@ -79,11 +79,12 @@
 <script src="/static/js/pages/list.js?v={{ asset_v }}" defer></script>
 
 {% if overview and overview.total > 0 %}
-<section class="overview no-print" style="margin:16px 0 8px; padding:14px 16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
+<section class="card no-print">
+  <h2>환경 요약</h2>
   <div style="display:flex; flex-wrap:wrap; gap:24px; font-size:13px; color:#475569;">
     <div>총 <strong style="color:#1e293b;">{{ overview.total }}</strong>대</div>
     <div>온라인 <strong style="color:#15803d;">{{ overview.online }}</strong> · 오프라인 <strong style="color:#94a3b8;">{{ overview.offline }}</strong></div>
-    <div>총 vCPU <strong style="color:#1e293b;">{{ overview.total_vcpus }}</strong> cores</div>
+    <div>총 vCPU <strong style="color:#1e293b;">{{ overview.total_vcpus }}</strong></div>
     <div>메모리 <strong style="color:#1e293b;">{{ overview.total_memory_gb }} GB</strong></div>
     <div>디스크 <strong style="color:#1e293b;">{{ overview.total_disk_gb }} GB</strong></div>
   </div>
@@ -180,57 +181,52 @@
 </section>
 {% endif %}
 
-{% if attention and attention.has_any %}
-<section class="attention no-print" style="margin:8px 0 16px; padding:14px 16px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px;">
-  <h3 style="margin:0 0 10px; font-size:14px; color:#1e40af;">주의 신호</h3>
+{# 주의 신호 카드 단일 row 매크로 — 5 카테고리(badge + link + mount + meta) 공통. capacity는 multi-badge라 예외. #}
+{# AttentionRow attribute access only — 표시 string은 mapper가 결정 (P2 단일 진실). KST 표시는 meta_at + kst 필터(#F2). #}
+{# mount_path는 .attention-mount CSS class로 ellipsis + hover title 전체 노출 (긴 path 행 안정). #}
+{% macro attention_row(label, items) %}
+<div class="attention-block">
+  <div class="attention-block-label">{{ label }}</div>
+  <ul class="attention-list">
+    {% for it in items %}
+    <li class="attention-item">
+      <span class="badge attention-badge {{ it.badge_class }}">{{ it.badge_text }}</span>
+      <a class="attention-link" href="{{ it.link_href }}">{{ it.link_text }}</a>
+      {% if it.mount_path %}<span class="attention-mount" title="{{ it.mount_path }}">{{ it.mount_path }}</span>{% endif %}
+      <span class="attention-meta">{{ it.meta_text }}{% if it.meta_at %}{{ it.meta_at | kst }}{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endmacro %}
 
-  {% if attention.gap_warnings %}
-  <div style="margin-bottom:10px;">
-    <div style="font-size:12px; color:#1e40af; margin-bottom:4px;">통신 끊김 (5분 이상)</div>
-    <ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px;">
-      {% for g in attention.gap_warnings %}
-      <li style="display:flex; align-items:center; gap:12px; font-size:13px;">
-        <span class="badge {{ g.badge_class }}" style="min-width:80px; justify-content:center;">{{ g.gap_minutes }}분</span>
-        <a href="/servers/{{ g.public_id }}" style="font-weight:600; text-decoration:underline;">{{ g.hostname }}</a>
-        <span style="color:#64748b; font-size:12px;">마지막 수집 {{ g.last_metric_at | kst }}</span>
-      </li>
-      {% endfor %}
-    </ul>
-  </div>
-  {% endif %}
+{% if attention %}
+<section class="card no-print">
+  <h2>주의 신호</h2>
 
-  {% if attention.disk_warnings %}
-  <div style="margin-bottom:10px;">
-    <div style="font-size:12px; color:#1e40af; margin-bottom:4px;">디스크 사용률 임박 (85% 이상)</div>
-    <ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px;">
-      {% for d in attention.disk_warnings %}
-      <li style="display:flex; align-items:center; gap:12px; font-size:13px;">
-        <span class="badge {{ d.badge_class }}" style="min-width:80px; justify-content:center;">{{ "%.0f"|format(d.used_pct) }}%</span>
-        <a href="/servers/{{ d.public_id }}/storage" style="font-weight:600; text-decoration:underline;">{{ d.hostname }}</a>
-        <span style="color:#64748b; font-size:12px;">{{ d.mount }} · 잔여 {{ "%.1f"|format(d.free_gb) }} / {{ "%.1f"|format(d.total_gb) }} GB</span>
-      </li>
-      {% endfor %}
-    </ul>
+  <div class="attention-catalog">
+    {% for cat in attention.catalog %}
+    <span class="attention-cat-item" data-active="{{ cat.active }}">{{ cat.label }} <strong>{{ cat.count }}</strong></span>
+    {% endfor %}
   </div>
-  {% endif %}
+
+  {% if attention.gap_warnings %}{{ attention_row("통신 끊김 (5분 이상)", attention.gap_warnings) }}{% endif %}
+  {% if attention.disk_warnings %}{{ attention_row("디스크 사용률 (현재 85% 이상)", attention.disk_warnings) }}{% endif %}
 
   {% if attention.capacity_warnings %}
-  <div style="margin-bottom:10px;">
-    <div style="font-size:12px; color:#1e40af; margin-bottom:4px;">언더 프로비저닝 — 부족 자원 (최근 14일 평균)</div>
-    <ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px;">
+  {# capacity는 multi-badge + breakdown이라 macro 적용 안 함. .attention-block/.attention-list 공유. #}
+  <div class="attention-block">
+    <div class="attention-block-label">언더 프로비저닝 — 부족 자원 (최근 14일 평균)</div>
+    <ul class="attention-list">
       {% for c in attention.capacity_warnings %}
-      <li style="display:flex; align-items:center; gap:8px; font-size:13px; flex-wrap:wrap;">
+      <li class="attention-item" style="gap:8px; flex-wrap:wrap;">
         <span style="display:inline-flex; gap:4px; min-width:140px;">
           {% for t in c.triggers %}
-          {% if t.active %}
-          <span class="badge" style="background:{{ t.color }}; color:#fff;">{{ t.label }}</span>
-          {% else %}
-          <span class="badge" style="background:#f8fafc; color:#cbd5e1;">{{ t.label }}</span>
-          {% endif %}
+          <span class="badge" style="background:{{ t.bg_color }}; color:{{ t.fg_color }};">{{ t.label }}</span>
           {% endfor %}
         </span>
-        <a href="/servers/{{ c.public_id }}" style="font-weight:600; text-decoration:underline;">{{ c.hostname }}</a>
-        <span style="color:#64748b; font-size:12px;">
+        <a class="attention-link" href="/servers/{{ c.public_id }}">{{ c.hostname }}</a>
+        <span class="attention-meta">
           {%- if c.cpu_p95_pct is not none %}CPU {{ "%.0f"|format(c.cpu_p95_pct) }}%{% endif -%}
           {%- if c.mem_p95_pct is not none %}{% if c.cpu_p95_pct is not none %} · {% endif %}메모리 {{ "%.0f"|format(c.mem_p95_pct) }}%{% endif -%}
           {%- if c.swap_used %} · 스왑 사용{% endif -%}
@@ -238,76 +234,28 @@
       </li>
       {% endfor %}
     </ul>
-    <div style="display:flex; flex-wrap:wrap; align-items:center; gap:14px; margin-top:8px; padding-top:8px; border-top:1px dashed #dbeafe; font-size:12px; color:#475569;">
-      <span style="font-size:11px; color:#64748b;">트리거 자원</span>
-      {% for b in attention.capacity_breakdown %}
-      <span style="display:inline-flex; align-items:center; gap:6px;">
-        <span style="display:inline-block; width:10px; height:10px; background:{{ b.color }}; border-radius:2px;"></span>
-        <span>{{ b.label }}</span>
-        <strong style="color:{{ b.count_color }};">{{ b.count }}</strong>
-      </span>
-      {% endfor %}
-    </div>
   </div>
   {% endif %}
 
-  {% if attention.days_until_full_warnings %}
-  <div style="margin-bottom:10px;">
-    <div style="font-size:12px; color:#1e40af; margin-bottom:4px;">디스크 잔여 30일 안</div>
-    <ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px;">
-      {% for d in attention.days_until_full_warnings %}
-      <li style="display:flex; align-items:center; gap:12px; font-size:13px;">
-        <span class="badge rec-under_provisioned" style="min-width:80px; justify-content:center;">{{ d.days_until_full }}일</span>
-        <a href="/servers/{{ d.public_id }}/storage" style="font-weight:600; text-decoration:underline;">{{ d.hostname }}</a>
-        <span style="color:#64748b; font-size:12px;">{{ d.mount }}{% if d.used_pct is not none %} · {{ "%.0f"|format(d.used_pct) }}%{% endif %}</span>
-      </li>
-      {% endfor %}
-    </ul>
-  </div>
-  {% endif %}
-
-  {% if attention.os_eol_warnings %}
-  <div style="margin-bottom:10px;">
-    <div style="font-size:12px; color:#1e40af; margin-bottom:4px;">OS EOL (마이그레이션 전 업그레이드 검토)</div>
-    <ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px;">
-      {% for o in attention.os_eol_warnings %}
-      <li style="display:flex; align-items:center; gap:12px; font-size:13px;">
-        <span class="badge rec-over_provisioned" style="min-width:80px; justify-content:center;">EOL</span>
-        <a href="/servers/{{ o.public_id }}" style="font-weight:600; text-decoration:underline;">{{ o.hostname }}</a>
-        <span style="color:#64748b; font-size:12px;">{{ o.os_display }} · EOL {{ o.eol_date }}</span>
-      </li>
-      {% endfor %}
-    </ul>
-  </div>
-  {% endif %}
-
-  {% if attention.agent_unstable %}
-  <div>
-    <div style="font-size:12px; color:#1e40af; margin-bottom:4px;">에이전트 재시작 빈번 (최근 1시간)</div>
-    <ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px;">
-      {% for a in attention.agent_unstable %}
-      <li style="display:flex; align-items:center; gap:12px; font-size:13px;">
-        <span class="badge rec-over_provisioned" style="min-width:80px; justify-content:center;">{{ a.restart_count }}회</span>
-        <a href="/servers/{{ a.public_id }}" style="font-weight:600; text-decoration:underline;">{{ a.hostname }}</a>
-        <span style="color:#64748b; font-size:12px;">최근 1시간 내 수집 데이터 신뢰도 낮음</span>
-      </li>
-      {% endfor %}
-    </ul>
-  </div>
-  {% endif %}
+  {% if attention.days_until_full_warnings %}{{ attention_row("디스크 추세 (30일 안 가득 예상)", attention.days_until_full_warnings) }}{% endif %}
+  {% if attention.os_eol_warnings %}{{ attention_row("OS 지원종료 (마이그레이션 전 업그레이드 검토)", attention.os_eol_warnings) }}{% endif %}
+  {% if attention.agent_unstable %}{{ attention_row("에이전트 재시작 빈번 (최근 1시간)", attention.agent_unstable) }}{% endif %}
 </section>
 {% endif %}
 
-<div class="card no-print" data-diagnostic-panel data-scope="environment" style="margin:8px 0 16px;">
+<section class="card no-print" data-diagnostic-panel data-scope="environment">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
     <h2 style="margin:0;">환경 진단 (AI)</h2>
-    <button class="diag-submit no-print" type="button"
-      style="display:inline-flex; align-items:center; gap:6px; padding:7px 16px; border:1px solid #e2e8f0; border-radius:6px; background:#fff; color:#374151; font-size:13px; font-weight:500; box-shadow:0 1px 2px rgba(0,0,0,.06); transition:background .12s, box-shadow .12s; cursor:pointer;"
-      onmouseover="this.style.background='#f8fafc'; this.style.boxShadow='0 2px 6px rgba(0,0,0,.10)'"
-      onmouseout="this.style.background='#fff'; this.style.boxShadow='0 1px 2px rgba(0,0,0,.06)'">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-      AI 진단
-    </button>
+    <div style="display:flex; gap:8px;">
+      <a href="/diagnostics/history" class="btn-action no-print" style="text-decoration:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+        AI 진단 이력
+      </a>
+      <button class="diag-submit btn-action no-print" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        AI 진단
+      </button>
+    </div>
   </div>
   <div class="diag-status" style="color:#64748b; font-size:13px; margin-bottom:10px;">
     {% if last_env_diagnostic %}최근 환경 진단 결과 표시. 새 발행은 AI 진단 버튼.
@@ -348,8 +296,11 @@
   {% if last_env_diagnostic %}
   <script type="application/json">{{ last_env_diagnostic | tojson }}</script>
   {% endif %}
-</div>
+</section>
 <script src="/static/js/diagnostic.js?v={{ asset_v }}" defer></script>
+
+<section class="card no-print">
+<h2>서버 목록</h2>
 
 <form method="get" class="search-row no-print">
   <input type="text" name="search" value="{{ request.query_params.get('search', '') }}" placeholder="hostname 검색">
@@ -362,15 +313,19 @@
   {% if request.query_params.get('search') or request.query_params.get('is_online') %}
   <a href="/servers/" class="clear-btn" style="display:inline-flex;align-items:center;text-decoration:none;">초기화</a>
   {% endif %}
-  <button type="button" id="report-customer-btn" class="btn no-print" disabled style="margin-left:auto; opacity:0.5;" title="고객 제출용 — 양식 A">고객 보고서 (0)</button>
-  <button type="button" id="report-engineer-btn" class="btn no-print" disabled style="opacity:0.5;" title="엔지니어 검토용 — 양식 B">엔지니어 보고서 (0)</button>
-  <button type="button" id="export-btn" class="btn no-print" disabled style="opacity:0.5;">JSON Export (0)</button>
-  <button type="button" id="diagnose-btn" class="btn no-print" disabled style="opacity:0.5;">AI 진단 (0)</button>
-  <button type="button" id="install-btn" class="btn no-print" disabled style="opacity:0.5;">ZConverter Install (0)</button>
-  <button type="button" id="discover-btn" class="btn no-print">+ 서버 발견</button>
 </form>
 
+<div class="no-print" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+  <button type="button" id="report-customer-btn" class="btn-primary no-print" disabled title="고객 제출용 — 양식 A">고객 보고서 (0)</button>
+  <button type="button" id="report-engineer-btn" class="btn-primary no-print" disabled title="엔지니어 검토용 — 양식 B">엔지니어 보고서 (0)</button>
+  <button type="button" id="export-btn" class="btn-primary no-print" disabled>JSON Export (0)</button>
+  <button type="button" id="diagnose-btn" class="btn-primary no-print" disabled>AI 진단 (0)</button>
+  <button type="button" id="diag-history-btn" class="btn-primary no-print" disabled>AI 진단 이력 (0)</button>
+  <button type="button" id="install-btn" class="btn-primary no-print" disabled>ZConverter Install (0)</button>
+</div>
+
 {% if servers %}
+<div style="overflow-x:auto;">
 <table>
   <thead>
     <tr>
@@ -391,11 +346,11 @@
     {% for s in servers %}
     <tr>
       <td class="no-print"><input type="checkbox" class="row-select" data-public-id="{{ s.public_id }}" data-hostname="{{ s.hostname }}"></td>
-      <td>
+      <td style="text-align:center;">
         {% if s.is_online %}
-          <span class="badge badge-ok"><span class="dot dot-ok"></span>온라인</span>
+          <span class="dot dot-ok" title="온라인"></span>
         {% else %}
-          <span class="badge"><span class="dot dot-off"></span>오프라인</span>
+          <span class="dot dot-off" title="오프라인"></span>
         {% endif %}
       </td>
       <td>
@@ -427,13 +382,13 @@
       <td>{{ s.storage_total_gb | disksize }}</td>
       <td style="color:#64748b;">{{ s.os_display }}</td>
       <td>
-        {% if s.recommendation_label %}
-          <span style="display:inline-flex; align-items:center; gap:6px; font-size:12px;">
+        {% if s.recommendation_color %}
+          <span style="display:inline-flex; align-items:center; gap:5px; font-size:11px; color:#475569;">
             <span style="display:inline-block; width:8px; height:8px; background:{{ s.recommendation_color }}; border-radius:50%;"></span>
             {{ s.recommendation_label }}
           </span>
         {% else %}
-          <span style="color:#cbd5e1; font-size:12px;">—</span>
+          <span style="color:#cbd5e1; font-size:11px;">—</span>
         {% endif %}
       </td>
       <td class="action-col">
@@ -441,13 +396,23 @@
       </td>
     </tr>
     {% endfor %}
+    <tr class="no-print">
+      <td colspan="11" style="padding:14px; background:#f8fafc;">
+        <button type="button" id="discover-btn" class="btn-action">+ 서버 발견</button>
+      </td>
+    </tr>
   </tbody>
 </table>
+</div>
 {% else %}
-<div class="card" style="text-align:center; padding:40px; color:#64748b;">
+<div style="text-align:center; padding:40px; color:#64748b;">
   등록된 서버가 없습니다.
+  <div style="margin-top:16px;">
+    <button type="button" id="discover-btn" class="btn-action">+ 서버 발견</button>
+  </div>
 </div>
 {% endif %}
+</section>
 
 {# risk_top 카드 섹션 제거 (2026-05-12) — 환경 요약 + 통합 신호 카드 6 카탈로그로 흡수.
    Chart.js·list-risk-cards.js 의존도 동시 제거됨. #}

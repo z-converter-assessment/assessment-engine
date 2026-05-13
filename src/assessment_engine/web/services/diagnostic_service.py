@@ -146,11 +146,12 @@ class DiagnosticService:
 
     async def list_recent(
         self, days: int, scope: str | None = None,
+        server_public_ids: list[str] | None = None,
     ) -> list[DiagnosticJobRecord]:
-        """이력 페이지(/diagnostics/history)용 — 최근 N일 발행 이력."""
+        """이력 페이지(/diagnostics/history)용 — 최근 N일 발행 이력. server_public_ids 지정 시 그 서버들 진단만."""
         async with self.session_factory() as session:
             repo = self.diagnostic_repo_factory(session)
-            return await repo.list_recent(days, scope)
+            return await repo.list_recent(days, scope, server_public_ids)
 
     async def get_one(self, job_id: str) -> DiagnosticJobRecord | None:
         """단건 조회 — Redis polling 캐시 우선, miss 시 DB fallback (#C3 fail-open)."""

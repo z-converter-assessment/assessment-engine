@@ -13,7 +13,7 @@ description: TRIGGER when user requests test writing for current/specified file 
 2. 레이어 결정:
    - DB·Redis·외부 의존 없음(단순 함수·dataclass·계산) -> unit (`tests/unit/`)
    - Repository / DB query / Schema 통합 -> integration (`tests/integration/`)
-   - 라우터·E2E → 별도 (E2E는 Vagrant 검증, pytest 범위 외)
+   - 라우터·E2E → 별도 (E2E는 Lima 검증, pytest 범위 외)
 3. `tests/{layer}/`에서 비슷한 파일이 이미 있는지 확인 → 있으면 그 패턴 그대로 따름. 없으면 새 파일.
 4. 픽스처는 `tests/conftest.py` / `tests/integration/conftest.py`에서 가져옴. 새로 만들지 말 것.
 5. 테스트 데이터는 `tests/factories.py`의 `make_inventory()` / `make_metrics()` 활용.
@@ -36,5 +36,5 @@ description: TRIGGER when user requests test writing for current/specified file 
 
 - 새 픽스처를 함수 안에 정의 — `conftest.py`에 추가.
 - factory 패턴 우회해서 dict 직접 생성 — `make_*()` 사용.
-- E2E 테스트는 pytest로 작성 안 함 — Vagrant 파이프라인.
+- E2E 테스트는 pytest로 작성 안 함 — Lima 파이프라인.
 - 사용자 명시 요청 없이 pytest 자동 실행 — `feedback_no_test_runs.md` 메모리 정책.

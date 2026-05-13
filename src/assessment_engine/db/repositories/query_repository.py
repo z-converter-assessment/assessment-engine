@@ -89,6 +89,19 @@ _RATE_PER_DIM: dict[str, tuple[str, str, str]] = {
     "net.tx_bytes_per_sec":  (ServerNetIo.__tablename__,  "interface", "tx_bytes"),
 }
 
+# server_mount_usage 가상 mount 필터 — SQL fragment 단일 진실.
+# 모든 mount 합산·집계 SQL이 본 fragment를 적용. 변경 시 device_filters._VIRTUAL_MOUNT_PREFIXES와 동기화.
+# ServerMountUsage 모델에 fstype 컬럼이 없어 path 기반만 (storage detail mapper는 fstype도 사용 — defense in depth).
+# 사용자 입력 0 — 정적 상수만이라 f-string 안전 (CLAUDE.md C5 whitelist).
+_VIRTUAL_MOUNT_SQL_FILTER = """
+    mount NOT LIKE '/proc%'
+    AND mount NOT LIKE '/sys%'
+    AND mount NOT LIKE '/dev/pts%'
+    AND mount NOT LIKE '/snap%'
+    AND mount NOT LIKE '/run/snapd%'
+    AND mount NOT LIKE '/mnt/lima-cidata%'
+"""
+
 
 class QueryRepository(BaseQueryRepository):
     def __init__(self, session: AsyncSession):
@@ -825,14 +838,15 @@ class QueryRepository(BaseQueryRepository):
         """
         start = end - timedelta(days=period_days)
 
-        sql = text("""
+        sql = text(f"""
             WITH usage_max AS (
-                -- (server_id, mount)별 max used_pct
+                -- (server_id, mount)별 max used_pct. 가상 mount 제외 — 단일 진실 _VIRTUAL_MOUNT_SQL_FILTER.
                 SELECT server_id, mount,
                     MAX((1 - avail_bytes::float / total_bytes) * 100) AS max_used_pct
                 FROM server_mount_usage
                 WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
                   AND total_bytes > 0
+                  AND {_VIRTUAL_MOUNT_SQL_FILTER}
                 GROUP BY server_id, mount
             ),
             fill_rate AS (
@@ -843,6 +857,7 @@ class QueryRepository(BaseQueryRepository):
                 FROM server_mount_usage
                 WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
                   AND total_bytes > 0
+                  AND {_VIRTUAL_MOUNT_SQL_FILTER}
                 WINDOW w AS (
                     PARTITION BY server_id, mount ORDER BY collected_at
                     ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
@@ -1133,14 +1148,19 @@ class QueryRepository(BaseQueryRepository):
 
         - mount당 최신 1행 (PARTITION BY server_id, mount ORDER BY collected_at DESC)
         - 7d partition pruning — attention은 "현재 시점 단기 신호" 의도. 7d 이상 안 갱신된 mount는 stale (metric_gap이 별도 담당)
-        - 가상 mount (`free_bytes IS NULL` 등) 제외 — total_bytes > 0
+        - 가상 mount 제외:
+          (a) `total_bytes > 0 AND avail_bytes IS NOT NULL` — 가상 fs는 보통 둘 중 하나 NULL/0
+          (b) mount path NOT LIKE 가상 prefix — `device_filters._VIRTUAL_MOUNT_PREFIXES`와 일관.
+              ServerMountUsage에 fstype 컬럼이 없어 SQL 단에선 path 기반만 가능. fstype 기반 정밀
+              필터는 storage detail mapper 측에서 수행 (defense in depth).
         """
-        sql = text("""
+        sql = text(f"""
             WITH mount_latest AS (
                 SELECT server_id, mount, total_bytes, avail_bytes, collected_at,
                     ROW_NUMBER() OVER (PARTITION BY server_id, mount ORDER BY collected_at DESC) AS rn
                 FROM server_mount_usage
                 WHERE collected_at >= now() - interval '7 days'
+                  AND {_VIRTUAL_MOUNT_SQL_FILTER}
             )
             SELECT s.public_id AS public_id,
                    s.hostname  AS hostname,
@@ -1229,7 +1249,7 @@ class QueryRepository(BaseQueryRepository):
         partition pruning 의무 (C5). period_days <= 30 cap (DB scan 보호).
         """
         capped = max(1, min(period_days, 30))
-        sql = text("""
+        sql = text(f"""
             WITH cpu_series AS (
                 SELECT server_id, collected_at,
                        (COALESCE(cpu_user,0)+COALESCE(cpu_nice,0)+COALESCE(cpu_system,0)
@@ -1265,12 +1285,14 @@ class QueryRepository(BaseQueryRepository):
                 WHERE collected_at >= now() - (:days * interval '1 day')
             ),
             disk_per_mount AS (
+                -- mount별 평균 사용률. 가상 mount 제외 — 단일 진실 _VIRTUAL_MOUNT_SQL_FILTER.
                 SELECT server_id, mount,
                        AVG(CASE WHEN total_bytes > 0 AND avail_bytes IS NOT NULL
                                 THEN ((total_bytes - avail_bytes)::float / total_bytes) * 100
                            END) AS avg_pct
                 FROM server_mount_usage
                 WHERE collected_at >= now() - (:days * interval '1 day')
+                  AND {_VIRTUAL_MOUNT_SQL_FILTER}
                 GROUP BY server_id, mount
             ),
             disk_max AS (

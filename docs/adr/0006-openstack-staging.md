@@ -1,17 +1,19 @@
-# ADR 0006 — OpenStack 분산 Staging 배포
+# ADR 0006 — OpenStack 분산 Staging 배포 (예상 시나리오)
 
-상태: 채택 (2026-05-13) — `deploy/openstack/` 코드 작성 완료, 실 OpenStack tenant 검증 전
+상태: 예상 시나리오 (2026-05-13) — `deploy/openstack/` 디렉토리 전체(terraform·ansible·compose·scripts)가 본 시점 예상 설계. 실 OpenStack tenant 도입 시 토폴로지·자원·구성 모두 변경 가능. 도입 시점에 별도 ADR 정정 의무 — 본 ADR은 그 시점까지 "현재 검토 중인 안" 표시.
+
+본 ADR이 명시한 4 VM 토폴로지(bastion + engine-db + engine-mw + engine-app)와 자원 산정은 사내 폐쇄망 OpenStack 환경 가정 하 1차 설계. 실제 OpenStack tenant의 quota·network·storage·서비스 카탈로그·권한 모델에 따라 토폴로지 자체가 다르게 갈 수 있음 (예: 단일 VM 통합·k8s 기반·Magnum cluster·Trove DB 활용 등). 본 시점 lima 기반 dev 파이프라인(`docs/operations/lima.md`)은 검증 완료, OpenStack 관련 부분은 모두 예상.
 
 ## Context
 
-지금까지 dev·테스트 환경은 docker-compose(로컬) + Vagrant(VM 3대 에이전트 발행 검증)로 충분했다. 다음 단계로 실 운영과 유사한 환경에서 엔진을 분산 배포·검증할 필요가 생겼다.
+지금까지 dev·테스트 환경은 docker-compose(로컬) + Lima(VM 3대 에이전트 발행 검증)로 충분했다. 다음 단계로 실 운영과 유사한 환경에서 엔진을 분산 배포·검증할 필요가 생겼다.
 
 운영 환경 가정:
 - 사내 폐쇄망 OpenStack — Horizon GUI + API 접근 가능
 - 사용자 진입점: 사내 Windows Server 1대 (RDP) → Horizon
 - 외부 인터넷 가능 (Docker Hub·GitHub·PyPI 직접 사용 가능)
 - 외부 노출 불필요 — 사내망 사설 IP로 충분
-- 운영 환경 통합 테스트(에이전트 발행 파이프라인)는 본 ADR 영역 밖 — 로컬 Vagrant로 유지
+- 운영 환경 통합 테스트(에이전트 발행 파이프라인)는 본 ADR 영역 밖 — 로컬 Lima로 유지
 
 ## Decision
 
@@ -103,7 +105,7 @@ deploy/openstack/
 
 ### 미해결 / 영역 밖
 
-- agent VM 배포·파이프라인 검증 (로컬 Vagrant로 유지)
+- agent VM 배포·파이프라인 검증 (로컬 Lima로 유지)
 - 외부 노출·LB·DNS·인증서 (사내망이라 불필요)
 - HA·수평 확장 자동화 (현 단계 1차에는 수직 확장)
 - 운영 secret store (Vault·Barbican) — 1차 Ansible Vault

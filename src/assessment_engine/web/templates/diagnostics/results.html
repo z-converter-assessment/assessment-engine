@@ -2,7 +2,7 @@
 {% block title %}ZConverter Assessment — 진단 결과{% endblock %}
 
 {% block content %}
-<a href="/servers/" class="back">&larr; 대시보드로</a>
+<a href="/servers/" class="back">&larr; 뒤로</a>
 <h1>AI 진단 결과</h1>
 <p style="color:#64748b; font-size:13px; margin-bottom:20px;">
   발행된 진단 job {{ jobs|length }}건. pending/running 항목은 3초마다 자동 갱신.
@@ -15,7 +15,9 @@
       {% if job.payload %}
         {% if job.payload.scope == "server" %}서버 진단{% else %}환경 진단{% endif %}
         {% if job.payload.server_public_id %}
-          <span style="font-weight:400; color:#64748b; font-size:13px;">— {{ job.payload.server_public_id[:8] }}</span>
+          <span style="font-weight:400; color:#64748b; font-size:13px;">—
+            <a href="/servers/{{ job.payload.server_public_id }}" style="color:inherit;">{{ job.payload.server_public_id[:8] }}</a>
+          </span>
         {% endif %}
       {% else %}
         <span style="color:#94a3b8;">{{ job.job_id[:8] }} (조회 불가)</span>

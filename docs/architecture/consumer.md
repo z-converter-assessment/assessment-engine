@@ -318,4 +318,4 @@ docker compose restart consumer
 | consumer는 떴지만 메시지 처리 안 됨 | broker queue가 아직 declare 안 됐거나 connection 실패 | 로그에 `consuming queue=...` 라인이 있는지 확인 |
 | 같은 메시지가 반복 처리되어 보임 | 사실은 처리 중인 메시지가 timeout으로 nack → 재전송 | DB 응답 시간 확인. `_db_retry`가 1회 처리에 최대 155s 소요 |
 | Pydantic ValidationError 누적 | 에이전트가 새 필드 추가 + 컨슈머 스키마 미반영 | `src/assessment_engine/consumer/schemas.py`에 필드 추가 또는 `extra=ignore`로 통과 |
-| `agent error` 로그 다량 | 에이전트가 `error` 메시지를 발행 중 | 에이전트 로그(`vagrant ssh ... journalctl`) 확인 |
+| `agent error` 로그 다량 | 에이전트가 `error` 메시지를 발행 중 | 에이전트 로그(`limactl shell <vm> sudo journalctl -u assessment-agent`) 확인 |

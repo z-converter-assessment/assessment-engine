@@ -1,0 +1,81 @@
+# db-server-01: AlmaLinux 9 + PostgreSQL.
+# 검증 의도: db 카테고리 + RHEL 9 1:1 클론 distro + RPM family postgresql 운영 (postgresql-setup --initdb 수동 init 단계 검증).
+# 1차 Debian 11 → boot stuck. 2차 Ubuntu 20.04 → apt 회귀만 검증되고 RPM postgresql 분기 dead code.
+# 3차 AlmaLinux 9 (offline 자리와 db 위치 교체) — RPM family postgresql 분기 활성화 + OpenStack OSP 환경 정합.
+#
+# yaml 책임: boot + mount + 합성 부하 timer (light).
+# 패키지 설치(postgresql-server)·에이전트 빌드·systemd unit은 dev-up.sh post-provision (almalinux:postgres 분기 재사용).
+
+images:
+- location: "https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2"
+  arch: "x86_64"
+- location: "https://repo.almalinux.org/almalinux/9/cloud/aarch64/images/AlmaLinux-9-GenericCloud-latest.aarch64.qcow2"
+  arch: "aarch64"
+
+cpus: 1
+# AlmaLinux 9도 dnf transaction이라 1.25 GiB 보수 (Rocky 8/Rocky 9/CentOS Stream 9와 동일 family).
+memory: "1280MiB"
+# AlmaLinux 9 cloud image qcow2 raw가 10 GiB 강제 (RPM family 동일).
+disk: "10GiB"
+
+containerd:
+  system: false
+  user: false
+
+param:
+  AgentSrc: ""
+
+mounts:
+- location: "{{.Param.AgentSrc}}"
+  mountPoint: "/mnt/agent-src"
+  writable: false
+
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    # 합성 부하 (light) — cache·web과 동일.
+    set -euo pipefail
+    cat > /usr/local/bin/synthetic-load.sh <<'EOF'
+    #!/bin/bash
+    sleep $(( RANDOM % 30 ))
+    duration=$(( (RANDOM % 3) + 1 ))
+    timeout ${duration}s sha256sum /dev/zero > /dev/null 2>&1 || true
+    size=$(( (RANDOM % 16) + 5 ))
+    head -c ${size}M /dev/urandom > /tmp/synthetic-load 2>/dev/null || true
+    sync
+    rm -f /tmp/synthetic-load
+    count=$(( (RANDOM % 100) + 50 ))
+    dd if=/dev/zero of=/tmp/synthetic-io bs=4k count=${count} 2>/dev/null || true
+    sync
+    rm -f /tmp/synthetic-io
+    ping -c $(( (RANDOM % 5) + 3 )) -q host.lima.internal > /dev/null 2>&1 || true
+    curl -s -m 2 http://host.lima.internal:8000/health > /dev/null 2>&1 || true
+    if [ $((RANDOM % 2)) -eq 0 ]; then
+      curl -s -m 2 http://host.lima.internal:8000/static/js/chart-utils.js > /dev/null 2>&1 || true
+    fi
+    EOF
+    chmod 755 /usr/local/bin/synthetic-load.sh
+    cat > /etc/systemd/system/synthetic-load.service <<'EOF'
+    [Unit]
+    Description=Synthetic load (metrics visualization aid)
+    [Service]
+    Type=oneshot
+    ExecStart=/usr/local/bin/synthetic-load.sh
+    EOF
+    cat > /etc/systemd/system/synthetic-load.timer <<'EOF'
+    [Unit]
+    Description=Run synthetic-load every minute
+    [Timer]
+    OnBootSec=2min
+    OnUnitActiveSec=1min
+    [Install]
+    WantedBy=timers.target
+    EOF
+    systemctl daemon-reload
+    systemctl enable synthetic-load.timer
+    systemctl start synthetic-load.timer
+
+message: |
+  db-server-01 (AlmaLinux 9 + PostgreSQL) ready.
+  Agent install pending — run dev-up.sh post-provision step (almalinux:postgres 분기 + postgresql-setup --initdb 자동).

@@ -46,7 +46,6 @@
 | `GapWarningItem` | `to_gap_warning_item(raw, now)` — `gap_minutes` / `badge_class` | `metric_gap_warnings(gap_min, recent_h, limit)` 단일 SQL | 5min~24h 갭 | blue (`#eff6ff`) |
 | `CapacityTriggerBadge` | `to_capacity_warning_item` 안에서 3종 (스왑·CPU·메모리) 생성 — `label`/`color`(hue 분리)/`active`(임계 초과 여부) | `_CAPACITY_TRIGGER_COLORS` 단일 색 진실 | — | 빨강(`#dc2626`)/파랑(`#2563eb`)/보라(`#8b5cf6`) |
 | `CapacityWarningItem` | `to_capacity_warning_item(raw)` — `cpu_p95_pct`/`mem_p95_pct`/`swap_used`/`triggers`. caller가 `under_provisioned` 필터링 | `report_aggregate(WINDOW_DAYS)` + `recommendation.classify` | 14일 USE Method | blue (`#eff6ff`) |
-| `CapacityBreakdownEntry` | `build_capacity_breakdown(items)` — 3 카테고리 항상 노출(count 0 포함), trigger 활성 카운트 | `CapacityWarningItem.triggers` 집계 | — | trigger 색 hue 분리 |
 | `DiskDaysWarningItem` | `to_disk_days_warning_item(public_id, hostname, mount, days, used_pct)` | `report_mount_worst(WINDOW_DAYS)` fill_rate 추정 | 14일 fill_rate -> N일 후 full | blue (`#eff6ff`) |
 | `OSEolWarningItem` | `to_os_eol_warning_item(raw)` — `_OS_EOL` 정적 매핑 매칭 시 반환 | inventory `os_id`/`os_version` + 정적 dict | 정적 (CentOS 7·RHEL 7·Ubuntu 18.04·Debian 10 등) | blue (`#eff6ff`) |
 | `AgentUnstableItem` | `to_agent_unstable_item(public_id, hostname, restart_count)` — caller가 임계 필터링 | Redis `agent_restarts:{sid}` mget | 1h 슬라이딩 윈도우 | blue (`#eff6ff`) |

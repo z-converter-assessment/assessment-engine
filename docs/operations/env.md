@@ -22,9 +22,9 @@ prod에선 `.env` 대신 Docker secrets로 자격을 주입한다 — 자세한 
                 ┌────────────────┘          │          └──────────────────┐
                 │ (1)                       │ (2)                         │ (3)
                 ▼                           ▼                             ▼
-   docker-compose env_file        config.py BaseSettings        Vagrantfile dot_env
+   docker-compose env_file        config.py BaseSettings        dev-up.sh source agent.env
    → 컨테이너 환경변수 주입       → Python 인스턴스 필드        → /etc/assessment-agent.env
-   → environment: 블록이          → 환경변수 > .env > default   → VM 안 에이전트로 전달
+   → environment: 블록이          → 환경변수 > .env > default   → Lima VM 안 에이전트로 전달
      일부 키 강제 오버라이드      (cwd /app/.env 도 read)       → RABBITMQ_HOST는 별도 주입
                 │
                 └─ (4) 컨테이너 안 Python 시작 시 (1)+(2)가 결합:
@@ -58,17 +58,17 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 | `POSTGRES_DB` | `assessment` | config.py / docker-compose | |
 | `POSTGRES_USER` | `assessment` | config.py / docker-compose | |
 | `POSTGRES_PASSWORD` | `assessment` | config.py / docker-compose | |
-| `RABBITMQ_HOST` | `rabbitmq` | config.py | 컨슈머 broker 접속 (docker-compose 서비스명). 에이전트는 본 키를 사용하지 않음 — Vagrantfile이 `10.0.2.2`(NAT) 별도 주입 |
+| `RABBITMQ_HOST` | `rabbitmq` | config.py | 컨슈머 broker 접속 (docker-compose 서비스명). 에이전트는 본 키를 사용하지 않음 — dev-up.sh가 `host.lima.internal` (Lima user-mode network alias) 별도 주입 |
 | `RABBITMQ_PORT` | `5672` | config.py / docker-compose | |
-| `RABBITMQ_VHOST` | `/assessment` | config.py / docker-compose / Vagrantfile | 전용 vhost. 에이전트와 동일 값 사용. AMQP URL의 `/`는 `%2F`로 인코딩 (config.py `broker_url` 자동 처리) |
-| `RABBITMQ_USER` | `assessment` | config.py / docker-compose / Vagrantfile | |
-| `RABBITMQ_PASSWORD` | `assessment` | config.py / docker-compose / Vagrantfile | |
+| `RABBITMQ_VHOST` | `/assessment` | config.py / docker-compose / dev-up.sh | 전용 vhost. 에이전트와 동일 값 사용. AMQP URL의 `/`는 `%2F`로 인코딩 (config.py `broker_url` 자동 처리) |
+| `RABBITMQ_USER` | `assessment` | config.py / docker-compose / dev-up.sh (infra/agent.env) | |
+| `RABBITMQ_PASSWORD` | `assessment` | config.py / docker-compose / dev-up.sh (infra/agent.env) | |
 | `RABBITMQ_MANAGEMENT_PORT` | `15672` | docker-compose | RabbitMQ 관리 콘솔 포트 노출 (config.py 미사용) |
-| `RABBITMQ_EXCHANGE` | `assessment` | config.py / Vagrantfile | 에이전트 - consumer routing 계약. 변경 시 양쪽 동기화 |
-| `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | config.py / Vagrantfile | 동일 |
-| `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | config.py / Vagrantfile | 동일 |
-| `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | config.py / Vagrantfile | 동일 |
-| `RABBITMQ_ROUTING_KEY_TASK_RESULT` | `task.result` | config.py / Vagrantfile | agent -> engine 작업 결과 보고. v4 신설 |
+| `RABBITMQ_EXCHANGE` | `assessment` | config.py / dev-up.sh (infra/agent.env) | 에이전트 - consumer routing 계약. 변경 시 양쪽 동기화 |
+| `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | config.py / dev-up.sh (infra/agent.env) | 동일 |
+| `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | config.py / dev-up.sh (infra/agent.env) | 동일 |
+| `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | config.py / dev-up.sh (infra/agent.env) | 동일 |
+| `RABBITMQ_ROUTING_KEY_TASK_RESULT` | `task.result` | config.py / dev-up.sh (infra/agent.env) | agent -> engine 작업 결과 보고. v4 신설 |
 | `REDIS_HOST` | `redis` | config.py | (docker-compose 서비스명) |
 | `REDIS_PORT` | `6379` | config.py | |
 | `WEB_PORT` | `8000` | config.py / docker-compose | Web UI 접속 포트. 충돌 시 변경 |
@@ -100,17 +100,17 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 
 docker-compose `environment:` 오버라이드는 `web` / `consumer` 양쪽에 명시되어 있어 컨테이너 내부에서는 `.env` HOST 값을 변경해도 효과 없음. 호스트 직접 실행 시에만 의미 있다.
 
-### Vagrantfile의 secret 채널 (분리됨)
+### Lima 에이전트 secret 채널 (분리됨)
 
-Vagrantfile은 엔진의 `.env`를 직접 파싱하지 않는다. 별도 파일 `infra/agent.env`에서만 read:
+dev-up.sh는 엔진의 `.env`를 에이전트에 전달하지 않는다. 별도 파일 `infra/agent.env`에서만 read (`set -a; source infra/agent.env; set +a`로 host env export):
 
 - `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_EXCHANGE`, `RABBITMQ_ROUTING_KEY_INVENTORY`, `RABBITMQ_ROUTING_KEY_METRICS`, `RABBITMQ_ROUTING_KEY_ERROR`, `RABBITMQ_ROUTING_KEY_TASK_RESULT`
 
-`infra/agent.env`가 없으면 Vagrantfile이 즉시 에러. `cp infra/agent.env.example infra/agent.env` 후 운영 값으로 수정.
+`infra/agent.env`가 없으면 dev-up.sh가 즉시 에러. `cp infra/agent.env.example infra/agent.env` 후 운영 값으로 수정.
 
-이 값들이 VM 안 `/etc/assessment-agent.env`에 옮겨지고, `RABBITMQ_HOST`는 Vagrantfile 상단의 `RABBITMQ_HOST = "10.0.2.2"` (VirtualBox NAT → 호스트머신) 상수로 별도 주입된다.
+이 값들이 limactl shell heredoc 치환으로 Lima VM 안 `/etc/assessment-agent.env`에 옮겨지고, `RABBITMQ_HOST`는 dev-up.sh가 `host.lima.internal` (Lima user-mode network alias) 상수로 별도 주입한다.
 
-`infra/agent.env` 변경 후 VM에 반영하려면 `vagrant provision` 필요.
+`infra/agent.env` 변경 후 VM에 반영하려면 `./dev-up.sh` 재실행 (VM은 Running 유지, `/etc/assessment-agent.env`만 재생성 + agent restart).
 
 분리 근거: `docs/operations/dev-prod.md` "에이전트 secret 채널 분리" 절.
 

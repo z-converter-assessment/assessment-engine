@@ -78,4 +78,5 @@ agent가 long-running GET → engine이 task 생길 때 한 줄 push.
 
 ## 정정 이력
 
-- 2026-05-11: `task_type` dispatcher와 함께 `params` 스키마도 engine-agent 양쪽 합의 + `agent_version` bump 대상이라는 점 명시. 현재 `zconverter_install`의 params 키는 `source_host`(단일 진실은 코드·agent.md). 본 ADR은 명명을 박지 않음 — 명명 변경은 코드 변경으로 처리.
+- 2026-05-11: `task_type` dispatcher와 함께 `params` 스키마도 engine-agent 양쪽 합의 + `agent_version` bump 대상이라는 점 명시. 본 ADR은 명명을 박지 않음 — 명명 변경은 코드 변경으로 처리.
+- 2026-05-13: `zconverter_install` params 키 정정 — `source_host` (host[:port])에서 `source_url` (전체 URL, scheme·port·path 자유)로 변경. 외부 mirror 호스팅 자유도 확보. 단일 진실은 코드·agent.md.
