@@ -6,6 +6,7 @@ from typing import Literal
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
+from assessment_engine import recommendation
 from assessment_engine.config import web_settings
 from assessment_engine.db.redis import safe_get, safe_mget, safe_set
 from assessment_engine.db.repositories.base_query_repository import (
@@ -16,8 +17,7 @@ from assessment_engine.db.repositories.base_query_repository import (
     MetricType,
     TimeRange,
 )
-from assessment_engine.db.repositories.outbound import InventoryExportEntry, RebootEvent
-from assessment_engine.web.services import recommendation
+from assessment_engine.db.repositories.outbound import InventoryExportEntry, MetricSeries, RebootEvent
 from assessment_engine.web.services.cache_serializer import (
     dashboard_from_json,
     dashboard_to_json,
@@ -69,7 +69,7 @@ _DISK_METRIC_TYPES = frozenset({"disk.read_iops", "disk.write_iops"})
 DeviceCategory = Literal["phys", "logical"]
 
 
-def _filter_disk_category(dtos: list, category: DeviceCategory) -> list:
+def _filter_disk_category(dtos: list[MetricSeries], category: DeviceCategory) -> list[MetricSeries]:
     if category == "phys":
         return [d for d in dtos if is_physical_disk(d.dimension)]
     # category == "logical"

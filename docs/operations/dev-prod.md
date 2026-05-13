@@ -1,8 +1,8 @@
 # 환경변수·인프라 전략
 
-> 위치: 본 문서는 정책이다. "키가 무엇인가"는 `docs/operations/env.md`, 트레이드오프는 `docs/tradeoffs.md`, 호환되는 dev 운영 명령은 `README.md` 참조.
+정책: CLAUDE.md #A·#F8. 본 문서는 환경변수·인프라 정책 + dev/prod 분리 단일 진실. 키 카탈로그는 `docs/operations/env.md`.
 
-본 프로젝트는 12-Factor App의 III. Config 원칙을 기준으로 환경변수와 dev/prod 분리를 설계한다. 코드·이미지는 환경에 무관하게 동일하고, 환경별 동작은 환경변수와 secret 주입 채널로만 결정된다.
+dev 운영(현재): docker-compose + `.env` 평문 + Lima 7 VM. prod 운영은 예상 시나리오 — 본 문서 §5·§7 Stage 3~5·§8·§10이 시나리오 영역(실 도입 시 별도 ADR 정정 의무). 본 프로젝트는 12-Factor III. Config 원칙 기준으로 환경변수·dev/prod 분리 설계 — 코드·이미지는 환경 무관, 환경별 동작은 환경변수·secret 채널만으로 결정.
 
 ---
 

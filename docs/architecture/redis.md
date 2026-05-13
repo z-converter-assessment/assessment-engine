@@ -1,7 +1,7 @@
 # Redis 전략
 
-캐시·온라인 TTL·멱등성·PUB/SUB의 4가지 역할을 한 인스턴스로 처리한다.
-Consumer / Web 양쪽이 같은 키 네임스페이스를 공유하며, 키 패턴은 `WebSettings`에 정의한다 (`src/assessment_engine/config.py`).
+정책: CLAUDE.md #C3. 캐시·온라인 TTL·멱등성·PUB/SUB의 4가지 역할을 한 인스턴스로 처리.
+키 패턴은 `WebSettings` 단일 정의(`src/assessment_engine/config.py`). `ConsumerSettings`는 `WebSettings` 상속 — consumer/web 동일 네임스페이스.
 
 ```
 src/assessment_engine/db/
@@ -51,19 +51,6 @@ src/assessment_engine/web/services/query_service.py
 | `metrics.events` | consumer (metrics 저장 후) | web SSE 핸들러 | `{"server_id": int, "machine_id": str}` |
 
 웹 측 `stream_metrics_events`(query_service.py)는 단일 채널을 모두 구독하고 server_id 일치 여부로 필터링. 구독 클라이언트별 채널 분리 안 함 (트레이드오프 T5).
-
----
-
-## 멱등성 — 시계열 자연키 카탈로그
-
-정책 단일 진실: CLAUDE.md #D2 (2단 방어 메커니즘·at-most-once 트레이드오프·fail-open 의존). 본 절은 #D2가 의존하는 DB UNIQUE 키 카탈로그만 (변경 시 #D2 깨짐).
-
-| 테이블 | conflict 키 |
-|--------|-----|
-| `server_metrics` | `(server_id, collected_at)` |
-| `server_disk_io` | `(server_id, device, collected_at)` |
-| `server_net_io` | `(server_id, interface, collected_at)` |
-| `server_mount_usage` | `(server_id, mount, collected_at)` |
 
 ---
 
@@ -172,7 +159,7 @@ async def close_pool() -> None: ...
 
 ### Redis 장애 시 동작 — fail-open
 
-정책 단일 진실: CLAUDE.md #C3 (fail-open + `safe_*` helper 경유 의무) + #F6 (외부 의존 실패 매트릭스). 본 절은 위임 결과의 운영 동작 매트릭스만.
+정책: CLAUDE.md #C3 · #F6. 본 절은 운영 동작 매트릭스만.
 
 `safe_*` helper 카탈로그: `safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`/`safe_incr_with_ttl` (`src/assessment_engine/db/redis.py`). 정확성 보장은 2단 안전망(DB UNIQUE / DB query / `last_seen_at` 컬럼)에 위임.
 
@@ -209,94 +196,19 @@ async def close_pool() -> None: ...
 
 ## 운영 / 디버깅
 
-### redis-cli 접속
-
 ```bash
 docker compose exec redis redis-cli
+SCAN 0 MATCH 'online:*' COUNT 100              # 운영은 SCAN (KEYS는 블로킹)
+TTL idempotent:<uuid>                          # 양수=남은초, -1=TTL 없음, -2=키 없음
+DEL cache:metrics:1                            # 강제 무효화 (디버그)
+SUBSCRIBE metrics.events                       # PUB/SUB 모니터링
+INFO memory | grep -E "used_memory|maxmemory"  # 사용량
+INFO stats | grep evicted_keys                 # evict 누적 (T11: 멱등성 보장 약화)
 ```
 
-### 자주 쓰는 명령
-
-```bash
-# 키 패턴 조회 (운영에서는 SCAN 사용 권장 — KEYS는 블로킹)
-SCAN 0 MATCH 'online:*' COUNT 100
-SCAN 0 MATCH 'cache:metrics:*' COUNT 100
-SCAN 0 MATCH 'idempotent:*' COUNT 100
-
-# 특정 키 TTL 확인
-TTL online:1            # 양수=남은 초, -1=TTL 없음, -2=키 없음
-TTL idempotent:550e8400-e29b-41d4-a716-446655440000
-
-# 캐시 강제 무효화 (디버그용)
-DEL cache:metrics:1
-DEL cache:inventory:1
-
-# 온라인 상태 확인
-EXISTS online:1
-MGET online:1 online:2 online:3      # 일괄
-
-# PUB/SUB 채널 모니터링
-SUBSCRIBE metrics.events             # 새 publish 실시간 수신
-
-# 서버 통계
-INFO stats                            # evicted_keys, expired_keys, ...
-INFO memory                           # used_memory, maxmemory, ...
-INFO clients                          # 연결 수
-DBSIZE                                # 전체 키 수
-```
-
-### 멱등성 시나리오 검증
-
-```bash
-# 1. 새 message_id로 SET NX
-docker compose exec redis redis-cli SET idempotent:test-uuid 1 EX 86400 NX
-# (integer) 1   ← 성공
-
-# 2. 같은 키로 SET NX 재시도
-docker compose exec redis redis-cli SET idempotent:test-uuid 1 EX 86400 NX
-# (nil)         ← 이미 존재 — 핸들러는 중복으로 판단해 ack 후 리턴
-
-# 3. 정리
-docker compose exec redis redis-cli DEL idempotent:test-uuid
-```
-
-### maxmemory 압박 시뮬레이션
-
-```bash
-# 현재 사용량 확인
-docker compose exec redis redis-cli INFO memory | grep -E "used_memory_human|maxmemory_human"
-
-# evicted_keys 확인 — 0이면 evict 발생 안 함
-docker compose exec redis redis-cli INFO stats | grep evicted_keys
-```
-
-`evicted_keys`가 누적되면 캐시·온라인 키뿐 아니라 멱등성 키도 evict 가능 → at-most-once 보장 약화. T11 참조.
-
-### Redis 장애 시뮬레이션
-
-```bash
-# Redis 컨테이너 stop
-docker compose stop redis
-
-# 영향 (fail-open 적용 후):
-# - consumer: 핸들러는 정상 처리 진행 (멱등성 1단 우회). DB UNIQUE가 중복 흡수.
-#             online SET / cache DEL / publish 실패는 warning 로그만 남기고 무시.
-#             DLQ 누적 없음.
-# - web: cache GET 실패 → DB 직접 조회 → 응답 정상 (느려질 뿐).
-#        list 화면은 last_seen_at 기반으로 online 판정 (TTL 임계와 동일).
-# - SSE 스트림: pubsub 끊김 → 브라우저 자동 재연결 시도.
-
-# 복구
-docker compose start redis
-```
-
-평시·장애 시 동작 차이는 위 "Redis 장애 시 동작 — fail-open" 표 참조. Redis HA(Sentinel/Cluster) 도입은 fail-open 정책과 별개로 평시 latency·hit rate 개선 목적으로 검토.
-
-### 흔한 트러블
-
-| 증상 | 원인 | 해결 |
-|------|------|------|
-| 새 inventory가 web에 반영 안 됨 | consumer의 cache:inventory DELETE 실패 또는 web 캐시 stale | `DEL cache:inventory:{id}` 수동 / consumer 로그 확인 |
-| 같은 message_id가 두 번 처리되어 중복 행 | Redis 키 만료 또는 evict | DB UNIQUE 제약(2단)이 흡수 — 중복 행 없으면 정상 |
-| 온라인 뱃지가 깜빡임 (online-offline) | metrics 발행 주기(60s) > online TTL(90s) 거의 한계 | 주기 단축 또는 TTL 연장 |
-| SSE 클라이언트가 못 받음 | metrics.events 채널에 이미 publish됐지만 구독 시작 전 — Redis pubsub은 fire-and-forget | 클라이언트가 SUBSCRIBE 후 즉시 `/metrics/latest` 1회 fetch로 보완 (현재 구현) |
+| 증상 | 원인 |
+|------|------|
+| 새 inventory 반영 안 됨 | consumer cache DELETE 실패 — `DEL cache:inventory:{id}` 수동 |
+| 같은 message_id 중복 행 | Redis 키 만료/evict — DB UNIQUE 2단이 흡수, 중복 행 없으면 정상 |
+| 온라인 뱃지 깜빡임 | metrics 주기(60s) ≈ TTL(90s) 한계 — 주기 단축 또는 TTL 연장 |
+| SSE 못 받음 | pubsub은 fire-and-forget — SUBSCRIBE 후 즉시 `/metrics/latest` 1회 fetch로 보완(현재 구현) |

@@ -10,7 +10,8 @@
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
         fmtKst, fmtKbChart, getAnchorEnd, initAnchor,
         makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray,
-        fetchRebootEvents, applyRebootMarkers } = ChartUtils;
+        fetchRebootEvents, applyRebootMarkers,
+        buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
 
 // 추이 차트의 분해력 기준 (다중 interface x RX/TX 다중 라인 — idle 환경 트래픽도 보이도록).
 // 진단 리포트(performance.html)는 다른 정책: PERF_NET_SUGGESTED_MAX = 10 MB/s (1 Gbps의 8%).
@@ -79,49 +80,7 @@ function renderNetChart(avgRows, maxRows, range, anchorEnd) {
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
   const labels = grid.map(t => fmtNetLabel(new Date(t).toISOString(), range));
-
-  const dims = [...new Set(avgRows.map(r => r.dimension))];
-  const datasets = [];
-  dims.forEach((dim, i) => {
-    const color = COLORS[i % COLORS.length];
-    const avgMap = {}, maxMap = {};
-    for (const r of avgRows.filter(r => r.dimension === dim))
-      avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
-    for (const r of maxRows.filter(r => r.dimension === dim))
-      maxMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
-
-    datasets.push({
-      label: dim,
-      data: grid.map(t => avgMap[t] ?? null),
-      borderColor: color,
-      backgroundColor: color + '28',
-      borderWidth: 2,
-      pointRadius: 1,
-      pointHoverRadius: 3,
-      tension: 0.3,
-      fill: '+1',
-      spanGaps: false,
-    });
-    const realMaxData = grid.map(t => maxMap[t] ?? null);
-    const bufferedMaxData = grid.map(t => {
-      const avgVal = avgMap[t];
-      if (avgVal == null) return null;
-      return maxMap[t] ?? avgVal;
-    });
-    datasets.push({
-      label: dim + '__max',
-      data: bufferedMaxData,
-      realData: realMaxData,
-      borderColor: 'transparent',
-      backgroundColor: 'transparent',
-      borderWidth: 0,
-      pointRadius: 0,
-      pointHoverRadius: 0,
-      tension: 0.3,
-      fill: false,
-      spanGaps: false,
-    });
-  });
+  const datasets = buildAvgMaxDatasets(avgRows, maxRows, bMs, grid);
 
   if (netChart) {
     netChart.data.labels   = labels;
@@ -168,23 +127,7 @@ function renderNetChart(avgRows, maxRows, range, anchorEnd) {
 }
 
 function buildNetLegend() {
-  const container = document.getElementById('net-legend');
-  if (!netChart) { container.innerHTML = ''; return; }
-  const avgDatasets = netChart.data.datasets.filter((_, i) => i % 2 === 0);
-  container.innerHTML = avgDatasets.map((ds, i) => `
-    <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#475569; cursor:pointer; user-select:none;">
-      <input type="checkbox" data-avg="${i * 2}" data-max="${i * 2 + 1}" checked
-        style="accent-color:${ds.borderColor}; width:13px; height:13px; cursor:pointer;">
-      <span>${ds.label}</span>
-    </label>
-  `).join('');
-  container.querySelectorAll('input[type=checkbox]').forEach(cb => {
-    cb.addEventListener('change', () => {
-      netChart.getDatasetMeta(+cb.dataset.avg).hidden = !cb.checked;
-      netChart.getDatasetMeta(+cb.dataset.max).hidden = !cb.checked;
-      netChart.update();
-    });
-  });
+  buildAvgMaxLegend('net-legend', netChart, { withToggle: true });
 }
 
 async function loadNetChart() {

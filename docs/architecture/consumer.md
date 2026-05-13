@@ -1,6 +1,6 @@
 # Consumer
 
-aio-pika 기반 순수 비동기 컨슈머. FastAPI와 독립 프로세스로 실행된다.
+정책: CLAUDE.md #D. aio-pika 기반 순수 비동기 컨슈머, FastAPI와 독립 프로세스.
 
 ```
 src/assessment_engine/consumer/
@@ -12,81 +12,13 @@ src/assessment_engine/consumer/
 
 ---
 
-## schemas.py — 에이전트 메시지 계약
+## schemas.py — 메시지 파싱·검증
 
-에이전트(C99)가 RabbitMQ로 발행하는 4가지 메시지 타입의 파싱·검증 계약.
-`model_validate_json(raw)` 한 번으로 파싱·타입 검증이 동시에 일어난다.
+`model_validate_json(raw)`로 파싱·타입 검증 동시. Pydantic Input 모델은 `extra=ignore` 유지(CLAUDE.md #B 계약 진화 정책).
 
-### 공통 메타데이터 (MessageBase)
+메시지 타입·공통 메타·필드 카탈로그·미사용/활용 필드·routing key별 스키마: `docs/architecture/agent.md` 단일 진실.
 
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `machine_id` | `str` (max 64) | `/etc/machine-id`. 표준 Linux 32 hex, 가상화 환경 UUID(36자) 가능 |
-| `agent_version` | `str` (max 32) | 에이전트 빌드 버전. 스키마 계약 버전 역할 |
-| `collected_at` | `datetime` | 수집 시각 (ISO 8601 UTC) |
-| `hostname` | `str` (max 255) | 보조 식별자. 가변이므로 식별 기준으로 사용 안 함 |
-| `message_id` | `UUID` | 멱등성 키 (UUID v4) |
-| `agent_started_at` | `datetime` | 에이전트 프로세스 시작 시각 (v4부터 공통 메타) |
-| `boot_time` | `datetime` | 시스템 부팅 시각 (v4부터 공통 메타 — inventory 본문 필드에서 격상). 시계열 4테이블 컬럼으로 보존 |
-
-### InventoryInput — `server.inventory` (기동 시 1회 + 1시간 주기 자동 재발행 + 정적 정보 변경 시)
-
-정적 인프라 정보. OS·kernel·CPU·메모리/스왑 총량, `disks[]`, `mounts[]`, IP, `services[]`, `listen_ports[]`.
-
-서브모델:
-- `DiskInfo`: 물리 디스크 1개 (`name`, `size_bytes`, `type`)
-- `InventoryMountInfo`: 마운트 포인트 1개 (`mount`, `total_bytes`, `fstype` 등)
-  - `free_bytes` / `avail_bytes`는 handler에서 무시. 인벤토리는 `total_bytes`(정적)만 저장, 동적 사용량은 metrics에서 별도 저장
-
-### MetricsInput — `server.metrics` (1분 주기)
-
-모두 raw 누적값. Web이 연속 2회 readings의 차(delta)로 CPU%·IOPS·kBps를 계산한다.
-
-서브모델:
-- `CpuStat`: `/proc/stat` jiffies 단위 누적값
-- `DiskIoInfo`: 장치별 I/O 누적 카운터
-- `MetricsMountInfo`: 마운트별 현재 사용량 (매 주기 전송)
-- `NetIoInfo`: 인터페이스별 누적 바이트·패킷·에러
-
-단위: 메모리 `kb`, 디스크/네트워크 `bytes` (`/proc` 출력 관례)
-
-### ErrorInput — `server.error`
-
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `error_code` | `str` | 에러 코드 |
-| `error_message` | `str` | 에러 상세 |
-| `failed_component` | `Literal["collect","publish"]` | 실패 단계 |
-| `retry_count` | `int \| None` | 재시도 요약 보고 시점에만 |
-| `first_failed_at` | `datetime \| None` | 재시도 요약 보고 시점에만 |
-| `recovered_at` | `datetime \| None` | 복구 보고 시점에만 |
-
-파싱 후 로깅만 수행. DB 저장 없음. 재시도 요약 옵셔널 필드는 스키마 v3 (`payload-schema.md` "발행 정책") 참조.
-
-### TaskResultInput — `task.result` (agent → engine, 작업 결과 보고)
-
-운영자가 등록한 작업(현재 `zconverter_install`) 실행 결과를 보고. routing key `task.result`.
-
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `message_type` | `Literal["task_result"]` | 메시지 타입 식별 |
-| `task_public_id` | `UUID` | engine이 RPC reply에 담아 보낸 값을 그대로 회신 (correlation 식별자) |
-| `status` | `Literal["success", "failed"]` | 실행 결과 |
-| `result_message` | `str \| None` (max 4000) | 실패 사유·로그 요약. success도 채울 수 있음. 초과 시 truncate |
-
-엔진 처리: 멱등성 -> DB UPDATE(`tasks.status`/`completed_at`/`result_message`) -> Redis `task:pending:{machine_id}` DEL. `task_public_id` 미존재 시 silent ack (운영자가 task 삭제했을 가능성, DLQ 부적합).
-
-### Pydantic Field 제약
-
-| 인자 | 의미 |
-|------|------|
-| `min_length` / `max_length` | 문자열 길이 제한 |
-| `ge` | greater or equal (`>=`) — 숫자 하한 |
-| `gt` | greater than (`>`) — 0 초과 |
-| `default` | 필드 누락 시 기본값 |
-| `default_factory=list` | 리스트 기본값. `default=[]` 쓰면 인스턴스 간 객체 공유 버그 |
-
-`Literal` 타입: routing key로 타입이 이미 확정되는 구조에서 payload 무결성 이중 검증 역할.
+`Literal` 타입(routing key·status 등)으로 payload 무결성 이중 검증. `default_factory=list` 사용 의무 (`default=[]`는 인스턴스 간 객체 공유 버그).
 
 ---
 
@@ -161,7 +93,7 @@ async def _db_retry[T](
 
 ### DB 재시도 정책
 
-`5  (attempt + 1)` — 5, 25, 125초 대기 후 최종 실패. 합 155초로 inventory/metrics 모두 큐 TTL(없음·72h) 내에서 DB 재시작을 커버. error 큐는 TTL 300s지만 error 핸들러는 DB 접근 안 해 영향 없음.
+3회 시도 (`attempt 0/1/2`), `5 ** (attempt + 1)` 백오프. attempt 0 실패 → 5s sleep → 1, 1 실패 → 25s sleep → 2, 2 실패 → 즉시 raise(sleep 없음). 총 sleep 합 30s + 3회 DB call. inventory/metrics 큐 TTL(없음·72h) 내에서 단기 DB 장애 회복 커버. error 큐 TTL 300s는 error 핸들러가 DB 접근 안 해 영향 없음.
 
 ---
 
@@ -200,16 +132,7 @@ RabbitMQ 전용 비동기 클라이언트. AMQP 0-9-1 프로토콜만 지원.
 
 ### 멱등성: 2단 방어
 
-정책 단일 진실: CLAUDE.md #D2 (1단 Redis fail-open + 2단 DB UNIQUE). 본 절은 시계열 자연키 카탈로그만 (#D2가 의존하는 UNIQUE 보존 의무 — 누락 시 멱등성 깨짐).
-
-| 테이블 | 자연키 |
-|--------|-------|
-| `server_metrics` | `(server_id, collected_at)` |
-| `server_disk_io` | `(server_id, device, collected_at)` |
-| `server_net_io` | `(server_id, interface, collected_at)` |
-| `server_mount_usage` | `(server_id, mount, collected_at)` |
-
-at-most-once 한계·outbox 대안: `docs/tradeoffs.md` T1.
+정책: CLAUDE.md #D2. 자연키 UNIQUE 카탈로그: `docs/architecture/db/models.md` "시계열 5개 테이블 자연키 UNIQUE" 표. at-most-once 한계·outbox 대안: `docs/tradeoffs.md` T1.
 
 ### inventory 수신 시 online 즉시 마킹
 
@@ -236,13 +159,13 @@ handler 본 처리 흐름과 별개로 두 가지 부가 시그널을 발행 (�
    - 시스템 재부팅도 같은 카운터 — 1h 내 3회 재부팅도 unusual이라 alert 적정
    - Redis 장애 시 silent skip (옛 휴리스틱과 동일 효과)
 
-### Disposability — SIGTERM 흐름 (#F12)
+### Disposability — SIGTERM 흐름 (#F11)
 
 `async with message.process(requeue=False)` 컨텍스트가 본질적 보장. SIGTERM이 와도 진행 중 메시지는 다음 둘 중 하나:
 - 정상 종료 → broker ACK → 메시지 사라짐
 - 예외 raise → broker NACK + DLX 라우팅 → DLQ로 이동
 
-따라서 메시지 손실 0이 코드 패턴의 자연 결과. 신규 핸들러 추가 시 본 컨텍스트 안에서 모든 await 완료를 보장하면 됨 — `signal.signal()` 또는 `os._exit()` 같은 우회 호출 금지 (#F12).
+따라서 메시지 손실 0이 코드 패턴의 자연 결과. 신규 핸들러 추가 시 본 컨텍스트 안에서 모든 await 완료를 보장하면 됨 — `signal.signal()` 또는 `os._exit()` 같은 우회 호출 금지 (#F11).
 
 aio-pika `connect_robust`는 connection 단계 SIGTERM에서도 안전 종료 — `async with conn`이 자체 cleanup.
 
@@ -250,72 +173,15 @@ aio-pika `connect_robust`는 connection 단계 SIGTERM에서도 안전 종료 �
 
 ## 운영 / 디버깅
 
-### 로그 확인
-
 ```bash
-docker compose logs -f consumer                                 # 실시간
-docker compose logs consumer --since=10m                        # 최근 10분
-docker compose logs consumer 2>&1 | grep -E "ERROR|WARNING"     # 에러만
-```
-
-기대 정상 로그 예:
-```
-consumer.main - consumer starting exchange=assessment
-consumer.main - consuming queue=server.inventory ttl_ms=None max_len=None
-consumer.main - consuming queue=server.metrics ttl_ms=259200000 max_len=1000000
-consumer.main - consuming queue=server.error ttl_ms=300000 max_len=None
-consumer.handler - inventory stored machine_id=f1e90cdc...
-consumer.handler - metrics stored machine_id=f1e90cdc...
-```
-
-문제 신호:
-- `auto-registered server from metrics machine_id=...` → DB에 미등록 서버 metrics 수신 시 placeholder 자동 등록. 정상 동작 (drop 아님)
-- `db error attempt=N error=...` → DB 일시 장애. attempt 1~2는 정상 자동 복구
-- `db error after 3 attempts: ...` → 최종 실패 → DLQ 라우팅
-
-### MQ 큐 적재량 확인
-
-```bash
+docker compose logs -f consumer
 docker compose exec rabbitmq rabbitmqctl list_queues name messages_ready messages_unacknowledged
+docker compose restart consumer       # 코드 변경 후 (reload 모드 아님)
 ```
 
-기대 (정상):
-```
-server.inventory          0  0
-server.metrics            0  0
-server.error              0  0
-server.inventory.dead     0  0
-server.metrics.dead       0  0
-server.error.dead         0  0
-```
-
-`messages_ready`가 누적되면 consumer가 처리 못 하고 있는 상태. DLQ가 비어있지 않으면 처리 실패 누적.
-
-### DLQ 메시지 검사
-
-```bash
-# RabbitMQ 관리 UI: http://localhost:15672 (assessment/assessment)
-# Queues 탭 → server.metrics.dead → Get messages
-
-# 또는 CLI로 1건 peek
-docker compose exec rabbitmq rabbitmqadmin get queue=server.metrics.dead count=1 ackmode=ack_requeue_true
-```
-
-DLQ 메시지를 다시 처리 큐로 옮기려면 `shovel` 플러그인 또는 manual republish 필요.
-
-### consumer 재기동
-
-```bash
-docker compose restart consumer
-```
-
-코드 변경 후 또는 broker 큐 재선언이 필요할 때. consumer는 reload 모드가 아니므로 항상 수동 restart.
-
-### 흔한 트러블
-
-| 증상 | 원인 | 해결 |
-|------|------|------|
-| consumer는 떴지만 메시지 처리 안 됨 | broker queue가 아직 declare 안 됐거나 connection 실패 | 로그에 `consuming queue=...` 라인이 있는지 확인 |
-| 같은 메시지가 반복 처리되어 보임 | 사실은 처리 중인 메시지가 timeout으로 nack → 재전송 | DB 응답 시간 확인. `_db_retry`가 1회 처리에 최대 155s 소요 |
-| Pydantic ValidationError 누적 | 에이전트가 새 필드 추가 + 컨슈머 스키마 미반영 | `src/assessment_engine/consumer/schemas.py`에 필드 추가 또는 `extra=ignore`로 통과 |
-| `agent error` 로그 다량 | 에이전트가 `error` 메시지를 발행 중 | 에이전트 로그(`limactl shell <vm> sudo journalctl -u assessment-agent`) 확인 |
+| 증상 | 원인 |
+|------|------|
+| 메시지 처리 안 됨 | broker queue declare 실패 — 로그에 `consuming queue=...` 라인 확인 |
+| 같은 메시지 반복 처리 | timeout nack 후 재전송 — `_db_retry` 총 sleep 30s + 3회 DB call |
+| Pydantic ValidationError | 에이전트 새 필드 + 스키마 미반영. `extra=ignore`로 통과 또는 schema 추가 |
+| DLQ 누적 | 영구 오류. `rabbitmqadmin get queue=*.dead count=1 ackmode=ack_requeue_true`로 peek |

@@ -1,9 +1,8 @@
 # 에이전트 스키마 계약
 
-C 기반 에이전트가 RabbitMQ에 발행하는 메시지 스키마. `agent_version` 필드가 계약 버전 역할을 한다.
+정책: CLAUDE.md #B. 본 문서는 엔진 핸들링 관점 메시지 스키마 단일 진실 — `agent_version` 필드가 계약 버전 역할.
 
-> 정식 정의는 별도 레포의 `assessment-agent/docs/payload-schema.md`. 본 문서는 엔진 측 핸들링 관점 요약 + 엔진의 책임/무시 항목.
-> 엔진 호환 스키마: v3 — `services[]` / `listen_ports[]` / `error.{retry_count, first_failed_at, recovered_at}` 옵셔널 필드 포함.
+정식 정의는 별도 레포 `assessment-agent/docs/payload-schema.md`. 엔진 호환 스키마: v3 — `services[]` / `listen_ports[]` / `error.{retry_count, first_failed_at, recovered_at}` 옵셔널 필드 포함.
 
 ---
 
@@ -226,81 +225,20 @@ loop 디바이스 I/O는 sda에도 이미 반영된다 (`앱 read → loop0(squa
 `mounts[]`:
 - 사용자 공간 파일시스템만 포함. 커널·가상 마운트 제외
 - 제외 fstype: `proc`, `sysfs`, `devtmpfs`, `devpts`, `squashfs`, `overlay`, `cgroup`, `cgroup2` 등
-- mount-disk 연결은 이미 발행 중인 `major`/`minor` 키로 처리 (#B1 활용 필드, `find_parent_disk`). `/proc/mounts` 첫 컬럼을 별도 `device` 필드로 발행할 필요 없음 — redundant.
+- mount-disk 연결은 이미 발행 중인 `major`/`minor` 키로 처리(본 문서 "활용 중인 필드" 절, `find_parent_disk`). `/proc/mounts` 첫 컬럼을 별도 `device` 필드로 발행할 필요 없음 — redundant.
 
-개선 방향(P2): 에이전트가 1차 노이즈 차단(`disks[]`·`mounts[]` 필터링)을 수행하더라도 서버측 `device_filters.py`(`is_virtual_mount()`, `is_physical_disk()`)는 유지. defense in depth — (a) 옛 버전 에이전트 비대칭 배포(#B4) 대응 (b) 새 가상 fstype·디바이스 패턴 등장 시 서버 단독 hot-fix 가능 (c) 에이전트 필터 버그 시 서버측이 최종 방어선.
+개선 방향(P2): 에이전트가 1차 노이즈 차단(`disks[]`·`mounts[]` 필터링)을 수행하더라도 서버측 `device_filters.py`(`is_virtual_mount()`, `is_physical_disk()`)는 유지. defense in depth — (a) 옛 버전 에이전트 비대칭 배포(#B) 대응 (b) 새 가상 fstype·디바이스 패턴 등장 시 서버 단독 hot-fix 가능 (c) 에이전트 필터 버그 시 서버측이 최종 방어선.
 
 ---
 
 ## 운영 / 디버깅
 
-### VM 안 에이전트 상태 확인
-
+VM 에이전트 상태:
 ```bash
-# 단일 VM
-limactl shell cache-server-01 sudo systemctl status assessment-agent --no-pager
-limactl shell cache-server-01 sudo journalctl -u assessment-agent --no-pager -n 50
-
-# 7 VM 일괄 (LIMA_VMS와 sync — dev-up.sh 단일 진실)
-for vm in web-server-01 offline-server-01 app-server-01 monitor-server-01 \
-          mq-server-01 cache-server-01 db-server-01; do
-  echo "=== $vm ==="
-  limactl shell "$vm" sudo systemctl is-active assessment-agent
-done
+limactl shell <vm> sudo systemctl status assessment-agent --no-pager
+limactl shell <vm> sudo journalctl -u assessment-agent --no-pager -n 50
 ```
 
-기대 정상 로그:
-```
-[agent] cmd lsblk         available
-[agent] cmd curl          available
-[agent] cmd dbus-uuidgen  available
-[agent] machine_id=f1e90cdc43d54cc88d0a42e3de1d409b
-[agent] published inventory
-[agent] loop mode: interval=60s (Ctrl+C to exit)
-```
+end-to-end 추적: ① VM 발행 로그 → ② broker 큐 적재(`rabbitmqctl list_queues`) → ③ consumer 처리 로그 → ④ DB 행 → ⑤ web 표시. 끊긴 단계가 원인.
 
-이후 매 60초마다 publish 로그가 추가되어야 정상.
-
-### 메시지 발행 직접 확인
-
-```bash
-# RabbitMQ 관리 UI: http://localhost:15672
-# Queues 탭 → server.metrics → Get messages 로 raw 메시지 확인
-
-# 또는 CLI peek (메시지 1건 ack-and-requeue)
-docker compose exec rabbitmq rabbitmqadmin -u assessment -p assessment \
-  get queue=server.metrics count=1 ackmode=ack_requeue_true
-```
-
-`payload`에 JSON 메시지가 들어 있어야 함. routing key별로 inventory/metrics/error 구분.
-
-### 에이전트 재시작 시점
-
-| 상황 | 명령 |
-|------|------|
-| broker 재기동 후 silent retry | `limactl shell <vm> sudo systemctl restart assessment-agent` (CRITICAL — `docs/operations/lima.md` 운영 노트) |
-| 에이전트 소스 변경 | `./dev-up.sh` 재실행 — 각 VM에서 `/mnt/agent-src` -> `/tmp/build` cp + make + install + restart 자동 |
-| 환경변수 (`/etc/assessment-agent.env`) 변경 | `./dev-up.sh` 재실행 (env 재생성 + restart 자동) 또는 직접 수정 + `limactl shell <vm> sudo systemctl restart assessment-agent` |
-| `AGENT_INTERVAL_SEC` 변경 | 위와 동일 |
-
-### 발행 메시지 추적 (end-to-end)
-
-```bash
-# 1. 에이전트가 발행했는지
-limactl shell cache-server-01 sudo bash -c "journalctl -u assessment-agent --since '5 min ago' | grep -E 'published|publish'"
-
-# 2. broker에 도달했는지 (큐 적재량 또는 처리량)
-docker compose exec rabbitmq rabbitmqctl list_queues name messages_ready message_stats.publish_details.rate
-
-# 3. consumer가 수신·처리했는지
-docker compose logs consumer --since=5m | grep -E "stored|dropped"
-
-# 4. DB에 들어갔는지
-docker compose exec postgres psql -U assessment -d assessment -c "SELECT machine_id, last_seen_at FROM server_inventory;"
-docker compose exec postgres psql -U assessment -d assessment -c "SELECT count(*) FROM server_metrics;"
-
-# 5. web에 보이는지
-curl -s "http://localhost:8000/servers/" | grep -E "cache-server|app-server|web-server"
-```
-
-각 단계에서 끊긴 곳이 원인.
+에이전트 재기동: 소스·env 변경 시 `./dev-up.sh` 재실행으로 자동. 단발 재기동은 `limactl shell <vm> sudo systemctl restart assessment-agent`.

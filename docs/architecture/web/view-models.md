@@ -1,6 +1,6 @@
 # ViewModel 카탈로그
 
-`view_models.py` — Service → Router 표시 계층. 모든 파생 필드는 mapper에서 채움 (P2). 새 파생 필드 추가 시 `cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화 필수.
+정책: CLAUDE.md #E3 (mapper 단일 변환) · #E8 (차트·도넛 UI). 본 문서는 ViewModel 카탈로그·신호 임계값 단일 정의. 신규 파생 필드 추가 시 `cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화 필수.
 
 ## 서버 표시
 

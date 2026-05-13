@@ -1,17 +1,8 @@
 # 설계 트레이드오프
 
-본 문서는 본 프로젝트가 의도적으로 채택한 설계 선택과 그로 인해 받아들인 한계를 정리한다.
-다른 합리적 대안이 있다는 것을 인지한 채 단순성·운영 비용·구현 범위(scope)를 기준으로 의식적으로 결정한 것들이며, 버그가 아니다.
+의식적 설계 선택과 그로 인한 한계 카탈로그 (T1~T11). 단순성·운영 비용·scope 기준 결정 — 버그 아님.
 
-각 항목은 다음 형식이다:
-
-> 선택: 채택한 방식
-> 
-> 대안: 대신 가능했던 방식
-> 
-> 트레이드오프: 무엇을 얻고 무엇을 포기했는가
-> 
-> 언제 다시 봐야 하는가: 이 선택이 더 이상 유효하지 않은 시점
+각 항목 형식: 선택 / 대안 / 트레이드오프 / 언제 다시 봐야 하는가.
 
 ---
 
@@ -51,7 +42,7 @@
 ## T2. 캐시 일관성: cache-aside (write-around)
 
 > 관련 코드: `src/assessment_engine/web/services/query_service.py` `get_latest_metric`, `src/assessment_engine/consumer/handler.py` metrics handler
-> 관련 문서: CLAUDE.md #D4
+> 관련 문서: CLAUDE.md #D1
 
 선택
 - Web: cache MISS → DB query → `SET cache:metrics 60s`
@@ -106,7 +97,7 @@
 ## T4. DEV 스키마 관리: web lifespan + create_all (prod skip)
 
 > 관련 코드: `src/assessment_engine/web/main.py` lifespan, `src/assessment_engine/db/models/`, `src/assessment_engine/config.py` `app_env`
-> 관련 문서: CLAUDE.md #C1, A2, `docs/operations/dev-prod.md` #4 APP_ENV 마커
+> 관련 문서: CLAUDE.md #C1, #A, `docs/operations/dev-prod.md` #4 APP_ENV 마커
 
 선택
 - web 기동 시 `CREATE EXTENSION timescaledb` → `Base.metadata.create_all` → `create_hypertable(if_not_exists)`.
@@ -260,10 +251,10 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ---
 
-## T10. ViewModel 비대화 vs 클라이언트 재계산 (P5 적용)
+## T10. ViewModel 비대화 vs 클라이언트 재계산 (P2 따름)
 
 > 관련 코드: `src/assessment_engine/web/view_models.py`, `src/assessment_engine/web/services/mappers.py`, `src/assessment_engine/web/services/metrics_calculator.py`
-> 관련 문서: CLAUDE.md #E1 P5 / #E4, `docs/architecture/web/view-models.md`
+> 관련 문서: CLAUDE.md #E1 P2 · #E3, `docs/architecture/web/view-models.md`
 
 선택
 - `ListenPortItem.is_well_known` (port <= 1024 boolean)
@@ -277,7 +268,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 - 클라이언트 재계산: 템플릿이 `{% if p.port <= 1024 %}` / `| sort` / 임계값 `{% if pct >= 90 %}`, JS가 `mem.cached_kb / total * 100`. ViewModel은 raw에 가깝게 유지.
 
 트레이드오프
-- 얻은 것: P3·P5 정합 — 템플릿/JS는 표시만. 임계값/정렬 규칙 변경 시 mapper 한 곳만 수정. 캐시된 ViewModel과 SSR 직후 ViewModel이 항상 동일한 표현 결과를 만듦.
+- 얻은 것: P2·P3 정합 — 템플릿/JS는 표시만. 임계값/정렬 규칙 변경 시 mapper 한 곳만 수정. 캐시된 ViewModel과 SSR 직후 ViewModel이 항상 동일한 표현 결과를 만듦.
 - 포기한 것: ViewModel 필드 수 증가(`ServerDetailResponse`만 +5필드). dataclass 필드 순서 제약(`non-default follows default`)으로 default factory 필드를 끝으로 모아야 함. 캐시 직렬화 페이로드 미세 증가.
 
 왜 받아들였나

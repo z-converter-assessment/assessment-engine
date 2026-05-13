@@ -1,6 +1,6 @@
 # 정제 Inventory Export
 
-운영자가 web UI "JSON Export" 버튼으로 선택 서버 N대의 정제 inventory를 표준 JSON으로 다운로드한다. 자동화 도구(Terraform / OpenStack Heat / Ansible / CSP SDK)가 그대로 입력해 후속 마이그레이션 실행.
+정책: CLAUDE.md #F10 (평가 윈도우 정합). 본 문서는 JSON Export v3 스키마·정제 원칙·자동화 도구 매핑 단일 진실. 운영자가 web UI "JSON Export"로 선택 서버 N대의 정제 inventory를 표준 JSON으로 다운로드 — 자동화 도구(Terraform / OpenStack Heat / Ansible / CSP SDK)가 그대로 입력해 후속 마이그레이션 실행.
 
 ## 1. 사용처 (정제 방향 결정 근거)
 
@@ -147,38 +147,18 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
 
 ## 4. 자동화 도구별 매핑 가이드
 
-### Terraform (aws/azurerm/google providers)
+벤더 중립 export → 도구별 매핑은 도구 측 책임. 본 절은 주요 export 필드 → 도구 리소스 신호용.
 
-| export 필드 | Terraform 리소스 |
-|------------|------------------|
-| `compute.recommended_size_class` | aws_instance.instance_type (size_class -> "t3.medium" 같은 매핑 테이블 — 매핑은 도구 측 책임) |
-| `compute.vcpu_count` + `memory_mb` | size_class 결정 보조 |
-| `storage.boot_disk_gb` | aws_instance.root_block_device.volume_size |
-| `storage.additional_disks[]` | aws_ebs_volume + aws_volume_attachment per item |
-| `services[].ports` | aws_security_group.ingress (port 단위) |
-| `network.addresses[]` | aws_network_interface.private_ips |
+| export 필드 | Terraform | OpenStack Heat | Ansible |
+|------------|-----------|----------------|---------|
+| `compute.recommended_size_class` | `aws_instance.instance_type` 매핑 테이블 | `OS::Nova::Server.flavor` 매핑 | `when: size_class != 'idle'` 조건 분기 |
+| `storage.boot_disk_gb` | `root_block_device.volume_size` | `OS::Cinder::Volume`(boot) | — |
+| `storage.additional_disks[]` | `aws_ebs_volume` + attachment per item | `OS::Cinder::Volume` + attachment per item | — |
+| `services[].listeners[]` | `aws_security_group.ingress` per port | `OS::Neutron::SecurityGroupRule` | apt/yum 패키지 설치 (`os.family`별) |
+| `network.addresses[]` | `aws_network_interface.private_ips` | `OS::Neutron::Port.fixed_ips` | dynamic inventory 그룹 |
+| `os.family`/`os.version` | AMI selection 보조 | image selection 보조 | inventory 그룹 분류 |
 
-### OpenStack Heat / Ansible openstack collection
-
-| export 필드 | OpenStack 리소스 |
-|------------|------------------|
-| `compute.recommended_size_class` | OS::Nova::Server.flavor (size_class -> flavor 매핑은 도구 측) |
-| `storage.boot_disk_gb` | OS::Cinder::Volume(boot) |
-| `storage.additional_disks[]` | OS::Cinder::Volume + OS::Cinder::VolumeAttachment per item |
-| `services[].ports` | OS::Neutron::SecurityGroupRule |
-| `network.addresses[]` | OS::Neutron::Port.fixed_ips |
-
-### Ansible (직접 설치·구성 자동화)
-
-| export 필드 | Ansible 변수 |
-|------------|--------------|
-| `services[].unit` + `os.family` | apt/yum 패키지 설치 (`nginx`/`postgresql` 등) |
-| `os.family` + `os.version` | dynamic inventory 그룹 분류 |
-| `compute.recommended_size_class` | playbook 안 조건 분기 (`when: size_class != 'idle'`) |
-
-### CSP SDK 직접 호출 (boto3 / azure-mgmt / google-cloud-compute)
-
-자동화 도구 미사용 시 컨설턴트가 SDK 스크립트로 N대 일괄 생성. JSON을 dict로 load해 SDK 인자에 직접 매핑.
+CSP SDK 직접 호출(boto3·azure-mgmt·google-cloud-compute)은 자동화 도구 미사용 시 컨설턴트가 SDK 스크립트로 N대 일괄 생성 — JSON을 dict load 후 SDK 인자 직접 매핑.
 
 ## 5. 정제 원칙별 결정 근거
 
@@ -217,6 +197,6 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
 
 ## 관련 문서
 
-- 정책 단일 진실: CLAUDE.md (정제 원칙은 본 문서만, 데이터 흐름은 #E1·#E4)
+- CLAUDE.md #E1·#E3 — Web 표시 계층 원칙·mapper 단일 변환
 - USE Method 보고서: `docs/architecture/web/services.md` `recommendation.py` (right-sizing 분류 단일 진실)
 - 에이전트 contract: `docs/architecture/agent.md` (export 입력이 되는 inventory 스키마)

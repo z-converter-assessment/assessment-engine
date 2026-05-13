@@ -284,45 +284,56 @@ from assessment_engine.web.services.mappers import (
 
 
 def test_to_disk_warning_item_under_provisioned_at_90():
-    """90% 이상 → rec-under_provisioned (위험 색)."""
+    """90% 이상 → rec-under_provisioned (위험 색). AttentionRow ViewModel."""
+    now = datetime(2026, 5, 9, 12, 0, tzinfo=timezone.utc)
     raw = DiskUsageWarningRaw(
         public_id="pid", hostname="h", mount="/data",
         total_bytes=100 * 1024 ** 3,
         avail_bytes=10 * 1024 ** 3,  # 사용률 90%
-        last_metric_at=datetime(2026, 5, 9, 12, 0, tzinfo=timezone.utc),
+        last_metric_at=now,  # stale 아님
     )
-    item = to_disk_warning_item(raw)
-    assert item.used_pct == 90.0
-    assert item.free_gb == 10.0
-    assert item.total_gb == 100.0
+    item = to_disk_warning_item(raw, now)
     assert item.badge_class == "rec-under_provisioned"
+    assert item.badge_text == "90%"
+    assert item.link_href == "/servers/pid/storage"
+    assert item.link_text == "h"
+    assert item.mount_path == "/data"
+    assert item.meta_text == "잔여 10.0 / 100.0 GB"
+    assert item.meta_at is None  # stale 아니라 None
 
 
 def test_to_disk_warning_item_right_size_below_90():
-    """85~90% → rec-right_size (경고 색). last_metric_at은 raw 그대로 전달."""
-    ts = datetime(2026, 5, 9, 12, 0, tzinfo=timezone.utc)
+    """85~90% → rec-right_size (경고 색). stale (24h+) 이면 meta_at·meta_text 갱신."""
+    now = datetime(2026, 5, 10, 12, 0, tzinfo=timezone.utc)
+    metric_ts = now - timedelta(hours=25)  # 24h+ → stale
     raw = DiskUsageWarningRaw(
         public_id="pid", hostname="h", mount="/var",
         total_bytes=100 * 1024 ** 3,
         avail_bytes=12 * 1024 ** 3,  # 사용률 88%
-        last_metric_at=ts,
+        last_metric_at=metric_ts,
     )
-    item = to_disk_warning_item(raw)
-    assert 87.9 < item.used_pct < 88.1
+    item = to_disk_warning_item(raw, now)
     assert item.badge_class == "rec-right_size"
-    assert item.last_metric_at == ts
+    assert item.badge_text == "88%"
+    assert item.mount_path == "/var"
+    assert "마지막 수집" in item.meta_text  # stale 시 추가 표시
+    assert item.meta_at == metric_ts
 
 
 def test_to_gap_warning_item_under_provisioned_at_30min():
     """30분+ 갭 → rec-under_provisioned."""
     now = datetime(2026, 5, 9, 12, 30, tzinfo=timezone.utc)
+    metric_ts = now - timedelta(minutes=35)
     raw = MetricGapWarningRaw(
         public_id="pid", hostname="h",
-        last_metric_at=now - timedelta(minutes=35),
+        last_metric_at=metric_ts,
     )
     item = to_gap_warning_item(raw, now)
-    assert item.gap_minutes == 35
     assert item.badge_class == "rec-under_provisioned"
+    assert item.badge_text == "35분"
+    assert item.link_href == "/servers/pid"
+    assert item.link_text == "h"
+    assert item.meta_at == metric_ts
 
 
 def test_to_gap_warning_item_right_size_short_gap():
@@ -333,8 +344,8 @@ def test_to_gap_warning_item_right_size_short_gap():
         last_metric_at=now - timedelta(minutes=10),
     )
     item = to_gap_warning_item(raw, now)
-    assert item.gap_minutes == 10
     assert item.badge_class == "rec-right_size"
+    assert item.badge_text == "10분"
 
 
 # ─── risk_top mapper 테스트는 2026-05-12 cleanup으로 제거됨 ─────────────

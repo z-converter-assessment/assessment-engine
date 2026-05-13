@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -175,7 +177,7 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         server_public_ids: list[str] | None = None, limit: int = 200,
     ) -> list[DiagnosticJobRecord]:
         stmt = select(DiagnosticJob).where(
-            DiagnosticJob.created_at > func.now() - text(f"interval '{days} days'"),
+            DiagnosticJob.created_at > func.now() - timedelta(days=days),
         )
         if scope:
             stmt = stmt.where(DiagnosticJob.scope == scope)
@@ -192,7 +194,7 @@ class DiagnosticRepository(BaseDiagnosticRepository):
     async def delete_retention(self, older_than_days: int) -> int:
         stmt = (
             delete(DiagnosticJob)
-            .where(DiagnosticJob.finished_at < func.now() - text(f"interval '{older_than_days} days'"))
+            .where(DiagnosticJob.finished_at < func.now() - timedelta(days=older_than_days))
         )
         result = await self.session.execute(stmt)
         return result.rowcount or 0

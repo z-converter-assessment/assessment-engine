@@ -5,24 +5,27 @@
 broker 연결은 web/main.py·diagnostic/main.py와 동일 인자로 declare (#B3).
 """
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import aio_pika
 from croniter import croniter
 from loguru import logger
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 
 from assessment_engine.config import diagnostic_settings
 from assessment_engine.db.models.server_inventory import ServerInventory
 from assessment_engine.db.redis import close_pool, get_redis
+from assessment_engine.db.repositories.base_diagnostic_repository import (
+    DIAGNOSTIC_DEFAULT_TIME_RANGE,
+)
 from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
 from assessment_engine.db.repositories.query_repository import QueryRepository
 from assessment_engine.db.session import AsyncSessionLocal
 from assessment_engine.web.services.diagnostic_service import (
+    DiagnosticNotFound,
+    DiagnosticRaceMiss,
     DiagnosticService,
-    _NotFound,
-    _RaceMiss,
 )
 
 
@@ -91,7 +94,7 @@ async def _run_loop(broker_channel, redis) -> None:
 
 
 async def _run_once(broker_channel, redis) -> None:
-    time_range = "14d"  # ADR 0003 WINDOW_DAYS 동일 (recommendation.WINDOW_DAYS와 단일 진실)
+    time_range = DIAGNOSTIC_DEFAULT_TIME_RANGE  # F10 단일 진실
 
     # 활성 서버 조회 (last_seen_at > now() - N hours)
     async with AsyncSessionLocal() as session:
@@ -110,10 +113,10 @@ async def _run_once(broker_channel, redis) -> None:
                     "server", [public_id], time_range, anchor_at=None, requested_by="scheduler",
                 )
                 enqueued += len(ids)
-            except _NotFound:
+            except DiagnosticNotFound:
                 # 스케줄러 SQL과 service.resolve 사이 race — 서버가 사라짐. silent skip.
                 logger.debug("scheduled server diagnostic — server disappeared pid={}", public_id)
-            except _RaceMiss:
+            except DiagnosticRaceMiss:
                 logger.debug("scheduled server diagnostic — race miss pid={}", public_id)
             except Exception:
                 logger.exception("scheduled server diagnostic failed pid={}", public_id)
@@ -156,7 +159,7 @@ async def _list_active_server_public_ids(session, since_hours: int) -> list[str]
     """
     stmt = (
         select(ServerInventory.public_id)
-        .where(ServerInventory.last_seen_at > func.now() - text(f"interval '{since_hours} hours'"))
+        .where(ServerInventory.last_seen_at > func.now() - timedelta(hours=since_hours))
         .order_by(ServerInventory.last_seen_at.desc())
         .limit(10000)
     )

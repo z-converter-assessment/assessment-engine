@@ -1,6 +1,6 @@
 # Diagnostic Worker
 
-ADR 0004 채택 후 들어온 AI 진단 실행 인프라. 본 문서는 모듈 구조·흐름·운영 노트 deep dive — ADR 0004는 결정·옵션 비교·트레이드오프 단일 진실, 본 문서는 그 위에 얹는 실제 동작.
+결정·옵션 비교·트레이드오프: ADR 0004. 본 문서는 모듈 구조·흐름·운영 노트 deep dive.
 
 ```
 src/assessment_engine/diagnostic/
@@ -32,7 +32,7 @@ DiagnosticSettings 로드 (ConsumerSettings 상속 — broker_url + 진단 고�
   -> queue.consume(handler)
 ```
 
-broker declare 인자는 `web/main.py` + `consumer/main.py`와 정확 일치 의무 (#B3) — 다르면 `PRECONDITION_FAILED`.
+broker declare 인자는 `web/main.py` + `consumer/main.py`와 정확 일치 의무(#B) — 다르면 `PRECONDITION_FAILED`.
 
 `_build_llm_client`는 composition root (F4). `LLM_PROVIDER=mock`이면 `MockLlmClient`, `ollama`면 별도 PR 활성 분기, 그 외는 `ValueError`. 과금 발생 외부 API(Anthropic·OpenAI) 도입 금지 — 운영자 정책, ADR 0004 정정 시점에 추가.
 
@@ -67,18 +67,20 @@ message.process(requeue=False) 컨텍스트
   단계 4 — succeeded:        finalize(result, finished_at=now()) -> commit -> Redis SET
 ```
 
-stage 라벨 단일 진실은 `web/services/diagnostic_mapper._PROGRESS_LABEL_KR`. router·SSR·JSON API·결과 페이지·이력 페이지가 모두 본 mapper view를 사용한다 (P2·P3·P5).
+stage 라벨 단일 진실은 `web/services/diagnostic_mapper._PROGRESS_LABEL_KR` + `db/repositories/base_diagnostic_repository.CLASSIFICATION_LABEL_KR` (분류 라벨 — mapper + mock LLM narrative 양쪽 공용). router·SSR·JSON API·결과 페이지·이력 페이지가 모두 본 mapper view를 사용한다 (P2·P3·P5).
 
-실패 매트릭스:
+실패 매트릭스 (handler.py except 분기):
 
 | 분류 | 처리 |
 |------|------|
 | 메시지 자체 결함 (JSON 파싱·job_id 누락) | silent ack + ERROR 로그 (DLQ 보내봐야 운영자 개입 의미 없음, #F6) |
 | job_id 미존재·이미 처리됨 | silent ack + INFO/WARNING |
-| 일시 장애 (DB OperationalError · LLM timeout · 5xx) | `_db_retry` 백오프 후 raise -> DLQ |
-| 영구 오류 (입력 검증 실패 · LLM 응답 수치 검증 2회 실패) | `status='failed', error_message` UPDATE 후 ack (DLQ 아님 — 사용자가 결과 페이지에서 본다) |
+| DB 일시 장애 (`OperationalError`) | reraise -> aio-pika NACK requeue=False -> DLQ (#F6 fail-close) |
+| 영구 오류 (`ValueError` · `KeyError` · `IntegrityError`) | `status='failed', error_message` UPDATE 후 ack — aggregator no metrics·input_params 누락·DB UNIQUE 충돌 등. 운영자 polling으로 인지·재발행 |
 
 ## aggregator.py — 통계 추출
+
+`recommendation` 모듈 위치: `assessment_engine/recommendation.py` (top-level 도메인 모듈 — web·diagnostic 양쪽 import).
 
 `extract_server(query_repo, server_public_id, period_days, end, time_range)`:
 - `resolve_server_id` -> `report_aggregate([sid], period_days, end)` -> `ResourceStats` -> `recommendation.classify`
@@ -112,7 +114,7 @@ ORM: `src/assessment_engine/db/models/diagnostic_job.py`. TimescaleDB hypertable
 
 | 컬럼 | 타입 | 비고 |
 |------|------|------|
-| id | UUID PK | path param (#E5 정수 PK 노출 금지) |
+| id | UUID PK | path param (#E4 정수 PK 노출 금지) |
 | scope | TEXT NOT NULL | `'server'` 또는 `'environment'` |
 | input_params | JSONB NOT NULL | `{server_public_id?, time_range, anchor_at}` — anchor_at은 분 단위 truncate |
 | input_hash | TEXT NOT NULL | sha256(scope + canonical(input_params)) — partial UNIQUE 키 |
@@ -136,13 +138,13 @@ ORM: `src/assessment_engine/db/models/diagnostic_job.py`. TimescaleDB hypertable
 
 모두 `safe_*` helper 경유 (#C3). Redis 장애 시 silent skip — DB fallback이 흡수.
 
-## Disposability — SIGTERM 흐름 (#F12)
+## Disposability — SIGTERM 흐름 (#F11)
 
 워커: consumer와 동일 패턴 — `async with message.process(requeue=False)` 컨텍스트가 메시지 손실 0 보장.
 
 스케줄러: croniter 발화 사이 SIGTERM은 즉시 안전 종료. publish 중 SIGTERM은 broker 측 transaction 보장 (`connect_robust`).
 
-진행 중 job 운영 정책 (#F12 본문 + ADR 0004 후속 결정 영역):
+진행 중 job 운영 정책 (#F11 본문 + ADR 0004 후속 결정 영역):
 - SIGTERM 시 `status='running'`인 job은 DB에 그대로 남는다. 다음 워커 기동 시 본 job은 retrieve 안 됨 (consumer는 `pending` 만 fetch).
 - `worker_job_timeout_seconds` (기본 300s) 초과한 stale `'running'`은 운영자가 수동 `'failed'` UPDATE 또는 timeout 기반 자동 정리. 현재 미구현 — prod 도입 전 별도 ADR 의무.
 - 임시 대응: SQL `UPDATE diagnostic_jobs SET status='failed', error_message='stale running cleanup' WHERE status='running' AND started_at < now() - interval '5 minutes'` 운영자 manual 실행.
@@ -150,25 +152,17 @@ ORM: `src/assessment_engine/db/models/diagnostic_job.py`. TimescaleDB hypertable
 ## 운영 / 디버깅
 
 ```bash
-docker compose logs -f diagnostic-worker          # 워커 실시간
-docker compose logs -f diagnostic-scheduler       # 스케줄러 실시간
+docker compose logs -f diagnostic-worker
+docker compose logs -f diagnostic-scheduler
 docker compose exec rabbitmq rabbitmqctl list_queues name messages_ready | grep diagnostic
 docker compose exec postgres psql -U assessment -d assessment -c "SELECT status, count(*) FROM diagnostic_jobs GROUP BY status"
 ```
 
-기대 정상 로그:
-```
-diagnostic.main      - diagnostic worker starting provider=mock exchange=assessment
-diagnostic.main      - consuming queue=diagnostic.request ttl_ms=86400000 max_len=100000
-diagnostic.scheduler - diagnostic scheduler starting cron='0 3 * * *' retention_days=90
-diagnostic.handler   - diagnostic job stage=extracting_stats job_id=...
-diagnostic.handler   - diagnostic job stage=succeeded job_id=...
-```
-
-문제 신호:
-- `diagnostic job not found id=...` -> 스케줄러가 publish 했지만 DB INSERT 안 됨. 트랜잭션 순서·commit 누락 의심
-- `LLM_PROVIDER=ollama not implemented yet` -> 미구현 분기 호출. `.env`에서 `LLM_PROVIDER=mock`으로 되돌림
-- `diagnostic.request.dead` 큐 누적 -> 영구 오류 누적. DLQ peek로 message_body 확인
+| 증상 | 원인 |
+|------|------|
+| `diagnostic job not found id=...` | 스케줄러 publish 후 DB INSERT 누락 — 트랜잭션 순서·commit 의심 |
+| `LLM_PROVIDER=ollama not implemented yet` | 미구현 분기 호출 — `.env`에서 `LLM_PROVIDER=mock` |
+| `diagnostic.request.dead` 큐 누적 | 영구 오류 누적 — DLQ peek로 message_body 확인 |
 
 ## 관련 문서
 
@@ -177,4 +171,4 @@ diagnostic.handler   - diagnostic job stage=succeeded job_id=...
 - `docs/architecture/consumer.md` — 워커 구현 시 참조 패턴 (F4·D2·C3 공유)
 - `docs/architecture/web/services.md` — `diagnostic_service.py`·`diagnostic_mapper.py` 책임 분리
 - `docs/operations/alembic.md` — `diagnostic_jobs` 마이그레이션 절차
-- `.claude/CLAUDE.md` #A2·#B3·#C1·#D2·#F4·#F6 — 결정·금지 사항 단일 진실
+- `.claude/CLAUDE.md` #B·#C1·#D2·#F4·#F6 — 결정·금지 사항 단일 진실

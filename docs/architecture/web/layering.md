@@ -1,6 +1,6 @@
 # Web 레이어 원칙·DI·식별자
 
-원칙은 CLAUDE.md E1 (P1~P5) + F4 (인터페이스 우선) 단일 진실. 본 문서는 web 컴포넌트 구현 디테일.
+정책: CLAUDE.md #E1 (P1~P4) · #E4 (URL 식별자) · #F3 (검증 단일 경로) · #F4 (인터페이스 우선). 본 문서는 web 컴포넌트 구현 메커니즘 단일 진실.
 
 ## 데이터 흐름
 
@@ -42,22 +42,12 @@ Browser → Router → deps.get_service → QueryService
 
 ## URL 식별자 — public_id (UUID)
 
-정책 단일 진실: CLAUDE.md #E5 (정수 PK 노출 금지). 본 절은 구현 메커니즘만.
+정책: CLAUDE.md #E4 (정수 PK 노출 금지). 본 절은 구현 메커니즘만.
 
 - 라우터 path `{server_id}` 타입을 `UUID`로 선언 -> invalid 형식 422 자동
 - 형식 OK + DB 미존재 -> 404 (`resolve_internal_id` Depends)
 - `QueryService.resolve_server_id(public_id) -> int | None` — read-through 캐시 (`cache:resolve:{public_id}`, TTL 없음 — 불변)
 - 라우터에서 `internal_id: int = Depends(resolve_internal_id)` 주입 -> 422/404 자동
-
-## 검증의 단일 경로
-
-| 입력 | 검증 위치 |
-|------|-----------|
-| HTTP query string | 라우터 `Query(MetricType/TimeRange/...)` Literal Pydantic |
-| HTTP path UUID | `resolve_internal_id` Depends — 422/404 자동 |
-| HTTP body JSON | 라우터 Pydantic `BaseModel` (`InstallRequest`, `ProbeRequest`, `InventoryExportRequest`, `DiagnosticRequest`) |
-
-Service에서 재검증 금지 (`_VALID_*` frozenset 비교 같은 패턴 안 만든다).
 
 ## SSR + AJAX 하이브리드 (설계 결정)
 

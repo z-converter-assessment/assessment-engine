@@ -10,7 +10,8 @@
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
         fmtKst, getAnchorEnd, initAnchor,
         makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray,
-        fetchRebootEvents, applyRebootMarkers } = ChartUtils;
+        fetchRebootEvents, applyRebootMarkers,
+        buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
 
 
 // 추이 차트의 분해력 기준 (다중 device x Read/Write 다중 라인 — idle VM에서 0.1 IOPS도 보이도록).
@@ -83,42 +84,7 @@ function makeIoDatasets(avgRows, maxRows, range, anchorEnd) {
   const bMs    = BUCKET_MS[bucket];
   const grid   = makeBucketGrid(range, bucket, anchorEnd);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-
-  const avgByDim = {};
-  const maxByDim = {};
-  for (const r of avgRows) (avgByDim[r.dimension] = avgByDim[r.dimension] || []).push(r);
-  for (const r of maxRows) (maxByDim[r.dimension] = maxByDim[r.dimension] || []).push(r);
-
-  const dims = Object.keys(avgByDim);
-  const datasets = [];
-  dims.forEach((dim, i) => {
-    const color   = COLORS[i % COLORS.length];
-    const avgPts  = avgByDim[dim] || [];
-    const maxPts  = maxByDim[dim] || [];
-    const avgMap  = {};
-    const maxMap  = {};
-    for (const p of avgPts) avgMap[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value;
-    for (const p of maxPts) maxMap[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value;
-    const avgData = grid.map(t => avgMap[t] ?? null);
-    const realMax = grid.map(t => maxMap[t] ?? null);
-    const bufData = grid.map(t => {
-      const a = avgMap[t];
-      if (a == null) return null;
-      return maxMap[t] ?? a;
-    });
-    datasets.push({
-      label: dim, data: avgData,
-      borderColor: color, backgroundColor: color + '33',
-      borderWidth: 2, pointRadius: 1, pointHoverRadius: 3,
-      tension: 0.3, fill: '+1', spanGaps: false,
-    });
-    datasets.push({
-      label: dim + ' (최대)', data: bufData, realData: realMax,
-      borderColor: 'transparent', backgroundColor: 'transparent',
-      borderWidth: 0, pointRadius: 0,
-      tension: 0.3, fill: false, spanGaps: false,
-    });
-  });
+  const datasets = buildAvgMaxDatasets(avgRows, maxRows, bMs, grid);
   return { labels, datasets };
 }
 
@@ -169,23 +135,7 @@ function renderIoChartTo(canvasId, emptyId, legendId, avgRows, maxRows, range, c
     chartRef.update('none'); return chartRef;
   }
   const chart = new Chart(canvas, { type:'line', data:{labels, datasets}, options: ioChartOptions() });
-  const container = document.getElementById(legendId);
-  container.innerHTML = datasets
-    .filter((_, i) => i % 2 === 0)
-    .map((ds, i) => `
-      <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#475569; cursor:pointer; user-select:none;">
-        <input type="checkbox" data-avg="${i * 2}" checked style="accent-color:${ds.borderColor}; width:13px; height:13px; cursor:pointer;">
-        <span>${ds.label}</span>
-      </label>
-    `).join('');
-  container.querySelectorAll('input[type=checkbox]').forEach(cb => {
-    cb.addEventListener('change', () => {
-      const avgIdx = +cb.dataset.avg;
-      chart.getDatasetMeta(avgIdx).hidden     = !cb.checked;
-      chart.getDatasetMeta(avgIdx + 1).hidden = !cb.checked;
-      chart.update();
-    });
-  });
+  buildAvgMaxLegend(legendId, chart, { withToggle: true });
   return chart;
 }
 
@@ -325,35 +275,7 @@ function renderFsChart(avgRows, maxRows, range, anchorEnd) {
   const bMs    = BUCKET_MS[bucket];
   const grid   = makeBucketGrid(range, bucket, anchorEnd);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-
-  const avgByDim = {};
-  const maxByDim = {};
-  for (const r of avgRows) (avgByDim[r.dimension] = avgByDim[r.dimension] || []).push(r);
-  for (const r of maxRows) (maxByDim[r.dimension] = maxByDim[r.dimension] || []).push(r);
-
-  const dims = Object.keys(avgByDim);
-  const datasets = [];
-  dims.forEach((dim, i) => {
-    const color  = COLORS[i % COLORS.length];
-    const avgMap = {}, maxMap = {};
-    for (const p of (avgByDim[dim] || [])) avgMap[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value;
-    for (const p of (maxByDim[dim] || [])) maxMap[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value;
-    const avgData  = grid.map(t => avgMap[t] ?? null);
-    const realMax  = grid.map(t => maxMap[t] ?? null);
-    const bufData  = grid.map(t => avgMap[t] == null ? null : (maxMap[t] ?? avgMap[t]));
-    datasets.push({
-      label: dim, data: avgData,
-      borderColor: color, backgroundColor: color + '28',
-      borderWidth: 2, pointRadius: 1, pointHoverRadius: 3,
-      tension: 0.3, fill: '+1', spanGaps: false,
-    });
-    datasets.push({
-      label: dim + '__max', data: bufData, realData: realMax,
-      borderColor: 'transparent', backgroundColor: 'transparent',
-      borderWidth: 0, pointRadius: 0, pointHoverRadius: 0,
-      fill: false, spanGaps: false,
-    });
-  });
+  const datasets = buildAvgMaxDatasets(avgRows, maxRows, bMs, grid);
 
   if (fsChart) {
     fsChart.data.labels = labels; fsChart.data.datasets = datasets;
@@ -424,24 +346,7 @@ async function loadFsChart() {
 }
 
 function buildFsLegend() {
-  const container = document.getElementById('fs-legend');
-  if (!fsChart) { container.innerHTML = ''; return; }
-  const avgDatasets = fsChart.data.datasets.filter((_, i) => i % 2 === 0);
-  container.innerHTML = avgDatasets.map((ds, i) => `
-    <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#475569; cursor:pointer; user-select:none;">
-      <input type="checkbox" data-avg="${i * 2}" checked
-        style="accent-color:${ds.borderColor}; width:13px; height:13px; cursor:pointer;">
-      <span>${ds.label}</span>
-    </label>
-  `).join('');
-  container.querySelectorAll('input[type=checkbox]').forEach(cb => {
-    cb.addEventListener('change', () => {
-      const avgIdx = +cb.dataset.avg;
-      fsChart.getDatasetMeta(avgIdx).hidden     = !cb.checked;
-      fsChart.getDatasetMeta(avgIdx + 1).hidden = !cb.checked;
-      fsChart.update();
-    });
-  });
+  buildAvgMaxLegend('fs-legend', fsChart, { withToggle: true });
 }
 
 bindToggle('fs-range-btns', v => { fsRange = v; updateFsBucketLabel(); document.getElementById('fs-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadFsChart(); });

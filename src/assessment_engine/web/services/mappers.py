@@ -5,9 +5,11 @@
 - 변환은 idempotent해야 한다 (cache_serializer가 역직렬화 후 enrich_server_detail 재호출).
 - 임계값(usage 90/75)은 모듈 상단 상수. 동일 의미의 차트 JS 상수와 동기화.
 """
+from collections import Counter, defaultdict
 from datetime import datetime
 from typing import Literal
 
+from assessment_engine import recommendation
 from assessment_engine.db.repositories.outbound import (
     CollectionStatus,
     DiskUsageWarningRaw,
@@ -20,29 +22,37 @@ from assessment_engine.db.repositories.outbound import (
     ServerSummary,
     StorageWithUsage,
 )
-from assessment_engine.web.services import recommendation
 from assessment_engine.web.services.device_filters import (
     find_parent_disk,
     is_physical_disk,
     is_virtual_mount,
 )
 from assessment_engine.web.services.metrics_calculator import compute_net_io
-from assessment_engine.web.services.service_classifier import classify, matched_ports
+from assessment_engine.web.services.service_classifier import (
+    SERVICE_PORTS,
+    classify,
+    matched_ports,
+)
 from assessment_engine.web.services.units import bytes_to_gb, kb_to_gb, usage_pct
 from assessment_engine.web.view_models import (
     AttentionRow,
+    CapacityTriggerBadge,
+    CapacityWarningItem,
     CollectionStatusItem,
     DiskItem,
+    EnvironmentOverview,
     ListenPortItem,
     MetricSeriesItem,
     MountUsageItem,
     NetworkDetailResponse,
     ReportRowItem,
     ReportTotals,
+    RiskDonutSegment,
     ServerDetailResponse,
     ServerListItem,
     ServiceItem,
     StorageDetailResponse,
+    UtilizationBar,
 )
 
 # ─── 임계값 상수 ──────────────────────────────────────────────────────────
@@ -50,7 +60,7 @@ from assessment_engine.web.view_models import (
 _USAGE_DANGER_PCT = 90
 _USAGE_WARN_PCT   = 75
 # IANA well-known port 상한. listen_port의 well-known 표시 분기에 사용.
-_WELL_KNOWN_PORT_MAX = 1024
+WELL_KNOWN_PORT_MAX = 1024
 # attention 신호 — metric 갭이 30분 이상이면 위험 색 (5~30분은 경고).
 _GAP_DANGER_MINUTES = 30
 # disk_warnings stale 임계 — last_metric_at이 24h 이상 안 갱신된 mount는 meta에 "마지막 수집 ..." 추가 표시.
@@ -110,7 +120,7 @@ def _to_listen_port_item(p: dict) -> ListenPortItem:
         uid=p.get("uid", 0),
         pid=p.get("pid"),
         comm=p.get("comm"),
-        is_well_known=port <= _WELL_KNOWN_PORT_MAX,
+        is_well_known=port <= WELL_KNOWN_PORT_MAX,
     )
 
 
@@ -464,11 +474,10 @@ def _services_for_export(services: list[dict] | None, listen_ports: list[dict] |
 
     `unknown` 카테고리는 제외 — 보안그룹 룰 자동 생성에 의미 없음.
     listeners: ports 매핑별 실제 (proto, address) 정보 — listen_ports inventory와 매칭.
-    매칭 실패 시 service_classifier의 `_SERVICE_PORTS` 폴백 (proto=tcp, address=0.0.0.0 가정).
+    매칭 실패 시 service_classifier의 `SERVICE_PORTS` 폴백 (proto=tcp, address=0.0.0.0 가정).
     """
     if not services:
         return []
-    from assessment_engine.web.services.service_classifier import _SERVICE_PORTS  # noqa: PLC0415
     # listen_ports를 port → list of (proto, addr) 인덱스 (서비스가 여러 인터페이스 listen할 수 있음)
     by_port: dict[int, list[dict]] = {}
     for lp in listen_ports or []:
@@ -490,10 +499,10 @@ def _services_for_export(services: list[dict] | None, listen_ports: list[dict] |
         cat = classify(unit)
         if cat == "unknown":
             continue
-        # _SERVICE_PORTS는 unit normalized 이름(`nginx`/`postgresql` 등) 키 — classifier와 동일 normalize 의무.
+        # SERVICE_PORTS는 unit normalized 이름(`nginx`/`postgresql` 등) 키 — classifier와 동일 normalize 의무.
         unit_normalized = unit.lower().removesuffix(".service")
         port_list: list[int] = []
-        for keyword, ports in _SERVICE_PORTS.items():
+        for keyword, ports in SERVICE_PORTS.items():
             if keyword in unit_normalized:
                 port_list = ports
                 break
@@ -577,7 +586,6 @@ def build_report_summary_bullets(rows: list, raws: list | None = None) -> list[s
         bullets.append(f"주의 필요 {n_attention}대 ({', '.join(hosts)}{suffix}) — 저사용·과다 프로비저닝. 다운사이즈 검토 후보.")
 
     # 역할별 평균 CPU·MEM — 가장 자원 집약 역할 1개 식별
-    from collections import defaultdict  # noqa: PLC0415
     role_cpu: defaultdict[str, list[float]] = defaultdict(list)
     for r in rows:
         if r.cpu_p95_pct is not None:
@@ -791,7 +799,6 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
 
 def build_role_distribution(raws: list) -> dict[str, int]:
     """ReportRowRaw list -> 역할별 서버 수 dict. 양식 A 상단 표시용 (M4)."""
-    from collections import Counter  # noqa: PLC0415
     counter: Counter[str] = Counter()
     for r in raws:
         counter[infer_role(r.services)] += 1
@@ -861,7 +868,6 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
     누락 키는 0으로 취급. dash_length·dash_offset은 누적 비례 계산.
     under_count는 도넛 중앙 강조용 (가장 시급한 카테고리).
     """
-    from assessment_engine.web.view_models import RiskDonutSegment  # noqa: PLC0415
     total = sum(risk_counts.values())
     segments: list = []
     cum_offset = 0.0
@@ -883,10 +889,6 @@ def build_environment_overview(details: list, online_count: int, utilization=Non
     list 화면 상단 환경 요약 — 총 N대·자원 합계·역할 분포·온라인/오프라인·평균 활용률·위험도 분포.
     utilization=None이면 활용률 빈 list. risk_counts=None이면 위험도 도넛 빈 list.
     """
-    from collections import Counter  # noqa: PLC0415
-
-    from assessment_engine.web.view_models import EnvironmentOverview, UtilizationBar  # noqa: PLC0415
-
     total = len(details)
     total_vcpus = sum(d.cpu_cores or 0 for d in details)
     total_mem_kb = sum(d.mem_total_kb or 0 for d in details)
@@ -958,7 +960,6 @@ def to_capacity_warning_item(raw):
     - mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리" active
     비활성 trigger도 list에 포함 (시각 일관 — "이 카드는 3종 자원 추적" 명시).
     """
-    from assessment_engine.web.view_models import CapacityTriggerBadge, CapacityWarningItem  # noqa: PLC0415
     swap_active = bool(raw.swap_used)
     cpu_active = (raw.cpu_p95_pct or 0) >= recommendation.CPU_UPSIZE_P95_PCT
     mem_active = (raw.mem_p95_pct or 0) >= recommendation.MEM_UPSIZE_P95_PCT

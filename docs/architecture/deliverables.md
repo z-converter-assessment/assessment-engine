@@ -1,6 +1,6 @@
 # Assessment 산출물 — Workflow 통합
 
-본 엔진의 운영자 워크플로우 4 산출물 흐름. 각 산출물은 web 라우터·서비스·산출 결과 형식이 분리돼 있어, 본 문서가 통합 진입점.
+정책: CLAUDE.md #F10 (평가 윈도우). 본 문서는 운영자 워크플로 4 산출물(발견·Install·Export·보고서) 통합 진입점.
 
 | 산출물 | 라우터 | 서비스 | 산출 형식 | 단일 진실 |
 |--------|--------|--------|-----------|-----------|
@@ -31,41 +31,15 @@ POST /api/v1/discovery/probe
 
 ## ZConverter Install task
 
-운영자가 등록된 서버에 변환 도구 설치 명령을 발행. RPC piggyback 패턴 (ADR 0002).
+운영자가 등록 서버에 변환 도구 설치 명령 발행. RPC piggyback 패턴(ADR 0002).
 
-흐름:
-```
-POST /api/v1/tasks/install
-  body: {target_public_ids: [...], source_url}
-  -> TaskService.create_install_tasks (트랜잭션 경계)
-    -> resolve_server_ids -> DB INSERT (tasks 행, status='pending')
-    -> Redis SET task:pending:{machine_id} (hot path 캐시, TTL 24h)
-  -> 응답 [{target_public_id, task_public_id}, ...]
+메시지 흐름·reply 채널·task_type 카탈로그·Install bundle endpoint·Latency: `docs/architecture/agent.md` "Task RPC piggyback" 절 단일 진실.
 
-agent 측 (별도):
-  agent가 다음 server.metrics 발행 시 reply_to·correlation_id 명시
-    -> consumer가 metrics 처리 후 Redis EXISTS task:pending:{machine_id}
-      -> 있으면 reply publish (amq.rabbitmq.reply-to)
-  agent가 source_url 그대로 fetch:
-    -> curl {source_url}                              # scheme·host·path 자유
-    -> tar -xzf zconverter.tar.gz                     # install.sh가 mode=0o755로 풀림
-    -> bash install.sh                                # 실제 실행
-  agent가 task.result 큐로 결과 보고
-    -> consumer가 DB UPDATE (status·result_message·completed_at) + Redis pending DEL
-```
-
-Install bundle 호스팅:
-- `web/routers/payloads.py` `GET /zconverter.tar.gz` — 본 엔진 self-host default endpoint. 운영자가 `source_url=http://<engine-fqdn>:8000/zconverter.tar.gz` 입력 시 활용.
-- in-memory tar.gz 생성. `install.sh` 내용은 코드 안 `_INSTALL_SCRIPT` 상수 + `mode=0o755` 메타 박힘.
-- 외부 mirror 호스팅 가능 — agent는 source_url을 변환 없이 curl, scheme(http/https)·port·path 자유.
-- 상세는 `docs/architecture/agent.md` "Install bundle endpoint" 절.
-
-설계 결정:
-- 부분 UNIQUE `(target_server_id) WHERE status='pending'` — 운영자 더블클릭 방어. `IntegrityError` -> `_DuplicatePending` -> 409 (#C1, F3).
-- Latency = metrics 주기 (즉시 push 아님 — 별도 polling endpoint·task queue 안 만드는 대가). 즉시성 요구 시 ADR 0002 전환 경로 참조.
-- Redis는 hot path 캐시 — 99% no-op 응답을 1ms 미만으로 흡수. Redis 장애 시 silent skip (다음 주기 재시도, #C3 fail-open).
-
-상세 메시지 스키마·task_type 카탈로그: `docs/architecture/agent.md` "Task RPC piggyback" 절.
+운영자 워크플로:
+- `POST /api/v1/tasks/install` body `{target_public_ids: [...], source_url}` — 다중 서버 일괄 발행.
+- `source_url`은 self-host(`http://<engine>:8000/zconverter.tar.gz`) 또는 외부 mirror 어디든 — scheme·port·path 자유.
+- 부분 UNIQUE `(target_server_id) WHERE status='pending'` — 더블클릭 방어, 중복 발행 시 409(`TaskDuplicatePending`).
+- 결과 추적: agent가 `task.result` 보고 → consumer가 DB UPDATE + Redis pending DEL.
 
 ## JSON Export v3
 

@@ -1,8 +1,6 @@
 # Alembic 마이그레이션
 
-dev·staging·prod 모든 환경의 DB schema를 Alembic 마이그레이션 1개 진실로 관리. ORM 모델 변경 시 반드시 마이그레이션 파일도 함께 만들어야 한다.
-
-정책 단일 진실: CLAUDE.md #C4 (모델 변경 시 ORM + Alembic revision 동시 갱신 의무, `alembic check` 통과 의무, drift 0건). 본 문서는 그 정책을 따르는 도구 사용법·절차만.
+정책: CLAUDE.md #C4. 본 문서는 Alembic 도구 사용법·절차·트러블슈팅 단일 진실. 모든 환경(dev·staging·prod·테스트) Alembic 마이그레이션 1개 진실로 schema 관리.
 
 ## 본 프로젝트의 Alembic
 

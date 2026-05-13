@@ -14,10 +14,10 @@ from assessment_engine.db.repositories.base_diagnostic_repository import Diagnos
 from assessment_engine.web.deps import get_diagnostic_service
 from assessment_engine.web.services.diagnostic_mapper import to_view
 from assessment_engine.web.services.diagnostic_service import (
+    DiagnosticBadRequest,
+    DiagnosticNotFound,
+    DiagnosticRaceMiss,
     DiagnosticService,
-    _BadRequest,
-    _NotFound,
-    _RaceMiss,
 )
 
 diagnostics_router = APIRouter(prefix="/api/v1/diagnostics", tags=["diagnostics"])
@@ -51,11 +51,11 @@ async def submit(
             req.scope, public_ids, req.time_range, req.anchor_at,
         )
         return JobIdsResponse(job_ids=job_ids)
-    except _BadRequest as e:
+    except DiagnosticBadRequest as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    except _NotFound as e:
+    except DiagnosticNotFound as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    except _RaceMiss as e:
+    except DiagnosticRaceMiss as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
 
 

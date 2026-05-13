@@ -1,14 +1,8 @@
-# 환경변수 (현황 카탈로그)
+# 환경변수 카탈로그
 
-> 본 문서는 키 카탈로그다. 정책·dev/prod 분리·secret 단계는 `docs/operations/dev-prod.md` 참조.
+정책: CLAUDE.md #A. 본 문서는 환경변수 키 카탈로그 단일 진실. 환경변수 정책·secret 단계·dev/prod 분리는 `docs/operations/dev-prod.md`.
 
-루트 `.env`에서 주입 (dev). `.env.example`을 복사해 시작한다.
-
-```bash
-cp .env.example .env
-```
-
-prod에선 `.env` 대신 Docker secrets로 자격을 주입한다 — 자세한 정책은 `docs/operations/dev-prod.md` "Secret 정책".
+dev: `cp .env.example .env`. prod 시나리오는 Docker secrets — `dev-prod.md` "Secret 정책".
 
 ## 주입 흐름
 

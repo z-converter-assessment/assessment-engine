@@ -10,6 +10,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from assessment_engine.web.deps import get_diagnostic_service
+from assessment_engine.web.services.diagnostic_mapper import to_history_item
 from assessment_engine.web.services.diagnostic_service import DiagnosticService, to_panel_payload
 from assessment_engine.web.template_setup import templates
 
@@ -65,20 +66,7 @@ async def history(
     """
     scope_filter = None if scope == "all" else scope
     records = await diag_service.list_recent(days, scope_filter, server_public_ids)
-    items = [
-        {
-            "job_id":            r.id,
-            "scope":             r.scope,
-            "server_public_id":  r.input_params.get("server_public_id"),
-            "time_range":        r.input_params.get("time_range", "—"),
-            "anchor_at":         r.input_params.get("anchor_at"),
-            "status":            r.status,
-            "created_at":        r.created_at,
-            "finished_at":       r.finished_at,
-            "requested_by":      r.requested_by,
-        }
-        for r in records
-    ]
+    items = [to_history_item(r) for r in records]
     return templates.TemplateResponse(
         request=request,
         name="diagnostics/history.html",
