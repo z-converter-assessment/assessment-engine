@@ -1,6 +1,6 @@
 # Web 정적 자원 — JS·차트 UI
 
-CLAUDE.md F5 "Frontend JS 외부화 의무" — 신규 차트 로직은 외부 `.js` 파일에. inline `<script>` 신규 금지.
+정책: CLAUDE.md #E6 (JS 외부화 의무) · #E8 (차트·도넛 UI, P4) · #F5 (외부화 강제 채널). 본 문서는 JS 디렉토리·`ChartUtils` API·P4 5 의무 규약·차트 UI·report.html print CSS 단일 진실.
 
 ```
 src/assessment_engine/web/static/js/

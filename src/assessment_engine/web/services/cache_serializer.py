@@ -2,7 +2,10 @@ import dataclasses
 import json
 from datetime import datetime
 
-from assessment_engine.web.services.mappers import enrich_server_detail
+from assessment_engine.web.services.mappers import (
+    WELL_KNOWN_PORT_MAX,
+    enrich_server_detail,
+)
 from assessment_engine.web.view_models import (
     CpuSnapshot,
     DiskIoSnapshot,
@@ -17,8 +20,6 @@ from assessment_engine.web.view_models import (
     ServiceItem,
     SwapSnapshot,
 )
-
-_WELL_KNOWN_PORT_MAX = 1024  # 옛 cache 호환용 fallback (mappers와 동일 값)
 
 _DETAIL_DISPLAY_FIELDS = frozenset({
     "known_services", "show_unknown_badge", "key_listen_ports",
@@ -58,7 +59,7 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
         ListenPortItem(
             proto=p["proto"], addr=p["addr"], port=p["port"], uid=p["uid"],
             pid=p.get("pid"), comm=p.get("comm"),
-            is_well_known=p.get("is_well_known", p.get("port", 0) <= _WELL_KNOWN_PORT_MAX),
+            is_well_known=p.get("is_well_known", p.get("port", 0) <= WELL_KNOWN_PORT_MAX),
         )
         for p in data.get("listen_ports") or []
     ]

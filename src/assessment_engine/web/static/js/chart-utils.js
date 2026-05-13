@@ -102,6 +102,78 @@
   // ── 응답 안전 변환 ──
   function safeArray(arr) { return Array.isArray(arr) ? arr : []; }
 
+  // ── avg+max ghost dataset 빌드 (P4 패턴) ──
+  // avgRows·maxRows: [{collected_at, value, dimension?}]
+  // opts: { label?, color?, dashFn?(dim), pointRadius? }
+  // single-dim(라벨 1개) 또는 multi-dim(dim별 색·dash) 통합.
+  // 결과: [avgDataset, maxGhostDataset]쌍 N개. tooltip filter `datasetIndex % 2 === 0`로 max ghost 숨김.
+  function buildAvgMaxDatasets(avgRows, maxRows, bMs, grid, opts = {}) {
+    const dims = [...new Set([...avgRows, ...maxRows].map(r => r.dimension || ''))];
+    const datasets = [];
+    dims.forEach((dim, i) => {
+      const color = opts.color || COLORS[i % COLORS.length];
+      const dash  = opts.dashFn ? opts.dashFn(dim) : [];
+      const avgMap = {}, maxMap = {};
+      for (const r of avgRows) if ((r.dimension || '') === dim)
+        avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
+      for (const r of maxRows) if ((r.dimension || '') === dim)
+        maxMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
+      const avgData         = grid.map(t => avgMap[t] ?? null);
+      const realMaxData     = grid.map(t => maxMap[t] ?? null);
+      const bufferedMaxData = grid.map(t => avgMap[t] == null ? null : (maxMap[t] ?? avgMap[t]));
+      const baseLabel = opts.label || dim || 'Value';
+      datasets.push({
+        label: baseLabel, data: avgData,
+        borderColor: color, backgroundColor: color + '28',
+        borderWidth: 2, borderDash: dash,
+        pointRadius: opts.pointRadius ?? 1, pointHoverRadius: 3,
+        tension: 0.3, fill: '+1', spanGaps: false,
+      });
+      datasets.push({
+        label: baseLabel + '__max', data: bufferedMaxData, realData: realMaxData,
+        borderColor: 'transparent', backgroundColor: 'transparent',
+        borderWidth: 0, pointRadius: 0, pointHoverRadius: 0,
+        fill: false, spanGaps: false,
+      });
+    });
+    return datasets;
+  }
+
+  // ── 짝수 인덱스 avg dataset만 legend 표시 (max ghost 숨김) ──
+  // opts: { codeLabel?: code 태그 사용, withToggle?: checkbox + avg/max 짝 hide 토글 (P4 허용 — E1 P4 절) }
+  function buildAvgMaxLegend(containerId, chart, opts = {}) {
+    const el = document.getElementById(containerId);
+    if (!el || !chart) { if (el) el.innerHTML = ''; return; }
+    const avgDatasets = chart.data.datasets.filter((_, i) => i % 2 === 0);
+    el.innerHTML = avgDatasets.map((ds, i) => {
+      const isDash = ds.borderDash && ds.borderDash.length > 0;
+      const lineHtml = isDash
+        ? `<svg width="20" height="3" style="flex-shrink:0;"><line x1="0" y1="1.5" x2="20" y2="1.5" stroke="${ds.borderColor}" stroke-width="2" stroke-dasharray="4 2"/></svg>`
+        : `<span style="width:20px; height:3px; border-radius:2px; background:${ds.borderColor}; flex-shrink:0;"></span>`;
+      const labelHtml = opts.codeLabel
+        ? `<code style="font-size:11px; background:#f1f5f9; padding:1px 5px; border-radius:3px; color:#334155;">${ds.label}</code>`
+        : `<span style="font-size:12px; color:#475569;">${ds.label}</span>`;
+      if (opts.withToggle) {
+        return `<label style="display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;">
+          <input type="checkbox" data-avg="${i * 2}" checked
+            style="accent-color:${ds.borderColor}; width:13px; height:13px; cursor:pointer;">
+          ${lineHtml}${labelHtml}
+        </label>`;
+      }
+      return `<span style="display:flex; align-items:center; gap:5px;">${lineHtml}${labelHtml}</span>`;
+    }).join('');
+    if (opts.withToggle) {
+      el.querySelectorAll('input[type=checkbox]').forEach(cb => {
+        cb.addEventListener('change', () => {
+          const avgIdx = +cb.dataset.avg;
+          chart.getDatasetMeta(avgIdx).hidden     = !cb.checked;
+          chart.getDatasetMeta(avgIdx + 1).hidden = !cb.checked;
+          chart.update();
+        });
+      });
+    }
+  }
+
   // ── reboot / agent restart 이벤트 (차트 vertical marker용) ──
   // 백엔드 API: GET /api/v1/servers/{id}/events/reboot?time_range=...&end=...
   // 응답: [{collected_at, boot_time, agent_started_at, kind: "reboot"|"restart"}]
@@ -183,5 +255,6 @@
     makeBucketGrid, joinToGrid,
     bindToggle, initSse, safeArray,
     fetchRebootEvents, applyRebootMarkers,
+    buildAvgMaxDatasets, buildAvgMaxLegend,
   };
 })(window);

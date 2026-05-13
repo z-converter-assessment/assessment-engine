@@ -50,25 +50,9 @@
 
 ### 통신 패턴 용어
 
-본 다이어그램에 등장하는 두 가지 약어는 풀네임을 풀면 다음과 같다.
-
-- RPC piggyback (Remote Procedure Call piggyback — 원격 프로시저 호출 업혀가기)
-  - 별도의 task 명령 큐나 polling endpoint를 만들지 않고, 에이전트가 주기적으로 발행하는 `server.metrics` 메시지의 `reply_to` 필드에 명령을 얹어 회신하는 방식.
-  - reply 채널은 RabbitMQ 빌트인 pseudo-queue `amq.rabbitmq.reply-to`. 큐 선언·정리 불필요, broker 부하 0.
-  - 흐름: 운영자 `POST /api/v1/tasks/install` -> DB `tasks` INSERT + Redis `task:pending:{machine_id}` SET -> 다음 `server.metrics` 도착 시 consumer가 Redis EXISTS 확인 후 `message.reply_to`로 명령 publish -> 에이전트 실행 -> `task.result` 큐로 결과 보고.
-  - 트레이드오프: latency = metrics 주기(즉시 push 아님). 별도 polling endpoint나 task queue를 만들지 않는 대가 (ADR 0002).
-
-- SSE (Server-Sent Events — 서버 전송 이벤트)
-  - 브라우저가 HTTP 연결을 열어두고 서버가 단방향으로 이벤트를 push하는 W3C 표준 (WebSocket과 달리 양방향 아님, HTTP 위에서 동작).
-  - 응답 헤더 `Content-Type: text/event-stream`로 FastAPI `StreamingResponse`가 송출.
-  - 흐름: Consumer가 메트릭 저장 후 Redis `PUBLISH metrics.events {...}` -> Web의 SSE endpoint가 Redis `SUBSCRIBE`로 받음 -> 브라우저로 event push -> 페이지 JS가 AJAX로 최신 데이터 fetch (PUB/SUB는 트리거, 데이터 자체는 별도 fetch).
-
-- Ollama (오라마) — 로컬 LLM(Large Language Model) 런타임
-  - 오픈소스 Go 기반 도구. 한 바이너리에 모델 패키지 매니저 + inference 서버 + HTTP API가 다 들어있음. Docker가 컨테이너 런타임이듯 ollama는 LLM 런타임.
-  - 사용 흐름: `ollama pull llama3.1:8b`로 모델 다운로드 -> `ollama serve`(또는 백그라운드 자동 실행)가 `localhost:11434`에서 HTTP API 제공 -> 앱은 `POST /api/generate` 같은 endpoint로 호출. CUDA·tokenizer를 직접 다룰 필요 없음.
-  - GGUF(GPT-Generated Unified Format) 모델 지원 — Llama / Mistral / Gemma / Qwen / Phi 등. CPU만으로도 동작, GPU(CUDA·Apple Metal) 있으면 자동 가속. 8B 모델은 RAM 약 8GB 필요.
-  - 본 엔진 활용 (ADR 0004): 진단 워커가 외부 유료 API(Anthropic·OpenAI 등) 대신 같은 호스트 또는 사내 GPU 머신의 ollama로 HTTP 호출. 데이터(서버 메트릭·hostname·IP) 외부 유출 0, 비용 0 — 운영자 정책 "과금 발생 외부 API 호출 금지" 충족.
-  - `LLM_PROVIDER=ollama` 분기는 미구현(`NotImplementedError`) — `mock` 전용. 도입 시 ADR 0004.
+- RPC piggyback (Remote Procedure Call piggyback) — 별도 task 명령 큐·polling endpoint 없이 `server.metrics` 메시지의 `reply_to`에 명령 얹어 회신. reply 채널은 RabbitMQ 빌트인 `amq.rabbitmq.reply-to`. latency = metrics 주기. 흐름·트레이드오프: ADR 0002 + `docs/architecture/agent.md`.
+- SSE (Server-Sent Events) — HTTP 단방향 server push (W3C 표준, `Content-Type: text/event-stream`). 흐름: Consumer DB 저장 → Redis `PUBLISH metrics.events` → Web SSE endpoint가 Redis `SUBSCRIBE` → 브라우저 event push → JS가 AJAX로 최신 데이터 fetch.
+- Ollama — 로컬 LLM 런타임. 본 엔진 ADR 0004 — 진단 워커가 외부 유료 API 대신 같은 호스트/사내 GPU의 ollama HTTP 호출, 데이터 외부 유출 0. 현재 `LLM_PROVIDER=mock` 전용(`ollama` 분기 미구현).
 
 ---
 
@@ -95,7 +79,7 @@
 | 메시지 브로커 | RabbitMQ 3.13 (+ management UI) | DLX/DLQ, `amq.rabbitmq.reply-to` 빌트인 RPC piggyback |
 | DB | TimescaleDB (PostgreSQL 16 + hypertable) | 5 시계열 테이블 + inventory + tasks + diagnostic_jobs |
 | 캐시 / 온라인 상태 | Redis 7 | cache / pending task / restart counter / metrics.events PUB/SUB |
-| 컨테이너 | Docker + docker-compose | dev override 자동 적용, prod는 명시 호출 (#A2) |
+| 컨테이너 | Docker + docker-compose | dev override 자동 적용, prod는 명시 호출 (#A) |
 
 배포 / 검증
 
@@ -129,12 +113,10 @@ Frontend (정적 자원)
 - Consumer 저장 → Redis PUB/SUB → Web SSE → 브라우저 AJAX — 실시간 갱신 파이프라인.
 
 ### Counter reset 정밀 식별
-- 시계열 4테이블에 `boot_time` / `agent_started_at` 컬럼 보존. 두 시점의 boot_time 비교로 시스템 재부팅 시 delta 건너뛰기 (d<0 일 때, fallback).
-- Calculator(dashboard)와 차트 SQL이 동일 정책 적용 — 차트 SQL은 PostgreSQL window function `LAG()` + `IS DISTINCT FROM` 조합 사용.
-  - `LAG(컬럼) OVER (PARTITION BY ... ORDER BY collected_at)` — 같은 partition 안에서 직전 row의 컬럼 값을 가져오는 SQL 표준 window function. `LAG`는 "지연·뒤로"의 그 LAG이고 약어가 아님 (반대 함수는 `LEAD`).
-  - `IS DISTINCT FROM` — NULL-safe 부등 비교. 일반 `<>`/`!=`는 한쪽이 NULL이면 결과도 NULL이라 조건문에서 false로 처리되지만, `IS DISTINCT FROM`은 NULL과 값을 다르다고 판정 (옛 데이터의 boot_time NULL fallback 처리).
-  - 함께 쓰면: 현재 row의 `boot_time`이 직전 row의 `LAG(boot_time)`과 다른 시점이면 시스템 재부팅으로 판정 -> 해당 구간 delta 폐기.
+- 시계열 4테이블에 `boot_time`·`agent_started_at` 컬럼 보존. 두 시점 boot_time 비교로 시스템 재부팅 시 delta 건너뛰기 (NULL fallback `d<0` 휴리스틱).
+- Calculator(dashboard)와 차트 SQL 동일 정책 — SQL은 `LAG()` + `IS DISTINCT FROM` (NULL-safe 비교)으로 직전 row와 boot_time 차이 시 delta NULL 처리.
 - Reboot/Restart 이벤트 차트 vertical marker로 운영 가시성.
+- 상세 메커니즘: `docs/architecture/agent.md` "활용 중인 필드" + `docs/architecture/db/timescaledb.md` `_chart_*` 패턴.
 
 ### 운영 가시성·시그널
 - 시계 invariant 로그 — `boot_time > agent_started_at` 또는 `agent_started_at > collected_at` 위반 시 warning (VM 시계 동기화 문제 조기 감지).
@@ -239,126 +221,24 @@ cp infra/agent.env.example infra/agent.env  # 에이전트 secret 채널 (최초
 ./dev-down.sh  # limactl delete + docker compose down -v (LIMA_VMS 단일 진실 source)
 ```
 
-### C. prod 기동 (참고)
+### C. prod 기동 / D. OpenStack staging (예상 시나리오)
 
-`secrets/*` 파일 + 명시적 compose 호출. dev override 자동 적용 안 됨.
-
-```bash
-# 1. secret 파일 작성 (강한 random)
-printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
-printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
-chmod 0400 secrets/postgres_password secrets/rabbitmq_password
-
-# 2. 호스트 측 secret 사전 검증 (mode·git tracking·길이 — Layer 1)
-./scripts/check-prod-secrets.sh
-
-# 3. 기동 (migrate 서비스가 alembic upgrade head를 자동 실행 후 종료, 그 다음 web/others 기동)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-
-# 큰 schema 변경 전 미리 검토하고 싶으면 (선택):
-docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate alembic history
-docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate alembic current
-
-# 종료
-docker compose -f docker-compose.yml -f docker-compose.prod.yml down
-```
-
-운영 체크리스트: `docs/operations/dev-prod.md` 10절.
-
-### D. OpenStack staging (분산 4 VM, 예상 시나리오)
-
-사내 폐쇄망 OpenStack tenant에 분산 배포 예상 시나리오 (ADR 0006 — 본 시점 검토 중인 안, 실 도입 시 변경 가능). bastion VM(수동 생성)에서 다음 실행:
-
-```bash
-cd deploy/openstack
-
-# 사전 준비
-cp terraform/terraform.tfvars.example terraform/terraform.tfvars   # 실 값 채움
-cp ansible/group_vars/all/vault.yml.example ansible/group_vars/all/vault.yml
-ansible-vault encrypt ansible/group_vars/all/vault.yml --vault-password-file ~/.vault-pass
-
-export OS_CLOUD=assessment-engine                    # ~/.config/openstack/clouds.yaml의 cloud 키
-export OPENSTACK_KEY_PATH=~/.ssh/openstack-key.pem
-
-# 전체 배포 (인프라 + DB + MW + 앱)
-./scripts/deploy.sh up
-
-# 코드만 재배포
-./scripts/deploy.sh update-app
-
-# 전체 제거
-./scripts/deploy.sh down
-```
-
-자세한 절차·트러블슈팅은 `deploy/openstack/README.md`.
+dev 집중 범위 초과 — 명령·체크리스트는 분기 위임:
+- prod 기동(`secrets/*` + 명시 compose 호출): `docs/operations/dev-prod.md`
+- OpenStack 분산 4 VM 배포: `docs/operations/scenarios/openstack.md` + `deploy/openstack/README.md` (ADR 0006, 실 도입 시 정정 의무)
 
 ---
 
 ## 데이터베이스 스키마 관리 (Alembic)
 
-dev/staging/prod 모든 환경이 Alembic 마이그레이션 1개 진실로 schema를 관리한다. `docker compose up` 시 자동으로 `migrate` 컨테이너가 `alembic upgrade head`를 1회 실행하고 종료한 뒤, 그 결과 위에 web/consumer/worker/scheduler가 기동한다.
+모든 환경 Alembic 마이그레이션 1개 진실. `docker compose up` 시 `migrate` 컨테이너가 `alembic upgrade head` 1회 실행 후 종료, 그 위에 앱 서비스 기동.
 
-### 핵심 원칙
+핵심:
+- ORM 모델 변경 시 마이그레이션 파일 동시 작성 의무 (PR에 함께 commit). 한쪽만 올리면 다른 개발자 환경 깨짐.
+- 새 마이그레이션: `docker compose run --rm migrate alembic revision --autogenerate -m "..."` → `migrations/versions/*.py` 검토 (hypertable·CREATE EXTENSION·partial index는 수동 `op.execute()` 보강) → 라운드트립 검증(`upgrade head` → `downgrade -1` → `upgrade head`).
+- `alembic check` CI(`.github/workflows/alembic-check.yml`)가 drift 차단 — 모델만 바꾸고 마이그레이션 누락 시 PR reject.
 
-- ORM 모델 (`src/assessment_engine/db/models/*.py`)을 변경하면 반드시 마이그레이션 파일을 함께 만들어야 한다. dev 환경도 마이그레이션 없이는 schema가 갱신되지 않는다.
-- 마이그레이션 파일은 `migrations/versions/<revision>_<설명>.py`. PR에 ORM 모델 변경과 함께 commit.
-- 마이그레이션 파일은 `upgrade()` + `downgrade()` 양방향이어야 한다. autogenerate가 만든 downgrade도 반드시 검토.
-
-### 일상 작업 흐름
-
-A. 모델을 변경했을 때 — 새 마이그레이션 만들기
-
-```bash
-# 1) ORM 모델 (src/assessment_engine/db/models/*.py) 수정한 후
-
-# 2) DB가 띄워진 상태에서 autogenerate로 마이그레이션 stub 생성
-docker compose run --rm migrate alembic revision --autogenerate -m "add server_uuid column"
-
-# 3) 생성된 migrations/versions/<revision>_*.py 파일 열어 검토
-#    - 잘못 추론된 부분 수정 (autogenerate 한계)
-#    - hypertable·CREATE EXTENSION·partial index·CHECK 제약 등은 수동 op.execute() 보강
-#    - downgrade()도 확인
-
-# 4) 마이그레이션 적용 (dev — up이 자동 실행하지만, 변경분만 즉시 적용하고 싶으면)
-docker compose run --rm migrate alembic upgrade head
-
-# 5) 라운드트립 검증 — 한 단계 내렸다가 다시 올려보고 깨지지 않는지 확인
-docker compose run --rm migrate alembic downgrade -1
-docker compose run --rm migrate alembic upgrade head
-
-# 6) commit 시 (1) ORM 모델 (2) 마이그레이션 파일 함께 — 한쪽만 올리면 다른 개발자 환경이 깨진다
-git add src/assessment_engine/db/models/ migrations/versions/
-git commit -m "..."
-```
-
-B. 다른 개발자의 변경을 pull 받았을 때
-
-```bash
-git pull
-docker compose up -d   # migrate 컨테이너가 새 마이그레이션 자동 적용
-```
-
-별도 명령 없음 — `up`만으로 schema가 최신화된다. 만약 위 자동 적용이 미덥지 않다면 `docker compose run --rm migrate alembic upgrade head`를 명시 실행.
-
-C. 현재 상태 확인
-
-```bash
-docker compose run --rm migrate alembic current       # 현재 적용된 revision
-docker compose run --rm migrate alembic history       # 마이그레이션 이력
-docker compose run --rm migrate alembic heads         # 적용 가능한 head (branch 분기가 있는 경우만 의미)
-docker compose run --rm migrate alembic check         # ORM 모델 vs 마이그레이션 drift 검출
-```
-
-`alembic check`는 CI에서도 돌아간다 (`.github/workflows/alembic-check.yml`). 모델만 바꾸고 마이그레이션을 안 만들면 PR이 막힌다.
-
-### 안전 규약
-
-- 절대 같은 `revision` ID를 두 개 만들지 말 것 (autogenerate가 처리하지만 수동 작성 시 주의).
-- prod에 적용하기 전 staging에서 똑같은 마이그레이션을 먼저 적용해 검증.
-- 마이그레이션 안에 `op.execute("DROP TABLE ...")` 같은 파괴적 SQL을 쓸 때는 데이터 백업 확인.
-- 새 hypertable·extension·partial index는 autogenerate가 못 잡으므로 직접 `op.execute()` 작성.
-
-자세한 운영 절차·트러블슈팅은 `docs/operations/alembic.md`.
+상세 명령·워크플로·트러블슈팅: `docs/operations/alembic.md` (CLAUDE.md #C4).
 
 ---
 
@@ -369,7 +249,7 @@ docker compose run --rm migrate alembic check         # ORM 모델 vs 마이그�
 | http://localhost:8000/servers/ | 대시보드 Web UI (목록 / 활용률·프로비저닝 도넛 / 주의 신호 / 발견 / Install / Export / 보고서 진입점) |
 | http://localhost:8000/servers/report?ids=...&view=customer&period_days=14 | 고객 보고서 (양식 A — KPI + 위험도 요약) |
 | http://localhost:8000/servers/report?ids=...&view=engineer&period_days=14 | 엔지니어 보고서 (양식 B — 15컬럼 정량 + 자동 진단) |
-| http://localhost:8000/health | 헬스체크 (#F14 shallow) |
+| http://localhost:8000/health | 헬스체크 (shallow — 컨테이너 healthcheck용) |
 | http://localhost:8000/docs | FastAPI Swagger UI (discovery·tasks·exports·diagnostics·chart 모든 endpoint) |
 | http://localhost:8000/zconverter.tar.gz | Agent install bundle (mode=0o755, ADR 0002·deliverables.md) |
 | http://localhost:15672 | RabbitMQ 관리 콘솔 |
@@ -395,36 +275,20 @@ python -m pytest tests/unit/ # 단위만 — DB 무관, 빠름 (~0.2s)
 
 ## 파이프라인 검증 (Lima VM)
 
-에이전트(C 바이너리) → RabbitMQ → Consumer → DB → Web UI 전체 파이프라인을 실제 VM 환경에서 검증한다.
-Lima로 VM 7대를 띄우고(Debian 12/13 · Ubuntu 24.04 · CentOS Stream 9 · openSUSE Leap 15 · Rocky 9 · AlmaLinux 9), 각 VM에서 에이전트가 메트릭을 발행해 포털에 수집되는 것 + 시연 분류 분포·attention 발화를 직접 확인한다.
+에이전트(C) → RabbitMQ → Consumer → DB → Web UI 전체 파이프라인을 7 VM(Debian 12/13·Ubuntu 24.04·CentOS Stream 9·openSUSE Leap 15·Rocky 9·AlmaLinux 9) 실제 환경에서 검증 + 시연 분류·attention 분포 가시화.
 
-진행 순서는 시연 가시화 우선:
-1. `web-server-01` — attention.agent_unstable (1m 후 첫 restart, 시간당 20회)
-2. `offline-server-01` — gap_warnings (5m+ 끊김 후 발화) + insufficient_data
-3. `app-server-01` — under_provisioned (boot-time swap_trigger)
-4. `monitor-server-01` — optimal (medium 부하)
-5. `mq-server-01` / `cache-server-01` / `db-server-01` — over_provisioned (light)
+진행 순서(시연 가시화 우선): web(`agent_unstable` 1m 후) → offline(`gap_warnings` 5m+) → app(under_provisioned, swap_trigger) → monitor(optimal) → mq·cache·db(over_provisioned).
 
-기동·종료 명령은 위 [실행 B](#b-docker--lima-풀-파이프라인-dev) 참조. VM 매트릭스·OS 다양성·합성 부하 프로파일·dispatch 분기·누적 사고 패턴 12건: `docs/operations/lima.md`. 절차 요약은 `docs/operations/pipeline.md`.
+기동·종료 명령은 위 [실행 B](#b-docker--lima-풀-파이프라인-dev). VM 매트릭스·합성 부하·누적 사고 패턴 단일 진실: `docs/operations/lima.md`. 운영자 절차 요약: `docs/operations/pipeline.md`.
 
 ---
 
 ## 개발 문서
 
-### 시스템 설계
-- `docs/architecture` — 컴포넌트별 deep dive
-  - `agent.md` / `consumer.md` / `diagnostic.md` / `redis.md` / `rabbitmq.md`
-  - `db/` — models / dtos / repositories / timescaledb
-  - `web/` — layering / routers / services / view-models / static-assets
-  - `deliverables.md` — 산출물 흐름 (서버 발견 / Install task / JSON Export v3 / 보고서 양식 A·B)
-- `docs/operations` — 인프라·환경·배포 (docker·lima·openstack·dev-prod·env·alembic·testing·pipeline·automation-conventions)
-- `docs/adr` — Architecture Decision Records + 트레이드오프
-
-### 산출물·워크플로우 정의
-- `docs/architecture/agent.md` "Task RPC piggyback" — ZConverter Install task 등록·실행 흐름 (ADR 0002)
-- `docs/architecture/deliverables.md` — 4 산출물 흐름 통합 진입점
-
-### 핵심 운영 가이드
-- `docs/operations/pipeline.md` — Lima VM E2E 검증 절차
-- `docs/operations/dev-prod.md` — dev/prod 분리 + secret 정책 + 운영 체크리스트
+- `.claude/CLAUDE.md` — 결정·원칙·금지 단일 진실
+- `docs/architecture/` — 컴포넌트별 deep dive (agent·consumer·diagnostic·redis·rabbitmq·deliverables·inventory-export · db/* · web/*)
+- `docs/operations/` — 인프라·환경·검증 단일 진실 (docker·lima·pipeline·env·alembic·testing·dev-prod·conventions·observability)
+- `docs/operations/scenarios/` — 스코프 초과 예상 시나리오 (OpenStack 등)
+- `docs/adr/` — Architecture Decision Records
+- `docs/tradeoffs.md` — 의식적 설계 선택과 한계 (T1~T11)
 - `docs/operations/env.md` — 환경변수 전체 키 목록

@@ -1,6 +1,6 @@
 # Repository 계층
 
-Consumer / Web / Diagnostic 워커 — 3개 추상 인터페이스 `BaseCollectRepository` / `BaseQueryRepository` / `BaseDiagnosticRepository` (ADR 0004). 라우터·핸들러·서비스는 추상에만 의존, 구체 구현체 import는 composition root(`web/deps.py` / `consumer/main.py` / `diagnostic/main.py` / `diagnostic/scheduler.py`)만.
+정책: CLAUDE.md #C2 · #F4. 3개 추상 인터페이스 `BaseCollectRepository`(Consumer) / `BaseQueryRepository`(Web) / `BaseDiagnosticRepository`(워커, ADR 0004). 구체 구현체 import는 composition root(`web/deps.py` / `consumer/main.py` / `diagnostic/main.py` / `diagnostic/scheduler.py`)만.
 
 ## Collect 계층 — `BaseCollectRepository` (Consumer)
 
@@ -50,14 +50,23 @@ Consumer / Web / Diagnostic 워커 — 3개 추상 인터페이스 `BaseCollectR
 |--------|------|
 | `enqueue(job: DiagnosticJobCreate) -> str \| None` | active partial UNIQUE 충돌 시 None (기존 job 그대로 반환) |
 | `get_active_by_hash(scope, input_hash)` | 더블클릭 방어 lookup — pending/running 활성 job 1건 반환 |
-| `get_latest_succeeded(scope, server_public_id, time_range)` | SSR latest 카드 |
-| `get_latest_by_context(scope, time_range, server_public_id?)` | anchor_at 무관 (JSONB 검색) 최근 결과 |
-| `get_many_latest_by_context_server(public_ids, time_range)` | 보고서 batch fetch (#C5 N+1 회피) |
+| `get_latest_succeeded(scope, input_hash)` | input_hash 정확 매칭 latest |
+| `get_latest_by_context(scope, time_range, server_public_id?)` | anchor_at 무관 (JSONB 검색) 최근 결과 — SSR latest 카드 |
+| `get_many_latest_by_context_server(time_range, public_ids)` | 보고서 batch fetch (#C5 N+1 회피, DISTINCT ON) |
 | `get_by_id(job_id)` / `get_many_by_ids(job_ids)` | polling 응답 단건/batch |
 | `mark_running(job_id, stage)` / `update_progress_stage` | 워커 stage UPDATE |
 | `mark_succeeded(job_id, result)` / `mark_failed(job_id, error_message)` | 최종 상태 전이 |
-| `list_recent(scope?, limit, offset)` | 진단 이력 페이지 |
+| `list_recent(days, scope?, server_public_ids?, limit)` | 진단 이력 페이지 — created_at DESC |
 | `delete_retention(older_than_days)` | 스케줄러 retention DELETE |
+
+interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedelta(hours=N)` (SQLAlchemy idiomatic — Python timedelta가 PostgreSQL interval로 자동 변환·bind 파라미터 안전, C5 의무). f-string `text("interval '{N} days'")` 금지.
+
+상수 카탈로그 (`base_diagnostic_repository.py`):
+- `DiagnosticTimeRange` Literal — 차트 TimeRange와 동일 7개
+- `DIAGNOSTIC_RANGE_DAYS` — TimeRange -> float day 매핑 (fraction 지원)
+- `DIAGNOSTIC_RANGE_LABEL_KR` — UI/narrative 한국어 라벨
+- `CLASSIFICATION_LABEL_KR` — USE Method 분류 라벨 (`diagnostic_mapper` view + `llm/mock` narrative 공용)
+- `DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"` — F10 단일 진실 (scheduler 발화·service default)
 
 ### 타입 별칭 (`base_query_repository.py`)
 - `MetricType` Literal — 17개 chart metric
@@ -72,7 +81,7 @@ Consumer / Web / Diagnostic 워커 — 3개 추상 인터페이스 `BaseCollectR
 
 ## INSERT 통일 — `pg_insert` + `on_conflict_do_nothing`
 
-시계열 4테이블 모두 동일 패턴 적용 (CLAUDE.md #D2 2단 방어). 자연키 카탈로그는 `docs/architecture/redis.md` "멱등성 — 시계열 자연키 카탈로그" 절.
+시계열 4테이블 모두 동일 패턴 적용(CLAUDE.md #D2 2단 방어). 자연키 카탈로그: `docs/architecture/db/models.md` "시계열 5개 테이블 자연키 UNIQUE" 표.
 
 ## `.returning()` + `scalar_one`
 

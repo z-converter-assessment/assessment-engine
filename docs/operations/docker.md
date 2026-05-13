@@ -1,12 +1,8 @@
 # Docker
 
-## 사용 맥락
+정책: CLAUDE.md #A. 본 문서는 docker-compose 운영 단일 진실 — Dockerfile·compose 파일 구조·서비스 카탈로그·healthcheck·기동 순서.
 
-docker-compose는 엔진 그 자체다. web·consumer·DB·MQ·Redis 전체 스택을 단일 `docker-compose.yml`로 구성하며, 이 묶음이 고객사 네트워크 내에 설치되는 배포 단위다.
-
-개발 환경에서는 호스트 머신에서 docker-compose를 올리고, Lima VM들이 에이전트를 실행해 RabbitMQ에 메시지를 발행하는 구조로 전체 파이프라인을 검증한다 (`dev-up.sh`가 두 단계를 순서대로 기동).
-
-Python 애플리케이션(web·consumer)만 로컬 빌드(`Dockerfile`)하고, 나머지 인프라 서비스(postgres·rabbitmq·redis)는 공식 이미지를 그대로 사용한다.
+docker-compose는 엔진 그 자체 — web·consumer·diagnostic-worker·diagnostic-scheduler·postgres·rabbitmq·redis·migrate 8 서비스가 고객사 네트워크 내 설치 단위. Python 앱(web·consumer·worker·scheduler·migrate)은 로컬 빌드 단일 이미지 + command 분기, 인프라(postgres·rabbitmq·redis)는 공식 이미지.
 
 ---
 
@@ -22,7 +18,7 @@ dev-up.sh                     — Docker → migrate → web 헬스체크 → Li
 dev-down.sh                   — Lima(limactl stop + delete) → docker compose down -v
 ```
 
-OpenStack staging 분산 배포(`deploy/openstack/compose/` 분리 compose 3종)는 ADR 0006 단일 진실.
+OpenStack 분산 배포는 예상 시나리오 — `docs/operations/scenarios/openstack.md`.
 
 ---
 
@@ -191,22 +187,6 @@ environment:
 - `start_period: 10s` — web lifespan(`CREATE EXTENSION + create_all + create_hypertable`)이 완료될 시간 확보. 이 구간의 실패는 `retries`에 포함되지 않는다.
 - 헬스 엔드포인트(`/health`)는 단순 `{"status": "ok"}` JSON. DB·Redis 연결 검사 안 함 (deep healthcheck 안 함).
 
-### Kubernetes Health Probes 분리 (#F14 도입 시)
-
-본 프로젝트 현재 docker-compose 단일 healthcheck (`/health` shallow) — 의무 0. Kubernetes 마이그레이션 시 분리 검토:
-
-| Probe | 경로 | 검증 범위 | 실패 시 동작 |
-|-------|------|----------|-------------|
-| livenessProbe | `/livez` (현 `/health`와 동일 — shallow) | 프로세스 alive | 컨테이너 재시작 |
-| readinessProbe | `/readyz` (deep — DB·MQ·Redis ready) | 외부 의존 ready | Service endpoint에서 제외, 트래픽 차단 (재시작 안 함) |
-
-분리 사유: 현재 단일 `/health`에 deep check를 추가하면 외부 장애 시 컨테이너 재기동 폭주 사고 발생 (#F14 금지 항목). Kubernetes는 두 probe를 분리해 외부 의존 장애와 프로세스 사망을 다르게 처리한다.
-
-도입 시 의무:
-- 별도 ADR (분리 사유·외부 의존 timeout·ready 판정 기준 명시)
-- `/readyz` 안 외부 의존 검사는 짧은 timeout (DB ping 1s, Redis ping 500ms 등) — probe 자체가 트래픽 부하가 되지 않도록.
-- `/livez`는 본 `/health`와 동일 단순 응답 유지.
-
 ### 기동 순서 (`depends_on`)
 
 ```
@@ -234,24 +214,11 @@ ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migra
 
 ## dev-up.sh / dev-down.sh
 
-### dev-up.sh
-```
-[1/4] docker compose up -d --build
-[2/4] migrate(alembic upgrade head) 완료 대기 (최대 180초)
-[3/4] web 헬스체크 대기 (최대 180초)
-[4/4] limactl start + agent install (7 VM, 시연 가시화 순서 — `docs/operations/lima.md`)
-```
+운영자 절차·VM 매트릭스: `docs/operations/pipeline.md` + `docs/operations/lima.md`. 본 절은 docker 관점 동작만:
 
-- web 헬스체크 통과 후에만 limactl start 진입 — 에이전트가 처음 inventory를 발행할 때 RabbitMQ가 healthy 상태여야 정상 처리.
-- 헬스체크 타임아웃(180s) 초과 시 migrate/web 로그 30라인 dump 후 exit.
-
-### dev-down.sh
-```
-[1/2] limactl stop -f + delete -f (7 VM, source dev-up.sh로 LIMA_VMS 단일 진실)
-[2/2] docker compose down -v
-```
-
-`-v`로 postgres_data 볼륨 삭제. 다음 `dev-up.sh`는 빈 DB에서 시작하므로 `migrate` 컨테이너가 `alembic upgrade head`로 모든 schema·hypertable 신규 생성 후 exit.
+- `dev-up.sh` [1/4] `docker compose up -d --build` → [2/4] migrate 완료 대기(180s) → [3/4] web 헬스체크(180s) → [4/4] Lima 7 VM.
+- 헬스체크 타임아웃 초과 시 migrate/web 로그 30라인 dump 후 exit.
+- `dev-down.sh`: Lima 7 VM 제거 → `docker compose down -v`(postgres_data 삭제). 다음 dev-up은 빈 DB에서 시작 → `migrate`가 모든 schema·hypertable 신규 생성.
 
 ---
 

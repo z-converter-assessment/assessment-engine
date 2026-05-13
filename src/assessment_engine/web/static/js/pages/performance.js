@@ -8,7 +8,8 @@
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, RANGE_MS, COLORS,
-        fmtKbChart, safeArray, fetchRebootEvents, applyRebootMarkers } = ChartUtils;
+        fmtKbChart, safeArray, fetchRebootEvents, applyRebootMarkers,
+        buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
 
 
 const PERF_IOPS_SUGGESTED_MAX = 200;              // HDD 랜덤 I/O 한계(~100–200 IOPS) 기준
@@ -97,60 +98,15 @@ function makePerfOptions(yAxisOpts, fmtFn) {
   };
 }
 
-/* avg+max ghost 데이터셋 빌드
- * dashFn(dim) → borderDash array — 물리/가상 구분 등에 사용 */
+/* avg+max ghost 데이터셋·legend — ChartUtils.buildAvgMaxDatasets/buildAvgMaxLegend 위임 */
 function buildDatasets(avgRows, maxRows, bMs, grid, labelOverride, dashFn) {
-  const dims = [...new Set([...avgRows, ...maxRows].map(r => r.dimension || ''))];
-  const datasets = [];
-  dims.forEach((dim, i) => {
-    const color = COLORS[i % COLORS.length];
-    const dash  = dashFn ? dashFn(dim) : [];
-    const avgMap = {}, maxMap = {};
-    for (const r of avgRows) if ((r.dimension || '') === dim)
-      avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
-    for (const r of maxRows) if ((r.dimension || '') === dim)
-      maxMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
-
-    const avgData         = grid.map(t => avgMap[t] ?? null);
-    const realMaxData     = grid.map(t => maxMap[t] ?? null);
-    const bufferedMaxData = grid.map(t => avgMap[t] == null ? null : (maxMap[t] ?? avgMap[t]));
-
-    datasets.push({
-      label: labelOverride || dim || 'Value',
-      data: avgData,
-      borderColor: color, backgroundColor: color + '28',
-      borderWidth: 2, borderDash: dash,
-      pointRadius: 0, pointHoverRadius: 3,
-      tension: 0.3, fill: '+1', spanGaps: false,
-    });
-    datasets.push({
-      label: (labelOverride || dim || 'Value') + '__max',
-      data: bufferedMaxData, realData: realMaxData,
-      borderColor: 'transparent', backgroundColor: 'transparent',
-      borderWidth: 0, pointRadius: 0, pointHoverRadius: 0,
-      fill: false, spanGaps: false,
-    });
+  return buildAvgMaxDatasets(avgRows, maxRows, bMs, grid, {
+    label: labelOverride, dashFn, pointRadius: 0,
   });
-  return datasets;
 }
 
 function buildLegend(containerId, chart, codeLabel = false) {
-  const el = document.getElementById(containerId);
-  if (!el || !chart) { if (el) el.innerHTML = ''; return; }
-  const avgDatasets = chart.data.datasets.filter((_, i) => i % 2 === 0);
-  el.innerHTML = avgDatasets.map(ds => {
-    const isDash = ds.borderDash && ds.borderDash.length > 0;
-    const lineHtml = isDash
-      ? `<svg width="20" height="3" style="flex-shrink:0;"><line x1="0" y1="1.5" x2="20" y2="1.5" stroke="${ds.borderColor}" stroke-width="2" stroke-dasharray="4 2"/></svg>`
-      : `<span style="width:20px; height:3px; border-radius:2px; background:${ds.borderColor}; flex-shrink:0;"></span>`;
-    const labelHtml = codeLabel
-      ? `<code style="font-size:11px; background:#f1f5f9; padding:1px 5px; border-radius:3px; color:#334155;">${ds.label}</code>`
-      : `<span style="font-size:12px; color:#475569;">${ds.label}</span>`;
-    return `<span style="display:flex; align-items:center; gap:5px;">
-      ${lineHtml}
-      ${labelHtml}
-    </span>`;
-  }).join('');
+  return buildAvgMaxLegend(containerId, chart, { codeLabel });
 }
 
 function setChart(canvasId, emptyId, avgRows, yAxisOpts, fmtFn, datasets, labels) {

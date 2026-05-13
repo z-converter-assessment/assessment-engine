@@ -31,6 +31,19 @@ DIAGNOSTIC_RANGE_LABEL_KR: dict[str, str] = {
     "30d": "30일",
 }
 
+# USE Method 분류 라벨 — mapper(view) + mock LLM(narrative) 양쪽 import. 분류 추가 시 본 dict만 갱신.
+CLASSIFICATION_LABEL_KR: dict[str, str] = {
+    "idle":              "idle",
+    "shutdown":          "shutdown 검토",
+    "over_provisioned":  "over-provisioned",
+    "under_provisioned": "under-provisioned",
+    "optimal":           "optimal",
+    "insufficient_data": "데이터 부족",
+}
+
+# 진단 발행 기본 윈도우 — service default·scheduler 발화·UI 기본값 단일 진실 (F10).
+DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"
+
 
 class BaseDiagnosticRepository(ABC):
     """AI 진단 job 영속성 인터페이스 (ADR 0004).

@@ -313,44 +313,35 @@ def test_donut_segment_from_rec_mapping(rec, expected_key):
     assert _DONUT_SEGMENT_FROM_REC[rec] == expected_key
 
 
-# ─── capacity_breakdown (자원 부족 카드 우측 범례) ────────────────────────
+# ─── CapacityWarningItem.triggers (3종 항상 노출) ────────────────────────
 
-def test_capacity_breakdown_always_shows_three_categories():
-    """범례 3종(스왑/CPU/메모리) 항상 노출 (count 0 포함) — 카드 본질 명시."""
-    from assessment_engine.web.services.mappers import build_capacity_breakdown
-    items = [
-        to_capacity_warning_item(_raw(swap_used=True)),
-        to_capacity_warning_item(_raw(swap_used=True)),
-        to_capacity_warning_item(_raw(cpu_p95=95.0, mem_p95=90.0)),  # CPU+메모리 2개 trigger
-        to_capacity_warning_item(_raw(cpu_p95=95.0)),                # CPU만
-    ]
-    breakdown = build_capacity_breakdown(items)
-    labels = [b.label for b in breakdown]
-    counts = {b.label: b.count for b in breakdown}
+def test_capacity_warning_triggers_always_three_categories():
+    """CapacityWarningItem.triggers는 3종(스왑/CPU/메모리) 항상 — count 0 자리 포함, 카드 본질 명시."""
+    item = to_capacity_warning_item(_raw(swap_used=True))
+    labels = [t.label for t in item.triggers]
     assert labels == ["스왑", "CPU", "메모리"]
-    # 한 서버가 CPU+메모리 둘 다 trigger면 각각 카운트 — CPU: 2 (cpu+mem 서버 1대 + CPU 서버 1대)
-    assert counts == {"스왑": 2, "CPU": 2, "메모리": 1}
+    # swap만 active, 나머지 inactive
+    active = {t.label: t.active for t in item.triggers}
+    assert active == {"스왑": True, "CPU": False, "메모리": False}
 
 
-def test_capacity_breakdown_colors_hue_separated():
-    """3 카테고리 색이 hue 별로 명확히 분리 — 한눈 구분 용이."""
-    from assessment_engine.web.services.mappers import build_capacity_breakdown
-    breakdown = build_capacity_breakdown([to_capacity_warning_item(_raw(swap_used=True, cpu_p95=95.0, mem_p95=90.0))])
-    colors = {b.label: b.color for b in breakdown}
+def test_capacity_warning_triggers_multi_active():
+    """한 서버가 swap+CPU+메모리 동시 trigger 가능 — 각 active=True 독립."""
+    item = to_capacity_warning_item(_raw(swap_used=True, cpu_p95=95.0, mem_p95=90.0))
+    active = {t.label: t.active for t in item.triggers}
+    assert active == {"스왑": True, "CPU": True, "메모리": True}
+
+
+def test_capacity_warning_triggers_colors_hue_separated():
+    """3 카테고리 색이 hue 별 명확히 분리 — 단일 진실(`_CAPACITY_TRIGGER_COLORS`)."""
+    item = to_capacity_warning_item(_raw(swap_used=True, cpu_p95=95.0, mem_p95=90.0))
+    colors = {t.label: t.color for t in item.triggers}
     assert colors == {
         "스왑":   "#dc2626",  # 빨강
         "CPU":    "#2563eb",  # 파랑
         "메모리": "#8b5cf6",  # 보라
     }
     assert len(set(colors.values())) == 3
-
-
-def test_capacity_breakdown_empty_when_no_items_still_shows_legend():
-    """items=[]여도 3종 모두 노출 (count 0) — 카드 의미 명시는 데이터에 의존 안 함."""
-    from assessment_engine.web.services.mappers import build_capacity_breakdown
-    breakdown = build_capacity_breakdown([])
-    assert len(breakdown) == 3
-    assert all(b.count == 0 for b in breakdown)
 
 
 # ─── build_report_summary_bullets — 신호 9종 트리거 ──────────────────────
@@ -478,9 +469,12 @@ def test_capacity_warning_item_trigger_colors_from_single_source():
 
 def test_disk_days_warning_item_fields():
     item = to_disk_days_warning_item("pid", "h", "/data", 12, 87.0)
-    assert item.mount == "/data"
-    assert item.days_until_full == 12
-    assert item.used_pct == 87.0
+    assert item.mount_path == "/data"
+    assert item.badge_text == "12일"
+    assert item.badge_class == "rec-under_provisioned"
+    assert item.link_href == "/servers/pid/storage"
+    assert item.link_text == "h"
+    assert item.meta_text == "87%"
 
 
 @pytest.mark.parametrize("os_id, os_version, should_match", [
@@ -488,9 +482,9 @@ def test_disk_days_warning_item_fields():
     ("rhel",   "7.4", True),
     ("ubuntu", "18.04.5", True),
     ("debian", "10.11", True),
+    ("centos", "8",     True),   # CentOS Stream 8 EOL 2024-05-31
     ("ubuntu", "22.04", False),
     ("rocky",  "9.6",   False),
-    ("centos", "8",     False),
 ])
 def test_os_eol_matching(os_id, os_version, should_match):
     raw = _raw(os_id=os_id, os_version=os_version)
@@ -500,7 +494,10 @@ def test_os_eol_matching(os_id, os_version, should_match):
 
 def test_agent_unstable_item_fields():
     item = to_agent_unstable_item("pid", "h", 5)
-    assert item.restart_count == 5
+    assert item.badge_text == "5회"
+    assert item.badge_class == "rec-over_provisioned"
+    assert item.link_href == "/servers/pid"
+    assert item.link_text == "h"
 
 
 # ─── _OS_EOL dict — 정적 매핑 sanity ─────────────────────────────────────

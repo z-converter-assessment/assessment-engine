@@ -1,6 +1,6 @@
 # RabbitMQ
 
-본 문서는 RabbitMQ broker 운영의 단일 진실. 코드(`src/assessment_engine/consumer/main.py`)·인프라(`docker-compose.yml`)·계약(에이전트 - 엔진)에 흩어진 broker 관련 결정을 한 곳에 모은다. 토폴로지 코드 동작 관점은 `docs/architecture/consumer.md`.
+정책: CLAUDE.md #B. 본 문서는 broker 토폴로지·큐 정책·dev/prod 분기 단일 진실. 코드 동작은 `docs/architecture/consumer.md`.
 
 ---
 
@@ -43,7 +43,7 @@ vhost: `/assessment` 단일 사용. broker 한 대를 다른 도메인 시스템
 
 `server.error` 300s TTL: 알림용 노이즈 방지. DB 저장 없어 짧은 TTL로 충분.
 
-`server.inventory` TTL/상한 없음: one-shot 메시지가 소실되면 다음 1시간 주기 재발행으로 자동 회복 (CLAUDE.md #B1).
+`server.inventory` TTL/상한 없음: one-shot 메시지가 소실되면 다음 1시간 주기 재발행으로 자동 회복(CLAUDE.md #B).
 
 `task.result` 정책 근거:
 - 24h TTL: 운영자가 install 결과를 하루 안에 확인. 누적 적재 방지.
@@ -102,27 +102,18 @@ dev 이점:
 
 #### 권한 모델 — dev 단일 user vs prod 4-user
 
-dev: 단일 user `assessment` (admin 권한). publish · consume · queue/exchange declare 모두 자유. credential 한 개 유출 시 broker 전체 무방비.
+dev: 단일 user `assessment` admin 권한 — declare 자유, 한 credential 유출 시 broker 무방비.
 
-prod: 각 역할에 필요한 권한 비트만 부여 (least privilege).
+prod: 역할별 least-privilege 4 user.
 
 | user | configure / write / read | 역할 |
 |------|--------------------------|------|
-| `agent-publisher` | `none / ^assessment$ / ^amq\.rabbitmq\.reply-to.*$` | 에이전트가 사용. exchange `assessment`에 inventory/metrics/error/task_result publish + `amq.rabbitmq.reply-to` pseudo-queue로 Task RPC reply 수신. queue declare 불가, 정상 큐 consume 불가 |
-| `worker-consumer` | `none / ^assessment$ / ^(server\.(inventory\|metrics\|error)\|task\.result)$` | 엔진 consumer가 사용. 정상 큐 read·ack + Task RPC reply publish(`amq.rabbitmq.reply-to`로). DLQ·declare 불가 |
-| `dlq-handler` | `none / none / ^(server\.(inventory\|metrics\|error)\|task\.result)\.dead$` | DLQ 메시지 분석·재처리 도구용 (별도 운영 도구). DLQ만 read |
-| `topology-admin` | `.* / .* / .*` | 시스템 초기 셋업 시 1회만 사용. exchange / queue / DLX declare 후 권한 회수 또는 user 삭제. 평시 credential 노출 없음 |
+| `agent-publisher` | `none / ^assessment$ / ^amq\.rabbitmq\.reply-to.*$` | 에이전트 publish + Task RPC reply 수신 |
+| `worker-consumer` | `none / ^assessment$ / ^(server\.(inventory\|metrics\|error)\|task\.result)$` | consumer read·ack + reply publish, DLQ·declare 불가 |
+| `dlq-handler` | `none / none / ^(server\.(inventory\|metrics\|error)\|task\.result)\.dead$` | DLQ read 전용 (운영 도구) |
+| `topology-admin` | `.* / .* / .*` | 초기 셋업 1회만, 이후 회수 또는 user 삭제 |
 
-왜 4개로 나누나 — 침해 시 blast radius 제한:
-- agent-publisher 유출 → publish만 가능. 큐 삭제·정상 큐 read·DLQ 조작 모두 불가
-- worker-consumer 유출 → 정상 큐 read만 가능. publish·DLQ 조작 불가
-- dlq-handler 유출 → DLQ read만 가능
-- topology-admin은 1회 사용 후 회수되므로 평시 credential 미노출
-
-dev에서 안 쓰는 이유:
-- 현재 `src/assessment_engine/consumer/main.py`가 기동 시마다 exchange / queue / DLX를 declare. dev consumer가 admin이라 자유롭게 가능.
-- production은 `topology-admin`이 one-shot bootstrap으로 declare 후 회수 → 이후 `worker-consumer`는 declare 권한 없이 이미 존재하는 큐에만 connect.
-- dev에서 큐 인자 변경 시 컨테이너 재생성 + consumer 재기동만으로 새 인자 declare됨. 4-user 모델이면 매번 `topology-admin` user 만들어 declare 후 회수하는 흐름이라 dev 사이클이 부자연스러움.
+dev에서 안 쓰는 이유: consumer가 기동 시마다 declare. 4-user 모델이면 매번 `topology-admin` 만들어 declare 후 회수하는 흐름이라 dev 사이클 부자연.
 
 ---
 

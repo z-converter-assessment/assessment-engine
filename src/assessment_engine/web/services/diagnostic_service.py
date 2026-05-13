@@ -59,16 +59,16 @@ class DiagnosticService:
         2) 신규 INSERT 시도 → 성공 시 RabbitMQ publish 후 id 반환
         3) active UNIQUE 충돌 → 기존 진행 중 id 회수
 
-        server scope에서 미존재 public_id는 즉시 _NotFound.
+        server scope에서 미존재 public_id는 즉시 DiagnosticNotFound.
         anchor_at None이면 분 단위로 truncate한 now() 사용 (같은 분 호출은 같은 input_hash).
         """
         if scope == "server":
             if not server_public_ids:
-                raise _BadRequest("server_ids required for scope='server'")
+                raise DiagnosticBadRequest("server_ids required for scope='server'")
             sid_map = await self.query_repo.resolve_server_ids(server_public_ids)
             missing = [pid for pid in server_public_ids if pid not in sid_map]
             if missing:
-                raise _NotFound(f"server not found: {','.join(missing[:5])}")
+                raise DiagnosticNotFound(f"server not found: {','.join(missing[:5])}")
             targets = server_public_ids
         else:
             targets = [None]  # environment scope — 단일 job
@@ -109,7 +109,7 @@ class DiagnosticService:
                 else:
                     # INSERT 충돌인데 active 조회 없음 (race: 조회 시점에 이미 종료된 case).
                     # skip하면 job_ids 길이가 줄어 클라이언트 혼란 — 명시적 raise.
-                    raise _RaceMiss(f"enqueue conflict but no active job (race) scope={scope}")
+                    raise DiagnosticRaceMiss(f"enqueue conflict but no active job (race) scope={scope}")
 
         return job_ids
 
@@ -239,7 +239,6 @@ def _deserialize_record(blob: str) -> DiagnosticJobRecord:
     워커 측 직렬화는 dataclasses.asdict + datetime ISO 변환 (cache_serializer 패턴 참조).
     여기는 역방향 — datetime 필드만 fromisoformat 복원.
     """
-    from datetime import datetime
     data = json.loads(blob)
     for key in ("created_at", "started_at", "finished_at"):
         v = data.get(key)
@@ -248,13 +247,13 @@ def _deserialize_record(blob: str) -> DiagnosticJobRecord:
     return DiagnosticJobRecord(**data)
 
 
-class _NotFound(Exception):
+class DiagnosticNotFound(Exception):
     """router가 HTTPException(404)로 변환."""
 
 
-class _BadRequest(Exception):
+class DiagnosticBadRequest(Exception):
     """router가 HTTPException(400)로 변환."""
 
 
-class _RaceMiss(Exception):
+class DiagnosticRaceMiss(Exception):
     """router가 HTTPException(409)로 변환 — enqueue 충돌인데 active 회수 실패."""

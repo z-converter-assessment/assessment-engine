@@ -7,7 +7,10 @@ asyncio.sleep으로 LLM latency 시뮬레이션 — UI progress_stage 단계 표
 import asyncio
 
 from assessment_engine.config import diagnostic_settings
-from assessment_engine.db.repositories.base_diagnostic_repository import DIAGNOSTIC_RANGE_LABEL_KR
+from assessment_engine.db.repositories.base_diagnostic_repository import (
+    CLASSIFICATION_LABEL_KR,
+    DIAGNOSTIC_RANGE_LABEL_KR,
+)
 from assessment_engine.diagnostic.llm.base import BaseLlmClient
 
 
@@ -32,7 +35,7 @@ def _server_narrative(payload: dict) -> str:
     mem_p95 = _fmt_num(use_method.get("memory", {}).get("p95"))
 
     action = recommendation.get("action") or "no_action"
-    classification_kr = _CLASSIFICATION_LABEL_KR.get(classification, classification)
+    classification_kr = CLASSIFICATION_LABEL_KR.get(classification, classification)
 
     base = (
         f"서버 {hostname}는 최근 {window_label} 동안 CPU p95 {cpu_p95}%, "
@@ -89,13 +92,3 @@ def _fmt_num(value) -> str:
     if isinstance(value, float):
         return f"{value:.1f}"
     return str(value)
-
-
-_CLASSIFICATION_LABEL_KR = {
-    "idle":              "idle",
-    "shutdown":          "shutdown 검토",
-    "over_provisioned":  "over-provisioned",
-    "under_provisioned": "under-provisioned",
-    "optimal":           "optimal",
-    "insufficient_data": "데이터 부족",
-}

@@ -9,9 +9,9 @@ from pydantic import BaseModel, Field
 from assessment_engine.web.deps import get_task_service
 from assessment_engine.web.services.task_service import (
     TaskCreated,
+    TaskDuplicatePending,
+    TaskNotFound,
     TaskService,
-    _DuplicatePending,
-    _NotFound,
 )
 
 tasks_router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
@@ -32,7 +32,7 @@ async def install(
 ):
     try:
         return await service.create_install_tasks(req.target_public_ids, req.source_url)
-    except _NotFound as e:
+    except TaskNotFound as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    except _DuplicatePending as e:
+    except TaskDuplicatePending as e:
         raise HTTPException(status_code=409, detail=str(e)) from e

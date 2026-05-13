@@ -1,6 +1,6 @@
 # 관측 (Observability)
 
-CLAUDE.md #F7 (로깅 정책 단일 진실)의 부속 — 분산 trace 도입 트리거와 정석 패턴. 본 프로젝트 현재 미적용 영역만 담는다. 일상 로깅 룰(레벨 가이드·payload dump 금지·시그널 빈도 제어 등)은 CLAUDE.md #F7 본문 유지.
+정책: CLAUDE.md #F7. 본 문서는 Request/Correlation ID 분산 trace 도입 트리거·정석 패턴 단일 진실 — 본 프로젝트 현재 미적용, 도입 시 별도 ADR 의무.
 
 ## Request / Correlation ID 분산 trace
 

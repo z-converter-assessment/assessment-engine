@@ -57,7 +57,7 @@
         {% if it.anchor_at %}<code style="font-size:11px;">{{ it.anchor_at }}</code>{% else %}—{% endif %}
       </td>
       <td>
-        <span class="badge {% if it.status == 'succeeded' %}badge-ok{% elif it.status == 'failed' %}badge-danger{% elif it.status == 'running' %}badge-warn{% else %}badge{% endif %}">
+        <span class="badge {{ it.status_badge_class }}">
           {{ it.status }}
         </span>
       </td>

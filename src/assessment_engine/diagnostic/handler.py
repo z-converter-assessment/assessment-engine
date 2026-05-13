@@ -11,6 +11,7 @@ from datetime import datetime
 import aio_pika
 from loguru import logger
 from redis.asyncio import Redis
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.config import diagnostic_settings
@@ -113,9 +114,13 @@ def make_diagnostic_handler(
 
                     logger.info("diagnostic succeeded job_id={} scope={}", job_id, job.scope)
 
-                except Exception as e:
-                    # LLM·통계 추출 실패 모두 status='failed'로 흡수 (운영자 polling으로 인지·재시도)
-                    # 메시지 결함은 위에서 처리 — 여기서 catch는 비즈니스 실패
+                except OperationalError:
+                    # DB 일시 장애 — DLQ 재시도 기회 (F6 fail-close). job은 pending 상태 유지.
+                    logger.exception("diagnostic db unavailable job_id={}", job_id)
+                    raise
+                except (ValueError, KeyError, IntegrityError) as e:
+                    # 비즈니스/영구 실패 (aggregator no metrics·input_params 누락·UNIQUE 위반)
+                    # status='failed'로 흡수 — 운영자 polling으로 인지·재발행
                     logger.exception("diagnostic failed job_id={}", job_id)
                     await diag_repo.mark_failed(job_id, str(e)[:500])
                     await session.commit()

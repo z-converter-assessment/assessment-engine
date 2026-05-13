@@ -61,7 +61,7 @@ class TaskService:
         sid_map = await self.query_repo.resolve_server_ids(target_public_ids)
         missing = [pid for pid in target_public_ids if pid not in sid_map]
         if missing:
-            raise _NotFound(f"server not found: {','.join(missing[:5])}")
+            raise TaskNotFound(f"server not found: {','.join(missing[:5])}")
         server_ids = [sid_map[pid] for pid in target_public_ids]
         details = await self.query_repo.get_servers(server_ids)
         detail_by_id = {d.id: d for d in details}
@@ -71,7 +71,7 @@ class TaskService:
             server_id = sid_map[public_id]
             detail = detail_by_id.get(server_id)
             if detail is None:
-                raise _NotFound(f"server detail missing: {public_id}")
+                raise TaskNotFound(f"server detail missing: {public_id}")
 
             async with self.session_factory() as session:
                 repo = self.collect_repo_factory(session)
@@ -86,7 +86,7 @@ class TaskService:
                 except IntegrityError as e:
                     # 부분 UNIQUE(uq_tasks_pending_per_server_type) 위반 — 같은 server에
                     # 같은 task_type pending 이미 존재. 운영자 더블클릭 방어.
-                    raise _DuplicatePending(
+                    raise TaskDuplicatePending(
                         f"pending task already exists for {public_id} (zconverter_install)"
                     ) from e
 
@@ -108,9 +108,9 @@ class TaskService:
         return created
 
 
-class _NotFound(Exception):
+class TaskNotFound(Exception):
     """router가 HTTPException(404)로 변환."""
 
 
-class _DuplicatePending(Exception):
+class TaskDuplicatePending(Exception):
     """router가 HTTPException(409)로 변환 — pending task 이미 존재."""

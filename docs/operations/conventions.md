@@ -1,6 +1,6 @@
 # 코딩 규약 보조
 
-CLAUDE.md #F1 (타입 어노테이션·금지 규약 단일 진실)의 부속 매뉴얼. 본 문서는 IDE 경고 분류 절차와 hook 강제 채널 카탈로그만 담는다 — 코드 작성 직접 영향 정책(`from __future__ import annotations` 금지, 런타임 데드코드 금지)은 CLAUDE.md #F1 본문 유지.
+정책: CLAUDE.md #F1. 본 문서는 IDE 경고 분류 절차와 hook 강제 채널 카탈로그 단일 진실.
 
 ## IDE 경고 대처
 

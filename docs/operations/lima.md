@@ -1,8 +1,10 @@
 # Lima
 
+본 문서는 dev 시연·파이프라인 검증 환경 단일 진실. VM 매트릭스·합성 부하·provisioning·`start_or_resume_vm` wrapper·누적 사고 패턴·운영 디버깅. 운영자 절차 요약은 `docs/operations/pipeline.md`.
+
 ## 사용 맥락
 
-Lima는 에이전트 E2E 테스트 + 시연용 분류 분포 가시화 환경. 엔진(docker-compose)은 호스트에서 실행되고, Lima가 7 VM을 띄워 실제 Linux 환경에서 에이전트가 metrics를 RabbitMQ에 발행한다. Consumer가 소비해 DB에 저장하고 web UI에서 결과를 확인하는 전체 파이프라인을 검증한다.
+Lima는 에이전트 E2E + 시연 분류 분포 가시화. 엔진(docker-compose)은 호스트, Lima 7 VM이 실제 Linux 환경에서 에이전트 metrics를 RabbitMQ에 발행 → Consumer DB 저장 → web UI 확인.
 
 ```
 [VM: web-server-01      ]   attention.agent_unstable (3분 주기 restart, 시간당 20회)
@@ -89,7 +91,7 @@ OS 다양성 매트릭스 (7 distro 모두 다름, 0 중복):
 
 원칙:
 - 분류 임계는 `recommendation.py` 모듈 상단 명명 상수 (#E3). 부하 프로파일은 임계 충족 설계.
-- `WINDOW_DAYS = 14` (#F11) — dev 시연에서 14일 못 채우면 분류 모두 `insufficient_data`. 보고서 라우터 `?period_days=1` 등 짧은 윈도우 시연 필수.
+- `WINDOW_DAYS = 14` (#F10) — dev 시연에서 14일 못 채우면 분류 모두 `insufficient_data`. 보고서 라우터 `?period_days=1` 등 짧은 윈도우 시연 필수.
 - swap_trigger 프로파일이 host CPU 부담 최소(heavy++ sustained CPU 50s 대신 boot 1회 mem burst). 한 번 swap에 page push되면 SwapUsed > 0 영구 유지 → 매 measurement에서 swap_used = True 안정 발화.
 - monitor swap은 OOM 회피 전용. yaml provision의 `vm.swappiness=1` + `dev-up.sh` post_provision 끝 `swapoff /swapfile && swapon /swapfile`로 SwapUsed=0 reset (swap_used 트리거 X, optimal 분류).
 
@@ -106,30 +108,18 @@ attention 카탈로그 발화 매핑:
 
 ---
 
-## dev-up.sh 흐름 + start_or_resume_vm wrapper
+## `start_or_resume_vm` wrapper
 
-`./dev-up.sh` 실행:
-```
-[1/4] docker compose up -d --build           # 엔진 기동
-[2/4] until migrate 완료 (최대 180s)          # alembic upgrade head init container
-[3/4] until web 헬스체크 (최대 180s)          # 스키마 준비 완료 대기
-[4/4] limactl start + agent install (7 VM)   # VM별 sync 진행
-```
-
-`start_or_resume_vm` wrapper 동작 (lima vz의 cloud-init 느린 distro 우회):
+lima vz의 cloud-init 느린 distro(Oracle Linux 9 등) 우회용:
 
 ```
-limactl start <vm> background 시작 (PID 보관)
+limactl start <vm> background (PID 보관)
 loop (3s polling):
   - SSH ready check (limactl shell echo ok)
-  - SSH ready 시점 기록
-  - SSH ready 후 60s+ 경과해도 limactl PID 안 끝나면 → 강제 PID kill (lima final requirement
-    "boot scripts must finished" stuck 우회 — Oracle Linux 9 등에서 5분+ stuck 확인)
+  - SSH ready 후 60s+ 경과해도 limactl PID 안 끝나면 → PID kill (final requirement stuck 우회)
   - 절대 cap 5분 — 초과 시 abort
-limactl PID 종료 (정상 또는 우리 kill) 후 limactl shell echo ok 재검증 → boot 성공 판정
+limactl PID 종료(정상 또는 강제 kill) 후 SSH 재검증 → boot 성공 판정
 ```
-
-이 wrapper로 lima의 final requirement check가 distro 호환성 문제로 stuck돼도 SSH 작동하면 post-provision 진행. 1차 시도 round 2에서 OL9 5분 30초 stuck 후 process kill 시 SSH OK 확인 → wrapper 도입 결정.
 
 `source dev-up.sh` 가드 (BASH_SOURCE):
 ```bash
@@ -137,7 +127,7 @@ if [ "${BASH_SOURCE[0]:-}" = "${0:-}" ]; then
   main "$@"
 fi
 ```
-직접 실행 시만 main 호출. `dev-down.sh`가 `source dev-up.sh`로 LIMA_VMS만 가져올 때는 main 자동 실행 안 함. set -u 환경에서 BASH_SOURCE 안전 access (`:-` empty default) — macOS bash 3.2 호환.
+`dev-down.sh`가 LIMA_VMS만 가져올 때 main 자동 실행 안 함. macOS bash 3.2 호환(`:-` empty default).
 
 ---
 
@@ -291,32 +281,6 @@ post_provision_vm 끝에 `if [ "$vm" = "monitor-server-01" ]` → `swapoff /swap
 `vm_mode` 함수 dispatch:
 - `offline-server-01` → `offline-once`: inventory 1회 발행 대기 15s → `systemctl stop assessment-agent` + `systemctl disable assessment-agent` + `limactl stop`. 5분 후 attention.gap_warnings 발화 (시연 의도).
 - 그 외 → `persistent`: agent restart로 publish 계속.
-
----
-
-## dev-up.sh / dev-down.sh
-
-### dev-up.sh
-```
-[1/4] docker compose up -d --build           # 엔진 기동
-[2/4] until migrate 완료 (최대 180s)
-[3/4] until web 헬스체크 (최대 180s)
-[4/4] limactl start + agent install (7 VM, 시연 가시화 순서)
-```
-
-`limactl start`가 web 헬스체크 통과 후 호출 — 에이전트 첫 inventory 발행 시 RabbitMQ + consumer ready 의무.
-
-### dev-down.sh
-```
-[1/2] limactl stop -f + delete -f (LIMA_VMS 7 VM, source dev-up.sh)
-[2/2] docker compose down -v
-```
-
-`source "$(dirname "$0")/dev-up.sh"`로 LIMA_VMS 단일 진실 가져옴. BASH_SOURCE source guard로 main 자동 실행 안 함.
-
-LIMA_VMS 외 본 프로젝트 명명 패턴(`(cache|app|web|db|legacy-mq|monitor|offline|container)-server-01`) 잔재 발견 시 알림만 (자동 삭제 안 함, 다른 프로젝트 인스턴스 보호).
-
-순서 — VM을 먼저 죽인 뒤 broker 종료 (broker 먼저 죽으면 에이전트가 silent publish 실패 로그 누적).
 
 ---
 

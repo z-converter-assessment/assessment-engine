@@ -1,23 +1,23 @@
 """diagnostic_service — input_hash·input_params 순수 함수 + submit 핵심 시나리오 (ADR 0004)."""
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from assessment_engine.db.repositories.outbound import DiagnosticJobRecord
 from assessment_engine.web.services.diagnostic_service import (
+    DiagnosticBadRequest,
+    DiagnosticNotFound,
     DiagnosticService,
-    _BadRequest,
     _build_input_params,
     _compute_hash,
     _normalize_anchor,
-    _NotFound,
     to_panel_payload,
 )
 
-_FIXED_ANCHOR = datetime(2026, 5, 12, 0, 0, 0, tzinfo=timezone.utc)
+_FIXED_ANCHOR = datetime(2026, 5, 12, 0, 0, 0, tzinfo=UTC)
 
 
 # ─── _build_input_params (scope별 키 카탈로그) ───────────────────────────
@@ -41,7 +41,7 @@ def test_build_input_params_environment_scope_drops_server_public_id():
 # ─── _normalize_anchor ──────────────────────────────────────────────────
 
 def test_normalize_anchor_truncates_seconds_microseconds():
-    raw = datetime(2026, 5, 12, 10, 30, 45, 123456, tzinfo=timezone.utc)
+    raw = datetime(2026, 5, 12, 10, 30, 45, 123456, tzinfo=UTC)
     out = _normalize_anchor(raw)
     assert out.second == 0 and out.microsecond == 0
     assert out.hour == 10 and out.minute == 30
@@ -50,12 +50,12 @@ def test_normalize_anchor_truncates_seconds_microseconds():
 def test_normalize_anchor_naive_assumed_utc():
     naive = datetime(2026, 5, 12, 10, 30)
     out = _normalize_anchor(naive)
-    assert out.tzinfo is timezone.utc
+    assert out.tzinfo is UTC
 
 
 def test_normalize_anchor_none_returns_current_minute():
     out = _normalize_anchor(None)
-    assert out.tzinfo is timezone.utc
+    assert out.tzinfo is UTC
     assert out.second == 0 and out.microsecond == 0
 
 
@@ -186,7 +186,7 @@ async def test_submit_server_scope_missing_public_id_raises_not_found(
         broker_channel=channel,
         redis=AsyncMock(),
     )
-    with pytest.raises(_NotFound):
+    with pytest.raises(DiagnosticNotFound):
         await service.submit("server", ["missing-uuid"], "14d", _FIXED_ANCHOR)
 
 
@@ -202,9 +202,9 @@ async def test_submit_server_scope_without_ids_raises_bad_request(
         broker_channel=channel,
         redis=AsyncMock(),
     )
-    with pytest.raises(_BadRequest):
+    with pytest.raises(DiagnosticBadRequest):
         await service.submit("server", None, "14d", _FIXED_ANCHOR)
-    with pytest.raises(_BadRequest):
+    with pytest.raises(DiagnosticBadRequest):
         await service.submit("server", [], "14d", _FIXED_ANCHOR)
 
 
@@ -219,9 +219,9 @@ def test_to_panel_payload_shape_matches_render_contract():
         input_hash="h",
         status="succeeded", progress_stage=None,
         result={"narrative": "x"}, error_message=None,
-        created_at=datetime(2026, 5, 12, tzinfo=timezone.utc),
-        started_at=datetime(2026, 5, 12, tzinfo=timezone.utc),
-        finished_at=datetime(2026, 5, 12, 1, 0, 0, tzinfo=timezone.utc),
+        created_at=datetime(2026, 5, 12, tzinfo=UTC),
+        started_at=datetime(2026, 5, 12, tzinfo=UTC),
+        finished_at=datetime(2026, 5, 12, 1, 0, 0, tzinfo=UTC),
         requested_by=None,
     )
     p = to_panel_payload(rec)
@@ -285,3 +285,69 @@ async def test_submit_server_scope_batch_n_servers_n_enqueues(
     job_ids = await service.submit("server", ["a", "b", "c"], "14d", _FIXED_ANCHOR)
     assert job_ids == ["j1", "j2", "j3"]
     assert exchange.publish.await_count == 3
+
+
+# ─── to_history_item (이력 페이지 mapper, P2 단일 변환) ──────────────────
+
+def test_to_history_item_shape_and_fields():
+    """이력 행은 template attribute access만 — JSONB 키·status badge·datetime은 그대로 전달."""
+    from assessment_engine.web.services.diagnostic_mapper import to_history_item
+    rec = DiagnosticJobRecord(
+        id="job-abc", scope="server",
+        input_params={
+            "server_public_id": "uuid-xyz",
+            "time_range": "7d",
+            "anchor_at": "2026-05-12T00:00:00+00:00",
+        },
+        input_hash="h", status="succeeded", progress_stage=None,
+        result={}, error_message=None,
+        created_at=datetime(2026, 5, 12, tzinfo=UTC),
+        started_at=datetime(2026, 5, 12, tzinfo=UTC),
+        finished_at=datetime(2026, 5, 12, 1, 0, 0, tzinfo=UTC),
+        requested_by="scheduler",
+    )
+    item = to_history_item(rec)
+    assert item["job_id"] == "job-abc"
+    assert item["scope"] == "server"
+    assert item["server_public_id"] == "uuid-xyz"
+    assert item["time_range"] == "7d"
+    assert item["anchor_at"] == "2026-05-12T00:00:00+00:00"
+    assert item["status"] == "succeeded"
+    assert item["status_badge_class"] == "badge-ok"
+    assert item["requested_by"] == "scheduler"
+    # datetime은 raw 그대로 전달 (KST는 template kst 필터, F2)
+    assert item["created_at"] == datetime(2026, 5, 12, tzinfo=UTC)
+
+
+def test_to_history_item_environment_scope_no_server_id():
+    """environment scope는 server_public_id 키 자체가 input_params에 없음 → None."""
+    from assessment_engine.web.services.diagnostic_mapper import to_history_item
+    rec = DiagnosticJobRecord(
+        id="job-env", scope="environment",
+        input_params={"time_range": "14d", "anchor_at": "2026-05-12T00:00:00+00:00"},
+        input_hash="h", status="running", progress_stage="extracting_stats",
+        result=None, error_message=None,
+        created_at=datetime(2026, 5, 12, tzinfo=UTC),
+        started_at=None, finished_at=None, requested_by=None,
+    )
+    item = to_history_item(rec)
+    assert item["server_public_id"] is None
+    assert item["status_badge_class"] == "badge-warn"  # running
+    assert item["finished_at"] is None
+
+
+def test_to_history_item_missing_time_range_fallback():
+    """input_params에 time_range 누락 시 표시 fallback '—' (옛 job 호환)."""
+    from assessment_engine.web.services.diagnostic_mapper import to_history_item
+    rec = DiagnosticJobRecord(
+        id="job-old", scope="environment",
+        input_params={"anchor_at": "2026-05-12T00:00:00+00:00"},
+        input_hash="h", status="failed", progress_stage=None,
+        result=None, error_message="boom",
+        created_at=datetime(2026, 5, 12, tzinfo=UTC),
+        started_at=None, finished_at=datetime(2026, 5, 12, 1, 0, 0, tzinfo=UTC),
+        requested_by=None,
+    )
+    item = to_history_item(rec)
+    assert item["time_range"] == "—"
+    assert item["status_badge_class"] == "badge-danger"  # failed

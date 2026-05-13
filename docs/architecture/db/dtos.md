@@ -1,6 +1,6 @@
 # DB DTO 카탈로그
 
-Repository - Service 경계 dataclass. ORM 모델 직접 노출 안 함.
+정책: CLAUDE.md #C2. Repository ↔ Service 경계 dataclass — ORM 모델 직접 노출 금지.
 
 ## Inbound DTO (`inbound.py`) — Service → Repository
 

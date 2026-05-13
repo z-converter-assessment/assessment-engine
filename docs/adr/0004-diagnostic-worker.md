@@ -178,3 +178,11 @@ ADR 0002와 유사 — 진단 단위가 작아지고 빈도가 폭증할 경우:
 - 2026-05-12: 진단 이력 페이지(`GET /diagnostics/history`) 신설. 운영자 회고용 — 최근 N일 발행 이력 + scope 필터.
 - 2026-05-12: 표시 파생 mapper 신설 (`web/services/diagnostic_mapper.DiagnosticPanelView`) — short_id·status_badge_class·window_label_kr·classification_label_kr·classification_badge_class·recommendation_action 등 단일 진실(P2·P5). `to_panel_payload`·API 라우터(`/api/v1/diagnostics`)가 mapper 위임. JS 두 파일(`diagnostic.js`/`diagnostic-results.js`)과 템플릿(`results.html`/`history.html`/`report.html`)의 매핑 dict 제거·view 필드 직접 사용은 별도 follow-up PR.
 - 2026-05-12: 스케줄러 cron timezone KST 명시(`zoneinfo.ZoneInfo("Asia/Seoul")`). 이전 UTC 기반 계산으로 03시 KST 의도와 9시간 차이 발생하던 문제 fix.
+- 2026-05-14: 코드 리뷰 정정 묶음:
+  - service 예외 public 전환 — `_NotFound`/`_BadRequest`/`_RaceMiss` → `DiagnosticNotFound`/`DiagnosticBadRequest`/`DiagnosticRaceMiss` (router·scheduler 외부 import라 사적 underscore 컨벤션과 모순). task_service도 동일 패턴(`TaskNotFound`/`TaskDuplicatePending`) 정정.
+  - `recommendation.py` 도메인 모듈 위치 — `web/services/` → `assessment_engine/` top-level. web과 diagnostic 양쪽이 import하는 도메인 로직이라 web service 계층 위치는 부정확.
+  - `CLASSIFICATION_LABEL_KR` 단일 진실 — `diagnostic_mapper`와 `llm/mock` 별개 사본 → `base_diagnostic_repository`에 통합. 분류 라벨 추가 시 한 곳만 갱신.
+  - `DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"` 상수화 — `base_diagnostic_repository`에 추가, scheduler 발화 코드 매직 문자열 제거.
+  - handler.py `except Exception` → 명시적 분기: `OperationalError` reraise(DLQ 재시도) + `(ValueError, KeyError, IntegrityError)` 흡수(`status='failed'`). F6 fail-close/흡수 매트릭스 일치.
+  - `text(f"interval '{N} days'")` f-string SQL → `func.now() - timedelta(days=N)` SQLAlchemy idiomatic (Python timedelta가 PostgreSQL interval로 자동 변환·bind 파라미터 안전, C5 의무). `list_recent`·`delete_retention`·scheduler `_list_active_server_public_ids` 3건.
+  - `to_history_item` mapper 신설 — `diagnostic_results.history` 라우터의 직접 dict 조립을 P2 단일 변환 진입점으로 흡수. `history.html` `status_badge_class` precompute (P3 분기 제거).

@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
-from assessment_engine.web.services.recommendation import ResourceStats, classify
+from assessment_engine.recommendation import ResourceStats, classify
 
 
 async def extract_server(

@@ -1,6 +1,7 @@
 import asyncio
 import json
 from collections.abc import Callable, Coroutine
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -150,7 +151,7 @@ async def _reply_pending_task_if_any(
         logger.warning("task piggyback reply failed machine_id={} err_type={}", machine_id, type(e).__name__)
 
 
-async def _track_agent_restart(redis: Redis, server_id: int, machine_id: str, agent_started_at) -> None:
+async def _track_agent_restart(redis: Redis, server_id: int, machine_id: str, agent_started_at: datetime) -> None:
     """직전 agent_started_at과 비교 → 변경 시 1h 슬라이딩 윈도우 카운터 INCR.
 
     threshold 도달 시 warning 로그 (운영자가 "에이전트 crash loop"으로 인지). 시스템 재부팅도

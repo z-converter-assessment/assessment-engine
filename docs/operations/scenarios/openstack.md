@@ -1,10 +1,10 @@
 # OpenStack Staging 배포 (예상 시나리오)
 
-ADR 0006 — 사내 폐쇄망 OpenStack tenant에 엔진을 4 VM 분산 배포 예상 설계. 본 디렉토리 전체(`deploy/openstack/` terraform·ansible·compose·scripts)는 본 시점 검토 중인 안 — 실 OpenStack tenant 도입 시 토폴로지·자원·구성 모두 변경 가능. 도입 시점에 별도 ADR 정정 의무.
+정책: ADR 0006. 본 문서는 dev 집중 범위 초과 — 사내 폐쇄망 OpenStack tenant 4 VM 분산 배포 예상 설계. `deploy/openstack/` 전체(terraform·ansible·compose·scripts)는 검토 중인 안이며 실 도입 시 토폴로지·자원·구성 모두 변경 가능. 도입 시점 별도 ADR 정정 의무.
 
-로컬 dev(`docker-compose.yml` + Lima 7 VM)와 무관하게 독립 동작 의도. 실 검증된 dev 파이프라인은 `docs/operations/lima.md` + `docs/operations/pipeline.md` 단일 진실.
+dev 파이프라인 검증(`docker-compose.yml` + Lima 7 VM)과 무관 독립 동작 의도. dev 단일 진실은 `docs/operations/lima.md` + `docs/operations/pipeline.md`.
 
-본 문서는 docs/ 진입점. 예상 절차·디렉토리 구조·트러블슈팅은 `deploy/openstack/README.md`. 배포 결정·옵션 비교·VM 토폴로지 근거는 `docs/adr/0006-openstack-staging.md`.
+예상 절차·디렉토리·트러블슈팅: `deploy/openstack/README.md`. 결정·옵션 비교·VM 토폴로지 근거: ADR 0006.
 
 ## VM 토폴로지 요약 (ADR 0006)
 
@@ -36,11 +36,11 @@ export OPENSTACK_KEY_PATH=~/.ssh/openstack-key.pem
 ./scripts/deploy.sh down         # 전체 제거
 ```
 
-## 운영 결정 (ADR 0006 + #A2)
+## 운영 결정 (ADR 0006 + CLAUDE.md #A)
 
 - 운영 secret은 Ansible Vault로 암호화 commit (`group_vars/all/vault.yml`) — 로컬 dev의 `.env` 평문 / prod의 Docker secrets와 다른 secret 채널 (#F8).
 - `migrate` 컨테이너는 app VM에서 외부 DB로 connect 후 `alembic upgrade head` 실행 (#C4 ADR 0005). 사설망 latency·Security Group 의존 — VM 간 네트워크 검증 필수.
-- pgadmin은 staging 미배포 — 운영자가 사내 GUI 또는 psql 직접 사용 (#A2 컨테이너 구성).
+- pgadmin은 staging 미배포 — 운영자가 사내 GUI 또는 psql 직접 사용.
 - depends_on service_healthy가 VM 간 안 됨 — Ansible playbook 순서로 보장 (db -> mw -> app).
 - VM 4대 OpenStack quota 부담 — 신규 환경 도입 전 quota 확인.
 

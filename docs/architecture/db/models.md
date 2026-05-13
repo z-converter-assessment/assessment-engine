@@ -1,6 +1,6 @@
 # DB ORM 모델 카탈로그
 
-`src/assessment_engine/db/models/` — 8개 모델.
+정책: CLAUDE.md #C1. 본 문서는 ORM 모델·식별자 규약·시계열 자연키 UNIQUE·tasks 부분 UNIQUE 단일 진실. `src/assessment_engine/db/models/` — 8개 모델.
 
 | 모델 | 테이블 | PK | 종류 | 설명 |
 |------|--------|----|----|------|
@@ -45,7 +45,7 @@ CREATE UNIQUE INDEX uq_tasks_pending_per_server_type
   WHERE status = 'pending';
 ```
 
-같은 server에 같은 task_type pending 1개만 허용 — 두 번째 INSERT는 `IntegrityError`. `TaskService`가 catch → `_DuplicatePending` → router HTTPException(409).
+같은 server에 같은 task_type pending 1개만 허용 — 두 번째 INSERT는 `IntegrityError`. `TaskService`가 catch → `TaskDuplicatePending` → router HTTPException(409).
 
 ## server_inventory_history — 변경 trigger
 

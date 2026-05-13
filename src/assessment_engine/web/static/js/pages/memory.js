@@ -6,16 +6,11 @@
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
  * - SERVER_ID (페이지 inline <script>가 Jinja2로 정의)
  */
-// ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtKst, fmtLabel, getAnchorEnd, initAnchor,
-        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray,
-        fetchRebootEvents, applyRebootMarkers } = ChartUtils;
-
-
-// Y축 정책 B (부분절대) — Swap 차트는 낮은 사용률(보통 0~10%)이 의미 큼.
-// 25를 ceiling으로 둬서 1~2% swap도 시각적으로 보이게.
-const SWAP_Y_SUGGESTED_MAX = 25;
+        makeBucketGrid, bindToggle, initSse, safeArray,
+        fetchRebootEvents, applyRebootMarkers,
+        buildAvgMaxDatasets } = ChartUtils;
 
 function fmtKb(kb) {
   if (kb == null) return '—';
@@ -61,178 +56,129 @@ async function loadSnapshot() {
   }
 }
 
-/* ── 단일 라인 차트 공통 ── */
-function makeSingleChart(canvas, opts) {
-  return new Chart(canvas, {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [{
-        label: opts.label,
-        data: [],
-        borderColor: opts.color,
-        backgroundColor: opts.color + '22',
-        borderWidth: 2,
-        pointRadius: 1,
-        pointHoverRadius: 3,
-        tension: 0.3,
-        fill: true,
-        spanGaps: false,
-      }],
-    },
-    options: {
+/* ── avg+max ghost 차트 (mem·swap 공통) ──
+ * Y축 정책: mem은 분해력 우선 0~100%, swap은 부분절대 suggestedMax=25 (낮은 사용률 0~10%도 시각화).
+ */
+const PCT_CHARTS = [
+  { id: 'mem',  metric: 'mem.usage_percent',  label: '메모리 사용률', color: '#3b82f6', yMax: 100 },
+  { id: 'swap', metric: 'swap.usage_percent', label: '스왑 사용률',   color: '#ef4444', ySuggestedMax: 25 },
+];
+
+function makePctLoader(def) {
+  const state = { range: '15m', chart: null, seq: 0 };
+
+  function bucketLabel() {
+    document.getElementById(def.id + '-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[state.range]] || '';
+  }
+
+  function makeYScale() {
+    const y = {
+      title: { display:true, text:'%', font:{size:11}, color:'#94a3b8' },
+      ticks: { callback: v => v + '%', font:{size:11}, color:'#64748b' },
+      grid:  { color:'#f1f5f9' },
+      min: 0,
+    };
+    if (def.yMax) y.max = def.yMax;
+    if (def.ySuggestedMax) { y.beginAtZero = true; y.suggestedMax = def.ySuggestedMax; }
+    return y;
+  }
+
+  function makeOptions() {
+    return {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode:'index', intersect:false },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: ctx => ` ${opts.label}: ${ctx.parsed.y?.toFixed(1)}%` } },
-      },
-      scales: {
-        x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
-        y: {
-          title: { display:true, text:'%', font:{size:11}, color:'#94a3b8' },
-          ticks: { callback: v => v + '%', font:{size:11}, color:'#64748b' },
-          grid:  { color:'#f1f5f9' },
-          min: 0, max: 100,
-        },
-      },
-    },
-  });
-}
-
-/* ── 메모리 사용률 추이 ── */
-let memRange = '15m';
-let memChart = null;
-let memSeq   = 0;
-
-function updateMemBucketLabel() {
-  document.getElementById('mem-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[memRange]] || '';
-}
-
-async function loadMemChart() {
-  const seq = ++memSeq;
-  const capturedRange  = memRange;
-  const capturedAnchor = getAnchorEnd('mem-anchor');
-  const canvas = document.getElementById('mem-canvas');
-  const empty  = document.getElementById('mem-empty');
-  const mkP = agg => {
-    const p = new URLSearchParams({ metric_type: 'mem.usage_percent', time_range: capturedRange, bucket: AUTO_BUCKET[capturedRange], agg });
-    if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
-    return p;
-  };
-  try {
-    const [avgRows, maxRows] = await Promise.all([
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('avg')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('max')}`).then(r => r.json()),
-    ]);
-    if (seq !== memSeq) return;
-    if (!Array.isArray(avgRows) || !avgRows.length) {
-      canvas.style.display = 'none'; empty.style.display = '';
-      if (memChart) { memChart.destroy(); memChart = null; }
-      return;
-    }
-    canvas.style.display = ''; empty.style.display = 'none';
-    const bMs  = BUCKET_MS[AUTO_BUCKET[capturedRange]];
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
-
-    const avgMap = {}, maxMap = {};
-    for (const r of avgRows) avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
-    for (const r of maxRows) maxMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
-
-    const avgData = grid.map(t => avgMap[t] ?? null);
-    const realMaxData = grid.map(t => maxMap[t] ?? null);
-    const bufferedMaxData = grid.map(t => {
-      const a = avgMap[t];
-      if (a == null) return null;
-      return maxMap[t] ?? a;
-    });
-
-    if (memChart) {
-      memChart.data.labels = labels;
-      memChart.data.datasets[0].data = avgData;
-      memChart.data.datasets[1].data = bufferedMaxData;
-      memChart.data.datasets[1].realData = realMaxData;
-      memChart.update('none');
-    } else {
-      memChart = _newMemChart(canvas, labels, avgData, bufferedMaxData, realMaxData);
-    }
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== memSeq) return;
-    applyRebootMarkers(memChart, events, grid);
-  } catch(e) { console.error(e); }
-}
-
-function _newMemChart(canvas, labels, avgData, bufferedMaxData, realMaxData) {
-    return new Chart(canvas, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [
-          {
-            label: '평균',
-            data: avgData,
-            borderColor: '#3b82f6',
-            backgroundColor: '#3b82f628',
-            borderWidth: 2,
-            pointRadius: 1,
-            pointHoverRadius: 3,
-            tension: 0.3,
-            fill: '+1',
-            spanGaps: false,
-          },
-          {
-            label: '최대',
-            data: bufferedMaxData,
-            realData: realMaxData,
-            borderColor: 'transparent',
-            backgroundColor: 'transparent',
-            borderWidth: 0,
-            pointRadius: 0,
-            pointHoverRadius: 0,
-            tension: 0.3,
-            fill: false,
-            spanGaps: false,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode:'index', intersect:false },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            filter: item => item.datasetIndex % 2 === 0,
-            callbacks: {
-              label: ctx => {
-                const avg = ctx.parsed.y;
-                const maxDs = memChart?.data.datasets[ctx.datasetIndex + 1];
-                const realMax = maxDs?.realData?.[ctx.dataIndex];
-                if (realMax != null)
-                  return ` 메모리 사용률: 평균 ${avg?.toFixed(1)}% / 최대 ${realMax?.toFixed(1)}%`;
-                return ` 메모리 사용률: ${avg?.toFixed(1)}%`;
-              }
+        tooltip: {
+          filter: item => item.datasetIndex % 2 === 0,
+          callbacks: {
+            label: ctx => {
+              const avg = ctx.parsed.y;
+              const maxDs = state.chart?.data.datasets[ctx.datasetIndex + 1];
+              const realMax = maxDs?.realData?.[ctx.dataIndex];
+              if (realMax != null)
+                return ` ${def.label}: 평균 ${avg?.toFixed(1)}% / 최대 ${realMax?.toFixed(1)}%`;
+              return ` ${def.label}: ${avg?.toFixed(1)}%`;
             },
           },
         },
-        scales: {
-          x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
-          y: {
-            title: { display:true, text:'%', font:{size:11}, color:'#94a3b8' },
-            ticks: { callback: v => v + '%', font:{size:11}, color:'#64748b' },
-            grid:  { color:'#f1f5f9' },
-            min: 0, max: 100,
-          },
-        },
       },
-    });
+      scales: {
+        x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
+        y: makeYScale(),
+      },
+    };
+  }
+
+  async function load() {
+    const seq = ++state.seq;
+    const capturedRange  = state.range;
+    const capturedAnchor = getAnchorEnd(def.id + '-anchor');
+    const canvas = document.getElementById(def.id + '-canvas');
+    const empty  = document.getElementById(def.id + '-empty');
+    const bucket = AUTO_BUCKET[capturedRange];
+    const mkP = agg => {
+      const p = new URLSearchParams({ metric_type: def.metric, time_range: capturedRange, bucket, agg });
+      if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
+      return p;
+    };
+    try {
+      const [avgRows, maxRows] = await Promise.all([
+        fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('avg')}`).then(r => r.json()),
+        fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('max')}`).then(r => r.json()),
+      ]);
+      if (seq !== state.seq) return;
+      const avg = safeArray(avgRows);
+      const max = safeArray(maxRows);
+      if (!avg.length) {
+        canvas.style.display = 'none'; empty.style.display = '';
+        if (state.chart) { state.chart.destroy(); state.chart = null; }
+        return;
+      }
+      canvas.style.display = ''; empty.style.display = 'none';
+
+      const bMs    = BUCKET_MS[bucket];
+      const grid   = makeBucketGrid(capturedRange, bucket, capturedAnchor);
+      const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
+      const datasets = buildAvgMaxDatasets(avg, max, bMs, grid, { label: def.label, color: def.color });
+
+      if (state.chart) {
+        state.chart.data.labels = labels;
+        state.chart.data.datasets[0].data = datasets[0].data;
+        state.chart.data.datasets[1].data = datasets[1].data;
+        state.chart.data.datasets[1].realData = datasets[1].realData;
+        state.chart.update('none');
+      } else {
+        state.chart = new Chart(canvas, {
+          type: 'line',
+          data: { labels, datasets },
+          options: makeOptions(),
+        });
+      }
+      const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
+      if (seq !== state.seq) return;
+      applyRebootMarkers(state.chart, events, grid);
+    } catch(e) { console.error(e); }
+  }
+
+  return { state, load, bucketLabel };
 }
 
-bindToggle('mem-range-btns', v => { memRange = v; updateMemBucketLabel(); document.getElementById('mem-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadMemChart(); });
+const pctLoaders = PCT_CHARTS.map(makePctLoader);
+pctLoaders.forEach((loader, i) => {
+  const def = PCT_CHARTS[i];
+  bindToggle(def.id + '-range-btns', v => {
+    loader.state.range = v;
+    loader.bucketLabel();
+    document.getElementById(def.id + '-range-print').textContent = ' — ' + RANGE_LABEL[v];
+    loader.load();
+  });
+  initAnchor(def.id + '-anchor');
+  document.getElementById(def.id + '-anchor').addEventListener('change', () => loader.load());
+});
 
-/* ── 메모리 구성 추이 (used / cached / buffers %) ── */
+/* ── 메모리 구성 추이 (used / available / cached / buffers %) — multi-dim ── */
 let compRange = '15m';
 let compChart = null;
 let compSeq   = 0;
@@ -240,6 +186,13 @@ let compSeq   = 0;
 function updateCompBucketLabel() {
   document.getElementById('comp-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[compRange]] || '';
 }
+
+const COMP_META = {
+  used:      { label: 'Used',      color: '#3b82f6' },
+  available: { label: 'Available', color: '#8b5cf6' },
+  cached:    { label: 'Cached',    color: '#22c55e' },
+  buffers:   { label: 'Buffers',   color: '#f59e0b' },
+};
 
 function renderCompChart(rows, range, anchorEnd) {
   const canvas = document.getElementById('comp-canvas');
@@ -252,12 +205,6 @@ function renderCompChart(rows, range, anchorEnd) {
   }
   canvas.style.display = ''; empty.style.display = 'none';
 
-  const COMP_META = {
-    used:      { label: 'Used',      color: '#3b82f6' },
-    available: { label: 'Available', color: '#8b5cf6' },
-    cached:    { label: 'Cached',    color: '#22c55e' },
-    buffers:   { label: 'Buffers',   color: '#f59e0b' },
-  };
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
@@ -348,7 +295,7 @@ async function loadCompChart() {
       fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('mem.buffers_percent')}`).then(r => r.json()),
     ]);
     if (seq !== compSeq) return;
-    const toRows = (arr, dim) => Array.isArray(arr) ? arr.map(r => ({ ...r, dimension: dim })) : [];
+    const toRows = (arr, dim) => safeArray(arr).map(r => ({ ...r, dimension: dim }));
     const rows = [
       ...toRows(usedRows,    'used'),
       ...toRows(availRows,   'available'),
@@ -363,151 +310,22 @@ async function loadCompChart() {
   } catch(e) { console.error(e); }
 }
 
-bindToggle('comp-range-btns', v => { compRange = v; updateCompBucketLabel(); document.getElementById('comp-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadCompChart(); });
-
-/* ── 스왑 사용률 추이 ── */
-let swapRange = '15m';
-let swapChart = null;
-let swapSeq   = 0;
-
-function updateSwapBucketLabel() {
-  document.getElementById('swap-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[swapRange]] || '';
-}
-
-async function loadSwapChart() {
-  const seq = ++swapSeq;
-  const capturedRange  = swapRange;
-  const capturedAnchor = getAnchorEnd('swap-anchor');
-  const canvas = document.getElementById('swap-canvas');
-  const empty  = document.getElementById('swap-empty');
-  const mkP = agg => {
-    const p = new URLSearchParams({ metric_type: 'swap.usage_percent', time_range: capturedRange, bucket: AUTO_BUCKET[capturedRange], agg });
-    if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
-    return p;
-  };
-  try {
-    const [avgRows, maxRows] = await Promise.all([
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('avg')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('max')}`).then(r => r.json()),
-    ]);
-    if (seq !== swapSeq) return;
-    if (!Array.isArray(avgRows) || !avgRows.length) {
-      canvas.style.display = 'none'; empty.style.display = '';
-      if (swapChart) { swapChart.destroy(); swapChart = null; }
-      return;
-    }
-    canvas.style.display = ''; empty.style.display = 'none';
-    const bMs  = BUCKET_MS[AUTO_BUCKET[capturedRange]];
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
-
-    const avgMap = {}, maxMap = {};
-    for (const r of avgRows) avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
-    for (const r of maxRows) maxMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
-
-    const avgData = grid.map(t => avgMap[t] ?? null);
-    const realMaxData = grid.map(t => maxMap[t] ?? null);
-    const bufferedMaxData = grid.map(t => {
-      const a = avgMap[t];
-      if (a == null) return null;
-      return maxMap[t] ?? a;
-    });
-
-    if (swapChart) {
-      swapChart.data.labels = labels;
-      swapChart.data.datasets[0].data = avgData;
-      swapChart.data.datasets[1].data = bufferedMaxData;
-      swapChart.data.datasets[1].realData = realMaxData;
-      swapChart.update('none');
-    } else {
-      swapChart = new Chart(canvas, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [
-          {
-            label: '평균',
-            data: avgData,
-            borderColor: '#ef4444',
-            backgroundColor: '#ef444428',
-            borderWidth: 2,
-            pointRadius: 1,
-            pointHoverRadius: 3,
-            tension: 0.3,
-            fill: '+1',
-            spanGaps: false,
-          },
-          {
-            label: '최대',
-            data: bufferedMaxData,
-            realData: realMaxData,
-            borderColor: 'transparent',
-            backgroundColor: 'transparent',
-            borderWidth: 0,
-            pointRadius: 0,
-            pointHoverRadius: 0,
-            tension: 0.3,
-            fill: false,
-            spanGaps: false,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode:'index', intersect:false },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            filter: item => item.datasetIndex % 2 === 0,
-            callbacks: {
-              label: ctx => {
-                const avg = ctx.parsed.y;
-                const maxDs = swapChart?.data.datasets[ctx.datasetIndex + 1];
-                const realMax = maxDs?.realData?.[ctx.dataIndex];
-                if (realMax != null)
-                  return ` 스왑 사용률: 평균 ${avg?.toFixed(1)}% / 최대 ${realMax?.toFixed(1)}%`;
-                return ` 스왑 사용률: ${avg?.toFixed(1)}%`;
-              }
-            },
-          },
-        },
-        scales: {
-          x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
-          y: {
-            title: { display:true, text:'%', font:{size:11}, color:'#94a3b8' },
-            ticks: { callback: v => v + '%', font:{size:11}, color:'#64748b' },
-            grid:  { color:'#f1f5f9' },
-            beginAtZero: true, suggestedMax: SWAP_Y_SUGGESTED_MAX,
-          },
-        },
-      },
-    });
-    }
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== swapSeq) return;
-    applyRebootMarkers(swapChart, events, grid);
-  } catch(e) { console.error(e); }
-}
-
-bindToggle('swap-range-btns', v => { swapRange = v; updateSwapBucketLabel(); document.getElementById('swap-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadSwapChart(); });
+bindToggle('comp-range-btns', v => {
+  compRange = v;
+  updateCompBucketLabel();
+  document.getElementById('comp-range-print').textContent = ' — ' + RANGE_LABEL[v];
+  loadCompChart();
+});
 
 /* ── SSE ── */
 initSse(SERVER_ID, loadSnapshot);
 
 /* ── 기준일 초기화 ── */
-initAnchor('mem-anchor');
 initAnchor('comp-anchor');
-initAnchor('swap-anchor');
-document.getElementById('mem-anchor').addEventListener('change', () => loadMemChart());
 document.getElementById('comp-anchor').addEventListener('change', () => loadCompChart());
-document.getElementById('swap-anchor').addEventListener('change', () => loadSwapChart());
 
 /* ── 초기 로드 ── */
 loadSnapshot();
-updateMemBucketLabel();
-loadMemChart();
+pctLoaders.forEach(loader => { loader.bucketLabel(); loader.load(); });
 updateCompBucketLabel();
 loadCompChart();
-updateSwapBucketLabel();
-loadSwapChart();

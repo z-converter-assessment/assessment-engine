@@ -1,5 +1,7 @@
 # TimescaleDB · 차트 SQL 패턴
 
+정책: CLAUDE.md #C1·#C4·#C5. 본 문서는 hypertable 구성·차트 SQL 패턴·report_aggregate 단일 진실.
+
 ## hypertable 구성
 
 시계열 5개 테이블 모두 hypertable (`collected_at` 기준 파티셔닝):
@@ -7,7 +9,7 @@
 
 ### 4테이블 `boot_time`/`agent_started_at` 컬럼 보존
 
-`server_metrics`/`server_disk_io`/`server_net_io`/`server_mount_usage` 4개 테이블은 행마다 `boot_time`/`agent_started_at` 컬럼을 함께 저장한다 (CLAUDE.md #C1·#B1). 근거:
+`server_metrics`/`server_disk_io`/`server_net_io`/`server_mount_usage` 4개 테이블은 행마다 `boot_time`/`agent_started_at` 컬럼을 함께 저장한다(CLAUDE.md #C1·#B). 근거:
 - metrics/disk_io/net_io는 `_chart_*` 헬퍼와 `metrics_calculator._is_counter_reset`이 `LAG(boot_time)`로 시스템 재부팅 식별 -> counter reset 시 delta 건너뛰기.
 - mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅 시 단일 테이블 SELECT로 boot_time까지 같이 보고 싶어서 보존.
 - 옛 데이터(컬럼 NULL)는 `d_val < 0` 휴리스틱 fallback (CASE 3순위).

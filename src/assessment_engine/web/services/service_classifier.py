@@ -36,7 +36,7 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
 
 # 서비스 유닛명 → well-known 포트 목록
 # comm 읽기 권한이 없을 때(에이전트가 비루트) 폴백으로 사용
-_SERVICE_PORTS: dict[str, list[int]] = {
+SERVICE_PORTS: dict[str, list[int]] = {
     "nginx":            [80, 443],
     "apache2":          [80, 443],
     "httpd":            [80, 443],
@@ -80,7 +80,7 @@ def matched_ports(unit: str, listen_ports: list[dict]) -> list[MatchedPort]:
     동일 포트라도 proto(tcp/tcp6/udp 등)가 다르면 별도 항목으로 반환한다.
     """
     name = unit.removesuffix(".service").lower()
-    well_known = set(_SERVICE_PORTS.get(name, []))
+    well_known = set(SERVICE_PORTS.get(name, []))
     result: list[MatchedPort] = []
     seen: set[tuple[str, int]] = set()
 

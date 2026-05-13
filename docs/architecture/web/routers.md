@@ -1,5 +1,7 @@
 # Web 라우터
 
+정책: CLAUDE.md #E2 · #F4. 본 문서는 라우터 모듈·endpoint 카탈로그·API versioning·breaking change 절차 단일 진실.
+
 | 모듈 | 변수 | 접두사 | 응답 |
 |------|------|--------|------|
 | `routers/pages.py` | `pages_router` | `/servers` | HTML (Jinja2 SSR) |
@@ -11,7 +13,7 @@
 | `routers/diagnostic_results.py` | `diagnostic_results_router` | `/diagnostics` | HTML (SSR — 결과·이력 페이지) |
 | `routers/payloads.py` | `payloads_router` | (root) | application/gzip — agent install bundle |
 
-라우터 책임은 HTTP I/O만 — 비즈니스 로직은 service에 위임 (F4). API versioning은 #F13 (`/api/v1/`).
+라우터 책임은 HTTP I/O만 — 비즈니스 로직은 service에 위임(#F4). JSON API는 `/api/v1/...` prefix 통일.
 
 ## SSR 페이지 (`pages.py`)
 
@@ -45,7 +47,7 @@
 ### `tasks.py` — 원격 작업 발행
 | 경로 | 용도 |
 |------|------|
-| `POST /install` | ZConverter Install task 발행 (다중 서버 일괄). 부분 UNIQUE pending 중복 시 409 (`_DuplicatePending`) |
+| `POST /install` | ZConverter Install task 발행 (다중 서버 일괄). 부분 UNIQUE pending 중복 시 409 (`TaskDuplicatePending`) |
 
 ### `exports.py` — 정제 산출물
 | 경로 | 용도 |
@@ -55,7 +57,7 @@
 ### `diagnostics.py` — AI 진단 (ADR 0004)
 | 경로 | 용도 |
 |------|------|
-| `POST /` | scope=server|environment 진단 enqueue. server_ids batch. active partial UNIQUE 충돌 시 기존 job_id 반환 |
+| `POST /` | scope=server|environment 진단 enqueue. server_ids batch. active partial UNIQUE 충돌 시 기존 job_id 반환. 400/404/409는 `DiagnosticBadRequest`/`DiagnosticNotFound`/`DiagnosticRaceMiss` 매핑 |
 | `GET /?ids=j1,j2,...` | N개 batch polling. UUID 형식 검증 (422), 100건 상한 |
 | `GET /{job_id}` | 단건 polling 편의 |
 
@@ -63,23 +65,23 @@
 | 경로 | 용도 |
 |------|------|
 | `GET /diagnostics/results?ids=j1,j2,...` | 진단 결과 페이지 (polling으로 succeeded 추적) |
-| `GET /diagnostics/history?scope=&limit=&offset=` | 진단 발행 이력 (운영자 회고용) |
+| `GET /diagnostics/history?days=&scope=&server_public_ids=` | 진단 발행 이력 (운영자 회고용) — `to_history_item` mapper 단일 진실 |
 
 ### `payloads.py` — agent install bundle
 | 경로 | 용도 |
 |------|------|
-| `GET /zconverter.tar.gz` | agent의 hardcoded fetch path. in-memory tar.gz 생성, `install.sh` mode=0o755 메타 박힘. `/api/v1/` prefix 없음 — agent 계약 path 우선 (#F13 예외) |
+| `GET /zconverter.tar.gz` | agent hardcoded fetch path. in-memory tar.gz 생성, `install.sh` mode=0o755 메타 박힘. `/api/v1/` prefix 없음 — agent 계약 path 우선(#B) |
 
 ## 검증·에러 매핑
 
 | HTTP | 의미 | 발생 위치 |
 |------|------|-----------|
 | 422 | 입력 형식 오류 | Pydantic field validator (IP 형식·UUID 형식·Literal enum) |
-| 404 | 리소스 없음 | `resolve_internal_id` 또는 service `_NotFound` exception |
-| 409 | 충돌 | `tasks/install` pending 중복 (`_DuplicatePending` exception) |
+| 404 | 리소스 없음 | `resolve_internal_id` 또는 service `TaskNotFound`/`DiagnosticNotFound` exception |
+| 409 | 충돌 | `tasks/install` pending 중복 (`TaskDuplicatePending`) 또는 진단 enqueue race (`DiagnosticRaceMiss`) |
 | 500 | 서버 오류 | service 측 일반 Exception (probe 외부 네트워크 비정형 응답 등) |
 
-## Breaking change 진화 절차 (#F13)
+## Breaking change 진화 절차
 
 `/api/v1/...` endpoint에 backward-compatible 변경(응답 필드 추가·옵셔널 query param 추가·새 endpoint)은 `/v1/` 유지. backward-incompatible 변경(응답 필드 제거·의미 변경·required field 추가·HTTP 메서드 변경)이 필요한 경우 다음 절차:
 
@@ -89,4 +91,4 @@
 
 본 프로젝트 현재 첫 v2 분기 사례 없음 — 도입 시 본 절 갱신.
 
-agent 계약 endpoint(`/zconverter.tar.gz` 등)는 versioning 없음 — agent.md의 hardcoded path 계약이 우선이고, 에이전트는 자체 `agent_version`으로 별도 진화 채널 (#B4). path 변경 시 에이전트·엔진 양쪽 동시 갱신 + agent_version major bump.
+agent 계약 endpoint(`/zconverter.tar.gz` 등)는 versioning 없음 — agent.md hardcoded path 계약 + `agent_version` 별도 진화 채널(#B). path 변경 시 양쪽 동시 갱신 + agent_version major bump.

@@ -1,7 +1,6 @@
 # 테스트
 
-단위·통합 테스트 실행 방법.
-운영 환경 풀 파이프라인 검증(에이전트 -> MQ -> Consumer -> DB -> Web)은 `docs/operations/pipeline.md`.
+본 문서는 pytest 단위·통합 테스트 실행·작성 단일 진실. E2E 파이프라인 검증(Lima)은 `docs/operations/pipeline.md` + `docs/operations/lima.md`.
 
 ## 1. 계층
 

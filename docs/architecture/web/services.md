@@ -1,14 +1,13 @@
 # Web 서비스 계층 모듈
 
-`web/services/` 하위 모듈별 책임. P2 — 모든 표시 파생은 mapper 단일 변환.
+정책: CLAUDE.md #E3 · #E7 (도메인 분류) · #F10 (평가 윈도우). 본 문서는 service 모듈 카탈로그·서비스 분류·Recommendation·대시보드 상단 요약 단일 진실.
 
 | 모듈 | 책임 |
 |------|------|
 | `query_service.py` | Redis 캐시 + repository 오케스트레이션. SSR/JSON 양 경로에 일관된 ViewModel·Summary 반환 |
-| `task_service.py` | Task 발행 (DB INSERT + Redis SET). 트랜잭션 경계 + `IntegrityError` -> `_DuplicatePending` 변환 |
+| `task_service.py` | Task 발행 (DB INSERT + Redis SET). 트랜잭션 경계 + `IntegrityError` -> `TaskDuplicatePending` 변환 |
 | `diagnostic_service.py` | AI 진단 job 발행 (input_hash 계산·INSERT·RabbitMQ publish) + polling 조회 + SSR latest fetch. 추상 `BaseDiagnosticRepository` + `BaseQueryRepository`만 의존 (F4). 트랜잭션 경계 자체 관리 — router는 service만 호출. ADR 0004 |
-| `diagnostic_mapper.py` | 진단 결과 표시 파생 단일 진실 (P2·P3·P5) — `to_view` / `to_panel_payload` / classification·status·progress badge·라벨 매핑. router·SSR·JSON API·결과 페이지·이력 페이지·report 카드 모두 본 mapper view 사용 |
-| `recommendation.py` | USE Method 분류 (idle/shutdown/over/under/optimal). 임계값은 본 모듈 코드가 단일 진실 (모듈 상단 명명 상수). `WINDOW_DAYS=14` 평가 윈도우도 본 모듈 (#F11) |
+| `diagnostic_mapper.py` | 진단 결과 표시 파생 단일 진실 (P2·P3·P5) — `to_view` / `to_panel_payload` / `to_history_item` / classification·status·progress badge·라벨 매핑. router·SSR·JSON API·결과 페이지·이력 페이지·report 카드 모두 본 mapper view 사용 |
 | `mappers.py` | Outbound DTO + Detail -> ViewModel 변환. `to_*_item` / `enrich_*` / `infer_role` / `_split_disks` 등 |
 | `metrics_calculator.py` | CPU/Disk/Net delta + Mem/Swap 시점값 -> Snapshot. `_is_counter_reset` (boot_time 비교) |
 | `cache_serializer.py` | Redis serde — `ServerDetailResponse` / `MetricDashboard`. 역직렬화 후 `enrich_*` 재호출 (idempotent) |
@@ -39,7 +38,9 @@ storage 페이지 mount → disk 매칭 + `_split_disks` (Inventory JSON Export�
 
 ## Recommendation 분류 — USE Method 출처
 
-`recommendation.py` 임계값은 모두 출처 주석 명시:
+도메인 모듈: `assessment_engine/recommendation.py` (web·diagnostic 양쪽 import). `WINDOW_DAYS=14` 평가 윈도우(#F10)·USE Method 임계값 모두 본 모듈 코드 단일 진실(모듈 상단 명명 상수).
+
+임계값 출처 주석 명시:
 - AWS Compute Optimizer: idle (CPU peak <=1%) / over (CPU p95 <=30%, MEM p95 <=50%)
 - Azure Advisor: shutdown (CPU p95 <=3%, NET <=2Mbps)
 - GCP Recommender: headroom 30%
