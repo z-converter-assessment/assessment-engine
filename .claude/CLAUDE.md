@@ -43,11 +43,13 @@
 | `docs/operations/scenarios/` | dev 집중 범위 초과 예상 시나리오 (현재: OpenStack 분산 staging 배포) |
 | `docs/operations/lima.md` | Lima 사용 맥락 / VM 구성 / 프로비저닝 흐름 |
 | `docs/adr/0001-redis-decoupling.md` | Redis fail-open 전환 의사결정 + 옵션 비교 + 구현 결과 |
-| `docs/adr/0002-task-rpc-piggyback-vs-polling.md` | Task 명령 RPC piggyback 채택 사유 |
+| `docs/adr/0002-task-rpc-piggyback-vs-polling.md` | Task 명령 RPC piggyback 채택 사유 (Superseded by 0007) |
 | `docs/adr/0003-ai-llm-activation.md` | AI / LLM 활용 로드맵 (Phase 2~3 — 분석·추천·비용·리포트·RAG) |
 | `docs/adr/0004-diagnostic-worker.md` | AI 진단 워커 아키텍처 (Phase 2 실행 인프라 — 워커·스케줄러·diagnostic_jobs·LLM 토글) |
 | `docs/adr/0005-db-schema-management.md` | DB Schema 관리 표준화 — Alembic 단일 진실, migrate init-container 패턴, alembic check CI |
 | `docs/adr/0006-openstack-staging.md` | OpenStack 분산 staging 배포 — 4 VM 토폴로지(bastion + DB + MW + 앱), `deploy/openstack/` 디렉토리, Terraform + Ansible + 분산 compose |
+| `docs/adr/0007-task-dedicated-queue-model.md` | Task 명령 별도 큐 모델 — `assessment.tasks` exchange + 머신별 큐, 0002 supersede |
+| `docs/adr/0008-dev-tls-install-bundle.md` | dev install bundle HTTPS endpoint(port 8443) 한정 (임시) — agent worker HTTPS-only 정합. 정석은 agent 측 dev http toggle 또는 nginx ingress, 별도 ADR |
 
 ---
 
@@ -60,14 +62,19 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 
 ---
 
-# B. 에이전트 데이터 계약 (Agent → Engine)
+# B. 메시지 데이터 계약 (양방향)
 
-에이전트 메시지 계약·필드 카탈로그·Task RPC piggyback 흐름: `docs/architecture/agent.md`. MQ 토폴로지·큐 정책: `docs/architecture/rabbitmq.md`. 채택 사유: ADR 0002 (RPC piggyback) · ADR 0004 (진단 워커 큐).
+메시지 데이터 형식·필드 카탈로그·task.install / task.result 흐름: `docs/architecture/agent.md`. MQ 토폴로지·큐 정책: `docs/architecture/rabbitmq.md`. 채택 사유: ADR 0007 (Task 별도 큐 모델 — 0002 supersede) · ADR 0004 (진단 워커 큐).
+
+수신 5종 / 발행 1종:
+- 수신 (호스트 -> 엔진): `server.inventory` / `server.metrics` / `server.error` / `task.result` (`assessment.tasks` exchange 의 `worker.result` 큐) / `diagnostic.request` (엔진 내부 발행이지만 worker 가 수신)
+- 발행 (엔진 -> 호스트): `task.install.<machine_id>` (`assessment.tasks` exchange 의 `agent.tasks.<machine_id>` 큐, web 측 동적 declare)
 
 본 절 결정:
-- Pydantic Input 모델 `extra=ignore` 유지 — 메시지에 새 필드가 도착해도 엔진은 통과시키고 무시. 비대칭 배포에서 reject로 엔진이 죽지 않게 함.
+- Pydantic Input 모델 `extra=ignore` 유지 — 메시지에 새 필드가 도착해도 엔진은 통과시키고 무시. 비대칭 배포에서 reject 로 엔진이 죽지 않게 함.
 - 활용하지 않는 필드는 mapper drop. 필요해진 시점에 mapper read + inbound DTO 필드 추가를 명시적 결정으로 처리.
-- `agent_version` major bump 수신 시 엔진 코드 수정 트리거. minor bump는 silent 호환.
+- `agent_version` major bump 수신 시 엔진 코드 수정 트리거. minor bump 는 silent 호환.
+- `task.result` 메시지는 발행 측 worker 컨텍스트가 수집 캐시와 분리되어 `boot_time` / `agent_started_at` 가 항상 null — 본 메시지에 한해 nullable override. 다른 메시지 타입은 required 유지.
 
 ---
 
@@ -172,7 +179,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 
 Pagination 정책:
 - 목록 endpoint(`list_servers` 등 정적 row): page 기반 — `page=1`, `limit=20` (max 100). 라우터 Query Pydantic 검증.
-- 시계열 endpoint(`metric_snapshots` 등): cursor 기반 — `cursor: datetime | None` + `limit`. 시간 역순 스크롤. page 번호 의미 없음 (계속 새 데이터 들어옴).
+- 시계열·시간 흐름 endpoint(`metric_snapshots` / `GET /api/v1/tasks` 등): cursor 기반 — `cursor: datetime | None` + `limit`. 시간 역순 스크롤. page 번호 의미 없음 (계속 새 데이터 들어옴).
 - 응답 envelope에 `total_count` / `has_more` 미포함 — `SELECT COUNT(*)` 별도 쿼리 비용 + UX는 빈 결과로 자연 종료 신호.
 - 신규 목록 endpoint 추가 시 위 두 패턴 중 하나 선택 — 정적 row면 page, 시간 흐름이면 cursor.
 
@@ -341,8 +348,9 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 |-----------|----------------|
 | 시계열 컬럼 추가 | (1) ORM 모델 (2) Alembic revision (3) Inbound DTO·mapper (4) Outbound DTO·mapper (5) `cache_serializer._DETAIL_DISPLAY_FIELDS` (6) ViewModel (7) 템플릿·외부 .js |
 | inventory 컬럼 추가 | 시계열 (1)~(7) + agent payload 합의(`payload-schema.md`) + `docs/architecture/agent.md` 엔진 핸들링 결정 |
-| 신규 routing key | (1) 에이전트 발행 (2) consumer 핸들러 팩토리 + dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 (4) `docs/architecture/agent.md` 메시지 타입 절 |
-| `EXCHANGE`/`ROUTING_KEY_*` 값 변경 | (1) agent publisher 상수 (2) consumer subscriber dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 |
+| 신규 routing key | (1) 발행 측 (agent 또는 engine web) 상수 (2) consumer 핸들러 팩토리 + dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 (4) `docs/architecture/agent.md` 메시지 타입 절 |
+| `EXCHANGE`/`ROUTING_KEY_*` 값 변경 | (1) 발행 측 상수 (2) consumer subscriber dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 |
+| 메시지 페이로드 schema 변경 (필드 추가·삭제·rename·Literal 값 변경) | (1) `consumer/schemas.py` 또는 발행 측 payload 빌드 (2) Inbound DTO (3) handler 매핑 (4) DB 모델·Alembic revision (필요 시) (5) `docs/architecture/agent.md` 데이터 형식 절 (6) 운영자 가시성 ViewModel·템플릿·API (필요 시) |
 | `recommendation.py` 분류 임계 또는 Lima VM 매트릭스 변경 | (1) `recommendation.py` 임계 상수 (2) `docs/operations/lima.md` "VM 매트릭스"(합성 부하·swap_used 트리거) (3) #F10 평가 윈도우 정합 |
 | 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) `docker-compose.yml` `environment:` (4) prod secret이면 `secrets/*` + `docs/operations/dev-prod.md` + `docker-compose.prod.yml` |
 | ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass(P2) |

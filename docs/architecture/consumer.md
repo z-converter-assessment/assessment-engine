@@ -50,18 +50,18 @@ DB 저장 (지수 백오프 재시도, _db_retry)
 1. SET online:{server_id} 1 EX 90        — 온라인 상태 갱신
 2. DELETE cache:metrics:{server_id}      — 캐시 즉시 무효화
 3. PUBLISH metrics.events {...}          — 브라우저 SSE 트리거
-4. _track_agent_restart                  — 직전 agent_started_at과 비교, 변경 시 1h 슬라이딩 카운터 INCR. threshold 도달 시 warning
-5. _reply_pending_task_if_any            — Task RPC piggyback: message.reply_to 있고 Redis task:pending:{machine_id} GET 성공 시 reply publish (correlation_id 회신, NOT_PERSISTENT). agent reply_to 미명시 시 no-op (옛 agent 호환)
+4. _track_agent_restart                  — 직전 agent_started_at 과 비교, 변경 시 1h 슬라이딩 카운터 INCR. threshold 도달 시 warning
 ```
 
 ### error 후처리
 없음. 파싱 + 멱등성 + 로깅만 (재시도 컨텍스트 `retry_count`/`first_failed_at`/`recovered_at` 포함).
 
-### task_result 후처리
+### task.result 후처리
 ```
-1. DB UPDATE — complete_task(public_id, status, result_message). public_id 미존재 시 silent ack
-2. DELETE task:pending:{machine_id}    — agent가 같은 task 재요청 안 하도록. 성공/실패 분기 무관 동일 처리
+1. DB UPDATE — complete_task(public_id, status, completed_at, failure_reason, exit_code, duration_ms, stdout_tail, stderr_tail).
+   public_id 미존재 시 silent ack (운영자가 task 삭제했을 가능성 — DLQ 부적합)
 ```
+`boot_time` / `agent_started_at` 은 본 메시지에서 항상 null 이라 `_log_time_invariants` 호출 생략.
 
 ### 미등록 서버 metrics — auto-register
 metrics 핸들러는 `repo.ensure_server_id(machine_id, placeholder)`로 한 번에 처리 — find 실패 시 fallback placeholder 사용. `(server_id, auto_registered)` 튜플 반환으로 handler가 auto-register 시점만 운영 로그를 남김.

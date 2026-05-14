@@ -30,7 +30,6 @@ src/assessment_engine/web/services/query_service.py
 | 인증 토큰 | `token:{token}` | 1h | TTL 만료만 |
 | 직전 agent_started_at | `last_agent_start:{server_id}` | 24h | metrics 처리 시 매번 SET (직전 값과 비교 → 재시작 감지) |
 | 재시작 카운터 (1h 슬라이딩) | `agent_restarts:{server_id}` | 1h | `_track_agent_restart`가 변경 감지 시 INCR + EXPIRE reset (마지막 INCR 후 1h 유지) |
-| Task RPC pending (hot path 캐시) | `task:pending:{machine_id}` | 24h | web의 `task_service`가 SET (DB INSERT 후), consumer의 `make_task_result_handler`가 결과 수신 시 DEL |
 
 ### TTL 값 근거
 
@@ -40,7 +39,8 @@ src/assessment_engine/web/services/query_service.py
 - `idempotent:{message_id}` 24h — message_id는 UUID v4이므로 24h 동안 unique 보장. broker 재전송 윈도우 충분히 커버.
 - `last_agent_start:{server_id}` 24h — 직전 비교용 캐시. evict 시 다음 메시지에서 재시작 감지 1회 누락만 — 다음 정상 sample에서 회복.
 - `agent_restarts:{server_id}` 1h — 슬라이딩 윈도우 (마지막 INCR 후 1h). `agent_restart_alert_threshold` (기본 3) 도달 시 warning 로그.
-- `task:pending:{machine_id}` 24h — 작업 발행 후 24h 안에 agent reply 안 오면 stale 판정·자동 정리. DB `tasks`는 단일 진실(영구 보존), Redis는 hot path 캐시 — consumer가 metrics 처리할 때마다 EXISTS 한 번 (99% no-op, DB 직접 조회 회피). Redis 장애 시 silent skip + 다음 metrics 주기 재시도.
+
+원격 작업 명령 전달은 ADR 0007 (별도 큐 모델) 채택으로 broker 가 메시지 보유 — Redis pending hot path 캐시 폐기. DB `tasks` + broker `agent.tasks.<machine_id>` 큐가 단일 진실.
 
 ---
 

@@ -53,10 +53,21 @@ async def lifespan(app: FastAPI):
     )
     await queue.bind(exchange, routing_key=routing_key)
 
+    # 원격 작업 발행용 exchange. 동일 인자 재선언은 idempotent — consumer 가 먼저 declare 해도 안전.
+    # agent.tasks.<machine_id> 머신별 큐는 task.install 발행 시점에 TaskService 가 동적 declare.
+    await broker_channel.declare_exchange(
+        diagnostic_settings.rabbitmq_task_exchange,
+        aio_pika.ExchangeType.DIRECT,
+        durable=True,
+    )
+
     app.state.broker_conn = broker_conn
     app.state.broker_channel = broker_channel
-    logger.info("diagnostic broker initialized — exchange={} routing_key={}",
-                diagnostic_settings.rabbitmq_exchange, routing_key)
+    logger.info(
+        "broker initialized — diagnostic_exchange={} task_exchange={}",
+        diagnostic_settings.rabbitmq_exchange,
+        diagnostic_settings.rabbitmq_task_exchange,
+    )
 
     yield
 
@@ -65,6 +76,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ZConverter Assessment Portal", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def disable_html_cache(request, call_next):
+    """SSR 응답(text/html)에 `Cache-Control: no-store` 적용.
+
+    이유: AI 진단 발행 -> 결과 페이지 -> 뒤로가기 시점에 브라우저가 HTTP cache·BFCache 로 list 페이지를
+    stale HTML 그대로 복원해 succeeded 결과가 안 보이는 회귀가 발생. SSR fetch 매번 fresh 보장으로 회피.
+    JSON API(/api/v1/*) 는 응답 content-type 이 application/json 이라 무관 — 그대로 cache 안 함.
+    """
+    response = await call_next(request)
+    if response.headers.get("content-type", "").startswith("text/html"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
 
 _STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")

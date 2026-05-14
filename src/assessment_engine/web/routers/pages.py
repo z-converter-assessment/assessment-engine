@@ -121,12 +121,14 @@ async def get_server(
     if not server:
         raise HTTPException(status_code=404)
     last_server_diagnostic = await diag_service.get_latest("server", str(server.public_id), "14d")
+    recent_tasks = await service.list_recent_tasks(str(server.public_id), limit=10, cursor=None)
     return templates.TemplateResponse(
         request=request,
         name="servers/detail.html",
         context={
             "server": server,
             "last_server_diagnostic": to_panel_payload(last_server_diagnostic),
+            "recent_tasks": recent_tasks,
         },
     )
 

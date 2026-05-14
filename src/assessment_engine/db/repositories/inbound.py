@@ -77,10 +77,18 @@ class TaskCreate:
 
 @dataclass
 class TaskResultUpdate:
-    """task 결과 보고 — agent → MQ → consumer → repository."""
-    public_id: str   # agent가 응답에 포함한 task public_id
-    status: str      # "success" | "failed"
-    result_message: str | None
+    """task 결과 보고 — MQ → consumer → repository.
+
+    public_id는 결과 보고 메시지의 task_id 값을 그대로 받아 Task.public_id 매칭.
+    """
+    public_id: str
+    status: str             # "success" | "failure"
+    failure_reason: str | None
+    exit_code: int | None
+    duration_ms: int
+    stdout_tail: str
+    stderr_tail: str
+    completed_at: datetime
 
 
 @dataclass

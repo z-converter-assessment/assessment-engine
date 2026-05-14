@@ -58,6 +58,8 @@ class ServerListItem:
     # raws_period 부재 시 빈 문자열 (도넛/분류 데이터 없음 — 페이지 2+ 또는 신규 등록 직후).
     recommendation_label: str = ""
     recommendation_color: str = ""
+    # 행별 마지막 task 요약. None 이면 발행 이력 없음 — 템플릿이 "—" 로 표시.
+    last_task: "TaskSummaryItem | None" = None
 
 
 @dataclass
@@ -505,3 +507,45 @@ class ReportSummary:
     summary_bullets: list[str] = field(default_factory=list)
     # 양식 A 상단 역할 분포 — {"web": 8, "db": 5, "cache": 3, ...}. service_classifier 카테고리 집계.
     role_distribution: dict[str, int] = field(default_factory=dict)
+
+
+# ---------- Task 표시 ----------
+
+@dataclass
+class TaskSummaryItem:
+    """list / detail row 단위 task 요약 — 한 줄 표시.
+
+    상태 표현은 mapper 단일 결정 (P2):
+    - badge_class: rec-{key} CSS class. success / failure / pending / unknown
+    - badge_label: 한글 표시 ("성공" / "실패" / "진행 중" / "—")
+    - failure_label: failure_reason 한글 (실패 시만)
+    """
+    task_id: str
+    task_type: str
+    status: str
+    badge_class: str
+    badge_label: str
+    failure_label: str | None
+    created_at: datetime
+    completed_at: datetime | None
+    duration_ms: int | None
+
+
+@dataclass
+class TaskDetailItem:
+    """단일 task 상세 — modal / API 응답. 디버깅 데이터(tail) 포함."""
+    task_id: str
+    target_public_id: str | None
+    target_hostname:  str | None
+    task_type: str
+    status: str
+    badge_class: str
+    badge_label: str
+    failure_reason: str | None
+    failure_label:  str | None
+    exit_code: int | None
+    duration_ms: int | None
+    created_at: datetime
+    completed_at: datetime | None
+    stdout_tail: str | None
+    stderr_tail: str | None

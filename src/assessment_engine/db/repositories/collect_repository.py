@@ -1,6 +1,6 @@
 import dataclasses
 
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -245,8 +245,12 @@ class CollectRepository(BaseCollectRepository):
             .where(Task.public_id == data.public_id)
             .values(
                 status=data.status,
-                result_message=data.result_message,
-                completed_at=func.now(),
+                completed_at=data.completed_at,
+                failure_reason=data.failure_reason,
+                exit_code=data.exit_code,
+                duration_ms=data.duration_ms,
+                stdout_tail=data.stdout_tail,
+                stderr_tail=data.stderr_tail,
             )
         )
         result = await self.session.execute(stmt)

@@ -67,8 +67,20 @@ services:
 
   web:
     <<: *dev-app
+    environment:
+      APP_ENV: dev
+      # 2-port 분리 (ADR 0008 임시) — port 8000 plain HTTP(브라우저·API), port 8443 HTTPS(install bundle).
+      # cert/key 는 infra/tls/gen-cert.sh 가 생성 (dev-up.sh check_prereqs 에서 자동).
+      SSL_CERTFILE: /etc/assessment-engine/tls/server.pem
+      SSL_KEYFILE:  /etc/assessment-engine/tls/server.key
+    volumes:
+      - ./:/app
+      - ./infra/tls/server.pem:/etc/assessment-engine/tls/server.pem:ro
+      - ./infra/tls/server.key:/etc/assessment-engine/tls/server.key:ro
+      - ./infra/tls/ca.pem:/etc/assessment-engine/tls/ca.pem:ro
     ports:
       - "${WEB_PORT:-8000}:8000"
+      - "${HTTPS_PORT:-8443}:8443"
 
   consumer:
     <<: *dev-app

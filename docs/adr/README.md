@@ -7,11 +7,13 @@
 | 번호 | 제목 | Status | 요약 |
 |------|------|--------|------|
 | 0001 | Redis fail-open 전환 | Accepted | 멱등성·캐시·부수 작업의 Redis 의존을 fail-open — DB UNIQUE 2단이 정확성 보장 |
-| 0002 | Task RPC piggyback vs polling | Accepted | 운영자 작업 명령을 `server.metrics` reply 채널에 piggyback — polling endpoint·큐 신설 0 |
+| 0002 | Task RPC piggyback vs polling | Superseded by 0007 | 운영자 작업 명령을 `server.metrics` reply 채널에 piggyback — 발행 측 별도 worker 진화로 폐기 |
 | 0003 | AI/LLM 활용 로드맵 | Accepted | Phase 2~3 — USE Method 임계값·방법론·LLM 모델 선택 |
 | 0004 | AI 진단 워커 아키텍처 | Accepted | 워커·스케줄러·diagnostic_jobs·LLM 토글 (Phase 2 실행 인프라) |
 | 0005 | DB Schema 관리 표준화 | Accepted | Alembic 단일 진실, migrate init-container, `alembic check` CI |
 | 0006 | OpenStack 분산 staging 배포 | Proposed | 4 VM 토폴로지(bastion + DB + MW + 앱) — 예상 시나리오, 실 도입 시 정정 |
+| 0007 | Task 별도 큐 모델 | Accepted | task.install / task.result 를 `assessment.tasks` exchange + 머신별 큐로. 0002 supersede |
+| 0008 | dev install bundle HTTPS endpoint (임시) | Accepted (임시) | install bundle endpoint(port 8443) 한정 HTTPS — agent worker HTTPS-only 정합. 정석은 agent 측 dev http toggle 또는 nginx ingress, 별도 ADR |
 
 트레이드오프 카탈로그(T1~T11)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 

@@ -40,6 +40,13 @@
     .rec-optimal           { background: #dcfce7; color: #15803d; }
     .rec-idle, .rec-shutdown { background: #f1f5f9; color: #64748b; }
     .rec-swap              { background: #b91c1c; color: #fef2f2; }
+    /* Task status badge — list 행별 "최근 작업" column + detail timeline 공유. mapper _TASK_STATUS_DISPLAY 단일 진실. */
+    .rec-success           { background: #dcfce7; color: #15803d; }
+    .rec-failure           { background: #fee2e2; color: #b91c1c; }
+    .rec-pending           { background: #dbeafe; color: #1d4ed8; }
+    .rec-unknown           { background: #f1f5f9; color: #64748b; }
+    .task-cell             { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+    .task-cell:hover .badge { filter: brightness(0.95); }
     .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07); padding: 20px 24px; margin-bottom: 18px; }
 
     /* Attention card 6 sub-section 표준 — list.html attention 전용. inline style 흩어짐 방지. */
@@ -136,6 +143,7 @@
        chart-utils.js는 자식 script 실행 전에 로드되어야 한다. <head>에 둠. -->
   <script src="/static/js/chart-utils.js?v={{ asset_v }}"></script>
   <script src="/static/js/toast-utils.js?v={{ asset_v }}"></script>
+  <script src="/static/js/task-modal.js?v={{ asset_v }}" defer></script>
 </head>
 <body>
   <header class="no-print">
@@ -144,6 +152,18 @@
   <main>
     {% block content %}{% endblock %}
   </main>
+
+  <!-- Task 상세 modal — list.html "최근 작업" cell / detail.html timeline row 클릭 시 채워짐.
+       data-task-id 속성 가진 element 클릭 → TaskModal.open(taskId) 자동 호출. -->
+  <div id="task-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:60; align-items:center; justify-content:center;">
+    <div style="background:#fff; border-radius:8px; padding:20px 24px; width:640px; max-width:92vw; max-height:88vh; overflow:auto; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h3 id="task-modal-title" style="margin:0; font-size:15px; color:#1e293b;">작업 상세</h3>
+        <button type="button" id="task-modal-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
+      </div>
+      <div id="task-modal-body" style="font-size:13px; color:#1e293b;">불러오는 중...</div>
+    </div>
+  </div>
   <script>
     /* .back 링크 공통 동작 — 브라우저 history 있으면 직전 페이지, 없으면(새 탭·직접 URL) href fallback. */
     document.querySelectorAll('a.back').forEach(a => {

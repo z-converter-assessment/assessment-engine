@@ -162,7 +162,7 @@ ADR 0002와 유사 — 진단 단위가 작아지고 빈도가 폭증할 경우:
 
 ## 관련 문서
 - ADR 0003: 임계값·방법론·LLM 모델 선택 (본 ADR은 실행 인프라)
-- ADR 0002: RPC piggyback 패턴 (Task 명령 — 진단과 무관하지만 워커 패턴 참조)
+- ADR 0007: Task 별도 큐 모델 (worker / publisher 분리 패턴 참조 — 0002 supersede)
 - CLAUDE.md #A2 컨테이너 구성·#B1 routing key 표·#C1 키 제약 갱신 의무
 - `docs/architecture/consumer.md` 워커 구현 시 참조 패턴
 - `docs/operations/alembic.md` `diagnostic_jobs` 마이그레이션 절차

@@ -25,19 +25,20 @@ def get_service(
 
 
 def get_task_service(
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    redis=Depends(get_redis),
 ) -> TaskService:
-    """TaskService DI — router는 추상만 본다 (F4).
+    """TaskService DI — router 는 추상만 본다 (F4).
 
-    query_repo는 request-scoped(get_db)지만 collect_repo는 task INSERT용 별도 트랜잭션
-    필요(서버별 독립 commit)이라 session_factory + factory 패턴.
+    query_repo 는 request-scoped(get_db) 지만 collect_repo 는 task INSERT 용 별도 트랜잭션
+    필요(서버별 독립 commit) 이라 session_factory + factory 패턴.
+    broker_channel 은 lifespan 에서 app.state 에 저장한 영속 channel 재사용.
     """
     return TaskService(
         query_repo=QueryRepository(db),
         session_factory=AsyncSessionLocal,
         collect_repo_factory=CollectRepository,
-        redis=redis,
+        broker_channel=request.app.state.broker_channel,
     )
 
 

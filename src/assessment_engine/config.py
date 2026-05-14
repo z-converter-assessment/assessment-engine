@@ -45,7 +45,6 @@ class WebSettings(BaseSettings):
     redis_ttl_token: int = 3600                 # 1h  — 인증 토큰
     redis_ttl_last_agent_start: int = 86400     # 24h — 직전 agent_started_at 캐시 (재시작 감지용)
     redis_ttl_agent_restarts: int = 3600        # 1h  — 슬라이딩 윈도우 카운터
-    redis_ttl_task_pending: int = 86400         # 24h — pending task hot path 캐시 (DB가 source of truth)
     redis_ttl_time_invariant_warned: int = 3600 # 1h  — 시계 invariant 위반 로그 쿨다운 (스팸 방지)
 
     # Key prefixes
@@ -57,7 +56,6 @@ class WebSettings(BaseSettings):
     redis_key_token: str = "token:{}"
     redis_key_last_agent_start: str = "last_agent_start:{}"
     redis_key_agent_restarts: str = "agent_restarts:{}"
-    redis_key_task_pending: str = "task:pending:{}"  # {machine_id} → JSON full payload
     redis_key_time_invariant_warned: str = "time_invariant_warned:{}"  # {machine_id} 쿨다운 마커
 
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
@@ -65,6 +63,20 @@ class WebSettings(BaseSettings):
 
     # PUB/SUB channels
     redis_channel_metrics: str = "metrics.events"
+
+    # 원격 작업 install bundle endpoint (self-host).
+    # task.install 페이로드의 download.url에 그대로 박혀 발행되고, 원격 호스트의
+    # WORKER_DOWNLOAD_ALLOWED_HOSTS 화이트리스트와 host가 정확히 일치해야 fetch 허용.
+    # HTTPS 강제 — 원격 호스트 worker 측 정책상 https:// 만 fetch 허용 (ADR 0008 임시).
+    install_bundle_url: str = "https://host.lima.internal:8443/zconverter.tar.gz"
+    install_timeout_sec: int = 600  # install.sh wall-clock timeout (원격 host의 worker가 강제 종료)
+
+    # 2-port 분리 (ADR 0008 임시) — install bundle endpoint 만 HTTPS, 나머지(브라우저·API·healthcheck) plain HTTP.
+    # 운영자 편의(브라우저 plain 접근) + agent worker HTTPS-only 정책 동시 충족 위한 dev workaround.
+    # 정석은 agent 측 dev http toggle 또는 nginx ingress sidecar — 별도 ADR.
+    https_port:   int = 8443
+    ssl_certfile: str | None = None
+    ssl_keyfile:  str | None = None
 
     @property
     def database_url(self) -> str:
@@ -111,7 +123,15 @@ class ConsumerSettings(WebSettings):
     rabbitmq_routing_key_inventory: str = "server.inventory"
     rabbitmq_routing_key_metrics: str = "server.metrics"
     rabbitmq_routing_key_error: str = "server.error"
-    rabbitmq_routing_key_task_result: str = "task.result"  # agent → engine 작업 결과 보고
+
+    # 원격 작업 토폴로지 (collector exchange와 분리 — 인증·DLX 정책 독립).
+    # task.install: engine 발행 / routing_key=task.install.<machine_id> / queue=agent.tasks.<machine_id> (engine 동적 declare)
+    # task.result : 원격 호스트 발행 / queue=worker.result
+    rabbitmq_task_exchange: str = "assessment.tasks"
+    rabbitmq_task_queue_prefix: str = "agent.tasks"
+    rabbitmq_task_install_key_prefix: str = "task.install"
+    rabbitmq_routing_key_task_result: str = "task.result"
+    rabbitmq_queue_worker_result: str = "worker.result"
 
     @property
     def broker_url(self) -> str:

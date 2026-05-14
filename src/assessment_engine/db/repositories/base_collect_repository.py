@@ -62,7 +62,8 @@ class BaseCollectRepository(ABC):
 
     @abstractmethod
     async def complete_task(self, data: TaskResultUpdate) -> bool:
-        """agent 결과 보고 수신 — status/completed_at/result_message UPDATE.
+        """결과 보고 수신 — status / completed_at / failure_reason / exit_code /
+        duration_ms / stdout_tail / stderr_tail UPDATE.
 
         반환: True 정상 update / False public_id 미존재 (DLQ 또는 silent ack 결정).
         """
