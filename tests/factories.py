@@ -13,7 +13,9 @@ from assessment_engine.db.repositories.inbound import (
     NetIoEntry,
     ServerInventoryCreate,
     ServerMetricCreate,
+    TaskResultUpdate,
 )
+from assessment_engine.db.repositories.outbound import TaskRow
 
 _DEFAULT_BOOT_TIME = datetime(2026, 1, 1, tzinfo=timezone.utc)
 _DEFAULT_AGENT_STARTED_AT = datetime(2026, 1, 1, 0, 5, tzinfo=timezone.utc)
@@ -114,4 +116,94 @@ def make_metrics(
             NetIoEntry(interface="eth0", rx_bytes=1_000_000, tx_bytes=500_000,
                        rx_packets=1000, tx_packets=500, rx_errors=0, tx_errors=0),
         ],
+    )
+
+
+# ─── Task 빌더 (ADR 0007) ──────────────────────────────────────────────────
+
+_DEFAULT_TASK_PUBLIC_ID = "00000000-0000-4000-8000-000000000001"
+_DEFAULT_TASK_COMPLETED_AT = datetime(2026, 5, 14, 12, 0, tzinfo=timezone.utc)
+
+
+def make_task_result_payload(
+    *,
+    machine_id: str = "test-machine-id-0001",
+    task_id: str = _DEFAULT_TASK_PUBLIC_ID,
+    status: str = "success",
+    failure_reason: str | None = None,
+    exit_code: int | None = 0,
+    duration_ms: int = 30,
+    stdout_tail: str = "ok",
+    stderr_tail: str = "",
+    completed_at: datetime = _DEFAULT_TASK_COMPLETED_AT,
+    boot_time: datetime | None = None,
+    agent_started_at: datetime | None = None,
+    message_id: str = "550e8400-e29b-41d4-a716-446655440099",
+) -> dict:
+    """task.result wire JSON 빌더 — TaskResultInput.model_validate_json 검증용.
+
+    Default 는 success 경로. failure 시 status='failure' + failure_reason 지정.
+    boot_time / agent_started_at default None — agent worker 가 항상 null 발행 (ADR 0007).
+    """
+    return {
+        "message_type":     "task.result",
+        "machine_id":       machine_id,
+        "agent_version":    "1.0.0",
+        "collected_at":     completed_at.isoformat().replace("+00:00", "Z"),
+        "hostname":         "test-host-01",
+        "message_id":       message_id,
+        "boot_time":        boot_time.isoformat().replace("+00:00", "Z") if boot_time else None,
+        "agent_started_at": agent_started_at.isoformat().replace("+00:00", "Z") if agent_started_at else None,
+        "task_id":          task_id,
+        "status":           status,
+        "failure_reason":   failure_reason,
+        "exit_code":        exit_code,
+        "duration_ms":      duration_ms,
+        "stdout_tail":      stdout_tail,
+        "stderr_tail":      stderr_tail,
+        "completed_at":     completed_at.isoformat().replace("+00:00", "Z"),
+    }
+
+
+def make_task_result_update(
+    *,
+    public_id: str = _DEFAULT_TASK_PUBLIC_ID,
+    status: str = "success",
+    failure_reason: str | None = None,
+    exit_code: int | None = 0,
+    duration_ms: int = 30,
+    stdout_tail: str = "ok",
+    stderr_tail: str = "",
+    completed_at: datetime = _DEFAULT_TASK_COMPLETED_AT,
+) -> TaskResultUpdate:
+    return TaskResultUpdate(
+        public_id=public_id, status=status,
+        failure_reason=failure_reason, exit_code=exit_code, duration_ms=duration_ms,
+        stdout_tail=stdout_tail, stderr_tail=stderr_tail, completed_at=completed_at,
+    )
+
+
+def make_task_row(
+    *,
+    public_id: str = _DEFAULT_TASK_PUBLIC_ID,
+    target_server_id: int = 1,
+    target_public_id: str | None = "11111111-1111-4111-8111-111111111111",
+    target_hostname:  str | None = "test-host-01",
+    task_type: str = "zconverter_install",
+    status: str = "success",
+    created_at: datetime = _DEFAULT_TASK_COMPLETED_AT,
+    completed_at: datetime | None = _DEFAULT_TASK_COMPLETED_AT,
+    failure_reason: str | None = None,
+    exit_code: int | None = 0,
+    duration_ms: int | None = 30,
+    stdout_tail: str | None = "ok",
+    stderr_tail: str | None = "",
+) -> TaskRow:
+    return TaskRow(
+        public_id=public_id, target_server_id=target_server_id,
+        target_public_id=target_public_id, target_hostname=target_hostname,
+        task_type=task_type, status=status,
+        created_at=created_at, completed_at=completed_at,
+        failure_reason=failure_reason, exit_code=exit_code, duration_ms=duration_ms,
+        stdout_tail=stdout_tail, stderr_tail=stderr_tail,
     )

@@ -5,9 +5,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from aio_pika import DeliveryMode, Message
 from aio_pika.abc import AbstractIncomingMessage
-from aio_pika.exceptions import AMQPException
 from loguru import logger
 from pydantic import ValidationError
 from redis.asyncio import Redis
@@ -116,39 +114,6 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
             "time invariant violated agent_started_at>collected_at machine_id={} agent_started_at={} collected_at={}",
             data.machine_id, data.agent_started_at, data.collected_at,
         )
-
-
-async def _reply_pending_task_if_any(
-    message: AbstractIncomingMessage,
-    redis: Redis,
-    machine_id: str,
-) -> None:
-    """metrics 메시지의 reply_to에 pending task 1건을 응답.
-
-    - reply_to 미지정 → no-op (옛 agent · piggyback 미지원)
-    - Redis EXISTS task:pending:{machine_id} → 99% no-op이라 hot path는 ms 단위
-    - 있으면 GET → reply publish (correlation_id 그대로 회신)
-    Redis 장애 시 silent skip (다음 metrics 주기에 재시도). DB 직접 조회 안 함 — hot path 보호.
-    """
-    if not message.reply_to:
-        return
-    key = consumer_settings.redis_key_task_pending.format(machine_id)
-    payload = await safe_get(redis, key)
-    if not payload:
-        return
-    try:
-        await message.channel.default_exchange.publish(
-            Message(
-                body=payload.encode(),
-                content_type="application/json",
-                correlation_id=message.correlation_id,
-                delivery_mode=DeliveryMode.NOT_PERSISTENT,
-            ),
-            routing_key=message.reply_to,
-        )
-        logger.info("task piggyback replied machine_id={} correlation_id={}", machine_id, message.correlation_id)
-    except (TimeoutError, AMQPException) as e:
-        logger.warning("task piggyback reply failed machine_id={} err_type={}", machine_id, type(e).__name__)
 
 
 async def _track_agent_restart(redis: Redis, server_id: int, machine_id: str, agent_started_at: datetime) -> None:
@@ -263,9 +228,6 @@ def make_metrics_handler(
             )
             await _track_agent_restart(redis, resolved_server_id, data.machine_id, data.agent_started_at)
 
-            # RPC piggyback — agent가 reply_to를 명시한 경우 pending task 확인 후 reply.
-            # latency 같지만 별도 polling endpoint·queue 불필요 (CLAUDE.md B5).
-            await _reply_pending_task_if_any(message, redis, data.machine_id)
             # F7: 메시지별 처리 흐름은 DEBUG — 1만 서버 시 분당 1만 line 방지.
             logger.debug(
                 "metrics stored machine_id={} rows metrics={} disk_io={} net_io={} mount_usage={}",
@@ -282,10 +244,12 @@ def make_task_result_handler(
     repo_factory: Callable[[AsyncSession], BaseCollectRepository],
     redis: Redis,
 ) -> Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]:
-    """agent → engine 작업 결과 수신.
+    """작업 결과 수신 핸들러.
 
-    흐름: 멱등성 → DB UPDATE (status/completed_at/result_message) → Redis pending 키 DEL.
-    public_id 미존재 시 silent ack (운영자가 task 삭제했을 가능성 — DLQ 부적합).
+    흐름: 멱등성 → DB UPDATE (status / completed_at / failure_reason / exit_code /
+    duration_ms / stdout_tail / stderr_tail).
+    task_id 미존재 시 silent ack (운영자가 task 삭제했을 가능성 — DLQ 부적합).
+    boot_time / agent_started_at은 본 메시지에서 항상 null이라 time invariant 검증 생략.
     """
     async def _handle(message: AbstractIncomingMessage) -> None:
         async with message.process(requeue=False):
@@ -299,12 +263,15 @@ def make_task_result_handler(
                 logger.info("task_result duplicate skipped message_id={}", data.message_id)
                 return
 
-            await _log_time_invariants(redis, data)
-
             update = TaskResultUpdate(
-                public_id=str(data.task_public_id),
+                public_id=str(data.task_id),
                 status=data.status,
-                result_message=data.result_message,
+                failure_reason=data.failure_reason,
+                exit_code=data.exit_code,
+                duration_ms=data.duration_ms,
+                stdout_tail=data.stdout_tail,
+                stderr_tail=data.stderr_tail,
+                completed_at=data.completed_at,
             )
 
             async def commit(repo: BaseCollectRepository) -> bool:
@@ -312,15 +279,12 @@ def make_task_result_handler(
 
             updated = await _db_retry(session_factory, repo_factory, commit)
             if not updated:
-                logger.warning("task_result for unknown task_public_id={} (silent ack)", data.task_public_id)
+                logger.warning("task_result for unknown task_id={} (silent ack)", data.task_id)
                 return
 
-            # Redis pending 키 정리 — agent가 같은 task를 재요청하지 않게.
-            pending_key = consumer_settings.redis_key_task_pending.format(data.machine_id)
-            await safe_delete(redis, pending_key)
             logger.info(
-                "task_result stored machine_id={} task_public_id={} status={}",
-                data.machine_id, data.task_public_id, data.status,
+                "task_result stored machine_id={} task_id={} status={} failure_reason={}",
+                data.machine_id, data.task_id, data.status, data.failure_reason,
             )
 
     return _handle

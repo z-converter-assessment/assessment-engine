@@ -173,17 +173,30 @@ class ErrorInput(MessageBase):
 
 
 # ---------------------------------------------------------------------------
-# task.result — agent → engine 작업 결과 보고 (routing_key=task.result)
+# task.result — 작업 결과 보고 메시지 (routing_key=task.result)
 # ---------------------------------------------------------------------------
 
 
 class TaskResultInput(MessageBase):
-    """agent가 task 실행 후 결과 보고 메시지.
+    """원격 작업 실행 결과 수신 메시지.
 
-    공통 메타(machine_id 등)는 MessageBase. task 식별은 task_public_id(engine이
-    reply에 담아 보낸 값을 agent가 그대로 회신).
+    공통 메타(machine_id 등)는 MessageBase. boot_time / agent_started_at은
+    본 메시지에서는 항상 null (수집 캐시와 분리된 worker 컨텍스트에서 발행) —
+    부모 required 필드를 nullable로 override.
     """
-    message_type: Literal["task_result"]
-    task_public_id: UUID
-    status: Literal["success", "failed"]
-    result_message: str | None = Field(default=None, max_length=4000)
+    message_type: Literal["task.result"]
+    boot_time: datetime | None = None
+    agent_started_at: datetime | None = None
+
+    task_id: UUID
+    status: Literal["success", "failure"]
+    # 실패 분류. 알려진 값: url_not_allowed / download_failed / sha256_mismatch /
+    # extract_failed / script_not_found / script_failed / script_timeout /
+    # insufficient_disk / internal_error / already_done. 성공 시 null.
+    # 새 enum 도입 시 silent pass — extra=ignore 정신과 일관, max_length만 강제.
+    failure_reason: str | None = Field(default=None, max_length=32)
+    exit_code: int | None = None
+    duration_ms: int = Field(ge=0)
+    stdout_tail: str = Field(max_length=8192)
+    stderr_tail: str = Field(max_length=8192)
+    completed_at: datetime

@@ -62,7 +62,12 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 | `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | config.py / dev-up.sh (infra/agent.env) | 동일 |
 | `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | config.py / dev-up.sh (infra/agent.env) | 동일 |
 | `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | config.py / dev-up.sh (infra/agent.env) | 동일 |
-| `RABBITMQ_ROUTING_KEY_TASK_RESULT` | `task.result` | config.py / dev-up.sh (infra/agent.env) | agent -> engine 작업 결과 보고. v4 신설 |
+| `RABBITMQ_WORKER_USER` | `assessment` | dev-up.sh (infra/agent.env) | 원격 호스트 worker 가 사용할 AMQP user. 비어 있으면 worker 자동 비활성 (collector 만 동작) |
+| `RABBITMQ_WORKER_PASSWORD` | `assessment` | dev-up.sh (infra/agent.env) | RABBITMQ_WORKER_USER 의 암호. heredoc 안에서 `RABBITMQ_WORKER_PASS` 로 매핑 |
+| `WORKER_TASK_EXCHANGE` | `assessment.tasks` | config.py / dev-up.sh (infra/agent.env) | task.install/task.result 전용 exchange. collector exchange 와 분리 |
+| `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | dev-up.sh (infra/agent.env) | 원격 호스트별 큐 prefix. full name = `<prefix>.<machine_id>` |
+| `WORKER_TASK_RESULT_KEY` | `task.result` | dev-up.sh (infra/agent.env) | 원격 호스트 -> 엔진 결과 보고 routing key |
+| `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `host.lima.internal` | dev-up.sh (infra/agent.env) | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치) |
 | `REDIS_HOST` | `redis` | config.py | (docker-compose 서비스명) |
 | `REDIS_PORT` | `6379` | config.py | |
 | `WEB_PORT` | `8000` | config.py / docker-compose | Web UI 접속 포트. 충돌 시 변경 |
@@ -98,7 +103,8 @@ docker-compose `environment:` 오버라이드는 `web` / `consumer` 양쪽에 �
 
 dev-up.sh는 엔진의 `.env`를 에이전트에 전달하지 않는다. 별도 파일 `infra/agent.env`에서만 read (`set -a; source infra/agent.env; set +a`로 host env export):
 
-- `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_EXCHANGE`, `RABBITMQ_ROUTING_KEY_INVENTORY`, `RABBITMQ_ROUTING_KEY_METRICS`, `RABBITMQ_ROUTING_KEY_ERROR`, `RABBITMQ_ROUTING_KEY_TASK_RESULT`
+- `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_EXCHANGE`, `RABBITMQ_ROUTING_KEY_INVENTORY`, `RABBITMQ_ROUTING_KEY_METRICS`, `RABBITMQ_ROUTING_KEY_ERROR`
+- `RABBITMQ_WORKER_USER`, `RABBITMQ_WORKER_PASSWORD`, `WORKER_TASK_EXCHANGE`, `WORKER_TASK_QUEUE_PREFIX`, `WORKER_TASK_RESULT_KEY`, `WORKER_DOWNLOAD_ALLOWED_HOSTS`
 
 `infra/agent.env`가 없으면 dev-up.sh가 즉시 에러. `cp infra/agent.env.example infra/agent.env` 후 운영 값으로 수정.
 
@@ -114,8 +120,8 @@ dev-up.sh는 엔진의 `.env`를 에이전트에 전달하지 않는다. 별도 
 
 - `redis_ttl_idempotent` (24h), `redis_ttl_online` (90s), `redis_ttl_token` (1h)
 - `redis_ttl_last_agent_start` (24h), `redis_ttl_agent_restarts` (1h 슬라이딩 윈도우)
-- `redis_ttl_task_pending` (24h — pending task hot path 캐시)
-- `redis_key_*` 패턴 (cache:* / idempotent / online / token / last_agent_start / agent_restarts / task:pending)
+- `redis_key_*` 패턴 (cache:* / idempotent / online / token / last_agent_start / agent_restarts)
+- `install_bundle_url` (engine self-host endpoint URL), `install_timeout_sec` (task.install wall-clock cap)
 - `redis_channel_metrics`
 - `agent_restart_alert_threshold` (3 — 1h 내 재시작 N회 도달 시 warning)
 

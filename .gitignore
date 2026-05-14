@@ -3,6 +3,12 @@
 infra/agent.env
 # secrets/ 내부는 secrets/.gitignore가 별도 관리 (README/.gitignore만 커밋, 나머지 전부 제외)
 
+# dev TLS self-signed cert (호스트마다 생성, 재사용 가능). gen-cert.sh 만 commit.
+infra/tls/*.pem
+infra/tls/*.key
+infra/tls/*.crt
+infra/tls/*.srl
+
 # IDE
 .idea/
 

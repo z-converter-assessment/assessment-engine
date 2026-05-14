@@ -1,6 +1,6 @@
 # ADR 0002 — Task 명령 전달 모델: RPC piggyback 채택
 
-상태: 채택 (2026-05-10)
+상태: Superseded (2026-05-14) — ADR 0007 (별도 큐 모델 채택) 로 전환
 
 ## Context
 
@@ -80,3 +80,4 @@ agent가 long-running GET → engine이 task 생길 때 한 줄 push.
 
 - 2026-05-11: `task_type` dispatcher와 함께 `params` 스키마도 engine-agent 양쪽 합의 + `agent_version` bump 대상이라는 점 명시. 본 ADR은 명명을 박지 않음 — 명명 변경은 코드 변경으로 처리.
 - 2026-05-13: `zconverter_install` params 키 정정 — `source_host` (host[:port])에서 `source_url` (전체 URL, scheme·port·path 자유)로 변경. 외부 mirror 호스팅 자유도 확보. 단일 진실은 코드·agent.md.
+- 2026-05-14: Superseded by ADR 0007. 본 ADR 의 "옵션 C 로 전환 시점" 이 도래 — 발행 측이 별도 worker 프로세스로 진화하며 piggyback reply 수신 코드를 떼냈고, 결과 보고 페이로드가 `failure_reason` / `exit_code` / `duration_ms` / `stdout_tail` / `stderr_tail` 등으로 확장됨. piggyback / Redis `task:pending` 흐름은 폐기, 별도 큐 모델 (`assessment.tasks` exchange + `agent.tasks.<machine_id>` 머신별 큐) 로 전환.

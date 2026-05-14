@@ -45,6 +45,8 @@ from assessment_engine.web.services.mappers import (
     to_server_detail,
     to_server_list_item,
     to_storage_detail,
+    to_task_detail,
+    to_task_summary,
 )
 from assessment_engine.web.services.metrics_calculator import build_dashboard
 from assessment_engine.web.view_models import (
@@ -61,6 +63,8 @@ from assessment_engine.web.view_models import (
     ServerDetailResponse,
     ServerListItem,
     StorageDetailResponse,
+    TaskDetailItem,
+    TaskSummaryItem,
 )
 
 _DISK_METRIC_TYPES = frozenset({"disk.read_iops", "disk.write_iops"})
@@ -126,6 +130,9 @@ class QueryService:
         )
         raws_by_id: dict[int, object] = {r.server_id: r for r in raws_period}
 
+        # 페이지 서버별 마지막 task — 별도 SQL 1회 (DISTINCT ON). 빈 dict면 row 없는 서버.
+        last_tasks = await self.latest_tasks_by_servers(page_server_ids)
+
         items: list[ServerListItem] = []
         if online_flags is None:
             # Redis 장애 fallback: last_seen_at 기반 판정 (TTL 임계와 동일)
@@ -133,12 +140,14 @@ class QueryService:
             for dto in dtos:
                 item = to_server_list_item(dto, raws_by_id.get(dto.id))
                 item.is_online = dto.last_seen_at is not None and dto.last_seen_at > threshold
+                item.last_task = last_tasks.get(dto.id)
                 items.append(item)
         else:
             # dtos와 online_flags는 동일 길이 보장 — mget이 키 개수만큼 반환.
             for dto, flag in zip(dtos, online_flags, strict=True):
                 item = to_server_list_item(dto, raws_by_id.get(dto.id))
                 item.is_online = flag is not None
+                item.last_task = last_tasks.get(dto.id)
                 items.append(item)
 
         if is_online is not None:
@@ -476,3 +485,28 @@ class QueryService:
                         yield message["data"]
             except RedisError:
                 pass
+
+    # ---------- Task 조회 ----------
+
+    async def get_task(self, task_id: str) -> TaskDetailItem | None:
+        row = await self.repo.get_task_by_public_id(task_id)
+        return to_task_detail(row) if row else None
+
+    async def list_recent_tasks(
+        self,
+        server_public_id: str,
+        limit: int,
+        cursor: datetime | None,
+    ) -> list[TaskSummaryItem]:
+        sid = await self.repo.resolve_server_id(server_public_id)
+        if sid is None:
+            return []
+        rows = await self.repo.list_recent_tasks(sid, limit, cursor)
+        return [to_task_summary(r) for r in rows]
+
+    async def latest_tasks_by_servers(
+        self,
+        server_ids: list[int],
+    ) -> dict[int, TaskSummaryItem]:
+        rows = await self.repo.latest_tasks_by_servers(server_ids)
+        return {sid: to_task_summary(r) for sid, r in rows.items()}

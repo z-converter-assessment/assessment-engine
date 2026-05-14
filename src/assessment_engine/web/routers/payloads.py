@@ -1,18 +1,13 @@
-"""Install payload router — agent가 `curl {source_url}`로 fetch하는 tar 번들 제공.
+"""Install payload router — 원격 호스트가 task.install download.url로 fetch하는 tar 번들 제공.
 
-흐름 (#B5 Task RPC piggyback + docs/architecture/agent.md "Task RPC piggyback"):
-  1. 운영자 web UI에서 서버 체크 + source_url 입력 (전체 URL, 예: `http://host.lima.internal:8000/zconverter.tar.gz`)
-     → POST /api/v1/tasks/install
-  2. 다음 metrics 발행 때 consumer가 RPC piggyback으로 task 명령 회신 (params={"source_url": ...})
-  3. agent가 `curl {source_url}` 그대로 fetch → `tar -xzf` → `bash install.sh`
-  4. agent가 task.result 큐로 결과 보고
+본 endpoint는 본 엔진이 self-host하는 install 번들. task.install 메시지의 download.url은
+본 endpoint를 가리키도록 발행되고, 원격 호스트는 그 URL을 그대로 fetch한 뒤 sha256·size_bytes를
+페이로드 값과 검증한다 (#F8 폐쇄망 가정, 외부 노출 시 별도 ADR로 인증·rate limit).
 
-본 endpoint는 본 엔진이 직접 호스팅하는 install 번들. 운영자가 source_url에 본 엔진 `/zconverter.tar.gz` URL을 박으면
-agent fetch URL이 본 endpoint가 된다. source_url이 외부 mirror를 가리키면 agent는 외부 tar를 fetch — 본 endpoint와 무관.
-scheme(http/https)·port·path 자유 — agent는 URL을 변환 없이 curl.
-
-F13 예외 — 본 endpoint path(/zconverter.tar.gz)는 self-host default일 뿐이고 agent가 hardcode 안 함.
+모듈 로드 시 bundle bytes를 1회 빌드하고 그 sha256·size를 함께 export — task.install 발행 측이
+참조해 페이로드에 채운다 (단일 진실).
 """
+import hashlib
 import io
 import tarfile
 
@@ -30,23 +25,23 @@ echo "[install.sh] host=$(hostname) uname=$(uname -a) date=$(date -u +%Y-%m-%dT%
 echo "[install.sh] install bundle executed successfully"
 """
 
-# tar 안 파일명 — agent.md "Task RPC piggyback" 절의 agent 동작 (`bash install.sh`) 계약 일치.
-_SCRIPT_NAME = "install.sh"
-# 실행 권한 — tar 안 메타로 박혀서 agent의 `tar -xzf`가 권한 그대로 복원.
+# tar 안 파일명. task.install 페이로드의 install.script와 일치.
+INSTALL_SCRIPT_NAME = "install.sh"
+# 실행 권한 — tar 안 메타로 박혀서 원격 호스트의 `tar -xzf`가 권한 그대로 복원.
 _SCRIPT_MODE = 0o755
 
 
 def _build_install_bundle() -> bytes:
-    """in-memory tar.gz 생성. 매 요청마다 같은 결과 (mtime epoch 고정).
+    """in-memory tar.gz 생성. mtime epoch 고정으로 같은 코드면 같은 bytes (sha256 안정).
 
     tarfile.TarInfo에 명시:
-    - mode: 실행 권한 (0o755 → -rwxr-xr-x). agent 측 `tar -xzf`가 권한 복원.
-    - uid/gid: 0 (root) — tar 안 메타. agent가 풀 때 자기 umask·user로 적용되므로 의미 작지만 명시.
-    - mtime: 0 (epoch) — 같은 코드면 같은 bytes 보장. cache·디버그 친화.
+    - mode: 실행 권한 (0o755 → -rwxr-xr-x).
+    - uid/gid: 0 (root) — tar 안 메타.
+    - mtime: 0 (epoch) — deterministic.
     """
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz", compresslevel=6) as tar:
-        info = tarfile.TarInfo(name=_SCRIPT_NAME)
+        info = tarfile.TarInfo(name=INSTALL_SCRIPT_NAME)
         info.size = len(_INSTALL_SCRIPT)
         info.mode = _SCRIPT_MODE
         info.uid = 0
@@ -60,12 +55,14 @@ def _build_install_bundle() -> bytes:
 
 # 모듈 로드 시 1회 생성 — 매 요청마다 tar build 안 함 (작은 deterministic 결과 캐시).
 # 운영자가 _INSTALL_SCRIPT 수정 시 web 컨테이너 재기동(또는 uvicorn auto-reload)으로 갱신.
-_BUNDLE_CACHE = _build_install_bundle()
+_BUNDLE_CACHE: bytes = _build_install_bundle()
+INSTALL_BUNDLE_SIZE: int = len(_BUNDLE_CACHE)
+INSTALL_BUNDLE_SHA256: str = hashlib.sha256(_BUNDLE_CACHE).hexdigest()
 
 
 @payloads_router.get("/zconverter.tar.gz")
 async def get_install_bundle() -> Response:
-    """agent의 hardcoded fetch path. agent.md "Task RPC piggyback" 절 계약 일치.
+    """원격 호스트가 task.install download.url로 fetch.
 
     인증 없음 — 폐쇄망 가정 (#F8). 외부 노출 시 별도 ADR로 인증·rate limit 도입.
     """

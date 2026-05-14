@@ -119,42 +119,16 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && (modal.sty
 
 
 // ─── ZConverter Install ────────────────────────────────────────────────────
-// 체크박스로 서버 선택 → 다운로드 호스트 입력 → POST /api/v1/tasks/install.
-// engine은 DB INSERT + Redis pending SET. agent가 다음 metrics 발행 시 RPC piggyback으로 명령 수신.
+// 체크박스로 호스트 선택 -> POST /api/v1/tasks/install.
+// engine 은 DB INSERT + agent.tasks.<machine_id> 큐 동적 declare + task.install publish.
+// 다운로드 URL / sha256 / size 는 engine self-host 단일 진실 (config.install_bundle_url + payloads.INSTALL_BUNDLE_SHA256).
 
 const installModal            = document.getElementById('install-modal');
 const installBtn              = document.getElementById('install-btn');
 const installCloseBtn         = document.getElementById('install-close');
 const installSubmitBtn        = document.getElementById('install-submit');
 const installCountEl          = document.getElementById('install-count');
-const installSourceUrlInput   = document.getElementById('install-source-url');
 const selectAllCb      = document.getElementById('select-all');
-
-// URL 검증 — 전체 URL (scheme + host[:port] + path 자유). agent가 `curl {source_url}`로 그대로 fetch.
-// URL constructor 활용 — typo 차단 + scheme 허용 화이트리스트(http/https).
-function isValidUrl(s) {
-  try {
-    const u = new URL(s);
-    return u.protocol === 'http:' || u.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
-// 운영자가 web UI에 접근한 host를 install URL의 default로. agent도 같은 내부 네트워크 가정 (A1 폐쇄망).
-// Lima dev 시연(브라우저 localhost) 시 VM agent 입장에서는 localhost가 자기 자신 — host.lima.internal로 fallback.
-// 운영 환경에선 운영자가 도메인으로 접근 → window.location.host 그대로 사용.
-// path는 본 엔진 self-host endpoint `/zconverter.tar.gz` hardcoded (web/routers/payloads.py 단일 진실).
-function _defaultSourceUrl() {
-  const hostname = window.location.hostname;
-  let host;
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '') {
-    host = `host.lima.internal:${window.location.port || '80'}`;
-  } else {
-    host = window.location.host;
-  }
-  return `http://${host}/zconverter.tar.gz`;
-}
 
 function selectedRows() {
   return [...document.querySelectorAll('.row-select:checked')];
@@ -246,25 +220,34 @@ function showInstallModal() {
   const rows = selectedRows();
   if (rows.length === 0) return;
   installCountEl.textContent = rows.length;
-  // 비어있을 때만 default 채움 — 운영자가 한 번 수정한 값은 페이지 세션 동안 보존.
-  if (!installSourceUrlInput.value.trim()) {
-    installSourceUrlInput.value = _defaultSourceUrl();
-  }
   installModal.style.display = 'flex';
-  installSourceUrlInput.focus();
-  installSourceUrlInput.select();
+  installSubmitBtn.focus();
 }
 
 function hideInstallModal() {
   installModal.style.display = 'none';
 }
 
+// install 발행 직후 행별 last_task cell polling — TaskModal.pollUntilFinal 으로 final 도달 시 cell 갱신.
+// pending row 의 cell HTML 을 미리 교체 -> 운영자가 즉시 "진행 중" 인지.
+function pollAndUpdateRow(targetPublicId, taskId) {
+  const row = document.querySelector(`.row-select[data-public-id="${targetPublicId}"]`)?.closest('tr');
+  if (!row) return;
+  const cell = row.querySelector('td:nth-last-child(2)');
+  if (!cell) return;
+  cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${taskId}"><span class="badge rec-pending">진행 중</span></a>`;
+  if (!window.TaskModal) return;
+  window.TaskModal.pollUntilFinal(taskId, {
+    onUpdate(detail) {
+      const created = new Date(detail.created_at).toLocaleString('ko-KR');
+      cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${detail.task_id}" title="${detail.failure_label || ''}"><span class="badge ${detail.badge_class}">${detail.badge_label}</span><span style="font-size:11px; color:#64748b;">${created}</span></a>`;
+    },
+  });
+}
+
 async function submitInstall() {
-  const sourceUrl = installSourceUrlInput.value.trim();
   const rows = selectedRows();
-  if (!sourceUrl) { ToastUtils.show('다운로드 URL을 입력하세요', 'err'); return; }
-  if (!isValidUrl(sourceUrl)) { ToastUtils.show('URL 형식이 아닙니다 (http/https + host[:port]/path)', 'err'); return; }
-  if (rows.length === 0) { ToastUtils.show('선택된 서버 없음', 'err'); return; }
+  if (rows.length === 0) { ToastUtils.show('선택된 호스트 없음', 'err'); return; }
 
   const pending = ToastUtils.show(`Install 발행 중 (${rows.length}대)...`, 'pending');
   installSubmitBtn.disabled = true;
@@ -275,7 +258,6 @@ async function submitInstall() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         target_public_ids: rows.map(r => r.dataset.publicId),
-        source_url: sourceUrl,
       }),
     });
     pending.remove();
@@ -286,12 +268,14 @@ async function submitInstall() {
     }
     const data = await res.json();
     const list = Array.isArray(data) ? data : [];   // 5xx가 JSON object 반환 시 TypeError 방어
-    const lines = list.map(t => `- ${rows.find(r => r.dataset.publicId === t.target_public_id)?.dataset.hostname || t.target_public_id} -> task ${t.task_public_id.slice(0, 8)}`);
+    const lines = list.map(t => `- ${rows.find(r => r.dataset.publicId === t.target_public_id)?.dataset.hostname || t.target_public_id} -> task ${t.task_id.slice(0, 8)}`);
     ToastUtils.show(
       `${list.length}대 Install 발행 완료<br><div style="margin-top:6px; font-family:monospace; font-size:12px;">${lines.join('<br>')}</div>`,
       'ok',
     );
     hideInstallModal();
+    // 행별 "최근 작업" cell polling — task 완료 시 badge 갱신.
+    list.forEach(t => pollAndUpdateRow(t.target_public_id, t.task_id));
   } catch (e) {
     pending.remove();
     ToastUtils.show('Install 요청 실패: ' + e.message, 'err');
@@ -317,7 +301,6 @@ installBtn.addEventListener('click', showInstallModal);
 installCloseBtn.addEventListener('click', hideInstallModal);
 installModal.addEventListener('click', e => { if (e.target === installModal) hideInstallModal(); });
 installSubmitBtn.addEventListener('click', submitInstall);
-installSourceUrlInput.addEventListener('keypress', e => { if (e.key === 'Enter') submitInstall(); });
 
 // --- AI 진단 batch 발행 (ADR 0004 단계 3) ---
 const diagModal     = document.getElementById('diagnose-modal');
@@ -332,7 +315,6 @@ function refreshDiagButton() {
   const n = selectedRows().length;
   diagBtn.textContent = `AI 진단 (${n})`;
   diagBtn.disabled = n === 0;
-  diagBtn.style.opacity = n === 0 ? '0.5' : '1';
 }
 
 // row checkbox change listener는 이미 line 254에 등록됨 (refreshInstallButton).

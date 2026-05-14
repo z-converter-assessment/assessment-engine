@@ -400,6 +400,42 @@
   {% endif %}
 </div>
 
+<!-- 최근 작업 — task.install 이력 (최근 10건). 클릭 시 modal 로 stdout_tail/stderr_tail/failure_reason 확장 -->
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+    <h2 style="margin:0;">최근 작업</h2>
+    <span style="font-size:12px; color:#64748b;">최근 10건 — task.install</span>
+  </div>
+  {% if recent_tasks %}
+  <table class="task-timeline" style="width:100%; border-collapse:collapse;">
+    <thead>
+      <tr style="text-align:left; font-size:12px; color:#64748b; border-bottom:1px solid #e2e8f0;">
+        <th style="padding:6px 8px;">상태</th>
+        <th style="padding:6px 8px;">유형</th>
+        <th style="padding:6px 8px;">발행</th>
+        <th style="padding:6px 8px;">완료</th>
+        <th style="padding:6px 8px;">소요</th>
+        <th style="padding:6px 8px;">실패 사유</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in recent_tasks %}
+      <tr class="task-row" data-task-id="{{ t.task_id }}" style="cursor:pointer; border-bottom:1px solid #f1f5f9;">
+        <td style="padding:8px;"><span class="badge {{ t.badge_class }}">{{ t.badge_label }}</span></td>
+        <td style="padding:8px; font-size:12px;">{{ t.task_type }}</td>
+        <td style="padding:8px; font-size:12px; color:#475569;">{{ t.created_at | kst }}</td>
+        <td style="padding:8px; font-size:12px; color:#475569;">{{ t.completed_at | kst | or_dash }}</td>
+        <td style="padding:8px; font-size:12px; color:#475569;">{% if t.duration_ms is not none %}{{ t.duration_ms }} ms{% else %}—{% endif %}</td>
+        <td style="padding:8px; font-size:12px; color:#b91c1c;">{{ t.failure_label or "" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="margin:0; color:#94a3b8; font-size:13px;">발행된 작업이 없습니다.</p>
+  {% endif %}
+</div>
+
 <!-- 페이지 이동 -->
 <div class="no-print" style="display:flex; gap:10px; margin-top:4px; flex-wrap:wrap;">
   <a href="/servers/{{ server.public_id }}/cpu"         class="btn">CPU 상세 →</a>

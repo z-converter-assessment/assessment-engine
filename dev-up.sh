@@ -67,7 +67,12 @@ readonly REQUIRED_AGENT_KEYS=(
   RABBITMQ_ROUTING_KEY_INVENTORY
   RABBITMQ_ROUTING_KEY_METRICS
   RABBITMQ_ROUTING_KEY_ERROR
-  RABBITMQ_ROUTING_KEY_TASK_RESULT
+  RABBITMQ_WORKER_USER
+  RABBITMQ_WORKER_PASSWORD
+  WORKER_TASK_EXCHANGE
+  WORKER_TASK_QUEUE_PREFIX
+  WORKER_TASK_RESULT_KEY
+  WORKER_DOWNLOAD_ALLOWED_HOSTS
 )
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -124,6 +129,8 @@ check_prereqs() {
     echo "오류: infra/agent.env 없음. 'cp infra/agent.env.example infra/agent.env' 후 운영 값으로 수정하라."
     exit 1
   fi
+  # dev TLS cert — install bundle endpoint HTTPS 발급용. 없으면 자동 생성 (idempotent).
+  bash infra/tls/gen-cert.sh
 }
 
 # infra/agent.env를 host env로 export + 필수 키 검증.
@@ -265,11 +272,14 @@ start_or_resume_vm() {
 #   - inner `<<ENV` (unquoted): host expand된 값들을 inline (그 안에 '$' 없음).
 post_provision_vm() {
   local vm="$1"
-  local service ext_ip hostname_override
+  local service ext_ip hostname_override ca_pem
   service="$(vm_service "$vm")"
   ext_ip="$(vm_ext_ip "$vm")"
   # 모든 VM은 hostname=VM 이름 통일 (web-server-01도 agent-restart-demo.timer는 yaml에 그대로).
   hostname_override="$vm"
+  # dev TLS CA — engine install bundle HTTPS endpoint 검증용. agent worker(libcurl)가 신뢰해야
+  # task.install download.url 의 self-signed cert 가 valid 로 간주된다 (ADR 0008).
+  ca_pem="$(cat infra/tls/ca.pem)"
 
   echo "  [$vm] post-provision (env + 패키지 + 빌드 + systemd)..."
   limactl shell --workdir / "$vm" sudo bash -s <<SCRIPT
@@ -287,7 +297,12 @@ RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
 RABBITMQ_ROUTING_KEY_INVENTORY=${RABBITMQ_ROUTING_KEY_INVENTORY}
 RABBITMQ_ROUTING_KEY_METRICS=${RABBITMQ_ROUTING_KEY_METRICS}
 RABBITMQ_ROUTING_KEY_ERROR=${RABBITMQ_ROUTING_KEY_ERROR}
-RABBITMQ_ROUTING_KEY_TASK_RESULT=${RABBITMQ_ROUTING_KEY_TASK_RESULT}
+RABBITMQ_WORKER_USER=${RABBITMQ_WORKER_USER}
+RABBITMQ_WORKER_PASS=${RABBITMQ_WORKER_PASSWORD}
+WORKER_TASK_EXCHANGE=${WORKER_TASK_EXCHANGE}
+WORKER_TASK_QUEUE_PREFIX=${WORKER_TASK_QUEUE_PREFIX}
+WORKER_TASK_RESULT_KEY=${WORKER_TASK_RESULT_KEY}
+WORKER_DOWNLOAD_ALLOWED_HOSTS=${WORKER_DOWNLOAD_ALLOWED_HOSTS}
 AGENT_HOSTNAME_OVERRIDE=$hostname_override
 AGENT_INTERVAL_SEC=60
 ${ext_ip:+AGENT_EXTERNAL_IP=$ext_ip}
@@ -326,6 +341,7 @@ case "\${ID}:\${os_major}" in
     apt-get update -qq
     apt-get install -y --no-install-recommends \\
       gcc make pkg-config libc6-dev librabbitmq-dev libcjson-dev \\
+      libcurl4-openssl-dev libarchive-dev libssl-dev zlib1g-dev \\
       curl iputils-ping \${svc_pkg}
     ;;
   rocky:*|rhel:*|almalinux:*|centos:8|centos:9|centos:10)
@@ -337,6 +353,7 @@ case "\${ID}:\${os_major}" in
     dnf install -y \${dnf_opts} epel-release dnf-plugins-core
     dnf config-manager --set-enabled crb 2>/dev/null || dnf config-manager --set-enabled powertools 2>/dev/null || true
     dnf install -y \${dnf_opts} gcc make pkg-config librabbitmq-devel cjson-devel \\
+      libcurl-devel libarchive-devel openssl-devel zlib-devel \\
       curl iputils \${svc_pkg}
     ;;
   centos:7)
@@ -349,10 +366,31 @@ case "\${ID}:\${os_major}" in
     sed -i 's/^mirrorlist=/#mirrorlist=/' /etc/yum.repos.d/epel*.repo 2>/dev/null || true
     sed -i 's|^#\?baseurl=https\?://download.fedoraproject.org/pub|baseurl=https://archives.fedoraproject.org/pub/archive|' /etc/yum.repos.d/epel*.repo 2>/dev/null || true
     yum install -y gcc make pkgconfig librabbitmq-devel cjson-devel \\
+      libcurl-devel libarchive-devel openssl-devel zlib-devel \\
       curl iputils \${svc_pkg}
     ;;
   *) echo "지원 안 하는 OS: \${ID}:\${os_major}" >&2; exit 1 ;;
 esac
+
+# dev TLS CA truststore inject — agent worker libcurl 이 engine self-signed cert 검증 통과하도록.
+# Debian/Ubuntu: /usr/local/share/ca-certificates/ + update-ca-certificates.
+# RHEL family    : /etc/pki/ca-trust/source/anchors/   + update-ca-trust.
+case "\${ID}" in
+  ubuntu|debian)
+    ca_dst="/usr/local/share/ca-certificates/assessment-dev-ca.crt"
+    ca_update="update-ca-certificates"
+    ;;
+  rocky|rhel|almalinux|centos)
+    ca_dst="/etc/pki/ca-trust/source/anchors/assessment-dev-ca.crt"
+    ca_update="update-ca-trust"
+    ;;
+  *) echo "지원 안 하는 OS (CA inject): \${ID}" >&2; exit 1 ;;
+esac
+cat > "\${ca_dst}" <<'CA_PEM'
+${ca_pem}
+CA_PEM
+chmod 0644 "\${ca_dst}"
+\${ca_update}
 
 if [ -n "\${svc_unit}" ]; then
   # RPM family postgresql은 cluster init 수동 필요. apt 계열은 install 시 자동 init라 skip.
@@ -377,7 +415,8 @@ rsync -a --delete \\
   --exclude='*.o' --exclude='*.a' --exclude='assessment-agent' --exclude='.git/' \\
   /mnt/agent-src/ /tmp/build/
 cd /tmp/build
-make
+# pkg-config --libs libcurl이 -lcrypto·-lssl을 안 포함 — worker download.c의 EVP_DigestInit(sha256) 링크 실패 회피.
+make LDFLAGS="-lcrypto -lssl -lz -lpthread"
 
 # 4) 바이너리 설치 + systemd unit. 멱등 호출 시 binary·env·unit 변경 없으면 restart 건너뜀
 #    (attention.agent_unstable false positive 회피 — 운영 환경 systemd Restart=on-failure만 트리거 정신).

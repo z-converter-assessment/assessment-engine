@@ -4,7 +4,7 @@
 {% block content %}
 <h1>대시보드</h1>
 
-<!-- ZConverter Install 모달 — 선택 서버 N대에 task 발행 (Redis pending → 다음 metrics piggyback) -->
+<!-- ZConverter Install 모달 — 선택 호스트 N대에 task.install 발행 -->
 <div id="install-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:8px; padding:24px; width:520px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
@@ -12,11 +12,9 @@
       <button type="button" id="install-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
     </div>
     <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">
-      선택된 <span id="install-count" style="font-weight:600; color:#1e293b;">0</span>대 서버에 ZConverter 설치 작업을 발행합니다.
-      각 agent는 다음 metrics 발행 시점에 명령을 받아 지정된 URL에서 다운로드 -> 설치를 실행합니다.
+      선택된 <span id="install-count" style="font-weight:600; color:#1e293b;">0</span>대 호스트에 ZConverter 설치 작업을 발행합니다.
+      엔진 self-host install bundle 을 다운로드 -> sha256 검증 -> install.sh 실행 -> 결과 보고.
     </p>
-    <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">다운로드 URL (전체)</label>
-    <input type="text" id="install-source-url" placeholder="예: http://host.lima.internal:8000/zconverter.tar.gz 또는 https://mirror.example.com/zconverter.tar.gz" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; font-family:monospace; box-sizing:border-box;">
     <button type="button" id="install-submit" class="btn" style="background:#3b82f6; color:#fff; padding:8px 16px; cursor:pointer; border:none; margin-top:12px;">발행</button>
   </div>
 </div>
@@ -339,6 +337,7 @@
       <th>Storage</th>
       <th>OS</th>
       <th>프로비저닝</th>
+      <th>최근 작업</th>
       <th class="action-col"></th>
     </tr>
   </thead>
@@ -391,13 +390,23 @@
           <span style="color:#cbd5e1; font-size:11px;">—</span>
         {% endif %}
       </td>
+      <td>
+        {% if s.last_task %}
+          <a class="task-cell" href="#" data-task-id="{{ s.last_task.task_id }}" title="{{ s.last_task.failure_label or '' }}">
+            <span class="badge {{ s.last_task.badge_class }}">{{ s.last_task.badge_label }}</span>
+            <span style="font-size:11px; color:#64748b;">{{ s.last_task.created_at | kst }}</span>
+          </a>
+        {% else %}
+          <span style="color:#cbd5e1; font-size:11px;">—</span>
+        {% endif %}
+      </td>
       <td class="action-col">
         <a href="/servers/{{ s.public_id }}" class="btn" style="font-size:12px; padding:4px 10px;">상세 →</a>
       </td>
     </tr>
     {% endfor %}
     <tr class="no-print">
-      <td colspan="11" style="padding:14px; background:#f8fafc;">
+      <td colspan="12" style="padding:14px; background:#f8fafc;">
         <button type="button" id="discover-btn" class="btn-action">+ 서버 발견</button>
       </td>
     </tr>

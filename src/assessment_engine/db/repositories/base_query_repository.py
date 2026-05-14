@@ -15,6 +15,7 @@ from assessment_engine.db.repositories.outbound import (
     ServerDetail,
     ServerSummary,
     StorageWithUsage,
+    TaskRow,
 )
 
 MetricType = Literal[
@@ -218,4 +219,29 @@ class BaseQueryRepository(ABC):
         기간 내 메트릭 없는 서버 자동 제외. partition pruning 의무 (C5).
         period_days는 보고서 분류 SQL과 동일 기간으로 호출해 일관성 유지.
         """
+        ...
+
+    # ---------- Task 조회 (운영자 가시성) ----------
+
+    @abstractmethod
+    async def get_task_by_public_id(self, public_id: str) -> TaskRow | None:
+        """단일 task 조회 — task_id (UUID) 기준. API + modal 디버깅."""
+        ...
+
+    @abstractmethod
+    async def list_recent_tasks(
+        self,
+        target_server_id: int,
+        limit: int,
+        cursor: datetime | None = None,
+    ) -> list[TaskRow]:
+        """한 서버의 task timeline — created_at 역순. cursor < created_at WHERE 조건 (E2)."""
+        ...
+
+    @abstractmethod
+    async def latest_tasks_by_servers(
+        self,
+        server_ids: list[int],
+    ) -> dict[int, TaskRow]:
+        """서버별 가장 최근 task 1건 — DISTINCT ON (target_server_id). list 행별 표시 source."""
         ...

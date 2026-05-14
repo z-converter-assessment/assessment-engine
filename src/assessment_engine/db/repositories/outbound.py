@@ -50,6 +50,24 @@ class CollectionStatus:
     last_inventory_at: datetime | None
 
 
+@dataclass
+class TaskRow:
+    """Task row raw — query repo 가 채워 service 가 받는 형식. 표시 파생(badge_class·duration_label)은 mapper."""
+    public_id: str
+    target_server_id: int
+    target_public_id: str | None  # JOIN server_inventory.public_id (목록 응답 시각·운영자용)
+    target_hostname:  str | None  # JOIN server_inventory.hostname
+    task_type: str
+    status: str                   # "pending" / "success" / "failure" (legacy "failed" 가능)
+    created_at: datetime
+    completed_at:   datetime | None
+    failure_reason: str | None
+    exit_code:      int | None
+    duration_ms:    int | None
+    stdout_tail:    str | None
+    stderr_tail:    str | None
+
+
 # ---------- Dashboard raw DTOs (delta 계산용 2행 페어) ----------
 
 @dataclass

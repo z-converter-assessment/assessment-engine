@@ -11,7 +11,7 @@
 | `ensure_server_id(machine_id, fallback) -> tuple[int, bool]` | find → 없으면 placeholder INSERT. metrics 핸들러 auto-register |
 | `record_metrics(server_id, data) -> MetricInsertResult` | 4 시계열 테이블 INSERT. 각 테이블 행 수 반환 |
 | `create_task(data) -> str` | tasks INSERT. public_id(UUID) 반환 |
-| `complete_task(data) -> bool` | task_result handler — status/completed_at/result_message UPDATE |
+| `complete_task(data) -> bool` | task.result handler — status / completed_at / failure_reason / exit_code / duration_ms / stdout_tail / stderr_tail UPDATE |
 
 ### 구현 디테일
 

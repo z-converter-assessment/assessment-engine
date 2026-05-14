@@ -20,7 +20,7 @@
 docs/
 ├── README.md              ← 본 파일 (인덱스)
 ├── architecture/          컴포넌트별 deep dive (영구·갱신)
-│   ├── agent.md           에이전트 메시지 스키마·포트 수집·디스크 필터링·Task RPC piggyback
+│   ├── agent.md           메시지 데이터 형식 (inventory / metrics / error / task.install / task.result)·포트 수집·디스크 필터링
 │   ├── consumer.md        handler·main·멱등성·재시도·부가 시그널
 │   ├── diagnostic.md      AI 진단 워커·스케줄러·LLM 토글·diagnostic_jobs (ADR 0004)
 │   ├── rabbitmq.md        vhost·권한 모델·토폴로지·dev·prod 분기
