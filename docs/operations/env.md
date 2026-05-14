@@ -71,6 +71,8 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 | `REDIS_HOST` | `redis` | config.py | (docker-compose 서비스명) |
 | `REDIS_PORT` | `6379` | config.py | |
 | `WEB_PORT` | `8000` | config.py / docker-compose | Web UI 접속 포트. 충돌 시 변경 |
+| `INSTALL_BUNDLE_URL` | `http://host.lima.internal:8000/zconverter.tar.gz` | config.py / .env (`install.sh` 동적 주입) | task.install download.url 에 박혀 발행. OpenStack 등 분산 환경은 엔진 VM IP/hostname 으로 수정 의무 — `install.sh <engine-ip>` 또는 .env 수정 |
+| `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |
 | `SQLALCHEMY_ECHO` | `false` | config.py | SQLAlchemy 엔진 SQL 로깅. dev 디버깅 시 true (운영 환경은 false 유지 — 로그 폭증·secret 노출 위험) |
 | `PGADMIN_PORT` | `5050` | docker-compose dev override | pgAdmin GUI 포트 (dev 전용) |
 | `LLM_PROVIDER` | `mock` | config.py / docker-compose | AI 진단 LLM 클라이언트 (ADR 0004). `mock` 또는 `ollama`. 과금 발생 외부 API는 운영자 정책상 금지 |
@@ -121,7 +123,6 @@ dev-up.sh는 엔진의 `.env`를 에이전트에 전달하지 않는다. 별도 
 - `redis_ttl_idempotent` (24h), `redis_ttl_online` (90s), `redis_ttl_token` (1h)
 - `redis_ttl_last_agent_start` (24h), `redis_ttl_agent_restarts` (1h 슬라이딩 윈도우)
 - `redis_key_*` 패턴 (cache:* / idempotent / online / token / last_agent_start / agent_restarts)
-- `install_bundle_url` (engine self-host endpoint URL), `install_timeout_sec` (task.install wall-clock cap)
 - `redis_channel_metrics`
 - `agent_restart_alert_threshold` (3 — 1h 내 재시작 N회 도달 시 warning)
 
