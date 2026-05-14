@@ -129,6 +129,8 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 
 운영자 가시성: list.html "최근 작업" column (행별 마지막 task badge + polling 갱신) / detail.html "최근 작업" 섹션 (timeline 최근 10건 + row 클릭 modal) / Web API `GET /api/v1/tasks/{task_id}` 단일 + `GET /api/v1/tasks?server_public_id=...` 서버별 cursor pagination. 단일 진실: `web/services/mappers.py::to_task_summary` / `to_task_detail` + base.html `.rec-success`/`.rec-failure`/`.rec-pending`/`.rec-unknown`. failure_reason 한글 라벨은 `mappers._FAILURE_REASON_LABEL` 카탈로그 (10 enum).
 
+dev 환경 success 경로: agent worker `download.c:49` 의 `https://` prefix 강제로 dev plain HTTP install bundle endpoint 는 `failure_reason="url_not_allowed"` 로 reject (ADR 0009). dev 에서는 wire format 검증(failure 경로) 까지만 가능. success 경로(install.sh 실제 실행 + exit_code=0 + stdout_tail 캡처)는 agent 측 호환성 작업(WORKER_ALLOW_HTTP toggle 또는 nginx ingress) 후 활성화.
+
 ---
 
 ## 규약

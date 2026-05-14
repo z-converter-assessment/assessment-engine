@@ -129,8 +129,6 @@ check_prereqs() {
     echo "오류: infra/agent.env 없음. 'cp infra/agent.env.example infra/agent.env' 후 운영 값으로 수정하라."
     exit 1
   fi
-  # dev TLS cert — install bundle endpoint HTTPS 발급용. 없으면 자동 생성 (idempotent).
-  bash infra/tls/gen-cert.sh
 }
 
 # infra/agent.env를 host env로 export + 필수 키 검증.
@@ -272,14 +270,11 @@ start_or_resume_vm() {
 #   - inner `<<ENV` (unquoted): host expand된 값들을 inline (그 안에 '$' 없음).
 post_provision_vm() {
   local vm="$1"
-  local service ext_ip hostname_override ca_pem
+  local service ext_ip hostname_override
   service="$(vm_service "$vm")"
   ext_ip="$(vm_ext_ip "$vm")"
   # 모든 VM은 hostname=VM 이름 통일 (web-server-01도 agent-restart-demo.timer는 yaml에 그대로).
   hostname_override="$vm"
-  # dev TLS CA — engine install bundle HTTPS endpoint 검증용. agent worker(libcurl)가 신뢰해야
-  # task.install download.url 의 self-signed cert 가 valid 로 간주된다 (ADR 0008).
-  ca_pem="$(cat infra/tls/ca.pem)"
 
   echo "  [$vm] post-provision (env + 패키지 + 빌드 + systemd)..."
   limactl shell --workdir / "$vm" sudo bash -s <<SCRIPT
@@ -371,26 +366,6 @@ case "\${ID}:\${os_major}" in
     ;;
   *) echo "지원 안 하는 OS: \${ID}:\${os_major}" >&2; exit 1 ;;
 esac
-
-# dev TLS CA truststore inject — agent worker libcurl 이 engine self-signed cert 검증 통과하도록.
-# Debian/Ubuntu: /usr/local/share/ca-certificates/ + update-ca-certificates.
-# RHEL family    : /etc/pki/ca-trust/source/anchors/   + update-ca-trust.
-case "\${ID}" in
-  ubuntu|debian)
-    ca_dst="/usr/local/share/ca-certificates/assessment-dev-ca.crt"
-    ca_update="update-ca-certificates"
-    ;;
-  rocky|rhel|almalinux|centos)
-    ca_dst="/etc/pki/ca-trust/source/anchors/assessment-dev-ca.crt"
-    ca_update="update-ca-trust"
-    ;;
-  *) echo "지원 안 하는 OS (CA inject): \${ID}" >&2; exit 1 ;;
-esac
-cat > "\${ca_dst}" <<'CA_PEM'
-${ca_pem}
-CA_PEM
-chmod 0644 "\${ca_dst}"
-\${ca_update}
 
 if [ -n "\${svc_unit}" ]; then
   # RPM family postgresql은 cluster init 수동 필요. apt 계열은 install 시 자동 init라 skip.

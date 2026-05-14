@@ -49,7 +49,8 @@
 | `docs/adr/0005-db-schema-management.md` | DB Schema 관리 표준화 — Alembic 단일 진실, migrate init-container 패턴, alembic check CI |
 | `docs/adr/0006-openstack-staging.md` | OpenStack 분산 staging 배포 — 4 VM 토폴로지(bastion + DB + MW + 앱), `deploy/openstack/` 디렉토리, Terraform + Ansible + 분산 compose |
 | `docs/adr/0007-task-dedicated-queue-model.md` | Task 명령 별도 큐 모델 — `assessment.tasks` exchange + 머신별 큐, 0002 supersede |
-| `docs/adr/0008-dev-tls-install-bundle.md` | dev install bundle HTTPS endpoint(port 8443) 한정 (임시) — agent worker HTTPS-only 정합. 정석은 agent 측 dev http toggle 또는 nginx ingress, 별도 ADR |
+| `docs/adr/0008-dev-tls-install-bundle.md` | dev engine HTTPS endpoint 단일 port 8000 통합 + cert SAN 환경변수 파라미터화 (Superseded by 0009) |
+| `docs/adr/0009-dev-plain-http-revert.md` | dev engine plain HTTP 복귀 — agent 측 HTTPS-only 정책 한계로 dev 운영 부담 누적. ZConverter Install success 경로는 agent 측 호환성 작업 후 |
 
 ---
 

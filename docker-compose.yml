@@ -81,8 +81,7 @@ services:
     <<: *app-base
     command: python -m assessment_engine.web
     expose:
-      - "8000"   # plain HTTP — 브라우저·API·healthcheck. 외부 노출은 override / prod.
-      - "8443"   # HTTPS — install bundle endpoint 한정 (ADR 0008 임시). cert 미주입 시 listen 안 함.
+      - "8000"   # 단일 port — HTTPS(cert 주입 시) 또는 plain HTTP(외부 ingress 종단 prod).
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 5s

@@ -13,7 +13,8 @@
 | 0005 | DB Schema 관리 표준화 | Accepted | Alembic 단일 진실, migrate init-container, `alembic check` CI |
 | 0006 | OpenStack 분산 staging 배포 | Proposed | 4 VM 토폴로지(bastion + DB + MW + 앱) — 예상 시나리오, 실 도입 시 정정 |
 | 0007 | Task 별도 큐 모델 | Accepted | task.install / task.result 를 `assessment.tasks` exchange + 머신별 큐로. 0002 supersede |
-| 0008 | dev install bundle HTTPS endpoint (임시) | Accepted (임시) | install bundle endpoint(port 8443) 한정 HTTPS — agent worker HTTPS-only 정합. 정석은 agent 측 dev http toggle 또는 nginx ingress, 별도 ADR |
+| 0008 | dev engine HTTPS endpoint (전체 통합) + SAN 동적화 | Superseded by 0009 | self-signed CA 분배 부담 + agent 측 HTTPS-only 정책 한계로 dev 운영 부담 누적, plain HTTP 복귀 |
+| 0009 | dev plain HTTP 복귀 (0008 supersede) | Accepted | engine dev plain HTTP. ZConverter Install success 경로는 agent 측 호환성 작업(WORKER_ALLOW_HTTP 또는 nginx ingress) 후 활성화 |
 
 트레이드오프 카탈로그(T1~T11)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 

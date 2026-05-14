@@ -67,16 +67,10 @@ class WebSettings(BaseSettings):
     # 원격 작업 install bundle endpoint (self-host).
     # task.install 페이로드의 download.url에 그대로 박혀 발행되고, 원격 호스트의
     # WORKER_DOWNLOAD_ALLOWED_HOSTS 화이트리스트와 host가 정확히 일치해야 fetch 허용.
-    # HTTPS 강제 — 원격 호스트 worker 측 정책상 https:// 만 fetch 허용 (ADR 0008 임시).
-    install_bundle_url: str = "https://host.lima.internal:8443/zconverter.tar.gz"
+    # ADR 0009 — dev plain HTTP. agent worker 측 HTTPS-only 정책으로 dev 에서 success 경로 검증 불가
+    # (failure_reason=url_not_allowed). agent 측 호환성 작업 후 활성화 — 별도 ADR.
+    install_bundle_url: str = "http://host.lima.internal:8000/zconverter.tar.gz"
     install_timeout_sec: int = 600  # install.sh wall-clock timeout (원격 host의 worker가 강제 종료)
-
-    # 2-port 분리 (ADR 0008 임시) — install bundle endpoint 만 HTTPS, 나머지(브라우저·API·healthcheck) plain HTTP.
-    # 운영자 편의(브라우저 plain 접근) + agent worker HTTPS-only 정책 동시 충족 위한 dev workaround.
-    # 정석은 agent 측 dev http toggle 또는 nginx ingress sidecar — 별도 ADR.
-    https_port:   int = 8443
-    ssl_certfile: str | None = None
-    ssl_keyfile:  str | None = None
 
     @property
     def database_url(self) -> str:

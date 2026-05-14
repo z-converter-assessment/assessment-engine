@@ -42,17 +42,18 @@
  +----------------------------+    +----------------------------------+
        ^                                       |
        |                                       |
-       +-------- FastAPI (uvicorn 2-port) -----+
-                - SSR     port 8000 (plain HTTP) : dashboard / detail / report
-                - REST    port 8000              : discovery / tasks / exports / diagnostics
-                - SSE     port 8000              : live metrics (Consumer PUB -> Redis -> SSE)
-                - install port 8443 (HTTPS only) : /zconverter.tar.gz (agent worker fetch)
+       +-------- FastAPI (uvicorn single-port) +
+                - port 8000 — plain HTTP (dev) / 외부 ingress (prod, 별도)
+                - SSR  : dashboard / detail / report
+                - REST : discovery / tasks / exports / diagnostics
+                - SSE  : live metrics (Consumer PUB -> Redis -> SSE)
+                - install bundle: /zconverter.tar.gz (agent worker fetch)
 ```
 
 ### 통신 패턴 용어
 
 - 별도 큐 모델 (ADR 0007) — 원격 작업 명령을 `assessment.tasks` exchange 의 머신별 큐 (`agent.tasks.<machine_id>`) 로 발행, 결과는 `worker.result` 큐로 수신. 큐 declare 책임은 엔진 (web) 가 task 발행 시점에 동적 declare — 발행 측 worker 는 declare 권한 없음.
-- 2-port 분리 (ADR 0008 임시) — install bundle endpoint (`/zconverter.tar.gz`) 만 HTTPS port 8443, 운영자 web UI·API·healthcheck 는 plain HTTP port 8000. 원격 호스트 worker 의 HTTPS-only 정책 정합. 정석 후속은 agent 측 dev http toggle 또는 nginx ingress sidecar (별도 ADR).
+- dev plain HTTP (ADR 0009, 0008 supersede) — engine 단일 port 8000 plain HTTP. broker AMQP dev plain 정책과 일관. ZConverter Install success 경로는 agent 측 HTTPS-only 정책 한계로 dev 검증 불가 — agent 측 호환성 작업(WORKER_ALLOW_HTTP 또는 nginx ingress) 후 활성화. prod 는 외부 ingress (nginx 등) 가 TLS 종단 — 별도 ADR.
 - SSE (Server-Sent Events) — HTTP 단방향 server push. Consumer DB 저장 -> Redis `PUBLISH metrics.events` -> Web SSE endpoint 가 Redis `SUBSCRIBE` -> 브라우저 event push -> JS 가 AJAX 로 최신 데이터 fetch.
 - Ollama — 로컬 LLM 런타임. ADR 0004 — 진단 워커가 외부 유료 API 대신 같은 호스트/사내 GPU 의 ollama HTTP 호출, 데이터 외부 유출 0. 현재 `LLM_PROVIDER=mock` 전용 (ollama 분기 `NotImplementedError`).
 
@@ -64,7 +65,7 @@
 
 | 구성 | 기술 | 비고 |
 |------|------|------|
-| Web — SSR + REST + SSE | FastAPI + Jinja2 + uvicorn (2-port asyncio.gather) | dev reload. install bundle endpoint HTTPS 한정 (ADR 0008 임시) |
+| Web — SSR + REST + SSE | FastAPI + Jinja2 + uvicorn (single-port) | dev reload. plain HTTP port 8000 (ADR 0009). prod 는 외부 ingress 종단 |
 | Consumer | aio-pika 비동기 컨슈머 | 4 큐 소비 (server.inventory/metrics/error + worker.result) |
 | Diagnostic Worker | aio-pika + LLM client (mock / ollama) | ADR 0004 — `diagnostic.request` 큐 소비. ollama 분기 미구현 |
 | Diagnostic Scheduler | croniter (cron 발화) | ADR 0004 — 주기 진단 job enqueue + retention DELETE |
@@ -82,7 +83,6 @@
 | DB | TimescaleDB (PostgreSQL 16 + hypertable) | 5 시계열 + inventory + tasks + diagnostic_jobs. Task 테이블에 6 신규 컬럼 (failure_reason / exit_code / duration_ms / stdout_tail / stderr_tail) |
 | 캐시 / 온라인 상태 | Redis 7 | cache / idempotency / agent restart counter / metrics.events PUB/SUB |
 | 컨테이너 | Docker + docker-compose | dev override 자동 적용, prod 명시 호출 (#A) |
-| TLS (dev install bundle) | openssl self-signed CA + server cert | `infra/tls/gen-cert.sh` (idempotent, 10년 유효). Lima VM truststore inject (Debian/RHEL 분기) |
 
 배포 / 검증
 
@@ -137,7 +137,7 @@ Frontend (정적 자원)
 - 서버 발견 — IP HTTP probe 로 미등록 서버 도달성 검사 (Ansible 배포 워크플로우 1단계).
 - JSON Export v3 — 선택 서버의 정제 inventory + 사용량 통계(p95·peak) 를 OpenStack/Terraform/SDK 입력용 표준 JSON 으로 다운로드. envelope 에 `period_window` + `size_class_guide` 포함.
 - 보고서 (양식 A 고객용 / 양식 B 엔지니어용) — 측정값 기반 자원 사용 진단. 양식 A 는 KPI + 위험도 요약, 양식 B 는 15컬럼 정량 표 + 자동 진단 텍스트.
-- ZConverter Install task — 선택 호스트에 변환 도구 설치 명령 발행 (ADR 0007). engine web 이 `task.install` 메시지를 `agent.tasks.<machine_id>` 큐로 publish -> 원격 worker 가 HTTPS 다운로드 (sha256·size 검증) + `install.sh` 실행 + `task.result` 발행 -> Task row 6 컬럼 UPDATE. 운영자 가시성: list "최근 작업" column + detail timeline + `GET /api/v1/tasks/{id}` / `GET /api/v1/tasks?server_public_id=...&cursor=...`.
+- ZConverter Install task — 선택 호스트에 변환 도구 설치 명령 발행 (ADR 0007). engine web 이 `task.install` 메시지를 `agent.tasks.<machine_id>` 큐로 publish -> 원격 worker 가 다운로드 (sha256·size 검증) + `install.sh` 실행 + `task.result` 발행 -> Task row 6 컬럼 UPDATE. dev 에서는 agent worker HTTPS-only 정책으로 `failure_reason="url_not_allowed"` reject — success 경로는 agent 측 호환성 작업 후 활성화 (ADR 0009). 운영자 가시성: list "최근 작업" column + detail timeline + `GET /api/v1/tasks/{id}` / `GET /api/v1/tasks?server_public_id=...&cursor=...`.
 
 상세 정의: `docs/architecture/agent.md` "task.install" / "task.result" 절 + `docs/architecture/inventory-export.md` v3 스키마 + `docs/architecture/deliverables.md`.
 
@@ -157,7 +157,6 @@ Frontend (정적 자원)
 | 소프트웨어 | 버전 | 비고 |
 |-----------|------|------|
 | [Lima](https://lima-vm.io/) | 1.0+ | `brew install lima` (Apple Virtualization Framework / QEMU 백엔드) |
-| openssl | 시스템 default | dev TLS cert 생성 (`infra/tls/gen-cert.sh`, macOS LibreSSL 호환) |
 
 ---
 
@@ -196,7 +195,7 @@ cp .env.example .env                       # 엔진 환경변수 (모든 시나�
 에이전트 없이 web/consumer/DB/MQ/Redis 만 띄움. UI 확인·DB 접속 검증용.
 
 ```bash
-# 기동 (docker-compose.override.yml 자동 적용 — APP_ENV=dev + dev cert mount + HTTPS port 8443)
+# 기동 (docker-compose.override.yml 자동 적용 — APP_ENV=dev + plain HTTP port 8000)
 docker compose up --build -d
 
 # 로그
@@ -211,7 +210,7 @@ docker compose down
 docker compose down -v
 ```
 
-처음 기동이면 첫 alembic upgrade 가 모든 테이블·hypertable·extension 을 자동 생성. dev TLS cert 는 `infra/tls/gen-cert.sh` 가 첫 `./dev-up.sh` 호출 시 자동 생성 (Docker 단독 시나리오에서는 `bash infra/tls/gen-cert.sh` 수동 호출).
+처음 기동이면 첫 alembic upgrade 가 모든 테이블·hypertable·extension 을 자동 생성.
 
 ### B. Docker + Lima 풀 파이프라인 (dev)
 
@@ -220,7 +219,7 @@ Lima 7 VM + 에이전트까지 — 실제 메트릭 흐름 + 시연 분류 분�
 ```bash
 cp infra/agent.env.example infra/agent.env  # 에이전트 secret 채널 (최초 1회)
 
-./dev-up.sh    # cert auto-gen + docker compose up + web 헬스체크 + limactl start + agent install (7 VM)
+./dev-up.sh    # docker compose up + web 헬스체크 + limactl start + agent install (7 VM)
 ./dev-down.sh  # limactl delete + docker compose down -v (LIMA_VMS 단일 진실 source)
 ```
 
@@ -249,17 +248,19 @@ dev 집중 범위 초과 — 명령·체크리스트는 분기 위임:
 
 ## 접속
 
-| 주소 | 프로토콜 | 설명 |
-|------|---------|------|
-| http://localhost:8000/servers/ | plain HTTP | 대시보드 Web UI (목록 / 도넛 / 주의 신호 / 발견 / Install / Export / 보고서 / 최근 작업 진입점) |
-| http://localhost:8000/servers/report?ids=...&view=customer&period_days=14 | plain HTTP | 고객 보고서 (양식 A) |
-| http://localhost:8000/servers/report?ids=...&view=engineer&period_days=14 | plain HTTP | 엔지니어 보고서 (양식 B) |
-| http://localhost:8000/health | plain HTTP | 헬스체크 |
-| http://localhost:8000/docs | plain HTTP | FastAPI Swagger UI (discovery·tasks·exports·diagnostics·chart 모든 endpoint) |
-| https://localhost:8443/zconverter.tar.gz | HTTPS (self-signed) | Agent install bundle (mode=0o755). ADR 0008 임시 — agent worker HTTPS-only 정책 정합. 호스트 브라우저는 `--cacert infra/tls/ca.pem` 또는 macOS Keychain 등록 |
-| http://localhost:15672 | plain HTTP | RabbitMQ 관리 콘솔 |
-| http://localhost:5050 | plain HTTP | pgAdmin (dev override 전용 — DB GUI) |
-| localhost:5432 | TCP | PostgreSQL |
+engine 전체 endpoint 가 plain HTTP port 8000 (ADR 0009). prod 외부 ingress 종단은 별도 ADR.
+
+| 주소 | 설명 |
+|------|------|
+| http://localhost:8000/servers/ | 대시보드 Web UI (목록 / 도넛 / 주의 신호 / 발견 / Install / Export / 보고서 / 최근 작업 진입점) |
+| http://localhost:8000/servers/report?ids=...&view=customer&period_days=14 | 고객 보고서 (양식 A) |
+| http://localhost:8000/servers/report?ids=...&view=engineer&period_days=14 | 엔지니어 보고서 (양식 B) |
+| http://localhost:8000/health | 헬스체크 |
+| http://localhost:8000/docs | FastAPI Swagger UI (discovery·tasks·exports·diagnostics·chart 모든 endpoint) |
+| http://localhost:8000/zconverter.tar.gz | Agent install bundle (mode=0o755). dev 에서는 agent worker HTTPS-only 정책으로 reject — success 경로는 agent 측 호환성 작업 후 (ADR 0009) |
+| http://localhost:15672 | RabbitMQ 관리 콘솔 |
+| http://localhost:5050 | pgAdmin (dev override 전용 — DB GUI) |
+| localhost:5432 | PostgreSQL |
 
 ---
 

@@ -109,8 +109,7 @@ docker-compose의 `${VAR}` 치환은 별개 레이어: compose는 YAML 파싱 �
 | Fail-fast 검증 | 약한 default 허용 | `_WEAK_VALUES` 거부 → 시작 자체 실패 |
 | restart 정책 | `unless-stopped` (현재) | `always` 권장 (운영 안정성) |
 | Logging | 상세·human-readable | json·level 기준 (별도 도입 시) |
-| 운영자 web (브라우저·API·healthcheck) | plain HTTP port 8000 | HTTPS 외부 ingress (별도 ADR) |
-| install bundle endpoint | HTTPS port 8443 (self-signed CA, `infra/tls/`) — agent worker HTTPS-only 정책 정합 (ADR 0008 임시) | HTTPS — 외부 ingress 종단 또는 운영 cert 주입 |
+| engine web (모든 endpoint) | plain HTTP port 8000 (ADR 0009) — broker AMQP dev plain 과 일관. ZConverter Install success 경로는 agent 측 호환성 작업 후 | HTTPS 외부 ingress (nginx 등) 종단, 앱은 plain — 별도 ADR |
 | broker AMQP | plain (port 5672) — `rabbitmqadmin` / 관리 UI 디버깅 우선 (rabbitmq.md §3) | AMQPS (port 5671) |
 
 ---
@@ -132,11 +131,8 @@ docker-compose의 `${VAR}` 치환은 별개 레이어: compose는 YAML 파싱 �
 ├── infra/
 │   ├── agent.env.example     ← 에이전트 secret 카탈로그 (커밋)
 │   ├── agent.env             ← 에이전트 실값 (.gitignore)
-│   └── tls/
-│       ├── gen-cert.sh       ← dev self-signed CA + server cert 생성 (커밋, ADR 0008)
-│       ├── ca.pem            ← Lima VM truststore inject 용 (.gitignore)
-│       ├── server.pem        ← engine uvicorn TLS cert (.gitignore)
-│       └── server.key        ← engine uvicorn TLS key (.gitignore)
+│   └── tls/                  ← ADR 0008 (Superseded by 0009). 현재 비활성 — gen-cert.sh 만 보존,
+│       └── gen-cert.sh       ←   future agent 측 HTTPS 호환성 작업 후 재활성 가능 (커밋)
 └── config.py                 ← BaseSettings + model_validator
 ```
 
