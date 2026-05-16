@@ -1,13 +1,9 @@
 # 시크릿
 .env
-infra/agent.env
-# secrets/ 내부는 secrets/.gitignore가 별도 관리 (README/.gitignore만 커밋, 나머지 전부 제외)
+dev/agent.env
 
-# dev TLS self-signed cert (호스트마다 생성, 재사용 가능). gen-cert.sh 만 commit.
-infra/tls/*.pem
-infra/tls/*.key
-infra/tls/*.crt
-infra/tls/*.srl
+# 빌드 산출물
+dist/
 
 # IDE
 .idea/
@@ -33,12 +29,3 @@ __pycache__/
 # Claude Code 개인 로컬 오버라이드 (settings.json은 팀 공유, .local.json은 개인용)
 .claude/settings.local.json
 
-# OpenStack staging (ADR 0006)
-deploy/openstack/terraform/terraform.tfvars
-deploy/openstack/terraform/.terraform/
-deploy/openstack/terraform/.terraform.lock.hcl
-deploy/openstack/terraform/terraform.tfstate
-deploy/openstack/terraform/terraform.tfstate.backup
-deploy/openstack/ansible/inventory.yml
-deploy/openstack/compose/secrets/
-deploy/openstack/compose/.env

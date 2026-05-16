@@ -7,7 +7,7 @@
 - report_disk_io_baseline — sectors·ops delta 평균 (IOPS·throughput_kbps)
 - report_net_io_baseline — rx/tx bytes delta 평균 (kbps)
 """
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -34,7 +34,7 @@ async def _seed_server_with_period_metrics(
     mount avail_bytes는 단조 감소 (디스크 채워지는 추세).
     """
     sid = await collect_repo.upsert_server(make_inventory(machine_id=machine_id))
-    base_ts = (datetime.now(timezone.utc).replace(microsecond=0)
+    base_ts = (datetime.now(UTC).replace(microsecond=0)
                - timedelta(minutes=interval_min * (n_points - 1)))
 
     for i in range(n_points):
@@ -111,7 +111,7 @@ async def test_report_mount_worst_estimates_days_until_full(collect_repo, query_
 async def test_report_mount_worst_no_consumption_returns_none(collect_repo, query_repo):
     """avail_bytes 변동 없음 -> fill_rate 추정 불가 -> days_until_full None."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="r-mnt-stable"))
-    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=5)
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=5)
     for i in range(5):
         m = make_metrics(
             collected_at=base_ts + timedelta(minutes=i),
@@ -143,26 +143,26 @@ async def test_report_uptime_stats_no_reboot(collect_repo, query_repo):
 
 async def test_report_uptime_stats_counts_reboot_transitions(collect_repo, query_repo):
     """boot_time 2회 변경 -> reboot_count 2 (inventory_history는 boot_time 변경 시 append)."""
-    boot1 = datetime(2026, 5, 1, tzinfo=timezone.utc)
-    boot2 = datetime(2026, 5, 5, tzinfo=timezone.utc)
-    boot3 = datetime(2026, 5, 10, tzinfo=timezone.utc)
+    boot1 = datetime(2026, 5, 1, tzinfo=UTC)
+    boot2 = datetime(2026, 5, 5, tzinfo=UTC)
+    boot3 = datetime(2026, 5, 10, tzinfo=UTC)
 
     # 3번 upsert — boot_time 다를 때마다 history append
     sid = await collect_repo.upsert_server(make_inventory(
         machine_id="r-up-reboot", boot_time=boot1,
-        collected_at=datetime(2026, 5, 1, 1, tzinfo=timezone.utc),
+        collected_at=datetime(2026, 5, 1, 1, tzinfo=UTC),
     ))
     await collect_repo.upsert_server(make_inventory(
         machine_id="r-up-reboot", boot_time=boot2,
-        collected_at=datetime(2026, 5, 5, 1, tzinfo=timezone.utc),
+        collected_at=datetime(2026, 5, 5, 1, tzinfo=UTC),
     ))
     await collect_repo.upsert_server(make_inventory(
         machine_id="r-up-reboot", boot_time=boot3,
-        collected_at=datetime(2026, 5, 10, 1, tzinfo=timezone.utc),
+        collected_at=datetime(2026, 5, 10, 1, tzinfo=UTC),
     ))
 
     counts = await query_repo.report_uptime_stats(
-        [sid], period_days=30, end=datetime(2026, 5, 15, tzinfo=timezone.utc),
+        [sid], period_days=30, end=datetime(2026, 5, 15, tzinfo=UTC),
     )
     assert counts.get(sid, 0) == 2  # boot_time DISTINCT 3 - 1 = 2회 재부팅
 
@@ -192,7 +192,7 @@ async def test_report_disk_io_baseline_missing_data_returns_empty(collect_repo, 
     """metric 없는 서버 -> dict에서 누락."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="r-disk-empty"))
     io_map = await query_repo.report_disk_io_baseline(
-        [sid], period_days=1, end=datetime.now(timezone.utc),
+        [sid], period_days=1, end=datetime.now(UTC),
     )
     assert sid not in io_map
 

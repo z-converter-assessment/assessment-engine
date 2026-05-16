@@ -86,7 +86,7 @@ async def report(
 
     ids는 query string으로 받음 (선택 N대 -> 새 탭). 큰 N이면 URL 길이 한계 — 추후 POST·session.
     데이터 소스: USE Method 통계 (CPU/MEM p95·peak + swap + load_15m max). 분류는 service 측.
-    AI 진단 컬럼: 14일 latest succeeded 진단 N개 batch fetch (#C5 N+1 회피).
+    진단 컬럼: 14일 latest succeeded 진단 N개 batch fetch (#C5 N+1 회피).
     """
     public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
     sid_map = await service.resolve_server_ids(public_ids)
@@ -94,7 +94,7 @@ async def report(
     if not server_ids:
         raise HTTPException(status_code=404, detail="no valid server ids")
 
-    summary = await service.get_report(server_ids, period_days)
+    summary = await service.get_report(server_ids, period_days, view=view)
     diagnostics_by_pid = await diag_service.get_many_latest_server(public_ids, "14d")
     return templates.TemplateResponse(
         request=request,

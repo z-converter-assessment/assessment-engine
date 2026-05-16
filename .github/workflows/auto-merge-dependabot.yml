@@ -1,0 +1,35 @@
+name: auto-merge-dependabot
+
+# Dependabot PR을 CI 통과 시 자동 merge.
+# 정책: patch·minor update만 auto-merge. major update는 BREAKING 가능성이라 운영자 manual review.
+#
+# 1인 운영 효율 — Dependabot 주간 PR이 누적되지 않게.
+
+on:
+  pull_request_target:
+    branches: [main, dev]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: dependabot auto-merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # patch·minor만 auto-merge. major는 운영자 review 의무.
+      - name: Enable auto-merge (patch·minor)
+        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

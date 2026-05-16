@@ -6,7 +6,7 @@
 - 같은 서버 두 번째 위반 (쿨다운 안) → SET NX False → silent skip
 - Redis 장애 (set_result None) → 로그 발생 (fail-open)
 """
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -19,7 +19,7 @@ pytestmark = pytest.mark.asyncio
 
 def _normal_msg():
     """invariant 정상: boot_time <= agent_started_at <= collected_at."""
-    boot = datetime(2026, 5, 1, 0, 0, tzinfo=timezone.utc)
+    boot = datetime(2026, 5, 1, 0, 0, tzinfo=UTC)
     started = boot + timedelta(seconds=10)
     collected = started + timedelta(minutes=1)
     return make_metrics(collected_at=collected, boot_time=boot, agent_started_at=started)
@@ -27,7 +27,7 @@ def _normal_msg():
 
 def _violated_msg():
     """invariant 위반: agent_started_at > collected_at (가장 흔한 시계 동기화 문제)."""
-    boot = datetime(2026, 5, 1, 0, 0, tzinfo=timezone.utc)
+    boot = datetime(2026, 5, 1, 0, 0, tzinfo=UTC)
     collected = boot + timedelta(minutes=1)
     started = collected + timedelta(minutes=5)  # collected보다 미래
     return make_metrics(collected_at=collected, boot_time=boot, agent_started_at=started)
@@ -84,7 +84,7 @@ async def test_boot_time_after_agent_started_logs_specific_message():
     """boot_time > agent_started_at 변종 — systemd 시작 순서 비정상 케이스 분기."""
     redis = AsyncMock()
     redis.set.return_value = True
-    boot = datetime(2026, 5, 1, 0, 5, tzinfo=timezone.utc)
+    boot = datetime(2026, 5, 1, 0, 5, tzinfo=UTC)
     started = boot - timedelta(seconds=10)  # boot 전에 agent 시작 (비정상)
     collected = boot + timedelta(minutes=1)
     msg = make_metrics(collected_at=collected, boot_time=boot, agent_started_at=started)

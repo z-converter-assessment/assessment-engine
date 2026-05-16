@@ -72,6 +72,10 @@ _DISK_STALE_HOURS = 24
 
 _Severity = Literal["ok", "warn", "danger"]
 
+# 보고서 view 분기 — 라우터 `pages.py::report`가 Pydantic Literal로 검증한 값. 같은 alias를
+# service·mapper 시그니처에도 적용해 타입 정밀도 강화 + IDE/mypy가 typo 차단 (F3 정합).
+ReportView = Literal["customer", "engineer"]
+
 _BADGE_CLASS_BY_SEVERITY: dict[_Severity, str] = {
     "ok":     "badge-ok",
     "warn":   "badge-warn",
@@ -565,8 +569,25 @@ def to_gap_warning_item(raw: MetricGapWarningRaw, now: datetime) -> AttentionRow
     )
 
 
-def build_report_summary_bullets(rows: list, raws: list | None = None) -> list[str]:
-    """양식 A 자동 분석 요약 문장 생성 — 정량 신호 기반 정성 요약 (P2).
+def compute_report_avg_p95(rows: list) -> tuple[float | None, float | None]:
+    """ReportRowItem list에서 CPU·메모리 p95 평균을 계산 (양식 A KPI).
+
+    None 항목은 제외 후 산술 평균. 모두 None이면 None 반환 (divide-by-zero 회피).
+    P2 단일 변환 — service 안 inline 계산 대신 mapper helper로 추출해 unit test·재사용 정합.
+    """
+    cpu_vals = [r.cpu_p95_pct for r in rows if r.cpu_p95_pct is not None]
+    mem_vals = [r.mem_p95_pct for r in rows if r.mem_p95_pct is not None]
+    avg_cpu = sum(cpu_vals) / len(cpu_vals) if cpu_vals else None
+    avg_mem = sum(mem_vals) / len(mem_vals) if mem_vals else None
+    return avg_cpu, avg_mem
+
+
+def build_report_summary_bullets(rows: list, raws: list | None = None, view: ReportView = "customer") -> list[str]:
+    """자동 분석 요약 문장 생성 — 정량 신호 기반 정성 요약 (P2).
+
+    view 분기:
+    - customer(양식 A): 고객 의사결정 직결 시그널만. 고위험·주의·디스크 임박·I/O 병목·재부팅·OS EOL.
+    - engineer(양식 B): customer 시그널 + 엔지니어 분석 시그널 (역할별 평균 CPU·Saturation·CPU 변동성).
 
     호출자는 ReportRowItem list + 선택적 ReportRowRaw list 전달.
     raws가 있으면 OS EOL 신호 생성 (raws.os_id/os_version 사용).
@@ -588,18 +609,7 @@ def build_report_summary_bullets(rows: list, raws: list | None = None) -> list[s
         suffix = " 외" if n_attention > 3 else ""
         bullets.append(f"주의 필요 {n_attention}대 ({', '.join(hosts)}{suffix}) — 저사용·과다 프로비저닝. 다운사이즈 검토 후보.")
 
-    # 역할별 평균 CPU·MEM — 가장 자원 집약 역할 1개 식별
-    role_cpu: defaultdict[str, list[float]] = defaultdict(list)
-    for r in rows:
-        if r.cpu_p95_pct is not None:
-            role_cpu[r.role].append(r.cpu_p95_pct)
-    if role_cpu:
-        top_cpu_role = max(role_cpu, key=lambda k: sum(role_cpu[k]) / len(role_cpu[k]))
-        top_cpu_avg = sum(role_cpu[top_cpu_role]) / len(role_cpu[top_cpu_role])
-        if top_cpu_avg >= 70.0:
-            bullets.append(f"{top_cpu_role} 계열 서버의 평균 CPU p95가 {top_cpu_avg:.0f}%로 높게 관찰됨.")
-
-    # I/O wait 신호 — p95 >= 20% 서버 카운트
+    # I/O wait 신호 — p95 >= 20% 서버 카운트. 디스크 병목 = 고객 의사결정 직결.
     n_iowait = sum(1 for r in rows if r.iowait_p95_pct is not None and r.iowait_p95_pct >= 20.0)
     if n_iowait:
         hosts = [r.hostname for r in rows if r.iowait_p95_pct is not None and r.iowait_p95_pct >= 20.0][:3]
@@ -628,21 +638,33 @@ def build_report_summary_bullets(rows: list, raws: list | None = None) -> list[s
         suffix = " 외" if n_reboot > 3 else ""
         bullets.append(f"재부팅 빈번 {n_reboot}대 ({', '.join(hosts)}{suffix}) — 안정성 점검 필요.")
 
-    # Saturation — load_15m_max / cpu_cores >= 1.0 (saturated)
-    n_sat = sum(1 for r in rows if r.saturation_ratio is not None and r.saturation_ratio >= 1.0)
-    if n_sat:
-        hosts = [f"{r.hostname}({r.saturation_ratio:.1f})" for r in rows
-                 if r.saturation_ratio is not None and r.saturation_ratio >= 1.0][:3]
-        suffix = " 외" if n_sat > 3 else ""
-        bullets.append(f"Saturation {n_sat}대 ({', '.join(hosts)}{suffix}) — load가 cpu_cores 초과. 처리 한계 신호.")
+    if view == "engineer":
+        # 역할별 평균 CPU — 엔지니어가 자원 집약 역할 식별. 고객 보고서엔 정보 과다.
+        role_cpu: defaultdict[str, list[float]] = defaultdict(list)
+        for r in rows:
+            if r.cpu_p95_pct is not None:
+                role_cpu[r.role].append(r.cpu_p95_pct)
+        if role_cpu:
+            top_cpu_role = max(role_cpu, key=lambda k: sum(role_cpu[k]) / len(role_cpu[k]))
+            top_cpu_avg = sum(role_cpu[top_cpu_role]) / len(role_cpu[top_cpu_role])
+            if top_cpu_avg >= 70.0:
+                bullets.append(f"{top_cpu_role} 계열 서버의 평균 CPU p95가 {top_cpu_avg:.0f}%로 높게 관찰됨.")
 
-    # 변동성 큼 — cpu peak/p95 >= 1.5
-    n_var = sum(1 for r in rows if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= 1.5)
-    if n_var:
-        hosts = [r.hostname for r in rows
-                 if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= 1.5][:3]
-        suffix = " 외" if n_var > 3 else ""
-        bullets.append(f"CPU 부하 변동 큼 {n_var}대 ({', '.join(hosts)}{suffix}) — 일시 spike 빈번. 평균보다 peak 기준 sizing 권장.")
+        # Saturation — load_15m_max / cpu_cores >= 1.0 (saturated). 큐잉 이론 시그널 — 엔지니어용.
+        n_sat = sum(1 for r in rows if r.saturation_ratio is not None and r.saturation_ratio >= 1.0)
+        if n_sat:
+            hosts = [f"{r.hostname}({r.saturation_ratio:.1f})" for r in rows
+                     if r.saturation_ratio is not None and r.saturation_ratio >= 1.0][:3]
+            suffix = " 외" if n_sat > 3 else ""
+            bullets.append(f"Saturation {n_sat}대 ({', '.join(hosts)}{suffix}) — load가 cpu_cores 초과. 처리 한계 신호.")
+
+        # 변동성 큼 — cpu peak/p95 >= 1.5. sizing 전략 시그널 — 엔지니어용.
+        n_var = sum(1 for r in rows if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= 1.5)
+        if n_var:
+            hosts = [r.hostname for r in rows
+                     if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= 1.5][:3]
+            suffix = " 외" if n_var > 3 else ""
+            bullets.append(f"CPU 부하 변동 큼 {n_var}대 ({', '.join(hosts)}{suffix}) — 일시 spike 빈번. 평균보다 peak 기준 sizing 권장.")
 
     # OS EOL 신호 — raws 있을 때만
     if raws:

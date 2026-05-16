@@ -7,7 +7,6 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from assessment_engine import recommendation
-from assessment_engine.config import web_settings
 from assessment_engine.db.redis import safe_get, safe_mget, safe_set
 from assessment_engine.db.repositories.base_query_repository import (
     TIME_RANGE_TD,
@@ -27,9 +26,11 @@ from assessment_engine.web.services.cache_serializer import (
 from assessment_engine.web.services.device_filters import is_lvm_disk, is_partition, is_physical_disk, is_virtual_mount
 from assessment_engine.web.services.mappers import (
     _DONUT_SEGMENT_FROM_REC,
+    ReportView,
     build_environment_overview,
     build_report_summary_bullets,
     build_role_distribution,
+    compute_report_avg_p95,
     compute_report_totals_from_raw,
     to_agent_unstable_item,
     to_capacity_warning_item,
@@ -49,6 +50,7 @@ from assessment_engine.web.services.mappers import (
     to_task_summary,
 )
 from assessment_engine.web.services.metrics_calculator import build_dashboard
+from assessment_engine.web.settings import web_settings
 from assessment_engine.web.view_models import (
     AttentionRow,
     AttentionSignals,
@@ -358,12 +360,14 @@ class QueryService:
         server_ids: list[int],
         period_days: int = 14,
         end: datetime | None = None,
+        view: ReportView = "customer",
     ) -> ReportSummary:
         """Assessment 보고서 — raw → ViewModel + KPI 집계 (P2 단일 변환).
 
         repo는 raw stats(`ReportRowRaw`)만 산출. mapper(`to_report_row_item`)가 표시 파생
         (role/recommendation/badge_class/os_display) 채움. KPI도 service 책임.
         is_online은 Redis mget 일괄 (N+1 회피, fail-open 시 last_seen_at fallback).
+        view는 summary_bullets 분기에만 사용 (양식 A/B로 행동 시그널 vs 엔지니어 시그널 분리).
         """
         end_dt = end or datetime.now(UTC)
         # 5개 SQL 단일 round-trip씩. 결과 dict는 server_id 키로 zip.
@@ -403,6 +407,8 @@ class QueryService:
             )
             items.append(to_report_row_item(raw, online, end_dt))
 
+        avg_cpu, avg_mem = compute_report_avg_p95(items)
+
         return ReportSummary(
             rows=items,
             period_days=period_days,
@@ -410,8 +416,10 @@ class QueryService:
             online=sum(1 for it in items if it.is_online),
             risk_attention=sum(1 for it in items if it.risk_level == "attention"),
             risk_high=sum(1 for it in items if it.risk_level == "high"),
+            avg_cpu_p95_pct=avg_cpu,
+            avg_mem_p95_pct=avg_mem,
             totals=compute_report_totals_from_raw(raws),
-            summary_bullets=build_report_summary_bullets(items, raws),
+            summary_bullets=build_report_summary_bullets(items, raws, view=view),
             role_distribution=build_role_distribution(raws),
         )
 
@@ -437,7 +445,7 @@ class QueryService:
         disk_io = await self.repo.report_disk_io_baseline(server_ids, period_days, end_dt)
         net_io = await self.repo.report_net_io_baseline(server_ids, period_days, end_dt)
 
-        # stats에 disk_io·net_io baseline + p95/peak 주입 (inventory-export v3 확장)
+        # stats에 disk_io·net_io baseline + p95/peak 주입 (inventory-export 확장)
         for row in stats_rows:
             disk_tuple = disk_io.get(row.server_id)
             if disk_tuple is not None:

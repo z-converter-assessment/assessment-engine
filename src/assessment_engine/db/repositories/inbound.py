@@ -131,7 +131,7 @@ class ServerMetricCreate:
     net_io: list[NetIoEntry]
 
 
-# --- AI 진단 job INSERT 입력 (ADR 0004) ---
+# --- 진단 job INSERT 입력 (ADR 0004) ---
 
 
 @dataclass

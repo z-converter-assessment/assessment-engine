@@ -11,7 +11,7 @@
 | `ServerNetIo` | `server_net_io` | BigInteger + collected_at | hypertable | per interface I/O 누적 카운터 |
 | `ServerMountUsage` | `server_mount_usage` | BigInteger + collected_at | hypertable | per mount 시점 사용량 |
 | `Task` | `tasks` | BigInteger | 단일 행 (audit log) | 원격 작업 명령 + 실행 이력 |
-| `DiagnosticJob` | `diagnostic_jobs` | UUID | 일반 테이블 (hypertable 아님) | AI 진단 job (ADR 0004) — 스케줄러·웹 enqueue → 워커 처리. UUID PK는 URL 노출용 (E5) |
+| `DiagnosticJob` | `diagnostic_jobs` | UUID | 일반 테이블 (hypertable 아님) | 진단 job (ADR 0004 + 0010) — 스케줄러·웹 enqueue → 워커 처리. UUID PK는 URL 노출용 (E5) |
 
 ## 식별자 규약 (CLAUDE.md C1)
 

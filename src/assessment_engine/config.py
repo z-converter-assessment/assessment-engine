@@ -4,11 +4,11 @@ from typing import Literal
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# pydantic-settings의 secrets_dir은 디렉토리가 존재하지 않으면 무시되지만,
-# 일부 환경에서 경로 문제로 noisy 경고가 발생할 수 있어 명시적으로 분기.
-# - prod 컨테이너: docker-compose `secrets:` 블록이 /run/secrets 에 마운트
-# - dev (호스트 또는 dev compose): 디렉토리 없음 → None
-_SECRETS_DIR = "/run/secrets" if os.path.isdir("/run/secrets") else None
+# 외부 인프라가 secret을 어떻게 주입하든(systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등)
+# pydantic-settings는 env 우선·secrets_dir fallback 둘 다 지원. secrets_dir은 디렉토리가 존재할 때만 활성.
+# 본 repo는 secret 채널 자체를 강제하지 않음(CLAUDE.md #A0) — _validate_prod_*가 결과(weak default 거부)만 검증.
+_SECRETS_DIR = os.environ.get("SECRETS_DIR", "/run/secrets")
+_SECRETS_DIR = _SECRETS_DIR if os.path.isdir(_SECRETS_DIR) else None
 
 # prod에서 거부할 약한 default 값 (dev/PoC 표준 자격을 prod에 그대로 흘리는 사고 방지).
 # 본 프로젝트의 dev default는 "assessment". 다른 흔한 약한 값도 함께 차단.
@@ -16,7 +16,8 @@ _WEAK_VALUES = frozenset({"", "assessment", "password", "admin", "root", "change
 
 
 class WebSettings(BaseSettings):
-    # 우선순위: OS env > .env (cwd) > /run/secrets/<field> 파일 > 코드 default
+    # 우선순위: OS env > .env (cwd) > <SECRETS_DIR>/<field> 파일 > 코드 default
+    # SECRETS_DIR env로 주입 경로 override 가능 (default `/run/secrets`).
     model_config = SettingsConfigDict(
         env_file=".env",
         secrets_dir=_SECRETS_DIR,
@@ -25,6 +26,10 @@ class WebSettings(BaseSettings):
 
     # 환경 마커. prod일 때 model_validator가 약한 default를 거부.
     app_env: Literal["dev", "staging", "prod"] = "dev"
+
+    # 로그 출력 format. dev=text(colorized·grep 친화), prod=json(외부 log aggregator indexing).
+    # JSON 출력 시 loguru `serialize=True` — record를 JSON으로 변환 후 stdout.
+    log_format: Literal["text", "json"] = "text"
 
     postgres_host: str = "postgres"
     postgres_db: str = "assessment"
@@ -87,19 +92,12 @@ class WebSettings(BaseSettings):
     def _validate_prod_web_secrets(self) -> "WebSettings":
         if self.app_env != "prod":
             return self
-        # secrets 마운트 누락 fail-fast — 운영자가 `docker-compose.prod.yml` 없이 prod 기동한 사고 방지.
-        # /run/secrets는 Docker secrets가 tmpfs로 마운트하는 경로. 디렉토리 자체가 없으면 secret 채널이
-        # 끊긴 상태이고, pydantic-settings는 env·default로 fallback해 weak default를 통과시킬 수 있다.
-        if _SECRETS_DIR is None:
-            raise ValueError(
-                "APP_ENV=prod but /run/secrets is not mounted. "
-                "Use `docker compose -f docker-compose.yml -f docker-compose.prod.yml up` "
-                "to ensure Docker secrets are mounted."
-            )
+        # 외부 인프라가 secret을 어떻게 주입하든(env·secrets_dir·EnvironmentFile·Vault 등) 결과만 검증.
+        # 채널 자체는 본 repo 책임 밖 (CLAUDE.md #A0). weak default 통과 차단이 핵심.
         if self.postgres_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(
                 "POSTGRES_PASSWORD is unset or uses a dev default in prod. "
-                "Provide via Docker secret (/run/secrets/postgres_password) or env var."
+                "Provide via env var or secret channel (systemd EnvironmentFile·Vault·k8s Secret 등)."
             )
         if self.postgres_user in _WEAK_VALUES:
             raise ValueError("POSTGRES_USER must be set to a non-default value in prod.")
@@ -119,7 +117,8 @@ class ConsumerSettings(WebSettings):
     rabbitmq_routing_key_error: str = "server.error"
 
     # 원격 작업 토폴로지 (collector exchange와 분리 — 인증·DLX 정책 독립).
-    # task.install: engine 발행 / routing_key=task.install.<machine_id> / queue=agent.tasks.<machine_id> (engine 동적 declare)
+    # task.install: engine 발행
+    #   routing_key=task.install.<machine_id> / queue=agent.tasks.<machine_id> (engine 동적 declare)
     # task.result : 원격 호스트 발행 / queue=worker.result
     rabbitmq_task_exchange: str = "assessment.tasks"
     rabbitmq_task_queue_prefix: str = "agent.tasks"
@@ -144,7 +143,7 @@ class ConsumerSettings(WebSettings):
         if self.rabbitmq_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(
                 "RABBITMQ_PASSWORD is unset or uses a dev default in prod. "
-                "Provide via Docker secret (/run/secrets/rabbitmq_password) or env var."
+                "Provide via env var or secret channel (systemd EnvironmentFile·Vault·k8s Secret 등)."
             )
         if self.rabbitmq_user in _WEAK_VALUES:
             raise ValueError("RABBITMQ_USER must be set to a non-default value in prod.")
@@ -152,7 +151,7 @@ class ConsumerSettings(WebSettings):
 
 
 class DiagnosticSettings(ConsumerSettings):
-    """AI 진단 워커·스케줄러·웹 공통 설정 (ADR 0004).
+    """진단 워커·스케줄러·웹 공통 설정 (ADR 0004).
 
     ConsumerSettings 상속 — broker_url·prod secret 검증 그대로 활용. 진단 워크플로 고유 필드만 추가.
     """
@@ -183,6 +182,11 @@ class DiagnosticSettings(ConsumerSettings):
     worker_job_timeout_seconds: int = 300
 
 
-web_settings        = WebSettings()
-consumer_settings   = ConsumerSettings()
-diagnostic_settings = DiagnosticSettings()
+# Settings 인스턴스는 컴포넌트별 sub-module에서 단일 진실로 생성 (Composition Root 패턴, CLAUDE.md #F4).
+# - web 컴포넌트: src/assessment_engine/web/settings.py
+# - consumer 컴포넌트: src/assessment_engine/consumer/settings.py
+# - diagnostic 컴포넌트: src/assessment_engine/diagnostic/settings.py
+# - db layer(session·redis)는 모든 컴포넌트 공통 — 자체 WebSettings 인스턴스화로 circular import 회피.
+#
+# multi-node 분리 배포 시 web 노드는 ConsumerSettings·DiagnosticSettings 인스턴스화 안 함 →
+# 해당 컴포넌트 한정 키(LLM_*·DIAGNOSTIC_*·WORKER_*) 검증 skip — 최소 권한 원칙 정합.

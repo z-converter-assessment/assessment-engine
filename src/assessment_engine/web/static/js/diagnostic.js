@@ -1,9 +1,9 @@
-// AI 진단 SSR latest 카드 + 모달 발행 (ADR 0004 단계 4·UI 통일).
+// 진단 SSR latest 카드 + 모달 발행 (ADR 0004 단계 4·UI 통일).
 //
 // 사용: 페이지에 다음 HTML을 두고 본 스크립트를 defer로 로드.
 //   <div class="card" data-diagnostic-panel data-scope="server" data-server-public-id="...">
-//     <h2>AI 진단</h2>
-//     <button class="diag-submit btn">AI 진단</button>
+//     <h2>서버 진단</h2>
+//     <button class="diag-submit btn">서버 진단</button>
 //     <div class="diag-status"></div>
 //     <div class="diag-result"></div>
 //     <div class="diag-modal" style="display:none; ...">
@@ -17,7 +17,7 @@
 //
 // 흐름:
 // 1. page load → SSR inline JSON으로 latest 결과 즉시 렌더 (없으면 빈 카드)
-// 2. "AI 진단" 버튼 클릭 → 모달 열기 (anchor input 자동 init)
+// 2. 진단 버튼 클릭 → 모달 열기 (anchor input 자동 init)
 // 3. 모달 confirm → POST → 결과 페이지(`/diagnostics?ids=...`)로 이동
 // 4. 결과 페이지의 diagnostic-results.js가 polling으로 완료까지 추적
 //

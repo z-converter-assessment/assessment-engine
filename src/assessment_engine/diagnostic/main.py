@@ -9,13 +9,14 @@ import asyncio
 import aio_pika
 from loguru import logger
 
-from assessment_engine.config import diagnostic_settings
 from assessment_engine.db.redis import close_pool, get_redis
 from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
 from assessment_engine.db.repositories.query_repository import QueryRepository
 from assessment_engine.db.session import AsyncSessionLocal
 from assessment_engine.diagnostic.handler import make_diagnostic_handler
 from assessment_engine.diagnostic.llm.base import BaseLlmClient
+from assessment_engine.diagnostic.settings import diagnostic_settings
+from assessment_engine.log_config import setup_logging
 
 
 def _build_llm_client() -> BaseLlmClient:
@@ -31,6 +32,8 @@ def _build_llm_client() -> BaseLlmClient:
 
 
 async def main() -> None:
+    setup_logging(diagnostic_settings.log_format)
+
     logger.info("diagnostic worker starting provider={} exchange={}",
                 diagnostic_settings.llm_provider,
                 diagnostic_settings.rabbitmq_exchange)

@@ -14,7 +14,6 @@ from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from assessment_engine.config import diagnostic_settings
 from assessment_engine.db.redis import safe_set, safe_set_nx
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_RANGE_DAYS,
@@ -23,6 +22,7 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
 from assessment_engine.diagnostic import aggregator
 from assessment_engine.diagnostic.llm.base import BaseLlmClient
+from assessment_engine.diagnostic.settings import diagnostic_settings
 
 
 def make_diagnostic_handler(

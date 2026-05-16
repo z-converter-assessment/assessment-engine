@@ -13,7 +13,7 @@ import json
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aio_pika
 from aio_pika.abc import AbstractChannel
@@ -21,7 +21,6 @@ from loguru import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from assessment_engine.config import diagnostic_settings, web_settings
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
 from assessment_engine.db.repositories.inbound import TaskCreate
@@ -30,6 +29,7 @@ from assessment_engine.web.routers.payloads import (
     INSTALL_BUNDLE_SIZE,
     INSTALL_SCRIPT_NAME,
 )
+from assessment_engine.web.settings import diagnostic_settings, web_settings
 
 _TASK_TYPE_INSTALL = "zconverter_install"
 _TASK_QUEUE_TTL_MS = 60 * 60 * 1000  # 1h — 원격 호스트가 그 사이 consume 못 하면 만료
@@ -135,7 +135,7 @@ class TaskService:
             "message_type": "task.install",
             "task_id":      task_id,
             "machine_id":   machine_id,
-            "issued_at":    datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "issued_at":    datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "download": {
                 "url":        web_settings.install_bundle_url,
                 "sha256":     INSTALL_BUNDLE_SHA256,

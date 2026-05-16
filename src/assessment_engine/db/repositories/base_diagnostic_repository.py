@@ -46,7 +46,7 @@ DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"
 
 
 class BaseDiagnosticRepository(ABC):
-    """AI 진단 job 영속성 인터페이스 (ADR 0004).
+    """진단 job 영속성 인터페이스 (ADR 0004).
 
     Web router·진단 워커·스케줄러 모두 본 추상에만 의존. 구체 구현체는 composition root
     (`web/deps.py` / 워커 main / 스케줄러 main)에서만 import (F4).

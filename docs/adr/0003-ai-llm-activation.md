@@ -1,6 +1,6 @@
 # ADR 0003 — AI / LLM 활용 로드맵
 
-Status: Proposed
+Status: Refined by 0010 (2026-05-16) — LLM narrative 합성(Phase 2)·리포트 생성(Phase 3)은 ADR 0010 "진단 규칙 기반 한정"으로 보류. 본 ADR 본문은 historical record로 보존, 외부 LLM 도입 결정 시 재논의.
 Date: 2026-05-09 (raw) / 2026-05-12 (ADR 승격)
 
 Phase 2~3 (분석 / 추천 / 비용 / 리포트) 도입 설계 문서.

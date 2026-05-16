@@ -6,12 +6,12 @@ asyncio.sleep으로 LLM latency 시뮬레이션 — UI progress_stage 단계 표
 """
 import asyncio
 
-from assessment_engine.config import diagnostic_settings
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     CLASSIFICATION_LABEL_KR,
     DIAGNOSTIC_RANGE_LABEL_KR,
 )
 from assessment_engine.diagnostic.llm.base import BaseLlmClient
+from assessment_engine.diagnostic.settings import diagnostic_settings
 
 
 class MockLlmClient(BaseLlmClient):

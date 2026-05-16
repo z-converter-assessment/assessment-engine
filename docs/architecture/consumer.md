@@ -142,7 +142,7 @@ upsert 성공 후 `SET online:{server_id} EX 90`. 첫 메트릭 수신 전(최�
 
 `free_bytes`, `avail_bytes`가 스키마에 있으나 `src/assessment_engine/consumer/mappers.py:to_inventory_create`에서 명시적으로 drop된다 (`{"mount": ..., "fstype": ..., "total_bytes": ...}`만 매핑). 인벤토리에는 정적 정보만 저장하고, 동적 사용량은 metrics 메시지의 `mounts[]` → `server_mount_usage` 시계열 테이블로 분리한다.
 
-`disks[].major/minor`와 inventory `mounts[].major/minor`는 v3 이후 mount-disk 조인 키로 활용 중 (`web/services/device_filters.find_parent_disk`, mapper의 `MountUsageItem.device_name` 채움). 반면 metrics `mounts[].major/minor`·`disk_io[].major/minor`는 시계열 테이블에 컬럼 없어 Pydantic `extra=ignore`로 통과 후 미저장 — 정확한 활용 카탈로그는 `agent.md` "활용 중인 필드" / "엔진이 받지만 사용하지 않는 필드" 표.
+`disks[].major/minor`와 inventory `mounts[].major/minor`는 mount-disk 조인 키로 활용 중 (`web/services/device_filters.find_parent_disk`, mapper의 `MountUsageItem.device_name` 채움). 반면 metrics `mounts[].major/minor`·`disk_io[].major/minor`는 시계열 테이블에 컬럼 없어 Pydantic `extra=ignore`로 통과 후 미저장 — 정확한 활용 카탈로그는 `agent.md` "활용 중인 필드" / "엔진이 받지만 사용하지 않는 필드" 표.
 
 ### 부가 시그널 — 운영 가시성
 

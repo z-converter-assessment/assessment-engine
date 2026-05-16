@@ -1,0 +1,43 @@
+name: codeql
+
+# Static Application Security Testing (SAST) — GitHub CodeQL.
+# pip-audit가 dependency CVE만 검사하는 반면 본 workflow는 본 repo 코드 자체의
+# SQL injection·secret leak·XSS·hardcoded credentials 등 패턴 정적 분석.
+#
+# 결과는 Security 탭의 "Code scanning alerts"에 보고됨.
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+  # 새 CodeQL rule 공개·신규 CVE 패턴 감지 — 의존성 무관 코드 자체 재검사.
+  schedule:
+    - cron: '0 9 * * 1'
+
+permissions:
+  contents: read
+  security-events: write   # Security 탭 alert 작성
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze python
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          # default queries + security-extended로 보안 query 풀 set 확장.
+          queries: security-extended
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"

@@ -310,7 +310,7 @@ class MetricGapWarningRaw:
     last_metric_at: datetime
 
 
-# --- AI 진단 job 조회 결과 (ADR 0004) ---
+# --- 진단 job 조회 결과 (ADR 0004) ---
 
 
 @dataclass

@@ -1,0 +1,55 @@
+name: security
+
+# 의존성 CVE 자동 검사 — 신규 lockfile drift 또는 새 CVE 공개 시 감지.
+#
+# Trigger:
+#   - pyproject.toml / uv.lock 변경된 PR → 변경 직후 검증
+#   - 매주 월요일 09:00 UTC (KST 월요일 18:00) cron → 기존 의존성에 새 CVE 공개됐을 때 감지
+#
+# 본 repo 책임: CI 영역의 의존성 보안. 인프라 측은 image scanning(Trivy 등)으로 보완 가능.
+
+on:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/security.yml'
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pip-audit:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: uv.lock
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install project (frozen)
+        run: uv sync --frozen
+
+      # pip-audit를 uv venv에 install 후 같은 venv에서 audit 실행.
+      # `--disable-pip` — pip-audit이 의존성 트리 재계산하지 않고 lockfile 기반 목록만 audit.
+      # `--strict` — vulnerability 발견 시 exit 1로 CI fail.
+      - name: pip-audit
+        run: |
+          uv pip install pip-audit
+          uv run pip-audit --disable-pip --strict

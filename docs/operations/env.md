@@ -1,8 +1,8 @@
 # 환경변수 카탈로그
 
-정책: CLAUDE.md #A. 본 문서는 환경변수 키 카탈로그 단일 진실. 환경변수 정책·secret 단계·dev/prod 분리는 `docs/operations/dev-prod.md`.
+정책: CLAUDE.md #A. 본 문서는 환경변수 키 카탈로그 단일 진실. 환경변수 정책·secret 단계·dev/prod 분리는 `docs/operations/prod-contract.md`.
 
-dev: `cp .env.example .env`. prod 시나리오는 Docker secrets — `dev-prod.md` "Secret 정책".
+dev: `cp .env.example .env`. prod 채널·정책: `docs/operations/prod-contract.md` "Secret 채널".
 
 ## 주입 흐름
 
@@ -16,7 +16,7 @@ dev: `cp .env.example .env`. prod 시나리오는 Docker secrets — `dev-prod.m
                 ┌────────────────┘          │          └──────────────────┐
                 │ (1)                       │ (2)                         │ (3)
                 ▼                           ▼                             ▼
-   docker-compose env_file        config.py BaseSettings        dev-up.sh source agent.env
+   docker-compose env_file        config.py BaseSettings        pipeline-up.sh source agent.env
    → 컨테이너 환경변수 주입       → Python 인스턴스 필드        → /etc/assessment-agent.env
    → environment: 블록이          → 환경변수 > .env > default   → Lima VM 안 에이전트로 전달
      일부 키 강제 오버라이드      (cwd /app/.env 도 read)       → RABBITMQ_HOST는 별도 주입
@@ -42,6 +42,50 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 
 프로덕션 정책: `docker-compose.yml`의 `volumes: ./:/app` 제거. 이미 `.dockerignore`에 `.env`가 있어 `Dockerfile`의 `COPY . .` 단계에서는 제외되므로, 코드 마운트만 제거하면 컨테이너 안에 `.env`가 사라진다.
 
+## 컴포넌트별 read 매트릭스
+
+본 repo의 4 컴포넌트(web·consumer·diagnostic-worker·diagnostic-scheduler)는 각자 다른 키 집합을 read. multi-node 분리 배포 시 어느 노드에 어느 키 inject할지 reference. 코드 측 단일 진실: 컴포넌트별 sub-module(`web/settings.py`·`consumer/settings.py`·`diagnostic/settings.py`)에서 자기 Settings 인스턴스화 (Composition Root, CLAUDE.md #F4).
+
+| 키 그룹 | web | consumer | diagnostic-worker | diagnostic-scheduler |
+|--------|:---:|:--------:|:-----------------:|:--------------------:|
+| `APP_ENV`·`LOG_FORMAT` | 의무 | 의무 | 의무 | 의무 |
+| `POSTGRES_*` | 의무 | 의무 | 의무 | 의무 |
+| `REDIS_*` | 의무 | 의무 | 의무 | 의무 |
+| `RABBITMQ_*` (broker 접속) | 의무 (진단 publish) | 의무 (consume) | 의무 (consume) | 의무 (publish) |
+| `RABBITMQ_ROUTING_KEY_*`·`RABBITMQ_EXCHANGE` | 의무 | 의무 | 의무 | 의무 |
+| `WORKER_*` (worker.result·task.install) | 의무 (task.install publish) | 의무 (worker.result consume) | 선택 | 선택 |
+| `WEB_PORT`·`INSTALL_BUNDLE_URL`·`INSTALL_TIMEOUT_SEC` | 의무 | 사용 안 함 | 사용 안 함 | 사용 안 함 |
+| `LLM_*`·`OLLAMA_*` | 사용 안 함 | 사용 안 함 | 의무 | 사용 안 함 |
+| `DIAGNOSTIC_QUEUE_*`·`DIAGNOSTIC_ROUTING_KEY` | 의무 (publish) | 사용 안 함 | 의무 (consume) | 의무 (publish) |
+| `DIAGNOSTIC_SCHEDULE_CRON`·`DIAGNOSTIC_RETENTION_DAYS`·`DIAGNOSTIC_ACTIVE_SERVER_WINDOW_HOURS` | 사용 안 함 | 사용 안 함 | 사용 안 함 | 의무 |
+| `WORKER_JOB_TIMEOUT_SECONDS` | 사용 안 함 | 사용 안 함 | 의무 | 사용 안 함 |
+| `SQLALCHEMY_ECHO` | 의무 | 의무 | 의무 | 의무 |
+
+prod 검증(`_validate_prod_*`) 발동 위치 (multi-node 분리 시):
+- web 노드: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
+- consumer 노드: `ConsumerSettings` → POSTGRES·RABBITMQ password weak default 거부
+- diagnostic-worker·scheduler 노드: `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
+
+본 repo 단일 진실 코드:
+- `src/assessment_engine/config.py` — class 정의만 (인스턴스 0)
+- `src/assessment_engine/web/settings.py` — WebSettings + DiagnosticSettings
+- `src/assessment_engine/consumer/settings.py` — ConsumerSettings
+- `src/assessment_engine/diagnostic/settings.py` — DiagnosticSettings
+- `src/assessment_engine/db/session.py`·`db/redis.py` — 자체 WebSettings (모든 컴포넌트 공통 db layer)
+
+## 정석 주입 패턴 (운영 복잡도 단계별)
+
+| 단계 | 패턴 | 적합 환경 | 외부 인프라 구현 |
+|------|------|----------|---------------|
+| A. 단일 `.env` 모든 노드 동일 inject | 한 파일 전부 — 단순 | 단일 host 또는 dev | docker-compose `env_file`·systemd `EnvironmentFile=/etc/assessment-engine.env` |
+| B. 컴포넌트별 `.env` 분리 | 노드별 자기 키만 | small multi-node | systemd unit별 `EnvironmentFile=/etc/<component>.env` |
+| C. 계층화 — 공통 + 컴포넌트별 (권장) | `shared.env` (DB·MQ·Redis·LOG_FORMAT) + `<component>.env` (특화 키) | 4 node 분리 prod | Ansible `group_vars`(shared) + `host_vars`(component별). systemd `EnvironmentFile=` 여러 줄 |
+| D. 중앙 secret store | Vault·Consul·AWS Parameter Store·k8s ConfigMap·External Secrets | 다중 환경·동적 회전 | 인프라 측 자체 운영 |
+
+본 repo 책임 한계: 위 패턴 중 어느 채널 쓰든 pydantic Settings가 env·secrets_dir 둘 다 지원. 본 매트릭스는 reference — 실제 채널 선택·노드 분리 토폴로지는 외부 인프라 결정 (CLAUDE.md #A0).
+
+prod-contract.md 7절 "Secret 채널" + deployment.md "단계별 흐름" 참조.
+
 ## 전체 키 목록 (`.env.example` 순서)
 
 | 키 | 기본값 | 사용처 | 설명 |
@@ -52,30 +96,33 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 | `POSTGRES_DB` | `assessment` | config.py / docker-compose | |
 | `POSTGRES_USER` | `assessment` | config.py / docker-compose | |
 | `POSTGRES_PASSWORD` | `assessment` | config.py / docker-compose | |
-| `RABBITMQ_HOST` | `rabbitmq` | config.py | 컨슈머 broker 접속 (docker-compose 서비스명). 에이전트는 본 키를 사용하지 않음 — dev-up.sh가 `host.lima.internal` (Lima user-mode network alias) 별도 주입 |
+| `RABBITMQ_HOST` | `rabbitmq` | config.py | 컨슈머 broker 접속 (docker-compose 서비스명). 에이전트는 본 키를 사용하지 않음 — pipeline-up.sh가 `host.lima.internal` (Lima user-mode network alias) 별도 주입 |
 | `RABBITMQ_PORT` | `5672` | config.py / docker-compose | |
-| `RABBITMQ_VHOST` | `/assessment` | config.py / docker-compose / dev-up.sh | 전용 vhost. 에이전트와 동일 값 사용. AMQP URL의 `/`는 `%2F`로 인코딩 (config.py `broker_url` 자동 처리) |
-| `RABBITMQ_USER` | `assessment` | config.py / docker-compose / dev-up.sh (infra/agent.env) | |
-| `RABBITMQ_PASSWORD` | `assessment` | config.py / docker-compose / dev-up.sh (infra/agent.env) | |
+| `RABBITMQ_VHOST` | `/assessment` | config.py / docker-compose / pipeline-up.sh | 전용 vhost. 에이전트와 동일 값 사용. AMQP URL의 `/`는 `%2F`로 인코딩 (config.py `broker_url` 자동 처리) |
+| `RABBITMQ_USER` | `assessment` | config.py / docker-compose / pipeline-up.sh (dev/agent.env) | |
+| `RABBITMQ_PASSWORD` | `assessment` | config.py / docker-compose / pipeline-up.sh (dev/agent.env) | |
 | `RABBITMQ_MANAGEMENT_PORT` | `15672` | docker-compose | RabbitMQ 관리 콘솔 포트 노출 (config.py 미사용) |
-| `RABBITMQ_EXCHANGE` | `assessment` | config.py / dev-up.sh (infra/agent.env) | 에이전트 - consumer routing 계약. 변경 시 양쪽 동기화 |
-| `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | config.py / dev-up.sh (infra/agent.env) | 동일 |
-| `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | config.py / dev-up.sh (infra/agent.env) | 동일 |
-| `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | config.py / dev-up.sh (infra/agent.env) | 동일 |
-| `RABBITMQ_WORKER_USER` | `assessment` | dev-up.sh (infra/agent.env) | 원격 호스트 worker 가 사용할 AMQP user. 비어 있으면 worker 자동 비활성 (collector 만 동작) |
-| `RABBITMQ_WORKER_PASSWORD` | `assessment` | dev-up.sh (infra/agent.env) | RABBITMQ_WORKER_USER 의 암호. heredoc 안에서 `RABBITMQ_WORKER_PASS` 로 매핑 |
-| `WORKER_TASK_EXCHANGE` | `assessment.tasks` | config.py / dev-up.sh (infra/agent.env) | task.install/task.result 전용 exchange. collector exchange 와 분리 |
-| `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | dev-up.sh (infra/agent.env) | 원격 호스트별 큐 prefix. full name = `<prefix>.<machine_id>` |
-| `WORKER_TASK_RESULT_KEY` | `task.result` | dev-up.sh (infra/agent.env) | 원격 호스트 -> 엔진 결과 보고 routing key |
-| `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `host.lima.internal` | dev-up.sh (infra/agent.env) | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치) |
+| `RABBITMQ_EXCHANGE` | `assessment` | config.py / pipeline-up.sh (dev/agent.env) | 에이전트 - consumer routing 계약. 변경 시 양쪽 동기화 |
+| `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | config.py / pipeline-up.sh (dev/agent.env) | 동일 |
+| `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | config.py / pipeline-up.sh (dev/agent.env) | 동일 |
+| `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | config.py / pipeline-up.sh (dev/agent.env) | 동일 |
+| `RABBITMQ_WORKER_USER` | `assessment` | pipeline-up.sh (dev/agent.env) | 원격 호스트 worker 가 사용할 AMQP user. 비어 있으면 worker 자동 비활성 (collector 만 동작) |
+| `RABBITMQ_WORKER_PASSWORD` | `assessment` | pipeline-up.sh (dev/agent.env) | RABBITMQ_WORKER_USER 의 암호. heredoc 안에서 `RABBITMQ_WORKER_PASS` 로 매핑 |
+| `WORKER_TASK_EXCHANGE` | `assessment.tasks` | config.py / pipeline-up.sh (dev/agent.env) | task.install/task.result 전용 exchange. collector exchange 와 분리 |
+| `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | pipeline-up.sh (dev/agent.env) | 원격 호스트별 큐 prefix. full name = `<prefix>.<machine_id>` |
+| `WORKER_TASK_RESULT_KEY` | `task.result` | pipeline-up.sh (dev/agent.env) | 원격 호스트 -> 엔진 결과 보고 routing key |
+| `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `host.lima.internal` | pipeline-up.sh (dev/agent.env) | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치) |
 | `REDIS_HOST` | `redis` | config.py | (docker-compose 서비스명) |
 | `REDIS_PORT` | `6379` | config.py | |
+| `REDIS_MAXMEMORY` | `256mb` | docker-compose (redis command) | Redis maxmemory cap. prod 에서 운영자가 튜닝 가능 |
+| `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | docker-compose (redis command) | maxmemory 도달 시 eviction policy. TTL 키 우선 evict — 본 프로젝트는 idempotent/online TTL 키 만료 가능 가정 |
 | `WEB_PORT` | `8000` | config.py / docker-compose | Web UI 접속 포트. 충돌 시 변경 |
-| `INSTALL_BUNDLE_URL` | `http://host.lima.internal:8000/zconverter.tar.gz` | config.py / .env (`install.sh` 동적 주입) | task.install download.url 에 박혀 발행. OpenStack 등 분산 환경은 엔진 VM IP/hostname 으로 수정 의무 — `install.sh <engine-ip>` 또는 .env 수정 |
+| `INSTALL_BUNDLE_URL` | `http://host.lima.internal:8000/zconverter.tar.gz` | config.py / .env | task.install download.url 에 박혀 발행. 분산 환경은 엔진 VM IP/hostname 으로 .env 수정 의무 (agent worker 가 본 URL 로 install bundle fetch). |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |
 | `SQLALCHEMY_ECHO` | `false` | config.py | SQLAlchemy 엔진 SQL 로깅. dev 디버깅 시 true (운영 환경은 false 유지 — 로그 폭증·secret 노출 위험) |
+| `LOG_FORMAT` | `text` | config.py / 각 entry `setup_logging()` | 로그 출력 format. `text`(dev colorized·grep) 또는 `json`(외부 log aggregator indexing). prod은 `json` 권장 |
 | `PGADMIN_PORT` | `5050` | docker-compose dev override | pgAdmin GUI 포트 (dev 전용) |
-| `LLM_PROVIDER` | `mock` | config.py / docker-compose | AI 진단 LLM 클라이언트 (ADR 0004). `mock` 또는 `ollama`. 과금 발생 외부 API는 운영자 정책상 금지 |
+| `LLM_PROVIDER` | `mock` | config.py / docker-compose | 진단 narrative 합성 client (ADR 0004 + 0010). 현재 `mock`만 활성 (결정론 텍스트 합성), `ollama` 분기는 stub. 외부 LLM 도입 결정 시 활성 |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | config.py | LLM_PROVIDER=ollama 시 사용 |
 | `OLLAMA_MODEL` | `llama3.1:8b` | config.py | ollama 모델명 |
 | `LLM_TIMEOUT_SECONDS` | `60` | config.py | LLM 호출 cap |
@@ -103,18 +150,18 @@ docker-compose `environment:` 오버라이드는 `web` / `consumer` 양쪽에 �
 
 ### Lima 에이전트 secret 채널 (분리됨)
 
-dev-up.sh는 엔진의 `.env`를 에이전트에 전달하지 않는다. 별도 파일 `infra/agent.env`에서만 read (`set -a; source infra/agent.env; set +a`로 host env export):
+pipeline-up.sh는 엔진의 `.env`를 에이전트에 전달하지 않는다. 별도 파일 `dev/agent.env`에서만 read (`set -a; source dev/agent.env; set +a`로 host env export):
 
 - `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_EXCHANGE`, `RABBITMQ_ROUTING_KEY_INVENTORY`, `RABBITMQ_ROUTING_KEY_METRICS`, `RABBITMQ_ROUTING_KEY_ERROR`
 - `RABBITMQ_WORKER_USER`, `RABBITMQ_WORKER_PASSWORD`, `WORKER_TASK_EXCHANGE`, `WORKER_TASK_QUEUE_PREFIX`, `WORKER_TASK_RESULT_KEY`, `WORKER_DOWNLOAD_ALLOWED_HOSTS`
 
-`infra/agent.env`가 없으면 dev-up.sh가 즉시 에러. `cp infra/agent.env.example infra/agent.env` 후 운영 값으로 수정.
+`dev/agent.env`가 없으면 pipeline-up.sh가 즉시 에러. `cp dev/agent.env.example dev/agent.env` 후 운영 값으로 수정.
 
-이 값들이 limactl shell heredoc 치환으로 Lima VM 안 `/etc/assessment-agent.env`에 옮겨지고, `RABBITMQ_HOST`는 dev-up.sh가 `host.lima.internal` (Lima user-mode network alias) 상수로 별도 주입한다.
+이 값들이 limactl shell heredoc 치환으로 Lima VM 안 `/etc/assessment-agent.env`에 옮겨지고, `RABBITMQ_HOST`는 pipeline-up.sh가 `host.lima.internal` (Lima user-mode network alias) 상수로 별도 주입한다.
 
-`infra/agent.env` 변경 후 VM에 반영하려면 `./dev-up.sh` 재실행 (VM은 Running 유지, `/etc/assessment-agent.env`만 재생성 + agent restart).
+`dev/agent.env` 변경 후 VM에 반영하려면 `./scripts/pipeline-up.sh` 재실행 (VM은 Running 유지, `/etc/assessment-agent.env`만 재생성 + agent restart).
 
-분리 근거: `docs/operations/dev-prod.md` "에이전트 secret 채널 분리" 절.
+분리 근거: `docs/operations/prod-contract.md` "에이전트 secret 채널 분리" 절.
 
 ### config.py가 환경변수로 받지 않는 키
 

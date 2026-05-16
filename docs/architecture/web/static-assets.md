@@ -70,7 +70,7 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 }
 ```
 
-`.no-print` 클래스로 navbar/검색폼/버튼 인쇄 시 숨김 (base.html). 컨설턴트가 브라우저 인쇄 → PDF/PPT 캡처. 백엔드 PDF export는 미도입 (deliverables.md 5 결정).
+`.no-print` 클래스로 navbar/검색폼/버튼 인쇄 시 숨김 (base.html). 컨설턴트가 브라우저 인쇄 → PDF/PPT 캡처. 백엔드 PDF export는 미도입 (`docs/tradeoffs.md` 참조).
 
 ## 의존성
 

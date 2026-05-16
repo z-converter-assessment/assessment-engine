@@ -1,0 +1,453 @@
+# 파이프라인 검증 (Lima)
+
+본 문서는 dev 시연·파이프라인 검증 단일 진실. 운영자 절차·VM 매트릭스·OS 다양성·합성 부하·provisioning·누적 사고 패턴·운영 디버깅 모두 포함. macOS + Lima + Apple Virtualization Framework 한정 (CLAUDE.md #A0).
+
+에이전트(C) → RabbitMQ → Consumer → DB → Web UI 전체 파이프라인을 실제 VM 환경에서 검증 + 시연용 분류·attention 분포 가시화.
+
+```
+HOST MACHINE
+  Docker Compose (assessment-engine)
+    FastAPI :8000  <----QUERY-----  PostgreSQL :5432
+                                         ^
+                                    PERSIST | (3)
+                                         |
+    RabbitMQ :5672 ---DISPATCH(2)---> Consumer
+         ^
+         | PUBLISH (1) Target: host.lima.internal
+         |
+  Lima VM x 7 (assessment-agent.service)
+    web · offline · app · monitor · mq · cache · db
+```
+
+## 사전 요구
+
+| 도구 | 설치 |
+|------|------|
+| Lima 1.0+ | `brew install lima` |
+| Docker | Docker Desktop 또는 colima |
+
+전제: agent 바이너리(`dev/bin/assessment-agent`)가 본 repo에 commit되어 있다. 본 repo는 외부 agent repo 의존 안 함 — 클론만으로 dev 파이프라인 시작 가능.
+
+agent 바이너리 갱신은 수동 — 외부 agent repo에서 빌드(Linux arm64 ELF, static link 권장) 후 `dev/bin/`에 cp + 커밋. 절차는 `dev/README.md`.
+
+## 실행
+
+```bash
+cp .env.example .env                       # 엔진 환경변수
+cp dev/agent.env.example dev/agent.env     # 에이전트 secret 채널 (분리됨, #B)
+./scripts/pipeline-up.sh                        # Docker → web 헬스체크 → Lima VM 7대
+```
+
+`scripts/pipeline-up.sh` 4단계:
+1. `docker compose up --build -d` — 엔진 기동
+2. `migrate(alembic upgrade head)` 완료 대기 (cap 180s)
+3. web 헬스체크 통과 대기 (cap 180s)
+4. `start_or_resume_vm` wrapper로 7 VM 순차 (cloud image 다운로드 포함 최초 5~15분)
+
+## 결과 확인
+
+- http://localhost:8000/servers/ — 서버 7대 온라인
+- 60초 주기 메트릭 갱신
+- 분류 분포 시연은 `/servers/report?period_days=1` (대시보드는 `recommendation.WINDOW_DAYS=14` 고정, #F10)
+- attention 카드 상단 요약: web `agent_unstable` + offline `gap_warnings`(5m+ 후)
+
+## 종료
+
+```bash
+./scripts/pipeline-down.sh   # Lima VM 제거 → Docker 볼륨 삭제 (DB 초기화)
+```
+
+부분 종료:
+
+| 시나리오 | 명령 |
+|---------|------|
+| Docker만 종료, VM 유지 | `docker compose down` (데이터 유지) / `docker compose down -v` (삭제) |
+| 특정 VM만 종료 | `limactl delete -f web-server-01` |
+| VM 일시 정지 | `limactl stop <vm>` (재기동 시 yaml provision 안 함) |
+
+---
+
+## 사용 맥락
+
+Lima는 에이전트 E2E + 시연 분류 분포 가시화. 엔진(docker-compose)은 호스트, Lima 7 VM이 실제 Linux 환경에서 에이전트 metrics를 RabbitMQ에 발행 → Consumer DB 저장 → web UI 확인.
+
+```
+[VM: web-server-01      ]   attention.agent_unstable (3분 주기 restart, 시간당 20회)
+[VM: offline-server-01  ]   attention.gap_warnings (5m+ 끊김) + insufficient_data
+[VM: app-server-01      ]   under_provisioned (swap_used 트리거)         -> RabbitMQ -> consumer -> DB -> web UI
+[VM: monitor-server-01  ]   optimal (medium 부하 + swap reset)
+[VM: mq-server-01       ]   over (light 부하, Debian 12)
+[VM: cache-server-01    ]   over (light 부하)
+[VM: db-server-01       ]   over (light 부하 + RPM postgresql-setup --initdb)
+```
+
+7 VM이 서로 다른 OS + 서로 다른 서비스 뱃지 + 의도적 분류 분포를 가지는 이유:
+- OS 다양성: 패키지 매니저 분기(apt/dnf) + systemd + GLIBC major + cloud-init 호환 동시 검증.
+- 서비스 뱃지 다양성: `service_classifier.py` 7 카테고리(web·db·cache·mq·container·monitor·unknown) 100% 커버.
+- 분류 분포: right-sizing 분류(over/optimal/under/insufficient_data)가 한쪽에 쏠리지 않게 합성 부하 프로파일 4단계로 분기. attention 카탈로그(`AttentionSignals`) 6 카테고리 중 2개(agent_unstable·gap_warnings) 의도 발화.
+
+Lima + Apple Virtualization Framework / QEMU 채택 이유: Apple Silicon에서 부팅·메모리 가벼움, macOS 폐쇄망 라이선스 부담 없음(OSS), read-only mount + `/tmp/build` cp 패턴으로 host 빌드 산출물 보호.
+
+---
+
+## VM 매트릭스
+
+`dev/lima/` 디렉토리에 7개 yaml. `pipeline-up.sh`의 `LIMA_VMS` 배열에서 단일 진실로 관리(`pipeline-down.sh`는 `source pipeline-up.sh`로 가져옴).
+
+| 진행 순서 | VM | OS | family | 자원 | 서비스 | 뱃지 | 부하 | 분류 | attention 발화 |
+|---|----|----|--------|------|--------|------|------|------|----------------|
+| 1 | `web-server-01` | Debian 12 (bookworm) | apt | 1 CPU / 512 MiB / 5 GiB | nginx | web | medium | optimal | agent_unstable (1m boot + 3m 주기, 시간당 20회) |
+| 2 | `offline-server-01` | Debian 13 (trixie) | apt | 1 CPU / 512 MiB / 5 GiB | (없음) | unknown | (offline-once) | insufficient_data | gap_warnings (5m+ 끊김) |
+| 3 | `app-server-01` | Ubuntu 24.04 LTS (noble) | apt | 1 CPU / 1280 MiB / 5 GiB | docker.io | container | swap_trigger | under_provisioned | (분류 도넛에서만) |
+| 4 | `monitor-server-01` | Rocky Linux 9 | dnf | 1 CPU / 1280 MiB / 10 GiB | zabbix-agent | monitor | medium | optimal | (분류 도넛에서만) |
+| 5 | `mq-server-01` | Debian 12 (bookworm) | apt | 1 CPU / 512 MiB / 5 GiB | mosquitto | mq | light | over_provisioned | (분류 도넛에서만) |
+| 6 | `cache-server-01` | Rocky Linux 9 | dnf | 1 CPU / 1280 MiB / 10 GiB | redis | cache | light | over_provisioned | (분류 도넛에서만) |
+| 7 | `db-server-01` | AlmaLinux 9 | dnf | 1 CPU / 1280 MiB / 10 GiB | postgresql-server | db | light | over_provisioned | (분류 도넛에서만) |
+
+진행 순서는 시연 가시화 우선:
+- 1번 web — attention 가장 빠른 발화 (1m 후 첫 restart)
+- 2번 offline — gap_warnings 5m+ 발화 위해 가장 빨리 stop
+- 3번 app — under_provisioned (swap_trigger) 보장 — 호스트 부담 우려로 다음 단계
+- 4번 monitor — swap install 부담 (OOM 회피 swap reset 적용)
+- 5~7번 mq/cache/db — 정상 분류 (over/over/over) — 후순위
+
+OS 다양성 매트릭스 (5 distro + Debian 12·Rocky 9 각 1회 중복 — monitor가 CentOS Stream 9 baseos metalink stale로 Rocky 9 fallback(사고 #13), mq가 openSUSE Leap 15 zypper 누적 불안정으로 Debian 12 fallback(사고 #15). 사용자 결정으로 OS 다양성보다 프로비저닝 안정성 우선):
+
+| OS | VM | family |
+|----|----|----|
+| Debian 12 | web, mq | apt |
+| Debian 13 trixie | offline | apt |
+| Ubuntu 24.04 LTS | app | apt |
+| Rocky Linux 9 | monitor, cache | dnf |
+| AlmaLinux 9 | db | dnf |
+
+뱃지 분배 (`service_classifier.py` 7 카탈로그 100% 커버):
+
+| 카테고리 | VM | 발화 키워드 |
+|----------|----|----|
+| web | web-server-01 | nginx |
+| db | db-server-01 | postgresql |
+| cache | cache-server-01 | redis |
+| mq | mq-server-01 | mosquitto |
+| container | app-server-01 | docker |
+| monitor | monitor-server-01 | zabbix-agent |
+| unknown | offline-server-01 | (서비스 없음) |
+
+리소스 메모:
+- 1 CPU 공통 — 최소 자원, cpu_p95 시연 1 코어 기준.
+- apt family는 512 MiB / 5 GiB 기본. app-server는 docker 데몬 ~100 MiB + swap-trigger 1100 MB burst라 1280 MiB로 보수.
+- dnf family는 1280 MiB / 10 GiB — dnf install transaction 1 GiB OOM 확인 후 1.25 GiB 보수. disk는 RPM cloud image qcow2 raw 강제.
+
+---
+
+## 합성 부하 프로파일 (right-sizing 분류 발화)
+
+`recommendation.py`의 USE Method 임계에 분류가 골고루 떨어지도록 4 단계 + (offline-once).
+
+| 프로파일 | cpu burst | mem burst | mem 점유 | 적용 VM | 목표 분류 |
+|----------|-----------|-----------|---------|---------|----------|
+| light | 1~3s | 5~20MB | 즉시 sync rm | mq, cache, db | over (cpu_p95 ~5%, mem_p95 <50%) |
+| medium | 20~28s sustained | 240~300MB (web) / 700~850MB (monitor) | 25s sleep | web, monitor | optimal (cpu_p95 40~60%, mem_p95 50~70%) |
+| swap_trigger | (boot 직후 1회 1100MB burst) + 이후 light | 1100MB 1회 → swap에 push → SwapUsed > 0 영구 | 10s | app | under_provisioned (swap_used short-circuit) |
+| (offline-once) | — | — | — | offline | insufficient_data (1회 발행 후 stop) |
+
+원칙:
+- 분류 임계는 `recommendation.py` 모듈 상단 명명 상수 (#E3). 부하 프로파일은 임계 충족 설계.
+- `WINDOW_DAYS = 14` (#F10) — dev 시연에서 14일 못 채우면 분류 모두 `insufficient_data`. 보고서 라우터 `?period_days=1` 등 짧은 윈도우 시연 필수.
+- swap_trigger 프로파일이 host CPU 부담 최소(heavy++ sustained CPU 50s 대신 boot 1회 mem burst). 한 번 swap에 page push되면 SwapUsed > 0 영구 유지 → 매 measurement에서 swap_used = True 안정 발화.
+- monitor swap은 OOM 회피 전용. yaml provision의 `vm.swappiness=1` + `pipeline-up.sh` post_provision 끝 `swapoff /swapfile && swapon /swapfile`로 SwapUsed=0 reset (swap_used 트리거 X, optimal 분류).
+
+attention 카탈로그 발화 매핑:
+
+| attention 카테고리 | 발화 VM | 트리거 |
+|-------------------|---------|--------|
+| disk_warnings | (없음) | 디스크 사용률 85%+ — 시연 위해 발화 안 시킴 |
+| gap_warnings | offline-server-01 | offline-once mode (5m+ 끊김) |
+| capacity_warnings | app-server-01 | under_provisioned (swap_used 트리거) |
+| days_until_full_warnings | (없음) | 디스크 fill_rate 추정 30일 — 시연 안 함 |
+| os_eol_warnings | (없음) | EOL OS 자체가 cloud image 가용성 한계라 발화 안 함 |
+| agent_unstable | web-server-01 | agent-restart-demo timer (1h 슬라이딩 임계 3회 이상 — 3m 주기로 6배 마진) |
+
+---
+
+## `start_or_resume_vm` wrapper
+
+lima vz의 cloud-init 느린 distro(Oracle Linux 9 등) 우회용:
+
+```
+limactl start <vm> background (PID 보관)
+loop (3s polling):
+  - SSH ready check (limactl shell echo ok)
+  - SSH ready 후 60s+ 경과해도 limactl PID 안 끝나면 → PID kill (final requirement stuck 우회)
+  - 절대 cap 5분 — 초과 시 abort
+limactl PID 종료(정상 또는 강제 kill) 후 SSH 재검증 → boot 성공 판정
+```
+
+`source pipeline-up.sh` 가드 (BASH_SOURCE):
+```bash
+if [ "${BASH_SOURCE[0]:-}" = "${0:-}" ]; then
+  main "$@"
+fi
+```
+`pipeline-down.sh`가 LIMA_VMS만 가져올 때 main 자동 실행 안 함. macOS bash 3.2 호환(`:-` empty default).
+
+---
+
+## 네트워크 구조
+
+Lima default user-mode networking. VM → host는 Lima 자동 등록 DNS alias `host.lima.internal`로.
+
+```
+VM (assessment-agent)
+  RABBITMQ_HOST=host.lima.internal  ->  host:5672 (docker-compose rabbitmq 포트 매핑)
+```
+
+에이전트 `.env`에 `RABBITMQ_HOST=host.lima.internal` 고정. 엔진 `.env`의 `RABBITMQ_HOST`(=`rabbitmq` 도커 서비스명)와 다르며, `pipeline-up.sh`가 VM별 `/etc/assessment-agent.env`를 생성할 때 명시.
+
+VM 간 통신 사용 안 함 — 각 VM은 독립적, 모든 통신은 host RabbitMQ 경유.
+
+---
+
+## Mount 정책
+
+기본 `mountType` 미명시 — Lima vz default(virtiofs) 사용. 모든 활성 VM이 virtiofs 정상 동작. (이전 openSUSE Leap 15 시기 mq-server-01에 `mountType: "reverse-sshfs"` 적용했으나(사고 #2), mq distro가 Debian 12로 교체(사고 #15)되며 reverse-sshfs 필요성 사라짐.)
+
+```yaml
+mounts:
+- location: "{{.Param.AgentBinDir}}"
+  mountPoint: "/mnt/agent-bin"
+  writable: false
+```
+
+`{{.Param.AgentBinDir}}` 절대 경로는 `pipeline-up.sh`가 `--set ".param.AgentBinDir = \"$AGENT_BIN_DIR\""`로 주입 (Lima yaml의 `{{.Dir}}`은 instance dir라 호스트 경로 추적 불가).
+
+`writable: false` — read-only mount. 본 repo에 commit된 단일 바이너리(`dev/bin/assessment-agent`)만 VM에서 cp — VM 안 build step·devel 패키지 install 0.
+
+---
+
+## Provisioning 단계
+
+`limactl start --name=<vm> --tty=false --set ...`로 VM 생성. yaml `provision` 섹션 자동 실행 후 `pipeline-up.sh`의 `post_provision_vm`이 limactl shell로 후처리.
+
+### 1. (yaml provision) 합성 부하 timer + (선택) swap 활성화
+
+`/usr/local/bin/synthetic-load.sh` + `synthetic-load.service` + `synthetic-load.timer` yaml별 inline. `OnBootSec=2min`, `OnUnitActiveSec=1min`. offline-server-01만 timer 없음.
+
+VM 특수 추가:
+- `app-server-01` — `swap-trigger.service` (boot 1회 1100MB mem burst → swap 발화 → SwapUsed > 0 영구). yaml provision Step 1에 swap file 256MB 활성 + Step 2 oneshot service.
+- `monitor-server-01` — swap file 256MB 활성 + `vm.swappiness=1` sysctl 영구 (dnf install OOM 회피만, swap 사용 거의 안 함).
+- `web-server-01` — `agent-restart-demo.service` + `agent-restart-demo.timer` (`OnBootSec=1min`, `OnUnitActiveSec=3min` — 시간당 20회 attention.agent_unstable 발화).
+
+### 2. (pipeline-up.sh) `/etc/assessment-agent.env` 생성
+
+`pipeline-up.sh`가 `dev/agent.env` source한 host env로 heredoc 치환:
+
+```
+RABBITMQ_HOST=host.lima.internal
+RABBITMQ_PORT=5672
+RABBITMQ_VHOST=/assessment
+RABBITMQ_USER=...
+RABBITMQ_PASS=...
+RABBITMQ_EXCHANGE=...
+RABBITMQ_ROUTING_KEY_INVENTORY=server.inventory
+RABBITMQ_ROUTING_KEY_METRICS=server.metrics
+RABBITMQ_ROUTING_KEY_ERROR=server.error
+RABBITMQ_WORKER_USER=...
+RABBITMQ_WORKER_PASS=...
+WORKER_TASK_EXCHANGE=assessment.tasks
+WORKER_TASK_QUEUE_PREFIX=agent.tasks
+WORKER_TASK_RESULT_KEY=task.result
+WORKER_DOWNLOAD_ALLOWED_HOSTS=host.lima.internal
+AGENT_HOSTNAME_OVERRIDE=<vm>     # 모든 VM에 vm 이름 그대로 (round 3에서 web-restart-demo override 제거)
+AGENT_INTERVAL_SEC=60
+AGENT_EXTERNAL_IP=203.0.113.10   # web-server-01만
+```
+
+`/etc/`에 두는 이유:
+- mount된 `/mnt/agent-bin`은 host와 양방향 → VM별 값 분리 어려움.
+- SELinux/AppArmor가 systemd가 사용자 홈 디렉토리 내부 파일을 `EnvironmentFile=`로 읽는 것 차단 가능.
+- `/etc/`는 systemd 자유 read + VM 로컬 격리.
+
+### 3. (pipeline-up.sh) OS detect + 서비스 패키지 설치
+
+agent 바이너리는 본 repo `dev/bin/`에 사전 commit (Apple Silicon arm64 dev 한정). VM 안에서는 서비스 패키지만 install — devel·gcc·make 불필요.
+
+`/etc/os-release`의 `ID` dispatch:
+
+| family | 명령 |
+|--------|------|
+| Ubuntu/Debian (apt) | `apt-get install -y --no-install-recommends curl iputils-ping ${svc_pkg}` |
+| Rocky 9 / AlmaLinux 9 (dnf) | `dnf install -y epel-release` → `dnf install -y curl iputils ${svc_pkg}` |
+
+agent runtime dynamic dependency = OpenSSL/glibc/zlib만 — 본 매트릭스 7 distro 모두 base에 포함, 추가 install 불필요.
+
+서비스 dispatch:
+
+| VM | service | apt 패키지 | dnf 패키지 | systemd 유닛 |
+|----|---------|-----------|-----------|-------------|
+| cache-server-01 | `redis` | `redis-server` | `redis` (rocky/rhel/almalinux) | `redis` (현 cache는 Rocky 9) |
+| app-server-01 | `docker` | `docker.io` | (미지원 — podman default + docker-ce 외부 repo 필요) | `docker` |
+| web-server-01 | `nginx` | `nginx` | `nginx` | `nginx` |
+| db-server-01 | `postgres` | `postgresql` | `postgresql-server` (현 db는 AlmaLinux 9 — RPM 분기 + `postgresql-setup --initdb` 자동) | `postgresql` |
+| mq-server-01 | `mosquitto` | `mosquitto` (현 mq는 Debian 12) | `mosquitto` | `mosquitto` |
+| monitor-server-01 | `zabbix_agent` | `zabbix-agent` | `zabbix-agent` (centos/rocky/rhel/almalinux) | `zabbix-agent` |
+| offline-server-01 | `none` | (없음) | (없음) | (없음) |
+
+dispatch 단일 진실은 `pipeline-up.sh`의 `case "${ID}:$service"` 블록. 새 service 도입 시 본 표 + pipeline-up.sh 동시 갱신 의무.
+
+RPM family postgresql은 cluster init 수동 — `pipeline-up.sh`가 `postgresql-setup --initdb`로 자동 처리. apt 계열은 install 시 자동 init라 skip.
+
+설치된 서비스는 `systemctl enable --now` 즉시 활성화. 에이전트가 `services[]`에 포함시켜 발행 → 엔진의 `service_classifier.classify()`가 카테고리 뱃지(cache/web/db/mq/monitor/container)로 분류.
+
+### 4. (수동) 에이전트 바이너리 갱신
+
+본 repo는 agent 빌드 책임 없음 — agent 소스 변경 시 외부 agent repo에서 빌드 후 본 repo `dev/bin/`에 cp + 커밋.
+
+권장: Rocky 9 base + vendored static link (cJSON·rabbitmq-c·curl·libarchive 정적, OpenSSL/glibc/zlib만 dynamic). Lima 매트릭스 7 distro 모두 ≥ glibc 2.34 + OpenSSL 3 계열이라 호환.
+
+pipeline-up.sh는 `dev/bin/assessment-agent` 존재만 검증 — 없으면 즉시 fail.
+
+### 5. (pipeline-up.sh) 바이너리 cp + systemd unit
+
+```
+install -m 755 /mnt/agent-bin/assessment-agent /usr/local/bin/assessment-agent
+cat > /etc/systemd/system/assessment-agent.service <<EOF
+[Unit]
+Description=Assessment Agent
+After=network.target
+[Service]
+User=root
+EnvironmentFile=/etc/assessment-agent.env
+ExecStart=/usr/local/bin/assessment-agent
+Restart=on-failure
+RestartSec=10
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable assessment-agent
+# binary·env·unit 변경 있을 때만 restart — agent_started_at 갱신 회피 (attention false positive 줄임)
+```
+
+`/usr/local/bin/`으로 복사 — Lima의 9p/virtiofs mount(`/mnt/agent-bin`)에서 systemd 직접 실행 시 SELinux/AppArmor 컨텍스트 충돌 가능. `/usr/local/bin/`은 표준 실행 경로로 통과.
+
+`User=root`로 동작 — 에이전트는 `/proc/*` 전반 read만 필요. Lima default user는 host username으로 잡혀 VM 간 일관성을 위해 root 통일.
+
+### 6. (pipeline-up.sh) monitor swap reset (조건 분기)
+
+post_provision_vm 끝에 `if [ "$vm" = "monitor-server-01" ]` → `swapoff /swapfile && swapon /swapfile`. dnf install 도중 swap에 push된 page를 reset해 SwapUsed=0 보장 (under_provisioned 분류 안 발화, optimal 유지).
+
+### 7. (pipeline-up.sh) finalize_vm (조건 분기)
+
+`vm_mode` 함수 dispatch:
+- `offline-server-01` → `offline-once`: inventory 1회 발행 대기 15s → `systemctl stop assessment-agent` + `systemctl disable assessment-agent` + `limactl stop`. 5분 후 attention.gap_warnings 발화 (시연 의도).
+- 그 외 → `persistent`: agent restart로 publish 계속.
+
+---
+
+## 누적 사고 패턴 (반면교사 — 도입 검증 round에서 발견·해결)
+
+| # | 문제 | 원인 | 해결 |
+|---|------|------|------|
+| 1 | cache-server-01 Rocky 8 aarch64 boot stuck (4분간 SSH 안 열림, serial.log 비어있음) | Rocky 8 aarch64 cloud image와 lima vz driver boot 호환 — Lima 공식 examples엔 Rocky 9만 검증 | Rocky 9 fallback (image URL `8` → `9`) |
+| 2 | mq-server-01 openSUSE Leap 15 virtiofs mount silent fail (`/mnt/agent-src` 빈 directory) | guest virtiofs kernel module 미동작 (kernel 6.4+ 임에도) | yaml에 `mountType: "reverse-sshfs"` 명시 — sshfs binary 자동 install (lima ensureRequirement) |
+| 3 | mq-server-01 zypper `libcjson-devel` not found | openSUSE 패키지명이 대문자 `cJSON-devel` (Debian/RHEL의 `libcjson-devel`과 다른 명명) | pipeline-up.sh zypper 분기에 `cJSON-devel` 명시 |
+| 4 | monitor-server-01 dnf install exit 137 (SIGKILL OOM) | CentOS Stream 9 + EPEL 9 + zabbix-agent install transaction이 1280 MiB 초과 | yaml provision Step 1에 swap file 256 MiB 활성 + post-install `swapoff/swapon` reset (under 안 발화) |
+| 5 | monitor-server-01 `golang-github-prometheus-node-exporter` EPEL 9 미존재 | EPEL 9에 prometheus exporter 패키지 자체 없음 (EPEL 8엔 있었음) | service `node_exporter` → `zabbix_agent` (pipeline-up.sh dispatch + service_classifier "zabbix" → monitor 매칭) |
+| 6 | offline-server-01 Ubuntu 20.04 cloud image 다운로드 timeout (90s 안 안 끝남) | Ubuntu 20.04 cache miss + 네트워크 환경 | Oracle Linux 9 fallback 시도 |
+| 7 | offline-server-01 OL9 EPEL GPG check FAILED | epel-release 설치 후에도 GPG key 자동 import 안 됨 | pipeline-up.sh ol:* 분기에 `rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-${os_major}` 명시 |
+| 8 | offline-server-01 OL9 disk size error (16 GiB image vs 10 GiB yaml) | OL9 KVM image qcow2 raw 16 GiB 강제 | yaml disk 16 GiB로 늘림 |
+| 9 | offline-server-01 OL9 cloud-init "boot scripts must finished" 5분+ stuck | OL9 cloud-init final 단계 lima vz와 호환 — SSH는 정상 ready | pipeline-up.sh `start_or_resume_vm` wrapper — SSH ready+60s 후 limactl PID kill하고 진행 |
+| 10 | offline-server-01 OL9 자체 boot 시간 부담 + AWS 특화 OS 부적합 | OL9 자체가 시연 가치 약함 | Debian 13 (trixie) fallback — Lima 공식 검증, ~30~45s boot, apt 재사용 |
+| 11 | pipeline-down.sh가 LIMA_VMS 3 VM hardcoded (cache/app/web) — 7 VM과 sync 안 됨 | 옛 hardcoded LIMA_VMS 잔재 | pipeline-down.sh를 `source pipeline-up.sh`로 LIMA_VMS 단일 진실로 변경 |
+| 12 | pipeline-up.sh source 시 `BASH_SOURCE[0]: parameter not set` (zsh 환경) | zsh에 BASH_SOURCE array 없음 + pipeline-up.sh의 main 호출 가드 누락 | bash subshell 명시 + source guard `if [ "${BASH_SOURCE[0]:-}" = "${0:-}" ]; then main "$@"; fi` 추가 |
+| 13 | monitor-server-01 (CentOS Stream 9) dnf install 시 `baseos` repomd.xml sha512 mismatch — "Downloading successful, but checksum doesn't match. All mirrors were tried" | mirrors.centos.org metalink 응답 expected hash가 mirror 풀의 실제 repomd.xml과 구조적으로 불일치 (2 stale 버전이 deterministic하게 반복 수신). `fastestmirror=False` + `dnf makecache --refresh` 3회 retry 모두 동일 실패 (mirror lag 일시 현상 아님) | distro 교체 — monitor-server-01을 Rocky 9으로 fallback. dl.rockylinux.org mirror 인프라가 별개라 metalink expected 일관성 OK. cache-server-01과 family 1회 중복은 OS 다양성 매트릭스 7→6+1중복으로 진술 정정 |
+| 14 | mq-server-01 (openSUSE Leap 15) post-provision 진입 직후 zypper exit 7 — "System management is locked by the application with pid <N> (zypper). Close this application before trying again." | Lima cloud-init이 첫 boot 시 system 갱신을 위해 zypper를 점유 (zypp.lock). pipeline-up.sh가 즉시 zypper refresh/install 호출하면 lock fail | (1차) `zypper --lock-timeout`은 해당 옵션 자체 미존재(exit 2). (2차) heredoc 헤더에 `cloud-init status --wait` 추가 — VM에서 cloud-init이 PATH로 안 잡혀 silent skip, mq boot 78s 동안 lock 자연 해소되어 통과했으나 보장 없음 + stderr noise. (3차) pipeline-up.sh zypper 분기에 `pgrep -x zypper` lock retry loop(10회 x 10s) 추가 — distro-specific lock mechanism 직접 polling. heredoc 본문 line 335 주석의 백틱(`` ` ``)이 host bash command substitution을 발동시키는 부산 noise도 ASCII quote로 교체. (사고 #15에서 distro 자체가 교체되어 zypper 분기 자체가 dead code로 제거됨) |
+| 15 | mq-server-01 (openSUSE Leap 15) zypper install 중 `Retrieving: glibc-devel-...rpm [.not found]` — 패키지 메타데이터엔 있지만 mirror 풀 일부가 .rpm 파일 sync 안 됨. zypper 자체 fallback으로 다른 mirror 시도 결국 통과했으나 매번 보장 없음 + 사고 #2 (virtiofs silent fail) + 사고 #3 (`cJSON-devel` 명명 차이) + 사고 #14 (cloud-init zypper hold) 누적 3중 불안정 | openSUSE Leap 15 + 일부 mirror의 update repo sync lag (CentOS Stream 9 사고 #13과 유사한 패턴). zypper retry/refresh 보강만으로는 deterministic 안 됨 | distro 교체 — mq-server-01을 Debian 12로 fallback. 사용자 결정: OS 다양성(zypper family 검증)보다 프로비저닝 안정성 우선 (apt + dpkg + cloud.debian.org mirror 가장 견고). 영향 반영: pipeline-up.sh zypper 분기 + opensuse 매칭 dead code 제거, mq yaml mountType reverse-sshfs 제거(virtiofs default), lima.md OS 다양성 매트릭스 7→5+(web·mq 중복, monitor·cache 중복), mq family memory note·dispatch 카탈로그 zypper 컬럼 정리, 사고 #2·#3 역사 기록 유지 |
+
+15 사고 패턴 → 진행 검증 사이클 + 단계별 fix → 최종 7 VM 모두 boot OK + post-provision exit 0 + agent message 발행.
+
+---
+
+## 운영 노트 / 트러블슈팅
+
+### broker 재기동 시 에이전트 수동 재시작 (CRITICAL)
+
+증상: docker compose RabbitMQ를 down/up 또는 `down -v` 후 재기동하면 VM 안 C 에이전트가 broker 재연결 silent 포기. systemd 상태는 `active(running)`이지만 publish 로그 끊김.
+
+대응:
+```bash
+for vm in web-server-01 offline-server-01 app-server-01 monitor-server-01 \
+          mq-server-01 cache-server-01 db-server-01; do
+  limactl shell "$vm" sudo systemctl restart assessment-agent
+done
+```
+
+원인: C 에이전트 publish 루프에 `connect_robust` 자동 재연결 없음. exit하지 않고 silent retry만 하므로 systemd `Restart=on-failure`도 트리거 안 됨.
+
+### VM 시간 동기화
+
+`collected_at`은 VM 로컬 시각. 호스트와 어긋나면 차트 시간축 안 맞음. Lima default 호스트 동기화이지만 장시간 절전·suspend 후 재개 시 어긋날 수 있음.
+
+```bash
+for vm in web-server-01 offline-server-01 app-server-01 monitor-server-01 \
+          mq-server-01 cache-server-01 db-server-01; do
+  limactl shell "$vm" sudo bash -c 'systemctl restart systemd-timesyncd 2>/dev/null || systemctl restart chronyd'
+done
+```
+
+### 에이전트 로그 확인
+
+```bash
+limactl shell web-server-01 sudo journalctl -u assessment-agent --no-pager -n 50
+```
+
+기대 로그 (정상):
+```
+[agent] cmd lsblk         available
+[agent] cmd curl          available
+[agent] cmd dbus-uuidgen  available
+[agent] machine_id=<32 hex>
+[agent] published inventory
+[agent] loop mode: interval=60s (Ctrl+C to exit)
+```
+
+이후 60초 주기 publish 로그가 추가돼야 정상. 멈춰 있으면 broker 재연결 실패 의심.
+
+### 첫 기동 시간
+
+| 단계 | 예상 시간 |
+|------|-----------|
+| `docker compose up --build -d` (첫 빌드) | 60–120s |
+| web 헬스체크 통과 | 5–10s |
+| 7 VM cloud image 다운로드 (cache miss 가정) | 5–15분 |
+| 7 VM cloud image (모두 캐시) | 0~10s |
+| VM당 boot + post-provision (cache hit 후) | 30~120s |
+| 에이전트 첫 inventory 도달 | 즉시 |
+| 첫 metrics 차트 그려짐 (delta 계산용 2회 readings) | 60–90초 |
+
+라운드 3 (모두 cache hit + Apple Silicon 환경) — 전체 [4/4] 단계 약 8분.
+
+### 흔한 트러블
+
+| 증상 | 원인 | 해결 |
+|------|------|------|
+| `limactl start` cloud image 다운로드 실패 | 네트워크 / mirror 일시 오류 | 재시도 |
+| `librabbitmq-devel` not found (RHEL family) | EPEL/CRB·PowerTools 미활성화 | pipeline-up.sh dnf 분기가 자동 처리 — VM 삭제 후 재기동 |
+| 에이전트 publish 실패 로그 (CONNREFUSED) | host docker rabbitmq 안 떠 있음 / host.lima.internal 해석 실패 | `docker compose ps rabbitmq` + `limactl shell <vm> getent hosts host.lima.internal` 확인 |
+| consumer가 metrics 받지만 server_inventory 비어 있음 | inventory 메시지 유실 (broker 재기동 등) | VM 안 `systemctl restart assessment-agent` |
+| `make` 실패 (`/mnt/agent-src` write 권한 없음) | mount writable=false인데 빌드 산출물 쓰려 함 | pipeline-up.sh가 `/tmp/build`로 rsync — 정상. 직접 build 시도 X |
+| OL9·기타 cloud-init 느린 distro에서 limactl start 5분+ stuck | lima final requirement(`boot scripts must finished`)가 distro 호환성 문제 | pipeline-up.sh `start_or_resume_vm` wrapper가 SSH ready+60s 후 PID kill로 자동 우회 |
+
+### 개별 VM 조작
+
+```bash
+limactl start web-server-01                          # 단일 VM 기동 (yaml 등록된 상태)
+limactl shell web-server-01                          # SSH 접속
+limactl shell web-server-01 sudo <cmd>               # root 명령
+limactl stop -f web-server-01                        # 강제 종료 (제거 X)
+limactl delete -f web-server-01                      # 제거
+limactl list                                         # VM 상태 표
+```
+
+단일 VM 시나리오는 `pipeline-up.sh`의 `LIMA_VMS` 배열 일부 항목 주석 처리.

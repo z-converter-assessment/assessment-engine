@@ -13,7 +13,6 @@ from croniter import croniter
 from loguru import logger
 from sqlalchemy import func, select
 
-from assessment_engine.config import diagnostic_settings
 from assessment_engine.db.models.server_inventory import ServerInventory
 from assessment_engine.db.redis import close_pool, get_redis
 from assessment_engine.db.repositories.base_diagnostic_repository import (
@@ -22,6 +21,8 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
 from assessment_engine.db.repositories.query_repository import QueryRepository
 from assessment_engine.db.session import AsyncSessionLocal
+from assessment_engine.diagnostic.settings import diagnostic_settings
+from assessment_engine.log_config import setup_logging
 from assessment_engine.web.services.diagnostic_service import (
     DiagnosticNotFound,
     DiagnosticRaceMiss,
@@ -30,6 +31,8 @@ from assessment_engine.web.services.diagnostic_service import (
 
 
 async def main() -> None:
+    setup_logging(diagnostic_settings.log_format)
+
     logger.info("diagnostic scheduler starting cron={} retention_days={}",
                 diagnostic_settings.diagnostic_schedule_cron,
                 diagnostic_settings.diagnostic_retention_days)

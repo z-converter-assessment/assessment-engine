@@ -129,22 +129,24 @@ git commit -m "..."
 | 환경 | 적용 시점 | 자동 여부 |
 |------|----------|----------|
 | dev (`docker compose up`) | up 시점에 migrate 컨테이너 자동 실행 | 자동 |
-| staging (`docker compose -f ... -f staging.yml up`) | 동일 — migrate 자동 | 자동 |
-| prod (`docker compose -f ... -f docker-compose.prod.yml up -d`) | 동일 — migrate 자동. 큰 변경 시 사전 검토 권장 | 자동 |
+| prod (외부 인프라) | 외부 인프라 ansible/systemd task가 `python -m alembic ... upgrade head` 사전 실행. wheel 안 `_alembic.ini`+`_migrations/` 활용 (ADR 0012) | 수동 (외부 인프라 책임) |
 | 테스트 (`pytest`) | testcontainers fixture가 alembic upgrade subprocess 실행 (`tests/conftest.py`) | 자동 |
 
-prod에 큰 변경(데이터 손실 가능 DROP·대량 행 ALTER) 적용 전:
+prod에 큰 변경(데이터 손실 가능 DROP·대량 행 ALTER) 적용 전 — 외부 인프라 환경에서:
 
 ```bash
+# wheel install된 venv에서 (예시)
+ALEMBIC_INI=$(python -c 'from importlib.resources import files; print(files("assessment_engine") / "_alembic.ini")')
+
 # history 확인 — 어디까지 가는지
-docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate alembic history
+python -m alembic -c "$ALEMBIC_INI" history
 
 # offline SQL 추출 — 실행될 DDL 미리 검토
-docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate alembic upgrade head --sql > /tmp/migration.sql
+python -m alembic -c "$ALEMBIC_INI" upgrade head --sql > /tmp/migration.sql
 cat /tmp/migration.sql
 
-# 검토 OK면 정식 기동 (자동 적용됨)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# 검토 OK면 적용
+python -m alembic -c "$ALEMBIC_INI" upgrade head
 ```
 
 ## DEV·PROD 동일 책임 매트릭스

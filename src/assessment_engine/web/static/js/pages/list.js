@@ -145,7 +145,7 @@ function refreshInstallButton() {
   reportCustomerBtn.disabled = n === 0;
   reportEngineerBtn.textContent = `엔지니어 보고서 (${n})`;
   reportEngineerBtn.disabled = n === 0;
-  diagHistoryBtn.textContent = `AI 진단 이력 (${n})`;
+  diagHistoryBtn.textContent = `진단 이력 (${n})`;
   diagHistoryBtn.disabled = n === 0;
 }
 
@@ -302,7 +302,7 @@ installCloseBtn.addEventListener('click', hideInstallModal);
 installModal.addEventListener('click', e => { if (e.target === installModal) hideInstallModal(); });
 installSubmitBtn.addEventListener('click', submitInstall);
 
-// --- AI 진단 batch 발행 (ADR 0004 단계 3) ---
+// --- 서버 진단 batch 발행 (선택 N대, scope=server) ---
 const diagModal     = document.getElementById('diagnose-modal');
 const diagBtn       = document.getElementById('diagnose-btn');
 const diagCloseBtn  = document.getElementById('diag-close');
@@ -313,7 +313,7 @@ const diagRangeSel  = document.getElementById('diag-range');
 function refreshDiagButton() {
   if (!diagBtn) return;
   const n = selectedRows().length;
-  diagBtn.textContent = `AI 진단 (${n})`;
+  diagBtn.textContent = `서버 진단 (${n})`;
   diagBtn.disabled = n === 0;
 }
 
@@ -353,7 +353,7 @@ async function submitDiag() {
   }
 
   diagSubmitBtn.disabled = true;
-  const pending = ToastUtils.show(`AI 진단 발행 중 (${rows.length}대)...`, 'pending');
+  const pending = ToastUtils.show(`서버 진단 발행 중 (${rows.length}대)...`, 'pending');
   try {
     const res = await fetch('/api/v1/diagnostics', {
       method: 'POST',
@@ -368,7 +368,7 @@ async function submitDiag() {
     pending.remove();
     if (!res.ok) {
       const detail = await res.text();
-      ToastUtils.show(`AI 진단 발행 실패 (HTTP ${res.status}): ${detail}`, 'err');
+      ToastUtils.show(`서버 진단 발행 실패 (HTTP ${res.status}): ${detail}`, 'err');
       return;
     }
     const data = await res.json();
@@ -381,7 +381,7 @@ async function submitDiag() {
     window.location.href = `/diagnostics?ids=${encodeURIComponent(ids)}`;
   } catch (e) {
     pending.remove();
-    ToastUtils.show('AI 진단 요청 실패: ' + e.message, 'err');
+    ToastUtils.show('서버 진단 요청 실패: ' + e.message, 'err');
   } finally {
     diagSubmitBtn.disabled = false;
   }

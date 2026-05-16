@@ -1,0 +1,84 @@
+# cache-server-01: Rocky Linux 9 + redis.
+# 검증 의도: cache 카테고리 뱃지 + OpenStack OSP 18 환경 + RHEL 9 호환 distro.
+# 1차 후보 Amazon Linux 2023 → AWS 특화로 OpenStack 정합성 약함, fallback.
+# 2차 후보 CentOS 7 → aarch64 cloud image origin 영구 down, fallback.
+# 3차 후보 Rocky 8 → aarch64 cloud image가 lima vz와 boot 호환 안 됨 (4분간 SSH stuck, serial log 비어있음), fallback.
+# 4차 Rocky 9 minimal — lima 공식 examples 검증 완료 + dispatch 재사용 + OpenStack 현행 환경.
+#
+# yaml 책임: boot + mount + 합성 부하 timer (light).
+# 패키지 설치(redis)·systemd unit은 pipeline-up.sh post-provision (rocky:* 분기 재사용).
+
+images:
+- location: "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2"
+  arch: "x86_64"
+- location: "https://dl.rockylinux.org/pub/rocky/9/images/aarch64/Rocky-9-GenericCloud-Base.latest.aarch64.qcow2"
+  arch: "aarch64"
+
+cpus: 1
+# Rocky 9 dnf transaction 보수 1.25 GiB (monitor-server-01 Rocky 9·db-server-01 AlmaLinux 9와 동일 RHEL 9 family).
+# redis 데몬은 ~10 MiB 가벼움 — install 후 idle은 메모리 압박 없음.
+memory: "1280MiB"
+# Rocky 9 cloud image qcow2 raw가 10 GiB 강제.
+disk: "10GiB"
+
+containerd:
+  system: false
+  user: false
+
+param:
+  AgentBinDir: ""
+
+mounts:
+- location: "{{.Param.AgentBinDir}}"
+  mountPoint: "/mnt/agent-bin"
+  writable: false
+
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    # 합성 부하 (light) — redis 데몬 자체가 mem ~10 MiB, 합성 부하는 db와 동일.
+    set -euo pipefail
+    cat > /usr/local/bin/synthetic-load.sh <<'EOF'
+    #!/bin/bash
+    sleep $(( RANDOM % 30 ))
+    duration=$(( (RANDOM % 3) + 1 ))
+    timeout ${duration}s sha256sum /dev/zero > /dev/null 2>&1 || true
+    size=$(( (RANDOM % 16) + 5 ))
+    head -c ${size}M /dev/urandom > /tmp/synthetic-load 2>/dev/null || true
+    sync
+    rm -f /tmp/synthetic-load
+    count=$(( (RANDOM % 100) + 50 ))
+    dd if=/dev/zero of=/tmp/synthetic-io bs=4k count=${count} 2>/dev/null || true
+    sync
+    rm -f /tmp/synthetic-io
+    ping -c $(( (RANDOM % 5) + 3 )) -q host.lima.internal > /dev/null 2>&1 || true
+    curl -s -m 2 http://host.lima.internal:8000/health > /dev/null 2>&1 || true
+    if [ $((RANDOM % 2)) -eq 0 ]; then
+      curl -s -m 2 http://host.lima.internal:8000/static/js/chart-utils.js > /dev/null 2>&1 || true
+    fi
+    EOF
+    chmod 755 /usr/local/bin/synthetic-load.sh
+    cat > /etc/systemd/system/synthetic-load.service <<'EOF'
+    [Unit]
+    Description=Synthetic load (metrics visualization aid)
+    [Service]
+    Type=oneshot
+    ExecStart=/usr/local/bin/synthetic-load.sh
+    EOF
+    cat > /etc/systemd/system/synthetic-load.timer <<'EOF'
+    [Unit]
+    Description=Run synthetic-load every minute
+    [Timer]
+    OnBootSec=2min
+    OnUnitActiveSec=1min
+    [Install]
+    WantedBy=timers.target
+    EOF
+    systemctl daemon-reload
+    systemctl enable synthetic-load.timer
+    systemctl start synthetic-load.timer
+
+message: |
+  cache-server-01 (Rocky Linux 9 + redis) ready.
+  Agent install pending — run pipeline-up.sh post-provision step (rocky:* 분기 재사용).

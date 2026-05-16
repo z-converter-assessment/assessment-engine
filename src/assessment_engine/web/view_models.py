@@ -502,6 +502,10 @@ class ReportSummary:
     online: int
     risk_attention: int          # 주의 필요 — over_provisioned·idle·shutdown 합산
     risk_high: int               # 고위험 — under_provisioned
+    # 환경 활용률 평균 KPI — 고객 보고서가 "환경 전체 활용도"를 한눈에 보여주기 위함.
+    # None은 표시 단계에서 "—"로 fallback (모든 서버가 평가 불가일 때).
+    avg_cpu_p95_pct: float | None = None
+    avg_mem_p95_pct: float | None = None
     totals: ReportTotals = field(default_factory=lambda: ReportTotals(0, 0, 0))
     # 양식 A 정성 요약 — mapper에서 자동 생성 (P2). 컨설턴트가 고객 보고서 첨부 시 활용.
     summary_bullets: list[str] = field(default_factory=list)

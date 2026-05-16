@@ -1,4 +1,4 @@
-"""AI 진단 router — 사용자 트리거 진단 발행 + polling 응답 (ADR 0004).
+"""진단 router — 사용자 트리거 진단 발행 + polling 응답 (ADR 0004).
 
 책임: HTTP I/O만. 비즈니스 로직(INSERT·publish·트랜잭션)은 DiagnosticService 위임 (F4).
 표시 파생(badge·라벨·window 라벨 등)은 `diagnostic_mapper.to_view`로 단일 변환 (P2).

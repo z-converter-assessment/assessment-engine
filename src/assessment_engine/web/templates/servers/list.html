@@ -19,11 +19,11 @@
   </div>
 </div>
 
-<!-- AI 진단 발행 모달 — 선택 N대에 server scope 진단 발행 (ADR 0004 단계 3) -->
+<!-- 서버 진단 발행 모달 — 선택 N대에 server scope 진단 발행 (ADR 0004 단계 3) -->
 <div id="diagnose-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <h3 style="margin:0; font-size:16px; color:#1e293b;">AI 진단 발행</h3>
+      <h3 style="margin:0; font-size:16px; color:#1e293b;">서버 진단 발행</h3>
       <button type="button" id="diag-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
     </div>
     <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">
@@ -243,29 +243,29 @@
 
 <section class="card no-print" data-diagnostic-panel data-scope="environment">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 style="margin:0;">환경 진단 (AI)</h2>
+    <h2 style="margin:0;">환경 진단</h2>
     <div style="display:flex; gap:8px;">
       <a href="/diagnostics/history" class="btn-action no-print" style="text-decoration:none;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
-        AI 진단 이력
+        진단 이력
       </a>
       <button class="diag-submit btn-action no-print" type="button">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-        AI 진단
+        환경 진단
       </button>
     </div>
   </div>
   <div class="diag-status" style="color:#64748b; font-size:13px; margin-bottom:10px;">
-    {% if last_env_diagnostic %}최근 환경 진단 결과 표시. 새 발행은 AI 진단 버튼.
-    {% else %}진단 결과 없음 — AI 진단 버튼으로 즉시 발행 또는 스케줄러 매일 03시 자동.{% endif %}
+    {% if last_env_diagnostic %}최근 환경 진단 결과 표시. 새 발행은 환경 진단 버튼.
+    {% else %}진단 결과 없음 — 환경 진단 버튼으로 즉시 발행 또는 스케줄러 매일 03시 자동.{% endif %}
   </div>
   <div class="diag-result"></div>
 
   <!-- 환경 진단 발행 모달 (list batch와 동일 UX) -->
   <div class="diag-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
-      <h3 style="margin:0 0 16px; font-size:16px; color:#1e293b;">환경 AI 진단 발행</h3>
-      <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">전체 활성 서버 대상 USE Method 진단 발행. 결과 페이지로 이동합니다.</p>
+      <h3 style="margin:0 0 16px; font-size:16px; color:#1e293b;">환경 진단 발행</h3>
+      <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">전체 활성 서버 대상 USE Method 규칙 기반 진단 발행. 결과 페이지로 이동합니다.</p>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
         <div>
           <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">윈도우</label>
@@ -317,8 +317,8 @@
   <button type="button" id="report-customer-btn" class="btn-primary no-print" disabled title="고객 제출용 — 양식 A">고객 보고서 (0)</button>
   <button type="button" id="report-engineer-btn" class="btn-primary no-print" disabled title="엔지니어 검토용 — 양식 B">엔지니어 보고서 (0)</button>
   <button type="button" id="export-btn" class="btn-primary no-print" disabled>JSON Export (0)</button>
-  <button type="button" id="diagnose-btn" class="btn-primary no-print" disabled>AI 진단 (0)</button>
-  <button type="button" id="diag-history-btn" class="btn-primary no-print" disabled>AI 진단 이력 (0)</button>
+  <button type="button" id="diagnose-btn" class="btn-primary no-print" disabled>서버 진단 (0)</button>
+  <button type="button" id="diag-history-btn" class="btn-primary no-print" disabled>진단 이력 (0)</button>
   <button type="button" id="install-btn" class="btn-primary no-print" disabled>ZConverter Install (0)</button>
 </div>
 

@@ -1,4 +1,4 @@
-"""AI 진단 service — 운영자가 웹에서 진단 job을 발행하고 polling으로 결과 조회.
+"""진단 service — 운영자가 웹에서 진단 job을 발행하고 polling으로 결과 조회.
 
 책임 경계:
 - input_hash 계산·1시간 캐시 조회·신규 enqueue·RabbitMQ publish 캡슐화 — router는 service만 호출
@@ -18,7 +18,6 @@ from loguru import logger
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from assessment_engine.config import diagnostic_settings
 from assessment_engine.db.redis import safe_get
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     BaseDiagnosticRepository,
@@ -27,6 +26,7 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
 from assessment_engine.db.repositories.inbound import DiagnosticJobCreate
 from assessment_engine.db.repositories.outbound import DiagnosticJobRecord
+from assessment_engine.web.settings import diagnostic_settings
 
 
 class DiagnosticService:

@@ -94,31 +94,25 @@
 
 ---
 
-## T4. DEV 스키마 관리: web lifespan + create_all (prod skip)
+## T4. DEV 스키마 관리: web lifespan + create_all (prod skip) — Resolved by ADR 0005
 
-> 관련 코드: `src/assessment_engine/web/main.py` lifespan, `src/assessment_engine/db/models/`, `src/assessment_engine/config.py` `app_env`
-> 관련 문서: CLAUDE.md #C1, #A, `docs/operations/dev-prod.md` #4 APP_ENV 마커
+> 본 트레이드오프는 ADR 0005 "DB Schema 관리 표준화"로 해소. 본 절은 historical record로 보존 — 의사결정 history는 ADR 0005 본문 참조.
+>
+> 관련 코드 (당시): `src/assessment_engine/web/main.py` lifespan, `src/assessment_engine/db/models/`
+> 현재 결정: 모든 환경(dev·staging·prod·테스트) Alembic 단일 진실. `migrate` init-container가 `alembic upgrade head` 1회 실행 후 종료. lifespan create_all 제거됨. consumer는 `depends_on: migrate (service_completed_successfully)`. CLAUDE.md #C4 + `docs/operations/alembic.md` 참조.
 
-선택
+선택 (당시 — 폐기)
 - web 기동 시 `CREATE EXTENSION timescaledb` → `Base.metadata.create_all` → `create_hypertable(if_not_exists)`.
 - consumer는 `depends_on web: condition: service_healthy`로 web 헬스체크 후 시작.
-- `APP_ENV=prod`일 때 lifespan이 자동 skip — Alembic이 schema 관리 책임. `consumer depends_on web` 의존성도 단계적 제거 가능.
+- `APP_ENV=prod`일 때 lifespan이 자동 skip — Alembic이 schema 관리 책임.
 
-대안
+대안 (당시 — 채택됨)
 - Alembic: 마이그레이션 스크립트로 스키마 관리. consumer가 web에 의존하지 않음.
-- 수동 SQL: 운영자가 docker compose 외부에서 SQL 실행.
 
-트레이드오프
-- 얻은 것: 추가 도구 없이 빠른 개발 사이클. `docker compose up`만으로 스키마 생성.
-- 포기한 것: `create_all`은 기존 테이블에 컬럼·제약을 추가하지 않음. 모델 변경 시 `docker compose down -v`(데이터 손실)가 필요. 스키마 책임이 web에 섞여 SRP 위반. 프로덕션에 부적합.
-
-왜 받아들였나
-- 현재 단계는 개발/PoC. 데이터 영속성보다 빠른 반복.
-- 프로덕션 배포 전에 Alembic 도입을 전제 (CLAUDE.md #C1에 명시).
-
-언제 다시 봐야 하는가
-- 첫 프로덕션 배포 직전.
-- → Alembic 초기화 → 현재 스키마 dump → 초기 마이그레이션 작성 → `consumer depends_on web` 제거.
+해소 (ADR 0005 채택 후)
+- migrate init-container 패턴 — `migrate` 서비스가 1회 실행 후 종료(`restart: "no"`). 앱 4 서비스(`web`/`consumer`/`diagnostic-worker`/`diagnostic-scheduler`) 모두 `depends_on: migrate: service_completed_successfully`.
+- `consumer depends_on web` 제거됨 — web과 consumer가 동등 lifecycle.
+- CI `alembic check`가 ORM·migration drift 자동 차단.
 
 ---
 

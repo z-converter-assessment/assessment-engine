@@ -117,7 +117,7 @@ def test_server_narrative_all_numbers_come_from_payload():
 @pytest.mark.asyncio
 async def test_mock_client_routes_by_scope(monkeypatch):
     """sleep을 0으로 만들고 scope별 분기 검증."""
-    from assessment_engine.config import diagnostic_settings
+    from assessment_engine.diagnostic.settings import diagnostic_settings
     monkeypatch.setattr(diagnostic_settings, "llm_mock_latency_seconds", 0)
 
     client = MockLlmClient()

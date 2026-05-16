@@ -47,7 +47,7 @@ prod 분기:
 - prod 는 외부 ingress (nginx 등) 가 TLS 종단 — engine uvicorn 은 `SSL_CERTFILE`/`SSL_KEYFILE` 미주입 시 plain HTTP 동작. ingress 에 운영 cert 주입.
 - prod 의 cert 분배·rotation 정책은 별도 ADR (Let's Encrypt 또는 운영 CA).
 
-broker AMQP TLS 와의 차이 (rabbitmq.md §3):
+broker AMQP TLS 와의 차이 (rabbitmq.md 3절):
 - broker dev plain: 디버깅 비용 > 보안 이득. `rabbitmqadmin` / 관리 UI TLS 핸드셰이크가 매번 가로막음.
 - engine HTTPS dev (본 ADR): agent worker HTTPS-only 정책 정합 + 분산 staging/prod 호환. self-signed CA 부담은 gen-cert.sh + truststore inject 자동화로 최소화.
 

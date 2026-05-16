@@ -12,9 +12,9 @@ from redis.asyncio import Redis
 from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from assessment_engine.config import consumer_settings
 from assessment_engine.consumer.mappers import placeholder_inventory_from_metrics, to_inventory_create, to_metric_create
 from assessment_engine.consumer.schemas import ErrorInput, InventoryInput, MessageBase, MetricsInput, TaskResultInput
+from assessment_engine.consumer.settings import consumer_settings
 from assessment_engine.db.redis import (
     safe_delete,
     safe_get,

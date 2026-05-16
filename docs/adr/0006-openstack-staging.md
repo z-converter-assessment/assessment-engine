@@ -1,6 +1,8 @@
 # ADR 0006 — OpenStack 분산 Staging 배포 (예상 시나리오)
 
-상태: 예상 시나리오 (2026-05-13) — `deploy/openstack/` 디렉토리 전체(terraform·ansible·compose·scripts)가 본 시점 예상 설계. 실 OpenStack tenant 도입 시 토폴로지·자원·구성 모두 변경 가능. 도입 시점에 별도 ADR 정정 의무 — 본 ADR은 그 시점까지 "현재 검토 중인 안" 표시.
+상태: Withdrawn (2026-05-16) — 본 프로젝트 범위를 "기능 개발에 필요한 환경 구성"으로 한정하기로 결정. IaC(Terraform·Ansible·OpenStack staging)는 본 repo 범위 밖. 코드(`deploy/openstack/`)·연쇄 시나리오 문서(`docs/operations/scenarios/`)는 같은 commit에서 삭제. 추후 OpenStack 도입 결정 시 별도 repo로 새로 시작. 본 ADR 본문은 historical record로 보존 — 당시 검토했던 4 VM 토폴로지·자원 산정·배포 흐름을 참고용으로 남김.
+
+원래 상태: 예상 시나리오 (2026-05-13) — `deploy/openstack/` 디렉토리 전체(terraform·ansible·compose·scripts)가 본 시점 예상 설계. 실 OpenStack tenant 도입 시 토폴로지·자원·구성 모두 변경 가능. 도입 시점에 별도 ADR 정정 의무 — 본 ADR은 그 시점까지 "현재 검토 중인 안" 표시.
 
 본 ADR이 명시한 4 VM 토폴로지(bastion + engine-db + engine-mw + engine-app)와 자원 산정은 사내 폐쇄망 OpenStack 환경 가정 하 1차 설계. 실제 OpenStack tenant의 quota·network·storage·서비스 카탈로그·권한 모델에 따라 토폴로지 자체가 다르게 갈 수 있음 (예: 단일 VM 통합·k8s 기반·Magnum cluster·Trove DB 활용 등). 본 시점 lima 기반 dev 파이프라인(`docs/operations/lima.md`)은 검증 완료, OpenStack 관련 부분은 모두 예상.
 

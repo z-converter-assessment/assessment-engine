@@ -234,4 +234,4 @@ limactl shell <vm> sudo journalctl -u assessment-agent --no-pager -n 50
 
 end-to-end 추적: (1) VM 발행 로그 -> (2) broker 큐 적재 (`rabbitmqctl list_queues`) -> (3) consumer 처리 로그 -> (4) DB 행 -> (5) web 표시. 끊긴 단계가 원인.
 
-발행 측 재기동: 소스·env 변경 시 `./dev-up.sh` 재실행으로 자동. 단발 재기동은 `limactl shell <vm> sudo systemctl restart assessment-agent`.
+발행 측 재기동: 소스·env 변경 시 `./scripts/pipeline-up.sh` 재실행으로 자동. 단발 재기동은 `limactl shell <vm> sudo systemctl restart assessment-agent`.

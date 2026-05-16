@@ -5,9 +5,10 @@ import aio_pika
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from prometheus_fastapi_instrumentator import Instrumentator
 
-from assessment_engine.config import diagnostic_settings, web_settings
 from assessment_engine.db.redis import close_pool
+from assessment_engine.log_config import setup_logging
 from assessment_engine.web.routers.api import api_router
 from assessment_engine.web.routers.diagnostic_results import diagnostic_results_router
 from assessment_engine.web.routers.diagnostics import diagnostics_router
@@ -16,6 +17,10 @@ from assessment_engine.web.routers.exports import exports_router
 from assessment_engine.web.routers.pages import pages_router
 from assessment_engine.web.routers.payloads import payloads_router
 from assessment_engine.web.routers.tasks import tasks_router
+from assessment_engine.web.settings import diagnostic_settings, web_settings
+
+# Composition Root에서 log sink 단일 등록 — text(dev) vs json(prod) 분기 (LOG_FORMAT env).
+setup_logging(web_settings.log_format)
 
 
 @asynccontextmanager
@@ -25,7 +30,7 @@ async def lifespan(app: FastAPI):
     # web을 포함한 모든 앱 서비스는 `depends_on: migrate (service_completed_successfully)`로 그 뒤에 기동 (ADR 0005).
     logger.info("app_env={} — schema is Alembic-managed (entrypoint applied upgrade)", web_settings.app_env)
 
-    # AI 진단 broker connection (ADR 0004) — consumer/worker와 동일 인자로 declare 의무 (#B3).
+    # 진단 broker connection (ADR 0004) — consumer/worker와 동일 인자로 declare 의무 (#B3).
     # exchange type·DLX·큐 인자 mismatch 시 PRECONDITION_FAILED. DIRECT exchange + {exchange}.dlx 컨벤션.
     broker_conn = await aio_pika.connect_robust(diagnostic_settings.broker_url, timeout=10)
     broker_channel = await broker_conn.channel()
@@ -77,12 +82,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ZConverter Assessment Portal", lifespan=lifespan)
 
+# Prometheus 계측 — HTTP request count·latency·error rate 자동.
+# `/metrics` endpoint를 expose해 외부 Prometheus(인프라 책임)가 polling 수집.
+# instrument() 호출 시점에 middleware 등록 → 모든 라우터에 자동 적용. expose()는 endpoint 등록.
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+
 
 @app.middleware("http")
 async def disable_html_cache(request, call_next):
     """SSR 응답(text/html)에 `Cache-Control: no-store` 적용.
 
-    이유: AI 진단 발행 -> 결과 페이지 -> 뒤로가기 시점에 브라우저가 HTTP cache·BFCache 로 list 페이지를
+    이유: 진단 발행 -> 결과 페이지 -> 뒤로가기 시점에 브라우저가 HTTP cache·BFCache 로 list 페이지를
     stale HTML 그대로 복원해 succeeded 결과가 안 보이는 회귀가 발생. SSR fetch 매번 fresh 보장으로 회피.
     JSON API(/api/v1/*) 는 응답 content-type 이 application/json 이라 무관 — 그대로 cache 안 함.
     """

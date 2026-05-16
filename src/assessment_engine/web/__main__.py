@@ -1,6 +1,6 @@
 import uvicorn
 
-from assessment_engine.config import web_settings
+from assessment_engine.web.settings import web_settings
 
 uvicorn.run(
     "assessment_engine.web.main:app",

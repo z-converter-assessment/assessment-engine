@@ -13,7 +13,7 @@ ADR 0008 (engine 단일 port HTTPS 통합 + SAN 동적화) 도입 후 다음 운
 
 ADR 0008 본문에 명시한 정석 후속 (agent 측 dev http toggle 또는 nginx ingress sidecar) 은 모두 본 PR 범위 외 작업이 필요. 그 사이 기간에 dev/staging 운영자 부담 누적.
 
-핵심 trade-off — broker AMQP 정책(`rabbitmq.md §3`) 와의 일관성. broker 는 dev plain AMQP / prod AMQPS. engine HTTPS 도입 시 install bundle endpoint 한 곳만 보안 강화하는 비대칭 — 폐쇄망 가정에서 의미 약함.
+핵심 trade-off — broker AMQP 정책(`rabbitmq.md 3절`) 와의 일관성. broker 는 dev plain AMQP / prod AMQPS. engine HTTPS 도입 시 install bundle endpoint 한 곳만 보안 강화하는 비대칭 — 폐쇄망 가정에서 의미 약함.
 
 ## Decision
 

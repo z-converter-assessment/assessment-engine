@@ -1,0 +1,76 @@
+name: release
+
+# semver tag(v*) push 시 wheel 빌드 후 GitHub Release artifact로 자동 첨부.
+# 본 repo CI 산출물 정책: wheel + sha256. registry push는 별도 결정 (ADR 0012).
+# 인프라 측은 release artifact를 wget/curl·또는 사내 mirror에서 받아 ansible로 install.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # GitHub Release 생성·artifact upload 필요
+  id-token: write   # Sigstore keyless signing (OIDC token)
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # release는 cancel 안 함 — 중간 cancel 시 partial release 위험.
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: build + GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: uv.lock
+
+      - name: Install uv
+        run: pip install uv
+
+      # wheel + sdist 둘 다 생성. sdist는 source 재현 가능성 보존용 (PEP 517).
+      - name: uv build
+        run: uv build
+
+      # `--`로 glob 종료 — dash로 시작하는 우발적 파일명이 sha256sum option으로 해석되지 않게 (shellcheck SC2035).
+      - name: sha256 checksums
+        run: |
+          cd dist
+          sha256sum -- *.whl *.tar.gz > SHA256SUMS
+
+      # SBOM (Software Bill of Materials) — CycloneDX 표준. 의존성 트리 명세 첨부.
+      # 외부 인프라가 release artifact의 의존성·CVE 추적 가능 (산업 표준 ADR 0012 강화).
+      - name: Generate SBOM
+        run: |
+          uv pip install cyclonedx-bom
+          uv run cyclonedx-py environment --output-file dist/sbom.cdx.json
+
+      # Sigstore keyless signing — wheel·sdist에 cryptographic signature (`.sigstore` 파일).
+      # OIDC 기반 keyless (private key 관리 0). 외부 인프라가 `cosign verify-blob`으로 무결성 검증 가능.
+      - name: Sign artifacts with Sigstore
+        uses: sigstore/gh-action-sigstore-python@v3
+        with:
+          inputs: |
+            ./dist/*.whl
+            ./dist/*.tar.gz
+
+      # GitHub Release 자동 생성 + 첨부. release body는 git tag annotation 그대로 가져옴.
+      # 인프라 측이 release page 또는 API로 wheel·sha256·sbom·signature 다운로드.
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/SHA256SUMS
+            dist/sbom.cdx.json
+            dist/*.sigstore
+          generate_release_notes: true
+          fail_on_unmatched_files: true

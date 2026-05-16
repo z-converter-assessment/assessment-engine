@@ -10,7 +10,7 @@ from assessment_engine.db.models.base import Base
 
 
 class DiagnosticJob(Base):
-    """AI 진단 job — 스케줄러·웹 양쪽이 enqueue, 진단 워커가 처리.
+    """진단 job — 스케줄러·웹 양쪽이 enqueue, 진단 워커가 처리.
 
     상세 설계는 ADR 0004 참조.
 

@@ -62,7 +62,7 @@ model: opus
 - Pydantic Input 모델에 `extra=forbid` 사용 (금지)
 - 의미 모르는 필드를 매퍼에 추측으로 추가했는지
 
-### 테스트 정책 (`docs/operations/testing.md` 참조)
+### 테스트 정책 (`docs/development/testing.md` 참조)
 
 - 새 코드에 테스트가 추가됐는지 — 단, 사용자가 명시 요청 안 했으면 "테스트 작성 안 함"을 확인하는 정도. 테스트 실행은 절대 금지 (`tests/`는 `.claudeignore`)
 

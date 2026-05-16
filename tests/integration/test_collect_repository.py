@@ -10,7 +10,7 @@
   - ON CONFLICT DO NOTHING 멱등성 (재호출 시 0행)
   - 빈 entries 시 해당 카운트 0
 """
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import text
@@ -113,18 +113,36 @@ async def test_record_metrics_inserts_all_four_tables(
 ):
     sid = await collect_repo.upsert_server(make_inventory(machine_id="mid-rec-1"))
     metrics = make_metrics(
-        collected_at=datetime.now(timezone.utc),
+        collected_at=datetime.now(UTC),
         disk_io=[
-            DiskIoEntry(device="sda", reads_completed=100, writes_completed=50, sectors_read=1000, sectors_written=500),
-            DiskIoEntry(device="sdb", reads_completed=200, writes_completed=100, sectors_read=2000, sectors_written=1000),
+            DiskIoEntry(
+                device="sda", reads_completed=100, writes_completed=50,
+                sectors_read=1000, sectors_written=500,
+            ),
+            DiskIoEntry(
+                device="sdb", reads_completed=200, writes_completed=100,
+                sectors_read=2000, sectors_written=1000,
+            ),
         ],
         mounts=[
-            MountUsageEntry(mount="/", total_bytes=50_000_000_000, free_bytes=20_000_000_000, avail_bytes=18_000_000_000),
-            MountUsageEntry(mount="/data", total_bytes=100_000_000_000, free_bytes=80_000_000_000, avail_bytes=78_000_000_000),
-            MountUsageEntry(mount="/var", total_bytes=10_000_000_000, free_bytes=5_000_000_000, avail_bytes=4_000_000_000),
+            MountUsageEntry(
+                mount="/", total_bytes=50_000_000_000,
+                free_bytes=20_000_000_000, avail_bytes=18_000_000_000,
+            ),
+            MountUsageEntry(
+                mount="/data", total_bytes=100_000_000_000,
+                free_bytes=80_000_000_000, avail_bytes=78_000_000_000,
+            ),
+            MountUsageEntry(
+                mount="/var", total_bytes=10_000_000_000,
+                free_bytes=5_000_000_000, avail_bytes=4_000_000_000,
+            ),
         ],
         net_io=[
-            NetIoEntry(interface="eth0", rx_bytes=1_000_000, tx_bytes=500_000, rx_packets=1000, tx_packets=500, rx_errors=0, tx_errors=0),
+            NetIoEntry(
+                interface="eth0", rx_bytes=1_000_000, tx_bytes=500_000,
+                rx_packets=1000, tx_packets=500, rx_errors=0, tx_errors=0,
+            ),
         ],
     )
     result = await collect_repo.record_metrics(sid, metrics)
@@ -139,7 +157,7 @@ async def test_record_metrics_idempotent_on_conflict(
 ):
     """같은 (server_id, collected_at) 재호출 시 ON CONFLICT DO NOTHING — 모든 카운트 0."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="mid-rec-2"))
-    ts = datetime.now(timezone.utc)
+    ts = datetime.now(UTC)
     m = make_metrics(collected_at=ts)
 
     first = await collect_repo.record_metrics(sid, m)
@@ -158,7 +176,7 @@ async def test_record_metrics_skips_empty_collections(
     """disk_io/mounts/net_io 빈 리스트면 해당 INSERT skip — count 0."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="mid-rec-3"))
     m = make_metrics(
-        collected_at=datetime.now(timezone.utc),
+        collected_at=datetime.now(UTC),
         disk_io=[],
         mounts=[],
         net_io=[],
@@ -175,7 +193,7 @@ async def test_record_metrics_independent_collected_at_succeeds(
 ):
     """collected_at이 다르면 두 번 다 INSERT (UNIQUE 자연키는 (server_id, collected_at))."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="mid-rec-4"))
-    ts1 = datetime.now(timezone.utc)
+    ts1 = datetime.now(UTC)
     ts2 = ts1 + timedelta(minutes=1)
 
     r1 = await collect_repo.record_metrics(sid, make_metrics(collected_at=ts1))
@@ -189,7 +207,7 @@ async def test_record_metrics_per_device_unique(
 ):
     """server_disk_io UNIQUE = (server_id, device, collected_at) — 같은 ts 다른 device는 OK."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="mid-rec-5"))
-    ts = datetime.now(timezone.utc)
+    ts = datetime.now(UTC)
     m = make_metrics(
         collected_at=ts,
         disk_io=[
@@ -214,9 +232,9 @@ async def test_record_metrics_persists_boot_time_to_all_four_tables(
     calculator 활용 없으나 메타데이터 일관성 + 운영 디버깅 단일 SELECT 위해 보존 (CLAUDE.md C1).
     """
     sid = await collect_repo.upsert_server(make_inventory(machine_id="mid-bt-1"))
-    ts = datetime.now(timezone.utc)
-    boot = datetime(2026, 5, 9, 12, 0, tzinfo=timezone.utc)
-    started = datetime(2026, 5, 9, 12, 5, tzinfo=timezone.utc)
+    ts = datetime.now(UTC)
+    boot = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
+    started = datetime(2026, 5, 9, 12, 5, tzinfo=UTC)
     m = make_metrics(collected_at=ts, boot_time=boot, agent_started_at=started)
     await collect_repo.record_metrics(sid, m)
 
@@ -253,9 +271,9 @@ async def test_upsert_server_history_not_appended_when_unchanged(
 ):
     """비교 컬럼 동일 + collected_at만 다름 (1h 주기 재발행 시뮬) → history 추가 없음."""
     inv1 = make_inventory(machine_id="mid-hist-2", hostname="h1", cpu_cores=4,
-                          collected_at=datetime.now(timezone.utc) - timedelta(hours=1))
+                          collected_at=datetime.now(UTC) - timedelta(hours=1))
     inv2 = make_inventory(machine_id="mid-hist-2", hostname="h1", cpu_cores=4,
-                          collected_at=datetime.now(timezone.utc))  # 모든 비교 컬럼 동일
+                          collected_at=datetime.now(UTC))  # 모든 비교 컬럼 동일
     await collect_repo.upsert_server(inv1)
     await collect_repo.upsert_server(inv2)
     sid = await collect_repo.find_server_id("mid-hist-2")

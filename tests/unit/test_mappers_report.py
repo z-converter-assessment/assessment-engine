@@ -1,16 +1,14 @@
 """report·overview·attention 관련 mapper — 본 세션(v3~v5) 추가 함수 단위 테스트."""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from assessment_engine.db.repositories.outbound import (
     EnvironmentUtilizationRaw,
-    InventoryExportEntry,
     ReportRowRaw,
     ServerDetail,
 )
 from assessment_engine.web.services.mappers import (
-    _DONUT_SEGMENT_DEFS,
     _DONUT_SEGMENT_FROM_REC,
     _OS_EOL,
     _RISK_FROM_RECOMMENDATION,
@@ -23,6 +21,7 @@ from assessment_engine.web.services.mappers import (
     build_report_summary_bullets,
     build_risk_donut_segments,
     build_role_distribution,
+    compute_report_avg_p95,
     compute_report_totals_from_raw,
     to_agent_unstable_item,
     to_capacity_warning_item,
@@ -32,10 +31,9 @@ from assessment_engine.web.services.mappers import (
     to_report_row_item,
 )
 
-
 # ─── 헬퍼 ────────────────────────────────────────────────────────────────
 
-_NOW = datetime(2026, 5, 12, tzinfo=timezone.utc)
+_NOW = datetime(2026, 5, 12, tzinfo=UTC)
 
 
 def _raw(
@@ -382,18 +380,20 @@ def test_bullets_reboot_signal_threshold_3():
 
 
 def test_bullets_saturation_signal():
+    # Saturation 시그널은 양식 B(엔지니어)에만 노출 — 큐잉 이론 시그널.
     raws = [_raw(hostname="sat-01", load_15m_max=5.0, cpu_cores=2,
                  cpu_p95=50.0, mem_p95=50.0)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
-    bullets = build_report_summary_bullets(items, raws)
+    bullets = build_report_summary_bullets(items, raws, view="engineer")
     assert any("Saturation" in b and "sat-01" in b for b in bullets)
 
 
 def test_bullets_cpu_variance_signal():
+    # CPU 변동성 시그널은 양식 B(엔지니어)에만 노출 — sizing 전략 영향.
     raws = [_raw(hostname="var-01", cpu_p95=30.0, cpu_peak=80.0,
                  mem_p95=50.0)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
-    bullets = build_report_summary_bullets(items, raws)
+    bullets = build_report_summary_bullets(items, raws, view="engineer")
     assert any("변동" in b and "var-01" in b for b in bullets)
 
 
@@ -406,6 +406,7 @@ def test_bullets_os_eol_signal():
 
 
 def test_bullets_role_avg_cpu_signal():
+    # 역할별 평균 CPU 시그널은 양식 B(엔지니어)에만 노출 — 자원 집약 역할 식별.
     raws = [
         _raw(server_id=1, hostname="db-01", services=[{"unit": "postgresql.service"}],
              cpu_p95=85.0, mem_p95=50.0),
@@ -413,8 +414,101 @@ def test_bullets_role_avg_cpu_signal():
              cpu_p95=90.0, mem_p95=50.0),
     ]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
-    bullets = build_report_summary_bullets(items, raws)
+    bullets = build_report_summary_bullets(items, raws, view="engineer")
     assert any("db 계열" in b and "평균 CPU p95" in b for b in bullets)
+
+
+# ─── view="customer" 분기 — engineer 전용 시그널 제외 검증 ────────────────
+
+def test_bullets_customer_view_excludes_saturation():
+    """양식 A(customer)는 Saturation 시그널 제외 — 큐잉 이론은 엔지니어 영역."""
+    raws = [_raw(hostname="sat-01", load_15m_max=5.0, cpu_cores=2,
+                 cpu_p95=50.0, mem_p95=50.0)]
+    items = [to_report_row_item(r, True, _NOW) for r in raws]
+    bullets = build_report_summary_bullets(items, raws, view="customer")
+    assert not any("Saturation" in b for b in bullets)
+
+
+def test_bullets_customer_view_excludes_cpu_variance():
+    """양식 A(customer)는 CPU 변동성 시그널 제외 — sizing 전략은 엔지니어 영역."""
+    raws = [_raw(hostname="var-01", cpu_p95=30.0, cpu_peak=80.0, mem_p95=50.0)]
+    items = [to_report_row_item(r, True, _NOW) for r in raws]
+    bullets = build_report_summary_bullets(items, raws, view="customer")
+    assert not any("변동" in b for b in bullets)
+
+
+def test_bullets_customer_view_excludes_role_avg_cpu():
+    """양식 A(customer)는 역할별 평균 CPU 시그널 제외 — 정보 과다."""
+    raws = [
+        _raw(server_id=1, hostname="db-01", services=[{"unit": "postgresql.service"}],
+             cpu_p95=85.0, mem_p95=50.0),
+        _raw(server_id=2, hostname="db-02", services=[{"unit": "mysql.service"}],
+             cpu_p95=90.0, mem_p95=50.0),
+    ]
+    items = [to_report_row_item(r, True, _NOW) for r in raws]
+    bullets = build_report_summary_bullets(items, raws, view="customer")
+    assert not any("평균 CPU p95" in b for b in bullets)
+
+
+def test_compute_report_avg_p95_simple_average():
+    """CPU·메모리 p95 단순 산술 평균."""
+    raws = [
+        _raw(server_id=1, cpu_p95=20.0, mem_p95=40.0),
+        _raw(server_id=2, cpu_p95=40.0, mem_p95=60.0),
+        _raw(server_id=3, cpu_p95=60.0, mem_p95=80.0),
+    ]
+    items = [to_report_row_item(r, True, _NOW) for r in raws]
+    avg_cpu, avg_mem = compute_report_avg_p95(items)
+    assert avg_cpu == 40.0
+    assert avg_mem == 60.0
+
+
+def test_compute_report_avg_p95_none_excluded():
+    """None 항목은 평균 계산에서 제외."""
+    raws = [
+        _raw(server_id=1, cpu_p95=30.0, mem_p95=None),
+        _raw(server_id=2, cpu_p95=None, mem_p95=50.0),
+        _raw(server_id=3, cpu_p95=60.0, mem_p95=70.0),
+    ]
+    items = [to_report_row_item(r, True, _NOW) for r in raws]
+    avg_cpu, avg_mem = compute_report_avg_p95(items)
+    assert avg_cpu == 45.0  # (30 + 60) / 2
+    assert avg_mem == 60.0  # (50 + 70) / 2
+
+
+def test_compute_report_avg_p95_all_none_returns_none():
+    """모두 None이면 None (divide-by-zero 회피)."""
+    raws = [_raw(server_id=1, cpu_p95=None, mem_p95=None)]
+    items = [to_report_row_item(r, True, _NOW) for r in raws]
+    avg_cpu, avg_mem = compute_report_avg_p95(items)
+    assert avg_cpu is None
+    assert avg_mem is None
+
+
+def test_compute_report_avg_p95_empty_returns_none():
+    """빈 list도 None 반환."""
+    avg_cpu, avg_mem = compute_report_avg_p95([])
+    assert avg_cpu is None
+    assert avg_mem is None
+
+
+def test_bullets_customer_view_keeps_high_risk_iowait_mount_reboot_eol():
+    """양식 A·B 공통 시그널 — 고위험·I/O wait·디스크 임박·재부팅·OS EOL은 customer에도 노출."""
+    raws = [
+        _raw(hostname="db-01", os_id="centos", os_version="7.9",
+             cpu_p95=95.0, cpu_peak=99.0, mem_p95=92.0, mem_peak=98.0,
+             swap_used=True, iowait_p95=30.0,
+             worst_mount="/data", worst_used=90.0, worst_days=10,
+             reboot_count=5),
+    ]
+    items = [to_report_row_item(r, True, _NOW) for r in raws]
+    bullets = build_report_summary_bullets(items, raws, view="customer")
+    # 공통 시그널 5종 모두 활성
+    assert any("고위험" in b and "db-01" in b for b in bullets)
+    assert any("I/O wait" in b and "db-01" in b for b in bullets)
+    assert any("임박" in b and "db-01" in b for b in bullets)
+    assert any("재부팅" in b and "db-01" in b for b in bullets)
+    assert any("EOL" in b and "db-01" in b for b in bullets)
 
 
 def test_bullets_normal_fallback():
@@ -586,10 +680,10 @@ def test_inventory_export_services_listeners_match_listen_ports():
     )
     entry = to_inventory_export_entry(detail, stats=None)
     nginx = next(s for s in entry.services if s["category"] == "web")
-    listener_ports = sorted(l["port"] for l in nginx["listeners"])
+    listener_ports = sorted(item["port"] for item in nginx["listeners"])
     assert listener_ports == [80, 443]
     # 443은 inventory listen_ports 매칭 — 실제 address 추출
-    p443 = next(l for l in nginx["listeners"] if l["port"] == 443)
+    p443 = next(item for item in nginx["listeners"] if item["port"] == 443)
     assert p443["address"] == "10.0.0.1"
 
 
@@ -608,7 +702,10 @@ def test_inventory_export_services_listeners_fallback_when_no_listen_ports():
     )
     entry = to_inventory_export_entry(detail, stats=None)
     nginx = next(s for s in entry.services if s["category"] == "web")
-    assert all(l["proto"] == "tcp" and l["address"] == "0.0.0.0" for l in nginx["listeners"])
+    assert all(
+        item["proto"] == "tcp" and item["address"] == "0.0.0.0"
+        for item in nginx["listeners"]
+    )
 
 
 # ─── diagnosis (양식 B 판단 컬럼 자동 진단) ───────────────────────────────

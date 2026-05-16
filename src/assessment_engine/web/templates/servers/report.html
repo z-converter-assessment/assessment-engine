@@ -24,7 +24,7 @@
   .engineer-table .stat-line { display:block; line-height:1.35; }
   .engineer-table .stat-line .lbl { color:#94a3b8; font-size:10px; margin-right:3px; }
 
-  /* AI 진단 컬럼 — 좁은 너비 + 줄바꿈 금지로 인쇄 시 column 폭 안정 (ADR 0004 단계 5) */
+  /* 진단 컬럼 — 좁은 너비 + 줄바꿈 금지로 인쇄 시 column 폭 안정 (ADR 0004 단계 5) */
   .ai-diag-cell { white-space:nowrap; max-width:120px; }
   .ai-diag-cell .stat-line { display:block; line-height:1.35; }
 
@@ -63,13 +63,15 @@
   <div class="kpi"><span>온라인</span><strong style="color:#15803d;">{{ summary.online }}</strong></div>
   <div class="kpi"><span>주의 필요</span><strong style="color:#92400e;">{{ summary.risk_attention }}</strong></div>
   <div class="kpi"><span>고위험</span><strong style="color:#b91c1c;">{{ summary.risk_high }}</strong></div>
+  <div class="kpi"><span>평균 CPU p95</span><strong>{% if summary.avg_cpu_p95_pct is not none %}{{ "%.1f"|format(summary.avg_cpu_p95_pct) }}%{% else %}—{% endif %}</strong></div>
+  <div class="kpi"><span>평균 메모리 p95</span><strong>{% if summary.avg_mem_p95_pct is not none %}{{ "%.1f"|format(summary.avg_mem_p95_pct) }}%{% else %}—{% endif %}</strong></div>
 </div>
 
 <div style="display:flex; gap:24px; margin:14px 0 12px; padding:14px 16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:13px; color:#475569;">
   <div>총 vCPU: <strong style="color:#1e293b;">{{ summary.totals.total_vcpus }}</strong></div>
   <div>총 메모리: <strong style="color:#1e293b;">{{ summary.totals.total_memory_gb }} GB</strong></div>
   <div>총 디스크: <strong style="color:#1e293b;">{{ summary.totals.total_disk_gb }} GB</strong></div>
-  <div style="margin-left:auto; color:#94a3b8; font-size:12px;">마이그레이션 capacity 산정 기준</div>
+  <div style="margin-left:auto; color:#94a3b8; font-size:12px;">환경 총 자원 규모</div>
 </div>
 
 {% if summary.role_distribution %}
@@ -95,7 +97,7 @@
         <th class="num-cell">메모리 사용률 (p95)</th>
         <th>위험도</th>
         <th>상태</th>
-        <th>AI 진단<span class="sub">14일</span></th>
+        <th>진단<span class="sub">14일</span></th>
       </tr>
     </thead>
     <tbody>
@@ -124,7 +126,10 @@
     </tbody>
   </table>
   <div class="source-note">
-    위험도 분류 기준: 자원 부족(CPU/메모리/스왑 압박) → 고위험 / 사용 낮음 → 주의 필요 / 그 외 → 정상. 평가 기간 {{ summary.period_days }}일 통계 기반.
+    위험도 분류 기준 (USE Method, AWS Compute Optimizer · Azure Advisor):
+    CPU p95 70% 이상 또는 메모리 p95 80% 이상 또는 swap 발생 → 고위험 (자원 부족, 즉시 스케일업 검토) /
+    CPU p95 30% 이하 + 메모리 p95 50% 이하 → 주의 필요 (다운사이즈 검토) /
+    그 외 → 정상. 평가 기간 {{ summary.period_days }}일 통계 기반.
   </div>
 
   <ul style="margin:18px 0 12px; padding-left:20px; font-size:13px; line-height:1.7; color:#334155;">
@@ -142,13 +147,15 @@
   <div class="kpi"><span>온라인</span><strong style="color:#15803d;">{{ summary.online }}</strong></div>
   <div class="kpi"><span>주의 필요</span><strong style="color:#92400e;">{{ summary.risk_attention }}</strong></div>
   <div class="kpi"><span>고위험</span><strong style="color:#b91c1c;">{{ summary.risk_high }}</strong></div>
+  <div class="kpi"><span>평균 CPU p95</span><strong>{% if summary.avg_cpu_p95_pct is not none %}{{ "%.1f"|format(summary.avg_cpu_p95_pct) }}%{% else %}—{% endif %}</strong></div>
+  <div class="kpi"><span>평균 메모리 p95</span><strong>{% if summary.avg_mem_p95_pct is not none %}{{ "%.1f"|format(summary.avg_mem_p95_pct) }}%{% else %}—{% endif %}</strong></div>
 </div>
 
 <div style="display:flex; gap:24px; margin:14px 0 12px; padding:14px 16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:13px; color:#475569;">
   <div>총 vCPU: <strong style="color:#1e293b;">{{ summary.totals.total_vcpus }}</strong></div>
   <div>총 메모리: <strong style="color:#1e293b;">{{ summary.totals.total_memory_gb }} GB</strong></div>
   <div>총 디스크: <strong style="color:#1e293b;">{{ summary.totals.total_disk_gb }} GB</strong></div>
-  <div style="margin-left:auto; color:#94a3b8; font-size:12px;">capacity sizing 기준 자원 묶음</div>
+  <div style="margin-left:auto; color:#94a3b8; font-size:12px;">환경 총 자원 규모</div>
 </div>
 
 {% if summary.role_distribution %}
@@ -162,6 +169,15 @@
 
 <div class="report-section">
   <h2>상세 (양식 B · 엔지니어 검토용)</h2>
+
+  {% if summary.summary_bullets %}
+  <ul style="margin:0 0 16px; padding-left:20px; font-size:13px; line-height:1.7; color:#334155;">
+    {% for line in summary.summary_bullets %}
+    <li>{{ line }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
   <table class="engineer-table">
     <thead>
       <tr>
@@ -180,7 +196,7 @@
         <th>SWAP / Mount</th>
         <th class="num-cell">Uptime<span class="sub">재부팅</span></th>
         <th>분류 / 판단</th>
-        <th>AI 진단<span class="sub">14일</span></th>
+        <th>진단<span class="sub">14일</span></th>
       </tr>
     </thead>
     <tbody>
@@ -265,6 +281,10 @@
     <br/>
     <strong>판단 컬럼</strong>:
     스왑 사용·디스크 I/O 병목·CPU saturation·자원 압박·변동성·미사용·여유 순으로 우선 평가. 최상위 신호 1개 노출.
+    <br/>
+    <strong>"분류 / 판단" vs "진단" 컬럼 차이</strong>:
+    "분류 / 판단"은 본 보고서 윈도우({{ summary.period_days }}일) raw 데이터 기반 즉시 분류 + 단일 판단 텍스트.
+    "진단"은 별도 진단 job(스케줄러 매일 03시 또는 사용자 발행)의 latest succeeded 결과 — 14일 기준 + recommendation action. 두 컬럼이 같은 분류 이름을 쓸 수 있지만 source·시점 다름.
   </div>
 </div>
 {% endif %}

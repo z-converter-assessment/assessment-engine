@@ -1,6 +1,8 @@
 # Diagnostic Worker
 
-결정·옵션 비교·트레이드오프: ADR 0004. 본 문서는 모듈 구조·흐름·운영 노트 deep dive.
+결정·옵션 비교·트레이드오프: ADR 0004 + ADR 0010 (진단 규칙 기반 한정). 본 문서는 모듈 구조·흐름·운영 노트 deep dive.
+
+진단 의사결정 source: USE Method 임계값(AWS Compute Optimizer·Azure Advisor 기반)으로 `recommendation.py`가 결정론적으로 산출. `MockLlmClient`는 그 산출 결과를 자연어 템플릿으로 변환만 — 외부 LLM 호출 0. `LLM_PROVIDER=ollama` 분기는 stub(`NotImplementedError`)으로 보존, 외부 LLM 도입 결정 시 활성 가능.
 
 ```
 src/assessment_engine/diagnostic/
