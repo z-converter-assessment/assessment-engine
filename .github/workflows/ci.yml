@@ -81,7 +81,7 @@ jobs:
         run: uv run pytest tests/unit/ -v --cov=assessment_engine --cov-report=term --cov-report=xml:coverage-unit.xml
 
       - name: Upload unit coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-unit
           path: coverage-unit.xml
@@ -119,7 +119,7 @@ jobs:
           /tmp/wheel-smoke/bin/python -c "from importlib.resources import files; p = files('assessment_engine'); assert (p / 'web' / 'templates' / 'base.html').is_file(); assert (p / 'web' / 'static' / 'js' / 'chart-utils.js').is_file(); assert (p / '_migrations' / 'env.py').is_file(); assert (p / '_alembic.ini').is_file()"
 
       - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheel
           path: dist/*.whl
@@ -150,7 +150,7 @@ jobs:
         run: uv run pytest tests/integration/ -v --cov=assessment_engine --cov-report=term --cov-report=xml:coverage-integration.xml
 
       - name: Upload integration coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-integration
           path: coverage-integration.xml
