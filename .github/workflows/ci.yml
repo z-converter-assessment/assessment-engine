@@ -50,7 +50,7 @@ jobs:
 
       # Dockerfile lint — dev 한정이지만 best practice 정합. info 수준은 fail 아님.
       - name: hadolint Dockerfile
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: hadolint/hadolint-action@v3.3.0
         with:
           dockerfile: Dockerfile
           failure-threshold: warning
