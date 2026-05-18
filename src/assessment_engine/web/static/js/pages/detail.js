@@ -1,6 +1,6 @@
 /* detail 페이지 — server 상세 latest metrics 표시 + SSE 자동 갱신.
  *
- * Jinja2 변수: window.SERVER_ID (페이지 .html에서 inline `<script>`로 정의 후 본 파일 defer 로드).
+ * body data-server-id 단일 진실 (#E6 inline <script> 금지).
  * 외부 의존: ChartUtils.fmtKst (F2 단일 KST 변환 경계).
  *
  * P4 5 의무 규약(a~e) 적용:
@@ -11,12 +11,12 @@
  *  (e) 명명 상수 — USAGE_DANGER_PCT/USAGE_WARN_PCT + COLOR_* 모듈 상단.
  */
 (() => {
-  const SERVER_ID = window.SERVER_ID;
-  if (!SERVER_ID) { console.error('detail.js: window.SERVER_ID missing'); return; }
+  const SERVER_ID = document.body.dataset.serverId;
+  if (!SERVER_ID) { console.error('detail.js: body data-server-id missing'); return; }
 
-  /* -------- 표시 임계값 (서버 mappers._usage_bar_color와 동일 기준) -------- */
-  const USAGE_DANGER_PCT = 90;
-  const USAGE_WARN_PCT   = 75;
+  /* -------- 표시 임계값 — backend mappers._USAGE_*_PCT 단일 진실, body data-attribute 로 주입 (#E1 P4). */
+  const USAGE_DANGER_PCT = parseFloat(document.body.dataset.usageDangerPct) || 90;
+  const USAGE_WARN_PCT   = parseFloat(document.body.dataset.usageWarnPct)   || 75;
   const COLOR_OK     = '#3b82f6';
   const COLOR_WARN   = '#f59e0b';
   const COLOR_DANGER = '#ef4444';
@@ -195,4 +195,130 @@
   fetchMetrics();
   fetchCollectionStatus();
   setInterval(fetchCollectionStatus, 30_000);
+})();
+
+// 서버 1대 scope 보고서 발행 모달 — 대시보드 환경 보고서 모달과 동일 form (time_range select + anchor).
+// /servers/report 라우터가 time_range 그대로 받음 — JS 변환 없음.
+(function () {
+  const card = document.getElementById('server-report-card');
+  if (!card) return;
+  const modal = document.getElementById('server-report-modal');
+  const customerOpenBtn = document.getElementById('server-report-customer-open');
+  const engineerOpenBtn = document.getElementById('server-report-engineer-open');
+  const closeBtn = document.getElementById('server-report-close');
+  const submitBtn = document.getElementById('server-report-submit');
+  const titleEl = document.getElementById('server-report-title');
+  const descEl = document.getElementById('server-report-desc');
+  const rangeSel = document.getElementById('server-report-range');
+  const anchorInput = document.getElementById('server-report-anchor');
+  const publicId = card.dataset.serverPublicId;
+  const hostname = card.dataset.serverHostname;
+  const _VIEW_TITLES = { customer: '고객 보고서 발행', engineer: '엔지니어 보고서 발행' };
+  const _VIEW_DESCS = {
+    customer: `서버 ${hostname} 1대 대상 Right-sizing 규칙 기반 고객 보고서 발행. 새 탭으로 이동합니다.`,
+    engineer: `서버 ${hostname} 1대 대상 Right-sizing 규칙 기반 엔지니어 보고서 발행. 새 탭으로 이동합니다.`,
+  };
+  let currentView = 'customer';
+
+  function open(view) {
+    currentView = view;
+    titleEl.textContent = _VIEW_TITLES[view];
+    descEl.textContent = _VIEW_DESCS[view];
+    modal.style.display = 'flex';
+  }
+  function close() { modal.style.display = 'none'; }
+
+  function publish() {
+    const params = new URLSearchParams();
+    params.set('ids', publicId);
+    params.set('view', currentView);
+    params.set('time_range', rangeSel.value);
+    // anchor 는 server scope 라우터가 아직 받지 않음 — UI 일관성 위해 input 만 노출. submit body 미사용.
+    // back query 로 referrer 보존 → 보고서 페이지의 "← 이전" link 가 서버 상세로 정확히 복귀.
+    params.set('back', location.pathname);
+    window.location.href = `/servers/report?${params.toString()}`;
+    close();
+  }
+
+  // 페이지 로드 시 anchor input 기본값 채움 (대시보드 모달과 일관 UX).
+  if (anchorInput && window.ChartUtils && window.ChartUtils.initAnchor) {
+    window.ChartUtils.initAnchor('server-report-anchor');
+  }
+
+  customerOpenBtn.addEventListener('click', () => open('customer'));
+  engineerOpenBtn.addEventListener('click', () => open('engineer'));
+  closeBtn.addEventListener('click', close);
+  submitBtn.addEventListener('click', publish);
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+})();
+
+// 서버 1대 scope ZConverter Install 발행 모달 — 대시보드 #install-modal 과 동일 form.
+// 발행 시 POST /api/v1/tasks/install body={target_public_ids:[<public_id>], zdm_ip, zdm_user}
+(function () {
+  const card = document.getElementById('server-install-card');
+  if (!card) return;
+  const modal = document.getElementById('server-install-modal');
+  const openBtn = document.getElementById('server-install-open');
+  const closeBtn = document.getElementById('server-install-close');
+  const submitBtn = document.getElementById('server-install-submit');
+  const zdmIpEl = document.getElementById('server-install-zdm-target');
+  const zdmUserEl = document.getElementById('server-install-zdm-account');
+  const publicId = card.dataset.serverPublicId;
+  const hostname = card.dataset.serverHostname;
+
+  function openModal() {
+    // 매번 defaultValue 강제 복원 — autocomplete/cache/이전 입력 잔존 우회.
+    if (zdmIpEl && zdmIpEl.defaultValue) zdmIpEl.value = zdmIpEl.defaultValue;
+    if (zdmUserEl && zdmUserEl.defaultValue) zdmUserEl.value = zdmUserEl.defaultValue;
+    modal.style.display = 'flex';
+  }
+  function closeModal() { modal.style.display = 'none'; }
+
+  async function submit() {
+    const zdmIp = zdmIpEl.value.trim();
+    const zdmUser = zdmUserEl.value.trim();
+    if (!zdmIp || !zdmUser) {
+      if (window.ToastUtils) ToastUtils.show('ZDM IP / 관리자 계정 필수', 'err');
+      else alert('ZDM IP / 관리자 계정 필수');
+      return;
+    }
+    submitBtn.disabled = true;
+    const pending = window.ToastUtils ? ToastUtils.show(`Install 발행 중 (${hostname})...`, 'pending') : null;
+    try {
+      const res = await fetch('/api/v1/tasks/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_public_ids: [publicId],
+          zdm_ip: zdmIp,
+          zdm_user: zdmUser,
+        }),
+      });
+      if (pending) pending.remove();
+      if (!res.ok) {
+        const detail = await res.text();
+        if (window.ToastUtils) ToastUtils.show(`Install 발행 실패 (HTTP ${res.status}): ${detail}`, 'err');
+        else alert(`Install 발행 실패 (HTTP ${res.status}): ${detail}`);
+        return;
+      }
+      const data = await res.json();
+      const tid = Array.isArray(data) && data[0] ? data[0].task_id : '';
+      if (window.ToastUtils) {
+        ToastUtils.show(`Install 발행 완료 — task ${tid.slice(0, 8)}`, 'ok');
+      }
+      closeModal();
+      // 페이지 새로고침으로 최근 작업 row 갱신.
+      setTimeout(() => location.reload(), 600);
+    } catch (e) {
+      if (pending) pending.remove();
+      if (window.ToastUtils) ToastUtils.show(`Install 발행 오류: ${e.message}`, 'err');
+    } finally {
+      submitBtn.disabled = false;
+    }
+  }
+
+  openBtn.addEventListener('click', openModal);
+  closeBtn.addEventListener('click', closeModal);
+  submitBtn.addEventListener('click', submit);
+  modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
 })();

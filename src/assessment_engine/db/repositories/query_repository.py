@@ -214,6 +214,12 @@ class QueryRepository(BaseQueryRepository):
         )
         return [self._row_to_server_detail(r) for r in result.scalars().all()]
 
+    async def list_all_server_public_ids(self) -> list[str]:
+        result = await self.session.execute(
+            select(ServerInventory.public_id).order_by(ServerInventory.id)
+        )
+        return list(result.scalars().all())
+
     async def get_storage(self, server_id: int) -> StorageWithUsage | None:
         inv_result = await self.session.execute(
             select(
@@ -300,9 +306,13 @@ class QueryRepository(BaseQueryRepository):
         row = inv_result.scalar_one_or_none()
         if row is None:
             return None
+        # C5 — hypertable partition pruning 의무. 7일 윈도우면 운영 의미 충분
+        # (7일 이상 metric 없으면 None 표시 = offline 신호와 정합).
+        metric_window_start = datetime.now(UTC) - timedelta(days=7)
         metric_result = await self.session.execute(
             select(func.max(ServerMetrics.collected_at)).where(
-                ServerMetrics.server_id == server_id
+                ServerMetrics.server_id == server_id,
+                ServerMetrics.collected_at >= metric_window_start,
             )
         )
         return CollectionStatus(
@@ -392,15 +402,25 @@ class QueryRepository(BaseQueryRepository):
 
     # ─── series ───────────────────────────────────────────────────────────
 
+    # 시계열 cursor pagination 윈도우 — partition pruning 의무 하한 (#C5).
+    # 30일이면 backward scroll N 페이지 안정적으로 커버 (cursor 마다 cursor - 30d 동적).
+    _METRIC_SNAPSHOTS_WINDOW = timedelta(days=30)
+
     async def metric_snapshots(
         self,
         server_id: int,
         cursor: datetime | None,
         limit: int,
     ) -> list[MetricSeries]:
+        # cursor 가 있으면 그 시점부터 30일 뒤로, 없으면 현재로부터 30일.
+        upper = cursor if cursor else datetime.now(UTC)
+        lower = upper - self._METRIC_SNAPSHOTS_WINDOW
         stmt = (
             select(ServerMetrics.collected_at)
-            .where(ServerMetrics.server_id == server_id)
+            .where(
+                ServerMetrics.server_id == server_id,
+                ServerMetrics.collected_at >= lower,
+            )
             .order_by(ServerMetrics.collected_at.desc())
             .limit(limit)
         )
@@ -735,6 +755,7 @@ class QueryRepository(BaseQueryRepository):
             cpu_stats AS (
                 SELECT server_id,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY pct) AS cpu_p95,
+                    AVG(pct) AS cpu_avg,
                     MAX(pct) AS cpu_peak,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY iowait_pct) AS iowait_p95,
                     MAX(iowait_pct) AS iowait_peak
@@ -755,6 +776,7 @@ class QueryRepository(BaseQueryRepository):
             mem_stats AS (
                 SELECT server_id,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY pct) AS mem_p95,
+                    AVG(pct) AS mem_avg,
                     MAX(pct) AS mem_peak,
                     MAX(swap_in_use) > 0 AS swap_used
                 FROM mem_pct
@@ -782,10 +804,12 @@ class QueryRepository(BaseQueryRepository):
                 s.disks         AS disks,
                 s.boot_time     AS boot_time,
                 cs.cpu_p95      AS cpu_p95,
+                cs.cpu_avg      AS cpu_avg,
                 cs.cpu_peak     AS cpu_peak,
                 cs.iowait_p95   AS iowait_p95,
                 cs.iowait_peak  AS iowait_peak,
                 ms.mem_p95      AS mem_p95,
+                ms.mem_avg      AS mem_avg,
                 ms.mem_peak     AS mem_peak,
                 COALESCE(ms.swap_used, false) AS swap_used,
                 ls.load_15m_max AS load_15m_max
@@ -810,8 +834,10 @@ class QueryRepository(BaseQueryRepository):
                 services=r.services,
                 last_seen_at=r.last_seen_at,
                 cpu_p95_pct=r.cpu_p95,
+                cpu_avg_pct=r.cpu_avg,
                 cpu_peak_pct=r.cpu_peak,
                 mem_p95_pct=r.mem_p95,
+                mem_avg_pct=r.mem_avg,
                 mem_peak_pct=r.mem_peak,
                 load_15m_max=r.load_15m_max,
                 swap_used=bool(r.swap_used),
@@ -1100,6 +1126,7 @@ class QueryRepository(BaseQueryRepository):
                 FROM server_inventory_history
                 WHERE server_id = :sid
                   AND collected_at <= :end
+                  AND collected_at >= :buffer_start  -- C5 partition pruning + LAG 베이스 buffer
             )
             SELECT collected_at, boot_time, agent_started_at,
                 CASE
@@ -1119,7 +1146,11 @@ class QueryRepository(BaseQueryRepository):
         """)
         result = await self.session.execute(
             sql,
-            {"sid": server_id, "start": start, "end": end},
+            {
+                "sid": server_id, "start": start, "end": end,
+                # LAG 베이스 buffer — start 직전 30일 (그 안에 prev_boot 행 잡힘).
+                "buffer_start": start - timedelta(days=30),
+            },
         )
         return [
             RebootEvent(
@@ -1326,7 +1357,7 @@ class QueryRepository(BaseQueryRepository):
                 t.public_id, t.target_server_id, t.task_type, t.status,
                 t.created_at, t.completed_at,
                 t.failure_reason, t.exit_code, t.duration_ms,
-                t.stdout_tail, t.stderr_tail,
+                t.stdout_tail, t.stderr_tail, t.params,
                 s.public_id AS target_public_id, s.hostname AS target_hostname
             FROM tasks t
             LEFT JOIN server_inventory s ON s.id = t.target_server_id
@@ -1356,7 +1387,7 @@ class QueryRepository(BaseQueryRepository):
                 t.public_id, t.target_server_id, t.task_type, t.status,
                 t.created_at, t.completed_at,
                 t.failure_reason, t.exit_code, t.duration_ms,
-                t.stdout_tail, t.stderr_tail,
+                t.stdout_tail, t.stderr_tail, t.params,
                 s.public_id AS target_public_id, s.hostname AS target_hostname
             FROM tasks t
             LEFT JOIN server_inventory s ON s.id = t.target_server_id
@@ -1380,7 +1411,7 @@ class QueryRepository(BaseQueryRepository):
                 t.public_id, t.target_server_id, t.task_type, t.status,
                 t.created_at, t.completed_at,
                 t.failure_reason, t.exit_code, t.duration_ms,
-                t.stdout_tail, t.stderr_tail,
+                t.stdout_tail, t.stderr_tail, t.params,
                 s.public_id AS target_public_id, s.hostname AS target_hostname
             FROM tasks t
             LEFT JOIN server_inventory s ON s.id = t.target_server_id
@@ -1406,4 +1437,5 @@ class QueryRepository(BaseQueryRepository):
             duration_ms=row.duration_ms,
             stdout_tail=row.stdout_tail,
             stderr_tail=row.stderr_tail,
+            params=row.params,
         )

@@ -134,45 +134,125 @@ function selectedRows() {
   return [...document.querySelectorAll('.row-select:checked')];
 }
 
-// selection 버튼 상태 갱신 — CSS .btn-primary:disabled가 시각 분기 (opacity inline 불필요).
+// selection 버튼 상태 + 체크박스 헤더 카운트 갱신. label 자체는 정적 (체크박스 헤더 #select-count 가 동적 N 표시).
+// CSS .btn-primary:disabled 가 시각 분기 (opacity inline 불필요).
 function refreshInstallButton() {
   const n = selectedRows().length;
-  installBtn.textContent = `ZConverter Install (${n})`;
+  const countEl = document.getElementById('select-count');
+  if (countEl) {
+    countEl.textContent = n;
+    countEl.style.color = n > 0 ? '#2563eb' : '#cbd5e1';
+  }
   installBtn.disabled = n === 0;
-  exportBtn.textContent = `JSON Export (${n})`;
   exportBtn.disabled = n === 0;
-  reportCustomerBtn.textContent = `고객 보고서 (${n})`;
   reportCustomerBtn.disabled = n === 0;
-  reportEngineerBtn.textContent = `엔지니어 보고서 (${n})`;
   reportEngineerBtn.disabled = n === 0;
-  diagHistoryBtn.textContent = `진단 이력 (${n})`;
-  diagHistoryBtn.disabled = n === 0;
 }
 
 const reportCustomerBtn = document.getElementById('report-customer-btn');
 const reportEngineerBtn = document.getElementById('report-engineer-btn');
-const diagHistoryBtn    = document.getElementById('diag-history-btn');
 
-// 선택된 서버들의 진단 이력 페이지로 이동 — multi server_public_ids query 반복.
-function openDiagHistory() {
-  const rows = selectedRows();
-  if (!rows.length) return;
-  const params = rows.map(r => `server_public_ids=${encodeURIComponent(r.dataset.publicId)}`).join('&');
-  window.location.href = `/diagnostics/history?${params}`;
-}
+// 환경 보고서 발행 — 카드 본문 두 버튼 (고객/엔지니어) 이 view 사전 결정 후 모달 open.
+// 모달은 윈도우·anchor 입력 + 발행 단일 버튼. 발행 시 새 탭으로 /reports/environment.
+(function () {
+  const modal = document.getElementById('env-report-modal');
+  if (!modal) return;
+  const customerOpenBtn = document.getElementById('env-report-customer-open');
+  const engineerOpenBtn = document.getElementById('env-report-engineer-open');
+  const closeBtn = document.getElementById('env-report-close');
+  const submitBtn = document.getElementById('env-report-submit');
+  const titleEl = document.getElementById('env-report-title');
+  const descEl = document.getElementById('env-report-desc');
+  const rangeSel = document.getElementById('env-report-range');
+  const anchorInput = document.getElementById('env-report-anchor');
+  // 문구 단일 진실 — AI 진단 발행 모달 패턴(#diagnose-modal) 과 어조 통일.
+  const _VIEW_TITLES = { customer: '환경 고객 보고서 발행', engineer: '환경 엔지니어 보고서 발행' };
+  const _VIEW_DESCS = {
+    customer: '전체 등록 서버 대상 Right-sizing 규칙 기반 고객 보고서 발행. 새 탭으로 이동합니다.',
+    engineer: '전체 등록 서버 대상 Right-sizing 규칙 기반 엔지니어 보고서 발행. 새 탭으로 이동합니다.',
+  };
+  let currentView = 'customer';
 
-diagHistoryBtn.addEventListener('click', openDiagHistory);
+  function open(view) {
+    currentView = view;
+    titleEl.textContent = _VIEW_TITLES[view];
+    descEl.textContent = _VIEW_DESCS[view];
+    modal.style.display = 'flex';
+  }
+  function close() { modal.style.display = 'none'; }
 
-function openReport(view) {
-  const rows = selectedRows();
-  if (!rows.length) return;
-  const ids = rows.map(r => r.dataset.publicId).join(',');
-  // 새 탭 — 큰 N이면 URL 길이 한계. 일단 GET. view: customer(양식 A) / engineer(양식 B)
-  window.open(`/servers/report?ids=${encodeURIComponent(ids)}&view=${view}`, '_blank');
-}
+  function publish() {
+    const params = new URLSearchParams();
+    params.set('view', currentView);
+    params.set('time_range', rangeSel.value);
+    const anchor = anchorInput.value;
+    if (anchor) params.set('anchor_at', anchor + ':00+09:00');
+    params.set('back', location.pathname);
+    // 모든 보고서 발행 = 현재 탭 이동 (history.back / back query 로 referrer 자연 복귀, 단일 원칙).
+    window.location.href = `/reports/environment?${params.toString()}`;
+    close();
+  }
 
-reportCustomerBtn.addEventListener('click', () => openReport('customer'));
-reportEngineerBtn.addEventListener('click', () => openReport('engineer'));
+  // 페이지 로드 시점에 anchor 기본값 채움 — 모달 open 시 reset 안 함 (사용자 변경 값 보존).
+  if (anchorInput && window.ChartUtils && window.ChartUtils.initAnchor) {
+    window.ChartUtils.initAnchor('env-report-anchor');
+  }
+
+  customerOpenBtn.addEventListener('click', () => open('customer'));
+  engineerOpenBtn.addEventListener('click', () => open('engineer'));
+  closeBtn.addEventListener('click', close);
+  submitBtn.addEventListener('click', publish);
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+})();
+
+// 선택 N대 보고서 발행 모달 — 대시보드 액션 영역 '고객 보고서' / '엔지니어 보고서' 클릭 시 open.
+// 서버 상세 모달 / 환경 보고서 모달과 동일 form (time_range + anchor). 발행 시 현재 탭 이동 (history.back 정합).
+(function () {
+  const modal = document.getElementById('multi-server-report-modal');
+  if (!modal) return;
+  const closeBtn = document.getElementById('multi-server-report-close');
+  const submitBtn = document.getElementById('multi-server-report-submit');
+  const titleEl = document.getElementById('multi-server-report-title');
+  const countEl = document.getElementById('multi-server-report-count');
+  const rangeSel = document.getElementById('multi-server-report-range');
+  const anchorInput = document.getElementById('multi-server-report-anchor');
+  const _VIEW_TITLES = { customer: '선택 서버 고객 보고서 발행', engineer: '선택 서버 엔지니어 보고서 발행' };
+  let currentView = 'customer';
+  let currentRows = [];
+
+  function open(view) {
+    const rows = selectedRows();
+    if (!rows.length) return;
+    currentView = view;
+    currentRows = rows;
+    titleEl.textContent = _VIEW_TITLES[view];
+    countEl.textContent = rows.length;
+    modal.style.display = 'flex';
+  }
+  function close() { modal.style.display = 'none'; }
+
+  function publish() {
+    const ids = currentRows.map(r => r.dataset.publicId).join(',');
+    const params = new URLSearchParams();
+    params.set('ids', ids);
+    params.set('view', currentView);
+    params.set('time_range', rangeSel.value);
+    params.set('back', location.pathname);
+    // anchor 는 server scope 라우터가 받지 않음 — UI 일관성. submit 미사용.
+    window.location.href = `/servers/report?${params.toString()}`;
+    close();
+  }
+
+  if (anchorInput && window.ChartUtils && window.ChartUtils.initAnchor) {
+    window.ChartUtils.initAnchor('multi-server-report-anchor');
+  }
+
+  reportCustomerBtn.addEventListener('click', () => open('customer'));
+  reportEngineerBtn.addEventListener('click', () => open('engineer'));
+  closeBtn.addEventListener('click', close);
+  submitBtn.addEventListener('click', publish);
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+})();
 
 const exportBtn = document.getElementById('export-btn');
 
@@ -220,6 +300,12 @@ function showInstallModal() {
   const rows = selectedRows();
   if (rows.length === 0) return;
   installCountEl.textContent = rows.length;
+  // 모달 open 시점 마다 defaultValue 강제 reset — 브라우저 autocomplete · cache · 이전 입력 잔존 우회.
+  // value attribute 가 immutable defaultValue 라 server-side zdm_defaults 값으로 항상 복귀.
+  ['install-zdm-target', 'install-zdm-account'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.defaultValue) el.value = el.defaultValue;
+  });
   installModal.style.display = 'flex';
   installSubmitBtn.focus();
 }
@@ -249,6 +335,13 @@ async function submitInstall() {
   const rows = selectedRows();
   if (rows.length === 0) { ToastUtils.show('선택된 호스트 없음', 'err'); return; }
 
+  const zdmIp = document.getElementById('install-zdm-target').value.trim();
+  const zdmUser = document.getElementById('install-zdm-account').value.trim();
+  if (!zdmIp || !zdmUser) {
+    ToastUtils.show('ZDM IP / 관리자 계정 필수', 'err');
+    return;
+  }
+
   const pending = ToastUtils.show(`Install 발행 중 (${rows.length}대)...`, 'pending');
   installSubmitBtn.disabled = true;
 
@@ -258,6 +351,8 @@ async function submitInstall() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         target_public_ids: rows.map(r => r.dataset.publicId),
+        zdm_ip: zdmIp,
+        zdm_user: zdmUser,
       }),
     });
     pending.remove();
@@ -313,7 +408,6 @@ const diagRangeSel  = document.getElementById('diag-range');
 function refreshDiagButton() {
   if (!diagBtn) return;
   const n = selectedRows().length;
-  diagBtn.textContent = `서버 진단 (${n})`;
   diagBtn.disabled = n === 0;
 }
 
@@ -332,11 +426,19 @@ function showDiagModal() {
   if (rows.length === 0) return;
   diagCountEl.textContent = rows.length;
   diagModal.style.display = 'flex';
-  // KST 분 단위 default — ChartUtils.initAnchor 패턴 재사용 (F2 시간대)
-  if (window.ChartUtils && window.ChartUtils.initAnchor) {
-    window.ChartUtils.initAnchor('diag-anchor');
-  }
 }
+
+// 페이지 로드 시점에 #diag-anchor 기본값 채움 — 모달 open 시 reset 안 함 (사용자 변경값 보존).
+if (window.ChartUtils && window.ChartUtils.initAnchor && document.getElementById('diag-anchor')) {
+  window.ChartUtils.initAnchor('diag-anchor');
+}
+
+// Install 모달 input — 브라우저 autocomplete 우회. value attribute 값(defaultValue) 강제 적용.
+// autocomplete="off" 만으로 일부 브라우저(Chrome 일부 버전)에서 history 덮어쓰기 가능 — 2중 가드.
+['install-zdm-target', 'install-zdm-account'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el && el.defaultValue) el.value = el.defaultValue;
+});
 
 function hideDiagModal() {
   diagModal.style.display = 'none';

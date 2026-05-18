@@ -107,18 +107,16 @@ class CapacityTriggerBadge:
 class CapacityWarningItem:
     """14일 평균 자원 부족 서버 — 마이그레이션 capacity 산정 시 instance type 상향 검토.
 
-    triggers: 활성화된 부족 자원 list. 한 서버에 여러 trigger 동시 가능 (예: CPU + 메모리).
-    분류 조건:
+    triggers: USE Method classify 입력 5 trigger 와 1:1 정합 (스왑/CPU/메모리/Load/디스크).
     - swap_used=True → "스왑"
     - cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU"
     - mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리"
-    under_provisioned 분류라 최소 1개 trigger 존재.
+    - load_15m / cpu_cores >= CPU_SATURATION_LOAD_RATIO → "Load"
+    - disk_used >= DISK_CAPACITY_UPSIZE_PCT 또는 iowait_p95 >= IOWAIT_UPSIZE_PCT → "디스크"
+    under_provisioned 분류라 최소 1개 trigger 존재. 표시는 뱃지만 (구체값 메타 표시 안 함).
     """
     public_id: str
     hostname: str
-    cpu_p95_pct: float | None
-    mem_p95_pct: float | None
-    swap_used: bool
     triggers: list[CapacityTriggerBadge] = field(default_factory=list)
 
 
@@ -133,51 +131,38 @@ class AttentionCatalogEntry:
     label: str
     count: int
     active: bool
+    description: str = ""  # 임계 근거 한국어 보조 ("≥ 85%" 등)
 
 
 @dataclass
 class AttentionSignals:
-    """list 화면 통합 신호 카드 — 현재 시점·평가 기간 신호 묶음.
+    """list 화면 운영 신호 카드 — 모니터링·시스템 운영 이상 3 카테고리 (USE Method 와 완전 분리).
 
-    disk_warnings: 마이그레이션 전 cleanup 직접 액션 (사용률 85%+ mount).
+    USE Method(자원 평가)에서 다루지 못하는 인프라 이상만 표시.
+    디스크(capacity·IO)는 USE Method classify 에 통합 — 본 catalog 에서 제외 (중복 회피).
+
     gap_warnings: 모니터링 사각지대 (5분+ 끊김).
-    capacity_warnings: 14일 평균 기준 자원 부족 의심 서버 (보고서·right-sizing 윈도우 동일).
-    days_until_full_warnings: 디스크 잔여 30일 안 (fill_rate 추정).
     os_eol_warnings: OS EOL 임박/지남 (정적 매핑).
     agent_unstable: 1h 윈도우 안 재시작 임계 초과 서버.
-    catalog: 카드 상단 범례 — 6 카탈로그 label·count·active (발화 0건도 노출).
-    has_any: 6 카탈로그 중 1개라도 비어있지 않으면 True.
+    catalog: 카드 상단 범례 — 3 카탈로그 label·count·active (발화 0건도 노출).
+    has_any: 3 카탈로그 중 1개라도 비어있지 않으면 True.
     """
-    disk_warnings: list[AttentionRow]
     gap_warnings: list[AttentionRow]
-    capacity_warnings: list[CapacityWarningItem] = field(default_factory=list)
-    days_until_full_warnings: list[AttentionRow] = field(default_factory=list)
     os_eol_warnings: list[AttentionRow] = field(default_factory=list)
     agent_unstable: list[AttentionRow] = field(default_factory=list)
 
     @property
     def catalog(self) -> list[AttentionCatalogEntry]:
-        """6 카탈로그 범례 — sub-section 표시 순서와 일치. 발화 0건 카테고리도 포함."""
+        """3 카탈로그 범례 — USE Method 외 시스템 운영 이상. 발화 0건 카테고리도 포함."""
         return [
-            AttentionCatalogEntry("통신 끊김",       len(self.gap_warnings),              bool(self.gap_warnings)),
-            AttentionCatalogEntry("디스크 사용률",   len(self.disk_warnings),             bool(self.disk_warnings)),
-            AttentionCatalogEntry("언더 프로비저닝", len(self.capacity_warnings),         bool(self.capacity_warnings)),
-            AttentionCatalogEntry(
-                "디스크 추세",
-                len(self.days_until_full_warnings),
-                bool(self.days_until_full_warnings),
-            ),
-            AttentionCatalogEntry("OS 지원종료",     len(self.os_eol_warnings),           bool(self.os_eol_warnings)),
-            AttentionCatalogEntry("에이전트 재시작", len(self.agent_unstable),            bool(self.agent_unstable)),
+            AttentionCatalogEntry("통신 끊김", len(self.gap_warnings), bool(self.gap_warnings)),
+            AttentionCatalogEntry("OS 지원종료", len(self.os_eol_warnings), bool(self.os_eol_warnings)),
+            AttentionCatalogEntry("에이전트 재시작", len(self.agent_unstable), bool(self.agent_unstable)),
         ]
 
     @property
     def has_any(self) -> bool:
-        return any([
-            self.disk_warnings, self.gap_warnings,
-            self.capacity_warnings, self.days_until_full_warnings,
-            self.os_eol_warnings, self.agent_unstable,
-        ])
+        return any([self.gap_warnings, self.os_eol_warnings, self.agent_unstable])
 
 
 @dataclass
@@ -196,17 +181,19 @@ class UtilizationBar:
 
 @dataclass
 class RiskDonutSegment:
-    """위험도 분포 도넛 1 segment — 4개 카테고리(고위험·주의·저사용·정상) 중 하나.
+    """USE Method 분포 도넛 1 segment — recommend enum 6 분류 1:1.
 
     dash_length·dash_offset: SVG stroke-dasharray + stroke-dashoffset (다중 segment 누적).
     템플릿에서 산술 못 하므로 mapper가 미리 계산 (P3).
+    description: 범례 옆 간단 보조 설명 (mapper 단일 진실).
     """
-    key: str               # "high" / "attention" / "low_usage" / "normal"
-    label: str             # "고위험" / "주의" / "저사용" / "정상"
+    key: str               # recommend enum (영어)
+    label: str             # 표시 라벨 (영어 enum 그대로)
     color: str             # hex
     count: int             # 해당 카테고리 서버 수
     dash_length: float     # 본 segment 원호 길이
     dash_offset: float     # 시계방향 시작 위치 (이전 segments 누적 음수)
+    description: str = ""  # 한국어 보조 설명 ("자원 부족 (사양 상향)" 등)
 
 
 @dataclass
@@ -230,6 +217,9 @@ class EnvironmentOverview:
     risk_donut: list[RiskDonutSegment] = field(default_factory=list)
     risk_donut_total: int = 0          # 도넛 중심 표시용 (분류된 서버 수)
     risk_high_count: int = 0           # 도넛 중심 강조 — "위험 N대"
+    # USE Method 분포 도넛 아래 표시 — 자원 부족(under_provisioned) 호스트 trigger·메타 상세.
+    under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list)
+    under_provisioned_hosts_count: int = 0  # 템플릿 P3 회피 — mapper precompute (#E1 P3)
 
 
 # ---------- 서버 상세 ----------
@@ -421,8 +411,10 @@ class ReportRowItem:
     internal_ip: str | None
 
     cpu_p95_pct: float | None
+    cpu_avg_pct: float | None
     cpu_peak_pct: float | None
     mem_p95_pct: float | None
+    mem_avg_pct: float | None
     mem_peak_pct: float | None
     load_15m_max: float | None
     swap_used: bool
@@ -476,6 +468,11 @@ class ReportRowItem:
     # mapper.build_diagnosis 결정. 우선순위: 메모리 압박 → 디스크 병목 → CPU saturation → 변동성 → 적정
     diagnosis: str = ""
 
+    # under_provisioned 분류 시 어떤 trigger 가 hit 됐는지 한국어 권고 (양식 A "권고" 컬럼).
+    # USE Method 5 trigger 중 active 만 결합 (예: "메모리 증설 (스왑 발생) / CPU 증설").
+    # 비-under 분류 시 빈 문자열 — template 에서 분류별 폴백 메시지.
+    under_provisioned_reason: str = ""
+
     # 임계값 분류 색 (P3 — 템플릿 산술·분기 금지. mapper에서 미리 계산)
     # 모두 #b91c1c (danger) / #92400e (warn) / #94a3b8 (muted) / #1e293b (default) hex 중 하나.
     saturation_color: str = "#94a3b8"
@@ -483,6 +480,7 @@ class ReportRowItem:
     mem_variance_color: str = "#94a3b8"
     worst_mount_days_color: str = "#64748b"      # days_until_full 표시색 — 30일 이하 시 danger
     reboot_count_color: str = "#94a3b8"          # 3회 이상 시 danger
+
 
 
 @dataclass
@@ -511,6 +509,108 @@ class ReportSummary:
     summary_bullets: list[str] = field(default_factory=list)
     # 양식 A 상단 역할 분포 — {"web": 8, "db": 5, "cache": 3, ...}. service_classifier 카테고리 집계.
     role_distribution: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
+class ClassificationCount:
+    """USE Method 분포 1 segment — 환경 보고서 전용 (양식 A/B 공통).
+
+    label 은 recommend enum 영어 그대로 (대시보드 도넛과 단일 진실).
+    description: 보고서 분포 막대 옆 간단 보조 설명.
+    pct: 본 segment 가 전체 classification_dist 중 차지하는 % (mapper precompute, P3 회피).
+    """
+    key: str               # recommend enum
+    label: str             # 영어 enum 그대로
+    count: int
+    color: str             # hex 색
+    description: str = ""  # 한국어 보조 설명
+    pct: float = 0.0       # 0~100 — mapper 가 _count_classifications 직후 채움
+
+
+@dataclass
+class OsCount:
+    """OS distro·version 그룹별 카운트 — 환경 보고서 OS 분포 섹션."""
+    os_display: str   # mapper `_os_display` 결과
+    count: int
+
+
+@dataclass
+class AttentionHostItem:
+    """운영 신호 발화 호스트 — 통신 끊김 / OS EOL / 에이전트 재시작 빈번 중 1개 이상 hit.
+
+    AttentionSignals 3 카테고리 (gap_warnings / os_eol_warnings / agent_unstable) 를
+    호스트 기준 unified 합성 — 동일 호스트가 여러 신호 발화 시 한 row 안에 표시.
+    engineer 보고서 즉시 점검 list (Right-sizing 분류와 독립).
+    """
+    public_id: str
+    hostname: str
+    os_display: str
+    # 카테고리별 발화 메타 — None 이면 비활성. mapper 결정 (P2).
+    gap_label: str | None        # "5분" — gap_warnings badge_text
+    os_eol_label: str | None     # "centos 7 · EOL 2024-06-30" — os_eol_warnings meta_text
+    restart_label: str | None    # "12회" — agent_unstable badge_text
+    active_count: int            # 활성 신호 카운트 (1~3)
+
+
+@dataclass
+class CapacityImminentItem:
+    """디스크 capacity 임박 호스트 — worst_mount_days_until_full <= 30 (engineer 보고서).
+
+    linear projection 기반 — 30일 안 디스크 full 위험. 운영 계획 입력.
+    """
+    public_id: str
+    hostname: str
+    worst_mount: str
+    days_until_full: int
+    used_pct: float | None
+
+
+@dataclass
+class InsufficientHostItem:
+    """평가 표본 부족 호스트 — 엔지니어 보고서 별도 list (운영 액션: 에이전트 점검/메트릭 수집 확인).
+
+    reason: 표본 부족 원인 ("CPU 메트릭 없음" / "메모리 메트릭 없음" / "둘 다 없음").
+    """
+    public_id: str
+    hostname: str
+    os_display: str
+    reason: str
+
+
+@dataclass
+class EnvironmentReportSummary:
+    """환경 단위 보고서 (전체 등록 서버 대상) — server scope ReportSummary 와 별도 양식.
+
+    server scope 보고서: row 단위 검토 중심 (선택 N대 상세).
+    environment scope 보고서: high-level overview·분류 분포·top risk·OS 분포 중심.
+    view ('customer'|'engineer') 분기 — summary_bullets_env 가 view 별 다른 텍스트.
+    time_range/anchor_at: AI 진단과 동일 윈도우 매트릭스 (15m~30d) + 운영자 명시 anchor.
+    """
+    view: str
+    time_range: str                # "15m"/"1h"/"6h"/"24h"/"7d"/"14d"/"30d"
+    time_range_label: str          # "15분"/"1시간"/...  한국어 표시 단일 진실 (mapper)
+    anchor_at: datetime            # 분석 기준 시각 (보고서 본문 끝점)
+    generated_at: datetime         # 응답 합성 시각 (DB 저장·UI 표시용)
+    overview: EnvironmentOverview          # 기존 list 페이지와 동일 source (utilization 3 bar 포함)
+    attention: AttentionSignals            # 기존 6 카탈로그 (disk/gap/capacity/days/os_eol/agent_unstable)
+    base: ReportSummary                    # 전체 서버 raw aggregation 결과 (KPI·totals·rows 전부)
+    classification_dist: list[ClassificationCount]
+    os_distribution: list[OsCount]
+    top_risks: list[ReportRowItem]         # base.rows 위험도 정렬 Top N (기본 5)
+    summary_bullets_env: list[str]         # 환경 단위 view 별 정성 요약
+    under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list)
+    # 엔지니어 보고서 전용 — 운영 신호 발화 호스트 통합 list (gap / os_eol / agent_unstable).
+    attention_hosts: list[AttentionHostItem] = field(default_factory=list)
+    # 엔지니어 보고서 전용 — 디스크 capacity 임박 (30일 안 full 위험, linear projection).
+    capacity_imminent: list[CapacityImminentItem] = field(default_factory=list)
+    # 엔지니어 보고서 전용 — 평가 표본 부족 호스트 (에이전트 점검 대상).
+    insufficient_hosts: list[InsufficientHostItem] = field(default_factory=list)
+    # 템플릿 P3 회피 precompute count — mapper 가 list len 단일 합성 (#E1 P3).
+    top_risks_count: int = 0
+    attention_hosts_count: int = 0
+    capacity_imminent_count: int = 0
+    insufficient_hosts_count: int = 0
+    under_provisioned_hosts_count: int = 0
 
 
 # ---------- Task 표시 ----------
@@ -553,3 +653,4 @@ class TaskDetailItem:
     completed_at: datetime | None
     stdout_tail: str | None
     stderr_tail: str | None
+    params: dict | None = None  # install task 발행 파라미터 ({zdm_ip, zdm_user} 등) — modal 노출

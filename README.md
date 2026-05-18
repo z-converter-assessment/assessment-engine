@@ -14,7 +14,7 @@
  +------------------------------------------------------------------+
  |  Agent (C, separate repo: assessment-agent)                      |
  |  collector  : /proc scrape + inventory/metrics/error publish     |
- |  worker     : task.install consume + install.sh exec + result    |
+ |  worker     : task.install consume + OS script exec + result    |
  +-----+----------------------------------------+-------------------+
        | inventory/metrics/error                ^ task.install
        | (server.* routing keys)                |
@@ -147,11 +147,44 @@ docker compose down -v              # 종료 (데이터 삭제)
 엔진 + Lima VM 매트릭스 전체 시연 (macOS 한정 — 합성 부하·분류 분포 가시화):
 ```bash
 ./scripts/pipeline-up.sh                              # .env·dev/agent.env 자동 cp + Docker + Lima 7 VM
-LIMA_VMS_FILTER=web-server-01 ./scripts/pipeline-up.sh # 약식 (1 VM)
+LIMA_VMS_FILTER=db-server-01,app-server-01 ./scripts/pipeline-up.sh  # 약식 (2 VM)
+LIMA_VMS_FILTER=web-server-01 ./scripts/pipeline-up.sh               # 약식 (1 VM)
 ./scripts/pipeline-down.sh                            # 환경 전체 정리
 ```
 
 상세: `docs/development/pipeline.md`.
+
+---
+
+## 개발 환경 셋업 (IDE 자동완성·테스트·로컬 실행)
+
+본 절은 IDE (PyCharm·VS Code) 에서 코드 탐색·자동완성·테스트 실행을 위한 의존성 설치. Docker compose 만 띄울 때는 불필요 — 컨테이너 안에서 의존성을 갖고 있음.
+
+전제: `uv` 0.4+ (`pip install uv` 또는 `brew install uv`).
+
+```bash
+# 의존성 동기화 — 운영 의존성 + dev 그룹 (pytest·ruff·hadolint·types 등) 모두 설치.
+# pyproject.toml [dependency-groups].dev 가 dev 그룹 정의. uv 가 .venv/ 자동 생성.
+uv sync --group dev
+
+# IDE Python interpreter 를 본 .venv 로 지정:
+#  - PyCharm: Settings → Project → Python Interpreter → Add Interpreter → Existing → .venv/bin/python
+#  - VS Code: Cmd-Shift-P → "Python: Select Interpreter" → .venv/bin/python
+
+# 테스트 (DB·Redis·broker 의존 없음 — testcontainers 가 자동 기동):
+uv run pytest tests/unit/              # 단위 (DB 의존 0, 빠름)
+uv run pytest tests/integration/       # 통합 (testcontainers 가 postgres/redis 자동 spawn)
+uv run pytest                          # 전체
+
+# 코드 quality:
+uv run ruff check .                    # lint
+uv run ruff format .                   # auto-format
+uv run alembic check                   # ORM ↔ migrations 정합 (alembic-check.yml CI 와 동일)
+```
+
+`uv sync` 가 `.venv/` 안에 의존성 + 본 프로젝트 자체도 editable install — IDE 가 `src/assessment_engine/` 모듈 import 인식. dev 그룹 누락 시 IDE 가 pytest·ruff symbol 못 찾음 → 항상 `--group dev` 명시.
+
+상세 (Docker 안 dev workflow·테스트 컨테이너·diagnostic mock LLM): `docs/development/`.
 
 ---
 
@@ -162,8 +195,10 @@ dev 전체 endpoint가 plain HTTP port 8000. prod 외부 ingress 종단은 외�
 | 주소 | 설명 |
 |------|------|
 | http://localhost:8000/servers/ | 대시보드 Web UI (목록 · 도넛 · 주의 신호 · 발견 · Install · Export · 보고서 · 최근 작업 진입점) |
-| http://localhost:8000/servers/report?ids=...&view=customer&period_days=14 | 고객 보고서 (양식 A) |
-| http://localhost:8000/servers/report?ids=...&view=engineer&period_days=14 | 엔지니어 보고서 (양식 B) |
+| http://localhost:8000/servers/report?ids=...&view=customer&time_range=14d | 고객 보고서 (양식 A) |
+| http://localhost:8000/servers/report?ids=...&view=engineer&time_range=14d | 엔지니어 보고서 (양식 B) |
+| http://localhost:8000/reports/environment?view=customer&time_range=14d | 환경 보고서 (전체 등록 서버) |
+| http://localhost:8000/reports/right-sizing-thresholds | Right-sizing 분류 임계값 참고자료 |
 | http://localhost:8000/health | 헬스체크 |
 | http://localhost:8000/metrics | Prometheus metrics — prod 외부 노출 금지 (reverse proxy internal-only) |
 | http://localhost:8000/docs | FastAPI Swagger UI |

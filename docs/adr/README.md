@@ -19,8 +19,10 @@
 | 0011 | Prometheus metrics endpoint | Accepted | `/metrics` 노출 (web 한정) — prometheus-fastapi-instrumentator. 인프라가 자유롭게 Prometheus stack 결정 |
 | 0012 | CI 산출물 = wheel + GitHub Release | Accepted | Python wheel 단일 artifact (migrations·alembic.ini 동봉) + tag(v*) → GitHub Release 자동. Dockerfile·docker-compose는 dev 한정 (`docker-compose.prod.yml` 제거) |
 | 0013 | release-please 자동화 | Accepted | Conventional Commits 기반 자동 semver bump + Release PR + tag push. main 직접 commit·tag 수동 작성 없음 (PR 강제 + branch protection 정합) |
+| 0014 | Diagnostic 발행 책임 분리 | Accepted | `DiagnosticSubmitter` (`diagnostic/submitter.py`) 신규 — scheduler 노드 `web.services` 의존 끊김. web service 는 호환 re-export + 조회/기록 유지 |
+| 0015 | UI 임계값 단일 진실 (body data-attribute) | Accepted | `mappers._USAGE_*_PCT`/`_SWAP_DANGER_PCT` → `template_setup.env.globals["ui_thresholds"]` → `base.html` body data-attribute → JS `document.body.dataset`. P4 임계 분류 hardcoded drift 제거 |
 
-트레이드오프 카탈로그(T1~T11)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
+트레이드오프 카탈로그(T1~T13)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 
 ## 새 ADR 작성
 

@@ -33,8 +33,12 @@ async def extract_server(
     stats = ResourceStats(
         cpu_p95_pct=row.cpu_p95_pct,
         cpu_peak_pct=row.cpu_peak_pct,
+        cpu_load_15m_max=row.load_15m_max,
+        cpu_cores=row.cpu_cores,
         mem_p95_pct=row.mem_p95_pct,
         swap_used=row.swap_used,
+        disk_used_pct=row.worst_mount_used_pct,
+        iowait_p95_pct=row.iowait_p95_pct,
         net_avg_kbps=None,  # 1차 — net 집계는 별도 query 도입 후
     )
     classification_label = classify(stats)
@@ -92,8 +96,12 @@ async def extract_environment(
         stats = ResourceStats(
             cpu_p95_pct=row.cpu_p95_pct,
             cpu_peak_pct=row.cpu_peak_pct,
+            cpu_load_15m_max=row.load_15m_max,
+            cpu_cores=row.cpu_cores,
             mem_p95_pct=row.mem_p95_pct,
             swap_used=row.swap_used,
+            disk_used_pct=row.worst_mount_used_pct,
+            iowait_p95_pct=row.iowait_p95_pct,
             net_avg_kbps=None,
         )
         label = classify(stats)

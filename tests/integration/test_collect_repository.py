@@ -34,12 +34,12 @@ async def test_upsert_server_inserts_new(collect_repo: CollectRepository):
     assert server_id > 0
 
 
-async def test_upsert_server_idempotent_on_same_machine_id(
+async def test_upsert_server_idempotent_on_same_machine_hostname(
     collect_repo: CollectRepository,
 ):
-    """같은 machine_id 재호출 시 같은 server_id (ON CONFLICT DO UPDATE + RETURNING)."""
+    """같은 (machine_id, hostname) 재호출 시 같은 server_id (ON CONFLICT DO UPDATE + RETURNING)."""
     inv1 = make_inventory(machine_id="mid-002", hostname="h1")
-    inv2 = make_inventory(machine_id="mid-002", hostname="h1-renamed", cpu_cores=8)
+    inv2 = make_inventory(machine_id="mid-002", hostname="h1", cpu_cores=8)
     sid1 = await collect_repo.upsert_server(inv1)
     sid2 = await collect_repo.upsert_server(inv2)
     assert sid1 == sid2
@@ -48,29 +48,60 @@ async def test_upsert_server_idempotent_on_same_machine_id(
 async def test_upsert_server_overwrites_fields_on_conflict(
     collect_repo: CollectRepository, db_session,
 ):
-    """ON CONFLICT DO UPDATE — 두 번째 호출의 필드가 덮어씀."""
-    inv1 = make_inventory(machine_id="mid-003", hostname="old-host", cpu_cores=4)
-    inv2 = make_inventory(machine_id="mid-003", hostname="new-host", cpu_cores=16)
+    """ON CONFLICT DO UPDATE — 같은 (machine_id, hostname) 의 다른 필드가 덮어씀."""
+    inv1 = make_inventory(machine_id="mid-003", hostname="srv-a", cpu_cores=4)
+    inv2 = make_inventory(machine_id="mid-003", hostname="srv-a", cpu_cores=16)
     await collect_repo.upsert_server(inv1)
     await collect_repo.upsert_server(inv2)
 
     row = (await db_session.execute(
-        text("SELECT hostname, cpu_cores FROM server_inventory WHERE machine_id = :m"),
-        {"m": "mid-003"},
+        text("SELECT cpu_cores FROM server_inventory WHERE machine_id = :m AND hostname = :h"),
+        {"m": "mid-003", "h": "srv-a"},
     )).one()
-    assert row.hostname == "new-host"
     assert row.cpu_cores == 16
+
+
+async def test_upsert_server_same_machine_id_different_hostname_creates_separate_rows(
+    collect_repo: CollectRepository, db_session,
+):
+    """같은 machine_id 다른 hostname → 별도 row INSERT (복합 UNIQUE 핵심 의도).
+
+    VM 템플릿 복제·이미지 clone 으로 두 호스트가 동일 /etc/machine-id 보유해도
+    hostname 이 다르면 엔진은 별개 호스트로 인식·격리.
+    """
+    inv1 = make_inventory(machine_id="mid-dup", hostname="host-a", cpu_cores=4)
+    inv2 = make_inventory(machine_id="mid-dup", hostname="host-b", cpu_cores=8)
+    sid1 = await collect_repo.upsert_server(inv1)
+    sid2 = await collect_repo.upsert_server(inv2)
+    assert sid1 != sid2
+
+    count = (await db_session.execute(
+        text("SELECT COUNT(*) FROM server_inventory WHERE machine_id = :m"),
+        {"m": "mid-dup"},
+    )).scalar_one()
+    assert count == 2
 
 
 # ─── find_server_id ───────────────────────────────────────────────────────
 
 async def test_find_server_id_existing(collect_repo: CollectRepository):
-    sid = await collect_repo.upsert_server(make_inventory(machine_id="mid-find-1"))
-    assert await collect_repo.find_server_id("mid-find-1") == sid
+    sid = await collect_repo.upsert_server(make_inventory(machine_id="mid-find-1", hostname="h"))
+    assert await collect_repo.find_server_id("mid-find-1", "h") == sid
 
 
 async def test_find_server_id_missing(collect_repo: CollectRepository):
-    assert await collect_repo.find_server_id("mid-does-not-exist") is None
+    assert await collect_repo.find_server_id("mid-does-not-exist", "h") is None
+
+
+async def test_find_server_id_same_machine_different_hostname_isolated(
+    collect_repo: CollectRepository,
+):
+    """같은 machine_id 두 호스트 → find_server_id 가 hostname 으로 정확 격리."""
+    sid_a = await collect_repo.upsert_server(make_inventory(machine_id="mid-iso", hostname="a"))
+    sid_b = await collect_repo.upsert_server(make_inventory(machine_id="mid-iso", hostname="b"))
+    assert await collect_repo.find_server_id("mid-iso", "a") == sid_a
+    assert await collect_repo.find_server_id("mid-iso", "b") == sid_b
+    assert sid_a != sid_b
 
 
 # ─── ensure_server_id (D — facade with auto_registered flag) ──────────────
@@ -78,9 +109,9 @@ async def test_find_server_id_missing(collect_repo: CollectRepository):
 async def test_ensure_server_id_auto_registers_when_missing(
     collect_repo: CollectRepository,
 ):
-    """machine_id 미등록 시 fallback inventory로 INSERT, auto_registered=True."""
+    """(machine_id, hostname) 미등록 시 fallback inventory로 INSERT, auto_registered=True."""
     fallback = make_inventory(machine_id="mid-ensure-1", hostname="placeholder")
-    server_id, auto = await collect_repo.ensure_server_id("mid-ensure-1", fallback)
+    server_id, auto = await collect_repo.ensure_server_id("mid-ensure-1", "placeholder", fallback)
     assert server_id > 0
     assert auto is True
 
@@ -92,17 +123,18 @@ async def test_ensure_server_id_uses_existing_without_fallback(
     real = make_inventory(machine_id="mid-ensure-2", hostname="real-host", cpu_cores=8)
     sid_real = await collect_repo.upsert_server(real)
 
-    fallback = make_inventory(machine_id="mid-ensure-2", hostname="placeholder", cpu_cores=1)
-    sid_ensured, auto = await collect_repo.ensure_server_id("mid-ensure-2", fallback)
+    fallback = make_inventory(machine_id="mid-ensure-2", hostname="real-host", cpu_cores=1)
+    sid_ensured, auto = await collect_repo.ensure_server_id(
+        "mid-ensure-2", "real-host", fallback,
+    )
 
     assert sid_ensured == sid_real
     assert auto is False
     # fallback이 실제로 미사용됐는지 — 데이터가 real 그대로
     row = (await db_session.execute(
-        text("SELECT hostname, cpu_cores FROM server_inventory WHERE id = :id"),
+        text("SELECT cpu_cores FROM server_inventory WHERE id = :id"),
         {"id": sid_real},
     )).one()
-    assert row.hostname == "real-host"
     assert row.cpu_cores == 8
 
 
@@ -253,12 +285,16 @@ async def test_record_metrics_persists_boot_time_to_all_four_tables(
 async def test_upsert_server_history_appended_on_change(
     collect_repo: CollectRepository, db_session,
 ):
-    """C5 명시 select(_INVENTORY_COMPARE_COLS) 후에도 변경 감지 동일 — history 한 행 append."""
-    inv1 = make_inventory(machine_id="mid-hist-1", hostname="h1", cpu_cores=4)
-    inv2 = make_inventory(machine_id="mid-hist-1", hostname="h2", cpu_cores=8)  # 2개 컬럼 변경
+    """C5 명시 select(_INVENTORY_COMPARE_COLS) 후에도 변경 감지 동일 — history 한 행 append.
+
+    hostname 은 복합 conflict 키라 변경 시 새 row 가 되어 history append 의미가 사라짐.
+    여기서는 hostname 동일 + cpu_cores·mem_total_kb 변경으로 진짜 history 트리거 검증.
+    """
+    inv1 = make_inventory(machine_id="mid-hist-1", hostname="h1", cpu_cores=4, mem_total_kb=4_000_000)
+    inv2 = make_inventory(machine_id="mid-hist-1", hostname="h1", cpu_cores=8, mem_total_kb=8_000_000)
     await collect_repo.upsert_server(inv1)
     await collect_repo.upsert_server(inv2)
-    sid = await collect_repo.find_server_id("mid-hist-1")
+    sid = await collect_repo.find_server_id("mid-hist-1", "h1")
     count = (await db_session.execute(
         text("SELECT COUNT(*) FROM server_inventory_history WHERE server_id = :sid"),
         {"sid": sid},
@@ -276,7 +312,7 @@ async def test_upsert_server_history_not_appended_when_unchanged(
                           collected_at=datetime.now(UTC))  # 모든 비교 컬럼 동일
     await collect_repo.upsert_server(inv1)
     await collect_repo.upsert_server(inv2)
-    sid = await collect_repo.find_server_id("mid-hist-2")
+    sid = await collect_repo.find_server_id("mid-hist-2", "h1")
     count = (await db_session.execute(
         text("SELECT COUNT(*) FROM server_inventory_history WHERE server_id = :sid"),
         {"sid": sid},

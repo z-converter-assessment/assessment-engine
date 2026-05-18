@@ -18,7 +18,7 @@
 | `docs/operations/` | 외부 인프라가 활용할 contract (deployment·env·prod-contract·alembic·observability·release·github-setup) | 영구·갱신 |
 | `docs/products/` | 운영 산출물 ref — 산출물별 존재 의의·근거 (dashboard·보고서 A/B·환경/서버 진단·JSON Export·Install task) | 영구·갱신 |
 | `docs/adr/` | Architecture Decision Records — "왜 이렇게 결정했나" + 트레이드오프. ADR은 정정만, 덮어쓰기 금지 | 영구·불변 |
-| `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T11) | 영구·갱신 |
+| `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T13) | 영구·갱신 |
 
 그 외 명시되지 않은 경로(`docs/ref/` 등)의 문서는 코드·영구 문서에서 인용 금지.
 
@@ -65,6 +65,8 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 - 시계열 5개 테이블 자연키 UNIQUE 보존 의무 — 누락 시 #D2 멱등성 2단 방어 깨짐. 모델 변경 시 검증 필수.
 - 시계열 4개 테이블 `boot_time` + `agent_started_at` 컬럼 보존 의무 — counter reset 정밀 식별 (#B 동일 진실).
 - `server_inventory.public_id` (UUID) URL 식별자 — 정수 PK 노출 금지 (#E4).
+- `server_inventory` 호스트 식별 = `(machine_id, hostname)` 복합 UNIQUE — `machine_id` 단독은 VM 템플릿 복제·이미지 clone·container host `/etc/machine-id` 마운트 등 실제 운영 환경에서 중복 가능. `find_server_id`·`ensure_server_id` signature 와 `on_conflict_do_*` index_elements, redis cooldown 키 모두 복합 키 일관. 한계: MQ queue `agent.tasks.{machine_id}` / routing key `task.install.{machine_id}` 는 agent 측 변경 없이 hostname 포함 불가 — 같은 machine_id 다른 hostname 두 호스트가 동일 큐 공유 (rare race). 별도 ADR / 후속 작업.
+- `diagnostic_jobs.job_type` (`ai_diagnostic`/`customer_report`/`engineer_report`) + active partial UNIQUE = `(scope, input_hash, job_type)`. 보고서도 본 테이블에 row 보존 — server scope (선택 N대) 는 `/servers/report` 라우터, environment scope (전체) 는 `/reports/environment` 라우터가 합성 직후 `DiagnosticService.record_report_emission` 으로 즉시 succeeded row INSERT (best-effort). 양식 분리: server scope 는 row 단위 상세 (`servers/report.html`), environment scope 는 high-level (KPI·분류 도넛·Top N·OS 분포·view별 요약, `reports/environment.html`). 이력 표시는 분리: AI 진단 이력 `/diagnostics/history` (job_type='ai_diagnostic' 자동 필터) vs 보고서 이력 `/reports/history` (customer + engineer union, view 필터). 환경 scope 진단 결과 페이지 (`/diagnostics?ids=X`) 는 SSR 로 `/reports/environment` iframe 2개 미리 렌더 + JS view toggle (AI/고객/엔지니어 tab).
 
 ## C2. Repository 계층 — 인터페이스 우선 (#F4)
 
@@ -101,7 +103,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 
 ## D1. 구조·후처리·실패 처리
 
-aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸들러 팩토리 · `machine_id` 식별 · `ensure_server_id` placeholder 분기 · auto-register · `_db_retry` 백오프 · routing key별 후처리 시퀀스 · 부가 시그널(`_log_time_invariants`·`_track_agent_restart`) · 실패 분기·DLQ 운영: `docs/architecture/consumer.md` 단일 진실.
+aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸들러 팩토리 · `(machine_id, hostname)` 복합 키 식별 (#C1) · `ensure_server_id` placeholder 분기 · auto-register · `_db_retry` 백오프 · routing key별 후처리 시퀀스 · 부가 시그널(`_log_time_invariants`·`_track_agent_restart`) · 실패 분기·DLQ 운영: `docs/architecture/consumer.md` 단일 진실.
 
 본 절 결정:
 - 모든 후처리는 `safe_*` helper 경유(#C3) — 부수 작업 실패가 메시지 처리 ack를 막지 않는다.
@@ -138,6 +140,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 ### P3. Jinja2 템플릿은 순수 렌더링만 (절대)
 - 허용: `{% if %}`·`{% for %}`·Jinja2 필터(포맷팅 전용).
 - 금지: 계산(`+`, `*`, `length`, `sort`, `selectattr`)·dedup·임계값 비교·단위 변환. 정렬·`badge_class`/`bar_color`/`is_well_known` 같은 파생은 mapper precompute.
+- 표시 컴포넌트 (폰트 위계·박스·badge·label) 와 네비게이션 규약 (새창 금지·뒤로가기 back chain·toast 에러 표시) 단일 진실: `docs/architecture/web/static-assets.md` "표준 컴포넌트 카탈로그" + "네비게이션 규약" 절.
 
 ### P4. 클라이언트 차트 JS는 P3 명시 예외
 
@@ -150,7 +153,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 ## E2. 데이터 흐름 결정
 
 - DTO(dataclass)와 ORM 모델 분리 — 변환은 repository 책임.
-- inventory upsert·metrics 저장·server_id 조회 모두 `machine_id` 기준. 미등록 metrics는 drop.
+- inventory upsert·metrics 저장·server_id 조회 모두 `(machine_id, hostname)` 복합 키 기준. 미등록 metrics는 drop.
 - `last_seen_at`은 `ServerDetail`(단일 조회)에만 포함. `ServerSummary`(목록)는 Redis `online:{id}` TTL로 표시.
 - `CollectionStatusItem`은 `last_metric_at` + `last_inventory_at` 별도 필드.
 
@@ -172,7 +175,7 @@ Pagination 정책:
 
 ## E4. URL 식별자 — 정수 PK 노출 금지
 
-라우터 path 파라미터는 `public_id` (UUID). 구현 메커니즘(UUID 타입 선언·422/404 분기·`resolve_server_id` 브릿지): `docs/architecture/web/layering.md`.
+라우터 path 파라미터는 `public_id` (UUID). 구현 메커니즘(UUID 타입 선언·422/404 분기·`resolve_internal_id` Depends 브릿지): `docs/architecture/web/layering.md`.
 
 ## E5. Jinja2 인프라
 
@@ -284,7 +287,7 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 - 영구 오류(`IntegrityError`·4xx) 재시도. 일시 장애(`OperationalError`·5xx·timeout)만 백오프.
 - timeout 없는 외부 호출 — `asyncio.wait_for` 또는 클라이언트 옵션(`aiohttp.ClientTimeout`·asyncpg `command_timeout`·redis `socket_timeout`) 의무.
 
-소비자 측 상세 매트릭스: `docs/architecture/consumer.md` "실패 처리" 절.
+소비자 측 상세 매트릭스: `docs/architecture/consumer.md` "DB 재시도 정책" + "메시지 자체 결함 → DLQ" 절.
 
 ## F7. 로깅·관측
 
@@ -325,7 +328,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 | 변경 유형 | 동시 갱신 위치 |
 |-----------|----------------|
 | 시계열 컬럼 추가 | (1) ORM 모델 (2) Alembic revision (3) Inbound DTO·mapper (4) Outbound DTO·mapper (5) `cache_serializer._DETAIL_DISPLAY_FIELDS` (6) ViewModel (7) 템플릿·외부 .js |
-| inventory 컬럼 추가 | 시계열 (1)~(7) + agent payload 합의(`payload-schema.md`) + `docs/architecture/agent.md` 엔진 핸들링 결정 |
+| inventory 컬럼 추가 | 시계열 (1)~(7) + agent payload 합의 + `docs/architecture/agent.md` "데이터 형식" 절 (엔진 측 inbound DTO·핸들링 단일 진실) |
 | 신규 routing key | (1) 발행 측 (agent 또는 engine web) 상수 (2) consumer 핸들러 팩토리 + dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 (4) `docs/architecture/agent.md` 메시지 타입 절 |
 | `EXCHANGE`/`ROUTING_KEY_*` 값 변경 | (1) 발행 측 상수 (2) consumer subscriber dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 |
 | 메시지 페이로드 schema 변경 (필드 추가·삭제·rename·Literal 값 변경) | (1) `consumer/schemas.py` 또는 발행 측 payload 빌드 (2) Inbound DTO (3) handler 매핑 (4) DB 모델·Alembic revision (필요 시) (5) `docs/architecture/agent.md` 데이터 형식 절 (6) 운영자 가시성 ViewModel·템플릿·API (필요 시) |

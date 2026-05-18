@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Right-sizing 분류 임계값 (참고자료){% endblock %}
+
+{% block content %}
+<a href="{{ back_url }}" class="back no-print">&larr; 이전</a>
+
+<div style="display:flex; align-items:center; justify-content:space-between; margin:8px 0 20px; gap:16px;">
+  <h1 style="margin:0;">Right-sizing 분류 임계값
+    <span style="font-size:14px; color:#64748b; font-weight:400; margin-left:8px;">참고자료</span>
+  </h1>
+  <button class="btn-print no-print" type="button" onclick="window.print()">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+    인쇄
+  </button>
+</div>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 style="margin:0 0 12px;">분류 기준</h2>
+  <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
+    환경·서버 보고서·AI 진단의 Right-sizing 분류는 <code>recommendation</code> 모듈 단일 진실로 결정.
+    아래 표의 임계값을 USE Method (Brendan Gregg) Utilization·Saturation 두 축으로 적용해 6 분류 (under_provisioned / over_provisioned / idle / shutdown / optimal / insufficient_data) 산출.
+    임계 출처는 AWS Compute Optimizer · Azure Advisor · GCP Recommender · Kleinrock 등 산업 표준 종합.
+  </p>
+  <table style="font-size:12px;">
+    <thead>
+      <tr>
+        <th>분류</th>
+        <th>USE 축</th>
+        <th>입력</th>
+        <th>임계</th>
+        <th>근거</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>idle</td><td>Utilization</td><td>cpu_peak · net_avg</td><td>cpu_peak ≤ 1% AND net ≤ 1 KB/s</td><td>AWS Compute Optimizer</td></tr>
+      <tr><td>shutdown</td><td>Utilization</td><td>cpu_p95 · net_avg</td><td>cpu_p95 ≤ 3% AND net ≤ 2 Mbps</td><td>Azure Advisor</td></tr>
+      <tr><td>over_provisioned</td><td>Utilization</td><td>cpu_p95 · mem_p95</td><td>cpu ≤ 30% AND mem ≤ 50%</td><td>AWS Compute Optimizer + GCP (headroom 30%)</td></tr>
+      <tr><td>under_provisioned</td><td>Utilization</td><td>cpu_p95</td><td>cpu_p95 ≥ 70%</td><td>Kleinrock (1975) · Google SRE</td></tr>
+      <tr><td>under_provisioned</td><td>Utilization</td><td>mem_p95</td><td>mem_p95 ≥ 80%</td><td>Linux page cache 압박</td></tr>
+      <tr><td>under_provisioned</td><td>Saturation</td><td>swap_used</td><td>true (page-out 발생)</td><td>Memory saturation 신호</td></tr>
+      <tr><td>under_provisioned</td><td>Saturation</td><td>load_15m / cpu_cores</td><td>≥ 1.0 (run queue)</td><td>USE Method (Brendan Gregg)</td></tr>
+      <tr><td>under_provisioned</td><td>Utilization</td><td>disk worst mount %</td><td>≥ 85%</td><td>Cloud Advisor storage capacity</td></tr>
+      <tr><td>under_provisioned</td><td>Saturation</td><td>iowait_p95</td><td>≥ 20%</td><td>Disk IO saturation</td></tr>
+      <tr><td>optimal</td><td>—</td><td>위 임계 미해당</td><td>적정</td><td>USE 잔여</td></tr>
+      <tr><td>insufficient_data</td><td>—</td><td>cpu_p95 또는 mem_p95 null</td><td>표본 부재</td><td>윈도우 미만 또는 metric 부재</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 style="margin:0 0 12px;">엔지니어 보조 지표</h2>
+  <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
+    분류 자체는 위 표의 임계로 결정되지만, 엔지니어 검토 시 원인 진단·sizing 방향을 잡으려면 보조 지표가 필요.
+    아래는 엔지니어 양식 (다중 요약·단일 세부) 에 노출되는 보조 메트릭의 정의·임계·근거.
+  </p>
+  <table style="font-size:12px;">
+    <thead>
+      <tr>
+        <th>지표</th>
+        <th>정의</th>
+        <th>임계 / 의미</th>
+        <th>근거 / 용도</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>p95</td><td><code>percentile_cont(0.95)</code> — 95번째 백분위</td><td>분류 1차 입력</td><td>일시 spike 제외, 정상 부하 상한 근사 (Google SRE)</td></tr>
+      <tr><td>peak</td><td>윈도우 안 시점별 최댓값</td><td>reference</td><td>실제 관측 최댓값 — burst 강도 확인용</td></tr>
+      <tr><td>변동성 (peak / p95)</td><td>peak 와 p95 비율</td><td>1.5 이상 -> burst 큼</td><td>평균보다 peak 기준 sizing 권장 신호 — auto-scale 검토</td></tr>
+      <tr><td>saturation (load_15m / vCPU)</td><td>load_15m_max 를 cpu_cores 로 나눈 값</td><td>1.0 이상 -> run queue 누적</td><td>USE Method Saturation 축 — CPU 처리 한계 초과 신호</td></tr>
+      <tr><td>iowait p95</td><td>cpu iowait_pct 의 p95</td><td>20% 이상 -> disk IO saturation</td><td>USE Method — disk subsystem 병목</td></tr>
+      <tr><td>worst mount</td><td>디스크 마운트 중 used_pct 최대</td><td>85% 이상 -> capacity 압박</td><td>Cloud Advisor storage capacity 가이드</td></tr>
+      <tr><td>worst mount 잔여일</td><td>(free 용량 / 최근 일일 증가량) 선형 예측</td><td>30일 이하 -> 소진 임박</td><td>linear projection — 용량 증설·정리 시점 가시화</td></tr>
+      <tr><td>disk IOPS avg/p95/peak</td><td>r/s + w/s delta 평균·p95·최댓값 (서버 단위 device 합산)</td><td>baseline / 변동성 참고</td><td>baseline 부하 + spike 폭 — IOPS 한계 산정</td></tr>
+      <tr><td>disk throughput kB/s</td><td>read+write kB/s delta (서버 단위 device 합산)</td><td>baseline / 변동성 참고</td><td>throughput baseline + spike — disk 대역 산정</td></tr>
+      <tr><td>net RX/TX kB/s</td><td>interface 합산 rx/tx 평균·p95·peak</td><td>shutdown 판정 2 Mbps 이하 (Azure)</td><td>idle/shutdown 1차 신호 + 대역 산정</td></tr>
+      <tr><td>swap_used</td><td>윈도우 안 swap 사용량 발생 여부</td><td>true -> memory saturation</td><td>Linux page-out — 메모리 한계 1차 신호 (Brendan Gregg)</td></tr>
+      <tr><td>reboot_count</td><td>윈도우 안 boot_time 변경 횟수</td><td>3 이상 -> 불안정</td><td>OS·hw·OOM 등 비정상 재부팅 빈도</td></tr>
+      <tr><td>uptime</td><td>현재 시각 - boot_time</td><td>reference</td><td>마지막 부팅 이후 경과 — patch 적용·재시작 주기 가시화</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 style="margin:0 0 12px;">운영 신호 임계</h2>
+  <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
+    Right-sizing 분류와 별도의 운영 안정성 신호 — 환경·서버 엔지니어 양식 KPI / 컬럼 / 세부 카드에 노출.
+    분류 (under/over/optimal) 가 정상이어도 운영 신호가 발화하면 sizing 보다 운영 조치가 선행되어야 함.
+  </p>
+  <table style="font-size:12px;">
+    <thead>
+      <tr>
+        <th>신호</th>
+        <th>정의</th>
+        <th>임계</th>
+        <th>근거 / 용도</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>데이터 수집 끊김 (gap)</td><td>last_metric_at 부터 경과 분</td><td>5분 이상 + 24h 안 발생</td><td>Agent · MQ · DB write 정지 1차 신호 — 메트릭 신뢰도 zero</td></tr>
+      <tr><td>OS EOL</td><td>OS distro · version 의 vendor EOL date 매핑 (정적)</td><td>임박 또는 지남</td><td>OS vendor 발표 - 보안 패치 중단, 마이그레이션 선행 필요</td></tr>
+      <tr><td>Agent 불안정 (reboot)</td><td>윈도우 안 boot_time 변경 횟수</td><td>3회 이상</td><td>비정상 재부팅 누적 - sizing 평가 신뢰도 저하</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 style="margin:0 0 12px;">평가 윈도우</h2>
+  <p style="margin:0; font-size:13px; color:#475569; line-height:1.6;">
+    평가 윈도우 표준은 <code>recommendation.WINDOW_DAYS</code> = 14일 (AWS Compute Optimizer 표준).
+    대시보드·환경 보고서·서버 보고서·AI 진단 모두 본 상수 참조.
+    보고서 라우터에 한해 <code>?time_range=15m / 1h / 6h / 24h / 7d / 14d / 30d</code> override 허용.
+    윈도우가 14일 미만이면 p95 표본 신뢰도가 낮아짐 — 단기 윈도우 결과는 spike 확인용으로 한정 권장.
+  </p>
+</section>
+{% endblock %}

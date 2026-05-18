@@ -4,9 +4,10 @@
 
 ## 위치
 
-- UI 진입점: 대시보드 list 페이지에서 N대 선택 → "Install" 모달 → 발행. 또는 server detail "최근 작업" timeline에서 진행 추적
+- UI 진입점: 대시보드 list 페이지에서 N대 선택 → "Install" 모달(ZDM 서버 IP·관리자 계정 입력) → 발행. 또는 server detail "최근 작업" timeline에서 진행 추적
 - 발행 경로: 사용자 트리거 (스케줄러 자동 발행 없음 — 운영자 명시 결정만)
-- 산출물 형태: 각 워커 VM의 worker가 다운로드 + `install.sh` 실행 + 결과를 엔진으로 보고. Task row 6 컬럼 UPDATE (status·exit_code·duration_ms·stdout_tail·stderr_tail·failure_reason)
+- 산출물 형태: 각 워커 VM의 worker가 install bundle 다운로드 + OS별 스크립트(Linux `install.sh` / Windows `install.ps1`) 를 `-s ZDM_IP -u ZDM_USER` 인자로 실행 + 결과를 엔진으로 보고. Task row 6 컬럼 UPDATE (status·exit_code·duration_ms·stdout_tail·stderr_tail·failure_reason)
+- OS 분기: 호스트 `inventory.os_id` 기준 엔진이 자동 (`_is_windows()` — 'windows' 키워드/'win' prefix 매칭). 발행 측이 OS 추가 명시 불필요
 - 가시성: list "최근 작업" column (success/failure/pending badge) + detail timeline + `GET /api/v1/tasks/{id}` / `GET /api/v1/tasks?server_public_id=...&cursor=...`
 
 ## 존재 의의
@@ -60,8 +61,8 @@ engine web:
   ↓
 워커 VM의 agent worker:
   1. agent.tasks.<machine_id> consume
-  2. download.url fetch (sha256·size 검증)
-  3. install.sh exec (timeout INSTALL_TIMEOUT_SEC)
+  2. download.url fetch (sha256·size 검증) — bundle 안에 install.sh + install.ps1 두 스크립트 포함
+  3. install.script 필드 지정 스크립트 exec (Linux는 install.sh, Windows는 install.ps1) — args=[-s, ZDM_IP, -u, ZDM_USER] 전달, timeout INSTALL_TIMEOUT_SEC
   4. task.result publish (worker.result 큐)
   ↓
 engine consumer:
@@ -95,7 +96,9 @@ agent v3.2 HTTPS-only 정책 한계 (dev):
 1. task_type이 install 1종 — 다른 작업(uninstall·rollback·재시작 등) 미지원. 향후 task_type enum 확장 시 별도 결정.
 2. dev success 경로 미검증 — agent v3.2 HTTPS-only 정책 + dev plain HTTP 충돌(ADR 0009). agent worker 호환성 작업(WORKER_ALLOW_HTTP toggle 또는 nginx ingress sidecar) 후 활성화 가능.
 3. 워커 측 중복 발행 차단 — 부분 UNIQUE `uq_tasks_pending_per_server_type` (status=pending 한 서버당 1건)이 DB 레벨 차단. 다만 발행 직후 cleanup 전엔 같은 서버에 신규 task 발행 불가 — 운영 ↑.
-4. install bundle 단일 endpoint `/zconverter.tar.gz` — 버전·환경별 분기 없음. 다양한 task_type·버전 도입 시 endpoint 분기 또는 query parameter 필요.
+4. install bundle 단일 endpoint `/zconverter.tar.gz` — 버전·환경별 분기 없음. 다양한 task_type·버전 도입 시 endpoint 분기 또는 query parameter 필요. (OS별 스크립트는 단일 bundle 안 두 파일로 처리 — agent 가 install.script 필드로 선택)
+6. ZDM 좌표는 모달 일괄 입력 — N대 호스트가 서로 다른 ZDM 서버를 가리키는 시나리오 미지원. 발행 단위로 동일 ZDM IP/User 적용.
+7. OS 분기는 `inventory.os_id` 기준 휴리스틱 (`_is_windows()`) — agent 가 보내는 정확한 Windows os_id 값 명세 미확정. 추후 agent 측 명세 확정 시 본 함수에 정합.
 5. stdout/stderr UTF-8 가정 — 호스트 OS locale에 따라 깨짐 가능. agent worker가 binary으로 받고 latin-1 fallback 적용.
 
 ## 관련 문서·코드

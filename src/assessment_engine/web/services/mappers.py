@@ -62,10 +62,12 @@ from assessment_engine.web.view_models import (
 # (차트 JS의 USAGE_DANGER_PCT/USAGE_WARN_PCT와 동기화)
 _USAGE_DANGER_PCT = 90
 _USAGE_WARN_PCT   = 75
+_SWAP_DANGER_PCT  = 0.1  # 스왑 사용 자체가 이슈 — 0.1% 도 빨강 (JS performance.js 동일)
 # IANA well-known port 상한. listen_port의 well-known 표시 분기에 사용.
 WELL_KNOWN_PORT_MAX = 1024
-# attention 신호 — metric 갭이 30분 이상이면 위험 색 (5~30분은 경고).
-_GAP_DANGER_MINUTES = 30
+# 운영 신호 단일 active 색 클래스. Right-sizing CSS (rec-*) 와 도메인 분리 — base.html 단일 진실.
+# 카테고리간 강도 비교 근거 부족·임계 초과 발화 자체가 시그널이라 단일 색으로 통일.
+_ATTN_ACTIVE_BADGE = "attn-active"
 # disk_warnings stale 임계 — last_metric_at이 24h 이상 안 갱신된 mount는 meta에 "마지막 수집 ..." 추가 표시.
 # 7d cutoff(SQL) 안에서도 1d 이상 stale은 운영자가 인지해야 함.
 _DISK_STALE_HOURS = 24
@@ -199,11 +201,15 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
     if raw_period is not None:
         rec = recommendation.classify(recommendation.ResourceStats(
             cpu_p95_pct=raw_period.cpu_p95_pct, cpu_peak_pct=raw_period.cpu_peak_pct,
-            mem_p95_pct=raw_period.mem_p95_pct, swap_used=raw_period.swap_used, net_avg_kbps=None,
+            cpu_load_15m_max=raw_period.load_15m_max, cpu_cores=raw_period.cpu_cores,
+            mem_p95_pct=raw_period.mem_p95_pct, swap_used=raw_period.swap_used,
+            disk_used_pct=raw_period.worst_mount_used_pct,
+            iowait_p95_pct=raw_period.iowait_p95_pct,
+            net_avg_kbps=None,
         ))
-        seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "normal")
+        seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
         # 색은 풀네임 def에서 추출, 라벨은 약어 dict — 셀 좁은 칸 대응.
-        for key, _label, color in _DONUT_SEGMENT_DEFS:
+        for key, _label, color, _desc in _DONUT_SEGMENT_DEFS:
             if key == seg_key:
                 rec_color = color
                 break
@@ -558,9 +564,8 @@ def to_gap_warning_item(raw: MetricGapWarningRaw, now: datetime) -> AttentionRow
     mount path 없는 카테고리 — mount_path=None.
     """
     gap_min = int((now - raw.last_metric_at).total_seconds() // 60)
-    badge = "rec-under_provisioned" if gap_min >= _GAP_DANGER_MINUTES else "rec-right_size"
     return AttentionRow(
-        badge_class=badge,
+        badge_class=_ATTN_ACTIVE_BADGE,
         badge_text=f"{gap_min}분",
         link_href=f"/servers/{raw.public_id}",
         link_text=raw.hostname,
@@ -597,44 +602,35 @@ def build_report_summary_bullets(rows: list, raws: list | None = None, view: Rep
         return ["대상 서버 없음."]
 
     bullets: list[str] = []
-    n_high = sum(1 for r in rows if r.risk_level == "high")
-    n_attention = sum(1 for r in rows if r.risk_level == "attention")
+    # 자원 부족 / 효율화 권장 줄 — KPI grid 에서 이미 카운트 노출. summary_bullets 에서 중복 제거 (사용자 의도).
 
-    if n_high:
-        hosts = [r.hostname for r in rows if r.risk_level == "high"][:3]
-        suffix = " 외" if n_high > 3 else ""
-        bullets.append(f"고위험 {n_high}대 ({', '.join(hosts)}{suffix}) — 자원 부족 신호. 즉시 instance type 상향 검토.")
-    if n_attention:
-        hosts = [r.hostname for r in rows if r.risk_level == "attention"][:3]
-        suffix = " 외" if n_attention > 3 else ""
-        bullets.append(f"주의 필요 {n_attention}대 ({', '.join(hosts)}{suffix}) — 저사용·과다 프로비저닝. 다운사이즈 검토 후보.")
-
-    # I/O wait 신호 — p95 >= 20% 서버 카운트. 디스크 병목 = 고객 의사결정 직결.
-    n_iowait = sum(1 for r in rows if r.iowait_p95_pct is not None and r.iowait_p95_pct >= 20.0)
+    # I/O wait 신호 — p95 임계 초과 서버 카운트. 디스크 병목 = 고객 의사결정 직결. (#F10 recommendation 상수)
+    iowait_threshold = recommendation.IOWAIT_UPSIZE_PCT
+    n_iowait = sum(1 for r in rows if r.iowait_p95_pct is not None and r.iowait_p95_pct >= iowait_threshold)
     if n_iowait:
-        hosts = [r.hostname for r in rows if r.iowait_p95_pct is not None and r.iowait_p95_pct >= 20.0][:3]
+        hosts = [r.hostname for r in rows if r.iowait_p95_pct is not None and r.iowait_p95_pct >= iowait_threshold][:3]
         suffix = " 외" if n_iowait > 3 else ""
-        bullets.append(f"I/O wait p95 20%+ {n_iowait}대 ({', '.join(hosts)}{suffix}) — 디스크 병목. SSD/iops 상향 검토.")
+        bullets.append(f"I/O wait p95 {iowait_threshold}%+ {n_iowait}대 ({', '.join(hosts)}{suffix}) — 디스크 병목. SSD/iops 상향 검토.")
 
-    # Mount 임박 — 30일 안 채워질 마운트가 있는 서버 카운트
+    # Mount 임박 — _CAPACITY_IMMINENT_DAYS 안 채워질 마운트가 있는 서버 카운트
     n_mount = sum(
         1 for r in rows
-        if r.worst_mount_days_until_full is not None and r.worst_mount_days_until_full <= 30
+        if r.worst_mount_days_until_full is not None and r.worst_mount_days_until_full <= _CAPACITY_IMMINENT_DAYS
     )
     if n_mount:
         hosts = []
         for r in rows:
-            if r.worst_mount_days_until_full is not None and r.worst_mount_days_until_full <= 30:
+            if r.worst_mount_days_until_full is not None and r.worst_mount_days_until_full <= _CAPACITY_IMMINENT_DAYS:
                 hosts.append(f"{r.hostname}({r.worst_mount} {r.worst_mount_days_until_full}일)")
                 if len(hosts) >= 3:
                     break
         suffix = " 외" if n_mount > 3 else ""
         bullets.append(f"디스크 채움 임박 {n_mount}대 ({', '.join(hosts)}{suffix}) — 디스크 증설 또는 정리 검토.")
 
-    # 재부팅 빈번 — period 안 3회 이상
-    n_reboot = sum(1 for r in rows if r.reboot_count >= 3)
+    # 재부팅 빈번 — period 안 _REBOOT_UNSTABLE_COUNT 이상
+    n_reboot = sum(1 for r in rows if r.reboot_count >= _REBOOT_UNSTABLE_COUNT)
     if n_reboot:
-        hosts = [f"{r.hostname}({r.reboot_count}회)" for r in rows if r.reboot_count >= 3][:3]
+        hosts = [f"{r.hostname}({r.reboot_count}회)" for r in rows if r.reboot_count >= _REBOOT_UNSTABLE_COUNT][:3]
         suffix = " 외" if n_reboot > 3 else ""
         bullets.append(f"재부팅 빈번 {n_reboot}대 ({', '.join(hosts)}{suffix}) — 안정성 점검 필요.")
 
@@ -650,19 +646,19 @@ def build_report_summary_bullets(rows: list, raws: list | None = None, view: Rep
             if top_cpu_avg >= 70.0:
                 bullets.append(f"{top_cpu_role} 계열 서버의 평균 CPU p95가 {top_cpu_avg:.0f}%로 높게 관찰됨.")
 
-        # Saturation — load_15m_max / cpu_cores >= 1.0 (saturated). 큐잉 이론 시그널 — 엔지니어용.
-        n_sat = sum(1 for r in rows if r.saturation_ratio is not None and r.saturation_ratio >= 1.0)
+        # Saturation — load_15m_max / cpu_cores 임계 초과 (saturated). 큐잉 이론 시그널 — 엔지니어용.
+        n_sat = sum(1 for r in rows if r.saturation_ratio is not None and r.saturation_ratio >= _SATURATION_BURST_RATIO)
         if n_sat:
             hosts = [f"{r.hostname}({r.saturation_ratio:.1f})" for r in rows
-                     if r.saturation_ratio is not None and r.saturation_ratio >= 1.0][:3]
+                     if r.saturation_ratio is not None and r.saturation_ratio >= _SATURATION_BURST_RATIO][:3]
             suffix = " 외" if n_sat > 3 else ""
             bullets.append(f"Saturation {n_sat}대 ({', '.join(hosts)}{suffix}) — load가 cpu_cores 초과. 처리 한계 신호.")
 
-        # 변동성 큼 — cpu peak/p95 >= 1.5. sizing 전략 시그널 — 엔지니어용.
-        n_var = sum(1 for r in rows if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= 1.5)
+        # 변동성 큼 — cpu peak/p95 임계 초과. sizing 전략 시그널 — 엔지니어용.
+        n_var = sum(1 for r in rows if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= _VARIANCE_BURST_RATIO)
         if n_var:
             hosts = [r.hostname for r in rows
-                     if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= 1.5][:3]
+                     if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= _VARIANCE_BURST_RATIO][:3]
             suffix = " 외" if n_var > 3 else ""
             bullets.append(f"CPU 부하 변동 큼 {n_var}대 ({', '.join(hosts)}{suffix}) — 일시 spike 빈번. 평균보다 peak 기준 sizing 권장.")
 
@@ -680,8 +676,6 @@ def build_report_summary_bullets(rows: list, raws: list | None = None, view: Rep
             suffix = " 외" if len(eol_hosts) > 3 else ""
             bullets.append(f"OS EOL {len(eol_hosts)}대 ({', '.join(shown)}{suffix}) — 마이그레이션 전 OS 업그레이드 검토.")
 
-    if not bullets:
-        bullets.append("전체 서버가 정상 범위. 추가 조치 불필요.")
     return bullets
 
 
@@ -698,6 +692,40 @@ _RISK_FROM_RECOMMENDATION: dict[str, tuple[str, str, str]] = {
     "optimal":            ("normal",    "정상",     "rec-right_size"),
     "insufficient_data":  ("normal",    "정상",     "rec-right_size"),
 }
+
+
+def _build_under_provisioned_reason(raw: ReportRowRaw) -> str:
+    """under_provisioned 분류 호스트의 trigger 별 구체 권고 — 양식 A "권고" 컬럼.
+
+    USE Method classify 입력 5 trigger 중 hit 된 것만 한국어 권고로 결합 (`/` 구분).
+    임계는 recommendation 모듈 단일 진실. trigger 0건 fallback "리소스 증설 검토".
+    """
+    reasons: list[str] = []
+    if raw.swap_used:
+        reasons.append("메모리 증설 (스왑 발생)")
+    if raw.mem_p95_pct is not None and raw.mem_p95_pct >= recommendation.MEM_UPSIZE_P95_PCT:
+        reasons.append("메모리 증설")
+    if raw.cpu_p95_pct is not None and raw.cpu_p95_pct >= recommendation.CPU_UPSIZE_P95_PCT:
+        reasons.append("CPU 증설")
+    if (
+        raw.load_15m_max is not None and raw.cpu_cores is not None and raw.cpu_cores > 0
+        and (raw.load_15m_max / raw.cpu_cores) >= recommendation.CPU_SATURATION_LOAD_RATIO
+    ):
+        reasons.append("CPU 증설 (load 포화)")
+    if (
+        raw.worst_mount_used_pct is not None
+        and raw.worst_mount_used_pct >= recommendation.DISK_CAPACITY_UPSIZE_PCT
+    ):
+        reasons.append("디스크 증설 (capacity)")
+    if (
+        raw.iowait_p95_pct is not None
+        and raw.iowait_p95_pct >= recommendation.IOWAIT_UPSIZE_PCT
+    ):
+        reasons.append("디스크 증설 (IO 병목)")
+    # swap + mem 임계 둘 다 hit 시 "메모리 증설 (스왑 발생)" 와 "메모리 증설" 중복 — 전자만 유지.
+    if "메모리 증설 (스왑 발생)" in reasons and "메모리 증설" in reasons:
+        reasons.remove("메모리 증설")
+    return " / ".join(reasons) if reasons else "리소스 증설 검토"
 
 
 def _build_diagnosis(raw: ReportRowRaw, saturation: float | None,
@@ -746,8 +774,12 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
     rec = recommendation.classify(recommendation.ResourceStats(
         cpu_p95_pct=raw.cpu_p95_pct,
         cpu_peak_pct=raw.cpu_peak_pct,
+        cpu_load_15m_max=raw.load_15m_max,
+        cpu_cores=raw.cpu_cores,
         mem_p95_pct=raw.mem_p95_pct,
         swap_used=raw.swap_used,
+        disk_used_pct=raw.worst_mount_used_pct,
+        iowait_p95_pct=raw.iowait_p95_pct,
         net_avg_kbps=None,  # 1차 MVP — net 집계 미구현
     ))
     risk_level, risk_label, risk_badge_class = _RISK_FROM_RECOMMENDATION[rec]
@@ -776,8 +808,10 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         kernel_version=raw.kernel_version,
         internal_ip=raw.ip_internal[0] if raw.ip_internal else None,
         cpu_p95_pct=raw.cpu_p95_pct,
+        cpu_avg_pct=raw.cpu_avg_pct,
         cpu_peak_pct=raw.cpu_peak_pct,
         mem_p95_pct=raw.mem_p95_pct,
+        mem_avg_pct=raw.mem_avg_pct,
         mem_peak_pct=raw.mem_peak_pct,
         load_15m_max=raw.load_15m_max,
         swap_used=raw.swap_used,
@@ -810,15 +844,16 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         net_tx_kbps_p95=raw.net_tx_kbps_p95,
         net_tx_kbps_peak=raw.net_tx_kbps_peak,
         diagnosis=_build_diagnosis(raw, saturation, cpu_variance, mem_variance),
-        # P3 임계 분류 색 — 템플릿 산술·임계 분기 금지 (#E1 P3)
-        saturation_color=("#b91c1c" if (saturation is not None and saturation >= 1.0) else "#94a3b8"),
-        cpu_variance_color=("#92400e" if (cpu_variance is not None and cpu_variance >= 1.5) else "#1e293b"),
-        mem_variance_color=("#92400e" if (mem_variance is not None and mem_variance >= 1.5) else "#94a3b8"),
+        under_provisioned_reason=_build_under_provisioned_reason(raw) if rec == "under_provisioned" else "",
+        # P3 임계 분류 색 — 템플릿 산술·임계 분기 금지 (#E1 P3). _REPORT_SIG_* 단일 카탈로그 (#E8).
+        saturation_color=(_REPORT_SIG_DANGER if (saturation is not None and saturation >= _SATURATION_BURST_RATIO) else _REPORT_SIG_MUTED),
+        cpu_variance_color=(_REPORT_SIG_WARN if (cpu_variance is not None and cpu_variance >= _VARIANCE_BURST_RATIO) else _REPORT_SIG_NEUTRAL),
+        mem_variance_color=(_REPORT_SIG_WARN if (mem_variance is not None and mem_variance >= _VARIANCE_BURST_RATIO) else _REPORT_SIG_MUTED),
         worst_mount_days_color=(
-            "#b91c1c" if (raw.worst_mount_days_until_full is not None and raw.worst_mount_days_until_full <= 30)
-            else "#64748b"
+            _REPORT_SIG_DANGER if (raw.worst_mount_days_until_full is not None and raw.worst_mount_days_until_full <= _CAPACITY_IMMINENT_DAYS)
+            else _REPORT_SIG_SUBTLE
         ),
-        reboot_count_color=("#b91c1c" if raw.reboot_count >= 3 else "#94a3b8"),
+        reboot_count_color=(_REPORT_SIG_DANGER if raw.reboot_count >= _REBOOT_UNSTABLE_COUNT else _REPORT_SIG_MUTED),
     )
 
 
@@ -838,46 +873,67 @@ _UTIL_COLOR_MID  = "#f59e0b"
 _UTIL_COLOR_HIGH = "#ef4444"
 _UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재
 
+# 보고서 row 신호 색 — saturation/variance/worst_mount/reboot 색 단일 카탈로그 (#E8 동일 의미 동일 hex).
+# UI badge slate 톤 (디자인 도메인 별도 — UtilizationBar 의 vivid 톤과 분리).
+_REPORT_SIG_DANGER  = "#b91c1c"  # saturation · worst_mount 임박 · reboot 잦음
+_REPORT_SIG_WARN    = "#92400e"  # variance burst
+_REPORT_SIG_NEUTRAL = "#1e293b"  # 기본 텍스트 (variance 정상)
+_REPORT_SIG_MUTED   = "#94a3b8"  # 신호 없음 (gray light)
+_REPORT_SIG_SUBTLE  = "#64748b"  # subdued gray
+
+# 보고서 row 임계 — recommendation 도메인 상수 활용 + 보고서 표시 전용 임계 정의 (#F10 단일 진실).
+_SATURATION_BURST_RATIO = recommendation.CPU_SATURATION_LOAD_RATIO  # 1.0 — saturation 기준
+_VARIANCE_BURST_RATIO   = 1.5    # peak/p95 ≥ 1.5 — variance burst 표시 (보고서 전용 임계)
+_CAPACITY_IMMINENT_DAYS = 30     # worst_mount 소진 임박일 (보고서·환경 요약 공통)
+_REBOOT_UNSTABLE_COUNT  = 3      # reboot_count ≥ 3 — Agent 불안정 신호 (#F10 attention 임계)
+
 # 도넛 SVG 원주 — r=42, 2*pi*r ≈ 263.89. pct 0~100을 0~_UTIL_DONUT_CIRC로 매핑.
 _UTIL_DONUT_CIRC = 263.89
 
-# ─── 프로비저닝 분포 도넛 (3 카테고리) ──────────────────────────────────
-# idle/shutdown은 over_provisioned의 극단으로 흡수 — 사용자가 사양 큰 상태 통합 표시 원함.
-# 보고서 KPI(_RISK_FROM_RECOMMENDATION)는 그대로 3단계(high/attention/normal) 유지.
+# ─── USE Method 분포 도넛 (recommend 6 분류 정석) ──────────────────────
+# USE Method recommendation enum 1:1 매핑. idle·shutdown 도 별도 segment — 운영 시그널 다름.
+# 환경 보고서 USE Method 분포(`environment_report_mapper._PROVISIONING_SEGMENT_DEFS`)와 동일 카탈로그·색.
+# label 은 enum 그대로 영어 — 운영자가 코드/문서/UI 동일 키 인지 (T13).
 _DONUT_SEGMENT_FROM_REC: dict[str, str] = {
-    "under_provisioned": "under",
-    "over_provisioned":  "over",
-    "shutdown":          "over",   # 사양 큰 상태 극단 — over로 흡수
-    "idle":              "over",
-    "optimal":           "normal",
-    "insufficient_data": "normal",
+    "under_provisioned": "under_provisioned",
+    "over_provisioned":  "over_provisioned",
+    "idle":              "idle",
+    "shutdown":          "shutdown",
+    "optimal":           "optimal",
+    "insufficient_data": "insufficient_data",
 }
 
-# 도넛 그리는 순서(언더 12시 방향 시작) + 범례 순서. (key, label, hex)
-# 색 정책: 빨강(위험)·초록(정상) 이분과 헷갈리지 않게 over는 청록 — 운영자가 "검토 영역" 직관 인지.
-# 도넛 범례는 풀네임(공간 충분), 서버 목록 셀은 _SHORT_LABEL 별도 (좁은 칸).
-_DONUT_SEGMENT_DEFS: list[tuple[str, str, str]] = [
-    ("under",  "언더 프로비저닝", "#ef4444"),  # 자원 부족 — 사양 상향 (빨강 = 위험)
-    ("over",   "오버 프로비저닝", "#06b6d4"),  # 자원 여유 — 사양 축소·종료 검토 (청록 = 정보 검토)
-    ("normal", "정상",           "#22c55e"),  # 적정 (초록 = 안전)
+# 도넛 순서(언더 12시 방향 시작) + 범례 순서. (key, label, hex, description) — description 은 한국어 보조.
+# 색 정책: under=빨강(위험), over=청록(여유), idle=회색(저사용), shutdown=보라(종료 권장),
+#         optimal=초록(적정), insufficient_data=옅은 회색(평가 보류).
+_DONUT_SEGMENT_DEFS: list[tuple[str, str, str, str]] = [
+    ("under_provisioned", "under_provisioned", "#ef4444", "자원 부족 — 사양 상향 검토"),
+    ("over_provisioned",  "over_provisioned",  "#06b6d4", "자원 여유 — 사양 축소 검토"),
+    ("idle",              "idle",              "#94a3b8", "사용률 매우 낮음 — 용도 재평가"),
+    ("shutdown",          "shutdown",          "#9333ea", "사실상 미사용 — 종료 검토"),
+    ("optimal",           "optimal",           "#22c55e", "적정"),
+    ("insufficient_data", "insufficient_data", "#cbd5e1", "평가 표본 부족"),
 ]
 
 # 서버 목록 셀 안 표시용 약어 — 좁은 칸. 도넛 범례(풀네임)와 별도 매핑.
 _DONUT_SEGMENT_SHORT_LABEL: dict[str, str] = {
-    "under":  "Under",
-    "over":   "Over",
-    "normal": "Normal",
+    "under_provisioned": "Under",
+    "over_provisioned":  "Over",
+    "idle":              "Idle",
+    "shutdown":          "Shutdown",
+    "optimal":           "Optimal",
+    "insufficient_data": "No Data",
 }
 
 
 def _bar_color(pct: float | None) -> str:
+    # 환경 평균 사용률 bar — 0% 초록 → 60% 노랑 → 100% 빨강 HSL hue 그라데이션.
+    # 사용률 변화에 따라 자연스러운 색 이행 (3단계 jump 보다 시각 정합).
     if pct is None:
         return _UTIL_COLOR_NONE
-    if pct >= _UTIL_HIGH_PCT:
-        return _UTIL_COLOR_HIGH
-    if pct >= _UTIL_LOW_PCT:
-        return _UTIL_COLOR_MID
-    return _UTIL_COLOR_LOW
+    pct_capped = max(0.0, min(100.0, pct))
+    hue = 120 - 1.2 * pct_capped  # 0% -> 120 (green), 100% -> 0 (red)
+    return f"hsl({hue:.0f}, 65%, 45%)"
 
 
 def _dash_length(pct: float | None) -> float:
@@ -896,23 +952,29 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
     total = sum(risk_counts.values())
     segments: list = []
     cum_offset = 0.0
-    for key, label, color in _DONUT_SEGMENT_DEFS:
+    for key, label, color, description in _DONUT_SEGMENT_DEFS:
         count = risk_counts.get(key, 0)
         dash_length = (count / total) * _UTIL_DONUT_CIRC if (total > 0 and count > 0) else 0.0
         segments.append(RiskDonutSegment(
             key=key, label=label, color=color, count=count,
             dash_length=dash_length, dash_offset=-cum_offset,  # 음수 offset = 시계방향 이동
+            description=description,
         ))
         cum_offset += dash_length
-    under_count = risk_counts.get("under", 0)
+    under_count = risk_counts.get("under_provisioned", 0)
     return segments, total, under_count
 
 
-def build_environment_overview(details: list, online_count: int, utilization=None, risk_counts=None):
+def build_environment_overview(
+    details: list, online_count: int,
+    utilization=None, risk_counts=None,
+    under_provisioned_hosts: list | None = None,
+):
     """ServerDetail list + online_count + EnvironmentUtilizationRaw + risk_counts -> EnvironmentOverview.
 
-    list 화면 상단 환경 요약 — 총 N대·자원 합계·역할 분포·온라인/오프라인·평균 활용률·위험도 분포.
+    list 화면 상단 환경 요약 — 총 N대·자원 합계·역할 분포·온라인/오프라인·평균 활용률·위험도 분포·자원 부족 상세.
     utilization=None이면 활용률 빈 list. risk_counts=None이면 위험도 도넛 빈 list.
+    under_provisioned_hosts=None이면 빈 list (도넛 아래 상세 sub-block 미표시).
     """
     total = len(details)
     total_vcpus = sum(d.cpu_cores or 0 for d in details)
@@ -960,15 +1022,20 @@ def build_environment_overview(details: list, online_count: int, utilization=Non
         risk_donut=risk_segments,
         risk_donut_total=risk_total,
         risk_high_count=risk_under,
+        under_provisioned_hosts=under_provisioned_hosts or [],
+        under_provisioned_hosts_count=len(under_provisioned_hosts or []),
     )
 
 
-# capacity trigger 3종 색 — hue 명확 분리. 본문 badge와 범례 단일 진실.
-# 한 서버에 여러 trigger 동시 발동 가능 (CPU + 메모리 등). 묶음 카테고리 없이 각각 표시.
+# capacity trigger 5종 색 — hue 명확 분리. 본문 badge와 범례 단일 진실.
+# 한 서버에 여러 trigger 동시 발동 가능 (CPU + 메모리 + 디스크 등). 묶음 카테고리 없이 각각 표시.
+# USE Method classify 입력과 1:1 정합 — swap/CPU util/mem util/load(cpu sat)/disk capacity/iowait(disk IO sat).
 _CAPACITY_TRIGGER_COLORS: dict[str, str] = {
-    "스왑":   "#dc2626",   # 빨강 — 메모리 부족 1차 신호 (paging 발생)
-    "CPU":    "#2563eb",   # 파랑 — CPU 임계 초과
-    "메모리": "#8b5cf6",   # 보라 — 메모리 임계 초과
+    "스왑":   "#dc2626",   # 빨강 — 메모리 saturation (paging 발생)
+    "CPU":    "#2563eb",   # 파랑 — CPU utilization 임계 초과
+    "메모리": "#8b5cf6",   # 보라 — 메모리 utilization 임계 초과
+    "Load":   "#ea580c",   # 주황 — CPU saturation (load_15m / cores ≥ 1.0)
+    "디스크": "#0891b2",   # 청록 — disk capacity 또는 IO saturation (iowait)
 }
 
 # inactive trigger badge 톤 — active 색은 위 dict, inactive는 본 상수. 둘 다 mapper 단일 진실.
@@ -979,15 +1046,30 @@ _CAPACITY_TRIGGER_INACTIVE_FG = "#cbd5e1"
 def to_capacity_warning_item(raw):
     """ReportRowRaw -> CapacityWarningItem. caller가 under_provisioned 필터링 후 호출.
 
-    triggers list — 3종(스왑/CPU/메모리) 항상 포함, active로 분기:
-    - swap_used=True → "스왑" active (메모리 부족 1차 신호)
-    - cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU" active
-    - mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리" active
-    비활성 trigger도 list에 포함 (시각 일관 — "이 카드는 3종 자원 추적" 명시).
+    triggers list — USE Method classify 입력과 1:1 정합 5종(스왑/CPU/메모리/Load/디스크) 항상 포함, active 분기:
+    - swap_used=True → "스왑" (Memory saturation)
+    - cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU" (CPU utilization)
+    - mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리" (Memory utilization)
+    - load_15m_max / cpu_cores >= CPU_SATURATION_LOAD_RATIO → "Load" (CPU saturation)
+    - worst_mount_used_pct >= DISK_CAPACITY_UPSIZE_PCT 또는 iowait_p95 >= IOWAIT_UPSIZE_PCT → "디스크"
+    비활성 trigger도 list에 포함 (시각 일관 — "이 카드는 5종 자원 추적" 명시).
     """
     swap_active = bool(raw.swap_used)
     cpu_active = (raw.cpu_p95_pct or 0) >= recommendation.CPU_UPSIZE_P95_PCT
     mem_active = (raw.mem_p95_pct or 0) >= recommendation.MEM_UPSIZE_P95_PCT
+    load_active = (
+        raw.load_15m_max is not None and raw.cpu_cores is not None and raw.cpu_cores > 0
+        and (raw.load_15m_max / raw.cpu_cores) >= recommendation.CPU_SATURATION_LOAD_RATIO
+    )
+    disk_capacity_active = (
+        raw.worst_mount_used_pct is not None
+        and raw.worst_mount_used_pct >= recommendation.DISK_CAPACITY_UPSIZE_PCT
+    )
+    disk_io_active = (
+        raw.iowait_p95_pct is not None
+        and raw.iowait_p95_pct >= recommendation.IOWAIT_UPSIZE_PCT
+    )
+    disk_active = disk_capacity_active or disk_io_active
 
     def _badge(label: str, active: bool) -> CapacityTriggerBadge:
         color = _CAPACITY_TRIGGER_COLORS[label]
@@ -1001,13 +1083,12 @@ def to_capacity_warning_item(raw):
         _badge("스왑",   swap_active),
         _badge("CPU",    cpu_active),
         _badge("메모리", mem_active),
+        _badge("Load",   load_active),
+        _badge("디스크", disk_active),
     ]
     return CapacityWarningItem(
         public_id=raw.public_id,
         hostname=raw.hostname,
-        cpu_p95_pct=raw.cpu_p95_pct,
-        mem_p95_pct=raw.mem_p95_pct,
-        swap_used=raw.swap_used,
         triggers=triggers,
     )
 
@@ -1044,7 +1125,7 @@ def to_os_eol_warning_item(raw) -> AttentionRow | None:
     for (eol_os, eol_ver), date in _OS_EOL.items():
         if raw.os_id == eol_os and (raw.os_version or "").startswith(eol_ver):
             return AttentionRow(
-                badge_class="rec-over_provisioned",
+                badge_class=_ATTN_ACTIVE_BADGE,
                 badge_text="EOL",
                 link_href=f"/servers/{raw.public_id}",
                 link_text=raw.hostname,
@@ -1056,7 +1137,7 @@ def to_os_eol_warning_item(raw) -> AttentionRow | None:
 def to_agent_unstable_item(public_id: str, hostname: str, restart_count: int) -> AttentionRow:
     """raw -> AttentionRow. caller가 임계 필터링 후 호출."""
     return AttentionRow(
-        badge_class="rec-over_provisioned",
+        badge_class=_ATTN_ACTIVE_BADGE,
         badge_text=f"{restart_count}회",
         link_href=f"/servers/{public_id}",
         link_text=hostname,
@@ -1108,8 +1189,12 @@ def to_inventory_export_entry(
         rec = recommendation.classify(recommendation.ResourceStats(
             cpu_p95_pct=stats.cpu_p95_pct,
             cpu_peak_pct=stats.cpu_peak_pct,
+            cpu_load_15m_max=stats.load_15m_max,
+            cpu_cores=stats.cpu_cores,
             mem_p95_pct=stats.mem_p95_pct,
             swap_used=stats.swap_used,
+            disk_used_pct=stats.worst_mount_used_pct,
+            iowait_p95_pct=stats.iowait_p95_pct,
             net_avg_kbps=None,  # 현재 net 집계 미통합 — idle/shutdown 판정 skip
         ))
         cpu_p95 = stats.cpu_p95_pct
@@ -1242,4 +1327,5 @@ def to_task_detail(row: TaskRow) -> TaskDetailItem:
         completed_at=row.completed_at,
         stdout_tail=row.stdout_tail,
         stderr_tail=row.stderr_tail,
+        params=row.params,
     )

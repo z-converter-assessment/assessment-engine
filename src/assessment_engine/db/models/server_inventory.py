@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Integer, String, Text, text
+from sqlalchemy import BigInteger, DateTime, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -9,7 +9,17 @@ from assessment_engine.db.models.base import Base
 
 
 class ServerInventory(Base):
+    """등록 호스트 인벤토리.
+
+    Unique 식별: (machine_id, hostname) 복합. machine_id 단독은 VM 템플릿 복제·이미지 clone·
+    container host 마운트 등으로 실제 환경에서 중복 가능 → hostname과 함께 복합으로 unique 보장.
+    같은 machine_id + 다른 hostname → 별도 row (다른 호스트로 인식).
+    """
+
     __tablename__ = "server_inventory"
+    __table_args__ = (
+        UniqueConstraint("machine_id", "hostname", name="uq_server_inventory_machine_hostname"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     public_id: Mapped[str] = mapped_column(
@@ -18,7 +28,7 @@ class ServerInventory(Base):
         unique=True,
         nullable=False,
     )
-    machine_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    machine_id: Mapped[str] = mapped_column(String(64), nullable=False)
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     agent_version: Mapped[str | None] = mapped_column(String(32))
 

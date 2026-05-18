@@ -4,7 +4,7 @@
  * 외부 의존:
  * - ChartUtils (base.html에서 chart-utils.js 로드)
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
- * - SERVER_ID (페이지 inline <script>가 Jinja2로 정의)
+ * - body data-server-id (E6 외부화 규약, static-assets.md)
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
@@ -12,6 +12,8 @@ const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
         makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray,
         fetchRebootEvents, applyRebootMarkers,
         buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
+
+const SERVER_ID = document.body.dataset.serverId;
 
 // 추이 차트의 분해력 기준 (다중 interface x RX/TX 다중 라인 — idle 환경 트래픽도 보이도록).
 // 진단 리포트(performance.html)는 다른 정책: PERF_NET_SUGGESTED_MAX = 10 MB/s (1 Gbps의 8%).

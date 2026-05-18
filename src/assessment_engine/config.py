@@ -46,7 +46,7 @@ class WebSettings(BaseSettings):
 
     # TTL (seconds)
     redis_ttl_idempotent: int = 86400          # 24h — 재발행 메시지 중복 차단
-    redis_ttl_online: int = 90                  # 90s — 마지막 메트릭 수신 후 오프라인 판단
+    redis_ttl_online: int = 300                 # 5min — 오프라인 판단. 운영 신호 "통신 끊김" 임계(gap_minutes=5) 와 단일 진실.
     redis_ttl_token: int = 3600                 # 1h  — 인증 토큰
     redis_ttl_last_agent_start: int = 86400     # 24h — 직전 agent_started_at 캐시 (재시작 감지용)
     redis_ttl_agent_restarts: int = 3600        # 1h  — 슬라이딩 윈도우 카운터
@@ -61,7 +61,8 @@ class WebSettings(BaseSettings):
     redis_key_token: str = "token:{}"
     redis_key_last_agent_start: str = "last_agent_start:{}"
     redis_key_agent_restarts: str = "agent_restarts:{}"
-    redis_key_time_invariant_warned: str = "time_invariant_warned:{}"  # {machine_id} 쿨다운 마커
+    # {machine_id}:{hostname} 쿨다운 마커 — server_inventory 복합 unique 일관 (#C1)
+    redis_key_time_invariant_warned: str = "time_invariant_warned:{}:{}"
 
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
     agent_restart_alert_threshold: int = 3
@@ -76,6 +77,12 @@ class WebSettings(BaseSettings):
     # (failure_reason=url_not_allowed). agent 측 호환성 작업 후 활성화 — 별도 ADR.
     install_bundle_url: str = "http://host.lima.internal:8000/zconverter.tar.gz"
     install_timeout_sec: int = 600  # install.sh wall-clock timeout (원격 host의 worker가 강제 종료)
+
+    # ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표 — install 모달의 default 값으로 사용.
+    # install.sh / install.ps1이 -s ZDM_IP -u ZDM_USER 인자로 받아 ZDM 서버에서 setup 패키지 fetch.
+    # 운영자가 모달에서 매 발행마다 override 가능. POST body의 zdm_ip·zdm_user 누락 시 본 값으로 fallback.
+    zdm_default_ip: str = "192.168.3.94"
+    zdm_default_user: str = "admin@zconverter.com"
 
     @property
     def database_url(self) -> str:
@@ -155,6 +162,11 @@ class DiagnosticSettings(ConsumerSettings):
 
     ConsumerSettings 상속 — broker_url·prod secret 검증 그대로 활용. 진단 워크플로 고유 필드만 추가.
     """
+    # AI 진단 일시 비활성 flag — 기본 비활성 (운영자 명시 활성 시 True override).
+    # False 시: web POST /api/v1/diagnostics 503 reject + scheduler cron 발화 no-op.
+    # 모달 UI는 그대로 (사용자 트리거는 503으로 명시), worker process 는 큐 비어 idle.
+    diagnostic_enabled: bool = False
+
     # routing key + TTL (모두 RabbitMQ broker — 큐 인자 변경 시 broker 재선언 의무)
     diagnostic_routing_key: str = "diagnostic.request"
     diagnostic_queue_ttl_ms: int = 24 * 60 * 60 * 1000   # 24h — pending job 처리 못 하면 DLQ

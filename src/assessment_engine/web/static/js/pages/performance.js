@@ -4,21 +4,24 @@
  * 외부 의존:
  * - ChartUtils (base.html에서 chart-utils.js 로드)
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
- * - SERVER_ID, CPU_CORES (페이지 inline <script>가 Jinja2로 정의)
+ * - body data-server-id / data-cpu-cores (E6 외부화 규약, static-assets.md)
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, RANGE_MS, COLORS,
         fmtKbChart, safeArray, fetchRebootEvents, applyRebootMarkers,
         buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
 
+const SERVER_ID = document.body.dataset.serverId;
+const CPU_CORES = parseInt(document.body.dataset.cpuCores, 10) || null;
+
 
 const PERF_IOPS_SUGGESTED_MAX = 200;              // HDD 랜덤 I/O 한계(~100–200 IOPS) 기준
 const PERF_NET_SUGGESTED_MAX  = 10 * 1024 * 1024; // 10 MB/s — 1 Gbps 이더넷의 약 8%
 
-// 색상 임계값 — 서버 mappers._usage_bar_color 와 동일 기준. 변경 시 양쪽 동기화.
-const USAGE_DANGER_PCT  = 90;
-const USAGE_WARN_PCT    = 75;
-const SWAP_DANGER_PCT   = 0.1;  // 스왑 사용 자체가 이슈
+// 색상 임계값 — backend mappers._USAGE_*_PCT / _SWAP_DANGER_PCT 단일 진실, body data-attribute 로 주입 (#E1 P4).
+const USAGE_DANGER_PCT = parseFloat(document.body.dataset.usageDangerPct) || 90;
+const USAGE_WARN_PCT   = parseFloat(document.body.dataset.usageWarnPct)   || 75;
+const SWAP_DANGER_PCT  = parseFloat(document.body.dataset.swapDangerPct)  || 0.1;
 const COLOR_NEUTRAL = '#64748b';
 const COLOR_WARN    = '#f59e0b';
 const COLOR_DANGER  = '#ef4444';

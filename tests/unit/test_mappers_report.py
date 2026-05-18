@@ -41,7 +41,8 @@ def _raw(
     server_id=1, public_id="a", hostname="h",
     os_id="ubuntu", os_version="22.04", kernel_version="5.15",
     ip_internal=("10.0.0.1",), services=None,
-    cpu_p95=None, cpu_peak=None, mem_p95=None, mem_peak=None,
+    cpu_avg=None, cpu_p95=None, cpu_peak=None,
+    mem_avg=None, mem_p95=None, mem_peak=None,
     load_15m_max=None, swap_used=False,
     iowait_p95=None, iowait_peak=None,
     cpu_cores=2, mem_total_kb=2 * 1024 * 1024,
@@ -56,8 +57,8 @@ def _raw(
         ip_internal=list(ip_internal) if ip_internal else None,
         services=list(services) if services else None,
         last_seen_at=_NOW,
-        cpu_p95_pct=cpu_p95, cpu_peak_pct=cpu_peak,
-        mem_p95_pct=mem_p95, mem_peak_pct=mem_peak,
+        cpu_avg_pct=cpu_avg, cpu_p95_pct=cpu_p95, cpu_peak_pct=cpu_peak,
+        mem_avg_pct=mem_avg, mem_p95_pct=mem_p95, mem_peak_pct=mem_peak,
         load_15m_max=load_15m_max, swap_used=swap_used,
         iowait_p95_pct=iowait_p95, iowait_peak_pct=iowait_peak,
         cpu_cores=cpu_cores, mem_total_kb=mem_total_kb,
@@ -216,13 +217,12 @@ def test_environment_overview_utilization_default_empty():
 
 
 @pytest.mark.parametrize("pct, expected_color", [
-    (10.0,  _UTIL_COLOR_LOW),    # < 60 → 녹색
-    (59.9,  _UTIL_COLOR_LOW),    # 임계 직전
-    (60.0,  _UTIL_COLOR_MID),    # 60 → 노랑
-    (79.9,  _UTIL_COLOR_MID),    # 임계 직전
-    (80.0,  _UTIL_COLOR_HIGH),   # 80 → 빨강
-    (95.0,  _UTIL_COLOR_HIGH),
-    (None,  _UTIL_COLOR_NONE),   # 표본 부재
+    # HSL hue 그라데이션 — `hsl(120 - 1.2*pct, 65%, 45%)` (사용자 요구, 초록 → 빨강).
+    # 0% → hue 120 (초록), 50% → 60 (노랑), 100% → 0 (빨강).
+    (0.0,   "hsl(120, 65%, 45%)"),
+    (50.0,  "hsl(60, 65%, 45%)"),
+    (100.0, "hsl(0, 65%, 45%)"),
+    (None,  _UTIL_COLOR_NONE),   # 표본 부재 — 그라데이션 외 단일 색
 ])
 def test_environment_overview_utilization_bar_color(pct, expected_color):
     details = [_detail(id_=1, hostname="x", cpu_cores=1, mem_total_kb=1024*1024, disk_size=10**9)]
@@ -260,12 +260,26 @@ def test_environment_overview_utilization_dash_length(pct, expected_dash):
 # ─── 위험도 분포 도넛 ────────────────────────────────────────────────────
 
 def test_risk_donut_segments_order_and_colors():
-    """segments는 _DONUT_SEGMENT_DEFS 순서(under/over/normal) 고정."""
+    """segments 는 _DONUT_SEGMENT_DEFS 순서 (USE Method 6 분류 정석) 고정.
+
+    label 은 recommendation enum 값 그대로 영어 — 코드/문서/UI 동일 키 (T13).
+    """
     segs, total, under = build_risk_donut_segments(
-        {"under": 1, "over": 2, "normal": 7}
+        {
+            "under_provisioned": 1,
+            "over_provisioned":  2,
+            "idle":              1,
+            "shutdown":          0,
+            "optimal":           5,
+            "insufficient_data": 1,
+        }
     )
-    assert [s.key for s in segs] == ["under", "over", "normal"]
-    assert [s.label for s in segs] == ["언더 프로비저닝", "오버 프로비저닝", "정상"]
+    assert [s.key for s in segs] == [
+        "under_provisioned", "over_provisioned", "idle", "shutdown", "optimal", "insufficient_data",
+    ]
+    assert [s.label for s in segs] == [
+        "under_provisioned", "over_provisioned", "idle", "shutdown", "optimal", "insufficient_data",
+    ]
     assert total == 10
     assert under == 1
 
@@ -273,22 +287,25 @@ def test_risk_donut_segments_order_and_colors():
 def test_risk_donut_segments_dash_accumulates():
     """dash_offset은 이전 segments 누적 음수 — 시계방향 시작 위치."""
     segs, total, _ = build_risk_donut_segments(
-        {"under": 1, "over": 1, "normal": 1}
+        {"under_provisioned": 1, "over_provisioned": 1, "optimal": 1}
     )
     expected_each = _UTIL_DONUT_CIRC / 3
+    # segments order: under_provisioned[0], over_provisioned[1], idle[2], shutdown[3], optimal[4], insufficient_data[5]
     assert abs(segs[0].dash_length - expected_each) < 0.1
     assert segs[0].dash_offset == 0.0
     assert abs(segs[1].dash_offset - (-expected_each)) < 0.1
-    assert abs(segs[2].dash_offset - (-2 * expected_each)) < 0.1
+    # idle·shutdown count=0 → optimal segment 가 누적 offset = -2*expected_each
+    assert abs(segs[4].dash_offset - (-2 * expected_each)) < 0.1
     assert total == 3
 
 
 def test_risk_donut_segments_zero_count_zero_length():
     """count=0 segment는 dash_length 0, 다음 segment offset 안 밀어냄."""
-    segs, _, _ = build_risk_donut_segments({"under": 0, "over": 0, "normal": 5})
+    segs, _, _ = build_risk_donut_segments({"under_provisioned": 0, "over_provisioned": 0, "optimal": 5})
     assert segs[0].dash_length == 0
     assert segs[1].dash_offset == 0
-    assert abs(segs[2].dash_length - _UTIL_DONUT_CIRC) < 0.1
+    # optimal segment(index 4) 가 전체 차지 — under/over/idle/shutdown count=0 이라 offset 누적 0.
+    assert abs(segs[4].dash_length - _UTIL_DONUT_CIRC) < 0.1
 
 
 def test_risk_donut_segments_empty_total():
@@ -300,46 +317,49 @@ def test_risk_donut_segments_empty_total():
 
 
 @pytest.mark.parametrize("rec, expected_key", [
-    ("under_provisioned", "under"),
-    ("over_provisioned",  "over"),
-    ("shutdown",          "over"),  # 사양 큰 상태 — over로 흡수
-    ("idle",              "over"),
-    ("optimal",           "normal"),
-    ("insufficient_data", "normal"),
+    # USE Method 6 분류 1:1 매핑 (정석). idle·shutdown 도 별도 segment — 신호 다름 (T13).
+    ("under_provisioned", "under_provisioned"),
+    ("over_provisioned",  "over_provisioned"),
+    ("idle",              "idle"),
+    ("shutdown",          "shutdown"),
+    ("optimal",           "optimal"),
+    ("insufficient_data", "insufficient_data"),
 ])
 def test_donut_segment_from_rec_mapping(rec, expected_key):
     assert _DONUT_SEGMENT_FROM_REC[rec] == expected_key
 
 
-# ─── CapacityWarningItem.triggers (3종 항상 노출) ────────────────────────
+# ─── CapacityWarningItem.triggers (USE Method 5종 항상 노출) ─────────────
 
-def test_capacity_warning_triggers_always_three_categories():
-    """CapacityWarningItem.triggers는 3종(스왑/CPU/메모리) 항상 — count 0 자리 포함, 카드 본질 명시."""
+def test_capacity_warning_triggers_always_five_categories():
+    """CapacityWarningItem.triggers는 5종(스왑/CPU/메모리/Load/디스크) 항상 — USE Method classify 입력 1:1 정합."""
     item = to_capacity_warning_item(_raw(swap_used=True))
     labels = [t.label for t in item.triggers]
-    assert labels == ["스왑", "CPU", "메모리"]
+    assert labels == ["스왑", "CPU", "메모리", "Load", "디스크"]
     # swap만 active, 나머지 inactive
     active = {t.label: t.active for t in item.triggers}
-    assert active == {"스왑": True, "CPU": False, "메모리": False}
+    assert active == {"스왑": True, "CPU": False, "메모리": False, "Load": False, "디스크": False}
 
 
 def test_capacity_warning_triggers_multi_active():
-    """한 서버가 swap+CPU+메모리 동시 trigger 가능 — 각 active=True 독립."""
+    """한 서버가 swap+CPU+메모리 동시 trigger 가능 — 각 active=True 독립. Load/디스크는 _raw default 미발동."""
     item = to_capacity_warning_item(_raw(swap_used=True, cpu_p95=95.0, mem_p95=90.0))
     active = {t.label: t.active for t in item.triggers}
-    assert active == {"스왑": True, "CPU": True, "메모리": True}
+    assert active == {"스왑": True, "CPU": True, "메모리": True, "Load": False, "디스크": False}
 
 
 def test_capacity_warning_triggers_colors_hue_separated():
-    """3 카테고리 색이 hue 별 명확히 분리 — 단일 진실(`_CAPACITY_TRIGGER_COLORS`)."""
+    """5 카테고리 색이 hue 별 명확히 분리 — 단일 진실(`_CAPACITY_TRIGGER_COLORS`)."""
     item = to_capacity_warning_item(_raw(swap_used=True, cpu_p95=95.0, mem_p95=90.0))
     colors = {t.label: t.color for t in item.triggers}
     assert colors == {
         "스왑":   "#dc2626",  # 빨강
         "CPU":    "#2563eb",  # 파랑
         "메모리": "#8b5cf6",  # 보라
+        "Load":   "#ea580c",  # 주황
+        "디스크": "#0891b2",  # 청록
     }
-    assert len(set(colors.values())) == 3
+    assert len(set(colors.values())) == 5
 
 
 # ─── build_report_summary_bullets — 신호 9종 트리거 ──────────────────────
@@ -348,12 +368,18 @@ def test_bullets_empty_when_no_rows():
     assert build_report_summary_bullets([]) == ["대상 서버 없음."]
 
 
-def test_bullets_high_risk_signal():
+def test_bullets_skip_risk_category_count():
+    """위험도 카운트 줄 ("고위험"/"주의 필요") 은 KPI grid 와 중복 → summary_bullets 에서 제거.
+
+    iowait/mount/reboot 시그널만 노출 (사용자 의도 — 중복 줄 제거).
+    """
     raws = [_raw(hostname="db-01", cpu_p95=95.0, cpu_peak=99.0,
                  mem_p95=92.0, mem_peak=98.0, swap_used=True)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws)
-    assert any("고위험" in b and "db-01" in b for b in bullets)
+    # "고위험" 줄은 안 나옴 — KPI grid 의 분류 카운트와 중복이라 제거됨.
+    assert not any("고위험" in b for b in bullets)
+    assert not any("주의 필요" in b for b in bullets)
 
 
 def test_bullets_iowait_signal_threshold_20pct():
@@ -492,8 +518,11 @@ def test_compute_report_avg_p95_empty_returns_none():
     assert avg_mem is None
 
 
-def test_bullets_customer_view_keeps_high_risk_iowait_mount_reboot_eol():
-    """양식 A·B 공통 시그널 — 고위험·I/O wait·디스크 임박·재부팅·OS EOL은 customer에도 노출."""
+def test_bullets_customer_view_keeps_iowait_mount_reboot_eol():
+    """양식 A·B 공통 시그널 — I/O wait·디스크 임박·재부팅·OS EOL 는 customer 에도 노출.
+
+    "고위험"/"주의 필요" 줄은 KPI 분류 카운트와 중복이라 summary_bullets 에서 제거됨 (사용자 의도).
+    """
     raws = [
         _raw(hostname="db-01", os_id="centos", os_version="7.9",
              cpu_p95=95.0, cpu_peak=99.0, mem_p95=92.0, mem_peak=98.0,
@@ -503,25 +532,24 @@ def test_bullets_customer_view_keeps_high_risk_iowait_mount_reboot_eol():
     ]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws, view="customer")
-    # 공통 시그널 5종 모두 활성
-    assert any("고위험" in b and "db-01" in b for b in bullets)
     assert any("I/O wait" in b and "db-01" in b for b in bullets)
     assert any("임박" in b and "db-01" in b for b in bullets)
     assert any("재부팅" in b and "db-01" in b for b in bullets)
     assert any("EOL" in b and "db-01" in b for b in bullets)
+    # 위험도 카운트 줄은 제거됨 (KPI grid 중복 회피)
+    assert not any("고위험" in b for b in bullets)
 
 
-def test_bullets_normal_fallback():
-    # USE Method optimal 영역: CPU_DOWNSIZE 30 < cpu_p95 < CPU_UPSIZE 70
-    #                       + MEM_DOWNSIZE 50 < mem_p95 < MEM_UPSIZE 80
-    # 다른 신호 발동 안 하는 안전한 중간값
+def test_bullets_normal_fallback_empty():
+    """모두 정상 영역 → summary_bullets 빈 list (사용자 의도 — "전체 정상" 줄 제거됨)."""
     raws = [_raw(hostname="ok-01",
                  cpu_p95=50.0, cpu_peak=60.0,
                  mem_p95=60.0, mem_peak=68.0,
                  load_15m_max=0.5, cpu_cores=4)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws)
-    assert bullets == ["전체 서버가 정상 범위. 추가 조치 불필요."]
+    # 모든 시그널 비활성 → bullet 0건 (정상 fallback 줄 제거됨)
+    assert bullets == []
 
 
 # ─── attention 신호 ViewModel 빌더 ───────────────────────────────────────
@@ -529,27 +557,30 @@ def test_bullets_normal_fallback():
 def test_capacity_warning_item_fields():
     raw = _raw(cpu_p95=95.0, mem_p95=92.0, swap_used=True)
     item = to_capacity_warning_item(raw)
-    assert item.cpu_p95_pct == 95.0
-    assert item.mem_p95_pct == 92.0
-    assert item.swap_used is True
-    # 3종 항상 — 셋 다 임계 → 모두 active
-    assert [t.label for t in item.triggers] == ["스왑", "CPU", "메모리"]
-    assert all(t.active for t in item.triggers)
+    assert item.public_id == raw.public_id
+    assert item.hostname == raw.hostname
+    # 5종 항상 — swap/cpu/mem 임계 → active. Load/디스크는 _raw default (low load·no mount) 비활성.
+    assert [t.label for t in item.triggers] == ["스왑", "CPU", "메모리", "Load", "디스크"]
+    active = {t.label: t.active for t in item.triggers}
+    assert active["스왑"] is True
+    assert active["CPU"] is True
+    assert active["메모리"] is True
 
 
 @pytest.mark.parametrize("cpu_p95, mem_p95, swap_used, expected_active", [
-    (None,  None,  True,  [True, False, False]),     # swap만
-    (95.0,  92.0,  True,  [True, True, True]),        # 셋 다
-    (95.0,  92.0,  False, [False, True, True]),       # cpu + mem (스왑 비활성)
-    (95.0,  60.0,  False, [False, True, False]),      # CPU만
-    (50.0,  90.0,  False, [False, False, True]),      # 메모리만
-    (50.0,  60.0,  False, [False, False, False]),     # 비도달 (3종 모두 비활성)
+    # USE Method 5종 trigger. _raw default: load_15m_max=0.5, cpu_cores=4 → Load·디스크 비활성.
+    (None,  None,  True,  [True,  False, False, False, False]),  # swap만
+    (95.0,  92.0,  True,  [True,  True,  True,  False, False]),  # swap+cpu+mem
+    (95.0,  92.0,  False, [False, True,  True,  False, False]),  # cpu+mem
+    (95.0,  60.0,  False, [False, True,  False, False, False]),  # CPU만
+    (50.0,  90.0,  False, [False, False, True,  False, False]),  # 메모리만
+    (50.0,  60.0,  False, [False, False, False, False, False]),  # 비도달
 ])
 def test_capacity_warning_item_triggers_active_flags(cpu_p95, mem_p95, swap_used, expected_active):
-    """triggers는 항상 3종 [스왑, CPU, 메모리]. active flag로 활성 자원 표시."""
+    """triggers는 항상 5종 [스왑, CPU, 메모리, Load, 디스크]. active flag로 활성 자원 표시."""
     raw = _raw(cpu_p95=cpu_p95, mem_p95=mem_p95, swap_used=swap_used)
     item = to_capacity_warning_item(raw)
-    assert [t.label for t in item.triggers] == ["스왑", "CPU", "메모리"]
+    assert [t.label for t in item.triggers] == ["스왑", "CPU", "메모리", "Load", "디스크"]
     assert [t.active for t in item.triggers] == expected_active
 
 
@@ -587,9 +618,10 @@ def test_os_eol_matching(os_id, os_version, should_match):
 
 
 def test_agent_unstable_item_fields():
+    """운영 신호 배지 단일 색 — `attn-active` (사용자 의도, 운영 신호 통일)."""
     item = to_agent_unstable_item("pid", "h", 5)
     assert item.badge_text == "5회"
-    assert item.badge_class == "rec-over_provisioned"
+    assert item.badge_class == "attn-active"
     assert item.link_href == "/servers/pid"
     assert item.link_text == "h"
 

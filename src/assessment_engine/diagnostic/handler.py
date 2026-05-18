@@ -3,6 +3,7 @@
 단계 흐름: extracting_stats → applying_rules → generating_narrative → succeeded.
 각 단계 UPDATE 후 commit + Redis polling 캐시 SET. 폴링은 Redis 우선, miss 시 DB.
 """
+import asyncio
 import dataclasses
 import json
 from collections.abc import Callable
@@ -105,7 +106,12 @@ def make_diagnostic_handler(
                     await session.commit()
                     await _publish_progress(redis, diag_repo, job_id)
 
-                    narrative = await llm_client.generate_narrative(job.scope, payload)
+                    # LLM 호출 timeout 의무 (#F6) — 외부 LLM provider hang 시 워커 무한 대기 차단.
+                    # llm_timeout_seconds (default 60s) — DiagnosticSettings 단일 진실.
+                    narrative = await asyncio.wait_for(
+                        llm_client.generate_narrative(job.scope, payload),
+                        timeout=diagnostic_settings.llm_timeout_seconds,
+                    )
                     payload["narrative"] = narrative
 
                     await diag_repo.mark_succeeded(job_id, payload)
@@ -114,6 +120,15 @@ def make_diagnostic_handler(
 
                     logger.info("diagnostic succeeded job_id={} scope={}", job_id, job.scope)
 
+                except asyncio.TimeoutError:
+                    # LLM 호출 timeout — 비즈니스 실패로 흡수, status='failed' 마킹. DLQ 재시도 없음.
+                    logger.warning(
+                        "diagnostic llm timeout job_id={} scope={} timeout_s={}",
+                        job_id, job.scope, diagnostic_settings.llm_timeout_seconds,
+                    )
+                    await diag_repo.mark_failed(job_id, "llm_timeout")
+                    await session.commit()
+                    await _publish_progress(redis, diag_repo, job_id)
                 except OperationalError:
                     # DB 일시 장애 — DLQ 재시도 기회 (F6 fail-close). job은 pending 상태 유지.
                     logger.exception("diagnostic db unavailable job_id={}", job_id)

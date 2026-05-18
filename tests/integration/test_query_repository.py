@@ -370,7 +370,8 @@ async def test_reboot_events_classifies_boot_time_change_as_reboot(
         boot_time=boot_b, agent_started_at=agent_b,
     ))
 
-    sid = await collect_repo.find_server_id("q-rb-1")
+    # (machine_id, hostname) 복합 키 (#C1)
+    sid = await collect_repo.find_server_id("q-rb-1", "test-host-01")
     events = await query_repo.reboot_events(
         sid, start=base_ts - timedelta(minutes=1), end=base_ts + timedelta(hours=2),
     )
@@ -396,7 +397,8 @@ async def test_reboot_events_classifies_agent_only_change_as_restart(
         boot_time=boot, agent_started_at=agent_b,
     ))
 
-    sid = await collect_repo.find_server_id("q-rb-2")
+    # (machine_id, hostname) 복합 키 (#C1)
+    sid = await collect_repo.find_server_id("q-rb-2", "test-host-01")
     events = await query_repo.reboot_events(
         sid, start=base_ts - timedelta(minutes=1), end=base_ts + timedelta(hours=2),
     )

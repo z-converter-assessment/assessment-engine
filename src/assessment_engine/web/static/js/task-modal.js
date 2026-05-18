@@ -54,6 +54,8 @@
         <div style="color:#64748b;">exit_code</div><div>${detail.exit_code !== null ? detail.exit_code : '—'}</div>
         <div style="color:#64748b;">소요</div><div>${detail.duration_ms !== null ? detail.duration_ms + ' ms' : '—'}</div>
         <div style="color:#64748b;">실패 사유</div><div style="color:#b91c1c;">${detail.failure_label ? escapeHtml(detail.failure_label) : '—'}</div>
+        ${detail.params && detail.params.zdm_ip ? `<div style="color:#64748b;">ZDM 주소</div><div><code style="font-size:11px; word-break:break-all;">${escapeHtml(detail.params.zdm_ip)}</code></div>` : ''}
+        ${detail.params && detail.params.zdm_user ? `<div style="color:#64748b;">발행 유저 (ZDM)</div><div><code style="font-size:11px;">${escapeHtml(detail.params.zdm_user)}</code></div>` : ''}
       </div>`;
     const tail = (title, content) => `
       <div style="margin-bottom:10px;">

@@ -1,18 +1,20 @@
-"""진단 service — 운영자가 웹에서 진단 job을 발행하고 polling으로 결과 조회.
+"""진단 service — web 측 조회·기록 (publish 는 `diagnostic/submitter.py` 단일 진실).
 
 책임 경계:
-- input_hash 계산·1시간 캐시 조회·신규 enqueue·RabbitMQ publish 캡슐화 — router는 service만 호출
-- 추상 `BaseDiagnosticRepository` + `BaseQueryRepository`만 의존 (F4) — composition root에서 주입
-- 트랜잭션 경계는 service가 관리
+- 발행 (submit) 은 `DiagnosticSubmitter` 위임 — scheduler 노드도 동일 함수 사용 (#F4)
+- 조회·이력·보고서 발행 기록은 본 service 단일 진실 (router 가 호출)
+- 추상 `BaseDiagnosticRepository` + `BaseQueryRepository`만 의존 (F4)
+
+호환 re-export — exceptions 와 helpers 는 `diagnostic.submitter` 가 단일 진실:
+  DiagnosticNotFound / DiagnosticBadRequest / DiagnosticRaceMiss / _build_input_params /
+  _compute_hash / _normalize_anchor.
 
 상세 설계는 ADR 0004.
 """
-import hashlib
 import json
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 
-import aio_pika
 from aio_pika.abc import AbstractChannel
 from loguru import logger
 from redis.asyncio import Redis
@@ -26,10 +28,22 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
 from assessment_engine.db.repositories.inbound import DiagnosticJobCreate
 from assessment_engine.db.repositories.outbound import DiagnosticJobRecord
+# 발행 단일 진실은 diagnostic.submitter — 본 모듈은 호환 re-export.
+from assessment_engine.diagnostic.submitter import (  # noqa: F401 (re-export)
+    DiagnosticBadRequest,
+    DiagnosticNotFound,
+    DiagnosticRaceMiss,
+    DiagnosticSubmitter,
+    _build_input_params,
+    _compute_hash,
+    _normalize_anchor,
+)
 from assessment_engine.web.settings import diagnostic_settings
 
 
 class DiagnosticService:
+    """web 라우터용 진단 facade — submit 은 DiagnosticSubmitter 위임 + 조회/기록 직접 처리."""
+
     def __init__(
         self,
         query_repo: BaseQueryRepository,
@@ -43,6 +57,12 @@ class DiagnosticService:
         self.diagnostic_repo_factory = diagnostic_repo_factory
         self.broker_channel = broker_channel
         self.redis = redis
+        self._submitter = DiagnosticSubmitter(
+            query_repo=query_repo,
+            session_factory=session_factory,
+            diagnostic_repo_factory=diagnostic_repo_factory,
+            broker_channel=broker_channel,
+        )
 
     async def submit(
         self,
@@ -52,66 +72,10 @@ class DiagnosticService:
         anchor_at: datetime | None = None,
         requested_by: str | None = None,
     ) -> list[str]:
-        """진단 job N개 발행 — server scope면 server_public_ids 길이만큼, environment면 1건.
-
-        각 input별로:
-        1) 1h 캐시 조회 → 있으면 그 id 반환
-        2) 신규 INSERT 시도 → 성공 시 RabbitMQ publish 후 id 반환
-        3) active UNIQUE 충돌 → 기존 진행 중 id 회수
-
-        server scope에서 미존재 public_id는 즉시 DiagnosticNotFound.
-        anchor_at None이면 분 단위로 truncate한 now() 사용 (같은 분 호출은 같은 input_hash).
-        """
-        if scope == "server":
-            if not server_public_ids:
-                raise DiagnosticBadRequest("server_ids required for scope='server'")
-            sid_map = await self.query_repo.resolve_server_ids(server_public_ids)
-            missing = [pid for pid in server_public_ids if pid not in sid_map]
-            if missing:
-                raise DiagnosticNotFound(f"server not found: {','.join(missing[:5])}")
-            targets = server_public_ids
-        else:
-            targets = [None]  # environment scope — 단일 job
-
-        anchor = _normalize_anchor(anchor_at)
-        job_ids: list[str] = []
-        for target in targets:
-            input_params = _build_input_params(scope, target, time_range, anchor)
-            input_hash = _compute_hash(scope, input_params)
-
-            async with self.session_factory() as session:
-                repo = self.diagnostic_repo_factory(session)
-
-                # 1시간 input_hash 캐시는 제거됨 (anchor 분 단위 변화로 실효성 없음).
-                # 더블클릭은 active partial UNIQUE(pending/running)가 흡수 — 아래 enqueue 충돌 분기.
-                new_id = await repo.enqueue(DiagnosticJobCreate(
-                    scope=scope,
-                    input_params=input_params,
-                    input_hash=input_hash,
-                    requested_by=requested_by,
-                ))
-                await session.commit()
-
-                if new_id:
-                    await self._publish(new_id)
-                    job_ids.append(new_id)
-                    logger.info("diagnostic enqueued scope={} hash={} job_id={}", scope, input_hash[:12], new_id)
-                    continue
-
-                # active 충돌 — 같은 input이 진행 중. 기존 job_id 회수.
-                active_id = await repo.get_active_by_hash(scope, input_hash)
-                if active_id:
-                    job_ids.append(active_id)
-                    logger.info(
-                        "diagnostic active conflict scope={} hash={} job_id={}",
-                        scope, input_hash[:12], active_id,
-                    )
-                else:
-                    # INSERT 충돌인데 active 조회 없음 (race: 조회 시점에 이미 종료된 case).
-                    # skip하면 job_ids 길이가 줄어 클라이언트 혼란 — 명시적 raise.
-                    raise DiagnosticRaceMiss(f"enqueue conflict but no active job (race) scope={scope}")
-
-        return job_ids
+        """진단 발행 위임 — 단일 진실 `DiagnosticSubmitter.submit`."""
+        return await self._submitter.submit(
+            scope, server_public_ids, time_range, anchor_at, requested_by,
+        )
 
     async def get_many_latest_server(
         self,
@@ -147,11 +111,108 @@ class DiagnosticService:
     async def list_recent(
         self, days: int, scope: str | None = None,
         server_public_ids: list[str] | None = None,
+        job_type: str | None = None,
     ) -> list[DiagnosticJobRecord]:
-        """이력 페이지(/diagnostics/history)용 — 최근 N일 발행 이력. server_public_ids 지정 시 그 서버들 진단만."""
+        """AI 진단 이력 페이지(/diagnostics/history) 용 — 최근 N일 발행 이력.
+
+        - server_public_ids: 해당 서버 관련 job 만 (server scope 자연 필터)
+        - job_type: 라우터 단에서 'ai_diagnostic' 고정 (보고서 이력은 list_reports 별도).
+        """
         async with self.session_factory() as session:
             repo = self.diagnostic_repo_factory(session)
-            return await repo.list_recent(days, scope, server_public_ids)
+            return await repo.list_recent(days, scope, server_public_ids, job_type)
+
+    async def list_reports(
+        self, days: int,
+        view: str = "all",
+        server_public_ids: list[str] | None = None,
+        cursor: datetime | None = None,
+        limit: int = 20,
+        scope: str | None = None,
+    ) -> list[DiagnosticJobRecord]:
+        """보고서 발행 이력 페이지(/reports/history) 용 — customer + engineer 통합.
+
+        view='all' 이면 두 job_type union (SQL 2회 + Python merge — 발행 빈도 낮아 비효율 수용).
+        scope=None 전체 / 'environment' / 'server' — record 의 scope 필드 기준 filter.
+        cursor: created_at < cursor 행만 반환 (더보기 페이징). None 이면 최근부터.
+        """
+        async with self.session_factory() as session:
+            repo = self.diagnostic_repo_factory(session)
+            if view == "all":
+                customer = await repo.list_recent(days, scope, server_public_ids, "customer_report")
+                engineer = await repo.list_recent(days, scope, server_public_ids, "engineer_report")
+                merged = customer + engineer
+            else:
+                job_type = f"{view}_report"
+                merged = await repo.list_recent(days, scope, server_public_ids, job_type)
+            if cursor is not None:
+                merged = [r for r in merged if r.created_at < cursor]
+            merged.sort(key=lambda r: r.created_at, reverse=True)
+            return merged[:limit]
+
+    async def record_report_emission(
+        self,
+        *,
+        view: str,
+        scope: str,
+        server_public_ids: list[str],
+        period_days: float,
+        time_range: str | None = None,
+        summary_meta: dict | None = None,
+        requested_by: str | None = None,
+    ) -> str | None:
+        """보고서 발행 이력 row INSERT — 합성 직후 즉시 succeeded 로 마킹.
+
+        view: 'customer' | 'engineer' → job_type 'customer_report' | 'engineer_report'.
+        time_range: 보고서 모달 윈도우 식별자(15m/1h/6h/24h/7d/14d/30d). 이력 표시·재조회 link 복원용.
+                    period_days 는 1일 미만 윈도우에서 0 이 되어 손실되므로 time_range 가 단일 진실.
+        같은 input 활성 충돌 (동시 두 요청) 시 None — best-effort, 호출자 응답 흐름 영향 없음.
+        result JSONB 에는 메타만 (서버 수·기간·view) — 양식 HTML 전체 저장은 비대화 회피.
+        """
+        job_type = f"{view}_report"
+        input_params: dict = {
+            "view": view,
+            "server_public_ids": sorted(server_public_ids),
+            "period_days": period_days,
+        }
+        if time_range:
+            input_params["time_range"] = time_range
+        # server scope 1대 보고서는 server_public_id 단수 키도 추가 — list_recent SQL 의 단수 매칭 hit.
+        # AI 진단 server scope job 과 동일 형식이라 보고서 이력 filter (server 상세 link 진입) 정합.
+        if scope == "server" and len(server_public_ids) == 1:
+            input_params["server_public_id"] = server_public_ids[0]
+        input_hash = _compute_hash(scope, input_params)
+        result_payload: dict = {
+            "view": view,
+            "period_days": period_days,
+            "server_count": len(server_public_ids),
+            **(summary_meta or {}),
+        }
+        if time_range and "time_range" not in result_payload:
+            result_payload["time_range"] = time_range
+        async with self.session_factory() as session:
+            repo = self.diagnostic_repo_factory(session)
+            new_id = await repo.enqueue(DiagnosticJobCreate(
+                scope=scope,
+                job_type=job_type,
+                input_params=input_params,
+                input_hash=input_hash,
+                requested_by=requested_by,
+            ))
+            if new_id is None:
+                await session.rollback()
+                logger.debug(
+                    "report record active conflict view={} scope={} hash={}",
+                    view, scope, input_hash[:12],
+                )
+                return None
+            await repo.mark_succeeded(new_id, result_payload)
+            await session.commit()
+            logger.info(
+                "report recorded view={} scope={} hash={} job_id={}",
+                view, scope, input_hash[:12], new_id,
+            )
+            return new_id
 
     async def get_one(self, job_id: str) -> DiagnosticJobRecord | None:
         """단건 조회 — Redis polling 캐시 우선, miss 시 DB fallback (#C3 fail-open)."""
@@ -172,55 +233,7 @@ class DiagnosticService:
             repo = self.diagnostic_repo_factory(session)
             return await repo.get_many_by_ids(job_ids)
 
-    async def _publish(self, job_id: str) -> None:
-        """RabbitMQ publish — 진단 워커가 소비. persistent delivery (broker 재시작 생존)."""
-        message = aio_pika.Message(
-            body=json.dumps({"job_id": job_id}).encode(),
-            delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-            content_type="application/json",
-        )
-        # exchange는 ConsumerSettings.rabbitmq_exchange. routing_key는 진단 전용.
-        exchange = await self.broker_channel.get_exchange(diagnostic_settings.rabbitmq_exchange)
-        await exchange.publish(
-            message,
-            routing_key=diagnostic_settings.diagnostic_routing_key,
-        )
-
-
-def _build_input_params(
-    scope: str,
-    server_public_id: str | None,
-    time_range: str,
-    anchor_at: datetime,
-) -> dict:
-    """input_hash 안정성 — 키·값 카탈로그 고정. 새 키 추가 시 hash 변경(의도된 동작).
-
-    anchor_at은 ISO 8601 UTC 문자열로 직렬화 (canonical JSON 호환).
-    """
-    base = {
-        "time_range": time_range,
-        "anchor_at":  anchor_at.isoformat(),
-    }
-    if scope == "server":
-        base["server_public_id"] = server_public_id
-    return base
-
-
-def _compute_hash(scope: str, input_params: dict) -> str:
-    canonical = json.dumps(input_params, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(f"{scope}|{canonical}".encode()).hexdigest()
-
-
-def _normalize_anchor(at: datetime | None) -> datetime:
-    """anchor 분 단위 truncate — 같은 분 호출은 같은 input_hash (캐시 일관성).
-
-    None이면 now() UTC 분 단위. 명시 시 timezone-aware 후 UTC 변환 + 분 단위.
-    """
-    if at is None:
-        at = datetime.now(UTC)
-    elif at.tzinfo is None:
-        at = at.replace(tzinfo=UTC)
-    return at.astimezone(UTC).replace(second=0, microsecond=0)
+    # _publish 는 DiagnosticSubmitter 가 담당 — 본 service 에 별도 메서드 없음.
 
 
 def to_panel_payload(rec: DiagnosticJobRecord | None) -> dict | None:
@@ -245,15 +258,3 @@ def _deserialize_record(blob: str) -> DiagnosticJobRecord:
         if isinstance(v, str):
             data[key] = datetime.fromisoformat(v)
     return DiagnosticJobRecord(**data)
-
-
-class DiagnosticNotFound(Exception):
-    """router가 HTTPException(404)로 변환."""
-
-
-class DiagnosticBadRequest(Exception):
-    """router가 HTTPException(400)로 변환."""
-
-
-class DiagnosticRaceMiss(Exception):
-    """router가 HTTPException(409)로 변환 — enqueue 충돌인데 active 회수 실패."""

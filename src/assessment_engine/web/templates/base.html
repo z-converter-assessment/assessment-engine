@@ -45,8 +45,21 @@
     .rec-failure           { background: #fee2e2; color: #b91c1c; }
     .rec-pending           { background: #dbeafe; color: #1d4ed8; }
     .rec-unknown           { background: #f1f5f9; color: #64748b; }
-    .task-cell             { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+    /* 운영 신호 단일 active 색 — Right-sizing(rec-*) 와 도메인 분리. attention-cat-item active 와 동일 주황 (단일 진실). */
+    .attn-active           { background: #fef3c7; color: #92400e; }
+    /* row-link: 테이블 cell 안 클릭 가능 link 의 affordance — 항상 옅은 underline, hover 시 파랑 강조. */
+    .row-link              { text-decoration: underline; text-decoration-color: #cbd5e1; text-underline-offset: 2px; }
+    .row-link:hover        { text-decoration-color: #3b82f6; }
+    .task-cell             { display: inline-flex; align-items: center; gap: 6px; text-decoration: underline; text-decoration-color: #cbd5e1; text-underline-offset: 2px; }
+    .task-cell:hover       { text-decoration-color: #3b82f6; }
     .task-cell:hover .badge { filter: brightness(0.95); }
+    /* 서버 상세 최근 작업 row — 클릭 시 task 상세 모달. 시각 affordance: hover 시 음영 강조 + 우측 ">" 화살표. */
+    .task-timeline tr.task-row { transition: background .12s, box-shadow .12s; }
+    .task-timeline tr.task-row:hover td { background: #dbeafe; }
+    .task-timeline tr.task-row:hover { box-shadow: inset 3px 0 0 #3b82f6; }
+    .task-timeline tr.task-row td:last-child { position: relative; padding-right: 24px; }
+    .task-timeline tr.task-row td:last-child::after { content: "›"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #cbd5e1; font-size: 16px; transition: color .12s; }
+    .task-timeline tr.task-row:hover td:last-child::after { color: #3b82f6; }
     .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07); padding: 20px 24px; margin-bottom: 18px; }
 
     /* Attention card 6 sub-section 표준 — list.html attention 전용. inline style 흩어짐 방지. */
@@ -76,7 +89,7 @@
     .progress-bar { height: 6px; background: #e2e8f0; border-radius: 99px; overflow: hidden; position: relative; }
     .progress-fill { height: 100%; border-radius: 99px; transition: width .3s ease; }
 
-    /* Stat mini cards */
+    /* Stat mini cards — 실시간 메트릭 dashboard 용 (작은 그리드, soft bg). */
     .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; margin-bottom: 12px; }
     .stat-box { background: #f8fafc; border-radius: 6px; padding: 10px 12px; }
     .stat-label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
@@ -85,6 +98,37 @@
     .stat-grid-sm { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; }
     .stat-grid-sm .stat-box { padding: 6px 10px; }
     .stat-grid-sm .stat-value { font-size: 15px; }
+
+    /* Metric card — 보고서 KPI/메트릭 표시 (큰 값, white bg + border). 폰트 위계 표준 3슬롯. */
+    .metric-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px; }
+    .metric-card .metric-label { font-size: 12px; color: #64748b; }
+    .metric-card .metric-value { font-size: 24px; font-weight: 700; color: #1e293b; }
+    .metric-card .metric-value-md { font-size: 18px; font-weight: 700; color: #1e293b; }
+    .metric-card .metric-sub { font-size: 11px; color: #94a3b8; }
+    .metric-grid { display: grid; gap: 14px; }
+    .metric-grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .metric-grid-3 { grid-template-columns: repeat(3, 1fr); }
+
+    /* KPI card — KPI 그리드 (대시보드 환경 요약, 보고서 분류 카운트). */
+    .kpi-grid { display: grid; gap: 12px; margin-bottom: 24px; }
+    .kpi-grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .kpi-grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .kpi-grid-4 { grid-template-columns: repeat(4, 1fr); }
+    .kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; }
+    .kpi span { display: block; color: #64748b; font-size: 12px; }
+    .kpi strong { display: block; font-size: 24px; font-weight: 700; color: #1e293b; margin-top: 4px; }
+    .kpi-label { font-size: 11px; color: #94a3b8; margin: 0 0 4px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+    .kpi-label-sub { font-weight: 400; text-transform: none; letter-spacing: 0; color: #cbd5e1; }
+
+    /* Alert notice — 운영 신호 발화 박스 (warn 톤). */
+    .alert-warn { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #fef3c7; border: 1px solid #fde68a; border-radius: 6px; font-size: 13px; color: #92400e; }
+    .alert-list { display: flex; flex-direction: column; gap: 10px; }
+
+    /* Chart toggle 버튼 — cpu/memory/network/storage/performance 공통 (range/anchor/agg toggle). */
+    .toggle-group { display: flex; gap: 4px; flex-wrap: wrap; }
+    .toggle { padding: 5px 12px; border: 1px solid #e2e8f0; border-radius: 5px; background: #fff; color: #475569; font-size: 12px; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
+    .toggle:hover { background: #f8fafc; border-color: #cbd5e1; }
+    .toggle.active { background: #0f172a; color: #fff; border-color: #0f172a; }
 
     /* Section header within card */
     .section-title { font-size: 13px; font-weight: 600; color: #334155; margin: 20px 0 10px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
@@ -98,6 +142,9 @@
     /* Nav buttons */
     .btn { display: inline-block; padding: 7px 14px; background: #f1f5f9; border-radius: 6px; font-size: 13px; color: #334155; font-weight: 500; transition: background .15s; }
     .btn:hover { background: #e2e8f0; text-decoration: none; }
+    /* 보고서 인쇄 버튼 — 성능 리포트 패턴 단일 진실. 모든 보고서 헤더 우상단에 동일 적용. */
+    .btn-print { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #374151; font-size: 13px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; }
+    .btn-print:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); }
 
     /* 진단 액션 버튼 — list.html(환경 진단) / detail.html(서버 진단) 공통 패턴. inline 중복 방지. */
     .btn-action { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #374151; font-size: 13px; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; cursor: pointer; }
@@ -145,7 +192,7 @@
   <script src="/static/js/toast-utils.js?v={{ asset_v }}"></script>
   <script src="/static/js/task-modal.js?v={{ asset_v }}" defer></script>
 </head>
-<body>
+<body data-usage-danger-pct="{{ ui_thresholds.usage_danger_pct }}" data-usage-warn-pct="{{ ui_thresholds.usage_warn_pct }}" data-swap-danger-pct="{{ ui_thresholds.swap_danger_pct }}"{% block body_attrs %}{% endblock %}>
   <header class="no-print">
     <a href="/servers/" class="brand">ZConverter Assessment</a>
   </header>
@@ -164,16 +211,7 @@
       <div id="task-modal-body" style="font-size:13px; color:#1e293b;">불러오는 중...</div>
     </div>
   </div>
-  <script>
-    /* .back 링크 공통 동작 — 브라우저 history 있으면 직전 페이지, 없으면(새 탭·직접 URL) href fallback. */
-    document.querySelectorAll('a.back').forEach(a => {
-      a.addEventListener('click', e => {
-        if (history.length > 1) {
-          e.preventDefault();
-          history.back();
-        }
-      });
-    });
-  </script>
+  <!-- .back 링크는 명시 href back_url 단순 클릭 — history.back() override 안 함.
+       명시 back_url 단일 진실 규약 (#E6 네비게이션 — static-assets.md). -->
 </body>
 </html>

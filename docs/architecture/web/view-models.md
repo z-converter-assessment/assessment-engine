@@ -64,6 +64,14 @@
 - `agent_restart_alert_threshold = 3` — 1h 윈도우 재시작 임계 (web_settings)
 - `_OS_EOL` — `(os_id, os_version_prefix) -> EOL 날짜 string` 정적 dict (mapper)
 
+활용률 색 카탈로그 (mapper 상수, donut + bar 동일 의미는 동일 hex):
+- `_UTIL_COLOR_LOW = "#15803d"` — pct < `_UTIL_LOW_PCT` (적정)
+- `_UTIL_COLOR_MID = "#d97706"` — `_UTIL_LOW_PCT` 이상 ~ `_UTIL_HIGH_PCT` 미만 (주의)
+- `_UTIL_COLOR_HIGH = "#b91c1c"` — pct 이상 `_UTIL_HIGH_PCT` (위험)
+- `_UTIL_COLOR_NONE = "#cbd5e1"` — null (데이터 없음)
+
+대시보드 환경 평균 사용률 bar 색은 HSL hue 그라데이션 (`hsl(120 - 1.2*pct, 65%, 45%)`) — 위 3단계 점프 색이 아닌 부드러운 변화 (mapper `_bar_color`).
+
 ## dataclass 필드 순서 주의 (F1)
 
 default 있는 필드는 default 없는 필드 뒤에. 안 그러면 `non-default argument follows default` `TypeError` 즉시 발생. 새 ViewModel 추가 시 항상 점검.

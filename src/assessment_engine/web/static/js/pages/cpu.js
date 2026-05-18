@@ -4,13 +4,17 @@
  * 외부 의존:
  * - ChartUtils (base.html에서 chart-utils.js 로드)
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
- * - SERVER_ID, CPU_CORES (페이지 inline <script>가 Jinja2로 정의)
+ * - body data-server-id / data-cpu-cores (E6 외부화 규약, static-assets.md)
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtKst, fmtLabel, getAnchorEnd, initAnchor,
         makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray,
         fetchRebootEvents, applyRebootMarkers } = ChartUtils;
+
+// body data attribute 단일 진실 (#E6 inline <script> 금지).
+const SERVER_ID = document.body.dataset.serverId;
+const CPU_CORES = parseInt(document.body.dataset.cpuCores, 10) || 4;
 
 // 로드 추이의 분해력+포화 기준 하이브리드 — 작은 값은 그대로 보여주되
 // suggestedMax(=cpu_cores)를 두어 "코어수=포화" 임계선이 시각에 자연스럽게 노출.

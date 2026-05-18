@@ -16,6 +16,7 @@ from assessment_engine.web.routers.discovery import discovery_router
 from assessment_engine.web.routers.exports import exports_router
 from assessment_engine.web.routers.pages import pages_router
 from assessment_engine.web.routers.payloads import payloads_router
+from assessment_engine.web.routers.reports import reports_router
 from assessment_engine.web.routers.tasks import tasks_router
 from assessment_engine.web.settings import diagnostic_settings, web_settings
 
@@ -90,14 +91,20 @@ Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_sch
 
 @app.middleware("http")
 async def disable_html_cache(request, call_next):
-    """SSR 응답(text/html)에 `Cache-Control: no-store` 적용.
+    """SSR(text/html) + dev 한정 static asset 에 `Cache-Control: no-store` 적용.
 
-    이유: 진단 발행 -> 결과 페이지 -> 뒤로가기 시점에 브라우저가 HTTP cache·BFCache 로 list 페이지를
-    stale HTML 그대로 복원해 succeeded 결과가 안 보이는 회귀가 발생. SSR fetch 매번 fresh 보장으로 회피.
-    JSON API(/api/v1/*) 는 응답 content-type 이 application/json 이라 무관 — 그대로 cache 안 함.
+    HTML: 진단 발행 -> 결과 페이지 -> 뒤로가기 시점에 브라우저 HTTP cache·BFCache 로
+    list 페이지가 stale HTML 그대로 복원되는 회귀 회피.
+
+    Static (JS/CSS): dev 환경 한정. `?v={{ asset_v }}` query bust 가 있으나 브라우저가 disk
+    cache hit 우선시하는 경우 옛 JS 가 잔존 — dev 에서 코드 hot reload 후 클라이언트도 즉시
+    새 JS 받게 강제. prod 는 cdn·long-cache 운영을 위해 본 분기 비활성.
     """
     response = await call_next(request)
-    if response.headers.get("content-type", "").startswith("text/html"):
+    ct = response.headers.get("content-type", "")
+    if ct.startswith("text/html"):
+        response.headers["Cache-Control"] = "no-store"
+    elif web_settings.app_env == "dev" and request.url.path.startswith("/static/"):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -111,6 +118,7 @@ app.include_router(discovery_router)
 app.include_router(tasks_router)
 app.include_router(diagnostics_router)
 app.include_router(diagnostic_results_router)
+app.include_router(reports_router)
 app.include_router(exports_router)
 app.include_router(payloads_router)
 

@@ -29,16 +29,19 @@ class CollectRepository(BaseCollectRepository):
 
     # ─── server_inventory ──────────────────────────────────────────────────
 
-    async def find_server_id(self, machine_id: str) -> int | None:
+    async def find_server_id(self, machine_id: str, hostname: str) -> int | None:
         result = await self.session.execute(
-            select(ServerInventory.id).where(ServerInventory.machine_id == machine_id)
+            select(ServerInventory.id).where(
+                ServerInventory.machine_id == machine_id,
+                ServerInventory.hostname == hostname,
+            )
         )
         return result.scalar_one_or_none()
 
-    # C5: full row select 대신 비교 대상 컬럼만 (id/public_id/last_seen_at/machine_id 제외).
+    # C5: full row select 대신 비교 대상 컬럼만 (id/public_id/last_seen_at/machine_id/hostname 제외).
+    # machine_id·hostname 은 복합 conflict 키 — prev 와 new 가 항상 같아 비교 의미 없음.
     # 매 inventory 메시지 hot path — 불필요 컬럼 read 비용 절약.
     _INVENTORY_COMPARE_COLS = (
-        ServerInventory.hostname,
         ServerInventory.agent_version,
         ServerInventory.os_id,
         ServerInventory.os_version,
@@ -62,12 +65,15 @@ class CollectRepository(BaseCollectRepository):
         # 변경 감지: 직전 행과 비교 후 다를 때만 history 한 행 INSERT (앱 레벨 trigger).
         # 1시간 주기 재발행이라도 정적 정보 동일하면 history는 그대로 — noise 차단.
         prev_q = await self.session.execute(
-            select(*self._INVENTORY_COMPARE_COLS).where(ServerInventory.machine_id == data.machine_id)
+            select(*self._INVENTORY_COMPARE_COLS).where(
+                ServerInventory.machine_id == data.machine_id,
+                ServerInventory.hostname == data.hostname,
+            )
         )
         prev = prev_q.first()
 
         # values()와 set_={}에 같은 컬럼 dict를 재사용 — 컬럼 추가 시 한 곳만 수정.
-        # machine_id는 conflict 키이므로 set_에서 제외 (자기 자신을 자기 값으로 덮어쓰는 무의미한 동작 회피).
+        # machine_id·hostname 은 복합 conflict 키이므로 set_ 에서 제외 (자기 자신 덮어쓰기 무의미).
         row = {
             "machine_id":     data.machine_id,
             "hostname":       data.hostname,
@@ -90,12 +96,15 @@ class CollectRepository(BaseCollectRepository):
             "listen_ports":   data.listen_ports,
             "last_seen_at":   data.collected_at,
         }
-        update_set = {k: v for k, v in row.items() if k != "machine_id"}
+        update_set = {k: v for k, v in row.items() if k not in ("machine_id", "hostname")}
 
         stmt = (
             pg_insert(ServerInventory)
             .values(**row)
-            .on_conflict_do_update(index_elements=["machine_id"], set_=update_set)
+            .on_conflict_do_update(
+                index_elements=["machine_id", "hostname"],
+                set_=update_set,
+            )
             .returning(ServerInventory.id)
         )
         result = await self.session.execute(stmt)
@@ -110,10 +119,9 @@ class CollectRepository(BaseCollectRepository):
 
     @staticmethod
     def _inventory_changed(prev: ServerInventory, new: ServerInventoryCreate) -> bool:
-        """변경 감지. collected_at·last_seen_at 제외한 모든 컬럼 비교."""
+        """변경 감지. collected_at·last_seen_at·machine_id·hostname(복합 conflict 키) 제외 비교."""
         return (
-            prev.hostname        != new.hostname
-            or prev.agent_version    != new.agent_version
+            prev.agent_version    != new.agent_version
             or prev.os_id            != new.os_id
             or prev.os_version       != new.os_version
             or prev.os_codename      != new.os_codename
@@ -165,10 +173,11 @@ class CollectRepository(BaseCollectRepository):
     async def ensure_server_id(
         self,
         machine_id: str,
+        hostname: str,
         fallback: ServerInventoryCreate,
     ) -> tuple[int, bool]:
         # 1. 이미 등록 → 그대로 사용 (placeholder upsert 금지 — 진짜 inventory 보호)
-        server_id = await self.find_server_id(machine_id)
+        server_id = await self.find_server_id(machine_id, hostname)
         if server_id is not None:
             return server_id, False
 
@@ -179,9 +188,11 @@ class CollectRepository(BaseCollectRepository):
             return new_id, True
 
         # 3. 충돌 = 다른 핸들러가 방금 INSERT. 다시 find — 이번엔 보임.
-        server_id = await self.find_server_id(machine_id)
+        server_id = await self.find_server_id(machine_id, hostname)
         if server_id is None:
-            raise RuntimeError(f"failed to ensure server_id for {machine_id} (race not resolved)")
+            raise RuntimeError(
+                f"failed to ensure server_id for ({machine_id}, {hostname}) (race not resolved)"
+            )
         return server_id, False
 
     async def _insert_placeholder_server(self, data: ServerInventoryCreate) -> int | None:
@@ -216,7 +227,7 @@ class CollectRepository(BaseCollectRepository):
         stmt = (
             pg_insert(ServerInventory)
             .values(**row)
-            .on_conflict_do_nothing(index_elements=["machine_id"])
+            .on_conflict_do_nothing(index_elements=["machine_id", "hostname"])
             .returning(ServerInventory.id)
         )
         result = await self.session.execute(stmt)

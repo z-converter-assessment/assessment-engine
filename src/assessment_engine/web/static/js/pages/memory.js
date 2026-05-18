@@ -4,13 +4,15 @@
  * 외부 의존:
  * - ChartUtils (base.html에서 chart-utils.js 로드)
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
- * - SERVER_ID (페이지 inline <script>가 Jinja2로 정의)
+ * - body data-server-id (E6 외부화 규약, static-assets.md)
  */
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtKst, fmtLabel, getAnchorEnd, initAnchor,
         makeBucketGrid, bindToggle, initSse, safeArray,
         fetchRebootEvents, applyRebootMarkers,
         buildAvgMaxDatasets } = ChartUtils;
+
+const SERVER_ID = document.body.dataset.serverId;
 
 function fmtKb(kb) {
   if (kb == null) return '—';

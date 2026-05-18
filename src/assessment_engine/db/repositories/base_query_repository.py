@@ -70,6 +70,11 @@ class BaseQueryRepository(ABC):
         ...
 
     @abstractmethod
+    async def list_all_server_public_ids(self) -> list[str]:
+        """전체 등록 서버 public_id (UUID) — 환경 단위 보고서 URL 합성에 사용. order: id ASC."""
+        ...
+
+    @abstractmethod
     async def list_servers(
         self,
         page: int,

@@ -351,25 +351,83 @@
   </div><!-- /metrics-content -->
 </div>
 
-<div class="card" data-diagnostic-panel data-scope="server" data-server-public-id="{{ server.public_id }}">
+<section class="card no-print" id="server-report-card"
+         data-server-public-id="{{ server.public_id }}"
+         data-server-hostname="{{ server.hostname }}">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 style="margin:0;">서버 진단</h2>
-    <button class="diag-submit btn-action no-print" type="button">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-      서버 진단
+    <h2 style="margin:0;">보고서</h2>
+    <a href="/reports/history?server_public_ids={{ server.public_id }}&scope=server" class="btn-action no-print" style="text-decoration:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      보고서 이력
+    </a>
+  </div>
+  <p style="margin:0 0 12px; font-size:12px; color:#64748b;">서버 <strong style="color:#1e293b;">{{ server.hostname }}</strong> 1대 대상 보고서 발행 (새 탭). 발행 이력은 보고서 이력에서 확인.</p>
+  <div style="display:flex; gap:8px;">
+    <button type="button" id="server-report-customer-open" class="btn-action no-print" data-view="customer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
+      고객 보고서 발행
+    </button>
+    <button type="button" id="server-report-engineer-open" class="btn-action no-print" data-view="engineer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="9 13 11 15 15 11"/></svg>
+      엔지니어 보고서 발행
     </button>
   </div>
-  <div class="diag-status" style="color:#64748b; font-size:13px; margin-bottom:10px;">
-    {% if last_server_diagnostic %}최근 진단 결과 표시. 새 발행은 서버 진단 버튼.
-    {% else %}진단 결과 없음 — 서버 진단 버튼으로 즉시 발행 또는 스케줄러 매일 03시 자동.{% endif %}
+
+  <!-- 발행 모달 — 대시보드 환경 보고서 모달과 동일 UX 패턴 (서버 1대 scope) -->
+  <div id="server-report-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
+    <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 id="server-report-title" style="margin:0; font-size:16px; color:#1e293b;">보고서 발행</h3>
+        <button type="button" id="server-report-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
+      </div>
+      <p id="server-report-desc" style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">서버 {{ server.hostname }} Right-sizing 규칙 기반 보고서 발행. 새 탭으로 이동합니다.</p>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+        <div>
+          <label for="server-report-range" style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">윈도우</label>
+          <select id="server-report-range" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
+            <option value="15m">15분</option>
+            <option value="1h">1시간</option>
+            <option value="6h">6시간</option>
+            <option value="24h">24시간</option>
+            <option value="7d">7일</option>
+            <option value="14d" selected>14일 (표준)</option>
+            <option value="30d">30일</option>
+          </select>
+        </div>
+        <div>
+          <label for="server-report-anchor" style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">Anchor (KST)</label>
+          <input type="datetime-local" id="server-report-anchor" autocomplete="off" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
+        </div>
+      </div>
+      <button type="button" id="server-report-submit" class="btn" style="background:#3b82f6; color:#fff; padding:8px 16px; cursor:pointer; border:none;">발행</button>
+    </div>
+  </div>
+</section>
+
+<div class="card" data-diagnostic-panel data-scope="server" data-server-public-id="{{ server.public_id }}">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+    <h2 style="margin:0;">AI 진단</h2>
+    <a href="/diagnostics/history?server_public_ids={{ server.public_id }}" class="btn-action no-print" style="text-decoration:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+      AI 진단 이력
+    </a>
+  </div>
+  <p style="margin:0 0 12px; font-size:12px; color:#64748b;">서버 <strong style="color:#1e293b;">{{ server.hostname }}</strong> Right-sizing 규칙 기반 진단 발행. 결과 페이지로 이동합니다.</p>
+  <button class="diag-submit btn-action no-print" type="button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+    AI 진단 발행
+  </button>
+  <div class="diag-status" style="color:#64748b; font-size:13px; margin:12px 0 10px;">
+    {% if last_server_diagnostic %}최근 진단 결과 표시.
+    {% else %}진단 결과 없음 — AI 진단 발행 버튼으로 즉시 발행 또는 스케줄러 매일 03시 (기본 기간 {{ diagnostic_default_range_label }}) 자동.{% endif %}
   </div>
   <div class="diag-result"></div>
 
-  <!-- 서버 진단 발행 모달 (list batch와 동일 UX) -->
+  <!-- AI 진단 발행 모달 (list batch와 동일 UX) -->
   <div class="diag-modal no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
-      <h3 style="margin:0 0 16px; font-size:16px; color:#1e293b;">서버 진단 발행</h3>
-      <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">서버 <strong style="color:#1e293b;">{{ server.hostname }}</strong> USE Method 규칙 기반 진단 발행. 결과 페이지로 이동합니다.</p>
+      <h3 style="margin:0 0 16px; font-size:16px; color:#1e293b;">AI 진단 발행</h3>
+      <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">서버 <strong style="color:#1e293b;">{{ server.hostname }}</strong> Right-sizing 규칙 기반 진단 발행. 결과 페이지로 이동합니다.</p>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
         <div>
           <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">윈도우</label>
@@ -401,11 +459,43 @@
 </div>
 
 <!-- 최근 작업 — task.install 이력 (최근 10건). 클릭 시 modal 로 stdout_tail/stderr_tail/failure_reason 확장 -->
-<div class="card">
+<div class="card" id="server-install-card"
+     data-server-public-id="{{ server.public_id }}"
+     data-server-hostname="{{ server.hostname }}">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
     <h2 style="margin:0;">최근 작업</h2>
-    <span style="font-size:12px; color:#64748b;">최근 10건 — task.install</span>
+    <button type="button" id="server-install-open" class="btn-action no-print">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      ZConverter Install
+    </button>
   </div>
+  <p style="margin:0 0 12px; font-size:12px; color:#64748b;">최근 10건 — task.install</p>
+
+  <!-- 발행 모달 — 대시보드 ZConverter Install 모달과 동일 form (1대 scope) -->
+  <div id="server-install-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
+    <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 style="margin:0; font-size:16px; color:#1e293b;">ZConverter Install 발행</h3>
+        <button type="button" id="server-install-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
+      </div>
+      <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">
+        서버 <strong style="color:#1e293b;">{{ server.hostname }}</strong> 1대에 아래 ZDM 좌표로 ZConverter 설치를 발행합니다.
+        <br>설치 번들 endpoint (예: <code style="color:#475569;">{{ install_bundle_url }}</code>) — 호스트가 본 URL 에서 fetch 후 OS별 스크립트 실행.
+      </p>
+      <div style="margin:12px 0;">
+        <label for="server-install-zdm-target" style="display:block; font-size:12px; color:#475569; margin-bottom:4px;">ZDM 서버 IP/hostname</label>
+        <input type="text" id="server-install-zdm-target" name="server-install-zdm-target-{{ asset_v }}" value="{{ zdm_defaults.ip }}" autocomplete="off"
+               style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px; box-sizing:border-box;">
+      </div>
+      <div style="margin:12px 0;">
+        <label for="server-install-zdm-account" style="display:block; font-size:12px; color:#475569; margin-bottom:4px;">ZDM 관리자 계정 (email)</label>
+        <input type="email" id="server-install-zdm-account" name="server-install-zdm-account-{{ asset_v }}" value="{{ zdm_defaults.user }}" autocomplete="off"
+               style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px; box-sizing:border-box;">
+      </div>
+      <button type="button" id="server-install-submit" class="btn" style="background:#3b82f6; color:#fff; padding:8px 16px; cursor:pointer; border:none; margin-top:12px;">발행</button>
+    </div>
+  </div>
+
   {% if recent_tasks %}
   <table class="task-timeline" style="width:100%; border-collapse:collapse;">
     <thead>
@@ -436,20 +526,8 @@
   {% endif %}
 </div>
 
-<!-- 페이지 이동 -->
-<div class="no-print" style="display:flex; gap:10px; margin-top:4px; flex-wrap:wrap;">
-  <a href="/servers/{{ server.public_id }}/cpu"         class="btn">CPU 상세 →</a>
-  <a href="/servers/{{ server.public_id }}/memory"      class="btn">메모리 상세 →</a>
-  <a href="/servers/{{ server.public_id }}/storage"     class="btn">스토리지 상세 →</a>
-  <a href="/servers/{{ server.public_id }}/network"     class="btn">네트워크 상세 →</a>
-  <a href="/servers/{{ server.public_id }}/services"    class="btn">서비스/포트 상세 →</a>
-  <a href="/servers/{{ server.public_id }}/performance" class="btn">성능 리포트 →</a>
-  <a href="/diagnostics/history?server_public_ids={{ server.public_id }}" class="btn">진단 이력 →</a>
-</div>
-
-<script>
-window.SERVER_ID = "{{ server.public_id }}";
-</script>
-<script src="/static/js/pages/detail.js" defer></script>
+<script src="/static/js/pages/detail.js?v={{ asset_v }}" defer></script>
 <script src="/static/js/diagnostic.js?v={{ asset_v }}" defer></script>
 {% endblock %}
+
+{% block body_attrs %} data-server-id="{{ server.public_id }}"{% endblock %}

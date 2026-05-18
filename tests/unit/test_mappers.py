@@ -324,7 +324,8 @@ def test_to_gap_warning_item_under_provisioned_at_30min():
         last_metric_at=metric_ts,
     )
     item = to_gap_warning_item(raw, now)
-    assert item.badge_class == "rec-under_provisioned"
+    # 운영 신호 단일 active 색 — `attn-active` (사용자 의도).
+    assert item.badge_class == "attn-active"
     assert item.badge_text == "35분"
     assert item.link_href == "/servers/pid"
     assert item.link_text == "h"
@@ -332,14 +333,14 @@ def test_to_gap_warning_item_under_provisioned_at_30min():
 
 
 def test_to_gap_warning_item_right_size_short_gap():
-    """5~30분 갭 → rec-right_size."""
+    """5~30분 갭도 attn-active 단일 색 (운영 신호 통일)."""
     now = datetime(2026, 5, 9, 12, 30, tzinfo=UTC)
     raw = MetricGapWarningRaw(
         public_id="pid", hostname="h",
         last_metric_at=now - timedelta(minutes=10),
     )
     item = to_gap_warning_item(raw, now)
-    assert item.badge_class == "rec-right_size"
+    assert item.badge_class == "attn-active"
     assert item.badge_text == "10분"
 
 

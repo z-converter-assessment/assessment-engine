@@ -19,6 +19,7 @@ from assessment_engine.web.services.diagnostic_service import (
     DiagnosticRaceMiss,
     DiagnosticService,
 )
+from assessment_engine.web.settings import diagnostic_settings
 
 diagnostics_router = APIRouter(prefix="/api/v1/diagnostics", tags=["diagnostics"])
 
@@ -45,6 +46,12 @@ async def submit(
     req: DiagnosticRequest,
     service: DiagnosticService = Depends(get_diagnostic_service),
 ):
+    # feature flag — diagnostic_enabled=False 시 short-circuit. 모달 UI 는 그대로 (사용자 트리거는 503).
+    if not diagnostic_settings.diagnostic_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="AI 진단 일시 비활성화 — 운영자 정책. DIAGNOSTIC_ENABLED=true 로 활성.",
+        )
     public_ids = [str(u) for u in req.server_ids] if req.server_ids else None
     try:
         job_ids = await service.submit(

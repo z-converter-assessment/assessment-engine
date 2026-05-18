@@ -119,6 +119,8 @@ prod-contract.md 7절 "Secret 채널" + deployment.md "단계별 흐름" 참조.
 | `WEB_PORT` | `8000` | config.py / docker-compose | Web UI 접속 포트. 충돌 시 변경 |
 | `INSTALL_BUNDLE_URL` | `http://host.lima.internal:8000/zconverter.tar.gz` | config.py / .env | task.install download.url 에 박혀 발행. 분산 환경은 엔진 VM IP/hostname 으로 .env 수정 의무 (agent worker 가 본 URL 로 install bundle fetch). |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |
+| `ZDM_DEFAULT_IP` | `192.168.3.94` | config.py | ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표. install 모달 default 값. 운영자가 모달에서 매 발행마다 override 가능 — POST `/tasks/install` body `zdm_ip` 누락 시 본 값으로 fallback. install.sh/install.ps1 의 `-s` 인자로 전달 |
+| `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 서버 관리자 계정 기본값. install 모달 default. POST body `zdm_user` 누락 시 fallback. install.sh/install.ps1 의 `-u` 인자로 전달 |
 | `SQLALCHEMY_ECHO` | `false` | config.py | SQLAlchemy 엔진 SQL 로깅. dev 디버깅 시 true (운영 환경은 false 유지 — 로그 폭증·secret 노출 위험) |
 | `LOG_FORMAT` | `text` | config.py / 각 entry `setup_logging()` | 로그 출력 format. `text`(dev colorized·grep) 또는 `json`(외부 log aggregator indexing). prod은 `json` 권장 |
 | `PGADMIN_PORT` | `5050` | docker-compose dev override | pgAdmin GUI 포트 (dev 전용) |

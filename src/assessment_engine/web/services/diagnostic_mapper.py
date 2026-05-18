@@ -101,10 +101,11 @@ class DiagnosticPanelView:
 
 
 def to_history_item(rec: DiagnosticJobRecord) -> dict[str, Any]:
-    """이력 페이지 행 1개 — JSONB 키 추출·표시 fallback 단일 진실 (P2).
+    """AI 진단 이력 페이지 행 1개 — JSONB 키 추출·표시 fallback 단일 진실 (P2).
 
     history.html 템플릿이 attribute access만 하도록 dict 변환. time_range 누락 시 "—".
     KST 변환은 템플릿 kst 필터에 위임 (F2) — datetime을 그대로 전달.
+    보고서 이력은 별도 mapper (`report_mapper.to_report_history_item`).
     """
     return {
         "job_id":           rec.id,
