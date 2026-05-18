@@ -43,14 +43,14 @@ jobs:
       - name: Install uv
         run: pip install uv
 
-      - name: Install project (frozen)
-        run: uv sync --frozen
+      # `--no-install-project` — self(assessment-engine)는 PyPI 미공개라 audit 대상 아님.
+      # 의존성만 venv에 install하면 pip-audit이 self editable 이슈 없이 의존성만 검사.
+      - name: Install dependencies only (no project)
+        run: uv sync --frozen --no-install-project
 
-      # pip-audit를 uv venv에 install 후 같은 venv 안 install된 패키지 audit.
+      # pip-audit를 같은 venv에 install 후 venv 안 의존성 packages만 audit.
       # `--strict` — vulnerability 발견 시 exit 1로 CI fail.
-      # `--skip-editable` — uv sync default가 self(assessment-engine 0.0.0)를 editable install하는데
-      #   본 패키지는 PyPI 미공개라 audit 불가. self는 audit 대상 아님이라 skip이 정답.
       - name: pip-audit
         run: |
           uv pip install pip-audit
-          uv run pip-audit --strict --skip-editable
+          uv run pip-audit --strict
