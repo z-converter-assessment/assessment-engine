@@ -1,0 +1,43 @@
+version: 2
+
+# Dependabot — 자동 dependency·action update PR 생성.
+#
+# 정책:
+# - GitHub Actions third-party action을 floating tag(v4·v5)로 두지 않고 SHA pinning + Dependabot으로
+#   자동 bump (W5 supply chain 보안).
+# - Python 의존성(pyproject.toml + uv.lock)도 주간 검토 — security.yml의 pip-audit와 보완.
+
+updates:
+  # GitHub Actions workflow의 third-party action SHA 자동 갱신.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+      include: scope
+    labels:
+      - dependencies
+      - github-actions
+
+  # Python 의존성 — pyproject.toml + uv.lock.
+  # uv lockfile은 Dependabot이 직접 갱신 못 함 (Dependabot이 uv 미지원 시점) — pyproject.toml의 dep만 PR 생성.
+  # 운영자가 PR 받으면 로컬에서 `uv lock` 재실행 후 commit.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+      include: scope
+    labels:
+      - dependencies
+      - python

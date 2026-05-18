@@ -66,6 +66,7 @@ class TaskRow:
     duration_ms:    int | None
     stdout_tail:    str | None
     stderr_tail:    str | None
+    params:         dict | None = None  # install task 의 {zdm_ip, zdm_user} 등 발행 파라미터
 
 
 # ---------- Dashboard raw DTOs (delta 계산용 2행 페어) ----------
@@ -207,10 +208,12 @@ class ReportRowRaw:
     services: list[dict] | None  # service_classifier 입력 (role 추론용)
     last_seen_at: datetime | None
 
-    # USE Method Utilization (p95)
+    # USE Method Utilization (p95 + avg + peak)
     cpu_p95_pct: float | None
+    cpu_avg_pct: float | None
     cpu_peak_pct: float | None
     mem_p95_pct: float | None
+    mem_avg_pct: float | None
     mem_peak_pct: float | None
 
     # USE Method Saturation
@@ -256,7 +259,7 @@ class ReportRowRaw:
 class InventoryExportEntry:
     """정제 inventory JSON 항목 — 자동화 도구(Terraform/OpenStack/Ansible/CSP SDK) 입력 표준.
 
-    스키마·정제 원칙·사용처: docs/architecture/inventory-export.md (v2).
+    스키마·정제 원칙·사용처: docs/architecture/inventory-export.md (v3).
     벤더 중립 — recommended_size_class만 노출, 도구가 자기 도메인 instance type에 매핑.
     """
     machine_id: str
@@ -310,7 +313,7 @@ class MetricGapWarningRaw:
     last_metric_at: datetime
 
 
-# --- AI 진단 job 조회 결과 (ADR 0004) ---
+# --- 진단 job 조회 결과 (ADR 0004) ---
 
 
 @dataclass
@@ -318,8 +321,10 @@ class DiagnosticJobRecord:
     """진단 job 단건 — 라우터 polling 응답·워커 작업 단위 표현.
 
     id는 UUID 문자열 (PG_UUID as_uuid=False). result·error_message는 status 따라 둘 중 하나만 채움.
+    job_type: 'ai_diagnostic' | 'customer_report' | 'engineer_report'
     """
     id: str
+    job_type: str
     scope: str
     input_params: dict
     input_hash: str

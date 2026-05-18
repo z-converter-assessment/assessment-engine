@@ -8,7 +8,7 @@
 - 4 ERROR 회귀 (D1·D2·D4·D5) 가드 — 옛 형식("task_result" / "failed" / "task_public_id" / boot_time required) 거부
 """
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -72,8 +72,8 @@ def test_boot_time_nullable_allowed() -> None:
 def test_boot_time_value_also_allowed() -> None:
     """nullable override 라도 값이 있으면 그대로 datetime 으로 파싱."""
     payload = make_task_result_payload(
-        boot_time=datetime(2026, 5, 14, 10, 0, tzinfo=timezone.utc),
-        agent_started_at=datetime(2026, 5, 14, 10, 1, tzinfo=timezone.utc),
+        boot_time=datetime(2026, 5, 14, 10, 0, tzinfo=UTC),
+        agent_started_at=datetime(2026, 5, 14, 10, 1, tzinfo=UTC),
     )
     data = _validate(payload)
     assert data.boot_time is not None

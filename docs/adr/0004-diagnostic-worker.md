@@ -1,6 +1,8 @@
 # ADR 0004 — AI 진단 워커 아키텍처
 
-상태: Proposed (2026-05-12)
+상태: Refined by 0010 (2026-05-16) — 워커·스케줄러·`diagnostic_jobs` 인프라는 그대로 유효. "AI 진단" 명칭은 ADR 0010으로 "진단"(scope에 따라 환경/서버)으로 정정. `LLM_PROVIDER=mock` default + ollama 미구현 상태 그대로 보존. 본 ADR 본문은 historical record.
+
+원래 상태: Proposed (2026-05-12)
 
 ## Context
 
@@ -163,7 +165,7 @@ ADR 0002와 유사 — 진단 단위가 작아지고 빈도가 폭증할 경우:
 ## 관련 문서
 - ADR 0003: 임계값·방법론·LLM 모델 선택 (본 ADR은 실행 인프라)
 - ADR 0007: Task 별도 큐 모델 (worker / publisher 분리 패턴 참조 — 0002 supersede)
-- CLAUDE.md #A2 컨테이너 구성·#B1 routing key 표·#C1 키 제약 갱신 의무
+- CLAUDE.md #A0 범위·#B 메시지 데이터 계약·#C1 키 제약 갱신 의무 (routing key 표는 `docs/architecture/rabbitmq.md`)
 - `docs/architecture/consumer.md` 워커 구현 시 참조 패턴
 - `docs/operations/alembic.md` `diagnostic_jobs` 마이그레이션 절차
 

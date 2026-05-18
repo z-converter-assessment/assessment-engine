@@ -7,17 +7,16 @@ Create Date: 2026-05-12 10:00:00.000000
 ADR 0004 — AI 진단 워커 기반 테이블. 일반 테이블(hypertable 아님).
 partial UNIQUE + partial INDEX 2종 보강 — 자세한 사유는 모델 docstring.
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-
 revision: str = 'c1d2e3f4a5b6'
-down_revision: Union[str, Sequence[str], None] = 'b8f8ffd882f7'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = 'b8f8ffd882f7'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

@@ -4,11 +4,11 @@ from typing import Literal
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# pydantic-settings의 secrets_dir은 디렉토리가 존재하지 않으면 무시되지만,
-# 일부 환경에서 경로 문제로 noisy 경고가 발생할 수 있어 명시적으로 분기.
-# - prod 컨테이너: docker-compose `secrets:` 블록이 /run/secrets 에 마운트
-# - dev (호스트 또는 dev compose): 디렉토리 없음 → None
-_SECRETS_DIR = "/run/secrets" if os.path.isdir("/run/secrets") else None
+# 외부 인프라가 secret을 어떻게 주입하든(systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등)
+# pydantic-settings는 env 우선·secrets_dir fallback 둘 다 지원. secrets_dir은 디렉토리가 존재할 때만 활성.
+# 본 repo는 secret 채널 자체를 강제하지 않음(CLAUDE.md #A0) — _validate_prod_*가 결과(weak default 거부)만 검증.
+_SECRETS_DIR = os.environ.get("SECRETS_DIR", "/run/secrets")
+_SECRETS_DIR = _SECRETS_DIR if os.path.isdir(_SECRETS_DIR) else None
 
 # prod에서 거부할 약한 default 값 (dev/PoC 표준 자격을 prod에 그대로 흘리는 사고 방지).
 # 본 프로젝트의 dev default는 "assessment". 다른 흔한 약한 값도 함께 차단.
@@ -16,7 +16,8 @@ _WEAK_VALUES = frozenset({"", "assessment", "password", "admin", "root", "change
 
 
 class WebSettings(BaseSettings):
-    # 우선순위: OS env > .env (cwd) > /run/secrets/<field> 파일 > 코드 default
+    # 우선순위: OS env > .env (cwd) > <SECRETS_DIR>/<field> 파일 > 코드 default
+    # SECRETS_DIR env로 주입 경로 override 가능 (default `/run/secrets`).
     model_config = SettingsConfigDict(
         env_file=".env",
         secrets_dir=_SECRETS_DIR,
@@ -25,6 +26,10 @@ class WebSettings(BaseSettings):
 
     # 환경 마커. prod일 때 model_validator가 약한 default를 거부.
     app_env: Literal["dev", "staging", "prod"] = "dev"
+
+    # 로그 출력 format. dev=text(colorized·grep 친화), prod=json(외부 log aggregator indexing).
+    # JSON 출력 시 loguru `serialize=True` — record를 JSON으로 변환 후 stdout.
+    log_format: Literal["text", "json"] = "text"
 
     postgres_host: str = "postgres"
     postgres_db: str = "assessment"
@@ -41,7 +46,7 @@ class WebSettings(BaseSettings):
 
     # TTL (seconds)
     redis_ttl_idempotent: int = 86400          # 24h — 재발행 메시지 중복 차단
-    redis_ttl_online: int = 90                  # 90s — 마지막 메트릭 수신 후 오프라인 판단
+    redis_ttl_online: int = 300                 # 5min — 오프라인 판단. 운영 신호 "통신 끊김" 임계(gap_minutes=5) 와 단일 진실.
     redis_ttl_token: int = 3600                 # 1h  — 인증 토큰
     redis_ttl_last_agent_start: int = 86400     # 24h — 직전 agent_started_at 캐시 (재시작 감지용)
     redis_ttl_agent_restarts: int = 3600        # 1h  — 슬라이딩 윈도우 카운터
@@ -56,7 +61,8 @@ class WebSettings(BaseSettings):
     redis_key_token: str = "token:{}"
     redis_key_last_agent_start: str = "last_agent_start:{}"
     redis_key_agent_restarts: str = "agent_restarts:{}"
-    redis_key_time_invariant_warned: str = "time_invariant_warned:{}"  # {machine_id} 쿨다운 마커
+    # {machine_id}:{hostname} 쿨다운 마커 — server_inventory 복합 unique 일관 (#C1)
+    redis_key_time_invariant_warned: str = "time_invariant_warned:{}:{}"
 
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
     agent_restart_alert_threshold: int = 3
@@ -67,16 +73,16 @@ class WebSettings(BaseSettings):
     # 원격 작업 install bundle endpoint (self-host).
     # task.install 페이로드의 download.url에 그대로 박혀 발행되고, 원격 호스트의
     # WORKER_DOWNLOAD_ALLOWED_HOSTS 화이트리스트와 host가 정확히 일치해야 fetch 허용.
-    # HTTPS 강제 — 원격 호스트 worker 측 정책상 https:// 만 fetch 허용 (ADR 0008 임시).
-    install_bundle_url: str = "https://host.lima.internal:8443/zconverter.tar.gz"
+    # ADR 0009 — dev plain HTTP. agent worker 측 HTTPS-only 정책으로 dev 에서 success 경로 검증 불가
+    # (failure_reason=url_not_allowed). agent 측 호환성 작업 후 활성화 — 별도 ADR.
+    install_bundle_url: str = "http://host.lima.internal:8000/zconverter.tar.gz"
     install_timeout_sec: int = 600  # install.sh wall-clock timeout (원격 host의 worker가 강제 종료)
 
-    # 2-port 분리 (ADR 0008 임시) — install bundle endpoint 만 HTTPS, 나머지(브라우저·API·healthcheck) plain HTTP.
-    # 운영자 편의(브라우저 plain 접근) + agent worker HTTPS-only 정책 동시 충족 위한 dev workaround.
-    # 정석은 agent 측 dev http toggle 또는 nginx ingress sidecar — 별도 ADR.
-    https_port:   int = 8443
-    ssl_certfile: str | None = None
-    ssl_keyfile:  str | None = None
+    # ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표 — install 모달의 default 값으로 사용.
+    # install.sh / install.ps1이 -s ZDM_IP -u ZDM_USER 인자로 받아 ZDM 서버에서 setup 패키지 fetch.
+    # 운영자가 모달에서 매 발행마다 override 가능. POST body의 zdm_ip·zdm_user 누락 시 본 값으로 fallback.
+    zdm_default_ip: str = "192.168.3.94"
+    zdm_default_user: str = "admin@zconverter.com"
 
     @property
     def database_url(self) -> str:
@@ -93,19 +99,12 @@ class WebSettings(BaseSettings):
     def _validate_prod_web_secrets(self) -> "WebSettings":
         if self.app_env != "prod":
             return self
-        # secrets 마운트 누락 fail-fast — 운영자가 `docker-compose.prod.yml` 없이 prod 기동한 사고 방지.
-        # /run/secrets는 Docker secrets가 tmpfs로 마운트하는 경로. 디렉토리 자체가 없으면 secret 채널이
-        # 끊긴 상태이고, pydantic-settings는 env·default로 fallback해 weak default를 통과시킬 수 있다.
-        if _SECRETS_DIR is None:
-            raise ValueError(
-                "APP_ENV=prod but /run/secrets is not mounted. "
-                "Use `docker compose -f docker-compose.yml -f docker-compose.prod.yml up` "
-                "to ensure Docker secrets are mounted."
-            )
+        # 외부 인프라가 secret을 어떻게 주입하든(env·secrets_dir·EnvironmentFile·Vault 등) 결과만 검증.
+        # 채널 자체는 본 repo 책임 밖 (CLAUDE.md #A0). weak default 통과 차단이 핵심.
         if self.postgres_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(
                 "POSTGRES_PASSWORD is unset or uses a dev default in prod. "
-                "Provide via Docker secret (/run/secrets/postgres_password) or env var."
+                "Provide via env var or secret channel (systemd EnvironmentFile·Vault·k8s Secret 등)."
             )
         if self.postgres_user in _WEAK_VALUES:
             raise ValueError("POSTGRES_USER must be set to a non-default value in prod.")
@@ -125,7 +124,8 @@ class ConsumerSettings(WebSettings):
     rabbitmq_routing_key_error: str = "server.error"
 
     # 원격 작업 토폴로지 (collector exchange와 분리 — 인증·DLX 정책 독립).
-    # task.install: engine 발행 / routing_key=task.install.<machine_id> / queue=agent.tasks.<machine_id> (engine 동적 declare)
+    # task.install: engine 발행
+    #   routing_key=task.install.<machine_id> / queue=agent.tasks.<machine_id> (engine 동적 declare)
     # task.result : 원격 호스트 발행 / queue=worker.result
     rabbitmq_task_exchange: str = "assessment.tasks"
     rabbitmq_task_queue_prefix: str = "agent.tasks"
@@ -150,7 +150,7 @@ class ConsumerSettings(WebSettings):
         if self.rabbitmq_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(
                 "RABBITMQ_PASSWORD is unset or uses a dev default in prod. "
-                "Provide via Docker secret (/run/secrets/rabbitmq_password) or env var."
+                "Provide via env var or secret channel (systemd EnvironmentFile·Vault·k8s Secret 등)."
             )
         if self.rabbitmq_user in _WEAK_VALUES:
             raise ValueError("RABBITMQ_USER must be set to a non-default value in prod.")
@@ -158,10 +158,15 @@ class ConsumerSettings(WebSettings):
 
 
 class DiagnosticSettings(ConsumerSettings):
-    """AI 진단 워커·스케줄러·웹 공통 설정 (ADR 0004).
+    """진단 워커·스케줄러·웹 공통 설정 (ADR 0004).
 
     ConsumerSettings 상속 — broker_url·prod secret 검증 그대로 활용. 진단 워크플로 고유 필드만 추가.
     """
+    # AI 진단 일시 비활성 flag — 기본 비활성 (운영자 명시 활성 시 True override).
+    # False 시: web POST /api/v1/diagnostics 503 reject + scheduler cron 발화 no-op.
+    # 모달 UI는 그대로 (사용자 트리거는 503으로 명시), worker process 는 큐 비어 idle.
+    diagnostic_enabled: bool = False
+
     # routing key + TTL (모두 RabbitMQ broker — 큐 인자 변경 시 broker 재선언 의무)
     diagnostic_routing_key: str = "diagnostic.request"
     diagnostic_queue_ttl_ms: int = 24 * 60 * 60 * 1000   # 24h — pending job 처리 못 하면 DLQ
@@ -189,6 +194,11 @@ class DiagnosticSettings(ConsumerSettings):
     worker_job_timeout_seconds: int = 300
 
 
-web_settings        = WebSettings()
-consumer_settings   = ConsumerSettings()
-diagnostic_settings = DiagnosticSettings()
+# Settings 인스턴스는 컴포넌트별 sub-module에서 단일 진실로 생성 (Composition Root 패턴, CLAUDE.md #F4).
+# - web 컴포넌트: src/assessment_engine/web/settings.py
+# - consumer 컴포넌트: src/assessment_engine/consumer/settings.py
+# - diagnostic 컴포넌트: src/assessment_engine/diagnostic/settings.py
+# - db layer(session·redis)는 모든 컴포넌트 공통 — 자체 WebSettings 인스턴스화로 circular import 회피.
+#
+# multi-node 분리 배포 시 web 노드는 ConsumerSettings·DiagnosticSettings 인스턴스화 안 함 →
+# 해당 컴포넌트 한정 키(LLM_*·DIAGNOSTIC_*·WORKER_*) 검증 skip — 최소 권한 원칙 정합.

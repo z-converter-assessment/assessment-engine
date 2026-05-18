@@ -92,7 +92,7 @@ production 표준을 dev에도 적용 — namespace 격리·내구성 외 부담
 
 | 항목 | 적용 |
 |------|------|
-| Vhost `/assessment` | `docker-compose.yml` 의 `RABBITMQ_DEFAULT_VHOST` + `src/assessment_engine/config.py` 의 `rabbitmq_vhost` + dev-up.sh 가 VM 안 `/etc/assessment-agent.env` 에 쓰는 `RABBITMQ_VHOST` 모두 `/assessment` |
+| Vhost `/assessment` | `docker-compose.yml` 의 `RABBITMQ_DEFAULT_VHOST` + `src/assessment_engine/config.py` 의 `rabbitmq_vhost` + pipeline-up.sh 가 VM 안 `/etc/assessment-agent.env` 에 쓰는 `RABBITMQ_VHOST` 모두 `/assessment` |
 | Collector exchange `assessment` (direct, durable) | 동일 |
 | Collector DLX `assessment.dlx` (direct, durable) | 동일 |
 | Task exchange `assessment.tasks` (direct, durable) | 동일 (web 측 lifespan + consumer 측 main.py 양쪽 declare, idempotent) |
@@ -160,6 +160,6 @@ dev → production 시 #3 "분기 유지" 항목을 적용:
 
 - `docs/architecture/consumer.md` — 위 토폴로지를 코드(aio-pika)로 어떻게 declare·subscribe하는지 / 핸들러 / 멱등성 / DB 재시도
 - `docs/architecture/agent.md` — 에이전트 측 publish 동작 / publisher confirm / retry
-- `docs/operations/docker.md` — RabbitMQ 컨테이너 정의 / 헬스체크 / 환경변수
+- `docs/development/docker.md` — RabbitMQ 컨테이너 정의 / 헬스체크 / 환경변수
 - `docs/operations/env.md` — `RABBITMQ_*` 환경변수 키 목록
 - `docs/tradeoffs.md` T7 — 에이전트 broker 자동 재연결 (이미 구현됨)

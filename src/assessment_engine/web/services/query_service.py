@@ -7,8 +7,11 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from assessment_engine import recommendation
-from assessment_engine.config import web_settings
 from assessment_engine.db.redis import safe_get, safe_mget, safe_set
+from assessment_engine.db.repositories.base_diagnostic_repository import (
+    DIAGNOSTIC_RANGE_DAYS,
+    DiagnosticTimeRange,
+)
 from assessment_engine.db.repositories.base_query_repository import (
     TIME_RANGE_TD,
     AggFunc,
@@ -25,17 +28,18 @@ from assessment_engine.web.services.cache_serializer import (
     server_detail_to_json,
 )
 from assessment_engine.web.services.device_filters import is_lvm_disk, is_partition, is_physical_disk, is_virtual_mount
+from assessment_engine.web.services.environment_report_mapper import to_environment_report
 from assessment_engine.web.services.mappers import (
     _DONUT_SEGMENT_FROM_REC,
+    ReportView,
     build_environment_overview,
     build_report_summary_bullets,
     build_role_distribution,
+    compute_report_avg_p95,
     compute_report_totals_from_raw,
     to_agent_unstable_item,
     to_capacity_warning_item,
     to_collection_status_item,
-    to_disk_days_warning_item,
-    to_disk_warning_item,
     to_gap_warning_item,
     to_inventory_export_entry,
     to_metric_series_item,
@@ -49,12 +53,15 @@ from assessment_engine.web.services.mappers import (
     to_task_summary,
 )
 from assessment_engine.web.services.metrics_calculator import build_dashboard
+from assessment_engine.web.services.units import bytes_to_gb, kb_to_gb
+from assessment_engine.web.settings import web_settings
 from assessment_engine.web.view_models import (
     AttentionRow,
     AttentionSignals,
     CapacityWarningItem,
     CollectionStatusItem,
     EnvironmentOverview,
+    EnvironmentReportSummary,
     MetricDashboard,
     MetricSeriesItem,
     NetworkDetailResponse,
@@ -105,6 +112,10 @@ class QueryService:
         if not public_ids:
             return {}
         return await self.repo.resolve_server_ids(public_ids)
+
+    async def list_all_server_public_ids(self) -> list[str]:
+        """전체 등록 서버 public_id — 환경 단위 보고서 URL 합성용."""
+        return await self.repo.list_all_server_public_ids()
 
     async def _is_online(self, server_id: int) -> bool:
         flag = await safe_get(self.redis, web_settings.redis_key_online.format(server_id))
@@ -231,48 +242,26 @@ class QueryService:
         limit_each: int = 5,
         days_until_full_threshold: int = 30,
     ) -> AttentionSignals:
-        """list 화면 통합 신호 카드 — 현재 시점 + 평가 기간 신호 6 카탈로그.
+        """list 화면 운영 신호 카드 — USE Method 외 시스템 운영 이상 3 카탈로그.
 
-        - disk_warnings: 현재 사용률 임박 mount (>=85%)
         - gap_warnings: 5분+ 끊김 (24h 안 발생)
-        - capacity_warnings: 24h 평균 자원 부족 의심 (under_provisioned 분류)
-        - days_until_full_warnings: 디스크 잔여 30일 안 (fill_rate 추정)
         - os_eol_warnings: OS EOL 임박/지남 (정적 매핑)
         - agent_unstable: 1h 윈도우 안 재시작 임계 초과
-        한 화면 진입에 6개 신호 SQL — limit_each로 표시 부담 제어. has_any로 빈 카드 조건 분기.
+
+        디스크(capacity·IO)는 USE Method classify 통합 — 본 catalog 에서 제외 (중복 회피).
         """
-        disk_raws = await self.repo.disk_usage_warnings(disk_threshold_pct, limit_each)
         gap_raws = await self.repo.metric_gap_warnings(gap_minutes, gap_recent_hours, limit_each)
         now = datetime.now(UTC)
 
-        # 평가 기간 신호 — 14일 period 전체 서버 대상 (보고서·right-sizing 윈도우와 동일)
         server_ids = await self.repo.list_server_ids()
-        capacity_warnings: list[CapacityWarningItem] = []
-        days_warnings: list[AttentionRow] = []
         os_eol_warnings: list[AttentionRow] = []
         raws_period = []
         if server_ids:
             raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
-            mount_worst = await self.repo.report_mount_worst(
-                server_ids, period_days=recommendation.WINDOW_DAYS, end=now,
-            )
             for raw in raws_period:
-                rec = recommendation.classify(recommendation.ResourceStats(
-                    cpu_p95_pct=raw.cpu_p95_pct, cpu_peak_pct=raw.cpu_peak_pct,
-                    mem_p95_pct=raw.mem_p95_pct, swap_used=raw.swap_used, net_avg_kbps=None,
-                ))
-                if rec == "under_provisioned" and len(capacity_warnings) < limit_each:
-                    capacity_warnings.append(to_capacity_warning_item(raw))
                 eol = to_os_eol_warning_item(raw)
                 if eol and len(os_eol_warnings) < limit_each:
                     os_eol_warnings.append(eol)
-                mount_tuple = mount_worst.get(raw.server_id)
-                if mount_tuple:
-                    mount, used_pct, days = mount_tuple
-                    if days is not None and days <= days_until_full_threshold and len(days_warnings) < limit_each:
-                        days_warnings.append(to_disk_days_warning_item(
-                            raw.public_id, raw.hostname, mount, days, used_pct,
-                        ))
 
         # Agent 재시작 빈번 — Redis 1h 카운터 mget
         agent_unstable: list[AttentionRow] = []
@@ -301,10 +290,7 @@ class QueryService:
                             ))
 
         return AttentionSignals(
-            disk_warnings=[to_disk_warning_item(r, now) for r in disk_raws],
             gap_warnings=[to_gap_warning_item(r, now) for r in gap_raws],
-            capacity_warnings=capacity_warnings,
-            days_until_full_warnings=days_warnings,
             os_eol_warnings=os_eol_warnings,
             agent_unstable=agent_unstable,
         )
@@ -330,17 +316,24 @@ class QueryService:
         details = await self.repo.get_servers(server_ids)
         util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS)
 
-        # 프로비저닝 분포 — 14일 윈도우 USE Method 분류 후 도넛 3 카테고리 카운트
+        # USE Method 분포 — 14일 윈도우 classify 후 도넛 6 카테고리 카운트 + under_provisioned 호스트 상세.
         now = datetime.now(UTC)
-        risk_counts: dict[str, int] = {"under": 0, "over": 0, "normal": 0}
+        risk_counts: dict[str, int] = {}
+        under_hosts: list[CapacityWarningItem] = []
         raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
         for raw in raws_period:
             rec = recommendation.classify(recommendation.ResourceStats(
                 cpu_p95_pct=raw.cpu_p95_pct, cpu_peak_pct=raw.cpu_peak_pct,
-                mem_p95_pct=raw.mem_p95_pct, swap_used=raw.swap_used, net_avg_kbps=None,
+                cpu_load_15m_max=raw.load_15m_max, cpu_cores=raw.cpu_cores,
+                mem_p95_pct=raw.mem_p95_pct, swap_used=raw.swap_used,
+                disk_used_pct=raw.worst_mount_used_pct,
+                iowait_p95_pct=raw.iowait_p95_pct,
+                net_avg_kbps=None,
             ))
-            seg = _DONUT_SEGMENT_FROM_REC.get(rec, "normal")
+            seg = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
             risk_counts[seg] = risk_counts.get(seg, 0) + 1
+            if rec == "under_provisioned":
+                under_hosts.append(to_capacity_warning_item(raw))
 
         online_keys = [web_settings.redis_key_online.format(d.id) for d in details]
         flags = await safe_mget(self.redis, online_keys)
@@ -351,19 +344,154 @@ class QueryService:
                 online_count += int(bool(d.last_seen_at and d.last_seen_at > threshold))
             else:
                 online_count += int(flags[i] is not None)
-        return build_environment_overview(details, online_count, util, risk_counts)
+        return build_environment_overview(details, online_count, util, risk_counts, under_hosts)
+
+    async def get_environment_report(
+        self,
+        time_range: DiagnosticTimeRange = "14d",
+        anchor_at: datetime | None = None,
+        view: ReportView = "customer",
+    ) -> EnvironmentReportSummary:
+        """환경 단위 보고서 (전체 등록 서버 대상) — server scope 양식과 별도 high-level.
+
+        time_range: AI 진단과 동일 7개 윈도우 (15m/1h/6h/24h/7d/14d/30d) — DIAGNOSTIC_RANGE_DAYS.
+        anchor_at: 보고서 기준 시각 (None 이면 현재 시각). period_days = window days.
+        구성: overview (KPI/utilization) + attention (6 카탈로그) + base ReportSummary (분류·KPI)
+            + classification_dist 도넛 + os_distribution + top_risks + view 별 summary_bullets_env.
+        """
+        period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
+        end_dt = anchor_at if anchor_at is not None else datetime.now(UTC)
+
+        overview = await self.get_environment_overview()
+        attention = await self.get_attention_signals()
+
+        public_ids = await self.repo.list_all_server_public_ids()
+        sid_map = await self.repo.resolve_server_ids(public_ids) if public_ids else {}
+        server_ids = [sid_map[p] for p in public_ids if p in sid_map]
+
+        under_hosts: list[CapacityWarningItem] = []
+        if server_ids:
+            base = await self.get_report(server_ids, period_days, end=end_dt, view=view)
+            details = await self.repo.get_servers(server_ids)
+            # under_provisioned 호스트 추출 — time_range 윈도우 정확 정합 (overview 14일 고정 의존 회피).
+            raws_window = await self.repo.report_aggregate(server_ids, period_days, end_dt)
+            for raw in raws_window:
+                rec = recommendation.classify(recommendation.ResourceStats(
+                    cpu_p95_pct=raw.cpu_p95_pct, cpu_peak_pct=raw.cpu_peak_pct,
+                    cpu_load_15m_max=raw.load_15m_max, cpu_cores=raw.cpu_cores,
+                    mem_p95_pct=raw.mem_p95_pct, swap_used=raw.swap_used,
+                    disk_used_pct=raw.worst_mount_used_pct,
+                    iowait_p95_pct=raw.iowait_p95_pct,
+                    net_avg_kbps=None,
+                ))
+                if rec == "under_provisioned":
+                    under_hosts.append(to_capacity_warning_item(raw))
+        else:
+            base = ReportSummary(
+                rows=[], period_days=int(period_days), total=0, online=0,
+                risk_attention=0, risk_high=0,
+            )
+            details = []
+
+        return to_environment_report(
+            view=view,
+            time_range=time_range,
+            anchor_at=end_dt,
+            overview=overview,
+            attention=attention,
+            base=base,
+            details=details,
+            generated_at=datetime.now(UTC),
+            under_provisioned_hosts=under_hosts,
+        )
+
+    async def get_single_server_report(
+        self,
+        server_public_id: str,
+        period_days: float = 14,
+        view: ReportView = "customer",
+        time_range: str = "14d",
+    ) -> "EnvironmentReportSummary":
+        """단일 서버 보고서 — 환경 보고서 양식 (`get_environment_report`) 의 1대 scope 변형.
+
+        선택 N대 보고서 (`/servers/report?ids=...`) 의 hostname link 클릭 시 진입.
+        보고서 이력의 1대 row link 도 본 함수 호출. 환경 보고서와 동일 양식 (overview·attention·rows·top_risks).
+        """
+        end_dt = datetime.now(UTC)
+        sid_map = await self.repo.resolve_server_ids([server_public_id])
+        if server_public_id not in sid_map:
+            return None  # type: ignore[return-value]
+        server_id = sid_map[server_public_id]
+
+        details = await self.repo.get_servers([server_id])
+        detail = details[0] if details else None
+        if detail is None:
+            return None  # type: ignore[return-value]
+
+        # 1대 한정 합성 — 환경 양식과 동일 흐름.
+        base = await self.get_report([server_id], period_days, end=end_dt, view=view)
+        attention = await self.get_attention_signals()
+
+        raws_window = await self.repo.report_aggregate([server_id], period_days, end_dt)
+        under_hosts: list[CapacityWarningItem] = []
+        for raw in raws_window:
+            rec = recommendation.classify(recommendation.ResourceStats(
+                cpu_p95_pct=raw.cpu_p95_pct, cpu_peak_pct=raw.cpu_peak_pct,
+                cpu_load_15m_max=raw.load_15m_max, cpu_cores=raw.cpu_cores,
+                mem_p95_pct=raw.mem_p95_pct, swap_used=raw.swap_used,
+                disk_used_pct=raw.worst_mount_used_pct,
+                iowait_p95_pct=raw.iowait_p95_pct,
+                net_avg_kbps=None,
+            ))
+            if rec == "under_provisioned":
+                under_hosts.append(to_capacity_warning_item(raw))
+
+        # overview — 단일 서버 자원량. is_online 은 Redis online TTL (fail-open) 기반.
+        flag = await safe_get(self.redis, web_settings.redis_key_online.format(detail.id))
+        if flag is not None:
+            is_online = flag == "1"
+        else:
+            threshold = end_dt - timedelta(seconds=web_settings.redis_ttl_online)
+            is_online = bool(detail.last_seen_at and detail.last_seen_at > threshold)
+
+        # P2 단일 진실 — units helper 경유 (mapper·service 공통 단위 산식).
+        mem_total_gb = kb_to_gb(detail.mem_total_kb) or 0.0
+        disk_total_bytes = sum((d.get("size_bytes") or 0) for d in detail.disks) if detail.disks else 0
+        disk_total_gb = int(bytes_to_gb(disk_total_bytes) or 0)
+        overview = EnvironmentOverview(
+            total=1,
+            online=1 if is_online else 0,
+            offline=0 if is_online else 1,
+            total_vcpus=detail.cpu_cores or 0,
+            total_memory_gb=mem_total_gb,
+            total_disk_gb=disk_total_gb,
+        )
+
+        return to_environment_report(
+            view=view,
+            time_range=time_range,
+            anchor_at=end_dt,
+            overview=overview,
+            attention=attention,
+            base=base,
+            details=details,
+            generated_at=datetime.now(UTC),
+            under_provisioned_hosts=under_hosts,
+        )
 
     async def get_report(
         self,
         server_ids: list[int],
-        period_days: int = 14,
+        period_days: float = 14,
         end: datetime | None = None,
+        view: ReportView = "customer",
     ) -> ReportSummary:
         """Assessment 보고서 — raw → ViewModel + KPI 집계 (P2 단일 변환).
 
         repo는 raw stats(`ReportRowRaw`)만 산출. mapper(`to_report_row_item`)가 표시 파생
         (role/recommendation/badge_class/os_display) 채움. KPI도 service 책임.
         is_online은 Redis mget 일괄 (N+1 회피, fail-open 시 last_seen_at fallback).
+        view는 summary_bullets 분기에만 사용 (양식 A/B로 행동 시그널 vs 엔지니어 시그널 분리).
         """
         end_dt = end or datetime.now(UTC)
         # 5개 SQL 단일 round-trip씩. 결과 dict는 server_id 키로 zip.
@@ -403,6 +531,8 @@ class QueryService:
             )
             items.append(to_report_row_item(raw, online, end_dt))
 
+        avg_cpu, avg_mem = compute_report_avg_p95(items)
+
         return ReportSummary(
             rows=items,
             period_days=period_days,
@@ -410,8 +540,10 @@ class QueryService:
             online=sum(1 for it in items if it.is_online),
             risk_attention=sum(1 for it in items if it.risk_level == "attention"),
             risk_high=sum(1 for it in items if it.risk_level == "high"),
+            avg_cpu_p95_pct=avg_cpu,
+            avg_mem_p95_pct=avg_mem,
             totals=compute_report_totals_from_raw(raws),
-            summary_bullets=build_report_summary_bullets(items, raws),
+            summary_bullets=build_report_summary_bullets(items, raws, view=view),
             role_distribution=build_role_distribution(raws),
         )
 
@@ -437,7 +569,7 @@ class QueryService:
         disk_io = await self.repo.report_disk_io_baseline(server_ids, period_days, end_dt)
         net_io = await self.repo.report_net_io_baseline(server_ids, period_days, end_dt)
 
-        # stats에 disk_io·net_io baseline + p95/peak 주입 (inventory-export v3 확장)
+        # stats에 disk_io·net_io baseline + p95/peak 주입 (inventory-export 확장)
         for row in stats_rows:
             disk_tuple = disk_io.get(row.server_id)
             if disk_tuple is not None:

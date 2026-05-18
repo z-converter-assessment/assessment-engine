@@ -10,19 +10,12 @@ __pycache__/
 .github/
 .idea/
 
-# 인프라 (이미지 내 불필요)
-infra/lima/
+# dev 보조 자료 (이미지 내 불필요 — dev 파이프라인 Lima·pgadmin·agent dev env)
+dev/
 docker-compose.yml
-docker-compose.override.yml
-docker-compose.prod.yml
 
-# 시크릿 — 절대 이미지에 포함되면 안 됨 (#F12)
+# 시크릿 — 절대 이미지에 포함되면 안 됨 (CLAUDE.md #F8)
 .env
-secrets/
-infra/
-
-# 배포 도구 (OpenStack staging — ADR 0006). 엔진 이미지 불필요 + terraform 상태·tfvars 노출 위험
-deploy/
 
 # 테스트 (이미지 내 불필요)
 tests/

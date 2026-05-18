@@ -1,6 +1,80 @@
 # 관측 (Observability)
 
-정책: CLAUDE.md #F7. 본 문서는 Request/Correlation ID 분산 trace 도입 트리거·정석 패턴 단일 진실 — 본 프로젝트 현재 미적용, 도입 시 별도 ADR 의무.
+정책: CLAUDE.md #F7. 본 문서는 본 repo가 제공하는 관측 contract(로그·metrics) + Request/Correlation ID 분산 trace 도입 트리거·정석 패턴 단일 진실.
+
+## 로그 레벨 (CLAUDE.md #F7 단일 진실)
+
+| 레벨 | 용도 |
+|------|------|
+| ERROR | 처리 실패 + 사용자/메시지 영향 (DB raise·DLQ·5xx) |
+| WARNING | 정상 흐름이지만 운영 시그널 (시계 invariant 위반·재시작 burst·Redis fail-open·counter reset) |
+| INFO | 상태 전이 (auto-register·schema bootstrap·consumer ready·DLQ enqueue) |
+| DEBUG | 루프 내부·메시지별 흐름 — 운영 기본 비활성 |
+
+원칙·금지·loguru 규약은 CLAUDE.md #F7.
+
+## 외부 의존 실패 모드 매트릭스 (CLAUDE.md #F6 단일 진실)
+
+| 외부 의존 | 실패 모드 | 처리 | 시그널 |
+|-----------|-----------|------|--------|
+| PostgreSQL | fail-close | `_db_retry` 백오프 후 raise → DLQ / 5xx | ERROR |
+| RabbitMQ broker | fail-close | aio-pika 자동 재연결, persistent 메시지 | ERROR |
+| Redis | fail-open | `safe_*` 흡수(#C3) → 다음 계층 fallback | WARNING |
+| HTTP 외부 호출 | fail-open | timeout → "unreachable" 결과 | INFO |
+
+원칙·금지·예외 타입 catch 규약은 CLAUDE.md #F6.
+
+## 로그 format toggle (현재 활성)
+
+stdout 로그 출력 format을 `LOG_FORMAT` 환경변수로 토글.
+
+- `text` (default) — loguru colorized 콘솔. dev grep·시연 가독성.
+- `json` — loguru `serialize=True`로 record를 JSON으로 변환. 외부 log aggregator(Loki·ELK·CloudWatch·Datadog 등)가 `level`·`time`·`message`·`extra` 필드 자동 indexing → 검색·필터·alerting 가능.
+
+```
+              stdout 로그 (각 컨테이너)
+                    ↓
+              인프라 측 collector (Fluentbit·Promtail 등)
+                    ↓
+              log aggregator (Loki·ELK·CloudWatch·Datadog)
+                    ↓
+              indexed search·filter·alerting
+```
+
+구현: `src/assessment_engine/log_config.py`의 `setup_logging(log_format)`. 각 entry(web/consumer/diagnostic-worker/diagnostic-scheduler)가 Composition Root에서 호출 (F4 단일 진실). `web_settings.log_format`·`consumer_settings.log_format`·`diagnostic_settings.log_format` 모두 동일 env 읽음.
+
+운영 권장:
+- dev: `LOG_FORMAT=text` — 사람이 직접 stream을 보거나 grep할 때 가독성 우선.
+- prod: `LOG_FORMAT=json` — 외부 log aggregator로 indexing·alerting. 평문 stdout grep으로 충분한 시기에만 `text` 유지.
+
+본 repo 책임 한계:
+- 로그 format 출력만. log aggregator stack 선택·운영(Loki·ELK 등) + collector(Fluentbit·Promtail) 배포는 인프라 책임(CLAUDE.md #A0).
+
+## Prometheus metrics endpoint (현재 활성)
+
+web 컨테이너가 `GET /metrics`로 Prometheus 호환 metrics 노출. 외부 Prometheus(인프라 책임)가 polling 수집 → Grafana 시각화·alerting.
+
+```
+Prometheus (인프라)              Web 컨테이너
+   ├─ scrape_interval=15s  →  GET /metrics
+   ├─ scrape_target=...           ↓
+   └─ TSDB 저장                prometheus_fastapi_instrumentator
+                                  ↓
+                              HTTP request count·latency·error rate
+                              (built-in Python process metrics — CPU·mem·GC)
+```
+
+구현: `web/main.py`에서 `Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)`. middleware 등록 시점에 모든 라우터 자동 계측.
+
+기본 노출 metrics:
+- `http_request_duration_seconds` (histogram) — endpoint·method·status_code 라벨
+- `http_requests_total` (counter) — endpoint·method·status_code 라벨
+- `process_*` (process_cpu_seconds·process_resident_memory_bytes·process_start_time 등 — Python 런타임 자동)
+
+본 repo 책임 한계:
+- `/metrics` endpoint 노출만. Prometheus 서버·Grafana·alerting rule은 인프라 책임 (CLAUDE.md #A0).
+- prod에서 `/metrics`는 외부 노출 금지 — reverse proxy에서 internal-only 라우트로 차단 권장. 인증·인가 없는 endpoint라 외부 노출 시 환경 메타데이터 leak.
+- consumer/diagnostic worker는 HTTP server 없음 — 별도 `/metrics` 미노출. broker 측 큐 길이(RabbitMQ management API)로 대신 관측.
 
 ## Request / Correlation ID 분산 trace
 
@@ -42,7 +116,7 @@ handler → service → repo → loguru
 |----------|------|------|
 | HTTP middleware | `src/assessment_engine/web/main.py` lifespan 뒤 `app.middleware("http")` | 요청 진입 시 헤더 read + contextvars set + 응답 헤더 echo |
 | MQ handler 진입 | `src/assessment_engine/consumer/handler.py` 각 핸들러 첫 줄, `src/assessment_engine/diagnostic/handler.py` 동일 | `message.message_id`를 contextvars set |
-| logger 설정 | `src/assessment_engine/logging.py` (신규 또는 기존 setup) | loguru `logger.configure(extra={"request_id": "-"})` + format에 `{extra[request_id]}` 포함 |
+| logger 설정 | `src/assessment_engine/log_config.py` (신규 또는 기존 setup) | loguru `logger.configure(extra={"request_id": "-"})` + format에 `{extra[request_id]}` 포함 |
 
 ### 도입 트리거
 

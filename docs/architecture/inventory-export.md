@@ -1,6 +1,6 @@
 # 정제 Inventory Export
 
-정책: CLAUDE.md #F10 (평가 윈도우 정합). 본 문서는 JSON Export v3 스키마·정제 원칙·자동화 도구 매핑 단일 진실. 운영자가 web UI "JSON Export"로 선택 서버 N대의 정제 inventory를 표준 JSON으로 다운로드 — 자동화 도구(Terraform / OpenStack Heat / Ansible / CSP SDK)가 그대로 입력해 후속 마이그레이션 실행.
+정책: CLAUDE.md #F10 (평가 윈도우 정합). 본 문서는 JSON Export 스키마·정제 원칙·자동화 도구 매핑 단일 진실. 운영자가 web UI "JSON Export"로 선택 서버 N대의 정제 inventory를 표준 JSON으로 다운로드 — 자동화 도구(Terraform / OpenStack Heat / Ansible / CSP SDK)가 그대로 입력해 후속 마이그레이션 실행.
 
 ## 1. 사용처 (정제 방향 결정 근거)
 
@@ -28,7 +28,7 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
 | 표준 명명 | `mount_point` / `vcpu_count` / `addresses[]` 등 Terraform·OpenStack·CSP SDK 표준 어휘에 가깝게 |
 | Schema versioning | envelope에 `schema_version` + `exported_at` + `source` + `assessment_period_days` 필수. 양식 진화 시 자동화 도구가 분기 처리 |
 
-## 3. 스키마 정의 (v3)
+## 3. 스키마 정의
 
 ### Envelope (최상위 응답)
 
@@ -59,7 +59,7 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
 
 | 필드 | 타입 | 의미 |
 |------|------|------|
-| `schema_version` | string | 본 양식 버전. v1/v2/v3 분기 처리용 |
+| `schema_version` | string | 본 양식 버전 식별자. 양식 진화 시 자동화 도구가 분기 처리. 값은 코드 단일 진실 (`src/assessment_engine/web/routers/exports.py`) |
 | `schema_doc` | string | 본 문서 경로 — 자동화 도구가 매핑 규약 참조 시 |
 | `engine_id` | string | 본 프로젝트 식별자 (`"zconverter-assessment-portal"`) |
 | `exported_at` | ISO 8601 UTC | export 시점 — reproducibility 기준 |
@@ -177,8 +177,8 @@ CSP SDK 직접 호출(boto3·azure-mgmt·google-cloud-compute)은 자동화 도�
 - 근거: 실제 운영 환경에 NIC 2개 이상 또는 v4+v6 dual stack 있음. 단일 `internal_ip`만 노출하면 손실
 
 ### Schema versioning
-- 결정: envelope에 `schema_version` 필수. 현행 v3. 외부 자동화 도구는 `schema_version == "3"`만 처리.
-- 근거: 양식 진화 시 옛 도구가 silent break 안 되도록 분기 진입점 명시. v1·v2 미지원.
+- 결정: envelope에 `schema_version` 필수. 현재 값은 코드 단일 진실 (`src/assessment_engine/web/routers/exports.py`). 외부 자동화 도구는 본 값을 비교해 분기 처리.
+- 근거: 양식 진화 시 옛 도구가 silent break 안 되도록 분기 진입점 명시.
 
 ## 6. 추후 추가 권고 필드 (현재 contract 미수집)
 

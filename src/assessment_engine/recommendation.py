@@ -28,9 +28,14 @@ CPU_DOWNSIZE_P95_PCT = 30
 MEM_DOWNSIZE_P95_PCT = 50
 HEADROOM_PCT         = 30
 
-# Under-provisioned (업사이즈)
+# Under-provisioned (업사이즈) — USE Method utilization 임계
 CPU_UPSIZE_P95_PCT = 70  # Kleinrock — Queueing Systems (1975), Google SRE Book
 MEM_UPSIZE_P95_PCT = 80  # Linux page cache 압박 시작점
+
+# USE Method Saturation 임계 — utilization 외 saturation 축 평가 (Brendan Gregg 정석).
+CPU_SATURATION_LOAD_RATIO = 1.0     # load_15m / cpu_cores ≥ 1.0 — run queue saturation
+IOWAIT_UPSIZE_PCT          = 20     # iowait_p95 ≥ 20% — disk IO saturation
+DISK_CAPACITY_UPSIZE_PCT   = 85     # worst mount used_pct ≥ 85% — storage capacity utilization
 
 
 Recommendation = Literal[
@@ -45,18 +50,31 @@ Recommendation = Literal[
 
 @dataclass
 class ResourceStats:
-    """USE Method 통계 입력. None은 데이터 부재."""
-    cpu_p95_pct: float | None
+    """USE Method 통계 입력 — Utilization·Saturation 정석 6 자원축.
+
+    None 은 데이터 부재 (해당 축 평가 skip, fall-through).
+    """
+    # CPU
+    cpu_p95_pct: float | None       # utilization
     cpu_peak_pct: float | None
-    mem_p95_pct: float | None
-    swap_used: bool
-    net_avg_kbps: float | None  # 1차 MVP에서 None — net 집계 미구현 시 idle/shutdown 판정 skip
+    cpu_load_15m_max: float | None  # saturation 원자료 (saturation_ratio = load / cores)
+    cpu_cores: int | None
+    # Memory
+    mem_p95_pct: float | None       # utilization
+    swap_used: bool                  # saturation (page-out 발생)
+    # Disk
+    disk_used_pct: float | None     # storage capacity utilization (worst mount)
+    iowait_p95_pct: float | None    # disk IO saturation (cpu wait on IO)
+    # Network
+    net_avg_kbps: float | None      # idle/shutdown 판정용 (saturation metric 미수집)
 
 
 def classify(stats: ResourceStats) -> Recommendation:
-    """판정 순서: Idle → Shutdown → Swap → Over → Under → Optimal.
+    """USE Method 정석 분류 — Utilization + Saturation 두 축 평가.
 
-    필수 데이터(cpu_p95·mem_p95) 부재 시 `insufficient_data` 반환 — UI에서 "—" 표시.
+    판정 순서: Idle → Shutdown → Swap → Disk capacity → Disk IO → CPU saturation →
+              CPU util → Mem util → Over → Optimal.
+    필수 데이터(cpu_p95·mem_p95) 부재 시 `insufficient_data` 반환.
     """
     if stats.cpu_p95_pct is None or stats.mem_p95_pct is None:
         return "insufficient_data"
@@ -72,8 +90,24 @@ def classify(stats: ResourceStats) -> Recommendation:
            and (stats.net_avg_kbps * 8 / 1000) <= SHUTDOWN_NET_MBPS:
             return "shutdown"
 
-    # Swap 사용 = 메모리 부족 신호 → 업사이즈로 short-circuit
+    # Swap 사용 = 메모리 saturation → 업사이즈 short-circuit
     if stats.swap_used:
+        return "under_provisioned"
+
+    # Disk capacity (storage utilization) ≥ 85% → 업사이즈 (Storage 부족)
+    if stats.disk_used_pct is not None and stats.disk_used_pct >= DISK_CAPACITY_UPSIZE_PCT:
+        return "under_provisioned"
+
+    # Disk IO saturation (iowait ≥ 20%) → 업사이즈 (Disk IO 병목)
+    if stats.iowait_p95_pct is not None and stats.iowait_p95_pct >= IOWAIT_UPSIZE_PCT:
+        return "under_provisioned"
+
+    # CPU saturation — run queue ≥ core 수 (load_15m / cpu_cores ≥ 1.0)
+    if (
+        stats.cpu_load_15m_max is not None and stats.cpu_cores is not None
+        and stats.cpu_cores > 0
+        and (stats.cpu_load_15m_max / stats.cpu_cores) >= CPU_SATURATION_LOAD_RATIO
+    ):
         return "under_provisioned"
 
     if stats.cpu_p95_pct <= CPU_DOWNSIZE_P95_PCT and stats.mem_p95_pct <= MEM_DOWNSIZE_P95_PCT:

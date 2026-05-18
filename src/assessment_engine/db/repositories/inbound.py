@@ -131,17 +131,21 @@ class ServerMetricCreate:
     net_io: list[NetIoEntry]
 
 
-# --- AI 진단 job INSERT 입력 (ADR 0004) ---
+# --- 진단 job INSERT 입력 (ADR 0004) ---
 
 
 @dataclass
 class DiagnosticJobCreate:
     """진단 job INSERT 입력 — id·created_at·status는 DB default가 채움.
 
+    job_type:
+    - 'ai_diagnostic' (default): 규칙 기반·LLM narrative 진단 (ADR 0004 + 0010)
+    - 'customer_report' / 'engineer_report': 보고서 발행 이력 (즉시 succeeded)
     scope: 'server' | 'environment'
-    input_hash: sha256(scope + canonical(input_params)) — 캐시·active UNIQUE 키
+    input_hash: sha256(scope + canonical(input_params) + job_type) — 캐시·active UNIQUE 키
     """
     scope: str
     input_params: dict
     input_hash: str
+    job_type: str = "ai_diagnostic"
     requested_by: str | None = None

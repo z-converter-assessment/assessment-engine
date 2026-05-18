@@ -1,5 +1,5 @@
 """metrics_calculator — delta 기반 percent/rate 계산."""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -22,8 +22,8 @@ from assessment_engine.web.services.metrics_calculator import (
     compute_swap,
 )
 
-_BOOT_A = datetime(2026, 1, 1, tzinfo=timezone.utc)
-_BOOT_B = datetime(2026, 5, 9, tzinfo=timezone.utc)
+_BOOT_A = datetime(2026, 1, 1, tzinfo=UTC)
+_BOOT_B = datetime(2026, 5, 9, tzinfo=UTC)
 
 
 # ─── helper 단위 ──────────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ def test_compute_cpu_returns_none_without_cur():
 
 
 def test_compute_cpu_returns_unset_pcts_without_prev():
-    cur = _cpu_pair(datetime.now(timezone.utc), 100, 900)
+    cur = _cpu_pair(datetime.now(UTC), 100, 900)
     snap = compute_cpu(cur, None)
     assert snap is not None
     assert snap.usage_pct is None and snap.user_pct is None
@@ -84,7 +84,7 @@ def test_compute_cpu_returns_unset_pcts_without_prev():
 
 def test_compute_cpu_calculates_percent_from_jiffies_delta():
     """user 100 → 200 (Δ100), idle 900 → 1700 (Δ800), total Δ900. usage = 100-(800/900*100) ≈ 11.1"""
-    t1 = datetime.now(timezone.utc)
+    t1 = datetime.now(UTC)
     t2 = t1 + timedelta(seconds=60)
     prev = _cpu_pair(t1, 100, 900)
     cur = _cpu_pair(t2, 200, 1700)
@@ -95,7 +95,7 @@ def test_compute_cpu_calculates_percent_from_jiffies_delta():
 
 def test_compute_cpu_handles_counter_reset():
     """delta_total <= 0이면 모든 percent None (옛 데이터 fallback — boot_time NULL)."""
-    t1 = datetime.now(timezone.utc)
+    t1 = datetime.now(UTC)
     prev = _cpu_pair(t1, 200, 1700)
     cur = _cpu_pair(t1 + timedelta(seconds=60), 100, 900)  # 감소
     snap = compute_cpu(cur, prev)
@@ -104,7 +104,7 @@ def test_compute_cpu_handles_counter_reset():
 
 def test_compute_cpu_returns_none_when_boot_time_changed():
     """두 시점의 boot_time이 다르면 시스템 재부팅 → reset 확정 (delta는 양수여도 무시)."""
-    t1 = datetime.now(timezone.utc)
+    t1 = datetime.now(UTC)
     prev = _cpu_pair(t1, 100, 900, boot_time=_BOOT_A)
     cur = _cpu_pair(t1 + timedelta(seconds=60), 200, 1700, boot_time=_BOOT_B)
     snap = compute_cpu(cur, prev)
@@ -114,9 +114,9 @@ def test_compute_cpu_returns_none_when_boot_time_changed():
 
 def test_compute_cpu_normal_when_only_agent_restart():
     """agent_started_at만 다름·boot_time 동일 → 에이전트 재시작이지 시스템 재부팅 아님 → 정상 delta."""
-    t1 = datetime.now(timezone.utc)
-    agent1 = datetime(2026, 5, 9, 1, tzinfo=timezone.utc)
-    agent2 = datetime(2026, 5, 9, 2, tzinfo=timezone.utc)
+    t1 = datetime.now(UTC)
+    agent1 = datetime(2026, 5, 9, 1, tzinfo=UTC)
+    agent2 = datetime(2026, 5, 9, 2, tzinfo=UTC)
     prev = _cpu_pair(t1, 100, 900, boot_time=_BOOT_A, agent_started_at=agent1)
     cur = _cpu_pair(t1 + timedelta(seconds=60), 200, 1700, boot_time=_BOOT_A, agent_started_at=agent2)
     snap = compute_cpu(cur, prev)
@@ -140,7 +140,7 @@ def test_is_counter_reset(cur, prev, expected):
 
 def _mem_pair(total, available, cached, buffers) -> MetricPairRaw:
     return MetricPairRaw(
-        collected_at=datetime.now(timezone.utc),
+        collected_at=datetime.now(UTC),
         cpu_user=0, cpu_nice=0, cpu_system=0, cpu_idle=0,
         cpu_iowait=0, cpu_irq=0, cpu_softirq=0, cpu_steal=0,
         mem_total_kb=total, mem_free_kb=None, mem_available_kb=available,
@@ -175,7 +175,7 @@ def test_compute_mem_clips_cached_when_overflow():
 
 def test_compute_swap_returns_none_when_total_zero():
     pair = MetricPairRaw(
-        collected_at=datetime.now(timezone.utc),
+        collected_at=datetime.now(UTC),
         cpu_user=0, cpu_nice=0, cpu_system=0, cpu_idle=0,
         cpu_iowait=0, cpu_irq=0, cpu_softirq=0, cpu_steal=0,
         mem_total_kb=None, mem_free_kb=None, mem_available_kb=None,
@@ -199,7 +199,7 @@ def _disk(device, t, reads, writes, sr=0, sw=0, *,
 
 
 def test_compute_disk_io_classifies_into_three_groups():
-    t1 = datetime.now(timezone.utc)
+    t1 = datetime.now(UTC)
     t2 = t1 + timedelta(seconds=60)
     rows = [
         _disk("sda", t2, 200, 100), _disk("sda", t1, 100, 50),
@@ -214,7 +214,7 @@ def test_compute_disk_io_classifies_into_three_groups():
 
 def test_compute_disk_io_single_row_returns_none_rates():
     """페어가 없으면 rate 계산 불가 → None."""
-    t1 = datetime.now(timezone.utc)
+    t1 = datetime.now(UTC)
     snap_list, _, _ = compute_disk_io([_disk("sda", t1, 100, 50)])
     assert snap_list[0].read_iops is None
     assert snap_list[0].write_iops is None
@@ -222,7 +222,7 @@ def test_compute_disk_io_single_row_returns_none_rates():
 
 def test_compute_disk_io_returns_none_on_system_reboot():
     """boot_time 변경 시 reset 확정 — delta가 양수여도 무시."""
-    t1 = datetime.now(timezone.utc)
+    t1 = datetime.now(UTC)
     t2 = t1 + timedelta(seconds=60)
     rows = [
         _disk("sda", t2, 200, 100, boot_time=_BOOT_B),
@@ -248,7 +248,7 @@ def _net(iface, t, rx, tx, rxp=0, txp=0, *,
 
 
 def test_compute_net_io_rate():
-    t1 = datetime.now(timezone.utc)
+    t1 = datetime.now(UTC)
     t2 = t1 + timedelta(seconds=10)
     rows = [
         _net("eth0", t2, 10240, 5120, 100, 50),
@@ -264,7 +264,7 @@ def test_compute_net_io_rate():
 
 def test_compute_net_io_returns_none_on_system_reboot():
     """boot_time 변경 시 reset 확정 — delta가 양수여도 무시."""
-    t1 = datetime.now(timezone.utc)
+    t1 = datetime.now(UTC)
     t2 = t1 + timedelta(seconds=10)
     rows = [
         _net("eth0", t2, 10240, 5120, 100, 50, boot_time=_BOOT_B),
@@ -279,10 +279,20 @@ def test_compute_net_io_returns_none_on_system_reboot():
 # ─── compute_mounts ───────────────────────────────────────────────────────
 
 def test_compute_mounts_filters_virtual():
+    now = datetime.now(UTC)
     rows = [
-        MountUsageRaw(mount="/", total_bytes=10**10, avail_bytes=5*10**9, free_bytes=5*10**9, collected_at=datetime.now(timezone.utc)),
-        MountUsageRaw(mount="/proc", total_bytes=0, avail_bytes=0, free_bytes=0, collected_at=datetime.now(timezone.utc)),
-        MountUsageRaw(mount="/snap/core/123", total_bytes=10**8, avail_bytes=0, free_bytes=0, collected_at=datetime.now(timezone.utc)),
+        MountUsageRaw(
+            mount="/", total_bytes=10**10, avail_bytes=5*10**9,
+            free_bytes=5*10**9, collected_at=now,
+        ),
+        MountUsageRaw(
+            mount="/proc", total_bytes=0, avail_bytes=0,
+            free_bytes=0, collected_at=now,
+        ),
+        MountUsageRaw(
+            mount="/snap/core/123", total_bytes=10**8, avail_bytes=0,
+            free_bytes=0, collected_at=now,
+        ),
     ]
     result = compute_mounts(rows)
     paths = [m.mount for m in result]

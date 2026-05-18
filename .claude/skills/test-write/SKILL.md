@@ -5,7 +5,7 @@ description: TRIGGER when user requests test writing for current/specified file 
 
 # test-write — 프로젝트 패턴 기반 테스트 작성
 
-테스트 정책 단일 진실: `docs/operations/testing.md` (계층·인프라·fixture·명령·원칙).
+테스트 정책 단일 진실: `docs/development/testing.md` (계층·인프라·fixture·명령·원칙).
 
 ## 절차
 

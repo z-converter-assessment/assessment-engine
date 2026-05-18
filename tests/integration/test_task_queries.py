@@ -1,14 +1,15 @@
 """Task 조회·UPDATE 통합 테스트 (ADR 0007).
 
 검증:
-- collect_repo.complete_task — 6 컬럼 UPDATE (status·completed_at·failure_reason·exit_code·duration_ms·stdout_tail·stderr_tail)
+- collect_repo.complete_task — 6 컬럼 UPDATE
+  (status·completed_at·failure_reason·exit_code·duration_ms·stdout_tail·stderr_tail)
 - query_repo.get_task_by_public_id — 단일 + JOIN server_inventory (target_public_id·target_hostname)
 - query_repo.list_recent_tasks — created_at 역순 + cursor pagination (E2)
 - query_repo.latest_tasks_by_servers — DISTINCT ON (target_server_id) 서버별 최신 1건
 
 부분 UNIQUE `uq_tasks_pending_per_server_type` 동작은 별도 — 본 테스트는 조회 메서드만.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import text
@@ -55,7 +56,10 @@ async def test_complete_task_success(collect_repo: CollectRepository) -> None:
 
     # 6 컬럼 모두 UPDATE 확인.
     row = (await collect_repo.session.execute(
-        text("SELECT status, exit_code, duration_ms, stdout_tail, stderr_tail, completed_at, failure_reason FROM tasks WHERE public_id=:pid"),
+        text(
+            "SELECT status, exit_code, duration_ms, stdout_tail, stderr_tail, "
+            "completed_at, failure_reason FROM tasks WHERE public_id=:pid"
+        ),
         {"pid": pid},
     )).first()
     assert row.status == "success"
@@ -137,7 +141,7 @@ async def test_list_recent_tasks_cursor_pagination(
     collect_repo: CollectRepository, query_repo: QueryRepository,
 ) -> None:
     sid = await _setup_server(collect_repo)
-    base = datetime(2026, 5, 14, 12, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 5, 14, 12, 0, tzinfo=UTC)
     # raw SQL — created_at 명시 INSERT (ORM server_default(now()) 우회).
     # 같은 transaction 내 함수 호출 간 microsecond 동일 가능성 회피.
     for i in range(5):
@@ -165,7 +169,7 @@ async def test_latest_tasks_by_servers_distinct_on(
     s1 = await _setup_server(collect_repo, machine_id="test-task-host-A")
     s2 = await _setup_server(collect_repo, machine_id="test-task-host-B")
 
-    p1_old = await _insert_task(collect_repo, s1, "test-task-host-A", task_type="t-old")
+    await _insert_task(collect_repo, s1, "test-task-host-A", task_type="t-old")
     p1_new = await _insert_task(collect_repo, s1, "test-task-host-A", task_type="t-new")
     p2_only = await _insert_task(collect_repo, s2, "test-task-host-B", task_type="t-only")
     await collect_repo.session.flush()

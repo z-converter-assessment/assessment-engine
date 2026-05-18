@@ -9,16 +9,15 @@ agent 결과 보고 메시지 구조 정합화.
 - tasks.result_message 컬럼 제거 (failure_reason + stderr_tail 조합으로 대체)
 - tasks.status 값 'failed' -> 'failure' 일괄 UPDATE (Pydantic Literal 정합)
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
-
 revision: str = 'e3a5b7c9d1f2'
-down_revision: Union[str, Sequence[str], None] = 'd2f4a6b8c0e1'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = 'd2f4a6b8c0e1'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

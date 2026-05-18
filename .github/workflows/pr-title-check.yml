@@ -1,0 +1,47 @@
+name: pr-title-check
+
+# PR title을 Conventional Commits 형식으로 강제 — release-please가 version bump·CHANGELOG 자동 생성에
+# 필요한 입력 (ADR 0013). squash merge 시 PR title이 main commit message가 되므로 본 check가 단일 진실.
+#
+# 허용 type: feat fix docs chore refactor perf test build ci style revert
+# breaking change: title에 "!" 또는 body에 "BREAKING CHANGE:"
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main, develop]
+
+permissions:
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: conventional commits
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            chore
+            refactor
+            perf
+            test
+            build
+            ci
+            style
+            revert
+          requireScope: false
+          subjectPattern: ^[^A-Z].+$
+          subjectPatternError: |
+            PR title subject는 소문자로 시작해야 함.
+            예: `feat: add ...` / `fix: handle ...`

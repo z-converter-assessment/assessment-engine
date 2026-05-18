@@ -13,7 +13,7 @@ import json
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aio_pika
 from aio_pika.abc import AbstractChannel
@@ -21,19 +21,36 @@ from loguru import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from assessment_engine.config import diagnostic_settings, web_settings
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
 from assessment_engine.db.repositories.inbound import TaskCreate
 from assessment_engine.web.routers.payloads import (
     INSTALL_BUNDLE_SHA256,
     INSTALL_BUNDLE_SIZE,
-    INSTALL_SCRIPT_NAME,
+    INSTALL_SCRIPT_LINUX,
+    INSTALL_SCRIPT_WINDOWS,
 )
+from assessment_engine.web.settings import diagnostic_settings, web_settings
 
 _TASK_TYPE_INSTALL = "zconverter_install"
 _TASK_QUEUE_TTL_MS = 60 * 60 * 1000  # 1h — 원격 호스트가 그 사이 consume 못 하면 만료
 _TASK_QUEUE_MAX_LEN = 100
+
+
+def _is_windows(os_id: str | None) -> bool:
+    """inventory os_id 기준 Windows 판단. null·미지정은 Linux default.
+
+    Linux agent는 /etc/os-release ID (ubuntu·centos·rhel·...)를 보내고
+    Windows agent는 'windows' 또는 'win*' 형태로 보낸다고 가정 (agent 측 명세 확정 시 본 함수에 정합).
+    """
+    if not os_id:
+        return False
+    lower = os_id.lower()
+    return "windows" in lower or lower.startswith("win")
+
+
+def _select_install_script(os_id: str | None) -> str:
+    return INSTALL_SCRIPT_WINDOWS if _is_windows(os_id) else INSTALL_SCRIPT_LINUX
 
 
 @dataclass
@@ -58,10 +75,15 @@ class TaskService:
     async def create_install_tasks(
         self,
         target_public_ids: list[str],
+        zdm_ip: str,
+        zdm_user: str,
     ) -> list[TaskCreated]:
         """선택 호스트 N대에 install task 발행.
 
         best-effort — 서버별 독립 트랜잭션 + 독립 publish. 미존재 public_id 는 즉시 raise.
+        zdm_ip / zdm_user 는 install 스크립트의 `-s` / `-u` 인자로 전달되어 ZDM 서버에서
+        실제 setup 패키지 fetch + 실행에 사용. 호스트 OS는 inventory.os_id 로 자동 분기
+        (Windows → install.ps1, Linux → install.sh).
         """
         sid_map = await self.query_repo.resolve_server_ids(target_public_ids)
         missing = [pid for pid in target_public_ids if pid not in sid_map]
@@ -87,7 +109,11 @@ class TaskService:
                         target_server_id=server_id,
                         target_machine_id=detail.machine_id,
                         task_type=_TASK_TYPE_INSTALL,
-                        params=None,
+                        params={
+                            "zdm_ip": zdm_ip,
+                            "zdm_user": zdm_user,
+                            "download_url": web_settings.install_bundle_url,
+                        },
                     ))
                     await session.commit()
                 except IntegrityError as e:
@@ -96,7 +122,9 @@ class TaskService:
                     ) from e
 
             await self._ensure_machine_queue(detail.machine_id)
-            await self._publish_install(exchange, task_id, detail.machine_id)
+            await self._publish_install(
+                exchange, task_id, detail.machine_id, detail.os_id, zdm_ip, zdm_user,
+            )
 
             logger.info(
                 "task.install published task_id={} machine_id={} target={}",
@@ -130,20 +158,23 @@ class TaskService:
         exchange: aio_pika.abc.AbstractExchange,
         task_id: str,
         machine_id: str,
+        os_id: str | None,
+        zdm_ip: str,
+        zdm_user: str,
     ) -> None:
         payload = {
             "message_type": "task.install",
             "task_id":      task_id,
             "machine_id":   machine_id,
-            "issued_at":    datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "issued_at":    datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "download": {
                 "url":        web_settings.install_bundle_url,
                 "sha256":     INSTALL_BUNDLE_SHA256,
                 "size_bytes": INSTALL_BUNDLE_SIZE,
             },
             "install": {
-                "script":      INSTALL_SCRIPT_NAME,
-                "args":        [],
+                "script":      _select_install_script(os_id),
+                "args":        ["-s", zdm_ip, "-u", zdm_user],
                 "timeout_sec": web_settings.install_timeout_sec,
             },
         }

@@ -12,9 +12,9 @@ from redis.asyncio import Redis
 from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from assessment_engine.config import consumer_settings
 from assessment_engine.consumer.mappers import placeholder_inventory_from_metrics, to_inventory_create, to_metric_create
 from assessment_engine.consumer.schemas import ErrorInput, InventoryInput, MessageBase, MetricsInput, TaskResultInput
+from assessment_engine.consumer.settings import consumer_settings
 from assessment_engine.db.redis import (
     safe_delete,
     safe_get,
@@ -100,7 +100,9 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
     """
     if data.boot_time <= data.agent_started_at and data.agent_started_at <= data.collected_at:
         return  # invariant 정상 — 즉시 종료
-    cooldown_key = consumer_settings.redis_key_time_invariant_warned.format(data.machine_id)
+    cooldown_key = consumer_settings.redis_key_time_invariant_warned.format(
+        data.machine_id, data.hostname,
+    )
     set_result = await safe_set_nx(redis, cooldown_key, "1", consumer_settings.redis_ttl_time_invariant_warned)
     if set_result is False:
         return  # 쿨다운 윈도우 안 — silent skip
@@ -202,7 +204,9 @@ def make_metrics_handler(
 
             async def save(repo: BaseCollectRepository) -> tuple[int, bool, MetricInsertResult]:
                 # find→upsert 흐름은 repo.ensure_server_id로 캡슐화. find 성공 시 placeholder 미사용.
-                server_id, auto_registered = await repo.ensure_server_id(data.machine_id, placeholder)
+                server_id, auto_registered = await repo.ensure_server_id(
+                    data.machine_id, data.hostname, placeholder,
+                )
                 result = await repo.record_metrics(server_id, dto)
                 return server_id, auto_registered, result
 

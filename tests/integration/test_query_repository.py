@@ -7,7 +7,7 @@
 - metric_chart dispatcher (17개 metric_type 모두 dispatch + 4개 helper SQL 정상 실행)
 - metric_chart helper 결과 정확성 (cpu_delta LAG 계산, fs_usage 시점 값, rate_per_dim)
 """
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -51,7 +51,7 @@ async def _seed_one_server_with_metrics(
 ) -> tuple[int, datetime]:
     """공통 fixture helper — server 1대 + n_points 시점의 metrics 시계열."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id=machine_id))
-    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=n_points)
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=n_points)
 
     for i in range(n_points):
         ts = base_ts + timedelta(minutes=i)
@@ -286,9 +286,9 @@ async def test_metric_chart_cpu_excludes_boot_time_change_point(
     못 잡지만 boot_time 비교는 spike 방지.
     """
     sid = await collect_repo.upsert_server(make_inventory(machine_id="q-rst-cpu-1"))
-    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=10)
-    boot_a = datetime(2026, 5, 9, 10, 0, tzinfo=timezone.utc)
-    boot_b = datetime(2026, 5, 9, 11, 0, tzinfo=timezone.utc)
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=10)
+    boot_a = datetime(2026, 5, 9, 10, 0, tzinfo=UTC)
+    boot_b = datetime(2026, 5, 9, 11, 0, tzinfo=UTC)
 
     # 시점 0~1: boot_a 정상 누적 / 시점 2: boot_b + 양수 d (재부팅 후 큰 값으로 가정)
     # 옛 휴리스틱(d<0)으론 못 잡고 boot_time 비교만 잡는 케이스
@@ -310,7 +310,7 @@ async def test_metric_chart_cpu_excludes_boot_time_change_point(
     assert all(0 <= r.value <= 100 for r in rows if r.value is not None)
     reset_bucket_ts = base_ts + timedelta(minutes=10)
     reset_bucket_in_result = any(
-        r.collected_at.replace(tzinfo=timezone.utc) == reset_bucket_ts.replace(second=0)
+        r.collected_at.replace(tzinfo=UTC) == reset_bucket_ts.replace(second=0)
         for r in rows
     )
     assert not reset_bucket_in_result, "reset 시점 차트에 포함됨 — boot_time 비교 미적용"
@@ -321,9 +321,9 @@ async def test_metric_chart_rate_excludes_boot_time_change_point(
 ):
     """_chart_rate_per_dimension — boot_time 변경 시 d_val 양수여도 reset 확정 → 차트 missing."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="q-rst-rate-1"))
-    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=10)
-    boot_a = datetime(2026, 5, 9, 10, 0, tzinfo=timezone.utc)
-    boot_b = datetime(2026, 5, 9, 11, 0, tzinfo=timezone.utc)
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=10)
+    boot_a = datetime(2026, 5, 9, 10, 0, tzinfo=UTC)
+    boot_b = datetime(2026, 5, 9, 11, 0, tzinfo=UTC)
 
     # 시점 2의 d_val 양수(100→300)지만 boot_time 변경 → reset 확정
     cases = [(0, boot_a, 100), (5, boot_a, 200), (10, boot_b, 300)]
@@ -344,7 +344,7 @@ async def test_metric_chart_rate_excludes_boot_time_change_point(
     # 시점 2의 ts 버킷이 결과에 없어야 함 (reset 처리됐다면)
     reset_bucket_ts = (base_ts + timedelta(minutes=10)).replace(second=0)
     reset_bucket_in_result = any(
-        r.collected_at.replace(tzinfo=timezone.utc) == reset_bucket_ts for r in rows
+        r.collected_at.replace(tzinfo=UTC) == reset_bucket_ts for r in rows
     )
     assert not reset_bucket_in_result, "rate 차트가 reset 시점 spike 표시 — boot_time 비교 미적용"
     # 그 외 행은 비음수 (음수 IOPS는 옛 휴리스틱이 이미 거름)
@@ -355,9 +355,9 @@ async def test_reboot_events_classifies_boot_time_change_as_reboot(
     collect_repo: CollectRepository, query_repo: QueryRepository,
 ):
     """server_inventory_history에 boot_time 변경 시점 → kind='reboot'."""
-    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=2)
-    boot_a = datetime(2026, 5, 9, 10, 0, tzinfo=timezone.utc)
-    boot_b = datetime(2026, 5, 9, 12, 0, tzinfo=timezone.utc)
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=2)
+    boot_a = datetime(2026, 5, 9, 10, 0, tzinfo=UTC)
+    boot_b = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
     agent_a = boot_a + timedelta(seconds=10)
     agent_b = boot_b + timedelta(seconds=10)
 
@@ -370,7 +370,8 @@ async def test_reboot_events_classifies_boot_time_change_as_reboot(
         boot_time=boot_b, agent_started_at=agent_b,
     ))
 
-    sid = await collect_repo.find_server_id("q-rb-1")
+    # (machine_id, hostname) 복합 키 (#C1)
+    sid = await collect_repo.find_server_id("q-rb-1", "test-host-01")
     events = await query_repo.reboot_events(
         sid, start=base_ts - timedelta(minutes=1), end=base_ts + timedelta(hours=2),
     )
@@ -383,8 +384,8 @@ async def test_reboot_events_classifies_agent_only_change_as_restart(
     collect_repo: CollectRepository, query_repo: QueryRepository,
 ):
     """boot_time 동일 + agent_started_at만 변경 → kind='restart'."""
-    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=2)
-    boot = datetime(2026, 5, 9, 10, 0, tzinfo=timezone.utc)
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=2)
+    boot = datetime(2026, 5, 9, 10, 0, tzinfo=UTC)
     agent_a = boot + timedelta(seconds=10)
     agent_b = boot + timedelta(minutes=30)  # 같은 부팅, 에이전트만 재시작
 
@@ -396,7 +397,8 @@ async def test_reboot_events_classifies_agent_only_change_as_restart(
         boot_time=boot, agent_started_at=agent_b,
     ))
 
-    sid = await collect_repo.find_server_id("q-rb-2")
+    # (machine_id, hostname) 복합 키 (#C1)
+    sid = await collect_repo.find_server_id("q-rb-2", "test-host-01")
     events = await query_repo.reboot_events(
         sid, start=base_ts - timedelta(minutes=1), end=base_ts + timedelta(hours=2),
     )
@@ -411,13 +413,19 @@ async def test_metric_chart_dimension_filter(
 ):
     """dimension 파라미터로 특정 device만 필터."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="q-dim-1"))
-    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=3)
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=3)
     for i in range(3):
         await collect_repo.record_metrics(sid, make_metrics(
             collected_at=base_ts + timedelta(minutes=i),
             disk_io=[
-                DiskIoEntry(device="sda", reads_completed=100 + i*10, writes_completed=0, sectors_read=0, sectors_written=0),
-                DiskIoEntry(device="sdb", reads_completed=200 + i*20, writes_completed=0, sectors_read=0, sectors_written=0),
+                DiskIoEntry(
+                    device="sda", reads_completed=100 + i*10,
+                    writes_completed=0, sectors_read=0, sectors_written=0,
+                ),
+                DiskIoEntry(
+                    device="sdb", reads_completed=200 + i*20,
+                    writes_completed=0, sectors_read=0, sectors_written=0,
+                ),
             ],
             mounts=[], net_io=[],
         ))
@@ -532,7 +540,7 @@ async def test_latest_per_dimension_excludes_data_older_than_30d(
 ):
     """_latest_per_dimension은 30d 윈도우. 31일 전 mount 데이터는 get_storage 결과에서 제외."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="q-prune-1"))
-    old_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=31)
+    old_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(days=31)
 
     await collect_repo.record_metrics(sid, make_metrics(
         collected_at=old_ts,
@@ -553,7 +561,7 @@ async def test_disk_usage_warnings_excludes_below_threshold(
 ):
     """avail/total 사용률이 임계 미만이면 결과에서 제외."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="q-disk-low"))
-    ts = datetime.now(timezone.utc).replace(microsecond=0)
+    ts = datetime.now(UTC).replace(microsecond=0)
     # 사용률 50% — 임계 85% 미만
     await collect_repo.record_metrics(sid, make_metrics(
         collected_at=ts,
@@ -570,7 +578,7 @@ async def test_disk_usage_warnings_includes_above_threshold(
 ):
     """사용률 임계 초과 mount는 결과에 포함 — 정렬은 사용률 DESC."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="q-disk-high", hostname="disk-high-host"))
-    ts = datetime.now(timezone.utc).replace(microsecond=0)
+    ts = datetime.now(UTC).replace(microsecond=0)
     # 사용률 92% (avail 8GB / total 100GB)
     await collect_repo.record_metrics(sid, make_metrics(
         collected_at=ts,
@@ -592,9 +600,9 @@ async def test_disk_usage_warnings_uses_latest_per_mount(
     """같은 mount의 여러 시점 중 latest 1건만 평가 — 옛 시점은 임계 초과여도 제외 안 되고,
     latest가 임계 미만이면 제외."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="q-disk-latest", hostname="latest-host"))
-    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=5)
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=5)
     # T0: 95% (위험), T1: 50% (정상) — latest=T1만 평가 → 결과 제외
-    for i, (mins, avail) in enumerate([(0, 5_000_000_000), (3, 50_000_000_000)]):
+    for _i, (mins, avail) in enumerate([(0, 5_000_000_000), (3, 50_000_000_000)]):
         await collect_repo.record_metrics(sid, make_metrics(
             collected_at=base_ts + timedelta(minutes=mins),
             mounts=[MountUsageEntry(mount="/var", total_bytes=100_000_000_000,
@@ -610,7 +618,7 @@ async def test_disk_usage_warnings_excludes_zero_total(
 ):
     """total_bytes=0(가상 mount 시뮬) — 0으로 나누기 회피, 결과 제외."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="q-disk-virt", hostname="virt-host"))
-    ts = datetime.now(timezone.utc).replace(microsecond=0)
+    ts = datetime.now(UTC).replace(microsecond=0)
     await collect_repo.record_metrics(sid, make_metrics(
         collected_at=ts,
         mounts=[MountUsageEntry(mount="/proc", total_bytes=0,
@@ -628,7 +636,7 @@ async def test_metric_gap_warnings_excludes_recent_metric(
 ):
     """방금 metric 발행한 서버는 갭 없음 — 결과 제외."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="q-gap-fresh", hostname="fresh-host"))
-    await collect_repo.record_metrics(sid, make_metrics(collected_at=datetime.now(timezone.utc)))
+    await collect_repo.record_metrics(sid, make_metrics(collected_at=datetime.now(UTC)))
     rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
     assert all(r.hostname != "fresh-host" for r in rows)
 
@@ -638,7 +646,7 @@ async def test_metric_gap_warnings_includes_gap_in_window(
 ):
     """5분~24h 윈도우 안에 마지막 metric → 결과 포함."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="q-gap-mid", hostname="gap-host"))
-    last_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=10)
+    last_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=10)
     await collect_repo.record_metrics(sid, make_metrics(collected_at=last_ts))
     rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
     matching = [r for r in rows if r.hostname == "gap-host"]
@@ -651,7 +659,7 @@ async def test_metric_gap_warnings_excludes_dead_server(
 ):
     """24h 이상 metric 없는 dead 서버는 갭 결과 제외 (한때 살아있던 서버 대상이 아님)."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="q-gap-dead", hostname="dead-host"))
-    long_ago = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=48)
+    long_ago = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=48)
     await collect_repo.record_metrics(sid, make_metrics(collected_at=long_ago))
     rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
     assert all(r.hostname != "dead-host" for r in rows)
@@ -678,7 +686,7 @@ async def test_environment_utilization_returns_averages(
 ):
     """CPU·MEM·DISK 평균이 정상 산출 — 두 시점 jiffies delta + latest mem + max mount."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="q-util-01", hostname="util-host"))
-    base_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=2)
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=2)
     # T0: 누적 100 (busy 30, idle 70) → 30%, mem available 50/100, mount used 60%
     await collect_repo.record_metrics(sid, make_metrics(
         collected_at=base_ts,
@@ -711,7 +719,7 @@ async def test_environment_utilization_excludes_outside_window(
     """기간 밖 메트릭은 평균에서 제외."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="q-util-stale"))
     # 30일 전 메트릭 — 기본 period_days=1 밖
-    stale_ts = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=30)
+    stale_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(days=30)
     await collect_repo.record_metrics(sid, make_metrics(
         collected_at=stale_ts,
         cpu_user=50, cpu_idle=50,

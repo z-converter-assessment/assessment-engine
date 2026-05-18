@@ -1,9 +1,11 @@
 """mappers — Outbound DTO → ViewModel + enrich idempotent 검증."""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from assessment_engine.db.repositories.outbound import (
+    DiskUsageWarningRaw,
+    MetricGapWarningRaw,
     ServerDetail,
     ServerSummary,
     StorageWithUsage,
@@ -16,6 +18,8 @@ from assessment_engine.web.services.mappers import (
     _usage_bar_color,
     _usage_severity,
     enrich_server_detail,
+    to_disk_warning_item,
+    to_gap_warning_item,
     to_server_detail,
     to_server_list_item,
     to_storage_detail,
@@ -114,7 +118,7 @@ def _summary(**overrides) -> ServerSummary:
         ip_external=None,
         disks=[{"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk"}],
         services=None,
-        last_seen_at=datetime.now(timezone.utc),
+        last_seen_at=datetime.now(UTC),
     )
     base.update(overrides)
     return ServerSummary(**base)
@@ -178,7 +182,7 @@ def _detail(**overrides) -> ServerDetail:
         os_codename="jammy", kernel_version="5.15.0",
         cpu_cores=4, cpu_model="test-cpu",
         mem_total_kb=8 * 1024**2, swap_total_kb=2 * 1024**2,
-        boot_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        boot_time=datetime(2026, 1, 1, tzinfo=UTC),
         ip_internal=["10.0.0.1"], ip_external=None,
         disks=[{"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk"}],
         mounts=[],
@@ -190,7 +194,7 @@ def _detail(**overrides) -> ServerDetail:
             {"proto": "tcp", "addr": "0.0.0.0", "port": 80, "uid": 0, "comm": "nginx"},
             {"proto": "tcp", "addr": "0.0.0.0", "port": 22, "uid": 0, "comm": "sshd"},
         ],
-        last_seen_at=datetime.now(timezone.utc),
+        last_seen_at=datetime.now(UTC),
     )
     base.update(overrides)
     return ServerDetail(**base)
@@ -247,7 +251,7 @@ def test_to_storage_detail_filters_virtual_mounts():
             {"mount": "/snap/core/123", "fstype": "squashfs", "total_bytes": 10**8},  # 가상
         ],
         mount_usage=[],
-        inventory_at=datetime.now(timezone.utc),
+        inventory_at=datetime.now(UTC),
     )
     resp = to_storage_detail(storage)
     paths = [m.mount for m in resp.mounts]
@@ -265,7 +269,7 @@ def test_to_storage_detail_device_name_via_major_minor():
             {"mount": "/", "fstype": "ext4", "total_bytes": 5*10**10, "major": 8, "minor": 1},
         ],
         mount_usage=[],
-        inventory_at=datetime.now(timezone.utc),
+        inventory_at=datetime.now(UTC),
     )
     resp = to_storage_detail(storage)
     assert resp.mounts[0].device_name == "sda"
@@ -273,19 +277,10 @@ def test_to_storage_detail_device_name_via_major_minor():
 
 # ─── attention 신호 mapper (P2 단위 변환 + badge 분기) ────────────────────
 
-from assessment_engine.db.repositories.outbound import (
-    DiskUsageWarningRaw,
-    MetricGapWarningRaw,
-)
-from assessment_engine.web.services.mappers import (
-    to_disk_warning_item,
-    to_gap_warning_item,
-)
-
 
 def test_to_disk_warning_item_under_provisioned_at_90():
     """90% 이상 → rec-under_provisioned (위험 색). AttentionRow ViewModel."""
-    now = datetime(2026, 5, 9, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
     raw = DiskUsageWarningRaw(
         public_id="pid", hostname="h", mount="/data",
         total_bytes=100 * 1024 ** 3,
@@ -304,7 +299,7 @@ def test_to_disk_warning_item_under_provisioned_at_90():
 
 def test_to_disk_warning_item_right_size_below_90():
     """85~90% → rec-right_size (경고 색). stale (24h+) 이면 meta_at·meta_text 갱신."""
-    now = datetime(2026, 5, 10, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 10, 12, 0, tzinfo=UTC)
     metric_ts = now - timedelta(hours=25)  # 24h+ → stale
     raw = DiskUsageWarningRaw(
         public_id="pid", hostname="h", mount="/var",
@@ -322,14 +317,15 @@ def test_to_disk_warning_item_right_size_below_90():
 
 def test_to_gap_warning_item_under_provisioned_at_30min():
     """30분+ 갭 → rec-under_provisioned."""
-    now = datetime(2026, 5, 9, 12, 30, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 9, 12, 30, tzinfo=UTC)
     metric_ts = now - timedelta(minutes=35)
     raw = MetricGapWarningRaw(
         public_id="pid", hostname="h",
         last_metric_at=metric_ts,
     )
     item = to_gap_warning_item(raw, now)
-    assert item.badge_class == "rec-under_provisioned"
+    # 운영 신호 단일 active 색 — `attn-active` (사용자 의도).
+    assert item.badge_class == "attn-active"
     assert item.badge_text == "35분"
     assert item.link_href == "/servers/pid"
     assert item.link_text == "h"
@@ -337,14 +333,14 @@ def test_to_gap_warning_item_under_provisioned_at_30min():
 
 
 def test_to_gap_warning_item_right_size_short_gap():
-    """5~30분 갭 → rec-right_size."""
-    now = datetime(2026, 5, 9, 12, 30, tzinfo=timezone.utc)
+    """5~30분 갭도 attn-active 단일 색 (운영 신호 통일)."""
+    now = datetime(2026, 5, 9, 12, 30, tzinfo=UTC)
     raw = MetricGapWarningRaw(
         public_id="pid", hostname="h",
         last_metric_at=now - timedelta(minutes=10),
     )
     item = to_gap_warning_item(raw, now)
-    assert item.badge_class == "rec-right_size"
+    assert item.badge_class == "attn-active"
     assert item.badge_text == "10분"
 
 

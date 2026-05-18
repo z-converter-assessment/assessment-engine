@@ -9,32 +9,35 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import aio_pika
+from aio_pika.exceptions import AMQPError
 from croniter import croniter
 from loguru import logger
 from sqlalchemy import func, select
+from sqlalchemy.exc import OperationalError
 
-from assessment_engine.config import diagnostic_settings
 from assessment_engine.db.models.server_inventory import ServerInventory
-from assessment_engine.db.redis import close_pool, get_redis
+from assessment_engine.db.redis import close_pool
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
 )
 from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
 from assessment_engine.db.repositories.query_repository import QueryRepository
 from assessment_engine.db.session import AsyncSessionLocal
-from assessment_engine.web.services.diagnostic_service import (
+from assessment_engine.diagnostic.settings import diagnostic_settings
+from assessment_engine.diagnostic.submitter import (
     DiagnosticNotFound,
     DiagnosticRaceMiss,
-    DiagnosticService,
+    DiagnosticSubmitter,
 )
+from assessment_engine.log_config import setup_logging
 
 
 async def main() -> None:
-    logger.info("diagnostic scheduler starting cron={} retention_days={}",
-                diagnostic_settings.diagnostic_schedule_cron,
-                diagnostic_settings.diagnostic_retention_days)
+    setup_logging(diagnostic_settings.log_format)
 
-    redis = get_redis()
+    logger.info("diagnostic scheduler starting cron={}",
+                diagnostic_settings.diagnostic_schedule_cron)
+
     dlx_name = f"{diagnostic_settings.rabbitmq_exchange}.dlx"
     routing_key = diagnostic_settings.diagnostic_routing_key
 
@@ -64,7 +67,7 @@ async def main() -> None:
             )
             await queue.bind(exchange, routing_key=routing_key)
 
-            await _run_loop(channel, redis)
+            await _run_loop(channel)
     finally:
         await close_pool()
 
@@ -72,7 +75,7 @@ async def main() -> None:
 _KST = ZoneInfo("Asia/Seoul")
 
 
-async def _run_loop(broker_channel, redis) -> None:
+async def _run_loop(broker_channel) -> None:
     """cron 다음 발화 시각까지 sleep → _run_once. 영구 루프.
 
     cron 표현식은 KST 가정 (운영자 직관·ADR 0004 default `0 3 * * *` = 매일 03시 KST).
@@ -87,13 +90,18 @@ async def _run_loop(broker_channel, redis) -> None:
         await asyncio.sleep(wait)
 
         try:
-            await _run_once(broker_channel, redis)
+            await _run_once(broker_channel)
         except Exception:
             # 발화 1회 실패가 루프 자체를 중단시키지 않게 격리 (#F6 fail-close는 메시지 처리에만)
             logger.exception("scheduler run_once failed")
 
 
-async def _run_once(broker_channel, redis) -> None:
+async def _run_once(broker_channel) -> None:
+    # feature flag — diagnostic_enabled=False 시 cron 발화 no-op. publish/active server 조회 모두 skip.
+    if not diagnostic_settings.diagnostic_enabled:
+        logger.info("scheduler tick — diagnostic disabled (DIAGNOSTIC_ENABLED=false), skip")
+        return
+
     time_range = DIAGNOSTIC_DEFAULT_TIME_RANGE  # F10 단일 진실
 
     # 활성 서버 조회 (last_seen_at > now() - N hours)
@@ -103,52 +111,49 @@ async def _run_once(broker_channel, redis) -> None:
         )
     logger.info("scheduler tick — active servers={}", len(active_public_ids))
 
-    # server scope — 1대씩 service.submit (부분 실패 격리)
+    # server scope — 1대씩 submitter.submit (부분 실패 격리)
     enqueued = 0
     for public_id in active_public_ids:
         async with AsyncSessionLocal() as session:
-            service = _build_service(session, broker_channel, redis)
+            submitter = _build_submitter(session, broker_channel)
             try:
-                ids = await service.submit(
+                ids = await submitter.submit(
                     "server", [public_id], time_range, anchor_at=None, requested_by="scheduler",
                 )
                 enqueued += len(ids)
             except DiagnosticNotFound:
-                # 스케줄러 SQL과 service.resolve 사이 race — 서버가 사라짐. silent skip.
+                # 스케줄러 SQL과 submitter.resolve 사이 race — 서버가 사라짐. silent skip.
                 logger.debug("scheduled server diagnostic — server disappeared pid={}", public_id)
             except DiagnosticRaceMiss:
                 logger.debug("scheduled server diagnostic — race miss pid={}", public_id)
-            except Exception:
-                logger.exception("scheduled server diagnostic failed pid={}", public_id)
+            except (OperationalError, AMQPError):
+                # DB/broker 일시 장애 — 운영 cron 보호용 silent skip (다음 발화에서 재시도).
+                logger.exception("scheduled server diagnostic infrastructure error pid={}", public_id)
     logger.info("scheduled server diagnostics enqueued={}", enqueued)
 
     # environment scope — 1건
     async with AsyncSessionLocal() as session:
-        service = _build_service(session, broker_channel, redis)
+        submitter = _build_submitter(session, broker_channel)
         try:
-            env_ids = await service.submit(
+            env_ids = await submitter.submit(
                 "environment", None, time_range, anchor_at=None, requested_by="scheduler",
             )
             logger.info("scheduled environment diagnostic enqueued count={}", len(env_ids))
-        except Exception:
-            logger.exception("scheduled environment diagnostic failed")
+        except DiagnosticRaceMiss:
+            logger.debug("scheduled environment diagnostic — race miss")
+        except (OperationalError, AMQPError):
+            logger.exception("scheduled environment diagnostic infrastructure error")
 
-    # retention DELETE (90일) — 별도 cron 인프라 없이 진단 사이클에 묶음
-    async with AsyncSessionLocal() as session:
-        repo = DiagnosticRepository(session)
-        deleted = await repo.delete_retention(diagnostic_settings.diagnostic_retention_days)
-        await session.commit()
-        if deleted > 0:
-            logger.info("retention purged jobs={}", deleted)
+    # retention DELETE — 임시 비활성. 복원 시 delete_retention 호출 + diagnostic_retention_days 사용.
 
 
-def _build_service(session, broker_channel, redis) -> DiagnosticService:
-    return DiagnosticService(
+def _build_submitter(session, broker_channel) -> DiagnosticSubmitter:
+    """scheduler 노드 composition root — web.services 의존 없이 submitter 단독 인스턴스화 (#F4)."""
+    return DiagnosticSubmitter(
         query_repo=QueryRepository(session),
         session_factory=AsyncSessionLocal,
         diagnostic_repo_factory=DiagnosticRepository,
         broker_channel=broker_channel,
-        redis=redis,
     )
 
 

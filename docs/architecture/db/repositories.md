@@ -6,16 +6,16 @@
 
 | 메서드 | 설명 |
 |--------|------|
-| `find_server_id(machine_id) -> int \| None` | machine_id로 server_id 조회 |
-| `upsert_server(data) -> int` | machine_id 기준 ON CONFLICT DO UPDATE. 변경 감지 시 history append |
-| `ensure_server_id(machine_id, fallback) -> tuple[int, bool]` | find → 없으면 placeholder INSERT. metrics 핸들러 auto-register |
+| `find_server_id(machine_id, hostname) -> int \| None` | 복합 키 `(machine_id, hostname)` 으로 server_id 조회 (#C1) |
+| `upsert_server(data) -> int` | `(machine_id, hostname)` 복합 키 기준 ON CONFLICT DO UPDATE. 변경 감지 시 history append |
+| `ensure_server_id(machine_id, hostname, fallback) -> tuple[int, bool]` | find → 없으면 placeholder INSERT. metrics 핸들러 auto-register. 복합 키 (#C1) |
 | `record_metrics(server_id, data) -> MetricInsertResult` | 4 시계열 테이블 INSERT. 각 테이블 행 수 반환 |
 | `create_task(data) -> str` | tasks INSERT. public_id(UUID) 반환 |
 | `complete_task(data) -> bool` | task.result handler — status / completed_at / failure_reason / exit_code / duration_ms / stdout_tail / stderr_tail UPDATE |
 
 ### 구현 디테일
 
-- `upsert_server`: `pg_insert ... on_conflict_do_update`. values·set_ dict는 한 번 만들어 재사용 (컬럼 추가 시 한 곳만 수정). machine_id는 set_ 제외
+- `upsert_server`: `pg_insert ... on_conflict_do_update`. values·set_ dict는 한 번 만들어 재사용 (컬럼 추가 시 한 곳만 수정). `(machine_id, hostname)` 복합 키는 set_ 제외
 - `ensure_server_id`: `_insert_placeholder_server`는 `ON CONFLICT DO NOTHING` (placeholder가 진짜 inventory 덮어쓰는 race 방지)
 - `record_metrics`: 4 테이블 모두 `pg_insert.on_conflict_do_nothing(index_elements=...)` — 멱등성 2단 방어 (D2)
 - `create_task`: `IntegrityError` 가능 (부분 UNIQUE `uq_tasks_pending_per_server_type`) — service가 catch
@@ -70,11 +70,11 @@ interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedel
 
 ### 타입 별칭 (`base_query_repository.py`)
 - `MetricType` Literal — 17개 chart metric
-- `TimeRange` Literal — 15m/1h/6h/24h/7d/14d/30d. 14d는 right-sizing 윈도우(`recommendation.WINDOW_DAYS`)와 동일 — F11 단일 진실
+- `TimeRange` Literal — 15m/1h/6h/24h/7d/14d/30d. 14d는 right-sizing 윈도우(`recommendation.WINDOW_DAYS`)와 동일 — F10 단일 진실
 - `BucketSize` Literal — 1m/5m/15m/30m/1h/3h/6h/12h/1d. 6h는 14d 토글 자동 매핑용
 - `AggFunc` Literal — avg/max/p95
 - `TIME_RANGE_TD` — TimeRange -> timedelta 매핑 (repo·service 공유)
-- 신규 range·bucket 추가 시 backend Literal·`_BUCKET_INFO`·`chart-utils.js` `RANGE_LABEL`/`AUTO_BUCKET`/`BUCKET_LABEL`/`RANGE_MS`/`BUCKET_MS`·UI 토글 4곳 동시 갱신 의무 (F11)
+- 신규 range·bucket 추가 시 backend Literal·`_BUCKET_INFO`·`chart-utils.js` `RANGE_LABEL`/`AUTO_BUCKET`/`BUCKET_LABEL`/`RANGE_MS`/`BUCKET_MS`·UI 토글 4곳 동시 갱신 의무 (F10)
 
 ### `list_servers` 부분 SELECT 정책
 `select(ServerInventory)` 풀 row 대신 11컬럼 명시. `mounts`/`listen_ports` JSONB는 페이지당 N행에서 직렬화 비용 큼 + 목록 미사용. 트레이드오프: `docs/tradeoffs.md` T8.

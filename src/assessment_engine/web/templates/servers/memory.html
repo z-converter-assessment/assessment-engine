@@ -126,19 +126,11 @@
 </div>
 
 <style>
-  .toggle-group { display:flex; gap:4px; flex-wrap:wrap; }
-  .toggle {
-    padding:5px 12px; border:1px solid #e2e8f0; border-radius:5px;
-    background:#fff; color:#475569; font-size:12px; cursor:pointer;
-    transition: background .12s, color .12s, border-color .12s;
-  }
-  .toggle:hover { background:#f8fafc; border-color:#cbd5e1; }
-  .toggle.active { background:#0f172a; color:#fff; border-color:#0f172a; }
+  /* .toggle-group / .toggle 은 base.html 단일 진실 (#E6). */
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
-<script>
-  const SERVER_ID = {{ server.public_id | tojson }};
-</script>
 <script src="/static/js/pages/memory.js?v={{ asset_v }}" defer></script>
 {% endblock %}
+
+{% block body_attrs %} data-server-id="{{ server.public_id }}"{% endblock %}

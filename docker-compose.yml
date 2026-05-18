@@ -1,16 +1,23 @@
-# 환경 무관 baseline. 단독 기동은 의도적으로 불완전 — password·외부 포트 노출은
-# override(dev) 또는 docker-compose.prod.yml(prod)에서 추가한다.
+# dev 기능 개발용 compose (#A0). prod 운영은 본 repo 범위 밖 — 외부 인프라가
+# wheel + systemd 또는 자체 컨테이너 오케스트레이션으로 자체 구성.
 #
-# - dev: `docker compose up`  (override.yml 자동 적용)
-# - prod: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
-
-# YAML anchor — 앱 4종(web/consumer/diagnostic-worker/diagnostic-scheduler)이 공유하는
-# build / depends_on / 공통 environment를 단일 진실로 정의. 신규 앱 서비스 추가 시 anchor만 참조.
+# 기동: `docker compose up`  — `.env` 평문 자동 주입 + 호스트 포트 노출 + 코드 마운트.
+#
+# YAML anchor — 앱 5종(migrate/web/consumer/diagnostic-worker/diagnostic-scheduler)이 공유하는
+# build / depends_on / dev volume mount / 공통 environment를 단일 진실로 정의.
+#
+# user: "0:0" — Dockerfile은 USER app(uid 1000) 적용하지만, dev는 `./:/app`로 호스트 코드를 bind mount하므로
+# 컨테이너 uid 1000이 호스트 파일(macOS 보통 501) 쓰기 실패 가능. dev에선 root로 되돌려 uvicorn auto-reload·
+# __pycache__ 생성 충돌 회피.
 x-app-base: &app-base
   build: .
   restart: unless-stopped
+  user: "0:0"
+  volumes:
+    - ./:/app
+  env_file: .env
   environment: &app-env
-    APP_ENV: ${APP_ENV:-prod}
+    APP_ENV: ${APP_ENV:-dev}
     POSTGRES_HOST: postgres
     REDIS_HOST: redis
     RABBITMQ_HOST: rabbitmq
@@ -28,10 +35,13 @@ services:
   postgres:
     restart: unless-stopped
     image: timescale/timescaledb:latest-pg16
+    env_file: .env
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-assessment}
       POSTGRES_USER: ${POSTGRES_USER:-assessment}
-      # POSTGRES_PASSWORD / POSTGRES_PASSWORD_FILE: override / prod 파일에서 주입
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-assessment}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -39,38 +49,77 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   rabbitmq:
     restart: unless-stopped
     image: rabbitmq:3.13-management-alpine
+    env_file: .env
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-assessment}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/assessment}
-      # RABBITMQ_DEFAULT_PASS / _FILE: override / prod 파일에서 주입
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-assessment}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   redis:
     restart: unless-stopped
     image: redis:7-alpine
-    command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru
+    command: >-
+      redis-server
+      --maxmemory ${REDIS_MAXMEMORY:-256mb}
+      --maxmemory-policy ${REDIS_MAXMEMORY_POLICY:-volatile-lru}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 5s
+
+  # pgAdmin — dev DB GUI. ServerMode=False → 로그인 없이 즉시 사용.
+  # 서버 등록은 dev/pgadmin-servers.json으로 자동 (postgres host·user 미리 채워짐). password는 첫 접속 시 입력.
+  # profiles: [gui] — 기본 `docker compose up`엔 미포함, 명시 호출 시만 띄움 (idle 250MiB 절감).
+  #   띄우려면: `docker compose --profile gui up -d pgadmin`
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    profiles: [gui]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: dev@example.com    # pgAdmin이 RFC 형식(TLD 필요) 검증 — local 도메인은 reject
+      PGADMIN_DEFAULT_PASSWORD: dev
+      PGADMIN_LISTEN_PORT: 80
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    volumes:
+      - ./dev/pgadmin-servers.json:/pgadmin4/servers.json:ro
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # 마이그레이션 1회성 작업 (init-container 패턴) — postgres healthy 후 alembic upgrade head 실행하고 종료.
   # 모든 앱 서비스는 본 컨테이너 완료 후에만 기동 (depends_on: service_completed_successfully).
-  # schema는 dev·staging·prod 모두 Alembic 단일 진실. lifespan의 create_all 자동 분기 제거됨.
+  # schema는 Alembic 단일 진실 (ADR 0005). lifespan의 create_all 자동 분기 제거됨.
   migrate:
     build: .
     command: alembic upgrade head
+    user: "0:0"
+    volumes:
+      - ./:/app
+    env_file: .env
     environment:
-      APP_ENV: ${APP_ENV:-prod}
+      APP_ENV: ${APP_ENV:-dev}
       POSTGRES_HOST: postgres
     depends_on:
       postgres:
@@ -80,9 +129,8 @@ services:
   web:
     <<: *app-base
     command: python -m assessment_engine.web
-    expose:
-      - "8000"   # plain HTTP — 브라우저·API·healthcheck. 외부 노출은 override / prod.
-      - "8443"   # HTTPS — install bundle endpoint 한정 (ADR 0008 임시). cert 미주입 시 listen 안 함.
+    ports:
+      - "${WEB_PORT:-8000}:8000"   # dev plain HTTP (ADR 0009)
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 5s
@@ -94,7 +142,7 @@ services:
     <<: *app-base
     command: python -m assessment_engine.consumer
 
-  # AI 진단 워커 — RabbitMQ `diagnostic.request` 소비, LLM 호출, DB 저장 (ADR 0004).
+  # 진단 워커 — RabbitMQ `diagnostic.request` 소비, 규칙 기반 진단 수행, DB 저장 (ADR 0004·0010).
   # LLM_PROVIDER 기본 mock (과금 발생 외부 API 호출 금지 — 운영자 정책).
   diagnostic-worker:
     <<: *app-base
@@ -103,10 +151,11 @@ services:
       <<: *app-env
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
 
-  # AI 진단 스케줄러 — cron 발화로 활성 서버 N대 + environment job enqueue + retention DELETE.
+  # 진단 스케줄러 — cron 발화로 활성 서버 N대 + environment job enqueue + retention DELETE.
   diagnostic-scheduler:
     <<: *app-base
     command: python -m assessment_engine.diagnostic.scheduler
 
 volumes:
   postgres_data:
+  rabbitmq_data:

@@ -6,7 +6,7 @@
 |------|------|
 | `query_service.py` | Redis 캐시 + repository 오케스트레이션. SSR/JSON 양 경로에 일관된 ViewModel·Summary 반환 |
 | `task_service.py` | Task 발행 (DB INSERT + Redis SET). 트랜잭션 경계 + `IntegrityError` -> `TaskDuplicatePending` 변환 |
-| `diagnostic_service.py` | AI 진단 job 발행 (input_hash 계산·INSERT·RabbitMQ publish) + polling 조회 + SSR latest fetch. 추상 `BaseDiagnosticRepository` + `BaseQueryRepository`만 의존 (F4). 트랜잭션 경계 자체 관리 — router는 service만 호출. ADR 0004 |
+| `diagnostic_service.py` | 진단 job 발행 (input_hash 계산·INSERT·RabbitMQ publish) + polling 조회 + SSR latest fetch. 추상 `BaseDiagnosticRepository` + `BaseQueryRepository`만 의존 (F4). 트랜잭션 경계 자체 관리 — router는 service만 호출. ADR 0004 + 0010 |
 | `diagnostic_mapper.py` | 진단 결과 표시 파생 단일 진실 (P2·P3·P5) — `to_view` / `to_panel_payload` / `to_history_item` / classification·status·progress badge·라벨 매핑. router·SSR·JSON API·결과 페이지·이력 페이지·report 카드 모두 본 mapper view 사용 |
 | `mappers.py` | Outbound DTO + Detail -> ViewModel 변환. `to_*_item` / `enrich_*` / `infer_role` / `_split_disks` 등 |
 | `metrics_calculator.py` | CPU/Disk/Net delta + Mem/Swap 시점값 -> Snapshot. `_is_counter_reset` (boot_time 비교) |

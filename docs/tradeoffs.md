@@ -94,31 +94,25 @@
 
 ---
 
-## T4. DEV 스키마 관리: web lifespan + create_all (prod skip)
+## T4. DEV 스키마 관리: web lifespan + create_all (prod skip) — Resolved by ADR 0005
 
-> 관련 코드: `src/assessment_engine/web/main.py` lifespan, `src/assessment_engine/db/models/`, `src/assessment_engine/config.py` `app_env`
-> 관련 문서: CLAUDE.md #C1, #A, `docs/operations/dev-prod.md` #4 APP_ENV 마커
+> 본 트레이드오프는 ADR 0005 "DB Schema 관리 표준화"로 해소. 본 절은 historical record로 보존 — 의사결정 history는 ADR 0005 본문 참조.
+>
+> 관련 코드 (당시): `src/assessment_engine/web/main.py` lifespan, `src/assessment_engine/db/models/`
+> 현재 결정: 모든 환경(dev·staging·prod·테스트) Alembic 단일 진실. `migrate` init-container가 `alembic upgrade head` 1회 실행 후 종료. lifespan create_all 제거됨. consumer는 `depends_on: migrate (service_completed_successfully)`. CLAUDE.md #C4 + `docs/operations/alembic.md` 참조.
 
-선택
+선택 (당시 — 폐기)
 - web 기동 시 `CREATE EXTENSION timescaledb` → `Base.metadata.create_all` → `create_hypertable(if_not_exists)`.
 - consumer는 `depends_on web: condition: service_healthy`로 web 헬스체크 후 시작.
-- `APP_ENV=prod`일 때 lifespan이 자동 skip — Alembic이 schema 관리 책임. `consumer depends_on web` 의존성도 단계적 제거 가능.
+- `APP_ENV=prod`일 때 lifespan이 자동 skip — Alembic이 schema 관리 책임.
 
-대안
+대안 (당시 — 채택됨)
 - Alembic: 마이그레이션 스크립트로 스키마 관리. consumer가 web에 의존하지 않음.
-- 수동 SQL: 운영자가 docker compose 외부에서 SQL 실행.
 
-트레이드오프
-- 얻은 것: 추가 도구 없이 빠른 개발 사이클. `docker compose up`만으로 스키마 생성.
-- 포기한 것: `create_all`은 기존 테이블에 컬럼·제약을 추가하지 않음. 모델 변경 시 `docker compose down -v`(데이터 손실)가 필요. 스키마 책임이 web에 섞여 SRP 위반. 프로덕션에 부적합.
-
-왜 받아들였나
-- 현재 단계는 개발/PoC. 데이터 영속성보다 빠른 반복.
-- 프로덕션 배포 전에 Alembic 도입을 전제 (CLAUDE.md #C1에 명시).
-
-언제 다시 봐야 하는가
-- 첫 프로덕션 배포 직전.
-- → Alembic 초기화 → 현재 스키마 dump → 초기 마이그레이션 작성 → `consumer depends_on web` 제거.
+해소 (ADR 0005 채택 후)
+- migrate init-container 패턴 — `migrate` 서비스가 1회 실행 후 종료(`restart: "no"`). 앱 4 서비스(`web`/`consumer`/`diagnostic-worker`/`diagnostic-scheduler`) 모두 `depends_on: migrate: service_completed_successfully`.
+- `consumer depends_on web` 제거됨 — web과 consumer가 동등 lifecycle.
+- CI `alembic check`가 ORM·migration drift 자동 차단.
 
 ---
 
@@ -313,3 +307,82 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 언제 다시 봐야 하는가
 - 멱등성 키 evict가 실제 관찰될 때 (Redis `INFO stats` `evicted_keys` 모니터링).
 - → 멱등성을 PostgreSQL 테이블로 옮기거나, Redis를 namespace별로 분리.
+
+---
+
+## T12. server_inventory 호스트 식별 = `(machine_id, hostname)` 복합 UNIQUE
+
+> 관련 코드: `src/assessment_engine/db/models/server_inventory.py`, `src/assessment_engine/db/repositories/collect_repository.py`
+> 관련 문서: CLAUDE.md #C1, `docs/architecture/db/models.md`, `docs/architecture/agent.md`
+> 관련 migration: `migrations/versions/f5c1e2d3a4b8_inventory_composite_unique.py`
+
+선택
+- `server_inventory` unique 키를 `machine_id` 단독에서 `(machine_id, hostname)` 복합으로 변경.
+- agent payload schema (`MessageBase`) 는 그대로 — 이미 `machine_id` + `hostname` 둘 다 전송 중.
+- Repository signature (`find_server_id`·`ensure_server_id`) 와 `on_conflict_do_*` index_elements, redis cooldown 키 (`time_invariant_warned:{machine_id}:{hostname}`) 모두 복합 키 일관.
+
+대안
+- agent_id 신설: agent 첫 install 시 UUID 생성 + `/var/lib/.../agent-id` 영구 저장. agent C source + payload schema 변경 (#B). 가장 정석이나 외부 repo 작업 부담.
+- hardware UUID (`/sys/class/dmi/id/product_uuid`) 우선 + machine-id fallback. VM clone 시 hardware UUID 도 동일 가능. agent 변경 필요.
+- 운영자 부여 server_id (install 시 운영자가 UUID 주입). install workflow 에 등록 step 추가.
+
+트레이드오프
+- 얻은 것:
+  - 실제 운영에서 흔한 machine_id 중복 시나리오 (VM 템플릿 복제·이미지 clone·container host `/etc/machine-id` 마운트) 즉시 격리.
+  - agent 변경 0 — 엔진 단독으로 완결. payload 합의 영향 없음.
+  - 영향 코드 단순 (Repository signature + consumer 핸들러 hostname 1개 추가 전달 + cooldown 키 인자 1개 추가).
+- 포기한 것:
+  - hostname 변경 시 새 row INSERT (다른 호스트로 인식) — 운영자가 명시적으로 hostname 변경하면 history 끊김. 같은 호스트 분리. 운영자 의도와 다를 수 있음.
+  - 두 다른 호스트가 동일 machine_id + 동일 hostname 보유 시 여전히 충돌 (rare — 클론 후 hostname 안 바꾼 케이스).
+  - MQ queue `agent.tasks.{machine_id}` / routing key `task.install.{machine_id}` 는 여전히 machine_id 단독 — agent 가 자기 machine_id 로 queue subscribe 하니 agent 변경 없이 hostname 포함 불가. 같은 machine_id 다른 hostname 두 호스트가 동일 큐 공유 시 message race 가능 (rare).
+
+왜 받아들였나
+- B2B 내부 포털 — 인벤토리 등록 호스트 수가 작아 hostname 충돌 자체가 드묾.
+- agent 측 코드는 외부 repo + 사용 중인 binary. 본 repo 단독 결정이 빠르고 안전.
+- MQ race 는 같은 image clone + 같은 hostname 시나리오에서만 발생 — 흔치 않음.
+
+언제 다시 봐야 하는가
+- MQ queue 충돌이 운영에서 관측될 때 → ADR 신설 + agent_id 도입 또는 queue 식별자 변경.
+- hostname 변경으로 history 끊김 운영자 불만 누적 시 → agent_id 같은 mutable-free 식별자 도입 재검토.
+
+---
+
+## T13. 보고서 = diagnostic_jobs 통합 (job_type) + 환경 진단 결과 iframe view toggle
+
+> 관련 코드: `src/assessment_engine/db/models/diagnostic_job.py`, `src/assessment_engine/web/services/diagnostic_service.py::record_report_emission`, `src/assessment_engine/web/templates/diagnostics/results.html`
+> 관련 문서: CLAUDE.md #C1, `docs/architecture/db/models.md`
+> 관련 migration: `migrations/versions/a1b2c3d4e5f6_diagnostic_jobs_job_type.py`
+
+선택
+- `diagnostic_jobs.job_type` 컬럼 (`ai_diagnostic`/`customer_report`/`engineer_report`) — 보고서 생성도 본 테이블에 row 저장 (이력 보존).
+- 양식 분리:
+  - server scope (`/servers/report?ids=...`): row 단위 상세, 양식 A/B (`servers/report.html`).
+  - environment scope (`/reports/environment`): high-level (KPI·USE Method 분류 도넛·Top N risk·OS 분포·view별 정성 요약, `reports/environment.html`). 전체 등록 서버 자동, `EnvironmentReportSummary` view_model + `environment_report_mapper`.
+- 두 라우터 모두 합성 직후 `record_report_emission` 호출 (best-effort, 응답 흐름 영향 없음).
+- AI 진단 이력 (`/diagnostics/history`) 과 보고서 이력 (`/reports/history`) 페이지 분리 — AI 진단 이력은 `job_type='ai_diagnostic'` 자동 필터, 보고서 이력은 customer + engineer union + view 필터 select. 서버 목록에서 진입점 둘 다 지원 (선택 N대 버튼 + 환경 카드 link).
+- 환경 scope 진단 결과 페이지 (`/diagnostics?ids=X`) 는 같은 페이지 안 3 view tab (AI 분석/고객 보고서/엔지니어 보고서). 고객·엔지니어 view 는 `<iframe src="/reports/environment?view=...">` SSR 미리 렌더 + JS `display` toggle.
+
+대안
+- 보고서를 별도 테이블 `report_jobs` 로 분리 — 모델 명확하나 두 테이블 간 통합 표시 SQL union 복잡. job_type 단일 분기로 충분.
+- view toggle 을 AJAX lazy fetch — 첫 로드 가벼우나 새 API + client JS 필요. iframe SSR 미리 렌더가 단순.
+- 보고서 본문 (HTML) 을 `result` JSONB 에 snapshot 저장 — DB 비대화 + 양식 변경 시 옛 snapshot 불일치. 현재는 메타만 저장하고 보기 시 재합성 (data 변경 시 결과 달라지는 한계 수용).
+
+트레이드오프
+- 얻은 것:
+  - AI 진단 + 보고서 발행 이력 단일 페이지에서 통합 추적.
+  - 환경 AI 진단 결과 같은 페이지에서 고객/엔지니어 보고서 즉시 비교 (toggle).
+  - 모델 통합 — 보고서별 별도 service·테이블 신설 없이 기존 diagnostic_jobs 재사용.
+- 포기한 것:
+  - 매 보고서 GET 마다 row INSERT (active UNIQUE 통과 후 즉시 succeeded) — 같은 입력 N회 조회 시 N row 생성. retention 90일로 sizing 자체는 OK 이나 dedup view 또는 view_count 증분 모델은 미적용.
+  - 환경 진단 결과 페이지 매 로드 시 iframe 2개 동시 fetch — 보고서 페이지 자체가 무거우면 (server N대 SQL 5×2) 첫 표시 늦음. 캐시는 미적용.
+  - `result` JSONB 에 양식 HTML snapshot 미저장 — 옛 보고서 재조회 시 raw data 변경 영향. snapshot 의도면 별도 결정.
+
+왜 받아들였나
+- 보고서 발행은 운영자가 명시 액션 (선택 N대 → 보고서 버튼) — 매 발행은 의미 있는 이벤트라 row 1개 기록 OK.
+- 환경 진단 결과 페이지 부담은 운영자가 명시 진입 시점만 — list page 같은 hot path 아님.
+- snapshot 미적용은 보고서 자체가 시계열 raw → 양식 합성이라 data drift 자연스러움. 정확한 시점 snapshot 필요 시 별도 PDF export 기능으로 분리.
+
+언제 다시 봐야 하는가
+- 보고서 row 가 운영에서 폭증 (운영자가 N회 새로고침) 시 → dedup 또는 view_count 증분 모델.
+- 환경 진단 결과 페이지 첫 표시 느림 운영자 불만 시 → 보고서 페이지 server-side 캐시 또는 lazy fetch 전환.
+- 보고서 snapshot 필요 운영 요구 시 → `result` JSONB 에 합성 결과 저장 + size 모니터링.

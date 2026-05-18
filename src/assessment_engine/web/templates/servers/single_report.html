@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}{{ hostname }} 보고서 — {{ view_title }}{% endblock %}
+
+{% block content %}
+{% set r = summary.base.rows[0] if summary.base.rows else None %}
+
+<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
+
+<div style="display:flex; align-items:center; justify-content:space-between; margin:8px 0 20px; gap:16px;">
+  <h1 style="margin:0;">{{ hostname }} <span style="font-size:14px; color:#64748b; font-weight:400; margin-left:8px;">{{ view_title }}</span></h1>
+  <div style="display:flex; align-items:center; gap:14px;">
+    <div style="font-size:12px; color:#64748b; text-align:right;">
+      <div>발행 {{ summary.generated_at | kst }}</div>
+      <div>윈도우 {{ summary.time_range_label }}</div>
+    </div>
+    <button class="btn-print no-print" type="button" onclick="window.print()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      인쇄
+    </button>
+  </div>
+</div>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 style="margin:0 0 12px;">서버 인벤토리</h2>
+  <div class="metric-grid metric-grid-3" style="margin-bottom:14px;">
+    <div class="metric-card">
+      <div class="metric-label">vCPU</div>
+      <div class="metric-value">{{ summary.overview.total_vcpus }}</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">메모리</div>
+      <div class="metric-value">{{ "%.1f" | format(summary.overview.total_memory_gb) }} GB</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">디스크</div>
+      <div class="metric-value">{{ summary.overview.total_disk_gb }} GB</div>
+    </div>
+  </div>
+  {% if r %}
+  <div style="display:flex; gap:24px; flex-wrap:wrap; font-size:13px; color:#475569;">
+    <div>OS: <strong style="color:#1e293b;">{{ r.os_display }}</strong>{% if r.kernel_version %} <span style="color:#94a3b8;">({{ r.kernel_version }})</span>{% endif %}</div>
+    {% if r.role %}<div>역할: <strong style="color:#1e293b;">{{ r.role }}</strong></div>{% endif %}
+    {% if r.internal_ip %}<div>내부 IP: <code>{{ r.internal_ip }}</code></div>{% endif %}
+    <div>상태: {% if r.is_online %}<span class="dot dot-ok"></span> <strong style="color:#15803d;">온라인</strong>{% else %}<span class="dot dot-off"></span> <strong style="color:#94a3b8;">오프라인</strong>{% endif %}</div>
+  </div>
+  {% endif %}
+</section>
+
+{% if r %}
+<section class="card" style="margin-bottom:16px;">
+  <h2 style="margin:0 0 12px;">평균 사용률 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">{{ summary.time_range_label }} 윈도우</span></h2>
+  <div class="metric-grid metric-grid-2">
+    <div class="metric-card">
+      <div class="metric-label">CPU 평균</div>
+      <div class="metric-value">{% if r.cpu_avg_pct is not none %}{{ "%.1f"|format(r.cpu_avg_pct) }}%{% else %}—{% endif %}</div>
+      <div class="metric-sub">p95 {% if r.cpu_p95_pct is not none %}{{ "%.1f"|format(r.cpu_p95_pct) }}%{% else %}—{% endif %} / peak {% if r.cpu_peak_pct is not none %}{{ "%.0f"|format(r.cpu_peak_pct) }}%{% else %}—{% endif %}</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">메모리 평균</div>
+      <div class="metric-value">{% if r.mem_avg_pct is not none %}{{ "%.1f"|format(r.mem_avg_pct) }}%{% else %}—{% endif %}</div>
+      <div class="metric-sub">p95 {% if r.mem_p95_pct is not none %}{{ "%.1f"|format(r.mem_p95_pct) }}%{% else %}—{% endif %} / peak {% if r.mem_peak_pct is not none %}{{ "%.0f"|format(r.mem_peak_pct) }}%{% else %}—{% endif %}</div>
+    </div>
+  </div>
+</section>
+{% endif %}
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 style="margin:0 0 12px;">Right-sizing 평가</h2>
+  {% if r %}
+  <div style="display:flex; align-items:center; gap:12px;">
+    <span class="badge {{ r.badge_class }}" style="font-size:13px; padding:4px 12px;">{{ r.recommendation }}</span>
+    <span style="font-size:13px; color:#1e293b;">
+      {%- if r.recommendation == "under_provisioned" and r.under_provisioned_reason -%}
+        {{ r.under_provisioned_reason }}
+      {%- elif r.recommendation == "over_provisioned" -%}
+        자원 축소 검토 (CPU/메모리 사용률 낮음)
+      {%- elif r.recommendation == "idle" -%}
+        용도 재평가 또는 종료 검토
+      {%- elif r.recommendation == "shutdown" -%}
+        종료 가능 검토 (사실상 미사용)
+      {%- elif r.recommendation == "optimal" -%}
+        적정 운영
+      {%- elif r.recommendation == "insufficient_data" -%}
+        평가 표본 부족 (윈도우 미만 또는 메트릭 수집 문제)
+      {%- endif -%}
+    </span>
+  </div>
+  {% if view == "engineer" and r.diagnosis %}
+  <div style="margin-top:10px; padding-top:10px; border-top:1px solid #e2e8f0; font-size:12px; color:#475569;">
+    <span style="color:#94a3b8;">USE 종합 신호 (자동):</span> {{ r.diagnosis }}
+  </div>
+  {% endif %}
+  {% else %}
+  <p style="margin:0; color:#94a3b8; font-size:13px;">평가 데이터 없음.</p>
+  {% endif %}
+</section>
+
+{% if r %}
+{% set d = diagnostics_by_pid.get(r.public_id) if diagnostics_by_pid else None %}
+<section class="card" style="margin-bottom:16px;">
+  <h2 style="margin:0 0 12px;">AI 진단 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">{{ summary.time_range_label }} latest succeeded</span></h2>
+  {% if d and d.classification %}
+  <div style="margin-bottom:8px;">
+    <span class="badge {{ d.classification_badge_class }}" style="font-size:13px; padding:4px 12px;">{{ d.classification_label_kr }}</span>
+    {% if d.recommendation_action and d.recommendation_action != 'no_action' %}
+    <span style="margin-left:8px; font-size:13px; color:#1e293b;">권고: {{ d.recommendation_action }}</span>
+    {% endif %}
+  </div>
+  {% if d.narrative %}
+  <p style="margin:0; font-size:12px; color:#475569; line-height:1.6;">{{ d.narrative }}</p>
+  {% endif %}
+  {% else %}
+  <p style="margin:0; font-size:13px; color:#94a3b8;">진단 결과 없음 — 발행 또는 스케줄러 매일 03시 자동.</p>
+  {% endif %}
+</section>
+
+{% if view == "engineer" %}
+<section class="card" style="margin-bottom:16px;">
+  <h2 style="margin:0 0 12px;">운영 신호 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">데이터 수집·OS·Agent 안정성</span></h2>
+  {% if attention_for_host.get('gap') or attention_for_host.get('os_eol') or attention_for_host.get('restart') %}
+  <div class="alert-list">
+    {% if attention_for_host.get('gap') %}
+    <div class="alert-warn">
+      <span class="rec-badge attn-active">수집 끊김</span>
+      <span>{{ attention_for_host.gap }}</span>
+    </div>
+    {% endif %}
+    {% if attention_for_host.get('os_eol') %}
+    <div class="alert-warn">
+      <span class="rec-badge attn-active">OS EOL</span>
+      <span>{{ attention_for_host.os_eol }}</span>
+    </div>
+    {% endif %}
+    {% if attention_for_host.get('restart') %}
+    <div class="alert-warn">
+      <span class="rec-badge attn-active">Agent 불안정</span>
+      <span>{{ attention_for_host.restart }}</span>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <p style="margin:0; color:#94a3b8; font-size:13px;">발화 없음 — 데이터 수집·OS·Agent 정상.</p>
+  {% endif %}
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 style="margin:0 0 12px;">Saturation 신호 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">USE Method · 부하·대기·압박 축</span></h2>
+  <div class="metric-grid metric-grid-3">
+    <div class="metric-card">
+      <div class="metric-label">Load 15m</div>
+      <div class="metric-value" style="color:{{ r.saturation_color }};">{% if r.load_15m_max is not none %}{{ "%.2f"|format(r.load_15m_max) }}{% else %}—{% endif %}</div>
+      <div class="metric-sub">saturation {% if r.saturation_ratio is not none %}{{ "%.2f"|format(r.saturation_ratio) }} (load / vCPU){% else %}—{% endif %}</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">iowait p95</div>
+      <div class="metric-value">{% if r.iowait_p95_pct is not none %}{{ "%.1f"|format(r.iowait_p95_pct) }}%{% else %}—{% endif %}</div>
+      <div class="metric-sub">peak {% if r.iowait_peak_pct is not none %}{{ "%.1f"|format(r.iowait_peak_pct) }}%{% else %}—{% endif %}</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Swap 사용</div>
+      <div class="metric-value" style="color:{% if r.swap_used %}#b91c1c{% else %}#94a3b8{% endif %};">{% if r.swap_used %}발생{% else %}—{% endif %}</div>
+      <div class="metric-sub">메모리 saturation 1차 지표</div>
+    </div>
+  </div>
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 style="margin:0 0 12px;">변동성 / 디스크 / 네트워크 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">{{ summary.time_range_label }} 윈도우</span></h2>
+  <div class="metric-grid metric-grid-2">
+    <div class="metric-card">
+      <div class="metric-label">CPU 변동성 (peak / p95)</div>
+      <div class="metric-value" style="color:{{ r.cpu_variance_color }};">{% if r.cpu_variance_ratio is not none %}{{ "%.2f"|format(r.cpu_variance_ratio) }}{% else %}—{% endif %}</div>
+      <div class="metric-sub">1.5 이상 burst 큼</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">MEM 변동성 (peak / p95)</div>
+      <div class="metric-value" style="color:{{ r.mem_variance_color }};">{% if r.mem_variance_ratio is not none %}{{ "%.2f"|format(r.mem_variance_ratio) }}{% else %}—{% endif %}</div>
+      <div class="metric-sub">1.5 이상 burst 큼</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">디스크 IOPS (avg)</div>
+      <div class="metric-value">{% if r.disk_iops_baseline is not none %}{{ r.disk_iops_baseline }}{% else %}—{% endif %}</div>
+      <div class="metric-sub">p95 {% if r.disk_iops_p95 is not none %}{{ "%.0f"|format(r.disk_iops_p95) }}{% else %}—{% endif %} / peak {% if r.disk_iops_peak is not none %}{{ "%.0f"|format(r.disk_iops_peak) }}{% else %}—{% endif %}</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">디스크 처리량 (avg kB/s)</div>
+      <div class="metric-value">{% if r.disk_throughput_kbps is not none %}{{ "%.0f"|format(r.disk_throughput_kbps) }}{% else %}—{% endif %}</div>
+      <div class="metric-sub">p95 {% if r.disk_throughput_kbps_p95 is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_p95) }}{% else %}—{% endif %} / peak {% if r.disk_throughput_kbps_peak is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_peak) }}{% else %}—{% endif %}</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">네트워크 RX (avg kB/s)</div>
+      <div class="metric-value">{% if r.net_rx_kbps is not none %}{{ "%.0f"|format(r.net_rx_kbps) }}{% else %}—{% endif %}</div>
+      <div class="metric-sub">p95 {% if r.net_rx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_rx_kbps_p95) }}{% else %}—{% endif %} / peak {% if r.net_rx_kbps_peak is not none %}{{ "%.0f"|format(r.net_rx_kbps_peak) }}{% else %}—{% endif %}</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">네트워크 TX (avg kB/s)</div>
+      <div class="metric-value">{% if r.net_tx_kbps is not none %}{{ "%.0f"|format(r.net_tx_kbps) }}{% else %}—{% endif %}</div>
+      <div class="metric-sub">p95 {% if r.net_tx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_tx_kbps_p95) }}{% else %}—{% endif %} / peak {% if r.net_tx_kbps_peak is not none %}{{ "%.0f"|format(r.net_tx_kbps_peak) }}{% else %}—{% endif %}</div>
+    </div>
+  </div>
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 style="margin:0 0 12px;">스토리지 / 시스템 안정성</h2>
+  <div class="metric-grid metric-grid-2">
+    <div class="metric-card">
+      <div class="metric-label">worst mount</div>
+      <div class="metric-value-md">{% if r.worst_mount %}<code>{{ r.worst_mount }}</code>{% else %}—{% endif %}</div>
+      <div class="metric-sub">사용률 {% if r.worst_mount_used_pct is not none %}{{ "%.0f"|format(r.worst_mount_used_pct) }}%{% else %}—{% endif %}{% if r.worst_mount_days_until_full is not none %} · 소진 <span style="color:{{ r.worst_mount_days_color }};">{{ r.worst_mount_days_until_full }}일</span>{% endif %}</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Uptime</div>
+      <div class="metric-value">{% if r.uptime_days is not none %}{{ r.uptime_days }}<span style="font-size:14px; font-weight:400; color:#64748b;"> 일</span>{% else %}—{% endif %}</div>
+      <div class="metric-sub">재부팅 <span style="color:{{ r.reboot_count_color }};">{{ r.reboot_count }}회</span></div>
+    </div>
+  </div>
+</section>
+{% endif %}
+{% endif %}
+
+<section class="card" style="margin-bottom:16px; background:#f8fafc;">
+  <h2 style="margin:0 0 8px; color:#475569;">참고자료</h2>
+  <p style="margin:0; font-size:13px; color:#475569;">
+    Right-sizing 분류 임계값 · USE 축 · 보조 지표 정의{% if view == "engineer" %} · 운영 신호 임계{% endif %} · 근거 출처:
+    <a href="/reports/right-sizing-thresholds?back={{ self_back }}" class="row-link">Right-sizing 분류 임계값 (참고자료)</a>
+  </p>
+  <p class="print-only" style="margin:6px 0 0; font-size:11px; color:#94a3b8;">
+    인쇄본 단독 검토 시 참고자료 페이지를 별도 인쇄 -> 두 출력물을 함께 참조.
+  </p>
+</section>
+
+{% endblock %}

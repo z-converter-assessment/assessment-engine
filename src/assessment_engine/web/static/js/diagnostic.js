@@ -1,9 +1,9 @@
-// AI 진단 SSR latest 카드 + 모달 발행 (ADR 0004 단계 4·UI 통일).
+// 진단 SSR latest 카드 + 모달 발행 (ADR 0004 단계 4·UI 통일).
 //
 // 사용: 페이지에 다음 HTML을 두고 본 스크립트를 defer로 로드.
 //   <div class="card" data-diagnostic-panel data-scope="server" data-server-public-id="...">
-//     <h2>AI 진단</h2>
-//     <button class="diag-submit btn">AI 진단</button>
+//     <h2>서버 진단</h2>
+//     <button class="diag-submit btn">서버 진단</button>
 //     <div class="diag-status"></div>
 //     <div class="diag-result"></div>
 //     <div class="diag-modal" style="display:none; ...">
@@ -17,7 +17,7 @@
 //
 // 흐름:
 // 1. page load → SSR inline JSON으로 latest 결과 즉시 렌더 (없으면 빈 카드)
-// 2. "AI 진단" 버튼 클릭 → 모달 열기 (anchor input 자동 init)
+// 2. 진단 버튼 클릭 → 모달 열기 (anchor input 자동 init)
 // 3. 모달 confirm → POST → 결과 페이지(`/diagnostics?ids=...`)로 이동
 // 4. 결과 페이지의 diagnostic-results.js가 polling으로 완료까지 추적
 //
@@ -82,8 +82,17 @@
       if (this.anchorInput && !this.anchorInput.id) {
         this.anchorInput.id = 'diag-anchor-' + (++_anchorIdSeq);
       }
+      // 페이지 로드 시점에 anchor 기본값 채움 — 모달 open 시 reset 안 함 (사용자 변경값 보존).
+      if (this.anchorInput && window.ChartUtils && window.ChartUtils.initAnchor) {
+        window.ChartUtils.initAnchor(this.anchorInput.id);
+      }
 
-      this.button.addEventListener('click', () => this._openModal());
+      // 카드 안 모달이 있으면 (server scope detail) 클릭 → 모달 open.
+      // 모달 없으면 (list env card 본문 inline form) 클릭 → 즉시 submit.
+      this.button.addEventListener('click', () => {
+        if (this.modal) this._openModal();
+        else this.submit();
+      });
       if (this.confirmBtn) this.confirmBtn.addEventListener('click', () => this.submit());
       if (this.cancelBtn) this.cancelBtn.addEventListener('click', () => this._closeModal());
       if (this.modal) {
@@ -94,9 +103,6 @@
 
     _openModal() {
       if (!this.modal) return;
-      if (this.anchorInput && window.ChartUtils && window.ChartUtils.initAnchor) {
-        window.ChartUtils.initAnchor(this.anchorInput.id);
-      }
       this.modal.style.display = 'flex';
     }
 
@@ -116,7 +122,9 @@
     }
 
     async submit() {
-      if (this.confirmBtn) this.confirmBtn.disabled = true;
+      // modal 흐름은 confirmBtn 비활성, inline form 흐름은 메인 button 비활성.
+      const activeBtn = this.confirmBtn || this.button;
+      activeBtn.disabled = true;
       const prevStatus = this.statusEl.textContent;
       this.statusEl.textContent = '진단 요청 중...';
 
@@ -150,8 +158,12 @@
         // 결과 페이지로 이동 — polling은 거기서 진행
         window.location.href = `/diagnostics?ids=${encodeURIComponent(ids)}`;
       } catch (e) {
-        this.statusEl.textContent = (prevStatus || '') + ' | 요청 실패: ' + e.message;
-        if (this.confirmBtn) this.confirmBtn.disabled = false;
+        // 에러는 toast 로 — 카드 본문에 영구 노출되지 않게 (사용자 의도). statusEl 은 이전 상태 복원.
+        this.statusEl.textContent = prevStatus || '';
+        if (window.ToastUtils) {
+          ToastUtils.show(`AI 진단 발행 실패: ${e.message}`, 'err');
+        }
+        activeBtn.disabled = false;
       }
     }
 

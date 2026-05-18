@@ -64,9 +64,9 @@ DB 저장 (지수 백오프 재시도, _db_retry)
 `boot_time` / `agent_started_at` 은 본 메시지에서 항상 null 이라 `_log_time_invariants` 호출 생략.
 
 ### 미등록 서버 metrics — auto-register
-metrics 핸들러는 `repo.ensure_server_id(machine_id, placeholder)`로 한 번에 처리 — find 실패 시 fallback placeholder 사용. `(server_id, auto_registered)` 튜플 반환으로 handler가 auto-register 시점만 운영 로그를 남김.
+metrics 핸들러는 `repo.ensure_server_id(machine_id, hostname, placeholder)`로 한 번에 처리 — find 실패 시 fallback placeholder 사용. `(server_id, auto_registered)` 튜플 반환으로 handler가 auto-register 시점만 운영 로그를 남김. 식별자는 `(machine_id, hostname)` 복합 키 (#C1) — machine_id 단독은 VM 템플릿 복제·container `/etc/machine-id` 마운트 등으로 충돌 가능.
 
-placeholder는 `mappers.placeholder_inventory_from_metrics`가 생성. machine_id/hostname/agent_version만 실값, 나머지 정적 정보(OS·CPU·메모리·디스크 등)는 None/빈 배열. 다음 진짜 inventory 도착 시 ON CONFLICT DO UPDATE로 풀 정보 자동 덮어씀 (machine_id UNIQUE 제약).
+placeholder는 `mappers.placeholder_inventory_from_metrics`가 생성. machine_id/hostname/agent_version만 실값, 나머지 정적 정보(OS·CPU·메모리·디스크 등)는 None/빈 배열. 다음 진짜 inventory 도착 시 ON CONFLICT DO UPDATE로 풀 정보 자동 덮어씀 (`(machine_id, hostname)` 복합 UNIQUE 제약).
 
 metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 4개 시계열 테이블 INSERT를 facade로 묶어 처리. `boot_time`·`agent_started_at`은 시계열 4개 테이블 모두에 동일 시점값으로 함께 저장 → metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 비교로 시스템 재부팅 시 delta 건너뛰기 (CLAUDE.md B1). mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅 단일 테이블 SELECT 위해 보존. 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
 
@@ -142,7 +142,7 @@ upsert 성공 후 `SET online:{server_id} EX 90`. 첫 메트릭 수신 전(최�
 
 `free_bytes`, `avail_bytes`가 스키마에 있으나 `src/assessment_engine/consumer/mappers.py:to_inventory_create`에서 명시적으로 drop된다 (`{"mount": ..., "fstype": ..., "total_bytes": ...}`만 매핑). 인벤토리에는 정적 정보만 저장하고, 동적 사용량은 metrics 메시지의 `mounts[]` → `server_mount_usage` 시계열 테이블로 분리한다.
 
-`disks[].major/minor`와 inventory `mounts[].major/minor`는 v3 이후 mount-disk 조인 키로 활용 중 (`web/services/device_filters.find_parent_disk`, mapper의 `MountUsageItem.device_name` 채움). 반면 metrics `mounts[].major/minor`·`disk_io[].major/minor`는 시계열 테이블에 컬럼 없어 Pydantic `extra=ignore`로 통과 후 미저장 — 정확한 활용 카탈로그는 `agent.md` "활용 중인 필드" / "엔진이 받지만 사용하지 않는 필드" 표.
+`disks[].major/minor`와 inventory `mounts[].major/minor`는 mount-disk 조인 키로 활용 중 (`web/services/device_filters.find_parent_disk`, mapper의 `MountUsageItem.device_name` 채움). 반면 metrics `mounts[].major/minor`·`disk_io[].major/minor`는 시계열 테이블에 컬럼 없어 Pydantic `extra=ignore`로 통과 후 미저장 — 정확한 활용 카탈로그는 `agent.md` "활용 중인 필드" / "엔진이 받지만 사용하지 않는 필드" 표.
 
 ### 부가 시그널 — 운영 가시성
 

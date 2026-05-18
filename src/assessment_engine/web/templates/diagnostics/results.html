@@ -3,17 +3,18 @@
 
 {% block content %}
 <a href="/servers/" class="back">&larr; 뒤로</a>
-<h1>AI 진단 결과</h1>
+<h1>진단 결과</h1>
 <p style="color:#64748b; font-size:13px; margin-bottom:20px;">
   발행된 진단 job {{ jobs|length }}건. pending/running 항목은 3초마다 자동 갱신.
 </p>
 
 {% for job in jobs %}
+{% set is_env = job.payload and job.payload.scope == "environment" %}
 <div class="card" data-diagnostic-result data-job-id="{{ job.job_id }}" style="margin-bottom:16px;">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
     <h2 style="margin:0;">
       {% if job.payload %}
-        {% if job.payload.scope == "server" %}서버 진단{% else %}환경 진단{% endif %}
+        {% if job.payload.scope == "server" %}AI 진단{% else %}환경 AI 진단{% endif %}
         {% if job.payload.server_public_id %}
           <span style="font-weight:400; color:#64748b; font-size:13px;">—
             <a href="/servers/{{ job.payload.server_public_id }}" style="color:inherit;">{{ job.payload.server_public_id[:8] }}</a>
@@ -25,8 +26,32 @@
     </h2>
     <span class="diag-status badge"></span>
   </div>
+
+  {% if is_env and job.report_link_customer %}
+  <div class="view-tabs no-print" style="display:flex; gap:6px; margin-bottom:14px; border-bottom:1px solid #e2e8f0;">
+    <button type="button" class="view-tab active" data-view="ai"
+            style="padding:6px 12px; border:none; background:none; cursor:pointer; font-size:13px; color:#1e293b; border-bottom:2px solid #3b82f6;">AI 분석</button>
+    <button type="button" class="view-tab" data-view="customer"
+            style="padding:6px 12px; border:none; background:none; cursor:pointer; font-size:13px; color:#64748b; border-bottom:2px solid transparent;">고객 보고서</button>
+    <button type="button" class="view-tab" data-view="engineer"
+            style="padding:6px 12px; border:none; background:none; cursor:pointer; font-size:13px; color:#64748b; border-bottom:2px solid transparent;">엔지니어 보고서</button>
+  </div>
+
+  <div class="view-panel" data-view="ai" style="display:block;">
+    <div class="diag-meta" style="color:#64748b; font-size:12px; margin-bottom:10px;"></div>
+    <div class="diag-result"></div>
+  </div>
+  <div class="view-panel" data-view="customer" style="display:none;">
+    <iframe src="{{ job.report_link_customer }}" style="width:100%; min-height:1200px; border:1px solid #e2e8f0; border-radius:4px;"></iframe>
+  </div>
+  <div class="view-panel" data-view="engineer" style="display:none;">
+    <iframe src="{{ job.report_link_engineer }}" style="width:100%; min-height:1200px; border:1px solid #e2e8f0; border-radius:4px;"></iframe>
+  </div>
+  {% else %}
   <div class="diag-meta" style="color:#64748b; font-size:12px; margin-bottom:10px;"></div>
   <div class="diag-result"></div>
+  {% endif %}
+
   {% if job.payload %}
   <script type="application/json" class="diag-initial">{{ job.payload | tojson }}</script>
   {% endif %}
@@ -34,4 +59,5 @@
 {% endfor %}
 
 <script src="/static/js/diagnostic-results.js?v={{ asset_v }}" defer></script>
+<script src="/static/js/diagnostic-view-toggle.js?v={{ asset_v }}" defer></script>
 {% endblock %}

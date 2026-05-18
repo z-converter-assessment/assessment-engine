@@ -5,7 +5,7 @@
 - 파라미터로 일부 필드만 override
 - factory_boy의 SubFactory/LazyAttribute 같은 추상화는 과도
 """
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from assessment_engine.db.repositories.inbound import (
     DiskIoEntry,
@@ -17,8 +17,8 @@ from assessment_engine.db.repositories.inbound import (
 )
 from assessment_engine.db.repositories.outbound import TaskRow
 
-_DEFAULT_BOOT_TIME = datetime(2026, 1, 1, tzinfo=timezone.utc)
-_DEFAULT_AGENT_STARTED_AT = datetime(2026, 1, 1, 0, 5, tzinfo=timezone.utc)
+_DEFAULT_BOOT_TIME = datetime(2026, 1, 1, tzinfo=UTC)
+_DEFAULT_AGENT_STARTED_AT = datetime(2026, 1, 1, 0, 5, tzinfo=UTC)
 
 
 def make_inventory(
@@ -41,7 +41,7 @@ def make_inventory(
         machine_id=machine_id,
         hostname=hostname,
         agent_version=agent_version,
-        collected_at=collected_at or datetime.now(timezone.utc),
+        collected_at=collected_at or datetime.now(UTC),
         os_id="ubuntu",
         os_version="22.04",
         os_codename="jammy",
@@ -122,7 +122,7 @@ def make_metrics(
 # ─── Task 빌더 (ADR 0007) ──────────────────────────────────────────────────
 
 _DEFAULT_TASK_PUBLIC_ID = "00000000-0000-4000-8000-000000000001"
-_DEFAULT_TASK_COMPLETED_AT = datetime(2026, 5, 14, 12, 0, tzinfo=timezone.utc)
+_DEFAULT_TASK_COMPLETED_AT = datetime(2026, 5, 14, 12, 0, tzinfo=UTC)
 
 
 def make_task_result_payload(

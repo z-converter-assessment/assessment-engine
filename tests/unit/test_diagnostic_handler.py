@@ -31,7 +31,7 @@ def _make_message(job_id: str = "j1", message_id: str = "m1"):
 
 def _make_pending_job(job_id: str = "j1") -> DiagnosticJobRecord:
     return DiagnosticJobRecord(
-        id=job_id, scope="server",
+        id=job_id, job_type="ai_diagnostic", scope="server",
         input_params={
             "server_public_id": "uuid-x",
             "time_range": "14d",
@@ -162,3 +162,31 @@ async def test_handler_invalid_message_silent_ack(stub_components):
 
     await handler(bad_msg)  # reraise 없음
     diag_repo.get_by_id.assert_not_called()
+
+
+# ─── LLM timeout 분기 (#F6) — wait_for(timeout=llm_timeout_seconds) ────────
+
+@pytest.mark.asyncio
+@patch("assessment_engine.diagnostic.handler.safe_set_nx", new=AsyncMock(return_value=True))
+@patch("assessment_engine.diagnostic.handler.safe_set", new=AsyncMock(return_value=None))
+@patch("assessment_engine.diagnostic.handler.aggregator")
+async def test_handler_llm_timeout_marks_failed(mock_agg, stub_components):
+    """LLM 호출 TimeoutError → mark_failed("llm_timeout") 흡수 (DLQ 재시도 안 함)."""
+    mock_agg.extract_server = AsyncMock(return_value={"summary": "ok"})
+
+    session_factory, query_repo, diag_repo, llm, redis = stub_components
+    llm.generate_narrative = AsyncMock(side_effect=TimeoutError())
+
+    handler = make_diagnostic_handler(
+        session_factory=session_factory,
+        query_repo_factory=lambda s: query_repo,
+        diagnostic_repo_factory=lambda s: diag_repo,
+        llm_client=llm,
+        redis=redis,
+    )
+    await handler(_make_message())  # reraise 없음 (흡수)
+    diag_repo.mark_failed.assert_awaited_once()
+    args = diag_repo.mark_failed.await_args
+    assert args.args[1] == "llm_timeout" or args.kwargs.get("error_message") == "llm_timeout"
+    # succeeded 마킹은 안 함
+    diag_repo.mark_succeeded.assert_not_called()

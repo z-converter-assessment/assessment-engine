@@ -1,20 +1,22 @@
 """Alembic env — async engine + Base.metadata 연결.
 
-DB URL은 `web_settings.database_url` (asyncpg). alembic.ini의 sqlalchemy.url은 비워두고
-런타임에 주입 — 동일 환경변수 정책 (.env / Docker secrets) 활용.
+DB URL은 WebSettings.database_url (asyncpg). alembic.ini의 sqlalchemy.url은 비워두고
+런타임에 주입 — 동일 환경변수 정책(.env / secret 채널) 활용.
 
-모든 ORM 모델 import 의무 — 안 그러면 `Base.metadata`에 누락되어 autogenerate가 drop 처리.
+본 env는 schema 관리 진입점이라 어느 컴포넌트도 아님 — 자체 WebSettings 인스턴스화
+(db/session·db/redis와 동일 패턴, Composition Root #F4).
+
+모든 ORM 모델 import 의무 — 안 그러면 Base.metadata에 누락되어 autogenerate가 drop 처리.
 """
 import asyncio
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from alembic import context
-
-from assessment_engine.config import web_settings
+from assessment_engine.config import WebSettings
 from assessment_engine.db.models import (  # noqa: F401  — Base.metadata 등록
     diagnostic_job,
     server_disk_io,
@@ -27,14 +29,14 @@ from assessment_engine.db.models import (  # noqa: F401  — Base.metadata 등�
 )
 from assessment_engine.db.models.base import Base
 
-
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# 런타임 주입: 환경변수 → web_settings → alembic config
-config.set_main_option("sqlalchemy.url", web_settings.database_url)
+# 런타임 주입: 환경변수 → WebSettings → alembic config
+_settings = WebSettings()
+config.set_main_option("sqlalchemy.url", _settings.database_url)
 
 target_metadata = Base.metadata
 
@@ -59,9 +61,7 @@ def _include_object(object_, name, type_, reflected, compare_to):
     ORM `Base.metadata`엔 없으므로 autogenerate가 매번 "remove" 처리 — false positive.
     `alembic check` 신뢰성을 위해 패턴 제외.
     """
-    if type_ == "index" and name and name.endswith("_collected_at_idx"):
-        return False
-    return True
+    return not (type_ == "index" and name and name.endswith("_collected_at_idx"))
 
 
 def do_run_migrations(connection: Connection) -> None:

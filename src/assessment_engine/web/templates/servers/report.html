@@ -3,252 +3,135 @@
 
 {% block content %}
 <style>
+  /* .kpi / .kpi-grid / .rec-* 는 base.html 단일 진실 — 본 페이지 전용은 .rec-insufficient_data 와 .rec-badge 만 */
   .report-meta { color:#64748b; font-size:13px; margin-bottom:18px; }
-  .kpi-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:24px; }
-  .kpi { background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:14px 16px; }
-  .kpi span { display:block; color:#64748b; font-size:12px; }
-  .kpi strong { display:block; font-size:24px; font-weight:700; color:#1e293b; margin-top:4px; }
   .report-section { margin-top:32px; }
   .report-section h2 { font-size:18px; color:#1e293b; margin:0 0 14px; padding-bottom:8px; border-bottom:1px solid #e2e8f0; }
-  /* .rec-* 정의는 base.html 단일 진실 — 본 페이지 전용은 .rec-insufficient_data와 .rec-badge만 */
   .rec-insufficient_data        { background:#f1f5f9; color:#94a3b8; }
   .rec-badge { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
   .num-cell { text-align:right; font-variant-numeric: tabular-nums; }
   .source-note { color:#94a3b8; font-size:11px; margin-top:6px; }
 
-  /* 엔지니어 보고서 양식 B 압축 — 19→15 컬럼, 셀 안 multi-line */
-  .engineer-table { table-layout:auto; font-size:11px; width:100%; }
-  .engineer-table th, .engineer-table td { padding:5px 6px; vertical-align:top; }
-  .engineer-table th { font-size:10px; font-weight:600; color:#475569; text-transform:uppercase; letter-spacing:.02em; line-height:1.3; }
-  .engineer-table th .sub { display:block; font-size:9px; font-weight:400; color:#94a3b8; text-transform:none; letter-spacing:0; }
-  .engineer-table .stat-line { display:block; line-height:1.35; }
-  .engineer-table .stat-line .lbl { color:#94a3b8; font-size:10px; margin-right:3px; }
-
-  /* AI 진단 컬럼 — 좁은 너비 + 줄바꿈 금지로 인쇄 시 column 폭 안정 (ADR 0004 단계 5) */
-  .ai-diag-cell { white-space:nowrap; max-width:120px; }
-  .ai-diag-cell .stat-line { display:block; line-height:1.35; }
+  /* 요약 table — customer / engineer 공통 뼈대. engineer 는 셀 안 stat-line 으로 추가 정보 노출. */
+  /* wrapper 가로 스크롤: 컬럼 많아져도 layout 깨지지 않고 우측 overflow → scrollbar. */
+  .summary-table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; margin:0 -2px; }
+  .summary-table { min-width:100%; }
+  .summary-table th, .summary-table td { white-space:nowrap; }
+  .summary-table th .sub { display:block; font-size:10px; font-weight:400; color:#94a3b8; text-transform:none; letter-spacing:0; }
+  .summary-table .stat-line { display:block; line-height:1.35; font-size:12px; }
+  .summary-table .stat-line.muted { color:#94a3b8; font-size:11px; }
+  .ai-diag-cell { max-width:140px; }
+  .ai-diag-cell .stat-line { display:block; line-height:1.35; font-size:12px; }
+  .ai-diag-cell .stat-line.muted { color:#475569; font-size:11px; }
 
   @media print {
     .report-section { page-break-inside: avoid; }
     .kpi-grid { page-break-inside: avoid; }
     body { background: #fff; }
-    .engineer-table { font-size:9px; }
-    .engineer-table th, .engineer-table td { padding:3px 4px; }
-    .engineer-table th { font-size:8px; }
-    .engineer-table th .sub { font-size:7px; }
-    .engineer-table .stat-line .lbl { font-size:8px; }
-    .ai-diag-cell { font-size:8px; max-width:80px; }
-    .ai-diag-cell .rec-badge { font-size:8px; padding:1px 4px; }
+    .summary-table-wrap { overflow:visible; }
+    .summary-table th, .summary-table td { white-space:normal; }
+    .ai-diag-cell { max-width:100px; }
   }
 </style>
 
-<a class="back no-print" href="/servers/" onclick="event.preventDefault(); if (history.length > 1) history.back(); else location.href='/servers/';">← 대시보드</a>
+<a class="back no-print" href="{{ back_url }}">← 이전</a>
 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
   <h1 style="margin:0;">Assessment Report <span style="font-size:14px; color:#64748b; font-weight:400; margin-left:8px;">{{ view_title }}</span></h1>
-  <button class="no-print" onclick="window.print()" style="display:flex; align-items:center; gap:6px; padding:7px 16px; border:1px solid #e2e8f0; border-radius:6px; background:#fff; color:#374151; font-size:13px; font-weight:500; cursor:pointer; box-shadow:0 1px 2px rgba(0,0,0,.06); transition:background .12s, box-shadow .12s;" onmouseover="this.style.background='#f8fafc'; this.style.boxShadow='0 2px 6px rgba(0,0,0,.10)'" onmouseout="this.style.background='#fff'; this.style.boxShadow='0 1px 2px rgba(0,0,0,.06)'">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-    인쇄
-  </button>
 </div>
 <div class="report-meta">
-  데이터 기준 기간: 최근 {{ summary.period_days }}일 ·
+  데이터 기준 기간: 최근 {{ time_range_label }} ·
   대상 서버 {{ summary.total }}대 ·
   분류 기준: USE Method (Brendan Gregg) + AWS Compute Optimizer / Azure Advisor / GCP Recommender
 </div>
 
-{% if view == "customer" %}
-<!-- ─── 양식 A: KPI + 요약 (고객 제출용) ─── -->
-<div class="kpi-grid">
+<!-- ─── 공통 KPI: 환경 + Right-sizing 분류 (customer · engineer 동일 뼈대) ─── -->
+<div class="kpi-label">환경</div>
+<div class="kpi-grid kpi-grid-2" style="margin-bottom:12px;">
   <div class="kpi"><span>대상 서버</span><strong>{{ summary.total }}</strong></div>
   <div class="kpi"><span>온라인</span><strong style="color:#15803d;">{{ summary.online }}</strong></div>
-  <div class="kpi"><span>주의 필요</span><strong style="color:#92400e;">{{ summary.risk_attention }}</strong></div>
-  <div class="kpi"><span>고위험</span><strong style="color:#b91c1c;">{{ summary.risk_high }}</strong></div>
 </div>
+<div class="kpi-label">Right-sizing 분류</div>
+<div class="kpi-grid kpi-grid-3" style="margin-bottom:{% if view == 'engineer' %}12{% else %}24{% endif %}px;">
+  <div class="kpi"><span>자원 부족</span><strong style="color:#b91c1c;">{{ under_count }}</strong></div>
+  <div class="kpi"><span>효율화 권장</span><strong style="color:#92400e;">{{ optimize_count }}</strong></div>
+  <div class="kpi"><span>적정</span><strong style="color:#15803d;">{{ optimal_count }}</strong></div>
+</div>
+
+{% if view == "engineer" and attn_active_count > 0 %}
+<div class="kpi-label">운영 신호 <span class="kpi-label-sub">발화 호스트 {{ attn_active_count }}대</span></div>
+<div class="kpi-grid" style="grid-template-columns:repeat({{ attn_active_kpi_cols }}, 1fr);">
+  {% if attn_gap_count > 0 %}<div class="kpi"><span>데이터 수집 끊김</span><strong style="color:#b45309;">{{ attn_gap_count }}</strong></div>{% endif %}
+  {% if attn_eol_count > 0 %}<div class="kpi"><span>OS EOL</span><strong style="color:#b45309;">{{ attn_eol_count }}</strong></div>{% endif %}
+  {% if attn_restart_count > 0 %}<div class="kpi"><span>Agent 불안정</span><strong style="color:#b45309;">{{ attn_restart_count }}</strong></div>{% endif %}
+</div>
+{% endif %}
 
 <div style="display:flex; gap:24px; margin:14px 0 12px; padding:14px 16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:13px; color:#475569;">
   <div>총 vCPU: <strong style="color:#1e293b;">{{ summary.totals.total_vcpus }}</strong></div>
   <div>총 메모리: <strong style="color:#1e293b;">{{ summary.totals.total_memory_gb }} GB</strong></div>
   <div>총 디스크: <strong style="color:#1e293b;">{{ summary.totals.total_disk_gb }} GB</strong></div>
-  <div style="margin-left:auto; color:#94a3b8; font-size:12px;">마이그레이션 capacity 산정 기준</div>
+  <div style="margin-left:auto; color:#94a3b8; font-size:12px;">환경 총 자원 규모</div>
 </div>
-
-{% if summary.role_distribution %}
-<div style="display:flex; flex-wrap:wrap; gap:8px; margin:0 0 24px;">
-  <span style="font-size:12px; color:#64748b; padding:6px 0;">역할 분포:</span>
-  {% for role, n in summary.role_distribution.items() %}
-  <span style="padding:4px 10px; background:#eef2ff; color:#3730a3; border-radius:999px; font-size:12px;">
-    {{ role }} <strong>{{ n }}</strong>
-  </span>
-  {% endfor %}
-</div>
-{% endif %}
 
 <div class="report-section">
-  <h2>요약 (양식 A · 고객 제출용)</h2>
-  <table>
+  <h2>{% if view == "customer" %}요약 (양식 A · 고객 제출용){% else %}요약 (양식 B · 엔지니어 검토용){% endif %}</h2>
+  <div class="summary-table-wrap">
+  <table class="summary-table">
     <thead>
       <tr>
-        <th>SERVER</th>
+        <th>SERVER{% if view == "engineer" %}<span class="sub">internal IP</span>{% endif %}</th>
         <th>ROLE</th>
-        <th>OS</th>
-        <th class="num-cell">CPU 사용률 (p95)</th>
-        <th class="num-cell">메모리 사용률 (p95)</th>
-        <th>위험도</th>
+        <th>OS{% if view == "engineer" %}<span class="sub">kernel</span>{% endif %}</th>
         <th>상태</th>
-        <th>AI 진단<span class="sub">14일</span></th>
+        <th class="num-cell">CPU{% if view == "engineer" %}<span class="sub">평균 · p95</span>{% else %} 평균{% endif %}</th>
+        <th class="num-cell">MEM{% if view == "engineer" %}<span class="sub">평균 · p95</span>{% else %} 평균{% endif %}</th>
+        <th>Right-sizing{% if view == "engineer" %}<span class="sub">판단</span>{% endif %}</th>
+        {% if view == "engineer" %}<th>운영 신호</th>{% endif %}
+        <th>AI 진단<span class="sub">{{ time_range_label }}</span></th>
       </tr>
     </thead>
     <tbody>
       {% for r in summary.rows %}
       <tr>
-        <td><strong>{{ r.hostname }}</strong></td>
-        <td>{{ r.role }}</td>
-        <td>{{ r.os_display }}</td>
-        <td class="num-cell">{% if r.cpu_p95_pct is not none %}{{ "%.1f"|format(r.cpu_p95_pct) }}%{% else %}—{% endif %}</td>
-        <td class="num-cell">{% if r.mem_p95_pct is not none %}{{ "%.1f"|format(r.mem_p95_pct) }}%{% else %}—{% endif %}</td>
-        <td><span class="rec-badge {{ r.risk_badge_class }}">{{ r.risk_label }}</span></td>
-        <td>{% if r.is_online %}<span style="color:#15803d;">●</span> 온라인{% else %}<span style="color:#94a3b8;">●</span> 오프라인{% endif %}</td>
-        <td class="ai-diag-cell">
-          {% set d = diagnostics_by_pid.get(r.public_id) %}
-          {% if d and d.classification %}
-            <span class="rec-badge {{ d.classification_badge_class }}">{{ d.classification_label_kr }}</span>
-            {% if d.recommendation_action and d.recommendation_action != 'no_action' %}
-            <span class="stat-line" style="color:#475569; font-size:10px;">{{ d.recommendation_action }}</span>
-            {% endif %}
+        <td>
+          <a href="/servers/{{ r.public_id }}/report?view={{ view }}&time_range={{ time_range }}&back={{ self_back }}" class="row-link"><strong>{{ r.hostname }}</strong></a>
+          {% if view == "engineer" %}<span class="stat-line muted"><code>{{ r.internal_ip or "—" }}</code></span>{% endif %}
+        </td>
+        <td>{% if r.role %}<span class="badge {{ r.role | service_badge_class }}">{{ r.role }}</span>{% else %}<span style="color:#94a3b8;">—</span>{% endif %}</td>
+        <td>
+          {{ r.os_display }}
+          {% if view == "engineer" and r.kernel_version %}<span class="stat-line muted">{{ r.kernel_version }}</span>{% endif %}
+        </td>
+        <td style="text-align:center;">{% if r.is_online %}<span class="dot dot-ok" title="온라인"></span>{% else %}<span class="dot dot-off" title="오프라인"></span>{% endif %}</td>
+        <td class="num-cell">
+          <span class="stat-line">{% if r.cpu_avg_pct is not none %}{{ "%.1f"|format(r.cpu_avg_pct) }}%{% else %}—{% endif %}</span>
+          {% if view == "engineer" %}<span class="stat-line muted">{% if r.cpu_p95_pct is not none %}p95 {{ "%.1f"|format(r.cpu_p95_pct) }}%{% else %}p95 —{% endif %}</span>{% endif %}
+        </td>
+        <td class="num-cell">
+          <span class="stat-line">{% if r.mem_avg_pct is not none %}{{ "%.1f"|format(r.mem_avg_pct) }}%{% else %}—{% endif %}</span>
+          {% if view == "engineer" %}<span class="stat-line muted">{% if r.mem_p95_pct is not none %}p95 {{ "%.1f"|format(r.mem_p95_pct) }}%{% else %}p95 —{% endif %}</span>{% endif %}
+        </td>
+        <td>
+          <span class="stat-line"><span class="rec-badge {{ r.badge_class }}">{{ r.recommendation }}</span></span>
+          {% if view == "engineer" %}<span class="stat-line muted" style="color:#475569;">{{ r.diagnosis }}</span>{% endif %}
+        </td>
+        {% if view == "engineer" %}
+        {% set sig = attention_by_host.get(r.hostname, {}) %}
+        <td>
+          {% if sig.get('gap') or sig.get('os_eol') or sig.get('restart') %}
+            {% if sig.get('gap') %}<span class="rec-badge attn-active" title="데이터 수집 끊김: {{ sig.gap }}">수집 끊김</span> {% endif %}
+            {% if sig.get('os_eol') %}<span class="rec-badge attn-active" title="OS EOL: {{ sig.os_eol }}">OS EOL</span> {% endif %}
+            {% if sig.get('restart') %}<span class="rec-badge attn-active" title="Agent 불안정: {{ sig.restart }}">Agent</span>{% endif %}
           {% else %}
-            <span style="color:#94a3b8;">—</span>
+            <span style="color:#cbd5e1;">—</span>
           {% endif %}
         </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <div class="source-note">
-    위험도 분류 기준: 자원 부족(CPU/메모리/스왑 압박) → 고위험 / 사용 낮음 → 주의 필요 / 그 외 → 정상. 평가 기간 {{ summary.period_days }}일 통계 기반.
-  </div>
-
-  <ul style="margin:18px 0 12px; padding-left:20px; font-size:13px; line-height:1.7; color:#334155;">
-    {% for line in summary.summary_bullets %}
-    <li>{{ line }}</li>
-    {% endfor %}
-  </ul>
-</div>
-{% endif %}
-
-{% if view == "engineer" %}
-<!-- ─── 양식 B: 엔지니어 검토용 상세 ─── -->
-<div class="kpi-grid">
-  <div class="kpi"><span>대상 서버</span><strong>{{ summary.total }}</strong></div>
-  <div class="kpi"><span>온라인</span><strong style="color:#15803d;">{{ summary.online }}</strong></div>
-  <div class="kpi"><span>주의 필요</span><strong style="color:#92400e;">{{ summary.risk_attention }}</strong></div>
-  <div class="kpi"><span>고위험</span><strong style="color:#b91c1c;">{{ summary.risk_high }}</strong></div>
-</div>
-
-<div style="display:flex; gap:24px; margin:14px 0 12px; padding:14px 16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:13px; color:#475569;">
-  <div>총 vCPU: <strong style="color:#1e293b;">{{ summary.totals.total_vcpus }}</strong></div>
-  <div>총 메모리: <strong style="color:#1e293b;">{{ summary.totals.total_memory_gb }} GB</strong></div>
-  <div>총 디스크: <strong style="color:#1e293b;">{{ summary.totals.total_disk_gb }} GB</strong></div>
-  <div style="margin-left:auto; color:#94a3b8; font-size:12px;">capacity sizing 기준 자원 묶음</div>
-</div>
-
-{% if summary.role_distribution %}
-<div style="display:flex; flex-wrap:wrap; gap:8px; margin:0 0 24px;">
-  <span style="font-size:12px; color:#64748b; padding:6px 0;">역할 분포:</span>
-  {% for role, n in summary.role_distribution.items() %}
-  <span class="badge {{ role | service_badge_class }}">{{ role }} <strong>{{ n }}</strong></span>
-  {% endfor %}
-</div>
-{% endif %}
-
-<div class="report-section">
-  <h2>상세 (양식 B · 엔지니어 검토용)</h2>
-  <table class="engineer-table">
-    <thead>
-      <tr>
-        <th>SERVER<span class="sub">internal IP</span></th>
-        <th>ROLE</th>
-        <th>OS / KERNEL</th>
-        <th class="num-cell">CPU<span class="sub">p95 · peak</span></th>
-        <th class="num-cell">MEM<span class="sub">p95 · peak</span></th>
-        <th class="num-cell">LOAD<span class="sub">15m · sat</span></th>
-        <th class="num-cell">변동성<span class="sub">cpu · mem</span></th>
-        <th class="num-cell">I/O wait<span class="sub">p95 · peak</span></th>
-        <th class="num-cell">DISK IOPS<span class="sub">avg · p95 · peak</span></th>
-        <th class="num-cell">DISK KB/s<span class="sub">avg · p95 · peak</span></th>
-        <th class="num-cell">NET RX<span class="sub">avg · p95 · peak</span></th>
-        <th class="num-cell">NET TX<span class="sub">avg · p95 · peak</span></th>
-        <th>SWAP / Mount</th>
-        <th class="num-cell">Uptime<span class="sub">재부팅</span></th>
-        <th>분류 / 판단</th>
-        <th>AI 진단<span class="sub">14일</span></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in summary.rows %}
-      <tr>
-        <td>
-          <strong>{{ r.hostname }}</strong>
-          <span class="stat-line"><code style="font-size:10px; color:#64748b;">{{ r.internal_ip or "—" }}</code></span>
-        </td>
-        <td>{{ r.role }}</td>
-        <td>{{ r.os_display }}{% if r.kernel_version %}<span class="stat-line" style="color:#94a3b8;">{{ r.kernel_version }}</span>{% endif %}</td>
-        <td class="num-cell">
-          <span class="stat-line">{% if r.cpu_p95_pct is not none %}{{ "%.1f"|format(r.cpu_p95_pct) }}%{% else %}—{% endif %}</span>
-          <span class="stat-line" style="color:#94a3b8;">{% if r.cpu_peak_pct is not none %}{{ "%.1f"|format(r.cpu_peak_pct) }}%{% else %}—{% endif %}</span>
-        </td>
-        <td class="num-cell">
-          <span class="stat-line">{% if r.mem_p95_pct is not none %}{{ "%.1f"|format(r.mem_p95_pct) }}%{% else %}—{% endif %}</span>
-          <span class="stat-line" style="color:#94a3b8;">{% if r.mem_peak_pct is not none %}{{ "%.1f"|format(r.mem_peak_pct) }}%{% else %}—{% endif %}</span>
-        </td>
-        <td class="num-cell">
-          <span class="stat-line">{% if r.load_15m_max is not none %}{{ "%.2f"|format(r.load_15m_max) }}{% else %}—{% endif %}</span>
-          <span class="stat-line" style="color:{{ r.saturation_color }};">{% if r.saturation_ratio is not none %}{{ "%.2f"|format(r.saturation_ratio) }}{% else %}—{% endif %}</span>
-        </td>
-        <td class="num-cell">
-          <span class="stat-line" style="color:{{ r.cpu_variance_color }};">{% if r.cpu_variance_ratio is not none %}{{ "%.2f"|format(r.cpu_variance_ratio) }}{% else %}—{% endif %}</span>
-          <span class="stat-line" style="color:{{ r.mem_variance_color }};">{% if r.mem_variance_ratio is not none %}{{ "%.2f"|format(r.mem_variance_ratio) }}{% else %}—{% endif %}</span>
-        </td>
-        <td class="num-cell">
-          <span class="stat-line">{% if r.iowait_p95_pct is not none %}{{ "%.1f"|format(r.iowait_p95_pct) }}%{% else %}—{% endif %}</span>
-          <span class="stat-line" style="color:#94a3b8;">{% if r.iowait_peak_pct is not none %}{{ "%.1f"|format(r.iowait_peak_pct) }}%{% else %}—{% endif %}</span>
-        </td>
-        <td class="num-cell">
-          <span class="stat-line">{% if r.disk_iops_baseline is not none %}{{ r.disk_iops_baseline }}{% else %}—{% endif %}</span>
-          <span class="stat-line" style="color:#94a3b8;">{% if r.disk_iops_p95 is not none %}{{ "%.0f"|format(r.disk_iops_p95) }}{% else %}—{% endif %} · {% if r.disk_iops_peak is not none %}{{ "%.0f"|format(r.disk_iops_peak) }}{% else %}—{% endif %}</span>
-        </td>
-        <td class="num-cell">
-          <span class="stat-line">{% if r.disk_throughput_kbps is not none %}{{ "%.0f"|format(r.disk_throughput_kbps) }}{% else %}—{% endif %}</span>
-          <span class="stat-line" style="color:#94a3b8;">{% if r.disk_throughput_kbps_p95 is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_p95) }}{% else %}—{% endif %} · {% if r.disk_throughput_kbps_peak is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_peak) }}{% else %}—{% endif %}</span>
-        </td>
-        <td class="num-cell">
-          <span class="stat-line">{% if r.net_rx_kbps is not none %}{{ "%.0f"|format(r.net_rx_kbps) }}{% else %}—{% endif %}</span>
-          <span class="stat-line" style="color:#94a3b8;">{% if r.net_rx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_rx_kbps_p95) }}{% else %}—{% endif %} · {% if r.net_rx_kbps_peak is not none %}{{ "%.0f"|format(r.net_rx_kbps_peak) }}{% else %}—{% endif %}</span>
-        </td>
-        <td class="num-cell">
-          <span class="stat-line">{% if r.net_tx_kbps is not none %}{{ "%.0f"|format(r.net_tx_kbps) }}{% else %}—{% endif %}</span>
-          <span class="stat-line" style="color:#94a3b8;">{% if r.net_tx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_tx_kbps_p95) }}{% else %}—{% endif %} · {% if r.net_tx_kbps_peak is not none %}{{ "%.0f"|format(r.net_tx_kbps_peak) }}{% else %}—{% endif %}</span>
-        </td>
-        <td>
-          <span class="stat-line" style="color:{% if r.swap_used %}#b91c1c{% else %}#94a3b8{% endif %};">{% if r.swap_used %}swap 사용{% else %}swap —{% endif %}</span>
-          <span class="stat-line" style="color:#64748b;">
-            {%- if r.worst_mount -%}
-              <code style="font-size:10px;">{{ r.worst_mount }}</code>{% if r.worst_mount_used_pct is not none %} {{ "%.0f"|format(r.worst_mount_used_pct) }}%{% endif %}{% if r.worst_mount_days_until_full is not none %} <span style="color:{{ r.worst_mount_days_color }};">{{ r.worst_mount_days_until_full }}일</span>{% endif %}
-            {%- else -%}—{%- endif -%}
-          </span>
-        </td>
-        <td class="num-cell">
-          <span class="stat-line">{% if r.uptime_days is not none %}{{ r.uptime_days }}일{% else %}—{% endif %}</span>
-          <span class="stat-line" style="color:{{ r.reboot_count_color }};">{% if r.reboot_count > 0 %}{{ r.reboot_count }}회{% else %}—{% endif %}</span>
-        </td>
-        <td>
-          <span class="stat-line"><span class="rec-badge {{ r.badge_class }}">{{ r.recommendation_label }}</span></span>
-          <span class="stat-line" style="color:#475569; font-size:10px;">{{ r.diagnosis }}</span>
-        </td>
+        {% endif %}
         <td class="ai-diag-cell">
-          {% set d = diagnostics_by_pid.get(r.public_id) %}
+          {% set d = diagnostics_by_pid.get(r.public_id) if diagnostics_by_pid else None %}
           {% if d and d.classification %}
             <span class="stat-line"><span class="rec-badge {{ d.classification_badge_class }}">{{ d.classification_label_kr }}</span></span>
-            <span class="stat-line" style="color:#475569; font-size:10px;">{{ d.recommendation_action or '' }}</span>
+            {% if view == "engineer" and d.recommendation_action %}<span class="stat-line muted">{{ d.recommendation_action }}</span>{% endif %}
           {% else %}
             <span style="color:#94a3b8;">—</span>
           {% endif %}
@@ -257,15 +140,11 @@
       {% endfor %}
     </tbody>
   </table>
-  <div class="source-note" style="line-height:1.7;">
-    <strong>지표 정의</strong>:
-    p95 = <code>percentile_cont(0.95)</code>. peak = 시점별 최댓값. CPU% = jiffies delta(boot_time 변경 reset 제외).
-    MEM% = (1 - available/total) * 100. Saturation = load_15m_max / vCPU (>=1.0이면 큐 대기). 변동성 = peak/p95 (>=1.5이면 burst 큼).
-    DISK I/O = (서버, 시점) device 합산 rate. NET I/O = interface 합산 rate.
-    <br/>
-    <strong>판단 컬럼</strong>:
-    스왑 사용·디스크 I/O 병목·CPU saturation·자원 압박·변동성·미사용·여유 순으로 우선 평가. 최상위 신호 1개 노출.
+  </div>
+  <div class="source-note">
+    분류 기준 · 보조 지표 정의{% if view == "engineer" %} · 운영 신호 임계{% endif %} · 근거 출처:
+    <a href="/reports/right-sizing-thresholds?back={{ self_back }}" class="row-link">Right-sizing 분류 임계값 (참고자료)</a>.
+    평가 기간 {{ time_range_label }} 통계 기반.
   </div>
 </div>
-{% endif %}
 {% endblock %}

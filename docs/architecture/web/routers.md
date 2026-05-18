@@ -20,8 +20,8 @@
 | 경로 | 핸들러 | 비고 |
 |------|--------|------|
 | `GET /servers/` | `list_servers` | 목록 + 검색·온라인 필터 + 4 액션 버튼 (발견/Install/Export/보고서). page=1 + 검색·필터 미사용 시 상단에 environment_overview + attention 두 섹션 노출 (`docs/architecture/web/services.md` "대시보드 상단 요약") |
-| `GET /servers/report?ids=&period_days=&view=customer\|engineer` | `report` | USE Method 보고서. view=customer(양식 A — 고객 KPI) / view=engineer(양식 B — 15컬럼 정량). 동일 SQL·동일 템플릿, view 파라미터로 분기 (`docs/architecture/deliverables.md`) |
-| `GET /servers/{server_id}` | `get_server` | detail 탭. AI 진단 latest 카드 포함 (`to_panel_payload`) |
+| `GET /servers/report?ids=&period_days=&view=customer\|engineer` | `report` | USE Method 보고서. view=customer(양식 A — 고객 KPI) / view=engineer(양식 B — 16컬럼 정량). 동일 SQL·동일 템플릿, view 파라미터로 분기 (의의·근거는 `docs/products/customer-report.md`·`engineer-report.md`) |
+| `GET /servers/{server_id}` | `get_server` | detail 탭. 서버 진단 latest 카드 포함 (`to_panel_payload`) |
 | `GET /servers/{server_id}/{cpu,memory,services,performance}` | 동일 helper | `_render_server_tab` 5 탭 공유 |
 | `GET /servers/{server_id}/{storage,network}` | 별도 핸들러 | 다른 service 메서드 |
 
@@ -42,7 +42,14 @@
 ### `discovery.py` — 도달성 검사
 | 경로 | 용도 |
 |------|------|
-| `POST /probe` | IP HTTP probe (Ansible 배포 워크플로우 1단계). httpx 5초 timeout, ipaddress 형식 검증, fail-open (#F6) |
+| `POST /probe` | IP HTTP probe (에이전트 배포 워크플로우 1단계). 응답 `{reachable, status_code, latency_ms}` |
+
+설계 결정:
+- 타임아웃 5초 — 폐쇄망 LAN 가정. HTTP 80/443은 보통 열려있어 가벼운 도달성 검사로 적합
+- `ipaddress.ip_address()` 파싱 검증 — IPv4/IPv6 형식 422 차단
+- SSRF 방지(localhost·메타데이터 IP 차단) 미적용 — 폐쇄망 가정상 운영자 의도 입력으로 간주
+- ICMP 미사용 — raw socket 권한 필요라 회피
+- fail-open (#F6) — HTTP 도달은 SSH 도달을 의미하지 않음. 1차 필터일 뿐. 추후 SSH credential 등록 + ansible 실행 흐름이 본 단계 위에 얹힘
 
 ### `tasks.py` — 원격 작업 발행
 | 경로 | 용도 |
@@ -52,9 +59,9 @@
 ### `exports.py` — 정제 산출물
 | 경로 | 용도 |
 |------|------|
-| `POST /inventory` | 정제 Inventory JSON v3 (`docs/architecture/inventory-export.md`). envelope에 period_window + size_class_guide 포함. 클라이언트 다운로드 — 서버 stateless |
+| `POST /inventory` | 정제 Inventory JSON (`docs/architecture/inventory-export.md`). envelope에 period_window + size_class_guide 포함. 클라이언트 다운로드 — 서버 stateless |
 
-### `diagnostics.py` — AI 진단 (ADR 0004)
+### `diagnostics.py` — 진단 (ADR 0004 + 0010)
 | 경로 | 용도 |
 |------|------|
 | `POST /` | scope=server|environment 진단 enqueue. server_ids batch. active partial UNIQUE 충돌 시 기존 job_id 반환. 400/404/409는 `DiagnosticBadRequest`/`DiagnosticNotFound`/`DiagnosticRaceMiss` 매핑 |

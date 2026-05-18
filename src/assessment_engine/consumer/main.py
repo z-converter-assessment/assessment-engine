@@ -1,21 +1,23 @@
 import asyncio
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any, Callable, Coroutine
+from typing import Any
 
 import aio_pika
 from aio_pika.abc import AbstractIncomingMessage
 from loguru import logger
 
-from assessment_engine.config import consumer_settings
 from assessment_engine.consumer.handler import (
     make_error_handler,
     make_inventory_handler,
     make_metrics_handler,
     make_task_result_handler,
 )
+from assessment_engine.consumer.settings import consumer_settings
 from assessment_engine.db.redis import close_pool, get_redis
 from assessment_engine.db.repositories.collect_repository import CollectRepository
 from assessment_engine.db.session import AsyncSessionLocal
+from assessment_engine.log_config import setup_logging
 
 _COLLECT_EXCHANGE = consumer_settings.rabbitmq_exchange
 _COLLECT_DLX = f"{_COLLECT_EXCHANGE}.dlx"
@@ -46,6 +48,8 @@ class _QueueBinding:
 
 
 async def main() -> None:
+    setup_logging(consumer_settings.log_format)
+
     logger.info(
         "consumer starting collect_exchange={} task_exchange={}",
         _COLLECT_EXCHANGE, _TASK_EXCHANGE,

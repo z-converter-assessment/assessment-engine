@@ -46,7 +46,7 @@ DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"
 
 
 class BaseDiagnosticRepository(ABC):
-    """AI 진단 job 영속성 인터페이스 (ADR 0004).
+    """진단 job 영속성 인터페이스 (ADR 0004).
 
     Web router·진단 워커·스케줄러 모두 본 추상에만 의존. 구체 구현체는 composition root
     (`web/deps.py` / 워커 main / 스케줄러 main)에서만 import (F4).
@@ -56,13 +56,16 @@ class BaseDiagnosticRepository(ABC):
     async def enqueue(self, job: DiagnosticJobCreate) -> str | None:
         """진단 job INSERT. 새 id (UUID 문자열) 반환.
 
-        active UNIQUE 충돌 시 None — caller는 `get_active_by_hash`로 기존 job_id 조회.
+        active UNIQUE = (scope, input_hash, job_type). 충돌 시 None — caller는
+        `get_active_by_hash(scope, input_hash, job_type)` 로 기존 job_id 조회.
         """
         ...
 
     @abstractmethod
-    async def get_active_by_hash(self, scope: str, input_hash: str) -> str | None:
-        """동일 (scope, input_hash) + status IN ('pending','running') job_id 조회.
+    async def get_active_by_hash(
+        self, scope: str, input_hash: str, job_type: str,
+    ) -> str | None:
+        """동일 (scope, input_hash, job_type) + status IN ('pending','running') job_id 조회.
 
         active UNIQUE 충돌 시 caller가 기존 진행 중 job_id 회수.
         """
@@ -133,13 +136,15 @@ class BaseDiagnosticRepository(ABC):
     @abstractmethod
     async def list_recent(
         self, days: int, scope: str | None = None,
-        server_public_ids: list[str] | None = None, limit: int = 200,
+        server_public_ids: list[str] | None = None,
+        job_type: str | None = None,
+        limit: int = 200,
     ) -> list["DiagnosticJobRecord"]:
-        """최근 N일 진단 발행 이력. scope·server_public_ids 필터 옵션. created_at DESC.
+        """최근 N일 발행 이력 (AI 진단 + 보고서 통합). scope·server_public_ids·job_type 필터 옵션. created_at DESC.
 
         이력 페이지(`/diagnostics/history`)용. 모든 상태(pending/running/succeeded/failed) 포함.
         server_public_ids 지정 시 input_params JSONB에서 ANY 매칭 (server scope job만 자연 필터).
-        단일 서버 필터도 1-원소 list로 전달.
+        job_type 미지정은 전체 (AI 진단 + 보고서 통합 표시).
         """
         ...
 

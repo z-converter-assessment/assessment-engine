@@ -4,19 +4,19 @@
 
 | 모델 | 테이블 | PK | 종류 | 설명 |
 |------|--------|----|----|------|
-| `ServerInventory` | `server_inventory` | Integer | 단일 행 | machine_id 기준 upsert. 현재 상태 |
+| `ServerInventory` | `server_inventory` | Integer | 단일 행 | `(machine_id, hostname)` 복합 키 기준 upsert. 현재 상태 |
 | `ServerInventoryHistory` | `server_inventory_history` | BigInteger + collected_at | hypertable (append-only) | 인벤토리 변경 이력 (boot_time/agent_started_at 변경이 trigger) |
 | `ServerMetrics` | `server_metrics` | BigInteger + collected_at | hypertable | 스칼라 메트릭 시계열 (CPU/Mem/Load) |
 | `ServerDiskIo` | `server_disk_io` | BigInteger + collected_at | hypertable | per device I/O 누적 카운터 |
 | `ServerNetIo` | `server_net_io` | BigInteger + collected_at | hypertable | per interface I/O 누적 카운터 |
 | `ServerMountUsage` | `server_mount_usage` | BigInteger + collected_at | hypertable | per mount 시점 사용량 |
 | `Task` | `tasks` | BigInteger | 단일 행 (audit log) | 원격 작업 명령 + 실행 이력 |
-| `DiagnosticJob` | `diagnostic_jobs` | UUID | 일반 테이블 (hypertable 아님) | AI 진단 job (ADR 0004) — 스케줄러·웹 enqueue → 워커 처리. UUID PK는 URL 노출용 (E5) |
+| `DiagnosticJob` | `diagnostic_jobs` | UUID | 일반 테이블 (hypertable 아님) | 진단 job + 보고서 발행 이력 통합 (ADR 0004 + 0010). `job_type` 으로 분류 (`ai_diagnostic`/`customer_report`/`engineer_report`). active UNIQUE = `(scope, input_hash, job_type)`. UUID PK는 URL 노출용 (E5) |
 
 ## 식별자 규약 (CLAUDE.md C1)
 
 - 대리키 패턴: 내부 참조는 정수 PK, 비즈니스 식별자는 unique 제약
-- `server_inventory.machine_id` UNIQUE — upsert 키
+- `server_inventory` 호스트 식별 = `(machine_id, hostname)` 복합 UNIQUE (`uq_server_inventory_machine_hostname`) — upsert 키. `machine_id` 단독은 VM 템플릿 복제·이미지 clone·container host `/etc/machine-id` 마운트 등 실제 운영 환경에서 중복 가능 → hostname 과 함께 격리.
 - `server_inventory.public_id` `UUID DEFAULT gen_random_uuid()` — URL 식별자 (정수 PK 노출 금지)
 - 시계열 5개 테이블 복합 PK `(id BIGINT, collected_at TIMESTAMPTZ)` — TimescaleDB 파티션 키 포함
 - 시계열 5개 테이블 자연키 UNIQUE (D2 멱등성 2단 방어):

@@ -78,7 +78,7 @@ async def test_enqueue_different_scope_same_hash_independent(
 async def test_get_active_by_hash_pending(diagnostic_repo: DiagnosticRepository, db_session):
     new_id = await diagnostic_repo.enqueue(_make_create(input_hash="e" * 64))
     await db_session.commit()
-    found = await diagnostic_repo.get_active_by_hash("environment", "e" * 64)
+    found = await diagnostic_repo.get_active_by_hash("environment", "e" * 64, "ai_diagnostic")
     assert found == new_id
 
 
@@ -87,7 +87,7 @@ async def test_get_active_by_hash_running(diagnostic_repo: DiagnosticRepository,
     await db_session.commit()
     await diagnostic_repo.mark_running(new_id, "extracting_stats")
     await db_session.commit()
-    found = await diagnostic_repo.get_active_by_hash("environment", "f" * 64)
+    found = await diagnostic_repo.get_active_by_hash("environment", "f" * 64, "ai_diagnostic")
     assert found == new_id
 
 
@@ -98,7 +98,7 @@ async def test_get_active_by_hash_succeeded_returns_none(
     await db_session.commit()
     await diagnostic_repo.mark_succeeded(new_id, {})
     await db_session.commit()
-    found = await diagnostic_repo.get_active_by_hash("environment", "g" * 64)
+    found = await diagnostic_repo.get_active_by_hash("environment", "g" * 64, "ai_diagnostic")
     assert found is None
 
 

@@ -92,16 +92,17 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 | `download.url` | string | HTTPS / HTTP URL. 엔진 self-host endpoint(`/zconverter.tar.gz`) 가 default — `WebSettings.install_bundle_url` |
 | `download.sha256` | string (hex 64) | 다운로드 파일 sha256. 엔진이 in-memory bundle 에서 계산 (`payloads.INSTALL_BUNDLE_SHA256`) |
 | `download.size_bytes` | int | 예상 크기 (byte). 동일 bundle 에서 `INSTALL_BUNDLE_SIZE` |
-| `install.script` | string | tar 내부 실행 스크립트 경로. 본 작업은 `install.sh` (`payloads.INSTALL_SCRIPT_NAME`) |
-| `install.args` | list[string] | 스크립트 인자. 빈 배열 가능 |
+| `install.script` | string | tar 내부 실행 스크립트 경로. 호스트 OS에 따라 엔진이 자동 분기 — Linux 는 `install.sh` (`payloads.INSTALL_SCRIPT_LINUX`), Windows 는 `install.ps1` (`payloads.INSTALL_SCRIPT_WINDOWS`). 판단 기준은 `inventory.os_id` (`_is_windows()` — 'windows' 키워드 또는 'win' prefix 매칭, 그 외/null 은 Linux default) |
+| `install.args` | list[string] | 스크립트 인자. 운영자가 install 모달에서 입력한 ZDM 좌표를 `["-s", ZDM_IP, "-u", ZDM_USER]` 형태로 전달. 두 스크립트 모두 `-s` / `-u` 인자를 받아 `http://$ZDM_IP/download/ZConverter_CloudSource_Setup_*` 에서 실제 setup 패키지 fetch + 실행 |
 | `install.timeout_sec` | int | wall-clock timeout. `WebSettings.install_timeout_sec` (dev default 600) |
 
 ### Install bundle endpoint (`GET /zconverter.tar.gz`)
 
-- 엔진이 self-host 하는 tar.gz 번들 (`web/routers/payloads.py`).
-- `_INSTALL_SCRIPT` 상수 변경 시 web 컨테이너 재기동(또는 uvicorn auto-reload) 으로 갱신. `mtime=0` 고정이라 같은 코드면 같은 bytes -> sha256 안정.
+- 엔진이 self-host 하는 tar.gz 번들 (`web/routers/payloads.py`). 단일 bundle 안에 `install.sh` (Linux, mode 0o755) + `install.ps1` (Windows, mode 0o644) 두 스크립트 포함. agent 가 OS 에 맞는 스크립트만 실행 (`install.script` 필드로 지정).
+- `_INSTALL_SCRIPT_LINUX` / `_INSTALL_SCRIPT_WINDOWS` 상수 변경 시 web 컨테이너 재기동(또는 uvicorn auto-reload) 으로 갱신. `mtime=0` 고정이라 같은 코드면 같은 bytes -> sha256 안정.
 - 인증 없음 — 폐쇄망 가정 (#F8). 외부 노출 시 별도 ADR 로 인증·rate limit 도입.
 - 외부 mirror 사용은 별도 결정 — 현재 self-host 만 지원 (sha256·size 계산 책임 단일 지점).
+- ZDM 좌표 default 는 `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` env (`docs/operations/env.md`) — 모달에서 매 발행마다 override 가능.
 
 ---
 
@@ -128,6 +129,8 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 `boot_time` / `agent_started_at` 가 null 이라 `_log_time_invariants` 검증은 본 메시지에서 호출 안 함.
 
 운영자 가시성: list.html "최근 작업" column (행별 마지막 task badge + polling 갱신) / detail.html "최근 작업" 섹션 (timeline 최근 10건 + row 클릭 modal) / Web API `GET /api/v1/tasks/{task_id}` 단일 + `GET /api/v1/tasks?server_public_id=...` 서버별 cursor pagination. 단일 진실: `web/services/mappers.py::to_task_summary` / `to_task_detail` + base.html `.rec-success`/`.rec-failure`/`.rec-pending`/`.rec-unknown`. failure_reason 한글 라벨은 `mappers._FAILURE_REASON_LABEL` 카탈로그 (10 enum).
+
+dev 환경 success 경로: agent worker `download.c:49` 의 `https://` prefix 강제로 dev plain HTTP install bundle endpoint 는 `failure_reason="url_not_allowed"` 로 reject (ADR 0009). dev 에서는 wire format 검증(failure 경로) 까지만 가능. success 경로(install.sh 실제 실행 + exit_code=0 + stdout_tail 캡처)는 agent 측 호환성 작업(WORKER_ALLOW_HTTP toggle 또는 nginx ingress) 후 활성화.
 
 ---
 
@@ -232,4 +235,4 @@ limactl shell <vm> sudo journalctl -u assessment-agent --no-pager -n 50
 
 end-to-end 추적: (1) VM 발행 로그 -> (2) broker 큐 적재 (`rabbitmqctl list_queues`) -> (3) consumer 처리 로그 -> (4) DB 행 -> (5) web 표시. 끊긴 단계가 원인.
 
-발행 측 재기동: 소스·env 변경 시 `./dev-up.sh` 재실행으로 자동. 단발 재기동은 `limactl shell <vm> sudo systemctl restart assessment-agent`.
+발행 측 재기동: 소스·env 변경 시 `./scripts/pipeline-up.sh` 재실행으로 자동. 단발 재기동은 `limactl shell <vm> sudo systemctl restart assessment-agent`.
