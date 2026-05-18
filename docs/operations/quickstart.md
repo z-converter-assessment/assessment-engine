@@ -4,6 +4,18 @@
 
 원리·trade-off·hardening (TLS·reverse proxy·HA·observability)은 본 가이드 범위 밖 — `docs/operations/deployment.md` · `docs/operations/prod-contract.md` 참조.
 
+## 본 가이드 사용 방식
+
+청자: 외부 인프라 레포(별도 repo)를 관리하는 운영자. 본 repo의 release artifact를 받아 자기 환경에 install·운영함.
+
+방식: GitHub Release에 게시된 wheel artifact를 받아 install. 본 repo를 git clone하거나 source에서 빌드하지 않음. wheel artifact 카탈로그·다운로드 채널·무결성 검증 contract는 `docs/operations/release.md`.
+
+활용 패턴:
+- 첫 셋업 검증·시연: 본 가이드의 명령을 7 VM에 SSH 들어가 순서대로 직접 입력
+- 운영 자동화 (정석): 본 명령들을 Ansible role(또는 Salt·Chef·Pulumi)의 declarative task로 옮겨 인프라 레포에서 관리. 절 8 "본 quickstart를 자동화하기" 참조
+
+본 가이드 끝점: 엔진 4 컴포넌트(web·consumer·diagnostic-worker·diagnostic-scheduler) 기동 + `/health` 200 응답.
+
 ## 0. 사전 준비
 
 VM 7대 (Debian 12, 각각 SSH + sudo, 사이 네트워크 도달 가능):
@@ -382,7 +394,73 @@ unit이 `active (running)`이고 `/health`가 200이면 본 quickstart 종료.
 
 추가 운영 사고 패턴: `docs/operations/deployment.md` 6절.
 
-## 8. 다음 단계
+## 8. 본 quickstart를 자동화하기 — 인프라 레포 작성
+
+본 가이드의 shell 명령은 한 번 직접 따라하기 용. 실제 prod 운영은 별도 인프라 레포 (Ansible·Salt·Chef·Pulumi 등)에서 본 명령들을 declarative task로 옮겨 관리.
+
+본 repo와 인프라 레포 사이 연결:
+- git 차원 연결 0 — submodule·fork·clone 아님
+- 인프라 레포는 본 repo의 GitHub Release에서 wheel artifact만 다운로드 (`gh release download` 또는 `wget`)
+- engine version은 인프라 레포의 변수 (예: `group_vars/all/engine.yml`의 `ENGINE_VERSION`)로 관리. 새 release 배포 = 변수 한 줄 변경 + playbook replay
+- secret(`POSTGRES_PASSWORD` 등)은 ansible-vault·HashiCorp Vault·k8s Secret 등 외부 채널. 본 repo는 채널을 강제하지 않음 — `APP_ENV=prod`에서 weak default 거부만 검증
+
+Ansible 매핑 예시 — 절 2 (wheel install) 일부를 task로 옮긴 모습:
+
+```yaml
+- name: wheel artifact 다운로드 (GitHub Release)
+  ansible.builtin.command:
+    cmd: >
+      gh release download {{ engine_version }}
+      --repo z-converter-assessment/assessment-engine
+      --pattern '*.whl'
+      --pattern 'SHA256SUMS'
+      --dir /tmp/release-{{ engine_version }}
+    creates: /tmp/release-{{ engine_version }}/SHA256SUMS
+
+- name: sha256 무결성 검증
+  ansible.builtin.command:
+    cmd: sha256sum -c SHA256SUMS
+    chdir: /tmp/release-{{ engine_version }}
+
+- name: venv에 wheel install
+  ansible.builtin.pip:
+    name: "{{ lookup('fileglob', '/tmp/release-' + engine_version + '/assessment_engine-*.whl') }}"
+    virtualenv: /opt/assessment-engine/venv
+    virtualenv_python: python3.12
+  become_user: assessment
+```
+
+본 quickstart의 절 1~6 모든 shell 명령이 동일하게 1:1 매핑 가능. 정석 인프라 레포 구조:
+
+```
+infra-assessment/                     # 본 repo와 별개 repo
+  ansible/
+    inventories/prod/hosts.ini        # 7 VM의 IP·hostname
+    group_vars/
+      all/shared.yml                  # POSTGRES_HOST 등 공통 (vault 또는 ansible-vault)
+      engine/version.yml              # ENGINE_VERSION: v0.1.0
+    roles/
+      postgres/                       # 절 1.1 PG+TimescaleDB install
+      rabbitmq/                       # 절 1.2 MQ install
+      redis/                          # 절 1.3 Redis install
+      assessment_engine/              # 절 2~6 (engine 4 컴포넌트)
+        tasks/
+          install.yml                 # wheel 다운로드 + venv install
+          env.yml                     # shared.env + <component>.env 템플릿 렌더
+          migration.yml               # web host에서 alembic upgrade 1회
+          systemd.yml                 # unit 생성 + systemctl enable --now
+    site.yml
+```
+
+new engine release 배포 흐름:
+1. 본 repo에서 새 tag (예: v0.2.0) release 발사 (Release PR 머지)
+2. 인프라 레포의 `group_vars/engine/version.yml`에서 `ENGINE_VERSION: v0.1.0 -> v0.2.0` 한 줄 변경 + PR
+3. 인프라 레포 PR 머지 → `ansible-playbook site.yml` 재실행 (수동 또는 인프라 레포의 CD)
+4. Ansible이 engine VM 4개에 SSH → 새 wheel 다운로드 + 재설치 + systemd restart. 외부 모듈(DB·MQ·Redis) role은 변경 없으니 skip
+
+도구 자유 — Salt·Chef·Pulumi·Helm(컨테이너 운영 결정 시) 모두 동일 원칙 (release artifact 받기 + declarative state 관리). 본 repo는 도구를 강제하지 않음.
+
+## 9. 다음 단계
 
 | 항목 | 위치 |
 |------|------|
