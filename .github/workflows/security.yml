@@ -50,7 +50,9 @@ jobs:
 
       # pip-audit를 같은 venv에 install 후 venv 안 의존성 packages만 audit.
       # `--strict` — vulnerability 발견 시 exit 1로 CI fail.
+      # `uv run --no-sync` — uv run의 자동 sync 차단. 자동 sync가 self를 .venv에 재install해서
+      #   self editable 이슈를 다시 트리거하는 걸 방지 (`--no-install-project` 효과 보존).
       - name: pip-audit
         run: |
           uv pip install pip-audit
-          uv run pip-audit --strict
+          uv run --no-sync pip-audit --strict
