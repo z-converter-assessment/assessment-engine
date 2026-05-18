@@ -8,6 +8,15 @@ on:
   push:
     tags:
       - 'v*'
+  # 수동 발사 — release-please bot의 GITHUB_TOKEN tag push가 다른 워크플로 트리거 안 함
+  # (GitHub 보안 정책)이라 본 옵션으로 수동 trigger. 영구 해결은 release-please 측에 PAT 또는
+  # GitHub App 사용.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'release tag (예: v0.1.0)'
+        required: true
+        type: string
 
 permissions:
   contents: write   # GitHub Release 생성·artifact upload 필요
