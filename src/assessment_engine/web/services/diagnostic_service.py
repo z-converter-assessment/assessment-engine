@@ -28,6 +28,7 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
 from assessment_engine.db.repositories.inbound import DiagnosticJobCreate
 from assessment_engine.db.repositories.outbound import DiagnosticJobRecord
+
 # 발행 단일 진실은 diagnostic.submitter — 본 모듈은 호환 re-export.
 from assessment_engine.diagnostic.submitter import (  # noqa: F401 (re-export)
     DiagnosticBadRequest,

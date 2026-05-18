@@ -5,7 +5,6 @@
 - (ValueError, KeyError, IntegrityError) → mark_failed로 흡수 → message ack (사용자가 결과 페이지에서 인지)
 - 그 외 광범위 Exception은 catch 안 함 (의도되지 않은 예외는 그대로 raise → DLQ)
 """
-import asyncio
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -176,7 +175,7 @@ async def test_handler_llm_timeout_marks_failed(mock_agg, stub_components):
     mock_agg.extract_server = AsyncMock(return_value={"summary": "ok"})
 
     session_factory, query_repo, diag_repo, llm, redis = stub_components
-    llm.generate_narrative = AsyncMock(side_effect=asyncio.TimeoutError())
+    llm.generate_narrative = AsyncMock(side_effect=TimeoutError())
 
     handler = make_diagnostic_handler(
         session_factory=session_factory,

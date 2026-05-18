@@ -46,10 +46,10 @@ jobs:
       - name: Install project (frozen)
         run: uv sync --frozen
 
-      # pip-audit를 uv venv에 install 후 같은 venv에서 audit 실행.
-      # `--disable-pip` — pip-audit이 의존성 트리 재계산하지 않고 lockfile 기반 목록만 audit.
+      # pip-audit를 uv venv에 install 후 같은 venv 안 install된 패키지 audit.
+      # pip-audit 2.10+에선 `--disable-pip`가 `--requirement`와만 사용 가능 — venv 모드(default)에선 옵션 불필요.
       # `--strict` — vulnerability 발견 시 exit 1로 CI fail.
       - name: pip-audit
         run: |
           uv pip install pip-audit
-          uv run pip-audit --disable-pip --strict
+          uv run pip-audit --strict

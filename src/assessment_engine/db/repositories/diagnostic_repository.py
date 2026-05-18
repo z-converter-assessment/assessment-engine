@@ -1,7 +1,8 @@
 from datetime import timedelta
 
 from sqlalchemy import delete, func, or_, select, text, update
-from sqlalchemy.dialects.postgresql import array as pg_array, insert as pg_insert
+from sqlalchemy.dialects.postgresql import array as pg_array
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.db.models.diagnostic_job import DiagnosticJob

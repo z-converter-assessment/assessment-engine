@@ -12,6 +12,8 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 from assessment_engine.db.repositories.outbound import ServerDetail
 from assessment_engine.web.services.mappers import (
     _CAPACITY_IMMINENT_DAYS,
+)
+from assessment_engine.web.services.mappers import (
     _DONUT_SEGMENT_DEFS as _PROVISIONING_SEGMENT_DEFS,
 )
 from assessment_engine.web.view_models import (
@@ -27,6 +29,7 @@ from assessment_engine.web.view_models import (
     ReportRowItem,
     ReportSummary,
 )
+
 # `_PROVISIONING_SEGMENT_DEFS` / `_CAPACITY_IMMINENT_DAYS` 단일 진실 = mappers.py (#E8).
 # 본 모듈은 import alias 만 — 환경 보고서·대시보드 도넛·보고서 row 색 통일 (T13).
 
@@ -199,10 +202,7 @@ def _extract_insufficient(rows: list[ReportRowItem]) -> list[InsufficientHostIte
                 missing.append("iowait")
             if r.worst_mount_used_pct is None:
                 missing.append("디스크")
-            if missing:
-                reason = f"메트릭 수집 누락: {' · '.join(missing)}"
-            else:
-                reason = "윈도우 내 표본 부족"
+            reason = f"메트릭 수집 누락: {' · '.join(missing)}" if missing else "윈도우 내 표본 부족"
         out.append(InsufficientHostItem(
             public_id=r.public_id,
             hostname=r.hostname,

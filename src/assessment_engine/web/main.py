@@ -102,9 +102,7 @@ async def disable_html_cache(request, call_next):
     """
     response = await call_next(request)
     ct = response.headers.get("content-type", "")
-    if ct.startswith("text/html"):
-        response.headers["Cache-Control"] = "no-store"
-    elif web_settings.app_env == "dev" and request.url.path.startswith("/static/"):
+    if ct.startswith("text/html") or web_settings.app_env == "dev" and request.url.path.startswith("/static/"):
         response.headers["Cache-Control"] = "no-store"
     return response
 

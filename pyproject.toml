@@ -90,3 +90,7 @@ extend-immutable-calls = [
 "src/assessment_engine/db/repositories/query_repository.py" = ["E501"]
 # 매퍼의 긴 한글 주석·테이블·dict 매핑 한 줄 표현이 line-length 초과. 의미 단위 보존을 위해 본 파일만 예외.
 "src/assessment_engine/web/services/mappers.py" = ["E501"]
+# 운영 정책 단일 진실 한글 주석(TTL 임계·운영 신호)이 한 줄에 의미 단위 — 줄바꿈하면 의미 파편화.
+"src/assessment_engine/config.py" = ["E501"]
+# FastAPI Query/Path/Body description 한글 문자열이 UI 노출 텍스트 — 줄바꿈하면 문자열 합성 분기 발생.
+"src/assessment_engine/web/routers/pages.py" = ["E501"]

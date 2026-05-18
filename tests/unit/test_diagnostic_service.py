@@ -362,15 +362,29 @@ def test_submitter_re_export_identity():
     """
     from assessment_engine.diagnostic.submitter import (
         DiagnosticBadRequest as SubBR,
+    )
+    from assessment_engine.diagnostic.submitter import (
         DiagnosticNotFound as SubNF,
+    )
+    from assessment_engine.diagnostic.submitter import (
         DiagnosticRaceMiss as SubRM,
+    )
+    from assessment_engine.diagnostic.submitter import (
         _build_input_params as sub_bip,
+    )
+    from assessment_engine.diagnostic.submitter import (
         _compute_hash as sub_ch,
+    )
+    from assessment_engine.diagnostic.submitter import (
         _normalize_anchor as sub_na,
     )
     from assessment_engine.web.services.diagnostic_service import (
         DiagnosticBadRequest as WebBR,
+    )
+    from assessment_engine.web.services.diagnostic_service import (
         DiagnosticNotFound as WebNF,
+    )
+    from assessment_engine.web.services.diagnostic_service import (
         DiagnosticRaceMiss as WebRM,
     )
     assert WebBR is SubBR

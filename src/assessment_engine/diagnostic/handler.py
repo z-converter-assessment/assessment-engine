@@ -120,7 +120,7 @@ def make_diagnostic_handler(
 
                     logger.info("diagnostic succeeded job_id={} scope={}", job_id, job.scope)
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # LLM 호출 timeout — 비즈니스 실패로 흡수, status='failed' 마킹. DLQ 재시도 없음.
                     logger.warning(
                         "diagnostic llm timeout job_id={} scope={} timeout_s={}",

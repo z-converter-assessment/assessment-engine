@@ -11,14 +11,13 @@ from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from loguru import logger
 
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_RANGE_DAYS,
     DIAGNOSTIC_RANGE_LABEL_KR,
     DiagnosticTimeRange,
 )
-from loguru import logger
-
 from assessment_engine.web.deps import get_diagnostic_service, get_service, resolve_internal_id
 from assessment_engine.web.services.diagnostic_service import DiagnosticService, to_panel_payload
 from assessment_engine.web.services.query_service import QueryService
