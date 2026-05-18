@@ -73,7 +73,7 @@ jobs:
       # GitHub Release 자동 생성 + 첨부. release body는 git tag annotation 그대로 가져옴.
       # 인프라 측이 release page 또는 API로 wheel·sha256·sbom·signature 다운로드.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*.whl
