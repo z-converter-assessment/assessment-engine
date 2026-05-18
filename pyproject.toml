@@ -20,7 +20,7 @@ dependencies = [
     "httpx>=0.27",
     "alembic>=1.13",
     "croniter>=2.0",   # 진단 스케줄러 cron 파싱 (ADR 0004)
-    "prometheus-fastapi-instrumentator>=7.0",   # /metrics endpoint + HTTP 계측 (ADR 0011)
+    "prometheus-fastapi-instrumentator>=7.1.0",   # /metrics endpoint + HTTP 계측 (ADR 0011)
 ]
 
 
