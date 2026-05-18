@@ -31,8 +31,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # GitHub App token 생성 — default GITHUB_TOKEN으로 release-please bot이 tag·commit push
+      # 시 다른 워크플로(release.yml)가 trigger 발사 안 함 (GitHub 보안 정책). App token으로
+      # push하면 본 제한 우회되어 release.yml의 push tag trigger 정상 발사.
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+
       - uses: googleapis/release-please-action@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
