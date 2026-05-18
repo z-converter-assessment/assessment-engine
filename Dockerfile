@@ -18,6 +18,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# uv는 dev tool — latest 사용이 dev Dockerfile 의도. hadolint pin 룰 의도적 면제.
+# hadolint ignore=DL3013
 RUN pip install --no-cache-dir uv
 
 # Layer cache 정석 — 변경 빈도가 낮은 의존성 install을 가장 안쪽 layer에 둔다.

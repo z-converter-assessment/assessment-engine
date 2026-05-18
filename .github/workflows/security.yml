@@ -47,9 +47,10 @@ jobs:
         run: uv sync --frozen
 
       # pip-audit를 uv venv에 install 후 같은 venv 안 install된 패키지 audit.
-      # pip-audit 2.10+에선 `--disable-pip`가 `--requirement`와만 사용 가능 — venv 모드(default)에선 옵션 불필요.
       # `--strict` — vulnerability 발견 시 exit 1로 CI fail.
+      # `--skip-editable` — uv sync default가 self(assessment-engine 0.0.0)를 editable install하는데
+      #   본 패키지는 PyPI 미공개라 audit 불가. self는 audit 대상 아님이라 skip이 정답.
       - name: pip-audit
         run: |
           uv pip install pip-audit
-          uv run pip-audit --strict
+          uv run pip-audit --strict --skip-editable
