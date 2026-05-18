@@ -12,10 +12,10 @@ name: ci
 
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [main, develop]
   # PR 검증 후 merge 시점 안전망 — branch protection 누락·admin override·force-push 보호.
   push:
-    branches: [main, dev]
+    branches: [main, develop]
 
 permissions:
   contents: read

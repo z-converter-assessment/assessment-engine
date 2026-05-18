@@ -15,7 +15,7 @@
 | `docs/README.md` | 카테고리·파일 인덱스 — 어떤 문서를 언제 보는지 길잡이 | 영구·갱신 |
 | `docs/architecture/` | 컴포넌트별 deep dive (모듈 설계·기술 구현) | 영구·갱신 |
 | `docs/development/` | 본 repo 안 dev 작업·코드 규약 (docker·pipeline·testing·conventions) | 영구·갱신 |
-| `docs/operations/` | 외부 인프라가 활용할 contract (deployment·env·prod-contract·alembic·observability·release·github-setup) | 영구·갱신 |
+| `docs/operations/` | 외부 인프라가 활용할 contract (quickstart·deployment·env·prod-contract·alembic·observability·release·github-setup) | 영구·갱신 |
 | `docs/products/` | 운영 산출물 ref — 산출물별 존재 의의·근거 (dashboard·보고서 A/B·환경/서버 진단·JSON Export·Install task) | 영구·갱신 |
 | `docs/adr/` | Architecture Decision Records — "왜 이렇게 결정했나" + 트레이드오프. ADR은 정정만, 덮어쓰기 금지 | 영구·불변 |
 | `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T13) | 영구·갱신 |

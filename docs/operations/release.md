@@ -56,7 +56,7 @@ uv build
 ## 3. 무결성 검증 (외부 인프라 의무)
 
 ```bash
-gh release download v1.2.3 --repo whdcksdbwls/assessment-engine \
+gh release download v1.2.3 --repo z-converter-assessment/assessment-engine \
   --pattern '*.whl' --pattern '*.tar.gz' --pattern 'SHA256SUMS' --dir /tmp/release
 
 cd /tmp/release && sha256sum -c SHA256SUMS
@@ -68,8 +68,8 @@ cd /tmp/release && sha256sum -c SHA256SUMS
 
 | 채널 | 명령 |
 |------|------|
-| GitHub Release page | https://github.com/whdcksdbwls/assessment-engine/releases/tag/v<X.Y.Z> 직접 접근 |
-| `gh` CLI | `gh release download v<X.Y.Z> --repo whdcksdbwls/assessment-engine` |
+| GitHub Release page | https://github.com/z-converter-assessment/assessment-engine/releases/tag/v<X.Y.Z> 직접 접근 |
+| `gh` CLI | `gh release download v<X.Y.Z> --repo z-converter-assessment/assessment-engine` |
 | 사내 mirror | 인프라 측이 GitHub outbound 차단 시 mirror 별도 구성 (devpi·Nexus·MinIO 등) |
 
 사내 폐쇄망 GitHub outbound 제한은 본 repo 범위 밖 — 인프라 측이 mirror 결정 (ADR 0012 한계 절).

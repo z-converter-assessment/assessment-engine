@@ -24,7 +24,7 @@ artifact 카탈로그·생성 trigger·무결성 검증·다운로드 채널: `d
 GitHub Release page 또는 `gh release download` 활용:
 
 ```bash
-gh release download v1.2.3 --repo whdcksdbwls/assessment-engine \
+gh release download v1.2.3 --repo z-converter-assessment/assessment-engine \
   --pattern '*.whl' --pattern 'SHA256SUMS' --dir /tmp/release
 
 cd /tmp/release && sha256sum -c SHA256SUMS

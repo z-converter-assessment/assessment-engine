@@ -8,9 +8,9 @@ name: codeql
 
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [main, develop]
   push:
-    branches: [main, dev]
+    branches: [main, develop]
   # 새 CodeQL rule 공개·신규 CVE 패턴 감지 — 의존성 무관 코드 자체 재검사.
   schedule:
     - cron: '0 9 * * 1'

@@ -5,7 +5,7 @@ name: alembic-check
 
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [main, develop]
     paths:
       - 'src/assessment_engine/db/models/**'
       - 'migrations/**'
@@ -13,7 +13,7 @@ on:
       - '.github/workflows/alembic-check.yml'
   # PR 검증 후 merge 시점 안전망 — admin override·force-push 보호.
   push:
-    branches: [main, dev]
+    branches: [main, develop]
     paths:
       - 'src/assessment_engine/db/models/**'
       - 'migrations/**'

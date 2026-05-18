@@ -10,7 +10,7 @@ name: security
 
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [main, develop]
     paths:
       - 'pyproject.toml'
       - 'uv.lock'

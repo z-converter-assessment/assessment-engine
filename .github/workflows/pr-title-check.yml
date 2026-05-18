@@ -9,7 +9,7 @@ name: pr-title-check
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
-    branches: [main, dev]
+    branches: [main, develop]
 
 permissions:
   pull-requests: read

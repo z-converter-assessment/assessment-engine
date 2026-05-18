@@ -44,11 +44,11 @@ UI 활성 안 하고 workflow만 두어도 동작 — 단 Security 탭 통합이
 | Allow force pushes | 비활성 | git history 보호 |
 | Allow deletions | 비활성 | branch 삭제 차단 |
 
-### 3.2. `dev` branch
+### 3.2. `develop` branch
 
-`main`과 동일 패턴 — `dev`도 PR 강제. 단:
+`main`과 동일 패턴 — `develop`도 PR 강제. 단:
 - "Required status checks" 동일 적용
-- "Require linear history" 선택 (dev는 통합 branch라 자유도 좀 더)
+- "Require linear history" 선택 (develop는 통합 branch라 자유도 좀 더)
 - "Do not allow bypassing" 활성
 
 ## 4. Tag Protection Rule (정석)
@@ -104,10 +104,9 @@ squash merge 단독 활성 — PR title이 main commit message가 됨. release-p
 - [ ] Code security → CodeQL → Default setup → Enable
 - [ ] Dependabot alerts + security updates + version updates → 모두 활성
 - [ ] Branches → main branch protection rule (위 3.1 표 적용)
-- [ ] Branches → dev branch protection rule (위 3.2 적용)
+- [ ] Branches → develop branch protection rule (위 3.2 적용)
 - [ ] Tags → `v*` tag protection rule (위 4 적용)
 - [ ] General → Pull Requests → squash merge 단독 활성 + Auto-delete head branches
-- [ ] (선택) `dev` branch 신설 — `git checkout -b dev && git push origin dev`
 
 본 체크리스트 모두 완료 = 본 repo CI·release 자동화 정합 활성.
 

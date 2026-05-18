@@ -10,6 +10,7 @@
 | 결정된 규약·금지 사항·계층 책임 | `.claude/CLAUDE.md` |
 | 컴포넌트가 어떻게 동작하나 | `architecture/` |
 | 본 repo dev 작업·코드 규약 (Docker·pipeline 검증·testing·conventions) | `development/` |
+| 외부 인프라 첫 셋업 (Debian 12 multi-node 명령어 가이드) | `operations/quickstart.md` |
 | 외부 인프라용 contract (deployment·env·prod·alembic·observability·release·github-setup) | `operations/` |
 | 운영 산출물별 의의·근거 (보고서·진단·Install·Export 등) | `products/` |
 | 왜 그렇게 결정했나 | `adr/` |
@@ -35,6 +36,7 @@ docs/
 │   ├── testing.md         pytest 단위·통합 테스트
 │   └── conventions.md     본 repo 작업 규약 단일 — IDE·Hook(F1) + 자동화 변환 검증·누적 사고 패턴(F5)
 ├── operations/            외부 인프라가 활용할 contract (영구·갱신)
+│   ├── quickstart.md      Debian 12 multi-node 첫 셋업 명령어 가이드 (외부 인프라 운영자 첫 진입점)
 │   ├── release.md         release artifact 카탈로그·생성 trigger·무결성 검증·다운로드 (ADR 0012)
 │   ├── deployment.md      외부 인프라가 release artifact 활용해 운영하는 단계별 가이드 (OS 독립)
 │   ├── env.md             환경변수 키 카탈로그
