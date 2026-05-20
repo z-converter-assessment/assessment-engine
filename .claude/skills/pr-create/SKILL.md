@@ -56,7 +56,26 @@ template 의 placeholder 채우기 원칙:
 
 CI 실패 + 이메일 폭탄 회피. PR 발행 직전 본 검증이 의무 — 누락 시 GitHub Actions runner 가 발견하는 비용 + 협업자 알림 noise.
 
-병렬 Bash 실행 (commit skill 의 0번 step 과 동일 + tests 추가):
+### A. PR title format (gh pr create 호출 전 의무)
+
+`.github/workflows/pr-title-check.yml` 이 `amannn/action-semantic-pull-request` 로 검증. 본 repo 정합 패턴:
+
+1. `cat .github/workflows/pr-title-check.yml` 로 현재 정합 패턴 직접 추출 (`types`·`subjectPattern`·`subjectPatternError`)
+2. PR title 검증 항목 (본 repo 현재 정책):
+   - `<type>: <subject>` 형식. type 은 `feat`·`fix`·`docs`·`chore`·`refactor`·`perf`·`test`·`build`·`ci`·`style`·`revert` 중 하나
+   - subject 첫 글자 소문자 또는 비-알파벳 (한글 등) — `subjectPattern: ^[^A-Z].+$`. 약어 (ZDM·SQL 등) 가 subject 첫 글자면 fail → 한국어 시작 또는 소문자 약어 사용
+   - breaking change 의도면 `feat!:` / `fix!:` 또는 body 안 `BREAKING CHANGE:`
+3. 위 정합 안 맞으면 `gh pr create` 호출 안 함 — title 수정 후 재시도
+
+PR title 작성 패턴 (정합):
+- OK: `feat: 운영자 자율 선택 + src 정석화` (한글 시작)
+- OK: `fix: handle null hostname` (소문자 시작)
+- OK: `refactor: src 정석화` (소문자 + 한글 혼합)
+- NG: `feat: ZDM 직접 fetch` (Z 대문자 시작)
+- NG: `feat: Add new endpoint` (A 대문자 시작)
+
+### B. 코드 검증 (병렬 Bash 실행 — commit skill 0번 step + tests)
+
 - `uv run ruff check .` — lint 위반 0 의무
 - `uv run ruff format --check .` — format drift 0 의무
 - `uv run pytest tests/unit -q` — 단위 테스트 통과 의무 (PR 시점은 사용자 confirm 없이 실행 — CI 가 어차피 실행할 검증을 미리)
