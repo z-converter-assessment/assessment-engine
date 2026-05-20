@@ -3,6 +3,10 @@
 dev/.env
 dev/agent.env
 
+# 빌드 산출물 — agent 바이너리는 pipeline-up.sh / dev/build-agent.sh 가 빌드
+# (sibling repo Docker cross-build) 또는 AGENT_BINARY_URL 로 fetch.
+dev/bin/assessment-agent
+
 # 빌드 산출물
 dist/
 

@@ -1,4 +1,4 @@
-# agent 사전 빌드용 Dockerfile — `dev/build-agent.sh`가 buildx context로 사용.
+# agent 사전 빌드용 Dockerfile — `dev/agent-build/build.sh` 가 buildx context 로 사용.
 #
 # 컨텍스트: 외부 `../assessment-agent` (read-only). host vendor/ 산출물에 영향 안 받음 (격리).
 # base = debian:bookworm-slim — OpenSSL 3.0.11 fix (Lima 매트릭스 최저 = Debian 12, Ubuntu 24.04).

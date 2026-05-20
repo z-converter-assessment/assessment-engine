@@ -2,8 +2,9 @@
 # dev 풀 파이프라인 기동: Docker → migrate → web 헬스체크 → Lima VM 7대 + 에이전트 설치.
 #
 # 책임 분담:
-#   - agent 바이너리는 `dev/bin/assessment-agent`에 사전 commit (Apple Silicon dev 한정, arm64 ELF).
-#     갱신은 외부 agent repo에서 빌드 후 본 위치로 수동 cp — 본 repo는 외부 repo 의존 안 함.
+#   - agent 바이너리는 `dev/bin/assessment-agent` 로 산출 — 본 스크립트 `ensure_agent_binary` 단계가 확보.
+#     AGENT_BINARY_URL set 시 curl fetch (향후 agent CI release artifact 자동화 분기),
+#     미설정 시 `dev/agent-build/build.sh` 호출 (sibling repo cross-build, default ../assessment-agent).
 #   - Docker compose는 dev/docker-compose.yml (dev 한정 #A0, ADR 0012). migrate init-container가 alembic 자동 적용.
 #   - Lima yaml은 boot + mount + 합성 부하 timer만 (yaml provision의 boot timeout 회피).
 #   - VM 안 작업은 본 스크립트의 post-provision step — 서비스 패키지 install + 바이너리 cp + systemd unit.
@@ -139,13 +140,32 @@ check_prereqs() {
     echo "  dev/agent.env 없음 — dev/agent.env.example 복사"
     cp dev/agent.env.example dev/agent.env
   fi
-  if [ ! -f dev/bin/assessment-agent ]; then
-    echo "오류: dev/bin/assessment-agent 없음. './dev/build-agent.sh'로 빌드 후 commit하라."
-    exit 1
-  fi
   # 본 dev 파이프라인은 Apple Silicon + arm64 Lima VM 가정. host arch 검증.
   if [ "$(uname -m)" != "arm64" ]; then
     echo "경고: dev 파이프라인은 Apple Silicon(arm64) 가정. 다른 host arch에선 바이너리 호환 검토 필요."
+  fi
+}
+
+# agent 바이너리 확보 — AGENT_BINARY_URL 우선, 미설정 시 sibling repo cross-build.
+# 본 분기는 확장 전제: agent CI release artifact 자동화 후 운영자가 AGENT_BINARY_URL 만 set
+# 하면 fetch 흐름으로 즉시 전환. 현재는 build 흐름이 default.
+ensure_agent_binary() {
+  local out_bin="dev/bin/assessment-agent"
+  if [ -n "${AGENT_BINARY_URL:-}" ]; then
+    echo "  AGENT_BINARY_URL set — fetch (cache 없음, 매 호출마다 검증·갱신)..."
+    mkdir -p dev/bin
+    if ! curl -fsSL -o "$out_bin" "$AGENT_BINARY_URL"; then
+      echo "오류: agent 바이너리 fetch 실패 ($AGENT_BINARY_URL)" >&2
+      exit 1
+    fi
+    chmod 755 "$out_bin"
+  else
+    echo "  AGENT_BINARY_URL 미설정 — dev/agent-build/build.sh 호출 (sibling repo cross-build)..."
+    ./dev/agent-build/build.sh
+  fi
+  if [ ! -f "$out_bin" ]; then
+    echo "오류: $out_bin 확보 실패. AGENT_BINARY_URL 또는 AGENT_REPO_PATH 확인하라." >&2
+    exit 1
   fi
 }
 
@@ -457,6 +477,7 @@ print_summary() {
 
 main() {
   check_prereqs
+  ensure_agent_binary
   load_agent_env
   start_docker_stack
   wait_migrate_completed

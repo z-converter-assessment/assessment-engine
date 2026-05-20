@@ -26,9 +26,11 @@ HOST MACHINE
 | Lima 1.0+ | `brew install lima` |
 | Docker | Docker Desktop 또는 colima |
 
-전제: agent 바이너리(`dev/bin/assessment-agent`)가 본 repo에 commit되어 있다. 본 repo는 외부 agent repo 의존 안 함 — 클론만으로 dev 파이프라인 시작 가능.
+전제: agent 바이너리 (`dev/bin/assessment-agent`) 는 pipeline-up.sh 의 `ensure_agent_binary` 단계가 자동 확보. 두 분기:
+- `AGENT_BINARY_URL` env set 시 — curl fetch (향후 agent CI release artifact 자동화).
+- 미설정 시 — `dev/agent-build/build.sh` 호출, sibling repo (`AGENT_REPO_PATH`, default `../assessment-agent`) 를 buildx context 로 cross-build.
 
-agent 바이너리 갱신은 수동 — 외부 agent repo에서 빌드(Linux arm64 ELF, static link 권장) 후 `dev/bin/`에 cp + 커밋. 절차는 `dev/README.md`.
+상세: `dev/README.md`.
 
 ## 실행
 
@@ -210,7 +212,7 @@ mounts:
 
 `{{.Param.AgentBinDir}}` 절대 경로는 `pipeline-up.sh`가 `--set ".param.AgentBinDir = \"$AGENT_BIN_DIR\""`로 주입 (Lima yaml의 `{{.Dir}}`은 instance dir라 호스트 경로 추적 불가).
 
-`writable: false` — read-only mount. 본 repo에 commit된 단일 바이너리(`dev/bin/assessment-agent`)만 VM에서 cp — VM 안 build step·devel 패키지 install 0.
+`writable: false` — read-only mount. `dev/bin/assessment-agent` (pipeline-up.sh 의 `ensure_agent_binary` 가 자동 산출) 만 VM 에서 cp — VM 안 build step·devel 패키지 install 0.
 
 ---
 
@@ -258,7 +260,7 @@ AGENT_EXTERNAL_IP=203.0.113.10   # web-server-01만
 
 ### 3. (pipeline-up.sh) OS detect + 서비스 패키지 설치
 
-agent 바이너리는 본 repo `dev/bin/`에 사전 commit (Apple Silicon arm64 dev 한정). VM 안에서는 서비스 패키지만 install — devel·gcc·make 불필요.
+agent 바이너리는 `ensure_agent_binary` 단계가 `dev/bin/assessment-agent` 로 자동 확보. VM 안에서는 서비스 패키지만 install — devel·gcc·make 불필요.
 
 `/etc/os-release`의 `ID` dispatch:
 
@@ -267,35 +269,24 @@ agent 바이너리는 본 repo `dev/bin/`에 사전 commit (Apple Silicon arm64 
 | Ubuntu/Debian (apt) | `apt-get install -y --no-install-recommends curl iputils-ping ${svc_pkg}` |
 | Rocky 9 / AlmaLinux 9 (dnf) | `dnf install -y epel-release` → `dnf install -y curl iputils ${svc_pkg}` |
 
-agent runtime dynamic dependency = OpenSSL/glibc/zlib만 — 본 매트릭스 7 distro 모두 base에 포함, 추가 install 불필요.
+agent runtime dynamic dependency = OpenSSL/glibc/zlib만 — 본 매트릭스 distro 모두 base에 포함, 추가 install 불필요.
 
-서비스 dispatch:
+서비스 dispatch (4 VM):
 
 | VM | service | apt 패키지 | dnf 패키지 | systemd 유닛 |
 |----|---------|-----------|-----------|-------------|
-| cache-server-01 | `redis` | `redis-server` | `redis` (rocky/rhel/almalinux) | `redis` (현 cache는 Rocky 9) |
-| app-server-01 | `docker` | `docker.io` | (미지원 — podman default + docker-ce 외부 repo 필요) | `docker` |
-| web-server-01 | `nginx` | `nginx` | `nginx` | `nginx` |
-| db-server-01 | `postgres` | `postgresql` | `postgresql-server` (현 db는 AlmaLinux 9 — RPM 분기 + `postgresql-setup --initdb` 자동) | `postgresql` |
-| mq-server-01 | `mosquitto` | `mosquitto` (현 mq는 Debian 12) | `mosquitto` | `mosquitto` |
-| monitor-server-01 | `zabbix_agent` | `zabbix-agent` | `zabbix-agent` (centos/rocky/rhel/almalinux) | `zabbix-agent` |
-| offline-server-01 | `none` | (없음) | (없음) | (없음) |
+| web-server-01 | `nginx` | `nginx` | — | `nginx` |
+| offline-server-01 | `none` | (없음) | — | (없음) |
+| cache-server-01 | `redis` | — | `redis` | `redis` |
+| db-server-01 | `postgres` | — | `postgresql-server` (AlmaLinux 9 — `postgresql-setup --initdb` 자동) | `postgresql` |
 
 dispatch 단일 진실은 `pipeline-up.sh`의 `case "${ID}:$service"` 블록. 새 service 도입 시 본 표 + pipeline-up.sh 동시 갱신 의무.
 
 RPM family postgresql은 cluster init 수동 — `pipeline-up.sh`가 `postgresql-setup --initdb`로 자동 처리. apt 계열은 install 시 자동 init라 skip.
 
-설치된 서비스는 `systemctl enable --now` 즉시 활성화. 에이전트가 `services[]`에 포함시켜 발행 → 엔진의 `service_classifier.classify()`가 카테고리 뱃지(cache/web/db/mq/monitor/container)로 분류.
+설치된 서비스는 `systemctl enable --now` 즉시 활성화. 에이전트가 `services[]`에 포함시켜 발행 → 엔진의 `service_classifier.classify()`가 카테고리 뱃지로 분류.
 
-### 4. (수동) 에이전트 바이너리 갱신
-
-본 repo는 agent 빌드 책임 없음 — agent 소스 변경 시 외부 agent repo에서 빌드 후 본 repo `dev/bin/`에 cp + 커밋.
-
-권장: Rocky 9 base + vendored static link (cJSON·rabbitmq-c·curl·libarchive 정적, OpenSSL/glibc/zlib만 dynamic). Lima 매트릭스 7 distro 모두 ≥ glibc 2.34 + OpenSSL 3 계열이라 호환.
-
-pipeline-up.sh는 `dev/bin/assessment-agent` 존재만 검증 — 없으면 즉시 fail.
-
-### 5. (pipeline-up.sh) 바이너리 cp + systemd unit
+### 4. (pipeline-up.sh) 바이너리 cp + systemd unit
 
 ```
 install -m 755 /mnt/agent-bin/assessment-agent /usr/local/bin/assessment-agent
