@@ -10,8 +10,27 @@ description: TRIGGER when user requests PR creation ("PR 만들어줘", "/pr-cre
 ## Base 브랜치 정책 (본 프로젝트)
 
 - Default base: `develop` — feature branch -> develop 통합이 표준. main 은 release-only.
-- `--base main` 은 사용자가 명시적으로 "main에 PR" 요청한 경우에만.
+- `--base main` 은 사용자가 명시적으로 "main에 PR" 요청한 경우에만. 본 경로는 hotfix 또는 release ceremony 한정.
 - develop 브랜치가 원격에 없으면 발행 전에 먼저 확인 (`git ls-remote --heads origin develop`). 없으면 사용자에게 보고 후 `git push origin main:develop` 같은 초기화 절차 안내 — pr-create 가 임의 생성 안 함.
+
+### main PR 추가 강화 (`--base main` 분기)
+
+main 은 배포 branch — 강화 의무 (운영자가 release-please bot 외 직접 main PR 시 적용):
+
+1. branch naming 권장: `hotfix/*` — release-please Release PR 외 main PR 은 hotfix 의도. 다른 prefix (feature/* 등) 면 사용자에게 의도 재확인
+2. Pre-check 확장 (아래 Pre-check 절 기본 + main 추가):
+   - `uv run pytest tests/integration -q` 의무 (사용자 confirm 없이 — main 안전 우선). 단위만으로 부족
+   - `git log origin/main..HEAD --oneline` 의 모든 commit message 가 Conventional Commits 형식 의무 확인 (release-please 가 자동 bump 결정)
+   - breaking change 의도 시 (`feat!:` 또는 body `BREAKING CHANGE:`) → 사용자에게 ADR 신설 의무 확인 (`docs/adr/NNNN-*.md`)
+   - `git diff origin/main...HEAD -- docs/adr/` 가 비어 있고 type prefix 가 `feat!:` 또는 `BREAKING CHANGE:` 면 ADR 누락 차단
+3. PR body 추가 명시:
+   - "main PR 사유" 절 (hotfix · release · 기타) 강제
+   - hotfix 면 영향 receive 운영자 가시화
+4. CI 통과 의무 검증 (push skill pre-check 보다 강함):
+   - `ci.yml` (ruff + pytest unit/integration + coverage + uv build wheel) 의 모든 job 통과 가정
+   - `alembic-check.yml` paths 무관 발화 (본 repo 정책 — branches `[main,develop]` 모두 paths 없음)
+   - `security.yml` paths 무관 발화 (동일)
+   - `codeql.yml` SAST 통과 (CI 측 — 로컬 검증 X, 단 main PR 후 SAST fail 시 즉시 revert 의무)
 
 ## PR template 우선 (본 프로젝트 의무)
 

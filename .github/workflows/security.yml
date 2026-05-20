@@ -9,12 +9,11 @@ name: security
 # 본 repo 책임: CI 영역의 의존성 보안. 인프라 측은 image scanning(Trivy 등)으로 보완 가능.
 
 on:
+  # paths 조건 제거 — main/develop PR 시 항상 발화. branch protection required status check
+  # 등록 시 paths skip → check 자체 N/A → 머지 block 함정 회피 (특히 main PR 강화).
+  # pip-audit (~1min) 부담 미약. 의존성 CVE 검증을 매 PR 의무화.
   pull_request:
     branches: [main, develop]
-    paths:
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - '.github/workflows/security.yml'
   schedule:
     - cron: '0 9 * * 1'
   workflow_dispatch:
