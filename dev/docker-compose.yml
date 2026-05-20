@@ -1,20 +1,26 @@
-# dev 기능 개발용 compose (#A0). prod 운영은 본 repo 범위 밖 — 외부 인프라가
-# wheel + systemd 또는 자체 컨테이너 오케스트레이션으로 자체 구성.
+# dev 기능 개발용 compose (#A0). prod 운영은 본 repo 범위 밖 (ADR 0012).
+# 외부 인프라가 wheel + systemd 또는 자체 컨테이너 오케스트레이션으로 자체 구성.
 #
-# 기동: `docker compose up`  — `.env` 평문 자동 주입 + 호스트 포트 노출 + 코드 마운트.
+# 기동 (본 디렉토리에서):  `docker compose up`
+# 또는 (루트에서):           `docker compose -f dev/docker-compose.yml up`
 #
-# YAML anchor — 앱 5종(migrate/web/consumer/diagnostic-worker/diagnostic-scheduler)이 공유하는
-# build / depends_on / dev volume mount / 공통 environment를 단일 진실로 정의.
+# 경로 규약 (본 파일이 dev/ 안에 있음 — 루트 산출물 분리 정공):
+#   - build context = `..` (루트, Dockerfile 위치)
+#   - volume mount  = `../:/app` (호스트 루트 ↔ 컨테이너 /app)
+#   - env_file       = `.env` (dev/.env — `cp dev/.env.example dev/.env`)
 #
-# user: "0:0" — Dockerfile은 USER app(uid 1000) 적용하지만, dev는 `./:/app`로 호스트 코드를 bind mount하므로
-# 컨테이너 uid 1000이 호스트 파일(macOS 보통 501) 쓰기 실패 가능. dev에선 root로 되돌려 uvicorn auto-reload·
-# __pycache__ 생성 충돌 회피.
+# YAML anchor — 앱 5종 (migrate · web · consumer · diagnostic-worker · diagnostic-scheduler)이
+# 공유하는 build · depends_on · dev volume mount · 공통 environment를 단일 진실로 정의.
+#
+# user "0:0" — Dockerfile 의 USER app(uid 1000) 적용. dev 는 `../:/app` 으로 호스트 코드 bind
+# mount 이라 컨테이너 uid 1000 이 호스트 파일(macOS 보통 501) 쓰기 실패 가능. dev 에선 root
+# 되돌려 uvicorn auto-reload · __pycache__ 생성 충돌 회피.
 x-app-base: &app-base
-  build: .
+  build: ..
   restart: unless-stopped
   user: "0:0"
   volumes:
-    - ./:/app
+    - ../:/app
   env_file: .env
   environment: &app-env
     APP_ENV: ${APP_ENV:-dev}
@@ -88,9 +94,10 @@ services:
       start_period: 5s
 
   # pgAdmin — dev DB GUI. ServerMode=False → 로그인 없이 즉시 사용.
-  # 서버 등록은 dev/pgadmin-servers.json으로 자동 (postgres host·user 미리 채워짐). password는 첫 접속 시 입력.
-  # profiles: [gui] — 기본 `docker compose up`엔 미포함, 명시 호출 시만 띄움 (idle 250MiB 절감).
-  #   띄우려면: `docker compose --profile gui up -d pgadmin`
+  # 서버 등록은 dev/pgadmin-servers.json 으로 자동 (postgres host · user 미리 채워짐).
+  # password 는 첫 접속 시 입력. profiles: [gui] — 기본 `docker compose up` 엔 미포함,
+  # 명시 호출 시만 띄움 (idle 250 MiB 절감). 띄우려면:
+  #   docker compose --profile gui up -d pgadmin
   pgadmin:
     image: dpage/pgadmin4:latest
     profiles: [gui]
@@ -101,7 +108,7 @@ services:
       PGADMIN_CONFIG_SERVER_MODE: 'False'
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
     volumes:
-      - ./dev/pgadmin-servers.json:/pgadmin4/servers.json:ro
+      - ./pgadmin-servers.json:/pgadmin4/servers.json:ro
     ports:
       - "${PGADMIN_PORT:-5050}:80"
     depends_on:
@@ -112,11 +119,11 @@ services:
   # 모든 앱 서비스는 본 컨테이너 완료 후에만 기동 (depends_on: service_completed_successfully).
   # schema는 Alembic 단일 진실 (ADR 0005). lifespan의 create_all 자동 분기 제거됨.
   migrate:
-    build: .
+    build: ..
     command: alembic upgrade head
     user: "0:0"
     volumes:
-      - ./:/app
+      - ../:/app
     env_file: .env
     environment:
       APP_ENV: ${APP_ENV:-dev}
@@ -130,7 +137,7 @@ services:
     <<: *app-base
     command: python -m assessment_engine.web
     ports:
-      - "${WEB_PORT:-8000}:8000"   # dev plain HTTP (ADR 0009)
+      - "${WEB_PORT:-8000}:8000"   # dev plain HTTP
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 5s
@@ -142,7 +149,7 @@ services:
     <<: *app-base
     command: python -m assessment_engine.consumer
 
-  # 진단 워커 — RabbitMQ `diagnostic.request` 소비, 규칙 기반 진단 수행, DB 저장 (ADR 0004·0010).
+  # 진단 워커 — RabbitMQ `diagnostic.request` 소비, 규칙 기반 진단 수행, DB 저장 (ADR 0004 · 0010).
   # LLM_PROVIDER 기본 mock (과금 발생 외부 API 호출 금지 — 운영자 정책).
   diagnostic-worker:
     <<: *app-base

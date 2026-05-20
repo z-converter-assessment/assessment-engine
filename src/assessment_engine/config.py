@@ -14,6 +14,11 @@ _SECRETS_DIR = _SECRETS_DIR if os.path.isdir(_SECRETS_DIR) else None
 # 본 프로젝트의 dev default는 "assessment". 다른 흔한 약한 값도 함께 차단.
 _WEAK_VALUES = frozenset({"", "assessment", "password", "admin", "root", "changeme"})
 
+# ZDM 좌표 dev default — prod 에서 그대로면 다른 고객사 ZDM 으로 install task 잘못 발행될 위험.
+# config.py default 와 동기 — 변경 시 동시 갱신 의무.
+_ZDM_DEV_DEFAULT_IP = "192.168.3.94"
+_ZDM_DEV_DEFAULT_USER = "admin@zconverter.com"
+
 
 class WebSettings(BaseSettings):
     # 우선순위: OS env > .env (cwd) > <SECRETS_DIR>/<field> 파일 > 코드 default
@@ -112,6 +117,17 @@ class WebSettings(BaseSettings):
             )
         if self.postgres_user in _WEAK_VALUES:
             raise ValueError("POSTGRES_USER must be set to a non-default value in prod.")
+        # ZDM 좌표 dev default 거부 — prod 에서 install task 가 잘못된 ZDM 으로 발행되는 사고 방지.
+        if self.zdm_default_ip == _ZDM_DEV_DEFAULT_IP:
+            raise ValueError(
+                "ZDM_DEFAULT_IP is unset or uses the dev default (192.168.3.94) in prod. "
+                "Set the customer site's ZDM coordinate."
+            )
+        if self.zdm_default_user == _ZDM_DEV_DEFAULT_USER:
+            raise ValueError(
+                "ZDM_DEFAULT_USER is unset or uses the dev default in prod. "
+                "Set the customer site's ZDM admin account."
+            )
         return self
 
 

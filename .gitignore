@@ -1,5 +1,6 @@
 # 시크릿
 .env
+dev/.env
 dev/agent.env
 
 # 빌드 산출물

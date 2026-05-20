@@ -4,7 +4,7 @@
 # 책임 분담:
 #   - agent 바이너리는 `dev/bin/assessment-agent`에 사전 commit (Apple Silicon dev 한정, arm64 ELF).
 #     갱신은 외부 agent repo에서 빌드 후 본 위치로 수동 cp — 본 repo는 외부 repo 의존 안 함.
-#   - Docker compose는 단일 docker-compose.yml (dev 한정 #A0). migrate init-container가 alembic 자동 적용.
+#   - Docker compose는 dev/docker-compose.yml (dev 한정 #A0, ADR 0012). migrate init-container가 alembic 자동 적용.
 #   - Lima yaml은 boot + mount + 합성 부하 timer만 (yaml provision의 boot timeout 회피).
 #   - VM 안 작업은 본 스크립트의 post-provision step — 서비스 패키지 install + 바이너리 cp + systemd unit.
 #
@@ -15,6 +15,9 @@ set -euo pipefail
 # 호출 위치 무관 정합 — scripts/.. = 프로젝트 루트로 cwd 고정.
 # BASH_SOURCE는 source된 스크립트 자체 경로 (직접 실행 시 $0과 동일) — source 시 부모의 $0으로 잘못 cd하지 않게.
 cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.."
+
+# dev compose 단일 진실 — `docker compose` 호출이 본 파일을 자동 인식.
+export COMPOSE_FILE=dev/docker-compose.yml
 
 # ────────────────────────────────────────────────────────────────────────────
 # 상수
@@ -135,9 +138,10 @@ check_prereqs() {
     exit 1
   fi
   # env 파일 자동 cp — 없으면 example 복사 (dev 한정, example default 그대로 충분).
-  if [ ! -f .env ]; then
-    echo "  .env 없음 — .env.example 복사"
-    cp .env.example .env
+  # 루트 .env.example 은 prod 운영자 카탈로그라 본 dev 파이프라인은 dev/.env.example 사용.
+  if [ ! -f dev/.env ]; then
+    echo "  dev/.env 없음 — dev/.env.example 복사"
+    cp dev/.env.example dev/.env
   fi
   if [ ! -f dev/agent.env ]; then
     echo "  dev/agent.env 없음 — dev/agent.env.example 복사"

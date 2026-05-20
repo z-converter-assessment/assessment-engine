@@ -9,11 +9,23 @@ docker-compose는 엔진 그 자체 — web·consumer·diagnostic-worker·diagno
 ## 파일 구조
 
 ```
-Dockerfile                    — web·consumer·diagnostic-worker·diagnostic-scheduler 공용 이미지
-docker-compose.yml            — dev 단일 compose (#A0). .env 평문 + 포트 노출 + 코드 마운트 + APP_ENV=dev. pgadmin은 profiles:[gui] 분리
+Dockerfile                    — web·consumer·diagnostic-worker·diagnostic-scheduler 공용 이미지 (루트 — prod 도 활용 가능한 빌드 산출물)
+dev/docker-compose.yml        — dev 단일 compose (#A0). dev/.env 평문 + 포트 노출 + 코드 마운트 + APP_ENV=dev. pgadmin은 profiles:[gui] 분리
+dev/.env.example              — dev compose 기준 환경변수 카탈로그. `cp dev/.env.example dev/.env`
+.env.example                  — prod 운영자 카탈로그 (루트). dev compose 와 무관 — 외부 인프라 운영자가 채워서 사용
 .dockerignore                 — COPY . . 시 제외 경로
-scripts/pipeline-up.sh        — Docker → migrate → web 헬스체크 → Lima(limactl start + agent install) 순서 기동
+scripts/pipeline-up.sh        — Docker → migrate → web 헬스체크 → Lima(limactl start + agent install) 순서 기동. COMPOSE_FILE=dev/docker-compose.yml export
 scripts/pipeline-down.sh      — Lima(limactl stop + delete) → docker compose down -v
+```
+
+dev compose 호출은 본 파일이 dev/ 디렉토리에 있어 자동 인식 안 됨. 루트에서는 `-f dev/docker-compose.yml` 명시:
+
+```bash
+docker compose -f dev/docker-compose.yml up --build -d
+docker compose -f dev/docker-compose.yml down -v
+# 또는 export 한 번
+export COMPOSE_FILE=dev/docker-compose.yml
+docker compose up --build -d
 ```
 
 본 repo는 기능 개발용 docker-compose만 다룬다 (CLAUDE.md #A0, ADR 0012). prod 배포 인프라(IaC) 결정은 본 repo 범위 밖 — prod secret·환경변수 contract는 `docs/operations/prod-contract.md` + `config.py` `_validate_prod_*`에 코드·docs로만 표현. prod compose 변형은 본 repo에 두지 않음.
@@ -101,7 +113,7 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 
 ---
 
-## docker-compose.yml
+## dev/docker-compose.yml
 
 ### 서비스 구성 (기본 8개 — pgadmin은 profiles:[gui]로 분리, 명시 호출 시만 가동)
 
@@ -262,7 +274,7 @@ ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migra
 | Jinja2 템플릿 (web/templates/) | 즉시 | — | 없음 |
 | `pyproject.toml` (의존성) | 미반영 | 미반영 | `docker compose up --build -d` (의존성 레이어 재빌드) |
 | `Dockerfile` | 미반영 | 미반영 | `docker compose up --build -d` |
-| `docker-compose.yml` | 부분 | 부분 | `docker compose up -d` (변경된 서비스만 재생성) |
+| `dev/docker-compose.yml` | 부분 | 부분 | `docker compose up -d` (변경된 서비스만 재생성) |
 | ORM 모델 (컬럼·제약 추가) | 새 모델 로드는 reload되나 DB 스키마는 미반영 | 동일 | (ADR 0005) `alembic revision --autogenerate` → `docker compose restart migrate` → 앱 서비스 재기동. 마이그레이션 누락 시 `alembic check` 차단 |
 
 ### 디버깅 유용 명령

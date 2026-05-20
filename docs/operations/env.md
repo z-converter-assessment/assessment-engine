@@ -54,15 +54,15 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 | `RABBITMQ_*` (broker 접속) | 의무 (진단 publish) | 의무 (consume) | 의무 (consume) | 의무 (publish) |
 | `RABBITMQ_ROUTING_KEY_*`·`RABBITMQ_EXCHANGE` | 의무 | 의무 | 의무 | 의무 |
 | `WORKER_*` (worker.result·task.install) | 의무 (task.install publish) | 의무 (worker.result consume) | 선택 | 선택 |
-| `WEB_PORT`·`INSTALL_TIMEOUT_SEC`·`ZDM_*`·`ZDM_PACKAGE_*` | 의무 | 사용 안 함 | 사용 안 함 | 사용 안 함 |
+| `WEB_PORT`·`INSTALL_TIMEOUT_SEC`·`ZDM_*`·`ZDM_PACKAGE_*`·`AGENT_RESTART_ALERT_THRESHOLD` | 의무 | 사용 안 함 | 사용 안 함 | 사용 안 함 |
 | `LLM_*`·`OLLAMA_*` | 사용 안 함 | 사용 안 함 | 의무 | 사용 안 함 |
-| `DIAGNOSTIC_QUEUE_*`·`DIAGNOSTIC_ROUTING_KEY` | 의무 (publish) | 사용 안 함 | 의무 (consume) | 의무 (publish) |
+| `DIAGNOSTIC_ENABLED`·`DIAGNOSTIC_QUEUE_*`·`DIAGNOSTIC_ROUTING_KEY` | 의무 (publish gate) | 사용 안 함 | 의무 (consume gate) | 의무 (cron gate + publish) |
 | `DIAGNOSTIC_SCHEDULE_CRON`·`DIAGNOSTIC_RETENTION_DAYS`·`DIAGNOSTIC_ACTIVE_SERVER_WINDOW_HOURS` | 사용 안 함 | 사용 안 함 | 사용 안 함 | 의무 |
 | `WORKER_JOB_TIMEOUT_SECONDS` | 사용 안 함 | 사용 안 함 | 의무 | 사용 안 함 |
 | `SQLALCHEMY_ECHO` | 의무 | 의무 | 의무 | 의무 |
 
 prod 검증(`_validate_prod_*`) 발동 위치 (multi-node 분리 시):
-- web 노드: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
+- web 노드: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default + ZDM_DEFAULT_IP/USER dev default 거부
 - consumer 노드: `ConsumerSettings` → POSTGRES·RABBITMQ password weak default 거부
 - diagnostic-worker·scheduler 노드: `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
 
@@ -118,8 +118,10 @@ prod-contract.md 7절 "Secret 채널" + deployment.md "단계별 흐름" 참조.
 | `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | docker-compose (redis command) | maxmemory 도달 시 eviction policy. TTL 키 우선 evict — 본 프로젝트는 idempotent/online TTL 키 만료 가능 가정 |
 | `WEB_PORT` | `8000` | config.py / docker-compose | Web UI 접속 포트. 충돌 시 변경 |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |
-| `ZDM_DEFAULT_IP` | `192.168.3.94` | config.py | ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표. install 모달 default 값. 운영자가 모달에서 매 발행마다 override 가능 — POST `/tasks/install` body `zdm_ip` 누락 시 본 값으로 fallback. install.sh 의 `-s` 인자로 전달 + agent download.url host 로 사용 |
-| `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 서버 관리자 계정 기본값. install 모달 default. POST body `zdm_user` 누락 시 fallback. install.sh 의 `-u` 인자로 전달 |
+| `ZDM_DEFAULT_IP` | `192.168.3.94` | config.py | ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표. install 모달 default 값. 운영자가 모달에서 매 발행마다 override 가능 — POST `/tasks/install` body `zdm_ip` 누락 시 본 값으로 fallback. install.sh 의 `-s` 인자로 전달 + agent download.url host 로 사용. prod 에서 dev default 그대로 두면 `_validate_prod_*` 거부 |
+| `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 서버 관리자 계정 기본값. install 모달 default. POST body `zdm_user` 누락 시 fallback. install.sh 의 `-u` 인자로 전달. prod 에서 dev default 그대로 두면 `_validate_prod_*` 거부 |
+| `AGENT_RESTART_ALERT_THRESHOLD` | `3` | config.py | 1h 슬라이딩 윈도우 내 에이전트 재시작 횟수 임계값. attention 신호 카드 + consumer 부가 시그널 |
+| `DIAGNOSTIC_ENABLED` | `false` | config.py | 진단 워크플로 활성 flag (ADR 0004 + 0010). false 면 web POST /api/v1/diagnostics 503 + scheduler cron 발화 no-op |
 | `ZDM_PACKAGE_PATH` | `/download/ZConverter_CloudSource_Setup_Linux.tar.gz` | config.py | ZDM 호스트의 본체 패키지 URL path. task.install download.url 은 `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` 로 조립 |
 | `ZDM_PACKAGE_SCRIPT` | `zconverter_install_source/install.sh` | config.py | tar 추출 후 실행할 스크립트 경로. ZDM 패키지 layout 과 일치 |
 | `ZDM_META_CONNECT_TIMEOUT_SEC` | `5.0` | config.py | ZDM 메타 조회 HTTP connect timeout. host 도달 불가 시 503 reject |

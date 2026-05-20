@@ -135,20 +135,21 @@
 
 전제: Docker 4.x+ (macOS Desktop 또는 Linux Engine 27.x + Compose v2).
 
-엔진만 기동 (가장 단순):
+엔진만 기동 (가장 단순). dev compose 자산은 `dev/` 디렉토리 — 루트에서 `-f` 로 호출:
 ```bash
-cp .env.example .env
-docker compose up --build -d        # web + consumer + diagnostic + DB + MQ + Redis 한 번에
-docker compose down -v              # 종료 (데이터 삭제)
+cp dev/.env.example dev/.env
+docker compose -f dev/docker-compose.yml up --build -d   # web + consumer + diagnostic + DB + MQ + Redis 한 번에
+docker compose -f dev/docker-compose.yml down -v         # 종료 (데이터 삭제)
 ```
+
+(루트 `.env.example` 은 prod 운영자 카탈로그 — dev compose 와 무관.)
 
 `migrate` 컨테이너가 alembic upgrade head를 자동 실행. 그 후 web 컨테이너가 헬스체크 통과하면 아래 접속 표의 endpoint 모두 동작.
 
 엔진 + Lima VM 매트릭스 전체 시연 (macOS 한정 — 합성 부하·분류 분포 가시화):
 ```bash
-./scripts/pipeline-up.sh                              # .env·dev/agent.env 자동 cp + Docker + Lima 7 VM
-LIMA_VMS_FILTER=db-server-01,app-server-01 ./scripts/pipeline-up.sh  # 약식 (2 VM)
-LIMA_VMS_FILTER=web-server-01 ./scripts/pipeline-up.sh               # 약식 (1 VM)
+./scripts/pipeline-up.sh                              # dev/.env·dev/agent.env 자동 cp + Docker + Lima 4 VM
+LIMA_VMS_FILTER=db-server-01 ./scripts/pipeline-up.sh   # 약식 (1 VM)
 ./scripts/pipeline-down.sh                            # 환경 전체 정리
 ```
 

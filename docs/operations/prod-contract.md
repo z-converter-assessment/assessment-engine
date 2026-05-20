@@ -169,7 +169,7 @@ prod 환경에서 secret 누락·약한 default 통과를 막기 위해 본 repo
 
 | 위치 | 검증 대상 | 강제 시점 |
 |------|---------|---------|
-| `config.py` `_validate_prod_*` model_validator | `_WEAK_VALUES`(`""`/`assessment`/`password` 등) 거부 | 앱 import 직후 (`Settings()` 인스턴스 생성 시) |
+| `config.py` `_validate_prod_*` model_validator | secret weak default (`""`/`assessment`/`password` 등) + ZDM 좌표 dev default (`192.168.3.94` / `admin@zconverter.com`) 거부 | 앱 import 직후 (`Settings()` 인스턴스 생성 시) |
 
 ```python
 @model_validator(mode="after")
@@ -183,6 +183,11 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
         )
     if self.postgres_user in _WEAK_VALUES:
         raise ValueError("POSTGRES_USER must be set to a non-default value in prod.")
+    # ZDM 좌표 dev default 거부 — install task 가 잘못된 ZDM 으로 발행되는 사고 방지.
+    if self.zdm_default_ip == _ZDM_DEV_DEFAULT_IP:
+        raise ValueError("ZDM_DEFAULT_IP is unset or uses the dev default in prod.")
+    if self.zdm_default_user == _ZDM_DEV_DEFAULT_USER:
+        raise ValueError("ZDM_DEFAULT_USER is unset or uses the dev default in prod.")
     return self
 ```
 

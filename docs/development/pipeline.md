@@ -33,16 +33,16 @@ agent 바이너리 갱신은 수동 — 외부 agent repo에서 빌드(Linux arm
 ## 실행
 
 ```bash
-cp .env.example .env                       # 엔진 환경변수
+cp dev/.env.example dev/.env               # 엔진 환경변수 (dev compose 한정)
 cp dev/agent.env.example dev/agent.env     # 에이전트 secret 채널 (분리됨, #B)
-./scripts/pipeline-up.sh                        # Docker → web 헬스체크 → Lima VM 7대
+./scripts/pipeline-up.sh                   # Docker → web 헬스체크 → Lima VM 4대
 ```
 
 `scripts/pipeline-up.sh` 4단계:
-1. `docker compose up --build -d` — 엔진 기동
+1. `docker compose up --build -d` — 엔진 기동 (COMPOSE_FILE=dev/docker-compose.yml export)
 2. `migrate(alembic upgrade head)` 완료 대기 (cap 180s)
 3. web 헬스체크 통과 대기 (cap 180s)
-4. `start_or_resume_vm` wrapper로 7 VM 순차 (cloud image 다운로드 포함 최초 5~15분)
+4. `start_or_resume_vm` wrapper로 4 VM 순차 (cloud image 다운로드 포함 최초 3~8분)
 
 ## 결과 확인
 
