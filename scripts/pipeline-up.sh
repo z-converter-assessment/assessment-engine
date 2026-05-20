@@ -28,20 +28,15 @@ readonly TIMEOUT=180                         # docker compose / migrate / web �
 #                           → attention.agent_unstable 가장 빠른 발화 (1m 후 첫 restart 즉시 가시화)
 #   (2) offline-server-01 — Debian 13 trixie + finalize_vm offline-once mode (1회 발행 후 stop)
 #                           → attention.gap_warnings 5m 후 발화 + insufficient_data 분류
-#   (3) app-server-01     — Ubuntu 24.04 + docker.io + boot-time swap-trigger.service
-#                           → under_provisioned 발화 (swap_used 트리거)
-#   (4) monitor-server-01 — Rocky 9 + EPEL 9 + zabbix-agent + swap 256M (OOM 회피용)
-#                           → optimal 분류 (medium 부하)
-#   (5) mq-server-01      — Debian 12 + mosquitto (openSUSE Leap 15 zypper 누적 불안정으로 fallback, 사고 #15)
-#                           → over_provisioned (light 부하, attention 카탈로그에 mq 매핑 없어 정상 분류)
-#   (6) cache-server-01   — Rocky 9 + redis  → over_provisioned (light)
-#   (7) db-server-01      — AlmaLinux 9 + postgresql-server  → over_provisioned (light, RPM initdb)
+#   (3) cache-server-01   — Rocky 9 + redis      → over_provisioned (light 부하)
+#   (4) db-server-01      — AlmaLinux 9 + postgresql-server  → over_provisioned (light 부하, RPM initdb)
 # LIMA_VMS_FILTER env로 약식 검증 가능 (콤마 구분, 예: `LIMA_VMS_FILTER=web-server-01`).
-# 미설정 시 7 VM 전체 — 정합 시연용 기본값.
+# 미설정 시 4 VM 전체 — 정합 시연용 기본값. 호스트 영향 최소화 위해 모든 VM 의 합성 부하는
+# light (sustained CPU 1~3s + mem 5~20MB) — 차트 변동만 가시화, 분류는 over_provisioned 대표.
 if [ -n "${LIMA_VMS_FILTER:-}" ]; then
   IFS=',' read -ra LIMA_VMS <<< "$LIMA_VMS_FILTER"
 else
-  LIMA_VMS=(web-server-01 offline-server-01 app-server-01 monitor-server-01 mq-server-01 cache-server-01 db-server-01)
+  LIMA_VMS=(web-server-01 offline-server-01 cache-server-01 db-server-01)
 fi
 readonly LIMA_VMS
 
@@ -51,11 +46,8 @@ readonly LIMA_VMS
 vm_service() {
   case "$1" in
     cache-server-01)     echo "redis" ;;
-    app-server-01)       echo "docker" ;;        # docker.io (apt 표준) — service_classifier "container" 카테고리 + heavy++ 부하
     web-server-01)       echo "nginx" ;;
     db-server-01)        echo "postgres" ;;
-    mq-server-01)        echo "mosquitto" ;;     # MQTT — 가장 가벼운 mq (EPEL 표준)
-    monitor-server-01)   echo "zabbix_agent" ;;  # Zabbix agent — node_exporter는 EPEL 9에 미존재라 fallback (service_classifier "zabbix" → monitor 매칭)
     offline-server-01)   echo "none"  ;;
     *) echo "오류: 알 수 없는 VM: $1" >&2; return 1 ;;
   esac
@@ -346,11 +338,6 @@ case "\${ID}:$service" in
   *:nginx)                                         svc_pkg="nginx";              svc_unit="nginx" ;;
   ubuntu:postgres|debian:postgres)                 svc_pkg="postgresql";         svc_unit="postgresql" ;;
   rocky:postgres|rhel:postgres|almalinux:postgres) svc_pkg="postgresql-server"; svc_unit="postgresql" ;;
-  *:mosquitto)                                     svc_pkg="mosquitto";          svc_unit="mosquitto" ;;
-  rocky:zabbix_agent|rhel:zabbix_agent|almalinux:zabbix_agent) \
-                                                   svc_pkg="zabbix-agent";       svc_unit="zabbix-agent" ;;
-  ubuntu:zabbix_agent|debian:zabbix_agent)         svc_pkg="zabbix-agent";       svc_unit="zabbix-agent" ;;
-  ubuntu:docker|debian:docker)                     svc_pkg="docker.io";          svc_unit="docker" ;;
   *:none)                                          svc_pkg="";                   svc_unit="" ;;
   *) echo "지원 안 하는 OS/service: \${ID}/$service" >&2; exit 1 ;;
 esac
@@ -424,18 +411,8 @@ elif [ "\$needs_restart" = "1" ] || [ "\$env_needs_restart" = "1" ]; then
 fi
 SCRIPT
 
-  # monitor-server-01 전용 — install 직후 swap reset (swap_used=0 보장).
-  # yaml provision은 swap 256MB 활성 + swappiness=1로 dnf install OOM만 회피하나,
-  # install 도중 OOM 직전 swap 사용된 page는 free되지 않아 SwapUsed > 0 영구 위험.
-  # 명시적 swapoff/swapon으로 SwapUsed=0 reset → recommendation.classify에서
-  # swap_used short-circuit 안 걸리고 monitor는 optimal 발화 (under_provisioned 아님).
-  # swap_used 트리거는 app-server-01 한 곳만 — 분류 분배 일관성.
-  if [ "$vm" = "monitor-server-01" ]; then
-    # swapoff/swapon 분리 — `&&` 단락 평가 시 swapoff 실패 분기로 swapon이 skip돼 swap 영구 비활성 위험.
-    # 둘 다 silent error tolerance (swapfile 없거나 이미 reset된 경우 OK).
-    limactl shell --workdir / "$vm" sudo swapoff /swapfile 2>/dev/null || true
-    limactl shell --workdir / "$vm" sudo swapon /swapfile 2>/dev/null || true
-  fi
+  # swap_used 트리거는 db-server-01 yaml 의 swap-trigger.service 가 boot 시점 처리.
+  # 4 VM 시연에서 다른 VM 의 swap 사용은 의도 안 함 — synthetic-load.timer 가 light 부하만.
 }
 
 # offline-once mode: agent inventory 1회 발행 대기 후 agent stop + VM stop.

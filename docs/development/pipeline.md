@@ -69,22 +69,19 @@ cp dev/agent.env.example dev/agent.env     # 에이전트 secret 채널 (분리�
 
 ## 사용 맥락
 
-Lima는 에이전트 E2E + 시연 분류 분포 가시화. 엔진(docker-compose)은 호스트, Lima 7 VM이 실제 Linux 환경에서 에이전트 metrics를 RabbitMQ에 발행 → Consumer DB 저장 → web UI 확인.
+Lima는 에이전트 E2E + 시연 분류 분포 가시화. 엔진(dev compose)은 호스트, Lima 4 VM이 실제 Linux 환경에서 에이전트 metrics를 RabbitMQ에 발행 → Consumer DB 저장 → web UI 확인.
 
 ```
 [VM: web-server-01      ]   attention.agent_unstable (3분 주기 restart, 시간당 20회)
 [VM: offline-server-01  ]   attention.gap_warnings (5m+ 끊김) + insufficient_data
-[VM: app-server-01      ]   under_provisioned (swap_used 트리거)         -> RabbitMQ -> consumer -> DB -> web UI
-[VM: monitor-server-01  ]   optimal (medium 부하 + swap reset)
-[VM: mq-server-01       ]   over (light 부하, Debian 12)
-[VM: cache-server-01    ]   over (light 부하)
-[VM: db-server-01       ]   over (light 부하 + RPM postgresql-setup --initdb)
+[VM: cache-server-01    ]   over (light 부하)                            -> RabbitMQ -> consumer -> DB -> web UI
+[VM: db-server-01       ]   attention.capacity_warnings (swap_used → under_provisioned)
 ```
 
-7 VM이 서로 다른 OS + 서로 다른 서비스 뱃지 + 의도적 분류 분포를 가지는 이유:
-- OS 다양성: 패키지 매니저 분기(apt/dnf) + systemd + GLIBC major + cloud-init 호환 동시 검증.
-- 서비스 뱃지 다양성: `service_classifier.py` 7 카테고리(web·db·cache·mq·container·monitor·unknown) 100% 커버.
-- 분류 분포: right-sizing 분류(over/optimal/under/insufficient_data)가 한쪽에 쏠리지 않게 합성 부하 프로파일 4단계로 분기. attention 카탈로그(`AttentionSignals`) 6 카테고리 중 2개(agent_unstable·gap_warnings) 의도 발화.
+4 VM 구성 의도 (호스트 macOS 영향 최소화 우선):
+- OS 다양성: 패키지 매니저 분기(apt/dnf) + systemd + cloud-init 호환 검증. 4 distro (Debian 12 · Debian 13 · Rocky 9 · AlmaLinux 9).
+- attention 카탈로그 발화: `AttentionSignals` 카테고리 중 3개 (agent_unstable · gap_warnings · capacity_warnings) 의도 발화.
+- 합성 부하: 모든 VM light (sustained CPU 1~3s + mem 5~20MB) — 차트 변동만 가시화. CPU 임계 안 넘김. under_provisioned 만 swap_used 트리거로 분류 발화 (CPU 부담 0).
 
 Lima + Apple Virtualization Framework / QEMU 채택 이유: Apple Silicon에서 부팅·메모리 가벼움, macOS 폐쇄망 라이선스 부담 없음(OSS), read-only mount + `/tmp/build` cp 패턴으로 host 빌드 산출물 보호.
 
@@ -92,78 +89,70 @@ Lima + Apple Virtualization Framework / QEMU 채택 이유: Apple Silicon에서 
 
 ## VM 매트릭스
 
-`dev/lima/` 디렉토리에 7개 yaml. `pipeline-up.sh`의 `LIMA_VMS` 배열에서 단일 진실로 관리(`pipeline-down.sh`는 `source pipeline-up.sh`로 가져옴).
+`dev/lima/` 디렉토리에 4개 yaml. `pipeline-up.sh`의 `LIMA_VMS` 배열에서 단일 진실로 관리(`pipeline-down.sh`는 `source pipeline-up.sh`로 가져옴).
 
 | 진행 순서 | VM | OS | family | 자원 | 서비스 | 뱃지 | 부하 | 분류 | attention 발화 |
 |---|----|----|--------|------|--------|------|------|------|----------------|
-| 1 | `web-server-01` | Debian 12 (bookworm) | apt | 1 CPU / 512 MiB / 5 GiB | nginx | web | medium | optimal | agent_unstable (1m boot + 3m 주기, 시간당 20회) |
+| 1 | `web-server-01` | Debian 12 (bookworm) | apt | 1 CPU / 512 MiB / 5 GiB | nginx | web | light | over_provisioned | agent_unstable (1m boot + 3m 주기, 시간당 20회) |
 | 2 | `offline-server-01` | Debian 13 (trixie) | apt | 1 CPU / 512 MiB / 5 GiB | (없음) | unknown | (offline-once) | insufficient_data | gap_warnings (5m+ 끊김) |
-| 3 | `app-server-01` | Ubuntu 24.04 LTS (noble) | apt | 1 CPU / 1280 MiB / 5 GiB | docker.io | container | swap_trigger | under_provisioned | (분류 도넛에서만) |
-| 4 | `monitor-server-01` | Rocky Linux 9 | dnf | 1 CPU / 1280 MiB / 10 GiB | zabbix-agent | monitor | medium | optimal | (분류 도넛에서만) |
-| 5 | `mq-server-01` | Debian 12 (bookworm) | apt | 1 CPU / 512 MiB / 5 GiB | mosquitto | mq | light | over_provisioned | (분류 도넛에서만) |
-| 6 | `cache-server-01` | Rocky Linux 9 | dnf | 1 CPU / 1280 MiB / 10 GiB | redis | cache | light | over_provisioned | (분류 도넛에서만) |
-| 7 | `db-server-01` | AlmaLinux 9 | dnf | 1 CPU / 1280 MiB / 10 GiB | postgresql-server | db | light | over_provisioned | (분류 도넛에서만) |
+| 3 | `cache-server-01` | Rocky Linux 9 | dnf | 1 CPU / 1280 MiB / 10 GiB | redis | cache | light | over_provisioned | (분류 도넛에서만) |
+| 4 | `db-server-01` | AlmaLinux 9 | dnf | 1 CPU / 1280 MiB / 10 GiB | postgresql-server | db | light + swap-trigger | under_provisioned | capacity_warnings (swap_used) |
 
 진행 순서는 시연 가시화 우선:
 - 1번 web — attention 가장 빠른 발화 (1m 후 첫 restart)
 - 2번 offline — gap_warnings 5m+ 발화 위해 가장 빨리 stop
-- 3번 app — under_provisioned (swap_trigger) 보장 — 호스트 부담 우려로 다음 단계
-- 4번 monitor — swap install 부담 (OOM 회피 swap reset 적용)
-- 5~7번 mq/cache/db — 정상 분류 (over/over/over) — 후순위
+- 3번 cache — light 부하 (over_provisioned)
+- 4번 db — swap-trigger + RPM postgresql-setup --initdb 자동 (capacity_warnings · under_provisioned)
 
-OS 다양성 매트릭스 (5 distro + Debian 12·Rocky 9 각 1회 중복 — monitor가 CentOS Stream 9 baseos metalink stale로 Rocky 9 fallback(사고 #13), mq가 openSUSE Leap 15 zypper 누적 불안정으로 Debian 12 fallback(사고 #15). 사용자 결정으로 OS 다양성보다 프로비저닝 안정성 우선):
+OS · 뱃지 매트릭스:
 
 | OS | VM | family |
 |----|----|----|
-| Debian 12 | web, mq | apt |
+| Debian 12 | web | apt |
 | Debian 13 trixie | offline | apt |
-| Ubuntu 24.04 LTS | app | apt |
-| Rocky Linux 9 | monitor, cache | dnf |
+| Rocky Linux 9 | cache | dnf |
 | AlmaLinux 9 | db | dnf |
 
-뱃지 분배 (`service_classifier.py` 7 카탈로그 100% 커버):
+뱃지 분배 (`service_classifier.py` 카탈로그 부분 커버 — 4 VM 축소로 container · monitor · mq 카테고리 시연은 빠짐):
 
 | 카테고리 | VM | 발화 키워드 |
 |----------|----|----|
 | web | web-server-01 | nginx |
-| db | db-server-01 | postgresql |
 | cache | cache-server-01 | redis |
-| mq | mq-server-01 | mosquitto |
-| container | app-server-01 | docker |
-| monitor | monitor-server-01 | zabbix-agent |
+| db | db-server-01 | postgresql |
 | unknown | offline-server-01 | (서비스 없음) |
 
 리소스 메모:
 - 1 CPU 공통 — 최소 자원, cpu_p95 시연 1 코어 기준.
-- apt family는 512 MiB / 5 GiB 기본. app-server는 docker 데몬 ~100 MiB + swap-trigger 1100 MB burst라 1280 MiB로 보수.
+- apt family는 512 MiB / 5 GiB 기본.
 - dnf family는 1280 MiB / 10 GiB — dnf install transaction 1 GiB OOM 확인 후 1.25 GiB 보수. disk는 RPM cloud image qcow2 raw 강제.
+- db-server-01 의 swap-trigger 는 boot 1회 swapfile 512 MiB 활성 + 1000 MiB 메모리 압박 → swap_used > 0 영구 유지.
 
 ---
 
 ## 합성 부하 프로파일 (right-sizing 분류 발화)
 
-`recommendation.py`의 USE Method 임계에 분류가 골고루 떨어지도록 4 단계 + (offline-once).
+`recommendation.py`의 USE Method 임계 — 호스트 macOS 영향 최소화 위해 모든 VM 을 light 로 통일. CPU 임계는 일부러 안 넘김 (CPU 부담 회피), swap_used 만 db 에서 트리거.
 
-| 프로파일 | cpu burst | mem burst | mem 점유 | 적용 VM | 목표 분류 |
-|----------|-----------|-----------|---------|---------|----------|
-| light | 1~3s | 5~20MB | 즉시 sync rm | mq, cache, db | over (cpu_p95 ~5%, mem_p95 <50%) |
-| medium | 20~28s sustained | 240~300MB (web) / 700~850MB (monitor) | 25s sleep | web, monitor | optimal (cpu_p95 40~60%, mem_p95 50~70%) |
-| swap_trigger | (boot 직후 1회 1100MB burst) + 이후 light | 1100MB 1회 → swap에 push → SwapUsed > 0 영구 | 10s | app | under_provisioned (swap_used short-circuit) |
-| (offline-once) | — | — | — | offline | insufficient_data (1회 발행 후 stop) |
+| 프로파일 | cpu burst | mem burst | 적용 VM | 목표 분류 |
+|----------|-----------|-----------|---------|----------|
+| light | 1~3s | 5~20MB | web, cache, db | over_provisioned (cpu_p95 ~5%, mem_p95 <50%) |
+| swap-trigger (추가) | (boot 1회 1000MB 메모리 압박 + swapfile 512MB 활성) | swap_used > 0 영구 | db | under_provisioned (swap_used short-circuit) |
+| (offline-once) | — | — | offline | insufficient_data (1회 발행 후 stop) |
 
 원칙:
 - 분류 임계는 `recommendation.py` 모듈 상단 명명 상수 (#E3). 부하 프로파일은 임계 충족 설계.
 - `WINDOW_DAYS = 14` (#F10) — dev 시연에서 14일 못 채우면 분류 모두 `insufficient_data`. 보고서 라우터 `?period_days=1` 등 짧은 윈도우 시연 필수.
-- swap_trigger 프로파일이 host CPU 부담 최소(heavy++ sustained CPU 50s 대신 boot 1회 mem burst). 한 번 swap에 page push되면 SwapUsed > 0 영구 유지 → 매 measurement에서 swap_used = True 안정 발화.
-- monitor swap은 OOM 회피 전용. yaml provision의 `vm.swappiness=1` + `pipeline-up.sh` post_provision 끝 `swapoff /swapfile && swapon /swapfile`로 SwapUsed=0 reset (swap_used 트리거 X, optimal 분류).
+- swap-trigger 프로파일 — boot 직후 swapfile 512 MiB 활성 + `vm.swappiness=100` + 1000 MiB 메모리 압박. CPU 부담 0, 한 번 swap 에 page push 되면 SwapUsed > 0 영구 유지 → 매 measurement 에서 swap_used = True 안정 발화.
+- light 부하는 차트 변동만 가시화. 분류 임계 안 넘김 (over_provisioned 유지).
 
 attention 카탈로그 발화 매핑:
 
 | attention 카테고리 | 발화 VM | 트리거 |
 |-------------------|---------|--------|
-| disk_warnings | (없음) | 디스크 사용률 85%+ — 시연 위해 발화 안 시킴 |
+| disk_warnings | (없음) | 디스크 사용률 85%+ — 시연 안 함 |
 | gap_warnings | offline-server-01 | offline-once mode (5m+ 끊김) |
-| capacity_warnings | app-server-01 | under_provisioned (swap_used 트리거) |
+| capacity_warnings | db-server-01 | under_provisioned (swap_used 트리거) |
 | days_until_full_warnings | (없음) | 디스크 fill_rate 추정 30일 — 시연 안 함 |
 | os_eol_warnings | (없음) | EOL OS 자체가 cloud image 가용성 한계라 발화 안 함 |
 | agent_unstable | web-server-01 | agent-restart-demo timer (1h 슬라이딩 임계 3회 이상 — 3m 주기로 6배 마진) |
@@ -210,7 +199,7 @@ VM 간 통신 사용 안 함 — 각 VM은 독립적, 모든 통신은 host Rabb
 
 ## Mount 정책
 
-기본 `mountType` 미명시 — Lima vz default(virtiofs) 사용. 모든 활성 VM이 virtiofs 정상 동작. (이전 openSUSE Leap 15 시기 mq-server-01에 `mountType: "reverse-sshfs"` 적용했으나(사고 #2), mq distro가 Debian 12로 교체(사고 #15)되며 reverse-sshfs 필요성 사라짐.)
+기본 `mountType` 미명시 — Lima vz default(virtiofs) 사용. 4 VM 모두 virtiofs 정상 동작.
 
 ```yaml
 mounts:
@@ -231,11 +220,10 @@ mounts:
 
 ### 1. (yaml provision) 합성 부하 timer + (선택) swap 활성화
 
-`/usr/local/bin/synthetic-load.sh` + `synthetic-load.service` + `synthetic-load.timer` yaml별 inline. `OnBootSec=2min`, `OnUnitActiveSec=1min`. offline-server-01만 timer 없음.
+`/usr/local/bin/synthetic-load.sh` + `synthetic-load.service` + `synthetic-load.timer` yaml별 inline. `OnBootSec=2min`, `OnUnitActiveSec=1min`. offline-server-01만 timer 없음. 모든 VM light 부하 (sustained CPU 1~3s + mem 5~20MB) — 호스트 영향 최소화.
 
 VM 특수 추가:
-- `app-server-01` — `swap-trigger.service` (boot 1회 1100MB mem burst → swap 발화 → SwapUsed > 0 영구). yaml provision Step 1에 swap file 256MB 활성 + Step 2 oneshot service.
-- `monitor-server-01` — swap file 256MB 활성 + `vm.swappiness=1` sysctl 영구 (dnf install OOM 회피만, swap 사용 거의 안 함).
+- `db-server-01` — `swap-trigger.service` (boot 1회 swapfile 512 MiB 활성 + `vm.swappiness=100` + 1000 MiB 메모리 압박 → SwapUsed > 0 영구). attention.capacity_warnings · under_provisioned 분류 발화. CPU 부담 0.
 - `web-server-01` — `agent-restart-demo.service` + `agent-restart-demo.timer` (`OnBootSec=1min`, `OnUnitActiveSec=3min` — 시간당 20회 attention.agent_unstable 발화).
 
 ### 2. (pipeline-up.sh) `/etc/assessment-agent.env` 생성

@@ -1,9 +1,10 @@
-# db-server-01: AlmaLinux 9 + PostgreSQL.
+# db-server-01: AlmaLinux 9 + PostgreSQL + swap-trigger.
 # 검증 의도: db 카테고리 + RHEL 9 1:1 클론 distro + RPM family postgresql 운영 (postgresql-setup --initdb 수동 init 단계 검증).
+# swap-trigger -> attention.under_provisioned 발화 (swap_used 임계 초과).
 # 1차 Debian 11 → boot stuck. 2차 Ubuntu 20.04 → apt 회귀만 검증되고 RPM postgresql 분기 dead code.
 # 3차 AlmaLinux 9 (offline 자리와 db 위치 교체) — RPM family postgresql 분기 활성화 + OpenStack OSP 환경 정합.
 #
-# yaml 책임: boot + mount + 합성 부하 timer (light).
+# yaml 책임: boot + mount + 합성 부하 timer (light) + swap-trigger oneshot.
 # 패키지 설치(postgresql-server)·systemd unit은 pipeline-up.sh post-provision (almalinux:postgres 분기 재사용).
 
 images:
@@ -76,6 +77,43 @@ provision:
     systemctl enable synthetic-load.timer
     systemctl start synthetic-load.timer
 
+# attention.under_provisioned 시연용 — boot-time 1회 swap 활성 + 메모리 압박으로 swap_used 발생.
+# CPU 부하 추가 없음 (호스트 영향 회피). swap_used 임계만 넘기면 분류 발화.
+- mode: system
+  script: |
+    #!/bin/bash
+    set -euo pipefail
+    cat > /usr/local/bin/swap-trigger.sh <<'EOF'
+    #!/bin/bash
+    # 1) swap 파일 생성·활성 (cloud image default 에는 swap 없음).
+    if ! swapon --show | grep -q '^/swapfile'; then
+      fallocate -l 512M /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=512
+      chmod 600 /swapfile
+      mkswap /swapfile > /dev/null
+      swapon /swapfile
+    fi
+    # 2) swappiness 높여 kernel 이 swap 적극 사용하게.
+    sysctl -w vm.swappiness=100 > /dev/null
+    # 3) 메모리 압박 — VM 1280MiB 중 1000MiB 점유 + lock (RAM 부족 → swap out).
+    nohup bash -c 'head -c 1000M /dev/urandom > /tmp/swap-pressure 2>/dev/null; sleep 86400' &
+    EOF
+    chmod 755 /usr/local/bin/swap-trigger.sh
+    cat > /etc/systemd/system/swap-trigger.service <<'EOF'
+    [Unit]
+    Description=Swap trigger (attention.under_provisioned 시연용)
+    After=multi-user.target
+    [Service]
+    Type=oneshot
+    RemainAfterExit=true
+    ExecStart=/usr/local/bin/swap-trigger.sh
+    [Install]
+    WantedBy=multi-user.target
+    EOF
+    systemctl daemon-reload
+    systemctl enable swap-trigger.service
+    systemctl start swap-trigger.service
+
 message: |
   db-server-01 (AlmaLinux 9 + PostgreSQL) ready.
   Agent install pending — run pipeline-up.sh post-provision step (almalinux:postgres 분기 + postgresql-setup --initdb 자동).
+  swap-trigger.service enabled — attention.under_provisioned 발화 시연용.

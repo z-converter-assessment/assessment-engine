@@ -1,6 +1,7 @@
 # web-server-01: Debian 12 + nginx + AGENT_EXTERNAL_IP override (pipeline-up.sh post-provision).
 # 검증 의도: apt 분기(다른 OS 계열) + nginx 설치 -> service_classifier "web" 카테고리 + 외부 IP 표시.
-# medium 합성 부하 -> right-sizing optimal 발화 (cpu_p95 30~70% AND mem_p95 50~80%).
+# light 합성 부하 + agent-restart-demo timer -> attention.agent_unstable 안정 발화.
+# 호스트 macOS 영향 최소화 (변동만 가시화) — sustained CPU 1~3s, mem 5~20MB.
 #
 # yaml 책임: boot + mount + 합성 부하 timer.
 # 패키지 설치·systemd unit은 pipeline-up.sh가 limactl shell로 후처리.
@@ -31,28 +32,27 @@ provision:
 - mode: system
   script: |
     #!/bin/bash
-    # 합성 부하 (medium) — right-sizing optimal 발화 목표.
-    # cpu sustained 20~28s (1분 timer 33~47% 점유 → cpu_p95 ~40~60%) +
-    # mem 240~300MB burst x 25s 점유 (512MiB의 47~58% → mem_p95 50~70%).
+    # 합성 부하 (light) — 호스트 macOS 영향 최소화. 차트 변동만 가시화, 분류 임계 안 넘김.
+    # cpu sustained 1~3s, mem 5~20MB burst.
     set -euo pipefail
     cat > /usr/local/bin/synthetic-load.sh <<'EOF'
     #!/bin/bash
-    duration=$(( (RANDOM % 9) + 20 ))      # 20~28s sustained CPU
-    timeout ${duration}s sha256sum /dev/zero > /dev/null 2>&1 &
-    cpu_pid=$!
-    size=$(( (RANDOM % 61) + 240 ))        # 240~300MB — 512MiB VM의 47~58%
-    head -c ${size}M /dev/urandom > /tmp/synthetic-load-mem 2>/dev/null || true
-    sleep 25                                # 25s 메모리 점유
+    sleep $(( RANDOM % 30 ))
+    duration=$(( (RANDOM % 3) + 1 ))
+    timeout ${duration}s sha256sum /dev/zero > /dev/null 2>&1 || true
+    size=$(( (RANDOM % 16) + 5 ))
+    head -c ${size}M /dev/urandom > /tmp/synthetic-load 2>/dev/null || true
     sync
-    rm -f /tmp/synthetic-load-mem
-    count=$(( (RANDOM % 200) + 200 ))
+    rm -f /tmp/synthetic-load
+    count=$(( (RANDOM % 100) + 50 ))
     dd if=/dev/zero of=/tmp/synthetic-io bs=4k count=${count} 2>/dev/null || true
     sync
     rm -f /tmp/synthetic-io
     ping -c $(( (RANDOM % 5) + 3 )) -q host.lima.internal > /dev/null 2>&1 || true
     curl -s -m 2 http://host.lima.internal:8000/health > /dev/null 2>&1 || true
-    curl -s -m 2 http://host.lima.internal:8000/static/js/chart-utils.js > /dev/null 2>&1 || true
-    wait ${cpu_pid} 2>/dev/null || true
+    if [ $((RANDOM % 2)) -eq 0 ]; then
+      curl -s -m 2 http://host.lima.internal:8000/static/js/chart-utils.js > /dev/null 2>&1 || true
+    fi
     EOF
     chmod 755 /usr/local/bin/synthetic-load.sh
     cat > /etc/systemd/system/synthetic-load.service <<'EOF'
