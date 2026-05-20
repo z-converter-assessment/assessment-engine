@@ -100,7 +100,7 @@ prov 분포 도넛 3 카테고리:
 
 1. page=1 + 검색·필터 미사용 시만 상단 요약·도넛·신호 노출 — 검색·다음 페이지에선 raw 테이블만. 의도된 단순화이지만 운영자가 "왜 갑자기 사라졌나" 혼란 가능. UI 가이드 보강 후보.
 2. SSE 단일 채널 + 서버 측 필터링 (T5) — 동시 운영자 ↑ 시 broker 부하. 본 프로젝트 규모는 OK.
-3. 활용률 도넛은 환경 평균만 — 분포(p50·p95)는 미노출. 양극화 환경에서 misleading (`docs/products/customer-report.md` 한계 #2와 동일 패턴).
+3. 활용률 도넛은 환경 평균만 — 분포(p50·p95)는 미노출. 양극화 환경에서 misleading (`docs/products/environment-report.md` 한계 #2와 동일 패턴).
 4. 행별 권장 단일 라벨 — recommendation 분류 1개만 표시. 다중 신호(예: CPU 정상 + 메모리 부족)는 우선순위 평가 후 1개만.
 5. 환경 진단 결과 자동 노출 — list 페이지가 매일 03시 cron 실행된 최근 succeeded 진단을 자동 표시. 사용자 명시 발행 안 해도 정보 노출. 다만 진단 워커 중단 시 stale 표시 위험.
 
@@ -110,7 +110,7 @@ prov 분포 도넛 3 카테고리:
 - `docs/architecture/web/services.md` — query_service·diagnostic_service·service_classifier
 - `docs/architecture/web/view-models.md` — ViewModel 카탈로그·도넛 SVG 상수
 - `docs/architecture/web/static-assets.md` — list.js·차트 P4 규약
-- `docs/products/{environment-diagnostic,server-diagnostic}.md` — 진단 결과의 source
+- `docs/products/{environment-report,server-report}.md` — 보고서 + 진단 통합 산출물 (scope별)
 - `docs/products/install-task.md` — "최근 작업" column source
 - `src/assessment_engine/web/routers/pages.py::list_servers` — 라우터
 - `src/assessment_engine/web/templates/servers/list.html` — 메인 템플릿

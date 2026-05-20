@@ -1,8 +1,16 @@
 # 설계 트레이드오프
 
-의식적 설계 선택과 그로 인한 한계 카탈로그 (T1~T11). 단순성·운영 비용·scope 기준 결정 — 버그 아님.
+의식적 설계 선택과 그로 인한 한계 카탈로그 (T1~T13). 단순성·운영 비용·scope 기준 결정 — 버그 아님.
 
 각 항목 형식: 선택 / 대안 / 트레이드오프 / 언제 다시 봐야 하는가.
+
+## ADR 과의 책임 분담
+
+- `docs/adr/` — 결정 자체 historical record. 시간 순서 (0001, 0002, ...) + Status / Context / Decision / Consequences. 영구·불변 (정정만, 덮어쓰기 금지).
+- 본 파일 — 결정의 의도된 한계 카탈로그. 영구·갱신, 항목 추가 자유. cross-cutting reference 라 어느 카테고리 (architecture · development · operations · products) 에도 안 속하는 직속 위치.
+- 중첩 — 일부 T 항목은 ADR 과 같은 결정을 다른 각도로 가리킴 (예: T1 = ADR 0001 Redis fail-open, T4 = ADR 0005 Resolved). 각 항목 헤더의 "관련 문서" 줄이 cross-link.
+
+새 항목 추가 시: 본 파일 다음 T 번호 + 항목 작성. 같은 결정이 ADR 도 필요하면 별도 ADR 신설 후 cross-link.
 
 ---
 

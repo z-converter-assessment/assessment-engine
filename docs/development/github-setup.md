@@ -9,7 +9,7 @@
 | 항목 | 활성 의무 | 사유 |
 |------|----------|------|
 | Read and write permissions | 활성 | release-please가 commit·tag push 가능하게 |
-| Allow GitHub Actions to create and approve pull requests | 활성 | release-please가 Release PR 생성. auto-merge-dependabot이 Dependabot PR 승인 |
+| Allow GitHub Actions to create and approve pull requests | 활성 | release-please가 Release PR 생성 |
 
 본 옵션 비활성이면 release-please workflow가 동작해도 PR 생성 권한 부족으로 실패.
 
@@ -85,9 +85,9 @@ squash merge 단독 활성 — PR title이 main commit message가 됨. release-p
 |------|-----|
 | Dependabot alerts | 활성 |
 | Dependabot security updates | 활성 |
-| Dependabot version updates | 활성 (`.github/dependabot.yml` 자동 인식) |
+| Dependabot version updates | 비활성 |
 
-`.github/dependabot.yml`이 weekly schedule + ecosystem(github-actions·pip) 정의. UI 토글로 enable만 필요.
+본 repo 는 Dependabot version updates 를 비활성 — 의존성 PR 폭주 회피 + uv.lock 자동 갱신 미지원 한계 (PR 머지 시 lockfile drift 누적 → 다음 PR CI fail). 의존성 버전 bump 는 운영자 수동 (`uv lock --upgrade-package <name>` 또는 주기 검토). 보안 알림은 alerts + security updates 로 별도 신호 수신.
 
 ## 6. Secrets (현재 불필요)
 
@@ -102,7 +102,7 @@ squash merge 단독 활성 — PR title이 main commit message가 됨. release-p
 
 - [ ] Actions → General → Workflow permissions = Read and write + Allow GHA to create/approve PR
 - [ ] Code security → CodeQL → Default setup → Enable
-- [ ] Dependabot alerts + security updates + version updates → 모두 활성
+- [ ] Dependabot alerts + security updates → 활성 (version updates 는 비활성 — 운영자 수동 bump)
 - [ ] Branches → main branch protection rule (위 3.1 표 적용)
 - [ ] Branches → develop branch protection rule (위 3.2 적용)
 - [ ] Tags → `v*` tag protection rule (위 4 적용)

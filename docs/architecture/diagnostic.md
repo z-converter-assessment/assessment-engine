@@ -1,4 +1,4 @@
-# Diagnostic Worker
+# Diagnostic (Worker + Scheduler)
 
 결정·옵션 비교·트레이드오프: ADR 0004 + ADR 0010 (진단 규칙 기반 한정). 본 문서는 모듈 구조·흐름·운영 노트 deep dive.
 

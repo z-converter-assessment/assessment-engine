@@ -1,6 +1,8 @@
-# 정제 Inventory Export
+# Inventory JSON Export — 스키마·필드 명세
 
-정책: CLAUDE.md #F10 (평가 윈도우 정합). 본 문서는 JSON Export 스키마·정제 원칙·자동화 도구 매핑 단일 진실. 운영자가 web UI "JSON Export"로 선택 서버 N대의 정제 inventory를 표준 JSON으로 다운로드 — 자동화 도구(Terraform / OpenStack Heat / Ansible / CSP SDK)가 그대로 입력해 후속 마이그레이션 실행.
+정책: CLAUDE.md #F10 (평가 윈도우 정합). 본 문서는 `/api/v1/exports/inventory` endpoint 의 JSON 응답 스키마·필드 카탈로그·정제 원칙·자동화 도구 매핑 단일 진실 (web 컴포넌트의 deep dive). 산출물의 의의·근거는 `docs/products/json-export.md` 별도.
+
+운영자가 web UI "JSON Export" 로 선택 서버 N대의 정제 inventory 를 표준 JSON 으로 다운로드 — 자동화 도구 (Terraform / OpenStack Heat / Ansible / CSP SDK) 가 그대로 입력해 후속 마이그레이션 실행.
 
 ## 1. 사용처 (정제 방향 결정 근거)
 
@@ -36,7 +38,7 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
 {
   "inventory_export": {
     "schema_version":   "3",
-    "schema_doc":       "docs/architecture/inventory-export.md",
+    "schema_doc":       "docs/architecture/web/export-schema.md",
     "engine_id":        "zconverter-assessment-portal",
     "exported_at":      "2026-05-12T03:45:00Z",
     "period_window": {

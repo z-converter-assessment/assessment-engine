@@ -61,8 +61,8 @@ target-version = "py312"
 # I   isort
 # B   flake8-bugbear (mutable default arg·broad except·raise from 누락 같은 진짜 버그 catch)
 # UP  pyupgrade (py312 target이면 무료 modernization — `dict|dict` syntax, f-string, walrus 등)
-# SIM flake8-simplify (or-default·dict get·중복 분기 같은 가독성)
-select = ["E", "F", "I", "B", "UP", "SIM"]
+# SIM 제외 — 가독성 룰이라 false positive 빈도 높아 CI fail 이메일 폭주 원인. 진짜 버그는 E·F·B 가 잡음.
+select = ["E", "F", "I", "B", "UP"]
 
 
 [tool.ruff.lint.flake8-bugbear]

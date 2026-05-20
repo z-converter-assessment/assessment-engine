@@ -79,7 +79,7 @@ cd /tmp/release && sha256sum -c SHA256SUMS
 본 문서는 artifact 정의·생성·검증까지. install·systemd unit·환경변수 주입·alembic 실행 절차는 별도:
 
 - `docs/operations/deployment.md` — 일반 install·실행 단계 가이드
-- `docs/operations/prod-contract.md` — secret·환경변수 contract + APP_ENV=prod fail-fast 검증
+- `docs/operations/env.md` — secret·환경변수 contract + APP_ENV=prod fail-fast 검증
 - `docs/operations/env.md` — 환경변수 카탈로그
 - `docs/operations/alembic.md` — schema 마이그레이션 (wheel 안 `_alembic.ini` 활용)
 

@@ -25,9 +25,9 @@ description: TRIGGER when user requests doc sync after code changes ("문서 동
 | `src/assessment_engine/db/models/` | `docs/architecture/db/models.md`, CLAUDE.md #C1 |
 | `src/assessment_engine/db/repositories/` | `docs/architecture/db/repositories.md` (+ `db/dtos.md` for DTO 변경), CLAUDE.md #C2 |
 | `src/assessment_engine/db/redis.py` + 키 패턴 | `docs/architecture/redis.md`, CLAUDE.md #C3 |
-| `docker-compose*.yml`, `Dockerfile*` | `docs/development/docker.md`, `docs/operations/prod-contract.md` |
+| `docker-compose*.yml`, `Dockerfile*` | `docs/development/docker.md`, `docs/operations/env.md` |
 | `infra/lima/*.yaml`, `infra/agent.env`, `scripts/dev-up.sh`/`scripts/dev-down.sh` | `docs/development/pipeline.md`, `docs/development/pipeline.md`, CLAUDE.md #A4 |
-| `src/assessment_engine/config.py` | `docs/operations/env.md`, `docs/operations/prod-contract.md`, CLAUDE.md #A3 |
+| `src/assessment_engine/config.py` | `docs/operations/env.md`, `docs/operations/env.md`, CLAUDE.md #A3 |
 | `src/assessment_engine/consumer/schemas.py` | `docs/architecture/agent.md`, `docs/architecture/consumer.md`, CLAUDE.md #B |
 | `src/assessment_engine/consumer/handler.py` | `docs/architecture/consumer.md`, CLAUDE.md #D2·D3 |
 | Pydantic Input/DTO 변경 | `docs/architecture/db/dtos.md`, CLAUDE.md #B5 |
@@ -43,7 +43,7 @@ description: TRIGGER when user requests doc sync after code changes ("문서 동
 
 | 변경 유형 | 동기화 검토 |
 |-----------|-------------|
-| 새 ENV 키 추가 | `docs/operations/env.md` 카탈로그 추가 + `docs/operations/prod-contract.md` (해당되면) |
+| 새 ENV 키 추가 | `docs/operations/env.md` 카탈로그 추가 + `docs/operations/env.md` (해당되면) |
 | 새 Pydantic 필드 | `docs/architecture/agent.md` 스키마 + `docs/architecture/db/dtos.md` + CLAUDE.md #B2 |
 | 새 라우터 엔드포인트 | `docs/architecture/web/routers.md` + CLAUDE.md #E5 |
 | 새 Repository 메서드 | `docs/architecture/db/repositories.md` |

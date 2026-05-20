@@ -14,13 +14,13 @@
 |----------|------|------|
 | `docs/README.md` | 카테고리·파일 인덱스 — 어떤 문서를 언제 보는지 길잡이 | 영구·갱신 |
 | `docs/architecture/` | 컴포넌트별 deep dive (모듈 설계·기술 구현) | 영구·갱신 |
-| `docs/development/` | 본 repo 안 dev 작업·코드 규약 (docker·pipeline·testing·conventions) | 영구·갱신 |
-| `docs/operations/` | 외부 인프라가 활용할 contract (quickstart·deployment·env·prod-contract·alembic·observability·release·github-setup) | 영구·갱신 |
-| `docs/products/` | 운영 산출물 ref — 산출물별 존재 의의·근거 (dashboard·보고서 A/B·환경/서버 진단·JSON Export·Install task) | 영구·갱신 |
+| `docs/development/` | 본 repo 안 dev 작업·코드 규약 (docker·dependencies·pipeline·testing·conventions) | 영구·갱신 |
+| `docs/operations/` | 외부 인프라가 활용할 contract (deployment·env·alembic·observability·release) | 영구·갱신 |
+| `docs/products/` | 운영 산출물별 존재 의의·근거 (dashboard·환경 보고서·서버 보고서·JSON Export·Install task) | 영구·갱신 |
 | `docs/adr/` | Architecture Decision Records — "왜 이렇게 결정했나" + 트레이드오프. ADR은 정정만, 덮어쓰기 금지 | 영구·불변 |
 | `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T13) | 영구·갱신 |
 
-그 외 명시되지 않은 경로(`docs/ref/` 등)의 문서는 코드·영구 문서에서 인용 금지.
+그 외 명시되지 않은 경로의 문서는 코드·영구 문서에서 인용 금지.
 
 ---
 
@@ -33,11 +33,11 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 본 repo는 기능 개발에 필요한 환경 구성만 다룬다. 배포 인프라(IaC — Terraform·Ansible·OpenStack staging 등)는 본 repo 범위 밖. 추후 도입 결정 시 별도 repo로 분리 (ADR 0006 Withdrawn 사유).
 
 본 절 결정:
-- docker-compose는 기능 개발용 한정 (dev 환경에서 앱·DB·MQ·Redis 한 번에 띄움). `docker-compose.prod.yml`은 본 repo에 두지 않음 — prod 운영 방식 contract를 docker compose 형식으로 강제하지 않는다 (ADR 0012).
+- `dev/docker-compose.yml` 은 기능 개발용 한정 (dev 환경에서 앱·DB·MQ·Redis 한 번에 띄움). `docker-compose.prod.yml` 은 본 repo 에 두지 않음 — prod 운영 방식 contract 를 docker compose 형식으로 강제하지 않는다 (ADR 0012).
 - prod 외부 인프라가 활용할 수 있는 정석 contract만 본 repo에서 유지:
   - 환경변수 contract — `docs/operations/env.md` 키 카탈로그
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
-  - 환경 분기 — `APP_ENV=prod` + `_validate_prod_*` weak default 거부 (`docs/operations/prod-contract.md` 8절). secret 주입 방식은 무관, 결과(약한 default 거부)만 검증
+  - 환경 분기 — `APP_ENV=prod` + `_validate_prod_*` weak default 거부 (`docs/operations/env.md` 8절). secret 주입 방식은 무관, 결과(약한 default 거부)만 검증
   - CI 산출물 — Python wheel + GitHub Release (ADR 0012). 외부 인프라가 wheel 받아 install·systemd 자체 구성
 - IaC 코드(`*.tf`·Ansible playbook·OpenStack 시나리오 문서)·prod compose 변형은 본 repo에 두지 않는다. 인프라 시나리오 언급 자체 금지 — 단 어떤 인프라든 위 contract 충족 시 본 엔진 기동 가능.
 
@@ -319,7 +319,7 @@ Request/Correlation ID 분산 trace 도입 트리거·정석 패턴: `docs/opera
 - Redis·DB에 raw payload 캐싱 — Outbound DTO·ViewModel 단계에서 sanitize 후.
 - 메시지 payload 본문 로깅 (`machine_id`는 식별자라 OK).
 
-secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/prod-contract.md`.
+secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/env.md`.
 
 ## F9. 변경 영향도 체크리스트
 
@@ -333,10 +333,10 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 | `EXCHANGE`/`ROUTING_KEY_*` 값 변경 | (1) 발행 측 상수 (2) consumer subscriber dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 |
 | 메시지 페이로드 schema 변경 (필드 추가·삭제·rename·Literal 값 변경) | (1) `consumer/schemas.py` 또는 발행 측 payload 빌드 (2) Inbound DTO (3) handler 매핑 (4) DB 모델·Alembic revision (필요 시) (5) `docs/architecture/agent.md` 데이터 형식 절 (6) 운영자 가시성 ViewModel·템플릿·API (필요 시) |
 | `recommendation.py` 분류 임계 또는 Lima VM 매트릭스 변경 | (1) `recommendation.py` 임계 상수 (2) `docs/development/pipeline.md` "VM 매트릭스"(합성 부하·swap_used 트리거) (3) #F10 평가 윈도우 정합 |
-| 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) `docker-compose.yml` `environment:` (dev 필요 시) (4) prod secret 분류면 `SecretStr` 타입 + `_validate_prod_*`에 weak default 거부 추가 + `docs/operations/prod-contract.md` 2절·7절 |
+| 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) `dev/docker-compose.yml` `environment:` (dev 필요 시) (4) prod secret 분류면 `SecretStr` 타입 + `_validate_prod_*` 에 weak default 거부 추가 + `docs/operations/env.md` 2절·7절 |
 | ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass(P2) |
 | 신규 외부 의존(HTTP·LLM·외부 큐) | (1) fail-open/close 결정(#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) #F6 매트릭스 갱신 |
-| 신규 의존성(`pyproject.toml`) | (1) `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토 |
+| 신규 의존성(`pyproject.toml`) | (1) `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토. 워크플로 단일 진실: `docs/development/dependencies.md` |
 
 
 ## F10. 평가 윈도우 · 차트 시계열 옵션 — 단일 진실

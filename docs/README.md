@@ -9,12 +9,12 @@
 | 시스템 한눈에 / 처음 진입 | 루트 `README.md` |
 | 결정된 규약·금지 사항·계층 책임 | `.claude/CLAUDE.md` |
 | 컴포넌트가 어떻게 동작하나 | `architecture/` |
-| 본 repo dev 작업·코드 규약 (Docker·pipeline 검증·testing·conventions) | `development/` |
-| 외부 인프라 첫 셋업 (Debian 12 multi-node 명령어 가이드) | `operations/quickstart.md` |
-| 외부 인프라용 contract (deployment·env·prod·alembic·observability·release·github-setup) | `operations/` |
+| 본 repo dev 작업·코드 규약 (Docker·dependencies·pipeline 검증·testing·conventions) | `development/` |
+| 외부 인프라용 contract (deployment·env·alembic·observability·release) | `operations/` |
+| 본 repo CI · release-please · branch protection 활성 (GitHub UI) | `development/github-setup.md` |
 | 운영 산출물별 의의·근거 (보고서·진단·Install·Export 등) | `products/` |
 | 왜 그렇게 결정했나 | `adr/` |
-| 트레이드오프와 한계 (T1~T11) | `tradeoffs.md` |
+| 트레이드오프와 한계 (T1~T13) | `tradeoffs.md` |
 
 ## 디렉토리
 
@@ -28,32 +28,28 @@ docs/
 │   ├── rabbitmq.md        vhost·권한 모델·토폴로지·dev·prod 분기
 │   ├── redis.md           키 설계·TTL·PUB/SUB·캐시 무효화·mget
 │   ├── db/                models / dtos / repositories / timescaledb (4분할)
-│   ├── web/               layering / routers / services / view-models / static-assets (5분할)
-│   └── inventory-export.md  JSON Export 스키마·정제 원칙·자동화 도구 매핑
+│   └── web/               layering / routers / services / view-models / static-assets / export-schema (6분할 — JSON Export 응답 스키마 포함)
 ├── development/           본 repo 안 dev 작업·코드 규약 (영구·갱신)
-│   ├── docker.md          Dockerfile·docker-compose dev 명세
-│   ├── pipeline.md        E2E 파이프라인 검증 + Lima VM 매트릭스·합성 부하·provisioning·누적 사고 패턴 (macOS 한정)
+│   ├── docker.md          Dockerfile·dev/docker-compose 명세
+│   ├── dependencies.md    pyproject.toml + uv.lock 관리·운영자 수동 bump·CI drift 검증
+│   ├── pipeline.md        E2E 파이프라인 검증 + Lima 4 VM 매트릭스·합성 부하·provisioning·누적 사고 패턴 (macOS 한정)
 │   ├── testing.md         pytest 단위·통합 테스트
-│   └── conventions.md     본 repo 작업 규약 단일 — IDE·Hook(F1) + 자동화 변환 검증·누적 사고 패턴(F5)
+│   ├── conventions.md     본 repo 작업 규약 단일 — IDE·Hook(F1) + 자동화 변환 검증·누적 사고 패턴(F5)
+│   └── github-setup.md    GitHub UI 활성 의무 카탈로그 — CI·release-please·branch protection (본 repo CI 책임자 자료)
 ├── operations/            외부 인프라가 활용할 contract (영구·갱신)
-│   ├── quickstart.md      Debian 12 multi-node 첫 셋업 명령어 가이드 (외부 인프라 운영자 첫 진입점)
 │   ├── release.md         release artifact 카탈로그·생성 trigger·무결성 검증·다운로드 (ADR 0012)
-│   ├── deployment.md      외부 인프라가 release artifact 활용해 운영하는 단계별 가이드 (OS 독립)
-│   ├── env.md             환경변수 키 카탈로그
-│   ├── prod-contract.md   prod 환경변수·secret 채널·`_validate_prod_*`·운영 체크리스트
+│   ├── deployment.md      외부 인프라가 release artifact 활용해 운영하는 단계별 가이드 (OS·도구 독립, multi-node 분리·트러블슈팅·인프라 레포 자동화 포함)
+│   ├── env.md             환경변수 관리 단일 진실 — 정책·매트릭스·secret 채널·전체 키 카탈로그·운영 체크리스트
 │   ├── alembic.md         DB schema 마이그레이션 contract
-│   ├── observability.md   로그 레벨·외부 의존 실패 매트릭스·Prometheus `/metrics`·LOG_FORMAT toggle (F6·F7 부속)
-│   └── github-setup.md    GitHub UI 활성 의무 카탈로그 (운영 시작 전 체크리스트)
-├── products/              운영 산출물 ref (영구·갱신)
+│   └── observability.md   로그 레벨·외부 의존 실패 매트릭스·Prometheus `/metrics`·LOG_FORMAT toggle + 향후 확장 (Request ID 분산 trace)
+├── products/              운영 산출물 의의·근거 (영구·갱신)
 │   ├── dashboard.md               대시보드 의의·근거 (다른 산출물 navigation hub)
-│   ├── customer-report.md         고객 보고서(양식 A) 의의·근거
-│   ├── engineer-report.md         엔지니어 보고서(양식 B) 의의·근거
-│   ├── environment-diagnostic.md  환경 진단(scope=environment) 의의·근거
-│   ├── server-diagnostic.md       서버 진단(scope=server) 의의·근거
+│   ├── environment-report.md     환경 보고서 + 환경 진단 통합 (scope=environment) — view=customer/engineer 분기
+│   ├── server-report.md          서버 보고서 + 서버 진단 통합 (scope=server) — view=customer/engineer 분기
 │   ├── json-export.md             JSON Export 의의·근거 (자동화 도구 입력)
 │   └── install-task.md            Install task 의의·근거 (원격 설치 워크플로)
-├── adr/                   Architecture Decision Records (영구·불변, 0001~0013)
-└── tradeoffs.md           의식적 설계 선택과 한계 (T1~T11) — 카탈로그
+├── adr/                   Architecture Decision Records (영구·불변, 0001~0016)
+└── tradeoffs.md           의식적 설계 선택과 한계 (T1~T13) — 카탈로그
 ```
 
 ## 범위

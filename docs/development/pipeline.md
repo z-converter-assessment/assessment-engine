@@ -37,10 +37,10 @@ HOST MACHINE
 ```bash
 cp dev/.env.example dev/.env               # 엔진 환경변수 (dev compose 한정)
 cp dev/agent.env.example dev/agent.env     # 에이전트 secret 채널 (분리됨, #B)
-./scripts/pipeline-up.sh                   # Docker → web 헬스체크 → Lima VM 4대
+./dev/pipeline-up.sh                   # Docker → web 헬스체크 → Lima VM 4대
 ```
 
-`scripts/pipeline-up.sh` 4단계:
+`dev/pipeline-up.sh` 4단계:
 1. `docker compose up --build -d` — 엔진 기동 (COMPOSE_FILE=dev/docker-compose.yml export)
 2. `migrate(alembic upgrade head)` 완료 대기 (cap 180s)
 3. web 헬스체크 통과 대기 (cap 180s)
@@ -48,15 +48,15 @@ cp dev/agent.env.example dev/agent.env     # 에이전트 secret 채널 (분리�
 
 ## 결과 확인
 
-- http://localhost:8000/servers/ — 서버 7대 온라인
+- http://localhost:8000/servers/ — 4 VM 등록 (offline 은 5m+ 후 offline 표시)
 - 60초 주기 메트릭 갱신
 - 분류 분포 시연은 `/servers/report?period_days=1` (대시보드는 `recommendation.WINDOW_DAYS=14` 고정, #F10)
-- attention 카드 상단 요약: web `agent_unstable` + offline `gap_warnings`(5m+ 후)
+- attention 카드 상단 요약: web `agent_unstable` + offline `gap_warnings`(5m+ 후) + db `capacity_warnings` (swap_used)
 
 ## 종료
 
 ```bash
-./scripts/pipeline-down.sh   # Lima VM 제거 → Docker 볼륨 삭제 (DB 초기화)
+./dev/pipeline-down.sh   # Lima VM 제거 → Docker 볼륨 삭제 (DB 초기화)
 ```
 
 부분 종료:
@@ -312,11 +312,7 @@ systemctl enable assessment-agent
 
 `User=root`로 동작 — 에이전트는 `/proc/*` 전반 read만 필요. Lima default user는 host username으로 잡혀 VM 간 일관성을 위해 root 통일.
 
-### 6. (pipeline-up.sh) monitor swap reset (조건 분기)
-
-post_provision_vm 끝에 `if [ "$vm" = "monitor-server-01" ]` → `swapoff /swapfile && swapon /swapfile`. dnf install 도중 swap에 push된 page를 reset해 SwapUsed=0 보장 (under_provisioned 분류 안 발화, optimal 유지).
-
-### 7. (pipeline-up.sh) finalize_vm (조건 분기)
+### 5. (pipeline-up.sh) finalize_vm (조건 분기)
 
 `vm_mode` 함수 dispatch:
 - `offline-server-01` → `offline-once`: inventory 1회 발행 대기 15s → `systemctl stop assessment-agent` + `systemctl disable assessment-agent` + `limactl stop`. 5분 후 attention.gap_warnings 발화 (시연 의도).
@@ -344,7 +340,7 @@ post_provision_vm 끝에 `if [ "$vm" = "monitor-server-01" ]` → `swapoff /swap
 | 14 | mq-server-01 (openSUSE Leap 15) post-provision 진입 직후 zypper exit 7 — "System management is locked by the application with pid <N> (zypper). Close this application before trying again." | Lima cloud-init이 첫 boot 시 system 갱신을 위해 zypper를 점유 (zypp.lock). pipeline-up.sh가 즉시 zypper refresh/install 호출하면 lock fail | (1차) `zypper --lock-timeout`은 해당 옵션 자체 미존재(exit 2). (2차) heredoc 헤더에 `cloud-init status --wait` 추가 — VM에서 cloud-init이 PATH로 안 잡혀 silent skip, mq boot 78s 동안 lock 자연 해소되어 통과했으나 보장 없음 + stderr noise. (3차) pipeline-up.sh zypper 분기에 `pgrep -x zypper` lock retry loop(10회 x 10s) 추가 — distro-specific lock mechanism 직접 polling. heredoc 본문 line 335 주석의 백틱(`` ` ``)이 host bash command substitution을 발동시키는 부산 noise도 ASCII quote로 교체. (사고 #15에서 distro 자체가 교체되어 zypper 분기 자체가 dead code로 제거됨) |
 | 15 | mq-server-01 (openSUSE Leap 15) zypper install 중 `Retrieving: glibc-devel-...rpm [.not found]` — 패키지 메타데이터엔 있지만 mirror 풀 일부가 .rpm 파일 sync 안 됨. zypper 자체 fallback으로 다른 mirror 시도 결국 통과했으나 매번 보장 없음 + 사고 #2 (virtiofs silent fail) + 사고 #3 (`cJSON-devel` 명명 차이) + 사고 #14 (cloud-init zypper hold) 누적 3중 불안정 | openSUSE Leap 15 + 일부 mirror의 update repo sync lag (CentOS Stream 9 사고 #13과 유사한 패턴). zypper retry/refresh 보강만으로는 deterministic 안 됨 | distro 교체 — mq-server-01을 Debian 12로 fallback. 사용자 결정: OS 다양성(zypper family 검증)보다 프로비저닝 안정성 우선 (apt + dpkg + cloud.debian.org mirror 가장 견고). 영향 반영: pipeline-up.sh zypper 분기 + opensuse 매칭 dead code 제거, mq yaml mountType reverse-sshfs 제거(virtiofs default), lima.md OS 다양성 매트릭스 7→5+(web·mq 중복, monitor·cache 중복), mq family memory note·dispatch 카탈로그 zypper 컬럼 정리, 사고 #2·#3 역사 기록 유지 |
 
-15 사고 패턴 → 진행 검증 사이클 + 단계별 fix → 최종 7 VM 모두 boot OK + post-provision exit 0 + agent message 발행.
+15 사고 패턴 → 진행 검증 사이클 + 단계별 fix → 7 VM round 검증. 이후 호스트 macOS 영향 최소화 우선으로 4 VM 매트릭스 축소 (web · offline · cache · db). 사고 #2·#3·#4·#5·#13·#14·#15 의 mq · monitor 관련 distro/패키지 분기는 dead code 로 제거됨 — 본 사고 기록은 historical artifact.
 
 ---
 
@@ -356,8 +352,7 @@ post_provision_vm 끝에 `if [ "$vm" = "monitor-server-01" ]` → `swapoff /swap
 
 대응:
 ```bash
-for vm in web-server-01 offline-server-01 app-server-01 monitor-server-01 \
-          mq-server-01 cache-server-01 db-server-01; do
+for vm in web-server-01 offline-server-01 cache-server-01 db-server-01; do
   limactl shell "$vm" sudo systemctl restart assessment-agent
 done
 ```
@@ -369,8 +364,7 @@ done
 `collected_at`은 VM 로컬 시각. 호스트와 어긋나면 차트 시간축 안 맞음. Lima default 호스트 동기화이지만 장시간 절전·suspend 후 재개 시 어긋날 수 있음.
 
 ```bash
-for vm in web-server-01 offline-server-01 app-server-01 monitor-server-01 \
-          mq-server-01 cache-server-01 db-server-01; do
+for vm in web-server-01 offline-server-01 cache-server-01 db-server-01; do
   limactl shell "$vm" sudo bash -c 'systemctl restart systemd-timesyncd 2>/dev/null || systemctl restart chronyd'
 done
 ```
@@ -397,26 +391,26 @@ limactl shell web-server-01 sudo journalctl -u assessment-agent --no-pager -n 50
 
 | 단계 | 예상 시간 |
 |------|-----------|
+| `ensure_agent_binary` (sibling repo cross-build, 첫 실행) | 3–5분 |
 | `docker compose up --build -d` (첫 빌드) | 60–120s |
 | web 헬스체크 통과 | 5–10s |
-| 7 VM cloud image 다운로드 (cache miss 가정) | 5–15분 |
-| 7 VM cloud image (모두 캐시) | 0~10s |
-| VM당 boot + post-provision (cache hit 후) | 30~120s |
+| 4 VM cloud image 다운로드 (cache miss 가정) | 3–8분 |
+| 4 VM cloud image (모두 캐시) | 0~10s |
+| VM 당 boot + post-provision (cache hit 후) | 30~120s |
 | 에이전트 첫 inventory 도달 | 즉시 |
 | 첫 metrics 차트 그려짐 (delta 계산용 2회 readings) | 60–90초 |
 
-라운드 3 (모두 cache hit + Apple Silicon 환경) — 전체 [4/4] 단계 약 8분.
+cache hit 후 전체 [4/4] 단계 약 5분.
 
 ### 흔한 트러블
 
 | 증상 | 원인 | 해결 |
 |------|------|------|
 | `limactl start` cloud image 다운로드 실패 | 네트워크 / mirror 일시 오류 | 재시도 |
-| `librabbitmq-devel` not found (RHEL family) | EPEL/CRB·PowerTools 미활성화 | pipeline-up.sh dnf 분기가 자동 처리 — VM 삭제 후 재기동 |
+| `ensure_agent_binary` 단계 OpenSSL configure 실패 (`-m64` unrecognized) | sibling agent repo Makefile 의 OpenSSL Configure 가 host arch 분기 누락 (linux-x86_64 hard-coded) | agent repo Makefile 의 Configure target 을 host arch 분기로 수정 |
 | 에이전트 publish 실패 로그 (CONNREFUSED) | host docker rabbitmq 안 떠 있음 / host.lima.internal 해석 실패 | `docker compose ps rabbitmq` + `limactl shell <vm> getent hosts host.lima.internal` 확인 |
 | consumer가 metrics 받지만 server_inventory 비어 있음 | inventory 메시지 유실 (broker 재기동 등) | VM 안 `systemctl restart assessment-agent` |
-| `make` 실패 (`/mnt/agent-src` write 권한 없음) | mount writable=false인데 빌드 산출물 쓰려 함 | pipeline-up.sh가 `/tmp/build`로 rsync — 정상. 직접 build 시도 X |
-| OL9·기타 cloud-init 느린 distro에서 limactl start 5분+ stuck | lima final requirement(`boot scripts must finished`)가 distro 호환성 문제 | pipeline-up.sh `start_or_resume_vm` wrapper가 SSH ready+60s 후 PID kill로 자동 우회 |
+| OL9·기타 cloud-init 느린 distro 에서 limactl start 5분+ stuck | lima final requirement(`boot scripts must finished`) 가 distro 호환성 문제 | pipeline-up.sh `start_or_resume_vm` wrapper 가 SSH ready+60s 후 PID kill 로 자동 우회 |
 
 ### 개별 VM 조작
 

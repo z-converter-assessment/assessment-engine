@@ -1,4 +1,4 @@
-# 메시지 데이터 형식
+# Agent (메시지 데이터 계약)
 
 정책: CLAUDE.md #B. 본 문서는 엔진이 송수신하는 메시지의 데이터 형식 단일 진실. 외부 호스트 발행 / 엔진 수신 두 방향 모두.
 
@@ -35,6 +35,7 @@ routing key `server.inventory`. 기동 시 1회 + 주기 재발행.
 | `disks[]` | object | `{name, size_bytes, type, major, minor}` |
 | `mounts[]` | object | `{mount, fstype, total_bytes, free_bytes, avail_bytes, major, minor}` |
 | `ip_internal[]` / `ip_external[]` | list[string]\|null | IP 주소 목록 |
+| `mac_addresses[]` | list[string]\|null | NIC MAC 주소 목록. VM 템플릿 clone collision 식별 보조 (agent payload v3.3+) |
 | `services[]` | object\|null | `{unit, sub}` — systemd 미사용 호스트는 `null` |
 | `listen_ports[]` | object | `{proto, addr, port, uid, pid, comm}` — 수집 실패 시 빈 배열 |
 
@@ -70,6 +71,8 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 
 엔진 처리: 파싱 + 멱등성 체크 후 로깅(`make_error_handler`). DB 저장 없음.
 
+`collected_at` 만 millisecond 정밀도 ISO 8601 UTC (agent collect.c 가 `iso8601_utc_ms` 사용). 다른 메시지의 `collected_at` 은 second 정밀도. engine datetime parse 는 두 정밀도 모두 받음.
+
 ---
 
 ## task.install (엔진 -> 호스트, 작업 명령)
@@ -92,7 +95,7 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 | `download.url` | string | HTTP/HTTPS URL. 운영자 입력 ZDM host + `ZDM_PACKAGE_PATH` env 로 엔진이 조립 (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`). agent 측 host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 통과 필요 |
 | `download.sha256` | string (hex 64) | 다운로드 파일 sha256. 엔진이 publish 직전 ZDM 에서 HEAD + (cache miss 시) GET full 로 동적 산출. ETag 기반 Redis cache (`HttpZdmPackageResolver`). ZDM 측 패키지 갱신 시 ETag 자동 변경 → cache miss → 자동 재계산 |
 | `download.size_bytes` | int | 예상 크기 (byte). 엔진이 HEAD Content-Length 로 산출 + GET 실측과 일치 검증 |
-| `install.script` | string | tar 추출 후 work dir 기준 실행 스크립트 경로. `ZDM_PACKAGE_SCRIPT` env 그대로 (default `zconverter_install_source/install.sh` — ZDM 본체 패키지 layout) |
+| `install.script` | string | tar 추출 후 work dir 기준 실행 스크립트 경로. `ZDM_PACKAGE_SCRIPT` env 그대로 (default `zconverter_install_source/install.sh` — ZDM 본체 패키지 layout). agent worker 측 fallback default 는 `install.sh` 이나 엔진이 항상 명시 발행하므로 fallback 도달 경로 없음 |
 | `install.args` | list[string] | 스크립트 인자. 운영자 입력 ZDM 좌표를 `["-s", ZDM_IP, "-u", ZDM_USER]` 형태로 전달. install.sh 가 `-s` / `-u` 를 받아 ZDM 서버에서 실제 setup 패키지 fetch + 실행 |
 | `install.timeout_sec` | int | wall-clock timeout. `WebSettings.install_timeout_sec` (dev default 600) |
 
@@ -249,4 +252,4 @@ limactl shell <vm> sudo journalctl -u assessment-agent --no-pager -n 50
 
 end-to-end 추적: (1) VM 발행 로그 -> (2) broker 큐 적재 (`rabbitmqctl list_queues`) -> (3) consumer 처리 로그 -> (4) DB 행 -> (5) web 표시. 끊긴 단계가 원인.
 
-발행 측 재기동: 소스·env 변경 시 `./scripts/pipeline-up.sh` 재실행으로 자동. 단발 재기동은 `limactl shell <vm> sudo systemctl restart assessment-agent`.
+발행 측 재기동: 소스·env 변경 시 `./dev/pipeline-up.sh` 재실행으로 자동. 단발 재기동은 `limactl shell <vm> sudo systemctl restart assessment-agent`.

@@ -14,8 +14,8 @@ dev/docker-compose.yml        — dev 단일 compose (#A0). dev/.env 평문 + �
 dev/.env.example              — dev compose 기준 환경변수 카탈로그. `cp dev/.env.example dev/.env`
 .env.example                  — prod 운영자 카탈로그 (루트). dev compose 와 무관 — 외부 인프라 운영자가 채워서 사용
 .dockerignore                 — COPY . . 시 제외 경로
-scripts/pipeline-up.sh        — Docker → migrate → web 헬스체크 → Lima(limactl start + agent install) 순서 기동. COMPOSE_FILE=dev/docker-compose.yml export
-scripts/pipeline-down.sh      — Lima(limactl stop + delete) → docker compose down -v
+dev/pipeline-up.sh        — Docker → migrate → web 헬스체크 → Lima(limactl start + agent install) 순서 기동. COMPOSE_FILE=dev/docker-compose.yml export
+dev/pipeline-down.sh      — Lima(limactl stop + delete) → docker compose down -v
 ```
 
 dev compose 호출은 본 파일이 dev/ 디렉토리에 있어 자동 인식 안 됨. 루트에서는 `-f dev/docker-compose.yml` 명시:
@@ -28,7 +28,7 @@ export COMPOSE_FILE=dev/docker-compose.yml
 docker compose up --build -d
 ```
 
-본 repo는 기능 개발용 docker-compose만 다룬다 (CLAUDE.md #A0, ADR 0012). prod 배포 인프라(IaC) 결정은 본 repo 범위 밖 — prod secret·환경변수 contract는 `docs/operations/prod-contract.md` + `config.py` `_validate_prod_*`에 코드·docs로만 표현. prod compose 변형은 본 repo에 두지 않음.
+본 repo는 기능 개발용 docker-compose만 다룬다 (CLAUDE.md #A0, ADR 0012). prod 배포 인프라(IaC) 결정은 본 repo 범위 밖 — prod secret·환경변수 contract는 `docs/operations/env.md` + `config.py` `_validate_prod_*`에 코드·docs로만 표현. prod compose 변형은 본 repo에 두지 않음.
 
 ---
 
@@ -252,13 +252,13 @@ ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migra
 
 ---
 
-## scripts/pipeline-up.sh / scripts/pipeline-down.sh
+## dev/pipeline-up.sh / dev/pipeline-down.sh
 
 운영자 절차·VM 매트릭스: `docs/development/pipeline.md` + `docs/development/pipeline.md`. 본 절은 docker 관점 동작만:
 
-- `scripts/pipeline-up.sh` [1/4] `docker compose up -d --build` → [2/4] migrate 완료 대기(180s) → [3/4] web 헬스체크(180s) → [4/4] Lima 7 VM.
+- `dev/pipeline-up.sh` [1/4] `docker compose up -d --build` → [2/4] migrate 완료 대기(180s) → [3/4] web 헬스체크(180s) → [4/4] Lima 4 VM.
 - 헬스체크 타임아웃 초과 시 migrate/web 로그 30라인 dump 후 exit.
-- `scripts/pipeline-down.sh`: Lima 7 VM 제거 → `docker compose down -v`(postgres_data 삭제). 다음 dev-up은 빈 DB에서 시작 → `migrate`가 모든 schema·hypertable 신규 생성.
+- `dev/pipeline-down.sh`: Lima 4 VM 제거 → `docker compose down -v`(postgres_data 삭제). 다음 dev-up은 빈 DB에서 시작 → `migrate`가 모든 schema·hypertable 신규 생성.
 
 ---
 

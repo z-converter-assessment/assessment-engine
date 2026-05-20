@@ -1,6 +1,6 @@
 # 테스트
 
-본 문서는 pytest 단위·통합 테스트 실행·작성 단일 진실. E2E 파이프라인 검증(Lima)은 `docs/development/pipeline.md` + `docs/development/pipeline.md`.
+본 문서는 pytest 단위·통합 테스트 실행·작성 단일 진실. E2E 파이프라인 검증 (Lima) 은 `docs/development/pipeline.md`.
 
 ## 1. 계층
 
