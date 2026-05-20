@@ -13,7 +13,7 @@
 
 ```bash
 # 1. dev 의존성 설치 (최초 1회) — uv.lock 기준 reproducible install
-uv sync --frozen --extra dev
+uv sync --frozen --group dev
 
 # 2. 전체 (unit + integration; ~3초)
 uv run pytest

@@ -54,7 +54,7 @@ docker-compose `environment:` 블록은 `env_file:`보다 후순위로 적용되
 | `RABBITMQ_*` (broker 접속) | 의무 (진단 publish) | 의무 (consume) | 의무 (consume) | 의무 (publish) |
 | `RABBITMQ_ROUTING_KEY_*`·`RABBITMQ_EXCHANGE` | 의무 | 의무 | 의무 | 의무 |
 | `WORKER_*` (worker.result·task.install) | 의무 (task.install publish) | 의무 (worker.result consume) | 선택 | 선택 |
-| `WEB_PORT`·`INSTALL_BUNDLE_URL`·`INSTALL_TIMEOUT_SEC` | 의무 | 사용 안 함 | 사용 안 함 | 사용 안 함 |
+| `WEB_PORT`·`INSTALL_TIMEOUT_SEC`·`ZDM_*`·`ZDM_PACKAGE_*` | 의무 | 사용 안 함 | 사용 안 함 | 사용 안 함 |
 | `LLM_*`·`OLLAMA_*` | 사용 안 함 | 사용 안 함 | 의무 | 사용 안 함 |
 | `DIAGNOSTIC_QUEUE_*`·`DIAGNOSTIC_ROUTING_KEY` | 의무 (publish) | 사용 안 함 | 의무 (consume) | 의무 (publish) |
 | `DIAGNOSTIC_SCHEDULE_CRON`·`DIAGNOSTIC_RETENTION_DAYS`·`DIAGNOSTIC_ACTIVE_SERVER_WINDOW_HOURS` | 사용 안 함 | 사용 안 함 | 사용 안 함 | 의무 |
@@ -117,10 +117,13 @@ prod-contract.md 7절 "Secret 채널" + deployment.md "단계별 흐름" 참조.
 | `REDIS_MAXMEMORY` | `256mb` | docker-compose (redis command) | Redis maxmemory cap. prod 에서 운영자가 튜닝 가능 |
 | `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | docker-compose (redis command) | maxmemory 도달 시 eviction policy. TTL 키 우선 evict — 본 프로젝트는 idempotent/online TTL 키 만료 가능 가정 |
 | `WEB_PORT` | `8000` | config.py / docker-compose | Web UI 접속 포트. 충돌 시 변경 |
-| `INSTALL_BUNDLE_URL` | `http://host.lima.internal:8000/zconverter.tar.gz` | config.py / .env | task.install download.url 에 박혀 발행. 분산 환경은 엔진 VM IP/hostname 으로 .env 수정 의무 (agent worker 가 본 URL 로 install bundle fetch). |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |
-| `ZDM_DEFAULT_IP` | `192.168.3.94` | config.py | ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표. install 모달 default 값. 운영자가 모달에서 매 발행마다 override 가능 — POST `/tasks/install` body `zdm_ip` 누락 시 본 값으로 fallback. install.sh/install.ps1 의 `-s` 인자로 전달 |
-| `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 서버 관리자 계정 기본값. install 모달 default. POST body `zdm_user` 누락 시 fallback. install.sh/install.ps1 의 `-u` 인자로 전달 |
+| `ZDM_DEFAULT_IP` | `192.168.3.94` | config.py | ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표. install 모달 default 값. 운영자가 모달에서 매 발행마다 override 가능 — POST `/tasks/install` body `zdm_ip` 누락 시 본 값으로 fallback. install.sh 의 `-s` 인자로 전달 + agent download.url host 로 사용 |
+| `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 서버 관리자 계정 기본값. install 모달 default. POST body `zdm_user` 누락 시 fallback. install.sh 의 `-u` 인자로 전달 |
+| `ZDM_PACKAGE_PATH` | `/download/ZConverter_CloudSource_Setup_Linux.tar.gz` | config.py | ZDM 호스트의 본체 패키지 URL path. task.install download.url 은 `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` 로 조립 |
+| `ZDM_PACKAGE_SHA256` | `4480d98ecd819b38f953ead46f5a7241d022351609c111a137a2f339c6aaa8f4` | config.py | 본체 패키지의 sha256 hex. agent 가 다운로드 후 일치 검증. 패키지 버전 롤링 시 갱신 |
+| `ZDM_PACKAGE_SIZE_BYTES` | `46391090` | config.py | 본체 패키지의 byte 수. agent 가 under/over-shoot 모두 reject. 패키지 버전 롤링 시 갱신 |
+| `ZDM_PACKAGE_SCRIPT` | `zconverter_install_source/install.sh` | config.py | tar 추출 후 실행할 스크립트 경로. ZDM 패키지 layout 과 일치 |
 | `SQLALCHEMY_ECHO` | `false` | config.py | SQLAlchemy 엔진 SQL 로깅. dev 디버깅 시 true (운영 환경은 false 유지 — 로그 폭증·secret 노출 위험) |
 | `LOG_FORMAT` | `text` | config.py / 각 entry `setup_logging()` | 로그 출력 format. `text`(dev colorized·grep) 또는 `json`(외부 log aggregator indexing). prod은 `json` 권장 |
 | `PGADMIN_PORT` | `5050` | docker-compose dev override | pgAdmin GUI 포트 (dev 전용) |

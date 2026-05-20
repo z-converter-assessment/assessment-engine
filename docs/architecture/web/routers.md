@@ -11,7 +11,6 @@
 | `routers/exports.py` | `exports_router` | `/api/v1/exports` | JSON (다운로드) |
 | `routers/diagnostics.py` | `diagnostics_router` | `/api/v1/diagnostics` | JSON (ADR 0004) |
 | `routers/diagnostic_results.py` | `diagnostic_results_router` | `/diagnostics` | HTML (SSR — 결과·이력 페이지) |
-| `routers/payloads.py` | `payloads_router` | (root) | application/gzip — agent install bundle |
 
 라우터 책임은 HTTP I/O만 — 비즈니스 로직은 service에 위임(#F4). JSON API는 `/api/v1/...` prefix 통일.
 
@@ -74,11 +73,6 @@
 | `GET /diagnostics/results?ids=j1,j2,...` | 진단 결과 페이지 (polling으로 succeeded 추적) |
 | `GET /diagnostics/history?days=&scope=&server_public_ids=` | 진단 발행 이력 (운영자 회고용) — `to_history_item` mapper 단일 진실 |
 
-### `payloads.py` — agent install bundle
-| 경로 | 용도 |
-|------|------|
-| `GET /zconverter.tar.gz` | agent hardcoded fetch path. in-memory tar.gz 생성, `install.sh` mode=0o755 메타 박힘. `/api/v1/` prefix 없음 — agent 계약 path 우선(#B) |
-
 ## 검증·에러 매핑
 
 | HTTP | 의미 | 발생 위치 |
@@ -87,6 +81,7 @@
 | 404 | 리소스 없음 | `resolve_internal_id` 또는 service `TaskNotFound`/`DiagnosticNotFound` exception |
 | 409 | 충돌 | `tasks/install` pending 중복 (`TaskDuplicatePending`) 또는 진단 enqueue race (`DiagnosticRaceMiss`) |
 | 500 | 서버 오류 | service 측 일반 Exception (probe 외부 네트워크 비정형 응답 등) |
+| 503 | 설정 미충족 | `TaskNotConfigured` — ZDM_PACKAGE_SHA256 / SIZE_BYTES 미설정 시 install 발행 차단 |
 
 ## Breaking change 진화 절차
 
@@ -98,4 +93,4 @@
 
 본 프로젝트 현재 첫 v2 분기 사례 없음 — 도입 시 본 절 갱신.
 
-agent 계약 endpoint(`/zconverter.tar.gz` 등)는 versioning 없음 — agent.md hardcoded path 계약 + `agent_version` 별도 진화 채널(#B). path 변경 시 양쪽 동시 갱신 + agent_version major bump.
+엔진 측 self-host install bundle endpoint(`/zconverter.tar.gz`) 는 제거됨. task.install download.url 은 ZDM 측 contract (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`) 로 발행 — `docs/architecture/agent.md` "Download URL 조립 contract" 절 단일 진실.

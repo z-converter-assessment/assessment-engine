@@ -190,9 +190,10 @@ engine-web:
 ```bash
 sudo tee /etc/assessment-engine/web.env <<EOF
 WEB_PORT=8000
-INSTALL_BUNDLE_URL=http://engine-web:8000/zconverter.tar.gz
 ZDM_DEFAULT_IP=<ZDM_IP>
 ZDM_DEFAULT_USER=<ZDM_USER>
+ZDM_PACKAGE_SHA256=<hex64>
+ZDM_PACKAGE_SIZE_BYTES=<int>
 EOF
 sudo chmod 0640 /etc/assessment-engine/web.env
 sudo chown root:assessment /etc/assessment-engine/web.env

@@ -10,6 +10,7 @@
 - 트랜잭션 경계는 service 가 관리 (서버별 독립 commit + best-effort publish)
 """
 import json
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -24,33 +25,21 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
 from assessment_engine.db.repositories.inbound import TaskCreate
-from assessment_engine.web.routers.payloads import (
-    INSTALL_BUNDLE_SHA256,
-    INSTALL_BUNDLE_SIZE,
-    INSTALL_SCRIPT_LINUX,
-    INSTALL_SCRIPT_WINDOWS,
-)
 from assessment_engine.web.settings import diagnostic_settings, web_settings
 
 _TASK_TYPE_INSTALL = "zconverter_install"
 _TASK_QUEUE_TTL_MS = 60 * 60 * 1000  # 1h — 원격 호스트가 그 사이 consume 못 하면 만료
 _TASK_QUEUE_MAX_LEN = 100
 
-
-def _is_windows(os_id: str | None) -> bool:
-    """inventory os_id 기준 Windows 판단. null·미지정은 Linux default.
-
-    Linux agent는 /etc/os-release ID (ubuntu·centos·rhel·...)를 보내고
-    Windows agent는 'windows' 또는 'win*' 형태로 보낸다고 가정 (agent 측 명세 확정 시 본 함수에 정합).
-    """
-    if not os_id:
-        return False
-    lower = os_id.lower()
-    return "windows" in lower or lower.startswith("win")
+# 운영자 입력에서 scheme·path 제거 → host (또는 host:port) 만 추출.
+# agent download.url 조립 시 host 만 사용 (https?://{host}{zdm_package_path} 형태).
+_URL_SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
-def _select_install_script(os_id: str | None) -> str:
-    return INSTALL_SCRIPT_WINDOWS if _is_windows(os_id) else INSTALL_SCRIPT_LINUX
+def _extract_zdm_host(zdm_ip: str) -> str:
+    s = _URL_SCHEME_RE.sub("", zdm_ip).strip("/")
+    slash = s.find("/")
+    return s if slash < 0 else s[:slash]
 
 
 @dataclass
@@ -82,9 +71,16 @@ class TaskService:
 
         best-effort — 서버별 독립 트랜잭션 + 독립 publish. 미존재 public_id 는 즉시 raise.
         zdm_ip / zdm_user 는 install 스크립트의 `-s` / `-u` 인자로 전달되어 ZDM 서버에서
-        실제 setup 패키지 fetch + 실행에 사용. 호스트 OS는 inventory.os_id 로 자동 분기
-        (Windows → install.ps1, Linux → install.sh).
+        실제 setup 패키지 fetch + 실행에 사용. 본 엔진은 Linux 호스트만 발행 대상.
+
+        ZDM 본체 패키지 sha256 / size_bytes 가 settings 에 미설정이면 publish 차단 — 운영자에게
+        설정 누락을 명시 (TaskNotConfigured → 503).
         """
+        if not web_settings.zdm_package_sha256 or web_settings.zdm_package_size_bytes <= 0:
+            raise TaskNotConfigured(
+                "ZDM package contract not configured — set ZDM_PACKAGE_SHA256 and ZDM_PACKAGE_SIZE_BYTES"
+            )
+
         sid_map = await self.query_repo.resolve_server_ids(target_public_ids)
         missing = [pid for pid in target_public_ids if pid not in sid_map]
         if missing:
@@ -92,6 +88,8 @@ class TaskService:
         server_ids = [sid_map[pid] for pid in target_public_ids]
         details = await self.query_repo.get_servers(server_ids)
         detail_by_id = {d.id: d for d in details}
+
+        zdm_host = _extract_zdm_host(zdm_ip)
 
         exchange = await self.broker_channel.get_exchange(diagnostic_settings.rabbitmq_task_exchange)
 
@@ -112,7 +110,6 @@ class TaskService:
                         params={
                             "zdm_ip": zdm_ip,
                             "zdm_user": zdm_user,
-                            "download_url": web_settings.install_bundle_url,
                         },
                     ))
                     await session.commit()
@@ -123,7 +120,7 @@ class TaskService:
 
             await self._ensure_machine_queue(detail.machine_id)
             await self._publish_install(
-                exchange, task_id, detail.machine_id, detail.os_id, zdm_ip, zdm_user,
+                exchange, task_id, detail.machine_id, zdm_host, zdm_user,
             )
 
             logger.info(
@@ -158,23 +155,23 @@ class TaskService:
         exchange: aio_pika.abc.AbstractExchange,
         task_id: str,
         machine_id: str,
-        os_id: str | None,
-        zdm_ip: str,
+        zdm_host: str,
         zdm_user: str,
     ) -> None:
+        download_url = f"http://{zdm_host}{web_settings.zdm_package_path}"
         payload = {
             "message_type": "task.install",
             "task_id":      task_id,
             "machine_id":   machine_id,
             "issued_at":    datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "download": {
-                "url":        web_settings.install_bundle_url,
-                "sha256":     INSTALL_BUNDLE_SHA256,
-                "size_bytes": INSTALL_BUNDLE_SIZE,
+                "url":        download_url,
+                "sha256":     web_settings.zdm_package_sha256,
+                "size_bytes": web_settings.zdm_package_size_bytes,
             },
             "install": {
-                "script":      _select_install_script(os_id),
-                "args":        ["-s", zdm_ip, "-u", zdm_user],
+                "script":      web_settings.zdm_package_script,
+                "args":        ["-s", zdm_host, "-u", zdm_user],
                 "timeout_sec": web_settings.install_timeout_sec,
             },
         }
@@ -194,3 +191,7 @@ class TaskNotFound(Exception):
 
 class TaskDuplicatePending(Exception):
     """router 가 HTTPException(409) 로 변환 — pending task 이미 존재."""
+
+
+class TaskNotConfigured(Exception):
+    """router 가 HTTPException(503) 로 변환 — ZDM 패키지 contract 미설정."""

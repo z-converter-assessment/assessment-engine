@@ -1,104 +1,27 @@
-"""install OS 분기 + ZDM 인자 + bundle 구조 단위 테스트.
+"""install 발행 헬퍼 + Pydantic 검증 단위 테스트.
 
-본 변경 핵심 로직(외부 의존 없는 pure function · Pydantic 검증 · tar bundle 빌드) 검증.
-DB / broker 의존 흐름(create_install_tasks 전체)은 integration 범위.
+bundle/script 빌드는 self-host endpoint 제거(`web/routers/payloads.py` 삭제) 이후 사라짐 —
+download 정보는 agent contract 따라 운영자 입력 ZDM host + ZDM_PACKAGE_* env 로 조립.
 """
-import hashlib
-import io
-import tarfile
-
 import pytest
 from pydantic import ValidationError
 
-from assessment_engine.web.routers.payloads import (
-    INSTALL_BUNDLE_SHA256,
-    INSTALL_BUNDLE_SIZE,
-    INSTALL_SCRIPT_LINUX,
-    INSTALL_SCRIPT_WINDOWS,
-    _build_install_bundle,
-)
 from assessment_engine.web.routers.tasks import InstallRequest
-from assessment_engine.web.services.task_service import (
-    _is_windows,
-    _select_install_script,
-)
+from assessment_engine.web.services.task_service import _extract_zdm_host
 
-# OS 판단 helper
 
-@pytest.mark.parametrize("os_id, expected", [
-    ("windows", True),
-    ("Windows", True),
-    ("WINDOWS", True),
-    ("windows_server", True),
-    ("win32nt", True),
-    ("win", True),
-    ("ubuntu", False),
-    ("centos", False),
-    ("rhel", False),
-    ("debian", False),
-    ("alpine", False),
-    ("", False),
-    (None, False),
+@pytest.mark.parametrize("raw, expected", [
+    ("192.168.3.94",                       "192.168.3.94"),
+    ("192.168.3.94:8080",                  "192.168.3.94:8080"),
+    ("zdm.internal",                       "zdm.internal"),
+    ("http://192.168.3.94",                "192.168.3.94"),
+    ("http://192.168.3.94/",               "192.168.3.94"),
+    ("https://zdm.example.com",            "zdm.example.com"),
+    ("HTTP://Zdm.Example.Com",             "Zdm.Example.Com"),
+    ("http://host.lima.internal:8000/p",   "host.lima.internal:8000"),
 ])
-def test_is_windows(os_id, expected):
-    assert _is_windows(os_id) is expected
-
-
-@pytest.mark.parametrize("os_id, expected_script", [
-    ("windows", INSTALL_SCRIPT_WINDOWS),
-    ("Windows_Server_2022", INSTALL_SCRIPT_WINDOWS),
-    ("ubuntu", INSTALL_SCRIPT_LINUX),
-    ("centos", INSTALL_SCRIPT_LINUX),
-    (None, INSTALL_SCRIPT_LINUX),  # null/미지정은 Linux default
-    ("", INSTALL_SCRIPT_LINUX),
-])
-def test_select_install_script(os_id, expected_script):
-    assert _select_install_script(os_id) == expected_script
-
-
-# install bundle 빌드
-
-def test_bundle_contains_both_scripts():
-    """bundle tar 안에 install.sh + install.ps1 두 파일 모두 포함."""
-    bundle = _build_install_bundle()
-    with tarfile.open(fileobj=io.BytesIO(bundle), mode="r:gz") as tar:
-        names = set(tar.getnames())
-    assert names == {INSTALL_SCRIPT_LINUX, INSTALL_SCRIPT_WINDOWS}
-
-
-def test_bundle_script_contents_have_zdm_args():
-    """두 스크립트 본문이 -s ZDM_IP -u ZDM_USER 인자 처리 코드 포함."""
-    bundle = _build_install_bundle()
-    with tarfile.open(fileobj=io.BytesIO(bundle), mode="r:gz") as tar:
-        linux_body = tar.extractfile(INSTALL_SCRIPT_LINUX).read().decode("utf-8")
-        windows_body = tar.extractfile(INSTALL_SCRIPT_WINDOWS).read().decode("utf-8")
-
-    # Linux: -s / -u case 처리 + ZDM_IP 변수 + ZConverter_CloudSource_Setup_Linux.tar.gz fetch
-    assert "-s) ZDM_IP=" in linux_body
-    assert "-u) ZDM_USER=" in linux_body
-    assert "ZConverter_CloudSource_Setup_Linux.tar.gz" in linux_body
-
-    # Windows: param block + ZDM_IP 할당 + Setup_Windows.exe fetch + Start-Process
-    assert "param(" in windows_body
-    assert "$ZDM_IP" in windows_body
-    assert "ZConverter_CloudSource_Setup_Windows.exe" in windows_body
-    assert "Start-Process" in windows_body
-
-
-def test_bundle_script_modes():
-    """Linux sh는 실행 권한 (0o755), Windows ps1은 일반 파일 (0o644)."""
-    bundle = _build_install_bundle()
-    with tarfile.open(fileobj=io.BytesIO(bundle), mode="r:gz") as tar:
-        members = {m.name: m for m in tar.getmembers()}
-    assert members[INSTALL_SCRIPT_LINUX].mode == 0o755
-    assert members[INSTALL_SCRIPT_WINDOWS].mode == 0o644
-
-
-def test_bundle_sha256_deterministic():
-    """모듈 캐시값과 즉시 재빌드 sha256 일치 — mtime=0 고정으로 같은 코드면 같은 bytes."""
-    rebuilt = _build_install_bundle()
-    assert hashlib.sha256(rebuilt).hexdigest() == INSTALL_BUNDLE_SHA256
-    assert len(rebuilt) == INSTALL_BUNDLE_SIZE
+def test_extract_zdm_host(raw, expected):
+    assert _extract_zdm_host(raw) == expected
 
 
 # InstallRequest Pydantic 검증

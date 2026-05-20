@@ -70,7 +70,7 @@ RUN uv sync --frozen --no-dev                       # ← project(editable)만 �
 
 - `uv sync`: pyproject.toml + uv.lock을 정합 검사한 후, lockfile에 고정된 트랜지티브 버전 그대로 install. `uv pip install -e .`(pyproject만 봄)와 달리 lockfile 무시 불가능 → reproducible build.
 - `--frozen`: lockfile/pyproject drift 시 build 실패. lockfile 갱신 누락을 빌드 단계에서 catch.
-- `--no-dev`: pyproject `[project.optional-dependencies].dev`(pytest·ruff·testcontainers) 미포함. prod 이미지 슬림화.
+- `--no-dev`: pyproject `[dependency-groups].dev`(pytest·ruff·testcontainers) 미포함. prod 이미지 슬림화.
 - `--no-install-project`: project 자체는 skip하고 외부 deps만 install (1단 layer cache 분리용).
 - editable install: uv는 hatchling project를 기본 editable로 install. 호스트 마운트(`./:/app`)와 결합해 코드 변경 즉시 반영.
 - `UV_PROJECT_ENVIRONMENT=/opt/venv`: venv를 `/app` 바깥에 둔다. dev override의 `./:/app` bind mount가 `/app/.venv`를 호스트로 마스킹하는 충돌을 회피.

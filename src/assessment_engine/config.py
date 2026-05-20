@@ -70,19 +70,19 @@ class WebSettings(BaseSettings):
     # PUB/SUB channels
     redis_channel_metrics: str = "metrics.events"
 
-    # 원격 작업 install bundle endpoint (self-host).
-    # task.install 페이로드의 download.url에 그대로 박혀 발행되고, 원격 호스트의
-    # WORKER_DOWNLOAD_ALLOWED_HOSTS 화이트리스트와 host가 정확히 일치해야 fetch 허용.
-    # ADR 0009 — dev plain HTTP. agent worker 측 HTTPS-only 정책으로 dev 에서 success 경로 검증 불가
-    # (failure_reason=url_not_allowed). agent 측 호환성 작업 후 활성화 — 별도 ADR.
-    install_bundle_url: str = "http://host.lima.internal:8000/zconverter.tar.gz"
-    install_timeout_sec: int = 600  # install.sh wall-clock timeout (원격 host의 worker가 강제 종료)
-
-    # ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표 — install 모달의 default 값으로 사용.
-    # install.sh / install.ps1이 -s ZDM_IP -u ZDM_USER 인자로 받아 ZDM 서버에서 setup 패키지 fetch.
-    # 운영자가 모달에서 매 발행마다 override 가능. POST body의 zdm_ip·zdm_user 누락 시 본 값으로 fallback.
+    # ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표 — install 모달 default 값.
+    # 운영자가 모달에서 매 발행마다 override 가능. POST body 누락 시 본 값으로 fallback.
     zdm_default_ip: str = "192.168.3.94"
     zdm_default_user: str = "admin@zconverter.com"
+
+    # ZDM 본체 패키지 contract — task.install download 필드에 박혀 agent 가 fetch.
+    # path·sha256·size_bytes·script 모두 ZDM 측 패키지 매니페스트와 일치해야 한다.
+    # 패키지 버전 롤링 시 sha256/size_bytes 동시 갱신 의무. 빈/0 이면 publish 차단(503).
+    zdm_package_path: str = "/download/ZConverter_CloudSource_Setup_Linux.tar.gz"
+    zdm_package_sha256: str = "4480d98ecd819b38f953ead46f5a7241d022351609c111a137a2f339c6aaa8f4"
+    zdm_package_size_bytes: int = 46391090
+    zdm_package_script: str = "zconverter_install_source/install.sh"
+    install_timeout_sec: int = 600  # install.sh wall-clock timeout (원격 host worker 강제 종료)
 
     @property
     def database_url(self) -> str:

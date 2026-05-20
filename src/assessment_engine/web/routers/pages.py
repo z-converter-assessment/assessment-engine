@@ -78,7 +78,6 @@ async def list_servers(
                 "ip": web_settings.zdm_default_ip,
                 "user": web_settings.zdm_default_user,
             },
-            "install_bundle_url": web_settings.install_bundle_url,
         },
     )
 
@@ -236,7 +235,6 @@ async def get_server(
                 "ip": web_settings.zdm_default_ip,
                 "user": web_settings.zdm_default_user,
             },
-            "install_bundle_url": web_settings.install_bundle_url,
         },
     )
 

@@ -68,9 +68,9 @@ jobs:
         run: pip install uv
 
       # `uv sync --frozen` — uv.lock 의존성 트리 그대로 install. lockfile/pyproject drift 시 fail
-      # → CI에서 lockfile 신선도까지 보장. `--extra dev`로 pytest·ruff·testcontainers 포함.
+      # → CI에서 lockfile 신선도까지 보장. `--group dev`로 pytest·ruff·testcontainers 포함.
       - name: Install project
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --group dev
 
       - name: alembic upgrade head
         run: uv run alembic upgrade head

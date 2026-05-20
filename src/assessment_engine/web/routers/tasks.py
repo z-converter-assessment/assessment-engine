@@ -15,6 +15,7 @@ from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.task_service import (
     TaskCreated,
     TaskDuplicatePending,
+    TaskNotConfigured,
     TaskNotFound,
     TaskService,
 )
@@ -85,6 +86,8 @@ async def install(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except TaskDuplicatePending as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
+    except TaskNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
 
 
 @tasks_router.get("/{task_id}", response_model=TaskDetailItem)

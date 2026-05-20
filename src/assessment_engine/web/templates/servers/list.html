@@ -13,7 +13,7 @@
     </div>
     <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">
       선택된 <span id="install-count" style="font-weight:600; color:#1e293b;">0</span>대 호스트에 아래 ZDM 좌표로 ZConverter 설치를 발행합니다.
-      <br>설치 번들 endpoint (예: <code style="color:#475569;">{{ install_bundle_url }}</code>) — 호스트가 본 URL 에서 fetch 후 OS별 스크립트 실행.
+      <br>각 호스트의 agent 가 ZDM 서버에서 본체 패키지를 fetch 후 <code style="color:#475569;">install.sh -s ZDM_IP -u ZDM_USER</code> 실행.
     </p>
     <div style="margin:12px 0;">
       <label for="install-zdm-target" style="display:block; font-size:12px; color:#475569; margin-bottom:4px;">ZDM 서버 IP/hostname</label>
