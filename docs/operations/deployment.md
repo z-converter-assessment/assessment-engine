@@ -164,8 +164,6 @@ web 노드:                  /etc/assessment-engine/web.env
   WEB_PORT=8000
   ZDM_DEFAULT_IP=<ZDM_IP>
   ZDM_DEFAULT_USER=<ZDM_USER>
-  ZDM_PACKAGE_SHA256=<hex64>
-  ZDM_PACKAGE_SIZE_BYTES=<int>
   DIAGNOSTIC_ROUTING_KEY=diagnostic.request   # web도 진단 publish
 
 consumer 노드:             /etc/assessment-engine/consumer.env

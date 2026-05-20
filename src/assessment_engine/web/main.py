@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aio_pika
+import httpx
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
@@ -74,8 +75,22 @@ async def lifespan(app: FastAPI):
         diagnostic_settings.rabbitmq_task_exchange,
     )
 
+    # ZDM 메타 fetch 용 httpx async client — connect 5s, total 120s (44MB GET 가정).
+    # 단일 client 인스턴스를 TCP 재사용 위해 lifespan 에서 생성·shutdown 에서 close.
+    http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            connect=web_settings.zdm_meta_connect_timeout_sec,
+            read=web_settings.zdm_meta_total_timeout_sec,
+            write=web_settings.zdm_meta_total_timeout_sec,
+            pool=web_settings.zdm_meta_connect_timeout_sec,
+        ),
+        follow_redirects=False,
+    )
+    app.state.http_client = http_client
+
     yield
 
+    await http_client.aclose()
     await broker_conn.close()
     await close_pool()
 

@@ -90,18 +90,33 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 | `machine_id` | string | 타겟 호스트 |
 | `issued_at` | datetime (ISO 8601 UTC) | 발행 시각 |
 | `download.url` | string | HTTP/HTTPS URL. 운영자 입력 ZDM host + `ZDM_PACKAGE_PATH` env 로 엔진이 조립 (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`). agent 측 host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 통과 필요 |
-| `download.sha256` | string (hex 64) | 다운로드 파일 sha256. `ZDM_PACKAGE_SHA256` env 그대로. 미설정(빈 문자열) 이면 엔진 측이 publish 거부 (503) |
-| `download.size_bytes` | int | 예상 크기 (byte). `ZDM_PACKAGE_SIZE_BYTES` env 그대로. 미설정(0) 이면 엔진 측이 publish 거부 (503) |
+| `download.sha256` | string (hex 64) | 다운로드 파일 sha256. 엔진이 publish 직전 ZDM 에서 HEAD + (cache miss 시) GET full 로 동적 산출. ETag 기반 Redis cache (`HttpZdmPackageResolver`). ZDM 측 패키지 갱신 시 ETag 자동 변경 → cache miss → 자동 재계산 |
+| `download.size_bytes` | int | 예상 크기 (byte). 엔진이 HEAD Content-Length 로 산출 + GET 실측과 일치 검증 |
 | `install.script` | string | tar 추출 후 work dir 기준 실행 스크립트 경로. `ZDM_PACKAGE_SCRIPT` env 그대로 (default `zconverter_install_source/install.sh` — ZDM 본체 패키지 layout) |
 | `install.args` | list[string] | 스크립트 인자. 운영자 입력 ZDM 좌표를 `["-s", ZDM_IP, "-u", ZDM_USER]` 형태로 전달. install.sh 가 `-s` / `-u` 를 받아 ZDM 서버에서 실제 setup 패키지 fetch + 실행 |
 | `install.timeout_sec` | int | wall-clock timeout. `WebSettings.install_timeout_sec` (dev default 600) |
 
 ### Download URL 조립 contract
 
-- ZDM 본체 패키지가 `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` path 에 호스트되어야 한다. ZDM 측 contract (engine repo 밖) — path·sha256·size 가 패키지 매니페스트와 일치해야 agent 가 받아들임.
+- ZDM 본체 패키지가 `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` path 에 호스트되어야 한다. ZDM 측 contract (engine repo 밖) — path 가 안정해야 하고, sha256·size 는 엔진이 자체 산출하므로 ZDM 측 매니페스트 endpoint 불필요.
 - 운영자가 모달에 입력한 zdm_ip 는 raw IP/hostname 외에도 URL 전체(`http://...`) 형태 허용. 엔진이 scheme·path strip 해서 host 만 추출 (`task_service._extract_zdm_host`) → download.url 조립 시 host 만 사용.
 - agent 측 download.c 가 host whitelist(`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 강제. 운영자가 박은 ZDM host 가 등록되지 않았으면 `failure_reason="url_not_allowed"` reject. agent config 는 deploy 시점 고정 — 새 ZDM host 도입 시 agent 재배포 필요.
-- ZDM 좌표 default 는 `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` env. 패키지 메타는 `ZDM_PACKAGE_*` env (`docs/operations/env.md`).
+- ZDM 좌표 default 는 `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` env. 패키지 메타는 `ZDM_PACKAGE_PATH` / `ZDM_PACKAGE_SCRIPT` env (`docs/operations/env.md`).
+
+### sha256·size 동적 산출 (HttpZdmPackageResolver)
+
+`src/assessment_engine/web/services/zdm_package_resolver.py` 단일 진실. 흐름:
+
+1. HEAD `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` — `ETag`(또는 fallback `Last-Modified`) + `Content-Length` 추출.
+2. Redis cache 키 `cache:zdm_package:sha256:{host}:{etag}` 조회.
+   - hit: cached sha256 + HEAD Content-Length 반환 (수십 ms, GET 안 함).
+   - miss: GET full 다운로드 + streaming sha256 계산 + cache set + 반환.
+3. HEAD Content-Length 와 GET 실측 byte count 일치 검증 — 다르면 `ZdmPackageMetaError` (ZDM 측 정합성 보장).
+4. 메타 fetch 실패 (HEAD 404·connect timeout·size mismatch) 시 publish 차단 → 503 (`TaskNotConfigured`).
+
+cache 동작:
+- ZDM 패키지 갱신 → Apache 가 inode-size-mtime 기반 ETag 자동 변경 → cache miss → 자동 재계산. 운영자 개입 0.
+- TTL 6h default — ETag 자체가 invalidation 이라 길어도 안전. ETag/Last-Modified 둘 다 없는 비표준 응답이면 cache skip + 매 publish 마다 GET full.
 
 ---
 

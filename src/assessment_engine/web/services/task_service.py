@@ -25,6 +25,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
 from assessment_engine.db.repositories.inbound import TaskCreate
+from assessment_engine.web.services.zdm_package_resolver import (
+    BaseZdmPackageResolver,
+    ZdmPackageMetaError,
+)
 from assessment_engine.web.settings import diagnostic_settings, web_settings
 
 _TASK_TYPE_INSTALL = "zconverter_install"
@@ -55,11 +59,13 @@ class TaskService:
         session_factory: async_sessionmaker[AsyncSession],
         collect_repo_factory: Callable[[AsyncSession], BaseCollectRepository],
         broker_channel: AbstractChannel,
+        zdm_resolver: BaseZdmPackageResolver,
     ):
         self.query_repo = query_repo
         self.session_factory = session_factory
         self.collect_repo_factory = collect_repo_factory
         self.broker_channel = broker_channel
+        self.zdm_resolver = zdm_resolver
 
     async def create_install_tasks(
         self,
@@ -73,14 +79,9 @@ class TaskService:
         zdm_ip / zdm_user 는 install 스크립트의 `-s` / `-u` 인자로 전달되어 ZDM 서버에서
         실제 setup 패키지 fetch + 실행에 사용. 본 엔진은 Linux 호스트만 발행 대상.
 
-        ZDM 본체 패키지 sha256 / size_bytes 가 settings 에 미설정이면 publish 차단 — 운영자에게
-        설정 누락을 명시 (TaskNotConfigured → 503).
+        sha256 / size_bytes 는 publish 직전 ZDM 에서 동적 fetch (ETag cache).
+        실패 시 publish 차단 → 503 (TaskNotConfigured).
         """
-        if not web_settings.zdm_package_sha256 or web_settings.zdm_package_size_bytes <= 0:
-            raise TaskNotConfigured(
-                "ZDM package contract not configured — set ZDM_PACKAGE_SHA256 and ZDM_PACKAGE_SIZE_BYTES"
-            )
-
         sid_map = await self.query_repo.resolve_server_ids(target_public_ids)
         missing = [pid for pid in target_public_ids if pid not in sid_map]
         if missing:
@@ -90,6 +91,13 @@ class TaskService:
         detail_by_id = {d.id: d for d in details}
 
         zdm_host = _extract_zdm_host(zdm_ip)
+
+        # ZDM 메타 fetch — publish 직전 1 회 (cache hit 이면 HEAD 한 번, miss 면 GET full).
+        # 동일 batch 안 N 대 발행은 같은 sha256/size 재사용 (캐시 효과 + 정합성).
+        try:
+            sha256_hex, size_bytes = await self.zdm_resolver.resolve(zdm_host)
+        except ZdmPackageMetaError as e:
+            raise TaskNotConfigured(f"ZDM package meta fetch failed: {e}") from e
 
         exchange = await self.broker_channel.get_exchange(diagnostic_settings.rabbitmq_task_exchange)
 
@@ -121,6 +129,7 @@ class TaskService:
             await self._ensure_machine_queue(detail.machine_id)
             await self._publish_install(
                 exchange, task_id, detail.machine_id, zdm_host, zdm_user,
+                sha256_hex, size_bytes,
             )
 
             logger.info(
@@ -157,6 +166,8 @@ class TaskService:
         machine_id: str,
         zdm_host: str,
         zdm_user: str,
+        sha256_hex: str,
+        size_bytes: int,
     ) -> None:
         download_url = f"http://{zdm_host}{web_settings.zdm_package_path}"
         payload = {
@@ -166,8 +177,8 @@ class TaskService:
             "issued_at":    datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "download": {
                 "url":        download_url,
-                "sha256":     web_settings.zdm_package_sha256,
-                "size_bytes": web_settings.zdm_package_size_bytes,
+                "sha256":     sha256_hex,
+                "size_bytes": size_bytes,
             },
             "install": {
                 "script":      web_settings.zdm_package_script,

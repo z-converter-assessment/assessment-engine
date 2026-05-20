@@ -76,12 +76,16 @@ class WebSettings(BaseSettings):
     zdm_default_user: str = "admin@zconverter.com"
 
     # ZDM 본체 패키지 contract — task.install download 필드에 박혀 agent 가 fetch.
-    # path·sha256·size_bytes·script 모두 ZDM 측 패키지 매니페스트와 일치해야 한다.
-    # 패키지 버전 롤링 시 sha256/size_bytes 동시 갱신 의무. 빈/0 이면 publish 차단(503).
+    # sha256·size_bytes 는 publish 직전 engine 이 ZDM 에서 HEAD + GET 으로 동적 산출
+    # (ETag 기반 Redis cache). ZDM 측이 패키지 갱신하면 ETag 변경 → cache miss → 자동 재계산.
     zdm_package_path: str = "/download/ZConverter_CloudSource_Setup_Linux.tar.gz"
-    zdm_package_sha256: str = "4480d98ecd819b38f953ead46f5a7241d022351609c111a137a2f339c6aaa8f4"
-    zdm_package_size_bytes: int = 46391090
     zdm_package_script: str = "zconverter_install_source/install.sh"
+    # 메타 조회 HTTP 옵션 — connect 5s, total 120s (44MB GET 가정, 동일 LAN 이면 1~2s).
+    zdm_meta_connect_timeout_sec: float = 5.0
+    zdm_meta_total_timeout_sec: float = 120.0
+    # ETag 기반 cache TTL — ETag 자체가 invalidation 이라 길게 잡아도 안전.
+    redis_key_zdm_package_sha256: str = "cache:zdm_package:sha256:{}:{}"   # {host}:{etag}
+    redis_ttl_zdm_package_sha256: int = 6 * 60 * 60                       # 6h
     install_timeout_sec: int = 600  # install.sh wall-clock timeout (원격 host worker 강제 종료)
 
     @property

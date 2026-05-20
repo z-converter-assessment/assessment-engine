@@ -36,6 +36,29 @@ engine self-host install bundle endpoint 와 wrapper 메커니즘을 모두 제�
 - 0008 (HTTPS endpoint 통합) — install bundle endpoint 자체가 사라져 무효.
 - 0009 (dev plain HTTP 복귀) — 동일 사유.
 
+## Amendment (2026-05-21)
+
+초기 채택 직후 sha256·size 를 env 단일 진실로 박는 방식의 한계 인지: ZDM 패키지 버전 롤링 시 운영자가 4 위치 (config default + .env.example + env.md + 운영자 env file) 갱신 의무, 누락 시 agent 가 `sha256_mismatch` 로 reject.
+
+수정: 엔진이 publish 직전 ZDM 에서 HEAD + (cache miss 시) GET full 로 메타 동적 산출 (`HttpZdmPackageResolver`).
+
+- HEAD `Content-Length` → size_bytes
+- HEAD `ETag` (또는 fallback `Last-Modified`) → Redis cache key
+- cache miss 시 GET full + streaming sha256 계산 + cache set (TTL 6h, ETag 자체가 invalidation)
+- HEAD Content-Length 와 GET 실측 byte count 일치 검증 (정합성)
+- 메타 fetch 실패 시 publish 차단 → 503 (`TaskNotConfigured`)
+
+ZDM 측이 Apache static serving 으로 자동 ETag 생성 (inode-size-mtime hex) — 패키지 파일 변경 시 무조건 ETag 바뀜 → cache 자동 invalidation. ZDM 측 매니페스트 endpoint 추가 contract 불필요.
+
+config 변경:
+- `zdm_package_sha256` / `zdm_package_size_bytes` env 필드 제거
+- `zdm_meta_connect_timeout_sec` (default 5.0) / `zdm_meta_total_timeout_sec` (120.0) / `redis_ttl_zdm_package_sha256` (21600) 추가
+- `redis_key_zdm_package_sha256` 키 prefix 추가
+
+대안 (선택 안 함):
+- ZDM 측 `.sha256` sidecar 추가 요청 — ZDM 운영자 협력 필요, 본 작업 내 결정 불가
+- engine env-fixed 유지 — 패키지 버전 롤링 시 매번 env 동기 갱신 부담
+
 ## Consequences
 
 긍정:

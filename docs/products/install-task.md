@@ -88,7 +88,8 @@ ADR 0007 — Task 별도 exchange:
 - ZConverter Install 실패 사례 분석 결과 평균 디버깅 정보 < 4KB
 
 ZDM 패키지 contract:
-- `ZDM_PACKAGE_PATH`·`ZDM_PACKAGE_SHA256`·`ZDM_PACKAGE_SIZE_BYTES`·`ZDM_PACKAGE_SCRIPT` env 가 ZDM 측 본체 패키지와 일치해야 함. sha256·size 미설정(빈/0) 시 엔진이 install 발행을 503 으로 차단.
+- `ZDM_PACKAGE_PATH`·`ZDM_PACKAGE_SCRIPT` env 가 ZDM 측 본체 패키지 layout 과 일치해야 함. sha256/size 는 엔진이 publish 직전 ZDM 에서 HEAD + (cache miss 시) GET full 로 동적 산출 (`HttpZdmPackageResolver`). ZDM 패키지 갱신 시 ETag 자동 변경으로 cache invalidation — 운영자 개입 0.
+- 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200·size mismatch) 시 install 발행 503 차단.
 - agent 측 host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 에 운영자가 박을 ZDM host 가 사전 등록되어야 함. agent config 는 deploy 시점 고정 — 새 host 도입 시 agent 재배포 필요.
 
 ## 한계
@@ -96,7 +97,7 @@ ZDM 패키지 contract:
 1. task_type이 install 1종 — 다른 작업(uninstall·rollback·재시작 등) 미지원. 향후 task_type enum 확장 시 별도 결정.
 2. Linux 만 지원 — Windows 호스트는 발행 대상에서 제외 (별도 산출물 도입 시 ADR).
 3. 워커 측 중복 발행 차단 — 부분 UNIQUE `uq_tasks_pending_per_server_type` (status=pending 한 서버당 1건)이 DB 레벨 차단. 다만 발행 직후 cleanup 전엔 같은 서버에 신규 task 발행 불가 — 운영 ↑.
-4. ZDM 패키지 메타(sha256·size) 가 env 단일 — 패키지 버전 롤링 시 매번 env 갱신. 매니페스트 endpoint 도입은 별도 결정.
+4. ZDM 패키지 매 publish 마다 HEAD 1 회 (cache hit) 또는 GET full 44MB (cache miss). 같은 LAN 가정에 1~2s. 다른 네트워크면 ZDM_META_TOTAL_TIMEOUT_SEC 안에 끝나야 503 회피.
 5. ZDM 좌표는 모달 일괄 입력 — N대 호스트가 서로 다른 ZDM 서버를 가리키는 시나리오 미지원. 발행 단위로 동일 ZDM IP/User 적용.
 6. stdout/stderr UTF-8 가정 — 호스트 OS locale에 따라 깨짐 가능. agent worker가 binary으로 받고 latin-1 fallback 적용.
 
