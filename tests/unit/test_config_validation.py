@@ -5,6 +5,7 @@ APP_ENV=prod 시 weak default(`assessment`/`password`/`admin`/`root`/`changeme`/
 못하게 차단. multi-node 분리 배포에서 web/consumer/diagnostic 각 노드가 자기 Settings만
 인스턴스화해도 본 검증이 노드별 작동 (Composition Root #F4 정합).
 """
+
 import pytest
 from pydantic import SecretStr, ValidationError
 
@@ -28,10 +29,12 @@ def _web_kwargs(**overrides):
 
 def _consumer_kwargs(**overrides):
     base = _web_kwargs()
-    base.update({
-        "rabbitmq_user": "strong_mq_user",
-        "rabbitmq_password": SecretStr("strong-mq-secret-32chars"),
-    })
+    base.update(
+        {
+            "rabbitmq_user": "strong_mq_user",
+            "rabbitmq_password": SecretStr("strong-mq-secret-32chars"),
+        }
+    )
     base.update(overrides)
     return base
 

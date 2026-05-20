@@ -10,23 +10,25 @@
   - ON CONFLICT DO NOTHING 멱등성 (재호출 시 0행)
   - 빈 entries 시 해당 카운트 0
 """
+
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import text
 
-from assessment_engine.db.repositories.collect_repository import CollectRepository
-from assessment_engine.db.repositories.inbound import (
+from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
     MountUsageEntry,
     NetIoEntry,
 )
+from assessment_engine.db.repositories.collect_repository import CollectRepository
 from tests.factories import make_inventory, make_metrics
 
 pytestmark = pytest.mark.asyncio
 
 
 # ─── upsert_server (C) ────────────────────────────────────────────────────
+
 
 async def test_upsert_server_inserts_new(collect_repo: CollectRepository):
     inv = make_inventory(machine_id="mid-001", hostname="h1")
@@ -46,7 +48,8 @@ async def test_upsert_server_idempotent_on_same_machine_hostname(
 
 
 async def test_upsert_server_overwrites_fields_on_conflict(
-    collect_repo: CollectRepository, db_session,
+    collect_repo: CollectRepository,
+    db_session,
 ):
     """ON CONFLICT DO UPDATE — 같은 (machine_id, hostname) 의 다른 필드가 덮어씀."""
     inv1 = make_inventory(machine_id="mid-003", hostname="srv-a", cpu_cores=4)
@@ -54,15 +57,18 @@ async def test_upsert_server_overwrites_fields_on_conflict(
     await collect_repo.upsert_server(inv1)
     await collect_repo.upsert_server(inv2)
 
-    row = (await db_session.execute(
-        text("SELECT cpu_cores FROM server_inventory WHERE machine_id = :m AND hostname = :h"),
-        {"m": "mid-003", "h": "srv-a"},
-    )).one()
+    row = (
+        await db_session.execute(
+            text("SELECT cpu_cores FROM server_inventory WHERE machine_id = :m AND hostname = :h"),
+            {"m": "mid-003", "h": "srv-a"},
+        )
+    ).one()
     assert row.cpu_cores == 16
 
 
 async def test_upsert_server_same_machine_id_different_hostname_creates_separate_rows(
-    collect_repo: CollectRepository, db_session,
+    collect_repo: CollectRepository,
+    db_session,
 ):
     """같은 machine_id 다른 hostname → 별도 row INSERT (복합 UNIQUE 핵심 의도).
 
@@ -75,14 +81,17 @@ async def test_upsert_server_same_machine_id_different_hostname_creates_separate
     sid2 = await collect_repo.upsert_server(inv2)
     assert sid1 != sid2
 
-    count = (await db_session.execute(
-        text("SELECT COUNT(*) FROM server_inventory WHERE machine_id = :m"),
-        {"m": "mid-dup"},
-    )).scalar_one()
+    count = (
+        await db_session.execute(
+            text("SELECT COUNT(*) FROM server_inventory WHERE machine_id = :m"),
+            {"m": "mid-dup"},
+        )
+    ).scalar_one()
     assert count == 2
 
 
 # ─── find_server_id ───────────────────────────────────────────────────────
+
 
 async def test_find_server_id_existing(collect_repo: CollectRepository):
     sid = await collect_repo.upsert_server(make_inventory(machine_id="mid-find-1", hostname="h"))
@@ -106,6 +115,7 @@ async def test_find_server_id_same_machine_different_hostname_isolated(
 
 # ─── ensure_server_id (D — facade with auto_registered flag) ──────────────
 
+
 async def test_ensure_server_id_auto_registers_when_missing(
     collect_repo: CollectRepository,
 ):
@@ -117,7 +127,8 @@ async def test_ensure_server_id_auto_registers_when_missing(
 
 
 async def test_ensure_server_id_uses_existing_without_fallback(
-    collect_repo: CollectRepository, db_session,
+    collect_repo: CollectRepository,
+    db_session,
 ):
     """기존 server_id 사용. fallback은 미사용 — 데이터가 fallback 값으로 덮이지 않음."""
     real = make_inventory(machine_id="mid-ensure-2", hostname="real-host", cpu_cores=8)
@@ -125,20 +136,25 @@ async def test_ensure_server_id_uses_existing_without_fallback(
 
     fallback = make_inventory(machine_id="mid-ensure-2", hostname="real-host", cpu_cores=1)
     sid_ensured, auto = await collect_repo.ensure_server_id(
-        "mid-ensure-2", "real-host", fallback,
+        "mid-ensure-2",
+        "real-host",
+        fallback,
     )
 
     assert sid_ensured == sid_real
     assert auto is False
     # fallback이 실제로 미사용됐는지 — 데이터가 real 그대로
-    row = (await db_session.execute(
-        text("SELECT cpu_cores FROM server_inventory WHERE id = :id"),
-        {"id": sid_real},
-    )).one()
+    row = (
+        await db_session.execute(
+            text("SELECT cpu_cores FROM server_inventory WHERE id = :id"),
+            {"id": sid_real},
+        )
+    ).one()
     assert row.cpu_cores == 8
 
 
 # ─── record_metrics (A — 분리, F — MetricInsertResult) ────────────────────
+
 
 async def test_record_metrics_inserts_all_four_tables(
     collect_repo: CollectRepository,
@@ -148,32 +164,49 @@ async def test_record_metrics_inserts_all_four_tables(
         collected_at=datetime.now(UTC),
         disk_io=[
             DiskIoEntry(
-                device="sda", reads_completed=100, writes_completed=50,
-                sectors_read=1000, sectors_written=500,
+                device="sda",
+                reads_completed=100,
+                writes_completed=50,
+                sectors_read=1000,
+                sectors_written=500,
             ),
             DiskIoEntry(
-                device="sdb", reads_completed=200, writes_completed=100,
-                sectors_read=2000, sectors_written=1000,
+                device="sdb",
+                reads_completed=200,
+                writes_completed=100,
+                sectors_read=2000,
+                sectors_written=1000,
             ),
         ],
         mounts=[
             MountUsageEntry(
-                mount="/", total_bytes=50_000_000_000,
-                free_bytes=20_000_000_000, avail_bytes=18_000_000_000,
+                mount="/",
+                total_bytes=50_000_000_000,
+                free_bytes=20_000_000_000,
+                avail_bytes=18_000_000_000,
             ),
             MountUsageEntry(
-                mount="/data", total_bytes=100_000_000_000,
-                free_bytes=80_000_000_000, avail_bytes=78_000_000_000,
+                mount="/data",
+                total_bytes=100_000_000_000,
+                free_bytes=80_000_000_000,
+                avail_bytes=78_000_000_000,
             ),
             MountUsageEntry(
-                mount="/var", total_bytes=10_000_000_000,
-                free_bytes=5_000_000_000, avail_bytes=4_000_000_000,
+                mount="/var",
+                total_bytes=10_000_000_000,
+                free_bytes=5_000_000_000,
+                avail_bytes=4_000_000_000,
             ),
         ],
         net_io=[
             NetIoEntry(
-                interface="eth0", rx_bytes=1_000_000, tx_bytes=500_000,
-                rx_packets=1000, tx_packets=500, rx_errors=0, tx_errors=0,
+                interface="eth0",
+                rx_bytes=1_000_000,
+                tx_bytes=500_000,
+                rx_packets=1000,
+                tx_packets=500,
+                rx_errors=0,
+                tx_errors=0,
             ),
         ],
     )
@@ -256,8 +289,10 @@ async def test_record_metrics_per_device_unique(
 
 # ─── boot_time / agent_started_at 보존 (counter reset 정밀 식별 의존) ───────
 
+
 async def test_record_metrics_persists_boot_time_to_all_four_tables(
-    collect_repo: CollectRepository, db_session,
+    collect_repo: CollectRepository,
+    db_session,
 ):
     """boot_time/agent_started_at은 시계열 4개 테이블 모두에 동일 시점값으로 저장.
     server_metrics·disk_io·net_io는 calculator의 reset 판정에 활용. mount_usage는 시점값이라
@@ -271,19 +306,25 @@ async def test_record_metrics_persists_boot_time_to_all_four_tables(
     await collect_repo.record_metrics(sid, m)
 
     for table in ("server_metrics", "server_disk_io", "server_net_io", "server_mount_usage"):
-        row = (await db_session.execute(
-            text(f"SELECT boot_time, agent_started_at FROM {table} "
-                 f"WHERE server_id = :sid AND collected_at = :ts LIMIT 1"),
-            {"sid": sid, "ts": ts},
-        )).one()
+        row = (
+            await db_session.execute(
+                text(
+                    f"SELECT boot_time, agent_started_at FROM {table} "
+                    f"WHERE server_id = :sid AND collected_at = :ts LIMIT 1"
+                ),
+                {"sid": sid, "ts": ts},
+            )
+        ).one()
         assert row.boot_time == boot, f"{table} boot_time mismatch"
         assert row.agent_started_at == started, f"{table} agent_started_at mismatch"
 
 
 # ─── 명시 select 후 _inventory_changed 회귀 (C5) ──────────────────────────
 
+
 async def test_upsert_server_history_appended_on_change(
-    collect_repo: CollectRepository, db_session,
+    collect_repo: CollectRepository,
+    db_session,
 ):
     """C5 명시 select(_INVENTORY_COMPARE_COLS) 후에도 변경 감지 동일 — history 한 행 append.
 
@@ -295,26 +336,33 @@ async def test_upsert_server_history_appended_on_change(
     await collect_repo.upsert_server(inv1)
     await collect_repo.upsert_server(inv2)
     sid = await collect_repo.find_server_id("mid-hist-1", "h1")
-    count = (await db_session.execute(
-        text("SELECT COUNT(*) FROM server_inventory_history WHERE server_id = :sid"),
-        {"sid": sid},
-    )).scalar_one()
+    count = (
+        await db_session.execute(
+            text("SELECT COUNT(*) FROM server_inventory_history WHERE server_id = :sid"),
+            {"sid": sid},
+        )
+    ).scalar_one()
     assert count == 2, "첫 등록 + 변경 = history 2건이어야 함"
 
 
 async def test_upsert_server_history_not_appended_when_unchanged(
-    collect_repo: CollectRepository, db_session,
+    collect_repo: CollectRepository,
+    db_session,
 ):
     """비교 컬럼 동일 + collected_at만 다름 (1h 주기 재발행 시뮬) → history 추가 없음."""
-    inv1 = make_inventory(machine_id="mid-hist-2", hostname="h1", cpu_cores=4,
-                          collected_at=datetime.now(UTC) - timedelta(hours=1))
-    inv2 = make_inventory(machine_id="mid-hist-2", hostname="h1", cpu_cores=4,
-                          collected_at=datetime.now(UTC))  # 모든 비교 컬럼 동일
+    inv1 = make_inventory(
+        machine_id="mid-hist-2", hostname="h1", cpu_cores=4, collected_at=datetime.now(UTC) - timedelta(hours=1)
+    )
+    inv2 = make_inventory(
+        machine_id="mid-hist-2", hostname="h1", cpu_cores=4, collected_at=datetime.now(UTC)
+    )  # 모든 비교 컬럼 동일
     await collect_repo.upsert_server(inv1)
     await collect_repo.upsert_server(inv2)
     sid = await collect_repo.find_server_id("mid-hist-2", "h1")
-    count = (await db_session.execute(
-        text("SELECT COUNT(*) FROM server_inventory_history WHERE server_id = :sid"),
-        {"sid": sid},
-    )).scalar_one()
+    count = (
+        await db_session.execute(
+            text("SELECT COUNT(*) FROM server_inventory_history WHERE server_id = :sid"),
+            {"sid": sid},
+        )
+    ).scalar_one()
     assert count == 1, "변경 없는 재발행은 history 그대로 — noise 차단"

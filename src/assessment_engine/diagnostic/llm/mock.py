@@ -4,6 +4,7 @@ ADR 0004 LLM 토글의 기본값. 외부 API 호출 0, 비용 0.
 payload 안 통계 수치만 인용해 합성 → ADR 0003 3G절 수치 검증 자동 통과.
 asyncio.sleep으로 LLM latency 시뮬레이션 — UI progress_stage 단계 표시 확인용.
 """
+
 import asyncio
 
 from assessment_engine.db.repositories.base_diagnostic_repository import (

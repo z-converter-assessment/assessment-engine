@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Literal
 
-from assessment_engine.db.repositories.inbound import DiagnosticJobCreate
-from assessment_engine.db.repositories.outbound import DiagnosticJobRecord
+from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
+from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 
 # ADR 0004 — 차트 TimeRange와 동일 7개. 짧은 윈도우(15m/1h/6h)는 USE Method 표본 부족으로
 # 의미 약하지만 차트와 토글 통합 UX 일관성을 위해 노출. 기본 "14d" — ADR 0003 WINDOW_DAYS와 동일.
@@ -11,11 +11,11 @@ DiagnosticTimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 # fraction day — SQL interval 표현은 fraction 지원 (e.g., interval '0.25 days' = 6h).
 # aggregator·report_aggregate의 period_days 인자는 float·int 둘 다 호환.
 DIAGNOSTIC_RANGE_DAYS: dict[str, float] = {
-    "15m": 15 / 1440,    # 0.0104 day
-    "1h":   1 / 24,       # 0.0417 day
-    "6h":   6 / 24,       # 0.25 day
-    "24h":  1.0,
-    "7d":   7.0,
+    "15m": 15 / 1440,  # 0.0104 day
+    "1h": 1 / 24,  # 0.0417 day
+    "6h": 6 / 24,  # 0.25 day
+    "24h": 1.0,
+    "7d": 7.0,
     "14d": 14.0,
     "30d": 30.0,
 }
@@ -23,21 +23,21 @@ DIAGNOSTIC_RANGE_DAYS: dict[str, float] = {
 # 한국어 표시 라벨 — mock LLM narrative + frontend 표시 통합. P5 단일 진실 (서버/클라 동일).
 DIAGNOSTIC_RANGE_LABEL_KR: dict[str, str] = {
     "15m": "15분",
-    "1h":  "1시간",
-    "6h":  "6시간",
+    "1h": "1시간",
+    "6h": "6시간",
     "24h": "24시간",
-    "7d":  "7일",
+    "7d": "7일",
     "14d": "14일",
     "30d": "30일",
 }
 
 # USE Method 분류 라벨 — mapper(view) + mock LLM(narrative) 양쪽 import. 분류 추가 시 본 dict만 갱신.
 CLASSIFICATION_LABEL_KR: dict[str, str] = {
-    "idle":              "idle",
-    "shutdown":          "shutdown 검토",
-    "over_provisioned":  "over-provisioned",
+    "idle": "idle",
+    "shutdown": "shutdown 검토",
+    "over_provisioned": "over-provisioned",
     "under_provisioned": "under-provisioned",
-    "optimal":           "optimal",
+    "optimal": "optimal",
     "insufficient_data": "데이터 부족",
 }
 
@@ -63,7 +63,10 @@ class BaseDiagnosticRepository(ABC):
 
     @abstractmethod
     async def get_active_by_hash(
-        self, scope: str, input_hash: str, job_type: str,
+        self,
+        scope: str,
+        input_hash: str,
+        job_type: str,
     ) -> str | None:
         """동일 (scope, input_hash, job_type) + status IN ('pending','running') job_id 조회.
 
@@ -73,7 +76,9 @@ class BaseDiagnosticRepository(ABC):
 
     @abstractmethod
     async def get_latest_succeeded(
-        self, scope: str, input_hash: str,
+        self,
+        scope: str,
+        input_hash: str,
     ) -> "DiagnosticJobRecord | None":
         """가장 최근 succeeded job 1건 (input_hash 정확 일치, 시간 무관)."""
         ...
@@ -106,8 +111,7 @@ class BaseDiagnosticRepository(ABC):
         ...
 
     @abstractmethod
-    async def get_by_id(self, job_id: str) -> DiagnosticJobRecord | None:
-        ...
+    async def get_by_id(self, job_id: str) -> DiagnosticJobRecord | None: ...
 
     @abstractmethod
     async def get_many_by_ids(self, job_ids: list[str]) -> list[DiagnosticJobRecord]:
@@ -120,8 +124,7 @@ class BaseDiagnosticRepository(ABC):
         ...
 
     @abstractmethod
-    async def update_progress_stage(self, job_id: str, stage: str) -> None:
-        ...
+    async def update_progress_stage(self, job_id: str, stage: str) -> None: ...
 
     @abstractmethod
     async def mark_succeeded(self, job_id: str, result: dict) -> None:
@@ -135,7 +138,9 @@ class BaseDiagnosticRepository(ABC):
 
     @abstractmethod
     async def list_recent(
-        self, days: int, scope: str | None = None,
+        self,
+        days: int,
+        scope: str | None = None,
         server_public_ids: list[str] | None = None,
         job_type: str | None = None,
         limit: int = 200,

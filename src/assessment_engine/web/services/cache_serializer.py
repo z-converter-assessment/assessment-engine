@@ -2,31 +2,42 @@ import dataclasses
 import json
 from datetime import datetime
 
-from assessment_engine.web.services.mappers import (
+from assessment_engine.web.services.mappers.server import (
     WELL_KNOWN_PORT_MAX,
     enrich_server_detail,
 )
-from assessment_engine.web.view_models import (
+from assessment_engine.web.view_models.metric import (
     CpuSnapshot,
     DiskIoSnapshot,
-    DiskItem,
-    ListenPortItem,
-    MatchedPort,
     MemSnapshot,
     MetricDashboard,
     MountDashSnapshot,
     NetIoSnapshot,
-    ServerDetailResponse,
-    ServiceItem,
     SwapSnapshot,
 )
+from assessment_engine.web.view_models.server import (
+    DiskItem,
+    ListenPortItem,
+    MatchedPort,
+    ServerDetailResponse,
+    ServiceItem,
+)
 
-_DETAIL_DISPLAY_FIELDS = frozenset({
-    "known_services", "show_unknown_badge", "key_listen_ports",
-    "os_display", "cpu_display", "disk_total_gb",
-    "sorted_services", "sorted_listen_ports",
-    "services_count", "listen_ports_count", "disks_count",
-})
+_DETAIL_DISPLAY_FIELDS = frozenset(
+    {
+        "known_services",
+        "show_unknown_badge",
+        "key_listen_ports",
+        "os_display",
+        "cpu_display",
+        "disk_total_gb",
+        "sorted_services",
+        "sorted_listen_ports",
+        "services_count",
+        "listen_ports_count",
+        "disks_count",
+    }
+)
 
 
 def _json_default(obj: object) -> str:
@@ -46,19 +57,25 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
     data["services"] = (
         [
             ServiceItem(
-                unit=s["unit"], sub=s["sub"],
+                unit=s["unit"],
+                sub=s["sub"],
                 category=s.get("category") or "unknown",
                 ports=[MatchedPort(proto=p["proto"], port=p["port"]) for p in s.get("ports") or []],
                 display_name=s.get("display_name") or s["unit"].removesuffix(".service"),
             )
             for s in raw_services
         ]
-        if raw_services is not None else None
+        if raw_services is not None
+        else None
     )
     data["listen_ports"] = [
         ListenPortItem(
-            proto=p["proto"], addr=p["addr"], port=p["port"], uid=p["uid"],
-            pid=p.get("pid"), comm=p.get("comm"),
+            proto=p["proto"],
+            addr=p["addr"],
+            port=p["port"],
+            uid=p["uid"],
+            pid=p.get("pid"),
+            comm=p.get("comm"),
             is_well_known=p.get("is_well_known", p.get("port", 0) <= WELL_KNOWN_PORT_MAX),
         )
         for p in data.get("listen_ports") or []

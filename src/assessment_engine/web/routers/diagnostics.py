@@ -3,6 +3,7 @@
 책임: HTTP I/O만. 비즈니스 로직(INSERT·publish·트랜잭션)은 DiagnosticService 위임 (F4).
 표시 파생(badge·라벨·window 라벨 등)은 `diagnostic_mapper.to_view`로 단일 변환 (P2).
 """
+
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -12,13 +13,13 @@ from pydantic import BaseModel, Field, model_validator
 
 from assessment_engine.db.repositories.base_diagnostic_repository import DiagnosticTimeRange
 from assessment_engine.web.deps import get_diagnostic_service
-from assessment_engine.web.services.diagnostic_mapper import to_view
 from assessment_engine.web.services.diagnostic_service import (
     DiagnosticBadRequest,
     DiagnosticNotFound,
     DiagnosticRaceMiss,
     DiagnosticService,
 )
+from assessment_engine.web.services.mappers.diagnostic import to_view
 from assessment_engine.web.settings import diagnostic_settings
 
 diagnostics_router = APIRouter(prefix="/api/v1/diagnostics", tags=["diagnostics"])
@@ -55,7 +56,10 @@ async def submit(
     public_ids = [str(u) for u in req.server_ids] if req.server_ids else None
     try:
         job_ids = await service.submit(
-            req.scope, public_ids, req.time_range, req.anchor_at,
+            req.scope,
+            public_ids,
+            req.time_range,
+            req.anchor_at,
         )
         return JobIdsResponse(job_ids=job_ids)
     except DiagnosticBadRequest as e:

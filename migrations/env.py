@@ -8,6 +8,7 @@ DB URL은 WebSettings.database_url (asyncpg). alembic.ini의 sqlalchemy.url은 �
 
 모든 ORM 모델 import 의무 — 안 그러면 Base.metadata에 누락되어 autogenerate가 drop 처리.
 """
+
 import asyncio
 from logging.config import fileConfig
 

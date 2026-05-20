@@ -1,0 +1,134 @@
+"""서버 상세 SSR — `/servers/{id}` + 5 탭 (cpu/memory/services/performance) + storage/network.
+
+5개 detail 탭이 동일 흐름이라 `_render_server_tab` helper 로 중복 제거.
+storage/network 는 별도 service 메서드라 분리.
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from assessment_engine.web.deps import get_diagnostic_service, get_service, resolve_internal_id
+from assessment_engine.web.services.diagnostic_service import DiagnosticService, to_panel_payload
+from assessment_engine.web.services.query_service import QueryService
+from assessment_engine.web.settings import diagnostic_settings, web_settings
+from assessment_engine.web.templating import templates
+
+server_detail_router = APIRouter()
+
+
+async def _render_server_tab(
+    request: Request,
+    template_name: str,
+    *,
+    internal_id: int,
+    service: QueryService,
+):
+    """server 컨텍스트로 detail 탭 템플릿 렌더링. detail/cpu/memory/services/performance 공유."""
+    server = await service.get_server(internal_id)
+    if not server:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request=request,
+        name=template_name,
+        context={"server": server},
+    )
+
+
+@server_detail_router.get("/{server_id}")
+async def get_server(
+    request: Request,
+    internal_id: int = Depends(resolve_internal_id),
+    service: QueryService = Depends(get_service),
+    diag_service: DiagnosticService = Depends(get_diagnostic_service),
+):
+    server = await service.get_server(internal_id)
+    if not server:
+        raise HTTPException(status_code=404)
+    # 진단 기능 비활성 시 latest fetch skip — historical row 표시 차단 (대시보드와 정합).
+    last_server_diagnostic = None
+    if diagnostic_settings.diagnostic_enabled:
+        last_server_diagnostic = await diag_service.get_latest("server", str(server.public_id), "14d")
+    recent_tasks = await service.list_recent_tasks(str(server.public_id), limit=10, cursor=None)
+    return templates.TemplateResponse(
+        request=request,
+        name="servers/detail.html",
+        context={
+            "server": server,
+            "last_server_diagnostic": to_panel_payload(last_server_diagnostic),
+            "recent_tasks": recent_tasks,
+            "zdm_defaults": {
+                "ip": web_settings.zdm_default_ip,
+                "user": web_settings.zdm_default_user,
+            },
+        },
+    )
+
+
+@server_detail_router.get("/{server_id}/cpu")
+async def get_cpu(
+    request: Request,
+    internal_id: int = Depends(resolve_internal_id),
+    service: QueryService = Depends(get_service),
+):
+    return await _render_server_tab(request, "servers/cpu.html", internal_id=internal_id, service=service)
+
+
+@server_detail_router.get("/{server_id}/memory")
+async def get_memory(
+    request: Request,
+    internal_id: int = Depends(resolve_internal_id),
+    service: QueryService = Depends(get_service),
+):
+    return await _render_server_tab(request, "servers/memory.html", internal_id=internal_id, service=service)
+
+
+@server_detail_router.get("/{server_id}/services")
+async def get_services(
+    request: Request,
+    internal_id: int = Depends(resolve_internal_id),
+    service: QueryService = Depends(get_service),
+):
+    return await _render_server_tab(request, "servers/services.html", internal_id=internal_id, service=service)
+
+
+@server_detail_router.get("/{server_id}/performance")
+async def get_performance(
+    request: Request,
+    internal_id: int = Depends(resolve_internal_id),
+    service: QueryService = Depends(get_service),
+):
+    return await _render_server_tab(request, "servers/performance.html", internal_id=internal_id, service=service)
+
+
+# ─── 별도 service 메서드를 쓰는 탭 ───────────────────────────────────────
+
+
+@server_detail_router.get("/{server_id}/storage")
+async def get_storage(
+    request: Request,
+    internal_id: int = Depends(resolve_internal_id),
+    service: QueryService = Depends(get_service),
+):
+    result = await service.get_storage(internal_id)
+    if not result:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request=request,
+        name="servers/storage.html",
+        context={"storage": result},
+    )
+
+
+@server_detail_router.get("/{server_id}/network")
+async def get_network(
+    request: Request,
+    internal_id: int = Depends(resolve_internal_id),
+    service: QueryService = Depends(get_service),
+):
+    result = await service.get_network(internal_id)
+    if not result:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request=request,
+        name="servers/network.html",
+        context={"network": result},
+    )

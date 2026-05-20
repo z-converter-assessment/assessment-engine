@@ -13,6 +13,7 @@ from assessment_engine.diagnostic.llm.mock import (
 
 # ─── _server_narrative ────────────────────────────────────────────────────
 
+
 def test_server_narrative_includes_hostname_and_cpu_mem_values():
     payload = {
         "server": {"hostname": "web-01"},
@@ -28,24 +29,33 @@ def test_server_narrative_includes_hostname_and_cpu_mem_values():
     assert "14" in text
 
 
-@pytest.mark.parametrize("classification, expected_substring", [
-    ("over_provisioned",  "다운사이즈"),
-    ("under_provisioned", "업사이즈"),
-    ("idle",              "종료"),
-    ("shutdown",          "종료"),
-    ("optimal",           "적정"),
-    ("insufficient_data", "데이터 부족"),
-])
+@pytest.mark.parametrize(
+    "classification, expected_substring",
+    [
+        ("over_provisioned", "다운사이즈"),
+        ("under_provisioned", "업사이즈"),
+        ("idle", "종료"),
+        ("shutdown", "종료"),
+        ("optimal", "적정"),
+        ("insufficient_data", "데이터 부족"),
+    ],
+)
 def test_server_narrative_branch_keywords(classification, expected_substring):
     payload = {
         "server": {"hostname": "h"},
         "use_method": {"cpu": {"p95": 50.0}, "memory": {"p95": 50.0}},
         "classification": classification,
-        "recommendation": {"action": "downsize_cpu" if classification == "over_provisioned"
-                                     else "upsize_memory" if classification == "under_provisioned"
-                                     else "shutdown_idle" if classification == "idle"
-                                     else "shutdown_review" if classification == "shutdown"
-                                     else "no_action"},
+        "recommendation": {
+            "action": "downsize_cpu"
+            if classification == "over_provisioned"
+            else "upsize_memory"
+            if classification == "under_provisioned"
+            else "shutdown_idle"
+            if classification == "idle"
+            else "shutdown_review"
+            if classification == "shutdown"
+            else "no_action"
+        },
         "period_window": {"days": 14},
     }
     assert expected_substring in _server_narrative(payload)
@@ -65,14 +75,15 @@ def test_server_narrative_missing_values_render_dash():
 
 # ─── _environment_narrative ──────────────────────────────────────────────
 
+
 def test_environment_narrative_includes_counts_and_days():
     payload = {
         "coverage": {"total_servers": 120, "evaluated_servers": 118},
         "classification": {
-            "over_provisioned":  {"count": 42},
+            "over_provisioned": {"count": 42},
             "under_provisioned": {"count": 8},
-            "idle":              {"count": 5},
-            "optimal":           {"count": 60},
+            "idle": {"count": 5},
+            "optimal": {"count": 60},
         },
         "period_window": {"days": 14},
     }
@@ -94,6 +105,7 @@ def test_environment_narrative_empty_classification_defaults_zero():
 
 # ─── 수치 hallucination 검증 (ADR 0003 3G절) ──────────────────────────────
 
+
 def test_server_narrative_all_numbers_come_from_payload():
     """narrative 안 정수·소수는 모두 payload 안 값이어야 함 — 외부 숫자 생성 금지.
 
@@ -114,10 +126,12 @@ def test_server_narrative_all_numbers_come_from_payload():
 
 # ─── MockLlmClient.generate_narrative (entry) ────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_mock_client_routes_by_scope(monkeypatch):
     """sleep을 0으로 만들고 scope별 분기 검증."""
     from assessment_engine.diagnostic.settings import diagnostic_settings
+
     monkeypatch.setattr(diagnostic_settings, "llm_mock_latency_seconds", 0)
 
     client = MockLlmClient()

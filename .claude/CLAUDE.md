@@ -73,14 +73,14 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 추상 인터페이스(`BaseCollectRepository`/`BaseQueryRepository`/`BaseDiagnosticRepository`) · DTO 흐름(Inbound Pydantic·Outbound raw dataclass) · INSERT 통일(`pg_insert` + `on_conflict_do_*`) · `list_servers` 부분 SELECT 정책 · repo 메서드 카탈로그 · asyncpg 함정 · `_chart_*` 패턴: `docs/architecture/db/repositories.md` · `docs/architecture/db/dtos.md` · `docs/architecture/db/timescaledb.md` 단일 진실.
 
 본 절 결정:
-- settings 사용 절차: 컴포넌트 코드는 자기 sub-module(`web/settings.py`·`consumer/settings.py`·`diagnostic/settings.py`)에서 import. `db/session.py`·`db/redis.py`는 자체 `WebSettings()` 인스턴스화 (circular 회피). 새 모듈 추가 시 본 절차 위반 금지 (#F4).
+- settings 사용 절차: 컴포넌트 코드는 자기 sub-module(`web/settings.py`·`consumer/settings.py`·`diagnostic/settings.py`)에서 import. `db/session.py`·`cache/redis.py`는 자체 `WebSettings()` 인스턴스화 (circular 회피). 새 모듈 추가 시 본 절차 위반 금지 (#F4).
 
 ## C3. Redis 전략 — fail-open 의무
 
 키 설계 표 / TTL 근거 / PUB/SUB 채널 / 캐시-aside race 한계 / 평시·장애 동작 매트릭스 / mget 효율 패턴: `docs/architecture/redis.md`. 의사결정 ADR: `docs/adr/0001-redis-decoupling.md`.
 
 본 절 결정:
-- 모든 Redis 호출은 `src/assessment_engine/db/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`/`safe_incr_with_ttl`) 경유. RedisError 시 silent fallback + warning 로그. 직접 redis client 호출 금지.
+- 모든 Redis 호출은 `src/assessment_engine/cache/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`/`safe_incr_with_ttl`) 경유. RedisError 시 silent fallback + warning 로그. 직접 redis client 호출 금지.
 - fail-open 보장 의존성: 멱등성 1단 fail-open(#D2) → DB UNIQUE(#C1)가 중복 흡수. UNIQUE 누락 시 보장 자체가 깨짐.
 
 ## C4. 스키마 변경 — Alembic 단일 진실
@@ -167,7 +167,7 @@ Pagination 정책:
 
 ## E3. 서비스 계층·ViewModel·Mapper (P2)
 
-서비스 모듈 카탈로그·`mappers.py` 표시 파생 집중·`enrich_*` idempotent·UI badge 임계값(`_USAGE_DANGER_PCT=90`·`_USAGE_WARN_PCT=75`)·USE Method right-sizing 임계값(`assessment_engine/recommendation.py` 도메인 모듈 — web·diagnostic 공용 import)·ViewModel 카탈로그·mapper 파생 필드(`is_well_known`·`badge_class`·`bar_color` 등)·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/architecture/web/services.md` · `docs/architecture/web/view-models.md` 단일 진실.
+서비스 모듈 카탈로그·`mappers/` sub-package 표시 파생 집중 (`server`/`metric`/`attention`/`report`/`export`/`task`/`shared`/`diagnostic`/`environment_report`/`report_history` 11 sub-module)·`enrich_*` idempotent·UI badge 임계값(`_USAGE_DANGER_PCT=90`·`_USAGE_WARN_PCT=75` — `mappers/shared.py`)·USE Method right-sizing 임계값(`assessment_engine/recommendation.py` 도메인 모듈 — web·diagnostic 공용 import)·ViewModel 카탈로그·mapper 파생 필드(`is_well_known`·`badge_class`·`bar_color` 등)·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/architecture/web/services.md` · `docs/architecture/web/view-models.md` 단일 진실.
 
 본 절 결정:
 - 두 임계 도메인(UI badge / USE Method) 혼용 금지.
@@ -179,7 +179,7 @@ Pagination 정책:
 
 ## E5. Jinja2 인프라
 
-`Jinja2Templates` 단일 인스턴스 + 필터 등록은 `web/template_setup.py`에 격리. 라우터는 import만. Redis 캐시 datetime은 `datetime.fromisoformat()`로 파싱(`json.loads` str 그대로 두면 `kst` 필터 오작동).
+`Jinja2Templates` 단일 인스턴스 + 필터 등록은 `web/templating/setup.py`에 격리. 라우터는 `from assessment_engine.web.templating import templates` 만. Redis 캐시 datetime은 `datetime.fromisoformat()`로 파싱(`json.loads` str 그대로 두면 `kst` 필터 오작동).
 
 Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_dash`): `docs/architecture/web/services.md`.
 
@@ -240,13 +240,13 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 - `src/assessment_engine/web/settings.py` — `web_settings` (WebSettings) + `diagnostic_settings` (DiagnosticSettings, web도 진단 publish 위해 broker 사용)
 - `src/assessment_engine/consumer/settings.py` — `consumer_settings` (ConsumerSettings)
 - `src/assessment_engine/diagnostic/settings.py` — `diagnostic_settings` (DiagnosticSettings, worker·scheduler 공통)
-- `src/assessment_engine/db/session.py`·`db/redis.py`·`migrations/env.py` — 자체 `WebSettings()` (모든 컴포넌트 공통 db layer·schema 진입점, circular import 회피)
+- `src/assessment_engine/db/session.py`·`cache/redis.py`·`migrations/env.py` — 자체 `WebSettings()` (모든 컴포넌트 공통 db layer·캐시·schema 진입점, circular import 회피)
 
 `src/assessment_engine/config.py`는 class 정의만 — module-level instance 0 (multi-node 분리 정합, ADR/문서 패턴 정합).
 
 금지:
 - Service/Handler 안 구체 구현체 import.
-- Composition Root 외 위치에서 `Settings()` 인스턴스 생성 — 위 6 위치 (web/settings·consumer/settings·diagnostic/settings·db/session·db/redis·migrations/env)만 허용.
+- Composition Root 외 위치에서 `Settings()` 인스턴스 생성 — 위 6 위치 (web/settings·consumer/settings·diagnostic/settings·db/session·cache/redis·migrations/env)만 허용.
 - `assessment_engine.config`에서 직접 `web_settings`·`consumer_settings`·`diagnostic_settings` import — class만 export.
 - `APP_ENV` 환경 분기를 `config.py` model_validator · entry lifespan 외 위치에 추가.
 
@@ -346,7 +346,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 본 절 결정:
 - 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 14, AWS Compute Optimizer 표준). 대시보드·보고서 라우터·ADR 0003 모두 본 상수 참조.
 - 보고서 라우터만 `?period_days=N` override 허용. 대시보드는 산업 표준 윈도우 고정.
-- TimeRange/BucketSize Literal 단일 진실 = `base_query_repository.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
+- TimeRange/BucketSize Literal 단일 진실 = `db/repositories/query/types.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
 - 신규 TimeRange 도입 시 `AUTO_BUCKET` 매핑 신설 의무.
 - 보고서 형태 산출물은 윈도우를 envelope·표제 명시 — JSON Export `period_window{days, start, end}` 의무 필드(#B 동일 원칙).
 

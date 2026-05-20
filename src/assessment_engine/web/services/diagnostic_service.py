@@ -11,6 +11,7 @@
 
 상세 설계는 ADR 0004.
 """
+
 import json
 from collections.abc import Callable
 from datetime import datetime
@@ -20,14 +21,14 @@ from loguru import logger
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from assessment_engine.db.redis import safe_get
+from assessment_engine.cache.redis import safe_get
+from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
+from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     BaseDiagnosticRepository,
     DiagnosticTimeRange,
 )
-from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
-from assessment_engine.db.repositories.inbound import DiagnosticJobCreate
-from assessment_engine.db.repositories.outbound import DiagnosticJobRecord
+from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
 
 # 발행 단일 진실은 diagnostic.submitter — 본 모듈은 호환 re-export.
 from assessment_engine.diagnostic.submitter import (  # noqa: F401 (re-export)
@@ -75,7 +76,11 @@ class DiagnosticService:
     ) -> list[str]:
         """진단 발행 위임 — 단일 진실 `DiagnosticSubmitter.submit`."""
         return await self._submitter.submit(
-            scope, server_public_ids, time_range, anchor_at, requested_by,
+            scope,
+            server_public_ids,
+            time_range,
+            anchor_at,
+            requested_by,
         )
 
     async def get_many_latest_server(
@@ -110,7 +115,9 @@ class DiagnosticService:
             return await repo.get_latest_by_context(scope, time_range, server_public_id)
 
     async def list_recent(
-        self, days: int, scope: str | None = None,
+        self,
+        days: int,
+        scope: str | None = None,
         server_public_ids: list[str] | None = None,
         job_type: str | None = None,
     ) -> list[DiagnosticJobRecord]:
@@ -124,7 +131,8 @@ class DiagnosticService:
             return await repo.list_recent(days, scope, server_public_ids, job_type)
 
     async def list_reports(
-        self, days: int,
+        self,
+        days: int,
         view: str = "all",
         server_public_ids: list[str] | None = None,
         cursor: datetime | None = None,
@@ -193,32 +201,40 @@ class DiagnosticService:
             result_payload["time_range"] = time_range
         async with self.session_factory() as session:
             repo = self.diagnostic_repo_factory(session)
-            new_id = await repo.enqueue(DiagnosticJobCreate(
-                scope=scope,
-                job_type=job_type,
-                input_params=input_params,
-                input_hash=input_hash,
-                requested_by=requested_by,
-            ))
+            new_id = await repo.enqueue(
+                DiagnosticJobCreate(
+                    scope=scope,
+                    job_type=job_type,
+                    input_params=input_params,
+                    input_hash=input_hash,
+                    requested_by=requested_by,
+                )
+            )
             if new_id is None:
                 await session.rollback()
                 logger.debug(
                     "report record active conflict view={} scope={} hash={}",
-                    view, scope, input_hash[:12],
+                    view,
+                    scope,
+                    input_hash[:12],
                 )
                 return None
             await repo.mark_succeeded(new_id, result_payload)
             await session.commit()
             logger.info(
                 "report recorded view={} scope={} hash={} job_id={}",
-                view, scope, input_hash[:12], new_id,
+                view,
+                scope,
+                input_hash[:12],
+                new_id,
             )
             return new_id
 
     async def get_one(self, job_id: str) -> DiagnosticJobRecord | None:
         """단건 조회 — Redis polling 캐시 우선, miss 시 DB fallback (#C3 fail-open)."""
         cached = await safe_get(
-            self.redis, diagnostic_settings.redis_key_diagnostic_progress.format(job_id),
+            self.redis,
+            diagnostic_settings.redis_key_diagnostic_progress.format(job_id),
         )
         if cached:
             return _deserialize_record(cached)
@@ -242,7 +258,8 @@ def to_panel_payload(rec: DiagnosticJobRecord | None) -> dict | None:
 
     P2 단일 변환 — badge·label·window·classification 파생은 mapper에서. 본 함수는 dict 변환만.
     """
-    from assessment_engine.web.services.diagnostic_mapper import to_view
+    from assessment_engine.web.services.mappers.diagnostic import to_view
+
     view = to_view(rec)
     return view.to_dict() if view else None
 

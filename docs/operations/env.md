@@ -216,7 +216,7 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 - `src/assessment_engine/web/settings.py` — WebSettings + DiagnosticSettings
 - `src/assessment_engine/consumer/settings.py` — ConsumerSettings
 - `src/assessment_engine/diagnostic/settings.py` — DiagnosticSettings
-- `src/assessment_engine/db/session.py`·`db/redis.py` — 자체 WebSettings (공통 db layer)
+- `src/assessment_engine/db/session.py`·`cache/redis.py` — 자체 WebSettings (공통 db layer)
 
 ---
 

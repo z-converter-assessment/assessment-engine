@@ -2,17 +2,20 @@
 .venv/
 __pycache__/
 *.pyc
+*.pyo
 .pytest_cache/
 .ruff_cache/
+.coverage
+coverage*.xml
+htmlcov/
 
 # 버전 관리 / IDE
 .git/
 .github/
 .idea/
 
-# dev 보조 자료 (이미지 내 불필요 — dev 파이프라인 Lima·pgadmin·agent dev env)
+# dev 보조 자료 (이미지 내 불필요 — dev 파이프라인 Lima·pgadmin·agent dev env·dev compose)
 dev/
-docker-compose.yml
 
 # 시크릿 — 절대 이미지에 포함되면 안 됨 (CLAUDE.md #F8)
 .env

@@ -16,7 +16,9 @@
 # mount 이라 컨테이너 uid 1000 이 호스트 파일(macOS 보통 501) 쓰기 실패 가능. dev 에선 root
 # 되돌려 uvicorn auto-reload · __pycache__ 생성 충돌 회피.
 x-app-base: &app-base
-  build: ..
+  build:
+    context: ..
+    dockerfile: dev/Dockerfile
   restart: unless-stopped
   user: "0:0"
   volumes:
@@ -119,7 +121,9 @@ services:
   # 모든 앱 서비스는 본 컨테이너 완료 후에만 기동 (depends_on: service_completed_successfully).
   # schema는 Alembic 단일 진실 (ADR 0005). lifespan의 create_all 자동 분기 제거됨.
   migrate:
-    build: ..
+    build:
+      context: ..
+      dockerfile: dev/Dockerfile
     command: alembic upgrade head
     user: "0:0"
     volumes:

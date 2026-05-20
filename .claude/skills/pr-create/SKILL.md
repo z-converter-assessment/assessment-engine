@@ -33,6 +33,21 @@ template 의 placeholder 채우기 원칙:
 - "체크리스트" 는 본 PR 에서 실제 수행한 것만 `[x]`, 안 한 것은 `[ ]` 유지 (강제 체크 금지).
 - "관련 이슈" / "스크린샷" / "기타 참고" 빈 항목은 그대로 비워둠 또는 `-` (양식 보존).
 
+## Pre-check (PR 발행 직전 의무)
+
+CI 실패 + 이메일 폭탄 회피. PR 발행 직전 본 검증이 의무 — 누락 시 GitHub Actions runner 가 발견하는 비용 + 협업자 알림 noise.
+
+병렬 Bash 실행 (commit skill 의 0번 step 과 동일 + tests 추가):
+- `uv run ruff check .` — lint 위반 0 의무
+- `uv run ruff format --check .` — format drift 0 의무
+- `uv run pytest tests/unit -q` — 단위 테스트 통과 의무 (PR 시점은 사용자 confirm 없이 실행 — CI 가 어차피 실행할 검증을 미리)
+- `git diff origin/develop...HEAD --name-only` 결과가 다음 paths 포함 시 추가:
+  - `src/assessment_engine/db/models/` 또는 `migrations/` → `uv run alembic check`
+  - `pyproject.toml` 또는 `uv.lock` → `uv lock --check`
+  - integration test 영향 큰 경우 `uv run pytest tests/integration -q` 도 권유 (시간 길어 사용자 confirm 후만)
+
+실패 항목 있으면 PR 발행 차단 — 원인 수정 + 새 commit + 재시도. 사용자에게 옵션 제시.
+
 ## 사전 분석 (병렬 Bash)
 
 1. `git status` — 미커밋 변경 확인 (있으면 사용자에게 먼저 commit 권유)

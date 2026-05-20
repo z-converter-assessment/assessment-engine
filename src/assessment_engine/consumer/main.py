@@ -7,14 +7,14 @@ import aio_pika
 from aio_pika.abc import AbstractIncomingMessage
 from loguru import logger
 
-from assessment_engine.consumer.handler import (
+from assessment_engine.cache.redis import close_pool, get_redis
+from assessment_engine.consumer.handlers import (
     make_error_handler,
     make_inventory_handler,
     make_metrics_handler,
     make_task_result_handler,
 )
 from assessment_engine.consumer.settings import consumer_settings
-from assessment_engine.db.redis import close_pool, get_redis
 from assessment_engine.db.repositories.collect_repository import CollectRepository
 from assessment_engine.db.session import AsyncSessionLocal
 from assessment_engine.log_config import setup_logging
@@ -52,7 +52,8 @@ async def main() -> None:
 
     logger.info(
         "consumer starting collect_exchange={} task_exchange={}",
-        _COLLECT_EXCHANGE, _TASK_EXCHANGE,
+        _COLLECT_EXCHANGE,
+        _TASK_EXCHANGE,
     )
 
     redis = get_redis()
@@ -133,7 +134,11 @@ async def main() -> None:
                 await queue.consume(b.handler)
                 logger.info(
                     "consuming exchange={} queue={} routing_key={} ttl_ms={} max_len={}",
-                    b.exchange_name, b.queue_name, b.routing_key, b.ttl_ms, b.max_len,
+                    b.exchange_name,
+                    b.queue_name,
+                    b.routing_key,
+                    b.ttl_ms,
+                    b.max_len,
                 )
 
             await asyncio.Future()

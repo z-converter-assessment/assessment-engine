@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from assessment_engine.db.repositories.inbound import (
+from assessment_engine.db.dtos.inbound import (
     ServerInventoryCreate,
     ServerMetricCreate,
     TaskCreate,

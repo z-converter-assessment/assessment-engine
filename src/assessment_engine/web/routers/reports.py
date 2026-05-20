@@ -4,6 +4,7 @@
 - /reports/environment: 환경 단위 high-level 양식. /servers/report (server scope)와 별도 template.
 - /reports/history: AI 진단 이력과 분리된 보고서 발행 이력. job_type='customer_report'|'engineer_report'.
 """
+
 from datetime import datetime
 from typing import Literal
 from urllib.parse import quote
@@ -14,9 +15,9 @@ from loguru import logger
 from assessment_engine.db.repositories.base_diagnostic_repository import DiagnosticTimeRange
 from assessment_engine.web.deps import get_diagnostic_service, get_service
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
+from assessment_engine.web.services.mappers.report_history import to_report_history_item
 from assessment_engine.web.services.query_service import QueryService
-from assessment_engine.web.services.report_mapper import to_report_history_item
-from assessment_engine.web.template_setup import templates
+from assessment_engine.web.templating import templates
 
 reports_router = APIRouter(prefix="/reports", tags=["pages"])
 
@@ -87,10 +88,12 @@ async def history(
     request: Request,
     days: int = Query(90, ge=0, le=36500, description="최근 N일 (0 = 전체)"),
     view: Literal["all", "customer", "engineer"] = Query(
-        "all", description="양식 필터: 전체 / 고객 / 엔지니어",
+        "all",
+        description="양식 필터: 전체 / 고객 / 엔지니어",
     ),
     scope: Literal["all", "environment", "server"] = Query(
-        "all", description="범위 필터: 전체 / 환경 / 서버 1대",
+        "all",
+        description="범위 필터: 전체 / 환경 / 서버 1대",
     ),
     server_public_ids: list[str] | None = Query(
         None,
@@ -100,7 +103,11 @@ async def history(
 ):
     """보고서 발행 이력 — 운영자 회고용. created_at DESC. SSR 첫 20건. 추가는 /api/v1/reports/history."""
     records = await diag_service.list_reports(
-        days, view, server_public_ids, cursor=None, limit=_HISTORY_PAGE_LIMIT,
+        days,
+        view,
+        server_public_ids,
+        cursor=None,
+        limit=_HISTORY_PAGE_LIMIT,
         scope=None if scope == "all" else scope,
     )
     items = [to_report_history_item(r) for r in records]
@@ -149,7 +156,11 @@ async def history_json(
 ):
     """더보기 페이지네이션 — JS fetch + DOM append. items + next_cursor 반환."""
     records = await diag_service.list_reports(
-        days, view, server_public_ids, cursor=cursor, limit=_HISTORY_PAGE_LIMIT,
+        days,
+        view,
+        server_public_ids,
+        cursor=cursor,
+        limit=_HISTORY_PAGE_LIMIT,
         scope=None if scope == "all" else scope,
     )
     items = [to_report_history_item(r) for r in records]

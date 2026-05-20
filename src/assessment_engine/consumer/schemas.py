@@ -184,6 +184,7 @@ class TaskResultInput(MessageBase):
     본 메시지에서는 항상 null (수집 캐시와 분리된 worker 컨텍스트에서 발행) —
     부모 required 필드를 nullable로 override.
     """
+
     message_type: Literal["task.result"]
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None

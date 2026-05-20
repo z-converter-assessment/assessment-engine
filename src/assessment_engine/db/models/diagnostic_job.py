@@ -32,7 +32,9 @@ class DiagnosticJob(Base):
     __table_args__ = (
         Index(
             "uq_diagnostic_jobs_active_per_input",
-            "scope", "input_hash", "job_type",
+            "scope",
+            "input_hash",
+            "job_type",
             unique=True,
             postgresql_where=text("status IN ('pending', 'running')"),
         ),
@@ -44,7 +46,9 @@ class DiagnosticJob(Base):
         server_default=func.gen_random_uuid(),
     )
     job_type: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default="ai_diagnostic",
+        String(32),
+        nullable=False,
+        server_default="ai_diagnostic",
     )
     scope: Mapped[str] = mapped_column(String(32), nullable=False)
     input_params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
@@ -56,9 +60,7 @@ class DiagnosticJob(Base):
     result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     error_message: Mapped[str | None] = mapped_column(Text)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     requested_by: Mapped[str | None] = mapped_column(String(64))

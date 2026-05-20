@@ -5,7 +5,7 @@
 # 검사 카탈로그 (CLAUDE.md 단일 진실 위치):
 #   F1   .py    `from __future__ import annotations` 금지
 #   F11  .py    `print(` / `sys.stdout.write` 금지 (loguru 일관성)
-#   C3   .py    `safe_*` 미경유 redis 클라이언트 직접 호출 금지 (db/redis.py 본인 제외)
+#   C3   .py    `safe_*` 미경유 redis 클라이언트 직접 호출 금지 (cache/redis.py 본인 제외)
 #   글로벌 *  `**...**` markdown bold 금지
 #   글로벌 *  비키보드 unicode 기호·이모지 금지 (§ ↔ ↑↓ >= <= != X OK 등으로 대체)
 
@@ -61,11 +61,11 @@ if [[ "$FILE" == *.py ]]; then
   fi
 
   # C3: safe_* 미경유 redis 클라이언트 직접 호출 금지
-  # db/redis.py 본인은 제외 (safe_* helper 정의 위치).
-  if [[ "$FILE" != *"db/redis.py" ]]; then
+  # cache/redis.py 본인은 제외 (safe_* helper 정의 위치).
+  if [[ "$FILE" != *"cache/redis.py" ]]; then
     if grep -nE '\bredis\.(set|get|delete|publish|incr|exists|mget|expire|setnx|set_nx)\(' "$FILE" >/dev/null 2>&1; then
       MATCH=$(grep -nE '\bredis\.(set|get|delete|publish|incr|exists|mget|expire|setnx|set_nx)\(' "$FILE" | head -5)
-      VIOLATIONS+=$'\n'"[C3] direct redis client calls are forbidden — use safe_* helpers from db/redis.py (fail-open guarantee)."$'\n'"$MATCH"$'\n'
+      VIOLATIONS+=$'\n'"[C3] direct redis client calls are forbidden — use safe_* helpers from cache/redis.py (fail-open guarantee)."$'\n'"$MATCH"$'\n'
     fi
   fi
 fi

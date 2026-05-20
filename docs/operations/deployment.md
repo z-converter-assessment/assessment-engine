@@ -8,6 +8,12 @@
 
 artifact 카탈로그·생성 trigger·무결성 검증·다운로드 채널: `docs/operations/release.md` 단일 진실. 본 문서는 release artifact를 받은 상태를 전제로 install·실행 절차를 다룬다.
 
+운영자 선택권 (ADR 0017):
+- (A) wheel + venv + systemd unit — 본 문서 3절 기본 시나리오
+- (B) Docker image (GHCR) + docker compose 또는 k8s — 본 문서 4절 multi-node 분리 inject 예시 (image 패턴 동등)
+
+토폴로지 자율 — 양쪽 모두 동일 환경변수 contract (`docs/operations/env.md`) + Alembic migration 절차.
+
 ## 2. 사전 준비
 
 | 항목 | 필요 |
@@ -199,6 +205,78 @@ Ansible 표준 패턴과 정합:
 - secret 분포 최소 — 노드 침해 시 그 노드 키만 leak. 공통 키(DB·MQ)는 모든 노드에 있지만 컴포넌트 한정 키(LLM·DIAGNOSTIC·INSTALL_*)는 해당 노드만
 - prod 검증 (`_validate_prod_*`) 컴포넌트별 — web 노드는 `WebSettings`·`DiagnosticSettings` 인스턴스화, consumer 노드는 `ConsumerSettings`만. 노드가 안 쓰는 키 검증 skip
 - drift 차단 — 공통 키는 한 파일만 갱신, 모든 노드 자동 동기화. Ansible group_vars/host_vars로 자동화 친화
+
+### Docker image 패턴 (ADR 0017 — wheel 대안)
+
+운영자가 venv·systemd 대신 컨테이너 토폴로지 선택 시. 동일 환경변수 + Alembic migration 절차 — 다른 점은 단지 실행 매체.
+
+GHCR pull (외부망 또는 사내 mirror via `docker save`):
+```bash
+docker pull ghcr.io/zconverter/assessment-engine:v1.2.3
+cosign verify ghcr.io/zconverter/assessment-engine:v1.2.3 \
+  --certificate-identity-regexp='https://github\.com/zconverter/assessment-engine/.*' \
+  --certificate-oidc-issuer='https://token.actions.githubusercontent.com'
+```
+
+Alembic migration (1회):
+```bash
+docker run --rm --env-file /etc/assessment-engine.env \
+  --entrypoint /bin/sh ghcr.io/zconverter/assessment-engine:v1.2.3 \
+  -c 'ALEMBIC_INI=$(python -c "from importlib.resources import files; print(files(\"assessment_engine\") / \"_alembic.ini\")"); python -m alembic -c "$ALEMBIC_INI" upgrade head'
+```
+
+docker compose 운영 예시 (외부 인프라 작성 — 본 repo 두지 않음 ADR 0012):
+```yaml
+services:
+  web:
+    image: ghcr.io/zconverter/assessment-engine:0.1
+    env_file: /etc/assessment-engine.env
+    ports: ["8000:8000"]
+    restart: unless-stopped
+  consumer:
+    image: ghcr.io/zconverter/assessment-engine:0.1
+    env_file: /etc/assessment-engine.env
+    command: assessment_engine.consumer
+    restart: unless-stopped
+  diagnostic-worker:
+    image: ghcr.io/zconverter/assessment-engine:0.1
+    env_file: /etc/assessment-engine.env
+    command: assessment_engine.diagnostic
+    restart: unless-stopped
+  diagnostic-scheduler:
+    image: ghcr.io/zconverter/assessment-engine:0.1
+    env_file: /etc/assessment-engine.env
+    command: assessment_engine.diagnostic.scheduler
+    restart: unless-stopped
+```
+
+k8s Deployment (외부 인프라 — 본 repo 두지 않음):
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: consumer}
+spec:
+  replicas: 3   # consumer 수평 확장 (broker queue prefetch 분산)
+  template:
+    spec:
+      containers:
+        - name: consumer
+          image: ghcr.io/zconverter/assessment-engine:0.1.0
+          args: ["assessment_engine.consumer"]   # CMD override
+          envFrom:
+            - secretRef: {name: assessment-engine-env}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits:   {cpu: 1000m, memory: 1Gi}
+```
+
+수평 확장 정합:
+- web — replicas N 자유 (stateless HTTP)
+- consumer — replicas N 자유 (broker prefetch_count=10 분산)
+- diagnostic-worker — replicas N 자유 (job 단위 분산)
+- diagnostic-scheduler — replicas 1 singleton 의무 (cron 발화 중복 방지 — leader election 도구 필요 시 별도)
+
+폐쇄망 (air-gapped) 운영: `docker save assessment-engine:v1.2.3 -o image.tar` + scp → 운영 환경에서 `docker load -i image.tar` (ADR 0017 본문).
 
 ## 5. 운영 contract 한눈
 

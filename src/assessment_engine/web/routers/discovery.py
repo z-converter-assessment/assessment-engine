@@ -6,6 +6,7 @@
 한계: HTTP 도달 ≠ SSH 도달. 1차 필터일 뿐. 폐쇄망에서 HTTP 80/443은 보통 열려있어
 가벼운 도달성 검사로 적합. ICMP는 raw socket 권한 필요라 회피.
 """
+
 import re
 import time
 from ipaddress import ip_address
@@ -80,7 +81,10 @@ async def probe_http(req: ProbeRequest) -> ProbeResponse:
         elapsed_ms = int((time.monotonic() - started) * 1000)
         logger.info(
             "probe success target={} port={} status={} elapsed_ms={}",
-            req.target, req.port, resp.status_code, elapsed_ms,
+            req.target,
+            req.port,
+            resp.status_code,
+            elapsed_ms,
         )
         return ProbeResponse(reachable=True, status_code=resp.status_code, elapsed_ms=elapsed_ms)
     except httpx.ConnectError as e:

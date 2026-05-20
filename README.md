@@ -102,11 +102,15 @@
 
 ## 배포 산출물
 
+운영자 토폴로지 자율 선택 — wheel (systemd · venv) 또는 Docker image (docker · k8s) 어느 채널이든 즉시 사용 가능.
+
 | 산출물 | 위치 · 참고 문서 |
 |--------|--------------|
 | Python wheel + sdist + SHA256SUMS | GitHub Release (semver tag `v*`) · `docs/operations/release.md` |
+| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/{org}/assessment-engine:v*`+`:0.1`+`:0`+`:latest` · ADR 0017 |
 | SBOM (CycloneDX JSON) + Sigstore signature | wheel·sdist에 첨부 — 외부 인프라가 의존성 audit + `cosign verify-blob` 무결성 검증 |
-| Alembic migrations·alembic.ini | wheel 동봉 · `docs/operations/release.md` |
+| SBOM (SPDX, BuildKit attestation) + cosign keyless signature | image 첨부 — `cosign verify ghcr.io/.../assessment-engine:v0.1.0` 무결성 검증 |
+| Alembic migrations·alembic.ini | wheel·image 동봉 (`hatch.force-include`) · `docs/operations/release.md` |
 | 환경변수·secret contract | `docs/operations/env.md` |
 | systemd unit reference | `docs/operations/deployment.md` 4절 |
 | install·실행 절차 | `docs/operations/deployment.md` |

@@ -7,6 +7,7 @@ loguru sink 등록 — text(colorized·dev 친화) vs json(외부 log aggregator
 - web/main.py module top (FastAPI app 생성 전)
 - consumer/main.py · diagnostic/main.py · diagnostic/scheduler.py main() 시작점
 """
+
 import sys
 from typing import Literal
 

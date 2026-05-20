@@ -2,6 +2,7 @@
 
 책임: HTTP I/O 만. 비즈니스 로직(DB·broker publish·트랜잭션)은 TaskService / QueryService 에 위임 (F4).
 """
+
 import ipaddress
 import re
 from datetime import datetime
@@ -20,7 +21,7 @@ from assessment_engine.web.services.task_service import (
     TaskService,
 )
 from assessment_engine.web.settings import web_settings
-from assessment_engine.web.view_models import TaskDetailItem, TaskSummaryItem
+from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
 
 tasks_router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 

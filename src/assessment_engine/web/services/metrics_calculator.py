@@ -8,10 +8,11 @@
   2) boot_time 둘 다 NULL(옛 데이터)이면 d < 0 휴리스틱 fallback (CLAUDE.md B1)
 - 시점 값은 그대로 변환 (mem, swap, mount usage) — reset 무관
 """
+
 from collections.abc import Callable
 from datetime import datetime
 
-from assessment_engine.db.repositories.outbound import (
+from assessment_engine.db.dtos.outbound import (
     DashboardRaw,
     DiskIoRaw,
     MetricPairRaw,
@@ -24,8 +25,8 @@ from assessment_engine.web.services.device_filters import (
     is_physical_disk,
     is_virtual_mount,
 )
-from assessment_engine.web.services.units import bytes_to_gb, sector_to_kbps, usage_pct
-from assessment_engine.web.view_models import (
+from assessment_engine.web.services.unit_converter import bytes_to_gb, sector_to_kbps, usage_pct
+from assessment_engine.web.view_models.metric import (
     CpuSnapshot,
     DiskIoSnapshot,
     MemSnapshot,
@@ -36,6 +37,7 @@ from assessment_engine.web.view_models import (
 )
 
 # ─── 공통 helper ──────────────────────────────────────────────────────────
+
 
 def _group_by_dim[T](rows: list[T], key: Callable[[T], str]) -> dict[str, list[T]]:
     """raw 시계열 행을 dimension(device·interface 등)별로 묶는다."""
@@ -82,6 +84,7 @@ def _clip_to_remaining(raw_pct: float | None, remaining_room: float) -> float | 
 
 # ─── 진입점 ───────────────────────────────────────────────────────────────
 
+
 def build_dashboard(raw: DashboardRaw) -> MetricDashboard:
     cur = raw.metrics[0] if raw.metrics else None
     prev = raw.metrics[1] if len(raw.metrics) >= 2 else None
@@ -105,13 +108,13 @@ def build_dashboard(raw: DashboardRaw) -> MetricDashboard:
 
 # ─── CPU ──────────────────────────────────────────────────────────────────
 
+
 def compute_cpu(cur: MetricPairRaw | None, prev: MetricPairRaw | None) -> CpuSnapshot | None:
     if cur is None:
         return None
 
     def cpu_total(r: MetricPairRaw) -> int | None:
-        vals = [r.cpu_user, r.cpu_nice, r.cpu_system, r.cpu_idle,
-                r.cpu_iowait, r.cpu_irq, r.cpu_softirq, r.cpu_steal]
+        vals = [r.cpu_user, r.cpu_nice, r.cpu_system, r.cpu_idle, r.cpu_iowait, r.cpu_irq, r.cpu_softirq, r.cpu_steal]
         return None if any(v is None for v in vals) else sum(vals)  # type: ignore[arg-type]
 
     if prev is None:
@@ -145,6 +148,7 @@ def compute_cpu(cur: MetricPairRaw | None, prev: MetricPairRaw | None) -> CpuSna
 
 
 # ─── Memory / Swap (시점 값) ──────────────────────────────────────────────
+
 
 def compute_mem(cur: MetricPairRaw | None) -> MemSnapshot | None:
     if cur is None or cur.mem_total_kb is None:
@@ -190,6 +194,7 @@ def compute_swap(cur: MetricPairRaw | None) -> SwapSnapshot | None:
 
 # ─── Disk I/O / Net I/O — 누적 카운터 페어 → rate ─────────────────────────
 
+
 def compute_disk_io(
     pairs: list[DiskIoRaw],
 ) -> tuple[list[DiskIoSnapshot], list[DiskIoSnapshot], list[DiskIoSnapshot]]:
@@ -197,7 +202,7 @@ def compute_disk_io(
     by_device = _group_by_dim(pairs, key=lambda r: r.device)
 
     phys: list[DiskIoSnapshot] = []
-    lvm:  list[DiskIoSnapshot] = []
+    lvm: list[DiskIoSnapshot] = []
     part: list[DiskIoSnapshot] = []
 
     for device, rows in sorted(by_device.items()):
@@ -214,17 +219,14 @@ def compute_disk_io(
 
 def _disk_io_snapshot(device: str, rows: list[DiskIoRaw]) -> DiskIoSnapshot:
     if len(rows) < 2:
-        return DiskIoSnapshot(device=device, read_iops=None, write_iops=None,
-                              read_kbps=None, write_kbps=None)
+        return DiskIoSnapshot(device=device, read_iops=None, write_iops=None, read_kbps=None, write_kbps=None)
     cur, prev = rows[0], rows[1]
     dt = (cur.collected_at - prev.collected_at).total_seconds()
     if dt <= 0:
-        return DiskIoSnapshot(device=device, read_iops=None, write_iops=None,
-                              read_kbps=None, write_kbps=None)
+        return DiskIoSnapshot(device=device, read_iops=None, write_iops=None, read_kbps=None, write_kbps=None)
     # 시스템 재부팅 → /proc/diskstats 카운터 리셋 → delta 무의미.
     if _is_counter_reset(cur.boot_time, prev.boot_time):
-        return DiskIoSnapshot(device=device, read_iops=None, write_iops=None,
-                              read_kbps=None, write_kbps=None)
+        return DiskIoSnapshot(device=device, read_iops=None, write_iops=None, read_kbps=None, write_kbps=None)
     return DiskIoSnapshot(
         device=device,
         read_iops=_delta_rate(cur.reads_completed, prev.reads_completed, dt),
@@ -241,17 +243,14 @@ def compute_net_io(pairs: list[NetIoRaw]) -> list[NetIoSnapshot]:
 
 def _net_io_snapshot(iface: str, rows: list[NetIoRaw]) -> NetIoSnapshot:
     if len(rows) < 2:
-        return NetIoSnapshot(interface=iface, rx_kbps=None, tx_kbps=None,
-                             rx_pps=None, tx_pps=None)
+        return NetIoSnapshot(interface=iface, rx_kbps=None, tx_kbps=None, rx_pps=None, tx_pps=None)
     cur, prev = rows[0], rows[1]
     dt = (cur.collected_at - prev.collected_at).total_seconds()
     if dt <= 0:
-        return NetIoSnapshot(interface=iface, rx_kbps=None, tx_kbps=None,
-                             rx_pps=None, tx_pps=None)
+        return NetIoSnapshot(interface=iface, rx_kbps=None, tx_kbps=None, rx_pps=None, tx_pps=None)
     # 시스템 재부팅 → /proc/net/dev 카운터 리셋 → delta 무의미.
     if _is_counter_reset(cur.boot_time, prev.boot_time):
-        return NetIoSnapshot(interface=iface, rx_kbps=None, tx_kbps=None,
-                             rx_pps=None, tx_pps=None)
+        return NetIoSnapshot(interface=iface, rx_kbps=None, tx_kbps=None, rx_pps=None, tx_pps=None)
 
     def brate(c: int, p: int) -> float | None:
         d = c - p
@@ -268,17 +267,20 @@ def _net_io_snapshot(iface: str, rows: list[NetIoRaw]) -> NetIoSnapshot:
 
 # ─── Mount usage (시점 값 + 가상 마운트 필터) ─────────────────────────────
 
+
 def compute_mounts(mounts: list[MountUsageRaw]) -> list[MountDashSnapshot]:
     result: list[MountDashSnapshot] = []
     for m in sorted(mounts, key=lambda x: x.mount):
         if is_virtual_mount(None, m.mount):
             continue
         used_bytes = (m.total_bytes - m.avail_bytes) if (m.total_bytes and m.avail_bytes is not None) else None
-        result.append(MountDashSnapshot(
-            mount=m.mount,
-            total_gb=bytes_to_gb(m.total_bytes),
-            used_gb=bytes_to_gb(used_bytes),
-            avail_gb=bytes_to_gb(m.avail_bytes),
-            usage_pct=usage_pct(used_bytes, m.total_bytes),
-        ))
+        result.append(
+            MountDashSnapshot(
+                mount=m.mount,
+                total_gb=bytes_to_gb(m.total_bytes),
+                used_gb=bytes_to_gb(used_bytes),
+                avail_gb=bytes_to_gb(m.avail_bytes),
+                usage_pct=usage_pct(used_bytes, m.total_bytes),
+            )
+        )
     return result

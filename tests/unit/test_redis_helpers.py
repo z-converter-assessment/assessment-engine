@@ -7,12 +7,13 @@
 - safe_set_nx: True/False/None — None은 호출자(_check_idempotent)가 fail-open 판단
 - safe_mget: keys=[]면 redis 호출 없이 즉시 [] (short-circuit)
 """
+
 from unittest.mock import AsyncMock
 
 import pytest
 from redis.exceptions import RedisError
 
-from assessment_engine.db.redis import (
+from assessment_engine.cache.redis import (
     safe_delete,
     safe_get,
     safe_mget,
@@ -25,6 +26,7 @@ pytestmark = pytest.mark.asyncio
 
 
 # ─── safe_get ─────────────────────────────────────────────────────────────
+
 
 async def test_safe_get_returns_value_on_hit():
     redis = AsyncMock()
@@ -48,6 +50,7 @@ async def test_safe_get_returns_none_on_redis_error():
 
 # ─── safe_set ─────────────────────────────────────────────────────────────
 
+
 async def test_safe_set_returns_true_on_success():
     redis = AsyncMock()
     assert await safe_set(redis, "k", "v", ex=60) is True
@@ -61,6 +64,7 @@ async def test_safe_set_returns_false_on_redis_error():
 
 
 # ─── safe_set_nx — 멱등성 1단, fail-open은 호출자 결정 ─────────────────────
+
 
 async def test_safe_set_nx_returns_true_on_first_write():
     redis = AsyncMock()
@@ -84,6 +88,7 @@ async def test_safe_set_nx_returns_none_on_redis_error_for_failopen_decision():
 
 # ─── safe_delete ──────────────────────────────────────────────────────────
 
+
 async def test_safe_delete_success():
     redis = AsyncMock()
     assert await safe_delete(redis, "k") is True
@@ -96,6 +101,7 @@ async def test_safe_delete_failopen():
 
 
 # ─── safe_mget ────────────────────────────────────────────────────────────
+
 
 async def test_safe_mget_empty_keys_short_circuit():
     """keys=[]면 redis 호출 없이 즉시 [] — 라운드트립 절감."""
@@ -119,6 +125,7 @@ async def test_safe_mget_returns_none_on_redis_error_for_fallback():
 
 
 # ─── safe_publish ─────────────────────────────────────────────────────────
+
 
 async def test_safe_publish_success():
     redis = AsyncMock()

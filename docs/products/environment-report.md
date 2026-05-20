@@ -173,6 +173,6 @@ over-provisioned 5대, under-provisioned 2대, idle 0대, optimal 16대.
 - `src/assessment_engine/diagnostic/scheduler.py` — 스케줄러 흐름 (매일 03시)
 - `src/assessment_engine/diagnostic/llm/mock.py::_environment_narrative` — 자연어 합성 템플릿
 - `src/assessment_engine/web/services/query_service.py::get_report` — KPI 집계 + view 분기
-- `src/assessment_engine/web/services/mappers.py::build_report_summary_bullets` — view 분기 시그널
+- `src/assessment_engine/web/services/mappers/report.py::build_report_summary_bullets` — view 분기 시그널
 - `src/assessment_engine/web/templates/reports/environment.html` — 환경 보고서 템플릿
 - `docs/products/server-report.md` — 서버 단위 산출물 (cross-reference)

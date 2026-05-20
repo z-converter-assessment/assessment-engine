@@ -26,7 +26,7 @@ ruff 위반(E501 line-too-long · F841 unused · I001 import 정렬 등)은 hook
 |------|----------|------|
 | F1 — `from __future__ import annotations` | `.py` | `conventions-check.sh` |
 | F7 — `print(` / `sys.stdout.write` | `.py` | `conventions-check.sh` |
-| C3 — `safe_*` 미경유 redis 클라이언트 직접 호출 (`redis.set/get/delete/publish/incr/exists/mget/expire/setnx`) | `.py` (`db/redis.py` 본인 제외) | `conventions-check.sh` |
+| C3 — `safe_*` 미경유 redis 클라이언트 직접 호출 (`redis.set/get/delete/publish/incr/exists/mget/expire/setnx`) | `.py` (`cache/redis.py` 본인 제외) | `conventions-check.sh` |
 | 글로벌 — markdown asterisk-pair bold (굵게 강조 문법) | 모든 파일 | `conventions-check.sh` |
 | 글로벌 — 비키보드 unicode 기호·이모지 (예시: 절기호, 양방향 화살표, 체크/엑스 표식, 부등호 기호, 가운뎃점 글머리표 등) | 모든 파일 | `conventions-check.sh` |
 

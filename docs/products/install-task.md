@@ -108,6 +108,6 @@ ZDM 패키지 contract:
 - `docs/architecture/rabbitmq.md` — exchange·queue·routing key 토폴로지
 - `src/assessment_engine/web/services/task_service.py` — Task 발행
 - `src/assessment_engine/web/routers/tasks.py` — POST /api/v1/tasks · GET 조회
-- `src/assessment_engine/consumer/handler.py` — task.result 핸들러 (6 컬럼 UPDATE)
+- `src/assessment_engine/consumer/handlers/` — task.result 핸들러 (6 컬럼 UPDATE)
 - `src/assessment_engine/web/static/js/pages/list.js` — list "최근 작업" column polling
 - `src/assessment_engine/web/templates/base.html` — task modal (stdout/stderr 확장)

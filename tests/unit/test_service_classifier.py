@@ -1,25 +1,30 @@
 """service_classifier.py — 서비스 카테고리 분류·포트 매핑."""
+
 import pytest
 
 from assessment_engine.web.services.service_classifier import classify, matched_ports
 
 # ─── classify ─────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("unit, expected", [
-    ("nginx.service", "web"),
-    ("nginx", "web"),                        # .service suffix 없어도
-    ("apache2.service", "web"),
-    ("postgresql.service", "db"),
-    ("postgresql@14-main.service", "db"),     # Debian/Ubuntu 변형 unit name (substring 매칭)
-    ("mariadb.service", "db"),
-    ("redis-server.service", "cache"),
-    ("rabbitmq-server.service", "mq"),
-    ("docker.service", "container"),
-    ("prometheus.service", "monitor"),
-    ("ssh.service", "unknown"),
-    ("foobar.service", "unknown"),
-    ("", "unknown"),
-])
+
+@pytest.mark.parametrize(
+    "unit, expected",
+    [
+        ("nginx.service", "web"),
+        ("nginx", "web"),  # .service suffix 없어도
+        ("apache2.service", "web"),
+        ("postgresql.service", "db"),
+        ("postgresql@14-main.service", "db"),  # Debian/Ubuntu 변형 unit name (substring 매칭)
+        ("mariadb.service", "db"),
+        ("redis-server.service", "cache"),
+        ("rabbitmq-server.service", "mq"),
+        ("docker.service", "container"),
+        ("prometheus.service", "monitor"),
+        ("ssh.service", "unknown"),
+        ("foobar.service", "unknown"),
+        ("", "unknown"),
+    ],
+)
 def test_classify(unit, expected):
     assert classify(unit) == expected
 
@@ -30,6 +35,7 @@ def test_classify_case_insensitive():
 
 
 # ─── matched_ports ────────────────────────────────────────────────────────
+
 
 def test_matched_ports_via_comm_match():
     """comm이 unit name을 포함하면 매칭."""

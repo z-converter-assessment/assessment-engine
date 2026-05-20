@@ -59,7 +59,7 @@ web·consumer·diagnostic 워커·스케줄러·migrate 모두 같은 이미지�
 |--------|---------|--------|
 | web | `python -m assessment_engine.web` | `src/assessment_engine/web/__main__.py` → uvicorn 기동 (override에서 reload) |
 | consumer | `python -m assessment_engine.consumer` | `src/assessment_engine/consumer/__main__.py` → `asyncio.run(consumer.main.main())` |
-| diagnostic-worker | `python -m assessment_engine.diagnostic.worker` | ADR 0004 — `diagnostic.request` 큐 소비, LLM 호출 |
+| diagnostic-worker | `python -m assessment_engine.diagnostic` | ADR 0004 — `diagnostic.request` 큐 소비, LLM 호출 |
 | diagnostic-scheduler | `python -m assessment_engine.diagnostic.scheduler` | ADR 0004 — 주기 진단 작업 enqueue |
 | migrate | `alembic upgrade head` | postgres healthy 후 1회 실행하고 종료 (`restart: "no"`). ADR 0005 |
 

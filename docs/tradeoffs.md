@@ -16,7 +16,7 @@
 
 ## T1. 멱등성: at-most-once + 2단 방어 (fail-open 1단)
 
-> 관련 코드: `src/assessment_engine/consumer/handler.py` `_check_idempotent`, `src/assessment_engine/db/redis.py` `safe_set_nx`, `src/assessment_engine/db/repositories/collect_repository.py` `insert_metric`
+> 관련 코드: `src/assessment_engine/consumer/handlers/` `_check_idempotent`, `src/assessment_engine/cache/redis.py` `safe_set_nx`, `src/assessment_engine/db/repositories/collect_repository.py` `insert_metric`
 >
 > 관련 문서: CLAUDE.md #D2, `docs/adr/0001-redis-decoupling.md`
 
@@ -49,7 +49,7 @@
 
 ## T2. 캐시 일관성: cache-aside (write-around)
 
-> 관련 코드: `src/assessment_engine/web/services/query_service.py` `get_latest_metric`, `src/assessment_engine/consumer/handler.py` metrics handler
+> 관련 코드: `src/assessment_engine/web/services/query_service.py` `get_latest_metric`, `src/assessment_engine/consumer/handlers/` metrics handler
 > 관련 문서: CLAUDE.md #D1
 
 선택
@@ -126,7 +126,7 @@
 
 ## T5. SSE 단일 채널 + 서버 측 필터링
 
-> 관련 코드: `src/assessment_engine/web/services/query_service.py` `stream_metrics_events`, `src/assessment_engine/consumer/handler.py` `redis.publish`
+> 관련 코드: `src/assessment_engine/web/services/query_service.py` `stream_metrics_events`, `src/assessment_engine/consumer/handlers/` `redis.publish`
 
 선택
 - 모든 SSE 클라이언트가 `metrics.events` 단일 채널 구독. 서버 측에서 `payload.server_id == subscribed_server_id`로 필터링.
@@ -188,7 +188,7 @@ broker 재기동 시 자동 회복
 - broker 죽음 → 에이전트 publish 실패 → 백오프 retry 시작 → broker 살아남 → 다음 retry 사이클에서 publish 성공 → `PUBLISH_RECOVERED` 알림 메시지 → 정상 운영 복구.
 - `systemctl restart assessment-agent` 불요.
 
-inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 주기 inventory 재발행 + 엔진 auto-register(`src/assessment_engine/consumer/handler.py`)로 해결.
+inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 주기 inventory 재발행 + 엔진 auto-register(`src/assessment_engine/consumer/handlers/`)로 해결.
 
 남은 한계
 - broker 영구 down 시 에이전트는 백오프 상한(60s) 간격으로 영원히 재시도 — 정상 동작이나 로그·CPU 미세 부담.
@@ -197,7 +197,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ## T8. ListServers ORM 부분 SELECT vs full row
 
-> 관련 코드: `src/assessment_engine/db/repositories/query_repository.py` `list_servers`
+> 관련 코드: `src/assessment_engine/db/repositories/query/server.py` `list_servers`
 
 선택
 - `select(ServerInventory.id, .public_id, .machine_id, ...)`로 11개 컬럼만 명시 SELECT. `mounts`/`listen_ports`/`kernel_version`/`boot_time`/`swap_total_kb`/`agent_version`/`last_seen_at`/`ip_internal`/`os_codename`/`cpu_model` 제외.
@@ -255,7 +255,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ## T10. ViewModel 비대화 vs 클라이언트 재계산 (P2 따름)
 
-> 관련 코드: `src/assessment_engine/web/view_models.py`, `src/assessment_engine/web/services/mappers.py`, `src/assessment_engine/web/services/metrics_calculator.py`
+> 관련 코드: `src/assessment_engine/web/view_models/`, `src/assessment_engine/web/services/mappers/`, `src/assessment_engine/web/services/metrics_calculator.py`
 > 관련 문서: CLAUDE.md #E1 P2 · #E3, `docs/architecture/web/view-models.md`
 
 선택
@@ -284,13 +284,13 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ## T11. 단일 Redis 인스턴스 — 캐시·멱등성·PubSub 한 통합 (fail-open)
 
-> 관련 코드: `src/assessment_engine/db/redis.py` `safe_*` helper, `src/assessment_engine/consumer/handler.py`, `src/assessment_engine/web/services/query_service.py`
+> 관련 코드: `src/assessment_engine/cache/redis.py` `safe_*` helper, `src/assessment_engine/consumer/handlers/`, `src/assessment_engine/web/services/query_service.py`
 > 관련 문서: `docs/architecture/redis.md`, `docs/adr/0001-redis-decoupling.md`
 
 선택
 - 한 Redis 인스턴스에서 5가지 역할 동시 처리: 캐시 / 온라인 TTL / 멱등성 / PUB/SUB / public_id 해석.
 - eviction 정책 `volatile-lru` (TTL 있는 키만 evict 대상).
-- 모든 Redis 호출은 `src/assessment_engine/db/redis.py`의 `safe_*` helper 경유 — fail-open 정책.
+- 모든 Redis 호출은 `src/assessment_engine/cache/redis.py`의 `safe_*` helper 경유 — fail-open 정책.
 - list 화면 online 표시는 `last_seen_at` 컬럼 fallback 보유.
 
 대안
@@ -365,7 +365,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 - `diagnostic_jobs.job_type` 컬럼 (`ai_diagnostic`/`customer_report`/`engineer_report`) — 보고서 생성도 본 테이블에 row 저장 (이력 보존).
 - 양식 분리:
   - server scope (`/servers/report?ids=...`): row 단위 상세, 양식 A/B (`servers/report.html`).
-  - environment scope (`/reports/environment`): high-level (KPI·USE Method 분류 도넛·Top N risk·OS 분포·view별 정성 요약, `reports/environment.html`). 전체 등록 서버 자동, `EnvironmentReportSummary` view_model + `environment_report_mapper`.
+  - environment scope (`/reports/environment`): high-level (KPI·USE Method 분류 도넛·Top N risk·OS 분포·view별 정성 요약, `reports/environment.html`). 전체 등록 서버 자동, `EnvironmentReportSummary` view_model + `mappers.environment_report`.
 - 두 라우터 모두 합성 직후 `record_report_emission` 호출 (best-effort, 응답 흐름 영향 없음).
 - AI 진단 이력 (`/diagnostics/history`) 과 보고서 이력 (`/reports/history`) 페이지 분리 — AI 진단 이력은 `job_type='ai_diagnostic'` 자동 필터, 보고서 이력은 customer + engineer union + view 필터 select. 서버 목록에서 진입점 둘 다 지원 (선택 N대 버튼 + 환경 카드 link).
 - 환경 scope 진단 결과 페이지 (`/diagnostics?ids=X`) 는 같은 페이지 안 3 view tab (AI 분석/고객 보고서/엔지니어 보고서). 고객·엔지니어 view 는 `<iframe src="/reports/environment?view=...">` SSR 미리 렌더 + JS `display` toggle.

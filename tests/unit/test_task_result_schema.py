@@ -7,6 +7,7 @@
 - 알려지지 않은 failure_reason 도 max_length 만 강제 (silent pass)
 - 4 ERROR 회귀 (D1·D2·D4·D5) 가드 — 옛 형식("task_result" / "failed" / "task_public_id" / boot_time required) 거부
 """
+
 import json
 from datetime import UTC, datetime
 
@@ -81,6 +82,7 @@ def test_boot_time_value_also_allowed() -> None:
 
 
 # ─── ADR 0007 4 ERROR 회귀 가드 ────────────────────────────────────────────
+
 
 def test_legacy_message_type_underscore_rejected() -> None:
     """D2 — 옛 'task_result' (underscore) 페이로드는 거부."""

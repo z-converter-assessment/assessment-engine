@@ -16,7 +16,7 @@ src/assessment_engine/diagnostic/
     └── mock.py     - MockLlmClient (deterministic 텍스트 합성)
 ```
 
-웹 측 연동: `web/services/diagnostic_service.py` (job 발행·캐시·publish), `web/services/diagnostic_mapper.py` (표시 파생 단일 진실 — P2), `web/routers/diagnostics.py` (POST/GET API), `web/routers/diagnostic_results.py` (결과/이력 SSR), `web/routers/pages.py` (server detail·report SSR 카드 — `to_panel_payload`).
+웹 측 연동: `web/services/diagnostic_service.py` (job 발행·캐시·publish), `web/services/mappers/diagnostic.py` (표시 파생 단일 진실 — P2), `web/routers/diagnostics.py` (POST/GET API), `web/routers/diagnostic_results.py` (결과/이력 SSR), `web/routers/pages/` (server detail·report SSR 카드 — `to_panel_payload`).
 
 ## main.py — 워커 entry
 
@@ -69,7 +69,7 @@ message.process(requeue=False) 컨텍스트
   단계 4 — succeeded:        finalize(result, finished_at=now()) -> commit -> Redis SET
 ```
 
-stage 라벨 단일 진실은 `web/services/diagnostic_mapper._PROGRESS_LABEL_KR` + `db/repositories/base_diagnostic_repository.CLASSIFICATION_LABEL_KR` (분류 라벨 — mapper + mock LLM narrative 양쪽 공용). router·SSR·JSON API·결과 페이지·이력 페이지가 모두 본 mapper view를 사용한다 (P2·P3·P5).
+stage 라벨 단일 진실은 `web/services/mappers/diagnostic._PROGRESS_LABEL_KR` + `db/repositories/base_diagnostic_repository.CLASSIFICATION_LABEL_KR` (분류 라벨 — mapper + mock LLM narrative 양쪽 공용). router·SSR·JSON API·결과 페이지·이력 페이지가 모두 본 mapper view를 사용한다 (P2·P3·P5).
 
 실패 매트릭스 (handler.py except 분기):
 
@@ -171,6 +171,6 @@ docker compose exec postgres psql -U assessment -d assessment -c "SELECT status,
 - ADR 0004 — 채택 결정·옵션 비교 (단일 진실)
 - ADR 0003 — AI/LLM 활용 로드맵 (Phase 2~3 — 임계값·방법론·LLM 모델)
 - `docs/architecture/consumer.md` — 워커 구현 시 참조 패턴 (F4·D2·C3 공유)
-- `docs/architecture/web/services.md` — `diagnostic_service.py`·`diagnostic_mapper.py` 책임 분리
+- `docs/architecture/web/services.md` — `diagnostic_service.py`·`mappers/diagnostic.py` 책임 분리
 - `docs/operations/alembic.md` — `diagnostic_jobs` 마이그레이션 절차
 - `.claude/CLAUDE.md` #B·#C1·#D2·#F4·#F6 — 결정·금지 사항 단일 진실

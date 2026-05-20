@@ -5,14 +5,15 @@
 
 라우터는 pages_router(prefix=`/servers`)와 별개 — `/diagnostics`로 독립.
 """
+
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from assessment_engine.web.deps import get_diagnostic_service
-from assessment_engine.web.services.diagnostic_mapper import to_history_item
 from assessment_engine.web.services.diagnostic_service import DiagnosticService, to_panel_payload
-from assessment_engine.web.template_setup import templates
+from assessment_engine.web.services.mappers.diagnostic import to_history_item
+from assessment_engine.web.templating import templates
 
 diagnostic_results_router = APIRouter(prefix="/diagnostics", tags=["pages"])
 
@@ -68,8 +69,7 @@ async def history(
     server_public_ids: list[str] | None = Query(
         None,
         description=(
-            "server scope 이력을 특정 서버들로 필터 (반복 query param 또는 단일)."
-            " 1대=단일 link, 다중=multi-select 진입"
+            "server scope 이력을 특정 서버들로 필터 (반복 query param 또는 단일). 1대=단일 link, 다중=multi-select 진입"
         ),
     ),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
@@ -81,7 +81,10 @@ async def history(
     """
     scope_filter = None if scope == "all" else scope
     records = await diag_service.list_recent(
-        days, scope_filter, server_public_ids, job_type="ai_diagnostic",
+        days,
+        scope_filter,
+        server_public_ids,
+        job_type="ai_diagnostic",
     )
     items = [to_history_item(r) for r in records]
     return templates.TemplateResponse(

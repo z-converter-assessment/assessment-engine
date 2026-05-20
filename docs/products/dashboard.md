@@ -76,7 +76,7 @@ list에서 N대 선택 → 다음 4 액션 활성화:
 활용률 임계 60·80%:
 - UI badge "warn"(노랑)·"danger"(빨강) 두 단계로 시각 구분
 - 60% 미만은 정상 녹색·여유. 60%+ 노랑 주의·80%+ 빨강 위험
-- `_USAGE_WARN_PCT=75`·`_USAGE_DANGER_PCT=90`이 코드 단일 진실 (`mappers.py`). 대시보드는 그 표현
+- `_USAGE_WARN_PCT=75`·`_USAGE_DANGER_PCT=90`이 코드 단일 진실 (`web/services/mappers/shared.py`). 대시보드는 그 표현
 - 다만 환경 평균은 60·80% (서버 단위 임계와 다른 도메인 — 환경 평균이 80%면 매우 위험)
 
 평가 윈도우 14일:
@@ -112,7 +112,7 @@ prov 분포 도넛 3 카테고리:
 - `docs/architecture/web/static-assets.md` — list.js·차트 P4 규약
 - `docs/products/{environment-report,server-report}.md` — 보고서 + 진단 통합 산출물 (scope별)
 - `docs/products/install-task.md` — "최근 작업" column source
-- `src/assessment_engine/web/routers/pages.py::list_servers` — 라우터
+- `src/assessment_engine/web/routers/pages/::list_servers` — 라우터
 - `src/assessment_engine/web/templates/servers/list.html` — 메인 템플릿
 - `src/assessment_engine/web/static/js/pages/list.js` — selection·polling·toast
 - CLAUDE.md #E1·#E2·#E3·#E8 — 표시 계층 원칙·데이터 흐름·임계 색 단일 진실

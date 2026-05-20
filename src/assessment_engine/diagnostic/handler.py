@@ -3,6 +3,7 @@
 단계 흐름: extracting_stats → applying_rules → generating_narrative → succeeded.
 각 단계 UPDATE 후 commit + Redis polling 캐시 SET. 폴링은 Redis 우선, miss 시 DB.
 """
+
 import asyncio
 import dataclasses
 import json
@@ -15,12 +16,12 @@ from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from assessment_engine.db.redis import safe_set, safe_set_nx
+from assessment_engine.cache.redis import safe_set, safe_set_nx
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_RANGE_DAYS,
     BaseDiagnosticRepository,
 )
-from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
+from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
 from assessment_engine.diagnostic import aggregator
 from assessment_engine.diagnostic.llm.base import BaseLlmClient
 from assessment_engine.diagnostic.settings import diagnostic_settings
@@ -43,8 +44,12 @@ def make_diagnostic_handler(
             except (json.JSONDecodeError, KeyError) as e:
                 # 메시지 자체 결함 — silent ack + 로그 (DLQ 보낼 가치 X, 운영자 개입 의미 없음).
                 # #F8 — body raw dump 금지. message_id·길이·예외 타입만 로깅.
-                logger.error("invalid diagnostic message message_id={} body_size={} err_type={}",
-                             message.message_id, len(message.body or b""), type(e).__name__)
+                logger.error(
+                    "invalid diagnostic message message_id={} body_size={} err_type={}",
+                    message.message_id,
+                    len(message.body or b""),
+                    type(e).__name__,
+                )
                 return
 
             # 멱등성 1단 (fail-open) — 동일 message_id 중복 전송 차단. Redis 장애 시 통과.
@@ -56,8 +61,7 @@ def make_diagnostic_handler(
                 diagnostic_settings.redis_ttl_idempotent,
             )
             if ok is False:
-                logger.info("duplicate diagnostic message dropped job_id={} message_id={}",
-                            job_id, message_id)
+                logger.info("duplicate diagnostic message dropped job_id={} message_id={}", job_id, message_id)
                 return
 
             async with session_factory() as session:
@@ -93,7 +97,10 @@ def make_diagnostic_handler(
                         )
                     else:
                         payload = await aggregator.extract_environment(
-                            query_repo, period_days, end, time_range,
+                            query_repo,
+                            period_days,
+                            end,
+                            time_range,
                         )
 
                     # 단계 2 — 룰 분류 (aggregator 안에 classify·top_actions 이미 포함, stage 신호만)
@@ -124,7 +131,9 @@ def make_diagnostic_handler(
                     # LLM 호출 timeout — 비즈니스 실패로 흡수, status='failed' 마킹. DLQ 재시도 없음.
                     logger.warning(
                         "diagnostic llm timeout job_id={} scope={} timeout_s={}",
-                        job_id, job.scope, diagnostic_settings.llm_timeout_seconds,
+                        job_id,
+                        job.scope,
+                        diagnostic_settings.llm_timeout_seconds,
                     )
                     await diag_repo.mark_failed(job_id, "llm_timeout")
                     await session.commit()
@@ -152,12 +161,12 @@ async def _publish_progress(redis: Redis, diag_repo: BaseDiagnosticRepository, j
     await safe_set(
         redis,
         diagnostic_settings.redis_key_diagnostic_progress.format(job_id),
-        _serialize(record),
+        _to_cache_blob(record),
         ex=diagnostic_settings.redis_ttl_diagnostic_progress,
     )
 
 
-def _serialize(record) -> str:
+def _to_cache_blob(record) -> str:
     """DiagnosticJobRecord → JSON 문자열. datetime은 ISO 8601 UTC (web service가 fromisoformat 복원)."""
     data = dataclasses.asdict(record)
     for key in ("created_at", "started_at", "finished_at"):

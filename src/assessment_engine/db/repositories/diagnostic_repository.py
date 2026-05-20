@@ -5,10 +5,10 @@ from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
+from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.db.models.diagnostic_job import DiagnosticJob
 from assessment_engine.db.repositories.base_diagnostic_repository import BaseDiagnosticRepository
-from assessment_engine.db.repositories.inbound import DiagnosticJobCreate
-from assessment_engine.db.repositories.outbound import DiagnosticJobRecord
 
 
 class DiagnosticRepository(BaseDiagnosticRepository):
@@ -40,7 +40,10 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         return result.scalar_one_or_none()
 
     async def get_active_by_hash(
-        self, scope: str, input_hash: str, job_type: str,
+        self,
+        scope: str,
+        input_hash: str,
+        job_type: str,
     ) -> str | None:
         stmt = (
             select(DiagnosticJob.id)
@@ -56,7 +59,9 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         return result.scalar_one_or_none()
 
     async def get_latest_succeeded(
-        self, scope: str, input_hash: str,
+        self,
+        scope: str,
+        input_hash: str,
     ) -> DiagnosticJobRecord | None:
         stmt = (
             select(DiagnosticJob)
@@ -70,7 +75,7 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         )
         result = await self.session.execute(stmt)
         row = result.scalar_one_or_none()
-        return _to_record(row) if row is not None else None
+        return _row_to_diagnostic_record(row) if row is not None else None
 
     async def get_many_latest_by_context_server(
         self,
@@ -95,7 +100,7 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         )
         result = await self.session.execute(stmt)
         rows = result.scalars().all()
-        return {row.input_params["server_public_id"]: _to_record(row) for row in rows}
+        return {row.input_params["server_public_id"]: _row_to_diagnostic_record(row) for row in rows}
 
     async def get_latest_by_context(
         self,
@@ -105,13 +110,10 @@ class DiagnosticRepository(BaseDiagnosticRepository):
     ) -> DiagnosticJobRecord | None:
         # JSONB 필드 매칭 — input_params['time_range'] + (server scope면 server_public_id).
         # input_hash 일치 안 봐도 됨 — anchor 달라도 같은 context는 latest 후보.
-        stmt = (
-            select(DiagnosticJob)
-            .where(
-                DiagnosticJob.scope == scope,
-                DiagnosticJob.status == "succeeded",
-                DiagnosticJob.input_params["time_range"].astext == time_range,
-            )
+        stmt = select(DiagnosticJob).where(
+            DiagnosticJob.scope == scope,
+            DiagnosticJob.status == "succeeded",
+            DiagnosticJob.input_params["time_range"].astext == time_range,
         )
         if scope == "server":
             stmt = stmt.where(
@@ -120,20 +122,20 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         stmt = stmt.order_by(DiagnosticJob.finished_at.desc()).limit(1)
         result = await self.session.execute(stmt)
         row = result.scalar_one_or_none()
-        return _to_record(row) if row is not None else None
+        return _row_to_diagnostic_record(row) if row is not None else None
 
     async def get_by_id(self, job_id: str) -> DiagnosticJobRecord | None:
         stmt = select(DiagnosticJob).where(DiagnosticJob.id == job_id)
         result = await self.session.execute(stmt)
         row = result.scalar_one_or_none()
-        return _to_record(row) if row is not None else None
+        return _row_to_diagnostic_record(row) if row is not None else None
 
     async def get_many_by_ids(self, job_ids: list[str]) -> list[DiagnosticJobRecord]:
         if not job_ids:
             return []
         stmt = select(DiagnosticJob).where(DiagnosticJob.id.in_(job_ids))
         result = await self.session.execute(stmt)
-        return [_to_record(row) for row in result.scalars().all()]
+        return [_row_to_diagnostic_record(row) for row in result.scalars().all()]
 
     async def mark_running(self, job_id: str, stage: str) -> None:
         stmt = (
@@ -144,11 +146,7 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         await self.session.execute(stmt)
 
     async def update_progress_stage(self, job_id: str, stage: str) -> None:
-        stmt = (
-            update(DiagnosticJob)
-            .where(DiagnosticJob.id == job_id)
-            .values(progress_stage=stage)
-        )
+        stmt = update(DiagnosticJob).where(DiagnosticJob.id == job_id).values(progress_stage=stage)
         await self.session.execute(stmt)
 
     async def mark_succeeded(self, job_id: str, result: dict) -> None:
@@ -178,7 +176,9 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         await self.session.execute(stmt)
 
     async def list_recent(
-        self, days: int, scope: str | None = None,
+        self,
+        days: int,
+        scope: str | None = None,
         server_public_ids: list[str] | None = None,
         job_type: str | None = None,
         limit: int = 200,
@@ -206,18 +206,15 @@ class DiagnosticRepository(BaseDiagnosticRepository):
             stmt = stmt.where(or_(single_match, multi_match))
         stmt = stmt.order_by(DiagnosticJob.created_at.desc()).limit(limit)
         result = await self.session.execute(stmt)
-        return [_to_record(row) for row in result.scalars().all()]
+        return [_row_to_diagnostic_record(row) for row in result.scalars().all()]
 
     async def delete_retention(self, older_than_days: int) -> int:
-        stmt = (
-            delete(DiagnosticJob)
-            .where(DiagnosticJob.finished_at < func.now() - timedelta(days=older_than_days))
-        )
+        stmt = delete(DiagnosticJob).where(DiagnosticJob.finished_at < func.now() - timedelta(days=older_than_days))
         result = await self.session.execute(stmt)
         return result.rowcount or 0
 
 
-def _to_record(row: DiagnosticJob) -> DiagnosticJobRecord:
+def _row_to_diagnostic_record(row: DiagnosticJob) -> DiagnosticJobRecord:
     return DiagnosticJobRecord(
         id=row.id,
         job_type=row.job_type,

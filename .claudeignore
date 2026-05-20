@@ -8,13 +8,19 @@
 .venv/
 __pycache__/
 *.pyc
+*.pyo
 .pytest_cache/
 .ruff_cache/
+.coverage
+coverage*.xml
+htmlcov/
 
-# 테스트 (CLAUDE.md #F9 — 리팩토링 중 실패 상태. 사용자 명시 요청 시에만 접근)
-tests/
-
-# 시크릿 (#F12 — Claude 응답·로그에 노출되면 영구)
+# 시크릿 (CLAUDE.md #F8 — Claude 응답·로그에 노출되면 영구)
 .env
-infra/agent.env
+dev/.env
+dev/agent.env
 secrets/
+
+# 빌드 산출물 (binary — Claude read 의미 0)
+dev/bin/assessment-agent
+dist/

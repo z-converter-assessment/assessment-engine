@@ -1,5 +1,5 @@
 from assessment_engine.consumer.schemas import InventoryInput, MetricsInput
-from assessment_engine.db.repositories.inbound import (
+from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
     MountUsageEntry,
     NetIoEntry,
@@ -8,7 +8,7 @@ from assessment_engine.db.repositories.inbound import (
 )
 
 
-def placeholder_inventory_from_metrics(data: MetricsInput) -> ServerInventoryCreate:
+def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
     """metrics 메시지로부터 최소 정보의 placeholder inventory 생성.
 
     auto-register 시나리오: server_inventory에 machine_id가 없는데 metrics가 들어왔을 때

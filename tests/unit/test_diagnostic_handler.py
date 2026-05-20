@@ -5,6 +5,7 @@
 - (ValueError, KeyError, IntegrityError) → mark_failed로 흡수 → message ack (사용자가 결과 페이지에서 인지)
 - 그 외 광범위 Exception은 catch 안 함 (의도되지 않은 예외는 그대로 raise → DLQ)
 """
+
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.exc import IntegrityError, OperationalError
 
-from assessment_engine.db.repositories.outbound import DiagnosticJobRecord
+from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.diagnostic.handler import make_diagnostic_handler
 
 
@@ -25,22 +26,30 @@ def _make_message(job_id: str = "j1", message_id: str = "m1"):
     @asynccontextmanager
     async def _process(requeue: bool = True):
         yield None
+
     msg.process = _process
     return msg
 
 
 def _make_pending_job(job_id: str = "j1") -> DiagnosticJobRecord:
     return DiagnosticJobRecord(
-        id=job_id, job_type="ai_diagnostic", scope="server",
+        id=job_id,
+        job_type="ai_diagnostic",
+        scope="server",
         input_params={
             "server_public_id": "uuid-x",
             "time_range": "14d",
             "anchor_at": "2026-05-12T00:00:00+00:00",
         },
-        input_hash="h", status="pending", progress_stage="queued",
-        result=None, error_message=None,
+        input_hash="h",
+        status="pending",
+        progress_stage="queued",
+        result=None,
+        error_message=None,
         created_at=datetime(2026, 5, 12, tzinfo=UTC),
-        started_at=None, finished_at=None, requested_by=None,
+        started_at=None,
+        finished_at=None,
+        requested_by=None,
     )
 
 
@@ -85,9 +94,7 @@ def _build_handler(stub_components):
 @patch("assessment_engine.diagnostic.handler.aggregator")
 async def test_handler_op_error_reraises_for_dlq(mock_agg, stub_components):
     """DB 일시 장애(OperationalError)는 reraise → message.process가 NACK → DLQ로."""
-    mock_agg.extract_server = AsyncMock(
-        side_effect=OperationalError("stmt", {}, Exception("connection lost"))
-    )
+    mock_agg.extract_server = AsyncMock(side_effect=OperationalError("stmt", {}, Exception("connection lost")))
     handler, diag_repo = _build_handler(stub_components)
     msg = _make_message()
     with pytest.raises(OperationalError):
@@ -128,9 +135,7 @@ async def test_handler_key_error_absorbs_as_failed(mock_agg, stub_components):
 @patch("assessment_engine.diagnostic.handler.aggregator")
 async def test_handler_integrity_error_absorbs_as_failed(mock_agg, stub_components):
     """DB UNIQUE 충돌(IntegrityError) → mark_failed 흡수 (영구 오류 = 재시도 의미 없음)."""
-    mock_agg.extract_server = AsyncMock(
-        side_effect=IntegrityError("stmt", {}, Exception("duplicate key"))
-    )
+    mock_agg.extract_server = AsyncMock(side_effect=IntegrityError("stmt", {}, Exception("duplicate key")))
     handler, diag_repo = _build_handler(stub_components)
     await handler(_make_message())
     diag_repo.mark_failed.assert_awaited_once()
@@ -158,6 +163,7 @@ async def test_handler_invalid_message_silent_ack(stub_components):
     @asynccontextmanager
     async def _process(requeue: bool = True):
         yield None
+
     bad_msg.process = _process
 
     await handler(bad_msg)  # reraise 없음
@@ -165,6 +171,7 @@ async def test_handler_invalid_message_silent_ack(stub_components):
 
 
 # ─── LLM timeout 분기 (#F6) — wait_for(timeout=llm_timeout_seconds) ────────
+
 
 @pytest.mark.asyncio
 @patch("assessment_engine.diagnostic.handler.safe_set_nx", new=AsyncMock(return_value=True))

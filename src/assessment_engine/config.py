@@ -50,12 +50,12 @@ class WebSettings(BaseSettings):
     sqlalchemy_echo: bool = False
 
     # TTL (seconds)
-    redis_ttl_idempotent: int = 86400          # 24h — 재발행 메시지 중복 차단
-    redis_ttl_online: int = 300                 # 5min — 오프라인 판단. 운영 신호 "통신 끊김" 임계(gap_minutes=5) 와 단일 진실.
-    redis_ttl_token: int = 3600                 # 1h  — 인증 토큰
-    redis_ttl_last_agent_start: int = 86400     # 24h — 직전 agent_started_at 캐시 (재시작 감지용)
-    redis_ttl_agent_restarts: int = 3600        # 1h  — 슬라이딩 윈도우 카운터
-    redis_ttl_time_invariant_warned: int = 3600 # 1h  — 시계 invariant 위반 로그 쿨다운 (스팸 방지)
+    redis_ttl_idempotent: int = 86400  # 24h — 재발행 메시지 중복 차단
+    redis_ttl_online: int = 300  # 5min — 오프라인 판단. 운영 신호 "통신 끊김" 임계(gap_minutes=5) 와 단일 진실.
+    redis_ttl_token: int = 3600  # 1h  — 인증 토큰
+    redis_ttl_last_agent_start: int = 86400  # 24h — 직전 agent_started_at 캐시 (재시작 감지용)
+    redis_ttl_agent_restarts: int = 3600  # 1h  — 슬라이딩 윈도우 카운터
+    redis_ttl_time_invariant_warned: int = 3600  # 1h  — 시계 invariant 위반 로그 쿨다운 (스팸 방지)
 
     # Key prefixes
     redis_key_cache_inventory: str = "cache:inventory:{}"
@@ -89,8 +89,8 @@ class WebSettings(BaseSettings):
     zdm_meta_connect_timeout_sec: float = 5.0
     zdm_meta_total_timeout_sec: float = 120.0
     # ETag 기반 cache TTL — ETag 자체가 invalidation 이라 길게 잡아도 안전.
-    redis_key_zdm_package_sha256: str = "cache:zdm_package:sha256:{}:{}"   # {host}:{etag}
-    redis_ttl_zdm_package_sha256: int = 6 * 60 * 60                       # 6h
+    redis_key_zdm_package_sha256: str = "cache:zdm_package:sha256:{}:{}"  # {host}:{etag}
+    redis_ttl_zdm_package_sha256: int = 6 * 60 * 60  # 6h
     install_timeout_sec: int = 600  # install.sh wall-clock timeout (원격 host worker 강제 종료)
 
     @property
@@ -125,17 +125,15 @@ class WebSettings(BaseSettings):
             )
         if self.zdm_default_user == _ZDM_DEV_DEFAULT_USER:
             raise ValueError(
-                "ZDM_DEFAULT_USER is unset or uses the dev default in prod. "
-                "Set the customer site's ZDM admin account."
+                "ZDM_DEFAULT_USER is unset or uses the dev default in prod. Set the customer site's ZDM admin account."
             )
         return self
 
 
 class ConsumerSettings(WebSettings):
-
     rabbitmq_host: str = "rabbitmq"
     rabbitmq_port: int = 5672
-    rabbitmq_vhost: str = "/assessment"   # 에이전트가 발행하는 전용 vhost
+    rabbitmq_vhost: str = "/assessment"  # 에이전트가 발행하는 전용 vhost
     rabbitmq_user: str = "assessment"
     rabbitmq_password: SecretStr = SecretStr("assessment")
     rabbitmq_exchange: str = "assessment"
@@ -182,6 +180,7 @@ class DiagnosticSettings(ConsumerSettings):
 
     ConsumerSettings 상속 — broker_url·prod secret 검증 그대로 활용. 진단 워크플로 고유 필드만 추가.
     """
+
     # AI 진단 일시 비활성 flag — 기본 비활성 (운영자 명시 활성 시 True override).
     # False 시: web POST /api/v1/diagnostics 503 reject + scheduler cron 발화 no-op.
     # 모달 UI는 그대로 (사용자 트리거는 503으로 명시), worker process 는 큐 비어 idle.
@@ -189,26 +188,26 @@ class DiagnosticSettings(ConsumerSettings):
 
     # routing key + TTL (모두 RabbitMQ broker — 큐 인자 변경 시 broker 재선언 의무)
     diagnostic_routing_key: str = "diagnostic.request"
-    diagnostic_queue_ttl_ms: int = 24 * 60 * 60 * 1000   # 24h — pending job 처리 못 하면 DLQ
+    diagnostic_queue_ttl_ms: int = 24 * 60 * 60 * 1000  # 24h — pending job 처리 못 하면 DLQ
     diagnostic_queue_max_len: int = 100_000
 
     # retention
     diagnostic_retention_days: int = 90
 
     # Redis polling 캐시 (워커가 각 단계 후 SET, web polling이 우선 read)
-    redis_key_diagnostic_progress: str = "diagnostic:job:{}"   # {job_id}
+    redis_key_diagnostic_progress: str = "diagnostic:job:{}"  # {job_id}
     redis_ttl_diagnostic_progress: int = 3600
 
     # 스케줄러
-    diagnostic_schedule_cron: str = "0 3 * * *"          # 매일 03시 KST
-    diagnostic_active_server_window_hours: int = 24      # last_seen_at 기준 활성 서버 정의
+    diagnostic_schedule_cron: str = "0 3 * * *"  # 매일 03시 KST
+    diagnostic_active_server_window_hours: int = 24  # last_seen_at 기준 활성 서버 정의
 
     # LLM — 과금 발생 외부 API 호출 금지 (운영자 정책). 외부 API 도입은 별도 ADR 정정.
     llm_provider: Literal["mock", "ollama"] = "mock"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
     llm_timeout_seconds: int = 60
-    llm_mock_latency_seconds: float = 2.0                # mock latency 시뮬레이션 (UI progress 단계 확인용)
+    llm_mock_latency_seconds: float = 2.0  # mock latency 시뮬레이션 (UI progress 단계 확인용)
 
     # 워커 단계별 timeout cap (단일 진단 1건 전체) — 클라이언트 polling timeout(5분)과 정렬
     worker_job_timeout_seconds: int = 300

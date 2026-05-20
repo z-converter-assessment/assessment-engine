@@ -29,7 +29,7 @@
 | `ReportSummary` | `query_service.get_report` — `rows: list[ReportRowItem]` + KPI 집계 (`total`/`online`/`over`/`under`) |
 | `MetricSeriesItem` | `to_metric_series_item` — chart API 응답 |
 
-`InventoryExportEntry`는 `db/repositories/outbound.py` (vendor 중립 vendor JSON 응답 — ViewModel 아님). `to_inventory_export_entry`가 변환.
+`InventoryExportEntry`는 `db/dtos/outbound.py` (vendor 중립 vendor JSON 응답 — ViewModel 아님). `to_inventory_export_entry`가 변환.
 
 ## 목록 화면 상단 요약 (list.html)
 

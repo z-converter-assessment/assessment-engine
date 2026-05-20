@@ -4,6 +4,7 @@
 
 multi-node 분리 시 consumer 노드만 본 module을 import — LLM_*·DIAGNOSTIC_* 검증 skip.
 """
+
 from assessment_engine.config import ConsumerSettings
 
 consumer_settings = ConsumerSettings()

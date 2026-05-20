@@ -5,9 +5,10 @@
 - 파라미터로 일부 필드만 override
 - factory_boy의 SubFactory/LazyAttribute 같은 추상화는 과도
 """
+
 from datetime import UTC, datetime
 
-from assessment_engine.db.repositories.inbound import (
+from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
     MountUsageEntry,
     NetIoEntry,
@@ -15,7 +16,7 @@ from assessment_engine.db.repositories.inbound import (
     ServerMetricCreate,
     TaskResultUpdate,
 )
-from assessment_engine.db.repositories.outbound import TaskRow
+from assessment_engine.db.dtos.outbound import TaskRow
 
 _DEFAULT_BOOT_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 _DEFAULT_AGENT_STARTED_AT = datetime(2026, 1, 1, 0, 5, tzinfo=UTC)
@@ -54,10 +55,14 @@ def make_inventory(
         agent_started_at=agent_started_at,
         ip_internal=["10.0.0.1"],
         ip_external=None,
-        disks=disks if disks is not None else [
+        disks=disks
+        if disks is not None
+        else [
             {"name": "sda", "size_bytes": 100 * 10**9, "type": "disk", "major": 8, "minor": 0},
         ],
-        mounts=mounts if mounts is not None else [
+        mounts=mounts
+        if mounts is not None
+        else [
             {"mount": "/", "fstype": "ext4", "total_bytes": 50 * 10**9, "major": 8, "minor": 1},
         ],
         services=services,
@@ -97,24 +102,48 @@ def make_metrics(
         collected_at=collected_at,
         boot_time=boot_time,
         agent_started_at=agent_started_at,
-        cpu_user=cpu_user, cpu_nice=cpu_nice, cpu_system=cpu_system,
-        cpu_idle=cpu_idle, cpu_iowait=cpu_iowait, cpu_irq=cpu_irq,
-        cpu_softirq=cpu_softirq, cpu_steal=cpu_steal,
-        mem_total_kb=mem_total_kb, mem_free_kb=mem_free_kb,
-        mem_available_kb=mem_available_kb, mem_buffers_kb=mem_buffers_kb,
-        mem_cached_kb=mem_cached_kb, swap_total_kb=swap_total_kb, swap_free_kb=swap_free_kb,
-        load_1m=load_1m, load_5m=load_5m, load_15m=load_15m,
-        disk_io=disk_io if disk_io is not None else [
-            DiskIoEntry(device="sda", reads_completed=100, writes_completed=50,
-                        sectors_read=2000, sectors_written=1000),
+        cpu_user=cpu_user,
+        cpu_nice=cpu_nice,
+        cpu_system=cpu_system,
+        cpu_idle=cpu_idle,
+        cpu_iowait=cpu_iowait,
+        cpu_irq=cpu_irq,
+        cpu_softirq=cpu_softirq,
+        cpu_steal=cpu_steal,
+        mem_total_kb=mem_total_kb,
+        mem_free_kb=mem_free_kb,
+        mem_available_kb=mem_available_kb,
+        mem_buffers_kb=mem_buffers_kb,
+        mem_cached_kb=mem_cached_kb,
+        swap_total_kb=swap_total_kb,
+        swap_free_kb=swap_free_kb,
+        load_1m=load_1m,
+        load_5m=load_5m,
+        load_15m=load_15m,
+        disk_io=disk_io
+        if disk_io is not None
+        else [
+            DiskIoEntry(
+                device="sda", reads_completed=100, writes_completed=50, sectors_read=2000, sectors_written=1000
+            ),
         ],
-        mounts=mounts if mounts is not None else [
-            MountUsageEntry(mount="/", total_bytes=50 * 10**9,
-                            free_bytes=20 * 10**9, avail_bytes=18 * 10**9),
+        mounts=mounts
+        if mounts is not None
+        else [
+            MountUsageEntry(mount="/", total_bytes=50 * 10**9, free_bytes=20 * 10**9, avail_bytes=18 * 10**9),
         ],
-        net_io=net_io if net_io is not None else [
-            NetIoEntry(interface="eth0", rx_bytes=1_000_000, tx_bytes=500_000,
-                       rx_packets=1000, tx_packets=500, rx_errors=0, tx_errors=0),
+        net_io=net_io
+        if net_io is not None
+        else [
+            NetIoEntry(
+                interface="eth0",
+                rx_bytes=1_000_000,
+                tx_bytes=500_000,
+                rx_packets=1000,
+                tx_packets=500,
+                rx_errors=0,
+                tx_errors=0,
+            ),
         ],
     )
 
@@ -146,22 +175,22 @@ def make_task_result_payload(
     boot_time / agent_started_at default None — agent worker 가 항상 null 발행 (ADR 0007).
     """
     return {
-        "message_type":     "task.result",
-        "machine_id":       machine_id,
-        "agent_version":    "1.0.0",
-        "collected_at":     completed_at.isoformat().replace("+00:00", "Z"),
-        "hostname":         "test-host-01",
-        "message_id":       message_id,
-        "boot_time":        boot_time.isoformat().replace("+00:00", "Z") if boot_time else None,
+        "message_type": "task.result",
+        "machine_id": machine_id,
+        "agent_version": "1.0.0",
+        "collected_at": completed_at.isoformat().replace("+00:00", "Z"),
+        "hostname": "test-host-01",
+        "message_id": message_id,
+        "boot_time": boot_time.isoformat().replace("+00:00", "Z") if boot_time else None,
         "agent_started_at": agent_started_at.isoformat().replace("+00:00", "Z") if agent_started_at else None,
-        "task_id":          task_id,
-        "status":           status,
-        "failure_reason":   failure_reason,
-        "exit_code":        exit_code,
-        "duration_ms":      duration_ms,
-        "stdout_tail":      stdout_tail,
-        "stderr_tail":      stderr_tail,
-        "completed_at":     completed_at.isoformat().replace("+00:00", "Z"),
+        "task_id": task_id,
+        "status": status,
+        "failure_reason": failure_reason,
+        "exit_code": exit_code,
+        "duration_ms": duration_ms,
+        "stdout_tail": stdout_tail,
+        "stderr_tail": stderr_tail,
+        "completed_at": completed_at.isoformat().replace("+00:00", "Z"),
     }
 
 
@@ -177,9 +206,14 @@ def make_task_result_update(
     completed_at: datetime = _DEFAULT_TASK_COMPLETED_AT,
 ) -> TaskResultUpdate:
     return TaskResultUpdate(
-        public_id=public_id, status=status,
-        failure_reason=failure_reason, exit_code=exit_code, duration_ms=duration_ms,
-        stdout_tail=stdout_tail, stderr_tail=stderr_tail, completed_at=completed_at,
+        public_id=public_id,
+        status=status,
+        failure_reason=failure_reason,
+        exit_code=exit_code,
+        duration_ms=duration_ms,
+        stdout_tail=stdout_tail,
+        stderr_tail=stderr_tail,
+        completed_at=completed_at,
     )
 
 
@@ -188,7 +222,7 @@ def make_task_row(
     public_id: str = _DEFAULT_TASK_PUBLIC_ID,
     target_server_id: int = 1,
     target_public_id: str | None = "11111111-1111-4111-8111-111111111111",
-    target_hostname:  str | None = "test-host-01",
+    target_hostname: str | None = "test-host-01",
     task_type: str = "zconverter_install",
     status: str = "success",
     created_at: datetime = _DEFAULT_TASK_COMPLETED_AT,
@@ -200,10 +234,17 @@ def make_task_row(
     stderr_tail: str | None = "",
 ) -> TaskRow:
     return TaskRow(
-        public_id=public_id, target_server_id=target_server_id,
-        target_public_id=target_public_id, target_hostname=target_hostname,
-        task_type=task_type, status=status,
-        created_at=created_at, completed_at=completed_at,
-        failure_reason=failure_reason, exit_code=exit_code, duration_ms=duration_ms,
-        stdout_tail=stdout_tail, stderr_tail=stderr_tail,
+        public_id=public_id,
+        target_server_id=target_server_id,
+        target_public_id=target_public_id,
+        target_hostname=target_hostname,
+        task_type=task_type,
+        status=status,
+        created_at=created_at,
+        completed_at=completed_at,
+        failure_reason=failure_reason,
+        exit_code=exit_code,
+        duration_ms=duration_ms,
+        stdout_tail=stdout_tail,
+        stderr_tail=stderr_tail,
     )

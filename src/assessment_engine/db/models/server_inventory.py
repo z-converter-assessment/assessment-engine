@@ -17,9 +17,7 @@ class ServerInventory(Base):
     """
 
     __tablename__ = "server_inventory"
-    __table_args__ = (
-        UniqueConstraint("machine_id", "hostname", name="uq_server_inventory_machine_hostname"),
-    )
+    __table_args__ = (UniqueConstraint("machine_id", "hostname", name="uq_server_inventory_machine_hostname"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     public_id: Mapped[str] = mapped_column(

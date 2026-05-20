@@ -7,20 +7,20 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from assessment_engine import recommendation
-from assessment_engine.db.redis import safe_get, safe_mget, safe_set
+from assessment_engine.cache.redis import safe_get, safe_mget, safe_set
+from assessment_engine.db.dtos.outbound import InventoryExportEntry, MetricSeries, RebootEvent
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_RANGE_DAYS,
     DiagnosticTimeRange,
 )
-from assessment_engine.db.repositories.base_query_repository import (
+from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
+from assessment_engine.db.repositories.query.types import (
     TIME_RANGE_TD,
     AggFunc,
-    BaseQueryRepository,
     BucketSize,
     MetricType,
     TimeRange,
 )
-from assessment_engine.db.repositories.outbound import InventoryExportEntry, MetricSeries, RebootEvent
 from assessment_engine.web.services.cache_serializer import (
     dashboard_from_json,
     dashboard_to_json,
@@ -28,51 +28,63 @@ from assessment_engine.web.services.cache_serializer import (
     server_detail_to_json,
 )
 from assessment_engine.web.services.device_filters import is_lvm_disk, is_partition, is_physical_disk, is_virtual_mount
-from assessment_engine.web.services.environment_report_mapper import to_environment_report
-from assessment_engine.web.services.mappers import (
-    _DONUT_SEGMENT_FROM_REC,
-    ReportView,
+from assessment_engine.web.services.mappers.attention import (
     build_environment_overview,
+    to_agent_unstable_item,
+    to_capacity_warning_item,
+    to_gap_warning_item,
+    to_os_eol_warning_item,
+)
+from assessment_engine.web.services.mappers.environment_report import to_environment_report
+from assessment_engine.web.services.mappers.export import to_inventory_export_entry
+from assessment_engine.web.services.mappers.metric import (
+    to_collection_status_item,
+    to_metric_series_item,
+)
+from assessment_engine.web.services.mappers.report import (
     build_report_summary_bullets,
     build_role_distribution,
     compute_report_avg_p95,
     compute_report_totals_from_raw,
-    to_agent_unstable_item,
-    to_capacity_warning_item,
-    to_collection_status_item,
-    to_gap_warning_item,
-    to_inventory_export_entry,
-    to_metric_series_item,
-    to_network_detail,
-    to_os_eol_warning_item,
     to_report_row_item,
+)
+from assessment_engine.web.services.mappers.server import (
+    to_network_detail,
     to_server_detail,
     to_server_list_item,
     to_storage_detail,
+)
+from assessment_engine.web.services.mappers.shared import (
+    _DONUT_SEGMENT_FROM_REC,
+    ReportView,
+)
+from assessment_engine.web.services.mappers.task import (
     to_task_detail,
     to_task_summary,
 )
 from assessment_engine.web.services.metrics_calculator import build_dashboard
-from assessment_engine.web.services.units import bytes_to_gb, kb_to_gb
+from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb
 from assessment_engine.web.settings import web_settings
-from assessment_engine.web.view_models import (
+from assessment_engine.web.view_models.attention import (
     AttentionRow,
     AttentionSignals,
     CapacityWarningItem,
-    CollectionStatusItem,
     EnvironmentOverview,
-    EnvironmentReportSummary,
+)
+from assessment_engine.web.view_models.environment_report import EnvironmentReportSummary
+from assessment_engine.web.view_models.metric import (
+    CollectionStatusItem,
     MetricDashboard,
     MetricSeriesItem,
+)
+from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
+from assessment_engine.web.view_models.server import (
     NetworkDetailResponse,
-    ReportRowItem,
-    ReportSummary,
     ServerDetailResponse,
     ServerListItem,
     StorageDetailResponse,
-    TaskDetailItem,
-    TaskSummaryItem,
 )
+from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
 
 _DISK_METRIC_TYPES = frozenset({"disk.read_iops", "disk.write_iops"})
 
@@ -137,7 +149,9 @@ class QueryService:
         # 14일 USE Method 분류 — 페이지 서버만 별도 SQL 1회. 보고서·right-sizing과 동일 윈도우.
         page_server_ids = [dto.id for dto in dtos]
         raws_period = await self.repo.report_aggregate(
-            page_server_ids, period_days=recommendation.WINDOW_DAYS, end=datetime.now(UTC),
+            page_server_ids,
+            period_days=recommendation.WINDOW_DAYS,
+            end=datetime.now(UTC),
         )
         raws_by_id: dict[int, object] = {r.server_id: r for r in raws_period}
 
@@ -266,9 +280,7 @@ class QueryService:
         # Agent 재시작 빈번 — Redis 1h 카운터 mget
         agent_unstable: list[AttentionRow] = []
         if server_ids:
-            restart_keys = [
-                web_settings.redis_key_agent_restarts.format(sid) for sid in server_ids
-            ]
+            restart_keys = [web_settings.redis_key_agent_restarts.format(sid) for sid in server_ids]
             counts = await safe_mget(self.redis, restart_keys)
             if counts is not None:
                 threshold_n = web_settings.agent_restart_alert_threshold
@@ -285,9 +297,13 @@ class QueryService:
                     if count >= threshold_n:
                         raw = raws_by_id.get(sid)
                         if raw and len(agent_unstable) < limit_each:
-                            agent_unstable.append(to_agent_unstable_item(
-                                raw.public_id, raw.hostname, count,
-                            ))
+                            agent_unstable.append(
+                                to_agent_unstable_item(
+                                    raw.public_id,
+                                    raw.hostname,
+                                    count,
+                                )
+                            )
 
         return AttentionSignals(
             gap_warnings=[to_gap_warning_item(r, now) for r in gap_raws],
@@ -309,8 +325,12 @@ class QueryService:
         server_ids = await self.repo.list_server_ids()
         if not server_ids:
             return EnvironmentOverview(
-                total=0, online=0, offline=0,
-                total_vcpus=0, total_memory_gb=0.0, total_disk_gb=0,
+                total=0,
+                online=0,
+                offline=0,
+                total_vcpus=0,
+                total_memory_gb=0.0,
+                total_disk_gb=0,
                 role_distribution={},
             )
         details = await self.repo.get_servers(server_ids)
@@ -322,14 +342,19 @@ class QueryService:
         under_hosts: list[CapacityWarningItem] = []
         raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
         for raw in raws_period:
-            rec = recommendation.classify(recommendation.ResourceStats(
-                cpu_p95_pct=raw.cpu_p95_pct, cpu_peak_pct=raw.cpu_peak_pct,
-                cpu_load_15m_max=raw.load_15m_max, cpu_cores=raw.cpu_cores,
-                mem_p95_pct=raw.mem_p95_pct, swap_used=raw.swap_used,
-                disk_used_pct=raw.worst_mount_used_pct,
-                iowait_p95_pct=raw.iowait_p95_pct,
-                net_avg_kbps=None,
-            ))
+            rec = recommendation.classify(
+                recommendation.ResourceStats(
+                    cpu_p95_pct=raw.cpu_p95_pct,
+                    cpu_peak_pct=raw.cpu_peak_pct,
+                    cpu_load_15m_max=raw.load_15m_max,
+                    cpu_cores=raw.cpu_cores,
+                    mem_p95_pct=raw.mem_p95_pct,
+                    swap_used=raw.swap_used,
+                    disk_used_pct=raw.worst_mount_used_pct,
+                    iowait_p95_pct=raw.iowait_p95_pct,
+                    net_avg_kbps=None,
+                )
+            )
             seg = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
             risk_counts[seg] = risk_counts.get(seg, 0) + 1
             if rec == "under_provisioned":
@@ -376,20 +401,29 @@ class QueryService:
             # under_provisioned 호스트 추출 — time_range 윈도우 정확 정합 (overview 14일 고정 의존 회피).
             raws_window = await self.repo.report_aggregate(server_ids, period_days, end_dt)
             for raw in raws_window:
-                rec = recommendation.classify(recommendation.ResourceStats(
-                    cpu_p95_pct=raw.cpu_p95_pct, cpu_peak_pct=raw.cpu_peak_pct,
-                    cpu_load_15m_max=raw.load_15m_max, cpu_cores=raw.cpu_cores,
-                    mem_p95_pct=raw.mem_p95_pct, swap_used=raw.swap_used,
-                    disk_used_pct=raw.worst_mount_used_pct,
-                    iowait_p95_pct=raw.iowait_p95_pct,
-                    net_avg_kbps=None,
-                ))
+                rec = recommendation.classify(
+                    recommendation.ResourceStats(
+                        cpu_p95_pct=raw.cpu_p95_pct,
+                        cpu_peak_pct=raw.cpu_peak_pct,
+                        cpu_load_15m_max=raw.load_15m_max,
+                        cpu_cores=raw.cpu_cores,
+                        mem_p95_pct=raw.mem_p95_pct,
+                        swap_used=raw.swap_used,
+                        disk_used_pct=raw.worst_mount_used_pct,
+                        iowait_p95_pct=raw.iowait_p95_pct,
+                        net_avg_kbps=None,
+                    )
+                )
                 if rec == "under_provisioned":
                     under_hosts.append(to_capacity_warning_item(raw))
         else:
             base = ReportSummary(
-                rows=[], period_days=int(period_days), total=0, online=0,
-                risk_attention=0, risk_high=0,
+                rows=[],
+                period_days=int(period_days),
+                total=0,
+                online=0,
+                risk_attention=0,
+                risk_high=0,
             )
             details = []
 
@@ -435,14 +469,19 @@ class QueryService:
         raws_window = await self.repo.report_aggregate([server_id], period_days, end_dt)
         under_hosts: list[CapacityWarningItem] = []
         for raw in raws_window:
-            rec = recommendation.classify(recommendation.ResourceStats(
-                cpu_p95_pct=raw.cpu_p95_pct, cpu_peak_pct=raw.cpu_peak_pct,
-                cpu_load_15m_max=raw.load_15m_max, cpu_cores=raw.cpu_cores,
-                mem_p95_pct=raw.mem_p95_pct, swap_used=raw.swap_used,
-                disk_used_pct=raw.worst_mount_used_pct,
-                iowait_p95_pct=raw.iowait_p95_pct,
-                net_avg_kbps=None,
-            ))
+            rec = recommendation.classify(
+                recommendation.ResourceStats(
+                    cpu_p95_pct=raw.cpu_p95_pct,
+                    cpu_peak_pct=raw.cpu_peak_pct,
+                    cpu_load_15m_max=raw.load_15m_max,
+                    cpu_cores=raw.cpu_cores,
+                    mem_p95_pct=raw.mem_p95_pct,
+                    swap_used=raw.swap_used,
+                    disk_used_pct=raw.worst_mount_used_pct,
+                    iowait_p95_pct=raw.iowait_p95_pct,
+                    net_avg_kbps=None,
+                )
+            )
             if rec == "under_provisioned":
                 under_hosts.append(to_capacity_warning_item(raw))
 
@@ -509,14 +548,24 @@ class QueryService:
             raw.reboot_count = uptime_stats.get(raw.server_id, 0)
             disk_tuple = disk_io.get(raw.server_id)
             if disk_tuple is not None:
-                (raw.disk_iops_baseline, raw.disk_throughput_kbps,
-                 raw.disk_iops_p95, raw.disk_iops_peak,
-                 raw.disk_throughput_kbps_p95, raw.disk_throughput_kbps_peak) = disk_tuple
+                (
+                    raw.disk_iops_baseline,
+                    raw.disk_throughput_kbps,
+                    raw.disk_iops_p95,
+                    raw.disk_iops_peak,
+                    raw.disk_throughput_kbps_p95,
+                    raw.disk_throughput_kbps_peak,
+                ) = disk_tuple
             net_tuple = net_io.get(raw.server_id)
             if net_tuple is not None:
-                (raw.net_rx_kbps, raw.net_tx_kbps,
-                 raw.net_rx_kbps_p95, raw.net_rx_kbps_peak,
-                 raw.net_tx_kbps_p95, raw.net_tx_kbps_peak) = net_tuple
+                (
+                    raw.net_rx_kbps,
+                    raw.net_tx_kbps,
+                    raw.net_rx_kbps_p95,
+                    raw.net_rx_kbps_peak,
+                    raw.net_tx_kbps_p95,
+                    raw.net_tx_kbps_peak,
+                ) = net_tuple
 
         online_keys = [web_settings.redis_key_online.format(r.server_id) for r in raws]
         flags = await safe_mget(self.redis, online_keys)
@@ -524,11 +573,7 @@ class QueryService:
 
         items: list[ReportRowItem] = []
         for i, raw in enumerate(raws):
-            online = (
-                bool(raw.last_seen_at and raw.last_seen_at > threshold)
-                if flags is None
-                else flags[i] is not None
-            )
+            online = bool(raw.last_seen_at and raw.last_seen_at > threshold) if flags is None else flags[i] is not None
             items.append(to_report_row_item(raw, online, end_dt))
 
         avg_cpu, avg_mem = compute_report_avg_p95(items)
@@ -573,14 +618,24 @@ class QueryService:
         for row in stats_rows:
             disk_tuple = disk_io.get(row.server_id)
             if disk_tuple is not None:
-                (row.disk_iops_baseline, row.disk_throughput_kbps,
-                 row.disk_iops_p95, row.disk_iops_peak,
-                 row.disk_throughput_kbps_p95, row.disk_throughput_kbps_peak) = disk_tuple
+                (
+                    row.disk_iops_baseline,
+                    row.disk_throughput_kbps,
+                    row.disk_iops_p95,
+                    row.disk_iops_peak,
+                    row.disk_throughput_kbps_p95,
+                    row.disk_throughput_kbps_peak,
+                ) = disk_tuple
             net_tuple = net_io.get(row.server_id)
             if net_tuple is not None:
-                (row.net_rx_kbps, row.net_tx_kbps,
-                 row.net_rx_kbps_p95, row.net_rx_kbps_peak,
-                 row.net_tx_kbps_p95, row.net_tx_kbps_peak) = net_tuple
+                (
+                    row.net_rx_kbps,
+                    row.net_tx_kbps,
+                    row.net_rx_kbps_p95,
+                    row.net_rx_kbps_peak,
+                    row.net_tx_kbps_p95,
+                    row.net_tx_kbps_peak,
+                ) = net_tuple
 
         stats_by_id = {row.server_id: row for row in stats_rows}
         order = {sid: i for i, sid in enumerate(server_ids)}

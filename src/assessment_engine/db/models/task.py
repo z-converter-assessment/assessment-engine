@@ -20,7 +20,8 @@ class Task(Base):
     __table_args__ = (
         Index(
             "uq_tasks_pending_per_server_type",
-            "target_server_id", "task_type",
+            "target_server_id",
+            "task_type",
             unique=True,
             postgresql_where=text("status = 'pending'"),
         ),

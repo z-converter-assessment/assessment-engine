@@ -16,6 +16,7 @@ dist/
 # Python
 __pycache__/
 *.pyc
+*.pyo
 .venv/
 *.egg-info/
 
@@ -25,6 +26,12 @@ __pycache__/
 # 테스트 / 빌드 캐시
 .pytest_cache/
 .ruff_cache/
+.coverage
+coverage*.xml
+htmlcov/
+
+# 런타임 로그
+*.log
 
 # 인프라 상태
 .vagrant/

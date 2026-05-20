@@ -8,9 +8,7 @@ from assessment_engine.db.models.base import Base
 
 class ServerMountUsage(Base):
     __tablename__ = "server_mount_usage"
-    __table_args__ = (
-        UniqueConstraint("server_id", "mount", "collected_at", name="uq_server_mount_usage_sid_mnt_ts"),
-    )
+    __table_args__ = (UniqueConstraint("server_id", "mount", "collected_at", name="uq_server_mount_usage_sid_mnt_ts"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)

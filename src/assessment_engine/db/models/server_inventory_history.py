@@ -17,9 +17,7 @@ class ServerInventoryHistory(Base):
     """
 
     __tablename__ = "server_inventory_history"
-    __table_args__ = (
-        UniqueConstraint("server_id", "collected_at", name="uq_server_inv_history_sid_ts"),
-    )
+    __table_args__ = (UniqueConstraint("server_id", "collected_at", name="uq_server_inv_history_sid_ts"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)

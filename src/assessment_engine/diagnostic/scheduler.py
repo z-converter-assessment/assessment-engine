@@ -4,6 +4,7 @@
 기존 `src/assessment_engine/scheduler/` 폐기 (ADR 0004 결정 — 본 모듈로 대체).
 broker 연결은 web/main.py·diagnostic/main.py와 동일 인자로 declare (#B3).
 """
+
 import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -15,13 +16,13 @@ from loguru import logger
 from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 
+from assessment_engine.cache.redis import close_pool
 from assessment_engine.db.models.server_inventory import ServerInventory
-from assessment_engine.db.redis import close_pool
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
 )
 from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
-from assessment_engine.db.repositories.query_repository import QueryRepository
+from assessment_engine.db.repositories.query.query_repository import QueryRepository
 from assessment_engine.db.session import AsyncSessionLocal
 from assessment_engine.diagnostic.settings import diagnostic_settings
 from assessment_engine.diagnostic.submitter import (
@@ -35,8 +36,7 @@ from assessment_engine.log_config import setup_logging
 async def main() -> None:
     setup_logging(diagnostic_settings.log_format)
 
-    logger.info("diagnostic scheduler starting cron={}",
-                diagnostic_settings.diagnostic_schedule_cron)
+    logger.info("diagnostic scheduler starting cron={}", diagnostic_settings.diagnostic_schedule_cron)
 
     dlx_name = f"{diagnostic_settings.rabbitmq_exchange}.dlx"
     routing_key = diagnostic_settings.diagnostic_routing_key
@@ -46,7 +46,9 @@ async def main() -> None:
         async with conn, conn.channel() as channel:
             # broker 인자 일치 의무 (#B3) — web/worker와 동일 declare
             dlx = await channel.declare_exchange(
-                dlx_name, aio_pika.ExchangeType.DIRECT, durable=True,
+                dlx_name,
+                aio_pika.ExchangeType.DIRECT,
+                durable=True,
             )
             exchange = await channel.declare_exchange(
                 diagnostic_settings.rabbitmq_exchange,
@@ -59,10 +61,10 @@ async def main() -> None:
                 routing_key,
                 durable=True,
                 arguments={
-                    "x-dead-letter-exchange":    dlx_name,
+                    "x-dead-letter-exchange": dlx_name,
                     "x-dead-letter-routing-key": routing_key,
-                    "x-message-ttl":             diagnostic_settings.diagnostic_queue_ttl_ms,
-                    "x-max-length":              diagnostic_settings.diagnostic_queue_max_len,
+                    "x-message-ttl": diagnostic_settings.diagnostic_queue_ttl_ms,
+                    "x-max-length": diagnostic_settings.diagnostic_queue_max_len,
                 },
             )
             await queue.bind(exchange, routing_key=routing_key)
@@ -107,7 +109,8 @@ async def _run_once(broker_channel) -> None:
     # 활성 서버 조회 (last_seen_at > now() - N hours)
     async with AsyncSessionLocal() as session:
         active_public_ids = await _list_active_server_public_ids(
-            session, diagnostic_settings.diagnostic_active_server_window_hours,
+            session,
+            diagnostic_settings.diagnostic_active_server_window_hours,
         )
     logger.info("scheduler tick — active servers={}", len(active_public_ids))
 
@@ -118,7 +121,11 @@ async def _run_once(broker_channel) -> None:
             submitter = _build_submitter(session, broker_channel)
             try:
                 ids = await submitter.submit(
-                    "server", [public_id], time_range, anchor_at=None, requested_by="scheduler",
+                    "server",
+                    [public_id],
+                    time_range,
+                    anchor_at=None,
+                    requested_by="scheduler",
                 )
                 enqueued += len(ids)
             except DiagnosticNotFound:
@@ -136,7 +143,11 @@ async def _run_once(broker_channel) -> None:
         submitter = _build_submitter(session, broker_channel)
         try:
             env_ids = await submitter.submit(
-                "environment", None, time_range, anchor_at=None, requested_by="scheduler",
+                "environment",
+                None,
+                time_range,
+                anchor_at=None,
+                requested_by="scheduler",
             )
             logger.info("scheduled environment diagnostic enqueued count={}", len(env_ids))
         except DiagnosticRaceMiss:

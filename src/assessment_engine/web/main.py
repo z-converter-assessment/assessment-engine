@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from assessment_engine.db.redis import close_pool
+from assessment_engine.cache.redis import close_pool
 from assessment_engine.log_config import setup_logging
 from assessment_engine.web.routers.api import api_router
 from assessment_engine.web.routers.diagnostic_results import diagnostic_results_router
@@ -37,7 +37,9 @@ async def lifespan(app: FastAPI):
     broker_channel = await broker_conn.channel()
     dlx_name = f"{diagnostic_settings.rabbitmq_exchange}.dlx"
     dlx = await broker_channel.declare_exchange(
-        dlx_name, aio_pika.ExchangeType.DIRECT, durable=True,
+        dlx_name,
+        aio_pika.ExchangeType.DIRECT,
+        durable=True,
     )
     exchange = await broker_channel.declare_exchange(
         diagnostic_settings.rabbitmq_exchange,
@@ -51,10 +53,10 @@ async def lifespan(app: FastAPI):
         routing_key,
         durable=True,
         arguments={
-            "x-dead-letter-exchange":    dlx_name,
+            "x-dead-letter-exchange": dlx_name,
             "x-dead-letter-routing-key": routing_key,
-            "x-message-ttl":             diagnostic_settings.diagnostic_queue_ttl_ms,
-            "x-max-length":              diagnostic_settings.diagnostic_queue_max_len,
+            "x-message-ttl": diagnostic_settings.diagnostic_queue_ttl_ms,
+            "x-max-length": diagnostic_settings.diagnostic_queue_max_len,
         },
     )
     await queue.bind(exchange, routing_key=routing_key)

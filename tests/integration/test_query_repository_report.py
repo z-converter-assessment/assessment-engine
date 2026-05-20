@@ -7,16 +7,17 @@
 - report_disk_io_baseline — sectors·ops delta 평균 (IOPS·throughput_kbps)
 - report_net_io_baseline — rx/tx bytes delta 평균 (kbps)
 """
+
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from assessment_engine.db.repositories.collect_repository import CollectRepository
-from assessment_engine.db.repositories.inbound import (
+from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
     MountUsageEntry,
     NetIoEntry,
 )
+from assessment_engine.db.repositories.collect_repository import CollectRepository
 from tests.factories import make_inventory, make_metrics
 
 pytestmark = pytest.mark.asyncio
@@ -34,8 +35,7 @@ async def _seed_server_with_period_metrics(
     mount avail_bytes는 단조 감소 (디스크 채워지는 추세).
     """
     sid = await collect_repo.upsert_server(make_inventory(machine_id=machine_id))
-    base_ts = (datetime.now(UTC).replace(microsecond=0)
-               - timedelta(minutes=interval_min * (n_points - 1)))
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=interval_min * (n_points - 1))
 
     for i in range(n_points):
         ts = base_ts + timedelta(minutes=interval_min * i)
@@ -43,30 +43,35 @@ async def _seed_server_with_period_metrics(
             collected_at=ts,
             cpu_user=1000 + i * 100,
             cpu_system=200 + i * 30,
-            cpu_iowait=50 + i * 40,           # iowait 단조 증가
+            cpu_iowait=50 + i * 40,  # iowait 단조 증가
             cpu_idle=8000 + i * 600,
             disk_io=[
-                DiskIoEntry(device="sda",
-                            reads_completed=100 + i * 50,    # 분당 50 IOPS reads
-                            writes_completed=50 + i * 30,    # 분당 30 IOPS writes
-                            sectors_read=2000 + i * 1000,    # 분당 500 sectors = 256000 bytes
-                            sectors_written=1000 + i * 500),
+                DiskIoEntry(
+                    device="sda",
+                    reads_completed=100 + i * 50,  # 분당 50 IOPS reads
+                    writes_completed=50 + i * 30,  # 분당 30 IOPS writes
+                    sectors_read=2000 + i * 1000,  # 분당 500 sectors = 256000 bytes
+                    sectors_written=1000 + i * 500,
+                ),
             ],
             mounts=[
                 MountUsageEntry(
                     mount="/data",
                     total_bytes=100 * 10**9,
                     free_bytes=(50 - i * 2) * 10**9,
-                    avail_bytes=(50 - i * 2) * 10**9,        # 분당 2GB 채움 -> 25일 후 full
+                    avail_bytes=(50 - i * 2) * 10**9,  # 분당 2GB 채움 -> 25일 후 full
                 ),
             ],
             net_io=[
-                NetIoEntry(interface="eth0",
-                           rx_bytes=1_000_000 + i * 60_000,  # 분당 60KB = 1KB/s
-                           tx_bytes=500_000 + i * 30_000,    # 분당 30KB = 0.5KB/s
-                           rx_packets=1000 + i * 100,
-                           tx_packets=500 + i * 50,
-                           rx_errors=0, tx_errors=0),
+                NetIoEntry(
+                    interface="eth0",
+                    rx_bytes=1_000_000 + i * 60_000,  # 분당 60KB = 1KB/s
+                    tx_bytes=500_000 + i * 30_000,  # 분당 30KB = 0.5KB/s
+                    rx_packets=1000 + i * 100,
+                    tx_packets=500 + i * 50,
+                    rx_errors=0,
+                    tx_errors=0,
+                ),
             ],
         )
         await collect_repo.record_metrics(sid, m)
@@ -76,10 +81,13 @@ async def _seed_server_with_period_metrics(
 
 # ─── report_aggregate iowait + inventory 합계 ─────────────────────────────
 
+
 async def test_report_aggregate_returns_iowait_and_inventory(collect_repo, query_repo):
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-iowait")
     rows = await query_repo.report_aggregate(
-        [sid], period_days=1, end=end + timedelta(minutes=1),
+        [sid],
+        period_days=1,
+        end=end + timedelta(minutes=1),
     )
     assert len(rows) == 1
     r = rows[0]
@@ -93,17 +101,22 @@ async def test_report_aggregate_returns_iowait_and_inventory(collect_repo, query
 
 # ─── report_mount_worst — fill_rate 추정 ─────────────────────────────────
 
+
 async def test_report_mount_worst_estimates_days_until_full(collect_repo, query_repo):
     sid, _start, end = await _seed_server_with_period_metrics(
-        collect_repo, "r-mount", n_points=10,
+        collect_repo,
+        "r-mount",
+        n_points=10,
     )
     mount_map = await query_repo.report_mount_worst(
-        [sid], period_days=1, end=end + timedelta(minutes=1),
+        [sid],
+        period_days=1,
+        end=end + timedelta(minutes=1),
     )
     assert sid in mount_map
     mount, used_pct, days_until_full = mount_map[sid]
     assert mount == "/data"
-    assert used_pct is not None and used_pct >= 50.0      # 50% 이상 사용 중
+    assert used_pct is not None and used_pct >= 50.0  # 50% 이상 사용 중
     # 분당 2GB 채움 + 잔여 약 32GB -> 매우 짧은 시간 안 full. period_days=1 기준 fill_rate라 days >= 0
     assert days_until_full is not None and days_until_full >= 0
 
@@ -115,15 +128,21 @@ async def test_report_mount_worst_no_consumption_returns_none(collect_repo, quer
     for i in range(5):
         m = make_metrics(
             collected_at=base_ts + timedelta(minutes=i),
-            mounts=[MountUsageEntry(
-                mount="/", total_bytes=100 * 10**9,
-                free_bytes=30 * 10**9, avail_bytes=30 * 10**9,  # 고정
-            )],
+            mounts=[
+                MountUsageEntry(
+                    mount="/",
+                    total_bytes=100 * 10**9,
+                    free_bytes=30 * 10**9,
+                    avail_bytes=30 * 10**9,  # 고정
+                )
+            ],
         )
         await collect_repo.record_metrics(sid, m)
 
     mount_map = await query_repo.report_mount_worst(
-        [sid], period_days=1, end=base_ts + timedelta(hours=1),
+        [sid],
+        period_days=1,
+        end=base_ts + timedelta(hours=1),
     )
     if sid in mount_map:
         _mount, _used, days = mount_map[sid]
@@ -132,10 +151,13 @@ async def test_report_mount_worst_no_consumption_returns_none(collect_repo, quer
 
 # ─── report_uptime_stats — boot_time DISTINCT count - 1 ──────────────────
 
+
 async def test_report_uptime_stats_no_reboot(collect_repo, query_repo):
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-up-stable")
     counts = await query_repo.report_uptime_stats(
-        [sid], period_days=1, end=end + timedelta(minutes=1),
+        [sid],
+        period_days=1,
+        end=end + timedelta(minutes=1),
     )
     # period 안 boot_time 1개 (DISTINCT count = 1) -> 0회 재부팅
     assert counts.get(sid, 0) == 0
@@ -148,33 +170,50 @@ async def test_report_uptime_stats_counts_reboot_transitions(collect_repo, query
     boot3 = datetime(2026, 5, 10, tzinfo=UTC)
 
     # 3번 upsert — boot_time 다를 때마다 history append
-    sid = await collect_repo.upsert_server(make_inventory(
-        machine_id="r-up-reboot", boot_time=boot1,
-        collected_at=datetime(2026, 5, 1, 1, tzinfo=UTC),
-    ))
-    await collect_repo.upsert_server(make_inventory(
-        machine_id="r-up-reboot", boot_time=boot2,
-        collected_at=datetime(2026, 5, 5, 1, tzinfo=UTC),
-    ))
-    await collect_repo.upsert_server(make_inventory(
-        machine_id="r-up-reboot", boot_time=boot3,
-        collected_at=datetime(2026, 5, 10, 1, tzinfo=UTC),
-    ))
+    sid = await collect_repo.upsert_server(
+        make_inventory(
+            machine_id="r-up-reboot",
+            boot_time=boot1,
+            collected_at=datetime(2026, 5, 1, 1, tzinfo=UTC),
+        )
+    )
+    await collect_repo.upsert_server(
+        make_inventory(
+            machine_id="r-up-reboot",
+            boot_time=boot2,
+            collected_at=datetime(2026, 5, 5, 1, tzinfo=UTC),
+        )
+    )
+    await collect_repo.upsert_server(
+        make_inventory(
+            machine_id="r-up-reboot",
+            boot_time=boot3,
+            collected_at=datetime(2026, 5, 10, 1, tzinfo=UTC),
+        )
+    )
 
     counts = await query_repo.report_uptime_stats(
-        [sid], period_days=30, end=datetime(2026, 5, 15, tzinfo=UTC),
+        [sid],
+        period_days=30,
+        end=datetime(2026, 5, 15, tzinfo=UTC),
     )
     assert counts.get(sid, 0) == 2  # boot_time DISTINCT 3 - 1 = 2회 재부팅
 
 
 # ─── report_disk_io_baseline — IOPS + throughput ─────────────────────────
 
+
 async def test_report_disk_io_baseline_iops_and_throughput(collect_repo, query_repo):
     sid, _start, end = await _seed_server_with_period_metrics(
-        collect_repo, "r-disk-io", n_points=10, interval_min=1,
+        collect_repo,
+        "r-disk-io",
+        n_points=10,
+        interval_min=1,
     )
     io_map = await query_repo.report_disk_io_baseline(
-        [sid], period_days=1, end=end + timedelta(minutes=1),
+        [sid],
+        period_days=1,
+        end=end + timedelta(minutes=1),
     )
     assert sid in io_map
     iops, throughput_kbps, iops_p95, iops_peak, kbps_p95, kbps_peak = io_map[sid]
@@ -192,19 +231,27 @@ async def test_report_disk_io_baseline_missing_data_returns_empty(collect_repo, 
     """metric 없는 서버 -> dict에서 누락."""
     sid = await collect_repo.upsert_server(make_inventory(machine_id="r-disk-empty"))
     io_map = await query_repo.report_disk_io_baseline(
-        [sid], period_days=1, end=datetime.now(UTC),
+        [sid],
+        period_days=1,
+        end=datetime.now(UTC),
     )
     assert sid not in io_map
 
 
 # ─── report_net_io_baseline — rx/tx kbps ─────────────────────────────────
 
+
 async def test_report_net_io_baseline_rx_tx(collect_repo, query_repo):
     sid, _start, end = await _seed_server_with_period_metrics(
-        collect_repo, "r-net", n_points=10, interval_min=1,
+        collect_repo,
+        "r-net",
+        n_points=10,
+        interval_min=1,
     )
     net_map = await query_repo.report_net_io_baseline(
-        [sid], period_days=1, end=end + timedelta(minutes=1),
+        [sid],
+        period_days=1,
+        end=end + timedelta(minutes=1),
     )
     assert sid in net_map
     rx_kbps, tx_kbps, rx_p95, rx_peak, tx_p95, tx_peak = net_map[sid]
@@ -218,10 +265,14 @@ async def test_report_net_io_baseline_rx_tx(collect_repo, query_repo):
 
 # ─── 합산: 5 SQL이 같은 server_ids·period 입력 일관 동작 ──────────────────
 
+
 async def test_all_report_queries_share_server_ids_and_period(collect_repo, query_repo):
     """get_report·get_inventory_export가 호출하는 5개 SQL이 같은 입력으로 정합 결과."""
     sid, _start, end = await _seed_server_with_period_metrics(
-        collect_repo, "r-combo", n_points=10, interval_min=1,
+        collect_repo,
+        "r-combo",
+        n_points=10,
+        interval_min=1,
     )
     end_q = end + timedelta(minutes=1)
     raws = await query_repo.report_aggregate([sid], period_days=1, end=end_q)

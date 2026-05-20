@@ -4,14 +4,15 @@
 consumer/main.py 패턴 그대로 — exchange·DLX·큐 인자는 web/main.py 및 consumer/main.py와 일치 (#B3).
 prefetch_count=1로 LLM 호출 동시성을 1로 제한 — 단일 큐에서 LLM rate limit 자연 throttle.
 """
+
 import asyncio
 
 import aio_pika
 from loguru import logger
 
-from assessment_engine.db.redis import close_pool, get_redis
+from assessment_engine.cache.redis import close_pool, get_redis
 from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
-from assessment_engine.db.repositories.query_repository import QueryRepository
+from assessment_engine.db.repositories.query.query_repository import QueryRepository
 from assessment_engine.db.session import AsyncSessionLocal
 from assessment_engine.diagnostic.handler import make_diagnostic_handler
 from assessment_engine.diagnostic.llm.base import BaseLlmClient
@@ -24,6 +25,7 @@ def _build_llm_client() -> BaseLlmClient:
     provider = diagnostic_settings.llm_provider
     if provider == "mock":
         from assessment_engine.diagnostic.llm.mock import MockLlmClient
+
         return MockLlmClient()
     if provider == "ollama":
         # ollama 클라이언트는 별도 PR — 1차 mock 전용. 도입 시 본 분기 활성화.
@@ -34,9 +36,11 @@ def _build_llm_client() -> BaseLlmClient:
 async def main() -> None:
     setup_logging(diagnostic_settings.log_format)
 
-    logger.info("diagnostic worker starting provider={} exchange={}",
-                diagnostic_settings.llm_provider,
-                diagnostic_settings.rabbitmq_exchange)
+    logger.info(
+        "diagnostic worker starting provider={} exchange={}",
+        diagnostic_settings.llm_provider,
+        diagnostic_settings.rabbitmq_exchange,
+    )
 
     redis = get_redis()
     llm_client = _build_llm_client()
@@ -57,7 +61,9 @@ async def main() -> None:
             await channel.set_qos(prefetch_count=1)
 
             dlx = await channel.declare_exchange(
-                dlx_name, aio_pika.ExchangeType.DIRECT, durable=True,
+                dlx_name,
+                aio_pika.ExchangeType.DIRECT,
+                durable=True,
             )
             exchange = await channel.declare_exchange(
                 diagnostic_settings.rabbitmq_exchange,
@@ -72,10 +78,10 @@ async def main() -> None:
                 routing_key,
                 durable=True,
                 arguments={
-                    "x-dead-letter-exchange":    dlx_name,
+                    "x-dead-letter-exchange": dlx_name,
                     "x-dead-letter-routing-key": routing_key,
-                    "x-message-ttl":             diagnostic_settings.diagnostic_queue_ttl_ms,
-                    "x-max-length":              diagnostic_settings.diagnostic_queue_max_len,
+                    "x-message-ttl": diagnostic_settings.diagnostic_queue_ttl_ms,
+                    "x-max-length": diagnostic_settings.diagnostic_queue_max_len,
                 },
             )
             await queue.bind(exchange, routing_key=routing_key)

@@ -65,10 +65,10 @@ interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedel
 - `DiagnosticTimeRange` Literal — 차트 TimeRange와 동일 7개
 - `DIAGNOSTIC_RANGE_DAYS` — TimeRange -> float day 매핑 (fraction 지원)
 - `DIAGNOSTIC_RANGE_LABEL_KR` — UI/narrative 한국어 라벨
-- `CLASSIFICATION_LABEL_KR` — USE Method 분류 라벨 (`diagnostic_mapper` view + `llm/mock` narrative 공용)
+- `CLASSIFICATION_LABEL_KR` — USE Method 분류 라벨 (`mappers.diagnostic` view + `llm/mock` narrative 공용)
 - `DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"` — F10 단일 진실 (scheduler 발화·service default)
 
-### 타입 별칭 (`base_query_repository.py`)
+### 타입 별칭 (`db/repositories/query/types.py`)
 - `MetricType` Literal — 17개 chart metric
 - `TimeRange` Literal — 15m/1h/6h/24h/7d/14d/30d. 14d는 right-sizing 윈도우(`recommendation.WINDOW_DAYS`)와 동일 — F10 단일 진실
 - `BucketSize` Literal — 1m/5m/15m/30m/1h/3h/6h/12h/1d. 6h는 14d 토글 자동 매핑용

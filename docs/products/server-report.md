@@ -207,8 +207,8 @@ AWS Compute Optimizer 임계값(CPU p95 30%) 기준으로 CPU 다운사이즈 �
 - `src/assessment_engine/diagnostic/llm/mock.py::_server_narrative` — 자연어 합성 템플릿
 - `src/assessment_engine/web/services/diagnostic_service.py` — job 발행·polling
 - `src/assessment_engine/web/services/query_service.py::get_report` — 5 SQL round-trip + view 분기
-- `src/assessment_engine/web/services/mappers.py::build_report_summary_bullets` — view 분기 시그널
-- `src/assessment_engine/web/services/mappers.py::_build_diagnosis` — 판단 컬럼 우선순위 평가
+- `src/assessment_engine/web/services/mappers/report.py::build_report_summary_bullets` — view 분기 시그널
+- `src/assessment_engine/web/services/mappers/report.py::_build_diagnosis` — 판단 컬럼 우선순위 평가
 - `src/assessment_engine/web/templates/servers/report.html` — 양식 A·B 분기 템플릿
 - `src/assessment_engine/web/templates/servers/detail.html` — server detail 페이지 진단 카드
 - `docs/products/environment-report.md` — 환경 단위 산출물 (cross-reference)

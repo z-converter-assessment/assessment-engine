@@ -6,6 +6,7 @@ web 노드는 두 Settings 모두 필요:
 
 multi-node 분리 시 web 노드만 본 module을 import — ConsumerSettings는 만들지 않음.
 """
+
 from assessment_engine.config import DiagnosticSettings, WebSettings
 
 web_settings = WebSettings()

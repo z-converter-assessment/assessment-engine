@@ -132,7 +132,7 @@ handler → service → repo → loguru
 | 컴포넌트 | 위치 | 책임 |
 |----------|------|------|
 | HTTP middleware | `src/assessment_engine/web/main.py` lifespan 뒤 `app.middleware("http")` | 요청 진입 시 헤더 read + contextvars set + 응답 헤더 echo |
-| MQ handler 진입 | `src/assessment_engine/consumer/handler.py` 각 핸들러 첫 줄, `src/assessment_engine/diagnostic/handler.py` 동일 | `message.message_id` 를 contextvars set |
+| MQ handler 진입 | `src/assessment_engine/consumer/handlers/` 각 핸들러 첫 줄, `src/assessment_engine/diagnostic/handler.py` 동일 | `message.message_id` 를 contextvars set |
 | logger 설정 | `src/assessment_engine/log_config.py` (신규 또는 기존 setup) | loguru `logger.configure(extra={"request_id": "-"})` + format 에 `{extra[request_id]}` 포함 |
 
 ### 도입 트리거

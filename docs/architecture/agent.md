@@ -19,7 +19,7 @@
 | `boot_time` | datetime UTC | 시스템 부팅 시각. `task.result` 한정 `null` 허용 (수집 컨텍스트 분리) |
 | `agent_started_at` | datetime UTC | 발행 프로세스 기동 시각. `task.result` 한정 `null` 허용 |
 
-엔진 처리는 `consumer/handler.py`의 `_check_idempotent`(Redis SET NX 24h)로 message_id 중복 차단 후 본문 처리. fail-open 보장은 시계열 4테이블 자연키 UNIQUE(#C1)가 흡수 (#D2).
+엔진 처리는 `consumer/handlers/`의 `_check_idempotent`(Redis SET NX 24h)로 message_id 중복 차단 후 본문 처리. fail-open 보장은 시계열 4테이블 자연키 UNIQUE(#C1)가 흡수 (#D2).
 
 ---
 
@@ -108,7 +108,7 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 
 ### sha256·size 동적 산출 (HttpZdmPackageResolver)
 
-`src/assessment_engine/web/services/zdm_package_resolver.py` 단일 진실. 흐름:
+`src/assessment_engine/web/services/task_service.py` 단일 진실. 흐름:
 
 1. HEAD `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` — `ETag`(또는 fallback `Last-Modified`) + `Content-Length` 추출.
 2. Redis cache 키 `cache:zdm_package:sha256:{host}:{etag}` 조회.
@@ -145,7 +145,7 @@ cache 동작:
 
 `boot_time` / `agent_started_at` 가 null 이라 `_log_time_invariants` 검증은 본 메시지에서 호출 안 함.
 
-운영자 가시성: list.html "최근 작업" column (행별 마지막 task badge + polling 갱신) / detail.html "최근 작업" 섹션 (timeline 최근 10건 + row 클릭 modal) / Web API `GET /api/v1/tasks/{task_id}` 단일 + `GET /api/v1/tasks?server_public_id=...` 서버별 cursor pagination. 단일 진실: `web/services/mappers.py::to_task_summary` / `to_task_detail` + base.html `.rec-success`/`.rec-failure`/`.rec-pending`/`.rec-unknown`. failure_reason 한글 라벨은 `mappers._FAILURE_REASON_LABEL` 카탈로그 (10 enum).
+운영자 가시성: list.html "최근 작업" column (행별 마지막 task badge + polling 갱신) / detail.html "최근 작업" 섹션 (timeline 최근 10건 + row 클릭 modal) / Web API `GET /api/v1/tasks/{task_id}` 단일 + `GET /api/v1/tasks?server_public_id=...` 서버별 cursor pagination. 단일 진실: `web/services/mappers/task.py::to_task_summary` / `to_task_detail` + base.html `.rec-success`/`.rec-failure`/`.rec-pending`/`.rec-unknown`. failure_reason 한글 라벨은 `mappers/task.py::_FAILURE_REASON_LABEL` 카탈로그 (10 enum).
 
 dev 환경 success 경로는 ZDM 측 contract (실제 패키지 + sha256 매니페스트) 가 갖춰져야 한다. agent download.c 는 http·https 둘 다 허용하지만 host whitelist 검증 통과 + sha256·size 일치가 필수. ZDM_PACKAGE_SHA256 / SIZE_BYTES 미설정 시 엔진이 publish 자체를 차단(503) 하므로 task 흐름은 시작도 안 됨.
 

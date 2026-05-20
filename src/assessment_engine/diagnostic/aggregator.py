@@ -4,10 +4,11 @@ ADR 0004 result 카탈로그 구축: server scope = 1대 USE Method + classifica
 environment scope = N대 분포 카운트 + USE Method 분포 + top_actions + saturation_alerts.
 ADR 0003 D단계 Pricing Adapter 미도입 — cost 필드는 None 자리 잡음 (forward compatibility).
 """
+
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
+from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
 from assessment_engine.recommendation import ResourceStats, classify
 
 
@@ -55,11 +56,11 @@ async def extract_server(
             "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
         },
         "use_method": {
-            "cpu":    {"p95": row.cpu_p95_pct, "peak": row.cpu_peak_pct},
+            "cpu": {"p95": row.cpu_p95_pct, "peak": row.cpu_peak_pct},
             "memory": {"p95": row.mem_p95_pct, "peak": row.mem_peak_pct},
             "load_15m_max": row.load_15m_max,
             "swap_used": row.swap_used,
-            "iowait_p95":  row.iowait_p95_pct,
+            "iowait_p95": row.iowait_p95_pct,
             "iowait_peak": row.iowait_peak_pct,
         },
         "classification": classification_label,
@@ -79,8 +80,12 @@ async def extract_environment(
     rows = await query_repo.report_aggregate(sids, period_days, end) if sids else []
 
     counts: dict[str, int] = {
-        "idle": 0, "shutdown": 0, "over_provisioned": 0,
-        "under_provisioned": 0, "optimal": 0, "insufficient_data": 0,
+        "idle": 0,
+        "shutdown": 0,
+        "over_provisioned": 0,
+        "under_provisioned": 0,
+        "optimal": 0,
+        "insufficient_data": 0,
     }
     swap_pressure = 0
     cpu_p95s: list[float] = []
@@ -117,12 +122,14 @@ async def extract_environment(
             mem_peaks.append(row.mem_peak_pct)
 
         if row.mem_peak_pct is not None and row.mem_peak_pct >= _SATURATION_MEM_THRESHOLD:
-            saturation_alerts.append({
-                "server_id": row.public_id,
-                "resource":  "memory",
-                "value":     row.mem_peak_pct,
-                "threshold": _SATURATION_MEM_THRESHOLD,
-            })
+            saturation_alerts.append(
+                {
+                    "server_id": row.public_id,
+                    "resource": "memory",
+                    "value": row.mem_peak_pct,
+                    "threshold": _SATURATION_MEM_THRESHOLD,
+                }
+            )
 
     total = len(sids)
     evaluated = len(rows)
@@ -132,19 +139,19 @@ async def extract_environment(
         "period_window": _period_window(end, period_days, time_range),
         "evaluated_at": end.isoformat(),
         "coverage": {
-            "total_servers":     total,
+            "total_servers": total,
             "evaluated_servers": evaluated,
-            "coverage_pct":      round(evaluated / total * 100, 1) if total else 0.0,
+            "coverage_pct": round(evaluated / total * 100, 1) if total else 0.0,
         },
         "classification": {
-            "idle":              {"count": counts["idle"]},
-            "swap_pressure":     {"count": swap_pressure},
-            "over_provisioned":  {"count": counts["over_provisioned"]},
+            "idle": {"count": counts["idle"]},
+            "swap_pressure": {"count": swap_pressure},
+            "over_provisioned": {"count": counts["over_provisioned"]},
             "under_provisioned": {"count": counts["under_provisioned"]},
-            "optimal":           {"count": counts["optimal"]},
+            "optimal": {"count": counts["optimal"]},
         },
         "use_method": {
-            "cpu":    _summary(cpu_p95s, cpu_peaks),
+            "cpu": _summary(cpu_p95s, cpu_peaks),
             "memory": _summary(mem_p95s, mem_peaks),
         },
         "top_actions": _top_actions(counts),
@@ -160,10 +167,10 @@ _SATURATION_TOP_N = 20
 def _period_window(end: datetime, period_days: float, time_range: str) -> dict:
     start = end - timedelta(days=period_days)
     return {
-        "time_range": time_range,   # 표시용 라벨 키 (DIAGNOSTIC_RANGE_LABEL_KR)
-        "days":       period_days,  # raw float — 클라이언트는 time_range 우선
-        "start":      start.isoformat(),
-        "end":        end.isoformat(),
+        "time_range": time_range,  # 표시용 라벨 키 (DIAGNOSTIC_RANGE_LABEL_KR)
+        "days": period_days,  # raw float — 클라이언트는 time_range 우선
+        "start": start.isoformat(),
+        "end": end.isoformat(),
     }
 
 
@@ -182,21 +189,17 @@ def _server_recommendation(classification: str) -> dict:
 
 def _summary(p95s: list[float], peaks: list[float]) -> dict:
     return {
-        "avg_p95":    round(sum(p95s) / len(p95s), 1) if p95s else None,
+        "avg_p95": round(sum(p95s) / len(p95s), 1) if p95s else None,
         "median_p95": round(sorted(p95s)[len(p95s) // 2], 1) if p95s else None,
-        "peak_max":   round(max(peaks), 1) if peaks else None,
+        "peak_max": round(max(peaks), 1) if peaks else None,
     }
 
 
 def _top_actions(counts: dict[str, int]) -> list[dict]:
     actions = [
-        ("downsize_cpu",    counts.get("over_provisioned", 0)),
-        ("upsize_memory",   counts.get("under_provisioned", 0)),
-        ("shutdown_idle",   counts.get("idle", 0)),
+        ("downsize_cpu", counts.get("over_provisioned", 0)),
+        ("upsize_memory", counts.get("under_provisioned", 0)),
+        ("shutdown_idle", counts.get("idle", 0)),
         ("shutdown_review", counts.get("shutdown", 0)),
     ]
-    return [
-        {"action_type": a, "count": c}
-        for a, c in sorted(actions, key=lambda x: x[1], reverse=True)
-        if c > 0
-    ]
+    return [{"action_type": a, "count": c} for a, c in sorted(actions, key=lambda x: x[1], reverse=True) if c > 0]

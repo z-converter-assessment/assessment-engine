@@ -3,6 +3,7 @@
 의존성 주입 정석: `internal_id`는 `resolve_internal_id` Depends로. 라우터 내 _resolve 함수 없음.
 검증 단일 경로 (F3): metric_type/time_range/bucket/agg/device_category 모두 Literal로 라우터에서.
 """
+
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -63,7 +64,14 @@ async def get_metric_chart(
     service: QueryService = Depends(get_service),
 ):
     return await service.get_metric_chart(
-        internal_id, metric_type, dimension, time_range, bucket, agg, end, device_category,
+        internal_id,
+        metric_type,
+        dimension,
+        time_range,
+        bucket,
+        agg,
+        end,
+        device_category,
     )
 
 

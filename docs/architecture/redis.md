@@ -10,7 +10,7 @@ src/assessment_engine/db/
 src/assessment_engine/config.py
                     — redis_key_*, redis_ttl_*, redis_channel_*
 
-src/assessment_engine/consumer/handler.py
+src/assessment_engine/consumer/handlers/
                     — _check_idempotent, online SET, cache DEL, PUBLISH
 src/assessment_engine/web/services/query_service.py
                     — cache GET/SET, mget(online), pubsub.subscribe
@@ -56,7 +56,7 @@ src/assessment_engine/web/services/query_service.py
 
 ## 캐시 무효화 (cache-aside)
 
-### inventory 처리 후 (consumer/handler.py)
+### inventory 처리 후 (consumer/handlers/)
 
 ```
 1. SET online:{server_id} 1 EX 90        — 등록 즉시 온라인 판정
@@ -65,7 +65,7 @@ src/assessment_engine/web/services/query_service.py
 
 서비스/포트/디스크가 추가/제거된 경우 다음 detail 페이지 요청에서 새 값이 노출됨. 300s TTL 만료 대기 제거.
 
-### metrics 처리 후 (consumer/handler.py)
+### metrics 처리 후 (consumer/handlers/)
 
 ```
 1. SET online:{server_id} 1 EX 90
@@ -119,7 +119,7 @@ cache_serializer가 dataclass-JSON serde 담당. 역직렬화 직후 `enrich_ser
 
 ## 의존성 주입 / 생명주기
 
-### 커넥션 풀 (db/redis.py)
+### 커넥션 풀 (cache/redis.py)
 
 ```python
 _pool: ConnectionPool | None = None
@@ -161,7 +161,7 @@ async def close_pool() -> None: ...
 
 정책: CLAUDE.md #C3 · #F6. 본 절은 운영 동작 매트릭스만.
 
-`safe_*` helper 카탈로그: `safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`/`safe_incr_with_ttl` (`src/assessment_engine/db/redis.py`). 정확성 보장은 2단 안전망(DB UNIQUE / DB query / `last_seen_at` 컬럼)에 위임.
+`safe_*` helper 카탈로그: `safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`/`safe_incr_with_ttl` (`src/assessment_engine/cache/redis.py`). 정확성 보장은 2단 안전망(DB UNIQUE / DB query / `last_seen_at` 컬럼)에 위임.
 
 | 역할 | 평시 | Redis 장애 시 |
 |------|------|-------------|

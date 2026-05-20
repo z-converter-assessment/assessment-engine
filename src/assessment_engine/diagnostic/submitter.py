@@ -11,6 +11,7 @@ import 가능. 조회·기록 (DiagnosticService.get_*·record_report_emission·
 
 ADR 0004 단계 3 (active partial UNIQUE 충돌 흡수)·단계 4 (publish 후 워커 소비).
 """
+
 import hashlib
 import json
 from collections.abc import Callable
@@ -21,12 +22,12 @@ from aio_pika.abc import AbstractChannel
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     BaseDiagnosticRepository,
     DiagnosticTimeRange,
 )
-from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
-from assessment_engine.db.repositories.inbound import DiagnosticJobCreate
+from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
 from assessment_engine.diagnostic.settings import diagnostic_settings
 
 
@@ -102,12 +103,14 @@ class DiagnosticSubmitter:
                 repo = self.diagnostic_repo_factory(session)
 
                 # 더블클릭은 active partial UNIQUE(pending/running)가 흡수 — 아래 enqueue 충돌 분기.
-                new_id = await repo.enqueue(DiagnosticJobCreate(
-                    scope=scope,
-                    input_params=input_params,
-                    input_hash=input_hash,
-                    requested_by=requested_by,
-                ))
+                new_id = await repo.enqueue(
+                    DiagnosticJobCreate(
+                        scope=scope,
+                        input_params=input_params,
+                        input_hash=input_hash,
+                        requested_by=requested_by,
+                    )
+                )
                 await session.commit()
 
                 if new_id:
@@ -122,7 +125,9 @@ class DiagnosticSubmitter:
                     job_ids.append(active_id)
                     logger.info(
                         "diagnostic active conflict scope={} hash={} job_id={}",
-                        scope, input_hash[:12], active_id,
+                        scope,
+                        input_hash[:12],
+                        active_id,
                     )
                 else:
                     # INSERT 충돌인데 active 조회 없음 (race: 조회 시점에 이미 종료된 case).
@@ -157,7 +162,7 @@ def _build_input_params(
     """
     base: dict = {
         "time_range": time_range,
-        "anchor_at":  anchor_at.isoformat(),
+        "anchor_at": anchor_at.isoformat(),
     }
     if scope == "server":
         base["server_public_id"] = server_public_id
