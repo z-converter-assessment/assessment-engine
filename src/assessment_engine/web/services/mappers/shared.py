@@ -48,6 +48,9 @@ _DONUT_SEGMENT_SHORT_LABEL: dict[str, str] = {
     "insufficient_data": "No Data",
 }
 
+# list 페이지 dropdown option — _DONUT_SEGMENT_DEFS 순서 그대로.
+PROVISIONING_CLASSES: tuple[str, ...] = tuple(key for key, _, _, _ in _DONUT_SEGMENT_DEFS)
+
 # ─── 보고서·환경 보고서 공용 capacity 임박 임계 ───
 # build_report_summary_bullets (report.py) + _extract_capacity_imminent (environment_report.py).
 _CAPACITY_IMMINENT_DAYS = 30

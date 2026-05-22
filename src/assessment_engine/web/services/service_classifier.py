@@ -1,5 +1,15 @@
 from assessment_engine.web.view_models.server import MatchedPort
 
+# _PATTERNS 의 distinct categories — list 페이지 dropdown option 활용 (첫 등장 순서 보존).
+SERVICE_CATEGORIES: tuple[str, ...] = (
+    "web",
+    "db",
+    "cache",
+    "mq",
+    "container",
+    "monitor",
+)
+
 _PATTERNS: tuple[tuple[str, str], ...] = (
     ("nginx", "web"),
     ("httpd", "web"),

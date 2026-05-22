@@ -2,13 +2,13 @@
 {% block title %}ZConverter Assessment — {{ network.hostname }} 네트워크{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="/servers/{{ network.public_id }}">← {{ network.hostname }}</a>
+<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
 <h1>{{ network.hostname }} — 네트워크</h1>
 
 <!-- IP 주소 -->
 <div class="card">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px;">
-    <h2 style="margin:0;">IP 주소</h2>
+    <h2>IP 주소</h2>
     <span style="font-size:12px; color:#94a3b8;">인벤토리 수집: {{ network.inventory_at | kst }}</span>
   </div>
   <dl class="kv">
@@ -34,7 +34,7 @@
 <!-- 인터페이스 현황 -->
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 style="margin:0;">인터페이스 현황</h2>
+    <h2>인터페이스 현황</h2>
     <div id="sse-status" class="no-print" style="display:flex; align-items:center; gap:5px; font-size:11px; color:#94a3b8; white-space:nowrap;">
       <span id="sse-dot" class="dot dot-off"></span>
       <span id="sse-label">연결 중...</span>
@@ -67,7 +67,7 @@
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
     <div style="display:flex; align-items:center; gap:12px;">
-      <h2 style="margin:0;">네트워크 I/O 추이<span class="print-only" id="net-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+      <h2>네트워크 I/O 추이<span class="print-only" id="net-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
       <span id="net-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
     </div>
     <div class="toggle-group no-print" id="net-range-btns">

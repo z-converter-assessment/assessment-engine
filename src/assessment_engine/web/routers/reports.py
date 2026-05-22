@@ -81,6 +81,8 @@ async def environment_report(
 
 
 _HISTORY_PAGE_LIMIT = 20
+# 전체보기 mode — retention 90일 가정 + 운영자 회고용. 한 번에 SSR (페이지네이션 폐기, 단순화).
+_HISTORY_FULL_LIMIT = 10000
 
 
 @reports_router.get("/history")
@@ -99,19 +101,28 @@ async def history(
         None,
         description="특정 서버 관련 보고서만 필터. 서버 목록 'N대 선택 + 보고서 이력' 진입 시 자동 채워짐.",
     ),
+    full: bool = Query(False, description="전체 보기 (기본 20건 → 전체)"),
+    back: str | None = Query(None, description="← 이전 link referrer"),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """보고서 발행 이력 — 운영자 회고용. created_at DESC. SSR 첫 20건. 추가는 /api/reports/history."""
+    """보고서 발행 이력 — 운영자 회고용. created_at DESC. SSR 첫 20건 + "전체보기" 옵션 (full=1).
+
+    full=False (default): 최근 20 건. 운영자 빠른 확인.
+    full=True: 모든 row. 한 번에 SSR (페이지네이션 없음 — 단순화, retention 90일 가정).
+    """
+    limit = _HISTORY_FULL_LIMIT if full else _HISTORY_PAGE_LIMIT
     records = await diag_service.list_reports(
         days,
         view,
         server_public_ids,
         cursor=None,
-        limit=_HISTORY_PAGE_LIMIT,
+        limit=limit,
         scope=None if scope == "all" else scope,
     )
-    items = [to_report_history_item(r) for r in records]
-    next_cursor = records[-1].created_at.isoformat() if len(records) == _HISTORY_PAGE_LIMIT else None
+    # 본 이력 페이지 URL — 진입한 보고서의 "이전" 버튼이 돌아올 위치 (back chain).
+    history_back = quote(f"{request.url.path}?{request.url.query}", safe="")
+    items = [to_report_history_item(r, history_back) for r in records]
+    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
     return templates.TemplateResponse(
         request=request,
         name="reports/history.html",
@@ -121,8 +132,9 @@ async def history(
             "view": view,
             "scope": scope,
             "server_public_ids": server_public_ids,
-            "next_cursor": next_cursor,
-            "page_limit": _HISTORY_PAGE_LIMIT,
+            "full": full,
+            "show_all_link": (not full) and len(records) == _HISTORY_PAGE_LIMIT,
+            "back_url": back_url,
         },
     )
 
@@ -145,27 +157,5 @@ async def right_sizing_thresholds(
     )
 
 
-@reports_router.get("/history.json")
-async def history_json(
-    days: int = Query(90, ge=0, le=36500),
-    view: Literal["all", "customer", "engineer"] = Query("all"),
-    scope: Literal["all", "environment", "server"] = Query("all"),
-    server_public_ids: list[str] | None = Query(None),
-    cursor: datetime | None = Query(None, description="created_at < cursor 이후 행 fetch"),
-    diag_service: DiagnosticService = Depends(get_diagnostic_service),
-):
-    """더보기 페이지네이션 — JS fetch + DOM append. items + next_cursor 반환."""
-    records = await diag_service.list_reports(
-        days,
-        view,
-        server_public_ids,
-        cursor=cursor,
-        limit=_HISTORY_PAGE_LIMIT,
-        scope=None if scope == "all" else scope,
-    )
-    items = [to_report_history_item(r) for r in records]
-    # datetime → ISO string (JSON 직렬화)
-    for it in items:
-        it["created_at"] = it["created_at"].isoformat()
-    next_cursor = records[-1].created_at.isoformat() if len(records) == _HISTORY_PAGE_LIMIT else None
-    return {"items": items, "next_cursor": next_cursor}
+# history.json endpoint 폐기 — JS 무한 fetch loop 버그 + UX 단순화 ("전체보기" 단일 옵션 SSR).
+# 페이지네이션 자체 폐기, retention 90일 가정으로 _HISTORY_FULL_LIMIT (10000) 한 번에 SSR.

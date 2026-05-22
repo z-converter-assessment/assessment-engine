@@ -7,7 +7,7 @@
 <a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
 
 <div style="display:flex; align-items:center; justify-content:space-between; margin:8px 0 20px; gap:16px;">
-  <h1 style="margin:0;">{{ hostname }} <span style="font-size:14px; color:#64748b; font-weight:400; margin-left:8px;">{{ view_title }}</span></h1>
+  <h1>{{ hostname }} <span class="page-meta">{{ view_title }}</span></h1>
   <div style="display:flex; align-items:center; gap:14px;">
     <div style="font-size:12px; color:#64748b; text-align:right;">
       <div>발행 {{ summary.generated_at | kst }}</div>
@@ -21,7 +21,7 @@
 </div>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">서버 인벤토리</h2>
+  <h2>서버 인벤토리</h2>
   <div class="metric-grid metric-grid-3" style="margin-bottom:14px;">
     <div class="metric-card">
       <div class="metric-label">vCPU</div>
@@ -48,7 +48,7 @@
 
 {% if r %}
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">평균 사용률 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">{{ summary.time_range_label }} 윈도우</span></h2>
+  <h2>평균 사용률 <span class="section-meta">{{ summary.time_range_label }} 윈도우</span></h2>
   <div class="metric-grid metric-grid-2">
     <div class="metric-card">
       <div class="metric-label">CPU 평균</div>
@@ -65,7 +65,7 @@
 {% endif %}
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">Right-sizing 평가</h2>
+  <h2>Right-sizing 평가</h2>
   {% if r %}
   <div style="display:flex; align-items:center; gap:12px;">
     <span class="badge {{ r.badge_class }}" style="font-size:13px; padding:4px 12px;">{{ r.recommendation }}</span>
@@ -98,7 +98,7 @@
 {% if r %}
 {% set d = diagnostics_by_pid.get(r.public_id) if diagnostics_by_pid else None %}
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">AI 진단 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">{{ summary.time_range_label }} latest succeeded</span></h2>
+  <h2>AI 진단 <span class="section-meta">{{ summary.time_range_label }} latest succeeded</span></h2>
   {% if d and d.classification %}
   <div style="margin-bottom:8px;">
     <span class="badge {{ d.classification_badge_class }}" style="font-size:13px; padding:4px 12px;">{{ d.classification_label_kr }}</span>
@@ -116,7 +116,7 @@
 
 {% if view == "engineer" %}
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">운영 신호 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">데이터 수집·OS·Agent 안정성</span></h2>
+  <h2>운영 신호 <span class="section-meta">데이터 수집·OS·Agent 안정성</span></h2>
   {% if attention_for_host.get('gap') or attention_for_host.get('os_eol') or attention_for_host.get('restart') %}
   <div class="alert-list">
     {% if attention_for_host.get('gap') %}
@@ -144,7 +144,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">Saturation 신호 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">USE Method · 부하·대기·압박 축</span></h2>
+  <h2>Saturation 신호 <span class="section-meta">USE Method · 부하·대기·압박 축</span></h2>
   <div class="metric-grid metric-grid-3">
     <div class="metric-card">
       <div class="metric-label">Load 15m</div>
@@ -165,7 +165,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">변동성 / 디스크 / 네트워크 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">{{ summary.time_range_label }} 윈도우</span></h2>
+  <h2>변동성 / 디스크 / 네트워크 <span class="section-meta">{{ summary.time_range_label }} 윈도우</span></h2>
   <div class="metric-grid metric-grid-2">
     <div class="metric-card">
       <div class="metric-label">CPU 변동성 (peak / p95)</div>
@@ -201,7 +201,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">스토리지 / 시스템 안정성</h2>
+  <h2>스토리지 / 시스템 안정성</h2>
   <div class="metric-grid metric-grid-2">
     <div class="metric-card">
       <div class="metric-label">worst mount</div>
@@ -219,7 +219,7 @@
 {% endif %}
 
 <section class="card" style="margin-bottom:16px; background:#f8fafc;">
-  <h2 style="margin:0 0 8px; color:#475569;">참고자료</h2>
+  <h2>참고자료</h2>
   <p style="margin:0; font-size:13px; color:#475569;">
     Right-sizing 분류 임계값 · USE 축 · 보조 지표 정의{% if view == "engineer" %} · 운영 신호 임계{% endif %} · 근거 출처:
     <a href="/reports/right-sizing-thresholds?back={{ self_back }}" class="row-link">Right-sizing 분류 임계값 (참고자료)</a>

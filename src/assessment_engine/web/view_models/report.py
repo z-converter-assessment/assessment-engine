@@ -34,6 +34,13 @@ class ReportRowItem:
     risk_label: str  # "고위험" / "주의 필요" / "정상" / "저사용"
     risk_badge_class: str  # rec-under_provisioned / rec-right_size 등 재사용
 
+    # 서버 인벤토리 (정적 — 환경 엔지니어 호스트 상세 표 노출용).
+    # None 가능 (옛 agent 가 안 보낸 경우 / 신규 등록 직후). dataclass field 순서 의무로
+    # default 영역에 배치 (non-default 위에 두면 TypeError).
+    cpu_cores: int | None = None
+    mem_total_gb: float | None = None
+    disk_total_gb: float | None = None
+
     # I/O wait — 디스크 병목 신호 (양식 B 컬럼)
     iowait_p95_pct: float | None = None
     iowait_peak_pct: float | None = None

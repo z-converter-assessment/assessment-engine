@@ -48,14 +48,14 @@
     display: inline-block;
   }
 </style>
-<a class="back no-print" href="/servers/">← 대시보드</a>
+<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
 
 <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
-  <h1 style="margin:0;">{{ server.hostname }}</h1>
+  <h1>{{ server.hostname }}</h1>
   <span id="online-badge" class="badge no-print" style="font-size:12px;">
     <span class="dot dot-off"></span>확인 중...
   </span>
-  <a href="/servers/{{ server.public_id }}/performance" class="btn-action no-print" style="margin-left:auto; text-decoration:none;">
+  <a href="/servers/{{ server.public_id }}/performance?back={{ self_back }}" class="btn-action no-print" style="margin-left:auto; text-decoration:none;">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
     성능 리포트
   </a>
@@ -122,8 +122,8 @@
 <!-- 서비스 / 포트 요약 -->
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 style="margin:0;">서비스 / 포트</h2>
-    <a href="/servers/{{ server.public_id }}/services" class="btn no-print" style="font-size:12px; padding:4px 10px;">서비스/포트 상세 →</a>
+    <h2>서비스 / 포트</h2>
+    <a href="/servers/{{ server.public_id }}/services?back={{ self_back }}" class="btn no-print" style="font-size:12px; padding:4px 10px;">서비스/포트 상세 →</a>
   </div>
 
   <!-- 카테고리 뱃지 + 매핑 포트 -->
@@ -170,7 +170,7 @@
 <!-- 실시간 메트릭 대시보드 (AJAX + SSE) -->
 <div class="card" id="realtime-metrics-card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 style="margin:0;">실시간 메트릭</h2>
+    <h2>실시간 메트릭</h2>
     <div style="display:flex; align-items:center; gap:12px;">
       <div id="sse-status" class="no-print" style="margin:0;">
         <span id="sse-dot" class="dot dot-off"></span>
@@ -194,7 +194,7 @@
     <div class="group-header" style="margin-top:8px;">
       <span class="group-label">CPU</span>
       <div class="group-line"></div>
-      <a href="/servers/{{ server.public_id }}/cpu" class="btn no-print" style="font-size:11px; padding:3px 10px;">CPU 상세 →</a>
+      <a href="/servers/{{ server.public_id }}/cpu?back={{ self_back }}" class="btn no-print" style="font-size:11px; padding:3px 10px;">CPU 상세 →</a>
     </div>
     <div class="group-panel">
       <div class="sub-label" style="margin-top:0;">CPU / Load</div>
@@ -237,7 +237,7 @@
     <div class="group-header">
       <span class="group-label">메모리</span>
       <div class="group-line"></div>
-      <a href="/servers/{{ server.public_id }}/memory" class="btn no-print" style="font-size:11px; padding:3px 10px;">메모리 상세 →</a>
+      <a href="/servers/{{ server.public_id }}/memory?back={{ self_back }}" class="btn no-print" style="font-size:11px; padding:3px 10px;">메모리 상세 →</a>
     </div>
     <div class="group-panel">
       <div class="sub-label" style="margin-top:0;">Memory</div>
@@ -303,7 +303,7 @@
       <div class="group-header">
         <span class="group-label">스토리지</span>
         <div class="group-line"></div>
-        <a href="/servers/{{ server.public_id }}/storage" class="btn no-print" style="font-size:11px; padding:3px 10px;">스토리지 상세 →</a>
+        <a href="/servers/{{ server.public_id }}/storage?back={{ self_back }}" class="btn no-print" style="font-size:11px; padding:3px 10px;">스토리지 상세 →</a>
       </div>
       <div class="group-panel">
         <div id="disk-io-section">
@@ -331,7 +331,7 @@
       <div class="group-header">
         <span class="group-label">네트워크</span>
         <div class="group-line"></div>
-        <a href="/servers/{{ server.public_id }}/network" class="btn no-print" style="font-size:11px; padding:3px 10px;">네트워크 상세 →</a>
+        <a href="/servers/{{ server.public_id }}/network?back={{ self_back }}" class="btn no-print" style="font-size:11px; padding:3px 10px;">네트워크 상세 →</a>
       </div>
       <div class="group-panel">
         <div class="sub-label" style="margin-top:0;">Network I/O <small style="font-size:11px; color:#94a3b8; font-weight:400;">(연속 2회 측정 delta)</small></div>
@@ -355,8 +355,8 @@
          data-server-public-id="{{ server.public_id }}"
          data-server-hostname="{{ server.hostname }}">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 style="margin:0;">보고서</h2>
-    <a href="/reports/history?server_public_ids={{ server.public_id }}&scope=server" class="btn-action no-print" style="text-decoration:none;">
+    <h2>보고서</h2>
+    <a href="/reports/history?server_public_ids={{ server.public_id }}&scope=server&back={{ self_back }}" class="btn-action no-print" style="text-decoration:none;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       보고서 이력
     </a>
@@ -406,8 +406,8 @@
 
 <div class="card" data-diagnostic-panel data-scope="server" data-server-public-id="{{ server.public_id }}">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 style="margin:0;">AI 진단</h2>
-    <a href="/diagnostics/history?server_public_ids={{ server.public_id }}" class="btn-action no-print" style="text-decoration:none;">
+    <h2>AI 진단</h2>
+    <a href="/diagnostics/history?server_public_ids={{ server.public_id }}&back={{ self_back }}" class="btn-action no-print" style="text-decoration:none;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
       AI 진단 이력
     </a>
@@ -463,7 +463,7 @@
      data-server-public-id="{{ server.public_id }}"
      data-server-hostname="{{ server.hostname }}">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-    <h2 style="margin:0;">최근 작업</h2>
+    <h2>최근 작업</h2>
     <button type="button" id="server-install-open" class="btn-action no-print">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       ZConverter Install

@@ -10,12 +10,14 @@ from datetime import datetime
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ReportRowRaw
+from assessment_engine.web.services.device_filters import is_physical_disk
 from assessment_engine.web.services.mappers.server import _os_display, infer_role
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
     _OS_EOL,
     ReportView,
 )
+from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb
 from assessment_engine.web.view_models.report import ReportRowItem, ReportTotals
 
 # ─── 위험도 매핑 — 양식 A KPI 3단계 압축 ────────────────────────────────
@@ -315,6 +317,12 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
     mem_variance = None
     if raw.mem_p95_pct and raw.mem_peak_pct and raw.mem_p95_pct > 0:
         mem_variance = raw.mem_peak_pct / raw.mem_p95_pct
+    # 인벤토리 합계 산정 (환경 엔지니어 호스트 상세 노출용)
+    disk_total_gb_val: float | None = None
+    if raw.disks:
+        physical = [d for d in raw.disks if is_physical_disk(d.get("name", ""))]
+        if physical:
+            disk_total_gb_val = round(sum(bytes_to_gb(d.get("size_bytes")) or 0.0 for d in physical), 1)
     return ReportRowItem(
         server_id=raw.server_id,
         public_id=raw.public_id,
@@ -324,6 +332,9 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         os_display=_os_display(raw.os_id, raw.os_version),
         kernel_version=raw.kernel_version,
         internal_ip=raw.ip_internal[0] if raw.ip_internal else None,
+        cpu_cores=raw.cpu_cores,
+        mem_total_gb=kb_to_gb(raw.mem_total_kb),
+        disk_total_gb=disk_total_gb_val,
         cpu_p95_pct=raw.cpu_p95_pct,
         cpu_avg_pct=raw.cpu_avg_pct,
         cpu_peak_pct=raw.cpu_peak_pct,

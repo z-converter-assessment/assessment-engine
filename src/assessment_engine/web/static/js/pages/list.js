@@ -187,7 +187,7 @@ const reportEngineerBtn = document.getElementById('report-engineer-btn');
     params.set('time_range', rangeSel.value);
     const anchor = anchorInput.value;
     if (anchor) params.set('anchor_at', anchor + ':00+09:00');
-    params.set('back', location.pathname);
+    params.set('back', location.pathname + location.search);
     // 모든 보고서 발행 = 현재 탭 이동 (history.back / back query 로 referrer 자연 복귀, 단일 원칙).
     window.location.href = `/reports/environment?${params.toString()}`;
     close();
@@ -237,7 +237,7 @@ const reportEngineerBtn = document.getElementById('report-engineer-btn');
     params.set('ids', ids);
     params.set('view', currentView);
     params.set('time_range', rangeSel.value);
-    params.set('back', location.pathname);
+    params.set('back', location.pathname + location.search);
     // anchor 는 server scope 라우터가 받지 않음 — UI 일관성. submit 미사용.
     window.location.href = `/servers/report?${params.toString()}`;
     close();
@@ -494,4 +494,66 @@ if (diagBtn) {
   diagCloseBtn.addEventListener('click', hideDiagModal);
   diagModal.addEventListener('click', e => { if (e.target === diagModal) hideDiagModal(); });
   diagSubmitBtn.addEventListener('click', submitDiag);
+}
+
+// 필터 form 즉시 client-side 적용 — server reload 없이 row hide/show + URL 갱신.
+// tr 마다 data-* attribute (data-hostname / data-is-online / data-os-id / data-classification / data-services)
+// 가 박혀 있어 JS 가 그 값 비교. URL replaceState 로 deep link / 새로고침 시 server-side filter 와 정합.
+const filterForm = document.getElementById('filter-form');
+if (filterForm) {
+  const rows = document.querySelectorAll('tr.server-row');
+
+  function applyFilters() {
+    const searchInput = filterForm.querySelector('input[name=search]');
+    const onlineSel = filterForm.querySelector('select[name=is_online]');
+    const serviceSel = filterForm.querySelector('select[name=service]');
+    const osSel = filterForm.querySelector('select[name=os_id]');
+    const classSel = filterForm.querySelector('select[name=classification]');
+    const search = (searchInput?.value || '').toLowerCase().trim();
+    const onlineState = onlineSel?.value || '';  // "" / "true" / "false"
+    const service = serviceSel?.value || '';
+    const osId = osSel?.value || '';
+    const classification = classSel?.value || '';
+    rows.forEach(tr => {
+      const hostname = tr.dataset.hostname || '';
+      const rowOnline = tr.dataset.isOnline === 'true';
+      const rowOs = tr.dataset.osId || '';
+      const rowClass = tr.dataset.classification || '';
+      const rowServices = (tr.dataset.services || '').trim().split(/\s+/);
+      let show = true;
+      if (search && !hostname.includes(search)) show = false;
+      if (onlineState === 'true' && !rowOnline) show = false;
+      if (onlineState === 'false' && rowOnline) show = false;
+      if (service && !rowServices.includes(service)) show = false;
+      if (osId && rowOs !== osId) show = false;
+      if (classification && rowClass !== classification) show = false;
+      tr.style.display = show ? '' : 'none';
+    });
+    // URL 갱신 — deep link / 새로고침 시 server-side filter 가 같은 query 받음 (일관).
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (onlineState) params.set('is_online', onlineState);
+    if (service) params.set('service', service);
+    if (osId) params.set('os_id', osId);
+    if (classification) params.set('classification', classification);
+    const qs = params.toString();
+    const newUrl = qs ? `${location.pathname}?${qs}` : location.pathname;
+    history.replaceState(null, '', newUrl);
+  }
+
+  // text input — typing 마다 debounce (200ms) client filter.
+  let debounceTimer = null;
+  filterForm.querySelector('input[name=search]')?.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(applyFilters, 200);
+  });
+  // select / checkbox — change 즉시.
+  filterForm.querySelectorAll('select, input[type=checkbox]').forEach(el => {
+    el.addEventListener('change', applyFilters);
+  });
+  // Enter 키 default form submit 방지 (page reload 없이).
+  filterForm.addEventListener('submit', e => {
+    e.preventDefault();
+    applyFilters();
+  });
 }

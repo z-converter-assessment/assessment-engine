@@ -2,7 +2,7 @@
 {% block title %}ZConverter Assessment — {{ server.hostname }} 서비스/포트{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="/servers/{{ server.public_id }}">← {{ server.hostname }}</a>
+<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
 <h1>{{ server.hostname }} — 서비스 / 포트</h1>
 
 <!-- 서비스 목록 -->

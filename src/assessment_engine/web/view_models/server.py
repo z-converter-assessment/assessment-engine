@@ -61,6 +61,9 @@ class ServerListItem:
     # raws_period 부재 시 빈 문자열 (도넛/분류 데이터 없음 — 페이지 2+ 또는 신규 등록 직후).
     recommendation_label: str = ""
     recommendation_color: str = ""
+    # 분류 raw enum — list 필터링 단일 진실 (optimal / over_provisioned / under_provisioned /
+    # idle / shutdown / insufficient_data). raws_period 부재 시 빈 문자열.
+    provisioning_class: str = ""
     # 행별 마지막 task 요약. None 이면 발행 이력 없음 — 템플릿이 "—" 로 표시.
     last_task: TaskSummaryItem | None = None
 

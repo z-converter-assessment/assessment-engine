@@ -138,9 +138,52 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 | `.kpi-label-sub` | 라벨 옆 부가 문구 (400, #cbd5e1) |
 | `.section-title` | 카드 안 sub-section 구분 (13px 600, top border) |
 
-## 네비게이션 규약 — 새창 금지 + 뒤로가기 보존
+## 폰트 위계 — 단일 진실 (예외 0 의무)
 
-원칙: 보고서·진단·이력·detail 페이지 사이 이동은 모두 현재 탭. 새 탭 (`target="_blank"`) 금지. 결과 페이지의 "← 이전" link 는 referrer 를 `back` query 로 명시 보존 → 어떤 진입 경로에서든 정확히 직전 페이지로 복귀.
+base.html `<style>` 정의 — 모든 page 가 같은 위계 사용. inline `style="font-size:...; font-weight:..."` 로 override 금지.
+
+| 위계 | 정의 | 용도 |
+|------|------|------|
+| `h1` | 20px / 700 / #0f172a | 페이지 제목 (대시보드 / 환경 보고서 / 서버 상세) — 페이지당 1 개 |
+| `h2` | 16px / 700 / #1e293b | 카드 섹션 제목 (요약 / 환경 메트릭 / Right-sizing 분류 등) |
+| `h3` | 13px / 600 / #475569 | 소제목 (환경 현황 / 분포 / 조치 필요 호스트 등) — h2 보다 영향력 약함 |
+| `.page-meta` | 14px / 400 / #64748b / margin-left 8px | h1 옆 sub-text (예: view_title 양식 라벨) |
+| `.section-meta` | 12px / 400 / #94a3b8 / margin-left 8px | h2 옆 sub-text (예: 윈도우 / 부가 설명) |
+
+금지:
+- `<h2 style="font-size:14px; color:#475569;">` 같은 inline style override — base 단일 진실 위반.
+- `<h3 style="margin:0 0 10px; font-size:14px;">` — h3 가 h2 size 와 같으면 위계 깨짐.
+- h1/h2/h3 외 임의 `<div style="font-size:18px; font-weight:700;">` 같은 의사-제목 — h1/h2/h3 사용 의무.
+- modal 안 제목은 별개 (`#title-id style="..."` 인라인 허용 — modal 컴포넌트 별도 위계).
+
+## 폰트 체 — sans-serif 단일 + monospace 식별자 한정
+
+base.html `<body>` 가 system-ui sans-serif 기본. 모든 텍스트 동일 family. 별도 폰트 (serif / display) 안 씀.
+
+monospace 적용 위치 (예외 0 의무):
+- 식별자: hostname / UUID / IP address / file path / unit name (예: nginx.service)
+- agent path / mount path (예: /var/lib/postgresql/data)
+- inline code 표시 (`<code>` element)
+
+class:
+- `<code>...</code>` — inline code 표시 (background + padding + monospace, base 단일 진실)
+- `.identifier` — code element 아닌 식별자에 monospace 만 적용 (background 없음, 표 cell 내부 등)
+
+금지:
+- 일반 텍스트 (제목 / 본문 / 라벨) 에 monospace 적용 — 식별자 외 monospace 가독성 ↓.
+- 숫자 (vCPU / GB / %) 에 monospace — sans-serif weight 700 으로 정렬·강조 충분.
+- inline `style="font-family:monospace"` — base `.identifier` 또는 `<code>` 사용 의무.
+
+## 네비게이션 규약 — 새창 금지 + 뒤로가기 보존 (예외 0 의무)
+
+원칙: 모든 페이지 (대시보드 외) 가 동일 back chain 규약 적용. 보고서·진단·이력·detail·tab 페이지 사이 이동은 모두 현재 탭. 새 탭 (`target="_blank"`) 금지. 모든 결과 페이지의 "← 이전" link 는 referrer 를 `back` query 로 명시 보존 → 어떤 진입 경로에서든 정확히 직전 페이지로 복귀.
+
+새 페이지·새 link 추가 시 3 위치 동시 적용 의무:
+1. router endpoint signature 에 `back: str | None = Query(None)` + `back_url = _safe_back(back, FALLBACK)` 산출 + context 전달.
+2. 자식 진입 link (template / JS) 에 `?back={{ self_back }}` (또는 JS `back=pathname+search`) 박음. `self_back = quote(f"{request.url.path}?{request.url.query}", safe="")` 산출.
+3. 페이지 `.back` 버튼 = `<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>` (hardcoded 부모 URL 금지).
+
+위 3 위치 중 어느 하나 누락 시 back chain 깨짐 → fallback (대시보드 등) 으로 점프. 새 페이지 추가 PR 의 review 항목.
 
 ### 발행·전환 시 현재 탭 이동
 
@@ -173,15 +216,22 @@ self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 ```
 템플릿에서 자식 link 에 `&back={{ self_back }}` 추가.
 
-### 표 적용 위치
+### 표 적용 위치 (모든 페이지 — 예외 0)
 
 | 라우터 | back 사용 여부 | back fallback |
 |--------|----------------|----------------|
+| `/servers/` (대시보드) | X (root 진입점) | — |
+| `/servers/{id}` (detail) | O | `/servers/` |
+| `/servers/{id}/{cpu,memory,services,performance,storage,network}` (tab) | O | `/servers/{id}` |
 | `/servers/report` (다중) | O | `/servers/` |
 | `/servers/{id}/report` (단일) | O | `/servers/{id}` |
 | `/reports/environment` | O | `/servers/` |
-| `/reports/right-sizing-thresholds` (참고자료) | X | history.back() 또는 row-link 진입 |
-| `/diagnostics?ids=...` | O | `/servers/` |
+| `/reports/history` | O | `/servers/` |
+| `/reports/right-sizing-thresholds` (참고자료) | O | `/servers/` |
+| `/diagnostics?ids=...` (결과) | O | `/servers/` |
+| `/diagnostics/history` | O | `/servers/` |
+
+대시보드 (`/servers/`) 만 root 진입점이라 back 안 받음 — 다른 페이지에서 그쪽으로 가는 link 도 back 불필요. 다만 대시보드 자체는 `self_back` 산출 의무 (자식 link 에 박기 위해).
 
 ### 에러 표시 — toast 단일 진실
 
@@ -197,3 +247,21 @@ statusEl 은 이전 상태 복원 — 에러 흔적 본문에 잔존 금지.
 - 발행 publish 함수에서 `window.open(url, '_blank')` — 사용자 의도 (현재 탭 일관) 위반.
 - ← 이전 link 에 `javascript:history.back()` 단독 사용 (back chain 끊김 시 이상한 곳으로 복귀) — 명시 `back_url` 항상 같이.
 - back query 인자 sanitize 누락 (open-redirect — 외부 URL 로 점프 가능).
+- `.back` 버튼에 hardcoded URL (`/servers/{id}` / `/servers/` 등) 박음 — back_url context 활용 의무. fallback 은 router 측 `_safe_back` 단일 진실.
+- 자식 진입 link 에 `?back=` 박지 않음 — 진입한 자식 페이지가 fallback 으로 점프하는 결과.
+
+## 링크 포맷 — 단일 진실 (예외 0)
+
+모든 link 일관 — base.html 의 `a` 스타일이 단일 진실:
+
+```css
+a { color: #2563eb; text-decoration: underline; text-decoration-color: #cbd5e1; text-underline-offset: 2px; }
+a:hover { text-decoration-color: #2563eb; }
+```
+
+별도 class (예: `.row-link` / `.task-cell` / `.attention-link`) 는 base 스타일 그대로 상속. 부수 affordance (layout flex / font-weight 강조 등) 만 정의. text-decoration 중복 정의 금지.
+
+금지:
+- 일부 link 에 `text-decoration: none` 또는 hover-only underline — 일관성 깨짐.
+- 별도 class 가 base 스타일 override (예: `.row-link { text-decoration: ...}` 중복) — base 단일 진실.
+- inline style `style="text-decoration:none"` — 버튼류 (`btn-action` 등) 에서 의도된 경우 외 금지.

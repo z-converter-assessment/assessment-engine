@@ -167,7 +167,7 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
     services = _services_or_none(dto.services, listen_ports=None)
     known, show_unknown = _dedup_known(services)
 
-    rec_label, rec_color = "", ""
+    rec_label, rec_color, seg_key = "", "", ""
     if raw_period is not None:
         rec = recommendation.classify(
             recommendation.ResourceStats(
@@ -207,6 +207,7 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
         os_display=_os_display(dto.os_id, dto.os_version),
         recommendation_label=rec_label,
         recommendation_color=rec_color,
+        provisioning_class=seg_key,
     )
 
 

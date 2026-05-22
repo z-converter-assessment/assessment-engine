@@ -247,17 +247,13 @@ def _env_summary_bullets(
     online_ratio = (overview.online / overview.total * 100) if overview.total else 0.0
 
     if view == "customer":
-        bullets = [
+        return [
             f"등록 서버 총 {overview.total}대 — 온라인 {overview.online}대 ({online_ratio:.0f}%).",
             (
                 f"[자원 평가] 위험(리소스 부족) {under}대 / 검토 권장(과다·유휴) {over + idle}대"
                 f" / 정상 {optimal}대 / 데이터 부족 {insufficient}대."
             ),
         ]
-        if attention.has_any:
-            counts = sum(c.count for c in attention.catalog)
-            bullets.append(f"[운영 신호] 점검 항목 {counts}건 — 디스크·통신·OS EOL·재시작 등 실시간 이슈.")
-        return bullets
 
     resource = (
         f"vCPU {overview.total_vcpus} / 메모리 {overview.total_memory_gb:.1f} GB / 디스크 {overview.total_disk_gb} GB"

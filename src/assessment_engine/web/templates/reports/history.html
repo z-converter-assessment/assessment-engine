@@ -2,7 +2,7 @@
 {% block title %}ZConverter Assessment — 보고서 이력{% endblock %}
 
 {% block content %}
-<a href="/servers/" class="back">&larr; 뒤로</a>
+<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
 <h1>보고서 이력</h1>
 <p style="color:#64748b; font-size:13px; margin-bottom:16px;">
   고객/엔지니어 보고서 발행 이력.
@@ -72,23 +72,17 @@
     {% endfor %}
   </tbody>
 </table>
-{% if next_cursor %}
-<div style="margin-top:14px; text-align:center; display:flex; gap:8px; justify-content:center;">
-  <button type="button" id="report-history-more"
-          data-cursor="{{ next_cursor }}"
-          {% if server_public_ids %}data-server-public-ids="{{ server_public_ids | join(',') }}"{% endif %}
-          class="btn" style="background:#3b82f6; color:#fff; padding:8px 20px; cursor:pointer; border:none; border-radius:4px;">
-    더 보기
-  </button>
-  <button type="button" id="report-history-all"
-          {% if server_public_ids %}data-server-public-ids="{{ server_public_ids | join(',') }}"{% endif %}
-          class="btn" style="background:#f1f5f9; color:#475569; padding:8px 20px; cursor:pointer; border:1px solid #cbd5e1; border-radius:4px;">
-    전체 보기
-  </button>
+{% if show_all_link %}
+<div style="margin-top:14px; text-align:center;">
+  <a href="?{% if days %}days={{ days }}&{% endif %}view={{ view }}&scope={{ scope }}{% if server_public_ids %}{% for pid in server_public_ids %}&server_public_ids={{ pid }}{% endfor %}{% endif %}&full=1"
+     class="btn" style="background:#f1f5f9; color:#475569; padding:8px 20px; border:1px solid #cbd5e1; border-radius:4px; text-decoration:none; display:inline-block;">
+    전체보기
+  </a>
 </div>
+<div style="margin-top:8px; font-size:12px; color:#94a3b8;">최근 20건만 표시. "전체보기" 클릭 시 모든 row.</div>
+{% elif full %}
+<div style="margin-top:10px; font-size:12px; color:#94a3b8;">전체 {{ items | length }}건.</div>
 {% endif %}
-<div style="margin-top:10px; font-size:12px; color:#94a3b8;">한 번에 {{ page_limit }}건씩 추가.</div>
-<script src="/static/js/pages/reports-history.js?v={{ asset_v }}" defer></script>
 {% else %}
 <div class="card" style="text-align:center; padding:40px; color:#64748b;">
   해당 조건의 보고서 이력 없음.

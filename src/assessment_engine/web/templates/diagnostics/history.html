@@ -2,7 +2,7 @@
 {% block title %}ZConverter Assessment — AI 진단 이력{% endblock %}
 
 {% block content %}
-<a href="/servers/" class="back">&larr; 뒤로</a>
+<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
 <h1>AI 진단 이력</h1>
 
 <form method="get" class="search-row no-print" style="margin:16px 0 20px;">
@@ -48,7 +48,7 @@
       <td>{% if it.scope == "server" %}서버{% else %}환경{% endif %}</td>
       <td>
         {% if it.server_public_id %}
-        <a href="/servers/{{ it.server_public_id }}"><code style="font-size:11px;">{{ it.server_public_id[:8] }}</code></a>
+        <a href="/servers/{{ it.server_public_id }}?back={{ self_back }}" class="row-link">{{ it.server_public_id[:8] }}</a>
         {% else %}
         <span style="color:#94a3b8;">전체</span>
         {% endif %}
@@ -64,12 +64,22 @@
       </td>
       <td style="white-space:nowrap;">{{ (it.finished_at | kst) if it.finished_at else "—" }}</td>
       <td>{{ it.requested_by or "—" }}</td>
-      <td><a href="/diagnostics?ids={{ it.job_id }}">보기</a></td>
+      <td><a href="/diagnostics?ids={{ it.job_id }}&back={{ self_back }}">보기</a></td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
-<div style="margin-top:10px; font-size:12px; color:#94a3b8;">최대 200건 표시.</div>
+{% if show_all_link %}
+<div style="margin-top:14px; text-align:center;">
+  <a href="?{% if days %}days={{ days }}&{% endif %}scope={{ scope }}{% if server_public_ids %}{% for pid in server_public_ids %}&server_public_ids={{ pid }}{% endfor %}{% endif %}&full=1"
+     class="btn" style="background:#f1f5f9; color:#475569; padding:8px 20px; border:1px solid #cbd5e1; border-radius:4px; text-decoration:none; display:inline-block;">
+    전체보기
+  </a>
+</div>
+<div style="margin-top:8px; font-size:12px; color:#94a3b8;">최근 20건만 표시. "전체보기" 클릭 시 모든 row.</div>
+{% elif full %}
+<div style="margin-top:10px; font-size:12px; color:#94a3b8;">전체 {{ items | length }}건.</div>
+{% endif %}
 {% else %}
 <div class="card" style="text-align:center; padding:40px; color:#64748b;">
   해당 조건의 진단 이력 없음.

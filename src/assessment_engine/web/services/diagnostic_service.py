@@ -120,15 +120,17 @@ class DiagnosticService:
         scope: str | None = None,
         server_public_ids: list[str] | None = None,
         job_type: str | None = None,
+        limit: int = 20,
     ) -> list[DiagnosticJobRecord]:
         """AI 진단 이력 페이지(/diagnostics/history) 용 — 최근 N일 발행 이력.
 
         - server_public_ids: 해당 서버 관련 job 만 (server scope 자연 필터)
         - job_type: 라우터 단에서 'ai_diagnostic' 고정 (보고서 이력은 list_reports 별도).
+        - limit: default 20 (기본 표시) — 전체보기 시 caller 가 큰 값 전달.
         """
         async with self.session_factory() as session:
             repo = self.diagnostic_repo_factory(session)
-            return await repo.list_recent(days, scope, server_public_ids, job_type)
+            return await repo.list_recent(days, scope, server_public_ids, job_type, limit)
 
     async def list_reports(
         self,

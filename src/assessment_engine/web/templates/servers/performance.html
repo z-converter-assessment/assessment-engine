@@ -2,9 +2,9 @@
 {% block title %}ZConverter Assessment — {{ server.hostname }} 성능 리포트{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="/servers/{{ server.public_id }}">← {{ server.hostname }}</a>
+<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-  <h1 style="margin:0;">{{ server.hostname }} — 성능 리포트</h1>
+  <h1>{{ server.hostname }} — 성능 리포트</h1>
   <button class="btn-print no-print" type="button" onclick="window.print()">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
     인쇄
@@ -28,7 +28,7 @@
   <input type="datetime-local" id="anchor-date"
     style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;">
   <div style="display:flex; align-items:center; gap:5px; margin-left:auto;">
-    <span style="font-size:11px; color:#94a3b8;">최근 수집</span>
+    <span class="section-meta">최근 수집</span>
     <span id="last-metric-ts" style="font-size:11px; color:#64748b; font-weight:500;">로딩 중...</span>
   </div>
 </div>
@@ -39,7 +39,7 @@
   <!-- 서버 정보 -->
   <div class="card">
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
-      <h2 style="margin:0;">서버 정보</h2>
+      <h2>서버 정보</h2>
       {% if server.services is not none %}
       <div style="display:flex; flex-wrap:wrap; gap:6px; margin-left:8px;">
         {% for svc in server.known_services %}
@@ -84,7 +84,7 @@
   <!-- 마운트 사용률 -->
   <div class="card">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-      <h2 style="margin:0;">마운트 사용률</h2>
+      <h2>마운트 사용률</h2>
       <span id="mount-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
     </div>
     <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
@@ -97,7 +97,7 @@
   <!-- CPU 사용률 -->
   <div class="card">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-      <h2 style="margin:0;">CPU 사용률</h2>
+      <h2>CPU 사용률</h2>
       <span id="cpu-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
     </div>
     <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
@@ -109,7 +109,7 @@
   <!-- CPU I/O Wait -->
   <div class="card">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-      <h2 style="margin:0;">CPU I/O Wait</h2>
+      <h2>CPU I/O Wait</h2>
       <span id="iowait-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
     </div>
     <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">디스크 병목으로 CPU가 대기하는 비율 — 높으면 I/O 병목 의심</div>
@@ -122,7 +122,7 @@
   <!-- CPU User / System -->
   <div class="card">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-      <h2 style="margin:0;">CPU User / System</h2>
+      <h2>CPU User / System</h2>
       <span id="cpuus-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
     </div>
     <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">user: 앱 부하 / system: 커널 처리 — 둘의 합이 전체 CPU 사용의 주요 구성</div>
@@ -136,7 +136,7 @@
   <!-- Load Average 15m -->
   <div class="card">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-      <h2 style="margin:0;">Load Average 15m{% if server.cpu_cores %} <span style="font-size:13px; font-weight:400; color:#94a3b8;">({{ server.cpu_cores }}코어)</span>{% endif %}</h2>
+      <h2>Load Average 15m{% if server.cpu_cores %} <span style="font-size:13px; font-weight:400; color:#94a3b8;">({{ server.cpu_cores }}코어)</span>{% endif %}</h2>
       <span id="load-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
     </div>
     <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">15분 평균 실행 대기 프로세스 수 — 코어 수 초과 시 CPU 포화 상태</div>
@@ -149,7 +149,7 @@
   <!-- 메모리 사용률 -->
   <div class="card">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-      <h2 style="margin:0;">메모리 사용률</h2>
+      <h2>메모리 사용률</h2>
       <span id="mem-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
     </div>
     <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
@@ -161,7 +161,7 @@
   <!-- 스왑 사용률 -->
   <div class="card">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-      <h2 style="margin:0;">스왑 사용률</h2>
+      <h2>스왑 사용률</h2>
       <span id="swap-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
     </div>
     <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">스왑 사용이 감지되면 최대값 빨간색 표시</div>
@@ -174,7 +174,7 @@
   <!-- 디스크 읽기 IOPS -->
   <div class="card">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-      <h2 style="margin:0;">디스크 읽기 IOPS</h2>
+      <h2>디스크 읽기 IOPS</h2>
       <span id="dread-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
     </div>
     <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">Y축 기준: HDD 랜덤 I/O 한계 ~200 IOPS (SSD 초과 시 자동 확장)</div>
@@ -189,7 +189,7 @@
   <!-- 디스크 쓰기 IOPS -->
   <div class="card">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-      <h2 style="margin:0;">디스크 쓰기 IOPS</h2>
+      <h2>디스크 쓰기 IOPS</h2>
       <span id="dwrite-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
     </div>
     <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">Y축 기준: HDD 랜덤 I/O 한계 ~200 IOPS (SSD 초과 시 자동 확장)</div>
@@ -204,7 +204,7 @@
   <!-- 네트워크 수신 -->
   <div class="card">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-      <h2 style="margin:0;">네트워크 수신 (RX)</h2>
+      <h2>네트워크 수신 (RX)</h2>
       <span id="netrx-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
     </div>
     <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">Y축 기준: 10 MB/s (1 Gbps 이더넷의 약 8%, 유의미한 트래픽 기준선)</div>
@@ -218,7 +218,7 @@
   <!-- 네트워크 송신 -->
   <div class="card">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-      <h2 style="margin:0;">네트워크 송신 (TX)</h2>
+      <h2>네트워크 송신 (TX)</h2>
       <span id="nettx-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
     </div>
     <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">Y축 기준: 10 MB/s (1 Gbps 이더넷의 약 8%, 유의미한 트래픽 기준선)</div>

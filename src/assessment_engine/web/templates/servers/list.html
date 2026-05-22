@@ -181,7 +181,7 @@
               <span class="badge" style="background:{{ t.bg_color }}; color:{{ t.fg_color }};">{{ t.label }}</span>
               {% endfor %}
             </span>
-            <a class="attention-link" href="/servers/{{ c.public_id }}">{{ c.hostname }}</a>
+            <a class="attention-link" href="/servers/{{ c.public_id }}?back={{ self_back }}">{{ c.hostname }}</a>
           </li>
           {% endfor %}
         </ul>
@@ -227,8 +227,8 @@
 
 <section class="card no-print">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 style="margin:0;">환경 보고서</h2>
-    <a href="/reports/history" class="btn-action no-print" style="text-decoration:none;">
+    <h2>환경 보고서</h2>
+    <a href="/reports/history?back={{ self_back }}" class="btn-action no-print" style="text-decoration:none;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       보고서 이력
     </a>
@@ -309,8 +309,8 @@
 
 <section class="card no-print" data-diagnostic-panel data-scope="environment">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 style="margin:0;">환경 AI 진단</h2>
-    <a href="/diagnostics/history" class="btn-action no-print" style="text-decoration:none;">
+    <h2>환경 AI 진단</h2>
+    <a href="/diagnostics/history?back={{ self_back }}" class="btn-action no-print" style="text-decoration:none;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
       AI 진단 이력
     </a>
@@ -366,16 +366,33 @@
 <section class="card no-print">
 <h2>서버 목록</h2>
 
-<form method="get" class="search-row no-print">
+<form method="get" class="search-row no-print" id="filter-form">
   <input type="text" name="search" value="{{ request.query_params.get('search', '') }}" placeholder="hostname 검색">
-  <label>
-    <input type="checkbox" name="is_online" value="true"
-      {% if request.query_params.get('is_online') == 'true' %}checked{% endif %}>
-    온라인만
-  </label>
-  <button type="submit">검색</button>
-  {% if request.query_params.get('search') or request.query_params.get('is_online') %}
-  <a href="/servers/" class="clear-btn" style="display:inline-flex;align-items:center;text-decoration:none;">초기화</a>
+  <select name="is_online">
+    <option value="">상태 전체</option>
+    <option value="true" {% if request.query_params.get('is_online') == 'true' %}selected{% endif %}>온라인</option>
+    <option value="false" {% if request.query_params.get('is_online') == 'false' %}selected{% endif %}>오프라인</option>
+  </select>
+  <select name="service">
+    <option value="">서비스 전체</option>
+    {% for cat in filter_options.service_categories %}
+    <option value="{{ cat }}" {% if request.query_params.get('service') == cat %}selected{% endif %}>{{ cat }}</option>
+    {% endfor %}
+  </select>
+  <select name="os_id">
+    <option value="">OS 전체</option>
+    {% for oid in filter_options.os_ids %}
+    <option value="{{ oid }}" {% if request.query_params.get('os_id') == oid %}selected{% endif %}>{{ oid }}</option>
+    {% endfor %}
+  </select>
+  <select name="classification">
+    <option value="">프로비저닝 전체</option>
+    {% for cls in filter_options.classifications %}
+    <option value="{{ cls }}" {% if request.query_params.get('classification') == cls %}selected{% endif %}>{{ cls }}</option>
+    {% endfor %}
+  </select>
+  {% if request.query_params.get('search') or request.query_params.get('is_online') or request.query_params.get('service') or request.query_params.get('os_id') or request.query_params.get('classification') %}
+  <a href="/servers/" class="clear-btn" style="display:inline-flex;align-items:center;">초기화</a>
   {% endif %}
 </form>
 
@@ -399,10 +416,7 @@
       <th>상태</th>
       <th>Hostname</th>
       <th>서비스</th>
-      <th>네트워크</th>
-      <th>Cores</th>
-      <th>Memory</th>
-      <th>Storage</th>
+      <th>외부 IP</th>
       <th>OS</th>
       <th>프로비저닝</th>
       <th>최근 작업</th>
@@ -411,7 +425,12 @@
   </thead>
   <tbody>
     {% for s in servers %}
-    <tr>
+    <tr class="server-row"
+        data-hostname="{{ s.hostname | lower }}"
+        data-is-online="{{ 'true' if s.is_online else 'false' }}"
+        data-os-id="{{ s.os_id or '' }}"
+        data-classification="{{ s.provisioning_class }}"
+        data-services="{% for svc in s.known_services %}{{ svc.category }} {% endfor %}">
       <td class="no-print"><input type="checkbox" class="row-select" data-public-id="{{ s.public_id }}" data-hostname="{{ s.hostname }}"></td>
       <td style="text-align:center;">
         {% if s.is_online %}
@@ -421,7 +440,7 @@
         {% endif %}
       </td>
       <td>
-        <a href="/servers/{{ s.public_id }}" class="row-link"><strong>{{ s.hostname }}</strong></a>
+        <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="row-link"><strong>{{ s.hostname }}</strong></a>
       </td>
       <td>
         {% if s.services is none %}
@@ -444,9 +463,6 @@
           <span style="color:#94a3b8; font-size:12px;">내부망</span>
         {% endif %}
       </td>
-      <td>{{ s.cpu_cores | or_dash }}</td>
-      <td>{{ s.mem_total_gb | disksize }}</td>
-      <td>{{ s.storage_total_gb | disksize }}</td>
       <td style="color:#64748b;">{{ s.os_display }}</td>
       <td>
         {% if s.recommendation_color %}
@@ -469,7 +485,7 @@
         {% endif %}
       </td>
       <td class="action-col">
-        <a href="/servers/{{ s.public_id }}" class="btn" style="font-size:12px; padding:4px 10px;">상세 →</a>
+        <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="btn" style="font-size:12px; padding:4px 10px;">상세 →</a>
       </td>
     </tr>
     {% endfor %}

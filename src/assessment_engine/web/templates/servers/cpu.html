@@ -2,13 +2,13 @@
 {% block title %}ZConverter Assessment — {{ server.hostname }} CPU 상세{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="/servers/{{ server.public_id }}">← {{ server.hostname }}</a>
+<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
 <h1>{{ server.hostname }} — CPU 상세</h1>
 
 <!-- 현재 스냅샷 -->
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 style="margin:0;">현재 상태</h2>
+    <h2>현재 상태</h2>
     <div id="sse-status" class="no-print" style="display:flex; align-items:center; gap:5px; font-size:11px; color:#94a3b8; white-space:nowrap;">
       <span id="sse-dot" class="dot dot-off"></span>
       <span id="sse-label">연결 중...</span>
@@ -49,7 +49,7 @@
   <div style="margin-bottom:14px;">
     <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:6px;">
       <div style="display:flex; align-items:center; gap:12px;">
-        <h2 style="margin:0;">CPU 사용률 추이<span class="print-only" id="usage-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+        <h2>CPU 사용률 추이<span class="print-only" id="usage-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
         <span id="usage-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
       </div>
       <div class="toggle-group no-print" id="usage-range-btns">
@@ -87,7 +87,7 @@
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
     <div style="display:flex; align-items:center; gap:12px;">
-      <h2 style="margin:0;">CPU 분류 추이<span class="print-only" id="comp-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+      <h2>CPU 분류 추이<span class="print-only" id="comp-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
       <span id="comp-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
     </div>
     <div class="toggle-group no-print" id="comp-range-btns">
@@ -115,7 +115,7 @@
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
     <div style="display:flex; align-items:center; gap:12px;">
-      <h2 style="margin:0;">로드 평균 추이<span class="print-only" id="load-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+      <h2>로드 평균 추이<span class="print-only" id="load-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
       <span id="load-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
     </div>
     <div class="toggle-group no-print" id="load-range-btns">

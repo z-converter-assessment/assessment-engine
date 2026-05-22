@@ -5,8 +5,8 @@
 <a href="{{ back_url }}" class="back no-print">&larr; 이전</a>
 
 <div style="display:flex; align-items:center; justify-content:space-between; margin:8px 0 20px; gap:16px;">
-  <h1 style="margin:0;">Right-sizing 분류 임계값
-    <span style="font-size:14px; color:#64748b; font-weight:400; margin-left:8px;">참고자료</span>
+  <h1>Right-sizing 분류 임계값
+    <span class="page-meta">참고자료</span>
   </h1>
   <button class="btn-print no-print" type="button" onclick="window.print()">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
@@ -15,7 +15,7 @@
 </div>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">분류 기준</h2>
+  <h2>분류 기준</h2>
   <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
     환경·서버 보고서·AI 진단의 Right-sizing 분류는 <code>recommendation</code> 모듈 단일 진실로 결정.
     아래 표의 임계값을 USE Method (Brendan Gregg) Utilization·Saturation 두 축으로 적용해 6 분류 (under_provisioned / over_provisioned / idle / shutdown / optimal / insufficient_data) 산출.
@@ -48,7 +48,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">엔지니어 보조 지표</h2>
+  <h2>엔지니어 보조 지표</h2>
   <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
     분류 자체는 위 표의 임계로 결정되지만, 엔지니어 검토 시 원인 진단·sizing 방향을 잡으려면 보조 지표가 필요.
     아래는 엔지니어 양식 (다중 요약·단일 세부) 에 노출되는 보조 메트릭의 정의·임계·근거.
@@ -81,7 +81,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">운영 신호 임계</h2>
+  <h2>운영 신호 임계</h2>
   <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
     Right-sizing 분류와 별도의 운영 안정성 신호 — 환경·서버 엔지니어 양식 KPI / 컬럼 / 세부 카드에 노출.
     분류 (under/over/optimal) 가 정상이어도 운영 신호가 발화하면 sizing 보다 운영 조치가 선행되어야 함.
@@ -104,7 +104,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">평가 윈도우</h2>
+  <h2>평가 윈도우</h2>
   <p style="margin:0; font-size:13px; color:#475569; line-height:1.6;">
     평가 윈도우 표준은 <code>recommendation.WINDOW_DAYS</code> = 14일 (AWS Compute Optimizer 표준).
     대시보드·환경 보고서·서버 보고서·AI 진단 모두 본 상수 참조.

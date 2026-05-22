@@ -18,7 +18,7 @@
 
 | 경로 | 핸들러 | 비고 |
 |------|--------|------|
-| `GET /servers/` | `list_servers` | 목록 + 검색·온라인 필터 + 4 액션 버튼 (발견/Install/Export/보고서). page=1 + 검색·필터 미사용 시 상단에 environment_overview + attention 두 섹션 노출 (`docs/architecture/web/services.md` "대시보드 상단 요약") |
+| `GET /servers/?search=&is_online=&service=&os_id=&classification=` | `list_servers` | 목록 + 검색·온라인·서비스·OS·프로비저닝 필터 + 4 액션 버튼 (발견/Install/Export/보고서). page=1 + 모든 필터 미사용 시 상단에 environment_overview + attention 두 섹션 노출 (`docs/architecture/web/services.md` "대시보드 상단 요약"). 필터는 모두 AND 조합 — service category (web/db/cache/mq/container/monitor) · os_id (distro 정확 일치) · classification (under/over/idle/shutdown/optimal/insufficient_data) |
 | `GET /servers/report?ids=&period_days=&view=customer\|engineer` | `report` | 서버 보고서 (scope=server). USE Method 보고서. view=customer(양식 A — 고객 KPI) / view=engineer(양식 B — 16컬럼 정량). 동일 SQL·동일 템플릿, view 파라미터로 분기 (의의·근거는 `docs/products/server-report.md`) |
 | `GET /servers/{server_id}` | `get_server` | detail 탭. 서버 진단 latest 카드 포함 (`to_panel_payload`) |
 | `GET /servers/{server_id}/{cpu,memory,services,performance}` | 동일 helper | `_render_server_tab` 5 탭 공유 |

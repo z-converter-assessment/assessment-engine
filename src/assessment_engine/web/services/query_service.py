@@ -125,6 +125,9 @@ class QueryService:
             return {}
         return await self.repo.resolve_server_ids(public_ids)
 
+    async def list_distinct_os_ids(self) -> list[str]:
+        return await self.repo.list_distinct_os_ids()
+
     async def list_all_server_public_ids(self) -> list[str]:
         """전체 등록 서버 public_id — 환경 단위 보고서 URL 합성용."""
         return await self.repo.list_all_server_public_ids()
@@ -139,6 +142,9 @@ class QueryService:
         limit: int,
         search: str | None,
         is_online: bool | None,
+        service: str | None = None,
+        os_id: str | None = None,
+        classification: str | None = None,
     ) -> list[ServerListItem]:
         dtos = await self.repo.list_servers(page, limit, search)
         if not dtos:
@@ -177,6 +183,13 @@ class QueryService:
 
         if is_online is not None:
             items = [i for i in items if i.is_online == is_online]
+        if service:
+            # service category 매칭 — "이 카테고리를 운영하는 호스트". known_services 에 카테고리 contains.
+            items = [i for i in items if any(s.category == service for s in i.known_services)]
+        if os_id:
+            items = [i for i in items if i.os_id == os_id]
+        if classification:
+            items = [i for i in items if i.provisioning_class == classification]
         return items
 
     async def get_server(self, server_id: int) -> ServerDetailResponse | None:
