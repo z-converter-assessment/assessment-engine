@@ -20,7 +20,7 @@
 
 질문 2: "어떤 서버에 설치 성공·실패했나? 실패 사유는?"
 
-발행된 task는 `Task` row에 영속 — `status` (success/failure/pending) + `exit_code` + `duration_ms` + `stdout_tail` + `stderr_tail` + `failure_reason` 6 컬럼 UPDATE. list "최근 작업" column에 badge로 노출. 클릭 시 modal에서 stdout/stderr 마지막 8192 byte까지 확인 가능 — 실패 디버깅 즉시.
+발행된 task는 `Task` row에 영속 — `status` (success/failure/pending) + `exit_code` + `duration_ms` + `stdout_tail` + `stderr_tail` + `failure_reason` 6 컬럼 UPDATE. list "최근 작업" column에 badge로 노출. 클릭 시 modal에서 stdout/stderr 마지막 4 KB까지 확인 가능 — 실패 디버깅 즉시.
 
 질문 3: "발행한 task의 진행 상황은?"
 
@@ -44,8 +44,8 @@
 | status | success / failure | exit_code=0 → success, 그 외 → failure |
 | exit_code | int 또는 null | install.sh 종료 코드 |
 | duration_ms | int | 다운로드 + 실행 wall-clock |
-| stdout_tail | 8192 byte max | install.sh 표준 출력 끝부분 |
-| stderr_tail | 8192 byte max | install.sh 표준 오류 끝부분 |
+| stdout_tail | 4096 byte (4 KB) — agent `exec.c` cap | install.sh 표준 출력 끝부분 |
+| stderr_tail | 4096 byte (4 KB) — agent `exec.c` cap | install.sh 표준 오류 끝부분 |
 | failure_reason | nullable enum | url_not_allowed / download_failed / extract_failed / exec_failed / timeout 등 |
 | completed_at | UTC datetime | 워커가 publish 시각 |
 
@@ -82,15 +82,19 @@ ADR 0007 — Task 별도 exchange:
 - 머신별 queue `agent.tasks.<machine_id>` — 워커가 자기 머신 task만 consume
 - 결과는 단일 `worker.result` 큐로 통합 — engine consumer가 routing 무관 처리
 
-8192 byte tail 한정 근거:
+4 KB tail 한정 근거:
 - 전체 stdout/stderr 저장은 DB 비대화
-- 끝부분 8192는 디버깅에 충분 (에러 메시지·exit 직전 로그)
-- ZConverter Install 실패 사례 분석 결과 평균 디버깅 정보 < 4KB
+- 끝부분 4 KB 는 디버깅에 충분 (에러 메시지·exit 직전 로그). ZConverter Install 실패 사례 분석 결과 평균 디버깅 정보 < 4 KB
+- agent `exec.c` 의 `out_storage[4096]` / `err_storage[4096]` circular tail buffer 단일 진실. 엔진 Inbound DTO `max_length=8192` 는 over-provision (agent minor bump 흡수)
 
 ZDM 패키지 contract:
 - `ZDM_PACKAGE_PATH`·`ZDM_PACKAGE_SCRIPT` env 가 ZDM 측 본체 패키지 layout 과 일치해야 함. sha256/size 는 엔진이 publish 직전 ZDM 에서 HEAD + (cache miss 시) GET full 로 동적 산출 (`HttpZdmPackageResolver`). ZDM 패키지 갱신 시 ETag 자동 변경으로 cache invalidation — 운영자 개입 0.
 - 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200·size mismatch) 시 install 발행 503 차단.
 - agent 측 host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 에 운영자가 박을 ZDM host 가 사전 등록되어야 함. agent config 는 deploy 시점 고정 — 새 host 도입 시 agent 재배포 필요.
+
+dev 시연 흐름 (ADR 0018):
+- `APP_ENV=dev` 일 때 web 컨테이너에 ZDM mock router 등록 — `GET {ZDM_PACKAGE_PATH}` 로 더미 tar.gz (install.sh = args echo + exit 0) 서빙. prod 등록 안 됨.
+- `ZDM_DEFAULT_IP` dev default = `host.lima.internal:8000` — 모달 default 값 그대로 "발행" 시 Lima VM agent worker 가 host (Mac) web 8000 으로 download → install.sh exec → task.result success → list UI badge 전이. install task E2E 1 cycle 시연.
 
 ## 한계
 

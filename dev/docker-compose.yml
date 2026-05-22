@@ -142,6 +142,12 @@ services:
     command: python -m assessment_engine.web
     ports:
       - "${WEB_PORT:-8000}:8000"   # dev plain HTTP
+    # ADR 0018 dev ZDM mock self-loop — HttpZdmPackageResolver 가 publish 직전
+    # `host.lima.internal:8000` 으로 HEAD/GET 호출. Lima VM 의 user-mode alias 와 같은
+    # 이름을 web 컨테이너 안에서도 Mac host gateway 로 해석 → port 매핑 → web 자기 자신.
+    # 양쪽 (web 컨테이너 + Lima VM agent) 이 동일 좌표로 동일 endpoint 도달 (dev 전용).
+    extra_hosts:
+      - "host.lima.internal:host-gateway"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 5s

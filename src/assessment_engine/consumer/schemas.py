@@ -198,6 +198,9 @@ class TaskResultInput(MessageBase):
     failure_reason: str | None = Field(default=None, max_length=32)
     exit_code: int | None = None
     duration_ms: int = Field(ge=0)
+    # agent 측 wire 상한은 `exec.c` 의 `out_storage[4096]` / `err_storage[4096]` = 4 KB.
+    # 본 8192 cap 은 over-provision — agent minor bump 로 tail size 가 늘어도 (#B "minor bump
+    # silent 호환") 엔진 무수정 흡수. 한도 본질은 agent 단일 진실.
     stdout_tail: str = Field(max_length=8192)
     stderr_tail: str = Field(max_length=8192)
     completed_at: datetime

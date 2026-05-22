@@ -16,7 +16,9 @@ _WEAK_VALUES = frozenset({"", "assessment", "password", "admin", "root", "change
 
 # ZDM 좌표 dev default — prod 에서 그대로면 다른 고객사 ZDM 으로 install task 잘못 발행될 위험.
 # config.py default 와 동기 — 변경 시 동시 갱신 의무.
-_ZDM_DEV_DEFAULT_IP = "192.168.3.94"
+# host.lima.internal:8000 = dev engine web 컨테이너 (ADR 0018 dev-only ZDM mock endpoint).
+# Lima VM 의 agent worker 가 user-mode network alias 로 host (Mac) 의 web port 8000 도달.
+_ZDM_DEV_DEFAULT_IP = "host.lima.internal:8000"
 _ZDM_DEV_DEFAULT_USER = "admin@zconverter.com"
 
 
@@ -77,7 +79,9 @@ class WebSettings(BaseSettings):
 
     # ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표 — install 모달 default 값.
     # 운영자가 모달에서 매 발행마다 override 가능. POST body 누락 시 본 값으로 fallback.
-    zdm_default_ip: str = "192.168.3.94"
+    # dev 한정 ZDM mock (ADR 0018) 으로 Lima VM agent worker 가 host (Mac) web 8000 도달.
+    # prod 에서는 weak default 거부 (_validate_prod_web_secrets) — 고객사 ZDM 좌표 명시 의무.
+    zdm_default_ip: str = "host.lima.internal:8000"
     zdm_default_user: str = "admin@zconverter.com"
 
     # ZDM 본체 패키지 contract — task.install download 필드에 박혀 agent 가 fetch.
@@ -120,7 +124,7 @@ class WebSettings(BaseSettings):
         # ZDM 좌표 dev default 거부 — prod 에서 install task 가 잘못된 ZDM 으로 발행되는 사고 방지.
         if self.zdm_default_ip == _ZDM_DEV_DEFAULT_IP:
             raise ValueError(
-                "ZDM_DEFAULT_IP is unset or uses the dev default (192.168.3.94) in prod. "
+                "ZDM_DEFAULT_IP is unset or uses the dev default (host.lima.internal:8000) in prod. "
                 "Set the customer site's ZDM coordinate."
             )
         if self.zdm_default_user == _ZDM_DEV_DEFAULT_USER:

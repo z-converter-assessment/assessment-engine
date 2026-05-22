@@ -81,7 +81,7 @@
 | 404 | 리소스 없음 | `resolve_internal_id` 또는 service `TaskNotFound`/`DiagnosticNotFound` exception |
 | 409 | 충돌 | `tasks/install` pending 중복 (`TaskDuplicatePending`) 또는 진단 enqueue race (`DiagnosticRaceMiss`) |
 | 500 | 서버 오류 | service 측 일반 Exception (probe 외부 네트워크 비정형 응답 등) |
-| 503 | 설정 미충족 | `TaskNotConfigured` — ZDM_PACKAGE_SHA256 / SIZE_BYTES 미설정 시 install 발행 차단 |
+| 503 | 설정 미충족 | `TaskNotConfigured` — `HttpZdmPackageResolver` 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200·size mismatch) 시 install 발행 차단 |
 
 ## Breaking change 진화 절차
 
@@ -93,4 +93,12 @@
 
 본 프로젝트 현재 첫 v2 분기 사례 없음 — 도입 시 본 절 갱신.
 
-엔진 측 self-host install bundle endpoint(`/zconverter.tar.gz`) 는 제거됨. task.install download.url 은 ZDM 측 contract (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`) 로 발행 — `docs/architecture/agent.md` "Download URL 조립 contract" 절 단일 진실.
+엔진 측 self-host install bundle endpoint(`/zconverter.tar.gz`) 는 제거됨 (ADR 0016). task.install download.url 은 ZDM 측 contract (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`) 로 발행 — `docs/architecture/agent.md` "Download URL 조립 contract" 절 단일 진실.
+
+## dev 한정 라우터 (ADR 0018)
+
+| 모듈 | 변수 | 경로 | 등록 조건 |
+|------|------|------|-----------|
+| `routers/dev_zdm_mock.py` | `dev_zdm_mock_router` | `GET {ZDM_PACKAGE_PATH}` (default `/download/ZConverter_CloudSource_Setup_Linux.tar.gz`) | `app_env == "dev"` 일 때만 `web/main.py` 가 include_router. prod 등록 안 됨 |
+
+용도: install task E2E (publish → agent worker download → install.sh exec → task.result → consumer UPDATE → list UI badge) 를 dev 한정으로 실증. 더미 tar.gz (startup 1회 in-memory build) + ETag/Content-Length/Last-Modified 응답 헤더로 `HttpZdmPackageResolver` HEAD/GET 흐름 정합. install.sh 는 인자 echo + exit 0 만 — 실제 ZConverter 설치 동작은 평가 범위 밖.

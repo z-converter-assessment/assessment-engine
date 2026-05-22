@@ -30,7 +30,7 @@
 
 경계 케이스:
 - `POSTGRES_USER` — 보통 config. 단 user 자체가 권한 분리 키이면 secret. 본 프로젝트는 config 분류하되 prod 검증 시 약한 default (`assessment`) 거부.
-- `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` — config 이지만 dev default (`192.168.3.94` · `admin@zconverter.com`) 가 prod 에 그대로 흘러가면 잘못된 ZDM 으로 install task 발행 위험. prod 검증 거부 대상.
+- `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` — config 이지만 dev default (`host.lima.internal:8000` · `admin@zconverter.com`) 가 prod 에 그대로 흘러가면 잘못된 ZDM 으로 install task 발행 위험. prod 검증 거부 대상.
 
 규칙: config 인지 secret 인지 헷갈리면 secret 으로 간주. 잘못 분류해 secret 을 평문 노출하는 비용이 그 반대보다 크다.
 
@@ -120,7 +120,7 @@ prod 환경에서 secret 누락·약한 default 통과 차단. secret 주입 채
 
 | 위치 | 검증 대상 | 강제 시점 |
 |------|---------|---------|
-| `config.py` `_validate_prod_*` model_validator | `_WEAK_VALUES`(`""`/`assessment`/`password`/`admin`/`root`/`changeme`) 거부 + ZDM 좌표 dev default (`192.168.3.94`·`admin@zconverter.com`) 거부 | 앱 import 직후 (`Settings()` 인스턴스 생성 시) |
+| `config.py` `_validate_prod_*` model_validator | `_WEAK_VALUES`(`""`/`assessment`/`password`/`admin`/`root`/`changeme`) 거부 + ZDM 좌표 dev default (`host.lima.internal:8000`·`admin@zconverter.com`) 거부 | 앱 import 직후 (`Settings()` 인스턴스 생성 시) |
 
 ```python
 @model_validator(mode="after")
@@ -285,9 +285,9 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | dev compose (redis command) | maxmemory 도달 시 eviction policy. TTL 키 우선 evict |
 | `WEB_PORT` | `8000` | config.py / dev compose | Web UI 접속 포트 |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |
-| `ZDM_DEFAULT_IP` | `192.168.3.94` | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. prod 에서 dev default 그대로면 거부 |
+| `ZDM_DEFAULT_IP` | `host.lima.internal:8000` | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. dev default 는 web 컨테이너의 ZDM mock endpoint (ADR 0018) 가리킴. prod 에서 dev default 그대로면 거부 |
 | `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 관리자 계정 기본값. POST body `zdm_user` 누락 시 fallback. install.sh 의 `-u` 인자. prod 에서 dev default 그대로면 거부 |
-| `ZDM_PACKAGE_PATH` | `/download/ZConverter_CloudSource_Setup_Linux.tar.gz` | config.py | ZDM 호스트의 본체 패키지 URL path. task.install download.url 은 `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` 조립 |
+| `ZDM_PACKAGE_PATH` | `/download/ZConverter_CloudSource_Setup_Linux.tar.gz` | config.py | ZDM 호스트의 본체 패키지 URL path. task.install download.url 은 `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` 조립. dev mock endpoint 도 동일 path 로 라우팅 (ADR 0018) |
 | `ZDM_PACKAGE_SCRIPT` | `zconverter_install_source/install.sh` | config.py | tar 추출 후 실행할 스크립트 경로 |
 | `ZDM_META_CONNECT_TIMEOUT_SEC` | `5.0` | config.py | ZDM 메타 조회 HTTP connect timeout |
 | `ZDM_META_TOTAL_TIMEOUT_SEC` | `120.0` | config.py | ZDM 메타 조회 HTTP total timeout (HEAD + GET full). 44MB 가정, 동일 LAN 1~2s |
@@ -327,7 +327,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 - [ ] `APP_ENV=prod` 환경변수 명시
 - [ ] `POSTGRES_PASSWORD`·`RABBITMQ_PASSWORD` 강한 random secret 주입 (채널은 자유 — env·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등)
 - [ ] `POSTGRES_USER`·`RABBITMQ_USER` 도 dev default(`assessment`) 아닌 값 (weak default 거부 대상)
-- [ ] `ZDM_DEFAULT_IP`·`ZDM_DEFAULT_USER` 고객사 ZDM 좌표로 override (dev default 그대로면 fail)
+- [ ] `ZDM_DEFAULT_IP`·`ZDM_DEFAULT_USER` 고객사 ZDM 좌표로 override (dev default `host.lima.internal:8000` 그대로면 fail)
 - [ ] `ZDM_PACKAGE_*` 운영 ZDM 측 패키지 layout 과 일치 (path·script)
 - [ ] Alembic 마이그레이션 사전 적용 — wheel 안 `assessment_engine/_alembic.ini` + `_migrations/` 활용 (`docs/operations/alembic.md`)
 - [ ] DB·MQ·Redis 외부 포트 노출 없음 (reverse proxy 뒤)

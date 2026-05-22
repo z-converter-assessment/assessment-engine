@@ -135,6 +135,14 @@ app.include_router(diagnostic_results_router)
 app.include_router(reports_router)
 app.include_router(exports_router)
 
+# dev 한정 ZDM mock endpoint (ADR 0018) — install task E2E 시연·자동화 검증.
+# prod 에서는 라우터 자체가 안 붙음 (ADR 0016 정합 — engine 이 install 패키지 host 안 함).
+if web_settings.app_env == "dev":
+    from assessment_engine.web.routers.dev_zdm_mock import dev_zdm_mock_router
+
+    app.include_router(dev_zdm_mock_router)
+    logger.info("dev ZDM mock endpoint registered at path={}", web_settings.zdm_package_path)
+
 
 @app.get("/health")
 async def health():

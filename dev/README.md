@@ -52,6 +52,7 @@ dev 전체 endpoint 가 plain HTTP port 8000. prod 외부 ingress 종단은 외�
 | http://localhost:8000/health | 헬스체크 |
 | http://localhost:8000/metrics | Prometheus metrics — prod 외부 노출 금지 (reverse proxy internal-only) |
 | http://localhost:8000/docs | FastAPI Swagger UI |
+| http://localhost:8000/download/ZConverter_CloudSource_Setup_Linux.tar.gz | dev 한정 ZDM mock endpoint (ADR 0018). APP_ENV=dev 시 web 컨테이너가 더미 tar.gz 서빙. Install 모달 E2E 검증용. prod 등록 안 됨 |
 | http://localhost:15672 | RabbitMQ 관리 콘솔 |
 | http://localhost:5050 | pgAdmin DB GUI (`--profile gui` 활성 시) |
 | localhost:5432 | PostgreSQL |

@@ -40,6 +40,37 @@ def _is_valid_hostname(v: str) -> bool:
     return all(_HOSTNAME_LABEL_RE.match(label) for label in v.split("."))
 
 
+def _is_valid_host_or_host_port(v: str) -> bool:
+    """IPv4 / hostname / FQDN (옵션 ":port") 검증.
+
+    IPv6 (raw `::1` / bracket `[::1]:8000`) 는 reject — agent `download_url_extract_host`
+    (download.c) 가 `':'` 를 host 종료 문자로 처리해 IPv6 bracket 형식을 못 다룸.
+    IPv6 ZDM 좌표 운영은 agent 측 변경 필요 — 별도 결정.
+    """
+    if not v or v.startswith("["):
+        return False
+    # IPv6 raw — `:` 2회 이상 (IPv4:port 는 1회만)
+    if v.count(":") >= 2:
+        return False
+
+    if ":" in v:
+        host, _, port_s = v.rpartition(":")
+        if not host or not port_s.isdigit():
+            return False
+        port = int(port_s)
+        if not (1 <= port <= 65535):
+            return False
+    else:
+        host = v
+
+    try:
+        ipaddress.IPv4Address(host)
+        return True
+    except ValueError:
+        pass
+    return _is_valid_hostname(host)
+
+
 class InstallRequest(BaseModel):
     target_public_ids: list[str] = Field(min_length=1, max_length=1000)
     # ZDM 좌표 — IP / hostname / HTTP(S) URL 모두 허용. RFC 3986 URL 권장 max=2048 cap.
@@ -59,17 +90,18 @@ class InstallRequest(BaseModel):
         # shell metachar / 공백 / 제어문자 무조건 차단 (#F8 — task params 그대로 task.install body 전파).
         if any(c in v for c in " \t\n\r;|&`$<>"):
             raise ValueError(f"invalid character in zdm target: {v!r}")
-        # IP / hostname / URL 어느 형식이든 허용. 셋 다 실패 시 reject.
-        try:
-            ipaddress.ip_address(v)
-            return v
-        except ValueError:
-            pass
-        if _is_valid_hostname(v):
-            return v
+        # 허용 형식:
+        #   - IPv4               192.168.3.94
+        #   - IPv4:port          192.168.3.94:8080
+        #   - hostname / FQDN    zdm.example.com / zdm.example.com.
+        #   - hostname:port      host.lima.internal:8000 (dev mock default)
+        #   - http/https URL     http://zdm.example.com:8443/download/x.tar.gz
+        # IPv6 (raw / bracket) 는 reject — agent download.c 한계.
         if v.lower().startswith(("http://", "https://")):
             return v
-        raise ValueError(f"invalid IP, hostname, or URL: {v}")
+        if _is_valid_host_or_host_port(v):
+            return v
+        raise ValueError(f"invalid IP, hostname, host:port, or URL: {v}")
 
 
 @tasks_router.post("/install", response_model=list[TaskCreated])
