@@ -89,6 +89,8 @@ class WebSettings(BaseSettings):
     # (ETag 기반 Redis cache). ZDM 측이 패키지 갱신하면 ETag 변경 → cache miss → 자동 재계산.
     zdm_package_path: str = "/download/ZConverter_CloudSource_Setup_Linux.tar.gz"
     zdm_package_script: str = "zconverter_install_source/install.sh"
+    # Windows install (ADR 0019 install.type=direct_exec). single binary 라 script 없음.
+    zdm_package_path_windows: str = "/download/ZConverter_CloudSource_Setup_Windows.exe"
     # 메타 조회 HTTP 옵션 — connect 5s, total 120s (44MB GET 가정, 동일 LAN 이면 1~2s).
     zdm_meta_connect_timeout_sec: float = 5.0
     zdm_meta_total_timeout_sec: float = 120.0

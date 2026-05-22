@@ -28,6 +28,7 @@ def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
         boot_time=data.boot_time,
         agent_started_at=data.agent_started_at,
         # ─── inventory 본문 (placeholder는 모두 None/빈 배열) ────────────────
+        os_family=None,
         os_id=None,
         os_version=None,
         os_codename=None,
@@ -55,6 +56,7 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
         boot_time=data.boot_time,
         agent_started_at=data.agent_started_at,
         # ─── inventory 본문 ──────────────────────────────────────────────────
+        os_family=data.os_family,
         os_id=data.os_id,
         os_version=data.os_version,
         os_codename=data.os_codename,

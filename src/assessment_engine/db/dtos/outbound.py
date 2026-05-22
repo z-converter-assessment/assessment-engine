@@ -26,6 +26,7 @@ class ServerDetail:
     machine_id: str
     hostname: str
     agent_version: str | None
+    os_family: str | None  # "linux" | "windows" — task.install dispatch 단일 진실 (ADR 0020)
     os_id: str | None
     os_version: str | None
     os_codename: str | None

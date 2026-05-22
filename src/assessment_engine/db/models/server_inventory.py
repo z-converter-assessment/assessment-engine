@@ -30,6 +30,10 @@ class ServerInventory(Base):
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     agent_version: Mapped[str | None] = mapped_column(String(32))
 
+    # os_family — agent 가 publish 하는 OS family (linux / windows). task.install 발행 시
+    # OS 별 dispatch (install.type / download.url / install.script) 의 단일 진실.
+    # Linux agent minor bump 호환 단계라 nullable. agent 배포 완료 후 별도 revision 에서 not-null tighten.
+    os_family: Mapped[str | None] = mapped_column(String(16))
     os_id: Mapped[str | None] = mapped_column(String(64))
     os_version: Mapped[str | None] = mapped_column(String(64))
     os_codename: Mapped[str | None] = mapped_column(String(64))

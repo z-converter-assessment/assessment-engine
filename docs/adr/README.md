@@ -24,6 +24,8 @@
 | 0016 | self-host install bundle 제거 + ZDM 본체 패키지 직접 fetch (0008·0009 supersede) | Accepted | `web/routers/payloads.py` 삭제. task.install download.url 을 ZDM host + `ZDM_PACKAGE_PATH` 로 조립. sha256·size 는 env 단일 진실, 미설정 시 publish 차단(503). Linux 만 지원 |
 | 0017 | Docker 이미지 CI 산출물 추가 (wheel 보조) | Accepted | wheel + GHCR multi-arch image (`linux/amd64,arm64`) 양쪽 발행. 4 컴포넌트 단일 이미지 + ENTRYPOINT `python -m` + CMD override. cosign keyless + BuildKit SBOM. ADR 0012 refines |
 | 0018 | dev 한정 ZDM mock endpoint (web 컨테이너 재활용) | Accepted | `APP_ENV=dev` 시 web 컨테이너에 `GET {ZDM_PACKAGE_PATH}` mock router 등록 — in-memory 더미 tar.gz 반환 (install.sh = args echo + exit 0). ZDM_DEFAULT_IP dev default 를 `host.lima.internal:8000` 로 변경. install E2E 시연·자동화 검증. ADR 0016 refines |
+| 0019 | task.install payload 에 install.type enum 도입 | Accepted | install.type = `shell` / `direct_exec` / `msi` enum 추가. Linux .tar.gz + bash 한정 가정을 enum 으로 확장. Windows install (.exe / .msi) 지원 준비. failure_reason 에 `unsupported_install_type` 추가. ADR 0020 의 os_family 기반 OS 별 dispatch. ADR 0016 refines |
+| 0020 | inventory payload 에 os_family 필드 + server_inventory.os_family 컬럼 도입 | Accepted | OS family 식별 단일 진실. agent 가 자기 OS 명시 보고 (silent drift 위험 0). task.install dispatch (ADR 0019) 의 신호 출처. 호환 단계 (nullable + fallback "linux"). Linux agent minor bump 배포 완료 후 not-null tighten 별도 |
 
 트레이드오프 카탈로그(T1~T13)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 

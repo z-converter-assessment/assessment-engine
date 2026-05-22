@@ -14,6 +14,7 @@ class ServerInventoryCreate:
     agent_started_at: datetime | None
 
     # ─── inventory 본문 (정적 인프라 정보) ─────────────────────────────────────
+    os_family: str | None  # "linux" | "windows" — task.install dispatch 단일 진실 (ADR 0020)
     os_id: str | None
     os_version: str | None
     os_codename: str | None

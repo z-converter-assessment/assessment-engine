@@ -25,6 +25,7 @@ _FAILURE_REASON_LABEL: dict[str, str] = {
     "insufficient_disk": "디스크 공간 부족",
     "internal_error": "내부 오류",
     "already_done": "중복 배달",
+    "unsupported_install_type": "agent 가 처리 못 하는 install type",
 }
 
 

@@ -46,7 +46,7 @@
 | duration_ms | int | 다운로드 + 실행 wall-clock |
 | stdout_tail | 4096 byte (4 KB) — agent `exec.c` cap | install.sh 표준 출력 끝부분 |
 | stderr_tail | 4096 byte (4 KB) — agent `exec.c` cap | install.sh 표준 오류 끝부분 |
-| failure_reason | nullable enum | url_not_allowed / download_failed / extract_failed / exec_failed / timeout 등 |
+| failure_reason | nullable enum | url_not_allowed / download_failed / extract_failed / script_failed / script_timeout / unsupported_install_type 등 |
 | completed_at | UTC datetime | 워커가 publish 시각 |
 
 ## 메시지 흐름 (요약)
@@ -62,8 +62,12 @@ engine web:
 워커 VM의 agent worker:
   1. agent.tasks.<machine_id> consume
   2. download.url(`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`) fetch (sha256·size 검증, host whitelist 통과)
-  3. tar 추출 후 install.script 경로(`zconverter_install_source/install.sh`) exec
-     — args=[-s, ZDM_IP, -u, ZDM_USER] 전달, timeout INSTALL_TIMEOUT_SEC
+  3. install.type 분기:
+     - shell (Linux .tar.gz): tar 추출 후 install.script 경로 exec
+     - direct_exec (Windows .exe): 다운로드 파일 직접 실행
+     - msi (Windows .msi): msiexec /i {path} /quiet
+     자기 OS 가 아닌 type 수신 시 unsupported_install_type reject
+     — args=[-s, ZDM_IP, -u, ZDM_USER] OS 무관 동일, timeout INSTALL_TIMEOUT_SEC
   4. task.result publish (worker.result 큐)
   ↓
 engine consumer:

@@ -86,6 +86,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             machine_id=r.machine_id,
             hostname=r.hostname,
             agent_version=r.agent_version,
+            os_family=r.os_family,
             os_id=r.os_id,
             os_version=r.os_version,
             os_codename=r.os_codename,

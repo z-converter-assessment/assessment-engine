@@ -61,6 +61,10 @@ class InventoryListenPortInfo(BaseModel):
 class InventoryInput(MessageBase):
     message_type: Literal["inventory"]
 
+    # OS family — task.install 발행 시 dispatch 단일 진실 (ADR 0020). agent 가 자기 OS 자체 보고.
+    # nullable — Linux agent minor bump 호환. agent 측 배포 완료 후 not-null tighten 별도.
+    os_family: Literal["linux", "windows"] | None = None
+
     os_id: str | None = Field(default=None, max_length=64)
     os_version: str | None = Field(default=None, max_length=64)
     os_codename: str | None = Field(default=None, max_length=64)
@@ -193,8 +197,8 @@ class TaskResultInput(MessageBase):
     status: Literal["success", "failure"]
     # 실패 분류. 알려진 값: url_not_allowed / download_failed / sha256_mismatch /
     # extract_failed / script_not_found / script_failed / script_timeout /
-    # insufficient_disk / internal_error / already_done. 성공 시 null.
-    # 새 enum 도입 시 silent pass — extra=ignore 정신과 일관, max_length만 강제.
+    # insufficient_disk / internal_error / already_done / unsupported_install_type.
+    # 성공 시 null. 새 enum 도입 시 silent pass — extra=ignore 정신과 일관, max_length만 강제.
     failure_reason: str | None = Field(default=None, max_length=32)
     exit_code: int | None = None
     duration_ms: int = Field(ge=0)

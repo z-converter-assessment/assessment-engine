@@ -38,6 +38,21 @@ _TASK_TYPE_INSTALL = "zconverter_install"
 _TASK_QUEUE_TTL_MS = 60 * 60 * 1000  # 1h — 원격 호스트가 그 사이 consume 못 하면 만료
 _TASK_QUEUE_MAX_LEN = 100
 
+
+def _resolve_install_dispatch(os_family: str) -> tuple[str, str, str | None]:
+    """os_family -> (package_path, install_type, install_script). ADR 0019 / ADR 0020.
+
+    Linux  = .tar.gz extract + install.sh exec.
+    Windows = single .exe 직접 실행 (extract 없음, install.script null).
+    그 외 = TaskNotConfigured raise (운영자 알림 — agent 미지원).
+    """
+    if os_family == "linux":
+        return (web_settings.zdm_package_path, "shell", web_settings.zdm_package_script)
+    if os_family == "windows":
+        return (web_settings.zdm_package_path_windows, "direct_exec", None)
+    raise TaskNotConfigured(f"unsupported os_family={os_family!r}")
+
+
 # 운영자 입력에서 scheme·path 제거 → host (또는 host:port) 만 추출.
 # agent download.url 조립 시 host 만 사용 (https?://{host}{zdm_package_path} 형태).
 _URL_SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)
@@ -66,8 +81,12 @@ class ZdmPackageMetaError(Exception):
 
 
 class BaseZdmPackageResolver(Protocol):
-    async def resolve(self, zdm_host: str) -> tuple[str, int]:
-        """ZDM 패키지의 (sha256_hex, size_bytes) 반환. 실패 시 raise."""
+    async def resolve(self, zdm_host: str, package_path: str) -> tuple[str, int]:
+        """ZDM 패키지의 (sha256_hex, size_bytes) 반환. 실패 시 raise.
+
+        package_path = OS 별 path (caller 가 os_family 보고 결정). cache key 는 ETag 기반이라
+        path 별 자동 분리.
+        """
 
 
 class HttpZdmPackageResolver:
@@ -75,8 +94,8 @@ class HttpZdmPackageResolver:
         self.http = http_client
         self.redis = redis
 
-    async def resolve(self, zdm_host: str) -> tuple[str, int]:
-        url = f"http://{zdm_host}{web_settings.zdm_package_path}"
+    async def resolve(self, zdm_host: str, package_path: str) -> tuple[str, int]:
+        url = f"http://{zdm_host}{package_path}"
 
         # 1. HEAD — ETag + Content-Length
         try:
@@ -185,12 +204,19 @@ class TaskService:
 
         zdm_host = _extract_zdm_host(zdm_ip)
 
-        # ZDM 메타 fetch — publish 직전 1 회 (cache hit 이면 HEAD 한 번, miss 면 GET full).
-        # 동일 batch 안 N 대 발행은 같은 sha256/size 재사용 (캐시 효과 + 정합성).
-        try:
-            sha256_hex, size_bytes = await self.zdm_resolver.resolve(zdm_host)
-        except ZdmPackageMetaError as e:
-            raise TaskNotConfigured(f"ZDM package meta fetch failed: {e}") from e
+        # OS family 별 ZDM 메타 fetch — batch 안 OS 섞이면 OS 별 1 회씩 (캐시 효과 + 정합성).
+        # detail.os_family None (Linux agent minor bump 전) → fallback "linux".
+        dispatch_by_host: dict[int, tuple[str, str, str | None]] = {}
+        meta_by_path: dict[str, tuple[str, int]] = {}
+        for server_id, detail in detail_by_id.items():
+            os_family = detail.os_family or "linux"
+            package_path, install_type, install_script = _resolve_install_dispatch(os_family)
+            dispatch_by_host[server_id] = (package_path, install_type, install_script)
+            if package_path not in meta_by_path:
+                try:
+                    meta_by_path[package_path] = await self.zdm_resolver.resolve(zdm_host, package_path)
+                except ZdmPackageMetaError as e:
+                    raise TaskNotConfigured(f"ZDM package meta fetch failed: {e}") from e
 
         exchange = await self.broker_channel.get_exchange(diagnostic_settings.rabbitmq_task_exchange)
 
@@ -200,6 +226,9 @@ class TaskService:
             detail = detail_by_id.get(server_id)
             if detail is None:
                 raise TaskNotFound(f"server detail missing: {public_id}")
+
+            package_path, install_type, install_script = dispatch_by_host[server_id]
+            sha256_hex, size_bytes = meta_by_path[package_path]
 
             async with self.session_factory() as session:
                 repo = self.collect_repo_factory(session)
@@ -230,6 +259,9 @@ class TaskService:
                 zdm_user,
                 sha256_hex,
                 size_bytes,
+                package_path,
+                install_type,
+                install_script,
             )
 
             logger.info(
@@ -270,8 +302,11 @@ class TaskService:
         zdm_user: str,
         sha256_hex: str,
         size_bytes: int,
+        package_path: str,
+        install_type: str,
+        install_script: str | None,
     ) -> None:
-        download_url = f"http://{zdm_host}{web_settings.zdm_package_path}"
+        download_url = f"http://{zdm_host}{package_path}"
         payload = {
             "message_type": "task.install",
             "task_id": task_id,
@@ -283,7 +318,8 @@ class TaskService:
                 "size_bytes": size_bytes,
             },
             "install": {
-                "script": web_settings.zdm_package_script,
+                "type": install_type,
+                "script": install_script,  # shell 이면 archive 안 path, direct_exec/msi 면 null
                 "args": ["-s", zdm_host, "-u", zdm_user],
                 "timeout_sec": web_settings.install_timeout_sec,
             },

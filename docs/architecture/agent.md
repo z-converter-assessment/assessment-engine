@@ -29,6 +29,7 @@ routing key `server.inventory`. 기동 시 1회 + 주기 재발행.
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
+| `os_family` | `"linux"` \| `"windows"` \| null | OS family — task.install dispatch 단일 진실 (ADR 0020). nullable (Linux agent minor bump 호환 단계). 미수신 시 engine 측 fallback `"linux"` |
 | OS / kernel | string\|null | `os_id` / `os_version` / `os_codename` / `kernel_version` |
 | CPU | int\|null / string\|null | `cpu_cores` / `cpu_model` |
 | 메모리 / 스왑 | int\|null (KB) | `mem_total_kb` / `swap_total_kb` |
@@ -95,8 +96,9 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 | `download.url` | string | HTTP/HTTPS URL. 운영자 입력 ZDM host + `ZDM_PACKAGE_PATH` env 로 엔진이 조립 (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`). agent 측 host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 통과 필요 |
 | `download.sha256` | string (hex 64) | 다운로드 파일 sha256. 엔진이 publish 직전 ZDM 에서 HEAD + (cache miss 시) GET full 로 동적 산출. ETag 기반 Redis cache (`HttpZdmPackageResolver`). ZDM 측 패키지 갱신 시 ETag 자동 변경 → cache miss → 자동 재계산 |
 | `download.size_bytes` | int | 예상 크기 (byte). 엔진이 HEAD Content-Length 로 산출 + GET 실측과 일치 검증 |
-| `install.script` | string | tar 추출 후 work dir 기준 실행 스크립트 경로. `ZDM_PACKAGE_SCRIPT` env 그대로 (default `zconverter_install_source/install.sh` — ZDM 본체 패키지 layout). agent worker 측 fallback default 는 `install.sh` 이나 엔진이 항상 명시 발행하므로 fallback 도달 경로 없음 |
-| `install.args` | list[string] | 스크립트 인자. 운영자 입력 ZDM 좌표를 `["-s", ZDM_IP, "-u", ZDM_USER]` 형태로 전달. install.sh 가 `-s` / `-u` 를 받아 ZDM 서버에서 실제 setup 패키지 fetch + 실행 |
+| `install.type` | `"shell"` \| `"direct_exec"` \| `"msi"` | 처리 방식 enum. `shell` = archive extract 후 script 실행 (Linux .tar.gz), `direct_exec` = extract 없음, 다운로드 파일 직접 실행 (Windows .exe), `msi` = extract 없음, `msiexec /i {path} /quiet` (Windows .msi). agent 가 자기 OS 아닌 type 수신 시 `failure_reason="unsupported_install_type"` reject |
+| `install.script` | string \| null | `type=shell` 일 때만 의미 — tar 추출 후 work dir 기준 실행 스크립트 경로. `ZDM_PACKAGE_SCRIPT` env 그대로 (default `zconverter_install_source/install.sh` — ZDM 본체 패키지 layout). `direct_exec` / `msi` 일 때 null |
+| `install.args` | list[string] | 스크립트 / 실행 파일 인자. 운영자 입력 ZDM 좌표를 `["-s", ZDM_IP, "-u", ZDM_USER]` 형태로 전달. OS 무관 동일 convention (Linux install.sh / Windows .exe 양쪽 `-s` `-u` 인자 받음) |
 | `install.timeout_sec` | int | wall-clock timeout. `WebSettings.install_timeout_sec` (dev default 600) |
 
 ### Download URL 조립 contract
@@ -135,7 +137,7 @@ cache 동작:
 | `message_type` | `"task.result"` | Literal |
 | `task_id` | UUID | `task.install` 의 동일 값 회신. 엔진 `Task.public_id` 매칭 키 |
 | `status` | `"success"` \| `"failure"` | 실행 결과 |
-| `failure_reason` | string\|null max=32 | 실패 분류. 알려진 값: `url_not_allowed` / `download_failed` / `sha256_mismatch` / `extract_failed` / `script_not_found` / `script_failed` / `script_timeout` / `insufficient_disk` / `internal_error` / `already_done`. 성공 시 null. 알려지지 않은 값은 silent pass (DB 저장은 그대로) |
+| `failure_reason` | string\|null max=32 | 실패 분류. 알려진 값: `url_not_allowed` / `download_failed` / `sha256_mismatch` / `extract_failed` / `script_not_found` / `script_failed` / `script_timeout` / `insufficient_disk` / `internal_error` / `already_done` / `unsupported_install_type`. 성공 시 null. 알려지지 않은 값은 silent pass (DB 저장은 그대로) |
 | `exit_code` | int\|null | install.sh 종료 코드. 실행 전 실패 시 null |
 | `duration_ms` | int (≥0) | 다운로드 + 추출 + install 합계 |
 | `stdout_tail` | string max=4096 | install.sh stdout 끝부분 4 KB. agent `exec.c` 의 `out_storage[4096]` circular tail buffer 단일 진실. 미실행 시 `""` |
@@ -148,7 +150,7 @@ cache 동작:
 
 `boot_time` / `agent_started_at` 가 null 이라 `_log_time_invariants` 검증은 본 메시지에서 호출 안 함.
 
-운영자 가시성: list.html "최근 작업" column (행별 마지막 task badge + polling 갱신) / detail.html "최근 작업" 섹션 (timeline 최근 10건 + row 클릭 modal) / Web API `GET /api/v1/tasks/{task_id}` 단일 + `GET /api/v1/tasks?server_public_id=...` 서버별 cursor pagination. 단일 진실: `web/services/mappers/task.py::to_task_summary` / `to_task_detail` + base.html `.rec-success`/`.rec-failure`/`.rec-pending`/`.rec-unknown`. failure_reason 한글 라벨은 `mappers/task.py::_FAILURE_REASON_LABEL` 카탈로그 (10 enum).
+운영자 가시성: list.html "최근 작업" column (행별 마지막 task badge + polling 갱신) / detail.html "최근 작업" 섹션 (timeline 최근 10건 + row 클릭 modal) / Web API `GET /api/v1/tasks/{task_id}` 단일 + `GET /api/v1/tasks?server_public_id=...` 서버별 cursor pagination. 단일 진실: `web/services/mappers/task.py::to_task_summary` / `to_task_detail` + base.html `.rec-success`/`.rec-failure`/`.rec-pending`/`.rec-unknown`. failure_reason 한글 라벨은 `mappers/task.py::_FAILURE_REASON_LABEL` 카탈로그 (11 enum).
 
 dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.lima.internal:8000{ZDM_PACKAGE_PATH}` 로 더미 tar.gz 를 서빙 — Lima VM agent worker 가 download → install.sh (echo + exit 0) exec → task.result success 발행 → consumer 6 컬럼 UPDATE → list UI badge `success` 전이. sha256·size 는 `HttpZdmPackageResolver` 가 ZDM 호스트 (dev 에서는 mock) 에서 HEAD/GET 으로 동적 산출하므로 별도 env 박을 필요 없음. agent download.c 는 http·https 둘 다 허용 (CURLOPT_PROTOCOLS_STR="https,http"), host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS=host.lima.internal`) 그대로 매칭. 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200 등) 시 publish 503 차단.
 

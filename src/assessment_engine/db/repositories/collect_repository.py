@@ -43,6 +43,7 @@ class CollectRepository(BaseCollectRepository):
     # 매 inventory 메시지 hot path — 불필요 컬럼 read 비용 절약.
     _INVENTORY_COMPARE_COLS = (
         ServerInventory.agent_version,
+        ServerInventory.os_family,
         ServerInventory.os_id,
         ServerInventory.os_version,
         ServerInventory.os_codename,
@@ -78,6 +79,7 @@ class CollectRepository(BaseCollectRepository):
             "machine_id": data.machine_id,
             "hostname": data.hostname,
             "agent_version": data.agent_version,
+            "os_family": data.os_family,
             "os_id": data.os_id,
             "os_version": data.os_version,
             "os_codename": data.os_codename,
@@ -122,6 +124,7 @@ class CollectRepository(BaseCollectRepository):
         """변경 감지. collected_at·last_seen_at·machine_id·hostname(복합 conflict 키) 제외 비교."""
         return (
             prev.agent_version != new.agent_version
+            or prev.os_family != new.os_family
             or prev.os_id != new.os_id
             or prev.os_version != new.os_version
             or prev.os_codename != new.os_codename
@@ -153,6 +156,7 @@ class CollectRepository(BaseCollectRepository):
                 collected_at=data.collected_at,
                 hostname=data.hostname,
                 agent_version=data.agent_version,
+                os_family=data.os_family,
                 os_id=data.os_id,
                 os_version=data.os_version,
                 os_codename=data.os_codename,
@@ -208,6 +212,7 @@ class CollectRepository(BaseCollectRepository):
             "machine_id": data.machine_id,
             "hostname": data.hostname,
             "agent_version": data.agent_version,
+            "os_family": data.os_family,
             "os_id": data.os_id,
             "os_version": data.os_version,
             "os_codename": data.os_codename,

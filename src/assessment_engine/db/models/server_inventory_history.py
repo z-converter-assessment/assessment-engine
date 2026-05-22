@@ -27,6 +27,7 @@ class ServerInventoryHistory(Base):
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     agent_version: Mapped[str | None] = mapped_column(String(32))
 
+    os_family: Mapped[str | None] = mapped_column(String(16))
     os_id: Mapped[str | None] = mapped_column(String(64))
     os_version: Mapped[str | None] = mapped_column(String(64))
     os_codename: Mapped[str | None] = mapped_column(String(64))
