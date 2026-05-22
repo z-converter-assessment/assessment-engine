@@ -22,7 +22,7 @@ from assessment_engine.web.services.diagnostic_service import (
 from assessment_engine.web.services.mappers.diagnostic import to_view
 from assessment_engine.web.settings import diagnostic_settings
 
-diagnostics_router = APIRouter(prefix="/api/v1/diagnostics", tags=["diagnostics"])
+diagnostics_router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
 
 
 class DiagnosticRequest(BaseModel):

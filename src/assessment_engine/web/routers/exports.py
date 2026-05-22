@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from assessment_engine.web.deps import get_service
 from assessment_engine.web.services.query_service import QueryService
 
-exports_router = APIRouter(prefix="/api/v1/exports", tags=["exports"])
+exports_router = APIRouter(prefix="/api/exports", tags=["exports"])
 
 # recommended_size_class 객체화 — 자동화 도구가 key→자기 도메인 instance type 매핑할 때 참고용 가이드.
 _SIZE_CLASS_GUIDE: dict[str, str] = {

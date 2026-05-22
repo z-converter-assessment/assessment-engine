@@ -91,7 +91,7 @@
           return;
         }
         try {
-          const res = await fetch(`/api/v1/diagnostics/${this.jobId}`);
+          const res = await fetch(`/api/diagnostics/${this.jobId}`);
           if (!res.ok) {
             if (res.status === 404) {
               this._stopPolling();

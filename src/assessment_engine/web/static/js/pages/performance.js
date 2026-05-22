@@ -64,7 +64,7 @@ async function fetchChart(metricType, agg, range, anchor) {
     agg,
   });
   if (anchor) p.append('end', anchor.toISOString());
-  const res = await fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${p}`);
+  const res = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${p}`);
   // P4(d): 404는 데이터 부재. 빈 배열 반환 → setChart가 empty 분기.
   if (res.status === 404) return [];
   if (!res.ok) return [];
@@ -363,7 +363,7 @@ async function loadAllCharts() {
 async function loadLastMetricTs() {
   const el = document.getElementById('last-metric-ts');
   // P4(d) 404 분기: try/catch 이전에 status 검사로 데이터 부재를 명시 분기.
-  const res = await fetch(`/api/v1/servers/${SERVER_ID}/collection-status`);
+  const res = await fetch(`/api/servers/${SERVER_ID}/collection-status`);
   if (res.status === 404 || !res.ok) { el.textContent = '—'; return; }
   try {
     const data = await res.json();

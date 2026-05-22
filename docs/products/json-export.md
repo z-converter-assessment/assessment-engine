@@ -5,7 +5,7 @@
 ## 위치
 
 - UI 진입점: 대시보드 list 페이지에서 N대 선택 → "Export" 버튼 → 다운로드
-- API: `POST /api/v1/exports/inventory` (envelope JSON)
+- API: `POST /api/exports/inventory` (envelope JSON)
 - 산출물 형태: 단일 JSON 파일 — 선택 서버 N대의 정제 inventory + 사용량 통계 + 평가 윈도우 메타
 
 ## 존재 의의
@@ -101,7 +101,7 @@ size_class_guide envelope:
 ## 한계
 
 1. instance type 직접 매핑 X — JSON에는 raw spec만 (`vcpu_count`·`mem_total_gb`). 실제 `t3.medium`·`m5.large` 결정은 자동화 도구 측 책임 — 도구가 자체 lookup table 보유 의무.
-2. 시간 흐름 export 미지원 — 단일 시점 snapshot만. 시계열 export(같은 서버의 14일 분포)는 별도 endpoint·도구로 (`/api/v1/charts/...`).
+2. 시간 흐름 export 미지원 — 단일 시점 snapshot만. 시계열 export(같은 서버의 14일 분포)는 별도 endpoint·도구로 (`/api/charts/...`).
 3. PII·secret 노출 위험 — inventory에 hostname·internal IP 박힘. 외부 도구 입력 시 sanitize 의무는 외부 인프라 책임 — 본 엔진은 원본 데이터 그대로 export.
 4. 평가 윈도우 14일 default — `?period_days=N`으로 override 가능 (1~90일). 정책 단일 진실은 CLAUDE.md #F10.
 5. 자동화 도구 매핑은 reference만 — 실제 도구가 본 매핑을 따른다는 보장 없음. 도구 측 변환 코드 검증 의무.

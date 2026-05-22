@@ -1,18 +1,18 @@
 # Web 라우터
 
-정책: CLAUDE.md #E2 · #F4. 본 문서는 라우터 모듈·endpoint 카탈로그·API versioning·breaking change 절차 단일 진실.
+정책: CLAUDE.md #E2 · #F4. 본 문서는 라우터 모듈·endpoint 카탈로그 단일 진실.
 
 | 모듈 | 변수 | 접두사 | 응답 |
 |------|------|--------|------|
 | `routers/pages.py` | `pages_router` | `/servers` | HTML (Jinja2 SSR) |
-| `routers/api.py` | `api_router` | `/api/v1/servers` | JSON (시계열·메트릭) + SSE |
-| `routers/discovery.py` | `discovery_router` | `/api/v1/discovery` | JSON |
-| `routers/tasks.py` | `tasks_router` | `/api/v1/tasks` | JSON |
-| `routers/exports.py` | `exports_router` | `/api/v1/exports` | JSON (다운로드) |
-| `routers/diagnostics.py` | `diagnostics_router` | `/api/v1/diagnostics` | JSON (ADR 0004) |
+| `routers/api.py` | `api_router` | `/api/servers` | JSON (시계열·메트릭) + SSE |
+| `routers/discovery.py` | `discovery_router` | `/api/discovery` | JSON |
+| `routers/tasks.py` | `tasks_router` | `/api/tasks` | JSON |
+| `routers/exports.py` | `exports_router` | `/api/exports` | JSON (다운로드) |
+| `routers/diagnostics.py` | `diagnostics_router` | `/api/diagnostics` | JSON (ADR 0004) |
 | `routers/diagnostic_results.py` | `diagnostic_results_router` | `/diagnostics` | HTML (SSR — 결과·이력 페이지) |
 
-라우터 책임은 HTTP I/O만 — 비즈니스 로직은 service에 위임(#F4). JSON API는 `/api/v1/...` prefix 통일.
+라우터 책임은 HTTP I/O만 — 비즈니스 로직은 service에 위임(#F4). JSON API는 `/api/...` prefix 통일.
 
 ## SSR 페이지 (`pages.py`)
 
@@ -83,15 +83,9 @@
 | 500 | 서버 오류 | service 측 일반 Exception (probe 외부 네트워크 비정형 응답 등) |
 | 503 | 설정 미충족 | `TaskNotConfigured` — `HttpZdmPackageResolver` 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200·size mismatch) 시 install 발행 차단 |
 
-## Breaking change 진화 절차
+## URL 정책 (ADR 0021)
 
-`/api/v1/...` endpoint에 backward-compatible 변경(응답 필드 추가·옵셔널 query param 추가·새 endpoint)은 `/v1/` 유지. backward-incompatible 변경(응답 필드 제거·의미 변경·required field 추가·HTTP 메서드 변경)이 필요한 경우 다음 절차:
-
-1. `/api/v2/...` 신규 분기 + 기존 `/api/v1/...` 유지 — 라우터 모듈 분리 또는 동일 모듈 안 prefix 분기 어느 쪽이든. service 계층은 가능한 한 단일 진실, 라우터에서 v1 응답 변환 layer만 분기.
-2. `/v1/` 응답 헤더 `Deprecation: true` + `Sunset: <ISO 8601 date>` 추가 (RFC 8594) — 6개월 후 제거 예정 표시.
-3. 6개월 후 `/v1/` 라우터 제거.
-
-본 프로젝트 현재 첫 v2 분기 사례 없음 — 도입 시 본 절 갱신.
+URL prefix versioning (`/api/v1/...` / `/api/v2/...`) 안 함. 모든 JSON API 는 `/api/...` 직접 사용. B2B 내부 포털이라 외부 client 없음 — breaking change 시 라우터 + front-end JS + docs 동시 정정 (본 repo 안 일관). 외부 contract 도입 시 별도 결정.
 
 엔진 측 self-host install bundle endpoint(`/zconverter.tar.gz`) 는 제거됨 (ADR 0016). task.install download.url 은 ZDM 측 contract (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`) 로 발행 — `docs/architecture/agent.md` "Download URL 조립 contract" 절 단일 진실.
 

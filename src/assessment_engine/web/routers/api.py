@@ -19,7 +19,7 @@ from assessment_engine.web.services.query_service import (
     TimeRange,
 )
 
-api_router = APIRouter(prefix="/api/v1/servers", tags=["api"])
+api_router = APIRouter(prefix="/api/servers", tags=["api"])
 
 
 @api_router.get("/{server_id}/collection-status")

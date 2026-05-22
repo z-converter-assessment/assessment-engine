@@ -90,7 +90,7 @@
 
   // ── SSE 초기화 ──
   function initSse(serverId, onMessage) {
-    const es = new EventSource(`/api/v1/servers/${serverId}/metrics/stream`);
+    const es = new EventSource(`/api/servers/${serverId}/metrics/stream`);
     const dot = document.getElementById('sse-dot');
     const lbl = document.getElementById('sse-label');
     es.onopen    = () => { if (dot) dot.className = 'dot dot-ok'; if (lbl) lbl.textContent = '자동 갱신 중'; };
@@ -175,12 +175,12 @@
   }
 
   // ── reboot / agent restart 이벤트 (차트 vertical marker용) ──
-  // 백엔드 API: GET /api/v1/servers/{id}/events/reboot?time_range=...&end=...
+  // 백엔드 API: GET /api/servers/{id}/events/reboot?time_range=...&end=...
   // 응답: [{collected_at, boot_time, agent_started_at, kind: "reboot"|"restart"}]
   async function fetchRebootEvents(serverId, range, anchor) {
     const p = new URLSearchParams({ time_range: range });
     if (anchor) p.append('end', anchor.toISOString());
-    const res = await fetch(`/api/v1/servers/${serverId}/events/reboot?${p}`);
+    const res = await fetch(`/api/servers/${serverId}/events/reboot?${p}`);
     if (res.status === 404 || !res.ok) return [];
     const data = await res.json();
     return Array.isArray(data) ? data : [];

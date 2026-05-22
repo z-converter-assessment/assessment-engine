@@ -23,7 +23,7 @@ from assessment_engine.web.services.task_service import (
 from assessment_engine.web.settings import web_settings
 from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
 
-tasks_router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
+tasks_router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 
 _HOSTNAME_LABEL_RE = re.compile(r"^(?=.{1,63}$)[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")

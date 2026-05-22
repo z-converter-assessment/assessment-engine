@@ -101,7 +101,7 @@ async def history(
     ),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """보고서 발행 이력 — 운영자 회고용. created_at DESC. SSR 첫 20건. 추가는 /api/v1/reports/history."""
+    """보고서 발행 이력 — 운영자 회고용. created_at DESC. SSR 첫 20건. 추가는 /api/reports/history."""
     records = await diag_service.list_reports(
         days,
         view,

@@ -61,7 +61,7 @@ vhost: `/assessment` 단일 사용. broker 한 대를 다른 도메인 시스템
 - prod 에서 DLX 정책 보강은 별도 ADR.
 
 `diagnostic.request` 정책 근거 (ADR 0004):
-- engine 내부 (agent 발행 아님) — web POST /api/v1/diagnostics + 스케줄러 매일 03시 → 워커 소비.
+- engine 내부 (agent 발행 아님) — web POST /api/diagnostics + 스케줄러 매일 03시 → 워커 소비.
 - 24h TTL: 진단 1건 처리 cap 5분. 24h 안 미처리는 운영자 개입 신호.
 - 100K 상한: 활성 서버 N대 + ad-hoc → 일일 N+α 발생. 100K로 충분.
 - 워커 prefetch_count 1 — LLM 호출 동시 1건만 (rate limit 자연 throttle). adhoc/scheduled 큐 분리 안 함.

@@ -147,7 +147,7 @@
   /* -------- AJAX -------- */
   async function fetchMetrics() {
     try {
-      const res = await fetch(`/api/v1/servers/${SERVER_ID}/metrics/latest`);
+      const res = await fetch(`/api/servers/${SERVER_ID}/metrics/latest`);
       if (res.status === 404) {
         hide('metrics-loading');
         show('metrics-no-data');
@@ -162,7 +162,7 @@
   async function fetchCollectionStatus() {
     const seq = ++statusSeq;
     try {
-      const res = await fetch(`/api/v1/servers/${SERVER_ID}/collection-status`);
+      const res = await fetch(`/api/servers/${SERVER_ID}/collection-status`);
       if (!res.ok) return;
       if (seq !== statusSeq) return;
       const data = await res.json();
@@ -180,7 +180,7 @@
   }
 
   /* -------- SSE -------- */
-  const es = new EventSource(`/api/v1/servers/${SERVER_ID}/metrics/stream`);
+  const es = new EventSource(`/api/servers/${SERVER_ID}/metrics/stream`);
   es.onopen = () => {
     el('sse-dot').className = 'dot dot-ok';
     el('sse-label').textContent = '자동 갱신 중';
@@ -253,7 +253,7 @@
 })();
 
 // 서버 1대 scope ZConverter Install 발행 모달 — 대시보드 #install-modal 과 동일 form.
-// 발행 시 POST /api/v1/tasks/install body={target_public_ids:[<public_id>], zdm_ip, zdm_user}
+// 발행 시 POST /api/tasks/install body={target_public_ids:[<public_id>], zdm_ip, zdm_user}
 (function () {
   const card = document.getElementById('server-install-card');
   if (!card) return;
@@ -285,7 +285,7 @@
     submitBtn.disabled = true;
     const pending = window.ToastUtils ? ToastUtils.show(`Install 발행 중 (${hostname})...`, 'pending') : null;
     try {
-      const res = await fetch('/api/v1/tasks/install', {
+      const res = await fetch('/api/tasks/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

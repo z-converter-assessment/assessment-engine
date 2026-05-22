@@ -11,7 +11,7 @@
 | 산출물 | 라우터 | 의도 |
 |--------|--------|------|
 | 서버 보고서 | `GET /servers/report?ids=<public_id,...>&period_days=14&view=customer\|engineer` | 선택 N대 row 단위 상세. customer(양식 A) view=KPI 8 컬럼, engineer(양식 B) view=정량 16 컬럼 |
-| 서버 진단 | `POST /api/v1/diagnostics` scope=server + 결과 polling | 개별 서버 분류·action·narrative. detail 페이지 "서버 진단" 카드 또는 list 에서 N대 batch 발행 |
+| 서버 진단 | `POST /api/diagnostics` scope=server + 결과 polling | 개별 서버 분류·action·narrative. detail 페이지 "서버 진단" 카드 또는 list 에서 N대 batch 발행 |
 
 두 산출물의 관계 (T13): 보고서·진단 동일 `diagnostic_jobs` 테이블 record. 서버 보고서 라우터가 합성 직후 `record_report_emission` 으로 succeeded row 즉시 INSERT (best-effort). 보고서 이력은 `/reports/history`, 진단 발행 이력은 `/diagnostics/history`.
 

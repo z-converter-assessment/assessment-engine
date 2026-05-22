@@ -1,6 +1,6 @@
 # Inventory JSON Export — 스키마·필드 명세
 
-정책: CLAUDE.md #F10 (평가 윈도우 정합). 본 문서는 `/api/v1/exports/inventory` endpoint 의 JSON 응답 스키마·필드 카탈로그·정제 원칙·자동화 도구 매핑 단일 진실 (web 컴포넌트의 deep dive). 산출물의 의의·근거는 `docs/products/json-export.md` 별도.
+정책: CLAUDE.md #F10 (평가 윈도우 정합). 본 문서는 `/api/exports/inventory` endpoint 의 JSON 응답 스키마·필드 카탈로그·정제 원칙·자동화 도구 매핑 단일 진실 (web 컴포넌트의 deep dive). 산출물의 의의·근거는 `docs/products/json-export.md` 별도.
 
 운영자가 web UI "JSON Export" 로 선택 서버 N대의 정제 inventory 를 표준 JSON 으로 다운로드 — 자동화 도구 (Terraform / OpenStack Heat / Ansible / CSP SDK) 가 그대로 입력해 후속 마이그레이션 실행.
 

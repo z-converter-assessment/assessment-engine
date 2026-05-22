@@ -85,7 +85,7 @@ async function runProbe() {
   probeBtn.disabled = true;
 
   try {
-    const res = await fetch('/api/v1/discovery/probe', {
+    const res = await fetch('/api/discovery/probe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target, port, scheme }),
@@ -119,7 +119,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && (modal.sty
 
 
 // ─── ZConverter Install ────────────────────────────────────────────────────
-// 체크박스로 호스트 선택 -> POST /api/v1/tasks/install.
+// 체크박스로 호스트 선택 -> POST /api/tasks/install.
 // engine 은 DB INSERT + agent.tasks.<machine_id> 큐 동적 declare + task.install publish.
 // download.url 은 운영자 입력 ZDM host + ZDM_PACKAGE_PATH 조립, sha256/size_bytes 는 ZDM_PACKAGE_* env.
 
@@ -262,7 +262,7 @@ async function exportInventory() {
   exportBtn.disabled = true;
   const pending = ToastUtils.show(`Export 중 (${rows.length}대)...`, 'pending');
   try {
-    const res = await fetch('/api/v1/exports/inventory', {
+    const res = await fetch('/api/exports/inventory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target_public_ids: rows.map(r => r.dataset.publicId) }),
@@ -346,7 +346,7 @@ async function submitInstall() {
   installSubmitBtn.disabled = true;
 
   try {
-    const res = await fetch('/api/v1/tasks/install', {
+    const res = await fetch('/api/tasks/install', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -457,7 +457,7 @@ async function submitDiag() {
   diagSubmitBtn.disabled = true;
   const pending = ToastUtils.show(`서버 진단 발행 중 (${rows.length}대)...`, 'pending');
   try {
-    const res = await fetch('/api/v1/diagnostics', {
+    const res = await fetch('/api/diagnostics', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

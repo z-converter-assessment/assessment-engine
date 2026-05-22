@@ -188,7 +188,7 @@ class DiagnosticSettings(ConsumerSettings):
     """
 
     # AI 진단 일시 비활성 flag — 기본 비활성 (운영자 명시 활성 시 True override).
-    # False 시: web POST /api/v1/diagnostics 503 reject + scheduler cron 발화 no-op.
+    # False 시: web POST /api/diagnostics 503 reject + scheduler cron 발화 no-op.
     # 모달 UI는 그대로 (사용자 트리거는 503으로 명시), worker process 는 큐 비어 idle.
     diagnostic_enabled: bool = False
 

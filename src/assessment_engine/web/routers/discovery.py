@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator
 
-discovery_router = APIRouter(prefix="/api/v1/discovery", tags=["discovery"])
+discovery_router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
 # probe 자체가 외부 네트워크 호출이므로 짧게. 폐쇄망 LAN 가정 — 5s면 충분.
 _PROBE_TIMEOUT_S = 5.0

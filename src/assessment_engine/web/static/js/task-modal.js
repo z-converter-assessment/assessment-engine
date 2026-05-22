@@ -2,7 +2,7 @@
 //
 // 운영자 워크플로:
 //   list.html "최근 작업" cell 클릭 / detail.html timeline row 클릭
-//   -> data-task-id 속성에서 ID 추출 -> GET /api/v1/tasks/{id} -> modal 채움
+//   -> data-task-id 속성에서 ID 추출 -> GET /api/tasks/{id} -> modal 채움
 //
 // install 발행 직후 status='pending' 인 task 를 polling — TaskModal.pollUntilFinal(taskId, cb).
 // 각 호출자(list.js)가 polling 결과로 cell 시각 갱신.
@@ -66,7 +66,7 @@
   }
 
   async function fetchTask(taskId) {
-    const res = await fetch(`/api/v1/tasks/${encodeURIComponent(taskId)}`);
+    const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }

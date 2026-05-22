@@ -161,7 +161,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 
 Pagination 정책:
 - 목록 endpoint(`list_servers` 등 정적 row): page 기반 — `page=1`, `limit=20` (max 100). 라우터 Query Pydantic 검증.
-- 시계열·시간 흐름 endpoint(`metric_snapshots` / `GET /api/v1/tasks` 등): cursor 기반 — `cursor: datetime | None` + `limit`. 시간 역순 스크롤. page 번호 의미 없음 (계속 새 데이터 들어옴).
+- 시계열·시간 흐름 endpoint(`metric_snapshots` / `GET /api/tasks` 등): cursor 기반 — `cursor: datetime | None` + `limit`. 시간 역순 스크롤. page 번호 의미 없음 (계속 새 데이터 들어옴).
 - 응답 envelope에 `total_count` / `has_more` 미포함 — `SELECT COUNT(*)` 별도 쿼리 비용 + UX는 빈 결과로 자연 종료 신호.
 - 신규 목록 endpoint 추가 시 위 두 패턴 중 하나 선택 — 정적 row면 page, 시간 흐름이면 cursor.
 

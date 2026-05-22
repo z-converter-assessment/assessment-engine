@@ -24,7 +24,7 @@ function fmtKb(kb) {
 /* ── 스냅샷 ── */
 async function loadSnapshot() {
   try {
-    const res = await fetch(`/api/v1/servers/${SERVER_ID}/metrics/latest`);
+    const res = await fetch(`/api/servers/${SERVER_ID}/metrics/latest`);
     document.getElementById('snap-loading').style.display = 'none';
     if (res.status === 404) { document.getElementById('snap-empty').style.display = ''; return; }
     if (!res.ok) return;
@@ -127,8 +127,8 @@ function makePctLoader(def) {
     };
     try {
       const [avgRows, maxRows] = await Promise.all([
-        fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('avg')}`).then(r => r.json()),
-        fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('max')}`).then(r => r.json()),
+        fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('avg')}`).then(r => r.json()),
+        fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('max')}`).then(r => r.json()),
       ]);
       if (seq !== state.seq) return;
       const avg = safeArray(avgRows);
@@ -291,10 +291,10 @@ async function loadCompChart() {
   };
   try {
     const [usedRows, availRows, cachedRows, buffersRows] = await Promise.all([
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('mem.usage_percent')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('mem.available_percent')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('mem.cached_percent')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('mem.buffers_percent')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('mem.usage_percent')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('mem.available_percent')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('mem.cached_percent')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('mem.buffers_percent')}`).then(r => r.json()),
     ]);
     if (seq !== compSeq) return;
     const toRows = (arr, dim) => safeArray(arr).map(r => ({ ...r, dimension: dim }));

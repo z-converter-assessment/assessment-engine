@@ -8,7 +8,7 @@
 - 발행 경로: 사용자 트리거 (스케줄러 자동 발행 없음 — 운영자 명시 결정만)
 - 산출물 형태: 각 워커 VM의 worker가 ZDM 본체 패키지 다운로드 + `install.sh -s ZDM_IP -u ZDM_USER` 실행 + 결과를 엔진으로 보고. Task row 6 컬럼 UPDATE (status·exit_code·duration_ms·stdout_tail·stderr_tail·failure_reason)
 - OS 범위: Linux 만. Windows 호스트는 본 산출물 범위 밖 (별도 산출물 도입 시 ADR)
-- 가시성: list "최근 작업" column (success/failure/pending badge) + detail timeline + `GET /api/v1/tasks/{id}` / `GET /api/v1/tasks?server_public_id=...&cursor=...`
+- 가시성: list "최근 작업" column (success/failure/pending badge) + detail timeline + `GET /api/tasks/{id}` / `GET /api/tasks?server_public_id=...&cursor=...`
 
 ## 존재 의의
 
@@ -52,7 +52,7 @@
 ## 메시지 흐름 (요약)
 
 ```
-사용자 list 선택 → "Install" 모달 → POST /api/v1/tasks
+사용자 list 선택 → "Install" 모달 → POST /api/tasks
   ↓
 engine web:
   1. Task INSERT (status=pending)
@@ -115,7 +115,7 @@ dev 시연 흐름 (ADR 0018):
 - `docs/architecture/agent.md` "task.install" / "task.result" 절 — 메시지 schema·필드 카탈로그
 - `docs/architecture/rabbitmq.md` — exchange·queue·routing key 토폴로지
 - `src/assessment_engine/web/services/task_service.py` — Task 발행
-- `src/assessment_engine/web/routers/tasks.py` — POST /api/v1/tasks · GET 조회
+- `src/assessment_engine/web/routers/tasks.py` — POST /api/tasks · GET 조회
 - `src/assessment_engine/consumer/handlers/` — task.result 핸들러 (6 컬럼 UPDATE)
 - `src/assessment_engine/web/static/js/pages/list.js` — list "최근 작업" column polling
 - `src/assessment_engine/web/templates/base.html` — task modal (stdout/stderr 확장)

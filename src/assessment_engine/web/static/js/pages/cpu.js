@@ -25,7 +25,7 @@ function pct(v) { return v == null ? '—' : v.toFixed(1) + '%'; }
 /* ── 스냅샷 ── */
 async function loadSnapshot() {
   try {
-    const res = await fetch(`/api/v1/servers/${SERVER_ID}/metrics/latest`);
+    const res = await fetch(`/api/servers/${SERVER_ID}/metrics/latest`);
     document.getElementById('snap-loading').style.display = 'none';
     if (res.status === 404) { document.getElementById('snap-empty').style.display = ''; return; }
     if (!res.ok) return;
@@ -72,7 +72,7 @@ async function loadUsageChart() {
   });
   if (capturedAnchor) params.append('end', capturedAnchor.toISOString());
   try {
-    const rows = await fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${params}`).then(r => r.json());
+    const rows = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${params}`).then(r => r.json());
     if (seq !== usageSeq) return;
     if (!Array.isArray(rows) || !rows.length) {
       canvas.style.display = 'none'; empty.style.display = '';
@@ -240,9 +240,9 @@ async function loadCompChart() {
   };
   try {
     const [userRows, sysRows, ioRows] = await Promise.all([
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.user_percent')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.system_percent')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.iowait_percent')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.user_percent')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.system_percent')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.iowait_percent')}`).then(r => r.json()),
     ]);
     if (seq !== compSeq) return;
     const safe = arr => Array.isArray(arr) ? arr : [];
@@ -366,9 +366,9 @@ async function loadLoadChart() {
   };
   try {
     const [r1, r5, r15] = await Promise.all([
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('load.1m')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('load.5m')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('load.15m')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('load.1m')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('load.5m')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('load.15m')}`).then(r => r.json()),
     ]);
     if (seq !== loadSeq) return;
     const safe = arr => Array.isArray(arr) ? arr : [];

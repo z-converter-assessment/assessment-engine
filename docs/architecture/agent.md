@@ -150,7 +150,7 @@ cache 동작:
 
 `boot_time` / `agent_started_at` 가 null 이라 `_log_time_invariants` 검증은 본 메시지에서 호출 안 함.
 
-운영자 가시성: list.html "최근 작업" column (행별 마지막 task badge + polling 갱신) / detail.html "최근 작업" 섹션 (timeline 최근 10건 + row 클릭 modal) / Web API `GET /api/v1/tasks/{task_id}` 단일 + `GET /api/v1/tasks?server_public_id=...` 서버별 cursor pagination. 단일 진실: `web/services/mappers/task.py::to_task_summary` / `to_task_detail` + base.html `.rec-success`/`.rec-failure`/`.rec-pending`/`.rec-unknown`. failure_reason 한글 라벨은 `mappers/task.py::_FAILURE_REASON_LABEL` 카탈로그 (11 enum).
+운영자 가시성: list.html "최근 작업" column (행별 마지막 task badge + polling 갱신) / detail.html "최근 작업" 섹션 (timeline 최근 10건 + row 클릭 modal) / Web API `GET /api/tasks/{task_id}` 단일 + `GET /api/tasks?server_public_id=...` 서버별 cursor pagination. 단일 진실: `web/services/mappers/task.py::to_task_summary` / `to_task_detail` + base.html `.rec-success`/`.rec-failure`/`.rec-pending`/`.rec-unknown`. failure_reason 한글 라벨은 `mappers/task.py::_FAILURE_REASON_LABEL` 카탈로그 (11 enum).
 
 dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.lima.internal:8000{ZDM_PACKAGE_PATH}` 로 더미 tar.gz 를 서빙 — Lima VM agent worker 가 download → install.sh (echo + exit 0) exec → task.result success 발행 → consumer 6 컬럼 UPDATE → list UI badge `success` 전이. sha256·size 는 `HttpZdmPackageResolver` 가 ZDM 호스트 (dev 에서는 mock) 에서 HEAD/GET 으로 동적 산출하므로 별도 env 박을 필요 없음. agent download.c 는 http·https 둘 다 허용 (CURLOPT_PROTOCOLS_STR="https,http"), host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS=host.lima.internal`) 그대로 매칭. 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200 등) 시 publish 503 차단.
 
