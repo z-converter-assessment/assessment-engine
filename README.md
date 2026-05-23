@@ -31,7 +31,7 @@
     v                v                 v                 | publish
  +-------------------------------+  +-------------------------------+
  |  Consumer (aio-pika)          |  |  Diagnostic (ADR 0004 + 0010  |
- |  - parse/idempot/persist      |  |                + 0023 + 0024) |
+ |  - parse/idempot/persist      |  |          + 0023 + 0024 + 0025)|
  |  - time invariants            |  |  Worker:                      |
  |  - agent restart signals      |  |   - rule-based classify       |
  |  - task.result -> Task        |  |   - retrieve RAG context      |
@@ -74,7 +74,7 @@
 | 애플리케이션 | Python 3.12 · FastAPI · uvicorn · aio-pika · SQLAlchemy async · asyncpg · Jinja2 · loguru · httpx |
 | DB / 캐시 / 브로커 | TimescaleDB (PostgreSQL 16) · Redis 7 · RabbitMQ 3.13 · pgvector (ADR 0024) |
 | Schema 관리 | Alembic 단일 진실 |
-| 진단 | 규칙 기반 (USE Method) + RAG opt-in (ADR 0024, mxbai-embed-large + HNSW) |
+| 진단 | 규칙 기반 (USE Method) + 단일 ollama LLM (ADR 0025) + RAG opt-in (ADR 0024, mxbai-embed-large + HNSW) |
 | 관측 | loguru `LOG_FORMAT=text\|json` + Prometheus `/metrics` |
 | 패키징 | uv + hatchling. CI 산출물 = Python wheel |
 | 정적 자원 | Chart.js CDN, 외부 `.js` 파일 + `defer` |
@@ -167,7 +167,7 @@ uv run alembic check                   # ORM ↔ migrations 정합 (alembic-chec
 
 `uv sync` 가 `.venv/` 안에 의존성 + 본 프로젝트 자체도 editable install — IDE 가 `src/assessment_engine/` 모듈 import 인식. dev 그룹 누락 시 IDE 가 pytest·ruff symbol 못 찾음 → 항상 `--group dev` 명시.
 
-상세 (Docker 안 dev workflow·테스트 컨테이너·diagnostic mock LLM): `docs/development/`.
+상세 (Docker 안 dev workflow·테스트 컨테이너·diagnostic ollama LLM): `docs/development/`.
 
 ---
 

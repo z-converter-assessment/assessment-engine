@@ -174,7 +174,7 @@ over-provisioned 5대, under-provisioned 2대, idle 0대, optimal 16대.
 - `docs/tradeoffs.md` T13 — 보고서 = diagnostic_jobs 통합 + 환경 진단 결과 iframe view toggle
 - `src/assessment_engine/recommendation.py` — 분류 임계값·`WINDOW_DAYS`
 - `src/assessment_engine/diagnostic/submitter.py` — 진단 발행 (ADR 0014). trigger 채널 = web POST 만 (ADR 0023)
-- `src/assessment_engine/diagnostic/llm/mock.py::_environment_narrative` — 자연어 합성 템플릿
+- `src/assessment_engine/diagnostic/llm/ollama.py::OllamaLlmClient` — LLM narrative 합성 (ollama HTTP)
 - `src/assessment_engine/web/services/query_service.py::get_report` — KPI 집계 + view 분기
 - `src/assessment_engine/web/services/mappers/report.py::build_report_summary_bullets` — view 분기 시그널
 - `src/assessment_engine/web/templates/reports/environment.html` — 환경 보고서 템플릿

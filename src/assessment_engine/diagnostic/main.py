@@ -23,16 +23,18 @@ from assessment_engine.rag.retriever.base import BaseRetriever
 
 
 def _build_llm_client() -> BaseLlmClient:
-    """LLM 토글 (ADR 0004) — composition root. 과금 발생 외부 API 호출 금지."""
-    provider = diagnostic_settings.llm_provider
-    if provider == "mock":
-        from assessment_engine.diagnostic.llm.mock import MockLlmClient
+    """LLM 단일 provider (ADR 0004 + 0025) — composition root.
 
-        return MockLlmClient()
-    if provider == "ollama":
-        # ollama 클라이언트는 별도 PR — 1차 mock 전용. 도입 시 본 분기 활성화.
-        raise NotImplementedError("LLM_PROVIDER=ollama not implemented yet (Phase 2)")
-    raise ValueError(f"unknown LLM_PROVIDER: {provider}")
+    ollama 단독 — 과금 발생 외부 유료 API 호출 금지 (정책). mock 폐기 (ADR 0025) —
+    개발/운영 모두 실제 LLM 호출 통일.
+    """
+    from assessment_engine.diagnostic.llm.ollama import OllamaLlmClient
+
+    return OllamaLlmClient(
+        base_url=diagnostic_settings.ollama_base_url,
+        model=diagnostic_settings.ollama_model,
+        timeout_seconds=float(diagnostic_settings.llm_timeout_seconds),
+    )
 
 
 def _build_embedding_client() -> BaseEmbeddingClient:
@@ -69,8 +71,8 @@ async def main() -> None:
     setup_logging(diagnostic_settings.log_format)
 
     logger.info(
-        "diagnostic worker starting provider={} exchange={}",
-        diagnostic_settings.llm_provider,
+        "diagnostic worker starting llm_model={} exchange={}",
+        diagnostic_settings.ollama_model,
         diagnostic_settings.rabbitmq_exchange,
     )
 

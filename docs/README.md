@@ -13,6 +13,7 @@
 | 외부 인프라용 contract (deployment·env·alembic·observability·release) | `operations/` |
 | 본 repo CI · release-please · branch protection 활성 (GitHub UI) | `development/github-setup.md` |
 | 운영 산출물별 의의·근거 (보고서·진단·Install·Export 등) | `products/` |
+| RAG 도메인 지식 sample (ADR 0024 ingest 본질 자료) | `rag-seed/` |
 | 왜 그렇게 결정했나 | `adr/` |
 | 트레이드오프와 한계 (T1~T13) | `tradeoffs.md` |
 
@@ -24,7 +25,7 @@ docs/
 ├── architecture/          컴포넌트별 deep dive (영구·갱신)
 │   ├── agent.md           메시지 데이터 형식 (inventory / metrics / error / task.install / task.result)·포트 수집·디스크 필터링
 │   ├── consumer.md        handler·main·멱등성·재시도·부가 시그널
-│   ├── diagnostic.md      진단 워커·스케줄러·LLM 토글·diagnostic_jobs (ADR 0004 + 0010)
+│   ├── diagnostic.md      진단 워커·LLM (ollama 단일, ADR 0025)·RAG infra (ADR 0024)·diagnostic_jobs·rag_documents
 │   ├── rabbitmq.md        vhost·권한 모델·토폴로지·dev·prod 분기
 │   ├── redis.md           키 설계·TTL·PUB/SUB·캐시 무효화·mget
 │   ├── db/                models / dtos / repositories / timescaledb (4분할)
@@ -48,7 +49,12 @@ docs/
 │   ├── server-report.md          서버 보고서 + 서버 진단 통합 (scope=server) — view=customer/engineer 분기
 │   ├── json-export.md             JSON Export 의의·근거 (자동화 도구 입력)
 │   └── install-task.md            Install task 의의·근거 (원격 설치 워크플로)
-├── adr/                   Architecture Decision Records (영구·불변, 0001~0016)
+├── rag-seed/              RAG 도메인 지식 sample (자체 작성, license 의무 0, ADR 0024)
+│   ├── README.md                  ingest 가이드 + source_type 카탈로그
+│   ├── use-method.md              USE Method 본질 요약 (Utilization · Saturation · Errors)
+│   ├── right-sizing-thresholds.md AWS Compute Optimizer + Azure Advisor 임계 catalog
+│   └── classification-rules.md    본 엔진 7 category 분류 규칙
+├── adr/                   Architecture Decision Records (영구·불변, 0001~0025)
 └── tradeoffs.md           의식적 설계 선택과 한계 (T1~T13) — 카탈로그
 ```
 

@@ -17,8 +17,10 @@ from collections.abc import Callable
 from datetime import datetime
 
 from aio_pika.abc import AbstractChannel
+from aio_pika.exceptions import AMQPError
 from loguru import logger
 from redis.asyncio import Redis
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.cache.redis import safe_get
@@ -113,6 +115,66 @@ class DiagnosticService:
         async with self.session_factory() as session:
             repo = self.diagnostic_repo_factory(session)
             return await repo.get_latest_by_context(scope, time_range, server_public_id)
+
+    async def ensure_latest_or_submit(
+        self,
+        scope: str,
+        server_public_ids: list[str] | None,
+        time_range: DiagnosticTimeRange = "14d",
+        anchor_at: datetime | None = None,
+    ) -> dict[str | None, dict]:
+        """보고서 페이지 진입 시 자동 진단 통합 catalog.
+
+        scope='environment': server_public_ids=None — key=None 단일 결과
+        scope='server': server_public_ids=[A, B, ...] — key=public_id 별 결과
+
+        각 key 안 dict 본문:
+        - 'panel': to_panel_payload(latest succeeded record) | None
+        - 'job_id': submit 신규 job_id | active 충돌 회수 id | None (이미 succeeded 있어 submit 생략)
+        - 'status': 'succeeded' | 'pending' | 'running'
+
+        흐름: latest succeeded fetch → 있으면 panel 표시. 없으면 submit (active hash dedup 자연 흡수)
+        후 신규 job_id 반환 — template 안 polling JS 가 본 job_id 안 polling 으로 narrative 갱신.
+        """
+        out: dict[str | None, dict] = {}
+        if scope == "environment":
+            keys: list[str | None] = [None]
+        else:
+            keys = list(server_public_ids or [])
+
+        async with self.session_factory() as session:
+            repo = self.diagnostic_repo_factory(session)
+            for key in keys:
+                latest = await repo.get_latest_by_context(scope, time_range, key)
+                if latest is not None and latest.status == "succeeded":
+                    out[key] = {"panel": to_panel_payload(latest), "job_id": None, "status": "succeeded"}
+                    continue
+                # latest 안 있거나 succeeded 아닐 시 submit (active hash dedup 자연 흡수)
+                try:
+                    job_ids = await self._submitter.submit(
+                        scope,
+                        [key] if key is not None else None,
+                        time_range,
+                        anchor_at,
+                        requested_by="report-auto",
+                    )
+                    job_id = job_ids[0] if job_ids else None
+                    out[key] = {
+                        "panel": to_panel_payload(latest) if latest else None,
+                        "job_id": job_id,
+                        "status": latest.status if latest else "pending",
+                    }
+                except (SQLAlchemyError, AMQPError, TimeoutError, ConnectionError):
+                    # submit 실패 (DB · broker 일시 장애) silent fallback — 보고서 자체는 표시.
+                    # 본질 catch = submitter DB INSERT (SQLAlchemyError) · broker publish (AMQPError)
+                    # · timeout · broker connection.
+                    logger.exception("ensure_latest_or_submit submit failed scope={} key={}", scope, key)
+                    out[key] = {
+                        "panel": to_panel_payload(latest) if latest else None,
+                        "job_id": None,
+                        "status": "failed",
+                    }
+        return out
 
     async def list_recent(
         self,

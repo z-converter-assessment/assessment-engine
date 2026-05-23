@@ -207,7 +207,7 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 | `WEB_PORT`·`INSTALL_TIMEOUT_SEC`·`ZDM_*`·`ZDM_PACKAGE_*`·`AGENT_RESTART_ALERT_THRESHOLD` | 의무 | 사용 안 함 | 사용 안 함 |
 | `LLM_*`·`OLLAMA_*` | 사용 안 함 | 사용 안 함 | 의무 |
 | `RAG_ENABLED`·`EMBEDDING_*`·`RAG_TOP_K`·`RAG_MAX_CONTEXT_CHARS` | 사용 안 함 | 사용 안 함 | 의무 (handler retrieve_context + ingest CLI 공통) |
-| `DIAGNOSTIC_ENABLED`·`DIAGNOSTIC_QUEUE_*`·`DIAGNOSTIC_ROUTING_KEY` | 의무 (publish gate) | 사용 안 함 | 의무 (consume gate) |
+| `DIAGNOSTIC_QUEUE_*`·`DIAGNOSTIC_ROUTING_KEY` | 의무 (publish) | 사용 안 함 | 의무 (consume) |
 | `WORKER_JOB_TIMEOUT_SECONDS` | 사용 안 함 | 사용 안 함 | 의무 |
 | `SQLALCHEMY_ECHO` | 의무 | 의무 | 의무 |
 
@@ -295,15 +295,12 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `AGENT_RESTART_ALERT_THRESHOLD` | `3` | config.py | 1h 슬라이딩 윈도우 내 에이전트 재시작 횟수 임계값. attention 신호 카드 + consumer 부가 시그널 |
 | `SQLALCHEMY_ECHO` | `false` | config.py | SQLAlchemy 엔진 SQL 로깅. dev 디버깅 시 true (운영 환경은 false 유지 — 로그 폭증·secret 노출 위험) |
 | `PGADMIN_PORT` | `5050` | dev compose override | pgAdmin GUI 포트 (dev 전용) |
-| `DIAGNOSTIC_ENABLED` | `false` | config.py | 진단 워크플로 활성 flag (ADR 0004 + 0010 + 0023). false 면 POST 503 |
 | `DIAGNOSTIC_ROUTING_KEY` | `diagnostic.request` | config.py | engine 내부 routing key (web·worker 공통) |
 | `DIAGNOSTIC_QUEUE_TTL_MS` | `86400000` | config.py | 큐 메시지 TTL 24h |
 | `DIAGNOSTIC_QUEUE_MAX_LEN` | `100000` | config.py | 큐 max length |
-| `LLM_PROVIDER` | `mock` | config.py | 진단 narrative 합성 client. `mock` (결정론) 또는 `ollama` (stub). 외부 LLM 도입은 ADR 0010 정정 |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | config.py | `LLM_PROVIDER=ollama` 또는 `EMBEDDING_PROVIDER=ollama` 시 사용. embedding + LLM 공통 ollama server |
-| `OLLAMA_MODEL` | `llama3.1:8b` | config.py | ollama LLM 모델명 |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | config.py | ollama HTTP 호출 base URL. embedding + LLM 공통 ollama server. docker compose default = `http://host.docker.internal:11434` |
+| `OLLAMA_MODEL` | `llama3.1:8b` | config.py | ollama LLM 모델명. 한국어 정합 우위 모델 (qwen2.5:14b 등) 으로 운영자 교체 가능 |
 | `LLM_TIMEOUT_SECONDS` | `60` | config.py | LLM 호출 cap |
-| `LLM_MOCK_LATENCY_SECONDS` | `2.0` | config.py | mock client 응답 sleep (UI progress 확인용) |
 | `RAG_ENABLED` | `false` | config.py | RAG 활성 flag (ADR 0024). false 시 handler retrieve_context 단계 skip + payload['rag_context']=[] |
 | `EMBEDDING_PROVIDER` | `mock` | config.py | embedding client. `mock` (deterministic random) 또는 `ollama` (mxbai-embed-large) |
 | `EMBEDDING_MODEL` | `mxbai-embed-large` | config.py | ollama 안 embedding 모델명 (`ollama pull mxbai-embed-large` 의무) |

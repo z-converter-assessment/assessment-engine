@@ -1,6 +1,6 @@
 # ADR 0004 — AI 진단 워커 아키텍처
 
-상태: Refined by 0010 (2026-05-16) + 0023 (2026-05-23) — 워커·`diagnostic_jobs` 인프라·LLM 토글은 그대로 유효. "AI 진단" 명칭은 ADR 0010으로 "진단"(scope에 따라 환경/서버)으로 정정. scheduler cron 자동 발화는 ADR 0023으로 폐기 (trigger 채널 = 사용자 명시 web POST 만). `LLM_PROVIDER=mock` default + ollama 미구현 상태 그대로 보존. 본 ADR 본문은 historical record.
+상태: Refined by 0010 (2026-05-16) + 0023 (2026-05-23) + 0025 (2026-05-24) — 워커·`diagnostic_jobs` 인프라 그대로 유효. "AI 진단" 명칭 정정 (0010), scheduler cron 폐기 (0023), LLM 단일 provider 통합 (0025 — ollama 단독, mock 폐기, `LLM_PROVIDER` env 제거). 본 ADR 본문 안 LLM 토글·`mock`/`ollama` 분기 본문은 historical record — 본 시점 단일 `OllamaLlmClient` 만 활용.
 
 원래 상태: Proposed (2026-05-12)
 

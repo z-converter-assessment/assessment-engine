@@ -177,7 +177,8 @@ consumer 노드:             /etc/assessment-engine/consumer.env
   WORKER_TASK_QUEUE_PREFIX=agent.tasks
 
 diagnostic-worker 노드:    /etc/assessment-engine/diagnostic-worker.env
-  LLM_PROVIDER=mock
+  OLLAMA_BASE_URL=http://<ollama-host>:11434
+  OLLAMA_MODEL=llama3.1:8b
   WORKER_JOB_TIMEOUT_SECONDS=300
   DIAGNOSTIC_QUEUE_TTL_MS=86400000
   DIAGNOSTIC_QUEUE_MAX_LEN=100000

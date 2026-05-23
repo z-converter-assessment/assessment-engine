@@ -123,7 +123,9 @@ def test_consumer_settings_prod_inherits_web_validation():
 
 def test_diagnostic_settings_prod_with_strong_defaults_passes():
     s = DiagnosticSettings(**_consumer_kwargs())
-    assert s.llm_provider == "mock"  # 과금 발생 외부 API 호출 금지 default
+    # ADR 0025: 단일 ollama provider — LLM_PROVIDER env 제거. ollama 호출은 host 안 `ollama serve` 의무.
+    assert s.ollama_model == "llama3.1:8b"
+    assert s.ollama_base_url == "http://localhost:11434"
 
 
 def test_diagnostic_settings_prod_inherits_consumer_validation():

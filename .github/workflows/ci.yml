@@ -115,7 +115,7 @@ jobs:
         run: |
           python -m venv /tmp/wheel-smoke
           /tmp/wheel-smoke/bin/pip install --quiet dist/*.whl
-          /tmp/wheel-smoke/bin/python -c "import assessment_engine.web.main; import assessment_engine.consumer.main; import assessment_engine.diagnostic.main; import assessment_engine.diagnostic.scheduler"
+          /tmp/wheel-smoke/bin/python -c "import assessment_engine.web.main; import assessment_engine.consumer.main; import assessment_engine.diagnostic.main"
           /tmp/wheel-smoke/bin/python -c "from importlib.resources import files; p = files('assessment_engine'); assert (p / 'web' / 'templates' / 'base.html').is_file(); assert (p / 'web' / 'static' / 'js' / 'chart-utils.js').is_file(); assert (p / '_migrations' / 'env.py').is_file(); assert (p / '_alembic.ini').is_file()"
 
       - name: Upload wheel artifact

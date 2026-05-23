@@ -139,15 +139,16 @@ services:
     <<: *app-base
     command: python -m assessment_engine.consumer
 
-  # 진단 워커 — RabbitMQ `diagnostic.request` 소비, 규칙 기반 진단 수행, DB 저장 (ADR 0004 · 0010 · 0023).
-  # LLM_PROVIDER 기본 mock (과금 발생 외부 API 호출 금지 — 운영자 정책).
-  # ADR 0023: scheduler cron 폐기. trigger 채널 = web POST /api/diagnostics 만.
+  # 진단 워커 — RabbitMQ `diagnostic.request` 소비, USE Method 규칙 + ollama LLM narrative 합성, DB 저장.
+  # ADR 0004 + 0010 + 0023 + 0025: trigger = web POST 만, LLM = ollama 단독 (host 안 `ollama serve` 의무).
+  # OLLAMA_BASE_URL default = host.docker.internal:11434 (Docker Desktop) — Linux native 는 172.17.0.1 또는 network_mode: host.
   diagnostic-worker:
     <<: *app-base
     command: python -m assessment_engine.diagnostic
     environment:
       <<: *app-env
-      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
 
 volumes:
   postgres_data:

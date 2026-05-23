@@ -204,7 +204,7 @@ AWS Compute Optimizer 임계값(CPU p95 30%) 기준으로 CPU 다운사이즈 �
 - `docs/tradeoffs.md` T13 — 보고서 = diagnostic_jobs 통합
 - `src/assessment_engine/recommendation.py` — 분류 임계값 상수 카탈로그
 - `src/assessment_engine/diagnostic/submitter.py` — 진단 발행 (ADR 0014). trigger 채널 = web POST 만 (ADR 0023)
-- `src/assessment_engine/diagnostic/llm/mock.py::_server_narrative` — 자연어 합성 템플릿
+- `src/assessment_engine/diagnostic/llm/ollama.py::OllamaLlmClient` — LLM narrative 합성 (ollama HTTP)
 - `src/assessment_engine/web/services/diagnostic_service.py` — job 발행·polling
 - `src/assessment_engine/web/services/query_service.py::get_report` — 5 SQL round-trip + view 분기
 - `src/assessment_engine/web/services/mappers/report.py::build_report_summary_bullets` — view 분기 시그널

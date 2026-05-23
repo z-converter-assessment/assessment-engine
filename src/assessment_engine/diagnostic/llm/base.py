@@ -2,9 +2,10 @@ from abc import ABC, abstractmethod
 
 
 class BaseLlmClient(ABC):
-    """LLM 클라이언트 추상 — composition root(워커 main)에서 LLM_PROVIDER에 따라 구체 주입 (F4).
+    """LLM 클라이언트 추상 — composition root(워커 main)에서 구체 주입 (F4).
 
-    ADR 0004 LLM 토글: mock(기본) / ollama. 과금 발생 외부 API 호출 금지 — 운영자 정책.
+    ADR 0004 + 0025: 단일 provider (ollama 로컬 무료 LLM). 과금 발생 외부 유료 API 호출 금지 (정책).
+    test 안 mock 의무 catalog 시 unittest.mock.AsyncMock 활용 (구체 mock 클래스 미보존).
     """
 
     @abstractmethod

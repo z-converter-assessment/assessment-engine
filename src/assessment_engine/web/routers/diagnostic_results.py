@@ -53,23 +53,12 @@ async def show_results(
     by_id = {r.id: r for r in records}
     ordered = [by_id.get(jid) for jid in job_ids]
 
-    # 환경 scope job 마다 환경 보고서 URL 미리 합성 (iframe 으로 같은 페이지에 toggle).
-    # /reports/environment 는 전체 등록 서버 자동. 진단 job 의 time_range·anchor_at 그대로 전달
-    # 해 같은 윈도우·기준 시각 보고서 합성 — 진단 결과와 시간 정합.
+    # 본 결과 페이지 = AI 분석 narrative 만 표시. 환경 보고서 (customer/engineer view) 는 별도
+    # 페이지 `/reports/environment` 에서 직접 진입 — 진단 결과와 보고서 책임 분리.
     self_back = _self_back(request)
-    jobs: list[dict] = []
-    for jid, rec in zip(job_ids, ordered, strict=True):
-        job: dict = {"job_id": jid, "payload": to_panel_payload(rec)}
-        if rec is not None and rec.scope == "environment":
-            time_range = rec.input_params.get("time_range", "14d")
-            anchor_at = rec.input_params.get("anchor_at")
-            parts = [f"time_range={time_range}"]
-            if anchor_at:
-                parts.append(f"anchor_at={anchor_at}")
-            qs = "&".join(parts)
-            job["report_link_customer"] = f"/reports/environment?{qs}&view=customer&back={self_back}"
-            job["report_link_engineer"] = f"/reports/environment?{qs}&view=engineer&back={self_back}"
-        jobs.append(job)
+    jobs: list[dict] = [
+        {"job_id": jid, "payload": to_panel_payload(rec)} for jid, rec in zip(job_ids, ordered, strict=True)
+    ]
 
     return templates.TemplateResponse(
         request=request,

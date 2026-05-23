@@ -186,12 +186,8 @@ class DiagnosticSettings(ConsumerSettings):
 
     ConsumerSettings 상속 — broker_url·prod secret 검증 그대로 활용. 진단 워크플로 고유 필드만 추가.
     ADR 0023: scheduler cron 폐기. trigger 채널 = 사용자 명시 (web POST) 만.
+    AI 진단 = 본 엔진 본질 기능 — feature flag 제거 (항상 활성).
     """
-
-    # AI 진단 일시 비활성 flag — 기본 비활성 (운영자 명시 활성 시 True override).
-    # False 시: web POST /api/diagnostics 503 reject.
-    # 모달 UI는 그대로 (사용자 트리거는 503으로 명시), worker process 는 큐 비어 idle.
-    diagnostic_enabled: bool = False
 
     # routing key + TTL (모두 RabbitMQ broker — 큐 인자 변경 시 broker 재선언 의무)
     diagnostic_routing_key: str = "diagnostic.request"
@@ -202,12 +198,10 @@ class DiagnosticSettings(ConsumerSettings):
     redis_key_diagnostic_progress: str = "diagnostic:job:{}"  # {job_id}
     redis_ttl_diagnostic_progress: int = 3600
 
-    # LLM — 과금 발생 외부 API 호출 금지 (운영자 정책). 외부 API 도입은 별도 ADR 정정.
-    llm_provider: Literal["mock", "ollama"] = "mock"
+    # LLM — ollama 단일 provider (ADR 0025). 과금 발생 외부 유료 API 호출 금지 (정책).
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
     llm_timeout_seconds: int = 60
-    llm_mock_latency_seconds: float = 2.0  # mock latency 시뮬레이션 (UI progress 단계 확인용)
 
     # RAG (ADR 0024) — handler retrieve_context 단계 + ingest CLI 공통 사용.
     # rag_enabled=False default — 단계별 검증 후 운영자 명시 활성화. False 시 retrieve_context skip + payload['rag_context']=[]

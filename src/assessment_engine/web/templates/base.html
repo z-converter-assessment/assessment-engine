@@ -93,7 +93,7 @@
     /* code = base monospace (line 25) + inline code 표시 (background + padding). font-family 중복 제거 — line 25 단일 진실. */
     code { background: #f1f5f9; padding: 1px 6px; border-radius: 3px; font-size: 12px; color: #475569; }
 
-    /* JS 가 render 하는 dynamic 컴포넌트의 표준 utility — diagnostic.js / task-modal.js / chart legend 공통.
+    /* JS 가 render 하는 dynamic 컴포넌트의 표준 utility — task-modal.js / chart legend / diagnostic-inline.js 공통.
        inline style="font-size:Npx; color:#xxx" 직접 사용 금지. */
     .modal-title { margin: 0; font-size: 16px; font-weight: 700; color: #1e293b; }
     .text-muted { color: #64748b; font-size: 12px; }
@@ -101,6 +101,30 @@
     .text-label { color: #475569; font-size: 13px; }
     .text-narrative { color: #475569; font-size: 12px; line-height: 1.6; }
     .text-danger { color: #b91c1c; }
+
+    /* 다중 보고서 안 AI 진단 컬럼 cell narrative 시각 truncate — 2줄 + 말줄임. title attribute 호버 시 전체. */
+    .diag-clamp {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* AI 진단 본질 표시 tag — 버튼 안 inline 배지 (엔지니어 보고서 = AI 진단 포함 catalog 명시).
+       `.btn-action` (display: inline-flex + gap: 6px) 안 활용 정공 — margin 의무 X, line-height 1 로 baseline 정렬. */
+    .tag-ai {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      background: #ede9fe;
+      color: #6d28d9;
+      padding: 2px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+      line-height: 1;
+      vertical-align: middle;
+    }
     .alert-danger { color: #991b1b; padding: 12px; background: #fee2e2; border-radius: 6px; }
     .pre-output { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; font-size: 11px; color: #1e293b; max-height: 200px; overflow: auto; margin: 0; }
     .legend-label { font-size: 12px; color: #475569; cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 4px; }

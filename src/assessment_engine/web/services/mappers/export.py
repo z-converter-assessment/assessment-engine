@@ -112,9 +112,12 @@ def to_inventory_export_entry(
     detail: ServerDetail,
     stats: ReportRowRaw | None = None,
 ) -> InventoryExportEntry:
-    """ServerDetail(outbound) + 선택적 ReportRowRaw -> InventoryExportEntry v2.
+    """ServerDetail(outbound) + 선택적 ReportRowRaw -> InventoryExportEntry v3.
 
     `stats`가 None이면 right-sizing 필드 null로 발행 — 신규 서버 / 데이터 부족 시.
+
+    AI narrative 본질 catalog 본 시점 본질 catalog 본 시점 정공 — 자동화 도구 (Terraform · Ansible 등)
+    안 자연어 parse 불가, 구조화 데이터 (`recommended_size_class` 필드) 만 활용 catalog 정공.
     """
     boot_gb, additional = _split_disks(detail.disks, detail.mounts)
     if stats is not None:

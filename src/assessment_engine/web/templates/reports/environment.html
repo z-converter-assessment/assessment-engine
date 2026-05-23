@@ -140,6 +140,22 @@
 {% else %}
 {# ============================= 양식 B — 엔지니어 검토용 (상세·엄밀) ============================= #}
 
+{# AI 진단 — 보고서 흐름 안 inline (별도 카드·발행 버튼·이력 link 없음). 보고서 anchor + time_range 기반 자동 발행. #}
+<section class="card" data-diagnostic-inline data-job-id="{{ diag_job_id or '' }}" style="margin-bottom:16px;">
+  <h2>AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
+  {% if diag and diag.narrative %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; line-height:1.6; font-size:14px; color:#1e293b;">{{ diag.narrative }}</div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;">
+    분류 분포: <strong>{{ diag.classification_label_kr or "—" }}</strong>
+  </div>
+  {% else %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; color:#64748b; font-size:13px;">
+    {% if diag_job_id %}AI 진단 진행 중 (LLM 합성 10~60초 소요). 본 보고서 새로고침 또는 자동 폴링 대기.{% else %}AI 진단 자료 없음.{% endif %}
+  </div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
+  {% endif %}
+</section>
+
 <section class="card" style="margin-bottom:16px;">
   <h2>환경 메트릭</h2>
   <div class="metric-grid" style="grid-template-columns:repeat(4, 1fr);">
@@ -188,14 +204,12 @@
   </div>
 
   <h3>분포</h3>
-  {% set classified_total = summary.classification_dist | sum(attribute='count') %}
   <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:20px;">
     {% for c in summary.classification_dist %}
-    {% set pct = (c.count / classified_total * 100) if classified_total else 0 %}
     <div style="display:flex; align-items:center; gap:10px;">
       <div style="width:160px; font-size:12px; color:#1e293b;">{{ c.label }}</div>
       <div style="flex:1; background:#f1f5f9; border-radius:4px; height:18px; overflow:hidden;">
-        <div style="width:{{ pct }}%; background:{{ c.color }}; height:100%;"></div>
+        <div style="width:{{ c.pct }}%; background:{{ c.color }}; height:100%;"></div>
       </div>
       <div style="width:48px; text-align:right; font-size:12px; color:#64748b;">{{ c.count }}대</div>
       <div style="width:240px; font-size:11px; color:#94a3b8;">{{ c.description }}</div>
@@ -405,4 +419,7 @@
   </p>
 </section>
 
+{% if view == "engineer" %}
+<script src="/static/js/diagnostic-inline.js?v={{ asset_v }}" defer></script>
+{% endif %}
 {% endblock %}

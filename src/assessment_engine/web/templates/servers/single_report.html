@@ -64,6 +64,26 @@
 </section>
 {% endif %}
 
+{# AI 진단 — 보고서 흐름 안 inline (engineer view 만, Right-sizing 평가 위 위치). #}
+{% if view == "engineer" and r %}
+{% set diag = diagnostics_by_pid.get(r.public_id) %}
+{% set diag_job_id = pending_job_ids.get(r.public_id) %}
+<section class="card" data-diagnostic-inline data-job-id="{{ diag_job_id or '' }}" style="margin-bottom:16px;">
+  <h2>AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
+  {% if diag and diag.narrative %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; line-height:1.6; font-size:14px; color:#1e293b;">{{ diag.narrative }}</div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;">
+    분류: <strong>{{ diag.classification_label_kr or "—" }}</strong>{% if diag.recommendation_action %} · 권장 액션: <strong>{{ diag.recommendation_action }}</strong>{% endif %}
+  </div>
+  {% else %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; color:#64748b; font-size:13px;">
+    {% if diag_job_id %}AI 진단 진행 중 (LLM 합성 10~60초 소요). 자동 폴링으로 결과 표시.{% else %}AI 진단 자료 없음.{% endif %}
+  </div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
+  {% endif %}
+</section>
+{% endif %}
+
 <section class="card" style="margin-bottom:16px;">
   <h2>Right-sizing 평가</h2>
   {% if r %}
@@ -197,6 +217,7 @@
     </div>
   </div>
 </section>
+
 {% endif %}
 {% endif %}
 
@@ -211,4 +232,7 @@
   </p>
 </section>
 
+{% if view == "engineer" %}
+<script src="/static/js/diagnostic-inline.js?v={{ asset_v }}" defer></script>
+{% endif %}
 {% endblock %}

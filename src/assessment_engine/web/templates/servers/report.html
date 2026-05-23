@@ -92,6 +92,7 @@
         <th class="num-cell">MEM{% if view == "engineer" %}<span class="sub">평균 · p95</span>{% else %} 평균{% endif %}</th>
         <th>Right-sizing{% if view == "engineer" %}<span class="sub">판단</span>{% endif %}</th>
         {% if view == "engineer" %}<th>운영 신호</th>{% endif %}
+        {% if view == "engineer" %}<th>AI 진단<span class="sub">최근 narrative</span></th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -133,6 +134,19 @@
             <span style="color:#cbd5e1;">—</span>
           {% endif %}
         </td>
+        {% set diag = diagnostics_by_pid.get(r.public_id) %}
+        {% set diag_job_id = pending_job_ids.get(r.public_id) %}
+        <td style="max-width:280px;" data-diagnostic-inline data-job-id="{{ diag_job_id or '' }}">
+          {% if diag and diag.narrative %}
+            <span class="stat-line muted diag-inline-body diag-clamp" title="{{ diag.narrative }}" style="white-space:normal; line-height:1.4;">{{ diag.narrative }}</span>
+            <span class="stat-line muted diag-inline-meta" style="color:#94a3b8; font-size:11px;">{{ diag.classification_label_kr or "" }}</span>
+          {% else %}
+            <span class="diag-inline-body" style="color:#94a3b8; font-size:11px;">
+              {% if diag_job_id %}진단 진행 중 (LLM 합성 대기){% else %}진단 자료 없음{% endif %}
+            </span>
+            <span class="diag-inline-meta"></span>
+          {% endif %}
+        </td>
         {% endif %}
       </tr>
       {% endfor %}
@@ -145,4 +159,7 @@
     평가 기간 {{ time_range_label }} 통계 기반.
   </div>
 </div>
+{% if view == "engineer" %}
+<script src="/static/js/diagnostic-inline.js?v={{ asset_v }}" defer></script>
+{% endif %}
 {% endblock %}

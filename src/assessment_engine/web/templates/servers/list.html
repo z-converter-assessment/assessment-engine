@@ -29,38 +29,6 @@
   </div>
 </div>
 
-<!-- AI 진단 발행 모달 — 선택 N대에 server scope 진단 발행 (ADR 0004 단계 3) -->
-<div id="diagnose-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
-  <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <h3 class="modal-title">AI 진단 발행</h3>
-      <button type="button" id="diag-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
-    </div>
-    <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">
-      선택된 <span id="diag-count" style="font-weight:600; color:#1e293b;">0</span>대 서버에 대해 Right-sizing 규칙 기반 진단 발행. 결과 페이지로 이동합니다.
-    </p>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
-      <div>
-        <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">윈도우</label>
-        <select id="diag-range" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-          <option value="15m">15분</option>
-          <option value="1h">1시간</option>
-          <option value="6h">6시간</option>
-          <option value="24h">24시간</option>
-          <option value="7d">7일</option>
-          <option value="14d" selected>14일 (표준)</option>
-          <option value="30d">30일</option>
-        </select>
-      </div>
-      <div>
-        <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">Anchor (KST)</label>
-        <input type="datetime-local" id="diag-anchor" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-      </div>
-    </div>
-    <button type="button" id="diag-submit" class="btn" style="background:#3b82f6; color:#fff; padding:8px 16px; cursor:pointer; border:none;">발행</button>
-  </div>
-</div>
-
 <!-- 서버 발견 모달 — IP 입력 → HTTP probe로 도달성 확인 (Ansible 배포 워크플로우 1단계) -->
 <div id="discover-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
@@ -241,12 +209,11 @@
     </button>
     <button type="button" id="env-report-engineer-open" class="btn-action no-print" data-view="engineer">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="9 13 11 15 15 11"/></svg>
-      엔지니어 보고서 발행
+      엔지니어 보고서 발행 <span class="tag-ai">AI</span>
     </button>
   </div>
 
   <!-- 환경 보고서 발행 모달 (윈도우·anchor 선택, view 는 buton 클릭으로 사전 결정) -->
-  <!-- 문구·UX는 AI 진단 발행 모달(#diagnose-modal) 패턴 단일 진실 — 운영자 학습 비용 0. -->
   <div id="env-report-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
@@ -307,64 +274,6 @@
   </div>
 </div>
 
-<section class="card no-print" data-diagnostic-panel data-scope="environment">
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2>환경 AI 진단</h2>
-    <a href="/diagnostics/history?back={{ self_back }}" class="btn-action no-print" style="text-decoration:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
-      AI 진단 이력
-    </a>
-  </div>
-  <p style="margin:0 0 12px; font-size:12px; color:#64748b;">전체 활성 서버 대상 Right-sizing 규칙 기반 진단 발행. 결과 페이지로 이동.</p>
-  <button class="diag-submit btn-action no-print" type="button">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-    AI 진단 발행
-  </button>
-
-  <div class="diag-status" style="color:#64748b; font-size:13px; margin:12px 0 10px;">
-    {% if last_env_diagnostic %}최근 환경 AI 진단 결과 표시.
-    {% else %}진단 결과 없음 — AI 진단 발행 버튼으로 즉시 발행 (기본 기간 {{ diagnostic_default_range_label }}).{% endif %}
-  </div>
-  <div class="diag-result"></div>
-
-  <!-- 환경 AI 진단 발행 모달 — 윈도우·anchor 선택. DiagnosticPanel JS 가 자동 처리. -->
-  <div class="diag-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
-    <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
-      <h3 style="margin:0 0 16px; font-size:16px; color:#1e293b;">환경 AI 진단 발행</h3>
-      <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">전체 활성 서버 대상 Right-sizing 규칙 기반 진단 발행. 결과 페이지로 이동합니다.</p>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
-        <div>
-          <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">윈도우</label>
-          <select class="diag-range" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-            <option value="15m">15분</option>
-            <option value="1h">1시간</option>
-            <option value="6h">6시간</option>
-            <option value="24h">24시간</option>
-            <option value="7d">7일</option>
-            <option value="14d" selected>14일</option>
-            <option value="30d">30일</option>
-          </select>
-        </div>
-        <div>
-          <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">Anchor (KST)</label>
-          <input type="datetime-local" class="diag-anchor" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-        </div>
-      </div>
-      <div style="display:flex; gap:8px; justify-content:flex-end;">
-        <button type="button" class="diag-cancel btn" style="background:#f1f5f9; color:#475569;">취소</button>
-        <button type="button" class="diag-confirm btn" style="background:#3b82f6; color:#fff; padding:8px 16px; cursor:pointer; border:none;">발행</button>
-      </div>
-    </div>
-  </div>
-
-  {% if last_env_diagnostic %}
-  <script type="application/json">{{ last_env_diagnostic | tojson }}</script>
-  {% endif %}
-</section>
-{% if diagnostic_enabled %}
-<script src="/static/js/diagnostic.js?v={{ asset_v }}" defer></script>
-{% endif %}
-
 <section class="card no-print">
 <h2>서버 목록</h2>
 
@@ -400,8 +309,7 @@
 
 <div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; margin-bottom:14px; align-items:center;">
   <button type="button" id="report-customer-btn" class="btn-primary no-print" disabled title="고객 제출용 — 양식 A">고객 보고서</button>
-  <button type="button" id="report-engineer-btn" class="btn-primary no-print" disabled title="엔지니어 검토용 — 양식 B">엔지니어 보고서</button>
-  <button type="button" id="diagnose-btn" class="btn-primary no-print" disabled>AI 진단</button>
+  <button type="button" id="report-engineer-btn" class="btn-primary no-print" disabled title="엔지니어 검토용 — 양식 B (AI 진단 컬럼 포함)">엔지니어 보고서 (AI)</button>
   <button type="button" id="export-btn" class="btn-primary no-print" disabled>JSON Export</button>
   <button type="button" id="install-btn" class="btn-primary no-print" disabled>ZConverter Install</button>
 </div>

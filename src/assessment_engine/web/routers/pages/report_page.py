@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from loguru import logger
+from sqlalchemy.exc import SQLAlchemyError
 
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_RANGE_DAYS,
@@ -19,7 +20,6 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 from assessment_engine.web.deps import get_diagnostic_service, get_service
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.query_service import QueryService
-from assessment_engine.web.settings import diagnostic_settings
 from assessment_engine.web.templating import templates
 
 report_page_router = APIRouter()
@@ -71,10 +71,14 @@ async def report(
 
     period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
     summary = await service.get_report(server_ids, period_days, view=view)
-    # 진단 비활성 시 보고서의 AI 진단 컬럼도 historical row 표시 차단.
+    # AI 진단 = 보고서 흐름 안 inline 통합 (engineer view 만). 보고서 진입 시 anchor + time_range 기반
+    # latest succeeded fetch — 없으면 자동 submit + pending job_ids context 전달 (template 안 polling JS).
     diagnostics_by_pid: dict = {}
-    if diagnostic_settings.diagnostic_enabled:
-        diagnostics_by_pid = await diag_service.get_many_latest_server(public_ids, time_range)
+    pending_job_ids: dict = {}
+    if view == "engineer":
+        diag_map = await diag_service.ensure_latest_or_submit("server", public_ids, time_range)
+        diagnostics_by_pid = {pid: entry.get("panel") for pid, entry in diag_map.items()}
+        pending_job_ids = {pid: entry.get("job_id") for pid, entry in diag_map.items() if entry.get("job_id")}
     # 서버별 detail section — 운영 신호 발화 status (hostname 기준 lookup dict).
     # attention 은 환경 전체 합성이지만 본 보고서는 선택 N대 한정이라 선택 server hostname 만 lookup.
     attention = await service.get_attention_signals()
@@ -115,6 +119,7 @@ async def report(
             "view": view,
             "view_title": _REPORT_VIEW_TITLES[view],
             "diagnostics_by_pid": diagnostics_by_pid,
+            "pending_job_ids": pending_job_ids,
             "back_url": back_url,
             "attention_by_host": attention_by_host,
             "under_count": under_count,
@@ -159,7 +164,8 @@ async def report_emit(
                 period_days=period_days,
                 time_range=time_range,
             )
-        except Exception:
+        except SQLAlchemyError:
+            # PRG view_url 반환 흐름 안 server scope record best-effort fallback (정공 정합 reports.py:107).
             logger.exception("report emission record failed (best-effort) pid={}", pid)
     ids_query = ",".join(valid_pids)
     return {"view_url": f"/servers/report?ids={ids_query}&view={view}&time_range={time_range}"}
@@ -189,10 +195,14 @@ async def single_server_report(
     )
     if summary is None:
         raise HTTPException(status_code=404, detail="server not found")
-    # 진단 비활성 시 AI 진단 카드 historical row 표시 차단 (대시보드·다중 보고서와 정합).
+    # AI 진단 = 보고서 흐름 안 inline 통합 (engineer view 만). 보고서 진입 시 anchor + time_range 기반
+    # latest succeeded fetch — 없으면 자동 submit + pending job_id context 전달.
     diagnostics_by_pid: dict = {}
-    if diagnostic_settings.diagnostic_enabled:
-        diagnostics_by_pid = await diag_service.get_many_latest_server([str(server_id)], time_range)
+    pending_job_ids: dict = {}
+    if view == "engineer":
+        diag_map = await diag_service.ensure_latest_or_submit("server", [str(server_id)], time_range)
+        diagnostics_by_pid = {pid: entry.get("panel") for pid, entry in diag_map.items()}
+        pending_job_ids = {pid: entry.get("job_id") for pid, entry in diag_map.items() if entry.get("job_id")}
     hostname = summary.base.rows[0].hostname if summary.base.rows else str(server_id)
     # 운영 신호 (gap / os_eol / restart) — 해당 hostname 1대 lookup.
     attention = await service.get_attention_signals()
@@ -219,7 +229,9 @@ async def single_server_report(
             "back_url": back_url,
             "hostname": hostname,
             "diagnostics_by_pid": diagnostics_by_pid,
+            "pending_job_ids": pending_job_ids,
             "attention_for_host": attention_for_host,
             "self_back": self_back,
+            "time_range": time_range,
         },
     )

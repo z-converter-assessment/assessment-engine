@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from loguru import logger
+from sqlalchemy.exc import SQLAlchemyError
 
 from assessment_engine.db.repositories.base_diagnostic_repository import DiagnosticTimeRange
 from assessment_engine.web.deps import get_diagnostic_service, get_service
@@ -38,11 +39,13 @@ async def environment_report(
     view: Literal["customer", "engineer"] = Query("customer"),
     back: str | None = Query(None, description="← 이전 link 의 referrer. 미명시 시 /servers/"),
     service: QueryService = Depends(get_service),
+    diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """환경 단위 보고서 표시 — GET 은 read-only (P3 분리). 발행 record 는 POST /reports/environment/emit 책임.
 
     server scope (/servers/report?ids=...) 와 별도 template (`reports/environment.html`).
     페이지 진입 자체로는 이력 row 생성 안 함 — 이력 "다시 보기" / 직접 URL / 북마크 진입 모두 read-only.
+    AI 진단 latest = engineer view 만 노출 (사용자 결정 — 고객 view 안 AI 진단 카드 없음).
     """
     summary = await service.get_environment_report(time_range, anchor_at, view=view)
     if summary.overview.total == 0:
@@ -51,6 +54,15 @@ async def environment_report(
     back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
     # 자식 link (참고자료 등) 의 back query 보존용 — 현재 URL encoding.
     self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
+    # AI 진단 = 보고서 흐름 안 inline 통합 (engineer view 만). 보고서 anchor + time_range 기반
+    # latest succeeded fetch — 없으면 자동 submit + pending job_id 반환 (template 안 polling JS).
+    diag = None
+    diag_job_id = None
+    if view == "engineer":
+        diag_map = await diag_service.ensure_latest_or_submit("environment", None, time_range, anchor_at)
+        entry = diag_map.get(None, {})
+        diag = entry.get("panel")
+        diag_job_id = entry.get("job_id")
     return templates.TemplateResponse(
         request=request,
         name="reports/environment.html",
@@ -60,6 +72,9 @@ async def environment_report(
             "view_title": _VIEW_TITLES[view],
             "back_url": back_url,
             "self_back": self_back,
+            "diag": diag,
+            "diag_job_id": diag_job_id,
+            "time_range": time_range,
         },
     )
 
@@ -90,7 +105,9 @@ async def environment_report_emit(
             time_range=time_range,
             summary_meta={"anchor_at": summary.anchor_at.isoformat()},
         )
-    except Exception:
+    except SQLAlchemyError:
+        # PRG view_url 반환 흐름 안 record_report_emission DB INSERT best-effort fallback.
+        # record 실패 본 시점 본 시점 보고서 표시 차단 catalog 본 시점 — silent recovery.
         logger.exception("env report emission record failed (best-effort)")
     # 클라이언트가 navigate 할 GET URL — anchor_at 은 POST 발행 시점의 record 정합 위해 같은 값 전달.
     params = [f"view={view}", f"time_range={time_range}"]

@@ -11,10 +11,9 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from assessment_engine.web.deps import get_diagnostic_service, get_service, resolve_internal_id
-from assessment_engine.web.services.diagnostic_service import DiagnosticService, to_panel_payload
+from assessment_engine.web.deps import get_service, resolve_internal_id
 from assessment_engine.web.services.query_service import QueryService
-from assessment_engine.web.settings import diagnostic_settings, web_settings
+from assessment_engine.web.settings import web_settings
 from assessment_engine.web.templating import templates
 
 server_detail_router = APIRouter()
@@ -63,22 +62,18 @@ async def get_server(
     back: str | None = Query(None, description="← 이전 link referrer. 미명시 시 /servers/"),
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
-    diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
+    # AI 진단 = 서버 엔지니어 보고서 안 본질 catalog 통합 (`/servers/{id}/report?view=engineer`).
+    # 서버 detail = 인벤토리·메트릭·메모리·서비스·성능 본질 catalog.
     server = await service.get_server(internal_id)
     if not server:
         raise HTTPException(status_code=404)
-    # 진단 기능 비활성 시 latest fetch skip — historical row 표시 차단 (대시보드와 정합).
-    last_server_diagnostic = None
-    if diagnostic_settings.diagnostic_enabled:
-        last_server_diagnostic = await diag_service.get_latest("server", str(server.public_id), "14d")
     recent_tasks = await service.list_recent_tasks(str(server.public_id), limit=10, cursor=None)
     return templates.TemplateResponse(
         request=request,
         name="servers/detail.html",
         context={
             "server": server,
-            "last_server_diagnostic": to_panel_payload(last_server_diagnostic),
             "recent_tasks": recent_tasks,
             "back_url": _safe_back(back, "/servers/"),
             "self_back": _self_back(request),

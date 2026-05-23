@@ -4,7 +4,7 @@
 
 ADR 0023: scheduler cron 자동 발화 폐기. trigger 채널 = 사용자 명시 (web POST `/api/diagnostics`) 만. submitter (`diagnostic/submitter.py`) 는 본 ADR 0014 결정으로 별도 모듈 — web service 가 submitter 단독 사용처.
 
-진단 의사결정 source: USE Method 임계값(AWS Compute Optimizer·Azure Advisor 기반)으로 `recommendation.py`가 결정론적으로 산출. `MockLlmClient`는 그 산출 결과를 자연어 템플릿으로 변환만 — 외부 LLM 호출 0. `LLM_PROVIDER=ollama` 분기는 stub(`NotImplementedError`)으로 보존, 외부 LLM 도입 결정 시 활성 가능.
+진단 의사결정 source: USE Method 임계값(AWS Compute Optimizer·Azure Advisor 기반)으로 `recommendation.py`가 결정론적으로 산출 — LLM 의사결정 0 (환각 회피). narrative (자연어 출력) 만 `OllamaLlmClient` 가 LLM 호출 (ADR 0025: 단일 provider, 과금 발생 외부 유료 API 금지).
 
 ```
 src/assessment_engine/diagnostic/
@@ -15,7 +15,7 @@ src/assessment_engine/diagnostic/
 ├── aggregator.py   - query_repo 집계 호출 + classify 매핑
 └── llm/
     ├── base.py     - BaseLlmClient 추상 (F4)
-    └── mock.py     - MockLlmClient (deterministic 텍스트 합성)
+    └── ollama.py   - OllamaLlmClient (ADR 0025 — 단일 provider, HTTP POST /api/chat)
 ```
 
 웹 측 연동: `web/services/diagnostic_service.py` (job 발행·캐시·publish — submitter composition), `web/services/mappers/diagnostic.py` (표시 파생 단일 진실 — P2), `web/routers/diagnostics.py` (POST/GET API), `web/routers/diagnostic_results.py` (결과/이력 SSR), `web/routers/pages/` (server detail·report SSR 카드 — `to_panel_payload`).
@@ -27,7 +27,7 @@ src/assessment_engine/diagnostic/
 ```
 DiagnosticSettings 로드 (ConsumerSettings 상속 — broker_url + 진단 고유 필드)
   -> Redis pool 획득
-  -> LLM 클라이언트 구축 (_build_llm_client — LLM_PROVIDER 분기)
+  -> LLM 클라이언트 구축 (_build_llm_client — 단일 OllamaLlmClient, ADR 0025)
   -> handler factory 호출 (F4 — repo factory + LLM client + redis 주입)
   -> aio-pika robust connect (timeout 10s)
   -> exchange `assessment` + DLX `assessment.dlx` declare (B3 일치 의무)
@@ -38,7 +38,7 @@ DiagnosticSettings 로드 (ConsumerSettings 상속 — broker_url + 진단 고�
 
 broker declare 인자는 `web/main.py` + `consumer/main.py`와 정확 일치 의무(#B) — 다르면 `PRECONDITION_FAILED`.
 
-`_build_llm_client`는 composition root (F4). `LLM_PROVIDER=mock`이면 `MockLlmClient`, `ollama`면 별도 PR 활성 분기, 그 외는 `ValueError`. 과금 발생 외부 API(Anthropic·OpenAI) 도입 금지 — 운영자 정책, ADR 0004 정정 시점에 추가.
+`_build_llm_client`는 composition root (F4) — 단일 `OllamaLlmClient` 반환 (ADR 0025). 과금 발생 외부 유료 API (Anthropic·OpenAI) 도입 금지 — 운영자 정책.
 
 ## submitter.py — job INSERT + publish
 
@@ -103,14 +103,43 @@ raw 단위 그대로 (P1) — KB·bytes. percent·delta 변환은 SQL 표현식�
 
 | Provider | 구현 | 비고 |
 |----------|------|------|
-| `mock` (기본) | `MockLlmClient` — payload 안 통계 수치만 인용해 deterministic 합성 | 외부 호출 0, 비용 0, 수치 검증 자동 통과 (ADR 0003 3G절) |
-| `ollama` | 미구현 (Phase 2 별도 PR) — `NotImplementedError` | 로컬 무료 LLM, `OLLAMA_BASE_URL`, 모델 `llama3.1:8b` |
+| `OllamaLlmClient` (단일) | HTTP POST `/api/chat` (system + user prompt). default 모델 `llama3.1:8b` | 로컬 무료 LLM, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`. 한국어 정합 우위 모델 (qwen2.5:14b 등) 으로 운영자 교체 가능. ADR 0025 — 단일 provider 통합 (mock 폐기) |
 
 수치 hallucination 방지 규약 (ADR 0003 3G절):
 - 응답 안 모든 숫자 토큰은 payload 안에 존재해야 함
 - 호출자가 정규식으로 추출·검증, 실패 시 재생성 1회 후 `status='failed'`
+- mock = template 합성이라 자동 통과. ollama = handler 안 검증 단계 적용 의무
 
-mock latency 시뮬레이션 — `LLM_MOCK_LATENCY_SECONDS` (`asyncio.sleep`)로 UI progress_stage 단계 표시 확인용.
+실제 LLM latency 본질 (ollama llama3.1:8b CPU 10~30s · GPU 수초) — UI progress_stage 단계 표시 (`extracting_stats` → `applying_rules` → `retrieving_context` → `generating_narrative`) 가 사용자 인내심 제공.
+
+### ollama 운영 (운영자 활성 catalog)
+
+dev/prod 공통 — host 안 `ollama` 직접 활성 정공 (macOS Metal 가속 + Linux native GPU 활용). dev/docker-compose.yml 안 ollama service 추가 안 함 — Docker 컨테이너 안 GPU pass-through 제한 + 모델 pull 부담 회피.
+
+```bash
+# 1. ollama 설치 (macOS / Linux)
+brew install ollama          # macOS
+# 또는
+curl -fsSL https://ollama.com/install.sh | sh   # Linux
+
+# 2. 모델 pull (한국어 정합: qwen2.5:14b · llama3.1:8b 등)
+ollama pull llama3.1:8b
+ollama pull mxbai-embed-large    # ADR 0024 RAG embedding
+
+# 3. ollama 서버 활성 (기본 port 11434)
+ollama serve
+
+# 4. 진단 워커 env catalog (ADR 0025: 단일 provider — LLM_PROVIDER env 없음)
+OLLAMA_BASE_URL=http://host.docker.internal:11434   # docker container 안에서 host 접근 (Docker Desktop)
+                                                    # Linux native = http://172.17.0.1:11434 (docker0 bridge)
+                                                    # 또는 network_mode: host (linux only)
+OLLAMA_MODEL=llama3.1:8b
+
+# 5. diagnostic-worker 재기동
+docker compose -f dev/docker-compose.yml up -d --force-recreate diagnostic-worker
+```
+
+본 catalog 본질 = 운영자 명시 활성 catalog. host 안 ollama 가 미가동 catalog 시 진단 발행 시 LLM timeout (`LLM_TIMEOUT_SECONDS=60` default) → `mark_failed('llm_timeout')` 흡수.
 
 ## RAG infra (ADR 0024)
 
@@ -179,13 +208,21 @@ composition root (worker main · ingest CLI) 에서 `EMBEDDING_PROVIDER` 분기 
 
 ```bash
 # 도메인 지식 ingest — 파일 1건
-python -m assessment_engine.rag.ingest docs/external/use-method-guide.md
+python -m assessment_engine.rag.ingest docs/rag-seed/use-method.md
 
 # source_type 명시 (default = domain_knowledge)
 python -m assessment_engine.rag.ingest --source-type domain_knowledge file.md
 
 # 재실행 = UPSERT (source_id = file_path + chunk_index 키), 백서 갱신 자연 반영
+
+# 본 repo 자체 sample 일괄 ingest (RAG 활성 검증)
+for f in docs/rag-seed/*.md; do
+  [ "$f" = "docs/rag-seed/README.md" ] && continue
+  python -m assessment_engine.rag.ingest "$f"
+done
 ```
+
+본 repo 안 `docs/rag-seed/` 디렉토리 = 자체 작성 sample 도메인 지식 (USE Method · right-sizing 임계 · classification 본질) — license 의무 0. 외부 백서 (Brendan Gregg · AWS Compute Optimizer 등) 는 운영자가 직접 다운로드 후 같은 형식 (MD/Text) 으로 추가 ingest.
 
 흐름: 파일 read -> `recursive_split` (chunk 500 token + overlap 50, 단락 우선) -> embedding batch -> rag_documents UPSERT -> HNSW 인덱스 자동 갱신.
 
@@ -266,7 +303,7 @@ docker compose exec postgres psql -U assessment -d assessment -c "SELECT status,
 | 증상 | 원인 |
 |------|------|
 | `diagnostic job not found id=...` | submitter publish 후 DB INSERT 누락 — 트랜잭션 순서·commit 의심 |
-| `LLM_PROVIDER=ollama not implemented yet` | 미구현 분기 호출 — `.env`에서 `LLM_PROVIDER=mock` |
+| `mark_failed('llm_timeout')` | host 안 `ollama serve` 미가동 또는 모델 미 pull — `ollama list` 로 모델 catalog 확인 |
 | `diagnostic.request.dead` 큐 누적 | 영구 오류 누적 — DLQ peek로 message_body 확인 |
 
 ## 관련 문서

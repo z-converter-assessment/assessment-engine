@@ -252,11 +252,7 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 - `assessment_engine.config`에서 직접 `web_settings`·`consumer_settings`·`diagnostic_settings` import — class만 export.
 - `APP_ENV` 환경 분기를 `config.py` model_validator · entry lifespan 외 위치에 추가.
 
-추상 인터페이스 카탈로그·새 Repository 절차: `docs/architecture/web/layering.md` · `docs/architecture/db/repositories.md`.
-
-RAG 추상 인터페이스 (ADR 0024):
-- `assessment_engine.rag.embedding.BaseEmbeddingClient` — `async embed(texts) -> list[list[float]]`. 구체: `MockEmbeddingClient` (deterministic random) · `OllamaEmbeddingClient` (mxbai-embed-large)
-- `assessment_engine.rag.retriever.BaseRetriever` — `async retrieve(query, top_k, source_type) -> list[RetrievedDoc]`. 구체: `PgVectorRetriever` (HNSW + cosine)
+추상 인터페이스 카탈로그·새 Repository 절차: `docs/architecture/web/layering.md` · `docs/architecture/db/repositories.md`. 진단 워커 LLM (`BaseLlmClient`) + RAG (`BaseEmbeddingClient`·`BaseRetriever`) 추상·구체·composition root: `docs/architecture/diagnostic.md` "LLM 토글" + "RAG infra" 절 단일 진실 (ADR 0024 + 0025).
 
 ## F5. 자동화 변환 — 책임 분담
 

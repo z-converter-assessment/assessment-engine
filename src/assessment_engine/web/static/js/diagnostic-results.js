@@ -1,6 +1,6 @@
 // 진단 결과 페이지 (`/diagnostics?ids=...`) — N개 카드 polling + render (ADR 0004 단계 2).
 //
-// diagnostic.js의 DiagnosticPanel은 submit 흐름. 본 모듈은 polling만 — submit 없음.
+// 본 모듈은 결과 페이지 안 polling 전용 — 보고서 안 inline polling 은 별도 `diagnostic-inline.js`.
 // 초기 SSR JSON으로 즉시 렌더, pending/running만 3초 polling.
 
 (function () {

@@ -612,13 +612,12 @@ class QueryService:
         server_ids: list[int],
         period_days: int = 7,
     ) -> list[InventoryExportEntry]:
-        """선택 서버 N대의 정제 inventory JSON 항목 list (v2).
+        """선택 서버 N대의 정제 inventory JSON 항목 list.
 
         Right-sizing stats(cpu_p95/peak·mem_p95/peak·load·swap)도 같이 fetch하여 export에 포함.
         USE Method 보고서 SQL(`report_aggregate`) 재사용 — period_days 윈도우 통계.
 
-        각 서버는 ServerDetail + ReportRowRaw -> mapper로 변환. 누락된 server_id는 silent skip
-        (운영자가 발행 시점에 삭제했을 가능성). stats 누락은 신규 서버라 null로 발행.
+        각 서버는 ServerDetail + ReportRowRaw -> mapper로 변환. 누락된 server_id는 silent skip.
 
         C5: `get_servers` + `report_aggregate` 단일 SQL 각 1회 — 입력 server_ids 순서 보존.
         스키마·정제 원칙·사용처: docs/architecture/inventory-export.md.

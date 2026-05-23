@@ -195,8 +195,9 @@ async def _main() -> int:
     args = _parse_args()
     try:
         rows = await ingest_file(args.file, source_type=args.source_type)
-    except (FileNotFoundError, ValueError) as e:
-        logger.error("ingest failed: {}", e)
+    except (FileNotFoundError, ValueError):
+        # F7 정공 — except 블록 안 logger.exception 자동 traceback. except 밖 raw error 만 logger.error.
+        logger.exception("ingest failed file={}", args.file)
         return 1
     logger.info("ingest summary file={} rows={}", args.file, rows)
     return 0

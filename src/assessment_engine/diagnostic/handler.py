@@ -12,9 +12,10 @@ from collections.abc import Callable
 from datetime import datetime
 
 import aio_pika
+import httpx
 from loguru import logger
 from redis.asyncio import Redis
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.cache.redis import safe_set, safe_set_nx
@@ -25,6 +26,7 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
 from assessment_engine.diagnostic import aggregator
 from assessment_engine.diagnostic.llm.base import BaseLlmClient
+from assessment_engine.diagnostic.llm.verify import find_hallucinated_numbers
 from assessment_engine.diagnostic.settings import diagnostic_settings
 from assessment_engine.rag.query import build_query
 from assessment_engine.rag.retriever.base import BaseRetriever
@@ -130,10 +132,9 @@ def make_diagnostic_handler(
 
                     # LLM 호출 timeout 의무 (#F6) — 외부 LLM provider hang 시 워커 무한 대기 차단.
                     # llm_timeout_seconds (default 60s) — DiagnosticSettings 단일 진실.
-                    narrative = await asyncio.wait_for(
-                        llm_client.generate_narrative(job.scope, payload),
-                        timeout=diagnostic_settings.llm_timeout_seconds,
-                    )
+                    # ADR 0003 3G절 + ADR 0025: narrative 안 수치 환각 검증 + 재생성 1회 + 재실패 시 ValueError raise
+                    # (handler 안 (ValueError, KeyError, IntegrityError) catch 가 mark_failed 흡수).
+                    narrative = await _generate_narrative_with_verification(llm_client, job.scope, payload)
                     payload["narrative"] = narrative
 
                     await diag_repo.mark_succeeded(job_id, payload)
@@ -168,6 +169,37 @@ def make_diagnostic_handler(
     return handler
 
 
+async def _generate_narrative_with_verification(
+    llm_client: BaseLlmClient,
+    scope: str,
+    payload: dict,
+) -> str:
+    """LLM narrative 호출 + 수치 환각 검증 + 재생성 1회 (ADR 0003 3G절 + ADR 0025).
+
+    1회차 narrative 환각 발견 시 재생성. 재생성도 실패 시 ValueError raise — handler 안
+    `(ValueError, KeyError, IntegrityError)` catch 가 mark_failed('llm_hallucination: ...') 흡수.
+
+    각 호출 timeout = llm_timeout_seconds (F6 외부 의존 timeout 의무).
+    """
+    hallucinated: set[str] = set()
+    narrative = ""
+    for attempt in (1, 2):
+        narrative = await asyncio.wait_for(
+            llm_client.generate_narrative(scope, payload),
+            timeout=diagnostic_settings.llm_timeout_seconds,
+        )
+        hallucinated = find_hallucinated_numbers(narrative, payload)
+        if not hallucinated:
+            return narrative
+        logger.warning(
+            "llm hallucination detected attempt={} scope={} hallucinated={}",
+            attempt,
+            scope,
+            sorted(hallucinated)[:5],
+        )
+    raise ValueError(f"llm_hallucination: {sorted(hallucinated)[:5]}")
+
+
 async def _retrieve_rag_context(
     retriever: BaseRetriever | None,
     scope: str,
@@ -186,8 +218,10 @@ async def _retrieve_rag_context(
             top_k=diagnostic_settings.rag_top_k,
             source_type="domain_knowledge",
         )
-    except Exception as e:
+    except (SQLAlchemyError, httpx.HTTPError, TimeoutError, ValueError) as e:
         # RAG 실패는 진단 자체 실패 아님 — narrative 합성으로 진행. 운영자 인지용 WARNING.
+        # 본질 catch = DB query (SQLAlchemyError) · embedding HTTP (httpx.HTTPError)
+        # · timeout · response shape (ValueError).
         logger.warning("rag retrieve failed scope={} err_type={}", scope, type(e).__name__)
         return []
     # rag_max_context_chars cap — LLM prompt 안 context 절 길이 제한.

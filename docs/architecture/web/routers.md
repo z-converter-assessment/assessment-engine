@@ -23,7 +23,7 @@
 | `GET /servers/?search=&is_online=&service=&os_id=&classification=` | `list_servers` | 목록 + 검색·온라인·서비스·OS·프로비저닝 필터 + 4 액션 버튼 (발견/Install/Export/보고서). page=1 일 때 상단에 environment_overview + attention 두 섹션 노출 (`docs/architecture/web/services.md` "대시보드 상단 요약"). 필터는 모두 AND 조합 — service category (web/db/cache/mq/container/monitor) · os_id (distro 정확 일치) · classification (under/over/idle/shutdown/optimal/insufficient_data). 검색 버튼 없음, dropdown/checkbox 즉시 client-side filter + URL replaceState |
 | `GET /servers/report?ids=&view=customer\|engineer&time_range=` | `report` | 서버 보고서 표시 (scope=server). GET 은 read-only — record 안 함 (PRG). 동일 SQL·동일 템플릿, view 파라미터로 분기 |
 | `POST /servers/report/emit?ids=&view=&time_range=` | `report_emit` | 서버 보고서 발행 record (PRG). `record_report_emission` 호출 + `{view_url}` 응답 — JS 가 navigate. 다시 보기/북마크/직접 URL 은 GET 만 → 중복 row 방지 |
-| `GET /servers/{server_id}` | `get_server` | detail 탭. 서버 진단 latest 카드 포함 (DIAGNOSTIC_ENABLED=false 시 skip) |
+| `GET /servers/{server_id}` | `get_server` | detail 탭. 서버 진단 latest 카드 포함 |
 | `GET /servers/{server_id}/{cpu,memory,services,performance}` | 동일 helper | `_render_server_tab` 5 탭 공유 |
 | `GET /servers/{server_id}/{storage,network}` | 별도 핸들러 | 다른 service 메서드 |
 | `GET /servers/{server_id}/report?view=&time_range=` | `single_server_report` | 단일 server 보고서 read-only. record 안 함 (1대 단위는 발행 흐름 없음) |
