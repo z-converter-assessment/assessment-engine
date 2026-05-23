@@ -19,6 +19,7 @@ from assessment_engine.web.services.mappers.shared import (
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
 )
+from assessment_engine.web.settings import diagnostic_settings
 from assessment_engine.web.templating.filters import disksize, kbps, kst, or_dash, service_badge_class
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -52,3 +53,7 @@ env.globals["ui_thresholds"] = {
     "usage_warn_pct": _USAGE_WARN_PCT,
     "swap_danger_pct": _SWAP_DANGER_PCT,
 }
+
+# 진단 기능 활성 여부 — template 안 `{% if diagnostic_enabled %}` 분기로 진단 전용 JS load 조건부.
+# DIAGNOSTIC_ENABLED=false 시 diagnostic.js (282 lines) / diagnostic-view-toggle.js 등 dead load 회피.
+env.globals["diagnostic_enabled"] = diagnostic_settings.diagnostic_enabled

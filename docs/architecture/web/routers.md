@@ -11,6 +11,8 @@
 | `routers/exports.py` | `exports_router` | `/api/exports` | JSON (다운로드) |
 | `routers/diagnostics.py` | `diagnostics_router` | `/api/diagnostics` | JSON (ADR 0004) |
 | `routers/diagnostic_results.py` | `diagnostic_results_router` | `/diagnostics` | HTML (SSR — 결과·이력 페이지) |
+| `routers/reports.py` | `reports_router` | `/reports` | HTML (SSR — 환경 보고서·이력·참고자료) + JSON (POST emit) |
+| `routers/pages/report_page.py` | `report_page_router` | `/servers` | HTML (SSR — server scope 보고서) + JSON (POST emit) |
 
 라우터 책임은 HTTP I/O만 — 비즈니스 로직은 service에 위임(#F4). JSON API는 `/api/...` prefix 통일.
 
@@ -18,13 +20,17 @@
 
 | 경로 | 핸들러 | 비고 |
 |------|--------|------|
-| `GET /servers/?search=&is_online=&service=&os_id=&classification=` | `list_servers` | 목록 + 검색·온라인·서비스·OS·프로비저닝 필터 + 4 액션 버튼 (발견/Install/Export/보고서). page=1 + 모든 필터 미사용 시 상단에 environment_overview + attention 두 섹션 노출 (`docs/architecture/web/services.md` "대시보드 상단 요약"). 필터는 모두 AND 조합 — service category (web/db/cache/mq/container/monitor) · os_id (distro 정확 일치) · classification (under/over/idle/shutdown/optimal/insufficient_data) |
-| `GET /servers/report?ids=&period_days=&view=customer\|engineer` | `report` | 서버 보고서 (scope=server). USE Method 보고서. view=customer(양식 A — 고객 KPI) / view=engineer(양식 B — 16컬럼 정량). 동일 SQL·동일 템플릿, view 파라미터로 분기 (의의·근거는 `docs/products/server-report.md`) |
-| `GET /servers/{server_id}` | `get_server` | detail 탭. 서버 진단 latest 카드 포함 (`to_panel_payload`) |
+| `GET /servers/?search=&is_online=&service=&os_id=&classification=` | `list_servers` | 목록 + 검색·온라인·서비스·OS·프로비저닝 필터 + 4 액션 버튼 (발견/Install/Export/보고서). page=1 일 때 상단에 environment_overview + attention 두 섹션 노출 (`docs/architecture/web/services.md` "대시보드 상단 요약"). 필터는 모두 AND 조합 — service category (web/db/cache/mq/container/monitor) · os_id (distro 정확 일치) · classification (under/over/idle/shutdown/optimal/insufficient_data). 검색 버튼 없음, dropdown/checkbox 즉시 client-side filter + URL replaceState |
+| `GET /servers/report?ids=&view=customer\|engineer&time_range=` | `report` | 서버 보고서 표시 (scope=server). GET 은 read-only — record 안 함 (PRG). 동일 SQL·동일 템플릿, view 파라미터로 분기 |
+| `POST /servers/report/emit?ids=&view=&time_range=` | `report_emit` | 서버 보고서 발행 record (PRG). `record_report_emission` 호출 + `{view_url}` 응답 — JS 가 navigate. 다시 보기/북마크/직접 URL 은 GET 만 → 중복 row 방지 |
+| `GET /servers/{server_id}` | `get_server` | detail 탭. 서버 진단 latest 카드 포함 (DIAGNOSTIC_ENABLED=false 시 skip) |
 | `GET /servers/{server_id}/{cpu,memory,services,performance}` | 동일 helper | `_render_server_tab` 5 탭 공유 |
 | `GET /servers/{server_id}/{storage,network}` | 별도 핸들러 | 다른 service 메서드 |
+| `GET /servers/{server_id}/report?view=&time_range=` | `single_server_report` | 단일 server 보고서 read-only. record 안 함 (1대 단위는 발행 흐름 없음) |
 
 `_render_server_tab` helper — 5개 탭이 `service.get_server` + `{"server": ...}` context로 동일하게 렌더링되어 묶음. storage/network는 별도 service 메서드라 분리.
+
+PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리. `POST /reports/environment/emit` + `POST /servers/report/emit` 가 record 책임, GET endpoint 는 read-only. 다시 보기 / 북마크 / 직접 URL 진입 시 record 안 됨 — 발행 시각만 다른 중복 row 방지.
 
 ## JSON API
 
@@ -50,10 +56,12 @@
 - ICMP 미사용 — raw socket 권한 필요라 회피
 - fail-open (#F6) — HTTP 도달은 SSH 도달을 의미하지 않음. 1차 필터일 뿐. 추후 SSH credential 등록 + ansible 실행 흐름이 본 단계 위에 얹힘
 
-### `tasks.py` — 원격 작업 발행
+### `tasks.py` — 원격 작업 발행 + 단건 조회
 | 경로 | 용도 |
 |------|------|
 | `POST /install` | ZConverter Install task 발행 (다중 서버 일괄). 부분 UNIQUE pending 중복 시 409 (`TaskDuplicatePending`) |
+| `GET /{task_id}` | 단일 task JSON — polling / list cell 갱신 callback 용 |
+| `GET /{task_id}/detail` | 단일 task HTML fragment — task-modal body 용 (P3 정공, JS HTML 합성 폐기) |
 
 ### `exports.py` — 정제 산출물
 | 경로 | 용도 |
@@ -70,8 +78,16 @@
 ### `diagnostic_results.py` — SSR 결과·이력 (ADR 0004)
 | 경로 | 용도 |
 |------|------|
-| `GET /diagnostics/results?ids=j1,j2,...` | 진단 결과 페이지 (polling으로 succeeded 추적) |
-| `GET /diagnostics/history?days=&scope=&server_public_ids=` | 진단 발행 이력 (운영자 회고용) — `to_history_item` mapper 단일 진실 |
+| `GET /diagnostics?ids=j1,j2,...` | 진단 결과 페이지 (polling 으로 succeeded 추적). environment scope job 마다 `/reports/environment` iframe 2 view 미리 합성 |
+| `GET /diagnostics/history?days=&scope=&server_public_ids=&full=` | 진단 발행 이력 — job_type='ai_diagnostic' 자동 필터, scope 으로 environment/server 분기. 기본 20건 + `full=1` 시 전체 (보고서 이력과 동일 패턴) |
+
+### `reports.py` — 보고서 SSR + 발행 (PRG 패턴)
+| 경로 | 용도 |
+|------|------|
+| `GET /reports/environment?view=&time_range=&anchor_at=` | 환경 보고서 표시. GET 은 read-only — record 안 함 (PRG) |
+| `POST /reports/environment/emit?view=&time_range=&anchor_at=` | 환경 보고서 발행 record + `{view_url}` 응답 (JS navigate) |
+| `GET /reports/history?days=&view=&scope=&server_public_ids=&full=&fragment=` | 보고서 발행 이력. 기본 20건 + `full=1` 시 전체. `fragment=1` 시 partial HTML 만 (filter 변경 즉시 적용용) |
+| `GET /reports/right-sizing-thresholds` | Right-sizing 분류 임계값 참고자료 (recommendation 모듈 단일 진실 시각화) |
 
 ## 검증·에러 매핑
 

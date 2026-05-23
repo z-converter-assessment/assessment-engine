@@ -53,9 +53,11 @@
 
 ### 영역 5: 서버 테이블 (행별)
 
-- 컬럼: hostname / role / OS / online / CPU / MEM / disk / 권장 / 최근 작업
-- 행별 권장 조치 — recommendation.classify 결과 badge
-- "최근 작업" column — install task badge (success/failure/pending) + 클릭 시 modal로 stdout/stderr/failure_reason 디버깅
+- 컬럼: 선택 / 상태 (online dot) / Hostname / 서비스 (badge) / 외부 IP / OS / 프로비저닝 (Right-sizing 분류) / 최근 작업 / 상세
+- 자원 인벤토리 (vCPU/메모리/디스크) 는 상단 "환경 요약" KPI 로 통합 — table 컬럼에서 제거 (시각 노이즈 회피)
+- 행별 프로비저닝 — `recommendation.classify` 결과 (`under_provisioned` / `over_provisioned` / `idle` / `shutdown` / `optimal` / `insufficient_data`)
+- "최근 작업" column — install task badge (success/failure/pending) + 클릭 시 modal 로 stdout/stderr/failure_reason 디버깅. modal 본문은 server fragment endpoint (`GET /api/tasks/{id}/detail`) HTML 반환 (P3 정공)
+- 필터링: search(hostname) / is_online (전체·온라인·오프라인) / service (web/db/cache/mq/container/monitor) / os_id (distro) / classification (Right-sizing 6 분류) — 검색 버튼 없음, dropdown/checkbox 변경 즉시 client-side filter + URL 갱신
 - pagination: page=1 default, limit=20 (max 100)
 
 답: "어떤 서버가 어떤 상태인가? 어떤 행동을 권장받나?"

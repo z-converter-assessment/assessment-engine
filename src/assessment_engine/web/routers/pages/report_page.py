@@ -56,11 +56,12 @@ async def report(
     service: QueryService = Depends(get_service),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """Server scope 보고서 — 선택 N대 호스트의 row 단위 상세 (양식 A/B).
+    """Server scope 보고서 표시 — GET 은 read-only (P3 분리). 발행 record 는 POST /servers/report/emit 책임.
 
     환경 단위 high-level 보고서는 별도 endpoint (`/reports/environment`) — 양식·데이터 다름 (T13).
     데이터 소스: USE Method 통계 (CPU/MEM p95·peak + swap + load_15m max). 분류는 service 측.
     진단 컬럼: 14일 latest succeeded 진단 N개 batch fetch (#C5 N+1 회피).
+    페이지 진입 자체로는 이력 row 생성 안 함 — 이력 "다시 보기" / 북마크 / 직접 URL read-only.
     """
     public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
     sid_map = await service.resolve_server_ids(public_ids)
@@ -100,20 +101,7 @@ async def report(
     attn_restart_count = sum(1 for a in attention_by_host.values() if a.get("restart"))
     attn_active_kpi_cols = sum(1 for c in (attn_gap_count, attn_eol_count, attn_restart_count) if c > 0) or 1
 
-    # 발행 이력 row INSERT (best-effort) — 서버별 N row 분리 (1대 1 row).
-    # N대 발행이면 보고서 이력에 N row 추가 — 서버 단위 추적·필터 정합.
-    # 같은 input 활성 충돌이나 DB 오류로 실패해도 응답 흐름 영향 없음.
-    for pid in public_ids:
-        try:
-            await diag_service.record_report_emission(
-                view=view,
-                scope="server",
-                server_public_ids=[pid],
-                period_days=period_days,
-                time_range=time_range,
-            )
-        except Exception:
-            logger.exception("report emission record failed (best-effort) pid={}", pid)
+    # 발행 record 는 POST /servers/report/emit 책임 (PRG 분리) — GET 는 read-only.
 
     # back url validation — same-origin path (시작 '/' 강제, '//' 제외 — open redirect 방어)
     back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
@@ -142,6 +130,39 @@ async def report(
             "time_range_label": DIAGNOSTIC_RANGE_LABEL_KR.get(time_range, time_range),
         },
     )
+
+
+@report_page_router.post("/report/emit")
+async def report_emit(
+    ids: str = Query(..., description="comma-separated public_id 목록 (선택 N대)"),
+    time_range: DiagnosticTimeRange = Query("14d"),
+    view: Literal["customer", "engineer"] = Query("customer"),
+    service: QueryService = Depends(get_service),
+    diag_service: DiagnosticService = Depends(get_diagnostic_service),
+):
+    """Server scope 보고서 발행 record 전용 endpoint (PRG pattern — POST 발행, GET 표시 분리).
+
+    응답 = {view_url} — 클라이언트가 navigate. 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
+    """
+    public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
+    sid_map = await service.resolve_server_ids(public_ids)
+    valid_pids = [pid for pid in public_ids if pid in sid_map]
+    if not valid_pids:
+        raise HTTPException(status_code=404, detail="no valid server ids")
+    period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
+    for pid in valid_pids:
+        try:
+            await diag_service.record_report_emission(
+                view=view,
+                scope="server",
+                server_public_ids=[pid],
+                period_days=period_days,
+                time_range=time_range,
+            )
+        except Exception:
+            logger.exception("report emission record failed (best-effort) pid={}", pid)
+    ids_query = ",".join(valid_pids)
+    return {"view_url": f"/servers/report?ids={ids_query}&view={view}&time_range={time_range}"}
 
 
 @report_page_router.get("/{server_id}/report")

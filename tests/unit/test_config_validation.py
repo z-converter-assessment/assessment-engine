@@ -73,9 +73,9 @@ def test_web_settings_prod_rejects_weak_postgres_user(weak_user):
 
 
 def test_web_settings_prod_rejects_dev_default_zdm_ip():
-    """ZDM_DEFAULT_IP 가 dev default (192.168.3.94) 그대로면 prod 거부 — 잘못된 ZDM 으로 install 발행 방지."""
+    """ZDM_DEFAULT_IP = dev default (host.lima.internal:8000) 그대로면 prod 거부 — 잘못된 ZDM 발행 방지."""
     with pytest.raises(ValidationError) as exc:
-        WebSettings(**_web_kwargs(zdm_default_ip="192.168.3.94"))
+        WebSettings(**_web_kwargs(zdm_default_ip="host.lima.internal:8000"))
     assert "ZDM_DEFAULT_IP" in str(exc.value)
 
 

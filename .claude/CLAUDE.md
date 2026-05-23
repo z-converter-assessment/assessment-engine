@@ -68,14 +68,14 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 - 시계열 4개 테이블 `boot_time` + `agent_started_at` 컬럼 보존 의무 — counter reset 정밀 식별 (#B 동일 진실).
 - `server_inventory.public_id` (UUID) URL 식별자 — 정수 PK 노출 금지 (#E4).
 - `server_inventory` 호스트 식별 = `(machine_id, hostname)` 복합 UNIQUE — `machine_id` 단독은 VM 템플릿 복제·이미지 clone·container host `/etc/machine-id` 마운트 등 실제 운영 환경에서 중복 가능. `find_server_id`·`ensure_server_id` signature 와 `on_conflict_do_*` index_elements, redis cooldown 키 모두 복합 키 일관. 한계: MQ queue `agent.tasks.{machine_id}` / routing key `task.install.{machine_id}` 는 agent 측 변경 없이 hostname 포함 불가 — 같은 machine_id 다른 hostname 두 호스트가 동일 큐 공유 (rare race). 별도 ADR / 후속 작업.
-- `diagnostic_jobs.job_type` (`ai_diagnostic`/`customer_report`/`engineer_report`) + active partial UNIQUE = `(scope, input_hash, job_type)`. 보고서도 본 테이블에 row 보존 — server scope (선택 N대) 는 `/servers/report` 라우터, environment scope (전체) 는 `/reports/environment` 라우터가 합성 직후 `DiagnosticService.record_report_emission` 으로 즉시 succeeded row INSERT (best-effort). 양식 분리: server scope 는 row 단위 상세 (`servers/report.html`), environment scope 는 high-level (KPI·분류 도넛·Top N·OS 분포·view별 요약, `reports/environment.html`). 이력 표시는 분리: AI 진단 이력 `/diagnostics/history` (job_type='ai_diagnostic' 자동 필터) vs 보고서 이력 `/reports/history` (customer + engineer union, view 필터). 환경 scope 진단 결과 페이지 (`/diagnostics?ids=X`) 는 SSR 로 `/reports/environment` iframe 2개 미리 렌더 + JS view toggle (AI/고객/엔지니어 tab).
+- `diagnostic_jobs.job_type` (`ai_diagnostic`/`customer_report`/`engineer_report`) + active partial UNIQUE = `(scope, input_hash, job_type)`. 보고서도 본 테이블에 row 보존.
+- 보고서 발행 PRG pattern: GET endpoint 는 read-only 표시 (record 안 함). POST `/reports/environment/emit` · `/servers/report/emit` 가 `record_report_emission` 호출 후 응답 view_url 반환 — JS 가 navigate. 다시 보기 / 직접 URL / 북마크 진입은 record 안 됨 (중복 row 방지).
+- 양식 분리: server scope 는 row 단위 상세 (`servers/report.html`), environment scope 는 high-level (KPI·분류·Top N·OS 분포·view별 요약, `reports/environment.html`).
+- 이력 표시 분리: AI 진단 이력 `/diagnostics/history` (job_type='ai_diagnostic' 자동 필터) vs 보고서 이력 `/reports/history` (customer + engineer union, view 필터). 환경 scope 진단 결과 페이지 (`/diagnostics?ids=X`) 는 SSR 로 `/reports/environment` iframe 2개 미리 렌더 + JS view toggle.
 
 ## C2. Repository 계층 — 인터페이스 우선 (#F4)
 
-추상 인터페이스(`BaseCollectRepository`/`BaseQueryRepository`/`BaseDiagnosticRepository`) · DTO 흐름(Inbound Pydantic·Outbound raw dataclass) · INSERT 통일(`pg_insert` + `on_conflict_do_*`) · `list_servers` 부분 SELECT 정책 · repo 메서드 카탈로그 · asyncpg 함정 · `_chart_*` 패턴: `docs/architecture/db/repositories.md` · `docs/architecture/db/dtos.md` · `docs/architecture/db/timescaledb.md` 단일 진실.
-
-본 절 결정:
-- settings 사용 절차: 컴포넌트 코드는 자기 sub-module(`web/settings.py`·`consumer/settings.py`·`diagnostic/settings.py`)에서 import. `db/session.py`·`cache/redis.py`는 자체 `WebSettings()` 인스턴스화 (circular 회피). 새 모듈 추가 시 본 절차 위반 금지 (#F4).
+추상 인터페이스(`BaseCollectRepository`/`BaseQueryRepository`/`BaseDiagnosticRepository`) · DTO 흐름(Inbound Pydantic·Outbound raw dataclass) · INSERT 통일(`pg_insert` + `on_conflict_do_*`) · `list_servers` 부분 SELECT 정책 · repo 메서드 카탈로그 · asyncpg 함정 · `_chart_*` 패턴: `docs/architecture/db/repositories.md` · `docs/architecture/db/dtos.md` · `docs/architecture/db/timescaledb.md` 단일 진실. `Settings()` 인스턴스 사용 절차는 #F4 단일 진실.
 
 ## C3. Redis 전략 — fail-open 의무
 
@@ -142,7 +142,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 ### P3. Jinja2 템플릿은 순수 렌더링만 (절대)
 - 허용: `{% if %}`·`{% for %}`·Jinja2 필터(포맷팅 전용).
 - 금지: 계산(`+`, `*`, `length`, `sort`, `selectattr`)·dedup·임계값 비교·단위 변환. 정렬·`badge_class`/`bar_color`/`is_well_known` 같은 파생은 mapper precompute.
-- 표시 컴포넌트 (폰트 위계·박스·badge·label) 와 네비게이션 규약 (새창 금지·뒤로가기 back chain·toast 에러 표시) 단일 진실: `docs/architecture/web/static-assets.md` "표준 컴포넌트 카탈로그" + "네비게이션 규약" 절.
+- 표시 표준 단일 진실 — `docs/architecture/web/static-assets.md` 다음 절: 표준 컴포넌트 카탈로그 / 폰트 위계 / 폰트 체 / 시간 표기 / 네비게이션 규약 / 링크 포맷 / P3 정공 예외 (1회 fetch vs polling 흐름).
 
 ### P4. 클라이언트 차트 JS는 P3 명시 예외
 
@@ -242,7 +242,7 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 - `src/assessment_engine/web/settings.py` — `web_settings` (WebSettings) + `diagnostic_settings` (DiagnosticSettings, web도 진단 publish 위해 broker 사용)
 - `src/assessment_engine/consumer/settings.py` — `consumer_settings` (ConsumerSettings)
 - `src/assessment_engine/diagnostic/settings.py` — `diagnostic_settings` (DiagnosticSettings, worker·scheduler 공통)
-- `src/assessment_engine/db/session.py`·`cache/redis.py`·`migrations/env.py` — 자체 `WebSettings()` (모든 컴포넌트 공통 db layer·캐시·schema 진입점, circular import 회피)
+- `src/assessment_engine/db/session.py`·`cache/redis.py` + repo root `migrations/env.py` — 자체 `WebSettings()` (모든 컴포넌트 공통 db layer·캐시·schema 진입점, circular import 회피)
 
 `src/assessment_engine/config.py`는 class 정의만 — module-level instance 0 (multi-node 분리 정합, ADR/문서 패턴 정합).
 
@@ -271,7 +271,6 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 - 검증 생략 후 다음 단계 진행.
 - 사용자 IDE 경고·브라우저 콘솔 발견에 의존.
 - 명시 요청 없이 pytest 실행 또는 "테스트 통과"를 검증 결과로 보고.
-- Hook 강제 영역(F1 future annotations 등) 메인 중복 grep.
 - 메인이 에이전트 자동 위임 제안.
 
 에이전트 결과: Error → 즉시 수정 / Warning → 사용자 결정 위임 / Info → 보고만.

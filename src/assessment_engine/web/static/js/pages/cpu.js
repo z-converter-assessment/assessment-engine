@@ -214,7 +214,7 @@ function buildCompLegend() {
   const container = document.getElementById('comp-legend');
   if (!compChart) { container.innerHTML = ''; return; }
   container.innerHTML = compChart.data.datasets.map((ds, i) => `
-    <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#475569; cursor:pointer; user-select:none;">
+    <label class="legend-label">
       <input type="checkbox" data-idx="${i}" checked
         style="accent-color:${ds.borderColor}; width:13px; height:13px; cursor:pointer;">
       <span>${ds.label}</span>
@@ -340,7 +340,7 @@ function buildLoadLegend() {
   const container = document.getElementById('load-legend');
   if (!loadChart) { container.innerHTML = ''; return; }
   container.innerHTML = loadChart.data.datasets.map((ds, i) => `
-    <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#475569; cursor:pointer; user-select:none;">
+    <label class="legend-label">
       <input type="checkbox" data-idx="${i}" checked
         style="accent-color:${ds.borderColor}; width:13px; height:13px; cursor:pointer;">
       <span>${ds.label}</span>

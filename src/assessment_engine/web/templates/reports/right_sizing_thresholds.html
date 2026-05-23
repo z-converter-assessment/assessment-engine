@@ -21,6 +21,8 @@
     아래 표의 임계값을 USE Method (Brendan Gregg) Utilization·Saturation 두 축으로 적용해 6 분류 (under_provisioned / over_provisioned / idle / shutdown / optimal / insufficient_data) 산출.
     임계 출처는 AWS Compute Optimizer · Azure Advisor · GCP Recommender · Kleinrock 등 산업 표준 종합.
   </p>
+
+  <h3>임계 카탈로그</h3>
   <table style="font-size:12px;">
     <thead>
       <tr>
@@ -43,6 +45,32 @@
       <tr><td>under_provisioned</td><td>Saturation</td><td>iowait_p95</td><td>≥ 20%</td><td>Disk IO saturation</td></tr>
       <tr><td>optimal</td><td>—</td><td>위 임계 미해당</td><td>적정</td><td>USE 잔여</td></tr>
       <tr><td>insufficient_data</td><td>—</td><td>cpu_p95 또는 mem_p95 null</td><td>표본 부재</td><td>윈도우 미만 또는 metric 부재</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin-top:18px;">판정 순서</h3>
+  <p style="margin:0 0 10px; font-size:13px; color:#475569; line-height:1.6;">
+    여러 trigger 가 동시 hit 되어도 위에서부터 첫 매칭에서 분류 확정 (short-circuit). 즉 swap 발생 시 cpu/mem 사용률과 무관하게 즉시 under_provisioned, disk capacity 또는 iowait 임계 초과도 cpu 사용률 검사 전 under 확정.
+  </p>
+  <table style="font-size:12px;">
+    <thead>
+      <tr>
+        <th>순위</th>
+        <th>분류</th>
+        <th>조건</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>insufficient_data</td><td>cpu_p95 또는 mem_p95 null (표본 부재)</td></tr>
+      <tr><td>2</td><td>idle</td><td>cpu_peak ≤ 1% AND net ≤ 1 KB/s</td></tr>
+      <tr><td>3</td><td>shutdown</td><td>cpu_p95 ≤ 3% AND net ≤ 2 Mbps</td></tr>
+      <tr><td>4</td><td>under_provisioned</td><td>swap_used = true (메모리 saturation short-circuit)</td></tr>
+      <tr><td>5</td><td>under_provisioned</td><td>worst mount used_pct ≥ 85% (디스크 capacity)</td></tr>
+      <tr><td>6</td><td>under_provisioned</td><td>iowait_p95 ≥ 20% (디스크 IO saturation)</td></tr>
+      <tr><td>7</td><td>under_provisioned</td><td>load_15m / cpu_cores ≥ 1.0 (CPU saturation — run queue)</td></tr>
+      <tr><td>8</td><td>over_provisioned</td><td>cpu_p95 ≤ 30% AND mem_p95 ≤ 50%</td></tr>
+      <tr><td>9</td><td>under_provisioned</td><td>cpu_p95 ≥ 70% OR mem_p95 ≥ 80%</td></tr>
+      <tr><td>10</td><td>optimal</td><td>위 모두 미해당</td></tr>
     </tbody>
   </table>
 </section>

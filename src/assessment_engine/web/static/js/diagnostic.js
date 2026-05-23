@@ -178,7 +178,7 @@
           : renderEnvironmentResult(job.result);
       } else if (job.status === 'failed') {
         this.statusEl.textContent = '최근 진단 실패';
-        this.resultEl.innerHTML = `<div style="color:#991b1b; padding:12px; background:#fee2e2; border-radius:6px;">${escapeHtml(job.error_message || '알 수 없는 오류')}</div>`;
+        this.resultEl.innerHTML = `<div class="alert-danger">${escapeHtml(job.error_message || '알 수 없는 오류')}</div>`;
       }
       // pending/running은 SSR latest 흐름에 없음 — get_latest_by_context이 succeeded만 반환
     }
@@ -197,9 +197,9 @@
     return `
       <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
         <span class="badge ${clsBadge}">${clsKr}</span>
-        <span style="color:#64748b; font-size:12px;">평가 윈도우 ${fmtWindow(period)}</span>
-        <span style="color:#64748b; font-size:12px;">|</span>
-        <span style="color:#64748b; font-size:12px;">추천 액션: <strong>${escapeHtml(rec.action || 'n/a')}</strong></span>
+        <span class="text-muted">평가 윈도우 ${fmtWindow(period)}</span>
+        <span class="text-muted">|</span>
+        <span class="text-muted">추천 액션: <strong>${escapeHtml(rec.action || 'n/a')}</strong></span>
       </div>
       <table style="margin-bottom:14px;">
         <thead><tr><th>리소스</th><th style="text-align:right;">p95 (%)</th><th style="text-align:right;">peak (%)</th></tr></thead>
@@ -233,13 +233,13 @@
 
     const topActionsList = topActions.map(a => `
       <tr><td>${escapeHtml(a.action_type)}</td><td style="text-align:right;">${a.count}</td></tr>
-    `).join('') || '<tr><td colspan="2" style="color:#94a3b8;">권장 액션 없음</td></tr>';
+    `).join('') || '<tr><td colspan="2" class="text-meta">권장 액션 없음</td></tr>';
 
     return `
       <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
-        <span style="color:#64748b; font-size:12px;">평가 윈도우 ${fmtWindow(period)}</span>
-        <span style="color:#64748b; font-size:12px;">|</span>
-        <span style="color:#64748b; font-size:12px;">대상 ${cov.evaluated_servers || 0}대 / 전체 ${cov.total_servers || 0}대 (${cov.coverage_pct || 0}%)</span>
+        <span class="text-muted">평가 윈도우 ${fmtWindow(period)}</span>
+        <span class="text-muted">|</span>
+        <span class="text-muted">대상 ${cov.evaluated_servers || 0}대 / 전체 ${cov.total_servers || 0}대 (${cov.coverage_pct || 0}%)</span>
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
         <table>

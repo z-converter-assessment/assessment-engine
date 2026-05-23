@@ -8,7 +8,7 @@
 - 발행 경로: 사용자 트리거 (스케줄러 자동 발행 없음 — 운영자 명시 결정만)
 - 산출물 형태: 각 워커 VM의 worker가 ZDM 본체 패키지 다운로드 + `install.sh -s ZDM_IP -u ZDM_USER` 실행 + 결과를 엔진으로 보고. Task row 6 컬럼 UPDATE (status·exit_code·duration_ms·stdout_tail·stderr_tail·failure_reason)
 - OS 범위: Linux 만. Windows 호스트는 본 산출물 범위 밖 (별도 산출물 도입 시 ADR)
-- 가시성: list "최근 작업" column (success/failure/pending badge) + detail timeline + `GET /api/tasks/{id}` / `GET /api/tasks?server_public_id=...&cursor=...`
+- 가시성: list "최근 작업" column (success/failure/pending badge) + detail timeline + 단건 조회 `GET /api/tasks/{id}` (JSON) / detail HTML fragment `GET /api/tasks/{id}/detail` (task-modal 본문)
 
 ## 존재 의의
 

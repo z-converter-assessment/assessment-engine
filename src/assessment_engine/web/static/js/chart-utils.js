@@ -151,8 +151,8 @@
         ? `<svg width="20" height="3" style="flex-shrink:0;"><line x1="0" y1="1.5" x2="20" y2="1.5" stroke="${ds.borderColor}" stroke-width="2" stroke-dasharray="4 2"/></svg>`
         : `<span style="width:20px; height:3px; border-radius:2px; background:${ds.borderColor}; flex-shrink:0;"></span>`;
       const labelHtml = opts.codeLabel
-        ? `<code style="font-size:11px; background:#f1f5f9; padding:1px 5px; border-radius:3px; color:#334155;">${ds.label}</code>`
-        : `<span style="font-size:12px; color:#475569;">${ds.label}</span>`;
+        ? `<code>${ds.label}</code>`
+        : `<span class="text-label">${ds.label}</span>`;
       if (opts.withToggle) {
         return `<label style="display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;">
           <input type="checkbox" data-avg="${i * 2}" checked

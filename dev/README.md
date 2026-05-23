@@ -42,26 +42,23 @@ VM 매트릭스 · 합성 부하 프로파일 · attention 발화 매핑 단일 
 
 dev 전체 endpoint 가 plain HTTP port 8000. prod 외부 ingress 종단은 외부 인프라 책임.
 
+대시보드 외 SSR 페이지 (보고서·이력·참고자료 등) 는 진입점 (`/servers/`) 의 button / link 따라 도달 — 본 표는 외부 도구·자동화·운영 모니터링이 직접 도달 의무한 endpoint 만.
+
 | 주소 | 설명 |
 |------|------|
-| http://localhost:8000/servers/ | 대시보드 Web UI (목록 · 도넛 · 주의 신호 · 발견 · Install · Export · 보고서 · 최근 작업 진입점) |
-| http://localhost:8000/servers/report?ids=...&view=customer&time_range=14d | 고객 보고서 (양식 A) |
-| http://localhost:8000/servers/report?ids=...&view=engineer&time_range=14d | 엔지니어 보고서 (양식 B) |
-| http://localhost:8000/reports/environment?view=customer&time_range=14d | 환경 보고서 (전체 등록 서버) |
-| http://localhost:8000/reports/right-sizing-thresholds | Right-sizing 분류 임계값 참고자료 |
-| http://localhost:8000/health | 헬스체크 |
-| http://localhost:8000/metrics | Prometheus metrics — prod 외부 노출 금지 (reverse proxy internal-only) |
-| http://localhost:8000/docs | FastAPI Swagger UI |
-| http://localhost:8000/download/ZConverter_CloudSource_Setup_Linux.tar.gz | dev 한정 ZDM mock endpoint (ADR 0018). APP_ENV=dev 시 web 컨테이너가 더미 tar.gz 서빙. Install 모달 E2E 검증용. prod 등록 안 됨 |
-| http://localhost:15672 | RabbitMQ 관리 콘솔 |
-| http://localhost:5050 | pgAdmin DB GUI (`--profile gui` 활성 시) |
-| localhost:5432 | PostgreSQL |
+| http://localhost:8000/servers/ | 대시보드 Web UI — 모든 SSR 페이지의 진입점 |
+| http://localhost:8000/health | 헬스체크 (외부 monitoring 용) |
+| http://localhost:8000/metrics | Prometheus scrape target — prod 외부 노출 금지 (reverse proxy internal-only) |
+| http://localhost:8000/docs | FastAPI Swagger UI (REST API contract) |
+| http://localhost:8000/download/ZConverter_CloudSource_Setup_Linux.tar.gz | dev 한정 ZDM mock endpoint (ADR 0018). agent worker 가 fetch. prod 등록 안 됨 |
+| http://localhost:15672 | RabbitMQ 관리 콘솔 (외부 GUI) |
+| localhost:5432 | PostgreSQL (host port, DB client 직접 접속) |
 
 ## 파일 카탈로그
 
 | 항목 | 역할 | git |
 |------|------|-----|
-| `docker-compose.yml` | 엔진 dev compose (web + consumer + diagnostic + DB + MQ + Redis + pgadmin) | 커밋 |
+| `docker-compose.yml` | 엔진 dev compose (web + consumer + diagnostic + DB + MQ + Redis) | 커밋 |
 | `.env.example` | dev compose 기준 환경변수 카탈로그 (`cp dev/.env.example dev/.env`) | 커밋 |
 | `.env` | dev compose 실값 | gitignore |
 | `lima/*.yaml` | Lima VM 4대 정의 (`docs/development/pipeline.md` 단일 진실) | 커밋 |
@@ -70,7 +67,6 @@ dev 전체 endpoint 가 plain HTTP port 8000. prod 외부 ingress 종단은 외�
 | `bin/assessment-agent` | agent 바이너리 산출물 (Linux arm64 ELF, static link) | gitignore — pipeline-up.sh 가 자동 산출 |
 | `agent.env.example` | agent 측 환경변수 카탈로그 — RABBITMQ_*·WORKER_* | 커밋 |
 | `agent.env` | agent 실값 — `cp agent.env.example agent.env` 후 운영 값으로 수정 | gitignore |
-| `pgadmin-servers.json` | pgadmin GUI 자동 등록 (`docker compose --profile gui up pgadmin` 활성 시) | 커밋 |
 
 ## agent 바이너리 확보 흐름
 

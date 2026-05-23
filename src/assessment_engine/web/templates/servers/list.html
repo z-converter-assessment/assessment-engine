@@ -8,7 +8,7 @@
 <div id="install-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:8px; padding:24px; width:520px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <h3 style="margin:0; font-size:16px; color:#1e293b;">ZConverter Install 발행</h3>
+      <h3 class="modal-title">ZConverter Install 발행</h3>
       <button type="button" id="install-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
     </div>
     <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">
@@ -33,7 +33,7 @@
 <div id="diagnose-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <h3 style="margin:0; font-size:16px; color:#1e293b;">AI 진단 발행</h3>
+      <h3 class="modal-title">AI 진단 발행</h3>
       <button type="button" id="diag-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
     </div>
     <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">
@@ -65,7 +65,7 @@
 <div id="discover-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <h3 style="margin:0; font-size:16px; color:#1e293b;">서버 도달성 확인</h3>
+      <h3 class="modal-title">서버 도달성 확인</h3>
       <button type="button" id="discover-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
     </div>
     <p style="margin:0 0 16px; font-size:12px; color:#64748b; line-height:1.5;">
@@ -250,7 +250,7 @@
   <div id="env-report-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-        <h3 id="env-report-title" style="margin:0; font-size:16px; color:#1e293b;">환경 보고서 발행</h3>
+        <h3 id="env-report-title" class="modal-title">환경 보고서 발행</h3>
         <button type="button" id="env-report-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
       </div>
       <p id="env-report-desc" style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">전체 등록 서버 대상 Right-sizing 규칙 기반 보고서 발행. 새 탭으로 이동합니다.</p>
@@ -281,7 +281,7 @@
 <div id="multi-server-report-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <h3 id="multi-server-report-title" style="margin:0; font-size:16px; color:#1e293b;">선택 서버 보고서 발행</h3>
+      <h3 id="multi-server-report-title" class="modal-title">선택 서버 보고서 발행</h3>
       <button type="button" id="multi-server-report-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
     </div>
     <p id="multi-server-report-desc" style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">선택된 <span id="multi-server-report-count" style="font-weight:600; color:#1e293b;">0</span>대 서버 Right-sizing 규칙 기반 보고서 발행. 결과 페이지로 이동합니다.</p>
@@ -361,7 +361,9 @@
   <script type="application/json">{{ last_env_diagnostic | tojson }}</script>
   {% endif %}
 </section>
+{% if diagnostic_enabled %}
 <script src="/static/js/diagnostic.js?v={{ asset_v }}" defer></script>
+{% endif %}
 
 <section class="card no-print">
 <h2>서버 목록</h2>
@@ -396,7 +398,7 @@
   {% endif %}
 </form>
 
-<div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center;">
+<div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; margin-bottom:14px; align-items:center;">
   <button type="button" id="report-customer-btn" class="btn-primary no-print" disabled title="고객 제출용 — 양식 A">고객 보고서</button>
   <button type="button" id="report-engineer-btn" class="btn-primary no-print" disabled title="엔지니어 검토용 — 양식 B">엔지니어 보고서</button>
   <button type="button" id="diagnose-btn" class="btn-primary no-print" disabled>AI 진단</button>
@@ -409,9 +411,8 @@
 <table>
   <thead>
     <tr>
-      <th class="no-print" style="width:64px; text-align:center;">
+      <th class="no-print" style="width:40px; text-align:center;">
         <input type="checkbox" id="select-all">
-        <div id="select-count" style="margin-top:4px; color:#cbd5e1; font-size:14px; font-weight:700; line-height:1.4;">0</div>
       </th>
       <th>상태</th>
       <th>Hostname</th>

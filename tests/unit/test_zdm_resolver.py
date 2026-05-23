@@ -61,7 +61,7 @@ async def test_cache_hit_uses_cached_sha_without_get():
     redis.get.return_value = "deadbeef" * 8  # 64자 cached sha256 (실측 무관)
 
     resolver = _make_resolver(http, redis)
-    sha, size = await resolver.resolve("192.168.3.94")
+    sha, size = await resolver.resolve("192.168.3.94", "/download/ZConverter_CloudSource_Setup_Linux.tar.gz")
 
     assert sha == "deadbeef" * 8
     assert size == expected_size
@@ -89,7 +89,7 @@ async def test_cache_miss_streams_get_and_computes_sha():
     redis.get.return_value = None  # cache miss
 
     resolver = _make_resolver(http, redis)
-    sha, size = await resolver.resolve("192.168.3.94")
+    sha, size = await resolver.resolve("192.168.3.94", "/download/ZConverter_CloudSource_Setup_Linux.tar.gz")
 
     assert sha == expected_sha
     assert size == expected_size
@@ -104,7 +104,7 @@ async def test_head_non_200_raises():
 
     resolver = _make_resolver(http, redis)
     with pytest.raises(ZdmPackageMetaError, match="HEAD status=404"):
-        await resolver.resolve("192.168.3.94")
+        await resolver.resolve("192.168.3.94", "/download/ZConverter_CloudSource_Setup_Linux.tar.gz")
 
 
 async def test_head_transport_error_raises():
@@ -114,7 +114,7 @@ async def test_head_transport_error_raises():
 
     resolver = _make_resolver(http, redis)
     with pytest.raises(ZdmPackageMetaError, match="HEAD failed"):
-        await resolver.resolve("192.168.3.94")
+        await resolver.resolve("192.168.3.94", "/download/ZConverter_CloudSource_Setup_Linux.tar.gz")
 
 
 async def test_head_missing_content_length_raises():
@@ -124,7 +124,7 @@ async def test_head_missing_content_length_raises():
 
     resolver = _make_resolver(http, redis)
     with pytest.raises(ZdmPackageMetaError, match="missing Content-Length"):
-        await resolver.resolve("192.168.3.94")
+        await resolver.resolve("192.168.3.94", "/download/ZConverter_CloudSource_Setup_Linux.tar.gz")
 
 
 async def test_size_mismatch_between_head_and_get_raises():
@@ -145,7 +145,7 @@ async def test_size_mismatch_between_head_and_get_raises():
 
     resolver = _make_resolver(http, redis)
     with pytest.raises(ZdmPackageMetaError, match="size mismatch"):
-        await resolver.resolve("192.168.3.94")
+        await resolver.resolve("192.168.3.94", "/download/ZConverter_CloudSource_Setup_Linux.tar.gz")
 
 
 async def test_etag_fallback_to_last_modified():
@@ -162,7 +162,7 @@ async def test_etag_fallback_to_last_modified():
     redis.get.return_value = None
 
     resolver = _make_resolver(http, redis)
-    sha, size = await resolver.resolve("192.168.3.94")
+    sha, size = await resolver.resolve("192.168.3.94", "/download/ZConverter_CloudSource_Setup_Linux.tar.gz")
 
     assert sha == hashlib.sha256(body).hexdigest()
     assert size == 1
@@ -184,7 +184,7 @@ async def test_no_etag_no_last_modified_skips_cache_but_still_works():
     redis = AsyncMock()
 
     resolver = _make_resolver(http, redis)
-    sha, size = await resolver.resolve("192.168.3.94")
+    sha, size = await resolver.resolve("192.168.3.94", "/download/ZConverter_CloudSource_Setup_Linux.tar.gz")
 
     assert sha == hashlib.sha256(body).hexdigest()
     assert size == 1

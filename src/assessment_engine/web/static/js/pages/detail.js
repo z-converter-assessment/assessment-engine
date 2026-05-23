@@ -134,7 +134,7 @@
           <div style="margin-bottom:14px;">
             <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
               <span style="font-weight:500; font-size:13px;"><code>${m.mount}</code></span>
-              <span style="font-size:12px; color:#64748b;">${label}</span>
+              <span class="text-muted">${label}</span>
             </div>
             <div class="progress-bar">
               <div class="progress-fill" style="width:${pct}%; background:${color};"></div>
@@ -228,15 +228,24 @@
   }
   function close() { modal.style.display = 'none'; }
 
-  function publish() {
-    const params = new URLSearchParams();
-    params.set('ids', publicId);
-    params.set('view', currentView);
-    params.set('time_range', rangeSel.value);
-    // anchor 는 server scope 라우터가 아직 받지 않음 — UI 일관성 위해 input 만 노출. submit body 미사용.
-    // back query 로 referrer 보존 → 보고서 페이지의 "← 이전" link 가 서버 상세로 정확히 복귀.
-    params.set('back', location.pathname);
-    window.location.href = `/servers/report?${params.toString()}`;
+  async function publish() {
+    // PRG pattern — POST emit (record) → 응답 view_url 로 GET navigate (read-only 표시).
+    // 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
+    submitBtn.disabled = true;
+    try {
+      const params = new URLSearchParams();
+      params.set('ids', publicId);
+      params.set('view', currentView);
+      params.set('time_range', rangeSel.value);
+      const res = await fetch(`/servers/report/emit?${params.toString()}`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const viewUrl = data.view_url + `&back=${encodeURIComponent(location.pathname)}`;
+      window.location.href = viewUrl;
+    } catch (e) {
+      if (window.ToastUtils) ToastUtils.show('보고서 발행 실패: ' + e.message, 'err');
+      submitBtn.disabled = false;
+    }
     close();
   }
 

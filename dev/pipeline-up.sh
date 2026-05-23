@@ -472,7 +472,6 @@ print_summary() {
   echo "환경 준비 완료"
   echo "  Web UI  : http://localhost:${WEB_PORT:-8000}/servers/"
   echo "  RabbitMQ: http://localhost:${RABBITMQ_MANAGEMENT_PORT:-15672}"
-  echo "  pgAdmin : 미가동 (필요 시 'docker compose --profile gui up -d pgadmin' — 약 250 MiB)"
 }
 
 main() {

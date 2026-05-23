@@ -13,7 +13,10 @@
 | 환경 보고서 | `GET /reports/environment?view=customer\|engineer&time_range=14d` | 환경 전체 KPI·자원 합계·분류 분포 high-level 한 장. customer(양식 A) vs engineer(양식 B) view 분기 |
 | 환경 진단 | `POST /api/diagnostics` scope=environment + `GET /diagnostics?ids=<job_id>` | 분류 분포 카운트 + 우선 검토 권장 한 줄 narrative. 즉시 발행 또는 스케줄러 매일 03시 자동. 진단 결과 페이지가 환경 보고서 iframe 2개 (customer·engineer view) 미리 렌더 — 운영자가 한 화면에서 두 view + 진단 narrative 모두 확인 |
 
-두 산출물의 관계 (T13): 보고서·진단 동일 `diagnostic_jobs` 테이블 record. 환경 보고서 라우터가 합성 직후 `record_report_emission` 으로 succeeded row 즉시 INSERT (best-effort). 이력은 `/reports/history` (customer + engineer union, view 필터). 진단 발행 이력은 `/diagnostics/history` (job_type='ai_diagnostic' 자동 필터).
+두 산출물의 관계 (T13):
+- 동일 `diagnostic_jobs` 테이블 row 보존. 보고서 / AI 진단 둘 다 본 테이블 record.
+- 보고서 발행 record 는 PRG pattern — `POST /reports/environment/emit` 가 `record_report_emission` 호출 (GET 은 read-only, 다시 보기 / 직접 URL 진입 시 중복 row 방지).
+- 이력 표시 분리: 보고서 이력 `/reports/history` (customer + engineer union, view 필터), 진단 발행 이력 `/diagnostics/history` (job_type='ai_diagnostic' 자동 필터).
 
 ## 위치
 

@@ -95,28 +95,6 @@ services:
       retries: 5
       start_period: 5s
 
-  # pgAdmin — dev DB GUI. ServerMode=False → 로그인 없이 즉시 사용.
-  # 서버 등록은 dev/pgadmin-servers.json 으로 자동 (postgres host · user 미리 채워짐).
-  # password 는 첫 접속 시 입력. profiles: [gui] — 기본 `docker compose up` 엔 미포함,
-  # 명시 호출 시만 띄움 (idle 250 MiB 절감). 띄우려면:
-  #   docker compose --profile gui up -d pgadmin
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    profiles: [gui]
-    environment:
-      PGADMIN_DEFAULT_EMAIL: dev@example.com    # pgAdmin이 RFC 형식(TLD 필요) 검증 — local 도메인은 reject
-      PGADMIN_DEFAULT_PASSWORD: dev
-      PGADMIN_LISTEN_PORT: 80
-      PGADMIN_CONFIG_SERVER_MODE: 'False'
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
-    volumes:
-      - ./pgadmin-servers.json:/pgadmin4/servers.json:ro
-    ports:
-      - "${PGADMIN_PORT:-5050}:80"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   # 마이그레이션 1회성 작업 (init-container 패턴) — postgres healthy 후 alembic upgrade head 실행하고 종료.
   # 모든 앱 서비스는 본 컨테이너 완료 후에만 기동 (depends_on: service_completed_successfully).
   # schema는 Alembic 단일 진실 (ADR 0005). lifespan의 create_all 자동 분기 제거됨.

@@ -35,13 +35,15 @@
 </style>
 
 <a class="back no-print" href="{{ back_url }}">← 이전</a>
-<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; gap:16px;">
   <h1>Assessment Report <span class="page-meta">{{ view_title }}</span></h1>
+  <div style="font-size:12px; color:#64748b; text-align:right;">
+    {% if summary.generated_at %}<div>발행 {{ summary.generated_at | kst }}</div>{% endif %}
+    {% if summary.anchor_at %}<div>기준 {{ summary.anchor_at | kst }} · 윈도우 {{ time_range_label }}</div>{% endif %}
+  </div>
 </div>
 <div class="report-meta">
-  데이터 기준 기간: 최근 {{ time_range_label }} ·
-  대상 서버 {{ summary.total }}대 ·
-  분류 기준: USE Method (Brendan Gregg) + AWS Compute Optimizer / Azure Advisor / GCP Recommender
+  대상 서버 {{ summary.total }}대 · 분류 기준: Right-sizing
 </div>
 
 <!-- ─── 공통 KPI: 환경 + Right-sizing 분류 (customer · engineer 동일 뼈대) ─── -->
@@ -68,7 +70,7 @@
 
 <div style="display:flex; gap:24px; margin:14px 0 12px; padding:14px 16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:13px; color:#475569;">
   <div>총 vCPU: <strong style="color:#1e293b;">{{ summary.totals.total_vcpus }}</strong></div>
-  <div>총 메모리: <strong style="color:#1e293b;">{{ summary.totals.total_memory_gb }} GB</strong></div>
+  <div>총 메모리: <strong style="color:#1e293b;">{{ "%.1f" | format(summary.totals.total_memory_gb) }} GB</strong></div>
   <div>총 디스크: <strong style="color:#1e293b;">{{ summary.totals.total_disk_gb }} GB</strong></div>
   <div style="margin-left:auto; color:#94a3b8; font-size:12px;">환경 총 자원 규모</div>
 </div>
@@ -83,11 +85,13 @@
         <th>ROLE</th>
         <th>OS{% if view == "engineer" %}<span class="sub">kernel</span>{% endif %}</th>
         <th>상태</th>
+        <th class="num-cell">vCPU</th>
+        <th class="num-cell">메모리</th>
+        <th class="num-cell">디스크</th>
         <th class="num-cell">CPU{% if view == "engineer" %}<span class="sub">평균 · p95</span>{% else %} 평균{% endif %}</th>
         <th class="num-cell">MEM{% if view == "engineer" %}<span class="sub">평균 · p95</span>{% else %} 평균{% endif %}</th>
         <th>Right-sizing{% if view == "engineer" %}<span class="sub">판단</span>{% endif %}</th>
         {% if view == "engineer" %}<th>운영 신호</th>{% endif %}
-        <th>AI 진단<span class="sub">{{ time_range_label }}</span></th>
       </tr>
     </thead>
     <tbody>
@@ -103,6 +107,9 @@
           {% if view == "engineer" and r.kernel_version %}<span class="stat-line muted">{{ r.kernel_version }}</span>{% endif %}
         </td>
         <td style="text-align:center;">{% if r.is_online %}<span class="dot dot-ok" title="온라인"></span>{% else %}<span class="dot dot-off" title="오프라인"></span>{% endif %}</td>
+        <td class="num-cell">{% if r.cpu_cores is not none %}{{ r.cpu_cores }}{% else %}—{% endif %}</td>
+        <td class="num-cell">{% if r.mem_total_gb is not none %}{{ "%.1f"|format(r.mem_total_gb) }} GB{% else %}—{% endif %}</td>
+        <td class="num-cell">{% if r.disk_total_gb is not none %}{{ "%.0f"|format(r.disk_total_gb) }} GB{% else %}—{% endif %}</td>
         <td class="num-cell">
           <span class="stat-line">{% if r.cpu_avg_pct is not none %}{{ "%.1f"|format(r.cpu_avg_pct) }}%{% else %}—{% endif %}</span>
           {% if view == "engineer" %}<span class="stat-line muted">{% if r.cpu_p95_pct is not none %}p95 {{ "%.1f"|format(r.cpu_p95_pct) }}%{% else %}p95 —{% endif %}</span>{% endif %}
@@ -127,15 +134,6 @@
           {% endif %}
         </td>
         {% endif %}
-        <td class="ai-diag-cell">
-          {% set d = diagnostics_by_pid.get(r.public_id) if diagnostics_by_pid else None %}
-          {% if d and d.classification %}
-            <span class="stat-line"><span class="rec-badge {{ d.classification_badge_class }}">{{ d.classification_label_kr }}</span></span>
-            {% if view == "engineer" and d.recommendation_action %}<span class="stat-line muted">{{ d.recommendation_action }}</span>{% endif %}
-          {% else %}
-            <span style="color:#94a3b8;">—</span>
-          {% endif %}
-        </td>
       </tr>
       {% endfor %}
     </tbody>

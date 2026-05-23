@@ -208,6 +208,7 @@ def _detail(**overrides) -> ServerDetail:
         machine_id="m-1",
         hostname="host",
         agent_version="1.0.0",
+        os_family=None,
         os_id="ubuntu",
         os_version="22.04",
         os_codename="jammy",

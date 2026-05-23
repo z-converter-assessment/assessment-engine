@@ -124,7 +124,7 @@
 | 대시보드 | `/servers/` · `docs/products/dashboard.md` |
 | 환경 보고서 (보고서 + 환경 진단 통합) | `/reports/environment?view=customer\|engineer` · `docs/products/environment-report.md` |
 | 서버 보고서 (보고서 + 서버 진단 통합) | `/servers/report?ids=...&view=customer\|engineer` · `docs/products/server-report.md` |
-| JSON Export | `/api/v1/exports/inventory` · `docs/products/json-export.md` |
+| JSON Export | `/api/exports/inventory` · `docs/products/json-export.md` |
 | Install task | `docs/products/install-task.md` |
 
 ---
@@ -174,8 +174,10 @@ uv run alembic check                   # ORM ↔ migrations 정합 (alembic-chec
 
 | 디렉토리 | 용도 |
 |----------|------|
+| `docs/README.md` | 카테고리·파일 인덱스 — 어떤 문서를 언제 보는지 길잡이 |
 | `docs/development/` | 본 repo 안 dev 작업·코드 규약 (docker · dependencies · pipeline · testing · conventions) |
 | `docs/operations/` | 외부 인프라가 활용할 contract (release · deployment · env · alembic · observability) |
 | `docs/products/` | 운영 산출물 의의·근거 (dashboard · 환경 보고서 · 서버 보고서 · JSON Export · Install task) |
 | `docs/architecture/` | 컴포넌트별 deep dive (agent · consumer · diagnostic · rabbitmq · redis · db · web) |
-| `docs/tradeoffs.md` | 의식적 설계 선택과 한계 |
+| `docs/adr/` | Architecture Decision Records (0001~) — "왜 이렇게 결정했나" + 트레이드오프 |
+| `docs/tradeoffs.md` | 의식적 설계 선택과 한계 (T1~T13) |

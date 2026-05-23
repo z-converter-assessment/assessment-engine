@@ -118,6 +118,7 @@ async def history(
         name="diagnostics/history.html",
         context={
             "items": items,
+            "items_count": len(items),  # P3 정공 — template 안 `length` 계산 회피.
             "days": days,
             "scope": scope,
             "server_public_ids": server_public_ids,

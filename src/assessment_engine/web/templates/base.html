@@ -93,6 +93,20 @@
     /* code = base monospace (line 25) + inline code 표시 (background + padding). font-family 중복 제거 — line 25 단일 진실. */
     code { background: #f1f5f9; padding: 1px 6px; border-radius: 3px; font-size: 12px; color: #475569; }
 
+    /* JS 가 render 하는 dynamic 컴포넌트의 표준 utility — diagnostic.js / task-modal.js / chart legend 공통.
+       inline style="font-size:Npx; color:#xxx" 직접 사용 금지. */
+    .modal-title { margin: 0; font-size: 16px; font-weight: 700; color: #1e293b; }
+    .text-muted { color: #64748b; font-size: 12px; }
+    .text-meta { color: #94a3b8; font-size: 11px; }
+    .text-label { color: #475569; font-size: 13px; }
+    .text-narrative { color: #475569; font-size: 12px; line-height: 1.6; }
+    .text-danger { color: #b91c1c; }
+    .alert-danger { color: #991b1b; padding: 12px; background: #fee2e2; border-radius: 6px; }
+    .pre-output { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; font-size: 11px; color: #1e293b; max-height: 200px; overflow: auto; margin: 0; }
+    .legend-label { font-size: 12px; color: #475569; cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 4px; }
+    /* task-detail-grid — task-modal 의 라벨/값 grid (key-value). */
+    .task-detail-grid > .label { color: #64748b; font-size: 13px; }
+
     /* Progress bars */
     .progress-bar { height: 6px; background: #e2e8f0; border-radius: 99px; overflow: hidden; position: relative; }
     .progress-fill { height: 100%; border-radius: 99px; transition: width .3s ease; }
@@ -218,7 +232,7 @@
   <div id="task-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:60; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:8px; padding:20px 24px; width:640px; max-width:92vw; max-height:88vh; overflow:auto; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <h3 id="task-modal-title" style="margin:0; font-size:15px; color:#1e293b;">작업 상세</h3>
+        <h3 id="task-modal-title" class="modal-title">작업 상세</h3>
         <button type="button" id="task-modal-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
       </div>
       <div id="task-modal-body" style="font-size:13px; color:#1e293b;">불러오는 중...</div>

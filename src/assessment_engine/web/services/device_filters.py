@@ -1,7 +1,7 @@
-"""
-에이전트가 보내는 raw 데이터에서 가상·커널 항목을 제거하는 임시 필터.
-근본 해결은 에이전트 측 수집 단계에서의 필터링이며, 다음 agent_version 계약에 반영 예정.
-(DESIGN_DECISIONS.md #14 참고)
+"""에이전트가 push 하는 raw 데이터에서 가상·커널 항목 제거 필터 — engine 단일 진실.
+
+`_VIRTUAL_FSTYPES` 22 / `_VIRTUAL_MOUNT_PREFIXES` 8 / 정규식 3 (phys / lvm / part) catalog.
+새 fstype 출현 시 본 catalog 만 갱신.
 """
 
 import re

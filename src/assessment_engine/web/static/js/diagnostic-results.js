@@ -185,7 +185,7 @@
     return `
       <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
         <span class="badge ${clsBadge}">${clsKr}</span>
-        <span style="color:#64748b; font-size:12px;">추천 액션: <strong>${escapeHtml(rec.action || 'n/a')}</strong></span>
+        <span class="text-muted">추천 액션: <strong>${escapeHtml(rec.action || 'n/a')}</strong></span>
       </div>
       <table style="margin-bottom:14px;">
         <thead><tr><th>리소스</th><th style="text-align:right;">p95 (%)</th><th style="text-align:right;">peak (%)</th></tr></thead>
@@ -221,7 +221,7 @@
     `).join('') || '<tr><td colspan="2" style="color:#94a3b8;">권장 액션 없음</td></tr>';
 
     return `
-      <div style="color:#64748b; font-size:12px; margin-bottom:14px;">
+      <div class="text-muted" style="margin-bottom:14px;">
         대상 ${cov.evaluated_servers || 0}대 / 전체 ${cov.total_servers || 0}대 (${cov.coverage_pct || 0}%)
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">

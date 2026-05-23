@@ -11,7 +11,7 @@
   <div style="display:flex; align-items:center; gap:14px;">
     <div style="font-size:12px; color:#64748b; text-align:right;">
       <div>발행 {{ summary.generated_at | kst }}</div>
-      <div>윈도우 {{ summary.time_range_label }}</div>
+      <div>기준 {{ summary.anchor_at | kst }} · 윈도우 {{ summary.time_range_label }}</div>
     </div>
     <button class="btn-print no-print" type="button" onclick="window.print()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
@@ -37,9 +37,9 @@
     </div>
   </div>
   {% if r %}
-  <div style="display:flex; gap:24px; flex-wrap:wrap; font-size:13px; color:#475569;">
+  <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:center; font-size:13px; color:#475569;">
     <div>OS: <strong style="color:#1e293b;">{{ r.os_display }}</strong>{% if r.kernel_version %} <span style="color:#94a3b8;">({{ r.kernel_version }})</span>{% endif %}</div>
-    {% if r.role %}<div>역할: <strong style="color:#1e293b;">{{ r.role }}</strong></div>{% endif %}
+    {% if r.role %}<div style="display:inline-flex; align-items:center; gap:4px;">역할: <span class="badge {{ r.role | service_badge_class }}">{{ r.role }}</span></div>{% endif %}
     {% if r.internal_ip %}<div>내부 IP: <code>{{ r.internal_ip }}</code></div>{% endif %}
     <div>상태: {% if r.is_online %}<span class="dot dot-ok"></span> <strong style="color:#15803d;">온라인</strong>{% else %}<span class="dot dot-off"></span> <strong style="color:#94a3b8;">오프라인</strong>{% endif %}</div>
   </div>
@@ -96,24 +96,6 @@
 </section>
 
 {% if r %}
-{% set d = diagnostics_by_pid.get(r.public_id) if diagnostics_by_pid else None %}
-<section class="card" style="margin-bottom:16px;">
-  <h2>AI 진단 <span class="section-meta">{{ summary.time_range_label }} latest succeeded</span></h2>
-  {% if d and d.classification %}
-  <div style="margin-bottom:8px;">
-    <span class="badge {{ d.classification_badge_class }}" style="font-size:13px; padding:4px 12px;">{{ d.classification_label_kr }}</span>
-    {% if d.recommendation_action and d.recommendation_action != 'no_action' %}
-    <span style="margin-left:8px; font-size:13px; color:#1e293b;">권고: {{ d.recommendation_action }}</span>
-    {% endif %}
-  </div>
-  {% if d.narrative %}
-  <p style="margin:0; font-size:12px; color:#475569; line-height:1.6;">{{ d.narrative }}</p>
-  {% endif %}
-  {% else %}
-  <p style="margin:0; font-size:13px; color:#94a3b8;">진단 결과 없음 — 발행 또는 스케줄러 매일 03시 자동.</p>
-  {% endif %}
-</section>
-
 {% if view == "engineer" %}
 <section class="card" style="margin-bottom:16px;">
   <h2>운영 신호 <span class="section-meta">데이터 수집·OS·Agent 안정성</span></h2>

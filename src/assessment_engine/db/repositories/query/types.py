@@ -86,8 +86,10 @@ _SCALAR_VALUE_EXPR: dict[str, str] = {
     "mem.available_percent": "CASE WHEN mem_total_kb > 0 THEN mem_available_kb::float / mem_total_kb * 100 END",
     "mem.cached_percent": "CASE WHEN mem_total_kb > 0 THEN mem_cached_kb::float  / mem_total_kb * 100 END",
     "mem.buffers_percent": "CASE WHEN mem_total_kb > 0 THEN mem_buffers_kb::float / mem_total_kb * 100 END",
+    # swap_total_kb=0 (swap 미설정 VM) 도 0% 반환 — chart 0 line 자연 표시.
+    # NULL 반환 시 chart endpoint 가 row 누락 → empty 표시 (운영자 혼란).
     "swap.usage_percent": (
-        "CASE WHEN swap_total_kb > 0 THEN (swap_total_kb - swap_free_kb)::float / swap_total_kb * 100 END"
+        "CASE WHEN swap_total_kb > 0 THEN (swap_total_kb - swap_free_kb)::float / swap_total_kb * 100 ELSE 0 END"
     ),
 }
 

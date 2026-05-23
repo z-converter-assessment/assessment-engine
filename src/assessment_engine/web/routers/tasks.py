@@ -8,7 +8,8 @@ import re
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 
 from assessment_engine.web.deps import get_service, get_task_service
@@ -21,6 +22,7 @@ from assessment_engine.web.services.task_service import (
     TaskService,
 )
 from assessment_engine.web.settings import web_settings
+from assessment_engine.web.templating import templates
 from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
 
 tasks_router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -128,11 +130,32 @@ async def get_task(
     task_id: UUID,
     service: QueryService = Depends(get_service),
 ):
-    """단일 task 상세 — modal / 자동화. status / failure_reason / exit_code / tails."""
+    """단일 task 상세 — JSON. polling / list cell 갱신 callback 용."""
     detail = await service.get_task(str(task_id))
     if detail is None:
         raise HTTPException(status_code=404, detail="task not found")
     return detail
+
+
+@tasks_router.get("/{task_id}/detail", response_class=HTMLResponse)
+async def get_task_detail_fragment(
+    task_id: UUID,
+    request: Request,
+    service: QueryService = Depends(get_service),
+):
+    """단일 task 상세 — HTML fragment. task-modal.js 가 fetch + innerHTML 교체 (P3 정공).
+
+    JS HTML 합성 폐기 — server 가 template fragment render, JS 는 DOM 교체만.
+    polling 흐름은 GET /api/tasks/{id} (JSON) 사용 — modal body 만 fragment.
+    """
+    detail = await service.get_task(str(task_id))
+    if detail is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    return templates.TemplateResponse(
+        request=request,
+        name="tasks/_detail.html",
+        context={"detail": detail},
+    )
 
 
 @tasks_router.get("", response_model=list[TaskSummaryItem])

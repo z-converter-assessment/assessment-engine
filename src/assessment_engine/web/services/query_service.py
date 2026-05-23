@@ -603,6 +603,8 @@ class QueryService:
             totals=compute_report_totals_from_raw(raws),
             summary_bullets=build_report_summary_bullets(items, raws, view=view),
             role_distribution=build_role_distribution(raws),
+            anchor_at=end_dt,
+            generated_at=datetime.now(UTC),
         )
 
     async def get_inventory_export(

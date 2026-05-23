@@ -1,6 +1,7 @@
 """Assessment 보고서 ViewModel — server scope 보고서 row + KPI 합계 + 요약."""
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 
 @dataclass
@@ -100,7 +101,8 @@ class ReportTotals:
     """양식 A 묶음 자원 총량 — 마이그레이션 capacity 산정 입력."""
 
     total_vcpus: int
-    total_memory_gb: int
+    # 메모리는 소수 첫째 자리 — int 변환 시 0.5 GB 등 표시 왜곡.
+    total_memory_gb: float
     total_disk_gb: int
 
 
@@ -123,3 +125,7 @@ class ReportSummary:
     summary_bullets: list[str] = field(default_factory=list)
     # 양식 A 상단 역할 분포 — {"web": 8, "db": 5, "cache": 3, ...}. service_classifier 카테고리 집계.
     role_distribution: dict[str, int] = field(default_factory=dict)
+    # 보고서 발행 / 평가 기준 시각 (UTC, 표시 단계에서 KST 변환).
+    # generated_at = 본 응답 합성 시각 (지금). anchor_at = 평가 윈도우 끝 (period 평가 기준).
+    generated_at: datetime | None = None
+    anchor_at: datetime | None = None

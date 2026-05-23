@@ -134,15 +134,10 @@ function selectedRows() {
   return [...document.querySelectorAll('.row-select:checked')];
 }
 
-// selection 버튼 상태 + 체크박스 헤더 카운트 갱신. label 자체는 정적 (체크박스 헤더 #select-count 가 동적 N 표시).
+// selection 버튼 상태 갱신 — 선택 N대면 액션 버튼 enabled.
 // CSS .btn-primary:disabled 가 시각 분기 (opacity inline 불필요).
 function refreshInstallButton() {
   const n = selectedRows().length;
-  const countEl = document.getElementById('select-count');
-  if (countEl) {
-    countEl.textContent = n;
-    countEl.style.color = n > 0 ? '#2563eb' : '#cbd5e1';
-  }
   installBtn.disabled = n === 0;
   exportBtn.disabled = n === 0;
   reportCustomerBtn.disabled = n === 0;
@@ -181,15 +176,25 @@ const reportEngineerBtn = document.getElementById('report-engineer-btn');
   }
   function close() { modal.style.display = 'none'; }
 
-  function publish() {
+  async function publish() {
     const params = new URLSearchParams();
     params.set('view', currentView);
     params.set('time_range', rangeSel.value);
     const anchor = anchorInput.value;
     if (anchor) params.set('anchor_at', anchor + ':00+09:00');
-    params.set('back', location.pathname + location.search);
-    // 모든 보고서 발행 = 현재 탭 이동 (history.back / back query 로 referrer 자연 복귀, 단일 원칙).
-    window.location.href = `/reports/environment?${params.toString()}`;
+    // PRG pattern — POST emit (record) → 응답 view_url 로 GET navigate (read-only 표시).
+    // 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch(`/reports/environment/emit?${params.toString()}`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const viewUrl = data.view_url + `&back=${encodeURIComponent(location.pathname + location.search)}`;
+      window.location.href = viewUrl;
+    } catch (e) {
+      if (window.ToastUtils) ToastUtils.show('환경 보고서 발행 실패: ' + e.message, 'err');
+      submitBtn.disabled = false;
+    }
     close();
   }
 
@@ -231,15 +236,25 @@ const reportEngineerBtn = document.getElementById('report-engineer-btn');
   }
   function close() { modal.style.display = 'none'; }
 
-  function publish() {
+  async function publish() {
     const ids = currentRows.map(r => r.dataset.publicId).join(',');
     const params = new URLSearchParams();
     params.set('ids', ids);
     params.set('view', currentView);
     params.set('time_range', rangeSel.value);
-    params.set('back', location.pathname + location.search);
-    // anchor 는 server scope 라우터가 받지 않음 — UI 일관성. submit 미사용.
-    window.location.href = `/servers/report?${params.toString()}`;
+    // PRG pattern — POST emit (record) → 응답 view_url 로 GET navigate (read-only 표시).
+    // 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch(`/servers/report/emit?${params.toString()}`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const viewUrl = data.view_url + `&back=${encodeURIComponent(location.pathname + location.search)}`;
+      window.location.href = viewUrl;
+    } catch (e) {
+      if (window.ToastUtils) ToastUtils.show('서버 보고서 발행 실패: ' + e.message, 'err');
+      submitBtn.disabled = false;
+    }
     close();
   }
 
@@ -325,8 +340,9 @@ function pollAndUpdateRow(targetPublicId, taskId) {
   if (!window.TaskModal) return;
   window.TaskModal.pollUntilFinal(taskId, {
     onUpdate(detail) {
-      const created = new Date(detail.created_at).toLocaleString('ko-KR');
-      cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${detail.task_id}" title="${detail.failure_label || ''}"><span class="badge ${detail.badge_class}">${detail.badge_label}</span><span style="font-size:11px; color:#64748b;">${created}</span></a>`;
+      // 시간 포맷 단일 진실 — ChartUtils.fmtKst (YYYY-MM-DD HH:MM:SS). toLocaleString 은 locale-dependent 라 회피.
+      const created = ChartUtils.fmtKst(detail.created_at);
+      cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${detail.task_id}" title="${detail.failure_label || ''}"><span class="badge ${detail.badge_class}">${detail.badge_label}</span><span class="text-meta">${created}</span></a>`;
     },
   });
 }

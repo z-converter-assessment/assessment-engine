@@ -77,7 +77,7 @@ def compute_report_totals_from_raw(raws: list) -> ReportTotals:
             total_disk_bytes += d.get("size_bytes") or 0
     return ReportTotals(
         total_vcpus=total_vcpus,
-        total_memory_gb=int(total_mem_kb / 1024 / 1024),  # KB -> GB
+        total_memory_gb=round(total_mem_kb / 1024 / 1024, 1),  # KB -> GB, 소수 첫째 자리 (표시 왜곡 회피)
         total_disk_gb=int(total_disk_bytes / 10**9),  # bytes -> GB (벤더 표기 관례)
     )
 
@@ -288,6 +288,11 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
     USE Method 분류(`recommendation`)는 양식 B(엔지니어용)·`risk_level`은 양식 A(고객용) KPI/표 노출.
     `diagnosis`는 양식 B "판단" 컬럼 자동 해석.
     """
+    # net baseline — server_net_io 의 rx+tx 윈도우 평균 (kBps).
+    # 둘 다 None 시 None (data 부재 — idle/shutdown 판정 skip). 하나만 있으면 다른 0 으로.
+    _net_rx = raw.net_rx_kbps
+    _net_tx = raw.net_tx_kbps
+    net_avg = None if _net_rx is None and _net_tx is None else (_net_rx or 0) + (_net_tx or 0)
     rec = recommendation.classify(
         recommendation.ResourceStats(
             cpu_p95_pct=raw.cpu_p95_pct,
@@ -298,7 +303,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
             swap_used=raw.swap_used,
             disk_used_pct=raw.worst_mount_used_pct,
             iowait_p95_pct=raw.iowait_p95_pct,
-            net_avg_kbps=None,  # 1차 MVP — net 집계 미구현
+            net_avg_kbps=net_avg,
         )
     )
     risk_level, risk_label, risk_badge_class = _RISK_FROM_RECOMMENDATION[rec]

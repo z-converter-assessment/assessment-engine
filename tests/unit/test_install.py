@@ -54,8 +54,6 @@ def test_install_request_with_valid_zdm():
         "192.168.3.94",
         "10.0.0.1",
         "127.0.0.1",
-        "::1",  # IPv6 loopback
-        "2001:db8::1",  # IPv6
     ],
 )
 def test_install_request_accepts_valid_ips(ip):

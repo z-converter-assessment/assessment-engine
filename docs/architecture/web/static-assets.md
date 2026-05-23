@@ -17,7 +17,8 @@ src/assessment_engine/web/static/js/
 | 함수 | 용도 |
 |------|------|
 | `RANGE_LABEL` / `AUTO_BUCKET` / `BUCKET_LABEL` / `RANGE_MS` / `BUCKET_MS` / `COLORS` | 매핑·상수 |
-| `fmtKst(iso)` / `fmtLabel(iso, range)` | KST 시각 포맷 (`MM/DD HH:mm`) |
+| `fmtKst(iso)` | KST 시각 포맷 (`YYYY-MM-DD HH:MM:SS`) — server `kst` 필터와 동일, "시간 표기" 절 단일 진실 |
+| `fmtLabel(iso, range)` | 차트 X축 라벨 (range 별 `MM/DD HH:MM` / `HH:MM`) — 표시 시각과 별개 컨텍스트 |
 | `fmtKbChart(v)` | bytes/sec → kB/MB/s |
 | `getAnchorEnd(inputId)` / `initAnchor(inputId)` | datetime input 처리 |
 | `makeBucketGrid(range, bucket, anchor)` / `joinToGrid(grid, rows, bMs)` | 버킷 그리드 + 응답 join |
@@ -85,12 +86,12 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 
 원칙: 새 페이지 추가 시 아래 카탈로그의 클래스 먼저 적용. 같은 패턴을 inline 으로 재구현 금지 — 표준에 없으면 base.html 에 새 표준 추가 후 사용. P2 (mapper 단일 진실)·P3 (템플릿 순수 렌더링) 와 동급의 표시 계층 규약.
 
-### 폰트 위계 (단일 scale)
+### 보조 컴포넌트 폰트 (h1/h2/h3 외)
+
+본 표는 표시 컴포넌트 (KPI / metric / badge / 버튼) 만 — h1/h2/h3 + .page-meta / .section-meta 위계 제목은 별도 "폰트 위계 — 단일 진실" 절 참조.
 
 | 슬롯 | 값 | 용도 |
 |------|----|------|
-| h1 | 20px / 700 / #0f172a | 페이지 제목 |
-| h2 | 14px / 600 / #475569 uppercase | 카드 내 섹션 제목 |
 | .stat-value | 20px / 700 | 실시간 메트릭 dashboard 값 |
 | .metric-value | 24px / 700 / #1e293b | 보고서·KPI 큰 값 |
 | .metric-value-md | 18px / 700 / #1e293b | 보고서 보조 값 (긴 텍스트 위주) |
@@ -101,9 +102,9 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 | .metric-sub | 11px / #94a3b8 | metric-card 부가 문구 |
 | .badge | 12px / 600 | 분류·카테고리 표시 |
 | .rec-badge | 11px / 600 | table cell 안 분류 badge (좁은 셀용) |
-| code | 12px / monospace | inline code |
+| code | 12px / monospace | inline code (식별자) |
 
-금지: 9px·10px·16px·18px (h3 외)·32px 등 카탈로그 외 값을 inline 으로 박지 않음. 새 위계가 필요하면 base.html 에 명명 클래스 추가 후 사용.
+금지: 9px·10px·32px 등 카탈로그 외 값을 inline 으로 박지 않음. 새 위계가 필요하면 base.html 에 명명 클래스 추가 후 사용.
 
 ### 박스 컴포넌트 (대형부터)
 
@@ -173,6 +174,46 @@ class:
 - 일반 텍스트 (제목 / 본문 / 라벨) 에 monospace 적용 — 식별자 외 monospace 가독성 ↓.
 - 숫자 (vCPU / GB / %) 에 monospace — sans-serif weight 700 으로 정렬·강조 충분.
 - inline `style="font-family:monospace"` — base `.identifier` 또는 `<code>` 사용 의무.
+
+## P3 정공 예외 — 1회 fetch vs polling 흐름
+
+P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, server fragment endpoint + JS DOM 교체.
+
+다만 2 case 는 본 정공 미적용 — overhead 또는 latency 의무 큼:
+
+| case | 정공 / 예외 | 이유 |
+|------|-------------|------|
+| 1회 fetch + render (예: task-modal body) | 정공 — fragment endpoint (`/api/tasks/{id}/detail`) + JS `innerHTML = await fetch().text()` | overhead 0, P3 완전 정공 |
+| polling 흐름 (예: detail page metrics/latest SSE / storage snapshot / diagnostic.js result polling) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
+
+폴링 흐름 JS render 의무:
+- inline `style="font-size:Npx; color:#xxx"` 금지 — base.html utility class (`.text-muted` / `.text-meta` / `.pre-output` 등) 만.
+- layout 관련 inline style (display:flex / grid / table 등) 허용 — 모듈별 부수 정렬, utility class 화 강제 X.
+- 동일 데이터의 SSR template 이 있으면 그쪽이 우선 (server 단일 진실 정공).
+
+신규 dynamic UI 추가 시 흐름 판단:
+- 1회 fetch → fragment endpoint
+- polling / SSE 무한 → JSON + JS render (예외)
+
+## 시간 표기 — 단일 진실 (예외 0 의무)
+
+표시 시점의 KST 변환은 서버 / 클라이언트 양쪽 모두 같은 포맷 (`YYYY-MM-DD HH:MM:SS`) — 운영자 인지 부담 0.
+
+| 위치 | 함수 | 포맷 |
+|------|------|------|
+| Server-side (Jinja2 template) | `kst` 필터 (`web/templating/filters.py`) | `%Y-%m-%d %H:%M:%S` |
+| Client-side (JS) | `ChartUtils.fmtKst(isoStr)` (`web/static/js/chart-utils.js`) | `YYYY-MM-DD HH:MM:SS` |
+
+규약:
+- 표시 단계 시간 = 둘 중 하나 사용 의무 (SSR `{{ ts | kst }}`, JS `ChartUtils.fmtKst(ts)`).
+- 초 단위까지 표시 — 운영자가 수집 끊김·발행 시점 진단 시 분/초 정확성 의무.
+- 차트 X축 라벨은 별도 — `ChartUtils.fmtLabel(ts, range)` 가 range 별 (24h 미만 `HH:MM`, 7d `MM/DD HH:MM`, 30d `MM/DD HH:00`) 적용.
+
+금지:
+- `toLocaleString('ko-KR')` 등 locale-dependent 포맷 (브라우저 locale 분기).
+- `fmtKst().slice(0, 16)` 초 단위 잘라내기 (정밀 손실).
+- `dt.strftime("%H:%M")` 등 부분 포맷 (일관성 깨짐).
+- inline `new Date(... + 9*60*60*1000)` 임의 offset (F2 위반 — KST 변환 단일 경계).
 
 ## 네비게이션 규약 — 새창 금지 + 뒤로가기 보존 (예외 0 의무)
 
