@@ -52,7 +52,7 @@ stdout 로그 출력 format 을 `LOG_FORMAT` 환경변수로 토글.
               indexed search·filter·alerting
 ```
 
-구현: `src/assessment_engine/log_config.py` 의 `setup_logging(log_format)`. 각 entry (web/consumer/diagnostic-worker/diagnostic-scheduler) 가 Composition Root 에서 호출 (F4 단일 진실). `web_settings.log_format` · `consumer_settings.log_format` · `diagnostic_settings.log_format` 모두 동일 env 읽음.
+구현: `src/assessment_engine/log_config.py` 의 `setup_logging(log_format)`. 각 entry (web/consumer/diagnostic-worker) 가 Composition Root 에서 호출 (F4 단일 진실). `web_settings.log_format` · `consumer_settings.log_format` · `diagnostic_settings.log_format` 모두 동일 env 읽음.
 
 운영 권장:
 - dev: `LOG_FORMAT=text` — 사람이 직접 stream 을 보거나 grep 할 때 가독성 우선.
@@ -95,7 +95,7 @@ Prometheus (인프라)              Web 컨테이너
 
 ## Request / Correlation ID 분산 trace
 
-본 프로젝트 현재 미적용 — HTTP 측 `X-Request-ID` 없음, MQ `message_id` 는 멱등성 키로만 활용. 로그는 식별자 (machine_id·server_id) 별 grep 으로 trace.
+본 프로젝트 현재 미적용 — HTTP 측 `X-Request-ID` 없음, MQ `message_id` 는 멱등성 키로만 활용. 로그는 식별자 (host_id·server_id) 별 grep 으로 trace.
 
 ### 정석 패턴 (도입 시)
 

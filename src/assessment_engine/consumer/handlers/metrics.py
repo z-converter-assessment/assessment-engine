@@ -47,11 +47,7 @@ def make_metrics_handler(
 
             async def save(repo: BaseCollectRepository) -> tuple[int, bool, MetricInsertResult]:
                 # find→upsert 흐름은 repo.ensure_server_id로 캡슐화. find 성공 시 placeholder 미사용.
-                server_id, auto_registered = await repo.ensure_server_id(
-                    data.machine_id,
-                    data.hostname,
-                    placeholder,
-                )
+                server_id, auto_registered = await repo.ensure_server_id(data.host_id, placeholder)
                 result = await repo.record_metrics(server_id, dto)
                 return server_id, auto_registered, result
 
@@ -59,9 +55,9 @@ def make_metrics_handler(
 
             if auto_registered:
                 logger.info(
-                    "auto-registered server from metrics machine_id={} hostname={} "
+                    "auto-registered server from metrics host_id={} hostname={} "
                     "(정적 정보는 다음 inventory 도착 시 채워짐)",
-                    data.machine_id,
+                    data.host_id,
                     data.hostname,
                 )
 
@@ -72,14 +68,14 @@ def make_metrics_handler(
             await safe_publish(
                 redis,
                 consumer_settings.redis_channel_metrics,
-                json.dumps({"server_id": resolved_server_id, "machine_id": data.machine_id}),
+                json.dumps({"server_id": resolved_server_id, "host_id": data.host_id}),
             )
-            await _track_agent_restart(redis, resolved_server_id, data.machine_id, data.agent_started_at)
+            await _track_agent_restart(redis, resolved_server_id, data.host_id, data.agent_started_at)
 
             # F7: 메시지별 처리 흐름은 DEBUG — 1만 서버 시 분당 1만 line 방지.
             logger.debug(
-                "metrics stored machine_id={} rows metrics={} disk_io={} net_io={} mount_usage={}",
-                data.machine_id,
+                "metrics stored host_id={} rows metrics={} disk_io={} net_io={} mount_usage={}",
+                data.host_id,
                 insert_result.metrics,
                 insert_result.disk_io,
                 insert_result.net_io,

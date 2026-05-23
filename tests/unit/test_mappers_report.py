@@ -220,7 +220,7 @@ def _detail(*, id_, hostname, cpu_cores, mem_total_kb, disk_size, role_unit=None
     return ServerDetail(
         id=id_,
         public_id=f"p{id_}",
-        machine_id=f"m{id_}",
+        host_id=f"m{id_}",
         hostname=hostname,
         agent_version="1.0",
         os_family=None,
@@ -796,7 +796,7 @@ def test_inventory_export_network_addresses_v4_v6_split():
     detail = ServerDetail(
         id=1,
         public_id="p1",
-        machine_id="m1",
+        host_id="m1",
         hostname="h",
         agent_version="1.0",
         os_family=None,
@@ -833,7 +833,7 @@ def test_inventory_export_services_listeners_match_listen_ports():
     detail = ServerDetail(
         id=1,
         public_id="p1",
-        machine_id="m1",
+        host_id="m1",
         hostname="h",
         agent_version="1.0",
         os_family=None,
@@ -871,7 +871,7 @@ def test_inventory_export_services_listeners_fallback_when_no_listen_ports():
     detail = ServerDetail(
         id=1,
         public_id="p1",
-        machine_id="m1",
+        host_id="m1",
         hostname="h",
         agent_version="1.0",
         os_family=None,

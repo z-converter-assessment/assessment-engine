@@ -56,11 +56,11 @@
   ↓
 engine web:
   1. Task INSERT (status=pending)
-  2. task.install.<machine_id> publish to assessment.tasks exchange
-  3. agent.tasks.<machine_id> 큐로 routing
+  2. task.install.<host_id> publish to assessment.tasks exchange
+  3. agent.tasks.<host_id> 큐로 routing
   ↓
 워커 VM의 agent worker:
-  1. agent.tasks.<machine_id> consume
+  1. agent.tasks.<host_id> consume
   2. download.url(`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`) fetch (sha256·size 검증, host whitelist 통과)
   3. install.type 분기:
      - shell (Linux .tar.gz): tar 추출 후 install.script 경로 exec
@@ -83,7 +83,7 @@ list page polling → badge 자동 갱신 (success/failure)
 
 ADR 0007 — Task 별도 exchange:
 - `assessment.tasks` exchange (server.* exchange와 분리)
-- 머신별 queue `agent.tasks.<machine_id>` — 워커가 자기 머신 task만 consume
+- 머신별 queue `agent.tasks.<host_id>` — 워커가 자기 머신 task만 consume
 - 결과는 단일 `worker.result` 큐로 통합 — engine consumer가 routing 무관 처리
 
 4 KB tail 한정 근거:

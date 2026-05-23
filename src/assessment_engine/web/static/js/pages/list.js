@@ -120,7 +120,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && (modal.sty
 
 // ─── ZConverter Install ────────────────────────────────────────────────────
 // 체크박스로 호스트 선택 -> POST /api/tasks/install.
-// engine 은 DB INSERT + agent.tasks.<machine_id> 큐 동적 declare + task.install publish.
+// engine 은 DB INSERT + agent.tasks.<host_id> 큐 동적 declare + task.install publish.
 // download.url 은 운영자 입력 ZDM host + ZDM_PACKAGE_PATH 조립, sha256/size_bytes 는 ZDM_PACKAGE_* env.
 
 const installModal            = document.getElementById('install-modal');

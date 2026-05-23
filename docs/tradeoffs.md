@@ -118,7 +118,7 @@
 - Alembic: 마이그레이션 스크립트로 스키마 관리. consumer가 web에 의존하지 않음.
 
 해소 (ADR 0005 채택 후)
-- migrate init-container 패턴 — `migrate` 서비스가 1회 실행 후 종료(`restart: "no"`). 앱 4 서비스(`web`/`consumer`/`diagnostic-worker`/`diagnostic-scheduler`) 모두 `depends_on: migrate: service_completed_successfully`.
+- migrate init-container 패턴 — `migrate` 서비스가 1회 실행 후 종료(`restart: "no"`). 앱 3 서비스(`web`/`consumer`/`diagnostic-worker`) 모두 `depends_on: migrate: service_completed_successfully`. ADR 0023: scheduler cron 폐기로 4 서비스 → 3.
 - `consumer depends_on web` 제거됨 — web과 consumer가 동등 lifecycle.
 - CI `alembic check`가 ORM·migration drift 자동 차단.
 
@@ -200,7 +200,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 > 관련 코드: `src/assessment_engine/db/repositories/query/server.py` `list_servers`
 
 선택
-- `select(ServerInventory.id, .public_id, .machine_id, ...)`로 11개 컬럼만 명시 SELECT. `mounts`/`listen_ports`/`kernel_version`/`boot_time`/`swap_total_kb`/`agent_version`/`last_seen_at`/`ip_internal`/`os_codename`/`cpu_model` 제외.
+- `select(ServerInventory.id, .public_id, .host_id, ...)`로 11개 컬럼만 명시 SELECT. `mounts`/`listen_ports`/`kernel_version`/`boot_time`/`swap_total_kb`/`agent_version`/`last_seen_at`/`ip_internal`/`os_codename`/`cpu_model` 제외.
 
 대안
 - `select(ServerInventory)` 풀로우 SELECT (이전 구현).
@@ -318,16 +318,16 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ---
 
-## T12. server_inventory 호스트 식별 = `(machine_id, hostname)` 복합 UNIQUE
+## T12. server_inventory 호스트 식별 = `(host_id, hostname)` 복합 UNIQUE
 
 > 관련 코드: `src/assessment_engine/db/models/server_inventory.py`, `src/assessment_engine/db/repositories/collect_repository.py`
 > 관련 문서: CLAUDE.md #C1, `docs/architecture/db/models.md`, `docs/architecture/agent.md`
 > 관련 migration: `migrations/versions/f5c1e2d3a4b8_inventory_composite_unique.py`
 
 선택
-- `server_inventory` unique 키를 `machine_id` 단독에서 `(machine_id, hostname)` 복합으로 변경.
-- agent payload schema (`MessageBase`) 는 그대로 — 이미 `machine_id` + `hostname` 둘 다 전송 중.
-- Repository signature (`find_server_id`·`ensure_server_id`) 와 `on_conflict_do_*` index_elements, redis cooldown 키 (`time_invariant_warned:{machine_id}:{hostname}`) 모두 복합 키 일관.
+- `server_inventory` unique 키를 `host_id` 단독에서 `(host_id, hostname)` 복합으로 변경.
+- agent payload schema (`MessageBase`) 는 그대로 — 이미 `host_id` + `hostname` 둘 다 전송 중.
+- Repository signature (`find_server_id`·`ensure_server_id`) 와 `on_conflict_do_*` index_elements, redis cooldown 키 (`time_invariant_warned:{host_id}:{hostname}`) 모두 복합 키 일관.
 
 대안
 - agent_id 신설: agent 첫 install 시 UUID 생성 + `/var/lib/.../agent-id` 영구 저장. agent C source + payload schema 변경 (#B). 가장 정석이나 외부 repo 작업 부담.
@@ -336,13 +336,13 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 트레이드오프
 - 얻은 것:
-  - 실제 운영에서 흔한 machine_id 중복 시나리오 (VM 템플릿 복제·이미지 clone·container host `/etc/machine-id` 마운트) 즉시 격리.
+  - 실제 운영에서 흔한 host_id 중복 시나리오 (VM 템플릿 복제·이미지 clone·container host `/etc/machine-id` 마운트) 즉시 격리.
   - agent 변경 0 — 엔진 단독으로 완결. payload 합의 영향 없음.
   - 영향 코드 단순 (Repository signature + consumer 핸들러 hostname 1개 추가 전달 + cooldown 키 인자 1개 추가).
 - 포기한 것:
   - hostname 변경 시 새 row INSERT (다른 호스트로 인식) — 운영자가 명시적으로 hostname 변경하면 history 끊김. 같은 호스트 분리. 운영자 의도와 다를 수 있음.
-  - 두 다른 호스트가 동일 machine_id + 동일 hostname 보유 시 여전히 충돌 (rare — 클론 후 hostname 안 바꾼 케이스).
-  - MQ queue `agent.tasks.{machine_id}` / routing key `task.install.{machine_id}` 는 여전히 machine_id 단독 — agent 가 자기 machine_id 로 queue subscribe 하니 agent 변경 없이 hostname 포함 불가. 같은 machine_id 다른 hostname 두 호스트가 동일 큐 공유 시 message race 가능 (rare).
+  - 두 다른 호스트가 동일 host_id + 동일 hostname 보유 시 여전히 충돌 (rare — 클론 후 hostname 안 바꾼 케이스).
+  - MQ queue `agent.tasks.{host_id}` / routing key `task.install.{host_id}` 는 여전히 host_id 단독 — agent 가 자기 host_id 로 queue subscribe 하니 agent 변경 없이 hostname 포함 불가. 같은 host_id 다른 hostname 두 호스트가 동일 큐 공유 시 message race 가능 (rare).
 
 왜 받아들였나
 - B2B 내부 포털 — 인벤토리 등록 호스트 수가 작아 hostname 충돌 자체가 드묾.

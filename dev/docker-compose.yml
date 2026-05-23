@@ -9,8 +9,9 @@
 #   - volume mount  = `../:/app` (호스트 루트 ↔ 컨테이너 /app)
 #   - env_file       = `.env` (dev/.env — `cp dev/.env.example dev/.env`)
 #
-# YAML anchor — 앱 5종 (migrate · web · consumer · diagnostic-worker · diagnostic-scheduler)이
+# YAML anchor — 앱 4종 (migrate · web · consumer · diagnostic-worker)이
 # 공유하는 build · depends_on · dev volume mount · 공통 environment를 단일 진실로 정의.
+# ADR 0023: scheduler cron 폐기로 5종 → 4종.
 #
 # user "0:0" — Dockerfile 의 USER app(uid 1000) 적용. dev 는 `../:/app` 으로 호스트 코드 bind
 # mount 이라 컨테이너 uid 1000 이 호스트 파일(macOS 보통 501) 쓰기 실패 가능. dev 에선 root
@@ -42,7 +43,8 @@ x-app-base: &app-base
 services:
   postgres:
     restart: unless-stopped
-    image: timescale/timescaledb:latest-pg16
+    # ADR 0024: pgvector extension 의무 — `timescaledb-ha` 변형 (TimescaleDB + pgvector + postgis 등 all-in-one 포함).
+    image: timescale/timescaledb-ha:pg16
     env_file: .env
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-assessment}
@@ -137,19 +139,15 @@ services:
     <<: *app-base
     command: python -m assessment_engine.consumer
 
-  # 진단 워커 — RabbitMQ `diagnostic.request` 소비, 규칙 기반 진단 수행, DB 저장 (ADR 0004 · 0010).
+  # 진단 워커 — RabbitMQ `diagnostic.request` 소비, 규칙 기반 진단 수행, DB 저장 (ADR 0004 · 0010 · 0023).
   # LLM_PROVIDER 기본 mock (과금 발생 외부 API 호출 금지 — 운영자 정책).
+  # ADR 0023: scheduler cron 폐기. trigger 채널 = web POST /api/diagnostics 만.
   diagnostic-worker:
     <<: *app-base
     command: python -m assessment_engine.diagnostic
     environment:
       <<: *app-env
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
-
-  # 진단 스케줄러 — cron 발화로 활성 서버 N대 + environment job enqueue + retention DELETE.
-  diagnostic-scheduler:
-    <<: *app-base
-    command: python -m assessment_engine.diagnostic.scheduler
 
 volumes:
   postgres_data:

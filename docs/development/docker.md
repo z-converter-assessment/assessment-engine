@@ -2,14 +2,14 @@
 
 정책: CLAUDE.md #A. 본 문서는 docker-compose 운영 단일 진실 — Dockerfile·compose 파일 구조·서비스 카탈로그·healthcheck·기동 순서.
 
-docker-compose는 엔진 그 자체 — web·consumer·diagnostic-worker·diagnostic-scheduler·postgres·rabbitmq·redis·migrate 8 서비스가 고객사 네트워크 내 설치 단위. Python 앱(web·consumer·worker·scheduler·migrate)은 로컬 빌드 단일 이미지 + command 분기, 인프라(postgres·rabbitmq·redis)는 공식 이미지.
+docker-compose는 엔진 그 자체 — web·consumer·diagnostic-worker·postgres·rabbitmq·redis·migrate 7 서비스가 고객사 네트워크 내 설치 단위. Python 앱(web·consumer·worker·migrate)은 로컬 빌드 단일 이미지 + command 분기, 인프라(postgres·rabbitmq·redis)는 공식 이미지. ADR 0023: scheduler cron 폐기로 8 → 7.
 
 ---
 
 ## 파일 구조
 
 ```
-Dockerfile                    — web·consumer·diagnostic-worker·diagnostic-scheduler 공용 이미지 (루트 — prod 도 활용 가능한 빌드 산출물)
+Dockerfile                    — web·consumer·diagnostic-worker 공용 이미지 (루트 — prod 도 활용 가능한 빌드 산출물)
 dev/docker-compose.yml        — dev 단일 compose (#A0). dev/.env 평문 + 포트 노출 + 코드 마운트 + APP_ENV=dev. pgadmin은 profiles:[gui] 분리
 dev/.env.example              — dev compose 기준 환경변수 카탈로그. `cp dev/.env.example dev/.env`
 .env.example                  — prod 운영자 카탈로그 (루트). dev compose 와 무관 — 외부 인프라 운영자가 채워서 사용
@@ -59,8 +59,7 @@ web·consumer·diagnostic 워커·스케줄러·migrate 모두 같은 이미지�
 |--------|---------|--------|
 | web | `python -m assessment_engine.web` | `src/assessment_engine/web/__main__.py` → uvicorn 기동 (override에서 reload) |
 | consumer | `python -m assessment_engine.consumer` | `src/assessment_engine/consumer/__main__.py` → `asyncio.run(consumer.main.main())` |
-| diagnostic-worker | `python -m assessment_engine.diagnostic` | ADR 0004 — `diagnostic.request` 큐 소비, LLM 호출 |
-| diagnostic-scheduler | `python -m assessment_engine.diagnostic.scheduler` | ADR 0004 — 주기 진단 작업 enqueue |
+| diagnostic-worker | `python -m assessment_engine.diagnostic` | ADR 0004 + 0023 — `diagnostic.request` 큐 소비, LLM 호출. trigger 채널 = web POST `/api/diagnostics` 만 |
 | migrate | `alembic upgrade head` | postgres healthy 후 1회 실행하고 종료 (`restart: "no"`). ADR 0005 |
 
 이미지가 1개라 빌드/푸시·패치 운영 비용이 최소화된다. 의존성 패키지(SQLAlchemy·aio-pika·redis·FastAPI 등)도 양쪽이 모두 사용하므로 분리 이득이 적다.
@@ -119,14 +118,13 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 
 | 서비스 | 이미지 | 역할 | 적용 환경 |
 |--------|--------|------|-----------|
-| `postgres` | `timescale/timescaledb:latest-pg16` | 메인 DB + TimescaleDB 확장 | dev / prod |
+| `postgres` | `timescale/timescaledb-ha:pg16` | 메인 DB + TimescaleDB + pgvector (ADR 0024) 등 all-in-one | dev / prod |
 | `rabbitmq` | `rabbitmq:3.13-management-alpine` | 메시지 브로커 (AMQP + 관리 UI) | dev / prod |
 | `redis` | `redis:7-alpine` | 캐시·온라인 TTL·PUB/SUB | dev / prod |
 | `migrate` | 로컬 빌드 | `alembic upgrade head` 1회 실행 후 종료 (ADR 0005). 앱 서비스 4종이 `depends_on: service_completed_successfully`로 그 뒤 기동 | dev / prod |
 | `web` | 로컬 빌드 | FastAPI SSR + API + StaticFiles | dev / prod |
 | `consumer` | 로컬 빌드 | aio-pika 컨슈머 (server.* + task.result 큐) | dev / prod |
-| `diagnostic-worker` | 로컬 빌드 | `diagnostic.request` 큐 소비, LLM 호출 (ADR 0004) | dev / prod |
-| `diagnostic-scheduler` | 로컬 빌드 | 주기 진단 작업 enqueue (ADR 0004) | dev / prod |
+| `diagnostic-worker` | 로컬 빌드 | `diagnostic.request` 큐 소비, LLM 호출 (ADR 0004 + 0023) | dev / prod |
 | `pgadmin` | `dpage/pgadmin4` | DB GUI (`profiles:[gui]` 전용). `docker compose --profile gui up -d pgadmin`으로 명시 호출 — idle 250 MiB 절감 | dev gui only |
 
 ### 포트 노출
@@ -202,7 +200,7 @@ env_file: .env
 environment:
   POSTGRES_HOST: postgres   # .env의 localhost 값 오버라이드
   REDIS_HOST: redis
-  RABBITMQ_HOST: rabbitmq   # consumer·diagnostic-worker·diagnostic-scheduler — web은 RabbitMQ 직접 사용 안 함
+  RABBITMQ_HOST: rabbitmq   # consumer·diagnostic-worker — web 도 진단 publish 위해 사용
 ```
 
 호스트에서 직접 실행 시 `.env`의 기본값(`localhost`)을 쓰고, 컨테이너에서는 `environment` 블록이 오버라이드.
@@ -233,15 +231,15 @@ environment:
 postgres ─ healthy ─▶ migrate (alembic upgrade head, 1회 실행 후 exit)
                           │
                           ▼ service_completed_successfully
-            ┌──────┬──────┴───────────┬──────────────────────┐
-            ▼      ▼                  ▼                      ▼
-           web   consumer    diagnostic-worker    diagnostic-scheduler
-            ▲      ▲                  ▲                      ▲
-   redis ───┴──────┴──────────────────┴──────────────────────┤
-rabbitmq ──────────┴──────────────────┴──────────────────────┘
+            ┌──────┬──────┴───────────┐
+            ▼      ▼                  ▼
+           web   consumer    diagnostic-worker
+            ▲      ▲                  ▲
+   redis ───┴──────┴──────────────────┤
+rabbitmq ──────────┴──────────────────┘
 ```
 
-ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migrate` 컨테이너가 schema 준비 완료를 보장한 뒤 앱 4종 기동.
+ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migrate` 컨테이너가 schema 준비 완료를 보장한 뒤 앱 3종 기동. ADR 0023: scheduler cron 폐기로 4종 → 3종.
 
 ### restart 정책
 

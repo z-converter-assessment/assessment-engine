@@ -1,6 +1,6 @@
 # ADR 0004 — AI 진단 워커 아키텍처
 
-상태: Refined by 0010 (2026-05-16) — 워커·스케줄러·`diagnostic_jobs` 인프라는 그대로 유효. "AI 진단" 명칭은 ADR 0010으로 "진단"(scope에 따라 환경/서버)으로 정정. `LLM_PROVIDER=mock` default + ollama 미구현 상태 그대로 보존. 본 ADR 본문은 historical record.
+상태: Refined by 0010 (2026-05-16) + 0023 (2026-05-23) — 워커·`diagnostic_jobs` 인프라·LLM 토글은 그대로 유효. "AI 진단" 명칭은 ADR 0010으로 "진단"(scope에 따라 환경/서버)으로 정정. scheduler cron 자동 발화는 ADR 0023으로 폐기 (trigger 채널 = 사용자 명시 web POST 만). `LLM_PROVIDER=mock` default + ollama 미구현 상태 그대로 보존. 본 ADR 본문은 historical record.
 
 원래 상태: Proposed (2026-05-12)
 
@@ -188,3 +188,4 @@ ADR 0002와 유사 — 진단 단위가 작아지고 빈도가 폭증할 경우:
   - handler.py `except Exception` → 명시적 분기: `OperationalError` reraise(DLQ 재시도) + `(ValueError, KeyError, IntegrityError)` 흡수(`status='failed'`). F6 fail-close/흡수 매트릭스 일치.
   - `text(f"interval '{N} days'")` f-string SQL → `func.now() - timedelta(days=N)` SQLAlchemy idiomatic (Python timedelta가 PostgreSQL interval로 자동 변환·bind 파라미터 안전, C5 의무). `list_recent`·`delete_retention`·scheduler `_list_active_server_public_ids` 3건.
   - `to_history_item` mapper 신설 — `diagnostic_results.history` 라우터의 직접 dict 조립을 P2 단일 변환 진입점으로 흡수. `history.html` `status_badge_class` precompute (P3 분기 제거).
+- 2026-05-23: scheduler cron 결정 본문 supersede (ADR 0023). 본문 안 "스케줄러" 절·"diagnostic-scheduler" 컴포넌트·`DIAGNOSTIC_SCHEDULE_CRON`·`DIAGNOSTIC_ACTIVE_SERVER_WINDOW_HOURS`·`DIAGNOSTIC_RETENTION_DAYS`·"활성 서버 N대 자동 enqueue"·"retention DELETE" 의 cron 발화 catalog 모두 폐기. trigger 채널 = 사용자 명시 (web POST /api/diagnostics) 만. 워커 + LLM 토글 + `diagnostic_jobs` 테이블 + active partial UNIQUE + `_normalize_anchor` 분 단위 dedup 정공 + Redis polling 캐시 + DLQ 등 본문 다른 결정은 그대로 유효. 사유: 14일 평가 윈도우 변화 빈도 낮음 + RAG (ADR 0024) 도입 시도 cron 누적 정당화 약 + retention 비활성 위험. 본 ADR 본문 정정 catalog 는 historical record, 실제 구현은 본 시점 코드/docs/ADR 0023 단일 진실.

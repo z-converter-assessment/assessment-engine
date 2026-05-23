@@ -18,9 +18,15 @@ from assessment_engine.diagnostic.settings import diagnostic_settings
 class MockLlmClient(BaseLlmClient):
     async def generate_narrative(self, scope: str, payload: dict) -> str:
         await asyncio.sleep(diagnostic_settings.llm_mock_latency_seconds)
-        if scope == "server":
-            return _server_narrative(payload)
-        return _environment_narrative(payload)
+        base = _server_narrative(payload) if scope == "server" else _environment_narrative(payload)
+        # RAG context 인용 — ADR 0024 결정 7. mock 도 retrieve_context 단계 동작 검증 본질.
+        rag_context = payload.get("rag_context") or []
+        if rag_context:
+            titles = [
+                doc.get("metadata", {}).get("title") or doc.get("source_id", "untitled") for doc in rag_context[:3]
+            ]
+            base += " 관련 가이드: " + "; ".join(titles)
+        return base
 
 
 def _server_narrative(payload: dict) -> str:

@@ -104,7 +104,7 @@ prov 분포 도넛 3 카테고리:
 2. SSE 단일 채널 + 서버 측 필터링 (T5) — 동시 운영자 ↑ 시 broker 부하. 본 프로젝트 규모는 OK.
 3. 활용률 도넛은 환경 평균만 — 분포(p50·p95)는 미노출. 양극화 환경에서 misleading (`docs/products/environment-report.md` 한계 #2와 동일 패턴).
 4. 행별 권장 단일 라벨 — recommendation 분류 1개만 표시. 다중 신호(예: CPU 정상 + 메모리 부족)는 우선순위 평가 후 1개만.
-5. 환경 진단 결과 자동 노출 — list 페이지가 매일 03시 cron 실행된 최근 succeeded 진단을 자동 표시. 사용자 명시 발행 안 해도 정보 노출. 다만 진단 워커 중단 시 stale 표시 위험.
+5. 환경 진단 결과 자동 노출 — list 페이지가 사용자 trigger (web POST /api/diagnostics) 로 발행된 최근 succeeded 진단을 자동 표시. ADR 0023: cron 자동 발화 폐기로 운영자가 명시 발행 안 하면 진단 자료 누적 0. 진단 워커 중단 시 stale 표시 위험.
 
 ## 관련 문서·코드
 

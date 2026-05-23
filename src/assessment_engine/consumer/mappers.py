@@ -11,17 +11,17 @@ from assessment_engine.db.dtos.inbound import (
 def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
     """metrics 메시지로부터 최소 정보의 placeholder inventory 생성.
 
-    auto-register 시나리오: server_inventory에 machine_id가 없는데 metrics가 들어왔을 때
+    auto-register 시나리오: server_inventory에 host_id가 없는데 metrics가 들어왔을 때
     metrics를 drop하지 않기 위한 임시 등록. 정적 정보(OS·CPU·메모리·디스크 등)는 None/빈 배열로
     채우고, 다음 진짜 inventory가 도착하면 `upsert_server`의 `ON CONFLICT DO UPDATE`로
-    자동 풀 정보 덮어씀 (machine_id UNIQUE 제약).
+    자동 풀 정보 덮어씀 (host_id UNIQUE 제약).
 
     공통 메타(boot_time·agent_started_at)는 metrics에도 포함되므로 placeholder도 채움 (option A).
     placeholder 상태에서 web UI는 정보 부족 표시(현재 ViewModel의 None 처리로 자연 노출).
     """
     return ServerInventoryCreate(
         # ─── 공통 메타데이터 ─────────────────────────────────────────────────
-        machine_id=data.machine_id,
+        host_id=data.host_id,
         hostname=data.hostname,
         agent_version=data.agent_version,
         collected_at=data.collected_at,
@@ -49,7 +49,7 @@ def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
 def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
     return ServerInventoryCreate(
         # ─── 공통 메타데이터 ─────────────────────────────────────────────────
-        machine_id=data.machine_id,
+        host_id=data.host_id,
         hostname=data.hostname,
         agent_version=data.agent_version,
         collected_at=data.collected_at,
@@ -87,7 +87,7 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
     cpu = data.cpu_stat
     return ServerMetricCreate(
         # ─── 공통 메타데이터 ─────────────────────────────────────────────────
-        # machine_id는 handler가 server_id 해석에 직접 사용. boot_time·agent_started_at은
+        # host_id는 handler가 server_id 해석에 직접 사용. boot_time·agent_started_at은
         # 시계열 행에 저장 — counter reset 정밀 식별 (CLAUDE.md B1).
         collected_at=data.collected_at,
         boot_time=data.boot_time,

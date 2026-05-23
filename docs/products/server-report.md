@@ -22,7 +22,7 @@
   - 서버 진단 — list 에서 N대 선택 → "서버 진단 (N)" 버튼 (batch 발행), 또는 server detail 페이지 "서버 진단" 카드 (단건 발행)
 - 발행 경로:
   - 서버 보고서 — 운영자 즉시 호출 (HTTP GET). 발행 시점 즉시 5 SQL round-trip + render
-  - 서버 진단 — 운영자 즉시 발행 (웹 모달) 또는 스케줄러 매일 03시 자동 (`diagnostic-scheduler` — 활성 서버 전체에 scope=server 각각 enqueue)
+  - 서버 진단 — 운영자 즉시 발행 (웹 모달) — ADR 0023: scheduler cron 폐기, 사용자 trigger 만
 - 산출물 형태: HTML SSR. 브라우저 인쇄로 PDF/PPT 캡처 (백엔드 PDF export 미도입)
 
 ## 존재 의의
@@ -163,7 +163,7 @@ AWS Compute Optimizer 임계값(CPU p95 30%) 기준으로 CPU 다운사이즈 �
 ### 분류 컬럼 vs 진단 컬럼 차이 (engineer view)
 
 - "분류 / 판단" — 본 보고서 윈도우 (period_days) raw 데이터 기반 즉시 분류. URL 파라미터 따라 윈도우 가변.
-- "진단 (14일)" — 별도 진단 job 결과 (스케줄러 매일 03시 또는 사용자 발행). 14일 고정. 다른 시점에 발행된 job 의 결과라 stale 가능.
+- "진단 (14일)" — 별도 진단 job 결과 (사용자 발행 — ADR 0023). 14일 고정. 다른 시점에 발행된 job 의 결과라 stale 가능.
 
 같은 분류 이름 (under_provisioned 등) 을 쓸 수 있지만 source·시점 다름 — 두 컬럼이 다르게 보이면 윈도우 차이·진단 job 갱신 지연이 원인.
 
@@ -203,7 +203,7 @@ AWS Compute Optimizer 임계값(CPU p95 30%) 기준으로 CPU 다운사이즈 �
 - `docs/architecture/web/static-assets.md` "report.html print CSS" — 인쇄 색 처리
 - `docs/tradeoffs.md` T13 — 보고서 = diagnostic_jobs 통합
 - `src/assessment_engine/recommendation.py` — 분류 임계값 상수 카탈로그
-- `src/assessment_engine/diagnostic/scheduler.py` — 스케줄러 흐름 (매일 03시·활성 서버 전체)
+- `src/assessment_engine/diagnostic/submitter.py` — 진단 발행 (ADR 0014). trigger 채널 = web POST 만 (ADR 0023)
 - `src/assessment_engine/diagnostic/llm/mock.py::_server_narrative` — 자연어 합성 템플릿
 - `src/assessment_engine/web/services/diagnostic_service.py` — job 발행·polling
 - `src/assessment_engine/web/services/query_service.py::get_report` — 5 SQL round-trip + view 분기

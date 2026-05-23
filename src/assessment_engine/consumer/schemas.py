@@ -10,7 +10,7 @@ class MessageBase(BaseModel):
     # B4 계약 진화 정책 — `extra=ignore`로 agent가 새 필드 추가해도 엔진은 통과·무시. 자식 클래스 상속.
     model_config = ConfigDict(extra="ignore")
 
-    machine_id: str = Field(min_length=1, max_length=64)
+    host_id: str = Field(min_length=1, max_length=64)
     agent_version: str = Field(min_length=1, max_length=32)
     collected_at: datetime
     hostname: str = Field(min_length=1, max_length=255)
@@ -184,7 +184,7 @@ class ErrorInput(MessageBase):
 class TaskResultInput(MessageBase):
     """원격 작업 실행 결과 수신 메시지.
 
-    공통 메타(machine_id 등)는 MessageBase. boot_time / agent_started_at은
+    공통 메타(host_id 등)는 MessageBase. boot_time / agent_started_at은
     본 메시지에서는 항상 null (수집 캐시와 분리된 worker 컨텍스트에서 발행) —
     부모 required 필드를 nullable로 override.
     """

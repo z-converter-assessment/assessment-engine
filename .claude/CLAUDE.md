@@ -67,7 +67,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 - 시계열 5개 테이블 자연키 UNIQUE 보존 의무 — 누락 시 #D2 멱등성 2단 방어 깨짐. 모델 변경 시 검증 필수.
 - 시계열 4개 테이블 `boot_time` + `agent_started_at` 컬럼 보존 의무 — counter reset 정밀 식별 (#B 동일 진실).
 - `server_inventory.public_id` (UUID) URL 식별자 — 정수 PK 노출 금지 (#E4).
-- `server_inventory` 호스트 식별 = `(machine_id, hostname)` 복합 UNIQUE — `machine_id` 단독은 VM 템플릿 복제·이미지 clone·container host `/etc/machine-id` 마운트 등 실제 운영 환경에서 중복 가능. `find_server_id`·`ensure_server_id` signature 와 `on_conflict_do_*` index_elements, redis cooldown 키 모두 복합 키 일관. 한계: MQ queue `agent.tasks.{machine_id}` / routing key `task.install.{machine_id}` 는 agent 측 변경 없이 hostname 포함 불가 — 같은 machine_id 다른 hostname 두 호스트가 동일 큐 공유 (rare race). 별도 ADR / 후속 작업.
+- `server_inventory` 식별 3 분리 (ADR 0022): `id bigint PK` (FK 대상) / `host_id char(64) UNIQUE` (agent 매칭 — composite hash) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{host_id}` / routing key `task.install.{host_id}`.
 - `diagnostic_jobs.job_type` (`ai_diagnostic`/`customer_report`/`engineer_report`) + active partial UNIQUE = `(scope, input_hash, job_type)`. 보고서도 본 테이블에 row 보존.
 - 보고서 발행 PRG pattern: GET endpoint 는 read-only 표시 (record 안 함). POST `/reports/environment/emit` · `/servers/report/emit` 가 `record_report_emission` 호출 후 응답 view_url 반환 — JS 가 navigate. 다시 보기 / 직접 URL / 북마크 진입은 record 안 됨 (중복 row 방지).
 - 양식 분리: server scope 는 row 단위 상세 (`servers/report.html`), environment scope 는 high-level (KPI·분류·Top N·OS 분포·view별 요약, `reports/environment.html`).
@@ -105,7 +105,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 
 ## D1. 구조·후처리·실패 처리
 
-aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸들러 팩토리 · `(machine_id, hostname)` 복합 키 식별 (#C1) · `ensure_server_id` placeholder 분기 · auto-register · `_db_retry` 백오프 · routing key별 후처리 시퀀스 · 부가 시그널(`_log_time_invariants`·`_track_agent_restart`) · 실패 분기·DLQ 운영: `docs/architecture/consumer.md` 단일 진실.
+aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸들러 팩토리 · `host_id` 단일 키 식별 (#C1) · `ensure_server_id` placeholder 분기 · auto-register · `_db_retry` 백오프 · routing key별 후처리 시퀀스 · 부가 시그널(`_log_time_invariants`·`_track_agent_restart`) · 실패 분기·DLQ 운영: `docs/architecture/consumer.md` 단일 진실.
 
 본 절 결정:
 - 모든 후처리는 `safe_*` helper 경유(#C3) — 부수 작업 실패가 메시지 처리 ack를 막지 않는다.
@@ -155,7 +155,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 ## E2. 데이터 흐름 결정
 
 - DTO(dataclass)와 ORM 모델 분리 — 변환은 repository 책임.
-- inventory upsert·metrics 저장·server_id 조회 모두 `(machine_id, hostname)` 복합 키 기준. 미등록 metrics는 drop.
+- inventory upsert·metrics 저장·server_id 조회 모두 `host_id` 단일 키 기준 (#C1). 미등록 metrics는 drop.
 - `last_seen_at`은 `ServerDetail`(단일 조회)에만 포함. `ServerSummary`(목록)는 Redis `online:{id}` TTL로 표시.
 - `CollectionStatusItem`은 `last_metric_at` + `last_inventory_at` 별도 필드.
 
@@ -241,7 +241,7 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 `Settings()` 인스턴스 단일 진실 위치:
 - `src/assessment_engine/web/settings.py` — `web_settings` (WebSettings) + `diagnostic_settings` (DiagnosticSettings, web도 진단 publish 위해 broker 사용)
 - `src/assessment_engine/consumer/settings.py` — `consumer_settings` (ConsumerSettings)
-- `src/assessment_engine/diagnostic/settings.py` — `diagnostic_settings` (DiagnosticSettings, worker·scheduler 공통)
+- `src/assessment_engine/diagnostic/settings.py` — `diagnostic_settings` (DiagnosticSettings, worker 전용 — ADR 0023: scheduler 폐기)
 - `src/assessment_engine/db/session.py`·`cache/redis.py` + repo root `migrations/env.py` — 자체 `WebSettings()` (모든 컴포넌트 공통 db layer·캐시·schema 진입점, circular import 회피)
 
 `src/assessment_engine/config.py`는 class 정의만 — module-level instance 0 (multi-node 분리 정합, ADR/문서 패턴 정합).
@@ -253,6 +253,10 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 - `APP_ENV` 환경 분기를 `config.py` model_validator · entry lifespan 외 위치에 추가.
 
 추상 인터페이스 카탈로그·새 Repository 절차: `docs/architecture/web/layering.md` · `docs/architecture/db/repositories.md`.
+
+RAG 추상 인터페이스 (ADR 0024):
+- `assessment_engine.rag.embedding.BaseEmbeddingClient` — `async embed(texts) -> list[list[float]]`. 구체: `MockEmbeddingClient` (deterministic random) · `OllamaEmbeddingClient` (mxbai-embed-large)
+- `assessment_engine.rag.retriever.BaseRetriever` — `async retrieve(query, top_k, source_type) -> list[RetrievedDoc]`. 구체: `PgVectorRetriever` (HNSW + cosine)
 
 ## F5. 자동화 변환 — 책임 분담
 
@@ -302,9 +306,9 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 - 시그널 로그(`_log_time_invariants`·`_track_agent_restart`)는 쿨다운·슬라이딩 윈도우 의무 — 매 메시지 발생 시 진짜 시그널 매몰.
 - 새 시그널 도입 시 (a) 레벨 (b) 빈도 제어 (c) 운영자 행동 — 셋 다 명시.
 
-금지: payload·secret raw dump — 식별자(machine_id·routing key·message_id·server_id)와 카운트만.
+금지: payload·secret raw dump — 식별자(host_id·routing key·message_id·server_id)와 카운트만.
 
-로그 format: `LOG_FORMAT` env 분기 — `text`(dev colorized) 또는 `json`(prod, loguru `serialize=True`). 각 entry(web/consumer/diagnostic-worker/diagnostic-scheduler)가 기동 직후 `setup_logging(settings.log_format)` 호출. 단일 진실은 `src/assessment_engine/log_config.py`.
+로그 format: `LOG_FORMAT` env 분기 — `text`(dev colorized) 또는 `json`(prod, loguru `serialize=True`). 각 entry(web/consumer/diagnostic-worker)가 기동 직후 `setup_logging(settings.log_format)` 호출. 단일 진실은 `src/assessment_engine/log_config.py`.
 
 Request/Correlation ID 분산 trace 도입 트리거·정석 패턴: `docs/operations/observability.md` (현재 미적용, 도입 시 별도 ADR 의무).
 
@@ -318,7 +322,7 @@ Request/Correlation ID 분산 trace 도입 트리거·정석 패턴: `docs/opera
 - 예외 메시지에 raw payload·접속 문자열 — catch 후 sanitize 후 reraise.
 - HTTP 응답·ViewModel·JSON export에 PII. 운영 식별자는 `public_id`(UUID)만(#E4).
 - Redis·DB에 raw payload 캐싱 — Outbound DTO·ViewModel 단계에서 sanitize 후.
-- 메시지 payload 본문 로깅 (`machine_id`는 식별자라 OK).
+- 메시지 payload 본문 로깅 (`host_id`는 식별자라 OK).
 
 secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/env.md`.
 
@@ -338,6 +342,8 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 | ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass(P2) |
 | 신규 외부 의존(HTTP·LLM·외부 큐) | (1) fail-open/close 결정(#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) #F6 매트릭스 갱신 |
 | 신규 의존성(`pyproject.toml`) | (1) `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토. 워크플로 단일 진실: `docs/development/dependencies.md` |
+| RAG 자료 카탈로그 추가 (ADR 0024) | (1) `rag_documents.source_type` enum 추가 (2) BaseRetriever 호출처 source_type 분기 (3) `docs/architecture/diagnostic.md` "RAG infra" 절 (4) 본 phase 결정 cataolg 갱신 ADR 정정 |
+| embedding 모델 변경 (ADR 0024 결정 2) | (1) `EMBEDDING_MODEL` env (2) `EMBEDDING_DIMENSION` env (3) alembic revision (`embedding vector(N)` 타입 변경) (4) 전체 rag_documents 재 embedding (ingest CLI 재실행) (5) HNSW 인덱스 재 build |
 
 
 ## F10. 평가 윈도우 · 차트 시계열 옵션 — 단일 진실
@@ -356,10 +362,10 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 원칙: SIGTERM 시 in-flight 작업 손실 0 + 다음 기동 시 stale 상태 없음.
 
 본 절 결정:
-- web — uvicorn `timeout_graceful_shutdown=3s`. 진행 중 HTTP 요청 완료 후 exit. SSE는 client reconnect.
+- web — uvicorn `timeout_graceful_shutdown=3s`. 진행 중 HTTP 요청 완료 후 exit. SSE는 client reconnect. 진단 publish (`DiagnosticSubmitter`) 중 SIGTERM은 aio-pika `connect_robust` transaction 보장.
 - consumer / diagnostic-worker — `async with message.process(requeue=False)` 컨텍스트 안에서 모든 await 완료. 정상 exit → ACK / raise → NACK + DLQ.
-- diagnostic-scheduler — cron 발화 사이 SIGTERM 즉시 안전. publish 중 SIGTERM은 aio-pika `connect_robust` transaction 보장.
 - diagnostic-worker 진행 중 job(`status='running'`) stale 정리 미구현 — prod 도입 전 ADR 0004 정정 또는 별도 ADR 의무.
+- ADR 0023: scheduler cron 폐기. cron 발화 측 SIGTERM 본문 본 절 범위 밖.
 
 금지:
 - `signal.signal(SIGTERM, ...)` 직접 핸들러 — uvicorn/asyncio 자체 처리, 중복은 종료 race.

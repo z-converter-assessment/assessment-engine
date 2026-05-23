@@ -143,7 +143,7 @@ def to_inventory_export_entry(
         swap_used = False
 
     return InventoryExportEntry(
-        machine_id=detail.machine_id,
+        host_id=detail.host_id,
         hostname=detail.hostname,
         role=infer_role(detail.services),
         last_seen_at=detail.last_seen_at,

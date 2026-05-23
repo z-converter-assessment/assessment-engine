@@ -215,7 +215,7 @@ def to_server_detail(dto: ServerDetail) -> ServerDetailResponse:
     detail = ServerDetailResponse(
         id=dto.id,
         public_id=dto.public_id,
-        machine_id=dto.machine_id,
+        host_id=dto.host_id,
         hostname=dto.hostname,
         agent_version=dto.agent_version,
         os_id=dto.os_id,

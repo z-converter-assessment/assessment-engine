@@ -11,7 +11,7 @@
 | 산출물 | 라우터 | 의도 |
 |--------|--------|------|
 | 환경 보고서 | `GET /reports/environment?view=customer\|engineer&time_range=14d` | 환경 전체 KPI·자원 합계·분류 분포 high-level 한 장. customer(양식 A) vs engineer(양식 B) view 분기 |
-| 환경 진단 | `POST /api/diagnostics` scope=environment + `GET /diagnostics?ids=<job_id>` | 분류 분포 카운트 + 우선 검토 권장 한 줄 narrative. 즉시 발행 또는 스케줄러 매일 03시 자동. 진단 결과 페이지가 환경 보고서 iframe 2개 (customer·engineer view) 미리 렌더 — 운영자가 한 화면에서 두 view + 진단 narrative 모두 확인 |
+| 환경 진단 | `POST /api/diagnostics` scope=environment + `GET /diagnostics?ids=<job_id>` | 분류 분포 카운트 + 우선 검토 권장 한 줄 narrative. 사용자 trigger 만 발행 (ADR 0023). 진단 결과 페이지가 환경 보고서 iframe 2개 (customer·engineer view) 미리 렌더 — 운영자가 한 화면에서 두 view + 진단 narrative 모두 확인 |
 
 두 산출물의 관계 (T13):
 - 동일 `diagnostic_jobs` 테이블 row 보존. 보고서 / AI 진단 둘 다 본 테이블 record.
@@ -25,7 +25,7 @@
   - 환경 진단 — 대시보드 list 상단 환경 진단 패널 + 결과 페이지 `/diagnostics?ids=<job_id>` + 이력 `/diagnostics/history`
 - 발행 경로:
   - 환경 보고서 — 운영자 즉시 호출 (HTTP GET). 발행 시점 즉시 SQL 집계 + render
-  - 환경 진단 — 운영자 즉시 발행 (웹 모달) 또는 스케줄러 매일 03시 자동 (`diagnostic-scheduler`)
+  - 환경 진단 — 운영자 즉시 발행 (웹 모달) — ADR 0023: scheduler cron 폐기, 사용자 trigger 만
 - 산출물 형태: HTML SSR. 브라우저 인쇄로 PDF/PPT 캡처 (백엔드 PDF export 미도입 — `docs/tradeoffs.md` T 참조)
 
 ## 존재 의의
@@ -173,7 +173,7 @@ over-provisioned 5대, under-provisioned 2대, idle 0대, optimal 16대.
 - `docs/architecture/web/static-assets.md` "report.html print CSS" — 인쇄 색 처리
 - `docs/tradeoffs.md` T13 — 보고서 = diagnostic_jobs 통합 + 환경 진단 결과 iframe view toggle
 - `src/assessment_engine/recommendation.py` — 분류 임계값·`WINDOW_DAYS`
-- `src/assessment_engine/diagnostic/scheduler.py` — 스케줄러 흐름 (매일 03시)
+- `src/assessment_engine/diagnostic/submitter.py` — 진단 발행 (ADR 0014). trigger 채널 = web POST 만 (ADR 0023)
 - `src/assessment_engine/diagnostic/llm/mock.py::_environment_narrative` — 자연어 합성 템플릿
 - `src/assessment_engine/web/services/query_service.py::get_report` — KPI 집계 + view 분기
 - `src/assessment_engine/web/services/mappers/report.py::build_report_summary_bullets` — view 분기 시그널

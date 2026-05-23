@@ -1,11 +1,12 @@
 # syntax=docker/dockerfile:1.7
 #
-# Prod 이미지 — 운영자가 GHCR pull 후 즉시 4 컴포넌트 (web/consumer/diagnostic-worker/diagnostic-scheduler)
+# Prod 이미지 — 운영자가 GHCR pull 후 즉시 3 컴포넌트 (web/consumer/diagnostic-worker)
 # 운영 가능. wheel install 기반 — release artifact 와 동일 패키지 (assessment_engine-{version}-py3-none-any.whl).
+# ADR 0023: scheduler cron 폐기로 4 컴포넌트 → 3 컴포넌트.
 #
 # 책임 분담 (#A0):
 #   - 본 이미지는 운영자 선택권 (systemd · k8s · docker-compose 어느 토폴로지든 호환).
-#   - 4 컴포넌트 단일 이미지 — ENTRYPOINT 가 `python -m`, CMD 가 default module (web).
+#   - 3 컴포넌트 단일 이미지 — ENTRYPOINT 가 `python -m`, CMD 가 default module (web).
 #     운영자는 compose `command:` / k8s `args:` 로 module 명만 override (assessment_engine.consumer 등).
 #   - dev 환경은 본 Dockerfile 이 아닌 `dev/Dockerfile` 사용 — hot reload·source bind mount 친화.
 #
@@ -67,16 +68,15 @@ USER app
 
 # OCI image labels — GHCR UI / cosign / SBOM 도구가 인식.
 LABEL org.opencontainers.image.title="ZConverter Cloud Assessment Engine" \
-      org.opencontainers.image.description="B2B 서버 인벤토리·메트릭 수집·진단 엔진 — 4 컴포넌트 단일 이미지 (web/consumer/diagnostic-worker/diagnostic-scheduler)" \
+      org.opencontainers.image.description="B2B 서버 인벤토리·메트릭 수집·진단 엔진 — 3 컴포넌트 단일 이미지 (web/consumer/diagnostic-worker)" \
       org.opencontainers.image.source="https://github.com/zconverter/assessment-engine" \
       org.opencontainers.image.licenses="Proprietary" \
       org.opencontainers.image.vendor="ZConverter"
 
-# 4 컴포넌트 단일 이미지 — ENTRYPOINT 가 `python -m`, CMD 가 default module.
+# 3 컴포넌트 단일 이미지 — ENTRYPOINT 가 `python -m`, CMD 가 default module.
 #   default (web):           docker run image
 #   consumer:                docker run image assessment_engine.consumer
 #   diagnostic-worker:       docker run image assessment_engine.diagnostic
-#   diagnostic-scheduler:    docker run image assessment_engine.diagnostic.scheduler
 # docker compose: `command: assessment_engine.consumer` / k8s: `args: ["assessment_engine.consumer"]`.
 ENTRYPOINT ["python", "-m"]
 CMD ["assessment_engine.web"]

@@ -53,6 +53,6 @@ def make_inventory_handler(
             # 인벤토리 변경(서비스/포트/디스크 등) 즉시 반영 — TTL 만료 대기 제거
             await safe_delete(redis, inventory_key)
 
-            logger.info("inventory stored machine_id={}", data.machine_id)
+            logger.info("inventory stored host_id={}", data.host_id)
 
     return _handle

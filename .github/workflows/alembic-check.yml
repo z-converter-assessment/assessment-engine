@@ -26,7 +26,8 @@ jobs:
 
     services:
       postgres:
-        image: timescale/timescaledb:latest-pg16
+        # ADR 0024: pgvector extension 의무 — timescaledb-ha 변형 (TimescaleDB + pgvector + postgis all-in-one).
+        image: timescale/timescaledb-ha:pg16
         env:
           POSTGRES_DB: assessment_ci
           POSTGRES_USER: ci

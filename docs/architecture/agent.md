@@ -11,7 +11,7 @@
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | `message_type` | string | 본 문서 메시지 타입별 Literal |
-| `machine_id` | string max=64 | 호스트 식별자 (`/etc/machine-id` 기준 32 hex 또는 UUID 36자) |
+| `host_id` | string max=64 | 호스트 식별자 (`/etc/machine-id` 기준 32 hex 또는 UUID 36자) |
 | `agent_version` | string max=32 | 발행 측 빌드 버전 |
 | `collected_at` | datetime (ISO 8601 UTC) | 수집 시각 |
 | `hostname` | string max=255 | 보조 식별자 (가변) |
@@ -82,8 +82,8 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 
 라우팅:
 - Exchange: `assessment.tasks` (direct, durable, collector exchange 와 분리)
-- Routing key: `task.install.<machine_id>` — broker 가 해당 머신 전용 큐로만 배달
-- 수신 큐: `agent.tasks.<machine_id>` (durable, `x-message-ttl=3600000`, `x-max-length=100`, `x-overflow=reject-publish`). 큐는 엔진이 task 발행 시점에 동적 declare — 수신 측은 declare 권한 없음.
+- Routing key: `task.install.<host_id>` — broker 가 해당 머신 전용 큐로만 배달
+- 수신 큐: `agent.tasks.<host_id>` (durable, `x-message-ttl=3600000`, `x-max-length=100`, `x-overflow=reject-publish`). 큐는 엔진이 task 발행 시점에 동적 declare — 수신 측은 declare 권한 없음.
 
 본 메시지는 엔진 발행이라 `MessageBase` 공통 메타와 별개로 다음 필드만 사용:
 
@@ -91,7 +91,7 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 |------|------|------|
 | `message_type` | `"task.install"` | Literal |
 | `task_id` | string (UUID v4) | 작업 고유 ID. `task.result` 회신·중복 검출·로그 추적 키. 엔진의 `Task.public_id` 그대로 |
-| `machine_id` | string | 타겟 호스트 |
+| `host_id` | string | 타겟 호스트 |
 | `issued_at` | datetime (ISO 8601 UTC) | 발행 시각 |
 | `download.url` | string | HTTP/HTTPS URL. 운영자 입력 ZDM host + `ZDM_PACKAGE_PATH` env 로 엔진이 조립 (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`). agent 측 host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 통과 필요 |
 | `download.sha256` | string (hex 64) | 다운로드 파일 sha256. 엔진이 publish 직전 ZDM 에서 HEAD + (cache miss 시) GET full 로 동적 산출. ETag 기반 Redis cache (`HttpZdmPackageResolver`). ZDM 측 패키지 갱신 시 ETag 자동 변경 → cache miss → 자동 재계산 |

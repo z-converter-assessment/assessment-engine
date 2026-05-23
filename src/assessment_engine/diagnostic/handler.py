@@ -1,6 +1,7 @@
-"""진단 메시지 핸들러 — RabbitMQ 메시지 1건 = 진단 job 1건 처리 (ADR 0004).
+"""진단 메시지 핸들러 — RabbitMQ 메시지 1건 = 진단 job 1건 처리 (ADR 0004 + 0024).
 
-단계 흐름: extracting_stats → applying_rules → generating_narrative → succeeded.
+단계 흐름: extracting_stats -> applying_rules -> retrieving_context -> generating_narrative -> succeeded.
+RAG_ENABLED=False 시 retrieving_context 단계는 진행되지만 payload['rag_context']=[] (retriever None 분기).
 각 단계 UPDATE 후 commit + Redis polling 캐시 SET. 폴링은 Redis 우선, miss 시 DB.
 """
 
@@ -25,6 +26,8 @@ from assessment_engine.db.repositories.query.base_query_repository import BaseQu
 from assessment_engine.diagnostic import aggregator
 from assessment_engine.diagnostic.llm.base import BaseLlmClient
 from assessment_engine.diagnostic.settings import diagnostic_settings
+from assessment_engine.rag.query import build_query
+from assessment_engine.rag.retriever.base import BaseRetriever
 
 
 def make_diagnostic_handler(
@@ -33,8 +36,13 @@ def make_diagnostic_handler(
     diagnostic_repo_factory: Callable[[AsyncSession], BaseDiagnosticRepository],
     llm_client: BaseLlmClient,
     redis: Redis,
+    retriever: BaseRetriever | None = None,
 ):
-    """consumer handler 팩토리 패턴(F4) — composition root에서 의존성 주입."""
+    """consumer handler 팩토리 패턴(F4) — composition root에서 의존성 주입.
+
+    retriever 가 None 이면 RAG 비활성 (RAG_ENABLED=False default). composition root 가
+    `diagnostic_settings.rag_enabled` 기준 분기 — True 시 PgVectorRetriever 주입, False 시 None.
+    """
 
     async def handler(message: aio_pika.abc.AbstractIncomingMessage):
         async with message.process(requeue=False):
@@ -108,7 +116,14 @@ def make_diagnostic_handler(
                     await session.commit()
                     await _publish_progress(redis, diag_repo, job_id)
 
-                    # 단계 3 — LLM narrative
+                    # 단계 3 — RAG retrieve_context (ADR 0024). retriever None 시 skip + payload['rag_context']=[]
+                    await diag_repo.update_progress_stage(job_id, "retrieving_context")
+                    await session.commit()
+                    await _publish_progress(redis, diag_repo, job_id)
+
+                    payload["rag_context"] = await _retrieve_rag_context(retriever, job.scope, payload)
+
+                    # 단계 4 — LLM narrative
                     await diag_repo.update_progress_stage(job_id, "generating_narrative")
                     await session.commit()
                     await _publish_progress(redis, diag_repo, job_id)
@@ -151,6 +166,49 @@ def make_diagnostic_handler(
                     await _publish_progress(redis, diag_repo, job_id)
 
     return handler
+
+
+async def _retrieve_rag_context(
+    retriever: BaseRetriever | None,
+    scope: str,
+    payload: dict,
+) -> list[dict]:
+    """RAG 검색 (ADR 0024).
+
+    retriever None 시 빈 list. 외부 호출 실패 시 silent fallback (RAG 결과 없어도 narrative 합성 가능).
+    """
+    if retriever is None:
+        return []
+    try:
+        query = build_query(scope, payload)
+        docs = await retriever.retrieve(
+            query=query,
+            top_k=diagnostic_settings.rag_top_k,
+            source_type="domain_knowledge",
+        )
+    except Exception as e:
+        # RAG 실패는 진단 자체 실패 아님 — narrative 합성으로 진행. 운영자 인지용 WARNING.
+        logger.warning("rag retrieve failed scope={} err_type={}", scope, type(e).__name__)
+        return []
+    # rag_max_context_chars cap — LLM prompt 안 context 절 길이 제한.
+    max_chars = diagnostic_settings.rag_max_context_chars
+    out: list[dict] = []
+    total = 0
+    for doc in docs:
+        remaining = max_chars - total
+        if remaining <= 0:
+            break
+        content = doc.content[:remaining] if len(doc.content) > remaining else doc.content
+        out.append(
+            {
+                "content": content,
+                "score": doc.score,
+                "metadata": doc.metadata,
+                "source_id": doc.source_id,
+            }
+        )
+        total += len(content)
+    return out
 
 
 async def _publish_progress(redis: Redis, diag_repo: BaseDiagnosticRepository, job_id: str) -> None:

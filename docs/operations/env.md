@@ -141,7 +141,7 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 발동 위치 (multi-node 분리 시):
 - web 노드: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default + ZDM_DEFAULT_IP/USER dev default 거부
 - consumer 노드: `ConsumerSettings` → POSTGRES·RABBITMQ password weak default 거부
-- diagnostic-worker·scheduler 노드: `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
+- diagnostic-worker 노드: `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
 
 효과:
 - prod 에서 `.env` 미주입·dev default 잔존 시 `Settings()` 호출이 즉시 `ValueError` → 컨테이너 crash·systemd unit fail.
@@ -194,22 +194,22 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 
 ## 9. 컴포넌트별 read 매트릭스 (multi-node 분리 시)
 
-본 repo 의 4 컴포넌트 (web · consumer · diagnostic-worker · diagnostic-scheduler) 가 각자 다른 키 집합을 read. multi-node 분리 배포 시 어느 노드에 어느 키 inject 할지 reference.
+본 repo 의 3 컴포넌트 (web · consumer · diagnostic-worker) 가 각자 다른 키 집합을 read. multi-node 분리 배포 시 어느 노드에 어느 키 inject 할지 reference. ADR 0023: scheduler cron 폐기로 4 → 3.
 
-| 키 그룹 | web | consumer | diagnostic-worker | diagnostic-scheduler |
-|--------|:---:|:--------:|:-----------------:|:--------------------:|
-| `APP_ENV`·`LOG_FORMAT` | 의무 | 의무 | 의무 | 의무 |
-| `POSTGRES_*` | 의무 | 의무 | 의무 | 의무 |
-| `REDIS_*` | 의무 | 의무 | 의무 | 의무 |
-| `RABBITMQ_*` (broker 접속) | 의무 (진단 publish) | 의무 (consume) | 의무 (consume) | 의무 (publish) |
-| `RABBITMQ_ROUTING_KEY_*`·`RABBITMQ_EXCHANGE` | 의무 | 의무 | 의무 | 의무 |
-| `WORKER_*` (worker.result·task.install) | 의무 (task.install publish) | 의무 (worker.result consume) | 선택 | 선택 |
-| `WEB_PORT`·`INSTALL_TIMEOUT_SEC`·`ZDM_*`·`ZDM_PACKAGE_*`·`AGENT_RESTART_ALERT_THRESHOLD` | 의무 | 사용 안 함 | 사용 안 함 | 사용 안 함 |
-| `LLM_*`·`OLLAMA_*` | 사용 안 함 | 사용 안 함 | 의무 | 사용 안 함 |
-| `DIAGNOSTIC_ENABLED`·`DIAGNOSTIC_QUEUE_*`·`DIAGNOSTIC_ROUTING_KEY` | 의무 (publish gate) | 사용 안 함 | 의무 (consume gate) | 의무 (cron gate + publish) |
-| `DIAGNOSTIC_SCHEDULE_CRON`·`DIAGNOSTIC_RETENTION_DAYS`·`DIAGNOSTIC_ACTIVE_SERVER_WINDOW_HOURS` | 사용 안 함 | 사용 안 함 | 사용 안 함 | 의무 |
-| `WORKER_JOB_TIMEOUT_SECONDS` | 사용 안 함 | 사용 안 함 | 의무 | 사용 안 함 |
-| `SQLALCHEMY_ECHO` | 의무 | 의무 | 의무 | 의무 |
+| 키 그룹 | web | consumer | diagnostic-worker |
+|--------|:---:|:--------:|:-----------------:|
+| `APP_ENV`·`LOG_FORMAT` | 의무 | 의무 | 의무 |
+| `POSTGRES_*` | 의무 | 의무 | 의무 |
+| `REDIS_*` | 의무 | 의무 | 의무 |
+| `RABBITMQ_*` (broker 접속) | 의무 (진단 publish) | 의무 (consume) | 의무 (consume) |
+| `RABBITMQ_ROUTING_KEY_*`·`RABBITMQ_EXCHANGE` | 의무 | 의무 | 의무 |
+| `WORKER_*` (worker.result·task.install) | 의무 (task.install publish) | 의무 (worker.result consume) | 선택 |
+| `WEB_PORT`·`INSTALL_TIMEOUT_SEC`·`ZDM_*`·`ZDM_PACKAGE_*`·`AGENT_RESTART_ALERT_THRESHOLD` | 의무 | 사용 안 함 | 사용 안 함 |
+| `LLM_*`·`OLLAMA_*` | 사용 안 함 | 사용 안 함 | 의무 |
+| `RAG_ENABLED`·`EMBEDDING_*`·`RAG_TOP_K`·`RAG_MAX_CONTEXT_CHARS` | 사용 안 함 | 사용 안 함 | 의무 (handler retrieve_context + ingest CLI 공통) |
+| `DIAGNOSTIC_ENABLED`·`DIAGNOSTIC_QUEUE_*`·`DIAGNOSTIC_ROUTING_KEY` | 의무 (publish gate) | 사용 안 함 | 의무 (consume gate) |
+| `WORKER_JOB_TIMEOUT_SECONDS` | 사용 안 함 | 사용 안 함 | 의무 |
+| `SQLALCHEMY_ECHO` | 의무 | 의무 | 의무 |
 
 코드 단일 진실 (Composition Root, CLAUDE.md #F4):
 - `src/assessment_engine/config.py` — class 정의만 (인스턴스 0)
@@ -276,7 +276,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `RABBITMQ_WORKER_USER` | `assessment` | dev/agent.env | 원격 호스트 worker 가 사용할 AMQP user. 비어 있으면 worker 자동 비활성 (collector 만 동작) |
 | `RABBITMQ_WORKER_PASSWORD` | `assessment` | dev/agent.env | `RABBITMQ_WORKER_USER` 의 암호. heredoc 안에서 `RABBITMQ_WORKER_PASS` 매핑 |
 | `WORKER_TASK_EXCHANGE` | `assessment.tasks` | config.py / dev/agent.env | task.install/task.result 전용 exchange. collector exchange 와 분리 |
-| `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | dev/agent.env | 원격 호스트별 큐 prefix. full name = `<prefix>.<machine_id>` |
+| `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | dev/agent.env | 원격 호스트별 큐 prefix. full name = `<prefix>.<host_id>` |
 | `WORKER_TASK_RESULT_KEY` | `task.result` | dev/agent.env | 원격 호스트 → 엔진 결과 보고 routing key |
 | `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `host.lima.internal` | dev/agent.env | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치) |
 | `REDIS_HOST` | `redis` | config.py | (docker-compose 서비스명). prod 는 실제 host |
@@ -295,18 +295,22 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `AGENT_RESTART_ALERT_THRESHOLD` | `3` | config.py | 1h 슬라이딩 윈도우 내 에이전트 재시작 횟수 임계값. attention 신호 카드 + consumer 부가 시그널 |
 | `SQLALCHEMY_ECHO` | `false` | config.py | SQLAlchemy 엔진 SQL 로깅. dev 디버깅 시 true (운영 환경은 false 유지 — 로그 폭증·secret 노출 위험) |
 | `PGADMIN_PORT` | `5050` | dev compose override | pgAdmin GUI 포트 (dev 전용) |
-| `DIAGNOSTIC_ENABLED` | `false` | config.py | 진단 워크플로 활성 flag (ADR 0004 + 0010). false 면 POST 503 + scheduler no-op |
-| `DIAGNOSTIC_ROUTING_KEY` | `diagnostic.request` | config.py | engine 내부 routing key (web·worker·scheduler 공통) |
+| `DIAGNOSTIC_ENABLED` | `false` | config.py | 진단 워크플로 활성 flag (ADR 0004 + 0010 + 0023). false 면 POST 503 |
+| `DIAGNOSTIC_ROUTING_KEY` | `diagnostic.request` | config.py | engine 내부 routing key (web·worker 공통) |
 | `DIAGNOSTIC_QUEUE_TTL_MS` | `86400000` | config.py | 큐 메시지 TTL 24h |
 | `DIAGNOSTIC_QUEUE_MAX_LEN` | `100000` | config.py | 큐 max length |
-| `DIAGNOSTIC_RETENTION_DAYS` | `90` | config.py | diagnostic_jobs 보존 일수 — 스케줄러 발화 시 함께 DELETE |
-| `DIAGNOSTIC_SCHEDULE_CRON` | `0 3 * * *` | config.py | 스케줄러 cron (KST 03시 매일) |
-| `DIAGNOSTIC_ACTIVE_SERVER_WINDOW_HOURS` | `24` | config.py | 활성 서버 정의 — last_seen_at 윈도우 |
 | `LLM_PROVIDER` | `mock` | config.py | 진단 narrative 합성 client. `mock` (결정론) 또는 `ollama` (stub). 외부 LLM 도입은 ADR 0010 정정 |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | config.py | `LLM_PROVIDER=ollama` 시 사용 |
-| `OLLAMA_MODEL` | `llama3.1:8b` | config.py | ollama 모델명 |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | config.py | `LLM_PROVIDER=ollama` 또는 `EMBEDDING_PROVIDER=ollama` 시 사용. embedding + LLM 공통 ollama server |
+| `OLLAMA_MODEL` | `llama3.1:8b` | config.py | ollama LLM 모델명 |
 | `LLM_TIMEOUT_SECONDS` | `60` | config.py | LLM 호출 cap |
 | `LLM_MOCK_LATENCY_SECONDS` | `2.0` | config.py | mock client 응답 sleep (UI progress 확인용) |
+| `RAG_ENABLED` | `false` | config.py | RAG 활성 flag (ADR 0024). false 시 handler retrieve_context 단계 skip + payload['rag_context']=[] |
+| `EMBEDDING_PROVIDER` | `mock` | config.py | embedding client. `mock` (deterministic random) 또는 `ollama` (mxbai-embed-large) |
+| `EMBEDDING_MODEL` | `mxbai-embed-large` | config.py | ollama 안 embedding 모델명 (`ollama pull mxbai-embed-large` 의무) |
+| `EMBEDDING_DIMENSION` | `1024` | config.py | embedding vector 차원 (mxbai default). 모델 변경 시 alembic migration 1회 |
+| `EMBEDDING_TIMEOUT_SECONDS` | `30.0` | config.py | embedding HTTP 호출 cap |
+| `RAG_TOP_K` | `5` | config.py | RAG 검색 top-k (handler retrieve_context 단계) |
+| `RAG_MAX_CONTEXT_CHARS` | `4000` | config.py | LLM prompt 안 RAG context 절 max 길이 cap |
 | `WORKER_JOB_TIMEOUT_SECONDS` | `300` | config.py | 워커 진단 1건 전체 cap (클라이언트 polling timeout 과 정렬) |
 
 ### `.env.example` 에 없고 config.py default 만 정의된 키

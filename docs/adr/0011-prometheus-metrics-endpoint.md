@@ -12,7 +12,7 @@
 로그(`docs/operations/observability.md`)는 stdout 평문으로 이미 출력 — JSON 토글은 별도 ADR 또는 결정. 다만 metrics 출력은 본 repo가 노출하지 않으면 인프라가 어떤 stack을 쓰든 application-level metrics 수집 불가.
 
 운영 단계 가정:
-- 본 repo는 단일 worker 인스턴스(web·consumer·diagnostic-worker·diagnostic-scheduler 각 1). HPA 같은 자동 확장 대상 아님.
+- 본 repo는 단일 worker 인스턴스(web·consumer·diagnostic-worker 각 1). HPA 같은 자동 확장 대상 아님. ADR 0023: scheduler cron 폐기로 4 → 3.
 - prod 인프라 결정(Prometheus stack 채택 여부 포함)은 본 repo 범위 밖. 다만 본 repo는 "Prometheus 호환 endpoint를 제공한다"는 contract만 충족하면 인프라 측이 자유롭게 결정 가능.
 
 ## Decision
@@ -28,7 +28,7 @@
 - `http_requests_total` (counter) — endpoint·method·status_code 라벨
 - `process_*` (Python 런타임 자동 — CPU·memory·GC·thread count)
 
-worker(consumer/diagnostic-worker/diagnostic-scheduler)는 HTTP server 없음 → 본 ADR 범위 밖. 대안 관측 source:
+worker(consumer/diagnostic-worker)는 HTTP server 없음 → 본 ADR 범위 밖. 대안 관측 source:
 - broker 측 큐 길이·소비 ack rate — RabbitMQ management API
 - DB·Redis 측 connection pool 상태 — 각 서비스 native metrics
 

@@ -380,7 +380,7 @@ limactl shell web-server-01 sudo journalctl -u assessment-agent --no-pager -n 50
 [agent] cmd lsblk         available
 [agent] cmd curl          available
 [agent] cmd dbus-uuidgen  available
-[agent] machine_id=<32 hex>
+[agent] host_id=<32 hex>
 [agent] published inventory
 [agent] loop mode: interval=60s (Ctrl+C to exit)
 ```

@@ -23,23 +23,24 @@
  |  RabbitMQ                                                        |
  |  - assessment exchange       : server.inventory/metrics/error    |
  |                                + diagnostic.request              |
- |  - assessment.tasks exchange : task.install.<machine_id>         |
+ |  - assessment.tasks exchange : task.install.<host_id>         |
  |                                + task.result -> worker.result    |
  |  - DLX/DLQ per exchange                                          |
  +--+----------------+-----------------+-----------------+----------+
     | server.*       | diagnostic.req  | task.result     ^ task.install
     v                v                 v                 | publish
  +-------------------------------+  +-------------------------------+
- |  Consumer (aio-pika)          |  |  Diagnostic (ADR 0004 + 0010) |
- |  - parse/idempot/persist      |  |  Worker:                      |
- |  - time invariants            |  |   - rule-based classify       |
- |  - agent restart signals      |  |   - narrate (no LLM call,     |
- |  - task.result -> Task        |  |     USE Method via            |
- |    row 6-column UPDATE        |  |     recommendation.py)        |
- |                               |  |  Scheduler:                   |
- |                               |  |   - cron tick                 |
- |                               |  |   - enqueue diag jobs         |
- |                               |  |   - retention DELETE          |
+ |  Consumer (aio-pika)          |  |  Diagnostic (ADR 0004 + 0010  |
+ |  - parse/idempot/persist      |  |                + 0023 + 0024) |
+ |  - time invariants            |  |  Worker:                      |
+ |  - agent restart signals      |  |   - rule-based classify       |
+ |  - task.result -> Task        |  |   - retrieve RAG context      |
+ |    row 6-column UPDATE        |  |     (pgvector, opt-in)        |
+ |                               |  |   - narrate (USE Method via   |
+ |                               |  |     recommendation.py +       |
+ |                               |  |     RAG-grounded LLM)         |
+ |                               |  |  Trigger: web POST only       |
+ |                               |  |   (no cron, ADR 0023)         |
  +--------------+----------------+  +--------------+----------------+
                 v                                  v
  +-------------------------------+  +-------------------------------+
@@ -70,10 +71,10 @@
 
 | 영역 | 기술 |
 |------|------|
-| 애플리케이션 | Python 3.12 · FastAPI · uvicorn · aio-pika · SQLAlchemy async · asyncpg · Jinja2 · loguru · httpx · croniter |
-| DB / 캐시 / 브로커 | TimescaleDB (PostgreSQL 16) · Redis 7 · RabbitMQ 3.13 |
+| 애플리케이션 | Python 3.12 · FastAPI · uvicorn · aio-pika · SQLAlchemy async · asyncpg · Jinja2 · loguru · httpx |
+| DB / 캐시 / 브로커 | TimescaleDB (PostgreSQL 16) · Redis 7 · RabbitMQ 3.13 · pgvector (ADR 0024) |
 | Schema 관리 | Alembic 단일 진실 |
-| 진단 | 규칙 기반 (USE Method) |
+| 진단 | 규칙 기반 (USE Method) + RAG opt-in (ADR 0024, mxbai-embed-large + HNSW) |
 | 관측 | loguru `LOG_FORMAT=text\|json` + Prometheus `/metrics` |
 | 패키징 | uv + hatchling. CI 산출물 = Python wheel |
 | 정적 자원 | Chart.js CDN, 외부 `.js` 파일 + `defer` |

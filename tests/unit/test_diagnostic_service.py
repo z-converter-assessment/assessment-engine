@@ -350,7 +350,7 @@ def test_to_history_item_shape_and_fields():
         created_at=datetime(2026, 5, 12, tzinfo=UTC),
         started_at=datetime(2026, 5, 12, tzinfo=UTC),
         finished_at=datetime(2026, 5, 12, 1, 0, 0, tzinfo=UTC),
-        requested_by="scheduler",
+        requested_by="api",
     )
     item = to_history_item(rec)
     assert item["job_id"] == "job-abc"
@@ -360,7 +360,7 @@ def test_to_history_item_shape_and_fields():
     assert item["anchor_at"] == "2026-05-12T00:00:00+00:00"
     assert item["status"] == "succeeded"
     assert item["status_badge_class"] == "badge-ok"
-    assert item["requested_by"] == "scheduler"
+    assert item["requested_by"] == "api"
     # datetime은 raw 그대로 전달 (KST는 template kst 필터, F2)
     assert item["created_at"] == datetime(2026, 5, 12, tzinfo=UTC)
 
@@ -414,13 +414,13 @@ def test_to_history_item_missing_time_range_fallback():
     assert item["status_badge_class"] == "badge-danger"  # failed
 
 
-# ─── DiagnosticSubmitter 직접 import (scheduler 의존 경계 회귀) ──────────
+# ─── DiagnosticSubmitter 직접 import (의존 경계 회귀) ──────────
 
 
 def test_submitter_re_export_identity():
     """web.services.diagnostic_service 의 exceptions/helpers 가 diagnostic.submitter 와 동일 객체.
 
-    scheduler 노드가 web 의존 없이 diagnostic.submitter 만 import 가능 (#F4 멀티노드).
+    submitter 가 web 의존 없이 단독 import 가능 (#F4 멀티노드). ADR 0023 후도 본질 유지.
     """
     from assessment_engine.diagnostic.submitter import (
         DiagnosticBadRequest as SubBR,

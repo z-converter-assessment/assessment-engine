@@ -1,15 +1,16 @@
-"""진단 job 발행 (submit) — scheduler·web 공통 사용 (#F4 멀티노드 의존 경계).
+"""진단 job 발행 (submit) — web 단독 사용 (#F4 의존 경계).
 
 책임 경계:
 - input_params 합성·input_hash 계산·DB enqueue (active partial UNIQUE 충돌 흡수)·RabbitMQ publish
 - scope='server'면 server_public_ids 길이만큼 N건, 'environment'면 1건 발행
 - query/diagnostic repository 추상 인터페이스만 의존 (#F4)
 
-본 모듈은 `assessment_engine.diagnostic` package 안 — scheduler 노드가 `web.services` 의존 없이
-import 가능. 조회·기록 (DiagnosticService.get_*·record_report_emission·to_panel_payload 등) 은
+본 모듈은 `assessment_engine.diagnostic` package 안 — ADR 0014 분리 본질 유지
+(`web.services` 의존 없이 import 가능, 모듈 단위 책임 분리). 조회·기록은
 여전히 web/services/diagnostic_service.py 단일 진실.
 
 ADR 0004 단계 3 (active partial UNIQUE 충돌 흡수)·단계 4 (publish 후 워커 소비).
+ADR 0023: scheduler 폐기로 trigger 채널 = web POST /api/diagnostics 단독.
 """
 
 import hashlib
@@ -44,7 +45,7 @@ class DiagnosticRaceMiss(Exception):
 
 
 class DiagnosticSubmitter:
-    """진단 발행 (submit) 단일 책임 — scheduler·web 공용.
+    """진단 발행 (submit) 단일 책임 — web 단독 사용 (ADR 0014 분리 본질 유지, ADR 0023 scheduler 폐기).
 
     의존성 (composition root 주입):
     - query_repo: 미존재 public_id 검출 (`resolve_server_ids`)

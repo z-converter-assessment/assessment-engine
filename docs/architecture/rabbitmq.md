@@ -37,7 +37,7 @@ vhost: `/assessment` 단일 사용. broker 한 대를 다른 도메인 시스템
 | `server.metrics` | `assessment` | `server.metrics` | 원격 호스트 | `server.metrics.dead` | 72h | 1,000,000 |
 | `server.error` | `assessment` | `server.error` | 원격 호스트 | `server.error.dead` | 300s | 없음 |
 | `worker.result` | `assessment.tasks` | `task.result` | 원격 호스트 | `worker.result.dead` | 24h | 100,000 |
-| `agent.tasks.<machine_id>` | `assessment.tasks` | `task.install.<machine_id>` | 엔진 (web) | (없음 — 본 PR 단순화) | 1h (`x-message-ttl=3600000`) | 100 (`x-overflow=reject-publish`) |
+| `agent.tasks.<host_id>` | `assessment.tasks` | `task.install.<host_id>` | 엔진 (web) | (없음 — 본 PR 단순화) | 1h (`x-message-ttl=3600000`) | 100 (`x-overflow=reject-publish`) |
 | `diagnostic.request` | `assessment` | `diagnostic.request` | 엔진 내부 (web·스케줄러 → 워커, ADR 0004) | `diagnostic.request.dead` | 24h | 100,000 |
 
 `server.metrics` 정책 근거:
@@ -53,18 +53,18 @@ vhost: `/assessment` 단일 사용. broker 한 대를 다른 도메인 시스템
 - 24h TTL: 운영자가 install 결과를 하루 안에 확인. 누적 적재 방지.
 - 100K 상한: 머신당 install pending 최대 1건(`tasks` 부분 UNIQUE) + 결과 메시지 약 4KB라 1만 머신 X 1 buffer로 충분.
 
-`agent.tasks.<machine_id>` 정책 근거:
-- 머신별 전용 큐 — `task.install.<machine_id>` routing key 로 정확히 해당 머신만 배달.
+`agent.tasks.<host_id>` 정책 근거:
+- 머신별 전용 큐 — `task.install.<host_id>` routing key 로 정확히 해당 머신만 배달.
 - 엔진이 task 발행 시점에 동적 declare (수신 측은 declare 권한 없음 가정). idempotent.
 - 1h TTL: 머신이 그 사이 consume 못 하면 만료 (해당 머신 오프라인). DLX 없음 — 만료 메시지는 drop, 운영자는 task 상태로 인지.
 - max-length 100 + `x-overflow=reject-publish`: 버퍼 폭주 차단. publish 시 publisher 측이 error 인지 (best-effort 운영 시그널).
 - prod 에서 DLX 정책 보강은 별도 ADR.
 
-`diagnostic.request` 정책 근거 (ADR 0004):
-- engine 내부 (agent 발행 아님) — web POST /api/diagnostics + 스케줄러 매일 03시 → 워커 소비.
+`diagnostic.request` 정책 근거 (ADR 0004 + 0023):
+- engine 내부 (agent 발행 아님) — web POST /api/diagnostics 단독 (사용자 trigger 만, ADR 0023: scheduler cron 폐기) → 워커 소비.
 - 24h TTL: 진단 1건 처리 cap 5분. 24h 안 미처리는 운영자 개입 신호.
-- 100K 상한: 활성 서버 N대 + ad-hoc → 일일 N+α 발생. 100K로 충분.
-- 워커 prefetch_count 1 — LLM 호출 동시 1건만 (rate limit 자연 throttle). adhoc/scheduled 큐 분리 안 함.
+- 100K 상한: 사용자 trigger 발행 → 발화 빈도 운영자 의도 비례. 100K로 충분.
+- 워커 prefetch_count 1 — LLM 호출 동시 1건만 (rate limit 자연 throttle).
 
 ### DLQ 라우팅 트리거
 
@@ -121,13 +121,13 @@ prod: 역할별 least-privilege 분리. 발행·소비 채널 별 권한.
 | user | configure / write / read | 역할 |
 |------|--------------------------|------|
 | `agent-publisher` | `none / ^assessment$ / none` | 원격 호스트 collector 발행 (inventory/metrics/error) |
-| `agent-worker` | `none / ^assessment\.tasks$ / ^agent\.tasks\..*$` | 원격 호스트 worker 가 `agent.tasks.<machine_id>` consume + `assessment.tasks` 에 `task.result` publish |
+| `agent-worker` | `none / ^assessment\.tasks$ / ^agent\.tasks\..*$` | 원격 호스트 worker 가 `agent.tasks.<host_id>` consume + `assessment.tasks` 에 `task.result` publish |
 | `engine-publisher` | `none / ^assessment\.tasks$ / none` | 엔진 web 이 `task.install` publish |
 | `engine-consumer` | `^agent\.tasks\..* / ^assessment(\.tasks)?$ / ^(server\..*\|worker\.result\|agent\.tasks\..*)$` | 엔진 consumer read·ack + 머신별 큐 동적 declare |
 | `dlq-handler` | `none / none / ^.*\.dead$` | DLQ read 전용 (운영 도구) |
 | `topology-admin` | `.* / .* / .*` | 초기 셋업 1회만, 이후 회수 또는 user 삭제 |
 
-dev 에서 안 쓰는 이유: 큐 동적 declare (`agent.tasks.<machine_id>`) 가 매 task 발행마다 발생. dev 사이클에서 매번 권한 분리 적용은 부자연.
+dev 에서 안 쓰는 이유: 큐 동적 declare (`agent.tasks.<host_id>`) 가 매 task 발행마다 발생. dev 사이클에서 매번 권한 분리 적용은 부자연.
 
 ---
 

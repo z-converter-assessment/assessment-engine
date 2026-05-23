@@ -197,3 +197,90 @@ async def test_handler_llm_timeout_marks_failed(mock_agg, stub_components):
     assert args.args[1] == "llm_timeout" or args.kwargs.get("error_message") == "llm_timeout"
     # succeeded 마킹은 안 함
     diag_repo.mark_succeeded.assert_not_called()
+
+
+# ─── RAG retrieve_context 단계 분기 (ADR 0024) ──────────────────────────────
+
+
+@pytest.mark.asyncio
+@patch("assessment_engine.diagnostic.handler.safe_set_nx", new=AsyncMock(return_value=True))
+@patch("assessment_engine.diagnostic.handler.safe_set", new=AsyncMock(return_value=None))
+@patch("assessment_engine.diagnostic.handler.aggregator")
+async def test_handler_rag_disabled_yields_empty_context(mock_agg, stub_components):
+    """retriever=None 시 payload['rag_context']=[] (RAG_ENABLED=False default 흐름)."""
+    mock_agg.extract_server = AsyncMock(return_value={"summary": "ok"})
+    handler, diag_repo = _build_handler(stub_components)
+    await handler(_make_message())
+    # mark_succeeded payload 안 rag_context 빈 list
+    diag_repo.mark_succeeded.assert_awaited_once()
+    payload_arg = diag_repo.mark_succeeded.await_args.args[1]
+    assert payload_arg["rag_context"] == []
+    # retrieving_context stage 통과 (mark_running + 3 update_progress_stage 호출)
+    stages = [c.args[1] for c in diag_repo.update_progress_stage.await_args_list]
+    assert "retrieving_context" in stages
+    assert "generating_narrative" in stages
+
+
+@pytest.mark.asyncio
+@patch("assessment_engine.diagnostic.handler.safe_set_nx", new=AsyncMock(return_value=True))
+@patch("assessment_engine.diagnostic.handler.safe_set", new=AsyncMock(return_value=None))
+@patch("assessment_engine.diagnostic.handler.aggregator")
+async def test_handler_rag_enabled_populates_context(mock_agg, stub_components):
+    """retriever 주입 + retrieve 성공 시 payload['rag_context'] 안 검색 결과 dict list."""
+    from assessment_engine.rag.retriever.base import RetrievedDoc
+
+    mock_agg.extract_server = AsyncMock(return_value={"summary": "ok"})
+
+    session_factory, query_repo, diag_repo, llm, redis = stub_components
+    retriever = AsyncMock()
+    retriever.retrieve = AsyncMock(
+        return_value=[
+            RetrievedDoc(
+                content="cpu best practice",
+                score=0.9,
+                metadata={"title": "USE Method"},
+                source_id="use.md#0",
+            ),
+        ]
+    )
+
+    handler = make_diagnostic_handler(
+        session_factory=session_factory,
+        query_repo_factory=lambda s: query_repo,
+        diagnostic_repo_factory=lambda s: diag_repo,
+        llm_client=llm,
+        redis=redis,
+        retriever=retriever,
+    )
+    await handler(_make_message())
+    payload_arg = diag_repo.mark_succeeded.await_args.args[1]
+    assert len(payload_arg["rag_context"]) == 1
+    assert payload_arg["rag_context"][0]["content"] == "cpu best practice"
+    assert payload_arg["rag_context"][0]["score"] == 0.9
+    assert payload_arg["rag_context"][0]["source_id"] == "use.md#0"
+
+
+@pytest.mark.asyncio
+@patch("assessment_engine.diagnostic.handler.safe_set_nx", new=AsyncMock(return_value=True))
+@patch("assessment_engine.diagnostic.handler.safe_set", new=AsyncMock(return_value=None))
+@patch("assessment_engine.diagnostic.handler.aggregator")
+async def test_handler_rag_retrieve_failure_silent_fallback(mock_agg, stub_components):
+    """RAG 검색 실패 (외부 호출 fail-open) → 빈 list fallback, 진단 자체 진행."""
+    mock_agg.extract_server = AsyncMock(return_value={"summary": "ok"})
+
+    session_factory, query_repo, diag_repo, llm, redis = stub_components
+    retriever = AsyncMock()
+    retriever.retrieve = AsyncMock(side_effect=RuntimeError("ollama down"))
+
+    handler = make_diagnostic_handler(
+        session_factory=session_factory,
+        query_repo_factory=lambda s: query_repo,
+        diagnostic_repo_factory=lambda s: diag_repo,
+        llm_client=llm,
+        redis=redis,
+        retriever=retriever,
+    )
+    await handler(_make_message())  # reraise 없음
+    diag_repo.mark_succeeded.assert_awaited_once()
+    payload_arg = diag_repo.mark_succeeded.await_args.args[1]
+    assert payload_arg["rag_context"] == []

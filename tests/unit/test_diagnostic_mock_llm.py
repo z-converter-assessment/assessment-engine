@@ -151,3 +151,74 @@ async def test_mock_client_routes_by_scope(monkeypatch):
     e = await client.generate_narrative("environment", env_payload)
     assert "x" in s
     assert "1대" in e
+
+
+# ─── RAG context 인용 (ADR 0024) ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_mock_client_appends_rag_context_titles(monkeypatch):
+    """payload['rag_context'] 가 있으면 narrative 끝에 '관련 가이드:' 절 append."""
+    from assessment_engine.diagnostic.settings import diagnostic_settings
+
+    monkeypatch.setattr(diagnostic_settings, "llm_mock_latency_seconds", 0)
+
+    client = MockLlmClient()
+    payload = {
+        "server": {"hostname": "h"},
+        "use_method": {"cpu": {"p95": 50.0}, "memory": {"p95": 50.0}},
+        "classification": "optimal",
+        "recommendation": {"action": "no_action"},
+        "period_window": {"days": 14},
+        "rag_context": [
+            {"content": "...", "score": 0.92, "metadata": {"title": "CPU saturation"}, "source_id": "f.md#0"},
+            {"content": "...", "score": 0.88, "metadata": {"title": "USE Method overview"}, "source_id": "f.md#1"},
+        ],
+    }
+    text = await client.generate_narrative("server", payload)
+    assert "관련 가이드:" in text
+    assert "CPU saturation" in text
+    assert "USE Method overview" in text
+
+
+@pytest.mark.asyncio
+async def test_mock_client_no_rag_context_omits_guide_section(monkeypatch):
+    """rag_context 빈 list / 부재 시 '관련 가이드:' 절 미 append (RAG_ENABLED=False 흐름)."""
+    from assessment_engine.diagnostic.settings import diagnostic_settings
+
+    monkeypatch.setattr(diagnostic_settings, "llm_mock_latency_seconds", 0)
+
+    client = MockLlmClient()
+    payload_no_key = {
+        "server": {"hostname": "h"},
+        "use_method": {"cpu": {"p95": 50.0}, "memory": {"p95": 50.0}},
+        "classification": "optimal",
+        "recommendation": {"action": "no_action"},
+        "period_window": {"days": 14},
+    }
+    payload_empty_list = {**payload_no_key, "rag_context": []}
+    for payload in (payload_no_key, payload_empty_list):
+        text = await client.generate_narrative("server", payload)
+        assert "관련 가이드" not in text
+
+
+@pytest.mark.asyncio
+async def test_mock_client_rag_context_fallback_to_source_id_when_no_title(monkeypatch):
+    """metadata 안 title 없으면 source_id 로 fallback."""
+    from assessment_engine.diagnostic.settings import diagnostic_settings
+
+    monkeypatch.setattr(diagnostic_settings, "llm_mock_latency_seconds", 0)
+
+    client = MockLlmClient()
+    payload = {
+        "server": {"hostname": "h"},
+        "use_method": {"cpu": {"p95": 50.0}, "memory": {"p95": 50.0}},
+        "classification": "optimal",
+        "recommendation": {"action": "no_action"},
+        "period_window": {"days": 14},
+        "rag_context": [
+            {"content": "...", "score": 0.9, "metadata": {}, "source_id": "doc-abc"},
+        ],
+    }
+    text = await client.generate_narrative("server", payload)
+    assert "doc-abc" in text

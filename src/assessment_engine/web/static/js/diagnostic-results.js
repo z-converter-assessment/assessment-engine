@@ -13,6 +13,7 @@
     queued:               '대기 중',
     extracting_stats:     '통계 추출 중',
     applying_rules:       '추천 판정 중',
+    retrieving_context:   '관련 자료 검색 중',
     generating_narrative: 'AI 분석 작성 중',
   };
 

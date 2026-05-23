@@ -23,21 +23,21 @@ from tests.factories import make_inventory, make_task_result_update
 pytestmark = pytest.mark.asyncio
 
 
-async def _setup_server(collect_repo: CollectRepository, machine_id: str = "test-task-host-01") -> int:
-    inv = make_inventory(machine_id=machine_id, hostname=machine_id)
+async def _setup_server(collect_repo: CollectRepository, host_id: str = "test-task-host-01") -> int:
+    inv = make_inventory(host_id=host_id, hostname=host_id)
     return await collect_repo.upsert_server(inv)
 
 
 async def _insert_task(
     collect_repo: CollectRepository,
     server_id: int,
-    machine_id: str,
+    host_id: str,
     task_type: str = "zconverter_install",
 ) -> str:
     return await collect_repo.create_task(
         TaskCreate(
             target_server_id=server_id,
-            target_machine_id=machine_id,
+            target_host_id=host_id,
             task_type=task_type,
             params=None,
         )
@@ -173,7 +173,7 @@ async def test_list_recent_tasks_cursor_pagination(
     for i in range(5):
         await collect_repo.session.execute(
             text("""
-            INSERT INTO tasks (target_server_id, target_machine_id, task_type, status, created_at)
+            INSERT INTO tasks (target_server_id, target_host_id, task_type, status, created_at)
             VALUES (:sid, :mid, :tt, 'success', :ts)
         """),
             {"sid": sid, "mid": "test-task-host-01", "tt": f"cursor-t-{i}", "ts": base + timedelta(seconds=i)},
@@ -196,8 +196,8 @@ async def test_latest_tasks_by_servers_distinct_on(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ) -> None:
-    s1 = await _setup_server(collect_repo, machine_id="test-task-host-A")
-    s2 = await _setup_server(collect_repo, machine_id="test-task-host-B")
+    s1 = await _setup_server(collect_repo, host_id="test-task-host-A")
+    s2 = await _setup_server(collect_repo, host_id="test-task-host-B")
 
     await _insert_task(collect_repo, s1, "test-task-host-A", task_type="t-old")
     p1_new = await _insert_task(collect_repo, s1, "test-task-host-A", task_type="t-new")

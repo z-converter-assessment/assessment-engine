@@ -38,12 +38,13 @@ wheel 안 force-include (`pyproject.toml` `[tool.hatch.build.targets.wheel].forc
 
 multi-arch: `linux/amd64` + `linux/arm64` (운영자 ARM 서버 직접 호환).
 
-4 컴포넌트 단일 이미지 + ENTRYPOINT 가 `python -m` + CMD 가 `assessment_engine.web` (default).
+3 컴포넌트 단일 이미지 + ENTRYPOINT 가 `python -m` + CMD 가 `assessment_engine.web` (default).
 운영자가 module override:
 - web (default): `docker run image` → `python -m assessment_engine.web`
 - consumer: `docker run image assessment_engine.consumer`
 - diagnostic-worker: `docker run image assessment_engine.diagnostic`
-- diagnostic-scheduler: `docker run image assessment_engine.diagnostic.scheduler`
+
+ADR 0023: scheduler cron 폐기로 4 컴포넌트 → 3 컴포넌트.
 
 ## 2. 생성 trigger (자동 ceremony)
 

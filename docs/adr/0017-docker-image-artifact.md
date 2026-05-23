@@ -23,7 +23,7 @@ CI 산출물에 Docker image 추가. wheel 과 image 양쪽 동시 발행.
 ### 이미지 정책
 - Registry: GHCR (`ghcr.io/{org}/assessment-engine`) — 무료, OCI 표준
 - Multi-arch: `linux/amd64` + `linux/arm64` (ARM 서버 호환)
-- 4 컴포넌트 단일 이미지 + `ENTRYPOINT ["python", "-m"]` + `CMD ["assessment_engine.web"]` — 운영자가 module 만 override (`assessment_engine.consumer` / `.diagnostic` / `.diagnostic.scheduler`)
+- 3 컴포넌트 단일 이미지 + `ENTRYPOINT ["python", "-m"]` + `CMD ["assessment_engine.web"]` — 운영자가 module 만 override (`assessment_engine.consumer` / `.diagnostic`). ADR 0023: scheduler cron 폐기로 4 컴포넌트 → 3 컴포넌트.
 - Non-root user (uid/gid 1000)
 - Multi-stage build: builder (wheel build) → runtime (wheel install + slim base)
 
@@ -75,11 +75,9 @@ docker run -d --name consumer \
   --env-file .env ghcr.io/zconverter/assessment-engine:v0.1.0 \
   assessment_engine.consumer
 
-# diagnostic-worker / scheduler
+# diagnostic-worker
 docker run -d --name worker --env-file .env \
   ghcr.io/zconverter/assessment-engine:v0.1.0 assessment_engine.diagnostic
-docker run -d --name scheduler --env-file .env \
-  ghcr.io/zconverter/assessment-engine:v0.1.0 assessment_engine.diagnostic.scheduler
 ```
 
 ### docker-compose.yml (외부 인프라 작성)
@@ -97,10 +95,6 @@ services:
     image: ghcr.io/zconverter/assessment-engine:0.1
     env_file: .env
     command: assessment_engine.diagnostic
-  diagnostic-scheduler:
-    image: ghcr.io/zconverter/assessment-engine:0.1
-    env_file: .env
-    command: assessment_engine.diagnostic.scheduler
 ```
 
 ### Kubernetes Deployment (외부 인프라 작성)

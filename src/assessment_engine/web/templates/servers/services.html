@@ -17,7 +17,7 @@
   </h2>
 
   {% if server.services is none %}
-    <p style="color:#94a3b8; font-size:13px; margin:0;">수집 불가 — 비-systemd 호스트</p>
+    <p style="color:#94a3b8; font-size:13px; margin:0;">수집 불가</p>
   {% elif not server.services %}
     <p style="color:#94a3b8; font-size:13px; margin:0;">실행 중인 서비스 없음</p>
   {% else %}

@@ -54,7 +54,7 @@ tests/factories.py            — make_inventory(), make_metrics()
 
 데이터 빌더 사용:
 ```python
-inv = make_inventory(machine_id="m1", hostname="h1", cpu_cores=4)
+inv = make_inventory(host_id="m1", hostname="h1", cpu_cores=4)
 m = make_metrics(collected_at=ts, cpu_user=1000)
 ```
 미지정 필드는 안전한 default. 필요한 필드만 명시.
@@ -86,7 +86,7 @@ from tests.factories import make_inventory
 pytestmark = pytest.mark.asyncio
 
 async def test_something(collect_repo):
-    inv = make_inventory(machine_id="t-001")
+    inv = make_inventory(host_id="t-001")
     sid = await collect_repo.upsert_server(inv)
     assert sid > 0
 ```

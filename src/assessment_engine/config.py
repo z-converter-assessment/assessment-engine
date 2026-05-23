@@ -68,7 +68,7 @@ class WebSettings(BaseSettings):
     redis_key_token: str = "token:{}"
     redis_key_last_agent_start: str = "last_agent_start:{}"
     redis_key_agent_restarts: str = "agent_restarts:{}"
-    # {machine_id}:{hostname} 쿨다운 마커 — server_inventory 복합 unique 일관 (#C1)
+    # {host_id}:{hostname} 쿨다운 마커 — server_inventory 복합 unique 일관 (#C1)
     redis_key_time_invariant_warned: str = "time_invariant_warned:{}:{}"
 
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
@@ -149,7 +149,7 @@ class ConsumerSettings(WebSettings):
 
     # 원격 작업 토폴로지 (collector exchange와 분리 — 인증·DLX 정책 독립).
     # task.install: engine 발행
-    #   routing_key=task.install.<machine_id> / queue=agent.tasks.<machine_id> (engine 동적 declare)
+    #   routing_key=task.install.<host_id> / queue=agent.tasks.<host_id> (engine 동적 declare)
     # task.result : 원격 호스트 발행 / queue=worker.result
     rabbitmq_task_exchange: str = "assessment.tasks"
     rabbitmq_task_queue_prefix: str = "agent.tasks"
@@ -182,13 +182,14 @@ class ConsumerSettings(WebSettings):
 
 
 class DiagnosticSettings(ConsumerSettings):
-    """진단 워커·스케줄러·웹 공통 설정 (ADR 0004).
+    """진단 워커·웹 공통 설정 (ADR 0004 + 0023).
 
     ConsumerSettings 상속 — broker_url·prod secret 검증 그대로 활용. 진단 워크플로 고유 필드만 추가.
+    ADR 0023: scheduler cron 폐기. trigger 채널 = 사용자 명시 (web POST) 만.
     """
 
     # AI 진단 일시 비활성 flag — 기본 비활성 (운영자 명시 활성 시 True override).
-    # False 시: web POST /api/diagnostics 503 reject + scheduler cron 발화 no-op.
+    # False 시: web POST /api/diagnostics 503 reject.
     # 모달 UI는 그대로 (사용자 트리거는 503으로 명시), worker process 는 큐 비어 idle.
     diagnostic_enabled: bool = False
 
@@ -197,16 +198,9 @@ class DiagnosticSettings(ConsumerSettings):
     diagnostic_queue_ttl_ms: int = 24 * 60 * 60 * 1000  # 24h — pending job 처리 못 하면 DLQ
     diagnostic_queue_max_len: int = 100_000
 
-    # retention
-    diagnostic_retention_days: int = 90
-
     # Redis polling 캐시 (워커가 각 단계 후 SET, web polling이 우선 read)
     redis_key_diagnostic_progress: str = "diagnostic:job:{}"  # {job_id}
     redis_ttl_diagnostic_progress: int = 3600
-
-    # 스케줄러
-    diagnostic_schedule_cron: str = "0 3 * * *"  # 매일 03시 KST
-    diagnostic_active_server_window_hours: int = 24  # last_seen_at 기준 활성 서버 정의
 
     # LLM — 과금 발생 외부 API 호출 금지 (운영자 정책). 외부 API 도입은 별도 ADR 정정.
     llm_provider: Literal["mock", "ollama"] = "mock"
@@ -214,6 +208,16 @@ class DiagnosticSettings(ConsumerSettings):
     ollama_model: str = "llama3.1:8b"
     llm_timeout_seconds: int = 60
     llm_mock_latency_seconds: float = 2.0  # mock latency 시뮬레이션 (UI progress 단계 확인용)
+
+    # RAG (ADR 0024) — handler retrieve_context 단계 + ingest CLI 공통 사용.
+    # rag_enabled=False default — 단계별 검증 후 운영자 명시 활성화. False 시 retrieve_context skip + payload['rag_context']=[]
+    rag_enabled: bool = False
+    embedding_provider: Literal["mock", "ollama"] = "mock"
+    embedding_model: str = "mxbai-embed-large"  # ollama 안 pull 의무 (`ollama pull mxbai-embed-large`)
+    embedding_dimension: int = 1024  # mxbai-embed-large default. 모델 변경 시 alembic migration 1회
+    embedding_timeout_seconds: float = 30.0
+    rag_top_k: int = 5
+    rag_max_context_chars: int = 4000  # LLM prompt 안 RAG context 절 max 길이 cap
 
     # 워커 단계별 timeout cap (단일 진단 1건 전체) — 클라이언트 polling timeout(5분)과 정렬
     worker_job_timeout_seconds: int = 300

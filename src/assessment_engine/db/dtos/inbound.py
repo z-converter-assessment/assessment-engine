@@ -6,7 +6,7 @@ from datetime import datetime
 class ServerInventoryCreate:
     # ─── 공통 메타데이터 (모든 메시지 공통, MessageBase 대응) ─────────────────────
     # message_id는 consumer에서 멱등성 체크에만 사용되고 DTO에는 안 옴.
-    machine_id: str
+    host_id: str
     hostname: str
     agent_version: str
     collected_at: datetime
@@ -72,7 +72,7 @@ class TaskCreate:
     """task 등록 시 — web router → repository."""
 
     target_server_id: int
-    target_machine_id: str
+    target_host_id: str
     task_type: str
     params: dict | None
 
@@ -97,7 +97,7 @@ class TaskResultUpdate:
 @dataclass
 class ServerMetricCreate:
     # ─── 공통 메타데이터 ────────────────────────────────────────────────────
-    # machine_id는 consumer 단에서 server_id 해석에 사용. 본 DTO엔 안 담음.
+    # host_id는 consumer 단에서 server_id 해석에 사용. 본 DTO엔 안 담음.
     # boot_time/agent_started_at은 시계열 행마다 함께 저장 — calculator가 두 시점
     # 비교로 counter reset(시스템 재부팅) 정밀 식별 (CLAUDE.md B1 정책).
     collected_at: datetime

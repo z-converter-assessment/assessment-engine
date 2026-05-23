@@ -1,21 +1,21 @@
 # Repository 계층
 
-정책: CLAUDE.md #C2 · #F4. 3개 추상 인터페이스 `BaseCollectRepository`(Consumer) / `BaseQueryRepository`(Web) / `BaseDiagnosticRepository`(워커, ADR 0004). 구체 구현체 import는 composition root(`web/deps.py` / `consumer/main.py` / `diagnostic/main.py` / `diagnostic/scheduler.py`)만.
+정책: CLAUDE.md #C2 · #F4. 3개 추상 인터페이스 `BaseCollectRepository`(Consumer) / `BaseQueryRepository`(Web) / `BaseDiagnosticRepository`(워커, ADR 0004 + 0023). 구체 구현체 import는 composition root(`web/deps.py` / `consumer/main.py` / `diagnostic/main.py`)만. ADR 0023: scheduler 폐기.
 
 ## Collect 계층 — `BaseCollectRepository` (Consumer)
 
 | 메서드 | 설명 |
 |--------|------|
-| `find_server_id(machine_id, hostname) -> int \| None` | 복합 키 `(machine_id, hostname)` 으로 server_id 조회 (#C1) |
-| `upsert_server(data) -> int` | `(machine_id, hostname)` 복합 키 기준 ON CONFLICT DO UPDATE. 변경 감지 시 history append |
-| `ensure_server_id(machine_id, hostname, fallback) -> tuple[int, bool]` | find → 없으면 placeholder INSERT. metrics 핸들러 auto-register. 복합 키 (#C1) |
+| `find_server_id(host_id) -> int \| None` | `host_id` 단일 키로 server_id 조회 (#C1, ADR 0022) |
+| `upsert_server(data) -> int` | `host_id` UNIQUE 기준 ON CONFLICT DO UPDATE. 변경 감지 시 history append |
+| `ensure_server_id(host_id, fallback) -> tuple[int, bool]` | find → 없으면 placeholder INSERT. metrics 핸들러 auto-register. 단일 키 (#C1, ADR 0022) |
 | `record_metrics(server_id, data) -> MetricInsertResult` | 4 시계열 테이블 INSERT. 각 테이블 행 수 반환 |
 | `create_task(data) -> str` | tasks INSERT. public_id(UUID) 반환 |
 | `complete_task(data) -> bool` | task.result handler — status / completed_at / failure_reason / exit_code / duration_ms / stdout_tail / stderr_tail UPDATE |
 
 ### 구현 디테일
 
-- `upsert_server`: `pg_insert ... on_conflict_do_update`. values·set_ dict는 한 번 만들어 재사용 (컬럼 추가 시 한 곳만 수정). `(machine_id, hostname)` 복합 키는 set_ 제외
+- `upsert_server`: `pg_insert ... on_conflict_do_update`. values·set_ dict는 한 번 만들어 재사용 (컬럼 추가 시 한 곳만 수정). `(host_id, hostname)` 복합 키는 set_ 제외
 - `ensure_server_id`: `_insert_placeholder_server`는 `ON CONFLICT DO NOTHING` (placeholder가 진짜 inventory 덮어쓰는 race 방지)
 - `record_metrics`: 4 테이블 모두 `pg_insert.on_conflict_do_nothing(index_elements=...)` — 멱등성 2단 방어 (D2)
 - `create_task`: `IntegrityError` 가능 (부분 UNIQUE `uq_tasks_pending_per_server_type`) — service가 catch
@@ -66,7 +66,7 @@ interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedel
 - `DIAGNOSTIC_RANGE_DAYS` — TimeRange -> float day 매핑 (fraction 지원)
 - `DIAGNOSTIC_RANGE_LABEL_KR` — UI/narrative 한국어 라벨
 - `CLASSIFICATION_LABEL_KR` — USE Method 분류 라벨 (`mappers.diagnostic` view + `llm/mock` narrative 공용)
-- `DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"` — F10 단일 진실 (scheduler 발화·service default)
+- `DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"` — F10 단일 진실 (service default · UI 기본값. ADR 0023: scheduler 폐기로 cron 발화 catalog 제거)
 
 ### 타입 별칭 (`db/repositories/query/types.py`)
 - `MetricType` Literal — 17개 chart metric

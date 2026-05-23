@@ -72,7 +72,7 @@ class ServerListItem:
 class ServerDetailResponse:
     id: int
     public_id: str
-    machine_id: str
+    host_id: str
     hostname: str
     agent_version: str | None
     os_id: str | None

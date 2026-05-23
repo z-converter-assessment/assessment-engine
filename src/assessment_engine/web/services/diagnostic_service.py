@@ -1,7 +1,7 @@
 """진단 service — web 측 조회·기록 (publish 는 `diagnostic/submitter.py` 단일 진실).
 
 책임 경계:
-- 발행 (submit) 은 `DiagnosticSubmitter` 위임 — scheduler 노드도 동일 함수 사용 (#F4)
+- 발행 (submit) 은 `DiagnosticSubmitter` 위임 — web POST 단독 사용처 (ADR 0014 분리 본질 유지, ADR 0023 scheduler 폐기)
 - 조회·이력·보고서 발행 기록은 본 service 단일 진실 (router 가 호출)
 - 추상 `BaseDiagnosticRepository` + `BaseQueryRepository`만 의존 (F4)
 
@@ -105,10 +105,10 @@ class DiagnosticService:
         server_public_id: str | None,
         time_range: DiagnosticTimeRange = "14d",
     ) -> DiagnosticJobRecord | None:
-        """SSR 페이지 로드 시 마지막 진단 결과 자동 표시용 (ADR 0004).
+        """SSR 페이지 로드 시 마지막 진단 결과 자동 표시용 (ADR 0004 + 0023).
 
         anchor_at 무관 — (scope, time_range, server_public_id) 기반 가장 최근 succeeded.
-        스케줄러 매일 03시 발화·운영자 자유 anchor 발행 결과 둘 다 표시.
+        ADR 0023: scheduler 폐기 후 trigger 채널 = 사용자 명시 발행 (web POST) 만.
         """
         async with self.session_factory() as session:
             repo = self.diagnostic_repo_factory(session)

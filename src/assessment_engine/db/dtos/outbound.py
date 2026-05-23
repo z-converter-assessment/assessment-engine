@@ -7,7 +7,7 @@ from typing import Literal
 class ServerSummary:
     id: int
     public_id: str
-    machine_id: str
+    host_id: str
     hostname: str
     os_id: str | None
     os_version: str | None
@@ -23,7 +23,7 @@ class ServerSummary:
 class ServerDetail:
     id: int
     public_id: str
-    machine_id: str
+    host_id: str
     hostname: str
     agent_version: str | None
     os_family: str | None  # "linux" | "windows" — task.install dispatch 단일 진실 (ADR 0020)
@@ -271,7 +271,7 @@ class InventoryExportEntry:
     벤더 중립 — recommended_size_class만 노출, 도구가 자기 도메인 instance type에 매핑.
     """
 
-    machine_id: str
+    host_id: str
     hostname: str
     role: str
     last_seen_at: datetime | None

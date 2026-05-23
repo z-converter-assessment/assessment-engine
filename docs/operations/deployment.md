@@ -93,7 +93,7 @@ ALEMBIC_INI=$(/opt/assessment-engine/venv/bin/python -c \
 각 unit이 가정하는 contract:
 - `WorkingDirectory=/opt/assessment-engine` (또는 자유 경로)
 - `EnvironmentFile=` 한 줄 이상 (4절 layered 패턴)
-- `ExecStart=/opt/assessment-engine/venv/bin/python -m assessment_engine.<module>` — module은 `web`·`consumer`·`diagnostic`·`diagnostic.scheduler` 중 하나
+- `ExecStart=/opt/assessment-engine/venv/bin/python -m assessment_engine.<module>` — module은 `web`·`consumer`·`diagnostic` 중 하나 (ADR 0023: scheduler 폐기)
 - `User=` system user (Linux distro 정합 임의 이름)
 - `KillSignal=SIGTERM` + `TimeoutStopSec` 충분 (#F11 graceful shutdown)
 - `Restart=always` 권장
@@ -121,7 +121,7 @@ TimeoutStopSec=30s
 WantedBy=multi-user.target
 ```
 
-다른 컴포넌트(consumer·diagnostic-worker·diagnostic-scheduler)는 `ExecStart` 모듈만 교체. 외부 인프라가 자체 Ansible template·자체 운영 도구로 생성.
+다른 컴포넌트(consumer·diagnostic-worker)는 `ExecStart` 모듈만 교체. 외부 인프라가 자체 Ansible template·자체 운영 도구로 생성.
 
 ### 3.6. 헬스 확인
 
@@ -134,18 +134,18 @@ curl -fsS http://<engine-host>:8000/health
 
 ## 4. multi-node 분리 inject 예시
 
-본 repo는 4 컴포넌트(web·consumer·diagnostic-worker·diagnostic-scheduler)를 같은 host 또는 분리 host에 배포 가능. 컴포넌트별 필요 키는 `docs/operations/env.md` "컴포넌트별 read 매트릭스" 참조.
+본 repo는 3 컴포넌트(web·consumer·diagnostic-worker)를 같은 host 또는 분리 host에 배포 가능. ADR 0023: scheduler cron 폐기로 4 컴포넌트 → 3 컴포넌트. 컴포넌트별 필요 키는 `docs/operations/env.md` "컴포넌트별 read 매트릭스" 참조.
 
 ### 단일 host (모든 컴포넌트 같이)
 
-가장 단순. 한 `.env` 또는 `EnvironmentFile`에 모든 키 주입. 4 systemd unit이 같은 파일을 `EnvironmentFile=/etc/assessment-engine.env`로 read.
+가장 단순. 한 `.env` 또는 `EnvironmentFile`에 모든 키 주입. 3 systemd unit이 같은 파일을 `EnvironmentFile=/etc/assessment-engine.env`로 read.
 
 ```ini
 # /etc/systemd/system/assessment-engine-web.service
 [Service]
 EnvironmentFile=/etc/assessment-engine.env
 ExecStart=/opt/assessment-engine/venv/bin/python -m assessment_engine.web
-# ... (consumer·diagnostic-worker·diagnostic-scheduler도 동일 EnvironmentFile)
+# ... (consumer·diagnostic-worker도 동일 EnvironmentFile)
 ```
 
 ### 4 host 분리 (계층화 — 권장 패턴 C)
@@ -181,12 +181,9 @@ diagnostic-worker 노드:    /etc/assessment-engine/diagnostic-worker.env
   WORKER_JOB_TIMEOUT_SECONDS=300
   DIAGNOSTIC_QUEUE_TTL_MS=86400000
   DIAGNOSTIC_QUEUE_MAX_LEN=100000
-
-diagnostic-scheduler 노드: /etc/assessment-engine/diagnostic-scheduler.env
-  DIAGNOSTIC_SCHEDULE_CRON=0 3 * * *
-  DIAGNOSTIC_RETENTION_DAYS=90
-  DIAGNOSTIC_ACTIVE_SERVER_WINDOW_HOURS=24
 ```
+
+ADR 0023: scheduler cron 폐기. 본 절 안 4 host 분리는 3 host 분리 정공 (web + consumer + diagnostic-worker).
 
 각 노드의 systemd unit:
 ```ini
@@ -243,11 +240,6 @@ services:
     env_file: /etc/assessment-engine.env
     command: assessment_engine.diagnostic
     restart: unless-stopped
-  diagnostic-scheduler:
-    image: ghcr.io/zconverter/assessment-engine:0.1
-    env_file: /etc/assessment-engine.env
-    command: assessment_engine.diagnostic.scheduler
-    restart: unless-stopped
 ```
 
 k8s Deployment (외부 인프라 — 본 repo 두지 않음):
@@ -274,7 +266,6 @@ spec:
 - web — replicas N 자유 (stateless HTTP)
 - consumer — replicas N 자유 (broker prefetch_count=10 분산)
 - diagnostic-worker — replicas N 자유 (job 단위 분산)
-- diagnostic-scheduler — replicas 1 singleton 의무 (cron 발화 중복 방지 — leader election 도구 필요 시 별도)
 
 폐쇄망 (air-gapped) 운영: `docker save assessment-engine:v1.2.3 -o image.tar` + scp → 운영 환경에서 `docker load -i image.tar` (ADR 0017 본문).
 
