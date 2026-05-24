@@ -38,10 +38,10 @@
   </div>
   {% if r %}
   <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:center; font-size:13px; color:#475569;">
-    <div>OS: <strong style="color:#1e293b;">{{ r.os_display }}</strong>{% if r.kernel_version %} <span style="color:#94a3b8;">({{ r.kernel_version }})</span>{% endif %}</div>
+    <div>OS: <strong class="text-strong">{{ r.os_display }}</strong>{% if r.kernel_version %} <span class="text-meta">({{ r.kernel_version }})</span>{% endif %}</div>
     {% if r.role %}<div style="display:inline-flex; align-items:center; gap:4px;">역할: <span class="badge {{ r.role | service_badge_class }}">{{ r.role }}</span></div>{% endif %}
     {% if r.internal_ip %}<div>내부 IP: <code>{{ r.internal_ip }}</code></div>{% endif %}
-    <div>상태: {% if r.is_online %}<span class="dot dot-ok"></span> <strong style="color:#15803d;">온라인</strong>{% else %}<span class="dot dot-off"></span> <strong style="color:#94a3b8;">오프라인</strong>{% endif %}</div>
+    <div>상태: {% if r.is_online %}<span class="dot dot-ok"></span> <strong class="text-ok">온라인</strong>{% else %}<span class="dot dot-off"></span> <strong class="text-meta">오프라인</strong>{% endif %}</div>
   </div>
   {% endif %}
 </section>
@@ -89,25 +89,11 @@
   {% if r %}
   <div style="display:flex; align-items:center; gap:12px;">
     <span class="badge {{ r.badge_class }}" style="font-size:13px; padding:4px 12px;">{{ r.recommendation }}</span>
-    <span style="font-size:13px; color:#1e293b;">
-      {%- if r.recommendation == "under_provisioned" and r.under_provisioned_reason -%}
-        {{ r.under_provisioned_reason }}
-      {%- elif r.recommendation == "over_provisioned" -%}
-        자원 축소 검토 (CPU/메모리 사용률 낮음)
-      {%- elif r.recommendation == "idle" -%}
-        용도 재평가 또는 종료 검토
-      {%- elif r.recommendation == "shutdown" -%}
-        종료 가능 검토 (사실상 미사용)
-      {%- elif r.recommendation == "optimal" -%}
-        적정 운영
-      {%- elif r.recommendation == "insufficient_data" -%}
-        평가 표본 부족 (윈도우 미만 또는 메트릭 수집 문제)
-      {%- endif -%}
-    </span>
+    <span class="text-strong" style="font-size:13px;">{{ r.recommendation_action }}</span>
   </div>
   {% if view == "engineer" and r.diagnosis %}
   <div style="margin-top:10px; padding-top:10px; border-top:1px solid #e2e8f0; font-size:12px; color:#475569;">
-    <span style="color:#94a3b8;">USE 종합 신호 (자동):</span> {{ r.diagnosis }}
+    <span class="text-meta">USE 종합 신호 (자동):</span> {{ r.diagnosis }}
   </div>
   {% endif %}
   {% else %}

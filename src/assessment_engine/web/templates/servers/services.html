@@ -33,7 +33,7 @@
         {% for svc in server.sorted_services %}
         <tr>
           <td><code>{{ svc.unit }}</code></td>
-          <td><span style="color:#16a34a; font-size:12px;">{{ svc.sub }}</span></td>
+          <td><span class="text-ok" style="font-size:12px;">{{ svc.sub }}</span></td>
           <td>
             <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}</span>
           </td>
@@ -77,21 +77,21 @@
         {% for p in server.sorted_listen_ports %}
         <tr>
           <td><code>{{ p.proto }}</code></td>
-          <td><code style="color:#94a3b8;">{{ p.addr }}</code></td>
+          <td><code class="text-meta">{{ p.addr }}</code></td>
           <td>
             {% if p.is_well_known %}
-              <strong style="color:#0f172a;">{{ p.port }}</strong>
+              <strong class="text-strong">{{ p.port }}</strong>
             {% else %}
               {{ p.port }}
             {% endif %}
           </td>
-          <td style="color:#64748b;">{{ p.uid }}</td>
-          <td style="color:#64748b;">{{ p.pid if p.pid is not none else '—' }}</td>
+          <td class="text-muted">{{ p.uid }}</td>
+          <td class="text-muted">{{ p.pid if p.pid is not none else '—' }}</td>
           <td>
             {% if p.comm %}
               <code>{{ p.comm }}</code>
             {% else %}
-              <span style="color:#cbd5e1;">—</span>
+              <span class="text-faint">—</span>
             {% endif %}
           </td>
         </tr>

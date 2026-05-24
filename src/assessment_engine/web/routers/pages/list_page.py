@@ -58,6 +58,8 @@ async def list_servers(
                 "ip": web_settings.zdm_default_ip,
                 "user": web_settings.zdm_default_user,
             },
+            "discovery_default_target": web_settings.discovery_default_target,
+            "discovery_default_port": web_settings.discovery_default_port,
             "filter_options": {
                 "service_categories": SERVICE_CATEGORIES,
                 "os_ids": distinct_os_ids,

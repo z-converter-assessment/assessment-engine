@@ -1,11 +1,13 @@
 /**
  * 서버 목록 페이지 — 서버 발견 모달.
  *
- * 역할: IP 입력 → HTTP probe로 네트워크 도달성 확인.
+ * 역할: IP/hostname 입력 -> SSH 포트(기본 22) TCP connect로 도달성 확인.
  * Ansible 자동 배포 워크플로우의 1단계 (도달성 검사). 추후 SSH credential 등록 +
  * ansible-playbook 실행이 이 위에 얹힘.
  *
- * 한계: HTTP 도달 ≠ SSH 도달. 1차 필터일 뿐.
+ * 한계: 포트 listen != 로그인 가능. 1차 필터일 뿐.
+ * probe 기본 target/port는 서버가 #probe-ip / #probe-port value로 렌더
+ * (discovery_default_target/port — dev=db-server-01.orb.local:22 / prod=빈값:22).
  *
  * 외부 의존: 없음 (모달은 list.html에 inline markup).
  */
@@ -16,30 +18,14 @@ const closeBtn    = document.getElementById('discover-close');
 const probeBtn    = document.getElementById('probe-btn');
 const ipInput     = document.getElementById('probe-ip');
 const portInput   = document.getElementById('probe-port');
-const schemeInput = document.getElementById('probe-scheme');
 const resultEl    = document.getElementById('probe-result');
-
-// probe target default — 브라우저 접근 host 우선, localhost 시 Lima dev fallback.
-// dev 환경: web 컨테이너 → host.docker.internal (Docker Desktop magic — macOS host 도달 가능).
-//   Lima vmnet IP(192.168.5.2)는 docker network 격리로 도달 불가라 docker host alias 사용.
-// 운영 환경: window.location.hostname 그대로 — IP·hostname 둘 다 backend가 받음 (ProbeRequest.target).
-function _defaultProbeTarget() {
-  const h = window.location.hostname;
-  if (h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '') {
-    return 'host.docker.internal';
-  }
-  return h;
-}
 
 function showModal() {
   modal.style.display = 'flex';
-  if (!ipInput.value.trim()) {
-    ipInput.value = _defaultProbeTarget();
-  }
   ipInput.focus();
   ipInput.select();
   resultEl.style.display = 'none';
-  resultEl.innerHTML = '';
+  resultEl.textContent = '';
 }
 
 function hideModal() {
@@ -52,26 +38,27 @@ function renderResult(data, errMsg) {
     resultEl.style.background = '#fef2f2';
     resultEl.style.color = '#991b1b';
     resultEl.style.border = '1px solid #fecaca';
-    resultEl.textContent = '❌ ' + errMsg;
+    resultEl.textContent = '도달 불가 — ' + errMsg;
     return;
   }
   if (data.reachable) {
     resultEl.style.background = '#f0fdf4';
     resultEl.style.color = '#166534';
     resultEl.style.border = '1px solid #bbf7d0';
-    resultEl.innerHTML = `✅ 도달 가능 — HTTP ${data.status_code}, ${data.elapsed_ms}ms`;
+    // banner 는 외부(SSH 서버)가 보낸 문자열 — textContent 로 삽입해 XSS 차단.
+    const detail = data.banner ? `SSH 확인 — ${data.banner}` : '포트 열림 (SSH 응답 없음)';
+    resultEl.textContent = `도달 가능 — ${detail}, ${data.elapsed_ms}ms`;
   } else {
     resultEl.style.background = '#fef2f2';
     resultEl.style.color = '#991b1b';
     resultEl.style.border = '1px solid #fecaca';
-    resultEl.innerHTML = `❌ 도달 불가 — ${data.error || 'unknown error'} (${data.elapsed_ms}ms)`;
+    resultEl.textContent = `도달 불가 — ${data.error || 'unknown error'} (${data.elapsed_ms}ms)`;
   }
 }
 
 async function runProbe() {
   const target = ipInput.value.trim();
   const port   = parseInt(portInput.value, 10);
-  const scheme = schemeInput.value;
 
   if (!target) { renderResult(null, '대상(IP 또는 hostname)을 입력하세요'); return; }
   if (!port || port < 1 || port > 65535) { renderResult(null, '포트는 1~65535 범위'); return; }
@@ -81,14 +68,14 @@ async function runProbe() {
   resultEl.style.background = '#f1f5f9';
   resultEl.style.color = '#64748b';
   resultEl.style.border = '1px solid #e2e8f0';
-  resultEl.textContent = '⏳ 확인 중...';
+  resultEl.textContent = '확인 중...';
   probeBtn.disabled = true;
 
   try {
     const res = await fetch('/api/discovery/probe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target, port, scheme }),
+      body: JSON.stringify({ target, port }),
     });
     if (res.status === 422) {
       const detail = await res.json();

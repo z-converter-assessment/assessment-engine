@@ -59,7 +59,7 @@ Brendan Gregg 의 USE Method (Utilization / Saturation / Errors) 를 채택한�
 | CPU | 1 − idle/total | runqueue, load_1m / cores | — |
 | Memory | 1 − available/total | swap 사용량, page faults | OOM kill |
 | Disk | iostat %util | await, queue depth | I/O errors |
-| Network | bytes/s ÷ 회선 용량 | drops, retransmits | rx/tx errors |
+| Network | bytes/s / 회선 용량 | drops, retransmits | rx/tx errors |
 
 구현
 - TimescaleDB `time_bucket` + `percentile_cont` 로 일 / 주 / 월 집계

@@ -22,7 +22,7 @@ ReportView = Literal["customer", "engineer"]
 _DONUT_SEGMENT_DEFS: list[tuple[str, str, str, str]] = [
     ("under_provisioned", "under_provisioned", "#ef4444", "자원 부족 — 사양 상향 검토"),
     ("over_provisioned", "over_provisioned", "#06b6d4", "자원 여유 — 사양 축소 검토"),
-    ("idle", "idle", "#94a3b8", "사용률 매우 낮음 — 용도 재평가"),
+    ("idle", "idle", "#64748b", "사용률 매우 낮음 — 용도 재평가"),
     ("shutdown", "shutdown", "#9333ea", "사실상 미사용 — 종료 검토"),
     ("optimal", "optimal", "#22c55e", "적정"),
     ("insufficient_data", "insufficient_data", "#cbd5e1", "평가 표본 부족"),

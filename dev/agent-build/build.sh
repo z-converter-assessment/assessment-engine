@@ -12,7 +12,7 @@
 #   2. debian:bookworm-slim 컨테이너에서 vendored static link 빌드 (host arch matching)
 #   3. dev/bin/assessment-agent 로 export
 #
-# base = debian:bookworm-slim — OpenSSL 3.0.11. Lima 매트릭스 최저 (Debian 12) 와 ABI 일치.
+# base = debian:bookworm-slim — OpenSSL 3.0.11. OrbStack 매트릭스 최저 (Debian 12) 와 ABI 일치.
 # static link: cJSON·rabbitmq-c·curl·libarchive 정적. OpenSSL/glibc/zlib 만 dynamic.
 #
 # 사용:
@@ -35,7 +35,7 @@ if [ ! -d "$AGENT_SRC" ]; then
   exit 1
 fi
 if ! command -v docker >/dev/null 2>&1; then
-  echo "오류: docker 미설치. Docker Desktop 또는 colima 기동 후 재시도." >&2
+  echo "오류: docker 미설치. OrbStack 기동 후 재시도." >&2
   exit 1
 fi
 if ! docker info >/dev/null 2>&1; then
@@ -47,7 +47,7 @@ if ! docker buildx version >/dev/null 2>&1; then
   exit 1
 fi
 
-# 2. host arch detect → docker --platform 매핑 (Lima VM이 host arch와 동일하다고 가정)
+# 2. host arch detect → docker --platform 매핑 (OrbStack VM이 host arch와 동일하다고 가정)
 host_arch="$(uname -m)"
 case "$host_arch" in
   arm64|aarch64) platform="linux/arm64" ;;

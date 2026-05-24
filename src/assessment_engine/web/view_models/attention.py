@@ -77,7 +77,7 @@ class AttentionCatalogEntry:
     label: str
     count: int
     active: bool
-    description: str = ""  # 임계 근거 한국어 보조 ("≥ 85%" 등)
+    description: str = ""  # 임계 근거 한국어 보조 (">= 85%" 등)
 
 
 @dataclass

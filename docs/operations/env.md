@@ -14,7 +14,7 @@
 | P2 | 같은 이미지를 모든 환경에서 사용 | `Dockerfile` 1개. 환경 차이는 환경변수·compose override·secret 채널로만 |
 | P3 | secret 과 일반 config 분리 | dev `.env` 평문 / prod 외부 인프라 자유 채널 (env·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등) |
 | P4 | Fail-fast 검증 | `config.py` `model_validator` 가 `APP_ENV=prod` 일 때 약한 default 거부 |
-| P5 | dev 에 안전한 default + prod 에서 거부 | `_WEAK_VALUES` 집합 + ZDM dev default 거부 — prod 에서 시작 차단 |
+| P5 | dev 에 안전한 default + prod 에서 거부 | `_WEAK_VALUES` 집합 (POSTGRES·RABBITMQ password·user) 거부 — prod 에서 시작 차단 |
 | P6 | secret 을 코드·이미지·git 에 박지 않음 | `.dockerignore`·`.gitignore` 에 `.env` / `dev/agent.env` / `dev/.env` 명시 |
 
 ---
@@ -30,7 +30,7 @@
 
 경계 케이스:
 - `POSTGRES_USER` — 보통 config. 단 user 자체가 권한 분리 키이면 secret. 본 프로젝트는 config 분류하되 prod 검증 시 약한 default (`assessment`) 거부.
-- `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` — config 이지만 dev default (`host.lima.internal:8000` · `admin@zconverter.com`) 가 prod 에 그대로 흘러가면 잘못된 ZDM 으로 install task 발행 위험. prod 검증 거부 대상.
+- `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` — config (secret 아님, 노출 무해). startup 거부 안 함 — 잘못된 ZDM 발행은 런타임 (`HttpZdmPackageResolver` 메타 도달 실패 시 503) + agent host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`, `url_not_allowed` reject) 가 방어. discovery 와 동일 정책 (startup 거부 없음).
 
 규칙: config 인지 secret 인지 헷갈리면 secret 으로 간주. 잘못 분류해 secret 을 평문 노출하는 비용이 그 반대보다 크다.
 
@@ -120,7 +120,7 @@ prod 환경에서 secret 누락·약한 default 통과 차단. secret 주입 채
 
 | 위치 | 검증 대상 | 강제 시점 |
 |------|---------|---------|
-| `config.py` `_validate_prod_*` model_validator | `_WEAK_VALUES`(`""`/`assessment`/`password`/`admin`/`root`/`changeme`) 거부 + ZDM 좌표 dev default (`host.lima.internal:8000`·`admin@zconverter.com`) 거부 | 앱 import 직후 (`Settings()` 인스턴스 생성 시) |
+| `config.py` `_validate_prod_*` model_validator | `_WEAK_VALUES`(`""`/`assessment`/`password`/`admin`/`root`/`changeme`) 거부 (POSTGRES·RABBITMQ password·user) | 앱 import 직후 (`Settings()` 인스턴스 생성 시) |
 
 ```python
 @model_validator(mode="after")
@@ -131,15 +131,11 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
         raise ValueError("POSTGRES_PASSWORD is unset or uses a dev default in prod. ...")
     if self.postgres_user in _WEAK_VALUES:
         raise ValueError("POSTGRES_USER must be set to a non-default value in prod.")
-    if self.zdm_default_ip == _ZDM_DEV_DEFAULT_IP:
-        raise ValueError("ZDM_DEFAULT_IP is unset or uses the dev default in prod. ...")
-    if self.zdm_default_user == _ZDM_DEV_DEFAULT_USER:
-        raise ValueError("ZDM_DEFAULT_USER is unset or uses the dev default in prod. ...")
     return self
 ```
 
 발동 위치 (multi-node 분리 시):
-- web 노드: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default + ZDM_DEFAULT_IP/USER dev default 거부
+- web 노드: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
 - consumer 노드: `ConsumerSettings` → POSTGRES·RABBITMQ password weak default 거부
 - diagnostic-worker 노드: `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
 
@@ -182,7 +178,7 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
                 v                           v                             v
    docker-compose env_file        config.py BaseSettings        pipeline-up.sh source dev/agent.env
    → 컨테이너 환경변수 주입       → Python 인스턴스 필드        → /etc/assessment-agent.env
-   → environment: 블록이          → 환경변수 > .env > default   → Lima VM 안 에이전트로 전달
+   → environment: 블록이          → 환경변수 > .env > default   → OrbStack VM 안 에이전트로 전달
      일부 키 강제 override        (cwd /app/.env 도 read)       → RABBITMQ_HOST 는 별도 주입
                 │
                 └─ (4) 컨테이너 안 Python 시작 시 (1)+(2) 결합:
@@ -242,9 +238,9 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 - 에이전트 secret 라이프사이클 (VM 재프로비저닝 시점) 이 엔진 (컨테이너 재기동 시점) 과 독립.
 - prod 에서는 에이전트가 K8s/Docker 내부에 있지 않으므로 Docker secrets 적용 불가 — 별도 secret 도구 필요.
 
-현재 dev: `dev/agent.env.example` 복사 → 운영 값 수정 → `./dev/pipeline-up.sh` 가 Lima VM 안 `/etc/assessment-agent.env` 로 옮김. RABBITMQ_HOST 는 pipeline-up.sh 가 `host.lima.internal` 상수로 별도 주입.
+현재 dev: `dev/agent.env.example` 복사 → 운영 값 수정 → `./dev/pipeline-up.sh` 가 OrbStack VM 안 `/etc/assessment-agent.env` 로 옮김. RABBITMQ_HOST 는 pipeline-up.sh 가 `host.docker.internal` 상수로 별도 주입.
 
-prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생성 — Lima 구성은 dev 한정으로 격리.
+prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생성 — OrbStack 구성은 dev 한정으로 격리.
 
 호스트명 정책 (dev compose 한정):
 
@@ -263,13 +259,13 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `POSTGRES_DB` | `assessment` | config.py / dev compose | |
 | `POSTGRES_USER` | `assessment` | config.py / dev compose | prod 에서 weak default 거부 |
 | `POSTGRES_PASSWORD` | `assessment` | config.py / dev compose | prod 에서 weak default 거부 (의무 강한 secret) |
-| `RABBITMQ_HOST` | `rabbitmq` | config.py | 컨슈머 broker 접속 (docker-compose 서비스명). 에이전트는 본 키 안 씀 — pipeline-up.sh 가 `host.lima.internal` 별도 주입 |
+| `RABBITMQ_HOST` | `rabbitmq` | config.py | 컨슈머 broker 접속 (docker-compose 서비스명). 에이전트는 본 키 안 씀 — pipeline-up.sh 가 `host.docker.internal` 별도 주입 |
 | `RABBITMQ_PORT` | `5672` | config.py / dev compose | |
 | `RABBITMQ_VHOST` | `/assessment` | config.py / dev compose / pipeline-up.sh | 전용 vhost. 에이전트와 동일 값. AMQP URL 의 `/` 는 `%2F` 인코딩 (config.py `broker_url` 자동) |
 | `RABBITMQ_USER` | `assessment` | config.py / dev compose / dev/agent.env | prod 에서 weak default 거부 |
 | `RABBITMQ_PASSWORD` | `assessment` | config.py / dev compose / dev/agent.env | prod 에서 weak default 거부 (의무 강한 secret) |
 | `RABBITMQ_MANAGEMENT_PORT` | `15672` | dev compose | RabbitMQ 관리 콘솔 포트 노출 (config.py 미사용) |
-| `RABBITMQ_EXCHANGE` | `assessment` | config.py / dev/agent.env | 에이전트 ↔ consumer routing 계약. 변경 시 양쪽 동기화 |
+| `RABBITMQ_EXCHANGE` | `assessment` | config.py / dev/agent.env | 에이전트·consumer routing 계약. 변경 시 양쪽 동기화 |
 | `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | config.py / dev/agent.env | 동일 |
 | `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | config.py / dev/agent.env | 동일 |
 | `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | config.py / dev/agent.env | 동일 |
@@ -278,15 +274,17 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `WORKER_TASK_EXCHANGE` | `assessment.tasks` | config.py / dev/agent.env | task.install/task.result 전용 exchange. collector exchange 와 분리 |
 | `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | dev/agent.env | 원격 호스트별 큐 prefix. full name = `<prefix>.<host_id>` |
 | `WORKER_TASK_RESULT_KEY` | `task.result` | dev/agent.env | 원격 호스트 → 엔진 결과 보고 routing key |
-| `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `host.lima.internal` | dev/agent.env | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치) |
+| `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `host.docker.internal` | dev/agent.env | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치) |
 | `REDIS_HOST` | `redis` | config.py | (docker-compose 서비스명). prod 는 실제 host |
 | `REDIS_PORT` | `6379` | config.py | |
 | `REDIS_MAXMEMORY` | `256mb` | dev compose (redis command) | Redis maxmemory cap. prod 튜닝 가능 |
 | `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | dev compose (redis command) | maxmemory 도달 시 eviction policy. TTL 키 우선 evict |
 | `WEB_PORT` | `8000` | config.py / dev compose | Web UI 접속 포트 |
+| `DISCOVERY_DEFAULT_TARGET` | `""` (빈값) | config.py / dev compose | 서버 발견 모달 SSH 도달성 probe 의 기본 target 주소. 운영자가 모달에서 override. dev compose 가 `db-server-01.orb.local` 주입 (web 컨테이너 -> OrbStack agent VM 직접 — 통합 네트워크). prod 는 빈값 default — 신규 host 주소를 사전에 알 수 없어 운영자 직접 입력. weak default 거부 대상 아님 (빈값이 정상 동작) |
+| `DISCOVERY_DEFAULT_PORT` | `22` | config.py / dev compose | probe 폼 기본 포트. prod·dev 모두 표준 SSH 22 — OrbStack VM 은 `db-server-01.orb.local:22` 직접 도달 (Lima user-mode localPort 포워딩 불필요). 비표준 SSH 포트 host 는 폼 override |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |
-| `ZDM_DEFAULT_IP` | `host.lima.internal:8000` | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. dev default 는 web 컨테이너의 ZDM mock endpoint (ADR 0018) 가리킴. prod 에서 dev default 그대로면 거부 |
-| `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 관리자 계정 기본값. POST body `zdm_user` 누락 시 fallback. install.sh 의 `-u` 인자. prod 에서 dev default 그대로면 거부 |
+| `ZDM_DEFAULT_IP` | `host.docker.internal:8000` | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. dev default 는 web 컨테이너의 ZDM mock endpoint (ADR 0018) 가리킴. startup 거부 없음 — 잘못된 ZDM 발행은 런타임 503 + agent host whitelist 가 방어 |
+| `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 관리자 계정 기본값. POST body `zdm_user` 누락 시 fallback. install.sh 의 `-u` 인자. startup 거부 없음 (secret 아님) |
 | `ZDM_PACKAGE_PATH` | `/download/ZConverter_CloudSource_Setup_Linux.tar.gz` | config.py | ZDM 호스트의 본체 패키지 URL path. task.install download.url 은 `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` 조립. dev mock endpoint 도 동일 path 로 라우팅 (ADR 0018) |
 | `ZDM_PACKAGE_SCRIPT` | `zconverter_install_source/install.sh` | config.py | tar 추출 후 실행할 스크립트 경로 |
 | `ZDM_META_CONNECT_TIMEOUT_SEC` | `5.0` | config.py | ZDM 메타 조회 HTTP connect timeout |
@@ -328,7 +326,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 - [ ] `APP_ENV=prod` 환경변수 명시
 - [ ] `POSTGRES_PASSWORD`·`RABBITMQ_PASSWORD` 강한 random secret 주입 (채널은 자유 — env·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등)
 - [ ] `POSTGRES_USER`·`RABBITMQ_USER` 도 dev default(`assessment`) 아닌 값 (weak default 거부 대상)
-- [ ] `ZDM_DEFAULT_IP`·`ZDM_DEFAULT_USER` 고객사 ZDM 좌표로 override (dev default `host.lima.internal:8000` 그대로면 fail)
+- [ ] `ZDM_DEFAULT_IP`·`ZDM_DEFAULT_USER` 고객사 ZDM 좌표로 override (startup 거부는 없음 — 미설정 시 첫 install 발행이 런타임 503 또는 agent `url_not_allowed` 로 실패)
 - [ ] `ZDM_PACKAGE_*` 운영 ZDM 측 패키지 layout 과 일치 (path·script)
 - [ ] Alembic 마이그레이션 사전 적용 — wheel 안 `assessment_engine/_alembic.ini` + `_migrations/` 활용 (`docs/operations/alembic.md`)
 - [ ] DB·MQ·Redis 외부 포트 노출 없음 (reverse proxy 뒤)

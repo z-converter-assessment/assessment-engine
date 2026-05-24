@@ -55,7 +55,7 @@ _CAPACITY_TRIGGER_COLORS: dict[str, str] = {
     "스왑": "#dc2626",  # 빨강 — 메모리 saturation (paging 발생)
     "CPU": "#2563eb",  # 파랑 — CPU utilization 임계 초과
     "메모리": "#8b5cf6",  # 보라 — 메모리 utilization 임계 초과
-    "Load": "#ea580c",  # 주황 — CPU saturation (load_15m / cores ≥ 1.0)
+    "Load": "#ea580c",  # 주황 — CPU saturation (load_15m / cores >= 1.0)
     "디스크": "#0891b2",  # 청록 — disk capacity 또는 IO saturation (iowait)
 }
 
@@ -76,7 +76,8 @@ def to_disk_warning_item(raw: DiskUsageWarningRaw, now: datetime) -> AttentionRo
     used_pct = (1 - raw.avail_bytes / raw.total_bytes) * 100
     free_gb = raw.avail_bytes / 1024**3
     total_gb = raw.total_bytes / 1024**3
-    badge = "rec-under_provisioned" if used_pct >= _USAGE_DANGER_PCT else "rec-right_size"
+    # 디스크 사용률 위험도 (repo 가 85%+ 만 거름): 90%+ = 위험(빨강), 85~90% = 주의(amber).
+    badge = "rec-under_provisioned" if used_pct >= _USAGE_DANGER_PCT else "badge-warn"
     is_stale = (now - raw.last_metric_at).total_seconds() / 3600 >= _DISK_STALE_HOURS
     meta_text = f"잔여 {free_gb:.1f} / {total_gb:.1f} GB"
     if is_stale:
@@ -133,7 +134,7 @@ def _dash_length(pct: float | None) -> float:
 def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, int]:
     """카테고리별 카운트 -> (RiskDonutSegment list, total, under_count).
 
-    risk_counts 예: {"under": 1, "over": 2, "normal": 7}.
+    risk_counts 예: {"under_provisioned": 1, "over_provisioned": 2, "optimal": 7} (키 = _DONUT_SEGMENT_DEFS 6종).
     누락 키는 0으로 취급. dash_length·dash_offset은 누적 비례 계산.
     under_count는 도넛 중앙 강조용 (가장 시급한 카테고리).
     """

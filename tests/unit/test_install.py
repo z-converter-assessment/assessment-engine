@@ -21,7 +21,7 @@ from assessment_engine.web.services.task_service import _extract_zdm_host
         ("http://192.168.3.94/", "192.168.3.94"),
         ("https://zdm.example.com", "zdm.example.com"),
         ("HTTP://Zdm.Example.Com", "Zdm.Example.Com"),
-        ("http://host.lima.internal:8000/p", "host.lima.internal:8000"),
+        ("http://host.docker.internal:8000/p", "host.docker.internal:8000"),
     ],
 )
 def test_extract_zdm_host(raw, expected):
@@ -89,8 +89,8 @@ def test_install_request_rejects_invalid_zdm_target(bad_value):
     [
         "192.168.3.94",  # IP
         "zdm.internal",  # hostname
-        "host.lima.internal",  # 다중 label hostname
-        "http://host.lima.internal:8000/p",  # HTTP URL
+        "host.docker.internal",  # 다중 label hostname
+        "http://host.docker.internal:8000/p",  # HTTP URL
         "https://zdm.example.com",  # HTTPS URL
     ],
 )

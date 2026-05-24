@@ -50,28 +50,28 @@
 <div class="kpi-label">환경</div>
 <div class="kpi-grid kpi-grid-2" style="margin-bottom:12px;">
   <div class="kpi"><span>대상 서버</span><strong>{{ summary.total }}</strong></div>
-  <div class="kpi"><span>온라인</span><strong style="color:#15803d;">{{ summary.online }}</strong></div>
+  <div class="kpi"><span>온라인</span><strong class="text-ok">{{ summary.online }}</strong></div>
 </div>
 <div class="kpi-label">Right-sizing 분류</div>
 <div class="kpi-grid kpi-grid-3" style="margin-bottom:{% if view == 'engineer' %}12{% else %}24{% endif %}px;">
-  <div class="kpi"><span>자원 부족</span><strong style="color:#b91c1c;">{{ under_count }}</strong></div>
-  <div class="kpi"><span>효율화 권장</span><strong style="color:#92400e;">{{ optimize_count }}</strong></div>
-  <div class="kpi"><span>적정</span><strong style="color:#15803d;">{{ optimal_count }}</strong></div>
+  <div class="kpi"><span>자원 부족</span><strong class="text-danger">{{ under_count }}</strong></div>
+  <div class="kpi"><span>효율화 권장</span><strong class="text-warn">{{ optimize_count }}</strong></div>
+  <div class="kpi"><span>적정</span><strong class="text-ok">{{ optimal_count }}</strong></div>
 </div>
 
 {% if view == "engineer" and attn_active_count > 0 %}
 <div class="kpi-label">운영 신호 <span class="kpi-label-sub">발화 호스트 {{ attn_active_count }}대</span></div>
 <div class="kpi-grid" style="grid-template-columns:repeat({{ attn_active_kpi_cols }}, 1fr);">
-  {% if attn_gap_count > 0 %}<div class="kpi"><span>데이터 수집 끊김</span><strong style="color:#b45309;">{{ attn_gap_count }}</strong></div>{% endif %}
-  {% if attn_eol_count > 0 %}<div class="kpi"><span>OS EOL</span><strong style="color:#b45309;">{{ attn_eol_count }}</strong></div>{% endif %}
-  {% if attn_restart_count > 0 %}<div class="kpi"><span>Agent 불안정</span><strong style="color:#b45309;">{{ attn_restart_count }}</strong></div>{% endif %}
+  {% if attn_gap_count > 0 %}<div class="kpi"><span>데이터 수집 끊김</span><strong class="text-attn">{{ attn_gap_count }}</strong></div>{% endif %}
+  {% if attn_eol_count > 0 %}<div class="kpi"><span>OS EOL</span><strong class="text-attn">{{ attn_eol_count }}</strong></div>{% endif %}
+  {% if attn_restart_count > 0 %}<div class="kpi"><span>Agent 불안정</span><strong class="text-attn">{{ attn_restart_count }}</strong></div>{% endif %}
 </div>
 {% endif %}
 
 <div style="display:flex; gap:24px; margin:14px 0 12px; padding:14px 16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:13px; color:#475569;">
-  <div>총 vCPU: <strong style="color:#1e293b;">{{ summary.totals.total_vcpus }}</strong></div>
-  <div>총 메모리: <strong style="color:#1e293b;">{{ "%.1f" | format(summary.totals.total_memory_gb) }} GB</strong></div>
-  <div>총 디스크: <strong style="color:#1e293b;">{{ summary.totals.total_disk_gb }} GB</strong></div>
+  <div>총 vCPU: <strong class="text-strong">{{ summary.totals.total_vcpus }}</strong></div>
+  <div>총 메모리: <strong class="text-strong">{{ "%.1f" | format(summary.totals.total_memory_gb) }} GB</strong></div>
+  <div>총 디스크: <strong class="text-strong">{{ summary.totals.total_disk_gb }} GB</strong></div>
   <div style="margin-left:auto; color:#94a3b8; font-size:12px;">환경 총 자원 규모</div>
 </div>
 
@@ -102,7 +102,7 @@
           <a href="/servers/{{ r.public_id }}/report?view={{ view }}&time_range={{ time_range }}&back={{ self_back }}" class="row-link"><strong>{{ r.hostname }}</strong></a>
           {% if view == "engineer" %}<span class="stat-line muted"><code>{{ r.internal_ip or "—" }}</code></span>{% endif %}
         </td>
-        <td>{% if r.role %}<span class="badge {{ r.role | service_badge_class }}">{{ r.role }}</span>{% else %}<span style="color:#94a3b8;">—</span>{% endif %}</td>
+        <td>{% if r.role %}<span class="badge {{ r.role | service_badge_class }}">{{ r.role }}</span>{% else %}<span class="text-meta">—</span>{% endif %}</td>
         <td>
           {{ r.os_display }}
           {% if view == "engineer" and r.kernel_version %}<span class="stat-line muted">{{ r.kernel_version }}</span>{% endif %}
@@ -131,7 +131,7 @@
             {% if sig.get('os_eol') %}<span class="rec-badge attn-active" title="OS EOL: {{ sig.os_eol }}">OS EOL</span> {% endif %}
             {% if sig.get('restart') %}<span class="rec-badge attn-active" title="Agent 불안정: {{ sig.restart }}">Agent</span>{% endif %}
           {% else %}
-            <span style="color:#cbd5e1;">—</span>
+            <span class="text-faint">—</span>
           {% endif %}
         </td>
         {% set diag = diagnostics_by_pid.get(r.public_id) %}

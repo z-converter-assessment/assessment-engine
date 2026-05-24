@@ -53,7 +53,7 @@ UI 활성 안 하고 workflow만 두어도 동작 — 단 Security 탭 통합이
 | `ci / pytest (unit)` | `ci.yml` | 단위 테스트 + coverage | |
 | `ci / wheel build` | `ci.yml` | `uv build` 성공 | release artifact 산출물 정합 |
 | `ci / pytest (integration)` | `ci.yml` | testcontainers postgres/redis + 통합 | wheel build 의존 |
-| `alembic-check` | `alembic-check.yml` | ORM ↔ migrations 라운드트립 정합 | paths 무관 매 PR 발화 (paths 조건 제거 — branch protection skip 함정 회피) |
+| `alembic-check` | `alembic-check.yml` | ORM·migrations 라운드트립 정합 | paths 무관 매 PR 발화 (paths 조건 제거 — branch protection skip 함정 회피) |
 | `security / pip-audit` | `security.yml` | 의존성 CVE 검사 | paths 무관 매 PR 발화 (동일 사유) |
 
 본 7 check 모두 통과 의무 — paths 조건 없는 워크플로라 main PR 매번 발화 (`alembic-check` ~10s, `pip-audit` ~1min). CodeQL SAST 는 `codeql.yml` 이 별도 SARIF 업로드라 본 required 목록 외 — Security 탭 alert 으로 운영자 인지.

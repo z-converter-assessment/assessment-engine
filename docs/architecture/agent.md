@@ -107,7 +107,7 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 - 운영자가 모달에 입력한 zdm_ip 허용 형식: IPv4 / IPv4:port / hostname / FQDN / hostname:port / http(s) URL. 엔진이 scheme·path strip 해서 host[:port] 만 추출 (`task_service._extract_zdm_host`) → download.url 조립 시 host[:port] 사용. agent `download_url_extract_host` 가 `':'` 도 host 종료 문자로 처리해 host-only 매칭. validator 매트릭스 단일 진실: `web/routers/tasks.py::_validate_zdm_ip` + `_is_valid_host_or_host_port`. IPv6 (raw / bracket) 는 agent 측 한계로 미지원.
 - agent 측 download.c 가 host whitelist(`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 강제. 운영자가 박은 ZDM host 가 등록되지 않았으면 `failure_reason="url_not_allowed"` reject. agent config 는 deploy 시점 고정 — 새 ZDM host 도입 시 agent 재배포 필요.
 - ZDM 좌표 default 는 `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` env. 패키지 메타는 `ZDM_PACKAGE_PATH` / `ZDM_PACKAGE_SCRIPT` env (`docs/operations/env.md`).
-- dev 환경 한정: `APP_ENV=dev` 일 때 web 컨테이너가 ZDM 본체 패키지를 mock 서빙 (ADR 0018) — `ZDM_DEFAULT_IP=host.lima.internal:8000` default 로 Lima VM agent worker 가 host (Mac) web 8000 으로 도달. prod 에서는 라우터 자체가 안 붙음.
+- dev 환경 한정: `APP_ENV=dev` 일 때 web 컨테이너가 ZDM 본체 패키지를 mock 서빙 (ADR 0018) — `ZDM_DEFAULT_IP=host.docker.internal:8000` default 로 OrbStack VM agent worker 가 host web 8000 으로 도달. prod 에서는 라우터 자체가 안 붙음.
 
 ### sha256·size 동적 산출 (HttpZdmPackageResolver)
 
@@ -139,7 +139,7 @@ cache 동작:
 | `status` | `"success"` \| `"failure"` | 실행 결과 |
 | `failure_reason` | string\|null max=32 | 실패 분류. 알려진 값: `url_not_allowed` / `download_failed` / `sha256_mismatch` / `extract_failed` / `script_not_found` / `script_failed` / `script_timeout` / `insufficient_disk` / `internal_error` / `already_done` / `unsupported_install_type`. 성공 시 null. 알려지지 않은 값은 silent pass (DB 저장은 그대로) |
 | `exit_code` | int\|null | install.sh 종료 코드. 실행 전 실패 시 null |
-| `duration_ms` | int (≥0) | 다운로드 + 추출 + install 합계 |
+| `duration_ms` | int (>=0) | 다운로드 + 추출 + install 합계 |
 | `stdout_tail` | string max=4096 | install.sh stdout 끝부분 4 KB. agent `exec.c` 의 `out_storage[4096]` circular tail buffer 단일 진실. 미실행 시 `""` |
 | `stderr_tail` | string max=4096 | install.sh stderr 끝부분 4 KB. agent `exec.c` 의 `err_storage[4096]` 단일 진실. 미실행 시 `""` |
 
@@ -152,7 +152,7 @@ cache 동작:
 
 운영자 가시성: list.html "최근 작업" column (행별 마지막 task badge + polling 갱신) / detail.html "최근 작업" 섹션 (timeline 최근 10건 + row 클릭 modal) / Web API `GET /api/tasks/{task_id}` 단일 + `GET /api/tasks?server_public_id=...` 서버별 cursor pagination. 단일 진실: `web/services/mappers/task.py::to_task_summary` / `to_task_detail` + base.html `.rec-success`/`.rec-failure`/`.rec-pending`/`.rec-unknown`. failure_reason 한글 라벨은 `mappers/task.py::_FAILURE_REASON_LABEL` 카탈로그 (11 enum).
 
-dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.lima.internal:8000{ZDM_PACKAGE_PATH}` 로 더미 tar.gz 를 서빙 — Lima VM agent worker 가 download → install.sh (echo + exit 0) exec → task.result success 발행 → consumer 6 컬럼 UPDATE → list UI badge `success` 전이. sha256·size 는 `HttpZdmPackageResolver` 가 ZDM 호스트 (dev 에서는 mock) 에서 HEAD/GET 으로 동적 산출하므로 별도 env 박을 필요 없음. agent download.c 는 http·https 둘 다 허용 (CURLOPT_PROTOCOLS_STR="https,http"), host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS=host.lima.internal`) 그대로 매칭. 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200 등) 시 publish 503 차단.
+dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.docker.internal:8000{ZDM_PACKAGE_PATH}` 로 더미 tar.gz 를 서빙 — OrbStack VM agent worker 가 download → install.sh (echo + exit 0) exec → task.result success 발행 → consumer 6 컬럼 UPDATE → list UI badge `success` 전이. sha256·size 는 `HttpZdmPackageResolver` 가 ZDM 호스트 (dev 에서는 mock) 에서 HEAD/GET 으로 동적 산출하므로 별도 env 박을 필요 없음. agent download.c 는 http·https 둘 다 허용 (CURLOPT_PROTOCOLS_STR="https,http"), host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS=host.docker.internal`) 그대로 매칭. 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200 등) 시 publish 503 차단.
 
 ---
 
@@ -249,12 +249,12 @@ loop 디바이스 I/O 는 sda 에도 이미 반영된다 (`앱 read -> loop0(squ
 
 ## 운영 / 디버깅
 
-Lima VM 발행 측 상태:
+OrbStack VM 발행 측 상태:
 ```bash
-limactl shell <vm> sudo systemctl status assessment-agent --no-pager
-limactl shell <vm> sudo journalctl -u assessment-agent --no-pager -n 50
+ssh <vm>@orb sudo systemctl status assessment-agent --no-pager
+ssh <vm>@orb sudo journalctl -u assessment-agent --no-pager -n 50
 ```
 
 end-to-end 추적: (1) VM 발행 로그 -> (2) broker 큐 적재 (`rabbitmqctl list_queues`) -> (3) consumer 처리 로그 -> (4) DB 행 -> (5) web 표시. 끊긴 단계가 원인.
 
-발행 측 재기동: 소스·env 변경 시 `./dev/pipeline-up.sh` 재실행으로 자동. 단발 재기동은 `limactl shell <vm> sudo systemctl restart assessment-agent`.
+발행 측 재기동: 소스·env 변경 시 `./dev/pipeline-up.sh` 재실행으로 자동. 단발 재기동은 `ssh <vm>@orb sudo systemctl restart assessment-agent`.

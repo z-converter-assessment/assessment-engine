@@ -154,6 +154,20 @@ def make_diagnostic_handler(
                     await diag_repo.mark_failed(job_id, "llm_timeout")
                     await session.commit()
                     await _publish_progress(redis, diag_repo, job_id)
+                except httpx.HTTPError as e:
+                    # ollama 미연결·연결거부·HTTP 오류 (timeout 아닌 외부 LLM 실패) — 비즈니스 실패로 흡수.
+                    # llm_timeout 과 동일 결: status='failed' + DLQ 재시도 없음 (운영자 polling 인지 후 재발행).
+                    # 미연결 시 mark_failed 안 하면 job 이 running 으로 영구 stale.
+                    # #F8 — err_type 만 (URL·접속정보 노출 금지).
+                    logger.warning(
+                        "diagnostic llm http error job_id={} scope={} err_type={}",
+                        job_id,
+                        job.scope,
+                        type(e).__name__,
+                    )
+                    await diag_repo.mark_failed(job_id, f"llm_error: {type(e).__name__}")
+                    await session.commit()
+                    await _publish_progress(redis, diag_repo, job_id)
                 except OperationalError:
                     # DB 일시 장애 — DLQ 재시도 기회 (F6 fail-close). job은 pending 상태 유지.
                     logger.exception("diagnostic db unavailable job_id={}", job_id)

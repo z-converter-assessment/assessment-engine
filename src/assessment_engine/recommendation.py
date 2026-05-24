@@ -34,9 +34,9 @@ CPU_UPSIZE_P95_PCT = 70  # Kleinrock — Queueing Systems (1975), Google SRE Boo
 MEM_UPSIZE_P95_PCT = 80  # Linux page cache 압박 시작점
 
 # USE Method Saturation 임계 — utilization 외 saturation 축 평가 (Brendan Gregg 정석).
-CPU_SATURATION_LOAD_RATIO = 1.0  # load_15m / cpu_cores ≥ 1.0 — run queue saturation
-IOWAIT_UPSIZE_PCT = 20  # iowait_p95 ≥ 20% — disk IO saturation
-DISK_CAPACITY_UPSIZE_PCT = 85  # worst mount used_pct ≥ 85% — storage capacity utilization
+CPU_SATURATION_LOAD_RATIO = 1.0  # load_15m / cpu_cores >= 1.0 — run queue saturation
+IOWAIT_UPSIZE_PCT = 20  # iowait_p95 >= 20% — disk IO saturation
+DISK_CAPACITY_UPSIZE_PCT = 85  # worst mount used_pct >= 85% — storage capacity utilization
 
 
 Recommendation = Literal[
@@ -97,15 +97,15 @@ def classify(stats: ResourceStats) -> Recommendation:
     if stats.swap_used:
         return "under_provisioned"
 
-    # Disk capacity (storage utilization) ≥ 85% → 업사이즈 (Storage 부족)
+    # Disk capacity (storage utilization) >= 85% → 업사이즈 (Storage 부족)
     if stats.disk_used_pct is not None and stats.disk_used_pct >= DISK_CAPACITY_UPSIZE_PCT:
         return "under_provisioned"
 
-    # Disk IO saturation (iowait ≥ 20%) → 업사이즈 (Disk IO 병목)
+    # Disk IO saturation (iowait >= 20%) → 업사이즈 (Disk IO 병목)
     if stats.iowait_p95_pct is not None and stats.iowait_p95_pct >= IOWAIT_UPSIZE_PCT:
         return "under_provisioned"
 
-    # CPU saturation — run queue ≥ core 수 (load_15m / cpu_cores ≥ 1.0)
+    # CPU saturation — run queue >= core 수 (load_15m / cpu_cores >= 1.0)
     if (
         stats.cpu_load_15m_max is not None
         and stats.cpu_cores is not None

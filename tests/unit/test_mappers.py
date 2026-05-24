@@ -340,8 +340,8 @@ def test_to_disk_warning_item_under_provisioned_at_90():
     assert item.meta_at is None  # stale 아니라 None
 
 
-def test_to_disk_warning_item_right_size_below_90():
-    """85~90% → rec-right_size (경고 색). stale (24h+) 이면 meta_at·meta_text 갱신."""
+def test_to_disk_warning_item_warn_below_90():
+    """85~90% → badge-warn (주의 amber). stale (24h+) 이면 meta_at·meta_text 갱신."""
     now = datetime(2026, 5, 10, 12, 0, tzinfo=UTC)
     metric_ts = now - timedelta(hours=25)  # 24h+ → stale
     raw = DiskUsageWarningRaw(
@@ -353,7 +353,7 @@ def test_to_disk_warning_item_right_size_below_90():
         last_metric_at=metric_ts,
     )
     item = to_disk_warning_item(raw, now)
-    assert item.badge_class == "rec-right_size"
+    assert item.badge_class == "badge-warn"
     assert item.badge_text == "88%"
     assert item.mount_path == "/var"
     assert "마지막 수집" in item.meta_text  # stale 시 추가 표시

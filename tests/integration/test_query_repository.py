@@ -216,7 +216,7 @@ async def test_latest_dashboard_returns_all_four_blocks(
     assert dash is not None
     # server_metrics는 최신 2행 (delta 계산용)
     assert len(dash.metrics) == 2
-    # disk_io: device당 최신 2행 (1개 device × 2 = 2)
+    # disk_io: device당 최신 2행 (1개 device x 2 = 2)
     assert len(dash.disk_io) == 2
     # net_io: interface당 최신 2행
     assert len(dash.net_io) == 2
@@ -258,7 +258,7 @@ async def test_metric_chart_cpu_usage_percent_returns_data(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    """_chart_cpu_delta — n_points=3이면 LAG로 d_total > 0인 행 2개 → 시간 버킷 ≥ 1."""
+    """_chart_cpu_delta — n_points=3이면 LAG로 d_total > 0인 행 2개 → 시간 버킷 >= 1."""
     sid, base_ts = await _seed_one_server_with_metrics(collect_repo, host_id="q-cpu-1", n_points=3)
     end = base_ts + timedelta(minutes=10)
     rows = await query_repo.metric_chart(
@@ -270,7 +270,7 @@ async def test_metric_chart_cpu_usage_percent_returns_data(
         agg="avg",
         end=end,
     )
-    # delta 가능한 시점이 ≥ 1 → 적어도 1개 버킷
+    # delta 가능한 시점이 >= 1 → 적어도 1개 버킷
     assert len(rows) >= 1
     for r in rows:
         if r.value is not None:
@@ -363,7 +363,7 @@ async def test_metric_chart_cpu_excludes_boot_time_change_point(
         end=end,
     )
     # reset 처리됐으면 시점 2(boot_b 첫 측정)는 NULL → 그 버킷 차트에서 제외.
-    # 시점 1은 정상 (boot_a 동일) → 정상 percent. 결과 ≥ 1행, 모두 0~100.
+    # 시점 1은 정상 (boot_a 동일) → 정상 percent. 결과 >= 1행, 모두 0~100.
     assert all(0 <= r.value <= 100 for r in rows if r.value is not None)
     reset_bucket_ts = base_ts + timedelta(minutes=10)
     reset_bucket_in_result = any(r.collected_at.replace(tzinfo=UTC) == reset_bucket_ts.replace(second=0) for r in rows)

@@ -98,7 +98,7 @@ ZDM 패키지 contract:
 
 dev 시연 흐름 (ADR 0018):
 - `APP_ENV=dev` 일 때 web 컨테이너에 ZDM mock router 등록 — `GET {ZDM_PACKAGE_PATH}` 로 더미 tar.gz (install.sh = args echo + exit 0) 서빙. prod 등록 안 됨.
-- `ZDM_DEFAULT_IP` dev default = `host.lima.internal:8000` — 모달 default 값 그대로 "발행" 시 Lima VM agent worker 가 host (Mac) web 8000 으로 download → install.sh exec → task.result success → list UI badge 전이. install task E2E 1 cycle 시연.
+- `ZDM_DEFAULT_IP` dev default = `host.docker.internal:8000` — 모달 default 값 그대로 "발행" 시 OrbStack VM agent worker 가 host web 8000 으로 download → install.sh exec → task.result success → list UI badge 전이. install task E2E 1 cycle 시연.
 
 ## 한계
 

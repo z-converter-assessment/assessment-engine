@@ -1,5 +1,5 @@
 // 차트 템플릿 공통 유틸. 모든 차트 페이지가 import.
-// CLAUDE.md §E1 P4 의무 규약(sequence counter, capture-before-await,
+// CLAUDE.md #E1 P4 의무 규약(sequence counter, capture-before-await,
 // Array.isArray 방어, 404 분기, suggestedMax 명명 상수)의 도구 모음.
 
 (function (root) {

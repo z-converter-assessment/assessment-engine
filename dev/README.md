@@ -3,7 +3,7 @@
 본 디렉토리는 dev 환경 한정 자료 (#A0). prod 운영에는 사용 안 함 (ADR 0012).
 
 전제: Apple Silicon (arm64) macOS host. Docker 4.x+ (macOS Desktop 또는 Linux Engine 27.x + Compose v2).
-Lima 기반 4 VM 매트릭스로 파이프라인 검증.
+OrbStack 기반 4 VM 매트릭스로 파이프라인 검증.
 
 본 repo 는 외부 agent repo (`assessment-agent`) 와 파일 구조 결합·강제하지 않음 — agent 바이너리는
 pipeline-up.sh 가 자동 확보 (sibling repo cross-build 또는 release artifact fetch).
@@ -24,12 +24,12 @@ docker compose -f dev/docker-compose.yml down -v         # 종료 (데이터 삭
 `migrate` 컨테이너가 `alembic upgrade head` 를 자동 실행. 그 후 web 컨테이너가 헬스체크 통과하면
 "## 접속" 표의 endpoint 모두 동작.
 
-### 2. 엔진 + Lima VM 매트릭스 전체 시연 (macOS 한정)
+### 2. 엔진 + OrbStack VM 매트릭스 전체 시연 (macOS 한정)
 
 ```bash
-./dev/pipeline-up.sh                              # dev/.env·dev/agent.env 자동 cp + agent 빌드 + Docker + Lima 4 VM
-LIMA_VMS_FILTER=db-server-01 ./dev/pipeline-up.sh # 약식 (1 VM)
-./dev/pipeline-down.sh                            # 환경 전체 정리 (Lima VM 삭제 + Docker 볼륨 삭제)
+./dev/pipeline-up.sh                              # dev/.env·dev/agent.env 자동 cp + agent 빌드 + Docker + OrbStack 4 VM
+ORB_VMS_FILTER=db-server-01 ./dev/pipeline-up.sh  # 약식 (1 VM)
+./dev/pipeline-down.sh                            # 환경 전체 정리 (OrbStack VM 삭제 + Docker 볼륨 삭제)
 ```
 
 agent 바이너리는 `ensure_agent_binary` 가 자동 확보 — `AGENT_BINARY_URL` set 시 fetch, 미설정 시
@@ -61,7 +61,6 @@ dev 전체 endpoint 가 plain HTTP port 8000. prod 외부 ingress 종단은 외�
 | `docker-compose.yml` | 엔진 dev compose (web + consumer + diagnostic + DB + MQ + Redis) | 커밋 |
 | `.env.example` | dev compose 기준 환경변수 카탈로그 (`cp dev/.env.example dev/.env`) | 커밋 |
 | `.env` | dev compose 실값 | gitignore |
-| `lima/*.yaml` | Lima VM 4대 정의 (`docs/development/pipeline.md` 단일 진실) | 커밋 |
 | `agent-build/Dockerfile` | agent 빌드 Dockerfile (debian:bookworm-slim base, vendored static link) | 커밋 |
 | `agent-build/build.sh` | agent cross-build 스크립트 (sibling repo buildx 호출) | 커밋 |
 | `bin/assessment-agent` | agent 바이너리 산출물 (Linux arm64 ELF, static link) | gitignore — pipeline-up.sh 가 자동 산출 |
@@ -108,15 +107,15 @@ FORCE=1 ./dev/agent-build/build.sh   # buildx cache 무시
 
 - static link — cJSON·rabbitmq-c·curl·libarchive 정적
 - dynamic 의존성 — OpenSSL·glibc·zlib 만 (base distro 기본 포함)
-- Lima 매트릭스 distro (Debian 12·Debian 13·Rocky 9·AlmaLinux 9) 모두 호환 (glibc ≥ 2.34, OpenSSL 3 계열)
+- OrbStack 매트릭스 distro (Debian 12·Debian 13·Rocky 9·AlmaLinux 9) 모두 호환 (glibc >= 2.34, OpenSSL 3 계열)
 
 ## pipeline-up.sh 와의 관계
 
 `./dev/pipeline-up.sh` 가 본 디렉토리 활용:
 1. `check_prereqs` — `dev/.env` + `dev/agent.env` 자동 cp (없으면 example 에서).
 2. `ensure_agent_binary` — agent 바이너리 확보 (위 흐름).
-3. Lima VM 4대 기동 시 `--set ".param.AgentBinDir=$(pwd)/dev/bin"` 주입.
-4. 각 VM 이 `/mnt/agent-bin/assessment-agent` 를 `/usr/local/bin/` 으로 cp + systemd unit 적용.
+3. OrbStack VM 4대 생성 (`orb create <distro> <name>`).
+4. 각 VM 에 `dev/bin/assessment-agent` 를 ssh stdin 으로 전송 → `/usr/local/bin/` 설치 + systemd unit 적용.
 
 VM 내부에서 build·devel 패키지 install 0.
 

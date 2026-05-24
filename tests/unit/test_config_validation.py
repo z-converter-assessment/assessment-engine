@@ -72,20 +72,6 @@ def test_web_settings_prod_rejects_weak_postgres_user(weak_user):
     assert "POSTGRES_USER" in str(exc.value)
 
 
-def test_web_settings_prod_rejects_dev_default_zdm_ip():
-    """ZDM_DEFAULT_IP = dev default (host.lima.internal:8000) 그대로면 prod 거부 — 잘못된 ZDM 발행 방지."""
-    with pytest.raises(ValidationError) as exc:
-        WebSettings(**_web_kwargs(zdm_default_ip="host.lima.internal:8000"))
-    assert "ZDM_DEFAULT_IP" in str(exc.value)
-
-
-def test_web_settings_prod_rejects_dev_default_zdm_user():
-    """ZDM_DEFAULT_USER 가 dev default 그대로면 prod 거부."""
-    with pytest.raises(ValidationError) as exc:
-        WebSettings(**_web_kwargs(zdm_default_user="admin@zconverter.com"))
-    assert "ZDM_DEFAULT_USER" in str(exc.value)
-
-
 # ─── ConsumerSettings — _validate_prod_consumer_secrets + WebSettings 상속 ─
 
 

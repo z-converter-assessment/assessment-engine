@@ -49,7 +49,7 @@ def test_insufficient_data_mem_p95_none():
     assert classify(_stats(mem_p95_pct=None)) == "insufficient_data"
 
 
-# 우선순위 2: idle — cpu_peak ≤ 1% AND net ≤ 1 KB/s
+# 우선순위 2: idle — cpu_peak <= 1% AND net <= 1 KB/s
 def test_idle_cpu_peak_and_net_below_threshold():
     assert classify(_stats(cpu_peak_pct=IDLE_CPU_PEAK_PCT, net_avg_kbps=IDLE_NET_KBPS)) == "idle"
 
@@ -60,9 +60,9 @@ def test_idle_skipped_when_net_unknown():
     assert classify(_stats(cpu_peak_pct=IDLE_CPU_PEAK_PCT, net_avg_kbps=None)) == "optimal"
 
 
-# 우선순위 3: shutdown — cpu_p95 ≤ 3% AND net ≤ 2 Mbps (= 250 KB/s)
+# 우선순위 3: shutdown — cpu_p95 <= 3% AND net <= 2 Mbps (= 250 KB/s)
 def test_shutdown_cpu_p95_and_net_below_threshold():
-    # net_avg_kbps(KB/s) * 8 / 1000 ≤ 2 Mbps → 250 KB/s 이하
+    # net_avg_kbps(KB/s) * 8 / 1000 <= 2 Mbps → 250 KB/s 이하
     assert classify(_stats(cpu_p95_pct=SHUTDOWN_CPU_P95_PCT, cpu_peak_pct=2.0, net_avg_kbps=200.0)) == "shutdown"
 
 
@@ -79,7 +79,7 @@ def test_under_swap_used_short_circuit():
     assert classify(_stats(cpu_p95_pct=20.0, mem_p95_pct=30.0, swap_used=True)) == "under_provisioned"
 
 
-# 우선순위 5: under — disk capacity ≥ 85%
+# 우선순위 5: under — disk capacity >= 85%
 def test_under_disk_capacity_above_threshold():
     assert classify(_stats(disk_used_pct=DISK_CAPACITY_UPSIZE_PCT)) == "under_provisioned"
 
@@ -90,12 +90,12 @@ def test_under_disk_capacity_just_below_threshold():
     assert rec == "optimal"
 
 
-# 우선순위 6: under — iowait_p95 ≥ 20%
+# 우선순위 6: under — iowait_p95 >= 20%
 def test_under_iowait_above_threshold():
     assert classify(_stats(iowait_p95_pct=IOWAIT_UPSIZE_PCT)) == "under_provisioned"
 
 
-# 우선순위 7: under — CPU saturation (load_15m / cpu_cores ≥ 1.0)
+# 우선순위 7: under — CPU saturation (load_15m / cpu_cores >= 1.0)
 def test_under_cpu_saturation():
     # 4 cores, load_15m = 4.0 → ratio 1.0
     assert classify(_stats(cpu_cores=4, cpu_load_15m_max=4.0 * CPU_SATURATION_LOAD_RATIO)) == "under_provisioned"
@@ -107,7 +107,7 @@ def test_no_saturation_when_cores_zero_or_none():
     assert classify(_stats(cpu_cores=0, cpu_load_15m_max=100.0)) == "optimal"
 
 
-# 우선순위 8: over — cpu_p95 ≤ 30% AND mem_p95 ≤ 50%
+# 우선순위 8: over — cpu_p95 <= 30% AND mem_p95 <= 50%
 def test_over_provisioned_both_low():
     assert classify(_stats(cpu_p95_pct=CPU_DOWNSIZE_P95_PCT, mem_p95_pct=MEM_DOWNSIZE_P95_PCT)) == "over_provisioned"
 
@@ -117,7 +117,7 @@ def test_over_not_triggered_when_mem_above_50():
     assert classify(_stats(cpu_p95_pct=CPU_DOWNSIZE_P95_PCT, mem_p95_pct=51.0)) == "optimal"
 
 
-# 우선순위 9: under — cpu_p95 ≥ 70% OR mem_p95 ≥ 80%
+# 우선순위 9: under — cpu_p95 >= 70% OR mem_p95 >= 80%
 def test_under_cpu_high():
     assert classify(_stats(cpu_p95_pct=CPU_UPSIZE_P95_PCT)) == "under_provisioned"
 
@@ -134,7 +134,7 @@ def test_optimal_default():
 
 # Short-circuit 검증 — 우선순위 위 trigger 가 아래 trigger 보다 먼저 평가
 def test_swap_short_circuits_cpu_high():
-    """swap_used = True + cpu_p95 ≥ 70% — swap (우선순위 4) 이 먼저 → under (단일 trigger 표시)."""
+    """swap_used = True + cpu_p95 >= 70% — swap (우선순위 4) 이 먼저 → under (단일 trigger 표시)."""
     rec = classify(_stats(swap_used=True, cpu_p95_pct=80.0, mem_p95_pct=90.0))
     assert rec == "under_provisioned"
 
@@ -156,10 +156,10 @@ def test_disk_capacity_short_circuits_cpu_low():
 @pytest.mark.parametrize(
     "case",
     [
-        # 임계 boundary — = 임계 면 trigger 발화 (`≤` / `≥` 포함)
-        # idle: cpu_peak ≤ 1 AND net ≤ 1 — boundary 발화
+        # 임계 boundary — = 임계 면 trigger 발화 (`<=` / `>=` 포함)
+        # idle: cpu_peak <= 1 AND net <= 1 — boundary 발화
         (_stats(cpu_peak_pct=IDLE_CPU_PEAK_PCT, net_avg_kbps=IDLE_NET_KBPS), "idle"),
-        # shutdown: cpu_p95 ≤ 3 AND net*8/1000 ≤ 2 — boundary 발화
+        # shutdown: cpu_p95 <= 3 AND net*8/1000 <= 2 — boundary 발화
         (
             _stats(cpu_p95_pct=SHUTDOWN_CPU_P95_PCT, cpu_peak_pct=2.0, net_avg_kbps=SHUTDOWN_NET_MBPS * 1000 / 8),
             "shutdown",

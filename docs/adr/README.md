@@ -31,6 +31,7 @@
 | 0023 | diagnostic scheduler 폐기 (사용자 trigger 모델로 통합) | Proposed | cron 자동 발화 폐기. 사용자 trigger 만 — 14일 윈도우 변화 빈도 낮음 + RAG (0024) 도입 시도 cron 누적 정당화 약. 워커 + LLM 토글 (0004) 유지. 0004 cron 부분 supersede |
 | 0024 | AI 진단 RAG 도입 (도메인 지식 phase) | Proposed | pgvector + rag_documents + 도메인 지식 만 (본 phase). embedding = mxbai-embed-large-v1 (1024d) · 인덱스 HNSW · RAG_ENABLED False default · query 영어 통일 · ingest CLI. 운영 노트·peer = 보류 |
 | 0025 | LLM 단일 provider 통합 (ollama), mock 폐기 | Proposed | mock vs ollama 분기 제거 → 단일 `OllamaLlmClient` 통합. `LLM_PROVIDER`·`LLM_MOCK_LATENCY_SECONDS` env 제거. dev/prod 일관 LLM 호출. ADR 0004 LLM 토글 + 0010 LLM 분기 보류 supersede. 외부 유료 API 도입은 별도 ADR 의무 |
+| 0026 | dev 가상화 스택 Lima -> OrbStack 전환 | Accepted | Lima(yaml·limactl·user-mode 네트워킹) -> OrbStack(orb create·통합 네트워크). `host.docker.internal`(VM·컨테이너 -> host) + `<name>.orb.local`(probe -> agent VM 직접). yaml provision -> post-provision 흡수, lima yaml 4개 삭제. ADR 0018 ZDM mock 좌표 대체(host.lima.internal -> host.docker.internal). OrbStack(로컬 dev)은 0006 OpenStack(prod)과 별개 |
 
 트레이드오프 카탈로그(T1~T13)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 

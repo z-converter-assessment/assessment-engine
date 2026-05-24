@@ -50,7 +50,7 @@
         {% if it.server_public_id %}
         <a href="/servers/{{ it.server_public_id }}?back={{ self_back }}" class="row-link">{{ it.server_public_id[:8] }}</a>
         {% else %}
-        <span style="color:#94a3b8;">전체</span>
+        <span class="text-meta">전체</span>
         {% endif %}
       </td>
       <td>{{ it.time_range }}</td>

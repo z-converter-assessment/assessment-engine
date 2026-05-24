@@ -199,6 +199,38 @@ async def test_handler_llm_timeout_marks_failed(mock_agg, stub_components):
     diag_repo.mark_succeeded.assert_not_called()
 
 
+@pytest.mark.asyncio
+@patch("assessment_engine.diagnostic.handler.safe_set_nx", new=AsyncMock(return_value=True))
+@patch("assessment_engine.diagnostic.handler.safe_set", new=AsyncMock(return_value=None))
+@patch("assessment_engine.diagnostic.handler.aggregator")
+async def test_handler_llm_http_error_marks_failed(mock_agg, stub_components):
+    """ollama 미연결·연결거부(httpx.HTTPError) → mark_failed("llm_error: ...") 흡수 (DLQ 재시도 안 함).
+
+    미연결이 mark_failed 안 되면 job 이 running 으로 영구 stale — 본 분기가 방지. #F8: err_type 만 노출.
+    """
+    import httpx
+
+    mock_agg.extract_server = AsyncMock(return_value={"summary": "ok"})
+
+    session_factory, query_repo, diag_repo, llm, redis = stub_components
+    llm.generate_narrative = AsyncMock(side_effect=httpx.ConnectError("connection refused to 10.0.0.5:11434"))
+
+    handler = make_diagnostic_handler(
+        session_factory=session_factory,
+        query_repo_factory=lambda s: query_repo,
+        diagnostic_repo_factory=lambda s: diag_repo,
+        llm_client=llm,
+        redis=redis,
+    )
+    await handler(_make_message())  # reraise 없음 (흡수)
+    diag_repo.mark_failed.assert_awaited_once()
+    err = diag_repo.mark_failed.await_args.args[1]
+    assert err.startswith("llm_error")
+    assert "ConnectError" in err  # err_type
+    assert "10.0.0.5" not in err and "connection refused" not in err  # #F8 — URL·메시지 본문 미노출
+    diag_repo.mark_succeeded.assert_not_called()
+
+
 # ─── RAG retrieve_context 단계 분기 (ADR 0024) ──────────────────────────────
 
 
@@ -268,9 +300,11 @@ async def test_handler_rag_retrieve_failure_silent_fallback(mock_agg, stub_compo
     """RAG 검색 실패 (외부 호출 fail-open) → 빈 list fallback, 진단 자체 진행."""
     mock_agg.extract_server = AsyncMock(return_value={"summary": "ok"})
 
+    import httpx
+
     session_factory, query_repo, diag_repo, llm, redis = stub_components
     retriever = AsyncMock()
-    retriever.retrieve = AsyncMock(side_effect=RuntimeError("ollama down"))
+    retriever.retrieve = AsyncMock(side_effect=httpx.ConnectError("ollama down"))
 
     handler = make_diagnostic_handler(
         session_factory=session_factory,

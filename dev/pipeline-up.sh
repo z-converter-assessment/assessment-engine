@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# dev 풀 파이프라인 기동: Docker → migrate → web 헬스체크 → Lima VM 7대 + 에이전트 설치.
+# dev 풀 파이프라인 기동: Docker → migrate → web 헬스체크 → OrbStack VM 4대 + 에이전트 설치.
 #
 # 책임 분담:
 #   - agent 바이너리는 `dev/bin/assessment-agent` 로 산출 — 본 스크립트 `ensure_agent_binary` 단계가 확보.
 #     AGENT_BINARY_URL set 시 curl fetch (향후 agent CI release artifact 자동화 분기),
 #     미설정 시 `dev/agent-build/build.sh` 호출 (sibling repo cross-build, default ../assessment-agent).
 #   - Docker compose는 dev/docker-compose.yml (dev 한정 #A0, ADR 0012). migrate init-container가 alembic 자동 적용.
-#   - Lima yaml은 boot + mount + 합성 부하 timer만 (yaml provision의 boot timeout 회피).
-#   - VM 안 작업은 본 스크립트의 post-provision step — 서비스 패키지 install + 바이너리 cp + systemd unit.
+#   - OrbStack VM 은 `orb create <distro> <name>` 로 즉시 생성 — cloud-init 이 없어 Lima 의 boot stuck 우회 로직 불필요.
+#   - VM 안 작업(패키지·바이너리·systemd·합성 부하 timer)은 모두 본 스크립트 post-provision — 옛 Lima yaml provision 을 흡수.
 #
-# 멱등성: 모든 단계 안전 재실행. VM 이미 Running이면 start 건너뜀, post-provision은 매번 재적용.
+# OrbStack 전환 가정 (Lima → OrbStack):
+#   - VM 명령: `ssh <name>@orb` (OrbStack 이 ~/.ssh/config 에 <name>@orb 자동 등록). sudo 는 passwordless.
+#   - host 파일 전달: 바이너리는 ssh stdin(tee) 으로 — host 디렉토리 자동 마운트 가정·권한 문제 회피.
+#   - VM 도달: web 컨테이너 → `<name>.orb.local:22` 직접 (Lima user-mode localPort 포워딩 폐기).
+#   - host 도달: VM·컨테이너 → `host.docker.internal` (OrbStack 이 양쪽에서 host 로 해석).
+#
+# 멱등성: 모든 단계 안전 재실행. VM 이미 있으면 create 건너뜀, post-provision은 매번 재적용.
 
 set -euo pipefail
 
@@ -30,19 +36,18 @@ readonly TIMEOUT=180                         # docker compose / migrate / web �
 #   (2) offline-server-01 — Debian 13 trixie + finalize_vm offline-once mode (1회 발행 후 stop)
 #                           → attention.gap_warnings 5m 후 발화 + insufficient_data 분류
 #   (3) cache-server-01   — Rocky 9 + redis      → over_provisioned (light 부하)
-#   (4) db-server-01      — AlmaLinux 9 + postgresql-server  → over_provisioned (light 부하, RPM initdb)
-# LIMA_VMS_FILTER env로 약식 검증 가능 (콤마 구분, 예: `LIMA_VMS_FILTER=web-server-01`).
+#   (4) db-server-01      — AlmaLinux 9 + postgresql-server  → over_provisioned (light 부하, RPM initdb) + swap-trigger
+# ORB_VMS_FILTER env로 약식 검증 가능 (콤마 구분, 예: `ORB_VMS_FILTER=web-server-01`).
 # 미설정 시 4 VM 전체 — 정합 시연용 기본값. 호스트 영향 최소화 위해 모든 VM 의 합성 부하는
 # light (sustained CPU 1~3s + mem 5~20MB) — 차트 변동만 가시화, 분류는 over_provisioned 대표.
-if [ -n "${LIMA_VMS_FILTER:-}" ]; then
-  IFS=',' read -ra LIMA_VMS <<< "$LIMA_VMS_FILTER"
+if [ -n "${ORB_VMS_FILTER:-}" ]; then
+  IFS=',' read -ra ORB_VMS <<< "$ORB_VMS_FILTER"
 else
-  LIMA_VMS=(web-server-01 offline-server-01 cache-server-01 db-server-01)
+  ORB_VMS=(web-server-01 offline-server-01 cache-server-01 db-server-01)
 fi
-readonly LIMA_VMS
+readonly ORB_VMS
 
-# VM별 dispatch — services/ext_ip/mode는 pipeline-up.sh가 단일 진실로 갖는다.
-# yaml에 박지 않는 이유: pipeline-up.sh가 패키지 설치·offline 분기까지 처리하므로 단일 진실.
+# VM별 dispatch — services/ext_ip/mode/distro는 pipeline-up.sh가 단일 진실로 갖는다.
 # associative array 대신 함수 — macOS default bash 3.2 호환 (brew bash 의존 없음).
 vm_service() {
   case "$1" in
@@ -67,6 +72,21 @@ vm_mode() {
     *)                 echo "persistent" ;;
   esac
 }
+# orb create 이미지 태그 — 옛 Lima yaml images(qcow2 URL) 를 OrbStack distro 태그로 대체.
+# OrbStack 이 arch(Apple Silicon = arm64) 와 cloud image pull 을 자동 처리.
+vm_distro() {
+  case "$1" in
+    web-server-01)     echo "debian:12" ;;
+    offline-server-01) echo "debian:13" ;;
+    cache-server-01)   echo "rocky:9" ;;
+    db-server-01)      echo "alma:9" ;;
+    *) echo "오류: 알 수 없는 VM: $1" >&2; return 1 ;;
+  esac
+}
+
+# probe 도달 시연 — OrbStack VM 은 `<name>.orb.local:22` 로 web 컨테이너가 직접 도달
+# (Lima user-mode localPort 포워딩 불필요). probe 대상(db-server-01.orb.local)은 docker-compose
+# DISCOVERY_DEFAULT_TARGET default 가 단일 진실. 대상은 persistent VM (offline-once 는 stop 되어 부적합).
 
 # dev/agent.env 필수 키 (agent.env.example과 단일 진실).
 readonly REQUIRED_AGENT_KEYS=(
@@ -123,11 +143,11 @@ check_prereqs() {
     exit 1
   fi
   if ! docker info >/dev/null 2>&1; then
-    echo "오류: docker daemon 미가동. Docker Desktop 기동 후 재시도."
+    echo "오류: docker daemon 미가동. OrbStack 기동 후 재시도."
     exit 1
   fi
-  if ! command -v limactl >/dev/null 2>&1; then
-    echo "오류: limactl이 PATH에 없다. 'brew install lima' 후 재시도."
+  if ! command -v orb >/dev/null 2>&1; then
+    echo "오류: orb가 PATH에 없다. OrbStack 설치 후 재시도 (https://orbstack.dev)."
     exit 1
   fi
   # env 파일 자동 cp — 없으면 example 복사 (dev 한정, example default 그대로 충분).
@@ -140,7 +160,7 @@ check_prereqs() {
     echo "  dev/agent.env 없음 — dev/agent.env.example 복사"
     cp dev/agent.env.example dev/agent.env
   fi
-  # 본 dev 파이프라인은 Apple Silicon + arm64 Lima VM 가정. host arch 검증.
+  # 본 dev 파이프라인은 Apple Silicon + arm64 VM 가정. host arch 검증.
   if [ "$(uname -m)" != "arm64" ]; then
     echo "경고: dev 파이프라인은 Apple Silicon(arm64) 가정. 다른 host arch에선 바이너리 호환 검토 필요."
   fi
@@ -190,6 +210,8 @@ load_agent_env() {
 # ────────────────────────────────────────────────────────────────────────────
 start_docker_stack() {
   echo "[1/4] Docker 서비스 기동 중 (build 포함, postgres healthy 후 migrate 실행)..."
+  # discovery probe 는 web 컨테이너 → db-server-01.orb.local:22 직접 (docker-compose default).
+  # Lima 처럼 port 를 export 할 필요 없음 — OrbStack VM 은 표준 22 SSH 직접 도달.
   docker compose --profile gui up -d --build
 }
 
@@ -239,68 +261,44 @@ wait_web_healthy() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# Step 3: Lima VM 기동 + 에이전트 설치
+# Step 3: OrbStack VM 기동 + 에이전트 설치
 # ────────────────────────────────────────────────────────────────────────────
 
-# limactl start 멱등 — 이미 Running이면 skip, Stopped면 resume, 미존재면 create.
-# wrapper: SSH ready 후에도 lima final requirement("boot scripts must finished") 60s+ stuck시
-# limactl PID kill 후 진행 (Oracle Linux 9 등 cloud-init 느린 distro 우회).
+# ssh 헬퍼 — OrbStack 이 등록한 `<name>@orb` 호스트로 명령. StrictHostKeyChecking 끔 (dev 재생성 빈번).
+orb_ssh() {
+  local vm="$1"; shift
+  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 "${vm}@orb" "$@"
+}
+
+# orb create 멱등 — 이미 있으면 start, 없으면 create (동기, cloud-init 없어 즉시 ready).
 start_or_resume_vm() {
   local vm="$1"
-  local agent_bin_dir="$2"
+  local distro
+  distro="$(vm_distro "$vm")"
 
-  if limactl list -q 2>/dev/null | grep -qx "$vm"; then
-    local state
-    state="$(limactl list --format '{{.Status}}' "$vm" 2>/dev/null || echo Unknown)"
-    if [ "$state" = "Running" ]; then
-      echo "  [$vm] 이미 Running — start 건너뜀"
-      return 0
-    fi
-    echo "  [$vm] resume (state=$state)..."
-    limactl start "$vm" > "/tmp/lima-start-$vm.log" 2>&1 &
+  if orb list 2>/dev/null | grep -qw "$vm"; then
+    echo "  [$vm] 이미 존재 — start (멱등)"
+    orb start "$vm" >/dev/null 2>&1 || true
   else
-    echo "  [$vm] create + start (cloud image 다운로드 포함, 첫 실행 시 수분 소요)..."
-    limactl start --name="$vm" --tty=false \
-      --set ".param.AgentBinDir = \"$agent_bin_dir\"" \
-      "dev/lima/$vm.yaml" > "/tmp/lima-start-$vm.log" 2>&1 &
+    echo "  [$vm] create ($distro, 첫 실행 시 cloud image pull)..."
+    orb create "$distro" "$vm"
   fi
 
-  local pid=$!
+  # SSH 도달 검증 — orb create 완료 = ready 라 짧은 cap 으로 충분 (Lima 의 boot stuck 우회 로직 불필요).
   local secs=0
-  local ssh_ready_at=0
-  while kill -0 $pid 2>/dev/null; do
-    sleep 3; secs=$((secs+3))
-    # SSH ready check — limactl shell echo ok 작동하면 ready
-    if [ $ssh_ready_at -eq 0 ] && limactl shell --workdir / "$vm" -- echo ok 2>/dev/null | grep -q ok; then
-      ssh_ready_at=$secs
-      echo "  [$vm] SSH ready at ${secs}s"
-    fi
-    # SSH ready 후 추가 60s 경과해도 limactl 안 끝나면 final requirement stuck — 강제 진행
-    if [ $ssh_ready_at -gt 0 ] && [ $((secs - ssh_ready_at)) -ge 60 ]; then
-      echo "  [$vm] limactl final requirement 60s+ stuck — PID kill 후 진행 (SSH OK)"
-      kill -KILL $pid 2>/dev/null || true
-      break
-    fi
-    # 절대 cap 5분 — image 다운로드 + boot 합쳐 5분 초과면 abort
-    if [ $secs -ge 300 ]; then
-      echo "  [$vm] BOOT TIMEOUT 5min — abort"
-      kill -KILL $pid 2>/dev/null || true
-      tail -10 "/tmp/lima-start-$vm.log"
+  until orb_ssh "$vm" echo ok 2>/dev/null | grep -q ok; do
+    sleep 2; secs=$((secs+2))
+    if [ "$secs" -ge 60 ]; then
+      echo "  [$vm] SSH 60s 초과 — boot 실패"
       return 1
     fi
   done
-  wait $pid 2>/dev/null || true
-  # 우리가 kill했든 limactl 정상 exit이든 SSH 작동 검증
-  if ! limactl shell --workdir / "$vm" -- echo ok 2>/dev/null | grep -q ok; then
-    echo "  [$vm] SSH 검증 실패 — boot 실패"
-    tail -10 "/tmp/lima-start-$vm.log"
-    return 1
-  fi
-  echo "  [$vm] boot OK (${secs}s)"
+  echo "  [$vm] boot OK"
 }
 
-# VM 안에서 /etc/assessment-agent.env 생성 + OS detect + 서비스 패키지 설치 + 바이너리 cp + systemd unit.
+# VM 안에서 /etc/assessment-agent.env 생성 + OS detect + 서비스 패키지 설치 + 바이너리 설치 + systemd unit.
 #
+# 바이너리 전달: host dev/bin/assessment-agent 를 ssh stdin(tee) 으로 VM /tmp 에 옮긴 뒤 SCRIPT 가 cp.
 # heredoc 변수 치환 규약:
 #   - outer `<<SCRIPT` (unquoted): host shell이 ${RABBITMQ_*}·$vm·$ext_ip·$service 치환 후 VM bash로 전달.
 #   - VM 내부 변수($ID/$svc_pkg/$svc_unit)는 `\$` escape — host shell이 손 안 대고 VM bash가 처리.
@@ -311,17 +309,20 @@ post_provision_vm() {
   local service ext_ip hostname_override
   service="$(vm_service "$vm")"
   ext_ip="$(vm_ext_ip "$vm")"
-  # 모든 VM은 hostname=VM 이름 통일 (web-server-01도 agent-restart-demo.timer는 yaml에 그대로).
+  # 모든 VM은 hostname=VM 이름 통일.
   hostname_override="$vm"
 
-  echo "  [$vm] post-provision (env + 패키지 + 바이너리 cp + systemd)..."
-  limactl shell --workdir / "$vm" sudo bash -s <<SCRIPT
+  echo "  [$vm] 바이너리 전송 (ssh stdin)..."
+  orb_ssh "$vm" 'cat > /tmp/assessment-agent' < dev/bin/assessment-agent
+
+  echo "  [$vm] post-provision (env + 패키지 + 바이너리 + systemd)..."
+  orb_ssh "$vm" sudo bash -s <<SCRIPT
 set -euo pipefail
 
-# 1) /etc/assessment-agent.env — host의 dev/agent.env + host.lima.internal + VM별 hostname/ext_ip.
+# 1) /etc/assessment-agent.env — host의 dev/agent.env + host.docker.internal + VM별 hostname/ext_ip.
 #    env_needs_restart=1이면 env 변경됨 → 뒤 단계에서 restart 트리거.
 new_env=\$(cat <<ENV
-RABBITMQ_HOST=host.lima.internal
+RABBITMQ_HOST=host.docker.internal
 RABBITMQ_PORT=5672
 RABBITMQ_VHOST=/assessment
 RABBITMQ_USER=${RABBITMQ_USER}
@@ -362,18 +363,22 @@ case "\${ID}:$service" in
   *) echo "지원 안 하는 OS/service: \${ID}/$service" >&2; exit 1 ;;
 esac
 
+# openssh-server — OrbStack VM 은 표준 22 sshd 미탑재(OrbStack SSH 는 host-network proxy)라 명시 설치.
+# 서버 발견 probe(web 컨테이너 -> VM IP:22 SSH 도달성) 시연 대상 — 운영자가 VM IP 입력 시 OpenSSH 도달.
 case "\${ID}" in
   ubuntu|debian)
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
-    apt-get install -y --no-install-recommends curl iputils-ping \${svc_pkg}
+    apt-get install -y --no-install-recommends curl iputils-ping openssh-server \${svc_pkg}
+    systemctl enable --now ssh
     ;;
   rocky|rhel|almalinux)
     # install_weak_deps=False — Recommends 차단으로 transaction 메모리·디스크 절약 (1GiB OOM 회피).
     # tsflags=nodocs — man/info 등 문서 skip.
     dnf_opts="--setopt=install_weak_deps=False --setopt=tsflags=nodocs"
     dnf install -y \${dnf_opts} epel-release
-    dnf install -y \${dnf_opts} curl iputils \${svc_pkg}
+    dnf install -y \${dnf_opts} curl iputils openssh-server \${svc_pkg}
+    systemctl enable --now sshd
     ;;
   *) echo "지원 안 하는 OS: \${ID}" >&2; exit 1 ;;
 esac
@@ -391,13 +396,14 @@ if [ -n "\${svc_unit}" ]; then
   systemctl enable --now "\${svc_unit}"
 fi
 
-# 3) 바이너리 cp — /mnt/agent-bin/assessment-agent (본 repo 사전 commit) → /usr/local/bin/.
+# 3) 바이너리 설치 — /tmp/assessment-agent (ssh stdin 전송) → /usr/local/bin/.
 #    멱등 — 바이너리·env·unit 변경 없으면 restart 건너뜀 (attention.agent_unstable false positive 회피).
 needs_restart=0
-if ! cmp -s /mnt/agent-bin/assessment-agent /usr/local/bin/assessment-agent 2>/dev/null; then
-  install -m 755 /mnt/agent-bin/assessment-agent /usr/local/bin/assessment-agent
+if ! cmp -s /tmp/assessment-agent /usr/local/bin/assessment-agent 2>/dev/null; then
+  install -m 755 /tmp/assessment-agent /usr/local/bin/assessment-agent
   needs_restart=1
 fi
+rm -f /tmp/assessment-agent
 
 unit_content=\$(cat <<'UNIT'
 [Unit]
@@ -430,9 +436,134 @@ elif [ "\$needs_restart" = "1" ] || [ "\$env_needs_restart" = "1" ]; then
   systemctl restart assessment-agent
 fi
 SCRIPT
+}
 
-  # swap_used 트리거는 db-server-01 yaml 의 swap-trigger.service 가 boot 시점 처리.
-  # 4 VM 시연에서 다른 VM 의 swap 사용은 의도 안 함 — synthetic-load.timer 가 light 부하만.
+# 합성 부하 timer 설치 — persistent VM(web/cache/db) 공통. 옛 Lima yaml provision 흡수.
+# light (sustained CPU 1~3s + mem 5~20MB) — 차트 변동만 가시화. host.docker.internal 로 ping/curl.
+install_synthetic_load() {
+  local vm="$1"
+  orb_ssh "$vm" sudo bash -s <<'SCRIPT'
+set -euo pipefail
+cat > /usr/local/bin/synthetic-load.sh <<'EOF'
+#!/bin/bash
+sleep $(( RANDOM % 30 ))
+duration=$(( (RANDOM % 3) + 1 ))
+timeout ${duration}s sha256sum /dev/zero > /dev/null 2>&1 || true
+size=$(( (RANDOM % 16) + 5 ))
+head -c ${size}M /dev/urandom > /tmp/synthetic-load 2>/dev/null || true
+sync
+rm -f /tmp/synthetic-load
+count=$(( (RANDOM % 100) + 50 ))
+dd if=/dev/zero of=/tmp/synthetic-io bs=4k count=${count} 2>/dev/null || true
+sync
+rm -f /tmp/synthetic-io
+ping -c $(( (RANDOM % 5) + 3 )) -q host.docker.internal > /dev/null 2>&1 || true
+curl -s -m 2 http://host.docker.internal:8000/health > /dev/null 2>&1 || true
+if [ $((RANDOM % 2)) -eq 0 ]; then
+  curl -s -m 2 http://host.docker.internal:8000/static/js/chart-utils.js > /dev/null 2>&1 || true
+fi
+EOF
+chmod 755 /usr/local/bin/synthetic-load.sh
+cat > /etc/systemd/system/synthetic-load.service <<'EOF'
+[Unit]
+Description=Synthetic load (metrics visualization aid)
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/synthetic-load.sh
+EOF
+cat > /etc/systemd/system/synthetic-load.timer <<'EOF'
+[Unit]
+Description=Run synthetic-load every minute
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+systemctl enable synthetic-load.timer
+systemctl start synthetic-load.timer
+SCRIPT
+}
+
+# swap-trigger 설치 (db-server-01 전용) — boot 1회 swap 활성 + 메모리 압박 → swap_used 임계 초과.
+# attention.under_provisioned 발화 시연용. CPU 부하 추가 없음 (호스트 영향 회피).
+install_swap_trigger() {
+  local vm="$1"
+  orb_ssh "$vm" sudo bash -s <<'SCRIPT'
+set -euo pipefail
+cat > /usr/local/bin/swap-trigger.sh <<'EOF'
+#!/bin/bash
+# 1) swap 파일 생성·활성 (cloud image default 에는 swap 없음).
+if ! swapon --show | grep -q '^/swapfile'; then
+  fallocate -l 512M /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=512
+  chmod 600 /swapfile
+  mkswap /swapfile > /dev/null
+  swapon /swapfile
+fi
+# 2) swappiness 높여 kernel 이 swap 적극 사용하게.
+sysctl -w vm.swappiness=100 > /dev/null
+# 3) 메모리 압박 — 1000MiB 점유 + lock (RAM 부족 → swap out).
+nohup bash -c 'head -c 1000M /dev/urandom > /tmp/swap-pressure 2>/dev/null; sleep 86400' &
+EOF
+chmod 755 /usr/local/bin/swap-trigger.sh
+cat > /etc/systemd/system/swap-trigger.service <<'EOF'
+[Unit]
+Description=Swap trigger (attention.under_provisioned 시연용)
+After=multi-user.target
+[Service]
+Type=oneshot
+RemainAfterExit=true
+ExecStart=/usr/local/bin/swap-trigger.sh
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable swap-trigger.service
+systemctl start swap-trigger.service
+SCRIPT
+}
+
+# agent-restart-demo 설치 (web-server-01 전용) — agent 주기 restart 로 agent_unstable 항상 발화.
+# 1시간 슬라이딩 윈도우 임계 3회를 큰 마진으로 초과 (OnBootSec=1min + OnUnitActiveSec=3min → 시간당 약 20회).
+install_agent_restart_demo() {
+  local vm="$1"
+  orb_ssh "$vm" sudo bash -s <<'SCRIPT'
+set -euo pipefail
+cat > /etc/systemd/system/agent-restart-demo.service <<'EOF'
+[Unit]
+Description=Agent restart demo (attention.agent_unstable 시연용)
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart assessment-agent
+EOF
+cat > /etc/systemd/system/agent-restart-demo.timer <<'EOF'
+[Unit]
+Description=Restart assessment-agent every 3 minutes (demo, 시간당 20회 — 임계 3회의 6배 마진)
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=3min
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+systemctl enable agent-restart-demo.timer
+systemctl start agent-restart-demo.timer
+SCRIPT
+}
+
+# VM별 합성 부하·시연 트리거 설치 — 옛 Lima yaml provision 분기 흡수.
+install_demo_loads() {
+  local vm="$1"
+  local mode
+  mode="$(vm_mode "$vm")"
+  # offline-once 는 publish 안 하므로 부하 timer 무의미 — skip.
+  [ "$mode" = "offline-once" ] && return 0
+  install_synthetic_load "$vm"
+  case "$vm" in
+    db-server-01)  install_swap_trigger "$vm" ;;
+    web-server-01) install_agent_restart_demo "$vm" ;;
+  esac
 }
 
 # offline-once mode: agent inventory 1회 발행 대기 후 agent stop + VM stop.
@@ -444,22 +575,20 @@ finalize_vm() {
   if [ "$mode" = "offline-once" ]; then
     echo "  [$vm] inventory 1회 발행 대기 (15s) 후 offline 전환..."
     sleep 15
-    limactl shell --workdir / "$vm" sudo systemctl stop assessment-agent 2>/dev/null || true
-    limactl shell --workdir / "$vm" sudo systemctl disable assessment-agent 2>/dev/null || true
-    limactl stop "$vm" 2>/dev/null || true
+    orb_ssh "$vm" sudo systemctl stop assessment-agent 2>/dev/null || true
+    orb_ssh "$vm" sudo systemctl disable assessment-agent 2>/dev/null || true
+    orb stop "$vm" 2>/dev/null || true
     echo "  [$vm] offline 완료 (agent disable + VM stop)"
   fi
 }
 
-start_lima_vms() {
-  echo "[4/4] Lima VM 기동 + 에이전트 설치 중..."
-  local agent_bin_dir
-  agent_bin_dir="$(cd dev/bin && pwd)"
-
+start_orb_vms() {
+  echo "[4/4] OrbStack VM 기동 + 에이전트 설치 중..."
   local vm
-  for vm in "${LIMA_VMS[@]}"; do
-    start_or_resume_vm "$vm" "$agent_bin_dir"
+  for vm in "${ORB_VMS[@]}"; do
+    start_or_resume_vm "$vm"
     post_provision_vm "$vm"
+    install_demo_loads "$vm"
     finalize_vm "$vm"
   done
 }
@@ -472,6 +601,14 @@ print_summary() {
   echo "환경 준비 완료"
   echo "  Web UI  : http://localhost:${WEB_PORT:-8000}/servers/"
   echo "  RabbitMQ: http://localhost:${RABBITMQ_MANAGEMENT_PORT:-15672}"
+  # 서버 발견 probe 시연 — OrbStack .orb.local 은 컨테이너 미해석이라 운영자가 VM IP 를 모달에 직접 입력.
+  echo "  서버 발견 probe 대상 VM IP (모달에 입력 -> SSH 도달성 확인):"
+  local vm ip
+  for vm in "${ORB_VMS[@]}"; do
+    [ "$(vm_mode "$vm")" = "offline-once" ] && continue
+    ip="$(orb_ssh "$vm" hostname -I 2>/dev/null | awk '{print $1}')"
+    [ -n "$ip" ] && echo "    $vm : $ip"
+  done
 }
 
 main() {
@@ -481,12 +618,12 @@ main() {
   start_docker_stack
   wait_migrate_completed
   wait_web_healthy
-  start_lima_vms
+  start_orb_vms
   print_summary
 }
 
 # 직접 실행 시만 main 호출. `source pipeline-up.sh`로 함수만 가져올 때는 자동 실행 안 함
-# (단계별 디버깅·검증 시 유용 — VM별 start_or_resume_vm/post_provision_vm/finalize_vm 개별 호출 가능).
+# (단계별 디버깅·검증 시 유용 — VM별 start_or_resume_vm/post_provision_vm/install_demo_loads 개별 호출 가능).
 # set -u 환경에서 BASH_SOURCE 안전 access — macOS bash 3.2 호환.
 if [ "${BASH_SOURCE[0]:-}" = "${0:-}" ]; then
   main "$@"

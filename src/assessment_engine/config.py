@@ -14,13 +14,6 @@ _SECRETS_DIR = _SECRETS_DIR if os.path.isdir(_SECRETS_DIR) else None
 # 본 프로젝트의 dev default는 "assessment". 다른 흔한 약한 값도 함께 차단.
 _WEAK_VALUES = frozenset({"", "assessment", "password", "admin", "root", "changeme"})
 
-# ZDM 좌표 dev default — prod 에서 그대로면 다른 고객사 ZDM 으로 install task 잘못 발행될 위험.
-# config.py default 와 동기 — 변경 시 동시 갱신 의무.
-# host.lima.internal:8000 = dev engine web 컨테이너 (ADR 0018 dev-only ZDM mock endpoint).
-# Lima VM 의 agent worker 가 user-mode network alias 로 host (Mac) 의 web port 8000 도달.
-_ZDM_DEV_DEFAULT_IP = "host.lima.internal:8000"
-_ZDM_DEV_DEFAULT_USER = "admin@zconverter.com"
-
 
 class WebSettings(BaseSettings):
     # 우선순위: OS env > .env (cwd) > <SECRETS_DIR>/<field> 파일 > 코드 default
@@ -77,11 +70,21 @@ class WebSettings(BaseSettings):
     # PUB/SUB channels
     redis_channel_metrics: str = "metrics.events"
 
+    # 서버 발견 모달 — SSH(기본 22) 도달성 probe 의 기본 target 주소.
+    # 운영자가 모달에서 매 확인마다 override 가능. 빈값이면 폼이 빈 채로 시작.
+    # dev·prod 모두 빈값 default — 운영자가 모달에 직접 입력 (weak default 거부 대상 아님).
+    # dev: OrbStack .orb.local 은 host(macOS)만 등록되고 컨테이너 미해석 + VM IP 동적이라 자동 기본값 부적합.
+    # pipeline-up.sh 가 post-provision 으로 VM 에 openssh-server 설치 + print_summary 로 VM IP 안내 (운영자 입력).
+    discovery_default_target: str = ""
+    # probe 폼 기본 포트. prod·dev 모두 22(표준 SSH). 비표준 host 는 폼 override.
+    discovery_default_port: int = 22
+
     # ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표 — install 모달 default 값.
     # 운영자가 모달에서 매 발행마다 override 가능. POST body 누락 시 본 값으로 fallback.
-    # dev 한정 ZDM mock (ADR 0018) 으로 Lima VM agent worker 가 host (Mac) web 8000 도달.
-    # prod 에서는 weak default 거부 (_validate_prod_web_secrets) — 고객사 ZDM 좌표 명시 의무.
-    zdm_default_ip: str = "host.lima.internal:8000"
+    # dev 한정 ZDM mock (ADR 0018) 으로 OrbStack VM agent worker 가 host web 8000 도달.
+    # 잘못된 ZDM 발행 방어는 런타임 (HttpZdmPackageResolver 메타 도달 실패 시 503 차단) + agent host
+    # whitelist (WORKER_DOWNLOAD_ALLOWED_HOSTS) 가 담당. startup 거부 없음 — discovery_default_target 과 동일 정책.
+    zdm_default_ip: str = "host.docker.internal:8000"
     zdm_default_user: str = "admin@zconverter.com"
 
     # ZDM 본체 패키지 contract — task.install download 필드에 박혀 agent 가 fetch.
@@ -123,16 +126,6 @@ class WebSettings(BaseSettings):
             )
         if self.postgres_user in _WEAK_VALUES:
             raise ValueError("POSTGRES_USER must be set to a non-default value in prod.")
-        # ZDM 좌표 dev default 거부 — prod 에서 install task 가 잘못된 ZDM 으로 발행되는 사고 방지.
-        if self.zdm_default_ip == _ZDM_DEV_DEFAULT_IP:
-            raise ValueError(
-                "ZDM_DEFAULT_IP is unset or uses the dev default (host.lima.internal:8000) in prod. "
-                "Set the customer site's ZDM coordinate."
-            )
-        if self.zdm_default_user == _ZDM_DEV_DEFAULT_USER:
-            raise ValueError(
-                "ZDM_DEFAULT_USER is unset or uses the dev default in prod. Set the customer site's ZDM admin account."
-            )
         return self
 
 

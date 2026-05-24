@@ -1,7 +1,7 @@
 # agent 사전 빌드용 Dockerfile — `dev/agent-build/build.sh` 가 buildx context 로 사용.
 #
 # 컨텍스트: 외부 `../assessment-agent` (read-only). host vendor/ 산출물에 영향 안 받음 (격리).
-# base = debian:bookworm-slim — OpenSSL 3.0.11 fix (Lima 매트릭스 최저 = Debian 12, Ubuntu 24.04).
+# base = debian:bookworm-slim — OpenSSL 3.0.11 fix (OrbStack 매트릭스 최저 = Debian 12).
 # Rocky 9 base는 dnf stream이 OpenSSL을 3.5+로 업데이트해 ABI 불일치 발생 — bookworm이 정합.
 # 산출물: /assessment-agent (static-linked, OpenSSL/glibc/zlib만 dynamic).
 #

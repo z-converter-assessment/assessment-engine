@@ -96,7 +96,7 @@ class InstallRequest(BaseModel):
         #   - IPv4               192.168.3.94
         #   - IPv4:port          192.168.3.94:8080
         #   - hostname / FQDN    zdm.example.com / zdm.example.com.
-        #   - hostname:port      host.lima.internal:8000 (dev mock default)
+        #   - hostname:port      host.docker.internal:8000 (dev mock default)
         #   - http/https URL     http://zdm.example.com:8443/download/x.tar.gz
         # IPv6 (raw / bracket) 는 reject — agent download.c 한계.
         if v.lower().startswith(("http://", "https://")):

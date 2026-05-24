@@ -22,6 +22,7 @@ from assessment_engine.web.services.mappers.attention import (
 from assessment_engine.web.services.mappers.export import to_inventory_export_entry
 from assessment_engine.web.services.mappers.report import (
     _RISK_FROM_RECOMMENDATION,
+    _build_recommendation_action,
     build_report_summary_bullets,
     build_role_distribution,
     compute_report_avg_p95,
@@ -949,3 +950,43 @@ def test_report_row_item_disk_net_io_p95_peak_passthrough():
     assert item.net_rx_kbps_peak == 1200.0
     assert item.net_tx_kbps_p95 == 420.0
     assert item.net_tx_kbps_peak == 900.0
+
+
+# ─── _build_recommendation_action (양식 A 권고 컬럼 단일 진실) ─────────────
+
+
+@pytest.mark.parametrize(
+    "rec, expected",
+    [
+        # 비-under 분류는 분류별 고정 문구 (environment·single_report 공유).
+        ("over_provisioned", "자원 축소 검토"),
+        ("idle", "용도 재평가 / 종료 검토"),
+        ("shutdown", "종료 가능 검토"),
+        ("optimal", "적정 운영"),
+        ("insufficient_data", "평가 표본 부족"),
+    ],
+)
+def test_recommendation_action_fixed_phrases(rec, expected):
+    assert _build_recommendation_action(rec, _raw()) == expected
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        # under_provisioned 은 hit trigger 별 증설 권고 결합 (임계는 recommendation 모듈 단일 진실).
+        ({"swap_used": True}, "메모리 증설 (스왑 발생)"),
+        ({"mem_p95": 85.0}, "메모리 증설"),
+        ({"cpu_p95": 75.0}, "CPU 증설"),
+        ({"iowait_p95": 25.0}, "디스크 증설 (IO 병목)"),
+        ({"worst_used": 90.0}, "디스크 증설 (capacity)"),
+        ({}, "리소스 증설 검토"),  # trigger 0건 fallback
+    ],
+)
+def test_recommendation_action_under_trigger(kwargs, expected):
+    assert _build_recommendation_action("under_provisioned", _raw(**kwargs)) == expected
+
+
+def test_recommendation_action_under_combines_multiple_triggers():
+    """swap + cpu 동시 hit 시 '/' 결합. swap 발생 시 메모리 중복('메모리 증설')은 제거."""
+    action = _build_recommendation_action("under_provisioned", _raw(swap_used=True, cpu_p95=75.0))
+    assert action == "메모리 증설 (스왑 발생) / CPU 증설"

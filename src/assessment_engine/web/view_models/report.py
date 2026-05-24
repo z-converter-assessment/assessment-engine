@@ -33,7 +33,7 @@ class ReportRowItem:
     # 옵션 B 매핑 — UI 친화 위험도 (양식 A KPI·표 노출)
     risk_level: str  # "high" / "attention" / "normal" / "low_usage"
     risk_label: str  # "고위험" / "주의 필요" / "정상" / "저사용"
-    risk_badge_class: str  # rec-under_provisioned / rec-right_size 등 재사용
+    risk_badge_class: str  # rec-under_provisioned / rec-over_provisioned / rec-optimal 재사용
 
     # 서버 인벤토리 (정적 — 환경 엔지니어 호스트 상세 표 노출용).
     # None 가능 (옛 agent 가 안 보낸 경우 / 신규 등록 직후). dataclass field 순서 의무로
@@ -82,10 +82,10 @@ class ReportRowItem:
     # mapper.build_diagnosis 결정. 우선순위: 메모리 압박 → 디스크 병목 → CPU saturation → 변동성 → 적정
     diagnosis: str = ""
 
-    # under_provisioned 분류 시 어떤 trigger 가 hit 됐는지 한국어 권고 (양식 A "권고" 컬럼).
-    # USE Method 5 trigger 중 active 만 결합 (예: "메모리 증설 (스왑 발생) / CPU 증설").
-    # 비-under 분류 시 빈 문자열 — template 에서 분류별 폴백 메시지.
-    under_provisioned_reason: str = ""
+    # 양식 A "권고" 컬럼 — 분류별 권장 조치 (mapper._build_recommendation_action 단일 진실,
+    # environment·single_report 공유). under 는 hit trigger 결합("메모리 증설 (스왑 발생) / CPU 증설" 등),
+    # over/idle/shutdown/optimal/insufficient 는 고정 문구.
+    recommendation_action: str = ""
 
     # 임계값 분류 색 (P3 — 템플릿 산술·분기 금지. mapper에서 미리 계산)
     # 모두 #b91c1c (danger) / #92400e (warn) / #94a3b8 (muted) / #1e293b (default) hex 중 하나.

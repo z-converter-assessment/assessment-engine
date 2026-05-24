@@ -4,7 +4,7 @@
 
 고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, 진단 워커가 수집된 데이터를 규칙 기반으로 분석해 진단 결과를 생성한다. 운영자는 web UI 에서 대시보드·보고서·JSON Export·원격 설치 task 산출물을 활용해 다음 단계 의사결정을 진행한다.
 
-본 repo 는 엔진 자체 (애플리케이션 + dev 시연용 docker compose · Lima 매트릭스 등 `dev/` 격리 자산) 만 다룬다. 배포 인프라 (IaC — Terraform · Ansible · SaltStack 등) 와 prod 운영 (systemd unit · k8s manifest 등) 은 본 repo 범위 밖. 본 repo 가 제공하는 산출물·contract 를 외부 인프라 코드에 통합해 운영한다.
+본 repo 는 엔진 자체 (애플리케이션 + dev 시연용 docker compose · OrbStack 매트릭스 등 `dev/` 격리 자산) 만 다룬다. 배포 인프라 (IaC — Terraform · Ansible · SaltStack 등) 와 prod 운영 (systemd unit · k8s manifest 등) 은 본 repo 범위 밖. 본 repo 가 제공하는 산출물·contract 를 외부 인프라 코드에 통합해 운영한다.
 
 ---
 
@@ -91,7 +91,7 @@
 |----------|---------|------|
 | `pr-title-check.yml` | PR (target main/develop) opened·edited | PR title이 Conventional Commits 형식 (`feat:`·`fix:`·`docs:` 등) 강제 |
 | `ci.yml` | PR (target main/develop) + push to main/develop (안전망) | ruff lint + hadolint → (pytest-unit + coverage + uv build wheel) → pytest-integration + coverage |
-| `alembic-check.yml` | PR (target main/develop, paths: models·migrations·pyproject) + push 동일 paths (안전망) | ORM ↔ migrations 라운드트립 정합 |
+| `alembic-check.yml` | PR (target main/develop, paths: models·migrations·pyproject) + push 동일 paths (안전망) | ORM·migrations 라운드트립 정합 |
 | `codeql.yml` | PR · push to main/develop · 주간 cron | CodeQL SAST — SQL injection·secret leak·XSS 등 정적 분석 (Security 탭 alert) |
 | `security.yml` | PR (paths: pyproject·uv.lock) · 주간 cron (Mon 09:00 UTC) | pip-audit dependency CVE 검사 |
 | `release-please.yml` | push to main | commit 분석 → Release PR 자동 생성·갱신 (pyproject.toml version bump + CHANGELOG.md). Release PR merge 시점에 tag(`v*`) 자동 push |
@@ -132,7 +132,7 @@
 
 ## Quick Start
 
-dev 시연 · 파이프라인 검증 흐름 (엔진 dev compose + Lima 4 VM 매트릭스) 과 접속 endpoint 카탈로그는
+dev 시연 · 파이프라인 검증 흐름 (엔진 dev compose + OrbStack 4 VM 매트릭스) 과 접속 endpoint 카탈로그는
 `dev/README.md` 단일 진실. 루트는 운영 기준 메타·산출물만 유지.
 
 VM 매트릭스 · 합성 부하 프로파일 · attention 발화 매핑 deep dive: `docs/development/pipeline.md`.
@@ -162,7 +162,7 @@ uv run pytest                          # 전체
 # 코드 quality:
 uv run ruff check .                    # lint
 uv run ruff format .                   # auto-format
-uv run alembic check                   # ORM ↔ migrations 정합 (alembic-check.yml CI 와 동일)
+uv run alembic check                   # ORM·migrations 정합 (alembic-check.yml CI 와 동일)
 ```
 
 `uv sync` 가 `.venv/` 안에 의존성 + 본 프로젝트 자체도 editable install — IDE 가 `src/assessment_engine/` 모듈 import 인식. dev 그룹 누락 시 IDE 가 pytest·ruff symbol 못 찾음 → 항상 `--group dev` 명시.

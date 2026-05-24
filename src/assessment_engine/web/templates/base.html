@@ -37,14 +37,13 @@
     .badge-danger { background: #fee2e2; color: #991b1b; }
     .badge-cat-web       { background: #dbeafe; color: #1d4ed8; }
     .badge-cat-db        { background: #fce7f3; color: #9d174d; }
-    .badge-cat-cache     { background: #fef3c7; color: #92400e; }
+    .badge-cat-cache     { background: #ccfbf1; color: #115e59; }
     .badge-cat-mq        { background: #f3e8ff; color: #6b21a8; }
     .badge-cat-container { background: #e0f2fe; color: #075985; }
     .badge-cat-monitor   { background: #fef9c3; color: #713f12; }
     .badge-cat-unknown   { background: #f1f5f9; color: #64748b; }
     /* USE Method 분류 badge — list/report 공유 (단일 진실). rec-swap은 메모리 부족 1차 신호 강조. */
     .rec-under_provisioned { background: #fee2e2; color: #b91c1c; }
-    .rec-right_size        { background: #fef3c7; color: #92400e; }
     .rec-over_provisioned  { background: #fef3c7; color: #92400e; }
     .rec-optimal           { background: #dcfce7; color: #15803d; }
     .rec-idle, .rec-shutdown { background: #f1f5f9; color: #64748b; }
@@ -54,8 +53,8 @@
     .rec-failure           { background: #fee2e2; color: #b91c1c; }
     .rec-pending           { background: #dbeafe; color: #1d4ed8; }
     .rec-unknown           { background: #f1f5f9; color: #64748b; }
-    /* 운영 신호 단일 active 색 — Right-sizing(rec-*) 와 도메인 분리. attention-cat-item active 와 동일 주황 (단일 진실). */
-    .attn-active           { background: #fef3c7; color: #92400e; }
+    /* 운영 신호 active — Right-sizing(amber) 와 분리된 주황 도메인. 뱃지(attn-active·cat-item active)=#9a3412, 텍스트(.text-attn)=#c2410c — danger 의 뱃지800/텍스트700 명암 패턴과 동일. */
+    .attn-active           { background: #ffedd5; color: #9a3412; }
     /* row-link / task-cell — base a 스타일 (color + 밑줄) 그대로 상속. task-cell 은 inline-flex 부수 layout. */
     .task-cell             { display: inline-flex; align-items: center; gap: 6px; }
     .task-cell:hover .badge { filter: brightness(0.95); }
@@ -83,7 +82,7 @@
     /* 주의 신호 카탈로그 범례 — 6 카테고리 항상 표시 (count 0 포함). active=발화·inactive=무. */
     .attention-catalog { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; }
     .attention-cat-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #f1f5f9; color: #94a3b8; }
-    .attention-cat-item[data-active="True"] { background: #fef3c7; color: #92400e; font-weight: 600; }
+    .attention-cat-item[data-active="True"] { background: #ffedd5; color: #9a3412; font-weight: 600; }
     .attention-cat-item strong { font-weight: 700; }
     .kv { display: grid; grid-template-columns: 160px 1fr; gap: 7px 16px; }
     .kv dt { color: #64748b; font-size: 13px; }
@@ -96,11 +95,18 @@
     /* JS 가 render 하는 dynamic 컴포넌트의 표준 utility — task-modal.js / chart legend / diagnostic-inline.js 공통.
        inline style="font-size:Npx; color:#xxx" 직접 사용 금지. */
     .modal-title { margin: 0; font-size: 16px; font-weight: 700; color: #1e293b; }
-    .text-muted { color: #64748b; font-size: 12px; }
-    .text-meta { color: #94a3b8; font-size: 11px; }
-    .text-label { color: #475569; font-size: 13px; }
+    /* 색 전용 유틸 — size 는 부모 상속. 파편화된 inline color:#xxx 대신 톤·의미 클래스로 (단일 진실). */
+    .text-strong { color: #1e293b; }   /* 강조 (값·제목) */
+    .text-label  { color: #475569; }   /* 라벨 */
+    .text-muted  { color: #64748b; }   /* 보조 */
+    .text-meta   { color: #94a3b8; }   /* 메타·부가 */
+    .text-faint  { color: #cbd5e1; }   /* 흐림 */
+    .text-danger { color: #b91c1c; }   /* 위험 (under) */
+    .text-ok     { color: #15803d; }   /* 정상 (optimal) */
+    .text-warn   { color: #92400e; }   /* 주의 (over·idle, amber) */
+    .text-attn   { color: #c2410c; }   /* 운영 신호 (주황) */
+    /* 서술 — line-height 동반 (색만 아님). */
     .text-narrative { color: #475569; font-size: 12px; line-height: 1.6; }
-    .text-danger { color: #b91c1c; }
 
     /* 다중 보고서 안 AI 진단 컬럼 cell narrative 시각 truncate — 2줄 + 말줄임. title attribute 호버 시 전체. */
     .diag-clamp {

@@ -92,7 +92,7 @@
 - 포기한 것: 디스크 사용량 무한 증가. 30일 차트가 raw 30일 데이터를 매번 time_bucket로 집계 — 데이터 양 증가에 따라 응답 느려짐.
 
 왜 받아들였나
-- 현재 dev 시연 환경 서버 수(Lima 7 VM)와 1분 주기에서는 1개월 데이터가 ~130k행/서버. 운영 부담 미미.
+- 현재 dev 시연 환경 서버 수(OrbStack 4 VM)와 1분 주기에서는 1개월 데이터가 ~130k행/서버. 운영 부담 미미.
 - B2B 내부 포털이라 retention 요구사항이 명확하지 않음.
 
 언제 다시 봐야 하는가
@@ -382,7 +382,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
   - 모델 통합 — 보고서별 별도 service·테이블 신설 없이 기존 diagnostic_jobs 재사용.
 - 포기한 것:
   - 매 보고서 GET 마다 row INSERT (active UNIQUE 통과 후 즉시 succeeded) — 같은 입력 N회 조회 시 N row 생성. retention 90일로 sizing 자체는 OK 이나 dedup view 또는 view_count 증분 모델은 미적용.
-  - 환경 진단 결과 페이지 매 로드 시 iframe 2개 동시 fetch — 보고서 페이지 자체가 무거우면 (server N대 SQL 5×2) 첫 표시 늦음. 캐시는 미적용.
+  - 환경 진단 결과 페이지 매 로드 시 iframe 2개 동시 fetch — 보고서 페이지 자체가 무거우면 (server N대 SQL 5x2) 첫 표시 늦음. 캐시는 미적용.
   - `result` JSONB 에 양식 HTML snapshot 미저장 — 옛 보고서 재조회 시 raw data 변경 영향. snapshot 의도면 별도 결정.
 
 왜 받아들였나

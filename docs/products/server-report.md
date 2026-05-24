@@ -114,8 +114,8 @@ AWS Compute Optimizer 임계값(CPU p95 30%) 기준으로 CPU 다운사이즈 �
 | 분류 | 트리거 조건 | 출처 |
 |------|-----------|------|
 | idle | CPU p95 < 3% + 네트워크 미사용 (`SHUTDOWN_CPU_P95_PCT=3`) | Azure Advisor "underutilized VM" |
-| over_provisioned | CPU p95 ≤ 30% + 메모리 p95 ≤ 50% (`CPU_DOWNSIZE_P95_PCT=30`·`MEM_DOWNSIZE_P95_PCT=50`) | AWS Compute Optimizer "over-provisioned" |
-| under_provisioned | CPU p95 ≥ 70% 또는 메모리 p95 ≥ 80% 또는 swap 발생 (`CPU_UPSIZE_P95_PCT=70`·`MEM_UPSIZE_P95_PCT=80`) | Kleinrock 큐잉 + Linux page cache 운영 통념 |
+| over_provisioned | CPU p95 <= 30% + 메모리 p95 <= 50% (`CPU_DOWNSIZE_P95_PCT=30`·`MEM_DOWNSIZE_P95_PCT=50`) | AWS Compute Optimizer "over-provisioned" |
+| under_provisioned | CPU p95 >= 70% 또는 메모리 p95 >= 80% 또는 swap 발생 (`CPU_UPSIZE_P95_PCT=70`·`MEM_UPSIZE_P95_PCT=80`) | Kleinrock 큐잉 + Linux page cache 운영 통념 |
 | optimal | 위 어디에도 해당 안 함 | residual |
 
 ### 지표 정의·임계값 (engineer view)
@@ -126,18 +126,18 @@ AWS Compute Optimizer 임계값(CPU p95 30%) 기준으로 CPU 다운사이즈 �
 | peak | 시점별 최댓값 | sizing 시 worst case | 운영 통념 |
 | CPU% | jiffies delta. boot_time 변경 시 reset 제외 | counter reset 정밀 식별 | /proc/stat 표준 |
 | MEM% | (1 - available/total) * 100 | available 우선 (cgroup·page cache 보정) | Linux `/proc/meminfo` MemAvailable 권장 |
-| Saturation | load_15m_max / vCPU | ≥ 1.0 이면 큐 대기 발생 | Kleinrock - Queueing Systems (1975) |
-| 변동성 (variance) | peak / p95 | ≥ 1.5 이면 burst 큼 — peak 기준 sizing 권장 | 본 프로젝트 휴리스틱 |
+| Saturation | load_15m_max / vCPU | >= 1.0 이면 큐 대기 발생 | Kleinrock - Queueing Systems (1975) |
+| 변동성 (variance) | peak / p95 | >= 1.5 이면 burst 큼 — peak 기준 sizing 권장 | 본 프로젝트 휴리스틱 |
 | DISK I/O | (서버, 시점) device 합산 rate | iops·throughput baseline | `/proc/diskstats` |
 | NET I/O | interface 합산 rate | rx·tx baseline | `/proc/net/dev` |
 
 ### 판단 컬럼 평가 순서 (engineer view)
 
 1. swap 사용 — 메모리 부족 신호 (스왑 발생 자체가 위험)
-2. 디스크 I/O 병목 (iowait p95 ≥ 20%)
+2. 디스크 I/O 병목 (iowait p95 >= 20%)
 3. CPU saturation (load > cores)
 4. 자원 압박 (cpu/mem p95 임계 초과)
-5. 변동성 큼 (peak/p95 ≥ 1.5)
+5. 변동성 큼 (peak/p95 >= 1.5)
 6. 미사용 (거의 0%)
 7. 여유 (다운사이즈 검토)
 

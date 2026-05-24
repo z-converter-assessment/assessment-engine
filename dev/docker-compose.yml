@@ -6,7 +6,7 @@
 #
 # 경로 규약 (본 파일이 dev/ 안에 있음 — 루트 산출물 분리 정공):
 #   - build context = `..` (루트, Dockerfile 위치)
-#   - volume mount  = `../:/app` (호스트 루트 ↔ 컨테이너 /app)
+#   - volume mount  = `../:/app` (호스트 루트 ../ 를 컨테이너 /app 으로 bind)
 #   - env_file       = `.env` (dev/.env — `cp dev/.env.example dev/.env`)
 #
 # YAML anchor — 앱 4종 (migrate · web · consumer · diagnostic-worker)이
@@ -120,14 +120,21 @@ services:
   web:
     <<: *app-base
     command: python -m assessment_engine.web
+    environment:
+      <<: *app-env
+      # 서버 발견 모달 SSH 도달성 probe 기본 target — dev·prod 모두 빈값 (운영자 직접 입력).
+      # OrbStack 의 .orb.local DNS 는 host(macOS)만 등록되고 컨테이너 안에선 미해석 + VM IP 가 동적이라
+      # 자동 기본값 부적합. post-provision 이 VM 에 openssh-server 설치 → 운영자가 VM IP(pipeline-up.sh
+      # print_summary 안내 또는 `orb list`)를 폼에 입력하면 web 컨테이너 -> VM IP:22 도달 (SSH-2.0-OpenSSH banner).
+      DISCOVERY_DEFAULT_TARGET: ${DISCOVERY_DEFAULT_TARGET:-}
+      # 표준 SSH 22. 비표준 host 는 폼 override.
+      DISCOVERY_DEFAULT_PORT: ${DISCOVERY_DEFAULT_PORT:-22}
     ports:
       - "${WEB_PORT:-8000}:8000"   # dev plain HTTP
     # ADR 0018 dev ZDM mock self-loop — HttpZdmPackageResolver 가 publish 직전
-    # `host.lima.internal:8000` 으로 HEAD/GET 호출. Lima VM 의 user-mode alias 와 같은
-    # 이름을 web 컨테이너 안에서도 Mac host gateway 로 해석 → port 매핑 → web 자기 자신.
-    # 양쪽 (web 컨테이너 + Lima VM agent) 이 동일 좌표로 동일 endpoint 도달 (dev 전용).
-    extra_hosts:
-      - "host.lima.internal:host-gateway"
+    # `host.docker.internal:8000` 으로 HEAD/GET 호출. OrbStack 이 host.docker.internal 을
+    # 컨테이너·VM 양쪽에서 host 로 해석 → port 매핑 → web 자기 자신 (extra_hosts 불필요).
+    # web 컨테이너 + OrbStack VM agent 가 동일 좌표로 동일 endpoint 도달 (dev 전용).
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 5s

@@ -82,12 +82,12 @@
   <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:14px; margin-bottom:20px;">
     <div style="border:1px solid #fecaca; border-radius:6px; padding:18px; text-align:center; background:#fef2f2;">
       <div style="font-size:12px; color:#64748b;">자원 부족 (즉시 검토)</div>
-      <div style="font-size:32px; font-weight:700; color:#b91c1c; line-height:1.2;">{{ summary.base.risk_high }}</div>
+      <div class="text-danger" style="font-size:32px; font-weight:700; line-height:1.2;">{{ summary.base.risk_high }}</div>
       <div style="font-size:11px; color:#94a3b8;">증설 검토</div>
     </div>
-    <div style="border:1px solid #fed7aa; border-radius:6px; padding:18px; text-align:center; background:#fff7ed;">
+    <div style="border:1px solid #fde68a; border-radius:6px; padding:18px; text-align:center; background:#fffbeb;">
       <div style="font-size:12px; color:#64748b;">효율화 권장</div>
-      <div style="font-size:32px; font-weight:700; color:#d97706; line-height:1.2;">{{ summary.base.risk_attention }}</div>
+      <div class="text-warn" style="font-size:32px; font-weight:700; line-height:1.2;">{{ summary.base.risk_attention }}</div>
       <div style="font-size:11px; color:#94a3b8;">과다·유휴</div>
     </div>
   </div>
@@ -121,19 +121,13 @@
       <tr>
         <td><a href="/servers/{{ r.public_id }}?back={{ self_back }}" class="row-link">{{ r.hostname }}</a></td>
         <td><span class="badge {{ r.badge_class }}">{{ r.recommendation }}</span></td>
-        <td style="font-size:12px; color:#1e293b;">
-          {% if r.recommendation == "under_provisioned" %}{{ r.under_provisioned_reason }}
-          {% elif r.recommendation == "over_provisioned" %}자원 축소 검토
-          {% elif r.recommendation == "idle" %}용도 재평가 / 종료 검토
-          {% elif r.recommendation == "shutdown" %}종료 가능 검토
-          {% else %}—{% endif %}
-        </td>
+        <td class="text-strong" style="font-size:12px;">{{ r.recommendation_action or "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <p style="margin:0; color:#16a34a; font-size:13px;">조치 필요 호스트 없음.</p>
+  <p class="text-ok" style="margin:0; font-size:13px;">조치 필요 호스트 없음.</p>
   {% endif %}
 </section>
 
@@ -266,11 +260,11 @@
         <td><span class="badge {{ r.badge_class }}">{{ r.recommendation }}</span></td>
         <td>
           {%- if r.cpu_p95_pct is not none %}{{ "%.1f" | format(r.cpu_p95_pct) }}%{% else %}—{% endif -%}
-          {%- if r.cpu_peak_pct is not none %} <span style="color:#94a3b8;">/ {{ "%.0f" | format(r.cpu_peak_pct) }}%</span>{% endif -%}
+          {%- if r.cpu_peak_pct is not none %} <span class="text-meta">/ {{ "%.0f" | format(r.cpu_peak_pct) }}%</span>{% endif -%}
         </td>
         <td>
           {%- if r.mem_p95_pct is not none %}{{ "%.1f" | format(r.mem_p95_pct) }}%{% else %}—{% endif -%}
-          {%- if r.mem_peak_pct is not none %} <span style="color:#94a3b8;">/ {{ "%.0f" | format(r.mem_peak_pct) }}%</span>{% endif -%}
+          {%- if r.mem_peak_pct is not none %} <span class="text-meta">/ {{ "%.0f" | format(r.mem_peak_pct) }}%</span>{% endif -%}
         </td>
         <td style="color:{{ r.saturation_color }};">
           {%- if r.load_15m_max is not none %}{{ "%.2f" | format(r.load_15m_max) }}{% else %}—{% endif -%}
@@ -281,9 +275,9 @@
             {%- if r.worst_mount_used_pct is not none %} ({{ "%.0f" | format(r.worst_mount_used_pct) }}%){% endif -%}
           {% else %}—{% endif %}
         </td>
-        <td>{% if r.swap_used %}발생{% else %}<span style="color:#94a3b8;">—</span>{% endif %}</td>
+        <td>{% if r.swap_used %}발생{% else %}<span class="text-meta">—</span>{% endif %}</td>
         <td style="color:{{ r.reboot_count_color }};">{{ r.reboot_count }}</td>
-        <td style="color:#64748b;">{{ r.diagnosis or "—" }}</td>
+        <td class="text-muted">{{ r.diagnosis or "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -326,9 +320,9 @@
       <tr>
         <td><a href="/servers/{{ h.public_id }}?back={{ self_back }}" class="row-link">{{ h.hostname }}</a></td>
         <td>{{ h.os_display }}</td>
-        <td>{% if h.gap_label %}{{ h.gap_label }}{% else %}<span style="color:#94a3b8;">—</span>{% endif %}</td>
-        <td>{% if h.os_eol_label %}<span style="font-size:11px;">{{ h.os_eol_label }}</span>{% else %}<span style="color:#94a3b8;">—</span>{% endif %}</td>
-        <td>{% if h.restart_label %}{{ h.restart_label }}{% else %}<span style="color:#94a3b8;">—</span>{% endif %}</td>
+        <td>{% if h.gap_label %}{{ h.gap_label }}{% else %}<span class="text-meta">—</span>{% endif %}</td>
+        <td>{% if h.os_eol_label %}<span style="font-size:11px;">{{ h.os_eol_label }}</span>{% else %}<span class="text-meta">—</span>{% endif %}</td>
+        <td>{% if h.restart_label %}{{ h.restart_label }}{% else %}<span class="text-meta">—</span>{% endif %}</td>
         <td style="font-weight:600; color:#92400e;">{{ h.active_count }}</td>
       </tr>
       {% endfor %}
@@ -398,7 +392,7 @@
       <tr>
         <td><a href="/servers/{{ h.public_id }}?back={{ self_back }}" class="row-link">{{ h.hostname }}</a></td>
         <td>{{ h.os_display }}</td>
-        <td style="color:#64748b;">{{ h.reason }}</td>
+        <td class="text-muted">{{ h.reason }}</td>
       </tr>
       {% endfor %}
     </tbody>

@@ -44,16 +44,19 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | `GET /{id}/events/reboot?time_range=&end=` | reboot/restart vertical marker용 |
 | `GET /{id}/metrics/stream` | SSE — `text/event-stream` (Consumer PUB -> Redis -> SSE) |
 
-### `discovery.py` — 도달성 검사
+### `discovery.py` — SSH 도달성 검사
 | 경로 | 용도 |
 |------|------|
-| `POST /probe` | IP HTTP probe (에이전트 배포 워크플로우 1단계). 응답 `{reachable, status_code, latency_ms}` |
+| `POST /probe` | host:port(기본 22) TCP connect probe (에이전트 배포 워크플로우 1단계). 응답 `{reachable, banner, elapsed_ms, error}` |
 
 설계 결정:
-- 타임아웃 5초 — 폐쇄망 LAN 가정. HTTP 80/443은 보통 열려있어 가벼운 도달성 검사로 적합
-- `ipaddress.ip_address()` 파싱 검증 — IPv4/IPv6 형식 422 차단
+- TCP connect = 포트 listen = reachable. connect 직후 SSH identification string(`SSH-2.0-...`) best-effort read (RFC 4253) — `banner` 로 노출, 부재여도 reachable 유지
+- connect 5초 / banner read 2초 타임아웃 — 폐쇄망 LAN 가정
+- 폼 기본값은 `DISCOVERY_DEFAULT_TARGET`+`DISCOVERY_DEFAULT_PORT` (config) → `#probe-ip`/`#probe-port` value 서버 렌더. dev=`db-server-01.orb.local:22` (OrbStack VM 직접 도달 — 통합 네트워크) / prod=빈값:22
+- `ipaddress.ip_address()` 파싱 검증 — IPv4/IPv6 형식 422 차단, 실패 시 RFC 1035 hostname 패턴
 - SSRF 방지(localhost·메타데이터 IP 차단) 미적용 — 폐쇄망 가정상 운영자 의도 입력으로 간주
-- ICMP 미사용 — raw socket 권한 필요라 회피
+- ICMP 미사용 — raw socket 권한 필요라 회피 (TCP connect 는 권한 불필요)
+- 실패 분류: connect timeout / `ConnectionRefusedError`(포트 닫힘) / `OSError`(DNS·no route). 모두 200 + `reachable=false` — 500 raise 없음
 - fail-open (#F6) — HTTP 도달은 SSH 도달을 의미하지 않음. 1차 필터일 뿐. 추후 SSH credential 등록 + ansible 실행 흐름이 본 단계 위에 얹힘
 
 ### `tasks.py` — 원격 작업 발행 + 단건 조회
@@ -96,7 +99,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | 422 | 입력 형식 오류 | Pydantic field validator (IP 형식·UUID 형식·Literal enum) |
 | 404 | 리소스 없음 | `resolve_internal_id` 또는 service `TaskNotFound`/`DiagnosticNotFound` exception |
 | 409 | 충돌 | `tasks/install` pending 중복 (`TaskDuplicatePending`) 또는 진단 enqueue race (`DiagnosticRaceMiss`) |
-| 500 | 서버 오류 | service 측 일반 Exception (probe 외부 네트워크 비정형 응답 등) |
+| 500 | 서버 오류 | service 측 예기치 못한 Exception (DB·외부 의존 비정형 오류 등). discovery probe 는 네트워크 실패를 200 + `reachable=false` 로 반환 — 500 아님 |
 | 503 | 설정 미충족 | `TaskNotConfigured` — `HttpZdmPackageResolver` 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200·size mismatch) 시 install 발행 차단 |
 
 ## URL 정책 (ADR 0021)

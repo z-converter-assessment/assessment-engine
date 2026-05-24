@@ -30,8 +30,8 @@ _RISK_FROM_RECOMMENDATION: dict[str, tuple[str, str, str]] = {
     "shutdown": ("attention", "주의 필요", "rec-over_provisioned"),
     "idle": ("attention", "주의 필요", "rec-over_provisioned"),
     "over_provisioned": ("attention", "주의 필요", "rec-over_provisioned"),
-    "optimal": ("normal", "정상", "rec-right_size"),
-    "insufficient_data": ("normal", "정상", "rec-right_size"),
+    "optimal": ("normal", "정상", "rec-optimal"),
+    "insufficient_data": ("normal", "정상", "rec-optimal"),
 }
 
 # ─── 보고서 row 표시 신호 색 — saturation/variance/worst_mount/reboot 단일 카탈로그 (#E8) ───
@@ -44,8 +44,8 @@ _REPORT_SIG_SUBTLE = "#64748b"  # subdued gray
 
 # 보고서 row 임계 — recommendation 도메인 상수 활용 + 보고서 표시 전용 임계.
 _SATURATION_BURST_RATIO = recommendation.CPU_SATURATION_LOAD_RATIO  # 1.0 — saturation 기준
-_VARIANCE_BURST_RATIO = 1.5  # peak/p95 ≥ 1.5 — variance burst 표시 (보고서 전용 임계)
-_REBOOT_UNSTABLE_COUNT = 3  # reboot_count ≥ 3 — Agent 불안정 신호 (#F10 attention 임계)
+_VARIANCE_BURST_RATIO = 1.5  # peak/p95 >= 1.5 — variance burst 표시 (보고서 전용 임계)
+_REBOOT_UNSTABLE_COUNT = 3  # reboot_count >= 3 — Agent 불안정 신호 (#F10 attention 임계)
 
 
 # ─── KPI 집계 ───
@@ -237,6 +237,24 @@ def _build_under_provisioned_reason(raw: ReportRowRaw) -> str:
     return " / ".join(reasons) if reasons else "리소스 증설 검토"
 
 
+def _build_recommendation_action(rec: str, raw: ReportRowRaw) -> str:
+    """recommendation 분류 -> 양식 A "권고" 컬럼 단일 문구 (environment·single_report 공유 단일 진실).
+
+    under_provisioned 는 hit trigger 별 증설 권고 결합(`_build_under_provisioned_reason`), 그 외는 분류별 고정 조치.
+    optimal/insufficient_data 는 조치 불필요 상태 표시 — environment "조치 필요 호스트"엔 미노출,
+    서버 단일 보고서엔 노출.
+    """
+    if rec == "under_provisioned":
+        return _build_under_provisioned_reason(raw)
+    return {
+        "over_provisioned": "자원 축소 검토",
+        "idle": "용도 재평가 / 종료 검토",
+        "shutdown": "종료 가능 검토",
+        "optimal": "적정 운영",
+        "insufficient_data": "평가 표본 부족",
+    }.get(rec, "")
+
+
 def _build_diagnosis(
     raw: ReportRowRaw, saturation: float | None, cpu_variance: float | None, mem_variance: float | None
 ) -> str:
@@ -377,7 +395,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         net_tx_kbps_p95=raw.net_tx_kbps_p95,
         net_tx_kbps_peak=raw.net_tx_kbps_peak,
         diagnosis=_build_diagnosis(raw, saturation, cpu_variance, mem_variance),
-        under_provisioned_reason=_build_under_provisioned_reason(raw) if rec == "under_provisioned" else "",
+        recommendation_action=_build_recommendation_action(rec, raw),
         # P3 임계 분류 색 — 템플릿 산술·임계 분기 금지 (#E1 P3).
         saturation_color=(
             _REPORT_SIG_DANGER

@@ -101,3 +101,9 @@ prod (`APP_ENV=prod`) 에서는 import 자체가 안 일어남. ADR 0016 사상 
 
 - 실제 ZConverter 본체 패키지 fixture 를 dev mock 에 박을지 — 사이즈/라이센스/repo bloat 트레이드오프. 현재는 더미 install.sh + exit 0 으로 메시지 흐름만 검증.
 - Windows 호스트 install 워크플로 미지원 (ADR 0016 결정 그대로). 사양 보강 시 별도 ADR.
+
+## Update (2026-05-24)
+
+"Consequences > 긍정" 의 "prod 부팅 시 `_validate_prod_web_secrets` 가 `zdm_default_ip` dev default 를 거부 — 부팅 실패" 서술은 이후 철회됨. startup 거부 로직(`_validate_prod_web_secrets` 의 ZDM 검사 + `_ZDM_DEV_DEFAULT_IP`/`_ZDM_DEV_DEFAULT_USER` 상수)을 제거하고, 잘못된 ZDM 발행 방어를 런타임(`HttpZdmPackageResolver` 메타 도달 실패 시 503 차단) + agent host whitelist(`WORKER_DOWNLOAD_ALLOWED_HOSTS`, `url_not_allowed` reject)에 일임.
+
+사유: ZDM 좌표는 secret 이 아니고(노출 무해), startup 검사가 dev default 정확 일치만 잡아 오타·잘못된 커스텀 값은 통과하므로 실효가 제한적이며, 런타임·agent 2차 방어가 실제 발행을 차단한다. discovery probe 기본값(`DISCOVERY_DEFAULT_TARGET`)과 동일하게 startup 거부 없는 정책으로 통일. 본 ADR 의 dev mock endpoint 결정 자체는 유효.

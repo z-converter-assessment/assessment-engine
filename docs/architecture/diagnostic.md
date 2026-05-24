@@ -139,7 +139,7 @@ OLLAMA_MODEL=llama3.1:8b
 docker compose -f dev/docker-compose.yml up -d --force-recreate diagnostic-worker
 ```
 
-본 catalog 본질 = 운영자 명시 활성 catalog. host 안 ollama 가 미가동 catalog 시 진단 발행 시 LLM timeout (`LLM_TIMEOUT_SECONDS=60` default) → `mark_failed('llm_timeout')` 흡수.
+본 catalog 본질 = 운영자 명시 활성 catalog. host 안 ollama 가 미가동·연결거부면 `mark_failed('llm_error: <예외타입>')`, 연결됐으나 `LLM_TIMEOUT_SECONDS`(60s) 내 미응답(hang)이면 `mark_failed('llm_timeout')` — 둘 다 DLQ 재시도 없이 job status='failed' 로 흡수, 운영자 polling 인지 후 재발행.
 
 ## RAG infra (ADR 0024)
 
@@ -303,7 +303,8 @@ docker compose exec postgres psql -U assessment -d assessment -c "SELECT status,
 | 증상 | 원인 |
 |------|------|
 | `diagnostic job not found id=...` | submitter publish 후 DB INSERT 누락 — 트랜잭션 순서·commit 의심 |
-| `mark_failed('llm_timeout')` | host 안 `ollama serve` 미가동 또는 모델 미 pull — `ollama list` 로 모델 catalog 확인 |
+| `mark_failed('llm_error: ...')` | `ollama serve` 미가동·연결거부·HTTP 오류 — `ollama serve` 가동 + `OLLAMA_BASE_URL` 도달성 확인 |
+| `mark_failed('llm_timeout')` | ollama 연결됐으나 60s 내 미응답 — 모델 미 pull(`ollama list`) 또는 모델 로딩 지연 |
 | `diagnostic.request.dead` 큐 누적 | 영구 오류 누적 — DLQ peek로 message_body 확인 |
 
 ## 관련 문서

@@ -113,5 +113,4 @@ _VIRTUAL_MOUNT_SQL_FILTER = """
     AND mount NOT LIKE '/dev/pts%'
     AND mount NOT LIKE '/snap%'
     AND mount NOT LIKE '/run/snapd%'
-    AND mount NOT LIKE '/mnt/lima-cidata%'
 """

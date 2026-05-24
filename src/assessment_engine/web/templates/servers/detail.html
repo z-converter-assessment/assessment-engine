@@ -84,7 +84,7 @@
       {% if server.ip_external %}
         {% for ip in server.ip_external %}<code>{{ ip }}</code> {% endfor %}
       {% else %}
-        <span style="color:#94a3b8;">내부망</span>
+        <span class="text-meta">내부망</span>
       {% endif %}
     </dd>
     <dt>Agent Version</dt>
@@ -150,16 +150,16 @@
     {% endif %}
   </div>
 
-  <!-- 주요 포트 (≤ 1024) -->
+  <!-- 주요 포트 (<= 1024) -->
   {% if server.key_listen_ports %}
   <div>
-    <div class="sub-label" style="margin-bottom:8px;">주요 Listen 포트 <span style="font-weight:400; color:#94a3b8; font-size:11px;">(port ≤ 1024)</span></div>
+    <div class="sub-label" style="margin-bottom:8px;">주요 Listen 포트 <span style="font-weight:400; color:#94a3b8; font-size:11px;">(port <= 1024)</span></div>
     <div style="display:flex; flex-wrap:wrap; gap:8px;">
       {% for p in server.key_listen_ports %}
       <span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:4px 10px; font-size:12px;">
         <code style="background:none; padding:0; font-size:12px; color:#3b82f6;">{{ p.proto }}</code>
         <strong>{{ p.port }}</strong>
-        {% if p.comm %}<span style="color:#64748b;">{{ p.comm }}</span>{% endif %}
+        {% if p.comm %}<span class="text-muted">{{ p.comm }}</span>{% endif %}
       </span>
       {% endfor %}
     </div>
@@ -361,7 +361,7 @@
       보고서 이력
     </a>
   </div>
-  <p style="margin:0 0 12px; font-size:12px; color:#64748b;">서버 <strong style="color:#1e293b;">{{ server.hostname }}</strong> 1대 대상 보고서 발행 (새 탭). 발행 이력은 보고서 이력에서 확인.</p>
+  <p style="margin:0 0 12px; font-size:12px; color:#64748b;">서버 <strong class="text-strong">{{ server.hostname }}</strong> 1대 대상 보고서 발행 (새 탭). 발행 이력은 보고서 이력에서 확인.</p>
   <div style="display:flex; gap:8px;">
     <button type="button" id="server-report-customer-open" class="btn-action no-print" data-view="customer">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
@@ -428,8 +428,8 @@
         <button type="button" id="server-install-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
       </div>
       <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">
-        서버 <strong style="color:#1e293b;">{{ server.hostname }}</strong> 1대에 아래 ZDM 좌표로 ZConverter 설치를 발행합니다.
-        <br>agent 가 ZDM 서버에서 본체 패키지를 fetch 후 <code style="color:#475569;">install.sh -s ZDM_IP -u ZDM_USER</code> 실행.
+        서버 <strong class="text-strong">{{ server.hostname }}</strong> 1대에 아래 ZDM 좌표로 ZConverter 설치를 발행합니다.
+        <br>agent 가 ZDM 서버에서 본체 패키지를 fetch 후 <code>install.sh -s ZDM_IP -u ZDM_USER</code> 실행.
       </p>
       <div style="margin:12px 0;">
         <label for="server-install-zdm-target" style="display:block; font-size:12px; color:#475569; margin-bottom:4px;">ZDM 서버 IP/hostname</label>

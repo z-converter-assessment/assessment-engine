@@ -8,7 +8,7 @@ fetch) 사상 유지 — engine 은 "ZDM 측 역할" 을 dev 한정으로 재현
 설계:
 - 더미 tar.gz — startup 1회 in-memory build + bytes 캐싱 (요청 시 재계산 없음, sha256 안정)
 - tar 내용 = `zconverter_install_source/install.sh` (운영 ZDM 본체 패키지 layout 과 동일 경로) —
-  인자 `-s ZDM_IP -u ZDM_USER` 받아 stdout 에 echo + exit 0. Lima VM 에서 success 경로 실증용.
+  인자 `-s ZDM_IP -u ZDM_USER` 받아 stdout 에 echo + exit 0. OrbStack VM 에서 success 경로 실증용.
 - 응답 헤더 (HEAD/GET 동일):
     Content-Length   HttpZdmPackageResolver HEAD 의 size 추출
     ETag             Redis cache 키 (불변 tarball 이라 sha256 hex 그대로)

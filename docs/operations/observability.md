@@ -32,6 +32,7 @@
 | RabbitMQ broker | fail-close | aio-pika 자동 재연결, persistent 메시지 | ERROR |
 | Redis | fail-open | `safe_*` 흡수 (#C3) → 다음 계층 fallback | WARNING |
 | HTTP 외부 호출 | fail-open | timeout → "unreachable" 결과 | INFO |
+| ollama LLM (진단 narrative) | job 단위 fail-close | timeout·미연결·HTTP 오류 → `mark_failed('llm_timeout'/'llm_error')`, DLQ 재시도 없음 (워커는 다음 job 계속) | WARNING |
 
 원칙·금지·예외 타입 catch 규약은 CLAUDE.md #F6.
 

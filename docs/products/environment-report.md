@@ -101,8 +101,8 @@ over-provisioned 5대, under-provisioned 2대, idle 0대, optimal 16대.
 | 분류 | 트리거 조건 | 출처 |
 |------|-----------|------|
 | idle | CPU p95 < 3% + 네트워크 미사용 | Azure Advisor "underutilized VM" 기준 |
-| over_provisioned | CPU p95 ≤ 30% + 메모리 p95 ≤ 50% | AWS Compute Optimizer "over-provisioned" 기준 |
-| under_provisioned | CPU p95 ≥ 70% 또는 메모리 p95 ≥ 80% 또는 swap 발생 | Kleinrock 큐잉 + Linux page cache 운영 통념 |
+| over_provisioned | CPU p95 <= 30% + 메모리 p95 <= 50% | AWS Compute Optimizer "over-provisioned" 기준 |
+| under_provisioned | CPU p95 >= 70% 또는 메모리 p95 >= 80% 또는 swap 발생 | Kleinrock 큐잉 + Linux page cache 운영 통념 |
 | optimal | 위 어디에도 해당 안 함 | residual |
 
 위험도 3단계 압축 (customer view 한정):
