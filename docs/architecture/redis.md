@@ -10,7 +10,7 @@ src/assessment_engine/db/
 src/assessment_engine/config.py
                     — redis_key_*, redis_ttl_*, redis_channel_*
 
-src/assessment_engine/consumer/handler.py
+src/assessment_engine/consumer/handlers/
                     — _check_idempotent, online SET, cache DEL, PUBLISH
 src/assessment_engine/web/services/query_service.py
                     — cache GET/SET, mget(online), pubsub.subscribe
@@ -40,7 +40,7 @@ src/assessment_engine/web/services/query_service.py
 - `last_agent_start:{server_id}` 24h — 직전 비교용 캐시. evict 시 다음 메시지에서 재시작 감지 1회 누락만 — 다음 정상 sample에서 회복.
 - `agent_restarts:{server_id}` 1h — 슬라이딩 윈도우 (마지막 INCR 후 1h). `agent_restart_alert_threshold` (기본 3) 도달 시 warning 로그.
 
-원격 작업 명령 전달은 ADR 0007 (별도 큐 모델) 채택으로 broker 가 메시지 보유 — Redis pending hot path 캐시 폐기. DB `tasks` + broker `agent.tasks.<machine_id>` 큐가 단일 진실.
+원격 작업 명령 전달은 ADR 0007 (별도 큐 모델) 채택으로 broker 가 메시지 보유 — Redis pending hot path 캐시 폐기. DB `tasks` + broker `agent.tasks.<host_id>` 큐가 단일 진실.
 
 ---
 
@@ -48,7 +48,7 @@ src/assessment_engine/web/services/query_service.py
 
 | 채널 | 발행자 | 구독자 | payload |
 |------|--------|--------|---------|
-| `metrics.events` | consumer (metrics 저장 후) | web SSE 핸들러 | `{"server_id": int, "machine_id": str}` |
+| `metrics.events` | consumer (metrics 저장 후) | web SSE 핸들러 | `{"server_id": int, "host_id": str}` |
 
 웹 측 `stream_metrics_events`(query_service.py)는 단일 채널을 모두 구독하고 server_id 일치 여부로 필터링. 구독 클라이언트별 채널 분리 안 함 (트레이드오프 T5).
 
@@ -56,7 +56,7 @@ src/assessment_engine/web/services/query_service.py
 
 ## 캐시 무효화 (cache-aside)
 
-### inventory 처리 후 (consumer/handler.py)
+### inventory 처리 후 (consumer/handlers/)
 
 ```
 1. SET online:{server_id} 1 EX 90        — 등록 즉시 온라인 판정
@@ -65,7 +65,7 @@ src/assessment_engine/web/services/query_service.py
 
 서비스/포트/디스크가 추가/제거된 경우 다음 detail 페이지 요청에서 새 값이 노출됨. 300s TTL 만료 대기 제거.
 
-### metrics 처리 후 (consumer/handler.py)
+### metrics 처리 후 (consumer/handlers/)
 
 ```
 1. SET online:{server_id} 1 EX 90
@@ -119,7 +119,7 @@ cache_serializer가 dataclass-JSON serde 담당. 역직렬화 직후 `enrich_ser
 
 ## 의존성 주입 / 생명주기
 
-### 커넥션 풀 (db/redis.py)
+### 커넥션 풀 (cache/redis.py)
 
 ```python
 _pool: ConnectionPool | None = None
@@ -161,7 +161,7 @@ async def close_pool() -> None: ...
 
 정책: CLAUDE.md #C3 · #F6. 본 절은 운영 동작 매트릭스만.
 
-`safe_*` helper 카탈로그: `safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`/`safe_incr_with_ttl` (`src/assessment_engine/db/redis.py`). 정확성 보장은 2단 안전망(DB UNIQUE / DB query / `last_seen_at` 컬럼)에 위임.
+`safe_*` helper 카탈로그: `safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`/`safe_incr_with_ttl` (`src/assessment_engine/cache/redis.py`). 정확성 보장은 2단 안전망(DB UNIQUE / DB query / `last_seen_at` 컬럼)에 위임.
 
 | 역할 | 평시 | Redis 장애 시 |
 |------|------|-------------|

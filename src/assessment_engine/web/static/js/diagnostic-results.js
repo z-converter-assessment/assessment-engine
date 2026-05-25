@@ -1,6 +1,6 @@
 // 진단 결과 페이지 (`/diagnostics?ids=...`) — N개 카드 polling + render (ADR 0004 단계 2).
 //
-// diagnostic.js의 DiagnosticPanel은 submit 흐름. 본 모듈은 polling만 — submit 없음.
+// 본 모듈은 결과 페이지 안 polling 전용 — 보고서 안 inline polling 은 별도 `diagnostic-inline.js`.
 // 초기 SSR JSON으로 즉시 렌더, pending/running만 3초 polling.
 
 (function () {
@@ -13,6 +13,7 @@
     queued:               '대기 중',
     extracting_stats:     '통계 추출 중',
     applying_rules:       '추천 판정 중',
+    retrieving_context:   '관련 자료 검색 중',
     generating_narrative: 'AI 분석 작성 중',
   };
 
@@ -91,7 +92,7 @@
           return;
         }
         try {
-          const res = await fetch(`/api/v1/diagnostics/${this.jobId}`);
+          const res = await fetch(`/api/diagnostics/${this.jobId}`);
           if (!res.ok) {
             if (res.status === 404) {
               this._stopPolling();
@@ -185,7 +186,7 @@
     return `
       <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
         <span class="badge ${clsBadge}">${clsKr}</span>
-        <span style="color:#64748b; font-size:12px;">추천 액션: <strong>${escapeHtml(rec.action || 'n/a')}</strong></span>
+        <span class="text-muted">추천 액션: <strong>${escapeHtml(rec.action || 'n/a')}</strong></span>
       </div>
       <table style="margin-bottom:14px;">
         <thead><tr><th>리소스</th><th style="text-align:right;">p95 (%)</th><th style="text-align:right;">peak (%)</th></tr></thead>
@@ -221,7 +222,7 @@
     `).join('') || '<tr><td colspan="2" style="color:#94a3b8;">권장 액션 없음</td></tr>';
 
     return `
-      <div style="color:#64748b; font-size:12px; margin-bottom:14px;">
+      <div class="text-muted" style="margin-bottom:14px;">
         대상 ${cov.evaluated_servers || 0}대 / 전체 ${cov.total_servers || 0}대 (${cov.coverage_pct || 0}%)
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">

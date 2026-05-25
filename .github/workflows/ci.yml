@@ -43,7 +43,7 @@ jobs:
         run: pip install uv
 
       - name: Install project (frozen)
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --group dev
 
       - name: ruff check
         run: uv run ruff check .
@@ -73,7 +73,7 @@ jobs:
         run: pip install uv
 
       - name: Install project (frozen)
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --group dev
 
       # --cov-report=term — console에 라인별 coverage 표시 (PR review 시 즉시 가시화).
       # --cov-report=xml — codecov·sonar 등 외부 리포터 입력용 (artifact upload).
@@ -115,7 +115,7 @@ jobs:
         run: |
           python -m venv /tmp/wheel-smoke
           /tmp/wheel-smoke/bin/pip install --quiet dist/*.whl
-          /tmp/wheel-smoke/bin/python -c "import assessment_engine.web.main; import assessment_engine.consumer.main; import assessment_engine.diagnostic.main; import assessment_engine.diagnostic.scheduler"
+          /tmp/wheel-smoke/bin/python -c "import assessment_engine.web.main; import assessment_engine.consumer.main; import assessment_engine.diagnostic.main"
           /tmp/wheel-smoke/bin/python -c "from importlib.resources import files; p = files('assessment_engine'); assert (p / 'web' / 'templates' / 'base.html').is_file(); assert (p / 'web' / 'static' / 'js' / 'chart-utils.js').is_file(); assert (p / '_migrations' / 'env.py').is_file(); assert (p / '_alembic.ini').is_file()"
 
       - name: Upload wheel artifact
@@ -143,7 +143,7 @@ jobs:
         run: pip install uv
 
       - name: Install project (frozen)
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --group dev
 
       # testcontainers가 TimescaleDB 컨테이너 자동 spawn — GHA runner의 docker daemon 사용.
       - name: pytest integration (with coverage)

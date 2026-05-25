@@ -37,6 +37,9 @@ class WebSettings(BaseSettings):
     postgres_password: SecretStr = SecretStr("assessment")
     postgres_port: int = 5432
     web_port: int = 8000
+    # uvicorn auto-reload — dev hot-reload 전용. prod 는 False (코드 변경 감시 프로세스가 prod 에서 불필요,
+    # bind mount 없는 wheel/image 배포에선 무의미). dev/docker-compose.yml 이 WEB_RELOAD=true 주입.
+    web_reload: bool = False
 
     redis_host: str = "redis"
     redis_port: int = 6379
@@ -45,12 +48,12 @@ class WebSettings(BaseSettings):
     sqlalchemy_echo: bool = False
 
     # TTL (seconds)
-    redis_ttl_idempotent: int = 86400          # 24h — 재발행 메시지 중복 차단
-    redis_ttl_online: int = 300                 # 5min — 오프라인 판단. 운영 신호 "통신 끊김" 임계(gap_minutes=5) 와 단일 진실.
-    redis_ttl_token: int = 3600                 # 1h  — 인증 토큰
-    redis_ttl_last_agent_start: int = 86400     # 24h — 직전 agent_started_at 캐시 (재시작 감지용)
-    redis_ttl_agent_restarts: int = 3600        # 1h  — 슬라이딩 윈도우 카운터
-    redis_ttl_time_invariant_warned: int = 3600 # 1h  — 시계 invariant 위반 로그 쿨다운 (스팸 방지)
+    redis_ttl_idempotent: int = 86400  # 24h — 재발행 메시지 중복 차단
+    redis_ttl_online: int = 300  # 5min — 오프라인 판단. 운영 신호 "통신 끊김" 임계(gap_minutes=5) 와 단일 진실.
+    redis_ttl_token: int = 3600  # 1h  — 인증 토큰
+    redis_ttl_last_agent_start: int = 86400  # 24h — 직전 agent_started_at 캐시 (재시작 감지용)
+    redis_ttl_agent_restarts: int = 3600  # 1h  — 슬라이딩 윈도우 카운터
+    redis_ttl_time_invariant_warned: int = 3600  # 1h  — 시계 invariant 위반 로그 쿨다운 (스팸 방지)
 
     # Key prefixes
     redis_key_cache_inventory: str = "cache:inventory:{}"
@@ -61,7 +64,7 @@ class WebSettings(BaseSettings):
     redis_key_token: str = "token:{}"
     redis_key_last_agent_start: str = "last_agent_start:{}"
     redis_key_agent_restarts: str = "agent_restarts:{}"
-    # {machine_id}:{hostname} 쿨다운 마커 — server_inventory 복합 unique 일관 (#C1)
+    # {host_id}:{hostname} 쿨다운 마커 — server_inventory 복합 unique 일관 (#C1)
     redis_key_time_invariant_warned: str = "time_invariant_warned:{}:{}"
 
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
@@ -70,19 +73,37 @@ class WebSettings(BaseSettings):
     # PUB/SUB channels
     redis_channel_metrics: str = "metrics.events"
 
-    # 원격 작업 install bundle endpoint (self-host).
-    # task.install 페이로드의 download.url에 그대로 박혀 발행되고, 원격 호스트의
-    # WORKER_DOWNLOAD_ALLOWED_HOSTS 화이트리스트와 host가 정확히 일치해야 fetch 허용.
-    # ADR 0009 — dev plain HTTP. agent worker 측 HTTPS-only 정책으로 dev 에서 success 경로 검증 불가
-    # (failure_reason=url_not_allowed). agent 측 호환성 작업 후 활성화 — 별도 ADR.
-    install_bundle_url: str = "http://host.lima.internal:8000/zconverter.tar.gz"
-    install_timeout_sec: int = 600  # install.sh wall-clock timeout (원격 host의 worker가 강제 종료)
+    # 서버 발견 모달 — SSH(기본 22) 도달성 probe 의 기본 target 주소.
+    # 운영자가 모달에서 매 확인마다 override 가능. 빈값이면 폼이 빈 채로 시작.
+    # dev·prod 모두 빈값 default — 운영자가 모달에 직접 입력 (weak default 거부 대상 아님).
+    # dev: OrbStack .orb.local 은 host(macOS)만 등록되고 컨테이너 미해석 + VM IP 동적이라 자동 기본값 부적합.
+    # pipeline-up.sh 가 post-provision 으로 VM 에 openssh-server 설치 + print_summary 로 VM IP 안내 (운영자 입력).
+    discovery_default_target: str = ""
+    # probe 폼 기본 포트. prod·dev 모두 22(표준 SSH). 비표준 host 는 폼 override.
+    discovery_default_port: int = 22
 
-    # ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표 — install 모달의 default 값으로 사용.
-    # install.sh / install.ps1이 -s ZDM_IP -u ZDM_USER 인자로 받아 ZDM 서버에서 setup 패키지 fetch.
-    # 운영자가 모달에서 매 발행마다 override 가능. POST body의 zdm_ip·zdm_user 누락 시 본 값으로 fallback.
-    zdm_default_ip: str = "192.168.3.94"
+    # ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표 — install 모달 default 값.
+    # 운영자가 모달에서 매 발행마다 override 가능. POST body 누락 시 본 값으로 fallback.
+    # dev 한정 ZDM mock (ADR 0018) 으로 OrbStack VM agent worker 가 host web 8000 도달.
+    # 잘못된 ZDM 발행 방어는 런타임 (HttpZdmPackageResolver 메타 도달 실패 시 503 차단) + agent host
+    # whitelist (WORKER_DOWNLOAD_ALLOWED_HOSTS) 가 담당. startup 거부 없음 — discovery_default_target 과 동일 정책.
+    zdm_default_ip: str = "host.docker.internal:8000"
     zdm_default_user: str = "admin@zconverter.com"
+
+    # ZDM 본체 패키지 contract — task.install download 필드에 박혀 agent 가 fetch.
+    # sha256·size_bytes 는 publish 직전 engine 이 ZDM 에서 HEAD + GET 으로 동적 산출
+    # (ETag 기반 Redis cache). ZDM 측이 패키지 갱신하면 ETag 변경 → cache miss → 자동 재계산.
+    zdm_package_path: str = "/download/ZConverter_CloudSource_Setup_Linux.tar.gz"
+    zdm_package_script: str = "zconverter_install_source/install.sh"
+    # Windows install (ADR 0019 install.type=direct_exec). single binary 라 script 없음.
+    zdm_package_path_windows: str = "/download/ZConverter_CloudSource_Setup_Windows.exe"
+    # 메타 조회 HTTP 옵션 — connect 5s, total 120s (44MB GET 가정, 동일 LAN 이면 1~2s).
+    zdm_meta_connect_timeout_sec: float = 5.0
+    zdm_meta_total_timeout_sec: float = 120.0
+    # ETag 기반 cache TTL — ETag 자체가 invalidation 이라 길게 잡아도 안전.
+    redis_key_zdm_package_sha256: str = "cache:zdm_package:sha256:{}:{}"  # {host}:{etag}
+    redis_ttl_zdm_package_sha256: int = 6 * 60 * 60  # 6h
+    install_timeout_sec: int = 600  # install.sh wall-clock timeout (원격 host worker 강제 종료)
 
     @property
     def database_url(self) -> str:
@@ -112,10 +133,9 @@ class WebSettings(BaseSettings):
 
 
 class ConsumerSettings(WebSettings):
-
     rabbitmq_host: str = "rabbitmq"
     rabbitmq_port: int = 5672
-    rabbitmq_vhost: str = "/assessment"   # 에이전트가 발행하는 전용 vhost
+    rabbitmq_vhost: str = "/assessment"  # 에이전트가 발행하는 전용 vhost
     rabbitmq_user: str = "assessment"
     rabbitmq_password: SecretStr = SecretStr("assessment")
     rabbitmq_exchange: str = "assessment"
@@ -125,7 +145,7 @@ class ConsumerSettings(WebSettings):
 
     # 원격 작업 토폴로지 (collector exchange와 분리 — 인증·DLX 정책 독립).
     # task.install: engine 발행
-    #   routing_key=task.install.<machine_id> / queue=agent.tasks.<machine_id> (engine 동적 declare)
+    #   routing_key=task.install.<host_id> / queue=agent.tasks.<host_id> (engine 동적 declare)
     # task.result : 원격 호스트 발행 / queue=worker.result
     rabbitmq_task_exchange: str = "assessment.tasks"
     rabbitmq_task_queue_prefix: str = "agent.tasks"
@@ -158,37 +178,36 @@ class ConsumerSettings(WebSettings):
 
 
 class DiagnosticSettings(ConsumerSettings):
-    """진단 워커·스케줄러·웹 공통 설정 (ADR 0004).
+    """진단 워커·웹 공통 설정 (ADR 0004 + 0023).
 
     ConsumerSettings 상속 — broker_url·prod secret 검증 그대로 활용. 진단 워크플로 고유 필드만 추가.
+    ADR 0023: scheduler cron 폐기. trigger 채널 = 사용자 명시 (web POST) 만.
+    AI 진단 = 본 엔진 본질 기능 — feature flag 제거 (항상 활성).
     """
-    # AI 진단 일시 비활성 flag — 기본 비활성 (운영자 명시 활성 시 True override).
-    # False 시: web POST /api/v1/diagnostics 503 reject + scheduler cron 발화 no-op.
-    # 모달 UI는 그대로 (사용자 트리거는 503으로 명시), worker process 는 큐 비어 idle.
-    diagnostic_enabled: bool = False
 
     # routing key + TTL (모두 RabbitMQ broker — 큐 인자 변경 시 broker 재선언 의무)
     diagnostic_routing_key: str = "diagnostic.request"
-    diagnostic_queue_ttl_ms: int = 24 * 60 * 60 * 1000   # 24h — pending job 처리 못 하면 DLQ
+    diagnostic_queue_ttl_ms: int = 24 * 60 * 60 * 1000  # 24h — pending job 처리 못 하면 DLQ
     diagnostic_queue_max_len: int = 100_000
 
-    # retention
-    diagnostic_retention_days: int = 90
-
     # Redis polling 캐시 (워커가 각 단계 후 SET, web polling이 우선 read)
-    redis_key_diagnostic_progress: str = "diagnostic:job:{}"   # {job_id}
+    redis_key_diagnostic_progress: str = "diagnostic:job:{}"  # {job_id}
     redis_ttl_diagnostic_progress: int = 3600
 
-    # 스케줄러
-    diagnostic_schedule_cron: str = "0 3 * * *"          # 매일 03시 KST
-    diagnostic_active_server_window_hours: int = 24      # last_seen_at 기준 활성 서버 정의
-
-    # LLM — 과금 발생 외부 API 호출 금지 (운영자 정책). 외부 API 도입은 별도 ADR 정정.
-    llm_provider: Literal["mock", "ollama"] = "mock"
+    # LLM — ollama 단일 provider (ADR 0025). 과금 발생 외부 유료 API 호출 금지 (정책).
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
     llm_timeout_seconds: int = 60
-    llm_mock_latency_seconds: float = 2.0                # mock latency 시뮬레이션 (UI progress 단계 확인용)
+
+    # RAG (ADR 0024) — handler retrieve_context 단계 + ingest CLI 공통 사용.
+    # rag_enabled=False default — 단계별 검증 후 운영자 명시 활성화. False 시 retrieve_context skip + payload['rag_context']=[]
+    rag_enabled: bool = False
+    embedding_provider: Literal["mock", "ollama"] = "mock"
+    embedding_model: str = "mxbai-embed-large"  # ollama 안 pull 의무 (`ollama pull mxbai-embed-large`)
+    embedding_dimension: int = 1024  # mxbai-embed-large default. 모델 변경 시 alembic migration 1회
+    embedding_timeout_seconds: float = 30.0
+    rag_top_k: int = 5
+    rag_max_context_chars: int = 4000  # LLM prompt 안 RAG context 절 max 길이 cap
 
     # 워커 단계별 timeout cap (단일 진단 1건 전체) — 클라이언트 polling timeout(5분)과 정렬
     worker_job_timeout_seconds: int = 300

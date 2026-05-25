@@ -3,7 +3,8 @@
 mapper 책임: TaskRow (raw outbound DTO) -> TaskSummaryItem / TaskDetailItem.
 표시 파생(badge_class·badge_label·failure_label) 모두 mapper precompute.
 """
-from assessment_engine.web.services.mappers import to_task_detail, to_task_summary
+
+from assessment_engine.web.services.mappers.task import to_task_detail, to_task_summary
 from tests.factories import make_task_row
 
 
@@ -17,8 +18,10 @@ def test_success_summary_badge() -> None:
 
 def test_failure_summary_badge_with_reason_label() -> None:
     row = make_task_row(
-        status="failure", failure_reason="sha256_mismatch",
-        exit_code=None, duration_ms=8000,
+        status="failure",
+        failure_reason="sha256_mismatch",
+        exit_code=None,
+        duration_ms=8000,
     )
     summary = to_task_summary(row)
     assert summary.badge_class == "rec-failure"
@@ -56,8 +59,11 @@ def test_unknown_failure_reason_passes_through() -> None:
 
 def test_detail_includes_tails() -> None:
     row = make_task_row(
-        status="success", exit_code=0, duration_ms=42,
-        stdout_tail="installed foo-1.2\n", stderr_tail="",
+        status="success",
+        exit_code=0,
+        duration_ms=42,
+        stdout_tail="installed foo-1.2\n",
+        stderr_tail="",
     )
     detail = to_task_detail(row)
     assert detail.task_id == row.public_id

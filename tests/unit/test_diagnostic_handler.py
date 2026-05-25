@@ -5,6 +5,7 @@
 - (ValueError, KeyError, IntegrityError) → mark_failed로 흡수 → message ack (사용자가 결과 페이지에서 인지)
 - 그 외 광범위 Exception은 catch 안 함 (의도되지 않은 예외는 그대로 raise → DLQ)
 """
+
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.exc import IntegrityError, OperationalError
 
-from assessment_engine.db.repositories.outbound import DiagnosticJobRecord
+from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.diagnostic.handler import make_diagnostic_handler
 
 
@@ -25,22 +26,30 @@ def _make_message(job_id: str = "j1", message_id: str = "m1"):
     @asynccontextmanager
     async def _process(requeue: bool = True):
         yield None
+
     msg.process = _process
     return msg
 
 
 def _make_pending_job(job_id: str = "j1") -> DiagnosticJobRecord:
     return DiagnosticJobRecord(
-        id=job_id, job_type="ai_diagnostic", scope="server",
+        id=job_id,
+        job_type="ai_diagnostic",
+        scope="server",
         input_params={
             "server_public_id": "uuid-x",
             "time_range": "14d",
             "anchor_at": "2026-05-12T00:00:00+00:00",
         },
-        input_hash="h", status="pending", progress_stage="queued",
-        result=None, error_message=None,
+        input_hash="h",
+        status="pending",
+        progress_stage="queued",
+        result=None,
+        error_message=None,
         created_at=datetime(2026, 5, 12, tzinfo=UTC),
-        started_at=None, finished_at=None, requested_by=None,
+        started_at=None,
+        finished_at=None,
+        requested_by=None,
     )
 
 
@@ -85,9 +94,7 @@ def _build_handler(stub_components):
 @patch("assessment_engine.diagnostic.handler.aggregator")
 async def test_handler_op_error_reraises_for_dlq(mock_agg, stub_components):
     """DB 일시 장애(OperationalError)는 reraise → message.process가 NACK → DLQ로."""
-    mock_agg.extract_server = AsyncMock(
-        side_effect=OperationalError("stmt", {}, Exception("connection lost"))
-    )
+    mock_agg.extract_server = AsyncMock(side_effect=OperationalError("stmt", {}, Exception("connection lost")))
     handler, diag_repo = _build_handler(stub_components)
     msg = _make_message()
     with pytest.raises(OperationalError):
@@ -128,9 +135,7 @@ async def test_handler_key_error_absorbs_as_failed(mock_agg, stub_components):
 @patch("assessment_engine.diagnostic.handler.aggregator")
 async def test_handler_integrity_error_absorbs_as_failed(mock_agg, stub_components):
     """DB UNIQUE 충돌(IntegrityError) → mark_failed 흡수 (영구 오류 = 재시도 의미 없음)."""
-    mock_agg.extract_server = AsyncMock(
-        side_effect=IntegrityError("stmt", {}, Exception("duplicate key"))
-    )
+    mock_agg.extract_server = AsyncMock(side_effect=IntegrityError("stmt", {}, Exception("duplicate key")))
     handler, diag_repo = _build_handler(stub_components)
     await handler(_make_message())
     diag_repo.mark_failed.assert_awaited_once()
@@ -158,6 +163,7 @@ async def test_handler_invalid_message_silent_ack(stub_components):
     @asynccontextmanager
     async def _process(requeue: bool = True):
         yield None
+
     bad_msg.process = _process
 
     await handler(bad_msg)  # reraise 없음
@@ -165,6 +171,7 @@ async def test_handler_invalid_message_silent_ack(stub_components):
 
 
 # ─── LLM timeout 분기 (#F6) — wait_for(timeout=llm_timeout_seconds) ────────
+
 
 @pytest.mark.asyncio
 @patch("assessment_engine.diagnostic.handler.safe_set_nx", new=AsyncMock(return_value=True))
@@ -190,3 +197,124 @@ async def test_handler_llm_timeout_marks_failed(mock_agg, stub_components):
     assert args.args[1] == "llm_timeout" or args.kwargs.get("error_message") == "llm_timeout"
     # succeeded 마킹은 안 함
     diag_repo.mark_succeeded.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("assessment_engine.diagnostic.handler.safe_set_nx", new=AsyncMock(return_value=True))
+@patch("assessment_engine.diagnostic.handler.safe_set", new=AsyncMock(return_value=None))
+@patch("assessment_engine.diagnostic.handler.aggregator")
+async def test_handler_llm_http_error_marks_failed(mock_agg, stub_components):
+    """ollama 미연결·연결거부(httpx.HTTPError) → mark_failed("llm_error: ...") 흡수 (DLQ 재시도 안 함).
+
+    미연결이 mark_failed 안 되면 job 이 running 으로 영구 stale — 본 분기가 방지. #F8: err_type 만 노출.
+    """
+    import httpx
+
+    mock_agg.extract_server = AsyncMock(return_value={"summary": "ok"})
+
+    session_factory, query_repo, diag_repo, llm, redis = stub_components
+    llm.generate_narrative = AsyncMock(side_effect=httpx.ConnectError("connection refused to 10.0.0.5:11434"))
+
+    handler = make_diagnostic_handler(
+        session_factory=session_factory,
+        query_repo_factory=lambda s: query_repo,
+        diagnostic_repo_factory=lambda s: diag_repo,
+        llm_client=llm,
+        redis=redis,
+    )
+    await handler(_make_message())  # reraise 없음 (흡수)
+    diag_repo.mark_failed.assert_awaited_once()
+    err = diag_repo.mark_failed.await_args.args[1]
+    assert err.startswith("llm_error")
+    assert "ConnectError" in err  # err_type
+    assert "10.0.0.5" not in err and "connection refused" not in err  # #F8 — URL·메시지 본문 미노출
+    diag_repo.mark_succeeded.assert_not_called()
+
+
+# ─── RAG retrieve_context 단계 분기 (ADR 0024) ──────────────────────────────
+
+
+@pytest.mark.asyncio
+@patch("assessment_engine.diagnostic.handler.safe_set_nx", new=AsyncMock(return_value=True))
+@patch("assessment_engine.diagnostic.handler.safe_set", new=AsyncMock(return_value=None))
+@patch("assessment_engine.diagnostic.handler.aggregator")
+async def test_handler_rag_disabled_yields_empty_context(mock_agg, stub_components):
+    """retriever=None 시 payload['rag_context']=[] (RAG_ENABLED=False default 흐름)."""
+    mock_agg.extract_server = AsyncMock(return_value={"summary": "ok"})
+    handler, diag_repo = _build_handler(stub_components)
+    await handler(_make_message())
+    # mark_succeeded payload 안 rag_context 빈 list
+    diag_repo.mark_succeeded.assert_awaited_once()
+    payload_arg = diag_repo.mark_succeeded.await_args.args[1]
+    assert payload_arg["rag_context"] == []
+    # retrieving_context stage 통과 (mark_running + 3 update_progress_stage 호출)
+    stages = [c.args[1] for c in diag_repo.update_progress_stage.await_args_list]
+    assert "retrieving_context" in stages
+    assert "generating_narrative" in stages
+
+
+@pytest.mark.asyncio
+@patch("assessment_engine.diagnostic.handler.safe_set_nx", new=AsyncMock(return_value=True))
+@patch("assessment_engine.diagnostic.handler.safe_set", new=AsyncMock(return_value=None))
+@patch("assessment_engine.diagnostic.handler.aggregator")
+async def test_handler_rag_enabled_populates_context(mock_agg, stub_components):
+    """retriever 주입 + retrieve 성공 시 payload['rag_context'] 안 검색 결과 dict list."""
+    from assessment_engine.rag.retriever.base import RetrievedDoc
+
+    mock_agg.extract_server = AsyncMock(return_value={"summary": "ok"})
+
+    session_factory, query_repo, diag_repo, llm, redis = stub_components
+    retriever = AsyncMock()
+    retriever.retrieve = AsyncMock(
+        return_value=[
+            RetrievedDoc(
+                content="cpu best practice",
+                score=0.9,
+                metadata={"title": "USE Method"},
+                source_id="use.md#0",
+            ),
+        ]
+    )
+
+    handler = make_diagnostic_handler(
+        session_factory=session_factory,
+        query_repo_factory=lambda s: query_repo,
+        diagnostic_repo_factory=lambda s: diag_repo,
+        llm_client=llm,
+        redis=redis,
+        retriever=retriever,
+    )
+    await handler(_make_message())
+    payload_arg = diag_repo.mark_succeeded.await_args.args[1]
+    assert len(payload_arg["rag_context"]) == 1
+    assert payload_arg["rag_context"][0]["content"] == "cpu best practice"
+    assert payload_arg["rag_context"][0]["score"] == 0.9
+    assert payload_arg["rag_context"][0]["source_id"] == "use.md#0"
+
+
+@pytest.mark.asyncio
+@patch("assessment_engine.diagnostic.handler.safe_set_nx", new=AsyncMock(return_value=True))
+@patch("assessment_engine.diagnostic.handler.safe_set", new=AsyncMock(return_value=None))
+@patch("assessment_engine.diagnostic.handler.aggregator")
+async def test_handler_rag_retrieve_failure_silent_fallback(mock_agg, stub_components):
+    """RAG 검색 실패 (외부 호출 fail-open) → 빈 list fallback, 진단 자체 진행."""
+    mock_agg.extract_server = AsyncMock(return_value={"summary": "ok"})
+
+    import httpx
+
+    session_factory, query_repo, diag_repo, llm, redis = stub_components
+    retriever = AsyncMock()
+    retriever.retrieve = AsyncMock(side_effect=httpx.ConnectError("ollama down"))
+
+    handler = make_diagnostic_handler(
+        session_factory=session_factory,
+        query_repo_factory=lambda s: query_repo,
+        diagnostic_repo_factory=lambda s: diag_repo,
+        llm_client=llm,
+        redis=redis,
+        retriever=retriever,
+    )
+    await handler(_make_message())  # reraise 없음
+    diag_repo.mark_succeeded.assert_awaited_once()
+    payload_arg = diag_repo.mark_succeeded.await_args.args[1]
+    assert payload_arg["rag_context"] == []

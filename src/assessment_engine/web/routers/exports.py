@@ -4,6 +4,7 @@
 v3: envelope 강화(engine_id·schema_doc·period_window) + I/O p95/peak + recommended_size_class 객체화
    + services.listeners (proto·address) — listen_ports inventory 매칭.
 """
+
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,15 +13,15 @@ from pydantic import BaseModel, Field
 from assessment_engine.web.deps import get_service
 from assessment_engine.web.services.query_service import QueryService
 
-exports_router = APIRouter(prefix="/api/v1/exports", tags=["exports"])
+exports_router = APIRouter(prefix="/api/exports", tags=["exports"])
 
 # recommended_size_class 객체화 — 자동화 도구가 key→자기 도메인 instance type 매핑할 때 참고용 가이드.
 _SIZE_CLASS_GUIDE: dict[str, str] = {
     "under_provisioned": "instance type 상향 (vCPU·RAM 증가)",
-    "over_provisioned":  "instance type 축소 (vCPU·RAM 감소)",
-    "idle":              "운영 종료 또는 통합 검토 — 사용 거의 없음",
-    "shutdown":          "운영 종료 검토 — 사용 0에 근접",
-    "optimal":           "변경 불필요 — 적정 사양",
+    "over_provisioned": "instance type 축소 (vCPU·RAM 감소)",
+    "idle": "운영 종료 또는 통합 검토 — 사용 거의 없음",
+    "shutdown": "운영 종료 검토 — 사용 0에 근접",
+    "optimal": "변경 불필요 — 적정 사양",
     "insufficient_data": "데이터 부족 — 평가 기간 안 메트릭 부재",
 }
 
@@ -39,6 +40,9 @@ async def export_inventory(
 
     응답을 클라이언트가 파일로 저장 (브라우저 download). 서버에서 파일 생성 안 함 — stateless.
     envelope에 평가 기간 시작·종료 + size_class 매핑 가이드 포함 (reproducibility).
+
+    AI 진단 narrative 포함 X — 자동화 도구 (Terraform · Ansible 등) 안 자연어 parse 불가,
+    구조화 데이터 (`recommended_size_class` 필드 + 분류·임계 수치) 만 활용 catalog 정공.
     """
     sid_map = await service.resolve_server_ids(req.target_public_ids)
     missing = [pid for pid in req.target_public_ids if pid not in sid_map]

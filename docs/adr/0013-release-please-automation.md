@@ -1,7 +1,6 @@
 # ADR 0013 — release-please 자동화 (semver tag·CHANGELOG·Release PR)
 
-## Status
-Accepted
+상태: Accepted
 
 ## Context
 

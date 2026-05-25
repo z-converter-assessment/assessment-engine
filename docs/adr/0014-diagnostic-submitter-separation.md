@@ -1,6 +1,6 @@
 # ADR 0014 — Diagnostic 발행 책임 분리 (scheduler 노드 web 의존 끊기)
 
-상태: Accepted (2026-05-19).
+상태: Accepted (2026-05-19), Refined by 0023 (2026-05-23) — scheduler 노드 폐기 후도 `DiagnosticSubmitter` 본질 유지 (web POST `/api/diagnostics` 단독 사용처). 본 ADR 본문 안 "scheduler 노드 의존 끊기" 모티브는 historical context, 본 ADR 의 모듈 분리 정공 본질 (`submitter` package 안 `web.services` 의존 0) 은 그대로 유효.
 
 ## Context
 

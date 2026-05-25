@@ -4,7 +4,7 @@
 
 | 모델 | 테이블 | PK | 종류 | 설명 |
 |------|--------|----|----|------|
-| `ServerInventory` | `server_inventory` | Integer | 단일 행 | `(machine_id, hostname)` 복합 키 기준 upsert. 현재 상태 |
+| `ServerInventory` | `server_inventory` | Integer | 단일 행 | `(host_id, hostname)` 복합 키 기준 upsert. 현재 상태 |
 | `ServerInventoryHistory` | `server_inventory_history` | BigInteger + collected_at | hypertable (append-only) | 인벤토리 변경 이력 (boot_time/agent_started_at 변경이 trigger) |
 | `ServerMetrics` | `server_metrics` | BigInteger + collected_at | hypertable | 스칼라 메트릭 시계열 (CPU/Mem/Load) |
 | `ServerDiskIo` | `server_disk_io` | BigInteger + collected_at | hypertable | per device I/O 누적 카운터 |
@@ -16,7 +16,7 @@
 ## 식별자 규약 (CLAUDE.md C1)
 
 - 대리키 패턴: 내부 참조는 정수 PK, 비즈니스 식별자는 unique 제약
-- `server_inventory` 호스트 식별 = `(machine_id, hostname)` 복합 UNIQUE (`uq_server_inventory_machine_hostname`) — upsert 키. `machine_id` 단독은 VM 템플릿 복제·이미지 clone·container host `/etc/machine-id` 마운트 등 실제 운영 환경에서 중복 가능 → hostname 과 함께 격리.
+- `server_inventory` 호스트 식별 = `(host_id, hostname)` 복합 UNIQUE (`uq_server_inventory_machine_hostname`) — upsert 키. `host_id` 단독은 VM 템플릿 복제·이미지 clone·container host `/etc/machine-id` 마운트 등 실제 운영 환경에서 중복 가능 → hostname 과 함께 격리.
 - `server_inventory.public_id` `UUID DEFAULT gen_random_uuid()` — URL 식별자 (정수 PK 노출 금지)
 - 시계열 5개 테이블 복합 PK `(id BIGINT, collected_at TIMESTAMPTZ)` — TimescaleDB 파티션 키 포함
 - 시계열 5개 테이블 자연키 UNIQUE (D2 멱등성 2단 방어):
@@ -52,6 +52,30 @@ CREATE UNIQUE INDEX uq_tasks_pending_per_server_type
 `upsert_server`에서 직전 `server_inventory` 행과 비교 후 비교 대상 컬럼 중 하나라도 다르면 한 행 INSERT (앱 레벨 trigger). 비교 제외: `collected_at`·`last_seen_at`. 가장 빈번한 trigger 필드: `boot_time`(시스템 재부팅) / `agent_started_at`(에이전트 재시작) / `services` / `listen_ports`.
 
 `ON CONFLICT DO NOTHING(server_id, collected_at)` — broker 재전송·동시 워커 race 시 중복 INSERT 흡수.
+
+## rag_documents — RAG 자료 (ADR 0024)
+
+`src/assessment_engine/db/models/rag_document.py` ORM. 일반 테이블 (시계열 X, hypertable 아님).
+
+| 컬럼 | 타입 | 비고 |
+|------|------|------|
+| id | BIGSERIAL PK | 내부 식별자 |
+| source_type | VARCHAR(32) NOT NULL | `'domain_knowledge'` (본 phase) / `'operation_note'` · `'peer_snapshot'` (보류) |
+| source_id | VARCHAR(512) NOT NULL UNIQUE | file_path + chunk_index 합성 — UPSERT 키 |
+| content | TEXT NOT NULL | chunk 원문 (LLM prompt 인용 대상) |
+| metadata | JSONB | source 출처·tag·날짜 등 |
+| embedding | vector(1024) NOT NULL | mxbai-embed-large default. raw SQL 단독 read/write (ORM placeholder = Text) |
+| created_at / updated_at | TIMESTAMPTZ NOT NULL | |
+
+제약·인덱스:
+- `uq_rag_documents_source_id` UNIQUE — UPSERT 키 (ingest CLI ON CONFLICT 흡수)
+- `ix_rag_documents_source_type` — 자료 카탈로그 필터
+- `rag_documents_embedding_hnsw_idx` HNSW (embedding vector_cosine_ops) — recall 95%+ 안정
+
+특수성:
+- `embedding` 컬럼 = ORM 안 String placeholder. SQLAlchemy `vector` 타입 미지원 → raw SQL 단독 (PgVectorRetriever · ingest CLI 에서 `CAST(... AS vector)` 명시).
+- `metadata_json` Python 속성명 (실제 컬럼명 `metadata`) — SQLAlchemy DeclarativeBase 예약 속성 충돌 회피.
+- alembic `_include_object` filter — 본 테이블·embedding 컬럼·HNSW 인덱스 autogenerate 비교 제외 (`migrations/env.py`).
 
 ## 스키마 변경 운영
 

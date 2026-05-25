@@ -1,6 +1,6 @@
 # ADR 0003 — AI / LLM 활용 로드맵
 
-Status: Refined by 0010 (2026-05-16) — LLM narrative 합성(Phase 2)·리포트 생성(Phase 3)은 ADR 0010 "진단 규칙 기반 한정"으로 보류. 본 ADR 본문은 historical record로 보존, 외부 LLM 도입 결정 시 재논의.
+상태: Refined by 0010 (2026-05-16) — LLM narrative 합성(Phase 2)·리포트 생성(Phase 3)은 ADR 0010 "진단 규칙 기반 한정"으로 보류. 본 ADR 본문은 historical record로 보존, 외부 LLM 도입 결정 시 재논의.
 Date: 2026-05-09 (raw) / 2026-05-12 (ADR 승격)
 
 Phase 2~3 (분석 / 추천 / 비용 / 리포트) 도입 설계 문서.
@@ -59,7 +59,7 @@ Brendan Gregg 의 USE Method (Utilization / Saturation / Errors) 를 채택한�
 | CPU | 1 − idle/total | runqueue, load_1m / cores | — |
 | Memory | 1 − available/total | swap 사용량, page faults | OOM kill |
 | Disk | iostat %util | await, queue depth | I/O errors |
-| Network | bytes/s ÷ 회선 용량 | drops, retransmits | rx/tx errors |
+| Network | bytes/s / 회선 용량 | drops, retransmits | rx/tx errors |
 
 구현
 - TimescaleDB `time_bucket` + `percentile_cont` 로 일 / 주 / 월 집계

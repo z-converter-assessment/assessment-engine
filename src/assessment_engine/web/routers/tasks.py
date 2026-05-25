@@ -2,12 +2,14 @@
 
 책임: HTTP I/O 만. 비즈니스 로직(DB·broker publish·트랜잭션)은 TaskService / QueryService 에 위임 (F4).
 """
+
 import ipaddress
 import re
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 
 from assessment_engine.web.deps import get_service, get_task_service
@@ -15,13 +17,15 @@ from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.task_service import (
     TaskCreated,
     TaskDuplicatePending,
+    TaskNotConfigured,
     TaskNotFound,
     TaskService,
 )
 from assessment_engine.web.settings import web_settings
-from assessment_engine.web.view_models import TaskDetailItem, TaskSummaryItem
+from assessment_engine.web.templating import templates
+from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
 
-tasks_router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
+tasks_router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 
 _HOSTNAME_LABEL_RE = re.compile(r"^(?=.{1,63}$)[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
@@ -36,6 +40,37 @@ def _is_valid_hostname(v: str) -> bool:
     if not v:
         return False
     return all(_HOSTNAME_LABEL_RE.match(label) for label in v.split("."))
+
+
+def _is_valid_host_or_host_port(v: str) -> bool:
+    """IPv4 / hostname / FQDN (옵션 ":port") 검증.
+
+    IPv6 (raw `::1` / bracket `[::1]:8000`) 는 reject — agent `download_url_extract_host`
+    (download.c) 가 `':'` 를 host 종료 문자로 처리해 IPv6 bracket 형식을 못 다룸.
+    IPv6 ZDM 좌표 운영은 agent 측 변경 필요 — 별도 결정.
+    """
+    if not v or v.startswith("["):
+        return False
+    # IPv6 raw — `:` 2회 이상 (IPv4:port 는 1회만)
+    if v.count(":") >= 2:
+        return False
+
+    if ":" in v:
+        host, _, port_s = v.rpartition(":")
+        if not host or not port_s.isdigit():
+            return False
+        port = int(port_s)
+        if not (1 <= port <= 65535):
+            return False
+    else:
+        host = v
+
+    try:
+        ipaddress.IPv4Address(host)
+        return True
+    except ValueError:
+        pass
+    return _is_valid_hostname(host)
 
 
 class InstallRequest(BaseModel):
@@ -57,17 +92,18 @@ class InstallRequest(BaseModel):
         # shell metachar / 공백 / 제어문자 무조건 차단 (#F8 — task params 그대로 task.install body 전파).
         if any(c in v for c in " \t\n\r;|&`$<>"):
             raise ValueError(f"invalid character in zdm target: {v!r}")
-        # IP / hostname / URL 어느 형식이든 허용. 셋 다 실패 시 reject.
-        try:
-            ipaddress.ip_address(v)
-            return v
-        except ValueError:
-            pass
-        if _is_valid_hostname(v):
-            return v
+        # 허용 형식:
+        #   - IPv4               192.168.3.94
+        #   - IPv4:port          192.168.3.94:8080
+        #   - hostname / FQDN    zdm.example.com / zdm.example.com.
+        #   - hostname:port      host.docker.internal:8000 (dev mock default)
+        #   - http/https URL     http://zdm.example.com:8443/download/x.tar.gz
+        # IPv6 (raw / bracket) 는 reject — agent download.c 한계.
         if v.lower().startswith(("http://", "https://")):
             return v
-        raise ValueError(f"invalid IP, hostname, or URL: {v}")
+        if _is_valid_host_or_host_port(v):
+            return v
+        raise ValueError(f"invalid IP, hostname, host:port, or URL: {v}")
 
 
 @tasks_router.post("/install", response_model=list[TaskCreated])
@@ -85,6 +121,8 @@ async def install(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except TaskDuplicatePending as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
+    except TaskNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
 
 
 @tasks_router.get("/{task_id}", response_model=TaskDetailItem)
@@ -92,11 +130,32 @@ async def get_task(
     task_id: UUID,
     service: QueryService = Depends(get_service),
 ):
-    """단일 task 상세 — modal / 자동화. status / failure_reason / exit_code / tails."""
+    """단일 task 상세 — JSON. polling / list cell 갱신 callback 용."""
     detail = await service.get_task(str(task_id))
     if detail is None:
         raise HTTPException(status_code=404, detail="task not found")
     return detail
+
+
+@tasks_router.get("/{task_id}/detail", response_class=HTMLResponse)
+async def get_task_detail_fragment(
+    task_id: UUID,
+    request: Request,
+    service: QueryService = Depends(get_service),
+):
+    """단일 task 상세 — HTML fragment. task-modal.js 가 fetch + innerHTML 교체 (P3 정공).
+
+    JS HTML 합성 폐기 — server 가 template fragment render, JS 는 DOM 교체만.
+    polling 흐름은 GET /api/tasks/{id} (JSON) 사용 — modal body 만 fragment.
+    """
+    detail = await service.get_task(str(task_id))
+    if detail is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    return templates.TemplateResponse(
+        request=request,
+        name="tasks/_detail.html",
+        context={"detail": detail},
+    )
 
 
 @tasks_router.get("", response_model=list[TaskSummaryItem])

@@ -6,12 +6,13 @@
 - 같은 서버 두 번째 위반 (쿨다운 안) → SET NX False → silent skip
 - Redis 장애 (set_result None) → 로그 발생 (fail-open)
 """
+
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from assessment_engine.consumer.handler import _log_time_invariants
+from assessment_engine.consumer.handlers._common import _log_time_invariants
 from tests.factories import make_metrics
 
 pytestmark = pytest.mark.asyncio
@@ -37,19 +38,19 @@ async def test_invariant_normal_no_redis_call_no_log():
     """정상 메시지 → 즉시 return, Redis 호출도 로그도 없음."""
     redis = AsyncMock()
     msg = _normal_msg()
-    msg.machine_id = "m-normal"
-    with patch("assessment_engine.consumer.handler.logger") as mock_logger:
+    msg.host_id = "m-normal"
+    with patch("assessment_engine.consumer.handlers._common.logger") as mock_logger:
         await _log_time_invariants(redis, msg)
     redis.set.assert_not_awaited()
     mock_logger.warning.assert_not_called()
 
 
-def _attach_identity(msg, machine_id: str, hostname: str = "test-host-01"):
-    """test fixture (ServerMetricCreate dataclass) 에 MessageBase identity (machine_id·hostname) 동적 부여.
+def _attach_identity(msg, host_id: str, hostname: str = "test-host-01"):
+    """test fixture (ServerMetricCreate dataclass) 에 MessageBase identity (host_id·hostname) 동적 부여.
 
-    cooldown_key 가 (machine_id, hostname) 복합으로 변경된 이후 둘 다 필요.
+    cooldown_key 가 (host_id, hostname) 복합으로 변경된 이후 둘 다 필요.
     """
-    msg.machine_id = machine_id
+    msg.host_id = host_id
     msg.hostname = hostname
 
 
@@ -59,7 +60,7 @@ async def test_first_violation_sets_cooldown_and_logs():
     redis.set.return_value = True  # SET NX 성공 (첫 위반)
     msg = _violated_msg()
     _attach_identity(msg, "m-first")
-    with patch("assessment_engine.consumer.handler.logger") as mock_logger:
+    with patch("assessment_engine.consumer.handlers._common.logger") as mock_logger:
         await _log_time_invariants(redis, msg)
     redis.set.assert_awaited_once()
     assert mock_logger.warning.called
@@ -71,7 +72,7 @@ async def test_second_violation_within_cooldown_silent_skip():
     redis.set.return_value = False  # SET NX 실패 (이미 쿨다운 키 존재)
     msg = _violated_msg()
     _attach_identity(msg, "m-cooldown")
-    with patch("assessment_engine.consumer.handler.logger") as mock_logger:
+    with patch("assessment_engine.consumer.handlers._common.logger") as mock_logger:
         await _log_time_invariants(redis, msg)
     redis.set.assert_awaited_once()
     mock_logger.warning.assert_not_called()
@@ -80,11 +81,12 @@ async def test_second_violation_within_cooldown_silent_skip():
 async def test_redis_failure_fails_open_and_logs():
     """Redis 장애 (safe_set_nx None) → 쿨다운 적용 못 하고 로그 발생 (fail-open)."""
     from redis.exceptions import RedisError
+
     redis = AsyncMock()
     redis.set.side_effect = RedisError("connection lost")
     msg = _violated_msg()
     _attach_identity(msg, "m-redisdown")
-    with patch("assessment_engine.consumer.handler.logger") as mock_logger:
+    with patch("assessment_engine.consumer.handlers._common.logger") as mock_logger:
         await _log_time_invariants(redis, msg)
     assert mock_logger.warning.called, "Redis 장애 시 fail-open으로 로그는 그대로 출력해야 함"
 
@@ -98,7 +100,7 @@ async def test_boot_time_after_agent_started_logs_specific_message():
     collected = boot + timedelta(minutes=1)
     msg = make_metrics(collected_at=collected, boot_time=boot, agent_started_at=started)
     _attach_identity(msg, "m-boot-after")
-    with patch("assessment_engine.consumer.handler.logger") as mock_logger:
+    with patch("assessment_engine.consumer.handlers._common.logger") as mock_logger:
         await _log_time_invariants(redis, msg)
     # 두 케이스 중 boot_time>agent_started_at 분기만 발생 (agent_started_at < collected_at)
     assert mock_logger.warning.call_count == 1

@@ -1,8 +1,10 @@
-"""진단 메시지 핸들러 — RabbitMQ 메시지 1건 = 진단 job 1건 처리 (ADR 0004).
+"""진단 메시지 핸들러 — RabbitMQ 메시지 1건 = 진단 job 1건 처리 (ADR 0004 + 0024).
 
-단계 흐름: extracting_stats → applying_rules → generating_narrative → succeeded.
+단계 흐름: extracting_stats -> applying_rules -> retrieving_context -> generating_narrative -> succeeded.
+RAG_ENABLED=False 시 retrieving_context 단계는 진행되지만 payload['rag_context']=[] (retriever None 분기).
 각 단계 UPDATE 후 commit + Redis polling 캐시 SET. 폴링은 Redis 우선, miss 시 DB.
 """
+
 import asyncio
 import dataclasses
 import json
@@ -10,20 +12,24 @@ from collections.abc import Callable
 from datetime import datetime
 
 import aio_pika
+import httpx
 from loguru import logger
 from redis.asyncio import Redis
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from assessment_engine.db.redis import safe_set, safe_set_nx
+from assessment_engine.cache.redis import safe_set, safe_set_nx
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_RANGE_DAYS,
     BaseDiagnosticRepository,
 )
-from assessment_engine.db.repositories.base_query_repository import BaseQueryRepository
+from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
 from assessment_engine.diagnostic import aggregator
 from assessment_engine.diagnostic.llm.base import BaseLlmClient
+from assessment_engine.diagnostic.llm.verify import find_hallucinated_numbers
 from assessment_engine.diagnostic.settings import diagnostic_settings
+from assessment_engine.rag.query import build_query
+from assessment_engine.rag.retriever.base import BaseRetriever
 
 
 def make_diagnostic_handler(
@@ -32,8 +38,13 @@ def make_diagnostic_handler(
     diagnostic_repo_factory: Callable[[AsyncSession], BaseDiagnosticRepository],
     llm_client: BaseLlmClient,
     redis: Redis,
+    retriever: BaseRetriever | None = None,
 ):
-    """consumer handler 팩토리 패턴(F4) — composition root에서 의존성 주입."""
+    """consumer handler 팩토리 패턴(F4) — composition root에서 의존성 주입.
+
+    retriever 가 None 이면 RAG 비활성 (RAG_ENABLED=False default). composition root 가
+    `diagnostic_settings.rag_enabled` 기준 분기 — True 시 PgVectorRetriever 주입, False 시 None.
+    """
 
     async def handler(message: aio_pika.abc.AbstractIncomingMessage):
         async with message.process(requeue=False):
@@ -43,8 +54,12 @@ def make_diagnostic_handler(
             except (json.JSONDecodeError, KeyError) as e:
                 # 메시지 자체 결함 — silent ack + 로그 (DLQ 보낼 가치 X, 운영자 개입 의미 없음).
                 # #F8 — body raw dump 금지. message_id·길이·예외 타입만 로깅.
-                logger.error("invalid diagnostic message message_id={} body_size={} err_type={}",
-                             message.message_id, len(message.body or b""), type(e).__name__)
+                logger.error(
+                    "invalid diagnostic message message_id={} body_size={} err_type={}",
+                    message.message_id,
+                    len(message.body or b""),
+                    type(e).__name__,
+                )
                 return
 
             # 멱등성 1단 (fail-open) — 동일 message_id 중복 전송 차단. Redis 장애 시 통과.
@@ -56,8 +71,7 @@ def make_diagnostic_handler(
                 diagnostic_settings.redis_ttl_idempotent,
             )
             if ok is False:
-                logger.info("duplicate diagnostic message dropped job_id={} message_id={}",
-                            job_id, message_id)
+                logger.info("duplicate diagnostic message dropped job_id={} message_id={}", job_id, message_id)
                 return
 
             async with session_factory() as session:
@@ -93,7 +107,10 @@ def make_diagnostic_handler(
                         )
                     else:
                         payload = await aggregator.extract_environment(
-                            query_repo, period_days, end, time_range,
+                            query_repo,
+                            period_days,
+                            end,
+                            time_range,
                         )
 
                     # 단계 2 — 룰 분류 (aggregator 안에 classify·top_actions 이미 포함, stage 신호만)
@@ -101,17 +118,23 @@ def make_diagnostic_handler(
                     await session.commit()
                     await _publish_progress(redis, diag_repo, job_id)
 
-                    # 단계 3 — LLM narrative
+                    # 단계 3 — RAG retrieve_context (ADR 0024). retriever None 시 skip + payload['rag_context']=[]
+                    await diag_repo.update_progress_stage(job_id, "retrieving_context")
+                    await session.commit()
+                    await _publish_progress(redis, diag_repo, job_id)
+
+                    payload["rag_context"] = await _retrieve_rag_context(retriever, job.scope, payload)
+
+                    # 단계 4 — LLM narrative
                     await diag_repo.update_progress_stage(job_id, "generating_narrative")
                     await session.commit()
                     await _publish_progress(redis, diag_repo, job_id)
 
                     # LLM 호출 timeout 의무 (#F6) — 외부 LLM provider hang 시 워커 무한 대기 차단.
                     # llm_timeout_seconds (default 60s) — DiagnosticSettings 단일 진실.
-                    narrative = await asyncio.wait_for(
-                        llm_client.generate_narrative(job.scope, payload),
-                        timeout=diagnostic_settings.llm_timeout_seconds,
-                    )
+                    # ADR 0003 3G절 + ADR 0025: narrative 안 수치 환각 검증 + 재생성 1회 + 재실패 시 ValueError raise
+                    # (handler 안 (ValueError, KeyError, IntegrityError) catch 가 mark_failed 흡수).
+                    narrative = await _generate_narrative_with_verification(llm_client, job.scope, payload)
                     payload["narrative"] = narrative
 
                     await diag_repo.mark_succeeded(job_id, payload)
@@ -124,9 +147,25 @@ def make_diagnostic_handler(
                     # LLM 호출 timeout — 비즈니스 실패로 흡수, status='failed' 마킹. DLQ 재시도 없음.
                     logger.warning(
                         "diagnostic llm timeout job_id={} scope={} timeout_s={}",
-                        job_id, job.scope, diagnostic_settings.llm_timeout_seconds,
+                        job_id,
+                        job.scope,
+                        diagnostic_settings.llm_timeout_seconds,
                     )
                     await diag_repo.mark_failed(job_id, "llm_timeout")
+                    await session.commit()
+                    await _publish_progress(redis, diag_repo, job_id)
+                except httpx.HTTPError as e:
+                    # ollama 미연결·연결거부·HTTP 오류 (timeout 아닌 외부 LLM 실패) — 비즈니스 실패로 흡수.
+                    # llm_timeout 과 동일 결: status='failed' + DLQ 재시도 없음 (운영자 polling 인지 후 재발행).
+                    # 미연결 시 mark_failed 안 하면 job 이 running 으로 영구 stale.
+                    # #F8 — err_type 만 (URL·접속정보 노출 금지).
+                    logger.warning(
+                        "diagnostic llm http error job_id={} scope={} err_type={}",
+                        job_id,
+                        job.scope,
+                        type(e).__name__,
+                    )
+                    await diag_repo.mark_failed(job_id, f"llm_error: {type(e).__name__}")
                     await session.commit()
                     await _publish_progress(redis, diag_repo, job_id)
                 except OperationalError:
@@ -144,6 +183,82 @@ def make_diagnostic_handler(
     return handler
 
 
+async def _generate_narrative_with_verification(
+    llm_client: BaseLlmClient,
+    scope: str,
+    payload: dict,
+) -> str:
+    """LLM narrative 호출 + 수치 환각 검증 + 재생성 1회 (ADR 0003 3G절 + ADR 0025).
+
+    1회차 narrative 환각 발견 시 재생성. 재생성도 실패 시 ValueError raise — handler 안
+    `(ValueError, KeyError, IntegrityError)` catch 가 mark_failed('llm_hallucination: ...') 흡수.
+
+    각 호출 timeout = llm_timeout_seconds (F6 외부 의존 timeout 의무).
+    """
+    hallucinated: set[str] = set()
+    narrative = ""
+    for attempt in (1, 2):
+        narrative = await asyncio.wait_for(
+            llm_client.generate_narrative(scope, payload),
+            timeout=diagnostic_settings.llm_timeout_seconds,
+        )
+        hallucinated = find_hallucinated_numbers(narrative, payload)
+        if not hallucinated:
+            return narrative
+        logger.warning(
+            "llm hallucination detected attempt={} scope={} hallucinated={}",
+            attempt,
+            scope,
+            sorted(hallucinated)[:5],
+        )
+    raise ValueError(f"llm_hallucination: {sorted(hallucinated)[:5]}")
+
+
+async def _retrieve_rag_context(
+    retriever: BaseRetriever | None,
+    scope: str,
+    payload: dict,
+) -> list[dict]:
+    """RAG 검색 (ADR 0024).
+
+    retriever None 시 빈 list. 외부 호출 실패 시 silent fallback (RAG 결과 없어도 narrative 합성 가능).
+    """
+    if retriever is None:
+        return []
+    try:
+        query = build_query(scope, payload)
+        docs = await retriever.retrieve(
+            query=query,
+            top_k=diagnostic_settings.rag_top_k,
+            source_type="domain_knowledge",
+        )
+    except (SQLAlchemyError, httpx.HTTPError, TimeoutError, ValueError) as e:
+        # RAG 실패는 진단 자체 실패 아님 — narrative 합성으로 진행. 운영자 인지용 WARNING.
+        # 본질 catch = DB query (SQLAlchemyError) · embedding HTTP (httpx.HTTPError)
+        # · timeout · response shape (ValueError).
+        logger.warning("rag retrieve failed scope={} err_type={}", scope, type(e).__name__)
+        return []
+    # rag_max_context_chars cap — LLM prompt 안 context 절 길이 제한.
+    max_chars = diagnostic_settings.rag_max_context_chars
+    out: list[dict] = []
+    total = 0
+    for doc in docs:
+        remaining = max_chars - total
+        if remaining <= 0:
+            break
+        content = doc.content[:remaining] if len(doc.content) > remaining else doc.content
+        out.append(
+            {
+                "content": content,
+                "score": doc.score,
+                "metadata": doc.metadata,
+                "source_id": doc.source_id,
+            }
+        )
+        total += len(content)
+    return out
+
+
 async def _publish_progress(redis: Redis, diag_repo: BaseDiagnosticRepository, job_id: str) -> None:
     """단계 UPDATE 후 Redis polling 캐시 SET — web GET이 본 캐시 우선 read (#C3 fail-open)."""
     record = await diag_repo.get_by_id(job_id)
@@ -152,12 +267,12 @@ async def _publish_progress(redis: Redis, diag_repo: BaseDiagnosticRepository, j
     await safe_set(
         redis,
         diagnostic_settings.redis_key_diagnostic_progress.format(job_id),
-        _serialize(record),
+        _to_cache_blob(record),
         ex=diagnostic_settings.redis_ttl_diagnostic_progress,
     )
 
 
-def _serialize(record) -> str:
+def _to_cache_blob(record) -> str:
     """DiagnosticJobRecord → JSON 문자열. datetime은 ISO 8601 UTC (web service가 fromisoformat 복원)."""
     data = dataclasses.asdict(record)
     for key in ("created_at", "started_at", "finished_at"):

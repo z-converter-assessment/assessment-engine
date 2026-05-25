@@ -4,19 +4,21 @@
 - /reports/environment: 환경 단위 high-level 양식. /servers/report (server scope)와 별도 template.
 - /reports/history: AI 진단 이력과 분리된 보고서 발행 이력. job_type='customer_report'|'engineer_report'.
 """
+
 from datetime import datetime
 from typing import Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from loguru import logger
+from sqlalchemy.exc import SQLAlchemyError
 
 from assessment_engine.db.repositories.base_diagnostic_repository import DiagnosticTimeRange
 from assessment_engine.web.deps import get_diagnostic_service, get_service
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
+from assessment_engine.web.services.mappers.report_history import to_report_history_item
 from assessment_engine.web.services.query_service import QueryService
-from assessment_engine.web.services.report_mapper import to_report_history_item
-from assessment_engine.web.template_setup import templates
+from assessment_engine.web.templating import templates
 
 reports_router = APIRouter(prefix="/reports", tags=["pages"])
 
@@ -39,33 +41,28 @@ async def environment_report(
     service: QueryService = Depends(get_service),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """환경 단위 보고서 — 전체 등록 서버 대상 high-level 양식.
+    """환경 단위 보고서 표시 — GET 은 read-only (P3 분리). 발행 record 는 POST /reports/environment/emit 책임.
 
     server scope (/servers/report?ids=...) 와 별도 template (`reports/environment.html`).
-    발행 이력은 best-effort row INSERT (scope='environment', job_type='customer_report'|'engineer_report').
+    페이지 진입 자체로는 이력 row 생성 안 함 — 이력 "다시 보기" / 직접 URL / 북마크 진입 모두 read-only.
+    AI 진단 latest = engineer view 만 노출 (사용자 결정 — 고객 view 안 AI 진단 카드 없음).
     """
     summary = await service.get_environment_report(time_range, anchor_at, view=view)
     if summary.overview.total == 0:
         raise HTTPException(status_code=404, detail="no registered servers")
 
-    public_ids = await service.list_all_server_public_ids()
-    try:
-        await diag_service.record_report_emission(
-            view=view,
-            scope="environment",
-            server_public_ids=public_ids,
-            period_days=summary.base.period_days,
-            time_range=time_range,
-            summary_meta={
-                "anchor_at": summary.anchor_at.isoformat(),
-            },
-        )
-    except Exception:
-        logger.exception("env report emission record failed (best-effort)")
-
     back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
     # 자식 link (참고자료 등) 의 back query 보존용 — 현재 URL encoding.
     self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
+    # AI 진단 = 보고서 흐름 안 inline 통합 (engineer view 만). 보고서 anchor + time_range 기반
+    # latest succeeded fetch — 없으면 자동 submit + pending job_id 반환 (template 안 polling JS).
+    diag = None
+    diag_job_id = None
+    if view == "engineer":
+        diag_map = await diag_service.ensure_latest_or_submit("environment", None, time_range, anchor_at)
+        entry = diag_map.get(None, {})
+        diag = entry.get("panel")
+        diag_job_id = entry.get("job_id")
     return templates.TemplateResponse(
         request=request,
         name="reports/environment.html",
@@ -75,11 +72,53 @@ async def environment_report(
             "view_title": _VIEW_TITLES[view],
             "back_url": back_url,
             "self_back": self_back,
+            "diag": diag,
+            "diag_job_id": diag_job_id,
+            "time_range": time_range,
         },
     )
 
 
+@reports_router.post("/environment/emit")
+async def environment_report_emit(
+    time_range: DiagnosticTimeRange = Query("14d"),
+    anchor_at: datetime | None = Query(None),
+    view: Literal["customer", "engineer"] = Query("customer"),
+    service: QueryService = Depends(get_service),
+    diag_service: DiagnosticService = Depends(get_diagnostic_service),
+):
+    """환경 보고서 발행 record 전용 endpoint (PRG pattern — POST 발행, GET 표시 분리).
+
+    응답 = {view_url} — 클라이언트가 navigate. 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
+    같은 input 활성 충돌 (동시 두 발행) 시 record 안 되어도 응답 200 — best-effort.
+    """
+    summary = await service.get_environment_report(time_range, anchor_at, view=view)
+    if summary.overview.total == 0:
+        raise HTTPException(status_code=404, detail="no registered servers")
+    public_ids = await service.list_all_server_public_ids()
+    try:
+        await diag_service.record_report_emission(
+            view=view,
+            scope="environment",
+            server_public_ids=public_ids,
+            period_days=summary.base.period_days,
+            time_range=time_range,
+            summary_meta={"anchor_at": summary.anchor_at.isoformat()},
+        )
+    except SQLAlchemyError:
+        # PRG view_url 반환 흐름 안 record_report_emission DB INSERT best-effort fallback.
+        # record 실패 본 시점 본 시점 보고서 표시 차단 catalog 본 시점 — silent recovery.
+        logger.exception("env report emission record failed (best-effort)")
+    # 클라이언트가 navigate 할 GET URL — anchor_at 은 POST 발행 시점의 record 정합 위해 같은 값 전달.
+    params = [f"view={view}", f"time_range={time_range}"]
+    if anchor_at:
+        params.append(f"anchor_at={quote(anchor_at.isoformat(), safe='')}")
+    return {"view_url": f"/reports/environment?{'&'.join(params)}"}
+
+
 _HISTORY_PAGE_LIMIT = 20
+# 전체보기 mode — retention 90일 가정 + 운영자 회고용. 한 번에 SSR (페이지네이션 폐기, 단순화).
+_HISTORY_FULL_LIMIT = 10000
 
 
 @reports_router.get("/history")
@@ -87,37 +126,54 @@ async def history(
     request: Request,
     days: int = Query(90, ge=0, le=36500, description="최근 N일 (0 = 전체)"),
     view: Literal["all", "customer", "engineer"] = Query(
-        "all", description="양식 필터: 전체 / 고객 / 엔지니어",
+        "all",
+        description="양식 필터: 전체 / 고객 / 엔지니어",
     ),
     scope: Literal["all", "environment", "server"] = Query(
-        "all", description="범위 필터: 전체 / 환경 / 서버 1대",
+        "all",
+        description="범위 필터: 전체 / 환경 / 서버 1대",
     ),
     server_public_ids: list[str] | None = Query(
         None,
         description="특정 서버 관련 보고서만 필터. 서버 목록 'N대 선택 + 보고서 이력' 진입 시 자동 채워짐.",
     ),
+    full: bool = Query(False, description="전체 보기 (기본 20건 → 전체)"),
+    fragment: bool = Query(False, description="HTML partial 만 반환 — JS 즉시 filter (full page reload 회피)"),
+    back: str | None = Query(None, description="← 이전 link referrer"),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """보고서 발행 이력 — 운영자 회고용. created_at DESC. SSR 첫 20건. 추가는 /api/v1/reports/history."""
+    """보고서 발행 이력 — 운영자 회고용. created_at DESC. SSR 첫 20건 + "전체보기" 옵션 (full=1).
+
+    full=False (default): 최근 20 건. 운영자 빠른 확인.
+    full=True: 모든 row. 한 번에 SSR (페이지네이션 없음 — 단순화, retention 90일 가정).
+    fragment=True: tbody + footer partial 만 반환 — JS 가 filter 변경 시 즉시 fetch + DOM 교체 (서버 목록과 동일 UX).
+    """
+    limit = _HISTORY_FULL_LIMIT if full else _HISTORY_PAGE_LIMIT
     records = await diag_service.list_reports(
-        days, view, server_public_ids, cursor=None, limit=_HISTORY_PAGE_LIMIT,
+        days,
+        view,
+        server_public_ids,
+        cursor=None,
+        limit=limit,
         scope=None if scope == "all" else scope,
     )
-    items = [to_report_history_item(r) for r in records]
-    next_cursor = records[-1].created_at.isoformat() if len(records) == _HISTORY_PAGE_LIMIT else None
-    return templates.TemplateResponse(
-        request=request,
-        name="reports/history.html",
-        context={
-            "items": items,
-            "days": days,
-            "view": view,
-            "scope": scope,
-            "server_public_ids": server_public_ids,
-            "next_cursor": next_cursor,
-            "page_limit": _HISTORY_PAGE_LIMIT,
-        },
-    )
+    # 본 이력 페이지 URL — 진입한 보고서의 "이전" 버튼이 돌아올 위치 (back chain).
+    history_back = quote(f"{request.url.path}?{request.url.query}", safe="")
+    items = [to_report_history_item(r, history_back) for r in records]
+    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
+    context = {
+        "items": items,
+        "items_count": len(items),  # P3 정공 — template 안 `length` 계산 회피, server precompute.
+        "days": days,
+        "view": view,
+        "scope": scope,
+        "server_public_ids": server_public_ids,
+        "full": full,
+        "show_all_link": (not full) and len(records) == _HISTORY_PAGE_LIMIT,
+        "back_url": back_url,
+    }
+    template = "reports/_history_results.html" if fragment else "reports/history.html"
+    return templates.TemplateResponse(request=request, name=template, context=context)
 
 
 @reports_router.get("/right-sizing-thresholds")
@@ -138,23 +194,5 @@ async def right_sizing_thresholds(
     )
 
 
-@reports_router.get("/history.json")
-async def history_json(
-    days: int = Query(90, ge=0, le=36500),
-    view: Literal["all", "customer", "engineer"] = Query("all"),
-    scope: Literal["all", "environment", "server"] = Query("all"),
-    server_public_ids: list[str] | None = Query(None),
-    cursor: datetime | None = Query(None, description="created_at < cursor 이후 행 fetch"),
-    diag_service: DiagnosticService = Depends(get_diagnostic_service),
-):
-    """더보기 페이지네이션 — JS fetch + DOM append. items + next_cursor 반환."""
-    records = await diag_service.list_reports(
-        days, view, server_public_ids, cursor=cursor, limit=_HISTORY_PAGE_LIMIT,
-        scope=None if scope == "all" else scope,
-    )
-    items = [to_report_history_item(r) for r in records]
-    # datetime → ISO string (JSON 직렬화)
-    for it in items:
-        it["created_at"] = it["created_at"].isoformat()
-    next_cursor = records[-1].created_at.isoformat() if len(records) == _HISTORY_PAGE_LIMIT else None
-    return {"items": items, "next_cursor": next_cursor}
+# history.json endpoint 폐기 — JS 무한 fetch loop 버그 + UX 단순화 ("전체보기" 단일 옵션 SSR).
+# 페이지네이션 자체 폐기, retention 90일 가정으로 _HISTORY_FULL_LIMIT (10000) 한 번에 SSR.

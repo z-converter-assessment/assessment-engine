@@ -10,7 +10,7 @@ class MessageBase(BaseModel):
     # B4 계약 진화 정책 — `extra=ignore`로 agent가 새 필드 추가해도 엔진은 통과·무시. 자식 클래스 상속.
     model_config = ConfigDict(extra="ignore")
 
-    machine_id: str = Field(min_length=1, max_length=64)
+    host_id: str = Field(min_length=1, max_length=64)
     agent_version: str = Field(min_length=1, max_length=32)
     collected_at: datetime
     hostname: str = Field(min_length=1, max_length=255)
@@ -60,6 +60,10 @@ class InventoryListenPortInfo(BaseModel):
 
 class InventoryInput(MessageBase):
     message_type: Literal["inventory"]
+
+    # OS family — task.install 발행 시 dispatch 단일 진실 (ADR 0020). agent 가 자기 OS 자체 보고.
+    # nullable — Linux agent minor bump 호환. agent 측 배포 완료 후 not-null tighten 별도.
+    os_family: Literal["linux", "windows"] | None = None
 
     os_id: str | None = Field(default=None, max_length=64)
     os_version: str | None = Field(default=None, max_length=64)
@@ -180,10 +184,11 @@ class ErrorInput(MessageBase):
 class TaskResultInput(MessageBase):
     """원격 작업 실행 결과 수신 메시지.
 
-    공통 메타(machine_id 등)는 MessageBase. boot_time / agent_started_at은
+    공통 메타(host_id 등)는 MessageBase. boot_time / agent_started_at은
     본 메시지에서는 항상 null (수집 캐시와 분리된 worker 컨텍스트에서 발행) —
     부모 required 필드를 nullable로 override.
     """
+
     message_type: Literal["task.result"]
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
@@ -192,11 +197,14 @@ class TaskResultInput(MessageBase):
     status: Literal["success", "failure"]
     # 실패 분류. 알려진 값: url_not_allowed / download_failed / sha256_mismatch /
     # extract_failed / script_not_found / script_failed / script_timeout /
-    # insufficient_disk / internal_error / already_done. 성공 시 null.
-    # 새 enum 도입 시 silent pass — extra=ignore 정신과 일관, max_length만 강제.
+    # insufficient_disk / internal_error / already_done / unsupported_install_type.
+    # 성공 시 null. 새 enum 도입 시 silent pass — extra=ignore 정신과 일관, max_length만 강제.
     failure_reason: str | None = Field(default=None, max_length=32)
     exit_code: int | None = None
     duration_ms: int = Field(ge=0)
+    # agent 측 wire 상한은 `exec.c` 의 `out_storage[4096]` / `err_storage[4096]` = 4 KB.
+    # 본 8192 cap 은 over-provision — agent minor bump 로 tail size 가 늘어도 (#B "minor bump
+    # silent 호환") 엔진 무수정 흡수. 한도 본질은 agent 단일 진실.
     stdout_tail: str = Field(max_length=8192)
     stderr_tail: str = Field(max_length=8192)
     completed_at: datetime

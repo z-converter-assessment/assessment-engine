@@ -2,21 +2,33 @@
 
 정책: CLAUDE.md #A. 본 문서는 docker-compose 운영 단일 진실 — Dockerfile·compose 파일 구조·서비스 카탈로그·healthcheck·기동 순서.
 
-docker-compose는 엔진 그 자체 — web·consumer·diagnostic-worker·diagnostic-scheduler·postgres·rabbitmq·redis·migrate 8 서비스가 고객사 네트워크 내 설치 단위. Python 앱(web·consumer·worker·scheduler·migrate)은 로컬 빌드 단일 이미지 + command 분기, 인프라(postgres·rabbitmq·redis)는 공식 이미지.
+docker-compose는 엔진 그 자체 — web·consumer·diagnostic-worker·postgres·rabbitmq·redis·migrate 7 서비스가 고객사 네트워크 내 설치 단위. Python 앱(web·consumer·worker·migrate)은 로컬 빌드 단일 이미지 + command 분기, 인프라(postgres·rabbitmq·redis)는 공식 이미지. ADR 0023: scheduler cron 폐기로 8 → 7.
 
 ---
 
 ## 파일 구조
 
 ```
-Dockerfile                    — web·consumer·diagnostic-worker·diagnostic-scheduler 공용 이미지
-docker-compose.yml            — dev 단일 compose (#A0). .env 평문 + 포트 노출 + 코드 마운트 + APP_ENV=dev. pgadmin은 profiles:[gui] 분리
+Dockerfile                    — web·consumer·diagnostic-worker 공용 이미지 (루트 — prod 도 활용 가능한 빌드 산출물)
+dev/docker-compose.yml        — dev 단일 compose (#A0). dev/.env 평문 + 포트 노출 + 코드 마운트 + APP_ENV=dev. pgadmin은 profiles:[gui] 분리
+dev/.env.example              — dev compose 기준 환경변수 카탈로그. `cp dev/.env.example dev/.env`
+.env.example                  — prod 운영자 카탈로그 (루트). dev compose 와 무관 — 외부 인프라 운영자가 채워서 사용
 .dockerignore                 — COPY . . 시 제외 경로
-scripts/pipeline-up.sh        — Docker → migrate → web 헬스체크 → Lima(limactl start + agent install) 순서 기동
-scripts/pipeline-down.sh      — Lima(limactl stop + delete) → docker compose down -v
+dev/pipeline-up.sh        — Docker → migrate → web 헬스체크 → OrbStack(orb create + agent install) 순서 기동. COMPOSE_FILE=dev/docker-compose.yml export
+dev/pipeline-down.sh      — OrbStack(orb delete) → docker compose down -v
 ```
 
-본 repo는 기능 개발용 docker-compose만 다룬다 (CLAUDE.md #A0, ADR 0012). prod 배포 인프라(IaC) 결정은 본 repo 범위 밖 — prod secret·환경변수 contract는 `docs/operations/prod-contract.md` + `config.py` `_validate_prod_*`에 코드·docs로만 표현. prod compose 변형은 본 repo에 두지 않음.
+dev compose 호출은 본 파일이 dev/ 디렉토리에 있어 자동 인식 안 됨. 루트에서는 `-f dev/docker-compose.yml` 명시:
+
+```bash
+docker compose -f dev/docker-compose.yml up --build -d
+docker compose -f dev/docker-compose.yml down -v
+# 또는 export 한 번
+export COMPOSE_FILE=dev/docker-compose.yml
+docker compose up --build -d
+```
+
+본 repo는 기능 개발용 docker-compose만 다룬다 (CLAUDE.md #A0, ADR 0012). prod 배포 인프라(IaC) 결정은 본 repo 범위 밖 — prod secret·환경변수 contract는 `docs/operations/env.md` + `config.py` `_validate_prod_*`에 코드·docs로만 표현. prod compose 변형은 본 repo에 두지 않음.
 
 ---
 
@@ -47,8 +59,7 @@ web·consumer·diagnostic 워커·스케줄러·migrate 모두 같은 이미지�
 |--------|---------|--------|
 | web | `python -m assessment_engine.web` | `src/assessment_engine/web/__main__.py` → uvicorn 기동 (override에서 reload) |
 | consumer | `python -m assessment_engine.consumer` | `src/assessment_engine/consumer/__main__.py` → `asyncio.run(consumer.main.main())` |
-| diagnostic-worker | `python -m assessment_engine.diagnostic.worker` | ADR 0004 — `diagnostic.request` 큐 소비, LLM 호출 |
-| diagnostic-scheduler | `python -m assessment_engine.diagnostic.scheduler` | ADR 0004 — 주기 진단 작업 enqueue |
+| diagnostic-worker | `python -m assessment_engine.diagnostic` | ADR 0004 + 0023 — `diagnostic.request` 큐 소비, LLM 호출. trigger 채널 = web POST `/api/diagnostics` 만 |
 | migrate | `alembic upgrade head` | postgres healthy 후 1회 실행하고 종료 (`restart: "no"`). ADR 0005 |
 
 이미지가 1개라 빌드/푸시·패치 운영 비용이 최소화된다. 의존성 패키지(SQLAlchemy·aio-pika·redis·FastAPI 등)도 양쪽이 모두 사용하므로 분리 이득이 적다.
@@ -70,7 +81,7 @@ RUN uv sync --frozen --no-dev                       # ← project(editable)만 �
 
 - `uv sync`: pyproject.toml + uv.lock을 정합 검사한 후, lockfile에 고정된 트랜지티브 버전 그대로 install. `uv pip install -e .`(pyproject만 봄)와 달리 lockfile 무시 불가능 → reproducible build.
 - `--frozen`: lockfile/pyproject drift 시 build 실패. lockfile 갱신 누락을 빌드 단계에서 catch.
-- `--no-dev`: pyproject `[project.optional-dependencies].dev`(pytest·ruff·testcontainers) 미포함. prod 이미지 슬림화.
+- `--no-dev`: pyproject `[dependency-groups].dev`(pytest·ruff·testcontainers) 미포함. prod 이미지 슬림화.
 - `--no-install-project`: project 자체는 skip하고 외부 deps만 install (1단 layer cache 분리용).
 - editable install: uv는 hatchling project를 기본 editable로 install. 호스트 마운트(`./:/app`)와 결합해 코드 변경 즉시 반영.
 - `UV_PROJECT_ENVIRONMENT=/opt/venv`: venv를 `/app` 바깥에 둔다. dev override의 `./:/app` bind mount가 `/app/.venv`를 호스트로 마스킹하는 충돌을 회피.
@@ -101,20 +112,19 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 
 ---
 
-## docker-compose.yml
+## dev/docker-compose.yml
 
 ### 서비스 구성 (기본 8개 — pgadmin은 profiles:[gui]로 분리, 명시 호출 시만 가동)
 
 | 서비스 | 이미지 | 역할 | 적용 환경 |
 |--------|--------|------|-----------|
-| `postgres` | `timescale/timescaledb:latest-pg16` | 메인 DB + TimescaleDB 확장 | dev / prod |
+| `postgres` | `timescale/timescaledb-ha:pg16` | 메인 DB + TimescaleDB + pgvector (ADR 0024) 등 all-in-one | dev / prod |
 | `rabbitmq` | `rabbitmq:3.13-management-alpine` | 메시지 브로커 (AMQP + 관리 UI) | dev / prod |
 | `redis` | `redis:7-alpine` | 캐시·온라인 TTL·PUB/SUB | dev / prod |
 | `migrate` | 로컬 빌드 | `alembic upgrade head` 1회 실행 후 종료 (ADR 0005). 앱 서비스 4종이 `depends_on: service_completed_successfully`로 그 뒤 기동 | dev / prod |
 | `web` | 로컬 빌드 | FastAPI SSR + API + StaticFiles | dev / prod |
 | `consumer` | 로컬 빌드 | aio-pika 컨슈머 (server.* + task.result 큐) | dev / prod |
-| `diagnostic-worker` | 로컬 빌드 | `diagnostic.request` 큐 소비, LLM 호출 (ADR 0004) | dev / prod |
-| `diagnostic-scheduler` | 로컬 빌드 | 주기 진단 작업 enqueue (ADR 0004) | dev / prod |
+| `diagnostic-worker` | 로컬 빌드 | `diagnostic.request` 큐 소비, LLM 호출 (ADR 0004 + 0023) | dev / prod |
 | `pgadmin` | `dpage/pgadmin4` | DB GUI (`profiles:[gui]` 전용). `docker compose --profile gui up -d pgadmin`으로 명시 호출 — idle 250 MiB 절감 | dev gui only |
 
 ### 포트 노출
@@ -122,7 +132,7 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 | 서비스 | 호스트 포트 | 컨테이너 포트 | 용도 |
 |--------|------------|--------------|------|
 | postgres | `${POSTGRES_PORT:-5432}` | 5432 | psql 직접 접속 (디버그) |
-| rabbitmq | `${RABBITMQ_PORT:-5672}` | 5672 | AMQP — Lima VM 에이전트가 `host.lima.internal:5672`로 접근 |
+| rabbitmq | `${RABBITMQ_PORT:-5672}` | 5672 | AMQP — OrbStack VM 에이전트가 `host.docker.internal:5672`로 접근 |
 | rabbitmq | `${RABBITMQ_MANAGEMENT_PORT:-15672}` | 15672 | 관리 UI |
 | web | `${WEB_PORT:-8000}` | 8000 | HTTP — 브라우저 + `/static/*` 정적 자원 |
 
@@ -190,7 +200,7 @@ env_file: .env
 environment:
   POSTGRES_HOST: postgres   # .env의 localhost 값 오버라이드
   REDIS_HOST: redis
-  RABBITMQ_HOST: rabbitmq   # consumer·diagnostic-worker·diagnostic-scheduler — web은 RabbitMQ 직접 사용 안 함
+  RABBITMQ_HOST: rabbitmq   # consumer·diagnostic-worker — web 도 진단 publish 위해 사용
 ```
 
 호스트에서 직접 실행 시 `.env`의 기본값(`localhost`)을 쓰고, 컨테이너에서는 `environment` 블록이 오버라이드.
@@ -221,15 +231,15 @@ environment:
 postgres ─ healthy ─▶ migrate (alembic upgrade head, 1회 실행 후 exit)
                           │
                           ▼ service_completed_successfully
-            ┌──────┬──────┴───────────┬──────────────────────┐
-            ▼      ▼                  ▼                      ▼
-           web   consumer    diagnostic-worker    diagnostic-scheduler
-            ▲      ▲                  ▲                      ▲
-   redis ───┴──────┴──────────────────┴──────────────────────┤
-rabbitmq ──────────┴──────────────────┴──────────────────────┘
+            ┌──────┬──────┴───────────┐
+            ▼      ▼                  ▼
+           web   consumer    diagnostic-worker
+            ▲      ▲                  ▲
+   redis ───┴──────┴──────────────────┤
+rabbitmq ──────────┴──────────────────┘
 ```
 
-ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migrate` 컨테이너가 schema 준비 완료를 보장한 뒤 앱 4종 기동.
+ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migrate` 컨테이너가 schema 준비 완료를 보장한 뒤 앱 3종 기동. ADR 0023: scheduler cron 폐기로 4종 → 3종.
 
 ### restart 정책
 
@@ -240,13 +250,13 @@ ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migra
 
 ---
 
-## scripts/pipeline-up.sh / scripts/pipeline-down.sh
+## dev/pipeline-up.sh / dev/pipeline-down.sh
 
-운영자 절차·VM 매트릭스: `docs/development/pipeline.md` + `docs/development/pipeline.md`. 본 절은 docker 관점 동작만:
+운영자 절차·VM 매트릭스: `docs/development/pipeline.md`. 본 절은 docker 관점 동작만:
 
-- `scripts/pipeline-up.sh` [1/4] `docker compose up -d --build` → [2/4] migrate 완료 대기(180s) → [3/4] web 헬스체크(180s) → [4/4] Lima 7 VM.
+- `dev/pipeline-up.sh` [1/4] `docker compose up -d --build` → [2/4] migrate 완료 대기(180s) → [3/4] web 헬스체크(180s) → [4/4] OrbStack 4 VM.
 - 헬스체크 타임아웃 초과 시 migrate/web 로그 30라인 dump 후 exit.
-- `scripts/pipeline-down.sh`: Lima 7 VM 제거 → `docker compose down -v`(postgres_data 삭제). 다음 dev-up은 빈 DB에서 시작 → `migrate`가 모든 schema·hypertable 신규 생성.
+- `dev/pipeline-down.sh`: OrbStack 4 VM 제거 → `docker compose down -v`(postgres_data 삭제). 다음 dev-up은 빈 DB에서 시작 → `migrate`가 모든 schema·hypertable 신규 생성.
 
 ---
 
@@ -262,7 +272,7 @@ ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migra
 | Jinja2 템플릿 (web/templates/) | 즉시 | — | 없음 |
 | `pyproject.toml` (의존성) | 미반영 | 미반영 | `docker compose up --build -d` (의존성 레이어 재빌드) |
 | `Dockerfile` | 미반영 | 미반영 | `docker compose up --build -d` |
-| `docker-compose.yml` | 부분 | 부분 | `docker compose up -d` (변경된 서비스만 재생성) |
+| `dev/docker-compose.yml` | 부분 | 부분 | `docker compose up -d` (변경된 서비스만 재생성) |
 | ORM 모델 (컬럼·제약 추가) | 새 모델 로드는 reload되나 DB 스키마는 미반영 | 동일 | (ADR 0005) `alembic revision --autogenerate` → `docker compose restart migrate` → 앱 서비스 재기동. 마이그레이션 누락 시 `alembic check` 차단 |
 
 ### 디버깅 유용 명령

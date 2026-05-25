@@ -29,7 +29,7 @@ function fmtPps(v) { return v != null ? Math.round(v) + ' pps' : '—'; }
 
 async function loadNetSnapshot() {
   try {
-    const res = await fetch(`/api/v1/servers/${SERVER_ID}/metrics/latest`);
+    const res = await fetch(`/api/servers/${SERVER_ID}/metrics/latest`);
     document.getElementById('net-snapshot-loading').style.display = 'none';
     if (res.status === 404) {
       document.getElementById('net-snapshot-empty').style.display = '';
@@ -144,10 +144,10 @@ async function loadNetChart() {
   };
   try {
     const [rxAvg, rxMax, txAvg, txMax] = await Promise.all([
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('net.rx_bytes_per_sec', 'avg')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('net.rx_bytes_per_sec', 'max')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('net.tx_bytes_per_sec', 'avg')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('net.tx_bytes_per_sec', 'max')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('net.rx_bytes_per_sec', 'avg')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('net.rx_bytes_per_sec', 'max')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('net.tx_bytes_per_sec', 'avg')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('net.tx_bytes_per_sec', 'max')}`).then(r => r.json()),
     ]);
     if (seq !== netSeq) return;
     const safe = arr => Array.isArray(arr) ? arr : [];

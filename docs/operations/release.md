@@ -4,19 +4,47 @@
 
 ## 1. artifact 카탈로그
 
-semver tag `v*` push 시 GitHub Release 자동 생성. 첨부 파일:
+semver tag `v*` push 시 두 채널 동시 발행 — 운영자 선택권 (#A0 자율 선택, ADR 0017).
+
+### 1.1. wheel + sdist → GitHub Release
 
 | 파일 | 형식 | 용도 |
 |------|------|------|
 | `assessment_engine-X.Y.Z-py3-none-any.whl` | Python wheel (PEP 517) | `pip install`로 venv·system Python에 설치 |
 | `assessment_engine-X.Y.Z.tar.gz` | sdist | source 재현 가능성 보존 (wheel 빌드 불가 환경 fallback) |
-| `SHA256SUMS` | 텍스트 (sha256sum 형식) | 무결성 검증 |
+| `SHA256SUMS` | 텍스트 (sha256sum 형식) | wheel·sdist 무결성 검증 |
+| `sbom.cdx.json` | CycloneDX JSON | 의존성 트리 명세 (CVE 추적) |
+| `*.sigstore` | Sigstore signature | `cosign verify-blob` 무결성·발행자 검증 |
 
 wheel 안 force-include (`pyproject.toml` `[tool.hatch.build.targets.wheel].force-include`):
 - `assessment_engine/_migrations/` — Alembic versions (ADR 0005)
 - `assessment_engine/_alembic.ini` — Alembic config
 
 즉 wheel 1 artifact만 install하면 `alembic upgrade head` 즉시 실행 가능.
+
+### 1.2. Docker image → GHCR
+
+| 태그 | 의미 | 용도 |
+|------|------|------|
+| `ghcr.io/{org}/assessment-engine:v0.1.0` | immutable 정확 버전 | prod pin 권장 (운영자 선택) |
+| `:0.1.0` | 동일 (semver 형식) | docker compose / k8s manifest |
+| `:0.1` | minor 최신 | minor patch auto-track |
+| `:0` | major 최신 | major lock |
+| `:latest` | stable release 최신 | dev 시연 / 모니터링 — prod 비추천 (변경 무경고) |
+
+이미지 attestation:
+- BuildKit 자동 SBOM (SPDX) — `docker buildx imagetools inspect --format '{{ json .SBOM.SPDX }}'`
+- Cosign keyless signature — `cosign verify ghcr.io/.../assessment-engine:v0.1.0 --certificate-identity-regexp=... --certificate-oidc-issuer=https://token.actions.githubusercontent.com`
+
+multi-arch: `linux/amd64` + `linux/arm64` (운영자 ARM 서버 직접 호환).
+
+3 컴포넌트 단일 이미지 + ENTRYPOINT 가 `python -m` + CMD 가 `assessment_engine.web` (default).
+운영자가 module override:
+- web (default): `docker run image` → `python -m assessment_engine.web`
+- consumer: `docker run image assessment_engine.consumer`
+- diagnostic-worker: `docker run image assessment_engine.diagnostic`
+
+ADR 0023: scheduler cron 폐기로 4 컴포넌트 → 3 컴포넌트.
 
 ## 2. 생성 trigger (자동 ceremony)
 
@@ -31,10 +59,9 @@ release ceremony는 Conventional Commits + release-please 자동화 (ADR 0013).
    - `CHANGELOG.md` 갱신 (type별 분류 누적)
 5. 운영자가 Release PR 검토·승인·merge
 6. merge 시점에 release-please가 tag(`v*`) 자동 생성·push
-7. tag push → `release.yml` 발사:
-   - `uv build` — wheel + sdist 생성
-   - `sha256sum *.whl *.tar.gz > SHA256SUMS`
-   - `softprops/action-gh-release@v2` — GitHub Release 자동 생성 + 첨부
+7. tag push → `release.yml` 발사 (2 job 병렬):
+   - `release-wheel` job: `uv build` (wheel + sdist) → SHA256SUMS → SBOM (cyclonedx-py) → Sigstore signing → GitHub Release 첨부
+   - `release-image` job: docker buildx multi-arch build (`linux/amd64,arm64`) → GHCR push → cosign keyless image signing → BuildKit SBOM (SPDX) attestation
 
 semver bump 규칙 (Conventional Commits → release-please):
 
@@ -79,7 +106,7 @@ cd /tmp/release && sha256sum -c SHA256SUMS
 본 문서는 artifact 정의·생성·검증까지. install·systemd unit·환경변수 주입·alembic 실행 절차는 별도:
 
 - `docs/operations/deployment.md` — 일반 install·실행 단계 가이드
-- `docs/operations/prod-contract.md` — secret·환경변수 contract + APP_ENV=prod fail-fast 검증
+- `docs/operations/env.md` — secret·환경변수 contract + APP_ENV=prod fail-fast 검증
 - `docs/operations/env.md` — 환경변수 카탈로그
 - `docs/operations/alembic.md` — schema 마이그레이션 (wheel 안 `_alembic.ini` 활용)
 

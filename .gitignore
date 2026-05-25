@@ -1,6 +1,11 @@
 # 시크릿
 .env
+dev/.env
 dev/agent.env
+
+# 빌드 산출물 — agent 바이너리는 pipeline-up.sh / dev/build-agent.sh 가 빌드
+# (sibling repo Docker cross-build) 또는 AGENT_BINARY_URL 로 fetch.
+dev/bin/assessment-agent
 
 # 빌드 산출물
 dist/
@@ -11,6 +16,7 @@ dist/
 # Python
 __pycache__/
 *.pyc
+*.pyo
 .venv/
 *.egg-info/
 
@@ -20,6 +26,12 @@ __pycache__/
 # 테스트 / 빌드 캐시
 .pytest_cache/
 .ruff_cache/
+.coverage
+coverage*.xml
+htmlcov/
+
+# 런타임 로그
+*.log
 
 # 인프라 상태
 .vagrant/

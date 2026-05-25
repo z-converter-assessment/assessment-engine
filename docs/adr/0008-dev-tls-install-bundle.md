@@ -1,6 +1,6 @@
 # ADR 0008 — dev 환경 engine HTTPS endpoint (전체 통합) + SAN 동적화
 
-상태: Superseded by ADR 0009 (2026-05-15) — agent 측 HTTPS-only 정책 한계로 dev 운영 부담 누적, dev plain HTTP 복귀
+상태: Superseded by ADR 0009 (2026-05-15) → ADR 0016 (2026-05-21) — agent 측 HTTPS-only 정책 한계로 dev plain HTTP 복귀 (0009), 이후 self-host install bundle endpoint 자체 제거로 본 결정 무효 (0016)
 
 ## Context
 

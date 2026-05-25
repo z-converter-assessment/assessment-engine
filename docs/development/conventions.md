@@ -26,7 +26,7 @@ ruff 위반(E501 line-too-long · F841 unused · I001 import 정렬 등)은 hook
 |------|----------|------|
 | F1 — `from __future__ import annotations` | `.py` | `conventions-check.sh` |
 | F7 — `print(` / `sys.stdout.write` | `.py` | `conventions-check.sh` |
-| C3 — `safe_*` 미경유 redis 클라이언트 직접 호출 (`redis.set/get/delete/publish/incr/exists/mget/expire/setnx`) | `.py` (`db/redis.py` 본인 제외) | `conventions-check.sh` |
+| C3 — `safe_*` 미경유 redis 클라이언트 직접 호출 (`redis.set/get/delete/publish/incr/exists/mget/expire/setnx`) | `.py` (`cache/redis.py` 본인 제외) | `conventions-check.sh` |
 | 글로벌 — markdown asterisk-pair bold (굵게 강조 문법) | 모든 파일 | `conventions-check.sh` |
 | 글로벌 — 비키보드 unicode 기호·이모지 (예시: 절기호, 양방향 화살표, 체크/엑스 표식, 부등호 기호, 가운뎃점 글머리표 등) | 모든 파일 | `conventions-check.sh` |
 
@@ -56,19 +56,17 @@ hook 파일 자체(`.claude/hooks/*`)는 패턴 정의를 포함하므로 self-s
 - placeholder upsert(`ON CONFLICT DO UPDATE`)가 진짜 inventory 덮어쓰는 race → placeholder 전용 메서드는 `ON CONFLICT DO NOTHING` + 충돌 시 다시 find.
 - inline JS 변경은 도구 적용 어려움 → 외부 `.js`로 옮긴 후 변경.
 
-### Lima provisioning (도입 검증 round 1~3)
+### dev VM provisioning
 
-상세 사고 패턴은 `docs/development/pipeline.md` "누적 사고 패턴" 절 단일 진실. 자동화 변환 측 교훈:
+dev VM(OrbStack) 프로비저닝 측 교훈 (자동화 변환·post-provision 검증):
 
-- distro별 패키지명·repo 명명 규약 다름 — `cJSON-devel`(zypper 대문자) vs `libcjson-devel`(apt) vs `cjson-devel`(dnf), `crb`(RHEL 9) vs `powertools`(RHEL 8) vs `ol9_codeready_builder`(OL9), EPEL repo는 OL에서 직접 fetch 필요. dispatch case 추가 시 모든 family 검증 의무.
-- cloud image 가용성·크기는 distro별 차이 — 일부 EOL OS(CentOS 7 aarch64)는 origin down, 일부 image는 disk 16 GiB 강제(OL9). yaml `disk` 자원은 image 원본 크기 이상 의무.
-- `mountType` 기본 virtiofs가 일부 distro(openSUSE Leap 15)에서 silent fail — yaml에 `mountType: "reverse-sshfs"` 명시로 fallback. mount 검증 = `limactl shell <vm> mount | grep agent` (출력 없으면 fail).
-- lima `start_or_resume_vm` final requirement(`boot scripts must finished`)가 distro별 cloud-init 호환성으로 5분+ stuck 가능 — wrapper로 SSH ready+60s 후 PID kill로 우회. SSH 작동이면 boot 성공 판정.
-- 검증 사이클은 한 라운드에서 fix 누적 — 첫 시도 실패 markers를 즉시 abort + 진단 + 다음 fix → 최종 round에서 모든 VM boot OK + post-provision exit 0 + agent message 발행 검증.
+- distro별 패키지명·init 규약 다름 — `redis-server`(apt) vs `redis`(dnf), `postgresql`(apt 자동 init) vs `postgresql-server`(RPM family 수동 `postgresql-setup --initdb`). dispatch case 추가 시 apt·dnf family 모두 검증 의무.
+- post-provision 은 멱등 의무 — 바이너리·env·unit 변경 없으면 restart 건너뜀 (`agent_started_at` 갱신 → attention.agent_unstable false positive 회피).
+- 합성 부하·시연 트리거(swap·restart-demo)는 옛 Lima yaml provision 을 pipeline-up.sh post-provision 함수로 흡수 — VM 정의(distro/service/mode)는 dispatch 함수가 단일 진실.
 
 ### 단일 진실 sync
 
-- `pipeline-down.sh`가 `LIMA_VMS` hardcoded라 `pipeline-up.sh`와 sync 안 됨 → `source pipeline-up.sh`로 단일 진실 해결 (BASH_SOURCE source guard로 main 자동 실행 안 함).
+- `pipeline-down.sh`가 VM 목록을 `source pipeline-up.sh`로 `ORB_VMS` 단일 진실 공유 (hardcoded 시 sync 깨짐 → BASH_SOURCE source guard로 main 자동 실행 안 함).
 - 사용자 reject 후 진행 결정 시 같은 silent block 반복 금지 — 진행 단계마다 1줄 알림 + 결과 즉시 보고 + 1분 cap 룰 준수.
 
 누락 시 사용자 회귀 사고 발견의 책임은 검증 누락에 있음. 같은 패턴 재발 시 본 절에 추가하고 CLAUDE.md F5 메인 자가 검증 절차에 누락된 단계 보강.

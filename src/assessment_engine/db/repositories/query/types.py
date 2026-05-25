@@ -1,0 +1,116 @@
+"""Query repository 공용 타입·dispatch 상수 (P2 단일 진실).
+
+5 도메인 sub-repository (server / metric / report / attention / task) 가 공유하는
+TimeRange · BucketSize · MetricType · dispatch table whitelist 카탈로그.
+
+caller(`web/services/query_service.py`, `web/routers/api.py`, `tests/...`)는 본 모듈에서 import.
+"""
+
+from datetime import timedelta
+from typing import Literal
+
+# ─── chart metric 카탈로그 (router Literal whitelist) ───
+MetricType = Literal[
+    "cpu.usage_percent",
+    "cpu.user_percent",
+    "cpu.system_percent",
+    "cpu.iowait_percent",
+    "load.1m",
+    "load.5m",
+    "load.15m",
+    "mem.usage_percent",
+    "mem.available_percent",
+    "mem.cached_percent",
+    "mem.buffers_percent",
+    "swap.usage_percent",
+    "disk.read_iops",
+    "disk.write_iops",
+    "fs.usage_percent",
+    "net.rx_bytes_per_sec",
+    "net.tx_bytes_per_sec",
+]
+TimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
+BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d"]
+AggFunc = Literal["avg", "max", "p95"]
+
+# TimeRange → timedelta. metric_chart·reboot_events 양쪽 사용 (service·repo 중복 방지).
+# 14d는 right-sizing 윈도우(recommendation.WINDOW_DAYS)와 동일 — 보고서·대시보드·차트 일관.
+TIME_RANGE_TD: dict[str, timedelta] = {
+    "15m": timedelta(minutes=15),
+    "1h": timedelta(hours=1),
+    "6h": timedelta(hours=6),
+    "24h": timedelta(hours=24),
+    "7d": timedelta(days=7),
+    "14d": timedelta(days=14),
+    "30d": timedelta(days=30),
+}
+
+# (SQL interval 문자열, Python timedelta) — bucket 단위를 SQL과 Python 양쪽에서 사용.
+_BUCKET_INFO: dict[str, tuple[str, timedelta]] = {
+    "1m": ("1 minute", timedelta(minutes=1)),
+    "5m": ("5 minutes", timedelta(minutes=5)),
+    "15m": ("15 minutes", timedelta(minutes=15)),
+    "30m": ("30 minutes", timedelta(minutes=30)),
+    "1h": ("1 hour", timedelta(hours=1)),
+    "3h": ("3 hours", timedelta(hours=3)),
+    "6h": ("6 hours", timedelta(hours=6)),
+    "12h": ("12 hours", timedelta(hours=12)),
+    "1d": ("1 day", timedelta(days=1)),
+}
+
+_AGG: dict[str, str] = {
+    "avg": "avg(v)",
+    "max": "max(v)",
+    "p95": "percentile_cont(0.95) WITHIN GROUP (ORDER BY v)",
+}
+
+# ─── chart dispatch 매핑 (router Literal로 whitelist된 metric_type만 도달) ───
+
+# CPU 누적 jiffies. delta로 % 계산 (LAG 기반). active/component 모두 분자만 다름.
+_CPU_TOTAL_EXPR = "cpu_user+cpu_nice+cpu_system+cpu_idle+cpu_iowait+cpu_irq+cpu_softirq+cpu_steal"
+_CPU_NUMERATOR: dict[str, str] = {
+    "cpu.usage_percent": "cpu_user+cpu_nice+cpu_system+cpu_iowait+cpu_irq+cpu_softirq+cpu_steal",
+    "cpu.user_percent": "cpu_user",
+    "cpu.system_percent": "cpu_system",
+    "cpu.iowait_percent": "cpu_iowait",
+}
+
+# 시점 값. dimension 없음. value_expr는 server_metrics 컬럼/식.
+_SCALAR_VALUE_EXPR: dict[str, str] = {
+    "load.1m": "load_1m",
+    "load.5m": "load_5m",
+    "load.15m": "load_15m",
+    "mem.usage_percent": (
+        "CASE WHEN mem_total_kb > 0 THEN (mem_total_kb - mem_available_kb)::float / mem_total_kb * 100 END"
+    ),
+    "mem.available_percent": "CASE WHEN mem_total_kb > 0 THEN mem_available_kb::float / mem_total_kb * 100 END",
+    "mem.cached_percent": "CASE WHEN mem_total_kb > 0 THEN mem_cached_kb::float  / mem_total_kb * 100 END",
+    "mem.buffers_percent": "CASE WHEN mem_total_kb > 0 THEN mem_buffers_kb::float / mem_total_kb * 100 END",
+    # swap_total_kb=0 (swap 미설정 VM) 도 0% 반환 — chart 0 line 자연 표시.
+    # NULL 반환 시 chart endpoint 가 row 누락 → empty 표시 (운영자 혼란).
+    "swap.usage_percent": (
+        "CASE WHEN swap_total_kb > 0 THEN (swap_total_kb - swap_free_kb)::float / swap_total_kb * 100 ELSE 0 END"
+    ),
+}
+
+# (table, dim_col, value_col) 튜플 — disk/net rate per dimension.
+# table 명은 ORM 모델 __tablename__ — 동적 lookup 회피 위해 metric.py 본문에서 채움.
+# (sub-module 의존성 회피 — types.py는 ORM import 안 함)
+_RATE_PER_DIM_DEFS: dict[str, tuple[str, str]] = {
+    "disk.read_iops": ("device", "reads_completed"),
+    "disk.write_iops": ("device", "writes_completed"),
+    "net.rx_bytes_per_sec": ("interface", "rx_bytes"),
+    "net.tx_bytes_per_sec": ("interface", "tx_bytes"),
+}
+
+# server_mount_usage 가상 mount 필터 — SQL fragment 단일 진실.
+# 모든 mount 합산·집계 SQL이 본 fragment를 적용. 변경 시 device_filters._VIRTUAL_MOUNT_PREFIXES와 동기화.
+# ServerMountUsage 모델에 fstype 컬럼이 없어 path 기반만 (storage detail mapper는 fstype도 사용 — defense in depth).
+# 사용자 입력 0 — 정적 상수만이라 f-string 안전 (CLAUDE.md C5 whitelist).
+_VIRTUAL_MOUNT_SQL_FILTER = """
+    mount NOT LIKE '/proc%'
+    AND mount NOT LIKE '/sys%'
+    AND mount NOT LIKE '/dev/pts%'
+    AND mount NOT LIKE '/snap%'
+    AND mount NOT LIKE '/run/snapd%'
+"""

@@ -59,7 +59,7 @@ postgres (healthy)
     ↓
 migrate (alembic upgrade head → exit 0)
     ↓
-web + consumer + diagnostic-worker + diagnostic-scheduler
+web + consumer + diagnostic-worker
 ```
 
 `migrate` 서비스 정의:

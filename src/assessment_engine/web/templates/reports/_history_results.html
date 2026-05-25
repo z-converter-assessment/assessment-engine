@@ -1,0 +1,47 @@
+{# 보고서 이력 결과 fragment — full page (reports/history.html) 와 fetch 응답 양쪽 공유.
+   단일 진실 위해 fragment endpoint 가 본 template 만 render. #}
+{% if items %}
+<table id="report-history-table">
+  <thead>
+    <tr>
+      <th>발행 시각</th>
+      <th>양식</th>
+      <th>대상</th>
+      <th>윈도우</th>
+      <th>다시 보기</th>
+    </tr>
+  </thead>
+  <tbody id="report-history-tbody">
+    {% for it in items %}
+    <tr>
+      <td style="white-space:nowrap;">{{ it.created_at | kst }}</td>
+      <td>{{ it.view_label }}</td>
+      <td>
+        {% if it.scope == "environment" %}
+        환경 전체 ({{ it.server_count }}대)
+        {% else %}
+        선택 {{ it.server_count }}대
+        {% endif %}
+      </td>
+      <td>{{ it.window_label }}</td>
+      <td><a href="{{ it.result_link }}" class="btn" style="font-size:12px; padding:4px 10px;">보기 →</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if show_all_link %}
+<div style="margin-top:14px; text-align:center;">
+  <a href="?{% if days %}days={{ days }}&{% endif %}view={{ view }}&scope={{ scope }}{% if server_public_ids %}{% for pid in server_public_ids %}&server_public_ids={{ pid }}{% endfor %}{% endif %}&full=1"
+     class="btn" style="background:#f1f5f9; color:#475569; padding:8px 20px; border:1px solid #cbd5e1; border-radius:4px; text-decoration:none; display:inline-block;">
+    전체보기
+  </a>
+</div>
+<div style="margin-top:8px; font-size:12px; color:#94a3b8;">최근 20건만 표시. "전체보기" 클릭 시 모든 row.</div>
+{% elif full %}
+<div style="margin-top:10px; font-size:12px; color:#94a3b8;">전체 {{ items_count }}건.</div>
+{% endif %}
+{% else %}
+<div class="card" style="text-align:center; padding:40px; color:#64748b;">
+  해당 조건의 보고서 이력 없음.
+</div>
+{% endif %}

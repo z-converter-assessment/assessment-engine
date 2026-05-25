@@ -31,7 +31,7 @@ function iops(v) { return v == null ? '—' : v.toFixed(1) + ' IOPS'; }
 /* ── I/O 현황 스냅샷 ── */
 async function loadIoSnapshot() {
   try {
-    const res = await fetch(`/api/v1/servers/${SERVER_ID}/metrics/latest`);
+    const res = await fetch(`/api/servers/${SERVER_ID}/metrics/latest`);
     document.getElementById('io-snapshot-loading').style.display = 'none';
     if (res.status === 404) {
       document.getElementById('io-phys-empty').style.display = '';
@@ -160,10 +160,10 @@ async function loadPhysChart() {
   };
   try {
     const [readAvg, readMax, writeAvg, writeMax] = await Promise.all([
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_iops',  'avg')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_iops',  'max')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'avg')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'max')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_iops',  'avg')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_iops',  'max')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'avg')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'max')}`).then(r => r.json()),
     ]);
     if (seq !== physSeq) return;
     const safe = arr => Array.isArray(arr) ? arr : [];
@@ -196,10 +196,10 @@ async function loadLvmChart() {
   };
   try {
     const [readAvg, readMax, writeAvg, writeMax] = await Promise.all([
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_iops',  'avg')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_iops',  'max')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'avg')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'max')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_iops',  'avg')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_iops',  'max')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'avg')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'max')}`).then(r => r.json()),
     ]);
     if (seq !== lvmSeq) return;
     const safe = arr => Array.isArray(arr) ? arr : [];
@@ -334,8 +334,8 @@ async function loadFsChart() {
   };
   try {
     const [avgRows, maxRows] = await Promise.all([
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('avg')}`).then(r => r.json()),
-      fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${mkP('max')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('avg')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('max')}`).then(r => r.json()),
     ]);
     if (seq !== fsSeq) return;
     if (!Array.isArray(avgRows)) return;

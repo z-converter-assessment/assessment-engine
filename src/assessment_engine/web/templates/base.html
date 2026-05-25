@@ -13,29 +13,37 @@
     header .brand { color: #fff; font-weight: 700; font-size: 15px; margin-right: 16px; letter-spacing: -.3px; text-decoration: none; }
     header .brand:hover { color: rgba(255,255,255,.75); }
     main { max-width: 1160px; margin: 28px auto; padding: 0 24px; }
-    h1 { font-size: 20px; font-weight: 700; margin-bottom: 20px; color: #0f172a; }
-    h2 { font-size: 14px; font-weight: 600; margin: 0 0 14px; color: #475569; text-transform: uppercase; letter-spacing: .05em; }
+    /* 폰트 위계 단일 진실 (static-assets.md "폰트 위계" 절). h1 > h2 > h3 영향력 차이 명확. */
+    h1 { font-size: 20px; font-weight: 700; margin: 0 0 20px; color: #0f172a; }
+    h2 { font-size: 16px; font-weight: 700; margin: 0 0 14px; color: #1e293b; }
+    h3 { font-size: 13px; font-weight: 600; margin: 0 0 10px; color: #475569; }
+    /* 페이지 제목 (h1) 옆 sub-text — 양식 라벨 등. */
+    .page-meta { font-size: 14px; font-weight: 400; color: #64748b; margin-left: 8px; }
+    /* 카드 섹션 제목 (h2) 옆 sub-text — 윈도우 / 부가 설명. */
+    .section-meta { font-size: 12px; font-weight: 400; color: #94a3b8; margin-left: 8px; }
+    /* 식별자 (hostname / UUID / IP / path) — 정렬·식별 affordance 위 monospace. base a 스타일 그대로 상속. */
+    code, .identifier { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
     table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
     thead { background: #f8fafc; }
     th { padding: 9px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid #e2e8f0; }
     td { padding: 11px 14px; border-top: 1px solid #f1f5f9; color: #334155; vertical-align: middle; }
     tr:hover td { background: #f8fafc; }
-    a { color: #2563eb; text-decoration: none; }
-    a:hover { text-decoration: underline; }
+    /* 모든 link 일관 — color + 항상 밑줄 (옅음). hover 시 강조. 별도 class (.row-link 등) 와 단일 진실 정합. */
+    a { color: #2563eb; text-decoration: underline; text-decoration-color: #cbd5e1; text-underline-offset: 2px; }
+    a:hover { text-decoration-color: #2563eb; }
     .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; background: #e2e8f0; color: #475569; }
     .badge-ok   { background: #dcfce7; color: #166534; }
     .badge-warn { background: #fef3c7; color: #92400e; }
     .badge-danger { background: #fee2e2; color: #991b1b; }
     .badge-cat-web       { background: #dbeafe; color: #1d4ed8; }
     .badge-cat-db        { background: #fce7f3; color: #9d174d; }
-    .badge-cat-cache     { background: #fef3c7; color: #92400e; }
+    .badge-cat-cache     { background: #ccfbf1; color: #115e59; }
     .badge-cat-mq        { background: #f3e8ff; color: #6b21a8; }
     .badge-cat-container { background: #e0f2fe; color: #075985; }
     .badge-cat-monitor   { background: #fef9c3; color: #713f12; }
     .badge-cat-unknown   { background: #f1f5f9; color: #64748b; }
     /* USE Method 분류 badge — list/report 공유 (단일 진실). rec-swap은 메모리 부족 1차 신호 강조. */
     .rec-under_provisioned { background: #fee2e2; color: #b91c1c; }
-    .rec-right_size        { background: #fef3c7; color: #92400e; }
     .rec-over_provisioned  { background: #fef3c7; color: #92400e; }
     .rec-optimal           { background: #dcfce7; color: #15803d; }
     .rec-idle, .rec-shutdown { background: #f1f5f9; color: #64748b; }
@@ -45,13 +53,10 @@
     .rec-failure           { background: #fee2e2; color: #b91c1c; }
     .rec-pending           { background: #dbeafe; color: #1d4ed8; }
     .rec-unknown           { background: #f1f5f9; color: #64748b; }
-    /* 운영 신호 단일 active 색 — Right-sizing(rec-*) 와 도메인 분리. attention-cat-item active 와 동일 주황 (단일 진실). */
-    .attn-active           { background: #fef3c7; color: #92400e; }
-    /* row-link: 테이블 cell 안 클릭 가능 link 의 affordance — 항상 옅은 underline, hover 시 파랑 강조. */
-    .row-link              { text-decoration: underline; text-decoration-color: #cbd5e1; text-underline-offset: 2px; }
-    .row-link:hover        { text-decoration-color: #3b82f6; }
-    .task-cell             { display: inline-flex; align-items: center; gap: 6px; text-decoration: underline; text-decoration-color: #cbd5e1; text-underline-offset: 2px; }
-    .task-cell:hover       { text-decoration-color: #3b82f6; }
+    /* 운영 신호 active — Right-sizing(amber) 와 분리된 주황 도메인. 뱃지(attn-active·cat-item active)=#9a3412, 텍스트(.text-attn)=#c2410c — danger 의 뱃지800/텍스트700 명암 패턴과 동일. */
+    .attn-active           { background: #ffedd5; color: #9a3412; }
+    /* row-link / task-cell — base a 스타일 (color + 밑줄) 그대로 상속. task-cell 은 inline-flex 부수 layout. */
+    .task-cell             { display: inline-flex; align-items: center; gap: 6px; }
     .task-cell:hover .badge { filter: brightness(0.95); }
     /* 서버 상세 최근 작업 row — 클릭 시 task 상세 모달. 시각 affordance: hover 시 음영 강조 + 우측 ">" 화살표. */
     .task-timeline tr.task-row { transition: background .12s, box-shadow .12s; }
@@ -69,21 +74,68 @@
     .attention-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
     .attention-item { display: flex; align-items: center; gap: 12px; font-size: 13px; }
     .attention-badge { min-width: 80px; justify-content: center; }
-    .attention-link { font-weight: 600; text-decoration: underline; }
+    /* attention-link — base a 스타일 (color + 밑줄) 상속, font-weight 만 강조. */
+    .attention-link { font-weight: 600; }
     .attention-meta { color: #64748b; font-size: 12px; }
     /* mount path는 긴 경우 단일 줄 ellipsis + hover title 전체 노출 — 카드 행 높이 안정. */
     .attention-mount { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px; color: #475569; }
     /* 주의 신호 카탈로그 범례 — 6 카테고리 항상 표시 (count 0 포함). active=발화·inactive=무. */
     .attention-catalog { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; }
     .attention-cat-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #f1f5f9; color: #94a3b8; }
-    .attention-cat-item[data-active="True"] { background: #fef3c7; color: #92400e; font-weight: 600; }
+    .attention-cat-item[data-active="True"] { background: #ffedd5; color: #9a3412; font-weight: 600; }
     .attention-cat-item strong { font-weight: 700; }
     .kv { display: grid; grid-template-columns: 160px 1fr; gap: 7px 16px; }
     .kv dt { color: #64748b; font-size: 13px; }
     .kv dd { color: #0f172a; font-weight: 500; font-size: 13px; }
     .back { font-size: 13px; color: #64748b; margin-bottom: 14px; display: inline-block; }
     .back:hover { color: #0f172a; text-decoration: none; }
-    code { background: #f1f5f9; padding: 1px 6px; border-radius: 3px; font-size: 12px; font-family: monospace; color: #475569; }
+    /* code = base monospace (line 25) + inline code 표시 (background + padding). font-family 중복 제거 — line 25 단일 진실. */
+    code { background: #f1f5f9; padding: 1px 6px; border-radius: 3px; font-size: 12px; color: #475569; }
+
+    /* JS 가 render 하는 dynamic 컴포넌트의 표준 utility — task-modal.js / chart legend / diagnostic-inline.js 공통.
+       inline style="font-size:Npx; color:#xxx" 직접 사용 금지. */
+    .modal-title { margin: 0; font-size: 16px; font-weight: 700; color: #1e293b; }
+    /* 색 전용 유틸 — size 는 부모 상속. 파편화된 inline color:#xxx 대신 톤·의미 클래스로 (단일 진실). */
+    .text-strong { color: #1e293b; }   /* 강조 (값·제목) */
+    .text-label  { color: #475569; }   /* 라벨 */
+    .text-muted  { color: #64748b; }   /* 보조 */
+    .text-meta   { color: #94a3b8; }   /* 메타·부가 */
+    .text-faint  { color: #cbd5e1; }   /* 흐림 */
+    .text-danger { color: #b91c1c; }   /* 위험 (under) */
+    .text-ok     { color: #15803d; }   /* 정상 (optimal) */
+    .text-warn   { color: #92400e; }   /* 주의 (over·idle, amber) */
+    .text-attn   { color: #c2410c; }   /* 운영 신호 (주황) */
+    /* 서술 — line-height 동반 (색만 아님). */
+    .text-narrative { color: #475569; font-size: 12px; line-height: 1.6; }
+
+    /* 다중 보고서 안 AI 진단 컬럼 cell narrative 시각 truncate — 2줄 + 말줄임. title attribute 호버 시 전체. */
+    .diag-clamp {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* AI 진단 본질 표시 tag — 버튼 안 inline 배지 (엔지니어 보고서 = AI 진단 포함 catalog 명시).
+       `.btn-action` (display: inline-flex + gap: 6px) 안 활용 정공 — margin 의무 X, line-height 1 로 baseline 정렬. */
+    .tag-ai {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      background: #ede9fe;
+      color: #6d28d9;
+      padding: 2px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+      line-height: 1;
+      vertical-align: middle;
+    }
+    .alert-danger { color: #991b1b; padding: 12px; background: #fee2e2; border-radius: 6px; }
+    .pre-output { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; font-size: 11px; color: #1e293b; max-height: 200px; overflow: auto; margin: 0; }
+    .legend-label { font-size: 12px; color: #475569; cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 4px; }
+    /* task-detail-grid — task-modal 의 라벨/값 grid (key-value). */
+    .task-detail-grid > .label { color: #64748b; font-size: 13px; }
 
     /* Progress bars */
     .progress-bar { height: 6px; background: #e2e8f0; border-radius: 99px; overflow: hidden; position: relative; }
@@ -155,6 +207,11 @@
     .search-row { display: flex; gap: 8px; margin-bottom: 18px; align-items: center; }
     .search-row input[type=text] { padding: 7px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; width: 240px; outline: none; }
     .search-row input[type=text]:focus { border-color: #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
+    /* select — input 과 동일 톤 (둥근 모서리·#e2e8f0 border·#fff bg·focus 강조). 브라우저 default chrome 제거 + 화살표 SVG. */
+    .search-row select { padding: 7px 28px 7px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; background: #fff; color: #374151; cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%2364748b' stroke-width='1.5' d='M1 1l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; outline: none; }
+    .search-row select:focus { border-color: #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
+    /* checkbox — brand 색 (accent-color) + 적당 size + pointer. native widget 유지 (custom box 부담 회피). */
+    .search-row input[type=checkbox] { accent-color: #2563eb; width: 16px; height: 16px; cursor: pointer; margin: 0; }
     .search-row label { font-size: 13px; color: #475569; display: flex; align-items: center; gap: 5px; cursor: pointer; }
     /* 검색 버튼은 secondary 톤 — selection 그룹(.btn-primary 파란색)과 분리. + 서버 발견 버튼(.btn-action)과 동일 톤. */
     .search-row button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #374151; font-size: 13px; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; cursor: pointer; }
@@ -205,7 +262,7 @@
   <div id="task-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:60; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:8px; padding:20px 24px; width:640px; max-width:92vw; max-height:88vh; overflow:auto; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <h3 id="task-modal-title" style="margin:0; font-size:15px; color:#1e293b;">작업 상세</h3>
+        <h3 id="task-modal-title" class="modal-title">작업 상세</h3>
         <button type="button" id="task-modal-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
       </div>
       <div id="task-modal-body" style="font-size:13px; color:#1e293b;">불러오는 중...</div>

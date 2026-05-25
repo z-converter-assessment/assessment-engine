@@ -1,47 +1,82 @@
-FROM python:3.12-slim
+# syntax=docker/dockerfile:1.7
+#
+# Prod 이미지 — 운영자가 GHCR pull 후 즉시 3 컴포넌트 (web/consumer/diagnostic-worker)
+# 운영 가능. wheel install 기반 — release artifact 와 동일 패키지 (assessment_engine-{version}-py3-none-any.whl).
+# ADR 0023: scheduler cron 폐기로 4 컴포넌트 → 3 컴포넌트.
+#
+# 책임 분담 (#A0):
+#   - 본 이미지는 운영자 선택권 (systemd · k8s · docker-compose 어느 토폴로지든 호환).
+#   - 3 컴포넌트 단일 이미지 — ENTRYPOINT 가 `python -m`, CMD 가 default module (web).
+#     운영자는 compose `command:` / k8s `args:` 로 module 명만 override (assessment_engine.consumer 등).
+#   - dev 환경은 본 Dockerfile 이 아닌 `dev/Dockerfile` 사용 — hot reload·source bind mount 친화.
+#
+# Multi-stage 구조:
+#   (1) builder — uv 로 wheel build (force-include 로 migrations + alembic.ini 동봉)
+#   (2) runtime — python:3.12-slim 위에 wheel pip install + non-root + OCI labels
+#   builder stage 의 uv·git 등 빌드 도구는 runtime 에 잔존 안 함 → 이미지 크기·CVE 표면 최소.
 
-# Python 런타임 정석:
-# - PYTHONUNBUFFERED=1: stdout/stderr를 buffer 안 거치고 즉시 flush. 컨테이너 로그 실시간 가시화 (loguru는 자체 flush지만 표준 정석으로 명시).
-# - PYTHONDONTWRITEBYTECODE=1: 컨테이너 안에서 .pyc 생성 안 함. 이미지 layer 깔끔, 마운트 시 호스트 오염 방지.
-# - PIP_NO_CACHE_DIR=1 / PIP_DISABLE_PIP_VERSION_CHECK=1: 이미지 크기 절감 + pip 자체 메시지 noise 차단.
-# - UV_PROJECT_ENVIRONMENT=/opt/venv: uv sync 결과 venv 위치를 /app 바깥에 둔다. dev override의 `./:/app`
-#   bind mount가 /app/.venv를 호스트로 마스킹하는 충돌을 회피.
-# - UV_COMPILE_BYTECODE=1: install 시 .pyc 사전 컴파일 → 첫 import 지연 제거 (컨테이너 한정 OK).
-# - UV_LINK_MODE=copy: hardlink 실패 경고 차단 (cache·target FS 다를 때 안전한 fallback).
+# ─── (1) builder — wheel 빌드 ─────────────────────────────────────────────
+FROM python:3.12-slim AS builder
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    UV_PROJECT_ENVIRONMENT=/opt/venv \
-    UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
-WORKDIR /app
+WORKDIR /build
 
-# uv는 dev tool — latest 사용이 dev Dockerfile 의도. hadolint pin 룰 의도적 면제.
+# uv 는 wheel 빌드 도구 — runtime stage 에 포함 안 됨. hadolint DL3013 면제.
 # hadolint ignore=DL3013
 RUN pip install --no-cache-dir uv
 
-# Layer cache 정석 — 변경 빈도가 낮은 의존성 install을 가장 안쪽 layer에 둔다.
-#
-# 2단 uv sync 패턴:
-# (1) pyproject.toml + uv.lock만 copy 후 `--no-install-project`로 transitive deps만 install
-#     → src/ 변경에 무관하게 layer cache 유지.
-# (2) src copy 후 `uv sync --frozen`으로 project 자체(editable)만 추가 설치.
-#
-# `--frozen` = uv.lock과 pyproject.toml 정합 강제. drift 발견 시 build 실패 → reproducibility 보증.
+# Layer cache 정석 — pyproject + lockfile 변경 빈도 가장 낮음.
+# README.md 는 .dockerignore 제외라 COPY 대상 아님 (pyproject 에 readme 명시 X — uv build 영향 0).
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --no-dev
 
-COPY . .
-RUN uv sync --frozen --no-dev
+# Source + migrations + alembic.ini (hatch force-include 가 wheel 안 동봉).
+COPY src ./src
+COPY migrations ./migrations
+COPY alembic.ini ./
 
-# venv 실행파일을 PATH 앞에 추가 — uvicorn·alembic을 절대경로 없이 호출 가능.
-ENV PATH="/opt/venv/bin:$PATH"
+# `uv build --wheel` — dist/ 에 단일 wheel 산출. `--out-dir /dist` 로 다음 stage 가 쉽게 COPY.
+RUN uv build --wheel --out-dir /dist
 
-# Non-root user (prod 정석) — 컨테이너 안 권한 최소화.
-# uid/gid 1000 고정. dev override(`./:/app` 마운트)에서는 `user: "0:0"`으로 root 강제 — 호스트 uid와의 충돌 회피.
+
+# ─── (2) runtime — wheel install + non-root ───────────────────────────────
+FROM python:3.12-slim AS runtime
+
+# Python 런타임 표준 — stdout flush 즉시·pyc 생성 X·pip 메시지 차단.
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# builder 의 wheel 만 가져와 install. wheel 안에 src + migrations + alembic.ini 동봉 (#hatch.force-include).
+# `--no-deps` 안 함 — pip 이 transitive deps 도 install (wheel metadata 의존성 명시).
+COPY --from=builder /dist/*.whl /tmp/
+RUN pip install --no-cache-dir /tmp/*.whl && \
+    rm /tmp/*.whl
+
+# Non-root user (prod 정석) — 컨테이너 안 권한 최소화. uid/gid 1000 고정.
 RUN groupadd --system --gid 1000 app && \
     useradd  --system --uid 1000 --gid app --no-create-home --shell /usr/sbin/nologin app && \
     chown -R app:app /app
 USER app
+
+# OCI image labels — GHCR UI / cosign / SBOM 도구가 인식.
+LABEL org.opencontainers.image.title="ZConverter Cloud Assessment Engine" \
+      org.opencontainers.image.description="B2B 서버 인벤토리·메트릭 수집·진단 엔진 — 3 컴포넌트 단일 이미지 (web/consumer/diagnostic-worker)" \
+      org.opencontainers.image.source="https://github.com/zconverter/assessment-engine" \
+      org.opencontainers.image.licenses="Proprietary" \
+      org.opencontainers.image.vendor="ZConverter"
+
+# 3 컴포넌트 단일 이미지 — ENTRYPOINT 가 `python -m`, CMD 가 default module.
+#   default (web):           docker run image
+#   consumer:                docker run image assessment_engine.consumer
+#   diagnostic-worker:       docker run image assessment_engine.diagnostic
+# docker compose: `command: assessment_engine.consumer` / k8s: `args: ["assessment_engine.consumer"]`.
+ENTRYPOINT ["python", "-m"]
+CMD ["assessment_engine.web"]

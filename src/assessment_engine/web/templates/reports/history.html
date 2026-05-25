@@ -2,96 +2,38 @@
 {% block title %}ZConverter Assessment — 보고서 이력{% endblock %}
 
 {% block content %}
-<a href="/servers/" class="back">&larr; 뒤로</a>
+<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
 <h1>보고서 이력</h1>
 <p style="color:#64748b; font-size:13px; margin-bottom:16px;">
   고객/엔지니어 보고서 발행 이력.
 </p>
 
-<form method="get" class="search-row no-print" style="margin:16px 0 20px;">
-  <label style="font-size:13px; color:#475569; display:flex; align-items:center; gap:6px;">
-    기간
-    <select name="days" style="padding:6px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-      {% for d in [1, 3, 7, 14, 30, 90] %}
-      <option value="{{ d }}" {% if d == days %}selected{% endif %}>최근 {{ d }}일</option>
-      {% endfor %}
-      <option value="0" {% if days == 0 %}selected{% endif %}>전체</option>
-    </select>
-  </label>
-  <label style="font-size:13px; color:#475569; display:flex; align-items:center; gap:6px;">
-    양식
-    <select name="view" style="padding:6px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-      <option value="all" {% if view == "all" %}selected{% endif %}>전체</option>
-      <option value="customer" {% if view == "customer" %}selected{% endif %}>고객 보고서</option>
-      <option value="engineer" {% if view == "engineer" %}selected{% endif %}>엔지니어 보고서</option>
-    </select>
-  </label>
-  <label style="font-size:13px; color:#475569; display:flex; align-items:center; gap:6px;">
-    범위
-    <select name="scope" style="padding:6px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-      <option value="all" {% if scope == "all" %}selected{% endif %}>전체</option>
-      <option value="environment" {% if scope == "environment" %}selected{% endif %}>환경 전체</option>
-      <option value="server" {% if scope == "server" %}selected{% endif %}>서버 1대</option>
-    </select>
-  </label>
+<form method="get" class="search-row no-print" id="report-history-filter" style="margin:16px 0 20px;">
+  <select name="days">
+    {% for d in [1, 3, 7, 14, 30, 90] %}
+    <option value="{{ d }}" {% if d == days %}selected{% endif %}>최근 {{ d }}일</option>
+    {% endfor %}
+    <option value="0" {% if days == 0 %}selected{% endif %}>전체 기간</option>
+  </select>
+  <select name="view">
+    <option value="all" {% if view == "all" %}selected{% endif %}>양식 전체</option>
+    <option value="customer" {% if view == "customer" %}selected{% endif %}>고객 보고서</option>
+    <option value="engineer" {% if view == "engineer" %}selected{% endif %}>엔지니어 보고서</option>
+  </select>
+  <select name="scope">
+    <option value="all" {% if scope == "all" %}selected{% endif %}>범위 전체</option>
+    <option value="environment" {% if scope == "environment" %}selected{% endif %}>환경 전체</option>
+    <option value="server" {% if scope == "server" %}selected{% endif %}>서버 1대</option>
+  </select>
   {% if server_public_ids %}
     {% for pid in server_public_ids %}
     <input type="hidden" name="server_public_ids" value="{{ pid }}">
     {% endfor %}
   {% endif %}
-  <button type="submit">조회</button>
 </form>
 
-
-{% if items %}
-<table id="report-history-table" data-view="{{ view }}" data-days="{{ days }}">
-  <thead>
-    <tr>
-      <th>발행 시각</th>
-      <th>양식</th>
-      <th>대상</th>
-      <th>윈도우</th>
-      <th>다시 보기</th>
-    </tr>
-  </thead>
-  <tbody id="report-history-tbody">
-    {% for it in items %}
-    <tr>
-      <td style="white-space:nowrap;">{{ it.created_at | kst }}</td>
-      <td>{{ it.view_label }}</td>
-      <td>
-        {% if it.scope == "environment" %}
-        환경 전체 ({{ it.server_count }}대)
-        {% else %}
-        선택 {{ it.server_count }}대
-        {% endif %}
-      </td>
-      <td>{{ it.window_label }}</td>
-      <td><a href="{{ it.result_link }}" class="btn" style="font-size:12px; padding:4px 10px;">보기 →</a></td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-{% if next_cursor %}
-<div style="margin-top:14px; text-align:center; display:flex; gap:8px; justify-content:center;">
-  <button type="button" id="report-history-more"
-          data-cursor="{{ next_cursor }}"
-          {% if server_public_ids %}data-server-public-ids="{{ server_public_ids | join(',') }}"{% endif %}
-          class="btn" style="background:#3b82f6; color:#fff; padding:8px 20px; cursor:pointer; border:none; border-radius:4px;">
-    더 보기
-  </button>
-  <button type="button" id="report-history-all"
-          {% if server_public_ids %}data-server-public-ids="{{ server_public_ids | join(',') }}"{% endif %}
-          class="btn" style="background:#f1f5f9; color:#475569; padding:8px 20px; cursor:pointer; border:1px solid #cbd5e1; border-radius:4px;">
-    전체 보기
-  </button>
+<div id="report-history-results">
+  {% include "reports/_history_results.html" %}
 </div>
-{% endif %}
-<div style="margin-top:10px; font-size:12px; color:#94a3b8;">한 번에 {{ page_limit }}건씩 추가.</div>
 <script src="/static/js/pages/reports-history.js?v={{ asset_v }}" defer></script>
-{% else %}
-<div class="card" style="text-align:center; padding:40px; color:#64748b;">
-  해당 조건의 보고서 이력 없음.
-</div>
-{% endif %}
 {% endblock %}

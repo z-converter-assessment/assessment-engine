@@ -1,11 +1,11 @@
 # JSON Export
 
-본 문서는 JSON Export 산출물(정제 inventory + 사용량 통계를 자동화 도구 입력용 표준 JSON으로 다운로드)의 존재 의의·구현 의도·근거를 정리한다. 스키마·필드·정제 원칙·자동화 도구 매핑 deep dive는 `docs/architecture/inventory-export.md` 별도.
+본 문서는 JSON Export 산출물(정제 inventory + 사용량 통계를 자동화 도구 입력용 표준 JSON으로 다운로드)의 존재 의의·구현 의도·근거를 정리한다. 스키마·필드·정제 원칙·자동화 도구 매핑 deep dive는 `docs/architecture/web/export-schema.md` 별도.
 
 ## 위치
 
 - UI 진입점: 대시보드 list 페이지에서 N대 선택 → "Export" 버튼 → 다운로드
-- API: `POST /api/v1/exports/inventory` (envelope JSON)
+- API: `POST /api/exports/inventory` (envelope JSON)
 - 산출물 형태: 단일 JSON 파일 — 선택 서버 N대의 정제 inventory + 사용량 통계 + 평가 윈도우 메타
 
 ## 존재 의의
@@ -22,11 +22,11 @@
 
 질문 3: "Ansible inventory·Terraform tfvars로 N대 일괄 자동화하려면?"
 
-JSON 안 표준 명명(`mount_point`·`vcpu_count`·`addresses[]` 등 Terraform·OpenStack·CSP SDK 표준 어휘에 가깝게)으로 정제됨. 별도 가공 없이 자동화 도구 입력. `docs/architecture/inventory-export.md` 자동화 도구 매핑 표 참조.
+JSON 안 표준 명명(`mount_point`·`vcpu_count`·`addresses[]` 등 Terraform·OpenStack·CSP SDK 표준 어휘에 가깝게)으로 정제됨. 별도 가공 없이 자동화 도구 입력. `docs/architecture/web/export-schema.md` 자동화 도구 매핑 표 참조.
 
 ## 산출 정보
 
-JSON envelope (요약 — 자세한 스키마는 architecture/inventory-export.md):
+JSON envelope (요약 — 자세한 스키마는 architecture/web/export-schema.md):
 
 ```json
 {
@@ -62,7 +62,7 @@ JSON envelope (요약 — 자세한 스키마는 architecture/inventory-export.m
 
 ## 자동화 도구 호환
 
-`docs/architecture/inventory-export.md` "자동화 도구 매핑" 표 참조. 주요 매핑:
+`docs/architecture/web/export-schema.md` "자동화 도구 매핑" 표 참조. 주요 매핑:
 
 | export 필드 | Terraform | OpenStack Heat | Ansible |
 |------------|-----------|----------------|---------|
@@ -101,15 +101,15 @@ size_class_guide envelope:
 ## 한계
 
 1. instance type 직접 매핑 X — JSON에는 raw spec만 (`vcpu_count`·`mem_total_gb`). 실제 `t3.medium`·`m5.large` 결정은 자동화 도구 측 책임 — 도구가 자체 lookup table 보유 의무.
-2. 시간 흐름 export 미지원 — 단일 시점 snapshot만. 시계열 export(같은 서버의 14일 분포)는 별도 endpoint·도구로 (`/api/v1/charts/...`).
+2. 시간 흐름 export 미지원 — 단일 시점 snapshot만. 시계열 export(같은 서버의 14일 분포)는 별도 endpoint·도구로 (`/api/charts/...`).
 3. PII·secret 노출 위험 — inventory에 hostname·internal IP 박힘. 외부 도구 입력 시 sanitize 의무는 외부 인프라 책임 — 본 엔진은 원본 데이터 그대로 export.
 4. 평가 윈도우 14일 default — `?period_days=N`으로 override 가능 (1~90일). 정책 단일 진실은 CLAUDE.md #F10.
 5. 자동화 도구 매핑은 reference만 — 실제 도구가 본 매핑을 따른다는 보장 없음. 도구 측 변환 코드 검증 의무.
 
 ## 관련 문서·코드
 
-- `docs/architecture/inventory-export.md` — JSON Export 스키마·필드 카탈로그·정제 원칙·자동화 도구 매핑 단일 진실
-- `docs/products/customer-report.md` / `engineer-report.md` — 같은 데이터 source의 사람용 출력
+- `docs/architecture/web/export-schema.md` — JSON Export 스키마·필드 카탈로그·정제 원칙·자동화 도구 매핑 단일 진실
+- `docs/products/environment-report.md` / `server-report.md` — 같은 데이터 source 의 사람용 출력
 - `src/assessment_engine/web/routers/exports.py` — Export endpoint
 - `src/assessment_engine/web/services/query_service.py::get_inventory_export` — 데이터 build
 - CLAUDE.md #F10 — 평가 윈도우 단일 진실

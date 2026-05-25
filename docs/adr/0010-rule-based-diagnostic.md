@@ -1,6 +1,6 @@
 # ADR 0010 — 진단을 규칙 기반으로 한정, LLM 분기 보류
 
-상태: Accepted (2026-05-16). ADR 0003 "AI/LLM 활용 로드맵"·ADR 0004 "AI 진단 워커 아키텍처"의 LLM(narrative 합성) 활용 부분을 본 ADR로 정정.
+상태: Accepted (2026-05-16), Refined by 0023 (2026-05-23) + 0025 (2026-05-24) — scheduler cron 자동 발화 폐기 (0023) + LLM 분기 보류 결정 supersede (0025 — 단일 provider ollama 활성, mock 폐기). 본 ADR 안 "LLM 분기 보류"·"mock default" 본문은 historical record. ADR 0003 + 0004 의 LLM(narrative 합성) 활용 부분을 본 ADR 로 정정한 history 유효.
 
 ## Context
 
@@ -21,7 +21,7 @@ ADR 0003에서 LLM을 진단 narrative 합성·리포트 생성 등에 활용하
 - `MockLlmClient`의 결정론 narrative 합성은 운영 산출물 — 외부 API 부재 환경에서 규칙 기반 텍스트 출력 단일 진실.
 
 명칭 매핑:
-- scope=environment → "환경 진단" (전체 활성 서버 대상 발행, 스케줄러 매일 03시 자동)
+- scope=environment → "환경 진단" (전체 활성 서버 대상 발행, 사용자 trigger 만 — ADR 0023)
 - scope=server → "서버 진단" (단일 또는 N대 batch 발행)
 - 공통 진입점·이력 페이지는 단순 "진단"
 

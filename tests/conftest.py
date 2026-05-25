@@ -10,6 +10,7 @@ TimescaleDB extension·hypertable·partial index 등 모두 마이그레이션�
 session-scope async fixture를 쓰려면 pyproject의
 `asyncio_default_fixture_loop_scope = "session"` 설정이 필수.
 """
+
 import os
 import subprocess
 from collections.abc import AsyncGenerator, AsyncIterator
@@ -25,9 +26,9 @@ _REPO_ROOT = Path(__file__).parent.parent
 
 @pytest.fixture(scope="session")
 def _postgres_container() -> PostgresContainer:
-    """세션 전체 1회 spawn. TimescaleDB 이미지 사용."""
+    """세션 전체 1회 spawn. TimescaleDB + pgvector all-in-one 이미지 (ADR 0024)."""
     container = PostgresContainer(
-        image="timescale/timescaledb:latest-pg16",
+        image="timescale/timescaledb-ha:pg16",
         username="test",
         password="test",
         dbname="assessment_test",
@@ -55,7 +56,9 @@ async def engine(_postgres_container: PostgresContainer) -> AsyncIterator[AsyncE
     env["APP_ENV"] = "dev"  # prod model_validator 우회 (테스트 자격은 약한 default)
     subprocess.run(
         ["alembic", "-c", str(_REPO_ROOT / "alembic.ini"), "upgrade", "head"],
-        env=env, check=True, capture_output=True,
+        env=env,
+        check=True,
+        capture_output=True,
     )
 
     eng = create_async_engine(async_url, echo=False, future=True)

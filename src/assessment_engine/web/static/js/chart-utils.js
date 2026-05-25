@@ -1,5 +1,5 @@
 // 차트 템플릿 공통 유틸. 모든 차트 페이지가 import.
-// CLAUDE.md §E1 P4 의무 규약(sequence counter, capture-before-await,
+// CLAUDE.md #E1 P4 의무 규약(sequence counter, capture-before-await,
 // Array.isArray 방어, 404 분기, suggestedMax 명명 상수)의 도구 모음.
 
 (function (root) {
@@ -90,7 +90,7 @@
 
   // ── SSE 초기화 ──
   function initSse(serverId, onMessage) {
-    const es = new EventSource(`/api/v1/servers/${serverId}/metrics/stream`);
+    const es = new EventSource(`/api/servers/${serverId}/metrics/stream`);
     const dot = document.getElementById('sse-dot');
     const lbl = document.getElementById('sse-label');
     es.onopen    = () => { if (dot) dot.className = 'dot dot-ok'; if (lbl) lbl.textContent = '자동 갱신 중'; };
@@ -151,8 +151,8 @@
         ? `<svg width="20" height="3" style="flex-shrink:0;"><line x1="0" y1="1.5" x2="20" y2="1.5" stroke="${ds.borderColor}" stroke-width="2" stroke-dasharray="4 2"/></svg>`
         : `<span style="width:20px; height:3px; border-radius:2px; background:${ds.borderColor}; flex-shrink:0;"></span>`;
       const labelHtml = opts.codeLabel
-        ? `<code style="font-size:11px; background:#f1f5f9; padding:1px 5px; border-radius:3px; color:#334155;">${ds.label}</code>`
-        : `<span style="font-size:12px; color:#475569;">${ds.label}</span>`;
+        ? `<code>${ds.label}</code>`
+        : `<span class="text-label">${ds.label}</span>`;
       if (opts.withToggle) {
         return `<label style="display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;">
           <input type="checkbox" data-avg="${i * 2}" checked
@@ -175,12 +175,12 @@
   }
 
   // ── reboot / agent restart 이벤트 (차트 vertical marker용) ──
-  // 백엔드 API: GET /api/v1/servers/{id}/events/reboot?time_range=...&end=...
+  // 백엔드 API: GET /api/servers/{id}/events/reboot?time_range=...&end=...
   // 응답: [{collected_at, boot_time, agent_started_at, kind: "reboot"|"restart"}]
   async function fetchRebootEvents(serverId, range, anchor) {
     const p = new URLSearchParams({ time_range: range });
     if (anchor) p.append('end', anchor.toISOString());
-    const res = await fetch(`/api/v1/servers/${serverId}/events/reboot?${p}`);
+    const res = await fetch(`/api/servers/${serverId}/events/reboot?${p}`);
     if (res.status === 404 || !res.ok) return [];
     const data = await res.json();
     return Array.isArray(data) ? data : [];

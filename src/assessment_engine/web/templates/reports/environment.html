@@ -5,8 +5,8 @@
 <a class="back no-print" href="{{ back_url or '/servers/' }}">&larr; 이전</a>
 
 <div style="display:flex; align-items:center; justify-content:space-between; margin:8px 0 20px; gap:16px;">
-  <h1 style="margin:0;">환경 보고서
-    <span style="font-size:14px; color:#64748b; font-weight:400; margin-left:8px;">{{ view_title }}</span>
+  <h1>환경 보고서
+    <span class="page-meta">{{ view_title }}</span>
   </h1>
   <div style="display:flex; align-items:center; gap:14px;">
     <div style="font-size:12px; color:#64748b; text-align:right;">
@@ -23,7 +23,7 @@
 {% if summary.view == "customer" %}
 {# ============================= 양식 A — 고객 제출용 ============================= #}
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">요약</h2>
+  <h2>요약</h2>
   <ul style="margin:0; padding-left:20px; color:#1e293b; line-height:1.8;">
     {% for b in summary.summary_bullets_env %}
     <li>{{ b }}</li>
@@ -32,7 +32,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 14px;">환경 요약</h2>
+  <h2>환경 요약</h2>
   <div class="metric-grid" style="grid-template-columns:repeat(4, 1fr);">
     <div class="metric-card">
       <div class="metric-label">등록 서버</div>
@@ -74,29 +74,29 @@
 
 <section class="card" style="margin-bottom:16px;">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #e2e8f0;">
-    <h2 style="margin:0;">자원 평가</h2>
-    <span style="font-size:11px; color:#94a3b8;">Right-sizing 분류 · {{ summary.time_range_label }} 윈도우 기준</span>
+    <h2>자원 평가</h2>
+    <span class="section-meta">Right-sizing 분류 · {{ summary.time_range_label }} 윈도우 기준</span>
   </div>
 
-  <h3 style="margin:0 0 10px; font-size:14px; color:#475569;">환경 현황</h3>
+  <h3>환경 현황</h3>
   <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:14px; margin-bottom:20px;">
     <div style="border:1px solid #fecaca; border-radius:6px; padding:18px; text-align:center; background:#fef2f2;">
       <div style="font-size:12px; color:#64748b;">자원 부족 (즉시 검토)</div>
-      <div style="font-size:32px; font-weight:700; color:#b91c1c; line-height:1.2;">{{ summary.base.risk_high }}</div>
+      <div class="text-danger" style="font-size:32px; font-weight:700; line-height:1.2;">{{ summary.base.risk_high }}</div>
       <div style="font-size:11px; color:#94a3b8;">증설 검토</div>
     </div>
-    <div style="border:1px solid #fed7aa; border-radius:6px; padding:18px; text-align:center; background:#fff7ed;">
+    <div style="border:1px solid #fde68a; border-radius:6px; padding:18px; text-align:center; background:#fffbeb;">
       <div style="font-size:12px; color:#64748b;">효율화 권장</div>
-      <div style="font-size:32px; font-weight:700; color:#d97706; line-height:1.2;">{{ summary.base.risk_attention }}</div>
+      <div class="text-warn" style="font-size:32px; font-weight:700; line-height:1.2;">{{ summary.base.risk_attention }}</div>
       <div style="font-size:11px; color:#94a3b8;">과다·유휴</div>
     </div>
   </div>
 
-  <h3 style="margin:0 0 10px; font-size:14px; color:#475569;">Right-sizing 분포</h3>
+  <h3>Right-sizing 분포</h3>
   <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:20px;">
     {% for c in summary.classification_dist %}
     <div style="display:flex; align-items:center; gap:10px;">
-      <div style="width:160px; font-size:12px; color:#1e293b; font-family:monospace;">{{ c.label }}</div>
+      <div style="width:160px; font-size:12px; color:#1e293b;">{{ c.label }}</div>
       <div style="flex:1; background:#f1f5f9; border-radius:4px; height:18px; overflow:hidden;">
         <div style="width:{{ c.pct }}%; background:{{ c.color }}; height:100%;"></div>
       </div>
@@ -106,7 +106,7 @@
     {% endfor %}
   </div>
 
-  <h3 style="margin:0 0 10px; font-size:14px; color:#475569;">조치 필요 호스트 ({{ summary.top_risks_count }}대)</h3>
+  <h3>조치 필요 호스트 ({{ summary.top_risks_count }}대)</h3>
   {% if summary.top_risks %}
   <table>
     <thead>
@@ -119,29 +119,39 @@
     <tbody>
       {% for r in summary.top_risks %}
       <tr>
-        <td><a href="/servers/{{ r.public_id }}"><code style="font-size:11px;">{{ r.hostname }}</code></a></td>
+        <td><a href="/servers/{{ r.public_id }}?back={{ self_back }}" class="row-link">{{ r.hostname }}</a></td>
         <td><span class="badge {{ r.badge_class }}">{{ r.recommendation }}</span></td>
-        <td style="font-size:12px; color:#1e293b;">
-          {% if r.recommendation == "under_provisioned" %}{{ r.under_provisioned_reason }}
-          {% elif r.recommendation == "over_provisioned" %}자원 축소 검토
-          {% elif r.recommendation == "idle" %}용도 재평가 / 종료 검토
-          {% elif r.recommendation == "shutdown" %}종료 가능 검토
-          {% else %}—{% endif %}
-        </td>
+        <td class="text-strong" style="font-size:12px;">{{ r.recommendation_action or "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <p style="margin:0; color:#16a34a; font-size:13px;">조치 필요 호스트 없음.</p>
+  <p class="text-ok" style="margin:0; font-size:13px;">조치 필요 호스트 없음.</p>
   {% endif %}
 </section>
 
 {% else %}
 {# ============================= 양식 B — 엔지니어 검토용 (상세·엄밀) ============================= #}
 
+{# AI 진단 — 보고서 흐름 안 inline (별도 카드·발행 버튼·이력 link 없음). 보고서 anchor + time_range 기반 자동 발행. #}
+<section class="card" data-diagnostic-inline data-job-id="{{ diag_job_id or '' }}" style="margin-bottom:16px;">
+  <h2>AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
+  {% if diag and diag.narrative %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; line-height:1.6; font-size:14px; color:#1e293b;">{{ diag.narrative }}</div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;">
+    분류 분포: <strong>{{ diag.classification_label_kr or "—" }}</strong>
+  </div>
+  {% else %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; color:#64748b; font-size:13px;">
+    {% if diag_job_id %}AI 진단 진행 중 (LLM 합성 10~60초 소요). 본 보고서 새로고침 또는 자동 폴링 대기.{% else %}AI 진단 자료 없음.{% endif %}
+  </div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
+  {% endif %}
+</section>
+
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">환경 메트릭</h2>
+  <h2>환경 메트릭</h2>
   <div class="metric-grid" style="grid-template-columns:repeat(4, 1fr);">
     <div class="metric-card">
       <div class="metric-label">등록 서버</div>
@@ -183,19 +193,17 @@
 
 <section class="card" style="margin-bottom:16px;">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #e2e8f0;">
-    <h2 style="margin:0;">Right-sizing 분류</h2>
-    <span style="font-size:11px; color:#94a3b8;">6 분류 · {{ summary.time_range_label }} 윈도우 · USE Method (Brendan Gregg) + AWS Compute Optimizer / Azure Advisor / GCP Recommender 임계 종합</span>
+    <h2>Right-sizing 분류</h2>
+    <span class="section-meta">{{ summary.time_range_label }} 윈도우</span>
   </div>
 
-  <h3 style="margin:0 0 10px; font-size:14px; color:#475569;">분포</h3>
-  {% set classified_total = summary.classification_dist | sum(attribute='count') %}
+  <h3>분포</h3>
   <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:20px;">
     {% for c in summary.classification_dist %}
-    {% set pct = (c.count / classified_total * 100) if classified_total else 0 %}
     <div style="display:flex; align-items:center; gap:10px;">
-      <div style="width:160px; font-size:12px; color:#1e293b; font-family:monospace;">{{ c.label }}</div>
+      <div style="width:160px; font-size:12px; color:#1e293b;">{{ c.label }}</div>
       <div style="flex:1; background:#f1f5f9; border-radius:4px; height:18px; overflow:hidden;">
-        <div style="width:{{ pct }}%; background:{{ c.color }}; height:100%;"></div>
+        <div style="width:{{ c.pct }}%; background:{{ c.color }}; height:100%;"></div>
       </div>
       <div style="width:48px; text-align:right; font-size:12px; color:#64748b;">{{ c.count }}대</div>
       <div style="width:240px; font-size:11px; color:#94a3b8;">{{ c.description }}</div>
@@ -204,7 +212,7 @@
   </div>
 
   {% if summary.under_provisioned_hosts %}
-  <h3 style="margin:0 0 10px; font-size:14px; color:#475569;">언더 프로비저닝 상세 ({{ summary.under_provisioned_hosts_count }}건) — trigger 별 hit</h3>
+  <h3>언더 프로비저닝 상세 ({{ summary.under_provisioned_hosts_count }}건) — trigger 별 hit</h3>
   <ul class="attention-list" style="margin:0 0 20px; padding:0; list-style:none;">
     {% for c in summary.under_provisioned_hosts %}
     <li class="attention-item" style="gap:8px; flex-wrap:wrap; padding:6px 0;">
@@ -213,20 +221,23 @@
         <span class="badge" style="background:{{ t.bg_color }}; color:{{ t.fg_color }};">{{ t.label }}</span>
         {% endfor %}
       </span>
-      <a href="/servers/{{ c.public_id }}"><code style="font-size:12px;">{{ c.hostname }}</code></a>
+      <a href="/servers/{{ c.public_id }}?back={{ self_back }}" class="row-link">{{ c.hostname }}</a>
     </li>
     {% endfor %}
   </ul>
   {% endif %}
 
   {% if summary.top_risks %}
-  <h3 style="margin:0 0 10px; font-size:14px; color:#475569;">호스트 상세 (위험도 정렬 · 전체 {{ summary.top_risks_count }}대)</h3>
+  <h3>호스트 상세 (전체 {{ summary.top_risks_count }}대)</h3>
   <div style="overflow-x:auto;">
   <table style="font-size:12px;">
     <thead>
       <tr>
         <th>호스트</th>
         <th>OS</th>
+        <th>vCPU</th>
+        <th>메모리</th>
+        <th>디스크</th>
         <th>분류</th>
         <th>CPU p95/peak</th>
         <th>MEM p95/peak</th>
@@ -241,16 +252,19 @@
     <tbody>
       {% for r in summary.top_risks %}
       <tr>
-        <td><a href="/servers/{{ r.public_id }}"><code style="font-size:11px;">{{ r.hostname }}</code></a></td>
+        <td><a href="/servers/{{ r.public_id }}?back={{ self_back }}" class="row-link">{{ r.hostname }}</a></td>
         <td>{{ r.os_display }}</td>
+        <td>{% if r.cpu_cores is not none %}{{ r.cpu_cores }}{% else %}—{% endif %}</td>
+        <td>{% if r.mem_total_gb is not none %}{{ "%.1f" | format(r.mem_total_gb) }} GB{% else %}—{% endif %}</td>
+        <td>{% if r.disk_total_gb is not none %}{{ "%.0f" | format(r.disk_total_gb) }} GB{% else %}—{% endif %}</td>
         <td><span class="badge {{ r.badge_class }}">{{ r.recommendation }}</span></td>
         <td>
           {%- if r.cpu_p95_pct is not none %}{{ "%.1f" | format(r.cpu_p95_pct) }}%{% else %}—{% endif -%}
-          {%- if r.cpu_peak_pct is not none %} <span style="color:#94a3b8;">/ {{ "%.0f" | format(r.cpu_peak_pct) }}%</span>{% endif -%}
+          {%- if r.cpu_peak_pct is not none %} <span class="text-meta">/ {{ "%.0f" | format(r.cpu_peak_pct) }}%</span>{% endif -%}
         </td>
         <td>
           {%- if r.mem_p95_pct is not none %}{{ "%.1f" | format(r.mem_p95_pct) }}%{% else %}—{% endif -%}
-          {%- if r.mem_peak_pct is not none %} <span style="color:#94a3b8;">/ {{ "%.0f" | format(r.mem_peak_pct) }}%</span>{% endif -%}
+          {%- if r.mem_peak_pct is not none %} <span class="text-meta">/ {{ "%.0f" | format(r.mem_peak_pct) }}%</span>{% endif -%}
         </td>
         <td style="color:{{ r.saturation_color }};">
           {%- if r.load_15m_max is not none %}{{ "%.2f" | format(r.load_15m_max) }}{% else %}—{% endif -%}
@@ -261,9 +275,9 @@
             {%- if r.worst_mount_used_pct is not none %} ({{ "%.0f" | format(r.worst_mount_used_pct) }}%){% endif -%}
           {% else %}—{% endif %}
         </td>
-        <td>{% if r.swap_used %}발생{% else %}<span style="color:#94a3b8;">—</span>{% endif %}</td>
+        <td>{% if r.swap_used %}발생{% else %}<span class="text-meta">—</span>{% endif %}</td>
         <td style="color:{{ r.reboot_count_color }};">{{ r.reboot_count }}</td>
-        <td style="color:#64748b;">{{ r.diagnosis or "—" }}</td>
+        <td class="text-muted">{{ r.diagnosis or "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -274,11 +288,11 @@
 
 <section class="card" style="margin-bottom:16px;">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #e2e8f0;">
-    <h2 style="margin:0;">운영 신호</h2>
-    <span style="font-size:11px; color:#94a3b8;">Right-sizing 분류 외 시스템 운영 이상 (통신·OS EOL·에이전트 재시작)</span>
+    <h2>운영 신호</h2>
+    <span class="section-meta">Right-sizing 분류 외 시스템 운영 이상 (통신·OS EOL·에이전트 재시작)</span>
   </div>
 
-  <h3 style="margin:0 0 10px; font-size:14px; color:#475569;">카테고리 요약</h3>
+  <h3>카테고리 요약</h3>
   <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-bottom:20px;">
     {% for entry in summary.attention.catalog %}
     <div style="border:1px solid {% if entry.active %}#fed7aa{% else %}#e2e8f0{% endif %}; border-radius:6px; padding:12px; background:{% if entry.active %}#fef3c7{% else %}#fff{% endif %};">
@@ -289,7 +303,7 @@
   </div>
 
   {% if summary.attention_hosts %}
-  <h3 style="margin:0 0 10px; font-size:14px; color:#475569;">발화 호스트 ({{ summary.attention_hosts_count }}건) — 호스트 기준 통합</h3>
+  <h3>발화 호스트 ({{ summary.attention_hosts_count }}건) — 호스트 기준 통합</h3>
   <table style="font-size:12px;">
     <thead>
       <tr>
@@ -304,11 +318,11 @@
     <tbody>
       {% for h in summary.attention_hosts %}
       <tr>
-        <td><a href="/servers/{{ h.public_id }}"><code style="font-size:11px;">{{ h.hostname }}</code></a></td>
+        <td><a href="/servers/{{ h.public_id }}?back={{ self_back }}" class="row-link">{{ h.hostname }}</a></td>
         <td>{{ h.os_display }}</td>
-        <td>{% if h.gap_label %}{{ h.gap_label }}{% else %}<span style="color:#94a3b8;">—</span>{% endif %}</td>
-        <td>{% if h.os_eol_label %}<span style="font-size:11px;">{{ h.os_eol_label }}</span>{% else %}<span style="color:#94a3b8;">—</span>{% endif %}</td>
-        <td>{% if h.restart_label %}{{ h.restart_label }}{% else %}<span style="color:#94a3b8;">—</span>{% endif %}</td>
+        <td>{% if h.gap_label %}{{ h.gap_label }}{% else %}<span class="text-meta">—</span>{% endif %}</td>
+        <td>{% if h.os_eol_label %}<span style="font-size:11px;">{{ h.os_eol_label }}</span>{% else %}<span class="text-meta">—</span>{% endif %}</td>
+        <td>{% if h.restart_label %}{{ h.restart_label }}{% else %}<span class="text-meta">—</span>{% endif %}</td>
         <td style="font-weight:600; color:#92400e;">{{ h.active_count }}</td>
       </tr>
       {% endfor %}
@@ -319,7 +333,7 @@
 
 {% if summary.capacity_imminent %}
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">디스크 capacity 임박 ({{ summary.capacity_imminent_count }}건)</h2>
+  <h2>디스크 capacity 임박 ({{ summary.capacity_imminent_count }}건)</h2>
   <p style="margin:0 0 12px; font-size:12px; color:#64748b;">linear projection 기반 — 30일 안 디스크 full 위험. 운영 계획 입력.</p>
   <table style="font-size:12px;">
     <thead>
@@ -333,7 +347,7 @@
     <tbody>
       {% for h in summary.capacity_imminent %}
       <tr>
-        <td><a href="/servers/{{ h.public_id }}"><code style="font-size:11px;">{{ h.hostname }}</code></a></td>
+        <td><a href="/servers/{{ h.public_id }}?back={{ self_back }}" class="row-link">{{ h.hostname }}</a></td>
         <td><code style="font-size:11px;">{{ h.worst_mount }}</code></td>
         <td>{% if h.used_pct is not none %}{{ "%.0f" | format(h.used_pct) }}%{% else %}—{% endif %}</td>
         <td style="color:#b91c1c; font-weight:600;">{{ h.days_until_full }}일</td>
@@ -345,7 +359,7 @@
 {% endif %}
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">OS 분포</h2>
+  <h2>OS 분포</h2>
   {% if summary.os_distribution %}
   <table style="font-size:12px;">
     <thead>
@@ -367,7 +381,7 @@
 
 {% if summary.insufficient_hosts %}
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">평가 표본 부족 호스트 ({{ summary.insufficient_hosts_count }}건)</h2>
+  <h2>평가 표본 부족 호스트 ({{ summary.insufficient_hosts_count }}건)</h2>
   <p style="margin:0 0 12px; font-size:12px; color:#64748b;">에이전트 신규 설치 또는 메트릭 수집 문제 — 평가 정확도 확보 위해 점검 필요.</p>
   <table style="font-size:12px;">
     <thead>
@@ -376,9 +390,9 @@
     <tbody>
       {% for h in summary.insufficient_hosts %}
       <tr>
-        <td><a href="/servers/{{ h.public_id }}"><code style="font-size:11px;">{{ h.hostname }}</code></a></td>
+        <td><a href="/servers/{{ h.public_id }}?back={{ self_back }}" class="row-link">{{ h.hostname }}</a></td>
         <td>{{ h.os_display }}</td>
-        <td style="color:#64748b;">{{ h.reason }}</td>
+        <td class="text-muted">{{ h.reason }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -386,41 +400,20 @@
 </section>
 {% endif %}
 
-<section class="card" style="margin-bottom:16px; background:#f8fafc;">
-  <h2 style="margin:0 0 8px; color:#475569;">참고자료</h2>
-  <p class="no-print" style="margin:0; font-size:13px; color:#475569;">
-    Right-sizing 분류 임계값·USE 축·근거 출처는 별도 reference 페이지에서 확인:
-    <a href="/reports/right-sizing-thresholds?back={{ self_back }}" class="row-link">Right-sizing 분류 임계값 (참고자료)</a>
-  </p>
-  <div class="print-only">
-    <p style="margin:0 0 12px; font-size:12px; color:#64748b;">Right-sizing 분류 임계값 — recommendation 모듈 단일 진실. 분류 의사결정의 임계·근거.</p>
-    <table style="font-size:12px;">
-      <thead>
-        <tr>
-          <th>분류</th>
-          <th>USE 축</th>
-          <th>입력</th>
-          <th>임계</th>
-          <th>근거</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr><td>idle</td><td>Utilization</td><td>cpu_peak · net_avg</td><td>cpu_peak ≤ 1% AND net ≤ 1 KB/s</td><td>AWS Compute Optimizer</td></tr>
-        <tr><td>shutdown</td><td>Utilization</td><td>cpu_p95 · net_avg</td><td>cpu_p95 ≤ 3% AND net ≤ 2 Mbps</td><td>Azure Advisor</td></tr>
-        <tr><td>over_provisioned</td><td>Utilization</td><td>cpu_p95 · mem_p95</td><td>cpu ≤ 30% AND mem ≤ 50%</td><td>AWS Compute Optimizer + GCP (headroom 30%)</td></tr>
-        <tr><td>under_provisioned</td><td>Utilization</td><td>cpu_p95</td><td>cpu_p95 ≥ 70%</td><td>Kleinrock (1975) · Google SRE</td></tr>
-        <tr><td>under_provisioned</td><td>Utilization</td><td>mem_p95</td><td>mem_p95 ≥ 80%</td><td>Linux page cache 압박</td></tr>
-        <tr><td>under_provisioned</td><td>Saturation</td><td>swap_used</td><td>true (page-out 발생)</td><td>Memory saturation 신호</td></tr>
-        <tr><td>under_provisioned</td><td>Saturation</td><td>load_15m / cpu_cores</td><td>≥ 1.0 (run queue)</td><td>USE Method (Brendan Gregg)</td></tr>
-        <tr><td>under_provisioned</td><td>Utilization</td><td>disk worst mount %</td><td>≥ 85%</td><td>Cloud Advisor storage capacity</td></tr>
-        <tr><td>under_provisioned</td><td>Saturation</td><td>iowait_p95</td><td>≥ 20%</td><td>Disk IO saturation</td></tr>
-        <tr><td>optimal</td><td>—</td><td>위 임계 미해당</td><td>적정</td><td>USE 잔여</td></tr>
-        <tr><td>insufficient_data</td><td>—</td><td>cpu_p95 또는 mem_p95 null</td><td>표본 부재</td><td>윈도우 미만 또는 metric 부재</td></tr>
-      </tbody>
-    </table>
-  </div>
-</section>
-
 {% endif %}
 
+<section class="card" style="margin-bottom:16px; background:#f8fafc;">
+  <h2>참고자료</h2>
+  <p style="margin:0; font-size:13px; color:#475569;">
+    Right-sizing 분류 임계값 · USE 축 · 보조 지표 정의{% if summary.view == "engineer" %} · 운영 신호 임계{% endif %} · 근거 출처:
+    <a href="/reports/right-sizing-thresholds?back={{ self_back }}" class="row-link">Right-sizing 분류 임계값 (참고자료)</a>
+  </p>
+  <p class="print-only" style="margin:6px 0 0; font-size:11px; color:#94a3b8;">
+    인쇄본 단독 검토 시 참고자료 페이지를 별도 인쇄 -> 두 출력물을 함께 참조.
+  </p>
+</section>
+
+{% if view == "engineer" %}
+<script src="/static/js/diagnostic-inline.js?v={{ asset_v }}" defer></script>
+{% endif %}
 {% endblock %}

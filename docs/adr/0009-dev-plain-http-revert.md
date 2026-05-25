@@ -1,6 +1,6 @@
 # ADR 0009 — dev 환경 plain HTTP 복귀 (ADR 0008 supersede)
 
-상태: 채택 (2026-05-15) — Supersedes ADR 0008
+상태: Superseded by ADR 0016 (2026-05-21) — 본 결정 채택 시점(2026-05-15) 에는 Supersedes ADR 0008. 이후 self-host install bundle endpoint 자체 제거로 dev plain HTTP 결정 무효 (0016).
 
 ## Context
 

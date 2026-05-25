@@ -8,12 +8,12 @@
 <div id="install-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:8px; padding:24px; width:520px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <h3 style="margin:0; font-size:16px; color:#1e293b;">ZConverter Install 발행</h3>
+      <h3 class="modal-title">ZConverter Install 발행</h3>
       <button type="button" id="install-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
     </div>
     <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">
       선택된 <span id="install-count" style="font-weight:600; color:#1e293b;">0</span>대 호스트에 아래 ZDM 좌표로 ZConverter 설치를 발행합니다.
-      <br>설치 번들 endpoint (예: <code style="color:#475569;">{{ install_bundle_url }}</code>) — 호스트가 본 URL 에서 fetch 후 OS별 스크립트 실행.
+      <br>각 호스트의 agent 가 ZDM 서버에서 본체 패키지를 fetch 후 <code>install.sh -s ZDM_IP -u ZDM_USER</code> 실행.
     </p>
     <div style="margin:12px 0;">
       <label for="install-zdm-target" style="display:block; font-size:12px; color:#475569; margin-bottom:4px;">ZDM 서버 IP/hostname</label>
@@ -29,55 +29,19 @@
   </div>
 </div>
 
-<!-- AI 진단 발행 모달 — 선택 N대에 server scope 진단 발행 (ADR 0004 단계 3) -->
-<div id="diagnose-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
-  <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <h3 style="margin:0; font-size:16px; color:#1e293b;">AI 진단 발행</h3>
-      <button type="button" id="diag-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
-    </div>
-    <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">
-      선택된 <span id="diag-count" style="font-weight:600; color:#1e293b;">0</span>대 서버에 대해 Right-sizing 규칙 기반 진단 발행. 결과 페이지로 이동합니다.
-    </p>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
-      <div>
-        <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">윈도우</label>
-        <select id="diag-range" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-          <option value="15m">15분</option>
-          <option value="1h">1시간</option>
-          <option value="6h">6시간</option>
-          <option value="24h">24시간</option>
-          <option value="7d">7일</option>
-          <option value="14d" selected>14일 (표준)</option>
-          <option value="30d">30일</option>
-        </select>
-      </div>
-      <div>
-        <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">Anchor (KST)</label>
-        <input type="datetime-local" id="diag-anchor" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-      </div>
-    </div>
-    <button type="button" id="diag-submit" class="btn" style="background:#3b82f6; color:#fff; padding:8px 16px; cursor:pointer; border:none;">발행</button>
-  </div>
-</div>
-
-<!-- 서버 발견 모달 — IP 입력 → HTTP probe로 도달성 확인 (Ansible 배포 워크플로우 1단계) -->
+<!-- 서버 발견 모달 — IP 입력 → SSH 포트 TCP connect로 도달성 확인 (Ansible 배포 워크플로우 1단계) -->
 <div id="discover-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <h3 style="margin:0; font-size:16px; color:#1e293b;">서버 도달성 확인</h3>
+      <h3 class="modal-title">SSH 도달성 확인</h3>
       <button type="button" id="discover-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
     </div>
     <p style="margin:0 0 16px; font-size:12px; color:#64748b; line-height:1.5;">
-      대상 서버 IP 또는 hostname에 HTTP HEAD 요청을 보내 네트워크 도달성을 확인합니다. (1차 검사 — SSH 도달 보장 안 함)
+      대상 서버 IP 또는 hostname의 SSH 포트(기본 22)에 TCP 연결을 시도해 도달성을 확인합니다. (1차 검사 — 로그인 가능 여부는 credential 등록 후 별도 확인)
     </p>
-    <div style="display:grid; grid-template-columns:1fr 80px 100px; gap:8px; margin-bottom:12px;">
-      <input type="text" id="probe-ip" placeholder="IP 또는 hostname (예: 192.168.0.42 또는 engine.internal)" style="padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; font-family:monospace;">
-      <input type="number" id="probe-port" value="80" min="1" max="65535" style="padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-      <select id="probe-scheme" style="padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-        <option value="http">http</option>
-        <option value="https">https</option>
-      </select>
+    <div style="display:grid; grid-template-columns:1fr 80px; gap:8px; margin-bottom:12px;">
+      <input type="text" id="probe-ip" value="{{ discovery_default_target }}" placeholder="IP 또는 hostname (예: 192.168.0.42 또는 engine.internal)" style="padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; font-family:monospace;">
+      <input type="number" id="probe-port" value="{{ discovery_default_port }}" min="1" max="65535" style="padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
     </div>
     <button type="button" id="probe-btn" class="btn" style="background:#3b82f6; color:#fff; padding:8px 16px; cursor:pointer; border:none;">연결 확인</button>
     <div id="probe-result" style="margin-top:16px; padding:12px; border-radius:6px; font-size:13px; display:none;"></div>
@@ -90,11 +54,11 @@
 <section class="card no-print">
   <h2>환경 요약</h2>
   <div style="display:flex; flex-wrap:wrap; gap:24px; font-size:13px; color:#475569;">
-    <div>총 <strong style="color:#1e293b;">{{ overview.total }}</strong>대</div>
-    <div>온라인 <strong style="color:#15803d;">{{ overview.online }}</strong> · 오프라인 <strong style="color:#94a3b8;">{{ overview.offline }}</strong></div>
-    <div>총 vCPU <strong style="color:#1e293b;">{{ overview.total_vcpus }}</strong></div>
-    <div>메모리 <strong style="color:#1e293b;">{{ overview.total_memory_gb }} GB</strong></div>
-    <div>디스크 <strong style="color:#1e293b;">{{ overview.total_disk_gb }} GB</strong></div>
+    <div>총 <strong class="text-strong">{{ overview.total }}</strong>대</div>
+    <div>온라인 <strong class="text-ok">{{ overview.online }}</strong> · 오프라인 <strong class="text-meta">{{ overview.offline }}</strong></div>
+    <div>총 vCPU <strong class="text-strong">{{ overview.total_vcpus }}</strong></div>
+    <div>메모리 <strong class="text-strong">{{ overview.total_memory_gb }} GB</strong></div>
+    <div>디스크 <strong class="text-strong">{{ overview.total_disk_gb }} GB</strong></div>
   </div>
   {% if overview.role_distribution %}
   <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;">
@@ -108,7 +72,7 @@
   {% if overview.utilization %}
   <div style="margin-top:14px; padding-top:12px; border-top:1px solid #e2e8f0;">
       <div style="font-size:12px; color:#64748b; margin-bottom:10px;">
-        환경 평균 활용률 <span style="color:#94a3b8;">({{ overview.util_sample_size }}대 기준 · 최근 14일)</span>
+        환경 평균 활용률 <span class="text-meta">({{ overview.util_sample_size }}대 기준 · 최근 14일)</span>
       </div>
       <div style="display:flex; align-items:center; gap:14px;">
         <div style="display:flex; flex-wrap:wrap; gap:20px;">
@@ -138,8 +102,7 @@
   {% if overview.risk_donut and overview.risk_donut_total > 0 %}
   <div style="margin-top:14px; padding-top:12px; border-top:1px solid #e2e8f0;">
       <div style="font-size:12px; color:#64748b; margin-bottom:10px;">
-        Right-sizing 분류 <span style="color:#94a3b8;">({{ overview.risk_donut_total }}대 기준 · 최근 14일)</span>
-        <span style="color:#94a3b8; margin-left:4px;">— USE Method + Cloud advisor 임계값 종합 (CPU·메모리·디스크·swap·load)</span>
+        Right-sizing 분류 <span class="text-meta">({{ overview.risk_donut_total }}대 기준 · 최근 14일)</span>
       </div>
       <div style="display:flex; align-items:center; gap:14px;">
         <div style="text-align:center;">
@@ -181,7 +144,7 @@
               <span class="badge" style="background:{{ t.bg_color }}; color:{{ t.fg_color }};">{{ t.label }}</span>
               {% endfor %}
             </span>
-            <a class="attention-link" href="/servers/{{ c.public_id }}">{{ c.hostname }}</a>
+            <a class="attention-link" href="/servers/{{ c.public_id }}?back={{ self_back }}">{{ c.hostname }}</a>
           </li>
           {% endfor %}
         </ul>
@@ -189,6 +152,11 @@
       {% endif %}
   </div>
   {% endif %}
+</section>
+{% elif overview %}
+<section class="card no-print">
+  <h2>환경 요약</h2>
+  <p style="font-size:13px; color:#64748b; margin:0;">아직 등록된 서버가 없습니다. 에이전트가 연결되면 여기에 환경 요약이 표시됩니다.</p>
 </section>
 {% endif %}
 
@@ -227,8 +195,8 @@
 
 <section class="card no-print">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 style="margin:0;">환경 보고서</h2>
-    <a href="/reports/history" class="btn-action no-print" style="text-decoration:none;">
+    <h2>환경 보고서</h2>
+    <a href="/reports/history?back={{ self_back }}" class="btn-action no-print" style="text-decoration:none;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       보고서 이력
     </a>
@@ -241,16 +209,15 @@
     </button>
     <button type="button" id="env-report-engineer-open" class="btn-action no-print" data-view="engineer">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="9 13 11 15 15 11"/></svg>
-      엔지니어 보고서 발행
+      엔지니어 보고서 발행 <span class="tag-ai">AI</span>
     </button>
   </div>
 
   <!-- 환경 보고서 발행 모달 (윈도우·anchor 선택, view 는 buton 클릭으로 사전 결정) -->
-  <!-- 문구·UX는 AI 진단 발행 모달(#diagnose-modal) 패턴 단일 진실 — 운영자 학습 비용 0. -->
   <div id="env-report-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-        <h3 id="env-report-title" style="margin:0; font-size:16px; color:#1e293b;">환경 보고서 발행</h3>
+        <h3 id="env-report-title" class="modal-title">환경 보고서 발행</h3>
         <button type="button" id="env-report-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
       </div>
       <p id="env-report-desc" style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">전체 등록 서버 대상 Right-sizing 규칙 기반 보고서 발행. 새 탭으로 이동합니다.</p>
@@ -281,7 +248,7 @@
 <div id="multi-server-report-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <h3 id="multi-server-report-title" style="margin:0; font-size:16px; color:#1e293b;">선택 서버 보고서 발행</h3>
+      <h3 id="multi-server-report-title" class="modal-title">선택 서버 보고서 발행</h3>
       <button type="button" id="multi-server-report-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
     </div>
     <p id="multi-server-report-desc" style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">선택된 <span id="multi-server-report-count" style="font-weight:600; color:#1e293b;">0</span>대 서버 Right-sizing 규칙 기반 보고서 발행. 결과 페이지로 이동합니다.</p>
@@ -307,82 +274,42 @@
   </div>
 </div>
 
-<section class="card no-print" data-diagnostic-panel data-scope="environment">
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 style="margin:0;">환경 AI 진단</h2>
-    <a href="/diagnostics/history" class="btn-action no-print" style="text-decoration:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
-      AI 진단 이력
-    </a>
-  </div>
-  <p style="margin:0 0 12px; font-size:12px; color:#64748b;">전체 활성 서버 대상 Right-sizing 규칙 기반 진단 발행. 결과 페이지로 이동.</p>
-  <button class="diag-submit btn-action no-print" type="button">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-    AI 진단 발행
-  </button>
-
-  <div class="diag-status" style="color:#64748b; font-size:13px; margin:12px 0 10px;">
-    {% if last_env_diagnostic %}최근 환경 AI 진단 결과 표시.
-    {% else %}진단 결과 없음 — AI 진단 발행 버튼으로 즉시 발행 또는 스케줄러 매일 03시 (기본 기간 {{ diagnostic_default_range_label }}) 자동.{% endif %}
-  </div>
-  <div class="diag-result"></div>
-
-  <!-- 환경 AI 진단 발행 모달 — 윈도우·anchor 선택. DiagnosticPanel JS 가 자동 처리. -->
-  <div class="diag-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
-    <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
-      <h3 style="margin:0 0 16px; font-size:16px; color:#1e293b;">환경 AI 진단 발행</h3>
-      <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">전체 활성 서버 대상 Right-sizing 규칙 기반 진단 발행. 결과 페이지로 이동합니다.</p>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
-        <div>
-          <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">윈도우</label>
-          <select class="diag-range" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-            <option value="15m">15분</option>
-            <option value="1h">1시간</option>
-            <option value="6h">6시간</option>
-            <option value="24h">24시간</option>
-            <option value="7d">7일</option>
-            <option value="14d" selected>14일</option>
-            <option value="30d">30일</option>
-          </select>
-        </div>
-        <div>
-          <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">Anchor (KST)</label>
-          <input type="datetime-local" class="diag-anchor" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-        </div>
-      </div>
-      <div style="display:flex; gap:8px; justify-content:flex-end;">
-        <button type="button" class="diag-cancel btn" style="background:#f1f5f9; color:#475569;">취소</button>
-        <button type="button" class="diag-confirm btn" style="background:#3b82f6; color:#fff; padding:8px 16px; cursor:pointer; border:none;">발행</button>
-      </div>
-    </div>
-  </div>
-
-  {% if last_env_diagnostic %}
-  <script type="application/json">{{ last_env_diagnostic | tojson }}</script>
-  {% endif %}
-</section>
-<script src="/static/js/diagnostic.js?v={{ asset_v }}" defer></script>
-
 <section class="card no-print">
 <h2>서버 목록</h2>
 
-<form method="get" class="search-row no-print">
+<form method="get" class="search-row no-print" id="filter-form">
   <input type="text" name="search" value="{{ request.query_params.get('search', '') }}" placeholder="hostname 검색">
-  <label>
-    <input type="checkbox" name="is_online" value="true"
-      {% if request.query_params.get('is_online') == 'true' %}checked{% endif %}>
-    온라인만
-  </label>
-  <button type="submit">검색</button>
-  {% if request.query_params.get('search') or request.query_params.get('is_online') %}
-  <a href="/servers/" class="clear-btn" style="display:inline-flex;align-items:center;text-decoration:none;">초기화</a>
+  <select name="is_online">
+    <option value="">상태 전체</option>
+    <option value="true" {% if request.query_params.get('is_online') == 'true' %}selected{% endif %}>온라인</option>
+    <option value="false" {% if request.query_params.get('is_online') == 'false' %}selected{% endif %}>오프라인</option>
+  </select>
+  <select name="service">
+    <option value="">서비스 전체</option>
+    {% for cat in filter_options.service_categories %}
+    <option value="{{ cat }}" {% if request.query_params.get('service') == cat %}selected{% endif %}>{{ cat }}</option>
+    {% endfor %}
+  </select>
+  <select name="os_id">
+    <option value="">OS 전체</option>
+    {% for oid in filter_options.os_ids %}
+    <option value="{{ oid }}" {% if request.query_params.get('os_id') == oid %}selected{% endif %}>{{ oid }}</option>
+    {% endfor %}
+  </select>
+  <select name="classification">
+    <option value="">프로비저닝 전체</option>
+    {% for cls in filter_options.classifications %}
+    <option value="{{ cls }}" {% if request.query_params.get('classification') == cls %}selected{% endif %}>{{ cls }}</option>
+    {% endfor %}
+  </select>
+  {% if request.query_params.get('search') or request.query_params.get('is_online') or request.query_params.get('service') or request.query_params.get('os_id') or request.query_params.get('classification') %}
+  <a href="/servers/" class="clear-btn" style="display:inline-flex;align-items:center;">초기화</a>
   {% endif %}
 </form>
 
-<div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center;">
+<div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; margin-bottom:14px; align-items:center;">
   <button type="button" id="report-customer-btn" class="btn-primary no-print" disabled title="고객 제출용 — 양식 A">고객 보고서</button>
-  <button type="button" id="report-engineer-btn" class="btn-primary no-print" disabled title="엔지니어 검토용 — 양식 B">엔지니어 보고서</button>
-  <button type="button" id="diagnose-btn" class="btn-primary no-print" disabled>AI 진단</button>
+  <button type="button" id="report-engineer-btn" class="btn-primary no-print" disabled title="엔지니어 검토용 — 양식 B (AI 진단 컬럼 포함)">엔지니어 보고서 (AI)</button>
   <button type="button" id="export-btn" class="btn-primary no-print" disabled>JSON Export</button>
   <button type="button" id="install-btn" class="btn-primary no-print" disabled>ZConverter Install</button>
 </div>
@@ -392,17 +319,13 @@
 <table>
   <thead>
     <tr>
-      <th class="no-print" style="width:64px; text-align:center;">
+      <th class="no-print" style="width:40px; text-align:center;">
         <input type="checkbox" id="select-all">
-        <div id="select-count" style="margin-top:4px; color:#cbd5e1; font-size:14px; font-weight:700; line-height:1.4;">0</div>
       </th>
       <th>상태</th>
       <th>Hostname</th>
       <th>서비스</th>
-      <th>네트워크</th>
-      <th>Cores</th>
-      <th>Memory</th>
-      <th>Storage</th>
+      <th>외부 IP</th>
       <th>OS</th>
       <th>프로비저닝</th>
       <th>최근 작업</th>
@@ -411,7 +334,12 @@
   </thead>
   <tbody>
     {% for s in servers %}
-    <tr>
+    <tr class="server-row"
+        data-hostname="{{ s.hostname | lower }}"
+        data-is-online="{{ 'true' if s.is_online else 'false' }}"
+        data-os-id="{{ s.os_id or '' }}"
+        data-classification="{{ s.provisioning_class }}"
+        data-services="{% for svc in s.known_services %}{{ svc.category }} {% endfor %}">
       <td class="no-print"><input type="checkbox" class="row-select" data-public-id="{{ s.public_id }}" data-hostname="{{ s.hostname }}"></td>
       <td style="text-align:center;">
         {% if s.is_online %}
@@ -421,7 +349,7 @@
         {% endif %}
       </td>
       <td>
-        <a href="/servers/{{ s.public_id }}" class="row-link"><strong>{{ s.hostname }}</strong></a>
+        <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="row-link"><strong>{{ s.hostname }}</strong></a>
       </td>
       <td>
         {% if s.services is none %}
@@ -444,10 +372,7 @@
           <span style="color:#94a3b8; font-size:12px;">내부망</span>
         {% endif %}
       </td>
-      <td>{{ s.cpu_cores | or_dash }}</td>
-      <td>{{ s.mem_total_gb | disksize }}</td>
-      <td>{{ s.storage_total_gb | disksize }}</td>
-      <td style="color:#64748b;">{{ s.os_display }}</td>
+      <td class="text-muted">{{ s.os_display }}</td>
       <td>
         {% if s.recommendation_color %}
           <span style="display:inline-flex; align-items:center; gap:5px; font-size:11px; color:#475569;">
@@ -469,7 +394,7 @@
         {% endif %}
       </td>
       <td class="action-col">
-        <a href="/servers/{{ s.public_id }}" class="btn" style="font-size:12px; padding:4px 10px;">상세 →</a>
+        <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="btn" style="font-size:12px; padding:4px 10px;">상세 →</a>
       </td>
     </tr>
     {% endfor %}

@@ -1,32 +1,51 @@
+"""에이전트가 push 하는 raw 데이터에서 가상·커널 항목 제거 필터 — engine 단일 진실.
+
+`_VIRTUAL_FSTYPES` 22 / `_VIRTUAL_MOUNT_PREFIXES` 8 / 정규식 3 (phys / lvm / part) catalog.
+새 fstype 출현 시 본 catalog 만 갱신.
 """
-에이전트가 보내는 raw 데이터에서 가상·커널 항목을 제거하는 임시 필터.
-근본 해결은 에이전트 측 수집 단계에서의 필터링이며, 다음 agent_version 계약에 반영 예정.
-(DESIGN_DECISIONS.md #14 참고)
-"""
+
 import re
 
-_PHYS_DISK_RE = re.compile(r'^(sd[a-z]+|vd[a-z]+|hd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$')
-_LVM_DISK_RE  = re.compile(r'^(dm-\d+|md\d+)$')
-_PART_DISK_RE = re.compile(r'^(sd[a-z]+\d+|vd[a-z]+\d+|hd[a-z]+\d+|xvd[a-z]+\d+|nvme\d+n\d+p\d+|mmcblk\d+p\d+)$')
+_PHYS_DISK_RE = re.compile(r"^(sd[a-z]+|vd[a-z]+|hd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$")
+_LVM_DISK_RE = re.compile(r"^(dm-\d+|md\d+)$")
+_PART_DISK_RE = re.compile(r"^(sd[a-z]+\d+|vd[a-z]+\d+|hd[a-z]+\d+|xvd[a-z]+\d+|nvme\d+n\d+p\d+|mmcblk\d+p\d+)$")
 
-_VIRTUAL_FSTYPES: frozenset[str] = frozenset({
-    'proc', 'sysfs', 'devtmpfs', 'devpts',
-    'hugetlbfs', 'debugfs', 'tracefs',
-    'squashfs',   # snap 패키지 read-only 마운트
-    'nsfs',       # Linux namespace 마운트 (snapd ns, lxd.mnt 등)
-    'overlay',    # Docker 컨테이너 레이어
-    'cgroup', 'cgroup2',
-    'pstore', 'bpf', 'fusectl', 'efivarfs',
-    'configfs', 'securityfs', 'mqueue', 'ramfs',
-    'iso9660',    # ISO 이미지 read-only 마운트 (Lima cidata, CD-ROM 등) — 본질적으로 100% used
-    'udf',        # DVD/Blu-ray UDF 파일시스템 — 동일 사유
-})
+_VIRTUAL_FSTYPES: frozenset[str] = frozenset(
+    {
+        "proc",
+        "sysfs",
+        "devtmpfs",
+        "devpts",
+        "hugetlbfs",
+        "debugfs",
+        "tracefs",
+        "squashfs",  # snap 패키지 read-only 마운트
+        "nsfs",  # Linux namespace 마운트 (snapd ns, lxd.mnt 등)
+        "overlay",  # Docker 컨테이너 레이어
+        "cgroup",
+        "cgroup2",
+        "pstore",
+        "bpf",
+        "fusectl",
+        "efivarfs",
+        "configfs",
+        "securityfs",
+        "mqueue",
+        "ramfs",
+        "iso9660",  # ISO 이미지 read-only 마운트 (cloud-init ISO·CD-ROM 등) — 본질적으로 100% used
+        "udf",  # DVD/Blu-ray UDF 파일시스템 — 동일 사유
+    }
+)
 
 # trailing slash 없이 통일 — startswith(p + '/') 에서 이중 슬래시 방지
 _VIRTUAL_MOUNT_PREFIXES: tuple[str, ...] = (
-    '/proc', '/sys', '/dev/pts', '/snap',
-    '/run/snapd', '/sys/fs', '/sys/kernel',
-    '/mnt/lima-cidata',  # Lima가 cloud-init 메타데이터를 ISO로 attach (iso9660). 운영 무관
+    "/proc",
+    "/sys",
+    "/dev/pts",
+    "/snap",
+    "/run/snapd",
+    "/sys/fs",
+    "/sys/kernel",
 )
 
 
@@ -45,7 +64,7 @@ def is_partition(name: str) -> bool:
 def is_virtual_mount(fstype: str | None, mount: str) -> bool:
     if fstype and fstype in _VIRTUAL_FSTYPES:
         return True
-    return any(mount == p or mount.startswith(p + '/') for p in _VIRTUAL_MOUNT_PREFIXES)
+    return any(mount == p or mount.startswith(p + "/") for p in _VIRTUAL_MOUNT_PREFIXES)
 
 
 # ── major/minor 기반 조인 헬퍼 ──
@@ -55,6 +74,7 @@ def is_virtual_mount(fstype: str | None, mount: str) -> bool:
 #
 # 같은 major + (minor가 디스크 minor이거나 그 디스크의 파티션 minor) 이면 같은 디스크.
 # SCSI/virtio 관례: minor 0,16,32,... 가 디스크 자체, 1~15 / 17~31 / ... 이 파티션.
+
 
 def find_parent_disk(
     mount_major: int | None,

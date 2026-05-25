@@ -4,21 +4,13 @@ name: alembic-check
 # 운영 정책 단일 진실: CLAUDE.md #C4 + docs/operations/alembic.md.
 
 on:
+  # paths 조건 제거 — main/develop PR 시 항상 발화. branch protection 의 required status check
+  # 등록 시 paths skip 되어 check 자체 N/A 되어 머지 block 되는 함정 회피 (특히 main PR 강화).
+  # alembic check (~10s) 부담 미약. CI 실패·이메일 폭탄 회피 우선.
   pull_request:
     branches: [main, develop]
-    paths:
-      - 'src/assessment_engine/db/models/**'
-      - 'migrations/**'
-      - 'pyproject.toml'
-      - '.github/workflows/alembic-check.yml'
-  # PR 검증 후 merge 시점 안전망 — admin override·force-push 보호.
   push:
     branches: [main, develop]
-    paths:
-      - 'src/assessment_engine/db/models/**'
-      - 'migrations/**'
-      - 'pyproject.toml'
-      - '.github/workflows/alembic-check.yml'
 
 permissions:
   contents: read
@@ -34,7 +26,8 @@ jobs:
 
     services:
       postgres:
-        image: timescale/timescaledb:latest-pg16
+        # ADR 0024: pgvector extension 의무 — timescaledb-ha 변형 (TimescaleDB + pgvector + postgis all-in-one).
+        image: timescale/timescaledb-ha:pg16
         env:
           POSTGRES_DB: assessment_ci
           POSTGRES_USER: ci
@@ -68,9 +61,9 @@ jobs:
         run: pip install uv
 
       # `uv sync --frozen` — uv.lock 의존성 트리 그대로 install. lockfile/pyproject drift 시 fail
-      # → CI에서 lockfile 신선도까지 보장. `--extra dev`로 pytest·ruff·testcontainers 포함.
+      # → CI에서 lockfile 신선도까지 보장. `--group dev`로 pytest·ruff·testcontainers 포함.
       - name: Install project
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --group dev
 
       - name: alembic upgrade head
         run: uv run alembic upgrade head

@@ -7,12 +7,13 @@
 진단 테스트는 명시 commit 패턴(상태 전이·get_latest 검증)이라 db_session rollback로 정리 안 됨.
 TRUNCATE로 setup·teardown 양쪽에서 격리 강제 — 이전·이후 테스트의 누적 commit 데이터 차단.
 """
+
 import pytest_asyncio
 from sqlalchemy import text
 
 from assessment_engine.db.repositories.collect_repository import CollectRepository
 from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
-from assessment_engine.db.repositories.query_repository import QueryRepository
+from assessment_engine.db.repositories.query.query_repository import QueryRepository
 
 
 @pytest_asyncio.fixture

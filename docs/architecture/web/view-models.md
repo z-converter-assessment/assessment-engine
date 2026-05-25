@@ -1,4 +1,4 @@
-# ViewModel 카탈로그
+# Web ViewModel 카탈로그
 
 정책: CLAUDE.md #E3 (mapper 단일 변환) · #E8 (차트·도넛 UI). 본 문서는 ViewModel 카탈로그·신호 임계값 단일 정의. 신규 파생 필드 추가 시 `cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화 필수.
 
@@ -29,7 +29,7 @@
 | `ReportSummary` | `query_service.get_report` — `rows: list[ReportRowItem]` + KPI 집계 (`total`/`online`/`over`/`under`) |
 | `MetricSeriesItem` | `to_metric_series_item` — chart API 응답 |
 
-`InventoryExportEntry`는 `db/repositories/outbound.py` (vendor 중립 vendor JSON 응답 — ViewModel 아님). `to_inventory_export_entry`가 변환.
+`InventoryExportEntry`는 `db/dtos/outbound.py` (vendor 중립 vendor JSON 응답 — ViewModel 아님). `to_inventory_export_entry`가 변환.
 
 ## 목록 화면 상단 요약 (list.html)
 
@@ -41,7 +41,7 @@
 |-----------|---------------|-------------|---------|---------|
 | `EnvironmentOverview` | `build_environment_overview(details, online_count, utilization, risk_counts)` — `total`/`online`/`offline`/`total_vcpus`/`total_memory_gb`(float)/`total_disk_gb`/`role_distribution`/`utilization`/`util_sample_size`/`risk_donut`/`risk_donut_total`/`risk_high_count` | `list_server_ids` + `get_servers` + `environment_utilization(WINDOW_DAYS)` + `report_aggregate(WINDOW_DAYS)` + Redis `online:*` mget | 14일 평균 + 분류 | slate (`#f8fafc`) |
 | `UtilizationBar` | `build_environment_overview` 안에서 3종 (CPU·메모리·디스크) 생성 — `pct`/`bar_color`(임계 분기)/`dash_length`(SVG dasharray, mapper 비례 산술) | `environment_utilization(WINDOW_DAYS)` SQL | 14일 평균 | 임계별 (`<60` 녹·`60~80` 노·`>=80` 빨·`None` 회) |
-| `RiskDonutSegment` | `build_risk_donut_segments` — 3 카테고리 (under/over/normal) `key`/`label`/`color`/`count`/`dash_length`/`dash_offset` (multi-segment 누적 음수) | `report_aggregate(WINDOW_DAYS)` -> `recommendation.classify` -> `_DONUT_SEGMENT_FROM_REC` | 14일 USE Method | 빨/노/녹 |
+| `RiskDonutSegment` | `build_risk_donut_segments` — 6 카테고리 (under/over/idle/shutdown/optimal/insufficient) `key`/`label`/`color`/`count`/`dash_length`/`dash_offset` (multi-segment 누적 음수) | `report_aggregate(WINDOW_DAYS)` -> `recommendation.classify` -> `_DONUT_SEGMENT_FROM_REC` | 14일 USE Method | `_DONUT_SEGMENT_DEFS` 색 (E8) |
 | `DiskWarningItem` | `to_disk_warning_item` — `used_pct` / `free_gb` / `total_gb` / `last_metric_at` / `badge_class` | `disk_usage_warnings(threshold_pct, limit)` 단일 SQL | 7d 윈도우 mount당 latest | blue (`#eff6ff`) |
 | `GapWarningItem` | `to_gap_warning_item(raw, now)` — `gap_minutes` / `badge_class` | `metric_gap_warnings(gap_min, recent_h, limit)` 단일 SQL | 5min~24h 갭 | blue (`#eff6ff`) |
 | `CapacityTriggerBadge` | `to_capacity_warning_item` 안에서 3종 (스왑·CPU·메모리) 생성 — `label`/`color`(hue 분리)/`active`(임계 초과 여부) | `_CAPACITY_TRIGGER_COLORS` 단일 색 진실 | — | 빨강(`#dc2626`)/파랑(`#2563eb`)/보라(`#8b5cf6`) |
@@ -57,7 +57,7 @@
 - `_GAP_DANGER_MINUTES = 30` — gap_warning 위험 색 (mapper)
 - `_UTIL_LOW_PCT = 60` / `_UTIL_HIGH_PCT = 80` — 활용률 도넛 색 임계 (mapper, E10)
 - `_UTIL_DONUT_CIRC = 263.89` — SVG 원주 r=42 단일 진실 (mapper, E10)
-- `_DONUT_SEGMENT_FROM_REC` / `_DONUT_SEGMENT_DEFS` — 프로비저닝 도넛 3 카테고리 단일 매핑
+- `_DONUT_SEGMENT_FROM_REC` / `_DONUT_SEGMENT_DEFS` — 프로비저닝 도넛 6 카테고리 단일 매핑
 - `_CAPACITY_TRIGGER_COLORS` — capacity trigger 3종 hue 분리 단일 색 (mapper)
 - `disk_threshold_pct = 85` — disk_warnings 진입 임계 (service 기본값)
 - `days_until_full_threshold = 30` — 디스크 잔여 신호 진입 임계 (service 기본값)
