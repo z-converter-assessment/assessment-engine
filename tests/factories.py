@@ -43,6 +43,7 @@ def make_inventory(
         hostname=hostname,
         agent_version=agent_version,
         collected_at=collected_at or datetime.now(UTC),
+        os_family="linux",
         os_id="ubuntu",
         os_version="22.04",
         os_codename="jammy",
