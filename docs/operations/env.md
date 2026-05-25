@@ -200,7 +200,7 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 | `RABBITMQ_*` (broker 접속) | 의무 (진단 publish) | 의무 (consume) | 의무 (consume) |
 | `RABBITMQ_ROUTING_KEY_*`·`RABBITMQ_EXCHANGE` | 의무 | 의무 | 의무 |
 | `WORKER_*` (worker.result·task.install) | 의무 (task.install publish) | 의무 (worker.result consume) | 선택 |
-| `WEB_PORT`·`INSTALL_TIMEOUT_SEC`·`ZDM_*`·`ZDM_PACKAGE_*`·`AGENT_RESTART_ALERT_THRESHOLD` | 의무 | 사용 안 함 | 사용 안 함 |
+| `WEB_PORT`·`WEB_RELOAD`·`INSTALL_TIMEOUT_SEC`·`ZDM_*`·`ZDM_PACKAGE_*`·`AGENT_RESTART_ALERT_THRESHOLD` | 의무 | 사용 안 함 | 사용 안 함 |
 | `LLM_*`·`OLLAMA_*` | 사용 안 함 | 사용 안 함 | 의무 |
 | `RAG_ENABLED`·`EMBEDDING_*`·`RAG_TOP_K`·`RAG_MAX_CONTEXT_CHARS` | 사용 안 함 | 사용 안 함 | 의무 (handler retrieve_context + ingest CLI 공통) |
 | `DIAGNOSTIC_QUEUE_*`·`DIAGNOSTIC_ROUTING_KEY` | 의무 (publish) | 사용 안 함 | 의무 (consume) |
@@ -280,6 +280,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `REDIS_MAXMEMORY` | `256mb` | dev compose (redis command) | Redis maxmemory cap. prod 튜닝 가능 |
 | `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | dev compose (redis command) | maxmemory 도달 시 eviction policy. TTL 키 우선 evict |
 | `WEB_PORT` | `8000` | config.py / dev compose | Web UI 접속 포트 |
+| `WEB_RELOAD` | `false` | config.py / dev compose | uvicorn auto-reload. dev hot-reload 전용 (dev compose 가 `true` 주입, `./:/app` bind mount 와 짝). prod 미설정 → false (코드 변경 감시 프로세스 불필요·bind mount 없는 wheel/image 배포에 무의미) |
 | `DISCOVERY_DEFAULT_TARGET` | `""` (빈값) | config.py / dev compose | 서버 발견 모달 SSH 도달성 probe 의 기본 target 주소. 운영자가 모달에서 override. dev compose 가 `db-server-01.orb.local` 주입 (web 컨테이너 -> OrbStack agent VM 직접 — 통합 네트워크). prod 는 빈값 default — 신규 host 주소를 사전에 알 수 없어 운영자 직접 입력. weak default 거부 대상 아님 (빈값이 정상 동작) |
 | `DISCOVERY_DEFAULT_PORT` | `22` | config.py / dev compose | probe 폼 기본 포트. prod·dev 모두 표준 SSH 22 — OrbStack VM 은 `db-server-01.orb.local:22` 직접 도달 (Lima user-mode localPort 포워딩 불필요). 비표준 SSH 포트 host 는 폼 override |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |

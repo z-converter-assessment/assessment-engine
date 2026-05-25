@@ -122,6 +122,8 @@ services:
     command: python -m assessment_engine.web
     environment:
       <<: *app-env
+      # dev 한정 uvicorn auto-reload — `./:/app` bind mount 와 짝. prod 는 미설정 → False.
+      WEB_RELOAD: "true"
       # 서버 발견 모달 SSH 도달성 probe 기본 target — dev·prod 모두 빈값 (운영자 직접 입력).
       # OrbStack 의 .orb.local DNS 는 host(macOS)만 등록되고 컨테이너 안에선 미해석 + VM IP 가 동적이라
       # 자동 기본값 부적합. post-provision 이 VM 에 openssh-server 설치 → 운영자가 VM IP(pipeline-up.sh
