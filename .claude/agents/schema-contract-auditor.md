@@ -34,7 +34,7 @@ model: opus
 | 필드 | engine `MessageBase` | agent `add_common_metadata()` | payload-schema.md |
 |------|---------|------|------|
 | message_type | required str Literal | cJSON_AddStringToObject(...) | 명시 여부 |
-| machine_id | required str max=64 | cJSON_AddStringToObject(...) | 길이·형식 |
+| host_id | required str max=64 | cJSON_AddStringToObject(...) | 길이·형식 |
 | agent_version | required str max=32 | AGENT_VERSION_FALLBACK | 명시 여부 |
 | collected_at | required datetime | iso8601_utc() | 형식 |
 | hostname | required str max=255 | gethostname() / OVERRIDE | |

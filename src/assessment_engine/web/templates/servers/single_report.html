@@ -7,11 +7,11 @@
 <a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
 
 <div style="display:flex; align-items:center; justify-content:space-between; margin:8px 0 20px; gap:16px;">
-  <h1 style="margin:0;">{{ hostname }} <span style="font-size:14px; color:#64748b; font-weight:400; margin-left:8px;">{{ view_title }}</span></h1>
+  <h1>{{ hostname }} <span class="page-meta">{{ view_title }}</span></h1>
   <div style="display:flex; align-items:center; gap:14px;">
     <div style="font-size:12px; color:#64748b; text-align:right;">
       <div>발행 {{ summary.generated_at | kst }}</div>
-      <div>윈도우 {{ summary.time_range_label }}</div>
+      <div>기준 {{ summary.anchor_at | kst }} · 윈도우 {{ summary.time_range_label }}</div>
     </div>
     <button class="btn-print no-print" type="button" onclick="window.print()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
@@ -21,7 +21,7 @@
 </div>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">서버 인벤토리</h2>
+  <h2>서버 인벤토리</h2>
   <div class="metric-grid metric-grid-3" style="margin-bottom:14px;">
     <div class="metric-card">
       <div class="metric-label">vCPU</div>
@@ -37,18 +37,18 @@
     </div>
   </div>
   {% if r %}
-  <div style="display:flex; gap:24px; flex-wrap:wrap; font-size:13px; color:#475569;">
-    <div>OS: <strong style="color:#1e293b;">{{ r.os_display }}</strong>{% if r.kernel_version %} <span style="color:#94a3b8;">({{ r.kernel_version }})</span>{% endif %}</div>
-    {% if r.role %}<div>역할: <strong style="color:#1e293b;">{{ r.role }}</strong></div>{% endif %}
+  <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:center; font-size:13px; color:#475569;">
+    <div>OS: <strong class="text-strong">{{ r.os_display }}</strong>{% if r.kernel_version %} <span class="text-meta">({{ r.kernel_version }})</span>{% endif %}</div>
+    {% if r.role %}<div style="display:inline-flex; align-items:center; gap:4px;">역할: <span class="badge {{ r.role | service_badge_class }}">{{ r.role }}</span></div>{% endif %}
     {% if r.internal_ip %}<div>내부 IP: <code>{{ r.internal_ip }}</code></div>{% endif %}
-    <div>상태: {% if r.is_online %}<span class="dot dot-ok"></span> <strong style="color:#15803d;">온라인</strong>{% else %}<span class="dot dot-off"></span> <strong style="color:#94a3b8;">오프라인</strong>{% endif %}</div>
+    <div>상태: {% if r.is_online %}<span class="dot dot-ok"></span> <strong class="text-ok">온라인</strong>{% else %}<span class="dot dot-off"></span> <strong class="text-meta">오프라인</strong>{% endif %}</div>
   </div>
   {% endif %}
 </section>
 
 {% if r %}
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">평균 사용률 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">{{ summary.time_range_label }} 윈도우</span></h2>
+  <h2>평균 사용률 <span class="section-meta">{{ summary.time_range_label }} 윈도우</span></h2>
   <div class="metric-grid metric-grid-2">
     <div class="metric-card">
       <div class="metric-label">CPU 평균</div>
@@ -64,30 +64,36 @@
 </section>
 {% endif %}
 
+{# AI 진단 — 보고서 흐름 안 inline (engineer view 만, Right-sizing 평가 위 위치). #}
+{% if view == "engineer" and r %}
+{% set diag = diagnostics_by_pid.get(r.public_id) %}
+{% set diag_job_id = pending_job_ids.get(r.public_id) %}
+<section class="card" data-diagnostic-inline data-job-id="{{ diag_job_id or '' }}" style="margin-bottom:16px;">
+  <h2>AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
+  {% if diag and diag.narrative %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; line-height:1.6; font-size:14px; color:#1e293b;">{{ diag.narrative }}</div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;">
+    분류: <strong>{{ diag.classification_label_kr or "—" }}</strong>{% if diag.recommendation_action %} · 권장 액션: <strong>{{ diag.recommendation_action }}</strong>{% endif %}
+  </div>
+  {% else %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; color:#64748b; font-size:13px;">
+    {% if diag_job_id %}AI 진단 진행 중 (LLM 합성 10~60초 소요). 자동 폴링으로 결과 표시.{% else %}AI 진단 자료 없음.{% endif %}
+  </div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
+  {% endif %}
+</section>
+{% endif %}
+
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">Right-sizing 평가</h2>
+  <h2>Right-sizing 평가</h2>
   {% if r %}
   <div style="display:flex; align-items:center; gap:12px;">
     <span class="badge {{ r.badge_class }}" style="font-size:13px; padding:4px 12px;">{{ r.recommendation }}</span>
-    <span style="font-size:13px; color:#1e293b;">
-      {%- if r.recommendation == "under_provisioned" and r.under_provisioned_reason -%}
-        {{ r.under_provisioned_reason }}
-      {%- elif r.recommendation == "over_provisioned" -%}
-        자원 축소 검토 (CPU/메모리 사용률 낮음)
-      {%- elif r.recommendation == "idle" -%}
-        용도 재평가 또는 종료 검토
-      {%- elif r.recommendation == "shutdown" -%}
-        종료 가능 검토 (사실상 미사용)
-      {%- elif r.recommendation == "optimal" -%}
-        적정 운영
-      {%- elif r.recommendation == "insufficient_data" -%}
-        평가 표본 부족 (윈도우 미만 또는 메트릭 수집 문제)
-      {%- endif -%}
-    </span>
+    <span class="text-strong" style="font-size:13px;">{{ r.recommendation_action }}</span>
   </div>
   {% if view == "engineer" and r.diagnosis %}
   <div style="margin-top:10px; padding-top:10px; border-top:1px solid #e2e8f0; font-size:12px; color:#475569;">
-    <span style="color:#94a3b8;">USE 종합 신호 (자동):</span> {{ r.diagnosis }}
+    <span class="text-meta">USE 종합 신호 (자동):</span> {{ r.diagnosis }}
   </div>
   {% endif %}
   {% else %}
@@ -96,27 +102,9 @@
 </section>
 
 {% if r %}
-{% set d = diagnostics_by_pid.get(r.public_id) if diagnostics_by_pid else None %}
-<section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">AI 진단 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">{{ summary.time_range_label }} latest succeeded</span></h2>
-  {% if d and d.classification %}
-  <div style="margin-bottom:8px;">
-    <span class="badge {{ d.classification_badge_class }}" style="font-size:13px; padding:4px 12px;">{{ d.classification_label_kr }}</span>
-    {% if d.recommendation_action and d.recommendation_action != 'no_action' %}
-    <span style="margin-left:8px; font-size:13px; color:#1e293b;">권고: {{ d.recommendation_action }}</span>
-    {% endif %}
-  </div>
-  {% if d.narrative %}
-  <p style="margin:0; font-size:12px; color:#475569; line-height:1.6;">{{ d.narrative }}</p>
-  {% endif %}
-  {% else %}
-  <p style="margin:0; font-size:13px; color:#94a3b8;">진단 결과 없음 — 발행 또는 스케줄러 매일 03시 자동.</p>
-  {% endif %}
-</section>
-
 {% if view == "engineer" %}
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">운영 신호 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">데이터 수집·OS·Agent 안정성</span></h2>
+  <h2>운영 신호 <span class="section-meta">데이터 수집·OS·Agent 안정성</span></h2>
   {% if attention_for_host.get('gap') or attention_for_host.get('os_eol') or attention_for_host.get('restart') %}
   <div class="alert-list">
     {% if attention_for_host.get('gap') %}
@@ -144,7 +132,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">Saturation 신호 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">USE Method · 부하·대기·압박 축</span></h2>
+  <h2>Saturation 신호 <span class="section-meta">USE Method · 부하·대기·압박 축</span></h2>
   <div class="metric-grid metric-grid-3">
     <div class="metric-card">
       <div class="metric-label">Load 15m</div>
@@ -165,7 +153,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">변동성 / 디스크 / 네트워크 <span style="font-size:12px; font-weight:400; color:#94a3b8; margin-left:8px;">{{ summary.time_range_label }} 윈도우</span></h2>
+  <h2>변동성 / 디스크 / 네트워크 <span class="section-meta">{{ summary.time_range_label }} 윈도우</span></h2>
   <div class="metric-grid metric-grid-2">
     <div class="metric-card">
       <div class="metric-label">CPU 변동성 (peak / p95)</div>
@@ -201,7 +189,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 style="margin:0 0 12px;">스토리지 / 시스템 안정성</h2>
+  <h2>스토리지 / 시스템 안정성</h2>
   <div class="metric-grid metric-grid-2">
     <div class="metric-card">
       <div class="metric-label">worst mount</div>
@@ -215,11 +203,12 @@
     </div>
   </div>
 </section>
+
 {% endif %}
 {% endif %}
 
 <section class="card" style="margin-bottom:16px; background:#f8fafc;">
-  <h2 style="margin:0 0 8px; color:#475569;">참고자료</h2>
+  <h2>참고자료</h2>
   <p style="margin:0; font-size:13px; color:#475569;">
     Right-sizing 분류 임계값 · USE 축 · 보조 지표 정의{% if view == "engineer" %} · 운영 신호 임계{% endif %} · 근거 출처:
     <a href="/reports/right-sizing-thresholds?back={{ self_back }}" class="row-link">Right-sizing 분류 임계값 (참고자료)</a>
@@ -229,4 +218,7 @@
   </p>
 </section>
 
+{% if view == "engineer" %}
+<script src="/static/js/diagnostic-inline.js?v={{ asset_v }}" defer></script>
+{% endif %}
 {% endblock %}

@@ -14,13 +14,15 @@
 |----------|------|------|
 | `docs/README.md` | 카테고리·파일 인덱스 — 어떤 문서를 언제 보는지 길잡이 | 영구·갱신 |
 | `docs/architecture/` | 컴포넌트별 deep dive (모듈 설계·기술 구현) | 영구·갱신 |
-| `docs/development/` | 본 repo 안 dev 작업·코드 규약 (docker·pipeline·testing·conventions) | 영구·갱신 |
-| `docs/operations/` | 외부 인프라가 활용할 contract (quickstart·deployment·env·prod-contract·alembic·observability·release·github-setup) | 영구·갱신 |
-| `docs/products/` | 운영 산출물 ref — 산출물별 존재 의의·근거 (dashboard·보고서 A/B·환경/서버 진단·JSON Export·Install task) | 영구·갱신 |
+| `docs/development/` | 본 repo 안 dev 작업·코드 규약 (docker·dependencies·pipeline·testing·conventions) | 영구·갱신 |
+| `docs/operations/` | 외부 인프라가 활용할 contract (deployment·env·alembic·observability·release) | 영구·갱신 |
+| `docs/products/` | 운영 산출물별 존재 의의·근거 (dashboard·환경 보고서·서버 보고서·JSON Export·Install task) | 영구·갱신 |
 | `docs/adr/` | Architecture Decision Records — "왜 이렇게 결정했나" + 트레이드오프. ADR은 정정만, 덮어쓰기 금지 | 영구·불변 |
 | `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T13) | 영구·갱신 |
 
-그 외 명시되지 않은 경로(`docs/ref/` 등)의 문서는 코드·영구 문서에서 인용 금지.
+그 외 명시되지 않은 경로의 문서는 코드·영구 문서에서 인용 금지.
+
+`docs/temp/` 디렉토리 — 임시·외부 공유 자료 모음 (협의 input 등). 디렉토리 위치 자체는 영구이나 안의 파일은 임시 (자유 작성·삭제). 양방향 의존 0 의무 — 본 repo 영구 문서·코드가 temp 인용 금지, temp 안 파일 자체도 본 repo 영구 문서·코드 의존 금지 (외부 공유 시 self-contained 필수). 인덱스 표에 추가 안 함.
 
 ---
 
@@ -33,11 +35,11 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 본 repo는 기능 개발에 필요한 환경 구성만 다룬다. 배포 인프라(IaC — Terraform·Ansible·OpenStack staging 등)는 본 repo 범위 밖. 추후 도입 결정 시 별도 repo로 분리 (ADR 0006 Withdrawn 사유).
 
 본 절 결정:
-- docker-compose는 기능 개발용 한정 (dev 환경에서 앱·DB·MQ·Redis 한 번에 띄움). `docker-compose.prod.yml`은 본 repo에 두지 않음 — prod 운영 방식 contract를 docker compose 형식으로 강제하지 않는다 (ADR 0012).
+- `dev/docker-compose.yml` 은 기능 개발용 한정 (dev 환경에서 앱·DB·MQ·Redis 한 번에 띄움). `docker-compose.prod.yml` 은 본 repo 에 두지 않음 — prod 운영 방식 contract 를 docker compose 형식으로 강제하지 않는다 (ADR 0012).
 - prod 외부 인프라가 활용할 수 있는 정석 contract만 본 repo에서 유지:
   - 환경변수 contract — `docs/operations/env.md` 키 카탈로그
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
-  - 환경 분기 — `APP_ENV=prod` + `_validate_prod_*` weak default 거부 (`docs/operations/prod-contract.md` 8절). secret 주입 방식은 무관, 결과(약한 default 거부)만 검증
+  - 환경 분기 — `APP_ENV=prod` + `_validate_prod_*` weak default 거부 (`docs/operations/env.md` 8절). secret 주입 방식은 무관, 결과(약한 default 거부)만 검증
   - CI 산출물 — Python wheel + GitHub Release (ADR 0012). 외부 인프라가 wheel 받아 install·systemd 자체 구성
 - IaC 코드(`*.tf`·Ansible playbook·OpenStack 시나리오 문서)·prod compose 변형은 본 repo에 두지 않는다. 인프라 시나리오 언급 자체 금지 — 단 어떤 인프라든 위 contract 충족 시 본 엔진 기동 가능.
 
@@ -65,22 +67,22 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 - 시계열 5개 테이블 자연키 UNIQUE 보존 의무 — 누락 시 #D2 멱등성 2단 방어 깨짐. 모델 변경 시 검증 필수.
 - 시계열 4개 테이블 `boot_time` + `agent_started_at` 컬럼 보존 의무 — counter reset 정밀 식별 (#B 동일 진실).
 - `server_inventory.public_id` (UUID) URL 식별자 — 정수 PK 노출 금지 (#E4).
-- `server_inventory` 호스트 식별 = `(machine_id, hostname)` 복합 UNIQUE — `machine_id` 단독은 VM 템플릿 복제·이미지 clone·container host `/etc/machine-id` 마운트 등 실제 운영 환경에서 중복 가능. `find_server_id`·`ensure_server_id` signature 와 `on_conflict_do_*` index_elements, redis cooldown 키 모두 복합 키 일관. 한계: MQ queue `agent.tasks.{machine_id}` / routing key `task.install.{machine_id}` 는 agent 측 변경 없이 hostname 포함 불가 — 같은 machine_id 다른 hostname 두 호스트가 동일 큐 공유 (rare race). 별도 ADR / 후속 작업.
-- `diagnostic_jobs.job_type` (`ai_diagnostic`/`customer_report`/`engineer_report`) + active partial UNIQUE = `(scope, input_hash, job_type)`. 보고서도 본 테이블에 row 보존 — server scope (선택 N대) 는 `/servers/report` 라우터, environment scope (전체) 는 `/reports/environment` 라우터가 합성 직후 `DiagnosticService.record_report_emission` 으로 즉시 succeeded row INSERT (best-effort). 양식 분리: server scope 는 row 단위 상세 (`servers/report.html`), environment scope 는 high-level (KPI·분류 도넛·Top N·OS 분포·view별 요약, `reports/environment.html`). 이력 표시는 분리: AI 진단 이력 `/diagnostics/history` (job_type='ai_diagnostic' 자동 필터) vs 보고서 이력 `/reports/history` (customer + engineer union, view 필터). 환경 scope 진단 결과 페이지 (`/diagnostics?ids=X`) 는 SSR 로 `/reports/environment` iframe 2개 미리 렌더 + JS view toggle (AI/고객/엔지니어 tab).
+- `server_inventory` 식별 3 분리 (ADR 0022): `id bigint PK` (FK 대상) / `host_id char(64) UNIQUE` (agent 매칭 — composite hash) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{host_id}` / routing key `task.install.{host_id}`.
+- `diagnostic_jobs.job_type` (`ai_diagnostic`/`customer_report`/`engineer_report`) + active partial UNIQUE = `(scope, input_hash, job_type)`. 보고서도 본 테이블에 row 보존.
+- 보고서 발행 PRG pattern: GET endpoint 는 read-only 표시 (record 안 함). POST `/reports/environment/emit` · `/servers/report/emit` 가 `record_report_emission` 호출 후 응답 view_url 반환 — JS 가 navigate. 다시 보기 / 직접 URL / 북마크 진입은 record 안 됨 (중복 row 방지).
+- 양식 분리: server scope 는 row 단위 상세 (`servers/report.html`), environment scope 는 high-level (KPI·분류·Top N·OS 분포·view별 요약, `reports/environment.html`).
+- 이력 표시 분리: AI 진단 이력 `/diagnostics/history` (job_type='ai_diagnostic' 자동 필터) vs 보고서 이력 `/reports/history` (customer + engineer union, view 필터). 환경 scope 진단 결과 페이지 (`/diagnostics?ids=X`) 는 SSR 로 `/reports/environment` iframe 2개 미리 렌더 + JS view toggle.
 
 ## C2. Repository 계층 — 인터페이스 우선 (#F4)
 
-추상 인터페이스(`BaseCollectRepository`/`BaseQueryRepository`/`BaseDiagnosticRepository`) · DTO 흐름(Inbound Pydantic·Outbound raw dataclass) · INSERT 통일(`pg_insert` + `on_conflict_do_*`) · `list_servers` 부분 SELECT 정책 · repo 메서드 카탈로그 · asyncpg 함정 · `_chart_*` 패턴: `docs/architecture/db/repositories.md` · `docs/architecture/db/dtos.md` · `docs/architecture/db/timescaledb.md` 단일 진실.
-
-본 절 결정:
-- settings 사용 절차: 컴포넌트 코드는 자기 sub-module(`web/settings.py`·`consumer/settings.py`·`diagnostic/settings.py`)에서 import. `db/session.py`·`db/redis.py`는 자체 `WebSettings()` 인스턴스화 (circular 회피). 새 모듈 추가 시 본 절차 위반 금지 (#F4).
+추상 인터페이스(`BaseCollectRepository`/`BaseQueryRepository`/`BaseDiagnosticRepository`) · DTO 흐름(Inbound Pydantic·Outbound raw dataclass) · INSERT 통일(`pg_insert` + `on_conflict_do_*`) · `list_servers` 부분 SELECT 정책 · repo 메서드 카탈로그 · asyncpg 함정 · `_chart_*` 패턴: `docs/architecture/db/repositories.md` · `docs/architecture/db/dtos.md` · `docs/architecture/db/timescaledb.md` 단일 진실. `Settings()` 인스턴스 사용 절차는 #F4 단일 진실.
 
 ## C3. Redis 전략 — fail-open 의무
 
 키 설계 표 / TTL 근거 / PUB/SUB 채널 / 캐시-aside race 한계 / 평시·장애 동작 매트릭스 / mget 효율 패턴: `docs/architecture/redis.md`. 의사결정 ADR: `docs/adr/0001-redis-decoupling.md`.
 
 본 절 결정:
-- 모든 Redis 호출은 `src/assessment_engine/db/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`/`safe_incr_with_ttl`) 경유. RedisError 시 silent fallback + warning 로그. 직접 redis client 호출 금지.
+- 모든 Redis 호출은 `src/assessment_engine/cache/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`/`safe_incr_with_ttl`) 경유. RedisError 시 silent fallback + warning 로그. 직접 redis client 호출 금지.
 - fail-open 보장 의존성: 멱등성 1단 fail-open(#D2) → DB UNIQUE(#C1)가 중복 흡수. UNIQUE 누락 시 보장 자체가 깨짐.
 
 ## C4. 스키마 변경 — Alembic 단일 진실
@@ -103,7 +105,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 
 ## D1. 구조·후처리·실패 처리
 
-aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸들러 팩토리 · `(machine_id, hostname)` 복합 키 식별 (#C1) · `ensure_server_id` placeholder 분기 · auto-register · `_db_retry` 백오프 · routing key별 후처리 시퀀스 · 부가 시그널(`_log_time_invariants`·`_track_agent_restart`) · 실패 분기·DLQ 운영: `docs/architecture/consumer.md` 단일 진실.
+aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸들러 팩토리 · `host_id` 단일 키 식별 (#C1) · `ensure_server_id` placeholder 분기 · auto-register · `_db_retry` 백오프 · routing key별 후처리 시퀀스 · 부가 시그널(`_log_time_invariants`·`_track_agent_restart`) · 실패 분기·DLQ 운영: `docs/architecture/consumer.md` 단일 진실.
 
 본 절 결정:
 - 모든 후처리는 `safe_*` helper 경유(#C3) — 부수 작업 실패가 메시지 처리 ack를 막지 않는다.
@@ -140,7 +142,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 ### P3. Jinja2 템플릿은 순수 렌더링만 (절대)
 - 허용: `{% if %}`·`{% for %}`·Jinja2 필터(포맷팅 전용).
 - 금지: 계산(`+`, `*`, `length`, `sort`, `selectattr`)·dedup·임계값 비교·단위 변환. 정렬·`badge_class`/`bar_color`/`is_well_known` 같은 파생은 mapper precompute.
-- 표시 컴포넌트 (폰트 위계·박스·badge·label) 와 네비게이션 규약 (새창 금지·뒤로가기 back chain·toast 에러 표시) 단일 진실: `docs/architecture/web/static-assets.md` "표준 컴포넌트 카탈로그" + "네비게이션 규약" 절.
+- 표시 표준 단일 진실 — `docs/architecture/web/static-assets.md` 다음 절: 표준 컴포넌트 카탈로그 / 폰트 위계 / 폰트 체 / 시간 표기 / 네비게이션 규약 / 링크 포맷 / P3 정공 예외 (1회 fetch vs polling 흐름).
 
 ### P4. 클라이언트 차트 JS는 P3 명시 예외
 
@@ -153,13 +155,13 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 ## E2. 데이터 흐름 결정
 
 - DTO(dataclass)와 ORM 모델 분리 — 변환은 repository 책임.
-- inventory upsert·metrics 저장·server_id 조회 모두 `(machine_id, hostname)` 복합 키 기준. 미등록 metrics는 drop.
+- inventory upsert·metrics 저장·server_id 조회 모두 `host_id` 단일 키 기준 (#C1). 미등록 metrics는 drop.
 - `last_seen_at`은 `ServerDetail`(단일 조회)에만 포함. `ServerSummary`(목록)는 Redis `online:{id}` TTL로 표시.
 - `CollectionStatusItem`은 `last_metric_at` + `last_inventory_at` 별도 필드.
 
 Pagination 정책:
 - 목록 endpoint(`list_servers` 등 정적 row): page 기반 — `page=1`, `limit=20` (max 100). 라우터 Query Pydantic 검증.
-- 시계열·시간 흐름 endpoint(`metric_snapshots` / `GET /api/v1/tasks` 등): cursor 기반 — `cursor: datetime | None` + `limit`. 시간 역순 스크롤. page 번호 의미 없음 (계속 새 데이터 들어옴).
+- 시계열·시간 흐름 endpoint(`metric_snapshots` / `GET /api/tasks` 등): cursor 기반 — `cursor: datetime | None` + `limit`. 시간 역순 스크롤. page 번호 의미 없음 (계속 새 데이터 들어옴).
 - 응답 envelope에 `total_count` / `has_more` 미포함 — `SELECT COUNT(*)` 별도 쿼리 비용 + UX는 빈 결과로 자연 종료 신호.
 - 신규 목록 endpoint 추가 시 위 두 패턴 중 하나 선택 — 정적 row면 page, 시간 흐름이면 cursor.
 
@@ -167,7 +169,7 @@ Pagination 정책:
 
 ## E3. 서비스 계층·ViewModel·Mapper (P2)
 
-서비스 모듈 카탈로그·`mappers.py` 표시 파생 집중·`enrich_*` idempotent·UI badge 임계값(`_USAGE_DANGER_PCT=90`·`_USAGE_WARN_PCT=75`)·USE Method right-sizing 임계값(`assessment_engine/recommendation.py` 도메인 모듈 — web·diagnostic 공용 import)·ViewModel 카탈로그·mapper 파생 필드(`is_well_known`·`badge_class`·`bar_color` 등)·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/architecture/web/services.md` · `docs/architecture/web/view-models.md` 단일 진실.
+서비스 모듈 카탈로그·`mappers/` sub-package 표시 파생 집중 (`server`/`metric`/`attention`/`report`/`export`/`task`/`shared`/`diagnostic`/`environment_report`/`report_history` 11 sub-module)·`enrich_*` idempotent·UI badge 임계값(`_USAGE_DANGER_PCT=90`·`_USAGE_WARN_PCT=75` — `mappers/shared.py`)·USE Method right-sizing 임계값(`assessment_engine/recommendation.py` 도메인 모듈 — web·diagnostic 공용 import)·ViewModel 카탈로그·mapper 파생 필드(`is_well_known`·`badge_class`·`bar_color` 등)·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/architecture/web/services.md` · `docs/architecture/web/view-models.md` 단일 진실.
 
 본 절 결정:
 - 두 임계 도메인(UI badge / USE Method) 혼용 금지.
@@ -179,7 +181,7 @@ Pagination 정책:
 
 ## E5. Jinja2 인프라
 
-`Jinja2Templates` 단일 인스턴스 + 필터 등록은 `web/template_setup.py`에 격리. 라우터는 import만. Redis 캐시 datetime은 `datetime.fromisoformat()`로 파싱(`json.loads` str 그대로 두면 `kst` 필터 오작동).
+`Jinja2Templates` 단일 인스턴스 + 필터 등록은 `web/templating/setup.py`에 격리. 라우터는 `from assessment_engine.web.templating import templates` 만. Redis 캐시 datetime은 `datetime.fromisoformat()`로 파싱(`json.loads` str 그대로 두면 `kst` 필터 오작동).
 
 Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_dash`): `docs/architecture/web/services.md`.
 
@@ -239,18 +241,18 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 `Settings()` 인스턴스 단일 진실 위치:
 - `src/assessment_engine/web/settings.py` — `web_settings` (WebSettings) + `diagnostic_settings` (DiagnosticSettings, web도 진단 publish 위해 broker 사용)
 - `src/assessment_engine/consumer/settings.py` — `consumer_settings` (ConsumerSettings)
-- `src/assessment_engine/diagnostic/settings.py` — `diagnostic_settings` (DiagnosticSettings, worker·scheduler 공통)
-- `src/assessment_engine/db/session.py`·`db/redis.py`·`migrations/env.py` — 자체 `WebSettings()` (모든 컴포넌트 공통 db layer·schema 진입점, circular import 회피)
+- `src/assessment_engine/diagnostic/settings.py` — `diagnostic_settings` (DiagnosticSettings, worker 전용 — ADR 0023: scheduler 폐기)
+- `src/assessment_engine/db/session.py`·`cache/redis.py` + repo root `migrations/env.py` — 자체 `WebSettings()` (모든 컴포넌트 공통 db layer·캐시·schema 진입점, circular import 회피)
 
 `src/assessment_engine/config.py`는 class 정의만 — module-level instance 0 (multi-node 분리 정합, ADR/문서 패턴 정합).
 
 금지:
 - Service/Handler 안 구체 구현체 import.
-- Composition Root 외 위치에서 `Settings()` 인스턴스 생성 — 위 6 위치 (web/settings·consumer/settings·diagnostic/settings·db/session·db/redis·migrations/env)만 허용.
+- Composition Root 외 위치에서 `Settings()` 인스턴스 생성 — 위 6 위치 (web/settings·consumer/settings·diagnostic/settings·db/session·cache/redis·migrations/env)만 허용.
 - `assessment_engine.config`에서 직접 `web_settings`·`consumer_settings`·`diagnostic_settings` import — class만 export.
 - `APP_ENV` 환경 분기를 `config.py` model_validator · entry lifespan 외 위치에 추가.
 
-추상 인터페이스 카탈로그·새 Repository 절차: `docs/architecture/web/layering.md` · `docs/architecture/db/repositories.md`.
+추상 인터페이스 카탈로그·새 Repository 절차: `docs/architecture/web/layering.md` · `docs/architecture/db/repositories.md`. 진단 워커 LLM (`BaseLlmClient`) + RAG (`BaseEmbeddingClient`·`BaseRetriever`) 추상·구체·composition root: `docs/architecture/diagnostic.md` "LLM 토글" + "RAG infra" 절 단일 진실 (ADR 0024 + 0025).
 
 ## F5. 자동화 변환 — 책임 분담
 
@@ -269,7 +271,6 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 - 검증 생략 후 다음 단계 진행.
 - 사용자 IDE 경고·브라우저 콘솔 발견에 의존.
 - 명시 요청 없이 pytest 실행 또는 "테스트 통과"를 검증 결과로 보고.
-- Hook 강제 영역(F1 future annotations 등) 메인 중복 grep.
 - 메인이 에이전트 자동 위임 제안.
 
 에이전트 결과: Error → 즉시 수정 / Warning → 사용자 결정 위임 / Info → 보고만.
@@ -301,9 +302,9 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 - 시그널 로그(`_log_time_invariants`·`_track_agent_restart`)는 쿨다운·슬라이딩 윈도우 의무 — 매 메시지 발생 시 진짜 시그널 매몰.
 - 새 시그널 도입 시 (a) 레벨 (b) 빈도 제어 (c) 운영자 행동 — 셋 다 명시.
 
-금지: payload·secret raw dump — 식별자(machine_id·routing key·message_id·server_id)와 카운트만.
+금지: payload·secret raw dump — 식별자(host_id·routing key·message_id·server_id)와 카운트만.
 
-로그 format: `LOG_FORMAT` env 분기 — `text`(dev colorized) 또는 `json`(prod, loguru `serialize=True`). 각 entry(web/consumer/diagnostic-worker/diagnostic-scheduler)가 기동 직후 `setup_logging(settings.log_format)` 호출. 단일 진실은 `src/assessment_engine/log_config.py`.
+로그 format: `LOG_FORMAT` env 분기 — `text`(dev colorized) 또는 `json`(prod, loguru `serialize=True`). 각 entry(web/consumer/diagnostic-worker)가 기동 직후 `setup_logging(settings.log_format)` 호출. 단일 진실은 `src/assessment_engine/log_config.py`.
 
 Request/Correlation ID 분산 trace 도입 트리거·정석 패턴: `docs/operations/observability.md` (현재 미적용, 도입 시 별도 ADR 의무).
 
@@ -317,9 +318,9 @@ Request/Correlation ID 분산 trace 도입 트리거·정석 패턴: `docs/opera
 - 예외 메시지에 raw payload·접속 문자열 — catch 후 sanitize 후 reraise.
 - HTTP 응답·ViewModel·JSON export에 PII. 운영 식별자는 `public_id`(UUID)만(#E4).
 - Redis·DB에 raw payload 캐싱 — Outbound DTO·ViewModel 단계에서 sanitize 후.
-- 메시지 payload 본문 로깅 (`machine_id`는 식별자라 OK).
+- 메시지 payload 본문 로깅 (`host_id`는 식별자라 OK).
 
-secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/prod-contract.md`.
+secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/env.md`.
 
 ## F9. 변경 영향도 체크리스트
 
@@ -332,11 +333,13 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 | 신규 routing key | (1) 발행 측 (agent 또는 engine web) 상수 (2) consumer 핸들러 팩토리 + dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 (4) `docs/architecture/agent.md` 메시지 타입 절 |
 | `EXCHANGE`/`ROUTING_KEY_*` 값 변경 | (1) 발행 측 상수 (2) consumer subscriber dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 |
 | 메시지 페이로드 schema 변경 (필드 추가·삭제·rename·Literal 값 변경) | (1) `consumer/schemas.py` 또는 발행 측 payload 빌드 (2) Inbound DTO (3) handler 매핑 (4) DB 모델·Alembic revision (필요 시) (5) `docs/architecture/agent.md` 데이터 형식 절 (6) 운영자 가시성 ViewModel·템플릿·API (필요 시) |
-| `recommendation.py` 분류 임계 또는 Lima VM 매트릭스 변경 | (1) `recommendation.py` 임계 상수 (2) `docs/development/pipeline.md` "VM 매트릭스"(합성 부하·swap_used 트리거) (3) #F10 평가 윈도우 정합 |
-| 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) `docker-compose.yml` `environment:` (dev 필요 시) (4) prod secret 분류면 `SecretStr` 타입 + `_validate_prod_*`에 weak default 거부 추가 + `docs/operations/prod-contract.md` 2절·7절 |
+| `recommendation.py` 분류 임계 또는 OrbStack VM 매트릭스 변경 | (1) `recommendation.py` 임계 상수 (2) `docs/development/pipeline.md` "VM 매트릭스"(합성 부하·swap_used 트리거) (3) #F10 평가 윈도우 정합 |
+| 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) `dev/docker-compose.yml` `environment:` (dev 필요 시) (4) prod secret 분류면 `SecretStr` 타입 + `_validate_prod_*` 에 weak default 거부 추가 + `docs/operations/env.md` 2절·7절 |
 | ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass(P2) |
 | 신규 외부 의존(HTTP·LLM·외부 큐) | (1) fail-open/close 결정(#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) #F6 매트릭스 갱신 |
-| 신규 의존성(`pyproject.toml`) | (1) `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토 |
+| 신규 의존성(`pyproject.toml`) | (1) `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토. 워크플로 단일 진실: `docs/development/dependencies.md` |
+| RAG 자료 카탈로그 추가 (ADR 0024) | (1) `rag_documents.source_type` enum 추가 (2) BaseRetriever 호출처 source_type 분기 (3) `docs/architecture/diagnostic.md` "RAG infra" 절 (4) 본 phase 결정 cataolg 갱신 ADR 정정 |
+| embedding 모델 변경 (ADR 0024 결정 2) | (1) `EMBEDDING_MODEL` env (2) `EMBEDDING_DIMENSION` env (3) alembic revision (`embedding vector(N)` 타입 변경) (4) 전체 rag_documents 재 embedding (ingest CLI 재실행) (5) HNSW 인덱스 재 build |
 
 
 ## F10. 평가 윈도우 · 차트 시계열 옵션 — 단일 진실
@@ -346,7 +349,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 본 절 결정:
 - 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 14, AWS Compute Optimizer 표준). 대시보드·보고서 라우터·ADR 0003 모두 본 상수 참조.
 - 보고서 라우터만 `?period_days=N` override 허용. 대시보드는 산업 표준 윈도우 고정.
-- TimeRange/BucketSize Literal 단일 진실 = `base_query_repository.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
+- TimeRange/BucketSize Literal 단일 진실 = `db/repositories/query/types.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
 - 신규 TimeRange 도입 시 `AUTO_BUCKET` 매핑 신설 의무.
 - 보고서 형태 산출물은 윈도우를 envelope·표제 명시 — JSON Export `period_window{days, start, end}` 의무 필드(#B 동일 원칙).
 
@@ -355,10 +358,10 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 원칙: SIGTERM 시 in-flight 작업 손실 0 + 다음 기동 시 stale 상태 없음.
 
 본 절 결정:
-- web — uvicorn `timeout_graceful_shutdown=3s`. 진행 중 HTTP 요청 완료 후 exit. SSE는 client reconnect.
+- web — uvicorn `timeout_graceful_shutdown=3s`. 진행 중 HTTP 요청 완료 후 exit. SSE는 client reconnect. 진단 publish (`DiagnosticSubmitter`) 중 SIGTERM은 aio-pika `connect_robust` transaction 보장.
 - consumer / diagnostic-worker — `async with message.process(requeue=False)` 컨텍스트 안에서 모든 await 완료. 정상 exit → ACK / raise → NACK + DLQ.
-- diagnostic-scheduler — cron 발화 사이 SIGTERM 즉시 안전. publish 중 SIGTERM은 aio-pika `connect_robust` transaction 보장.
 - diagnostic-worker 진행 중 job(`status='running'`) stale 정리 미구현 — prod 도입 전 ADR 0004 정정 또는 별도 ADR 의무.
+- ADR 0023: scheduler cron 폐기. cron 발화 측 SIGTERM 본문 본 절 범위 밖.
 
 금지:
 - `signal.signal(SIGTERM, ...)` 직접 핸들러 — uvicorn/asyncio 자체 처리, 중복은 종료 race.

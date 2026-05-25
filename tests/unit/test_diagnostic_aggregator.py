@@ -1,4 +1,5 @@
 """diagnostic.aggregator — 순수 변환 함수 단위 테스트 (ADR 0004)."""
+
 import pytest
 
 from assessment_engine.diagnostic.aggregator import (
@@ -9,20 +10,25 @@ from assessment_engine.diagnostic.aggregator import (
 
 # ─── _server_recommendation ──────────────────────────────────────────────
 
-@pytest.mark.parametrize("classification, expected_action", [
-    ("over_provisioned",  "downsize_cpu"),
-    ("under_provisioned", "upsize_memory"),
-    ("idle",              "shutdown_idle"),
-    ("shutdown",          "shutdown_review"),
-    ("optimal",           "no_action"),
-    ("insufficient_data", "no_action"),
-    ("unknown_label",     "no_action"),
-])
+
+@pytest.mark.parametrize(
+    "classification, expected_action",
+    [
+        ("over_provisioned", "downsize_cpu"),
+        ("under_provisioned", "upsize_memory"),
+        ("idle", "shutdown_idle"),
+        ("shutdown", "shutdown_review"),
+        ("optimal", "no_action"),
+        ("insufficient_data", "no_action"),
+        ("unknown_label", "no_action"),
+    ],
+)
 def test_server_recommendation_action_mapping(classification, expected_action):
     assert _server_recommendation(classification) == {"action": expected_action}
 
 
 # ─── _summary ─────────────────────────────────────────────────────────────
+
 
 def test_summary_empty_lists():
     assert _summary([], []) == {"avg_p95": None, "median_p95": None, "peak_max": None}
@@ -65,6 +71,7 @@ def test_summary_one_value_only_peak_or_p95():
 
 # ─── _top_actions ─────────────────────────────────────────────────────────
 
+
 def test_top_actions_count_zero_filtered():
     """모든 count=0 → 빈 리스트."""
     counts = {"over_provisioned": 0, "under_provisioned": 0, "idle": 0, "shutdown": 0}
@@ -73,16 +80,16 @@ def test_top_actions_count_zero_filtered():
 
 def test_top_actions_sorted_desc():
     counts = {
-        "over_provisioned":  5,
+        "over_provisioned": 5,
         "under_provisioned": 12,
-        "idle":              3,
-        "shutdown":          0,  # filtered
+        "idle": 3,
+        "shutdown": 0,  # filtered
     }
     result = _top_actions(counts)
     assert [a["action_type"] for a in result] == [
-        "upsize_memory",   # 12
-        "downsize_cpu",    # 5
-        "shutdown_idle",   # 3
+        "upsize_memory",  # 12
+        "downsize_cpu",  # 5
+        "shutdown_idle",  # 3
     ]
     assert [a["count"] for a in result] == [12, 5, 3]
 

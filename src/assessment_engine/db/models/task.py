@@ -20,7 +20,8 @@ class Task(Base):
     __table_args__ = (
         Index(
             "uq_tasks_pending_per_server_type",
-            "target_server_id", "task_type",
+            "target_server_id",
+            "task_type",
             unique=True,
             postgresql_where=text("status = 'pending'"),
         ),
@@ -31,7 +32,7 @@ class Task(Base):
         PG_UUID(as_uuid=False), nullable=False, server_default=func.gen_random_uuid(), unique=True
     )
     target_server_id: Mapped[int] = mapped_column(Integer, ForeignKey("server_inventory.id"), nullable=False)
-    target_machine_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_host_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
 
     task_type: Mapped[str] = mapped_column(String(64), nullable=False)
     params: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

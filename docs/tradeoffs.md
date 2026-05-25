@@ -1,14 +1,22 @@
 # 설계 트레이드오프
 
-의식적 설계 선택과 그로 인한 한계 카탈로그 (T1~T11). 단순성·운영 비용·scope 기준 결정 — 버그 아님.
+의식적 설계 선택과 그로 인한 한계 카탈로그 (T1~T13). 단순성·운영 비용·scope 기준 결정 — 버그 아님.
 
 각 항목 형식: 선택 / 대안 / 트레이드오프 / 언제 다시 봐야 하는가.
+
+## ADR 과의 책임 분담
+
+- `docs/adr/` — 결정 자체 historical record. 시간 순서 (0001, 0002, ...) + Status / Context / Decision / Consequences. 영구·불변 (정정만, 덮어쓰기 금지).
+- 본 파일 — 결정의 의도된 한계 카탈로그. 영구·갱신, 항목 추가 자유. cross-cutting reference 라 어느 카테고리 (architecture · development · operations · products) 에도 안 속하는 직속 위치.
+- 중첩 — 일부 T 항목은 ADR 과 같은 결정을 다른 각도로 가리킴 (예: T1 = ADR 0001 Redis fail-open, T4 = ADR 0005 Resolved). 각 항목 헤더의 "관련 문서" 줄이 cross-link.
+
+새 항목 추가 시: 본 파일 다음 T 번호 + 항목 작성. 같은 결정이 ADR 도 필요하면 별도 ADR 신설 후 cross-link.
 
 ---
 
 ## T1. 멱등성: at-most-once + 2단 방어 (fail-open 1단)
 
-> 관련 코드: `src/assessment_engine/consumer/handler.py` `_check_idempotent`, `src/assessment_engine/db/redis.py` `safe_set_nx`, `src/assessment_engine/db/repositories/collect_repository.py` `insert_metric`
+> 관련 코드: `src/assessment_engine/consumer/handlers/` `_check_idempotent`, `src/assessment_engine/cache/redis.py` `safe_set_nx`, `src/assessment_engine/db/repositories/collect_repository.py` `insert_metric`
 >
 > 관련 문서: CLAUDE.md #D2, `docs/adr/0001-redis-decoupling.md`
 
@@ -41,7 +49,7 @@
 
 ## T2. 캐시 일관성: cache-aside (write-around)
 
-> 관련 코드: `src/assessment_engine/web/services/query_service.py` `get_latest_metric`, `src/assessment_engine/consumer/handler.py` metrics handler
+> 관련 코드: `src/assessment_engine/web/services/query_service.py` `get_latest_metric`, `src/assessment_engine/consumer/handlers/` metrics handler
 > 관련 문서: CLAUDE.md #D1
 
 선택
@@ -84,7 +92,7 @@
 - 포기한 것: 디스크 사용량 무한 증가. 30일 차트가 raw 30일 데이터를 매번 time_bucket로 집계 — 데이터 양 증가에 따라 응답 느려짐.
 
 왜 받아들였나
-- 현재 dev 시연 환경 서버 수(Lima 7 VM)와 1분 주기에서는 1개월 데이터가 ~130k행/서버. 운영 부담 미미.
+- 현재 dev 시연 환경 서버 수(OrbStack 4 VM)와 1분 주기에서는 1개월 데이터가 ~130k행/서버. 운영 부담 미미.
 - B2B 내부 포털이라 retention 요구사항이 명확하지 않음.
 
 언제 다시 봐야 하는가
@@ -110,7 +118,7 @@
 - Alembic: 마이그레이션 스크립트로 스키마 관리. consumer가 web에 의존하지 않음.
 
 해소 (ADR 0005 채택 후)
-- migrate init-container 패턴 — `migrate` 서비스가 1회 실행 후 종료(`restart: "no"`). 앱 4 서비스(`web`/`consumer`/`diagnostic-worker`/`diagnostic-scheduler`) 모두 `depends_on: migrate: service_completed_successfully`.
+- migrate init-container 패턴 — `migrate` 서비스가 1회 실행 후 종료(`restart: "no"`). 앱 3 서비스(`web`/`consumer`/`diagnostic-worker`) 모두 `depends_on: migrate: service_completed_successfully`. ADR 0023: scheduler cron 폐기로 4 서비스 → 3.
 - `consumer depends_on web` 제거됨 — web과 consumer가 동등 lifecycle.
 - CI `alembic check`가 ORM·migration drift 자동 차단.
 
@@ -118,7 +126,7 @@
 
 ## T5. SSE 단일 채널 + 서버 측 필터링
 
-> 관련 코드: `src/assessment_engine/web/services/query_service.py` `stream_metrics_events`, `src/assessment_engine/consumer/handler.py` `redis.publish`
+> 관련 코드: `src/assessment_engine/web/services/query_service.py` `stream_metrics_events`, `src/assessment_engine/consumer/handlers/` `redis.publish`
 
 선택
 - 모든 SSE 클라이언트가 `metrics.events` 단일 채널 구독. 서버 측에서 `payload.server_id == subscribed_server_id`로 필터링.
@@ -180,7 +188,7 @@ broker 재기동 시 자동 회복
 - broker 죽음 → 에이전트 publish 실패 → 백오프 retry 시작 → broker 살아남 → 다음 retry 사이클에서 publish 성공 → `PUBLISH_RECOVERED` 알림 메시지 → 정상 운영 복구.
 - `systemctl restart assessment-agent` 불요.
 
-inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 주기 inventory 재발행 + 엔진 auto-register(`src/assessment_engine/consumer/handler.py`)로 해결.
+inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 주기 inventory 재발행 + 엔진 auto-register(`src/assessment_engine/consumer/handlers/`)로 해결.
 
 남은 한계
 - broker 영구 down 시 에이전트는 백오프 상한(60s) 간격으로 영원히 재시도 — 정상 동작이나 로그·CPU 미세 부담.
@@ -189,10 +197,10 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ## T8. ListServers ORM 부분 SELECT vs full row
 
-> 관련 코드: `src/assessment_engine/db/repositories/query_repository.py` `list_servers`
+> 관련 코드: `src/assessment_engine/db/repositories/query/server.py` `list_servers`
 
 선택
-- `select(ServerInventory.id, .public_id, .machine_id, ...)`로 11개 컬럼만 명시 SELECT. `mounts`/`listen_ports`/`kernel_version`/`boot_time`/`swap_total_kb`/`agent_version`/`last_seen_at`/`ip_internal`/`os_codename`/`cpu_model` 제외.
+- `select(ServerInventory.id, .public_id, .host_id, ...)`로 11개 컬럼만 명시 SELECT. `mounts`/`listen_ports`/`kernel_version`/`boot_time`/`swap_total_kb`/`agent_version`/`last_seen_at`/`ip_internal`/`os_codename`/`cpu_model` 제외.
 
 대안
 - `select(ServerInventory)` 풀로우 SELECT (이전 구현).
@@ -247,7 +255,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ## T10. ViewModel 비대화 vs 클라이언트 재계산 (P2 따름)
 
-> 관련 코드: `src/assessment_engine/web/view_models.py`, `src/assessment_engine/web/services/mappers.py`, `src/assessment_engine/web/services/metrics_calculator.py`
+> 관련 코드: `src/assessment_engine/web/view_models/`, `src/assessment_engine/web/services/mappers/`, `src/assessment_engine/web/services/metrics_calculator.py`
 > 관련 문서: CLAUDE.md #E1 P2 · #E3, `docs/architecture/web/view-models.md`
 
 선택
@@ -276,13 +284,13 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ## T11. 단일 Redis 인스턴스 — 캐시·멱등성·PubSub 한 통합 (fail-open)
 
-> 관련 코드: `src/assessment_engine/db/redis.py` `safe_*` helper, `src/assessment_engine/consumer/handler.py`, `src/assessment_engine/web/services/query_service.py`
+> 관련 코드: `src/assessment_engine/cache/redis.py` `safe_*` helper, `src/assessment_engine/consumer/handlers/`, `src/assessment_engine/web/services/query_service.py`
 > 관련 문서: `docs/architecture/redis.md`, `docs/adr/0001-redis-decoupling.md`
 
 선택
 - 한 Redis 인스턴스에서 5가지 역할 동시 처리: 캐시 / 온라인 TTL / 멱등성 / PUB/SUB / public_id 해석.
 - eviction 정책 `volatile-lru` (TTL 있는 키만 evict 대상).
-- 모든 Redis 호출은 `src/assessment_engine/db/redis.py`의 `safe_*` helper 경유 — fail-open 정책.
+- 모든 Redis 호출은 `src/assessment_engine/cache/redis.py`의 `safe_*` helper 경유 — fail-open 정책.
 - list 화면 online 표시는 `last_seen_at` 컬럼 fallback 보유.
 
 대안
@@ -310,16 +318,16 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ---
 
-## T12. server_inventory 호스트 식별 = `(machine_id, hostname)` 복합 UNIQUE
+## T12. server_inventory 호스트 식별 = `(host_id, hostname)` 복합 UNIQUE
 
 > 관련 코드: `src/assessment_engine/db/models/server_inventory.py`, `src/assessment_engine/db/repositories/collect_repository.py`
 > 관련 문서: CLAUDE.md #C1, `docs/architecture/db/models.md`, `docs/architecture/agent.md`
 > 관련 migration: `migrations/versions/f5c1e2d3a4b8_inventory_composite_unique.py`
 
 선택
-- `server_inventory` unique 키를 `machine_id` 단독에서 `(machine_id, hostname)` 복합으로 변경.
-- agent payload schema (`MessageBase`) 는 그대로 — 이미 `machine_id` + `hostname` 둘 다 전송 중.
-- Repository signature (`find_server_id`·`ensure_server_id`) 와 `on_conflict_do_*` index_elements, redis cooldown 키 (`time_invariant_warned:{machine_id}:{hostname}`) 모두 복합 키 일관.
+- `server_inventory` unique 키를 `host_id` 단독에서 `(host_id, hostname)` 복합으로 변경.
+- agent payload schema (`MessageBase`) 는 그대로 — 이미 `host_id` + `hostname` 둘 다 전송 중.
+- Repository signature (`find_server_id`·`ensure_server_id`) 와 `on_conflict_do_*` index_elements, redis cooldown 키 (`time_invariant_warned:{host_id}:{hostname}`) 모두 복합 키 일관.
 
 대안
 - agent_id 신설: agent 첫 install 시 UUID 생성 + `/var/lib/.../agent-id` 영구 저장. agent C source + payload schema 변경 (#B). 가장 정석이나 외부 repo 작업 부담.
@@ -328,13 +336,13 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 트레이드오프
 - 얻은 것:
-  - 실제 운영에서 흔한 machine_id 중복 시나리오 (VM 템플릿 복제·이미지 clone·container host `/etc/machine-id` 마운트) 즉시 격리.
+  - 실제 운영에서 흔한 host_id 중복 시나리오 (VM 템플릿 복제·이미지 clone·container host `/etc/machine-id` 마운트) 즉시 격리.
   - agent 변경 0 — 엔진 단독으로 완결. payload 합의 영향 없음.
   - 영향 코드 단순 (Repository signature + consumer 핸들러 hostname 1개 추가 전달 + cooldown 키 인자 1개 추가).
 - 포기한 것:
   - hostname 변경 시 새 row INSERT (다른 호스트로 인식) — 운영자가 명시적으로 hostname 변경하면 history 끊김. 같은 호스트 분리. 운영자 의도와 다를 수 있음.
-  - 두 다른 호스트가 동일 machine_id + 동일 hostname 보유 시 여전히 충돌 (rare — 클론 후 hostname 안 바꾼 케이스).
-  - MQ queue `agent.tasks.{machine_id}` / routing key `task.install.{machine_id}` 는 여전히 machine_id 단독 — agent 가 자기 machine_id 로 queue subscribe 하니 agent 변경 없이 hostname 포함 불가. 같은 machine_id 다른 hostname 두 호스트가 동일 큐 공유 시 message race 가능 (rare).
+  - 두 다른 호스트가 동일 host_id + 동일 hostname 보유 시 여전히 충돌 (rare — 클론 후 hostname 안 바꾼 케이스).
+  - MQ queue `agent.tasks.{host_id}` / routing key `task.install.{host_id}` 는 여전히 host_id 단독 — agent 가 자기 host_id 로 queue subscribe 하니 agent 변경 없이 hostname 포함 불가. 같은 host_id 다른 hostname 두 호스트가 동일 큐 공유 시 message race 가능 (rare).
 
 왜 받아들였나
 - B2B 내부 포털 — 인벤토리 등록 호스트 수가 작아 hostname 충돌 자체가 드묾.
@@ -357,7 +365,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 - `diagnostic_jobs.job_type` 컬럼 (`ai_diagnostic`/`customer_report`/`engineer_report`) — 보고서 생성도 본 테이블에 row 저장 (이력 보존).
 - 양식 분리:
   - server scope (`/servers/report?ids=...`): row 단위 상세, 양식 A/B (`servers/report.html`).
-  - environment scope (`/reports/environment`): high-level (KPI·USE Method 분류 도넛·Top N risk·OS 분포·view별 정성 요약, `reports/environment.html`). 전체 등록 서버 자동, `EnvironmentReportSummary` view_model + `environment_report_mapper`.
+  - environment scope (`/reports/environment`): high-level (KPI·USE Method 분류 도넛·Top N risk·OS 분포·view별 정성 요약, `reports/environment.html`). 전체 등록 서버 자동, `EnvironmentReportSummary` view_model + `mappers.environment_report`.
 - 두 라우터 모두 합성 직후 `record_report_emission` 호출 (best-effort, 응답 흐름 영향 없음).
 - AI 진단 이력 (`/diagnostics/history`) 과 보고서 이력 (`/reports/history`) 페이지 분리 — AI 진단 이력은 `job_type='ai_diagnostic'` 자동 필터, 보고서 이력은 customer + engineer union + view 필터 select. 서버 목록에서 진입점 둘 다 지원 (선택 N대 버튼 + 환경 카드 link).
 - 환경 scope 진단 결과 페이지 (`/diagnostics?ids=X`) 는 같은 페이지 안 3 view tab (AI 분석/고객 보고서/엔지니어 보고서). 고객·엔지니어 view 는 `<iframe src="/reports/environment?view=...">` SSR 미리 렌더 + JS `display` toggle.
@@ -374,7 +382,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
   - 모델 통합 — 보고서별 별도 service·테이블 신설 없이 기존 diagnostic_jobs 재사용.
 - 포기한 것:
   - 매 보고서 GET 마다 row INSERT (active UNIQUE 통과 후 즉시 succeeded) — 같은 입력 N회 조회 시 N row 생성. retention 90일로 sizing 자체는 OK 이나 dedup view 또는 view_count 증분 모델은 미적용.
-  - 환경 진단 결과 페이지 매 로드 시 iframe 2개 동시 fetch — 보고서 페이지 자체가 무거우면 (server N대 SQL 5×2) 첫 표시 늦음. 캐시는 미적용.
+  - 환경 진단 결과 페이지 매 로드 시 iframe 2개 동시 fetch — 보고서 페이지 자체가 무거우면 (server N대 SQL 5x2) 첫 표시 늦음. 캐시는 미적용.
   - `result` JSONB 에 양식 HTML snapshot 미저장 — 옛 보고서 재조회 시 raw data 변경 영향. snapshot 의도면 별도 결정.
 
 왜 받아들였나

@@ -8,6 +8,12 @@
 
 artifact 카탈로그·생성 trigger·무결성 검증·다운로드 채널: `docs/operations/release.md` 단일 진실. 본 문서는 release artifact를 받은 상태를 전제로 install·실행 절차를 다룬다.
 
+운영자 선택권 (ADR 0017):
+- (A) wheel + venv + systemd unit — 본 문서 3절 기본 시나리오
+- (B) Docker image (GHCR) + docker compose 또는 k8s — 본 문서 4절 multi-node 분리 inject 예시 (image 패턴 동등)
+
+토폴로지 자율 — 양쪽 모두 동일 환경변수 contract (`docs/operations/env.md`) + Alembic migration 절차.
+
 ## 2. 사전 준비
 
 | 항목 | 필요 |
@@ -43,7 +49,7 @@ python3.12 -m venv /opt/assessment-engine/venv
 
 ### 3.3. 환경변수·secret 주입
 
-환경변수 catalog: `docs/operations/env.md`. secret/config 분류·dev/prod 분기: `docs/operations/prod-contract.md`.
+환경변수 catalog: `docs/operations/env.md`. secret/config 분류·dev/prod 분기: `docs/operations/env.md`.
 
 채널 자유 (env·systemd `EnvironmentFile`·Vault·k8s Secret·Docker secrets 등). 본 repo `_validate_prod_*`가 결과(weak default 거부)만 검증.
 
@@ -87,7 +93,7 @@ ALEMBIC_INI=$(/opt/assessment-engine/venv/bin/python -c \
 각 unit이 가정하는 contract:
 - `WorkingDirectory=/opt/assessment-engine` (또는 자유 경로)
 - `EnvironmentFile=` 한 줄 이상 (4절 layered 패턴)
-- `ExecStart=/opt/assessment-engine/venv/bin/python -m assessment_engine.<module>` — module은 `web`·`consumer`·`diagnostic`·`diagnostic.scheduler` 중 하나
+- `ExecStart=/opt/assessment-engine/venv/bin/python -m assessment_engine.<module>` — module은 `web`·`consumer`·`diagnostic` 중 하나 (ADR 0023: scheduler 폐기)
 - `User=` system user (Linux distro 정합 임의 이름)
 - `KillSignal=SIGTERM` + `TimeoutStopSec` 충분 (#F11 graceful shutdown)
 - `Restart=always` 권장
@@ -115,7 +121,7 @@ TimeoutStopSec=30s
 WantedBy=multi-user.target
 ```
 
-다른 컴포넌트(consumer·diagnostic-worker·diagnostic-scheduler)는 `ExecStart` 모듈만 교체. 외부 인프라가 자체 Ansible template·자체 운영 도구로 생성.
+다른 컴포넌트(consumer·diagnostic-worker)는 `ExecStart` 모듈만 교체. 외부 인프라가 자체 Ansible template·자체 운영 도구로 생성.
 
 ### 3.6. 헬스 확인
 
@@ -128,18 +134,18 @@ curl -fsS http://<engine-host>:8000/health
 
 ## 4. multi-node 분리 inject 예시
 
-본 repo는 4 컴포넌트(web·consumer·diagnostic-worker·diagnostic-scheduler)를 같은 host 또는 분리 host에 배포 가능. 컴포넌트별 필요 키는 `docs/operations/env.md` "컴포넌트별 read 매트릭스" 참조.
+본 repo는 3 컴포넌트(web·consumer·diagnostic-worker)를 같은 host 또는 분리 host에 배포 가능. ADR 0023: scheduler cron 폐기로 4 컴포넌트 → 3 컴포넌트. 컴포넌트별 필요 키는 `docs/operations/env.md` "컴포넌트별 read 매트릭스" 참조.
 
 ### 단일 host (모든 컴포넌트 같이)
 
-가장 단순. 한 `.env` 또는 `EnvironmentFile`에 모든 키 주입. 4 systemd unit이 같은 파일을 `EnvironmentFile=/etc/assessment-engine.env`로 read.
+가장 단순. 한 `.env` 또는 `EnvironmentFile`에 모든 키 주입. 3 systemd unit이 같은 파일을 `EnvironmentFile=/etc/assessment-engine.env`로 read.
 
 ```ini
 # /etc/systemd/system/assessment-engine-web.service
 [Service]
 EnvironmentFile=/etc/assessment-engine.env
 ExecStart=/opt/assessment-engine/venv/bin/python -m assessment_engine.web
-# ... (consumer·diagnostic-worker·diagnostic-scheduler도 동일 EnvironmentFile)
+# ... (consumer·diagnostic-worker도 동일 EnvironmentFile)
 ```
 
 ### 4 host 분리 (계층화 — 권장 패턴 C)
@@ -162,7 +168,8 @@ ExecStart=/opt/assessment-engine/venv/bin/python -m assessment_engine.web
 
 web 노드:                  /etc/assessment-engine/web.env
   WEB_PORT=8000
-  INSTALL_BUNDLE_URL=http://web.internal:8000/zconverter.tar.gz
+  ZDM_DEFAULT_IP=<ZDM_IP>
+  ZDM_DEFAULT_USER=<ZDM_USER>
   DIAGNOSTIC_ROUTING_KEY=diagnostic.request   # web도 진단 publish
 
 consumer 노드:             /etc/assessment-engine/consumer.env
@@ -170,16 +177,14 @@ consumer 노드:             /etc/assessment-engine/consumer.env
   WORKER_TASK_QUEUE_PREFIX=agent.tasks
 
 diagnostic-worker 노드:    /etc/assessment-engine/diagnostic-worker.env
-  LLM_PROVIDER=mock
+  OLLAMA_BASE_URL=http://<ollama-host>:11434
+  OLLAMA_MODEL=llama3.1:8b
   WORKER_JOB_TIMEOUT_SECONDS=300
   DIAGNOSTIC_QUEUE_TTL_MS=86400000
   DIAGNOSTIC_QUEUE_MAX_LEN=100000
-
-diagnostic-scheduler 노드: /etc/assessment-engine/diagnostic-scheduler.env
-  DIAGNOSTIC_SCHEDULE_CRON=0 3 * * *
-  DIAGNOSTIC_RETENTION_DAYS=90
-  DIAGNOSTIC_ACTIVE_SERVER_WINDOW_HOURS=24
 ```
+
+ADR 0023: scheduler cron 폐기. 본 절 안 4 host 분리는 3 host 분리 정공 (web + consumer + diagnostic-worker).
 
 각 노드의 systemd unit:
 ```ini
@@ -199,6 +204,72 @@ Ansible 표준 패턴과 정합:
 - prod 검증 (`_validate_prod_*`) 컴포넌트별 — web 노드는 `WebSettings`·`DiagnosticSettings` 인스턴스화, consumer 노드는 `ConsumerSettings`만. 노드가 안 쓰는 키 검증 skip
 - drift 차단 — 공통 키는 한 파일만 갱신, 모든 노드 자동 동기화. Ansible group_vars/host_vars로 자동화 친화
 
+### Docker image 패턴 (ADR 0017 — wheel 대안)
+
+운영자가 venv·systemd 대신 컨테이너 토폴로지 선택 시. 동일 환경변수 + Alembic migration 절차 — 다른 점은 단지 실행 매체.
+
+GHCR pull (외부망 또는 사내 mirror via `docker save`):
+```bash
+docker pull ghcr.io/zconverter/assessment-engine:v1.2.3
+cosign verify ghcr.io/zconverter/assessment-engine:v1.2.3 \
+  --certificate-identity-regexp='https://github\.com/zconverter/assessment-engine/.*' \
+  --certificate-oidc-issuer='https://token.actions.githubusercontent.com'
+```
+
+Alembic migration (1회):
+```bash
+docker run --rm --env-file /etc/assessment-engine.env \
+  --entrypoint /bin/sh ghcr.io/zconverter/assessment-engine:v1.2.3 \
+  -c 'ALEMBIC_INI=$(python -c "from importlib.resources import files; print(files(\"assessment_engine\") / \"_alembic.ini\")"); python -m alembic -c "$ALEMBIC_INI" upgrade head'
+```
+
+docker compose 운영 예시 (외부 인프라 작성 — 본 repo 두지 않음 ADR 0012):
+```yaml
+services:
+  web:
+    image: ghcr.io/zconverter/assessment-engine:0.1
+    env_file: /etc/assessment-engine.env
+    ports: ["8000:8000"]
+    restart: unless-stopped
+  consumer:
+    image: ghcr.io/zconverter/assessment-engine:0.1
+    env_file: /etc/assessment-engine.env
+    command: assessment_engine.consumer
+    restart: unless-stopped
+  diagnostic-worker:
+    image: ghcr.io/zconverter/assessment-engine:0.1
+    env_file: /etc/assessment-engine.env
+    command: assessment_engine.diagnostic
+    restart: unless-stopped
+```
+
+k8s Deployment (외부 인프라 — 본 repo 두지 않음):
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: consumer}
+spec:
+  replicas: 3   # consumer 수평 확장 (broker queue prefetch 분산)
+  template:
+    spec:
+      containers:
+        - name: consumer
+          image: ghcr.io/zconverter/assessment-engine:0.1.0
+          args: ["assessment_engine.consumer"]   # CMD override
+          envFrom:
+            - secretRef: {name: assessment-engine-env}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits:   {cpu: 1000m, memory: 1Gi}
+```
+
+수평 확장 정합:
+- web — replicas N 자유 (stateless HTTP)
+- consumer — replicas N 자유 (broker prefetch_count=10 분산)
+- diagnostic-worker — replicas N 자유 (job 단위 분산)
+
+폐쇄망 (air-gapped) 운영: `docker save assessment-engine:v1.2.3 -o image.tar` + scp → 운영 환경에서 `docker load -i image.tar` (ADR 0017 본문).
+
 ## 5. 운영 contract 한눈
 
 | contract | 본 repo 위치 | 외부 인프라가 충족할 것 |
@@ -213,16 +284,81 @@ Ansible 표준 패턴과 정합:
 
 ## 6. 트러블슈팅 (자주 발견되는 사고)
 
-- `Settings()` 진입 시점 `ValueError` — weak default 거부. secret 주입 채널 점검
-- `alembic upgrade head` 실패 — PostgreSQL TimescaleDB extension 누락. `CREATE EXTENSION IF NOT EXISTS timescaledb` 사전 실행
-- consumer가 broker 연결 실패 반복 — `RABBITMQ_HOST`/`RABBITMQ_VHOST`/auth 검토. `docs/architecture/rabbitmq.md` "vhost·권한 모델"
-- `/metrics` endpoint가 외부 노출 — reverse proxy 차단 누락. ADR 0011 한계 절 참조
+| 증상 | 원인·조치 |
+|------|----------|
+| `Settings()` 진입 시점 `ValueError` | weak default 거부 — `APP_ENV=prod` 인데 password/user/ZDM 좌표가 dev default 그대로. secret 주입 채널 점검 (`docs/operations/env.md` 6 절) |
+| `alembic upgrade head` 실패 — `extension "timescaledb" is not available` | PostgreSQL TimescaleDB extension 누락. 운영 DB 에서 `CREATE EXTENSION IF NOT EXISTS timescaledb` 사전 실행 (`docs/operations/alembic.md`) |
+| consumer 가 broker 연결 실패 반복 | `RABBITMQ_HOST`/`RABBITMQ_VHOST`/auth 검토. `sudo rabbitmqctl list_permissions -p /assessment` 로 vhost 권한 확인 (`docs/architecture/rabbitmq.md` "vhost·권한 모델") |
+| `/health` 는 200 인데 inventory 안 들어옴 | 에이전트가 별도 install·broker 연결 필요. agent 측 secret 채널 점검 (`docs/architecture/agent.md`) |
+| `/metrics` endpoint 외부 노출 | reverse proxy 에서 internal-only 라우트 차단 누락 (ADR 0011 한계 절 참조) |
 
-## 7. 관련 문서
+## 7. 인프라 레포 자동화 (권장 패턴)
+
+본 가이드의 shell 명령은 한 번 직접 따라하기 용. 실제 prod 운영은 별도 인프라 레포 (Ansible·Salt·Chef·Pulumi 등) 에서 본 명령들을 declarative task 로 옮겨 관리.
+
+본 repo 와 인프라 레포 사이 연결:
+- git 차원 연결 0 — submodule·fork·clone 아님
+- 인프라 레포는 본 repo 의 GitHub Release 에서 wheel artifact 만 다운로드 (`gh release download` 또는 `wget`)
+- engine version 은 인프라 레포의 변수 (예: `group_vars/all/engine.yml` 의 `ENGINE_VERSION`) 로 관리. 새 release 배포 = 변수 한 줄 변경 + playbook replay
+- secret (`POSTGRES_PASSWORD` 등) 은 ansible-vault·HashiCorp Vault·k8s Secret 등 외부 채널. 본 repo 는 채널 강제 0 — `APP_ENV=prod` 에서 weak default 거부만 검증
+
+Ansible 매핑 예시 — 절 3.1 (wheel install) 일부를 task 로 옮긴 모습:
+
+```yaml
+- name: wheel artifact 다운로드 (GitHub Release)
+  ansible.builtin.command:
+    cmd: >
+      gh release download {{ engine_version }}
+      --repo <org>/assessment-engine
+      --pattern '*.whl'
+      --pattern 'SHA256SUMS'
+      --dir /tmp/release-{{ engine_version }}
+    creates: /tmp/release-{{ engine_version }}/SHA256SUMS
+
+- name: sha256 무결성 검증
+  ansible.builtin.command:
+    cmd: sha256sum -c SHA256SUMS
+    chdir: /tmp/release-{{ engine_version }}
+
+- name: venv 에 wheel install
+  ansible.builtin.pip:
+    name: "{{ lookup('fileglob', '/tmp/release-' + engine_version + '/assessment_engine-*.whl') }}"
+    virtualenv: /opt/assessment-engine/venv
+    virtualenv_python: python3.12
+  become_user: assessment
+```
+
+본 가이드의 절 3 전 단계가 동일하게 1:1 매핑 가능. 정석 인프라 레포 구조:
+
+```
+infra-assessment/                     # 본 repo 와 별개 repo
+  ansible/
+    inventories/prod/hosts.ini        # 운영 VM 의 IP·hostname
+    group_vars/
+      all/shared.yml                  # POSTGRES_HOST 등 공통 (vault 또는 ansible-vault)
+      engine/version.yml              # ENGINE_VERSION: v0.1.0
+    roles/
+      postgres/                       # PG + TimescaleDB install
+      rabbitmq/                       # MQ install
+      redis/                          # Redis install
+      assessment_engine/              # engine 4 컴포넌트
+        tasks/
+          install.yml                 # wheel 다운로드 + venv install
+          env.yml                     # shared.env + <component>.env 템플릿 렌더
+          migration.yml               # web host 에서 alembic upgrade 1회
+          systemd.yml                 # unit 생성 + systemctl enable --now
+    site.yml
+```
+
+new engine release 배포 흐름:
+1. 본 repo 에서 새 tag (예: v0.2.0) release 발사 (Release PR 머지)
+2. 인프라 레포의 `group_vars/engine/version.yml` 에서 `ENGINE_VERSION: v0.1.0 -> v0.2.0` 한 줄 변경 + PR
+3. 인프라 레포 PR 머지 → `ansible-playbook site.yml` 재실행 (수동 또는 인프라 레포의 CD)
+
+## 8. 관련 문서
 
 - release artifact: `docs/operations/release.md`
-- 환경변수 catalog: `docs/operations/env.md`
-- dev/prod 환경 정책: `docs/operations/prod-contract.md`
+- 환경변수 카탈로그·prod 정책: `docs/operations/env.md`
 - Alembic 운영: `docs/operations/alembic.md`
 - 관측: `docs/operations/observability.md`
 - 본 repo 범위 결정: CLAUDE.md #A0

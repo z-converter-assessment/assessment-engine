@@ -19,6 +19,15 @@ description: TRIGGER when user requests commit ("커밋", "/commit", "commit it"
 
 ## 절차
 
+0. Pre-check (commit 직전 의무) — CI 실패·이메일 폭탄 회피:
+   - `uv run ruff check .` — lint 위반 0 의무. 위반 시 commit 차단, 원인 수정 후 재시도
+   - `uv run ruff format --check .` — format drift 0 의무
+   - `git diff --cached --name-only` 가 다음 paths 포함 시 추가 검증:
+     - `src/assessment_engine/db/models/` 또는 `migrations/` → `uv run alembic check` (ORM-migration drift 0 의무)
+     - `pyproject.toml` 또는 `uv.lock` → `uv lock --check` (lockfile drift 0 의무)
+   - 사용자가 "test" 명시 또는 commit 분류가 `feat` / `fix` 라면 `uv run pytest tests/unit` 실행 권유 (사용자 confirm 후만 실행 — 사용자 메모리 "테스트 실행 금지" 정책)
+   - 실패 항목 있으면 commit 진행 안 함, 사용자에게 수정 옵션 제시 (자동 fix vs 수동)
+
 1. 다음 3개를 병렬 Bash로 실행:
    - `git status` (`-uall` 금지 — 메모리 폭주)
    - `git diff` (staged + unstaged)

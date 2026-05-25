@@ -1,4 +1,4 @@
-# 메시지 데이터 형식
+# Agent (메시지 데이터 계약)
 
 정책: CLAUDE.md #B. 본 문서는 엔진이 송수신하는 메시지의 데이터 형식 단일 진실. 외부 호스트 발행 / 엔진 수신 두 방향 모두.
 
@@ -11,7 +11,7 @@
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | `message_type` | string | 본 문서 메시지 타입별 Literal |
-| `machine_id` | string max=64 | 호스트 식별자 (`/etc/machine-id` 기준 32 hex 또는 UUID 36자) |
+| `host_id` | string max=64 | 호스트 식별자 (`/etc/machine-id` 기준 32 hex 또는 UUID 36자) |
 | `agent_version` | string max=32 | 발행 측 빌드 버전 |
 | `collected_at` | datetime (ISO 8601 UTC) | 수집 시각 |
 | `hostname` | string max=255 | 보조 식별자 (가변) |
@@ -19,7 +19,7 @@
 | `boot_time` | datetime UTC | 시스템 부팅 시각. `task.result` 한정 `null` 허용 (수집 컨텍스트 분리) |
 | `agent_started_at` | datetime UTC | 발행 프로세스 기동 시각. `task.result` 한정 `null` 허용 |
 
-엔진 처리는 `consumer/handler.py`의 `_check_idempotent`(Redis SET NX 24h)로 message_id 중복 차단 후 본문 처리. fail-open 보장은 시계열 4테이블 자연키 UNIQUE(#C1)가 흡수 (#D2).
+엔진 처리는 `consumer/handlers/`의 `_check_idempotent`(Redis SET NX 24h)로 message_id 중복 차단 후 본문 처리. fail-open 보장은 시계열 4테이블 자연키 UNIQUE(#C1)가 흡수 (#D2).
 
 ---
 
@@ -29,12 +29,14 @@ routing key `server.inventory`. 기동 시 1회 + 주기 재발행.
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
+| `os_family` | `"linux"` \| `"windows"` \| null | OS family — task.install dispatch 단일 진실 (ADR 0020). nullable (Linux agent minor bump 호환 단계). 미수신 시 engine 측 fallback `"linux"` |
 | OS / kernel | string\|null | `os_id` / `os_version` / `os_codename` / `kernel_version` |
 | CPU | int\|null / string\|null | `cpu_cores` / `cpu_model` |
 | 메모리 / 스왑 | int\|null (KB) | `mem_total_kb` / `swap_total_kb` |
 | `disks[]` | object | `{name, size_bytes, type, major, minor}` |
 | `mounts[]` | object | `{mount, fstype, total_bytes, free_bytes, avail_bytes, major, minor}` |
 | `ip_internal[]` / `ip_external[]` | list[string]\|null | IP 주소 목록 |
+| `mac_addresses[]` | list[string]\|null | NIC MAC 주소 목록. VM 템플릿 clone collision 식별 보조 (agent payload v3.3+) |
 | `services[]` | object\|null | `{unit, sub}` — systemd 미사용 호스트는 `null` |
 | `listen_ports[]` | object | `{proto, addr, port, uid, pid, comm}` — 수집 실패 시 빈 배열 |
 
@@ -70,6 +72,8 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 
 엔진 처리: 파싱 + 멱등성 체크 후 로깅(`make_error_handler`). DB 저장 없음.
 
+`collected_at` 만 millisecond 정밀도 ISO 8601 UTC (agent collect.c 가 `iso8601_utc_ms` 사용). 다른 메시지의 `collected_at` 은 second 정밀도. engine datetime parse 는 두 정밀도 모두 받음.
+
 ---
 
 ## task.install (엔진 -> 호스트, 작업 명령)
@@ -78,8 +82,8 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 
 라우팅:
 - Exchange: `assessment.tasks` (direct, durable, collector exchange 와 분리)
-- Routing key: `task.install.<machine_id>` — broker 가 해당 머신 전용 큐로만 배달
-- 수신 큐: `agent.tasks.<machine_id>` (durable, `x-message-ttl=3600000`, `x-max-length=100`, `x-overflow=reject-publish`). 큐는 엔진이 task 발행 시점에 동적 declare — 수신 측은 declare 권한 없음.
+- Routing key: `task.install.<host_id>` — broker 가 해당 머신 전용 큐로만 배달
+- 수신 큐: `agent.tasks.<host_id>` (durable, `x-message-ttl=3600000`, `x-max-length=100`, `x-overflow=reject-publish`). 큐는 엔진이 task 발행 시점에 동적 declare — 수신 측은 declare 권한 없음.
 
 본 메시지는 엔진 발행이라 `MessageBase` 공통 메타와 별개로 다음 필드만 사용:
 
@@ -87,22 +91,38 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 |------|------|------|
 | `message_type` | `"task.install"` | Literal |
 | `task_id` | string (UUID v4) | 작업 고유 ID. `task.result` 회신·중복 검출·로그 추적 키. 엔진의 `Task.public_id` 그대로 |
-| `machine_id` | string | 타겟 호스트 |
+| `host_id` | string | 타겟 호스트 |
 | `issued_at` | datetime (ISO 8601 UTC) | 발행 시각 |
-| `download.url` | string | HTTPS / HTTP URL. 엔진 self-host endpoint(`/zconverter.tar.gz`) 가 default — `WebSettings.install_bundle_url` |
-| `download.sha256` | string (hex 64) | 다운로드 파일 sha256. 엔진이 in-memory bundle 에서 계산 (`payloads.INSTALL_BUNDLE_SHA256`) |
-| `download.size_bytes` | int | 예상 크기 (byte). 동일 bundle 에서 `INSTALL_BUNDLE_SIZE` |
-| `install.script` | string | tar 내부 실행 스크립트 경로. 호스트 OS에 따라 엔진이 자동 분기 — Linux 는 `install.sh` (`payloads.INSTALL_SCRIPT_LINUX`), Windows 는 `install.ps1` (`payloads.INSTALL_SCRIPT_WINDOWS`). 판단 기준은 `inventory.os_id` (`_is_windows()` — 'windows' 키워드 또는 'win' prefix 매칭, 그 외/null 은 Linux default) |
-| `install.args` | list[string] | 스크립트 인자. 운영자가 install 모달에서 입력한 ZDM 좌표를 `["-s", ZDM_IP, "-u", ZDM_USER]` 형태로 전달. 두 스크립트 모두 `-s` / `-u` 인자를 받아 `http://$ZDM_IP/download/ZConverter_CloudSource_Setup_*` 에서 실제 setup 패키지 fetch + 실행 |
+| `download.url` | string | HTTP/HTTPS URL. 운영자 입력 ZDM host + `ZDM_PACKAGE_PATH` env 로 엔진이 조립 (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`). agent 측 host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 통과 필요 |
+| `download.sha256` | string (hex 64) | 다운로드 파일 sha256. 엔진이 publish 직전 ZDM 에서 HEAD + (cache miss 시) GET full 로 동적 산출. ETag 기반 Redis cache (`HttpZdmPackageResolver`). ZDM 측 패키지 갱신 시 ETag 자동 변경 → cache miss → 자동 재계산 |
+| `download.size_bytes` | int | 예상 크기 (byte). 엔진이 HEAD Content-Length 로 산출 + GET 실측과 일치 검증 |
+| `install.type` | `"shell"` \| `"direct_exec"` \| `"msi"` | 처리 방식 enum. `shell` = archive extract 후 script 실행 (Linux .tar.gz), `direct_exec` = extract 없음, 다운로드 파일 직접 실행 (Windows .exe), `msi` = extract 없음, `msiexec /i {path} /quiet` (Windows .msi). agent 가 자기 OS 아닌 type 수신 시 `failure_reason="unsupported_install_type"` reject |
+| `install.script` | string \| null | `type=shell` 일 때만 의미 — tar 추출 후 work dir 기준 실행 스크립트 경로. `ZDM_PACKAGE_SCRIPT` env 그대로 (default `zconverter_install_source/install.sh` — ZDM 본체 패키지 layout). `direct_exec` / `msi` 일 때 null |
+| `install.args` | list[string] | 스크립트 / 실행 파일 인자. 운영자 입력 ZDM 좌표를 `["-s", ZDM_IP, "-u", ZDM_USER]` 형태로 전달. OS 무관 동일 convention (Linux install.sh / Windows .exe 양쪽 `-s` `-u` 인자 받음) |
 | `install.timeout_sec` | int | wall-clock timeout. `WebSettings.install_timeout_sec` (dev default 600) |
 
-### Install bundle endpoint (`GET /zconverter.tar.gz`)
+### Download URL 조립 contract
 
-- 엔진이 self-host 하는 tar.gz 번들 (`web/routers/payloads.py`). 단일 bundle 안에 `install.sh` (Linux, mode 0o755) + `install.ps1` (Windows, mode 0o644) 두 스크립트 포함. agent 가 OS 에 맞는 스크립트만 실행 (`install.script` 필드로 지정).
-- `_INSTALL_SCRIPT_LINUX` / `_INSTALL_SCRIPT_WINDOWS` 상수 변경 시 web 컨테이너 재기동(또는 uvicorn auto-reload) 으로 갱신. `mtime=0` 고정이라 같은 코드면 같은 bytes -> sha256 안정.
-- 인증 없음 — 폐쇄망 가정 (#F8). 외부 노출 시 별도 ADR 로 인증·rate limit 도입.
-- 외부 mirror 사용은 별도 결정 — 현재 self-host 만 지원 (sha256·size 계산 책임 단일 지점).
-- ZDM 좌표 default 는 `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` env (`docs/operations/env.md`) — 모달에서 매 발행마다 override 가능.
+- ZDM 본체 패키지가 `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` path 에 호스트되어야 한다. ZDM 측 contract (engine repo 밖) — path 가 안정해야 하고, sha256·size 는 엔진이 자체 산출하므로 ZDM 측 매니페스트 endpoint 불필요.
+- 운영자가 모달에 입력한 zdm_ip 허용 형식: IPv4 / IPv4:port / hostname / FQDN / hostname:port / http(s) URL. 엔진이 scheme·path strip 해서 host[:port] 만 추출 (`task_service._extract_zdm_host`) → download.url 조립 시 host[:port] 사용. agent `download_url_extract_host` 가 `':'` 도 host 종료 문자로 처리해 host-only 매칭. validator 매트릭스 단일 진실: `web/routers/tasks.py::_validate_zdm_ip` + `_is_valid_host_or_host_port`. IPv6 (raw / bracket) 는 agent 측 한계로 미지원.
+- agent 측 download.c 가 host whitelist(`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 강제. 운영자가 박은 ZDM host 가 등록되지 않았으면 `failure_reason="url_not_allowed"` reject. agent config 는 deploy 시점 고정 — 새 ZDM host 도입 시 agent 재배포 필요.
+- ZDM 좌표 default 는 `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` env. 패키지 메타는 `ZDM_PACKAGE_PATH` / `ZDM_PACKAGE_SCRIPT` env (`docs/operations/env.md`).
+- dev 환경 한정: `APP_ENV=dev` 일 때 web 컨테이너가 ZDM 본체 패키지를 mock 서빙 (ADR 0018) — `ZDM_DEFAULT_IP=host.docker.internal:8000` default 로 OrbStack VM agent worker 가 host web 8000 으로 도달. prod 에서는 라우터 자체가 안 붙음.
+
+### sha256·size 동적 산출 (HttpZdmPackageResolver)
+
+`src/assessment_engine/web/services/task_service.py` 단일 진실. 흐름:
+
+1. HEAD `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` — `ETag`(또는 fallback `Last-Modified`) + `Content-Length` 추출.
+2. Redis cache 키 `cache:zdm_package:sha256:{host}:{etag}` 조회.
+   - hit: cached sha256 + HEAD Content-Length 반환 (수십 ms, GET 안 함).
+   - miss: GET full 다운로드 + streaming sha256 계산 + cache set + 반환.
+3. HEAD Content-Length 와 GET 실측 byte count 일치 검증 — 다르면 `ZdmPackageMetaError` (ZDM 측 정합성 보장).
+4. 메타 fetch 실패 (HEAD 404·connect timeout·size mismatch) 시 publish 차단 → 503 (`TaskNotConfigured`).
+
+cache 동작:
+- ZDM 패키지 갱신 → Apache 가 inode-size-mtime 기반 ETag 자동 변경 → cache miss → 자동 재계산. 운영자 개입 0.
+- TTL 6h default — ETag 자체가 invalidation 이라 길어도 안전. ETag/Last-Modified 둘 다 없는 비표준 응답이면 cache skip + 매 publish 마다 GET full.
 
 ---
 
@@ -117,20 +137,22 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 | `message_type` | `"task.result"` | Literal |
 | `task_id` | UUID | `task.install` 의 동일 값 회신. 엔진 `Task.public_id` 매칭 키 |
 | `status` | `"success"` \| `"failure"` | 실행 결과 |
-| `failure_reason` | string\|null max=32 | 실패 분류. 알려진 값: `url_not_allowed` / `download_failed` / `sha256_mismatch` / `extract_failed` / `script_not_found` / `script_failed` / `script_timeout` / `insufficient_disk` / `internal_error` / `already_done`. 성공 시 null. 알려지지 않은 값은 silent pass (DB 저장은 그대로) |
+| `failure_reason` | string\|null max=32 | 실패 분류. 알려진 값: `url_not_allowed` / `download_failed` / `sha256_mismatch` / `extract_failed` / `script_not_found` / `script_failed` / `script_timeout` / `insufficient_disk` / `internal_error` / `already_done` / `unsupported_install_type`. 성공 시 null. 알려지지 않은 값은 silent pass (DB 저장은 그대로) |
 | `exit_code` | int\|null | install.sh 종료 코드. 실행 전 실패 시 null |
-| `duration_ms` | int (≥0) | 다운로드 + 추출 + install 합계 |
-| `stdout_tail` | string max=8192 | install.sh stdout 끝부분. 미실행 시 `""` |
-| `stderr_tail` | string max=8192 | install.sh stderr 끝부분. 미실행 시 `""` |
+| `duration_ms` | int (>=0) | 다운로드 + 추출 + install 합계 |
+| `stdout_tail` | string max=4096 | install.sh stdout 끝부분 4 KB. agent `exec.c` 의 `out_storage[4096]` circular tail buffer 단일 진실. 미실행 시 `""` |
+| `stderr_tail` | string max=4096 | install.sh stderr 끝부분 4 KB. agent `exec.c` 의 `err_storage[4096]` 단일 진실. 미실행 시 `""` |
+
+엔진 Inbound DTO (`consumer/schemas.py` `TaskResultInput`) 의 `max_length=8192` 는 over-provision — agent minor bump 로 tail cap 이 늘어도 (#B "minor bump silent 호환") 엔진 무수정 흡수. 현재 wire 상한은 agent 측 4 KB.
 | `completed_at` | datetime (ISO 8601 UTC) | 처리 완료 시각. `Task.completed_at` 컬럼에 그대로 저장 |
 
 엔진 처리: 멱등성 -> DB UPDATE (`status` / `completed_at` / `failure_reason` / `exit_code` / `duration_ms` / `stdout_tail` / `stderr_tail`). `task_id` 미존재 시 silent ack — 운영자가 task 삭제했을 가능성, DLQ 부적합.
 
 `boot_time` / `agent_started_at` 가 null 이라 `_log_time_invariants` 검증은 본 메시지에서 호출 안 함.
 
-운영자 가시성: list.html "최근 작업" column (행별 마지막 task badge + polling 갱신) / detail.html "최근 작업" 섹션 (timeline 최근 10건 + row 클릭 modal) / Web API `GET /api/v1/tasks/{task_id}` 단일 + `GET /api/v1/tasks?server_public_id=...` 서버별 cursor pagination. 단일 진실: `web/services/mappers.py::to_task_summary` / `to_task_detail` + base.html `.rec-success`/`.rec-failure`/`.rec-pending`/`.rec-unknown`. failure_reason 한글 라벨은 `mappers._FAILURE_REASON_LABEL` 카탈로그 (10 enum).
+운영자 가시성: list.html "최근 작업" column (행별 마지막 task badge + polling 갱신) / detail.html "최근 작업" 섹션 (timeline 최근 10건 + row 클릭 modal) / Web API `GET /api/tasks/{task_id}` 단일 + `GET /api/tasks?server_public_id=...` 서버별 cursor pagination. 단일 진실: `web/services/mappers/task.py::to_task_summary` / `to_task_detail` + base.html `.rec-success`/`.rec-failure`/`.rec-pending`/`.rec-unknown`. failure_reason 한글 라벨은 `mappers/task.py::_FAILURE_REASON_LABEL` 카탈로그 (11 enum).
 
-dev 환경 success 경로: agent worker `download.c:49` 의 `https://` prefix 강제로 dev plain HTTP install bundle endpoint 는 `failure_reason="url_not_allowed"` 로 reject (ADR 0009). dev 에서는 wire format 검증(failure 경로) 까지만 가능. success 경로(install.sh 실제 실행 + exit_code=0 + stdout_tail 캡처)는 agent 측 호환성 작업(WORKER_ALLOW_HTTP toggle 또는 nginx ingress) 후 활성화.
+dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.docker.internal:8000{ZDM_PACKAGE_PATH}` 로 더미 tar.gz 를 서빙 — OrbStack VM agent worker 가 download → install.sh (echo + exit 0) exec → task.result success 발행 → consumer 6 컬럼 UPDATE → list UI badge `success` 전이. sha256·size 는 `HttpZdmPackageResolver` 가 ZDM 호스트 (dev 에서는 mock) 에서 HEAD/GET 으로 동적 산출하므로 별도 env 박을 필요 없음. agent download.c 는 http·https 둘 다 허용 (CURLOPT_PROTOCOLS_STR="https,http"), host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS=host.docker.internal`) 그대로 매칭. 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200 등) 시 publish 503 차단.
 
 ---
 
@@ -227,12 +249,12 @@ loop 디바이스 I/O 는 sda 에도 이미 반영된다 (`앱 read -> loop0(squ
 
 ## 운영 / 디버깅
 
-Lima VM 발행 측 상태:
+OrbStack VM 발행 측 상태:
 ```bash
-limactl shell <vm> sudo systemctl status assessment-agent --no-pager
-limactl shell <vm> sudo journalctl -u assessment-agent --no-pager -n 50
+ssh <vm>@orb sudo systemctl status assessment-agent --no-pager
+ssh <vm>@orb sudo journalctl -u assessment-agent --no-pager -n 50
 ```
 
 end-to-end 추적: (1) VM 발행 로그 -> (2) broker 큐 적재 (`rabbitmqctl list_queues`) -> (3) consumer 처리 로그 -> (4) DB 행 -> (5) web 표시. 끊긴 단계가 원인.
 
-발행 측 재기동: 소스·env 변경 시 `./scripts/pipeline-up.sh` 재실행으로 자동. 단발 재기동은 `limactl shell <vm> sudo systemctl restart assessment-agent`.
+발행 측 재기동: 소스·env 변경 시 `./dev/pipeline-up.sh` 재실행으로 자동. 단발 재기동은 `ssh <vm>@orb sudo systemctl restart assessment-agent`.

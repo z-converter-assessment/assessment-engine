@@ -2,12 +2,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aio_pika
+import httpx
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from assessment_engine.db.redis import close_pool
+from assessment_engine.cache.redis import close_pool
 from assessment_engine.log_config import setup_logging
 from assessment_engine.web.routers.api import api_router
 from assessment_engine.web.routers.diagnostic_results import diagnostic_results_router
@@ -15,7 +16,6 @@ from assessment_engine.web.routers.diagnostics import diagnostics_router
 from assessment_engine.web.routers.discovery import discovery_router
 from assessment_engine.web.routers.exports import exports_router
 from assessment_engine.web.routers.pages import pages_router
-from assessment_engine.web.routers.payloads import payloads_router
 from assessment_engine.web.routers.reports import reports_router
 from assessment_engine.web.routers.tasks import tasks_router
 from assessment_engine.web.settings import diagnostic_settings, web_settings
@@ -37,7 +37,9 @@ async def lifespan(app: FastAPI):
     broker_channel = await broker_conn.channel()
     dlx_name = f"{diagnostic_settings.rabbitmq_exchange}.dlx"
     dlx = await broker_channel.declare_exchange(
-        dlx_name, aio_pika.ExchangeType.DIRECT, durable=True,
+        dlx_name,
+        aio_pika.ExchangeType.DIRECT,
+        durable=True,
     )
     exchange = await broker_channel.declare_exchange(
         diagnostic_settings.rabbitmq_exchange,
@@ -51,16 +53,16 @@ async def lifespan(app: FastAPI):
         routing_key,
         durable=True,
         arguments={
-            "x-dead-letter-exchange":    dlx_name,
+            "x-dead-letter-exchange": dlx_name,
             "x-dead-letter-routing-key": routing_key,
-            "x-message-ttl":             diagnostic_settings.diagnostic_queue_ttl_ms,
-            "x-max-length":              diagnostic_settings.diagnostic_queue_max_len,
+            "x-message-ttl": diagnostic_settings.diagnostic_queue_ttl_ms,
+            "x-max-length": diagnostic_settings.diagnostic_queue_max_len,
         },
     )
     await queue.bind(exchange, routing_key=routing_key)
 
     # 원격 작업 발행용 exchange. 동일 인자 재선언은 idempotent — consumer 가 먼저 declare 해도 안전.
-    # agent.tasks.<machine_id> 머신별 큐는 task.install 발행 시점에 TaskService 가 동적 declare.
+    # agent.tasks.<host_id> 머신별 큐는 task.install 발행 시점에 TaskService 가 동적 declare.
     await broker_channel.declare_exchange(
         diagnostic_settings.rabbitmq_task_exchange,
         aio_pika.ExchangeType.DIRECT,
@@ -75,8 +77,22 @@ async def lifespan(app: FastAPI):
         diagnostic_settings.rabbitmq_task_exchange,
     )
 
+    # ZDM 메타 fetch 용 httpx async client — connect 5s, total 120s (44MB GET 가정).
+    # 단일 client 인스턴스를 TCP 재사용 위해 lifespan 에서 생성·shutdown 에서 close.
+    http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            connect=web_settings.zdm_meta_connect_timeout_sec,
+            read=web_settings.zdm_meta_total_timeout_sec,
+            write=web_settings.zdm_meta_total_timeout_sec,
+            pool=web_settings.zdm_meta_connect_timeout_sec,
+        ),
+        follow_redirects=False,
+    )
+    app.state.http_client = http_client
+
     yield
 
+    await http_client.aclose()
     await broker_conn.close()
     await close_pool()
 
@@ -118,7 +134,14 @@ app.include_router(diagnostics_router)
 app.include_router(diagnostic_results_router)
 app.include_router(reports_router)
 app.include_router(exports_router)
-app.include_router(payloads_router)
+
+# dev 한정 ZDM mock endpoint (ADR 0018) — install task E2E 시연·자동화 검증.
+# prod 에서는 라우터 자체가 안 붙음 (ADR 0016 정합 — engine 이 install 패키지 host 안 함).
+if web_settings.app_env == "dev":
+    from assessment_engine.web.routers.dev_zdm_mock import dev_zdm_mock_router
+
+    app.include_router(dev_zdm_mock_router)
+    logger.info("dev ZDM mock endpoint registered at path={}", web_settings.zdm_package_path)
 
 
 @app.get("/health")

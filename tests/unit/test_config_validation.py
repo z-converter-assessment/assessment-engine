@@ -1,10 +1,11 @@
 """config.py multi-node refactor 핵심 invariant — `_validate_prod_*` weak default 거부.
 
-본 테스트 영역은 prod 운영 안전망 단일 진실 (CLAUDE.md #A0·#F8·prod-contract.md 8절).
+본 테스트 영역은 prod 운영 안전망 단일 진실 (CLAUDE.md #A0·#F8·docs/operations/env.md 6절).
 APP_ENV=prod 시 weak default(`assessment`/`password`/`admin`/`root`/`changeme`/``)가 흘러가지
 못하게 차단. multi-node 분리 배포에서 web/consumer/diagnostic 각 노드가 자기 Settings만
 인스턴스화해도 본 검증이 노드별 작동 (Composition Root #F4 정합).
 """
+
 import pytest
 from pydantic import SecretStr, ValidationError
 
@@ -19,6 +20,8 @@ def _web_kwargs(**overrides):
         "postgres_password": SecretStr("strong-random-secret-32chars"),
         "postgres_db": "assessment_prod",
         "postgres_host": "db.internal",
+        "zdm_default_ip": "10.20.30.40",
+        "zdm_default_user": "ops@customer.example",
     }
     base.update(overrides)
     return base
@@ -26,10 +29,12 @@ def _web_kwargs(**overrides):
 
 def _consumer_kwargs(**overrides):
     base = _web_kwargs()
-    base.update({
-        "rabbitmq_user": "strong_mq_user",
-        "rabbitmq_password": SecretStr("strong-mq-secret-32chars"),
-    })
+    base.update(
+        {
+            "rabbitmq_user": "strong_mq_user",
+            "rabbitmq_password": SecretStr("strong-mq-secret-32chars"),
+        }
+    )
     base.update(overrides)
     return base
 
@@ -104,7 +109,9 @@ def test_consumer_settings_prod_inherits_web_validation():
 
 def test_diagnostic_settings_prod_with_strong_defaults_passes():
     s = DiagnosticSettings(**_consumer_kwargs())
-    assert s.llm_provider == "mock"  # 과금 발생 외부 API 호출 금지 default
+    # ADR 0025: 단일 ollama provider — LLM_PROVIDER env 제거. ollama 호출은 host 안 `ollama serve` 의무.
+    assert s.ollama_model == "llama3.1:8b"
+    assert s.ollama_base_url == "http://localhost:11434"
 
 
 def test_diagnostic_settings_prod_inherits_consumer_validation():

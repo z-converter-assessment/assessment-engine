@@ -1,9 +1,10 @@
 """metrics_calculator — delta 기반 percent/rate 계산."""
+
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from assessment_engine.db.repositories.outbound import (
+from assessment_engine.db.dtos.outbound import (
     DiskIoRaw,
     MetricPairRaw,
     MountUsageRaw,
@@ -28,46 +29,68 @@ _BOOT_B = datetime(2026, 5, 9, tzinfo=UTC)
 
 # ─── helper 단위 ──────────────────────────────────────────────────────────
 
+
 def test_group_by_dim_groups_by_key():
     rows = [("sda", 1), ("sdb", 2), ("sda", 3)]
     grouped = _group_by_dim(rows, key=lambda r: r[0])
     assert grouped == {"sda": [("sda", 1), ("sda", 3)], "sdb": [("sdb", 2)]}
 
 
-@pytest.mark.parametrize("cur, prev, dt, expected", [
-    (200, 100, 10.0, 10.0),       # (200-100)/10
-    (100, 100, 10.0, 0.0),
-    (50, 100, 10.0, None),         # counter reset
-    (None, 100, 10.0, None),
-    (200, None, 10.0, None),
-])
+@pytest.mark.parametrize(
+    "cur, prev, dt, expected",
+    [
+        (200, 100, 10.0, 10.0),  # (200-100)/10
+        (100, 100, 10.0, 0.0),
+        (50, 100, 10.0, None),  # counter reset
+        (None, 100, 10.0, None),
+        (200, None, 10.0, None),
+    ],
+)
 def test_delta_rate(cur, prev, dt, expected):
     assert _delta_rate(cur, prev, dt) == expected
 
 
-@pytest.mark.parametrize("raw, room, expected", [
-    (None, 50.0, None),
-    (10.0, 50.0, 10.0),     # raw < room
-    (60.0, 50.0, 50.0),     # raw > room → clip
-    (10.0, -5.0, 0.0),      # room 음수 → 0
-])
+@pytest.mark.parametrize(
+    "raw, room, expected",
+    [
+        (None, 50.0, None),
+        (10.0, 50.0, 10.0),  # raw < room
+        (60.0, 50.0, 50.0),  # raw > room → clip
+        (10.0, -5.0, 0.0),  # room 음수 → 0
+    ],
+)
 def test_clip_to_remaining(raw, room, expected):
     assert _clip_to_remaining(raw, room) == expected
 
 
 # ─── compute_cpu ──────────────────────────────────────────────────────────
 
-def _cpu_pair(t: datetime, user, idle, *, boot_time: datetime | None = None,
-              agent_started_at: datetime | None = None) -> MetricPairRaw:
+
+def _cpu_pair(
+    t: datetime, user, idle, *, boot_time: datetime | None = None, agent_started_at: datetime | None = None
+) -> MetricPairRaw:
     return MetricPairRaw(
         collected_at=t,
-        cpu_user=user, cpu_nice=0, cpu_system=0, cpu_idle=idle,
-        cpu_iowait=0, cpu_irq=0, cpu_softirq=0, cpu_steal=0,
-        mem_total_kb=None, mem_free_kb=None, mem_available_kb=None,
-        mem_buffers_kb=None, mem_cached_kb=None,
-        swap_total_kb=None, swap_free_kb=None,
-        load_1m=None, load_5m=None, load_15m=None,
-        boot_time=boot_time, agent_started_at=agent_started_at,
+        cpu_user=user,
+        cpu_nice=0,
+        cpu_system=0,
+        cpu_idle=idle,
+        cpu_iowait=0,
+        cpu_irq=0,
+        cpu_softirq=0,
+        cpu_steal=0,
+        mem_total_kb=None,
+        mem_free_kb=None,
+        mem_available_kb=None,
+        mem_buffers_kb=None,
+        mem_cached_kb=None,
+        swap_total_kb=None,
+        swap_free_kb=None,
+        load_1m=None,
+        load_5m=None,
+        load_15m=None,
+        boot_time=boot_time,
+        agent_started_at=agent_started_at,
     )
 
 
@@ -125,28 +148,45 @@ def test_compute_cpu_normal_when_only_agent_restart():
 
 # ─── _is_counter_reset helper ─────────────────────────────────────────────
 
-@pytest.mark.parametrize("cur, prev, expected", [
-    (_BOOT_A, _BOOT_A, False),       # 동일
-    (_BOOT_A, _BOOT_B, True),        # 다름 → reset
-    (None, _BOOT_A, False),          # 한쪽 NULL → fallback
-    (_BOOT_A, None, False),
-    (None, None, False),             # 둘 다 NULL (옛 데이터)
-])
+
+@pytest.mark.parametrize(
+    "cur, prev, expected",
+    [
+        (_BOOT_A, _BOOT_A, False),  # 동일
+        (_BOOT_A, _BOOT_B, True),  # 다름 → reset
+        (None, _BOOT_A, False),  # 한쪽 NULL → fallback
+        (_BOOT_A, None, False),
+        (None, None, False),  # 둘 다 NULL (옛 데이터)
+    ],
+)
 def test_is_counter_reset(cur, prev, expected):
     assert _is_counter_reset(cur, prev) is expected
 
 
 # ─── compute_mem ──────────────────────────────────────────────────────────
 
+
 def _mem_pair(total, available, cached, buffers) -> MetricPairRaw:
     return MetricPairRaw(
         collected_at=datetime.now(UTC),
-        cpu_user=0, cpu_nice=0, cpu_system=0, cpu_idle=0,
-        cpu_iowait=0, cpu_irq=0, cpu_softirq=0, cpu_steal=0,
-        mem_total_kb=total, mem_free_kb=None, mem_available_kb=available,
-        mem_buffers_kb=buffers, mem_cached_kb=cached,
-        swap_total_kb=None, swap_free_kb=None,
-        load_1m=None, load_5m=None, load_15m=None,
+        cpu_user=0,
+        cpu_nice=0,
+        cpu_system=0,
+        cpu_idle=0,
+        cpu_iowait=0,
+        cpu_irq=0,
+        cpu_softirq=0,
+        cpu_steal=0,
+        mem_total_kb=total,
+        mem_free_kb=None,
+        mem_available_kb=available,
+        mem_buffers_kb=buffers,
+        mem_cached_kb=cached,
+        swap_total_kb=None,
+        swap_free_kb=None,
+        load_1m=None,
+        load_5m=None,
+        load_15m=None,
     )
 
 
@@ -173,28 +213,45 @@ def test_compute_mem_clips_cached_when_overflow():
 
 # ─── compute_swap ─────────────────────────────────────────────────────────
 
+
 def test_compute_swap_returns_none_when_total_zero():
     pair = MetricPairRaw(
         collected_at=datetime.now(UTC),
-        cpu_user=0, cpu_nice=0, cpu_system=0, cpu_idle=0,
-        cpu_iowait=0, cpu_irq=0, cpu_softirq=0, cpu_steal=0,
-        mem_total_kb=None, mem_free_kb=None, mem_available_kb=None,
-        mem_buffers_kb=None, mem_cached_kb=None,
-        swap_total_kb=0, swap_free_kb=0,
-        load_1m=None, load_5m=None, load_15m=None,
+        cpu_user=0,
+        cpu_nice=0,
+        cpu_system=0,
+        cpu_idle=0,
+        cpu_iowait=0,
+        cpu_irq=0,
+        cpu_softirq=0,
+        cpu_steal=0,
+        mem_total_kb=None,
+        mem_free_kb=None,
+        mem_available_kb=None,
+        mem_buffers_kb=None,
+        mem_cached_kb=None,
+        swap_total_kb=0,
+        swap_free_kb=0,
+        load_1m=None,
+        load_5m=None,
+        load_15m=None,
     )
     assert compute_swap(pair) is None
 
 
 # ─── compute_disk_io ──────────────────────────────────────────────────────
 
-def _disk(device, t, reads, writes, sr=0, sw=0, *,
-          boot_time: datetime | None = None) -> DiskIoRaw:
+
+def _disk(device, t, reads, writes, sr=0, sw=0, *, boot_time: datetime | None = None) -> DiskIoRaw:
     return DiskIoRaw(
-        device=device, collected_at=t,
-        reads_completed=reads, writes_completed=writes,
-        sectors_read=sr, sectors_written=sw,
-        boot_time=boot_time, agent_started_at=None,
+        device=device,
+        collected_at=t,
+        reads_completed=reads,
+        writes_completed=writes,
+        sectors_read=sr,
+        sectors_written=sw,
+        boot_time=boot_time,
+        agent_started_at=None,
     )
 
 
@@ -202,9 +259,12 @@ def test_compute_disk_io_classifies_into_three_groups():
     t1 = datetime.now(UTC)
     t2 = t1 + timedelta(seconds=60)
     rows = [
-        _disk("sda", t2, 200, 100), _disk("sda", t1, 100, 50),
-        _disk("dm-0", t2, 50, 25),  _disk("dm-0", t1, 0, 0),
-        _disk("sda1", t2, 30, 15),  _disk("sda1", t1, 0, 0),
+        _disk("sda", t2, 200, 100),
+        _disk("sda", t1, 100, 50),
+        _disk("dm-0", t2, 50, 25),
+        _disk("dm-0", t1, 0, 0),
+        _disk("sda1", t2, 30, 15),
+        _disk("sda1", t1, 0, 0),
     ]
     phys, lvm, part = compute_disk_io(rows)
     assert [s.device for s in phys] == ["sda"]
@@ -236,14 +296,19 @@ def test_compute_disk_io_returns_none_on_system_reboot():
 
 # ─── compute_net_io ───────────────────────────────────────────────────────
 
-def _net(iface, t, rx, tx, rxp=0, txp=0, *,
-         boot_time: datetime | None = None) -> NetIoRaw:
+
+def _net(iface, t, rx, tx, rxp=0, txp=0, *, boot_time: datetime | None = None) -> NetIoRaw:
     return NetIoRaw(
-        interface=iface, collected_at=t,
-        rx_bytes=rx, tx_bytes=tx,
-        rx_packets=rxp, tx_packets=txp,
-        rx_errors=0, tx_errors=0,
-        boot_time=boot_time, agent_started_at=None,
+        interface=iface,
+        collected_at=t,
+        rx_bytes=rx,
+        tx_bytes=tx,
+        rx_packets=rxp,
+        tx_packets=txp,
+        rx_errors=0,
+        tx_errors=0,
+        boot_time=boot_time,
+        agent_started_at=None,
     )
 
 
@@ -278,20 +343,30 @@ def test_compute_net_io_returns_none_on_system_reboot():
 
 # ─── compute_mounts ───────────────────────────────────────────────────────
 
+
 def test_compute_mounts_filters_virtual():
     now = datetime.now(UTC)
     rows = [
         MountUsageRaw(
-            mount="/", total_bytes=10**10, avail_bytes=5*10**9,
-            free_bytes=5*10**9, collected_at=now,
+            mount="/",
+            total_bytes=10**10,
+            avail_bytes=5 * 10**9,
+            free_bytes=5 * 10**9,
+            collected_at=now,
         ),
         MountUsageRaw(
-            mount="/proc", total_bytes=0, avail_bytes=0,
-            free_bytes=0, collected_at=now,
+            mount="/proc",
+            total_bytes=0,
+            avail_bytes=0,
+            free_bytes=0,
+            collected_at=now,
         ),
         MountUsageRaw(
-            mount="/snap/core/123", total_bytes=10**8, avail_bytes=0,
-            free_bytes=0, collected_at=now,
+            mount="/snap/core/123",
+            total_bytes=10**8,
+            avail_bytes=0,
+            free_bytes=0,
+            collected_at=now,
         ),
     ]
     result = compute_mounts(rows)

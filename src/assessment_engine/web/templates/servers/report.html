@@ -35,41 +35,43 @@
 </style>
 
 <a class="back no-print" href="{{ back_url }}">← 이전</a>
-<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-  <h1 style="margin:0;">Assessment Report <span style="font-size:14px; color:#64748b; font-weight:400; margin-left:8px;">{{ view_title }}</span></h1>
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; gap:16px;">
+  <h1>Assessment Report <span class="page-meta">{{ view_title }}</span></h1>
+  <div style="font-size:12px; color:#64748b; text-align:right;">
+    {% if summary.generated_at %}<div>발행 {{ summary.generated_at | kst }}</div>{% endif %}
+    {% if summary.anchor_at %}<div>기준 {{ summary.anchor_at | kst }} · 윈도우 {{ time_range_label }}</div>{% endif %}
+  </div>
 </div>
 <div class="report-meta">
-  데이터 기준 기간: 최근 {{ time_range_label }} ·
-  대상 서버 {{ summary.total }}대 ·
-  분류 기준: USE Method (Brendan Gregg) + AWS Compute Optimizer / Azure Advisor / GCP Recommender
+  대상 서버 {{ summary.total }}대 · 분류 기준: Right-sizing
 </div>
 
 <!-- ─── 공통 KPI: 환경 + Right-sizing 분류 (customer · engineer 동일 뼈대) ─── -->
 <div class="kpi-label">환경</div>
 <div class="kpi-grid kpi-grid-2" style="margin-bottom:12px;">
   <div class="kpi"><span>대상 서버</span><strong>{{ summary.total }}</strong></div>
-  <div class="kpi"><span>온라인</span><strong style="color:#15803d;">{{ summary.online }}</strong></div>
+  <div class="kpi"><span>온라인</span><strong class="text-ok">{{ summary.online }}</strong></div>
 </div>
 <div class="kpi-label">Right-sizing 분류</div>
 <div class="kpi-grid kpi-grid-3" style="margin-bottom:{% if view == 'engineer' %}12{% else %}24{% endif %}px;">
-  <div class="kpi"><span>자원 부족</span><strong style="color:#b91c1c;">{{ under_count }}</strong></div>
-  <div class="kpi"><span>효율화 권장</span><strong style="color:#92400e;">{{ optimize_count }}</strong></div>
-  <div class="kpi"><span>적정</span><strong style="color:#15803d;">{{ optimal_count }}</strong></div>
+  <div class="kpi"><span>자원 부족</span><strong class="text-danger">{{ under_count }}</strong></div>
+  <div class="kpi"><span>효율화 권장</span><strong class="text-warn">{{ optimize_count }}</strong></div>
+  <div class="kpi"><span>적정</span><strong class="text-ok">{{ optimal_count }}</strong></div>
 </div>
 
 {% if view == "engineer" and attn_active_count > 0 %}
 <div class="kpi-label">운영 신호 <span class="kpi-label-sub">발화 호스트 {{ attn_active_count }}대</span></div>
 <div class="kpi-grid" style="grid-template-columns:repeat({{ attn_active_kpi_cols }}, 1fr);">
-  {% if attn_gap_count > 0 %}<div class="kpi"><span>데이터 수집 끊김</span><strong style="color:#b45309;">{{ attn_gap_count }}</strong></div>{% endif %}
-  {% if attn_eol_count > 0 %}<div class="kpi"><span>OS EOL</span><strong style="color:#b45309;">{{ attn_eol_count }}</strong></div>{% endif %}
-  {% if attn_restart_count > 0 %}<div class="kpi"><span>Agent 불안정</span><strong style="color:#b45309;">{{ attn_restart_count }}</strong></div>{% endif %}
+  {% if attn_gap_count > 0 %}<div class="kpi"><span>데이터 수집 끊김</span><strong class="text-attn">{{ attn_gap_count }}</strong></div>{% endif %}
+  {% if attn_eol_count > 0 %}<div class="kpi"><span>OS EOL</span><strong class="text-attn">{{ attn_eol_count }}</strong></div>{% endif %}
+  {% if attn_restart_count > 0 %}<div class="kpi"><span>Agent 불안정</span><strong class="text-attn">{{ attn_restart_count }}</strong></div>{% endif %}
 </div>
 {% endif %}
 
 <div style="display:flex; gap:24px; margin:14px 0 12px; padding:14px 16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:13px; color:#475569;">
-  <div>총 vCPU: <strong style="color:#1e293b;">{{ summary.totals.total_vcpus }}</strong></div>
-  <div>총 메모리: <strong style="color:#1e293b;">{{ summary.totals.total_memory_gb }} GB</strong></div>
-  <div>총 디스크: <strong style="color:#1e293b;">{{ summary.totals.total_disk_gb }} GB</strong></div>
+  <div>총 vCPU: <strong class="text-strong">{{ summary.totals.total_vcpus }}</strong></div>
+  <div>총 메모리: <strong class="text-strong">{{ "%.1f" | format(summary.totals.total_memory_gb) }} GB</strong></div>
+  <div>총 디스크: <strong class="text-strong">{{ summary.totals.total_disk_gb }} GB</strong></div>
   <div style="margin-left:auto; color:#94a3b8; font-size:12px;">환경 총 자원 규모</div>
 </div>
 
@@ -83,11 +85,14 @@
         <th>ROLE</th>
         <th>OS{% if view == "engineer" %}<span class="sub">kernel</span>{% endif %}</th>
         <th>상태</th>
+        <th class="num-cell">vCPU</th>
+        <th class="num-cell">메모리</th>
+        <th class="num-cell">디스크</th>
         <th class="num-cell">CPU{% if view == "engineer" %}<span class="sub">평균 · p95</span>{% else %} 평균{% endif %}</th>
         <th class="num-cell">MEM{% if view == "engineer" %}<span class="sub">평균 · p95</span>{% else %} 평균{% endif %}</th>
         <th>Right-sizing{% if view == "engineer" %}<span class="sub">판단</span>{% endif %}</th>
         {% if view == "engineer" %}<th>운영 신호</th>{% endif %}
-        <th>AI 진단<span class="sub">{{ time_range_label }}</span></th>
+        {% if view == "engineer" %}<th>AI 진단<span class="sub">최근 narrative</span></th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -97,12 +102,15 @@
           <a href="/servers/{{ r.public_id }}/report?view={{ view }}&time_range={{ time_range }}&back={{ self_back }}" class="row-link"><strong>{{ r.hostname }}</strong></a>
           {% if view == "engineer" %}<span class="stat-line muted"><code>{{ r.internal_ip or "—" }}</code></span>{% endif %}
         </td>
-        <td>{% if r.role %}<span class="badge {{ r.role | service_badge_class }}">{{ r.role }}</span>{% else %}<span style="color:#94a3b8;">—</span>{% endif %}</td>
+        <td>{% if r.role %}<span class="badge {{ r.role | service_badge_class }}">{{ r.role }}</span>{% else %}<span class="text-meta">—</span>{% endif %}</td>
         <td>
           {{ r.os_display }}
           {% if view == "engineer" and r.kernel_version %}<span class="stat-line muted">{{ r.kernel_version }}</span>{% endif %}
         </td>
         <td style="text-align:center;">{% if r.is_online %}<span class="dot dot-ok" title="온라인"></span>{% else %}<span class="dot dot-off" title="오프라인"></span>{% endif %}</td>
+        <td class="num-cell">{% if r.cpu_cores is not none %}{{ r.cpu_cores }}{% else %}—{% endif %}</td>
+        <td class="num-cell">{% if r.mem_total_gb is not none %}{{ "%.1f"|format(r.mem_total_gb) }} GB{% else %}—{% endif %}</td>
+        <td class="num-cell">{% if r.disk_total_gb is not none %}{{ "%.0f"|format(r.disk_total_gb) }} GB{% else %}—{% endif %}</td>
         <td class="num-cell">
           <span class="stat-line">{% if r.cpu_avg_pct is not none %}{{ "%.1f"|format(r.cpu_avg_pct) }}%{% else %}—{% endif %}</span>
           {% if view == "engineer" %}<span class="stat-line muted">{% if r.cpu_p95_pct is not none %}p95 {{ "%.1f"|format(r.cpu_p95_pct) }}%{% else %}p95 —{% endif %}</span>{% endif %}
@@ -123,19 +131,23 @@
             {% if sig.get('os_eol') %}<span class="rec-badge attn-active" title="OS EOL: {{ sig.os_eol }}">OS EOL</span> {% endif %}
             {% if sig.get('restart') %}<span class="rec-badge attn-active" title="Agent 불안정: {{ sig.restart }}">Agent</span>{% endif %}
           {% else %}
-            <span style="color:#cbd5e1;">—</span>
+            <span class="text-faint">—</span>
+          {% endif %}
+        </td>
+        {% set diag = diagnostics_by_pid.get(r.public_id) %}
+        {% set diag_job_id = pending_job_ids.get(r.public_id) %}
+        <td style="max-width:280px;" data-diagnostic-inline data-job-id="{{ diag_job_id or '' }}">
+          {% if diag and diag.narrative %}
+            <span class="stat-line muted diag-inline-body diag-clamp" title="{{ diag.narrative }}" style="white-space:normal; line-height:1.4;">{{ diag.narrative }}</span>
+            <span class="stat-line muted diag-inline-meta" style="color:#94a3b8; font-size:11px;">{{ diag.classification_label_kr or "" }}</span>
+          {% else %}
+            <span class="diag-inline-body" style="color:#94a3b8; font-size:11px;">
+              {% if diag_job_id %}진단 진행 중 (LLM 합성 대기){% else %}진단 자료 없음{% endif %}
+            </span>
+            <span class="diag-inline-meta"></span>
           {% endif %}
         </td>
         {% endif %}
-        <td class="ai-diag-cell">
-          {% set d = diagnostics_by_pid.get(r.public_id) if diagnostics_by_pid else None %}
-          {% if d and d.classification %}
-            <span class="stat-line"><span class="rec-badge {{ d.classification_badge_class }}">{{ d.classification_label_kr }}</span></span>
-            {% if view == "engineer" and d.recommendation_action %}<span class="stat-line muted">{{ d.recommendation_action }}</span>{% endif %}
-          {% else %}
-            <span style="color:#94a3b8;">—</span>
-          {% endif %}
-        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -147,4 +159,7 @@
     평가 기간 {{ time_range_label }} 통계 기반.
   </div>
 </div>
+{% if view == "engineer" %}
+<script src="/static/js/diagnostic-inline.js?v={{ asset_v }}" defer></script>
+{% endif %}
 {% endblock %}

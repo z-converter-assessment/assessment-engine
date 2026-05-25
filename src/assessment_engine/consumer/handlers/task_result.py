@@ -1,0 +1,70 @@
+"""task.result 메시지 핸들러 — agent worker 가 task 실행 종료 후 발행."""
+
+from collections.abc import Callable, Coroutine
+from typing import Any
+
+from aio_pika.abc import AbstractIncomingMessage
+from loguru import logger
+from pydantic import ValidationError
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from assessment_engine.consumer.handlers._common import _check_idempotent, _db_retry
+from assessment_engine.consumer.schemas import TaskResultInput
+from assessment_engine.db.dtos.inbound import TaskResultUpdate
+from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
+
+
+def make_task_result_handler(
+    session_factory: async_sessionmaker[AsyncSession],
+    repo_factory: Callable[[AsyncSession], BaseCollectRepository],
+    redis: Redis,
+) -> Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]:
+    """작업 결과 수신 핸들러.
+
+    흐름: 멱등성 → DB UPDATE (status / completed_at / failure_reason / exit_code /
+    duration_ms / stdout_tail / stderr_tail).
+    task_id 미존재 시 silent ack (운영자가 task 삭제했을 가능성 — DLQ 부적합).
+    boot_time / agent_started_at은 본 메시지에서 항상 null이라 time invariant 검증 생략.
+    """
+
+    async def _handle(message: AbstractIncomingMessage) -> None:
+        async with message.process(requeue=False):
+            try:
+                data = TaskResultInput.model_validate_json(message.body)
+            except ValidationError as e:
+                logger.error("task_result parse error count={}", len(e.errors()))
+                raise
+
+            if not await _check_idempotent(redis, data.message_id):
+                logger.info("task_result duplicate skipped message_id={}", data.message_id)
+                return
+
+            update = TaskResultUpdate(
+                public_id=str(data.task_id),
+                status=data.status,
+                failure_reason=data.failure_reason,
+                exit_code=data.exit_code,
+                duration_ms=data.duration_ms,
+                stdout_tail=data.stdout_tail,
+                stderr_tail=data.stderr_tail,
+                completed_at=data.completed_at,
+            )
+
+            async def commit(repo: BaseCollectRepository) -> bool:
+                return await repo.complete_task(update)
+
+            updated = await _db_retry(session_factory, repo_factory, commit)
+            if not updated:
+                logger.warning("task_result for unknown task_id={} (silent ack)", data.task_id)
+                return
+
+            logger.info(
+                "task_result stored host_id={} task_id={} status={} failure_reason={}",
+                data.host_id,
+                data.task_id,
+                data.status,
+                data.failure_reason,
+            )
+
+    return _handle

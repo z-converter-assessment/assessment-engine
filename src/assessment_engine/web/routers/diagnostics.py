@@ -3,6 +3,7 @@
 책임: HTTP I/O만. 비즈니스 로직(INSERT·publish·트랜잭션)은 DiagnosticService 위임 (F4).
 표시 파생(badge·라벨·window 라벨 등)은 `diagnostic_mapper.to_view`로 단일 변환 (P2).
 """
+
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -12,16 +13,15 @@ from pydantic import BaseModel, Field, model_validator
 
 from assessment_engine.db.repositories.base_diagnostic_repository import DiagnosticTimeRange
 from assessment_engine.web.deps import get_diagnostic_service
-from assessment_engine.web.services.diagnostic_mapper import to_view
 from assessment_engine.web.services.diagnostic_service import (
     DiagnosticBadRequest,
     DiagnosticNotFound,
     DiagnosticRaceMiss,
     DiagnosticService,
 )
-from assessment_engine.web.settings import diagnostic_settings
+from assessment_engine.web.services.mappers.diagnostic import to_view
 
-diagnostics_router = APIRouter(prefix="/api/v1/diagnostics", tags=["diagnostics"])
+diagnostics_router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
 
 
 class DiagnosticRequest(BaseModel):
@@ -46,16 +46,13 @@ async def submit(
     req: DiagnosticRequest,
     service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    # feature flag — diagnostic_enabled=False 시 short-circuit. 모달 UI 는 그대로 (사용자 트리거는 503).
-    if not diagnostic_settings.diagnostic_enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="AI 진단 일시 비활성화 — 운영자 정책. DIAGNOSTIC_ENABLED=true 로 활성.",
-        )
     public_ids = [str(u) for u in req.server_ids] if req.server_ids else None
     try:
         job_ids = await service.submit(
-            req.scope, public_ids, req.time_range, req.anchor_at,
+            req.scope,
+            public_ids,
+            req.time_range,
+            req.anchor_at,
         )
         return JobIdsResponse(job_ids=job_ids)
     except DiagnosticBadRequest as e:

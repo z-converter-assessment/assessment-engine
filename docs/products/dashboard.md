@@ -53,9 +53,11 @@
 
 ### 영역 5: 서버 테이블 (행별)
 
-- 컬럼: hostname / role / OS / online / CPU / MEM / disk / 권장 / 최근 작업
-- 행별 권장 조치 — recommendation.classify 결과 badge
-- "최근 작업" column — install task badge (success/failure/pending) + 클릭 시 modal로 stdout/stderr/failure_reason 디버깅
+- 컬럼: 선택 / 상태 (online dot) / Hostname / 서비스 (badge) / 외부 IP / OS / 프로비저닝 (Right-sizing 분류) / 최근 작업 / 상세
+- 자원 인벤토리 (vCPU/메모리/디스크) 는 상단 "환경 요약" KPI 로 통합 — table 컬럼에서 제거 (시각 노이즈 회피)
+- 행별 프로비저닝 — `recommendation.classify` 결과 (`under_provisioned` / `over_provisioned` / `idle` / `shutdown` / `optimal` / `insufficient_data`)
+- "최근 작업" column — install task badge (success/failure/pending) + 클릭 시 modal 로 stdout/stderr/failure_reason 디버깅. modal 본문은 server fragment endpoint (`GET /api/tasks/{id}/detail`) HTML 반환 (P3 정공)
+- 필터링: search(hostname) / is_online (전체·온라인·오프라인) / service (web/db/cache/mq/container/monitor) / os_id (distro) / classification (Right-sizing 6 분류) — 검색 버튼 없음, dropdown/checkbox 변경 즉시 client-side filter + URL 갱신
 - pagination: page=1 default, limit=20 (max 100)
 
 답: "어떤 서버가 어떤 상태인가? 어떤 행동을 권장받나?"
@@ -76,7 +78,7 @@ list에서 N대 선택 → 다음 4 액션 활성화:
 활용률 임계 60·80%:
 - UI badge "warn"(노랑)·"danger"(빨강) 두 단계로 시각 구분
 - 60% 미만은 정상 녹색·여유. 60%+ 노랑 주의·80%+ 빨강 위험
-- `_USAGE_WARN_PCT=75`·`_USAGE_DANGER_PCT=90`이 코드 단일 진실 (`mappers.py`). 대시보드는 그 표현
+- `_USAGE_WARN_PCT=75`·`_USAGE_DANGER_PCT=90`이 코드 단일 진실 (`web/services/mappers/shared.py`). 대시보드는 그 표현
 - 다만 환경 평균은 60·80% (서버 단위 임계와 다른 도메인 — 환경 평균이 80%면 매우 위험)
 
 평가 윈도우 14일:
@@ -100,9 +102,9 @@ prov 분포 도넛 3 카테고리:
 
 1. page=1 + 검색·필터 미사용 시만 상단 요약·도넛·신호 노출 — 검색·다음 페이지에선 raw 테이블만. 의도된 단순화이지만 운영자가 "왜 갑자기 사라졌나" 혼란 가능. UI 가이드 보강 후보.
 2. SSE 단일 채널 + 서버 측 필터링 (T5) — 동시 운영자 ↑ 시 broker 부하. 본 프로젝트 규모는 OK.
-3. 활용률 도넛은 환경 평균만 — 분포(p50·p95)는 미노출. 양극화 환경에서 misleading (`docs/products/customer-report.md` 한계 #2와 동일 패턴).
+3. 활용률 도넛은 환경 평균만 — 분포(p50·p95)는 미노출. 양극화 환경에서 misleading (`docs/products/environment-report.md` 한계 #2와 동일 패턴).
 4. 행별 권장 단일 라벨 — recommendation 분류 1개만 표시. 다중 신호(예: CPU 정상 + 메모리 부족)는 우선순위 평가 후 1개만.
-5. 환경 진단 결과 자동 노출 — list 페이지가 매일 03시 cron 실행된 최근 succeeded 진단을 자동 표시. 사용자 명시 발행 안 해도 정보 노출. 다만 진단 워커 중단 시 stale 표시 위험.
+5. 환경 진단 결과 자동 노출 — list 페이지가 사용자 trigger (web POST /api/diagnostics) 로 발행된 최근 succeeded 진단을 자동 표시. ADR 0023: cron 자동 발화 폐기로 운영자가 명시 발행 안 하면 진단 자료 누적 0. 진단 워커 중단 시 stale 표시 위험.
 
 ## 관련 문서·코드
 
@@ -110,9 +112,9 @@ prov 분포 도넛 3 카테고리:
 - `docs/architecture/web/services.md` — query_service·diagnostic_service·service_classifier
 - `docs/architecture/web/view-models.md` — ViewModel 카탈로그·도넛 SVG 상수
 - `docs/architecture/web/static-assets.md` — list.js·차트 P4 규약
-- `docs/products/{environment-diagnostic,server-diagnostic}.md` — 진단 결과의 source
+- `docs/products/{environment-report,server-report}.md` — 보고서 + 진단 통합 산출물 (scope별)
 - `docs/products/install-task.md` — "최근 작업" column source
-- `src/assessment_engine/web/routers/pages.py::list_servers` — 라우터
+- `src/assessment_engine/web/routers/pages/::list_servers` — 라우터
 - `src/assessment_engine/web/templates/servers/list.html` — 메인 템플릿
 - `src/assessment_engine/web/static/js/pages/list.js` — selection·polling·toast
 - CLAUDE.md #E1·#E2·#E3·#E8 — 표시 계층 원칙·데이터 흐름·임계 색 단일 진실

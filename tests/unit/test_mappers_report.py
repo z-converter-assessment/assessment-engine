@@ -1,31 +1,37 @@
 """report·overview·attention 관련 mapper — 본 세션(v3~v5) 추가 함수 단위 테스트."""
+
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from assessment_engine.db.repositories.outbound import (
+from assessment_engine.db.dtos.outbound import (
     EnvironmentUtilizationRaw,
     ReportRowRaw,
     ServerDetail,
 )
-from assessment_engine.web.services.mappers import (
-    _DONUT_SEGMENT_FROM_REC,
-    _OS_EOL,
-    _RISK_FROM_RECOMMENDATION,
+from assessment_engine.web.services.mappers.attention import (
     _UTIL_COLOR_NONE,
     _UTIL_DONUT_CIRC,
     build_environment_overview,
-    build_report_summary_bullets,
     build_risk_donut_segments,
-    build_role_distribution,
-    compute_report_avg_p95,
-    compute_report_totals_from_raw,
     to_agent_unstable_item,
     to_capacity_warning_item,
     to_disk_days_warning_item,
-    to_inventory_export_entry,
     to_os_eol_warning_item,
+)
+from assessment_engine.web.services.mappers.export import to_inventory_export_entry
+from assessment_engine.web.services.mappers.report import (
+    _RISK_FROM_RECOMMENDATION,
+    _build_recommendation_action,
+    build_report_summary_bullets,
+    build_role_distribution,
+    compute_report_avg_p95,
+    compute_report_totals_from_raw,
     to_report_row_item,
+)
+from assessment_engine.web.services.mappers.shared import (
+    _DONUT_SEGMENT_FROM_REC,
+    _OS_EOL,
 )
 
 # ─── 헬퍼 ────────────────────────────────────────────────────────────────
@@ -35,49 +41,86 @@ _NOW = datetime(2026, 5, 12, tzinfo=UTC)
 
 def _raw(
     *,
-    server_id=1, public_id="a", hostname="h",
-    os_id="ubuntu", os_version="22.04", kernel_version="5.15",
-    ip_internal=("10.0.0.1",), services=None,
-    cpu_avg=None, cpu_p95=None, cpu_peak=None,
-    mem_avg=None, mem_p95=None, mem_peak=None,
-    load_15m_max=None, swap_used=False,
-    iowait_p95=None, iowait_peak=None,
-    cpu_cores=2, mem_total_kb=2 * 1024 * 1024,
-    disks=None, boot_time=None,
-    worst_mount=None, worst_used=None, worst_days=None,
+    server_id=1,
+    public_id="a",
+    hostname="h",
+    os_id="ubuntu",
+    os_version="22.04",
+    kernel_version="5.15",
+    ip_internal=("10.0.0.1",),
+    services=None,
+    cpu_avg=None,
+    cpu_p95=None,
+    cpu_peak=None,
+    mem_avg=None,
+    mem_p95=None,
+    mem_peak=None,
+    load_15m_max=None,
+    swap_used=False,
+    iowait_p95=None,
+    iowait_peak=None,
+    cpu_cores=2,
+    mem_total_kb=2 * 1024 * 1024,
+    disks=None,
+    boot_time=None,
+    worst_mount=None,
+    worst_used=None,
+    worst_days=None,
     reboot_count=0,
-    disk_iops=None, disk_throughput=None, net_rx=None, net_tx=None,
+    disk_iops=None,
+    disk_throughput=None,
+    net_rx=None,
+    net_tx=None,
 ) -> ReportRowRaw:
     return ReportRowRaw(
-        server_id=server_id, public_id=public_id, hostname=hostname,
-        os_id=os_id, os_version=os_version, kernel_version=kernel_version,
+        server_id=server_id,
+        public_id=public_id,
+        hostname=hostname,
+        os_id=os_id,
+        os_version=os_version,
+        kernel_version=kernel_version,
         ip_internal=list(ip_internal) if ip_internal else None,
         services=list(services) if services else None,
         last_seen_at=_NOW,
-        cpu_avg_pct=cpu_avg, cpu_p95_pct=cpu_p95, cpu_peak_pct=cpu_peak,
-        mem_avg_pct=mem_avg, mem_p95_pct=mem_p95, mem_peak_pct=mem_peak,
-        load_15m_max=load_15m_max, swap_used=swap_used,
-        iowait_p95_pct=iowait_p95, iowait_peak_pct=iowait_peak,
-        cpu_cores=cpu_cores, mem_total_kb=mem_total_kb,
+        cpu_avg_pct=cpu_avg,
+        cpu_p95_pct=cpu_p95,
+        cpu_peak_pct=cpu_peak,
+        mem_avg_pct=mem_avg,
+        mem_p95_pct=mem_p95,
+        mem_peak_pct=mem_peak,
+        load_15m_max=load_15m_max,
+        swap_used=swap_used,
+        iowait_p95_pct=iowait_p95,
+        iowait_peak_pct=iowait_peak,
+        cpu_cores=cpu_cores,
+        mem_total_kb=mem_total_kb,
         disks=disks if disks is not None else [{"size_bytes": 50 * 10**9}],
         boot_time=boot_time if boot_time is not None else _NOW - timedelta(days=30),
-        worst_mount=worst_mount, worst_mount_used_pct=worst_used,
-        worst_mount_days_until_full=worst_days, reboot_count=reboot_count,
-        disk_iops_baseline=disk_iops, disk_throughput_kbps=disk_throughput,
-        net_rx_kbps=net_rx, net_tx_kbps=net_tx,
+        worst_mount=worst_mount,
+        worst_mount_used_pct=worst_used,
+        worst_mount_days_until_full=worst_days,
+        reboot_count=reboot_count,
+        disk_iops_baseline=disk_iops,
+        disk_throughput_kbps=disk_throughput,
+        net_rx_kbps=net_rx,
+        net_tx_kbps=net_tx,
     )
 
 
 # ─── _RISK_FROM_RECOMMENDATION 매핑 (옵션 B) ─────────────────────────────
 
-@pytest.mark.parametrize("rec, risk_level, risk_label", [
-    ("under_provisioned", "high", "고위험"),
-    ("shutdown",          "attention", "주의 필요"),
-    ("idle",              "attention", "주의 필요"),
-    ("over_provisioned",  "attention", "주의 필요"),
-    ("optimal",           "normal", "정상"),
-    ("insufficient_data", "normal", "정상"),
-])
+
+@pytest.mark.parametrize(
+    "rec, risk_level, risk_label",
+    [
+        ("under_provisioned", "high", "고위험"),
+        ("shutdown", "attention", "주의 필요"),
+        ("idle", "attention", "주의 필요"),
+        ("over_provisioned", "attention", "주의 필요"),
+        ("optimal", "normal", "정상"),
+        ("insufficient_data", "normal", "정상"),
+    ],
+)
 def test_risk_mapping_all_recommendations(rec, risk_level, risk_label):
     level, label, badge = _RISK_FROM_RECOMMENDATION[rec]
     assert level == risk_level
@@ -86,6 +129,7 @@ def test_risk_mapping_all_recommendations(rec, risk_level, risk_label):
 
 
 # ─── to_report_row_item — saturation/variance/uptime 파생 ────────────────
+
 
 def test_report_row_saturation_ratio_calculated():
     raw = _raw(load_15m_max=4.0, cpu_cores=2)
@@ -129,6 +173,7 @@ def test_report_row_under_provisioned_maps_to_high():
 
 # ─── build_role_distribution ─────────────────────────────────────────────
 
+
 def test_role_distribution_counts_categories():
     raws = [
         _raw(server_id=1, services=[{"unit": "nginx.service", "sub": "running"}]),
@@ -144,17 +189,21 @@ def test_role_distribution_counts_categories():
 
 # ─── compute_report_totals_from_raw ──────────────────────────────────────
 
+
 def test_report_totals_sum_vcpu_memory_disk():
     raws = [
-        _raw(server_id=1, cpu_cores=4, mem_total_kb=8 * 1024 * 1024,
-             disks=[{"size_bytes": 50 * 10**9}, {"size_bytes": 100 * 10**9}]),
-        _raw(server_id=2, cpu_cores=2, mem_total_kb=4 * 1024 * 1024,
-             disks=[{"size_bytes": 30 * 10**9}]),
+        _raw(
+            server_id=1,
+            cpu_cores=4,
+            mem_total_kb=8 * 1024 * 1024,
+            disks=[{"size_bytes": 50 * 10**9}, {"size_bytes": 100 * 10**9}],
+        ),
+        _raw(server_id=2, cpu_cores=2, mem_total_kb=4 * 1024 * 1024, disks=[{"size_bytes": 30 * 10**9}]),
     ]
     t = compute_report_totals_from_raw(raws)
     assert t.total_vcpus == 6
-    assert t.total_memory_gb == 12          # (8 + 4) GB
-    assert t.total_disk_gb == 180           # (50 + 100 + 30) GB
+    assert t.total_memory_gb == 12  # (8 + 4) GB
+    assert t.total_disk_gb == 180  # (50 + 100 + 30) GB
 
 
 def test_report_totals_handles_null_fields():
@@ -167,25 +216,52 @@ def test_report_totals_handles_null_fields():
 
 # ─── build_environment_overview ──────────────────────────────────────────
 
+
 def _detail(*, id_, hostname, cpu_cores, mem_total_kb, disk_size, role_unit=None):
     return ServerDetail(
-        id=id_, public_id=f"p{id_}", machine_id=f"m{id_}", hostname=hostname,
-        agent_version="1.0", os_id="ubuntu", os_version="22.04", os_codename="jammy",
-        kernel_version="5.15", cpu_cores=cpu_cores, cpu_model="x86",
-        mem_total_kb=mem_total_kb, swap_total_kb=0, boot_time=None,
-        ip_internal=["10.0.0.1"], ip_external=None,
-        disks=[{"size_bytes": disk_size}], mounts=[],
+        id=id_,
+        public_id=f"p{id_}",
+        host_id=f"m{id_}",
+        hostname=hostname,
+        agent_version="1.0",
+        os_family=None,
+        os_id="ubuntu",
+        os_version="22.04",
+        os_codename="jammy",
+        kernel_version="5.15",
+        cpu_cores=cpu_cores,
+        cpu_model="x86",
+        mem_total_kb=mem_total_kb,
+        swap_total_kb=0,
+        boot_time=None,
+        ip_internal=["10.0.0.1"],
+        ip_external=None,
+        disks=[{"size_bytes": disk_size}],
+        mounts=[],
         services=[{"unit": role_unit, "sub": "running"}] if role_unit else [],
-        listen_ports=[], last_seen_at=_NOW,
+        listen_ports=[],
+        last_seen_at=_NOW,
     )
 
 
 def test_environment_overview_aggregates():
     details = [
-        _detail(id_=1, hostname="db-01", cpu_cores=4, mem_total_kb=8 * 1024 * 1024,
-                disk_size=50 * 10**9, role_unit="postgresql.service"),
-        _detail(id_=2, hostname="web-01", cpu_cores=2, mem_total_kb=4 * 1024 * 1024,
-                disk_size=100 * 10**9, role_unit="nginx.service"),
+        _detail(
+            id_=1,
+            hostname="db-01",
+            cpu_cores=4,
+            mem_total_kb=8 * 1024 * 1024,
+            disk_size=50 * 10**9,
+            role_unit="postgresql.service",
+        ),
+        _detail(
+            id_=2,
+            hostname="web-01",
+            cpu_cores=2,
+            mem_total_kb=4 * 1024 * 1024,
+            disk_size=100 * 10**9,
+            role_unit="nginx.service",
+        ),
     ]
     ov = build_environment_overview(details, online_count=1)
     assert ov.total == 2
@@ -199,32 +275,37 @@ def test_environment_overview_aggregates():
 
 def test_environment_overview_memory_keeps_decimal():
     # 작은 환경에서 정수 절사 시 정보 손실 — 2.5 GB가 2 GB로 보이지 않게.
-    details = [_detail(id_=1, hostname="x", cpu_cores=1,
-                       mem_total_kb=int(2.5 * 1024 * 1024), disk_size=10**9)]
+    details = [_detail(id_=1, hostname="x", cpu_cores=1, mem_total_kb=int(2.5 * 1024 * 1024), disk_size=10**9)]
     ov = build_environment_overview(details, online_count=1)
     assert ov.total_memory_gb == 2.5
 
 
 def test_environment_overview_utilization_default_empty():
     # utilization=None → 막대 빈 list
-    details = [_detail(id_=1, hostname="x", cpu_cores=1, mem_total_kb=1024*1024, disk_size=10**9)]
+    details = [_detail(id_=1, hostname="x", cpu_cores=1, mem_total_kb=1024 * 1024, disk_size=10**9)]
     ov = build_environment_overview(details, online_count=1)
     assert ov.utilization == []
     assert ov.util_sample_size == 0
 
 
-@pytest.mark.parametrize("pct, expected_color", [
-    # HSL hue 그라데이션 — `hsl(120 - 1.2*pct, 65%, 45%)` (사용자 요구, 초록 → 빨강).
-    # 0% → hue 120 (초록), 50% → 60 (노랑), 100% → 0 (빨강).
-    (0.0,   "hsl(120, 65%, 45%)"),
-    (50.0,  "hsl(60, 65%, 45%)"),
-    (100.0, "hsl(0, 65%, 45%)"),
-    (None,  _UTIL_COLOR_NONE),   # 표본 부재 — 그라데이션 외 단일 색
-])
+@pytest.mark.parametrize(
+    "pct, expected_color",
+    [
+        # HSL hue 그라데이션 — `hsl(120 - 1.2*pct, 65%, 45%)` (사용자 요구, 초록 → 빨강).
+        # 0% → hue 120 (초록), 50% → 60 (노랑), 100% → 0 (빨강).
+        (0.0, "hsl(120, 65%, 45%)"),
+        (50.0, "hsl(60, 65%, 45%)"),
+        (100.0, "hsl(0, 65%, 45%)"),
+        (None, _UTIL_COLOR_NONE),  # 표본 부재 — 그라데이션 외 단일 색
+    ],
+)
 def test_environment_overview_utilization_bar_color(pct, expected_color):
-    details = [_detail(id_=1, hostname="x", cpu_cores=1, mem_total_kb=1024*1024, disk_size=10**9)]
+    details = [_detail(id_=1, hostname="x", cpu_cores=1, mem_total_kb=1024 * 1024, disk_size=10**9)]
     util = EnvironmentUtilizationRaw(
-        cpu_avg_pct=pct, mem_avg_pct=pct, disk_avg_pct=pct, sample_size=1,
+        cpu_avg_pct=pct,
+        mem_avg_pct=pct,
+        disk_avg_pct=pct,
+        sample_size=1,
     )
     ov = build_environment_overview(details, online_count=1, utilization=util)
     assert len(ov.utilization) == 3
@@ -236,18 +317,24 @@ def test_environment_overview_utilization_bar_color(pct, expected_color):
     assert ov.util_sample_size == 1
 
 
-@pytest.mark.parametrize("pct, expected_dash", [
-    (0.0,    0.0),               # 0% → dash 0
-    (50.0,   263.89 / 2),        # 50% → 절반
-    (100.0,  263.89),            # 100% → full
-    (150.0,  263.89),            # over → clamp to 100%
-    (-10.0,  0.0),               # 음수 → clamp to 0
-    (None,   0.0),               # 표본 부재
-])
+@pytest.mark.parametrize(
+    "pct, expected_dash",
+    [
+        (0.0, 0.0),  # 0% → dash 0
+        (50.0, 263.89 / 2),  # 50% → 절반
+        (100.0, 263.89),  # 100% → full
+        (150.0, 263.89),  # over → clamp to 100%
+        (-10.0, 0.0),  # 음수 → clamp to 0
+        (None, 0.0),  # 표본 부재
+    ],
+)
 def test_environment_overview_utilization_dash_length(pct, expected_dash):
-    details = [_detail(id_=1, hostname="x", cpu_cores=1, mem_total_kb=1024*1024, disk_size=10**9)]
+    details = [_detail(id_=1, hostname="x", cpu_cores=1, mem_total_kb=1024 * 1024, disk_size=10**9)]
     util = EnvironmentUtilizationRaw(
-        cpu_avg_pct=pct, mem_avg_pct=pct, disk_avg_pct=pct, sample_size=1,
+        cpu_avg_pct=pct,
+        mem_avg_pct=pct,
+        disk_avg_pct=pct,
+        sample_size=1,
     )
     ov = build_environment_overview(details, online_count=1, utilization=util)
     for bar in ov.utilization:
@@ -255,6 +342,7 @@ def test_environment_overview_utilization_dash_length(pct, expected_dash):
 
 
 # ─── 위험도 분포 도넛 ────────────────────────────────────────────────────
+
 
 def test_risk_donut_segments_order_and_colors():
     """segments 는 _DONUT_SEGMENT_DEFS 순서 (USE Method 6 분류 정석) 고정.
@@ -264,18 +352,28 @@ def test_risk_donut_segments_order_and_colors():
     segs, total, under = build_risk_donut_segments(
         {
             "under_provisioned": 1,
-            "over_provisioned":  2,
-            "idle":              1,
-            "shutdown":          0,
-            "optimal":           5,
+            "over_provisioned": 2,
+            "idle": 1,
+            "shutdown": 0,
+            "optimal": 5,
             "insufficient_data": 1,
         }
     )
     assert [s.key for s in segs] == [
-        "under_provisioned", "over_provisioned", "idle", "shutdown", "optimal", "insufficient_data",
+        "under_provisioned",
+        "over_provisioned",
+        "idle",
+        "shutdown",
+        "optimal",
+        "insufficient_data",
     ]
     assert [s.label for s in segs] == [
-        "under_provisioned", "over_provisioned", "idle", "shutdown", "optimal", "insufficient_data",
+        "under_provisioned",
+        "over_provisioned",
+        "idle",
+        "shutdown",
+        "optimal",
+        "insufficient_data",
     ]
     assert total == 10
     assert under == 1
@@ -283,9 +381,7 @@ def test_risk_donut_segments_order_and_colors():
 
 def test_risk_donut_segments_dash_accumulates():
     """dash_offset은 이전 segments 누적 음수 — 시계방향 시작 위치."""
-    segs, total, _ = build_risk_donut_segments(
-        {"under_provisioned": 1, "over_provisioned": 1, "optimal": 1}
-    )
+    segs, total, _ = build_risk_donut_segments({"under_provisioned": 1, "over_provisioned": 1, "optimal": 1})
     expected_each = _UTIL_DONUT_CIRC / 3
     # segments order: under_provisioned[0], over_provisioned[1], idle[2], shutdown[3], optimal[4], insufficient_data[5]
     assert abs(segs[0].dash_length - expected_each) < 0.1
@@ -313,20 +409,24 @@ def test_risk_donut_segments_empty_total():
     assert all(s.dash_length == 0 for s in segs)
 
 
-@pytest.mark.parametrize("rec, expected_key", [
-    # USE Method 6 분류 1:1 매핑 (정석). idle·shutdown 도 별도 segment — 신호 다름 (T13).
-    ("under_provisioned", "under_provisioned"),
-    ("over_provisioned",  "over_provisioned"),
-    ("idle",              "idle"),
-    ("shutdown",          "shutdown"),
-    ("optimal",           "optimal"),
-    ("insufficient_data", "insufficient_data"),
-])
+@pytest.mark.parametrize(
+    "rec, expected_key",
+    [
+        # USE Method 6 분류 1:1 매핑 (정석). idle·shutdown 도 별도 segment — 신호 다름 (T13).
+        ("under_provisioned", "under_provisioned"),
+        ("over_provisioned", "over_provisioned"),
+        ("idle", "idle"),
+        ("shutdown", "shutdown"),
+        ("optimal", "optimal"),
+        ("insufficient_data", "insufficient_data"),
+    ],
+)
 def test_donut_segment_from_rec_mapping(rec, expected_key):
     assert _DONUT_SEGMENT_FROM_REC[rec] == expected_key
 
 
 # ─── CapacityWarningItem.triggers (USE Method 5종 항상 노출) ─────────────
+
 
 def test_capacity_warning_triggers_always_five_categories():
     """CapacityWarningItem.triggers는 5종(스왑/CPU/메모리/Load/디스크) 항상 — USE Method classify 입력 1:1 정합."""
@@ -350,16 +450,17 @@ def test_capacity_warning_triggers_colors_hue_separated():
     item = to_capacity_warning_item(_raw(swap_used=True, cpu_p95=95.0, mem_p95=90.0))
     colors = {t.label: t.color for t in item.triggers}
     assert colors == {
-        "스왑":   "#dc2626",  # 빨강
-        "CPU":    "#2563eb",  # 파랑
+        "스왑": "#dc2626",  # 빨강
+        "CPU": "#2563eb",  # 파랑
         "메모리": "#8b5cf6",  # 보라
-        "Load":   "#ea580c",  # 주황
+        "Load": "#ea580c",  # 주황
         "디스크": "#0891b2",  # 청록
     }
     assert len(set(colors.values())) == 5
 
 
 # ─── build_report_summary_bullets — 신호 9종 트리거 ──────────────────────
+
 
 def test_bullets_empty_when_no_rows():
     assert build_report_summary_bullets([]) == ["대상 서버 없음."]
@@ -370,8 +471,7 @@ def test_bullets_skip_risk_category_count():
 
     iowait/mount/reboot 시그널만 노출 (사용자 의도 — 중복 줄 제거).
     """
-    raws = [_raw(hostname="db-01", cpu_p95=95.0, cpu_peak=99.0,
-                 mem_p95=92.0, mem_peak=98.0, swap_used=True)]
+    raws = [_raw(hostname="db-01", cpu_p95=95.0, cpu_peak=99.0, mem_p95=92.0, mem_peak=98.0, swap_used=True)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws)
     # "고위험" 줄은 안 나옴 — KPI grid 의 분류 카운트와 중복이라 제거됨.
@@ -387,9 +487,7 @@ def test_bullets_iowait_signal_threshold_20pct():
 
 
 def test_bullets_mount_imminent_signal():
-    raws = [_raw(hostname="full-01", worst_mount="/data",
-                 worst_used=90.0, worst_days=12,
-                 cpu_p95=50.0, mem_p95=50.0)]
+    raws = [_raw(hostname="full-01", worst_mount="/data", worst_used=90.0, worst_days=12, cpu_p95=50.0, mem_p95=50.0)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws)
     assert any("임박" in b and "full-01" in b and "/data" in b for b in bullets)
@@ -404,8 +502,7 @@ def test_bullets_reboot_signal_threshold_3():
 
 def test_bullets_saturation_signal():
     # Saturation 시그널은 양식 B(엔지니어)에만 노출 — 큐잉 이론 시그널.
-    raws = [_raw(hostname="sat-01", load_15m_max=5.0, cpu_cores=2,
-                 cpu_p95=50.0, mem_p95=50.0)]
+    raws = [_raw(hostname="sat-01", load_15m_max=5.0, cpu_cores=2, cpu_p95=50.0, mem_p95=50.0)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws, view="engineer")
     assert any("Saturation" in b and "sat-01" in b for b in bullets)
@@ -413,16 +510,14 @@ def test_bullets_saturation_signal():
 
 def test_bullets_cpu_variance_signal():
     # CPU 변동성 시그널은 양식 B(엔지니어)에만 노출 — sizing 전략 영향.
-    raws = [_raw(hostname="var-01", cpu_p95=30.0, cpu_peak=80.0,
-                 mem_p95=50.0)]
+    raws = [_raw(hostname="var-01", cpu_p95=30.0, cpu_peak=80.0, mem_p95=50.0)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws, view="engineer")
     assert any("변동" in b and "var-01" in b for b in bullets)
 
 
 def test_bullets_os_eol_signal():
-    raws = [_raw(hostname="legacy-01", os_id="centos", os_version="7.9",
-                 cpu_p95=50.0, mem_p95=50.0)]
+    raws = [_raw(hostname="legacy-01", os_id="centos", os_version="7.9", cpu_p95=50.0, mem_p95=50.0)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws)
     assert any("EOL" in b and "legacy-01" in b and "centos" in b for b in bullets)
@@ -431,10 +526,8 @@ def test_bullets_os_eol_signal():
 def test_bullets_role_avg_cpu_signal():
     # 역할별 평균 CPU 시그널은 양식 B(엔지니어)에만 노출 — 자원 집약 역할 식별.
     raws = [
-        _raw(server_id=1, hostname="db-01", services=[{"unit": "postgresql.service"}],
-             cpu_p95=85.0, mem_p95=50.0),
-        _raw(server_id=2, hostname="db-02", services=[{"unit": "mysql.service"}],
-             cpu_p95=90.0, mem_p95=50.0),
+        _raw(server_id=1, hostname="db-01", services=[{"unit": "postgresql.service"}], cpu_p95=85.0, mem_p95=50.0),
+        _raw(server_id=2, hostname="db-02", services=[{"unit": "mysql.service"}], cpu_p95=90.0, mem_p95=50.0),
     ]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws, view="engineer")
@@ -443,10 +536,10 @@ def test_bullets_role_avg_cpu_signal():
 
 # ─── view="customer" 분기 — engineer 전용 시그널 제외 검증 ────────────────
 
+
 def test_bullets_customer_view_excludes_saturation():
     """양식 A(customer)는 Saturation 시그널 제외 — 큐잉 이론은 엔지니어 영역."""
-    raws = [_raw(hostname="sat-01", load_15m_max=5.0, cpu_cores=2,
-                 cpu_p95=50.0, mem_p95=50.0)]
+    raws = [_raw(hostname="sat-01", load_15m_max=5.0, cpu_cores=2, cpu_p95=50.0, mem_p95=50.0)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws, view="customer")
     assert not any("Saturation" in b for b in bullets)
@@ -463,10 +556,8 @@ def test_bullets_customer_view_excludes_cpu_variance():
 def test_bullets_customer_view_excludes_role_avg_cpu():
     """양식 A(customer)는 역할별 평균 CPU 시그널 제외 — 정보 과다."""
     raws = [
-        _raw(server_id=1, hostname="db-01", services=[{"unit": "postgresql.service"}],
-             cpu_p95=85.0, mem_p95=50.0),
-        _raw(server_id=2, hostname="db-02", services=[{"unit": "mysql.service"}],
-             cpu_p95=90.0, mem_p95=50.0),
+        _raw(server_id=1, hostname="db-01", services=[{"unit": "postgresql.service"}], cpu_p95=85.0, mem_p95=50.0),
+        _raw(server_id=2, hostname="db-02", services=[{"unit": "mysql.service"}], cpu_p95=90.0, mem_p95=50.0),
     ]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws, view="customer")
@@ -521,11 +612,21 @@ def test_bullets_customer_view_keeps_iowait_mount_reboot_eol():
     "고위험"/"주의 필요" 줄은 KPI 분류 카운트와 중복이라 summary_bullets 에서 제거됨 (사용자 의도).
     """
     raws = [
-        _raw(hostname="db-01", os_id="centos", os_version="7.9",
-             cpu_p95=95.0, cpu_peak=99.0, mem_p95=92.0, mem_peak=98.0,
-             swap_used=True, iowait_p95=30.0,
-             worst_mount="/data", worst_used=90.0, worst_days=10,
-             reboot_count=5),
+        _raw(
+            hostname="db-01",
+            os_id="centos",
+            os_version="7.9",
+            cpu_p95=95.0,
+            cpu_peak=99.0,
+            mem_p95=92.0,
+            mem_peak=98.0,
+            swap_used=True,
+            iowait_p95=30.0,
+            worst_mount="/data",
+            worst_used=90.0,
+            worst_days=10,
+            reboot_count=5,
+        ),
     ]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws, view="customer")
@@ -539,10 +640,9 @@ def test_bullets_customer_view_keeps_iowait_mount_reboot_eol():
 
 def test_bullets_normal_fallback_empty():
     """모두 정상 영역 → summary_bullets 빈 list (사용자 의도 — "전체 정상" 줄 제거됨)."""
-    raws = [_raw(hostname="ok-01",
-                 cpu_p95=50.0, cpu_peak=60.0,
-                 mem_p95=60.0, mem_peak=68.0,
-                 load_15m_max=0.5, cpu_cores=4)]
+    raws = [
+        _raw(hostname="ok-01", cpu_p95=50.0, cpu_peak=60.0, mem_p95=60.0, mem_peak=68.0, load_15m_max=0.5, cpu_cores=4)
+    ]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws)
     # 모든 시그널 비활성 → bullet 0건 (정상 fallback 줄 제거됨)
@@ -550,6 +650,7 @@ def test_bullets_normal_fallback_empty():
 
 
 # ─── attention 신호 ViewModel 빌더 ───────────────────────────────────────
+
 
 def test_capacity_warning_item_fields():
     raw = _raw(cpu_p95=95.0, mem_p95=92.0, swap_used=True)
@@ -564,15 +665,18 @@ def test_capacity_warning_item_fields():
     assert active["메모리"] is True
 
 
-@pytest.mark.parametrize("cpu_p95, mem_p95, swap_used, expected_active", [
-    # USE Method 5종 trigger. _raw default: load_15m_max=0.5, cpu_cores=4 → Load·디스크 비활성.
-    (None,  None,  True,  [True,  False, False, False, False]),  # swap만
-    (95.0,  92.0,  True,  [True,  True,  True,  False, False]),  # swap+cpu+mem
-    (95.0,  92.0,  False, [False, True,  True,  False, False]),  # cpu+mem
-    (95.0,  60.0,  False, [False, True,  False, False, False]),  # CPU만
-    (50.0,  90.0,  False, [False, False, True,  False, False]),  # 메모리만
-    (50.0,  60.0,  False, [False, False, False, False, False]),  # 비도달
-])
+@pytest.mark.parametrize(
+    "cpu_p95, mem_p95, swap_used, expected_active",
+    [
+        # USE Method 5종 trigger. _raw default: load_15m_max=0.5, cpu_cores=4 → Load·디스크 비활성.
+        (None, None, True, [True, False, False, False, False]),  # swap만
+        (95.0, 92.0, True, [True, True, True, False, False]),  # swap+cpu+mem
+        (95.0, 92.0, False, [False, True, True, False, False]),  # cpu+mem
+        (95.0, 60.0, False, [False, True, False, False, False]),  # CPU만
+        (50.0, 90.0, False, [False, False, True, False, False]),  # 메모리만
+        (50.0, 60.0, False, [False, False, False, False, False]),  # 비도달
+    ],
+)
 def test_capacity_warning_item_triggers_active_flags(cpu_p95, mem_p95, swap_used, expected_active):
     """triggers는 항상 5종 [스왑, CPU, 메모리, Load, 디스크]. active flag로 활성 자원 표시."""
     raw = _raw(cpu_p95=cpu_p95, mem_p95=mem_p95, swap_used=swap_used)
@@ -583,7 +687,8 @@ def test_capacity_warning_item_triggers_active_flags(cpu_p95, mem_p95, swap_used
 
 def test_capacity_warning_item_trigger_colors_from_single_source():
     """trigger.color는 _CAPACITY_TRIGGER_COLORS와 동일 — 본문 badge와 범례 단일 진실."""
-    from assessment_engine.web.services.mappers import _CAPACITY_TRIGGER_COLORS
+    from assessment_engine.web.services.mappers.attention import _CAPACITY_TRIGGER_COLORS
+
     item = to_capacity_warning_item(_raw(cpu_p95=95.0, mem_p95=92.0, swap_used=True))
     for t in item.triggers:
         assert t.color == _CAPACITY_TRIGGER_COLORS[t.label]
@@ -599,15 +704,18 @@ def test_disk_days_warning_item_fields():
     assert item.meta_text == "87%"
 
 
-@pytest.mark.parametrize("os_id, os_version, should_match", [
-    ("centos", "7.9", True),
-    ("rhel",   "7.4", True),
-    ("ubuntu", "18.04.5", True),
-    ("debian", "10.11", True),
-    ("centos", "8",     True),   # CentOS Stream 8 EOL 2024-05-31
-    ("ubuntu", "22.04", False),
-    ("rocky",  "9.6",   False),
-])
+@pytest.mark.parametrize(
+    "os_id, os_version, should_match",
+    [
+        ("centos", "7.9", True),
+        ("rhel", "7.4", True),
+        ("ubuntu", "18.04.5", True),
+        ("debian", "10.11", True),
+        ("centos", "8", True),  # CentOS Stream 8 EOL 2024-05-31
+        ("ubuntu", "22.04", False),
+        ("rocky", "9.6", False),
+    ],
+)
 def test_os_eol_matching(os_id, os_version, should_match):
     raw = _raw(os_id=os_id, os_version=os_version)
     item = to_os_eol_warning_item(raw)
@@ -625,6 +733,7 @@ def test_agent_unstable_item_fields():
 
 # ─── _OS_EOL dict — 정적 매핑 sanity ─────────────────────────────────────
 
+
 def test_os_eol_has_known_eol_distros():
     assert ("centos", "7") in _OS_EOL
     assert ("rhel", "7") in _OS_EOL
@@ -633,15 +742,30 @@ def test_os_eol_has_known_eol_distros():
 
 # ─── to_inventory_export_entry v2 ─────────────────────────────────────────
 
+
 def test_inventory_export_with_stats():
     """v3 — recommended_size_class 객체화 + I/O p95/peak + services.listeners."""
-    detail = _detail(id_=1, hostname="db-01", cpu_cores=4,
-                     mem_total_kb=8 * 1024 * 1024, disk_size=50 * 10**9,
-                     role_unit="postgresql.service")
-    stats = _raw(hostname="db-01", cpu_p95=95.0, cpu_peak=99.0,
-                 mem_p95=92.0, mem_peak=98.0, load_15m_max=5.0, swap_used=True,
-                 disk_iops=850, disk_throughput=4500.0,
-                 net_rx=300.0, net_tx=180.0)
+    detail = _detail(
+        id_=1,
+        hostname="db-01",
+        cpu_cores=4,
+        mem_total_kb=8 * 1024 * 1024,
+        disk_size=50 * 10**9,
+        role_unit="postgresql.service",
+    )
+    stats = _raw(
+        hostname="db-01",
+        cpu_p95=95.0,
+        cpu_peak=99.0,
+        mem_p95=92.0,
+        mem_peak=98.0,
+        load_15m_max=5.0,
+        swap_used=True,
+        disk_iops=850,
+        disk_throughput=4500.0,
+        net_rx=300.0,
+        net_tx=180.0,
+    )
     entry = to_inventory_export_entry(detail, stats)
     assert entry.hostname == "db-01"
     assert entry.role == "db"
@@ -658,8 +782,7 @@ def test_inventory_export_with_stats():
 
 
 def test_inventory_export_without_stats():
-    detail = _detail(id_=1, hostname="new-01", cpu_cores=2,
-                     mem_total_kb=2 * 1024 * 1024, disk_size=30 * 10**9)
+    detail = _detail(id_=1, hostname="new-01", cpu_cores=2, mem_total_kb=2 * 1024 * 1024, disk_size=30 * 10**9)
     entry = to_inventory_export_entry(detail, stats=None)
     assert entry.compute["recommended_size_class"]["key"] == "insufficient_data"
     assert entry.compute["cpu_p95_pct"] is None
@@ -672,13 +795,28 @@ def test_inventory_export_without_stats():
 
 def test_inventory_export_network_addresses_v4_v6_split():
     detail = ServerDetail(
-        id=1, public_id="p1", machine_id="m1", hostname="h", agent_version="1.0",
-        os_id="ubuntu", os_version="22.04", os_codename="jammy", kernel_version="5.15",
-        cpu_cores=2, cpu_model="x86", mem_total_kb=2 * 1024 * 1024,
-        swap_total_kb=0, boot_time=None,
+        id=1,
+        public_id="p1",
+        host_id="m1",
+        hostname="h",
+        agent_version="1.0",
+        os_family=None,
+        os_id="ubuntu",
+        os_version="22.04",
+        os_codename="jammy",
+        kernel_version="5.15",
+        cpu_cores=2,
+        cpu_model="x86",
+        mem_total_kb=2 * 1024 * 1024,
+        swap_total_kb=0,
+        boot_time=None,
         ip_internal=["10.0.0.1", "fe80::1"],
         ip_external=["54.1.2.3"],
-        disks=[], mounts=[], services=[], listen_ports=[], last_seen_at=_NOW,
+        disks=[],
+        mounts=[],
+        services=[],
+        listen_ports=[],
+        last_seen_at=_NOW,
     )
     entry = to_inventory_export_entry(detail, stats=None)
     addrs = entry.network["addresses"]
@@ -694,15 +832,28 @@ def test_inventory_export_services_listeners_match_listen_ports():
     매칭 실패 시 폴백 (tcp/0.0.0.0).
     """
     detail = ServerDetail(
-        id=1, public_id="p1", machine_id="m1", hostname="h", agent_version="1.0",
-        os_id="ubuntu", os_version="22.04", os_codename="jammy", kernel_version="5.15",
-        cpu_cores=2, cpu_model="x86", mem_total_kb=2*1024*1024,
-        swap_total_kb=0, boot_time=None,
-        ip_internal=["10.0.0.1"], ip_external=None,
-        disks=[], mounts=[],
+        id=1,
+        public_id="p1",
+        host_id="m1",
+        hostname="h",
+        agent_version="1.0",
+        os_family=None,
+        os_id="ubuntu",
+        os_version="22.04",
+        os_codename="jammy",
+        kernel_version="5.15",
+        cpu_cores=2,
+        cpu_model="x86",
+        mem_total_kb=2 * 1024 * 1024,
+        swap_total_kb=0,
+        boot_time=None,
+        ip_internal=["10.0.0.1"],
+        ip_external=None,
+        disks=[],
+        mounts=[],
         services=[{"unit": "nginx.service", "sub": "running"}],
         listen_ports=[
-            {"port": 80,  "proto": "tcp", "addr": "0.0.0.0"},
+            {"port": 80, "proto": "tcp", "addr": "0.0.0.0"},
             {"port": 443, "proto": "tcp", "addr": "10.0.0.1"},
         ],
         last_seen_at=_NOW,
@@ -719,37 +870,51 @@ def test_inventory_export_services_listeners_match_listen_ports():
 def test_inventory_export_services_listeners_fallback_when_no_listen_ports():
     """listen_ports inventory 매칭 실패 시 폴백 (tcp/0.0.0.0)."""
     detail = ServerDetail(
-        id=1, public_id="p1", machine_id="m1", hostname="h", agent_version="1.0",
-        os_id="ubuntu", os_version="22.04", os_codename="jammy", kernel_version="5.15",
-        cpu_cores=2, cpu_model="x86", mem_total_kb=2*1024*1024,
-        swap_total_kb=0, boot_time=None,
-        ip_internal=["10.0.0.1"], ip_external=None,
-        disks=[], mounts=[],
+        id=1,
+        public_id="p1",
+        host_id="m1",
+        hostname="h",
+        agent_version="1.0",
+        os_family=None,
+        os_id="ubuntu",
+        os_version="22.04",
+        os_codename="jammy",
+        kernel_version="5.15",
+        cpu_cores=2,
+        cpu_model="x86",
+        mem_total_kb=2 * 1024 * 1024,
+        swap_total_kb=0,
+        boot_time=None,
+        ip_internal=["10.0.0.1"],
+        ip_external=None,
+        disks=[],
+        mounts=[],
         services=[{"unit": "nginx.service", "sub": "running"}],
         listen_ports=[],  # 비어있음 -> 폴백
         last_seen_at=_NOW,
     )
     entry = to_inventory_export_entry(detail, stats=None)
     nginx = next(s for s in entry.services if s["category"] == "web")
-    assert all(
-        item["proto"] == "tcp" and item["address"] == "0.0.0.0"
-        for item in nginx["listeners"]
-    )
+    assert all(item["proto"] == "tcp" and item["address"] == "0.0.0.0" for item in nginx["listeners"])
 
 
 # ─── diagnosis (양식 B 판단 컬럼 자동 진단) ───────────────────────────────
 
-@pytest.mark.parametrize("kwargs, expected", [
-    ({"swap_used": True},                                  "메모리 부족 (스왑 발생)"),
-    ({"iowait_p95": 25.0},                                 "디스크 I/O 병목"),
-    ({"cpu_cores": 4, "load_15m_max": 5.0},                "CPU saturation"),
-    ({"mem_p95": 85.0},                                    "메모리 압박"),
-    ({"cpu_p95": 75.0},                                    "CPU 압박"),
-    ({"cpu_p95": 50.0, "cpu_peak": 99.0},                  "변동성 큼 (burst)"),
-    ({"cpu_p95": 2.0},                                     "거의 미사용"),
-    ({"cpu_p95": 20.0, "mem_p95": 30.0},                   "여유 있음 (축소 검토)"),
-    ({"cpu_p95": 50.0, "mem_p95": 60.0},                   "정상"),
-])
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({"swap_used": True}, "메모리 부족 (스왑 발생)"),
+        ({"iowait_p95": 25.0}, "디스크 I/O 병목"),
+        ({"cpu_cores": 4, "load_15m_max": 5.0}, "CPU saturation"),
+        ({"mem_p95": 85.0}, "메모리 압박"),
+        ({"cpu_p95": 75.0}, "CPU 압박"),
+        ({"cpu_p95": 50.0, "cpu_peak": 99.0}, "변동성 큼 (burst)"),
+        ({"cpu_p95": 2.0}, "거의 미사용"),
+        ({"cpu_p95": 20.0, "mem_p95": 30.0}, "여유 있음 (축소 검토)"),
+        ({"cpu_p95": 50.0, "mem_p95": 60.0}, "정상"),
+    ],
+)
 def test_diagnosis_priority(kwargs, expected):
     """우선순위: 스왑 > I/O 병목 > saturation > 메모리 압박 > CPU 압박 > 변동성 > 미사용 > 여유 > 정상."""
     raw = _raw(**kwargs)
@@ -759,10 +924,14 @@ def test_diagnosis_priority(kwargs, expected):
 
 # ─── DISK/NET p95·peak 필드 채움 ───────────────────────────────────────────
 
+
 def test_report_row_item_disk_net_io_p95_peak_passthrough():
     """ReportRowRaw의 disk·net io p95/peak가 ReportRowItem으로 그대로 전달."""
     raw = _raw(
-        disk_iops=120, disk_throughput=850.0, net_rx=300.0, net_tx=180.0,
+        disk_iops=120,
+        disk_throughput=850.0,
+        net_rx=300.0,
+        net_tx=180.0,
     )
     raw.disk_iops_p95 = 280.0
     raw.disk_iops_peak = 540.0
@@ -781,3 +950,43 @@ def test_report_row_item_disk_net_io_p95_peak_passthrough():
     assert item.net_rx_kbps_peak == 1200.0
     assert item.net_tx_kbps_p95 == 420.0
     assert item.net_tx_kbps_peak == 900.0
+
+
+# ─── _build_recommendation_action (양식 A 권고 컬럼 단일 진실) ─────────────
+
+
+@pytest.mark.parametrize(
+    "rec, expected",
+    [
+        # 비-under 분류는 분류별 고정 문구 (environment·single_report 공유).
+        ("over_provisioned", "자원 축소 검토"),
+        ("idle", "용도 재평가 / 종료 검토"),
+        ("shutdown", "종료 가능 검토"),
+        ("optimal", "적정 운영"),
+        ("insufficient_data", "평가 표본 부족"),
+    ],
+)
+def test_recommendation_action_fixed_phrases(rec, expected):
+    assert _build_recommendation_action(rec, _raw()) == expected
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        # under_provisioned 은 hit trigger 별 증설 권고 결합 (임계는 recommendation 모듈 단일 진실).
+        ({"swap_used": True}, "메모리 증설 (스왑 발생)"),
+        ({"mem_p95": 85.0}, "메모리 증설"),
+        ({"cpu_p95": 75.0}, "CPU 증설"),
+        ({"iowait_p95": 25.0}, "디스크 증설 (IO 병목)"),
+        ({"worst_used": 90.0}, "디스크 증설 (capacity)"),
+        ({}, "리소스 증설 검토"),  # trigger 0건 fallback
+    ],
+)
+def test_recommendation_action_under_trigger(kwargs, expected):
+    assert _build_recommendation_action("under_provisioned", _raw(**kwargs)) == expected
+
+
+def test_recommendation_action_under_combines_multiple_triggers():
+    """swap + cpu 동시 hit 시 '/' 결합. swap 발생 시 메모리 중복('메모리 증설')은 제거."""
+    action = _build_recommendation_action("under_provisioned", _raw(swap_used=True, cpu_p95=75.0))
+    assert action == "메모리 증설 (스왑 발생) / CPU 증설"

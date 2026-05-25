@@ -3,11 +3,12 @@
 각 테스트는 db_session function-scope rollback으로 격리.
 시간 의존 테스트(delete_retention)는 finished_at을 raw SQL로 과거 시점 조작.
 """
+
 import pytest
 from sqlalchemy import text
 
+from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
 from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
-from assessment_engine.db.repositories.inbound import DiagnosticJobCreate
 
 pytestmark = pytest.mark.asyncio
 
@@ -28,6 +29,7 @@ def _make_create(
 
 # ─── enqueue ──────────────────────────────────────────────────────────────
 
+
 async def test_enqueue_new_returns_uuid(diagnostic_repo: DiagnosticRepository, db_session):
     job_id = await diagnostic_repo.enqueue(_make_create(input_hash="a" * 64))
     await db_session.commit()
@@ -36,7 +38,8 @@ async def test_enqueue_new_returns_uuid(diagnostic_repo: DiagnosticRepository, d
 
 
 async def test_enqueue_active_conflict_returns_none(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     """같은 (scope, input_hash)가 pending/running 상태면 두 번째 INSERT는 do_nothing → None."""
     first = await diagnostic_repo.enqueue(_make_create(input_hash="b" * 64))
@@ -48,7 +51,8 @@ async def test_enqueue_active_conflict_returns_none(
 
 
 async def test_enqueue_after_first_succeeded_allows_new(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     """첫 job을 succeeded로 옮기면 active UNIQUE 해제 — 같은 input_hash로 새 job 가능."""
     first = await diagnostic_repo.enqueue(_make_create(input_hash="c" * 64))
@@ -63,7 +67,8 @@ async def test_enqueue_after_first_succeeded_allows_new(
 
 
 async def test_enqueue_different_scope_same_hash_independent(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     """server scope와 environment scope는 input_hash 같아도 충돌 없음."""
     a = await diagnostic_repo.enqueue(_make_create(scope="server", input_hash="d" * 64))
@@ -74,6 +79,7 @@ async def test_enqueue_different_scope_same_hash_independent(
 
 
 # ─── get_active_by_hash ──────────────────────────────────────────────────
+
 
 async def test_get_active_by_hash_pending(diagnostic_repo: DiagnosticRepository, db_session):
     new_id = await diagnostic_repo.enqueue(_make_create(input_hash="e" * 64))
@@ -92,7 +98,8 @@ async def test_get_active_by_hash_running(diagnostic_repo: DiagnosticRepository,
 
 
 async def test_get_active_by_hash_succeeded_returns_none(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     new_id = await diagnostic_repo.enqueue(_make_create(input_hash="g" * 64))
     await db_session.commit()
@@ -103,7 +110,8 @@ async def test_get_active_by_hash_succeeded_returns_none(
 
 
 async def test_get_latest_succeeded_returns_recent(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     """SSR latest 진단 — 가장 최근 succeeded 반환 (시간 무관)."""
     jid = await diagnostic_repo.enqueue(_make_create(input_hash="z1" + "0" * 62))
@@ -117,16 +125,17 @@ async def test_get_latest_succeeded_returns_recent(
 
 
 async def test_get_latest_succeeded_ignores_time_window(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     """finished_at 100일 전이어도 latest로 반환 — 캐시 윈도우 무관."""
     jid = await diagnostic_repo.enqueue(_make_create(input_hash="z2" + "0" * 62))
     await db_session.commit()
     await diagnostic_repo.mark_succeeded(jid, {})
     await db_session.commit()
-    await db_session.execute(text(
-        "UPDATE diagnostic_jobs SET finished_at = now() - interval '100 days' WHERE id = :id"
-    ), {"id": jid})
+    await db_session.execute(
+        text("UPDATE diagnostic_jobs SET finished_at = now() - interval '100 days' WHERE id = :id"), {"id": jid}
+    )
     await db_session.commit()
     found = await diagnostic_repo.get_latest_succeeded("environment", "z2" + "0" * 62)
     assert found is not None
@@ -134,7 +143,8 @@ async def test_get_latest_succeeded_ignores_time_window(
 
 
 async def test_get_latest_succeeded_excludes_pending_failed(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     """pending·running·failed는 latest 대상 아님."""
     h = "z3" + "0" * 62
@@ -150,7 +160,8 @@ async def test_get_latest_succeeded_excludes_pending_failed(
 
 
 async def test_get_latest_by_context_environment(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     """environment context — input_hash 무관 (anchor 다른) succeeded 두 건에서 가장 최근."""
     p_old = {"time_range": "14d", "anchor_at": "2026-05-10T00:00:00+00:00"}
@@ -162,9 +173,9 @@ async def test_get_latest_by_context_environment(
     await db_session.commit()
     await diagnostic_repo.mark_succeeded(j_old, {"v": "old"})
     await db_session.commit()
-    await db_session.execute(text(
-        "UPDATE diagnostic_jobs SET finished_at = now() - interval '1 day' WHERE id = :id"
-    ), {"id": j_old})
+    await db_session.execute(
+        text("UPDATE diagnostic_jobs SET finished_at = now() - interval '1 day' WHERE id = :id"), {"id": j_old}
+    )
     await db_session.commit()
 
     j_new = await diagnostic_repo.enqueue(_make_create(input_hash=h_new, params=p_new))
@@ -178,7 +189,8 @@ async def test_get_latest_by_context_environment(
 
 
 async def test_get_latest_by_context_server_filters_by_public_id(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     """server context — 같은 time_range·다른 server_public_id 결과를 구별."""
     p_a = {"time_range": "14d", "anchor_at": "2026-05-12T00:00:00+00:00", "server_public_id": "srv-a"}
@@ -200,7 +212,8 @@ async def test_get_latest_by_context_server_filters_by_public_id(
 
 
 async def test_get_latest_by_context_excludes_non_succeeded(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     p = {"time_range": "14d", "anchor_at": "2026-05-12T00:00:00+00:00"}
     h = "ctx_pending" + "0" * (64 - 11)
@@ -215,7 +228,8 @@ async def test_get_latest_by_context_excludes_non_succeeded(
 
 
 async def test_get_latest_by_context_time_range_filter(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     """다른 time_range는 매칭 안 됨."""
     p_14 = {"time_range": "14d", "anchor_at": "2026-05-12T00:00:00+00:00"}
@@ -237,7 +251,8 @@ async def test_get_latest_by_context_time_range_filter(
 
 
 async def test_get_latest_succeeded_picks_most_recent(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     """동일 input_hash 2건 succeeded → finished_at 큰 쪽 선택."""
     h = "z4" + "0" * 62
@@ -245,9 +260,9 @@ async def test_get_latest_succeeded_picks_most_recent(
     await db_session.commit()
     await diagnostic_repo.mark_succeeded(j1, {"v": "old"})
     await db_session.commit()
-    await db_session.execute(text(
-        "UPDATE diagnostic_jobs SET finished_at = now() - interval '7 days' WHERE id = :id"
-    ), {"id": j1})
+    await db_session.execute(
+        text("UPDATE diagnostic_jobs SET finished_at = now() - interval '7 days' WHERE id = :id"), {"id": j1}
+    )
     await db_session.commit()
 
     j2 = await diagnostic_repo.enqueue(_make_create(input_hash=h))
@@ -262,14 +277,18 @@ async def test_get_latest_succeeded_picks_most_recent(
 
 # ─── get_by_id / get_many_by_ids ─────────────────────────────────────────
 
+
 async def test_get_by_id_returns_full_record(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
-    jid = await diagnostic_repo.enqueue(_make_create(
-        input_hash="l" * 64,
-        params={"server_public_id": "abc", "period_days": 7},
-        requested_by="user-x",
-    ))
+    jid = await diagnostic_repo.enqueue(
+        _make_create(
+            input_hash="l" * 64,
+            params={"server_public_id": "abc", "period_days": 7},
+            requested_by="user-x",
+        )
+    )
     await db_session.commit()
     rec = await diagnostic_repo.get_by_id(jid)
     assert rec is not None
@@ -303,6 +322,7 @@ async def test_get_many_by_ids_empty(diagnostic_repo: DiagnosticRepository):
 
 # ─── 상태 전이 ──────────────────────────────────────────────────────────
 
+
 async def test_mark_running_sets_started_at(diagnostic_repo: DiagnosticRepository, db_session):
     jid = await diagnostic_repo.enqueue(_make_create(input_hash="p" * 64))
     await db_session.commit()
@@ -315,7 +335,8 @@ async def test_mark_running_sets_started_at(diagnostic_repo: DiagnosticRepositor
 
 
 async def test_mark_succeeded_clears_progress_sets_result(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     jid = await diagnostic_repo.enqueue(_make_create(input_hash="q" * 64))
     await db_session.commit()
@@ -331,7 +352,8 @@ async def test_mark_succeeded_clears_progress_sets_result(
 
 
 async def test_mark_failed_stores_error_message(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     jid = await diagnostic_repo.enqueue(_make_create(input_hash="r" * 64))
     await db_session.commit()
@@ -357,8 +379,10 @@ async def test_update_progress_stage(diagnostic_repo: DiagnosticRepository, db_s
 
 # ─── delete_retention ────────────────────────────────────────────────────
 
+
 async def test_delete_retention_purges_old_finished(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     """finished_at이 90일 초과인 job 삭제."""
     jid = await diagnostic_repo.enqueue(_make_create(input_hash="t" * 64))
@@ -366,9 +390,9 @@ async def test_delete_retention_purges_old_finished(
     await diagnostic_repo.mark_succeeded(jid, {})
     await db_session.commit()
     # finished_at을 100일 전으로 조작
-    await db_session.execute(text(
-        "UPDATE diagnostic_jobs SET finished_at = now() - interval '100 days' WHERE id = :id"
-    ), {"id": jid})
+    await db_session.execute(
+        text("UPDATE diagnostic_jobs SET finished_at = now() - interval '100 days' WHERE id = :id"), {"id": jid}
+    )
     await db_session.commit()
 
     deleted = await diagnostic_repo.delete_retention(90)
@@ -378,7 +402,8 @@ async def test_delete_retention_purges_old_finished(
 
 
 async def test_delete_retention_keeps_recent(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     """방금 succeeded한 job은 삭제 대상 아님."""
     jid = await diagnostic_repo.enqueue(_make_create(input_hash="u" * 64))
@@ -393,7 +418,8 @@ async def test_delete_retention_keeps_recent(
 
 
 async def test_delete_retention_ignores_active_jobs(
-    diagnostic_repo: DiagnosticRepository, db_session,
+    diagnostic_repo: DiagnosticRepository,
+    db_session,
 ):
     """finished_at IS NULL (pending/running)은 retention 영향 안 받음."""
     jid = await diagnostic_repo.enqueue(_make_create(input_hash="v" * 64))

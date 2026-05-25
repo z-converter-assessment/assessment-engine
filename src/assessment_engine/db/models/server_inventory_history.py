@@ -17,18 +17,17 @@ class ServerInventoryHistory(Base):
     """
 
     __tablename__ = "server_inventory_history"
-    __table_args__ = (
-        UniqueConstraint("server_id", "collected_at", name="uq_server_inv_history_sid_ts"),
-    )
+    __table_args__ = (UniqueConstraint("server_id", "collected_at", name="uq_server_inv_history_sid_ts"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)
     server_id: Mapped[int] = mapped_column(Integer, ForeignKey("server_inventory.id"), nullable=False)
 
-    # ─── server_inventory mirror (machine_id·public_id 제외 — server_id로 충분) ───
+    # ─── server_inventory mirror (host_id·public_id 제외 — server_id로 충분) ───
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     agent_version: Mapped[str | None] = mapped_column(String(32))
 
+    os_family: Mapped[str | None] = mapped_column(String(16))
     os_id: Mapped[str | None] = mapped_column(String(64))
     os_version: Mapped[str | None] = mapped_column(String(64))
     os_codename: Mapped[str | None] = mapped_column(String(64))

@@ -1,6 +1,6 @@
 # 테스트
 
-본 문서는 pytest 단위·통합 테스트 실행·작성 단일 진실. E2E 파이프라인 검증(Lima)은 `docs/development/pipeline.md` + `docs/development/pipeline.md`.
+본 문서는 pytest 단위·통합 테스트 실행·작성 단일 진실. E2E 파이프라인 검증 (OrbStack) 은 `docs/development/pipeline.md`.
 
 ## 1. 계층
 
@@ -13,7 +13,7 @@
 
 ```bash
 # 1. dev 의존성 설치 (최초 1회) — uv.lock 기준 reproducible install
-uv sync --frozen --extra dev
+uv sync --frozen --group dev
 
 # 2. 전체 (unit + integration; ~3초)
 uv run pytest
@@ -54,7 +54,7 @@ tests/factories.py            — make_inventory(), make_metrics()
 
 데이터 빌더 사용:
 ```python
-inv = make_inventory(machine_id="m1", hostname="h1", cpu_cores=4)
+inv = make_inventory(host_id="m1", hostname="h1", cpu_cores=4)
 m = make_metrics(collected_at=ts, cpu_user=1000)
 ```
 미지정 필드는 안전한 default. 필요한 필드만 명시.
@@ -86,7 +86,7 @@ from tests.factories import make_inventory
 pytestmark = pytest.mark.asyncio
 
 async def test_something(collect_repo):
-    inv = make_inventory(machine_id="t-001")
+    inv = make_inventory(host_id="t-001")
     sid = await collect_repo.upsert_server(inv)
     assert sid > 0
 ```
@@ -107,5 +107,5 @@ async def test_dispatcher(metric_type, query_repo):
 
 - 새 코드 추가 시 테스트도 함께 작성 — 코드 리뷰 시 누락 지적.
 - 리팩토링은 테스트 통과 baseline 위에서만 진행 — 회귀 즉시 식별.
-- E2E (Lima) 검증은 pytest 범위 외 — `docs/development/pipeline.md` 참조.
+- E2E (OrbStack) 검증은 pytest 범위 외 — `docs/development/pipeline.md` 참조.
 - pytest 자동 실행 금지 — 사용자 명시 요청 시에만 (개발 중 회귀 상태일 수 있음).

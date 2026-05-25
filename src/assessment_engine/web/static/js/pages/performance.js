@@ -32,8 +32,13 @@ const PHYS_DISK_RE = /^(sd[a-z]+|vd[a-z]+|hd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\
 function isPhysicalDisk(name) { return PHYS_DISK_RE.test(name); }
 
 let globalRange = '24h';
-let globalSeq   = 0;
 const chartInstances = {};
+// P4(a) sequence counter — per-chart 분리 (다른 page (cpu/memory/storage/network) 와 일관).
+// chart 별 독립 counter 라 다른 chart 의 동시 in-flight 가 stale guard 간섭 안 함.
+const seqs = {
+  cpu: 0, mem: 0, swap: 0, load: 0, iowait: 0, cpuUserSys: 0,
+  diskRead: 0, diskWrite: 0, netRx: 0, netTx: 0, mount: 0,
+};
 
 /* ── 유틸 ──
  * P4(b) capture-before-await: 모든 함수가 range/anchor를 인자로 받음.
@@ -64,7 +69,7 @@ async function fetchChart(metricType, agg, range, anchor) {
     agg,
   });
   if (anchor) p.append('end', anchor.toISOString());
-  const res = await fetch(`/api/v1/servers/${SERVER_ID}/metrics/chart?${p}`);
+  const res = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${p}`);
   // P4(d): 404는 데이터 부재. 빈 배열 반환 → setChart가 empty 분기.
   if (res.status === 404) return [];
   if (!res.ok) return [];
@@ -139,14 +144,15 @@ const Y_LOAD  = { beginAtZero:true, suggestedMax: CPU_CORES || 4, ticks:{ font:{
 const Y_IOPS  = { beginAtZero:true, suggestedMax: PERF_IOPS_SUGGESTED_MAX, ticks:{ precision:0, font:{size:11}, color:'#64748b' }, title:{ display:true, text:'IOPS', font:{size:11}, color:'#94a3b8' } };
 const Y_NET   = { beginAtZero:true, suggestedMax: PERF_NET_SUGGESTED_MAX, ticks:{ callback: v => fmtKbChart(v), font:{size:11}, color:'#64748b' } };
 
-/* ── 개별 차트 로더 (P4: 단일 globalSeq로 stale 응답 폐기) ── */
+/* ── 개별 차트 로더 (P4(a) per-chart seq — `seqs` dict 안 chart 별 counter) ── */
 const _safe = safeArray;
 
-async function loadCpuChart(seq, capturedRange, capturedAnchor) {
+async function loadCpuChart(capturedRange, capturedAnchor) {
+  const seq = ++seqs.cpu;
   const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
   const grid = makeBucketGrid(capturedRange, capturedAnchor);
   const [avgRows, maxRows] = await Promise.all([fetchChart('cpu.usage_percent','avg', capturedRange, capturedAnchor), fetchChart('cpu.usage_percent','max', capturedRange, capturedAnchor)]);
-  if (seq !== globalSeq) return;
+  if (seq !== seqs.cpu) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
   const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, 'CPU');
   const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
@@ -154,11 +160,12 @@ async function loadCpuChart(seq, capturedRange, capturedAnchor) {
   updateMaxLabel('cpu-max', computePeriodMax(safeMax), v => v.toFixed(1)+'%', null);
 }
 
-async function loadMemChart(seq, capturedRange, capturedAnchor) {
+async function loadMemChart(capturedRange, capturedAnchor) {
+  const seq = ++seqs.mem;
   const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
   const grid = makeBucketGrid(capturedRange, capturedAnchor);
   const [avgRows, maxRows] = await Promise.all([fetchChart('mem.usage_percent','avg', capturedRange, capturedAnchor), fetchChart('mem.usage_percent','max', capturedRange, capturedAnchor)]);
-  if (seq !== globalSeq) return;
+  if (seq !== seqs.mem) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
   const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, '메모리');
   const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
@@ -166,11 +173,12 @@ async function loadMemChart(seq, capturedRange, capturedAnchor) {
   updateMaxLabel('mem-max', computePeriodMax(safeMax), v => v.toFixed(1)+'%', null);
 }
 
-async function loadSwapChart(seq, capturedRange, capturedAnchor) {
+async function loadSwapChart(capturedRange, capturedAnchor) {
+  const seq = ++seqs.swap;
   const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
   const grid = makeBucketGrid(capturedRange, capturedAnchor);
   const [avgRows, maxRows] = await Promise.all([fetchChart('swap.usage_percent','avg', capturedRange, capturedAnchor), fetchChart('swap.usage_percent','max', capturedRange, capturedAnchor)]);
-  if (seq !== globalSeq) return;
+  if (seq !== seqs.swap) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
   const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, '스왑');
   const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
@@ -178,11 +186,12 @@ async function loadSwapChart(seq, capturedRange, capturedAnchor) {
   updateMaxLabel('swap-max', computePeriodMax(safeMax), v => v.toFixed(1)+'%', colorBySwapPct);
 }
 
-async function loadLoadChart(seq, capturedRange, capturedAnchor) {
+async function loadLoadChart(capturedRange, capturedAnchor) {
+  const seq = ++seqs.load;
   const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
   const grid = makeBucketGrid(capturedRange, capturedAnchor);
   const [avgRows, maxRows] = await Promise.all([fetchChart('load.15m','avg', capturedRange, capturedAnchor), fetchChart('load.15m','max', capturedRange, capturedAnchor)]);
-  if (seq !== globalSeq) return;
+  if (seq !== seqs.load) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
 
   if (chartInstances['load-canvas']) { chartInstances['load-canvas'].destroy(); delete chartInstances['load-canvas']; }
@@ -209,11 +218,12 @@ async function loadLoadChart(seq, capturedRange, capturedAnchor) {
   updateMaxLabel('load-max', computePeriodMax(safeMax), v => v.toFixed(2), null);
 }
 
-async function loadIowaitChart(seq, capturedRange, capturedAnchor) {
+async function loadIowaitChart(capturedRange, capturedAnchor) {
+  const seq = ++seqs.iowait;
   const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
   const grid = makeBucketGrid(capturedRange, capturedAnchor);
   const [avgRows, maxRows] = await Promise.all([fetchChart('cpu.iowait_percent','avg', capturedRange, capturedAnchor), fetchChart('cpu.iowait_percent','max', capturedRange, capturedAnchor)]);
-  if (seq !== globalSeq) return;
+  if (seq !== seqs.iowait) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
   const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, 'iowait');
   const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
@@ -221,7 +231,8 @@ async function loadIowaitChart(seq, capturedRange, capturedAnchor) {
   updateMaxLabel('iowait-max', computePeriodMax(safeMax), v => v.toFixed(1)+'%', null);
 }
 
-async function loadCpuUserSystemChart(seq, capturedRange, capturedAnchor) {
+async function loadCpuUserSystemChart(capturedRange, capturedAnchor) {
+  const seq = ++seqs.cpuUserSys;
   const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
   const grid = makeBucketGrid(capturedRange, capturedAnchor);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
@@ -229,7 +240,7 @@ async function loadCpuUserSystemChart(seq, capturedRange, capturedAnchor) {
     fetchChart('cpu.user_percent','avg', capturedRange, capturedAnchor), fetchChart('cpu.user_percent','max', capturedRange, capturedAnchor),
     fetchChart('cpu.system_percent','avg', capturedRange, capturedAnchor), fetchChart('cpu.system_percent','max', capturedRange, capturedAnchor),
   ]);
-  if (seq !== globalSeq) return;
+  if (seq !== seqs.cpuUserSys) return;
   const sUA = _safe(uAvg), sUM = _safe(uMax), sSA = _safe(sAvg), sSM = _safe(sMax);
 
   const canvas = document.getElementById('cpuus-canvas');
@@ -263,11 +274,12 @@ async function loadCpuUserSystemChart(seq, capturedRange, capturedAnchor) {
 
 const diskDashFn = dim => isPhysicalDisk(dim) ? [] : [5, 3];
 
-async function loadDiskReadChart(seq, capturedRange, capturedAnchor) {
+async function loadDiskReadChart(capturedRange, capturedAnchor) {
+  const seq = ++seqs.diskRead;
   const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
   const grid = makeBucketGrid(capturedRange, capturedAnchor);
   const [avgRows, maxRows] = await Promise.all([fetchChart('disk.read_iops','avg', capturedRange, capturedAnchor), fetchChart('disk.read_iops','max', capturedRange, capturedAnchor)]);
-  if (seq !== globalSeq) return;
+  if (seq !== seqs.diskRead) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
   const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, null, diskDashFn);
   const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
@@ -276,11 +288,12 @@ async function loadDiskReadChart(seq, capturedRange, capturedAnchor) {
   updateMaxLabel('dread-max', computePeriodMax(safeMax), v => Math.round(v)+' IOPS', null);
 }
 
-async function loadDiskWriteChart(seq, capturedRange, capturedAnchor) {
+async function loadDiskWriteChart(capturedRange, capturedAnchor) {
+  const seq = ++seqs.diskWrite;
   const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
   const grid = makeBucketGrid(capturedRange, capturedAnchor);
   const [avgRows, maxRows] = await Promise.all([fetchChart('disk.write_iops','avg', capturedRange, capturedAnchor), fetchChart('disk.write_iops','max', capturedRange, capturedAnchor)]);
-  if (seq !== globalSeq) return;
+  if (seq !== seqs.diskWrite) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
   const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, null, diskDashFn);
   const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
@@ -289,11 +302,12 @@ async function loadDiskWriteChart(seq, capturedRange, capturedAnchor) {
   updateMaxLabel('dwrite-max', computePeriodMax(safeMax), v => Math.round(v)+' IOPS', null);
 }
 
-async function loadNetRxChart(seq, capturedRange, capturedAnchor) {
+async function loadNetRxChart(capturedRange, capturedAnchor) {
+  const seq = ++seqs.netRx;
   const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
   const grid = makeBucketGrid(capturedRange, capturedAnchor);
   const [avgRows, maxRows] = await Promise.all([fetchChart('net.rx_bytes_per_sec','avg', capturedRange, capturedAnchor), fetchChart('net.rx_bytes_per_sec','max', capturedRange, capturedAnchor)]);
-  if (seq !== globalSeq) return;
+  if (seq !== seqs.netRx) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
   const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, null);
   const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
@@ -302,11 +316,12 @@ async function loadNetRxChart(seq, capturedRange, capturedAnchor) {
   updateMaxLabel('netrx-max', computePeriodMax(safeMax), fmtKbChart, null);
 }
 
-async function loadNetTxChart(seq, capturedRange, capturedAnchor) {
+async function loadNetTxChart(capturedRange, capturedAnchor) {
+  const seq = ++seqs.netTx;
   const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
   const grid = makeBucketGrid(capturedRange, capturedAnchor);
   const [avgRows, maxRows] = await Promise.all([fetchChart('net.tx_bytes_per_sec','avg', capturedRange, capturedAnchor), fetchChart('net.tx_bytes_per_sec','max', capturedRange, capturedAnchor)]);
-  if (seq !== globalSeq) return;
+  if (seq !== seqs.netTx) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
   const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, null);
   const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
@@ -315,11 +330,12 @@ async function loadNetTxChart(seq, capturedRange, capturedAnchor) {
   updateMaxLabel('nettx-max', computePeriodMax(safeMax), fmtKbChart, null);
 }
 
-async function loadMountChart(seq, capturedRange, capturedAnchor) {
+async function loadMountChart(capturedRange, capturedAnchor) {
+  const seq = ++seqs.mount;
   const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
   const grid = makeBucketGrid(capturedRange, capturedAnchor);
   const [avgRows, maxRows] = await Promise.all([fetchChart('fs.usage_percent','avg', capturedRange, capturedAnchor), fetchChart('fs.usage_percent','max', capturedRange, capturedAnchor)]);
-  if (seq !== globalSeq) return;
+  if (seq !== seqs.mount) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
   const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, null);
   const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
@@ -335,7 +351,6 @@ function updateBucketLabel(range) {
 }
 
 async function loadAllCharts() {
-  const seq = ++globalSeq;
   // P4(b) capture-before-await: 호출 시점의 range/anchor를 캡처해 모든 로더에 전달.
   // 이후 사용자가 range 토글하면 새 loadAllCharts가 새 capturedRange로 시작 + seq 증가 → 이전 응답 폐기.
   const capturedRange  = globalRange;
@@ -344,15 +359,14 @@ async function loadAllCharts() {
   // 차트 + reboot events 병렬 fetch — events는 모든 차트 공유 (단일 grid).
   const [events] = await Promise.all([
     fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor),
-    loadMountChart(seq, capturedRange, capturedAnchor),
-    loadCpuChart(seq, capturedRange, capturedAnchor), loadIowaitChart(seq, capturedRange, capturedAnchor),
-    loadCpuUserSystemChart(seq, capturedRange, capturedAnchor), loadLoadChart(seq, capturedRange, capturedAnchor),
-    loadMemChart(seq, capturedRange, capturedAnchor), loadSwapChart(seq, capturedRange, capturedAnchor),
-    loadDiskReadChart(seq, capturedRange, capturedAnchor), loadDiskWriteChart(seq, capturedRange, capturedAnchor),
-    loadNetRxChart(seq, capturedRange, capturedAnchor), loadNetTxChart(seq, capturedRange, capturedAnchor),
+    loadMountChart(capturedRange, capturedAnchor),
+    loadCpuChart(capturedRange, capturedAnchor), loadIowaitChart(capturedRange, capturedAnchor),
+    loadCpuUserSystemChart(capturedRange, capturedAnchor), loadLoadChart(capturedRange, capturedAnchor),
+    loadMemChart(capturedRange, capturedAnchor), loadSwapChart(capturedRange, capturedAnchor),
+    loadDiskReadChart(capturedRange, capturedAnchor), loadDiskWriteChart(capturedRange, capturedAnchor),
+    loadNetRxChart(capturedRange, capturedAnchor), loadNetTxChart(capturedRange, capturedAnchor),
   ]);
   // 모든 차트 setup 완료 후 marker 일괄 적용 (P4(a) seq 검사로 stale 방지).
-  if (seq !== globalSeq) return;
   const grid = makeBucketGrid(capturedRange, capturedAnchor);
   for (const cid of Object.keys(chartInstances)) {
     applyRebootMarkers(chartInstances[cid], events, grid);
@@ -363,13 +377,13 @@ async function loadAllCharts() {
 async function loadLastMetricTs() {
   const el = document.getElementById('last-metric-ts');
   // P4(d) 404 분기: try/catch 이전에 status 검사로 데이터 부재를 명시 분기.
-  const res = await fetch(`/api/v1/servers/${SERVER_ID}/collection-status`);
+  const res = await fetch(`/api/servers/${SERVER_ID}/collection-status`);
   if (res.status === 404 || !res.ok) { el.textContent = '—'; return; }
   try {
     const data = await res.json();
     if (!data.last_metric_at) { el.textContent = '—'; return; }
-    // F2: KST 변환은 ChartUtils.fmtKst 단일 경계 — "YYYY-MM-DD HH:MM:SS" 반환 → 분 단위만 표시
-    el.textContent = ChartUtils.fmtKst(data.last_metric_at).slice(0, 16);
+    // 시간 포맷 단일 진실 (static-assets.md "시간 표기" 절) — ChartUtils.fmtKst (YYYY-MM-DD HH:MM:SS) 그대로.
+    el.textContent = ChartUtils.fmtKst(data.last_metric_at);
   } catch { el.textContent = '—'; }
 }
 

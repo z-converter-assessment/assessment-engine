@@ -1,4 +1,5 @@
 """diagnostic_service — input_hash·input_params 순수 함수 + submit 핵심 시나리오 (ADR 0004)."""
+
 import hashlib
 import json
 from datetime import UTC, datetime
@@ -6,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from assessment_engine.db.repositories.outbound import DiagnosticJobRecord
+from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.web.services.diagnostic_service import (
     DiagnosticBadRequest,
     DiagnosticNotFound,
@@ -22,12 +23,13 @@ _FIXED_ANCHOR = datetime(2026, 5, 12, 0, 0, 0, tzinfo=UTC)
 
 # ─── _build_input_params (scope별 키 카탈로그) ───────────────────────────
 
+
 def test_build_input_params_server_scope():
     p = _build_input_params("server", "uuid-abc", "14d", _FIXED_ANCHOR)
     assert p == {
         "server_public_id": "uuid-abc",
-        "time_range":       "14d",
-        "anchor_at":        "2026-05-12T00:00:00+00:00",
+        "time_range": "14d",
+        "anchor_at": "2026-05-12T00:00:00+00:00",
     }
 
 
@@ -39,6 +41,7 @@ def test_build_input_params_environment_scope_drops_server_public_id():
 
 
 # ─── _normalize_anchor ──────────────────────────────────────────────────
+
 
 def test_normalize_anchor_truncates_seconds_microseconds():
     raw = datetime(2026, 5, 12, 10, 30, 45, 123456, tzinfo=UTC)
@@ -60,6 +63,7 @@ def test_normalize_anchor_none_returns_current_minute():
 
 
 # ─── _compute_hash (결정성 + 순서 무관) ──────────────────────────────────
+
 
 def test_compute_hash_deterministic():
     """같은 입력 → 같은 hash."""
@@ -132,7 +136,10 @@ def stub_diag_repo():
 
 @pytest.mark.asyncio
 async def test_submit_environment_new_enqueue_publishes(
-    stub_session_factory, stub_broker_channel, stub_query_repo, stub_diag_repo,
+    stub_session_factory,
+    stub_broker_channel,
+    stub_query_repo,
+    stub_diag_repo,
 ):
     """enqueue 성공 시 publish 1회."""
     stub_diag_repo.enqueue = AsyncMock(return_value="new-job-id")
@@ -152,7 +159,10 @@ async def test_submit_environment_new_enqueue_publishes(
 
 @pytest.mark.asyncio
 async def test_submit_environment_active_conflict_returns_existing(
-    stub_session_factory, stub_broker_channel, stub_query_repo, stub_diag_repo,
+    stub_session_factory,
+    stub_broker_channel,
+    stub_query_repo,
+    stub_diag_repo,
 ):
     """enqueue 충돌(None) → active 회수 → publish 없음."""
     stub_diag_repo.enqueue = AsyncMock(return_value=None)
@@ -173,7 +183,9 @@ async def test_submit_environment_active_conflict_returns_existing(
 
 @pytest.mark.asyncio
 async def test_submit_server_scope_missing_public_id_raises_not_found(
-    stub_session_factory, stub_broker_channel, stub_diag_repo,
+    stub_session_factory,
+    stub_broker_channel,
+    stub_diag_repo,
 ):
     query_repo = AsyncMock()
     query_repo.resolve_server_ids = AsyncMock(return_value={})  # 모두 미존재
@@ -192,7 +204,10 @@ async def test_submit_server_scope_missing_public_id_raises_not_found(
 
 @pytest.mark.asyncio
 async def test_submit_server_scope_without_ids_raises_bad_request(
-    stub_session_factory, stub_broker_channel, stub_query_repo, stub_diag_repo,
+    stub_session_factory,
+    stub_broker_channel,
+    stub_query_repo,
+    stub_diag_repo,
 ):
     channel, _ = stub_broker_channel
     service = DiagnosticService(
@@ -214,11 +229,15 @@ def test_to_panel_payload_none_returns_none():
 
 def test_to_panel_payload_shape_matches_render_contract():
     rec = DiagnosticJobRecord(
-        id="job-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", job_type="ai_diagnostic", scope="environment",
+        id="job-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        job_type="ai_diagnostic",
+        scope="environment",
         input_params={"time_range": "14d", "anchor_at": "2026-05-12T00:00:00+00:00"},
         input_hash="h",
-        status="succeeded", progress_stage=None,
-        result={"narrative": "x"}, error_message=None,
+        status="succeeded",
+        progress_stage=None,
+        result={"narrative": "x"},
+        error_message=None,
         created_at=datetime(2026, 5, 12, tzinfo=UTC),
         started_at=datetime(2026, 5, 12, tzinfo=UTC),
         finished_at=datetime(2026, 5, 12, 1, 0, 0, tzinfo=UTC),
@@ -227,13 +246,27 @@ def test_to_panel_payload_shape_matches_render_contract():
     p = to_panel_payload(rec)
     # mapper view의 핵심 필드 — JS·SSR이 직접 표시
     expected_keys = {
-        "job_id", "short_id", "scope", "server_public_id",
-        "status", "status_badge_class", "progress_stage", "progress_label_kr",
-        "time_range", "window_label_kr", "anchor_at",
-        "classification", "classification_label_kr", "classification_badge_class",
+        "job_id",
+        "short_id",
+        "scope",
+        "server_public_id",
+        "status",
+        "status_badge_class",
+        "progress_stage",
+        "progress_label_kr",
+        "time_range",
+        "window_label_kr",
+        "anchor_at",
+        "classification",
+        "classification_label_kr",
+        "classification_badge_class",
         "recommendation_action",
-        "result", "error_message",
-        "created_at", "started_at", "finished_at", "requested_by",
+        "result",
+        "error_message",
+        "created_at",
+        "started_at",
+        "finished_at",
+        "requested_by",
     }
     assert set(p) == expected_keys
     assert p["finished_at"] == "2026-05-12T01:00:00+00:00"  # ISO UTC (F2)
@@ -244,7 +277,10 @@ def test_to_panel_payload_shape_matches_render_contract():
 
 @pytest.mark.asyncio
 async def test_get_latest_uses_context_keys(
-    stub_session_factory, stub_broker_channel, stub_query_repo, stub_diag_repo,
+    stub_session_factory,
+    stub_broker_channel,
+    stub_query_repo,
+    stub_diag_repo,
 ):
     """get_latest는 input_hash가 아닌 (scope, time_range, server_public_id) context 기반.
 
@@ -269,7 +305,10 @@ async def test_get_latest_uses_context_keys(
 
 @pytest.mark.asyncio
 async def test_submit_server_scope_batch_n_servers_n_enqueues(
-    stub_session_factory, stub_broker_channel, stub_query_repo, stub_diag_repo,
+    stub_session_factory,
+    stub_broker_channel,
+    stub_query_repo,
+    stub_diag_repo,
 ):
     """server_ids 3개 → 3번 enqueue + 3번 publish (옵션 A — N개 batch enqueue)."""
     stub_diag_repo.enqueue = AsyncMock(side_effect=["j1", "j2", "j3"])
@@ -289,22 +328,29 @@ async def test_submit_server_scope_batch_n_servers_n_enqueues(
 
 # ─── to_history_item (이력 페이지 mapper, P2 단일 변환) ──────────────────
 
+
 def test_to_history_item_shape_and_fields():
     """이력 행은 template attribute access만 — JSONB 키·status badge·datetime은 그대로 전달."""
-    from assessment_engine.web.services.diagnostic_mapper import to_history_item
+    from assessment_engine.web.services.mappers.diagnostic import to_history_item
+
     rec = DiagnosticJobRecord(
-        id="job-abc", job_type="ai_diagnostic", scope="server",
+        id="job-abc",
+        job_type="ai_diagnostic",
+        scope="server",
         input_params={
             "server_public_id": "uuid-xyz",
             "time_range": "7d",
             "anchor_at": "2026-05-12T00:00:00+00:00",
         },
-        input_hash="h", status="succeeded", progress_stage=None,
-        result={}, error_message=None,
+        input_hash="h",
+        status="succeeded",
+        progress_stage=None,
+        result={},
+        error_message=None,
         created_at=datetime(2026, 5, 12, tzinfo=UTC),
         started_at=datetime(2026, 5, 12, tzinfo=UTC),
         finished_at=datetime(2026, 5, 12, 1, 0, 0, tzinfo=UTC),
-        requested_by="scheduler",
+        requested_by="api",
     )
     item = to_history_item(rec)
     assert item["job_id"] == "job-abc"
@@ -314,21 +360,29 @@ def test_to_history_item_shape_and_fields():
     assert item["anchor_at"] == "2026-05-12T00:00:00+00:00"
     assert item["status"] == "succeeded"
     assert item["status_badge_class"] == "badge-ok"
-    assert item["requested_by"] == "scheduler"
+    assert item["requested_by"] == "api"
     # datetime은 raw 그대로 전달 (KST는 template kst 필터, F2)
     assert item["created_at"] == datetime(2026, 5, 12, tzinfo=UTC)
 
 
 def test_to_history_item_environment_scope_no_server_id():
     """environment scope는 server_public_id 키 자체가 input_params에 없음 → None."""
-    from assessment_engine.web.services.diagnostic_mapper import to_history_item
+    from assessment_engine.web.services.mappers.diagnostic import to_history_item
+
     rec = DiagnosticJobRecord(
-        id="job-env", job_type="ai_diagnostic", scope="environment",
+        id="job-env",
+        job_type="ai_diagnostic",
+        scope="environment",
         input_params={"time_range": "14d", "anchor_at": "2026-05-12T00:00:00+00:00"},
-        input_hash="h", status="running", progress_stage="extracting_stats",
-        result=None, error_message=None,
+        input_hash="h",
+        status="running",
+        progress_stage="extracting_stats",
+        result=None,
+        error_message=None,
         created_at=datetime(2026, 5, 12, tzinfo=UTC),
-        started_at=None, finished_at=None, requested_by=None,
+        started_at=None,
+        finished_at=None,
+        requested_by=None,
     )
     item = to_history_item(rec)
     assert item["server_public_id"] is None
@@ -338,14 +392,21 @@ def test_to_history_item_environment_scope_no_server_id():
 
 def test_to_history_item_missing_time_range_fallback():
     """input_params에 time_range 누락 시 표시 fallback '—' (옛 job 호환)."""
-    from assessment_engine.web.services.diagnostic_mapper import to_history_item
+    from assessment_engine.web.services.mappers.diagnostic import to_history_item
+
     rec = DiagnosticJobRecord(
-        id="job-old", job_type="ai_diagnostic", scope="environment",
+        id="job-old",
+        job_type="ai_diagnostic",
+        scope="environment",
         input_params={"anchor_at": "2026-05-12T00:00:00+00:00"},
-        input_hash="h", status="failed", progress_stage=None,
-        result=None, error_message="boom",
+        input_hash="h",
+        status="failed",
+        progress_stage=None,
+        result=None,
+        error_message="boom",
         created_at=datetime(2026, 5, 12, tzinfo=UTC),
-        started_at=None, finished_at=datetime(2026, 5, 12, 1, 0, 0, tzinfo=UTC),
+        started_at=None,
+        finished_at=datetime(2026, 5, 12, 1, 0, 0, tzinfo=UTC),
         requested_by=None,
     )
     item = to_history_item(rec)
@@ -353,12 +414,13 @@ def test_to_history_item_missing_time_range_fallback():
     assert item["status_badge_class"] == "badge-danger"  # failed
 
 
-# ─── DiagnosticSubmitter 직접 import (scheduler 의존 경계 회귀) ──────────
+# ─── DiagnosticSubmitter 직접 import (의존 경계 회귀) ──────────
+
 
 def test_submitter_re_export_identity():
     """web.services.diagnostic_service 의 exceptions/helpers 가 diagnostic.submitter 와 동일 객체.
 
-    scheduler 노드가 web 의존 없이 diagnostic.submitter 만 import 가능 (#F4 멀티노드).
+    submitter 가 web 의존 없이 단독 import 가능 (#F4 멀티노드). ADR 0023 후도 본질 유지.
     """
     from assessment_engine.diagnostic.submitter import (
         DiagnosticBadRequest as SubBR,
@@ -387,6 +449,7 @@ def test_submitter_re_export_identity():
     from assessment_engine.web.services.diagnostic_service import (
         DiagnosticRaceMiss as WebRM,
     )
+
     assert WebBR is SubBR
     assert WebNF is SubNF
     assert WebRM is SubRM
@@ -397,9 +460,13 @@ def test_submitter_re_export_identity():
 
 # ─── record_report_emission — time_range / period_days float / 단수 키 ───
 
+
 @pytest.mark.asyncio
 async def test_record_report_emission_server_scope_single_includes_singular_key(
-    stub_session_factory, stub_broker_channel, stub_query_repo, stub_diag_repo,
+    stub_session_factory,
+    stub_broker_channel,
+    stub_query_repo,
+    stub_diag_repo,
 ):
     """server scope 1대 보고서 — input_params 에 server_public_ids 복수 + server_public_id 단수 둘 다."""
     stub_diag_repo.enqueue = AsyncMock(return_value="rep-id-1")
@@ -413,8 +480,11 @@ async def test_record_report_emission_server_scope_single_includes_singular_key(
         redis=AsyncMock(),
     )
     await service.record_report_emission(
-        view="customer", scope="server", server_public_ids=["uuid-a"],
-        period_days=14.0, time_range="14d",
+        view="customer",
+        scope="server",
+        server_public_ids=["uuid-a"],
+        period_days=14.0,
+        time_range="14d",
     )
     enqueue_arg = stub_diag_repo.enqueue.call_args[0][0]
     assert enqueue_arg.scope == "server"
@@ -427,7 +497,10 @@ async def test_record_report_emission_server_scope_single_includes_singular_key(
 
 @pytest.mark.asyncio
 async def test_record_report_emission_preserves_fractional_period_days(
-    stub_session_factory, stub_broker_channel, stub_query_repo, stub_diag_repo,
+    stub_session_factory,
+    stub_broker_channel,
+    stub_query_repo,
+    stub_diag_repo,
 ):
     """15m 윈도우 (period_days=0.0104) 도 input_params 에 float 그대로 보존 — 옛 int truncation 회귀 가드."""
     stub_diag_repo.enqueue = AsyncMock(return_value="rep-id-15m")
@@ -441,8 +514,11 @@ async def test_record_report_emission_preserves_fractional_period_days(
         redis=AsyncMock(),
     )
     await service.record_report_emission(
-        view="engineer", scope="server", server_public_ids=["uuid-b"],
-        period_days=0.0104, time_range="15m",
+        view="engineer",
+        scope="server",
+        server_public_ids=["uuid-b"],
+        period_days=0.0104,
+        time_range="15m",
     )
     enqueue_arg = stub_diag_repo.enqueue.call_args[0][0]
     assert enqueue_arg.input_params["period_days"] == 0.0104
@@ -451,7 +527,10 @@ async def test_record_report_emission_preserves_fractional_period_days(
 
 @pytest.mark.asyncio
 async def test_record_report_emission_active_conflict_returns_none(
-    stub_session_factory, stub_broker_channel, stub_query_repo, stub_diag_repo,
+    stub_session_factory,
+    stub_broker_channel,
+    stub_query_repo,
+    stub_diag_repo,
 ):
     """enqueue 충돌 (None) → rollback + return None — 동시 두 발행 best-effort."""
     stub_diag_repo.enqueue = AsyncMock(return_value=None)
@@ -466,8 +545,11 @@ async def test_record_report_emission_active_conflict_returns_none(
         redis=AsyncMock(),
     )
     result = await service.record_report_emission(
-        view="customer", scope="environment", server_public_ids=["a", "b"],
-        period_days=14.0, time_range="14d",
+        view="customer",
+        scope="environment",
+        server_public_ids=["a", "b"],
+        period_days=14.0,
+        time_range="14d",
     )
     assert result is None
     session.rollback.assert_awaited_once()
@@ -475,7 +557,10 @@ async def test_record_report_emission_active_conflict_returns_none(
 
 @pytest.mark.asyncio
 async def test_record_report_emission_sorts_server_public_ids(
-    stub_session_factory, stub_broker_channel, stub_query_repo, stub_diag_repo,
+    stub_session_factory,
+    stub_broker_channel,
+    stub_query_repo,
+    stub_diag_repo,
 ):
     """input_hash 결정성 — server_public_ids 정렬 후 저장 (같은 N대 발행은 같은 hash)."""
     stub_diag_repo.enqueue = AsyncMock(return_value="rep-id-sorted")
@@ -489,9 +574,11 @@ async def test_record_report_emission_sorts_server_public_ids(
         redis=AsyncMock(),
     )
     await service.record_report_emission(
-        view="customer", scope="environment",
+        view="customer",
+        scope="environment",
         server_public_ids=["zeta", "alpha", "beta"],
-        period_days=14.0, time_range="14d",
+        period_days=14.0,
+        time_range="14d",
     )
     enqueue_arg = stub_diag_repo.enqueue.call_args[0][0]
     assert enqueue_arg.input_params["server_public_ids"] == ["alpha", "beta", "zeta"]
@@ -501,17 +588,21 @@ async def test_record_report_emission_sorts_server_public_ids(
 
 # ─── recommendation 상수 import sanity ───────────────────────────────────
 
+
 def test_report_signal_color_catalog_imported():
-    """_REPORT_SIG_* 색 단일 진실 + 임계 상수 mappers 모듈 안 정의 회귀."""
-    from assessment_engine.web.services import mappers as m
-    assert m._REPORT_SIG_DANGER == "#b91c1c"
-    assert m._REPORT_SIG_WARN == "#92400e"
-    assert m._REPORT_SIG_NEUTRAL == "#1e293b"
-    assert m._REPORT_SIG_MUTED == "#94a3b8"
-    assert m._REPORT_SIG_SUBTLE == "#64748b"
-    assert m._VARIANCE_BURST_RATIO == 1.5
-    assert m._CAPACITY_IMMINENT_DAYS == 30
-    assert m._REBOOT_UNSTABLE_COUNT == 3
+    """_REPORT_SIG_* 색 단일 진실 + 임계 상수 mappers sub-package 안 정의 회귀."""
+    from assessment_engine.web.services.mappers import report as m_report
+    from assessment_engine.web.services.mappers import shared as m_shared
+
+    assert m_report._REPORT_SIG_DANGER == "#b91c1c"
+    assert m_report._REPORT_SIG_WARN == "#92400e"
+    assert m_report._REPORT_SIG_NEUTRAL == "#1e293b"
+    assert m_report._REPORT_SIG_MUTED == "#94a3b8"
+    assert m_report._REPORT_SIG_SUBTLE == "#64748b"
+    assert m_report._VARIANCE_BURST_RATIO == 1.5
+    assert m_shared._CAPACITY_IMMINENT_DAYS == 30
+    assert m_report._REBOOT_UNSTABLE_COUNT == 3
     # SATURATION_BURST_RATIO 는 recommendation 상수 인용
     from assessment_engine import recommendation
-    assert m._SATURATION_BURST_RATIO == recommendation.CPU_SATURATION_LOAD_RATIO
+
+    assert m_report._SATURATION_BURST_RATIO == recommendation.CPU_SATURATION_LOAD_RATIO

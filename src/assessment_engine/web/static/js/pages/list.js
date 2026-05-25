@@ -1,11 +1,13 @@
 /**
  * 서버 목록 페이지 — 서버 발견 모달.
  *
- * 역할: IP 입력 → HTTP probe로 네트워크 도달성 확인.
+ * 역할: IP/hostname 입력 -> SSH 포트(기본 22) TCP connect로 도달성 확인.
  * Ansible 자동 배포 워크플로우의 1단계 (도달성 검사). 추후 SSH credential 등록 +
  * ansible-playbook 실행이 이 위에 얹힘.
  *
- * 한계: HTTP 도달 ≠ SSH 도달. 1차 필터일 뿐.
+ * 한계: 포트 listen != 로그인 가능. 1차 필터일 뿐.
+ * probe 기본 target/port는 서버가 #probe-ip / #probe-port value로 렌더
+ * (discovery_default_target/port — dev=db-server-01.orb.local:22 / prod=빈값:22).
  *
  * 외부 의존: 없음 (모달은 list.html에 inline markup).
  */
@@ -16,30 +18,14 @@ const closeBtn    = document.getElementById('discover-close');
 const probeBtn    = document.getElementById('probe-btn');
 const ipInput     = document.getElementById('probe-ip');
 const portInput   = document.getElementById('probe-port');
-const schemeInput = document.getElementById('probe-scheme');
 const resultEl    = document.getElementById('probe-result');
-
-// probe target default — 브라우저 접근 host 우선, localhost 시 Lima dev fallback.
-// dev 환경: web 컨테이너 → host.docker.internal (Docker Desktop magic — macOS host 도달 가능).
-//   Lima vmnet IP(192.168.5.2)는 docker network 격리로 도달 불가라 docker host alias 사용.
-// 운영 환경: window.location.hostname 그대로 — IP·hostname 둘 다 backend가 받음 (ProbeRequest.target).
-function _defaultProbeTarget() {
-  const h = window.location.hostname;
-  if (h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '') {
-    return 'host.docker.internal';
-  }
-  return h;
-}
 
 function showModal() {
   modal.style.display = 'flex';
-  if (!ipInput.value.trim()) {
-    ipInput.value = _defaultProbeTarget();
-  }
   ipInput.focus();
   ipInput.select();
   resultEl.style.display = 'none';
-  resultEl.innerHTML = '';
+  resultEl.textContent = '';
 }
 
 function hideModal() {
@@ -52,26 +38,27 @@ function renderResult(data, errMsg) {
     resultEl.style.background = '#fef2f2';
     resultEl.style.color = '#991b1b';
     resultEl.style.border = '1px solid #fecaca';
-    resultEl.textContent = '❌ ' + errMsg;
+    resultEl.textContent = '도달 불가 — ' + errMsg;
     return;
   }
   if (data.reachable) {
     resultEl.style.background = '#f0fdf4';
     resultEl.style.color = '#166534';
     resultEl.style.border = '1px solid #bbf7d0';
-    resultEl.innerHTML = `✅ 도달 가능 — HTTP ${data.status_code}, ${data.elapsed_ms}ms`;
+    // banner 는 외부(SSH 서버)가 보낸 문자열 — textContent 로 삽입해 XSS 차단.
+    const detail = data.banner ? `SSH 확인 — ${data.banner}` : '포트 열림 (SSH 응답 없음)';
+    resultEl.textContent = `도달 가능 — ${detail}, ${data.elapsed_ms}ms`;
   } else {
     resultEl.style.background = '#fef2f2';
     resultEl.style.color = '#991b1b';
     resultEl.style.border = '1px solid #fecaca';
-    resultEl.innerHTML = `❌ 도달 불가 — ${data.error || 'unknown error'} (${data.elapsed_ms}ms)`;
+    resultEl.textContent = `도달 불가 — ${data.error || 'unknown error'} (${data.elapsed_ms}ms)`;
   }
 }
 
 async function runProbe() {
   const target = ipInput.value.trim();
   const port   = parseInt(portInput.value, 10);
-  const scheme = schemeInput.value;
 
   if (!target) { renderResult(null, '대상(IP 또는 hostname)을 입력하세요'); return; }
   if (!port || port < 1 || port > 65535) { renderResult(null, '포트는 1~65535 범위'); return; }
@@ -81,14 +68,14 @@ async function runProbe() {
   resultEl.style.background = '#f1f5f9';
   resultEl.style.color = '#64748b';
   resultEl.style.border = '1px solid #e2e8f0';
-  resultEl.textContent = '⏳ 확인 중...';
+  resultEl.textContent = '확인 중...';
   probeBtn.disabled = true;
 
   try {
-    const res = await fetch('/api/v1/discovery/probe', {
+    const res = await fetch('/api/discovery/probe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target, port, scheme }),
+      body: JSON.stringify({ target, port }),
     });
     if (res.status === 422) {
       const detail = await res.json();
@@ -119,9 +106,9 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && (modal.sty
 
 
 // ─── ZConverter Install ────────────────────────────────────────────────────
-// 체크박스로 호스트 선택 -> POST /api/v1/tasks/install.
-// engine 은 DB INSERT + agent.tasks.<machine_id> 큐 동적 declare + task.install publish.
-// 다운로드 URL / sha256 / size 는 engine self-host 단일 진실 (config.install_bundle_url + payloads.INSTALL_BUNDLE_SHA256).
+// 체크박스로 호스트 선택 -> POST /api/tasks/install.
+// engine 은 DB INSERT + agent.tasks.<host_id> 큐 동적 declare + task.install publish.
+// download.url 은 운영자 입력 ZDM host + ZDM_PACKAGE_PATH 조립, sha256/size_bytes 는 ZDM_PACKAGE_* env.
 
 const installModal            = document.getElementById('install-modal');
 const installBtn              = document.getElementById('install-btn');
@@ -134,15 +121,10 @@ function selectedRows() {
   return [...document.querySelectorAll('.row-select:checked')];
 }
 
-// selection 버튼 상태 + 체크박스 헤더 카운트 갱신. label 자체는 정적 (체크박스 헤더 #select-count 가 동적 N 표시).
+// selection 버튼 상태 갱신 — 선택 N대면 액션 버튼 enabled.
 // CSS .btn-primary:disabled 가 시각 분기 (opacity inline 불필요).
 function refreshInstallButton() {
   const n = selectedRows().length;
-  const countEl = document.getElementById('select-count');
-  if (countEl) {
-    countEl.textContent = n;
-    countEl.style.color = n > 0 ? '#2563eb' : '#cbd5e1';
-  }
   installBtn.disabled = n === 0;
   exportBtn.disabled = n === 0;
   reportCustomerBtn.disabled = n === 0;
@@ -181,15 +163,25 @@ const reportEngineerBtn = document.getElementById('report-engineer-btn');
   }
   function close() { modal.style.display = 'none'; }
 
-  function publish() {
+  async function publish() {
     const params = new URLSearchParams();
     params.set('view', currentView);
     params.set('time_range', rangeSel.value);
     const anchor = anchorInput.value;
     if (anchor) params.set('anchor_at', anchor + ':00+09:00');
-    params.set('back', location.pathname);
-    // 모든 보고서 발행 = 현재 탭 이동 (history.back / back query 로 referrer 자연 복귀, 단일 원칙).
-    window.location.href = `/reports/environment?${params.toString()}`;
+    // PRG pattern — POST emit (record) → 응답 view_url 로 GET navigate (read-only 표시).
+    // 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch(`/reports/environment/emit?${params.toString()}`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const viewUrl = data.view_url + `&back=${encodeURIComponent(location.pathname + location.search)}`;
+      window.location.href = viewUrl;
+    } catch (e) {
+      if (window.ToastUtils) ToastUtils.show('환경 보고서 발행 실패: ' + e.message, 'err');
+      submitBtn.disabled = false;
+    }
     close();
   }
 
@@ -231,15 +223,25 @@ const reportEngineerBtn = document.getElementById('report-engineer-btn');
   }
   function close() { modal.style.display = 'none'; }
 
-  function publish() {
+  async function publish() {
     const ids = currentRows.map(r => r.dataset.publicId).join(',');
     const params = new URLSearchParams();
     params.set('ids', ids);
     params.set('view', currentView);
     params.set('time_range', rangeSel.value);
-    params.set('back', location.pathname);
-    // anchor 는 server scope 라우터가 받지 않음 — UI 일관성. submit 미사용.
-    window.location.href = `/servers/report?${params.toString()}`;
+    // PRG pattern — POST emit (record) → 응답 view_url 로 GET navigate (read-only 표시).
+    // 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch(`/servers/report/emit?${params.toString()}`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const viewUrl = data.view_url + `&back=${encodeURIComponent(location.pathname + location.search)}`;
+      window.location.href = viewUrl;
+    } catch (e) {
+      if (window.ToastUtils) ToastUtils.show('서버 보고서 발행 실패: ' + e.message, 'err');
+      submitBtn.disabled = false;
+    }
     close();
   }
 
@@ -262,7 +264,7 @@ async function exportInventory() {
   exportBtn.disabled = true;
   const pending = ToastUtils.show(`Export 중 (${rows.length}대)...`, 'pending');
   try {
-    const res = await fetch('/api/v1/exports/inventory', {
+    const res = await fetch('/api/exports/inventory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target_public_ids: rows.map(r => r.dataset.publicId) }),
@@ -325,8 +327,9 @@ function pollAndUpdateRow(targetPublicId, taskId) {
   if (!window.TaskModal) return;
   window.TaskModal.pollUntilFinal(taskId, {
     onUpdate(detail) {
-      const created = new Date(detail.created_at).toLocaleString('ko-KR');
-      cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${detail.task_id}" title="${detail.failure_label || ''}"><span class="badge ${detail.badge_class}">${detail.badge_label}</span><span style="font-size:11px; color:#64748b;">${created}</span></a>`;
+      // 시간 포맷 단일 진실 — ChartUtils.fmtKst (YYYY-MM-DD HH:MM:SS). toLocaleString 은 locale-dependent 라 회피.
+      const created = ChartUtils.fmtKst(detail.created_at);
+      cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${detail.task_id}" title="${detail.failure_label || ''}"><span class="badge ${detail.badge_class}">${detail.badge_label}</span><span class="text-meta">${created}</span></a>`;
     },
   });
 }
@@ -346,7 +349,7 @@ async function submitInstall() {
   installSubmitBtn.disabled = true;
 
   try {
-    const res = await fetch('/api/v1/tasks/install', {
+    const res = await fetch('/api/tasks/install', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -457,7 +460,7 @@ async function submitDiag() {
   diagSubmitBtn.disabled = true;
   const pending = ToastUtils.show(`서버 진단 발행 중 (${rows.length}대)...`, 'pending');
   try {
-    const res = await fetch('/api/v1/diagnostics', {
+    const res = await fetch('/api/diagnostics', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -494,4 +497,66 @@ if (diagBtn) {
   diagCloseBtn.addEventListener('click', hideDiagModal);
   diagModal.addEventListener('click', e => { if (e.target === diagModal) hideDiagModal(); });
   diagSubmitBtn.addEventListener('click', submitDiag);
+}
+
+// 필터 form 즉시 client-side 적용 — server reload 없이 row hide/show + URL 갱신.
+// tr 마다 data-* attribute (data-hostname / data-is-online / data-os-id / data-classification / data-services)
+// 가 박혀 있어 JS 가 그 값 비교. URL replaceState 로 deep link / 새로고침 시 server-side filter 와 정합.
+const filterForm = document.getElementById('filter-form');
+if (filterForm) {
+  const rows = document.querySelectorAll('tr.server-row');
+
+  function applyFilters() {
+    const searchInput = filterForm.querySelector('input[name=search]');
+    const onlineSel = filterForm.querySelector('select[name=is_online]');
+    const serviceSel = filterForm.querySelector('select[name=service]');
+    const osSel = filterForm.querySelector('select[name=os_id]');
+    const classSel = filterForm.querySelector('select[name=classification]');
+    const search = (searchInput?.value || '').toLowerCase().trim();
+    const onlineState = onlineSel?.value || '';  // "" / "true" / "false"
+    const service = serviceSel?.value || '';
+    const osId = osSel?.value || '';
+    const classification = classSel?.value || '';
+    rows.forEach(tr => {
+      const hostname = tr.dataset.hostname || '';
+      const rowOnline = tr.dataset.isOnline === 'true';
+      const rowOs = tr.dataset.osId || '';
+      const rowClass = tr.dataset.classification || '';
+      const rowServices = (tr.dataset.services || '').trim().split(/\s+/);
+      let show = true;
+      if (search && !hostname.includes(search)) show = false;
+      if (onlineState === 'true' && !rowOnline) show = false;
+      if (onlineState === 'false' && rowOnline) show = false;
+      if (service && !rowServices.includes(service)) show = false;
+      if (osId && rowOs !== osId) show = false;
+      if (classification && rowClass !== classification) show = false;
+      tr.style.display = show ? '' : 'none';
+    });
+    // URL 갱신 — deep link / 새로고침 시 server-side filter 가 같은 query 받음 (일관).
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (onlineState) params.set('is_online', onlineState);
+    if (service) params.set('service', service);
+    if (osId) params.set('os_id', osId);
+    if (classification) params.set('classification', classification);
+    const qs = params.toString();
+    const newUrl = qs ? `${location.pathname}?${qs}` : location.pathname;
+    history.replaceState(null, '', newUrl);
+  }
+
+  // text input — typing 마다 debounce (200ms) client filter.
+  let debounceTimer = null;
+  filterForm.querySelector('input[name=search]')?.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(applyFilters, 200);
+  });
+  // select / checkbox — change 즉시.
+  filterForm.querySelectorAll('select, input[type=checkbox]').forEach(el => {
+    el.addEventListener('change', applyFilters);
+  });
+  // Enter 키 default form submit 방지 (page reload 없이).
+  filterForm.addEventListener('submit', e => {
+    e.preventDefault();
+    applyFilters();
+  });
 }

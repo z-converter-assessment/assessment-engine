@@ -1,12 +1,13 @@
 """로그 출력 setup 단일 진실.
 
 loguru sink 등록 — text(colorized·dev 친화) vs json(외부 log aggregator indexing) 분기.
-각 entry(web/consumer/diagnostic-worker/diagnostic-scheduler)가 기동 직후 호출.
+각 entry(web/consumer/diagnostic-worker)가 기동 직후 호출.
 
 호출 위치는 Composition Root (F4):
 - web/main.py module top (FastAPI app 생성 전)
-- consumer/main.py · diagnostic/main.py · diagnostic/scheduler.py main() 시작점
+- consumer/main.py · diagnostic/main.py main() 시작점
 """
+
 import sys
 from typing import Literal
 

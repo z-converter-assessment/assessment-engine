@@ -9,59 +9,68 @@
 
 부분 UNIQUE `uq_tasks_pending_per_server_type` 동작은 별도 — 본 테스트는 조회 메서드만.
 """
+
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import text
 
+from assessment_engine.db.dtos.inbound import TaskCreate
 from assessment_engine.db.repositories.collect_repository import CollectRepository
-from assessment_engine.db.repositories.inbound import TaskCreate
-from assessment_engine.db.repositories.query_repository import QueryRepository
+from assessment_engine.db.repositories.query.query_repository import QueryRepository
 from tests.factories import make_inventory, make_task_result_update
 
 pytestmark = pytest.mark.asyncio
 
 
-async def _setup_server(collect_repo: CollectRepository, machine_id: str = "test-task-host-01") -> int:
-    inv = make_inventory(machine_id=machine_id, hostname=machine_id)
+async def _setup_server(collect_repo: CollectRepository, host_id: str = "test-task-host-01") -> int:
+    inv = make_inventory(host_id=host_id, hostname=host_id)
     return await collect_repo.upsert_server(inv)
 
 
 async def _insert_task(
     collect_repo: CollectRepository,
     server_id: int,
-    machine_id: str,
+    host_id: str,
     task_type: str = "zconverter_install",
 ) -> str:
-    return await collect_repo.create_task(TaskCreate(
-        target_server_id=server_id,
-        target_machine_id=machine_id,
-        task_type=task_type,
-        params=None,
-    ))
+    return await collect_repo.create_task(
+        TaskCreate(
+            target_server_id=server_id,
+            target_host_id=host_id,
+            task_type=task_type,
+            params=None,
+        )
+    )
 
 
 # ─── complete_task ────────────────────────────────────────────────────────
+
 
 async def test_complete_task_success(collect_repo: CollectRepository) -> None:
     sid = await _setup_server(collect_repo)
     pid = await _insert_task(collect_repo, sid, "test-task-host-01")
 
     update = make_task_result_update(
-        public_id=pid, status="success",
-        exit_code=0, duration_ms=42, stdout_tail="ok",
+        public_id=pid,
+        status="success",
+        exit_code=0,
+        duration_ms=42,
+        stdout_tail="ok",
     )
     updated = await collect_repo.complete_task(update)
     assert updated is True
 
     # 6 컬럼 모두 UPDATE 확인.
-    row = (await collect_repo.session.execute(
-        text(
-            "SELECT status, exit_code, duration_ms, stdout_tail, stderr_tail, "
-            "completed_at, failure_reason FROM tasks WHERE public_id=:pid"
-        ),
-        {"pid": pid},
-    )).first()
+    row = (
+        await collect_repo.session.execute(
+            text(
+                "SELECT status, exit_code, duration_ms, stdout_tail, stderr_tail, "
+                "completed_at, failure_reason FROM tasks WHERE public_id=:pid"
+            ),
+            {"pid": pid},
+        )
+    ).first()
     assert row.status == "success"
     assert row.exit_code == 0
     assert row.duration_ms == 42
@@ -75,15 +84,22 @@ async def test_complete_task_failure_with_reason(collect_repo: CollectRepository
     pid = await _insert_task(collect_repo, sid, "test-task-host-01")
 
     update = make_task_result_update(
-        public_id=pid, status="failure", failure_reason="sha256_mismatch",
-        exit_code=None, duration_ms=8000, stdout_tail="", stderr_tail="hash mismatch",
+        public_id=pid,
+        status="failure",
+        failure_reason="sha256_mismatch",
+        exit_code=None,
+        duration_ms=8000,
+        stdout_tail="",
+        stderr_tail="hash mismatch",
     )
     await collect_repo.complete_task(update)
 
-    row = (await collect_repo.session.execute(
-        text("SELECT status, failure_reason, exit_code, stderr_tail FROM tasks WHERE public_id=:pid"),
-        {"pid": pid},
-    )).first()
+    row = (
+        await collect_repo.session.execute(
+            text("SELECT status, failure_reason, exit_code, stderr_tail FROM tasks WHERE public_id=:pid"),
+            {"pid": pid},
+        )
+    ).first()
     assert row.status == "failure"
     assert row.failure_reason == "sha256_mismatch"
     assert row.exit_code is None
@@ -98,14 +114,21 @@ async def test_complete_task_unknown_public_id_returns_false(collect_repo: Colle
 
 # ─── get_task_by_public_id ────────────────────────────────────────────────
 
+
 async def test_get_task_by_public_id_joins_server(
-    collect_repo: CollectRepository, query_repo: QueryRepository,
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
 ) -> None:
     sid = await _setup_server(collect_repo)
     pid = await _insert_task(collect_repo, sid, "test-task-host-01")
-    await collect_repo.complete_task(make_task_result_update(
-        public_id=pid, status="success", exit_code=0, duration_ms=29,
-    ))
+    await collect_repo.complete_task(
+        make_task_result_update(
+            public_id=pid,
+            status="success",
+            exit_code=0,
+            duration_ms=29,
+        )
+    )
 
     row = await query_repo.get_task_by_public_id(pid)
     assert row is not None
@@ -124,8 +147,10 @@ async def test_get_task_by_public_id_not_found(query_repo: QueryRepository) -> N
 
 # ─── list_recent_tasks ────────────────────────────────────────────────────
 
+
 async def test_list_recent_tasks_orders_by_created_desc(
-    collect_repo: CollectRepository, query_repo: QueryRepository,
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
 ) -> None:
     sid = await _setup_server(collect_repo)
     pids = [await _insert_task(collect_repo, sid, "test-task-host-01", task_type=f"t-{i}") for i in range(3)]
@@ -138,18 +163,21 @@ async def test_list_recent_tasks_orders_by_created_desc(
 
 
 async def test_list_recent_tasks_cursor_pagination(
-    collect_repo: CollectRepository, query_repo: QueryRepository,
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
 ) -> None:
     sid = await _setup_server(collect_repo)
     base = datetime(2026, 5, 14, 12, 0, tzinfo=UTC)
     # raw SQL — created_at 명시 INSERT (ORM server_default(now()) 우회).
     # 같은 transaction 내 함수 호출 간 microsecond 동일 가능성 회피.
     for i in range(5):
-        await collect_repo.session.execute(text("""
-            INSERT INTO tasks (target_server_id, target_machine_id, task_type, status, created_at)
+        await collect_repo.session.execute(
+            text("""
+            INSERT INTO tasks (target_server_id, target_host_id, task_type, status, created_at)
             VALUES (:sid, :mid, :tt, 'success', :ts)
-        """), {"sid": sid, "mid": "test-task-host-01", "tt": f"cursor-t-{i}",
-               "ts": base + timedelta(seconds=i)})
+        """),
+            {"sid": sid, "mid": "test-task-host-01", "tt": f"cursor-t-{i}", "ts": base + timedelta(seconds=i)},
+        )
     await collect_repo.session.flush()
 
     first = await query_repo.list_recent_tasks(sid, limit=2, cursor=None)
@@ -163,11 +191,13 @@ async def test_list_recent_tasks_cursor_pagination(
 
 # ─── latest_tasks_by_servers ──────────────────────────────────────────────
 
+
 async def test_latest_tasks_by_servers_distinct_on(
-    collect_repo: CollectRepository, query_repo: QueryRepository,
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
 ) -> None:
-    s1 = await _setup_server(collect_repo, machine_id="test-task-host-A")
-    s2 = await _setup_server(collect_repo, machine_id="test-task-host-B")
+    s1 = await _setup_server(collect_repo, host_id="test-task-host-A")
+    s2 = await _setup_server(collect_repo, host_id="test-task-host-B")
 
     await _insert_task(collect_repo, s1, "test-task-host-A", task_type="t-old")
     p1_new = await _insert_task(collect_repo, s1, "test-task-host-A", task_type="t-new")

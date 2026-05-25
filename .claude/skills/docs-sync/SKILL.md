@@ -20,16 +20,16 @@ description: TRIGGER when user requests doc sync after code changes ("문서 동
 | `src/assessment_engine/consumer/` | `docs/architecture/consumer.md`, CLAUDE.md #D |
 | `src/assessment_engine/web/routers/` | `docs/architecture/web/routers.md` |
 | `src/assessment_engine/web/services/` | `docs/architecture/web/services.md`, CLAUDE.md #E3 |
-| `src/assessment_engine/web/view_models.py` | `docs/architecture/web/view-models.md`, CLAUDE.md #E4 |
+| `src/assessment_engine/web/view_models/` | `docs/architecture/web/view-models.md`, CLAUDE.md #E4 |
 | `src/assessment_engine/web/static/` / `templates/` | `docs/architecture/web/static-assets.md`, CLAUDE.md #E7·E9 |
 | `src/assessment_engine/db/models/` | `docs/architecture/db/models.md`, CLAUDE.md #C1 |
 | `src/assessment_engine/db/repositories/` | `docs/architecture/db/repositories.md` (+ `db/dtos.md` for DTO 변경), CLAUDE.md #C2 |
-| `src/assessment_engine/db/redis.py` + 키 패턴 | `docs/architecture/redis.md`, CLAUDE.md #C3 |
-| `docker-compose*.yml`, `Dockerfile*` | `docs/development/docker.md`, `docs/operations/prod-contract.md` |
+| `src/assessment_engine/cache/redis.py` + 키 패턴 | `docs/architecture/redis.md`, CLAUDE.md #C3 |
+| `docker-compose*.yml`, `Dockerfile*` | `docs/development/docker.md`, `docs/operations/env.md` |
 | `infra/lima/*.yaml`, `infra/agent.env`, `scripts/dev-up.sh`/`scripts/dev-down.sh` | `docs/development/pipeline.md`, `docs/development/pipeline.md`, CLAUDE.md #A4 |
-| `src/assessment_engine/config.py` | `docs/operations/env.md`, `docs/operations/prod-contract.md`, CLAUDE.md #A3 |
+| `src/assessment_engine/config.py` | `docs/operations/env.md`, `docs/operations/env.md`, CLAUDE.md #A3 |
 | `src/assessment_engine/consumer/schemas.py` | `docs/architecture/agent.md`, `docs/architecture/consumer.md`, CLAUDE.md #B |
-| `src/assessment_engine/consumer/handler.py` | `docs/architecture/consumer.md`, CLAUDE.md #D2·D3 |
+| `src/assessment_engine/consumer/handlers/` | `docs/architecture/consumer.md`, CLAUDE.md #D2·D3 |
 | Pydantic Input/DTO 변경 | `docs/architecture/db/dtos.md`, CLAUDE.md #B5 |
 
 3. 각 매핑된 문서 Read → 코드 변경이 문서에 반영돼야 할 지점 식별 (예: 새 함수/필드/메서드 시그니처, 정책 변경, 설정 키 변경).
@@ -43,7 +43,7 @@ description: TRIGGER when user requests doc sync after code changes ("문서 동
 
 | 변경 유형 | 동기화 검토 |
 |-----------|-------------|
-| 새 ENV 키 추가 | `docs/operations/env.md` 카탈로그 추가 + `docs/operations/prod-contract.md` (해당되면) |
+| 새 ENV 키 추가 | `docs/operations/env.md` 카탈로그 추가 + `docs/operations/env.md` (해당되면) |
 | 새 Pydantic 필드 | `docs/architecture/agent.md` 스키마 + `docs/architecture/db/dtos.md` + CLAUDE.md #B2 |
 | 새 라우터 엔드포인트 | `docs/architecture/web/routers.md` + CLAUDE.md #E5 |
 | 새 Repository 메서드 | `docs/architecture/db/repositories.md` |
