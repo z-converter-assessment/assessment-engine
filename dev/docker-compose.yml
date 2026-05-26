@@ -163,7 +163,7 @@ services:
     depends_on:
       <<: *app-depends
       ollama:
-        condition: service_started
+        condition: service_healthy
     environment:
       <<: *app-env
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
@@ -179,6 +179,13 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
+    healthcheck:
+      # `ollama list` 는 serve 프로세스(11434)에 연결 — 모델 0개여도 exit 0, 미기동 시 exit 1.
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
 
 volumes:
   postgres_data:
