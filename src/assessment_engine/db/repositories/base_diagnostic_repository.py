@@ -132,6 +132,16 @@ class BaseDiagnosticRepository(ABC):
         ...
 
     @abstractmethod
+    async def save_report_snapshot(self, job_id: str, result: dict) -> None:
+        """발행 시점 보고서 snapshot 을 result 에 저장 (status pending 유지).
+
+        engineer 보고서 발행 — web 이 ViewModel snapshot 을 result 에 저장(pending 유지), worker 가
+        pending job 을 받아 mark_running -> narrative 생성 -> mark_succeeded(snapshot + narrative).
+        customer 는 본 메서드 없이 발행 즉시 mark_succeeded.
+        """
+        ...
+
+    @abstractmethod
     async def mark_failed(self, job_id: str, error_message: str) -> None:
         """status → failed, error_message 저장, finished_at=now()."""
         ...

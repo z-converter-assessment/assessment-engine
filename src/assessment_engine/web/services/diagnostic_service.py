@@ -42,6 +42,7 @@ from assessment_engine.diagnostic.submitter import (  # noqa: F401 (re-export)
     _compute_hash,
     _normalize_anchor,
 )
+from assessment_engine.web.services.report_serializer import build_report_result
 from assessment_engine.web.settings import diagnostic_settings
 
 
@@ -293,6 +294,81 @@ class DiagnosticService:
                 new_id,
             )
             return new_id
+
+    async def emit_report(
+        self,
+        *,
+        view: str,
+        scope: str,
+        kind: str,
+        snapshot: dict,
+        server_public_ids: list[str],
+        time_range: str,
+        anchor_at: datetime | None = None,
+        requested_by: str | None = None,
+    ) -> str | None:
+        """보고서 발행 — 발행 시점 정적 스냅샷 저장 + engineer 면 worker AI 진단 발행.
+
+        요구 정합: AI 진단 트리거는 engineer 보고서 발행 시점에만. customer 는 narrative 없이 즉시 succeeded.
+        engineer 는 status=running + worker 가 narrative 채운 뒤 mark_succeeded (실패 시 narrative_status=failed).
+        GET(세부·이력)은 본 job_id 의 정적 스냅샷만 렌더 — 따로 진단 트리거 없음 (요구: 정적 보관).
+        같은 input 활성 충돌(더블클릭) 시 기존 진행 중 job_id 회수.
+
+        kind: report_serializer.REPORT_KIND_SUMMARY(server N대) | REPORT_KIND_ENV(환경·단일서버).
+        snapshot: 발행 시점 완성 ViewModel 직렬화 dict (report_serializer.*_to_dict).
+        """
+        job_type = f"{view}_report"
+        input_params: dict = {
+            "view": view,
+            "server_public_ids": sorted(server_public_ids),
+            "time_range": time_range,
+        }
+        if anchor_at is not None:
+            input_params["anchor_at"] = anchor_at.isoformat()
+        # server scope 1대는 단수 키도 — list_recent SQL 단수 매칭(이력 server 상세 link) 정합.
+        if scope == "server" and len(server_public_ids) == 1:
+            input_params["server_public_id"] = server_public_ids[0]
+        input_hash = _compute_hash(scope, input_params)
+        narrative_status = "none" if view == "customer" else "pending"
+        result = build_report_result(
+            kind=kind,
+            snapshot=snapshot,
+            view=view,
+            narrative_status=narrative_status,
+        )
+        async with self.session_factory() as session:
+            repo = self.diagnostic_repo_factory(session)
+            new_id = await repo.enqueue(
+                DiagnosticJobCreate(
+                    scope=scope,
+                    job_type=job_type,
+                    input_params=input_params,
+                    input_hash=input_hash,
+                    requested_by=requested_by,
+                )
+            )
+            if new_id is None:
+                active_id = await repo.get_active_by_hash(scope, input_hash, job_type)
+                await session.rollback()
+                logger.info(
+                    "report emit active conflict view={} scope={} hash={}", view, scope, input_hash[:12]
+                )
+                return active_id
+            if view == "customer":
+                await repo.mark_succeeded(new_id, result)
+            else:
+                await repo.save_report_snapshot(new_id, result)
+            await session.commit()
+        if view == "engineer":
+            await self._submitter.publish_job(new_id)
+        logger.info(
+            "report emitted view={} scope={} job_id={} status={}",
+            view,
+            scope,
+            new_id,
+            "running" if view == "engineer" else "succeeded",
+        )
+        return new_id
 
     async def get_one(self, job_id: str) -> DiagnosticJobRecord | None:
         """단건 조회 — Redis polling 캐시 우선, miss 시 DB fallback (#C3 fail-open)."""

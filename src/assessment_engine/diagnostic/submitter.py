@@ -115,7 +115,7 @@ class DiagnosticSubmitter:
                 await session.commit()
 
                 if new_id:
-                    await self._publish(new_id)
+                    await self.publish_job(new_id)
                     job_ids.append(new_id)
                     logger.info("diagnostic enqueued scope={} hash={} job_id={}", scope, input_hash[:12], new_id)
                     continue
@@ -137,8 +137,12 @@ class DiagnosticSubmitter:
 
         return job_ids
 
-    async def _publish(self, job_id: str) -> None:
-        """RabbitMQ publish — 진단 워커가 소비. persistent delivery (broker 재시작 생존)."""
+    async def publish_job(self, job_id: str) -> None:
+        """RabbitMQ publish — 진단 워커가 소비. persistent delivery (broker 재시작 생존).
+
+        AI 진단(submit) + engineer 보고서 발행(DiagnosticService.emit_report) 공통 — 워커는
+        {"job_id": id} 만 받아 job_type 으로 분기 처리.
+        """
         message = aio_pika.Message(
             body=json.dumps({"job_id": job_id}).encode(),
             delivery_mode=aio_pika.DeliveryMode.PERSISTENT,

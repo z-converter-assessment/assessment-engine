@@ -162,6 +162,11 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         )
         await self.session.execute(stmt)
 
+    async def save_report_snapshot(self, job_id: str, result: dict) -> None:
+        # status 유지 (pending) — worker 가 pending job 을 받아 mark_running 후 narrative.
+        stmt = update(DiagnosticJob).where(DiagnosticJob.id == job_id).values(result=result)
+        await self.session.execute(stmt)
+
     async def mark_failed(self, job_id: str, error_message: str) -> None:
         stmt = (
             update(DiagnosticJob)
