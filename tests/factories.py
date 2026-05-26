@@ -24,7 +24,8 @@ _DEFAULT_AGENT_STARTED_AT = datetime(2026, 1, 1, 0, 5, tzinfo=UTC)
 
 def make_inventory(
     *,
-    host_id: str = "test-machine-id-0001",
+    composite_id: str = "test-composite-id-0001",
+    machine_id: str | None = "test-machine-id-0001",
     hostname: str = "test-host-01",
     agent_version: str = "1.0.0",
     collected_at: datetime | None = None,
@@ -39,7 +40,8 @@ def make_inventory(
 ) -> ServerInventoryCreate:
     """기본값은 placeholder가 아닌 '정상' inventory — 미지정 시 실제와 유사한 값."""
     return ServerInventoryCreate(
-        host_id=host_id,
+        composite_id=composite_id,
+        machine_id=machine_id,
         hostname=hostname,
         agent_version=agent_version,
         collected_at=collected_at or datetime.now(UTC),
@@ -56,6 +58,7 @@ def make_inventory(
         agent_started_at=agent_started_at,
         ip_internal=["10.0.0.1"],
         ip_external=None,
+        mac_addresses=[],
         disks=disks
         if disks is not None
         else [
@@ -157,7 +160,7 @@ _DEFAULT_TASK_COMPLETED_AT = datetime(2026, 5, 14, 12, 0, tzinfo=UTC)
 
 def make_task_result_payload(
     *,
-    host_id: str = "test-machine-id-0001",
+    composite_id: str = "test-composite-id-0001",
     task_id: str = _DEFAULT_TASK_PUBLIC_ID,
     status: str = "success",
     failure_reason: str | None = None,
@@ -177,7 +180,7 @@ def make_task_result_payload(
     """
     return {
         "message_type": "task.result",
-        "host_id": host_id,
+        "composite_id": composite_id,
         "agent_version": "1.0.0",
         "collected_at": completed_at.isoformat().replace("+00:00", "Z"),
         "hostname": "test-host-01",

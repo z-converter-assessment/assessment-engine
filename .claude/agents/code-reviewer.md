@@ -1,6 +1,6 @@
 ---
 name: code-reviewer
-description: TRIGGER when user requests review of uncommitted/staged changes ("리뷰해줘", "/review", "review this", "review changes"). Performs project-convention-aware independent review against CLAUDE.md rules (P1-P5 / F1 / F4 / F9 / C1 UNIQUE / D2 멱등성) + 테스트 누락 지적. Read-only — reports findings, does not modify code.
+description: TRIGGER when user requests review of uncommitted/staged changes ("리뷰해줘", "/review", "review this", "review changes"). Performs project-convention-aware independent review against CLAUDE.md rules (P1-P4 / F1 / F4 / F9 / C1 UNIQUE / D2 멱등성) + 테스트 누락 지적. Read-only — reports findings, does not modify code.
 tools: Read, Grep, Glob, Bash
 model: opus
 ---
@@ -19,13 +19,12 @@ model: opus
 
 ## 검토 항목 (CLAUDE.md 규약 기준)
 
-### E1. 표시 계층 P1~P5
+### E1. 표시 계층 P1~P4
 
 - P1: Repository(`db/repositories/`)에 단위 변환·delta·dedup·임계값 분류 등 표시 로직 들어갔는지 (단 SQL 표현식은 P1 예외 — dispatch table whitelist 상수에 한해 허용)
 - P2: Service의 mapper 단일 변환 — 같은 파생 필드를 여러 곳에서 재계산하는지
 - P3: Jinja2 템플릿(`templates/`)에 계산·sort·임계값 비교·단위 변환·`| length` 같은 카운트
-- P4: 차트 JS의 5개 의무 규약 (sequence counter / capture-before-await / Array.isArray / 404 분기 / suggestedMax 명명 상수)
-- P5: 클라이언트가 임계값/dedup/통계를 다시 계산하는지
+- P4: 차트 JS의 5개 의무 규약 (sequence counter / capture-before-await / Array.isArray / 404 분기 / suggestedMax 명명 상수). 클라이언트가 비즈니스 임계값 분류·API 통계 재계산하는지 (서버 `agg` 파라미터로 요청)
 
 ### F4. 인터페이스 우선
 
@@ -48,7 +47,7 @@ model: opus
 ### C1. 키·제약 — 멱등성 의존 (엔진 내부 일관성)
 
 - 시계열 신규 테이블에 `UNIQUE(server_id, [dim,] collected_at)` 누락
-- 새 hypertable 모델 시 `web/main.py` lifespan의 `create_hypertable` 루프에 추가 누락
+- 시계열 신규 테이블 추가 시 Alembic revision에 `op.execute("SELECT create_hypertable(...)")` 보강 누락 (C4)
 - ORM 컬럼 변경했는데 inbound DTO·매퍼 동기화 누락
 - `pg_insert.on_conflict_do_nothing(index_elements=...)` 패턴 깨짐
 - 본 항목은 엔진 내부 일관성만 검토. 에이전트와 엔진 사이 cross-repo drift(필드 추가·이름 변경·타입 차이)는 schema-contract-auditor 위임.
@@ -57,14 +56,14 @@ model: opus
 
 - 1단 fail-open이 2단 UNIQUE 흡수에 의존하는데 UNIQUE가 빠졌는지
 
-### B5. 계약 진화 정책
+### B. 계약 진화 정책
 
 - Pydantic Input 모델에 `extra=forbid` 사용 (금지)
 - 의미 모르는 필드를 매퍼에 추측으로 추가했는지
 
 ### 테스트 정책 (`docs/development/testing.md` 참조)
 
-- 새 코드에 테스트가 추가됐는지 — 단, 사용자가 명시 요청 안 했으면 "테스트 작성 안 함"을 확인하는 정도. 테스트 실행은 절대 금지 (`tests/`는 `.claudeignore`)
+- 새 코드에 테스트가 추가됐는지 — 단, 사용자가 명시 요청 안 했으면 "테스트 작성 안 함"을 확인하는 정도. 테스트 실행은 절대 금지 (본 에이전트 read-only)
 
 ### 일반
 

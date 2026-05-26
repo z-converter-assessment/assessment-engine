@@ -6,16 +6,16 @@
 
 | 메서드 | 설명 |
 |--------|------|
-| `find_server_id(host_id) -> int \| None` | `host_id` 단일 키로 server_id 조회 (#C1, ADR 0022) |
-| `upsert_server(data) -> int` | `host_id` UNIQUE 기준 ON CONFLICT DO UPDATE. 변경 감지 시 history append |
-| `ensure_server_id(host_id, fallback) -> tuple[int, bool]` | find → 없으면 placeholder INSERT. metrics 핸들러 auto-register. 단일 키 (#C1, ADR 0022) |
+| `find_server_id(composite_id) -> int \| None` | `composite_id` 단일 키로 server_id 조회 (#C1, ADR 0027) |
+| `upsert_server(data) -> int` | `composite_id` UNIQUE 기준 ON CONFLICT DO UPDATE. 변경 감지 시 history append |
+| `ensure_server_id(composite_id, fallback) -> tuple[int, bool]` | find → 없으면 placeholder INSERT. metrics 핸들러 auto-register. 단일 키 (#C1, ADR 0027) |
 | `record_metrics(server_id, data) -> MetricInsertResult` | 4 시계열 테이블 INSERT. 각 테이블 행 수 반환 |
 | `create_task(data) -> str` | tasks INSERT. public_id(UUID) 반환 |
 | `complete_task(data) -> bool` | task.result handler — status / completed_at / failure_reason / exit_code / duration_ms / stdout_tail / stderr_tail UPDATE |
 
 ### 구현 디테일
 
-- `upsert_server`: `pg_insert ... on_conflict_do_update`. values·set_ dict는 한 번 만들어 재사용 (컬럼 추가 시 한 곳만 수정). `(host_id, hostname)` 복합 키는 set_ 제외
+- `upsert_server`: `pg_insert ... on_conflict_do_update`. values·set_ dict는 한 번 만들어 재사용 (컬럼 추가 시 한 곳만 수정). `composite_id` UNIQUE 키는 set_ 제외 (machine_id 는 set_ 포함 — 최신 표시)
 - `ensure_server_id`: `_insert_placeholder_server`는 `ON CONFLICT DO NOTHING` (placeholder가 진짜 inventory 덮어쓰는 race 방지)
 - `record_metrics`: 4 테이블 모두 `pg_insert.on_conflict_do_nothing(index_elements=...)` — 멱등성 2단 방어 (D2)
 - `create_task`: `IntegrityError` 가능 (부분 UNIQUE `uq_tasks_pending_per_server_type`) — service가 catch

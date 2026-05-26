@@ -47,11 +47,11 @@ _ALL_METRIC_TYPES = [
 
 async def _seed_one_server_with_metrics(
     collect_repo: CollectRepository,
-    host_id: str = "q-001",
+    composite_id: str = "q-001",
     n_points: int = 3,
 ) -> tuple[int, datetime]:
     """공통 fixture helper — server 1대 + n_points 시점의 metrics 시계열."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id=host_id))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id=composite_id))
     base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=n_points)
 
     for i in range(n_points):
@@ -99,7 +99,7 @@ async def test_resolve_server_id_existing(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-resolve-1"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-resolve-1"))
     inv_row = (
         await collect_repo.session.execute(
             __import__("sqlalchemy").text("SELECT public_id FROM server_inventory WHERE id = :id"),
@@ -119,8 +119,8 @@ async def test_list_servers_returns_with_last_seen_at(
     query_repo: QueryRepository,
 ):
     """list_servers DTO에 last_seen_at 포함 — Redis fail-open fallback용."""
-    await collect_repo.upsert_server(make_inventory(host_id="q-list-1", hostname="host-a"))
-    await collect_repo.upsert_server(make_inventory(host_id="q-list-2", hostname="host-b"))
+    await collect_repo.upsert_server(make_inventory(composite_id="q-list-1", hostname="host-a"))
+    await collect_repo.upsert_server(make_inventory(composite_id="q-list-2", hostname="host-b"))
     rows = await query_repo.list_servers(page=1, limit=10, search=None)
     assert len(rows) >= 2
     for r in rows:
@@ -131,8 +131,8 @@ async def test_list_servers_search_filter(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    await collect_repo.upsert_server(make_inventory(host_id="q-srch-1", hostname="alpha-server"))
-    await collect_repo.upsert_server(make_inventory(host_id="q-srch-2", hostname="beta-server"))
+    await collect_repo.upsert_server(make_inventory(composite_id="q-srch-1", hostname="alpha-server"))
+    await collect_repo.upsert_server(make_inventory(composite_id="q-srch-2", hostname="beta-server"))
     rows = await query_repo.list_servers(page=1, limit=10, search="alpha")
     hostnames = [r.hostname for r in rows]
     assert any("alpha" in h for h in hostnames)
@@ -143,7 +143,9 @@ async def test_get_server_returns_full_detail(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-detail-1", hostname="detail-host", cpu_cores=12))
+    sid = await collect_repo.upsert_server(
+        make_inventory(composite_id="q-detail-1", hostname="detail-host", cpu_cores=12)
+    )
     detail = await query_repo.get_server(sid)
     assert detail is not None
     assert detail.hostname == "detail-host"
@@ -162,7 +164,7 @@ async def test_get_storage_returns_only_latest_per_mount(
     query_repo: QueryRepository,
 ):
     """같은 mount의 여러 시점 데이터 중 최신 1행만 반환 (DISTINCT ON)."""
-    sid, _ = await _seed_one_server_with_metrics(collect_repo, host_id="q-stor-1", n_points=3)
+    sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-stor-1", n_points=3)
     storage = await query_repo.get_storage(sid)
     assert storage is not None
     # 시드는 mount="/" 1개만. 여러 시점이라도 mount당 1행.
@@ -178,7 +180,7 @@ async def test_get_network_returns_at_most_2_per_interface(
     query_repo: QueryRepository,
 ):
     """delta 계산용 — interface당 최신 2행 (PARTITION BY + ROW_NUMBER)."""
-    sid, _ = await _seed_one_server_with_metrics(collect_repo, host_id="q-net-1", n_points=5)
+    sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-net-1", n_points=5)
     network = await query_repo.get_network(sid)
     assert network is not None
     # 시드는 interface="eth0" 1개. 5시점이지만 최신 2행.
@@ -193,7 +195,7 @@ async def test_collection_status_reports_both_timestamps(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    sid, base_ts = await _seed_one_server_with_metrics(collect_repo, host_id="q-cs-1", n_points=2)
+    sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id="q-cs-1", n_points=2)
     status = await query_repo.get_collection_status(sid)
     assert status is not None
     assert status.last_inventory_at is not None
@@ -211,7 +213,7 @@ async def test_latest_dashboard_returns_all_four_blocks(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    sid, _ = await _seed_one_server_with_metrics(collect_repo, host_id="q-dash-1", n_points=3)
+    sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-dash-1", n_points=3)
     dash = await query_repo.latest_dashboard(sid)
     assert dash is not None
     # server_metrics는 최신 2행 (delta 계산용)
@@ -238,7 +240,7 @@ async def test_metric_chart_dispatcher_all_types(
     query_repo: QueryRepository,
 ):
     """모든 metric_type이 dispatcher를 통과하고 SQL이 정상 실행 — 결과는 비어도 OK."""
-    sid, _ = await _seed_one_server_with_metrics(collect_repo, host_id=f"q-mc-{metric_type}", n_points=3)
+    sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id=f"q-mc-{metric_type}", n_points=3)
     rows = await query_repo.metric_chart(
         server_id=sid,
         metric_type=metric_type,
@@ -259,7 +261,7 @@ async def test_metric_chart_cpu_usage_percent_returns_data(
     query_repo: QueryRepository,
 ):
     """_chart_cpu_delta — n_points=3이면 LAG로 d_total > 0인 행 2개 → 시간 버킷 >= 1."""
-    sid, base_ts = await _seed_one_server_with_metrics(collect_repo, host_id="q-cpu-1", n_points=3)
+    sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id="q-cpu-1", n_points=3)
     end = base_ts + timedelta(minutes=10)
     rows = await query_repo.metric_chart(
         server_id=sid,
@@ -282,7 +284,7 @@ async def test_metric_chart_fs_usage_returns_per_mount(
     query_repo: QueryRepository,
 ):
     """_chart_fs — dimension=mount, 시점 값. 각 행에 dimension 채워짐."""
-    sid, base_ts = await _seed_one_server_with_metrics(collect_repo, host_id="q-fs-1", n_points=2)
+    sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id="q-fs-1", n_points=2)
     end = base_ts + timedelta(minutes=10)
     rows = await query_repo.metric_chart(
         server_id=sid,
@@ -305,7 +307,7 @@ async def test_metric_chart_disk_read_iops_per_device(
     query_repo: QueryRepository,
 ):
     """_chart_rate_per_dimension — disk_io의 LAG/dt 기반 IOPS. dimension=device 채워짐."""
-    sid, base_ts = await _seed_one_server_with_metrics(collect_repo, host_id="q-dio-1", n_points=3)
+    sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id="q-dio-1", n_points=3)
     end = base_ts + timedelta(minutes=10)
     rows = await query_repo.metric_chart(
         server_id=sid,
@@ -332,7 +334,7 @@ async def test_metric_chart_cpu_excludes_boot_time_change_point(
     재부팅 후 jiffies는 0부터 시작이지만 드물게 prev보다 큰 값일 수도. 옛 d<0 휴리스틱은
     못 잡지만 boot_time 비교는 spike 방지.
     """
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-rst-cpu-1"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-rst-cpu-1"))
     base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=10)
     boot_a = datetime(2026, 5, 9, 10, 0, tzinfo=UTC)
     boot_b = datetime(2026, 5, 9, 11, 0, tzinfo=UTC)
@@ -375,7 +377,7 @@ async def test_metric_chart_rate_excludes_boot_time_change_point(
     query_repo: QueryRepository,
 ):
     """_chart_rate_per_dimension — boot_time 변경 시 d_val 양수여도 reset 확정 → 차트 missing."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-rst-rate-1"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-rst-rate-1"))
     base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=10)
     boot_a = datetime(2026, 5, 9, 10, 0, tzinfo=UTC)
     boot_b = datetime(2026, 5, 9, 11, 0, tzinfo=UTC)
@@ -431,7 +433,7 @@ async def test_reboot_events_classifies_boot_time_change_as_reboot(
     # upsert_server가 _inventory_changed 감지 + history append. boot_time 변경이 trigger.
     await collect_repo.upsert_server(
         make_inventory(
-            host_id="q-rb-1",
+            composite_id="q-rb-1",
             collected_at=base_ts,
             boot_time=boot_a,
             agent_started_at=agent_a,
@@ -439,14 +441,14 @@ async def test_reboot_events_classifies_boot_time_change_as_reboot(
     )
     await collect_repo.upsert_server(
         make_inventory(
-            host_id="q-rb-1",
+            composite_id="q-rb-1",
             collected_at=base_ts + timedelta(hours=1),
             boot_time=boot_b,
             agent_started_at=agent_b,
         )
     )
 
-    # host_id 단일 키 (#C1)
+    # composite_id 단일 키 (#C1)
     sid = await collect_repo.find_server_id("q-rb-1")
     events = await query_repo.reboot_events(
         sid,
@@ -470,7 +472,7 @@ async def test_reboot_events_classifies_agent_only_change_as_restart(
 
     await collect_repo.upsert_server(
         make_inventory(
-            host_id="q-rb-2",
+            composite_id="q-rb-2",
             collected_at=base_ts,
             boot_time=boot,
             agent_started_at=agent_a,
@@ -478,14 +480,14 @@ async def test_reboot_events_classifies_agent_only_change_as_restart(
     )
     await collect_repo.upsert_server(
         make_inventory(
-            host_id="q-rb-2",
+            composite_id="q-rb-2",
             collected_at=base_ts + timedelta(hours=1),
             boot_time=boot,
             agent_started_at=agent_b,
         )
     )
 
-    # host_id 단일 키 (#C1)
+    # composite_id 단일 키 (#C1)
     sid = await collect_repo.find_server_id("q-rb-2")
     events = await query_repo.reboot_events(
         sid,
@@ -503,7 +505,7 @@ async def test_metric_chart_dimension_filter(
     query_repo: QueryRepository,
 ):
     """dimension 파라미터로 특정 device만 필터."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-dim-1"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-dim-1"))
     base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=3)
     for i in range(3):
         await collect_repo.record_metrics(
@@ -560,7 +562,7 @@ async def test_metric_snapshots_returns_timestamps(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    sid, _ = await _seed_one_server_with_metrics(collect_repo, host_id="q-snap-1", n_points=5)
+    sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-snap-1", n_points=5)
     rows = await query_repo.metric_snapshots(sid, cursor=None, limit=10)
     assert len(rows) == 5
     for r in rows:
@@ -573,7 +575,7 @@ async def test_metric_snapshots_cursor_pagination(
     query_repo: QueryRepository,
 ):
     """cursor 이전 timestamps만."""
-    sid, base_ts = await _seed_one_server_with_metrics(collect_repo, host_id="q-snap-2", n_points=4)
+    sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id="q-snap-2", n_points=4)
     cursor = base_ts + timedelta(minutes=2)
     rows = await query_repo.metric_snapshots(sid, cursor=cursor, limit=10)
     assert all(r.collected_at < cursor for r in rows)
@@ -588,8 +590,8 @@ async def test_resolve_server_ids_batch_returns_dict(
     db_session,
 ):
     """N개 public_id → {public_id: server_id} 단일 SQL."""
-    sid_a = await collect_repo.upsert_server(make_inventory(host_id="q-batch-a"))
-    sid_b = await collect_repo.upsert_server(make_inventory(host_id="q-batch-b"))
+    sid_a = await collect_repo.upsert_server(make_inventory(composite_id="q-batch-a"))
+    sid_b = await collect_repo.upsert_server(make_inventory(composite_id="q-batch-b"))
     pid_a = (
         await db_session.execute(
             __import__("sqlalchemy").text("SELECT public_id FROM server_inventory WHERE id=:i"),
@@ -612,7 +614,7 @@ async def test_resolve_server_ids_skips_missing(
     db_session,
 ):
     """미존재 public_id는 dict에서 누락 — caller가 missing 분기."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-batch-missing"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-batch-missing"))
     pid = (
         await db_session.execute(
             __import__("sqlalchemy").text("SELECT public_id FROM server_inventory WHERE id=:i"),
@@ -635,8 +637,8 @@ async def test_get_servers_batch_returns_all_details(
     query_repo: QueryRepository,
 ):
     """N개 server_id → N개 ServerDetail 단일 SQL."""
-    sid_a = await collect_repo.upsert_server(make_inventory(host_id="q-gs-a", hostname="host-a"))
-    sid_b = await collect_repo.upsert_server(make_inventory(host_id="q-gs-b", hostname="host-b"))
+    sid_a = await collect_repo.upsert_server(make_inventory(composite_id="q-gs-a", hostname="host-a"))
+    sid_b = await collect_repo.upsert_server(make_inventory(composite_id="q-gs-b", hostname="host-b"))
     details = await query_repo.get_servers([sid_a, sid_b])
     assert len(details) == 2
     by_host = {d.hostname: d for d in details}
@@ -649,7 +651,7 @@ async def test_get_servers_skips_missing(
     query_repo: QueryRepository,
 ):
     """미존재 server_id는 결과에서 누락 — caller가 dict로 매핑."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-gs-missing"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-gs-missing"))
     details = await query_repo.get_servers([sid, 999_999])
     assert len(details) == 1
     assert details[0].id == sid
@@ -668,7 +670,7 @@ async def test_latest_per_dimension_excludes_data_older_than_30d(
     query_repo: QueryRepository,
 ):
     """_latest_per_dimension은 30d 윈도우. 31일 전 mount 데이터는 get_storage 결과에서 제외."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-prune-1"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-prune-1"))
     old_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(days=31)
 
     await collect_repo.record_metrics(
@@ -694,7 +696,7 @@ async def test_disk_usage_warnings_excludes_below_threshold(
     query_repo: QueryRepository,
 ):
     """avail/total 사용률이 임계 미만이면 결과에서 제외."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-disk-low"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-disk-low"))
     ts = datetime.now(UTC).replace(microsecond=0)
     # 사용률 50% — 임계 85% 미만
     await collect_repo.record_metrics(
@@ -719,7 +721,7 @@ async def test_disk_usage_warnings_includes_above_threshold(
     query_repo: QueryRepository,
 ):
     """사용률 임계 초과 mount는 결과에 포함 — 정렬은 사용률 DESC."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-disk-high", hostname="disk-high-host"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-disk-high", hostname="disk-high-host"))
     ts = datetime.now(UTC).replace(microsecond=0)
     # 사용률 92% (avail 8GB / total 100GB)
     await collect_repo.record_metrics(
@@ -749,7 +751,7 @@ async def test_disk_usage_warnings_uses_latest_per_mount(
 ):
     """같은 mount의 여러 시점 중 latest 1건만 평가 — 옛 시점은 임계 초과여도 제외 안 되고,
     latest가 임계 미만이면 제외."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-disk-latest", hostname="latest-host"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-disk-latest", hostname="latest-host"))
     base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=5)
     # T0: 95% (위험), T1: 50% (정상) — latest=T1만 평가 → 결과 제외
     for _i, (mins, avail) in enumerate([(0, 5_000_000_000), (3, 50_000_000_000)]):
@@ -773,7 +775,7 @@ async def test_disk_usage_warnings_excludes_zero_total(
     query_repo: QueryRepository,
 ):
     """total_bytes=0(가상 mount 시뮬) — 0으로 나누기 회피, 결과 제외."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-disk-virt", hostname="virt-host"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-disk-virt", hostname="virt-host"))
     ts = datetime.now(UTC).replace(microsecond=0)
     await collect_repo.record_metrics(
         sid,
@@ -796,7 +798,7 @@ async def test_metric_gap_warnings_excludes_recent_metric(
     query_repo: QueryRepository,
 ):
     """방금 metric 발행한 서버는 갭 없음 — 결과 제외."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-gap-fresh", hostname="fresh-host"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-gap-fresh", hostname="fresh-host"))
     await collect_repo.record_metrics(sid, make_metrics(collected_at=datetime.now(UTC)))
     rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
     assert all(r.hostname != "fresh-host" for r in rows)
@@ -807,7 +809,7 @@ async def test_metric_gap_warnings_includes_gap_in_window(
     query_repo: QueryRepository,
 ):
     """5분~24h 윈도우 안에 마지막 metric → 결과 포함."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-gap-mid", hostname="gap-host"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-gap-mid", hostname="gap-host"))
     last_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=10)
     await collect_repo.record_metrics(sid, make_metrics(collected_at=last_ts))
     rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
@@ -821,7 +823,7 @@ async def test_metric_gap_warnings_excludes_dead_server(
     query_repo: QueryRepository,
 ):
     """24h 이상 metric 없는 dead 서버는 갭 결과 제외 (한때 살아있던 서버 대상이 아님)."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-gap-dead", hostname="dead-host"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-gap-dead", hostname="dead-host"))
     long_ago = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=48)
     await collect_repo.record_metrics(sid, make_metrics(collected_at=long_ago))
     rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
@@ -833,7 +835,7 @@ async def test_metric_gap_warnings_no_metric_excluded(
     query_repo: QueryRepository,
 ):
     """metric 한 번도 발행 안 한 서버 — JOIN 조건으로 제외."""
-    await collect_repo.upsert_server(make_inventory(host_id="q-gap-none", hostname="never-host"))
+    await collect_repo.upsert_server(make_inventory(composite_id="q-gap-none", hostname="never-host"))
     rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
     assert all(r.hostname != "never-host" for r in rows)
 
@@ -851,7 +853,7 @@ async def test_environment_utilization_returns_averages(
     query_repo: QueryRepository,
 ):
     """CPU·MEM·DISK 평균이 정상 산출 — 두 시점 jiffies delta + latest mem + max mount."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-util-01", hostname="util-host"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-util-01", hostname="util-host"))
     base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=2)
     # T0: 누적 100 (busy 30, idle 70) → 30%, mem available 50/100, mount used 60%
     await collect_repo.record_metrics(
@@ -898,7 +900,7 @@ async def test_environment_utilization_excludes_outside_window(
     query_repo: QueryRepository,
 ):
     """기간 밖 메트릭은 평균에서 제외."""
-    sid = await collect_repo.upsert_server(make_inventory(host_id="q-util-stale"))
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-util-stale"))
     # 30일 전 메트릭 — 기본 period_days=1 밖
     stale_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(days=30)
     await collect_repo.record_metrics(

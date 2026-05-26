@@ -73,7 +73,7 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
             proto=p["proto"],
             addr=p["addr"],
             port=p["port"],
-            uid=p["uid"],
+            uid=p.get("uid"),
             pid=p.get("pid"),
             comm=p.get("comm"),
             is_well_known=p.get("is_well_known", p.get("port", 0) <= WELL_KNOWN_PORT_MAX),
@@ -87,6 +87,12 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
         data.pop(key, None)
     if "public_id" not in data:
         data["public_id"] = ""
+    # 옛 캐시 호환 — host_id -> composite_id rename + machine_id 신규 (배포 직후 stale 캐시 보정).
+    if "composite_id" not in data:
+        data["composite_id"] = data.pop("host_id", "")
+    data.pop("host_id", None)
+    data.setdefault("machine_id", None)
+    data.setdefault("os_family", None)  # 옛 캐시 호환 — os_family 신규 base 필드
     return enrich_server_detail(ServerDetailResponse(**data))
 
 

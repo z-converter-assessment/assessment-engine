@@ -102,6 +102,14 @@
   // ── 응답 안전 변환 ──
   function safeArray(arr) { return Array.isArray(arr) ? arr : []; }
 
+  // ── Windows 미측정 메트릭 N/A (표시 경계) ──
+  // Windows 는 load avg·cpu iowait/steal·mem buffers/cached 를 측정하지 않아 payload 에서 null/0 으로 온다.
+  // os_family==='windows' + 본 키면 'N/A' 로 표시해 "측정값 0"과 구분. 부재 메트릭 카탈로그 단일 진실(JS).
+  const WIN_NA_KEYS = new Set(['load_1m', 'load_5m', 'load_15m', 'cpu_iowait', 'cpu_steal', 'mem_buffers', 'mem_cached']);
+  function naWindows(osFamily, key, formatted) {
+    return osFamily === 'windows' && WIN_NA_KEYS.has(key) ? 'N/A' : formatted;
+  }
+
   // ── avg+max ghost dataset 빌드 (P4 패턴) ──
   // avgRows·maxRows: [{collected_at, value, dimension?}]
   // opts: { label?, color?, dashFn?(dim), pointRadius? }
@@ -253,7 +261,7 @@
     fmtKst, fmtLabel, fmtKbChart,
     getAnchorEnd, initAnchor,
     makeBucketGrid, joinToGrid,
-    bindToggle, initSse, safeArray,
+    bindToggle, initSse, safeArray, naWindows,
     fetchRebootEvents, applyRebootMarkers,
     buildAvgMaxDatasets, buildAvgMaxLegend,
   };

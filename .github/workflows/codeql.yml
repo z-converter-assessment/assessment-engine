@@ -7,11 +7,11 @@ name: codeql
 # 결과는 Security 탭의 "Code scanning alerts"에 보고됨.
 
 on:
+  # SAST는 release gate(main PR) + 정기 cron으로 충분 — develop PR/push마다 5~10분 SAST는 과부하.
+  # default branch=main이라 cron은 main 코드만 스캔. develop 통합 코드는 develop->main PR에서 검사됨.
   pull_request:
-    branches: [main, develop]
-  push:
-    branches: [main, develop]
-  # 새 CodeQL rule 공개·신규 CVE 패턴 감지 — 의존성 무관 코드 자체 재검사.
+    branches: [main]
+  # 새 CodeQL rule 공개·신규 CVE 패턴 감지 — 의존성 무관 코드 자체 재검사 (main 기준).
   schedule:
     - cron: '0 9 * * 1'
 
@@ -30,14 +30,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@03e4368ac7daa2bd82b3e85262f3bf87ee112f57 # v3.36.0
         with:
           languages: python
           # default queries + security-extended로 보안 query 풀 set 확장.
           queries: security-extended
 
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@03e4368ac7daa2bd82b3e85262f3bf87ee112f57 # v3.36.0
         with:
           category: "/language:python"

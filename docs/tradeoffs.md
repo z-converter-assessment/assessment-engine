@@ -200,7 +200,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 > 관련 코드: `src/assessment_engine/db/repositories/query/server.py` `list_servers`
 
 선택
-- `select(ServerInventory.id, .public_id, .host_id, ...)`로 11개 컬럼만 명시 SELECT. `mounts`/`listen_ports`/`kernel_version`/`boot_time`/`swap_total_kb`/`agent_version`/`last_seen_at`/`ip_internal`/`os_codename`/`cpu_model` 제외.
+- `select(ServerInventory.id, .public_id, .composite_id, ...)`로 11개 컬럼만 명시 SELECT. `mounts`/`listen_ports`/`kernel_version`/`boot_time`/`swap_total_kb`/`agent_version`/`last_seen_at`/`ip_internal`/`os_codename`/`cpu_model` 제외.
 
 대안
 - `select(ServerInventory)` 풀로우 SELECT (이전 구현).
@@ -318,16 +318,15 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ---
 
-## T12. server_inventory 호스트 식별 = `(host_id, hostname)` 복합 UNIQUE
+## T12. server_inventory 호스트 식별 — `composite_id` 단독 UNIQUE (ADR 0027 정정)
 
 > 관련 코드: `src/assessment_engine/db/models/server_inventory.py`, `src/assessment_engine/db/repositories/collect_repository.py`
 > 관련 문서: CLAUDE.md #C1, `docs/architecture/db/models.md`, `docs/architecture/agent.md`
 > 관련 migration: `migrations/versions/f5c1e2d3a4b8_inventory_composite_unique.py`
 
-선택
-- `server_inventory` unique 키를 `host_id` 단독에서 `(host_id, hostname)` 복합으로 변경.
-- agent payload schema (`MessageBase`) 는 그대로 — 이미 `host_id` + `hostname` 둘 다 전송 중.
-- Repository signature (`find_server_id`·`ensure_server_id`) 와 `on_conflict_do_*` index_elements, redis cooldown 키 (`time_invariant_warned:{host_id}:{hostname}`) 모두 복합 키 일관.
+선택 (현행, ADR 0027)
+- `server_inventory` UNIQUE = `composite_id` 단독 (SHA-256(machine_id + 정렬·dedup MAC 들), agent v4 발행). machine_id 는 표시 전용 (nullable), hostname 은 display.
+- 식별 진화: ADR 0022 `host_id` 단독 -> (한때 `(host_id, hostname)` 복합 시도, migration `f5c1e2d3a4b8`) -> 0027 `composite_id` 단독. 복합 UNIQUE 방식은 폐기 — composite hash 가 clone 식별을 담당하면서 hostname 의존 제거. 아래 대안·트레이드오프 본문 중 복합 UNIQUE 논의는 그 이전 단계 기록.
 
 대안
 - agent_id 신설: agent 첫 install 시 UUID 생성 + `/var/lib/.../agent-id` 영구 저장. agent C source + payload schema 변경 (#B). 가장 정석이나 외부 repo 작업 부담.

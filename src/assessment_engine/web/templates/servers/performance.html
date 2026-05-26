@@ -74,8 +74,10 @@
       {% endif %}
       <dt>Boot Time</dt>
       <dd>{{ server.boot_time | kst }}</dd>
+      <dt>Composite ID</dt>
+      <dd><code style="font-size:11px;">{{ server.composite_id }}</code></dd>
       <dt>Machine ID</dt>
-      <dd><code style="font-size:11px;">{{ server.host_id }}</code></dd>
+      <dd><code style="font-size:11px;">{{ server.machine_id or '-' }}</code></dd>
       <dt>Agent</dt>
       <dd>{{ server.agent_version | or_dash }}</dd>
     </dl>
@@ -239,4 +241,4 @@
 <script src="/static/js/pages/performance.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} data-server-id="{{ server.public_id }}" data-cpu-cores="{{ server.cpu_cores if server.cpu_cores is not none else '' }}"{% endblock %}
+{% block body_attrs %} data-server-id="{{ server.public_id }}" data-cpu-cores="{{ server.cpu_cores if server.cpu_cores is not none else '' }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}

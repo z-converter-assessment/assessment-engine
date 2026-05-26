@@ -64,7 +64,7 @@ class WebSettings(BaseSettings):
     redis_key_token: str = "token:{}"
     redis_key_last_agent_start: str = "last_agent_start:{}"
     redis_key_agent_restarts: str = "agent_restarts:{}"
-    # {host_id}:{hostname} 쿨다운 마커 — server_inventory 복합 unique 일관 (#C1)
+    # {composite_id}:{hostname} 쿨다운 마커 (#C1)
     redis_key_time_invariant_warned: str = "time_invariant_warned:{}:{}"
 
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
@@ -145,7 +145,7 @@ class ConsumerSettings(WebSettings):
 
     # 원격 작업 토폴로지 (collector exchange와 분리 — 인증·DLX 정책 독립).
     # task.install: engine 발행
-    #   routing_key=task.install.<host_id> / queue=agent.tasks.<host_id> (engine 동적 declare)
+    #   routing_key=task.install.<composite_id> / queue=agent.tasks.<composite_id> (engine 동적 declare)
     # task.result : 원격 호스트 발행 / queue=worker.result
     rabbitmq_task_exchange: str = "assessment.tasks"
     rabbitmq_task_queue_prefix: str = "agent.tasks"

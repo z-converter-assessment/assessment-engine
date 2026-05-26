@@ -7,9 +7,9 @@ on:
   # paths 조건 제거 — main/develop PR 시 항상 발화. branch protection 의 required status check
   # 등록 시 paths skip 되어 check 자체 N/A 되어 머지 block 되는 함정 회피 (특히 main PR 강화).
   # alembic check (~10s) 부담 미약. CI 실패·이메일 폭탄 회피 우선.
+  #
+  # push 트리거 제거 — drift는 PR gate(develop·main)에서 차단. merge 후 재실행은 중복.
   pull_request:
-    branches: [main, develop]
-  push:
     branches: [main, develop]
 
 permissions:
@@ -49,9 +49,9 @@ jobs:
       POSTGRES_PASSWORD: ci
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12'
           cache: 'pip'

@@ -73,7 +73,7 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
 
 ```json
 {
-  "host_id":  "a1b2c3...",
+  "composite_id":  "a1b2c3...",
   "hostname":    "web-server-01",
   "role":        "web",
   "last_seen_at": "2026-05-12T03:42:15Z",
@@ -145,7 +145,7 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
 | A. VM 생성 | `os.*`, `compute.{vcpu_count, memory_mb}`, `storage.{boot_disk_gb, additional_disks[*]}`, `network.addresses[]` |
 | B. Right-sizing | `compute.{cpu_p95_pct, cpu_peak_pct, mem_p95_pct, mem_peak_pct, load_15m_max, swap_used, recommended_size_class}`, `storage.iops_*`, `storage.throughput_kbps_*`, `network.rx_kbps_*`, `network.tx_kbps_*` (baseline·p95·peak) |
 | C. Security Group | `services[].{category, listeners[].{port, proto, address}}` |
-| D. 보고서·감사 | envelope 전체 + `host_id`, `hostname`, `role`, `last_seen_at` + `period_window`로 reproducibility |
+| D. 보고서·감사 | envelope 전체 + `composite_id`, `hostname`, `role`, `last_seen_at` + `period_window`로 reproducibility |
 
 ## 4. 자동화 도구별 매핑 가이드
 

@@ -1,7 +1,7 @@
 """진단 워커 entry — aio-pika 큐 소비 + composition root (ADR 0004).
 
 기동: `python -m assessment_engine.diagnostic`.
-consumer/main.py 패턴 그대로 — exchange·DLX·큐 인자는 web/main.py 및 consumer/main.py와 일치 (#B3).
+consumer/main.py 패턴 그대로 — exchange·DLX·큐 인자는 web/main.py·consumer/main.py와 일치 (rabbitmq.md 토폴로지).
 prefetch_count=1로 LLM 호출 동시성을 1로 제한 — 단일 큐에서 LLM rate limit 자연 throttle.
 """
 

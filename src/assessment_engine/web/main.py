@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     # web을 포함한 모든 앱 서비스는 `depends_on: migrate (service_completed_successfully)`로 그 뒤에 기동 (ADR 0005).
     logger.info("app_env={} — schema is Alembic-managed (entrypoint applied upgrade)", web_settings.app_env)
 
-    # 진단 broker connection (ADR 0004) — consumer/worker와 동일 인자로 declare 의무 (#B3).
+    # 진단 broker connection (ADR 0004) — consumer/worker와 동일 인자로 declare 의무 (rabbitmq.md 토폴로지).
     # exchange type·DLX·큐 인자 mismatch 시 PRECONDITION_FAILED. DIRECT exchange + {exchange}.dlx 컨벤션.
     broker_conn = await aio_pika.connect_robust(diagnostic_settings.broker_url, timeout=10)
     broker_channel = await broker_conn.channel()
@@ -62,7 +62,7 @@ async def lifespan(app: FastAPI):
     await queue.bind(exchange, routing_key=routing_key)
 
     # 원격 작업 발행용 exchange. 동일 인자 재선언은 idempotent — consumer 가 먼저 declare 해도 안전.
-    # agent.tasks.<host_id> 머신별 큐는 task.install 발행 시점에 TaskService 가 동적 declare.
+    # agent.tasks.<composite_id> 머신별 큐는 task.install 발행 시점에 TaskService 가 동적 declare.
     await broker_channel.declare_exchange(
         diagnostic_settings.rabbitmq_task_exchange,
         aio_pika.ExchangeType.DIRECT,

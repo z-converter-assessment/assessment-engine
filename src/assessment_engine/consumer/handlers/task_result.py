@@ -60,11 +60,11 @@ def make_task_result_handler(
                 return
 
             logger.info(
-                "task_result stored host_id={} task_id={} status={} failure_reason={}",
-                data.host_id,
+                "task_result stored task_id={} status={} failure_reason={} composite_id={}",
                 data.task_id,
                 data.status,
                 data.failure_reason,
+                data.composite_id,
             )
 
     return _handle

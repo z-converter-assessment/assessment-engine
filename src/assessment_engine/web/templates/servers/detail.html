@@ -89,8 +89,10 @@
     </dd>
     <dt>Agent Version</dt>
     <dd>{{ server.agent_version or '-' }}</dd>
+    <dt>Composite ID</dt>
+    <dd><code>{{ server.composite_id }}</code></dd>
     <dt>Machine ID</dt>
-    <dd><code>{{ server.host_id }}</code></dd>
+    <dd><code>{{ server.machine_id or '-' }}</code></dd>
     <dt>Last Inventory</dt>
     <dd style="color:#64748b; font-size:13px;">{{ server.last_seen_at | kst }}</dd>
     {% if server.disks %}
@@ -478,4 +480,4 @@
 <script src="/static/js/pages/detail.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} data-server-id="{{ server.public_id }}"{% endblock %}
+{% block body_attrs %} data-server-id="{{ server.public_id }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}

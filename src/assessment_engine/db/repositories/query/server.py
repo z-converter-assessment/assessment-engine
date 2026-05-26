@@ -44,7 +44,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
         stmt = select(
             ServerInventory.id,
             ServerInventory.public_id,
-            ServerInventory.host_id,
+            ServerInventory.composite_id,
             ServerInventory.hostname,
             ServerInventory.os_id,
             ServerInventory.os_version,
@@ -64,7 +64,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             ServerSummary(
                 id=r.id,
                 public_id=r.public_id,
-                host_id=r.host_id,
+                composite_id=r.composite_id,
                 hostname=r.hostname,
                 os_id=r.os_id,
                 os_version=r.os_version,
@@ -83,7 +83,8 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
         return ServerDetail(
             id=r.id,
             public_id=r.public_id,
-            host_id=r.host_id,
+            composite_id=r.composite_id,
+            machine_id=r.machine_id,
             hostname=r.hostname,
             agent_version=r.agent_version,
             os_family=r.os_family,

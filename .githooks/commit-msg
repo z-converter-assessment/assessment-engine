@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# git commit-msg hook — 커밋 메시지 컨벤션 + AI 메타데이터 차단 (강제 게이트).
+# 설치: git config core.hooksPath .githooks (dev/local-ci.sh 가 자동 설정).
+# 정책 단일 진실: .claude/skills/commit/SKILL.md + 글로벌 CLAUDE.md (AI 표식 금지).
+# 누가 어떤 경로로 커밋하든 강제 — skill 은 작성 가이드(opt-in), 본 hook 은 최종 게이트.
+set -euo pipefail
+
+MSG_FILE="$1"
+FIRST_LINE=$(head -1 "$MSG_FILE")
+ERRORS=""
+
+# 1. type prefix 컨벤션 (pr-title-check.yml 과 동일 type set). Merge/Revert 자동 커밋은 예외.
+if ! printf '%s' "$FIRST_LINE" | grep -qE '^(Merge |Revert |(feat|fix|docs|chore|refactor|perf|test|build|ci|style|revert)(\(.+\))?!?: .+)'; then
+  ERRORS+="  - 제목이 '<type>: <설명>' 형식 아님 (type: feat fix docs chore refactor perf test build ci style revert)"$'\n'
+fi
+
+# 2. AI 메타데이터 차단 (글로벌 CLAUDE.md — 어떤 산출물에도 금지).
+if grep -qiE 'Co-Authored-By:.*(Claude|Anthropic)|Generated with .*Claude|Claude Code' "$MSG_FILE"; then
+  ERRORS+="  - AI 메타데이터(Co-Authored-By: Claude / Generated with Claude Code) 포함 금지"$'\n'
+fi
+
+# 3. 이모지·장식 기호 차단 (AI 표식). python3 코드포인트 비교 — BSD grep 이식성 + 파일 내 유니코드 리터럴 회피.
+#    범위: 0x2600-0x27BF(기호/딩뱃), 0x1F300-0x1FAFF(이모지). 화살표(->)·em-dash 는 범위 밖이라 허용.
+if python3 -c "import sys; t=open(sys.argv[1], encoding='utf-8').read(); sys.exit(0 if any(0x2600<=ord(c)<=0x27bf or 0x1f300<=ord(c)<=0x1faff for c in t) else 1)" "$MSG_FILE"; then
+  ERRORS+="  - 이모지·장식 기호 포함 금지"$'\n'
+fi
+
+if [ -n "$ERRORS" ]; then
+  { echo "commit-msg 거부:"; printf '%s' "$ERRORS"; } >&2
+  exit 1
+fi
+exit 0

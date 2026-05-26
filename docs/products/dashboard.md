@@ -75,11 +75,9 @@ list에서 N대 선택 → 다음 4 액션 활성화:
 
 ## 의사결정 근거
 
-활용률 임계 60·80%:
+활용률 임계 신호:
 - UI badge "warn"(노랑)·"danger"(빨강) 두 단계로 시각 구분
-- 60% 미만은 정상 녹색·여유. 60%+ 노랑 주의·80%+ 빨강 위험
-- `_USAGE_WARN_PCT=75`·`_USAGE_DANGER_PCT=90`이 코드 단일 진실 (`web/services/mappers/shared.py`). 대시보드는 그 표현
-- 다만 환경 평균은 60·80% (서버 단위 임계와 다른 도메인 — 환경 평균이 80%면 매우 위험)
+- 서버 badge 임계(`_USAGE_WARN_PCT`·`_USAGE_DANGER_PCT`)와 환경 평균 임계(`_UTIL_LOW_PCT`·`_UTIL_HIGH_PCT`)는 별 도메인 — 값은 `web/services/mappers/shared.py` 단일 진실, 대시보드는 표현만
 
 평가 윈도우 14일:
 - `recommendation.WINDOW_DAYS` 단일 진실 (CLAUDE.md #F10)

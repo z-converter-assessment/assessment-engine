@@ -91,5 +91,5 @@ docker compose exec postgres psql -U assessment -d assessment -c \
 
 # tasks pending 조회
 docker compose exec postgres psql -U assessment -d assessment -c \
-  "SELECT public_id, target_host_id, task_type, status, created_at FROM tasks WHERE status='pending'"
+  "SELECT public_id, target_composite_id, task_type, status, created_at FROM tasks WHERE status='pending'"
 ```

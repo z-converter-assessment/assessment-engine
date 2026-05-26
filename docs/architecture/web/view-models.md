@@ -55,8 +55,8 @@
 - `_USAGE_DANGER_PCT = 90` — disk_warning 공통 (mapper)
 - `_USAGE_WARN_PCT   = 75` — 위험도 분류 보조
 - `_GAP_DANGER_MINUTES = 30` — gap_warning 위험 색 (mapper)
-- `_UTIL_LOW_PCT = 60` / `_UTIL_HIGH_PCT = 80` — 활용률 도넛 색 임계 (mapper, E10)
-- `_UTIL_DONUT_CIRC = 263.89` — SVG 원주 r=42 단일 진실 (mapper, E10)
+- `_UTIL_LOW_PCT = 60` / `_UTIL_HIGH_PCT = 80` — 활용률 도넛 색 임계 (mapper, E8)
+- `_UTIL_DONUT_CIRC = 263.89` — SVG 원주 r=42 단일 진실 (mapper, E8)
 - `_DONUT_SEGMENT_FROM_REC` / `_DONUT_SEGMENT_DEFS` — 프로비저닝 도넛 6 카테고리 단일 매핑
 - `_CAPACITY_TRIGGER_COLORS` — capacity trigger 3종 hue 분리 단일 색 (mapper)
 - `disk_threshold_pct = 85` — disk_warnings 진입 임계 (service 기본값)

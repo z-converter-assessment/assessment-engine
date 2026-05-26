@@ -29,12 +29,14 @@ class CollectRepository(BaseCollectRepository):
 
     # ─── server_inventory ──────────────────────────────────────────────────
 
-    async def find_server_id(self, host_id: str) -> int | None:
-        result = await self.session.execute(select(ServerInventory.id).where(ServerInventory.host_id == host_id))
+    async def find_server_id(self, composite_id: str) -> int | None:
+        result = await self.session.execute(
+            select(ServerInventory.id).where(ServerInventory.composite_id == composite_id)
+        )
         return result.scalar_one_or_none()
 
-    # C5: full row select 대신 비교 대상 컬럼만 (id/public_id/last_seen_at/host_id 제외).
-    # host_id 는 UNIQUE 키 — prev 와 new 가 항상 같아 비교 의미 없음.
+    # C5: full row select 대신 비교 대상 컬럼만 (id/public_id/last_seen_at/composite_id/machine_id 제외).
+    # composite_id 는 UNIQUE 키 — prev 와 new 가 항상 같아 비교 의미 없음. machine_id 는 표시용(history 미추적).
     # 매 inventory 메시지 hot path — 불필요 컬럼 read 비용 절약.
     _INVENTORY_COMPARE_COLS = (
         ServerInventory.agent_version,
@@ -61,14 +63,16 @@ class CollectRepository(BaseCollectRepository):
         # 변경 감지: 직전 행과 비교 후 다를 때만 history 한 행 INSERT (앱 레벨 trigger).
         # 1시간 주기 재발행이라도 정적 정보 동일하면 history는 그대로 — noise 차단.
         prev_q = await self.session.execute(
-            select(*self._INVENTORY_COMPARE_COLS).where(ServerInventory.host_id == data.host_id)
+            select(*self._INVENTORY_COMPARE_COLS).where(ServerInventory.composite_id == data.composite_id)
         )
         prev = prev_q.first()
 
         # values()와 set_={}에 같은 컬럼 dict를 재사용 — 컬럼 추가 시 한 곳만 수정.
-        # host_id 는 UNIQUE 키이므로 set_ 에서 제외 (자기 자신 덮어쓰기 무의미).
+        # composite_id 는 UNIQUE 키이므로 set_ 에서 제외 (자기 자신 덮어쓰기 무의미).
+        # machine_id 는 set_ 포함 — 최신 표시.
         row = {
-            "host_id": data.host_id,
+            "composite_id": data.composite_id,
+            "machine_id": data.machine_id,
             "hostname": data.hostname,
             "agent_version": data.agent_version,
             "os_family": data.os_family,
@@ -84,19 +88,20 @@ class CollectRepository(BaseCollectRepository):
             "agent_started_at": data.agent_started_at,
             "ip_internal": data.ip_internal,
             "ip_external": data.ip_external,
+            "mac_addresses": data.mac_addresses,
             "disks": data.disks,
             "mounts": data.mounts,
             "services": data.services,
             "listen_ports": data.listen_ports,
             "last_seen_at": data.collected_at,
         }
-        update_set = {k: v for k, v in row.items() if k != "host_id"}
+        update_set = {k: v for k, v in row.items() if k != "composite_id"}
 
         stmt = (
             pg_insert(ServerInventory)
             .values(**row)
             .on_conflict_do_update(
-                index_elements=["host_id"],
+                index_elements=["composite_id"],
                 set_=update_set,
             )
             .returning(ServerInventory.id)
@@ -113,7 +118,7 @@ class CollectRepository(BaseCollectRepository):
 
     @staticmethod
     def _inventory_changed(prev: ServerInventory, new: ServerInventoryCreate) -> bool:
-        """변경 감지. collected_at·last_seen_at·host_id·hostname(복합 conflict 키) 제외 비교."""
+        """변경 감지. collected_at·last_seen_at·composite_id·machine_id·hostname 제외 비교 (machine_id 는 표시용)."""
         return (
             prev.agent_version != new.agent_version
             or prev.os_family != new.os_family
@@ -172,11 +177,11 @@ class CollectRepository(BaseCollectRepository):
 
     async def ensure_server_id(
         self,
-        host_id: str,
+        composite_id: str,
         fallback: ServerInventoryCreate,
     ) -> tuple[int, bool]:
         # 1. 이미 등록 → 그대로 사용 (placeholder upsert 금지 — 진짜 inventory 보호)
-        server_id = await self.find_server_id(host_id)
+        server_id = await self.find_server_id(composite_id)
         if server_id is not None:
             return server_id, False
 
@@ -187,9 +192,9 @@ class CollectRepository(BaseCollectRepository):
             return new_id, True
 
         # 3. 충돌 = 다른 핸들러가 방금 INSERT. 다시 find — 이번엔 보임.
-        server_id = await self.find_server_id(host_id)
+        server_id = await self.find_server_id(composite_id)
         if server_id is None:
-            raise RuntimeError(f"failed to ensure server_id for host_id={host_id} (race not resolved)")
+            raise RuntimeError(f"failed to ensure server_id for composite_id={composite_id} (race not resolved)")
         return server_id, False
 
     async def _insert_placeholder_server(self, data: ServerInventoryCreate) -> int | None:
@@ -200,7 +205,8 @@ class CollectRepository(BaseCollectRepository):
         placeholder는 "이미 있으면 손대지 않는다"는 의미가 자연스러움.
         """
         row = {
-            "host_id": data.host_id,
+            "composite_id": data.composite_id,
+            "machine_id": data.machine_id,
             "hostname": data.hostname,
             "agent_version": data.agent_version,
             "os_family": data.os_family,
@@ -216,6 +222,7 @@ class CollectRepository(BaseCollectRepository):
             "agent_started_at": data.agent_started_at,
             "ip_internal": data.ip_internal,
             "ip_external": data.ip_external,
+            "mac_addresses": data.mac_addresses,
             "disks": data.disks,
             "mounts": data.mounts,
             "services": data.services,
@@ -225,7 +232,7 @@ class CollectRepository(BaseCollectRepository):
         stmt = (
             pg_insert(ServerInventory)
             .values(**row)
-            .on_conflict_do_nothing(index_elements=["host_id"])
+            .on_conflict_do_nothing(index_elements=["composite_id"])
             .returning(ServerInventory.id)
         )
         result = await self.session.execute(stmt)
@@ -238,7 +245,7 @@ class CollectRepository(BaseCollectRepository):
             pg_insert(Task)
             .values(
                 target_server_id=data.target_server_id,
-                target_host_id=data.target_host_id,
+                target_composite_id=data.target_composite_id,
                 task_type=data.task_type,
                 params=data.params,
                 status="pending",

@@ -85,7 +85,7 @@
               {{ p.port }}
             {% endif %}
           </td>
-          <td class="text-muted">{{ p.uid }}</td>
+          <td class="text-muted">{{ p.uid if p.uid is not none else '—' }}</td>
           <td class="text-muted">{{ p.pid if p.pid is not none else '—' }}</td>
           <td>
             {% if p.comm %}

@@ -129,7 +129,7 @@ def _summary(**overrides) -> ServerSummary:
     base = dict(
         id=1,
         public_id="pub-1",
-        host_id="m-1",
+        composite_id="m-1",
         hostname="host",
         os_id="ubuntu",
         os_version="22.04",
@@ -205,7 +205,8 @@ def _detail(**overrides) -> ServerDetail:
     base = dict(
         id=1,
         public_id="pub-1",
-        host_id="m-1",
+        composite_id="m-1",
+        machine_id=None,
         hostname="host",
         agent_version="1.0.0",
         os_family=None,

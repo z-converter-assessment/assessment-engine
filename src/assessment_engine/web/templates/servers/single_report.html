@@ -136,13 +136,13 @@
   <div class="metric-grid metric-grid-3">
     <div class="metric-card">
       <div class="metric-label">Load 15m</div>
-      <div class="metric-value" style="color:{{ r.saturation_color }};">{% if r.load_15m_max is not none %}{{ "%.2f"|format(r.load_15m_max) }}{% else %}—{% endif %}</div>
-      <div class="metric-sub">saturation {% if r.saturation_ratio is not none %}{{ "%.2f"|format(r.saturation_ratio) }} (load / vCPU){% else %}—{% endif %}</div>
+      <div class="metric-value" style="color:{{ r.saturation_color }};">{% if r.os_family == 'windows' %}N/A{% elif r.load_15m_max is not none %}{{ "%.2f"|format(r.load_15m_max) }}{% else %}—{% endif %}</div>
+      <div class="metric-sub">saturation {% if r.os_family == 'windows' %}N/A{% elif r.saturation_ratio is not none %}{{ "%.2f"|format(r.saturation_ratio) }} (load / vCPU){% else %}—{% endif %}</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">iowait p95</div>
-      <div class="metric-value">{% if r.iowait_p95_pct is not none %}{{ "%.1f"|format(r.iowait_p95_pct) }}%{% else %}—{% endif %}</div>
-      <div class="metric-sub">peak {% if r.iowait_peak_pct is not none %}{{ "%.1f"|format(r.iowait_peak_pct) }}%{% else %}—{% endif %}</div>
+      <div class="metric-value">{% if r.os_family == 'windows' %}N/A{% elif r.iowait_p95_pct is not none %}{{ "%.1f"|format(r.iowait_p95_pct) }}%{% else %}—{% endif %}</div>
+      <div class="metric-sub">peak {% if r.os_family == 'windows' %}N/A{% elif r.iowait_peak_pct is not none %}{{ "%.1f"|format(r.iowait_peak_pct) }}%{% else %}—{% endif %}</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">Swap 사용</div>

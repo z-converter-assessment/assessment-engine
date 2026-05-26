@@ -53,13 +53,20 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # timescaledb-ha 실제 PGDATA 는 /home/postgres/pgdata/data — 명명 볼륨을 여기 마운트해야 영속.
+      # /var/lib/postgresql/data 는 이 이미지에서 빈 경로라 컨테이너 writable layer 에만 데이터가 남아
+      # down 시마다 재초기화됐다 (fresh-init race 의 한 원인).
+      - postgres_data:/home/postgres/pgdata/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-assessment}"]
+      # -h 127.0.0.1 로 TCP 도달성 강제. timescaledb-ha 는 fresh 볼륨 init 시 부트스트랩 서버를
+      # Unix 소켓 전용으로 띄우는 구간이 있어, 호스트 미지정 pg_isready 는 그 소켓에 붙어 false-positive
+      # healthy 를 반환한다. 그 사이 migrate 가 TCP 로 붙으려다 connection refused 로 영구 실패(restart: no).
+      # TCP 강제 시 본 서버가 0.0.0.0:5432 를 열어야만 healthy → migrate 가 그때까지 대기.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-assessment}"]
       interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 30s  # 느린 디스크에서 init(timescaledb 설치·tune) 여유분
 
   rabbitmq:
     restart: unless-stopped
@@ -149,16 +156,31 @@ services:
     command: python -m assessment_engine.consumer
 
   # 진단 워커 — RabbitMQ `diagnostic.request` 소비, USE Method 규칙 + ollama LLM narrative 합성, DB 저장.
-  # ADR 0004 + 0010 + 0023 + 0025: trigger = web POST 만, LLM = ollama 단독 (host 안 `ollama serve` 의무).
-  # OLLAMA_BASE_URL default = host.docker.internal:11434 (Docker Desktop) — Linux native 는 172.17.0.1 또는 network_mode: host.
+  # ADR 0004 + 0010 + 0023 + 0025: trigger = web POST 만, LLM = ollama 단독 (dev 는 ollama 컨테이너).
   diagnostic-worker:
     <<: *app-base
     command: python -m assessment_engine.diagnostic
+    depends_on:
+      <<: *app-depends
+      ollama:
+        condition: service_started
     environment:
       <<: *app-env
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
+
+  # 진단 narrative LLM — ollama 단독 (ADR 0025, 과금 외부 API 금지). dev CPU 추론.
+  # 모델은 빈 상태 기동 — compose up 후 1회 pull 의무: `docker compose exec ollama ollama pull qwen2.5:1.5b`.
+  # ollama_data 볼륨에 모델 영속 (재기동 시 재pull 불필요). GPU 는 deploy.resources.reservations.devices 로 옵션.
+  ollama:
+    image: ollama/ollama:0.5.4
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
 
 volumes:
   postgres_data:
   rabbitmq_data:
+  ollama_data:

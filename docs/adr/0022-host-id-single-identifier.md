@@ -1,6 +1,8 @@
 # ADR 0022 — 호스트 식별자 분리
 
-상태: Accepted (2026-05-23)
+상태: Superseded by ADR 0027 (2026-05-26)
+
+원본 Accepted (2026-05-23). agent v4 계약으로 `host_id` 단일 식별이 `composite_id` 단일 식별 + `machine_id` 표시 분리로 대체됨 — 식별자 표·MQ 토폴로지는 ADR 0027 이 재정의. 아래 본문은 당시 결정 기록으로 보존 (ADR 정정 금지 원칙).
 
 ## 결정
 

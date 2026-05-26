@@ -31,16 +31,18 @@ model: opus
 
 ### A. 공통 메타데이터 (MessageBase 대응)
 
-| 필드 | engine `MessageBase` | agent `add_common_metadata()` | payload-schema.md |
+`message_type`은 MessageBase가 아닌 각 *Input 자식의 Literal discriminator (inventory / metrics / error / task.result) — A 표 대상 아님.
+
+| 필드 | engine `MessageBase` | agent 발행 측 | payload-schema.md |
 |------|---------|------|------|
-| message_type | required str Literal | cJSON_AddStringToObject(...) | 명시 여부 |
-| host_id | required str max=64 | cJSON_AddStringToObject(...) | 길이·형식 |
+| composite_id | required str max=64 (식별 단일키, SHA-256 composite hash) | composite hash 산출·발행 | 길이·해시 입력 |
+| machine_id | str \| None max=64 (표시 전용, 라우팅 미사용) | raw machine-id | nullable 명시 |
 | agent_version | required str max=32 | AGENT_VERSION_FALLBACK | 명시 여부 |
 | collected_at | required datetime | iso8601_utc() | 형식 |
 | hostname | required str max=255 | gethostname() / OVERRIDE | |
 | message_id | required UUID | uuid_v4() | UUID v4 명시 |
-| agent_started_at | required datetime | cache_agent_started() | 신규 |
-| boot_time | required datetime | cache_boot_time() | inventory body → 공통 메타로 격상 |
+| agent_started_at | required datetime | cache_agent_started() | 명시 여부 |
+| boot_time | required datetime | cache_boot_time() | 형식 |
 
 ### B. inventory body
 
@@ -80,7 +82,7 @@ model: opus
 
 ## 단위 규약 검사
 
-- 메모리 = `kb` / 디스크·네트워크 = `bytes` (CLAUDE.md B2)
+- 메모리 = `kb` / 디스크·네트워크 = `bytes` (docs/architecture/agent.md 데이터 형식 절)
 - counter 누적값 (delta·% 계산은 엔진 책임)
 - ISO 8601 UTC 명시 (KST 변환 금지 — F2)
 

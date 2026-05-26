@@ -7,26 +7,15 @@ description: TRIGGER when user requests commit ("커밋", "/commit", "commit it"
 
 ## 커밋 컨벤션
 
-설명은 한글. type prefix 사용.
+설명은 한글. type prefix 는 `pr-title-check.yml` + `.githooks/commit-msg` 가 강제하는 Conventional Commits set 단일 진실 — 본 skill 이 별도 표로 복제하지 않는다:
 
-| 타입 | 설명 |
-|------|------|
-| feat | 새 기능 |
-| fix | 버그 수정 |
-| chore | 설정·패키지 변경 |
-| refactor | 리팩토링 |
-| test | 테스트 코드 |
+`feat`(기능) · `fix`(버그) · `docs`(문서) · `refactor`(동작 동일·구조 변경) · `perf`(성능) · `test`(테스트) · `build`(빌드·의존성) · `ci`(워크플로·스크립트) · `chore`(기타 설정·잡무) · `style`(포맷팅) · `revert`(되돌리기). breaking change 는 `<type>!:` 또는 body `BREAKING CHANGE:`.
 
 ## 절차
 
-0. Pre-check (commit 직전 의무) — CI 실패·이메일 폭탄 회피:
-   - `uv run ruff check .` — lint 위반 0 의무. 위반 시 commit 차단, 원인 수정 후 재시도
-   - `uv run ruff format --check .` — format drift 0 의무
-   - `git diff --cached --name-only` 가 다음 paths 포함 시 추가 검증:
-     - `src/assessment_engine/db/models/` 또는 `migrations/` → `uv run alembic check` (ORM-migration drift 0 의무)
-     - `pyproject.toml` 또는 `uv.lock` → `uv lock --check` (lockfile drift 0 의무)
-   - 사용자가 "test" 명시 또는 commit 분류가 `feat` / `fix` 라면 `uv run pytest tests/unit` 실행 권유 (사용자 confirm 후만 실행 — 사용자 메모리 "테스트 실행 금지" 정책)
-   - 실패 항목 있으면 commit 진행 안 함, 사용자에게 수정 옵션 제시 (자동 fix vs 수동)
+0. Pre-check (commit 직전 의무): `bash dev/local-ci.sh --fast` 실행. NG 항목 있으면 commit 진행 안 함, 원인 수정 후 재시도.
+   - 검증 범위는 `dev/local-ci.sh` 단일 진실 — skill 이 항목을 나열하지 않는다 (drift 차단).
+   - --fast 의 unit 은 트리거 전 회귀 차단용 — 메모리 "테스트 자동 실행 금지"(개발 흐름)와 구분되는 사용자 명시 정책.
 
 1. 다음 3개를 병렬 Bash로 실행:
    - `git status` (`-uall` 금지 — 메모리 폭주)
@@ -34,14 +23,9 @@ description: TRIGGER when user requests commit ("커밋", "/commit", "commit it"
    - `git log -n 10 --oneline` (스타일 참조)
 
 2. 변경 분석 → 메시지 초안:
-   - 타입 prefix: `feat` / `fix` / `chore` / `refactor` / `test` 중 정확한 분류
-     - `feat` = 새 기능 (기존 기능 확장 X)
-     - `fix` = 버그 수정
-     - `chore` = 설정·패키지 변경
-     - `refactor` = 동작 동일, 구조 변경
-     - `test` = 테스트 코드만
+   - 위 컨벤션 set 중 변경 본질로 정확히 분류 (기능 `feat` / 버그 `fix` / 문서 `docs` / 워크플로 `ci` / 구조 `refactor` 등).
    - 한글 설명. 1~2문장. "왜"에 초점, "무엇"은 부수.
-   - 예: `refactor: D4 실패 처리 매트릭스를 docs/architecture/consumer.md로 이전, CLAUDE.md는 원칙만 유지`
+   - 예: `refactor: D1 실패 처리 매트릭스를 docs/architecture/consumer.md로 이전, CLAUDE.md는 원칙만 유지`
 
 3. 시크릿 검사: `.env`, `credentials.json` 등이 staged면 사용자에게 경고.
 
@@ -68,8 +52,8 @@ description: TRIGGER when user requests commit ("커밋", "/commit", "commit it"
 - `--no-verify`, `--no-gpg-sign` 등 hook/signing 스킵 금지 (사용자 명시 요청 없으면)
 - `--amend` 금지 (사용자 명시 요청 없으면) — 새 커밋 생성이 기본
 
-(참고: 본 프로젝트 현재 `.pre-commit-config.yaml` 없음. 추후 git pre-commit hook 도입 시 "hook 실패 → 원인 수정 + 새 커밋" 정책 적용.)
+git hook 강제 게이트: `.githooks/commit-msg`가 type prefix 컨벤션·AI 메타데이터·이모지를 검사, `.githooks/pre-push`가 main 직접 push 차단. `core.hooksPath`는 `dev/local-ci.sh`가 자동 설정. hook 실패 시 우회(`--no-verify`) 금지 — 원인 수정 후 새 커밋. 본 skill 은 작성 가이드(opt-in), hook 은 최종 게이트.
 
-## 사용자 명시 요청 없으면 push 금지
+## push
 
-push는 별도 워크플로우 (`/push`).
+push 는 사용자 명시 요청 시에만 — feature 브랜치는 `git push -u origin <branch>`. main/master 직접 push 는 `.githooks/pre-push` 가 차단 (PR 경유).

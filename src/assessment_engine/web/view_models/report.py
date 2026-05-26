@@ -13,6 +13,7 @@ class ReportRowItem:
     hostname: str
     role: str
     is_online: bool
+    os_family: str | None  # "windows" 면 load/iowait 통계 N/A 표시
     os_display: str
     kernel_version: str | None
     internal_ip: str | None

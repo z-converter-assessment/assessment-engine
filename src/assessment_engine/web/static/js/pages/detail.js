@@ -13,6 +13,7 @@
 (() => {
   const SERVER_ID = document.body.dataset.serverId;
   if (!SERVER_ID) { console.error('detail.js: body data-server-id missing'); return; }
+  const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 메트릭 N/A 분기
 
   /* -------- 표시 임계값 — backend mappers._USAGE_*_PCT 단일 진실, body data-attribute 로 주입 (#E1 P4). */
   const USAGE_DANGER_PCT = parseFloat(document.body.dataset.usageDangerPct) || 90;
@@ -60,22 +61,22 @@
     setTxt('cpu-usage',  fmtPct(cpu.usage_pct));
     setTxt('cpu-user',   fmtPct(cpu.user_pct));
     setTxt('cpu-system', fmtPct(cpu.system_pct));
-    setTxt('cpu-iowait', fmtPct(cpu.iowait_pct));
+    setTxt('cpu-iowait', ChartUtils.naWindows(OS_FAMILY, 'cpu_iowait', fmtPct(cpu.iowait_pct)));
     el('cpu-bar').style.width = (cpu.usage_pct ?? 0) + '%';
     el('cpu-bar').style.background = barColor(cpu.usage_pct);
 
     /* Load */
-    setTxt('load-1m',  fmtLoad(d.load_1m));
-    setTxt('load-5m',  fmtLoad(d.load_5m));
-    setTxt('load-15m', fmtLoad(d.load_15m));
+    setTxt('load-1m',  ChartUtils.naWindows(OS_FAMILY, 'load_1m', fmtLoad(d.load_1m)));
+    setTxt('load-5m',  ChartUtils.naWindows(OS_FAMILY, 'load_5m', fmtLoad(d.load_5m)));
+    setTxt('load-15m', ChartUtils.naWindows(OS_FAMILY, 'load_15m', fmtLoad(d.load_15m)));
 
     /* Memory */
     const mem = d.memory || {};
     setTxt('mem-usage',   fmtPct(mem.usage_pct));
     setTxt('mem-used',    fmtKb(mem.used_kb));
     setTxt('mem-avail',   fmtKb(mem.available_kb));
-    setTxt('mem-cached',  fmtKb(mem.cached_kb));
-    setTxt('mem-buffers', fmtKb(mem.buffers_kb));
+    setTxt('mem-cached',  ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtKb(mem.cached_kb)));
+    setTxt('mem-buffers', ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtKb(mem.buffers_kb)));
     // P5: 누적 비율은 서버 metrics_calculator.compute_mem 에서 계산. 클라이언트는 표시만.
     el('mem-used-bar').style.width      = (mem.usage_pct ?? 0) + '%';
     el('mem-used-bar').style.background = barColor(mem.usage_pct);

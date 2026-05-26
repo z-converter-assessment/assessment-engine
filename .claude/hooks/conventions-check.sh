@@ -4,7 +4,7 @@
 #
 # 검사 카탈로그 (CLAUDE.md 단일 진실 위치):
 #   F1   .py    `from __future__ import annotations` 금지
-#   F11  .py    `print(` / `sys.stdout.write` 금지 (loguru 일관성)
+#   F7   .py    `print(` / `sys.stdout.write` 금지 (loguru 일관성)
 #   C3   .py    `safe_*` 미경유 redis 클라이언트 직접 호출 금지 (cache/redis.py 본인 제외)
 #   글로벌 *  `**...**` markdown bold 금지
 #   글로벌 *  비키보드 unicode 기호·이모지 금지 (§ ↔ ↑↓ >= <= != X OK 등으로 대체)
@@ -53,11 +53,11 @@ if [[ "$FILE" == *.py ]]; then
     VIOLATIONS+=$'\n'"[F1] 'from __future__ import annotations' is forbidden project-wide."$'\n'"$MATCH"$'\n'"  Reason: Python 3.12 evaluates annotations eagerly. Deferred annotations break Pydantic/dataclass introspection + cause NameError on TYPE_CHECKING-only refs."$'\n'
   fi
 
-  # F11: print( / sys.stdout.write 금지 (loguru 일관성)
+  # F7: print( / sys.stdout.write 금지 (loguru 일관성)
   # 정규식: 줄 시작 또는 공백 다음 print(, 또는 sys.stdout.write
   if grep -nE '(^|[^a-zA-Z_.])print\(|sys\.stdout\.write' "$FILE" >/dev/null 2>&1; then
     MATCH=$(grep -nE '(^|[^a-zA-Z_.])print\(|sys\.stdout\.write' "$FILE" | head -5)
-    VIOLATIONS+=$'\n'"[F11] print() / sys.stdout.write is forbidden — use loguru (logger.info/warning/error/exception)."$'\n'"$MATCH"$'\n'
+    VIOLATIONS+=$'\n'"[F7] print() / sys.stdout.write is forbidden — use loguru (logger.info/warning/error/exception)."$'\n'"$MATCH"$'\n'
   fi
 
   # C3: safe_* 미경유 redis 클라이언트 직접 호출 금지
@@ -75,7 +75,7 @@ if [ -n "$VIOLATIONS" ]; then
     echo "Convention violations in $FILE:"
     printf '%s' "$VIOLATIONS"
     echo
-    echo "  Single source of truth: .claude/CLAUDE.md (#F1 / #F11 / #C3 / global)."
+    echo "  Single source of truth: .claude/CLAUDE.md (#F1 / #F7 / #C3 / global)."
   } >&2
   exit 2
 fi

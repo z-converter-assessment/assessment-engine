@@ -71,7 +71,7 @@ message.process(requeue=False) 컨텍스트
   단계 4 — succeeded:        finalize(result, finished_at=now()) -> commit -> Redis SET
 ```
 
-stage 라벨 단일 진실은 `web/services/mappers/diagnostic._PROGRESS_LABEL_KR` + `db/repositories/base_diagnostic_repository.CLASSIFICATION_LABEL_KR` (분류 라벨 — mapper + mock LLM narrative 양쪽 공용). router·SSR·JSON API·결과 페이지·이력 페이지가 모두 본 mapper view를 사용한다 (P2·P3·P5).
+stage 라벨 단일 진실은 `web/services/mappers/diagnostic._PROGRESS_LABEL_KR` + `db/repositories/base_diagnostic_repository.CLASSIFICATION_LABEL_KR` (분류 라벨 — mapper + mock LLM narrative 양쪽 공용). router·SSR·JSON API·결과 페이지·이력 페이지가 모두 본 mapper view를 사용한다 (P2·P3).
 
 실패 매트릭스 (handler.py except 분기):
 

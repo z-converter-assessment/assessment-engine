@@ -6,7 +6,8 @@ from datetime import datetime
 class ServerInventoryCreate:
     # ─── 공통 메타데이터 (모든 메시지 공통, MessageBase 대응) ─────────────────────
     # message_id는 consumer에서 멱등성 체크에만 사용되고 DTO에는 안 옴.
-    host_id: str
+    composite_id: str
+    machine_id: str | None  # raw machine-id, 표시 전용 (식별·라우팅은 composite_id)
     hostname: str
     agent_version: str
     collected_at: datetime
@@ -25,6 +26,7 @@ class ServerInventoryCreate:
     swap_total_kb: int | None
     ip_internal: list[str]
     ip_external: list[str] | None
+    mac_addresses: list[str]  # NIC MAC 목록 (clone collision 감사용, 식별 미사용)
     disks: list[dict]  # JSONB 컬럼 — [{name, size_bytes, type, major, minor}]
     mounts: list[dict]  # JSONB 컬럼 — [{mount, fstype, total_bytes, major, minor}]
     services: list[dict] | None  # JSONB 컬럼 — [{unit, sub}] | None (non-systemd host)
@@ -72,7 +74,7 @@ class TaskCreate:
     """task 등록 시 — web router → repository."""
 
     target_server_id: int
-    target_host_id: str
+    target_composite_id: str
     task_type: str
     params: dict | None
 
@@ -97,9 +99,9 @@ class TaskResultUpdate:
 @dataclass
 class ServerMetricCreate:
     # ─── 공통 메타데이터 ────────────────────────────────────────────────────
-    # host_id는 consumer 단에서 server_id 해석에 사용. 본 DTO엔 안 담음.
+    # composite_id는 consumer 단에서 server_id 해석에 사용. 본 DTO엔 안 담음.
     # boot_time/agent_started_at은 시계열 행마다 함께 저장 — calculator가 두 시점
-    # 비교로 counter reset(시스템 재부팅) 정밀 식별 (CLAUDE.md B1 정책).
+    # 비교로 counter reset(시스템 재부팅) 정밀 식별 (CLAUDE.md #C1 정책).
     collected_at: datetime
     boot_time: datetime | None
     agent_started_at: datetime | None

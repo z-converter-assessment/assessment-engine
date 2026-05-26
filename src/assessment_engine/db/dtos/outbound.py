@@ -7,7 +7,7 @@ from typing import Literal
 class ServerSummary:
     id: int
     public_id: str
-    host_id: str
+    composite_id: str
     hostname: str
     os_id: str | None
     os_version: str | None
@@ -23,7 +23,8 @@ class ServerSummary:
 class ServerDetail:
     id: int
     public_id: str
-    host_id: str
+    composite_id: str
+    machine_id: str | None  # raw machine-id 표시 전용
     hostname: str
     agent_version: str | None
     os_family: str | None  # "linux" | "windows" — task.install dispatch 단일 진실 (ADR 0020)
@@ -209,6 +210,7 @@ class ReportRowRaw:
     server_id: int
     public_id: str
     hostname: str
+    os_family: str | None  # "linux" | "windows" — Windows 미측정 통계(load/iowait) N/A 표시 분기
     os_id: str | None
     os_version: str | None
     kernel_version: str | None
@@ -271,7 +273,7 @@ class InventoryExportEntry:
     벤더 중립 — recommended_size_class만 노출, 도구가 자기 도메인 instance type에 매핑.
     """
 
-    host_id: str
+    composite_id: str
     hostname: str
     role: str
     last_seen_at: datetime | None

@@ -267,9 +267,9 @@
           {%- if r.mem_peak_pct is not none %} <span class="text-meta">/ {{ "%.0f" | format(r.mem_peak_pct) }}%</span>{% endif -%}
         </td>
         <td style="color:{{ r.saturation_color }};">
-          {%- if r.load_15m_max is not none %}{{ "%.2f" | format(r.load_15m_max) }}{% else %}—{% endif -%}
+          {%- if r.os_family == 'windows' %}N/A{% elif r.load_15m_max is not none %}{{ "%.2f" | format(r.load_15m_max) }}{% else %}—{% endif -%}
         </td>
-        <td>{% if r.iowait_p95_pct is not none %}{{ "%.1f" | format(r.iowait_p95_pct) }}%{% else %}—{% endif %}</td>
+        <td>{% if r.os_family == 'windows' %}N/A{% elif r.iowait_p95_pct is not none %}{{ "%.1f" | format(r.iowait_p95_pct) }}%{% else %}—{% endif %}</td>
         <td style="font-size:11px;">
           {% if r.worst_mount %}{{ r.worst_mount }}
             {%- if r.worst_mount_used_pct is not none %} ({{ "%.0f" | format(r.worst_mount_used_pct) }}%){% endif -%}

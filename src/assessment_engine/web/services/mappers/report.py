@@ -352,6 +352,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         hostname=raw.hostname,
         role=infer_role(raw.services),
         is_online=is_online,
+        os_family=raw.os_family,
         os_display=_os_display(raw.os_id, raw.os_version),
         kernel_version=raw.kernel_version,
         internal_ip=raw.ip_internal[0] if raw.ip_internal else None,

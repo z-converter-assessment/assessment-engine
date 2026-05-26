@@ -11,7 +11,8 @@
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | `message_type` | string | 본 문서 메시지 타입별 Literal |
-| `host_id` | string max=64 | 호스트 식별자 (`/etc/machine-id` 기준 32 hex 또는 UUID 36자) |
+| `composite_id` | string max=64 | 호스트 식별 단일 키 — SHA-256 composite hash (`machine_id` + 정렬·dedup MAC 들, agent v4). DB UNIQUE·URL public_id 매핑·task 라우팅 모두 본 값. `task.result` 한정 `null` 허용 (worker 컨텍스트 — `task_id` 로 매칭) |
+| `machine_id` | string\|null max=64 | raw machine-id (Linux `/etc/machine-id` 32 hex, Windows `MachineGuid`). 표시 전용 — 식별·라우팅 미사용. 옛 agent 미발행 호환 nullable |
 | `agent_version` | string max=32 | 발행 측 빌드 버전 |
 | `collected_at` | datetime (ISO 8601 UTC) | 수집 시각 |
 | `hostname` | string max=255 | 보조 식별자 (가변) |
@@ -36,8 +37,8 @@ routing key `server.inventory`. 기동 시 1회 + 주기 재발행.
 | `disks[]` | object | `{name, size_bytes, type, major, minor}` |
 | `mounts[]` | object | `{mount, fstype, total_bytes, free_bytes, avail_bytes, major, minor}` |
 | `ip_internal[]` / `ip_external[]` | list[string]\|null | IP 주소 목록 |
-| `mac_addresses[]` | list[string]\|null | NIC MAC 주소 목록. VM 템플릿 clone collision 식별 보조 (agent payload v3.3+) |
-| `services[]` | object\|null | `{unit, sub}` — systemd 미사용 호스트는 `null` |
+| `mac_addresses[]` | list[string] | NIC MAC 목록 (lowercase·정렬·dedup, 빈 배열 가능, agent payload v3.3+). 받아 `server_inventory.mac_addresses` 저장 — 다중 NIC 라 식별 미사용(composite_id 가 sha256 으로 흡수). clone collision 감지는 미구현 (raw 보존만) |
+| `services[]` | object\|null | `{unit, sub}`. `null` = Linux non-systemd 또는 Windows SCM 접근 실패 / 빈 배열 = 서비스 0개 (Windows SCM 성공) |
 | `listen_ports[]` | object | `{proto, addr, port, uid, pid, comm}` — 수집 실패 시 빈 배열 |
 
 ---
@@ -82,8 +83,8 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 
 라우팅:
 - Exchange: `assessment.tasks` (direct, durable, collector exchange 와 분리)
-- Routing key: `task.install.<host_id>` — broker 가 해당 머신 전용 큐로만 배달
-- 수신 큐: `agent.tasks.<host_id>` (durable, `x-message-ttl=3600000`, `x-max-length=100`, `x-overflow=reject-publish`). 큐는 엔진이 task 발행 시점에 동적 declare — 수신 측은 declare 권한 없음.
+- Routing key: `task.install.<composite_id>` — broker 가 해당 머신 전용 큐로만 배달
+- 수신 큐: `agent.tasks.<composite_id>` (durable, `x-message-ttl=3600000`, `x-max-length=100`, `x-overflow=reject-publish`). 큐는 엔진이 task 발행 시점에 동적 declare — 수신 측은 declare 권한 없음. agent 도 v4(#11)에서 큐 이름을 composite_id 기반으로 전환 — 라우팅 키와 정확히 일치.
 
 본 메시지는 엔진 발행이라 `MessageBase` 공통 메타와 별개로 다음 필드만 사용:
 
@@ -91,7 +92,7 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 |------|------|------|
 | `message_type` | `"task.install"` | Literal |
 | `task_id` | string (UUID v4) | 작업 고유 ID. `task.result` 회신·중복 검출·로그 추적 키. 엔진의 `Task.public_id` 그대로 |
-| `host_id` | string | 타겟 호스트 |
+| `composite_id` | string | 타겟 호스트 식별 (SHA-256 composite hash). 수신 큐 라우팅과 동일 값 |
 | `issued_at` | datetime (ISO 8601 UTC) | 발행 시각 |
 | `download.url` | string | HTTP/HTTPS URL. 운영자 입력 ZDM host + `ZDM_PACKAGE_PATH` env 로 엔진이 조립 (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`). agent 측 host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 통과 필요 |
 | `download.sha256` | string (hex 64) | 다운로드 파일 sha256. 엔진이 publish 직전 ZDM 에서 HEAD + (cache miss 시) GET full 로 동적 산출. ETag 기반 Redis cache (`HttpZdmPackageResolver`). ZDM 측 패키지 갱신 시 ETag 자동 변경 → cache miss → 자동 재계산 |
@@ -130,7 +131,7 @@ cache 동작:
 
 원격 호스트가 install 완료 시점(성공·실패 무관) 에 발행. routing key `task.result` -> 엔진 큐 `worker.result` (TTL 24h, max-length 100,000).
 
-본 메시지는 수집 컨텍스트와 분리된 worker 프로세스에서 발행되어 `boot_time` / `agent_started_at` 가 항상 `null` — 엔진은 `TaskResultInput` 에서 두 필드를 nullable 로 override.
+본 메시지는 수집 컨텍스트와 분리된 worker 프로세스에서 발행되어 `composite_id` / `boot_time` / `agent_started_at` 가 `null` 가능 (worker 는 composite hash 미산출) — 엔진은 `TaskResultInput` 에서 세 필드를 nullable 로 override. 결과 매칭은 `task_id` 로 하므로 composite_id 불필요. (agent worker 는 현재 `machine_id` 키로 발행하나 엔진 `extra=ignore` 로 무시.)
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
@@ -159,6 +160,8 @@ dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.doc
 ## 규약
 
 - 단위: 메모리 = `kb`, 디스크 / 네트워크 = `bytes` (`/proc` 출력 관례)
+- Windows agent 정규화: Windows API raw 값을 Linux 계약 단위로 변환 발행 — cpu FILETIME 100ns `÷100000` -> 10ms tick (HZ=100 호환), disk bytes `÷512` -> sectors, mem bytes `÷1024` -> kB. net/mount 는 원래 bytes 동일. 엔진은 OS 무관 단일 단위로 처리 (별도 파싱 없음).
+- Windows 플랫폼 부재 필드: `load_1m/5m/15m`·`mem_buffers_kb`·`mem_cached_kb`·`listen_ports[].uid` = `null`, `cpu_stat.{nice,iowait,irq,softirq,steal}` = `0`. `os_family="windows"` 로 분기. 엔진 inbound DTO 가 nullable/0 수용 (검증 reject 안 함).
 - 옵셔널 필드: 수집 실패 시 `null` 전송. 수집 실패와 데이터 없음 미구분
 - counter reset: 재부팅 / 발행 프로세스 재시작 시 카운터 0 리셋. 엔진은 1순위로 두 시점 `boot_time` 비교 (`web/services/metrics_calculator._is_counter_reset`) -> 시스템 재부팅이면 delta 건너뛰기 (None). 옛 데이터 (`boot_time` NULL) 는 2순위로 `delta < 0` 휴리스틱 fallback (UI 에서 "—"). `agent_started_at` 만 다르면 발행 프로세스 재시작이고 /proc 카운터는 그대로라 정상 delta
 
@@ -201,7 +204,7 @@ dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.doc
 | `proto` | tcp / tcp6 / udp / udp6 |
 | `addr` | 바인딩 주소 (`0.0.0.0` = 모든 인터페이스, `127.0.0.1` = 루프백) |
 | `port` | 포트 번호 |
-| `uid` | 소켓 소유 유저 ID (0 = root) |
+| `uid` | 소켓 소유 유저 ID (0 = root). Linux 만 값 — Windows agent 는 POSIX uid 미존재로 `null` (엔진 nullable 수용) |
 | `pid` | 소켓을 열고 있는 프로세스 ID. 소켓 액티베이션 시 null |
 | `comm` | 프로세스명 (`/proc/<pid>/comm`). pid 가 null 이면 null |
 
