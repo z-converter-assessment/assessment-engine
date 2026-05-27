@@ -15,8 +15,8 @@ HOST MACHINE (OrbStack)
          ^
          | PUBLISH (1) Target: host.docker.internal
          |
-  OrbStack VM x 4 (assessment-agent.service)
-    web-server-01 · offline-server-01 · cache-server-01 · db-server-01
+  OrbStack VM x 3 (assessment-agent.service)
+    web-server-01, cache-server-01, db-server-01
 ```
 
 OrbStack 은 Docker 엔진과 Linux machines(VM) 를 한 런타임에서 통합 네트워크로 묶는다. 컨테이너·VM 모두 `host.docker.internal` 로 host 에 도달하고, VM 은 `<name>.orb.local` 도메인으로 host·컨테이너 어디서나 도달한다 (Lima user-mode 격리·localPort 포워딩 불필요).
@@ -38,21 +38,22 @@ OrbStack 은 Docker 엔진과 Linux machines(VM) 를 한 런타임에서 통합 
 ```bash
 cp dev/.env.example dev/.env               # 엔진 환경변수 (dev compose 한정)
 cp dev/agent.env.example dev/agent.env     # 에이전트 secret 채널 (분리됨, #B)
-./dev/pipeline-up.sh                   # Docker → web 헬스체크 → OrbStack VM 4대
+./dev/pipeline-up.sh                   # Docker → web 헬스체크 → ollama 모델 → OrbStack VM 3대
 ```
 
-`dev/pipeline-up.sh` 4단계:
+`dev/pipeline-up.sh` 5단계:
 1. `docker compose up --build -d` — 엔진 기동 (COMPOSE_FILE=dev/docker-compose.yml export)
 2. `migrate(alembic upgrade head)` 완료 대기 (cap 180s)
 3. web 헬스체크 통과 대기 (cap 180s)
-4. `start_or_resume_vm` → `post_provision_vm` → `install_demo_loads` 로 4 VM 순차 (`orb create` 첫 실행 시 cloud image pull 포함)
+4. ollama 모델 준비 — `OLLAMA_MODEL`(default qwen2.5:1.5b) 자동 pull (ollama_data 볼륨 영속, 이미 있으면 skip)
+5. `start_or_resume_vm` → `post_provision_vm` → `install_demo_loads` 로 3 VM 순차 (`orb create` 첫 실행 시 cloud image pull 포함)
 
 ## 결과 확인
 
-- http://localhost:8000/servers/ — 4 VM 등록 (offline 은 5m+ 후 offline 표시)
+- http://localhost:8000/servers/ — 3 VM 등록
 - 60초 주기 메트릭 갱신
 - 분류 분포 시연은 `/servers/report?period_days=1` (대시보드는 `recommendation.WINDOW_DAYS=14` 고정, #F10)
-- attention 카드 상단 요약: web `agent_unstable` + offline `gap_warnings`(5m+ 후) + db `capacity_warnings` (swap_used)
+- attention 카드 상단 요약: web `agent_unstable` + db `capacity_warnings` (swap_used)
 - 서버 발견 모달 probe — `print_summary` 가 안내한 VM IP 를 모달에 직접 입력 (`.orb.local` 은 컨테이너 미해석 + VM IP 동적이라 자동 기본값 없음). VM 은 post-provision `openssh-server` 설치라 `SSH-2.0-OpenSSH` banner 로 도달
 
 ## 종료
@@ -73,18 +74,17 @@ cp dev/agent.env.example dev/agent.env     # 에이전트 secret 채널 (분리�
 
 ## 사용 맥락
 
-OrbStack VM 은 에이전트 E2E + 시연 분류 분포 가시화. 엔진(dev compose)은 host Docker, VM 4대가 실제 Linux 환경에서 에이전트 metrics 를 RabbitMQ 에 발행 → Consumer DB 저장 → web UI 확인.
+OrbStack VM 은 에이전트 E2E + 시연 분류 분포 가시화. 엔진(dev compose)은 host Docker, VM 3대가 실제 Linux 환경에서 에이전트 metrics 를 RabbitMQ 에 발행 → Consumer DB 저장 → web UI 확인.
 
 ```
 [VM: web-server-01      ]   attention.agent_unstable (3분 주기 restart, 시간당 20회)
-[VM: offline-server-01  ]   attention.gap_warnings (5m+ 끊김) + insufficient_data
 [VM: cache-server-01    ]   over (light 부하)                            -> RabbitMQ -> consumer -> DB -> web UI
 [VM: db-server-01       ]   attention.capacity_warnings (swap_used → under_provisioned)
 ```
 
-4 VM 구성 의도 (호스트 macOS 영향 최소화 우선):
-- OS 다양성: 패키지 매니저 분기(apt/dnf) + systemd 호환 검증. 4 distro (Debian 12 · Debian 13 · Rocky 9 · AlmaLinux 9).
-- attention 카탈로그 발화: `AttentionSignals` 카테고리 중 3개 (agent_unstable · gap_warnings · capacity_warnings) 의도 발화.
+3 VM 구성 의도 (호스트 macOS 영향 최소화 우선):
+- OS 다양성: 패키지 매니저 분기(apt/dnf) + systemd 호환 검증. 3 distro (Debian 12, Rocky 9, AlmaLinux 9).
+- attention 카탈로그 발화: `AttentionSignals` 카테고리 중 2개 (agent_unstable, capacity_warnings) 의도 발화.
 - 합성 부하: 모든 VM light (sustained CPU 1~3s + mem 5~20MB) — 차트 변동만 가시화. CPU 임계 안 넘김. under_provisioned 만 swap_used 트리거로 분류 발화 (CPU 부담 0).
 
 OrbStack 채택 이유: Apple Silicon 네이티브 가상화로 부팅·메모리 가벼움, cloud-init 없이 `orb create` 즉시 ready (Lima 의 boot stuck 우회 로직 불필요), Docker 엔진·VM 통합 네트워크로 컨테이너·VM 양방향 직접 도달 (probe 포워딩 불필요).
@@ -98,24 +98,21 @@ VM 정의(distro/service/ext_ip/mode)는 `pipeline-up.sh` 의 dispatch 함수(`v
 | 진행 순서 | VM | distro (orb create) | family | 서비스 | 뱃지 | 부하 | 분류 | attention 발화 |
 |---|----|----|--------|--------|------|------|------|----------------|
 | 1 | `web-server-01` | `debian:12` | apt | nginx | web | light | over_provisioned | agent_unstable (1m boot + 3m 주기, 시간당 20회) |
-| 2 | `offline-server-01` | `debian:13` | apt | (없음) | unknown | (offline-once) | insufficient_data | gap_warnings (5m+ 끊김) |
-| 3 | `cache-server-01` | `rocky:9` | dnf | redis | cache | light | over_provisioned | (분류 도넛에서만) |
-| 4 | `db-server-01` | `alma:9` | dnf | postgresql-server | db | light + swap-trigger | under_provisioned | capacity_warnings (swap_used) |
+| 2 | `cache-server-01` | `rocky:9` | dnf | redis | cache | light | over_provisioned | (분류 도넛에서만) |
+| 3 | `db-server-01` | `alma:9` | dnf | postgresql-server | db | light + swap-trigger | under_provisioned | capacity_warnings (swap_used) |
 
 진행 순서는 시연 가시화 우선:
 - 1번 web — attention 가장 빠른 발화 (1m 후 첫 restart)
-- 2번 offline — gap_warnings 5m+ 발화 위해 가장 빨리 stop
-- 3번 cache — light 부하 (over_provisioned)
-- 4번 db — swap-trigger + RPM postgresql-setup --initdb 자동 (capacity_warnings · under_provisioned)
+- 2번 cache — light 부하 (over_provisioned)
+- 3번 db — swap-trigger + RPM postgresql-setup --initdb 자동 (capacity_warnings, under_provisioned)
 
-뱃지 분배 (`service_classifier.py` 카탈로그 부분 커버 — 4 VM 축소로 container · monitor · mq 카테고리 시연은 빠짐):
+뱃지 분배 (`service_classifier.py` 카탈로그 부분 커버 — 3 VM 구성이라 container · monitor · mq · unknown 카테고리 시연은 빠짐):
 
 | 카테고리 | VM | 발화 키워드 |
 |----------|----|----|
 | web | web-server-01 | nginx |
 | cache | cache-server-01 | redis |
 | db | db-server-01 | postgresql |
-| unknown | offline-server-01 | (서비스 없음) |
 
 리소스 메모: OrbStack VM 은 host CPU·메모리를 공유(Lima 처럼 VM별 cpu/mem/disk 고정 할당 없음) — distro 만 지정. dnf family(Rocky·Alma)는 install transaction 이 apt 보다 무거우나 OrbStack 의 동적 메모리로 OOM 회피. db-server-01 의 swap-trigger 는 boot 1회 swapfile 512 MiB 활성 + 1000 MiB 메모리 압박 → swap_used > 0 영구 유지.
 
@@ -129,7 +126,6 @@ VM 정의(distro/service/ext_ip/mode)는 `pipeline-up.sh` 의 dispatch 함수(`v
 |----------|-----------|-----------|---------|----------|
 | light | 1~3s | 5~20MB | web, cache, db | over_provisioned (cpu_p95 ~5%, mem_p95 <50%) |
 | swap-trigger (추가) | (boot 1회 1000MB 메모리 압박 + swapfile 512MB 활성) | swap_used > 0 영구 | db | under_provisioned (swap_used short-circuit) |
-| (offline-once) | — | — | offline | insufficient_data (1회 발행 후 stop) |
 
 원칙:
 - 분류 임계는 `recommendation.py` 모듈 상단 명명 상수 (#E3). 부하 프로파일은 임계 충족 설계.
@@ -142,7 +138,7 @@ attention 카탈로그 발화 매핑:
 | attention 카테고리 | 발화 VM | 트리거 |
 |-------------------|---------|--------|
 | disk_warnings | (없음) | 디스크 사용률 85%+ — 시연 안 함 |
-| gap_warnings | offline-server-01 | offline-once mode (5m+ 끊김) |
+| gap_warnings | (없음) | 통신 끊김 — offline VM 폐기로 dev 시연 안 함 (실제 agent 중단 시 발화) |
 | capacity_warnings | db-server-01 | under_provisioned (swap_used 트리거) |
 | days_until_full_warnings | (없음) | 디스크 fill_rate 추정 30일 — 시연 안 함 |
 | os_eol_warnings | (없음) | EOL OS 자체가 cloud image 가용성 한계라 발화 안 함 |
@@ -245,12 +241,11 @@ agent 바이너리는 `ensure_agent_binary` 단계가 `dev/bin/assessment-agent`
 
 `openssh-server` 는 서버 발견 probe(web 컨테이너 -> VM IP:22) 시연용 — OrbStack VM 은 표준 22 sshd 미탑재(OrbStack SSH 는 host-network proxy)라 명시 설치. apt 는 `ssh`, dnf 는 `sshd` unit.
 
-서비스 dispatch (4 VM):
+서비스 dispatch (3 VM):
 
 | VM | service | apt 패키지 | dnf 패키지 | systemd 유닛 |
 |----|---------|-----------|-----------|-------------|
 | web-server-01 | `nginx` | `nginx` | — | `nginx` |
-| offline-server-01 | `none` | (없음) | — | (없음) |
 | cache-server-01 | `redis` | — | `redis` | `redis` |
 | db-server-01 | `postgres` | — | `postgresql-server` (AlmaLinux 9 — `postgresql-setup --initdb` 자동) | `postgresql` |
 
@@ -262,16 +257,10 @@ ssh stdin 으로 받은 `/tmp/assessment-agent` 를 `cmp` 후 `/usr/local/bin/` 
 
 ### 4. 합성 부하·시연 트리거 (`install_demo_loads`)
 
-`vm_mode` 가 `offline-once` 면 skip (publish 안 하므로 부하 무의미). persistent VM:
-- `install_synthetic_load` — 공통 (web/cache/db). light 부하 timer (`OnBootSec=2min`, `OnUnitActiveSec=1min`).
-- `db-server-01` — `install_swap_trigger` (boot 1회 swapfile 512 MiB + `vm.swappiness=100` + 1000 MiB 메모리 압박). attention.capacity_warnings · under_provisioned.
+모든 VM(web/cache/db) 공통:
+- `install_synthetic_load` — 공통. light 부하 timer (`OnBootSec=2min`, `OnUnitActiveSec=1min`).
+- `db-server-01` — `install_swap_trigger` (boot 1회 swapfile 512 MiB + `vm.swappiness=100` + 1000 MiB 메모리 압박). attention.capacity_warnings, under_provisioned.
 - `web-server-01` — `install_agent_restart_demo` (`OnBootSec=1min`, `OnUnitActiveSec=3min` — 시간당 20회 attention.agent_unstable).
-
-### 5. finalize_vm (조건 분기)
-
-`vm_mode` dispatch:
-- `offline-server-01` → `offline-once`: inventory 1회 발행 대기 15s → `systemctl stop/disable assessment-agent` + `orb stop`. 5분 후 attention.gap_warnings 발화 (시연 의도).
-- 그 외 → `persistent`: agent restart로 publish 계속.
 
 ---
 
@@ -283,7 +272,7 @@ ssh stdin 으로 받은 `/tmp/assessment-agent` 를 `cmp` 후 `/usr/local/bin/` 
 
 대응:
 ```bash
-for vm in web-server-01 offline-server-01 cache-server-01 db-server-01; do
+for vm in web-server-01 cache-server-01 db-server-01; do
   ssh "$vm@orb" sudo systemctl restart assessment-agent
 done
 ```
@@ -295,7 +284,7 @@ done
 `collected_at`은 VM 로컬 시각. 호스트와 어긋나면 차트 시간축 안 맞음. OrbStack VM 은 host 시각 동기화이지만 장시간 절전·suspend 후 재개 시 어긋날 수 있음.
 
 ```bash
-for vm in web-server-01 offline-server-01 cache-server-01 db-server-01; do
+for vm in web-server-01 cache-server-01 db-server-01; do
   ssh "$vm@orb" sudo bash -c 'systemctl restart systemd-timesyncd 2>/dev/null || systemctl restart chronyd'
 done
 ```
@@ -313,7 +302,7 @@ ssh web-server-01@orb sudo journalctl -u assessment-agent --no-pager -n 50
 | 증상 | 원인 | 해결 |
 |------|------|------|
 | `orb create` cloud image pull 실패 | 네트워크 / mirror 일시 오류 | 재시도 |
-| `ensure_agent_binary` OpenSSL configure 실패 (`-m64` unrecognized) | sibling agent repo Makefile 의 OpenSSL Configure 가 host arch 분기 누락 | agent repo Makefile 의 Configure target 을 host arch 분기로 수정 |
+| `ensure_agent_binary` OpenSSL configure 실패 (`-m64` unrecognized) | agent repo Makefile 의 OpenSSL Configure 가 arch 하드코딩 (해결됨 — `./config` arch 자동 감지로 linux-aarch64 선택) | agent repo 최신 Makefile (openssl `./config`) 사용 |
 | 에이전트 publish 실패 로그 (CONNREFUSED) | host docker rabbitmq 안 떠 있음 / host.docker.internal 해석 실패 | `docker compose ps rabbitmq` + `ssh <vm>@orb getent hosts host.docker.internal` 확인 |
 | consumer가 metrics 받지만 server_inventory 비어 있음 | inventory 메시지 유실 (broker 재기동 등) | VM 안 `systemctl restart assessment-agent` |
 | 서버 발견 probe unreachable | agent VM 미기동 / `<name>.orb.local` 해석 실패 | `orb list` + `ssh <vm>@orb echo ok` 확인 |

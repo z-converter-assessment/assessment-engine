@@ -380,6 +380,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         worst_mount_days_until_full=raw.worst_mount_days_until_full,
         uptime_days=uptime_days,
         reboot_count=raw.reboot_count,
+        agent_restart_count=raw.agent_restart_count,
         saturation_ratio=saturation,
         cpu_variance_ratio=cpu_variance,
         mem_variance_ratio=mem_variance,
@@ -397,11 +398,13 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         net_tx_kbps_peak=raw.net_tx_kbps_peak,
         diagnosis=_build_diagnosis(raw, saturation, cpu_variance, mem_variance),
         recommendation_action=_build_recommendation_action(rec, raw),
-        # P3 임계 분류 색 — 템플릿 산술·임계 분기 금지 (#E1 P3).
+        # P3 임계 분류 색 — 단일 의미 체계 (#E1 P3, #E8 임계 색 단일 진실).
+        # 정상(임계 미만) = NEUTRAL(기본 진한 글씨) / 주의(변동성 burst) = WARN(amber) /
+        # 위험(포화·capacity·잦은 재부팅) = DANGER(red). 임계 넘을 때만 색 변경, 정상값은 기본색 통일.
         saturation_color=(
             _REPORT_SIG_DANGER
             if (saturation is not None and saturation >= _SATURATION_BURST_RATIO)
-            else _REPORT_SIG_MUTED
+            else _REPORT_SIG_NEUTRAL
         ),
         cpu_variance_color=(
             _REPORT_SIG_WARN
@@ -411,7 +414,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         mem_variance_color=(
             _REPORT_SIG_WARN
             if (mem_variance is not None and mem_variance >= _VARIANCE_BURST_RATIO)
-            else _REPORT_SIG_MUTED
+            else _REPORT_SIG_NEUTRAL
         ),
         worst_mount_days_color=(
             _REPORT_SIG_DANGER
@@ -419,7 +422,10 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
                 raw.worst_mount_days_until_full is not None
                 and raw.worst_mount_days_until_full <= _CAPACITY_IMMINENT_DAYS
             )
-            else _REPORT_SIG_SUBTLE
+            else _REPORT_SIG_NEUTRAL
         ),
-        reboot_count_color=(_REPORT_SIG_DANGER if raw.reboot_count >= _REBOOT_UNSTABLE_COUNT else _REPORT_SIG_MUTED),
+        reboot_count_color=(_REPORT_SIG_DANGER if raw.reboot_count >= _REBOOT_UNSTABLE_COUNT else _REPORT_SIG_NEUTRAL),
+        agent_restart_count_color=(
+            _REPORT_SIG_DANGER if raw.agent_restart_count >= _REBOOT_UNSTABLE_COUNT else _REPORT_SIG_NEUTRAL
+        ),
     )

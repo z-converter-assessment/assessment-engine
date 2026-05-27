@@ -33,8 +33,10 @@
   </div>
 </div>
 
-<!-- 2열 그리드 -->
-<div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+<!-- 반응형 카드 그리드 — 넓은 화면 2열, 좁은 화면(< ~800px) 1열 자동 collapse.
+     repeat(auto-fit, minmax(min(100%, 380px), 1fr)) 로 컬럼 너비 균등 + 좁을 때 squish 없이 1열.
+     align-items:start — 같은 행 카드가 서로 강제 stretch 안 됨 (legend 유무로 높이 달라도 상단 정렬). -->
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap:20px; align-items:start;">
 
   <!-- 서버 정보 -->
   <div class="card">

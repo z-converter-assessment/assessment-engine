@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# dev 풀 파이프라인 기동: Docker → migrate → web 헬스체크 → OrbStack VM 4대 + 에이전트 설치.
+# dev 풀 파이프라인 기동: Docker → migrate → web 헬스체크 → ollama 모델 → OrbStack VM 3대 + 에이전트 설치.
 #
 # 책임 분담:
 #   - agent 바이너리는 `dev/bin/assessment-agent` 로 산출 — 본 스크립트 `ensure_agent_binary` 단계가 확보.
@@ -33,17 +33,15 @@ readonly TIMEOUT=180                         # docker compose / migrate / web �
 # VM 진행 순서 — 시연 가시화 우선순위 (attention 발화 가장 빠른 VM 1번).
 #   (1) web-server-01     — Debian 12 + nginx + agent-restart-demo timer (1m boot + 3m 주기, 시간당 20회)
 #                           → attention.agent_unstable 가장 빠른 발화 (1m 후 첫 restart 즉시 가시화)
-#   (2) offline-server-01 — Debian 13 trixie + finalize_vm offline-once mode (1회 발행 후 stop)
-#                           → attention.gap_warnings 5m 후 발화 + insufficient_data 분류
-#   (3) cache-server-01   — Rocky 9 + redis      → over_provisioned (light 부하)
-#   (4) db-server-01      — AlmaLinux 9 + postgresql-server  → over_provisioned (light 부하, RPM initdb) + swap-trigger
+#   (2) cache-server-01   — Rocky 9 + redis      → over_provisioned (light 부하)
+#   (3) db-server-01      — AlmaLinux 9 + postgresql-server  → over_provisioned (light 부하, RPM initdb) + swap-trigger
 # ORB_VMS_FILTER env로 약식 검증 가능 (콤마 구분, 예: `ORB_VMS_FILTER=web-server-01`).
 # 미설정 시 4 VM 전체 — 정합 시연용 기본값. 호스트 영향 최소화 위해 모든 VM 의 합성 부하는
 # light (sustained CPU 1~3s + mem 5~20MB) — 차트 변동만 가시화, 분류는 over_provisioned 대표.
 if [ -n "${ORB_VMS_FILTER:-}" ]; then
   IFS=',' read -ra ORB_VMS <<< "$ORB_VMS_FILTER"
 else
-  ORB_VMS=(web-server-01 offline-server-01 cache-server-01 db-server-01)
+  ORB_VMS=(web-server-01 cache-server-01 db-server-01)
 fi
 readonly ORB_VMS
 
@@ -54,7 +52,6 @@ vm_service() {
     cache-server-01)     echo "redis" ;;
     web-server-01)       echo "nginx" ;;
     db-server-01)        echo "postgres" ;;
-    offline-server-01)   echo "none"  ;;
     *) echo "오류: 알 수 없는 VM: $1" >&2; return 1 ;;
   esac
 }
@@ -64,20 +61,11 @@ vm_ext_ip() {
     *)             echo "" ;;
   esac
 }
-# offline-once: inventory 1회 발행 후 agent stop + VM stop. 5분 후 gap_warnings 발화 (시연용).
-# persistent: 일반 — agent restart로 publish 계속.
-vm_mode() {
-  case "$1" in
-    offline-server-01) echo "offline-once" ;;
-    *)                 echo "persistent" ;;
-  esac
-}
 # orb create 이미지 태그 — 옛 Lima yaml images(qcow2 URL) 를 OrbStack distro 태그로 대체.
 # OrbStack 이 arch(Apple Silicon = arm64) 와 cloud image pull 을 자동 처리.
 vm_distro() {
   case "$1" in
     web-server-01)     echo "debian:12" ;;
-    offline-server-01) echo "debian:13" ;;
     cache-server-01)   echo "rocky:9" ;;
     db-server-01)      echo "alma:9" ;;
     *) echo "오류: 알 수 없는 VM: $1" >&2; return 1 ;;
@@ -86,7 +74,7 @@ vm_distro() {
 
 # probe 도달 시연 — OrbStack VM 은 `<name>.orb.local:22` 로 web 컨테이너가 직접 도달
 # (Lima user-mode localPort 포워딩 불필요). probe 대상(db-server-01.orb.local)은 docker-compose
-# DISCOVERY_DEFAULT_TARGET default 가 단일 진실. 대상은 persistent VM (offline-once 는 stop 되어 부적합).
+# DISCOVERY_DEFAULT_TARGET default 가 단일 진실.
 
 # dev/agent.env 필수 키 (agent.env.example과 단일 진실).
 readonly REQUIRED_AGENT_KEYS=(
@@ -209,14 +197,14 @@ load_agent_env() {
 # Step 2: Docker 스택
 # ────────────────────────────────────────────────────────────────────────────
 start_docker_stack() {
-  echo "[1/4] Docker 서비스 기동 중 (build 포함, postgres healthy 후 migrate 실행)..."
+  echo "[1/5] Docker 서비스 기동 중 (build 포함, postgres healthy 후 migrate 실행)..."
   # discovery probe 는 web 컨테이너 → db-server-01.orb.local:22 직접 (docker-compose default).
   # Lima 처럼 port 를 export 할 필요 없음 — OrbStack VM 은 표준 22 SSH 직접 도달.
   docker compose --profile gui up -d --build
 }
 
 wait_migrate_completed() {
-  echo "[2/4] migrate(alembic upgrade head) 완료 대기 중..."
+  echo "[2/5] migrate(alembic upgrade head) 완료 대기 중..."
   SECONDS=0
   while :; do
     local state code
@@ -240,7 +228,7 @@ wait_migrate_completed() {
 }
 
 wait_web_healthy() {
-  echo "[3/4] web 헬스체크 대기 중..."
+  echo "[3/5] web 헬스체크 대기 중..."
   SECONDS=0
   while [ "$(service_health web)" != "healthy" ]; do
     local health state
@@ -261,7 +249,37 @@ wait_web_healthy() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# Step 3: OrbStack VM 기동 + 에이전트 설치
+# Step 3: ollama 모델 준비 (진단 narrative LLM)
+# ────────────────────────────────────────────────────────────────────────────
+# diagnostic-worker 가 호출하는 LLM 모델을 ollama 컨테이너에 미리 pull (ollama_data 볼륨 영속).
+# 모델명 단일 진실 = dev/.env OLLAMA_MODEL (docker-compose default 와 동일 qwen2.5:1.5b).
+# git clone + 스크립트만으로 구동 — .env 자동 cp(check_prereqs) + 모델 자동 pull.
+ensure_ollama_model() {
+  echo "[4/5] ollama 모델 준비 중 (진단 narrative LLM)..."
+  local model
+  # set -e + pipefail 환경 — grep no-match(.env 에 OLLAMA_MODEL 주석·부재) 시 || true 로 흡수 후 default.
+  model="$(grep -E '^OLLAMA_MODEL=' dev/.env 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+  model="${model:-qwen2.5:1.5b}"
+  # ollama serve ready 대기 (compose up 직후 기동 시간 흡수, healthcheck 와 별개 직접 확인).
+  local secs=0
+  until docker compose exec -T ollama ollama list >/dev/null 2>&1; do
+    sleep 2; secs=$((secs+2))
+    if [ "$secs" -ge 60 ]; then
+      echo "오류: ollama ${secs}s 내 ready 안 됨."
+      exit 1
+    fi
+  done
+  if docker compose exec -T ollama ollama list 2>/dev/null | grep -qF "$model"; then
+    echo "  ${model} 이미 존재 (ollama_data 볼륨) — skip"
+    return
+  fi
+  echo "  ${model} pull 중 (최초 1회, 경량 CPU 추론 모델이라 수 분 소요 가능)..."
+  docker compose exec -T ollama ollama pull "$model"
+  echo "  ${model} pull 완료"
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# Step 4: OrbStack VM 기동 + 에이전트 설치
 # ────────────────────────────────────────────────────────────────────────────
 
 # ssh 헬퍼 — OrbStack 이 등록한 `<name>@orb` 호스트로 명령. StrictHostKeyChecking 끔 (dev 재생성 빈번).
@@ -555,10 +573,6 @@ SCRIPT
 # VM별 합성 부하·시연 트리거 설치 — 옛 Lima yaml provision 분기 흡수.
 install_demo_loads() {
   local vm="$1"
-  local mode
-  mode="$(vm_mode "$vm")"
-  # offline-once 는 publish 안 하므로 부하 timer 무의미 — skip.
-  [ "$mode" = "offline-once" ] && return 0
   install_synthetic_load "$vm"
   case "$vm" in
     db-server-01)  install_swap_trigger "$vm" ;;
@@ -566,35 +580,18 @@ install_demo_loads() {
   esac
 }
 
-# offline-once mode: agent inventory 1회 발행 대기 후 agent stop + VM stop.
-# 5분 후 gap_warnings 발화 (시연용 오프라인 서버 표시). host 자원 0.
-finalize_vm() {
-  local vm="$1"
-  local mode
-  mode="$(vm_mode "$vm")"
-  if [ "$mode" = "offline-once" ]; then
-    echo "  [$vm] inventory 1회 발행 대기 (15s) 후 offline 전환..."
-    sleep 15
-    orb_ssh "$vm" sudo systemctl stop assessment-agent 2>/dev/null || true
-    orb_ssh "$vm" sudo systemctl disable assessment-agent 2>/dev/null || true
-    orb stop "$vm" 2>/dev/null || true
-    echo "  [$vm] offline 완료 (agent disable + VM stop)"
-  fi
-}
-
 start_orb_vms() {
-  echo "[4/4] OrbStack VM 기동 + 에이전트 설치 중..."
+  echo "[5/5] OrbStack VM 기동 + 에이전트 설치 중..."
   local vm
   for vm in "${ORB_VMS[@]}"; do
     start_or_resume_vm "$vm"
     post_provision_vm "$vm"
     install_demo_loads "$vm"
-    finalize_vm "$vm"
   done
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# Step 4: 결과 요약
+# Step 5: 결과 요약
 # ────────────────────────────────────────────────────────────────────────────
 print_summary() {
   echo ""
@@ -605,7 +602,6 @@ print_summary() {
   echo "  서버 발견 probe 대상 VM IP (모달에 입력 -> SSH 도달성 확인):"
   local vm ip
   for vm in "${ORB_VMS[@]}"; do
-    [ "$(vm_mode "$vm")" = "offline-once" ] && continue
     ip="$(orb_ssh "$vm" hostname -I 2>/dev/null | awk '{print $1}')"
     [ -n "$ip" ] && echo "    $vm : $ip"
   done
@@ -618,6 +614,7 @@ main() {
   start_docker_stack
   wait_migrate_completed
   wait_web_healthy
+  ensure_ollama_model
   start_orb_vms
   print_summary
 }

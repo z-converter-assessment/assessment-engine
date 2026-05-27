@@ -134,17 +134,19 @@
 {% else %}
 {# ============================= 양식 B — 엔지니어 검토용 (상세·엄밀) ============================= #}
 
-{# AI 진단 — 보고서 흐름 안 inline (별도 카드·발행 버튼·이력 link 없음). 보고서 anchor + time_range 기반 자동 발행. #}
-<section class="card" data-diagnostic-inline data-job-id="{{ diag_job_id or '' }}" style="margin-bottom:16px;">
+{# AI 진단 — 보고서 흐름 안 inline (발행 시점 narrative 1건, 별도 발행 버튼·이력 link 없음). #}
+{% set n = narratives.get(narrative_key) %}
+<section class="card" data-narrative-slot data-narrative-key="{{ narrative_key }}" style="margin-bottom:16px;">
   <h2>AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
-  {% if diag and diag.narrative %}
-  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; line-height:1.6; font-size:14px; color:#1e293b;">{{ diag.narrative }}</div>
-  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;">
-    분류 분포: <strong>{{ diag.classification_label_kr or "—" }}</strong>
-  </div>
+  {% if n and n.status == 'succeeded' and n.narrative %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; line-height:1.6; font-size:14px; color:#1e293b;">{{ n.narrative }}</div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
+  {% elif n and n.status == 'failed' %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; color:#64748b; font-size:13px;">AI 진단 실패 — narrative 합성 실패 (환경 통계는 아래에 표시).</div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
   {% else %}
   <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; color:#64748b; font-size:13px;">
-    {% if diag_job_id %}AI 진단 진행 중 (LLM 합성 10~60초 소요). 본 보고서 새로고침 또는 자동 폴링 대기.{% else %}AI 진단 자료 없음.{% endif %}
+    {% if report_job_id %}AI 진단 진행 중 (LLM 합성 10~60초 소요). 자동 폴링으로 결과 표시.{% else %}발행 시 생성.{% endif %}
   </div>
   <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
   {% endif %}
@@ -246,6 +248,7 @@
         <th>worst mount</th>
         <th>swap</th>
         <th>reboot</th>
+        <th>agent 재시작</th>
         <th>판단</th>
       </tr>
     </thead>
@@ -277,6 +280,7 @@
         </td>
         <td>{% if r.swap_used %}발생{% else %}<span class="text-meta">—</span>{% endif %}</td>
         <td style="color:{{ r.reboot_count_color }};">{{ r.reboot_count }}</td>
+        <td style="color:{{ r.agent_restart_count_color }};">{{ r.agent_restart_count }}</td>
         <td class="text-muted">{{ r.diagnosis or "—" }}</td>
       </tr>
       {% endfor %}
@@ -288,46 +292,25 @@
 
 <section class="card" style="margin-bottom:16px;">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #e2e8f0;">
-    <h2>운영 신호</h2>
-    <span class="section-meta">Right-sizing 분류 외 시스템 운영 이상 (통신·OS EOL·에이전트 재시작)</span>
+    <h2>OS 지원 종료</h2>
+    <span class="section-meta">EOL 임박·경과 호스트 (재부팅·에이전트 안정성은 아래 호스트 상세 표 reboot 컬럼)</span>
   </div>
-
-  <h3>카테고리 요약</h3>
-  <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-bottom:20px;">
-    {% for entry in summary.attention.catalog %}
-    <div style="border:1px solid {% if entry.active %}#fed7aa{% else %}#e2e8f0{% endif %}; border-radius:6px; padding:12px; background:{% if entry.active %}#fef3c7{% else %}#fff{% endif %};">
-      <div style="font-size:12px; color:#64748b;">{{ entry.label }}</div>
-      <div style="font-size:20px; font-weight:700; color:{% if entry.active %}#92400e{% else %}#94a3b8{% endif %}; line-height:1.4;">{{ entry.count }}건</div>
-    </div>
-    {% endfor %}
-  </div>
-
-  {% if summary.attention_hosts %}
-  <h3>발화 호스트 ({{ summary.attention_hosts_count }}건) — 호스트 기준 통합</h3>
+  {% if summary.attention.os_eol_warnings %}
   <table style="font-size:12px;">
     <thead>
-      <tr>
-        <th>호스트</th>
-        <th>OS</th>
-        <th>통신 끊김</th>
-        <th>OS EOL</th>
-        <th>재시작</th>
-        <th>활성 신호</th>
-      </tr>
+      <tr><th>호스트</th><th>OS / 지원 종료</th></tr>
     </thead>
     <tbody>
-      {% for h in summary.attention_hosts %}
+      {% for row in summary.attention.os_eol_warnings %}
       <tr>
-        <td><a href="/servers/{{ h.public_id }}?back={{ self_back }}" class="row-link">{{ h.hostname }}</a></td>
-        <td>{{ h.os_display }}</td>
-        <td>{% if h.gap_label %}{{ h.gap_label }}{% else %}<span class="text-meta">—</span>{% endif %}</td>
-        <td>{% if h.os_eol_label %}<span style="font-size:11px;">{{ h.os_eol_label }}</span>{% else %}<span class="text-meta">—</span>{% endif %}</td>
-        <td>{% if h.restart_label %}{{ h.restart_label }}{% else %}<span class="text-meta">—</span>{% endif %}</td>
-        <td style="font-weight:600; color:#92400e;">{{ h.active_count }}</td>
+        <td><a href="{{ row.link_href }}?back={{ self_back }}" class="row-link">{{ row.link_text }}</a></td>
+        <td style="font-size:11px;">{{ row.meta_text }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  {% else %}
+  <p class="text-ok" style="margin:0; font-size:13px;">지원 종료(EOL) 임박·경과 호스트 없음.</p>
   {% endif %}
 </section>
 
@@ -414,6 +397,7 @@
 </section>
 
 {% if view == "engineer" %}
+{% if report_job_id %}<div data-report-job data-job-id="{{ report_job_id }}" data-status="{{ narrative_status }}" hidden></div>{% endif %}
 <script src="/static/js/diagnostic-inline.js?v={{ asset_v }}" defer></script>
 {% endif %}
 {% endblock %}

@@ -244,6 +244,28 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
         return {r.server_id: int(r.reboot_count) for r in result.all()}
 
+    async def report_agent_restart_stats(
+        self,
+        server_ids: list[int],
+        period_days: int,
+        end: datetime,
+    ) -> dict[int, int]:
+        """period 안 server_inventory_history의 agent_started_at DISTINCT count - 1 (=에이전트 재시작 횟수).
+
+        report_uptime_stats(재부팅, boot_time)와 동일 산식 — anchor+window 정합 (#F10).
+        """
+        start = end - timedelta(days=period_days)
+
+        sql = text("""
+            SELECT server_id, GREATEST(0, COUNT(DISTINCT agent_started_at) - 1) AS restart_count
+            FROM server_inventory_history
+            WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
+              AND agent_started_at IS NOT NULL
+            GROUP BY server_id
+        """)
+        result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
+        return {r.server_id: int(r.restart_count) for r in result.all()}
+
     async def report_disk_io_baseline(
         self,
         server_ids: list[int],

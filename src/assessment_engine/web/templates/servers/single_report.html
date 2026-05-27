@@ -66,18 +66,18 @@
 
 {# AI 진단 — 보고서 흐름 안 inline (engineer view 만, Right-sizing 평가 위 위치). #}
 {% if view == "engineer" and r %}
-{% set diag = diagnostics_by_pid.get(r.public_id) %}
-{% set diag_job_id = pending_job_ids.get(r.public_id) %}
-<section class="card" data-diagnostic-inline data-job-id="{{ diag_job_id or '' }}" style="margin-bottom:16px;">
+{% set n = narratives.get(r.public_id) %}
+<section class="card" data-narrative-slot data-narrative-key="{{ r.public_id }}" style="margin-bottom:16px;">
   <h2>AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
-  {% if diag and diag.narrative %}
-  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; line-height:1.6; font-size:14px; color:#1e293b;">{{ diag.narrative }}</div>
-  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;">
-    분류: <strong>{{ diag.classification_label_kr or "—" }}</strong>{% if diag.recommendation_action %} · 권장 액션: <strong>{{ diag.recommendation_action }}</strong>{% endif %}
-  </div>
+  {% if n and n.status == 'succeeded' and n.narrative %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; line-height:1.6; font-size:14px; color:#1e293b;">{{ n.narrative }}</div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
+  {% elif n and n.status == 'failed' %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; color:#64748b; font-size:13px;">AI 진단 실패 — narrative 합성 실패 (보고서 통계는 위에 표시).</div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
   {% else %}
   <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; color:#64748b; font-size:13px;">
-    {% if diag_job_id %}AI 진단 진행 중 (LLM 합성 10~60초 소요). 자동 폴링으로 결과 표시.{% else %}AI 진단 자료 없음.{% endif %}
+    {% if report_job_id %}AI 진단 진행 중 (LLM 합성 10~60초 소요). 자동 폴링으로 결과 표시.{% else %}발행 시 생성.{% endif %}
   </div>
   <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
   {% endif %}
@@ -104,30 +104,16 @@
 {% if r %}
 {% if view == "engineer" %}
 <section class="card" style="margin-bottom:16px;">
-  <h2>운영 신호 <span class="section-meta">데이터 수집·OS·Agent 안정성</span></h2>
-  {% if attention_for_host.get('gap') or attention_for_host.get('os_eol') or attention_for_host.get('restart') %}
+  <h2>OS 지원 종료 <span class="section-meta">EOL 임박·경과 (재부팅은 아래 시스템 안정성)</span></h2>
+  {% if attention_for_host.get('os_eol') %}
   <div class="alert-list">
-    {% if attention_for_host.get('gap') %}
-    <div class="alert-warn">
-      <span class="rec-badge attn-active">수집 끊김</span>
-      <span>{{ attention_for_host.gap }}</span>
-    </div>
-    {% endif %}
-    {% if attention_for_host.get('os_eol') %}
     <div class="alert-warn">
       <span class="rec-badge attn-active">OS EOL</span>
       <span>{{ attention_for_host.os_eol }}</span>
     </div>
-    {% endif %}
-    {% if attention_for_host.get('restart') %}
-    <div class="alert-warn">
-      <span class="rec-badge attn-active">Agent 불안정</span>
-      <span>{{ attention_for_host.restart }}</span>
-    </div>
-    {% endif %}
   </div>
   {% else %}
-  <p style="margin:0; color:#94a3b8; font-size:13px;">발화 없음 — 데이터 수집·OS·Agent 정상.</p>
+  <p style="margin:0; color:#94a3b8; font-size:13px;">지원 종료(EOL) 임박·경과 아님.</p>
   {% endif %}
 </section>
 
@@ -199,7 +185,8 @@
     <div class="metric-card">
       <div class="metric-label">Uptime</div>
       <div class="metric-value">{% if r.uptime_days is not none %}{{ r.uptime_days }}<span style="font-size:14px; font-weight:400; color:#64748b;"> 일</span>{% else %}—{% endif %}</div>
-      <div class="metric-sub">재부팅 <span style="color:{{ r.reboot_count_color }};">{{ r.reboot_count }}회</span></div>
+      <div class="metric-sub">재부팅 <span style="color:{{ r.reboot_count_color }};">{{ r.reboot_count }}회</span> · 에이전트 재시작 <span style="color:{{ r.agent_restart_count_color }};">{{ r.agent_restart_count }}회</span></div>
+      <div class="metric-sub" style="color:#94a3b8;">{{ summary.time_range_label }} 윈도우 기준</div>
     </div>
   </div>
 </section>
@@ -219,6 +206,7 @@
 </section>
 
 {% if view == "engineer" %}
+{% if report_job_id %}<div data-report-job data-job-id="{{ report_job_id }}" data-status="{{ narrative_status }}" hidden></div>{% endif %}
 <script src="/static/js/diagnostic-inline.js?v={{ asset_v }}" defer></script>
 {% endif %}
 {% endblock %}

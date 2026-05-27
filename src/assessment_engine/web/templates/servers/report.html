@@ -59,12 +59,10 @@
   <div class="kpi"><span>적정</span><strong class="text-ok">{{ optimal_count }}</strong></div>
 </div>
 
-{% if view == "engineer" and attn_active_count > 0 %}
-<div class="kpi-label">운영 신호 <span class="kpi-label-sub">발화 호스트 {{ attn_active_count }}대</span></div>
-<div class="kpi-grid" style="grid-template-columns:repeat({{ attn_active_kpi_cols }}, 1fr);">
-  {% if attn_gap_count > 0 %}<div class="kpi"><span>데이터 수집 끊김</span><strong class="text-attn">{{ attn_gap_count }}</strong></div>{% endif %}
-  {% if attn_eol_count > 0 %}<div class="kpi"><span>OS EOL</span><strong class="text-attn">{{ attn_eol_count }}</strong></div>{% endif %}
-  {% if attn_restart_count > 0 %}<div class="kpi"><span>Agent 불안정</span><strong class="text-attn">{{ attn_restart_count }}</strong></div>{% endif %}
+{% if view == "engineer" and attn_eol_count > 0 %}
+<div class="kpi-label">운영 신호 <span class="kpi-label-sub">OS 지원 종료 {{ attn_eol_count }}대</span></div>
+<div class="kpi-grid" style="grid-template-columns:1fr;">
+  <div class="kpi"><span>OS EOL</span><strong class="text-attn">{{ attn_eol_count }}</strong></div>
 </div>
 {% endif %}
 
@@ -91,7 +89,7 @@
         <th class="num-cell">CPU{% if view == "engineer" %}<span class="sub">평균 · p95</span>{% else %} 평균{% endif %}</th>
         <th class="num-cell">MEM{% if view == "engineer" %}<span class="sub">평균 · p95</span>{% else %} 평균{% endif %}</th>
         <th>Right-sizing{% if view == "engineer" %}<span class="sub">판단</span>{% endif %}</th>
-        {% if view == "engineer" %}<th>운영 신호</th>{% endif %}
+        {% if view == "engineer" %}<th>OS EOL</th>{% endif %}
         {% if view == "engineer" %}<th>AI 진단<span class="sub">최근 narrative</span></th>{% endif %}
       </tr>
     </thead>
@@ -99,7 +97,8 @@
       {% for r in summary.rows %}
       <tr>
         <td>
-          <a href="/servers/{{ r.public_id }}/report?view={{ view }}&time_range={{ time_range }}&back={{ self_back }}" class="row-link"><strong>{{ r.hostname }}</strong></a>
+          {% set child = child_jobs.get(r.public_id) %}
+          <a href="/servers/{{ r.public_id }}/report?{% if child %}job={{ child }}{% else %}view={{ view }}&time_range={{ time_range }}{% endif %}&back={{ self_back }}" class="row-link"><strong>{{ r.hostname }}</strong></a>
           {% if view == "engineer" %}<span class="stat-line muted"><code>{{ r.internal_ip or "—" }}</code></span>{% endif %}
         </td>
         <td>{% if r.role %}<span class="badge {{ r.role | service_badge_class }}">{{ r.role }}</span>{% else %}<span class="text-meta">—</span>{% endif %}</td>
@@ -126,23 +125,19 @@
         {% if view == "engineer" %}
         {% set sig = attention_by_host.get(r.hostname, {}) %}
         <td>
-          {% if sig.get('gap') or sig.get('os_eol') or sig.get('restart') %}
-            {% if sig.get('gap') %}<span class="rec-badge attn-active" title="데이터 수집 끊김: {{ sig.gap }}">수집 끊김</span> {% endif %}
-            {% if sig.get('os_eol') %}<span class="rec-badge attn-active" title="OS EOL: {{ sig.os_eol }}">OS EOL</span> {% endif %}
-            {% if sig.get('restart') %}<span class="rec-badge attn-active" title="Agent 불안정: {{ sig.restart }}">Agent</span>{% endif %}
-          {% else %}
-            <span class="text-faint">—</span>
-          {% endif %}
+          {% if sig.get('os_eol') %}<span class="rec-badge attn-active" title="OS EOL: {{ sig.os_eol }}">OS EOL</span>{% else %}<span class="text-faint">—</span>{% endif %}
         </td>
-        {% set diag = diagnostics_by_pid.get(r.public_id) %}
-        {% set diag_job_id = pending_job_ids.get(r.public_id) %}
-        <td style="max-width:280px;" data-diagnostic-inline data-job-id="{{ diag_job_id or '' }}">
-          {% if diag and diag.narrative %}
-            <span class="stat-line muted diag-inline-body diag-clamp" title="{{ diag.narrative }}" style="white-space:normal; line-height:1.4;">{{ diag.narrative }}</span>
-            <span class="stat-line muted diag-inline-meta" style="color:#94a3b8; font-size:11px;">{{ diag.classification_label_kr or "" }}</span>
+        {% set n = narratives.get(r.public_id) %}
+        <td style="max-width:280px;" data-narrative-slot data-narrative-key="{{ r.public_id }}">
+          {% if n and n.status == 'succeeded' and n.narrative %}
+            <span class="stat-line muted diag-inline-body diag-clamp" title="{{ n.narrative }}" style="white-space:normal; line-height:1.4;">{{ n.narrative }}</span>
+            <span class="stat-line muted diag-inline-meta"></span>
+          {% elif n and n.status == 'failed' %}
+            <span class="diag-inline-body" style="color:#94a3b8; font-size:11px;">진단 실패</span>
+            <span class="diag-inline-meta"></span>
           {% else %}
             <span class="diag-inline-body" style="color:#94a3b8; font-size:11px;">
-              {% if diag_job_id %}진단 진행 중 (LLM 합성 대기){% else %}진단 자료 없음{% endif %}
+              {% if report_job_id %}진단 진행 중 (LLM 합성 대기){% else %}발행 시 생성{% endif %}
             </span>
             <span class="diag-inline-meta"></span>
           {% endif %}
@@ -160,6 +155,7 @@
   </div>
 </div>
 {% if view == "engineer" %}
+{% if report_job_id %}<div data-report-job data-job-id="{{ report_job_id }}" data-status="{{ narrative_status }}" hidden></div>{% endif %}
 <script src="/static/js/diagnostic-inline.js?v={{ asset_v }}" defer></script>
 {% endif %}
 {% endblock %}
