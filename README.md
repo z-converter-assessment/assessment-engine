@@ -1,4 +1,4 @@
-# assessment-portal
+# assessment-engine
 
 온프레미스 서버 인벤토리·메트릭을 수집·저장하고, 수집된 데이터를 기반으로 자원 사용량을 진단해 운영 의사결정을 보조하는 B2B 내부 포털.
 
@@ -118,29 +118,91 @@
 
 ---
 
-## 설치 (prod)
+## 설치·실행 (prod)
 
-엔진은 3개 독립 프로세스 — 같은 wheel 을 설치하고 실행 모듈만 바꿔 띄운다. 모두 stateless 라 같은 host 또는 분리 host·복제 N개 가능.
+`pip install` 한 wheel 하나가 3개 실행 모듈을 제공한다 — 같은 패키지, 실행 모듈만 다르게 각각 별도 프로세스로 띄운다 (stateless, 같은 host 또는 분리 host·복제 N개):
 
-| 컴포넌트 | 실행 | 역할 |
-|----------|------|------|
-| web | `python -m assessment_engine.web` | FastAPI UI·REST·SSE·`/metrics` (HTTP :8000) |
-| consumer | `python -m assessment_engine.consumer` | inventory/metrics/error/task.result 소비·저장 |
-| diagnostic-worker | `python -m assessment_engine.diagnostic` | engineer 보고서 narrative 합성 (web 발행 트리거) |
+- `python -m assessment_engine.web` — 포털 UI·REST·SSE·`/metrics` (HTTP :8000). 필수.
+- `python -m assessment_engine.consumer` — 에이전트 inventory/metrics/error·task.result 소비·저장. 필수 (없으면 수집 데이터 0).
+- `python -m assessment_engine.diagnostic` — engineer 보고서 AI narrative 합성. engineer 보고서 AI 쓸 때만 (ollama 도달 필요).
 
 전제: Python 3.12+ / PostgreSQL 16 (`timescaledb` + `vector` extension) / RabbitMQ 3.13+ / Redis 7+. 백킹 서비스는 외부 인프라가 준비 (엔진은 도달 가능만 전제).
 
-흐름:
-1. wheel 다운로드 + `sha256sum -c SHA256SUMS` 무결성 검증 (GitHub Release)
-2. `python3.12 -m venv` + `pip install *.whl` (Alembic 마이그레이션·`_alembic.ini` 동봉)
-3. 환경변수 파일 작성 (`APP_ENV=prod` + DB/MQ/Redis 좌표 + secret)
-4. `alembic upgrade head` 1회 (web host 한 곳, 멱등 — hypertable + pgvector 테이블 생성)
-5. systemd unit 3개 등록·기동 (`KillSignal=SIGTERM` + 넉넉한 `TimeoutStopSec` — graceful shutdown)
-6. `curl /health` -> `{"status":"ok"}`
+아래는 wheel 만으로 단일 host 설치·실행 — 본 절만 따라 하면 된다. (multi-node 분리·Docker image·업그레이드·트러블슈팅은 `docs/operations/deployment.md`.)
+
+1) GitHub Release(`v*`)에서 wheel·sdist·SHA256SUMS 받고 무결성 검증:
+```bash
+mkdir -p /tmp/ae && cd /tmp/ae
+# 브라우저로 받거나, gh CLI 로:
+gh release download v0.1.2 -R <org>/assessment-engine
+sha256sum -c SHA256SUMS
+```
+
+2) 격리 venv + wheel install:
+```bash
+sudo install -d -o "$USER" -g "$USER" /opt/assessment-engine
+python3.12 -m venv /opt/assessment-engine/venv
+/opt/assessment-engine/venv/bin/pip install /tmp/ae/assessment_engine-*.whl
+```
+
+3) 환경변수 파일 `/etc/assessment-engine.env` 작성 (전체 키 카탈로그는 `.env.example`·`docs/operations/env.md`):
+```ini
+APP_ENV=prod
+LOG_FORMAT=json
+POSTGRES_HOST=db.internal
+POSTGRES_DB=assessment
+POSTGRES_USER=assessment_app
+POSTGRES_PASSWORD=<secret>
+REDIS_HOST=redis.internal
+RABBITMQ_HOST=mq.internal
+RABBITMQ_USER=assessment_app
+RABBITMQ_PASSWORD=<secret>
+OLLAMA_BASE_URL=http://ollama.internal:11434
+OLLAMA_MODEL=llama3.1:8b
+```
+
+4) DB 마이그레이션 1회 (멱등 — hypertable+pgvector 생성). `_alembic.ini`·`_migrations/`는 wheel 안에 동봉되어 CWD에 `alembic.ini`가 없으므로 동봉 경로를 찾아 실행 (env 로드 상태로):
+```bash
+set -a; . /etc/assessment-engine.env; set +a
+ALEMBIC_INI=$(/opt/assessment-engine/venv/bin/python -c \
+  'from importlib.resources import files; print(files("assessment_engine") / "_alembic.ini")')
+/opt/assessment-engine/venv/bin/python -m alembic -c "$ALEMBIC_INI" upgrade head
+```
+
+5) 3개 모듈을 영속 프로세스로 등록 (prod). 빠른 확인만이면 systemd 없이 직접 실행도 됨 — env 로드 후 `/opt/assessment-engine/venv/bin/python -m assessment_engine.web` (consumer·diagnostic 동일). prod 는 아래 systemd unit 으로 영속화. `/etc/systemd/system/assessment-engine-web.service`:
+```ini
+[Unit]
+Description=Assessment Engine (web)
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/assessment-engine.env
+ExecStart=/opt/assessment-engine/venv/bin/python -m assessment_engine.web
+Restart=always
+RestartSec=5s
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=multi-user.target
+```
+`assessment-engine-consumer.service`·`assessment-engine-diagnostic-worker.service`는 위에서 `ExecStart`의 모듈만 각각 `assessment_engine.consumer` / `assessment_engine.diagnostic`로 바꿔 동일하게 작성. 그 후 등록·기동:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now \
+  assessment-engine-web assessment-engine-consumer assessment-engine-diagnostic-worker
+sudo systemctl status assessment-engine-web   # active (running) 확인
+```
+
+6) 헬스 확인:
+```bash
+curl -fsS http://localhost:8000/health   # {"status":"ok"}
+```
 
 `APP_ENV=prod` 이면 약한 기본값(`assessment`·`password` 등)을 기동 시 거부(fail-fast) — prod secret 미주입을 조용히 넘기지 않는다.
 
-상세 절차(wheel·Docker image 양 토폴로지·multi-node 분리·업그레이드·트러블슈팅): `docs/operations/deployment.md`. 환경변수 전체 카탈로그·secret 채널·prod 정책: `docs/operations/env.md`.
+multi-node 분리·Docker image(GHCR) 토폴로지·업그레이드·트러블슈팅 상세: `docs/operations/deployment.md`. 환경변수 전체 카탈로그·secret 채널·prod 정책: `docs/operations/env.md`.
 
 ---
 
