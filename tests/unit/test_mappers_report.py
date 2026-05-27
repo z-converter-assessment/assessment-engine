@@ -44,6 +44,7 @@ def _raw(
     server_id=1,
     public_id="a",
     hostname="h",
+    os_family=None,
     os_id="ubuntu",
     os_version="22.04",
     kernel_version="5.15",
@@ -76,7 +77,7 @@ def _raw(
         server_id=server_id,
         public_id=public_id,
         hostname=hostname,
-        os_family=None,
+        os_family=os_family,
         os_id=os_id,
         os_version=os_version,
         kernel_version=kernel_version,
@@ -170,6 +171,26 @@ def test_report_row_under_provisioned_maps_to_high():
     item = to_report_row_item(raw, is_online=True, now=_NOW)
     assert item.risk_level == "high"
     assert item.risk_label == "고위험"
+
+
+# ─── os_family 분기 (원칙 P2/P4 — Windows swap 제외 + 부분 평가) ───
+
+
+def test_report_row_is_partial_windows_vs_linux():
+    """ViewModel.is_partial — Windows precompute True, Linux/None False (템플릿 마커 단일 소스)."""
+    assert to_report_row_item(_raw(cpu_p95=40.0, mem_p95=60.0, os_family="windows"), True, _NOW).is_partial is True
+    assert to_report_row_item(_raw(cpu_p95=40.0, mem_p95=60.0, os_family="linux"), True, _NOW).is_partial is False
+    assert to_report_row_item(_raw(cpu_p95=40.0, mem_p95=60.0, os_family=None), True, _NOW).is_partial is False
+
+
+def test_report_row_windows_swap_not_high_risk():
+    """동일 통계(낮은 cpu/mem + swap_used)라도 Windows 는 swap 제외 -> under_provisioned(high) 로 왜곡 안 됨."""
+    stats = dict(cpu_p95=20.0, cpu_peak=25.0, mem_p95=30.0, mem_peak=35.0, swap_used=True)
+    linux = to_report_row_item(_raw(os_family="linux", **stats), True, _NOW)
+    windows = to_report_row_item(_raw(os_family="windows", **stats), True, _NOW)
+    assert linux.risk_level == "high"  # swap short-circuit -> under_provisioned
+    assert windows.risk_level != "high"  # swap 제외 -> 저사용
+    assert "스왑" not in windows.diagnosis  # 판단 컬럼도 스왑 발생 오인 안 함
 
 
 # ─── build_role_distribution ─────────────────────────────────────────────

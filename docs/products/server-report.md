@@ -118,6 +118,8 @@ AWS Compute Optimizer 임계값(CPU p95 30%) 기준으로 CPU 다운사이즈 �
 | under_provisioned | CPU p95 >= 70% 또는 메모리 p95 >= 80% 또는 swap 발생 (`CPU_UPSIZE_P95_PCT=70`·`MEM_UPSIZE_P95_PCT=80`) | Kleinrock 큐잉 + Linux page cache 운영 통념 |
 | optimal | 위 어디에도 해당 안 함 | residual |
 
+Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상시 사용은 saturation 아니라 제외. load/iowait도 OS 부재라 Windows는 cpu/mem utilization 축만으로 분류되고 swap·load·iowait 셀은 N/A, 분류 옆에 "부분 평가" 마커 표시. 상세 `right_sizing_thresholds.html`.
+
 ### 지표 정의·임계값 (engineer view)
 
 | 지표 | 정의 | 임계값 의미 | 출처 |

@@ -1,6 +1,8 @@
 # ADR 0028 — Commitizen 전환 (release-please 폐기, git-flow 정합)
 
-상태: Accepted
+상태: Superseded by ADR 0030
+
+> Commitizen 은 `cz bump` 이 pyproject 버전 + CHANGELOG 를 repo 에 commit 하는 모델인데, 이 bump 커밋이 보호된 develop·main(PR 필수, bypass 불가)을 직접 push 못 하고, `cz` 기본 `bump:` 커밋 메시지가 commit-msg hook 의 type set 에 없어 거부된다. 즉 본 repo ruleset + hook 과 구조 충돌. ADR 0030 이 tag-derived 버전(hatch-vcs — 버전을 repo 에 저장 안 함)으로 대체해 bump 커밋 자체를 없앤다. 아래 본문은 history 보존용.
 
 ## Context
 

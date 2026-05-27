@@ -89,6 +89,10 @@ class ReportRowItem:
     # over/idle/shutdown/optimal/insufficient 는 고정 문구.
     recommendation_action: str = ""
 
+    # 부분 평가 — Windows 는 saturation 축(swap/load/iowait) 부재·제외라 utilization 축만으로 분류 (원칙 P2/P4).
+    # mapper 가 recommendation.is_partial_evaluation 으로 precompute, 템플릿은 본 bool 만 분기 (P3).
+    is_partial: bool = False
+
     # 임계값 분류 색 (P3 — 템플릿 산술·분기 금지. mapper에서 미리 계산)
     # 모두 #b91c1c (danger) / #92400e (warn) / #94a3b8 (muted) / #1e293b (default) hex 중 하나.
     saturation_color: str = "#94a3b8"

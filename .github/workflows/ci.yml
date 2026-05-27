@@ -11,7 +11,7 @@ name: ci
 #   develop PR  : lint + test-unit (integration·build skip — 경량 게이트)
 #   develop push: lint + test-unit + test-integration (merge 후 통합 검증 1회 보충)
 #   main PR     : 전부 (release gate — full 검증)
-#   main push   : ci 미발화 (main PR에서 full 통과 + branch protection이 gate 강제). 릴리즈는 cz bump tag push -> release.yml (ADR 0028)
+#   main push   : ci 미발화 (main PR에서 full 통과 + branch protection이 gate 강제). 릴리즈는 main 에 tag push -> release.yml (ADR 0030)
 
 on:
   pull_request:

@@ -84,8 +84,8 @@
 
 ## CI 파이프라인
 
-- git flow — `feature/*`·`fix/*` → `develop` PR(squash) → merge → 릴리즈 시 `develop` 에서 `cz bump`(version+CHANGELOG+`v*` tag) → `develop` → `main` PR(merge) → tag push → release (ADR 0028).
-- PR 머지는 사람이, 릴리즈 bump·tag 는 `cz bump` 가 자동 산출. branch protection + Conventional Commits 강제.
+- git flow — `feature/*`·`fix/*` → `develop` PR(squash) → `develop` → `main` PR(merge) → `main`에 `v*` tag push → release (ADR 0030).
+- 버전은 git tag 단일 진실 (hatch-vcs가 빌드 시 derive) — repo에 버전 미저장, bump 커밋 없음. branch protection + Conventional Commits PR title 강제.
 
 | workflow | trigger | 검증·작업 |
 |----------|---------|------|
@@ -94,7 +94,7 @@
 | `alembic-check.yml` | develop PR · main PR | ORM·migrations 라운드트립 정합 |
 | `codeql.yml` | main PR · 주간 cron | CodeQL SAST (SQL injection·secret leak·XSS 정적 분석, Security 탭 alert) |
 | `security.yml` | main PR · 주간 cron (Mon 09:00 UTC) | pip-audit dependency CVE 검사 |
-| `release.yml` | tag `v*` push (`cz bump` 산출) · workflow_dispatch | uv build wheel + sdist + SHA256SUMS + SBOM + Sigstore signature → GitHub Release + GHCR image(multi-arch) 자동 첨부 |
+| `release.yml` | `main`에 tag `v*` push · workflow_dispatch | uv build wheel + sdist (버전=tag, hatch-vcs) + SHA256SUMS + SBOM + Sigstore signature → GitHub Release + GHCR image(multi-arch) 자동 첨부 |
 
 본 repo는 CI 영역만 (코드 quality + artifact 생성). CD(배포·secret 주입·롤백)는 외부 인프라 책임.
 
@@ -119,32 +119,30 @@
 
 ## 설치·실행 (prod)
 
-`pip install` 한 wheel 하나가 3개 실행 모듈을 제공한다 — 같은 패키지, 실행 모듈만 다르게 각각 별도 프로세스로 띄운다 (stateless, 같은 host 또는 분리 host·복제 N개):
+wheel 하나가 3개 실행 모듈을 제공한다 (각각 별도 프로세스 — stateless, 같은 host 또는 분리·복제 N개):
 
 - `python -m assessment_engine.web` — 포털 UI·REST·SSE·`/metrics` (HTTP :8000). 필수.
-- `python -m assessment_engine.consumer` — 에이전트 inventory/metrics/error·task.result 소비·저장. 필수 (없으면 수집 데이터 0).
-- `python -m assessment_engine.diagnostic` — engineer 보고서 AI narrative 합성. engineer 보고서 AI 쓸 때만 (ollama 도달 필요).
+- `python -m assessment_engine.consumer` — inventory/metrics/error·task.result 소비·저장. 필수.
+- `python -m assessment_engine.diagnostic` — engineer 보고서 narrative 합성. engineer AI 보고서 사용 시만 (ollama 도달 필요).
 
-전제: Python 3.12+ / PostgreSQL 16 (`timescaledb` + `vector` extension) / RabbitMQ 3.13+ / Redis 7+. 백킹 서비스는 외부 인프라가 준비 (엔진은 도달 가능만 전제).
+전제: Python 3.12+ / PostgreSQL 16 (`timescaledb`+`vector`) / RabbitMQ 3.13+ / Redis 7+ — 외부 인프라가 준비, 엔진은 도달만 전제.
 
-아래는 wheel 만으로 단일 host 설치·실행 — 본 절만 따라 하면 된다. (multi-node 분리·Docker image·업그레이드·트러블슈팅은 `docs/operations/deployment.md`.)
+단일 host 설치 (multi-node·Docker image·업그레이드·트러블슈팅은 `docs/operations/deployment.md`):
 
-1) GitHub Release(`v*`)에서 wheel·sdist·SHA256SUMS 받고 무결성 검증:
+1) Release(`v*`) 받아 무결성 검증:
 ```bash
-mkdir -p /tmp/ae && cd /tmp/ae
-# 브라우저로 받거나, gh CLI 로:
-gh release download v0.1.2 -R <org>/assessment-engine
-sha256sum -c SHA256SUMS
+gh release download v0.1.2 -R <org>/assessment-engine -D /tmp/ae
+cd /tmp/ae && sha256sum -c SHA256SUMS
 ```
 
-2) 격리 venv + wheel install:
+2) venv + install:
 ```bash
 sudo install -d -o "$USER" -g "$USER" /opt/assessment-engine
 python3.12 -m venv /opt/assessment-engine/venv
 /opt/assessment-engine/venv/bin/pip install /tmp/ae/assessment_engine-*.whl
 ```
 
-3) 환경변수 파일 `/etc/assessment-engine.env` 작성 (전체 키 카탈로그는 `.env.example`·`docs/operations/env.md`):
+3) `/etc/assessment-engine.env` 작성 (전체 키: `.env.example`·`docs/operations/env.md`):
 ```ini
 APP_ENV=prod
 LOG_FORMAT=json
@@ -160,15 +158,15 @@ OLLAMA_BASE_URL=http://ollama.internal:11434
 OLLAMA_MODEL=llama3.1:8b
 ```
 
-4) DB 마이그레이션 1회 (멱등 — hypertable+pgvector 생성). `_alembic.ini`·`_migrations/`는 wheel 안에 동봉되어 CWD에 `alembic.ini`가 없으므로 동봉 경로를 찾아 실행 (env 로드 상태로):
+4) DB 마이그레이션 1회 (멱등, wheel 동봉 alembic 설정):
 ```bash
 set -a; . /etc/assessment-engine.env; set +a
-ALEMBIC_INI=$(/opt/assessment-engine/venv/bin/python -c \
-  'from importlib.resources import files; print(files("assessment_engine") / "_alembic.ini")')
-/opt/assessment-engine/venv/bin/python -m alembic -c "$ALEMBIC_INI" upgrade head
+V=/opt/assessment-engine/venv/bin/python
+INI=$($V -c 'from importlib.resources import files; print(files("assessment_engine")/"_alembic.ini")')
+$V -m alembic -c "$INI" upgrade head
 ```
 
-5) 3개 모듈을 영속 프로세스로 등록 (prod). 빠른 확인만이면 systemd 없이 직접 실행도 됨 — env 로드 후 `/opt/assessment-engine/venv/bin/python -m assessment_engine.web` (consumer·diagnostic 동일). prod 는 아래 systemd unit 으로 영속화. `/etc/systemd/system/assessment-engine-web.service`:
+5) systemd 영속화 — `/etc/systemd/system/assessment-engine-web.service`:
 ```ini
 [Unit]
 Description=Assessment Engine (web)
@@ -186,12 +184,11 @@ TimeoutStopSec=30s
 [Install]
 WantedBy=multi-user.target
 ```
-`assessment-engine-consumer.service`·`assessment-engine-diagnostic-worker.service`는 위에서 `ExecStart`의 모듈만 각각 `assessment_engine.consumer` / `assessment_engine.diagnostic`로 바꿔 동일하게 작성. 그 후 등록·기동:
+consumer·diagnostic-worker unit은 `ExecStart` 모듈만 `assessment_engine.consumer`/`assessment_engine.diagnostic`로 교체. 등록:
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now \
   assessment-engine-web assessment-engine-consumer assessment-engine-diagnostic-worker
-sudo systemctl status assessment-engine-web   # active (running) 확인
 ```
 
 6) 헬스 확인:
@@ -199,9 +196,7 @@ sudo systemctl status assessment-engine-web   # active (running) 확인
 curl -fsS http://localhost:8000/health   # {"status":"ok"}
 ```
 
-`APP_ENV=prod` 이면 약한 기본값(`assessment`·`password` 등)을 기동 시 거부(fail-fast) — prod secret 미주입을 조용히 넘기지 않는다.
-
-multi-node 분리·Docker image(GHCR) 토폴로지·업그레이드·트러블슈팅 상세: `docs/operations/deployment.md`. 환경변수 전체 카탈로그·secret 채널·prod 정책: `docs/operations/env.md`.
+`APP_ENV=prod`은 약한 기본값(`assessment` 등)을 기동 시 거부(fail-fast). 환경변수 전체·secret 채널: `docs/operations/env.md`.
 
 ---
 
@@ -268,4 +263,4 @@ uv run alembic check                   # ORM·migrations 정합 (alembic-check.y
 | `docs/products/` | 운영 산출물 의의·근거 (dashboard · 환경 보고서 · 서버 보고서 · JSON Export · Install task) |
 | `docs/architecture/` | 컴포넌트별 deep dive (agent · consumer · diagnostic · rabbitmq · redis · db · web) |
 | `docs/adr/` | Architecture Decision Records (0001~) — "왜 이렇게 결정했나" + 트레이드오프 |
-| `docs/tradeoffs.md` | 의식적 설계 선택과 한계 (T1~T13) |
+| `docs/tradeoffs.md` | 의식적 설계 선택과 한계 (T1~T14) |

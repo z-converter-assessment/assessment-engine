@@ -247,7 +247,7 @@ def to_capacity_warning_item(raw):
     - worst_mount_used_pct >= DISK_CAPACITY_UPSIZE_PCT 또는 iowait_p95 >= IOWAIT_UPSIZE_PCT → "디스크"
     비활성 trigger도 list에 포함 (시각 일관 — "이 카드는 5종 자원 추적" 명시).
     """
-    swap_active = bool(raw.swap_used)
+    swap_active = recommendation.swap_saturation(raw.os_family, raw.swap_used)  # P2 — Windows pagefile 제외
     cpu_active = (raw.cpu_p95_pct or 0) >= recommendation.CPU_UPSIZE_P95_PCT
     mem_active = (raw.mem_p95_pct or 0) >= recommendation.MEM_UPSIZE_P95_PCT
     load_active = (

@@ -105,6 +105,8 @@ over-provisioned 5대, under-provisioned 2대, idle 0대, optimal 16대.
 | under_provisioned | CPU p95 >= 70% 또는 메모리 p95 >= 80% 또는 swap 발생 | Kleinrock 큐잉 + Linux page cache 운영 통념 |
 | optimal | 위 어디에도 해당 안 함 | residual |
 
+Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 사용은 saturation 아니라 분류에서 제외(swap_pressure 카운트·분포 도넛 모두). Windows는 utilization 축만으로 분류(부분 평가). 상세 `right_sizing_thresholds.html`.
+
 위험도 3단계 압축 (customer view 한정):
 
 | 위험도 | 트리거 조건 |

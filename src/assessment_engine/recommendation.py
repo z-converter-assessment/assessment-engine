@@ -69,6 +69,27 @@ class ResourceStats:
     iowait_p95_pct: float | None  # disk IO saturation (cpu wait on IO)
     # Network
     net_avg_kbps: float | None  # idle/shutdown 판정용 (saturation metric 미수집)
+    # OS family — 신호 의미 분기 (원칙 P2). default None = unknown -> Linux 의미(엔진 fallback 정합).
+    os_family: str | None = None
+
+
+def swap_saturation(os_family: str | None, swap_used: bool) -> bool:
+    """swap/pagefile 사용이 메모리 saturation 신호인지 — Linux 한정 (원칙 P2).
+
+    Windows pagefile 은 여유 RAM 에도 상시 사용되는 baseline 이라 saturation 신호 아님.
+    Linux swap 사용은 page-out = 메모리 압박 신호. os_family None(unknown)은 Linux 로 취급.
+    classify·report mapper 의 swap 해석 단일 진실 — 세 곳이 본 helper 경유.
+    """
+    return swap_used and os_family != "windows"
+
+
+def is_partial_evaluation(stats: ResourceStats) -> bool:
+    """분류가 utilization 축만으로 내려진 "부분 평가" 인지 (원칙 P4).
+
+    Windows 는 saturation 축이 OS 부재(loadavg null·iowait 의미 부재) + swap 축 제외(P2)라
+    cpu/mem utilization 만으로 판정됨 -> saturation 을 못 본 부분 평가. 표시 계층이 confidence 단서로 노출.
+    """
+    return stats.os_family == "windows"
 
 
 def classify(stats: ResourceStats) -> Recommendation:
@@ -77,6 +98,7 @@ def classify(stats: ResourceStats) -> Recommendation:
     판정 순서: Idle → Shutdown → Swap → Disk capacity → Disk IO → CPU saturation →
               CPU util → Mem util → Over → Optimal.
     필수 데이터(cpu_p95·mem_p95) 부재 시 `insufficient_data` 반환.
+    Windows 는 swap(P2)·saturation 축 제외 -> utilization 축만 평가 (부분 평가, `is_partial_evaluation`).
     """
     if stats.cpu_p95_pct is None or stats.mem_p95_pct is None:
         return "insufficient_data"
@@ -93,8 +115,8 @@ def classify(stats: ResourceStats) -> Recommendation:
         if stats.cpu_p95_pct <= SHUTDOWN_CPU_P95_PCT and (stats.net_avg_kbps * 8 / 1000) <= SHUTDOWN_NET_MBPS:
             return "shutdown"
 
-    # Swap 사용 = 메모리 saturation → 업사이즈 short-circuit
-    if stats.swap_used:
+    # Swap 사용 = 메모리 saturation → 업사이즈 short-circuit (Linux 한정, 원칙 P2 — Windows pagefile 제외)
+    if swap_saturation(stats.os_family, stats.swap_used):
         return "under_provisioned"
 
     # Disk capacity (storage utilization) >= 85% → 업사이즈 (Storage 부족)

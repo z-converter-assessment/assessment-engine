@@ -39,6 +39,12 @@ COPY src ./src
 COPY migrations ./migrations
 COPY alembic.ini ./
 
+# 버전 = git tag (hatch-vcs, ADR 0030). 빌드 컨텍스트엔 .git 미포함이라 tag 를 직접 주입한다.
+# release.yml 이 git tag semver 를 --build-arg APP_VERSION 으로 전달 -> SETUPTOOLS_SCM_PRETEND_VERSION
+# 으로 hatch-vcs 가 그 값을 버전으로 사용. 미주입(로컬 docker build 등) 시 0.0.0.
+ARG APP_VERSION=0.0.0
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${APP_VERSION}
+
 # `uv build --wheel` — dist/ 에 단일 wheel 산출. `--out-dir /dist` 로 다음 stage 가 쉽게 COPY.
 RUN uv build --wheel --out-dir /dist
 

@@ -214,7 +214,7 @@ def _build_under_provisioned_reason(raw: ReportRowRaw) -> str:
     임계는 recommendation 모듈 단일 진실. trigger 0건 fallback "리소스 증설 검토".
     """
     reasons: list[str] = []
-    if raw.swap_used:
+    if recommendation.swap_saturation(raw.os_family, raw.swap_used):
         reasons.append("메모리 증설 (스왑 발생)")
     if raw.mem_p95_pct is not None and raw.mem_p95_pct >= recommendation.MEM_UPSIZE_P95_PCT:
         reasons.append("메모리 증설")
@@ -271,7 +271,7 @@ def _build_diagnosis(
     8. cpu_p95 <= 30% and mem_p95 <= 50% → "여유 있음 (축소 검토)"
     9. 그 외 → "정상"
     """
-    if raw.swap_used:
+    if recommendation.swap_saturation(raw.os_family, raw.swap_used):
         return "메모리 부족 (스왑 발생)"
     if raw.iowait_p95_pct is not None and raw.iowait_p95_pct >= 20:
         return "디스크 I/O 병목"
@@ -311,19 +311,20 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
     _net_rx = raw.net_rx_kbps
     _net_tx = raw.net_tx_kbps
     net_avg = None if _net_rx is None and _net_tx is None else (_net_rx or 0) + (_net_tx or 0)
-    rec = recommendation.classify(
-        recommendation.ResourceStats(
-            cpu_p95_pct=raw.cpu_p95_pct,
-            cpu_peak_pct=raw.cpu_peak_pct,
-            cpu_load_15m_max=raw.load_15m_max,
-            cpu_cores=raw.cpu_cores,
-            mem_p95_pct=raw.mem_p95_pct,
-            swap_used=raw.swap_used,
-            disk_used_pct=raw.worst_mount_used_pct,
-            iowait_p95_pct=raw.iowait_p95_pct,
-            net_avg_kbps=net_avg,
-        )
+    stats = recommendation.ResourceStats(
+        cpu_p95_pct=raw.cpu_p95_pct,
+        cpu_peak_pct=raw.cpu_peak_pct,
+        cpu_load_15m_max=raw.load_15m_max,
+        cpu_cores=raw.cpu_cores,
+        mem_p95_pct=raw.mem_p95_pct,
+        swap_used=raw.swap_used,
+        disk_used_pct=raw.worst_mount_used_pct,
+        iowait_p95_pct=raw.iowait_p95_pct,
+        net_avg_kbps=net_avg,
+        os_family=raw.os_family,  # P2 — Windows swap 축 제외
     )
+    rec = recommendation.classify(stats)
+    is_partial = recommendation.is_partial_evaluation(stats)  # P4 — Windows utilization 축만 평가 마커
     risk_level, risk_label, risk_badge_class = _RISK_FROM_RECOMMENDATION[rec]
     uptime_days: int | None = None
     if raw.boot_time is not None:
@@ -353,6 +354,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         role=infer_role(raw.services),
         is_online=is_online,
         os_family=raw.os_family,
+        is_partial=is_partial,
         os_display=_os_display(raw.os_id, raw.os_version),
         kernel_version=raw.kernel_version,
         internal_ip=raw.ip_internal[0] if raw.ip_internal else None,

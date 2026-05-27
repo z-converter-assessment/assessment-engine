@@ -46,36 +46,33 @@ multi-arch: `linux/amd64` + `linux/arm64` (운영자 ARM 서버 직접 호환).
 
 ADR 0023: scheduler cron 폐기로 4 컴포넌트 → 3 컴포넌트.
 
-## 2. 생성 trigger (Commitizen + git-flow)
+## 2. 생성 trigger (tag-derived 버전, git-flow)
 
-release ceremony는 Conventional Commits + Commitizen(`cz`) (ADR 0028 — release-please supersede). git-flow(develop 유지) 정합: `cz bump`이 특정 브랜치 모델에 묶이지 않아 develop 에서 실행 가능.
+버전은 git tag(`v*`)가 단일 진실 — repo에 버전을 저장하지 않고 빌드 시 hatch-vcs가 tag에서 derive (ADR 0030). 릴리즈 = `main`에 tag push. 버전 bump 커밋이 없어 보호 브랜치(develop·main) push 마찰 0.
 
 흐름:
-1. 평소 PR title을 Conventional Commits 형식으로 작성 (`feat:`·`fix:`·`BREAKING CHANGE:` 등) — `pr-title-check.yml`이 PR 시점 강제. PR squash merge 시 PR title이 develop commit message가 됨
-2. 릴리즈 시점에 운영자가 최신 `develop` 에서 bump 실행:
+1. `feature/*`·`fix/*` → PR(squash) → `develop`. (PR title은 Conventional Commits — `pr-title-check.yml` 강제. 버전 변경 없음)
+2. `develop` → `main` PR(merge method) 승격·머지 — 코드만 올라감, main이 develop 이력 공유 (divergence 0). source는 develop만.
+3. 릴리즈 = `main`에 tag push:
    ```bash
-   git checkout develop && git pull
-   uv run cz bump --yes            # pyproject version + CHANGELOG.md 갱신 + "bump: vX.Y.Z" commit + vX.Y.Z tag 생성 (모두 로컬)
-   git push origin develop --follow-tags    # bump commit + tag 동시 push
+   git checkout main && git pull
+   git tag v0.2.0 && git push origin v0.2.0
    ```
-   `cz bump`이 마지막 tag 이후 Conventional Commits 를 분석해 semver bump 자동 결정 (아래 규칙).
-3. `develop` → `main` PR(merge method) 로 승격·머지 — main 이 develop 이력을 공유 (divergence 0, ADR 0028)
-4. tag(`v*`) push → `release.yml` 발사 (2 job 병렬):
-   - `release-wheel` job: `uv build` (wheel + sdist) → SHA256SUMS → SBOM (cyclonedx-py) → Sigstore signing → GitHub Release 첨부
-   - `release-image` job: docker buildx multi-arch build (`linux/amd64,arm64`) → GHCR push → cosign keyless image signing → BuildKit SBOM (SPDX) attestation
+   tag 생성은 tag ruleset이 허용 (deletion·non-fast-forward만 차단). "다음 버전" semver는 사람이 결정 (직전 tag 이후 `feat`/`fix`/`BREAKING` 비율 보고 — 필요 시 `git log <last-tag>..main`).
+4. tag push → `release.yml` 발사 (2 job 병렬):
+   - `release-wheel` job: checkout `fetch-depth: 0`(hatch-vcs가 tag 읽음) → `uv build` (wheel + sdist, 버전=tag) → SHA256SUMS → SBOM (cyclonedx-py) → Sigstore signing → GitHub Release 첨부
+   - `release-image` job: tag semver를 `--build-arg APP_VERSION`로 전달(Dockerfile이 `SETUPTOOLS_SCM_PRETEND_VERSION`로 hatch-vcs 주입 — 빌드 컨텍스트에 `.git` 없음) → docker buildx multi-arch (`linux/amd64,arm64`) → GHCR push → cosign keyless signing → BuildKit SBOM (SPDX)
 
-   `cz bump` 이 만든 tag 는 로컬 개발자 자격증명으로 push 되므로 `release.yml` 이 정상 발사 (release-please bot 의 GITHUB_TOKEN 제약 없음).
+   release notes는 GitHub가 자동 생성 (`generate_release_notes: true`) — 누적 CHANGELOG 파일 미유지.
 
-semver bump 규칙 (Conventional Commits → Commitizen):
+semver 규칙 (사람이 tag 결정 시 가이드):
 
-| commit type | bump | 예시 |
-|---------|------|------|
-| `feat:` | MINOR | `feat: add diagnostic stale job cleanup` |
-| `fix:` / `perf:` | PATCH | `fix: handle null hostname in mapper` |
-| `feat!:` / `BREAKING CHANGE:` body | MINOR (0.x 동안, `major_version_zero`) → 1.0 이후 MAJOR | `feat!: rename routing key` |
-| `docs:` / `chore:` / `refactor:` / `test:` / `build:` / `ci:` / `style:` / `revert:` | bump 없음 (CHANGELOG에만 누적) | `docs: clarify alembic policy` |
-
-0.x 동안엔 `[tool.commitizen] major_version_zero = true` 로 BREAKING이 MINOR로 다운 — 초기 개발 자유도 보존. 1.0.0 도달 시점에 본 옵션 제거 (ADR 0028).
+| 변경 성격 | bump | 0.x 동안 |
+|-----------|------|----------|
+| 새 기능 (`feat`) | MINOR | 0.1 → 0.2 |
+| 버그 수정 (`fix`/`perf`) | PATCH | 0.1.2 → 0.1.3 |
+| 호환성 깨짐 (`feat!`/`BREAKING`) | MAJOR | 0.x 동안은 MINOR로 (1.0 전 자유도) |
+| 문서·잡무만 (`docs`/`chore`/`ci` 등) | 없음 | tag 안 함 |
 
 수동 빌드 (로컬 dev 검증용 한정 — release 발사 아님):
 ```bash
@@ -118,7 +115,8 @@ cd /tmp/release && sha256sum -c SHA256SUMS
 - ADR 0005 — Alembic schema 관리 단일 진실 (migrations 동봉 사유)
 - ADR 0012 — wheel + GitHub Release 채택, Docker image·devpi·S3 등 옵션 비교
 - ADR 0013 — release-please 자동화 (Superseded by 0028)
-- ADR 0028 — Commitizen 전환 (release-please 폐기, git-flow 정합)
+- ADR 0028 — Commitizen 전환 (Superseded by 0030)
+- ADR 0030 — tag-derived 버전 (hatch-vcs, 버전을 repo에 저장 안 함) — 현행
 
 ## 7. 한계
 
