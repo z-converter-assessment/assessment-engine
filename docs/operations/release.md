@@ -46,33 +46,36 @@ multi-arch: `linux/amd64` + `linux/arm64` (운영자 ARM 서버 직접 호환).
 
 ADR 0023: scheduler cron 폐기로 4 컴포넌트 → 3 컴포넌트.
 
-## 2. 생성 trigger (자동 ceremony)
+## 2. 생성 trigger (Commitizen + git-flow)
 
-release ceremony는 Conventional Commits + release-please 자동화 (ADR 0013).
+release ceremony는 Conventional Commits + Commitizen(`cz`) (ADR 0028 — release-please supersede). git-flow(develop 유지) 정합: `cz bump`이 특정 브랜치 모델에 묶이지 않아 develop 에서 실행 가능.
 
 흐름:
-1. PR title을 Conventional Commits 형식으로 작성 (`feat:`·`fix:`·`BREAKING CHANGE:` 등) — `pr-title-check.yml`이 PR 시점 강제
-2. PR squash merge 시 PR title이 main commit message가 됨
-3. main push → `release-please.yml` 발사 → commit 분석
-4. feat/fix/BREAKING 감지 시 자동 "Release PR" 생성·갱신:
-   - `pyproject.toml` version bump (semver 정책 자동 결정)
-   - `CHANGELOG.md` 갱신 (type별 분류 누적)
-5. 운영자가 Release PR 검토·승인·merge
-6. merge 시점에 release-please가 tag(`v*`) 자동 생성·push
-7. tag push → `release.yml` 발사 (2 job 병렬):
+1. 평소 PR title을 Conventional Commits 형식으로 작성 (`feat:`·`fix:`·`BREAKING CHANGE:` 등) — `pr-title-check.yml`이 PR 시점 강제. PR squash merge 시 PR title이 develop commit message가 됨
+2. 릴리즈 시점에 운영자가 최신 `develop` 에서 bump 실행:
+   ```bash
+   git checkout develop && git pull
+   uv run cz bump --yes            # pyproject version + CHANGELOG.md 갱신 + "bump: vX.Y.Z" commit + vX.Y.Z tag 생성 (모두 로컬)
+   git push origin develop --follow-tags    # bump commit + tag 동시 push
+   ```
+   `cz bump`이 마지막 tag 이후 Conventional Commits 를 분석해 semver bump 자동 결정 (아래 규칙).
+3. `develop` → `main` PR(merge method) 로 승격·머지 — main 이 develop 이력을 공유 (divergence 0, ADR 0028)
+4. tag(`v*`) push → `release.yml` 발사 (2 job 병렬):
    - `release-wheel` job: `uv build` (wheel + sdist) → SHA256SUMS → SBOM (cyclonedx-py) → Sigstore signing → GitHub Release 첨부
    - `release-image` job: docker buildx multi-arch build (`linux/amd64,arm64`) → GHCR push → cosign keyless image signing → BuildKit SBOM (SPDX) attestation
 
-semver bump 규칙 (Conventional Commits → release-please):
+   `cz bump` 이 만든 tag 는 로컬 개발자 자격증명으로 push 되므로 `release.yml` 이 정상 발사 (release-please bot 의 GITHUB_TOKEN 제약 없음).
 
-| PR type | bump | 예시 |
+semver bump 규칙 (Conventional Commits → Commitizen):
+
+| commit type | bump | 예시 |
 |---------|------|------|
 | `feat:` | MINOR | `feat: add diagnostic stale job cleanup` |
 | `fix:` / `perf:` | PATCH | `fix: handle null hostname in mapper` |
-| `feat!:` / `BREAKING CHANGE:` body | MAJOR | `feat!: rename routing key` |
+| `feat!:` / `BREAKING CHANGE:` body | MINOR (0.x 동안, `major_version_zero`) → 1.0 이후 MAJOR | `feat!: rename routing key` |
 | `docs:` / `chore:` / `refactor:` / `test:` / `build:` / `ci:` / `style:` / `revert:` | bump 없음 (CHANGELOG에만 누적) | `docs: clarify alembic policy` |
 
-0.x 동안엔 `bump-minor-pre-major: true`로 BREAKING이 MINOR로 다운 — 초기 개발 자유도 보존. 1.0.0 도달 시점에 manifest 정책 수동 변경 (ADR 0013).
+0.x 동안엔 `[tool.commitizen] major_version_zero = true` 로 BREAKING이 MINOR로 다운 — 초기 개발 자유도 보존. 1.0.0 도달 시점에 본 옵션 제거 (ADR 0028).
 
 수동 빌드 (로컬 dev 검증용 한정 — release 발사 아님):
 ```bash
@@ -114,6 +117,8 @@ cd /tmp/release && sha256sum -c SHA256SUMS
 
 - ADR 0005 — Alembic schema 관리 단일 진실 (migrations 동봉 사유)
 - ADR 0012 — wheel + GitHub Release 채택, Docker image·devpi·S3 등 옵션 비교
+- ADR 0013 — release-please 자동화 (Superseded by 0028)
+- ADR 0028 — Commitizen 전환 (release-please 폐기, git-flow 정합)
 
 ## 7. 한계
 

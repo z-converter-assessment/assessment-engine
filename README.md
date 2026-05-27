@@ -84,8 +84,8 @@
 
 ## CI 파이프라인
 
-- git flow — `feature/*` → `develop` PR → merge → `main` PR → merge → release-please가 Release PR 자동 생성 → merge → `v*` tag (release-please bot 자동 push) → release.
-- 사용자 push·tag 작성 없음 — 모두 GitHub Actions runner 안 자동. branch protection + Conventional Commits 강제.
+- git flow — `feature/*`·`fix/*` → `develop` PR(squash) → merge → 릴리즈 시 `develop` 에서 `cz bump`(version+CHANGELOG+`v*` tag) → `develop` → `main` PR(merge) → tag push → release (ADR 0028).
+- PR 머지는 사람이, 릴리즈 bump·tag 는 `cz bump` 가 자동 산출. branch protection + Conventional Commits 강제.
 
 | workflow | trigger | 검증·작업 |
 |----------|---------|------|
@@ -94,8 +94,7 @@
 | `alembic-check.yml` | develop PR · main PR | ORM·migrations 라운드트립 정합 |
 | `codeql.yml` | main PR · 주간 cron | CodeQL SAST (SQL injection·secret leak·XSS 정적 분석, Security 탭 alert) |
 | `security.yml` | main PR · 주간 cron (Mon 09:00 UTC) | pip-audit dependency CVE 검사 |
-| `release-please.yml` | push to main | commit 분석 → Release PR 자동 생성·갱신 (pyproject.toml version bump + CHANGELOG.md). Release PR merge 시점에 tag(`v*`) 자동 push |
-| `release.yml` | tag `v*` push | uv build wheel + sdist + SHA256SUMS + SBOM + Sigstore signature → GitHub Release 자동 첨부 |
+| `release.yml` | tag `v*` push (`cz bump` 산출) · workflow_dispatch | uv build wheel + sdist + SHA256SUMS + SBOM + Sigstore signature → GitHub Release + GHCR image(multi-arch) 자동 첨부 |
 
 본 repo는 CI 영역만 (코드 quality + artifact 생성). CD(배포·secret 주입·롤백)는 외부 인프라 책임.
 

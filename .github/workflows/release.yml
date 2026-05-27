@@ -5,9 +5,10 @@ name: release
 #   (2) Docker image (linux/amd64, linux/arm64) → GHCR push + cosign sign + SBOM (ADR 0017)
 # 외부 인프라는 wheel (systemd·venv) 또는 image (docker·k8s) 어느 채널이든 자유 선택.
 #
-# 수동 발사 — release-please bot의 GITHUB_TOKEN tag push가 다른 워크플로 트리거 안 함
-# (GitHub 보안 정책)이라 본 옵션으로 수동 trigger. 영구 해결은 release-please 측에 PAT 또는
-# GitHub App 사용.
+# 발사 trigger: 개발자가 `cz bump` 로 만든 semver tag(v*) push (ADR 0028).
+# cz bump 는 로컬 개발자 자격증명으로 tag 를 push 하므로 본 워크플로 정상 발사
+# (이전 release-please bot 의 GITHUB_TOKEN tag push 는 다른 워크플로 트리거 안 돼 App token 우회 필요했음 — cz 전환으로 제거).
+# workflow_dispatch 는 tag 누락·재발행 대비 수동 백업.
 
 on:
   push:
