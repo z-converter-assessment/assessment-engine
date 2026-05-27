@@ -13,7 +13,7 @@ class ServerDiskIo(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)
     server_id: Mapped[int] = mapped_column(Integer, ForeignKey("server_inventory.id"), nullable=False)
-    device: Mapped[str] = mapped_column(String(64), nullable=False)
+    device: Mapped[str] = mapped_column(String(128), nullable=False)  # Windows 디스크 이름 여유 (방어)
 
     reads_completed: Mapped[int | None] = mapped_column(BigInteger)
     writes_completed: Mapped[int | None] = mapped_column(BigInteger)

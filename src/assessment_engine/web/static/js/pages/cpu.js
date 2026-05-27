@@ -15,6 +15,7 @@ const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
 // body data attribute 단일 진실 (#E6 inline <script> 금지).
 const SERVER_ID = document.body.dataset.serverId;
 const CPU_CORES = parseInt(document.body.dataset.cpuCores, 10) || 4;
+const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 메트릭 N/A 분기
 
 // 로드 추이의 분해력+포화 기준 하이브리드 — 작은 값은 그대로 보여주되
 // suggestedMax(=cpu_cores)를 두어 "코어수=포화" 임계선이 시각에 자연스럽게 노출.
@@ -35,10 +36,10 @@ async function loadSnapshot() {
     document.getElementById('s-usage').textContent  = pct(cpu.usage_pct);
     document.getElementById('s-user').textContent   = pct(cpu.user_pct);
     document.getElementById('s-system').textContent = pct(cpu.system_pct);
-    document.getElementById('s-iowait').textContent = pct(cpu.iowait_pct);
-    document.getElementById('s-load1').textContent  = data.load_1m  != null ? data.load_1m.toFixed(2)  : '—';
-    document.getElementById('s-load5').textContent  = data.load_5m  != null ? data.load_5m.toFixed(2)  : '—';
-    document.getElementById('s-load15').textContent = data.load_15m != null ? data.load_15m.toFixed(2) : '—';
+    document.getElementById('s-iowait').textContent = ChartUtils.naWindows(OS_FAMILY, 'cpu_iowait', pct(cpu.iowait_pct));
+    document.getElementById('s-load1').textContent  = ChartUtils.naWindows(OS_FAMILY, 'load_1m', data.load_1m  != null ? data.load_1m.toFixed(2)  : '—');
+    document.getElementById('s-load5').textContent  = ChartUtils.naWindows(OS_FAMILY, 'load_5m', data.load_5m  != null ? data.load_5m.toFixed(2)  : '—');
+    document.getElementById('s-load15').textContent = ChartUtils.naWindows(OS_FAMILY, 'load_15m', data.load_15m != null ? data.load_15m.toFixed(2) : '—');
     if (data.collected_at) document.getElementById('snap-ts').textContent = '수집 기준: ' + fmtKst(data.collected_at);
     document.getElementById('snap-body').style.display = '';
   } catch(e) {

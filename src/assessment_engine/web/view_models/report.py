@@ -13,6 +13,7 @@ class ReportRowItem:
     hostname: str
     role: str
     is_online: bool
+    os_family: str | None  # "windows" 면 load/iowait 통계 N/A 표시
     os_display: str
     kernel_version: str | None
     internal_ip: str | None
@@ -51,9 +52,10 @@ class ReportRowItem:
     worst_mount_used_pct: float | None = None
     worst_mount_days_until_full: int | None = None
 
-    # Uptime + 재부팅 (양식 B 컬럼)
+    # Uptime + 재부팅 + 에이전트 재시작 (양식 B 컬럼 — anchor+window 카운트, 시스템 안정성)
     uptime_days: int | None = None
     reboot_count: int = 0
+    agent_restart_count: int = 0
 
     # Saturation — load_15m_max / cpu_cores. 1 이상이면 saturated. mapper에서 계산.
     saturation_ratio: float | None = None
@@ -94,6 +96,7 @@ class ReportRowItem:
     mem_variance_color: str = "#94a3b8"
     worst_mount_days_color: str = "#64748b"  # days_until_full 표시색 — 30일 이하 시 danger
     reboot_count_color: str = "#94a3b8"  # 3회 이상 시 danger
+    agent_restart_count_color: str = "#1e293b"  # 3회 이상 시 danger, 그 외 기본색
 
 
 @dataclass

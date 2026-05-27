@@ -3,7 +3,7 @@
 
 분기 풍부 (T13):
 - view: customer_report → 'customer', engineer_report → 'engineer'
-- scope: server (1대 vs N대 result_link 다름) vs environment (anchor_at 인코딩)
+- scope: server (1대 vs N대 result_link 라우터 다름) vs environment — 모두 `?job={id}` 정적 스냅샷
 - window_label: input_params.time_range 우선, 없으면 period_days fallback
 """
 
@@ -63,23 +63,26 @@ def test_view_label_from_job_type(job_type, expected_view, expected_label):
     assert item["view_label"] == expected_label
 
 
-# ─── server scope result_link — 1대 vs N대 분기 ─────────────────────────
+# ─── result_link — 발행된 정적 스냅샷 ?job={id} (scope/서버 수에 따라 라우터만 분기) ─────
+
+
+_JOB_ID = "00000000-0000-0000-0000-000000000001"
 
 
 def test_server_scope_single_server_link():
-    """server scope 1대 → /servers/{id}/report?view=...&time_range=... (단일 detail URL)."""
+    """server scope 1대 → /servers/{pid}/report?job={id} (단일 양식)."""
     rec = _rec(
         job_type="customer_report",
         scope="server",
         input_params={"server_public_ids": ["pid-only"], "time_range": "14d", "period_days": 14},
     )
     item = to_report_history_item(rec)
-    assert item["result_link"] == "/servers/pid-only/report?view=customer&time_range=14d"
+    assert item["result_link"] == f"/servers/pid-only/report?job={_JOB_ID}"
     assert item["server_count"] == 1
 
 
 def test_server_scope_multi_server_link():
-    """server scope N대 → /servers/report?ids=...&view=...&time_range=... (다중 N대 양식)."""
+    """server scope N대 → /servers/report?job={id} (N대 표 양식)."""
     rec = _rec(
         job_type="engineer_report",
         scope="server",
@@ -90,12 +93,12 @@ def test_server_scope_multi_server_link():
         },
     )
     item = to_report_history_item(rec)
-    assert item["result_link"] == "/servers/report?ids=pid-a,pid-b,pid-c&view=engineer&time_range=7d"
+    assert item["result_link"] == f"/servers/report?job={_JOB_ID}"
     assert item["server_count"] == 3
 
 
-def test_server_scope_zero_servers_link_no_ids():
-    """server_public_ids 없음 (희소 케이스) → ids 빈 string. server_count=0."""
+def test_server_scope_zero_servers_link():
+    """server_public_ids 없음 (희소) → /servers/report?job={id}. server_count=0."""
     rec = _rec(
         job_type="customer_report",
         scope="server",
@@ -103,14 +106,11 @@ def test_server_scope_zero_servers_link_no_ids():
     )
     item = to_report_history_item(rec)
     assert item["server_count"] == 0
-    assert item["result_link"] == "/servers/report?ids=&view=customer&time_range=14d"
+    assert item["result_link"] == f"/servers/report?job={_JOB_ID}"
 
 
-# ─── environment scope result_link — anchor_at 인코딩 ────────────────────
-
-
-def test_environment_scope_link_without_anchor():
-    """environment scope + anchor_at 미존재 → view + time_range 만 query 에 포함."""
+def test_environment_scope_link():
+    """environment scope → /reports/environment?job={id} (anchor/윈도우는 스냅샷에 보관)."""
     rec = _rec(
         job_type="customer_report",
         scope="environment",
@@ -118,25 +118,19 @@ def test_environment_scope_link_without_anchor():
         result={},
     )
     item = to_report_history_item(rec)
-    assert item["result_link"] == "/reports/environment?view=customer&time_range=14d"
+    assert item["result_link"] == f"/reports/environment?job={_JOB_ID}"
     assert item["server_count"] == 0  # environment scope 는 server_public_ids 없음
 
 
-def test_environment_scope_link_with_anchor_encodes_plus_sign():
-    """environment scope + anchor_at UTC offset (`+00:00`) → URL safe `%2B00%3A00` 인코딩.
-
-    URL `+` 가 space 로 해석되어 라우터 422 발생 회귀 방지 (mapper._result_link 안 quote(safe="")).
-    """
+def test_link_with_back_appends_referrer():
+    """back 전달 시 ?job={id}&back={referrer} chain."""
     rec = _rec(
         job_type="engineer_report",
         scope="environment",
-        input_params={"time_range": "30d", "period_days": 30},
-        result={"anchor_at": "2026-05-20T12:00:00+00:00"},
+        input_params={"time_range": "30d"},
     )
-    item = to_report_history_item(rec)
-    # `+` → `%2B`, `:` → `%3A` (safe="" 라 모두 인코딩).
-    assert "anchor_at=2026-05-20T12%3A00%3A00%2B00%3A00" in item["result_link"]
-    assert item["result_link"].startswith("/reports/environment?view=engineer&time_range=30d&anchor_at=")
+    item = to_report_history_item(rec, back="%2Freports%2Fhistory")
+    assert item["result_link"] == f"/reports/environment?job={_JOB_ID}&back=%2Freports%2Fhistory"
 
 
 # ─── _window_label / _resolve_time_range 분기 ───────────────────────────
@@ -178,8 +172,8 @@ def test_window_label_fallback_to_period_days_fraction():
     assert item["window_label"] == "0.5일"
 
 
-def test_resolve_time_range_prefers_input_over_result():
-    """input_params.time_range 가 result.time_range 보다 우선."""
+def test_window_label_prefers_input_over_result():
+    """window_label — input_params.time_range 가 result.time_range 보다 우선."""
     rec = _rec(
         job_type="customer_report",
         scope="server",
@@ -187,11 +181,10 @@ def test_resolve_time_range_prefers_input_over_result():
         result={"time_range": "30d"},
     )
     item = to_report_history_item(rec)
-    # result_link 의 time_range 는 input_params 우선.
-    assert "time_range=6h" in item["result_link"]
+    assert item["window_label"] == "6시간"
 
 
-def test_resolve_time_range_falls_back_to_result():
+def test_window_label_falls_back_to_result_time_range():
     """input_params.time_range 없음 → result.time_range 사용 (옛 row 호환)."""
     rec = _rec(
         job_type="customer_report",
@@ -200,11 +193,11 @@ def test_resolve_time_range_falls_back_to_result():
         result={"time_range": "24h"},
     )
     item = to_report_history_item(rec)
-    assert "time_range=24h" in item["result_link"]
+    assert item["window_label"] == "24시간"
 
 
-def test_resolve_time_range_default_14d_when_both_missing():
-    """input_params·result 모두 time_range 없음 → "14d" 기본값 (mapper 정책)."""
+def test_window_label_default_when_both_missing():
+    """time_range 없음 + period_days 없음 → period_days 기본 14 → "14일"."""
     rec = _rec(
         job_type="customer_report",
         scope="server",
@@ -212,7 +205,7 @@ def test_resolve_time_range_default_14d_when_both_missing():
         result=None,
     )
     item = to_report_history_item(rec)
-    assert "time_range=14d" in item["result_link"]
+    assert item["window_label"] == "14일"
 
 
 # ─── to_report_history_item 응답 dict shape ───────────────────────────

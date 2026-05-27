@@ -38,19 +38,19 @@ async def test_invariant_normal_no_redis_call_no_log():
     """정상 메시지 → 즉시 return, Redis 호출도 로그도 없음."""
     redis = AsyncMock()
     msg = _normal_msg()
-    msg.host_id = "m-normal"
+    msg.composite_id = "m-normal"
     with patch("assessment_engine.consumer.handlers._common.logger") as mock_logger:
         await _log_time_invariants(redis, msg)
     redis.set.assert_not_awaited()
     mock_logger.warning.assert_not_called()
 
 
-def _attach_identity(msg, host_id: str, hostname: str = "test-host-01"):
-    """test fixture (ServerMetricCreate dataclass) 에 MessageBase identity (host_id·hostname) 동적 부여.
+def _attach_identity(msg, composite_id: str, hostname: str = "test-host-01"):
+    """test fixture (ServerMetricCreate dataclass) 에 MessageBase identity (composite_id·hostname) 동적 부여.
 
-    cooldown_key 가 (host_id, hostname) 복합으로 변경된 이후 둘 다 필요.
+    cooldown_key 가 (composite_id, hostname) 복합으로 변경된 이후 둘 다 필요.
     """
-    msg.host_id = host_id
+    msg.composite_id = composite_id
     msg.hostname = hostname
 
 

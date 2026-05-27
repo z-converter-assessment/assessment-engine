@@ -13,6 +13,7 @@ const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, RANGE_MS, COLORS,
 
 const SERVER_ID = document.body.dataset.serverId;
 const CPU_CORES = parseInt(document.body.dataset.cpuCores, 10) || null;
+const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows load·iowait 미측정 차트 N/A 분기
 
 
 const PERF_IOPS_SUGGESTED_MAX = 200;              // HDD 랜덤 I/O 한계(~100–200 IOPS) 기준
@@ -28,7 +29,7 @@ const COLOR_DANGER  = '#ef4444';
 const colorByMountPct = v => v >= USAGE_DANGER_PCT ? COLOR_DANGER : v >= USAGE_WARN_PCT ? COLOR_WARN : COLOR_NEUTRAL;
 const colorBySwapPct  = v => v >= SWAP_DANGER_PCT  ? COLOR_DANGER : COLOR_NEUTRAL;
 
-const PHYS_DISK_RE = /^(sd[a-z]+|vd[a-z]+|hd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$/;
+const PHYS_DISK_RE = /^(sd[a-z]+|vd[a-z]+|hd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+|PhysicalDrive\d+)$/;
 function isPhysicalDisk(name) { return PHYS_DISK_RE.test(name); }
 
 let globalRange = '24h';
@@ -187,6 +188,12 @@ async function loadSwapChart(capturedRange, capturedAnchor) {
 }
 
 async function loadLoadChart(capturedRange, capturedAnchor) {
+  if (OS_FAMILY === 'windows') {  // Windows load average 미측정 — 차트 대신 N/A
+    if (chartInstances['load-canvas']) { chartInstances['load-canvas'].destroy(); delete chartInstances['load-canvas']; }
+    document.getElementById('load-canvas').style.display = 'none';
+    const e = document.getElementById('load-empty'); e.textContent = 'N/A — Windows 미측정'; e.style.display = '';
+    updateMaxLabel('load-max', null, v => v.toFixed(2), null); return;
+  }
   const seq = ++seqs.load;
   const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
   const grid = makeBucketGrid(capturedRange, capturedAnchor);
@@ -219,6 +226,12 @@ async function loadLoadChart(capturedRange, capturedAnchor) {
 }
 
 async function loadIowaitChart(capturedRange, capturedAnchor) {
+  if (OS_FAMILY === 'windows') {  // Windows iowait 미측정 — 차트 대신 N/A
+    if (chartInstances['iowait-canvas']) { chartInstances['iowait-canvas'].destroy(); delete chartInstances['iowait-canvas']; }
+    document.getElementById('iowait-canvas').style.display = 'none';
+    const e = document.getElementById('iowait-empty'); e.textContent = 'N/A — Windows 미측정'; e.style.display = '';
+    updateMaxLabel('iowait-max', null, v => v.toFixed(1) + '%', null); return;
+  }
   const seq = ++seqs.iowait;
   const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
   const grid = makeBucketGrid(capturedRange, capturedAnchor);

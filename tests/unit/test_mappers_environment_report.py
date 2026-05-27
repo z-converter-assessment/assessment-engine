@@ -38,6 +38,7 @@ def _make_row(public_id: str, hostname: str, rec: str = "optimal") -> ReportRowI
         public_id=public_id,
         hostname=hostname,
         role="other",
+        os_family=None,
         os_display="ubuntu 22.04",
         kernel_version="6.5.0",
         internal_ip="10.0.0.1",

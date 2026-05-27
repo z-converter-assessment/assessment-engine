@@ -7,10 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class MessageBase(BaseModel):
-    # B4 계약 진화 정책 — `extra=ignore`로 agent가 새 필드 추가해도 엔진은 통과·무시. 자식 클래스 상속.
+    # 계약 진화 정책 (#B) — `extra=ignore`로 agent가 새 필드 추가해도 엔진은 통과·무시. 자식 클래스 상속.
     model_config = ConfigDict(extra="ignore")
 
-    host_id: str = Field(min_length=1, max_length=64)
+    composite_id: str = Field(min_length=1, max_length=64)
+    # machine_id — raw machine-id, 표시 전용 (식별·라우팅은 composite_id). 옛 agent 미발행 호환 nullable.
+    machine_id: str | None = Field(default=None, max_length=64)
     agent_version: str = Field(min_length=1, max_length=32)
     collected_at: datetime
     hostname: str = Field(min_length=1, max_length=255)
@@ -53,7 +55,8 @@ class InventoryListenPortInfo(BaseModel):
     proto: Literal["tcp", "tcp6", "udp", "udp6"]
     addr: str = Field(min_length=1, max_length=64)
     port: int = Field(ge=1, le=65535)
-    uid: int = Field(ge=0)
+    # Windows agent 는 POSIX uid 미존재로 null 발행 — nullable (Linux 만 값). #B 플랫폼 차이.
+    uid: int | None = Field(default=None, ge=0)
     pid: int | None = None
     comm: str | None = Field(default=None, max_length=64)
 
@@ -89,6 +92,10 @@ class InventoryInput(MessageBase):
             ip_address(str(item))
         return v
 
+    # mac_addresses — NIC별 MAC 목록 (lowercase·정렬·dedup, 빈 배열 가능). 다중 NIC 라 단일 식별 불가
+    # (composite_id 가 sha256 으로 흡수). raw 목록은 clone collision 감사용 보존 (payload-schema v3.3).
+    mac_addresses: list[str] = Field(default_factory=list)
+
     disks: list[DiskInfo] = Field(default_factory=list)
     mounts: list[InventoryMountInfo] = Field(default_factory=list)
     services: list[InventoryServiceInfo] | None = None
@@ -112,7 +119,7 @@ class CpuStat(BaseModel):
 
 
 class DiskIoInfo(BaseModel):
-    device: str = Field(min_length=1, max_length=64)
+    device: str = Field(min_length=1, max_length=128)  # Windows 디스크 이름 여유 (방어)
     reads_completed: int | None = Field(default=None, ge=0)
     writes_completed: int | None = Field(default=None, ge=0)
     sectors_read: int | None = Field(default=None, ge=0)
@@ -131,7 +138,8 @@ class MetricsMountInfo(BaseModel):
 
 
 class NetIoInfo(BaseModel):
-    interface: str = Field(min_length=1, max_length=64)
+    # Windows 인터페이스는 WFP/QoS 필터 드라이버 체인 이름이라 매우 김 (NDIS 한계 256). raw 수용.
+    interface: str = Field(min_length=1, max_length=256)
     rx_bytes: int | None = Field(default=None, ge=0)
     tx_bytes: int | None = Field(default=None, ge=0)
     rx_packets: int | None = Field(default=None, ge=0)
@@ -184,12 +192,13 @@ class ErrorInput(MessageBase):
 class TaskResultInput(MessageBase):
     """원격 작업 실행 결과 수신 메시지.
 
-    공통 메타(host_id 등)는 MessageBase. boot_time / agent_started_at은
-    본 메시지에서는 항상 null (수집 캐시와 분리된 worker 컨텍스트에서 발행) —
-    부모 required 필드를 nullable로 override.
+    공통 메타(composite_id 등)는 MessageBase. composite_id / boot_time / agent_started_at은
+    본 메시지에서는 null 가능 (수집 캐시와 분리된 worker 컨텍스트에서 발행 — composite_id 미산출) —
+    부모 required 필드를 nullable로 override. 결과 매칭은 task_id 로 하므로 composite_id 불필요.
     """
 
     message_type: Literal["task.result"]
+    composite_id: str | None = Field(default=None, min_length=1, max_length=64)
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
 

@@ -81,6 +81,18 @@ def test_boot_time_value_also_allowed() -> None:
     assert data.agent_started_at is not None
 
 
+def test_composite_id_nullable_for_task_result() -> None:
+    """ADR 0027 — worker 컨텍스트는 composite hash 미산출. task.result 한정 composite_id nullable override.
+
+    결과 매칭은 task_id 로 하므로 composite_id 불필요 — agent worker 가 키 자체를 안 보내도 수용.
+    """
+    payload = make_task_result_payload()
+    del payload["composite_id"]
+    data = _validate(payload)
+    assert data.composite_id is None
+    assert data.status == "success"
+
+
 # ─── ADR 0007 4 ERROR 회귀 가드 ────────────────────────────────────────────
 
 

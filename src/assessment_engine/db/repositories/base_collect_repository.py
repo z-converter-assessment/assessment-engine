@@ -29,12 +29,12 @@ class BaseCollectRepository(ABC):
     """
 
     @abstractmethod
-    async def find_server_id(self, host_id: str) -> int | None:
-        """host_id 단일 키로 server_inventory.id 조회. 없으면 None."""
+    async def find_server_id(self, composite_id: str) -> int | None:
+        """composite_id 단일 키로 server_inventory.id 조회. 없으면 None."""
 
     @abstractmethod
     async def upsert_server(self, data: ServerInventoryCreate) -> int:
-        """host_id UNIQUE 키 ON CONFLICT DO UPDATE upsert. server_inventory.id 반환.
+        """composite_id UNIQUE 키 ON CONFLICT DO UPDATE upsert. server_inventory.id 반환.
 
         부수효과: 직전 행과 비교 시 변경(또는 신규) 감지되면 server_inventory_history에
         한 행 append (앱 레벨 trigger). 1시간 주기 재발행이라도 정적 정보 동일하면 history 그대로.
@@ -43,7 +43,7 @@ class BaseCollectRepository(ABC):
     @abstractmethod
     async def ensure_server_id(
         self,
-        host_id: str,
+        composite_id: str,
         fallback: ServerInventoryCreate,
     ) -> tuple[int, bool]:
         """find_server_id 시도 후, 없으면 fallback inventory로 upsert.
@@ -51,7 +51,7 @@ class BaseCollectRepository(ABC):
         metrics 핸들러의 auto-register 흐름을 캡슐화.
 
         반환: (server_id, auto_registered).
-            - auto_registered=True: host_id 가 server_inventory에 없어서
+            - auto_registered=True: composite_id 가 server_inventory에 없어서
               fallback으로 새로 등록. 호출자는 placeholder임을 인지하고 운영 로그 남김.
             - auto_registered=False: 기존 server_id 사용. fallback 미사용.
         """

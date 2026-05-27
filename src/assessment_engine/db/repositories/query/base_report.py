@@ -40,6 +40,19 @@ class BaseReportQueryRepository(ABC):
         """
 
     @abstractmethod
+    async def report_agent_restart_stats(
+        self,
+        server_ids: list[int],
+        period_days: int,
+        end: datetime,
+    ) -> dict[int, int]:
+        """server_id -> period 안 agent_started_at 변경(에이전트 재시작) 횟수.
+
+        report_uptime_stats(재부팅)와 동일 산식 — agent_started_at DISTINCT count - 1.
+        보고서 anchor+window 안 카운트 (#F10) — 호스트 상세 "시스템 안정성" 컬럼 표시.
+        """
+
+    @abstractmethod
     async def report_disk_io_baseline(
         self,
         server_ids: list[int],

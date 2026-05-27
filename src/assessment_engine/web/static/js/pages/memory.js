@@ -13,6 +13,7 @@ const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         buildAvgMaxDatasets } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
+const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 메트릭 N/A 분기
 
 function fmtKb(kb) {
   if (kb == null) return '—';
@@ -38,8 +39,8 @@ async function loadSnapshot() {
     document.getElementById('s-mem-total').textContent   = fmtKb(mem.total_kb);
     document.getElementById('s-mem-used').textContent    = fmtKb(usedKb);
     document.getElementById('s-mem-avail').textContent   = fmtKb(mem.available_kb);
-    document.getElementById('s-mem-cached').textContent  = fmtKb(mem.cached_kb);
-    document.getElementById('s-mem-buffers').textContent = fmtKb(mem.buffers_kb);
+    document.getElementById('s-mem-cached').textContent  = ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtKb(mem.cached_kb));
+    document.getElementById('s-mem-buffers').textContent = ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtKb(mem.buffers_kb));
 
     if (swap) {
       const swapUsedKb = swap.total_kb != null && swap.used_kb != null ? swap.used_kb : null;

@@ -9,11 +9,11 @@ name: security
 # 본 repo 책임: CI 영역의 의존성 보안. 인프라 측은 image scanning(Trivy 등)으로 보완 가능.
 
 on:
-  # paths 조건 제거 — main/develop PR 시 항상 발화. branch protection required status check
-  # 등록 시 paths skip → check 자체 N/A → 머지 block 함정 회피 (특히 main PR 강화).
-  # pip-audit (~1min) 부담 미약. 의존성 CVE 검증을 매 PR 의무화.
+  # paths 조건 제거 — main PR 시 항상 발화. branch protection required status check
+  # 등록 시 paths skip → check 자체 N/A → 머지 block 함정 회피.
+  # 의존성 CVE는 release gate(main PR) + 정기 cron(main)으로 검증. develop PR/push마다는 과함.
   pull_request:
-    branches: [main, develop]
+    branches: [main]
   schedule:
     - cron: '0 9 * * 1'
   workflow_dispatch:
@@ -31,9 +31,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12'
           cache: 'pip'

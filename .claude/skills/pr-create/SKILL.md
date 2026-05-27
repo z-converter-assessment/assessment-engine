@@ -5,7 +5,7 @@ description: TRIGGER when user requests PR creation ("PR 만들어줘", "/pr-cre
 
 # pr-create — PR 생성
 
-브랜치 전략은 `/push` skill, 커밋 컨벤션은 `/commit` skill 참조 (단일 진실).
+커밋 컨벤션은 `/commit` skill 참조. 브랜치 전략: main(배포 — 직접 push 금지) / develop(통합 — PR 머지) / feature·fix·chore(작업). main/master 직접 push 는 `.githooks/pre-push` 가 차단.
 
 ## Base 브랜치 정책 (본 프로젝트)
 
@@ -26,11 +26,7 @@ main 은 배포 branch — 강화 의무 (운영자가 release-please bot 외 �
 3. PR body 추가 명시:
    - "main PR 사유" 절 (hotfix · release · 기타) 강제
    - hotfix 면 영향 receive 운영자 가시화
-4. CI 통과 의무 검증 (push skill pre-check 보다 강함):
-   - `ci.yml` (ruff + pytest unit/integration + coverage + uv build wheel) 의 모든 job 통과 가정
-   - `alembic-check.yml` paths 무관 발화 (본 repo 정책 — branches `[main,develop]` 모두 paths 없음)
-   - `security.yml` paths 무관 발화 (동일)
-   - `codeql.yml` SAST 통과 (CI 측 — 로컬 검증 X, 단 main PR 후 SAST fail 시 즉시 revert 의무)
+4. CI 통과 의무 검증: `bash dev/local-ci.sh main` 으로 전체 로컬 재현 (워크플로 카탈로그는 `.github/workflows/` 단일 진실). codeql 은 CLI 미설치 시 skip — CI 가 최종 SAST.
 
 ## PR template 우선 (본 프로젝트 의무)
 
@@ -74,17 +70,9 @@ PR title 작성 패턴 (정합):
 - NG: `feat: ZDM 직접 fetch` (Z 대문자 시작)
 - NG: `feat: Add new endpoint` (A 대문자 시작)
 
-### B. 코드 검증 (병렬 Bash 실행 — commit skill 0번 step + tests)
+### B. 코드 검증 — base PR 대상 모드로 `dev/local-ci.sh` 실행
 
-- `uv run ruff check .` — lint 위반 0 의무
-- `uv run ruff format --check .` — format drift 0 의무
-- `uv run pytest tests/unit -q` — 단위 테스트 통과 의무 (PR 시점은 사용자 confirm 없이 실행 — CI 가 어차피 실행할 검증을 미리)
-- `git diff origin/develop...HEAD --name-only` 결과가 다음 paths 포함 시 추가:
-  - `src/assessment_engine/db/models/` 또는 `migrations/` → `uv run alembic check`
-  - `pyproject.toml` 또는 `uv.lock` → `uv lock --check`
-  - integration test 영향 큰 경우 `uv run pytest tests/integration -q` 도 권유 (시간 길어 사용자 confirm 후만)
-
-실패 항목 있으면 PR 발행 차단 — 원인 수정 + 새 commit + 재시도. 사용자에게 옵션 제시.
+base=develop -> `bash dev/local-ci.sh develop` (ruff·hadolint·unit·alembic·integration). base=main -> `bash dev/local-ci.sh main` (전부 + release 산출물). 검증 범위는 스크립트 단일 진실. NG 항목 있으면 PR 발행 차단 — 원인 수정 + 새 commit 후 재시도.
 
 ## 사전 분석 (병렬 Bash)
 

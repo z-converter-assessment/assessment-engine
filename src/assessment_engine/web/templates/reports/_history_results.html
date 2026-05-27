@@ -19,6 +19,8 @@
       <td>
         {% if it.scope == "environment" %}
         환경 전체 ({{ it.server_count }}대)
+        {% elif it.server_count == 1 %}
+        1개
         {% else %}
         선택 {{ it.server_count }}대
         {% endif %}

@@ -6,7 +6,7 @@
 
 import re
 
-_PHYS_DISK_RE = re.compile(r"^(sd[a-z]+|vd[a-z]+|hd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$")
+_PHYS_DISK_RE = re.compile(r"^(sd[a-z]+|vd[a-z]+|hd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+|PhysicalDrive\d+)$")
 _LVM_DISK_RE = re.compile(r"^(dm-\d+|md\d+)$")
 _PART_DISK_RE = re.compile(r"^(sd[a-z]+\d+|vd[a-z]+\d+|hd[a-z]+\d+|xvd[a-z]+\d+|nvme\d+n\d+p\d+|mmcblk\d+p\d+)$")
 

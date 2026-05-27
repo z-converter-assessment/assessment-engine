@@ -20,7 +20,11 @@ ruff 위반(E501 line-too-long · F841 unused · I001 import 정렬 등)은 hook
 
 ## 2. Hook 강제 채널 (#F1 부속)
 
-`.claude/hooks/` PostToolUse hook이 강제하는 위반(exit 2 → system-reminder 피드백)은 위 Warning 우선순위와 별개의 강제 채널 — 즉시 수정. IDE Info-Hint와 달리 Claude 컨텍스트로 직접 피드백되므로 묻힐 위험 없음.
+두 종류의 hook이 강제한다 — Claude Code PostToolUse hook(편집 시점)과 git hook(commit/push 시점). 둘 다 skill(opt-in 가이드)과 별개의 게이트 — 누가 어떤 경로로 작업하든 적용.
+
+### Claude Code hook (`.claude/hooks/`, 편집 시점)
+
+PostToolUse hook이 강제하는 위반(exit 2 → system-reminder 피드백)은 위 Warning 우선순위와 별개의 강제 채널 — 즉시 수정. IDE Info-Hint와 달리 Claude 컨텍스트로 직접 피드백되므로 묻힐 위험 없음.
 
 | 위반 | 적용 범위 | Hook |
 |------|----------|------|
@@ -31,6 +35,19 @@ ruff 위반(E501 line-too-long · F841 unused · I001 import 정렬 등)은 hook
 | 글로벌 — 비키보드 unicode 기호·이모지 (예시: 절기호, 양방향 화살표, 체크/엑스 표식, 부등호 기호, 가운뎃점 글머리표 등) | 모든 파일 | `conventions-check.sh` |
 
 hook 파일 자체(`.claude/hooks/*`)는 패턴 정의를 포함하므로 self-skip — `.claude/hooks/` 경로는 검사 안 함.
+
+### git hook (`.githooks/`, commit/push 시점)
+
+`core.hooksPath = .githooks` (dev/local-ci.sh가 idempotent하게 자동 설정 — clone별 로컬 설정).
+
+| 위반 | 시점 | Hook |
+|------|------|------|
+| 커밋 메시지 type prefix 컨벤션 위반 | commit-msg | `commit-msg` |
+| AI 메타데이터 (Co-Authored-By: Claude / Generated with Claude Code) | commit-msg | `commit-msg` |
+| 이모지·장식 기호 | commit-msg | `commit-msg` |
+| main/master 직접 push | pre-push | `pre-push` |
+
+불가피 시 `--no-verify` 우회 가능하나 권장 안 함 — CI(`pr-title-check.yml`)가 PR title을 별도 강제.
 
 ## 3. 자동화 변환 검증 (#F5 부속)
 

@@ -458,13 +458,15 @@ class QueryService:
         period_days: float = 14,
         view: ReportView = "customer",
         time_range: str = "14d",
+        anchor_at: datetime | None = None,
     ) -> "EnvironmentReportSummary":
         """단일 서버 보고서 — 환경 보고서 양식 (`get_environment_report`) 의 1대 scope 변형.
 
-        선택 N대 보고서 (`/servers/report?ids=...`) 의 hostname link 클릭 시 진입.
-        보고서 이력의 1대 row link 도 본 함수 호출. 환경 보고서와 동일 양식 (overview·attention·rows·top_risks).
+        발행(POST /servers/report/emit, ids 1개) 시 스냅샷 합성 + 이력 1대 row link 진입.
+        환경 보고서와 동일 양식 (overview·attention·rows·top_risks).
+        anchor_at: 발행 시점 기준 시각 (None 이면 현재) — worker narrative 와 같은 윈도우 재현.
         """
-        end_dt = datetime.now(UTC)
+        end_dt = anchor_at if anchor_at is not None else datetime.now(UTC)
         sid_map = await self.repo.resolve_server_ids([server_public_id])
         if server_public_id not in sid_map:
             return None  # type: ignore[return-value]
@@ -550,6 +552,7 @@ class QueryService:
         raws = await self.repo.report_aggregate(server_ids, period_days, end_dt)
         mount_worst = await self.repo.report_mount_worst(server_ids, period_days, end_dt)
         uptime_stats = await self.repo.report_uptime_stats(server_ids, period_days, end_dt)
+        agent_restart_stats = await self.repo.report_agent_restart_stats(server_ids, period_days, end_dt)
         disk_io = await self.repo.report_disk_io_baseline(server_ids, period_days, end_dt)
         net_io = await self.repo.report_net_io_baseline(server_ids, period_days, end_dt)
 
@@ -559,6 +562,7 @@ class QueryService:
             if mount_tuple is not None:
                 raw.worst_mount, raw.worst_mount_used_pct, raw.worst_mount_days_until_full = mount_tuple
             raw.reboot_count = uptime_stats.get(raw.server_id, 0)
+            raw.agent_restart_count = agent_restart_stats.get(raw.server_id, 0)
             disk_tuple = disk_io.get(raw.server_id)
             if disk_tuple is not None:
                 (

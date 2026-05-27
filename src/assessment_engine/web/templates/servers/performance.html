@@ -33,8 +33,10 @@
   </div>
 </div>
 
-<!-- 2열 그리드 -->
-<div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+<!-- 반응형 카드 그리드 — 넓은 화면 2열, 좁은 화면(< ~800px) 1열 자동 collapse.
+     repeat(auto-fit, minmax(min(100%, 380px), 1fr)) 로 컬럼 너비 균등 + 좁을 때 squish 없이 1열.
+     align-items:start — 같은 행 카드가 서로 강제 stretch 안 됨 (legend 유무로 높이 달라도 상단 정렬). -->
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap:20px; align-items:start;">
 
   <!-- 서버 정보 -->
   <div class="card">
@@ -74,8 +76,10 @@
       {% endif %}
       <dt>Boot Time</dt>
       <dd>{{ server.boot_time | kst }}</dd>
+      <dt>Composite ID</dt>
+      <dd><code style="font-size:11px;">{{ server.composite_id }}</code></dd>
       <dt>Machine ID</dt>
-      <dd><code style="font-size:11px;">{{ server.host_id }}</code></dd>
+      <dd><code style="font-size:11px;">{{ server.machine_id or '-' }}</code></dd>
       <dt>Agent</dt>
       <dd>{{ server.agent_version | or_dash }}</dd>
     </dl>
@@ -239,4 +243,4 @@
 <script src="/static/js/pages/performance.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} data-server-id="{{ server.public_id }}" data-cpu-cores="{{ server.cpu_cores if server.cpu_cores is not none else '' }}"{% endblock %}
+{% block body_attrs %} data-server-id="{{ server.public_id }}" data-cpu-cores="{{ server.cpu_cores if server.cpu_cores is not none else '' }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}

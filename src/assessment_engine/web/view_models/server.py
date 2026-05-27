@@ -35,7 +35,7 @@ class ListenPortItem:
     proto: str
     addr: str
     port: int
-    uid: int
+    uid: int | None  # Windows agent null 호환 (POSIX uid 미존재)
     pid: int | None
     comm: str | None
     is_well_known: bool = False  # port <= 1024. mapper에서 계산 (P2)
@@ -72,9 +72,11 @@ class ServerListItem:
 class ServerDetailResponse:
     id: int
     public_id: str
-    host_id: str
+    composite_id: str
+    machine_id: str | None  # raw machine-id 표시 전용
     hostname: str
     agent_version: str | None
+    os_family: str | None  # "linux" | "windows" — Windows 미측정 메트릭 N/A 표시 분기 (표시 경계)
     os_id: str | None
     os_version: str | None
     os_codename: str | None

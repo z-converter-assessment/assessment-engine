@@ -96,7 +96,7 @@ Prometheus (인프라)              Web 컨테이너
 
 ## Request / Correlation ID 분산 trace
 
-본 프로젝트 현재 미적용 — HTTP 측 `X-Request-ID` 없음, MQ `message_id` 는 멱등성 키로만 활용. 로그는 식별자 (host_id·server_id) 별 grep 으로 trace.
+본 프로젝트 현재 미적용 — HTTP 측 `X-Request-ID` 없음, MQ `message_id` 는 멱등성 키로만 활용. 로그는 식별자 (composite_id·server_id) 별 grep 으로 trace.
 
 ### 정석 패턴 (도입 시)
 

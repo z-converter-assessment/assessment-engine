@@ -242,7 +242,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
 
         window_start = start - bucket_td (LAG 시 첫 행의 d_total/d_active 계산을 위해 한 버킷 앞 데이터 필요).
 
-        reset 식별 (calculator와 동일 정책 — CLAUDE.md B1):
+        reset 식별 (calculator와 동일 정책 — CLAUDE.md #C1):
         - boot_time != prev_boot → 시스템 재부팅 → NULL (단순 음수가 아닌 진짜 reset)
         - d_total <= 0 또는 d_num < 0 → NULL (옛 데이터 휴리스틱 fallback / wrap-around)
         - 정상: d_num * 100 / d_total
@@ -340,7 +340,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         table·dim_col·value_col은 _RATE_PER_DIM dispatch 매핑으로 whitelist.
         dimension이 있으면 그 dimension만 필터.
 
-        reset 식별 우선순위 (calculator와 동일 정책 — CLAUDE.md B1):
+        reset 식별 우선순위 (calculator와 동일 정책 — CLAUDE.md #C1):
         ① dt 검증: dt <= 0 (동일 시점·역행) → NULL. dt 자체는 분모일 뿐 1분/3분 무관 — 실제 시간으로 자연 정규화.
         ② boot_time 검증: boot_time != prev_boot → 시스템 재부팅 → NULL (reset 확정).
         ③ 음수 delta: d_val < 0 → NULL (옛 데이터 휴리스틱 fallback / wrap-around).

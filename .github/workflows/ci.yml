@@ -4,18 +4,22 @@ name: ci
 # 책임: 코드 quality 보증(빌드·테스트·lint). CD(배포·secret 주입·롤백)는 인프라 repo 영역 (CLAUDE.md #A0).
 #
 # Job 정합 그래프:
-#   lint  ───┬─> test-unit ──┐
-#            │               └─> test-integration
-#            └─> build ──────┘
+#   lint ──┬─> test-unit ─> test-integration
+#          └─> build
 #
-# lint(가장 빠른 fast-fail) 통과 후 test-unit · build 병렬. 둘 다 통과 후 integration.
+# PR base·event별 발화 분기 (역할 분리 — 같은 검증 2회 금지):
+#   develop PR  : lint + test-unit (integration·build skip — 경량 게이트)
+#   develop push: lint + test-unit + test-integration (merge 후 통합 검증 1회 보충)
+#   main PR     : 전부 (release gate — full 검증)
+#   main push   : ci 미발화 (release-please만 — main PR에서 full 통과 + branch protection이 gate 강제)
 
 on:
   pull_request:
     branches: [main, develop]
-  # PR 검증 후 merge 시점 안전망 — branch protection 누락·admin override·force-push 보호.
+  # merge 후 develop 통합 검증(test-integration) 보충용 — PR이 경량 게이트라 무거운 검증을 여기서 1회.
+  # main push는 ci 미발화: main PR full 검증 완료 + branch protection이 직접 push·red merge를 차단.
   push:
-    branches: [main, develop]
+    branches: [develop]
 
 permissions:
   contents: read
@@ -31,9 +35,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -50,7 +54,7 @@ jobs:
 
       # Dockerfile lint — dev 한정이지만 best practice 정합. info 수준은 fail 아님.
       - name: hadolint Dockerfile
-        uses: hadolint/hadolint-action@v3.3.0
+        uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
         with:
           dockerfile: Dockerfile
           failure-threshold: warning
@@ -61,9 +65,9 @@ jobs:
     needs: [lint]
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -81,7 +85,7 @@ jobs:
         run: uv run pytest tests/unit/ -v --cov=assessment_engine --cov-report=term --cov-report=xml:coverage-unit.xml
 
       - name: Upload unit coverage artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-unit
           path: coverage-unit.xml
@@ -91,11 +95,13 @@ jobs:
     name: wheel build
     runs-on: ubuntu-latest
     needs: [lint]
+    # 산출물(wheel) 검증은 main PR에서만 — release gate. tag push 시 release.yml이 sign+publish 별도 수행.
+    if: github.base_ref == 'main'
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -119,7 +125,7 @@ jobs:
           /tmp/wheel-smoke/bin/python -c "from importlib.resources import files; p = files('assessment_engine'); assert (p / 'web' / 'templates' / 'base.html').is_file(); assert (p / 'web' / 'static' / 'js' / 'chart-utils.js').is_file(); assert (p / '_migrations' / 'env.py').is_file(); assert (p / '_alembic.ini').is_file()"
 
       - name: Upload wheel artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheel
           path: dist/*.whl
@@ -128,12 +134,15 @@ jobs:
   test-integration:
     name: pytest (integration)
     runs-on: ubuntu-latest
-    needs: [test-unit, build]
+    needs: [test-unit]
+    # PR: develop=skip(경량 게이트) / main=run(release gate). push: develop merge 후 통합 검증 1회.
+    # wheel build 의존 제거 — integration은 소스로 동작, build와 독립 (develop push에서 build skip돼도 무관).
+    if: github.event_name == 'push' || github.base_ref == 'main'
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -150,7 +159,7 @@ jobs:
         run: uv run pytest tests/integration/ -v --cov=assessment_engine --cov-report=term --cov-report=xml:coverage-integration.xml
 
       - name: Upload integration coverage artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-integration
           path: coverage-integration.xml

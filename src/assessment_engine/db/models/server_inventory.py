@@ -11,12 +11,13 @@ from assessment_engine.db.models.base import Base
 class ServerInventory(Base):
     """등록 호스트 인벤토리.
 
-    Unique 식별 = `host_id` 단일 (ADR 0022 — composite hash 단일 식별자).
+    Unique 식별 = `composite_id` 단일 (SHA-256 composite hash, agent v4 계약 — ADR 0022 정정).
+    machine_id 는 raw machine-id 표시 전용 (식별·라우팅 미사용).
     hostname 은 display field (운영자 변경 가능, UNIQUE 제약 X).
     """
 
     __tablename__ = "server_inventory"
-    __table_args__ = (UniqueConstraint("host_id", name="uq_server_inventory_host_id"),)
+    __table_args__ = (UniqueConstraint("composite_id", name="uq_server_inventory_composite_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     public_id: Mapped[str] = mapped_column(
@@ -25,7 +26,11 @@ class ServerInventory(Base):
         unique=True,
         nullable=False,
     )
-    host_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # composite_id — SHA-256 composite hash (agent v4). 호스트 식별 단일 키 (UNIQUE).
+    composite_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # machine_id — raw machine-id (Linux /etc/machine-id, Windows MachineGuid). 표시 전용 —
+    # 식별·라우팅은 composite_id. 옛 agent(미발행) 호환 위해 nullable.
+    machine_id: Mapped[str | None] = mapped_column(String(64))
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     agent_version: Mapped[str | None] = mapped_column(String(32))
 
@@ -48,6 +53,8 @@ class ServerInventory(Base):
 
     ip_internal: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     ip_external: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    # mac_addresses — NIC MAC 목록 (clone collision 감사용 raw 보존). 식별·라우팅 미사용 (composite_id 단일).
+    mac_addresses: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
     disks: Mapped[list[Any] | None] = mapped_column(JSONB)
     mounts: Mapped[list[Any] | None] = mapped_column(JSONB)

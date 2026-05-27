@@ -76,6 +76,7 @@ def _raw(
         server_id=server_id,
         public_id=public_id,
         hostname=hostname,
+        os_family=None,
         os_id=os_id,
         os_version=os_version,
         kernel_version=kernel_version,
@@ -221,7 +222,8 @@ def _detail(*, id_, hostname, cpu_cores, mem_total_kb, disk_size, role_unit=None
     return ServerDetail(
         id=id_,
         public_id=f"p{id_}",
-        host_id=f"m{id_}",
+        composite_id=f"m{id_}",
+        machine_id=None,
         hostname=hostname,
         agent_version="1.0",
         os_family=None,
@@ -797,7 +799,8 @@ def test_inventory_export_network_addresses_v4_v6_split():
     detail = ServerDetail(
         id=1,
         public_id="p1",
-        host_id="m1",
+        composite_id="m1",
+        machine_id=None,
         hostname="h",
         agent_version="1.0",
         os_family=None,
@@ -834,7 +837,8 @@ def test_inventory_export_services_listeners_match_listen_ports():
     detail = ServerDetail(
         id=1,
         public_id="p1",
-        host_id="m1",
+        composite_id="m1",
+        machine_id=None,
         hostname="h",
         agent_version="1.0",
         os_family=None,
@@ -872,7 +876,8 @@ def test_inventory_export_services_listeners_fallback_when_no_listen_ports():
     detail = ServerDetail(
         id=1,
         public_id="p1",
-        host_id="m1",
+        composite_id="m1",
+        machine_id=None,
         hostname="h",
         agent_version="1.0",
         os_family=None,

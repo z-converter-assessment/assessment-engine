@@ -46,7 +46,7 @@ storage 페이지 mount → disk 매칭 + `_split_disks` (Inventory JSON Export�
 - Kleinrock 큐잉 이론(1975): under (CPU p95 >=70%)
 - Linux page cache: under (MEM p95 >=80%)
 
-UI badge 임계값(`mappers._USAGE_DANGER_PCT=90`/`_USAGE_WARN_PCT=75`)과는 별 도메인 — 시점 사용량 시각 신호 vs 14일 통계 right-sizing 결정.
+UI badge 임계값(`mappers/shared.py` `_USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
 
 ## 대시보드 상단 요약 — environment_overview + attention
 

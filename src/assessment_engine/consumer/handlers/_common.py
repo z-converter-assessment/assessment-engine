@@ -94,7 +94,7 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
     if data.boot_time <= data.agent_started_at and data.agent_started_at <= data.collected_at:
         return  # invariant 정상 — 즉시 종료
     cooldown_key = consumer_settings.redis_key_time_invariant_warned.format(
-        data.host_id,
+        data.composite_id,
         data.hostname,
     )
     set_result = await safe_set_nx(redis, cooldown_key, "1", consumer_settings.redis_ttl_time_invariant_warned)
@@ -102,21 +102,21 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
         return  # 쿨다운 윈도우 안 — silent skip
     if data.boot_time > data.agent_started_at:
         logger.warning(
-            "time invariant violated boot_time>agent_started_at host_id={} boot_time={} agent_started_at={}",
-            data.host_id,
+            "time invariant violated boot_time>agent_started_at composite_id={} boot_time={} agent_started_at={}",
+            data.composite_id,
             data.boot_time,
             data.agent_started_at,
         )
     if data.agent_started_at > data.collected_at:
         logger.warning(
-            "time invariant violated agent_started_at>collected_at host_id={} agent_started_at={} collected_at={}",
-            data.host_id,
+            "time invariant violated agent_started_at>collected_at composite_id={} agent_started_at={} collected_at={}",
+            data.composite_id,
             data.agent_started_at,
             data.collected_at,
         )
 
 
-async def _track_agent_restart(redis: Redis, server_id: int, host_id: str, agent_started_at: datetime) -> None:
+async def _track_agent_restart(redis: Redis, server_id: int, composite_id: str, agent_started_at: datetime) -> None:
     """직전 agent_started_at과 비교 → 변경 시 1h 슬라이딩 윈도우 카운터 INCR.
 
     threshold 도달 시 warning 로그 (운영자가 "에이전트 crash loop"으로 인지). 시스템 재부팅도
@@ -134,8 +134,8 @@ async def _track_agent_restart(redis: Redis, server_id: int, host_id: str, agent
         count = await safe_incr_with_ttl(redis, counter_key, consumer_settings.redis_ttl_agent_restarts)
         if count is not None and count >= consumer_settings.agent_restart_alert_threshold:
             logger.warning(
-                "agent restart frequency alert host_id={} server_id={} count={}/h threshold={}",
-                host_id,
+                "agent restart frequency alert composite_id={} server_id={} count={}/h threshold={}",
+                composite_id,
                 server_id,
                 count,
                 consumer_settings.agent_restart_alert_threshold,

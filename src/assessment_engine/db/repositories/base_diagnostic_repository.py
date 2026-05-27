@@ -132,6 +132,16 @@ class BaseDiagnosticRepository(ABC):
         ...
 
     @abstractmethod
+    async def save_report_snapshot(self, job_id: str, result: dict) -> None:
+        """발행 시점 보고서 snapshot 을 result 에 저장 (status pending 유지).
+
+        engineer 보고서 발행 — web 이 ViewModel snapshot 을 result 에 저장(pending 유지), worker 가
+        pending job 을 받아 mark_running -> narrative 생성 -> mark_succeeded(snapshot + narrative).
+        customer 는 본 메서드 없이 발행 즉시 mark_succeeded.
+        """
+        ...
+
+    @abstractmethod
     async def mark_failed(self, job_id: str, error_message: str) -> None:
         """status → failed, error_message 저장, finished_at=now()."""
         ...
@@ -145,11 +155,11 @@ class BaseDiagnosticRepository(ABC):
         job_type: str | None = None,
         limit: int = 200,
     ) -> list["DiagnosticJobRecord"]:
-        """최근 N일 발행 이력 (AI 진단 + 보고서 통합). scope·server_public_ids·job_type 필터 옵션. created_at DESC.
+        """최근 N일 보고서 발행 이력. scope·server_public_ids·job_type 필터 옵션. created_at DESC.
 
-        이력 페이지(`/diagnostics/history`)용. 모든 상태(pending/running/succeeded/failed) 포함.
+        보고서 이력 페이지(`/reports/history`)용. 모든 상태(pending/running/succeeded/failed) 포함.
         server_public_ids 지정 시 input_params JSONB에서 ANY 매칭 (server scope job만 자연 필터).
-        job_type 미지정은 전체 (AI 진단 + 보고서 통합 표시).
+        job_type 미지정은 전체 (customer_report + engineer_report).
         """
         ...
 

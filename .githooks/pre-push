@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# git pre-push hook — main/master 직접 push 차단 (강제 게이트).
+# 설치: git config core.hooksPath .githooks (dev/local-ci.sh 가 자동 설정).
+# 정책 단일 진실: .claude/skills/push/SKILL.md (main 은 PR 경유, release 는 release-please/tag 흐름).
+# skill 은 작성 가이드(opt-in), 본 hook 은 최종 게이트.
+set -euo pipefail
+
+# stdin: <local ref> <local sha> <remote ref> <remote sha> (push 대상 ref 마다 1줄)
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/master)
+      echo "pre-push 거부: $remote_ref 직접 push 금지 — PR 경유 (base develop)." >&2
+      echo "  release 는 release-please / tag(v*) 흐름. 불가피 시 --no-verify (권장 안 함)." >&2
+      exit 1
+      ;;
+  esac
+done
+exit 0
