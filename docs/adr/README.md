@@ -18,7 +18,7 @@
 | 0010 | 진단 규칙 기반 한정 | Accepted | "AI 진단" 명칭 제거 (scope에 따라 환경/서버 진단). LLM 분기 보류 (mock default·ollama 미구현 유지). ADR 0003·0004 정정 |
 | 0011 | Prometheus metrics endpoint | Accepted | `/metrics` 노출 (web 한정) — prometheus-fastapi-instrumentator. 인프라가 자유롭게 Prometheus stack 결정 |
 | 0012 | CI 산출물 = wheel + GitHub Release | Accepted | Python wheel 단일 artifact (migrations·alembic.ini 동봉) + tag(v*) → GitHub Release 자동. Dockerfile·docker-compose는 dev 한정 (`docker-compose.prod.yml` 제거) |
-| 0013 | release-please 자동화 | Accepted | Conventional Commits 기반 자동 semver bump + Release PR + tag push. main 직접 commit·tag 수동 작성 없음 (PR 강제 + branch protection 정합) |
+| 0013 | release-please 자동화 | Superseded by 0028 | Conventional Commits 기반 자동 semver bump + Release PR + tag push. release-please(트렁크 전용)가 develop git-flow 와 구조 충돌 — 0028 Commitizen 으로 대체 |
 | 0014 | Diagnostic 발행 책임 분리 | Accepted | `DiagnosticSubmitter` (`diagnostic/submitter.py`) 신규 — scheduler 노드 `web.services` 의존 끊김. web service 는 호환 re-export + 조회/기록 유지 |
 | 0015 | UI 임계값 단일 진실 (body data-attribute) | Accepted | `mappers._USAGE_*_PCT`/`_SWAP_DANGER_PCT` → `template_setup.env.globals["ui_thresholds"]` → `base.html` body data-attribute → JS `document.body.dataset`. P4 임계 분류 hardcoded drift 제거 |
 | 0016 | self-host install bundle 제거 + ZDM 본체 패키지 직접 fetch (0008·0009 supersede) | Accepted | `web/routers/payloads.py` 삭제. task.install download.url 을 ZDM host + `ZDM_PACKAGE_PATH` 로 조립. sha256·size 는 env 단일 진실, 미설정 시 publish 차단(503). Linux 만 지원 |
@@ -33,6 +33,7 @@
 | 0025 | LLM 단일 provider 통합 (ollama), mock 폐기 | Proposed | mock vs ollama 분기 제거 → 단일 `OllamaLlmClient` 통합. `LLM_PROVIDER`·`LLM_MOCK_LATENCY_SECONDS` env 제거. dev/prod 일관 LLM 호출. ADR 0004 LLM 토글 + 0010 LLM 분기 보류 supersede. 외부 유료 API 도입은 별도 ADR 의무 |
 | 0026 | dev 가상화 스택 Lima -> OrbStack 전환 | Accepted | Lima(yaml·limactl·user-mode 네트워킹) -> OrbStack(orb create·통합 네트워크). `host.docker.internal`(VM·컨테이너 -> host) + `<name>.orb.local`(probe -> agent VM 직접). yaml provision -> post-provision 흡수, lima yaml 4개 삭제. ADR 0018 ZDM mock 좌표 대체(host.lima.internal -> host.docker.internal). OrbStack(로컬 dev)은 0006 OpenStack(prod)과 별개 |
 | 0027 | composite_id 단일 식별 + machine_id 표시 분리 (agent v4) | Accepted | agent v4 가 host_id -> machine_id(raw) + composite_id(SHA-256 hash) 분리. 엔진 식별 단일 키 = composite_id (ADR 0022 host_id 역할 전면 대체) — server_inventory UNIQUE·task 라우팅(`agent.tasks.{composite_id}`)·URL 매핑. machine_id 표시 전용(nullable). Windows agent 합류(os_family·수치 정규화·플랫폼 부재 필드 null/0, listen_ports.uid nullable). revision b3e1d7f9a2c4 |
+| 0028 | Commitizen 전환 (release-please 폐기) | Accepted | release-please(트렁크 전용·main 에만 릴리즈 커밋)가 develop git-flow 와 구조 충돌 (squash+linear ruleset 하 영구 divergence). Commitizen `cz bump` 으로 대체 — develop 에서 version+CHANGELOG+tag, develop->main merge 승격. ruleset linear history 제거 + merge commit 허용. 0013 supersede |
 
 트레이드오프 카탈로그(T1~T13)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 

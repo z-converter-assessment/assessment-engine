@@ -24,7 +24,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "assessment-engine"
-version = "0.1.0"  # x-release-please-version (release-please 자동 bump)
+version = "0.1.0"  # cz bump 자동 갱신 ([tool.commitizen] version_provider = pep621, ADR 0028)
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.136.0",
