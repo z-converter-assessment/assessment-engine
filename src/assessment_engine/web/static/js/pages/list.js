@@ -147,7 +147,7 @@ const reportEngineerBtn = document.getElementById('report-engineer-btn');
   const descEl = document.getElementById('env-report-desc');
   const rangeSel = document.getElementById('env-report-range');
   const anchorInput = document.getElementById('env-report-anchor');
-  // 문구 단일 진실 — AI 진단 발행 모달 패턴(#diagnose-modal) 과 어조 통일.
+  // 문구 단일 진실 — 선택 N대/서버 1대 보고서 발행 모달과 어조 통일.
   const _VIEW_TITLES = { customer: '환경 고객 보고서 발행', engineer: '환경 엔지니어 보고서 발행' };
   const _VIEW_DESCS = {
     customer: '전체 등록 서버 대상 Right-sizing 규칙 기반 고객 보고서 발행. 새 탭으로 이동합니다.',
@@ -400,104 +400,12 @@ installCloseBtn.addEventListener('click', hideInstallModal);
 installModal.addEventListener('click', e => { if (e.target === installModal) hideInstallModal(); });
 installSubmitBtn.addEventListener('click', submitInstall);
 
-// --- 서버 진단 batch 발행 (선택 N대, scope=server) ---
-const diagModal     = document.getElementById('diagnose-modal');
-const diagBtn       = document.getElementById('diagnose-btn');
-const diagCloseBtn  = document.getElementById('diag-close');
-const diagSubmitBtn = document.getElementById('diag-submit');
-const diagCountEl   = document.getElementById('diag-count');
-const diagRangeSel  = document.getElementById('diag-range');
-
-function refreshDiagButton() {
-  if (!diagBtn) return;
-  const n = selectedRows().length;
-  diagBtn.disabled = n === 0;
-}
-
-// row checkbox change listener는 이미 line 254에 등록됨 (refreshInstallButton).
-// reassign으로는 등록된 reference가 안 갱신되므로 별도 listener 추가.
-document.querySelectorAll('.row-select').forEach(cb => {
-  cb.addEventListener('change', refreshDiagButton);
-});
-if (selectAllCb) {
-  selectAllCb.addEventListener('change', refreshDiagButton);
-}
-refreshDiagButton();
-
-function showDiagModal() {
-  const rows = selectedRows();
-  if (rows.length === 0) return;
-  diagCountEl.textContent = rows.length;
-  diagModal.style.display = 'flex';
-}
-
-// 페이지 로드 시점에 #diag-anchor 기본값 채움 — 모달 open 시 reset 안 함 (사용자 변경값 보존).
-if (window.ChartUtils && window.ChartUtils.initAnchor && document.getElementById('diag-anchor')) {
-  window.ChartUtils.initAnchor('diag-anchor');
-}
-
 // Install 모달 input — 브라우저 autocomplete 우회. value attribute 값(defaultValue) 강제 적용.
 // autocomplete="off" 만으로 일부 브라우저(Chrome 일부 버전)에서 history 덮어쓰기 가능 — 2중 가드.
 ['install-zdm-target', 'install-zdm-account'].forEach(id => {
   const el = document.getElementById(id);
   if (el && el.defaultValue) el.value = el.defaultValue;
 });
-
-function hideDiagModal() {
-  diagModal.style.display = 'none';
-}
-
-async function submitDiag() {
-  const rows = selectedRows();
-  if (rows.length === 0) { ToastUtils.show('선택된 서버 없음', 'err'); return; }
-  const time_range = diagRangeSel.value;
-  let anchor_at = null;
-  if (window.ChartUtils && window.ChartUtils.getAnchorEnd) {
-    const d = window.ChartUtils.getAnchorEnd('diag-anchor');
-    if (d) anchor_at = d.toISOString();
-  }
-
-  diagSubmitBtn.disabled = true;
-  const pending = ToastUtils.show(`서버 진단 발행 중 (${rows.length}대)...`, 'pending');
-  try {
-    const res = await fetch('/api/diagnostics', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        scope: 'server',
-        server_ids: rows.map(r => r.dataset.publicId),
-        time_range,
-        anchor_at,
-      }),
-    });
-    pending.remove();
-    if (!res.ok) {
-      const detail = await res.text();
-      ToastUtils.show(`서버 진단 발행 실패 (HTTP ${res.status}): ${detail}`, 'err');
-      return;
-    }
-    const data = await res.json();
-    const ids = (data.job_ids || []).join(',');
-    if (!ids) {
-      ToastUtils.show('발행 결과 없음', 'err');
-      return;
-    }
-    // 결과 페이지로 이동 — 페이지에서 N개 polling
-    window.location.href = `/diagnostics?ids=${encodeURIComponent(ids)}`;
-  } catch (e) {
-    pending.remove();
-    ToastUtils.show('서버 진단 요청 실패: ' + e.message, 'err');
-  } finally {
-    diagSubmitBtn.disabled = false;
-  }
-}
-
-if (diagBtn) {
-  diagBtn.addEventListener('click', showDiagModal);
-  diagCloseBtn.addEventListener('click', hideDiagModal);
-  diagModal.addEventListener('click', e => { if (e.target === diagModal) hideDiagModal(); });
-  diagSubmitBtn.addEventListener('click', submitDiag);
-}
 
 // 필터 form 즉시 client-side 적용 — server reload 없이 row hide/show + URL 갱신.
 // tr 마다 data-* attribute (data-hostname / data-is-online / data-os-id / data-classification / data-services)

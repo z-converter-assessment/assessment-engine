@@ -155,11 +155,11 @@ class BaseDiagnosticRepository(ABC):
         job_type: str | None = None,
         limit: int = 200,
     ) -> list["DiagnosticJobRecord"]:
-        """최근 N일 발행 이력 (AI 진단 + 보고서 통합). scope·server_public_ids·job_type 필터 옵션. created_at DESC.
+        """최근 N일 보고서 발행 이력. scope·server_public_ids·job_type 필터 옵션. created_at DESC.
 
-        이력 페이지(`/diagnostics/history`)용. 모든 상태(pending/running/succeeded/failed) 포함.
+        보고서 이력 페이지(`/reports/history`)용. 모든 상태(pending/running/succeeded/failed) 포함.
         server_public_ids 지정 시 input_params JSONB에서 ANY 매칭 (server scope job만 자연 필터).
-        job_type 미지정은 전체 (AI 진단 + 보고서 통합 표시).
+        job_type 미지정은 전체 (customer_report + engineer_report).
         """
         ...
 

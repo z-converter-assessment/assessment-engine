@@ -55,8 +55,8 @@
                 |                                  |
  +------------------------------------------------------------------+
  |  FastAPI (uvicorn, port 8000)                                    |
- |  - SSR  : dashboard / detail / env+server report / diagnostics   |
- |  - REST : discovery / tasks / exports / diagnostics              |
+ |  - SSR  : dashboard / detail / env+server report + history       |
+ |  - REST : discovery / tasks / exports / diagnostics (poll)       |
  |  - SSE  : live metrics (Consumer PUB -> Redis -> SSE)            |
  |  - /metrics : Prometheus scrape target (ADR 0011)                |
  |  - plain HTTP (dev) ; prod = external ingress (out of scope)     |
@@ -126,7 +126,7 @@
 |----------|------|------|
 | web | `python -m assessment_engine.web` | FastAPI UI·REST·SSE·`/metrics` (HTTP :8000) |
 | consumer | `python -m assessment_engine.consumer` | inventory/metrics/error/task.result 소비·저장 |
-| diagnostic-worker | `python -m assessment_engine.diagnostic` | 진단 요청 소비 (web POST 트리거) |
+| diagnostic-worker | `python -m assessment_engine.diagnostic` | engineer 보고서 narrative 합성 (web 발행 트리거) |
 
 전제: Python 3.12+ / PostgreSQL 16 (`timescaledb` + `vector` extension) / RabbitMQ 3.13+ / Redis 7+. 백킹 서비스는 외부 인프라가 준비 (엔진은 도달 가능만 전제).
 

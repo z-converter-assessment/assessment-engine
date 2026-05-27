@@ -1,16 +1,21 @@
 """서버 보고서 SSR — 선택 N대 (`/servers/report`) + 단일 1대 (`/servers/{id}/report`).
 
 server scope 보고서. 환경 단위 high-level 보고서는 `/reports/environment` 별도 endpoint (T13).
+
+발행/표시 분리 (PRG):
+- POST `/servers/report/emit` (ids 1개=단일 양식, 2개+=N대 표 양식) — 발행 시점 정적 스냅샷 + (engineer) narrative
+  worker 발행. 응답 view_url = `?job={id}` (단일은 `/servers/{pid}/report?job=`).
+- GET `?job={id}` — 저장된 정적 스냅샷 렌더 (재계산·재진단 없음, 이력 동적변화 0).
+- GET (job 없음) — live read-only preview. 진단 트리거 없음 (engineer narrative 영역은 "발행 시 생성" 표시).
 """
 
 from collections import Counter
+from datetime import datetime
 from typing import Literal
 from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from loguru import logger
-from sqlalchemy.exc import SQLAlchemyError
 
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_RANGE_DAYS,
@@ -18,9 +23,18 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
     DiagnosticTimeRange,
 )
 from assessment_engine.web.deps import get_diagnostic_service, get_service
-from assessment_engine.web.services.diagnostic_service import DiagnosticService
+from assessment_engine.web.services.diagnostic_service import DiagnosticService, _normalize_anchor
 from assessment_engine.web.services.query_service import QueryService
+from assessment_engine.web.services.report_serializer import (
+    REPORT_KIND_ENV,
+    REPORT_KIND_SUMMARY,
+    env_report_from_dict,
+    env_report_to_dict,
+    report_summary_from_dict,
+    report_summary_to_dict,
+)
 from assessment_engine.web.templating import templates
+from assessment_engine.web.view_models.attention import AttentionSignals
 
 report_page_router = APIRouter()
 
@@ -30,40 +44,76 @@ _REPORT_VIEW_TITLES: dict[str, str] = {
 }
 
 
-def _period_days_to_diagnostic_range(period_days: int) -> str:
-    """보고서 period_days → AI 진단 time_range 매핑. AI 진단 시간 윈도우 = 보고서와 동기.
+def _attention_for_host(hostname: str, attention: AttentionSignals) -> dict[str, str]:
+    """1대 호스트 운영 신호 (gap/os_eol/restart) lookup — 발행 시 aux 캡처 + live preview 공용."""
+    out: dict[str, str] = {}
+    for row in attention.gap_warnings:
+        if row.link_text == hostname:
+            out["gap"] = row.badge_text
+    for row in attention.os_eol_warnings:
+        if row.link_text == hostname:
+            out["os_eol"] = row.meta_text
+    for row in attention.agent_unstable:
+        if row.link_text == hostname:
+            out["restart"] = row.badge_text
+    return out
 
-    DIAGNOSTIC_RANGE_DAYS valid: 15m / 1h / 6h / 24h / 7d / 14d / 30d.
-    """
-    if period_days >= 30:
-        return "30d"
-    if period_days >= 14:
-        return "14d"
-    if period_days >= 7:
-        return "7d"
-    return "24h"
+
+def _attention_by_host(hostnames: set[str], attention: AttentionSignals) -> dict[str, dict[str, str]]:
+    """선택 N대 운영 신호 lookup dict {hostname: {gap, os_eol, restart}} — 발행 aux + live preview 공용."""
+    by_host: dict[str, dict[str, str]] = {h: {} for h in hostnames}
+    for row in attention.gap_warnings:
+        if row.link_text in by_host:
+            by_host[row.link_text]["gap"] = row.badge_text
+    for row in attention.os_eol_warnings:
+        if row.link_text in by_host:
+            by_host[row.link_text]["os_eol"] = row.meta_text
+    for row in attention.agent_unstable:
+        if row.link_text in by_host:
+            by_host[row.link_text]["restart"] = row.badge_text
+    return by_host
+
+
+def _report_kpis(rows, attention_by_host: dict[str, dict[str, str]]) -> dict:
+    """KPI grid 카운트 — 정적 snapshot rows + attention_by_host 에서 재계산 (P3 정공, 결정적)."""
+    rec_counts = Counter(r.recommendation for r in rows)
+    attn_gap_count = sum(1 for a in attention_by_host.values() if a.get("gap"))
+    attn_eol_count = sum(1 for a in attention_by_host.values() if a.get("os_eol"))
+    attn_restart_count = sum(1 for a in attention_by_host.values() if a.get("restart"))
+    return {
+        "under_count": rec_counts.get("under_provisioned", 0),
+        "optimize_count": (
+            rec_counts.get("over_provisioned", 0) + rec_counts.get("idle", 0) + rec_counts.get("shutdown", 0)
+        ),
+        "optimal_count": rec_counts.get("optimal", 0),
+        "attn_active_count": sum(1 for a in attention_by_host.values() if a),
+        "attn_gap_count": attn_gap_count,
+        "attn_eol_count": attn_eol_count,
+        "attn_restart_count": attn_restart_count,
+        "attn_active_kpi_cols": sum(1 for c in (attn_gap_count, attn_eol_count, attn_restart_count) if c > 0) or 1,
+    }
 
 
 @report_page_router.get("/report")
 async def report(
     request: Request,
-    ids: str = Query(..., description="comma-separated public_id 목록 (선택 N대)"),
-    time_range: DiagnosticTimeRange = Query(
-        "14d", description="윈도우 — AI 진단 / 환경 보고서와 동일 7개 (15m/1h/6h/24h/7d/14d/30d)"
-    ),
-    view: Literal["customer", "engineer"] = Query("customer", description="고객용(A) / 엔지니어용(B) 분기"),
-    back: str | None = Query(None, description="← 이전 link 의 referrer (서버 상세 등). 미명시 시 /servers/"),
+    ids: str | None = Query(None, description="comma-separated public_id 목록 (live preview). job 모드 시 무시"),
+    job: str | None = Query(None, description="발행된 보고서 job_id — 정적 스냅샷 렌더"),
+    time_range: DiagnosticTimeRange = Query("14d", description="윈도우 (live preview). job 모드 시 input_params 사용"),
+    view: Literal["customer", "engineer"] = Query("customer", description="고객용(A) / 엔지니어용(B) (live preview)"),
+    back: str | None = Query(None, description="← 이전 link 의 referrer. 미명시 시 /servers/"),
     service: QueryService = Depends(get_service),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """Server scope 보고서 표시 — GET 은 read-only (P3 분리). 발행 record 는 POST /servers/report/emit 책임.
+    """Server scope N대 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview."""
+    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
+    self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 
-    환경 단위 high-level 보고서는 별도 endpoint (`/reports/environment`) — 양식·데이터 다름 (T13).
-    데이터 소스: USE Method 통계 (CPU/MEM p95·peak + swap + load_15m max). 분류는 service 측.
-    진단 컬럼: 14일 latest succeeded 진단 N개 batch fetch (#C5 N+1 회피).
-    페이지 진입 자체로는 이력 row 생성 안 함 — 이력 "다시 보기" / 북마크 / 직접 URL read-only.
-    """
-    public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
+    if job:
+        return await _render_summary_snapshot(request, job, back_url, self_back, diag_service)
+
+    # live read-only preview — 진단 트리거 없음 (engineer narrative 영역은 "발행 시 생성").
+    public_ids = [pid.strip() for pid in (ids or "").split(",") if pid.strip()]
     sid_map = await service.resolve_server_ids(public_ids)
     server_ids = [sid_map[pid] for pid in public_ids if pid in sid_map]
     if not server_ids:
@@ -71,46 +121,8 @@ async def report(
 
     period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
     summary = await service.get_report(server_ids, period_days, view=view)
-    # AI 진단 = 보고서 흐름 안 inline 통합 (engineer view 만). 보고서 진입 시 anchor + time_range 기반
-    # latest succeeded fetch — 없으면 자동 submit + pending job_ids context 전달 (template 안 polling JS).
-    diagnostics_by_pid: dict = {}
-    pending_job_ids: dict = {}
-    if view == "engineer":
-        diag_map = await diag_service.ensure_latest_or_submit("server", public_ids, time_range)
-        diagnostics_by_pid = {pid: entry.get("panel") for pid, entry in diag_map.items()}
-        pending_job_ids = {pid: entry.get("job_id") for pid, entry in diag_map.items() if entry.get("job_id")}
-    # 서버별 detail section — 운영 신호 발화 status (hostname 기준 lookup dict).
-    # attention 은 환경 전체 합성이지만 본 보고서는 선택 N대 한정이라 선택 server hostname 만 lookup.
     attention = await service.get_attention_signals()
-    selected_hostnames = {r.hostname for r in summary.rows}
-    attention_by_host: dict[str, dict[str, str]] = {h: {} for h in selected_hostnames}
-    for row in attention.gap_warnings:
-        if row.link_text in attention_by_host:
-            attention_by_host[row.link_text]["gap"] = row.badge_text
-    for row in attention.os_eol_warnings:
-        if row.link_text in attention_by_host:
-            attention_by_host[row.link_text]["os_eol"] = row.meta_text
-    for row in attention.agent_unstable:
-        if row.link_text in attention_by_host:
-            attention_by_host[row.link_text]["restart"] = row.badge_text
-
-    # KPI grid 합성 — Right-sizing 분류 카운트 + 운영 신호 발화 호스트 수 (사용자 의도: 위험도 명칭 제거).
-    rec_counts = Counter(r.recommendation for r in summary.rows)
-    under_count = rec_counts.get("under_provisioned", 0)
-    optimize_count = rec_counts.get("over_provisioned", 0) + rec_counts.get("idle", 0) + rec_counts.get("shutdown", 0)
-    optimal_count = rec_counts.get("optimal", 0)
-    attn_active_count = sum(1 for a in attention_by_host.values() if a)
-    attn_gap_count = sum(1 for a in attention_by_host.values() if a.get("gap"))
-    attn_eol_count = sum(1 for a in attention_by_host.values() if a.get("os_eol"))
-    attn_restart_count = sum(1 for a in attention_by_host.values() if a.get("restart"))
-    attn_active_kpi_cols = sum(1 for c in (attn_gap_count, attn_eol_count, attn_restart_count) if c > 0) or 1
-
-    # 발행 record 는 POST /servers/report/emit 책임 (PRG 분리) — GET 는 read-only.
-
-    # back url validation — same-origin path (시작 '/' 강제, '//' 제외 — open redirect 방어)
-    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
-    # 현재 URL (path + query) 을 single server detail link 의 back query 로 전달 — 뒤로가기 보장.
-    self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
+    attention_by_host = _attention_by_host({r.hostname for r in summary.rows}, attention)
     return templates.TemplateResponse(
         request=request,
         name="servers/report.html",
@@ -118,107 +130,179 @@ async def report(
             "summary": summary,
             "view": view,
             "view_title": _REPORT_VIEW_TITLES[view],
-            "diagnostics_by_pid": diagnostics_by_pid,
-            "pending_job_ids": pending_job_ids,
+            "narratives": {},
+            "narrative_status": "none",
+            "report_job_id": None,
+            "child_jobs": {},
             "back_url": back_url,
             "attention_by_host": attention_by_host,
-            "under_count": under_count,
-            "optimize_count": optimize_count,
-            "optimal_count": optimal_count,
-            "attn_active_count": attn_active_count,
-            "attn_gap_count": attn_gap_count,
-            "attn_eol_count": attn_eol_count,
-            "attn_restart_count": attn_restart_count,
-            "attn_active_kpi_cols": attn_active_kpi_cols,
             "self_back": self_back,
             "time_range": time_range,
             "time_range_label": DIAGNOSTIC_RANGE_LABEL_KR.get(time_range, time_range),
+            **_report_kpis(summary.rows, attention_by_host),
+        },
+    )
+
+
+async def _render_summary_snapshot(
+    request: Request,
+    job_id: str,
+    back_url: str,
+    self_back: str,
+    diag_service: DiagnosticService,
+):
+    """발행된 N대 보고서 정적 스냅샷 렌더 (ReportSummary) + narrative/운영신호 (aux)."""
+    rec = await diag_service.get_one(job_id)
+    if rec is None or rec.result is None or rec.result.get("kind") != REPORT_KIND_SUMMARY:
+        raise HTTPException(status_code=404, detail="report snapshot not found")
+    result = rec.result
+    summary = report_summary_from_dict(result["snapshot"])
+    view = result.get("view", "engineer")
+    time_range = rec.input_params.get("time_range", "14d")
+    attention_by_host = result.get("aux", {}).get("attention_by_host", {})
+    return templates.TemplateResponse(
+        request=request,
+        name="servers/report.html",
+        context={
+            "summary": summary,
+            "view": view,
+            "view_title": _REPORT_VIEW_TITLES.get(view, view),
+            "narratives": result.get("narratives", {}),
+            "narrative_status": result.get("narrative_status", "none"),
+            "report_job_id": rec.id,
+            "child_jobs": result.get("child_jobs", {}),
+            "back_url": back_url,
+            "attention_by_host": attention_by_host,
+            "self_back": self_back,
+            "time_range": time_range,
+            "time_range_label": DIAGNOSTIC_RANGE_LABEL_KR.get(time_range, time_range),
+            **_report_kpis(summary.rows, attention_by_host),
         },
     )
 
 
 @report_page_router.post("/report/emit")
 async def report_emit(
-    ids: str = Query(..., description="comma-separated public_id 목록 (선택 N대)"),
+    ids: str = Query(..., description="comma-separated public_id 목록 (1개=단일 양식, 2개+=N대 표)"),
     time_range: DiagnosticTimeRange = Query("14d"),
     view: Literal["customer", "engineer"] = Query("customer"),
+    anchor_at: str | None = Query(None, description="발행 기준 시각 (ISO 8601). 미명시 시 발행 시점"),
     service: QueryService = Depends(get_service),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """Server scope 보고서 발행 record 전용 endpoint (PRG pattern — POST 발행, GET 표시 분리).
+    """Server scope 보고서 발행 (PRG) — 발행 시점 정적 스냅샷 + (engineer) narrative worker 발행.
 
-    응답 = {view_url} — 클라이언트가 navigate. 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
+    응답 view_url = `?job={id}` — 클라이언트가 navigate. ids 1개면 단일 양식(`/servers/{pid}/report?job=`),
+    2개+ 면 N대 표 양식(`/servers/report?job=`). engineer 면 worker 가 narrative 채운 뒤 polling 갱신.
     """
     public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
     sid_map = await service.resolve_server_ids(public_ids)
     valid_pids = [pid for pid in public_ids if pid in sid_map]
     if not valid_pids:
         raise HTTPException(status_code=404, detail="no valid server ids")
+    anchor = _normalize_anchor(datetime.fromisoformat(anchor_at) if anchor_at else None)
     period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
+
+    attention = await service.get_attention_signals()
+
+    if len(valid_pids) == 1:
+        single_job = await _emit_single_report(
+            service, diag_service, valid_pids[0], view, time_range, period_days, anchor, attention
+        )
+        if single_job is None:
+            raise HTTPException(status_code=404, detail="server not found")
+        return {"view_url": f"/servers/{valid_pids[0]}/report?job={single_job}"}
+
+    # 개별 단일 보고서 먼저 발행 (이력 개별 조회). engineer 는 publish=False child — narrative 는
+    # 부모 표 worker 가 server 별로 1회 생성한 값을 복사(단일 생성·표·개별 항상 일관). customer 는 즉시 succeeded.
+    child_jobs: dict[str, str] = {}
     for pid in valid_pids:
-        try:
-            await diag_service.record_report_emission(
-                view=view,
-                scope="server",
-                server_public_ids=[pid],
-                period_days=period_days,
-                time_range=time_range,
-            )
-        except SQLAlchemyError:
-            # PRG view_url 반환 흐름 안 server scope record best-effort fallback (정공 정합 reports.py:107).
-            logger.exception("report emission record failed (best-effort) pid={}", pid)
-    ids_query = ",".join(valid_pids)
-    return {"view_url": f"/servers/report?ids={ids_query}&view={view}&time_range={time_range}"}
+        cid = await _emit_single_report(
+            service, diag_service, pid, view, time_range, period_days, anchor, attention, publish=False
+        )
+        if cid:
+            child_jobs[pid] = cid
+
+    # N대 표 보고서 — engineer 면 child_jobs 전달 (worker 가 narrative 를 child 에 복사).
+    server_ids = [sid_map[pid] for pid in valid_pids]
+    summary = await service.get_report(server_ids, period_days, end=anchor, view=view)
+    table_job = await diag_service.emit_report(
+        view=view,
+        scope="server",
+        kind=REPORT_KIND_SUMMARY,
+        snapshot=report_summary_to_dict(summary),
+        server_public_ids=valid_pids,
+        time_range=time_range,
+        anchor_at=anchor,
+        aux={"attention_by_host": _attention_by_host({r.hostname for r in summary.rows}, attention)},
+        # 양 view 모두 child_jobs 저장 — engineer 는 worker narrative 복사 대상 + 표 hostname -> child 정적 link.
+        # customer 는 narrative 없지만 hostname -> child 정적 보고서 link 용 (worker 미발행).
+        child_jobs=child_jobs,
+    )
+    return {"view_url": f"/servers/report?job={table_job}"}
+
+
+async def _emit_single_report(
+    service: QueryService,
+    diag_service: DiagnosticService,
+    pid: str,
+    view: str,
+    time_range: str,
+    period_days: float,
+    anchor: datetime,
+    attention: AttentionSignals,
+    publish: bool = True,
+) -> str | None:
+    """단일 서버 보고서 발행 (kind=ENV) — 단독 emit(publish=True) + N대 fan-out child(publish=False) 공용.
+
+    publish=False (engineer child): pending 저장만, worker publish 생략 — 부모 표 worker 가 narrative 복사.
+    미존재 시 None.
+    """
+    summary = await service.get_single_server_report(
+        pid, period_days=period_days, view=view, time_range=time_range, anchor_at=anchor
+    )
+    if summary is None:
+        return None
+    hostname = summary.base.rows[0].hostname if summary.base.rows else pid
+    return await diag_service.emit_report(
+        view=view,
+        scope="server",
+        kind=REPORT_KIND_ENV,
+        snapshot=env_report_to_dict(summary),
+        server_public_ids=[pid],
+        time_range=time_range,
+        anchor_at=anchor,
+        aux={"attention_for_host": _attention_for_host(hostname, attention)},
+        publish=publish,
+    )
 
 
 @report_page_router.get("/{server_id}/report")
 async def single_server_report(
     request: Request,
     server_id: UUID,
-    time_range: DiagnosticTimeRange = Query("14d", description="윈도우 — 모달과 동일 7개"),
+    job: str | None = Query(None, description="발행된 보고서 job_id — 정적 스냅샷 렌더"),
+    time_range: DiagnosticTimeRange = Query("14d", description="윈도우 (live preview)"),
     view: Literal["customer", "engineer"] = Query("customer"),
     back: str | None = Query(None),
     service: QueryService = Depends(get_service),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """단일 서버 보고서 — 단순화 양식 (1대 컨텍스트, T13).
+    """단일 서버 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview (단순화 양식, T13)."""
+    self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
+    back_url = back if back and back.startswith("/") and not back.startswith("//") else f"/servers/{server_id}"
 
-    선택 N대 보고서 (`/servers/report?ids=...`) 의 hostname link 또는 보고서 이력의 1대 row link 진입.
-    환경 양식과 별도 — 1대 한정이라 분류 분포·OS 분포 등 의미 없는 카드 제거, Right-sizing 평가 + AI 진단 중심.
-    """
+    if job:
+        return await _render_single_snapshot(request, job, back_url, self_back, diag_service)
+
     period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
     summary = await service.get_single_server_report(
-        str(server_id),
-        period_days=period_days,
-        view=view,
-        time_range=time_range,
+        str(server_id), period_days=period_days, view=view, time_range=time_range
     )
     if summary is None:
         raise HTTPException(status_code=404, detail="server not found")
-    # AI 진단 = 보고서 흐름 안 inline 통합 (engineer view 만). 보고서 진입 시 anchor + time_range 기반
-    # latest succeeded fetch — 없으면 자동 submit + pending job_id context 전달.
-    diagnostics_by_pid: dict = {}
-    pending_job_ids: dict = {}
-    if view == "engineer":
-        diag_map = await diag_service.ensure_latest_or_submit("server", [str(server_id)], time_range)
-        diagnostics_by_pid = {pid: entry.get("panel") for pid, entry in diag_map.items()}
-        pending_job_ids = {pid: entry.get("job_id") for pid, entry in diag_map.items() if entry.get("job_id")}
     hostname = summary.base.rows[0].hostname if summary.base.rows else str(server_id)
-    # 운영 신호 (gap / os_eol / restart) — 해당 hostname 1대 lookup.
     attention = await service.get_attention_signals()
-    attention_for_host: dict[str, str] = {}
-    for row in attention.gap_warnings:
-        if row.link_text == hostname:
-            attention_for_host["gap"] = row.badge_text
-    for row in attention.os_eol_warnings:
-        if row.link_text == hostname:
-            attention_for_host["os_eol"] = row.meta_text
-    for row in attention.agent_unstable:
-        if row.link_text == hostname:
-            attention_for_host["restart"] = row.badge_text
-    back_url = back if back and back.startswith("/") and not back.startswith("//") else f"/servers/{server_id}"
-    # 자식 link (참고자료 등) 의 back query 보존용 — 현재 URL encoding.
-    self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
     return templates.TemplateResponse(
         request=request,
         name="servers/single_report.html",
@@ -228,10 +312,45 @@ async def single_server_report(
             "view_title": _REPORT_VIEW_TITLES[view],
             "back_url": back_url,
             "hostname": hostname,
-            "diagnostics_by_pid": diagnostics_by_pid,
-            "pending_job_ids": pending_job_ids,
-            "attention_for_host": attention_for_host,
+            "narratives": {},
+            "narrative_status": "none",
+            "report_job_id": None,
+            "attention_for_host": _attention_for_host(hostname, attention),
             "self_back": self_back,
             "time_range": time_range,
+        },
+    )
+
+
+async def _render_single_snapshot(
+    request: Request,
+    job_id: str,
+    back_url: str,
+    self_back: str,
+    diag_service: DiagnosticService,
+):
+    """발행된 단일 서버 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary) + narrative/운영신호 (aux)."""
+    rec = await diag_service.get_one(job_id)
+    if rec is None or rec.result is None or rec.result.get("kind") != REPORT_KIND_ENV:
+        raise HTTPException(status_code=404, detail="report snapshot not found")
+    result = rec.result
+    summary = env_report_from_dict(result["snapshot"])
+    view = result.get("view", "engineer")
+    hostname = summary.base.rows[0].hostname if summary.base.rows else "server"
+    return templates.TemplateResponse(
+        request=request,
+        name="servers/single_report.html",
+        context={
+            "summary": summary,
+            "view": view,
+            "view_title": _REPORT_VIEW_TITLES.get(view, view),
+            "back_url": back_url,
+            "hostname": hostname,
+            "narratives": result.get("narratives", {}),
+            "narrative_status": result.get("narrative_status", "none"),
+            "report_job_id": rec.id,
+            "attention_for_host": result.get("aux", {}).get("attention_for_host", {}),
+            "self_back": self_back,
+            "time_range": rec.input_params.get("time_range", "14d"),
         },
     )

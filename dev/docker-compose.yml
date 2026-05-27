@@ -153,13 +153,16 @@ services:
 
   consumer:
     <<: *app-base
-    command: python -m assessment_engine.consumer
+    # dev 한정 auto-reload — web uvicorn reload 와 짝. watchfiles 가 /app/src .py 변경 시 프로세스 재시작.
+    # (장시간 프로세스라 reload 없으면 코드 수정해도 옛 import 유지 — prod 는 wheel+systemd 로 본 command 미사용.)
+    command: watchfiles --filter python "python -m assessment_engine.consumer" /app/src
 
-  # 진단 워커 — RabbitMQ `diagnostic.request` 소비, USE Method 규칙 + ollama LLM narrative 합성, DB 저장.
-  # ADR 0004 + 0010 + 0023 + 0025: trigger = web POST 만, LLM = ollama 단독 (dev 는 ollama 컨테이너).
+  # 진단 워커 — RabbitMQ `diagnostic.request` 소비, 보고서 narrative 합성(ollama LLM), DB 저장.
+  # ADR 0004 + 0010 + 0023 + 0025: trigger = web POST(보고서 발행) 만, LLM = ollama 단독 (dev 는 ollama 컨테이너).
   diagnostic-worker:
     <<: *app-base
-    command: python -m assessment_engine.diagnostic
+    # dev 한정 auto-reload (consumer 동일 사유) — handler.py 수정 시 옛 프로세스 stale 방지.
+    command: watchfiles --filter python "python -m assessment_engine.diagnostic" /app/src
     depends_on:
       <<: *app-depends
       ollama:

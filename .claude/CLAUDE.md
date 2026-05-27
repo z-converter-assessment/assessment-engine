@@ -68,10 +68,13 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 - 시계열 4개 테이블 `boot_time` + `agent_started_at` 컬럼 보존 의무 — counter reset 정밀 식별 (#B 동일 진실).
 - `server_inventory.public_id` (UUID) URL 식별자 — 정수 PK 노출 금지 (#E4).
 - `server_inventory` 식별 분리 (ADR 0022 -> 0027 정정, agent v4): `id bigint PK` (FK 대상) / `composite_id varchar(64) UNIQUE` (agent 매칭·식별 단일 키 — SHA-256 composite hash) / `machine_id varchar(64)` (raw machine-id 표시 전용, nullable — 식별·라우팅 미사용) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{composite_id}` / routing key `task.install.{composite_id}`.
-- `diagnostic_jobs.job_type` (`ai_diagnostic`/`customer_report`/`engineer_report`) + active partial UNIQUE = `(scope, input_hash, job_type)`. 보고서도 본 테이블에 row 보존.
-- 보고서 발행 PRG pattern: GET endpoint 는 read-only 표시 (record 안 함). POST `/reports/environment/emit` · `/servers/report/emit` 가 `record_report_emission` 호출 후 응답 view_url 반환 — JS 가 navigate. 다시 보기 / 직접 URL / 북마크 진입은 record 안 됨 (중복 row 방지).
-- 양식 분리: server scope 는 row 단위 상세 (`servers/report.html`), environment scope 는 high-level (KPI·분류·Top N·OS 분포·view별 요약, `reports/environment.html`).
-- 이력 표시 분리: AI 진단 이력 `/diagnostics/history` (job_type='ai_diagnostic' 자동 필터) vs 보고서 이력 `/reports/history` (customer + engineer union, view 필터). 환경 scope 진단 결과 페이지 (`/diagnostics?ids=X`) 는 SSR 로 `/reports/environment` iframe 2개 미리 렌더 + JS view toggle.
+- `diagnostic_jobs.job_type` (`customer_report`/`engineer_report`) + active partial UNIQUE = `(scope, input_hash, job_type)`. 발행 시점 정적 스냅샷을 `result` JSONB 에 보존. (AI 진단 독립 `ai_diagnostic` 폐기 — engineer 보고서 발행 통합. 잔존 row 만 존재, 신규 생성 없음.)
+- 보고서 발행 = 정적 스냅샷 (요구: 발행 시점 데이터 그대로 보관, 이력 동적변화 0). POST `/reports/environment/emit` · `/servers/report/emit` 가 발행 시점 ViewModel 을 `report_serializer` 직렬화 -> `emit_report` 가 `result` JSONB(`{kind,snapshot,view,narrative_status,narratives,aux}`) 저장. customer 즉시 succeeded(narrative 없음), engineer 는 pending + worker 가 narrative 채움(`diagnostic.report_result` 공유 계약). 응답 view_url=`?job={id}` — JS navigate. GET `?job={id}` 는 저장된 스냅샷 정적 렌더(재진단·재계산 0), job 없는 GET 은 read-only live preview (진단 트리거 없음). result 구조 단일 진실 = `diagnostic.report_result`.
+- 양식 분리: server scope N대 표 (`servers/report.html`, kind=report_summary) / 단일 1대·환경 high-level (`servers/single_report.html`·`reports/environment.html`, kind=env_report). `/servers/report/emit` 은 ids 1개면 단일 양식, 2개+ 면 N대 표.
+- narrative 단위: engineer server scope = public_id 별 N건(행별), environment = 단일 키(`ENV_NARRATIVE_KEY`). 폴링 = `GET /api/diagnostics/{job_id}` 단건 (보고서 페이지 안 `diagnostic-inline.js` 가 `[data-report-job]` job_id 로 narrative_status 갱신).
+- 선택 N대 발행(`/servers/report/emit`, ids 2개+)은 표 보고서 1건 + 개별 단일 보고서 N건 동시 fan-out (이력 개별 조회·개별 narrative). ids 1개는 단일 보고서 1건.
+- 보고서 운영신호 정책 (engineer): 표시는 OS 지원종료(os_eol)만 (`attention.os_eol_warnings`). 재부팅(`report_uptime_stats`)·에이전트 재시작(`report_agent_restart_stats`)은 보고서 anchor+window 안 카운트(boot_time/agent_started_at DISTINCT-1)해 호스트 상세 표 "시스템 안정성" 컬럼에 표시. `get_attention_signals` 의 전역 gap/agent_unstable 신호는 window-scoped 보고서에 미표시 (의미 불일치 회피).
+- 이력 표시: 보고서 발행 이력 `/reports/history` (customer + engineer union, view 필터). 재조회 link = `?job={id}` 정적 스냅샷 (scope 별 라우터 분기).
 
 ## C2. Repository 계층 — 인터페이스 우선 (#F4)
 

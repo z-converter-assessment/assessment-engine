@@ -2,7 +2,8 @@
 
 흐름:
 - /reports/environment: 환경 단위 high-level 양식. /servers/report (server scope)와 별도 template.
-- /reports/history: AI 진단 이력과 분리된 보고서 발행 이력. job_type='customer_report'|'engineer_report'.
+  GET `?job={id}` = 정적 스냅샷, job 없음 = live read-only preview. POST `/environment/emit` = 발행.
+- /reports/history: 보고서 발행 이력. job_type='customer_report'|'engineer_report'.
 """
 
 from datetime import datetime
@@ -10,14 +11,18 @@ from typing import Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from loguru import logger
-from sqlalchemy.exc import SQLAlchemyError
 
 from assessment_engine.db.repositories.base_diagnostic_repository import DiagnosticTimeRange
 from assessment_engine.web.deps import get_diagnostic_service, get_service
-from assessment_engine.web.services.diagnostic_service import DiagnosticService
+from assessment_engine.web.services.diagnostic_service import DiagnosticService, _normalize_anchor
 from assessment_engine.web.services.mappers.report_history import to_report_history_item
 from assessment_engine.web.services.query_service import QueryService
+from assessment_engine.web.services.report_serializer import (
+    ENV_NARRATIVE_KEY,
+    REPORT_KIND_ENV,
+    env_report_from_dict,
+    env_report_to_dict,
+)
 from assessment_engine.web.templating import templates
 
 reports_router = APIRouter(prefix="/reports", tags=["pages"])
@@ -31,38 +36,28 @@ _VIEW_TITLES: dict[str, str] = {
 @reports_router.get("/environment")
 async def environment_report(
     request: Request,
+    job: str | None = Query(None, description="발행된 보고서 job_id — 정적 스냅샷 렌더"),
     time_range: DiagnosticTimeRange = Query(
         "14d",
-        description="윈도우 — AI 진단과 동일 7개 (15m/1h/6h/24h/7d/14d/30d)",
+        description="윈도우 (live preview) — 7개 (15m/1h/6h/24h/7d/14d/30d)",
     ),
-    anchor_at: datetime | None = Query(None, description="분석 기준 시각 (ISO 8601). 미명시 시 현재"),
+    anchor_at: datetime | None = Query(None, description="분석 기준 시각 (live preview). 미명시 시 현재"),
     view: Literal["customer", "engineer"] = Query("customer"),
     back: str | None = Query(None, description="← 이전 link 의 referrer. 미명시 시 /servers/"),
     service: QueryService = Depends(get_service),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """환경 단위 보고서 표시 — GET 은 read-only (P3 분리). 발행 record 는 POST /reports/environment/emit 책임.
+    """환경 단위 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview (진단 트리거 없음)."""
+    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
+    self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 
-    server scope (/servers/report?ids=...) 와 별도 template (`reports/environment.html`).
-    페이지 진입 자체로는 이력 row 생성 안 함 — 이력 "다시 보기" / 직접 URL / 북마크 진입 모두 read-only.
-    AI 진단 latest = engineer view 만 노출 (사용자 결정 — 고객 view 안 AI 진단 카드 없음).
-    """
+    if job:
+        return await _render_environment_snapshot(request, job, back_url, self_back, diag_service)
+
+    # live read-only preview — engineer narrative 영역은 "발행 시 생성".
     summary = await service.get_environment_report(time_range, anchor_at, view=view)
     if summary.overview.total == 0:
         raise HTTPException(status_code=404, detail="no registered servers")
-
-    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
-    # 자식 link (참고자료 등) 의 back query 보존용 — 현재 URL encoding.
-    self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
-    # AI 진단 = 보고서 흐름 안 inline 통합 (engineer view 만). 보고서 anchor + time_range 기반
-    # latest succeeded fetch — 없으면 자동 submit + pending job_id 반환 (template 안 polling JS).
-    diag = None
-    diag_job_id = None
-    if view == "engineer":
-        diag_map = await diag_service.ensure_latest_or_submit("environment", None, time_range, anchor_at)
-        entry = diag_map.get(None, {})
-        diag = entry.get("panel")
-        diag_job_id = entry.get("job_id")
     return templates.TemplateResponse(
         request=request,
         name="reports/environment.html",
@@ -72,9 +67,43 @@ async def environment_report(
             "view_title": _VIEW_TITLES[view],
             "back_url": back_url,
             "self_back": self_back,
-            "diag": diag,
-            "diag_job_id": diag_job_id,
+            "narratives": {},
+            "narrative_status": "none",
+            "report_job_id": None,
+            "narrative_key": ENV_NARRATIVE_KEY,
             "time_range": time_range,
+        },
+    )
+
+
+async def _render_environment_snapshot(
+    request: Request,
+    job_id: str,
+    back_url: str,
+    self_back: str,
+    diag_service: DiagnosticService,
+):
+    """발행된 환경 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary) + narrative."""
+    rec = await diag_service.get_one(job_id)
+    if rec is None or rec.result is None or rec.result.get("kind") != REPORT_KIND_ENV:
+        raise HTTPException(status_code=404, detail="report snapshot not found")
+    result = rec.result
+    summary = env_report_from_dict(result["snapshot"])
+    view = result.get("view", "engineer")
+    return templates.TemplateResponse(
+        request=request,
+        name="reports/environment.html",
+        context={
+            "summary": summary,
+            "view": view,
+            "view_title": _VIEW_TITLES.get(view, view),
+            "back_url": back_url,
+            "self_back": self_back,
+            "narratives": result.get("narratives", {}),
+            "narrative_status": result.get("narrative_status", "none"),
+            "report_job_id": rec.id,
+            "narrative_key": ENV_NARRATIVE_KEY,
+            "time_range": rec.input_params.get("time_range", "14d"),
         },
     )
 
@@ -87,33 +116,26 @@ async def environment_report_emit(
     service: QueryService = Depends(get_service),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """환경 보고서 발행 record 전용 endpoint (PRG pattern — POST 발행, GET 표시 분리).
+    """환경 보고서 발행 (PRG) — 발행 시점 정적 스냅샷 + (engineer) narrative worker 발행.
 
-    응답 = {view_url} — 클라이언트가 navigate. 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
-    같은 input 활성 충돌 (동시 두 발행) 시 record 안 되어도 응답 200 — best-effort.
+    응답 view_url = `?job={id}` — 클라이언트가 navigate. engineer 면 worker 가 환경 narrative 채운 뒤 polling 갱신.
+    같은 input 활성 충돌(더블클릭) 시 기존 job_id 회수 (emit_report 안).
     """
-    summary = await service.get_environment_report(time_range, anchor_at, view=view)
+    anchor = _normalize_anchor(anchor_at)
+    summary = await service.get_environment_report(time_range, anchor, view=view)
     if summary.overview.total == 0:
         raise HTTPException(status_code=404, detail="no registered servers")
     public_ids = await service.list_all_server_public_ids()
-    try:
-        await diag_service.record_report_emission(
-            view=view,
-            scope="environment",
-            server_public_ids=public_ids,
-            period_days=summary.base.period_days,
-            time_range=time_range,
-            summary_meta={"anchor_at": summary.anchor_at.isoformat()},
-        )
-    except SQLAlchemyError:
-        # PRG view_url 반환 흐름 안 record_report_emission DB INSERT best-effort fallback.
-        # record 실패 본 시점 본 시점 보고서 표시 차단 catalog 본 시점 — silent recovery.
-        logger.exception("env report emission record failed (best-effort)")
-    # 클라이언트가 navigate 할 GET URL — anchor_at 은 POST 발행 시점의 record 정합 위해 같은 값 전달.
-    params = [f"view={view}", f"time_range={time_range}"]
-    if anchor_at:
-        params.append(f"anchor_at={quote(anchor_at.isoformat(), safe='')}")
-    return {"view_url": f"/reports/environment?{'&'.join(params)}"}
+    job_id = await diag_service.emit_report(
+        view=view,
+        scope="environment",
+        kind=REPORT_KIND_ENV,
+        snapshot=env_report_to_dict(summary),
+        server_public_ids=public_ids,
+        time_range=time_range,
+        anchor_at=anchor,
+    )
+    return {"view_url": f"/reports/environment?job={job_id}"}
 
 
 _HISTORY_PAGE_LIMIT = 20

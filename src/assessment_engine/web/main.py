@@ -11,7 +11,6 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from assessment_engine.cache.redis import close_pool
 from assessment_engine.log_config import setup_logging
 from assessment_engine.web.routers.api import api_router
-from assessment_engine.web.routers.diagnostic_results import diagnostic_results_router
 from assessment_engine.web.routers.diagnostics import diagnostics_router
 from assessment_engine.web.routers.discovery import discovery_router
 from assessment_engine.web.routers.exports import exports_router
@@ -131,7 +130,6 @@ app.include_router(api_router)
 app.include_router(discovery_router)
 app.include_router(tasks_router)
 app.include_router(diagnostics_router)
-app.include_router(diagnostic_results_router)
 app.include_router(reports_router)
 app.include_router(exports_router)
 
