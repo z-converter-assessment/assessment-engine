@@ -1,3 +1,4 @@
+from assessment_engine.consumer.metric_normalize import clamp_ceiling
 from assessment_engine.consumer.schemas import InventoryInput, MetricsInput
 from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
@@ -106,13 +107,18 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         cpu_softirq=cpu.softirq if cpu else None,
         cpu_steal=cpu.steal if cpu else None,
         # ─── 메모리·스왑 (kB) ────────────────────────────────────────────────
+        # canonical 정규화 경계 — available/free 가 total 초과 시 클램프 (used 음수 방지, Windows 매핑 방어).
         mem_total_kb=data.mem_total_kb,
         mem_free_kb=data.mem_free_kb,
-        mem_available_kb=data.mem_available_kb,
+        mem_available_kb=clamp_ceiling(
+            data.mem_available_kb, data.mem_total_kb, field="mem_available_kb", composite_id=data.composite_id
+        ),
         mem_buffers_kb=data.mem_buffers_kb,
         mem_cached_kb=data.mem_cached_kb,
         swap_total_kb=data.swap_total_kb,
-        swap_free_kb=data.swap_free_kb,
+        swap_free_kb=clamp_ceiling(
+            data.swap_free_kb, data.swap_total_kb, field="swap_free_kb", composite_id=data.composite_id
+        ),
         # ─── load average ────────────────────────────────────────────────────
         load_1m=data.load_1m,
         load_5m=data.load_5m,
