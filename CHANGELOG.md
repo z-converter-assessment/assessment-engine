@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1](https://github.com/z-converter-assessment/assessment-engine/compare/v0.1.0...v0.1.1) (2026-05-27)
+
+
+### Features
+
+* assessment-engine 통합 — 진단·식별·배포 정석화 (배포용 임시) ([#37](https://github.com/z-converter-assessment/assessment-engine/issues/37)) ([e8c8694](https://github.com/z-converter-assessment/assessment-engine/commit/e8c86940d47dfb62c29750313515180629fcd445))
+* develop 통합분 main 릴리스 — 보고서 재설계·agent v4 (develop 단일 진실) ([#41](https://github.com/z-converter-assessment/assessment-engine/issues/41)) ([570978a](https://github.com/z-converter-assessment/assessment-engine/commit/570978a34328e21dc969219665b81188f8b19cf4))
+
 ## 0.1.0 (2026-05-18)
 
 
