@@ -279,8 +279,8 @@ class TaskService:
 
         worker 측은 declare 권한이 없어 engine 이 책임진다.
         """
-        queue_name = f"{diagnostic_settings.rabbitmq_task_queue_prefix}.{composite_id}"
-        routing_key = f"{diagnostic_settings.rabbitmq_task_install_key_prefix}.{composite_id}"
+        queue_name = diagnostic_settings.agent_task_queue(composite_id)
+        routing_key = diagnostic_settings.task_install_routing_key(composite_id)
         queue = await self.broker_channel.declare_queue(
             queue_name,
             durable=True,
@@ -330,7 +330,7 @@ class TaskService:
             content_type="application/json",
             message_id=str(uuid.uuid4()),
         )
-        routing_key = f"{diagnostic_settings.rabbitmq_task_install_key_prefix}.{composite_id}"
+        routing_key = diagnostic_settings.task_install_routing_key(composite_id)
         await exchange.publish(message, routing_key=routing_key)
 
 

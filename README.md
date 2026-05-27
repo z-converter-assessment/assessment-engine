@@ -1,4 +1,4 @@
-# assessment-portal
+# assessment-engine
 
 온프레미스 서버 인벤토리·메트릭을 수집·저장하고, 수집된 데이터를 기반으로 자원 사용량을 진단해 운영 의사결정을 보조하는 B2B 내부 포털.
 
@@ -84,8 +84,8 @@
 
 ## CI 파이프라인
 
-- git flow — `feature/*` → `develop` PR → merge → `main` PR → merge → release-please가 Release PR 자동 생성 → merge → `v*` tag (release-please bot 자동 push) → release.
-- 사용자 push·tag 작성 없음 — 모두 GitHub Actions runner 안 자동. branch protection + Conventional Commits 강제.
+- git flow — `feature/*`·`fix/*` → `develop` PR(squash) → `develop` → `main` PR(merge) → `main`에 `v*` tag push → release (ADR 0030).
+- 버전은 git tag 단일 진실 (hatch-vcs가 빌드 시 derive) — repo에 버전 미저장, bump 커밋 없음. branch protection + Conventional Commits PR title 강제.
 
 | workflow | trigger | 검증·작업 |
 |----------|---------|------|
@@ -94,8 +94,7 @@
 | `alembic-check.yml` | develop PR · main PR | ORM·migrations 라운드트립 정합 |
 | `codeql.yml` | main PR · 주간 cron | CodeQL SAST (SQL injection·secret leak·XSS 정적 분석, Security 탭 alert) |
 | `security.yml` | main PR · 주간 cron (Mon 09:00 UTC) | pip-audit dependency CVE 검사 |
-| `release-please.yml` | push to main | commit 분석 → Release PR 자동 생성·갱신 (pyproject.toml version bump + CHANGELOG.md). Release PR merge 시점에 tag(`v*`) 자동 push |
-| `release.yml` | tag `v*` push | uv build wheel + sdist + SHA256SUMS + SBOM + Sigstore signature → GitHub Release 자동 첨부 |
+| `release.yml` | `main`에 tag `v*` push · workflow_dispatch | uv build wheel + sdist (버전=tag, hatch-vcs) + SHA256SUMS + SBOM + Sigstore signature → GitHub Release + GHCR image(multi-arch) 자동 첨부 |
 
 본 repo는 CI 영역만 (코드 quality + artifact 생성). CD(배포·secret 주입·롤백)는 외부 인프라 책임.
 
@@ -118,29 +117,86 @@
 
 ---
 
-## 설치 (prod)
+## 설치·실행 (prod)
 
-엔진은 3개 독립 프로세스 — 같은 wheel 을 설치하고 실행 모듈만 바꿔 띄운다. 모두 stateless 라 같은 host 또는 분리 host·복제 N개 가능.
+wheel 하나가 3개 실행 모듈을 제공한다 (각각 별도 프로세스 — stateless, 같은 host 또는 분리·복제 N개):
 
-| 컴포넌트 | 실행 | 역할 |
-|----------|------|------|
-| web | `python -m assessment_engine.web` | FastAPI UI·REST·SSE·`/metrics` (HTTP :8000) |
-| consumer | `python -m assessment_engine.consumer` | inventory/metrics/error/task.result 소비·저장 |
-| diagnostic-worker | `python -m assessment_engine.diagnostic` | engineer 보고서 narrative 합성 (web 발행 트리거) |
+- `python -m assessment_engine.web` — 포털 UI·REST·SSE·`/metrics` (HTTP :8000). 필수.
+- `python -m assessment_engine.consumer` — inventory/metrics/error·task.result 소비·저장. 필수.
+- `python -m assessment_engine.diagnostic` — engineer 보고서 narrative 합성. engineer AI 보고서 사용 시만 (ollama 도달 필요).
 
-전제: Python 3.12+ / PostgreSQL 16 (`timescaledb` + `vector` extension) / RabbitMQ 3.13+ / Redis 7+. 백킹 서비스는 외부 인프라가 준비 (엔진은 도달 가능만 전제).
+전제: Python 3.12+ / PostgreSQL 16 (`timescaledb`+`vector`) / RabbitMQ 3.13+ / Redis 7+ — 외부 인프라가 준비, 엔진은 도달만 전제.
 
-흐름:
-1. wheel 다운로드 + `sha256sum -c SHA256SUMS` 무결성 검증 (GitHub Release)
-2. `python3.12 -m venv` + `pip install *.whl` (Alembic 마이그레이션·`_alembic.ini` 동봉)
-3. 환경변수 파일 작성 (`APP_ENV=prod` + DB/MQ/Redis 좌표 + secret)
-4. `alembic upgrade head` 1회 (web host 한 곳, 멱등 — hypertable + pgvector 테이블 생성)
-5. systemd unit 3개 등록·기동 (`KillSignal=SIGTERM` + 넉넉한 `TimeoutStopSec` — graceful shutdown)
-6. `curl /health` -> `{"status":"ok"}`
+단일 host 설치 (multi-node·Docker image·업그레이드·트러블슈팅은 `docs/operations/deployment.md`):
 
-`APP_ENV=prod` 이면 약한 기본값(`assessment`·`password` 등)을 기동 시 거부(fail-fast) — prod secret 미주입을 조용히 넘기지 않는다.
+1) Release(`v*`) 받아 무결성 검증:
+```bash
+gh release download v0.1.2 -R <org>/assessment-engine -D /tmp/ae
+cd /tmp/ae && sha256sum -c SHA256SUMS
+```
 
-상세 절차(wheel·Docker image 양 토폴로지·multi-node 분리·업그레이드·트러블슈팅): `docs/operations/deployment.md`. 환경변수 전체 카탈로그·secret 채널·prod 정책: `docs/operations/env.md`.
+2) venv + install:
+```bash
+sudo install -d -o "$USER" -g "$USER" /opt/assessment-engine
+python3.12 -m venv /opt/assessment-engine/venv
+/opt/assessment-engine/venv/bin/pip install /tmp/ae/assessment_engine-*.whl
+```
+
+3) `/etc/assessment-engine.env` 작성 (전체 키: `.env.example`·`docs/operations/env.md`):
+```ini
+APP_ENV=prod
+LOG_FORMAT=json
+POSTGRES_HOST=db.internal
+POSTGRES_DB=assessment
+POSTGRES_USER=assessment_app
+POSTGRES_PASSWORD=<secret>
+REDIS_HOST=redis.internal
+RABBITMQ_HOST=mq.internal
+RABBITMQ_USER=assessment_app
+RABBITMQ_PASSWORD=<secret>
+OLLAMA_BASE_URL=http://ollama.internal:11434
+OLLAMA_MODEL=llama3.1:8b
+```
+
+4) DB 마이그레이션 1회 (멱등, wheel 동봉 alembic 설정):
+```bash
+set -a; . /etc/assessment-engine.env; set +a
+V=/opt/assessment-engine/venv/bin/python
+INI=$($V -c 'from importlib.resources import files; print(files("assessment_engine")/"_alembic.ini")')
+$V -m alembic -c "$INI" upgrade head
+```
+
+5) systemd 영속화 — `/etc/systemd/system/assessment-engine-web.service`:
+```ini
+[Unit]
+Description=Assessment Engine (web)
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/assessment-engine.env
+ExecStart=/opt/assessment-engine/venv/bin/python -m assessment_engine.web
+Restart=always
+RestartSec=5s
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=multi-user.target
+```
+consumer·diagnostic-worker unit은 `ExecStart` 모듈만 `assessment_engine.consumer`/`assessment_engine.diagnostic`로 교체. 등록:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now \
+  assessment-engine-web assessment-engine-consumer assessment-engine-diagnostic-worker
+```
+
+6) 헬스 확인:
+```bash
+curl -fsS http://localhost:8000/health   # {"status":"ok"}
+```
+
+`APP_ENV=prod`은 약한 기본값(`assessment` 등)을 기동 시 거부(fail-fast). 환경변수 전체·secret 채널: `docs/operations/env.md`.
 
 ---
 
@@ -207,4 +263,4 @@ uv run alembic check                   # ORM·migrations 정합 (alembic-check.y
 | `docs/products/` | 운영 산출물 의의·근거 (dashboard · 환경 보고서 · 서버 보고서 · JSON Export · Install task) |
 | `docs/architecture/` | 컴포넌트별 deep dive (agent · consumer · diagnostic · rabbitmq · redis · db · web) |
 | `docs/adr/` | Architecture Decision Records (0001~) — "왜 이렇게 결정했나" + 트레이드오프 |
-| `docs/tradeoffs.md` | 의식적 설계 선택과 한계 (T1~T13) |
+| `docs/tradeoffs.md` | 의식적 설계 선택과 한계 (T1~T14) |

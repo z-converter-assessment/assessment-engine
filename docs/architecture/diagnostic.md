@@ -112,34 +112,26 @@ raw 단위 그대로 (P1) — KB·bytes. percent·delta 변환은 SQL 표현식�
 
 실제 LLM latency 본질 (ollama llama3.1:8b CPU 10~30s · GPU 수초) — UI progress_stage 단계 표시 (`extracting_stats` → `applying_rules` → `retrieving_context` → `generating_narrative`) 가 사용자 인내심 제공.
 
-### ollama 운영 (운영자 활성 catalog)
+### ollama 운영 (dev = compose 서비스 / prod = 운영자 활성)
 
-dev/prod 공통 — host 안 `ollama` 직접 활성 정공 (macOS Metal 가속 + Linux native GPU 활용). dev/docker-compose.yml 안 ollama service 추가 안 함 — Docker 컨테이너 안 GPU pass-through 제한 + 모델 pull 부담 회피.
+dev — `dev/docker-compose.yml` 안 `ollama` 서비스로 자동 구동. diagnostic-worker 가 compose 네트워크에서 `OLLAMA_BASE_URL=http://ollama:11434` (서비스명) 로 연결. 모델은 빈 상태 기동이라 compose up 후 1회 pull 의무 — `ollama_data` 볼륨에 영속 (재기동 시 재pull 불필요).
 
 ```bash
-# 1. ollama 설치 (macOS / Linux)
-brew install ollama          # macOS
-# 또는
-curl -fsSL https://ollama.com/install.sh | sh   # Linux
+# 1. 스택 기동 (ollama 서비스 포함)
+docker compose -f dev/docker-compose.yml up -d
 
-# 2. 모델 pull (한국어 정합: qwen2.5:14b · llama3.1:8b 등)
-ollama pull llama3.1:8b
-ollama pull mxbai-embed-large    # ADR 0024 RAG embedding
+# 2. 모델 1회 pull (ollama_data 볼륨 영속)
+docker compose -f dev/docker-compose.yml exec ollama ollama pull qwen2.5:1.5b      # dev default (CPU 추론 경량)
+docker compose -f dev/docker-compose.yml exec ollama ollama pull mxbai-embed-large # ADR 0024 RAG embedding (RAG_ENABLED 시)
 
-# 3. ollama 서버 활성 (기본 port 11434)
-ollama serve
-
-# 4. 진단 워커 env catalog (ADR 0025: 단일 provider — LLM_PROVIDER env 없음)
-OLLAMA_BASE_URL=http://host.docker.internal:11434   # docker container 안에서 host 접근 (Docker Desktop)
-                                                    # Linux native = http://172.17.0.1:11434 (docker0 bridge)
-                                                    # 또는 network_mode: host (linux only)
-OLLAMA_MODEL=llama3.1:8b
-
-# 5. diagnostic-worker 재기동
-docker compose -f dev/docker-compose.yml up -d --force-recreate diagnostic-worker
+# 3. diagnostic-worker env (compose 가 default 주입 — override 시만 명시. ADR 0025: 단일 provider, LLM_PROVIDER env 없음)
+#    OLLAMA_BASE_URL=http://ollama:11434   (compose 서비스명 — default)
+#    OLLAMA_MODEL=qwen2.5:1.5b             (dev default. config.py 코드 default 는 llama3.1:8b)
 ```
 
-본 catalog 본질 = 운영자 명시 활성 catalog. host 안 ollama 가 미가동·연결거부면 `mark_failed('llm_error: <예외타입>')`, 연결됐으나 `LLM_TIMEOUT_SECONDS`(60s) 내 미응답(hang)이면 `mark_failed('llm_timeout')` — 둘 다 DLQ 재시도 없이 job status='failed' 로 흡수, 운영자 polling 인지 후 재발행.
+prod — ollama 를 host·별도 노드 어디서 구동하든 운영자가 `OLLAMA_BASE_URL` 로 주입 (env.md). GPU 가속 활용 시 host/전용 노드 직접 구동 권장 (Docker GPU pass-through 회피).
+
+본 catalog 본질 = 운영자 명시 활성 catalog. ollama 가 미가동·연결거부면 `mark_failed('llm_error: <예외타입>')`, 연결됐으나 `LLM_TIMEOUT_SECONDS`(60s) 내 미응답(hang)이면 `mark_failed('llm_timeout')` — 둘 다 DLQ 재시도 없이 job status='failed' 로 흡수, 운영자 polling 인지 후 재발행.
 
 ## RAG infra (ADR 0024)
 
@@ -303,7 +295,7 @@ docker compose exec postgres psql -U assessment -d assessment -c "SELECT status,
 | 증상 | 원인 |
 |------|------|
 | `diagnostic job not found id=...` | submitter publish 후 DB INSERT 누락 — 트랜잭션 순서·commit 의심 |
-| `mark_failed('llm_error: ...')` | `ollama serve` 미가동·연결거부·HTTP 오류 — `ollama serve` 가동 + `OLLAMA_BASE_URL` 도달성 확인 |
+| `mark_failed('llm_error: ...')` | ollama 미가동·연결거부·HTTP 오류 — ollama(dev: compose `ollama` 서비스 / prod: host) 가동 + `OLLAMA_BASE_URL` 도달성 확인 |
 | `mark_failed('llm_timeout')` | ollama 연결됐으나 60s 내 미응답 — 모델 미 pull(`ollama list`) 또는 모델 로딩 지연 |
 | `diagnostic.request.dead` 큐 누적 | 영구 오류 누적 — DLQ peek로 message_body 확인 |
 

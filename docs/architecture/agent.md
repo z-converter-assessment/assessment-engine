@@ -160,8 +160,14 @@ dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.doc
 ## 규약
 
 - 단위: 메모리 = `kb`, 디스크 / 네트워크 = `bytes` (`/proc` 출력 관례)
-- Windows agent 정규화: Windows API raw 값을 Linux 계약 단위로 변환 발행 — cpu FILETIME 100ns `÷100000` -> 10ms tick (HZ=100 호환), disk bytes `÷512` -> sectors, mem bytes `÷1024` -> kB. net/mount 는 원래 bytes 동일. 엔진은 OS 무관 단일 단위로 처리 (별도 파싱 없음).
-- Windows 플랫폼 부재 필드: `load_1m/5m/15m`·`mem_buffers_kb`·`mem_cached_kb`·`listen_ports[].uid` = `null`, `cpu_stat.{nice,iowait,irq,softirq,steal}` = `0`. `os_family="windows"` 로 분기. 엔진 inbound DTO 가 nullable/0 수용 (검증 reject 안 함).
+- canonical 단위 = Linux `/proc` 모델 단일 진실 (jiffies·kB·bytes·loadavg). 모든 OS agent 가 자기 raw 값을 canonical 로 변환 발행, 엔진은 OS 무관 단일 공식으로 계산 (CPU%·mem%·swap·IOPS·kBps 동일 경로).
+- Windows agent 변환 계약 (raw Win32 -> canonical):
+  - 단위: cpu FILETIME 100ns `÷100000` -> 10ms tick (HZ=100 호환), disk bytes `÷512` -> sectors, mem bytes `÷1024` -> kB. net/mount 은 bytes 그대로.
+  - CPU jiffies (GetSystemTimes idle/kernel/user): `cpu_idle`=idle, `cpu_user`=user, `cpu_system`=kernel `-` idle (Win32 kernel time 은 idle 포함 → 차감 의무, 미차감 시 CPU% 왜곡). idle/user/system 누적 단조증가.
+  - 메모리(GlobalMemoryStatusEx): `mem_total_kb`=ullTotalPhys, `mem_available_kb`=ullAvailPhys. swap(pagefile): `swap_total_kb`/`swap_free_kb`.
+- canonical 불변식 (agent 발행 의무 + 엔진 2차 강제): 누적 카운터 단조 비감소(reset 은 `boot_time` 변경으로 표현), `mem_available_kb ≤ mem_total_kb`, `swap_free_kb ≤ swap_total_kb`(used 음수 금지), per-field ≥ 0.
+- Windows 플랫폼 부재 필드: `load_1m/5m/15m`·`mem_buffers_kb`·`mem_cached_kb`·`listen_ports[].uid` = `null` (0 날조 금지 — 미측정 의미 보존), `cpu_stat.{nice,iowait,irq,softirq,steal}` = `0`. `os_family="windows"` 분기.
+- 엔진 정규화 경계 (defense in depth, `consumer/metric_normalize.py`): agent 미신뢰 — 수집 진입에서 canonical 불변식 재강제. `swap_free`/`mem_available` 가 total 초과 시 total 로 클램프(used 음수 차단) + warning. CPU% 의 `cpu_idle` 은 NULL→0 날조 안 함 (idle 부재 reading 제외, report·환경 활용률 동일 규칙).
 - 옵셔널 필드: 수집 실패 시 `null` 전송. 수집 실패와 데이터 없음 미구분
 - counter reset: 재부팅 / 발행 프로세스 재시작 시 카운터 0 리셋. 엔진은 1순위로 두 시점 `boot_time` 비교 (`web/services/metrics_calculator._is_counter_reset`) -> 시스템 재부팅이면 delta 건너뛰기 (None). 옛 데이터 (`boot_time` NULL) 는 2순위로 `delta < 0` 휴리스틱 fallback (UI 에서 "—"). `agent_started_at` 만 다르면 발행 프로세스 재시작이고 /proc 카운터는 그대로라 정상 delta
 

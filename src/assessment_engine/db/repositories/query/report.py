@@ -444,9 +444,13 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                        (COALESCE(cpu_user,0)+COALESCE(cpu_nice,0)+COALESCE(cpu_system,0)
                         +COALESCE(cpu_iowait,0)+COALESCE(cpu_irq,0)+COALESCE(cpu_softirq,0)
                         +COALESCE(cpu_steal,0)) AS busy,
-                       (COALESCE(cpu_user,0)+COALESCE(cpu_nice,0)+COALESCE(cpu_system,0)
-                        +COALESCE(cpu_iowait,0)+COALESCE(cpu_irq,0)+COALESCE(cpu_softirq,0)
-                        +COALESCE(cpu_steal,0)+COALESCE(cpu_idle,0)) AS total
+                       -- cpu_idle 은 분모 핵심이라 NULL 을 0 으로 날조하지 않음 — idle 부재 시 total=NULL → 제외.
+                       -- report_aggregate(jiffies 전체 present 요구)와 동일한 "유효 reading = idle present" 의미 일관.
+                       CASE WHEN cpu_idle IS NULL THEN NULL ELSE
+                         (COALESCE(cpu_user,0)+COALESCE(cpu_nice,0)+COALESCE(cpu_system,0)
+                          +COALESCE(cpu_iowait,0)+COALESCE(cpu_irq,0)+COALESCE(cpu_softirq,0)
+                          +COALESCE(cpu_steal,0)+cpu_idle)
+                       END AS total
                 FROM server_metrics
                 WHERE collected_at >= now() - (:days * interval '1 day')
             ),

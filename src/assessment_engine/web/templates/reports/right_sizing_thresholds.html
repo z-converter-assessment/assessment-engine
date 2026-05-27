@@ -52,6 +52,9 @@
   <p style="margin:0 0 10px; font-size:13px; color:#475569; line-height:1.6;">
     여러 trigger 가 동시 hit 되어도 위에서부터 첫 매칭에서 분류 확정 (short-circuit). 즉 swap 발생 시 cpu/mem 사용률과 무관하게 즉시 under_provisioned, disk capacity 또는 iowait 임계 초과도 cpu 사용률 검사 전 under 확정.
   </p>
+  <p style="margin:0 0 10px; font-size:13px; color:#475569; line-height:1.6;">
+    OS 분기 (Windows): swap 은 Linux page-out(메모리 압박) 신호이나 Windows pagefile 은 여유 RAM 에도 상시 사용되는 baseline 이라 saturation 신호가 아니다. 따라서 Windows 는 swap 축을 분류에서 제외하고(swap_used 무시) saturation 축(load/iowait)도 OS 부재라, cpu/mem utilization 축만으로 판정한다 ("부분 평가" 표기). 동일 통계라도 Linux 는 swap 으로 under_provisioned, Windows 는 utilization 기준으로 분류된다.
+  </p>
   <table style="font-size:12px;">
     <thead>
       <tr>

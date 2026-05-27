@@ -163,6 +163,16 @@ class ConsumerSettings(WebSettings):
             f"@{self.rabbitmq_host}:{self.rabbitmq_port}/{encoded_vhost}"
         )
 
+    # 호스트별 task 큐·routing key 합성 단일 진실 — prefix(config) + composite_id(런타임).
+    # agent 와 합의된 형식이라 양쪽이 동일 규칙으로 합성해야 함 (#B). 발행 측·소비 측 모두 본 메서드 경유.
+    def agent_task_queue(self, composite_id: str) -> str:
+        """task.install 발행 대상 호스트별 큐 이름 — `{prefix}.{composite_id}`."""
+        return f"{self.rabbitmq_task_queue_prefix}.{composite_id}"
+
+    def task_install_routing_key(self, composite_id: str) -> str:
+        """task.install 호스트별 routing key — `{prefix}.{composite_id}`."""
+        return f"{self.rabbitmq_task_install_key_prefix}.{composite_id}"
+
     @model_validator(mode="after")
     def _validate_prod_consumer_secrets(self) -> "ConsumerSettings":
         if self.app_env != "prod":

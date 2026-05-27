@@ -76,5 +76,5 @@
 
 ## Changelog
 
-본 파일은 release-please가 자동 갱신 — Conventional Commits 기반 (ADR 0013).
-직접 편집 금지 (다음 release-please 실행 시 덮어쓰기).
+본 파일은 v0.1.2 까지의 history (release-please 자동 갱신 산물). ADR 0030(tag-derived 버전) 이후 자동 갱신 중단 —
+신규 release notes 는 GitHub Releases 가 자동 생성 (`release.yml` `generate_release_notes: true`). 위 history 는 동결 보존.

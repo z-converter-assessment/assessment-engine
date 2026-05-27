@@ -132,6 +132,7 @@ def to_inventory_export_entry(
                 disk_used_pct=stats.worst_mount_used_pct,
                 iowait_p95_pct=stats.iowait_p95_pct,
                 net_avg_kbps=None,  # 현재 net 집계 미통합 — idle/shutdown 판정 skip
+                os_family=stats.os_family,  # P2 — Windows swap 축 제외
             )
         )
         cpu_p95 = stats.cpu_p95_pct

@@ -12,11 +12,11 @@
 | 본 repo dev 작업·코드 규약 (Docker·dependencies·pipeline 검증·testing·conventions·wrap-up) | `development/` |
 | 기능 개발 마무리 5단계 표준 워크플로 | `development/wrap-up.md` |
 | 외부 인프라용 contract (deployment·env·alembic·observability·release) | `operations/` |
-| 본 repo CI · release-please · branch protection 활성 (GitHub UI) | `development/github-setup.md` |
+| 본 repo CI · release(Commitizen) · branch protection 활성 (GitHub UI) | `development/github-setup.md` |
 | 운영 산출물별 의의·근거 (보고서·진단·Install·Export 등) | `products/` |
 | RAG 도메인 지식 sample (ADR 0024 ingest 본질 자료) | `rag-seed/` |
 | 왜 그렇게 결정했나 | `adr/` |
-| 트레이드오프와 한계 (T1~T13) | `tradeoffs.md` |
+| 트레이드오프와 한계 (T1~T14) | `tradeoffs.md` |
 
 ## 디렉토리
 
@@ -38,9 +38,9 @@ docs/
 │   ├── testing.md         pytest 단위·통합 테스트
 │   ├── conventions.md     본 repo 작업 규약 단일 — IDE·Hook(F1) + 자동화 변환 검증·누적 사고 패턴(F5)
 │   ├── wrap-up.md         기능 개발 마무리 5단계 표준 워크플로 — 문서 정합·코드 리뷰·테스트·README·CLAUDE.md (skill: /wrap-up)
-│   └── github-setup.md    GitHub UI 활성 의무 카탈로그 — CI·release-please·branch protection (본 repo CI 책임자 자료)
+│   └── github-setup.md    GitHub UI 활성 의무 카탈로그 — CI·release(Commitizen)·branch protection (본 repo CI 책임자 자료)
 ├── operations/            외부 인프라가 활용할 contract (영구·갱신)
-│   ├── release.md         release artifact 카탈로그·생성 trigger·무결성 검증·다운로드 (ADR 0012)
+│   ├── release.md         release artifact 카탈로그·생성 trigger(Commitizen)·무결성 검증·다운로드 (ADR 0012·0028)
 │   ├── deployment.md      외부 인프라가 release artifact 활용해 운영하는 단계별 가이드 (OS·도구 독립, multi-node 분리·트러블슈팅·인프라 레포 자동화 포함)
 │   ├── env.md             환경변수 관리 단일 진실 — 정책·매트릭스·secret 채널·전체 키 카탈로그·운영 체크리스트
 │   ├── alembic.md         DB schema 마이그레이션 contract
@@ -57,7 +57,7 @@ docs/
 │   ├── right-sizing-thresholds.md AWS Compute Optimizer + Azure Advisor 임계 catalog
 │   └── classification-rules.md    본 엔진 7 category 분류 규칙
 ├── adr/                   Architecture Decision Records (영구·불변, 0001~0025)
-└── tradeoffs.md           의식적 설계 선택과 한계 (T1~T13) — 카탈로그
+└── tradeoffs.md           의식적 설계 선택과 한계 (T1~T14) — 카탈로그
 ```
 
 ## 범위

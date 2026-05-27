@@ -1,6 +1,8 @@
 # ADR 0013 — release-please 자동화 (semver tag·CHANGELOG·Release PR)
 
-상태: Accepted
+상태: Superseded by ADR 0028
+
+> release-please 는 트렁크 기반(main 단독) 전용 도구라 develop git-flow 와 구조 충돌한다. squash + required_linear_history ruleset 하에서 develop->main 승격이 항상 새 squash 커밋이 되어 main/develop 이력이 영구 divergence (릴리즈마다 충돌 재발). 본 ADR 의 결정은 ADR 0028 (Commitizen 전환)로 대체됨. 아래 본문은 history 보존용.
 
 ## Context
 

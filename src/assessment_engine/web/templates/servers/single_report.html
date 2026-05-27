@@ -90,6 +90,7 @@
   <div style="display:flex; align-items:center; gap:12px;">
     <span class="badge {{ r.badge_class }}" style="font-size:13px; padding:4px 12px;">{{ r.recommendation }}</span>
     <span class="text-strong" style="font-size:13px;">{{ r.recommendation_action }}</span>
+    {% if r.is_partial %}<span class="text-meta" style="font-size:12px;">(부분 평가 — Windows: saturation 축 N/A, utilization 기준)</span>{% endif %}
   </div>
   {% if view == "engineer" and r.diagnosis %}
   <div style="margin-top:10px; padding-top:10px; border-top:1px solid #e2e8f0; font-size:12px; color:#475569;">
@@ -132,8 +133,8 @@
     </div>
     <div class="metric-card">
       <div class="metric-label">Swap 사용</div>
-      <div class="metric-value" style="color:{% if r.swap_used %}#b91c1c{% else %}#94a3b8{% endif %};">{% if r.swap_used %}발생{% else %}—{% endif %}</div>
-      <div class="metric-sub">메모리 saturation 1차 지표</div>
+      <div class="metric-value" style="color:{% if r.os_family == 'windows' %}#94a3b8{% elif r.swap_used %}#b91c1c{% else %}#94a3b8{% endif %};">{% if r.os_family == 'windows' %}N/A{% elif r.swap_used %}발생{% else %}—{% endif %}</div>
+      <div class="metric-sub">{% if r.os_family == 'windows' %}Windows pagefile — saturation 미적용{% else %}메모리 saturation 1차 지표{% endif %}</div>
     </div>
   </div>
 </section>

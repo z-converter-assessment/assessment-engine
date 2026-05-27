@@ -48,6 +48,8 @@ storage 페이지 mount → disk 매칭 + `_split_disks` (Inventory JSON Export�
 
 UI badge 임계값(`mappers/shared.py` `_USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
 
+OS 분기 (원칙 P2/P4): `classify`는 `ResourceStats.os_family`로 OS별 신호 의미를 분기한다. swap은 Linux page-out(메모리 압박) 신호이나 Windows pagefile은 여유 RAM에도 상시 사용되는 baseline이라 saturation이 아니므로, `recommendation.swap_saturation(os_family, swap_used)` 단일 helper가 Windows에서 swap 축을 제외한다 (classify·report mapper·attention 배지·환경 swap_pressure 카운트 모두 본 helper 경유). saturation 축(load/iowait)도 Windows는 OS 부재라 utilization 축만으로 분류 — `is_partial_evaluation`이 True를 반환해 보고서가 "부분 평가" 마커 표시(`ReportRowItem.is_partial` precompute, 템플릿은 bool만 분기). os_family None(unknown)은 Linux로 취급해 기존 동작 보존. OS 분기·판정 순서 상세는 `right_sizing_thresholds.html` 참고자료 단일 진실.
+
 ## 대시보드 상단 요약 — environment_overview + attention
 
 `/servers/` 첫 페이지에서 두 영역으로 표시. environment_overview는 환경 현황·평균·분포(도넛), attention은 즉시 조치 신호 카드. 시간 축은 F11 단일 윈도우(`recommendation.WINDOW_DAYS=14`).

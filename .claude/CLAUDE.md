@@ -18,7 +18,7 @@
 | `docs/operations/` | 외부 인프라가 활용할 contract (deployment·env·alembic·observability·release) | 영구·갱신 |
 | `docs/products/` | 운영 산출물별 존재 의의·근거 (dashboard·환경 보고서·서버 보고서·JSON Export·Install task) | 영구·갱신 |
 | `docs/adr/` | Architecture Decision Records — "왜 이렇게 결정했나" + 트레이드오프. ADR은 정정만, 덮어쓰기 금지 | 영구·불변 |
-| `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T13) | 영구·갱신 |
+| `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T14) | 영구·갱신 |
 
 그 외 명시되지 않은 경로의 문서는 코드·영구 문서에서 인용 금지.
 
@@ -177,6 +177,7 @@ Pagination 정책:
 본 절 결정:
 - 두 임계 도메인(UI badge / USE Method) 혼용 금지.
 - 신규 ViewModel 파생 필드 추가 시 #F9 영향도 체크리스트 적용.
+- right-sizing 분류는 OS-aware (ADR 0029). swap 등 OS 의미가 다른 신호는 `recommendation.swap_saturation(os_family, swap_used)` 단일 helper 경유 — Windows pagefile 은 saturation 신호 아님(제외), Linux/None(unknown)은 기존 동작 보존. saturation 축 부재 OS(Windows)는 `is_partial_evaluation` -> `ReportRowItem.is_partial` precompute 로 "부분 평가" 노출. swap_used 를 saturation 으로 직접 해석(`if raw.swap_used`) 금지 — helper 경유 의무.
 
 ## E4. URL 식별자 — 정수 PK 노출 금지
 
@@ -337,6 +338,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 | `EXCHANGE`/`ROUTING_KEY_*` 값 변경 | (1) 발행 측 상수 (2) consumer subscriber dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 |
 | 메시지 페이로드 schema 변경 (필드 추가·삭제·rename·Literal 값 변경) | (1) `consumer/schemas.py` 또는 발행 측 payload 빌드 (2) Inbound DTO (3) handler 매핑 (4) DB 모델·Alembic revision (필요 시) (5) `docs/architecture/agent.md` 데이터 형식 절 (6) 운영자 가시성 ViewModel·템플릿·API (필요 시) |
 | `recommendation.py` 분류 임계 또는 OrbStack VM 매트릭스 변경 | (1) `recommendation.py` 임계 상수 (2) `docs/development/pipeline.md` "VM 매트릭스"(합성 부하·swap_used 트리거) (3) #F10 평가 윈도우 정합 |
+| 분류 OS 분기 (신호의 OS별 의미·축 추가, ADR 0029) | (1) `recommendation.py` helper(`swap_saturation` 등)·`ResourceStats` 필드·`is_partial_evaluation` (2) `classify` 호출처 전부 os_family 전달 (aggregator·query_service·server/report/export mapper) (3) 직접 해석 지점(report mapper·attention·환경 카운트) helper 경유 (4) 표시 N/A·부분평가 마커 (ViewModel precompute + 템플릿) (5) `docs/architecture/web/services.md` "OS 분기" + `right_sizing_thresholds.html` + product 문서 |
 | 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) `dev/docker-compose.yml` `environment:` (dev 필요 시) (4) prod secret 분류면 `SecretStr` 타입 + `_validate_prod_*` 에 weak default 거부 추가 + `docs/operations/env.md` 2절·7절 |
 | ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass(P2) |
 | 신규 외부 의존(HTTP·LLM·외부 큐) | (1) fail-open/close 결정(#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) #F6 매트릭스 갱신 |

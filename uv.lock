@@ -75,7 +75,6 @@ wheels = [
 
 [[package]]
 name = "assessment-engine"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aio-pika" },

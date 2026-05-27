@@ -19,12 +19,12 @@ CI (`ci.yml`·`alembic-check.yml`) 가 `uv sync --frozen` 사용 — `pyproject.
 
 ```toml
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]      # hatch-vcs = 버전을 git tag 에서 derive (ADR 0030)
 build-backend = "hatchling.build"
 
 [project]
 name = "assessment-engine"
-version = "0.1.0"  # x-release-please-version (release-please 자동 bump)
+dynamic = ["version"]   # 버전 미저장 — git tag(v*) 단일 진실. [tool.hatch.version] source="vcs" (ADR 0030)
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.136.0",

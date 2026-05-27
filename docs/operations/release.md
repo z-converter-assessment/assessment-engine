@@ -46,33 +46,33 @@ multi-arch: `linux/amd64` + `linux/arm64` (운영자 ARM 서버 직접 호환).
 
 ADR 0023: scheduler cron 폐기로 4 컴포넌트 → 3 컴포넌트.
 
-## 2. 생성 trigger (자동 ceremony)
+## 2. 생성 trigger (tag-derived 버전, git-flow)
 
-release ceremony는 Conventional Commits + release-please 자동화 (ADR 0013).
+버전은 git tag(`v*`)가 단일 진실 — repo에 버전을 저장하지 않고 빌드 시 hatch-vcs가 tag에서 derive (ADR 0030). 릴리즈 = `main`에 tag push. 버전 bump 커밋이 없어 보호 브랜치(develop·main) push 마찰 0.
 
 흐름:
-1. PR title을 Conventional Commits 형식으로 작성 (`feat:`·`fix:`·`BREAKING CHANGE:` 등) — `pr-title-check.yml`이 PR 시점 강제
-2. PR squash merge 시 PR title이 main commit message가 됨
-3. main push → `release-please.yml` 발사 → commit 분석
-4. feat/fix/BREAKING 감지 시 자동 "Release PR" 생성·갱신:
-   - `pyproject.toml` version bump (semver 정책 자동 결정)
-   - `CHANGELOG.md` 갱신 (type별 분류 누적)
-5. 운영자가 Release PR 검토·승인·merge
-6. merge 시점에 release-please가 tag(`v*`) 자동 생성·push
-7. tag push → `release.yml` 발사 (2 job 병렬):
-   - `release-wheel` job: `uv build` (wheel + sdist) → SHA256SUMS → SBOM (cyclonedx-py) → Sigstore signing → GitHub Release 첨부
-   - `release-image` job: docker buildx multi-arch build (`linux/amd64,arm64`) → GHCR push → cosign keyless image signing → BuildKit SBOM (SPDX) attestation
+1. `feature/*`·`fix/*` → PR(squash) → `develop`. (PR title은 Conventional Commits — `pr-title-check.yml` 강제. 버전 변경 없음)
+2. `develop` → `main` PR(merge method) 승격·머지 — 코드만 올라감, main이 develop 이력 공유 (divergence 0). source는 develop만.
+3. 릴리즈 = `main`에 tag push:
+   ```bash
+   git checkout main && git pull
+   git tag v0.2.0 && git push origin v0.2.0
+   ```
+   tag 생성은 tag ruleset이 허용 (deletion·non-fast-forward만 차단). "다음 버전" semver는 사람이 결정 (직전 tag 이후 `feat`/`fix`/`BREAKING` 비율 보고 — 필요 시 `git log <last-tag>..main`).
+4. tag push → `release.yml` 발사 (2 job 병렬):
+   - `release-wheel` job: checkout `fetch-depth: 0`(hatch-vcs가 tag 읽음) → `uv build` (wheel + sdist, 버전=tag) → SHA256SUMS → SBOM (cyclonedx-py) → Sigstore signing → GitHub Release 첨부
+   - `release-image` job: tag semver를 `--build-arg APP_VERSION`로 전달(Dockerfile이 `SETUPTOOLS_SCM_PRETEND_VERSION`로 hatch-vcs 주입 — 빌드 컨텍스트에 `.git` 없음) → docker buildx multi-arch (`linux/amd64,arm64`) → GHCR push → cosign keyless signing → BuildKit SBOM (SPDX)
 
-semver bump 규칙 (Conventional Commits → release-please):
+   release notes는 GitHub가 자동 생성 (`generate_release_notes: true`) — 누적 CHANGELOG 파일 미유지.
 
-| PR type | bump | 예시 |
-|---------|------|------|
-| `feat:` | MINOR | `feat: add diagnostic stale job cleanup` |
-| `fix:` / `perf:` | PATCH | `fix: handle null hostname in mapper` |
-| `feat!:` / `BREAKING CHANGE:` body | MAJOR | `feat!: rename routing key` |
-| `docs:` / `chore:` / `refactor:` / `test:` / `build:` / `ci:` / `style:` / `revert:` | bump 없음 (CHANGELOG에만 누적) | `docs: clarify alembic policy` |
+semver 규칙 (사람이 tag 결정 시 가이드):
 
-0.x 동안엔 `bump-minor-pre-major: true`로 BREAKING이 MINOR로 다운 — 초기 개발 자유도 보존. 1.0.0 도달 시점에 manifest 정책 수동 변경 (ADR 0013).
+| 변경 성격 | bump | 0.x 동안 |
+|-----------|------|----------|
+| 새 기능 (`feat`) | MINOR | 0.1 → 0.2 |
+| 버그 수정 (`fix`/`perf`) | PATCH | 0.1.2 → 0.1.3 |
+| 호환성 깨짐 (`feat!`/`BREAKING`) | MAJOR | 0.x 동안은 MINOR로 (1.0 전 자유도) |
+| 문서·잡무만 (`docs`/`chore`/`ci` 등) | 없음 | tag 안 함 |
 
 수동 빌드 (로컬 dev 검증용 한정 — release 발사 아님):
 ```bash
@@ -114,6 +114,9 @@ cd /tmp/release && sha256sum -c SHA256SUMS
 
 - ADR 0005 — Alembic schema 관리 단일 진실 (migrations 동봉 사유)
 - ADR 0012 — wheel + GitHub Release 채택, Docker image·devpi·S3 등 옵션 비교
+- ADR 0013 — release-please 자동화 (Superseded by 0028)
+- ADR 0028 — Commitizen 전환 (Superseded by 0030)
+- ADR 0030 — tag-derived 버전 (hatch-vcs, 버전을 repo에 저장 안 함) — 현행
 
 ## 7. 한계
 

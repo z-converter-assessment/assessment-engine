@@ -239,7 +239,7 @@ fi
 section "CI 전용 (OIDC·인증·이벤트 필요 — 안내만)"
 skip "sigstore 서명 / cosign 이미지 서명 — GitHub OIDC 토큰 필요"
 skip "GHCR push — 레지스트리 인증 + 외부 부작용"
-skip "release-please / pr-title-check — GitHub 이벤트 컨텍스트 필요"
+skip "pr-title-check — GitHub PR 이벤트 컨텍스트 필요 (릴리즈는 main 에 tag push, ADR 0030)"
 
 # ─── 결과 ───────────────────────────────────────────────────────────────────
 section "결과"

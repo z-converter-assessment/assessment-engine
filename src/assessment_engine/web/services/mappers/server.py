@@ -180,6 +180,7 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
                 disk_used_pct=raw_period.worst_mount_used_pct,
                 iowait_p95_pct=raw_period.iowait_p95_pct,
                 net_avg_kbps=None,
+                os_family=raw_period.os_family,  # P2 — Windows swap 축 제외
             )
         )
         seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")

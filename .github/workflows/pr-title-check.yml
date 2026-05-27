@@ -1,7 +1,7 @@
 name: pr-title-check
 
-# PR title을 Conventional Commits 형식으로 강제 — release-please가 version bump·CHANGELOG 자동 생성에
-# 필요한 입력 (ADR 0013). squash merge 시 PR title이 main commit message가 되므로 본 check가 단일 진실.
+# PR title을 Conventional Commits 형식으로 강제 — squash merge 시 PR title이 commit message가 되어
+# git history·GitHub 자동 release notes(ADR 0030)의 입력. 버전 semver 결정 가독성 + history 일관.
 #
 # 허용 type: feat fix docs chore refactor perf test build ci style revert
 # breaking change: title에 "!" 또는 body에 "BREAKING CHANGE:"

@@ -1,17 +1,17 @@
 # GitHub UI Setup
 
-본 repo CI workflow·release-please 자동화·branch policy를 정상 작동시키기 위해 GitHub 측에서 한 번만 활성해야 하는 설정 카탈로그. 본 repo 코드 영역 밖이라 운영자가 GitHub Settings에서 수동 활성.
+본 repo CI workflow·release(Commitizen) ceremony·branch policy를 정상 작동시키기 위해 GitHub 측에서 한 번만 활성해야 하는 설정 카탈로그. 본 repo 코드 영역 밖이라 운영자가 GitHub Settings(또는 ruleset)에서 수동 활성.
 
-## 1. Actions 권한 (의무)
+## 1. Actions 권한
 
 위치: Settings → Actions → General → Workflow permissions
 
-| 항목 | 활성 의무 | 사유 |
+| 항목 | 값 | 사유 |
 |------|----------|------|
-| Read and write permissions | 활성 | release-please가 commit·tag push 가능하게 |
-| Allow GitHub Actions to create and approve pull requests | 활성 | release-please가 Release PR 생성 |
+| Read and write permissions | 권장(필수 아님) | 각 워크플로가 `permissions:` 블록으로 최소권한 자체 선언 (release.yml `contents: write` 등). 전역 read-only 여도 동작 |
+| Allow GitHub Actions to create and approve pull requests | 불필요 | bot 의 PR 생성 없음 (ADR 0030 — 버전은 tag 단일 진실, bump 커밋 없음). 릴리즈 = 운영자가 main 에 tag push |
 
-본 옵션 비활성이면 release-please workflow가 동작해도 PR 생성 권한 부족으로 실패.
+릴리즈는 GitHub Actions bot 이 아니라 운영자가 `main` 에 `v*` tag 를 push -> `release.yml` 발사 (ADR 0030). bot PR 생성 권한 불필요.
 
 ## 2. CodeQL Default Setup (권장)
 
@@ -36,10 +36,10 @@ UI 활성 안 하고 workflow만 두어도 동작 — 단 Security 탭 통합이
 | Require approvals | 1+ (선택) | 1인 운영이면 0, 팀이면 1+ |
 | Dismiss stale pull request approvals when new commits are pushed | 활성 | 강제 push로 우회 차단 |
 | Require status checks to pass before merging | 활성 | CI workflow 통과 의무 |
-| Required status checks | 아래 7 항목 모두 의무 등록 (체크) — release-please bot 의 Release PR 도 본 check 통과해야 merge 가능 |
+| Required status checks | 아래 7 항목 모두 의무 등록 (체크) — 모든 PR 이 본 check 통과해야 merge 가능 |
 | Require branches to be up to date before merging | 활성 | merge 직전 main rebase 강제 |
 | Require conversation resolution before merging | 활성 | PR comment 미해결 차단 |
-| Require linear history | 활성 (선택) | merge commit 금지, squash·rebase만 |
+| Require linear history | 비활성 | `develop` → `main` 승격을 merge commit 으로 해 이력 공유 (divergence 0, ADR 0030). linear 강제 시 squash 만 되어 main/develop 영구 분기 |
 | Do not allow bypassing the above settings | 활성 | admin도 우회 불가 — 본 옵션이 정책의 마지막 안전망 |
 | Allow force pushes | 비활성 | git history 보호 |
 | Allow deletions | 비활성 | branch 삭제 차단 |
@@ -48,7 +48,7 @@ UI 활성 안 하고 workflow만 두어도 동작 — 단 Security 탭 통합이
 
 | Check 이름 (GitHub UI 표시) | 발화 workflow | 검증 | 비고 |
 |------------------------------|-----------------|------|------|
-| `PR title (conventional commits)` | `pr-title-check.yml` | PR title 형식 (`feat:`·`fix:`·`feat!:` 등) | release-please 자동 bump 의존 |
+| `PR title (conventional commits)` | `pr-title-check.yml` | PR title 형식 (`feat:`·`fix:`·`feat!:` 등) | git history·GitHub release notes 일관 (ADR 0030) |
 | `ci / ruff + hadolint` | `ci.yml` | python lint + Dockerfile lint | |
 | `ci / pytest (unit)` | `ci.yml` | 단위 테스트 + coverage | |
 | `ci / wheel build` | `ci.yml` | `uv build` 성공 | release artifact 산출물 정합 |
@@ -64,7 +64,7 @@ main PR 분기 강화는 `.claude/skills/pr-create/SKILL.md` "main PR 추가 강
 
 `main`과 동일 패턴 — `develop`도 PR 강제. 단:
 - "Required status checks" — 위 7 항목 동일 적용 (`alembic-check`·`security / pip-audit` 도 paths 무관 매 PR 발화)
-- "Require linear history" 선택 (develop는 통합 branch라 자유도 좀 더)
+- "Require linear history" 비활성 — feature 는 squash 로 들어오지만 `develop` 자체가 merge commit 을 받을 수 있어야 화해·승격 정합 (ADR 0030)
 - "Do not allow bypassing" 활성
 
 ## 4. Tag Protection Rule (정석)
@@ -73,10 +73,11 @@ main PR 분기 강화는 `.claude/skills/pr-create/SKILL.md` "main PR 추가 강
 
 | 옵션 | 값 | 사유 |
 |------|-----|------|
-| Pattern | `v*` | semver release tag만 적용 |
-| Allowed actors | release-please bot + owner | 사용자 수동 tag 생성 차단. release-please bot만 자동 tag push 가능 |
+| Pattern | `refs/tags/v*` | semver release tag만 적용 |
+| Restrict deletions | 활성 | 발행된 release tag 삭제 차단 (불변 보존) |
+| Block force pushes (non-fast-forward) | 활성 | tag 재지정 차단 |
 
-release-please bot이 `GITHUB_TOKEN`을 통해 tag push할 때 본 rule 우회 가능. 일반 사용자가 `git push origin v1.2.3` 직접 시도하면 차단.
+tag 생성(creation)은 제한 안 함 — 운영자가 `main` 머지 후 `git tag v1.2.3 && git push origin v1.2.3` 으로 새 `v*` tag 를 push 하는 게 정상 릴리즈 경로 (ADR 0030). 이미 발행된 tag 의 삭제·재지정만 차단.
 
 ## 5. Repository Settings (권장)
 
@@ -86,12 +87,12 @@ release-please bot이 `GITHUB_TOKEN`을 통해 tag push할 때 본 rule 우회 �
 
 | 옵션 | 값 |
 |------|-----|
-| Allow merge commits | 비활성 |
-| Allow squash merging | 활성 (default: PR title and description) |
+| Allow merge commits | 활성 | `develop` → `main` 승격용 — main 이 develop 이력 공유 (ADR 0030) |
+| Allow squash merging | 활성 (default: PR title and description) | feature·fix → develop 통합용 |
 | Allow rebase merging | 비활성 |
 | Automatically delete head branches | 활성 |
 
-squash merge 단독 활성 — PR title이 main commit message가 됨. release-please가 PR title 분석으로 semver bump 결정하므로 일관성.
+merge + squash 병행 — feature·fix 는 squash 로 develop 에 들어가고(PR title이 commit message), `develop` → `main` 은 merge commit 으로 승격해 두 장수 브랜치가 이력을 공유. 버전은 repo 에 없고 `main` 에 push 하는 `v*` tag 가 단일 진실 (hatch-vcs, ADR 0030).
 
 ### 5.2. Dependabot
 
@@ -116,19 +117,18 @@ squash merge 단독 활성 — PR title이 main commit message가 됨. release-p
 
 순서대로 활성:
 
-- [ ] Actions → General → Workflow permissions = Read and write + Allow GHA to create/approve PR
 - [ ] Code security → CodeQL → Default setup → Enable
 - [ ] Dependabot alerts + security updates → 활성 (version updates 는 비활성 — 운영자 수동 bump)
-- [ ] Branches → main branch protection rule (위 3.1 표 적용)
+- [ ] Branches → main branch protection rule (위 3.1 표 적용 — linear history 비활성)
 - [ ] Branches → develop branch protection rule (위 3.2 적용)
-- [ ] Tags → `v*` tag protection rule (위 4 적용)
-- [ ] General → Pull Requests → squash merge 단독 활성 + Auto-delete head branches
+- [ ] Tags → `v*` tag protection rule (위 4 — deletion·force-push 차단, creation 허용)
+- [ ] General → Pull Requests → merge + squash 병행 활성 + Auto-delete head branches
 
-본 체크리스트 모두 완료 = 본 repo CI·release 자동화 정합 활성.
+본 체크리스트 모두 완료 = 본 repo CI·release ceremony 정합 활성.
 
 ## 8. 관련 문서
 
 - CI workflow 카탈로그: README "CI 파이프라인" 절
 - release artifact contract: `docs/operations/release.md`
-- release-please 자동화 정책: `docs/adr/0013-release-please-automation.md`
+- release(tag-derived) ceremony 정책: `docs/adr/0030-tag-derived-versioning.md` (cz/commitizen supersede)
 - wheel + GitHub Release: `docs/adr/0012-wheel-ci-artifact.md`
