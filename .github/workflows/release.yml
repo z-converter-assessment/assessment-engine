@@ -62,8 +62,11 @@ jobs:
       # 외부 인프라가 release artifact의 의존성·CVE 추적 가능 (산업 표준 ADR 0012 강화).
       - name: Generate SBOM
         run: |
-          uv pip install cyclonedx-bom
-          uv run cyclonedx-py environment --output-file dist/sbom.cdx.json
+          # venv 비의존 — CI runner 에 .venv 가 없어도 동작 (이전 `uv pip install` 은 venv 요구로 실패).
+          # uv export 로 uv.lock 의 runtime deps 추출 후 uvx 로 cyclonedx 실행 (ephemeral tool env).
+          uv export --frozen --no-dev --format requirements-txt > dist/_sbom-requirements.txt
+          uvx --from cyclonedx-bom cyclonedx-py requirements dist/_sbom-requirements.txt --output-file dist/sbom.cdx.json
+          rm -f dist/_sbom-requirements.txt
 
       # Sigstore keyless signing — wheel·sdist에 cryptographic signature (`.sigstore` 파일).
       # OIDC 기반 keyless (private key 관리 0). 외부 인프라가 `cosign verify-blob`으로 무결성 검증 가능.
