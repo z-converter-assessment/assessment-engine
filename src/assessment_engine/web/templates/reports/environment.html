@@ -278,7 +278,7 @@
             {%- if r.worst_mount_used_pct is not none %} ({{ "%.0f" | format(r.worst_mount_used_pct) }}%){% endif -%}
           {% else %}—{% endif %}
         </td>
-        <td>{% if r.swap_used %}발생{% else %}<span class="text-meta">—</span>{% endif %}</td>
+        <td>{% if r.os_family == 'windows' %}<span class="text-meta">N/A</span>{% elif r.swap_used %}발생{% else %}<span class="text-meta">—</span>{% endif %}</td>
         <td style="color:{{ r.reboot_count_color }};">{{ r.reboot_count }}</td>
         <td style="color:{{ r.agent_restart_count_color }};">{{ r.agent_restart_count }}</td>
         <td class="text-muted">{{ r.diagnosis or "—" }}</td>

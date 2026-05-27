@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
-from assessment_engine.recommendation import ResourceStats, classify
+from assessment_engine.recommendation import ResourceStats, classify, swap_saturation
 
 
 async def extract_server(
@@ -41,6 +41,7 @@ async def extract_server(
         disk_used_pct=row.worst_mount_used_pct,
         iowait_p95_pct=row.iowait_p95_pct,
         net_avg_kbps=None,  # 1차 — net 집계는 별도 query 도입 후
+        os_family=row.os_family,  # P2 — Windows swap 축 제외
     )
     classification_label = classify(stats)
 
@@ -95,7 +96,7 @@ async def extract_environment(
     saturation_alerts: list[dict] = []
 
     for row in rows:
-        if row.swap_used:
+        if swap_saturation(row.os_family, row.swap_used):  # P2 — Windows pagefile 제외
             swap_pressure += 1
 
         stats = ResourceStats(
@@ -108,6 +109,7 @@ async def extract_environment(
             disk_used_pct=row.worst_mount_used_pct,
             iowait_p95_pct=row.iowait_p95_pct,
             net_avg_kbps=None,
+            os_family=row.os_family,  # P2 — Windows swap 축 제외
         )
         label = classify(stats)
         counts[label] = counts.get(label, 0) + 1

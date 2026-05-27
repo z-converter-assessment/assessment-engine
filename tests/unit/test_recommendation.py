@@ -20,6 +20,8 @@ from assessment_engine.recommendation import (
     SHUTDOWN_NET_MBPS,
     ResourceStats,
     classify,
+    is_partial_evaluation,
+    swap_saturation,
 )
 
 
@@ -179,3 +181,41 @@ def test_disk_capacity_short_circuits_cpu_low():
 def test_threshold_boundary_inclusive(case):
     stats, expected = case
     assert classify(stats) == expected
+
+
+# ─── OS family 분기 (원칙 P2 — Windows pagefile != Linux swap saturation) ───
+
+
+def test_swap_saturation_linux_and_unknown_passthrough():
+    # os_family None(unknown) / linux → swap_used 그대로 (옛 동작 보존)
+    assert swap_saturation(None, True) is True
+    assert swap_saturation("linux", True) is True
+    assert swap_saturation("linux", False) is False
+
+
+def test_swap_saturation_windows_excluded():
+    # Windows pagefile 상시 사용은 saturation 신호 아님 → swap_used=True 여도 False
+    assert swap_saturation("windows", True) is False
+
+
+def test_classify_windows_swap_not_under_provisioned():
+    """동일 통계라도 Windows 는 swap 축 제외 → under_provisioned 로 왜곡 안 됨 (Linux 와 분기)."""
+    # cpu 20% / mem 30% (낮음) + swap_used=True:
+    #   Linux  → swap short-circuit → under_provisioned
+    #   Windows→ swap 제외 → cpu/mem 낮으니 over_provisioned
+    linux = _stats(cpu_p95_pct=20.0, mem_p95_pct=30.0, swap_used=True, os_family="linux")
+    windows = _stats(cpu_p95_pct=20.0, mem_p95_pct=30.0, swap_used=True, os_family="windows")
+    assert classify(linux) == "under_provisioned"
+    assert classify(windows) == "over_provisioned"
+
+
+def test_classify_windows_still_under_on_real_utilization():
+    """Windows 라도 실제 utilization 신호(cpu/mem 높음)는 그대로 under_provisioned — 과소평가 안 함."""
+    windows_busy = _stats(cpu_p95_pct=CPU_UPSIZE_P95_PCT, swap_used=True, os_family="windows")
+    assert classify(windows_busy) == "under_provisioned"
+
+
+def test_is_partial_evaluation_windows_vs_linux():
+    assert is_partial_evaluation(_stats(os_family="windows")) is True
+    assert is_partial_evaluation(_stats(os_family="linux")) is False
+    assert is_partial_evaluation(_stats(os_family=None)) is False

@@ -17,10 +17,10 @@ description: TRIGGER when user requests PR creation ("PR 만들어줘", "/pr-cre
 
 main 은 배포 branch — 강화 의무 (운영자가 main PR 시 적용):
 
-1. main PR 정상 경로 = `develop` → `main` 릴리즈 승격(merge method, ADR 0028) 또는 `hotfix/*`. feature/* 등 다른 prefix 직접 main PR 이면 사용자에게 의도 재확인
+1. main PR 정상 경로 = `develop` → `main` 승격(merge method, ADR 0030) 또는 `hotfix/*`. feature/* 등 다른 prefix 직접 main PR 이면 사용자에게 의도 재확인. (릴리즈 자체는 main 머지 후 main 에 `v*` tag push — PR 아님)
 2. Pre-check 확장 (아래 Pre-check 절 기본 + main 추가):
    - `uv run pytest tests/integration -q` 의무 (사용자 confirm 없이 — main 안전 우선). 단위만으로 부족
-   - `git log origin/main..HEAD --oneline` 의 모든 commit message 가 Conventional Commits 형식 의무 확인 (`cz bump` 자동 bump 결정)
+   - `git log origin/main..HEAD --oneline` 의 모든 commit message 가 Conventional Commits 형식 의무 확인 (history·GitHub release notes 일관)
    - breaking change 의도 시 (`feat!:` 또는 body `BREAKING CHANGE:`) → 사용자에게 ADR 신설 의무 확인 (`docs/adr/NNNN-*.md`)
    - `git diff origin/main...HEAD -- docs/adr/` 가 비어 있고 type prefix 가 `feat!:` 또는 `BREAKING CHANGE:` 면 ADR 누락 차단
 3. PR body 추가 명시:

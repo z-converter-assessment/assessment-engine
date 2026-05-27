@@ -366,6 +366,7 @@ class QueryService:
                     disk_used_pct=raw.worst_mount_used_pct,
                     iowait_p95_pct=raw.iowait_p95_pct,
                     net_avg_kbps=None,
+                    os_family=raw.os_family,  # P2 — Windows swap 축 제외
                 )
             )
             seg = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
@@ -425,6 +426,7 @@ class QueryService:
                         disk_used_pct=raw.worst_mount_used_pct,
                         iowait_p95_pct=raw.iowait_p95_pct,
                         net_avg_kbps=None,
+                        os_family=raw.os_family,  # P2 — Windows swap 축 제외
                     )
                 )
                 if rec == "under_provisioned":
@@ -495,6 +497,7 @@ class QueryService:
                     disk_used_pct=raw.worst_mount_used_pct,
                     iowait_p95_pct=raw.iowait_p95_pct,
                     net_avg_kbps=None,
+                    os_family=raw.os_family,  # P2 — Windows swap 축 제외
                 )
             )
             if rec == "under_provisioned":

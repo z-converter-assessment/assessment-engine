@@ -33,9 +33,11 @@
 | 0025 | LLM 단일 provider 통합 (ollama), mock 폐기 | Proposed | mock vs ollama 분기 제거 → 단일 `OllamaLlmClient` 통합. `LLM_PROVIDER`·`LLM_MOCK_LATENCY_SECONDS` env 제거. dev/prod 일관 LLM 호출. ADR 0004 LLM 토글 + 0010 LLM 분기 보류 supersede. 외부 유료 API 도입은 별도 ADR 의무 |
 | 0026 | dev 가상화 스택 Lima -> OrbStack 전환 | Accepted | Lima(yaml·limactl·user-mode 네트워킹) -> OrbStack(orb create·통합 네트워크). `host.docker.internal`(VM·컨테이너 -> host) + `<name>.orb.local`(probe -> agent VM 직접). yaml provision -> post-provision 흡수, lima yaml 4개 삭제. ADR 0018 ZDM mock 좌표 대체(host.lima.internal -> host.docker.internal). OrbStack(로컬 dev)은 0006 OpenStack(prod)과 별개 |
 | 0027 | composite_id 단일 식별 + machine_id 표시 분리 (agent v4) | Accepted | agent v4 가 host_id -> machine_id(raw) + composite_id(SHA-256 hash) 분리. 엔진 식별 단일 키 = composite_id (ADR 0022 host_id 역할 전면 대체) — server_inventory UNIQUE·task 라우팅(`agent.tasks.{composite_id}`)·URL 매핑. machine_id 표시 전용(nullable). Windows agent 합류(os_family·수치 정규화·플랫폼 부재 필드 null/0, listen_ports.uid nullable). revision b3e1d7f9a2c4 |
-| 0028 | Commitizen 전환 (release-please 폐기) | Accepted | release-please(트렁크 전용·main 에만 릴리즈 커밋)가 develop git-flow 와 구조 충돌 (squash+linear ruleset 하 영구 divergence). Commitizen `cz bump` 으로 대체 — develop 에서 version+CHANGELOG+tag, develop->main merge 승격. ruleset linear history 제거 + merge commit 허용. 0013 supersede |
+| 0028 | Commitizen 전환 (release-please 폐기) | Superseded by 0030 | Commitizen `cz bump` 이 버전을 repo 에 commit 하는 모델 — bump 커밋이 보호된 develop·main 직접 push 불가 + `bump:` 메시지 commit-msg hook 거부. ruleset+hook 과 구조 충돌. 0030 tag-derived 로 대체 |
+| 0029 | OS-aware right-sizing 분류 (Windows swap 제외 + 부분 평가) | Accepted | agent v4(0027) Windows 합류 후 OS-blind 분류 왜곡 정정. swap 은 Linux page-out 신호이나 Windows pagefile 은 baseline → `swap_saturation(os_family, swap_used)` helper 로 Windows swap 축 제외. saturation 축(load/iowait) OS 부재라 Windows 는 utilization 축만 분류 → `is_partial_evaluation`(부분 평가 마커). os_family None=Linux fallback 으로 회귀 0 |
+| 0030 | tag-derived 버전 (hatch-vcs) | Accepted | 버전을 repo 에 저장 안 함 — git tag(`v*`) 단일 진실, hatch-vcs 가 빌드 시 derive. bump 커밋 자체 제거로 보호 브랜치 push·commit-msg hook `bump:` 충돌 소멸. release = main 에 tag push. release notes = GitHub 자동. CHANGELOG 자동 갱신 중단. cz 폐기. 0028 supersede |
 
-트레이드오프 카탈로그(T1~T13)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
+트레이드오프 카탈로그(T1~T14)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 
 ## 새 ADR 작성
 

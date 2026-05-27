@@ -16,7 +16,7 @@
 | 운영 산출물별 의의·근거 (보고서·진단·Install·Export 등) | `products/` |
 | RAG 도메인 지식 sample (ADR 0024 ingest 본질 자료) | `rag-seed/` |
 | 왜 그렇게 결정했나 | `adr/` |
-| 트레이드오프와 한계 (T1~T13) | `tradeoffs.md` |
+| 트레이드오프와 한계 (T1~T14) | `tradeoffs.md` |
 
 ## 디렉토리
 
@@ -57,7 +57,7 @@ docs/
 │   ├── right-sizing-thresholds.md AWS Compute Optimizer + Azure Advisor 임계 catalog
 │   └── classification-rules.md    본 엔진 7 category 분류 규칙
 ├── adr/                   Architecture Decision Records (영구·불변, 0001~0025)
-└── tradeoffs.md           의식적 설계 선택과 한계 (T1~T13) — 카탈로그
+└── tradeoffs.md           의식적 설계 선택과 한계 (T1~T14) — 카탈로그
 ```
 
 ## 범위

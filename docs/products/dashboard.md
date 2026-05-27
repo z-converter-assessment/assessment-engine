@@ -35,6 +35,7 @@
 
 - 14일 측정값 기반 분류 3 카테고리 (under·정상·over)
 - 진단 워커가 자동 계산한 분포 시각화
+- Windows (원칙 P2): swap 축 제외(pagefile baseline)·saturation 축 OS 부재라 utilization 축만으로 분류(부분 평가) — 도넛/카운트가 pagefile 사용으로 under 쪽 왜곡되지 않음. 상세 `docs/architecture/web/services.md` "OS 분기" 절
 
 답: "환경 안 under-provisioned·over-provisioned 서버 비율은?"
 

@@ -9,9 +9,9 @@
 | 항목 | 값 | 사유 |
 |------|----------|------|
 | Read and write permissions | 권장(필수 아님) | 각 워크플로가 `permissions:` 블록으로 최소권한 자체 선언 (release.yml `contents: write` 등). 전역 read-only 여도 동작 |
-| Allow GitHub Actions to create and approve pull requests | 불필요 | bot 의 PR 생성 없음 (release-please 폐기, ADR 0028). 릴리즈 bump·tag 는 운영자 로컬 `cz bump` |
+| Allow GitHub Actions to create and approve pull requests | 불필요 | bot 의 PR 생성 없음 (ADR 0030 — 버전은 tag 단일 진실, bump 커밋 없음). 릴리즈 = 운영자가 main 에 tag push |
 
-릴리즈는 GitHub Actions bot 이 아니라 운영자가 로컬에서 `cz bump` 로 tag 를 push -> `release.yml` 발사. bot PR 생성 권한 불필요.
+릴리즈는 GitHub Actions bot 이 아니라 운영자가 `main` 에 `v*` tag 를 push -> `release.yml` 발사 (ADR 0030). bot PR 생성 권한 불필요.
 
 ## 2. CodeQL Default Setup (권장)
 
@@ -39,7 +39,7 @@ UI 활성 안 하고 workflow만 두어도 동작 — 단 Security 탭 통합이
 | Required status checks | 아래 7 항목 모두 의무 등록 (체크) — 모든 PR 이 본 check 통과해야 merge 가능 |
 | Require branches to be up to date before merging | 활성 | merge 직전 main rebase 강제 |
 | Require conversation resolution before merging | 활성 | PR comment 미해결 차단 |
-| Require linear history | 비활성 | `develop` → `main` 승격을 merge commit 으로 해 이력 공유 (divergence 0, ADR 0028). linear 강제 시 squash 만 되어 main/develop 영구 분기 |
+| Require linear history | 비활성 | `develop` → `main` 승격을 merge commit 으로 해 이력 공유 (divergence 0, ADR 0030). linear 강제 시 squash 만 되어 main/develop 영구 분기 |
 | Do not allow bypassing the above settings | 활성 | admin도 우회 불가 — 본 옵션이 정책의 마지막 안전망 |
 | Allow force pushes | 비활성 | git history 보호 |
 | Allow deletions | 비활성 | branch 삭제 차단 |
@@ -48,7 +48,7 @@ UI 활성 안 하고 workflow만 두어도 동작 — 단 Security 탭 통합이
 
 | Check 이름 (GitHub UI 표시) | 발화 workflow | 검증 | 비고 |
 |------------------------------|-----------------|------|------|
-| `PR title (conventional commits)` | `pr-title-check.yml` | PR title 형식 (`feat:`·`fix:`·`feat!:` 등) | `cz bump` 자동 bump 의존 |
+| `PR title (conventional commits)` | `pr-title-check.yml` | PR title 형식 (`feat:`·`fix:`·`feat!:` 등) | git history·GitHub release notes 일관 (ADR 0030) |
 | `ci / ruff + hadolint` | `ci.yml` | python lint + Dockerfile lint | |
 | `ci / pytest (unit)` | `ci.yml` | 단위 테스트 + coverage | |
 | `ci / wheel build` | `ci.yml` | `uv build` 성공 | release artifact 산출물 정합 |
@@ -64,7 +64,7 @@ main PR 분기 강화는 `.claude/skills/pr-create/SKILL.md` "main PR 추가 강
 
 `main`과 동일 패턴 — `develop`도 PR 강제. 단:
 - "Required status checks" — 위 7 항목 동일 적용 (`alembic-check`·`security / pip-audit` 도 paths 무관 매 PR 발화)
-- "Require linear history" 비활성 — feature 는 squash 로 들어오지만 `develop` 자체가 merge commit 을 받을 수 있어야 화해·승격 정합 (ADR 0028)
+- "Require linear history" 비활성 — feature 는 squash 로 들어오지만 `develop` 자체가 merge commit 을 받을 수 있어야 화해·승격 정합 (ADR 0030)
 - "Do not allow bypassing" 활성
 
 ## 4. Tag Protection Rule (정석)
@@ -77,7 +77,7 @@ main PR 분기 강화는 `.claude/skills/pr-create/SKILL.md` "main PR 추가 강
 | Restrict deletions | 활성 | 발행된 release tag 삭제 차단 (불변 보존) |
 | Block force pushes (non-fast-forward) | 활성 | tag 재지정 차단 |
 
-tag 생성(creation)은 제한 안 함 — 운영자가 `cz bump`(또는 `git push origin v1.2.3`)으로 새 `v*` tag 를 직접 push 하는 게 정상 릴리즈 경로 (ADR 0028). 이미 발행된 tag 의 삭제·재지정만 차단.
+tag 생성(creation)은 제한 안 함 — 운영자가 `main` 머지 후 `git tag v1.2.3 && git push origin v1.2.3` 으로 새 `v*` tag 를 push 하는 게 정상 릴리즈 경로 (ADR 0030). 이미 발행된 tag 의 삭제·재지정만 차단.
 
 ## 5. Repository Settings (권장)
 
@@ -87,12 +87,12 @@ tag 생성(creation)은 제한 안 함 — 운영자가 `cz bump`(또는 `git pu
 
 | 옵션 | 값 |
 |------|-----|
-| Allow merge commits | 활성 | `develop` → `main` 승격용 — main 이 develop 이력 공유 (ADR 0028) |
+| Allow merge commits | 활성 | `develop` → `main` 승격용 — main 이 develop 이력 공유 (ADR 0030) |
 | Allow squash merging | 활성 (default: PR title and description) | feature·fix → develop 통합용 |
 | Allow rebase merging | 비활성 |
 | Automatically delete head branches | 활성 |
 
-merge + squash 병행 — feature·fix 는 squash 로 develop 에 들어가고(PR title이 commit message), `develop` → `main` 은 merge commit 으로 승격해 두 장수 브랜치가 이력을 공유. `cz bump` 은 develop commit 의 Conventional Commits 를 분석해 semver bump 결정.
+merge + squash 병행 — feature·fix 는 squash 로 develop 에 들어가고(PR title이 commit message), `develop` → `main` 은 merge commit 으로 승격해 두 장수 브랜치가 이력을 공유. 버전은 repo 에 없고 `main` 에 push 하는 `v*` tag 가 단일 진실 (hatch-vcs, ADR 0030).
 
 ### 5.2. Dependabot
 
@@ -130,5 +130,5 @@ merge + squash 병행 — feature·fix 는 squash 로 develop 에 들어가고(P
 
 - CI workflow 카탈로그: README "CI 파이프라인" 절
 - release artifact contract: `docs/operations/release.md`
-- release(Commitizen) ceremony 정책: `docs/adr/0028-commitizen-release.md` (release-please supersede)
+- release(tag-derived) ceremony 정책: `docs/adr/0030-tag-derived-versioning.md` (cz/commitizen supersede)
 - wheel + GitHub Release: `docs/adr/0012-wheel-ci-artifact.md`

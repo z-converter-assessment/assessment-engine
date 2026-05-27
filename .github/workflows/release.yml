@@ -5,9 +5,10 @@ name: release
 #   (2) Docker image (linux/amd64, linux/arm64) → GHCR push + cosign sign + SBOM (ADR 0017)
 # 외부 인프라는 wheel (systemd·venv) 또는 image (docker·k8s) 어느 채널이든 자유 선택.
 #
-# 발사 trigger: 개발자가 `cz bump` 로 만든 semver tag(v*) push (ADR 0028).
-# cz bump 는 로컬 개발자 자격증명으로 tag 를 push 하므로 본 워크플로 정상 발사
-# (이전 release-please bot 의 GITHUB_TOKEN tag push 는 다른 워크플로 트리거 안 돼 App token 우회 필요했음 — cz 전환으로 제거).
+# 발사 trigger: develop->main PR 머지 후 운영자가 main 에 직접 push 하는 semver tag(v*) (ADR 0030).
+# 버전은 repo 에 없고 tag 가 단일 진실 — hatch-vcs 가 빌드 시 tag 에서 derive (bump 커밋 없음).
+# tag 는 운영자 로컬 자격증명으로 push 되므로 본 워크플로 정상 발사
+# (이전 release-please bot 의 GITHUB_TOKEN tag push 는 다른 워크플로 트리거 안 돼 App token 우회 필요했음 — 제거됨).
 # workflow_dispatch 는 tag 누락·재발행 대비 수동 백업.
 
 on:
@@ -38,7 +39,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # fetch-depth: 0 — hatch-vcs 가 tag 에서 버전 derive 하려면 full history + tags 필요 (ADR 0030).
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
@@ -49,7 +53,7 @@ jobs:
       - name: Install uv
         run: pip install uv
 
-      # wheel + sdist 둘 다 생성. sdist는 source 재현 가능성 보존용 (PEP 517).
+      # wheel + sdist 둘 다 생성. 버전은 위 checkout 의 git tag 에서 hatch-vcs 가 derive (ADR 0030).
       - name: uv build
         run: uv build
 
@@ -139,6 +143,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Docker 빌드 컨텍스트엔 .git 미포함 — hatch-vcs 가 tag 를 못 보므로 tag 버전을 주입 (ADR 0030).
+          # steps.meta.outputs.version = git tag 의 semver (예: 0.1.0). Dockerfile 이 SETUPTOOLS_SCM_PRETEND_VERSION 로 사용.
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true

@@ -269,11 +269,16 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | config.py / dev/agent.env | 동일 |
 | `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | config.py / dev/agent.env | 동일 |
 | `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | config.py / dev/agent.env | 동일 |
+| `RABBITMQ_TASK_EXCHANGE` | `assessment.tasks` | config.py | 엔진 발행 task.install + worker.result 소비 전용 exchange (collector `RABBITMQ_EXCHANGE` 와 분리). agent `WORKER_TASK_EXCHANGE` 와 값 일치 의무 |
+| `RABBITMQ_TASK_QUEUE_PREFIX` | `agent.tasks` | config.py | task.install 발행 대상 호스트별 큐 prefix. full = `<prefix>.<composite_id>` (`agent_task_queue()`). agent `WORKER_TASK_QUEUE_PREFIX` 와 일치 |
+| `RABBITMQ_TASK_INSTALL_KEY_PREFIX` | `task.install` | config.py | task.install 호스트별 routing key prefix. full = `<prefix>.<composite_id>` (`task_install_routing_key()`) |
+| `RABBITMQ_ROUTING_KEY_TASK_RESULT` | `task.result` | config.py | worker.result 큐 바인딩 routing key (원격 호스트 결과 보고 수신). agent `WORKER_TASK_RESULT_KEY` 와 일치 의무 |
+| `RABBITMQ_QUEUE_WORKER_RESULT` | `worker.result` | config.py | 엔진이 task.result 를 소비하는 단일 결과 큐 이름 |
 | `RABBITMQ_WORKER_USER` | `assessment` | dev/agent.env | 원격 호스트 worker 가 사용할 AMQP user. 비어 있으면 worker 자동 비활성 (collector 만 동작) |
 | `RABBITMQ_WORKER_PASSWORD` | `assessment` | dev/agent.env | `RABBITMQ_WORKER_USER` 의 암호. heredoc 안에서 `RABBITMQ_WORKER_PASS` 매핑 |
-| `WORKER_TASK_EXCHANGE` | `assessment.tasks` | config.py / dev/agent.env | task.install/task.result 전용 exchange. collector exchange 와 분리 |
-| `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | dev/agent.env | 원격 호스트별 큐 prefix. full name = `<prefix>.<composite_id>` |
-| `WORKER_TASK_RESULT_KEY` | `task.result` | dev/agent.env | 원격 호스트 → 엔진 결과 보고 routing key |
+| `WORKER_TASK_EXCHANGE` | `assessment.tasks` | dev/agent.env (agent 측) | task.install/task.result 전용 exchange. collector exchange 와 분리. 엔진 `RABBITMQ_TASK_EXCHANGE` 와 값 일치 의무 |
+| `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | dev/agent.env (agent 측) | 원격 호스트별 큐 prefix. full name = `<prefix>.<composite_id>`. 엔진 `RABBITMQ_TASK_QUEUE_PREFIX` 와 일치 |
+| `WORKER_TASK_RESULT_KEY` | `task.result` | dev/agent.env (agent 측) | 원격 호스트 → 엔진 결과 보고 routing key. 엔진 `RABBITMQ_ROUTING_KEY_TASK_RESULT` 와 일치 |
 | `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `host.docker.internal` | dev/agent.env | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치) |
 | `REDIS_HOST` | `redis` | config.py | (docker-compose 서비스명). prod 는 실제 host |
 | `REDIS_PORT` | `6379` | config.py | |
@@ -297,7 +302,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `DIAGNOSTIC_ROUTING_KEY` | `diagnostic.request` | config.py | engine 내부 routing key (web·worker 공통) |
 | `DIAGNOSTIC_QUEUE_TTL_MS` | `86400000` | config.py | 큐 메시지 TTL 24h |
 | `DIAGNOSTIC_QUEUE_MAX_LEN` | `100000` | config.py | 큐 max length |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | config.py | ollama HTTP 호출 base URL. embedding + LLM 공통 ollama server. docker compose default = `http://host.docker.internal:11434` |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | config.py | ollama HTTP 호출 base URL. embedding + LLM 공통 ollama server. dev docker compose default = `http://ollama:11434` (compose 안 ollama 서비스) |
 | `OLLAMA_MODEL` | `llama3.1:8b` | config.py | ollama LLM 모델명. 한국어 정합 우위 모델 (qwen2.5:14b 등) 으로 운영자 교체 가능 |
 | `LLM_TIMEOUT_SECONDS` | `60` | config.py | LLM 호출 cap |
 | `RAG_ENABLED` | `false` | config.py | RAG 활성 flag (ADR 0024). false 시 handler retrieve_context 단계 skip + payload['rag_context']=[] |

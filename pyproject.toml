@@ -1,10 +1,12 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "assessment-engine"
-version = "0.1.2"  # cz bump가 자동 갱신 ([tool.commitizen] version_provider = pep621)
+# 버전은 repo 에 저장 안 함 — git tag(v*) 단일 진실 (hatch-vcs, ADR 0030).
+# 빌드 시점에 tag 에서 derive. release = main 에 tag push (bump 커밋 없음).
+dynamic = ["version"]
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.136.0",
@@ -30,19 +32,12 @@ dev = [
     "pytest-cov>=5.0",
     "testcontainers[postgres]>=4.14.2",
     "ruff>=0.15.13",
-    "commitizen>=4.0",   # cz bump — version bump + CHANGELOG + tag (ADR 0028, release-please supersede)
 ]
 
-# Commitizen — Conventional Commits 기반 semver bump + CHANGELOG 생성 (ADR 0028).
-# git-flow 정합: develop 에서 `cz bump` 실행 -> pyproject version + CHANGELOG 갱신 + `v$version` tag 생성.
-# 특정 브랜치 모델에 묶이지 않아 release-please(트렁크 전용) 대비 develop 유지 가능.
-[tool.commitizen]
-name = "cz_conventional_commits"
-version_provider = "pep621"          # [project].version 을 단일 진실로 read/write
-tag_format = "v$version"             # release.yml 의 push tag(v*) trigger 와 정합
-update_changelog_on_bump = true      # cz bump 시 CHANGELOG.md 동시 갱신
-changelog_incremental = true         # 기존 CHANGELOG 보존하고 신규 분만 prepend
-major_version_zero = true            # 0.x 동안 BREAKING 도 MINOR 로 (1.0 전 자유도, 옛 bump-minor-pre-major 정합)
+# 버전 source = git tag (ADR 0030). hatchling 이 빌드 시 tag 에서 버전 derive.
+# tag 없는 dev 빌드는 마지막 tag + 거리 (예: 0.1.3.devN+g<sha>). release.yml 빌드는 tag 위에서 돌아 정확 버전.
+[tool.hatch.version]
+source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/assessment_engine"]
