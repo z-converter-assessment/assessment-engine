@@ -83,14 +83,15 @@ else
   if uv build >/dev/null 2>&1; then
     ok "uv build (wheel + sdist)"
     tmp=$(mktemp -d)
-    python3.12 -m venv "$tmp" >/dev/null 2>&1
-    "$tmp/bin/pip" install --quiet dist/*.whl >/dev/null 2>&1
-    if "$tmp/bin/python" -c "import assessment_engine.web.main, assessment_engine.consumer.main, assessment_engine.diagnostic.main" >/dev/null 2>&1; then
+    # uv 관리 python 3.12 로 격리 venv — 호스트 PATH 에 python3.12 가 없어도 동작 (CI runner·로컬 동일).
+    uv venv "$tmp/venv" --python 3.12 >/dev/null 2>&1
+    uv pip install --python "$tmp/venv/bin/python" --quiet dist/*.whl >/dev/null 2>&1
+    if "$tmp/venv/bin/python" -c "import assessment_engine.web.main, assessment_engine.consumer.main, assessment_engine.diagnostic.main" >/dev/null 2>&1; then
       ok "3컴포넌트 import"
     else
       ng "wheel import 실패"
     fi
-    if "$tmp/bin/python" -c "from importlib.resources import files; p=files('assessment_engine'); assert (p/'_migrations'/'env.py').is_file(); assert (p/'_alembic.ini').is_file()" >/dev/null 2>&1; then
+    if "$tmp/venv/bin/python" -c "from importlib.resources import files; p=files('assessment_engine'); assert (p/'_migrations'/'env.py').is_file(); assert (p/'_alembic.ini').is_file()" >/dev/null 2>&1; then
       ok "migrations + alembic.ini 동봉"
     else
       ng "wheel 안 migrations/alembic.ini 누락"
@@ -106,13 +107,15 @@ section "SBOM (cyclonedx) — release-wheel step"
 if ! need 3; then
   skip "$MODE 모드 — SBOM 은 main"
 else
-  uv pip install cyclonedx-bom >/dev/null 2>&1
   mkdir -p dist
-  if uv run cyclonedx-py environment --output-file dist/sbom.cdx.json >/dev/null 2>&1 && [ -s dist/sbom.cdx.json ]; then
+  # release.yml 과 동일 — venv 비의존 (uv export -> uvx cyclonedx). 이전 `uv pip install` 은 .venv 요구라 CI 에서 실패.
+  uv export --frozen --no-dev --format requirements-txt > dist/_sbom-requirements.txt 2>/dev/null
+  if uvx --from cyclonedx-bom cyclonedx-py requirements dist/_sbom-requirements.txt --output-file dist/sbom.cdx.json >/dev/null 2>&1 && [ -s dist/sbom.cdx.json ]; then
     ok "cyclonedx SBOM 생성"
   else
     ng "cyclonedx SBOM 생성 실패"
   fi
+  rm -f dist/_sbom-requirements.txt
   uv sync --frozen --group dev >/dev/null 2>&1   # cyclonedx 임시 설치 -> lock 상태 복구
 fi
 
