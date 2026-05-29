@@ -65,7 +65,7 @@ Windows VM (win-server-01)은 `windows-vm.md` 절차로 별도 — UTM VM 생성
 - http://localhost:8000/servers/ — Linux 3 VM (+ Windows 설정 시 4) 등록
 - 60초 주기 메트릭 갱신
 - 분류 분포 시연은 `/servers/report?period_days=1` (대시보드는 `recommendation.WINDOW_DAYS=14` 고정, #F10)
-- attention 카드 상단 요약: app `agent_unstable` + data `capacity_warnings` (swap_used) + edge `gap_warnings` (3회 발행 후 down)
+- attention 카드 상단 요약: app `agent_unstable` + edge `gap_warnings` (3회 발행 후 down)
 - AI 진단 발행 (engineer 보고서) — LLM 호출 실패 (ollama 제거) 동작 관찰
 - 서버 발견 모달 probe — `print_summary` 가 안내한 VM IP 를 모달에 직접 입력 (`.orb.local` 은 컨테이너 미해석 + VM IP 동적이라 자동 기본값 없음). VM 은 post-provision `openssh-server` 설치라 `SSH-2.0-OpenSSH` banner 로 도달
 
@@ -94,7 +94,7 @@ VM 은 에이전트 E2E + 시연 분류 분포 가시화. 엔진(dev compose)은
 
 ```
 [VM: app-server-01  Linux ]   nginx+rabbitmq  attention.agent_unstable (3m restart, 시간당 20회)
-[VM: data-server-01 Linux ]   postgres+zabbix-agent   attention.capacity_warnings (swap_used)  -> MQ -> consumer -> DB -> web UI
+[VM: data-server-01 Linux ]   postgres+zabbix-agent  (db+monitor, over_provisioned)  -> MQ -> consumer -> DB -> web UI
 [VM: edge-server-01 Linux ]   docker+memcached  attention.gap_warnings (3회 발행 후 down)
 [VM: win-server-01  Win11 ]   IIS+redis  (windows-vm.md, UTM)
 ```
@@ -102,9 +102,9 @@ VM 은 에이전트 E2E + 시연 분류 분포 가시화. 엔진(dev compose)은
 4 VM 구성 의도 (호스트 macOS 영향 최소화 우선):
 - 1 VM = 2 서비스: `service_classifier` 6 카테고리(web/db/cache/mq/container/monitor) 전부 커버.
 - OS 다양성: 패키지 매니저 분기(apt/dnf) + systemd + Windows SCM. distro (Debian 12, Rocky 9, Win11 ARM).
-- attention 카탈로그 발화: `AttentionSignals` 카테고리 중 3개 (agent_unstable, capacity_warnings, gap_warnings) 의도 발화.
+- attention 카탈로그 발화: `AttentionSignals` 카테고리 중 2개 (agent_unstable, gap_warnings) 의도 발화.
 - LLM 실패: ollama 제거 → AI 진단 발행 시 호출 실패 (진단 워커 로직 무수정).
-- 합성 부하: 모든 VM light (sustained CPU 1~3s + mem 5~20MB) — 차트 변동만 가시화. CPU 임계 안 넘김. under_provisioned 만 swap_used 트리거로 분류 발화 (CPU 부담 0).
+- 합성 부하: 모든 VM light (sustained CPU 1~3s + mem 5~20MB) — 차트 변동만 가시화. CPU 임계 안 넘김 → over_provisioned 분류 (CPU 부담 0).
 
 OrbStack 채택 이유 (Linux): Apple Silicon 네이티브 가상화로 부팅·메모리 가벼움, cloud-init 없이 `orb create` 즉시 ready (Lima 의 boot stuck 우회 로직 불필요), Docker 엔진·VM 통합 네트워크로 컨테이너·VM 양방향 직접 도달 (probe 포워딩 불필요). Windows 는 OrbStack 미지원이라 UTM (`windows-vm.md`).
 
@@ -117,13 +117,13 @@ Linux VM 정의(distro/service/ext_ip)는 `pipeline-up.sh` 의 dispatch 함수(`
 | 순서 | VM | 가상화 | distro | family | 서비스 (2) | 카테고리 | 부하 | 분류 | attention 발화 |
 |---|----|----|----|--------|--------|------|------|------|----------------|
 | 1 | `app-server-01` | OrbStack | `debian:12` | apt | nginx, rabbitmq | web, mq | light | over | agent_unstable (1m boot + 3m, 시간당 20회) |
-| 2 | `data-server-01` | OrbStack | `rocky:9` | dnf | postgresql, zabbix-agent | db, monitor | light + swap | under | capacity_warnings (swap_used) |
+| 2 | `data-server-01` | OrbStack | `rocky:9` | dnf | postgresql, zabbix-agent | db, monitor | light | over | (분류만, 운영신호 없음) |
 | 3 | `edge-server-01` | OrbStack | `debian:12` | apt | docker, memcached | container, cache | light | over | gap_warnings (3회 발행 후 poweroff) |
 | 4 | `win-server-01` | UTM | Win11 ARM | SCM | IIS, redis | web, cache | (windows-vm.md) | — | — |
 
 진행 순서는 시연 가시화 우선:
 - 1번 app — attention 가장 빠른 발화 (1m 후 첫 restart) + external IP (web-facing)
-- 2번 data — swap-trigger (capacity_warnings, under_provisioned) + zabbix-agent(monitor)
+- 2번 data — postgresql(db) + zabbix-agent(monitor)
 - 3번 edge — offline-demo (약 180s 후 poweroff → gap_warnings). docker(container) + memcached(cache)
 - 4번 win — UTM 별도 (`windows-vm.md`). IIS(native)+redis(크로스플랫폼) 혼합
 
@@ -131,31 +131,29 @@ Linux VM 정의(distro/service/ext_ip)는 `pipeline-up.sh` 의 dispatch 함수(`
 
 | 카테고리 | VM | 발화 키워드 |
 |----------|----|----|
-| web | app-server-01, win-server-01 | nginx, IIS(w3svc — 카탈로그 확장 주의) |
+| web | app-server-01, win-server-01 | nginx, IIS(w3svc) |
 | mq | app-server-01 | rabbitmq |
 | db | data-server-01 | postgresql |
 | monitor | data-server-01 | zabbix-agent |
 | container | edge-server-01 | docker |
 | cache | edge-server-01, win-server-01 | memcached, redis |
 
-리소스 메모: OrbStack VM 은 host CPU·메모리를 공유(Lima 처럼 VM별 cpu/mem/disk 고정 할당 없음) — distro 만 지정. dnf family(Rocky)는 install transaction 이 apt 보다 무거우나 OrbStack 의 동적 메모리로 OOM 회피 (`install_weak_deps=False` 로 추가 절약). data-server-01 의 swap-trigger 는 boot 1회 swapfile 512 MiB 활성 + 1000 MiB 메모리 압박(120초 후 해제) → swap 1회 발생. report_aggregate 가 `MAX(swap_in_use) > 0` 집계라 1회로 14일 윈도우 내 under 유지 (지속 점유 불필요).
+리소스 메모: OrbStack VM 은 host CPU·메모리를 공유(Lima 처럼 VM별 cpu/mem/disk 고정 할당 없음) — distro 만 지정. dnf family(Rocky)는 install transaction 이 apt 보다 무거우나 OrbStack 의 동적 메모리로 OOM 회피 (`install_weak_deps=False` 로 추가 절약).
 
 ---
 
 ## 합성 부하 프로파일 (right-sizing 분류 발화)
 
-`recommendation.py`의 USE Method 임계 — 호스트 macOS 영향 최소화 위해 모든 VM 을 light 로 통일. CPU 임계는 일부러 안 넘김 (CPU 부담 회피), swap_used 만 db 에서 트리거. 합성 부하 스크립트·timer 는 `pipeline-up.sh` 의 `install_synthetic_load`/`install_swap_trigger`/`install_agent_restart_demo` 가 post-provision 으로 설치 (옛 Lima yaml provision 흡수).
+`recommendation.py`의 USE Method 임계 — 호스트 macOS 영향 최소화 위해 모든 VM 을 light 로 통일. CPU 임계는 일부러 안 넘김 (CPU 부담 회피) → 모든 VM over_provisioned 분류. 합성 부하 스크립트·timer 는 `dev-up.sh` 의 `install_synthetic_load`/`install_agent_restart_demo`/`install_offline_demo` 가 post-provision 으로 설치 (옛 Lima yaml provision 흡수). (under_provisioned 시연은 폐기 — swap-trigger 가 OrbStack 동적 메모리에서 swap-out 을 안정적으로 못 일으켜 제거.)
 
 | 프로파일 | cpu burst | mem burst | 적용 VM | 목표 분류 |
 |----------|-----------|-----------|---------|----------|
 | light | 1~3s | 5~20MB | app, data, edge | over_provisioned (cpu_p95 ~5%, mem_p95 <50%) |
-| swap-trigger (추가) | (boot 1회 1000MB 메모리 압박 120s 후 해제 + swapfile 512MB 활성) | swap 1회 발생 | data | under_provisioned (swap_used short-circuit) |
 | offline-demo (추가) | (약 180s 후 `systemctl poweroff`) | — | edge | gap_warnings (발행 중단) |
 
 원칙:
 - 분류 임계는 `recommendation.py` 모듈 상단 명명 상수 (#E3). 부하 프로파일은 임계 충족 설계.
 - `WINDOW_DAYS = 14` (#F10) — dev 시연에서 14일 못 채우면 분류 모두 `insufficient_data`. 보고서 라우터 `?period_days=1` 등 짧은 윈도우 시연 필수.
-- swap-trigger 프로파일 — boot 직후 swapfile 512 MiB 활성 + `vm.swappiness=100` + 1000 MiB 메모리 압박(120초 후 해제). CPU 부담 0. report_aggregate 가 `MAX(swap_in_use) > 0` 집계라 swap 1회 발생만으로 14일 윈도우 내 swap_used = True 안정 발화 (지속 점유 불필요 — VM 메모리 보호).
 - light 부하 스크립트는 `host.docker.internal:8000` 으로 ping/curl (health·chart-utils) — 차트 변동만 가시화. 분류 임계 안 넘김 (over_provisioned 유지).
 
 attention 카탈로그 발화 매핑:
@@ -164,7 +162,7 @@ attention 카탈로그 발화 매핑:
 |-------------------|---------|--------|
 | disk_warnings | (없음) | 디스크 사용률 85%+ — 시연 안 함 |
 | gap_warnings | edge-server-01 | offline-demo (약 180s 후 poweroff → 발행 중단, engine 이 일정 시간 미수신 시 발화) |
-| capacity_warnings | data-server-01 | under_provisioned (swap_used 트리거) |
+| capacity_warnings | (없음) | under_provisioned 시연 폐기 (swap-trigger 제거) |
 | days_until_full_warnings | (없음) | 디스크 fill_rate 추정 30일 — 시연 안 함 |
 | os_eol_warnings | (없음) | EOL OS 자체가 cloud image 가용성 한계라 발화 안 함 |
 | agent_unstable | app-server-01 | agent-restart-demo timer (1h 슬라이딩 임계 3회 이상 — 3m 주기로 6배 마진) |
@@ -224,7 +222,7 @@ orb_ssh "$vm" 'cat > /tmp/assessment-agent' < dev/bin/assessment-agent
 
 ## Provisioning 단계
 
-`orb create <distro> <name>` 로 VM 생성 후, `pipeline-up.sh` 의 `post_provision_vm` + `install_demo_loads` 가 `ssh <name>@orb sudo bash` 로 후처리. 옛 Lima yaml `provision` 섹션(합성 부하·swap·restart-demo)을 모두 흡수.
+`orb create <distro> <name>` 로 VM 생성 후, `dev-up.sh` 의 `post_provision_vm` + `install_demo_loads` 가 `ssh <name>@orb sudo bash` 로 후처리. 옛 Lima yaml `provision` 섹션(합성 부하·restart-demo)을 모두 흡수.
 
 ### 1. `/etc/assessment-agent.env` 생성
 
@@ -287,10 +285,10 @@ ssh stdin 으로 받은 `/tmp/assessment-agent` 를 `cmp` 후 `/usr/local/bin/` 
 ### 4. 합성 부하·시연 트리거 (`install_demo_loads`)
 
 모든 Linux VM(app/data/edge) 공통:
-- `install_synthetic_load` — 공통. light 부하 timer (`OnBootSec=2min`, `OnUnitActiveSec=1min`).
-- `data-server-01` — `install_swap_trigger` (boot 1회 swapfile 512 MiB + `vm.swappiness=100` + 1000 MiB 메모리 압박). attention.capacity_warnings, under_provisioned.
+- `install_synthetic_load` — 공통. light 부하 timer (`OnBootSec=2min`, `OnUnitActiveSec=1min`). 모든 VM over_provisioned 분류.
 - `app-server-01` — `install_agent_restart_demo` (`OnBootSec=1min`, `OnUnitActiveSec=3min` — 시간당 20회 attention.agent_unstable).
-- `edge-server-01` — `install_offline_demo` (`OnBootSec=${OFFLINE_DOWN_AFTER_SEC:-180}` 후 `systemctl poweroff`). agent 약 3회 발행 후 VM 정지 → attention.gap_warnings. 재기동은 `orb start edge-server-01` (pipeline-up.sh 재실행 시 멱등 재적용).
+- `edge-server-01` — `install_offline_demo` (`OnBootSec=${OFFLINE_DOWN_AFTER_SEC:-180}` 후 `systemctl poweroff`). agent 약 3회 발행 후 VM 정지 → attention.gap_warnings. 재기동은 `orb start edge-server-01` (dev-up.sh 재실행 시 멱등 재적용).
+- `data-server-01` — 추가 트리거 없음 (db+monitor, over_provisioned). under_provisioned 시연 폐기.
 
 ---
 

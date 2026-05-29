@@ -24,9 +24,9 @@ Linux VM 3대는 OrbStack (`docs/development/pipeline.md`), Windows VM 1대는 U
 서비스 혼합 의도: native role (IIS) + 크로스플랫폼 서비스 (redis) 양쪽이 `service_classifier`
 (`web`/`cache`)에 올바로 분류되는지 검증. IIS 의 SCM unit 명은 `W3SVC` (display "World Wide Web
 Publishing Service") — agent 가 SCM 에서 수집하는 service unit 이 `service_classifier._PATTERNS`
-의 `nginx`/`httpd` 등 Linux 키워드와 다르므로, IIS(`w3svc`)·SQL Server(`mssqlserver`) 등 Windows
-native 서비스가 분류 안 될 수 있다. 이 경우 `service_classifier` 카탈로그 확장이 별도 결정 사항
-(#E7, 코드 변경 트리거) — 본 문서는 wire 검증까지, 분류 카탈로그 확장은 UI 부정합 작업 단계에서.
+의 `nginx`/`httpd` 등 Linux 키워드와 다르다. IIS(`w3svc`/`iis`)는 `service_classifier._PATTERNS` 에
+등록되어 `web` 분류됨. SQL Server(`mssqlserver`) 등 그 외 Windows native 서비스는 미등록 — 필요 시
+카탈로그 확장 (#E7).
 
 ## 사용자 수동 단계 (자동화 불가)
 
@@ -49,7 +49,7 @@ UTM GUI 에서:
    에이전트는 SPICE 도구 설치 후에야 동작)
 3. TPM 2.0 + UEFI Secure Boot 활성 (Windows 11 요구 — 미설정 시 설치 거부)
 4. CPU 코어 4+ / RAM 4~8GB (Win11 ARM 데스크톱 부하 — 4GB 도 agent 검증 충분) / 디스크 64GB+
-5. VM 이름 `win-server-01` (utmctl 식별자 — win-pipeline.sh 가 이 이름으로 찾음)
+5. VM 이름 `win-server-01` (utmctl 식별자 — dev-up.sh 가 이 이름으로 찾음)
 
 부팅 시 UEFI Interactive Shell 로 빠지면 (ISO 자동 부팅 1초 타이밍 놓침), Shell 프롬프트에서 ARM64
 부트로더 직접 실행: `FS0:\EFI\BOOT\BOOTAA64.EFI` (FS0 = CDROM). 설치 후엔 디스크 부팅이라 1회만.
@@ -103,7 +103,7 @@ VM 이 `192.168.64.2` 라면 RABBITMQ_HOST = `192.168.64.1`.
 확인:
 - host: `ifconfig | grep "inet 192.168.64"` -> `192.168.64.1` (VM subnet 의 host inet = gateway)
 - VM: `(Get-NetIPConfiguration).IPv4DefaultGateway.NextHop`
-- win-pipeline.sh `resolve_host_ip` 가 VM IP 의 /24 에서 host bridge inet 을 자동 채택 (en0 은 3순위 fallback)
+- dev-up.sh `resolve_host_ip` 가 VM IP 의 /24 에서 host bridge inet 을 자동 채택 (en0 은 3순위 fallback)
 
 docker compose 의 rabbitmq/web 은 `0.0.0.0` 바인딩 (포트 매핑 `5672:5672`·`8000:8000`)이라 gateway IP 로
 VM 에서 직접 도달. agent 의 `WORKER_DOWNLOAD_ALLOWED_HOSTS` 에 host IP 추가 의무 (ZDM mock fetch).
@@ -161,10 +161,18 @@ emulation(Prism)으로 실행. cmake build 단계가 `-j` 인자 때문에 `-D` 
 ### 배포·서비스 등록
 
 `deploy/install.ps1` 은 `env-setup.ps1` 대화형 프롬프트를 호출해 비대화형 ssh 에서 멈춘다.
-`dev/win-pipeline.sh` 가 agent.env 를 어차피 덮어쓰므로, 최초 등록은 install.ps1 대신 핵심만 직접
-실행하는 게 자동화에 맞다 (exe 복사 + `New-Service` + `sc.exe failure` recovery). win-pipeline.sh
+`dev/dev-up.sh` 가 agent.env 를 어차피 덮어쓰므로, 최초 등록은 install.ps1 대신 핵심만 직접
+실행하는 게 자동화에 맞다 (exe 복사 + `New-Service` + `sc.exe failure` recovery). dev-up.sh
 가 host 에서 ssh 로 수행. agent 가 읽는 env 위치·키 카탈로그는 Linux 와 동일 (`dev/agent.env.example`),
 `RABBITMQ_HOST` 만 host IP (host.docker.internal 불가, 아래 네트워크 절).
+
+재배포 자동화 — 최초 서비스 등록 이후엔 `dev-up.sh` 가 매 기동 시 갱신한다. `build_win_agent`
+가 mingw 크로스빌드(vendor 재사용·Makefile incremental, vendor·toolchain·repo 부재 시 skip),
+`deploy_win_agent` 가 agent.env 전송 -> (새 빌드 있으면) 서비스 정지 -> 공백 없는 staging
+경로(`C:/ProgramData/assessment-agent/agent.exe.new`) scp -> `C:/Program Files/assessment-agent/
+assessment-agent.exe` 교체 -> IIS·redis·agent 재기동 순으로 `collect.c` 등 변경분을 자동 반영한다.
+공백 포함 설치 경로의 중첩 따옴표가 OpenSSH escape 에서 깨지므로 powershell 호출은 `win_ps`
+helper(`-EncodedCommand` UTF-16LE base64)로 통일.
 
 dist 패키징 (install.ps1 정식 경로를 쓸 경우): `dist/assessment-agent.exe` + `SHA256SUMS`
 (`shasum -a 256 assessment-agent.exe > SHA256SUMS`) 를 VM 으로 scp 후 install.ps1. 단 env-setup
@@ -194,8 +202,8 @@ ssh test@<vm-ip> "Start-Process msiexec.exe -ArgumentList '/i','C:\Users\test\Ap
 ```
 
 설치 후 agent 가 SCM 에서 `W3SVC`·`Redis`·`assessment-agent` service unit 수집 → inventory 발행.
-`Redis` 는 소문자화 매칭으로 `cache` 분류되지만, `W3SVC`(IIS)는 `service_classifier._PATTERNS` 에
-`w3svc`/`iis` 키워드가 없어 분류 안 됨 — 카탈로그 확장 별도 결정 (#E7, UI 작업 단계).
+`Redis` 는 소문자화 매칭으로 `cache`, `W3SVC`(IIS)는 `service_classifier._PATTERNS` 의 `w3svc`/`iis`
+키워드로 `web` 분류됨. (MSSQL `mssqlserver` 등 그 외 Windows native 서비스는 미등록 — 필요 시 카탈로그 확장.)
 
 ## utmctl 라이프사이클 (자동화 가능 부분)
 
@@ -214,19 +222,19 @@ UTM 앱 자체는 열려 있어야 함 (`open -a UTM`). headless 는 VM display 
 daemon 아님.
 
 게스트 에이전트 미설치 시 `utmctl ip-address` 가 `OSStatus error -2700` 으로 실패한다 (확정). 이때
-VM IP 는 host ARP (`arp -an | grep 192.168.6`)로 확인하거나 win-pipeline.sh `WIN_VM_IP` env 로 직접
-지정. win-pipeline.sh 는 utmctl 실패 시 ARP fallback 을 자동 시도한다.
+VM IP 는 host ARP (`arp -an | grep 192.168.6`)로 확인하거나 dev-up.sh `WIN_VM_IP` env 로 직접
+지정. dev-up.sh 는 utmctl 실패 시 ARP fallback 을 자동 시도한다.
 
-## 부분 자동화 (dev/win-pipeline.sh)
+## 부분 자동화 (dev/dev-up.sh)
 
-VM 생성·Windows 설치·최초 서비스 등록은 1회 수동 (위 절), 이후 lifecycle 은 `dev/win-pipeline.sh` 가
+VM 생성·Windows 설치·최초 서비스 등록은 1회 수동 (위 절), 이후 lifecycle 은 `dev/dev-up.sh` 가
 자동. OrbStack 의 `pipeline-up.sh` 와 분리 — Windows 는 가상화(UTM)·채널(OpenSSH)·네트워크(host IP)가
 달라 별도 스크립트.
 
 ```
 [1회 수동]  UTM VM 생성·설치(GUI) -> OpenSSH+방화벽off(VM 안 직접)
 [host ssh]   SSH키 등록(expect) -> agent.exe cross-build(macOS) -> scp -> 서비스 등록 -> IIS/redis
-[자동 반복]  ./dev/win-pipeline.sh
+[자동 반복]  ./dev/dev-up.sh
               1. utmctl start win-server-01 (UTM 앱 미기동 시 open -a UTM)
               2. VM IP (utmctl, 실패 시 ARP) + host IP (VM subnet gateway)
               3. agent.env 생성 (dev/agent.env + RABBITMQ_HOST=host IP) -> scp 덮어쓰기
@@ -249,7 +257,7 @@ env override:
 (`pipeline-up.sh` `load_agent_env`) — Linux agent 와 동일 secret 채널.
 
 왜 매 실행 agent.env 덮어쓰기: host IP 가 네트워크(Wi-Fi/Ethernet·DHCP)마다 바뀌므로. install.ps1 의
-idempotent env 보존과 달리 win-pipeline.sh 는 host 가 master (Linux `/etc/assessment-agent.env` heredoc 대응).
+idempotent env 보존과 달리 dev-up.sh 는 host 가 master (Linux `/etc/assessment-agent.env` heredoc 대응).
 
 ## 검증
 
@@ -260,7 +268,7 @@ idempotent env 보존과 달리 win-pipeline.sh 는 host 가 master (Linux `/etc
 5. inventory 의 service 분류 (redis=cache) + Windows nullable 필드 (load_avg·swap 의미) UI 표시 확인.
 
 engine 미기동 상태에선 agent 서비스가 Running 이라도 RABBITMQ 연결 실패(재시도) 가 정상 — engine
-(`./dev/pipeline-up.sh`) + `./dev/win-pipeline.sh`(완전한 agent.env 주입) 후 발행 확인.
+(`./dev/pipeline-up.sh`) + `./dev/dev-up.sh`(완전한 agent.env 주입) 후 발행 확인.
 
 ## 한계 / 주의
 
@@ -269,7 +277,7 @@ engine 미기동 상태에선 agent 서비스가 Running 이라도 RABBITMQ 연�
 - ARM64 Windows Server 공식 ISO 부재 -> Windows 11 ARM. Server-only role 미사용이라 검증 커버.
 - ARM Windows 에서 MSYS2 빌드 불가 -> macOS host cross-compile (위 빌드 절). emulation 회피.
 - host IP = UTM gateway(VM subnet `.1`). en0(Wi-Fi LAN)은 NAT 밖이라 VM 미도달. DHCP·네트워크 전환 시
-  subnet 바뀌면 win-pipeline.sh 가 매 실행 재추론 후 agent.env 갱신.
+  subnet 바뀌면 dev-up.sh 가 매 실행 재추론 후 agent.env 갱신.
 - x64 emulation(Prism) 위 agent 실행 — CPU jiffies 타이밍 정밀도가 native x86_64 와 미세 차이 가능.
   스키마·페이로드·UI 검증엔 무영향, 성능 마이크로벤치마크엔 부적합.
 - IIS(`w3svc`)/MSSQL(`mssqlserver`) 등 Windows native 서비스 분류는 `service_classifier` 카탈로그

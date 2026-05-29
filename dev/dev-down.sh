@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# pipeline-down.sh: OrbStack VM 전부 delete + docker compose down -v.
-# ORB_VMS는 pipeline-up.sh와 단일 진실 — source guard로 함수만 가져옴 (main 자동 실행 안 함).
+# dev-down.sh: 전체 dev 환경 정리 — Windows(UTM 중지, 보존) -> Linux(OrbStack VM delete + docker compose down -v).
+# 비대칭 의도: Windows VM 은 stop/start 로 보존, Linux(OrbStack)·compose 는 삭제(재생성 전제).
+# ORB_VMS·WIN_VM_NAME·check_win_prereqs 등은 dev-up.sh 와 단일 진실 — source guard 로 함수만 가져옴 (main 자동 실행 안 함).
 set -euo pipefail
 
 # 호출 위치 무관 정합 — SCRIPT_DIR 절대 경로 확정 후 cwd 고정 + source 절대화.
@@ -8,9 +9,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/pipeline-up.sh"
+source "$SCRIPT_DIR/dev-up.sh"
 
-echo "[1/2] OrbStack VM 제거 중 (${#ORB_VMS[@]} VM)..."
+# Windows VM 먼저 중지 (보존 — agent 연결 끊고 broker 내림). win-server-01 이 UTM 에 있을 때만.
+if command -v "$UTMCTL" >/dev/null 2>&1 && "$UTMCTL" list 2>/dev/null | grep -qw "$WIN_VM_NAME"; then
+  echo "[1/3] Windows VM '$WIN_VM_NAME' 중지 (UTM, 보존 — 삭제 아님)..."
+  "$UTMCTL" stop "$WIN_VM_NAME" 2>&1 || true
+fi
+
+echo "[2/3] OrbStack VM 제거 중 (${#ORB_VMS[@]} VM)..."
 if command -v orb >/dev/null 2>&1; then
   for vm in "${ORB_VMS[@]}"; do
     if orb list 2>/dev/null | grep -qw "$vm"; then
@@ -31,8 +38,8 @@ else
   echo "  orb 미설치 — 건너뜀"
 fi
 
-echo "[2/2] Docker 서비스 및 볼륨 제거 중..."
+echo "[3/3] Docker 서비스 및 볼륨 제거 중..."
 docker compose --profile gui down -v
 
 echo ""
-echo "환경 종료 완료 (OrbStack ${#ORB_VMS[@]} VM + Docker 컨테이너·볼륨 제거)"
+echo "환경 종료 완료 (Windows VM 중지·보존 + OrbStack ${#ORB_VMS[@]} VM 삭제 + Docker 컨테이너·볼륨 제거)"

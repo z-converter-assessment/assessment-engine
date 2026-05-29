@@ -3,7 +3,7 @@
 본 디렉토리는 dev 환경 한정 자료 (#A0). prod 운영에는 사용 안 함 (ADR 0012).
 
 전제: Apple Silicon (arm64) macOS host. Docker 4.x+ (macOS Desktop 또는 Linux Engine 27.x + Compose v2).
-4 VM 매트릭스로 파이프라인 검증 — Linux 3대(OrbStack, `pipeline-up.sh`) + Windows 1대(UTM, `win-pipeline.sh` + `docs/development/windows-vm.md`).
+4 VM 매트릭스로 파이프라인 검증 — Linux 3대(OrbStack, `pipeline-up.sh`) + Windows 1대(UTM, `win-pipeline-up.sh` + `docs/development/windows-vm.md`).
 
 본 repo 는 외부 agent repo (`assessment-agent`) 와 파일 구조 결합·강제하지 않음 — agent 바이너리는
 pipeline-up.sh 가 자동 확보 (sibling repo cross-build 또는 release artifact fetch).
@@ -27,14 +27,15 @@ docker compose -f dev/docker-compose.yml down -v         # 종료 (데이터 삭
 ### 2. 엔진 + OrbStack VM 매트릭스 전체 시연 (macOS 한정)
 
 ```bash
-./dev/pipeline-up.sh                               # dev/.env·dev/agent.env 자동 cp + agent 빌드 + Docker + OrbStack 3 Linux VM
-ORB_VMS_FILTER=app-server-01 ./dev/pipeline-up.sh  # 약식 (1 VM)
-./dev/pipeline-down.sh                             # Linux 환경 정리 (OrbStack VM 삭제 + Docker 볼륨 삭제)
-./dev/win-pipeline.sh                              # Windows VM 부분 자동화 (1회 수동 설치 후 — docs/development/windows-vm.md)
+./dev/dev-up.sh                                    # 전체 기동 — Docker+OrbStack 3 Linux VM(+에이전트) + Windows(UTM win-server-01 있으면)
+ORB_VMS_FILTER=app-server-01 ./dev/dev-up.sh       # 약식 (Linux 1 VM)
+./dev/dev-down.sh                                  # 전체 정리 — Windows VM 중지(보존) + OrbStack VM 삭제 + Docker 볼륨 삭제
 ```
 
-Windows VM(win-server-01)은 OrbStack 미지원이라 UTM 별도 — VM 생성·설치는 1회 수동, 이후 `win-pipeline.sh`
-가 start·agent.env 갱신·서비스 restart 자동. 절차 단일 진실: `docs/development/windows-vm.md`.
+dev-up.sh 가 Linux(OrbStack+compose) → Windows(UTM, 있으면) 순으로 기동, dev-down.sh 가 역순 정리.
+Windows VM 은 보존(중지), OrbStack·compose 는 삭제(재생성 전제) — 비대칭 의도.
+Windows VM(win-server-01)은 OrbStack 미지원이라 UTM 별도 — VM 생성·설치는 1회 수동, 이후 `win-pipeline-up.sh`
+가 start·agent.env 갱신·서비스 기동·restart 자동. 중지는 `win-pipeline-down.sh`(VM 보존). 절차 단일 진실: `docs/development/windows-vm.md`.
 
 agent 바이너리는 `ensure_agent_binary` 가 자동 확보 — `AGENT_BINARY_URL` set 시 fetch, 미설정 시
 sibling repo (`AGENT_REPO_PATH`, default `../assessment-agent`) cross-build. 상세는 "## agent
@@ -70,8 +71,7 @@ dev 전체 endpoint 가 plain HTTP port 8000. prod 외부 ingress 종단은 외�
 | `bin/assessment-agent` | agent 바이너리 산출물 (Linux arm64 ELF, static link) | gitignore — pipeline-up.sh 가 자동 산출 |
 | `agent.env.example` | agent 측 환경변수 카탈로그 — RABBITMQ_*·WORKER_* | 커밋 |
 | `agent.env` | agent 실값 — `cp agent.env.example agent.env` 후 운영 값으로 수정 | gitignore |
-| `pipeline-up.sh` / `pipeline-down.sh` | OrbStack Linux 3 VM(app/data/edge) 파이프라인 기동·정리 | 커밋 |
-| `win-pipeline.sh` | Windows VM(UTM win-server-01) 부분 자동화 — start·agent.env(host IP) 갱신·서비스 restart (`docs/development/windows-vm.md`) | 커밋 |
+| `dev-up.sh` / `dev-down.sh` | 전체 dev 환경 단일 진입점 — Docker+OrbStack Linux 3 VM(app/data/edge) + Windows(UTM win-server-01, IIS/redis 기동) 일괄 기동/정리. Windows 절차 단일 진실 `docs/development/windows-vm.md` | 커밋 |
 
 > OS EOL 카탈로그 갱신 도구는 dev 아닌 `scripts/snapshot_os_eol.py` (빌드·릴리스 maintenance, ADR 0031).
 
@@ -122,7 +122,7 @@ FORCE=1 ./dev/agent-build/build.sh   # buildx cache 무시
 `./dev/pipeline-up.sh` 가 본 디렉토리 활용:
 1. `check_prereqs` — `dev/.env` + `dev/agent.env` 자동 cp (없으면 example 에서).
 2. `ensure_agent_binary` — agent 바이너리 확보 (위 흐름).
-3. OrbStack Linux VM 3대 생성 (`orb create <distro> <name>`). Windows 1대는 UTM 별도 (`win-pipeline.sh`).
+3. OrbStack Linux VM 3대 생성 (`orb create <distro> <name>`). Windows 1대는 UTM 별도 (`win-pipeline-up.sh`).
 4. 각 VM 에 `dev/bin/assessment-agent` 를 ssh stdin 으로 전송 → `/usr/local/bin/` 설치 + systemd unit 적용.
 
 VM 내부에서 build·devel 패키지 install 0.
