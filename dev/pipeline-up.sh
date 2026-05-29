@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# dev 풀 파이프라인 기동: Docker → migrate → web 헬스체크 → ollama 모델 → OrbStack VM 3대 + 에이전트 설치.
+# dev 풀 파이프라인 기동: Docker → migrate → web 헬스체크 → OrbStack VM + 에이전트 설치.
+#
+# LLM 서버(ollama) 제거 — 파이프라인 검증 한정 (dev pipeline 시연). AI 진단 발행 시 LLM 호출
+# 실패 시나리오를 의도적으로 재현 (docker-compose.yml diagnostic-worker 주석 참조). ollama 모델
+# pull 단계 없음.
 #
 # 책임 분담:
 #   - agent 바이너리는 `dev/bin/assessment-agent` 로 산출 — 본 스크립트 `ensure_agent_binary` 단계가 확보.
@@ -30,50 +34,57 @@ export COMPOSE_FILE=dev/docker-compose.yml
 # 상수
 # ────────────────────────────────────────────────────────────────────────────
 readonly TIMEOUT=180                         # docker compose / migrate / web 헬스체크 공통 cap
-# VM 진행 순서 — 시연 가시화 우선순위 (attention 발화 가장 빠른 VM 1번).
-#   (1) web-server-01     — Debian 12 + nginx + agent-restart-demo timer (1m boot + 3m 주기, 시간당 20회)
-#                           → attention.agent_unstable 가장 빠른 발화 (1m 후 첫 restart 즉시 가시화)
-#   (2) cache-server-01   — Rocky 9 + redis      → over_provisioned (light 부하)
-#   (3) db-server-01      — AlmaLinux 9 + postgresql-server  → over_provisioned (light 부하, RPM initdb) + swap-trigger
-# ORB_VMS_FILTER env로 약식 검증 가능 (콤마 구분, 예: `ORB_VMS_FILTER=web-server-01`).
-# 미설정 시 4 VM 전체 — 정합 시연용 기본값. 호스트 영향 최소화 위해 모든 VM 의 합성 부하는
-# light (sustained CPU 1~3s + mem 5~20MB) — 차트 변동만 가시화, 분류는 over_provisioned 대표.
+# VM 매트릭스 — 1 VM = 2 서비스 (service_classifier 6 카테고리 최대 커버).
+# Windows(win-server-01: IIS+redis)는 OrbStack 미지원 → UTM 별도 (docs/development/windows-vm.md).
+# 본 OrbStack 배열은 Linux 3대만.
+#
+#   (1) app-server-01   — Debian 12 + nginx + rabbitmq (web + mq)
+#                         agent-restart-demo timer (1m boot + 3m 주기) → attention.agent_unstable
+#                         external IP 부여 (web-facing) — IP 분류 시연
+#   (2) data-server-01  — Rocky 9  + postgresql + zabbix-agent (db + monitor)
+#                         swap-trigger → attention.capacity_warnings (under_provisioned)
+#   (3) edge-server-01  — Debian 12 + docker + memcached (container + cache)
+#                         offline-demo → N회(기본 3) 발행 후 agent stop → attention.gap_warnings
+# ORB_VMS_FILTER env로 약식 검증 가능 (콤마 구분, 예: `ORB_VMS_FILTER=app-server-01`).
+# 호스트 영향 최소화 위해 모든 VM 의 합성 부하는 light (sustained CPU 1~3s + mem 5~20MB).
 if [ -n "${ORB_VMS_FILTER:-}" ]; then
   IFS=',' read -ra ORB_VMS <<< "$ORB_VMS_FILTER"
 else
-  ORB_VMS=(web-server-01 cache-server-01 db-server-01)
+  ORB_VMS=(app-server-01 data-server-01 edge-server-01)
 fi
 readonly ORB_VMS
 
-# VM별 dispatch — services/ext_ip/mode/distro는 pipeline-up.sh가 단일 진실로 갖는다.
+# VM별 dispatch — services/ext_ip/distro는 pipeline-up.sh가 단일 진실로 갖는다.
 # associative array 대신 함수 — macOS default bash 3.2 호환 (brew bash 의존 없음).
+# vm_service 는 공백 구분 다중 서비스 — post_provision_vm 이 for-loop 으로 각각 설치.
 vm_service() {
   case "$1" in
-    cache-server-01)     echo "redis" ;;
-    web-server-01)       echo "nginx" ;;
-    db-server-01)        echo "postgres" ;;
+    app-server-01)   echo "nginx rabbitmq" ;;
+    data-server-01)  echo "postgres zabbix" ;;
+    edge-server-01)  echo "docker memcached" ;;
     *) echo "오류: 알 수 없는 VM: $1" >&2; return 1 ;;
   esac
 }
 vm_ext_ip() {
   case "$1" in
-    web-server-01) echo "203.0.113.10" ;;
+    app-server-01) echo "203.0.113.10" ;;
     *)             echo "" ;;
   esac
 }
-# orb create 이미지 태그 — 옛 Lima yaml images(qcow2 URL) 를 OrbStack distro 태그로 대체.
-# OrbStack 이 arch(Apple Silicon = arm64) 와 cloud image pull 을 자동 처리.
+# orb create 이미지 태그 — OrbStack 이 arch(Apple Silicon = arm64)·cloud image pull 자동 처리.
+# 서비스 설치 난이도 기준 distro 배치: docker.io·rabbitmq-server 는 apt(debian) 가 단순,
+# postgresql-server·zabbix-agent(EPEL)는 dnf(rocky). apt/dnf 양 family 검증 유지.
 vm_distro() {
   case "$1" in
-    web-server-01)     echo "debian:12" ;;
-    cache-server-01)   echo "rocky:9" ;;
-    db-server-01)      echo "alma:9" ;;
+    app-server-01)   echo "debian:12" ;;
+    data-server-01)  echo "rocky:9" ;;
+    edge-server-01)  echo "debian:12" ;;
     *) echo "오류: 알 수 없는 VM: $1" >&2; return 1 ;;
   esac
 }
 
 # probe 도달 시연 — OrbStack VM 은 `<name>.orb.local:22` 로 web 컨테이너가 직접 도달
-# (Lima user-mode localPort 포워딩 불필요). probe 대상(db-server-01.orb.local)은 docker-compose
+# (Lima user-mode localPort 포워딩 불필요). probe 대상(app-server-01.orb.local 등)은 docker-compose
 # DISCOVERY_DEFAULT_TARGET default 가 단일 진실.
 
 # dev/agent.env 필수 키 (agent.env.example과 단일 진실).
@@ -197,14 +208,21 @@ load_agent_env() {
 # Step 2: Docker 스택
 # ────────────────────────────────────────────────────────────────────────────
 start_docker_stack() {
-  echo "[1/5] Docker 서비스 기동 중 (build 포함, postgres healthy 후 migrate 실행)..."
-  # discovery probe 는 web 컨테이너 → db-server-01.orb.local:22 직접 (docker-compose default).
+  echo "[1/4] Docker 서비스 기동 중 (build 포함, postgres healthy 후 migrate 실행)..."
+  # hatch-vcs(ADR 0030) 버전 주입 — .git 은 .dockerignore 로 build context 에서 제외되므로
+  # host git 으로 derive 한 PEP440 버전을 build arg(APP_VERSION → SETUPTOOLS_SCM_PRETEND_VERSION)로 전달.
+  # 예: v0.1.2-3-gf1164d1 → 0.1.2.dev3. tag 없거나 git 아니면 0.0.0 (build 통과 보장).
+  APP_VERSION="$(git describe --tags 2>/dev/null | sed 's/^v//; s/-\([0-9]*\)-g.*/.dev\1/' || true)"
+  APP_VERSION="${APP_VERSION:-0.0.0}"
+  export APP_VERSION
+  echo "  APP_VERSION=${APP_VERSION} (hatch-vcs 주입)"
+  # discovery probe 는 web 컨테이너 → app-server-01.orb.local:22 직접 (docker-compose default).
   # Lima 처럼 port 를 export 할 필요 없음 — OrbStack VM 은 표준 22 SSH 직접 도달.
   docker compose --profile gui up -d --build
 }
 
 wait_migrate_completed() {
-  echo "[2/5] migrate(alembic upgrade head) 완료 대기 중..."
+  echo "[2/4] migrate(alembic upgrade head) 완료 대기 중..."
   SECONDS=0
   while :; do
     local state code
@@ -228,7 +246,7 @@ wait_migrate_completed() {
 }
 
 wait_web_healthy() {
-  echo "[3/5] web 헬스체크 대기 중..."
+  echo "[3/4] web 헬스체크 대기 중..."
   SECONDS=0
   while [ "$(service_health web)" != "healthy" ]; do
     local health state
@@ -246,36 +264,6 @@ wait_web_healthy() {
     echo "  대기 중... (${SECONDS}s / ${TIMEOUT}s, health=${health})"
   done
   echo "  web healthy"
-}
-
-# ────────────────────────────────────────────────────────────────────────────
-# Step 3: ollama 모델 준비 (진단 narrative LLM)
-# ────────────────────────────────────────────────────────────────────────────
-# diagnostic-worker 가 호출하는 LLM 모델을 ollama 컨테이너에 미리 pull (ollama_data 볼륨 영속).
-# 모델명 단일 진실 = dev/.env OLLAMA_MODEL (docker-compose default 와 동일 qwen2.5:1.5b).
-# git clone + 스크립트만으로 구동 — .env 자동 cp(check_prereqs) + 모델 자동 pull.
-ensure_ollama_model() {
-  echo "[4/5] ollama 모델 준비 중 (진단 narrative LLM)..."
-  local model
-  # set -e + pipefail 환경 — grep no-match(.env 에 OLLAMA_MODEL 주석·부재) 시 || true 로 흡수 후 default.
-  model="$(grep -E '^OLLAMA_MODEL=' dev/.env 2>/dev/null | tail -1 | cut -d= -f2- || true)"
-  model="${model:-qwen2.5:1.5b}"
-  # ollama serve ready 대기 (compose up 직후 기동 시간 흡수, healthcheck 와 별개 직접 확인).
-  local secs=0
-  until docker compose exec -T ollama ollama list >/dev/null 2>&1; do
-    sleep 2; secs=$((secs+2))
-    if [ "$secs" -ge 60 ]; then
-      echo "오류: ollama ${secs}s 내 ready 안 됨."
-      exit 1
-    fi
-  done
-  if docker compose exec -T ollama ollama list 2>/dev/null | grep -qF "$model"; then
-    echo "  ${model} 이미 존재 (ollama_data 볼륨) — skip"
-    return
-  fi
-  echo "  ${model} pull 중 (최초 1회, 경량 CPU 추론 모델이라 수 분 소요 가능)..."
-  docker compose exec -T ollama ollama pull "$model"
-  echo "  ${model} pull 완료"
 }
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -324,8 +312,8 @@ start_or_resume_vm() {
 #   - inner `<<ENV` (unquoted): host expand된 값들을 inline (그 안에 '$' 없음).
 post_provision_vm() {
   local vm="$1"
-  local service ext_ip hostname_override
-  service="$(vm_service "$vm")"
+  local services ext_ip hostname_override
+  services="$(vm_service "$vm")"   # 공백 구분 다중 서비스 (예: "nginx rabbitmq")
   ext_ip="$(vm_ext_ip "$vm")"
   # 모든 VM은 hostname=VM 이름 통일.
   hostname_override="$vm"
@@ -367,52 +355,70 @@ if [ "\$new_env" != "\$(cat /etc/assessment-agent.env 2>/dev/null)" ]; then
   env_needs_restart=1
 fi
 
-# 2) 서비스 패키지 설치 + OS detect. service($service)는 host shell이 inline한 literal.
+# 2) base 패키지 + 다중 서비스 설치. services("$services")는 host shell이 inline한 공백 구분 literal.
 #    agent 바이너리는 본 repo dev/bin/에 사전 commit (Apple Silicon arm64 dev 한정).
 #    devel 패키지·gcc·make 불필요 — runtime OpenSSL/glibc/zlib만 동적 의존이고 모두 base distro 기본 포함.
 . /etc/os-release
-case "\${ID}:$service" in
-  ubuntu:redis|debian:redis)                       svc_pkg="redis-server";       svc_unit="redis-server" ;;
-  rocky:redis|rhel:redis|almalinux:redis)          svc_pkg="redis";              svc_unit="redis" ;;
-  *:nginx)                                         svc_pkg="nginx";              svc_unit="nginx" ;;
-  ubuntu:postgres|debian:postgres)                 svc_pkg="postgresql";         svc_unit="postgresql" ;;
-  rocky:postgres|rhel:postgres|almalinux:postgres) svc_pkg="postgresql-server"; svc_unit="postgresql" ;;
-  *:none)                                          svc_pkg="";                   svc_unit="" ;;
-  *) echo "지원 안 하는 OS/service: \${ID}/$service" >&2; exit 1 ;;
-esac
 
-# openssh-server — OrbStack VM 은 표준 22 sshd 미탑재(OrbStack SSH 는 host-network proxy)라 명시 설치.
-# 서버 발견 probe(web 컨테이너 -> VM IP:22 SSH 도달성) 시연 대상 — 운영자가 VM IP 입력 시 OpenSSH 도달.
+# dnf_opts — case 밖 정의 (set -u 안전, debian 경로는 미참조). install_weak_deps=False 로
+# Recommends 차단(transaction 메모리·디스크 절약, 1GiB OOM 회피), tsflags=nodocs 로 man/info skip.
+dnf_opts="--setopt=install_weak_deps=False --setopt=tsflags=nodocs"
+
+# base 패키지 — openssh-server(서버 발견 probe 시연: web 컨테이너 -> VM IP:22) + curl + ping.
+# OrbStack VM 은 표준 22 sshd 미탑재(OrbStack SSH 는 host-network proxy)라 명시 설치.
 case "\${ID}" in
   ubuntu|debian)
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
-    apt-get install -y --no-install-recommends curl iputils-ping openssh-server \${svc_pkg}
+    apt-get install -y --no-install-recommends curl iputils-ping openssh-server
     systemctl enable --now ssh
     ;;
   rocky|rhel|almalinux)
-    # install_weak_deps=False — Recommends 차단으로 transaction 메모리·디스크 절약 (1GiB OOM 회피).
-    # tsflags=nodocs — man/info 등 문서 skip.
-    dnf_opts="--setopt=install_weak_deps=False --setopt=tsflags=nodocs"
     dnf install -y \${dnf_opts} epel-release
-    dnf install -y \${dnf_opts} curl iputils openssh-server \${svc_pkg}
+    dnf install -y \${dnf_opts} curl iputils openssh-server
     systemctl enable --now sshd
     ;;
   *) echo "지원 안 하는 OS: \${ID}" >&2; exit 1 ;;
 esac
 
-if [ -n "\${svc_unit}" ]; then
-  # RPM family postgresql은 cluster init 수동 필요. apt 계열은 install 시 자동 init라 skip.
-  if [ "$service" = "postgres" ]; then
+# 서비스별 패키지 설치 + 특수 init + systemd unit enable. (distro:service) 매핑 단일 진실.
+# service_classifier 카테고리 발화: nginx=web, rabbitmq=mq, postgres=db, zabbix=monitor,
+# docker=container, memcached=cache, redis=cache.
+for svc in $services; do
+  pkg=""; unit=""
+  case "\${ID}:\${svc}" in
+    *:nginx)                                       pkg="nginx";                                   unit="nginx" ;;
+    ubuntu:rabbitmq|debian:rabbitmq)               pkg="rabbitmq-server";                         unit="rabbitmq-server" ;;
+    rocky:rabbitmq|rhel:rabbitmq|almalinux:rabbitmq) pkg="rabbitmq-server";                       unit="rabbitmq-server" ;;
+    ubuntu:postgres|debian:postgres)               pkg="postgresql";                              unit="postgresql" ;;
+    rocky:postgres|rhel:postgres|almalinux:postgres) pkg="postgresql-server";                     unit="postgresql" ;;
+    ubuntu:redis|debian:redis)                     pkg="redis-server";                            unit="redis-server" ;;
+    rocky:redis|rhel:redis|almalinux:redis)        pkg="redis";                                   unit="redis" ;;
+    ubuntu:memcached|debian:memcached)             pkg="memcached";                               unit="memcached" ;;
+    rocky:memcached|rhel:memcached|almalinux:memcached) pkg="memcached";                          unit="memcached" ;;
+    ubuntu:docker|debian:docker)                   pkg="docker.io";                               unit="docker" ;;
+    # monitor — EPEL 9 에 node_exporter 부재(EPEL 8 에서 제거). zabbix-agent 채택
+    # (service_classifier 의 monitor 패턴 'zabbix' 매칭). zabbix server 미설정이라 active 실패 가능하나
+    # systemd unit·listen 10050 으로 분류엔 충분 (enable 실패는 post_provision 의 || true 흡수).
+    ubuntu:zabbix|debian:zabbix)                   pkg="zabbix-agent";                            unit="zabbix-agent" ;;
+    rocky:zabbix|rhel:zabbix|almalinux:zabbix)     pkg="zabbix-agent";                            unit="zabbix-agent" ;;
+    *) echo "지원 안 하는 OS/service: \${ID}/\${svc}" >&2; exit 1 ;;
+  esac
+
+  case "\${ID}" in
+    ubuntu|debian)        apt-get install -y --no-install-recommends "\${pkg}" ;;
+    rocky|rhel|almalinux) dnf install -y \${dnf_opts} "\${pkg}" ;;
+  esac
+
+  # postgres RPM family 는 cluster init 수동 필요. apt 계열은 install 시 자동 init라 skip.
+  if [ "\${svc}" = "postgres" ]; then
     case "\${ID}" in
-      rocky|rhel|almalinux)
-        # 이미 init된 경우 silent skip.
-        postgresql-setup --initdb 2>/dev/null || true
-        ;;
+      rocky|rhel|almalinux) postgresql-setup --initdb 2>/dev/null || true ;;
     esac
   fi
-  systemctl enable --now "\${svc_unit}"
-fi
+
+  [ -n "\${unit}" ] && systemctl enable --now "\${unit}" 2>/dev/null || true
+done
 
 # 3) 바이너리 설치 — /tmp/assessment-agent (ssh stdin 전송) → /usr/local/bin/.
 #    멱등 — 바이너리·env·unit 변경 없으면 restart 건너뜀 (attention.agent_unstable false positive 회피).
@@ -504,8 +510,8 @@ systemctl start synthetic-load.timer
 SCRIPT
 }
 
-# swap-trigger 설치 (db-server-01 전용) — boot 1회 swap 활성 + 메모리 압박 → swap_used 임계 초과.
-# attention.under_provisioned 발화 시연용. CPU 부하 추가 없음 (호스트 영향 회피).
+# swap-trigger 설치 (data-server-01 전용) — boot 1회 swap 활성 + 메모리 압박 → swap_used 임계 초과.
+# attention.capacity_warnings(under_provisioned) 발화 시연용. CPU 부하 추가 없음 (호스트 영향 회피).
 install_swap_trigger() {
   local vm="$1"
   orb_ssh "$vm" sudo bash -s <<'SCRIPT'
@@ -542,7 +548,7 @@ systemctl start swap-trigger.service
 SCRIPT
 }
 
-# agent-restart-demo 설치 (web-server-01 전용) — agent 주기 restart 로 agent_unstable 항상 발화.
+# agent-restart-demo 설치 (app-server-01 전용) — agent 주기 restart 로 agent_unstable 항상 발화.
 # 1시간 슬라이딩 윈도우 임계 3회를 큰 마진으로 초과 (OnBootSec=1min + OnUnitActiveSec=3min → 시간당 약 20회).
 install_agent_restart_demo() {
   local vm="$1"
@@ -570,18 +576,51 @@ systemctl start agent-restart-demo.timer
 SCRIPT
 }
 
+# offline-demo 설치 (edge-server-01 전용) — agent 가 약 N회 발행 후 VM poweroff → attention.gap_warnings.
+# 발행 횟수는 시간 기반 근사: AGENT_INTERVAL_SEC=60 기준 boot 후 0s/60s/120s 발행 → 약 3회.
+# OFFLINE_DOWN_AFTER_SEC(기본 180=3min) 후 systemctl poweroff. VM 자체 정지라 SSH 끊김 — 디버깅 시엔
+# `orb start edge-server-01` 재기동(pipeline-up.sh 재실행 시 멱등 재적용, 다시 3회 후 down 반복).
+# agent stop 대신 poweroff 채택 — 사용자 요구("VM 이 내려감") 의도 충실. gap_warnings 발화는 둘 다 동일.
+install_offline_demo() {
+  local vm="$1"
+  local down_after="${OFFLINE_DOWN_AFTER_SEC:-180}"
+  orb_ssh "$vm" sudo bash -s <<SCRIPT
+set -euo pipefail
+cat > /etc/systemd/system/offline-demo.service <<'EOF'
+[Unit]
+Description=Offline demo (attention.gap_warnings 시연 — N회 발행 후 VM poweroff)
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl poweroff
+EOF
+# timer heredoc 은 unquoted — host shell 이 ${down_after} 치환 (VM bash 는 숫자라 무해).
+cat > /etc/systemd/system/offline-demo.timer <<EOF
+[Unit]
+Description=Poweroff after agent publishes ~3 times (gap_warnings demo)
+[Timer]
+OnBootSec=${down_after}
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+systemctl enable offline-demo.timer
+systemctl start offline-demo.timer
+SCRIPT
+}
+
 # VM별 합성 부하·시연 트리거 설치 — 옛 Lima yaml provision 분기 흡수.
 install_demo_loads() {
   local vm="$1"
   install_synthetic_load "$vm"
   case "$vm" in
-    db-server-01)  install_swap_trigger "$vm" ;;
-    web-server-01) install_agent_restart_demo "$vm" ;;
+    data-server-01) install_swap_trigger "$vm" ;;
+    app-server-01)  install_agent_restart_demo "$vm" ;;
+    edge-server-01) install_offline_demo "$vm" ;;
   esac
 }
 
 start_orb_vms() {
-  echo "[5/5] OrbStack VM 기동 + 에이전트 설치 중..."
+  echo "[4/4] OrbStack VM 기동 + 에이전트 설치 중..."
   local vm
   for vm in "${ORB_VMS[@]}"; do
     start_or_resume_vm "$vm"
@@ -614,7 +653,6 @@ main() {
   start_docker_stack
   wait_migrate_completed
   wait_web_healthy
-  ensure_ollama_model
   start_orb_vms
   print_summary
 }

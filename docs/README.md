@@ -34,7 +34,8 @@ docs/
 ├── development/           본 repo 안 dev 작업·코드 규약 (영구·갱신)
 │   ├── docker.md          Dockerfile·dev/docker-compose 명세
 │   ├── dependencies.md    pyproject.toml + uv.lock 관리·운영자 수동 bump·CI drift 검증
-│   ├── pipeline.md        E2E 파이프라인 검증 + OrbStack 4 VM 매트릭스·합성 부하·provisioning (macOS 한정)
+│   ├── pipeline.md        E2E 파이프라인 검증 + OrbStack 3 Linux VM 매트릭스·합성 부하·provisioning (macOS 한정)
+│   ├── windows-vm.md      Windows agent 검증 — UTM Win11 ARM VM (4 VM 매트릭스 중 win-server-01, macOS 한정)
 │   ├── testing.md         pytest 단위·통합 테스트
 │   ├── conventions.md     본 repo 작업 규약 단일 — IDE·Hook(F1) + 자동화 변환 검증·누적 사고 패턴(F5)
 │   ├── wrap-up.md         기능 개발 마무리 5단계 표준 워크플로 — 문서 정합·코드 리뷰·테스트·README·CLAUDE.md (skill: /wrap-up)
@@ -56,7 +57,7 @@ docs/
 │   ├── use-method.md              USE Method 본질 요약 (Utilization · Saturation · Errors)
 │   ├── right-sizing-thresholds.md AWS Compute Optimizer + Azure Advisor 임계 catalog
 │   └── classification-rules.md    본 엔진 7 category 분류 규칙
-├── adr/                   Architecture Decision Records (영구·불변, 0001~0025)
+├── adr/                   Architecture Decision Records (영구·불변, 0001~0031)
 └── tradeoffs.md           의식적 설계 선택과 한계 (T1~T14) — 카탈로그
 ```
 

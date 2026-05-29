@@ -34,6 +34,11 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project --no-dev
 
 COPY . .
+# hatch-vcs(ADR 0030)는 git tag 에서 버전을 derive 하나, .dockerignore 가 .git 을 build context
+# 에서 제외하므로 컨테이너 안엔 git 이 없다. setuptools-scm 의 PRETEND_VERSION 으로 host 가 구한
+# 버전을 주입 (.git 없는 빌드 환경 공식 패턴). docker-compose build args APP_VERSION → 여기로.
+ARG APP_VERSION=0.0.0
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${APP_VERSION}
 RUN uv sync --frozen --no-dev
 
 # venv 실행파일을 PATH 앞에 추가 — uvicorn·alembic을 절대경로 없이 호출 가능.

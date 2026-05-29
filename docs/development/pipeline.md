@@ -1,33 +1,44 @@
-# 파이프라인 검증 (OrbStack)
+# 파이프라인 검증 (OrbStack + UTM)
 
-본 문서는 dev 시연·파이프라인 검증 단일 진실. 운영자 절차·VM 매트릭스·OS 다양성·합성 부하·provisioning·운영 디버깅 모두 포함. macOS + OrbStack 한정 (CLAUDE.md #A0).
+본 문서는 dev 시연·파이프라인 검증 단일 진실. 운영자 절차·VM 매트릭스·OS 다양성·합성 부하·provisioning·운영 디버깅 모두 포함. macOS + Apple Silicon 한정 (CLAUDE.md #A0).
 
-에이전트(C) → RabbitMQ → Consumer → DB → Web UI 전체 파이프라인을 실제 VM 환경에서 검증 + 시연용 분류·attention 분포 가시화.
+4 VM 매트릭스 — Linux 3대는 OrbStack, Windows 1대는 UTM (OrbStack Windows 미지원). 본 문서는
+Linux 3대(OrbStack) 단일 진실, Windows 1대(UTM)는 `docs/development/windows-vm.md` 단일 진실.
+
+에이전트(C) → RabbitMQ → Consumer → DB → Web UI 전체 파이프라인을 실제 VM 환경에서 검증 + 시연용 분류·attention 분포 가시화. 1 VM = 2 서비스로 `service_classifier` 6 카테고리 최대 커버.
 
 ```
-HOST MACHINE (OrbStack)
-  Docker engine (assessment-engine)
+HOST MACHINE (macOS, Apple Silicon)
+  Docker engine (assessment-engine) — via OrbStack
     FastAPI :8000  <----QUERY-----  PostgreSQL :5432
                                          ^
                                     PERSIST | (3)
                                          |
     RabbitMQ :5672 ---DISPATCH(2)---> Consumer
-         ^
-         | PUBLISH (1) Target: host.docker.internal
+         ^   ^
+         |   | PUBLISH (1, Windows) Target: <host IP> (UTM)
+         |   |
+         |   +---  UTM VM x 1: win-server-01 (Win11 ARM) -> windows-vm.md
+         |
+         | PUBLISH (1, Linux) Target: host.docker.internal
          |
   OrbStack VM x 3 (assessment-agent.service)
-    web-server-01, cache-server-01, db-server-01
+    app-server-01, data-server-01, edge-server-01
 ```
 
-OrbStack 은 Docker 엔진과 Linux machines(VM) 를 한 런타임에서 통합 네트워크로 묶는다. 컨테이너·VM 모두 `host.docker.internal` 로 host 에 도달하고, VM 은 `<name>.orb.local` 도메인으로 host·컨테이너 어디서나 도달한다 (Lima user-mode 격리·localPort 포워딩 불필요).
+OrbStack 은 Docker 엔진과 Linux machines(VM) 를 한 런타임에서 통합 네트워크로 묶는다. 컨테이너·VM 모두 `host.docker.internal` 로 host 에 도달하고, VM 은 `<name>.orb.local` 도메인으로 host·컨테이너 어디서나 도달한다. UTM Windows VM 은 이 통합 네트워크 밖이라 host 의 실제 IP 로 도달 (`windows-vm.md` 네트워크 절).
+
+LLM 서버(ollama)는 본 파이프라인에서 제거됨 — AI 진단(engineer 보고서 narrative) 발행 시 LLM 호출
+실패 시나리오를 의도적으로 재현 (`dev/docker-compose.yml` diagnostic-worker 주석). 진단 워커 로직 무수정.
 
 ## 사전 요구
 
-| 도구 | 설치 |
-|------|------|
-| OrbStack | https://orbstack.dev (Docker 엔진 + Linux machines 통합 제공) |
+| 도구 | 설치 | 용도 |
+|------|------|------|
+| OrbStack | https://orbstack.dev | Docker 엔진 + Linux VM 3대 |
+| UTM | `brew install --cask utm` | Windows VM 1대 (`windows-vm.md`) |
 
-전제: agent 바이너리 (`dev/bin/assessment-agent`) 는 pipeline-up.sh 의 `ensure_agent_binary` 단계가 자동 확보. 두 분기:
+전제: agent 바이너리 (`dev/bin/assessment-agent`) 는 pipeline-up.sh 의 `ensure_agent_binary` 단계가 자동 확보 (Linux arm64). Windows agent .exe 는 별도 (`windows-vm.md`). 두 분기:
 - `AGENT_BINARY_URL` env set 시 — curl fetch (향후 agent CI release artifact 자동화).
 - 미설정 시 — `dev/agent-build/build.sh` 호출, sibling repo (`AGENT_REPO_PATH`, default `../assessment-agent`) 를 buildx context 로 cross-build.
 
@@ -38,22 +49,24 @@ OrbStack 은 Docker 엔진과 Linux machines(VM) 를 한 런타임에서 통합 
 ```bash
 cp dev/.env.example dev/.env               # 엔진 환경변수 (dev compose 한정)
 cp dev/agent.env.example dev/agent.env     # 에이전트 secret 채널 (분리됨, #B)
-./dev/pipeline-up.sh                   # Docker → web 헬스체크 → ollama 모델 → OrbStack VM 3대
+./dev/pipeline-up.sh                   # Docker → web 헬스체크 → OrbStack Linux VM 3대
 ```
 
-`dev/pipeline-up.sh` 5단계:
+`dev/pipeline-up.sh` 4단계 (Linux/OrbStack):
 1. `docker compose up --build -d` — 엔진 기동 (COMPOSE_FILE=dev/docker-compose.yml export)
 2. `migrate(alembic upgrade head)` 완료 대기 (cap 180s)
 3. web 헬스체크 통과 대기 (cap 180s)
-4. ollama 모델 준비 — `OLLAMA_MODEL`(default qwen2.5:1.5b) 자동 pull (ollama_data 볼륨 영속, 이미 있으면 skip)
-5. `start_or_resume_vm` → `post_provision_vm` → `install_demo_loads` 로 3 VM 순차 (`orb create` 첫 실행 시 cloud image pull 포함)
+4. `start_or_resume_vm` → `post_provision_vm` → `install_demo_loads` 로 3 VM 순차 (`orb create` 첫 실행 시 cloud image pull 포함)
+
+Windows VM (win-server-01)은 `windows-vm.md` 절차로 별도 — UTM VM 생성·Windows 설치가 GUI 수동이라 스크립트 통합 안 함.
 
 ## 결과 확인
 
-- http://localhost:8000/servers/ — 3 VM 등록
+- http://localhost:8000/servers/ — Linux 3 VM (+ Windows 설정 시 4) 등록
 - 60초 주기 메트릭 갱신
 - 분류 분포 시연은 `/servers/report?period_days=1` (대시보드는 `recommendation.WINDOW_DAYS=14` 고정, #F10)
-- attention 카드 상단 요약: web `agent_unstable` + db `capacity_warnings` (swap_used)
+- attention 카드 상단 요약: app `agent_unstable` + data `capacity_warnings` (swap_used) + edge `gap_warnings` (3회 발행 후 down)
+- AI 진단 발행 (engineer 보고서) — LLM 호출 실패 (ollama 제거) 동작 관찰
 - 서버 발견 모달 probe — `print_summary` 가 안내한 VM IP 를 모달에 직접 입력 (`.orb.local` 은 컨테이너 미해석 + VM IP 동적이라 자동 기본값 없음). VM 은 post-provision `openssh-server` 설치라 `SSH-2.0-OpenSSH` banner 로 도달
 
 ## 종료
@@ -67,54 +80,65 @@ cp dev/agent.env.example dev/agent.env     # 에이전트 secret 채널 (분리�
 | 시나리오 | 명령 |
 |---------|------|
 | Docker만 종료, VM 유지 | `docker compose down` (데이터 유지) / `docker compose down -v` (삭제) |
-| 특정 VM만 종료 | `orb delete -f web-server-01` |
-| VM 일시 정지 | `orb stop <vm>` (재기동 시 post-provision 재적용은 pipeline-up.sh 재실행) |
+| 특정 Linux VM만 종료 | `orb delete -f app-server-01` |
+| Linux VM 일시 정지 | `orb stop <vm>` (재기동 시 post-provision 재적용은 pipeline-up.sh 재실행) |
+| Windows VM 종료 | `utmctl stop win-server-01` (`windows-vm.md`) |
+
+`pipeline-down.sh` 는 OrbStack Linux 3대 + Docker 볼륨만 정리 — Windows(UTM)는 `utmctl stop/delete` 수동.
 
 ---
 
 ## 사용 맥락
 
-OrbStack VM 은 에이전트 E2E + 시연 분류 분포 가시화. 엔진(dev compose)은 host Docker, VM 3대가 실제 Linux 환경에서 에이전트 metrics 를 RabbitMQ 에 발행 → Consumer DB 저장 → web UI 확인.
+VM 은 에이전트 E2E + 시연 분류 분포 가시화. 엔진(dev compose)은 host Docker, VM 들이 실제 OS 환경에서 에이전트 metrics 를 RabbitMQ 에 발행 → Consumer DB 저장 → web UI 확인.
 
 ```
-[VM: web-server-01      ]   attention.agent_unstable (3분 주기 restart, 시간당 20회)
-[VM: cache-server-01    ]   over (light 부하)                            -> RabbitMQ -> consumer -> DB -> web UI
-[VM: db-server-01       ]   attention.capacity_warnings (swap_used → under_provisioned)
+[VM: app-server-01  Linux ]   nginx+rabbitmq  attention.agent_unstable (3m restart, 시간당 20회)
+[VM: data-server-01 Linux ]   postgres+zabbix-agent   attention.capacity_warnings (swap_used)  -> MQ -> consumer -> DB -> web UI
+[VM: edge-server-01 Linux ]   docker+memcached  attention.gap_warnings (3회 발행 후 down)
+[VM: win-server-01  Win11 ]   IIS+redis  (windows-vm.md, UTM)
 ```
 
-3 VM 구성 의도 (호스트 macOS 영향 최소화 우선):
-- OS 다양성: 패키지 매니저 분기(apt/dnf) + systemd 호환 검증. 3 distro (Debian 12, Rocky 9, AlmaLinux 9).
-- attention 카탈로그 발화: `AttentionSignals` 카테고리 중 2개 (agent_unstable, capacity_warnings) 의도 발화.
+4 VM 구성 의도 (호스트 macOS 영향 최소화 우선):
+- 1 VM = 2 서비스: `service_classifier` 6 카테고리(web/db/cache/mq/container/monitor) 전부 커버.
+- OS 다양성: 패키지 매니저 분기(apt/dnf) + systemd + Windows SCM. distro (Debian 12, Rocky 9, Win11 ARM).
+- attention 카탈로그 발화: `AttentionSignals` 카테고리 중 3개 (agent_unstable, capacity_warnings, gap_warnings) 의도 발화.
+- LLM 실패: ollama 제거 → AI 진단 발행 시 호출 실패 (진단 워커 로직 무수정).
 - 합성 부하: 모든 VM light (sustained CPU 1~3s + mem 5~20MB) — 차트 변동만 가시화. CPU 임계 안 넘김. under_provisioned 만 swap_used 트리거로 분류 발화 (CPU 부담 0).
 
-OrbStack 채택 이유: Apple Silicon 네이티브 가상화로 부팅·메모리 가벼움, cloud-init 없이 `orb create` 즉시 ready (Lima 의 boot stuck 우회 로직 불필요), Docker 엔진·VM 통합 네트워크로 컨테이너·VM 양방향 직접 도달 (probe 포워딩 불필요).
+OrbStack 채택 이유 (Linux): Apple Silicon 네이티브 가상화로 부팅·메모리 가벼움, cloud-init 없이 `orb create` 즉시 ready (Lima 의 boot stuck 우회 로직 불필요), Docker 엔진·VM 통합 네트워크로 컨테이너·VM 양방향 직접 도달 (probe 포워딩 불필요). Windows 는 OrbStack 미지원이라 UTM (`windows-vm.md`).
 
 ---
 
 ## VM 매트릭스
 
-VM 정의(distro/service/ext_ip/mode)는 `pipeline-up.sh` 의 dispatch 함수(`vm_distro`/`vm_service`/`vm_ext_ip`/`vm_mode`)가 단일 진실. `ORB_VMS` 배열 순서대로 기동(`pipeline-down.sh`는 `source pipeline-up.sh`로 가져옴). 별도 VM yaml 없음 — `orb create <distro> <name>` 후 post-provision 이 패키지·합성 부하·systemd 를 모두 설치.
+Linux VM 정의(distro/service/ext_ip)는 `pipeline-up.sh` 의 dispatch 함수(`vm_distro`/`vm_service`/`vm_ext_ip`)가 단일 진실. `vm_service` 는 공백 구분 다중 서비스 반환 — `post_provision_vm` 이 for-loop 으로 각각 설치. `ORB_VMS` 배열 순서대로 기동(`pipeline-down.sh`는 `source pipeline-up.sh`로 가져옴). 별도 VM yaml 없음 — `orb create <distro> <name>` 후 post-provision 이 패키지·합성 부하·systemd 를 모두 설치. Windows(win-server-01)는 `windows-vm.md`.
 
-| 진행 순서 | VM | distro (orb create) | family | 서비스 | 뱃지 | 부하 | 분류 | attention 발화 |
-|---|----|----|--------|--------|------|------|------|----------------|
-| 1 | `web-server-01` | `debian:12` | apt | nginx | web | light | over_provisioned | agent_unstable (1m boot + 3m 주기, 시간당 20회) |
-| 2 | `cache-server-01` | `rocky:9` | dnf | redis | cache | light | over_provisioned | (분류 도넛에서만) |
-| 3 | `db-server-01` | `alma:9` | dnf | postgresql-server | db | light + swap-trigger | under_provisioned | capacity_warnings (swap_used) |
+| 순서 | VM | 가상화 | distro | family | 서비스 (2) | 카테고리 | 부하 | 분류 | attention 발화 |
+|---|----|----|----|--------|--------|------|------|------|----------------|
+| 1 | `app-server-01` | OrbStack | `debian:12` | apt | nginx, rabbitmq | web, mq | light | over | agent_unstable (1m boot + 3m, 시간당 20회) |
+| 2 | `data-server-01` | OrbStack | `rocky:9` | dnf | postgresql, zabbix-agent | db, monitor | light + swap | under | capacity_warnings (swap_used) |
+| 3 | `edge-server-01` | OrbStack | `debian:12` | apt | docker, memcached | container, cache | light | over | gap_warnings (3회 발행 후 poweroff) |
+| 4 | `win-server-01` | UTM | Win11 ARM | SCM | IIS, redis | web, cache | (windows-vm.md) | — | — |
 
 진행 순서는 시연 가시화 우선:
-- 1번 web — attention 가장 빠른 발화 (1m 후 첫 restart)
-- 2번 cache — light 부하 (over_provisioned)
-- 3번 db — swap-trigger + RPM postgresql-setup --initdb 자동 (capacity_warnings, under_provisioned)
+- 1번 app — attention 가장 빠른 발화 (1m 후 첫 restart) + external IP (web-facing)
+- 2번 data — swap-trigger (capacity_warnings, under_provisioned) + zabbix-agent(monitor)
+- 3번 edge — offline-demo (약 180s 후 poweroff → gap_warnings). docker(container) + memcached(cache)
+- 4번 win — UTM 별도 (`windows-vm.md`). IIS(native)+redis(크로스플랫폼) 혼합
 
-뱃지 분배 (`service_classifier.py` 카탈로그 부분 커버 — 3 VM 구성이라 container · monitor · mq · unknown 카테고리 시연은 빠짐):
+뱃지 분배 (`service_classifier.py` 6 카테고리 전부 커버):
 
 | 카테고리 | VM | 발화 키워드 |
 |----------|----|----|
-| web | web-server-01 | nginx |
-| cache | cache-server-01 | redis |
-| db | db-server-01 | postgresql |
+| web | app-server-01, win-server-01 | nginx, IIS(w3svc — 카탈로그 확장 주의) |
+| mq | app-server-01 | rabbitmq |
+| db | data-server-01 | postgresql |
+| monitor | data-server-01 | zabbix-agent |
+| container | edge-server-01 | docker |
+| cache | edge-server-01, win-server-01 | memcached, redis |
 
-리소스 메모: OrbStack VM 은 host CPU·메모리를 공유(Lima 처럼 VM별 cpu/mem/disk 고정 할당 없음) — distro 만 지정. dnf family(Rocky·Alma)는 install transaction 이 apt 보다 무거우나 OrbStack 의 동적 메모리로 OOM 회피. db-server-01 의 swap-trigger 는 boot 1회 swapfile 512 MiB 활성 + 1000 MiB 메모리 압박 → swap_used > 0 영구 유지.
+리소스 메모: OrbStack VM 은 host CPU·메모리를 공유(Lima 처럼 VM별 cpu/mem/disk 고정 할당 없음) — distro 만 지정. dnf family(Rocky)는 install transaction 이 apt 보다 무거우나 OrbStack 의 동적 메모리로 OOM 회피 (`install_weak_deps=False` 로 추가 절약). data-server-01 의 swap-trigger 는 boot 1회 swapfile 512 MiB 활성 + 1000 MiB 메모리 압박 → swap_used > 0 영구 유지.
 
 ---
 
@@ -124,8 +148,9 @@ VM 정의(distro/service/ext_ip/mode)는 `pipeline-up.sh` 의 dispatch 함수(`v
 
 | 프로파일 | cpu burst | mem burst | 적용 VM | 목표 분류 |
 |----------|-----------|-----------|---------|----------|
-| light | 1~3s | 5~20MB | web, cache, db | over_provisioned (cpu_p95 ~5%, mem_p95 <50%) |
-| swap-trigger (추가) | (boot 1회 1000MB 메모리 압박 + swapfile 512MB 활성) | swap_used > 0 영구 | db | under_provisioned (swap_used short-circuit) |
+| light | 1~3s | 5~20MB | app, data, edge | over_provisioned (cpu_p95 ~5%, mem_p95 <50%) |
+| swap-trigger (추가) | (boot 1회 1000MB 메모리 압박 + swapfile 512MB 활성) | swap_used > 0 영구 | data | under_provisioned (swap_used short-circuit) |
+| offline-demo (추가) | (약 180s 후 `systemctl poweroff`) | — | edge | gap_warnings (발행 중단) |
 
 원칙:
 - 분류 임계는 `recommendation.py` 모듈 상단 명명 상수 (#E3). 부하 프로파일은 임계 충족 설계.
@@ -138,11 +163,11 @@ attention 카탈로그 발화 매핑:
 | attention 카테고리 | 발화 VM | 트리거 |
 |-------------------|---------|--------|
 | disk_warnings | (없음) | 디스크 사용률 85%+ — 시연 안 함 |
-| gap_warnings | (없음) | 통신 끊김 — offline VM 폐기로 dev 시연 안 함 (실제 agent 중단 시 발화) |
-| capacity_warnings | db-server-01 | under_provisioned (swap_used 트리거) |
+| gap_warnings | edge-server-01 | offline-demo (약 180s 후 poweroff → 발행 중단, engine 이 일정 시간 미수신 시 발화) |
+| capacity_warnings | data-server-01 | under_provisioned (swap_used 트리거) |
 | days_until_full_warnings | (없음) | 디스크 fill_rate 추정 30일 — 시연 안 함 |
 | os_eol_warnings | (없음) | EOL OS 자체가 cloud image 가용성 한계라 발화 안 함 |
-| agent_unstable | web-server-01 | agent-restart-demo timer (1h 슬라이딩 임계 3회 이상 — 3m 주기로 6배 마진) |
+| agent_unstable | app-server-01 | agent-restart-demo timer (1h 슬라이딩 임계 3회 이상 — 3m 주기로 6배 마진) |
 
 ---
 
@@ -223,33 +248,37 @@ WORKER_TASK_RESULT_KEY=task.result
 WORKER_DOWNLOAD_ALLOWED_HOSTS=host.docker.internal
 AGENT_HOSTNAME_OVERRIDE=<vm>     # 모든 VM에 vm 이름 그대로
 AGENT_INTERVAL_SEC=60
-AGENT_EXTERNAL_IP=203.0.113.10   # web-server-01만
+AGENT_EXTERNAL_IP=203.0.113.10   # app-server-01만
 ```
 
 `/etc/`에 두는 이유: systemd 자유 read + VM 로컬 격리. SELinux/AppArmor가 사용자 홈 내부 파일을 `EnvironmentFile=`로 읽는 것 차단 가능.
 
-### 2. OS detect + 서비스 패키지 설치
+### 2. OS detect + 서비스 패키지 설치 (다중 서비스)
 
 agent 바이너리는 `ensure_agent_binary` 단계가 `dev/bin/assessment-agent` 로 자동 확보. VM 안에서는 서비스 패키지만 install — devel·gcc·make 불필요 (runtime OpenSSL/glibc/zlib 만 동적 의존이고 base distro 기본 포함).
 
-`/etc/os-release`의 `ID` dispatch:
+`/etc/os-release`의 `ID` 로 base 패키지 (openssh-server + curl) 설치 후, `vm_service` 가 반환한 공백 구분 다중 서비스를 for-loop 으로 각각 설치:
 
-| family | 명령 |
+| family | base 패키지 명령 |
 |--------|------|
-| Debian (apt) | `apt-get install -y --no-install-recommends curl iputils-ping openssh-server ${svc_pkg}` + `systemctl enable --now ssh` |
-| Rocky 9 / AlmaLinux 9 (dnf) | `dnf install -y epel-release` → `dnf install -y curl iputils openssh-server ${svc_pkg}` + `systemctl enable --now sshd` |
+| Debian (apt) | `apt-get install -y --no-install-recommends curl iputils-ping openssh-server` + `systemctl enable --now ssh` |
+| Rocky 9 (dnf) | `dnf install -y --setopt=install_weak_deps=False epel-release` → `dnf install -y ... curl iputils openssh-server` + `systemctl enable --now sshd` |
 
 `openssh-server` 는 서버 발견 probe(web 컨테이너 -> VM IP:22) 시연용 — OrbStack VM 은 표준 22 sshd 미탑재(OrbStack SSH 는 host-network proxy)라 명시 설치. apt 는 `ssh`, dnf 는 `sshd` unit.
 
-서비스 dispatch (3 VM):
+서비스별 패키지·유닛 dispatch (`case "${ID}:${svc}"` 단일 진실, `pipeline-up.sh` `post_provision_vm` for-loop):
 
-| VM | service | apt 패키지 | dnf 패키지 | systemd 유닛 |
-|----|---------|-----------|-----------|-------------|
-| web-server-01 | `nginx` | `nginx` | — | `nginx` |
-| cache-server-01 | `redis` | — | `redis` | `redis` |
-| db-server-01 | `postgres` | — | `postgresql-server` (AlmaLinux 9 — `postgresql-setup --initdb` 자동) | `postgresql` |
+| service | 카테고리 | apt (debian) pkg / unit | dnf (rocky) pkg / unit | 특이 |
+|---------|----------|------------------------|------------------------|------|
+| nginx | web | `nginx` / `nginx` | `nginx` / `nginx` | |
+| rabbitmq | mq | `rabbitmq-server` / `rabbitmq-server` | `rabbitmq-server`(EPEL) / `rabbitmq-server` | |
+| postgres | db | `postgresql` / `postgresql` | `postgresql-server` / `postgresql` | RPM 은 `postgresql-setup --initdb` 자동 |
+| zabbix | monitor | `zabbix-agent` / `zabbix-agent` | `zabbix-agent`(EPEL) / `zabbix-agent` | EPEL 9 에 node_exporter 부재 → zabbix 채택. server 미설정이라 active 실패 가능(분류엔 무관) |
+| redis | cache | `redis-server` / `redis-server` | `redis` / `redis` | |
+| memcached | cache | `memcached` / `memcached` | `memcached` / `memcached` | |
+| docker | container | `docker.io` / `docker` | (docker-ce repo 필요, 현재 미사용) | unix socket — listen port 없음, SCM unit 으로 분류 |
 
-dispatch 단일 진실은 `pipeline-up.sh`의 `case "${ID}:$service"` 블록. 새 service 도입 시 본 표 + pipeline-up.sh 동시 갱신 의무. RPM family postgresql 은 cluster init 수동 — `postgresql-setup --initdb` 자동 처리. apt 계열은 install 시 자동 init 라 skip.
+dispatch 단일 진실은 `pipeline-up.sh`의 `case "${ID}:${svc}"` 블록. 새 service 도입 시 본 표 + pipeline-up.sh + `service_classifier._PATTERNS`(#E7) 동시 갱신 의무. docker 는 edge-server-01 을 debian 으로 배치(apt `docker.io` 단순)해 dnf docker-ce repo 경로 회피.
 
 ### 3. 바이너리 + systemd unit
 
@@ -257,10 +286,11 @@ ssh stdin 으로 받은 `/tmp/assessment-agent` 를 `cmp` 후 `/usr/local/bin/` 
 
 ### 4. 합성 부하·시연 트리거 (`install_demo_loads`)
 
-모든 VM(web/cache/db) 공통:
+모든 Linux VM(app/data/edge) 공통:
 - `install_synthetic_load` — 공통. light 부하 timer (`OnBootSec=2min`, `OnUnitActiveSec=1min`).
-- `db-server-01` — `install_swap_trigger` (boot 1회 swapfile 512 MiB + `vm.swappiness=100` + 1000 MiB 메모리 압박). attention.capacity_warnings, under_provisioned.
-- `web-server-01` — `install_agent_restart_demo` (`OnBootSec=1min`, `OnUnitActiveSec=3min` — 시간당 20회 attention.agent_unstable).
+- `data-server-01` — `install_swap_trigger` (boot 1회 swapfile 512 MiB + `vm.swappiness=100` + 1000 MiB 메모리 압박). attention.capacity_warnings, under_provisioned.
+- `app-server-01` — `install_agent_restart_demo` (`OnBootSec=1min`, `OnUnitActiveSec=3min` — 시간당 20회 attention.agent_unstable).
+- `edge-server-01` — `install_offline_demo` (`OnBootSec=${OFFLINE_DOWN_AFTER_SEC:-180}` 후 `systemctl poweroff`). agent 약 3회 발행 후 VM 정지 → attention.gap_warnings. 재기동은 `orb start edge-server-01` (pipeline-up.sh 재실행 시 멱등 재적용).
 
 ---
 
@@ -272,7 +302,7 @@ ssh stdin 으로 받은 `/tmp/assessment-agent` 를 `cmp` 후 `/usr/local/bin/` 
 
 대응:
 ```bash
-for vm in web-server-01 cache-server-01 db-server-01; do
+for vm in app-server-01 data-server-01 edge-server-01; do
   ssh "$vm@orb" sudo systemctl restart assessment-agent
 done
 ```
@@ -284,7 +314,7 @@ done
 `collected_at`은 VM 로컬 시각. 호스트와 어긋나면 차트 시간축 안 맞음. OrbStack VM 은 host 시각 동기화이지만 장시간 절전·suspend 후 재개 시 어긋날 수 있음.
 
 ```bash
-for vm in web-server-01 cache-server-01 db-server-01; do
+for vm in app-server-01 data-server-01 edge-server-01; do
   ssh "$vm@orb" sudo bash -c 'systemctl restart systemd-timesyncd 2>/dev/null || systemctl restart chronyd'
 done
 ```
@@ -292,7 +322,7 @@ done
 ### 에이전트 로그 확인
 
 ```bash
-ssh web-server-01@orb sudo journalctl -u assessment-agent --no-pager -n 50
+ssh app-server-01@orb sudo journalctl -u assessment-agent --no-pager -n 50
 ```
 
 이후 60초 주기 publish 로그가 추가돼야 정상. 멈춰 있으면 broker 재연결 실패 의심.
@@ -310,12 +340,12 @@ ssh web-server-01@orb sudo journalctl -u assessment-agent --no-pager -n 50
 ### 개별 VM 조작
 
 ```bash
-orb create debian:12 web-server-01                  # 단일 VM 생성
-ssh web-server-01@orb                               # SSH 접속
-ssh web-server-01@orb sudo <cmd>                    # root 명령
-orb stop web-server-01                              # 정지 (제거 X)
-orb delete -f web-server-01                         # 제거
+orb create debian:12 app-server-01                  # 단일 VM 생성
+ssh app-server-01@orb                               # SSH 접속
+ssh app-server-01@orb sudo <cmd>                    # root 명령
+orb stop app-server-01                              # 정지 (제거 X)
+orb delete -f app-server-01                         # 제거
 orb list                                            # VM 상태 표
 ```
 
-단일 VM 시나리오는 `ORB_VMS_FILTER=web-server-01 ./dev/pipeline-up.sh` 로 약식 검증.
+단일 VM 시나리오는 `ORB_VMS_FILTER=app-server-01 ./dev/pipeline-up.sh` 로 약식 검증.

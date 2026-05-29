@@ -20,6 +20,10 @@ x-app-base: &app-base
   build:
     context: ..
     dockerfile: dev/Dockerfile
+    args:
+      # hatch-vcs(ADR 0030) 버전 주입 — .git 이 build context 에서 제외되므로 host 가 구한 값 전달.
+      # pipeline-up.sh 가 git describe 로 export, 미설정 시 0.0.0 (dev 검증엔 버전 정확성 무의미).
+      APP_VERSION: ${APP_VERSION:-0.0.0}
   restart: unless-stopped
   user: "0:0"
   volumes:
@@ -111,6 +115,8 @@ services:
     build:
       context: ..
       dockerfile: dev/Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-0.0.0}
     command: alembic upgrade head
     user: "0:0"
     volumes:
@@ -158,39 +164,22 @@ services:
     command: watchfiles --filter python "python -m assessment_engine.consumer" /app/src
 
   # 진단 워커 — RabbitMQ `diagnostic.request` 소비, 보고서 narrative 합성(ollama LLM), DB 저장.
-  # ADR 0004 + 0010 + 0023 + 0025: trigger = web POST(보고서 발행) 만, LLM = ollama 단독 (dev 는 ollama 컨테이너).
+  # ADR 0004 + 0010 + 0023 + 0025: trigger = web POST(보고서 발행) 만, LLM = ollama 단독.
+  #
+  # 파이프라인 검증 한정 LLM 서버 제거 (dev pipeline 시연 목적):
+  #   ollama 컨테이너를 본 compose 에서 제거 — AI 진단(engineer 보고서 narrative) 발행 시
+  #   LLM 호출이 실패(OLLAMA_BASE_URL 의 `ollama` 호스트 DNS 미해석)하는 시나리오를 의도적으로 재현.
+  #   진단 워커 Python 로직은 무수정 — 실패 처리 동작을 기존 코드 그대로 관찰.
+  #   OLLAMA_BASE_URL 은 의도적으로 그대로 둠 (값 변경 = 워커 설정 변경이 아닌 실패 경로 유지).
   diagnostic-worker:
     <<: *app-base
     # dev 한정 auto-reload (consumer 동일 사유) — handler.py 수정 시 옛 프로세스 stale 방지.
     command: watchfiles --filter python "python -m assessment_engine.diagnostic" /app/src
-    depends_on:
-      <<: *app-depends
-      ollama:
-        condition: service_healthy
     environment:
       <<: *app-env
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
 
-  # 진단 narrative LLM — ollama 단독 (ADR 0025, 과금 외부 API 금지). dev CPU 추론.
-  # 모델은 빈 상태 기동 — compose up 후 1회 pull 의무: `docker compose exec ollama ollama pull qwen2.5:1.5b`.
-  # ollama_data 볼륨에 모델 영속 (재기동 시 재pull 불필요). GPU 는 deploy.resources.reservations.devices 로 옵션.
-  ollama:
-    image: ollama/ollama:0.5.4
-    ports:
-      - "${OLLAMA_PORT:-11434}:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    restart: unless-stopped
-    healthcheck:
-      # `ollama list` 는 serve 프로세스(11434)에 연결 — 모델 0개여도 exit 0, 미기동 시 exit 1.
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 15s
-
 volumes:
   postgres_data:
   rabbitmq_data:
-  ollama_data:

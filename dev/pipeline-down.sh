@@ -22,7 +22,7 @@ if command -v orb >/dev/null 2>&1; then
   done
   # ORB_VMS 외 본 프로젝트 명명 패턴 잔재 — 알림만 (자동 삭제 안 함, 다른 프로젝트 인스턴스 보호).
   # app/monitor/mq/legacy-mq/container 패턴은 4 VM 축소(C2) 이전 잔재 — 옛 dev 환경 정리 도움.
-  remaining=$(orb list 2>/dev/null | grep -E "(cache|app|web|db|legacy-mq|monitor|mq|offline|container)-server-01" | grep -vF -f <(printf '%s\n' "${ORB_VMS[@]}") || true)
+  remaining=$(orb list 2>/dev/null | grep -E "(cache|app|web|db|data|edge|legacy-mq|monitor|mq|offline|container)-server-01" | grep -vF -f <(printf '%s\n' "${ORB_VMS[@]}") || true)
   if [ -n "$remaining" ]; then
     echo "  주의: ORB_VMS 외 프로젝트 명명 패턴 잔재 발견 — 수동 정리 검토:"
     echo "$remaining"
