@@ -228,8 +228,9 @@ def build_environment_overview(
         total_vcpus=total_vcpus,
         total_memory_gb=round(total_mem_kb / 1024 / 1024, 1),
         total_disk_gb=int(total_disk_bytes / 10**9),
-        os_distribution=dict(os_counter.most_common()),
-        role_distribution=dict(role_counter.most_common()),
+        # count 내림차순 + 동count는 이름 오름차순 tie-break (most_common 동순위는 삽입순=DB row 순서라 비결정적).
+        os_distribution=dict(sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
+        role_distribution=dict(sorted(role_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
         utilization=util_bars,
         util_sample_size=util_sample,
         risk_donut=risk_segments,

@@ -41,16 +41,6 @@ _DONUT_SEGMENT_FROM_REC: dict[str, str] = {
     "insufficient_data": "insufficient_data",
 }
 
-# 서버 목록 셀 안 표시용 약어 — 좁은 칸. 도넛 범례(풀네임)와 별도 매핑.
-_DONUT_SEGMENT_SHORT_LABEL: dict[str, str] = {
-    "under_provisioned": "Under",
-    "over_provisioned": "Over",
-    "idle": "Idle",
-    "shutdown": "Shutdown",
-    "optimal": "Optimal",
-    "insufficient_data": "No Data",
-}
-
 # list 페이지 dropdown option — _DONUT_SEGMENT_DEFS 순서 그대로.
 PROVISIONING_CLASSES: tuple[str, ...] = tuple(key for key, _, _, _ in _DONUT_SEGMENT_DEFS)
 

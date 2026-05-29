@@ -6,7 +6,7 @@
 
 | ViewModel | 채우는 mapper | 핵심 파생 |
 |-----------|---------------|-----------|
-| `ServerListItem` | `to_server_list_item` | `os_display` / `mem_total_gb` / `storage_total_gb` / `is_online` / `known_services` (카테고리 dedup) / `show_unknown_badge` |
+| `ServerListItem` | `to_server_list_item` | `os_display` / `mem_total_gb` / `storage_total_gb` / `is_online` / `known_services` (카테고리 dedup) / `show_unknown_badge` / `recommendation_label`(영어 enum 풀네임 — 도넛 범례와 동일, `_DONUT_SEGMENT_DEFS` label) / `recommendation_color` / `provisioning_class` |
 | `ServerDetailResponse` | `to_server_detail` + `enrich_server_detail` | `os_display` / `cpu_display` / `disk_total_gb` / `services` (ServiceItem) / `sorted_listen_ports` |
 | `ServiceItem` | mapper | `category` (`service_classifier.classify`) / `matched_ports` (port 리스트) / `display_name` |
 | `ListenPortItem` | mapper | `is_well_known` (boolean) — 템플릿 분기는 이걸로 |
