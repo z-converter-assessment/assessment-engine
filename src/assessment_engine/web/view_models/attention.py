@@ -165,6 +165,8 @@ class EnvironmentOverview:
     os_distribution: dict[str, int] = field(default_factory=dict)
     # 역할 분포 — 각 서버의 모든 서비스 카테고리를 카운트 (대표 1개가 아닌 전체, #E7).
     role_distribution: dict[str, int] = field(default_factory=dict)
+    # known 역할(서비스 카테고리) 이 하나도 없는 호스트 수 — 서비스 없음 또는 전부 unknown. 호스트 단위.
+    role_unknown_count: int = 0
     utilization: list[UtilizationBar] = field(default_factory=list)
     util_sample_size: int = 0
     risk_donut: list[RiskDonutSegment] = field(default_factory=list)

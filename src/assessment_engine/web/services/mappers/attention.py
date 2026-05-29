@@ -187,11 +187,16 @@ def build_environment_overview(
     # 역할 분포 — 각 서버의 모든 서비스 카테고리 인스턴스 카운트 (#E7). 서버목록 뱃지 개수와 일관 —
     # 동일 카테고리 중복 서비스도 각각 카운트 (예: docker+containerd 둘 다 container → container 2). unknown 제외.
     role_counter: Counter[str] = Counter()
+    role_unknown = 0  # known 역할 0인 호스트 수 (서비스 없음 또는 전부 unknown) — 호스트 단위
     for d in details:
+        has_known = False
         for svc in d.services or []:
             category = classify(svc.get("unit", ""))
             if category != "unknown":
                 role_counter[category] += 1
+                has_known = True
+        if not has_known:
+            role_unknown += 1
 
     util_bars: list = []
     util_sample = 0
@@ -234,6 +239,7 @@ def build_environment_overview(
         # count 내림차순 + 동count는 이름 오름차순 tie-break (most_common 동순위는 삽입순=DB row 순서라 비결정적).
         os_distribution=dict(sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
         role_distribution=dict(sorted(role_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
+        role_unknown_count=role_unknown,
         utilization=util_bars,
         util_sample_size=util_sample,
         risk_donut=risk_segments,

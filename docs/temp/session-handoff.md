@@ -35,6 +35,13 @@
 
 - `_dedup_known` + `enrich_server_detail` (`mappers/server.py`) known 뱃지 category ASC 정렬
 
+## 3-1. 환경 요약 — 역할 미분류(unknown) 호스트 수 노출
+
+- `EnvironmentOverview.role_unknown_count` (`view_models/attention.py`) + `build_environment_overview`
+  (`mappers/attention.py`): known 서비스 카테고리가 0인 호스트(서비스 없음·전부 unknown) 수.
+- `_dashboard_live.html` 역할 분포에 `unknown N` 뱃지(서버목록 unknown 뱃지와 동일 색). offline-server
+  2대처럼 서비스 없는 호스트가 잡힘. role_distribution 비어도 unknown>0이면 노출(E9).
+
 ## 4. 서버목록 UX
 
 - 전체보기(client clip): 기본 CLIP_SIZE=5 행 표시 + "전체보기 (5/6)" 버튼(btn-action, 중앙)으로 전체.

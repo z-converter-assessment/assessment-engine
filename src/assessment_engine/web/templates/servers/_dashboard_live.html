@@ -36,12 +36,16 @@
     <div>메모리 <strong class="text-strong">{{ overview.total_memory_gb | disksize }}</strong></div>
     <div>디스크 <strong class="text-strong">{{ overview.total_disk_gb | disksize }}</strong></div>
   </div>
-  {% if overview.role_distribution %}
+  {% if overview.role_distribution or overview.role_unknown_count > 0 %}
   <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;">
     <span style="font-size:12px; color:#64748b; padding:4px 0;">역할:</span>
     {% for role, n in overview.role_distribution.items() %}
     <span class="badge {{ role | service_badge_class }}">{{ role }} <strong>{{ n }}</strong></span>
     {% endfor %}
+    {# 역할 미분류(서비스 없음 또는 전부 unknown) 호스트 수 — 호스트 단위. 서버목록 unknown 뱃지와 동일 색. #}
+    {% if overview.role_unknown_count > 0 %}
+    <span class="badge badge-cat-unknown">unknown <strong>{{ overview.role_unknown_count }}</strong></span>
+    {% endif %}
   </div>
   {% endif %}
 
