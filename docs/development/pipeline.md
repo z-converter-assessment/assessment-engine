@@ -138,7 +138,7 @@ Linux VM 정의(distro/service/ext_ip)는 `pipeline-up.sh` 의 dispatch 함수(`
 | container | edge-server-01 | docker |
 | cache | edge-server-01, win-server-01 | memcached, redis |
 
-리소스 메모: OrbStack VM 은 host CPU·메모리를 공유(Lima 처럼 VM별 cpu/mem/disk 고정 할당 없음) — distro 만 지정. dnf family(Rocky)는 install transaction 이 apt 보다 무거우나 OrbStack 의 동적 메모리로 OOM 회피 (`install_weak_deps=False` 로 추가 절약). data-server-01 의 swap-trigger 는 boot 1회 swapfile 512 MiB 활성 + 1000 MiB 메모리 압박 → swap_used > 0 영구 유지.
+리소스 메모: OrbStack VM 은 host CPU·메모리를 공유(Lima 처럼 VM별 cpu/mem/disk 고정 할당 없음) — distro 만 지정. dnf family(Rocky)는 install transaction 이 apt 보다 무거우나 OrbStack 의 동적 메모리로 OOM 회피 (`install_weak_deps=False` 로 추가 절약). data-server-01 의 swap-trigger 는 boot 1회 swapfile 512 MiB 활성 + 1000 MiB 메모리 압박(120초 후 해제) → swap 1회 발생. report_aggregate 가 `MAX(swap_in_use) > 0` 집계라 1회로 14일 윈도우 내 under 유지 (지속 점유 불필요).
 
 ---
 
@@ -149,13 +149,13 @@ Linux VM 정의(distro/service/ext_ip)는 `pipeline-up.sh` 의 dispatch 함수(`
 | 프로파일 | cpu burst | mem burst | 적용 VM | 목표 분류 |
 |----------|-----------|-----------|---------|----------|
 | light | 1~3s | 5~20MB | app, data, edge | over_provisioned (cpu_p95 ~5%, mem_p95 <50%) |
-| swap-trigger (추가) | (boot 1회 1000MB 메모리 압박 + swapfile 512MB 활성) | swap_used > 0 영구 | data | under_provisioned (swap_used short-circuit) |
+| swap-trigger (추가) | (boot 1회 1000MB 메모리 압박 120s 후 해제 + swapfile 512MB 활성) | swap 1회 발생 | data | under_provisioned (swap_used short-circuit) |
 | offline-demo (추가) | (약 180s 후 `systemctl poweroff`) | — | edge | gap_warnings (발행 중단) |
 
 원칙:
 - 분류 임계는 `recommendation.py` 모듈 상단 명명 상수 (#E3). 부하 프로파일은 임계 충족 설계.
 - `WINDOW_DAYS = 14` (#F10) — dev 시연에서 14일 못 채우면 분류 모두 `insufficient_data`. 보고서 라우터 `?period_days=1` 등 짧은 윈도우 시연 필수.
-- swap-trigger 프로파일 — boot 직후 swapfile 512 MiB 활성 + `vm.swappiness=100` + 1000 MiB 메모리 압박. CPU 부담 0, 한 번 swap 에 page push 되면 SwapUsed > 0 영구 유지 → 매 measurement 에서 swap_used = True 안정 발화.
+- swap-trigger 프로파일 — boot 직후 swapfile 512 MiB 활성 + `vm.swappiness=100` + 1000 MiB 메모리 압박(120초 후 해제). CPU 부담 0. report_aggregate 가 `MAX(swap_in_use) > 0` 집계라 swap 1회 발생만으로 14일 윈도우 내 swap_used = True 안정 발화 (지속 점유 불필요 — VM 메모리 보호).
 - light 부하 스크립트는 `host.docker.internal:8000` 으로 ping/curl (health·chart-utils) — 차트 변동만 가시화. 분류 임계 안 넘김 (over_provisioned 유지).
 
 attention 카탈로그 발화 매핑:

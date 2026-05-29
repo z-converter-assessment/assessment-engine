@@ -510,8 +510,8 @@ systemctl start synthetic-load.timer
 SCRIPT
 }
 
-# swap-trigger 설치 (data-server-01 전용) — boot 1회 swap 활성 + 메모리 압박 → swap_used 임계 초과.
-# attention.capacity_warnings(under_provisioned) 발화 시연용. CPU 부하 추가 없음 (호스트 영향 회피).
+# swap-trigger 설치 (data-server-01 전용) — boot 1회 swap 활성 + 짧은 메모리 압박 → swap_used 1회 발생.
+# attention.capacity_warnings(under_provisioned) 발화 시연용. 압박 120초 후 해제 — 지속 점유 회피(VM 메모리 보호).
 install_swap_trigger() {
   local vm="$1"
   orb_ssh "$vm" sudo bash -s <<'SCRIPT'
@@ -527,8 +527,9 @@ if ! swapon --show | grep -q '^/swapfile'; then
 fi
 # 2) swappiness 높여 kernel 이 swap 적극 사용하게.
 sysctl -w vm.swappiness=100 > /dev/null
-# 3) 메모리 압박 — 1000MiB 점유 + lock (RAM 부족 → swap out).
-nohup bash -c 'head -c 1000M /dev/urandom > /tmp/swap-pressure 2>/dev/null; sleep 86400' &
+# 3) 메모리 압박 — 1000MiB 1회 점유로 swap out 유발 후 120초 뒤 해제 (메트릭 1~2 샘플 확보).
+#    지속 점유(과거 sleep 86400) 회피 — swap_used 1회 발생만으로 under_provisioned 분류 충족.
+nohup bash -c 'head -c 1000M /dev/urandom > /tmp/swap-pressure 2>/dev/null; sleep 120; rm -f /tmp/swap-pressure' &
 EOF
 chmod 755 /usr/local/bin/swap-trigger.sh
 cat > /etc/systemd/system/swap-trigger.service <<'EOF'
