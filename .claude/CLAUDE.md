@@ -207,8 +207,21 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 - 차트 Y축은 분해력(추이) vs 절대 기준(진단 리포트) 두 정책 중 선택. magic number 금지(명명 상수).
 - SVG `stroke-dasharray`·`stroke-dashoffset` 비례 산술은 mapper precompute — 템플릿은 raw 값만 삽입.
 - 임계 색 단일 진실 — 동일 의미는 동일 hex (활용률·프로비저닝 분포·capacity trigger 일관).
-- 모든 카테고리 항상 노출(count 0 포함). 비활성은 동일 슬롯 옅은 회색.
+- 모든 카테고리 항상 노출(count 0 포함). 비활성은 동일 슬롯 옅은 회색. (도넛 카테고리는 #E9 일반 원칙의 한 사례 — 발화 없는 카테고리도 범례에 노출.)
 - 도넛 중앙 강조 라벨은 가장 시급한 카테고리 카운트 1개만. 합계·ratio 노출 금지.
+
+## E9. 발화 가능 정보 노출 (discoverability, P3 적용)
+
+> 조건부로만 채워지는 정보(운영 신호·right-sizing 분류·언더 프로비저닝·capacity 임박·표본 부족 등)는 데이터가 없을 때도 "그 정보가 존재할 수 있다"는 사실을 사용자가 인지할 수 있어야 한다. 처음 보는 사용자가 화면만으로 기능 범위를 판단 가능해야 함.
+
+본 절 결정:
+- 발화/조건부 섹션은 데이터가 없어도 제목·카테고리를 노출. 섹션을 통째로 `{% if %}`로 숨기지 않음 (E8 도넛 카테고리 항상 노출이 이 원칙의 한 사례).
+- 빈 상태 표시는 단일 컴포넌트 경유: `_shared.html`의 `empty_state(message)` 매크로 + base.html `.empty-state` 클래스 (박스 없는 회색 텍스트 placeholder). 매크로는 dumb — 분기·계산 0, 정적 message만 렌더 (P3). 정상/미수집 의미 구분 안 함 (placeholder 통일 — 구분 로직 복잡도·버그 회피).
+- "화면 컨텍스트 가드"와 "데이터 발화 가드" 분리:
+  - 컨텍스트 가드(유지) — 그 정보 자체가 무의미한 맥락. 예: `list_page`는 page>1·검색/필터 시 `attention`/`overview`=None 으로 환경 요약·운영신호 카드 미노출.
+  - 데이터 발화 가드(placeholder 전환) — `{% if items %}` 류. 비면 사라지지 말고 `empty_state`.
+- 적용 범위: 대시보드·환경 보고서·서버 상세 등 전 표시 계층. 이미 placeholder("—"·"수집 불가"·"없음")가 있는 셀·항목은 그대로 유지 (중복 전환 금지).
+- 신규 조건부(발화) 섹션 추가 시 #F9 체크리스트 적용.
 
 ---
 
@@ -341,6 +354,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 | 분류 OS 분기 (신호의 OS별 의미·축 추가, ADR 0029) | (1) `recommendation.py` helper(`swap_saturation` 등)·`ResourceStats` 필드·`is_partial_evaluation` (2) `classify` 호출처 전부 os_family 전달 (aggregator·query_service·server/report/export mapper) (3) 직접 해석 지점(report mapper·attention·환경 카운트) helper 경유 (4) 표시 N/A·부분평가 마커 (ViewModel precompute + 템플릿) (5) `docs/architecture/web/services.md` "OS 분기" + `right_sizing_thresholds.html` + product 문서 |
 | 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) `dev/docker-compose.yml` `environment:` (dev 필요 시) (4) prod secret 분류면 `SecretStr` 타입 + `_validate_prod_*` 에 weak default 거부 추가 + `docs/operations/env.md` 2절·7절 |
 | ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass(P2) |
+| 신규 조건부(발화) UI 섹션 추가 | (1) 제목·카테고리 항상 노출 (2) 빈 상태 `empty_state` placeholder (3) 화면 컨텍스트 가드와 데이터 발화 가드 분리 (#E9) |
 | 신규 외부 의존(HTTP·LLM·외부 큐) | (1) fail-open/close 결정(#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) #F6 매트릭스 갱신 |
 | 신규 의존성(`pyproject.toml`) | (1) `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토. 워크플로 단일 진실: `docs/development/dependencies.md` |
 | RAG 자료 카탈로그 추가 (ADR 0024) | (1) `rag_documents.source_type` enum 추가 (2) BaseRetriever 호출처 source_type 분기 (3) `docs/architecture/diagnostic.md` "RAG infra" 절 (4) 본 phase 결정 cataolg 갱신 ADR 정정 |

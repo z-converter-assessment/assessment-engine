@@ -1,0 +1,161 @@
+{# 대시보드 자동 갱신 fragment — 환경요약 + 운영신호 카드. list.html include + 라우터 fragment endpoint 공용 렌더.
+   page 1 + 전체 환경 기준 (필터 무관). 서버목록 테이블은 체크박스 선택 보존 위해 본 fragment 제외 (#E9 · 자동갱신). #}
+{% from "_shared.html" import empty_state, window_meta %}
+
+{# 주의 신호 카드 단일 row 매크로 — 발화 없어도 제목 유지, 비면 empty_state (discoverability #E9).
+   AttentionRow attribute access only — 표시 string은 mapper가 결정 (P2 단일 진실). KST 표시는 meta_at + kst 필터(#F2). #}
+{% macro attention_row(label, meta, items) %}
+<div class="card-section">
+  <h3>{{ label }}{% if meta %} <span class="section-meta">{{ meta }}</span>{% endif %}</h3>
+  {% if items %}
+  <ul class="attention-list">
+    {% for it in items %}
+    <li class="attention-item">
+      <span class="badge attention-badge {{ it.badge_class }}">{{ it.badge_text }}</span>
+      <a class="attention-link" href="{{ it.link_href }}">{{ it.link_text }}</a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  {{ empty_state("현재 발화된 신호가 없습니다.") }}
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% if overview and overview.total > 0 %}
+<section class="card no-print">
+  <h2>환경 요약</h2>
+  <div style="display:flex; flex-wrap:wrap; gap:24px; font-size:13px; color:#475569;">
+    <div>총 <strong class="text-strong">{{ overview.total }}</strong>대</div>
+    <div>온라인 <strong class="text-strong">{{ overview.online }}</strong> · 오프라인 <strong class="text-strong">{{ overview.offline }}</strong></div>
+    {% if overview.os_distribution %}
+    <div>OS
+      {% for os_name, n in overview.os_distribution.items() %}<strong class="text-strong">{{ os_name }} {{ n }}</strong>{% if not loop.last %} · {% endif %}{% endfor %}
+    </div>
+    {% endif %}
+    <div>총 vCPU <strong class="text-strong">{{ overview.total_vcpus }}</strong></div>
+    <div>메모리 <strong class="text-strong">{{ overview.total_memory_gb | disksize }}</strong></div>
+    <div>디스크 <strong class="text-strong">{{ overview.total_disk_gb | disksize }}</strong></div>
+  </div>
+  {% if overview.role_distribution %}
+  <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;">
+    <span style="font-size:12px; color:#64748b; padding:4px 0;">역할:</span>
+    {% for role, n in overview.role_distribution.items() %}
+    <span class="badge {{ role | service_badge_class }}">{{ role }} <strong>{{ n }}</strong></span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if overview.utilization %}
+  <div class="card-section">
+      <h3>환경 평균 활용률 <span class="section-meta">{{ window_meta(overview.util_sample_size, window_days) }}</span></h3>
+      <div style="display:flex; align-items:center; gap:14px;">
+        <div style="display:flex; flex-wrap:wrap; gap:20px;">
+          {% for u in overview.utilization %}
+          <div style="text-align:center;">
+            <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
+              {% if u.pct is not none %}
+              <circle cx="50" cy="50" r="42" fill="none"
+                      stroke="{{ u.bar_color }}" stroke-width="10"
+                      stroke-dasharray="{{ "%.2f"|format(u.dash_length) }} 263.89"
+                      stroke-linecap="round"
+                      transform="rotate(-90 50 50)"/>
+              <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ "%.0f"|format(u.pct) }}%</text>
+              {% else %}
+              <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
+              {% endif %}
+            </svg>
+            <div style="font-size:12px; color:#475569; margin-top:4px;">{{ u.label }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+  </div>
+  {% endif %}
+
+  {% if overview.risk_donut %}
+  <div class="card-section">
+      <h3>Right-sizing 분류 <span class="section-meta">{{ window_meta(overview.risk_donut_total, window_days) }}</span></h3>
+      {% if overview.risk_donut_total > 0 %}
+      <div style="display:flex; align-items:center; gap:14px;">
+        <div style="text-align:center;">
+          <svg viewBox="0 0 100 100" width="140" height="140" style="display:block;">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
+            {% for s in overview.risk_donut %}
+            {% if s.count > 0 %}
+            <circle cx="50" cy="50" r="42" fill="none"
+                    stroke="{{ s.color }}" stroke-width="10"
+                    stroke-dasharray="{{ "%.2f"|format(s.dash_length) }} 263.89"
+                    stroke-dashoffset="{{ "%.2f"|format(s.dash_offset) }}"
+                    transform="rotate(-90 50 50)"/>
+            {% endif %}
+            {% endfor %}
+            <text x="50" y="48" text-anchor="middle" font-size="20" font-weight="700" fill="#ef4444">{{ overview.risk_high_count }}</text>
+            <text x="50" y="62" text-anchor="middle" font-size="7" fill="#94a3b8">under</text>
+            <text x="50" y="71" text-anchor="middle" font-size="7" fill="#94a3b8">provisioned</text>
+          </svg>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px; font-size:12px; color:#475569;">
+          {% for s in overview.risk_donut %}
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span style="display:inline-block; width:10px; height:10px; background:{{ s.color }}; border-radius:2px; flex-shrink:0;"></span>
+            <code style="font-size:11px; color:#1e293b; min-width:130px;">{{ s.label }}</code>
+            <strong style="color:#1e293b; min-width:24px; text-align:right;">{{ s.count }}</strong>
+            <span style="color:#94a3b8; font-size:11px;">— {{ s.description }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="card-section">
+        <h3>언더 프로비저닝 상세 <span class="section-meta">({{ overview.under_provisioned_hosts_count }}건)</span></h3>
+        {% if overview.under_provisioned_hosts %}
+        <ul class="attention-list" style="margin:0;">
+          {% for c in overview.under_provisioned_hosts %}
+          <li class="attention-item" style="gap:8px; flex-wrap:wrap;">
+            <span style="display:inline-flex; gap:4px; min-width:180px;">
+              {% for t in c.triggers %}
+              <span class="badge" style="background:{{ t.bg_color }}; color:{{ t.fg_color }};">{{ t.label }}</span>
+              {% endfor %}
+            </span>
+            <a class="attention-link" href="/servers/{{ c.public_id }}?back={{ self_back }}">{{ c.hostname }}</a>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        {{ empty_state("자원 부족(언더 프로비저닝)으로 분류된 호스트가 없습니다.") }}
+        {% endif %}
+      </div>
+      {% else %}
+      {{ empty_state("평가된 서버가 없습니다 — 표본이 쌓이면 Right-sizing 분류 결과가 표시됩니다.") }}
+      {% endif %}
+  </div>
+  {% endif %}
+</section>
+{% elif overview %}
+<section class="card no-print">
+  <h2>환경 요약</h2>
+  <p style="font-size:13px; color:#64748b; margin:0;">아직 등록된 서버가 없습니다. 에이전트가 연결되면 여기에 환경 요약이 표시됩니다.</p>
+</section>
+{% endif %}
+
+{% if attention %}
+<section class="card no-print">
+  <h2>운영 신호 <span class="section-meta">실시간 시스템 이상·점검 항목</span></h2>
+
+  <div class="attention-catalog">
+    {% for cat in attention.catalog %}
+    <span class="attention-cat-item" data-active="{{ cat.active }}">{{ cat.label }} <strong>{{ cat.count }}</strong></span>
+    {% endfor %}
+  </div>
+
+  {# 3 카테고리 항상 노출 — 발화 없어도 제목 유지, 비면 empty_state (discoverability #E9). #}
+  {{ attention_row("통신 끊김", "5분 이상 메트릭 미수신", attention.gap_warnings) }}
+  {{ attention_row("OS 지원종료", "지원 종료일이 지난 OS", attention.os_eol_warnings) }}
+  {{ attention_row("에이전트 재시작 빈번", "최근 1시간", attention.agent_unstable) }}
+</section>
+{% endif %}
+
+{# 자동 갱신 시각 — JS(list.js)가 fragment 교체 후 본 값을 읽어 우측 상단 #dashboard-updated 갱신. #}
+<span id="dash-updated-at" hidden>{{ generated_at | kst }}</span>

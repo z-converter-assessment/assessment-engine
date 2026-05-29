@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_shared.html" import empty_state %}
 {% block title %}ZConverter Assessment — {{ server.hostname }} 서버 상세{% endblock %}
 
 {% block content %}
@@ -95,8 +96,8 @@
     <dd><code>{{ server.machine_id or '-' }}</code></dd>
     <dt>Last Inventory</dt>
     <dd style="color:#64748b; font-size:13px;">{{ server.last_seen_at | kst }}</dd>
-    {% if server.disks %}
     <dt>Storage</dt>
+    {% if server.disks %}
     <dd>
       {{ server.disk_total_gb | disksize }}
       <span style="color:#94a3b8; font-size:12px; margin-left:4px;">({{ server.disks_count }}개 디바이스)</span>
@@ -117,6 +118,8 @@
         </tbody>
       </table>
     </dd>
+    {% else %}
+    <dd><span class="text-faint">수집된 스토리지 정보 없음</span></dd>
     {% endif %}
   </dl>
 </div>
@@ -153,9 +156,9 @@
   </div>
 
   <!-- 주요 포트 (<= 1024) -->
-  {% if server.key_listen_ports %}
   <div>
     <div class="sub-label" style="margin-bottom:8px;">주요 Listen 포트 <span style="font-weight:400; color:#94a3b8; font-size:11px;">(port <= 1024)</span></div>
+    {% if server.key_listen_ports %}
     <div style="display:flex; flex-wrap:wrap; gap:8px;">
       {% for p in server.key_listen_ports %}
       <span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:4px 10px; font-size:12px;">
@@ -165,8 +168,10 @@
       </span>
       {% endfor %}
     </div>
+    {% else %}
+    {{ empty_state("1024 이하 주요 Listen 포트가 없습니다.") }}
+    {% endif %}
   </div>
-  {% endif %}
 </div>
 
 <!-- 실시간 메트릭 대시보드 (AJAX + SSE) -->

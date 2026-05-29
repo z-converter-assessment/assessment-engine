@@ -115,8 +115,19 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 | `.metric-card` + `.metric-grid` + `.metric-grid-{2,3}` | 보고서 메트릭 카드 (12px label + 24/18px value + 11px sub) | transparent / 1px #e2e8f0 |
 | `.stat-box` + `.stat-grid` | 실시간 메트릭 dashboard (작은 grid, soft bg) | #f8fafc |
 | `.alert-warn` + `.alert-list` | 운영 신호 발화 박스 (warn 톤) | #fef3c7 / 1px #fde68a |
+| `.card-section` | 카드 내부 서브섹션 구분 (환경요약·운영신호 공통 위계 — h3 + 구분선) | 1px #e2e8f0 top border |
+| `.empty-state` | 발화 가능하나 비어있는 슬롯 placeholder (#E9 discoverability) | 박스 없음 / 회색 텍스트 #94a3b8 |
 
 금지: `<div style="border:1px solid #e2e8f0; border-radius:6px; padding:14px;">` 같은 inline 박스 재구현. 위 클래스로 치환. (P3 직접 위반 — 모양 통일성 + 추후 일괄 조정 시 단일 진실.)
+
+### 공통 매크로 (`_shared.html`)
+
+base.html 컴포넌트와 동급의 표시 계층 단일 진실 — 페이지 간 재사용 매크로. 라우터·페이지 템플릿은 `{% from "_shared.html" import empty_state, window_meta %}` 로 가져와 사용.
+
+| 매크로 | 용도 | 정책 |
+|--------|------|------|
+| `empty_state(message)` | 발화/조건부 섹션이 비었을 때 placeholder (제목은 유지, 내용 없음 명시) | dumb — 분기·계산 0, 정적 message만 렌더 (P3). discoverability 원칙 #E9 단일 진실. |
+| `window_meta(count, days)` | 표제 메타 "(N대 기준 · 최근 M일)" — 활용률·Right-sizing 표제 공통 | days 는 `recommendation.WINDOW_DAYS`(#F10) 전달. 하드코딩 "14일" 반복 제거. |
 
 ### Badge 카탈로그
 
@@ -184,6 +195,7 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 | case | 정공 / 예외 | 이유 |
 |------|-------------|------|
 | 1회 fetch + render (예: task-modal body) | 정공 — fragment endpoint (`/api/tasks/{id}/detail`) + JS `innerHTML = await fetch().text()` | overhead 0, P3 완전 정공 |
+| 저빈도 polling + 파생 많은 SSR 영역 (예: 대시보드 환경요약·운영신호 30초 자동갱신) | 정공 — fragment endpoint (`/servers/?fragment=1`) HTML 반환 + JS `#dashboard-live` innerHTML 교체 | 30초 저빈도라 HTML fragment fetch overhead 무시 가능. mapper 파생 많아 JSON+JS render 시 P2 복제 — fragment 가 단일 진실 유지 |
 | polling 흐름 (예: detail page metrics/latest SSE / storage snapshot / diagnostic-results.js · diagnostic-inline.js result polling) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
 
 폴링 흐름 JS render 의무:
@@ -193,7 +205,8 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 
 신규 dynamic UI 추가 시 흐름 판단:
 - 1회 fetch → fragment endpoint
-- polling / SSE 무한 → JSON + JS render (예외)
+- 저빈도 polling(수십초) + 파생 많은 SSR 영역 → fragment endpoint(HTML) 교체 (P2 단일 진실 유지). 서버목록처럼 체크박스 선택·client 필터·직접 바인딩 이벤트가 있는 영역은 자동 교체 대상에서 제외 (충돌 회피 — cell 단위 polling 으로 대체)
+- 고빈도 polling / SSE 무한 → JSON + JS render (예외)
 
 ## 시간 표기 — 단일 진실 (예외 0 의무)
 

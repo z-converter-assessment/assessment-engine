@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_shared.html" import empty_state %}
 {% block title %}Assessment 환경 보고서 — {{ view_title }}{% endblock %}
 
 {% block content %}
@@ -213,8 +214,8 @@
     {% endfor %}
   </div>
 
-  {% if summary.under_provisioned_hosts %}
   <h3>언더 프로비저닝 상세 ({{ summary.under_provisioned_hosts_count }}건) — trigger 별 hit</h3>
+  {% if summary.under_provisioned_hosts %}
   <ul class="attention-list" style="margin:0 0 20px; padding:0; list-style:none;">
     {% for c in summary.under_provisioned_hosts %}
     <li class="attention-item" style="gap:8px; flex-wrap:wrap; padding:6px 0;">
@@ -227,10 +228,12 @@
     </li>
     {% endfor %}
   </ul>
+  {% else %}
+  <div style="margin-bottom:20px;">{{ empty_state("자원 부족(언더 프로비저닝)으로 분류된 호스트가 없습니다.") }}</div>
   {% endif %}
 
-  {% if summary.top_risks %}
   <h3>호스트 상세 (전체 {{ summary.top_risks_count }}대)</h3>
+  {% if summary.top_risks %}
   <div style="overflow-x:auto;">
   <table style="font-size:12px;">
     <thead>
@@ -287,6 +290,8 @@
     </tbody>
   </table>
   </div>
+  {% else %}
+  {{ empty_state("조치가 필요한 호스트가 없습니다.") }}
   {% endif %}
 </section>
 
@@ -314,10 +319,10 @@
   {% endif %}
 </section>
 
-{% if summary.capacity_imminent %}
 <section class="card" style="margin-bottom:16px;">
   <h2>디스크 capacity 임박 ({{ summary.capacity_imminent_count }}건)</h2>
   <p style="margin:0 0 12px; font-size:12px; color:#64748b;">linear projection 기반 — 30일 안 디스크 full 위험. 운영 계획 입력.</p>
+  {% if summary.capacity_imminent %}
   <table style="font-size:12px;">
     <thead>
       <tr>
@@ -338,8 +343,10 @@
       {% endfor %}
     </tbody>
   </table>
+  {% else %}
+  {{ empty_state("30일 안 디스크 소진이 예상되는 호스트가 없습니다.") }}
+  {% endif %}
 </section>
-{% endif %}
 
 <section class="card" style="margin-bottom:16px;">
   <h2>OS 분포</h2>
@@ -362,10 +369,10 @@
   {% endif %}
 </section>
 
-{% if summary.insufficient_hosts %}
 <section class="card" style="margin-bottom:16px;">
   <h2>평가 표본 부족 호스트 ({{ summary.insufficient_hosts_count }}건)</h2>
   <p style="margin:0 0 12px; font-size:12px; color:#64748b;">에이전트 신규 설치 또는 메트릭 수집 문제 — 평가 정확도 확보 위해 점검 필요.</p>
+  {% if summary.insufficient_hosts %}
   <table style="font-size:12px;">
     <thead>
       <tr><th>호스트</th><th>OS</th><th>원인</th></tr>
@@ -380,8 +387,10 @@
       {% endfor %}
     </tbody>
   </table>
+  {% else %}
+  {{ empty_state("평가 표본이 부족한 호스트가 없습니다 — 모든 호스트가 평가 가능합니다.") }}
+  {% endif %}
 </section>
-{% endif %}
 
 {% endif %}
 

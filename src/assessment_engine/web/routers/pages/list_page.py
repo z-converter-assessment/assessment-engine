@@ -3,10 +3,12 @@
 AI 진단 = 엔지니어 환경 보고서 안 본질 catalog 통합 (대시보드 안 별도 카드 없음).
 """
 
+from datetime import UTC, datetime
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
 
+from assessment_engine import recommendation
 from assessment_engine.web.deps import get_service
 from assessment_engine.web.services.mappers.shared import PROVISIONING_CLASSES
 from assessment_engine.web.services.query_service import QueryService
@@ -27,8 +29,25 @@ async def list_servers(
     service_filter: str | None = Query(None, alias="service"),
     os_id: str | None = Query(None),
     classification: str | None = Query(None),
+    fragment: bool = Query(False),
     service: QueryService = Depends(get_service),
 ):
+    # 자동 갱신 fragment — 환경요약·운영신호 카드만 SSR 렌더 (list.js 30초 폴링이 #dashboard-live 교체).
+    # 별도 path 대신 ?fragment=1 분기 — /servers/{public_id} UUID 라우트와 충돌 회피. page 1 전체 환경 기준.
+    if fragment:
+        overview = await service.get_environment_overview()
+        attention = await service.get_attention_signals()
+        return templates.TemplateResponse(
+            request=request,
+            name="servers/_dashboard_live.html",
+            context={
+                "overview": overview,
+                "attention": attention,
+                "generated_at": datetime.now(UTC),
+                "window_days": recommendation.WINDOW_DAYS,
+                "self_back": quote("/servers/", safe=""),
+            },
+        )
     servers = await service.list_servers(
         page,
         limit,
@@ -54,6 +73,9 @@ async def list_servers(
             "servers": servers,
             "overview": overview,
             "attention": attention,
+            # 페이지 렌더(새로고침) 시각 — 우측 상단 갱신 시각 표시용. UTC 전달, 템플릿 kst 필터로 표시(#F2).
+            "generated_at": datetime.now(UTC),
+            "window_days": recommendation.WINDOW_DAYS,
             "zdm_defaults": {
                 "ip": web_settings.zdm_default_ip,
                 "user": web_settings.zdm_default_user,

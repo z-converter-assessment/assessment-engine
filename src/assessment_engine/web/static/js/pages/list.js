@@ -316,6 +316,14 @@ function hideInstallModal() {
   installModal.style.display = 'none';
 }
 
+// task cell HTML 렌더 단일 진실 — install 직후 polling + 페이지 로드 시 진행 중 추적 공용.
+// 시간 포맷 단일 진실 — ChartUtils.fmtKst (YYYY-MM-DD HH:MM:SS). toLocaleString 은 locale-dependent 라 회피.
+function renderTaskCell(cell, detail) {
+  const created = ChartUtils.fmtKst(detail.created_at);
+  // 시각 글자크기·색은 SSR(list.html task cell) 과 동일 — 11px / .text-muted(#64748b). 새로고침 전후 일관.
+  cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${detail.task_id}" title="${detail.failure_label || ''}"><span class="badge ${detail.badge_class}">${detail.badge_label}</span><span class="text-muted" style="font-size:11px;">${created}</span></a>`;
+}
+
 // install 발행 직후 행별 last_task cell polling — TaskModal.pollUntilFinal 으로 final 도달 시 cell 갱신.
 // pending row 의 cell HTML 을 미리 교체 -> 운영자가 즉시 "진행 중" 인지.
 function pollAndUpdateRow(targetPublicId, taskId) {
@@ -325,13 +333,7 @@ function pollAndUpdateRow(targetPublicId, taskId) {
   if (!cell) return;
   cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${taskId}"><span class="badge rec-pending">진행 중</span></a>`;
   if (!window.TaskModal) return;
-  window.TaskModal.pollUntilFinal(taskId, {
-    onUpdate(detail) {
-      // 시간 포맷 단일 진실 — ChartUtils.fmtKst (YYYY-MM-DD HH:MM:SS). toLocaleString 은 locale-dependent 라 회피.
-      const created = ChartUtils.fmtKst(detail.created_at);
-      cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${detail.task_id}" title="${detail.failure_label || ''}"><span class="badge ${detail.badge_class}">${detail.badge_label}</span><span class="text-meta">${created}</span></a>`;
-    },
-  });
+  window.TaskModal.pollUntilFinal(taskId, { onUpdate(detail) { renderTaskCell(cell, detail); } });
 }
 
 async function submitInstall() {
@@ -468,3 +470,44 @@ if (filterForm) {
     applyFilters();
   });
 }
+
+// ─── 대시보드 자동 갱신 ──────────────────────────────────────────────────
+// page 1 환경요약·운영신호 카드를 30초마다 fragment 교체 (static-assets.md polling 정공).
+// 서버목록 테이블은 체크박스 선택 보존 위해 갱신 대상 제외 (#dashboard-live = 환경요약+운영신호만).
+// 검색/필터는 client-side hide/show라 fragment(전체 환경 기준)와 무관 — page>1 일 때만 환경요약 미노출이라 skip.
+(function () {
+  const live = document.getElementById('dashboard-live');
+  if (!live) return;
+  const pageParam = new URLSearchParams(location.search).get('page');
+  if (pageParam && pageParam !== '1') return;
+  const REFRESH_MS = 30_000;
+  const note = document.getElementById('dashboard-refresh-note');
+  if (note) note.textContent = ` · ${REFRESH_MS / 1000}초마다 자동 갱신`;
+
+  async function refresh() {
+    try {
+      const res = await fetch('/servers/?fragment=1');
+      if (!res.ok) return;
+      live.innerHTML = await res.text();
+      // 교체된 fragment 안 hidden 갱신시각 → 우측 상단 #dashboard-updated 텍스트 갱신.
+      const stamp = live.querySelector('#dash-updated-at');
+      const target = document.getElementById('dashboard-updated');
+      if (stamp && target) target.textContent = stamp.textContent.trim();
+    } catch (e) {
+      // 네트워크 일시 오류 — 다음 주기에 재시도 (fail-soft, 화면 유지).
+    }
+  }
+
+  setInterval(refresh, REFRESH_MS);
+})();
+
+// ─── 진행 중 작업 자동 추적 ──────────────────────────────────────────────
+// 페이지 로드 시 서버목록의 진행 중(rec-pending) task cell 을 pollUntilFinal 로 추적 — 새로고침/타 경로 진행 task 도 완료까지 갱신.
+// 서버목록 행 전체 자동 교체는 체크박스 선택·client 필터·discover 버튼과 충돌 → cell 단위만 갱신 (task-cell 모달은 delegation 유지).
+document.querySelectorAll('.task-cell').forEach(a => {
+  if (!a.querySelector('.badge.rec-pending')) return;
+  const taskId = a.dataset.taskId;
+  if (!taskId || !window.TaskModal) return;
+  const cell = a.closest('td');
+  window.TaskModal.pollUntilFinal(taskId, { onUpdate(detail) { renderTaskCell(cell, detail); } });
+});

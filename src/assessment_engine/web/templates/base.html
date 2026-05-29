@@ -68,9 +68,8 @@
     .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07); padding: 20px 24px; margin-bottom: 18px; }
 
     /* Attention card 6 sub-section 표준 — list.html attention 전용. inline style 흩어짐 방지. */
-    .attention-block { margin-bottom: 10px; }
-    .attention-block:last-child { margin-bottom: 0; }
-    .attention-block-label { font-size: 12px; color: #1e293b; margin-bottom: 4px; }
+    /* 카드 내부 서브섹션 구분 — 환경요약·운영신호 공통 위계 (h3 + 구분선). inline border-top 재구현 금지. */
+    .card-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid #e2e8f0; }
     .attention-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
     .attention-item { display: flex; align-items: center; gap: 12px; font-size: 13px; }
     .attention-badge { min-width: 80px; justify-content: center; }
@@ -80,7 +79,7 @@
     /* mount path는 긴 경우 단일 줄 ellipsis + hover title 전체 노출 — 카드 행 높이 안정. */
     .attention-mount { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px; color: #475569; }
     /* 주의 신호 카탈로그 범례 — 6 카테고리 항상 표시 (count 0 포함). active=발화·inactive=무. */
-    .attention-catalog { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; }
+    .attention-catalog { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; }
     .attention-cat-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #f1f5f9; color: #94a3b8; }
     .attention-cat-item[data-active="True"] { background: #ffedd5; color: #9a3412; font-weight: 600; }
     .attention-cat-item strong { font-weight: 700; }
@@ -176,6 +175,9 @@
     .alert-warn { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #fef3c7; border: 1px solid #fde68a; border-radius: 6px; font-size: 13px; color: #92400e; }
     .alert-list { display: flex; flex-direction: column; gap: 10px; }
 
+    /* Empty state — 발화 가능하나 현재 데이터 없는 슬롯 (discoverability: 제목은 유지, 내용 없음을 명시). 박스 없이 회색 텍스트만. */
+    .empty-state { font-size: 13px; color: #94a3b8; margin: 0; }
+
     /* Chart toggle 버튼 — cpu/memory/network/storage/performance 공통 (range/anchor/agg toggle). */
     .toggle-group { display: flex; gap: 4px; flex-wrap: wrap; }
     .toggle { padding: 5px 12px; border: 1px solid #e2e8f0; border-radius: 5px; background: #fff; color: #475569; font-size: 12px; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
@@ -187,8 +189,8 @@
     .section-title:first-child { margin-top: 0; padding-top: 0; border-top: none; }
 
     /* Dot indicators */
-    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-    .dot-ok { background: #22c55e; box-shadow: 0 0 0 2px #dcfce7; }
+    .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .dot-ok { background: #22c55e; box-shadow: 0 0 0 3px #dcfce7; }
     .dot-off { background: #94a3b8; }
 
     /* Nav buttons */
