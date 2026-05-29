@@ -286,7 +286,7 @@ class QueryService:
         if server_ids:
             raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
             for raw in raws_period:
-                eol = to_os_eol_warning_item(raw)
+                eol = to_os_eol_warning_item(raw, now)
                 if eol and len(os_eol_warnings) < limit_each:
                     os_eol_warnings.append(eol)
 

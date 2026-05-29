@@ -55,10 +55,15 @@
   <h2>환경 요약</h2>
   <div style="display:flex; flex-wrap:wrap; gap:24px; font-size:13px; color:#475569;">
     <div>총 <strong class="text-strong">{{ overview.total }}</strong>대</div>
-    <div>온라인 <strong class="text-ok">{{ overview.online }}</strong> · 오프라인 <strong class="text-meta">{{ overview.offline }}</strong></div>
+    <div>온라인 <strong class="text-strong">{{ overview.online }}</strong> · 오프라인 <strong class="text-strong">{{ overview.offline }}</strong></div>
+    {% if overview.os_distribution %}
+    <div>OS
+      {% for os_name, n in overview.os_distribution.items() %}<strong class="text-strong">{{ os_name }} {{ n }}</strong>{% if not loop.last %} · {% endif %}{% endfor %}
+    </div>
+    {% endif %}
     <div>총 vCPU <strong class="text-strong">{{ overview.total_vcpus }}</strong></div>
-    <div>메모리 <strong class="text-strong">{{ overview.total_memory_gb }} GB</strong></div>
-    <div>디스크 <strong class="text-strong">{{ overview.total_disk_gb }} GB</strong></div>
+    <div>메모리 <strong class="text-strong">{{ overview.total_memory_gb | disksize }}</strong></div>
+    <div>디스크 <strong class="text-strong">{{ overview.total_disk_gb | disksize }}</strong></div>
   </div>
   {% if overview.role_distribution %}
   <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;">
@@ -71,9 +76,7 @@
 
   {% if overview.utilization %}
   <div style="margin-top:14px; padding-top:12px; border-top:1px solid #e2e8f0;">
-      <div style="font-size:12px; color:#64748b; margin-bottom:10px;">
-        환경 평균 활용률 <span class="text-meta">({{ overview.util_sample_size }}대 기준 · 최근 14일)</span>
-      </div>
+      <h3>환경 평균 활용률 <span class="section-meta">({{ overview.util_sample_size }}대 기준 · 최근 14일)</span></h3>
       <div style="display:flex; align-items:center; gap:14px;">
         <div style="display:flex; flex-wrap:wrap; gap:20px;">
           {% for u in overview.utilization %}
@@ -101,9 +104,7 @@
 
   {% if overview.risk_donut and overview.risk_donut_total > 0 %}
   <div style="margin-top:14px; padding-top:12px; border-top:1px solid #e2e8f0;">
-      <div style="font-size:12px; color:#64748b; margin-bottom:10px;">
-        Right-sizing 분류 <span class="text-meta">({{ overview.risk_donut_total }}대 기준 · 최근 14일)</span>
-      </div>
+      <h3>Right-sizing 분류 <span class="section-meta">({{ overview.risk_donut_total }}대 기준 · 최근 14일)</span></h3>
       <div style="display:flex; align-items:center; gap:14px;">
         <div style="text-align:center;">
           <svg viewBox="0 0 100 100" width="140" height="140" style="display:block;">
@@ -135,7 +136,7 @@
 
       {% if overview.under_provisioned_hosts %}
       <div style="margin-top:14px; padding-top:12px; border-top:1px solid #e2e8f0;">
-        <div style="font-size:12px; color:#64748b; margin-bottom:8px;">언더 프로비저닝 상세 ({{ overview.under_provisioned_hosts_count }}건)</div>
+        <h3>언더 프로비저닝 상세 <span class="section-meta">({{ overview.under_provisioned_hosts_count }}건)</span></h3>
         <ul class="attention-list" style="margin:0;">
           {% for c in overview.under_provisioned_hosts %}
           <li class="attention-item" style="gap:8px; flex-wrap:wrap;">

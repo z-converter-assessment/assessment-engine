@@ -161,6 +161,9 @@ class EnvironmentOverview:
     total_vcpus: int
     total_memory_gb: float
     total_disk_gb: int
+    # os_family(windows/linux/unknown) 별 서버 수 — 환경 OS 구성 요약. count DESC.
+    os_distribution: dict[str, int] = field(default_factory=dict)
+    # 역할 분포 — 각 서버의 모든 서비스 카테고리를 카운트 (대표 1개가 아닌 전체, #E7).
     role_distribution: dict[str, int] = field(default_factory=dict)
     utilization: list[UtilizationBar] = field(default_factory=list)
     util_sample_size: int = 0

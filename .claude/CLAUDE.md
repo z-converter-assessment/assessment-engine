@@ -201,7 +201,7 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 
 ## E8. 차트·도넛 UI 디테일 (P3·P4 적용)
 
-차트 Y축·suggestedMax·avg+max ghost·P4 5 의무 규약(sequence counter·capture-before-await·`Array.isArray`·404 분기·suggestedMax 상수): `docs/architecture/web/static-assets.md`. ViewModel 필드(`dash_length`/`dash_offset`/`bar_color`)·SVG 원주 상수(`_UTIL_DONUT_CIRC`)·임계 색 상수 카탈로그(`_UTIL_COLOR_LOW/MID/HIGH/NONE`·`_DONUT_SEGMENT_DEFS`·`_CAPACITY_TRIGGER_COLORS`): `docs/architecture/web/view-models.md` "신호 임계값 단일 정의" 절.
+차트 Y축·suggestedMax·avg+max ghost·P4 5 의무 규약(sequence counter·capture-before-await·`Array.isArray`·404 분기·suggestedMax 상수): `docs/architecture/web/static-assets.md`. ViewModel 필드(`dash_length`/`dash_offset`/`bar_color`)·SVG 원주 상수(`_UTIL_DONUT_CIRC`)·색 상수 카탈로그(`_UTIL_COLOR_GAUGE/NONE`(활용률 게이지 단색)·`_DONUT_SEGMENT_DEFS`·`_CAPACITY_TRIGGER_COLORS`): `docs/architecture/web/view-models.md` "신호 임계값 단일 정의" 절.
 
 본 절 결정:
 - 차트 Y축은 분해력(추이) vs 절대 기준(진단 리포트) 두 정책 중 선택. magic number 금지(명명 상수).

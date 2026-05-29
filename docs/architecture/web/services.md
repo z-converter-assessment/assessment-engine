@@ -7,7 +7,7 @@
 | `query_service.py` | Redis 캐시 + repository 오케스트레이션. SSR/JSON 양 경로에 일관된 ViewModel·Summary 반환 |
 | `task_service.py` | Task 발행 (DB INSERT + Redis SET). 트랜잭션 경계 + `IntegrityError` -> `TaskDuplicatePending` 변환. 본 모듈 상단 `HttpZdmPackageResolver` (ZDM 패키지 sha256·size 동적 조회 — install 발행 의존성) |
 | `diagnostic_service.py` | 진단 job 발행 (input_hash 계산·INSERT·RabbitMQ publish) + polling 조회 + SSR latest fetch. 추상 `BaseDiagnosticRepository` + `BaseQueryRepository`만 의존 (F4). 트랜잭션 경계 자체 관리 — router는 service만 호출. ADR 0004 + 0010 |
-| `mappers/` (sub-package) | Outbound DTO + Detail -> ViewModel 변환 단일 진실 (P2). 11 sub-module — `server.py` / `metric.py` / `attention.py` / `report.py` / `export.py` / `task.py` / `shared.py` (공용 임계 상수 + ReportView Literal + `_DONUT_SEGMENT_DEFS` + `_OS_EOL`) / `diagnostic.py` (진단 결과 표시 파생 — `to_view` / `to_panel_payload` / `to_history_item`) / `environment_report.py` (환경 보고서 합성) / `report_history.py` (보고서 이력 row) |
+| `mappers/` (sub-package) | Outbound DTO + Detail -> ViewModel 변환 단일 진실 (P2). 11 sub-module — `server.py` / `metric.py` / `attention.py` / `report.py` / `export.py` / `task.py` / `shared.py` (공용 임계 상수 + ReportView Literal + `_DONUT_SEGMENT_DEFS` + `resolve_os_eol`/endoflife 카탈로그 ADR 0031) / `diagnostic.py` (진단 결과 표시 파생 — `to_view` / `to_panel_payload` / `to_history_item`) / `environment_report.py` (환경 보고서 합성) / `report_history.py` (보고서 이력 row) |
 | `metrics_calculator.py` | CPU/Disk/Net delta + Mem/Swap 시점값 -> Snapshot. `_is_counter_reset` (boot_time 비교) |
 | `cache_serializer.py` | Redis serde — `ServerDetailResponse` / `MetricDashboard`. 역직렬화 후 `enrich_*` 재호출 (idempotent) |
 | `unit_converter.py` | KB->GB / sectors->KB/s / usage_pct 단위 변환 |
@@ -61,7 +61,7 @@ OS 분기 (원칙 P2/P4): `classify`는 `ResourceStats.os_family`로 OS별 신�
 | attention.disk_warnings | `get_attention_signals` | `disk_usage_warnings(threshold_pct=85)` 단일 SQL | 7d 안 mount latest (현재) | 사용률 >=85% |
 | attention.gap_warnings | `get_attention_signals` | `metric_gap_warnings(gap_min=5, recent_h=24)` 단일 SQL | 5min~24h 갭 (단기) | "한때 살아있다 끊김" |
 | attention.days_until_full_warnings | `get_attention_signals` | `report_mount_worst(WINDOW_DAYS)` fill_rate 추정 | 14일 fill_rate | days_until_full <= 30일 |
-| attention.os_eol_warnings | `get_attention_signals` | inventory + `mappers._OS_EOL` 정적 매핑 | 정적 | EOL 임박 OS |
+| attention.os_eol_warnings | `get_attention_signals` | inventory + `resolve_os_eol`(endoflife.date 스냅샷 카탈로그, ADR 0031) | EOL 경과 한정 | 지원 종료 OS (Linux 11 distro + Windows Server build) |
 | attention.agent_unstable | `get_attention_signals` | Redis `agent_restarts:{sid}` mget | 1h 슬라이딩 윈도우 | restart_count >= threshold |
 
 설계 결정:

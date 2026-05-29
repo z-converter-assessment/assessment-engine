@@ -6,7 +6,7 @@
 """
 
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import date, datetime, timezone
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ReportRowRaw
@@ -14,8 +14,8 @@ from assessment_engine.web.services.device_filters import is_physical_disk
 from assessment_engine.web.services.mappers.server import _os_display, infer_role
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
-    _OS_EOL,
     ReportView,
+    resolve_os_eol,
 )
 from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb
 from assessment_engine.web.view_models.report import ReportRowItem, ReportTotals
@@ -93,7 +93,7 @@ def build_role_distribution(raws: list) -> dict[str, int]:
 # ─── 정성 요약 (양식 A/B 분기) ───
 
 
-def build_report_summary_bullets(rows: list, raws: list | None = None, view: ReportView = "customer") -> list[str]:
+def build_report_summary_bullets(rows: list, raws: list | None = None, view: ReportView = "customer", today: date | None = None) -> list[str]:
     """자동 분석 요약 문장 생성 — 정량 신호 기반 정성 요약 (P2).
 
     view 분기:
@@ -185,15 +185,16 @@ def build_report_summary_bullets(rows: list, raws: list | None = None, view: Rep
                 " — 일시 spike 빈번. 평균보다 peak 기준 sizing 권장."
             )
 
-    # OS EOL 신호 — raws 있을 때만
+    # OS EOL 신호 — raws 있을 때만. attention 카드와 동일 판정(resolve_os_eol): Windows build /
+    # Linux os_version + EOL 경과 한정. today 미주입 시 현재 UTC (caller 주입 권장).
     if raws:
+        eol_today = today or datetime.now(timezone.utc).date()
         eol_hosts: list[str] = []
         for r in raws:
-            # 버전 prefix 매칭 (예: ubuntu 18.04 -> ("ubuntu", "18"))
-            for (eol_os, eol_ver), date in _OS_EOL.items():
-                if r.os_id == eol_os and (r.os_version or "").startswith(eol_ver):
-                    eol_hosts.append(f"{r.hostname}({r.os_id} {r.os_version}, EOL {date})")
-                    break
+            result = resolve_os_eol(r.os_id, r.os_version, r.kernel_version, eol_today)
+            if result:
+                eol_iso, label = result
+                eol_hosts.append(f"{r.hostname}({label}, EOL {eol_iso})")
         if eol_hosts:
             shown = eol_hosts[:3]
             suffix = " 외" if len(eol_hosts) > 3 else ""

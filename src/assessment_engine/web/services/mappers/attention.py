@@ -13,11 +13,11 @@ from assessment_engine.db.dtos.outbound import (
     DiskUsageWarningRaw,
     MetricGapWarningRaw,
 )
-from assessment_engine.web.services.mappers.server import infer_role
+from assessment_engine.web.services.service_classifier import classify
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
-    _OS_EOL,
     _USAGE_DANGER_PCT,
+    resolve_os_eol,
 )
 from assessment_engine.web.view_models.attention import (
     AttentionRow,
@@ -37,14 +37,11 @@ _ATTN_ACTIVE_BADGE = "attn-active"
 # 7d cutoff(SQL) 안에서도 1d 이상 stale은 운영자가 인지해야 함.
 _DISK_STALE_HOURS = 24
 
-# UtilizationBar 임계 — 환경 평균 활용률 색 결정 (P3 임계 분기 금지 → mapper 단일).
-# 본 임계는 환경 평균 도메인이라 server detail badge(_USAGE_DANGER_PCT/_USAGE_WARN_PCT)와 별개.
-_UTIL_LOW_PCT = 60  # 미만 → 녹색 (여유)
-_UTIL_HIGH_PCT = 80  # 이상 → 빨강 (압박)
-_UTIL_COLOR_LOW = "#22c55e"
-_UTIL_COLOR_MID = "#f59e0b"
-_UTIL_COLOR_HIGH = "#ef4444"
-_UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재
+# UtilizationBar 게이지 색 — 환경 평균 활용률 도넛/바 단색 (그라데이션·임계 분기 제거).
+# 활용률 정도는 게이지 길이(dash_length)로, 색은 값 무관 단일 푸른색. 색으로 임계 의미를 주지
+# 않는다 — 위험도 색은 Right-sizing 분류 도넛이 별도 담당.
+_UTIL_COLOR_GAUGE = "#3b82f6"  # 푸른 단색 (blue-500)
+_UTIL_COLOR_NONE = "#cbd5e1"   # 표본 부재 (회색)
 
 # 도넛 SVG 원주 — r=42, 2*pi*r ≈ 263.89. pct 0~100을 0~_UTIL_DONUT_CIRC로 매핑.
 _UTIL_DONUT_CIRC = 263.89
@@ -114,15 +111,14 @@ def to_gap_warning_item(raw: MetricGapWarningRaw, now: datetime) -> AttentionRow
 
 
 def _bar_color(pct: float | None) -> str:
-    """환경 평균 사용률 bar — 0% 초록 → 60% 노랑 → 100% 빨강 HSL hue 그라데이션.
+    """환경 평균 사용률 게이지 색 — 단색 푸른색 (표본 부재 시 회색).
 
-    사용률 변화에 따라 자연스러운 색 이행 (3단계 jump 보다 시각 정합).
+    활용률 정도는 게이지 길이(dash_length)로 표현하고 색은 값 무관 단일 — 색으로 임계 의미를
+    주지 않는다 (Right-sizing 분류 도넛이 위험도 색을 별도 담당).
     """
     if pct is None:
         return _UTIL_COLOR_NONE
-    pct_capped = max(0.0, min(100.0, pct))
-    hue = 120 - 1.2 * pct_capped  # 0% -> 120 (green), 100% -> 0 (red)
-    return f"hsl({hue:.0f}, 65%, 45%)"
+    return _UTIL_COLOR_GAUGE
 
 
 def _dash_length(pct: float | None) -> float:
@@ -180,9 +176,19 @@ def build_environment_overview(
     for d in details:
         for disk in d.disks or []:
             total_disk_bytes += disk.get("size_bytes") or 0
+    # OS 구성 — os_family(windows/linux) 별 서버 수.
+    os_counter: Counter[str] = Counter()
+    for d in details:
+        os_counter[d.os_family or "unknown"] += 1
+
+    # 역할 분포 — 각 서버의 "모든" 서비스 카테고리 카운트 (대표 1개 infer_role 아님, #E7).
+    # 2개 서비스가 분류되면 둘 다 반영. unknown 은 제외 (역할 미상은 분포에 노이즈).
     role_counter: Counter[str] = Counter()
     for d in details:
-        role_counter[infer_role(d.services)] += 1
+        for svc in d.services or []:
+            category = classify(svc.get("unit", ""))
+            if category != "unknown":
+                role_counter[category] += 1
 
     util_bars: list = []
     util_sample = 0
@@ -222,6 +228,7 @@ def build_environment_overview(
         total_vcpus=total_vcpus,
         total_memory_gb=round(total_mem_kb / 1024 / 1024, 1),
         total_disk_gb=int(total_disk_bytes / 10**9),
+        os_distribution=dict(os_counter.most_common()),
         role_distribution=dict(role_counter.most_common()),
         utilization=util_bars,
         util_sample_size=util_sample,
@@ -308,22 +315,23 @@ def to_disk_days_warning_item(
     )
 
 
-def to_os_eol_warning_item(raw) -> AttentionRow | None:
-    """ReportRowRaw -> AttentionRow if matches _OS_EOL, else None.
+def to_os_eol_warning_item(raw, now: datetime) -> AttentionRow | None:
+    """ReportRowRaw -> AttentionRow if EOL 경과(resolve_os_eol 공용 판정), else None.
 
-    badge=EOL 라벨 + meta="{os_id os_version} · EOL {eol_date}".
+    판정(Windows build / Linux os_version + EOL 경과 비교)은 shared.resolve_os_eol 단일 진실 —
+    보고서 정성 요약과 동일 로직. 본 함수는 표시(AttentionRow) 변환만.
     """
-    for (eol_os, eol_ver), date in _OS_EOL.items():
-        if raw.os_id == eol_os and (raw.os_version or "").startswith(eol_ver):
-            os_display = " ".join(p for p in [raw.os_id, raw.os_version] if p) or "-"
-            return AttentionRow(
-                badge_class=_ATTN_ACTIVE_BADGE,
-                badge_text="EOL",
-                link_href=f"/servers/{raw.public_id}",
-                link_text=raw.hostname,
-                meta_text=f"{os_display} · EOL {date}",
-            )
-    return None
+    result = resolve_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())
+    if result is None:
+        return None
+    eol_iso, label = result
+    return AttentionRow(
+        badge_class=_ATTN_ACTIVE_BADGE,
+        badge_text="EOL",
+        link_href=f"/servers/{raw.public_id}",
+        link_text=raw.hostname,
+        meta_text=f"{label} · EOL {eol_iso}",
+    )
 
 
 def to_agent_unstable_item(public_id: str, hostname: str, restart_count: int) -> AttentionRow:

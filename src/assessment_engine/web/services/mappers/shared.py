@@ -4,6 +4,9 @@
 쓰는 상수는 해당 sub-module 내부에 유지 — 본 모듈은 다중 공유 명목으로 한정.
 """
 
+import json
+from datetime import date
+from pathlib import Path
 from typing import Literal
 
 # ─── UI 임계값 — base.html body data-attribute 동기화 (#E1 P3 · ADR 0015) ────
@@ -55,13 +58,66 @@ PROVISIONING_CLASSES: tuple[str, ...] = tuple(key for key, _, _, _ in _DONUT_SEG
 # build_report_summary_bullets (report.py) + _extract_capacity_imminent (environment_report.py).
 _CAPACITY_IMMINENT_DAYS = 30
 
-# ─── OS EOL 정적 매핑 — 보고서 정성 요약 + attention OS EOL 카드 양쪽 공용 ───
-# (os_id, os_version_prefix) -> ISO 날짜 문자열. 확장 시 본 dict 만 갱신.
-_OS_EOL: dict[tuple[str, str], str] = {
-    ("centos", "7"): "2024-06-30",
-    ("rhel", "7"): "2024-06-30",
-    ("ubuntu", "18.04"): "2023-05-31",
-    ("debian", "10"): "2024-06-30",
-    ("debian", "11"): "2024-07-14",  # standard support EOL (LTS는 2026-08까지)
-    ("centos", "8"): "2024-05-31",  # CentOS Stream 8 (AlmaLinux/Rocky 8은 2029까지 active)
+# ─── OS EOL — endoflife.date 스냅샷 카탈로그 기반 (scripts/snapshot_os_eol.py 생성) ───
+# 정적 JSON 을 모듈 로드 시 1회 읽음. 런타임 외부 의존 0 (폐쇄 내부망 #A0). 갱신 = 스냅샷 재실행 + commit.
+# 신뢰성: endoflife.date 는 벤더 공식 문서 기반 + 분기 검토 (ADR 0031). 미등록 OS 는 침묵 (의식적 한계).
+_EOL_CATALOG_PATH = Path(__file__).parent / "os_eol_catalog.json"
+_EOL_CATALOG: dict = json.loads(_EOL_CATALOG_PATH.read_text(encoding="utf-8"))
+
+# agent os_id(/etc/os-release ID) -> endoflife product slug. 대부분 동일, 예외만 명시.
+# 미등록 os_id 는 None (EOL 판정 불가 침묵). windows 는 build 기반이라 본 dict 밖 별도 분기.
+_OS_ID_TO_EOL_PRODUCT: dict[str, str] = {
+    "debian": "debian",
+    "ubuntu": "ubuntu",
+    "rhel": "rhel",
+    "rocky": "rocky-linux",
+    "almalinux": "almalinux",
+    "centos": "centos",
+    "sles": "sles",
+    "opensuse": "opensuse",
+    "amzn": "amazon-linux",
+    "fedora": "fedora",
 }
+
+
+def resolve_os_eol(
+    os_id: str | None,
+    os_version: str | None,
+    kernel_version: str | None,
+    today: date,
+) -> tuple[str, str] | None:
+    """OS EOL 단일 판정 — 카탈로그 조회 + EOL 이미 경과면 (eol_iso, 제품 라벨), 아니면 None.
+
+    attention OS EOL 카드 + 보고서 정성 요약 공용 (P2 단일 판정 — 두 표시 경로 일관).
+    - Windows: os_id=="windows" -> windows-server 카탈로그, kernel build == latest build 매칭
+      (운영=Server 가정, build ↔ 제품 1:1). kernel_version "26100.8457" -> build "26100".
+    - Linux: os_id -> product slug, os_version == cycle 또는 startswith(cycle+".") (rocky "9.7" -> "9").
+    EOL 미도래(아직 지원 중)는 None — 카탈로그 등록만으로 발화하면 미래 EOL(Server 2025=2034) 오발화.
+    카탈로그 미등록 OS 도 None (EOL 판정 불가 = 침묵, false negative 한계는 의식적 트레이드오프).
+    """
+    if not os_id:
+        return None
+
+    if os_id == "windows":
+        build = (kernel_version or "").split(".")[0]
+        for entry in _EOL_CATALOG.get("windows-server", []):
+            if entry.get("build") == build:
+                eol_iso = entry["eol"]
+                if date.fromisoformat(eol_iso) > today:
+                    return None
+                return (eol_iso, f"Windows Server {entry['cycle']}")
+        return None
+
+    product = _OS_ID_TO_EOL_PRODUCT.get(os_id)
+    if product is None:
+        return None
+    ver = os_version or ""
+    for entry in _EOL_CATALOG.get(product, []):
+        cycle = entry["cycle"]
+        if ver == cycle or ver.startswith(cycle + "."):
+            eol_iso = entry["eol"]
+            if date.fromisoformat(eol_iso) > today:
+                return None
+            label = " ".join(p for p in [os_id, os_version] if p) or "-"
+            return (eol_iso, label)
+    return None
