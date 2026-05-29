@@ -35,7 +35,7 @@ def make_error_handler(
                 data.composite_id,
                 data.failed_component,
                 data.error_code,
-                data.error_message,
+                data.error_message or "(empty)",
                 data.retry_count,
                 data.first_failed_at,
                 data.recovered_at,
