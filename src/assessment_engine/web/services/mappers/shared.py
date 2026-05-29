@@ -69,6 +69,37 @@ _OS_ID_TO_EOL_PRODUCT: dict[str, str] = {
     "fedora": "fedora",
 }
 
+# ─── OS distro 필터 ───
+# endoflife.date 카탈로그 product 전체를 OS 필터 옵션으로 (수집 무관 — 지원 distro 노출, ADR 0031 출처).
+# 수집 os_id <-> distro(product slug) 정규화. windows 는 os_id=="windows" -> windows-server.
+_DISTRO_LABELS: dict[str, str] = {
+    "debian": "Debian",
+    "ubuntu": "Ubuntu",
+    "rhel": "RHEL",
+    "rocky-linux": "Rocky Linux",
+    "almalinux": "AlmaLinux",
+    "centos": "CentOS",
+    "centos-stream": "CentOS Stream",
+    "sles": "SLES",
+    "opensuse": "openSUSE",
+    "amazon-linux": "Amazon Linux",
+    "fedora": "Fedora",
+    "windows-server": "Windows",
+}
+# 필터 드롭다운 옵션 — (slug, 라벨). 카탈로그(_EOL_CATALOG) 키 순서 단일 진실.
+DISTRO_FILTER_OPTIONS: tuple[tuple[str, str], ...] = tuple(
+    (slug, _DISTRO_LABELS.get(slug, slug)) for slug in _EOL_CATALOG
+)
+
+
+def os_id_to_distro(os_id: str | None) -> str:
+    """수집 os_id -> 카탈로그 distro(product slug). windows 별도, linux 는 _OS_ID_TO_EOL_PRODUCT, 미등록은 그대로."""
+    if not os_id:
+        return ""
+    if os_id == "windows":
+        return "windows-server"
+    return _OS_ID_TO_EOL_PRODUCT.get(os_id, os_id)
+
 
 def resolve_os_eol(
     os_id: str | None,

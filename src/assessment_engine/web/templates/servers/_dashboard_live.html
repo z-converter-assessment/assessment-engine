@@ -27,7 +27,6 @@
   <h2>환경 요약</h2>
   <div style="display:flex; flex-wrap:wrap; gap:24px; font-size:13px; color:#475569;">
     <div>총 <strong class="text-strong">{{ overview.total }}</strong>대</div>
-    <div>온라인 <strong class="text-strong">{{ overview.online }}</strong> · 오프라인 <strong class="text-strong">{{ overview.offline }}</strong></div>
     {% if overview.os_distribution %}
     <div>OS
       {% for os_name, n in overview.os_distribution.items() %}<strong class="text-strong">{{ os_name }} {{ n }}</strong>{% if not loop.last %} · {% endif %}{% endfor %}
@@ -140,6 +139,87 @@
 </section>
 {% endif %}
 
+{# 환경 실시간 메트릭 — 현황 모니터링(최신 스냅샷). 환경요약 14일 활용률·right-sizing(장기 사이징)과 의미 분리. #}
+{% if realtime and realtime.total > 0 %}
+<section class="card no-print">
+  <h2>환경 실시간 메트릭 <span class="section-meta">현황 모니터링 · 최신 스냅샷</span></h2>
+  <div style="display:flex; flex-wrap:wrap; gap:24px; font-size:13px; color:#475569;">
+    <div>온라인 <strong class="text-strong">{{ realtime.online }}</strong> · 오프라인 <strong class="text-strong">{{ realtime.offline }}</strong></div>
+    <div>유효 표본 <strong class="text-strong">{{ realtime.sample_size }}/{{ realtime.total }}</strong>대</div>
+    {% if realtime.last_collected_at %}<div>최신 수집 <strong class="text-strong">{{ realtime.last_collected_at | kst }}</strong></div>{% endif %}
+  </div>
+
+  <div class="card-section">
+    <h3>현재 평균 활용률 <span class="section-meta">(온라인 {{ realtime.sample_size }}대 최신 스냅샷)</span></h3>
+    {% if realtime.sample_size > 0 %}
+    {# 환경 평균 활용률 도넛과 동일 컴포넌트·푸른 단색 게이지 (통일). 14일 통계 아닌 현재 스냅샷. #}
+    <div style="display:flex; align-items:center; gap:14px;">
+      <div style="display:flex; flex-wrap:wrap; gap:20px;">
+        {% for u in realtime.utilization %}
+        <div style="text-align:center;">
+          <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
+            {% if u.pct is not none %}
+            <circle cx="50" cy="50" r="42" fill="none"
+                    stroke="{{ u.bar_color }}" stroke-width="10"
+                    stroke-dasharray="{{ "%.2f"|format(u.dash_length) }} 263.89"
+                    stroke-linecap="round"
+                    transform="rotate(-90 50 50)"/>
+            <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ "%.0f"|format(u.pct) }}%</text>
+            {% else %}
+            <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
+            {% endif %}
+          </svg>
+          <div style="font-size:12px; color:#475569; margin-top:4px;">{{ u.label }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    {{ empty_state("온라인 서버의 최신 메트릭이 없습니다.") }}
+    {% endif %}
+  </div>
+
+  <div class="card-section">
+    <h3>현재 부하 상위 <span class="section-meta">자원별 · 탑 3</span></h3>
+    {% if realtime.has_peaks %}
+    {# CPU/메모리/디스크 각 자원의 상위 3대 — 3열 배치, 한 컬럼당 한 자원. #}
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
+      {% for g in realtime.peak_groups %}
+      <div>
+        <div style="font-size:12px; font-weight:600; color:#475569; margin-bottom:8px;">{{ g.label }}</div>
+        {% if g.peaks %}
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          {% for p in g.peaks %}
+          <a href="/servers/{{ p.public_id }}?back={{ self_back }}"
+             style="display:flex; align-items:center; gap:6px; text-decoration:none; color:inherit;">
+            <span style="display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background:#eff6ff; color:#3b82f6; font-size:10px; font-weight:700; flex-shrink:0;">{{ loop.index }}</span>
+            <span style="flex:0 1 auto; min-width:0; font-size:12px; color:#1e293b; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.hostname }}</span>
+            {# leader dots — hostname 과 수치를 점선으로 연결 (목차 스타일). hostname 길면 ellipsis 로 줄고 점선 최소폭 유지. #}
+            <span style="flex:1 1 auto; min-width:10px; border-bottom:1px dotted #cbd5e1; height:1px;"></span>
+            <span style="flex-shrink:0; font-size:12px; font-weight:600; color:#1e293b;">{{ "%.1f"|format(p.pct) }}%</span>
+          </a>
+          {% endfor %}
+        </div>
+        {% else %}
+        <span class="text-meta" style="font-size:11px;">—</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    {{ empty_state("표시할 부하 데이터가 없습니다.") }}
+    {% endif %}
+  </div>
+</section>
+{% elif realtime %}
+{# 등록 서버 0대 — 카드 존재 자체를 항상 인지 (E9 discoverability). 환경요약 '서버 없음'과 동일 패턴. #}
+<section class="card no-print">
+  <h2>환경 실시간 메트릭 <span class="section-meta">현황 모니터링 · 최신 스냅샷</span></h2>
+  {{ empty_state("등록된 서버가 없습니다. 에이전트가 연결되면 실시간 메트릭이 표시됩니다.") }}
+</section>
+{% endif %}
+
 {% if attention %}
 <section class="card no-print">
   <h2>운영 신호 <span class="section-meta">실시간 시스템 이상·점검 항목</span></h2>
@@ -152,7 +232,7 @@
 
   {# 3 카테고리 항상 노출 — 발화 없어도 제목 유지, 비면 empty_state (discoverability #E9). #}
   {{ attention_row("통신 끊김", "5분 이상 메트릭 미수신", attention.gap_warnings) }}
-  {{ attention_row("OS 지원종료", "지원 종료일이 지난 OS", attention.os_eol_warnings) }}
+  {{ attention_row("OS 지원종료", "endoflife.date 기준", attention.os_eol_warnings) }}
   {{ attention_row("에이전트 재시작 빈번", "최근 1시간", attention.agent_unstable) }}
 </section>
 {% endif %}

@@ -18,6 +18,8 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
     ("lighttpd", "web"),
     ("traefik", "web"),
     ("haproxy", "web"),
+    ("w3svc", "web"),  # IIS (Windows SCM 서비스명)
+    ("iis", "web"),
     ("postgresql", "db"),
     ("mariadb", "db"),
     ("mysqld", "db"),

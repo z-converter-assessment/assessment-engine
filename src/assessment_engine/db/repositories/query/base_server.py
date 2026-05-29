@@ -31,11 +31,6 @@ class BaseServerQueryRepository(ABC):
         ...
 
     @abstractmethod
-    async def list_distinct_os_ids(self) -> list[str]:
-        """list 페이지 OS 필터 dropdown option — 등록된 distro 만. order: os_id ASC."""
-        ...
-
-    @abstractmethod
     async def list_servers(
         self,
         page: int,

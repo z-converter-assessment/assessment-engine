@@ -24,6 +24,7 @@ from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_FROM_REC,
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
+    os_id_to_distro,
 )
 from assessment_engine.web.services.metrics_calculator import compute_net_io
 from assessment_engine.web.services.service_classifier import classify, matched_ports
@@ -135,12 +136,19 @@ def _dedup_known(services: list[ServiceItem] | None) -> tuple[list[ServiceItem],
         return [], False
     known: list[ServiceItem] = []
     seen_categories: set[str] = set()
+    counts: dict[str, int] = {}
     for s in services:
         if s.category == "unknown":
             continue
+        counts[s.category] = counts.get(s.category, 0) + 1
         if s.category not in seen_categories:
             seen_categories.add(s.category)
             known.append(s)
+    # 카테고리별 서비스 개수를 대표 item 에 기록 — 뱃지 "container 2" (환경요약 role 인스턴스 수와 일관).
+    for s in known:
+        s.category_count = counts[s.category]
+    # 뱃지 정렬 단일 기준 — category 알파벳 오름차순 (등장 순=DB row 순은 비결정적). 템플릿 P3 정렬 회피.
+    known.sort(key=lambda s: s.category)
     show_unknown = bool(services) and not known
     return known, show_unknown
 
@@ -208,6 +216,7 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
         recommendation_label=rec_label,
         recommendation_color=rec_color,
         provisioning_class=seg_key,
+        os_distro=os_id_to_distro(dto.os_id),
     )
 
 
@@ -364,6 +373,8 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
             )
         )
 
+    # 뱃지 정렬 단일 기준 — 서버목록(_dedup_known)과 동일하게 category 알파벳 오름차순.
+    known.sort(key=lambda s: s.category)
     detail.known_services = known
     detail.show_unknown_badge = detail.services is not None and bool(detail.services) and not known
     detail.key_listen_ports = sorted(

@@ -62,6 +62,7 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
                 category=s.get("category") or "unknown",
                 ports=[MatchedPort(proto=p["proto"], port=p["port"]) for p in s.get("ports") or []],
                 display_name=s.get("display_name") or s["unit"].removesuffix(".service"),
+                category_count=s.get("category_count", 1),
             )
             for s in raw_services
         ]

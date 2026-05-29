@@ -173,3 +173,43 @@ class EnvironmentOverview:
     # USE Method 분포 도넛 아래 표시 — 자원 부족(under_provisioned) 호스트 trigger·메타 상세.
     under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list)
     under_provisioned_hosts_count: int = 0  # 템플릿 P3 회피 — mapper precompute (#E1 P3)
+
+
+@dataclass
+class RealtimePeak:
+    """실시간 '현재 부하 상위' 1개 셀 — 자원별(CPU/메모리/디스크) 랭킹. pct/color 는 해당 자원 값."""
+
+    hostname: str
+    public_id: str
+    pct: float
+    color: str  # _bar_color(pct) — 푸른 단색 (P3 precompute)
+
+
+@dataclass
+class RealtimePeakGroup:
+    """부하 상위 3열 grid 의 1열 — 한 자원의 탑 N (내림차순). label=자원명."""
+
+    label: str
+    peaks: list[RealtimePeak] = field(default_factory=list)
+
+
+@dataclass
+class EnvironmentRealtime:
+    """list 화면 '환경 실시간 메트릭' 카드 — 현황 모니터링(최신 스냅샷). right-sizing(14일 통계)과 별개 용도.
+
+    utilization: 온라인 서버(sample_size)의 현재 CPU/메모리/디스크(worst mount) 평균 도넛 3개
+                 (환경 평균 활용률 도넛과 동일 컴포넌트·푸른 단색 게이지 — UtilizationBar).
+    sample_size: 평균 표본 = 온라인이면서 최신 메트릭 보유 서버 수. 오프라인 stale 메트릭은 제외 —
+                 표기는 'sample_size/total' (예: 3/4, 오프라인 1대 빠짐).
+    online/offline: Redis online:{id} TTL 기준. last_collected_at: 환경 전체 최신 수집시각(신선도).
+    peak_groups: 자원별(CPU/메모리/디스크) 부하 상위 N — 3열 grid. has_peaks: 전체 빈 여부(empty 분기).
+    """
+
+    total: int
+    online: int
+    offline: int
+    sample_size: int  # 평균 표본 = 온라인 + 최신 메트릭 보유 (avg 분자)
+    utilization: list[UtilizationBar] = field(default_factory=list)
+    last_collected_at: datetime | None = None
+    peak_groups: list[RealtimePeakGroup] = field(default_factory=list)
+    has_peaks: bool = False

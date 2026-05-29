@@ -30,6 +30,7 @@ from assessment_engine.web.services.cache_serializer import (
 from assessment_engine.web.services.device_filters import is_lvm_disk, is_partition, is_physical_disk, is_virtual_mount
 from assessment_engine.web.services.mappers.attention import (
     build_environment_overview,
+    build_environment_realtime,
     to_agent_unstable_item,
     to_capacity_warning_item,
     to_gap_warning_item,
@@ -70,6 +71,7 @@ from assessment_engine.web.view_models.attention import (
     AttentionSignals,
     CapacityWarningItem,
     EnvironmentOverview,
+    EnvironmentRealtime,
 )
 from assessment_engine.web.view_models.environment_report import EnvironmentReportSummary
 from assessment_engine.web.view_models.metric import (
@@ -125,9 +127,6 @@ class QueryService:
             return {}
         return await self.repo.resolve_server_ids(public_ids)
 
-    async def list_distinct_os_ids(self) -> list[str]:
-        return await self.repo.list_distinct_os_ids()
-
     async def list_all_server_public_ids(self) -> list[str]:
         """전체 등록 서버 public_id — 환경 단위 보고서 URL 합성용."""
         return await self.repo.list_all_server_public_ids()
@@ -143,7 +142,7 @@ class QueryService:
         search: str | None,
         is_online: bool | None,
         service: str | None = None,
-        os_id: str | None = None,
+        os_distro: str | None = None,
         classification: str | None = None,
     ) -> list[ServerListItem]:
         dtos = await self.repo.list_servers(page, limit, search)
@@ -186,10 +185,13 @@ class QueryService:
         if service:
             # service category 매칭 — "이 카테고리를 운영하는 호스트". known_services 에 카테고리 contains.
             items = [i for i in items if any(s.category == service for s in i.known_services)]
-        if os_id:
-            items = [i for i in items if i.os_id == os_id]
+        if os_distro:
+            items = [i for i in items if i.os_distro == os_distro]
         if classification:
             items = [i for i in items if i.provisioning_class == classification]
+        # 1차 online(온라인 우선) · 2차 hostname ASC. online 판정은 Redis 기반이라 DB ORDER BY 불가 →
+        # service 레이어 정렬(P2). repo 는 hostname ASC raw 반환(2차 기준 보존).
+        items.sort(key=lambda i: (not i.is_online, i.hostname.lower()))
         return items
 
     async def get_server(self, server_id: int) -> ServerDetailResponse | None:
@@ -290,33 +292,24 @@ class QueryService:
                 if eol and len(os_eol_warnings) < limit_each:
                     os_eol_warnings.append(eol)
 
-        # Agent 재시작 빈번 — Redis 1h 카운터 mget
+        # Agent 재시작 빈번 — DB fixed 1h 윈도우 (server_inventory_history agent_started_at DISTINCT-1).
+        # Redis sliding 카운터 대신 정확한 '최근 1시간' 카운트. (consumer Redis 카운터는 alert 로그용 유지)
         agent_unstable: list[AttentionRow] = []
         if server_ids:
-            restart_keys = [web_settings.redis_key_agent_restarts.format(sid) for sid in server_ids]
-            counts = await safe_mget(self.redis, restart_keys)
-            if counts is not None:
-                threshold_n = web_settings.agent_restart_alert_threshold
-                # raws_period에 hostname·public_id 있어 zip 가능
-                raws_by_id = {r.server_id: r for r in raws_period}
-                # server_ids와 counts는 동일 길이 보장 — mget이 키 개수만큼 반환.
-                for sid, count_str in zip(server_ids, counts, strict=True):
-                    if count_str is None:
-                        continue
-                    try:
-                        count = int(count_str)
-                    except ValueError:
-                        continue
-                    if count >= threshold_n:
-                        raw = raws_by_id.get(sid)
-                        if raw and len(agent_unstable) < limit_each:
-                            agent_unstable.append(
-                                to_agent_unstable_item(
-                                    raw.public_id,
-                                    raw.hostname,
-                                    count,
-                                )
+            threshold_n = web_settings.agent_restart_alert_threshold
+            restart_counts = await self.repo.agent_restart_counts_recent(server_ids, now - timedelta(hours=1))
+            raws_by_id = {r.server_id: r for r in raws_period}
+            for sid, count in restart_counts.items():
+                if count >= threshold_n:
+                    raw = raws_by_id.get(sid)
+                    if raw and len(agent_unstable) < limit_each:
+                        agent_unstable.append(
+                            to_agent_unstable_item(
+                                raw.public_id,
+                                raw.hostname,
+                                count,
                             )
+                        )
 
         return AttentionSignals(
             gap_warnings=[to_gap_warning_item(r, now) for r in gap_raws],
@@ -384,6 +377,54 @@ class QueryService:
             else:
                 online_count += int(flags[i] is not None)
         return build_environment_overview(details, online_count, util, risk_counts, under_hosts)
+
+    async def get_environment_realtime(self) -> "EnvironmentRealtime":
+        """list 화면 '환경 실시간 메트릭' 카드 — 각 서버 최신 스냅샷(get_latest_metric, Redis cache 우선) 집계.
+
+        현황 모니터링 용도(right-sizing 14일 통계와 별개). 평균 도넛·자원별 부하상위: 현재 CPU/메모리/디스크(worst mount),
+        online: Redis online:{id} TTL, last_collected_at: 환경 전체 최신 수집시각(신선도).
+        """
+        server_ids = await self.repo.list_server_ids()
+        if not server_ids:
+            return build_environment_realtime(0, 0, [], None)
+        details = await self.repo.get_servers(server_ids)
+        detail_by_id = {d.id: d for d in details}
+        online_keys = [web_settings.redis_key_online.format(sid) for sid in server_ids]
+        flags = await safe_mget(self.redis, online_keys)
+        threshold = datetime.now(UTC) - timedelta(seconds=web_settings.redis_ttl_online)
+        online = 0
+        snapshots: list[dict] = []
+        last_collected = None
+        for i, sid in enumerate(server_ids):
+            d = detail_by_id.get(sid)
+            if d is None:
+                continue
+            if flags is None:
+                is_on = bool(d.last_seen_at and d.last_seen_at > threshold)
+            else:
+                is_on = flags[i] is not None
+            if is_on:
+                online += 1
+            m = await self.get_latest_metric(sid)
+            if not m or not m.collected_at:
+                continue
+            # 평균·hotspot 표본은 온라인 서버만 — 오프라인 서버의 stale 메트릭이 현황 평균을 왜곡하지 않게.
+            # 표기 sample_size/total (예: 3/4) 에서 오프라인 1대가 분자에서 빠지는 의미.
+            if not is_on:
+                continue
+            disk = max((mt.usage_pct for mt in m.mounts if mt.usage_pct is not None), default=None)
+            snapshots.append(
+                {
+                    "hostname": d.hostname,
+                    "public_id": d.public_id,
+                    "cpu_pct": m.cpu.usage_pct if m.cpu else None,
+                    "mem_pct": m.memory.usage_pct if m.memory else None,
+                    "disk_pct": disk,
+                }
+            )
+            if last_collected is None or m.collected_at > last_collected:
+                last_collected = m.collected_at
+        return build_environment_realtime(len(server_ids), online, snapshots, last_collected)
 
     async def get_environment_report(
         self,

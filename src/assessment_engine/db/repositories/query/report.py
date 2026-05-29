@@ -266,6 +266,24 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
         return {r.server_id: int(r.restart_count) for r in result.all()}
 
+    async def agent_restart_counts_recent(self, server_ids: list[int], since: datetime) -> dict[int, int]:
+        """since 이후 server별 agent 재시작 횟수 (DISTINCT agent_started_at - 1).
+
+        attention agent_unstable fixed 윈도우 표시 — Redis sliding 카운터 대체 (정확한 '최근 N시간').
+        report_agent_restart_stats(보고서 window)와 동일 산식, since~now 고정 윈도우만 다름.
+        """
+        if not server_ids:
+            return {}
+        sql = text("""
+            SELECT server_id, GREATEST(0, COUNT(DISTINCT agent_started_at) - 1) AS restart_count
+            FROM server_inventory_history
+            WHERE server_id = ANY(:sids) AND collected_at >= :since
+              AND agent_started_at IS NOT NULL
+            GROUP BY server_id
+        """)
+        result = await self.session.execute(sql, {"sids": server_ids, "since": since})
+        return {r.server_id: int(r.restart_count) for r in result.all()}
+
     async def report_disk_io_baseline(
         self,
         server_ids: list[int],

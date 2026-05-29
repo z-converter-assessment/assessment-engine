@@ -195,7 +195,7 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 | case | 정공 / 예외 | 이유 |
 |------|-------------|------|
 | 1회 fetch + render (예: task-modal body) | 정공 — fragment endpoint (`/api/tasks/{id}/detail`) + JS `innerHTML = await fetch().text()` | overhead 0, P3 완전 정공 |
-| 저빈도 polling + 파생 많은 SSR 영역 (예: 대시보드 환경요약·운영신호 30초 자동갱신) | 정공 — fragment endpoint (`/servers/?fragment=1`) HTML 반환 + JS `#dashboard-live` innerHTML 교체 | 30초 저빈도라 HTML fragment fetch overhead 무시 가능. mapper 파생 많아 JSON+JS render 시 P2 복제 — fragment 가 단일 진실 유지 |
+| 저빈도 polling + 파생 많은 SSR 영역 (예: 대시보드 환경요약·운영신호·서버목록 30초 자동갱신) | 정공 — fragment endpoint (`?fragment=live`/`?fragment=rows`) HTML 반환 + JS `#dashboard-live` innerHTML·`#server-tbody` server-row 교체 | 30초 저빈도라 HTML fragment fetch overhead 무시 가능. mapper 파생 많아 JSON+JS render 시 P2 복제 — fragment 가 단일 진실 유지 |
 | polling 흐름 (예: detail page metrics/latest SSE / storage snapshot / diagnostic-results.js · diagnostic-inline.js result polling) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
 
 폴링 흐름 JS render 의무:
@@ -205,7 +205,7 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 
 신규 dynamic UI 추가 시 흐름 판단:
 - 1회 fetch → fragment endpoint
-- 저빈도 polling(수십초) + 파생 많은 SSR 영역 → fragment endpoint(HTML) 교체 (P2 단일 진실 유지). 서버목록처럼 체크박스 선택·client 필터·직접 바인딩 이벤트가 있는 영역은 자동 교체 대상에서 제외 (충돌 회피 — cell 단위 polling 으로 대체)
+- 저빈도 polling(수십초) + 파생 많은 SSR 영역 → fragment endpoint(HTML) 교체 (P2 단일 진실 유지). 서버목록처럼 체크박스 선택·client 필터·직접 바인딩 이벤트가 있는 영역은 행만 교체 후 체크 상태·필터·이벤트를 복원 (discover 버튼 등 정적 요소는 교체 대상에서 보존). task-cell 모달처럼 event delegation 핸들러는 복원 불필요
 - 고빈도 polling / SSE 무한 → JSON + JS render (예외)
 
 ## 시간 표기 — 단일 진실 (예외 0 의무)

@@ -28,6 +28,8 @@ class ServiceItem:
     category: str
     ports: list[MatchedPort]
     display_name: str = ""
+    # 같은 카테고리 서비스 개수 (서버목록 뱃지 "container 2" 표시 — 환경요약 role 인스턴스 수와 일관). _dedup_known 이 set.
+    category_count: int = 1
 
 
 @dataclass
@@ -64,6 +66,8 @@ class ServerListItem:
     # 분류 raw enum — list 필터링 단일 진실 (optimal / over_provisioned / under_provisioned /
     # idle / shutdown / insufficient_data). raws_period 부재 시 빈 문자열.
     provisioning_class: str = ""
+    # OS distro(endoflife 카탈로그 product slug) — OS 필터 단일 진실. os_id_to_distro(os_id) 정규화 (rocky->rocky-linux).
+    os_distro: str = ""
     # 행별 마지막 task 요약. None 이면 발행 이력 없음 — 템플릿이 "—" 로 표시.
     last_task: TaskSummaryItem | None = None
 

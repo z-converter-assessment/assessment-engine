@@ -154,10 +154,10 @@
     <option value="{{ cat }}" {% if request.query_params.get('service') == cat %}selected{% endif %}>{{ cat }}</option>
     {% endfor %}
   </select>
-  <select name="os_id">
+  <select name="os_distro">
     <option value="">OS 전체</option>
-    {% for oid in filter_options.os_ids %}
-    <option value="{{ oid }}" {% if request.query_params.get('os_id') == oid %}selected{% endif %}>{{ oid }}</option>
+    {% for slug, label in filter_options.distro_options %}
+    <option value="{{ slug }}" {% if request.query_params.get('os_distro') == slug %}selected{% endif %}>{{ label }}</option>
     {% endfor %}
   </select>
   <select name="classification">
@@ -166,9 +166,11 @@
     <option value="{{ cls }}" {% if request.query_params.get('classification') == cls %}selected{% endif %}>{{ cls }}</option>
     {% endfor %}
   </select>
-  {% if request.query_params.get('search') or request.query_params.get('is_online') or request.query_params.get('service') or request.query_params.get('os_id') or request.query_params.get('classification') %}
+  {% if request.query_params.get('search') or request.query_params.get('is_online') or request.query_params.get('service') or request.query_params.get('os_distro') or request.query_params.get('classification') %}
   <a href="/servers/" class="clear-btn" style="display:inline-flex;align-items:center;">초기화</a>
   {% endif %}
+  {# 서버 발견 — 필터 행 우측 정렬 (margin-left:auto). type=button 이라 필터 submit 안 함. #}
+  <button type="button" id="discover-btn" class="btn-action" style="margin-left:auto;">+ 서버 발견</button>
 </form>
 
 <div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; margin-bottom:14px; align-items:center;">
@@ -196,88 +198,20 @@
       <th class="action-col"></th>
     </tr>
   </thead>
-  <tbody>
-    {% for s in servers %}
-    <tr class="server-row"
-        data-hostname="{{ s.hostname | lower }}"
-        data-is-online="{{ 'true' if s.is_online else 'false' }}"
-        data-os-id="{{ s.os_id or '' }}"
-        data-classification="{{ s.provisioning_class }}"
-        data-services="{% for svc in s.known_services %}{{ svc.category }} {% endfor %}">
-      <td class="no-print"><input type="checkbox" class="row-select" data-public-id="{{ s.public_id }}" data-hostname="{{ s.hostname }}"></td>
-      <td style="text-align:center;">
-        {% if s.is_online %}
-          <span class="dot dot-ok" title="온라인"></span>
-        {% else %}
-          <span class="dot dot-off" title="오프라인"></span>
-        {% endif %}
-      </td>
-      <td>
-        <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="row-link"><strong>{{ s.hostname }}</strong></a>
-      </td>
-      <td>
-        {% if s.services is none %}
-          <span class="text-meta" style="font-size:11px;">—</span>
-        {% elif s.services %}
-          {% for svc in s.known_services %}
-            <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}</span>
-          {% endfor %}
-          {% if s.show_unknown_badge %}
-            <span class="badge badge-cat-unknown">unknown</span>
-          {% endif %}
-        {% else %}
-          <span class="text-meta" style="font-size:11px;">없음</span>
-        {% endif %}
-      </td>
-      <td class="text-label">
-        {% if s.ip_external %}
-          {% for ip in s.ip_external %}{{ ip }}{% if not loop.last %}, {% endif %}{% endfor %}
-        {% else %}
-          <span class="text-meta" style="font-size:11px;">내부망</span>
-        {% endif %}
-      </td>
-      <td class="text-label">{{ s.os_display }}</td>
-      <td>
-        {% if s.recommendation_color %}
-          <span style="display:inline-flex; align-items:center; gap:5px; font-size:11px; color:#475569;">
-            <span style="display:inline-block; width:8px; height:8px; background:{{ s.recommendation_color }}; border-radius:50%;"></span>
-            {{ s.recommendation_label }}
-          </span>
-        {% else %}
-          <span class="text-meta" style="font-size:11px;">—</span>
-        {% endif %}
-      </td>
-      <td>
-        {% if s.last_task %}
-          <a class="task-cell" href="#" data-task-id="{{ s.last_task.task_id }}" title="{{ s.last_task.failure_label or '' }}">
-            <span class="badge {{ s.last_task.badge_class }}">{{ s.last_task.badge_label }}</span>
-            <span style="font-size:11px; color:#64748b;">{{ s.last_task.created_at | kst }}</span>
-          </a>
-        {% else %}
-          <span class="text-meta" style="font-size:11px;">—</span>
-        {% endif %}
-      </td>
-      <td class="action-col">
-        <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="btn" style="font-size:12px; padding:4px 10px;">상세 →</a>
-      </td>
-    </tr>
-    {% endfor %}
-    <tr class="no-print">
-      <td colspan="12" style="padding:14px; background:#f8fafc;">
-        <button type="button" id="discover-btn" class="btn-action">+ 서버 발견</button>
-      </td>
-    </tr>
+  <tbody id="server-tbody">
+    {% include "servers/_server_rows.html" %}
   </tbody>
 </table>
 </div>
-{% else %}
-<div style="text-align:center; padding:40px; color:#64748b;">
-  등록된 서버가 없습니다.
-  <div style="margin-top:16px;">
-    <button type="button" id="discover-btn" class="btn-action">+ 서버 발견</button>
-  </div>
+{# 전체보기 — 기본 N행만 표시, 클릭 시 전체 표시 (JS clip). 필터 활성 시 숨김(조건 맞는 전부 노출).
+   서버 발견 버튼과 동일 btn-action 모양. #}
+<div class="no-print" id="show-more-wrap" style="display:none; margin-top:12px; text-align:center;">
+  <button type="button" id="show-more-btn" class="btn-action">전체보기 <span id="show-more-count" style="color:#94a3b8; font-weight:400;"></span></button>
 </div>
+{% else %}
+<p class="text-muted" style="margin:0; padding:20px 0;">등록된 서버가 없습니다. 에이전트가 연결되거나 아래에서 서버를 발견하세요.</p>
 {% endif %}
+
 </section>
 
 {# risk_top 카드 섹션 제거 (2026-05-12) — 환경 요약 + 통합 신호 카드 6 카탈로그로 흡수.

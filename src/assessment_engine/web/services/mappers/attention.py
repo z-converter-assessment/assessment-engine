@@ -24,6 +24,9 @@ from assessment_engine.web.view_models.attention import (
     CapacityTriggerBadge,
     CapacityWarningItem,
     EnvironmentOverview,
+    EnvironmentRealtime,
+    RealtimePeak,
+    RealtimePeakGroup,
     RiskDonutSegment,
     UtilizationBar,
 )
@@ -181,8 +184,8 @@ def build_environment_overview(
     for d in details:
         os_counter[d.os_family or "unknown"] += 1
 
-    # 역할 분포 — 각 서버의 "모든" 서비스 카테고리 카운트 (대표 1개 infer_role 아님, #E7).
-    # 2개 서비스가 분류되면 둘 다 반영. unknown 은 제외 (역할 미상은 분포에 노이즈).
+    # 역할 분포 — 각 서버의 모든 서비스 카테고리 인스턴스 카운트 (#E7). 서버목록 뱃지 개수와 일관 —
+    # 동일 카테고리 중복 서비스도 각각 카운트 (예: docker+containerd 둘 다 container → container 2). unknown 제외.
     role_counter: Counter[str] = Counter()
     for d in details:
         for svc in d.services or []:
@@ -238,6 +241,57 @@ def build_environment_overview(
         risk_high_count=risk_under,
         under_provisioned_hosts=under_provisioned_hosts or [],
         under_provisioned_hosts_count=len(under_provisioned_hosts or []),
+    )
+
+
+def build_environment_realtime(
+    total: int,
+    online: int,
+    snapshots: list[dict],
+    last_collected_at,
+    top_n: int = 3,
+) -> EnvironmentRealtime:
+    """온라인 서버 최신 스냅샷 snapshots(hostname/public_id/cpu_pct/mem_pct/disk_pct) -> EnvironmentRealtime.
+
+    호출자가 온라인 서버만 snapshots 로 전달 (오프라인 stale 메트릭 제외 — sample_size = len(snapshots)).
+    utilization: CPU/메모리/디스크 평균 도넛 3개 (환경 평균 도넛과 동일 컴포넌트·푸른 단색).
+    peak_groups: 자원별(CPU/메모리/디스크) 상위 top_n 랭킹 3열.
+    """
+
+    def _avg(key: str) -> float | None:
+        vals = [s[key] for s in snapshots if s.get(key) is not None]
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    avg_cpu = _avg("cpu_pct")
+    avg_mem = _avg("mem_pct")
+    avg_disk = _avg("disk_pct")
+    util_bars = [
+        UtilizationBar(label="CPU", pct=avg_cpu, bar_color=_bar_color(avg_cpu), dash_length=_dash_length(avg_cpu)),
+        UtilizationBar(label="메모리", pct=avg_mem, bar_color=_bar_color(avg_mem), dash_length=_dash_length(avg_mem)),
+        UtilizationBar(label="디스크", pct=avg_disk, bar_color=_bar_color(avg_disk), dash_length=_dash_length(avg_disk)),
+    ]
+
+    def _top(key: str) -> list[RealtimePeak]:
+        ranked = sorted((s for s in snapshots if s.get(key) is not None), key=lambda s: s[key], reverse=True)
+        return [
+            RealtimePeak(hostname=s["hostname"], public_id=s["public_id"], pct=s[key], color=_bar_color(s[key]))
+            for s in ranked[:top_n]
+        ]
+
+    peak_groups = [
+        RealtimePeakGroup(label="CPU", peaks=_top("cpu_pct")),
+        RealtimePeakGroup(label="메모리", peaks=_top("mem_pct")),
+        RealtimePeakGroup(label="디스크", peaks=_top("disk_pct")),
+    ]
+    return EnvironmentRealtime(
+        total=total,
+        online=online,
+        offline=total - online,
+        sample_size=len(snapshots),
+        utilization=util_bars,
+        last_collected_at=last_collected_at,
+        peak_groups=peak_groups,
+        has_peaks=any(g.peaks for g in peak_groups),
     )
 
 
