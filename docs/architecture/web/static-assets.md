@@ -22,12 +22,14 @@ src/assessment_engine/web/static/js/
 | `fmtKbChart(v)` | bytes/sec → kB/MB/s |
 | `getAnchorEnd(inputId)` / `initAnchor(inputId)` | datetime input 처리 |
 | `makeBucketGrid(range, bucket, anchor)` / `joinToGrid(grid, rows, bMs)` | 버킷 그리드 + 응답 join |
-| `bindToggle(groupId, onChange)` | range/agg 토글 바인딩 |
+| `bindToggle(groupId, onChange)` | range/agg 컨트롤 바인딩 — element 가 `<select>`면 change, `.toggle` 버튼이면 click 자동 분기 (호출처 동일) |
 | `initSse(serverId, onMessage)` | SSE 초기화 + dot 표시 |
 | `safeArray(arr)` | `Array.isArray` 방어 (P4 c) |
 | `fetchRebootEvents(serverId, range, anchor)` | reboot/restart 이벤트 fetch (vertical marker용) |
 | `applyRebootMarkers(chart, events, gridMs)` | 차트 인스턴스에 marker 옵션 주입 + redraw |
 | `rebootMarkersPlugin` | Chart.js 글로벌 plugin (`afterDraw`로 dashed line 그림). chart-utils 로드 시 자동 등록 |
+| `renderChipLegend(container, chart)` | 색점+라벨 칩(pill) 토글 범례 — dataset 1개당 1칩, 클릭 시 show/hide. comp/load 계열 (cpu·memory) |
+| `buildAvgMaxDatasets` / `buildAvgMaxLegend(id, chart, opts)` | avg+max ghost dataset·범례. `withToggle`=칩(avg/max 쌍 1칩 함께 토글), `codeLabel`=정적 선+라벨 (storage io·network·performance) |
 
 ## 페이지별 .js 패턴
 
@@ -54,6 +56,17 @@ src/assessment_engine/web/static/js/
 ### Y축 정책
 - 추이 차트 (cpu/network 페이지): 분해력 우선 — 작은 값도 보이게 `suggestedMax` 낮게
 - 진단 리포트 (performance 페이지): 절대 기준 — `PERF_IOPS_SUGGESTED_MAX=200`(HDD 한계) / `PERF_NET_SUGGESTED_MAX=10MB/s`(1Gbps 8%)
+
+### 차트 컨트롤 (제목줄 통합)
+- 차트 헤더 = `.chart-head` 단일 행: 제목(h2 좌측) + bucket-label·구간·앵커·집계 컨트롤(우측, bucket-label 부터 `margin-left:auto`). 좁아지면 그룹 단위 wrap. (옛 별도 컨트롤 행 폐기.)
+- 구간/집계 = `<select class="chart-select">` 드롭다운 (옛 `.toggle` 버튼 그룹 대체 — 너비 절약). `bindToggle` 이 select/button 자동 분기라 JS 호출 동일.
+- 앵커 = `<input type="datetime-local" class="chart-anchor">`. select·anchor 높이 통일(`box-sizing`).
+- 다중 차트 한 페이지(network: I/O·PPS)는 차트별 독립 구간/앵커 (공유 X).
+
+### 범례 (칩 토글)
+- `.legend-chip` (pill 버튼 + `.legend-dot` 색점): 클릭 시 dataset show/hide, 숨김은 `aria-pressed=false`로 흐려짐. `button`+`aria-pressed`라 키보드 토글 지원.
+- comp/load 계열 = `renderChipLegend` (dataset 1칩). avg+max ghost(storage io·network) = `buildAvgMaxLegend({withToggle})` (avg/max 쌍 1칩 함께 토글).
+- 네트워크 차트 = `buildNetGroupedLegend` (network.js 로컬): 인터페이스별 1행(`.legend-iface-row` = `.legend-iface-name` + RX/TX 칩). 긴 이름 width 고정 + 줄임표 + `title` hover 식별, RX/TX 인접 정렬. 데이터 숨김 X (모든 인터페이스 표시) — 가시성만 그룹화.
 
 ### avg + max ghost 패턴
 1차 dataset = avg (visible). 2차 dataset = max (`borderColor:'transparent'`, `realData` 보유) — tooltip에서 `realData`로 max 표시. legend는 짝수 인덱스만.

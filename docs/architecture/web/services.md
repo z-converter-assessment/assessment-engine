@@ -11,7 +11,7 @@
 | `metrics_calculator.py` | CPU/Disk/Net delta + Mem/Swap 시점값 -> Snapshot. `_is_counter_reset` (boot_time 비교) |
 | `cache_serializer.py` | Redis serde — `ServerDetailResponse` / `MetricDashboard`. 역직렬화 후 `enrich_*` 재호출 (idempotent) |
 | `unit_converter.py` | KB->GB / sectors->KB/s / usage_pct 단위 변환 |
-| `device_filters.py` | 물리 디스크·LVM·partition 분류 + 가상 마운트 필터 + `find_parent_disk` (mount-disk 조인) |
+| `device_filters.py` | 디스크/인터페이스 블랙리스트 필터 (`is_physical_disk`·`is_virtual_disk`·`is_lvm_disk`·`is_partition`·`is_virtual_interface`) + 가상 마운트 필터 + `find_parent_disk` (mount-disk 조인) |
 | `service_classifier.py` | systemd unit -> 서비스 카테고리 (`web`/`db`/`cache`/`mq`/`monitor` 등) + 포트 매핑 |
 
 진단 deep dive(워커·스케줄러·LLM 토글·diagnostic_jobs): `docs/architecture/diagnostic.md`.
@@ -34,6 +34,19 @@
 - 가상 (major=0, tmpfs) → None
 
 storage 페이지 mount → disk 매칭 + `_split_disks` (Inventory JSON Export의 `additional_disks.mount_hint`)에 활용.
+
+## 디바이스 필터 정책 — 블랙리스트 (관측성 놓침 방지)
+
+디스크·네트워크 인터페이스는 블랙리스트로 거른다 — 명백한 가상·시스템 디바이스만 제외하고 나머지는 통과. 화이트리스트(알려진 패턴만 허용)는 특이 물리 디바이스(`mpath`·`cciss`·새 NIC naming)를 조용히 놓치는 위험이 있어, 관측성에선 "놓침이 노이즈보다 치명적" 원칙으로 블랙리스트가 정석 (node_exporter `device-exclude` 등 de facto). 보안의 default-deny(화이트)와 반대 방향임에 주의 — 관측성은 "모르는 것도 일단 보여야" 안전.
+
+- `is_physical_disk(name)` = `not (is_virtual_disk OR is_lvm_disk OR is_partition)`. 가상(`loop`/`ram`/`zram`/`fd`/`sr`/`nbd`)·논리(LVM/RAID `dm-`/`md`)·파티션 제외, 나머지(sd/vd/nvme/mmcblk/PhysicalDrive + 특이 컨트롤러) 통과. (과거 화이트리스트 `_PHYS_DISK_RE`에서 전환.)
+- `is_virtual_interface(name)` = 보수적 1번 범위만 제외 — `lo`·터널(`sit`/`tunl`/`ip6tnl`/`gre`/`gretap`/`erspan`)·`veth`·`dummy`·`ifb`·`nlmon` + Windows NDIS 필터 드라이버(`-NNNN` suffix). `docker`/`br-`/`bond`/`vlan` 회색지대는 통과(컨테이너·본딩 호스트 정보 손실 방지).
+
+적용 경계 — 저장은 모두 유지, 표시 경계에서만 필터:
+- 디스크: `compute_disk_io`(스냅샷) + `to_storage_detail`(인벤토리 물리 디스크) + `query_service._filter_disk_category`(차트 `device_category=phys`).
+- 인터페이스: `compute_net_io`(스냅샷) + `query_service.get_metric_chart`(차트 `_NET_METRIC_TYPES`).
+
+IP 필터 보류: `ip_internal`/`ip_external`은 평면 IP 목록만 발행돼(인터페이스 매핑 부재) 가상/물리 구분이 주소 형식만으론 불가 — docker 사설 IP와 물리 사설 IP가 같은 대역(192.168/10/172.16/fd00 ULA). 링크로컬(`fe80::/10`·`169.254/16`)·루프백 정도만 형식 필터 가능하나 이득이 작아, agent가 IP-인터페이스 매핑을 발행하기 전까지 IP는 필터하지 않는다 (인터페이스 IO 필터는 device 이름이 명확해 유지).
 
 ## Recommendation 분류 — USE Method 출처
 
