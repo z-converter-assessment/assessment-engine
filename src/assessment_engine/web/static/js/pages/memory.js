@@ -10,16 +10,15 @@ const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtKst, fmtLabel, getAnchorEnd, initAnchor,
         makeBucketGrid, bindToggle, initSse, safeArray,
         fetchRebootEvents, applyRebootMarkers,
-        buildAvgMaxDatasets } = ChartUtils;
+        buildAvgMaxDatasets, renderChipLegend } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
 const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 메트릭 N/A 분기
 
-function fmtKb(kb) {
+// 현재 상태 메모리/스왑 측정값 단위 통일 — KB 입력 -> GB 소숫점1 고정 (인벤토리 '전체 메모리 X.X GB' 와 일관).
+function fmtGb(kb) {
   if (kb == null) return '—';
-  if (kb >= 1024 * 1024) return (kb / 1024 / 1024).toFixed(1) + ' GB';
-  if (kb >= 1024)        return (kb / 1024).toFixed(1) + ' MB';
-  return kb + ' KB';
+  return (kb / 1024 / 1024).toFixed(1) + ' GB';
 }
 
 /* ── 스냅샷 ── */
@@ -36,17 +35,15 @@ async function loadSnapshot() {
 
     const usedKb = mem.total_kb != null && mem.available_kb != null ? mem.total_kb - mem.available_kb : null;
     document.getElementById('s-mem-pct').textContent     = mem.usage_pct    != null ? mem.usage_pct.toFixed(1) + '%' : '—';
-    document.getElementById('s-mem-total').textContent   = fmtKb(mem.total_kb);
-    document.getElementById('s-mem-used').textContent    = fmtKb(usedKb);
-    document.getElementById('s-mem-avail').textContent   = fmtKb(mem.available_kb);
-    document.getElementById('s-mem-cached').textContent  = ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtKb(mem.cached_kb));
-    document.getElementById('s-mem-buffers').textContent = ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtKb(mem.buffers_kb));
+    document.getElementById('s-mem-used').textContent    = fmtGb(usedKb);
+    document.getElementById('s-mem-avail').textContent   = fmtGb(mem.available_kb);
+    document.getElementById('s-mem-cached').textContent  = ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtGb(mem.cached_kb));
+    document.getElementById('s-mem-buffers').textContent = ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtGb(mem.buffers_kb));
 
     if (swap) {
       const swapUsedKb = swap.total_kb != null && swap.used_kb != null ? swap.used_kb : null;
       document.getElementById('s-swap-pct').textContent   = swap.usage_pct  != null ? swap.usage_pct.toFixed(1) + '%' : '—';
-      document.getElementById('s-swap-total').textContent = fmtKb(swap.total_kb);
-      document.getElementById('s-swap-used').textContent  = fmtKb(swapUsedKb);
+      document.getElementById('s-swap-used').textContent  = fmtGb(swapUsedKb);
     }
 
     if (data.collected_at) {
@@ -263,21 +260,7 @@ function renderCompChart(rows, range, anchorEnd) {
 }
 
 function buildCompLegend() {
-  const container = document.getElementById('comp-legend');
-  if (!compChart) { container.innerHTML = ''; return; }
-  container.innerHTML = compChart.data.datasets.map((ds, i) => `
-    <label class="legend-label">
-      <input type="checkbox" data-idx="${i}" checked
-        style="accent-color:${ds.borderColor}; width:13px; height:13px; cursor:pointer;">
-      <span>${ds.label}</span>
-    </label>
-  `).join('');
-  container.querySelectorAll('input[type=checkbox]').forEach(cb => {
-    cb.addEventListener('change', () => {
-      compChart.getDatasetMeta(+cb.dataset.idx).hidden = !cb.checked;
-      compChart.update();
-    });
-  });
+  renderChipLegend(document.getElementById('comp-legend'), compChart);
 }
 
 async function loadCompChart() {

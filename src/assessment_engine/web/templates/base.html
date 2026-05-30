@@ -133,6 +133,16 @@
     .alert-danger { color: #991b1b; padding: 12px; background: #fee2e2; border-radius: 6px; }
     .pre-output { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; font-size: 11px; color: #1e293b; max-height: 200px; overflow: auto; margin: 0; }
     .legend-label { font-size: 12px; color: #475569; cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 4px; }
+    /* 칩(pill) 토글 범례 — 색 점 + 라벨. 클릭 시 dataset show/hide. 숨김 상태는 aria-pressed=false 로 흐려짐. */
+    .legend-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border: 1px solid #e2e8f0; border-radius: 999px; background: #fff; color: #334155; font-size: 12px; font-weight: 500; cursor: pointer; user-select: none; transition: background .12s, border-color .12s, color .12s; }
+    .legend-chip:hover { background: #f8fafc; border-color: #cbd5e1; }
+    .legend-chip[aria-pressed="false"] { color: #cbd5e1; }
+    .legend-chip[aria-pressed="false"] .legend-dot { background: #cbd5e1 !important; }
+    .legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    /* 인터페이스별 그룹 범례 (네트워크) — 한 행에 이름 + RX/TX 칩. */
+    .legend-iface-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    /* 인터페이스 이름 — width 고정 + 줄임표. 전체 이름은 title(hover 툴팁)로 식별. 칩과 같은 12px 로 폰트 통일. */
+    .legend-iface-name { font-size: 12px; font-weight: 500; color: #334155; width: 200px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     /* task-detail-grid — task-modal 의 라벨/값 grid (key-value). */
     .task-detail-grid > .label { color: #64748b; font-size: 13px; }
 
@@ -180,6 +190,16 @@
 
     /* Chart toggle 버튼 — cpu/memory/network/storage/performance 공통 (range/anchor/agg toggle). */
     .toggle-group { display: flex; gap: 4px; flex-wrap: wrap; }
+    /* 차트 컨트롤 — 제목(h2) 좌측, bucket-label 부터 구간/앵커/집계 컨트롤을 같은 줄 우측 정렬. 좁아지면 wrap. */
+    .chart-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .chart-head h2 { margin: 0; }  /* flex 중앙 정렬 — h2 기본 margin-bottom 이 bucket-label 과 어긋나는 것 방지 */
+    /* bucket-label 부터 우측 — 구간/앵커/집계 컨트롤을 제목과 같은 줄 우측 정렬. wrap 시 그룹 단위로 내려감.
+       height/box-sizing 으로 select·anchor(30px)와 높이 통일 (inline span 은 기본 height 미적용이라 얇아짐 방지). */
+    .chart-head > span { margin-left: auto; display: inline-flex; align-items: center; height: 30px; box-sizing: border-box; }
+    /* 차트 컨트롤 드롭다운 — 구간/집계 select. 토글 버튼 줄을 좁게 대체. */
+    .chart-select { padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; color: #334155; font-size: 12px; cursor: pointer; height: 30px; box-sizing: border-box; }
+    .chart-select:hover { border-color: #94a3b8; }
+    .chart-anchor { padding: 4px 6px; border: 1px solid #e2e8f0; border-radius: 5px; font-size: 11px; color: #475569; background: #fff; cursor: pointer; height: 32px; box-sizing: border-box; }
     .toggle { padding: 5px 12px; border: 1px solid #e2e8f0; border-radius: 5px; background: #fff; color: #475569; font-size: 12px; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
     .toggle:hover { background: #f8fafc; border-color: #cbd5e1; }
     .toggle.active { background: #0f172a; color: #fff; border-color: #0f172a; }
@@ -187,6 +207,7 @@
     /* Section header within card */
     .section-title { font-size: 13px; font-weight: 600; color: #334155; margin: 20px 0 10px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
     .section-title:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+    .sub-label { font-size: 12px; font-weight: 600; color: #475569; margin: 14px 0 6px; }
 
     /* Dot indicators */
     .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
@@ -201,7 +222,7 @@
     .btn-print:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); }
 
     /* 진단 액션 버튼 — list.html(환경 진단) / detail.html(서버 진단) 공통 패턴. inline 중복 방지. */
-    .btn-action { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #374151; font-size: 13px; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; cursor: pointer; }
+    .btn-action { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #374151; font-size: 13px; font-weight: 500; text-decoration: none; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; cursor: pointer; }
     .btn-action:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); text-decoration: none; }
     .btn-action svg { width: 14px; height: 14px; }
 

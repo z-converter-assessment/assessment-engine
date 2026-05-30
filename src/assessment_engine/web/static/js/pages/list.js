@@ -504,9 +504,10 @@ if (filterForm) {
 }
 
 // ─── 대시보드 자동 갱신 ──────────────────────────────────────────────────
-// page 1 환경요약·운영신호 카드를 30초마다 fragment 교체 (static-assets.md polling 정공).
-// 서버목록 테이블은 체크박스 선택 보존 위해 갱신 대상 제외 (#dashboard-live = 환경요약+운영신호만).
-// 검색/필터는 client-side hide/show라 fragment(전체 환경 기준)와 무관 — page>1 일 때만 환경요약 미노출이라 skip.
+// page 1 대시보드를 30초마다 fragment 부분 교체 (static-assets.md polling 정공).
+// live(환경요약·운영신호·실시간 메트릭) + rows(서버목록 행) 두 fragment 동시 갱신.
+// 서버목록은 replaceServerRows 가 체크박스 선택·client 필터·진행중 task 추적을 보존하며 교체 (전체 reload 회피).
+// 검색/필터는 client-side hide/show라 fragment(전체 환경 기준)와 무관. page>1 일 땐 환경요약 무의미해 폴링 skip.
 (function () {
   const live = document.getElementById('dashboard-live');
   if (!live) return;
@@ -518,7 +519,7 @@ if (filterForm) {
 
   async function refresh() {
     try {
-      // live(환경요약·운영신호) + rows(서버목록 행) 동시 갱신 — 페이지 전체 데이터 일괄 최신화.
+      // live(환경요약·운영신호·실시간 메트릭) + rows(서버목록 행) 동시 갱신 — 페이지 전체 데이터 일괄 최신화.
       const [liveRes, rowsRes] = await Promise.all([
         fetch('/servers/?fragment=live'),
         fetch('/servers/?fragment=rows'),

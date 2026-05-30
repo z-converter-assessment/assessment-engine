@@ -27,7 +27,13 @@ from assessment_engine.web.services.cache_serializer import (
     server_detail_from_json,
     server_detail_to_json,
 )
-from assessment_engine.web.services.device_filters import is_lvm_disk, is_partition, is_physical_disk, is_virtual_mount
+from assessment_engine.web.services.device_filters import (
+    is_lvm_disk,
+    is_partition,
+    is_physical_disk,
+    is_virtual_interface,
+    is_virtual_mount,
+)
 from assessment_engine.web.services.mappers.attention import (
     build_environment_overview,
     build_environment_realtime,
@@ -70,6 +76,7 @@ from assessment_engine.web.view_models.attention import (
     AttentionRow,
     AttentionSignals,
     CapacityWarningItem,
+    DashboardLive,
     EnvironmentOverview,
     EnvironmentRealtime,
 )
@@ -89,6 +96,28 @@ from assessment_engine.web.view_models.server import (
 from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
 
 _DISK_METRIC_TYPES = frozenset({"disk.read_iops", "disk.write_iops"})
+_NET_METRIC_TYPES = frozenset(
+    {"net.rx_bytes_per_sec", "net.tx_bytes_per_sec", "net.rx_packets_per_sec", "net.tx_packets_per_sec"}
+)
+
+# 운영신호(attention) 카탈로그 항목 한도 + gap 윈도우 — 단건 get_attention_signals 와 대시보드 묶음 공유.
+_ATTENTION_LIMIT_EACH = 5
+_GAP_MINUTES = 5
+_GAP_RECENT_HOURS = 24
+_SSE_PING_INTERVAL_SEC = 15  # SSE idle keep-alive ping 주기 — 메시지 없을 때 프록시·브라우저 idle 끊김 방지
+
+
+def _empty_overview() -> EnvironmentOverview:
+    """등록 서버 0대 — 빈 환경 요약 (단건 get_environment_overview · 대시보드 묶음 공유)."""
+    return EnvironmentOverview(
+        total=0,
+        online=0,
+        offline=0,
+        total_vcpus=0,
+        total_memory_gb=0.0,
+        total_disk_gb=0,
+        role_distribution={},
+    )
 
 # disk metric_type에서만 의미를 갖는 service 레벨 분기. 라우터에서 Literal로 검증 (F3 단일 경로).
 DeviceCategory = Literal["phys", "logical"]
@@ -259,6 +288,8 @@ class QueryService:
         dtos = await self.repo.metric_chart(server_id, metric_type, dimension, time_range, bucket, agg, end)
         if metric_type == "fs.usage_percent":
             dtos = [d for d in dtos if not is_virtual_mount(None, d.dimension)]
+        if metric_type in _NET_METRIC_TYPES:
+            dtos = [d for d in dtos if not is_virtual_interface(d.dimension)]
         if device_category is not None and metric_type in _DISK_METRIC_TYPES:
             dtos = _filter_disk_category(dtos, device_category)
         return [to_metric_series_item(dto) for dto in dtos]
@@ -266,9 +297,9 @@ class QueryService:
     async def get_attention_signals(
         self,
         disk_threshold_pct: float = 85,
-        gap_minutes: int = 5,
-        gap_recent_hours: int = 24,
-        limit_each: int = 5,
+        gap_minutes: int = _GAP_MINUTES,
+        gap_recent_hours: int = _GAP_RECENT_HOURS,
+        limit_each: int = _ATTENTION_LIMIT_EACH,
         days_until_full_threshold: int = 30,
     ) -> AttentionSignals:
         """list 화면 운영 신호 카드 — USE Method 외 시스템 운영 이상 3 카탈로그.
@@ -278,44 +309,17 @@ class QueryService:
         - agent_unstable: 1h 윈도우 안 재시작 임계 초과
 
         디스크(capacity·IO)는 USE Method classify 통합 — 본 catalog 에서 제외 (중복 회피).
+        조립은 _assemble_attention 단일 진실 (대시보드 묶음 get_dashboard_live 와 공유).
         """
-        gap_raws = await self.repo.metric_gap_warnings(gap_minutes, gap_recent_hours, limit_each)
         now = datetime.now(UTC)
-
+        gap_raws = await self.repo.metric_gap_warnings(gap_minutes, gap_recent_hours, limit_each)
         server_ids = await self.repo.list_server_ids()
-        os_eol_warnings: list[AttentionRow] = []
         raws_period = []
+        restart_counts: dict[int, int] = {}
         if server_ids:
             raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
-            for raw in raws_period:
-                eol = to_os_eol_warning_item(raw, now)
-                if eol and len(os_eol_warnings) < limit_each:
-                    os_eol_warnings.append(eol)
-
-        # Agent 재시작 빈번 — DB fixed 1h 윈도우 (server_inventory_history agent_started_at DISTINCT-1).
-        # Redis sliding 카운터 대신 정확한 '최근 1시간' 카운트. (consumer Redis 카운터는 alert 로그용 유지)
-        agent_unstable: list[AttentionRow] = []
-        if server_ids:
-            threshold_n = web_settings.agent_restart_alert_threshold
             restart_counts = await self.repo.agent_restart_counts_recent(server_ids, now - timedelta(hours=1))
-            raws_by_id = {r.server_id: r for r in raws_period}
-            for sid, count in restart_counts.items():
-                if count >= threshold_n:
-                    raw = raws_by_id.get(sid)
-                    if raw and len(agent_unstable) < limit_each:
-                        agent_unstable.append(
-                            to_agent_unstable_item(
-                                raw.public_id,
-                                raw.hostname,
-                                count,
-                            )
-                        )
-
-        return AttentionSignals(
-            gap_warnings=[to_gap_warning_item(r, now) for r in gap_raws],
-            os_eol_warnings=os_eol_warnings,
-            agent_unstable=agent_unstable,
-        )
+        return self._assemble_attention(raws_period, gap_raws, restart_counts, now, limit_each)
 
     async def get_environment_overview(self) -> "EnvironmentOverview":
         """list 화면 상단 환경 요약 — 총 N대·온라인/오프라인·자원 합계·역할 분포·평균 활용률·위험도 분포 (P2).
@@ -328,25 +332,49 @@ class QueryService:
         period_days는 보고서·right-sizing과 동일 윈도우 (AWS Compute Optimizer 표준).
         모든 등록 서버 대상 단일 SQL. 첫 페이지 호출에서만 사용.
         """
+        now = datetime.now(UTC)
         server_ids = await self.repo.list_server_ids()
         if not server_ids:
-            return EnvironmentOverview(
-                total=0,
-                online=0,
-                offline=0,
-                total_vcpus=0,
-                total_memory_gb=0.0,
-                total_disk_gb=0,
-                role_distribution={},
-            )
+            return _empty_overview()
         details = await self.repo.get_servers(server_ids)
         util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS)
+        raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
+        online_by_id = await self._online_map(server_ids, details, now)
+        return self._assemble_overview(details, util, raws_period, online_by_id)
 
-        # USE Method 분포 — 14일 윈도우 classify 후 도넛 6 카테고리 카운트 + under_provisioned 호스트 상세.
+    async def get_environment_realtime(self) -> "EnvironmentRealtime":
+        """list 화면 '환경 실시간 메트릭' 카드 — 각 서버 최신 스냅샷(get_latest_metric, Redis cache 우선) 집계.
+
+        현황 모니터링 용도(right-sizing 14일 통계와 별개).
+        평균 도넛·자원별 부하상위: 현재 CPU/메모리/디스크(worst mount), online: Redis online:{id} TTL,
+        last_collected_at: 환경 전체 최신 수집시각(신선도). 조립은 _assemble_realtime 단일 진실 (대시보드 묶음과 공유).
+        """
         now = datetime.now(UTC)
+        server_ids = await self.repo.list_server_ids()
+        if not server_ids:
+            return build_environment_realtime(0, 0, [], None)
+        details = await self.repo.get_servers(server_ids)
+        online_by_id = await self._online_map(server_ids, details, now)
+        return await self._assemble_realtime(server_ids, details, online_by_id, now)
+
+    # ─── 대시보드 live 조립 (단건 + get_dashboard_live 묶음 공유) ────────────
+
+    async def _online_map(self, server_ids: list[int], details: list, now: datetime) -> dict[int, bool]:
+        """server_id -> online bool. Redis online flags(safe_mget) 우선, 장애(None) 시 last_seen_at fallback.
+
+        flags 는 online_keys(server_ids 순서) 대응. get_servers 는 순서 비보존이라 dict 매칭으로 순서 의존 제거.
+        """
+        online_keys = [web_settings.redis_key_online.format(sid) for sid in server_ids]
+        flags = await safe_mget(self.redis, online_keys)
+        threshold = now - timedelta(seconds=web_settings.redis_ttl_online)
+        if flags is None:
+            return {d.id: bool(d.last_seen_at and d.last_seen_at > threshold) for d in details}
+        return {sid: (flags[i] is not None) for i, sid in enumerate(server_ids)}
+
+    def _assemble_overview(self, details, util, raws_period, online_by_id: dict[int, bool]) -> EnvironmentOverview:
+        """report_aggregate raws -> USE Method 분류 도넛 + under_provisioned 상세, online_by_id -> online_count."""
         risk_counts: dict[str, int] = {}
         under_hosts: list[CapacityWarningItem] = []
-        raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
         for raw in raws_period:
             rec = recommendation.classify(
                 recommendation.ResourceStats(
@@ -366,50 +394,52 @@ class QueryService:
             risk_counts[seg] = risk_counts.get(seg, 0) + 1
             if rec == "under_provisioned":
                 under_hosts.append(to_capacity_warning_item(raw))
-
-        online_keys = [web_settings.redis_key_online.format(d.id) for d in details]
-        flags = await safe_mget(self.redis, online_keys)
-        threshold = datetime.now(UTC) - timedelta(seconds=web_settings.redis_ttl_online)
-        online_count = 0
-        for i, d in enumerate(details):
-            if flags is None:
-                online_count += int(bool(d.last_seen_at and d.last_seen_at > threshold))
-            else:
-                online_count += int(flags[i] is not None)
+        online_count = sum(1 for d in details if online_by_id.get(d.id))
         return build_environment_overview(details, online_count, util, risk_counts, under_hosts)
 
-    async def get_environment_realtime(self) -> "EnvironmentRealtime":
-        """list 화면 '환경 실시간 메트릭' 카드 — 각 서버 최신 스냅샷(get_latest_metric, Redis cache 우선) 집계.
+    def _assemble_attention(self, raws_period, gap_raws, restart_counts, now, limit_each) -> AttentionSignals:
+        """gap/os_eol/agent_unstable 3 카탈로그 조립 — raws_period(report_aggregate) 재사용.
 
-        현황 모니터링 용도(right-sizing 14일 통계와 별개). 평균 도넛·자원별 부하상위: 현재 CPU/메모리/디스크(worst mount),
-        online: Redis online:{id} TTL, last_collected_at: 환경 전체 최신 수집시각(신선도).
+        agent_unstable: 1h 윈도우 재시작 임계 초과(server_inventory_history agent_started_at DISTINCT-1).
         """
-        server_ids = await self.repo.list_server_ids()
-        if not server_ids:
-            return build_environment_realtime(0, 0, [], None)
-        details = await self.repo.get_servers(server_ids)
+        os_eol_warnings: list[AttentionRow] = []
+        for raw in raws_period:
+            eol = to_os_eol_warning_item(raw, now)
+            if eol and len(os_eol_warnings) < limit_each:
+                os_eol_warnings.append(eol)
+        agent_unstable: list[AttentionRow] = []
+        raws_by_id = {r.server_id: r for r in raws_period}
+        threshold_n = web_settings.agent_restart_alert_threshold
+        for sid, count in restart_counts.items():
+            if count >= threshold_n:
+                raw = raws_by_id.get(sid)
+                if raw and len(agent_unstable) < limit_each:
+                    agent_unstable.append(to_agent_unstable_item(raw.public_id, raw.hostname, count))
+        return AttentionSignals(
+            gap_warnings=[to_gap_warning_item(r, now) for r in gap_raws],
+            os_eol_warnings=os_eol_warnings,
+            agent_unstable=agent_unstable,
+        )
+
+    async def _assemble_realtime(self, server_ids, details, online_by_id: dict[int, bool], now) -> EnvironmentRealtime:
+        """각 서버 최신 스냅샷(get_latest_metric) 집계 — online_by_id 로 온라인 판정 공유.
+
+        평균·hotspot 표본은 온라인 서버만 (오프라인 stale 메트릭이 현황 평균 왜곡 방지) — sample_size/total 표기.
+        """
         detail_by_id = {d.id: d for d in details}
-        online_keys = [web_settings.redis_key_online.format(sid) for sid in server_ids]
-        flags = await safe_mget(self.redis, online_keys)
-        threshold = datetime.now(UTC) - timedelta(seconds=web_settings.redis_ttl_online)
         online = 0
         snapshots: list[dict] = []
         last_collected = None
-        for i, sid in enumerate(server_ids):
+        for sid in server_ids:
             d = detail_by_id.get(sid)
             if d is None:
                 continue
-            if flags is None:
-                is_on = bool(d.last_seen_at and d.last_seen_at > threshold)
-            else:
-                is_on = flags[i] is not None
+            is_on = online_by_id.get(sid, False)
             if is_on:
                 online += 1
             m = await self.get_latest_metric(sid)
             if not m or not m.collected_at:
                 continue
-            # 평균·hotspot 표본은 온라인 서버만 — 오프라인 서버의 stale 메트릭이 현황 평균을 왜곡하지 않게.
-            # 표기 sample_size/total (예: 3/4) 에서 오프라인 1대가 분자에서 빠지는 의미.
             if not is_on:
                 continue
             disk = max((mt.usage_pct for mt in m.mounts if mt.usage_pct is not None), default=None)
@@ -425,6 +455,33 @@ class QueryService:
             if last_collected is None or m.collected_at > last_collected:
                 last_collected = m.collected_at
         return build_environment_realtime(len(server_ids), online, snapshots, last_collected)
+
+    async def get_dashboard_live(self) -> DashboardLive:
+        """fragment=live·page1 공용 — 공유 기초 데이터 1회 조회 후 3 ViewModel 조립.
+
+        단건 3 메서드를 각각 호출하면 list_server_ids 3회·report_aggregate 2회·get_servers 2회·online flags 2회
+        중복. 본 메서드는 공유분(server_ids·details·raws_period·online_by_id)을 1회만 조회해 _assemble_* 에 주입.
+        세 카드가 동일 now·스냅샷 기준이라 카드 간 값 일관(비결정성 해소).
+        """
+        now = datetime.now(UTC)
+        server_ids = await self.repo.list_server_ids()
+        if not server_ids:
+            return DashboardLive(
+                overview=_empty_overview(),
+                attention=AttentionSignals(gap_warnings=[], os_eol_warnings=[], agent_unstable=[]),
+                realtime=build_environment_realtime(0, 0, [], None),
+            )
+        details = await self.repo.get_servers(server_ids)
+        raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
+        util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS)
+        online_by_id = await self._online_map(server_ids, details, now)
+        gap_raws = await self.repo.metric_gap_warnings(_GAP_MINUTES, _GAP_RECENT_HOURS, _ATTENTION_LIMIT_EACH)
+        restart_counts = await self.repo.agent_restart_counts_recent(server_ids, now - timedelta(hours=1))
+        return DashboardLive(
+            overview=self._assemble_overview(details, util, raws_period, online_by_id),
+            attention=self._assemble_attention(raws_period, gap_raws, restart_counts, now, _ATTENTION_LIMIT_EACH),
+            realtime=await self._assemble_realtime(server_ids, details, online_by_id, now),
+        )
 
     async def get_environment_report(
         self,
@@ -720,10 +777,21 @@ class QueryService:
         return await self.repo.reboot_events(server_id, start, end_dt)
 
     async def stream_metrics_events(self, server_id: int) -> AsyncIterator[str]:
+        """SSE 라인 스트림 — 본 server_id 메트릭 이벤트 + idle keep-alive ping (라우터는 그대로 통과).
+
+        get_message timeout 으로 _SSE_PING_INTERVAL_SEC 마다 메시지 없으면 comment ping(`: keep-alive`) 전송 —
+        메시지 없는 idle 구간에 프록시·브라우저가 연결을 끊지 않게 함.
+        """
         async with self.redis.pubsub() as pubsub:
             await pubsub.subscribe(web_settings.redis_channel_metrics)
             try:
-                async for message in pubsub.listen():
+                while True:
+                    message = await pubsub.get_message(
+                        ignore_subscribe_messages=True, timeout=_SSE_PING_INTERVAL_SEC
+                    )
+                    if message is None:
+                        yield ": keep-alive\n\n"
+                        continue
                     if message["type"] != "message":
                         continue
                     try:
@@ -731,7 +799,7 @@ class QueryService:
                     except (ValueError, TypeError):
                         continue
                     if payload.get("server_id") == server_id:
-                        yield message["data"]
+                        yield f"data: {message['data']}\n\n"
             except RedisError:
                 pass
 

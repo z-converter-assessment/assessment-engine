@@ -60,6 +60,16 @@ _RATE_PER_DIM: dict[str, tuple[str, str, str]] = {
         _RATE_PER_DIM_DEFS["net.tx_bytes_per_sec"][0],
         _RATE_PER_DIM_DEFS["net.tx_bytes_per_sec"][1],
     ),
+    "net.rx_packets_per_sec": (
+        ServerNetIo.__tablename__,
+        _RATE_PER_DIM_DEFS["net.rx_packets_per_sec"][0],
+        _RATE_PER_DIM_DEFS["net.rx_packets_per_sec"][1],
+    ),
+    "net.tx_packets_per_sec": (
+        ServerNetIo.__tablename__,
+        _RATE_PER_DIM_DEFS["net.tx_packets_per_sec"][0],
+        _RATE_PER_DIM_DEFS["net.tx_packets_per_sec"][1],
+    ),
 }
 
 

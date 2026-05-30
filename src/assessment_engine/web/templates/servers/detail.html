@@ -11,23 +11,17 @@
     margin: 22px 0 12px;
   }
   .group-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: #94a3b8;
+    font-size: 14px;
+    font-weight: 700;
+    color: #475569;
     text-transform: uppercase;
-    letter-spacing: .06em;
+    letter-spacing: .04em;
     white-space: nowrap;
   }
   .group-line {
     flex: 1;
     height: 1px;
     background: #e2e8f0;
-  }
-  .sub-label {
-    font-size: 12px;
-    font-weight: 600;
-    color: #475569;
-    margin: 14px 0 6px;
   }
   .group-panel {
     background: #f1f5f9;
@@ -69,21 +63,26 @@
     <dt>OS</dt>
     <dd>{{ server.os_display }}{% if server.os_codename %} ({{ server.os_codename }}){% endif %}</dd>
     <dt>Kernel</dt>
-    <dd>{% if server.kernel_version %}<code>{{ server.kernel_version }}</code>{% else %}-{% endif %}</dd>
+    <dd>{% if server.kernel_version %}{{ server.kernel_version }}{% else %}-{% endif %}</dd>
     <dt>CPU</dt>
     <dd>{{ server.cpu_display }}</dd>
     <dt>Memory</dt>
     <dd>{{ server.mem_total_gb | disksize }}</dd>
     <dt>Swap</dt>
     <dd>{{ server.swap_total_gb | disksize }}</dd>
+    {# 파일시스템 총 크기 합(volume_total_gb) — 실제 데이터 저장 가능 총량. 물리 raw(LVM·오버헤드 포함)와 별개. #}
+    <dt>파일시스템 용량</dt>
+    <dd>{{ server.volume_total_gb | disksize }}</dd>
     <dt>Boot Time</dt>
     <dd>{{ server.boot_time | kst }}</dd>
+    <dt>Agent Started</dt>
+    <dd>{{ server.agent_started_at | kst }}</dd>
     <dt>Internal IP</dt>
-    <dd>{% for ip in server.ip_internal %}<code>{{ ip }}</code> {% else %}-{% endfor %}</dd>
+    <dd>{% for ip in server.ip_internal %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% else %}-{% endfor %}</dd>
     <dt>External IP</dt>
     <dd>
       {% if server.ip_external %}
-        {% for ip in server.ip_external %}<code>{{ ip }}</code> {% endfor %}
+        {% for ip in server.ip_external %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}
       {% else %}
         <span class="text-meta">내부망</span>
       {% endif %}
@@ -91,27 +90,47 @@
     <dt>Agent Version</dt>
     <dd>{{ server.agent_version or '-' }}</dd>
     <dt>Composite ID</dt>
-    <dd><code>{{ server.composite_id }}</code></dd>
+    <dd>{{ server.composite_id }}</dd>
     <dt>Machine ID</dt>
-    <dd><code>{{ server.machine_id or '-' }}</code></dd>
+    <dd>{{ server.machine_id or '-' }}</dd>
     <dt>Last Inventory</dt>
-    <dd style="color:#64748b; font-size:13px;">{{ server.last_seen_at | kst }}</dd>
-    <dt>Storage</dt>
-    {% if server.disks %}
-    <dd>
-      {{ server.disk_total_gb | disksize }}
-      <span style="color:#94a3b8; font-size:12px; margin-left:4px;">({{ server.disks_count }}개 디바이스)</span>
-    </dd>
+    <dd>{{ server.last_seen_at | kst }}</dd>
+    {# 파일시스템(논리 볼륨) — inventory.mounts 기준. 물리 디스크와 별개 축, 양 OS 일관(fstype 명시). #}
+    <dt>파일시스템</dt>
+    {% if server.volumes %}
+    <dd>{{ server.volumes_count }}개</dd>
     <dd style="grid-column: 1 / -1;">
       <table style="margin:0;">
         <thead>
-          <tr><th>Device</th><th>Type</th><th>Size</th></tr>
+          <tr><th>마운트</th><th>파일시스템</th><th>용량</th></tr>
+        </thead>
+        <tbody>
+          {% for v in server.volumes %}
+          <tr>
+            <td>{{ v.mount }}</td>
+            <td>{{ v.fstype or '-' }}</td>
+            <td>{{ v.total_gb | disksize }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </dd>
+    {% else %}
+    <dd><span class="text-meta">수집된 파일시스템 정보 없음</span></dd>
+    {% endif %}
+    {# 물리 디스크(하드웨어 블록 디바이스) — inventory.disks 기준. Windows agent 는 미발행 → placeholder. #}
+    <dt>물리 디스크</dt>
+    {% if server.disks %}
+    <dd>{{ server.disks_count }}개</dd>
+    <dd style="grid-column: 1 / -1;">
+      <table style="margin:0;">
+        <thead>
+          <tr><th>디바이스</th><th>용량</th></tr>
         </thead>
         <tbody>
           {% for d in server.disks %}
           <tr>
-            <td><code>{{ d.name }}</code></td>
-            <td>{{ d.type or '-' }}</td>
+            <td>{{ d.name }}</td>
             <td>{{ d.size_gb | disksize }}</td>
           </tr>
           {% endfor %}
@@ -119,7 +138,7 @@
       </table>
     </dd>
     {% else %}
-    <dd><span class="text-faint">수집된 스토리지 정보 없음</span></dd>
+    <dd><span class="text-meta">용량·유형 메타 미수집 — IO 활동은 아래 Disk I/O 참조</span></dd>
     {% endif %}
   </dl>
 </div>
@@ -128,14 +147,14 @@
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
     <h2>서비스 / 포트</h2>
-    <a href="/servers/{{ server.public_id }}/services?back={{ self_back }}" class="btn no-print" style="font-size:12px; padding:4px 10px;">서비스/포트 상세 →</a>
+    <a href="/servers/{{ server.public_id }}/services?back={{ self_back }}" class="btn-action no-print" style="font-size:12px; padding:4px 11px;">서비스/포트 상세 →</a>
   </div>
 
   <!-- 카테고리 뱃지 + 매핑 포트 -->
   <div style="margin-bottom:16px;">
     <div class="sub-label" style="margin-top:0; margin-bottom:8px;">실행 중인 서비스 카테고리</div>
     {% if server.services is none %}
-      <span style="color:#94a3b8; font-size:13px;">수집 불가</span>
+      <span class="text-meta" style="font-size:13px;">수집 불가</span>
     {% elif server.services %}
       <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
         {% for svc in server.known_services %}
@@ -151,20 +170,20 @@
         {% endif %}
       </div>
     {% else %}
-      <span style="color:#94a3b8; font-size:13px;">실행 중인 서비스 없음</span>
+      <span class="text-meta" style="font-size:13px;">실행 중인 서비스 없음</span>
     {% endif %}
   </div>
 
   <!-- 주요 포트 (<= 1024) -->
   <div>
-    <div class="sub-label" style="margin-bottom:8px;">주요 Listen 포트 <span style="font-weight:400; color:#94a3b8; font-size:11px;">(port <= 1024)</span></div>
+    <div class="sub-label" style="margin-bottom:8px;">주요 Listen 포트 <span class="text-meta" style="font-weight:400; font-size:11px;">(port <= 1024)</span></div>
     {% if server.key_listen_ports %}
     <div style="display:flex; flex-wrap:wrap; gap:8px;">
       {% for p in server.key_listen_ports %}
       <span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:4px 10px; font-size:12px;">
         <code style="background:none; padding:0; font-size:12px; color:#3b82f6;">{{ p.proto }}</code>
         <strong>{{ p.port }}</strong>
-        {% if p.comm %}<span class="text-muted">{{ p.comm }}</span>{% endif %}
+        {% if p.comm %}<span class="text-meta">{{ p.comm }}</span>{% endif %}
       </span>
       {% endfor %}
     </div>
@@ -183,25 +202,26 @@
         <span id="sse-dot" class="dot dot-off"></span>
         <span id="sse-label">자동 갱신 연결 중...</span>
       </div>
-      <span id="metrics-ts" style="font-size:12px; color:#94a3b8;"></span>
+      <span id="metrics-ts" class="text-meta" style="font-size:12px;"></span>
     </div>
   </div>
 
-  <div id="metrics-loading" style="color:#94a3b8; font-size:13px; padding:8px 0;">
+  <div id="metrics-loading" class="text-meta" style="font-size:13px; padding:8px 0;">
     메트릭 데이터를 불러오는 중...
   </div>
 
-  <div id="metrics-no-data" style="display:none; color:#94a3b8; font-size:13px; padding:8px 0;">
+  <div id="metrics-no-data" class="text-meta" style="display:none; font-size:13px; padding:8px 0;">
     수집된 메트릭이 없습니다. 에이전트가 연결되면 자동으로 표시됩니다.
   </div>
 
   <div id="metrics-content" style="display:none;">
+    <p class="text-meta" style="font-size:11px; margin:0 0 10px;">N/A : 해당 OS 에서 미측정하는 항목<br>— : 일시적으로 값 없음 (첫 수집·수집 끊김 등)</p>
 
     <!-- 그룹: CPU -->
     <div class="group-header" style="margin-top:8px;">
       <span class="group-label">CPU</span>
       <div class="group-line"></div>
-      <a href="/servers/{{ server.public_id }}/cpu?back={{ self_back }}" class="btn no-print" style="font-size:11px; padding:3px 10px;">CPU 상세 →</a>
+      <a href="/servers/{{ server.public_id }}/cpu?back={{ self_back }}" class="btn-action no-print" style="font-size:11px; padding:4px 11px;">CPU 상세 →</a>
     </div>
     <div class="group-panel">
       <div class="sub-label" style="margin-top:0;">CPU / Load</div>
@@ -244,7 +264,7 @@
     <div class="group-header">
       <span class="group-label">메모리</span>
       <div class="group-line"></div>
-      <a href="/servers/{{ server.public_id }}/memory?back={{ self_back }}" class="btn no-print" style="font-size:11px; padding:3px 10px;">메모리 상세 →</a>
+      <a href="/servers/{{ server.public_id }}/memory?back={{ self_back }}" class="btn-action no-print" style="font-size:11px; padding:4px 11px;">메모리 상세 →</a>
     </div>
     <div class="group-panel">
       <div class="sub-label" style="margin-top:0;">Memory</div>
@@ -302,6 +322,9 @@
         <div class="progress-bar" style="margin-bottom:14px;">
           <div id="swap-bar" class="progress-fill" style="width:0%;"></div>
         </div>
+        {% if server.os_family == 'windows' %}
+        <p class="text-meta" style="font-size:11px; margin:0 0 4px;">Windows 의 스왑(pagefile)은 여유 메모리가 있어도 상시 일정량 사용되므로, 사용률이 높아도 메모리 부족 신호 아님.</p>
+        {% endif %}
       </div>
     </div>
 
@@ -310,12 +333,12 @@
       <div class="group-header">
         <span class="group-label">스토리지</span>
         <div class="group-line"></div>
-        <a href="/servers/{{ server.public_id }}/storage?back={{ self_back }}" class="btn no-print" style="font-size:11px; padding:3px 10px;">스토리지 상세 →</a>
+        <a href="/servers/{{ server.public_id }}/storage?back={{ self_back }}" class="btn-action no-print" style="font-size:11px; padding:4px 11px;">스토리지 상세 →</a>
       </div>
       <div class="group-panel">
         <div id="disk-io-section">
-          <div class="sub-label" style="margin-top:0;">Disk I/O <small style="font-size:11px; color:#94a3b8; font-weight:400;">(연속 2회 측정 delta)</small></div>
-          <table id="disk-io-table" style="margin-bottom:14px;">
+          <div class="sub-label" style="margin-top:0;">Disk I/O <small class="text-meta" style="font-size:11px; font-weight:400;">(물리 디스크 · 연속 2회 측정 delta)</small></div>
+          <table id="disk-io-table" style="margin-bottom:8px;">
             <thead>
               <tr>
                 <th>Device</th>
@@ -325,6 +348,7 @@
             </thead>
             <tbody id="disk-io-body"></tbody>
           </table>
+          <div id="disk-io-empty" class="text-meta" style="display:none; font-size:12px;">디스크 I/O 미수집 — 연속 2회 측정 시 표시</div>
         </div>
         <div id="fs-section">
           <div class="sub-label">Filesystem 사용량</div>
@@ -338,10 +362,10 @@
       <div class="group-header">
         <span class="group-label">네트워크</span>
         <div class="group-line"></div>
-        <a href="/servers/{{ server.public_id }}/network?back={{ self_back }}" class="btn no-print" style="font-size:11px; padding:3px 10px;">네트워크 상세 →</a>
+        <a href="/servers/{{ server.public_id }}/network?back={{ self_back }}" class="btn-action no-print" style="font-size:11px; padding:4px 11px;">네트워크 상세 →</a>
       </div>
       <div class="group-panel">
-        <div class="sub-label" style="margin-top:0;">Network I/O <small style="font-size:11px; color:#94a3b8; font-weight:400;">(연속 2회 측정 delta)</small></div>
+        <div class="sub-label" style="margin-top:0;">Network I/O <small class="text-meta" style="font-size:11px; font-weight:400;">(연속 2회 측정 delta)</small></div>
         <table id="net-io-table" style="margin-bottom:14px;">
           <thead>
             <tr>
@@ -368,7 +392,7 @@
       보고서 이력
     </a>
   </div>
-  <p style="margin:0 0 12px; font-size:12px; color:#64748b;">서버 <strong class="text-strong">{{ server.hostname }}</strong> 1대 대상 보고서 발행 (새 탭). 발행 이력은 보고서 이력에서 확인.</p>
+  <p class="text-meta" style="margin:0 0 12px; font-size:12px;">서버 <strong class="text-strong">{{ server.hostname }}</strong> 1대 대상 보고서 발행 (새 탭). 발행 이력은 보고서 이력에서 확인.</p>
   <div style="display:flex; gap:8px;">
     <button type="button" id="server-report-customer-open" class="btn-action no-print" data-view="customer">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
@@ -387,7 +411,7 @@
         <h3 id="server-report-title" class="modal-title">보고서 발행</h3>
         <button type="button" id="server-report-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
       </div>
-      <p id="server-report-desc" style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">서버 {{ server.hostname }} Right-sizing 규칙 기반 보고서 발행. 새 탭으로 이동합니다.</p>
+      <p id="server-report-desc" class="text-meta" style="margin:0 0 12px; font-size:12px; line-height:1.5;">서버 {{ server.hostname }} Right-sizing 규칙 기반 보고서 발행. 새 탭으로 이동합니다.</p>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
         <div>
           <label for="server-report-range" style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">윈도우</label>
@@ -425,7 +449,7 @@
       ZConverter Install
     </button>
   </div>
-  <p style="margin:0 0 12px; font-size:12px; color:#64748b;">최근 10건 — task.install</p>
+  <p class="text-meta" style="margin:0 0 12px; font-size:12px;">최근 10건 — task.install</p>
 
   <!-- 발행 모달 — 대시보드 ZConverter Install 모달과 동일 form (1대 scope) -->
   <div id="server-install-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
@@ -434,7 +458,7 @@
         <h3 class="modal-title">ZConverter Install 발행</h3>
         <button type="button" id="server-install-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
       </div>
-      <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">
+      <p class="text-meta" style="margin:0 0 12px; font-size:12px; line-height:1.5;">
         서버 <strong class="text-strong">{{ server.hostname }}</strong> 1대에 아래 ZDM 좌표로 ZConverter 설치를 발행합니다.
         <br>agent 가 ZDM 서버에서 본체 패키지를 fetch 후 <code>install.sh -s ZDM_IP -u ZDM_USER</code> 실행.
       </p>
@@ -455,7 +479,7 @@
   {% if recent_tasks %}
   <table class="task-timeline" style="width:100%; border-collapse:collapse;">
     <thead>
-      <tr style="text-align:left; font-size:12px; color:#64748b; border-bottom:1px solid #e2e8f0;">
+      <tr class="text-meta" style="text-align:left; font-size:12px; border-bottom:1px solid #e2e8f0;">
         <th style="padding:6px 8px;">상태</th>
         <th style="padding:6px 8px;">유형</th>
         <th style="padding:6px 8px;">발행</th>
@@ -478,7 +502,7 @@
     </tbody>
   </table>
   {% else %}
-  <p style="margin:0; color:#94a3b8; font-size:13px;">발행된 작업이 없습니다.</p>
+  <p class="text-meta" style="margin:0; font-size:13px;">발행된 작업이 없습니다.</p>
   {% endif %}
 </div>
 

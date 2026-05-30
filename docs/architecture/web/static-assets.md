@@ -168,21 +168,23 @@ base.html `<style>` 정의 — 모든 page 가 같은 위계 사용. inline `sty
 - h1/h2/h3 외 임의 `<div style="font-size:18px; font-weight:700;">` 같은 의사-제목 — h1/h2/h3 사용 의무.
 - modal 안 제목은 별개 (`#title-id style="..."` 인라인 허용 — modal 컴포넌트 별도 위계).
 
-## 폰트 체 — sans-serif 단일 + monospace 식별자 한정
+## 폰트 체 — sans-serif 단일 + monospace 선택 적용
 
 base.html `<body>` 가 system-ui sans-serif 기본. 모든 텍스트 동일 family. 별도 폰트 (serif / display) 안 씀.
 
-monospace 적용 위치 (예외 0 의무):
-- 식별자: hostname / UUID / IP address / file path / unit name (예: nginx.service)
-- agent path / mount path (예: /var/lib/postgresql/data)
-- inline code 표시 (`<code>` element)
+monospace 는 "식별자라는 이유"로 자동 적용하지 않는다. 표시 설계상 등폭 표기가 의미 전달에 기여하거나
+일반 텍스트와의 구분이 유용하다고 판단되는 경우에만 선택 적용 (의무 아님 — UI 판단):
+- 실제 코드·명령·설정 스니펫 (shell command / config) — 등폭 정렬·"코드임" 표시가 도움
+- 그 외 등폭 구분이 가독성·식별에 실익이 있다고 판단되는 특정 케이스
 
 class:
-- `<code>...</code>` — inline code 표시 (background + padding + monospace, base 단일 진실)
-- `.identifier` — code element 아닌 식별자에 monospace 만 적용 (background 없음, 표 cell 내부 등)
+- `<code>...</code>` — 위 용도의 inline code (background + padding + monospace, base 단일 진실)
+- `.identifier` — code element 아닌 곳에 monospace 만 (background 없음). 동일 판단 기준 적용
 
 금지:
-- 일반 텍스트 (제목 / 본문 / 라벨) 에 monospace 적용 — 식별자 외 monospace 가독성 ↓.
+- 식별자(hostname / UUID / IP / path / unit name)에 "식별자라는 이유만으로" monospace 자동 적용 — 기본 sans.
+  (등폭 구분이 유용하다 판단되면 위 선택 기준으로 case-by-case 결정)
+- 일반 텍스트 (제목 / 본문 / 라벨) 에 monospace — 가독성 ↓.
 - 숫자 (vCPU / GB / %) 에 monospace — sans-serif weight 700 으로 정렬·강조 충분.
 - inline `style="font-family:monospace"` — base `.identifier` 또는 `<code>` 사용 의무.
 

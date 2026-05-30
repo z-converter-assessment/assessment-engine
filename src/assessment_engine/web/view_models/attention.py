@@ -216,3 +216,13 @@ class EnvironmentRealtime:
     last_collected_at: datetime | None = None
     peak_groups: list[RealtimePeakGroup] = field(default_factory=list)
     has_peaks: bool = False
+
+
+@dataclass
+class DashboardLive:
+    """list 화면 fragment=live·page1 공용 묶음 — 공유 기초 데이터(now·report_aggregate·online flags)를
+    1회 조회 후 3 ViewModel 조립. 세 카드가 같은 스냅샷 기준이라 카드 간 값 일관 (중복 쿼리 제거 + 비결정성 해소)."""
+
+    overview: EnvironmentOverview
+    attention: AttentionSignals
+    realtime: EnvironmentRealtime

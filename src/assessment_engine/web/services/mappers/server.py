@@ -4,6 +4,7 @@
 다른 sub-module 이 import 하는 항목: `infer_role`, `WELL_KNOWN_PORT_MAX`, `enrich_server_detail`.
 """
 
+import ipaddress
 from collections import Counter
 from typing import Literal
 
@@ -15,7 +16,6 @@ from assessment_engine.db.dtos.outbound import (
     StorageWithUsage,
 )
 from assessment_engine.web.services.device_filters import (
-    find_parent_disk,
     is_physical_disk,
     is_virtual_mount,
 )
@@ -31,6 +31,7 @@ from assessment_engine.web.services.service_classifier import classify, matched_
 from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb, usage_pct
 from assessment_engine.web.view_models.server import (
     DiskItem,
+    IpAddr,
     ListenPortItem,
     MountUsageItem,
     NetworkDetailResponse,
@@ -38,6 +39,7 @@ from assessment_engine.web.view_models.server import (
     ServerListItem,
     ServiceItem,
     StorageDetailResponse,
+    VolumeItem,
 )
 
 # IANA well-known port 상한. listen_port의 well-known 표시 분기에 사용.
@@ -77,6 +79,37 @@ def _usage_bar_color(pct: float | None) -> str:
 # ─── raw dict → typed ViewModel 단일 변환 진입점 ──────────────────────────
 
 
+def _to_ip_addrs(ips: list[str]) -> list[IpAddr]:
+    """IP 문자열 → IpAddr(value, is_ipv4). IPv4 우선 정렬 (안정 정렬 — 종류 내 원순서 유지).
+
+    IPv4 는 실제 접속·식별 주력이라 상단·진하게 표시, IPv6(ULA/link-local)는 보조(연하게).
+    """
+    items: list[IpAddr] = []
+    for ip in ips:
+        try:
+            v4 = ipaddress.ip_address(ip).version == 4
+        except ValueError:
+            v4 = False
+        items.append(IpAddr(value=ip, is_ipv4=v4))
+    return sorted(items, key=lambda x: not x.is_ipv4)
+
+
+def _to_volumes(mounts: list[dict]) -> list[VolumeItem]:
+    """inventory.mounts → VolumeItem(파일시스템) 목록 (가상 마운트 제외, mount ASC).
+
+    물리 디스크(disks)와 별개 축 — 양 OS 일관 표시 (fstype 명시).
+    Windows 는 disks 미발행이라 본 항목이 유일한 스토리지 정보.
+    """
+    volumes: list[VolumeItem] = []
+    for m in mounts:
+        path = m.get("mount", "")
+        fstype = m.get("fstype")
+        if is_virtual_mount(fstype, path):
+            continue
+        volumes.append(VolumeItem(mount=path, fstype=fstype, total_gb=bytes_to_gb(m.get("total_bytes"))))
+    return sorted(volumes, key=lambda v: v.mount)
+
+
 def _to_disk_item(d: dict) -> DiskItem | None:
     """inventory.disks의 raw dict → DiskItem. 물리 디스크 아니면 None."""
     name = d.get("name", "")
@@ -85,7 +118,6 @@ def _to_disk_item(d: dict) -> DiskItem | None:
     return DiskItem(
         name=name,
         size_gb=bytes_to_gb(d.get("size_bytes")),
-        type=d.get("type"),
     )
 
 
@@ -238,13 +270,16 @@ def to_server_detail(dto: ServerDetail) -> ServerDetailResponse:
         mem_total_gb=kb_to_gb(dto.mem_total_kb),
         swap_total_gb=kb_to_gb(dto.swap_total_kb),
         boot_time=dto.boot_time,
-        ip_internal=dto.ip_internal,
-        ip_external=dto.ip_external,
+        agent_started_at=dto.agent_started_at,
+        ip_internal=_to_ip_addrs(dto.ip_internal),
+        ip_external=_to_ip_addrs(dto.ip_external) if dto.ip_external else None,
         disks=[item for d in dto.disks if (item := _to_disk_item(d)) is not None],
         services=_services_or_none(dto.services, listen_ports=dto.listen_ports),
         listen_ports=[_to_listen_port_item(p) for p in dto.listen_ports],
         last_seen_at=dto.last_seen_at,
     )
+    # 파일시스템 항목 — inventory.mounts(가상 마운트 제외). 물리 디스크(disks)와 별개 축, 양 OS 일관(fstype 명시).
+    detail.volumes = _to_volumes(dto.mounts)
     return enrich_server_detail(detail)
 
 
@@ -268,13 +303,10 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
                 fstype=fstype,
                 total_bytes=inv.get("total_bytes"),
                 avail_bytes=usage.avail_bytes if usage else None,
-                mount_major=inv.get("major"),
-                mount_minor=inv.get("minor"),
-                disks=physical_disks,
             )
         )
 
-    # inventory에 없지만 시계열에 있는 mount (mount_usage 시계열엔 major/minor 없음 → device_name 매핑 불가)
+    # inventory에 없지만 시계열에 있는 mount (mount_usage 시계열 전용)
     for path, usage in usage_by_mount.items():
         if path in seen or is_virtual_mount(None, path):
             continue
@@ -284,9 +316,6 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
                 fstype=None,
                 total_bytes=usage.total_bytes,
                 avail_bytes=usage.avail_bytes,
-                mount_major=None,
-                mount_minor=None,
-                disks=physical_disks,
             )
         )
 
@@ -299,6 +328,7 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
         hostname=dto.hostname,
         disks=[item for d in physical_disks if (item := _to_disk_item(d)) is not None],
         mounts=sorted(mounts, key=lambda m: m.mount),
+        fs_total_gb=sum((m.total_gb for m in mounts if m.total_gb is not None), 0.0) if mounts else None,
         snapshot_at=snapshot_at,
         inventory_at=dto.inventory_at,
     )
@@ -309,9 +339,6 @@ def _build_mount_item(
     fstype: str | None,
     total_bytes: int | None,
     avail_bytes: int | None,
-    mount_major: int | None = None,
-    mount_minor: int | None = None,
-    disks: list[dict] | None = None,
 ) -> MountUsageItem:
     used_bytes = (total_bytes - avail_bytes) if (total_bytes and avail_bytes is not None) else None
     pct = usage_pct(used_bytes, total_bytes)
@@ -324,7 +351,6 @@ def _build_mount_item(
         usage_pct=pct,
         badge_class=_usage_badge_class(pct),
         bar_color=_usage_bar_color(pct),
-        device_name=find_parent_disk(mount_major, mount_minor, disks or []),
     )
 
 
@@ -334,8 +360,8 @@ def to_network_detail(dto: NetworkWithIo) -> NetworkDetailResponse:
         server_id=dto.server_id,
         public_id=dto.public_id,
         hostname=dto.hostname,
-        ip_internal=dto.ip_internal,
-        ip_external=dto.ip_external,
+        ip_internal=_to_ip_addrs(dto.ip_internal),
+        ip_external=_to_ip_addrs(dto.ip_external) if dto.ip_external else None,
         interfaces=compute_net_io(dto.net_io),
         inventory_at=dto.inventory_at,
         snapshot_at=max(collected_ats) if collected_ats else None,
@@ -392,11 +418,13 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     detail.cpu_display = " ".join(cpu_parts) or "-"
 
     detail.disk_total_gb = round(sum(d.size_gb or 0.0 for d in detail.disks), 1) if detail.disks else None
+    detail.volume_total_gb = round(sum(v.total_gb or 0.0 for v in detail.volumes), 1) if detail.volumes else None
 
     # P3 — count는 mapper에서 한 번만 계산. 템플릿이 `| length` 못 쓰도록.
     detail.services_count = len(detail.services or [])
     detail.listen_ports_count = len(detail.listen_ports)
     detail.disks_count = len(detail.disks)
+    detail.volumes_count = len(detail.volumes)
 
     return detail
 

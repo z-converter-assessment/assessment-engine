@@ -95,12 +95,9 @@ async def metrics_stream(
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
-    async def event_stream():
-        async for data in service.stream_metrics_events(internal_id):
-            yield f"data: {data}\n\n"
-
+    # stream_metrics_events 가 SSE 라인(data:/comment ping) 을 직접 생성 — 라우터는 그대로 통과.
     return StreamingResponse(
-        event_stream(),
+        service.stream_metrics_events(internal_id),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

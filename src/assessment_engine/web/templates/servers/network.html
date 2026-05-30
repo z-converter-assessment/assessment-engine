@@ -5,45 +5,26 @@
 <a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
 <h1>{{ network.hostname }} — 네트워크</h1>
 
-<!-- IP 주소 -->
+<!-- 현재 상태 (IP 주소 + 인터페이스 현황) -->
 <div class="card">
-  <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px;">
-    <h2>IP 주소</h2>
-    <span style="font-size:12px; color:#94a3b8;">인벤토리 수집: {{ network.inventory_at | kst }}</span>
-  </div>
-  <dl class="kv">
-    <dt>Internal</dt>
-    <dd>
-      {% if network.ip_internal %}
-        {% for ip in network.ip_internal %}
-          <code style="margin-right:6px;">{{ ip }}</code>
-        {% endfor %}
-      {% else %}-{% endif %}
-    </dd>
-    <dt>External</dt>
-    <dd>
-      {% if network.ip_external %}
-        {% for ip in network.ip_external %}
-          <code style="margin-right:6px;">{{ ip }}</code>
-        {% endfor %}
-      {% else %}-{% endif %}
-    </dd>
-  </dl>
-</div>
-
-<!-- 인터페이스 현황 -->
-<div class="card">
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2>인터페이스 현황</h2>
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+    <h2>현재 상태</h2>
     <div id="sse-status" class="no-print" style="display:flex; align-items:center; gap:5px; font-size:11px; color:#94a3b8; white-space:nowrap;">
       <span id="sse-dot" class="dot dot-off"></span>
       <span id="sse-label">연결 중...</span>
       <span id="net-snapshot-ts" style="margin-left:4px;"></span>
     </div>
   </div>
-  <p style="font-size:12px; color:#94a3b8; margin-bottom:14px; margin-top:-8px;">
-    연속 2회 측정의 delta 기반 처리량
-  </p>
+
+  <dl class="kv">
+    <dt>Internal IP</dt>
+    <dd>{% for ip in network.ip_internal %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% else %}-{% endfor %}</dd>
+    <dt>External IP</dt>
+    <dd>{% if network.ip_external %}{% for ip in network.ip_external %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}-{% endif %}</dd>
+  </dl>
+
+  <div class="section-title" style="margin-top:22px;">인터페이스 현황</div>
+  <p style="font-size:12px; color:#94a3b8; margin:0 0 14px;">연속 2회 측정의 delta 기반 처리량</p>
   <div id="net-snapshot-loading" style="color:#94a3b8; font-size:13px;">불러오는 중...</div>
   <table id="net-snapshot-table" style="display:none;">
     <thead>
@@ -65,22 +46,19 @@
 
 <!-- 네트워크 I/O 추이 -->
 <div class="card">
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
-    <div style="display:flex; align-items:center; gap:12px;">
-      <h2>네트워크 I/O 추이<span class="print-only" id="net-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-      <span id="net-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
-    </div>
-    <div class="toggle-group no-print" id="net-range-btns">
-      <button class="toggle active" data-val="15m">15분</button>
-      <button class="toggle" data-val="1h">1시간</button>
-      <button class="toggle" data-val="6h">6시간</button>
-      <button class="toggle" data-val="24h">1일</button>
-      <button class="toggle" data-val="7d">7일</button>
-      <button class="toggle" data-val="14d">14일</button>
-      <button class="toggle" data-val="30d">30일</button>
-    </div>
-    <input type="datetime-local" id="net-anchor"
-      style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
+  <div class="chart-head">
+    <h2>네트워크 I/O 추이<span class="print-only" id="net-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+    <span id="net-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <select class="chart-select no-print" id="net-range-btns" aria-label="구간 선택">
+      <option value="15m">15분</option>
+      <option value="1h">1시간</option>
+      <option value="6h">6시간</option>
+      <option value="24h">1일</option>
+      <option value="7d">7일</option>
+      <option value="14d">14일</option>
+      <option value="30d">30일</option>
+    </select>
+    <input type="datetime-local" id="net-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
   <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="net-chart-canvas"></canvas>
@@ -88,9 +66,37 @@
   <div id="net-chart-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
-  <div id="net-legend" style="display:flex; flex-direction:column; gap:6px; margin-top:12px;"></div>
+  <div id="net-legend" style="display:flex; flex-direction:column; gap:6px; margin-top:14px;"></div>
   <p style="font-size:11px; color:#94a3b8; margin:8px 0 0;">
     음영 영역: 집계 구간 내 순간 최대 처리량과 평균의 차이.
+  </p>
+</div>
+
+<!-- 네트워크 PPS 추이 -->
+<div class="card">
+  <div class="chart-head">
+    <h2>네트워크 PPS 추이<span class="print-only" id="net-pps-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+    <span id="net-pps-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <select class="chart-select no-print" id="net-pps-range-btns" aria-label="구간 선택">
+      <option value="15m">15분</option>
+      <option value="1h">1시간</option>
+      <option value="6h">6시간</option>
+      <option value="24h">1일</option>
+      <option value="7d">7일</option>
+      <option value="14d">14일</option>
+      <option value="30d">30일</option>
+    </select>
+    <input type="datetime-local" id="net-pps-anchor" class="chart-anchor no-print" aria-label="기준 시각">
+  </div>
+  <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+    <canvas id="net-pps-canvas"></canvas>
+  </div>
+  <div id="net-pps-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+    해당 기간에 수집된 데이터가 없습니다.
+  </div>
+  <div id="net-pps-legend" style="display:flex; flex-direction:column; gap:6px; margin-top:14px;"></div>
+  <p style="font-size:11px; color:#94a3b8; margin:8px 0 0;">
+    음영 영역: 집계 구간 내 순간 최대 PPS와 평균의 차이.
   </p>
 </div>
 

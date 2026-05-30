@@ -15,11 +15,20 @@
       <span id="snap-ts" style="margin-left:4px;"></span>
     </div>
   </div>
+  <dl class="kv" style="margin-bottom:16px;">
+    <dt>전체 메모리</dt>
+    <dd>{{ '%.1f GB'|format(server.mem_total_gb) if server.mem_total_gb is not none else '-' }}</dd>
+    {% if server.swap_total_gb is not none %}
+    <dt>스왑 전체</dt>
+    <dd>{{ '%.1f GB'|format(server.swap_total_gb) }}</dd>
+    {% endif %}
+  </dl>
+  <hr style="border:none; border-top:1px solid #e2e8f0; margin:0 0 14px;">
   <div id="snap-loading" style="color:#94a3b8; font-size:13px;">불러오는 중...</div>
   <div id="snap-body" style="display:none;">
+    <p class="text-meta" style="font-size:11px; margin:0 0 10px;">N/A : 해당 OS 에서 미측정하는 항목<br>— : 일시적으로 값 없음 (첫 수집·수집 끊김 등)</p>
     <dl class="kv" style="margin-bottom:20px;">
       <dt>메모리 사용률</dt> <dd id="s-mem-pct">—</dd>
-      <dt>전체</dt>          <dd id="s-mem-total">—</dd>
       <dt>Used</dt>          <dd id="s-mem-used">—</dd>
       <dt>Available</dt>     <dd id="s-mem-avail">—</dd>
       <dt>Cached</dt>        <dd id="s-mem-cached">—</dd>
@@ -27,7 +36,6 @@
     </dl>
     <dl class="kv">
       <dt>스왑 사용률</dt> <dd id="s-swap-pct">—</dd>
-      <dt>스왑 전체</dt>   <dd id="s-swap-total">—</dd>
       <dt>스왑 Used</dt>   <dd id="s-swap-used">—</dd>
     </dl>
   </div>
@@ -38,22 +46,19 @@
 
 <!-- 메모리 사용률 추이 -->
 <div class="card">
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
-    <div style="display:flex; align-items:center; gap:12px;">
-      <h2>메모리 사용률 추이<span class="print-only" id="mem-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-      <span id="mem-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
-    </div>
-    <div class="toggle-group no-print" id="mem-range-btns">
-      <button class="toggle active" data-val="15m">15분</button>
-      <button class="toggle" data-val="1h">1시간</button>
-      <button class="toggle" data-val="6h">6시간</button>
-      <button class="toggle" data-val="24h">1일</button>
-      <button class="toggle" data-val="7d">7일</button>
-      <button class="toggle" data-val="14d">14일</button>
-      <button class="toggle" data-val="30d">30일</button>
-    </div>
-    <input type="datetime-local" id="mem-anchor"
-      style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
+  <div class="chart-head">
+    <h2>메모리 사용률 추이<span class="print-only" id="mem-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+    <span id="mem-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <select class="chart-select no-print" id="mem-range-btns" aria-label="구간 선택">
+      <option value="15m">15분</option>
+      <option value="1h">1시간</option>
+      <option value="6h">6시간</option>
+      <option value="24h">1일</option>
+      <option value="7d">7일</option>
+      <option value="14d">14일</option>
+      <option value="30d">30일</option>
+    </select>
+    <input type="datetime-local" id="mem-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="mem-canvas"></canvas>
@@ -68,52 +73,49 @@
 
 <!-- 메모리 구성 추이 -->
 <div class="card">
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
-    <div style="display:flex; align-items:center; gap:12px;">
-      <h2>메모리 구성 추이<span class="print-only" id="comp-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-      <span id="comp-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
-    </div>
-    <div class="toggle-group no-print" id="comp-range-btns">
-      <button class="toggle active" data-val="15m">15분</button>
-      <button class="toggle" data-val="1h">1시간</button>
-      <button class="toggle" data-val="6h">6시간</button>
-      <button class="toggle" data-val="24h">1일</button>
-      <button class="toggle" data-val="7d">7일</button>
-      <button class="toggle" data-val="14d">14일</button>
-      <button class="toggle" data-val="30d">30일</button>
-    </div>
-    <input type="datetime-local" id="comp-anchor"
-      style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
+  <div class="chart-head">
+    <h2>메모리 구성 추이<span class="print-only" id="comp-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+    <span id="comp-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <select class="chart-select no-print" id="comp-range-btns" aria-label="구간 선택">
+      <option value="15m">15분</option>
+      <option value="1h">1시간</option>
+      <option value="6h">6시간</option>
+      <option value="24h">1일</option>
+      <option value="7d">7일</option>
+      <option value="14d">14일</option>
+      <option value="30d">30일</option>
+    </select>
+    <input type="datetime-local" id="comp-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
-  <p style="font-size:12px; color:#94a3b8; margin:-8px 0 14px;">전체 메모리 대비 비율 — Used / Cached / Buffers</p>
+  <p style="font-size:12px; color:#94a3b8; margin:-8px 0 14px;">전체 메모리 대비 비율 — Used / Cached / Buffers{% if server.os_family == 'windows' %} (Windows 는 Buffers·Cached 를 측정하지 않아 Used 만 표시){% endif %}</p>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="comp-canvas"></canvas>
   </div>
   <div id="comp-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
-  <div id="comp-legend" style="display:flex; flex-direction:column; gap:6px; margin-top:12px;"></div>
+  <div id="comp-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
 </div>
 
 <!-- 스왑 사용률 추이 -->
 <div class="card">
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
-    <div style="display:flex; align-items:center; gap:12px;">
-      <h2>스왑 사용률 추이<span class="print-only" id="swap-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-      <span id="swap-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
-    </div>
-    <div class="toggle-group no-print" id="swap-range-btns">
-      <button class="toggle active" data-val="15m">15분</button>
-      <button class="toggle" data-val="1h">1시간</button>
-      <button class="toggle" data-val="6h">6시간</button>
-      <button class="toggle" data-val="24h">1일</button>
-      <button class="toggle" data-val="7d">7일</button>
-      <button class="toggle" data-val="14d">14일</button>
-      <button class="toggle" data-val="30d">30일</button>
-    </div>
-    <input type="datetime-local" id="swap-anchor"
-      style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
+  <div class="chart-head">
+    <h2>스왑 사용률 추이<span class="print-only" id="swap-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+    <span id="swap-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <select class="chart-select no-print" id="swap-range-btns" aria-label="구간 선택">
+      <option value="15m">15분</option>
+      <option value="1h">1시간</option>
+      <option value="6h">6시간</option>
+      <option value="24h">1일</option>
+      <option value="7d">7일</option>
+      <option value="14d">14일</option>
+      <option value="30d">30일</option>
+    </select>
+    <input type="datetime-local" id="swap-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
+  {% if server.os_family == 'windows' %}
+  <p class="text-meta" style="font-size:11px; margin:0 0 12px;">Windows 의 스왑(pagefile)은 여유 메모리가 있어도 상시 일정량 사용되므로, 사용률이 높아도 메모리 부족 신호 아님.</p>
+  {% endif %}
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="swap-canvas"></canvas>
   </div>

@@ -97,6 +97,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             mem_total_kb=r.mem_total_kb,
             swap_total_kb=r.swap_total_kb,
             boot_time=r.boot_time,
+            agent_started_at=r.agent_started_at,
             ip_internal=r.ip_internal or [],
             ip_external=r.ip_external,
             disks=r.disks or [],

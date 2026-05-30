@@ -37,6 +37,7 @@ class ServerDetail:
     mem_total_kb: int | None
     swap_total_kb: int | None
     boot_time: datetime | None
+    agent_started_at: datetime | None
     ip_internal: list[str]
     ip_external: list[str] | None
     disks: list[dict]

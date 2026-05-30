@@ -37,19 +37,18 @@ async def list_servers(
     fragment: str | None = Query(None),
     service: QueryService = Depends(get_service),
 ):
-    # 자동 갱신 fragment — live(환경요약·운영신호) / rows(서버목록 행) 분리 렌더. list.js 30초 폴링이 교체.
-    # 별도 path 대신 ?fragment= 분기 — /servers/{public_id} UUID 라우트와 충돌 회피. page 1 전체 기준(필터는 client 재적용).
+    # 자동 갱신 fragment — live(환경요약·운영신호·실시간 메트릭) / rows(서버목록 행) 분리 렌더.
+    # list.js 30초 폴링이 교체. 별도 path 대신 ?fragment= 분기 — /servers/{public_id} UUID 라우트 충돌 회피.
+    # page 1 전체 기준(필터는 client 재적용).
     if fragment == "live":
-        overview = await service.get_environment_overview()
-        attention = await service.get_attention_signals()
-        realtime = await service.get_environment_realtime()
+        live = await service.get_dashboard_live()
         return templates.TemplateResponse(
             request=request,
             name="servers/_dashboard_live.html",
             context={
-                "overview": overview,
-                "attention": attention,
-                "realtime": realtime,
+                "overview": live.overview,
+                "attention": live.attention,
+                "realtime": live.realtime,
                 "generated_at": datetime.now(UTC),
                 "window_days": recommendation.WINDOW_DAYS,
                 "self_back": quote("/servers/", safe=""),
@@ -80,9 +79,8 @@ async def list_servers(
     attention = None
     realtime = None
     if page == 1:
-        overview = await service.get_environment_overview()
-        attention = await service.get_attention_signals()
-        realtime = await service.get_environment_realtime()
+        live = await service.get_dashboard_live()
+        overview, attention, realtime = live.overview, live.attention, live.realtime
     return templates.TemplateResponse(
         request=request,
         name="servers/list.html",
@@ -100,7 +98,8 @@ async def list_servers(
             },
             "discovery_default_target": web_settings.discovery_default_target,
             "discovery_default_port": web_settings.discovery_default_port,
-            # OS 필터 옵션 — endoflife 카탈로그 distro 전체(수집 무관, 지원 distro 노출). single source: shared.DISTRO_FILTER_OPTIONS.
+            # OS 필터 옵션 — endoflife 카탈로그 distro 전체(수집 무관, 지원 distro 노출).
+            # single source: shared.DISTRO_FILTER_OPTIONS.
             "filter_options": {
                 "service_categories": SERVICE_CATEGORIES,
                 "distro_options": DISTRO_FILTER_OPTIONS,
