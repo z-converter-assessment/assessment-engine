@@ -10,8 +10,8 @@
 """
 
 from collections.abc import Callable
-from datetime import datetime
 
+from assessment_engine.boot_time import is_counter_reset
 from assessment_engine.db.dtos.outbound import (
     DashboardRaw,
     DiskIoRaw,
@@ -58,17 +58,6 @@ def _delta_rate(cur: int | None, prev: int | None, dt: float) -> float | None:
     if d < 0:
         return None
     return round(d / dt, 1)
-
-
-def _is_counter_reset(cur_boot: datetime | None, prev_boot: datetime | None) -> bool:
-    """두 시점의 boot_time이 다르면 시스템 재부팅 → counter reset 확정.
-
-    둘 다 NULL(옛 데이터·에이전트가 보내지 않음)이면 False — 호출자는 d<0 휴리스틱 fallback.
-    한쪽만 NULL이면 부분 정보라 reset 단정 못 함 → False (휴리스틱 의존).
-    """
-    if cur_boot is None or prev_boot is None:
-        return False
-    return cur_boot != prev_boot
 
 
 def _clip_to_remaining(raw_pct: float | None, remaining_room: float) -> float | None:
@@ -121,7 +110,7 @@ def compute_cpu(cur: MetricPairRaw | None, prev: MetricPairRaw | None) -> CpuSna
         return CpuSnapshot(usage_pct=None, user_pct=None, system_pct=None, iowait_pct=None)
 
     # 시스템 재부팅 → /proc/stat jiffies 0으로 리셋 → delta 계산 무의미.
-    if _is_counter_reset(cur.boot_time, prev.boot_time):
+    if is_counter_reset(cur.boot_time, prev.boot_time):
         return CpuSnapshot(usage_pct=None, user_pct=None, system_pct=None, iowait_pct=None)
 
     dt_total = cpu_total(cur)
@@ -225,7 +214,7 @@ def _disk_io_snapshot(device: str, rows: list[DiskIoRaw]) -> DiskIoSnapshot:
     if dt <= 0:
         return DiskIoSnapshot(device=device, read_iops=None, write_iops=None, read_kbps=None, write_kbps=None)
     # 시스템 재부팅 → /proc/diskstats 카운터 리셋 → delta 무의미.
-    if _is_counter_reset(cur.boot_time, prev.boot_time):
+    if is_counter_reset(cur.boot_time, prev.boot_time):
         return DiskIoSnapshot(device=device, read_iops=None, write_iops=None, read_kbps=None, write_kbps=None)
     return DiskIoSnapshot(
         device=device,
@@ -249,7 +238,7 @@ def _net_io_snapshot(iface: str, rows: list[NetIoRaw]) -> NetIoSnapshot:
     if dt <= 0:
         return NetIoSnapshot(interface=iface, rx_kbps=None, tx_kbps=None, rx_pps=None, tx_pps=None)
     # 시스템 재부팅 → /proc/net/dev 카운터 리셋 → delta 무의미.
-    if _is_counter_reset(cur.boot_time, prev.boot_time):
+    if is_counter_reset(cur.boot_time, prev.boot_time):
         return NetIoSnapshot(interface=iface, rx_kbps=None, tx_kbps=None, rx_pps=None, tx_pps=None)
 
     def brate(c: int, p: int) -> float | None:
