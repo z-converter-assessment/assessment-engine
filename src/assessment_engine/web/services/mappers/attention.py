@@ -159,6 +159,10 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
     return segments, total, under_count
 
 
+# 자원 부족(언더 프로비저닝) 상세 표시 상한 — 환경 요약 카드는 호스트명 ASC 상위 N만, 전체 수는 count 로 노출.
+_UNDER_PROVISIONED_DISPLAY_MAX = 3
+
+
 def build_environment_overview(
     details: list,
     online_count: int,
@@ -229,6 +233,10 @@ def build_environment_overview(
     if risk_counts is not None:
         risk_segments, risk_total, risk_under = build_risk_donut_segments(risk_counts)
 
+    # 자원 부족 상세 — 호스트명 ASC 정렬(P2) 후 상위 N만 표시. 전체 수는 count, 표시 수는 shown 으로 분리("shown/total").
+    _under_all = sorted(under_provisioned_hosts or [], key=lambda c: c.hostname.lower())
+    _under_shown = _under_all[:_UNDER_PROVISIONED_DISPLAY_MAX]
+
     return EnvironmentOverview(
         total=total,
         online=online_count,
@@ -245,8 +253,9 @@ def build_environment_overview(
         risk_donut=risk_segments,
         risk_donut_total=risk_total,
         risk_high_count=risk_under,
-        under_provisioned_hosts=under_provisioned_hosts or [],
-        under_provisioned_hosts_count=len(under_provisioned_hosts or []),
+        under_provisioned_hosts=_under_shown,
+        under_provisioned_hosts_count=len(_under_all),
+        under_provisioned_hosts_shown=len(_under_shown),
     )
 
 

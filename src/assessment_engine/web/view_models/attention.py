@@ -174,7 +174,8 @@ class EnvironmentOverview:
     risk_high_count: int = 0  # 도넛 중심 강조 — "위험 N대"
     # USE Method 분포 도넛 아래 표시 — 자원 부족(under_provisioned) 호스트 trigger·메타 상세.
     under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list)
-    under_provisioned_hosts_count: int = 0  # 템플릿 P3 회피 — mapper precompute (#E1 P3)
+    under_provisioned_hosts_count: int = 0  # 전체 자원 부족 호스트 수 — 템플릿 P3 회피 mapper precompute (#E1 P3)
+    under_provisioned_hosts_shown: int = 0  # 표시 호스트 수(상위 N, 호스트명 ASC) — "shown/total" 표기용 (P3 회피)
 
 
 @dataclass

@@ -139,7 +139,11 @@
 </div>
 
 <section class="card no-print">
-<h2>서버 목록</h2>
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+  <h2 style="margin:0;">서버 목록</h2>
+  {# 서버 발견 — 서버 목록 카드 제목 우측 끝. type=button(폼 submit 안 함), id 유지로 list.js 동작 동일. #}
+  <button type="button" id="discover-btn" class="btn-action no-print">+ 서버 발견</button>
+</div>
 
 <form method="get" class="search-row no-print" id="filter-form">
   <input type="text" name="search" value="{{ request.query_params.get('search', '') }}" placeholder="hostname 검색">
@@ -169,8 +173,6 @@
   {% if request.query_params.get('search') or request.query_params.get('is_online') or request.query_params.get('service') or request.query_params.get('os_distro') or request.query_params.get('classification') %}
   <a href="/servers/" class="clear-btn" style="display:inline-flex;align-items:center;">초기화</a>
   {% endif %}
-  {# 서버 발견 — 필터 행 우측 정렬 (margin-left:auto). type=button 이라 필터 submit 안 함. #}
-  <button type="button" id="discover-btn" class="btn-action" style="margin-left:auto;">+ 서버 발견</button>
 </form>
 
 <div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; margin-bottom:14px; align-items:center;">

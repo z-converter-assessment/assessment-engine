@@ -112,7 +112,7 @@
       </div>
 
       <div class="card-section">
-        <h3>언더 프로비저닝 상세 <span class="section-meta">({{ overview.under_provisioned_hosts_count }}건)</span></h3>
+        <h3>언더 프로비저닝 상세 <span class="section-meta">({{ overview.under_provisioned_hosts_shown }}/{{ overview.under_provisioned_hosts_count }}건)</span></h3>
         {% if overview.under_provisioned_hosts %}
         <ul class="attention-list" style="margin:0;">
           {% for c in overview.under_provisioned_hosts %}
@@ -143,8 +143,10 @@
 </section>
 {% endif %}
 
-{# 환경 실시간 메트릭 — 현황 모니터링(최신 스냅샷). 환경요약 14일 활용률·right-sizing(장기 사이징)과 의미 분리. #}
-{% if realtime and realtime.total > 0 %}
+{# 환경 실시간 메트릭 — 현황 모니터링(최신 스냅샷). 환경요약 14일 활용률·right-sizing(장기 사이징)과 의미 분리.
+   realtime 객체면 데이터 없어도(서버 0대·sample 0) 카드 항상 노출 — 제목+섹션으로 출력 형식 발화(E9).
+   내부 도넛·부하상위는 sample_size/has_peaks 가드로 empty_state placeholder. page>1·필터 시 realtime=None 컨텍스트 가드는 유지(카드 숨김). #}
+{% if realtime %}
 <section class="card no-print">
   <h2>환경 실시간 메트릭 <span class="section-meta">현황 모니터링 · 최신 스냅샷</span></h2>
   <div style="display:flex; flex-wrap:wrap; gap:24px; font-size:13px; color:#475569;">
@@ -180,7 +182,7 @@
       </div>
     </div>
     {% else %}
-    {{ empty_state("온라인 서버의 최신 메트릭이 없습니다.") }}
+    {{ empty_state("수집된 메트릭이 없습니다.") }}
     {% endif %}
   </div>
 
@@ -215,12 +217,6 @@
     {{ empty_state("표시할 부하 데이터가 없습니다.") }}
     {% endif %}
   </div>
-</section>
-{% elif realtime %}
-{# 등록 서버 0대 — 카드 존재 자체를 항상 인지 (E9 discoverability). 환경요약 '서버 없음'과 동일 패턴. #}
-<section class="card no-print">
-  <h2>환경 실시간 메트릭 <span class="section-meta">현황 모니터링 · 최신 스냅샷</span></h2>
-  {{ empty_state("등록된 서버가 없습니다. 에이전트가 연결되면 실시간 메트릭이 표시됩니다.") }}
 </section>
 {% endif %}
 
