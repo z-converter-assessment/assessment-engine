@@ -27,7 +27,12 @@ from assessment_engine.web.services.mappers.shared import (
     os_id_to_distro,
 )
 from assessment_engine.web.services.metrics_calculator import compute_net_io
-from assessment_engine.web.services.service_classifier import classify, matched_ports
+from assessment_engine.web.services.service_classifier import (
+    SINGLE_INSTANCE_CATEGORIES,
+    classify,
+    detect_listen_categories,
+    matched_ports,
+)
 from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb, usage_pct
 from assessment_engine.web.view_models.server import (
     DiskItem,
@@ -143,7 +148,7 @@ def _to_service_item(s: dict, listen_ports: list[dict] | None = None) -> Service
     return ServiceItem(
         unit=unit,
         sub=s.get("sub", ""),
-        category=classify(unit),
+        category=classify(unit, listen_ports),
         ports=matched_ports(unit, listen_ports) if listen_ports else [],
         display_name=unit.removesuffix(".service"),
     )
@@ -176,9 +181,10 @@ def _dedup_known(services: list[ServiceItem] | None) -> tuple[list[ServiceItem],
         if s.category not in seen_categories:
             seen_categories.add(s.category)
             known.append(s)
-    # 카테고리별 서비스 개수를 대표 item 에 기록 — 뱃지 "container 2" (환경요약 role 인스턴스 수와 일관).
+    # 카테고리별 서비스 개수를 대표 item 에 기록 — 뱃지 "db 2" 등 (환경요약 role 인스턴스 수와 일관).
+    # 런타임 스택(container)은 호스트당 1 — docker+containerd 를 "container 2" 로 부풀리지 않음.
     for s in known:
-        s.category_count = counts[s.category]
+        s.category_count = 1 if s.category in SINGLE_INSTANCE_CATEGORIES else counts[s.category]
     # 뱃지 정렬 단일 기준 — category 알파벳 오름차순 (등장 순=DB row 순은 비결정적). 템플릿 P3 정렬 회피.
     known.sort(key=lambda s: s.category)
     show_unknown = bool(services) and not known
@@ -379,29 +385,70 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     shown_port_numbers: set[int] = set()
     known: list[ServiceItem] = []
 
+    # 카테고리 단위 포트 집계 단일 진실 — listen 소켓을 카테고리로 직접 분류한 결과.
+    listen_dicts = [{"proto": lp.proto, "port": lp.port, "comm": lp.comm} for lp in detail.listen_ports]
+    listen_by_cat = detect_listen_categories(listen_dicts)
+    assigned_cats: set[str] = set()  # 카테고리 listen 포트는 카테고리당 1회만 뱃지에 부여
+    seen_single_cats: set[str] = set()  # 런타임 스택(container)은 첫 unit 만 뱃지 (docker+containerd → 1뱃지)
+
     for svc in services:
         if svc.category == "unknown":
             continue
-        deduped: list = []
+        if svc.category in SINGLE_INSTANCE_CATEGORIES:
+            if svc.category in seen_single_cats:
+                continue
+            seen_single_cats.add(svc.category)
+        ports: list = []
+        # comm 으로 unit 에 귀속된 포트 (per-unit 정확 매핑)
         for p in svc.ports:
             key = f"{p.proto}:{p.port}"
             if key not in seen_chip_keys:
                 seen_chip_keys.add(key)
                 shown_port_numbers.add(p.port)
-                deduped.append(p)
+                ports.append(p)
+        # 카테고리 단위 listen 포트 보강 (Q1) — comm 귀속 실패한 워크로드 포트
+        # (W3SVC<->System 의 80 등)를 같은 카테고리 뱃지에 붙임. 카테고리당 1회 (중복 회피).
+        if svc.category not in assigned_cats:
+            assigned_cats.add(svc.category)
+            for p in listen_by_cat.get(svc.category, []):
+                key = f"{p.proto}:{p.port}"
+                if key not in seen_chip_keys:
+                    seen_chip_keys.add(key)
+                    shown_port_numbers.add(p.port)
+                    ports.append(p)
+        ports.sort(key=lambda mp: (mp.port, mp.proto))  # P3 — 칩 정렬은 mapper 단일
         known.append(
             ServiceItem(
                 unit=svc.unit,
                 sub=svc.sub,
                 category=svc.category,
-                ports=deduped,
+                ports=ports,
                 display_name=svc.display_name,
             )
         )
 
+    # listen-only 워크로드 보충 (ADR 0032 union) — services 이름이 못 잡았지만 listen 소켓이
+    # 증거하는 카테고리를 합성 뱃지로 추가. opaque 한 Windows SCM 이름을 1433/sqlservr 같은
+    # 깨끗한 listen 신호로 구제. unit/display_name 없음 (특정 service 에 귀속 불가, T15).
+    known_categories = {s.category for s in known}
+    for category, ports in listen_by_cat.items():
+        if category in known_categories:
+            continue
+        deduped_ports: list = []
+        for p in ports:
+            key = f"{p.proto}:{p.port}"
+            if key in seen_chip_keys:
+                continue
+            seen_chip_keys.add(key)
+            shown_port_numbers.add(p.port)
+            deduped_ports.append(p)
+        deduped_ports.sort(key=lambda mp: (mp.port, mp.proto))
+        known.append(ServiceItem(unit="", sub="", category=category, ports=deduped_ports, display_name=""))
+
     # 뱃지 정렬 단일 기준 — 서버목록(_dedup_known)과 동일하게 category 알파벳 오름차순.
     known.sort(key=lambda s: s.category)
     detail.known_services = known
+    # union(이름 ∪ listen)으로도 아무 카테고리도 못 잡았을 때만 unknown 뱃지.
     detail.show_unknown_badge = detail.services is not None and bool(detail.services) and not known
     detail.key_listen_ports = sorted(
         [lp for lp in detail.listen_ports if lp.is_well_known and lp.port not in shown_port_numbers],
@@ -432,21 +479,38 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
 # ─── role 추론 — services[].unit → 카테고리 빈도 최다 (export · report · attention 공용) ───
 
 
-def infer_role(services: list[dict] | None) -> str:
-    """services[].unit를 service_classifier로 분류 → 가장 빈도 높은 카테고리.
+def workload_category_counter(
+    services: list[dict] | None,
+    listen_ports: list[dict] | None = None,
+) -> Counter[str]:
+    """호스트 워크로드 카테고리 카운터 — services 이름 분류 ∪ listen 소켓 탐지 (ADR 0032).
 
-    "unknown"은 결정에서 제외. 모두 unknown이면 "unknown" 반환.
+    services 이름 분류는 인스턴스 카운트(서버목록 뱃지와 일관). 단 런타임 스택(container)은
+    구성 요소가 여러 서비스로 떠도 호스트당 1 (docker+containerd → container 1).
+    listen 소켓 탐지(`detect_listen_categories`)는 이름이 못 잡은 카테고리만 +1 보충 — 같은
+    워크로드 이중 카운트 회피. agent join key 부재(T15)로 opaque 한 service 이름을 listen 증거로 구제.
+    role/뱃지/환경 분포 단일 진실.
     """
-    if not services:
-        return "unknown"
     counter: Counter[str] = Counter()
-    for s in services:
+    for s in services or []:
         unit = s.get("unit") if isinstance(s, dict) else None
         if not unit:
             continue
-        cat = classify(unit)
-        if cat != "unknown":
-            counter[cat] += 1
+        cat = classify(unit, listen_ports)
+        if cat == "unknown":
+            continue
+        # 런타임 스택(container)은 구성 요소가 여러 서비스로 떠도 호스트당 1 (docker+containerd → 1).
+        counter[cat] = 1 if cat in SINGLE_INSTANCE_CATEGORIES else counter[cat] + 1
+    name_cats = set(counter)
+    for cat in detect_listen_categories(listen_ports or []):
+        if cat not in name_cats:
+            counter[cat] = 1
+    return counter
+
+
+def infer_role(services: list[dict] | None, listen_ports: list[dict] | None = None) -> str:
+    """호스트 대표 역할 — `workload_category_counter` 최빈 카테고리. 비면 "unknown"."""
+    counter = workload_category_counter(services, listen_ports)
     if not counter:
         return "unknown"
     return counter.most_common(1)[0][0]

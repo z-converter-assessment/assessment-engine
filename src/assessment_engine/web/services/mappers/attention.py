@@ -13,7 +13,7 @@ from assessment_engine.db.dtos.outbound import (
     DiskUsageWarningRaw,
     MetricGapWarningRaw,
 )
-from assessment_engine.web.services.service_classifier import classify
+from assessment_engine.web.services.mappers.server import workload_category_counter
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
     _USAGE_DANGER_PCT,
@@ -188,18 +188,15 @@ def build_environment_overview(
     for d in details:
         os_counter[d.os_family or "unknown"] += 1
 
-    # 역할 분포 — 각 서버의 모든 서비스 카테고리 인스턴스 카운트 (#E7). 서버목록 뱃지 개수와 일관 —
-    # 동일 카테고리 중복 서비스도 각각 카운트 (예: docker+containerd 둘 다 container → container 2). unknown 제외.
+    # 역할 분포 — 각 서버의 워크로드 카테고리 (ADR 0032 union: services 이름 ∪ listen 소켓 탐지).
+    # 이름 분류는 인스턴스 카운트(단 container 런타임 스택은 호스트당 1), listen-only 보충은 +1. unknown 제외.
     role_counter: Counter[str] = Counter()
     role_unknown = 0  # known 역할 0인 호스트 수 (서비스 없음 또는 전부 unknown) — 호스트 단위
     for d in details:
-        has_known = False
-        for svc in d.services or []:
-            category = classify(svc.get("unit", ""))
-            if category != "unknown":
-                role_counter[category] += 1
-                has_known = True
-        if not has_known:
+        counter = workload_category_counter(d.services, d.listen_ports)
+        if counter:
+            role_counter.update(counter)
+        else:
             role_unknown += 1
 
     util_bars: list = []

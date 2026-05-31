@@ -410,3 +410,24 @@ right-sizing 분류는 USE Method 의 Utilization + Saturation 두 축을 본다
 언제 다시 봐야 하는가
 - Windows 에서 디스크 IO 병목이 운영 이슈로 부상 시 → Windows 전용 saturation 신호(PerfMon `PhysicalDisk\Avg. Disk Queue Length` 등) 를 agent 가 canonical 매핑 + classify 에 Windows saturation 축 추가.
 - Windows 메모리 압박을 pagefile 로 판정할 필요 시 → pagefile 사용률 임계(절대 baseline 초과분) 를 Windows 전용 신호로 도입 (현재는 mem_p95 utilization 으로만).
+
+## T15. 서비스 분류 — services <-> listen_ports join key 부재 (호스트 union 으로 보완, ADR 0032)
+
+agent 메시지의 `services[]`(unit·sub)와 `listen_ports[]`(proto·port·comm·pid) 사이에 신뢰할 join key 가 없다 — services 가 pid/exe 를 발행하지 않아 "이 service unit 이 그 포트를 연다"를 확정할 수 없다. Windows agent 는 `EnumServicesStatusExW(SC_ENUM_PROCESS_INFO)` 가 `dwProcessId` 를 쥐고도 안 싣고(엔진이 못 바꾸는 제약), Linux 는 `systemctl list-units` 파싱이라 pid 없음. 그래서 per-unit 분류(`classify`)는 comm/port 를 `comm~name` 귀속될 때만 쓸 수 있고, 이름이 comm 과 무관한 opaque 서비스를 per-unit 으론 못 잡는다.
+
+agent 불변 전제의 최선 — 호스트 워크로드 union:
+- 뱃지/role/환경분포는 per-unit 분류에 의존하지 않고, `detect_listen_categories(listen_ports)` 로 listen 소켓을 직접 분류(comm/port)해 services 이름 분류와 합집합(`workload_category_counter`)한다. listen 소켓의 comm·port 는 깨끗·안정 식별자라 opaque 이름을 우회 — `MSSQL$무엇` 이든 1433/`sqlservr` 로 db 탐지.
+
+- 포기한 것(union 후 잔존):
+  - listen 안 하거나 localhost-only 바인드 워크로드 + opaque 이름 = 두 소스 모두 못 잡아 미상. (listen 하는 워크로드는 union 으로 거의 구제됨.)
+  - per-unit services 탭의 행별 카테고리는 여전히 이름 기반 best-effort — opaque unit 은 그 행에서 unknown (호스트 뱃지는 union 으로 db 표시되어도). 행 단위 정확 귀속은 pid join 부재로 불가.
+  - 서버 목록 행 뱃지는 `ServerSummary` 경량 partial SELECT(#C2/E2)라 listen_ports 미보유 -> name 신호만. 목록 행과 환경요약 카운트 간 약간 비대칭.
+
+왜 받아들였나
+- per-unit 귀속 게이트를 풀어 임의 listen 포트를 아무 unknown service 에 붙이면 multi-service 호스트(nginx:80 + opaque:1433)에서 오분류 — 그래서 per-unit 은 보수적으로 두고, 호스트 레벨에서만 union 으로 보충(set 합집합이라 오분류 아닌 "탐지 누락 보완").
+- 분류 산출물(뱃지·role)은 본질적으로 "이 호스트가 무슨 워크로드를 도느냐" 의 근사 — listen 이 그 질문의 직접 증거다.
+- 목록의 비대칭은 partial SELECT 정책(목록 경량 유지)과의 트레이드오프 — 대시보드 환경요약·상세는 정확, 목록 행만 근사.
+
+언제 다시 봐야 하는가
+- agent 가 `services[]` 에 main pid 또는 exe basename 을 실어주면 → listen_ports 와 pid join 으로 per-unit 정확 귀속, 행 단위까지 정확. union 보완 불필요.
+- 목록 행 뱃지 정확도가 운영 이슈로 부상 시 → `list_servers` SELECT 에 listen_ports JSONB 추가해 목록도 union (partial SELECT 정책 재검토 동반).

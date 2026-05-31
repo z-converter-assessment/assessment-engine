@@ -197,7 +197,15 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 
 서비스 카테고리 분류(`classify`)·포트 매핑(`matched_ports`)은 `service_classifier.py`에서. 매퍼가 호출해 `ServiceItem`에 채움. 템플릿은 `service_badge_class` 필터로 category → CSS 클래스 변환만(P3).
 
-키워드 매칭 표 / `SERVICE_PORTS` 폴백 / 서비스 3단계 표시 계층: `docs/architecture/web/services.md` "서비스 분류" 절.
+본 절 결정 (ADR 0032):
+- 카테고리 규약 단일 진실 = `SERVICE_CATALOG`(`CategoryDef`). 분류 키워드·포트·드롭다운(`SERVICE_CATEGORIES`)·뱃지 CSS(`BADGE_CLASS_BY_CATEGORY`)·템플릿 범례가 모두 본 카탈로그 파생 — 서비스 추가는 카탈로그 1곳만 수정. 분산 정의(옛 `_PATTERNS`/`SERVICE_PORTS`/`_BADGE_CLASSES`) 부활 금지.
+- `classify(unit, listen_ports=None)` 다중 신호 우선순위 = name -> comm -> port (정밀도 순). comm/port 는 `_attributed_ports`(comm~name 또는 name well-known 포트) 귀속 포트에만 적용 — per-unit(services 탭) multi-service 오분류 방지.
+- 호스트 워크로드(뱃지·role·환경분포)는 per-unit `classify` 가 아니라 `workload_category_counter`(services 이름 분류 ∪ `detect_listen_categories` listen 소켓 직접 분류) 경유. agent 가 services<->listen_ports join key(pid) 미발행이라(T15), opaque 한 Windows SCM 이름을 listen 소켓 comm/port 로 구제하는 단일 보완 경로. detail 뱃지·환경요약·`infer_role`(export)에 적용, 목록 행·보고서는 listen_ports 미보유라 name 만(의도적 비대칭).
+- 런타임 스택 카테고리(`CategoryDef.single_instance`, 현재 container)는 호스트당 1로 카운트 — docker+containerd 등이 떠도 "container 2" 금지(`SINGLE_INSTANCE_CATEGORIES`, 카운터·목록 뱃지·detail 뱃지 일관). 일반 카테고리는 인스턴스 카운트.
+- detail 뱃지 포트는 카테고리 단위 집계 — comm 귀속 실패 워크로드 포트(W3SVC<->System 80 등)도 카테고리 뱃지에 붙임. 뱃지에 귀속된 포트는 "주요 Listen 포트"에서 제외.
+- 본 `classify`(서비스 카테고리)와 `recommendation.classify`(USE Method right-sizing) 혼용 금지 — 다른 함수.
+
+키워드 매칭·카탈로그 파생 / 다중 신호 우선순위 / opaque 이름 한계(T15) / 서비스 3단계 표시 계층: `docs/architecture/web/services.md` "서비스 분류" 절.
 
 ## E8. 차트·도넛 UI 디테일 (P3·P4 적용)
 

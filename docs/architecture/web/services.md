@@ -12,7 +12,7 @@
 | `cache_serializer.py` | Redis serde — `ServerDetailResponse` / `MetricDashboard`. 역직렬화 후 `enrich_*` 재호출 (idempotent) |
 | `unit_converter.py` | KB->GB / sectors->KB/s / usage_pct 단위 변환 |
 | `device_filters.py` | 디스크/인터페이스 블랙리스트 필터 (`is_physical_disk`·`is_virtual_disk`·`is_lvm_disk`·`is_partition`·`is_virtual_interface`) + 가상 마운트 필터 + `find_parent_disk` (mount-disk 조인) |
-| `service_classifier.py` | systemd unit -> 서비스 카테고리 (`web`/`db`/`cache`/`mq`/`monitor` 등) + 포트 매핑 |
+| `service_classifier.py` | 서비스 -> 카테고리 (`web`/`db`/`cache`/`mq`/`container`/`monitor`) + 포트 매핑. 단일 카탈로그(`SERVICE_CATALOG`) 파생 |
 
 진단 deep dive(워커·스케줄러·LLM 토글·diagnostic_jobs): `docs/architecture/diagnostic.md`.
 
@@ -24,7 +24,31 @@
 | 상세 | `/servers/{id}` | unit 이름 + matched_ports + 카테고리 badge |
 | services 탭 | `/servers/{id}/services` | unit 전체 + sub state + 포트 + 카테고리 |
 
-`service_classifier.classify(unit)` — keyword substring 매칭. 분류 실패 시 `"unknown"`. role 추론(`infer_role`)도 같은 함수 활용 — 가장 빈도 높은 카테고리.
+### 단일 카탈로그 + 다중 신호 분류 (ADR 0032)
+
+`SERVICE_CATALOG`(`CategoryDef` 튜플)이 카테고리별 규약의 단일 진실 — `name_keywords`(unit·comm 공용 substring) / `port_names`(서비스명 -> well-known 포트) / `badge_class`. 파생물은 import 시점 1회 계산: `_NAME_INDEX`(분류 키워드, 옛 `_PATTERNS`) · `_NAME_PORTS`(옛 `SERVICE_PORTS`) · `_PORT_INDEX`(port -> category) · `SERVICE_CATEGORIES`(드롭다운·범례) · `BADGE_CLASS_BY_CATEGORY`(templating filter import). 서비스 추가 = 카탈로그 1곳만 수정.
+
+`classify(unit, listen_ports=None)` — 다중 신호, 정밀도 우선순위:
+1. unit 이름 키워드 (최고 정밀 — 소프트웨어 정체성)
+2. comm 키워드 (이름 미스매치 흡수 — Windows SCM 이름과 exe basename 불일치 등)
+3. listen 포트 (프로토콜 사실관계 — 1433 -> db)
+
+우선순위 근거: 소프트웨어 정체성(name/comm)이 프로토콜(port)보다 카테고리 정밀도가 높다 (haproxy가 5432를 프록시해도 web). port는 name/comm 무정보 시 fallback. `listen_ports` 미제공(목록 화면 경량 SELECT) 시 name 신호만 — 현행 동작 보존.
+
+`classify` 의 comm/port 신호는 `_attributed_ports`(comm~name 또는 name well-known 포트로 unit에 귀속된 포트)에만 적용 — per-unit(services 탭) 표시용이라 multi-service 오분류 방지가 우선. 단 per-unit 분류만으론 이름이 comm과 무관한 opaque 서비스를 못 잡는다(agent 가 services 와 listen_ports 를 잇는 pid join key 미발행 — T15).
+
+호스트 워크로드 union (agent 불변 전제의 최선, ADR 0032):
+- `detect_listen_categories(listen_ports)` — listen 소켓을 services unit 과 무관하게 직접 분류(comm 키워드 우선, 없으면 port). listen 소켓의 comm(exe basename)·port 는 지저분한 service 이름과 달리 깨끗·안정(OS·인스턴스명·로케일 무관) 식별자라, "이 호스트가 무슨 워크로드를 listen 하나"를 직접 탐지. Windows opaque SCM 이름(`MSSQL$무엇`)을 1433/`sqlservr` 로 우회.
+- `workload_category_counter(services, listen_ports)` — services 이름 분류(인스턴스 카운트) ∪ listen 탐지(이름이 못 잡은 카테고리만 +1, 이중 카운트 회피). role/뱃지/환경 분포 단일 진실.
+- 런타임 스택 카테고리(`CategoryDef.single_instance` — 현재 container)는 호스트당 1로 집계. docker+containerd, kubelet+containerd 처럼 1 런타임이 여러 서비스로 떠도 "container 2" 로 부풀리지 않는다 (카운터·목록 뱃지 category_count·detail 뱃지 모두 적용, `SINGLE_INSTANCE_CATEGORIES`). web/db 등 일반 카테고리는 인스턴스 카운트 유지.
+- 적용: server detail 뱃지(`enrich_server_detail`) · 환경요약 role 분포(`build_environment_overview`) · `infer_role`(export). 셋 다 listen_ports 보유.
+- detail 뱃지 포트 표시 = 카테고리 단위 집계 — 각 카테고리 뱃지에 (comm 으로 unit 에 귀속된 포트) + (그 카테고리의 listen 포트, 카테고리당 1회)를 합쳐 붙인다. comm 귀속이 실패하는 워크로드(IIS `W3SVC`<->`System` 의 80/tcp·tcp6)도 카테고리 단위로 80 이 뱃지에 붙음. listen-only 카테고리(services 이름이 못 잡은)는 unit 없는 합성 `ServiceItem`. 뱃지에 귀속된 포트는 "주요 Listen 포트"(`key_listen_ports`)에서 제외, 카테고리 없는 OS 인프라 포트(svchost RPC/SMB/NTP 등)만 거기 남는다. 표시는 캡슐 박스로 카테고리-포트 대응을 한 묶음으로 (detail.html).
+- 미적용(name 신호만): 서버 목록 행 뱃지(`ServerSummary` 는 경량 partial SELECT 라 listen_ports 미보유, #C2/E2) · 보고서(`ReportRowRaw` listen_ports 미보유). 목록 행과 환경요약 카운트 간 약간의 비대칭은 의도 — `docs/tradeoffs.md` T15.
+- 잔존 한계: listen 안 하거나 localhost-only 바인드 워크로드 + opaque 이름은 여전히 미상(union 두 소스 모두 못 잡음). 노이즈는 unknown 통일 노출(E9).
+
+`infer_role(services, listen_ports=None)` = `workload_category_counter` 최빈 카테고리.
+
+주의: 본 절 `classify`는 service_classifier 의 서비스 카테고리 분류. 아래 "Recommendation 분류"의 `recommendation.classify`(USE Method right-sizing)와 다른 함수 — 혼동 금지.
 
 ## mount - disk 매핑 (Linux 디바이스 식별 표준)
 

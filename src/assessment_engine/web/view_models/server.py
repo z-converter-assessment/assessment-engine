@@ -47,8 +47,8 @@ class ServiceItem:
     category: str
     ports: list[MatchedPort]
     display_name: str = ""
-    # 같은 카테고리 서비스 개수 (서버목록 뱃지 "container 2" 표시 — 환경요약 role 인스턴스 수와 일관).
-    # _dedup_known 이 set.
+    # 같은 카테고리 서비스 개수 (서버목록 뱃지 "db 2" 표시 — 환경요약 role 인스턴스 수와 일관).
+    # 런타임 스택(container)은 호스트당 1 (docker+containerd 를 부풀리지 않음). _dedup_known 이 set.
     category_count: int = 1
 
 

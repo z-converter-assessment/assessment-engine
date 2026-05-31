@@ -156,17 +156,20 @@
     {% if server.services is none %}
       <span class="text-meta" style="font-size:13px;">수집 불가</span>
     {% elif server.services %}
-      <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+      <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:stretch;">
+        {# 캡슐 박스 — 카테고리 뱃지 + 그 카테고리에 대응하는 listen 포트를 한 테두리로 묶어 대응 관계를 명확히. #}
         {% for svc in server.known_services %}
-        <span style="display:inline-flex; align-items:center; gap:4px; flex-wrap:wrap;">
-          <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}<span style="font-weight:400; opacity:0.75; margin-left:5px;">{{ svc.display_name }}</span></span>
+        <span style="display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap; border:1px solid #e2e8f0; border-radius:8px; padding:6px 10px; background:#fff;">
+          <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}{% if svc.display_name %}<span style="font-weight:400; opacity:0.75; margin-left:5px;">{{ svc.display_name }}</span>{% endif %}</span>
           {% for p in svc.ports %}
-          <span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:4px 10px; font-size:12px;"><code style="background:none; padding:0; font-size:12px; color:#3b82f6;">{{ p.proto }}</code><strong>{{ p.port }}</strong></span>
+          <span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:3px 8px; font-size:12px;"><code style="background:none; padding:0; font-size:12px; color:#3b82f6;">{{ p.proto }}</code><strong>{{ p.port }}</strong></span>
           {% endfor %}
         </span>
         {% endfor %}
         {% if server.show_unknown_badge %}
+        <span style="display:inline-flex; align-items:center; border:1px solid #e2e8f0; border-radius:8px; padding:6px 10px; background:#fff;">
           <span class="badge badge-cat-unknown">unknown</span>
+        </span>
         {% endif %}
       </div>
     {% else %}

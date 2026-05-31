@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from assessment_engine.web.deps import get_service, resolve_internal_id
 from assessment_engine.web.services.query_service import QueryService
+from assessment_engine.web.services.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.settings import web_settings
 from assessment_engine.web.templating import templates
 
@@ -51,6 +52,8 @@ async def _render_server_tab(
             "server": server,
             "back_url": _safe_back(back, f"/servers/{server_id}"),
             "self_back": _self_back(request),
+            # services.html 범례 단일 진실 — service_classifier 카탈로그 파생.
+            "service_categories": SERVICE_CATEGORIES,
         },
     )
 

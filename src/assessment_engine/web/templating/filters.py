@@ -1,20 +1,12 @@
 from datetime import UTC, datetime, timedelta, timezone
 
-_KST = timezone(timedelta(hours=9))
+from assessment_engine.web.services.service_classifier import BADGE_CLASS_BY_CATEGORY
 
-_BADGE_CLASSES: dict[str, str] = {
-    "web": "badge-cat-web",
-    "db": "badge-cat-db",
-    "cache": "badge-cat-cache",
-    "mq": "badge-cat-mq",
-    "container": "badge-cat-container",
-    "monitor": "badge-cat-monitor",
-    "unknown": "badge-cat-unknown",
-}
+_KST = timezone(timedelta(hours=9))
 
 
 def service_badge_class(category: str | None) -> str:
-    return _BADGE_CLASSES.get(category or "", "")
+    return BADGE_CLASS_BY_CATEGORY.get(category or "", "")
 
 
 def kst(dt: datetime | None) -> str:
