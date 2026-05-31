@@ -19,6 +19,7 @@ from assessment_engine.recommendation import (
     SHUTDOWN_CPU_P95_PCT,
     SHUTDOWN_NET_MBPS,
     ResourceStats,
+    assess,
     classify,
     is_partial_evaluation,
     swap_saturation,
@@ -42,13 +43,15 @@ def _stats(**overrides) -> ResourceStats:
     return ResourceStats(**base)
 
 
-# 우선순위 1: insufficient_data — cpu_p95 or mem_p95 None
-def test_insufficient_data_cpu_p95_none():
-    assert classify(_stats(cpu_p95_pct=None)) == "insufficient_data"
+# 우선순위 1: insufficient_data — cpu_p95 AND mem_p95 둘 다 None (한 자원이라도 있으면 평가)
+def test_insufficient_data_both_p95_none():
+    assert classify(_stats(cpu_p95_pct=None, mem_p95_pct=None)) == "insufficient_data"
 
 
-def test_insufficient_data_mem_p95_none():
-    assert classify(_stats(mem_p95_pct=None)) == "insufficient_data"
+def test_partial_metric_still_classified():
+    # 한쪽 utilization 만 있어도 그것으로 결론 (OR->AND 좁힘, 데이터로 반드시 판단) — insufficient 아님
+    assert classify(_stats(cpu_p95_pct=None)) != "insufficient_data"
+    assert classify(_stats(mem_p95_pct=None)) != "insufficient_data"
 
 
 # 우선순위 2: idle — cpu_peak <= 1% AND net <= 1 KB/s
@@ -215,7 +218,32 @@ def test_classify_windows_still_under_on_real_utilization():
     assert classify(windows_busy) == "under_provisioned"
 
 
-def test_is_partial_evaluation_windows_vs_linux():
-    assert is_partial_evaluation(_stats(os_family="windows")) is True
-    assert is_partial_evaluation(_stats(os_family="linux")) is False
-    assert is_partial_evaluation(_stats(os_family=None)) is False
+def test_is_partial_evaluation_by_unmeasured_saturation():
+    """부분 평가 = saturation 축 미관측(데이터 기반). Windows 는 load None 이라 자연히 True,
+    Windows agent 가 등가 카운터를 발행하면 자동 해제 — os 단정이 아니라 실제 관측 여부."""
+    assert is_partial_evaluation(_stats(cpu_load_15m_max=None)) is True  # load(CPU saturation) 미관측
+    assert is_partial_evaluation(_stats(iowait_p95_pct=None)) is True  # iowait(Disk IO) 미관측
+    assert is_partial_evaluation(_stats()) is False  # saturation 전부 관측(Linux 정상)
+
+
+def test_assess_triggers_as_evidence():
+    """assess: under 시 hit 신호를 triggers 근거로 반환 (설명 가능 — "어떤 데이터로 under")."""
+    a = assess(_stats(mem_p95_pct=MEM_UPSIZE_P95_PCT))
+    assert a.recommendation == "under_provisioned"
+    assert "mem_util" in a.triggers
+
+
+def test_assess_windows_swap_excluded_load_unmeasured():
+    """Windows: swap trigger 제외(pagefile), load 미관측은 unmeasured — 분류는 완결(데이터 부족 아님)."""
+    a = assess(_stats(swap_used=True, cpu_load_15m_max=None, os_family="windows"))
+    assert "mem_saturation" not in a.triggers
+    assert "cpu_saturation" in a.unmeasured
+    assert a.is_partial is True
+    assert a.recommendation != "insufficient_data"
+
+
+def test_assess_under_on_partial_metric_no_miss():
+    """한쪽 utilization(mem)만 있어도 위험 신호면 under — 누락 0 (네 원칙: under 반드시 평가)."""
+    a = assess(_stats(cpu_p95_pct=None, mem_p95_pct=MEM_UPSIZE_P95_PCT))
+    assert a.recommendation == "under_provisioned"
+    assert "mem_util" in a.triggers

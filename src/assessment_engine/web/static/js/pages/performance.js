@@ -31,7 +31,7 @@ const COLOR_WARN    = '#f59e0b';
 const COLOR_DANGER  = '#ef4444';
 const colorByMountPct = v => v >= USAGE_DANGER_PCT ? COLOR_DANGER : v >= USAGE_WARN_PCT ? COLOR_WARN : COLOR_NEUTRAL;
 
-let globalRange = '24h';
+let globalRange = '15m';
 const chartInstances = {};
 // P4(a) sequence counter — per-chart 분리 (다른 page 와 일관). chart 별 독립 counter.
 const seqs = {
@@ -324,7 +324,7 @@ async function loadSwapChart(range, anchor) {
   updateMaxLabel('swap-max', computePeriodMax(safeMax), v => v.toFixed(1)+'%', null);
 }
 
-// 물리 계층 I/O — device × Read/Write 통합 (storage.js loadPhysChart 모델, device_category=phys).
+// 물리 계층 I/O — device x Read/Write 통합 (storage.js loadPhysChart 모델, device_category=phys).
 async function loadPhysIoChart(range, anchor) {
   const seq = ++seqs.physIo;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
@@ -358,7 +358,7 @@ async function loadFsChart(range, anchor) {
   updateMaxLabel('fs-max', computePeriodMax(safeMax), v => v.toFixed(1)+'%', colorByMountPct);
 }
 
-// 네트워크 I/O — iface × RX/TX 통합 bytes (network.js 모델).
+// 네트워크 I/O — iface x RX/TX 통합 bytes (network.js 모델).
 async function loadNetIoChart(range, anchor) {
   const seq = ++seqs.netIo;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
@@ -375,7 +375,7 @@ async function loadNetIoChart(range, anchor) {
   buildAvgMaxLegend('netio-legend', chart, { withToggle: true });
 }
 
-// 네트워크 PPS — iface × RX/TX packets.
+// 네트워크 PPS — iface x RX/TX packets.
 async function loadNetPpsChart(range, anchor) {
   const seq = ++seqs.netPps;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];

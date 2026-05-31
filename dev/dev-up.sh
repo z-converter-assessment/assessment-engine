@@ -1,28 +1,36 @@
 #!/usr/bin/env bash
-# dev-up.sh: 전체 dev 환경 기동 단일 진입점. Docker → migrate → web 헬스체크 → OrbStack VM(+에이전트)
-#            → Windows(UTM win-server-01, 있으면). 정리는 dev-down.sh. (옛 pipeline-up/win-pipeline-up 통합)
+# dev-up.sh: 전체 dev 환경 기동 단일 진입점 — 의존성 자동설치 + Docker + libvirt(KVM) Linux VM 5대
+#            + Windows VM. 인자 없이 실행하면 모든 환경 구성, 정리는 dev-down.sh.
 #
-# LLM 서버(ollama) 제거 — 파이프라인 검증 한정 (dev pipeline 시연). AI 진단 발행 시 LLM 호출
-# 실패 시나리오를 의도적으로 재현 (docker-compose.yml diagnostic-worker 주석 참조). ollama 모델
-# pull 단계 없음.
+# LLM 서버(ollama)는 두지 않는다 — AI 진단 발행 시 LLM 호출 실패 시나리오를 의도적으로 재현
+# (docker-compose.yml diagnostic-worker 주석 참조).
 #
 # 책임 분담:
-#   - agent 바이너리는 `dev/bin/assessment-agent` 로 산출 — 본 스크립트 `ensure_agent_binary` 단계가 확보.
-#     AGENT_BINARY_URL set 시 curl fetch (향후 agent CI release artifact 자동화 분기),
-#     미설정 시 `dev/agent-build/build.sh` 호출 (sibling repo cross-build, default ../assessment-agent).
-#   - Docker compose는 dev/docker-compose.yml (dev 한정 #A0, ADR 0012). migrate init-container가 alembic 자동 적용.
-#   - OrbStack VM 은 `orb create <distro> <name>` 로 즉시 생성 — cloud-init 이 없어 Lima 의 boot stuck 우회 로직 불필요.
-#   - VM 안 작업(패키지·바이너리·systemd·합성 부하 timer)은 모두 본 스크립트 post-provision — 옛 Lima yaml provision 을 흡수.
+#   - agent 바이너리는 dev/bin/assessment-agent 로 산출 — ensure_agent_binary 가 확보.
+#     AGENT_BINARY_URL set 시 curl fetch, 미설정 시 dev/agent-build/build.sh (sibling repo cross-build).
+#   - Docker compose 는 dev/docker-compose.yml (dev 한정 #A0, ADR 0012). migrate init-container 가 alembic 자동 적용.
+#   - Linux VM 은 cloud image qcow2 vol-clone + cloud-init seed + virsh define 도메인 XML 로 생성
+#     (virt-install 의 python3-gi 의존 회피). VM 안 패키지·바이너리·systemd·합성 부하는 post-provision.
+#   - Windows VM 은 autounattend 무인 설치 후 골든 이미지 캐시 (docs/development/windows-vm.md).
 #
-# OrbStack 전환 가정 (Lima → OrbStack):
-#   - VM 명령: `ssh <name>@orb` (OrbStack 이 ~/.ssh/config 에 <name>@orb 자동 등록). sudo 는 passwordless.
-#   - host 파일 전달: 바이너리는 ssh stdin(tee) 으로 — host 디렉토리 자동 마운트 가정·권한 문제 회피.
-#   - VM 도달: web 컨테이너 → `<name>.orb.local:22` 직접 (Lima user-mode localPort 포워딩 폐기).
-#   - host 도달: VM·컨테이너 → `host.docker.internal` (OrbStack 이 양쪽에서 host 로 해석).
+# 네트워크 모델: Docker(docker0 bridge) 와 libvirt(virbr0 NAT, 192.168.122.0/24) 는 분리된 두 망.
+#   - 연결 URI: qemu:///system (LIBVIRT_DEFAULT_URI export). ubuntu 유저는 libvirt 그룹 멤버라 sudo 불요.
+#   - VM 명령: cloud-init 이 유저 dev(NOPASSWD sudo) + dev SSH 공개키 주입 -> ssh dev@<VM_IP>.
+#     VM IP 는 libvirt DHCP lease 에서 동적 확인 (virsh domifaddr --source lease).
+#   - VM -> host 도달: libvirt NAT 게이트웨이 IP(LIBVIRT_GW, 기본 192.168.122.1). agent 의
+#     RABBITMQ_HOST·WORKER_DOWNLOAD_ALLOWED_HOSTS 가 이 IP 를 가리킨다.
+#   - 컨테이너 -> host: docker-compose web extra_hosts host.docker.internal:host-gateway.
+#   - 컨테이너(web) -> VM(서버 발견 probe :22): 운영자가 VM IP 직접 입력 (컨테이너에서 VM hostname DNS 미해석).
 #
-# 멱등성: 모든 단계 안전 재실행. VM 이미 있으면 create 건너뜀, post-provision은 매번 재적용.
+# 멱등성: 모든 단계 안전 재실행. VM 이미 있으면 define 건너뜀, post-provision 은 매번 재적용.
 
 set -euo pipefail
+
+# 모든 virsh/볼륨 호출이 system libvirtd 를 향하게 고정 — 명령마다 `-c qemu:///system` 반복 회피.
+export LIBVIRT_DEFAULT_URI="${LIBVIRT_DEFAULT_URI:-qemu:///system}"
+# IDE 터미널(PyCharm 등)은 SSH_ASKPASS/GIT_ASKPASS 를 주입해 ssh/git 이 인증 입력 시 IDE GUI 팝업을
+# 띄운다(독립 터미널엔 없음). 자동화 스크립트라 GUI 가 필요 없으므로 해제 — 어느 터미널이든 동일 동작.
+unset SSH_ASKPASS SSH_ASKPASS_REQUIRE GIT_ASKPASS 2>/dev/null || true
 
 # 호출 위치 무관 정합 — scripts/.. = 프로젝트 루트로 cwd 고정.
 # BASH_SOURCE는 source된 스크립트 자체 경로 (직접 실행 시 $0과 동일) — source 시 부모의 $0으로 잘못 cd하지 않게.
@@ -35,9 +43,25 @@ export COMPOSE_FILE=dev/docker-compose.yml
 # 상수
 # ────────────────────────────────────────────────────────────────────────────
 readonly TIMEOUT=180                         # docker compose / migrate / web 헬스체크 공통 cap
+
+# libvirt 토폴로지 단일 진실.
+readonly LIBVIRT_NET="${LIBVIRT_NET:-default}"     # NAT 네트워크 (virbr0)
+readonly LIBVIRT_POOL="${LIBVIRT_POOL:-default}"   # storage 풀 (/var/lib/libvirt/images)
+# 풀 target 경로 — ensure_libvirt_ready 가 채움. 도메인 XML 이 disk 를 type='file' + 명시 경로로 참조해야
+# virt-aa-helper(apparmor)가 디스크 경로를 프로파일에 등록 (type='volume' 은 미해석 -> 빈 프로파일 -> qemu 접근 거부).
+POOL_PATH=""
+# VM -> host 도달 게이트웨이 — default net 의 <ip address>. resolve_libvirt_gw 가 동적 확인, 실패 시 fallback.
+LIBVIRT_GW=""
+# base cloud image qcow2 캐시는 libvirt 풀 안 `<distro>-base.qcow2` 볼륨 (qemu:///system 정석 — qemu-user
+# 가 홈/임시 경로를 traverse 못 하는 문제 회피, 모든 디스크를 풀에서 관리).
+# 본 repo dev 전용 SSH keypair — cloud-init 으로 VM 에 공개키 주입, vm_ssh 가 개인키로 접속. (.gitignore)
+readonly DEV_SSH_KEY="dev/.ssh/id_dev"
+readonly VM_SSH_USER="${VM_SSH_USER:-dev}"
+# cloud-init seed / 디스크 작업용 host 임시 디렉토리 (풀 업로드 전 staging).
+readonly VM_WORK_DIR="dev/run"
+
 # VM 매트릭스 — 1 VM = 2 서비스 (service_classifier 6 카테고리 최대 커버).
-# Windows(win-server-01: IIS+redis)는 OrbStack 미지원 → UTM 별도 (docs/development/windows-vm.md).
-# 본 OrbStack 배열은 Linux 5대.
+# Windows(win-server-01: IIS+redis)는 별도 흐름 (docs/development/windows-vm.md). 본 배열은 Linux 5대.
 #
 #   (1) app-server-01   — Debian 12 + nginx + rabbitmq (web + mq)
 #                         agent-restart-demo timer (1m boot + 3m 주기) → attention.agent_unstable
@@ -48,17 +72,16 @@ readonly TIMEOUT=180                         # docker compose / migrate / web �
 #   (4) offline-server-01 — Debian 12, 서비스 없음. offline-demo (최초 메트릭 발행 후 poweroff)
 #   (5) offline-server-02 — Debian 12, 서비스 없음. offline-demo
 #                         (4)(5) 는 오프라인 표시 + 서버목록 행 채우기(총 6대 → "더보기" 발현) 용도.
-# ORB_VMS_FILTER env로 약식 검증 가능 (콤마 구분, 예: `ORB_VMS_FILTER=app-server-01`).
+# VMS_FILTER env로 약식 검증 가능 (콤마 구분, 예: `VMS_FILTER=app-server-01`).
 # 호스트 영향 최소화 위해 모든 VM 의 합성 부하는 light (sustained CPU 1~3s + mem 5~20MB).
-if [ -n "${ORB_VMS_FILTER:-}" ]; then
-  IFS=',' read -ra ORB_VMS <<< "$ORB_VMS_FILTER"
+if [ -n "${VMS_FILTER:-}" ]; then
+  IFS=',' read -ra VMS <<< "$VMS_FILTER"
 else
-  ORB_VMS=(app-server-01 data-server-01 edge-server-01 offline-server-01 offline-server-02)
+  VMS=(app-server-01 data-server-01 edge-server-01 offline-server-01 offline-server-02)
 fi
-readonly ORB_VMS
+readonly VMS
 
-# VM별 dispatch — services/ext_ip/distro는 pipeline-up.sh가 단일 진실로 갖는다.
-# associative array 대신 함수 — macOS default bash 3.2 호환 (brew bash 의존 없음).
+# VM별 dispatch — services/ext_ip/distro 는 본 스크립트(아래 vm_* 함수)가 단일 진실.
 # vm_service 는 공백 구분 다중 서비스 — post_provision_vm 이 for-loop 으로 각각 설치.
 vm_service() {
   case "$1" in
@@ -75,22 +98,31 @@ vm_ext_ip() {
     *)             echo "" ;;
   esac
 }
-# orb create 이미지 태그 — OrbStack 이 arch(Apple Silicon = arm64)·cloud image pull 자동 처리.
-# 서비스 설치 난이도 기준 distro 배치: docker.io·rabbitmq-server 는 apt(debian) 가 단순,
-# postgresql-server·zabbix-agent(EPEL)는 dnf(rocky). apt/dnf 양 family 검증 유지.
+# distro key — base cloud image 선택. 서비스 설치 난이도 기준 배치: docker.io·rabbitmq-server 는
+# apt(debian) 가 단순, postgresql-server·zabbix-agent(EPEL)는 dnf(rocky). apt/dnf 양 family 검증 유지.
 vm_distro() {
   case "$1" in
-    app-server-01)   echo "debian:12" ;;
-    data-server-01)  echo "rocky:9" ;;
-    edge-server-01)  echo "debian:12" ;;
-    offline-server-01|offline-server-02) echo "debian:12" ;;  # 가벼운 base — 서비스 없이 agent 만
+    app-server-01)   echo "debian12" ;;
+    data-server-01)  echo "rocky9" ;;
+    edge-server-01)  echo "debian12" ;;
+    offline-server-01|offline-server-02) echo "debian12" ;;  # 가벼운 base — 서비스 없이 agent 만
     *) echo "오류: 알 수 없는 VM: $1" >&2; return 1 ;;
   esac
 }
+# distro key -> amd64 cloud image (qcow2, cloud-init NoCloud 지원). genericcloud = 최소 패키지 + cloud-init.
+vm_image_url() {
+  case "$1" in
+    debian12) echo "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2" ;;
+    rocky9)   echo "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2" ;;
+    *) echo "오류: 알 수 없는 distro: $1" >&2; return 1 ;;
+  esac
+}
+# distro key -> 풀 안 base 볼륨 이름 (1회 import 후 overlay backing 으로 공유).
+vm_base_vol() { echo "$1-base.qcow2"; }
 
-# probe 도달 시연 — OrbStack VM 은 `<name>.orb.local:22` 로 web 컨테이너가 직접 도달
-# (Lima user-mode localPort 포워딩 불필요). probe 대상(app-server-01.orb.local 등)은 docker-compose
-# DISCOVERY_DEFAULT_TARGET default 가 단일 진실.
+# probe 도달 시연 — web 컨테이너(docker0) -> VM(virbr0) 는 host 라우팅 경유. VM IP 가 동적이고
+# 컨테이너에서 VM hostname DNS 해석이 없어 운영자가 VM IP 를 모달에 직접 입력 (print_summary 안내).
+# DISCOVERY_DEFAULT_TARGET 는 docker-compose default 빈값 유지.
 
 # dev/agent.env 필수 키 (agent.env.example과 단일 진실).
 readonly REQUIRED_AGENT_KEYS=(
@@ -141,18 +173,46 @@ dump_logs_and_exit() {
 # ────────────────────────────────────────────────────────────────────────────
 # Step 1: 사전 점검
 # ────────────────────────────────────────────────────────────────────────────
+# 의존성 자동 설치 — "실행만 하면 구성" 원칙(sudo NOPASSWD 전제). "cmd:pkg1,pkg2" 목록을 받아
+# cmd 부재 시 해당 패키지를 모아 1회 apt install. cmd 존재 시 skip(이미 설치 = 캐시).
+ensure_apt_packages() {
+  local spec cmd pkgs need=()
+  for spec in "$@"; do
+    cmd="${spec%%:*}"; pkgs="${spec#*:}"
+    command -v "$cmd" >/dev/null 2>&1 || need+=(${pkgs//,/ })
+  done
+  if [ ${#need[@]} -gt 0 ]; then
+    echo "  의존성 자동 설치 (sudo apt): ${need[*]}"
+    sudo apt-get update -qq
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${need[@]}"
+  fi
+}
+
 check_prereqs() {
   if ! command -v docker >/dev/null 2>&1; then
     echo "오류: docker가 PATH에 없다."
     exit 1
   fi
   if ! docker info >/dev/null 2>&1; then
-    echo "오류: docker daemon 미가동. OrbStack 기동 후 재시도."
+    echo "오류: docker daemon 미가동. Docker 기동 후 재시도."
     exit 1
   fi
-  if ! command -v orb >/dev/null 2>&1; then
-    echo "오류: orb가 PATH에 없다. OrbStack 설치 후 재시도 (https://orbstack.dev)."
+  # libvirt 툴체인 자동 설치 — virsh(도메인·볼륨 API) + cloud-localds(NoCloud seed) +
+  # curl(cloud image fetch) + qemu(KVM). 부재 시 sudo apt 로 자동 설치.
+  ensure_apt_packages virsh:libvirt-clients,libvirt-daemon-system,qemu-system-x86 \
+                       cloud-localds:cloud-image-utils curl:curl
+  # qemu:///system 접근 검증 — 실패 시 대개 libvirt 그룹 미반영(재로그인 필요) 또는 libvirtd 미가동.
+  if ! virsh version >/dev/null 2>&1; then
+    echo "오류: qemu:///system 접근 실패. (1) libvirtd 가동: systemctl status libvirtd" >&2
+    echo "      (2) 본 유저가 libvirt 그룹? id -nG. 방금 추가했다면 재로그인 또는 'newgrp libvirt' 후 재시도." >&2
     exit 1
+  fi
+  ensure_libvirt_ready
+  resolve_libvirt_gw
+  ensure_dev_ssh_key
+  # x86_64 전제 (homeserver). agent 빌드(build.sh)는 host arch 자동 매핑이라 별도 처리 불요.
+  if [ "$(uname -m)" != "x86_64" ]; then
+    echo "경고: 본 dev 파이프라인은 x86_64 + amd64 cloud image 가정. 다른 host arch 는 image URL·바이너리 검토 필요."
   fi
   # env 파일 자동 cp — 없으면 example 복사 (dev 한정, example default 그대로 충분).
   # 루트 .env.example 은 prod 운영자 카탈로그라 본 dev 파이프라인은 dev/.env.example 사용.
@@ -164,9 +224,57 @@ check_prereqs() {
     echo "  dev/agent.env 없음 — dev/agent.env.example 복사"
     cp dev/agent.env.example dev/agent.env
   fi
-  # 본 dev 파이프라인은 Apple Silicon + arm64 VM 가정. host arch 검증.
-  if [ "$(uname -m)" != "arm64" ]; then
-    echo "경고: dev 파이프라인은 Apple Silicon(arm64) 가정. 다른 host arch에선 바이너리 호환 검토 필요."
+}
+
+# default 네트워크·storage 풀 active 보장 (autostart 미설정·정지 상태 멱등 복구).
+ensure_libvirt_ready() {
+  if ! virsh net-info "$LIBVIRT_NET" >/dev/null 2>&1; then
+    echo "오류: libvirt 네트워크 '$LIBVIRT_NET' 없음. 'virsh net-define' 또는 libvirt 기본 설치 확인." >&2
+    exit 1
+  fi
+  virsh net-list --name 2>/dev/null | grep -qx "$LIBVIRT_NET" || virsh net-start "$LIBVIRT_NET" >/dev/null
+  virsh net-autostart "$LIBVIRT_NET" >/dev/null 2>&1 || true
+  # storage 풀 — 없으면 정의(기본 경로 /var/lib/libvirt/images). qemu:///system 정석.
+  # target permissions 0711 명시 — qemu(libvirt-qemu)가 풀 디렉토리를 traverse 해 디스크 파일 접근.
+  # (Ubuntu 일부 버전은 디렉토리 기본 0700 -> traverse 불가 -> qemu Permission denied.)
+  if ! virsh pool-info "$LIBVIRT_POOL" >/dev/null 2>&1; then
+    echo "  storage 풀 '$LIBVIRT_POOL' 없음 — define (/var/lib/libvirt/images, mode 0711)"
+    local pool_xml="${TMPDIR:-/tmp}/_assessment_pool_$$.xml"
+    cat > "$pool_xml" <<POOLXML
+<pool type='dir'>
+  <name>${LIBVIRT_POOL}</name>
+  <target>
+    <path>/var/lib/libvirt/images</path>
+    <permissions><mode>0711</mode><owner>0</owner><group>0</group></permissions>
+  </target>
+</pool>
+POOLXML
+    virsh pool-define "$pool_xml" >/dev/null
+    virsh pool-build "$LIBVIRT_POOL" >/dev/null 2>&1 || true
+    rm -f "$pool_xml"
+  fi
+  virsh pool-list --name 2>/dev/null | grep -qx "$LIBVIRT_POOL" || virsh pool-start "$LIBVIRT_POOL" >/dev/null
+  virsh pool-autostart "$LIBVIRT_POOL" >/dev/null 2>&1 || true
+  # 풀 target 경로 확보 — 도메인 XML disk source file 경로에 사용.
+  POOL_PATH="$(virsh pool-dumpxml "$LIBVIRT_POOL" 2>/dev/null \
+    | grep -oE '<path>[^<]+</path>' | head -1 | sed 's/<[^>]*>//g')"
+  POOL_PATH="${POOL_PATH:-/var/lib/libvirt/images}"
+}
+
+# VM -> host 게이트웨이 IP — default net 의 <ip address>. agent 가 RABBITMQ_HOST 로 이 IP 를 가리킨다.
+resolve_libvirt_gw() {
+  LIBVIRT_GW="$(virsh net-dumpxml "$LIBVIRT_NET" 2>/dev/null \
+    | grep -oE "ip address='[0-9.]+'" | head -1 | grep -oE '[0-9.]+' || true)"
+  LIBVIRT_GW="${LIBVIRT_GW:-192.168.122.1}"
+  echo "  libvirt 게이트웨이(VM->host): $LIBVIRT_GW"
+}
+
+# dev 전용 SSH keypair — 없으면 생성 (passphrase 없음, dev 한정). cloud-init 이 공개키를 VM 에 주입.
+ensure_dev_ssh_key() {
+  if [ ! -f "$DEV_SSH_KEY" ]; then
+    echo "  dev SSH key 없음 — 생성 ($DEV_SSH_KEY)"
+    mkdir -p "$(dirname "$DEV_SSH_KEY")"
+    ssh-keygen -t ed25519 -N "" -C "assessment-dev" -f "$DEV_SSH_KEY" >/dev/null
   fi
 }
 
@@ -221,8 +329,7 @@ start_docker_stack() {
   APP_VERSION="${APP_VERSION:-0.0.0}"
   export APP_VERSION
   echo "  APP_VERSION=${APP_VERSION} (hatch-vcs 주입)"
-  # discovery probe 는 web 컨테이너 → app-server-01.orb.local:22 직접 (docker-compose default).
-  # Lima 처럼 port 를 export 할 필요 없음 — OrbStack VM 은 표준 22 SSH 직접 도달.
+  # discovery probe 좌표는 운영자가 VM IP 직접 입력 (print_summary 안내) — docker-compose default 빈값.
   docker compose --profile gui up -d --build
 }
 
@@ -272,35 +379,178 @@ wait_web_healthy() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# Step 4: OrbStack VM 기동 + 에이전트 설치
+# Step 4: libvirt VM 기동 + 에이전트 설치
 # ────────────────────────────────────────────────────────────────────────────
 
-# ssh 헬퍼 — OrbStack 이 등록한 `<name>@orb` 호스트로 명령. StrictHostKeyChecking 끔 (dev 재생성 빈번).
-orb_ssh() {
-  local vm="$1"; shift
-  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 "${vm}@orb" "$@"
+# VM 리소스 — light 부하라 작게. offline-* 는 agent 만 떠서 최소.
+vm_memory() {
+  case "$1" in
+    app-server-01|data-server-01) echo 2048 ;;   # rabbitmq/postgres 여유
+    edge-server-01)               echo 1536 ;;   # docker
+    *)                            echo 768  ;;    # offline-* (서비스 없음)
+  esac
+}
+vm_vcpu() {
+  case "$1" in
+    offline-server-01|offline-server-02) echo 1 ;;
+    *)                                   echo 2 ;;
+  esac
 }
 
-# orb create 멱등 — 이미 있으면 start, 없으면 create (동기, cloud-init 없어 즉시 ready).
+# VM IP — libvirt DHCP lease 에서 동적 확인. lease 미발급(부팅 직후)이면 비어 nonzero return.
+vm_ip() {
+  local vm="$1" ip
+  ip="$(virsh domifaddr "$vm" --source lease 2>/dev/null \
+    | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1 || true)"
+  [ -n "$ip" ] && { echo "$ip"; return 0; }
+  return 1
+}
+
+# ssh 헬퍼 — DHCP lease 로 IP resolve 후 dev SSH 개인키로 접속. dev 재생성 빈번이라 host key 검증 끔.
+vm_ssh() {
+  local vm="$1"; shift
+  local ip
+  ip="$(vm_ip "$vm")" || return 1
+  ssh -i "$DEV_SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      -o ConnectTimeout=5 "${VM_SSH_USER}@${ip}" "$@"
+}
+
+# base cloud image 를 풀로 1회 import (vol-upload). 이미 import 됐으면 skip — overlay backing 으로 공유.
+ensure_base_image() {
+  local distro="$1" vol url tmp sz
+  vol="$(vm_base_vol "$distro")"
+  if virsh vol-info "$vol" --pool "$LIBVIRT_POOL" >/dev/null 2>&1; then
+    return 0
+  fi
+  url="$(vm_image_url "$distro")"
+  echo "  [$distro] base cloud image 다운로드 (1회)..."
+  mkdir -p "$VM_WORK_DIR"
+  tmp="$VM_WORK_DIR/${vol}.download"
+  curl -fSL --retry 3 -o "$tmp" "$url"
+  # 볼륨 생성 capacity 는 파일 바이트 — vol-upload 후 libvirt 가 qcow2 헤더의 진짜 virtual size 로 재인식.
+  sz="$(stat -c%s "$tmp")"
+  echo "  [$distro] 풀로 import (vol-upload, ${sz}B)..."
+  virsh vol-create-as "$LIBVIRT_POOL" "$vol" "$sz" --format qcow2 >/dev/null
+  # vol-upload 중 SIGINT/실패 시 부분 볼륨 삭제 — 손상된 base 가 캐시로 남아 다음 vol-clone 을
+  # 깨뜨리는 것 방지(부분 base 는 dev-down 도 캐시로 보존하므로 여기서 원자성 보장).
+  trap 'virsh vol-delete "$vol" --pool "$LIBVIRT_POOL" >/dev/null 2>&1; exit 130' INT TERM ERR
+  virsh vol-upload --pool "$LIBVIRT_POOL" --vol "$vol" --file "$tmp"
+  trap - INT TERM ERR
+  rm -f "$tmp"
+}
+
+# overlay 디스크 + cloud-init seed ISO + 도메인 XML 작성 후 virsh define. 모든 디스크는 풀 안 관리.
+build_and_define_vm() {
+  local vm="$1" distro="$2"
+  local base disk seed_iso pubkey memmib vcpu
+  base="$(vm_base_vol "$distro")"
+  disk="${vm}.qcow2"
+  seed_iso="${vm}-seed.iso"
+  pubkey="$(cat "${DEV_SSH_KEY}.pub")"
+  memmib="$(vm_memory "$vm")"
+  vcpu="$(vm_vcpu "$vm")"
+  mkdir -p "$VM_WORK_DIR"
+
+  # 1) VM 디스크 — base 볼륨 전체 복사(vol-clone) 후 20G 확장. backing 체인 미사용:
+  #    qemu(libvirt-qemu)가 backing 파일을 relabel 못 해 Permission denied 나는 문제 회피 + VM 독립성.
+  #    cloud-init growpart 가 부팅 시 파티션을 20G 로 확장. 없을 때만 생성 (멱등).
+  if ! virsh vol-info "$disk" --pool "$LIBVIRT_POOL" >/dev/null 2>&1; then
+    virsh vol-clone --pool "$LIBVIRT_POOL" "$base" "$disk" >/dev/null
+    virsh vol-resize --pool "$LIBVIRT_POOL" "$disk" 20G >/dev/null
+  fi
+
+  # 2) cloud-init seed — 유저 dev(NOPASSWD sudo) + dev 공개키 + hostname. NoCloud(cidata) ISO.
+  local ud="$VM_WORK_DIR/${vm}-user-data" md="$VM_WORK_DIR/${vm}-meta-data" iso="$VM_WORK_DIR/${seed_iso}"
+  cat > "$ud" <<CLOUDCFG
+#cloud-config
+hostname: ${vm}
+fqdn: ${vm}
+preserve_hostname: false
+users:
+  - name: ${VM_SSH_USER}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${pubkey}
+ssh_pwauth: false
+CLOUDCFG
+  printf 'instance-id: %s\nlocal-hostname: %s\n' "$vm" "$vm" > "$md"
+  cloud-localds "$iso" "$ud" "$md"
+  # 풀로 import (멱등 — 기존 seed 교체해 키/hostname 갱신 반영).
+  virsh vol-info "$seed_iso" --pool "$LIBVIRT_POOL" >/dev/null 2>&1 \
+    && virsh vol-delete "$seed_iso" --pool "$LIBVIRT_POOL" >/dev/null
+  local isz; isz="$(stat -c%s "$iso")"
+  virsh vol-create-as "$LIBVIRT_POOL" "$seed_iso" "$isz" --format raw >/dev/null
+  virsh vol-upload --pool "$LIBVIRT_POOL" --vol "$seed_iso" --file "$iso"
+  rm -f "$ud" "$md" "$iso"
+
+  # 3) 도메인 XML + define. machine type 미지정 — libvirt 기본. virtio disk/net, BIOS 부팅(cloud genericcloud).
+  #    disk 는 type='file' + 명시 경로 — virt-aa-helper(apparmor) 가 경로를 qemu 프로파일에 등록 (type='volume' 미해석 회피).
+  local xml="$VM_WORK_DIR/${vm}.xml"
+  cat > "$xml" <<DOMXML
+<domain type='kvm'>
+  <name>${vm}</name>
+  <memory unit='MiB'>${memmib}</memory>
+  <vcpu>${vcpu}</vcpu>
+  <os><type arch='x86_64'>hvm</type><boot dev='hd'/></os>
+  <features><acpi/><apic/></features>
+  <cpu mode='host-passthrough' check='none'/>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <devices>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='${POOL_PATH}/${disk}'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='${POOL_PATH}/${seed_iso}'/>
+      <target dev='hda' bus='ide'/>
+      <readonly/>
+    </disk>
+    <interface type='network'>
+      <source network='${LIBVIRT_NET}'/>
+      <model type='virtio'/>
+    </interface>
+    <serial type='pty'><target port='0'/></serial>
+    <console type='pty'><target type='serial' port='0'/></console>
+    <graphics type='vnc' port='-1' listen='127.0.0.1'/>
+    <video><model type='virtio'/></video>
+    <memballoon model='virtio'/>
+    <rng model='virtio'><backend model='random'>/dev/urandom</backend></rng>
+  </devices>
+</domain>
+DOMXML
+  virsh define "$xml" >/dev/null
+  rm -f "$xml"
+}
+
+# 멱등 — 도메인 있으면 실행 보장, 없으면 base image 확보 + overlay/seed/도메인 생성 후 start.
 start_or_resume_vm() {
   local vm="$1"
   local distro
   distro="$(vm_distro "$vm")"
 
-  if orb list 2>/dev/null | grep -qw "$vm"; then
-    echo "  [$vm] 이미 존재 — start (멱등)"
-    orb start "$vm" >/dev/null 2>&1 || true
+  if virsh dominfo "$vm" >/dev/null 2>&1; then
+    echo "  [$vm] 도메인 존재 — 실행 보장 (멱등)"
+    virsh domstate "$vm" 2>/dev/null | grep -q running || virsh start "$vm" >/dev/null
   else
-    echo "  [$vm] create ($distro, 첫 실행 시 cloud image pull)..."
-    orb create "$distro" "$vm"
+    ensure_base_image "$distro"
+    echo "  [$vm] 생성 (overlay + cloud-init seed + define + start)..."
+    build_and_define_vm "$vm" "$distro"
+    virsh start "$vm" >/dev/null
   fi
 
-  # SSH 도달 검증 — orb create 완료 = ready 라 짧은 cap 으로 충분 (Lima 의 boot stuck 우회 로직 불필요).
+  # SSH 도달 검증 — 첫 부팅 cloud-init(유저·키 주입) + DHCP lease 완료까지 여유 cap.
   local secs=0
-  until orb_ssh "$vm" echo ok 2>/dev/null | grep -q ok; do
-    sleep 2; secs=$((secs+2))
-    if [ "$secs" -ge 60 ]; then
-      echo "  [$vm] SSH 60s 초과 — boot 실패"
+  until vm_ssh "$vm" echo ok 2>/dev/null | grep -q ok; do
+    sleep 3; secs=$((secs+3))
+    if [ "$secs" -ge 120 ]; then
+      echo "  [$vm] SSH 120s 초과 — boot/cloud-init 실패 ('virsh console $vm' 로 확인)"
       return 1
     fi
   done
@@ -324,16 +574,17 @@ post_provision_vm() {
   hostname_override="$vm"
 
   echo "  [$vm] 바이너리 전송 (ssh stdin)..."
-  orb_ssh "$vm" 'cat > /tmp/assessment-agent' < dev/bin/assessment-agent
+  vm_ssh "$vm" 'cat > /tmp/assessment-agent' < dev/bin/assessment-agent
 
   echo "  [$vm] post-provision (env + 패키지 + 바이너리 + systemd)..."
-  orb_ssh "$vm" sudo bash -s <<SCRIPT
+  vm_ssh "$vm" sudo bash -s <<SCRIPT
 set -euo pipefail
 
-# 1) /etc/assessment-agent.env — host의 dev/agent.env + host.docker.internal + VM별 hostname/ext_ip.
+# 1) /etc/assessment-agent.env — host의 dev/agent.env + libvirt 게이트웨이 IP + VM별 hostname/ext_ip.
+#    RABBITMQ_HOST·WORKER_DOWNLOAD_ALLOWED_HOSTS 는 VM->host 도달 IP(LIBVIRT_GW) — host shell 이 치환.
 #    env_needs_restart=1이면 env 변경됨 → 뒤 단계에서 restart 트리거.
 new_env=\$(cat <<ENV
-RABBITMQ_HOST=host.docker.internal
+RABBITMQ_HOST=${LIBVIRT_GW}
 RABBITMQ_PORT=5672
 RABBITMQ_VHOST=/assessment
 RABBITMQ_USER=${RABBITMQ_USER}
@@ -347,7 +598,7 @@ RABBITMQ_WORKER_PASS=${RABBITMQ_WORKER_PASSWORD}
 WORKER_TASK_EXCHANGE=${WORKER_TASK_EXCHANGE}
 WORKER_TASK_QUEUE_PREFIX=${WORKER_TASK_QUEUE_PREFIX}
 WORKER_TASK_RESULT_KEY=${WORKER_TASK_RESULT_KEY}
-WORKER_DOWNLOAD_ALLOWED_HOSTS=${WORKER_DOWNLOAD_ALLOWED_HOSTS}
+WORKER_DOWNLOAD_ALLOWED_HOSTS=${LIBVIRT_GW}
 AGENT_HOSTNAME_OVERRIDE=$hostname_override
 AGENT_INTERVAL_SEC=60
 ${ext_ip:+AGENT_EXTERNAL_IP=$ext_ip}
@@ -361,7 +612,7 @@ if [ "\$new_env" != "\$(cat /etc/assessment-agent.env 2>/dev/null)" ]; then
 fi
 
 # 2) base 패키지 + 다중 서비스 설치. services("$services")는 host shell이 inline한 공백 구분 literal.
-#    agent 바이너리는 본 repo dev/bin/에 사전 commit (Apple Silicon arm64 dev 한정).
+#    agent 바이너리는 ensure_agent_binary 가 host arch(amd64) 로 빌드/확보 (dev/bin/assessment-agent).
 #    devel 패키지·gcc·make 불필요 — runtime OpenSSL/glibc/zlib만 동적 의존이고 모두 base distro 기본 포함.
 . /etc/os-release
 
@@ -370,7 +621,7 @@ fi
 dnf_opts="--setopt=install_weak_deps=False --setopt=tsflags=nodocs"
 
 # base 패키지 — openssh-server(서버 발견 probe 시연: web 컨테이너 -> VM IP:22) + curl + ping.
-# OrbStack VM 은 표준 22 sshd 미탑재(OrbStack SSH 는 host-network proxy)라 명시 설치.
+# cloud image 는 cloud-init 으로 SSH 가능하나, probe 시연용 표준 22 sshd unit 을 명시 enable.
 case "\${ID}" in
   ubuntu|debian)
     export DEBIAN_FRONTEND=noninteractive
@@ -410,15 +661,36 @@ for svc in $services; do
     *) echo "지원 안 하는 OS/service: \${ID}/\${svc}" >&2; exit 1 ;;
   esac
 
-  case "\${ID}" in
-    ubuntu|debian)        apt-get install -y --no-install-recommends "\${pkg}" ;;
-    rocky|rhel|almalinux) dnf install -y \${dnf_opts} "\${pkg}" ;;
-  esac
-
-  # postgres RPM family 는 cluster init 수동 필요. apt 계열은 install 시 자동 init라 skip.
+  # rocky/RHEL postgresql: cloud image 의 appstream postgresql 모듈 메타데이터가 깨져("broken modules"
+  # postgresql:16/server 해결 불가) modular 경로가 실패한다. PGDG repo 의 비모듈 패키지로 우회 —
+  # 모듈 disable 후 postgresql16-server 설치. unit=postgresql-16, initdb 는 pgsql-16-setup.
+  # (service_classifier 'postgres' 부분일치 분류 유지. apt 계열은 그대로 modular 무관.)
   if [ "\${svc}" = "postgres" ]; then
     case "\${ID}" in
-      rocky|rhel|almalinux) postgresql-setup --initdb 2>/dev/null || true ;;
+      rocky|rhel|almalinux)
+        dnf -y install https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm >/dev/null 2>&1 || true
+        dnf -qy module disable postgresql >/dev/null 2>&1 || true
+        pkg="postgresql16-server"; unit="postgresql-16"
+        ;;
+    esac
+  fi
+
+  # 패키지 설치 — 실패해도 전체 파이프라인 중단 금지(set -e 회피). 실패 시 해당 서비스만 건너뜀
+  # (한 distro 의 한 패키지 문제로 나머지 VM·Windows 까지 막히지 않게).
+  svc_ok=1
+  case "\${ID}" in
+    ubuntu|debian)        apt-get install -y --no-install-recommends "\${pkg}" || svc_ok=0 ;;
+    rocky|rhel|almalinux) dnf install -y \${dnf_opts} "\${pkg}" || svc_ok=0 ;;
+  esac
+  if [ "\$svc_ok" != "1" ]; then
+    echo "경고: \${pkg} 설치 실패 — \${svc} 건너뜀 (분류 누락 가능, 파이프라인 계속)" >&2
+    continue
+  fi
+
+  # postgres cluster init. apt 계열은 install 시 자동 init. PGDG(rocky)는 전용 setup 바이너리.
+  if [ "\${svc}" = "postgres" ]; then
+    case "\${ID}" in
+      rocky|rhel|almalinux) /usr/pgsql-16/bin/postgresql-16-setup initdb 2>/dev/null || true ;;
     esac
   fi
 
@@ -467,12 +739,14 @@ fi
 SCRIPT
 }
 
-# 합성 부하 timer 설치 — persistent VM(web/cache/db) 공통. 옛 Lima yaml provision 흡수.
-# light (sustained CPU 1~3s + mem 5~20MB) — 차트 변동만 가시화. host.docker.internal 로 ping/curl.
+# 합성 부하 timer 설치 — persistent VM(web/cache/db) 공통.
+# light (sustained CPU 1~3s + mem 5~20MB) — 차트 변동만 가시화. host(libvirt 게이트웨이)로 ping/curl.
+# host 좌표는 quoted heredoc 안 placeholder(__HOST_TARGET__)로 두고 remote 에서 sed 치환 (RANDOM 등 보존).
 install_synthetic_load() {
   local vm="$1"
-  orb_ssh "$vm" sudo bash -s <<'SCRIPT'
+  vm_ssh "$vm" sudo bash -s "$LIBVIRT_GW" <<'SCRIPT'
 set -euo pipefail
+gw="$1"
 cat > /usr/local/bin/synthetic-load.sh <<'EOF'
 #!/bin/bash
 sleep $(( RANDOM % 30 ))
@@ -486,12 +760,13 @@ count=$(( (RANDOM % 100) + 50 ))
 dd if=/dev/zero of=/tmp/synthetic-io bs=4k count=${count} 2>/dev/null || true
 sync
 rm -f /tmp/synthetic-io
-ping -c $(( (RANDOM % 5) + 3 )) -q host.docker.internal > /dev/null 2>&1 || true
-curl -s -m 2 http://host.docker.internal:8000/health > /dev/null 2>&1 || true
+ping -c $(( (RANDOM % 5) + 3 )) -q __HOST_TARGET__ > /dev/null 2>&1 || true
+curl -s -m 2 http://__HOST_TARGET__:8000/health > /dev/null 2>&1 || true
 if [ $((RANDOM % 2)) -eq 0 ]; then
-  curl -s -m 2 http://host.docker.internal:8000/static/js/chart-utils.js > /dev/null 2>&1 || true
+  curl -s -m 2 http://__HOST_TARGET__:8000/static/js/chart-utils.js > /dev/null 2>&1 || true
 fi
 EOF
+sed -i "s/__HOST_TARGET__/${gw}/g" /usr/local/bin/synthetic-load.sh
 chmod 755 /usr/local/bin/synthetic-load.sh
 cat > /etc/systemd/system/synthetic-load.service <<'EOF'
 [Unit]
@@ -519,7 +794,7 @@ SCRIPT
 # 1시간 슬라이딩 윈도우 임계 3회를 큰 마진으로 초과 (OnBootSec=1min + OnUnitActiveSec=3min → 시간당 약 20회).
 install_agent_restart_demo() {
   local vm="$1"
-  orb_ssh "$vm" sudo bash -s <<'SCRIPT'
+  vm_ssh "$vm" sudo bash -s <<'SCRIPT'
 set -euo pipefail
 cat > /etc/systemd/system/agent-restart-demo.service <<'EOF'
 [Unit]
@@ -546,12 +821,13 @@ SCRIPT
 # offline-demo 설치 (edge-server-01 전용) — agent 가 약 N회 발행 후 VM poweroff → attention.gap_warnings.
 # 발행 횟수는 시간 기반 근사: AGENT_INTERVAL_SEC=60 기준 boot 후 0s/60s/120s 발행 → 약 3회.
 # OFFLINE_DOWN_AFTER_SEC(기본 180=3min) 후 systemctl poweroff. VM 자체 정지라 SSH 끊김 — 디버깅 시엔
-# `orb start edge-server-01` 재기동(pipeline-up.sh 재실행 시 멱등 재적용, 다시 3회 후 down 반복).
+# `virsh start edge-server-01` 재기동(dev-up.sh 재실행 시 멱등 재적용, 다시 3회 후 down 반복).
+# 도메인 XML on_poweroff=destroy 라 poweroff 시 도메인은 'shut off' 상태로 보존 (재기동 가능).
 # agent stop 대신 poweroff 채택 — 사용자 요구("VM 이 내려감") 의도 충실. gap_warnings 발화는 둘 다 동일.
 install_offline_demo() {
   local vm="$1"
   local down_after="${OFFLINE_DOWN_AFTER_SEC:-180}"
-  orb_ssh "$vm" sudo bash -s <<SCRIPT
+  vm_ssh "$vm" sudo bash -s <<SCRIPT
 set -euo pipefail
 cat > /etc/systemd/system/offline-demo.service <<'EOF'
 [Unit]
@@ -587,14 +863,37 @@ install_demo_loads() {
   esac
 }
 
-start_orb_vms() {
-  echo "[4/4] OrbStack VM 기동 + 에이전트 설치 중..."
-  local vm
-  for vm in "${ORB_VMS[@]}"; do
-    start_or_resume_vm "$vm"
-    post_provision_vm "$vm"
-    install_demo_loads "$vm"
+start_vms() {
+  echo "[4/4] libvirt VM 기동 + 에이전트 설치 중 (병렬)..."
+  mkdir -p "$VM_WORK_DIR"
+  # 같은 distro 를 공유하는 VM 들(app·edge=debian12)이 동시에 base image 를 vol-create 하면 race —
+  # 병렬 전에 distro 별 1회 선 import (멱등, 이미 있으면 skip). 이후 VM 별 build 는 base vol-info 가
+  # 있으니 clone 만 한다.
+  local vm d seen=" "
+  for vm in "${VMS[@]}"; do
+    d="$(vm_distro "$vm")"
+    case "$seen" in *" $d "*) ;; *) ensure_base_image "$d"; seen="$seen$d ";; esac
   done
+  # VM 별 병렬 — 부팅·SSH 대기·provision·합성부하가 독립이라 전체 시간이 "합"에서 "가장 느린 1대"로
+  # 줄어든다(약 N배 단축). 출력 섞임 방지로 per-vm 로그 파일에 리다이렉트, wait 로 결과 수집.
+  local pids=() names=() rc=0
+  for vm in "${VMS[@]}"; do
+    ( start_or_resume_vm "$vm" && post_provision_vm "$vm" && install_demo_loads "$vm" ) \
+      > "$VM_WORK_DIR/${vm}.up.log" 2>&1 &
+    pids+=("$!"); names+=("$vm")
+  done
+  echo "  ${#VMS[@]} VM 병렬 provisioning 중 (진행 로그: $VM_WORK_DIR/<vm>.up.log)..."
+  local i
+  for i in "${!pids[@]}"; do
+    if wait "${pids[$i]}"; then
+      echo "  OK: ${names[$i]}"
+    else
+      echo "  실패: ${names[$i]} — 로그 끝부분:" >&2
+      tail -8 "$VM_WORK_DIR/${names[$i]}.up.log" >&2
+      rc=1
+    fi
+  done
+  return "$rc"
 }
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -605,134 +904,259 @@ print_summary() {
   echo "환경 준비 완료"
   echo "  Web UI  : http://localhost:${WEB_PORT:-8000}/servers/"
   echo "  RabbitMQ: http://localhost:${RABBITMQ_MANAGEMENT_PORT:-15672}"
-  # 서버 발견 probe 시연 — OrbStack .orb.local 은 컨테이너 미해석이라 운영자가 VM IP 를 모달에 직접 입력.
+  # 서버 발견 probe 시연 — web 컨테이너에서 VM hostname DNS 미해석이라 운영자가 VM IP 를 모달에 직접 입력.
   echo "  서버 발견 probe 대상 VM IP (모달에 입력 -> SSH 도달성 확인):"
   local vm ip
-  for vm in "${ORB_VMS[@]}"; do
-    ip="$(orb_ssh "$vm" hostname -I 2>/dev/null | awk '{print $1}')"
-    [ -n "$ip" ] && echo "    $vm : $ip"
+  for vm in "${VMS[@]}"; do
+    ip="$(vm_ip "$vm" 2>/dev/null || true)"
+    # offline-demo 로 poweroff 된 VM 은 IP 가 비어 echo skip. if 문으로 — `&& echo` 는 마지막 반복이
+    # false 일 때 함수 exit 1 을 반환해 set -e 가 뒤 Windows 블록을 건너뛴다(회귀 방지).
+    if [ -n "$ip" ]; then echo "    $vm : $ip"; fi
   done
 }
 
 # ----------------------------------------------------------------------------
-# Windows (UTM win-server-01) — 설정·함수 (win-pipeline-up.sh 통합). dev-down.sh 가 source 재사용.
+# Windows (libvirt win-server-01) — Windows Server 2022 Eval x64 + autounattend 무인 설치.
+# Linux VM 과 동일 libvirt(qemu:///system)·virbr0(게이트웨이 LIBVIRT_GW). agent.exe 는 mingw
+# 크로스빌드(PE32+ x86-64)라 x86 Server 에서 네이티브 실행. dev-down.sh 가 source 재사용.
+# 무거워도(ISO ~4.7GB + 설치 ~20min) "모든 환경" 기본 포함 — main 에서 항상 실행. WIN_ENABLE=0 opt-out(Linux 전용).
+# Windows Server 채택 — TPM/SecureBoot/MS계정 OOBE 불요라 autounattend·domain XML 이 단순.
 # ----------------------------------------------------------------------------
 
 # ────────────────────────────────────────────────────────────────────────────
 # 설정 (env override)
 # ────────────────────────────────────────────────────────────────────────────
 WIN_VM_NAME="${WIN_VM_NAME:-win-server-01}"
-WIN_SSH_USER="${WIN_SSH_USER:-test}"      # dev VM 계정 (다른 환경은 env override)
-WIN_HOST_IFACE="${WIN_HOST_IFACE:-en0}"   # 3순위 fallback (bridged network 등 비-NAT 환경)
-UTMCTL="${UTMCTL:-utmctl}"
-# WIN_VM_IP — utmctl ip-address 는 QEMU 게스트 에이전트(SPICE 도구) 설치 시에만 동작.
-# 미설치면 host ARP 또는 VM 안 ipconfig 로 확인한 IP 를 env 로 직접 지정.
-WIN_VM_IP="${WIN_VM_IP:-}"
-# WIN_HOST_IP — VM 에서 host docker rabbitmq 도달 IP. 미지정 시 resolve_host_ip 가 자동 추론
-# (UTM shared network gateway = host). bridged network 등에서만 명시 필요.
-WIN_HOST_IP="${WIN_HOST_IP:-}"
-# Windows agent env 파일 위치 (deploy/install.ps1 단일 진실).
+WIN_SSH_USER="${WIN_SSH_USER:-Administrator}"        # Server 내장 관리자 (autounattend 가 SSH키 등록)
+WIN_ADMIN_PASS="${WIN_ADMIN_PASS:-Assess!Dev2026}"   # dev built-in Administrator (복잡도 충족)
+WIN_MEM_MIB="${WIN_MEM_MIB:-4096}"
+WIN_VCPU="${WIN_VCPU:-4}"
+WIN_DISK_GB="${WIN_DISK_GB:-64}"
+# Server 2022 Standard Eval x64 fwlink (제품키 불요·180일). 풀 안 ISO 볼륨명.
+WIN_ISO_URL="${WIN_ISO_URL:-https://go.microsoft.com/fwlink/p/?LinkID=2195280&clcid=0x409&culture=en-us&country=US}"
+readonly WIN_ISO_VOL="win-server-2022-eval.iso"
+readonly WIN_UNATTEND_VOL="${WIN_VM_NAME}-unattend.iso"
+# redis (tporadowski, 서비스명 redis -> service_classifier cache 매칭). host 에서 받아 scp -> msiexec.
+WIN_REDIS_MSI_URL="${WIN_REDIS_MSI_URL:-https://github.com/tporadowski/redis/releases/download/v5.0.14.1/Redis-x64-5.0.14.1.msi}"
+# OVMF UEFI 펌웨어 (Server 라 secboot/TPM 불요 — non-secboot OVMF).
+WIN_OVMF_CODE="${WIN_OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
+WIN_OVMF_VARS="${WIN_OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
+# Windows agent 경로 (deploy/install.ps1 단일 진실 — 공백 포함).
 readonly WIN_ENV_PATH='C:/ProgramData/assessment-agent/agent.env'
-# Windows agent 설치 바이너리 경로 (install.ps1 progDir 단일 진실 — 공백 포함).
 readonly WIN_EXE_PATH='C:/Program Files/assessment-agent/assessment-agent.exe'
-# 새 빌드 .exe staging 경로 — 공백 없는 ProgramData 에 먼저 scp 후 powershell 로 진짜 경로 복사
-# (OpenSSH scp 의 공백 remote 경로 quoting 회피).
 readonly WIN_EXE_STAGE='C:/ProgramData/assessment-agent/agent.exe.new'
 # windows-agent sibling repo — mingw 크로스빌드 대상 (Linux agent build.sh 와 동일한 ../assessment-agent 규약).
 WIN_AGENT_REPO="${WIN_AGENT_REPO:-../assessment-agent/windows-agent}"
 # 빌드 산출 .exe (build_win_agent 가 채움 — 빌드 skip 시 빈 문자열 → exe 교체 생략, env 만 갱신).
 WIN_AGENT_EXE=""
+# win_vm_ip(=vm_ip) 가 DHCP lease 로 채움.
+WIN_VM_IP=""
 
 # ────────────────────────────────────────────────────────────────────────────
 # 사전 점검
 # ────────────────────────────────────────────────────────────────────────────
 check_win_prereqs() {
-  if ! command -v "$UTMCTL" >/dev/null 2>&1; then
-    echo "오류: utmctl 없음. brew install --cask utm 후 symlink:" >&2
-    echo "  ln -s /Applications/UTM.app/Contents/MacOS/utmctl /opt/homebrew/bin/utmctl" >&2
-    exit 1
+  # Windows 전용 의존성 자동 설치(sudo) — genisoimage(unattend ISO) + mingw-w64/cmake
+  # (agent·vendor static lib 크로스빌드). libvirt 는 check_prereqs 가 이미 보장.
+  ensure_apt_packages genisoimage:genisoimage x86_64-w64-mingw32-gcc:mingw-w64 cmake:cmake
+  # OVMF 는 명령이 아닌 UEFI 펌웨어 파일이라 ensure_apt_packages(cmd 기반)와 별개 — 부재 시 설치.
+  if [ ! -f "$WIN_OVMF_CODE" ]; then
+    echo "  의존성 자동 설치 (sudo apt): ovmf"
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ovmf
   fi
-  # UTM 앱 기동 필요 (headless 라도 앱 daemon 은 떠 있어야 utmctl 동작).
-  if ! pgrep -x UTM >/dev/null 2>&1; then
-    echo "  UTM 앱 미기동 — open -a UTM"
-    open -a UTM
-    sleep 3
-  fi
-  # VM 존재 확인 — 없으면 수동 생성 안내 후 exit (UTM VM 생성은 GUI 라 자동화 불가).
-  if ! "$UTMCTL" list 2>/dev/null | grep -qw "$WIN_VM_NAME"; then
-    cat >&2 <<MSG
-오류: UTM VM '$WIN_VM_NAME' 없음.
-docs/development/windows-vm.md 수동 절차로 1회 생성 필요:
-  1. UTM 으로 Windows 11 ARM VM 생성·설치 (ISO·TPM·Secure Boot — GUI)
-  2. OpenSSH Server 활성 + SSH 공개키 등록 (비대화형 ssh 위해)
-  3. windows-agent/scripts/build-windows.ps1 로 assessment-agent.exe 빌드
-  4. windows-agent/deploy/install.ps1 로 서비스 등록 (agent.env 최초 seed)
-  5. IIS(웹) + redis(Memurai 등) 설치
-이후 본 스크립트가 start·env 갱신·restart 자동화.
-MSG
+  if [ ! -f dev/win/autounattend.xml.tmpl ]; then
+    echo "오류: dev/win/autounattend.xml.tmpl 없음 (repo 산출물 — 누락 시 git 상태 확인)." >&2
     exit 1
   fi
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# VM 기동 + IP 확인
+# Windows VM 생성·기동 (autounattend 무인 설치)
 # ────────────────────────────────────────────────────────────────────────────
+
+# Server ISO 를 풀로 1회 import (vol-upload). dev/run 에 사전 다운로드돼 있으면 재사용.
+ensure_win_iso() {
+  if virsh vol-info "$WIN_ISO_VOL" --pool "$LIBVIRT_POOL" >/dev/null 2>&1; then return 0; fi
+  mkdir -p "$VM_WORK_DIR"
+  local iso="$VM_WORK_DIR/$WIN_ISO_VOL"
+  if [ ! -f "$iso" ]; then
+    echo "  Windows Server ISO 다운로드 (~4.7GB, 1회)..."
+    # .part 원자적 받기 — curl 중단 시 부분 파일이 다음 실행에서 완성본으로 오인되지 않게.
+    curl -fSL --retry 3 -o "$iso.part" "$WIN_ISO_URL"
+    mv "$iso.part" "$iso"
+  fi
+  local sz; sz="$(stat -c%s "$iso")"
+  echo "  ISO 풀로 import (vol-upload, ${sz}B)..."
+  virsh vol-create-as "$LIBVIRT_POOL" "$WIN_ISO_VOL" "$sz" --format raw >/dev/null
+  # vol-upload 중 SIGINT/실패 시 부분 ISO 볼륨 삭제 (base image 와 동일 원자성).
+  trap 'virsh vol-delete "$WIN_ISO_VOL" --pool "$LIBVIRT_POOL" >/dev/null 2>&1; exit 130' INT TERM ERR
+  virsh vol-upload --pool "$LIBVIRT_POOL" --vol "$WIN_ISO_VOL" --file "$iso"
+  trap - INT TERM ERR
+}
+
+# autounattend.xml(템플릿 치환) + provision.ps1 -> ISO(autounattend.xml·provision.ps1 루트) -> 풀 import.
+# provision(OpenSSH·방화벽·SSH키·DefaultShell·IIS)은 별도 파일 — FirstLogonCommands CommandLine 에 거대 base64 를
+# 넣으면 maxLength 초과로 oobeSystem "Value is invalid"(diag 확인). 템플릿 CommandLine 이 CD 스캔 후 provision.ps1 실행.
+build_win_autounattend() {
+  local pubkey iso_abs
+  pubkey="$(cat "${DEV_SSH_KEY}.pub")"
+  mkdir -p "$VM_WORK_DIR/unattend.d"
+  # provision.ps1 — 실제 파일이라 길이·escape 제약 없음. ISO 에 동봉돼 FirstLogon 시 CD 에서 실행.
+  cat > "$VM_WORK_DIR/unattend.d/provision.ps1" <<PS
+\$ErrorActionPreference='Continue'
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+Set-Service sshd -StartupType Automatic
+Start-Service sshd
+Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled \$false
+\$d='C:\ProgramData\ssh'
+New-Item -ItemType Directory -Force -Path \$d | Out-Null
+\$ak=Join-Path \$d 'administrators_authorized_keys'
+Set-Content -Path \$ak -Value '$pubkey' -Encoding ascii
+icacls \$ak /inheritance:r /grant 'Administrators:F' 'SYSTEM:F'
+New-Item -Path 'HKLM:\SOFTWARE\OpenSSH' -Force | Out-Null
+New-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell -Value 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' -PropertyType String -Force
+Install-WindowsFeature -Name Web-Server
+PS
+  sed -e "s|@@HOSTNAME@@|${WIN_VM_NAME}|g" \
+      -e "s|@@ADMINPASS@@|${WIN_ADMIN_PASS}|g" \
+      dev/win/autounattend.xml.tmpl > "$VM_WORK_DIR/unattend.d/autounattend.xml"
+  iso_abs="$(pwd)/$VM_WORK_DIR/$WIN_UNATTEND_VOL"
+  ( cd "$VM_WORK_DIR/unattend.d" && genisoimage -quiet -o "$iso_abs" -J -r -V AUTOUNATTEND . )
+  virsh vol-info "$WIN_UNATTEND_VOL" --pool "$LIBVIRT_POOL" >/dev/null 2>&1 \
+    && virsh vol-delete "$WIN_UNATTEND_VOL" --pool "$LIBVIRT_POOL" >/dev/null
+  local sz; sz="$(stat -c%s "$iso_abs")"
+  virsh vol-create-as "$LIBVIRT_POOL" "$WIN_UNATTEND_VOL" "$sz" --format raw >/dev/null
+  virsh vol-upload --pool "$LIBVIRT_POOL" --vol "$WIN_UNATTEND_VOL" --file "$iso_abs"
+  rm -rf "$VM_WORK_DIR/unattend.d" "$iso_abs"
+}
+
+# 도메인 XML(q35 + OVMF UEFI + SATA disk/cdrom + e1000e NIC) + define.
+# disk type=file 명시 경로(apparmor 정합). cdrom 2개: Server ISO(boot) + autounattend(루트 검색).
+define_win_domain() {
+  local disk="${WIN_VM_NAME}.qcow2"
+  if ! virsh vol-info "$disk" --pool "$LIBVIRT_POOL" >/dev/null 2>&1; then
+    virsh vol-create-as "$LIBVIRT_POOL" "$disk" "${WIN_DISK_GB}G" --format qcow2 >/dev/null
+  fi
+  local xml="$VM_WORK_DIR/${WIN_VM_NAME}.xml"
+  cat > "$xml" <<DOMXML
+<domain type='kvm'>
+  <name>${WIN_VM_NAME}</name>
+  <memory unit='MiB'>${WIN_MEM_MIB}</memory>
+  <vcpu>${WIN_VCPU}</vcpu>
+  <os>
+    <type arch='x86_64' machine='q35'>hvm</type>
+    <loader readonly='yes' type='pflash'>${WIN_OVMF_CODE}</loader>
+    <nvram template='${WIN_OVMF_VARS}'>/var/lib/libvirt/qemu/nvram/${WIN_VM_NAME}_VARS.fd</nvram>
+    <!-- hd 우선: 첫 부팅은 빈 디스크라 cdrom 으로 자동 폴백(send-key 로 'press any key' 통과),
+         설치 후 재부팅은 hd 의 Windows Boot Manager 로 직행 -> specialize/oobe 진입.
+         cdrom 1순위면 재부팅 때도 CD 'press any key' 로 가서 폴백 못 하고 멈춤(검증됨). -->
+    <boot dev='hd'/>
+    <boot dev='cdrom'/>
+    <bootmenu enable='no'/>
+  </os>
+  <features><acpi/><apic/></features>
+  <cpu mode='host-passthrough' check='none'/>
+  <clock offset='utc'>
+    <timer name='rtc' tickpolicy='catchup'/>
+    <timer name='hpet' present='no'/>
+  </clock>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <devices>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='${POOL_PATH}/${disk}'/>
+      <target dev='sda' bus='sata'/>
+    </disk>
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='${POOL_PATH}/${WIN_ISO_VOL}'/>
+      <target dev='sdb' bus='sata'/>
+      <readonly/>
+    </disk>
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='${POOL_PATH}/${WIN_UNATTEND_VOL}'/>
+      <target dev='sdc' bus='sata'/>
+      <readonly/>
+    </disk>
+    <interface type='network'>
+      <source network='${LIBVIRT_NET}'/>
+      <model type='e1000e'/>
+    </interface>
+    <controller type='usb' model='qemu-xhci'/>
+    <input type='tablet' bus='usb'/>
+    <graphics type='vnc' port='-1' listen='127.0.0.1'/>
+    <video><model type='vga'/></video>
+    <memballoon model='none'/>
+  </devices>
+</domain>
+DOMXML
+  virsh define "$xml" >/dev/null
+  rm -f "$xml"
+}
+
+# 멱등 — 도메인 있으면 실행 보장, 없으면 ISO·autounattend·도메인 생성 후 무인 설치. WIN_VM_IP 채움.
 start_win_vm() {
-  echo "[1/4] UTM VM '$WIN_VM_NAME' 기동..."
-  # started 면 무해 (utmctl start 멱등). 상태 출력만.
-  "$UTMCTL" start "$WIN_VM_NAME" >/dev/null 2>&1 || true
-}
-
-# guest IP — WIN_VM_IP env 우선, 없으면 utmctl(게스트 에이전트), 그래도 없으면 host ARP.
-win_vm_ip() {
-  # 0순위: env 직접 지정 (게스트 에이전트 미설치 시 — VM 안 ipconfig 로 확인한 IP).
-  if [ -n "$WIN_VM_IP" ]; then echo "$WIN_VM_IP"; return 0; fi
-
-  local secs=0 ip=""
-  while [ "$secs" -lt 60 ]; do
-    # 1순위: utmctl ip-address (QEMU 게스트 에이전트=SPICE 도구 설치 시).
-    ip="$("$UTMCTL" ip-address "$WIN_VM_NAME" 2>/dev/null \
-          | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
-          | grep -vE '^(169\.254|127\.)' \
-          | head -1 || true)"
-    [ -n "$ip" ] && { echo "$ip"; return 0; }
-    # 2순위: host ARP (UTM bridge 에 VM MAC-IP 매핑). 게스트 에이전트 없어도 동작.
-    ip="$(arp -an 2>/dev/null | grep -oE '192\.168\.6[0-9]\.[0-9]+' | grep -v '\.1$' | head -1 || true)"
-    [ -n "$ip" ] && { echo "$ip"; return 0; }
-    sleep 3; secs=$((secs+3))
+  local golden="${WIN_VM_NAME}-golden.qcow2" disk="${WIN_VM_NAME}.qcow2"
+  if virsh dominfo "$WIN_VM_NAME" >/dev/null 2>&1; then
+    echo "  [$WIN_VM_NAME] 도메인 존재 — 실행 보장 (멱등)"
+    virsh domstate "$WIN_VM_NAME" 2>/dev/null | grep -q running || virsh start "$WIN_VM_NAME" >/dev/null
+  elif virsh vol-info "$golden" --pool "$LIBVIRT_POOL" >/dev/null 2>&1; then
+    # 골든 이미지(OS+OpenSSH+IIS+redis 완성본) clone — OS 무인설치 ~20min skip. agent 는 이후 deploy
+    # 가 멱등 갱신(.exe 교체)하므로 최신 반영. send-key 불요(설치 완료본이라 hd 직행).
+    echo "  [$WIN_VM_NAME] 골든 이미지 clone (OS 무인설치 skip, ~수십초)..."
+    virsh vol-info "$disk" --pool "$LIBVIRT_POOL" >/dev/null 2>&1 \
+      && virsh vol-delete "$disk" --pool "$LIBVIRT_POOL" >/dev/null
+    virsh vol-clone --pool "$LIBVIRT_POOL" "$golden" "$disk" >/dev/null
+    build_win_autounattend   # unattend ISO 재생성 — define_win_domain cdrom 참조용(골든 hd 부팅엔 미사용)
+    define_win_domain
+    virsh start "$WIN_VM_NAME" >/dev/null
+  else
+    ensure_win_iso
+    build_win_autounattend
+    echo "  [$WIN_VM_NAME] 생성 + autounattend 무인 설치 시작 (설치 ~20min, 최초 1회 — 이후 골든 clone)..."
+    define_win_domain
+    virsh start "$WIN_VM_NAME" >/dev/null
+    # "Press any key to boot from CD" 통과 — Enter(키코드 28) 연타. 새 빈 디스크 첫 부팅은 펌웨어 POST +
+    # 빈 HD 부팅 타임아웃 후에야 CD 프롬프트가 떠서 시점이 가변적(20s 윈도우는 놓침) — 2s 간격 90s 로 넓게 커버.
+    local i
+    for i in $(seq 1 45); do virsh send-key "$WIN_VM_NAME" --codeset linux 28 >/dev/null 2>&1 || true; sleep 2; done
+  fi
+  echo "  [$WIN_VM_NAME] SSH 대기 (신규 설치 시 매우 김)..."
+  local secs=0 cap="${WIN_SSH_CAP:-2400}"
+  WIN_VM_IP="$(vm_ip "$WIN_VM_NAME" 2>/dev/null || true)"
+  until [ -n "$WIN_VM_IP" ] && win_ssh "echo ok" 2>/dev/null | grep -q ok; do
+    sleep 15; secs=$((secs+15))
+    WIN_VM_IP="$(vm_ip "$WIN_VM_NAME" 2>/dev/null || true)"
+    if [ "$secs" -ge "$cap" ]; then
+      echo "  [$WIN_VM_NAME] SSH ${cap}s 초과 — 설치 진행 확인 ('virsh screenshot $WIN_VM_NAME /tmp/w.ppm')"
+      return 1
+    fi
   done
-  echo "오류: $WIN_VM_NAME IP 미확인. WIN_VM_IP env 로 직접 지정 (VM 안 ipconfig 의 IPv4)." >&2
-  return 1
+  echo "  [$WIN_VM_NAME] SSH OK ($WIN_VM_IP)"
 }
 
-# host IP — Windows agent 의 RABBITMQ_HOST 대상 (VM->host docker rabbitmq 도달).
-# UTM shared network 에서 host 는 VM subnet 의 gateway (예: 192.168.64.1) — en0(Wi-Fi LAN)은
-# NAT 밖이라 VM 미도달. VM IP 의 /24 에 속한 host bridge inet 을 우선 채택.
-resolve_host_ip() {
-  local ip=""
-  # 1순위: WIN_HOST_IP env (운영자 명시 — bridged network 등 비표준).
-  if [ -n "$WIN_HOST_IP" ]; then echo "$WIN_HOST_IP"; return 0; fi
-  # 2순위: VM subnet 의 host bridge inet (UTM shared network gateway = host).
-  #         main 이 win_vm_ip 결과를 WIN_VM_IP 에 채운 뒤 호출하므로 그 subnet 사용.
-  if [ -n "$WIN_VM_IP" ]; then
-    local subnet="${WIN_VM_IP%.*}."
-    ip="$(ifconfig 2>/dev/null | grep "inet ${subnet}" | awk '{print $2}' | head -1)"
+# redis(tporadowski) 설치 — host 에서 MSI 받아 scp -> msiexec. 서비스 redis 있으면 skip (멱등).
+install_win_redis() {
+  if win_ps 'if (Get-Service redis -ErrorAction SilentlyContinue) { "yes" } else { "no" }' 2>/dev/null | grep -q yes; then
+    return 0
   fi
-  # 3순위: WIN_HOST_IFACE LAN IP (bridged network 등 비-NAT 환경에서만 유효).
-  if [ -z "$ip" ]; then ip="$(ipconfig getifaddr "$WIN_HOST_IFACE" 2>/dev/null || true)"; fi
-  if [ -z "$ip" ]; then
-    echo "오류: host IP 미확인. WIN_HOST_IP env 로 명시 (VM 의 default gateway = host)." >&2
-    return 1
-  fi
-  echo "$ip"
+  echo "  [$WIN_VM_NAME] redis(tporadowski) 설치..."
+  local msi="$VM_WORK_DIR/Redis-x64.msi"
+  [ -f "$msi" ] || curl -fSL --retry 3 -o "$msi" "$WIN_REDIS_MSI_URL"
+  scp -i "$DEV_SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      "$msi" "${WIN_SSH_USER}@${WIN_VM_IP}:C:/Windows/Temp/Redis-x64.msi"
+  win_ps 'Start-Process msiexec.exe -ArgumentList "/i","C:\Windows\Temp\Redis-x64.msi","/qn","/norestart" -Wait'
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# agent.env 갱신 + 서비스 restart (OpenSSH)
+# agent.env 갱신 + 서비스 등록·restart (OpenSSH)
 # ────────────────────────────────────────────────────────────────────────────
 win_ssh() {
-  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
-      "${WIN_SSH_USER}@${WIN_VM_IP}" "$@"
+  ssh -i "$DEV_SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      -o ConnectTimeout=5 "${WIN_SSH_USER}@${WIN_VM_IP}" "$@"
 }
 
 # 원격 powershell 실행 — 경로 공백("C:\Program Files\...")·중첩 따옴표가 OpenSSH escape 에서
@@ -745,21 +1169,41 @@ win_ps() {
 
 # ────────────────────────────────────────────────────────────────────────────
 # Windows agent mingw 크로스빌드 (host) — collect.c 등 변경분 반영. vendor static libs 재사용.
-# vendor 미빌드·toolchain 부재·repo 부재 시 빌드 skip (기존 설치 .exe 유지) — Linux 전용 dev 도 정상.
+# vendor 미빌드 시 자동 크로스빌드(ensure_win_vendor)·toolchain 부재·repo 부재 시 skip — Linux 전용 dev 도 정상.
 # ────────────────────────────────────────────────────────────────────────────
+
+# vendor static libs(openssl/zlib/cjson/rabbitmq/curl) 자동 크로스빌드 — 최초 1회. 산출물 존재 시
+# skip(캐시: 외부 라이브러리라 로직 무관 -> dev-down 도 보존, 재빌드 불요). cross 정합 플래그
+# (SYSTEM_NAME=Windows·RC·find-root·openssl 직접지정)는 windows-agent Makefile(MSYS2 가정)에 주입.
+# Makefile 의 cmake build 줄은 plain(`cmake --build`)이라 본 override 가 build 단계 -j 를 안 깬다.
+ensure_win_vendor() {
+  local od="$WIN_AGENT_REPO/vendor/openssl/install"
+  if [ -f "$od/lib/libssl.a" ] \
+     && [ -f "$WIN_AGENT_REPO/vendor/curl/build/lib/libcurl.a" ] \
+     && [ -f "$WIN_AGENT_REPO/vendor/rabbitmq-c/build/librabbitmq/librabbitmq.a" ]; then
+    return 0
+  fi
+  echo "  [vendor] static libs 크로스빌드 — 최초 1회(~10min, git clone 5개 + mingw 컴파일)..."
+  make -C "$WIN_AGENT_REPO" vendor-build \
+    CC=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar \
+    OPENSSL_CROSS=--cross-compile-prefix=x86_64-w64-mingw32- \
+    CMAKE="cmake -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres -DCMAKE_FIND_ROOT_PATH=/usr/x86_64-w64-mingw32 -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH -DOPENSSL_INCLUDE_DIR=$od/include -DOPENSSL_CRYPTO_LIBRARY=$od/lib/libcrypto.a -DOPENSSL_SSL_LIBRARY=$od/lib/libssl.a"
+}
+
 build_win_agent() {
-  echo "[2/4] Windows agent mingw 크로스빌드..."
+  echo "  [$WIN_VM_NAME] Windows agent mingw 크로스빌드..."
   if [ ! -d "$WIN_AGENT_REPO" ]; then
     echo "  windows-agent repo 없음 ($WIN_AGENT_REPO) — 빌드 skip, VM 기존 .exe 유지"
     return 0
   fi
   if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
-    echo "  mingw 크로스 툴체인 없음 (brew install mingw-w64) — 빌드 skip, VM 기존 .exe 유지"
+    echo "  mingw 크로스 툴체인 없음 (sudo apt install -y mingw-w64) — 빌드 skip, VM 기존 .exe 유지"
     return 0
   fi
-  # vendor static libs (openssl 등) 는 무거워 1회 수동 빌드 — 없으면 agent 빌드 불가.
-  if [ ! -f "$WIN_AGENT_REPO/vendor/openssl/libssl.a" ]; then
-    echo "  vendor static libs 미빌드 — windows-agent 에서 'make vendor-fetch && make vendor-build' 1회 필요. 빌드 skip"
+  # vendor static libs 없으면 자동 크로스빌드(최초 1회 캐시). 빌드 실패 시 기존 .exe 유지.
+  ensure_win_vendor || true
+  if [ ! -f "$WIN_AGENT_REPO/vendor/openssl/install/lib/libssl.a" ]; then
+    echo "  vendor static libs 빌드 실패 — agent 빌드 skip, VM 기존 .exe 유지" >&2
     return 0
   fi
   # Makefile incremental — collect.c 등 미변경 시 link 만, 변경분만 재컴파일.
@@ -773,17 +1217,12 @@ build_win_agent() {
 }
 
 deploy_win_agent() {
-  echo "[3/4] agent.env 생성·전송 (host IP 주입)..."
-  local host_ip tmp_env
-  host_ip="$(resolve_host_ip)"
-  echo "  host IP : $host_ip (RABBITMQ_HOST·WORKER_DOWNLOAD_ALLOWED_HOSTS)"
-  echo "  VM  IP  : $WIN_VM_IP"
-
+  echo "  [$WIN_VM_NAME] agent.env 생성·전송 (게이트웨이 IP 주입)..."
+  local tmp_env
   # 평문 secret 이 들어가므로 host /tmp 에 짧게만 두고 전송 직후 삭제 (#F8).
-  # trap RETURN 은 set -u + local 스코프에서 RETURN 시점 unbound 평가 이슈 → 함수 끝 명시 rm.
   tmp_env="$(mktemp)"
   cat > "$tmp_env" <<ENV
-RABBITMQ_HOST=$host_ip
+RABBITMQ_HOST=${LIBVIRT_GW}
 RABBITMQ_PORT=5672
 RABBITMQ_VHOST=/assessment
 RABBITMQ_USER=${RABBITMQ_USER}
@@ -797,76 +1236,100 @@ RABBITMQ_WORKER_PASS=${RABBITMQ_WORKER_PASSWORD}
 WORKER_TASK_EXCHANGE=${WORKER_TASK_EXCHANGE}
 WORKER_TASK_QUEUE_PREFIX=${WORKER_TASK_QUEUE_PREFIX}
 WORKER_TASK_RESULT_KEY=${WORKER_TASK_RESULT_KEY}
-WORKER_DOWNLOAD_ALLOWED_HOSTS=$host_ip
+WORKER_DOWNLOAD_ALLOWED_HOSTS=${LIBVIRT_GW}
 AGENT_HOSTNAME_OVERRIDE=$WIN_VM_NAME
 AGENT_INTERVAL_SEC=60
 ENV
-
-  # Windows OpenSSH scp — C:/ 경로. 덮어쓰기 (host 가 master, Linux /etc/ heredoc 대응).
-  scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  win_ps 'New-Item -ItemType Directory -Force -Path "C:\ProgramData\assessment-agent" | Out-Null'
+  scp -i "$DEV_SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
       "$tmp_env" "${WIN_SSH_USER}@${WIN_VM_IP}:${WIN_ENV_PATH}"
+  rm -f "$tmp_env"   # 평문 secret 임시파일 정리
 
-  # 새 빌드 .exe 교체 (build_win_agent 성공 시만). 서비스 실행 중엔 .exe 파일 잠금 →
-  # 공백 없는 staging 경로로 scp 후 서비스 정지·Copy-Item (공백 포함 진짜 경로는 powershell 따옴표).
+  # agent.exe 전송·설치 (build_win_agent 산출 있으면). 서비스 실행 중엔 .exe 잠금 →
+  # 공백 없는 staging 경로로 scp 후 정지·Copy-Item. 서비스 미등록이면 New-Service 로 등록.
   if [ -n "$WIN_AGENT_EXE" ] && [ -f "$WIN_AGENT_EXE" ]; then
-    echo "  새 agent.exe 전송·교체 (AGENT_HOSTNAME_OVERRIDE 등 반영)..."
-    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    echo "  [$WIN_VM_NAME] agent.exe 전송·설치..."
+    win_ps 'New-Item -ItemType Directory -Force -Path "C:\Program Files\assessment-agent" | Out-Null'
+    scp -i "$DEV_SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
         "$WIN_AGENT_EXE" "${WIN_SSH_USER}@${WIN_VM_IP}:${WIN_EXE_STAGE}"
     win_ps 'Stop-Service assessment-agent -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; Copy-Item -Path "C:\ProgramData\assessment-agent\agent.exe.new" -Destination "C:\Program Files\assessment-agent\assessment-agent.exe" -Force; Remove-Item "C:\ProgramData\assessment-agent\agent.exe.new" -Force -ErrorAction SilentlyContinue'
+    win_ps 'if (-not (Get-Service assessment-agent -ErrorAction SilentlyContinue)) { New-Service -Name assessment-agent -BinaryPathName '\''"C:\Program Files\assessment-agent\assessment-agent.exe"'\'' -DisplayName "Assessment Agent" -StartupType Automatic | Out-Null; sc.exe failure assessment-agent reset= 86400 actions= restart/10000/restart/10000/restart/10000 | Out-Null }'
   fi
 
-  # Windows 시계 동기화 — VM(특히 UTM suspend/resume) 은 RTC drift 로 시각이 어긋나기 쉽다.
-  # agent 는 시스템 시각을 UTC 로 변환해 metric collected_at 으로 보내므로(F2), 시계가 틀리면
-  # 미래/과거 타임스탬프가 적재돼 신선도·online 판정이 깨진다. agent restart 전에 NTP 강제 동기화.
-  echo "  Windows 시계 UTC 동기화 (w32tm /resync)..."
-  win_ps 'Set-Service w32time -StartupType Automatic -ErrorAction SilentlyContinue; Start-Service w32time -ErrorAction SilentlyContinue; w32tm /config /manualpeerlist:"time.windows.com" /syncfromflags:manual /update; Restart-Service w32time -ErrorAction SilentlyContinue; w32tm /resync /force'
+  # Windows 시계 UTC 동기화 — RTC drift 시 collected_at 어긋나 신선도·online 판정 깨짐(F2).
+  echo "  [$WIN_VM_NAME] Windows 시계 UTC 동기화..."
+  win_ps 'Set-Service w32time -StartupType Automatic -ErrorAction SilentlyContinue; Start-Service w32time -ErrorAction SilentlyContinue; w32tm /resync /force' >/dev/null 2>&1 || true
 
-  echo "[4/4] 응용 서비스(IIS·redis) 기동 보장 + agent restart..."
-  # stop/start 후 W3SVC(IIS)·redis 가 꺼져 있으면 agent 의 inventory services 에서 누락 → 서비스 뱃지 안 뜸.
-  # StartupType Automatic + Start (이미 running·미설치는 -ErrorAction SilentlyContinue 로 무해). 뒤이어 agent restart 로 즉시 재발행.
-  win_ps 'Set-Service W3SVC -StartupType Automatic -ErrorAction SilentlyContinue; Set-Service redis -StartupType Automatic -ErrorAction SilentlyContinue; Start-Service W3SVC,redis -ErrorAction SilentlyContinue; Restart-Service assessment-agent'
+  echo "  [$WIN_VM_NAME] IIS·redis 기동 보장 + agent (re)start..."
+  win_ps 'Set-Service W3SVC -StartupType Automatic -ErrorAction SilentlyContinue; Set-Service redis -StartupType Automatic -ErrorAction SilentlyContinue; Start-Service W3SVC,redis -ErrorAction SilentlyContinue; if (Get-Service assessment-agent -ErrorAction SilentlyContinue) { Restart-Service assessment-agent -ErrorAction SilentlyContinue }'
+}
 
-  rm -f "$tmp_env"   # 평문 secret 임시파일 정리
+# 최초 설치+배포 완료 후 골든 이미지 생성 — 다음 dev-up 부터 OS 무인설치(~20min)를 clone(~수십초)으로
+# 대체. 골든 = OS+OpenSSH+IIS+redis+agent 완성본. 디스크 일관성 위해 VM 정지 후 vol-clone, 재시작.
+# 이미 골든 있으면(= 이번 기동이 clone 이었던 경우) skip. dev-down 은 golden 을 이름이 달라 보존(캐시).
+make_win_golden_if_absent() {
+  local golden="${WIN_VM_NAME}-golden.qcow2" disk="${WIN_VM_NAME}.qcow2"
+  virsh vol-info "$golden" --pool "$LIBVIRT_POOL" >/dev/null 2>&1 && return 0
+  echo "  [$WIN_VM_NAME] 골든 이미지 생성 중 (다음 dev-up 부터 OS 설치 skip)..."
+  virsh shutdown "$WIN_VM_NAME" >/dev/null 2>&1 || true
+  local w=0
+  until virsh domstate "$WIN_VM_NAME" 2>/dev/null | grep -q "shut off"; do
+    sleep 3; w=$((w+3))
+    if [ "$w" -ge 180 ]; then virsh destroy "$WIN_VM_NAME" >/dev/null 2>&1 || true; sleep 2; break; fi
+  done
+  virsh vol-clone --pool "$LIBVIRT_POOL" "$disk" "$golden" >/dev/null
+  virsh start "$WIN_VM_NAME" >/dev/null
+  echo "  [$WIN_VM_NAME] 골든 생성 완료 — VM 재시작(메트릭 재개)."
 }
 
 # ────────────────────────────────────────────────────────────────────────────
 print_win_summary() {
   echo ""
-  echo "Windows agent 부분 자동화 완료"
+  echo "Windows agent 자동화 완료 (libvirt)"
   echo "  VM       : $WIN_VM_NAME ($WIN_VM_IP)"
-  echo "  agent.env: $WIN_ENV_PATH (RABBITMQ_HOST 주입 완료)"
+  echo "  agent.env: $WIN_ENV_PATH (RABBITMQ_HOST=${LIBVIRT_GW} 주입 완료)"
   echo "  확인:"
   echo "    RabbitMQ 콘솔  : http://localhost:${RABBITMQ_MANAGEMENT_PORT:-15672} ($WIN_VM_NAME 메시지 적재)"
   echo "    Web UI         : http://localhost:${WEB_PORT:-8000}/servers/ ($WIN_VM_NAME 등록, os_family=windows)"
-  echo "    서비스 상태    : ssh ${WIN_SSH_USER}@${WIN_VM_IP} 'powershell -Command \"Get-Service assessment-agent\"'"
+  echo "    서비스 상태    : ssh -i $DEV_SSH_KEY ${WIN_SSH_USER}@${WIN_VM_IP} 'Get-Service assessment-agent,W3SVC,redis'"
 }
 
 main() {
-  # ── Linux (OrbStack + compose) ──
-  check_prereqs
-  ensure_agent_binary
-  load_agent_env
-  start_docker_stack
-  wait_migrate_completed
-  wait_web_healthy
-  start_orb_vms
-  print_summary
-  # ── Windows (UTM) — win-server-01 1회 수동 생성 후에만. 없으면 skip (Linux 전용 환경도 정상). ──
-  if command -v "$UTMCTL" >/dev/null 2>&1 && "$UTMCTL" list 2>/dev/null | grep -qw "$WIN_VM_NAME"; then
+  # ── Linux (libvirt + compose) ── WIN_ONLY=1 이면 Linux provision 스킵 — Windows VM 만 반복
+  #    빌드·디버깅용. check_prereqs 가 docker/libvirt/gw/ssh-key/env 공통 의존을 보장하므로 그것만
+  #    호출하고 Linux VM provision(ssh 헬스체크 포함)은 건너뛴다. ──
+  if [ "${WIN_ONLY:-0}" = "1" ]; then
+    check_prereqs
+    load_agent_env   # deploy_win_agent 의 agent.env 생성이 RABBITMQ_USER 등 참조 — Linux 스킵해도 필요
+  else
+    check_prereqs
+    ensure_agent_binary
+    load_agent_env
+    start_docker_stack
+    wait_migrate_completed
+    wait_web_healthy
+    start_vms
+    print_summary
+  fi
+  # ── Windows (libvirt) — 기본 포함("모든 환경" 구성). 무거워도(ISO ~4.7GB + 설치 ~20min) 매 dev-up
+  #    이 무인설치를 수행해 설치 과정을 검증한다(dev-down 이 Windows 도 삭제하므로). Linux 전용 dev
+  #    는 WIN_ENABLE=0 으로 opt-out. WIN_ONLY=1 / 도메인 기존재 시에도 실행. ──
+  if [ "${WIN_ENABLE:-1}" != "0" ] || [ "${WIN_ONLY:-0}" = "1" ] || virsh dominfo "$WIN_VM_NAME" >/dev/null 2>&1; then
     echo ""
-    echo "=== Windows 파이프라인 (UTM $WIN_VM_NAME) ==="
+    echo "=== Windows 파이프라인 (libvirt $WIN_VM_NAME) ==="
     check_win_prereqs
     start_win_vm
-    WIN_VM_IP="$(win_vm_ip)"
     build_win_agent
+    install_win_redis
     deploy_win_agent
+    make_win_golden_if_absent
     print_win_summary
   fi
 }
 
 # 직접 실행 시만 main 호출. `source dev-up.sh`(dev-down.sh)로 함수만 가져올 때는 자동 실행 안 함
 # (단계별 디버깅·검증 시 유용 — VM별 start_or_resume_vm/post_provision_vm/install_demo_loads 개별 호출 가능).
-# set -u 환경에서 BASH_SOURCE 안전 access — macOS bash 3.2 호환.
+# set -u 환경에서 BASH_SOURCE 안전 access — source(dev-down.sh) 시 부모 $0 오인 방지.
 if [ "${BASH_SOURCE[0]:-}" = "${0:-}" ]; then
   main "$@"
 fi

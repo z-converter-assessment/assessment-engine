@@ -14,8 +14,8 @@ dev/docker-compose.yml        — dev 단일 compose (#A0). dev/.env 평문 + �
 dev/.env.example              — dev compose 기준 환경변수 카탈로그. `cp dev/.env.example dev/.env`
 .env.example                  — prod 운영자 카탈로그 (루트). dev compose 와 무관 — 외부 인프라 운영자가 채워서 사용
 .dockerignore                 — COPY . . 시 제외 경로
-dev/pipeline-up.sh        — Docker → migrate → web 헬스체크 → OrbStack(orb create + agent install) 순서 기동. COMPOSE_FILE=dev/docker-compose.yml export
-dev/pipeline-down.sh      — OrbStack(orb delete) → docker compose down -v
+dev/dev-up.sh        — Docker → migrate → web 헬스체크 → libvirt(VM 생성 + agent install) 순서 기동. COMPOSE_FILE=dev/docker-compose.yml export
+dev/dev-down.sh      — libvirt(virsh undefine) → docker compose down -v
 ```
 
 dev compose 호출은 본 파일이 dev/ 디렉토리에 있어 자동 인식 안 됨. 루트에서는 `-f dev/docker-compose.yml` 명시:
@@ -132,7 +132,7 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 | 서비스 | 호스트 포트 | 컨테이너 포트 | 용도 |
 |--------|------------|--------------|------|
 | postgres | `${POSTGRES_PORT:-5432}` | 5432 | psql 직접 접속 (디버그) |
-| rabbitmq | `${RABBITMQ_PORT:-5672}` | 5672 | AMQP — OrbStack VM 에이전트가 `host.docker.internal:5672`로 접근 |
+| rabbitmq | `${RABBITMQ_PORT:-5672}` | 5672 | AMQP — libvirt VM 에이전트가 게이트웨이 `192.168.122.1:5672`로 접근 |
 | rabbitmq | `${RABBITMQ_MANAGEMENT_PORT:-15672}` | 15672 | 관리 UI |
 | web | `${WEB_PORT:-8000}` | 8000 | HTTP — 브라우저 + `/static/*` 정적 자원 |
 
@@ -250,13 +250,13 @@ ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migra
 
 ---
 
-## dev/pipeline-up.sh / dev/pipeline-down.sh
+## dev/dev-up.sh / dev/dev-down.sh
 
 운영자 절차·VM 매트릭스: `docs/development/pipeline.md`. 본 절은 docker 관점 동작만:
 
-- `dev/pipeline-up.sh` [1/4] `docker compose up -d --build` → [2/4] migrate 완료 대기(180s) → [3/4] web 헬스체크(180s) → [4/4] OrbStack 4 VM.
+- `dev/dev-up.sh` [1/4] `docker compose up -d --build` → [2/4] migrate 완료 대기(180s) → [3/4] web 헬스체크(180s) → [4/4] libvirt Linux 5 VM.
 - 헬스체크 타임아웃 초과 시 migrate/web 로그 30라인 dump 후 exit.
-- `dev/pipeline-down.sh`: OrbStack 4 VM 제거 → `docker compose down -v`(postgres_data 삭제). 다음 dev-up은 빈 DB에서 시작 → `migrate`가 모든 schema·hypertable 신규 생성.
+- `dev/dev-down.sh`: libvirt Linux 5 VM 제거 → `docker compose down -v`(postgres_data 삭제). 다음 dev-up은 빈 DB에서 시작 → `migrate`가 모든 schema·hypertable 신규 생성.
 
 ---
 

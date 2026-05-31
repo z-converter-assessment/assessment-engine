@@ -1,3 +1,5 @@
+# 엔진 이미지 — web·consumer·diagnostic-worker·migrate 공용 (dev/docker-compose.yml 가 build).
+# agent 바이너리 빌드는 dev/agent-build/Dockerfile 별도.
 FROM python:3.12-slim
 
 # Python 런타임 정석:

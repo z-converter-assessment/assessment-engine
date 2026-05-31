@@ -40,7 +40,7 @@ worker(consumer/diagnostic-worker)는 HTTP server 없음 → 본 ADR 범위 밖.
 
 2. prometheus_client 직접 사용
    - 장점: 의존성 최소·full control.
-   - 단점: HTTP middleware 계측 코드 직접 작성 — 보일러플레이트 ↑. instrumentator가 wrap하는 패턴 그대로 작성하게 됨.
+   - 단점: HTTP middleware 계측 코드 직접 작성 — 보일러플레이트 증가. instrumentator가 wrap하는 패턴 그대로 작성하게 됨.
 
 3. 도입 보류 (현 상태 유지)
    - 장점: 의존성 0개.

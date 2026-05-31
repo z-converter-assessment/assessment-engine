@@ -2,6 +2,13 @@
 
 상태: Accepted
 
+> 정정 (2026-06-01, evidence 기반 재설계 — 본 ADR 방향 유지, 구현 진화):
+> - `classify` 의 swap short-circuit 순차 판정을 `assess(stats) -> Assessment(recommendation, triggers, unmeasured)` 로 재구성. 자원별 가진 축을 신호로 모아 under = 위험 신호 OR(누락 0) / over = cpu·mem 둘 다 낮을 때만(보수적)로 합성하고, hit 신호를 근거(triggers)로 반환("어떤 데이터로 이 분류"). `classify` 는 호환 wrapper.
+> - `is_partial_evaluation` 을 `os_family == "windows"` 단정에서 `unmeasured`(값 None 인 saturation 축, 예: Windows load) 기반으로 변경 — os 가 아니라 실제 관측 여부. Windows agent 가 등가 카운터(Processor Queue Length 등) 발행 시 자동 해제.
+> - `insufficient_data` 를 최우선에서 후순위로 — utilization(cpu·mem) 둘 다 부재 + under 신호도 없을 때만. swap·iowait 등 saturation 신호가 있으면 util 부재여도 under 로 결론(데이터로 반드시 판단). OS 메트릭 부재만으로는 미발화.
+> - 표시: "부분 평가" 문구를 "이용률 기준 평가(saturation 축 미관측)" confidence 단서로. report mapper 권고·attention capacity 배지가 `assess.triggers` 재사용(임계 재계산 중복 제거), stats 생성은 `build_resource_stats` 공용.
+> - 단일 진실: `recommendation.assess` + `right_sizing_thresholds.html`.
+
 ## Context
 
 ADR 0027 로 Windows agent 가 합류했다. agent 는 raw 값을 canonical(Linux `/proc` 모델)로 변환 발행하고 엔진은 OS 무관 단일 공식으로 계산한다(`docs/architecture/agent.md`). 그러나 right-sizing 분류(`recommendation.classify`)는 USE Method 임계를 OS 무관(OS-blind)으로 적용해 왔고, 이게 Windows 에서 두 가지 왜곡을 낳았다:

@@ -1,13 +1,25 @@
 """Right-sizing 분류 — USE Method (Brendan Gregg) + 공식 cloud advisor 임계값.
 
-분류 enum: idle / shutdown / over_provisioned / under_provisioned / optimal.
+명세·근거 단일 진실: docs/architecture/right-sizing.md (분류 정의·임계 출처·OS 분기·한계).
+
+evidence 기반 분류: 자원(CPU/Mem/Disk)별로 "가진 축"을 평가해 신호(trigger)를 모으고,
+under(위험) 우선 우선순위로 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다.
+가진 데이터로 항상 결론을 내며("C 로 판단" 설명 가능), OS 비대칭(Windows 의 saturation 축 부재)은
+분류를 막지 않고 confidence 단서(unmeasured)로만 노출한다.
+
+분류 enum: idle / shutdown / over_provisioned / under_provisioned / optimal / insufficient_data.
 
 UI badge 임계값(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인:
 - mapper 90/75 = 시점 사용량 시각 신호 (위험·주의·정상)
 - 본 모듈 = 14일 통계 기반 right-sizing 결정 (idle/over/under 등)
+
+합성 규칙 (단일 진실):
+- under = 위험 신호 OR (어떤 자원이든 고이용·포화·용량초과 하나라도 -> 누락 0)
+- over  = 가용 이용률 AND (cpu·mem p95 가 둘 다 있고 둘 다 낮을 때만 -> 보수적)
+- insufficient_data = cpu_p95·mem_p95 가 둘 다 None (진짜 평가 불가 = 신규/표본 부재)
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 # ─── 임계값 ─────────────
@@ -45,15 +57,19 @@ Recommendation = Literal[
     "over_provisioned",
     "under_provisioned",
     "optimal",
-    "insufficient_data",  # 14일 미만 또는 metric 부재
+    "insufficient_data",  # cpu_p95·mem_p95 둘 다 부재 (신규/표본 부재)
 ]
+
+# under_provisioned 유발 신호 키 — 도메인 식별자(머신용). mapper 가 한국어 권고로 변환(P2).
+# attention 5종 trigger + iowait(disk_io) 정합. 표시 순서·라벨은 mapper 단일 진실.
+Trigger = Literal["cpu_util", "cpu_saturation", "mem_util", "mem_saturation", "disk_capacity", "disk_io"]
 
 
 @dataclass
 class ResourceStats:
     """USE Method 통계 입력 — Utilization·Saturation 정석 6 자원축.
 
-    None 은 데이터 부재 (해당 축 평가 skip, fall-through).
+    None 은 데이터 부재 (해당 축 평가 skip — 분류를 막지 않고 unmeasured 로 기록).
     """
 
     # CPU
@@ -73,76 +89,120 @@ class ResourceStats:
     os_family: str | None = None
 
 
+@dataclass
+class Assessment:
+    """evidence 기반 분류 결과 — 분류 1개 + 근거(triggers) + 미관측 축(unmeasured).
+
+    - triggers: under_provisioned 를 유발한 hit 신호 키 목록 (그 외 분류는 빈 목록).
+                "어떤 데이터로 under 판정인가"의 근거. mapper 가 한국어 권고로 변환.
+    - unmeasured: 평가하지 못한 saturation 축 키 목록 (값이 None 이라 skip 된 축).
+                  Windows 는 load 부재 -> ["cpu_saturation"]. confidence 단서(분류는 완결).
+    """
+
+    recommendation: Recommendation
+    triggers: list[str] = field(default_factory=list)
+    unmeasured: list[str] = field(default_factory=list)
+
+    @property
+    def is_partial(self) -> bool:
+        """saturation 축 일부를 못 본 "부분 평가" 인지 — confidence 단서 (원칙 P4).
+
+        분류 자체는 utilization 으로 완결됐고, 못 본 축이 있다는 사실만 표시 계층에 노출.
+        """
+        return bool(self.unmeasured)
+
+
 def swap_saturation(os_family: str | None, swap_used: bool) -> bool:
     """swap/pagefile 사용이 메모리 saturation 신호인지 — Linux 한정 (원칙 P2).
 
     Windows pagefile 은 여유 RAM 에도 상시 사용되는 baseline 이라 saturation 신호 아님.
     Linux swap 사용은 page-out = 메모리 압박 신호. os_family None(unknown)은 Linux 로 취급.
-    classify·report mapper 의 swap 해석 단일 진실 — 세 곳이 본 helper 경유.
+    assess·report mapper 의 swap 해석 단일 진실 — 본 helper 경유.
     """
     return swap_used and os_family != "windows"
 
 
-def is_partial_evaluation(stats: ResourceStats) -> bool:
-    """분류가 utilization 축만으로 내려진 "부분 평가" 인지 (원칙 P4).
+def assess(stats: ResourceStats) -> Assessment:
+    """USE Method evidence 분류 — 자원별 가용 축을 신호로 모아 단일 분류 + 근거 산출.
 
-    Windows 는 saturation 축이 OS 부재(loadavg null·iowait 의미 부재) + swap 축 제외(P2)라
-    cpu/mem utilization 만으로 판정됨 -> saturation 을 못 본 부분 평가. 표시 계층이 confidence 단서로 노출.
+    판정 순서: idle → shutdown → under(위험 신호 OR) → insufficient(데이터 없음) → over(이용률 AND) → optimal.
+    under 는 어떤 위험 신호든 하나면 발화(누락 0), over 는 cpu·mem 이 둘 다 낮을 때만(보수적).
+    insufficient_data 는 utilization 도 없고 under 신호도 없을 때만 — swap·iowait 등 saturation 신호가
+    있으면 util 부재여도 under 로 결론낸다(데이터로 반드시 판단). 못 본 saturation 축(예: Windows load)은
+    unmeasured 에 기록 — 분류를 막지 않고 confidence 로만 노출.
     """
-    return stats.os_family == "windows"
+    cpu = stats.cpu_p95_pct
+    mem = stats.mem_p95_pct
 
+    # 못 본 saturation 축 기록 (confidence 단서) — 값이 None 인 축만. swap 은 Windows 의도 제외라
+    # "미관측"이 아니므로 제외하지 않는다(제외 != 미관측).
+    unmeasured: list[str] = []
+    if stats.cpu_load_15m_max is None or stats.cpu_cores is None:
+        unmeasured.append("cpu_saturation")
+    if stats.iowait_p95_pct is None:
+        unmeasured.append("disk_io")
 
-def classify(stats: ResourceStats) -> Recommendation:
-    """USE Method 정석 분류 — Utilization + Saturation 두 축 평가.
-
-    판정 순서: Idle → Shutdown → Swap → Disk capacity → Disk IO → CPU saturation →
-              CPU util → Mem util → Over → Optimal.
-    필수 데이터(cpu_p95·mem_p95) 부재 시 `insufficient_data` 반환.
-    Windows 는 swap(P2)·saturation 축 제외 -> utilization 축만 평가 (부분 평가, `is_partial_evaluation`).
-    """
-    if stats.cpu_p95_pct is None or stats.mem_p95_pct is None:
-        return "insufficient_data"
-
-    # Idle / Shutdown — net 의존. net_avg_kbps None이면 skip (다음 단계로 fall-through)
+    # Idle / Shutdown — net + cpu 의존. 필요한 값이 있을 때만 평가(없으면 fall-through).
     if stats.net_avg_kbps is not None:
         if (
             stats.cpu_peak_pct is not None
             and stats.cpu_peak_pct <= IDLE_CPU_PEAK_PCT
             and stats.net_avg_kbps <= IDLE_NET_KBPS
         ):
-            return "idle"
-        # net_avg_kbps(KB/s) → Mbps 변환: x 8 / 1000
-        if stats.cpu_p95_pct <= SHUTDOWN_CPU_P95_PCT and (stats.net_avg_kbps * 8 / 1000) <= SHUTDOWN_NET_MBPS:
-            return "shutdown"
+            return Assessment("idle", unmeasured=unmeasured)
+        # net_avg_kbps(KB/s) → Mbps: x 8 / 1000
+        if cpu is not None and cpu <= SHUTDOWN_CPU_P95_PCT and (stats.net_avg_kbps * 8 / 1000) <= SHUTDOWN_NET_MBPS:
+            return Assessment("shutdown", unmeasured=unmeasured)
 
-    # Swap 사용 = 메모리 saturation → 업사이즈 short-circuit (Linux 한정, 원칙 P2 — Windows pagefile 제외)
-    if swap_saturation(stats.os_family, stats.swap_used):
-        return "under_provisioned"
-
-    # Disk capacity (storage utilization) >= 85% → 업사이즈 (Storage 부족)
+    # under_provisioned — 위험 신호 수집(OR). 가진 축만 평가해 hit 된 신호를 근거로 모은다.
+    triggers: list[str] = []
+    if cpu is not None and cpu >= CPU_UPSIZE_P95_PCT:
+        triggers.append("cpu_util")
+    if mem is not None and mem >= MEM_UPSIZE_P95_PCT:
+        triggers.append("mem_util")
     if stats.disk_used_pct is not None and stats.disk_used_pct >= DISK_CAPACITY_UPSIZE_PCT:
-        return "under_provisioned"
-
-    # Disk IO saturation (iowait >= 20%) → 업사이즈 (Disk IO 병목)
-    if stats.iowait_p95_pct is not None and stats.iowait_p95_pct >= IOWAIT_UPSIZE_PCT:
-        return "under_provisioned"
-
-    # CPU saturation — run queue >= core 수 (load_15m / cpu_cores >= 1.0)
+        triggers.append("disk_capacity")
     if (
         stats.cpu_load_15m_max is not None
         and stats.cpu_cores is not None
         and stats.cpu_cores > 0
         and (stats.cpu_load_15m_max / stats.cpu_cores) >= CPU_SATURATION_LOAD_RATIO
     ):
-        return "under_provisioned"
+        triggers.append("cpu_saturation")
+    if stats.iowait_p95_pct is not None and stats.iowait_p95_pct >= IOWAIT_UPSIZE_PCT:
+        triggers.append("disk_io")
+    if swap_saturation(stats.os_family, stats.swap_used):
+        triggers.append("mem_saturation")
 
-    if stats.cpu_p95_pct <= CPU_DOWNSIZE_P95_PCT and stats.mem_p95_pct <= MEM_DOWNSIZE_P95_PCT:
-        return "over_provisioned"
+    if triggers:
+        return Assessment("under_provisioned", triggers=triggers, unmeasured=unmeasured)
 
-    if stats.cpu_p95_pct >= CPU_UPSIZE_P95_PCT or stats.mem_p95_pct >= MEM_UPSIZE_P95_PCT:
-        return "under_provisioned"
+    # 평가 불가 — utilization(cpu·mem) 둘 다 부재 + under 위험 신호도 없음 (신규/표본 부재).
+    # swap·iowait 등 saturation 신호가 있었다면 위 under 에서 이미 결론(데이터로 반드시 판단).
+    if cpu is None and mem is None:
+        return Assessment("insufficient_data")
 
-    return "optimal"
+    # over_provisioned — 보수적: cpu·mem p95 가 둘 다 있고 둘 다 다운사이즈 임계 이하일 때만.
+    # 한쪽이라도 None 이거나 높으면 over 로 단정하지 않는다(saturation 못 본 Windows 오판 회피).
+    if (
+        cpu is not None
+        and mem is not None
+        and cpu <= CPU_DOWNSIZE_P95_PCT
+        and mem <= MEM_DOWNSIZE_P95_PCT
+    ):
+        return Assessment("over_provisioned", unmeasured=unmeasured)
+
+    return Assessment("optimal", unmeasured=unmeasured)
+
+
+def classify(stats: ResourceStats) -> Recommendation:
+    """분류 enum 만 — 기존 호출처 호환 wrapper (근거·confidence 필요 시 assess 사용)."""
+    return assess(stats).recommendation
+
+
+def is_partial_evaluation(stats: ResourceStats) -> bool:
+    """saturation 축 일부 미관측 여부 — 호환 wrapper (assess().is_partial)."""
+    return assess(stats).is_partial
 
 
 # ─── UI 라벨 (한국어, 양식 A 사용자 친화 표시용) ──────────────────────────
@@ -165,4 +225,15 @@ BADGE_CLASS: dict[str, str] = {
     "under_provisioned": "rec-under_provisioned",
     "optimal": "rec-optimal",
     "insufficient_data": "rec-insufficient_data",
+}
+
+# under_provisioned 신호 키 -> 한국어 권고 구문 (mapper._build_under_provisioned_reason 단일 진실 보조).
+# triggers 를 사람용 근거로 변환할 때 참조. 표시 순서는 mapper 가 결정.
+TRIGGER_LABEL_KO: dict[str, str] = {
+    "cpu_util": "CPU 이용률 초과",
+    "cpu_saturation": "CPU run queue 포화",
+    "mem_util": "메모리 이용률 초과",
+    "mem_saturation": "스왑 page-out(메모리 압박)",
+    "disk_capacity": "디스크 용량 임박",
+    "disk_io": "디스크 I/O 포화",
 }

@@ -2,11 +2,11 @@
 
 본 디렉토리는 dev 환경 한정 자료 (#A0). prod 운영에는 사용 안 함 (ADR 0012).
 
-전제: Apple Silicon (arm64) macOS host. Docker 4.x+ (macOS Desktop 또는 Linux Engine 27.x + Compose v2).
-4 VM 매트릭스로 파이프라인 검증 — Linux 3대(OrbStack, `pipeline-up.sh`) + Windows 1대(UTM, `win-pipeline-up.sh` + `docs/development/windows-vm.md`).
+전제: Linux x86_64 host. Docker + Compose v2 + libvirt(KVM, qemu-kvm·virsh·cloud-image-utils).
+VM 매트릭스로 파이프라인 검증 — Linux 5대 + Windows 1대(기본 포함) 모두 libvirt. 단일 진실 `docs/development/pipeline.md`·`windows-vm.md`.
 
 본 repo 는 외부 agent repo (`assessment-agent`) 와 파일 구조 결합·강제하지 않음 — agent 바이너리는
-pipeline-up.sh 가 자동 확보 (sibling repo cross-build 또는 release artifact fetch).
+dev-up.sh 가 자동 확보 (sibling repo cross-build 또는 release artifact fetch).
 
 ## Quick Start — 시연 흐름
 
@@ -24,18 +24,22 @@ docker compose -f dev/docker-compose.yml down -v         # 종료 (데이터 삭
 `migrate` 컨테이너가 `alembic upgrade head` 를 자동 실행. 그 후 web 컨테이너가 헬스체크 통과하면
 "## 접속" 표의 endpoint 모두 동작.
 
-### 2. 엔진 + OrbStack VM 매트릭스 전체 시연 (macOS 한정)
+### 2. 엔진 + libvirt VM 매트릭스 전체 시연
 
 ```bash
-./dev/dev-up.sh                                    # 전체 기동 — Docker+OrbStack 3 Linux VM(+에이전트) + Windows(UTM win-server-01 있으면)
-ORB_VMS_FILTER=app-server-01 ./dev/dev-up.sh       # 약식 (Linux 1 VM)
-./dev/dev-down.sh                                  # 전체 정리 — Windows VM 중지(보존) + OrbStack VM 삭제 + Docker 볼륨 삭제
+./dev/dev-up.sh                                # 전체 기동 — Docker + libvirt Linux 5 VM + Windows 모두 (인자 0)
+VMS_FILTER=app-server-01 WIN_ENABLE=0 ./dev/dev-up.sh  # 약식 (Linux 1 VM, Windows 제외)
+WIN_ENABLE=0 ./dev/dev-up.sh                   # Linux 전용 (Windows opt-out — 무인설치 ~20min 생략)
+./dev/dev-down.sh                              # 전체 정리 — 모든 VM(Linux+Windows) 삭제 + Docker 볼륨 삭제
 ```
 
-dev-up.sh 가 Linux(OrbStack+compose) → Windows(UTM, 있으면) 순으로 기동, dev-down.sh 가 역순 정리.
-Windows VM 은 보존(중지), OrbStack·compose 는 삭제(재생성 전제) — 비대칭 의도.
-Windows VM(win-server-01)은 OrbStack 미지원이라 UTM 별도 — VM 생성·설치는 1회 수동, 이후 `win-pipeline-up.sh`
-가 start·agent.env 갱신·서비스 기동·restart 자동. 중지는 `win-pipeline-down.sh`(VM 보존). 절차 단일 진실: `docs/development/windows-vm.md`.
+dev-up.sh 는 인자 없이 실행하면 의존성 자동 설치(sudo apt) + env 자동 복사 + Linux 5 VM + Windows 까지
+"모든 환경"을 구성한다(개입 0). Windows 는 기본 포함이며 `WIN_ENABLE=0` 으로만 opt-out(Linux 전용 dev).
+dev-down.sh 는 모든 VM(Windows 포함)과 Docker 볼륨을 삭제 — 다음 dev-up 이 Linux provisioning 을 매번
+다시 수행해 "설치 과정"을 검증한다(빈 DB + VM 등록 + 메트릭 적재 구조 유지). 다만 Windows OS 무인설치
+(~20min)는 최초 1회만 골든 이미지로 캐시하고 이후 clone 재사용해 시간을 줄인다(agent 는 매번 갱신).
+캐시(로직 무관)는 보존: base cloud image / Windows ISO + 골든(OS 설치본) / redis MSI / vendor static libs.
+Windows VM(win-server-01)은 Server 2022 autounattend 무인 설치. 절차 단일 진실: `docs/development/windows-vm.md`.
 
 agent 바이너리는 `ensure_agent_binary` 가 자동 확보 — `AGENT_BINARY_URL` set 시 fetch, 미설정 시
 sibling repo (`AGENT_REPO_PATH`, default `../assessment-agent`) cross-build. 상세는 "## agent
@@ -68,16 +72,17 @@ dev 전체 endpoint 가 plain HTTP port 8000. prod 외부 ingress 종단은 외�
 | `.env` | dev compose 실값 | gitignore |
 | `agent-build/Dockerfile` | agent 빌드 Dockerfile (debian:bookworm-slim base, vendored static link) | 커밋 |
 | `agent-build/build.sh` | agent cross-build 스크립트 (sibling repo buildx 호출) | 커밋 |
-| `bin/assessment-agent` | agent 바이너리 산출물 (Linux arm64 ELF, static link) | gitignore — pipeline-up.sh 가 자동 산출 |
+| `bin/assessment-agent` | agent 바이너리 산출물 (Linux amd64 ELF, static link) | gitignore — dev-up.sh 가 자동 산출 |
 | `agent.env.example` | agent 측 환경변수 카탈로그 — RABBITMQ_*·WORKER_* | 커밋 |
 | `agent.env` | agent 실값 — `cp agent.env.example agent.env` 후 운영 값으로 수정 | gitignore |
-| `dev-up.sh` / `dev-down.sh` | 전체 dev 환경 단일 진입점 — Docker+OrbStack Linux 3 VM(app/data/edge) + Windows(UTM win-server-01, IIS/redis 기동) 일괄 기동/정리. Windows 절차 단일 진실 `docs/development/windows-vm.md` | 커밋 |
+| `dev-up.sh` / `dev-down.sh` | 전체 dev 환경 단일 진입점 — 의존성 자동설치 + Docker + libvirt Linux 5 VM(app/data/edge/offline-01/02) + Windows(win-server-01, IIS/redis, 기본 포함·`WIN_ENABLE=0` opt-out) 일괄 기동/정리. down 은 모든 VM·볼륨 삭제(캐시 보존). Windows 절차 단일 진실 `docs/development/windows-vm.md` | 커밋 |
+| `win/autounattend.xml.tmpl` | Windows Server 2022 무인 설치 응답 파일 템플릿 (dev-up.sh 가 placeholder 치환) | 커밋 |
 
 > OS EOL 카탈로그 갱신 도구는 dev 아닌 `scripts/snapshot_os_eol.py` (빌드·릴리스 maintenance, ADR 0031).
 
 ## agent 바이너리 확보 흐름
 
-`dev/pipeline-up.sh` 의 `ensure_agent_binary` 단계 — 두 분기:
+`dev/dev-up.sh` 의 `ensure_agent_binary` 단계 — 두 분기:
 
 1. `AGENT_BINARY_URL` env set 시 — curl 로 fetch (향후 agent CI release artifact 자동화 분기).
 2. 미설정 시 — `dev/agent-build/build.sh` 호출 → sibling repo (`AGENT_REPO_PATH`, default `../assessment-agent`) 를 buildx context 로 cross-build.
@@ -85,13 +90,13 @@ dev 전체 endpoint 가 plain HTTP port 8000. prod 외부 ingress 종단은 외�
 ```bash
 # A. sibling repo cross-build (default)
 git clone <agent-repo> ../assessment-agent
-./dev/pipeline-up.sh
+./dev/dev-up.sh
 
 # B. release artifact fetch (확장 분기)
-AGENT_BINARY_URL=https://example.com/assessment-agent ./dev/pipeline-up.sh
+AGENT_BINARY_URL=https://example.com/assessment-agent ./dev/dev-up.sh
 
 # C. sibling repo 위치 override
-AGENT_REPO_PATH=/elsewhere/assessment-agent ./dev/pipeline-up.sh
+AGENT_REPO_PATH=/elsewhere/assessment-agent ./dev/dev-up.sh
 
 # D. cross-build 만 (pipeline 안 띄움)
 ./dev/agent-build/build.sh
@@ -100,7 +105,7 @@ FORCE=1 ./dev/agent-build/build.sh   # buildx cache 무시
 
 ### build 내부 동작
 
-- host arch detect — `uname -m` → `linux/arm64` (Apple Silicon) 또는 `linux/amd64`
+- host arch detect — `uname -m` → `linux/amd64` (x86_64 host)
 - `docker buildx build --platform=linux/<arch> --target=export --output=type=local,dest=dev/bin`
 - debian:bookworm-slim 컨테이너에서 `make vendor-fetch` + `vendor-build` + main build
 - BuildKit layer cache 로 vendor 단계 재사용 (Makefile·vendor 변경 없을 때)
@@ -115,14 +120,14 @@ FORCE=1 ./dev/agent-build/build.sh   # buildx cache 무시
 
 - static link — cJSON·rabbitmq-c·curl·libarchive 정적
 - dynamic 의존성 — OpenSSL·glibc·zlib 만 (base distro 기본 포함)
-- OrbStack 매트릭스 distro (Debian 12·Debian 13·Rocky 9·AlmaLinux 9) 모두 호환 (glibc >= 2.34, OpenSSL 3 계열)
+- libvirt 매트릭스 distro (Debian 12·Rocky 9) 호환 (glibc >= 2.34, OpenSSL 3 계열)
 
-## pipeline-up.sh 와의 관계
+## dev-up.sh 와의 관계
 
-`./dev/pipeline-up.sh` 가 본 디렉토리 활용:
+`./dev/dev-up.sh` 가 본 디렉토리 활용:
 1. `check_prereqs` — `dev/.env` + `dev/agent.env` 자동 cp (없으면 example 에서).
 2. `ensure_agent_binary` — agent 바이너리 확보 (위 흐름).
-3. OrbStack Linux VM 3대 생성 (`orb create <distro> <name>`). Windows 1대는 UTM 별도 (`win-pipeline-up.sh`).
+3. libvirt Linux VM 5대 생성 (base cloud image vol-clone + cloud-init seed + `virsh define`). Windows 1대는 autounattend(`WIN_ENABLE=1`).
 4. 각 VM 에 `dev/bin/assessment-agent` 를 ssh stdin 으로 전송 → `/usr/local/bin/` 설치 + systemd unit 적용.
 
 VM 내부에서 build·devel 패키지 install 0.
@@ -131,7 +136,7 @@ VM 내부에서 build·devel 패키지 install 0.
 
 - agent repo 가 별도 — 산출물은 sibling repo build 또는 release artifact 채널에서 확보가 정공.
 - 본 repo 가 외부 산출물 (다른 repo 빌드 결과) 을 안고 있는 것 은 책임 혼합.
-- pipeline-up.sh 가 자동 확보 흐름이라 사용자는 명시 호출 불필요. cache 동작도 idempotent.
+- dev-up.sh 가 자동 확보 흐름이라 사용자는 명시 호출 불필요. cache 동작도 idempotent.
 
 prod 운영 환경에서는 외부 인프라가 agent 자체 빌드·배포 (본 repo 무관).
 

@@ -1,7 +1,9 @@
 """Attention 신호·환경 개요 mapper (P2).
 
-대시보드 상단 attention 카드 (disk·gap·capacity·disk_days·os_eol·agent_unstable) +
-환경 활용률 도넛·bar (EnvironmentOverview) 합성. 책임은 raw 신호 → ViewModel.
+운영신호 카드(AttentionSignals) = gap·os_eol·agent_unstable 3개 (`query_service._assemble_attention` 조립) +
+환경 활용률 도넛·bar·USE Method 분포·under_provisioned 호스트(EnvironmentOverview) 합성. 책임은 raw 신호 → ViewModel.
+capacity(under_provisioned)·disk·days_until_full 은 운영신호가 아니라 USE Method right-sizing 소속 —
+to_capacity_warning_item 은 EnvironmentOverview.under_provisioned_hosts 로 간다.
 임계 분류·표시 색은 shared.py 또는 본 모듈 상단 상수 단일 진실.
 """
 
@@ -9,14 +11,11 @@ from collections import Counter
 from datetime import datetime
 
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import (
-    DiskUsageWarningRaw,
-    MetricGapWarningRaw,
-)
+from assessment_engine.db.dtos.outbound import MetricGapWarningRaw
+from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.server import workload_category_counter
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
-    _USAGE_DANGER_PCT,
     resolve_os_eol,
 )
 from assessment_engine.web.view_models.attention import (
@@ -35,10 +34,6 @@ from assessment_engine.web.view_models.attention import (
 # 운영 신호 단일 active 색 클래스. base.html 단일 진실. 카테고리간 강도 비교 근거 부족 →
 # 임계 초과 발화 자체가 시그널이라 단일 색으로 통일.
 _ATTN_ACTIVE_BADGE = "attn-active"
-
-# disk_warnings stale 임계 — last_metric_at이 24h 이상 안 갱신된 mount는 meta에 "마지막 수집" 추가 표시.
-# 7d cutoff(SQL) 안에서도 1d 이상 stale은 운영자가 인지해야 함.
-_DISK_STALE_HOURS = 24
 
 # UtilizationBar 게이지 색 — 환경 평균 활용률 도넛/바 단색 (그라데이션·임계 분기 제거).
 # 활용률 정도는 게이지 길이(dash_length)로, 색은 값 무관 단일 푸른색. 색으로 임계 의미를 주지
@@ -64,33 +59,7 @@ _CAPACITY_TRIGGER_INACTIVE_BG = "#f8fafc"
 _CAPACITY_TRIGGER_INACTIVE_FG = "#cbd5e1"
 
 
-# ─── 단순 attention 카드 (disk · gap) ─────────────────────────────────────
-
-
-def to_disk_warning_item(raw: DiskUsageWarningRaw, now: datetime) -> AttentionRow:
-    """DiskUsageWarningRaw → AttentionRow (P2: 단위 변환·badge 분류·표시 string·stale 분기 단일 변환).
-
-    threshold(85%)는 repo가 이미 거름 — mapper는 단위 + badge + 표시 string만. SQL이 total_bytes>0를 거름.
-    last_metric_at이 _DISK_STALE_HOURS 이상 안 갱신된 mount는 meta_at 채워서 "마지막 수집" 표시 활성.
-    """
-    used_pct = (1 - raw.avail_bytes / raw.total_bytes) * 100
-    free_gb = raw.avail_bytes / 1024**3
-    total_gb = raw.total_bytes / 1024**3
-    # 디스크 사용률 위험도 (repo 가 85%+ 만 거름): 90%+ = 위험(빨강), 85~90% = 주의(amber).
-    badge = "rec-under_provisioned" if used_pct >= _USAGE_DANGER_PCT else "badge-warn"
-    is_stale = (now - raw.last_metric_at).total_seconds() / 3600 >= _DISK_STALE_HOURS
-    meta_text = f"잔여 {free_gb:.1f} / {total_gb:.1f} GB"
-    if is_stale:
-        meta_text += " · 마지막 수집 "
-    return AttentionRow(
-        badge_class=badge,
-        badge_text=f"{used_pct:.0f}%",
-        link_href=f"/servers/{raw.public_id}/storage",
-        link_text=raw.hostname,
-        mount_path=raw.mount,
-        meta_text=meta_text,
-        meta_at=raw.last_metric_at if is_stale else None,
-    )
+# ─── gap (운영신호) ────────────────────────────────────────────────────────
 
 
 def to_gap_warning_item(raw: MetricGapWarningRaw, now: datetime) -> AttentionRow:
@@ -307,34 +276,23 @@ def build_environment_realtime(
     )
 
 
-# ─── capacity / disk_days / os_eol / agent_unstable ───────────────────────
+# ─── capacity(USE Method) · os_eol/agent_unstable(운영신호) · disk_days(dead) ──
 
 
 def to_capacity_warning_item(raw):
     """ReportRowRaw -> CapacityWarningItem. caller가 under_provisioned 필터링 후 호출.
 
-    triggers list — USE Method classify 입력과 1:1 정합 5종(스왑/CPU/메모리/Load/디스크) 항상 포함, active 분기:
-    - swap_used=True → "스왑" (Memory saturation)
-    - cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU" (CPU utilization)
-    - mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리" (Memory utilization)
-    - load_15m_max / cpu_cores >= CPU_SATURATION_LOAD_RATIO → "Load" (CPU saturation)
-    - worst_mount_used_pct >= DISK_CAPACITY_UPSIZE_PCT 또는 iowait_p95 >= IOWAIT_UPSIZE_PCT → "디스크"
-    비활성 trigger도 list에 포함 (시각 일관 — "이 카드는 5종 자원 추적" 명시).
+    triggers list — USE Method 5종(스왑/CPU/메모리/Load/디스크) 항상 포함, active 분기.
+    active 판정은 recommendation.assess(triggers) 단일 진실 — 임계 재계산 없이 hit 한 trigger 키를
+    매핑(drift 방지). 디스크 = capacity 또는 IO 포화. 비활성 trigger 도 list 포함(시각 일관 — 5종 자원 추적).
+    swap 은 Windows pagefile 제외(assess 내부 swap_saturation, P2).
     """
-    swap_active = recommendation.swap_saturation(raw.os_family, raw.swap_used)  # P2 — Windows pagefile 제외
-    cpu_active = (raw.cpu_p95_pct or 0) >= recommendation.CPU_UPSIZE_P95_PCT
-    mem_active = (raw.mem_p95_pct or 0) >= recommendation.MEM_UPSIZE_P95_PCT
-    load_active = (
-        raw.load_15m_max is not None
-        and raw.cpu_cores is not None
-        and raw.cpu_cores > 0
-        and (raw.load_15m_max / raw.cpu_cores) >= recommendation.CPU_SATURATION_LOAD_RATIO
-    )
-    disk_capacity_active = (
-        raw.worst_mount_used_pct is not None and raw.worst_mount_used_pct >= recommendation.DISK_CAPACITY_UPSIZE_PCT
-    )
-    disk_io_active = raw.iowait_p95_pct is not None and raw.iowait_p95_pct >= recommendation.IOWAIT_UPSIZE_PCT
-    disk_active = disk_capacity_active or disk_io_active
+    hit = set(recommendation.assess(build_resource_stats(raw)).triggers)
+    swap_active = "mem_saturation" in hit
+    cpu_active = "cpu_util" in hit
+    mem_active = "mem_util" in hit
+    load_active = "cpu_saturation" in hit
+    disk_active = "disk_capacity" in hit or "disk_io" in hit
 
     def _badge(label: str, active: bool) -> CapacityTriggerBadge:
         color = _CAPACITY_TRIGGER_COLORS[label]
@@ -355,30 +313,6 @@ def to_capacity_warning_item(raw):
         public_id=raw.public_id,
         hostname=raw.hostname,
         triggers=triggers,
-    )
-
-
-def to_disk_days_warning_item(
-    public_id: str,
-    hostname: str,
-    mount: str,
-    days_until_full: int,
-    used_pct: float | None,
-) -> AttentionRow:
-    """raw tuple -> AttentionRow. caller가 days <= 30 필터링 후 호출.
-
-    badge=N일 (rec-under_provisioned), mount_path 별도 attribute, meta="{used_pct}%" (없으면 빈 string).
-    """
-    meta = ""
-    if used_pct is not None:
-        meta = f"{used_pct:.0f}%"
-    return AttentionRow(
-        badge_class="rec-under_provisioned",
-        badge_text=f"{days_until_full}일",
-        link_href=f"/servers/{public_id}/storage",
-        link_text=hostname,
-        mount_path=mount,
-        meta_text=meta,
     )
 
 

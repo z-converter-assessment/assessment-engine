@@ -75,15 +75,15 @@ hook 파일 자체(`.claude/hooks/*`)는 패턴 정의를 포함하므로 self-s
 
 ### dev VM provisioning
 
-dev VM(OrbStack) 프로비저닝 측 교훈 (자동화 변환·post-provision 검증):
+dev VM(libvirt) 프로비저닝 측 교훈 (자동화 변환·post-provision 검증):
 
 - distro별 패키지명·init 규약 다름 — `redis-server`(apt) vs `redis`(dnf), `postgresql`(apt 자동 init) vs `postgresql-server`(RPM family 수동 `postgresql-setup --initdb`). dispatch case 추가 시 apt·dnf family 모두 검증 의무.
 - post-provision 은 멱등 의무 — 바이너리·env·unit 변경 없으면 restart 건너뜀 (`agent_started_at` 갱신 → attention.agent_unstable false positive 회피).
-- 합성 부하·시연 트리거(swap·restart-demo)는 옛 Lima yaml provision 을 pipeline-up.sh post-provision 함수로 흡수 — VM 정의(distro/service/mode)는 dispatch 함수가 단일 진실.
+- 합성 부하·시연 트리거(swap·restart-demo)는 dev-up.sh post-provision 함수로 흡수 — VM 정의(distro/service/mode)는 dispatch 함수가 단일 진실.
 
 ### 단일 진실 sync
 
-- `pipeline-down.sh`가 VM 목록을 `source pipeline-up.sh`로 `ORB_VMS` 단일 진실 공유 (hardcoded 시 sync 깨짐 → BASH_SOURCE source guard로 main 자동 실행 안 함).
+- `dev-down.sh`가 VM 목록을 `source dev-up.sh`로 `VMS` 단일 진실 공유 (hardcoded 시 sync 깨짐 → BASH_SOURCE source guard로 main 자동 실행 안 함).
 - 사용자 reject 후 진행 결정 시 같은 silent block 반복 금지 — 진행 단계마다 1줄 알림 + 결과 즉시 보고 + 1분 cap 룰 준수.
 
 누락 시 사용자 회귀 사고 발견의 책임은 검증 누락에 있음. 같은 패턴 재발 시 본 절에 추가하고 CLAUDE.md F5 메인 자가 검증 절차에 누락된 단계 보강.

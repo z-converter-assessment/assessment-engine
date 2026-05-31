@@ -1,284 +1,186 @@
-# Windows VM 파이프라인 검증 (UTM)
+# Windows VM 파이프라인 검증 (libvirt)
 
-본 문서는 dev 파이프라인의 Windows agent 검증 단일 진실. macOS + Apple Silicon 한정 (#A0).
-Linux VM 3대는 OrbStack (`docs/development/pipeline.md`), Windows VM 1대는 UTM 으로 분리한다.
+본 문서는 dev 파이프라인의 Windows agent 검증 단일 진실. Linux 호스트(x86_64) + libvirt(KVM) 한정 (#A0).
+Linux VM 5대는 `docs/development/pipeline.md`, Windows VM 1대는 본 문서가 단일 진실. 둘 다 동일 libvirt
+(qemu:///system)·virbr0 NAT(192.168.122.0/24)에 붙어 분리망·gateway 추론 없이 통일됐다.
 
-## 왜 UTM (OrbStack 이 아니라)
+## 왜 Windows Server (Win11 아님)
 
-- OrbStack 은 macOS·Linux guest 만 지원 (Apple Virtualization.framework wrap). Windows guest 불가.
-- UTM 은 QEMU(emulate) + Apple Virtualization(virtualize) 두 백엔드를 갖춰 Windows guest 가능.
-- Apple Silicon 에서 x86_64 Windows 는 QEMU TCG emulate 라 10~30배 느려 dev 부적합 → ARM Windows 를 Virtualize 백엔드로.
-- Windows Server 2022/2025 ARM64 공식 ISO 부재 (Microsoft Evaluation Center 미제공, community UUP 도 불안정).
-  -> Windows 11 ARM 24H2 retail (CrystalFetch `A64FRE` 빌드, 무료) 채택. agent 가 호출하는 Win32 API
-  (`GetSystemTimes`·`GlobalMemoryStatusEx`·`IOCTL_DISK_PERFORMANCE`·`GetExtendedTcpTable`)·SCM·
-  Performance Counter 는 Server 와 동일 → 페이로드·스키마 정합 검증 100% 커버. Server-only role
-  (AD/DC 등)은 본 agent 의존 밖.
+x86_64 홈서버에선 Win11 대신 Windows Server 2022 Eval x64 가 모든 면에서 낫다:
+- TPM 2.0·Secure Boot·MS 계정 OOBE 강요가 없다 -> autounattend 응답 파일·domain XML 이 단순(swtpm/secboot 불요).
+- Server 2022/2025 평가판 x64 ISO 는 제품키 없이(180일) MS fwlink 직링크라 `curl` 로 받힌다 (Win11 은 폼/세션 토큰).
+- agent 가 호출하는 Win32 API(`GetSystemTimes`·`GlobalMemoryStatusEx`·`IOCTL_DISK_PERFORMANCE`·
+  `GetExtendedTcpTable`)·SCM·Performance Counter 는 Server 와 11 이 동일 -> 페이로드·스키마 정합 100% 커버.
+- 이 제품 자체가 "서버 평가" 포털이라 Server 게스트가 도메인상 더 현실적이다.
+- ARM 제약(ARM Server ISO 부재)으로 Win11 ARM 을 썼던 이유가 x86 에선 소멸. agent.exe(mingw PE32+ x86-64)는
+  x86 Server 에서 네이티브 실행 — UTM 시절의 x64 emulation(Prism) 오버헤드도 사라진다.
 
-## VM 역할 (4 VM 매트릭스 중 1대)
+## VM 역할 (Linux 5대 + Windows 1대)
 
-| VM | 가상화 | 서비스 (2개) | 카테고리 | 비고 |
-|----|--------|--------------|----------|------|
-| win-server-01 | UTM (Win11 ARM) | IIS (`w3svc`, native) | web | Windows native role |
-|               |                 | redis (크로스플랫폼) | cache | tporadowski redis (서비스명 `redis`) |
+| VM | 가상화 | distro | 서비스 (2) | 카테고리 | 비고 |
+|----|--------|--------|-----------|----------|------|
+| win-server-01 | libvirt (KVM) | Win Server 2022 Std Eval x64 | IIS (`W3SVC`, native role) | web | `Install-WindowsFeature Web-Server` |
+|               |               | (Desktop Experience) | redis (tporadowski, 서비스명 `redis`) | cache | GitHub release MSI |
 
-서비스 혼합 의도: native role (IIS) + 크로스플랫폼 서비스 (redis) 양쪽이 `service_classifier`
-(`web`/`cache`)에 올바로 분류되는지 검증. IIS 의 SCM unit 명은 `W3SVC` (display "World Wide Web
-Publishing Service") — agent 가 SCM 에서 수집하는 service unit 이 `service_classifier._PATTERNS`
-의 `nginx`/`httpd` 등 Linux 키워드와 다르다. IIS(`w3svc`/`iis`)는 `service_classifier._PATTERNS` 에
-등록되어 `web` 분류됨. SQL Server(`mssqlserver`) 등 그 외 Windows native 서비스는 미등록 — 필요 시
-카탈로그 확장 (#E7).
+서비스 혼합 의도: native role(IIS) + 크로스플랫폼(redis) 양쪽이 `service_classifier`(web/cache)에 올바로
+분류되는지 검증. IIS 의 SCM unit 명은 `W3SVC` — `service_classifier` 카탈로그의 `w3svc`/`iis` 키워드로 `web`.
+redis(tporadowski, 서비스명 `redis`)는 소문자 매칭으로 `cache`. SQL Server(`mssqlserver`) 등 그 외 Windows
+native 서비스는 미등록 — 필요 시 카탈로그 확장 (#E7).
 
-## 사용자 수동 단계 (자동화 불가)
+## 자동화 — autounattend 무인 설치 (기본 포함)
 
-UTM VM 생성·Windows 설치는 GUI 절차라 스크립트화 불가. 아래는 사용자 직접 수행.
-
-### 1. Windows 11 ARM ISO 입수
-
-- CrystalFetch 권장 (확정): `brew install --cask crystalfetch` -> 앱에서 Windows 11 / ARM64 선택 ->
-  Download + Build ISO. UUP(=Windows Update CDN, Microsoft 인프라)에서 aria2 멀티커넥션이라 공식
-  페이지 단일 HTTPS 보다 빠름. 산출물 예: `26100.4349..._A64FRE_en-us.iso` (`A64FRE` = ARM64 표식).
-- 또는 Microsoft 공식: https://www.microsoft.com/software-download/windows11arm64
-- arm64 빌드 확인 필수 (amd64 는 Intel Mac 용 — Apple Silicon 에서 Virtualize 불가).
-
-### 2. UTM VM 생성
-
-UTM GUI 에서:
-1. "+" -> Virtualize -> Windows
-2. "Windows 10 이상 설치" 체크 + ISO (위 ARM64) 를 boot 매체로 선택. "드라이버 및 SPICE 도구 설치" 체크 유지
-   (VirtIO 드라이버 + 게스트 도구 자동 마운트 — 동적 해상도·클립보드. 단 utmctl ip-address 용 QEMU 게스트
-   에이전트는 SPICE 도구 설치 후에야 동작)
-3. TPM 2.0 + UEFI Secure Boot 활성 (Windows 11 요구 — 미설정 시 설치 거부)
-4. CPU 코어 4+ / RAM 4~8GB (Win11 ARM 데스크톱 부하 — 4GB 도 agent 검증 충분) / 디스크 64GB+
-5. VM 이름 `win-server-01` (utmctl 식별자 — dev-up.sh 가 이 이름으로 찾음)
-
-부팅 시 UEFI Interactive Shell 로 빠지면 (ISO 자동 부팅 1초 타이밍 놓침), Shell 프롬프트에서 ARM64
-부트로더 직접 실행: `FS0:\EFI\BOOT\BOOTAA64.EFI` (FS0 = CDROM). 설치 후엔 디스크 부팅이라 1회만.
-
-### 3. Windows 설치 + 초기 설정
-
-설치 마법사에서 신경 쓸 2가지 (나머지는 다음다음): 제품 키 = "없음" 선택, 계정 = 로컬 계정.
-Windows 11 24H2 가 MS 계정 로그인을 강요하므로 계정 화면에서 `Shift+F10` -> `start ms-cxh:localonly`
-로 로컬 계정 생성 화면 진입 (구버전은 `OOBE\BYPASSNRO`). 계정명·비번 기억 (SSH 계정 — dev 는 `test`).
-
-설치 후 VM 안 PowerShell 관리자에서 (SSH 뚫리기 전이라 복붙 불가 — 직접 타이핑):
-
-```powershell
-# OpenSSH Server 활성 (~~~~0.0.1.0 의 물결 4개 주의). Add-WindowsCapability 는 Windows Update
-# 에서 ARM64 빌드 받아 x64 emulation 으로 설치 — 1~5분 정상 소요.
-Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
-Start-Service sshd
-Set-Service sshd -StartupType Automatic
-```
-
-방화벽: OpenSSH 설치가 22 inbound 규칙을 자동 생성하지 않는 경우가 있어 (확정 관찰) 22 가 막힌다.
-dev 격리 VM 이라 프로파일 전체 off 가 가장 빠름:
-
-```powershell
-Set-NetFirewallProfile -Enabled False
-```
-
-이후는 host 에서 ssh 로 처리 가능. host 공개키 등록 + DefaultShell 변경은 비번 1회만 있으면 host 에서
-`expect` 로 자동화된다 (수동 타이핑 불필요). 핵심:
-- 키 위치: 계정이 Administrators 멤버면 `~/.ssh/authorized_keys` 가 아닌
-  `C:\ProgramData\ssh\administrators_authorized_keys` + ACL (`Administrators:F`,`SYSTEM:F`). dev `test`
-  계정은 첫 계정이라 관리자 -> 이 경로.
-- DefaultShell -> PowerShell (이후 ssh 명령이 cmd 가 아닌 powershell): 
-  `reg add "HKLM\SOFTWARE\OpenSSH" /v DefaultShell /t REG_SZ /d "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" /f`
-
-## 네트워크 — host 도달 (host.docker.internal 불가)
-
-OrbStack 의 `host.docker.internal` 은 OrbStack 전용 — UTM VM 은 미해석. UTM Shared Network
-모드에서 host 의 실제 IP 를 직접 써야 한다.
-
-```
-UTM VM (win-server-01, Win11 ARM)
-  RABBITMQ_HOST = <host IP>   ->  host:5672 (docker compose rabbitmq 포트 매핑)
-  download.url host = <host IP>:8000  ->  host:8000 (dev ZDM mock, ADR 0018)
-```
-
-host IP (확정): UTM Shared Network 에서 host 는 VM subnet 의 gateway. `en0`(Wi-Fi LAN IP)이 아니다
-— en0 은 NAT 밖이라 VM 에서 미도달. host 의 bridge 인터페이스(예: `bridge101`)가 `192.168.64.1`,
-VM 이 `192.168.64.2` 라면 RABBITMQ_HOST = `192.168.64.1`.
-
-확인:
-- host: `ifconfig | grep "inet 192.168.64"` -> `192.168.64.1` (VM subnet 의 host inet = gateway)
-- VM: `(Get-NetIPConfiguration).IPv4DefaultGateway.NextHop`
-- dev-up.sh `resolve_host_ip` 가 VM IP 의 /24 에서 host bridge inet 을 자동 채택 (en0 은 3순위 fallback)
-
-docker compose 의 rabbitmq/web 은 `0.0.0.0` 바인딩 (포트 매핑 `5672:5672`·`8000:8000`)이라 gateway IP 로
-VM 에서 직접 도달. agent 의 `WORKER_DOWNLOAD_ALLOWED_HOSTS` 에 host IP 추가 의무 (ZDM mock fetch).
-
-## agent (Windows) 빌드 — macOS host cross-compile (확정)
-
-Windows agent 빌드는 agent repo (`assessment-agent/windows-agent`) 책임. 본 engine repo 의
-`ensure_agent_binary` 는 Linux arm64 만 확보 — Windows .exe 는 아래 별도 흐름.
-
-빌드 경로는 macOS host cross-compile 로 확정. 당초 후보였던 "VM 안 `build-windows.ps1`"
-(MSYS2 self-bootstrap)는 ARM64 Windows 11 에서 불가 — MSYS2 installer 가 x64 emulation 에서
-빈 디렉토리만 만들고 실패하는 [알려진 이슈](https://github.com/msys2/msys2-installer/issues/96)
-(`Install size: 0 components`). host cross-compile 은 emulation 을 통째로 회피한다.
-
-### 사전: mingw-w64 toolchain
+Win11 UTM 시절의 "GUI 1회 수동 설치"가 libvirt + autounattend 로 완전 무인화됐다. 무거워도(ISO ~4.7GB +
+설치 ~20min) "모든 환경" 원칙으로 기본 포함 — `dev-up.sh` 를 인자 없이 실행하면 Linux VM 에 이어 항상
+실행된다. Linux 전용 dev 는 `WIN_ENABLE=0` 으로 opt-out. dev-down 이 Windows VM(qcow2)도 삭제하므로
+최초 1회 무인설치(~20min)로 설치 과정을 검증한 뒤 완성본을 골든 이미지(`win-server-01-golden.qcow2`)로
+캐시하고, 이후 dev-up 은 골든을 clone(~수십초)해 OS 설치를 skip 한다(dev-down 이 win-server-01.qcow2 는
+지우되 골든은 보존). agent 는 매번 deploy 가 멱등 갱신(.exe 교체)이라 최신 반영.
 
 ```bash
-brew install mingw-w64   # x86_64-w64-mingw32-gcc / -ar / -windres (GCC 15.x)
+./dev/dev-up.sh               # Linux 5 + Windows 모두 (기본)
+WIN_ENABLE=0 ./dev/dev-up.sh  # Windows 제외 (Linux 전용)
 ```
 
-### vendor 5종 + agent 빌드
+`dev-up.sh` main 의 Windows 블록 흐름 (Linux VM 기동·web healthy 후):
+1. `check_win_prereqs` — genisoimage·mingw-w64·cmake 자동 설치(sudo apt) + OVMF·autounattend 템플릿 점검.
+2. `start_win_vm` — 도메인 있으면 start, 없으면:
+   - `ensure_win_iso` — Server 2022 eval ISO fwlink 다운로드(dev/run, 1회 캐시) -> 풀 vol-upload.
+   - `build_win_autounattend` — `dev/win/autounattend.xml.tmpl` 치환 -> ISO(루트 autounattend.xml·provision.ps1) -> 풀 import.
+   - `define_win_domain`(boot order hd 우선 — 빈 디스크 첫 부팅은 cdrom 폴백, 설치 후 재부팅은 hd 의 Windows Boot Manager 직행) -> `virsh start` -> `virsh send-key`(Enter 연타로 "Press any key to boot from CD" 통과).
+   - SSH 도달 대기(cap `WIN_SSH_CAP`, 기본 2400s = 설치 + FirstLogonCommands(OpenSSH) 완료까지).
+3. `build_win_agent` — `ensure_win_vendor`(vendor static libs 없으면 자동 크로스빌드, 최초 1회 캐시) 후 mingw 크로스빌드(incremental).
+4. `install_win_redis` — tporadowski MSI host 다운로드 -> scp -> msiexec(/qn). redis 서비스 있으면 skip.
+5. `deploy_win_agent` — agent.env(RABBITMQ_HOST=게이트웨이 IP) scp -> agent.exe 설치·New-Service(공백 경로 quote) -> IIS/redis 기동 + agent restart.
 
+재실행 멱등: 도메인 있으면 설치 건너뛰고 start + agent.env·exe·서비스만 갱신.
+
+## autounattend 응답 파일
+
+`dev/win/autounattend.xml.tmpl` (Server 2022 Std Desktop, UEFI/GPT). placeholder 3개를 `build_win_autounattend` 가 치환:
+
+| placeholder | 값 |
+|-------------|----|
+| `@@HOSTNAME@@` | `win-server-01` (ComputerName) |
+| `@@ADMINPASS@@` | built-in Administrator 비밀번호 (`WIN_ADMIN_PASS`, dev 고정) |
+| `@@PROVISION_B64@@` | FirstLogonCommands PowerShell (UTF-16LE base64) |
+
+핵심:
+- 이미지 선택 = `/IMAGE/INDEX` 2 (eval ISO: 1=Std Core, 2=Std Desktop, 3=DC Core, 4=DC Desktop). 인덱스가
+  바뀌면 `dism /Get-WimInfo /WimFile:<ISO>/sources/install.wim` 로 확인 후 템플릿 수정.
+- 디스크 = GPT(UEFI): EFI(300MB)+MSR(16MB)+Primary(나머지, C:). SATA 디스크라 virtio 드라이버 주입 불요.
+- OOBE 우회 = HideEULAPage·HideLocalAccountScreen·HideOnlineAccountScreens·NetworkLocation(Work) + AutoLogon(Administrator,
+  LogonCount=1)로 FirstLogonCommands 실행. (ProtectYourPC·HideOEMRegistrationScreen·HideWirelessSetupInOOBE 는 Server 2022
+  에서 "Value is invalid"(0x80220005) 유발이라 제거 — setupact.log UnattendGC 로 확인된 값 제한.)
+- FirstLogonCommands(XML escape 회피 위해 base64 EncodedCommand 1줄) = OpenSSH Server capability 설치 +
+  sshd Automatic·start + 방화벽 프로파일 off(dev) + `administrators_authorized_keys`(dev 공개키)+ACL +
+  DefaultShell=PowerShell + `Install-WindowsFeature Web-Server`(IIS).
+  - OpenSSH capability 는 Windows Update 에서 받는다 — VM outbound NAT(virbr0)로 도달.
+  - SSH 키는 Administrator 가 관리자라 `~/.ssh` 가 아닌 `C:\ProgramData\ssh\administrators_authorized_keys`
+    (`Administrators:F`·`SYSTEM:F` ACL).
+
+## 도메인 (libvirt domain XML)
+
+`define_win_domain` 생성. q35 + OVMF UEFI(non-secboot) + SATA + e1000e:
+- 펌웨어: `<loader>OVMF_CODE_4M.fd` + per-VM `<nvram>` (template OVMF_VARS_4M.fd). Server 라 secboot/TPM 불요.
+- 디스크: SATA qcow2(`WIN_DISK_GB`, 기본 64G). cdrom 2개 = Server ISO(boot) + autounattend ISO. disk 는
+  모두 `type='file'` 명시 경로 — virt-aa-helper(apparmor) 프로파일 정합(Linux VM 과 동일 함정 회피).
+- NIC: e1000e (Windows 인박스 드라이버) on virbr0 -> virtio-win ISO·드라이버 주입 불요. DHCP lease 는
+  NIC 모델 무관이라 `virsh domifaddr --source lease` 로 IP 확인.
+- boot order cdrom -> hd. 첫 부팅은 "Press any key to boot from CD" 프롬프트를 `virsh send-key`(Enter)
+  연타로 통과. 설치 후엔 디스크 부팅(프롬프트 timeout).
+
+성능보다 호환을 택한 선택(SATA·e1000e). agent 검증엔 무영향. virtio 성능이 필요하면 설치 후 virtio-win +
+qemu-guest-agent 추가 가능(현재 미사용).
+
+## 네트워크 — Linux VM 과 통일
+
+```
+libvirt VM (win-server-01)  [virbr0 192.168.122.0/24]
+  RABBITMQ_HOST = 192.168.122.1                 -> host:5672 (docker 퍼블리시 -> DNAT -> rabbitmq 컨테이너)
+  WORKER_DOWNLOAD_ALLOWED_HOSTS = 192.168.122.1 -> host:8000 (dev ZDM mock, ADR 0018)
+```
+
+UTM 시절의 host IP 추론(`resolve_host_ip`)·`host.docker.internal` 분기가 사라졌다 — Linux VM 과 동일하게
+libvirt NAT 게이트웨이(`LIBVIRT_GW`, 기본 192.168.122.1)를 `dev-up.sh` 가 agent.env 에 주입. docker 퍼블리시
+포트는 libvirt 기본 forward 규칙(LIBVIRT_FWO) + docker DNAT 로 도달(막힐 경우 fallback:
+`sudo iptables -I DOCKER-USER -i virbr0 -j ACCEPT`, `pipeline.md` 참조).
+
+## agent (Windows) 빌드 — host mingw 크로스컴파일 (dev-up 자동)
+
+Windows agent 빌드는 agent repo(`assessment-agent/windows-agent`) 책임이며 `dev-up.sh` 가 자동 수행한다
+(수동 개입 불요). `check_win_prereqs` 가 mingw-w64·cmake 를 자동 설치하고, `ensure_win_vendor` 가 vendor
+static libs(openssl/zlib/cjson/rabbitmq/curl)를 없을 때만 크로스빌드(최초 1회 ~10min, 이후 캐시),
+`build_win_agent` 가 mingw incremental 빌드로 `dist/assessment-agent.exe` 산출. repo·toolchain 부재 시에만 skip.
+
+cross-compile 정합 핵심 (Ubuntu mingw-w64 환경 — `ensure_win_vendor` 가 windows-agent Makefile 에 주입):
+- openssl: `OPENSSL_CROSS=--cross-compile-prefix=x86_64-w64-mingw32-` (windres 까지 prefix 적용 — 미적용 시 build 단계 windres not found).
+- cmake(cjson/rabbitmq/curl): `CMAKE_SYSTEM_NAME=Windows`(ws2_32 getaddrinfo 인식) + OpenSSL 경로 직접 지정(`OPENSSL_*_LIBRARY`) + find-root `BOTH`(vendor openssl 이 /usr root 밖이라). Makefile 의 cmake build 줄은 plain `cmake --build` 라 위 -D 가 build 단계 `-j` 를 안 깬다.
+- 링크: rabbitmq-c 의 OpenSSL threading 콜백용 `-lwinpthread` (windows-agent Makefile LDLIBS — 미포함 시 pthread_mutex undefined).
+
+수동 빌드(디버깅용)가 필요하면:
 ```bash
 cd ../assessment-agent/windows-agent
-
-# 1. vendor 소스 clone (cJSON·rabbitmq-c·curl·openssl·zlib)
-make vendor-fetch
-
-# 2. OpenSSL·zlib — cross prefix 로 그대로 빌드 (cmake 아님, 표준 cross 지원)
-#    cJSON·rabbitmq-c·curl — cmake. macOS cmake 가 CMAKE_SYSTEM_NAME 미지정 시 Darwin 빌드로
-#    오판해 cross gcc 에 `-arch arm64` 를 주입 → mingw gcc 거부. 아래 wrapper 로 우회.
-cat > /tmp/cmake-cross.sh <<'EOF'
-#!/bin/sh
-# configure(-S/-B)엔 cross 옵션 주입, --build 모드면 그대로 통과 (-D 와 --build 공존 불가).
-for a in "$@"; do
-  if [ "$a" = "--build" ]; then exec "$(which cmake)" "$@"; fi
-done
-exec "$(which cmake)" -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres "$@"
-EOF
-chmod +x /tmp/cmake-cross.sh
-
-make vendor-build \
-  CC=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar \
-  OPENSSL_TARGET=mingw64 OPENSSL_CROSS=--cross-compile-prefix=x86_64-w64-mingw32- \
-  CMAKE=/tmp/cmake-cross.sh
-
-# 3. agent.exe 링크
-make CC=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar
+make vendor-build CC=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar \
+  OPENSSL_CROSS=--cross-compile-prefix=x86_64-w64-mingw32- \
+  CMAKE="cmake -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH"
+make release CC=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar   # dist/assessment-agent.exe
 ```
 
-산출물 `assessment-agent.exe` (PE32+ x86-64, 정적 링크, ~6.5MB). Win11 ARM 의 내장 x64
-emulation(Prism)으로 실행. cmake build 단계가 `-j` 인자 때문에 `-D` 와 충돌하므로 wrapper 가
-`--build` 면 옵션을 안 붙이는 게 핵심.
-
-### 배포·서비스 등록
-
-`deploy/install.ps1` 은 `env-setup.ps1` 대화형 프롬프트를 호출해 비대화형 ssh 에서 멈춘다.
-`dev/dev-up.sh` 가 agent.env 를 어차피 덮어쓰므로, 최초 등록은 install.ps1 대신 핵심만 직접
-실행하는 게 자동화에 맞다 (exe 복사 + `New-Service` + `sc.exe failure` recovery). dev-up.sh
-가 host 에서 ssh 로 수행. agent 가 읽는 env 위치·키 카탈로그는 Linux 와 동일 (`dev/agent.env.example`),
-`RABBITMQ_HOST` 만 host IP (host.docker.internal 불가, 아래 네트워크 절).
-
-재배포 자동화 — 최초 서비스 등록 이후엔 `dev-up.sh` 가 매 기동 시 갱신한다. `build_win_agent`
-가 mingw 크로스빌드(vendor 재사용·Makefile incremental, vendor·toolchain·repo 부재 시 skip),
-`deploy_win_agent` 가 agent.env 전송 -> (새 빌드 있으면) 서비스 정지 -> 공백 없는 staging
-경로(`C:/ProgramData/assessment-agent/agent.exe.new`) scp -> `C:/Program Files/assessment-agent/
-assessment-agent.exe` 교체 -> IIS·redis·agent 재기동 순으로 `collect.c` 등 변경분을 자동 반영한다.
-공백 포함 설치 경로의 중첩 따옴표가 OpenSSH escape 에서 깨지므로 powershell 호출은 `win_ps`
-helper(`-EncodedCommand` UTF-16LE base64)로 통일.
-
-dist 패키징 (install.ps1 정식 경로를 쓸 경우): `dist/assessment-agent.exe` + `SHA256SUMS`
-(`shasum -a 256 assessment-agent.exe > SHA256SUMS`) 를 VM 으로 scp 후 install.ps1. 단 env-setup
-대화형 회피 위해 agent.env 를 미리 완성 배치해야 한다.
-
-## 서비스 설치 (IIS native + redis 크로스플랫폼)
-
-IIS — `Enable-WindowsOptionalFeature` 후 `RestartNeeded=True`. 재부팅해야 W3SVC 가 활성화된다
-(재부팅 전엔 W3SVC 서비스 미등록):
-
-```powershell
-Enable-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole -All -NoRestart
-Restart-Computer -Force   # 재부팅 후 W3SVC = Running. sshd Automatic·방화벽 off·SSH키 영구라 자동 복구
-```
-
-redis — Memurai 는 winget(`Memurai.MemuraiDeveloper`)이 비대화형 ssh 에서 silent 설치 실패(확정,
-exit 0 이나 미설치) + 서비스명이 `memurai` 라 `service_classifier` 의 `redis` 패턴에 매칭도 안 된다.
-대신 tporadowski/redis (Windows 포트, GitHub release MSI) 채택 — 서비스명이 `redis` 라 분류 직결:
-
-```bash
-# host 에서 받아 VM scp (GitHub release, host 네트워크 안정)
-curl -L -o /tmp/Redis-x64.msi \
-  https://github.com/tporadowski/redis/releases/download/v5.0.14.1/Redis-x64-5.0.14.1.msi
-scp /tmp/Redis-x64.msi test@<vm-ip>:C:/Users/test/AppData/Local/Temp/Redis-x64.msi
-# VM 에서 무인 설치 (서비스 redis 등록·시작)
-ssh test@<vm-ip> "Start-Process msiexec.exe -ArgumentList '/i','C:\Users\test\AppData\Local\Temp\Redis-x64.msi','/qn','/norestart' -Wait"
-```
-
-설치 후 agent 가 SCM 에서 `W3SVC`·`Redis`·`assessment-agent` service unit 수집 → inventory 발행.
-`Redis` 는 소문자화 매칭으로 `cache`, `W3SVC`(IIS)는 `service_classifier._PATTERNS` 의 `w3svc`/`iis`
-키워드로 `web` 분류됨. (MSSQL `mssqlserver` 등 그 외 Windows native 서비스는 미등록 — 필요 시 카탈로그 확장.)
-
-## utmctl 라이프사이클 (자동화 가능 부분)
-
-VM 생성·설치 후 lifecycle 은 utmctl 로 자동화. `utmctl` 은 `/opt/homebrew/bin/utmctl` symlink (UTM.app 번들).
-
-```bash
-utmctl list                          # VM 목록·상태
-utmctl status win-server-01          # 전원 상태 (started/stopped) — 게스트 에이전트 불필요
-utmctl start win-server-01           # 기동
-utmctl ip-address win-server-01      # guest IP — QEMU 게스트 에이전트(SPICE 도구) 설치 시에만 동작
-utmctl stop win-server-01            # 종료
-utmctl exec win-server-01 -- <cmd>   # guest 명령 (게스트 에이전트 필요) — OpenSSH 권장
-```
-
-UTM 앱 자체는 열려 있어야 함 (`open -a UTM`). headless 는 VM display device 제거 의미이지 앱
-daemon 아님.
-
-게스트 에이전트 미설치 시 `utmctl ip-address` 가 `OSStatus error -2700` 으로 실패한다 (확정). 이때
-VM IP 는 host ARP (`arp -an | grep 192.168.6`)로 확인하거나 dev-up.sh `WIN_VM_IP` env 로 직접
-지정. dev-up.sh 는 utmctl 실패 시 ARP fallback 을 자동 시도한다.
-
-## 부분 자동화 (dev/dev-up.sh)
-
-VM 생성·Windows 설치·최초 서비스 등록은 1회 수동 (위 절), 이후 lifecycle 은 `dev/dev-up.sh` 가
-자동. OrbStack 의 `pipeline-up.sh` 와 분리 — Windows 는 가상화(UTM)·채널(OpenSSH)·네트워크(host IP)가
-달라 별도 스크립트.
-
-```
-[1회 수동]  UTM VM 생성·설치(GUI) -> OpenSSH+방화벽off(VM 안 직접)
-[host ssh]   SSH키 등록(expect) -> agent.exe cross-build(macOS) -> scp -> 서비스 등록 -> IIS/redis
-[자동 반복]  ./dev/dev-up.sh
-              1. utmctl start win-server-01 (UTM 앱 미기동 시 open -a UTM)
-              2. VM IP (utmctl, 실패 시 ARP) + host IP (VM subnet gateway)
-              3. agent.env 생성 (dev/agent.env + RABBITMQ_HOST=host IP) -> scp 덮어쓰기
-              4. 서비스 restart (Restart-Service assessment-agent)
-```
-
-env override:
-
-| 변수 | 기본 | 용도 |
-|------|------|------|
-| `WIN_VM_NAME` | `win-server-01` | UTM VM 이름 (utmctl 식별자) |
-| `WIN_SSH_USER` | `test` | OpenSSH 계정 (dev VM — 다른 환경은 override) |
-| `WIN_VM_IP` | (자동) | VM IP 직접 지정 (게스트 에이전트 미설치로 utmctl 실패 시) |
-| `WIN_HOST_IP` | (자동) | host IP 직접 지정 (bridged network 등 비표준) |
-| `WIN_HOST_IFACE` | `en0` | 3순위 fallback (비-NAT 환경에서만 유효) |
-| `UTMCTL` | `utmctl` | utmctl 경로 (symlink 미설정 시 풀 경로) |
-
-전제: VM 안 OpenSSH 에 host 의 SSH 공개키 등록 (비대화형 scp/ssh). VM 미존재 시 스크립트가 수동 절차
-안내 후 종료 (UTM VM 생성은 GUI 라 자동화 불가). `dev/agent.env` 의 `RABBITMQ_*`·`WORKER_*` 키 재사용
-(`pipeline-up.sh` `load_agent_env`) — Linux agent 와 동일 secret 채널.
-
-왜 매 실행 agent.env 덮어쓰기: host IP 가 네트워크(Wi-Fi/Ethernet·DHCP)마다 바뀌므로. install.ps1 의
-idempotent env 보존과 달리 dev-up.sh 는 host 가 master (Linux `/etc/assessment-agent.env` heredoc 대응).
+산출물 `assessment-agent.exe`(PE32+ x86-64 정적 링크). x86 Server 에서 네이티브 실행(Prism emulation 불요 —
+UTM ARM 시절 대비 단순). `deploy_win_agent` 가 staging 경로(`agent.exe.new`) scp -> 서비스 정지 -> 진짜 경로
+교체 -> 서비스 미등록이면 `New-Service` + `sc.exe failure` recovery. agent.env 위치·키는 Linux 와 동일
+(`dev/agent.env.example`), `RABBITMQ_HOST`·`WORKER_DOWNLOAD_ALLOWED_HOSTS` 만 게이트웨이 IP.
 
 ## 검증
 
-1. VM IP 확인 (`arp -an | grep 192.168.6` 또는 `WIN_VM_IP`).
-2. agent 서비스 확인: `ssh test@<vm-ip> "Get-Service assessment-agent,W3SVC,Redis"`.
-3. host RabbitMQ 관리 콘솔 (http://localhost:15672) 에서 win-server-01 메시지 적재 확인.
-4. web UI (http://localhost:8000/servers/) 에서 win-server-01 등록 + `os_family=windows` 표시.
-5. inventory 의 service 분류 (redis=cache) + Windows nullable 필드 (load_avg·swap 의미) UI 표시 확인.
+```bash
+WIN_ENABLE=1 ./dev/dev-up.sh         # 최초: ISO 다운로드 + 무인 설치(~20min) + agent/IIS/redis
+```
 
-engine 미기동 상태에선 agent 서비스가 Running 이라도 RABBITMQ 연결 실패(재시도) 가 정상 — engine
-(`./dev/pipeline-up.sh`) + `./dev/dev-up.sh`(완전한 agent.env 주입) 후 발행 확인.
+1. 도메인·IP: `virsh list --all` + `virsh domifaddr win-server-01 --source lease`.
+2. 설치 진행(설치 중 SSH 전): `virsh screenshot win-server-01 /tmp/w.png` (PNG) 로 화면 확인.
+3. 서비스: `ssh -i dev/.ssh/id_dev Administrator@<vm-ip> 'Get-Service assessment-agent,W3SVC,redis'`.
+4. RabbitMQ 콘솔(http://localhost:15672)에서 win-server-01 메시지 적재.
+5. web UI(http://localhost:8000/servers/)에서 win-server-01 등록 + `os_family=windows` + 분류(IIS=web, redis=cache)
+   + Windows nullable 필드(load_avg·swap 의미) 표시.
+
+engine 미기동 상태에선 agent 서비스가 Running 이라도 RabbitMQ 연결 실패(재시도)가 정상 — `./dev/dev-up.sh`
+전체 기동(web healthy) 후 발행 확인.
+
+## env override
+
+| 변수 | 기본 | 용도 |
+|------|------|------|
+| `WIN_ENABLE` | `0` | `1` 이면 Windows 파이프라인 실행 (기본 skip) |
+| `WIN_VM_NAME` | `win-server-01` | libvirt 도메인 이름 |
+| `WIN_SSH_USER` | `Administrator` | OpenSSH 계정 (Server 내장 관리자) |
+| `WIN_ADMIN_PASS` | `Assess!Dev2026` | built-in Administrator 비밀번호 (dev) |
+| `WIN_MEM_MIB` / `WIN_VCPU` / `WIN_DISK_GB` | `4096` / `4` / `64` | VM 리소스 |
+| `WIN_ISO_URL` | Server 2022 eval fwlink | ISO 출처 (2025 등 교체 가능) |
+| `WIN_SSH_CAP` | `2400` | 신규 설치 SSH 대기 cap(초) |
+| `WIN_OVMF_CODE` / `WIN_OVMF_VARS` | `/usr/share/OVMF/OVMF_CODE_4M.fd` 등 | UEFI 펌웨어 경로 |
+| `WIN_AGENT_REPO` | `../assessment-agent/windows-agent` | mingw 빌드 sibling repo |
+
+## 종료 / lifecycle
+
+`dev-down.sh` 는 Windows VM 을 `virsh shutdown`(보존, undefine 아님) — 설치 비용(~20min)이 커 stop/start 보존
+(Linux VM 은 재생성 전제로 undefine). 수동:
+
+```bash
+virsh shutdown win-server-01                       # graceful 정지
+virsh start win-server-01                          # 재기동 (dev-up.sh 재실행 시 agent/서비스 갱신)
+virsh domifaddr win-server-01 --source lease       # VM IP
+virsh screenshot win-server-01 /tmp/w.png          # 화면 (설치/디버깅)
+virsh undefine win-server-01 --remove-all-storage --nvram   # 완전 제거 (재설치 전제)
+```
 
 ## 한계 / 주의
 
-- Windows 설치·VM 생성은 GUI 수동 — 완전 자동화 불가 (라이선스·설치 마법사). OpenSSH+방화벽off 까지만 VM 안
-  직접, 이후는 host ssh.
-- ARM64 Windows Server 공식 ISO 부재 -> Windows 11 ARM. Server-only role 미사용이라 검증 커버.
-- ARM Windows 에서 MSYS2 빌드 불가 -> macOS host cross-compile (위 빌드 절). emulation 회피.
-- host IP = UTM gateway(VM subnet `.1`). en0(Wi-Fi LAN)은 NAT 밖이라 VM 미도달. DHCP·네트워크 전환 시
-  subnet 바뀌면 dev-up.sh 가 매 실행 재추론 후 agent.env 갱신.
-- x64 emulation(Prism) 위 agent 실행 — CPU jiffies 타이밍 정밀도가 native x86_64 와 미세 차이 가능.
-  스키마·페이로드·UI 검증엔 무영향, 성능 마이크로벤치마크엔 부적합.
-- IIS(`w3svc`)/MSSQL(`mssqlserver`) 등 Windows native 서비스 분류는 `service_classifier` 카탈로그
-  확장 필요 (#E7). redis(tporadowski, 서비스명 `redis`)는 현재도 분류됨.
+- 최초 설치 ~20min(무인) + ISO ~4.7GB 다운로드 1회. 기본 skip(`WIN_ENABLE=1` opt-in).
+- Server 2022 Eval = 180일. 만료 후 `slmgr /rearm` 또는 재설치.
+- autounattend `/IMAGE/INDEX`·FirstLogonCommands 는 Win 빌드별 미세 차이 가능 — 설치 실패 시 screenshot 으로
+  단계 확인 후 템플릿 보정.
+- SATA·e1000e(성능 < virtio) — agent 검증엔 무영향, 성능 마이크로벤치마크엔 부적합.
+- IIS(`w3svc`)/MSSQL(`mssqlserver`) 등 Windows native 서비스 분류는 `service_classifier` 카탈로그 확장 필요
+  (#E7). redis(tporadowski, 서비스명 `redis`)는 현재도 분류됨.
+- OpenSSH capability 설치가 Windows Update 의존 — VM outbound(NAT) 필수. 폐쇄망은 FoD ISO 별도.

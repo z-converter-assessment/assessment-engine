@@ -85,7 +85,7 @@ IP 필터 보류: `ip_internal`/`ip_external`은 평면 IP 목록만 발행돼(�
 
 UI badge 임계값(`mappers/shared.py` `_USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
 
-OS 분기 (원칙 P2/P4): `classify`는 `ResourceStats.os_family`로 OS별 신호 의미를 분기한다. swap은 Linux page-out(메모리 압박) 신호이나 Windows pagefile은 여유 RAM에도 상시 사용되는 baseline이라 saturation이 아니므로, `recommendation.swap_saturation(os_family, swap_used)` 단일 helper가 Windows에서 swap 축을 제외한다 (classify·report mapper·attention 배지·환경 swap_pressure 카운트 모두 본 helper 경유). saturation 축(load/iowait)도 Windows는 OS 부재라 utilization 축만으로 분류 — `is_partial_evaluation`이 True를 반환해 보고서가 "부분 평가" 마커 표시(`ReportRowItem.is_partial` precompute, 템플릿은 bool만 분기). os_family None(unknown)은 Linux로 취급해 기존 동작 보존. OS 분기·판정 순서 상세는 `right_sizing_thresholds.html` 참고자료 단일 진실.
+OS 분기 (원칙 P2/P4 — evidence 기반): right-sizing 분류 단일 진실은 `recommendation.assess(stats) -> Assessment(recommendation, triggers, unmeasured)`이고, `classify`는 분류 enum만 돌려주는 호환 wrapper다. assess는 자원(CPU/Mem/Disk)별로 가진 축을 신호로 모아 under(위험 신호 OR — 하나라도 hit 되면 발화, 누락 0)/over(cpu·mem 이 둘 다 다운사이즈 임계 이하일 때만 — 보수적)/optimal 로 단일 분류를 내고 hit 신호를 근거(triggers)로 동반한다("어떤 데이터로 이 분류"). swap은 Linux page-out(메모리 압박) 신호이나 Windows pagefile은 baseline이라 `recommendation.swap_saturation(os_family, swap_used)` helper가 Windows에서 swap 축을 제외한다. load(CPU run queue)·iowait가 미관측(값 None)이면 `unmeasured`에 기록되고 `is_partial`(=bool(unmeasured))이 confidence 단서가 된다 — 분류 자체는 utilization·capacity로 완결되어 항상 under/over/optimal 결론이 나며("이용률 기준 평가" 표기), cpu_p95·mem_p95가 산출되는 한 "데이터 부족"이 아니다. `insufficient_data`는 utilization(cpu·mem) 둘 다 부재 + under 신호도 없을 때만(신규/표본 부재 — swap 등 saturation 신호가 있으면 util 부재여도 under로 결론). report mapper의 권고(`_build_under_provisioned_reason`)·attention의 capacity 배지(`to_capacity_warning_item`)는 `assess.triggers`를 재사용해 임계 재계산 중복을 제거한다(stats 생성은 `build_resource_stats` 공용). os_family None(unknown)은 Linux로 취급. 분류 명세·근거(USE Method·벤더 임계 출처·한계) 단일 진실은 `docs/architecture/right-sizing.md`, 운영자 임계 카탈로그는 `right_sizing_thresholds.html`.
 
 ## 대시보드 상단 요약 — environment_overview + attention
 
@@ -93,13 +93,12 @@ OS 분기 (원칙 P2/P4): `classify`는 `ResourceStats.os_family`로 OS별 신�
 
 | 시선 | service 메서드 | repo SQL | 시간 축 | 분류 |
 |------|----------------|----------|---------|------|
-| environment_overview | `get_environment_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(WINDOW_DAYS)` + `report_aggregate(WINDOW_DAYS)` + Redis online mget | 14일 USE Method + 14일 평균 활용률 | 자원 합계·역할 분포·활용률 도넛·프로비저닝 분포 도넛 |
-| attention.capacity_warnings | `get_attention_signals` | `report_aggregate(WINDOW_DAYS)` + `recommendation.classify` | 14일 USE Method | `under_provisioned` 서버 — trigger 3종 (스왑·CPU·메모리) 활성/비활성 |
-| attention.disk_warnings | `get_attention_signals` | `disk_usage_warnings(threshold_pct=85)` 단일 SQL | 7d 안 mount latest (현재) | 사용률 >=85% |
+| environment_overview | `get_environment_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(WINDOW_DAYS)` + `report_aggregate(WINDOW_DAYS)` + Redis online mget | 14일 USE Method + 14일 평균 활용률 | 자원 합계·역할 분포·활용률 도넛·프로비저닝 분포 도넛 + under_provisioned 호스트 (capacity — `to_capacity_warning_item`, trigger 5종 스왑·CPU·메모리·Load·디스크) |
 | attention.gap_warnings | `get_attention_signals` | `metric_gap_warnings(gap_min=5, recent_h=24)` 단일 SQL | 5min~24h 갭 (단기) | "한때 살아있다 끊김" |
-| attention.days_until_full_warnings | `get_attention_signals` | `report_mount_worst(WINDOW_DAYS)` fill_rate 추정 | 14일 fill_rate | days_until_full <= 30일 |
-| attention.os_eol_warnings | `get_attention_signals` | inventory + `resolve_os_eol`(endoflife.date 스냅샷 카탈로그, ADR 0031) | EOL 경과 한정 | 지원 종료 OS (Linux 11 distro + Windows Server build) |
-| attention.agent_unstable | `get_attention_signals` | Redis `agent_restarts:{sid}` mget | 1h 슬라이딩 윈도우 | restart_count >= threshold |
+| attention.os_eol_warnings | `get_attention_signals` | `report_aggregate(WINDOW_DAYS)` raws + `resolve_os_eol`(endoflife.date 스냅샷, ADR 0031) | EOL 경과 한정 | 지원 종료 OS (Linux distro + Windows Server build) |
+| attention.agent_unstable | `get_attention_signals` | `agent_restart_counts_recent(since=now-1h)` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | restart_count >= `AGENT_RESTART_ALERT_THRESHOLD` |
+
+운영신호 카드(`AttentionSignals`)는 위 3개뿐 — public `get_attention_signals` 가 내부 `_assemble_attention` 으로 조립. disk·capacity·days_until_full 은 운영신호에서 USE Method right-sizing 으로 이동(중복 회피): capacity(under_provisioned)는 environment_overview, disk capacity/IO 는 `recommendation.classify`, days_until_full 은 보고서 스토리지 컬럼.
 
 설계 결정:
 - `list_server_ids()`는 정수 PK만 fetch — `list_servers`(disks JSONB 등 11컬럼) 대비 페이로드 절감 (T8 패턴 동일 적용).

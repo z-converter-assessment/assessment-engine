@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import (
     EnvironmentUtilizationRaw,
     ReportRowRaw,
@@ -17,13 +18,13 @@ from assessment_engine.web.services.mappers.attention import (
     build_risk_donut_segments,
     to_agent_unstable_item,
     to_capacity_warning_item,
-    to_disk_days_warning_item,
     to_os_eol_warning_item,
 )
 from assessment_engine.web.services.mappers.export import to_inventory_export_entry
 from assessment_engine.web.services.mappers.report import (
     _RISK_FROM_RECOMMENDATION,
     _build_recommendation_action,
+    _build_under_provisioned_reason,
     build_report_summary_bullets,
     build_role_distribution,
     compute_report_avg_p95,
@@ -177,11 +178,17 @@ def test_report_row_under_provisioned_maps_to_high():
 # ─── os_family 분기 (원칙 P2/P4 — Windows swap 제외 + 부분 평가) ───
 
 
-def test_report_row_is_partial_windows_vs_linux():
-    """ViewModel.is_partial — Windows precompute True, Linux/None False (템플릿 마커 단일 소스)."""
+def test_report_row_is_partial_by_unmeasured_saturation():
+    """ViewModel.is_partial = saturation 축 미관측(데이터 기반, 템플릿 마커 단일 소스).
+    Windows 는 load None(미관측)이라 True, Linux 는 load·iowait 관측이라 False — os 단정 아님."""
+    # Windows 실측: load None -> 부분 평가 (CPU run queue 미관측)
     assert to_report_row_item(_raw(cpu_p95=40.0, mem_p95=60.0, os_family="windows"), True, _NOW).is_partial is True
-    assert to_report_row_item(_raw(cpu_p95=40.0, mem_p95=60.0, os_family="linux"), True, _NOW).is_partial is False
-    assert to_report_row_item(_raw(cpu_p95=40.0, mem_p95=60.0, os_family=None), True, _NOW).is_partial is False
+    # Linux: saturation 축(load·cores·iowait) 관측 -> 완전 평가
+    assert to_report_row_item(
+        _raw(cpu_p95=40.0, mem_p95=60.0, os_family="linux", load_15m_max=0.5, cpu_cores=4, iowait_p95=5.0),
+        True,
+        _NOW,
+    ).is_partial is False
 
 
 def test_report_row_windows_swap_not_high_risk():
@@ -718,16 +725,6 @@ def test_capacity_warning_item_trigger_colors_from_single_source():
         assert t.color == _CAPACITY_TRIGGER_COLORS[t.label]
 
 
-def test_disk_days_warning_item_fields():
-    item = to_disk_days_warning_item("pid", "h", "/data", 12, 87.0)
-    assert item.mount_path == "/data"
-    assert item.badge_text == "12일"
-    assert item.badge_class == "rec-under_provisioned"
-    assert item.link_href == "/servers/pid/storage"
-    assert item.link_text == "h"
-    assert item.meta_text == "87%"
-
-
 @pytest.mark.parametrize(
     "os_id, os_version, should_match",
     [
@@ -1000,26 +997,26 @@ def test_report_row_item_disk_net_io_p95_peak_passthrough():
     ],
 )
 def test_recommendation_action_fixed_phrases(rec, expected):
-    assert _build_recommendation_action(rec, _raw()) == expected
+    assert _build_recommendation_action(recommendation.Assessment(rec, [], [])) == expected
 
 
 @pytest.mark.parametrize(
-    "kwargs, expected",
+    "triggers, expected",
     [
-        # under_provisioned 은 hit trigger 별 증설 권고 결합 (임계는 recommendation 모듈 단일 진실).
-        ({"swap_used": True}, "메모리 증설 (스왑 발생)"),
-        ({"mem_p95": 85.0}, "메모리 증설"),
-        ({"cpu_p95": 75.0}, "CPU 증설"),
-        ({"iowait_p95": 25.0}, "디스크 증설 (IO 병목)"),
-        ({"worst_used": 90.0}, "디스크 증설 (capacity)"),
-        ({}, "리소스 증설 검토"),  # trigger 0건 fallback
+        # under_provisioned 은 hit trigger(assess 산출) 별 증설 권고 결합 — mapper 는 키->문구 변환만(P2).
+        (["mem_saturation"], "메모리 증설 (스왑 발생)"),
+        (["mem_util"], "메모리 증설"),
+        (["cpu_util"], "CPU 증설"),
+        (["disk_io"], "디스크 증설 (IO 병목)"),
+        (["disk_capacity"], "디스크 증설 (capacity)"),
+        ([], "리소스 증설 검토"),  # trigger 0건 fallback
     ],
 )
-def test_recommendation_action_under_trigger(kwargs, expected):
-    assert _build_recommendation_action("under_provisioned", _raw(**kwargs)) == expected
+def test_under_provisioned_reason_per_trigger(triggers, expected):
+    assert _build_under_provisioned_reason(triggers) == expected
 
 
-def test_recommendation_action_under_combines_multiple_triggers():
-    """swap + cpu 동시 hit 시 '/' 결합. swap 발생 시 메모리 중복('메모리 증설')은 제거."""
-    action = _build_recommendation_action("under_provisioned", _raw(swap_used=True, cpu_p95=75.0))
-    assert action == "메모리 증설 (스왑 발생) / CPU 증설"
+def test_under_provisioned_reason_combines_and_dedups():
+    """여러 trigger '/' 결합. mem_saturation(스왑) + mem_util 중복 시 스왑 문구만."""
+    assert _build_under_provisioned_reason(["mem_saturation", "cpu_util"]) == "메모리 증설 (스왑 발생) / CPU 증설"
+    assert _build_under_provisioned_reason(["mem_saturation", "mem_util"]) == "메모리 증설 (스왑 발생)"
