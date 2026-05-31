@@ -39,7 +39,7 @@ _ATTN_ACTIVE_BADGE = "attn-active"
 # 활용률 정도는 게이지 길이(dash_length)로, 색은 값 무관 단일 푸른색. 색으로 임계 의미를 주지
 # 않는다 — 위험도 색은 Right-sizing 분류 도넛이 별도 담당.
 _UTIL_COLOR_GAUGE = "#3b82f6"  # 푸른 단색 (blue-500)
-_UTIL_COLOR_NONE = "#cbd5e1"   # 표본 부재 (회색)
+_UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재 (회색)
 
 # 도넛 SVG 원주 — r=42, 2*pi*r ≈ 263.89. pct 0~100을 0~_UTIL_DONUT_CIRC로 매핑.
 _UTIL_DONUT_CIRC = 263.89
@@ -199,7 +199,7 @@ def build_environment_overview(
     if risk_counts is not None:
         risk_segments, risk_total, risk_under = build_risk_donut_segments(risk_counts)
 
-    # 자원 부족 상세 — 호스트명 ASC 정렬(P2) 후 상위 N만 표시. 전체 수는 count, 표시 수는 shown 으로 분리("shown/total").
+    # 자원 부족 상세 — 호스트명 ASC 정렬(P2) 후 상위 N만 표시. 전체 수는 count, 표시 수는 shown 분리.
     _under_all = sorted(under_provisioned_hosts or [], key=lambda c: c.hostname.lower())
     _under_shown = _under_all[:_UNDER_PROVISIONED_DISPLAY_MAX]
 
@@ -249,7 +249,9 @@ def build_environment_realtime(
     util_bars = [
         UtilizationBar(label="CPU", pct=avg_cpu, bar_color=_bar_color(avg_cpu), dash_length=_dash_length(avg_cpu)),
         UtilizationBar(label="메모리", pct=avg_mem, bar_color=_bar_color(avg_mem), dash_length=_dash_length(avg_mem)),
-        UtilizationBar(label="디스크", pct=avg_disk, bar_color=_bar_color(avg_disk), dash_length=_dash_length(avg_disk)),
+        UtilizationBar(
+            label="디스크", pct=avg_disk, bar_color=_bar_color(avg_disk), dash_length=_dash_length(avg_disk)
+        ),
     ]
 
     def _top(key: str) -> list[RealtimePeak]:

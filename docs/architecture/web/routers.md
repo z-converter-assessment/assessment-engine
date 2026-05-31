@@ -52,7 +52,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 설계 결정:
 - TCP connect = 포트 listen = reachable. connect 직후 SSH identification string(`SSH-2.0-...`) best-effort read (RFC 4253) — `banner` 로 노출, 부재여도 reachable 유지
 - connect 5초 / banner read 2초 타임아웃 — 폐쇄망 LAN 가정
-- 폼 기본값은 `DISCOVERY_DEFAULT_TARGET`+`DISCOVERY_DEFAULT_PORT` (config) → `#probe-ip`/`#probe-port` value 서버 렌더. dev=`db-server-01.orb.local:22` (OrbStack VM 직접 도달 — 통합 네트워크) / prod=빈값:22
+- 폼 기본값은 `DISCOVERY_DEFAULT_TARGET`+`DISCOVERY_DEFAULT_PORT` (config) → `#probe-ip`/`#probe-port` value 서버 렌더. dev·prod 모두 빈값:22 (libvirt VM IP 동적·컨테이너에서 hostname 미해석이라 운영자가 VM IP 직접 입력)
 - `ipaddress.ip_address()` 파싱 검증 — IPv4/IPv6 형식 422 차단, 실패 시 RFC 1035 hostname 패턴
 - SSRF 방지(localhost·메타데이터 IP 차단) 미적용 — 폐쇄망 가정상 운영자 의도 입력으로 간주
 - ICMP 미사용 — raw socket 권한 필요라 회피 (TCP connect 는 권한 불필요)

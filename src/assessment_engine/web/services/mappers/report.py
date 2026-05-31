@@ -6,7 +6,7 @@
 """
 
 from collections import Counter, defaultdict
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ReportRowRaw
@@ -93,7 +93,9 @@ def build_role_distribution(raws: list) -> dict[str, int]:
 # ─── 정성 요약 (양식 A/B 분기) ───
 
 
-def build_report_summary_bullets(rows: list, raws: list | None = None, view: ReportView = "customer", today: date | None = None) -> list[str]:
+def build_report_summary_bullets(
+    rows: list, raws: list | None = None, view: ReportView = "customer", today: date | None = None
+) -> list[str]:
     """자동 분석 요약 문장 생성 — 정량 신호 기반 정성 요약 (P2).
 
     view 분기:
@@ -188,7 +190,7 @@ def build_report_summary_bullets(rows: list, raws: list | None = None, view: Rep
     # OS EOL 신호 — raws 있을 때만. attention 카드와 동일 판정(resolve_os_eol): Windows build /
     # Linux os_version + EOL 경과 한정. today 미주입 시 현재 UTC (caller 주입 권장).
     if raws:
-        eol_today = today or datetime.now(timezone.utc).date()
+        eol_today = today or datetime.now(UTC).date()
         eol_hosts: list[str] = []
         for r in raws:
             result = resolve_os_eol(r.os_id, r.os_version, r.kernel_version, eol_today)
@@ -304,9 +306,7 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
     동일 stats 로 recommendation.assess 를 타 임계 재계산 중복을 제거(assess.triggers 단일 진실).
     """
     net_avg = (
-        None
-        if raw.net_rx_kbps is None and raw.net_tx_kbps is None
-        else (raw.net_rx_kbps or 0) + (raw.net_tx_kbps or 0)
+        None if raw.net_rx_kbps is None and raw.net_tx_kbps is None else (raw.net_rx_kbps or 0) + (raw.net_tx_kbps or 0)
     )
     return recommendation.ResourceStats(
         cpu_p95_pct=raw.cpu_p95_pct,

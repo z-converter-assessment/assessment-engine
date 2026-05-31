@@ -5,14 +5,12 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from assessment_engine.db.dtos.outbound import (
-    DiskUsageWarningRaw,
     MetricGapWarningRaw,
     ServerDetail,
     ServerSummary,
     StorageWithUsage,
 )
 from assessment_engine.web.services.mappers.attention import (
-    to_disk_warning_item,
     to_gap_warning_item,
 )
 from assessment_engine.web.services.mappers.server import (
@@ -406,47 +404,7 @@ def test_to_storage_detail_filters_virtual_mounts():
 
 
 # ─── attention 신호 mapper (P2 단위 변환 + badge 분기) ────────────────────
-
-
-def test_to_disk_warning_item_under_provisioned_at_90():
-    """90% 이상 → rec-under_provisioned (위험 색). AttentionRow ViewModel."""
-    now = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
-    raw = DiskUsageWarningRaw(
-        public_id="pid",
-        hostname="h",
-        mount="/data",
-        total_bytes=100 * 1024**3,
-        avail_bytes=10 * 1024**3,  # 사용률 90%
-        last_metric_at=now,  # stale 아님
-    )
-    item = to_disk_warning_item(raw, now)
-    assert item.badge_class == "rec-under_provisioned"
-    assert item.badge_text == "90%"
-    assert item.link_href == "/servers/pid/storage"
-    assert item.link_text == "h"
-    assert item.mount_path == "/data"
-    assert item.meta_text == "잔여 10.0 / 100.0 GB"
-    assert item.meta_at is None  # stale 아니라 None
-
-
-def test_to_disk_warning_item_warn_below_90():
-    """85~90% → badge-warn (주의 amber). stale (24h+) 이면 meta_at·meta_text 갱신."""
-    now = datetime(2026, 5, 10, 12, 0, tzinfo=UTC)
-    metric_ts = now - timedelta(hours=25)  # 24h+ → stale
-    raw = DiskUsageWarningRaw(
-        public_id="pid",
-        hostname="h",
-        mount="/var",
-        total_bytes=100 * 1024**3,
-        avail_bytes=12 * 1024**3,  # 사용률 88%
-        last_metric_at=metric_ts,
-    )
-    item = to_disk_warning_item(raw, now)
-    assert item.badge_class == "badge-warn"
-    assert item.badge_text == "88%"
-    assert item.mount_path == "/var"
-    assert "마지막 수집" in item.meta_text  # stale 시 추가 표시
-    assert item.meta_at == metric_ts
+# 운영신호는 gap/os_eol/agent_unstable 3개 — disk 신호는 USE Method 로 이동(코드 제거).
 
 
 def test_to_gap_warning_item_under_provisioned_at_30min():

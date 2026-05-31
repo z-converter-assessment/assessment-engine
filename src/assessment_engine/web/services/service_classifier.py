@@ -203,14 +203,11 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
 # ─── 파생 인덱스 (import 시점 1회, 재계산 0) ─────────────────────────────────
 
 # _PATTERNS 대체 — (keyword, category) 순서 = 카탈로그 등장 순 = 첫 매칭 우선.
-_NAME_INDEX: tuple[tuple[str, str], ...] = tuple(
-    (kw, d.key) for d in SERVICE_CATALOG for kw in d.name_keywords
-)
+_NAME_INDEX: tuple[tuple[str, str], ...] = tuple((kw, d.key) for d in SERVICE_CATALOG for kw in d.name_keywords)
 
 # SERVICE_PORTS 대체 — normalized 서비스명 -> well-known 포트.
-_NAME_PORTS: dict[str, tuple[int, ...]] = {
-    name: ports for d in SERVICE_CATALOG for name, ports in d.port_names.items()
-}
+_NAME_PORTS: dict[str, tuple[int, ...]] = {name: ports for d in SERVICE_CATALOG for name, ports in d.port_names.items()}
+
 
 # port -> category (port 신호 분류). cross-category 충돌 시 카탈로그 순서 우선.
 def _build_port_index() -> dict[int, str]:
@@ -306,10 +303,7 @@ def matched_ports(unit: str, listen_ports: list[dict]) -> list[MatchedPort]:
     comm 기반 매칭을 우선하고, comm이 없으면 well-known 포트 테이블로 폴백한다.
     동일 포트라도 proto(tcp/tcp6/udp 등)가 다르면 별도 항목으로 반환한다.
     """
-    return [
-        MatchedPort(proto=p.get("proto", ""), port=p.get("port", 0))
-        for p in _attributed_ports(unit, listen_ports)
-    ]
+    return [MatchedPort(proto=p.get("proto", ""), port=p.get("port", 0)) for p in _attributed_ports(unit, listen_ports)]
 
 
 def well_known_ports(unit: str) -> tuple[int, ...]:

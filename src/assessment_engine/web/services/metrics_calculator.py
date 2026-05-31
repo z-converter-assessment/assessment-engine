@@ -230,9 +230,7 @@ def compute_net_io(pairs: list[NetIoRaw]) -> list[NetIoSnapshot]:
     by_iface = _group_by_dim(pairs, key=lambda r: r.interface)
     # 표시 경계 필터 — 가상·시스템 인터페이스 제외 (저장은 유지). 차트(query_service)와 동일 정책.
     return [
-        _net_io_snapshot(iface, rows)
-        for iface, rows in sorted(by_iface.items())
-        if not is_virtual_interface(iface)
+        _net_io_snapshot(iface, rows) for iface, rows in sorted(by_iface.items()) if not is_virtual_interface(iface)
     ]
 
 

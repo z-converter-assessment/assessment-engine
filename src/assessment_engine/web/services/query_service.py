@@ -119,6 +119,7 @@ def _empty_overview() -> EnvironmentOverview:
         role_distribution={},
     )
 
+
 # disk metric_type에서만 의미를 갖는 service 레벨 분기. 라우터에서 Literal로 검증 (F3 단일 경로).
 DeviceCategory = Literal["phys", "logical"]
 
@@ -493,7 +494,7 @@ class QueryService:
 
         time_range: AI 진단과 동일 7개 윈도우 (15m/1h/6h/24h/7d/14d/30d) — DIAGNOSTIC_RANGE_DAYS.
         anchor_at: 보고서 기준 시각 (None 이면 현재 시각). period_days = window days.
-        구성: overview (KPI/utilization) + attention (6 카탈로그) + base ReportSummary (분류·KPI)
+        구성: overview (KPI/utilization) + attention (운영신호 3 카탈로그) + base ReportSummary (분류·KPI)
             + classification_dist 도넛 + os_distribution + top_risks + view 별 summary_bullets_env.
         """
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
@@ -786,9 +787,7 @@ class QueryService:
             await pubsub.subscribe(web_settings.redis_channel_metrics)
             try:
                 while True:
-                    message = await pubsub.get_message(
-                        ignore_subscribe_messages=True, timeout=_SSE_PING_INTERVAL_SEC
-                    )
+                    message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=_SSE_PING_INTERVAL_SEC)
                     if message is None:
                         yield ": keep-alive\n\n"
                         continue

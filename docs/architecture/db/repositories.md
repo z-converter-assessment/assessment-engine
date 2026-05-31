@@ -40,8 +40,7 @@
 | `report_mount_worst(server_ids, period_days, end)` | mount별 worst usage + fill_rate (days_until_full 산출) |
 | `report_uptime_stats(server_ids, period_days, end)` | 가동률 통계 |
 | `report_disk_io_baseline` / `report_net_io_baseline` | I/O baseline (Export `recommended_size_class` 입력) |
-| `disk_usage_warnings(threshold_pct)` | 사용률 임계 초과 mount (attention 신호) |
-| `metric_gap_warnings(gap_min, recent_h)` | 메트릭 갭(통신 끊김) 후보 |
+| `metric_gap_warnings(gap_min, recent_h)` | 메트릭 갭(통신 끊김 운영신호) 후보 |
 | `environment_utilization(period_days, end)` | 대시보드 환경 평균 활용률 도넛 |
 
 ## Diagnostic 계층 — `BaseDiagnosticRepository` (ADR 0004)

@@ -16,7 +16,7 @@
 
 질문 1: "이 서버 N대에 ZConverter 변환 도구를 설치하려면?"
 
-기존 패턴은 각 서버에 SSH 접속 후 수동 install. N대 ↑ 시 운영 부담. 본 엔진은 list에서 N대 선택 → Install 버튼 한 번으로 각 워커 VM의 agent worker가 ZDM 본체 패키지를 fetch·실행 → 결과를 자동 수집·노출. 운영자가 SSH·ansible playbook 없이 web UI에서 끝.
+기존 패턴은 각 서버에 SSH 접속 후 수동 install. N대 증가 시 운영 부담. 본 엔진은 list에서 N대 선택 → Install 버튼 한 번으로 각 워커 VM의 agent worker가 ZDM 본체 패키지를 fetch·실행 → 결과를 자동 수집·노출. 운영자가 SSH·ansible playbook 없이 web UI에서 끝.
 
 질문 2: "어떤 서버에 설치 성공·실패했나? 실패 사유는?"
 
@@ -53,12 +53,12 @@
 
 ```
 사용자 list 선택 → "Install" 모달 → POST /api/tasks
-  ↓
+  v
 engine web:
   1. Task INSERT (status=pending)
   2. task.install.<composite_id> publish to assessment.tasks exchange
   3. agent.tasks.<composite_id> 큐로 routing
-  ↓
+  v
 워커 VM의 agent worker:
   1. agent.tasks.<composite_id> consume
   2. download.url(`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`) fetch (sha256·size 검증, host whitelist 통과)
@@ -69,11 +69,11 @@ engine web:
      자기 OS 가 아닌 type 수신 시 unsupported_install_type reject
      — args=[-s, ZDM_IP, -u, ZDM_USER] OS 무관 동일, timeout INSTALL_TIMEOUT_SEC
   4. task.result publish (worker.result 큐)
-  ↓
+  v
 engine consumer:
   1. worker.result consume
   2. Task row 6 컬럼 UPDATE
-  ↓
+  v
 list page polling → badge 자동 갱신 (success/failure)
 ```
 
@@ -98,13 +98,13 @@ ZDM 패키지 contract:
 
 dev 시연 흐름 (ADR 0018):
 - `APP_ENV=dev` 일 때 web 컨테이너에 ZDM mock router 등록 — `GET {ZDM_PACKAGE_PATH}` 로 더미 tar.gz (install.sh = args echo + exit 0) 서빙. prod 등록 안 됨.
-- `ZDM_DEFAULT_IP` dev default = `host.docker.internal:8000` — 모달 default 값 그대로 "발행" 시 OrbStack VM agent worker 가 host web 8000 으로 download → install.sh exec → task.result success → list UI badge 전이. install task E2E 1 cycle 시연.
+- `ZDM_DEFAULT_IP` dev default = `192.168.122.1:8000`(libvirt 게이트웨이) — 모달 default 값 그대로 "발행" 시 libvirt VM agent worker 가 host web 8000 으로 download → install.sh exec → task.result success → list UI badge 전이. install task E2E 1 cycle 시연.
 
 ## 한계
 
 1. task_type이 install 1종 — 다른 작업(uninstall·rollback·재시작 등) 미지원. 향후 task_type enum 확장 시 별도 결정.
 2. Linux 만 지원 — Windows 호스트는 발행 대상에서 제외 (별도 산출물 도입 시 ADR).
-3. 워커 측 중복 발행 차단 — 부분 UNIQUE `uq_tasks_pending_per_server_type` (status=pending 한 서버당 1건)이 DB 레벨 차단. 다만 발행 직후 cleanup 전엔 같은 서버에 신규 task 발행 불가 — 운영 ↑.
+3. 워커 측 중복 발행 차단 — 부분 UNIQUE `uq_tasks_pending_per_server_type` (status=pending 한 서버당 1건)이 DB 레벨 차단. 다만 발행 직후 cleanup 전엔 같은 서버에 신규 task 발행 불가 — 운영 증가.
 4. ZDM 패키지 매 publish 마다 HEAD 1 회 (cache hit) 또는 GET full 44MB (cache miss). 같은 LAN 가정에 1~2s. 다른 네트워크면 ZDM_META_TOTAL_TIMEOUT_SEC 안에 끝나야 503 회피.
 5. ZDM 좌표는 모달 일괄 입력 — N대 호스트가 서로 다른 ZDM 서버를 가리키는 시나리오 미지원. 발행 단위로 동일 ZDM IP/User 적용.
 6. stdout/stderr UTF-8 가정 — 호스트 OS locale에 따라 깨짐 가능. agent worker가 binary으로 받고 latin-1 fallback 적용.

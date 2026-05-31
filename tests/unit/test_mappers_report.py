@@ -184,11 +184,14 @@ def test_report_row_is_partial_by_unmeasured_saturation():
     # Windows 실측: load None -> 부분 평가 (CPU run queue 미관측)
     assert to_report_row_item(_raw(cpu_p95=40.0, mem_p95=60.0, os_family="windows"), True, _NOW).is_partial is True
     # Linux: saturation 축(load·cores·iowait) 관측 -> 완전 평가
-    assert to_report_row_item(
-        _raw(cpu_p95=40.0, mem_p95=60.0, os_family="linux", load_15m_max=0.5, cpu_cores=4, iowait_p95=5.0),
-        True,
-        _NOW,
-    ).is_partial is False
+    assert (
+        to_report_row_item(
+            _raw(cpu_p95=40.0, mem_p95=60.0, os_family="linux", load_15m_max=0.5, cpu_cores=4, iowait_p95=5.0),
+            True,
+            _NOW,
+        ).is_partial
+        is False
+    )
 
 
 def test_report_row_windows_swap_not_high_risk():

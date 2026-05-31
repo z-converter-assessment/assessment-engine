@@ -122,7 +122,6 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
         result = await self.session.execute(select(ServerInventory.public_id).order_by(ServerInventory.id))
         return list(result.scalars().all())
 
-
     async def get_storage(self, server_id: int) -> StorageWithUsage | None:
         inv_result = await self.session.execute(
             select(

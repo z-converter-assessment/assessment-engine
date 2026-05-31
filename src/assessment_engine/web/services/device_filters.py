@@ -1,7 +1,8 @@
 """에이전트가 push 하는 raw 데이터에서 가상·커널 항목 제거 필터 — engine 단일 진실.
 
 `_VIRTUAL_FSTYPES` 22 / `_VIRTUAL_MOUNT_PREFIXES` 8 / 정규식 catalog (virtual-disk / lvm / part / virtual-iface).
-디스크·인터페이스는 블랙리스트 정책 (가상·시스템만 제외, 나머지 통과 — 관측성 놓침 방지). 새 fstype 출현 시 본 catalog 만 갱신.
+디스크·인터페이스는 블랙리스트 정책 (가상·시스템만 제외, 나머지 통과 — 관측성 놓침 방지).
+새 fstype 출현 시 본 catalog 만 갱신.
 """
 
 import re
@@ -11,7 +12,9 @@ _VIRTUAL_DISK_RE = re.compile(r"^(loop\d*|ram\d*|zram\d*|fd\d*|sr\d*|nbd\d*)$")
 _LVM_DISK_RE = re.compile(r"^(dm-\d+|md\d+)$")
 _PART_DISK_RE = re.compile(r"^(sd[a-z]+\d+|vd[a-z]+\d+|hd[a-z]+\d+|xvd[a-z]+\d+|nvme\d+n\d+p\d+|mmcblk\d+p\d+)$")
 # 가상·시스템 네트워크 인터페이스 (보수적 제외 — 물리 트래픽 관측 대상 아님). docker/br/bond/vlan 회색지대는 통과.
-_VIRTUAL_IFACE_RE = re.compile(r"^(lo|veth.*|sit\d*|tunl\d*|ip6tnl\d*|gre\d*|gretap\d*|erspan\d*|dummy\d*|ifb\d*|nlmon\d*)$")
+_VIRTUAL_IFACE_RE = re.compile(
+    r"^(lo|veth.*|sit\d*|tunl\d*|ip6tnl\d*|gre\d*|gretap\d*|erspan\d*|dummy\d*|ifb\d*|nlmon\d*)$"
+)
 # Windows NDIS 필터 드라이버 인스턴스 — "<adapter>-<filter>-NNNN" (하이픈 + 4자리 인덱스 suffix).
 _WIN_IFACE_FILTER_RE = re.compile(r".+-\d{4}$")
 

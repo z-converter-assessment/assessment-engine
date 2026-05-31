@@ -6,7 +6,10 @@ from datetime import datetime
 
 @dataclass
 class AttentionRow:
-    """주의 신호 카드 안 1행 — 5 카테고리(gap/disk/days_until_full/os_eol/agent_unstable) 통합 표현.
+    """주의 신호 카드 안 1행 — 운영신호 3 카테고리(gap/os_eol/agent_unstable) 공용 표현.
+
+    운영신호(AttentionSignals)는 gap/os_eol/agent_unstable 3개뿐 — disk·capacity·days_until_full 은
+    USE Method right-sizing(under_provisioned 환경개요·classify·보고서 스토리지 컬럼)으로 이동(중복 회피).
 
     P2 단일 진실 — 모든 표시 string은 mapper가 결정. template은 attribute access만.
 
@@ -67,7 +70,7 @@ class CapacityWarningItem:
 
 @dataclass
 class AttentionCatalogEntry:
-    """주의 신호 카드 상단 범례 1개 — 6 카탈로그 중 1개.
+    """주의 신호 카드 상단 범례 1개 — 운영신호 3 카탈로그(통신끊김/OS 지원종료/에이전트 재시작) 중 1개.
 
     label: 카테고리 이름 (sub-section 헤더와 동일)
     count: 발화 건수 (list 길이)

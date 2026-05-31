@@ -55,11 +55,7 @@ def build_catalog() -> dict:
     for product in _LINUX_PRODUCTS:
         data = _fetch(f"https://endoflife.date/api/{product}.json")
         # eol 이 ISO 날짜 문자열인 cycle 만 (false=EOL 미정/지원중, true=이미 EOL 인데 날짜 불명 → 제외).
-        catalog[product] = [
-            {"cycle": str(d["cycle"]), "eol": d["eol"]}
-            for d in data
-            if isinstance(d.get("eol"), str)
-        ]
+        catalog[product] = [{"cycle": str(d["cycle"]), "eol": d["eol"]} for d in data if isinstance(d.get("eol"), str)]
 
     # windows-server: latest build 에서 build 번호 추출 — agent kernel build 와 매칭.
     # latest 형식 X.Y.NNNNN: "10.0.26100"(2016+) / "6.3.9600"(2012R2) / "6.1.7601"(2008R2).

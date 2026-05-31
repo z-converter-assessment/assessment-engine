@@ -4,13 +4,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from assessment_engine.boot_time import is_counter_reset
 from assessment_engine.db.dtos.outbound import (
     DiskIoRaw,
     MetricPairRaw,
     MountUsageRaw,
     NetIoRaw,
 )
-from assessment_engine.boot_time import is_counter_reset
 from assessment_engine.web.services.metrics_calculator import (
     _clip_to_remaining,
     _delta_rate,

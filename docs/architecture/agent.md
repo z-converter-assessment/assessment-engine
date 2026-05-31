@@ -111,7 +111,7 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 - 운영자가 모달에 입력한 zdm_ip 허용 형식: IPv4 / IPv4:port / hostname / FQDN / hostname:port / http(s) URL. 엔진이 scheme·path strip 해서 host[:port] 만 추출 (`task_service._extract_zdm_host`) → download.url 조립 시 host[:port] 사용. agent `download_url_extract_host` 가 `':'` 도 host 종료 문자로 처리해 host-only 매칭. validator 매트릭스 단일 진실: `web/routers/tasks.py::_validate_zdm_ip` + `_is_valid_host_or_host_port`. IPv6 (raw / bracket) 는 agent 측 한계로 미지원.
 - agent 측 download.c 가 host whitelist(`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 강제. 운영자가 박은 ZDM host 가 등록되지 않았으면 `failure_reason="url_not_allowed"` reject. agent config 는 deploy 시점 고정 — 새 ZDM host 도입 시 agent 재배포 필요.
 - ZDM 좌표 default 는 `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` env. 패키지 메타는 `ZDM_PACKAGE_PATH` / `ZDM_PACKAGE_SCRIPT` env (`docs/operations/env.md`).
-- dev 환경 한정: `APP_ENV=dev` 일 때 web 컨테이너가 ZDM 본체 패키지를 mock 서빙 (ADR 0018) — `ZDM_DEFAULT_IP=host.docker.internal:8000` default 로 OrbStack VM agent worker 가 host web 8000 으로 도달. prod 에서는 라우터 자체가 안 붙음.
+- dev 환경 한정: `APP_ENV=dev` 일 때 web 컨테이너가 ZDM 본체 패키지를 mock 서빙 (ADR 0018) — `ZDM_DEFAULT_IP=host.docker.internal:8000` default 로 libvirt VM agent worker 가 host web 8000 으로 도달. prod 에서는 라우터 자체가 안 붙음.
 
 ### sha256·size 동적 산출 (HttpZdmPackageResolver)
 
@@ -156,7 +156,7 @@ cache 동작:
 
 운영자 가시성: list.html "최근 작업" column (행별 마지막 task badge + polling 갱신) / detail.html "최근 작업" 섹션 (timeline 최근 10건 + row 클릭 modal) / Web API `GET /api/tasks/{task_id}` 단일 + `GET /api/tasks?server_public_id=...` 서버별 cursor pagination. 단일 진실: `web/services/mappers/task.py::to_task_summary` / `to_task_detail` + base.html `.rec-success`/`.rec-failure`/`.rec-pending`/`.rec-unknown`. failure_reason 한글 라벨은 `mappers/task.py::_FAILURE_REASON_LABEL` 카탈로그 (11 enum).
 
-dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.docker.internal:8000{ZDM_PACKAGE_PATH}` 로 더미 tar.gz 를 서빙 — OrbStack VM agent worker 가 download → install.sh (echo + exit 0) exec → task.result success 발행 → consumer 6 컬럼 UPDATE → list UI badge `success` 전이. sha256·size 는 `HttpZdmPackageResolver` 가 ZDM 호스트 (dev 에서는 mock) 에서 HEAD/GET 으로 동적 산출하므로 별도 env 박을 필요 없음. agent download.c 는 http·https 둘 다 허용 (CURLOPT_PROTOCOLS_STR="https,http"), host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS=host.docker.internal`) 그대로 매칭. 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200 등) 시 publish 503 차단.
+dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.docker.internal:8000{ZDM_PACKAGE_PATH}` 로 더미 tar.gz 를 서빙 — libvirt VM agent worker 가 download → install.sh (echo + exit 0) exec → task.result success 발행 → consumer 6 컬럼 UPDATE → list UI badge `success` 전이. sha256·size 는 `HttpZdmPackageResolver` 가 ZDM 호스트 (dev 에서는 mock) 에서 HEAD/GET 으로 동적 산출하므로 별도 env 박을 필요 없음. agent download.c 는 http·https 둘 다 허용 (CURLOPT_PROTOCOLS_STR="https,http"), host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS=host.docker.internal`) 그대로 매칭. 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200 등) 시 publish 503 차단.
 
 ---
 
@@ -165,10 +165,10 @@ dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.doc
 - 단위: 메모리 = `kb`, 디스크 / 네트워크 = `bytes` (`/proc` 출력 관례)
 - canonical 단위 = Linux `/proc` 모델 단일 진실 (jiffies·kB·bytes·loadavg). 모든 OS agent 가 자기 raw 값을 canonical 로 변환 발행, 엔진은 OS 무관 단일 공식으로 계산 (CPU%·mem%·swap·IOPS·kBps 동일 경로).
 - Windows agent 변환 계약 (raw Win32 -> canonical):
-  - 단위: cpu FILETIME 100ns `÷100000` -> 10ms tick (HZ=100 호환), disk bytes `÷512` -> sectors, mem bytes `÷1024` -> kB. net/mount 은 bytes 그대로.
+  - 단위: cpu FILETIME 100ns `/100000` -> 10ms tick (HZ=100 호환), disk bytes `/512` -> sectors, mem bytes `/1024` -> kB. net/mount 은 bytes 그대로.
   - CPU jiffies (GetSystemTimes idle/kernel/user): `cpu_idle`=idle, `cpu_user`=user, `cpu_system`=kernel `-` idle (Win32 kernel time 은 idle 포함 → 차감 의무, 미차감 시 CPU% 왜곡). idle/user/system 누적 단조증가.
   - 메모리(GlobalMemoryStatusEx): `mem_total_kb`=ullTotalPhys, `mem_available_kb`=ullAvailPhys, `mem_free_kb`=ullAvailPhys (Linux 의 free vs available 구분이 Windows API 에 부재 — 두 키에 동일값 발행. Linux `mem_free`(완전 해제) vs `mem_available`(재할당 가능 cache 포함) 구분을 가정한 엔진 계산은 Windows 호스트에서 used = total - free 가 cache 포함된 used 가 됨. 현재 engine 표시는 mem_available 기준이라 영향 적음). swap(pagefile): `swap_total_kb` = `(ullTotalPageFile - ullTotalPhys)/1024`, `swap_free_kb` = `(ullAvailPageFile - ullAvailPhys)/1024` (pagefile total/avail 은 phys 포함 합산이라 phys 차감 의무). pagefile 의미는 saturation 신호 아님 — `recommendation.swap_saturation(os_family, swap_used)` helper 가 Windows 제외 처리 (ADR 0029).
-- canonical 불변식 (agent 발행 의무 + 엔진 2차 강제): 누적 카운터 단조 비감소(reset 은 `boot_time` 변경으로 표현), `mem_available_kb ≤ mem_total_kb`, `swap_free_kb ≤ swap_total_kb`(used 음수 금지), per-field ≥ 0.
+- canonical 불변식 (agent 발행 의무 + 엔진 2차 강제): 누적 카운터 단조 비감소(reset 은 `boot_time` 변경으로 표현), `mem_available_kb <= mem_total_kb`, `swap_free_kb <= swap_total_kb`(used 음수 금지), per-field >= 0.
 - Windows 플랫폼 부재 필드: `load_1m/5m/15m`·`mem_buffers_kb`·`mem_cached_kb`·`listen_ports[].uid` = `null` (0 날조 금지 — 미측정 의미 보존), `cpu_stat.{nice,iowait,irq,softirq,steal}` = `0`. `os_family="windows"` 분기.
 - 엔진 정규화 경계 (defense in depth, `consumer/metric_normalize.py`): agent 미신뢰 — 수집 진입에서 canonical 불변식 재강제. `swap_free`/`mem_available` 가 total 초과 시 total 로 클램프(used 음수 차단) + warning. CPU% 의 `cpu_idle` 은 NULL→0 날조 안 함 (idle 부재 reading 제외, report·환경 활용률 동일 규칙).
 - 옵셔널 필드: 수집 실패 시 `null` 전송. 수집 실패와 데이터 없음 미구분
@@ -274,12 +274,12 @@ Windows agent 는 `enumerate_physical_disks` (`IOCTL_DISK_GET_DRIVE_GEOMETRY_EX`
 
 ## 운영 / 디버깅
 
-OrbStack VM 발행 측 상태:
+libvirt VM 발행 측 상태:
 ```bash
-ssh <vm>@orb sudo systemctl status assessment-agent --no-pager
-ssh <vm>@orb sudo journalctl -u assessment-agent --no-pager -n 50
+ssh -i dev/.ssh/id_dev dev@<vm-ip> sudo systemctl status assessment-agent --no-pager
+ssh -i dev/.ssh/id_dev dev@<vm-ip> sudo journalctl -u assessment-agent --no-pager -n 50
 ```
 
 end-to-end 추적: (1) VM 발행 로그 -> (2) broker 큐 적재 (`rabbitmqctl list_queues`) -> (3) consumer 처리 로그 -> (4) DB 행 -> (5) web 표시. 끊긴 단계가 원인.
 
-발행 측 재기동: 소스·env 변경 시 `./dev/pipeline-up.sh` 재실행으로 자동. 단발 재기동은 `ssh <vm>@orb sudo systemctl restart assessment-agent`.
+발행 측 재기동: 소스·env 변경 시 `./dev/dev-up.sh` 재실행으로 자동. 단발 재기동은 `ssh -i dev/.ssh/id_dev dev@<vm-ip> sudo systemctl restart assessment-agent` (vm-ip = `virsh domifaddr <vm> --source lease`).

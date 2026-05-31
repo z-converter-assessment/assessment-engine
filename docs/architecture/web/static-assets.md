@@ -199,7 +199,7 @@ class:
 금지:
 - 식별자(hostname / UUID / IP / path / unit name)에 "식별자라는 이유만으로" monospace 자동 적용 — 기본 sans.
   (등폭 구분이 유용하다 판단되면 위 선택 기준으로 case-by-case 결정)
-- 일반 텍스트 (제목 / 본문 / 라벨) 에 monospace — 가독성 ↓.
+- 일반 텍스트 (제목 / 본문 / 라벨) 에 monospace — 가독성 저하.
 - 숫자 (vCPU / GB / %) 에 monospace — sans-serif weight 700 으로 정렬·강조 충분.
 - inline `style="font-family:monospace"` — base `.identifier` 또는 `<code>` 사용 의무.
 

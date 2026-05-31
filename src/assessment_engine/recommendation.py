@@ -184,12 +184,7 @@ def assess(stats: ResourceStats) -> Assessment:
 
     # over_provisioned — 보수적: cpu·mem p95 가 둘 다 있고 둘 다 다운사이즈 임계 이하일 때만.
     # 한쪽이라도 None 이거나 높으면 over 로 단정하지 않는다(saturation 못 본 Windows 오판 회피).
-    if (
-        cpu is not None
-        and mem is not None
-        and cpu <= CPU_DOWNSIZE_P95_PCT
-        and mem <= MEM_DOWNSIZE_P95_PCT
-    ):
+    if cpu is not None and mem is not None and cpu <= CPU_DOWNSIZE_P95_PCT and mem <= MEM_DOWNSIZE_P95_PCT:
         return Assessment("over_provisioned", unmeasured=unmeasured)
 
     return Assessment("optimal", unmeasured=unmeasured)
