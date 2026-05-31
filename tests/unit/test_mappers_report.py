@@ -10,6 +10,7 @@ from assessment_engine.db.dtos.outbound import (
     ServerDetail,
 )
 from assessment_engine.web.services.mappers.attention import (
+    _UTIL_COLOR_GAUGE,
     _UTIL_COLOR_NONE,
     _UTIL_DONUT_CIRC,
     build_environment_overview,
@@ -31,7 +32,7 @@ from assessment_engine.web.services.mappers.report import (
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_FROM_REC,
-    _OS_EOL,
+    resolve_os_eol,
 )
 
 # ─── 헬퍼 ────────────────────────────────────────────────────────────────
@@ -257,6 +258,7 @@ def _detail(*, id_, hostname, cpu_cores, mem_total_kb, disk_size, role_unit=None
         mem_total_kb=mem_total_kb,
         swap_total_kb=0,
         boot_time=None,
+        agent_started_at=None,
         ip_internal=["10.0.0.1"],
         ip_external=None,
         disks=[{"size_bytes": disk_size}],
@@ -314,12 +316,11 @@ def test_environment_overview_utilization_default_empty():
 @pytest.mark.parametrize(
     "pct, expected_color",
     [
-        # HSL hue 그라데이션 — `hsl(120 - 1.2*pct, 65%, 45%)` (사용자 요구, 초록 → 빨강).
-        # 0% → hue 120 (초록), 50% → 60 (노랑), 100% → 0 (빨강).
-        (0.0, "hsl(120, 65%, 45%)"),
-        (50.0, "hsl(60, 65%, 45%)"),
-        (100.0, "hsl(0, 65%, 45%)"),
-        (None, _UTIL_COLOR_NONE),  # 표본 부재 — 그라데이션 외 단일 색
+        # 활용률 게이지 단색 — pct 무관 _UTIL_COLOR_GAUGE (E8, hsl 그라데이션 폐기).
+        (0.0, _UTIL_COLOR_GAUGE),
+        (50.0, _UTIL_COLOR_GAUGE),
+        (100.0, _UTIL_COLOR_GAUGE),
+        (None, _UTIL_COLOR_NONE),  # 표본 부재 — 단일 회색
     ],
 )
 def test_environment_overview_utilization_bar_color(pct, expected_color):
@@ -741,7 +742,7 @@ def test_disk_days_warning_item_fields():
 )
 def test_os_eol_matching(os_id, os_version, should_match):
     raw = _raw(os_id=os_id, os_version=os_version)
-    item = to_os_eol_warning_item(raw)
+    item = to_os_eol_warning_item(raw, _NOW)
     assert (item is not None) == should_match
 
 
@@ -754,13 +755,16 @@ def test_agent_unstable_item_fields():
     assert item.link_text == "h"
 
 
-# ─── _OS_EOL dict — 정적 매핑 sanity ─────────────────────────────────────
+# ─── resolve_os_eol — 알려진 EOL distro 발화 sanity (endoflife 카탈로그, ADR 0031) ───
 
 
-def test_os_eol_has_known_eol_distros():
-    assert ("centos", "7") in _OS_EOL
-    assert ("rhel", "7") in _OS_EOL
-    assert ("ubuntu", "18.04") in _OS_EOL
+@pytest.mark.parametrize(
+    "os_id, os_version",
+    [("centos", "7"), ("rhel", "7"), ("ubuntu", "18.04")],
+)
+def test_resolve_os_eol_known_eol_distros(os_id, os_version):
+    # 2026 기준 모두 EOL 경과 -> (eol_iso, label) 반환 (None 아님).
+    assert resolve_os_eol(os_id, os_version, None, _NOW.date()) is not None
 
 
 # ─── to_inventory_export_entry v2 ─────────────────────────────────────────
@@ -834,6 +838,7 @@ def test_inventory_export_network_addresses_v4_v6_split():
         mem_total_kb=2 * 1024 * 1024,
         swap_total_kb=0,
         boot_time=None,
+        agent_started_at=None,
         ip_internal=["10.0.0.1", "fe80::1"],
         ip_external=["54.1.2.3"],
         disks=[],
@@ -872,6 +877,7 @@ def test_inventory_export_services_listeners_match_listen_ports():
         mem_total_kb=2 * 1024 * 1024,
         swap_total_kb=0,
         boot_time=None,
+        agent_started_at=None,
         ip_internal=["10.0.0.1"],
         ip_external=None,
         disks=[],
@@ -911,6 +917,7 @@ def test_inventory_export_services_listeners_fallback_when_no_listen_ports():
         mem_total_kb=2 * 1024 * 1024,
         swap_total_kb=0,
         boot_time=None,
+        agent_started_at=None,
         ip_internal=["10.0.0.1"],
         ip_external=None,
         disks=[],
