@@ -139,10 +139,6 @@
     .legend-chip[aria-pressed="false"] { color: #cbd5e1; }
     .legend-chip[aria-pressed="false"] .legend-dot { background: #cbd5e1 !important; }
     .legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-    /* 인터페이스별 그룹 범례 (네트워크) — 한 행에 이름 + RX/TX 칩. */
-    .legend-iface-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    /* 인터페이스 이름 — width 고정 + 줄임표. 전체 이름은 title(hover 툴팁)로 식별. 칩과 같은 12px 로 폰트 통일. */
-    .legend-iface-name { font-size: 12px; font-weight: 500; color: #334155; width: 200px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     /* task-detail-grid — task-modal 의 라벨/값 grid (key-value). */
     .task-detail-grid > .label { color: #64748b; font-size: 13px; }
 
@@ -203,6 +199,11 @@
     .toggle { padding: 5px 12px; border: 1px solid #e2e8f0; border-radius: 5px; background: #fff; color: #475569; font-size: 12px; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
     .toggle:hover { background: #f8fafc; border-color: #cbd5e1; }
     .toggle.active { background: #0f172a; color: #fff; border-color: #0f172a; }
+    /* 차트 빈 데이터 플레이스홀더 — 차트 컨테이너(position:relative; height) 안에서 중앙 정렬.
+       기본 숨김, 표시 시 JS 가 display:flex. canvas 와 같은 높이를 차지해 카드 크기 일관. */
+    .chart-empty { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; text-align: center; color: #94a3b8; font-size: 13px; padding: 0 16px; box-sizing: border-box; }
+    /* 차트 제목 아래 설명 한 줄 — 설명 유무와 무관하게 고정 높이로 같은 행 차트의 캔버스 top 정렬. */
+    .chart-desc { min-height: 17px; font-size: 11px; line-height: 1.5; color: #94a3b8; margin-bottom: 10px; }
 
     /* Section header within card */
     .section-title { font-size: 13px; font-weight: 600; color: #334155; margin: 20px 0 10px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
@@ -264,6 +265,11 @@
       .action-col { display: none !important; }
       .progress-fill, .progress-bar, .badge { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
       #realtime-metrics-card { page-break-before: always; }
+      /* 성능 리포트 — 행 카드 안 2 차트를 인쇄에서도 2열 유지 (auto-fit 이 A4 폭에서 1열로 떨어지는 것 방지). */
+      .perf-pair { grid-template-columns: repeat(2, 1fr) !important; }
+      /* Chart.js 가 캔버스에 화면 폭(px)을 inline 으로 박아 인쇄 컨테이너를 넘는 것 보정 —
+         캔버스를 컨테이너에 강제로 맞춰 꺾은선이 plot 경계를 넘지 않게. */
+      .perf-pair canvas { width: 100% !important; height: 100% !important; }
     }
   </style>
   <!-- 자식 template의 inline script(<main> 안)에서 ChartUtils를 즉시 destructure하므로

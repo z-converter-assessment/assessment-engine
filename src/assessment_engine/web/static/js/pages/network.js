@@ -83,43 +83,6 @@ function ifaceOrderedRows(rxAvg, txAvg, rxMax, txMax) {
   return { avg, max };
 }
 
-// 네트워크 전용 범례 — 인터페이스별로 한 행에 묶어(이름 + RX/TX 칩) 가시성 향상.
-// buildAvgMaxLegend 와 동일하게 avg(짝수) dataset 만 칩으로, 토글 시 avg+max 쌍 함께 show/hide.
-function buildNetGroupedLegend(legendId, chart) {
-  const el = document.getElementById(legendId);
-  if (!el) return;
-  if (!chart) { el.innerHTML = ''; return; }
-  const groups = new Map();  // iface -> [{ dir, avgIdx, color }]
-  chart.data.datasets.forEach((ds, i) => {
-    if (i % 2 !== 0) return;  // avg dataset 만 (max 는 ghost)
-    const sp = ds.label.lastIndexOf(' ');
-    const iface = sp > 0 ? ds.label.slice(0, sp) : ds.label;
-    const dir   = sp > 0 ? ds.label.slice(sp + 1) : '';
-    if (!groups.has(iface)) groups.set(iface, []);
-    groups.get(iface).push({ dir, avgIdx: i, color: ds.borderColor });
-  });
-  el.innerHTML = [...groups.entries()].map(([iface, items]) => `
-    <div class="legend-iface-row">
-      <span class="legend-iface-name" title="${iface}">${iface}</span>
-      ${items.map(it => `
-        <button type="button" class="legend-chip" data-avg="${it.avgIdx}" aria-pressed="true">
-          <span class="legend-dot" style="background:${it.color};"></span>${it.dir}
-        </button>
-      `).join('')}
-    </div>
-  `).join('');
-  el.querySelectorAll('.legend-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const avgIdx = +chip.dataset.avg;
-      const hidden = !chart.getDatasetMeta(avgIdx).hidden;
-      chart.getDatasetMeta(avgIdx).hidden     = hidden;
-      chart.getDatasetMeta(avgIdx + 1).hidden = hidden;
-      chip.setAttribute('aria-pressed', String(!hidden));
-      chart.update();
-    });
-  });
-}
-
 // bytes/pps 공용 차트 렌더 — spec 으로 단위(fmt)·Y축 제목·chart 인스턴스 참조 분기.
 function renderNetChartOne(spec, avgRows, maxRows, range, anchorEnd) {
   const empty  = document.getElementById(spec.emptyId);
@@ -211,7 +174,7 @@ async function loadNetChart() {
     if (seq !== netSeq) return;
     const bytesRows = ifaceOrderedRows(rxAvg, txAvg, rxMax, txMax);
     renderNetChartOne(BYTES_SPEC, bytesRows.avg, bytesRows.max, capturedRange, capturedAnchor);
-    buildNetGroupedLegend(BYTES_SPEC.legendId, netChart);
+    buildAvgMaxLegend(BYTES_SPEC.legendId, netChart, { withToggle: true });
     const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
     if (seq !== netSeq) return;
     const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
@@ -241,7 +204,7 @@ async function loadNetPpsChart() {
     if (seq !== netPpsSeq) return;
     const ppsRows = ifaceOrderedRows(prxAvg, ptxAvg, prxMax, ptxMax);
     renderNetChartOne(PPS_SPEC, ppsRows.avg, ppsRows.max, capturedRange, capturedAnchor);
-    buildNetGroupedLegend(PPS_SPEC.legendId, netPpsChart);
+    buildAvgMaxLegend(PPS_SPEC.legendId, netPpsChart, { withToggle: true });
     const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
     if (seq !== netPpsSeq) return;
     const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);

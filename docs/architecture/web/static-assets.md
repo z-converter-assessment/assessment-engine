@@ -29,7 +29,7 @@ src/assessment_engine/web/static/js/
 | `applyRebootMarkers(chart, events, gridMs)` | 차트 인스턴스에 marker 옵션 주입 + redraw |
 | `rebootMarkersPlugin` | Chart.js 글로벌 plugin (`afterDraw`로 dashed line 그림). chart-utils 로드 시 자동 등록 |
 | `renderChipLegend(container, chart)` | 색점+라벨 칩(pill) 토글 범례 — dataset 1개당 1칩, 클릭 시 show/hide. comp/load 계열 (cpu·memory) |
-| `buildAvgMaxDatasets` / `buildAvgMaxLegend(id, chart, opts)` | avg+max ghost dataset·범례. `withToggle`=칩(avg/max 쌍 1칩 함께 토글), `codeLabel`=정적 선+라벨 (storage io·network·performance) |
+| `buildAvgMaxDatasets` / `buildAvgMaxLegend(id, chart, opts)` | avg+max ghost dataset·범례. `withToggle`=칩(avg/max 쌍 1칩 함께 토글 — storage io·network·performance 통일), `codeLabel`=정적 선+code 라벨(현재 미사용) |
 
 ## 페이지별 .js 패턴
 
@@ -62,11 +62,11 @@ src/assessment_engine/web/static/js/
 - 구간/집계 = `<select class="chart-select">` 드롭다운 (옛 `.toggle` 버튼 그룹 대체 — 너비 절약). `bindToggle` 이 select/button 자동 분기라 JS 호출 동일.
 - 앵커 = `<input type="datetime-local" class="chart-anchor">`. select·anchor 높이 통일(`box-sizing`).
 - 다중 차트 한 페이지(network: I/O·PPS)는 차트별 독립 구간/앵커 (공유 X).
+- 성능 리포트(performance)는 예외 — 각 상세(cpu/memory/storage/network) 추이 차트 10개를 2열 5쌍으로 모은 종합 뷰라, 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(서버 정보 카드 아래, 버킷/구간/앵커 좌측 + 수집 기준 우측)이 모든 차트 동기. 행마다 1 카드(`.perf-pair` 안 2 차트, `.chart-desc` 고정 높이로 캔버스 top 정렬)로 좌우 카드 높이 통일. 리부트/재시작 마커는 미표시(가독성). 디스크 read+write·네트워크 RX+TX 는 각각 통합 1 차트.
 
 ### 범례 (칩 토글)
 - `.legend-chip` (pill 버튼 + `.legend-dot` 색점): 클릭 시 dataset show/hide, 숨김은 `aria-pressed=false`로 흐려짐. `button`+`aria-pressed`라 키보드 토글 지원.
-- comp/load 계열 = `renderChipLegend` (dataset 1칩). avg+max ghost(storage io·network) = `buildAvgMaxLegend({withToggle})` (avg/max 쌍 1칩 함께 토글).
-- 네트워크 차트 = `buildNetGroupedLegend` (network.js 로컬): 인터페이스별 1행(`.legend-iface-row` = `.legend-iface-name` + RX/TX 칩). 긴 이름 width 고정 + 줄임표 + `title` hover 식별, RX/TX 인접 정렬. 데이터 숨김 X (모든 인터페이스 표시) — 가시성만 그룹화.
+- comp/load 계열(고정 dimension) = `renderChipLegend` (dataset 1칩 — cpu·memory comp, performance CPU 분류·메모리 구성). avg+max ghost = `buildAvgMaxLegend({withToggle})` (avg/max 쌍 1칩 함께 토글 — storage io·network·performance 물리 I/O·파일시스템·네트워크). 옛 `buildNetGroupedLegend`(인터페이스별 그룹 행)·`codeLabel` 정적 범례는 폐기 — 전 차트 칩 토글로 통일.
 
 ### avg + max ghost 패턴
 1차 dataset = avg (visible). 2차 dataset = max (`borderColor:'transparent'`, `realData` 보유) — tooltip에서 `realData`로 max 표시. legend는 짝수 인덱스만.
@@ -85,6 +85,8 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 ```
 
 `.no-print` 클래스로 navbar/검색폼/버튼 인쇄 시 숨김 (base.html). 컨설턴트가 브라우저 인쇄 → PDF/PPT 캡처. 백엔드 PDF export는 미도입 (`docs/tradeoffs.md` 참조).
+
+성능 리포트 인쇄(base.html `@media print`): `.perf-pair` 2열 강제(auto-fit 이 A4 폭에서 1열로 collapse 방지) + `.perf-pair canvas { width/height:100% !important }` 로 Chart.js 가 캔버스에 박은 화면 폭(px)이 인쇄 컨테이너를 넘어 꺾은선이 plot 경계를 넘는 것 보정. `beforeprint`/`afterprint` 차트 `resize()` 보강(performance.js).
 
 ## 의존성
 
