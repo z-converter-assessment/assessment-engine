@@ -143,6 +143,47 @@
 </section>
 {% endif %}
 
+{# 네트워크 토폴로지 — ip_internal CIDR 에서 도출한 subnet 공동소속 그래프. 인벤토리 데이터라 환경요약 다음 배치.
+   자동갱신 fragment 안이라 swap 후 캔버스 재생성 — list.js 가 innerHTML 교체 직후 NetworkTopology.render() 동기 호출
+   (repaint 전 재렌더라 깜빡임 0, 노드 위치 캐시로 데이터 불변 시 배치 고정). page>1·필터 시 topology=None 컨텍스트
+   가드(카드 숨김), 데이터 없으면 empty_state (#E9). #}
+{% if topology %}
+<section class="card no-print">
+  <h2>네트워크 토폴로지
+    {% if topology.has_data %}<span class="section-meta">(서브넷 {{ topology.subnet_count }} · 호스트 {{ topology.host_count }}{% if topology.multi_homed_count > 0 %} · 멀티홈 {{ topology.multi_homed_count }}{% endif %}{% if topology.isolated_count > 0 %} · 미연결 {{ topology.isolated_count }}{% endif %})</span>{% endif %}
+  </h2>
+  {% if topology.has_data %}
+  {# 확대/축소·전체보기 툴바 — 그래프 위 일반 흐름(캔버스 오버레이 아님, z-index/클릭 가로채기 원천 회피).
+     바인딩은 network-topology.js render() (P4: 라이브러리 인터랙션). #}
+  <div style="position:relative;">
+    <div id="topology-graph" style="height:420px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc;"
+         data-elements='{{ topology.elements | tojson }}'></div>
+    {# 확대/축소·전체보기 — 그래프 우상단 세로 오버레이. 대시보드 .chart-anchor 버튼 테마 재사용.
+       바인딩은 network-topology.js render() (P4: 라이브러리 인터랙션). #}
+    <div style="position:absolute; top:10px; right:10px; display:flex; flex-direction:column; gap:5px; z-index:10;">
+      <button type="button" class="chart-anchor" data-topo-zoom="in" title="확대"
+        style="width:32px; height:32px; padding:0; font-size:16px; font-weight:600; text-align:center;">+</button>
+      <button type="button" class="chart-anchor" data-topo-zoom="out" title="축소"
+        style="width:32px; height:32px; padding:0; font-size:16px; font-weight:600; text-align:center;">-</button>
+      <button type="button" class="chart-anchor" data-topo-zoom="fit" title="전체 보기"
+        style="width:32px; height:32px; padding:0; font-size:10px; text-align:center;">전체</button>
+    </div>
+  </div>
+  <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; font-size:11px; color:#64748b;">
+    <span><span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:#64748b; vertical-align:middle;"></span> 서브넷</span>
+    <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#3b82f6; vertical-align:middle;"></span> Linux</span>
+    <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#0ea5e9; vertical-align:middle;"></span> Windows</span>
+    <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#f59e0b; vertical-align:middle;"></span> 멀티홈(라우팅 지점)</span>
+  </div>
+  <ul style="margin:10px 0 0; padding-left:18px; font-size:11px; line-height:1.6; color:#94a3b8;">
+    {% for c in topology.caveats %}<li>{{ c }}</li>{% endfor %}
+  </ul>
+  {% else %}
+  {{ empty_state("2대 이상이 공유하는 네트워크 세그먼트가 아직 없습니다 — 인벤토리가 쌓이면 호스트 간 서브넷 관계가 표시됩니다.") }}
+  {% endif %}
+</section>
+{% endif %}
+
 {# 환경 실시간 메트릭 — 현황 모니터링(최신 스냅샷). 환경요약 14일 활용률·right-sizing(장기 사이징)과 의미 분리.
    realtime 객체면 데이터 없어도(서버 0대·sample 0) 카드 항상 노출 — 제목+섹션으로 출력 형식 발화(E9).
    내부 도넛·부하상위는 sample_size/has_peaks 가드로 empty_state placeholder. page>1·필터 시 realtime=None 컨텍스트 가드는 유지(카드 숨김). #}

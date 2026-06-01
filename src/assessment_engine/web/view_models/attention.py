@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from assessment_engine.web.view_models.topology import NetworkTopology
+
 
 @dataclass
 class AttentionRow:
@@ -224,8 +226,12 @@ class EnvironmentRealtime:
 @dataclass
 class DashboardLive:
     """list 화면 fragment=live·page1 공용 묶음 — 공유 기초 데이터(now·report_aggregate·online flags)를
-    1회 조회 후 3 ViewModel 조립. 세 카드가 같은 스냅샷 기준이라 카드 간 값 일관 (중복 쿼리 제거 + 비결정성 해소)."""
+    1회 조회 후 ViewModel 조립. 세 라이브 카드가 같은 스냅샷 기준이라 카드 간 값 일관 (중복 쿼리 제거 + 비결정성 해소).
+
+    topology 는 동일 details 에서 파생하지만 자동갱신 라이브 fragment 가 아니라 page 렌더에서만 1회 표시
+    (토폴로지는 정적 인벤토리라 30초 폴링 대상 아님 — list_page 가 page==1 에서만 context 전달)."""
 
     overview: EnvironmentOverview
     attention: AttentionSignals
     realtime: EnvironmentRealtime
+    topology: NetworkTopology
