@@ -96,13 +96,13 @@ docker-compose `environment:` 블록은 `env_file:` 보다 후순위라 마지�
 
 ## 5. dev/prod 차이 매트릭스
 
-dev 는 본 repo 가 제공 (`dev/docker-compose.yml`). prod 는 외부 인프라 책임 — 본 표는 외부 인프라가 만족해야 할 contract reference.
+dev 는 본 repo 가 제공 (`docker-compose.yml (루트)`). prod 는 외부 인프라 책임 — 본 표는 외부 인프라가 만족해야 할 contract reference.
 
 | 항목 | dev (본 repo) | prod (외부 인프라) |
 |------|--------------|---------------------|
-| 기동 방식 | `docker compose -f dev/docker-compose.yml up` | systemd + wheel install (`docs/operations/deployment.md`) 또는 외부 인프라 자유 (ADR 0012) |
+| 기동 방식 | `docker compose up` | systemd + wheel install (`docs/operations/deployment.md`) 또는 외부 인프라 자유 (ADR 0012) |
 | `APP_ENV` | `dev` | `prod` 명시 (env var 또는 EnvironmentFile) |
-| 코드 마운트 (`../:/app`) | OK 빠른 반복 | NG 이미지·wheel 불변성 |
+| 코드 마운트 (`./:/app`) | OK 빠른 반복 | NG 이미지·wheel 불변성 |
 | 백킹 서비스 포트 외부 노출 | OK 5432·5672·6379·15672 | NG web 만 (또는 reverse proxy 뒤) |
 | Password 주입 | `dev/.env` 평문 | 자유 채널 — env var·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 |
 | Schema 관리 | `migrate` init-container 가 `alembic upgrade head` 1회 (ADR 0005) | 외부 인프라 ansible task 또는 systemd one-shot 으로 사전 실행 (wheel 안 `_alembic.ini` 활용) |
@@ -291,6 +291,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |
 | `ZDM_DEFAULT_IP` | `host.docker.internal:8000` | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. dev default 는 web 컨테이너의 ZDM mock endpoint (ADR 0018) 가리킴. startup 거부 없음 — 잘못된 ZDM 발행은 런타임 503 + agent host whitelist 가 방어 |
 | `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 관리자 계정 기본값. POST body `zdm_user` 누락 시 fallback. install.sh 의 `-u` 인자. startup 거부 없음 (secret 아님) |
+| `ZDM_RESOLVER_HOST_OVERRIDE` | `""` | config.py | resolver(엔진)가 sha256/size 산출용으로 fetch 하는 host override. set 이면 `HttpZdmPackageResolver` 가 이 host 로 HEAD/GET, download.url·install args 는 `ZDM_DEFAULT_IP` 유지. dev 한정 — mock 이 web 컨테이너 자신이라 host publish 포트 hairpin 불가하면 `localhost:8000` 으로 fetch. prod 빈값(엔진이 real ZDM 직접 도달) |
 | `ZDM_PACKAGE_PATH` | `/download/ZConverter_CloudSource_Setup_Linux.tar.gz` | config.py | ZDM 호스트의 본체 패키지 URL path. task.install download.url 은 `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` 조립. dev mock endpoint 도 동일 path 로 라우팅 (ADR 0018) |
 | `ZDM_PACKAGE_SCRIPT` | `zconverter_install_source/install.sh` | config.py | tar 추출 후 실행할 스크립트 경로 |
 | `ZDM_META_CONNECT_TIMEOUT_SEC` | `5.0` | config.py | ZDM 메타 조회 HTTP connect timeout |
@@ -334,7 +335,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 - [ ] `POSTGRES_USER`·`RABBITMQ_USER` 도 dev default(`assessment`) 아닌 값 (weak default 거부 대상)
 - [ ] `ZDM_DEFAULT_IP`·`ZDM_DEFAULT_USER` 고객사 ZDM 좌표로 override (startup 거부는 없음 — 미설정 시 첫 install 발행이 런타임 503 또는 agent `url_not_allowed` 로 실패)
 - [ ] `ZDM_PACKAGE_*` 운영 ZDM 측 패키지 layout 과 일치 (path·script)
-- [ ] Alembic 마이그레이션 사전 적용 — wheel 안 `assessment_engine/_alembic.ini` + `_migrations/` 활용 (`docs/operations/alembic.md`)
+- [ ] Alembic 마이그레이션 사전 적용 — wheel 안 `assessment_engine/_alembic.ini` + `migrations/` 활용 (`docs/operations/alembic.md`)
 - [ ] DB·MQ·Redis 외부 포트 노출 없음 (reverse proxy 뒤)
 - [ ] web 노출 결정 (reverse proxy 또는 직접) — `/metrics` 는 외부 노출 금지 (ADR 0011)
 - [ ] `LOG_FORMAT=json` 권장 — 외부 log aggregator indexing (`docs/operations/observability.md`)

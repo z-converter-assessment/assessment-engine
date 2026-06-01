@@ -33,7 +33,7 @@ docs/
 │   ├── db/                models / dtos / repositories / timescaledb (4분할)
 │   └── web/               layering / routers / services / view-models / static-assets / export-schema (6분할 — JSON Export 응답 스키마 포함)
 ├── development/           본 repo 안 dev 작업·코드 규약 (영구·갱신)
-│   ├── docker.md          Dockerfile·dev/docker-compose 명세
+│   ├── docker.md          Dockerfile·루트 docker-compose(dev+퀵스타트 단일) 명세
 │   ├── dependencies.md    pyproject.toml + uv.lock 관리·운영자 수동 bump·CI drift 검증
 │   ├── pipeline.md        E2E 파이프라인 검증 + libvirt Linux 5 VM 매트릭스·합성 부하·provisioning (Linux x86_64)
 │   ├── windows-vm.md      Windows agent 검증 — libvirt Win Server 2022 autounattend VM (win-server-01, opt-in)

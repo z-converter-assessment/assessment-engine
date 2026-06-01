@@ -14,10 +14,10 @@ RAG_ENABLED=true
 ollama pull mxbai-embed-large
 
 # 3. diagnostic-worker 재기동
-docker compose -f dev/docker-compose.yml up -d --force-recreate diagnostic-worker
+docker compose up -d --force-recreate diagnostic-worker
 
 # 4. sample 본 디렉토리 ingest (docker container 안)
-docker compose -f dev/docker-compose.yml exec diagnostic-worker bash -c '
+docker compose exec diagnostic-worker bash -c '
   for f in /app/docs/rag-seed/*.md; do
     [ "$f" = "/app/docs/rag-seed/README.md" ] && continue
     python -m assessment_engine.rag.ingest "$f"
@@ -25,7 +25,7 @@ docker compose -f dev/docker-compose.yml exec diagnostic-worker bash -c '
 '
 
 # 5. ingest 검증
-docker compose -f dev/docker-compose.yml exec postgres psql -U assessment -d assessment \
+docker compose exec postgres psql -U assessment -d assessment \
   -c "SELECT source_type, count(*) FROM rag_documents GROUP BY source_type"
 ```
 

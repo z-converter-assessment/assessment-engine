@@ -114,15 +114,15 @@ raw 단위 그대로 (P1) — KB·bytes. percent·delta 변환은 SQL 표현식�
 
 ### ollama 운영 (dev = compose 서비스 / prod = 운영자 활성)
 
-dev — `dev/docker-compose.yml` 안 `ollama` 서비스로 자동 구동. diagnostic-worker 가 compose 네트워크에서 `OLLAMA_BASE_URL=http://ollama:11434` (서비스명) 로 연결. 모델은 빈 상태 기동이라 compose up 후 1회 pull 의무 — `ollama_data` 볼륨에 영속 (재기동 시 재pull 불필요).
+dev — `docker-compose.yml (루트)` 안 `ollama` 서비스로 자동 구동. diagnostic-worker 가 compose 네트워크에서 `OLLAMA_BASE_URL=http://ollama:11434` (서비스명) 로 연결. 모델은 빈 상태 기동이라 compose up 후 1회 pull 의무 — `ollama_data` 볼륨에 영속 (재기동 시 재pull 불필요).
 
 ```bash
 # 1. 스택 기동 (ollama 서비스 포함)
-docker compose -f dev/docker-compose.yml up -d
+docker compose up -d
 
 # 2. 모델 1회 pull (ollama_data 볼륨 영속)
-docker compose -f dev/docker-compose.yml exec ollama ollama pull qwen2.5:1.5b      # dev default (CPU 추론 경량)
-docker compose -f dev/docker-compose.yml exec ollama ollama pull mxbai-embed-large # ADR 0024 RAG embedding (RAG_ENABLED 시)
+docker compose exec ollama ollama pull qwen2.5:1.5b      # dev default (CPU 추론 경량)
+docker compose exec ollama ollama pull mxbai-embed-large # ADR 0024 RAG embedding (RAG_ENABLED 시)
 
 # 3. diagnostic-worker env (compose 가 default 주입 — override 시만 명시. ADR 0025: 단일 provider, LLM_PROVIDER env 없음)
 #    OLLAMA_BASE_URL=http://ollama:11434   (compose 서비스명 — default)

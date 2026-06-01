@@ -11,8 +11,29 @@ artifact 카탈로그·생성 trigger·무결성 검증·다운로드 채널: `d
 운영자 선택권 (ADR 0017):
 - (A) wheel + venv + systemd unit — 본 문서 3절 기본 시나리오
 - (B) Docker image (GHCR) + docker compose 또는 k8s — 본 문서 4절 multi-node 분리 inject 예시 (image 패턴 동등)
+- (C) 퀵스타트 — repo clone 후 루트 `docker-compose.yml` 한 줄 기동 (ADR 0033). 평가·신뢰된 내부망 소규모용. 아래 0절.
 
-토폴로지 자율 — 양쪽 모두 동일 환경변수 contract (`docs/operations/env.md`) + Alembic migration 절차.
+토폴로지 자율 — 모두 동일 환경변수 contract (`docs/operations/env.md`) + Alembic migration 절차.
+
+## 0. 퀵스타트 (단일 호스트 all-in-one)
+
+repo clone 후 한 줄로 엔진 3 컴포넌트 + 의존 인프라(TimescaleDB·Redis·RabbitMQ) 기동. 평가(PoC)·내부망 소규모·데모용.
+
+방법 1 — repo clone (소스에서 이미지 로컬 빌드):
+```bash
+cp .env.example .env              # 기본값으로 동작 — install 시 ZDM 좌표만 수동 설정
+docker compose up -d              # 루트 Dockerfile 로 빌드. web: http://localhost:8000
+```
+
+방법 2 — 릴리즈 다운로드 (소스 clone 불요, GHCR 이미지 pull):
+GitHub Release 첨부 `docker-compose.yml` + `.env.example` 받아:
+```bash
+cp .env.example .env
+ENGINE_IMAGE=ghcr.io/<org>/assessment-engine:v1.2.3 docker compose up -d --no-build   # 릴리즈 이미지 pull
+```
+`ENGINE_IMAGE` 미설정 시 로컬 빌드 시도(`--no-build` 와 충돌) — 릴리즈 경로는 둘 다 필수.
+
+한계 (ADR 0033 "추후 분리"): 현 compose 는 `APP_ENV=dev` 기본(weak secret 허용·plain HTTP)이라 하드닝 prod 아님 — 인터넷 노출 운영은 wheel+systemd(3절) 또는 추후 hardened compose. install(ZDM)·AI 진단(LLM)은 외부 좌표 주입 전까지 비활성.
 
 ## 2. 사전 준비
 
@@ -276,7 +297,7 @@ spec:
 |---------|-----------|-------------------|
 | 환경변수 | `docs/operations/env.md` | 모든 키를 어떤 채널이든 inject |
 | Secret | `config.py` `_validate_prod_*` | `APP_ENV=prod`에서 weak default 거부 — strong random 주입 |
-| Schema | wheel 안 `_alembic.ini` + `_migrations/` | `alembic upgrade head` 사전 실행 |
+| Schema | wheel 안 `_alembic.ini` + `migrations/` | `alembic upgrade head` 사전 실행 |
 | graceful shutdown | F11 (`docs/architecture/consumer.md`·`diagnostic.md`) | systemd `KillSignal=SIGTERM` + `TimeoutStopSec` 충분히 |
 | 헬스 endpoint | `GET /health` (web) | systemd `Restart=always` + watchdog 외부 모니터 |
 | 관측 | `/metrics` (Prometheus, ADR 0011) + `LOG_FORMAT=json` (F7) | Prometheus scrape · log aggregator collector |

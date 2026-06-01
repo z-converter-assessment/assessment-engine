@@ -44,7 +44,9 @@ packages = ["src/assessment_engine"]
 # migrations·alembic.ini를 wheel 안에 동봉 — `uv pip install wheel` 후 즉시 `alembic upgrade head` 실행 가능.
 # 단일 artifact 원칙 (CD에서 인프라 측이 wheel 하나만 받으면 됨).
 # force-include 키는 "source 경로 = wheel 안 경로" 매핑. wheel 안 위치는 패키지 루트 안에 박음.
-force-include = { "migrations" = "assessment_engine/_migrations", "alembic.ini" = "assessment_engine/_alembic.ini" }
+# migrations 는 `assessment_engine/migrations` 로 동봉 — 번들 `_alembic.ini` 의 script_location
+# (`%(here)s/migrations`) 와 정합해야 wheel install 후 `alembic -c _alembic.ini upgrade head` 동작.
+force-include = { "migrations" = "assessment_engine/migrations", "alembic.ini" = "assessment_engine/_alembic.ini" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
