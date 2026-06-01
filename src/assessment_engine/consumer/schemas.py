@@ -1,5 +1,5 @@
 from datetime import datetime
-from ipaddress import ip_address
+from ipaddress import ip_interface
 from typing import Literal
 from uuid import UUID
 
@@ -86,12 +86,14 @@ class InventoryInput(MessageBase):
     @classmethod
     def validate_ip_list(cls, v: object) -> object:
         # mode="before" — Pydantic 검증 전이라 v는 임의 타입(JSON 파싱 직후). list/tuple만 허용.
+        # ip_interface 는 bare IP("10.0.1.15")와 CIDR("10.0.1.15/24") 둘 다 허용 — agent payload v3.4+ 가
+        # ip_internal 을 CIDR 표기로 발행(#B). ip_external 은 bare IP 유지이나 ip_interface 가 상위호환 수용.
         if v is None:
             return v
         if not isinstance(v, (list, tuple)):
             raise TypeError(f"expected list or tuple of IP strings, got {type(v).__name__}")
         for item in v:
-            ip_address(str(item))
+            ip_interface(str(item))
         return v
 
     # mac_addresses — NIC별 MAC 목록 (lowercase·정렬·dedup, 빈 배열 가능). 다중 NIC 라 단일 식별 불가

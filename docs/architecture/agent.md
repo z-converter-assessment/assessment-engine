@@ -2,7 +2,7 @@
 
 정책: CLAUDE.md #B. 본 문서는 엔진이 송수신하는 메시지의 데이터 형식 단일 진실. 외부 호스트 발행 / 엔진 수신 두 방향 모두.
 
-외부 SoT 동기화 상태: agent repo (`/Users/whdcks/z-converter-assessment/assessment-agent/`) 의 `docs/payload-schema.md` 는 v3.4 시점에 머물러 v4 (composite_id 라우팅 전환) 일부 미반영 — 특히 `task.install` 본문에 `machine_id` 필드가 남아 있고 라우팅 키가 `task.install.<machine_id>` 로 서술됨. 실제 양 OS agent C 코드 (Linux `src/main.c` + Windows `windows-agent/src/main.c`) 와 본 문서는 `composite_id` 기반으로 정렬됨. agent repo docs 갱신은 agent repo 측 책임 — 본 문서가 엔진 입장의 단일 진실이고, 발행 측 실제 코드가 본 문서와 일치해야 함 (코드 = 1순위, agent docs = 2순위).
+외부 SoT 동기화 상태: agent repo (`../assessment-agent/`) 의 `docs/payload-schema.md` 는 payload v3.4 (`ip_internal` CIDR 전환 + `boot_time` 소스 `/proc/stat btime` 전환 포함) 까지 반영. 단 v4 (composite_id 라우팅 전환) 는 여전히 미반영 — `task.install` 본문에 `machine_id` 필드가 남아 있고 라우팅 키가 `task.install.<machine_id>` 로 서술됨. 실제 양 OS agent C 코드 (Linux `src/main.c` + Windows `windows-agent/src/main.c`) 와 본 문서는 `composite_id` 기반으로 정렬됨. agent repo docs 갱신은 agent repo 측 책임 — 본 문서가 엔진 입장의 단일 진실이고, 발행 측 실제 코드가 본 문서와 일치해야 함 (코드 = 1순위, agent docs = 2순위).
 
 ---
 
@@ -19,7 +19,7 @@
 | `collected_at` | datetime (ISO 8601 UTC) | 수집 시각 |
 | `hostname` | string max=255 | 보조 식별자 (가변) |
 | `message_id` | UUID v4 | 멱등성 키 |
-| `boot_time` | datetime UTC | 시스템 부팅 시각. `task.result` 한정 `null` 허용 (수집 컨텍스트 분리). Windows agent 는 캐시 산출 실패 시 빈 문자열 발행 가능 -> engine inventory/metrics/error required datetime reject -> DLQ |
+| `boot_time` | datetime UTC | 시스템 부팅 시각. Linux agent 소스는 `/proc/stat` 의 `btime` 라인 (agent payload v3.4+, 이전 `/proc/uptime` + `CLOCK_REALTIME` 산출). wire 형식·의미 동일 (ISO 8601 UTC) — 엔진 무영향. 프로세스 시작 시 1회 read 후 캐시 (NTP 보정 흔들림 제거). `task.result` 한정 `null` 허용 (수집 컨텍스트 분리). Windows agent 는 캐시 산출 실패 시 빈 문자열 발행 가능 -> engine inventory/metrics/error required datetime reject -> DLQ |
 | `agent_started_at` | datetime UTC | 발행 프로세스 기동 시각. `task.result` 한정 `null` 허용. Windows agent 의 `cache_process_times` 가 `time()` 실패 시 빈 문자열 발행 가능 — 동일 reject 경로 |
 | `os_family` | `"linux"` \| `"windows"` \| null | OS family — 모든 메시지 진입 시점 OS 분기 단일 진실 (`MessageBase` 정식 등록). 양 OS agent 가 발행. nullable 사유: (a) 옛 agent minor bump 호환 (b) task.result Linux worker 미발행 비대칭 (Windows worker 는 `"windows"` 발행 / Linux worker 미발행) 흡수. inventory 한정 추가 활용: `server_inventory.os_family` 저장 후 `task.install` dispatch 단일 진실 (ADR 0020). metrics/error/task.result 는 현재 시계열 테이블 컬럼 미추가 — 시점별 활용처가 명확해질 때 별도 결정 |
 
@@ -39,7 +39,8 @@ routing key `server.inventory`. 기동 시 1회 + 주기 재발행.
 | 메모리 / 스왑 | int\|null (KB) | `mem_total_kb` / `swap_total_kb` |
 | `disks[]` | object | `{name, size_bytes, type, major, minor}`. Windows: `name="PhysicalDriveN"`, `type="disk"` 고정, `major=0` 평탄 (POSIX major 부재 placeholder), `minor=`drive index (`enumerate_physical_disks` 0..31 시도 순서). mount-disk 조인은 Windows 한정 major 무의미 -> minor 단독 매칭 (disks[].minor 와 mounts[].minor 가 `STORAGE_GET_DEVICE_NUMBER.DeviceNumber` 동일 키로 정렬) |
 | `mounts[]` | object | `{mount, fstype, total_bytes, free_bytes, avail_bytes, major, minor}`. Windows: `mount=`drive letter (`"C:\\"`, `"D:\\"` 등), `fstype` lowercase (`GetVolumeInformationW` 실패 시 null), `major=0`, `minor=DeviceNumber` |
-| `ip_internal[]` / `ip_external[]` | list[string]\|null | IP 주소 목록 |
+| `ip_internal[]` | list[string]\|null | 내부 IP 를 CIDR 표기 문자열로 발행 (agent payload v3.4+, 이전 bare IP). 예: `"10.0.1.15/24"`. Linux 는 `ifa_netmask` 에서 prefix 환산(IPv4 only), Windows 는 `OnLinkPrefixLength` 직사용(IPv4+IPv6). netmask 부재(point-to-point 등)·non-contiguous mask 시 prefix `0` 가능. loopback 제외. 인바운드는 `consumer/schemas.py::validate_ip_list` 가 `ip_interface` 로 형식만 검증(bare·CIDR 모두 허용 — 옛 agent 하위호환) 후 `server_inventory.ip_internal` 에 raw 문자열 그대로 저장. 소비: detail 표시(`mappers/server._to_ip_addrs` 도 `ip_interface` 파싱) + 대시보드 네트워크 토폴로지(`mappers/topology.build_network_topology` — subnet 공동소속 그래프) |
+| `ip_external[]` | list[string]\|null | 외부 IP 목록 (CIDR 아님, bare IP). 클라우드 메타데이터 미접근 시 `null` |
 | `mac_addresses[]` | list[string] | NIC MAC 목록 (lowercase·정렬·dedup, 빈 배열 가능, agent payload v3.3+). 받아 `server_inventory.mac_addresses` 저장 — 다중 NIC 라 식별 미사용(composite_id 가 sha256 으로 흡수). clone collision 감지는 미구현 (raw 보존만) |
 | `services[]` | object\|null | `{unit, sub}`. `null` = Linux non-systemd 또는 Windows SCM 접근 실패 / 빈 배열 = 서비스 0개 (Windows SCM 성공). `sub` 의 OS별 의미 차이: Linux = systemd sub 컬럼 가변값 (`running`/`exited`/`failed`/`dead` 등 — 상태 분기 의미), Windows = SCM RUNNING 항목만 발행하므로 항상 `"running"` 고정 (상태 분기 의미 부재 — UI badge 가 sub 값 분기 시 Windows 호스트는 항상 동일 표시) |
 | `listen_ports[]` | object | `{proto, addr, port, uid, pid, comm}` — 수집 실패 시 빈 배열 |
@@ -199,6 +200,7 @@ dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.doc
 | `agent_started_at` (inventory) | inventory | `server_inventory.agent_started_at` 컬럼 저장 + history 변경 trigger. 발행 프로세스 재시작 이벤트 감지의 1차 단서 |
 | `boot_time` (metrics) | metrics | 시계열 4 테이블 모두 (`server_metrics`·`server_disk_io`·`server_net_io`·`server_mount_usage`) `boot_time` 컬럼 저장. metrics·disk_io·net_io 는 `metrics_calculator._is_counter_reset` 이 두 시점 비교 -> 시스템 재부팅 시 delta 건너뛰기. mount_usage 는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 위해 보존 (CLAUDE.md C1 + B) |
 | `agent_started_at` (metrics) | metrics | 동일 4 테이블 컬럼 저장. boot_time 동일·agent_started_at 만 다름 -> 발행 프로세스 재시작 (counter 는 /proc 기반 그대로 -> 정상 delta) |
+| `ip_internal` (inventory) | inventory | CIDR 파싱(`ip_interface`) -> IP & prefix 로 network address 산출 -> `mappers/topology.build_network_topology` 가 subnet 공동소속 그래프(노드=subnet/host, 엣지=소속) 도출. 대시보드 네트워크 토폴로지 카드(Cytoscape.js). 가상망(docker/virbr·동일 host IP 중복·단독 subnet)·IPv6·link-local 은 mapper 에서 제외 — 실측 아닌 추론 토폴로지 |
 
 ---
 
