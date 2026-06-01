@@ -31,6 +31,9 @@ MetricType = Literal[
     "net.rx_packets_per_sec",
     "net.tx_packets_per_sec",
 ]
+# 환경 전체 추이 차트 metric (대시보드·환경 보고서 공용) — CPU·메모리·디스크 평균.
+# disk.usage_percent 는 서버별 worst mount(가상 제외) 평균 — server_mount_usage 별도 분기.
+EnvironmentMetricType = Literal["cpu.usage_percent", "mem.usage_percent", "disk.usage_percent"]
 TimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d"]
 AggFunc = Literal["avg", "max", "p95"]

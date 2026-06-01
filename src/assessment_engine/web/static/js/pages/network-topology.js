@@ -99,6 +99,10 @@
       style: STYLE,
       minZoom: 0.3,
       maxZoom: 2.5,
+      // 휠·트랙패드 두 손가락 스크롤 줌 비활성 — 페이지 스크롤이 토폴로지 줌으로 가로채이는 것 방지.
+      // 줌은 +/- 버튼(cy.zoom(), 프로그래밍 줌이라 영향 없음)으로만. 드래그 pan 은 유지.
+      userZoomingEnabled: false,
+      userPanningEnabled: true,
     });
 
     var layoutOpts = allCached

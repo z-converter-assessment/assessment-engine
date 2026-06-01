@@ -52,6 +52,7 @@ from assessment_engine.web.view_models.report import (
     ReportTotals,
     ReportWorkloadGroup,
 )
+from assessment_engine.web.view_models.topology import NetworkTopology
 
 
 def _json_default(obj: object) -> str:
@@ -122,6 +123,9 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
     data["os_distribution"] = [OsCount(**o) for o in data.get("os_distribution") or []]
     data["os_family_dist"] = [DistributionBar(**b) for b in data.get("os_family_dist") or []]
     data["workload_dist"] = [DistributionBar(**b) for b in data.get("workload_dist") or []]
+    topo = data.get("topology")
+    data["topology"] = NetworkTopology(**topo) if topo else None
+    # trend 는 plain dict list (at=isoformat str) — 라운드트립 시 그대로 보존 (복원 불필요).
     data["top_risks"] = [_report_row_from_dict(r) for r in data.get("top_risks") or []]
     uph = data.get("under_provisioned_hosts") or []
     data["under_provisioned_hosts"] = [_capacity_warning_from_dict(c) for c in uph]

@@ -9,6 +9,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from assessment_engine.db.repositories.query.types import EnvironmentMetricType
 from assessment_engine.web.deps import get_service, resolve_internal_id
 from assessment_engine.web.services.query_service import (
     AggFunc,
@@ -73,6 +74,17 @@ async def get_metric_chart(
         end,
         device_category,
     )
+
+
+@api_router.get("/environment/metrics-chart")
+async def get_environment_metrics_chart(
+    metric_type: EnvironmentMetricType = Query(...),
+    time_range: TimeRange = Query("14d"),
+    bucket: BucketSize = Query("6h"),
+    service: QueryService = Depends(get_service),
+):
+    """환경 전체(모든 서버) 평균 CPU·메모리 시계열 — 대시보드 추이 차트 live (server_id 무관)."""
+    return await service.get_environment_metric_chart(metric_type, time_range, bucket)
 
 
 @api_router.get("/{server_id}/events/reboot")

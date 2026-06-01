@@ -9,14 +9,15 @@ from assessment_engine.web.view_models.attention import (
     EnvironmentOverview,
 )
 from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
+from assessment_engine.web.view_models.topology import NetworkTopology
 
 
 @dataclass
 class ClassificationCount:
     """USE Method 분포 1 segment — 환경 보고서 전용 (양식 A/B 공통).
 
-    label 은 recommend enum 영어 그대로 (대시보드 도넛과 단일 진실).
-    description: 보고서 분포 막대 옆 간단 보조 설명.
+    label 은 right-sizing 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 보고서 전역 동일 어휘.
+    description: 보고서 분포 막대 옆 조치 방향 보조 설명.
     pct: 본 segment 가 전체 classification_dist 중 차지하는 % (mapper precompute, P3 회피).
     """
 
@@ -122,6 +123,20 @@ class EnvironmentReportSummary:
     workload_dist: list[DistributionBar] = field(default_factory=list)
     # 분류된 역할이 없는 호스트 수 (서비스 없음 또는 전부 unknown) — discoverability(#E9)
     workload_unknown_count: int = 0
+    # 고객 보고서 의사결정 보조 (mapper precompute, P3) — 모두 기존 분류·신호 단일 진실 재사용.
+    evaluated_count: int = 0  # 평가 가능 호스트 수 (데이터 부족 제외) — 분포가 전체에 적용된다는 오해 방지
+    os_eol_count: int = 0  # OS 지원 종료 호스트 수 (attention.os_eol_warnings len)
+    # 효율화 검토 대상(과다 프로비저닝·유휴·종료 권장) 호스트 수 + 점유 자원 합 — 전환 비용 논의 입력.
+    efficiency_target_count: int = 0
+    efficiency_target_vcpus: int = 0
+    efficiency_target_memory_gb: float = 0.0
+    # 엔지니어 환경 구성 — 에이전트 버전 목록 (중복 제거·정렬). "어디 적용"은 미표시, 버전만 명시.
+    agent_versions_label: str = ""
+    # 네트워크 토폴로지 (engineer) — ip_internal CIDR 공동소속 그래프. 발행 시점 정적 스냅샷.
+    topology: NetworkTopology | None = None
+    # 환경 시계열 추이 (engineer) — 발행 모달 time_range 윈도우의 CPU·메모리 평균 버킷. 정적 스냅샷.
+    # 차트 JS inline(tojson)용 plain dict: [{"at": iso, "cpu": float|None, "mem": float|None}].
+    trend: list[dict] = field(default_factory=list)
     under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list)
     # 엔지니어 보고서 전용 — 운영 신호 발화 호스트 통합 list (gap / os_eol / agent_unstable).
     attention_hosts: list[AttentionHostItem] = field(default_factory=list)

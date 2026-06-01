@@ -263,13 +263,17 @@
       table { box-shadow: none !important; }
       a { color: #1a1a1a !important; text-decoration: none !important; }
       .action-col { display: none !important; }
-      .progress-fill, .progress-bar, .badge { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .progress-fill, .progress-bar, .badge, .bar-fill, .bar-track { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      /* 막대 트랙은 인쇄 시 옅은 배경이 거의 흰색으로 빠져 영역 구분이 약해짐 — 테두리로 막대 길이 가시성 확보. */
+      .bar-track { border: 1px solid #cbd5e1; }
       #realtime-metrics-card { page-break-before: always; }
       /* 성능 리포트 — 행 카드 안 2 차트를 인쇄에서도 2열 유지 (auto-fit 이 A4 폭에서 1열로 떨어지는 것 방지). */
       .perf-pair { grid-template-columns: repeat(2, 1fr) !important; }
       /* Chart.js 가 캔버스에 화면 폭(px)을 inline 으로 박아 인쇄 컨테이너를 넘는 것 보정 —
          캔버스를 컨테이너에 강제로 맞춰 꺾은선이 plot 경계를 넘지 않게. */
       .perf-pair canvas { width: 100% !important; height: 100% !important; }
+      /* 환경 부하 추이 차트(보고서 인쇄) — 동일 보정. */
+      #env-trend-chart { width: 100% !important; height: 100% !important; }
     }
   </style>
   <!-- 자식 template의 inline script(<main> 안)에서 ChartUtils를 즉시 destructure하므로

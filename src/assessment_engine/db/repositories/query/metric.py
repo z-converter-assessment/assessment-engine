@@ -28,6 +28,7 @@ from assessment_engine.db.repositories.query.types import (
     _CPU_TOTAL_EXPR,
     _RATE_PER_DIM_DEFS,
     _SCALAR_VALUE_EXPR,
+    _VIRTUAL_MOUNT_SQL_FILTER,
     TIME_RANGE_TD,
     AggFunc,
     BucketSize,
@@ -246,6 +247,103 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             return await self._chart_fs(server_id, start, end_dt, bi, ae, dimension)
 
         raise AssertionError(f"unreachable: unknown metric_type {metric_type!r}")
+
+    async def environment_metric_trend(
+        self,
+        metric_type: str,
+        start: datetime,
+        end: datetime,
+        bi: str,
+        bucket_td: timedelta,
+    ) -> list[MetricSeries]:
+        """환경 전체(모든 서버) 시점별 평균 시계열 — 대시보드·환경 보고서 추이 차트 공용.
+
+        서버 동등가중: 버킷+서버 평균 후 서버간 평균 (environment_utilization 정책 일관, 서버 1대=1표).
+        cpu.usage_percent: LAG delta (서버별 PARTITION, reset 정책 _chart_cpu_delta 동일).
+        mem.usage_percent: 시점값. agg 는 avg 고정 (환경 추이는 평균).
+        """
+        if metric_type in _CPU_NUMERATOR:
+            num = _CPU_NUMERATOR[metric_type]
+            sql = text(f"""
+                WITH raw AS (
+                    SELECT collected_at, server_id, boot_time,
+                        {num}               AS num_j,
+                        {_CPU_TOTAL_EXPR}   AS total_j
+                    FROM {ServerMetrics.__tablename__}
+                    WHERE collected_at >= :window_start AND collected_at <= :end
+                ),
+                deltas AS (
+                    SELECT collected_at, server_id, boot_time,
+                        LAG(boot_time) OVER (PARTITION BY server_id ORDER BY collected_at) AS prev_boot,
+                        num_j   - LAG(num_j)   OVER (PARTITION BY server_id ORDER BY collected_at) AS d_num,
+                        total_j - LAG(total_j) OVER (PARTITION BY server_id ORDER BY collected_at) AS d_total
+                    FROM raw
+                ),
+                per_point AS (
+                    SELECT collected_at, server_id,
+                        CASE
+                            WHEN boot_time IS NOT NULL AND prev_boot IS NOT NULL
+                                 AND ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) > :jitter_sec THEN NULL
+                            WHEN d_total IS NULL OR d_total <= 0 OR d_num < 0 THEN NULL
+                            ELSE d_num * 100.0 / d_total
+                        END AS v
+                    FROM deltas
+                    WHERE collected_at >= :start
+                )
+                SELECT ts, avg(server_avg) AS value, NULL::text AS dimension
+                FROM (
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, avg(v) AS server_avg
+                    FROM per_point WHERE v IS NOT NULL
+                    GROUP BY ts, server_id
+                ) sb
+                GROUP BY ts ORDER BY ts
+            """)
+            params = {
+                "start": start,
+                "end": end,
+                "window_start": start - bucket_td,
+                "jitter_sec": _BOOT_JITTER_SEC,
+            }
+        elif metric_type == "disk.usage_percent":
+            # 디스크 = 서버별 worst mount(가상 제외) used_pct -> 버킷+서버 평균 (environment_utilization 정책 일관).
+            sql = text(f"""
+                WITH disk_point AS (
+                    SELECT collected_at, server_id,
+                        max(CASE WHEN total_bytes > 0 AND avail_bytes IS NOT NULL
+                                 THEN ((total_bytes - avail_bytes)::float / total_bytes) * 100 END) AS worst
+                    FROM server_mount_usage
+                    WHERE collected_at >= :start AND collected_at <= :end
+                      AND {_VIRTUAL_MOUNT_SQL_FILTER}
+                    GROUP BY collected_at, server_id
+                )
+                SELECT ts, avg(server_avg) AS value, NULL::text AS dimension
+                FROM (
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, avg(worst) AS server_avg
+                    FROM disk_point WHERE worst IS NOT NULL
+                    GROUP BY ts, server_id
+                ) sb
+                GROUP BY ts ORDER BY ts
+            """)
+            params = {"start": start, "end": end}
+        else:
+            value_expr = _SCALAR_VALUE_EXPR[metric_type]
+            sql = text(f"""
+                SELECT ts, avg(server_avg) AS value, NULL::text AS dimension
+                FROM (
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, avg(v) AS server_avg
+                    FROM (
+                        SELECT collected_at, server_id, {value_expr} AS v
+                        FROM {ServerMetrics.__tablename__}
+                        WHERE collected_at >= :start AND collected_at <= :end
+                    ) s
+                    WHERE v IS NOT NULL
+                    GROUP BY ts, server_id
+                ) sb
+                GROUP BY ts ORDER BY ts
+            """)
+            params = {"start": start, "end": end}
+        result = await self.session.execute(sql, params)
+        return [MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension) for row in result.all()]
 
     async def _chart_cpu_delta(
         self,

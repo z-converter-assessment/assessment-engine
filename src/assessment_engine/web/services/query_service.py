@@ -15,6 +15,7 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 )
 from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
 from assessment_engine.db.repositories.query.types import (
+    _BUCKET_INFO,
     TIME_RANGE_TD,
     AggFunc,
     BucketSize,
@@ -42,7 +43,7 @@ from assessment_engine.web.services.mappers.attention import (
     to_gap_warning_item,
     to_os_eol_warning_item,
 )
-from assessment_engine.web.services.mappers.environment_report import to_environment_report
+from assessment_engine.web.services.mappers.environment_report import build_metric_trend, to_environment_report
 from assessment_engine.web.services.mappers.export import to_inventory_export_entry
 from assessment_engine.web.services.mappers.metric import (
     to_collection_status_item,
@@ -277,6 +278,20 @@ class QueryService:
         dtos = await self.repo.metric_snapshots(server_id, cursor, limit)
         return [to_metric_series_item(dto) for dto in dtos]
 
+    async def get_environment_metric_chart(
+        self,
+        metric_type: str,
+        time_range: TimeRange,
+        bucket: BucketSize,
+        end: datetime | None = None,
+    ) -> list[MetricSeriesItem]:
+        """환경 전체(모든 서버) 평균 시계열 — 대시보드 추이 차트 live (보고서는 정적 스냅샷 별도)."""
+        end_dt = end or datetime.now(UTC)
+        bi, bucket_td = _BUCKET_INFO[bucket]
+        start = end_dt - TIME_RANGE_TD[time_range]
+        dtos = await self.repo.environment_metric_trend(metric_type, start, end_dt, bi, bucket_td)
+        return [to_metric_series_item(dto) for dto in dtos]
+
     async def get_metric_chart(
         self,
         server_id: int,
@@ -482,11 +497,20 @@ class QueryService:
         online_by_id = await self._online_map(server_ids, details, now)
         gap_raws = await self.repo.metric_gap_warnings(_GAP_MINUTES, _GAP_RECENT_HOURS, _ATTENTION_LIMIT_EACH)
         restart_counts = await self.repo.agent_restart_counts_recent(server_ids, now - timedelta(hours=1))
+        # 환경 부하 추이 (14일 표준 윈도우, AUTO_BUCKET 6h) — 대시보드 차트. 토폴로지처럼 fragment SSR inline.
+        trend_bi, trend_td = _BUCKET_INFO["6h"]
+        trend_start = now - TIME_RANGE_TD["14d"]
+        cpu_trend = await self.repo.environment_metric_trend("cpu.usage_percent", trend_start, now, trend_bi, trend_td)
+        mem_trend = await self.repo.environment_metric_trend("mem.usage_percent", trend_start, now, trend_bi, trend_td)
+        disk_trend = await self.repo.environment_metric_trend(
+            "disk.usage_percent", trend_start, now, trend_bi, trend_td
+        )
         return DashboardLive(
             overview=self._assemble_overview(details, util, raws_period, online_by_id),
             attention=self._assemble_attention(raws_period, gap_raws, restart_counts, now, _ATTENTION_LIMIT_EACH),
             realtime=await self._assemble_realtime(server_ids, details, online_by_id, now),
             topology=build_network_topology(details),
+            trend=build_metric_trend(cpu_trend, mem_trend, disk_trend),
         )
 
     async def get_environment_report(
@@ -546,6 +570,23 @@ class QueryService:
             )
             details = []
 
+        # 환경 시계열 추이 — 발행 모달 time_range 윈도우의 CPU·메모리 평균 버킷. 정적 스냅샷 저장.
+        trend = []
+        if server_ids:
+            _trend_bucket = {"15m": "1m", "1h": "5m", "6h": "15m", "24h": "1h", "7d": "3h", "14d": "6h", "30d": "12h"}
+            bi, bucket_td = _BUCKET_INFO[_trend_bucket.get(time_range, "1h")]
+            trend_start = end_dt - TIME_RANGE_TD[time_range]
+            cpu_series = await self.repo.environment_metric_trend(
+                "cpu.usage_percent", trend_start, end_dt, bi, bucket_td
+            )
+            mem_series = await self.repo.environment_metric_trend(
+                "mem.usage_percent", trend_start, end_dt, bi, bucket_td
+            )
+            disk_series = await self.repo.environment_metric_trend(
+                "disk.usage_percent", trend_start, end_dt, bi, bucket_td
+            )
+            trend = build_metric_trend(cpu_series, mem_series, disk_series)
+
         return to_environment_report(
             view=view,
             time_range=time_range,
@@ -556,6 +597,7 @@ class QueryService:
             details=details,
             generated_at=datetime.now(UTC),
             under_provisioned_hosts=under_hosts,
+            trend=trend,
         )
 
     async def get_single_server_report(
