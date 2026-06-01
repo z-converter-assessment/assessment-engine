@@ -171,8 +171,8 @@
   </select>
   <select name="classification">
     <option value="">프로비저닝 전체</option>
-    {% for cls in filter_options.classifications %}
-    <option value="{{ cls }}" {% if request.query_params.get('classification') == cls %}selected{% endif %}>{{ cls }}</option>
+    {% for cls, cls_label in filter_options.classifications %}
+    <option value="{{ cls }}" {% if request.query_params.get('classification') == cls %}selected{% endif %}>{{ cls_label }}</option>
     {% endfor %}
   </select>
   {% if request.query_params.get('search') or request.query_params.get('is_online') or request.query_params.get('service') or request.query_params.get('os_distro') or request.query_params.get('classification') %}

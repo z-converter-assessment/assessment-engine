@@ -41,11 +41,8 @@
   </td>
   <td class="text-label">{{ s.os_display }}</td>
   <td>
-    {% if s.recommendation_color %}
-      <span style="display:inline-flex; align-items:center; gap:5px; font-size:11px; color:#475569;">
-        <span style="display:inline-block; width:8px; height:8px; background:{{ s.recommendation_color }}; border-radius:50%;"></span>
-        {{ s.recommendation_label }}
-      </span>
+    {% if s.recommendation_label %}
+      <span style="font-size:11px; color:#475569;">{{ s.recommendation_label }}</span>
     {% else %}
       <span class="text-meta" style="font-size:11px;">—</span>
     {% endif %}

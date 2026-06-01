@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from assessment_engine import recommendation
 from assessment_engine.web.deps import get_service
-from assessment_engine.web.services.mappers.shared import DISTRO_FILTER_OPTIONS, PROVISIONING_CLASSES
+from assessment_engine.web.services.mappers.shared import DISTRO_FILTER_OPTIONS, PROVISIONING_CLASS_OPTIONS
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.settings import web_settings
@@ -112,7 +112,7 @@ async def list_servers(
             "filter_options": {
                 "service_categories": SERVICE_CATEGORIES,
                 "distro_options": DISTRO_FILTER_OPTIONS,
-                "classifications": PROVISIONING_CLASSES,
+                "classifications": PROVISIONING_CLASS_OPTIONS,
             },
             # 자식 link (detail / 진단 이력 등) 의 back chain — 본 page URL (filter 상태 보존).
             "self_back": quote(f"{request.url.path}?{request.url.query}", safe=""),

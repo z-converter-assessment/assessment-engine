@@ -277,6 +277,7 @@
   <h2>환경 부하 추이 <span class="section-meta">{{ summary.time_range_label }} 윈도우 · CPU·메모리 평균</span></h2>
   {% if summary.trend %}
   <div style="height:280px;"><canvas id="env-trend-chart" data-trend='{{ summary.trend | tojson }}' data-range="{{ summary.time_range }}"></canvas></div>
+  <p class="chart-desc" style="margin:10px 0 0;">이 차트는 발행 시 선택한 {{ summary.time_range_label }} 시간 구간을 기준으로, 그 안에서 수집 이력이 있는 범위만 동적으로 x축에 표시합니다(빈 구간 미표시) — 윈도우보다 데이터가 짧으면 있는 기간으로 정규화, 버킷 간격만 윈도우 기준 고정. 서버 상세 차트(윈도우 전체를 빈 구간 포함 표기)와 x축 범위가 다를 수 있습니다.</p>
   {% else %}
   {{ empty_state("추이 표본이 아직 없습니다.") }}
   {% endif %}
@@ -414,6 +415,7 @@
     </tbody>
   </table>
   </div>
+  <p class="chart-desc" style="margin:8px 0 0;">표의 p95/peak/평균은 선택 구간에 수집된 표본만으로 산출합니다 — 구간에 메트릭이 전혀 없으면 "—", 일부만 수집된 경우 그 표본 범위로만 집계되어 구간 전체를 대표하지 못할 수 있습니다.</p>
   {% else %}
   {{ empty_state("조치가 필요한 호스트가 없습니다.") }}
   {% endif %}

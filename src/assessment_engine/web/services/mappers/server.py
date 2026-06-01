@@ -230,11 +230,11 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
             )
         )
         seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
-        # 색·라벨 모두 _DONUT_SEGMENT_DEFS 단일 진실 — 도넛 범례(s.label)와 동일 영어 풀네임으로 일관 (#E8).
-        for key, label, color, _desc in _DONUT_SEGMENT_DEFS:
+        # 색은 _DONUT_SEGMENT_DEFS, 라벨은 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 서버목록 칼럼 한글 표시.
+        for key, _label, color, _desc in _DONUT_SEGMENT_DEFS:
             if key == seg_key:
                 rec_color = color
-                rec_label = label
+                rec_label = recommendation.LABEL_KO.get(seg_key, seg_key)
                 break
 
     return ServerListItem(

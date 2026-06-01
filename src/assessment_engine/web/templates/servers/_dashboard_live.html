@@ -99,12 +99,14 @@
             <text x="50" y="71" text-anchor="middle" font-size="7" fill="#94a3b8">provisioned</text>
           </svg>
         </div>
-        <div style="display:flex; flex-direction:column; gap:4px; font-size:12px; color:#475569;">
+        <div style="display:flex; flex-direction:column; gap:4px; font-size:12px; color:#475569; min-width:200px;">
           {% for s in overview.risk_donut %}
           <div style="display:flex; align-items:center; gap:6px;">
             <span style="display:inline-block; width:10px; height:10px; background:{{ s.color }}; border-radius:2px; flex-shrink:0;"></span>
-            <span style="font-size:12px; color:#1e293b; min-width:96px;">{{ s.label }}</span>
-            <strong style="color:#1e293b; min-width:24px; text-align:right;">{{ s.count }}</strong>
+            <span style="font-size:12px; color:#1e293b;">{{ s.label }}</span>
+            {# leader dots — 라벨과 숫자를 점선으로 연결 (부하 상위 목차 스타일 일관). #}
+            <span style="flex:1 1 auto; min-width:10px; border-bottom:1px dotted #cbd5e1; height:1px;"></span>
+            <strong style="flex-shrink:0; color:#1e293b; text-align:right;">{{ s.count }}</strong>
           </div>
           {% endfor %}
         </div>
@@ -151,6 +153,7 @@
     <span style="margin-left:auto; font-size:12px; color:#64748b;">수집 기준 {{ generated_at | kst }}</span>
   </div>
   <div style="height:280px;"><canvas id="env-trend-chart" data-trend='{{ trend | tojson }}' data-range="14d" data-grid="true"></canvas></div>
+  <p class="chart-desc" style="margin:10px 0 0;">이 차트는 최근 {{ window_days }}일 시간 구간을 기준으로, 그 안에서 수집 이력이 있는 범위만 동적으로 x축에 표시합니다(빈 구간 미표시) — 윈도우보다 데이터가 짧으면 있는 기간으로 정규화, 버킷 간격만 윈도우 기준 고정. 환경 평균 활용률도 같은 기준이며, 서버 상세 차트(윈도우 전체를 빈 구간 포함 표기)와 x축 범위가 다를 수 있습니다.</p>
 </section>
 {% endif %}
 
@@ -197,11 +200,13 @@
    내부 도넛·부하상위는 sample_size/has_peaks 가드로 empty_state placeholder. page>1·필터 시 realtime=None 컨텍스트 가드는 유지(카드 숨김). #}
 {% if realtime %}
 <section class="card no-print">
-  <h2>환경 실시간 메트릭 <span class="section-meta">현황 모니터링 · 최신 스냅샷</span></h2>
+  <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+    <h2 style="margin:0;">환경 실시간 메트릭 <span class="section-meta">현황 모니터링 · 최신 스냅샷</span></h2>
+    <span style="margin-left:auto; font-size:12px; color:#64748b;">수집 기준 {{ generated_at | kst }}</span>
+  </div>
   <div style="display:flex; flex-wrap:wrap; gap:24px; font-size:13px; color:#475569;">
     <div>온라인 <strong class="text-strong">{{ realtime.online }}</strong> · 오프라인 <strong class="text-strong">{{ realtime.offline }}</strong></div>
     <div>유효 표본 <strong class="text-strong">{{ realtime.sample_size }}/{{ realtime.total }}</strong>대</div>
-    {% if realtime.last_collected_at %}<div>최신 수집 <strong class="text-strong">{{ realtime.last_collected_at | kst }}</strong></div>{% endif %}
   </div>
 
   <div class="card-section">
