@@ -5,6 +5,35 @@ from datetime import datetime
 
 
 @dataclass
+class ReportWorkloadGroup:
+    """개별 보고서 customer — 워크로드 카테고리별 제품명 묶음. 예: category="web", names_label="nginx, gunicorn".
+
+    names_label 빈 문자열 = listen 소켓으로만 탐지된 카테고리 (제품명 미상, T15) — 카테고리만 표시.
+    """
+
+    category: str
+    names_label: str = ""
+
+
+@dataclass
+class ReportServiceUnit:
+    """개별 보고서 engineer — 등록 서비스(systemd unit) 1행. unit·카테고리·귀속 listen 포트."""
+
+    unit: str
+    category: str
+    ports_label: str = ""  # "80/tcp, 443/tcp" — 귀속 포트 join, mapper precompute (P3)
+
+
+@dataclass
+class ReportListenItem:
+    """개별 보고서 engineer — listen 소켓 1행. port·proto·process (raw listen_ports 표시본)."""
+
+    port: int
+    proto: str
+    comm: str = ""
+
+
+@dataclass
 class ReportRowItem:
     """ReportRowRaw + 표시 파생. 모든 표시 결정(role/recommendation/badge)은 mapper에서 채움 (P2)."""
 
@@ -102,6 +131,13 @@ class ReportRowItem:
     reboot_count_color: str = "#94a3b8"  # 3회 이상 시 danger
     agent_restart_count_color: str = "#1e293b"  # 3회 이상 시 danger, 그 외 기본색
 
+    # 구동 서비스 (P-A 구성 계층) — 개별 서버 보고서(single_report)에서만 렌더. N대 표·환경 보고서는 미사용.
+    # customer: workload_groups (카테고리별 제품명) / engineer: service_units(등록 unit) + listen_ports_detail.
+    # mapper 가 service_classifier 로 precompute (P2), 템플릿은 순수 렌더 (P3).
+    workload_groups: list[ReportWorkloadGroup] = field(default_factory=list)
+    service_units: list[ReportServiceUnit] = field(default_factory=list)
+    listen_ports_detail: list[ReportListenItem] = field(default_factory=list)
+
 
 @dataclass
 class ReportTotals:
@@ -132,6 +168,10 @@ class ReportSummary:
     summary_bullets: list[str] = field(default_factory=list)
     # 양식 A 상단 역할 분포 — {"web": 8, "db": 5, "cache": 3, ...}. service_classifier 카테고리 집계.
     role_distribution: dict[str, int] = field(default_factory=dict)
+    # N대 선택 맥락 (P-A 구성) — 이 묶음이 무엇인지 한 줄 요약. mapper precompute (P3 정렬 회피).
+    # os_family_summary: "Linux 2 / Windows 1" · workload_summary: "web 2, db 1". 환경 보고서는 미사용(막대 사용).
+    os_family_summary: str = ""
+    workload_summary: str = ""
     # 보고서 발행 / 평가 기준 시각 (UTC, 표시 단계에서 KST 변환).
     # generated_at = 본 응답 합성 시각 (지금). anchor_at = 평가 윈도우 끝 (period 평가 기준).
     generated_at: datetime | None = None

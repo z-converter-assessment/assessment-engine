@@ -51,9 +51,9 @@
 | 영역 | 내용 | 데이터 source |
 |------|------|--------------|
 | KPI 6개 | 대상 서버 / 온라인 / 주의 필요 / 고위험 / 평균 CPU p95 / 평균 메모리 p95 | service KPI 집계 (time_range 윈도우) |
+| 환경 구성 (OS·워크로드) | OS family(Windows/Linux) 막대 + 워크로드 카테고리(web/db/cache/mq/container/monitor) 막대 — 단일색 분포 막대 + 카운트. "이 환경이 무엇으로 이루어졌는지"(P-A 구성 계층). customer·engineer 공통 | `overview.os_distribution`(family) / `overview.role_distribution` |
 | 환경 총 자원 | 총 vCPU / 메모리 / 디스크 | inventory 합산 |
-| 역할 분포 | service_classifier 카테고리별 카운트 | inventory + 분류 |
-| 분류 분포 도넛 | over/under/idle/optimal 카운트 | `recommendation.classify` |
+| 분류 분포 | over/under/idle/optimal 카운트 막대 | `recommendation.assess` |
 
 ### view 분기 — customer (양식 A)
 

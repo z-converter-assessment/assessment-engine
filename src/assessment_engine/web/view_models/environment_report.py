@@ -37,6 +37,19 @@ class OsCount:
 
 
 @dataclass
+class DistributionBar:
+    """구성 분포 1 segment — OS family / 워크로드 카테고리 공용 (환경 보고서 구성 계층).
+
+    단순 분포 막대 (위험도 색 아님) — P-E 단일 색, 막대마다 색 달리하지 않음.
+    pct: 분포 내 최대 count 대비 막대 너비 % (mapper precompute, P3 회피). count 가 절대값.
+    """
+
+    label: str
+    count: int
+    pct: float = 0.0
+
+
+@dataclass
 class AttentionHostItem:
     """운영 신호 발화 호스트 — 통신 끊김 / OS EOL / 에이전트 재시작 빈번 중 1개 이상 hit.
 
@@ -104,6 +117,11 @@ class EnvironmentReportSummary:
     os_distribution: list[OsCount]
     top_risks: list[ReportRowItem]  # base.rows 위험도 정렬 Top N (기본 5)
     summary_bullets_env: list[str]  # 환경 단위 view 별 정성 요약
+    # 구성 계층 (P-A) — OS family(Windows/Linux) 구성·워크로드 카테고리 분포 막대. customer·engineer 공통.
+    os_family_dist: list[DistributionBar] = field(default_factory=list)
+    workload_dist: list[DistributionBar] = field(default_factory=list)
+    # 분류된 역할이 없는 호스트 수 (서비스 없음 또는 전부 unknown) — discoverability(#E9)
+    workload_unknown_count: int = 0
     under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list)
     # 엔지니어 보고서 전용 — 운영 신호 발화 호스트 통합 list (gap / os_eol / agent_unstable).
     attention_hosts: list[AttentionHostItem] = field(default_factory=list)

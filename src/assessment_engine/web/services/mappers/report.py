@@ -11,14 +11,26 @@ from datetime import UTC, date, datetime
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ReportRowRaw
 from assessment_engine.web.services.device_filters import is_physical_disk
-from assessment_engine.web.services.mappers.server import _os_display, infer_role
+from assessment_engine.web.services.mappers.server import (
+    _os_display,
+    _services_or_none,
+    _to_listen_port_item,
+    infer_role,
+)
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
     ReportView,
     resolve_os_eol,
 )
+from assessment_engine.web.services.service_classifier import detect_listen_categories
 from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb
-from assessment_engine.web.view_models.report import ReportRowItem, ReportTotals
+from assessment_engine.web.view_models.report import (
+    ReportListenItem,
+    ReportRowItem,
+    ReportServiceUnit,
+    ReportTotals,
+    ReportWorkloadGroup,
+)
 
 # ─── 위험도 매핑 — 양식 A KPI 3단계 압축 ────────────────────────────────
 # USE Method 분류 -> (risk_level, 한글 라벨, badge CSS 클래스).
@@ -83,11 +95,42 @@ def compute_report_totals_from_raw(raws: list) -> ReportTotals:
 
 
 def build_role_distribution(raws: list) -> dict[str, int]:
-    """ReportRowRaw list -> 역할별 서버 수 dict. 양식 A 상단 표시용."""
+    """ReportRowRaw list -> 역할별 서버 수 dict. 양식 A 상단 표시용 (호스트 대표 역할, listen 보강)."""
     counter: Counter[str] = Counter()
     for r in raws:
-        counter[infer_role(r.services)] += 1
+        counter[infer_role(r.services, r.listen_ports)] += 1
     return dict(counter.most_common())
+
+
+# N대 선택 맥락 OS family 표시명 (요약 텍스트 단일 진실).
+_OS_FAMILY_LABEL_KO: dict[str, str] = {"linux": "Linux", "windows": "Windows", "unknown": "미상"}
+
+# N대 비교 표 행 정렬 우선순위 — 위험 우선(위로). risk_level 단일 진실.
+_REPORT_ROW_RISK_ORDER: dict[str, int] = {"high": 0, "attention": 1, "low_usage": 2, "normal": 3}
+
+
+def build_selection_context(items: list[ReportRowItem], role_distribution: dict[str, int]) -> tuple[str, str]:
+    """N대 보고서 선택 맥락 (P2) — OS family·워크로드 한 줄 요약 텍스트. 작은 N 맥락 (막대 대신).
+
+    os_family_summary: "Linux 2 / Windows 1" · workload_summary: "web 2, db 1" (count DESC).
+    """
+    os_counter: Counter[str] = Counter((it.os_family or "unknown") for it in items)
+    os_summary = " / ".join(
+        f"{_OS_FAMILY_LABEL_KO.get(k, k)} {v}" for k, v in sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))
+    )
+    workload_summary = (
+        ", ".join(f"{cat} {n}" for cat, n in sorted(role_distribution.items(), key=lambda kv: (-kv[1], kv[0])))
+        or "분류된 워크로드 없음"
+    )
+    return os_summary, workload_summary
+
+
+def sort_rows_for_report(items: list[ReportRowItem]) -> list[ReportRowItem]:
+    """N대 비교 표 정렬 (P2) — 위험 우선(under->attention->normal), 동순위 cpu_p95 DESC, hostname ASC."""
+    return sorted(
+        items,
+        key=lambda it: (_REPORT_ROW_RISK_ORDER.get(it.risk_level, 9), -(it.cpu_p95_pct or 0.0), it.hostname),
+    )
 
 
 # ─── 정성 요약 (양식 A/B 분기) ───
@@ -322,6 +365,48 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
     )
 
 
+def _build_workload_display(
+    raw: ReportRowRaw,
+) -> tuple[list[ReportWorkloadGroup], list[ReportServiceUnit], list[ReportListenItem]]:
+    """개별 서버 보고서 구동 서비스 표시 precompute (P2) — 차등 구성.
+
+    customer: 워크로드 카테고리별 제품명 묶음 (의미 중심, 포트 숨김).
+    engineer: 등록 서비스(systemd unit) 전체 표 + listen 포트 전체 표 (사실 중심, 최대 상세).
+    service_classifier 단일 진실 (#E7) — listen-only 카테고리는 detect_listen_categories 로 보강(이름 미상).
+    """
+    services = _services_or_none(raw.services, raw.listen_ports) or []
+    # engineer — 등록 unit 전체 (unknown 포함, 최대 상세). 귀속 포트 join 은 mapper precompute (P3).
+    units = [
+        ReportServiceUnit(
+            unit=si.unit or "(이름 없음)",
+            category=si.category,
+            ports_label=", ".join(f"{p.port}/{p.proto}" for p in si.ports),
+        )
+        for si in services
+    ]
+    units.sort(key=lambda u: (u.category, u.unit))
+    # engineer — listen 포트 전체 (raw 표시본)
+    listen = [
+        ReportListenItem(port=lp.port, proto=lp.proto, comm=lp.comm or "")
+        for lp in (_to_listen_port_item(p) for p in (raw.listen_ports or []))
+    ]
+    listen.sort(key=lambda x: (x.port, x.proto))
+    # customer — 카테고리별 제품명 묶음 (unknown 제외) + listen-only 카테고리 보강(이름 미상).
+    by_cat: dict[str, list[str]] = {}
+    for si in services:
+        if si.category == "unknown":
+            continue
+        name = si.display_name or si.unit
+        if name:
+            by_cat.setdefault(si.category, []).append(name)
+    for cat in detect_listen_categories(raw.listen_ports or []):
+        by_cat.setdefault(cat, [])
+    groups = [
+        ReportWorkloadGroup(category=cat, names_label=", ".join(dict.fromkeys(by_cat[cat]))) for cat in sorted(by_cat)
+    ]
+    return groups, units, listen
+
+
 def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> ReportRowItem:
     """ReportRowRaw(repo) + is_online + now -> ReportRowItem(ViewModel) — P2 단일 변환.
 
@@ -332,6 +417,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
     """
     stats = build_resource_stats(raw)  # net baseline·OS 분기 포함 — report·attention 공용 단일 진실
     assessment = recommendation.assess(stats)  # 분류 + 근거(triggers) + 미관측 축 단일 평가
+    workload_groups, service_units, listen_ports_detail = _build_workload_display(raw)
     rec = assessment.recommendation
     is_partial = assessment.is_partial  # P4 — saturation 축 미관측(예: Windows load) confidence 단서
     risk_level, risk_label, risk_badge_class = _RISK_FROM_RECOMMENDATION[rec]
@@ -360,7 +446,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         server_id=raw.server_id,
         public_id=raw.public_id,
         hostname=raw.hostname,
-        role=infer_role(raw.services),
+        role=infer_role(raw.services, raw.listen_ports),
         is_online=is_online,
         os_family=raw.os_family,
         is_partial=is_partial,
@@ -439,4 +525,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         agent_restart_count_color=(
             _REPORT_SIG_DANGER if raw.agent_restart_count >= _REBOOT_UNSTABLE_COUNT else _REPORT_SIG_NEUTRAL
         ),
+        workload_groups=workload_groups,
+        service_units=service_units,
+        listen_ports_detail=listen_ports_detail,
     )

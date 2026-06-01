@@ -1,0 +1,18 @@
+{#
+  보고서 꼬리 참고자료 블록 (D3) — 전 보고서(환경·N대·개별 x customer·engineer) 공통.
+  화면: 링크로 절제 노출(본문 길이 억제, 웹 우선). 인쇄: 전문 펼침 -> 인쇄본 단독으로 근거 완결(P-B).
+  소비처는 self_back 컨텍스트 변수를 제공해야 함 (← 이전 back chain).
+#}
+<section class="card no-print" style="margin-bottom:16px; background:#f8fafc;">
+  <h2>참고자료</h2>
+  <p style="margin:0; font-size:13px; color:#475569;">
+    Right-sizing 분류 임계값 · USE 축 · 보조 지표 정의 · 운영 신호 임계 · 근거 출처:
+    <a href="/reports/right-sizing-thresholds?back={{ self_back }}" class="row-link">Right-sizing 분류 임계값 (참고자료)</a>
+    <span style="color:#94a3b8;">— 인쇄 시 본 보고서 말미에 전문이 함께 출력됩니다.</span>
+  </p>
+</section>
+
+<div class="print-only" style="page-break-before: always;">
+  <h1 style="font-size:18px; margin:0 0 16px;">참고자료 — Right-sizing 분류 임계값</h1>
+  {% include "reports/_thresholds_reference.html" %}
+</div>

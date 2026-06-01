@@ -39,14 +39,18 @@ from assessment_engine.web.view_models.environment_report import (
     AttentionHostItem,
     CapacityImminentItem,
     ClassificationCount,
+    DistributionBar,
     EnvironmentReportSummary,
     InsufficientHostItem,
     OsCount,
 )
 from assessment_engine.web.view_models.report import (
+    ReportListenItem,
     ReportRowItem,
+    ReportServiceUnit,
     ReportSummary,
     ReportTotals,
+    ReportWorkloadGroup,
 )
 
 
@@ -83,9 +87,18 @@ def report_summary_to_dict(vm: ReportSummary) -> dict:
     return _to_jsonable(vm)
 
 
+def _report_row_from_dict(r: dict) -> ReportRowItem:
+    """ReportRowItem 복원 — nested 구동 서비스 3 필드(list[dataclass]) 재구성 포함."""
+    data = dict(r)
+    data["workload_groups"] = [ReportWorkloadGroup(**g) for g in data.get("workload_groups") or []]
+    data["service_units"] = [ReportServiceUnit(**u) for u in data.get("service_units") or []]
+    data["listen_ports_detail"] = [ReportListenItem(**p) for p in data.get("listen_ports_detail") or []]
+    return ReportRowItem(**data)
+
+
 def report_summary_from_dict(d: dict) -> ReportSummary:
     data = dict(d)
-    data["rows"] = [ReportRowItem(**r) for r in data.get("rows") or []]
+    data["rows"] = [_report_row_from_dict(r) for r in data.get("rows") or []]
     totals = data.get("totals")
     data["totals"] = ReportTotals(**totals) if totals else ReportTotals(0, 0.0, 0)
     data["generated_at"] = _dt(data.get("generated_at"))
@@ -107,7 +120,9 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
     data["base"] = report_summary_from_dict(data["base"])
     data["classification_dist"] = [ClassificationCount(**c) for c in data.get("classification_dist") or []]
     data["os_distribution"] = [OsCount(**o) for o in data.get("os_distribution") or []]
-    data["top_risks"] = [ReportRowItem(**r) for r in data.get("top_risks") or []]
+    data["os_family_dist"] = [DistributionBar(**b) for b in data.get("os_family_dist") or []]
+    data["workload_dist"] = [DistributionBar(**b) for b in data.get("workload_dist") or []]
+    data["top_risks"] = [_report_row_from_dict(r) for r in data.get("top_risks") or []]
     uph = data.get("under_provisioned_hosts") or []
     data["under_provisioned_hosts"] = [_capacity_warning_from_dict(c) for c in uph]
     data["attention_hosts"] = [AttentionHostItem(**a) for a in data.get("attention_hosts") or []]

@@ -51,8 +51,10 @@ from assessment_engine.web.services.mappers.metric import (
 from assessment_engine.web.services.mappers.report import (
     build_report_summary_bullets,
     build_role_distribution,
+    build_selection_context,
     compute_report_avg_p95,
     compute_report_totals_from_raw,
+    sort_rows_for_report,
     to_report_row_item,
 )
 from assessment_engine.web.services.mappers.server import (
@@ -699,9 +701,13 @@ class QueryService:
             items.append(to_report_row_item(raw, online, end_dt))
 
         avg_cpu, avg_mem = compute_report_avg_p95(items)
+        role_dist = build_role_distribution(raws)
+        os_family_summary, workload_summary = build_selection_context(items, role_dist)
+        # N대 비교 표 — 위험 우선 정렬 (표시 파생, P2). 환경 base.rows 는 top_risks 별도라 무영향.
+        sorted_items = sort_rows_for_report(items)
 
         return ReportSummary(
-            rows=items,
+            rows=sorted_items,
             period_days=period_days,
             total=len(items),
             online=sum(1 for it in items if it.is_online),
@@ -711,7 +717,9 @@ class QueryService:
             avg_mem_p95_pct=avg_mem,
             totals=compute_report_totals_from_raw(raws),
             summary_bullets=build_report_summary_bullets(items, raws, view=view),
-            role_distribution=build_role_distribution(raws),
+            role_distribution=role_dist,
+            os_family_summary=os_family_summary,
+            workload_summary=workload_summary,
             anchor_at=end_dt,
             generated_at=datetime.now(UTC),
         )

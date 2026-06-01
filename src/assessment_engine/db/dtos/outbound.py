@@ -231,6 +231,9 @@ class ReportRowRaw:
     load_15m_max: float | None
     swap_used: bool
 
+    # service_classifier listen 신호 (개별 보고서 구동 서비스 표시·role 보강). default — 옛 호출 호환.
+    listen_ports: list[dict] | None = None
+
     # I/O wait (cpu_stat.iowait jiffies / total non-idle 비율) — 디스크 병목 신호
     iowait_p95_pct: float | None = None
     iowait_peak_pct: float | None = None

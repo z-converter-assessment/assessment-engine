@@ -26,6 +26,7 @@ from assessment_engine.web.view_models.environment_report import (
     AttentionHostItem,
     CapacityImminentItem,
     ClassificationCount,
+    DistributionBar,
     EnvironmentReportSummary,
     InsufficientHostItem,
     OsCount,
@@ -66,6 +67,32 @@ def _count_classifications(rows: list[ReportRowItem]) -> list[ClassificationCoun
             description=description,
         )
         for key, label, color, description in _PROVISIONING_SEGMENT_DEFS
+    ]
+
+
+# OS family key -> 표시명. 구성 막대 라벨 단일 진실 (unknown 은 "미상").
+_OS_FAMILY_LABEL: dict[str, str] = {"linux": "Linux", "windows": "Windows", "unknown": "미상"}
+
+
+def _to_distribution_bars(
+    counts: dict[str, int],
+    label_map: dict[str, str] | None = None,
+) -> list[DistributionBar]:
+    """카테고리 카운트 dict -> 구성 분포 막대 list (count DESC, label ASC tie-break).
+
+    pct = 분포 내 최대 count 대비 막대 너비 % (P3 회피 mapper precompute). 단순 분포라 위험도 색 없음.
+    """
+    if not counts:
+        return []
+    items = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    mx = max(c for _, c in items) or 1
+    return [
+        DistributionBar(
+            label=(label_map or {}).get(key, key),
+            count=count,
+            pct=round(count / mx * 100, 1),
+        )
+        for key, count in items
     ]
 
 
@@ -293,6 +320,9 @@ def to_environment_report(
     for c in classification_dist:
         c.pct = round((c.count / classified_total * 100), 1) if classified_total else 0.0
     os_dist = _count_os(details)
+    # 구성 계층 (P-A) — overview 가 이미 집계한 OS family·워크로드 분포를 막대 ViewModel 로 precompute.
+    os_family_dist = _to_distribution_bars(overview.os_distribution, _OS_FAMILY_LABEL)
+    workload_dist = _to_distribution_bars(overview.role_distribution)
     top_risks = _select_top_risks(base.rows, view)
     summary = _env_summary_bullets(view, overview, attention, classification_dist)
     under_hosts = (
@@ -314,6 +344,9 @@ def to_environment_report(
         base=base,
         classification_dist=classification_dist,
         os_distribution=os_dist,
+        os_family_dist=os_family_dist,
+        workload_dist=workload_dist,
+        workload_unknown_count=overview.role_unknown_count,
         top_risks=top_risks,
         summary_bullets_env=summary,
         under_provisioned_hosts=under_hosts,

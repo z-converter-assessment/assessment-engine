@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_shared.html" import empty_state %}
 {% block title %}{{ hostname }} 보고서 — {{ view_title }}{% endblock %}
 
 {% block content %}
@@ -47,6 +48,57 @@
 </section>
 
 {% if r %}
+<section class="card" style="margin-bottom:16px;">
+  <h2>구동 서비스 <span class="section-meta">이 서버가 무엇을 하는가</span></h2>
+  {% if view == "customer" %}
+  {# customer — 카테고리별 제품명 묶음 (의미 중심, 포트 숨김) #}
+  {% if r.workload_groups %}
+  <div style="display:flex; flex-direction:column; gap:8px;">
+    {% for g in r.workload_groups %}
+    <div style="display:flex; align-items:baseline; gap:10px;">
+      <span class="badge {{ g.category | service_badge_class }}" style="min-width:64px; text-align:center;">{{ g.category }}</span>
+      <span style="font-size:13px; color:#1e293b;">{{ g.names_label or "—" }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  {{ empty_state("구동 중인 것으로 분류된 서비스가 없습니다.") }}
+  {% endif %}
+  {% else %}
+  {# engineer — 등록 서비스(unit) 표 + listen 포트 표 (최대 상세) #}
+  <h3>등록 서비스</h3>
+  {% if r.service_units %}
+  <table style="font-size:12px; margin-bottom:18px;">
+    <thead><tr><th>unit</th><th>카테고리</th><th>listen 포트</th></tr></thead>
+    <tbody>
+      {% for u in r.service_units %}
+      <tr>
+        <td><code style="font-size:11px;">{{ u.unit }}</code></td>
+        <td>{% if u.category != 'unknown' %}<span class="badge {{ u.category | service_badge_class }}">{{ u.category }}</span>{% else %}<span class="text-meta">미분류</span>{% endif %}</td>
+        <td>{{ u.ports_label or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="margin-bottom:18px;">{{ empty_state("등록된 서비스(systemd unit)가 없습니다.") }}</div>
+  {% endif %}
+  <h3>Listen 포트</h3>
+  {% if r.listen_ports_detail %}
+  <table style="font-size:12px;">
+    <thead><tr><th>포트</th><th>proto</th><th>process</th></tr></thead>
+    <tbody>
+      {% for p in r.listen_ports_detail %}
+      <tr><td>{{ p.port }}</td><td>{{ p.proto }}</td><td>{{ p.comm or "—" }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  {{ empty_state("수집된 listen 포트가 없습니다.") }}
+  {% endif %}
+  {% endif %}
+</section>
+
 <section class="card" style="margin-bottom:16px;">
   <h2>평균 사용률 <span class="section-meta">{{ summary.time_range_label }} 윈도우</span></h2>
   <div class="metric-grid metric-grid-2">
@@ -195,16 +247,7 @@
 {% endif %}
 {% endif %}
 
-<section class="card" style="margin-bottom:16px; background:#f8fafc;">
-  <h2>참고자료</h2>
-  <p style="margin:0; font-size:13px; color:#475569;">
-    Right-sizing 분류 임계값 · USE 축 · 보조 지표 정의{% if view == "engineer" %} · 운영 신호 임계{% endif %} · 근거 출처:
-    <a href="/reports/right-sizing-thresholds?back={{ self_back }}" class="row-link">Right-sizing 분류 임계값 (참고자료)</a>
-  </p>
-  <p class="print-only" style="margin:6px 0 0; font-size:11px; color:#94a3b8;">
-    인쇄본 단독 검토 시 참고자료 페이지를 별도 인쇄 -> 두 출력물을 함께 참조.
-  </p>
-</section>
+{% include "reports/_reference_footer.html" %}
 
 {% if view == "engineer" %}
 {% if report_job_id %}<div data-report-job data-job-id="{{ report_job_id }}" data-status="{{ narrative_status }}" hidden></div>{% endif %}

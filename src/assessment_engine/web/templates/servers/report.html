@@ -43,7 +43,8 @@
   </div>
 </div>
 <div class="report-meta">
-  대상 서버 {{ summary.total }}대 · 분류 기준: Right-sizing
+  선택한 서버 {{ summary.total }}대 · 분류 기준: Right-sizing<br>
+  OS 구성: {{ summary.os_family_summary or "—" }} · 워크로드: {{ summary.workload_summary }}
 </div>
 
 <!-- ─── 공통 KPI: 환경 + Right-sizing 분류 (customer · engineer 동일 뼈대) ─── -->
@@ -75,6 +76,7 @@
 
 <div class="report-section">
   <h2>{% if view == "customer" %}요약 (양식 A · 고객 제출용){% else %}요약 (양식 B · 엔지니어 검토용){% endif %}</h2>
+  <p class="no-print" style="font-size:12px; color:#64748b; margin:-4px 0 12px;">각 서버명을 클릭하면 해당 서버의 개별 상세 보고서로 이동합니다.</p>
   <div class="summary-table-wrap">
   <table class="summary-table">
     <thead>
@@ -101,7 +103,12 @@
           <a href="/servers/{{ r.public_id }}/report?{% if child %}job={{ child }}{% else %}view={{ view }}&time_range={{ time_range }}{% endif %}&back={{ self_back }}" class="row-link"><strong>{{ r.hostname }}</strong></a>
           {% if view == "engineer" %}<span class="stat-line muted"><code>{{ r.internal_ip or "—" }}</code></span>{% endif %}
         </td>
-        <td>{% if r.role %}<span class="badge {{ r.role | service_badge_class }}">{{ r.role }}</span>{% else %}<span class="text-meta">—</span>{% endif %}</td>
+        <td>
+          {%- if view == "engineer" and r.workload_groups -%}
+            {% for g in r.workload_groups %}<span class="badge {{ g.category | service_badge_class }}">{{ g.category }}</span> {% endfor %}
+          {%- elif r.role %}<span class="badge {{ r.role | service_badge_class }}">{{ r.role }}</span>
+          {%- else %}<span class="text-meta">—</span>{% endif %}
+        </td>
         <td>
           {{ r.os_display }}
           {% if view == "engineer" and r.kernel_version %}<span class="stat-line muted">{{ r.kernel_version }}</span>{% endif %}
@@ -150,11 +157,22 @@
   </table>
   </div>
   <div class="source-note">
-    분류 기준 · 보조 지표 정의{% if view == "engineer" %} · 운영 신호 임계{% endif %} · 근거 출처:
-    <a href="/reports/right-sizing-thresholds?back={{ self_back }}" class="row-link">Right-sizing 분류 임계값 (참고자료)</a>.
-    평가 기간 {{ time_range_label }} 통계 기반.
+    평가 기간 {{ time_range_label }} 통계 기반. 분류·지표 근거는 아래 참고자료.
   </div>
 </div>
+
+{# 인쇄 드릴다운 부록 (P-D) — 화면 링크가 죽는 인쇄본에서 개별 보고서 존재·식별을 보존. #}
+<div class="print-only" style="margin-top:16px; page-break-inside:avoid;">
+  <h3>개별 서버 보고서 (별첨)</h3>
+  <p style="font-size:12px; color:#475569; margin:0 0 8px;">선택한 {{ summary.total }}대는 각각 개별 상세 보고서가 함께 발행됩니다. 포털에서 서버명으로 조회하거나 개별 보고서를 함께 인쇄해 참조하세요.</p>
+  <ol style="font-size:12px; color:#1e293b; margin:0; padding-left:20px; line-height:1.7;">
+    {% for r in summary.rows %}
+    <li>{{ r.hostname }}{% if r.internal_ip %} <span style="color:#94a3b8;">({{ r.internal_ip }})</span>{% endif %} — {{ r.recommendation_label }}</li>
+    {% endfor %}
+  </ol>
+</div>
+
+{% include "reports/_reference_footer.html" %}
 {% if view == "engineer" %}
 {% if report_job_id %}<div data-report-job data-job-id="{{ report_job_id }}" data-status="{{ narrative_status }}" hidden></div>{% endif %}
 <script src="/static/js/diagnostic-inline.js?v={{ asset_v }}" defer></script>

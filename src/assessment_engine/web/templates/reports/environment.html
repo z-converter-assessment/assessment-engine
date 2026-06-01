@@ -5,6 +5,29 @@
 {% block content %}
 <a class="back no-print" href="{{ back_url or '/servers/' }}">&larr; 이전</a>
 
+{# 구성 계층 막대 (P-A) — 단일 색 분포 막대 (P-E). OS·워크로드 공용. customer·engineer 동일 호출. #}
+{% macro config_dist(title, bars, unknown_count, unknown_label) %}
+<div>
+  <div style="font-size:12px; color:#64748b; margin-bottom:8px;">{{ title }}</div>
+  {% if bars %}
+  <div style="display:flex; flex-direction:column; gap:6px;">
+    {% for b in bars %}
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div style="width:96px; font-size:12px; color:#1e293b;">{{ b.label }}</div>
+      <div style="flex:1; background:#f1f5f9; border-radius:4px; height:16px; overflow:hidden;">
+        <div style="width:{{ b.pct }}%; background:#94a3b8; height:100%;"></div>
+      </div>
+      <div style="width:40px; text-align:right; font-size:12px; color:#64748b;">{{ b.count }}대</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% if unknown_count %}<div style="margin-top:6px; font-size:11px; color:#94a3b8;">{{ unknown_label }} {{ unknown_count }}대</div>{% endif %}
+  {% else %}
+  {{ empty_state("수집된 구성 정보가 없습니다.") }}
+  {% endif %}
+</div>
+{% endmacro %}
+
 <div style="display:flex; align-items:center; justify-content:space-between; margin:8px 0 20px; gap:16px;">
   <h1>환경 보고서
     <span class="page-meta">{{ view_title }}</span>
@@ -30,6 +53,15 @@
     <li>{{ b }}</li>
     {% endfor %}
   </ul>
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2>환경 구성</h2>
+  <p style="margin:0 0 14px; font-size:12px; color:#64748b;">이 환경이 무엇으로 이루어졌는지 — OS·워크로드 구성.</p>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+    {{ config_dist("OS 구성", summary.os_family_dist, 0, "") }}
+    {{ config_dist("워크로드 구성", summary.workload_dist, summary.workload_unknown_count, "역할 분류 미상") }}
+  </div>
 </section>
 
 <section class="card" style="margin-bottom:16px;">
@@ -151,6 +183,15 @@
   </div>
   <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
   {% endif %}
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2>환경 구성</h2>
+  <p style="margin:0 0 14px; font-size:12px; color:#64748b;">이 환경이 무엇으로 이루어졌는지 — OS·워크로드 구성.</p>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+    {{ config_dist("OS 구성", summary.os_family_dist, 0, "") }}
+    {{ config_dist("워크로드 구성", summary.workload_dist, summary.workload_unknown_count, "역할 분류 미상") }}
+  </div>
 </section>
 
 <section class="card" style="margin-bottom:16px;">
@@ -394,16 +435,7 @@
 
 {% endif %}
 
-<section class="card" style="margin-bottom:16px; background:#f8fafc;">
-  <h2>참고자료</h2>
-  <p style="margin:0; font-size:13px; color:#475569;">
-    Right-sizing 분류 임계값 · USE 축 · 보조 지표 정의{% if summary.view == "engineer" %} · 운영 신호 임계{% endif %} · 근거 출처:
-    <a href="/reports/right-sizing-thresholds?back={{ self_back }}" class="row-link">Right-sizing 분류 임계값 (참고자료)</a>
-  </p>
-  <p class="print-only" style="margin:6px 0 0; font-size:11px; color:#94a3b8;">
-    인쇄본 단독 검토 시 참고자료 페이지를 별도 인쇄 -> 두 출력물을 함께 참조.
-  </p>
-</section>
+{% include "reports/_reference_footer.html" %}
 
 {% if view == "engineer" %}
 {% if report_job_id %}<div data-report-job data-job-id="{{ report_job_id }}" data-status="{{ narrative_status }}" hidden></div>{% endif %}

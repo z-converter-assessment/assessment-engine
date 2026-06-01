@@ -25,8 +25,8 @@
 
 | ViewModel | 채우는 mapper |
 |-----------|---------------|
-| `ReportRowItem` | `to_report_row_item(raw, online)` — `role`(`infer_role`) / `recommendation`(`recommendation.classify`) / `recommendation_label` (한국어) / `badge_class` (`rec-{enum}`) / `os_display` / `internal_ip[0]` |
-| `ReportSummary` | `query_service.get_report` — `rows: list[ReportRowItem]` + KPI 집계 (`total`/`online`/`over`/`under`) |
+| `ReportRowItem` | `to_report_row_item(raw, online)` — `role`(`infer_role`, listen 보강) / `recommendation`(`recommendation.assess`) / `recommendation_label` (한국어) / `badge_class` (`rec-{enum}`) / `os_display` / `internal_ip[0]`. 구동 서비스 차등(개별 보고서, `_build_workload_display`): `workload_groups`(customer 카테고리별 제품명) / `service_units`(engineer unit·카테고리·귀속 포트) / `listen_ports_detail`(engineer listen 소켓) |
+| `ReportSummary` | `query_service.get_report` — `rows: list[ReportRowItem]`(`sort_rows_for_report` 위험 우선 정렬) + KPI 집계 (`total`/`online`/`over`/`under`) + N대 선택 맥락 `os_family_summary`/`workload_summary`(`build_selection_context`) |
 | `MetricSeriesItem` | `to_metric_series_item` — chart API 응답 |
 
 `InventoryExportEntry`는 `db/dtos/outbound.py` (vendor 중립 vendor JSON 응답 — ViewModel 아님). `to_inventory_export_entry`가 변환.
