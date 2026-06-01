@@ -1,9 +1,11 @@
 name: release
 
 # semver tag(v*) push 시 두 산출물 동시 생성:
-#   (1) wheel + sdist + SHA256SUMS + SBOM + Sigstore signature → GitHub Release
+#   (1) wheel + sdist + SHA256SUMS + SBOM + Sigstore signature + docker-compose.yml + .env.example → GitHub Release
 #   (2) Docker image (linux/amd64, linux/arm64) → GHCR push + cosign sign + SBOM (ADR 0017)
-# 외부 인프라는 wheel (systemd·venv) 또는 image (docker·k8s) 어느 채널이든 자유 선택.
+# 외부 인프라는 wheel (systemd·venv) 또는 image (docker·k8s) 어느 채널이든 자유 선택. compose+.env.example 첨부는
+# 릴리즈 다운로드만으로 퀵스타트 가능케 함 (ADR 0033) — `ENGINE_IMAGE=ghcr.io/<org>/assessment-engine:v<X>
+# docker compose up -d --no-build` 로 (2)의 GHCR 이미지 pull (소스 clone 불요).
 #
 # 발사 trigger: develop->main PR 머지 후 운영자가 main 에 직접 push 하는 semver tag(v*) (ADR 0030).
 # 버전은 repo 에 없고 tag 가 단일 진실 — hatch-vcs 가 빌드 시 tag 에서 derive (bump 커밋 없음).
@@ -93,6 +95,8 @@ jobs:
             dist/SHA256SUMS
             dist/sbom.cdx.json
             dist/*.sigstore.json
+            docker-compose.yml
+            .env.example
           generate_release_notes: true
           fail_on_unmatched_files: true
 

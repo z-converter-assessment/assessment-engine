@@ -89,6 +89,10 @@ class WebSettings(BaseSettings):
     # whitelist (WORKER_DOWNLOAD_ALLOWED_HOSTS) 가 담당. startup 거부 없음 — discovery_default_target 과 동일 정책.
     zdm_default_ip: str = "host.docker.internal:8000"
     zdm_default_user: str = "admin@zconverter.com"
+    # resolver(엔진) 가 sha256/size 산출용으로 fetch 하는 호스트 override. download.url·install args 는
+    # zdm_default_ip 유지. dev 한정 — mock 이 web 컨테이너 자기 자신이라 host publish 포트 hairpin 불가하면
+    # localhost 로 fetch. prod 빈값(엔진이 real ZDM 직접 도달).
+    zdm_resolver_host_override: str = ""
 
     # ZDM 본체 패키지 contract — task.install download 필드에 박혀 agent 가 fetch.
     # sha256·size_bytes 는 publish 직전 engine 이 ZDM 에서 HEAD + GET 으로 동적 산출

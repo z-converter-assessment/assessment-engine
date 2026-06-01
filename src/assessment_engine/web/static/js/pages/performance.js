@@ -1,53 +1,62 @@
 /**
  * 성능 리포트 페이지 차트 로직.
  *
+ * 각 상세 페이지(cpu/memory/storage/network)의 추이 차트를 모은 종합 2열 뷰.
  * 외부 의존:
  * - ChartUtils (base.html에서 chart-utils.js 로드)
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
- * - body data-server-id / data-cpu-cores (E6 외부화 규약, static-assets.md)
+ * - body data-server-id / data-cpu-cores / data-os-family (E6 외부화 규약, static-assets.md)
+ *
+ * 성능탭은 서버 리부트/에이전트 재시작 vertical 마커를 표시하지 않는다 (차트 가독성 — 사용자 결정).
+ * 상세 페이지(cpu/memory/storage/network)는 마커 유지.
  */
-// ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
-const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, RANGE_MS, COLORS,
-        fmtKbChart, safeArray, fetchRebootEvents, applyRebootMarkers,
+const { AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
+        fmtKbChart, safeArray, bindToggle, renderChipLegend,
         buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
 const CPU_CORES = parseInt(document.body.dataset.cpuCores, 10) || null;
-const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows load·iowait 미측정 차트 N/A 분기
-
+const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows load 미측정 차트 N/A 분기
 
 const PERF_IOPS_SUGGESTED_MAX = 200;              // HDD 랜덤 I/O 한계(~100–200 IOPS) 기준
 const PERF_NET_SUGGESTED_MAX  = 10 * 1024 * 1024; // 10 MB/s — 1 Gbps 이더넷의 약 8%
+const PERF_PPS_SUGGESTED_MAX  = 10;               // pps soft ceiling (idle 환경도 보이도록)
 
-// 색상 임계값 — backend mappers._USAGE_*_PCT / _SWAP_DANGER_PCT 단일 진실, body data-attribute 로 주입 (#E1 P4).
+// 색상 임계값 — backend mappers._USAGE_*_PCT 단일 진실, body data-attribute 로 주입 (#E1 P4).
+// 파일시스템 사용률 게이지만 임계 색 사용. 그 외 추이 차트는 단색(검정) 통일.
 const USAGE_DANGER_PCT = parseFloat(document.body.dataset.usageDangerPct) || 90;
 const USAGE_WARN_PCT   = parseFloat(document.body.dataset.usageWarnPct)   || 75;
-const SWAP_DANGER_PCT  = parseFloat(document.body.dataset.swapDangerPct)  || 0.1;
 const COLOR_NEUTRAL = '#64748b';
 const COLOR_WARN    = '#f59e0b';
 const COLOR_DANGER  = '#ef4444';
 const colorByMountPct = v => v >= USAGE_DANGER_PCT ? COLOR_DANGER : v >= USAGE_WARN_PCT ? COLOR_WARN : COLOR_NEUTRAL;
-const colorBySwapPct  = v => v >= SWAP_DANGER_PCT  ? COLOR_DANGER : COLOR_NEUTRAL;
 
-const PHYS_DISK_RE = /^(sd[a-z]+|vd[a-z]+|hd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+|PhysicalDrive\d+)$/;
-function isPhysicalDisk(name) { return PHYS_DISK_RE.test(name); }
-
-let globalRange = '24h';
+let globalRange = '15m';
 const chartInstances = {};
-// P4(a) sequence counter — per-chart 분리 (다른 page (cpu/memory/storage/network) 와 일관).
-// chart 별 독립 counter 라 다른 chart 의 동시 in-flight 가 stale guard 간섭 안 함.
+// P4(a) sequence counter — per-chart 분리 (다른 page 와 일관). chart 별 독립 counter.
 const seqs = {
-  cpu: 0, mem: 0, swap: 0, load: 0, iowait: 0, cpuUserSys: 0,
-  diskRead: 0, diskWrite: 0, netRx: 0, netTx: 0, mount: 0,
+  cpu: 0, cpuClass: 0, load: 0, mem: 0, memComp: 0, swap: 0,
+  physIo: 0, fs: 0, netIo: 0, netPps: 0,
 };
 
 /* ── 유틸 ──
  * P4(b) capture-before-await: 모든 함수가 range/anchor를 인자로 받음.
- * 호출자(차트 로더)가 await 직전에 globalRange를 로컬 캡처 후 전달 → stale 응답 race 방지.
  */
+const _safe = safeArray;
 const fmtLabel = (iso, range) => ChartUtils.fmtLabel(iso, range);
 const makeBucketGrid = (range, anchor) => ChartUtils.makeBucketGrid(range, AUTO_BUCKET[range], anchor);
 const getAnchorEnd = () => ChartUtils.getAnchorEnd('anchor-date');
+
+// network.js 의 인터페이스 정렬·RX/TX 인접 병합 — 통합 네트워크 차트(I/O·PPS) 공용.
+// avg/max 가 동일 dimension 순서를 쓰도록 함께 처리 (avg+max 쌍 어긋남 방지).
+function ifaceOrderedRows(rxAvg, txAvg, rxMax, txMax) {
+  const ra = _safe(rxAvg), ta = _safe(txAvg), rm = _safe(rxMax), tm = _safe(txMax);
+  const ifaces = [...new Set([...ra, ...ta].map(r => r.dimension))].sort();
+  const pick = (rows, suffix, iface) => rows.filter(r => r.dimension === iface).map(r => ({ ...r, dimension: `${iface} ${suffix}` }));
+  const avg = ifaces.flatMap(i => [...pick(ra, 'RX', i), ...pick(ta, 'TX', i)]);
+  const max = ifaces.flatMap(i => [...pick(rm, 'RX', i), ...pick(tm, 'TX', i)]);
+  return { avg, max };
+}
 
 function computePeriodMax(rows) {
   const vals = rows.map(r => r.value).filter(v => v != null);
@@ -62,7 +71,7 @@ function updateMaxLabel(elId, val, fmtFn, colorFn) {
   el.style.color = colorFn ? colorFn(val) : '#64748b';
 }
 
-async function fetchChart(metricType, agg, range, anchor) {
+async function fetchChart(metricType, agg, range, anchor, deviceCategory) {
   const p = new URLSearchParams({
     metric_type: metricType,
     time_range:  range,
@@ -70,13 +79,13 @@ async function fetchChart(metricType, agg, range, anchor) {
     agg,
   });
   if (anchor) p.append('end', anchor.toISOString());
+  if (deviceCategory) p.append('device_category', deviceCategory);  // 물리 I/O phys 필터 (storage.js 패턴)
   const res = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${p}`);
-  // P4(d): 404는 데이터 부재. 빈 배열 반환 → setChart가 empty 분기.
-  if (res.status === 404) return [];
-  if (!res.ok) return [];
+  if (res.status === 404 || !res.ok) return [];  // P4(d): 데이터 부재 → 빈 배열
   return res.json();
 }
 
+// avg+max ghost 차트 옵션 (단일/통합 메트릭)
 function makePerfOptions(yAxisOpts, fmtFn) {
   return {
     responsive: true,
@@ -107,23 +116,38 @@ function makePerfOptions(yAxisOpts, fmtFn) {
   };
 }
 
-/* avg+max ghost 데이터셋·legend — ChartUtils.buildAvgMaxDatasets/buildAvgMaxLegend 위임 */
-function buildDatasets(avgRows, maxRows, bMs, grid, labelOverride, dashFn) {
-  return buildAvgMaxDatasets(avgRows, maxRows, bMs, grid, {
-    label: labelOverride, dashFn, pointRadius: 0,
-  });
+// 다중 dimension 라인 옵션 (avg-only — CPU 분류·메모리 구성, % Y축). cpu.js/memory.js renderCompChart 동일.
+function makeMultiDimOptions() {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode:'index', intersect:false },
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'}%` } },
+    },
+    scales: {
+      x: { ticks:{ maxTicksLimit:10, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
+      y: {
+        title: { display:true, text:'%', font:{size:11}, color:'#94a3b8' },
+        ticks: { callback: v => v + '%', font:{size:11}, color:'#64748b' },
+        grid:  { color:'#f1f5f9' }, beginAtZero: true,
+      },
+    },
+  };
 }
 
-function buildLegend(containerId, chart, codeLabel = false) {
-  return buildAvgMaxLegend(containerId, chart, { codeLabel });
+function buildDatasets(avgRows, maxRows, bMs, grid, labelOverride) {
+  return buildAvgMaxDatasets(avgRows, maxRows, bMs, grid, { label: labelOverride, pointRadius: 0 });
 }
 
+// 단일/통합(avg+max) 차트 렌더 — 데이터 없으면 chart-empty(중앙) 표시.
 function setChart(canvasId, emptyId, avgRows, yAxisOpts, fmtFn, datasets, labels) {
   const canvas = document.getElementById(canvasId);
   const empty  = document.getElementById(emptyId);
   if (chartInstances[canvasId]) { chartInstances[canvasId].destroy(); delete chartInstances[canvasId]; }
   if (!avgRows.length) {
-    canvas.style.display = 'none'; empty.style.display = '';
+    canvas.style.display = 'none'; empty.style.display = 'flex';
     return null;
   }
   canvas.style.display = ''; empty.style.display = 'none';
@@ -136,80 +160,106 @@ function setChart(canvasId, emptyId, avgRows, yAxisOpts, fmtFn, datasets, labels
   return chart;
 }
 
+// 다중 dimension 라인(avg-only) 렌더 — CPU 분류·메모리 구성. renderChipLegend.
+function renderMultiDimChart(canvasId, emptyId, legendId, rows, range, anchor, metaMap) {
+  const canvas = document.getElementById(canvasId);
+  const empty  = document.getElementById(emptyId);
+  if (chartInstances[canvasId]) { chartInstances[canvasId].destroy(); delete chartInstances[canvasId]; }
+  if (!rows.length) {
+    canvas.style.display = 'none'; empty.style.display = 'flex';
+    renderChipLegend(document.getElementById(legendId), null);
+    return;
+  }
+  canvas.style.display = ''; empty.style.display = 'none';
+  const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid   = makeBucketGrid(range, anchor);
+  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const byDim  = {};
+  for (const r of rows) { (byDim[r.dimension] = byDim[r.dimension] || []).push(r); }
+  const datasets = Object.entries(byDim).map(([dim, pts]) => {
+    const map = {};
+    for (const p of pts) { map[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value; }
+    const meta = metaMap[dim] || { label: dim, color: '#8b5cf6' };
+    return {
+      label: meta.label,
+      data: grid.map(t => map[t] ?? null),
+      borderColor: meta.color, backgroundColor: meta.color + '22',
+      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
+    };
+  });
+  const chart = new Chart(canvas, { type: 'line', data: { labels, datasets }, options: makeMultiDimOptions() });
+  chartInstances[canvasId] = chart;
+  renderChipLegend(document.getElementById(legendId), chart);
+}
+
 /* ── Y축 설정 ── */
 const pctTicks = { callback: v => v + '%', font:{size:11}, color:'#64748b' };
 const Y_PCT   = { min:0, max:100, ticks: pctTicks };
-const Y_MEM   = { min:0, max:100, ticks: pctTicks };
 const Y_SWAP  = { min:0, beginAtZero:true, suggestedMax:25, ticks: pctTicks };
 const Y_LOAD  = { beginAtZero:true, suggestedMax: CPU_CORES || 4, ticks:{ font:{size:11}, color:'#64748b' }, title:{ display:true, text:'Load', font:{size:11}, color:'#94a3b8' } };
 const Y_IOPS  = { beginAtZero:true, suggestedMax: PERF_IOPS_SUGGESTED_MAX, ticks:{ precision:0, font:{size:11}, color:'#64748b' }, title:{ display:true, text:'IOPS', font:{size:11}, color:'#94a3b8' } };
 const Y_NET   = { beginAtZero:true, suggestedMax: PERF_NET_SUGGESTED_MAX, ticks:{ callback: v => fmtKbChart(v), font:{size:11}, color:'#64748b' } };
+const Y_PPS   = { beginAtZero:true, suggestedMax: PERF_PPS_SUGGESTED_MAX, ticks:{ callback: v => v.toFixed(0) + ' pps', font:{size:11}, color:'#64748b' } };
 
-/* ── 개별 차트 로더 (P4(a) per-chart seq — `seqs` dict 안 chart 별 counter) ── */
-const _safe = safeArray;
+/* ── 개별 차트 로더 (P4(a) per-chart seq) ── */
 
-async function loadCpuChart(capturedRange, capturedAnchor) {
+async function loadCpuChart(range, anchor) {
   const seq = ++seqs.cpu;
-  const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
-  const grid = makeBucketGrid(capturedRange, capturedAnchor);
-  const [avgRows, maxRows] = await Promise.all([fetchChart('cpu.usage_percent','avg', capturedRange, capturedAnchor), fetchChart('cpu.usage_percent','max', capturedRange, capturedAnchor)]);
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const [avgRows, maxRows] = await Promise.all([fetchChart('cpu.usage_percent','avg', range, anchor), fetchChart('cpu.usage_percent','max', range, anchor)]);
   if (seq !== seqs.cpu) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
   const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, 'CPU');
-  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
+  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
   setChart('cpu-canvas', 'cpu-empty', safeAvg, Y_PCT, v => v.toFixed(1)+'%', datasets, labels);
   updateMaxLabel('cpu-max', computePeriodMax(safeMax), v => v.toFixed(1)+'%', null);
 }
 
-async function loadMemChart(capturedRange, capturedAnchor) {
-  const seq = ++seqs.mem;
-  const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
-  const grid = makeBucketGrid(capturedRange, capturedAnchor);
-  const [avgRows, maxRows] = await Promise.all([fetchChart('mem.usage_percent','avg', capturedRange, capturedAnchor), fetchChart('mem.usage_percent','max', capturedRange, capturedAnchor)]);
-  if (seq !== seqs.mem) return;
-  const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
-  const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, '메모리');
-  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
-  setChart('mem-canvas', 'mem-empty', safeAvg, Y_MEM, v => v.toFixed(1)+'%', datasets, labels);
-  updateMaxLabel('mem-max', computePeriodMax(safeMax), v => v.toFixed(1)+'%', null);
+const CPUCLASS_META = {
+  user:   { label: 'User',     color: '#3b82f6' },
+  system: { label: 'System',   color: '#f59e0b' },
+  iowait: { label: 'I/O Wait', color: '#ef4444' },  // Windows 미측정 → 빈 라인
+};
+async function loadCpuClassChart(range, anchor) {
+  const seq = ++seqs.cpuClass;
+  const [u, s, io] = await Promise.all([
+    fetchChart('cpu.user_percent','avg', range, anchor),
+    fetchChart('cpu.system_percent','avg', range, anchor),
+    fetchChart('cpu.iowait_percent','avg', range, anchor),
+  ]);
+  if (seq !== seqs.cpuClass) return;
+  const rows = [
+    ..._safe(u).map(r => ({ ...r, dimension: 'user' })),
+    ..._safe(s).map(r => ({ ...r, dimension: 'system' })),
+    ..._safe(io).map(r => ({ ...r, dimension: 'iowait' })),
+  ];
+  renderMultiDimChart('cpuclass-canvas', 'cpuclass-empty', 'cpuclass-legend', rows, range, anchor, CPUCLASS_META);
 }
 
-async function loadSwapChart(capturedRange, capturedAnchor) {
-  const seq = ++seqs.swap;
-  const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
-  const grid = makeBucketGrid(capturedRange, capturedAnchor);
-  const [avgRows, maxRows] = await Promise.all([fetchChart('swap.usage_percent','avg', capturedRange, capturedAnchor), fetchChart('swap.usage_percent','max', capturedRange, capturedAnchor)]);
-  if (seq !== seqs.swap) return;
-  const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
-  const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, '스왑');
-  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
-  setChart('swap-canvas', 'swap-empty', safeAvg, Y_SWAP, v => v.toFixed(1)+'%', datasets, labels);
-  updateMaxLabel('swap-max', computePeriodMax(safeMax), v => v.toFixed(1)+'%', colorBySwapPct);
-}
-
-async function loadLoadChart(capturedRange, capturedAnchor) {
+async function loadLoadChart(range, anchor) {
   if (OS_FAMILY === 'windows') {  // Windows load average 미측정 — 차트 대신 N/A
     if (chartInstances['load-canvas']) { chartInstances['load-canvas'].destroy(); delete chartInstances['load-canvas']; }
     document.getElementById('load-canvas').style.display = 'none';
-    const e = document.getElementById('load-empty'); e.textContent = 'N/A — Windows 미측정'; e.style.display = '';
+    const e = document.getElementById('load-empty'); e.textContent = 'N/A — Windows 미측정'; e.style.display = 'flex';
     updateMaxLabel('load-max', null, v => v.toFixed(2), null); return;
   }
   const seq = ++seqs.load;
-  const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
-  const grid = makeBucketGrid(capturedRange, capturedAnchor);
-  const [avgRows, maxRows] = await Promise.all([fetchChart('load.15m','avg', capturedRange, capturedAnchor), fetchChart('load.15m','max', capturedRange, capturedAnchor)]);
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const [avgRows, maxRows] = await Promise.all([fetchChart('load.15m','avg', range, anchor), fetchChart('load.15m','max', range, anchor)]);
   if (seq !== seqs.load) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
 
   if (chartInstances['load-canvas']) { chartInstances['load-canvas'].destroy(); delete chartInstances['load-canvas']; }
   const canvas = document.getElementById('load-canvas');
   const empty  = document.getElementById('load-empty');
-  if (!safeAvg.length) { canvas.style.display = 'none'; empty.style.display = ''; updateMaxLabel('load-max', null, v => v.toFixed(2), null); return; }
+  if (!safeAvg.length) { canvas.style.display = 'none'; empty.style.display = 'flex'; updateMaxLabel('load-max', null, v => v.toFixed(2), null); return; }
   canvas.style.display = ''; empty.style.display = 'none';
 
   const avgMap = {};
   for (const r of safeAvg) avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
-  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
+  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
   const data   = grid.map(t => avgMap[t] ?? null);
 
   chartInstances['load-canvas'] = new Chart(canvas, {
@@ -217,145 +267,129 @@ async function loadLoadChart(capturedRange, capturedAnchor) {
     data: { labels, datasets: [{
       label: 'Load 15m', data,
       borderColor: '#f59e0b', backgroundColor: '#f59e0b22',
-      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3,
-      tension: 0.3, fill: true, spanGaps: false,
+      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: true, spanGaps: false,
     }] },
     options: makePerfOptions(Y_LOAD, v => v.toFixed(2)),
   });
   updateMaxLabel('load-max', computePeriodMax(safeMax), v => v.toFixed(2), null);
 }
 
-async function loadIowaitChart(capturedRange, capturedAnchor) {
-  if (OS_FAMILY === 'windows') {  // Windows iowait 미측정 — 차트 대신 N/A
-    if (chartInstances['iowait-canvas']) { chartInstances['iowait-canvas'].destroy(); delete chartInstances['iowait-canvas']; }
-    document.getElementById('iowait-canvas').style.display = 'none';
-    const e = document.getElementById('iowait-empty'); e.textContent = 'N/A — Windows 미측정'; e.style.display = '';
-    updateMaxLabel('iowait-max', null, v => v.toFixed(1) + '%', null); return;
-  }
-  const seq = ++seqs.iowait;
-  const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
-  const grid = makeBucketGrid(capturedRange, capturedAnchor);
-  const [avgRows, maxRows] = await Promise.all([fetchChart('cpu.iowait_percent','avg', capturedRange, capturedAnchor), fetchChart('cpu.iowait_percent','max', capturedRange, capturedAnchor)]);
-  if (seq !== seqs.iowait) return;
+async function loadMemChart(range, anchor) {
+  const seq = ++seqs.mem;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const [avgRows, maxRows] = await Promise.all([fetchChart('mem.usage_percent','avg', range, anchor), fetchChart('mem.usage_percent','max', range, anchor)]);
+  if (seq !== seqs.mem) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
-  const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, 'iowait');
-  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
-  setChart('iowait-canvas', 'iowait-empty', safeAvg, Y_PCT, v => v.toFixed(1)+'%', datasets, labels);
-  updateMaxLabel('iowait-max', computePeriodMax(safeMax), v => v.toFixed(1)+'%', null);
+  const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, '메모리');
+  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  setChart('mem-canvas', 'mem-empty', safeAvg, Y_PCT, v => v.toFixed(1)+'%', datasets, labels);
+  updateMaxLabel('mem-max', computePeriodMax(safeMax), v => v.toFixed(1)+'%', null);
 }
 
-async function loadCpuUserSystemChart(capturedRange, capturedAnchor) {
-  const seq = ++seqs.cpuUserSys;
-  const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
-  const grid = makeBucketGrid(capturedRange, capturedAnchor);
-  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
-  const [uAvg, uMax, sAvg, sMax] = await Promise.all([
-    fetchChart('cpu.user_percent','avg', capturedRange, capturedAnchor), fetchChart('cpu.user_percent','max', capturedRange, capturedAnchor),
-    fetchChart('cpu.system_percent','avg', capturedRange, capturedAnchor), fetchChart('cpu.system_percent','max', capturedRange, capturedAnchor),
+const MEMCOMP_META = {
+  used:      { label: 'Used',      color: '#3b82f6' },
+  available: { label: 'Available', color: '#8b5cf6' },
+  cached:    { label: 'Cached',    color: '#22c55e' },  // Windows 미측정 → 빈 라인
+  buffers:   { label: 'Buffers',   color: '#f59e0b' },  // Windows 미측정 → 빈 라인
+};
+async function loadMemCompChart(range, anchor) {
+  const seq = ++seqs.memComp;
+  const [used, avail, cached, buffers] = await Promise.all([
+    fetchChart('mem.usage_percent','avg', range, anchor),
+    fetchChart('mem.available_percent','avg', range, anchor),
+    fetchChart('mem.cached_percent','avg', range, anchor),
+    fetchChart('mem.buffers_percent','avg', range, anchor),
   ]);
-  if (seq !== seqs.cpuUserSys) return;
-  const sUA = _safe(uAvg), sUM = _safe(uMax), sSA = _safe(sAvg), sSM = _safe(sMax);
-
-  const canvas = document.getElementById('cpuus-canvas');
-  const empty  = document.getElementById('cpuus-empty');
-  if (chartInstances['cpuus-canvas']) { chartInstances['cpuus-canvas'].destroy(); delete chartInstances['cpuus-canvas']; }
-
-  if (!sUA.length && !sSA.length) {
-    canvas.style.display = 'none'; empty.style.display = '';
-    updateMaxLabel('cpuus-max', null, v => v.toFixed(1)+'%', null);
-    buildLegend('cpuus-legend', null);
-    return;
-  }
-  canvas.style.display = ''; empty.style.display = 'none';
-
-  const userDs   = buildDatasets(sUA, sUM, bMs, grid, 'user');
-  userDs[0].borderColor = COLORS[0]; userDs[0].backgroundColor = COLORS[0] + '28';
-  const systemDs = buildDatasets(sSA, sSM, bMs, grid, 'system');
-  systemDs[0].borderColor = COLORS[2]; systemDs[0].backgroundColor = COLORS[2] + '28';
-
-  const chart = new Chart(canvas, {
-    type: 'line',
-    data: { labels, datasets: [...userDs, ...systemDs] },
-    options: makePerfOptions(Y_PCT, v => v.toFixed(1)+'%'),
-  });
-  chartInstances['cpuus-canvas'] = chart;
-  buildLegend('cpuus-legend', chart);
-
-  const allMax = [...sUM, ...sSM].map(r => r.value).filter(v => v != null);
-  updateMaxLabel('cpuus-max', allMax.length ? Math.max(...allMax) : null, v => v.toFixed(1)+'%', null);
+  if (seq !== seqs.memComp) return;
+  const rows = [
+    ..._safe(used).map(r => ({ ...r, dimension: 'used' })),
+    ..._safe(avail).map(r => ({ ...r, dimension: 'available' })),
+    ..._safe(cached).map(r => ({ ...r, dimension: 'cached' })),
+    ..._safe(buffers).map(r => ({ ...r, dimension: 'buffers' })),
+  ];
+  renderMultiDimChart('memcomp-canvas', 'memcomp-empty', 'memcomp-legend', rows, range, anchor, MEMCOMP_META);
 }
 
-const diskDashFn = dim => isPhysicalDisk(dim) ? [] : [5, 3];
-
-async function loadDiskReadChart(capturedRange, capturedAnchor) {
-  const seq = ++seqs.diskRead;
-  const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
-  const grid = makeBucketGrid(capturedRange, capturedAnchor);
-  const [avgRows, maxRows] = await Promise.all([fetchChart('disk.read_iops','avg', capturedRange, capturedAnchor), fetchChart('disk.read_iops','max', capturedRange, capturedAnchor)]);
-  if (seq !== seqs.diskRead) return;
+async function loadSwapChart(range, anchor) {
+  const seq = ++seqs.swap;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const [avgRows, maxRows] = await Promise.all([fetchChart('swap.usage_percent','avg', range, anchor), fetchChart('swap.usage_percent','max', range, anchor)]);
+  if (seq !== seqs.swap) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
-  const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, null, diskDashFn);
-  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
-  const chart = setChart('dread-canvas', 'dread-empty', safeAvg, Y_IOPS, v => Math.round(v)+' IOPS', datasets, labels);
-  buildLegend('dread-legend', chart);
-  updateMaxLabel('dread-max', computePeriodMax(safeMax), v => Math.round(v)+' IOPS', null);
+  const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, '스왑');
+  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  setChart('swap-canvas', 'swap-empty', safeAvg, Y_SWAP, v => v.toFixed(1)+'%', datasets, labels);
+  updateMaxLabel('swap-max', computePeriodMax(safeMax), v => v.toFixed(1)+'%', null);
 }
 
-async function loadDiskWriteChart(capturedRange, capturedAnchor) {
-  const seq = ++seqs.diskWrite;
-  const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
-  const grid = makeBucketGrid(capturedRange, capturedAnchor);
-  const [avgRows, maxRows] = await Promise.all([fetchChart('disk.write_iops','avg', capturedRange, capturedAnchor), fetchChart('disk.write_iops','max', capturedRange, capturedAnchor)]);
-  if (seq !== seqs.diskWrite) return;
-  const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
-  const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, null, diskDashFn);
-  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
-  const chart = setChart('dwrite-canvas', 'dwrite-empty', safeAvg, Y_IOPS, v => Math.round(v)+' IOPS', datasets, labels);
-  buildLegend('dwrite-legend', chart);
-  updateMaxLabel('dwrite-max', computePeriodMax(safeMax), v => Math.round(v)+' IOPS', null);
+// 물리 계층 I/O — device x Read/Write 통합 (storage.js loadPhysChart 모델, device_category=phys).
+async function loadPhysIoChart(range, anchor) {
+  const seq = ++seqs.physIo;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const [readAvg, readMax, writeAvg, writeMax] = await Promise.all([
+    fetchChart('disk.read_iops','avg', range, anchor, 'phys'),
+    fetchChart('disk.read_iops','max', range, anchor, 'phys'),
+    fetchChart('disk.write_iops','avg', range, anchor, 'phys'),
+    fetchChart('disk.write_iops','max', range, anchor, 'phys'),
+  ]);
+  if (seq !== seqs.physIo) return;
+  const avgRows = [..._safe(readAvg).map(r => ({ ...r, dimension: `${r.dimension} Read` })), ..._safe(writeAvg).map(r => ({ ...r, dimension: `${r.dimension} Write` }))];
+  const maxRows = [..._safe(readMax).map(r => ({ ...r, dimension: `${r.dimension} Read` })), ..._safe(writeMax).map(r => ({ ...r, dimension: `${r.dimension} Write` }))];
+  const datasets = buildDatasets(avgRows, maxRows, bMs, grid, null);
+  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const chart = setChart('physio-canvas', 'physio-empty', avgRows, Y_IOPS, v => Math.round(v)+' IOPS', datasets, labels);
+  buildAvgMaxLegend('physio-legend', chart, { withToggle: true });
 }
 
-async function loadNetRxChart(capturedRange, capturedAnchor) {
-  const seq = ++seqs.netRx;
-  const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
-  const grid = makeBucketGrid(capturedRange, capturedAnchor);
-  const [avgRows, maxRows] = await Promise.all([fetchChart('net.rx_bytes_per_sec','avg', capturedRange, capturedAnchor), fetchChart('net.rx_bytes_per_sec','max', capturedRange, capturedAnchor)]);
-  if (seq !== seqs.netRx) return;
+async function loadFsChart(range, anchor) {
+  const seq = ++seqs.fs;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const [avgRows, maxRows] = await Promise.all([fetchChart('fs.usage_percent','avg', range, anchor), fetchChart('fs.usage_percent','max', range, anchor)]);
+  if (seq !== seqs.fs) return;
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
   const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, null);
-  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
-  const chart = setChart('netrx-canvas', 'netrx-empty', safeAvg, Y_NET, fmtKbChart, datasets, labels);
-  buildLegend('netrx-legend', chart);
-  updateMaxLabel('netrx-max', computePeriodMax(safeMax), fmtKbChart, null);
+  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const chart = setChart('fs-canvas', 'fs-empty', safeAvg, Y_PCT, v => v.toFixed(1)+'%', datasets, labels);
+  buildAvgMaxLegend('fs-legend', chart, { withToggle: true });  // 다른 차트(물리 I/O·네트워크)와 동일 칩 토글
+  updateMaxLabel('fs-max', computePeriodMax(safeMax), v => v.toFixed(1)+'%', colorByMountPct);
 }
 
-async function loadNetTxChart(capturedRange, capturedAnchor) {
-  const seq = ++seqs.netTx;
-  const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
-  const grid = makeBucketGrid(capturedRange, capturedAnchor);
-  const [avgRows, maxRows] = await Promise.all([fetchChart('net.tx_bytes_per_sec','avg', capturedRange, capturedAnchor), fetchChart('net.tx_bytes_per_sec','max', capturedRange, capturedAnchor)]);
-  if (seq !== seqs.netTx) return;
-  const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
-  const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, null);
-  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
-  const chart = setChart('nettx-canvas', 'nettx-empty', safeAvg, Y_NET, fmtKbChart, datasets, labels);
-  buildLegend('nettx-legend', chart);
-  updateMaxLabel('nettx-max', computePeriodMax(safeMax), fmtKbChart, null);
+// 네트워크 I/O — iface x RX/TX 통합 bytes (network.js 모델).
+async function loadNetIoChart(range, anchor) {
+  const seq = ++seqs.netIo;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const [rxA, rxM, txA, txM] = await Promise.all([
+    fetchChart('net.rx_bytes_per_sec','avg', range, anchor), fetchChart('net.rx_bytes_per_sec','max', range, anchor),
+    fetchChart('net.tx_bytes_per_sec','avg', range, anchor), fetchChart('net.tx_bytes_per_sec','max', range, anchor),
+  ]);
+  if (seq !== seqs.netIo) return;
+  const { avg, max } = ifaceOrderedRows(rxA, txA, rxM, txM);
+  const datasets = buildDatasets(avg, max, bMs, grid, null);
+  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const chart = setChart('netio-canvas', 'netio-empty', avg, Y_NET, fmtKbChart, datasets, labels);
+  buildAvgMaxLegend('netio-legend', chart, { withToggle: true });
 }
 
-async function loadMountChart(capturedRange, capturedAnchor) {
-  const seq = ++seqs.mount;
-  const bMs = BUCKET_MS[AUTO_BUCKET[capturedRange]];
-  const grid = makeBucketGrid(capturedRange, capturedAnchor);
-  const [avgRows, maxRows] = await Promise.all([fetchChart('fs.usage_percent','avg', capturedRange, capturedAnchor), fetchChart('fs.usage_percent','max', capturedRange, capturedAnchor)]);
-  if (seq !== seqs.mount) return;
-  const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
-  const datasets = buildDatasets(safeAvg, safeMax, bMs, grid, null);
-  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
-  const chart = setChart('mount-canvas', 'mount-empty', safeAvg, Y_PCT, v => v.toFixed(1)+'%', datasets, labels);
-  buildLegend('mount-legend', chart, true);
-  const maxVal = computePeriodMax(safeMax);
-  updateMaxLabel('mount-max', maxVal, v => v.toFixed(1)+'%', colorByMountPct);
+// 네트워크 PPS — iface x RX/TX packets.
+async function loadNetPpsChart(range, anchor) {
+  const seq = ++seqs.netPps;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const [rxA, rxM, txA, txM] = await Promise.all([
+    fetchChart('net.rx_packets_per_sec','avg', range, anchor), fetchChart('net.rx_packets_per_sec','max', range, anchor),
+    fetchChart('net.tx_packets_per_sec','avg', range, anchor), fetchChart('net.tx_packets_per_sec','max', range, anchor),
+  ]);
+  if (seq !== seqs.netPps) return;
+  const { avg, max } = ifaceOrderedRows(rxA, txA, rxM, txM);
+  const datasets = buildDatasets(avg, max, bMs, grid, null);
+  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const chart = setChart('netpps-canvas', 'netpps-empty', avg, Y_PPS, v => v.toFixed(1)+' pps', datasets, labels);
+  buildAvgMaxLegend('netpps-legend', chart, { withToggle: true });
 }
 
 /* ── 전체 로드 ── */
@@ -365,28 +399,19 @@ function updateBucketLabel(range) {
 
 async function loadAllCharts() {
   // P4(b) capture-before-await: 호출 시점의 range/anchor를 캡처해 모든 로더에 전달.
-  // 이후 사용자가 range 토글하면 새 loadAllCharts가 새 capturedRange로 시작 + seq 증가 → 이전 응답 폐기.
-  const capturedRange  = globalRange;
-  const capturedAnchor = getAnchorEnd();
-  updateBucketLabel(capturedRange);
-  // 차트 + reboot events 병렬 fetch — events는 모든 차트 공유 (단일 grid).
-  const [events] = await Promise.all([
-    fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor),
-    loadMountChart(capturedRange, capturedAnchor),
-    loadCpuChart(capturedRange, capturedAnchor), loadIowaitChart(capturedRange, capturedAnchor),
-    loadCpuUserSystemChart(capturedRange, capturedAnchor), loadLoadChart(capturedRange, capturedAnchor),
-    loadMemChart(capturedRange, capturedAnchor), loadSwapChart(capturedRange, capturedAnchor),
-    loadDiskReadChart(capturedRange, capturedAnchor), loadDiskWriteChart(capturedRange, capturedAnchor),
-    loadNetRxChart(capturedRange, capturedAnchor), loadNetTxChart(capturedRange, capturedAnchor),
+  const range  = globalRange;
+  const anchor = getAnchorEnd();
+  updateBucketLabel(range);
+  await Promise.all([
+    loadCpuChart(range, anchor),     loadCpuClassChart(range, anchor),
+    loadLoadChart(range, anchor),    loadMemChart(range, anchor),
+    loadMemCompChart(range, anchor), loadSwapChart(range, anchor),
+    loadPhysIoChart(range, anchor),  loadFsChart(range, anchor),
+    loadNetIoChart(range, anchor),   loadNetPpsChart(range, anchor),
   ]);
-  // 모든 차트 setup 완료 후 marker 일괄 적용 (P4(a) seq 검사로 stale 방지).
-  const grid = makeBucketGrid(capturedRange, capturedAnchor);
-  for (const cid of Object.keys(chartInstances)) {
-    applyRebootMarkers(chartInstances[cid], events, grid);
-  }
 }
 
-/* ── 최근 수집 시간 ── */
+/* ── 수집 기준 시간 ── */
 async function loadLastMetricTs() {
   const el = document.getElementById('last-metric-ts');
   // P4(d) 404 분기: try/catch 이전에 status 검사로 데이터 부재를 명시 분기.
@@ -395,23 +420,23 @@ async function loadLastMetricTs() {
   try {
     const data = await res.json();
     if (!data.last_metric_at) { el.textContent = '—'; return; }
-    // 시간 포맷 단일 진실 (static-assets.md "시간 표기" 절) — ChartUtils.fmtKst (YYYY-MM-DD HH:MM:SS) 그대로.
-    el.textContent = ChartUtils.fmtKst(data.last_metric_at);
+    // 라벨 "수집 기준:" 은 storage/network 와 통일. 시간 포맷 ChartUtils.fmtKst (static-assets.md).
+    el.textContent = '수집 기준: ' + ChartUtils.fmtKst(data.last_metric_at);
   } catch { el.textContent = '—'; }
 }
 
-/* ── 날짜 인풋 초기화 (ChartUtils.initAnchor 단일 경계) ── */
+/* ── 인쇄 리사이즈 ──
+ * Chart.js 캔버스는 화면 컨테이너 폭 기준 렌더. 인쇄로 전환되면 레이아웃 폭(2열 인쇄)이 달라
+ * 캔버스가 인쇄 영역에 안 맞아 꺾은선이 plot 경계를 넘는다. 인쇄 직전/직후 명시 리사이즈로 보정. */
+function resizeAllCharts() {
+  for (const c of Object.values(chartInstances)) { if (c) c.resize(); }
+}
+window.addEventListener('beforeprint', resizeAllCharts);
+window.addEventListener('afterprint', resizeAllCharts);
+
+/* ── 날짜 인풋 초기화 + 컨트롤 바인딩 ── */
 ChartUtils.initAnchor('anchor-date');
-
-document.getElementById('global-range-btns').addEventListener('click', e => {
-  const btn = e.target.closest('.toggle');
-  if (!btn) return;
-  document.querySelectorAll('#global-range-btns .toggle').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  globalRange = btn.dataset.val;
-  loadAllCharts();
-});
-
+bindToggle('global-range-btns', val => { globalRange = val; loadAllCharts(); });
 document.getElementById('anchor-date').addEventListener('change', () => loadAllCharts());
 
 loadAllCharts();

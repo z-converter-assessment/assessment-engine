@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_shared.html" import empty_state %}
 {% block title %}ZConverter Assessment — {{ server.hostname }} CPU 상세{% endblock %}
 
 {% block content %}
@@ -21,8 +22,10 @@
     <dt>코어 수</dt>
     <dd>{{ server.cpu_cores ~ ' 코어' if server.cpu_cores is not none else '-' }}</dd>
   </dl>
+  <hr style="border:none; border-top:1px solid #e2e8f0; margin:0 0 14px;">
   <div id="snap-loading" style="color:#94a3b8; font-size:13px;">불러오는 중...</div>
   <div id="snap-body" style="display:none;">
+    <p class="text-meta" style="font-size:11px; margin:0 0 10px;">N/A : 해당 OS 에서 미측정하는 항목<br>— : 일시적으로 값 없음 (첫 수집·수집 끊김 등)</p>
     <dl class="kv" style="margin-bottom:20px;">
       <dt>CPU 사용률</dt><dd id="s-usage">—</dd>
       <dt>User</dt>      <dd id="s-user">—</dd>
@@ -47,27 +50,24 @@
 <!-- CPU 사용률 추이 -->
 <div class="card">
   <div style="margin-bottom:14px;">
-    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:6px;">
-      <div style="display:flex; align-items:center; gap:12px;">
-        <h2>CPU 사용률 추이<span class="print-only" id="usage-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-        <span id="usage-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
-      </div>
-      <div class="toggle-group no-print" id="usage-range-btns">
-        <button class="toggle active" data-val="15m">15분</button>
-        <button class="toggle" data-val="1h">1시간</button>
-        <button class="toggle" data-val="6h">6시간</button>
-        <button class="toggle" data-val="24h">1일</button>
-        <button class="toggle" data-val="7d">7일</button>
-        <button class="toggle" data-val="14d">14일</button>
-        <button class="toggle" data-val="30d">30일</button>
-      </div>
-      <input type="datetime-local" id="usage-anchor"
-        style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
-    </div>
-    <div class="toggle-group no-print" id="usage-agg-btns" style="justify-content:flex-end;">
-      <button class="toggle active" data-val="avg">평균</button>
-      <button class="toggle" data-val="max">최대</button>
-      <button class="toggle" data-val="p95">p95</button>
+    <div class="chart-head">
+      <h2>CPU 사용률 추이<span class="print-only" id="usage-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+      <span id="usage-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+      <select class="chart-select no-print" id="usage-range-btns" aria-label="구간 선택">
+        <option value="15m">15분</option>
+        <option value="1h">1시간</option>
+        <option value="6h">6시간</option>
+        <option value="24h">1일</option>
+        <option value="7d">7일</option>
+        <option value="14d">14일</option>
+        <option value="30d">30일</option>
+      </select>
+      <input type="datetime-local" id="usage-anchor" class="chart-anchor no-print" aria-label="기준 시각">
+      <select class="chart-select no-print" id="usage-agg-btns" aria-label="집계 방식">
+        <option value="avg">평균</option>
+        <option value="max">최대</option>
+        <option value="p95">p95</option>
+      </select>
     </div>
   </div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
@@ -85,22 +85,19 @@
 
 <!-- CPU 분류 추이 -->
 <div class="card">
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
-    <div style="display:flex; align-items:center; gap:12px;">
-      <h2>CPU 분류 추이<span class="print-only" id="comp-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-      <span id="comp-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
-    </div>
-    <div class="toggle-group no-print" id="comp-range-btns">
-      <button class="toggle active" data-val="15m">15분</button>
-      <button class="toggle" data-val="1h">1시간</button>
-      <button class="toggle" data-val="6h">6시간</button>
-      <button class="toggle" data-val="24h">1일</button>
-      <button class="toggle" data-val="7d">7일</button>
-      <button class="toggle" data-val="14d">14일</button>
-      <button class="toggle" data-val="30d">30일</button>
-    </div>
-    <input type="datetime-local" id="comp-anchor"
-      style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
+  <div class="chart-head">
+    <h2>CPU 분류 추이<span class="print-only" id="comp-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+    <span id="comp-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <select class="chart-select no-print" id="comp-range-btns" aria-label="구간 선택">
+      <option value="15m">15분</option>
+      <option value="1h">1시간</option>
+      <option value="6h">6시간</option>
+      <option value="24h">1일</option>
+      <option value="7d">7일</option>
+      <option value="14d">14일</option>
+      <option value="30d">30일</option>
+    </select>
+    <input type="datetime-local" id="comp-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="comp-canvas"></canvas>
@@ -108,35 +105,38 @@
   <div id="comp-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
-  <div id="comp-legend" style="display:flex; flex-direction:column; gap:6px; margin-top:12px;"></div>
+  <div id="comp-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
 </div>
 
 <!-- 로드 평균 추이 -->
 <div class="card">
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
-    <div style="display:flex; align-items:center; gap:12px;">
-      <h2>로드 평균 추이<span class="print-only" id="load-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-      <span id="load-bucket-label" style="font-size:11px; font-weight:600; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
-    </div>
-    <div class="toggle-group no-print" id="load-range-btns">
-      <button class="toggle active" data-val="15m">15분</button>
-      <button class="toggle" data-val="1h">1시간</button>
-      <button class="toggle" data-val="6h">6시간</button>
-      <button class="toggle" data-val="24h">1일</button>
-      <button class="toggle" data-val="7d">7일</button>
-      <button class="toggle" data-val="14d">14일</button>
-      <button class="toggle" data-val="30d">30일</button>
-    </div>
-    <input type="datetime-local" id="load-anchor"
-      style="padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px; font-size:12px; color:#475569; background:#fff; cursor:pointer;" class="no-print">
+  <div class="chart-head">
+    <h2>로드 평균 추이<span class="print-only" id="load-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+    {% if server.os_family != 'windows' %}
+    <span id="load-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <select class="chart-select no-print" id="load-range-btns" aria-label="구간 선택">
+      <option value="15m">15분</option>
+      <option value="1h">1시간</option>
+      <option value="6h">6시간</option>
+      <option value="24h">1일</option>
+      <option value="7d">7일</option>
+      <option value="14d">14일</option>
+      <option value="30d">30일</option>
+    </select>
+    <input type="datetime-local" id="load-anchor" class="chart-anchor no-print" aria-label="기준 시각">
+    {% endif %}
   </div>
+  {% if server.os_family == 'windows' %}
+  <div style="padding:44px 0; text-align:center;">{{ empty_state('Windows 환경에서는 로드 평균(load average)을 측정하지 않습니다.') }}</div>
+  {% else %}
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="load-canvas"></canvas>
   </div>
   <div id="load-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
-  <div id="load-legend" style="display:flex; flex-direction:column; gap:6px; margin-top:12px;"></div>
+  <div id="load-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
+  {% endif %}
 </div>
 
 <style>

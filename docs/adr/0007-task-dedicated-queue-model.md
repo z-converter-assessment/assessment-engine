@@ -47,7 +47,7 @@ ADR 0002 "즉시성 요구 발생 시 전환 경로" 의 옵션 C 로 전환. �
 
 - 데이터 형식이 발행 측 진화와 정합. task.install · task.result 양방향 모두 검증 통과 보장.
 - 즉시성 확보 — collector metrics 주기와 무관하게 push. 운영자 클릭 후 ~ms latency.
-- failure 분류 데이터 (`failure_reason` enum) 와 디버깅 데이터 (stdout/stderr tail) 가 영구 보존되어 통계·운영 가시성 ↑.
+- failure 분류 데이터 (`failure_reason` enum) 와 디버깅 데이터 (stdout/stderr tail) 가 영구 보존되어 통계·운영 가시성 증가.
 - 권한 분리 모델 (prod least-privilege) 이 collector / worker 채널을 별도 user 로 자연스럽게 표현 가능 (`agent-publisher` / `agent-worker` / `engine-publisher` / `engine-consumer`).
 
 ### 부정·한계

@@ -1,0 +1,13 @@
+{# 전역 공통 매크로 — 표시 계층 P3 순수 렌더링. 계산·임계값 분기 금지 (mapper 단일 진실). #}
+
+{# empty_state — 발화 가능하나 현재 데이터 없는 슬롯의 placeholder.
+   discoverability 원칙(#E9): 조건부 정보는 데이터가 없어도 제목·카테고리를 노출하고,
+   비었을 때 본 매크로로 "내용 없음"을 명시한다 (섹션 통째 사라짐 금지).
+   dumb 매크로 — 분기·계산 0, message 정적 문자열만 받아 렌더. #}
+{% macro empty_state(message) %}
+<p class="empty-state">{{ message }}</p>
+{% endmacro %}
+
+{# window_meta — 표제 메타 "(N대 기준 · 최근 M일)" 공통. days 는 recommendation.WINDOW_DAYS 단일 진실(#F10) 전달.
+   대시보드 활용률·Right-sizing 분류 표제 통일 — 하드코딩 "14일" 반복 제거. #}
+{% macro window_meta(count, days) %}({{ count }}대 기준 · 최근 {{ days }}일){% endmacro %}

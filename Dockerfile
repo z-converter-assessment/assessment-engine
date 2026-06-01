@@ -8,7 +8,8 @@
 #   - 본 이미지는 운영자 선택권 (systemd · k8s · docker-compose 어느 토폴로지든 호환).
 #   - 3 컴포넌트 단일 이미지 — ENTRYPOINT 가 `python -m`, CMD 가 default module (web).
 #     운영자는 compose `command:` / k8s `args:` 로 module 명만 override (assessment_engine.consumer 등).
-#   - dev 환경은 본 Dockerfile 이 아닌 `dev/Dockerfile` 사용 — hot reload·source bind mount 친화.
+#   - 루트 docker-compose.yml(dev + 퀵스타트, ADR 0033)도 본 이미지를 build — bind mount·hot reload 없음.
+#     dev 코드 반복은 venv(README "개발 환경 셋업") 또는 `docker compose up --build`.
 #
 # Multi-stage 구조:
 #   (1) builder — uv 로 wheel build (force-include 로 migrations + alembic.ini 동봉)

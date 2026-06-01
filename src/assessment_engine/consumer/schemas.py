@@ -1,5 +1,5 @@
 from datetime import datetime
-from ipaddress import ip_address
+from ipaddress import ip_interface
 from typing import Literal
 from uuid import UUID
 
@@ -19,6 +19,10 @@ class MessageBase(BaseModel):
     message_id: UUID
     agent_started_at: datetime
     boot_time: datetime
+    # OS family — 모든 메시지 진입 시점 OS 분기 단일 진실. agent 가 자기 OS 자체 보고.
+    # nullable — 옛 agent minor bump 호환 + task.result Linux worker 미발행 비대칭 흡수.
+    # 시계열 테이블 컬럼 추가는 시점별 활용처가 명확해질 때 별도 결정 (현 단계 schema 만).
+    os_family: Literal["linux", "windows"] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -64,10 +68,8 @@ class InventoryListenPortInfo(BaseModel):
 class InventoryInput(MessageBase):
     message_type: Literal["inventory"]
 
-    # OS family — task.install 발행 시 dispatch 단일 진실 (ADR 0020). agent 가 자기 OS 자체 보고.
-    # nullable — Linux agent minor bump 호환. agent 측 배포 완료 후 not-null tighten 별도.
-    os_family: Literal["linux", "windows"] | None = None
-
+    # os_family 는 MessageBase 정의 상속 (모든 메시지 단일 진실). InventoryInput 한정 활용처:
+    # task.install dispatch 단일 진실 (ADR 0020) — server_inventory.os_family 저장 후 task 발행 시 분기.
     os_id: str | None = Field(default=None, max_length=64)
     os_version: str | None = Field(default=None, max_length=64)
     os_codename: str | None = Field(default=None, max_length=64)
@@ -84,12 +86,14 @@ class InventoryInput(MessageBase):
     @classmethod
     def validate_ip_list(cls, v: object) -> object:
         # mode="before" — Pydantic 검증 전이라 v는 임의 타입(JSON 파싱 직후). list/tuple만 허용.
+        # ip_interface 는 bare IP("10.0.1.15")와 CIDR("10.0.1.15/24") 둘 다 허용 — agent payload v3.4+ 가
+        # ip_internal 을 CIDR 표기로 발행(#B). ip_external 은 bare IP 유지이나 ip_interface 가 상위호환 수용.
         if v is None:
             return v
         if not isinstance(v, (list, tuple)):
             raise TypeError(f"expected list or tuple of IP strings, got {type(v).__name__}")
         for item in v:
-            ip_address(str(item))
+            ip_interface(str(item))
         return v
 
     # mac_addresses — NIC별 MAC 목록 (lowercase·정렬·dedup, 빈 배열 가능). 다중 NIC 라 단일 식별 불가
@@ -176,7 +180,9 @@ class MetricsInput(MessageBase):
 class ErrorInput(MessageBase):
     message_type: Literal["error"]
     error_code: str = Field(min_length=1, max_length=64)
-    error_message: str = Field(min_length=1)
+    # error_message — 빈 문자열 허용 (#B extra=ignore 정신 — 발행 측 NULL 인자 fallback 으로
+    # 빈 문자열 가능, engine 은 통과시키고 로깅 단에서 fallback 표기). agent 측 수정 없이 흡수.
+    error_message: str
     failed_component: Literal["collect", "publish"]
     # 에이전트가 retry 종료·복구 시점에만 채워서 발행 (평소엔 None)
     retry_count: int | None = Field(default=None, ge=0)

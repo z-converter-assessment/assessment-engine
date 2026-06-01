@@ -316,6 +316,14 @@ function hideInstallModal() {
   installModal.style.display = 'none';
 }
 
+// task cell HTML 렌더 단일 진실 — install 직후 polling + 페이지 로드 시 진행 중 추적 공용.
+// 시간 포맷 단일 진실 — ChartUtils.fmtKst (YYYY-MM-DD HH:MM:SS). toLocaleString 은 locale-dependent 라 회피.
+function renderTaskCell(cell, detail) {
+  const created = ChartUtils.fmtKst(detail.created_at);
+  // 시각 글자크기·색은 SSR(list.html task cell) 과 동일 — 11px / .text-muted(#64748b). 새로고침 전후 일관.
+  cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${detail.task_id}" title="${detail.failure_label || ''}"><span class="badge ${detail.badge_class}">${detail.badge_label}</span><span class="text-muted" style="font-size:11px;">${created}</span></a>`;
+}
+
 // install 발행 직후 행별 last_task cell polling — TaskModal.pollUntilFinal 으로 final 도달 시 cell 갱신.
 // pending row 의 cell HTML 을 미리 교체 -> 운영자가 즉시 "진행 중" 인지.
 function pollAndUpdateRow(targetPublicId, taskId) {
@@ -325,13 +333,7 @@ function pollAndUpdateRow(targetPublicId, taskId) {
   if (!cell) return;
   cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${taskId}"><span class="badge rec-pending">진행 중</span></a>`;
   if (!window.TaskModal) return;
-  window.TaskModal.pollUntilFinal(taskId, {
-    onUpdate(detail) {
-      // 시간 포맷 단일 진실 — ChartUtils.fmtKst (YYYY-MM-DD HH:MM:SS). toLocaleString 은 locale-dependent 라 회피.
-      const created = ChartUtils.fmtKst(detail.created_at);
-      cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${detail.task_id}" title="${detail.failure_label || ''}"><span class="badge ${detail.badge_class}">${detail.badge_label}</span><span class="text-meta">${created}</span></a>`;
-    },
-  });
+  window.TaskModal.pollUntilFinal(taskId, { onUpdate(detail) { renderTaskCell(cell, detail); } });
 }
 
 async function submitInstall() {
@@ -412,45 +414,72 @@ installSubmitBtn.addEventListener('click', submitInstall);
 // 가 박혀 있어 JS 가 그 값 비교. URL replaceState 로 deep link / 새로고침 시 server-side filter 와 정합.
 const filterForm = document.getElementById('filter-form');
 if (filterForm) {
-  const rows = document.querySelectorAll('tr.server-row');
+  // 기본 표시 행 수 — 필터 비활성 시 처음 CLIP_SIZE 행만 보이고 "더보기"로 전체 노출.
+  // 필터 활성(검색·온라인·서비스·OS·분류 중 하나라도) 시엔 clip 없이 조건 맞는 전부 노출.
+  const CLIP_SIZE = 5;
+  let expanded = false;  // "더보기" 클릭 여부 (필터 비활성 상태에서만 의미)
+
+  function updateShowMore(visible, total) {
+    const wrap = document.getElementById('show-more-wrap');
+    if (wrap) wrap.style.display = visible ? '' : 'none';
+    const c = document.getElementById('show-more-count');
+    if (c && visible) c.textContent = `(${CLIP_SIZE}/${total})`;
+  }
 
   function applyFilters() {
+    const rows = document.querySelectorAll('tr.server-row');  // 매번 재조회 — 자동갱신 행 교체 후에도 정합
     const searchInput = filterForm.querySelector('input[name=search]');
     const onlineSel = filterForm.querySelector('select[name=is_online]');
     const serviceSel = filterForm.querySelector('select[name=service]');
-    const osSel = filterForm.querySelector('select[name=os_id]');
+    const osSel = filterForm.querySelector('select[name=os_distro]');
     const classSel = filterForm.querySelector('select[name=classification]');
     const search = (searchInput?.value || '').toLowerCase().trim();
     const onlineState = onlineSel?.value || '';  // "" / "true" / "false"
     const service = serviceSel?.value || '';
-    const osId = osSel?.value || '';
+    const osDistro = osSel?.value || '';
     const classification = classSel?.value || '';
+    const active = !!(search || onlineState || service || osDistro || classification);
+    let matchCount = 0;  // 필터 통과 행 수 (clip 이전)
     rows.forEach(tr => {
       const hostname = tr.dataset.hostname || '';
       const rowOnline = tr.dataset.isOnline === 'true';
-      const rowOs = tr.dataset.osId || '';
+      const rowOs = tr.dataset.osDistro || '';
       const rowClass = tr.dataset.classification || '';
       const rowServices = (tr.dataset.services || '').trim().split(/\s+/);
-      let show = true;
-      if (search && !hostname.includes(search)) show = false;
-      if (onlineState === 'true' && !rowOnline) show = false;
-      if (onlineState === 'false' && rowOnline) show = false;
-      if (service && !rowServices.includes(service)) show = false;
-      if (osId && rowOs !== osId) show = false;
-      if (classification && rowClass !== classification) show = false;
-      tr.style.display = show ? '' : 'none';
+      let match = true;
+      if (search && !hostname.includes(search)) match = false;
+      if (onlineState === 'true' && !rowOnline) match = false;
+      if (onlineState === 'false' && rowOnline) match = false;
+      if (service && !rowServices.includes(service)) match = false;
+      if (osDistro && rowOs !== osDistro) match = false;
+      if (classification && rowClass !== classification) match = false;
+      let visible = match;
+      if (match) {
+        matchCount += 1;
+        // 필터 비활성 + 미확장이면 CLIP_SIZE 초과 행은 숨김 (더보기 대상).
+        if (!active && !expanded && matchCount > CLIP_SIZE) visible = false;
+      }
+      tr.style.display = visible ? '' : 'none';
     });
+    // 전체보기 버튼 — 필터 비활성·미확장·전체가 CLIP 초과일 때만. (CLIP_SIZE/total 표기)
+    updateShowMore(!active && !expanded && matchCount > CLIP_SIZE, matchCount);
     // URL 갱신 — deep link / 새로고침 시 server-side filter 가 같은 query 받음 (일관).
     const params = new URLSearchParams();
     if (search) params.set('search', search);
     if (onlineState) params.set('is_online', onlineState);
     if (service) params.set('service', service);
-    if (osId) params.set('os_id', osId);
+    if (osDistro) params.set('os_distro', osDistro);
     if (classification) params.set('classification', classification);
     const qs = params.toString();
     const newUrl = qs ? `${location.pathname}?${qs}` : location.pathname;
     history.replaceState(null, '', newUrl);
   }
+
+  // "더보기" — 확장 플래그 set 후 재적용 (전체 노출).
+  document.getElementById('show-more-btn')?.addEventListener('click', () => {
+    expanded = true;
+    applyFilters();
+  });
 
   // text input — typing 마다 debounce (200ms) client filter.
   let debounceTimer = null;
@@ -467,4 +496,81 @@ if (filterForm) {
     e.preventDefault();
     applyFilters();
   });
+
+  // 자동갱신(replaceServerRows) 후 client 필터 재적용용 — 모듈 외부 노출.
+  window.__applyDashboardFilters = applyFilters;
+  // 초기 1회 — 전체 로드된 행에 clip(20) 적용 + deep-link query(form 초기값) 반영.
+  applyFilters();
 }
+
+// ─── 대시보드 자동 갱신 ──────────────────────────────────────────────────
+// page 1 대시보드를 30초마다 fragment 부분 교체 (static-assets.md polling 정공).
+// live(환경요약·운영신호·실시간 메트릭) + rows(서버목록 행) 두 fragment 동시 갱신.
+// 서버목록은 replaceServerRows 가 체크박스 선택·client 필터·진행중 task 추적을 보존하며 교체 (전체 reload 회피).
+// 검색/필터는 client-side hide/show라 fragment(전체 환경 기준)와 무관. page>1 일 땐 환경요약 무의미해 폴링 skip.
+(function () {
+  const live = document.getElementById('dashboard-live');
+  if (!live) return;
+  const pageParam = new URLSearchParams(location.search).get('page');
+  if (pageParam && pageParam !== '1') return;
+  const REFRESH_MS = 30_000;
+  const note = document.getElementById('dashboard-refresh-note');
+  if (note) note.textContent = ` · ${REFRESH_MS / 1000}초마다 자동 갱신`;
+
+  async function refresh() {
+    try {
+      // live(환경요약·운영신호·실시간 메트릭) + rows(서버목록 행) 동시 갱신 — 페이지 전체 데이터 일괄 최신화.
+      const [liveRes, rowsRes] = await Promise.all([
+        fetch('/servers/?fragment=live'),
+        fetch('/servers/?fragment=rows'),
+      ]);
+      if (liveRes.ok) {
+        live.innerHTML = await liveRes.text();
+        // 네트워크 토폴로지 캔버스는 innerHTML 교체로 컨테이너가 새로 생기므로 재렌더 — 동기 호출(repaint 전)이라
+        // 깜빡임 0, JS 내부 위치 캐시로 데이터 불변 시 배치 고정. (실시간/운영신호 카드는 순수 SVG·HTML 라 불요.)
+        if (window.NetworkTopology) window.NetworkTopology.render();
+        // 교체된 fragment 안 hidden 갱신시각 → 우측 상단 #dashboard-updated 텍스트 갱신.
+        const stamp = live.querySelector('#dash-updated-at');
+        const target = document.getElementById('dashboard-updated');
+        if (stamp && target) target.textContent = stamp.textContent.trim();
+      }
+      if (rowsRes.ok) replaceServerRows(await rowsRes.text());
+    } catch (e) {
+      // 네트워크 일시 오류 — 다음 주기에 재시도 (fail-soft, 화면 유지).
+    }
+  }
+
+  setInterval(refresh, REFRESH_MS);
+})();
+
+// ─── 진행 중 작업 자동 추적 ──────────────────────────────────────────────
+// 서버목록의 진행 중(rec-pending) task cell 을 pollUntilFinal 로 추적 — 완료까지 cell 갱신.
+// 페이지 로드 시 + 자동갱신 행 교체(replaceServerRows) 후 재호출. task-cell 모달은 delegation(task-modal.js) 이라 교체해도 유지.
+function trackPendingTasks() {
+  document.querySelectorAll('.task-cell').forEach(a => {
+    if (!a.querySelector('.badge.rec-pending')) return;
+    const taskId = a.dataset.taskId;
+    if (!taskId || !window.TaskModal) return;
+    const cell = a.closest('td');
+    window.TaskModal.pollUntilFinal(taskId, { onUpdate(detail) { renderTaskCell(cell, detail); } });
+  });
+}
+
+// 자동갱신 시 서버목록 행(server-row) 만 교체 — discover 버튼 행은 보존. 체크박스 선택·client 필터·진행중 추적 복원.
+function replaceServerRows(html) {
+  const tbody = document.getElementById('server-tbody');
+  if (!tbody) return;
+  // 체크 상태 보존 (보고서·install 선택 중 갱신돼도 유지). discover 버튼은 tbody 밖이라 교체 무관.
+  const checked = new Set([...tbody.querySelectorAll('.row-select:checked')].map(cb => cb.dataset.publicId));
+  tbody.innerHTML = html;
+  // 체크 복원 + change 재바인딩 (직접 바인딩이라 교체 후 재연결 필요).
+  tbody.querySelectorAll('.row-select').forEach(cb => {
+    if (checked.has(cb.dataset.publicId)) cb.checked = true;
+    cb.addEventListener('change', refreshInstallButton);
+  });
+  trackPendingTasks();
+  if (window.__applyDashboardFilters) window.__applyDashboardFilters();
+  refreshInstallButton();
+}
+
+trackPendingTasks();

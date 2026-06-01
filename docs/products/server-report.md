@@ -148,7 +148,7 @@ Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상�
 ### 평가 윈도우
 
 - 서버 보고서 default 14일 (`recommendation.WINDOW_DAYS`). URL `?period_days=N` (1~90일) override 가능.
-- 서버 진단 7개 옵션 (15m·1h·6h·24h·7d·14d default·30d) — 즉시 발행 모달에서 선택. 짧은 윈도우는 단발 부하·실시간 시연 검증, 긴 윈도우는 신뢰성 ↑ 최근 변동 반영 늦음.
+- 서버 진단 7개 옵션 (15m·1h·6h·24h·7d·14d default·30d) — 즉시 발행 모달에서 선택. 짧은 윈도우는 단발 부하·실시간 시연 검증, 긴 윈도우는 신뢰성 증가 최근 변동 반영 늦음.
 
 ### view 분기 의도
 

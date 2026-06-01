@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Windows Server 2022 Standard Eval (Desktop Experience) 무인 설치 응답 파일 템플릿.
+  dev-up.sh `build_win_autounattend` 가 placeholder 치환 후 provision.ps1 와 함께 ISO 로 구워 cdrom 부착.
+    @@HOSTNAME@@   VM hostname (win-server-01)
+    @@ADMINPASS@@  built-in Administrator 비밀번호 (dev 고정, 복잡도 충족)
+  provision(OpenSSH·방화벽·SSH키·DefaultShell·IIS)은 ISO 동봉 provision.ps1 — FirstLogonCommands CommandLine 은
+  CD 스캔 후 그 파일 실행(짧게). 거대 base64 를 CommandLine 에 직접 넣으면 maxLength 초과 "Value is invalid"(diag).
+  UEFI/GPT (OVMF, secboot 불필요). SATA 디스크 + e1000e NIC 인박스 드라이버라 virtio-win 주입 불요.
+  이미지 선택 = /IMAGE/INDEX 2 (eval ISO: 1=Std Core, 2=Std Desktop, 3=DC Core, 4=DC Desktop).
+-->
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+  <settings pass="windowsPE">
+    <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <SetupUILanguage><UILanguage>en-US</UILanguage></SetupUILanguage>
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <DiskConfiguration>
+        <WillShowUI>OnError</WillShowUI>
+        <Disk wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+          <DiskID>0</DiskID>
+          <WillWipeDisk>true</WillWipeDisk>
+          <CreatePartitions>
+            <CreatePartition wcm:action="add"><Order>1</Order><Type>EFI</Type><Size>300</Size></CreatePartition>
+            <CreatePartition wcm:action="add"><Order>2</Order><Type>MSR</Type><Size>16</Size></CreatePartition>
+            <CreatePartition wcm:action="add"><Order>3</Order><Type>Primary</Type><Extend>true</Extend></CreatePartition>
+          </CreatePartitions>
+          <ModifyPartitions>
+            <ModifyPartition wcm:action="add"><Order>1</Order><PartitionID>1</PartitionID><Format>FAT32</Format><Label>System</Label></ModifyPartition>
+            <ModifyPartition wcm:action="add"><Order>2</Order><PartitionID>2</PartitionID></ModifyPartition>
+            <ModifyPartition wcm:action="add"><Order>3</Order><PartitionID>3</PartitionID><Format>NTFS</Format><Label>Windows</Label><Letter>C</Letter></ModifyPartition>
+          </ModifyPartitions>
+        </Disk>
+      </DiskConfiguration>
+      <ImageInstall>
+        <OSImage>
+          <InstallTo><DiskID>0</DiskID><PartitionID>3</PartitionID></InstallTo>
+          <InstallFrom>
+            <MetaData wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+              <Key>/IMAGE/INDEX</Key>
+              <Value>2</Value>
+            </MetaData>
+          </InstallFrom>
+        </OSImage>
+      </ImageInstall>
+      <UserData>
+        <AcceptEula>true</AcceptEula>
+        <FullName>assessment-dev</FullName>
+        <Organization>assessment-dev</Organization>
+      </UserData>
+    </component>
+  </settings>
+
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <ComputerName>@@HOSTNAME@@</ComputerName>
+      <RegisteredOwner>assessment-dev</RegisteredOwner>
+      <RegisteredOrganization>assessment-dev</RegisteredOrganization>
+    </component>
+  </settings>
+
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <!-- Shell-Setup 자식 순서: OOBE -> UserAccounts -> AutoLogon -> FirstLogonCommands.
+           OOBE 는 Server 2022 정석 최소 3개만 (HideEULAPage + SkipMachineOOBE + SkipUserOOBE — OOBE 전체 skip).
+           클라이언트 전용 OOBE 요소(HideLocalAccountScreen·HideOnlineAccountScreens·NetworkLocation·ProtectYourPC·
+           HideOEMRegistrationScreen·HideWirelessSetupInOOBE)는 Server 에서 oobeSystem "Value is invalid"(0x80220005)
+           유발이라 전부 제거 (setupact.log UnattendGC 로 확인). -->
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
+      </OOBE>
+      <UserAccounts>
+        <AdministratorPassword>
+          <Value>@@ADMINPASS@@</Value>
+          <PlainText>true</PlainText>
+        </AdministratorPassword>
+      </UserAccounts>
+      <AutoLogon>
+        <Password><Value>@@ADMINPASS@@</Value><PlainText>true</PlainText></Password>
+        <Enabled>true</Enabled>
+        <Username>Administrator</Username>
+        <LogonCount>1</LogonCount>
+      </AutoLogon>
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+          <Order>1</Order>
+          <Description>provision (OpenSSH, firewall, SSH key, DefaultShell, IIS)</Description>
+          <!-- provision.ps1 은 autounattend ISO 에 동봉 — CommandLine 에 거대 base64 를 넣으면 maxLength 초과로
+               oobeSystem "Value is invalid"(diag: FirstLogonCommands/CommandLine). CD 드라이브 스캔 후 파일 실행(짧음). -->
+          <CommandLine>cmd /c for %i in (D E F G H I) do @if exist %i:\provision.ps1 powershell.exe -NoProfile -ExecutionPolicy Bypass -File %i:\provision.ps1</CommandLine>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+    </component>
+  </settings>
+</unattend>

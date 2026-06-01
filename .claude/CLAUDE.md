@@ -35,13 +35,13 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 본 repo는 기능 개발에 필요한 환경 구성만 다룬다. 배포 인프라(IaC — Terraform·Ansible·OpenStack staging 등)는 본 repo 범위 밖. 추후 도입 결정 시 별도 repo로 분리 (ADR 0006 Withdrawn 사유).
 
 본 절 결정:
-- `dev/docker-compose.yml` 은 기능 개발용 한정 (dev 환경에서 앱·DB·MQ·Redis 한 번에 띄움). `docker-compose.prod.yml` 은 본 repo 에 두지 않음 — prod 운영 방식 contract 를 docker compose 형식으로 강제하지 않는다 (ADR 0012).
+- 루트 `docker-compose.yml` 단일 파일이 dev 파이프라인과 퀵스타트를 겸한다 (앱 3종·DB·MQ·Redis 한 번에 기동). dev/prod 분리 안 함 — 현 단계 단순 유지, hardened prod 분리는 추후 (ADR 0033, ADR 0012 5절 supersede). `dev/docker-compose.yml`·override 파일·`docker-compose.prod.yml` 은 두지 않는다 (compose 정의 1곳).
 - prod 외부 인프라가 활용할 수 있는 정석 contract만 본 repo에서 유지:
   - 환경변수 contract — `docs/operations/env.md` 키 카탈로그
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
   - 환경 분기 — `APP_ENV=prod` + `_validate_prod_*` weak default 거부 (`docs/operations/env.md` 8절). secret 주입 방식은 무관, 결과(약한 default 거부)만 검증
   - CI 산출물 — Python wheel + GitHub Release (ADR 0012). 외부 인프라가 wheel 받아 install·systemd 자체 구성
-- IaC 코드(`*.tf`·Ansible playbook·OpenStack 시나리오 문서)·prod compose 변형은 본 repo에 두지 않는다. 인프라 시나리오 언급 자체 금지 — 단 어떤 인프라든 위 contract 충족 시 본 엔진 기동 가능.
+- IaC 코드(`*.tf`·Ansible playbook·OpenStack 시나리오 문서)는 본 repo에 두지 않는다. 인프라 시나리오 언급 자체 금지 — 단 어떤 인프라든 위 contract 충족 시 본 엔진 기동 가능. (루트 `docker-compose.yml` 퀵스타트는 예외적 편의 제공 — ADR 0033.)
 
 ---
 
@@ -161,6 +161,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 - inventory upsert·metrics 저장·server_id 조회 모두 `composite_id` 단일 키 기준 (#C1). 미등록 metrics는 drop.
 - `last_seen_at`은 `ServerDetail`(단일 조회)에만 포함. `ServerSummary`(목록)는 Redis `online:{id}` TTL로 표시.
 - `CollectionStatusItem`은 `last_metric_at` + `last_inventory_at` 별도 필드.
+- `ip_internal`은 CIDR 표기 문자열 raw 저장(agent v3.4+, #B). 인바운드는 `ip_interface` 형식 검증만(bare·CIDR 호환). 표시 파생은 `mappers/server._to_ip_addrs`(`ip_interface` 파싱)와 대시보드 네트워크 토폴로지(`mappers/topology.build_network_topology`)에서 — L3 subnet 공동소속 추론 그래프(노드=subnet/host, 가상망·IPv6·단독 subnet 제외). 추론이라 실측 reachability 아님 — 한계는 caveat 노출(#E9). Cytoscape.js(vendored)로 렌더, 자동갱신 fragment 안이라 swap 후 재초기화.
 
 Pagination 정책:
 - 목록 endpoint(`list_servers` 등 정적 row): page 기반 — `page=1`, `limit=20` (max 100). 라우터 Query Pydantic 검증.
@@ -172,12 +173,12 @@ Pagination 정책:
 
 ## E3. 서비스 계층·ViewModel·Mapper (P2)
 
-서비스 모듈 카탈로그·`mappers/` sub-package 표시 파생 집중 (`server`/`metric`/`attention`/`report`/`export`/`task`/`shared`/`diagnostic`/`environment_report`/`report_history` 11 sub-module)·`enrich_*` idempotent·UI badge 임계값(`_USAGE_DANGER_PCT`·`_USAGE_WARN_PCT` — `mappers/shared.py`)·USE Method right-sizing 임계값(`assessment_engine/recommendation.py` 도메인 모듈 — web·diagnostic 공용 import)·ViewModel 카탈로그·mapper 파생 필드(`is_well_known`·`badge_class`·`bar_color` 등)·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/architecture/web/services.md` · `docs/architecture/web/view-models.md` 단일 진실.
+서비스 모듈 카탈로그·`mappers/` sub-package 표시 파생 집중 (`server`/`metric`/`attention`/`report`/`export`/`task`/`shared`/`diagnostic`/`environment_report`/`report_history`/`topology` 12 sub-module)·`enrich_*` idempotent·UI badge 임계값(`_USAGE_DANGER_PCT`·`_USAGE_WARN_PCT` — `mappers/shared.py`)·USE Method right-sizing 임계값(`assessment_engine/recommendation.py` 도메인 모듈 — web·diagnostic 공용 import)·ViewModel 카탈로그·mapper 파생 필드(`is_well_known`·`badge_class`·`bar_color` 등)·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/architecture/web/services.md` · `docs/architecture/web/view-models.md` 단일 진실.
 
 본 절 결정:
 - 두 임계 도메인(UI badge / USE Method) 혼용 금지.
 - 신규 ViewModel 파생 필드 추가 시 #F9 영향도 체크리스트 적용.
-- right-sizing 분류는 OS-aware (ADR 0029). swap 등 OS 의미가 다른 신호는 `recommendation.swap_saturation(os_family, swap_used)` 단일 helper 경유 — Windows pagefile 은 saturation 신호 아님(제외), Linux/None(unknown)은 기존 동작 보존. saturation 축 부재 OS(Windows)는 `is_partial_evaluation` -> `ReportRowItem.is_partial` precompute 로 "부분 평가" 노출. swap_used 를 saturation 으로 직접 해석(`if raw.swap_used`) 금지 — helper 경유 의무.
+- right-sizing 분류 단일 진실 = `recommendation.assess(stats) -> Assessment(recommendation, triggers, unmeasured)` (evidence 기반, OS-aware, ADR 0029 정정). `classify` 는 분류 enum 만 돌려주는 호환 wrapper. 합성 규칙: under = 위험 신호 OR(하나라도 hit 되면 발화, 누락 0) / over = cpu/mem 둘 다 다운사이즈 임계 이하일 때만(보수적) / insufficient_data = utilization(cpu/mem) 둘 다 부재 + under 신호도 없을 때만(후순위 — swap 등 saturation 신호가 있으면 util 부재여도 under 로 결론). hit 신호(triggers)를 근거로 동반 — report mapper 권고(`_build_under_provisioned_reason`)와 attention capacity 배지(`to_capacity_warning_item`)가 `assess.triggers` 재사용(임계 재계산 금지), stats 생성은 `build_resource_stats` 공용. swap 은 `recommendation.swap_saturation(os_family, swap_used)` helper 경유 의무(Windows pagefile 제외, Linux/None 보존) — `if raw.swap_used` 직접 해석 금지. saturation 축 미관측(값 None, 예: Windows load)은 `unmeasured` 기록 -> `is_partial`(=bool(unmeasured)) -> `ReportRowItem.is_partial` 로 "이용률 기준 평가" confidence 노출 (분류는 utilization/capacity 로 완결, "데이터 부족" 아님 — cpu_p95/mem_p95 산출되는 한). Windows agent 가 등가 카운터(Processor Queue Length 등) 발행 시 unmeasured 자동 해제. 분류 명세·임계 근거(USE Method·AWS/Azure/GCP advisor 출처)·한계 단일 진실 = `docs/architecture/right-sizing.md`.
 
 ## E4. URL 식별자 — 정수 PK 노출 금지
 
@@ -197,18 +198,39 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 
 서비스 카테고리 분류(`classify`)·포트 매핑(`matched_ports`)은 `service_classifier.py`에서. 매퍼가 호출해 `ServiceItem`에 채움. 템플릿은 `service_badge_class` 필터로 category → CSS 클래스 변환만(P3).
 
-키워드 매칭 표 / `SERVICE_PORTS` 폴백 / 서비스 3단계 표시 계층: `docs/architecture/web/services.md` "서비스 분류" 절.
+본 절 결정 (ADR 0032):
+- 카테고리 규약 단일 진실 = `SERVICE_CATALOG`(`CategoryDef`). 분류 키워드·포트·드롭다운(`SERVICE_CATEGORIES`)·뱃지 CSS(`BADGE_CLASS_BY_CATEGORY`)·템플릿 범례가 모두 본 카탈로그 파생 — 서비스 추가는 카탈로그 1곳만 수정. 분산 정의(옛 `_PATTERNS`/`SERVICE_PORTS`/`_BADGE_CLASSES`) 부활 금지.
+- `classify(unit, listen_ports=None)` 다중 신호 우선순위 = name -> comm -> port (정밀도 순). comm/port 는 `_attributed_ports`(comm~name 또는 name well-known 포트) 귀속 포트에만 적용 — per-unit(services 탭) multi-service 오분류 방지.
+- 호스트 워크로드(뱃지·role·환경분포)는 per-unit `classify` 가 아니라 `workload_category_counter`(services 이름 분류 ∪ `detect_listen_categories` listen 소켓 직접 분류) 경유. agent 가 services<->listen_ports join key(pid) 미발행이라(T15), opaque 한 Windows SCM 이름을 listen 소켓 comm/port 로 구제하는 단일 보완 경로. detail 뱃지·환경요약·`infer_role`(export)에 적용, 목록 행·보고서는 listen_ports 미보유라 name 만(의도적 비대칭).
+- 런타임 스택 카테고리(`CategoryDef.single_instance`, 현재 container)는 호스트당 1로 카운트 — docker+containerd 등이 떠도 "container 2" 금지(`SINGLE_INSTANCE_CATEGORIES`, 카운터·목록 뱃지·detail 뱃지 일관). 일반 카테고리는 인스턴스 카운트.
+- detail 뱃지 포트는 카테고리 단위 집계 — comm 귀속 실패 워크로드 포트(W3SVC<->System 80 등)도 카테고리 뱃지에 붙임. 뱃지에 귀속된 포트는 "주요 Listen 포트"에서 제외.
+- 본 `classify`(서비스 카테고리)와 `recommendation.classify`(USE Method right-sizing) 혼용 금지 — 다른 함수.
+
+키워드 매칭·카탈로그 파생 / 다중 신호 우선순위 / opaque 이름 한계(T15) / 서비스 3단계 표시 계층: `docs/architecture/web/services.md` "서비스 분류" 절.
 
 ## E8. 차트·도넛 UI 디테일 (P3·P4 적용)
 
-차트 Y축·suggestedMax·avg+max ghost·P4 5 의무 규약(sequence counter·capture-before-await·`Array.isArray`·404 분기·suggestedMax 상수): `docs/architecture/web/static-assets.md`. ViewModel 필드(`dash_length`/`dash_offset`/`bar_color`)·SVG 원주 상수(`_UTIL_DONUT_CIRC`)·임계 색 상수 카탈로그(`_UTIL_COLOR_LOW/MID/HIGH/NONE`·`_DONUT_SEGMENT_DEFS`·`_CAPACITY_TRIGGER_COLORS`): `docs/architecture/web/view-models.md` "신호 임계값 단일 정의" 절.
+차트 Y축·suggestedMax·avg+max ghost·P4 5 의무 규약(sequence counter·capture-before-await·`Array.isArray`·404 분기·suggestedMax 상수): `docs/architecture/web/static-assets.md`. ViewModel 필드(`dash_length`/`dash_offset`/`bar_color`)·SVG 원주 상수(`_UTIL_DONUT_CIRC`)·색 상수 카탈로그(`_UTIL_COLOR_GAUGE/NONE`(활용률 게이지 단색)·`_DONUT_SEGMENT_DEFS`·`_CAPACITY_TRIGGER_COLORS`): `docs/architecture/web/view-models.md` "신호 임계값 단일 정의" 절.
 
 본 절 결정:
 - 차트 Y축은 분해력(추이) vs 절대 기준(진단 리포트) 두 정책 중 선택. magic number 금지(명명 상수).
 - SVG `stroke-dasharray`·`stroke-dashoffset` 비례 산술은 mapper precompute — 템플릿은 raw 값만 삽입.
 - 임계 색 단일 진실 — 동일 의미는 동일 hex (활용률·프로비저닝 분포·capacity trigger 일관).
-- 모든 카테고리 항상 노출(count 0 포함). 비활성은 동일 슬롯 옅은 회색.
+- 모든 카테고리 항상 노출(count 0 포함). 비활성은 동일 슬롯 옅은 회색. (도넛 카테고리는 #E9 일반 원칙의 한 사례 — 발화 없는 카테고리도 범례에 노출.)
 - 도넛 중앙 강조 라벨은 가장 시급한 카테고리 카운트 1개만. 합계·ratio 노출 금지.
+
+## E9. 발화 가능 정보 노출 (discoverability, P3 적용)
+
+> 조건부로만 채워지는 정보(운영 신호·right-sizing 분류·언더 프로비저닝·capacity 임박·표본 부족 등)는 데이터가 없을 때도 "그 정보가 존재할 수 있다"는 사실을 사용자가 인지할 수 있어야 한다. 처음 보는 사용자가 화면만으로 기능 범위를 판단 가능해야 함.
+
+본 절 결정:
+- 발화/조건부 섹션은 데이터가 없어도 제목·카테고리를 노출. 섹션을 통째로 `{% if %}`로 숨기지 않음 (E8 도넛 카테고리 항상 노출이 이 원칙의 한 사례).
+- 빈 상태 표시는 단일 컴포넌트 경유: `_shared.html`의 `empty_state(message)` 매크로 + base.html `.empty-state` 클래스 (박스 없는 회색 텍스트 placeholder). 매크로는 dumb — 분기·계산 0, 정적 message만 렌더 (P3). 정상/미수집 의미 구분 안 함 (placeholder 통일 — 구분 로직 복잡도·버그 회피).
+- "화면 컨텍스트 가드"와 "데이터 발화 가드" 분리:
+  - 컨텍스트 가드(유지) — 그 정보 자체가 무의미한 맥락. 예: `list_page`는 page>1·검색/필터 시 `attention`/`overview`=None 으로 환경 요약·운영신호 카드 미노출.
+  - 데이터 발화 가드(placeholder 전환) — `{% if items %}` 류. 비면 사라지지 말고 `empty_state`.
+- 적용 범위: 대시보드·환경 보고서·서버 상세 등 전 표시 계층. 이미 placeholder("—"·"수집 불가"·"없음")가 있는 셀·항목은 그대로 유지 (중복 전환 금지).
+- 신규 조건부(발화) 섹션 추가 시 #F9 체크리스트 적용.
 
 ---
 
@@ -337,14 +359,16 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 | 신규 routing key | (1) 발행 측 (agent 또는 engine web) 상수 (2) consumer 핸들러 팩토리 + dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 (4) `docs/architecture/agent.md` 메시지 타입 절 |
 | `EXCHANGE`/`ROUTING_KEY_*` 값 변경 | (1) 발행 측 상수 (2) consumer subscriber dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 |
 | 메시지 페이로드 schema 변경 (필드 추가·삭제·rename·Literal 값 변경) | (1) `consumer/schemas.py` 또는 발행 측 payload 빌드 (2) Inbound DTO (3) handler 매핑 (4) DB 모델·Alembic revision (필요 시) (5) `docs/architecture/agent.md` 데이터 형식 절 (6) 운영자 가시성 ViewModel·템플릿·API (필요 시) |
-| `recommendation.py` 분류 임계 또는 OrbStack VM 매트릭스 변경 | (1) `recommendation.py` 임계 상수 (2) `docs/development/pipeline.md` "VM 매트릭스"(합성 부하·swap_used 트리거) (3) #F10 평가 윈도우 정합 |
-| 분류 OS 분기 (신호의 OS별 의미·축 추가, ADR 0029) | (1) `recommendation.py` helper(`swap_saturation` 등)·`ResourceStats` 필드·`is_partial_evaluation` (2) `classify` 호출처 전부 os_family 전달 (aggregator·query_service·server/report/export mapper) (3) 직접 해석 지점(report mapper·attention·환경 카운트) helper 경유 (4) 표시 N/A·부분평가 마커 (ViewModel precompute + 템플릿) (5) `docs/architecture/web/services.md` "OS 분기" + `right_sizing_thresholds.html` + product 문서 |
-| 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) `dev/docker-compose.yml` `environment:` (dev 필요 시) (4) prod secret 분류면 `SecretStr` 타입 + `_validate_prod_*` 에 weak default 거부 추가 + `docs/operations/env.md` 2절·7절 |
+| `recommendation.py` 분류 임계 또는 libvirt VM 매트릭스 변경 | (1) `recommendation.py` 임계 상수 (2) `docs/development/pipeline.md` "VM 매트릭스"(합성 부하·swap_used 트리거) (3) #F10 평가 윈도우 정합 |
+| 분류 신호·OS 분기 (USE Method 축·임계·trigger, ADR 0029 evidence) | (1) `recommendation.py` `assess`/`Assessment`(triggers·unmeasured)·임계 상수·`swap_saturation` helper·`ResourceStats` 필드 (2) trigger 키 추가 시 report 권고(`_TRIGGER_ACTION_KO`)·attention capacity 배지 active 매핑 동시 갱신 (3) stats 생성은 `build_resource_stats` 공용(report·attention 단일 진실) — 직접 해석·임계 재계산 금지 (4) 표시 N/A·confidence(`is_partial`=bool(unmeasured)) 마커 (ViewModel precompute + 템플릿) (5) `docs/architecture/right-sizing.md`(명세·근거 단일 진실) + `docs/architecture/web/services.md` "OS 분기" + `right_sizing_thresholds.html` + ADR 0029 정정 |
+| 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) 루트 `docker-compose.yml` `environment:` (필요 시) (4) prod secret 분류면 `SecretStr` 타입 + `_validate_prod_*` 에 weak default 거부 추가 + `docs/operations/env.md` 2절·7절 |
 | ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass(P2) |
+| 신규 조건부(발화) UI 섹션 추가 | (1) 제목·카테고리 항상 노출 (2) 빈 상태 `empty_state` placeholder (3) 화면 컨텍스트 가드와 데이터 발화 가드 분리 (#E9) |
 | 신규 외부 의존(HTTP·LLM·외부 큐) | (1) fail-open/close 결정(#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) #F6 매트릭스 갱신 |
 | 신규 의존성(`pyproject.toml`) | (1) `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토. 워크플로 단일 진실: `docs/development/dependencies.md` |
 | RAG 자료 카탈로그 추가 (ADR 0024) | (1) `rag_documents.source_type` enum 추가 (2) BaseRetriever 호출처 source_type 분기 (3) `docs/architecture/diagnostic.md` "RAG infra" 절 (4) 본 phase 결정 cataolg 갱신 ADR 정정 |
 | embedding 모델 변경 (ADR 0024 결정 2) | (1) `EMBEDDING_MODEL` env (2) `EMBEDDING_DIMENSION` env (3) alembic revision (`embedding vector(N)` 타입 변경) (4) 전체 rag_documents 재 embedding (ingest CLI 재실행) (5) HNSW 인덱스 재 build |
+| 신규 차트 MetricType (net/disk rate 등) | (1) `db/repositories/query/types.py` `MetricType` Literal (2) rate 메트릭이면 동 파일 `_RATE_PER_DIM_DEFS` (dim_col, value_col) (3) `db/repositories/query/metric.py` `_RATE_PER_DIM` table 매핑 — 누락 시 `unknown metric_type` AssertionError 500 (Promise.all 한 fetch 실패가 같은 페이지 다른 차트까지 막음) (4) 페이지 JS fetch (5) 가상 제외 필터(`device_filters`) 해당 시 표시 경계 적용 |
 
 
 ## F10. 평가 윈도우 · 차트 시계열 옵션 — 단일 진실

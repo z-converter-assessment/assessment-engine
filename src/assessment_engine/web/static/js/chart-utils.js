@@ -78,11 +78,19 @@
   }
 
   // ── 토글 그룹 바인딩 ──
+  // groupId 가 <select> 면 change 로, .toggle 버튼 그룹이면 click 으로 자동 분기.
+  // 호출처는 (groupId, onChange(val)) 동일 — HTML 만 select/button 선택.
   function bindToggle(groupId, onChange) {
-    document.getElementById(groupId).addEventListener('click', e => {
+    const el = document.getElementById(groupId);
+    if (!el) return;
+    if (el.tagName === 'SELECT') {
+      el.addEventListener('change', e => onChange(e.target.value));
+      return;
+    }
+    el.addEventListener('click', e => {
       const btn = e.target.closest('.toggle');
       if (!btn) return;
-      document.querySelectorAll(`#${groupId} .toggle`).forEach(b => b.classList.remove('active'));
+      el.querySelectorAll('.toggle').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       onChange(btn.dataset.val);
     });
@@ -96,6 +104,9 @@
     es.onopen    = () => { if (dot) dot.className = 'dot dot-ok'; if (lbl) lbl.textContent = '자동 갱신 중'; };
     es.onmessage = () => onMessage();
     es.onerror   = () => { if (dot) dot.className = 'dot dot-off'; if (lbl) lbl.textContent = '자동 갱신 중단 — 재연결 중...'; };
+    // 페이지 이탈(뒤로가기·네비게이션·탭 닫기) 시 SSE 정리 — 미정리 시 좀비 EventSource 가
+    // HTTP/1.1 도메인 연결 한도(6)를 점유해 재진입 시 새 요청이 대기에 걸려 무한로딩 발생.
+    window.addEventListener('pagehide', () => es.close());
     return es;
   }
 
@@ -148,12 +159,32 @@
   }
 
   // ── 짝수 인덱스 avg dataset만 legend 표시 (max ghost 숨김) ──
-  // opts: { codeLabel?: code 태그 사용, withToggle?: checkbox + avg/max 짝 hide 토글 (P4 허용 — E1 P4 절) }
+  // opts: { codeLabel?: code 태그 사용, withToggle?: 칩(pill) 토글 — avg/max 짝 함께 hide (P4 허용 — E1 P4 절) }
   function buildAvgMaxLegend(containerId, chart, opts = {}) {
     const el = document.getElementById(containerId);
     if (!el || !chart) { if (el) el.innerHTML = ''; return; }
     const avgDatasets = chart.data.datasets.filter((_, i) => i % 2 === 0);
-    el.innerHTML = avgDatasets.map((ds, i) => {
+    // withToggle: cpu/memory 와 동일한 칩(pill) 토글 형식. avg/max 쌍을 1칩으로 묶어 함께 show/hide.
+    if (opts.withToggle) {
+      el.innerHTML = avgDatasets.map((ds, i) => `
+        <button type="button" class="legend-chip" data-avg="${i * 2}" aria-pressed="true">
+          <span class="legend-dot" style="background:${ds.borderColor};"></span>${ds.label}
+        </button>
+      `).join('');
+      el.querySelectorAll('.legend-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          const avgIdx = +chip.dataset.avg;
+          const hidden = !chart.getDatasetMeta(avgIdx).hidden;
+          chart.getDatasetMeta(avgIdx).hidden     = hidden;
+          chart.getDatasetMeta(avgIdx + 1).hidden = hidden;
+          chip.setAttribute('aria-pressed', String(!hidden));
+          chart.update();
+        });
+      });
+      return;
+    }
+    // 정적 범례 (performance codeLabel 등) — 선 + 라벨.
+    el.innerHTML = avgDatasets.map(ds => {
       const isDash = ds.borderDash && ds.borderDash.length > 0;
       const lineHtml = isDash
         ? `<svg width="20" height="3" style="flex-shrink:0;"><line x1="0" y1="1.5" x2="20" y2="1.5" stroke="${ds.borderColor}" stroke-width="2" stroke-dasharray="4 2"/></svg>`
@@ -161,25 +192,8 @@
       const labelHtml = opts.codeLabel
         ? `<code>${ds.label}</code>`
         : `<span class="text-label">${ds.label}</span>`;
-      if (opts.withToggle) {
-        return `<label style="display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;">
-          <input type="checkbox" data-avg="${i * 2}" checked
-            style="accent-color:${ds.borderColor}; width:13px; height:13px; cursor:pointer;">
-          ${lineHtml}${labelHtml}
-        </label>`;
-      }
       return `<span style="display:flex; align-items:center; gap:5px;">${lineHtml}${labelHtml}</span>`;
     }).join('');
-    if (opts.withToggle) {
-      el.querySelectorAll('input[type=checkbox]').forEach(cb => {
-        cb.addEventListener('change', () => {
-          const avgIdx = +cb.dataset.avg;
-          chart.getDatasetMeta(avgIdx).hidden     = !cb.checked;
-          chart.getDatasetMeta(avgIdx + 1).hidden = !cb.checked;
-          chart.update();
-        });
-      });
-    }
   }
 
   // ── reboot / agent restart 이벤트 (차트 vertical marker용) ──
@@ -205,13 +219,15 @@
     return lo;
   }
 
-  // Chart.js custom plugin — 차트 options.plugins.rebootMarkers.{events, gridMs} 읽어
+  // Chart.js custom plugin — 차트 인스턴스 chart.$rebootMarkers.{events, gridMs} 읽어
   // vertical dashed line + 작은 라벨 그림. afterDraw로 dataset 위에 덮어 그림.
   // 색상: reboot=red(#ef4444), restart=amber(#f59e0b). 기존 USAGE_DANGER/WARN 색과 일치.
   const rebootMarkersPlugin = {
     id: 'rebootMarkers',
     afterDraw(chart) {
-      const opts = chart.options.plugins?.rebootMarkers;
+      // events/gridMs 는 chart.options 밖(인스턴스 속성)에서 읽음 — Chart.js options resolver 가
+      // 배열을 scriptable 로 깊이 평가하다 무한 재귀(_scriptable->_scriptable)에 빠지는 것 회피.
+      const opts = chart.$rebootMarkers;
       if (!opts || !Array.isArray(opts.events) || !opts.events.length) return;
       const grid = opts.gridMs;
       if (!Array.isArray(grid) || !grid.length) return;
@@ -237,7 +253,7 @@
         ctx.lineTo(x, area.bottom);
         ctx.stroke();
         ctx.fillStyle = color;
-        ctx.fillText(ev.kind === 'reboot' ? '재부팅' : '재시작', x + 3, area.top + 11);
+        ctx.fillText(ev.kind === 'reboot' ? 'VM 리부트' : '에이전트 재시작', x + 3, area.top + 11);
       }
       ctx.restore();
     },
@@ -250,10 +266,34 @@
   // 차트 인스턴스에 marker 옵션 주입 + animation 없이 redraw.
   // 호출자: 모든 chart load 후 (한 번에 모든 차트에 적용)
   function applyRebootMarkers(chart, events, gridMs) {
-    if (!chart || !chart.options) return;
-    chart.options.plugins = chart.options.plugins || {};
-    chart.options.plugins.rebootMarkers = { events, gridMs };
+    if (!chart) return;
+    // chart-utils 가 chart.umd 보다 먼저(head 동기) 실행되면 위 register 가 누락(root.Chart undefined) —
+    // 여기서 보장 (같은 id 재등록은 무해). plugin 미등록이면 marker 가 안 그려져 차트 갱신까지 막던 문제 방지.
+    if (root.Chart && typeof root.Chart.register === 'function') {
+      root.Chart.register(rebootMarkersPlugin);
+    }
+    // options 밖(인스턴스 속성)에 둔다 — Chart.js resolver 무한 재귀 회피 (afterDraw 가 chart.$rebootMarkers 읽음).
+    chart.$rebootMarkers = { events, gridMs };
     chart.update('none');
+  }
+
+  // 색 점 + 라벨 칩(pill) 토글 범례 — 클릭 시 dataset show/hide. 모든 차트 페이지 공용.
+  // 숨김 상태는 aria-pressed=false (CSS 가 흐리게). label/checkbox 대신 button 이라 키보드 토글 자연 지원.
+  function renderChipLegend(container, chart) {
+    if (!chart) { container.innerHTML = ''; return; }
+    container.innerHTML = chart.data.datasets.map((ds, i) => `
+      <button type="button" class="legend-chip" data-idx="${i}" aria-pressed="true">
+        <span class="legend-dot" style="background:${ds.borderColor};"></span>${ds.label}
+      </button>
+    `).join('');
+    container.querySelectorAll('.legend-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const meta = chart.getDatasetMeta(+chip.dataset.idx);
+        meta.hidden = !meta.hidden;
+        chip.setAttribute('aria-pressed', String(!meta.hidden));
+        chart.update();
+      });
+    });
   }
 
   root.ChartUtils = {
@@ -264,5 +304,6 @@
     bindToggle, initSse, safeArray, naWindows,
     fetchRebootEvents, applyRebootMarkers,
     buildAvgMaxDatasets, buildAvgMaxLegend,
+    renderChipLegend,
   };
 })(window);

@@ -27,7 +27,9 @@
   const fmtLoad = (v) => v != null ? v.toFixed(2) : '—';
   const fmtIops = (v) => v != null ? v.toFixed(1) + ' IOPS' : '—';
   const fmtKbps = (v) => v != null ? v.toFixed(1) + ' kBps' : '—';
-  const fmtPps  = (v) => v != null ? Math.round(v) + ' pps' : '—';
+  // swap 은 used 가 작아도 GB 소숫점1 고정 — KB/MB 자동 단위(fmtKb)는 비현실적이라 단위 통일.
+  const fmtGb   = (kb) => kb != null ? (kb / 1024 / 1024).toFixed(1) + ' GB' : '—';
+  const fmtPps  = (v) => v != null ? v.toFixed(1) + ' pps' : '—';
   function fmtKb(kb) {
     if (kb == null) return '—';
     if (kb >= 1024 * 1024) return (kb / 1024 / 1024).toFixed(1) + ' GB';
@@ -53,7 +55,7 @@
 
     if (d.collected_at) {
       // F2: KST 변환은 ChartUtils.fmtKst 단일 경계
-      el('metrics-ts').textContent = '수집: ' + ChartUtils.fmtKst(d.collected_at);
+      el('metrics-ts').textContent = '수집 기준: ' + ChartUtils.fmtKst(d.collected_at);
     }
 
     /* CPU */
@@ -88,23 +90,27 @@
     if (swap.total_kb) {
       show('swap-section');
       setTxt('swap-usage', fmtPct(swap.usage_pct));
-      setTxt('swap-used',  fmtKb(swap.used_kb));
-      setTxt('swap-total', fmtKb(swap.total_kb));
+      setTxt('swap-used',  fmtGb(swap.used_kb));
+      setTxt('swap-total', fmtGb(swap.total_kb));
       el('swap-bar').style.width = (swap.usage_pct ?? 0) + '%';
       el('swap-bar').style.background = barColor(swap.usage_pct);
     }
 
-    /* Disk I/O */
-    const diskIo = ChartUtils.safeArray(d.disk_io_phys);
-    if (diskIo.length > 0) {
-      el('disk-io-body').innerHTML = diskIo.map(dk => `
+    /* Disk I/O — 물리 / 논리·가상 (E9: 데이터 없어도 제목 노출 + placeholder) */
+    const ioRow = dk => `
         <tr>
-          <td><code>${dk.device}</code></td>
+          <td>${dk.device}</td>
           <td>${fmtIops(dk.read_iops)}</td>
           <td>${fmtIops(dk.write_iops)}</td>
           <td>${fmtKbps(dk.read_kbps)}</td>
           <td>${fmtKbps(dk.write_kbps)}</td>
-        </tr>`).join('');
+        </tr>`;
+    const diskIo = ChartUtils.safeArray(d.disk_io_phys);
+    if (diskIo.length > 0) {
+      el('disk-io-body').innerHTML = diskIo.map(ioRow).join('');
+      show('disk-io-table'); hide('disk-io-empty');
+    } else {
+      hide('disk-io-table'); show('disk-io-empty');
     }
 
     /* Network I/O */
@@ -113,7 +119,7 @@
       show('net-io-section');
       el('net-io-body').innerHTML = netIo.map(n => `
         <tr>
-          <td><code>${n.interface}</code></td>
+          <td>${n.interface}</td>
           <td>${fmtKbps(n.rx_kbps)}</td>
           <td>${fmtKbps(n.tx_kbps)}</td>
           <td>${fmtPps(n.rx_pps)}</td>
@@ -134,7 +140,7 @@
         return `
           <div style="margin-bottom:14px;">
             <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-              <span style="font-weight:500; font-size:13px;"><code>${m.mount}</code></span>
+              <span style="font-weight:500; font-size:13px;">${m.mount}</span>
               <span class="text-muted">${label}</span>
             </div>
             <div class="progress-bar">

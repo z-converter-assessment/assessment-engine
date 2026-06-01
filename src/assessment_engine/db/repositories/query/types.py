@@ -28,6 +28,8 @@ MetricType = Literal[
     "fs.usage_percent",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
+    "net.rx_packets_per_sec",
+    "net.tx_packets_per_sec",
 ]
 TimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d"]
@@ -101,6 +103,8 @@ _RATE_PER_DIM_DEFS: dict[str, tuple[str, str]] = {
     "disk.write_iops": ("device", "writes_completed"),
     "net.rx_bytes_per_sec": ("interface", "rx_bytes"),
     "net.tx_bytes_per_sec": ("interface", "tx_bytes"),
+    "net.rx_packets_per_sec": ("interface", "rx_packets"),
+    "net.tx_packets_per_sec": ("interface", "tx_packets"),
 }
 
 # server_mount_usage 가상 mount 필터 — SQL fragment 단일 진실.

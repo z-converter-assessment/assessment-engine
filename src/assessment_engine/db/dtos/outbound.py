@@ -37,6 +37,7 @@ class ServerDetail:
     mem_total_kb: int | None
     swap_total_kb: int | None
     boot_time: datetime | None
+    agent_started_at: datetime | None
     ip_internal: list[str]
     ip_external: list[str] | None
     disks: list[dict]
@@ -304,27 +305,12 @@ class RebootEvent:
     kind: Literal["reboot", "restart"]
 
 
-# ---------- 주의 신호 (목록 화면 상단 — risk_top 보완) ----------
-
-
-@dataclass
-class DiskUsageWarningRaw:
-    """특정 mount의 사용률 임계 초과 — repository raw (P1: 단위 변환·badge 분류 X).
-
-    last_metric_at: 해당 mount의 latest 시점 — 운영자가 stale 여부 판단.
-    """
-
-    public_id: str
-    hostname: str
-    mount: str
-    total_bytes: int
-    avail_bytes: int
-    last_metric_at: datetime
+# ---------- 주의 신호 (목록 화면 상단 운영신호 — gap 전용) ----------
 
 
 @dataclass
 class MetricGapWarningRaw:
-    """metric 발행 갭 — last_metric_at이 임계 초과로 끊김. raw (P1)."""
+    """metric 발행 갭 — last_metric_at이 임계 초과로 끊김. raw (P1). 통신 끊김 운영신호."""
 
     public_id: str
     hostname: str

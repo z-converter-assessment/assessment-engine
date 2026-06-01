@@ -105,3 +105,7 @@
 - `docs/operations/deployment.md` 4절 — systemd unit·multi-node 분리 inject 예시 inline
 - CLAUDE.md #A0 — CI vs CD 책임 분리 + 본 repo 범위
 - ADR 0005 — Alembic schema 관리 (migrations 동봉 사유)
+## 정정 (2026-06-01, ADR 0033)
+
+- 5절("docker-compose.prod 미제공 / prod 운영을 docker compose 형식으로 강제 안 함")은 ADR 0033이 supersede. 루트 `docker-compose.yml`을 prod 퀵스타트(단일 호스트 all-in-one) 용도로 제공한다. 본 ADR 1-4절(wheel + GitHub Release artifact 정책)은 유지 — compose는 추가 경로이지 대체가 아니다.
+- 3절 force-include 경로 정정: migrations 동봉 위치가 `assessment_engine/_migrations`에서 `assessment_engine/migrations`로 변경. 번들 `_alembic.ini`의 `script_location`(`%(here)s/migrations`)과 정합해야 wheel install 후 migrate가 실제 동작(이전 경로는 불일치로 실패). `_alembic.ini` 파일명은 그대로. 상세: ADR 0033.

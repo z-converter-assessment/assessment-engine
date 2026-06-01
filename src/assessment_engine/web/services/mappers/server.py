@@ -4,6 +4,7 @@
 다른 sub-module 이 import 하는 항목: `infer_role`, `WELL_KNOWN_PORT_MAX`, `enrich_server_detail`.
 """
 
+import ipaddress
 from collections import Counter
 from typing import Literal
 
@@ -15,22 +16,27 @@ from assessment_engine.db.dtos.outbound import (
     StorageWithUsage,
 )
 from assessment_engine.web.services.device_filters import (
-    find_parent_disk,
     is_physical_disk,
     is_virtual_mount,
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
     _DONUT_SEGMENT_FROM_REC,
-    _DONUT_SEGMENT_SHORT_LABEL,
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
+    os_id_to_distro,
 )
 from assessment_engine.web.services.metrics_calculator import compute_net_io
-from assessment_engine.web.services.service_classifier import classify, matched_ports
+from assessment_engine.web.services.service_classifier import (
+    SINGLE_INSTANCE_CATEGORIES,
+    classify,
+    detect_listen_categories,
+    matched_ports,
+)
 from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb, usage_pct
 from assessment_engine.web.view_models.server import (
     DiskItem,
+    IpAddr,
     ListenPortItem,
     MountUsageItem,
     NetworkDetailResponse,
@@ -38,6 +44,7 @@ from assessment_engine.web.view_models.server import (
     ServerListItem,
     ServiceItem,
     StorageDetailResponse,
+    VolumeItem,
 )
 
 # IANA well-known port 상한. listen_port의 well-known 표시 분기에 사용.
@@ -77,6 +84,38 @@ def _usage_bar_color(pct: float | None) -> str:
 # ─── raw dict → typed ViewModel 단일 변환 진입점 ──────────────────────────
 
 
+def _to_ip_addrs(ips: list[str]) -> list[IpAddr]:
+    """IP 문자열 → IpAddr(value, is_ipv4). IPv4 우선 정렬 (안정 정렬 — 종류 내 원순서 유지).
+
+    IPv4 는 실제 접속·식별 주력이라 상단·진하게 표시, IPv6(ULA/link-local)는 보조(연하게).
+    """
+    items: list[IpAddr] = []
+    for ip in ips:
+        try:
+            # ip_interface — agent payload v3.4+ 는 CIDR 표기("10.0.1.15/24")라 ip_address 면 ValueError.
+            v4 = ipaddress.ip_interface(ip).version == 4
+        except ValueError:
+            v4 = False
+        items.append(IpAddr(value=ip, is_ipv4=v4))
+    return sorted(items, key=lambda x: not x.is_ipv4)
+
+
+def _to_volumes(mounts: list[dict]) -> list[VolumeItem]:
+    """inventory.mounts → VolumeItem(파일시스템) 목록 (가상 마운트 제외, mount ASC).
+
+    물리 디스크(disks)와 별개 축 — 양 OS 일관 표시 (fstype 명시).
+    Windows 는 disks 미발행이라 본 항목이 유일한 스토리지 정보.
+    """
+    volumes: list[VolumeItem] = []
+    for m in mounts:
+        path = m.get("mount", "")
+        fstype = m.get("fstype")
+        if is_virtual_mount(fstype, path):
+            continue
+        volumes.append(VolumeItem(mount=path, fstype=fstype, total_gb=bytes_to_gb(m.get("total_bytes"))))
+    return sorted(volumes, key=lambda v: v.mount)
+
+
 def _to_disk_item(d: dict) -> DiskItem | None:
     """inventory.disks의 raw dict → DiskItem. 물리 디스크 아니면 None."""
     name = d.get("name", "")
@@ -85,7 +124,6 @@ def _to_disk_item(d: dict) -> DiskItem | None:
     return DiskItem(
         name=name,
         size_gb=bytes_to_gb(d.get("size_bytes")),
-        type=d.get("type"),
     )
 
 
@@ -111,7 +149,7 @@ def _to_service_item(s: dict, listen_ports: list[dict] | None = None) -> Service
     return ServiceItem(
         unit=unit,
         sub=s.get("sub", ""),
-        category=classify(unit),
+        category=classify(unit, listen_ports),
         ports=matched_ports(unit, listen_ports) if listen_ports else [],
         display_name=unit.removesuffix(".service"),
     )
@@ -136,12 +174,20 @@ def _dedup_known(services: list[ServiceItem] | None) -> tuple[list[ServiceItem],
         return [], False
     known: list[ServiceItem] = []
     seen_categories: set[str] = set()
+    counts: dict[str, int] = {}
     for s in services:
         if s.category == "unknown":
             continue
+        counts[s.category] = counts.get(s.category, 0) + 1
         if s.category not in seen_categories:
             seen_categories.add(s.category)
             known.append(s)
+    # 카테고리별 서비스 개수를 대표 item 에 기록 — 뱃지 "db 2" 등 (환경요약 role 인스턴스 수와 일관).
+    # 런타임 스택(container)은 호스트당 1 — docker+containerd 를 "container 2" 로 부풀리지 않음.
+    for s in known:
+        s.category_count = 1 if s.category in SINGLE_INSTANCE_CATEGORIES else counts[s.category]
+    # 뱃지 정렬 단일 기준 — category 알파벳 오름차순 (등장 순=DB row 순은 비결정적). 템플릿 P3 정렬 회피.
+    known.sort(key=lambda s: s.category)
     show_unknown = bool(services) and not known
     return known, show_unknown
 
@@ -184,12 +230,12 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
             )
         )
         seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
-        # 색은 풀네임 def에서 추출, 라벨은 약어 dict — 셀 좁은 칸 대응.
-        for key, _label, color, _desc in _DONUT_SEGMENT_DEFS:
+        # 색·라벨 모두 _DONUT_SEGMENT_DEFS 단일 진실 — 도넛 범례(s.label)와 동일 영어 풀네임으로 일관 (#E8).
+        for key, label, color, _desc in _DONUT_SEGMENT_DEFS:
             if key == seg_key:
                 rec_color = color
+                rec_label = label
                 break
-        rec_label = _DONUT_SEGMENT_SHORT_LABEL.get(seg_key, "")
 
     return ServerListItem(
         id=dto.id,
@@ -209,6 +255,7 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
         recommendation_label=rec_label,
         recommendation_color=rec_color,
         provisioning_class=seg_key,
+        os_distro=os_id_to_distro(dto.os_id),
     )
 
 
@@ -230,13 +277,16 @@ def to_server_detail(dto: ServerDetail) -> ServerDetailResponse:
         mem_total_gb=kb_to_gb(dto.mem_total_kb),
         swap_total_gb=kb_to_gb(dto.swap_total_kb),
         boot_time=dto.boot_time,
-        ip_internal=dto.ip_internal,
-        ip_external=dto.ip_external,
+        agent_started_at=dto.agent_started_at,
+        ip_internal=_to_ip_addrs(dto.ip_internal),
+        ip_external=_to_ip_addrs(dto.ip_external) if dto.ip_external else None,
         disks=[item for d in dto.disks if (item := _to_disk_item(d)) is not None],
         services=_services_or_none(dto.services, listen_ports=dto.listen_ports),
         listen_ports=[_to_listen_port_item(p) for p in dto.listen_ports],
         last_seen_at=dto.last_seen_at,
     )
+    # 파일시스템 항목 — inventory.mounts(가상 마운트 제외). 물리 디스크(disks)와 별개 축, 양 OS 일관(fstype 명시).
+    detail.volumes = _to_volumes(dto.mounts)
     return enrich_server_detail(detail)
 
 
@@ -260,13 +310,10 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
                 fstype=fstype,
                 total_bytes=inv.get("total_bytes"),
                 avail_bytes=usage.avail_bytes if usage else None,
-                mount_major=inv.get("major"),
-                mount_minor=inv.get("minor"),
-                disks=physical_disks,
             )
         )
 
-    # inventory에 없지만 시계열에 있는 mount (mount_usage 시계열엔 major/minor 없음 → device_name 매핑 불가)
+    # inventory에 없지만 시계열에 있는 mount (mount_usage 시계열 전용)
     for path, usage in usage_by_mount.items():
         if path in seen or is_virtual_mount(None, path):
             continue
@@ -276,9 +323,6 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
                 fstype=None,
                 total_bytes=usage.total_bytes,
                 avail_bytes=usage.avail_bytes,
-                mount_major=None,
-                mount_minor=None,
-                disks=physical_disks,
             )
         )
 
@@ -291,6 +335,7 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
         hostname=dto.hostname,
         disks=[item for d in physical_disks if (item := _to_disk_item(d)) is not None],
         mounts=sorted(mounts, key=lambda m: m.mount),
+        fs_total_gb=sum((m.total_gb for m in mounts if m.total_gb is not None), 0.0) if mounts else None,
         snapshot_at=snapshot_at,
         inventory_at=dto.inventory_at,
     )
@@ -301,9 +346,6 @@ def _build_mount_item(
     fstype: str | None,
     total_bytes: int | None,
     avail_bytes: int | None,
-    mount_major: int | None = None,
-    mount_minor: int | None = None,
-    disks: list[dict] | None = None,
 ) -> MountUsageItem:
     used_bytes = (total_bytes - avail_bytes) if (total_bytes and avail_bytes is not None) else None
     pct = usage_pct(used_bytes, total_bytes)
@@ -316,7 +358,6 @@ def _build_mount_item(
         usage_pct=pct,
         badge_class=_usage_badge_class(pct),
         bar_color=_usage_bar_color(pct),
-        device_name=find_parent_disk(mount_major, mount_minor, disks or []),
     )
 
 
@@ -326,8 +367,8 @@ def to_network_detail(dto: NetworkWithIo) -> NetworkDetailResponse:
         server_id=dto.server_id,
         public_id=dto.public_id,
         hostname=dto.hostname,
-        ip_internal=dto.ip_internal,
-        ip_external=dto.ip_external,
+        ip_internal=_to_ip_addrs(dto.ip_internal),
+        ip_external=_to_ip_addrs(dto.ip_external) if dto.ip_external else None,
         interfaces=compute_net_io(dto.net_io),
         inventory_at=dto.inventory_at,
         snapshot_at=max(collected_ats) if collected_ats else None,
@@ -345,27 +386,70 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     shown_port_numbers: set[int] = set()
     known: list[ServiceItem] = []
 
+    # 카테고리 단위 포트 집계 단일 진실 — listen 소켓을 카테고리로 직접 분류한 결과.
+    listen_dicts = [{"proto": lp.proto, "port": lp.port, "comm": lp.comm} for lp in detail.listen_ports]
+    listen_by_cat = detect_listen_categories(listen_dicts)
+    assigned_cats: set[str] = set()  # 카테고리 listen 포트는 카테고리당 1회만 뱃지에 부여
+    seen_single_cats: set[str] = set()  # 런타임 스택(container)은 첫 unit 만 뱃지 (docker+containerd → 1뱃지)
+
     for svc in services:
         if svc.category == "unknown":
             continue
-        deduped: list = []
+        if svc.category in SINGLE_INSTANCE_CATEGORIES:
+            if svc.category in seen_single_cats:
+                continue
+            seen_single_cats.add(svc.category)
+        ports: list = []
+        # comm 으로 unit 에 귀속된 포트 (per-unit 정확 매핑)
         for p in svc.ports:
             key = f"{p.proto}:{p.port}"
             if key not in seen_chip_keys:
                 seen_chip_keys.add(key)
                 shown_port_numbers.add(p.port)
-                deduped.append(p)
+                ports.append(p)
+        # 카테고리 단위 listen 포트 보강 (Q1) — comm 귀속 실패한 워크로드 포트
+        # (W3SVC<->System 의 80 등)를 같은 카테고리 뱃지에 붙임. 카테고리당 1회 (중복 회피).
+        if svc.category not in assigned_cats:
+            assigned_cats.add(svc.category)
+            for p in listen_by_cat.get(svc.category, []):
+                key = f"{p.proto}:{p.port}"
+                if key not in seen_chip_keys:
+                    seen_chip_keys.add(key)
+                    shown_port_numbers.add(p.port)
+                    ports.append(p)
+        ports.sort(key=lambda mp: (mp.port, mp.proto))  # P3 — 칩 정렬은 mapper 단일
         known.append(
             ServiceItem(
                 unit=svc.unit,
                 sub=svc.sub,
                 category=svc.category,
-                ports=deduped,
+                ports=ports,
                 display_name=svc.display_name,
             )
         )
 
+    # listen-only 워크로드 보충 (ADR 0032 union) — services 이름이 못 잡았지만 listen 소켓이
+    # 증거하는 카테고리를 합성 뱃지로 추가. opaque 한 Windows SCM 이름을 1433/sqlservr 같은
+    # 깨끗한 listen 신호로 구제. unit/display_name 없음 (특정 service 에 귀속 불가, T15).
+    known_categories = {s.category for s in known}
+    for category, ports in listen_by_cat.items():
+        if category in known_categories:
+            continue
+        deduped_ports: list = []
+        for p in ports:
+            key = f"{p.proto}:{p.port}"
+            if key in seen_chip_keys:
+                continue
+            seen_chip_keys.add(key)
+            shown_port_numbers.add(p.port)
+            deduped_ports.append(p)
+        deduped_ports.sort(key=lambda mp: (mp.port, mp.proto))
+        known.append(ServiceItem(unit="", sub="", category=category, ports=deduped_ports, display_name=""))
+
+    # 뱃지 정렬 단일 기준 — 서버목록(_dedup_known)과 동일하게 category 알파벳 오름차순.
+    known.sort(key=lambda s: s.category)
     detail.known_services = known
+    # union(이름 ∪ listen)으로도 아무 카테고리도 못 잡았을 때만 unknown 뱃지.
     detail.show_unknown_badge = detail.services is not None and bool(detail.services) and not known
     detail.key_listen_ports = sorted(
         [lp for lp in detail.listen_ports if lp.is_well_known and lp.port not in shown_port_numbers],
@@ -382,11 +466,13 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     detail.cpu_display = " ".join(cpu_parts) or "-"
 
     detail.disk_total_gb = round(sum(d.size_gb or 0.0 for d in detail.disks), 1) if detail.disks else None
+    detail.volume_total_gb = round(sum(v.total_gb or 0.0 for v in detail.volumes), 1) if detail.volumes else None
 
     # P3 — count는 mapper에서 한 번만 계산. 템플릿이 `| length` 못 쓰도록.
     detail.services_count = len(detail.services or [])
     detail.listen_ports_count = len(detail.listen_ports)
     detail.disks_count = len(detail.disks)
+    detail.volumes_count = len(detail.volumes)
 
     return detail
 
@@ -394,21 +480,38 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
 # ─── role 추론 — services[].unit → 카테고리 빈도 최다 (export · report · attention 공용) ───
 
 
-def infer_role(services: list[dict] | None) -> str:
-    """services[].unit를 service_classifier로 분류 → 가장 빈도 높은 카테고리.
+def workload_category_counter(
+    services: list[dict] | None,
+    listen_ports: list[dict] | None = None,
+) -> Counter[str]:
+    """호스트 워크로드 카테고리 카운터 — services 이름 분류 ∪ listen 소켓 탐지 (ADR 0032).
 
-    "unknown"은 결정에서 제외. 모두 unknown이면 "unknown" 반환.
+    services 이름 분류는 인스턴스 카운트(서버목록 뱃지와 일관). 단 런타임 스택(container)은
+    구성 요소가 여러 서비스로 떠도 호스트당 1 (docker+containerd → container 1).
+    listen 소켓 탐지(`detect_listen_categories`)는 이름이 못 잡은 카테고리만 +1 보충 — 같은
+    워크로드 이중 카운트 회피. agent join key 부재(T15)로 opaque 한 service 이름을 listen 증거로 구제.
+    role/뱃지/환경 분포 단일 진실.
     """
-    if not services:
-        return "unknown"
     counter: Counter[str] = Counter()
-    for s in services:
+    for s in services or []:
         unit = s.get("unit") if isinstance(s, dict) else None
         if not unit:
             continue
-        cat = classify(unit)
-        if cat != "unknown":
-            counter[cat] += 1
+        cat = classify(unit, listen_ports)
+        if cat == "unknown":
+            continue
+        # 런타임 스택(container)은 구성 요소가 여러 서비스로 떠도 호스트당 1 (docker+containerd → 1).
+        counter[cat] = 1 if cat in SINGLE_INSTANCE_CATEGORIES else counter[cat] + 1
+    name_cats = set(counter)
+    for cat in detect_listen_categories(listen_ports or []):
+        if cat not in name_cats:
+            counter[cat] = 1
+    return counter
+
+
+def infer_role(services: list[dict] | None, listen_ports: list[dict] | None = None) -> str:
+    """호스트 대표 역할 — `workload_category_counter` 최빈 카테고리. 비면 "unknown"."""
+    counter = workload_category_counter(services, listen_ports)
     if not counter:
         return "unknown"
     return counter.most_common(1)[0][0]

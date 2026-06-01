@@ -1,14 +1,22 @@
 """에이전트가 push 하는 raw 데이터에서 가상·커널 항목 제거 필터 — engine 단일 진실.
 
-`_VIRTUAL_FSTYPES` 22 / `_VIRTUAL_MOUNT_PREFIXES` 8 / 정규식 3 (phys / lvm / part) catalog.
+`_VIRTUAL_FSTYPES` 22 / `_VIRTUAL_MOUNT_PREFIXES` 8 / 정규식 catalog (virtual-disk / lvm / part / virtual-iface).
+디스크·인터페이스는 블랙리스트 정책 (가상·시스템만 제외, 나머지 통과 — 관측성 놓침 방지).
 새 fstype 출현 시 본 catalog 만 갱신.
 """
 
 import re
 
-_PHYS_DISK_RE = re.compile(r"^(sd[a-z]+|vd[a-z]+|hd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+|PhysicalDrive\d+)$")
+# 가상·시스템 디스크 (블랙리스트 — loopback·RAM·압축RAM·플로피·광학·network block). 물리 관측 대상 아님.
+_VIRTUAL_DISK_RE = re.compile(r"^(loop\d*|ram\d*|zram\d*|fd\d*|sr\d*|nbd\d*)$")
 _LVM_DISK_RE = re.compile(r"^(dm-\d+|md\d+)$")
 _PART_DISK_RE = re.compile(r"^(sd[a-z]+\d+|vd[a-z]+\d+|hd[a-z]+\d+|xvd[a-z]+\d+|nvme\d+n\d+p\d+|mmcblk\d+p\d+)$")
+# 가상·시스템 네트워크 인터페이스 (보수적 제외 — 물리 트래픽 관측 대상 아님). docker/br/bond/vlan 회색지대는 통과.
+_VIRTUAL_IFACE_RE = re.compile(
+    r"^(lo|veth.*|sit\d*|tunl\d*|ip6tnl\d*|gre\d*|gretap\d*|erspan\d*|dummy\d*|ifb\d*|nlmon\d*)$"
+)
+# Windows NDIS 필터 드라이버 인스턴스 — "<adapter>-<filter>-NNNN" (하이픈 + 4자리 인덱스 suffix).
+_WIN_IFACE_FILTER_RE = re.compile(r".+-\d{4}$")
 
 _VIRTUAL_FSTYPES: frozenset[str] = frozenset(
     {
@@ -49,8 +57,19 @@ _VIRTUAL_MOUNT_PREFIXES: tuple[str, ...] = (
 )
 
 
+def is_virtual_disk(name: str) -> bool:
+    """디스크가 가상·시스템(loopback·RAM·압축RAM·플로피·광학·network block)인지 — 블랙리스트."""
+    return bool(_VIRTUAL_DISK_RE.match(name))
+
+
 def is_physical_disk(name: str) -> bool:
-    return bool(_PHYS_DISK_RE.match(name))
+    """물리 디스크 — 블랙리스트(가상·논리(LVM/RAID)·파티션 제외, 나머지 통과).
+
+    화이트리스트(알려진 sd/vd/nvme 패턴만)와 달리 특이 물리 컨트롤러(mpath·cciss 등) 놓침 방지 (관측성 정석).
+    """
+    if not name:
+        return False
+    return not (is_virtual_disk(name) or is_lvm_disk(name) or is_partition(name))
 
 
 def is_lvm_disk(name: str) -> bool:
@@ -59,6 +78,17 @@ def is_lvm_disk(name: str) -> bool:
 
 def is_partition(name: str) -> bool:
     return bool(_PART_DISK_RE.match(name))
+
+
+def is_virtual_interface(name: str) -> bool:
+    """네트워크 인터페이스가 가상·시스템 레이어(루프백·터널·veth·dummy·Windows NDIS 필터)인지.
+
+    물리 트래픽 관측 대상이 아닌 것만 보수적으로 제외 (docker/br/bond/vlan 회색지대는 통과).
+    표시 경계(차트·스냅샷)에서만 적용 — 저장은 모두 유지.
+    """
+    if not name:
+        return False
+    return bool(_VIRTUAL_IFACE_RE.match(name) or _WIN_IFACE_FILTER_RE.match(name))
 
 
 def is_virtual_mount(fstype: str | None, mount: str) -> bool:

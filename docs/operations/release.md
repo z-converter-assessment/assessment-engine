@@ -14,10 +14,11 @@ semver tag `v*` push 시 두 채널 동시 발행 — 운영자 선택권 (#A0 �
 | `assessment_engine-X.Y.Z.tar.gz` | sdist | source 재현 가능성 보존 (wheel 빌드 불가 환경 fallback) |
 | `SHA256SUMS` | 텍스트 (sha256sum 형식) | wheel·sdist 무결성 검증 |
 | `sbom.cdx.json` | CycloneDX JSON | 의존성 트리 명세 (CVE 추적) |
-| `*.sigstore` | Sigstore signature | `cosign verify-blob` 무결성·발행자 검증 |
+| `*.sigstore.json` | Sigstore signature | `cosign verify-blob` 무결성·발행자 검증 |
+| `docker-compose.yml` + `.env.example` | compose + env 카탈로그 | 릴리즈 다운로드만으로 퀵스타트 — `ENGINE_IMAGE=ghcr.io/{org}/assessment-engine:0.1.0 docker compose up -d --no-build` 로 1.2 GHCR 이미지 pull (ADR 0033) |
 
 wheel 안 force-include (`pyproject.toml` `[tool.hatch.build.targets.wheel].force-include`):
-- `assessment_engine/_migrations/` — Alembic versions (ADR 0005)
+- `assessment_engine/migrations/` — Alembic versions (ADR 0005)
 - `assessment_engine/_alembic.ini` — Alembic config
 
 즉 wheel 1 artifact만 install하면 `alembic upgrade head` 즉시 실행 가능.
@@ -26,15 +27,14 @@ wheel 안 force-include (`pyproject.toml` `[tool.hatch.build.targets.wheel].forc
 
 | 태그 | 의미 | 용도 |
 |------|------|------|
-| `ghcr.io/{org}/assessment-engine:v0.1.0` | immutable 정확 버전 | prod pin 권장 (운영자 선택) |
-| `:0.1.0` | 동일 (semver 형식) | docker compose / k8s manifest |
+| `ghcr.io/{org}/assessment-engine:0.1.0` | immutable 정확 버전 (semver, git tag `v0.1.0` -> 태그는 `v` 없는 `0.1.0`) | prod pin 권장 |
 | `:0.1` | minor 최신 | minor patch auto-track |
 | `:0` | major 최신 | major lock |
 | `:latest` | stable release 최신 | dev 시연 / 모니터링 — prod 비추천 (변경 무경고) |
 
 이미지 attestation:
 - BuildKit 자동 SBOM (SPDX) — `docker buildx imagetools inspect --format '{{ json .SBOM.SPDX }}'`
-- Cosign keyless signature — `cosign verify ghcr.io/.../assessment-engine:v0.1.0 --certificate-identity-regexp=... --certificate-oidc-issuer=https://token.actions.githubusercontent.com`
+- Cosign keyless signature — `cosign verify ghcr.io/.../assessment-engine:0.1.0 --certificate-identity-regexp=... --certificate-oidc-issuer=https://token.actions.githubusercontent.com`
 
 multi-arch: `linux/amd64` + `linux/arm64` (운영자 ARM 서버 직접 호환).
 

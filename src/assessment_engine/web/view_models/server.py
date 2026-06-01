@@ -10,7 +10,26 @@ from assessment_engine.web.view_models.task import TaskSummaryItem
 class DiskItem:
     name: str
     size_gb: float | None
-    type: str | None
+
+
+@dataclass
+class VolumeItem:
+    """파일시스템(논리 볼륨) — inventory.mounts 기준. 물리 디스크(DiskItem)와 별개 축.
+
+    양 OS 일관 표시 (Linux: / ext4 등, Windows: C:\\ ntfs 등). fstype 명시.
+    """
+
+    mount: str
+    fstype: str | None
+    total_gb: float | None
+
+
+@dataclass
+class IpAddr:
+    """IP 주소 + IPv4 여부 — detail 화면 IPv4 우선 정렬·강조용 (mapper precompute, P3 회피)."""
+
+    value: str
+    is_ipv4: bool
 
 
 @dataclass
@@ -28,6 +47,9 @@ class ServiceItem:
     category: str
     ports: list[MatchedPort]
     display_name: str = ""
+    # 같은 카테고리 서비스 개수 (서버목록 뱃지 "db 2" 표시 — 환경요약 role 인스턴스 수와 일관).
+    # 런타임 스택(container)은 호스트당 1 (docker+containerd 를 부풀리지 않음). _dedup_known 이 set.
+    category_count: int = 1
 
 
 @dataclass
@@ -64,6 +86,9 @@ class ServerListItem:
     # 분류 raw enum — list 필터링 단일 진실 (optimal / over_provisioned / under_provisioned /
     # idle / shutdown / insufficient_data). raws_period 부재 시 빈 문자열.
     provisioning_class: str = ""
+    # OS distro(endoflife 카탈로그 product slug) — OS 필터 단일 진실.
+    # os_id_to_distro(os_id) 정규화 (rocky->rocky-linux).
+    os_distro: str = ""
     # 행별 마지막 task 요약. None 이면 발행 이력 없음 — 템플릿이 "—" 로 표시.
     last_task: TaskSummaryItem | None = None
 
@@ -86,8 +111,9 @@ class ServerDetailResponse:
     mem_total_gb: float | None
     swap_total_gb: float | None
     boot_time: datetime | None
-    ip_internal: list[str]
-    ip_external: list[str] | None
+    agent_started_at: datetime | None
+    ip_internal: list[IpAddr]
+    ip_external: list[IpAddr] | None
     disks: list[DiskItem]
     services: list[ServiceItem] | None
     listen_ports: list[ListenPortItem]
@@ -105,6 +131,10 @@ class ServerDetailResponse:
     services_count: int = 0
     listen_ports_count: int = 0
     disks_count: int = 0
+    # 파일시스템(논리 볼륨) 항목 — inventory.mounts 기준. 물리 디스크(disks)와 별개 축, 양 OS 일관(fstype 명시).
+    volumes: list[VolumeItem] = field(default_factory=list)
+    volume_total_gb: float | None = None
+    volumes_count: int = 0
 
 
 @dataclass
@@ -117,9 +147,6 @@ class MountUsageItem:
     usage_pct: float | None
     badge_class: str = ""
     bar_color: str = ""
-    # mount가 어느 물리 디스크 위에 있는지 (major/minor 조인 결과). 매핑 실패 시 None.
-    # mapper(to_storage_detail)에서 inventory.disks와 (major) 매칭으로 채움.
-    device_name: str | None = None
 
 
 @dataclass
@@ -129,6 +156,7 @@ class StorageDetailResponse:
     hostname: str
     disks: list[DiskItem]
     mounts: list[MountUsageItem]
+    fs_total_gb: float | None  # 파일시스템(마운트) total_gb 합 — 현재 상태 요약
     snapshot_at: datetime | None
     inventory_at: datetime | None
 
@@ -143,8 +171,8 @@ class NetworkDetailResponse:
     server_id: int
     public_id: str
     hostname: str
-    ip_internal: list[str]
-    ip_external: list[str] | None
+    ip_internal: list[IpAddr]
+    ip_external: list[IpAddr] | None
     interfaces: list[NetIoSnapshot]
     inventory_at: datetime | None
     snapshot_at: datetime | None

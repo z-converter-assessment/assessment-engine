@@ -9,26 +9,25 @@ docker-compose는 엔진 그 자체 — web·consumer·diagnostic-worker·postgr
 ## 파일 구조
 
 ```
-Dockerfile                    — web·consumer·diagnostic-worker 공용 이미지 (루트 — prod 도 활용 가능한 빌드 산출물)
-dev/docker-compose.yml        — dev 단일 compose (#A0). dev/.env 평문 + 포트 노출 + 코드 마운트 + APP_ENV=dev. pgadmin은 profiles:[gui] 분리
-dev/.env.example              — dev compose 기준 환경변수 카탈로그. `cp dev/.env.example dev/.env`
-.env.example                  — prod 운영자 카탈로그 (루트). dev compose 와 무관 — 외부 인프라 운영자가 채워서 사용
-.dockerignore                 — COPY . . 시 제외 경로
-dev/pipeline-up.sh        — Docker → migrate → web 헬스체크 → OrbStack(orb create + agent install) 순서 기동. COMPOSE_FILE=dev/docker-compose.yml export
-dev/pipeline-down.sh      — OrbStack(orb delete) → docker compose down -v
+docker-compose.yml   — 루트 단일 compose (dev + 퀵스타트, ADR 0033). 루트 Dockerfile(wheel) build + 루트 .env + 포트 노출 + APP_ENV 토글(기본 dev). bind mount·hot reload 없음
+Dockerfile           — 엔진 이미지 (web·consumer·diagnostic-worker·migrate 공용, wheel install·non-root). 위 compose·CI/release·systemd·k8s 공용 단일 이미지
+.env.example         — 환경변수 카탈로그 (루트 단일). `cp .env.example .env` 후 그대로 dev·퀵스타트 동작
+.dockerignore        — wheel build context 제외 경로 (dev/·docs/·tests/·.env 등)
+dev/dev-up.sh        — Docker -> migrate -> web 헬스체크 -> libvirt(VM 생성 + agent install) 순서 기동. COMPOSE_FILE=docker-compose.yml export
+dev/dev-down.sh      — libvirt(virsh undefine) -> docker compose down -v (dev-up.sh source 로 COMPOSE_FILE·PROJECT_NAME 공유)
 ```
 
-dev compose 호출은 본 파일이 dev/ 디렉토리에 있어 자동 인식 안 됨. 루트에서는 `-f dev/docker-compose.yml` 명시:
+compose 가 루트라 별도 `-f` 없이 인식:
 
 ```bash
-docker compose -f dev/docker-compose.yml up --build -d
-docker compose -f dev/docker-compose.yml down -v
-# 또는 export 한 번
-export COMPOSE_FILE=dev/docker-compose.yml
-docker compose up --build -d
+cp .env.example .env
+docker compose up -d      # 퀵스타트 (repo clone 후). 코드 수정 반영은 `up --build -d`
+docker compose down -v
 ```
 
-본 repo는 기능 개발용 docker-compose만 다룬다 (CLAUDE.md #A0, ADR 0012). prod 배포 인프라(IaC) 결정은 본 repo 범위 밖 — prod secret·환경변수 contract는 `docs/operations/env.md` + `config.py` `_validate_prod_*`에 코드·docs로만 표현. prod compose 변형은 본 repo에 두지 않음.
+이미지가 wheel install 이라 코드 bind mount·hot reload 없음 — dev 코드 반복은 venv(README "개발 환경 셋업")로 host 실행하거나 `up --build`. dev 파이프라인은 `dev/dev-up.sh` 가 본 파일을 COMPOSE_FILE 로 쓰고 libvirt VM 등 host 구성을 추가 수행.
+
+prod 하드닝(APP_ENV=prod·강 secret·외부 secret 채널·HTTPS ingress)은 본 repo 범위 밖 — `docs/operations/env.md` + `config.py` `_validate_prod_*` 에 contract 로 표현 (ADR 0033 "추후 분리").
 
 ---
 
@@ -112,9 +111,9 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 
 ---
 
-## dev/docker-compose.yml
+## docker-compose.yml (루트, 단일)
 
-### 서비스 구성 (기본 8개 — pgadmin은 profiles:[gui]로 분리, 명시 호출 시만 가동)
+### 서비스 구성 (7개 — web·consumer·diagnostic-worker·migrate·postgres·rabbitmq·redis)
 
 | 서비스 | 이미지 | 역할 | 적용 환경 |
 |--------|--------|------|-----------|
@@ -132,7 +131,7 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 | 서비스 | 호스트 포트 | 컨테이너 포트 | 용도 |
 |--------|------------|--------------|------|
 | postgres | `${POSTGRES_PORT:-5432}` | 5432 | psql 직접 접속 (디버그) |
-| rabbitmq | `${RABBITMQ_PORT:-5672}` | 5672 | AMQP — OrbStack VM 에이전트가 `host.docker.internal:5672`로 접근 |
+| rabbitmq | `${RABBITMQ_PORT:-5672}` | 5672 | AMQP — libvirt VM 에이전트가 게이트웨이 `192.168.122.1:5672`로 접근 |
 | rabbitmq | `${RABBITMQ_MANAGEMENT_PORT:-15672}` | 15672 | 관리 UI |
 | web | `${WEB_PORT:-8000}` | 8000 | HTTP — 브라우저 + `/static/*` 정적 자원 |
 
@@ -250,13 +249,13 @@ ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migra
 
 ---
 
-## dev/pipeline-up.sh / dev/pipeline-down.sh
+## dev/dev-up.sh / dev/dev-down.sh
 
 운영자 절차·VM 매트릭스: `docs/development/pipeline.md`. 본 절은 docker 관점 동작만:
 
-- `dev/pipeline-up.sh` [1/4] `docker compose up -d --build` → [2/4] migrate 완료 대기(180s) → [3/4] web 헬스체크(180s) → [4/4] OrbStack 4 VM.
+- `dev/dev-up.sh` [1/4] `docker compose up -d --build` → [2/4] migrate 완료 대기(180s) → [3/4] web 헬스체크(180s) → [4/4] libvirt Linux 5 VM.
 - 헬스체크 타임아웃 초과 시 migrate/web 로그 30라인 dump 후 exit.
-- `dev/pipeline-down.sh`: OrbStack 4 VM 제거 → `docker compose down -v`(postgres_data 삭제). 다음 dev-up은 빈 DB에서 시작 → `migrate`가 모든 schema·hypertable 신규 생성.
+- `dev/dev-down.sh`: libvirt Linux 5 VM 제거 → `docker compose down -v`(postgres_data 삭제). 다음 dev-up은 빈 DB에서 시작 → `migrate`가 모든 schema·hypertable 신규 생성.
 
 ---
 
@@ -272,7 +271,7 @@ ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migra
 | Jinja2 템플릿 (web/templates/) | 즉시 | — | 없음 |
 | `pyproject.toml` (의존성) | 미반영 | 미반영 | `docker compose up --build -d` (의존성 레이어 재빌드) |
 | `Dockerfile` | 미반영 | 미반영 | `docker compose up --build -d` |
-| `dev/docker-compose.yml` | 부분 | 부분 | `docker compose up -d` (변경된 서비스만 재생성) |
+| `docker-compose.yml` (루트) | 부분 | 부분 | `docker compose up -d` (변경된 서비스만 재생성) |
 | ORM 모델 (컬럼·제약 추가) | 새 모델 로드는 reload되나 DB 스키마는 미반영 | 동일 | (ADR 0005) `alembic revision --autogenerate` → `docker compose restart migrate` → 앱 서비스 재기동. 마이그레이션 누락 시 `alembic check` 차단 |
 
 ### 디버깅 유용 명령

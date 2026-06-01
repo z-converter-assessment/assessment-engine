@@ -3,10 +3,15 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from assessment_engine.web.view_models.topology import NetworkTopology
+
 
 @dataclass
 class AttentionRow:
-    """주의 신호 카드 안 1행 — 5 카테고리(gap/disk/days_until_full/os_eol/agent_unstable) 통합 표현.
+    """주의 신호 카드 안 1행 — 운영신호 3 카테고리(gap/os_eol/agent_unstable) 공용 표현.
+
+    운영신호(AttentionSignals)는 gap/os_eol/agent_unstable 3개뿐 — disk·capacity·days_until_full 은
+    USE Method right-sizing(under_provisioned 환경개요·classify·보고서 스토리지 컬럼)으로 이동(중복 회피).
 
     P2 단일 진실 — 모든 표시 string은 mapper가 결정. template은 attribute access만.
 
@@ -67,7 +72,7 @@ class CapacityWarningItem:
 
 @dataclass
 class AttentionCatalogEntry:
-    """주의 신호 카드 상단 범례 1개 — 6 카탈로그 중 1개.
+    """주의 신호 카드 상단 범례 1개 — 운영신호 3 카탈로그(통신끊김/OS 지원종료/에이전트 재시작) 중 1개.
 
     label: 카테고리 이름 (sub-section 헤더와 동일)
     count: 발화 건수 (list 길이)
@@ -161,7 +166,12 @@ class EnvironmentOverview:
     total_vcpus: int
     total_memory_gb: float
     total_disk_gb: int
+    # os_family(windows/linux/unknown) 별 서버 수 — 환경 OS 구성 요약. count DESC.
+    os_distribution: dict[str, int] = field(default_factory=dict)
+    # 역할 분포 — 각 서버의 모든 서비스 카테고리를 카운트 (대표 1개가 아닌 전체, #E7).
     role_distribution: dict[str, int] = field(default_factory=dict)
+    # known 역할(서비스 카테고리) 이 하나도 없는 호스트 수 — 서비스 없음 또는 전부 unknown. 호스트 단위.
+    role_unknown_count: int = 0
     utilization: list[UtilizationBar] = field(default_factory=list)
     util_sample_size: int = 0
     risk_donut: list[RiskDonutSegment] = field(default_factory=list)
@@ -169,4 +179,59 @@ class EnvironmentOverview:
     risk_high_count: int = 0  # 도넛 중심 강조 — "위험 N대"
     # USE Method 분포 도넛 아래 표시 — 자원 부족(under_provisioned) 호스트 trigger·메타 상세.
     under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list)
-    under_provisioned_hosts_count: int = 0  # 템플릿 P3 회피 — mapper precompute (#E1 P3)
+    under_provisioned_hosts_count: int = 0  # 전체 자원 부족 호스트 수 — 템플릿 P3 회피 mapper precompute (#E1 P3)
+    under_provisioned_hosts_shown: int = 0  # 표시 호스트 수(상위 N, 호스트명 ASC) — "shown/total" 표기용 (P3 회피)
+
+
+@dataclass
+class RealtimePeak:
+    """실시간 '현재 부하 상위' 1개 셀 — 자원별(CPU/메모리/디스크) 랭킹. pct/color 는 해당 자원 값."""
+
+    hostname: str
+    public_id: str
+    pct: float
+    color: str  # _bar_color(pct) — 푸른 단색 (P3 precompute)
+
+
+@dataclass
+class RealtimePeakGroup:
+    """부하 상위 3열 grid 의 1열 — 한 자원의 탑 N (내림차순). label=자원명."""
+
+    label: str
+    peaks: list[RealtimePeak] = field(default_factory=list)
+
+
+@dataclass
+class EnvironmentRealtime:
+    """list 화면 '환경 실시간 메트릭' 카드 — 현황 모니터링(최신 스냅샷). right-sizing(14일 통계)과 별개 용도.
+
+    utilization: 온라인 서버(sample_size)의 현재 CPU/메모리/디스크(worst mount) 평균 도넛 3개
+                 (환경 평균 활용률 도넛과 동일 컴포넌트·푸른 단색 게이지 — UtilizationBar).
+    sample_size: 평균 표본 = 온라인이면서 최신 메트릭 보유 서버 수. 오프라인 stale 메트릭은 제외 —
+                 표기는 'sample_size/total' (예: 3/4, 오프라인 1대 빠짐).
+    online/offline: Redis online:{id} TTL 기준. last_collected_at: 환경 전체 최신 수집시각(신선도).
+    peak_groups: 자원별(CPU/메모리/디스크) 부하 상위 N — 3열 grid. has_peaks: 전체 빈 여부(empty 분기).
+    """
+
+    total: int
+    online: int
+    offline: int
+    sample_size: int  # 평균 표본 = 온라인 + 최신 메트릭 보유 (avg 분자)
+    utilization: list[UtilizationBar] = field(default_factory=list)
+    last_collected_at: datetime | None = None
+    peak_groups: list[RealtimePeakGroup] = field(default_factory=list)
+    has_peaks: bool = False
+
+
+@dataclass
+class DashboardLive:
+    """list 화면 fragment=live·page1 공용 묶음 — 공유 기초 데이터(now·report_aggregate·online flags)를
+    1회 조회 후 ViewModel 조립. 세 라이브 카드가 같은 스냅샷 기준이라 카드 간 값 일관 (중복 쿼리 제거 + 비결정성 해소).
+
+    topology 는 동일 details 에서 파생하지만 자동갱신 라이브 fragment 가 아니라 page 렌더에서만 1회 표시
+    (토폴로지는 정적 인벤토리라 30초 폴링 대상 아님 — list_page 가 page==1 에서만 context 전달)."""
+
+    overview: EnvironmentOverview
+    attention: AttentionSignals
+    realtime: EnvironmentRealtime
+    topology: NetworkTopology

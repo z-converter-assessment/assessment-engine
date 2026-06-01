@@ -149,7 +149,7 @@ git commit -m "..."
 | 환경 | 적용 시점 | 자동 여부 |
 |------|----------|----------|
 | dev (`docker compose up`) | up 시점에 migrate 컨테이너 자동 실행 | 자동 |
-| prod (외부 인프라) | 외부 인프라 ansible/systemd task가 `python -m alembic ... upgrade head` 사전 실행. wheel 안 `_alembic.ini`+`_migrations/` 활용 (ADR 0012) | 수동 (외부 인프라 책임) |
+| prod (외부 인프라) | 외부 인프라 ansible/systemd task가 `python -m alembic ... upgrade head` 사전 실행. wheel 안 `_alembic.ini`+`migrations/` 활용 (ADR 0012) | 수동 (외부 인프라 책임) |
 | 테스트 (`pytest`) | testcontainers fixture가 alembic upgrade subprocess 실행 (`tests/conftest.py`) | 자동 |
 
 prod에 큰 변경(데이터 손실 가능 DROP·대량 행 ALTER) 적용 전 — 외부 인프라 환경에서:

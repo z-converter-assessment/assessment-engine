@@ -4,7 +4,7 @@
 
 고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, 진단 워커가 수집된 데이터를 규칙 기반으로 분석해 진단 결과를 생성한다. 운영자는 web UI 에서 대시보드·보고서·JSON Export·원격 설치 task 산출물을 활용해 다음 단계 의사결정을 진행한다.
 
-본 repo 는 엔진 자체 (애플리케이션 + dev 시연용 docker compose · OrbStack 매트릭스 등 `dev/` 격리 자산) 만 다룬다. 배포 인프라 (IaC — Terraform · Ansible · SaltStack 등) 와 prod 운영 (systemd unit · k8s manifest 등) 은 본 repo 범위 밖. 본 repo 가 제공하는 산출물·contract 를 외부 인프라 코드에 통합해 운영한다.
+본 repo 는 엔진 자체 (애플리케이션 + 루트 docker-compose(dev·퀵스타트 겸용) + libvirt VM 매트릭스 등 `dev/` 격리 자산) 만 다룬다. 하드닝 prod 운영 (IaC — Terraform · Ansible 등 · systemd unit · k8s manifest) 은 본 repo 범위 밖 — 산출물·contract 를 외부 인프라에 통합. 단 루트 `docker-compose.yml` 로 단일 호스트 퀵스타트 제공 (ADR 0033).
 
 ---
 
@@ -35,7 +35,7 @@
  |  - time invariants            |  |  Worker:                      |
  |  - agent restart signals      |  |   - rule-based classify       |
  |  - task.result -> Task        |  |   - retrieve RAG context      |
- |    row 6-column UPDATE        |  |     (pgvector, opt-in)        |
+ |    row 7-column UPDATE        |  |     (pgvector, opt-in)        |
  |                               |  |   - narrate (USE Method via   |
  |                               |  |     recommendation.py +       |
  |                               |  |     RAG-grounded LLM)         |
@@ -77,7 +77,7 @@
 | 진단 | 규칙 기반 (USE Method) + 단일 ollama LLM (ADR 0025) + RAG opt-in (ADR 0024, mxbai-embed-large + HNSW) |
 | 관측 | loguru `LOG_FORMAT=text\|json` + Prometheus `/metrics` |
 | 패키징 | uv + hatchling. CI 산출물 = Python wheel |
-| 정적 자원 | Chart.js CDN, 외부 `.js` 파일 + `defer` |
+| 정적 자원 | Chart.js (CDN) · Cytoscape.js (네트워크 토폴로지, vendored) · 외부 `.js` + `defer` |
 | 에이전트 (별도 repo) | C 단일 바이너리, RabbitMQ 직접 publish |
 
 ---
@@ -107,10 +107,11 @@
 | 산출물 | 위치 · 참고 문서 |
 |--------|--------------|
 | Python wheel + sdist + SHA256SUMS | GitHub Release (semver tag `v*`) · `docs/operations/release.md` |
-| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/{org}/assessment-engine:v*`+`:0.1`+`:0`+`:latest` · ADR 0017 |
+| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/{org}/assessment-engine:0.1.0`+`:0.1`+`:0`+`:latest` (semver tag `v0.1.0` -> 이미지 태그는 `v` 없는 `0.1.0`, metadata-action) · ADR 0017 |
 | SBOM (CycloneDX JSON) + Sigstore signature | wheel·sdist에 첨부 — 외부 인프라가 의존성 audit + `cosign verify-blob` 무결성 검증 |
-| SBOM (SPDX, BuildKit attestation) + cosign keyless signature | image 첨부 — `cosign verify ghcr.io/.../assessment-engine:v0.1.0` 무결성 검증 |
+| SBOM (SPDX, BuildKit attestation) + cosign keyless signature | image 첨부 — `cosign verify ghcr.io/.../assessment-engine:0.1.0` 무결성 검증 |
 | Alembic migrations·alembic.ini | wheel·image 동봉 (`hatch.force-include`) · `docs/operations/release.md` |
+| `docker-compose.yml` + `.env.example` | GitHub Release 첨부 — 릴리즈 다운로드만으로 퀵스타트 (`ENGINE_IMAGE=ghcr.io/...:0.1.0 docker compose up -d --no-build`, GHCR 이미지 pull, ADR 0033) |
 | 환경변수·secret contract | `docs/operations/env.md` |
 | systemd unit reference | `docs/operations/deployment.md` 4절 |
 | install·실행 절차 | `docs/operations/deployment.md` |
@@ -214,10 +215,27 @@ curl -fsS http://localhost:8000/health   # {"status":"ok"}
 
 ## Quick Start
 
-dev 시연 · 파이프라인 검증 흐름 (엔진 dev compose + OrbStack 4 VM 매트릭스) 과 접속 endpoint 카탈로그는
-`dev/README.md` 단일 진실. 루트는 운영 기준 메타·산출물만 유지.
+루트 `docker-compose.yml` 한 파일이 퀵스타트와 dev 파이프라인을 겸한다 (ADR 0033). 빌드는 루트 `Dockerfile`(wheel install 운영 이미지), `env_file = ${ENV_FILE:-.env}` — 미설정 시 루트 `.env`, dev-up.sh 가 `dev/.env` 로 전환.
 
-VM 매트릭스 · 합성 부하 프로파일 · attention 발화 매핑 deep dive: `docs/development/pipeline.md`.
+### 퀵스타트 (단일 호스트 운영 평가)
+
+```bash
+cp .env.example .env
+docker compose up -d        # web http://localhost:8000
+```
+
+`cp` 만으로 기동한다 (`APP_ENV=dev` 기본 — weak secret 허용). 수동 설정은 선택 기능만: install 발행 시 `ZDM_DEFAULT_IP`, AI 진단 시 `OLLAMA_BASE_URL`. 인터넷 노출 하드닝 prod 는 wheel+systemd(아래 "설치·실행") — 한계·근거는 `docs/operations/deployment.md` 0절.
+
+### dev 파이프라인 (`dev/dev-up.sh`, Linux x86_64)
+
+같은 compose 를 띄우고 그 위에 libvirt VM 매트릭스 + 각 VM 에 C 에이전트 install 까지 자동화 — 수집·진단·원격 install 전 경로를 실제 호스트로 검증한다. `ENV_FILE=dev/.env`(dev 카탈로그) · `COMPOSE_PROJECT_NAME=dev` 를 설정해 퀵스타트와 컨테이너 네임스페이스를 분리한다.
+
+```bash
+./dev/dev-up.sh        # 루트에서. 또는 `cd dev && ./dev-up.sh` — 둘 다 동작
+./dev/dev-down.sh      # 컨테이너·볼륨·VM 전부 정리
+```
+
+VM 매트릭스 · 합성 부하 · 접속 endpoint 카탈로그: `dev/README.md` · `docs/development/pipeline.md`.
 
 ---
 
@@ -225,7 +243,7 @@ VM 매트릭스 · 합성 부하 프로파일 · attention 발화 매핑 deep di
 
 본 절은 IDE (PyCharm·VS Code) 에서 코드 탐색·자동완성·테스트 실행을 위한 의존성 설치. Docker compose 만 띄울 때는 불필요 — 컨테이너 안에서 의존성을 갖고 있음.
 
-전제: `uv` 0.4+ (`pip install uv` 또는 `brew install uv`).
+전제: `uv` 0.4+ (`pip install uv` 또는 distro 패키지).
 
 ```bash
 # 의존성 동기화 — 운영 의존성 + dev 그룹 (pytest·ruff·hadolint·types 등) 모두 설치.
