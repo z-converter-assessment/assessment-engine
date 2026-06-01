@@ -35,13 +35,13 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 본 repo는 기능 개발에 필요한 환경 구성만 다룬다. 배포 인프라(IaC — Terraform·Ansible·OpenStack staging 등)는 본 repo 범위 밖. 추후 도입 결정 시 별도 repo로 분리 (ADR 0006 Withdrawn 사유).
 
 본 절 결정:
-- `dev/docker-compose.yml` 은 기능 개발용 한정 (dev 환경에서 앱·DB·MQ·Redis 한 번에 띄움). `docker-compose.prod.yml` 은 본 repo 에 두지 않음 — prod 운영 방식 contract 를 docker compose 형식으로 강제하지 않는다 (ADR 0012).
+- 루트 `docker-compose.yml` 단일 파일이 dev 파이프라인과 퀵스타트를 겸한다 (앱 3종·DB·MQ·Redis 한 번에 기동). dev/prod 분리 안 함 — 현 단계 단순 유지, hardened prod 분리는 추후 (ADR 0033, ADR 0012 5절 supersede). `dev/docker-compose.yml`·override 파일·`docker-compose.prod.yml` 은 두지 않는다 (compose 정의 1곳).
 - prod 외부 인프라가 활용할 수 있는 정석 contract만 본 repo에서 유지:
   - 환경변수 contract — `docs/operations/env.md` 키 카탈로그
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
   - 환경 분기 — `APP_ENV=prod` + `_validate_prod_*` weak default 거부 (`docs/operations/env.md` 8절). secret 주입 방식은 무관, 결과(약한 default 거부)만 검증
   - CI 산출물 — Python wheel + GitHub Release (ADR 0012). 외부 인프라가 wheel 받아 install·systemd 자체 구성
-- IaC 코드(`*.tf`·Ansible playbook·OpenStack 시나리오 문서)·prod compose 변형은 본 repo에 두지 않는다. 인프라 시나리오 언급 자체 금지 — 단 어떤 인프라든 위 contract 충족 시 본 엔진 기동 가능.
+- IaC 코드(`*.tf`·Ansible playbook·OpenStack 시나리오 문서)는 본 repo에 두지 않는다. 인프라 시나리오 언급 자체 금지 — 단 어떤 인프라든 위 contract 충족 시 본 엔진 기동 가능. (루트 `docker-compose.yml` 퀵스타트는 예외적 편의 제공 — ADR 0033.)
 
 ---
 
@@ -161,6 +161,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 - inventory upsert·metrics 저장·server_id 조회 모두 `composite_id` 단일 키 기준 (#C1). 미등록 metrics는 drop.
 - `last_seen_at`은 `ServerDetail`(단일 조회)에만 포함. `ServerSummary`(목록)는 Redis `online:{id}` TTL로 표시.
 - `CollectionStatusItem`은 `last_metric_at` + `last_inventory_at` 별도 필드.
+- `ip_internal`은 CIDR 표기 문자열 raw 저장(agent v3.4+, #B). 인바운드는 `ip_interface` 형식 검증만(bare·CIDR 호환). 표시 파생은 `mappers/server._to_ip_addrs`(`ip_interface` 파싱)와 대시보드 네트워크 토폴로지(`mappers/topology.build_network_topology`)에서 — L3 subnet 공동소속 추론 그래프(노드=subnet/host, 가상망·IPv6·단독 subnet 제외). 추론이라 실측 reachability 아님 — 한계는 caveat 노출(#E9). Cytoscape.js(vendored)로 렌더, 자동갱신 fragment 안이라 swap 후 재초기화.
 
 Pagination 정책:
 - 목록 endpoint(`list_servers` 등 정적 row): page 기반 — `page=1`, `limit=20` (max 100). 라우터 Query Pydantic 검증.
@@ -172,7 +173,7 @@ Pagination 정책:
 
 ## E3. 서비스 계층·ViewModel·Mapper (P2)
 
-서비스 모듈 카탈로그·`mappers/` sub-package 표시 파생 집중 (`server`/`metric`/`attention`/`report`/`export`/`task`/`shared`/`diagnostic`/`environment_report`/`report_history` 11 sub-module)·`enrich_*` idempotent·UI badge 임계값(`_USAGE_DANGER_PCT`·`_USAGE_WARN_PCT` — `mappers/shared.py`)·USE Method right-sizing 임계값(`assessment_engine/recommendation.py` 도메인 모듈 — web·diagnostic 공용 import)·ViewModel 카탈로그·mapper 파생 필드(`is_well_known`·`badge_class`·`bar_color` 등)·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/architecture/web/services.md` · `docs/architecture/web/view-models.md` 단일 진실.
+서비스 모듈 카탈로그·`mappers/` sub-package 표시 파생 집중 (`server`/`metric`/`attention`/`report`/`export`/`task`/`shared`/`diagnostic`/`environment_report`/`report_history`/`topology` 12 sub-module)·`enrich_*` idempotent·UI badge 임계값(`_USAGE_DANGER_PCT`·`_USAGE_WARN_PCT` — `mappers/shared.py`)·USE Method right-sizing 임계값(`assessment_engine/recommendation.py` 도메인 모듈 — web·diagnostic 공용 import)·ViewModel 카탈로그·mapper 파생 필드(`is_well_known`·`badge_class`·`bar_color` 등)·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/architecture/web/services.md` · `docs/architecture/web/view-models.md` 단일 진실.
 
 본 절 결정:
 - 두 임계 도메인(UI badge / USE Method) 혼용 금지.
@@ -360,7 +361,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 | 메시지 페이로드 schema 변경 (필드 추가·삭제·rename·Literal 값 변경) | (1) `consumer/schemas.py` 또는 발행 측 payload 빌드 (2) Inbound DTO (3) handler 매핑 (4) DB 모델·Alembic revision (필요 시) (5) `docs/architecture/agent.md` 데이터 형식 절 (6) 운영자 가시성 ViewModel·템플릿·API (필요 시) |
 | `recommendation.py` 분류 임계 또는 libvirt VM 매트릭스 변경 | (1) `recommendation.py` 임계 상수 (2) `docs/development/pipeline.md` "VM 매트릭스"(합성 부하·swap_used 트리거) (3) #F10 평가 윈도우 정합 |
 | 분류 신호·OS 분기 (USE Method 축·임계·trigger, ADR 0029 evidence) | (1) `recommendation.py` `assess`/`Assessment`(triggers·unmeasured)·임계 상수·`swap_saturation` helper·`ResourceStats` 필드 (2) trigger 키 추가 시 report 권고(`_TRIGGER_ACTION_KO`)·attention capacity 배지 active 매핑 동시 갱신 (3) stats 생성은 `build_resource_stats` 공용(report·attention 단일 진실) — 직접 해석·임계 재계산 금지 (4) 표시 N/A·confidence(`is_partial`=bool(unmeasured)) 마커 (ViewModel precompute + 템플릿) (5) `docs/architecture/right-sizing.md`(명세·근거 단일 진실) + `docs/architecture/web/services.md` "OS 분기" + `right_sizing_thresholds.html` + ADR 0029 정정 |
-| 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) `dev/docker-compose.yml` `environment:` (dev 필요 시) (4) prod secret 분류면 `SecretStr` 타입 + `_validate_prod_*` 에 weak default 거부 추가 + `docs/operations/env.md` 2절·7절 |
+| 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) 루트 `docker-compose.yml` `environment:` (필요 시) (4) prod secret 분류면 `SecretStr` 타입 + `_validate_prod_*` 에 weak default 거부 추가 + `docs/operations/env.md` 2절·7절 |
 | ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass(P2) |
 | 신규 조건부(발화) UI 섹션 추가 | (1) 제목·카테고리 항상 노출 (2) 빈 상태 `empty_state` placeholder (3) 화면 컨텍스트 가드와 데이터 발화 가드 분리 (#E9) |
 | 신규 외부 의존(HTTP·LLM·외부 큐) | (1) fail-open/close 결정(#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) #F6 매트릭스 갱신 |

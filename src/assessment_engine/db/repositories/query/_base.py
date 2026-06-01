@@ -9,6 +9,12 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# "최신 행" 조회의 미래 timestamp 방어 — agent 시계가 어긋나 collected_at 이 미래로 발행되면(예: Windows
+# RTC 가 local TZ 로 해석돼 UTC 오프셋만큼 튐) 그 행이 "가짜 최신"으로 잡혀 대시보드 CPU delta(최신 2행
+# 연속성)를 깨뜨린다. now()+SKEW 보다 미래인 행은 시계 오류로 간주해 제외. SKEW 는 정상적인 서버-DB 간
+# 미세 시계차(수 초~분)는 흡수하되 OS 타임존 오류(시간 단위)는 거른다.
+_FUTURE_SKEW_SQL = "now() + interval '2 minutes'"
+
 
 class _BaseQueryMixin:
     """`__init__(session)` + `_latest_per_dimension` 공통 helper.
@@ -42,7 +48,9 @@ class _BaseQueryMixin:
                 FROM (
                     SELECT DISTINCT ON ({dim_col}) *
                     FROM {table}
-                    WHERE server_id = :sid AND collected_at >= now() - interval '30 days'
+                    WHERE server_id = :sid
+                      AND collected_at >= now() - interval '30 days'
+                      AND collected_at <= {_FUTURE_SKEW_SQL}
                     ORDER BY {dim_col}, collected_at DESC
                 ) s
                 ORDER BY {dim_col}
@@ -55,7 +63,9 @@ class _BaseQueryMixin:
                     SELECT *,
                         ROW_NUMBER() OVER (PARTITION BY {dim_col} ORDER BY collected_at DESC) AS rn
                     FROM {table}
-                    WHERE server_id = :sid AND collected_at >= now() - interval '30 days'
+                    WHERE server_id = :sid
+                      AND collected_at >= now() - interval '30 days'
+                      AND collected_at <= {_FUTURE_SKEW_SQL}
                 ) t
                 WHERE rn <= :n
                 ORDER BY {dim_col}, collected_at DESC

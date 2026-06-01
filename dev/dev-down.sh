@@ -72,7 +72,7 @@ else
 fi
 
 echo "[2/2] Docker 서비스 및 볼륨 제거 중 (DB·메트릭·redis 데이터 전부 삭제)..."
-docker compose --profile gui down -v
+docker compose down -v
 
 echo ""
 echo "환경 종료 완료 — 모든 VM(Linux ${#VMS[@]} + Windows) 삭제 + Docker 컨테이너·볼륨 제거."

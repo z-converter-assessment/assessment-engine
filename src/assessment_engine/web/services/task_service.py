@@ -203,6 +203,11 @@ class TaskService:
         detail_by_id = {d.id: d for d in details}
 
         zdm_host = _extract_zdm_host(zdm_ip)
+        # resolver(엔진) 가 sha256/size 산출하려고 fetch 하는 호스트. download.url·install args 는 zdm_host 유지.
+        # dev 한정 override: mock 은 web 컨테이너 자기 자신이라 host publish 포트 hairpin 불가 -> localhost fetch.
+        # prod 미설정 -> zdm_host 그대로 (엔진이 real ZDM 직접 도달).
+        _resolver_override = web_settings.zdm_resolver_host_override
+        resolve_host = _extract_zdm_host(_resolver_override) if _resolver_override else zdm_host
 
         # OS family 별 ZDM 메타 fetch — batch 안 OS 섞이면 OS 별 1 회씩 (캐시 효과 + 정합성).
         # detail.os_family None (Linux agent minor bump 전) → fallback "linux".
@@ -214,7 +219,7 @@ class TaskService:
             dispatch_by_host[server_id] = (package_path, install_type, install_script)
             if package_path not in meta_by_path:
                 try:
-                    meta_by_path[package_path] = await self.zdm_resolver.resolve(zdm_host, package_path)
+                    meta_by_path[package_path] = await self.zdm_resolver.resolve(resolve_host, package_path)
                 except ZdmPackageMetaError as e:
                     raise TaskNotConfigured(f"ZDM package meta fetch failed: {e}") from e
 

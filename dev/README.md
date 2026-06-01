@@ -16,10 +16,13 @@ dev-up.sh 가 자동 확보 (sibling repo cross-build 또는 release artifact fe
 ### 1. 엔진만 기동 (가장 단순)
 
 ```bash
+# compose 는 루트 docker-compose.yml 단일 (ADR 0033). dev 는 dev/.env(dev 카탈로그)를 env_file 로 인식.
 cp dev/.env.example dev/.env
-docker compose -f dev/docker-compose.yml up --build -d   # web + consumer + diagnostic + DB + MQ + Redis 한 번에
-docker compose -f dev/docker-compose.yml down -v         # 종료 (데이터 삭제)
+ENV_FILE=dev/.env docker compose up --build -d   # web + consumer + diagnostic + DB + MQ + Redis 한 번에
+ENV_FILE=dev/.env docker compose down -v         # 종료 (데이터 삭제)
 ```
+
+dev 파이프라인 전체(VM 포함)는 `dev/dev-up.sh` 가 위 env_file·프로젝트명을 자동 설정 — 수동 ENV_FILE 불필요.
 
 `migrate` 컨테이너가 `alembic upgrade head` 를 자동 실행. 그 후 web 컨테이너가 헬스체크 통과하면
 "## 접속" 표의 endpoint 모두 동작.

@@ -8,7 +8,7 @@
 # 책임 분담:
 #   - agent 바이너리는 dev/bin/assessment-agent 로 산출 — ensure_agent_binary 가 확보.
 #     AGENT_BINARY_URL set 시 curl fetch, 미설정 시 dev/agent-build/build.sh (sibling repo cross-build).
-#   - Docker compose 는 dev/docker-compose.yml (dev 한정 #A0, ADR 0012). migrate init-container 가 alembic 자동 적용.
+#   - Docker compose 는 루트 docker-compose.yml (dev·퀵스타트 단일 파일, ADR 0033). migrate init-container 가 alembic 자동 적용.
 #   - Linux VM 은 cloud image qcow2 vol-clone + cloud-init seed + virsh define 도메인 XML 로 생성
 #     (virt-install 의 python3-gi 의존 회피). VM 안 패키지·바이너리·systemd·합성 부하는 post-provision.
 #   - Windows VM 은 autounattend 무인 설치 후 골든 이미지 캐시 (docs/development/windows-vm.md).
@@ -17,8 +17,8 @@
 #   - 연결 URI: qemu:///system (LIBVIRT_DEFAULT_URI export). ubuntu 유저는 libvirt 그룹 멤버라 sudo 불요.
 #   - VM 명령: cloud-init 이 유저 dev(NOPASSWD sudo) + dev SSH 공개키 주입 -> ssh dev@<VM_IP>.
 #     VM IP 는 libvirt DHCP lease 에서 동적 확인 (virsh domifaddr --source lease).
-#   - VM -> host 도달: libvirt NAT 게이트웨이 IP(LIBVIRT_GW, 기본 192.168.122.1). agent 의
-#     RABBITMQ_HOST·WORKER_DOWNLOAD_ALLOWED_HOSTS 가 이 IP 를 가리킨다.
+#   - VM -> host 도달: libvirt NAT 게이트웨이 IP(LIBVIRT_GW, 기본 192.168.122.1). agent RABBITMQ_HOST 가
+#     이 IP 를 가리킨다. WORKER_DOWNLOAD_ALLOWED_HOSTS 는 agent.env 값(엔진 ZDM_DEFAULT_IP host 와 일치).
 #   - 컨테이너 -> host: docker-compose web extra_hosts host.docker.internal:host-gateway.
 #   - 컨테이너(web) -> VM(서버 발견 probe :22): 운영자가 VM IP 직접 입력 (컨테이너에서 VM hostname DNS 미해석).
 #
@@ -36,8 +36,14 @@ unset SSH_ASKPASS SSH_ASKPASS_REQUIRE GIT_ASKPASS 2>/dev/null || true
 # BASH_SOURCE는 source된 스크립트 자체 경로 (직접 실행 시 $0과 동일) — source 시 부모의 $0으로 잘못 cd하지 않게.
 cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.."
 
-# dev compose 단일 진실 — `docker compose` 호출이 본 파일을 자동 인식.
-export COMPOSE_FILE=dev/docker-compose.yml
+# 루트 docker-compose.yml 단일 compose (dev·퀵스타트 겸용, ADR 0033) — `docker compose` 호출이 자동 인식.
+export COMPOSE_FILE=docker-compose.yml
+# 프로젝트명 고정 — compose 파일이 루트라 기본 프로젝트명이 루트 디렉토리명이 되지만, dev 컨테이너/볼륨
+# 네임스페이스를 `dev` 로 안정화(퀵스타트 bare `docker compose up` 과 분리, dev-down 연속성 보장).
+export COMPOSE_PROJECT_NAME=dev
+# dev 파이프라인은 dev/.env(dev 카탈로그)를 compose env_file 로 인식 — compose 의 ${ENV_FILE:-.env} 분기.
+# (퀵스타트 bare `docker compose up` 은 ENV_FILE 미설정 -> 루트 .env.)
+export ENV_FILE=dev/.env
 
 # ────────────────────────────────────────────────────────────────────────────
 # 상수
@@ -214,8 +220,8 @@ check_prereqs() {
   if [ "$(uname -m)" != "x86_64" ]; then
     echo "경고: 본 dev 파이프라인은 x86_64 + amd64 cloud image 가정. 다른 host arch 는 image URL·바이너리 검토 필요."
   fi
-  # env 파일 자동 cp — 없으면 example 복사 (dev 한정, example default 그대로 충분).
-  # 루트 .env.example 은 prod 운영자 카탈로그라 본 dev 파이프라인은 dev/.env.example 사용.
+  # env 파일 자동 cp — dev 작업파일 dev/.env(dev 카탈로그 복사본)을 dev/ 안에 둔다.
+  # compose 는 ENV_FILE=dev/.env 로 본 파일을 env_file 인식 (퀵스타트는 루트 .env, ADR 0033).
   if [ ! -f dev/.env ]; then
     echo "  dev/.env 없음 — dev/.env.example 복사"
     cp dev/.env.example dev/.env
@@ -330,7 +336,7 @@ start_docker_stack() {
   export APP_VERSION
   echo "  APP_VERSION=${APP_VERSION} (hatch-vcs 주입)"
   # discovery probe 좌표는 운영자가 VM IP 직접 입력 (print_summary 안내) — docker-compose default 빈값.
-  docker compose --profile gui up -d --build
+  docker compose up -d --build
 }
 
 wait_migrate_completed() {
@@ -581,7 +587,8 @@ post_provision_vm() {
 set -euo pipefail
 
 # 1) /etc/assessment-agent.env — host의 dev/agent.env + libvirt 게이트웨이 IP + VM별 hostname/ext_ip.
-#    RABBITMQ_HOST·WORKER_DOWNLOAD_ALLOWED_HOSTS 는 VM->host 도달 IP(LIBVIRT_GW) — host shell 이 치환.
+#    RABBITMQ_HOST 는 VM->host 도달 IP(LIBVIRT_GW), WORKER_DOWNLOAD_ALLOWED_HOSTS 는 agent.env 값
+#    (엔진 ZDM_DEFAULT_IP host 와 일치). host shell 이 치환.
 #    env_needs_restart=1이면 env 변경됨 → 뒤 단계에서 restart 트리거.
 new_env=\$(cat <<ENV
 RABBITMQ_HOST=${LIBVIRT_GW}
@@ -598,7 +605,7 @@ RABBITMQ_WORKER_PASS=${RABBITMQ_WORKER_PASSWORD}
 WORKER_TASK_EXCHANGE=${WORKER_TASK_EXCHANGE}
 WORKER_TASK_QUEUE_PREFIX=${WORKER_TASK_QUEUE_PREFIX}
 WORKER_TASK_RESULT_KEY=${WORKER_TASK_RESULT_KEY}
-WORKER_DOWNLOAD_ALLOWED_HOSTS=${LIBVIRT_GW}
+WORKER_DOWNLOAD_ALLOWED_HOSTS=${WORKER_DOWNLOAD_ALLOWED_HOSTS}
 AGENT_HOSTNAME_OVERRIDE=$hostname_override
 AGENT_INTERVAL_SEC=60
 ${ext_ip:+AGENT_EXTERNAL_IP=$ext_ip}
@@ -1244,7 +1251,7 @@ RABBITMQ_WORKER_PASS=${RABBITMQ_WORKER_PASSWORD}
 WORKER_TASK_EXCHANGE=${WORKER_TASK_EXCHANGE}
 WORKER_TASK_QUEUE_PREFIX=${WORKER_TASK_QUEUE_PREFIX}
 WORKER_TASK_RESULT_KEY=${WORKER_TASK_RESULT_KEY}
-WORKER_DOWNLOAD_ALLOWED_HOSTS=${LIBVIRT_GW}
+WORKER_DOWNLOAD_ALLOWED_HOSTS=${WORKER_DOWNLOAD_ALLOWED_HOSTS}
 AGENT_HOSTNAME_OVERRIDE=$WIN_VM_NAME
 AGENT_INTERVAL_SEC=60
 ENV

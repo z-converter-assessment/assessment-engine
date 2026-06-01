@@ -14,7 +14,7 @@ htmlcov/
 .github/
 .idea/
 
-# dev 보조 자료 (이미지 내 불필요 — dev 파이프라인 Lima·pgadmin·agent dev env·dev compose)
+# dev 보조 자료 (wheel 이미지에 불필요 — libvirt VM·agent 빌드·dev env·dev 스크립트)
 dev/
 
 # 시크릿 — 절대 이미지에 포함되면 안 됨 (CLAUDE.md #F8)

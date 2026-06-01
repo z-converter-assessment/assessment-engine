@@ -33,7 +33,7 @@ host 의 docker 퍼블리시 포트(RabbitMQ 5672·web 8000)에 도달한다 —
 컨테이너에서 미해석이라 서버 발견 probe 는 운영자가 VM IP 직접 입력. Windows VM 도 동일 virbr0 라 게이트웨이 192.168.122.1 로 host 도달.
 
 LLM 서버(ollama)는 본 파이프라인에서 제거됨 — AI 진단(engineer 보고서 narrative) 발행 시 LLM 호출
-실패 시나리오를 의도적으로 재현 (`dev/docker-compose.yml` diagnostic-worker 주석). 진단 워커 로직 무수정.
+실패 시나리오를 의도적으로 재현 (루트 `docker-compose.yml` diagnostic-worker 주석). 진단 워커 로직 무수정.
 
 ## 사전 요구
 
@@ -64,7 +64,7 @@ env 파일(`dev/.env`·`dev/agent.env`)은 dev-up 이 example 에서 자동 복�
 의존성(libvirt/qemu/genisoimage/ovmf/mingw-w64/cmake)도 부재 시 자동 설치(sudo apt).
 
 `dev/dev-up.sh` 는 위 자동 준비 후 4단계 (Linux/libvirt), 이어서 Windows 블록(아래 71줄):
-1. `docker compose up --build -d` — 엔진 기동 (COMPOSE_FILE=dev/docker-compose.yml export)
+1. `docker compose up --build -d` — 엔진 기동 (COMPOSE_FILE=docker-compose.yml export)
 2. `migrate(alembic upgrade head)` 완료 대기 (cap 180s)
 3. web 헬스체크 통과 대기 (cap 180s)
 4. `start_or_resume_vm` → `post_provision_vm` → `install_demo_loads` 로 5 VM 순차 (첫 실행 시 base cloud image 다운로드 + 풀 import, 이후 vol-clone 재사용)

@@ -92,7 +92,8 @@ def _to_ip_addrs(ips: list[str]) -> list[IpAddr]:
     items: list[IpAddr] = []
     for ip in ips:
         try:
-            v4 = ipaddress.ip_address(ip).version == 4
+            # ip_interface — agent payload v3.4+ 는 CIDR 표기("10.0.1.15/24")라 ip_address 면 ValueError.
+            v4 = ipaddress.ip_interface(ip).version == 4
         except ValueError:
             v4 = False
         items.append(IpAddr(value=ip, is_ipv4=v4))

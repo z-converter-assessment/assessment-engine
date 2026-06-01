@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_shared.html" import empty_state %}
 {% block title %}ZConverter Assessment — 대시보드{% endblock %}
 
 {% block content %}
@@ -52,6 +53,8 @@
 </div>
 
 <script src="/static/js/pages/list.js?v={{ asset_v }}" defer></script>
+<script src="/static/js/vendor/cytoscape.min.js?v={{ asset_v }}" defer></script>
+<script src="/static/js/pages/network-topology.js?v={{ asset_v }}" defer></script>
 
 <div id="dashboard-live">
 {% include "servers/_dashboard_live.html" %}

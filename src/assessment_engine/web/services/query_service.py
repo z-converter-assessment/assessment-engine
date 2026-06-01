@@ -69,6 +69,7 @@ from assessment_engine.web.services.mappers.task import (
     to_task_detail,
     to_task_summary,
 )
+from assessment_engine.web.services.mappers.topology import build_network_topology
 from assessment_engine.web.services.metrics_calculator import build_dashboard
 from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb
 from assessment_engine.web.settings import web_settings
@@ -471,6 +472,7 @@ class QueryService:
                 overview=_empty_overview(),
                 attention=AttentionSignals(gap_warnings=[], os_eol_warnings=[], agent_unstable=[]),
                 realtime=build_environment_realtime(0, 0, [], None),
+                topology=build_network_topology([]),
             )
         details = await self.repo.get_servers(server_ids)
         raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
@@ -482,6 +484,7 @@ class QueryService:
             overview=self._assemble_overview(details, util, raws_period, online_by_id),
             attention=self._assemble_attention(raws_period, gap_raws, restart_counts, now, _ATTENTION_LIMIT_EACH),
             realtime=await self._assemble_realtime(server_ids, details, online_by_id, now),
+            topology=build_network_topology(details),
         )
 
     async def get_environment_report(
