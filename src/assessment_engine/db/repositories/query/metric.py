@@ -84,9 +84,14 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             return None
 
         # server_metrics는 dimension 없음. 단순 최신 2행.
+        # 미래 timestamp 방어 — 시계 어긋난 agent 의 미래 collected_at 행이 "가짜 최신"으로 잡혀
+        # CPU delta(연속 2행)를 깨뜨리는 것 차단 (now()+skew 상한, _base._FUTURE_SKEW_SQL 와 동일 정책).
         m_result = await self.session.execute(
             select(ServerMetrics)
-            .where(ServerMetrics.server_id == server_id)
+            .where(
+                ServerMetrics.server_id == server_id,
+                ServerMetrics.collected_at <= text("now() + interval '2 minutes'"),
+            )
             .order_by(ServerMetrics.collected_at.desc())
             .limit(2)
         )
