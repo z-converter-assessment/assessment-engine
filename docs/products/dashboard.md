@@ -39,16 +39,17 @@
 
 답: "환경 안 under-provisioned·over-provisioned 서버 비율은?"
 
-### 영역 4: 주의 신호 카드 (6 카탈로그)
+### 영역 4: 운영 신호 카드 (3 카탈로그)
+
+운영신호(`AttentionSignals`)는 USE Method 자원 평가와 분리된 인프라 이상 3개만:
 
 | 신호 | 트리거 |
 |------|--------|
-| 통신 끊김 | `online:{id}` Redis TTL 만료 |
-| 디스크 사용률 임박 | mount 사용률이 임계 초과 |
-| 자원 부족 | recommendation.classify under_provisioned |
-| 디스크 잔여 30일 | mount 채워 짐 30일 안 예상 |
-| OS EOL | OS 버전이 EOL 카탈로그에 포함 |
-| 에이전트 재시작 빈번 | 1h 슬라이딩 윈도우 N+회 |
+| 통신 끊김 | metric 발행 갭 — 5분+ 미수신(한때 살아있다 끊김), `metric_gap_warnings` |
+| OS EOL | OS 버전(Linux)·build(Windows)가 EOL 카탈로그 경과, `resolve_os_eol` (ADR 0031) |
+| 에이전트 재시작 빈번 | 1h fixed 윈도우 재시작 N회+ (`agent_started_at` DISTINCT) |
+
+자원 부족(under_provisioned)·디스크 사용률·디스크 잔여일은 운영신호가 아니라 USE Method right-sizing(영역 3 분포 도넛 + under_provisioned 호스트 / 보고서 스토리지 컬럼)에 표시 — 중복 회피.
 
 답: "지금 즉시 손대야 할 위험 신호는?"
 
@@ -100,7 +101,7 @@ prov 분포 도넛 3 카테고리:
 ## 한계
 
 1. page=1 + 검색·필터 미사용 시만 상단 요약·도넛·신호 노출 — 검색·다음 페이지에선 raw 테이블만. 의도된 단순화이지만 운영자가 "왜 갑자기 사라졌나" 혼란 가능. UI 가이드 보강 후보.
-2. SSE 단일 채널 + 서버 측 필터링 (T5) — 동시 운영자 ↑ 시 broker 부하. 본 프로젝트 규모는 OK.
+2. SSE 단일 채널 + 서버 측 필터링 (T5) — 동시 운영자 증가 시 broker 부하. 본 프로젝트 규모는 OK.
 3. 활용률 도넛은 환경 평균만 — 분포(p50·p95)는 미노출. 양극화 환경에서 misleading (`docs/products/environment-report.md` 한계 #2와 동일 패턴).
 4. 행별 권장 단일 라벨 — recommendation 분류 1개만 표시. 다중 신호(예: CPU 정상 + 메모리 부족)는 우선순위 평가 후 1개만.
 5. 환경 진단 결과 자동 노출 — list 페이지가 사용자 trigger (web POST /api/diagnostics) 로 발행된 최근 succeeded 진단을 자동 표시. ADR 0023: cron 자동 발화 폐기로 운영자가 명시 발행 안 하면 진단 자료 누적 0. 진단 워커 중단 시 stale 표시 위험.

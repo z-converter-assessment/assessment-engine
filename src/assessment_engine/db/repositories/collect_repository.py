@@ -4,6 +4,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from assessment_engine.boot_time import boot_time_changed
 from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
     MountUsageEntry,
@@ -130,7 +131,7 @@ class CollectRepository(BaseCollectRepository):
             or prev.cpu_model != new.cpu_model
             or prev.mem_total_kb != new.mem_total_kb
             or prev.swap_total_kb != new.swap_total_kb
-            or prev.boot_time != new.boot_time
+            or boot_time_changed(prev.boot_time, new.boot_time)
             or prev.agent_started_at != new.agent_started_at
             or prev.ip_internal != new.ip_internal
             or prev.ip_external != new.ip_external

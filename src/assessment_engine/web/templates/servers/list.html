@@ -2,7 +2,10 @@
 {% block title %}ZConverter Assessment — 대시보드{% endblock %}
 
 {% block content %}
-<h1>대시보드</h1>
+<div style="display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:8px;">
+  <h1 style="margin:0;">대시보드</h1>
+  <div style="font-size:12px; color:#64748b; text-align:right;">갱신 <span id="dashboard-updated">{{ generated_at | kst }}</span><span id="dashboard-refresh-note"></span></div>
+</div>
 
 <!-- ZConverter Install 모달 — 선택 호스트 N대에 task.install 발행 -->
 <div id="install-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
@@ -50,148 +53,9 @@
 
 <script src="/static/js/pages/list.js?v={{ asset_v }}" defer></script>
 
-{% if overview and overview.total > 0 %}
-<section class="card no-print">
-  <h2>환경 요약</h2>
-  <div style="display:flex; flex-wrap:wrap; gap:24px; font-size:13px; color:#475569;">
-    <div>총 <strong class="text-strong">{{ overview.total }}</strong>대</div>
-    <div>온라인 <strong class="text-ok">{{ overview.online }}</strong> · 오프라인 <strong class="text-meta">{{ overview.offline }}</strong></div>
-    <div>총 vCPU <strong class="text-strong">{{ overview.total_vcpus }}</strong></div>
-    <div>메모리 <strong class="text-strong">{{ overview.total_memory_gb }} GB</strong></div>
-    <div>디스크 <strong class="text-strong">{{ overview.total_disk_gb }} GB</strong></div>
-  </div>
-  {% if overview.role_distribution %}
-  <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;">
-    <span style="font-size:12px; color:#64748b; padding:4px 0;">역할:</span>
-    {% for role, n in overview.role_distribution.items() %}
-    <span class="badge {{ role | service_badge_class }}">{{ role }} <strong>{{ n }}</strong></span>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {% if overview.utilization %}
-  <div style="margin-top:14px; padding-top:12px; border-top:1px solid #e2e8f0;">
-      <div style="font-size:12px; color:#64748b; margin-bottom:10px;">
-        환경 평균 활용률 <span class="text-meta">({{ overview.util_sample_size }}대 기준 · 최근 14일)</span>
-      </div>
-      <div style="display:flex; align-items:center; gap:14px;">
-        <div style="display:flex; flex-wrap:wrap; gap:20px;">
-          {% for u in overview.utilization %}
-          <div style="text-align:center;">
-            <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
-              <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
-              {% if u.pct is not none %}
-              <circle cx="50" cy="50" r="42" fill="none"
-                      stroke="{{ u.bar_color }}" stroke-width="10"
-                      stroke-dasharray="{{ "%.2f"|format(u.dash_length) }} 263.89"
-                      stroke-linecap="round"
-                      transform="rotate(-90 50 50)"/>
-              <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ "%.0f"|format(u.pct) }}%</text>
-              {% else %}
-              <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
-              {% endif %}
-            </svg>
-            <div style="font-size:12px; color:#475569; margin-top:4px;">{{ u.label }}</div>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-  </div>
-  {% endif %}
-
-  {% if overview.risk_donut and overview.risk_donut_total > 0 %}
-  <div style="margin-top:14px; padding-top:12px; border-top:1px solid #e2e8f0;">
-      <div style="font-size:12px; color:#64748b; margin-bottom:10px;">
-        Right-sizing 분류 <span class="text-meta">({{ overview.risk_donut_total }}대 기준 · 최근 14일)</span>
-      </div>
-      <div style="display:flex; align-items:center; gap:14px;">
-        <div style="text-align:center;">
-          <svg viewBox="0 0 100 100" width="140" height="140" style="display:block;">
-            <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
-            {% for s in overview.risk_donut %}
-            {% if s.count > 0 %}
-            <circle cx="50" cy="50" r="42" fill="none"
-                    stroke="{{ s.color }}" stroke-width="10"
-                    stroke-dasharray="{{ "%.2f"|format(s.dash_length) }} 263.89"
-                    stroke-dashoffset="{{ "%.2f"|format(s.dash_offset) }}"
-                    transform="rotate(-90 50 50)"/>
-            {% endif %}
-            {% endfor %}
-            <text x="50" y="56" text-anchor="middle" font-size="22" font-weight="700" fill="#ef4444">{{ overview.risk_high_count }}</text>
-            <text x="50" y="70" text-anchor="middle" font-size="8" fill="#94a3b8">under</text>
-          </svg>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:4px; font-size:12px; color:#475569;">
-          {% for s in overview.risk_donut %}
-          <div style="display:flex; align-items:center; gap:6px;">
-            <span style="display:inline-block; width:10px; height:10px; background:{{ s.color }}; border-radius:2px; flex-shrink:0;"></span>
-            <code style="font-size:11px; color:#1e293b; min-width:130px;">{{ s.label }}</code>
-            <strong style="color:#1e293b; min-width:24px; text-align:right;">{{ s.count }}</strong>
-            <span style="color:#94a3b8; font-size:11px;">— {{ s.description }}</span>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-
-      {% if overview.under_provisioned_hosts %}
-      <div style="margin-top:14px; padding-top:12px; border-top:1px solid #e2e8f0;">
-        <div style="font-size:12px; color:#64748b; margin-bottom:8px;">언더 프로비저닝 상세 ({{ overview.under_provisioned_hosts_count }}건)</div>
-        <ul class="attention-list" style="margin:0;">
-          {% for c in overview.under_provisioned_hosts %}
-          <li class="attention-item" style="gap:8px; flex-wrap:wrap;">
-            <span style="display:inline-flex; gap:4px; min-width:180px;">
-              {% for t in c.triggers %}
-              <span class="badge" style="background:{{ t.bg_color }}; color:{{ t.fg_color }};">{{ t.label }}</span>
-              {% endfor %}
-            </span>
-            <a class="attention-link" href="/servers/{{ c.public_id }}?back={{ self_back }}">{{ c.hostname }}</a>
-          </li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% endif %}
-  </div>
-  {% endif %}
-</section>
-{% elif overview %}
-<section class="card no-print">
-  <h2>환경 요약</h2>
-  <p style="font-size:13px; color:#64748b; margin:0;">아직 등록된 서버가 없습니다. 에이전트가 연결되면 여기에 환경 요약이 표시됩니다.</p>
-</section>
-{% endif %}
-
-{# 주의 신호 카드 단일 row 매크로 — 5 카테고리(badge + link + mount + meta) 공통. capacity는 multi-badge라 예외. #}
-{# AttentionRow attribute access only — 표시 string은 mapper가 결정 (P2 단일 진실). KST 표시는 meta_at + kst 필터(#F2). #}
-{# mount_path는 .attention-mount CSS class로 ellipsis + hover title 전체 노출 (긴 path 행 안정). #}
-{% macro attention_row(label, items) %}
-<div class="attention-block">
-  <div class="attention-block-label">{{ label }}</div>
-  <ul class="attention-list">
-    {% for it in items %}
-    <li class="attention-item">
-      <span class="badge attention-badge {{ it.badge_class }}">{{ it.badge_text }}</span>
-      <a class="attention-link" href="{{ it.link_href }}">{{ it.link_text }}</a>
-    </li>
-    {% endfor %}
-  </ul>
+<div id="dashboard-live">
+{% include "servers/_dashboard_live.html" %}
 </div>
-{% endmacro %}
-
-{% if attention %}
-<section class="card no-print">
-  <h2>운영 신호 <span style="font-size:11px; color:#94a3b8; font-weight:400; margin-left:6px;">실시간 시스템 이상·점검 항목</span></h2>
-
-  <div class="attention-catalog">
-    {% for cat in attention.catalog %}
-    <span class="attention-cat-item" data-active="{{ cat.active }}">{{ cat.label }} <strong>{{ cat.count }}</strong></span>
-    {% endfor %}
-  </div>
-
-  {% if attention.gap_warnings %}{{ attention_row("통신 끊김 (5분 이상)", attention.gap_warnings) }}{% endif %}
-  {% if attention.os_eol_warnings %}{{ attention_row("OS 지원종료 (마이그레이션 전 업그레이드 검토)", attention.os_eol_warnings) }}{% endif %}
-  {% if attention.agent_unstable %}{{ attention_row("에이전트 재시작 빈번 (최근 1시간)", attention.agent_unstable) }}{% endif %}
-</section>
-{% endif %}
 
 <section class="card no-print">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
@@ -201,7 +65,7 @@
       보고서 이력
     </a>
   </div>
-  <p style="margin:0 0 12px; font-size:12px; color:#64748b;">전체 등록 서버 대상 보고서 발행 (새 탭). 발행 이력은 보고서 이력에서 확인.</p>
+  <p style="margin:0 0 12px; font-size:12px; color:#64748b;">전체 등록 서버 대상 보고서 발행. 발행 이력은 보고서 이력에서 확인.</p>
   <div style="display:flex; gap:8px;">
     <button type="button" id="env-report-customer-open" class="btn-action no-print" data-view="customer">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
@@ -275,7 +139,11 @@
 </div>
 
 <section class="card no-print">
-<h2>서버 목록</h2>
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+  <h2 style="margin:0;">서버 목록</h2>
+  {# 서버 발견 — 서버 목록 카드 제목 우측 끝. type=button(폼 submit 안 함), id 유지로 list.js 동작 동일. #}
+  <button type="button" id="discover-btn" class="btn-action no-print">+ 서버 발견</button>
+</div>
 
 <form method="get" class="search-row no-print" id="filter-form">
   <input type="text" name="search" value="{{ request.query_params.get('search', '') }}" placeholder="hostname 검색">
@@ -290,10 +158,10 @@
     <option value="{{ cat }}" {% if request.query_params.get('service') == cat %}selected{% endif %}>{{ cat }}</option>
     {% endfor %}
   </select>
-  <select name="os_id">
+  <select name="os_distro">
     <option value="">OS 전체</option>
-    {% for oid in filter_options.os_ids %}
-    <option value="{{ oid }}" {% if request.query_params.get('os_id') == oid %}selected{% endif %}>{{ oid }}</option>
+    {% for slug, label in filter_options.distro_options %}
+    <option value="{{ slug }}" {% if request.query_params.get('os_distro') == slug %}selected{% endif %}>{{ label }}</option>
     {% endfor %}
   </select>
   <select name="classification">
@@ -302,7 +170,7 @@
     <option value="{{ cls }}" {% if request.query_params.get('classification') == cls %}selected{% endif %}>{{ cls }}</option>
     {% endfor %}
   </select>
-  {% if request.query_params.get('search') or request.query_params.get('is_online') or request.query_params.get('service') or request.query_params.get('os_id') or request.query_params.get('classification') %}
+  {% if request.query_params.get('search') or request.query_params.get('is_online') or request.query_params.get('service') or request.query_params.get('os_distro') or request.query_params.get('classification') %}
   <a href="/servers/" class="clear-btn" style="display:inline-flex;align-items:center;">초기화</a>
   {% endif %}
 </form>
@@ -332,91 +200,23 @@
       <th class="action-col"></th>
     </tr>
   </thead>
-  <tbody>
-    {% for s in servers %}
-    <tr class="server-row"
-        data-hostname="{{ s.hostname | lower }}"
-        data-is-online="{{ 'true' if s.is_online else 'false' }}"
-        data-os-id="{{ s.os_id or '' }}"
-        data-classification="{{ s.provisioning_class }}"
-        data-services="{% for svc in s.known_services %}{{ svc.category }} {% endfor %}">
-      <td class="no-print"><input type="checkbox" class="row-select" data-public-id="{{ s.public_id }}" data-hostname="{{ s.hostname }}"></td>
-      <td style="text-align:center;">
-        {% if s.is_online %}
-          <span class="dot dot-ok" title="온라인"></span>
-        {% else %}
-          <span class="dot dot-off" title="오프라인"></span>
-        {% endif %}
-      </td>
-      <td>
-        <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="row-link"><strong>{{ s.hostname }}</strong></a>
-      </td>
-      <td>
-        {% if s.services is none %}
-          <span style="color:#cbd5e1; font-size:12px;">—</span>
-        {% elif s.services %}
-          {% for svc in s.known_services %}
-            <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}</span>
-          {% endfor %}
-          {% if s.show_unknown_badge %}
-            <span class="badge badge-cat-unknown">unknown</span>
-          {% endif %}
-        {% else %}
-          <span style="color:#94a3b8; font-size:12px;">없음</span>
-        {% endif %}
-      </td>
-      <td>
-        {% if s.ip_external %}
-          {% for ip in s.ip_external %}<code style="font-size:11px;">{{ ip }}</code> {% endfor %}
-        {% else %}
-          <span style="color:#94a3b8; font-size:12px;">내부망</span>
-        {% endif %}
-      </td>
-      <td class="text-muted">{{ s.os_display }}</td>
-      <td>
-        {% if s.recommendation_color %}
-          <span style="display:inline-flex; align-items:center; gap:5px; font-size:11px; color:#475569;">
-            <span style="display:inline-block; width:8px; height:8px; background:{{ s.recommendation_color }}; border-radius:50%;"></span>
-            {{ s.recommendation_label }}
-          </span>
-        {% else %}
-          <span style="color:#cbd5e1; font-size:11px;">—</span>
-        {% endif %}
-      </td>
-      <td>
-        {% if s.last_task %}
-          <a class="task-cell" href="#" data-task-id="{{ s.last_task.task_id }}" title="{{ s.last_task.failure_label or '' }}">
-            <span class="badge {{ s.last_task.badge_class }}">{{ s.last_task.badge_label }}</span>
-            <span style="font-size:11px; color:#64748b;">{{ s.last_task.created_at | kst }}</span>
-          </a>
-        {% else %}
-          <span style="color:#cbd5e1; font-size:11px;">—</span>
-        {% endif %}
-      </td>
-      <td class="action-col">
-        <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="btn" style="font-size:12px; padding:4px 10px;">상세 →</a>
-      </td>
-    </tr>
-    {% endfor %}
-    <tr class="no-print">
-      <td colspan="12" style="padding:14px; background:#f8fafc;">
-        <button type="button" id="discover-btn" class="btn-action">+ 서버 발견</button>
-      </td>
-    </tr>
+  <tbody id="server-tbody">
+    {% include "servers/_server_rows.html" %}
   </tbody>
 </table>
 </div>
-{% else %}
-<div style="text-align:center; padding:40px; color:#64748b;">
-  등록된 서버가 없습니다.
-  <div style="margin-top:16px;">
-    <button type="button" id="discover-btn" class="btn-action">+ 서버 발견</button>
-  </div>
+{# 전체보기 — 기본 N행만 표시, 클릭 시 전체 표시 (JS clip). 필터 활성 시 숨김(조건 맞는 전부 노출).
+   서버 발견 버튼과 동일 btn-action 모양. #}
+<div class="no-print" id="show-more-wrap" style="display:none; margin-top:12px; text-align:center;">
+  <button type="button" id="show-more-btn" class="btn-action">전체보기 <span id="show-more-count" style="color:#94a3b8; font-weight:400;"></span></button>
 </div>
+{% else %}
+<p class="text-muted" style="margin:0; padding:20px 0;">등록된 서버가 없습니다. 에이전트가 연결되거나 아래에서 서버를 발견하세요.</p>
 {% endif %}
+
 </section>
 
-{# risk_top 카드 섹션 제거 (2026-05-12) — 환경 요약 + 통합 신호 카드 6 카탈로그로 흡수.
+{# risk_top 카드 섹션 제거 (2026-05-12) — 환경 요약(USE Method 도넛) + 운영신호 카드(3 카탈로그)로 흡수.
    Chart.js·list-risk-cards.js 의존도 동시 제거됨. #}
 
 {% endblock %}

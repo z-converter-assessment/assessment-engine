@@ -214,9 +214,9 @@ LLM 출력에 `[case#N]` 인용을 강제한다.
 
 ```
 추천 → 적용 → 30 / 90 / 180일 후 outcome 측정 (USE Method 재측정)
-    ↓
+    v
 recommendation_outcome 테이블에 라벨 누적
-    ↓
+    v
 분기별
   - 룰 임계값 재조정 (실측 분포 기반)
   - LLM 프롬프트 회귀 테스트 (eval set 통과율)

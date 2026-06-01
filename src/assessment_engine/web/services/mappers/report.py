@@ -6,7 +6,7 @@
 """
 
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import UTC, date, datetime
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ReportRowRaw
@@ -14,8 +14,8 @@ from assessment_engine.web.services.device_filters import is_physical_disk
 from assessment_engine.web.services.mappers.server import _os_display, infer_role
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
-    _OS_EOL,
     ReportView,
+    resolve_os_eol,
 )
 from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb
 from assessment_engine.web.view_models.report import ReportRowItem, ReportTotals
@@ -93,7 +93,9 @@ def build_role_distribution(raws: list) -> dict[str, int]:
 # ─── 정성 요약 (양식 A/B 분기) ───
 
 
-def build_report_summary_bullets(rows: list, raws: list | None = None, view: ReportView = "customer") -> list[str]:
+def build_report_summary_bullets(
+    rows: list, raws: list | None = None, view: ReportView = "customer", today: date | None = None
+) -> list[str]:
     """자동 분석 요약 문장 생성 — 정량 신호 기반 정성 요약 (P2).
 
     view 분기:
@@ -185,15 +187,16 @@ def build_report_summary_bullets(rows: list, raws: list | None = None, view: Rep
                 " — 일시 spike 빈번. 평균보다 peak 기준 sizing 권장."
             )
 
-    # OS EOL 신호 — raws 있을 때만
+    # OS EOL 신호 — raws 있을 때만. attention 카드와 동일 판정(resolve_os_eol): Windows build /
+    # Linux os_version + EOL 경과 한정. today 미주입 시 현재 UTC (caller 주입 권장).
     if raws:
+        eol_today = today or datetime.now(UTC).date()
         eol_hosts: list[str] = []
         for r in raws:
-            # 버전 prefix 매칭 (예: ubuntu 18.04 -> ("ubuntu", "18"))
-            for (eol_os, eol_ver), date in _OS_EOL.items():
-                if r.os_id == eol_os and (r.os_version or "").startswith(eol_ver):
-                    eol_hosts.append(f"{r.hostname}({r.os_id} {r.os_version}, EOL {date})")
-                    break
+            result = resolve_os_eol(r.os_id, r.os_version, r.kernel_version, eol_today)
+            if result:
+                eol_iso, label = result
+                eol_hosts.append(f"{r.hostname}({label}, EOL {eol_iso})")
         if eol_hosts:
             shown = eol_hosts[:3]
             suffix = " 외" if len(eol_hosts) > 3 else ""
@@ -207,45 +210,42 @@ def build_report_summary_bullets(rows: list, raws: list | None = None, view: Rep
 # ─── 자동 진단·권고 helper (양식 B 컬럼) ───
 
 
-def _build_under_provisioned_reason(raw: ReportRowRaw) -> str:
-    """under_provisioned 분류 호스트의 trigger 별 구체 권고 — 양식 A "권고" 컬럼.
+# under trigger 키 -> 한국어 증설 권고. 표시 순서 고정(mem -> cpu -> disk). recommendation.assess
+# 가 산출한 triggers(근거)를 mapper 가 문구로 변환만 한다(P2, 임계 재계산 중복 제거).
+_TRIGGER_ACTION_KO: dict[str, str] = {
+    "mem_saturation": "메모리 증설 (스왑 발생)",
+    "mem_util": "메모리 증설",
+    "cpu_util": "CPU 증설",
+    "cpu_saturation": "CPU 증설 (load 포화)",
+    "disk_capacity": "디스크 증설 (capacity)",
+    "disk_io": "디스크 증설 (IO 병목)",
+}
+_TRIGGER_ACTION_ORDER = ("mem_saturation", "mem_util", "cpu_util", "cpu_saturation", "disk_capacity", "disk_io")
 
-    USE Method classify 입력 5 trigger 중 hit 된 것만 한국어 권고로 결합 (`/` 구분).
-    임계는 recommendation 모듈 단일 진실. trigger 0건 fallback "리소스 증설 검토".
+
+def _build_under_provisioned_reason(triggers: list[str]) -> str:
+    """under_provisioned hit trigger -> 한국어 증설 권고 결합 (`/` 구분) — 양식 A "권고" 컬럼.
+
+    근거(triggers)는 recommendation.assess 단일 산출 — mapper 는 키->문구 변환만(P2).
+    mem_saturation(스왑) + mem_util 둘 다 hit 시 스왑 문구만(중복 회피). trigger 0건 fallback.
     """
-    reasons: list[str] = []
-    if recommendation.swap_saturation(raw.os_family, raw.swap_used):
-        reasons.append("메모리 증설 (스왑 발생)")
-    if raw.mem_p95_pct is not None and raw.mem_p95_pct >= recommendation.MEM_UPSIZE_P95_PCT:
-        reasons.append("메모리 증설")
-    if raw.cpu_p95_pct is not None and raw.cpu_p95_pct >= recommendation.CPU_UPSIZE_P95_PCT:
-        reasons.append("CPU 증설")
-    if (
-        raw.load_15m_max is not None
-        and raw.cpu_cores is not None
-        and raw.cpu_cores > 0
-        and (raw.load_15m_max / raw.cpu_cores) >= recommendation.CPU_SATURATION_LOAD_RATIO
-    ):
-        reasons.append("CPU 증설 (load 포화)")
-    if raw.worst_mount_used_pct is not None and raw.worst_mount_used_pct >= recommendation.DISK_CAPACITY_UPSIZE_PCT:
-        reasons.append("디스크 증설 (capacity)")
-    if raw.iowait_p95_pct is not None and raw.iowait_p95_pct >= recommendation.IOWAIT_UPSIZE_PCT:
-        reasons.append("디스크 증설 (IO 병목)")
-    # swap + mem 임계 둘 다 hit 시 "메모리 증설 (스왑 발생)" 와 "메모리 증설" 중복 — 전자만 유지.
-    if "메모리 증설 (스왑 발생)" in reasons and "메모리 증설" in reasons:
-        reasons.remove("메모리 증설")
+    picked = [t for t in _TRIGGER_ACTION_ORDER if t in triggers]
+    if "mem_saturation" in picked and "mem_util" in picked:
+        picked.remove("mem_util")
+    reasons = [_TRIGGER_ACTION_KO[t] for t in picked]
     return " / ".join(reasons) if reasons else "리소스 증설 검토"
 
 
-def _build_recommendation_action(rec: str, raw: ReportRowRaw) -> str:
+def _build_recommendation_action(assessment: recommendation.Assessment) -> str:
     """recommendation 분류 -> 양식 A "권고" 컬럼 단일 문구 (environment·single_report 공유 단일 진실).
 
     under_provisioned 는 hit trigger 별 증설 권고 결합(`_build_under_provisioned_reason`), 그 외는 분류별 고정 조치.
     optimal/insufficient_data 는 조치 불필요 상태 표시 — environment "조치 필요 호스트"엔 미노출,
     서버 단일 보고서엔 노출.
     """
+    rec = assessment.recommendation
     if rec == "under_provisioned":
-        return _build_under_provisioned_reason(raw)
+        return _build_under_provisioned_reason(assessment.triggers)
     return {
         "over_provisioned": "자원 축소 검토",
         "idle": "용도 재평가 / 종료 검토",
@@ -298,20 +298,17 @@ def _build_diagnosis(
 # ─── ReportRowRaw -> ReportRowItem (P2 단일 변환) ───
 
 
-def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> ReportRowItem:
-    """ReportRowRaw(repo) + is_online + now -> ReportRowItem(ViewModel) — P2 단일 변환.
+def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
+    """ReportRowRaw -> USE Method ResourceStats — report·attention mapper 공용(단일 진실).
 
-    `now`로 uptime_days 계산 (now - boot_time).
-    표시 파생 (role / recommendation / risk_level / badge_class / os_display / internal_ip[0])은 모두 여기서.
-    USE Method 분류(`recommendation`)는 양식 B(엔지니어용)·`risk_level`은 양식 A(고객용) KPI/표 노출.
-    `diagnosis`는 양식 B "판단" 컬럼 자동 해석.
+    net baseline = server_net_io rx+tx 윈도우 평균(kBps). 둘 다 None 이면 None(idle/shutdown skip),
+    하나만 있으면 다른쪽 0. os_family 전달로 swap 축 OS 분기(P2). attention 의 capacity trigger 도
+    동일 stats 로 recommendation.assess 를 타 임계 재계산 중복을 제거(assess.triggers 단일 진실).
     """
-    # net baseline — server_net_io 의 rx+tx 윈도우 평균 (kBps).
-    # 둘 다 None 시 None (data 부재 — idle/shutdown 판정 skip). 하나만 있으면 다른 0 으로.
-    _net_rx = raw.net_rx_kbps
-    _net_tx = raw.net_tx_kbps
-    net_avg = None if _net_rx is None and _net_tx is None else (_net_rx or 0) + (_net_tx or 0)
-    stats = recommendation.ResourceStats(
+    net_avg = (
+        None if raw.net_rx_kbps is None and raw.net_tx_kbps is None else (raw.net_rx_kbps or 0) + (raw.net_tx_kbps or 0)
+    )
+    return recommendation.ResourceStats(
         cpu_p95_pct=raw.cpu_p95_pct,
         cpu_peak_pct=raw.cpu_peak_pct,
         cpu_load_15m_max=raw.load_15m_max,
@@ -321,10 +318,22 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         disk_used_pct=raw.worst_mount_used_pct,
         iowait_p95_pct=raw.iowait_p95_pct,
         net_avg_kbps=net_avg,
-        os_family=raw.os_family,  # P2 — Windows swap 축 제외
+        os_family=raw.os_family,
     )
-    rec = recommendation.classify(stats)
-    is_partial = recommendation.is_partial_evaluation(stats)  # P4 — Windows utilization 축만 평가 마커
+
+
+def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> ReportRowItem:
+    """ReportRowRaw(repo) + is_online + now -> ReportRowItem(ViewModel) — P2 단일 변환.
+
+    `now`로 uptime_days 계산 (now - boot_time).
+    표시 파생 (role / recommendation / risk_level / badge_class / os_display / internal_ip[0])은 모두 여기서.
+    USE Method 분류(`recommendation`)는 양식 B(엔지니어용)·`risk_level`은 양식 A(고객용) KPI/표 노출.
+    `diagnosis`는 양식 B "판단" 컬럼 자동 해석.
+    """
+    stats = build_resource_stats(raw)  # net baseline·OS 분기 포함 — report·attention 공용 단일 진실
+    assessment = recommendation.assess(stats)  # 분류 + 근거(triggers) + 미관측 축 단일 평가
+    rec = assessment.recommendation
+    is_partial = assessment.is_partial  # P4 — saturation 축 미관측(예: Windows load) confidence 단서
     risk_level, risk_label, risk_badge_class = _RISK_FROM_RECOMMENDATION[rec]
     uptime_days: int | None = None
     if raw.boot_time is not None:
@@ -399,7 +408,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         net_tx_kbps_p95=raw.net_tx_kbps_p95,
         net_tx_kbps_peak=raw.net_tx_kbps_peak,
         diagnosis=_build_diagnosis(raw, saturation, cpu_variance, mem_variance),
-        recommendation_action=_build_recommendation_action(rec, raw),
+        recommendation_action=_build_recommendation_action(assessment),
         # P3 임계 분류 색 — 단일 의미 체계 (#E1 P3, #E8 임계 색 단일 진실).
         # 정상(임계 미만) = NEUTRAL(기본 진한 글씨) / 주의(변동성 burst) = WARN(amber) /
         # 위험(포화·capacity·잦은 재부팅) = DANGER(red). 임계 넘을 때만 색 변경, 정상값은 기본색 통일.

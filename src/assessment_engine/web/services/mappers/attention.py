@@ -1,7 +1,9 @@
 """Attention 신호·환경 개요 mapper (P2).
 
-대시보드 상단 attention 카드 (disk·gap·capacity·disk_days·os_eol·agent_unstable) +
-환경 활용률 도넛·bar (EnvironmentOverview) 합성. 책임은 raw 신호 → ViewModel.
+운영신호 카드(AttentionSignals) = gap·os_eol·agent_unstable 3개 (`query_service._assemble_attention` 조립) +
+환경 활용률 도넛·bar·USE Method 분포·under_provisioned 호스트(EnvironmentOverview) 합성. 책임은 raw 신호 → ViewModel.
+capacity(under_provisioned)·disk·days_until_full 은 운영신호가 아니라 USE Method right-sizing 소속 —
+to_capacity_warning_item 은 EnvironmentOverview.under_provisioned_hosts 로 간다.
 임계 분류·표시 색은 shared.py 또는 본 모듈 상단 상수 단일 진실.
 """
 
@@ -9,21 +11,21 @@ from collections import Counter
 from datetime import datetime
 
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import (
-    DiskUsageWarningRaw,
-    MetricGapWarningRaw,
-)
-from assessment_engine.web.services.mappers.server import infer_role
+from assessment_engine.db.dtos.outbound import MetricGapWarningRaw
+from assessment_engine.web.services.mappers.report import build_resource_stats
+from assessment_engine.web.services.mappers.server import workload_category_counter
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
-    _OS_EOL,
-    _USAGE_DANGER_PCT,
+    resolve_os_eol,
 )
 from assessment_engine.web.view_models.attention import (
     AttentionRow,
     CapacityTriggerBadge,
     CapacityWarningItem,
     EnvironmentOverview,
+    EnvironmentRealtime,
+    RealtimePeak,
+    RealtimePeakGroup,
     RiskDonutSegment,
     UtilizationBar,
 )
@@ -33,18 +35,11 @@ from assessment_engine.web.view_models.attention import (
 # 임계 초과 발화 자체가 시그널이라 단일 색으로 통일.
 _ATTN_ACTIVE_BADGE = "attn-active"
 
-# disk_warnings stale 임계 — last_metric_at이 24h 이상 안 갱신된 mount는 meta에 "마지막 수집" 추가 표시.
-# 7d cutoff(SQL) 안에서도 1d 이상 stale은 운영자가 인지해야 함.
-_DISK_STALE_HOURS = 24
-
-# UtilizationBar 임계 — 환경 평균 활용률 색 결정 (P3 임계 분기 금지 → mapper 단일).
-# 본 임계는 환경 평균 도메인이라 server detail badge(_USAGE_DANGER_PCT/_USAGE_WARN_PCT)와 별개.
-_UTIL_LOW_PCT = 60  # 미만 → 녹색 (여유)
-_UTIL_HIGH_PCT = 80  # 이상 → 빨강 (압박)
-_UTIL_COLOR_LOW = "#22c55e"
-_UTIL_COLOR_MID = "#f59e0b"
-_UTIL_COLOR_HIGH = "#ef4444"
-_UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재
+# UtilizationBar 게이지 색 — 환경 평균 활용률 도넛/바 단색 (그라데이션·임계 분기 제거).
+# 활용률 정도는 게이지 길이(dash_length)로, 색은 값 무관 단일 푸른색. 색으로 임계 의미를 주지
+# 않는다 — 위험도 색은 Right-sizing 분류 도넛이 별도 담당.
+_UTIL_COLOR_GAUGE = "#3b82f6"  # 푸른 단색 (blue-500)
+_UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재 (회색)
 
 # 도넛 SVG 원주 — r=42, 2*pi*r ≈ 263.89. pct 0~100을 0~_UTIL_DONUT_CIRC로 매핑.
 _UTIL_DONUT_CIRC = 263.89
@@ -64,33 +59,7 @@ _CAPACITY_TRIGGER_INACTIVE_BG = "#f8fafc"
 _CAPACITY_TRIGGER_INACTIVE_FG = "#cbd5e1"
 
 
-# ─── 단순 attention 카드 (disk · gap) ─────────────────────────────────────
-
-
-def to_disk_warning_item(raw: DiskUsageWarningRaw, now: datetime) -> AttentionRow:
-    """DiskUsageWarningRaw → AttentionRow (P2: 단위 변환·badge 분류·표시 string·stale 분기 단일 변환).
-
-    threshold(85%)는 repo가 이미 거름 — mapper는 단위 + badge + 표시 string만. SQL이 total_bytes>0를 거름.
-    last_metric_at이 _DISK_STALE_HOURS 이상 안 갱신된 mount는 meta_at 채워서 "마지막 수집" 표시 활성.
-    """
-    used_pct = (1 - raw.avail_bytes / raw.total_bytes) * 100
-    free_gb = raw.avail_bytes / 1024**3
-    total_gb = raw.total_bytes / 1024**3
-    # 디스크 사용률 위험도 (repo 가 85%+ 만 거름): 90%+ = 위험(빨강), 85~90% = 주의(amber).
-    badge = "rec-under_provisioned" if used_pct >= _USAGE_DANGER_PCT else "badge-warn"
-    is_stale = (now - raw.last_metric_at).total_seconds() / 3600 >= _DISK_STALE_HOURS
-    meta_text = f"잔여 {free_gb:.1f} / {total_gb:.1f} GB"
-    if is_stale:
-        meta_text += " · 마지막 수집 "
-    return AttentionRow(
-        badge_class=badge,
-        badge_text=f"{used_pct:.0f}%",
-        link_href=f"/servers/{raw.public_id}/storage",
-        link_text=raw.hostname,
-        mount_path=raw.mount,
-        meta_text=meta_text,
-        meta_at=raw.last_metric_at if is_stale else None,
-    )
+# ─── gap (운영신호) ────────────────────────────────────────────────────────
 
 
 def to_gap_warning_item(raw: MetricGapWarningRaw, now: datetime) -> AttentionRow:
@@ -114,15 +83,14 @@ def to_gap_warning_item(raw: MetricGapWarningRaw, now: datetime) -> AttentionRow
 
 
 def _bar_color(pct: float | None) -> str:
-    """환경 평균 사용률 bar — 0% 초록 → 60% 노랑 → 100% 빨강 HSL hue 그라데이션.
+    """환경 평균 사용률 게이지 색 — 단색 푸른색 (표본 부재 시 회색).
 
-    사용률 변화에 따라 자연스러운 색 이행 (3단계 jump 보다 시각 정합).
+    활용률 정도는 게이지 길이(dash_length)로 표현하고 색은 값 무관 단일 — 색으로 임계 의미를
+    주지 않는다 (Right-sizing 분류 도넛이 위험도 색을 별도 담당).
     """
     if pct is None:
         return _UTIL_COLOR_NONE
-    pct_capped = max(0.0, min(100.0, pct))
-    hue = 120 - 1.2 * pct_capped  # 0% -> 120 (green), 100% -> 0 (red)
-    return f"hsl({hue:.0f}, 65%, 45%)"
+    return _UTIL_COLOR_GAUGE
 
 
 def _dash_length(pct: float | None) -> float:
@@ -160,6 +128,10 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
     return segments, total, under_count
 
 
+# 자원 부족(언더 프로비저닝) 상세 표시 상한 — 환경 요약 카드는 호스트명 ASC 상위 N만, 전체 수는 count 로 노출.
+_UNDER_PROVISIONED_DISPLAY_MAX = 3
+
+
 def build_environment_overview(
     details: list,
     online_count: int,
@@ -180,9 +152,21 @@ def build_environment_overview(
     for d in details:
         for disk in d.disks or []:
             total_disk_bytes += disk.get("size_bytes") or 0
-    role_counter: Counter[str] = Counter()
+    # OS 구성 — os_family(windows/linux) 별 서버 수.
+    os_counter: Counter[str] = Counter()
     for d in details:
-        role_counter[infer_role(d.services)] += 1
+        os_counter[d.os_family or "unknown"] += 1
+
+    # 역할 분포 — 각 서버의 워크로드 카테고리 (ADR 0032 union: services 이름 ∪ listen 소켓 탐지).
+    # 이름 분류는 인스턴스 카운트(단 container 런타임 스택은 호스트당 1), listen-only 보충은 +1. unknown 제외.
+    role_counter: Counter[str] = Counter()
+    role_unknown = 0  # known 역할 0인 호스트 수 (서비스 없음 또는 전부 unknown) — 호스트 단위
+    for d in details:
+        counter = workload_category_counter(d.services, d.listen_ports)
+        if counter:
+            role_counter.update(counter)
+        else:
+            role_unknown += 1
 
     util_bars: list = []
     util_sample = 0
@@ -215,6 +199,10 @@ def build_environment_overview(
     if risk_counts is not None:
         risk_segments, risk_total, risk_under = build_risk_donut_segments(risk_counts)
 
+    # 자원 부족 상세 — 호스트명 ASC 정렬(P2) 후 상위 N만 표시. 전체 수는 count, 표시 수는 shown 분리.
+    _under_all = sorted(under_provisioned_hosts or [], key=lambda c: c.hostname.lower())
+    _under_shown = _under_all[:_UNDER_PROVISIONED_DISPLAY_MAX]
+
     return EnvironmentOverview(
         total=total,
         online=online_count,
@@ -222,45 +210,91 @@ def build_environment_overview(
         total_vcpus=total_vcpus,
         total_memory_gb=round(total_mem_kb / 1024 / 1024, 1),
         total_disk_gb=int(total_disk_bytes / 10**9),
-        role_distribution=dict(role_counter.most_common()),
+        # count 내림차순 + 동count는 이름 오름차순 tie-break (most_common 동순위는 삽입순=DB row 순서라 비결정적).
+        os_distribution=dict(sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
+        role_distribution=dict(sorted(role_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
+        role_unknown_count=role_unknown,
         utilization=util_bars,
         util_sample_size=util_sample,
         risk_donut=risk_segments,
         risk_donut_total=risk_total,
         risk_high_count=risk_under,
-        under_provisioned_hosts=under_provisioned_hosts or [],
-        under_provisioned_hosts_count=len(under_provisioned_hosts or []),
+        under_provisioned_hosts=_under_shown,
+        under_provisioned_hosts_count=len(_under_all),
+        under_provisioned_hosts_shown=len(_under_shown),
     )
 
 
-# ─── capacity / disk_days / os_eol / agent_unstable ───────────────────────
+def build_environment_realtime(
+    total: int,
+    online: int,
+    snapshots: list[dict],
+    last_collected_at,
+    top_n: int = 3,
+) -> EnvironmentRealtime:
+    """온라인 서버 최신 스냅샷 snapshots(hostname/public_id/cpu_pct/mem_pct/disk_pct) -> EnvironmentRealtime.
+
+    호출자가 온라인 서버만 snapshots 로 전달 (오프라인 stale 메트릭 제외 — sample_size = len(snapshots)).
+    utilization: CPU/메모리/디스크 평균 도넛 3개 (환경 평균 도넛과 동일 컴포넌트·푸른 단색).
+    peak_groups: 자원별(CPU/메모리/디스크) 상위 top_n 랭킹 3열.
+    """
+
+    def _avg(key: str) -> float | None:
+        vals = [s[key] for s in snapshots if s.get(key) is not None]
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    avg_cpu = _avg("cpu_pct")
+    avg_mem = _avg("mem_pct")
+    avg_disk = _avg("disk_pct")
+    util_bars = [
+        UtilizationBar(label="CPU", pct=avg_cpu, bar_color=_bar_color(avg_cpu), dash_length=_dash_length(avg_cpu)),
+        UtilizationBar(label="메모리", pct=avg_mem, bar_color=_bar_color(avg_mem), dash_length=_dash_length(avg_mem)),
+        UtilizationBar(
+            label="디스크", pct=avg_disk, bar_color=_bar_color(avg_disk), dash_length=_dash_length(avg_disk)
+        ),
+    ]
+
+    def _top(key: str) -> list[RealtimePeak]:
+        ranked = sorted((s for s in snapshots if s.get(key) is not None), key=lambda s: s[key], reverse=True)
+        return [
+            RealtimePeak(hostname=s["hostname"], public_id=s["public_id"], pct=s[key], color=_bar_color(s[key]))
+            for s in ranked[:top_n]
+        ]
+
+    peak_groups = [
+        RealtimePeakGroup(label="CPU", peaks=_top("cpu_pct")),
+        RealtimePeakGroup(label="메모리", peaks=_top("mem_pct")),
+        RealtimePeakGroup(label="디스크", peaks=_top("disk_pct")),
+    ]
+    return EnvironmentRealtime(
+        total=total,
+        online=online,
+        offline=total - online,
+        sample_size=len(snapshots),
+        utilization=util_bars,
+        last_collected_at=last_collected_at,
+        peak_groups=peak_groups,
+        has_peaks=any(g.peaks for g in peak_groups),
+    )
+
+
+# ─── capacity(USE Method) · os_eol/agent_unstable(운영신호) · disk_days(dead) ──
 
 
 def to_capacity_warning_item(raw):
     """ReportRowRaw -> CapacityWarningItem. caller가 under_provisioned 필터링 후 호출.
 
-    triggers list — USE Method classify 입력과 1:1 정합 5종(스왑/CPU/메모리/Load/디스크) 항상 포함, active 분기:
-    - swap_used=True → "스왑" (Memory saturation)
-    - cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU" (CPU utilization)
-    - mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리" (Memory utilization)
-    - load_15m_max / cpu_cores >= CPU_SATURATION_LOAD_RATIO → "Load" (CPU saturation)
-    - worst_mount_used_pct >= DISK_CAPACITY_UPSIZE_PCT 또는 iowait_p95 >= IOWAIT_UPSIZE_PCT → "디스크"
-    비활성 trigger도 list에 포함 (시각 일관 — "이 카드는 5종 자원 추적" 명시).
+    triggers list — USE Method 5종(스왑/CPU/메모리/Load/디스크) 항상 포함, active 분기.
+    active 판정은 recommendation.assess(triggers) 단일 진실 — 임계 재계산 없이 hit 한 trigger 키를
+    매핑(drift 방지). 디스크 = capacity 또는 IO 포화. 비활성 trigger 도 list 포함(시각 일관 — 5종 자원 추적).
+    swap 은 Windows pagefile 제외(assess 내부 swap_saturation, P2).
     """
-    swap_active = recommendation.swap_saturation(raw.os_family, raw.swap_used)  # P2 — Windows pagefile 제외
-    cpu_active = (raw.cpu_p95_pct or 0) >= recommendation.CPU_UPSIZE_P95_PCT
-    mem_active = (raw.mem_p95_pct or 0) >= recommendation.MEM_UPSIZE_P95_PCT
-    load_active = (
-        raw.load_15m_max is not None
-        and raw.cpu_cores is not None
-        and raw.cpu_cores > 0
-        and (raw.load_15m_max / raw.cpu_cores) >= recommendation.CPU_SATURATION_LOAD_RATIO
-    )
-    disk_capacity_active = (
-        raw.worst_mount_used_pct is not None and raw.worst_mount_used_pct >= recommendation.DISK_CAPACITY_UPSIZE_PCT
-    )
-    disk_io_active = raw.iowait_p95_pct is not None and raw.iowait_p95_pct >= recommendation.IOWAIT_UPSIZE_PCT
-    disk_active = disk_capacity_active or disk_io_active
+    hit = set(recommendation.assess(build_resource_stats(raw)).triggers)
+    swap_active = "mem_saturation" in hit
+    cpu_active = "cpu_util" in hit
+    mem_active = "mem_util" in hit
+    load_active = "cpu_saturation" in hit
+    disk_active = "disk_capacity" in hit or "disk_io" in hit
 
     def _badge(label: str, active: bool) -> CapacityTriggerBadge:
         color = _CAPACITY_TRIGGER_COLORS[label]
@@ -284,46 +318,23 @@ def to_capacity_warning_item(raw):
     )
 
 
-def to_disk_days_warning_item(
-    public_id: str,
-    hostname: str,
-    mount: str,
-    days_until_full: int,
-    used_pct: float | None,
-) -> AttentionRow:
-    """raw tuple -> AttentionRow. caller가 days <= 30 필터링 후 호출.
+def to_os_eol_warning_item(raw, now: datetime) -> AttentionRow | None:
+    """ReportRowRaw -> AttentionRow if EOL 경과(resolve_os_eol 공용 판정), else None.
 
-    badge=N일 (rec-under_provisioned), mount_path 별도 attribute, meta="{used_pct}%" (없으면 빈 string).
+    판정(Windows build / Linux os_version + EOL 경과 비교)은 shared.resolve_os_eol 단일 진실 —
+    보고서 정성 요약과 동일 로직. 본 함수는 표시(AttentionRow) 변환만.
     """
-    meta = ""
-    if used_pct is not None:
-        meta = f"{used_pct:.0f}%"
+    result = resolve_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())
+    if result is None:
+        return None
+    eol_iso, label = result
     return AttentionRow(
-        badge_class="rec-under_provisioned",
-        badge_text=f"{days_until_full}일",
-        link_href=f"/servers/{public_id}/storage",
-        link_text=hostname,
-        mount_path=mount,
-        meta_text=meta,
+        badge_class=_ATTN_ACTIVE_BADGE,
+        badge_text="EOL",
+        link_href=f"/servers/{raw.public_id}",
+        link_text=raw.hostname,
+        meta_text=f"{label} · EOL {eol_iso}",
     )
-
-
-def to_os_eol_warning_item(raw) -> AttentionRow | None:
-    """ReportRowRaw -> AttentionRow if matches _OS_EOL, else None.
-
-    badge=EOL 라벨 + meta="{os_id os_version} · EOL {eol_date}".
-    """
-    for (eol_os, eol_ver), date in _OS_EOL.items():
-        if raw.os_id == eol_os and (raw.os_version or "").startswith(eol_ver):
-            os_display = " ".join(p for p in [raw.os_id, raw.os_version] if p) or "-"
-            return AttentionRow(
-                badge_class=_ATTN_ACTIVE_BADGE,
-                badge_text="EOL",
-                link_href=f"/servers/{raw.public_id}",
-                link_text=raw.hostname,
-                meta_text=f"{os_display} · EOL {date}",
-            )
-    return None
 
 
 def to_agent_unstable_item(public_id: str, hostname: str, restart_count: int) -> AttentionRow:

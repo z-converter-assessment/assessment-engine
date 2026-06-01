@@ -121,7 +121,7 @@
         <td>
           <span class="stat-line"><span class="rec-badge {{ r.badge_class }}">{{ r.recommendation }}</span></span>
           {% if view == "engineer" %}<span class="stat-line muted" style="color:#475569;">{{ r.diagnosis }}</span>{% endif %}
-          {% if r.is_partial %}<span class="stat-line muted" style="color:#94a3b8; font-size:11px;">부분 평가 (saturation N/A)</span>{% endif %}
+          {% if r.is_partial %}<span class="stat-line muted" style="color:#94a3b8; font-size:11px;">이용률 기준 평가 (saturation 축 미관측)</span>{% endif %}
         </td>
         {% if view == "engineer" %}
         {% set sig = attention_by_host.get(r.hostname, {}) %}

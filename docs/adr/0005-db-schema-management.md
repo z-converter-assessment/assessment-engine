@@ -56,9 +56,9 @@
 
 ```
 postgres (healthy)
-    ↓
+    v
 migrate (alembic upgrade head → exit 0)
-    ↓
+    v
 web + consumer + diagnostic-worker
 ```
 

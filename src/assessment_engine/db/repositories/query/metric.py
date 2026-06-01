@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, text
 
+from assessment_engine.boot_time import BOOT_TIME_JITTER_TOLERANCE
 from assessment_engine.db.dtos.outbound import (
     DashboardRaw,
     DiskIoRaw,
@@ -34,6 +35,9 @@ from assessment_engine.db.repositories.query.types import (
     TimeRange,
 )
 
+# boot_time 지터 허용치(초) — boot_time.BOOT_TIME_JITTER_TOLERANCE 단일 진실에서 파생. SQL bound param 으로 주입.
+_BOOT_JITTER_SEC = int(BOOT_TIME_JITTER_TOLERANCE.total_seconds())
+
 # table 매핑 — types.py 가 ORM import 안 하므로 본 모듈에서 ORM __tablename__ 결합.
 _RATE_PER_DIM: dict[str, tuple[str, str, str]] = {
     "disk.read_iops": (
@@ -55,6 +59,16 @@ _RATE_PER_DIM: dict[str, tuple[str, str, str]] = {
         ServerNetIo.__tablename__,
         _RATE_PER_DIM_DEFS["net.tx_bytes_per_sec"][0],
         _RATE_PER_DIM_DEFS["net.tx_bytes_per_sec"][1],
+    ),
+    "net.rx_packets_per_sec": (
+        ServerNetIo.__tablename__,
+        _RATE_PER_DIM_DEFS["net.rx_packets_per_sec"][0],
+        _RATE_PER_DIM_DEFS["net.rx_packets_per_sec"][1],
+    ),
+    "net.tx_packets_per_sec": (
+        ServerNetIo.__tablename__,
+        _RATE_PER_DIM_DEFS["net.tx_packets_per_sec"][0],
+        _RATE_PER_DIM_DEFS["net.tx_packets_per_sec"][1],
     ),
 }
 
@@ -243,7 +257,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         window_start = start - bucket_td (LAG 시 첫 행의 d_total/d_active 계산을 위해 한 버킷 앞 데이터 필요).
 
         reset 식별 (calculator와 동일 정책 — CLAUDE.md #C1):
-        - boot_time != prev_boot → 시스템 재부팅 → NULL (단순 음수가 아닌 진짜 reset)
+        - boot_time 차이 > 5초 → 시스템 재부팅 → NULL (±1초 측정 지터 흡수, 단순 음수가 아닌 진짜 reset)
         - d_total <= 0 또는 d_num < 0 → NULL (옛 데이터 휴리스틱 fallback / wrap-around)
         - 정상: d_num * 100 / d_total
         시간차(dt)는 percent 계산엔 무관 (jiffies 비율이라 자연 정규화).
@@ -271,7 +285,8 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             FROM (
                 SELECT collected_at,
                        CASE
-                           WHEN boot_time IS NOT NULL AND prev_boot IS NOT NULL AND boot_time != prev_boot THEN NULL
+                           WHEN boot_time IS NOT NULL AND prev_boot IS NOT NULL
+                                AND ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) > :jitter_sec THEN NULL
                            WHEN d_total IS NULL OR d_total <= 0 OR d_num < 0 THEN NULL
                            ELSE d_num * 100.0 / d_total
                        END AS v
@@ -284,7 +299,13 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         """)
         result = await self.session.execute(
             sql,
-            {"sid": server_id, "start": start, "end": end, "window_start": start - bucket_td},
+            {
+                "sid": server_id,
+                "start": start,
+                "end": end,
+                "window_start": start - bucket_td,
+                "jitter_sec": _BOOT_JITTER_SEC,
+            },
         )
         return [MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension) for row in result.all()]
 
@@ -342,7 +363,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
 
         reset 식별 우선순위 (calculator와 동일 정책 — CLAUDE.md #C1):
         ① dt 검증: dt <= 0 (동일 시점·역행) → NULL. dt 자체는 분모일 뿐 1분/3분 무관 — 실제 시간으로 자연 정규화.
-        ② boot_time 검증: boot_time != prev_boot → 시스템 재부팅 → NULL (reset 확정).
+        ② boot_time 검증: boot_time 차이 > 5초 → 시스템 재부팅 → NULL (±1초 측정 지터 흡수, reset 확정).
         ③ 음수 delta: d_val < 0 → NULL (옛 데이터 휴리스틱 fallback / wrap-around).
         ④ 정상: d_val / dt
         """
@@ -370,7 +391,8 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 SELECT collected_at, dim,
                        CASE
                            WHEN dt IS NULL OR dt <= 0 THEN NULL
-                           WHEN boot_time IS NOT NULL AND prev_boot IS NOT NULL AND boot_time != prev_boot THEN NULL
+                           WHEN boot_time IS NOT NULL AND prev_boot IS NOT NULL
+                                AND ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) > :jitter_sec THEN NULL
                            WHEN d_val IS NULL OR d_val < 0 THEN NULL
                            ELSE d_val / dt
                        END AS v
@@ -389,6 +411,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 "end": end,
                 "window_start": start - bucket_td,
                 "dim_filter": dimension,
+                "jitter_sec": _BOOT_JITTER_SEC,
             },
         )
         return [MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension) for row in result.all()]
@@ -456,7 +479,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             SELECT collected_at, boot_time, agent_started_at,
                 CASE
                     WHEN prev_boot IS NULL                            THEN 'reboot'
-                    WHEN boot_time IS DISTINCT FROM prev_boot         THEN 'reboot'
+                    WHEN ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) > :jitter_sec THEN 'reboot'  -- ±지터 흡수
                     WHEN agent_started_at IS DISTINCT FROM prev_agent THEN 'restart'
                     ELSE NULL
                 END AS kind
@@ -464,7 +487,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             WHERE collected_at >= :start
               AND (
                   prev_boot IS NULL
-                  OR boot_time        IS DISTINCT FROM prev_boot
+                  OR ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) > :jitter_sec  -- ±지터 흡수
                   OR agent_started_at IS DISTINCT FROM prev_agent
               )
             ORDER BY collected_at
@@ -477,6 +500,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 "end": end,
                 # LAG 베이스 buffer — start 직전 30일 (그 안에 prev_boot 행 잡힘).
                 "buffer_start": start - timedelta(days=30),
+                "jitter_sec": _BOOT_JITTER_SEC,
             },
         )
         return [

@@ -136,7 +136,7 @@ Self-audit 메타 인용 제외:
 레이어 결정 (test-write 흡수):
 - unit (`tests/unit/`): DB·Redis·외부 의존 없는 함수·dataclass·계산.
 - integration (`tests/integration/`): Repository · DB query · Schema 통합.
-- E2E: OrbStack VM 검증 (pytest 범위 외 — `docs/development/pipeline.md`).
+- E2E: libvirt VM 검증 (pytest 범위 외 — `docs/development/pipeline.md`).
 
 원칙 (3):
 - [2.11] 테스트 한 개 = 한 분기. assert 누락·smoke-only 0건. 한 함수에 무관한 assert 다발 0건.
@@ -164,7 +164,7 @@ Self-audit 메타 인용 제외:
 
 체크리스트:
 - [3.1] PR base 대상 모드로 `dev/local-ci.sh` 실행 (feature->develop = `develop`, develop->main = `main`), NG 0건. 모드별 검증 범위(`develop`: ruff·hadolint·unit·alembic·integration / `main`: 전부 + wheel·codeql·pip-audit·release 산출물)는 스크립트 단일 진실 — 본 명세가 항목을 복제하지 않는다.
-- [3.2] OrbStack VM 매트릭스 영향(합성 부하·swap_used 트리거 등) 있으면 `docs/development/pipeline.md` 와 정합 확인.
+- [3.2] libvirt VM 매트릭스 영향(합성 부하·swap_used 트리거 등) 있으면 `docs/development/pipeline.md` 와 정합 확인.
 - [3.3] OIDC·GHCR 인증 필요한 step(sigstore 서명 · cosign · GHCR push)은 본질적으로 CI 전용 — 로컬 skip (그 직전까지 산출물·파일명 패턴·액션 resolve 는 검증됨).
 
 도구:

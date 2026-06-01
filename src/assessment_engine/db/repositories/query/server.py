@@ -97,6 +97,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             mem_total_kb=r.mem_total_kb,
             swap_total_kb=r.swap_total_kb,
             boot_time=r.boot_time,
+            agent_started_at=r.agent_started_at,
             ip_internal=r.ip_internal or [],
             ip_external=r.ip_external,
             disks=r.disks or [],
@@ -120,16 +121,6 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
     async def list_all_server_public_ids(self) -> list[str]:
         result = await self.session.execute(select(ServerInventory.public_id).order_by(ServerInventory.id))
         return list(result.scalars().all())
-
-    async def list_distinct_os_ids(self) -> list[str]:
-        """list 페이지 OS 필터 dropdown option — 등록된 distro 만."""
-        result = await self.session.execute(
-            select(ServerInventory.os_id)
-            .where(ServerInventory.os_id.is_not(None))
-            .distinct()
-            .order_by(ServerInventory.os_id)
-        )
-        return [r[0] for r in result.all()]
 
     async def get_storage(self, server_id: int) -> StorageWithUsage | None:
         inv_result = await self.session.execute(

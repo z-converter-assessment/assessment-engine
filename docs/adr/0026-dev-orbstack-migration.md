@@ -1,6 +1,8 @@
 # ADR 0026 — dev 가상화 스택 Lima -> OrbStack 전환
 
-상태: Accepted (2026-05-25)
+상태: Superseded (2026-05-31) — dev host 가 Linux x86_64 homeserver 로 이전되며 OrbStack(macOS 전용)에서 libvirt(KVM)로 재전환. 현행 dev 가상화 단일 진실은 `docs/development/pipeline.md`·`windows-vm.md` (libvirt). 본 ADR 은 OrbStack(macOS) 시기의 역사 기록으로 보존 (정정·덮어쓰기 금지 규약).
+
+원래 상태: Accepted (2026-05-25)
 
 ## Context
 

@@ -10,7 +10,7 @@
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtKst, fmtLabel, getAnchorEnd, initAnchor,
         makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray,
-        fetchRebootEvents, applyRebootMarkers } = ChartUtils;
+        fetchRebootEvents, applyRebootMarkers, renderChipLegend } = ChartUtils;
 
 // body data attribute 단일 진실 (#E6 inline <script> 금지).
 const SERVER_ID = document.body.dataset.serverId;
@@ -212,21 +212,7 @@ function renderCompChart(range, anchorEnd) {
 }
 
 function buildCompLegend() {
-  const container = document.getElementById('comp-legend');
-  if (!compChart) { container.innerHTML = ''; return; }
-  container.innerHTML = compChart.data.datasets.map((ds, i) => `
-    <label class="legend-label">
-      <input type="checkbox" data-idx="${i}" checked
-        style="accent-color:${ds.borderColor}; width:13px; height:13px; cursor:pointer;">
-      <span>${ds.label}</span>
-    </label>
-  `).join('');
-  container.querySelectorAll('input[type=checkbox]').forEach(cb => {
-    cb.addEventListener('change', () => {
-      compChart.getDatasetMeta(+cb.dataset.idx).hidden = !cb.checked;
-      compChart.update();
-    });
-  });
+  renderChipLegend(document.getElementById('comp-legend'), compChart);
 }
 
 async function loadCompChart() {
@@ -338,21 +324,7 @@ function renderLoadChart(range, anchorEnd) {
 }
 
 function buildLoadLegend() {
-  const container = document.getElementById('load-legend');
-  if (!loadChart) { container.innerHTML = ''; return; }
-  container.innerHTML = loadChart.data.datasets.map((ds, i) => `
-    <label class="legend-label">
-      <input type="checkbox" data-idx="${i}" checked
-        style="accent-color:${ds.borderColor}; width:13px; height:13px; cursor:pointer;">
-      <span>${ds.label}</span>
-    </label>
-  `).join('');
-  container.querySelectorAll('input[type=checkbox]').forEach(cb => {
-    cb.addEventListener('change', () => {
-      loadChart.getDatasetMeta(+cb.dataset.idx).hidden = !cb.checked;
-      loadChart.update();
-    });
-  });
+  renderChipLegend(document.getElementById('load-legend'), loadChart);
 }
 
 async function loadLoadChart() {
@@ -396,10 +368,8 @@ initSse(SERVER_ID, loadSnapshot);
 /* ── 기준일 초기화 ── */
 initAnchor('usage-anchor');
 initAnchor('comp-anchor');
-initAnchor('load-anchor');
 document.getElementById('usage-anchor').addEventListener('change', () => loadUsageChart());
 document.getElementById('comp-anchor').addEventListener('change', () => loadCompChart());
-document.getElementById('load-anchor').addEventListener('change', () => loadLoadChart());
 
 /* ── 초기 로드 ── */
 loadSnapshot();
@@ -407,5 +377,11 @@ updateUsageBucketLabel();
 loadUsageChart();
 updateCompBucketLabel();
 loadCompChart();
-updateLoadBucketLabel();
-loadLoadChart();
+
+/* 로드 평균 — Windows 는 load average 미측정이라 차트·컨트롤·초기화 전부 생략 (SSR 안내로 대체). */
+if (OS_FAMILY !== 'windows') {
+  initAnchor('load-anchor');
+  document.getElementById('load-anchor').addEventListener('change', () => loadLoadChart());
+  updateLoadBucketLabel();
+  loadLoadChart();
+}

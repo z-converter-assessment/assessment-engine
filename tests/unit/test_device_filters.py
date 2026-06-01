@@ -30,10 +30,13 @@ from assessment_engine.web.services.device_filters import (
         # LVM은 physical 아님
         ("dm-0", False),
         ("md0", False),
-        # 가상·기타
+        # 가상·빈 이름 제외
         ("loop0", False),
         ("", False),
-        ("foo", False),
+        # 블랙리스트 정책 — 미지·특이 컨트롤러도 통과 (화이트리스트면 놓칠 mpath/cciss 등 관측성 보존)
+        ("foo", True),
+        ("mpatha", True),
+        ("cciss", True),
     ],
 )
 def test_is_physical_disk(name, expected):

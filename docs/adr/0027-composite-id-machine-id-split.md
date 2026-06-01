@@ -43,7 +43,7 @@ agent 는 모든 수집 메시지(inventory/metrics/error)에 두 필드를 함�
 
 ## Windows agent 합류 (v4)
 
-- `os_family="windows"` 분기. 수치 데이터는 agent 가 Linux 계약 단위로 정규화 발행 (cpu FILETIME 100ns ÷100000 -> 10ms tick, disk bytes ÷512 -> sectors, mem bytes ÷1024 -> kB). raw 아님 — 엔진 OS 무관 단일 처리.
+- `os_family="windows"` 분기. 수치 데이터는 agent 가 Linux 계약 단위로 정규화 발행 (cpu FILETIME 100ns /100000 -> 10ms tick, disk bytes /512 -> sectors, mem bytes /1024 -> kB). raw 아님 — 엔진 OS 무관 단일 처리.
 - 플랫폼 부재 필드 null/0: `load_1m/5m/15m`·`mem_buffers_kb`·`mem_cached_kb`·`listen_ports[].uid` = null, `cpu_stat.{nice,iowait,irq,softirq,steal}` = 0. 엔진 inbound DTO nullable/0 수용. `listen_ports[].uid` 를 required `int` 에서 `int | None` 으로 완화 (Windows reject 방지).
 
 ## 트레이드오프

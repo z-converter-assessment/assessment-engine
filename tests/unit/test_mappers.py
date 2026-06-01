@@ -5,14 +5,12 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from assessment_engine.db.dtos.outbound import (
-    DiskUsageWarningRaw,
     MetricGapWarningRaw,
     ServerDetail,
     ServerSummary,
     StorageWithUsage,
 )
 from assessment_engine.web.services.mappers.attention import (
-    to_disk_warning_item,
     to_gap_warning_item,
 )
 from assessment_engine.web.services.mappers.server import (
@@ -23,9 +21,11 @@ from assessment_engine.web.services.mappers.server import (
     _usage_bar_color,
     _usage_severity,
     enrich_server_detail,
+    infer_role,
     to_server_detail,
     to_server_list_item,
     to_storage_detail,
+    workload_category_counter,
 )
 
 # ─── 임계값·severity ──────────────────────────────────────────────────────
@@ -90,7 +90,6 @@ def test_to_disk_item_for_physical():
     item = _to_disk_item({"name": "sda", "size_bytes": 1024**3, "type": "disk"})
     assert item.name == "sda"
     assert item.size_gb == 1.0
-    assert item.type == "disk"
 
 
 def test_to_listen_port_item_well_known():
@@ -219,6 +218,7 @@ def _detail(**overrides) -> ServerDetail:
         mem_total_kb=8 * 1024**2,
         swap_total_kb=2 * 1024**2,
         boot_time=datetime(2026, 1, 1, tzinfo=UTC),
+        agent_started_at=datetime(2026, 1, 1, tzinfo=UTC),
         ip_internal=["10.0.0.1"],
         ip_external=None,
         disks=[{"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk"}],
@@ -276,6 +276,104 @@ def test_enrich_server_detail_idempotent():
     assert resp.key_listen_ports == key_ports_before
 
 
+# ─── workload union (ADR 0032) — services 이름 ∪ listen 소켓 탐지 ─────────────
+
+
+def test_workload_counter_listen_only_rescues_opaque_name():
+    """이름 분류 불가(opaque) 서비스도 listen 소켓 증거로 카테고리 구제."""
+    services = [{"unit": "MyCorpThing", "sub": "running"}]  # 이름 미매치
+    listen = [
+        {"proto": "tcp", "port": 1433, "comm": "sqlservr"},  # SQL Server
+        {"proto": "tcp", "port": 22, "comm": "sshd"},  # 비워크로드 -> 무시
+    ]
+    assert dict(workload_category_counter(services, listen)) == {"db": 1}
+
+
+def test_workload_counter_no_double_count():
+    """이름·listen 이 같은 워크로드를 가리켜도 이중 카운트 안 함 (nginx 1대)."""
+    services = [{"unit": "nginx.service", "sub": "running"}]
+    listen = [
+        {"proto": "tcp", "port": 80, "comm": "nginx"},
+        {"proto": "tcp", "port": 443, "comm": "nginx"},
+    ]
+    assert dict(workload_category_counter(services, listen)) == {"web": 1}
+
+
+def test_workload_counter_container_single_instance():
+    """런타임 스택(container)은 docker+containerd 가 떠도 호스트당 1. 일반 카테고리는 인스턴스 카운트 유지."""
+    services = [
+        {"unit": "docker.service", "sub": "running"},
+        {"unit": "containerd.service", "sub": "running"},
+        {"unit": "nginx.service", "sub": "running"},
+        {"unit": "apache2.service", "sub": "running"},  # web 2대
+    ]
+    counter = dict(workload_category_counter(services, []))
+    assert counter == {"container": 1, "web": 2}
+
+
+def test_enrich_container_single_badge():
+    """detail 뱃지도 container 는 첫 unit 1개만 (docker+containerd → container 1뱃지)."""
+    resp = to_server_detail(
+        _detail(
+            os_family="linux",
+            services=[
+                {"unit": "docker.service", "sub": "running"},
+                {"unit": "containerd.service", "sub": "running"},
+            ],
+            listen_ports=[],
+        )
+    )
+    containers = [s for s in resp.known_services if s.category == "container"]
+    assert len(containers) == 1
+
+
+def test_workload_counter_listen_port_only_comm_null():
+    """comm null(Windows 권한 부족)이어도 port 신호로 탐지."""
+    services = [{"unit": "opaque", "sub": "running"}]
+    listen = [{"proto": "tcp", "port": 6379, "comm": None}]
+    assert dict(workload_category_counter(services, listen)) == {"cache": 1}
+
+
+def test_infer_role_union_dominant():
+    services = [{"unit": "MSSQL$PROD", "sub": "running"}, {"unit": "W3SVC", "sub": "running"}]
+    listen = [{"proto": "tcp", "port": 1433, "comm": "sqlservr"}]
+    # name: db + web (각 1), listen db 는 이미 포함 -> 이중카운트 없음. 동률이면 most_common 안정.
+    assert infer_role(services, listen) in {"db", "web"}
+
+
+def test_enrich_listen_only_synthetic_badge():
+    """opaque 서비스 + listen 1433 -> db 합성 뱃지(unit 없음), show_unknown 아님."""
+    resp = to_server_detail(
+        _detail(
+            os_family="windows",
+            services=[{"unit": "MyCorpThing", "sub": "running"}],
+            listen_ports=[{"proto": "tcp", "addr": "0.0.0.0", "port": 1433, "uid": None, "comm": "sqlservr"}],
+        )
+    )
+    db = next(s for s in resp.known_services if s.category == "db")
+    assert db.unit == "" and db.display_name == ""  # 특정 service 귀속 불가
+    assert any(p.port == 1433 for p in db.ports)
+    assert resp.show_unknown_badge is False  # listen 으로 구제됨
+
+
+def test_enrich_category_port_aggregation_web_iis():
+    """comm 귀속 실패한 워크로드 포트도 카테고리 단위로 뱃지에 집계 (W3SVC<->System 의 80/443)."""
+    resp = to_server_detail(
+        _detail(
+            os_family="windows",
+            services=[{"unit": "W3SVC", "sub": "running"}],  # IIS — comm 은 System 이라 unit 미매칭
+            listen_ports=[
+                {"proto": "tcp", "addr": "0.0.0.0", "port": 80, "uid": None, "comm": "System"},
+                {"proto": "tcp6", "addr": "::", "port": 80, "uid": None, "comm": "System"},
+            ],
+        )
+    )
+    web = next(s for s in resp.known_services if s.category == "web")
+    port_pairs = {(p.proto, p.port) for p in web.ports}
+    assert ("tcp", 80) in port_pairs and ("tcp6", 80) in port_pairs  # 카테고리 집계로 귀속
+    assert all(lp.port != 80 for lp in resp.key_listen_ports)  # 뱃지로 갔으니 주요 Listen 에서 제외
+
+
 # ─── to_storage_detail ────────────────────────────────────────────────────
 
 
@@ -300,65 +398,13 @@ def test_to_storage_detail_filters_virtual_mounts():
     assert "/snap/core/123" not in paths
 
 
-def test_to_storage_detail_device_name_via_major_minor():
-    """mount의 (major, minor)로 disk 매핑 — sda + minor 1은 sda의 파티션."""
-    storage = StorageWithUsage(
-        server_id=1,
-        public_id="pub-1",
-        hostname="h",
-        disks=[{"name": "sda", "size_bytes": 10**11, "type": "disk", "major": 8, "minor": 0}],
-        inventory_mounts=[
-            {"mount": "/", "fstype": "ext4", "total_bytes": 5 * 10**10, "major": 8, "minor": 1},
-        ],
-        mount_usage=[],
-        inventory_at=datetime.now(UTC),
-    )
-    resp = to_storage_detail(storage)
-    assert resp.mounts[0].device_name == "sda"
+# mount (major,minor) -> 부모 disk 매핑은 device_filters.find_parent_disk 로 이동(export 전용).
+# 해당 매핑 검증은 test_device_filters.py(test_find_parent_disk*)가 단일 진실 — storage detail 은
+# 더 이상 device_name 을 산출하지 않으므로 중복 테스트 제거.
 
 
 # ─── attention 신호 mapper (P2 단위 변환 + badge 분기) ────────────────────
-
-
-def test_to_disk_warning_item_under_provisioned_at_90():
-    """90% 이상 → rec-under_provisioned (위험 색). AttentionRow ViewModel."""
-    now = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
-    raw = DiskUsageWarningRaw(
-        public_id="pid",
-        hostname="h",
-        mount="/data",
-        total_bytes=100 * 1024**3,
-        avail_bytes=10 * 1024**3,  # 사용률 90%
-        last_metric_at=now,  # stale 아님
-    )
-    item = to_disk_warning_item(raw, now)
-    assert item.badge_class == "rec-under_provisioned"
-    assert item.badge_text == "90%"
-    assert item.link_href == "/servers/pid/storage"
-    assert item.link_text == "h"
-    assert item.mount_path == "/data"
-    assert item.meta_text == "잔여 10.0 / 100.0 GB"
-    assert item.meta_at is None  # stale 아니라 None
-
-
-def test_to_disk_warning_item_warn_below_90():
-    """85~90% → badge-warn (주의 amber). stale (24h+) 이면 meta_at·meta_text 갱신."""
-    now = datetime(2026, 5, 10, 12, 0, tzinfo=UTC)
-    metric_ts = now - timedelta(hours=25)  # 24h+ → stale
-    raw = DiskUsageWarningRaw(
-        public_id="pid",
-        hostname="h",
-        mount="/var",
-        total_bytes=100 * 1024**3,
-        avail_bytes=12 * 1024**3,  # 사용률 88%
-        last_metric_at=metric_ts,
-    )
-    item = to_disk_warning_item(raw, now)
-    assert item.badge_class == "badge-warn"
-    assert item.badge_text == "88%"
-    assert item.mount_path == "/var"
-    assert "마지막 수집" in item.meta_text  # stale 시 추가 표시
-    assert item.meta_at == metric_ts
+# 운영신호는 gap/os_eol/agent_unstable 3개 — disk 신호는 USE Method 로 이동(코드 제거).
 
 
 def test_to_gap_warning_item_under_provisioned_at_30min():

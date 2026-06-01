@@ -22,12 +22,14 @@ src/assessment_engine/web/static/js/
 | `fmtKbChart(v)` | bytes/sec → kB/MB/s |
 | `getAnchorEnd(inputId)` / `initAnchor(inputId)` | datetime input 처리 |
 | `makeBucketGrid(range, bucket, anchor)` / `joinToGrid(grid, rows, bMs)` | 버킷 그리드 + 응답 join |
-| `bindToggle(groupId, onChange)` | range/agg 토글 바인딩 |
+| `bindToggle(groupId, onChange)` | range/agg 컨트롤 바인딩 — element 가 `<select>`면 change, `.toggle` 버튼이면 click 자동 분기 (호출처 동일) |
 | `initSse(serverId, onMessage)` | SSE 초기화 + dot 표시 |
 | `safeArray(arr)` | `Array.isArray` 방어 (P4 c) |
 | `fetchRebootEvents(serverId, range, anchor)` | reboot/restart 이벤트 fetch (vertical marker용) |
 | `applyRebootMarkers(chart, events, gridMs)` | 차트 인스턴스에 marker 옵션 주입 + redraw |
 | `rebootMarkersPlugin` | Chart.js 글로벌 plugin (`afterDraw`로 dashed line 그림). chart-utils 로드 시 자동 등록 |
+| `renderChipLegend(container, chart)` | 색점+라벨 칩(pill) 토글 범례 — dataset 1개당 1칩, 클릭 시 show/hide. comp/load 계열 (cpu·memory) |
+| `buildAvgMaxDatasets` / `buildAvgMaxLegend(id, chart, opts)` | avg+max ghost dataset·범례. `withToggle`=칩(avg/max 쌍 1칩 함께 토글 — storage io·network·performance 통일), `codeLabel`=정적 선+code 라벨(현재 미사용) |
 
 ## 페이지별 .js 패턴
 
@@ -55,6 +57,17 @@ src/assessment_engine/web/static/js/
 - 추이 차트 (cpu/network 페이지): 분해력 우선 — 작은 값도 보이게 `suggestedMax` 낮게
 - 진단 리포트 (performance 페이지): 절대 기준 — `PERF_IOPS_SUGGESTED_MAX=200`(HDD 한계) / `PERF_NET_SUGGESTED_MAX=10MB/s`(1Gbps 8%)
 
+### 차트 컨트롤 (제목줄 통합)
+- 차트 헤더 = `.chart-head` 단일 행: 제목(h2 좌측) + bucket-label·구간·앵커·집계 컨트롤(우측, bucket-label 부터 `margin-left:auto`). 좁아지면 그룹 단위 wrap. (옛 별도 컨트롤 행 폐기.)
+- 구간/집계 = `<select class="chart-select">` 드롭다운 (옛 `.toggle` 버튼 그룹 대체 — 너비 절약). `bindToggle` 이 select/button 자동 분기라 JS 호출 동일.
+- 앵커 = `<input type="datetime-local" class="chart-anchor">`. select·anchor 높이 통일(`box-sizing`).
+- 다중 차트 한 페이지(network: I/O·PPS)는 차트별 독립 구간/앵커 (공유 X).
+- 성능 리포트(performance)는 예외 — 각 상세(cpu/memory/storage/network) 추이 차트 10개를 2열 5쌍으로 모은 종합 뷰라, 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(서버 정보 카드 아래, 버킷/구간/앵커 좌측 + 수집 기준 우측)이 모든 차트 동기. 행마다 1 카드(`.perf-pair` 안 2 차트, `.chart-desc` 고정 높이로 캔버스 top 정렬)로 좌우 카드 높이 통일. 리부트/재시작 마커는 미표시(가독성). 디스크 read+write·네트워크 RX+TX 는 각각 통합 1 차트.
+
+### 범례 (칩 토글)
+- `.legend-chip` (pill 버튼 + `.legend-dot` 색점): 클릭 시 dataset show/hide, 숨김은 `aria-pressed=false`로 흐려짐. `button`+`aria-pressed`라 키보드 토글 지원.
+- comp/load 계열(고정 dimension) = `renderChipLegend` (dataset 1칩 — cpu·memory comp, performance CPU 분류·메모리 구성). avg+max ghost = `buildAvgMaxLegend({withToggle})` (avg/max 쌍 1칩 함께 토글 — storage io·network·performance 물리 I/O·파일시스템·네트워크). 옛 `buildNetGroupedLegend`(인터페이스별 그룹 행)·`codeLabel` 정적 범례는 폐기 — 전 차트 칩 토글로 통일.
+
 ### avg + max ghost 패턴
 1차 dataset = avg (visible). 2차 dataset = max (`borderColor:'transparent'`, `realData` 보유) — tooltip에서 `realData`로 max 표시. legend는 짝수 인덱스만.
 
@@ -72,6 +85,8 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 ```
 
 `.no-print` 클래스로 navbar/검색폼/버튼 인쇄 시 숨김 (base.html). 컨설턴트가 브라우저 인쇄 → PDF/PPT 캡처. 백엔드 PDF export는 미도입 (`docs/tradeoffs.md` 참조).
+
+성능 리포트 인쇄(base.html `@media print`): `.perf-pair` 2열 강제(auto-fit 이 A4 폭에서 1열로 collapse 방지) + `.perf-pair canvas { width/height:100% !important }` 로 Chart.js 가 캔버스에 박은 화면 폭(px)이 인쇄 컨테이너를 넘어 꺾은선이 plot 경계를 넘는 것 보정. `beforeprint`/`afterprint` 차트 `resize()` 보강(performance.js).
 
 ## 의존성
 
@@ -115,8 +130,19 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 | `.metric-card` + `.metric-grid` + `.metric-grid-{2,3}` | 보고서 메트릭 카드 (12px label + 24/18px value + 11px sub) | transparent / 1px #e2e8f0 |
 | `.stat-box` + `.stat-grid` | 실시간 메트릭 dashboard (작은 grid, soft bg) | #f8fafc |
 | `.alert-warn` + `.alert-list` | 운영 신호 발화 박스 (warn 톤) | #fef3c7 / 1px #fde68a |
+| `.card-section` | 카드 내부 서브섹션 구분 (환경요약·운영신호 공통 위계 — h3 + 구분선) | 1px #e2e8f0 top border |
+| `.empty-state` | 발화 가능하나 비어있는 슬롯 placeholder (#E9 discoverability) | 박스 없음 / 회색 텍스트 #94a3b8 |
 
 금지: `<div style="border:1px solid #e2e8f0; border-radius:6px; padding:14px;">` 같은 inline 박스 재구현. 위 클래스로 치환. (P3 직접 위반 — 모양 통일성 + 추후 일괄 조정 시 단일 진실.)
+
+### 공통 매크로 (`_shared.html`)
+
+base.html 컴포넌트와 동급의 표시 계층 단일 진실 — 페이지 간 재사용 매크로. 라우터·페이지 템플릿은 `{% from "_shared.html" import empty_state, window_meta %}` 로 가져와 사용.
+
+| 매크로 | 용도 | 정책 |
+|--------|------|------|
+| `empty_state(message)` | 발화/조건부 섹션이 비었을 때 placeholder (제목은 유지, 내용 없음 명시) | dumb — 분기·계산 0, 정적 message만 렌더 (P3). discoverability 원칙 #E9 단일 진실. |
+| `window_meta(count, days)` | 표제 메타 "(N대 기준 · 최근 M일)" — 활용률·Right-sizing 표제 공통 | days 는 `recommendation.WINDOW_DAYS`(#F10) 전달. 하드코딩 "14일" 반복 제거. |
 
 ### Badge 카탈로그
 
@@ -157,21 +183,23 @@ base.html `<style>` 정의 — 모든 page 가 같은 위계 사용. inline `sty
 - h1/h2/h3 외 임의 `<div style="font-size:18px; font-weight:700;">` 같은 의사-제목 — h1/h2/h3 사용 의무.
 - modal 안 제목은 별개 (`#title-id style="..."` 인라인 허용 — modal 컴포넌트 별도 위계).
 
-## 폰트 체 — sans-serif 단일 + monospace 식별자 한정
+## 폰트 체 — sans-serif 단일 + monospace 선택 적용
 
 base.html `<body>` 가 system-ui sans-serif 기본. 모든 텍스트 동일 family. 별도 폰트 (serif / display) 안 씀.
 
-monospace 적용 위치 (예외 0 의무):
-- 식별자: hostname / UUID / IP address / file path / unit name (예: nginx.service)
-- agent path / mount path (예: /var/lib/postgresql/data)
-- inline code 표시 (`<code>` element)
+monospace 는 "식별자라는 이유"로 자동 적용하지 않는다. 표시 설계상 등폭 표기가 의미 전달에 기여하거나
+일반 텍스트와의 구분이 유용하다고 판단되는 경우에만 선택 적용 (의무 아님 — UI 판단):
+- 실제 코드·명령·설정 스니펫 (shell command / config) — 등폭 정렬·"코드임" 표시가 도움
+- 그 외 등폭 구분이 가독성·식별에 실익이 있다고 판단되는 특정 케이스
 
 class:
-- `<code>...</code>` — inline code 표시 (background + padding + monospace, base 단일 진실)
-- `.identifier` — code element 아닌 식별자에 monospace 만 적용 (background 없음, 표 cell 내부 등)
+- `<code>...</code>` — 위 용도의 inline code (background + padding + monospace, base 단일 진실)
+- `.identifier` — code element 아닌 곳에 monospace 만 (background 없음). 동일 판단 기준 적용
 
 금지:
-- 일반 텍스트 (제목 / 본문 / 라벨) 에 monospace 적용 — 식별자 외 monospace 가독성 ↓.
+- 식별자(hostname / UUID / IP / path / unit name)에 "식별자라는 이유만으로" monospace 자동 적용 — 기본 sans.
+  (등폭 구분이 유용하다 판단되면 위 선택 기준으로 case-by-case 결정)
+- 일반 텍스트 (제목 / 본문 / 라벨) 에 monospace — 가독성 저하.
 - 숫자 (vCPU / GB / %) 에 monospace — sans-serif weight 700 으로 정렬·강조 충분.
 - inline `style="font-family:monospace"` — base `.identifier` 또는 `<code>` 사용 의무.
 
@@ -184,6 +212,7 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 | case | 정공 / 예외 | 이유 |
 |------|-------------|------|
 | 1회 fetch + render (예: task-modal body) | 정공 — fragment endpoint (`/api/tasks/{id}/detail`) + JS `innerHTML = await fetch().text()` | overhead 0, P3 완전 정공 |
+| 저빈도 polling + 파생 많은 SSR 영역 (예: 대시보드 환경요약·운영신호·서버목록 30초 자동갱신) | 정공 — fragment endpoint (`?fragment=live`/`?fragment=rows`) HTML 반환 + JS `#dashboard-live` innerHTML·`#server-tbody` server-row 교체 | 30초 저빈도라 HTML fragment fetch overhead 무시 가능. mapper 파생 많아 JSON+JS render 시 P2 복제 — fragment 가 단일 진실 유지 |
 | polling 흐름 (예: detail page metrics/latest SSE / storage snapshot / diagnostic-results.js · diagnostic-inline.js result polling) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
 
 폴링 흐름 JS render 의무:
@@ -193,7 +222,8 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 
 신규 dynamic UI 추가 시 흐름 판단:
 - 1회 fetch → fragment endpoint
-- polling / SSE 무한 → JSON + JS render (예외)
+- 저빈도 polling(수십초) + 파생 많은 SSR 영역 → fragment endpoint(HTML) 교체 (P2 단일 진실 유지). 서버목록처럼 체크박스 선택·client 필터·직접 바인딩 이벤트가 있는 영역은 행만 교체 후 체크 상태·필터·이벤트를 복원 (discover 버튼 등 정적 요소는 교체 대상에서 보존). task-cell 모달처럼 event delegation 핸들러는 복원 불필요
+- 고빈도 polling / SSE 무한 → JSON + JS render (예외)
 
 ## 시간 표기 — 단일 진실 (예외 0 의무)
 

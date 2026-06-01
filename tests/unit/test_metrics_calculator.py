@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from assessment_engine.boot_time import is_counter_reset
 from assessment_engine.db.dtos.outbound import (
     DiskIoRaw,
     MetricPairRaw,
@@ -14,7 +15,6 @@ from assessment_engine.web.services.metrics_calculator import (
     _clip_to_remaining,
     _delta_rate,
     _group_by_dim,
-    _is_counter_reset,
     compute_cpu,
     compute_disk_io,
     compute_mem,
@@ -146,7 +146,7 @@ def test_compute_cpu_normal_when_only_agent_restart():
     assert snap.usage_pct is not None  # 정상 계산
 
 
-# ─── _is_counter_reset helper ─────────────────────────────────────────────
+# ─── is_counter_reset helper (assessment_engine.boot_time) ─────────────────
 
 
 @pytest.mark.parametrize(
@@ -160,7 +160,7 @@ def test_compute_cpu_normal_when_only_agent_restart():
     ],
 )
 def test_is_counter_reset(cur, prev, expected):
-    assert _is_counter_reset(cur, prev) is expected
+    assert is_counter_reset(cur, prev) is expected
 
 
 # ─── compute_mem ──────────────────────────────────────────────────────────

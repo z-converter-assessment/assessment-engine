@@ -98,7 +98,7 @@ class EnvironmentReportSummary:
     anchor_at: datetime  # 분석 기준 시각 (보고서 본문 끝점)
     generated_at: datetime  # 응답 합성 시각 (DB 저장·UI 표시용)
     overview: EnvironmentOverview  # 기존 list 페이지와 동일 source (utilization 3 bar 포함)
-    attention: AttentionSignals  # 기존 6 카탈로그 (disk/gap/capacity/days/os_eol/agent_unstable)
+    attention: AttentionSignals  # 운영신호 3 카탈로그 (gap/os_eol/agent_unstable)
     base: ReportSummary  # 전체 서버 raw aggregation 결과 (KPI·totals·rows 전부)
     classification_dist: list[ClassificationCount]
     os_distribution: list[OsCount]

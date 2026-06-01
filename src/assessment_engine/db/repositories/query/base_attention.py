@@ -1,20 +1,11 @@
-"""Attention warning 도메인 추상 인터페이스 — disk usage · metric gap."""
+"""Attention warning 도메인 추상 인터페이스 — metric gap (통신 끊김 운영신호) 전용."""
 
 from abc import ABC, abstractmethod
 
-from assessment_engine.db.dtos.outbound import DiskUsageWarningRaw, MetricGapWarningRaw
+from assessment_engine.db.dtos.outbound import MetricGapWarningRaw
 
 
 class BaseAttentionQueryRepository(ABC):
-    @abstractmethod
-    async def disk_usage_warnings(
-        self,
-        threshold_pct: float,
-        limit: int,
-    ) -> list[DiskUsageWarningRaw]:
-        """전체 mount 중 사용률 임계 초과만 단일 SQL. mount당 latest 1건 → ORDER BY DESC LIMIT N."""
-        ...
-
     @abstractmethod
     async def metric_gap_warnings(
         self,

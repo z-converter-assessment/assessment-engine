@@ -2,9 +2,16 @@
 
 import pytest
 
-from assessment_engine.web.services.service_classifier import classify, matched_ports
+from assessment_engine.web.services.service_classifier import (
+    BADGE_CLASS_BY_CATEGORY,
+    SERVICE_CATALOG,
+    SERVICE_CATEGORIES,
+    classify,
+    matched_ports,
+    well_known_ports,
+)
 
-# ─── classify ─────────────────────────────────────────────────────────────
+# ─── classify: name 신호 (하위호환) ──────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
@@ -32,6 +39,108 @@ def test_classify(unit, expected):
 def test_classify_case_insensitive():
     assert classify("NGINX.service") == "web"
     assert classify("PostgreSQL.service") == "db"
+
+
+@pytest.mark.parametrize(
+    "unit, expected",
+    [
+        # 커버리지 보강 워크로드 (이름 신호)
+        ("tomcat.service", "web"),
+        ("php-fpm.service", "web"),
+        ("openresty.service", "web"),
+        ("oracle", "db"),
+        ("elasticsearch.service", "db"),
+        ("clickhouse-server.service", "db"),
+        ("valkey-server.service", "cache"),
+        ("keydb.service", "cache"),
+        ("pulsar", "mq"),
+        ("emqx.service", "mq"),
+        ("redpanda", "mq"),
+        ("podman.service", "container"),
+        ("k3s.service", "container"),
+        ("crio.service", "container"),
+        ("telegraf.service", "monitor"),
+        ("loki.service", "monitor"),
+        ("fluent-bit.service", "monitor"),
+    ],
+)
+def test_classify_extended_catalog(unit, expected):
+    assert classify(unit) == expected
+
+
+@pytest.mark.parametrize(
+    "port, expected",
+    [
+        (1521, "db"),  # oracle
+        (9200, "db"),  # elasticsearch/opensearch
+        (8123, "db"),  # clickhouse http
+        (6650, "mq"),  # pulsar
+        (8428, "monitor"),  # victoriametrics
+        (3100, "monitor"),  # loki
+    ],
+)
+def test_detect_listen_categories_extended_ports(port, expected):
+    # 호스트 레벨 port 신호 — comm 부재(Windows 권한 부족 등)에도 포트로 분류.
+    from assessment_engine.web.services.service_classifier import detect_listen_categories
+
+    result = detect_listen_categories([{"proto": "tcp", "port": port, "comm": None}])
+    assert list(result.keys()) == [expected]
+
+
+# ─── classify: Windows SCM 이름 (이름 신호로 흡수, ADR 0032) ──────────────────
+
+
+@pytest.mark.parametrize(
+    "unit, expected",
+    [
+        ("W3SVC", "web"),  # IIS
+        ("MSSQLSERVER", "db"),  # SQL Server default instance
+        ("MSSQL$PROD", "db"),  # named instance 변형 (mssql substring)
+    ],
+)
+def test_classify_windows_scm_name(unit, expected):
+    assert classify(unit) == expected
+
+
+# ─── classify: comm 신호 (이름 미스매치 흡수) ────────────────────────────────
+
+
+def test_classify_comm_signal_name_variant():
+    """name 이 comm 의 substring 이면 귀속 후 comm 키워드로 분류 (mongo <- mongod)."""
+    # name "mongo" 는 키워드 미매치(키워드는 mongod/mongodb), comm "mongod" 가 name 을 포함 -> 귀속 -> db
+    listen = [{"proto": "tcp", "port": 27017, "comm": "mongod"}]
+    assert classify("mongo", listen) == "db"
+
+
+def test_classify_comm_unattributable_stays_unknown():
+    """이름이 comm 과 완전 무관하면 귀속 불가 -> unknown (T15 한계)."""
+    listen = [{"proto": "tcp", "port": 1433, "comm": "sqlservr.exe"}]
+    assert classify("MyCompanyDB", listen) == "unknown"
+
+
+# ─── classify: port 신호 ────────────────────────────────────────────────────
+
+
+def test_classify_port_signal_via_wellknown_name():
+    """comm 부재(비루트 agent) + name 이 well-known 포트 보유 -> port 귀속 후 분류."""
+    # name "redis" 는 이미 이름 신호로 cache. 포트 경로 검증을 위해 이름 신호가 약한 케이스 사용.
+    # "valkey"(redis fork) 가정 — 이름 미매치지만 comm 이 name 포함.
+    listen = [{"proto": "tcp", "port": 6379, "comm": "valkey-server"}]
+    # name "valkey" vs comm "valkey-server": comm in name? no. name in comm? "valkey" in "valkey-server" yes -> 귀속
+    # comm "valkey-server" 키워드 매치 없음 -> port 6379 -> cache
+    assert classify("valkey", listen) == "cache"
+
+
+def test_classify_priority_name_over_port():
+    """name 신호가 port 와 충돌하면 name 우선 (haproxy 가 5432 프록시해도 web)."""
+    listen = [{"proto": "tcp", "port": 5432, "comm": "haproxy"}]
+    assert classify("haproxy.service", listen) == "web"
+
+
+def test_classify_listen_ports_none_name_only():
+    """listen_ports 미제공 시 name 신호만 — 현행 동작 보존."""
+    assert classify("nginx.service") == "web"
+    assert classify("MyCompanyDB") == "unknown"
 
 
 # ─── matched_ports ────────────────────────────────────────────────────────
@@ -84,3 +193,38 @@ def test_matched_ports_unknown_service_returns_empty():
 
 def test_matched_ports_empty_listen():
     assert matched_ports("nginx.service", []) == []
+
+
+# ─── well_known_ports (export 폴백) ──────────────────────────────────────────
+
+
+def test_well_known_ports_name_substring():
+    assert well_known_ports("postgresql@14-main.service") == (5432,)
+    assert well_known_ports("nginx.service") == (80, 443)
+    assert well_known_ports("foobar.service") == ()
+
+
+# ─── 카탈로그 파생 일관성 (drift 회귀, ADR 0032) ─────────────────────────────
+
+
+def test_catalog_categories_match_derived():
+    """SERVICE_CATEGORIES 는 카탈로그 key 순서와 동일."""
+    assert SERVICE_CATEGORIES == tuple(d.key for d in SERVICE_CATALOG)
+
+
+def test_catalog_badge_class_covers_all_categories_plus_unknown():
+    """모든 카테고리 + unknown 이 뱃지 CSS 매핑을 가진다 (미스 시 unstyled 뱃지)."""
+    for d in SERVICE_CATALOG:
+        assert BADGE_CLASS_BY_CATEGORY[d.key] == d.badge_class
+    assert BADGE_CLASS_BY_CATEGORY["unknown"] == "badge-cat-unknown"
+
+
+def test_catalog_ports_no_cross_category_collision():
+    """well-known 포트가 두 카테고리에 중복 배정되지 않는다 (port 신호 결정성)."""
+    seen: dict[int, str] = {}
+    for d in SERVICE_CATALOG:
+        for ports in d.port_names.values():
+            for port in ports:
+                if port in seen:
+                    assert seen[port] == d.key, f"port {port} 충돌: {seen[port]} vs {d.key}"
+                seen[port] = d.key

@@ -4,7 +4,7 @@
 
 고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, 진단 워커가 수집된 데이터를 규칙 기반으로 분석해 진단 결과를 생성한다. 운영자는 web UI 에서 대시보드·보고서·JSON Export·원격 설치 task 산출물을 활용해 다음 단계 의사결정을 진행한다.
 
-본 repo 는 엔진 자체 (애플리케이션 + dev 시연용 docker compose · OrbStack 매트릭스 등 `dev/` 격리 자산) 만 다룬다. 배포 인프라 (IaC — Terraform · Ansible · SaltStack 등) 와 prod 운영 (systemd unit · k8s manifest 등) 은 본 repo 범위 밖. 본 repo 가 제공하는 산출물·contract 를 외부 인프라 코드에 통합해 운영한다.
+본 repo 는 엔진 자체 (애플리케이션 + dev 시연용 docker compose · libvirt VM 매트릭스 등 `dev/` 격리 자산) 만 다룬다. 배포 인프라 (IaC — Terraform · Ansible · SaltStack 등) 와 prod 운영 (systemd unit · k8s manifest 등) 은 본 repo 범위 밖. 본 repo 가 제공하는 산출물·contract 를 외부 인프라 코드에 통합해 운영한다.
 
 ---
 
@@ -214,7 +214,7 @@ curl -fsS http://localhost:8000/health   # {"status":"ok"}
 
 ## Quick Start
 
-dev 시연 · 파이프라인 검증 흐름 (엔진 dev compose + OrbStack 4 VM 매트릭스) 과 접속 endpoint 카탈로그는
+dev 시연 · 파이프라인 검증 흐름 (엔진 dev compose + libvirt VM 매트릭스, Linux x86_64) 과 접속 endpoint 카탈로그는
 `dev/README.md` 단일 진실. 루트는 운영 기준 메타·산출물만 유지.
 
 VM 매트릭스 · 합성 부하 프로파일 · attention 발화 매핑 deep dive: `docs/development/pipeline.md`.
@@ -225,7 +225,7 @@ VM 매트릭스 · 합성 부하 프로파일 · attention 발화 매핑 deep di
 
 본 절은 IDE (PyCharm·VS Code) 에서 코드 탐색·자동완성·테스트 실행을 위한 의존성 설치. Docker compose 만 띄울 때는 불필요 — 컨테이너 안에서 의존성을 갖고 있음.
 
-전제: `uv` 0.4+ (`pip install uv` 또는 `brew install uv`).
+전제: `uv` 0.4+ (`pip install uv` 또는 distro 패키지).
 
 ```bash
 # 의존성 동기화 — 운영 의존성 + dev 그룹 (pytest·ruff·hadolint·types 등) 모두 설치.

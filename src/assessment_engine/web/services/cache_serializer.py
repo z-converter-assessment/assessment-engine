@@ -17,10 +17,12 @@ from assessment_engine.web.view_models.metric import (
 )
 from assessment_engine.web.view_models.server import (
     DiskItem,
+    IpAddr,
     ListenPortItem,
     MatchedPort,
     ServerDetailResponse,
     ServiceItem,
+    VolumeItem,
 )
 
 _DETAIL_DISPLAY_FIELDS = frozenset(
@@ -36,6 +38,8 @@ _DETAIL_DISPLAY_FIELDS = frozenset(
         "services_count",
         "listen_ports_count",
         "disks_count",
+        "volume_total_gb",
+        "volumes_count",
     }
 )
 
@@ -52,7 +56,12 @@ def server_detail_to_json(v: ServerDetailResponse) -> str:
 
 def server_detail_from_json(raw: str) -> ServerDetailResponse:
     data = json.loads(raw)
-    data["disks"] = [DiskItem(**d) for d in data.get("disks") or []]
+    # 옛 캐시 호환: 제거된 type 키가 남아 있어도 무시 (DiskItem 은 name/size_gb 만).
+    data["disks"] = [DiskItem(name=d["name"], size_gb=d.get("size_gb")) for d in data.get("disks") or []]
+    data["volumes"] = [VolumeItem(**v) for v in data.get("volumes") or []]
+    data["ip_internal"] = [IpAddr(**a) for a in data.get("ip_internal") or []]
+    if data.get("ip_external") is not None:
+        data["ip_external"] = [IpAddr(**a) for a in data["ip_external"]]
     raw_services = data.get("services")
     data["services"] = (
         [
@@ -62,6 +71,7 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
                 category=s.get("category") or "unknown",
                 ports=[MatchedPort(proto=p["proto"], port=p["port"]) for p in s.get("ports") or []],
                 display_name=s.get("display_name") or s["unit"].removesuffix(".service"),
+                category_count=s.get("category_count", 1),
             )
             for s in raw_services
         ]
@@ -80,7 +90,7 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
         )
         for p in data.get("listen_ports") or []
     ]
-    for f in ("boot_time", "last_seen_at"):
+    for f in ("boot_time", "agent_started_at", "last_seen_at"):
         if isinstance(data.get(f), str):
             data[f] = datetime.fromisoformat(data[f])
     for key in _DETAIL_DISPLAY_FIELDS:

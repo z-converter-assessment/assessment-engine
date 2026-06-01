@@ -266,6 +266,24 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
         return {r.server_id: int(r.restart_count) for r in result.all()}
 
+    async def agent_restart_counts_recent(self, server_ids: list[int], since: datetime) -> dict[int, int]:
+        """since 이후 server별 agent 재시작 횟수 (DISTINCT agent_started_at - 1).
+
+        attention agent_unstable fixed 윈도우 표시 — Redis sliding 카운터 대체 (정확한 '최근 N시간').
+        report_agent_restart_stats(보고서 window)와 동일 산식, since~now 고정 윈도우만 다름.
+        """
+        if not server_ids:
+            return {}
+        sql = text("""
+            SELECT server_id, GREATEST(0, COUNT(DISTINCT agent_started_at) - 1) AS restart_count
+            FROM server_inventory_history
+            WHERE server_id = ANY(:sids) AND collected_at >= :since
+              AND agent_started_at IS NOT NULL
+            GROUP BY server_id
+        """)
+        result = await self.session.execute(sql, {"sids": server_ids, "since": since})
+        return {r.server_id: int(r.restart_count) for r in result.all()}
+
     async def report_disk_io_baseline(
         self,
         server_ids: list[int],
@@ -431,10 +449,12 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
     ) -> EnvironmentUtilizationRaw:
         """환경 전체 서버 N일 평균 활용률.
 
-        - cpu_avg: 모든 서버, 모든 인접 시점 LAG delta 평균
-        - mem_avg: 모든 서버, 모든 시점 (1 - avail/total) 평균
+        - cpu_avg: 서버별 LAG delta 평균 → 서버 간 평균 (서버 1대=1표 동등 가중)
+        - mem_avg: 서버별 (1 - avail/total) 평균 → 서버 간 평균 (동등 가중)
         - disk_avg: mount별 평균 → 서버별 max → 서버 간 평균
         - sample_size: 기간 내 metric 발행 서버 distinct count
+        세 지표 모두 "서버별 집계 → 서버 간 평균" 으로 통일 — flat 시점 평균은 발행 빈도 높은
+        서버에 과다 가중(예: 오래 발행한 서버 vs 일찍 죽은 서버)되어 환경 평균을 왜곡한다.
         partition pruning 의무 (C5). period_days <= 30 cap (DB scan 보호).
         """
         capped = max(1, min(period_days, 30))
@@ -495,8 +515,14 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 GROUP BY server_id
             )
             SELECT
-                (SELECT AVG(pct) FROM cpu_pct  WHERE pct IS NOT NULL) AS cpu_avg,
-                (SELECT AVG(pct) FROM mem_pct  WHERE pct IS NOT NULL) AS mem_avg,
+                -- 서버별 평균 → 서버 간 평균 (디스크 disk_max 와 동일 서버 동등 가중).
+                -- flat 시점 평균(과거 산식)은 발행 빈도 높은 서버에 과다 가중되어 환경 평균 왜곡.
+                (SELECT AVG(s_pct) FROM (
+                     SELECT AVG(pct) AS s_pct FROM cpu_pct WHERE pct IS NOT NULL GROUP BY server_id
+                 ) cps) AS cpu_avg,
+                (SELECT AVG(s_pct) FROM (
+                     SELECT AVG(pct) AS s_pct FROM mem_pct WHERE pct IS NOT NULL GROUP BY server_id
+                 ) mps) AS mem_avg,
                 (SELECT AVG(pct) FROM disk_max WHERE pct IS NOT NULL) AS disk_avg,
                 (SELECT COUNT(DISTINCT server_id) FROM server_metrics
                  WHERE collected_at >= now() - (:days * interval '1 day')) AS sample_size

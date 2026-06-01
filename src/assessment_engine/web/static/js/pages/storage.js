@@ -41,12 +41,9 @@ async function loadIoSnapshot() {
     const data = await res.json();
 
     const physDisks   = data.disk_io_phys || [];
-    const lvmDisks    = data.disk_io_lvm  || [];
-    const partDisks   = data.disk_io_part || [];
-    const logicalDisks = lvmDisks.length ? lvmDisks : partDisks;
 
     const row = d => `<tr>
-      <td><code>${d.device}</code></td>
+      <td>${d.device}</td>
       <td>${iops(d.read_iops)}</td><td>${iops(d.write_iops)}</td>
       <td>${kbps(d.read_kbps)}</td><td>${kbps(d.write_kbps)}</td>
     </tr>`;
@@ -57,13 +54,6 @@ async function loadIoSnapshot() {
     } else {
       document.getElementById('io-phys-empty').style.display = '';
     }
-    if (logicalDisks.length) {
-      document.getElementById('io-lvm-section').style.display = '';
-      if (!lvmDisks.length)
-        document.getElementById('io-lvm-section-title').textContent = '파티션 (LVM 없음)';
-      document.getElementById('io-lvm-tbody').innerHTML = logicalDisks.map(row).join('');
-      document.getElementById('io-lvm-table').style.display = '';
-    }
     if (data.collected_at)
       document.getElementById('io-snapshot-ts').textContent = '수집 기준: ' + fmtKst(data.collected_at);
   } catch(e) {
@@ -73,11 +63,8 @@ async function loadIoSnapshot() {
 
 /* ── I/O 추이 차트 ── */
 let physRange = '15m';
-let lvmRange  = '15m';
 let physChart = null;
-let lvmChart  = null;
 let physSeq   = 0;
-let lvmSeq    = 0;
 
 const fmtLabel = ChartUtils.fmtLabel;
 
@@ -144,10 +131,6 @@ function renderIoChartTo(canvasId, emptyId, legendId, avgRows, maxRows, range, c
 function updatePhysBucketLabel() {
   document.getElementById('io-phys-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[physRange]] || '';
 }
-function updateLvmBucketLabel() {
-  document.getElementById('lvm-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[lvmRange]] || '';
-}
-
 async function loadPhysChart() {
   const seq = ++physSeq;
   const capturedRange = physRange;
@@ -184,73 +167,20 @@ async function loadPhysChart() {
   } catch(e) { console.error(e); }
 }
 
-async function loadLvmChart() {
-  const seq = ++lvmSeq;
-  const capturedRange = lvmRange;
-  const capturedAnchor = getAnchorEnd('lvm-anchor');
-  const bucket = AUTO_BUCKET[capturedRange];
-  const mkQ = (type, agg) => {
-    const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg, device_category: 'logical' });
-    if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
-    return p;
-  };
-  try {
-    const [readAvg, readMax, writeAvg, writeMax] = await Promise.all([
-      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_iops',  'avg')}`).then(r => r.json()),
-      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_iops',  'max')}`).then(r => r.json()),
-      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'avg')}`).then(r => r.json()),
-      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'max')}`).then(r => r.json()),
-    ]);
-    if (seq !== lvmSeq) return;
-    const safe = arr => Array.isArray(arr) ? arr : [];
-    const logicalAvgRows = [
-      ...safe(readAvg).map(r  => ({ ...r, dimension: `${r.dimension} Read` })),
-      ...safe(writeAvg).map(r => ({ ...r, dimension: `${r.dimension} Write` })),
-    ];
-    const logicalMaxRows = [
-      ...safe(readMax).map(r  => ({ ...r, dimension: `${r.dimension} Read` })),
-      ...safe(writeMax).map(r => ({ ...r, dimension: `${r.dimension} Write` })),
-    ];
-    if (logicalAvgRows.length) {
-      document.getElementById('io-lvm-chart-card').style.display = '';
-      document.getElementById('io-lvm-chart-title').textContent = '논리 계층 I/O 추이';
-      document.getElementById('lvm-range-print').textContent = ' — ' + RANGE_LABEL[capturedRange];
-      updateLvmBucketLabel();
-      if (lvmChart) { lvmChart.destroy(); lvmChart = null; }
-      lvmChart = renderIoChartTo('io-lvm-canvas', 'io-lvm-chart-empty', 'io-lvm-legend', logicalAvgRows, logicalMaxRows, capturedRange, null, capturedAnchor);
-    }
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== lvmSeq) return;
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    applyRebootMarkers(lvmChart, events, grid);
-  } catch(e) { console.error(e); }
-}
-
-
 bindToggle('io-phys-range-btns', v => {
   physRange = v;
   updatePhysBucketLabel();
   document.getElementById('io-phys-range-print').textContent = ' — ' + RANGE_LABEL[v];
   loadPhysChart();
 });
-bindToggle('io-lvm-range-btns', v => {
-  lvmRange = v;
-  updateLvmBucketLabel();
-  document.getElementById('lvm-range-print').textContent = ' — ' + RANGE_LABEL[v];
-  loadLvmChart();
-});
-
 initAnchor('phys-anchor');
-initAnchor('lvm-anchor');
 initAnchor('fs-anchor');
 document.getElementById('phys-anchor').addEventListener('change', () => loadPhysChart());
-document.getElementById('lvm-anchor').addEventListener('change', () => loadLvmChart());
 document.getElementById('fs-anchor').addEventListener('change', () => loadFsChart());
 
 loadIoSnapshot();
 updatePhysBucketLabel();
 loadPhysChart();
-loadLvmChart();
 
 /* ── 파일시스템 사용량 추이 ── */
 let fsRange = '15m';

@@ -29,12 +29,14 @@ docs/
 │   ├── diagnostic.md      진단 워커·LLM (ollama 단일, ADR 0025)·RAG infra (ADR 0024)·diagnostic_jobs·rag_documents
 │   ├── rabbitmq.md        vhost·권한 모델·토폴로지·dev·prod 분기
 │   ├── redis.md           키 설계·TTL·PUB/SUB·캐시 무효화·mget
+│   ├── right-sizing.md    right-sizing 분류 기준·임계 근거 (USE Method·AWS/Azure/GCP advisor)·OS 분기·한계
 │   ├── db/                models / dtos / repositories / timescaledb (4분할)
 │   └── web/               layering / routers / services / view-models / static-assets / export-schema (6분할 — JSON Export 응답 스키마 포함)
 ├── development/           본 repo 안 dev 작업·코드 규약 (영구·갱신)
 │   ├── docker.md          Dockerfile·dev/docker-compose 명세
 │   ├── dependencies.md    pyproject.toml + uv.lock 관리·운영자 수동 bump·CI drift 검증
-│   ├── pipeline.md        E2E 파이프라인 검증 + OrbStack 4 VM 매트릭스·합성 부하·provisioning (macOS 한정)
+│   ├── pipeline.md        E2E 파이프라인 검증 + libvirt Linux 5 VM 매트릭스·합성 부하·provisioning (Linux x86_64)
+│   ├── windows-vm.md      Windows agent 검증 — libvirt Win Server 2022 autounattend VM (win-server-01, opt-in)
 │   ├── testing.md         pytest 단위·통합 테스트
 │   ├── conventions.md     본 repo 작업 규약 단일 — IDE·Hook(F1) + 자동화 변환 검증·누적 사고 패턴(F5)
 │   ├── wrap-up.md         기능 개발 마무리 5단계 표준 워크플로 — 문서 정합·코드 리뷰·테스트·README·CLAUDE.md (skill: /wrap-up)
@@ -56,7 +58,7 @@ docs/
 │   ├── use-method.md              USE Method 본질 요약 (Utilization · Saturation · Errors)
 │   ├── right-sizing-thresholds.md AWS Compute Optimizer + Azure Advisor 임계 catalog
 │   └── classification-rules.md    본 엔진 7 category 분류 규칙
-├── adr/                   Architecture Decision Records (영구·불변, 0001~0025)
+├── adr/                   Architecture Decision Records (영구·불변, 0001~0031)
 └── tradeoffs.md           의식적 설계 선택과 한계 (T1~T14) — 카탈로그
 ```
 

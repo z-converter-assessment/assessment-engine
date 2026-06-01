@@ -4,25 +4,27 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import (
     EnvironmentUtilizationRaw,
     ReportRowRaw,
     ServerDetail,
 )
 from assessment_engine.web.services.mappers.attention import (
+    _UTIL_COLOR_GAUGE,
     _UTIL_COLOR_NONE,
     _UTIL_DONUT_CIRC,
     build_environment_overview,
     build_risk_donut_segments,
     to_agent_unstable_item,
     to_capacity_warning_item,
-    to_disk_days_warning_item,
     to_os_eol_warning_item,
 )
 from assessment_engine.web.services.mappers.export import to_inventory_export_entry
 from assessment_engine.web.services.mappers.report import (
     _RISK_FROM_RECOMMENDATION,
     _build_recommendation_action,
+    _build_under_provisioned_reason,
     build_report_summary_bullets,
     build_role_distribution,
     compute_report_avg_p95,
@@ -31,7 +33,7 @@ from assessment_engine.web.services.mappers.report import (
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_FROM_REC,
-    _OS_EOL,
+    resolve_os_eol,
 )
 
 # ─── 헬퍼 ────────────────────────────────────────────────────────────────
@@ -176,11 +178,20 @@ def test_report_row_under_provisioned_maps_to_high():
 # ─── os_family 분기 (원칙 P2/P4 — Windows swap 제외 + 부분 평가) ───
 
 
-def test_report_row_is_partial_windows_vs_linux():
-    """ViewModel.is_partial — Windows precompute True, Linux/None False (템플릿 마커 단일 소스)."""
+def test_report_row_is_partial_by_unmeasured_saturation():
+    """ViewModel.is_partial = saturation 축 미관측(데이터 기반, 템플릿 마커 단일 소스).
+    Windows 는 load None(미관측)이라 True, Linux 는 load·iowait 관측이라 False — os 단정 아님."""
+    # Windows 실측: load None -> 부분 평가 (CPU run queue 미관측)
     assert to_report_row_item(_raw(cpu_p95=40.0, mem_p95=60.0, os_family="windows"), True, _NOW).is_partial is True
-    assert to_report_row_item(_raw(cpu_p95=40.0, mem_p95=60.0, os_family="linux"), True, _NOW).is_partial is False
-    assert to_report_row_item(_raw(cpu_p95=40.0, mem_p95=60.0, os_family=None), True, _NOW).is_partial is False
+    # Linux: saturation 축(load·cores·iowait) 관측 -> 완전 평가
+    assert (
+        to_report_row_item(
+            _raw(cpu_p95=40.0, mem_p95=60.0, os_family="linux", load_15m_max=0.5, cpu_cores=4, iowait_p95=5.0),
+            True,
+            _NOW,
+        ).is_partial
+        is False
+    )
 
 
 def test_report_row_windows_swap_not_high_risk():
@@ -257,6 +268,7 @@ def _detail(*, id_, hostname, cpu_cores, mem_total_kb, disk_size, role_unit=None
         mem_total_kb=mem_total_kb,
         swap_total_kb=0,
         boot_time=None,
+        agent_started_at=None,
         ip_internal=["10.0.0.1"],
         ip_external=None,
         disks=[{"size_bytes": disk_size}],
@@ -314,12 +326,11 @@ def test_environment_overview_utilization_default_empty():
 @pytest.mark.parametrize(
     "pct, expected_color",
     [
-        # HSL hue 그라데이션 — `hsl(120 - 1.2*pct, 65%, 45%)` (사용자 요구, 초록 → 빨강).
-        # 0% → hue 120 (초록), 50% → 60 (노랑), 100% → 0 (빨강).
-        (0.0, "hsl(120, 65%, 45%)"),
-        (50.0, "hsl(60, 65%, 45%)"),
-        (100.0, "hsl(0, 65%, 45%)"),
-        (None, _UTIL_COLOR_NONE),  # 표본 부재 — 그라데이션 외 단일 색
+        # 활용률 게이지 단색 — pct 무관 _UTIL_COLOR_GAUGE (E8, hsl 그라데이션 폐기).
+        (0.0, _UTIL_COLOR_GAUGE),
+        (50.0, _UTIL_COLOR_GAUGE),
+        (100.0, _UTIL_COLOR_GAUGE),
+        (None, _UTIL_COLOR_NONE),  # 표본 부재 — 단일 회색
     ],
 )
 def test_environment_overview_utilization_bar_color(pct, expected_color):
@@ -717,16 +728,6 @@ def test_capacity_warning_item_trigger_colors_from_single_source():
         assert t.color == _CAPACITY_TRIGGER_COLORS[t.label]
 
 
-def test_disk_days_warning_item_fields():
-    item = to_disk_days_warning_item("pid", "h", "/data", 12, 87.0)
-    assert item.mount_path == "/data"
-    assert item.badge_text == "12일"
-    assert item.badge_class == "rec-under_provisioned"
-    assert item.link_href == "/servers/pid/storage"
-    assert item.link_text == "h"
-    assert item.meta_text == "87%"
-
-
 @pytest.mark.parametrize(
     "os_id, os_version, should_match",
     [
@@ -741,7 +742,7 @@ def test_disk_days_warning_item_fields():
 )
 def test_os_eol_matching(os_id, os_version, should_match):
     raw = _raw(os_id=os_id, os_version=os_version)
-    item = to_os_eol_warning_item(raw)
+    item = to_os_eol_warning_item(raw, _NOW)
     assert (item is not None) == should_match
 
 
@@ -754,13 +755,16 @@ def test_agent_unstable_item_fields():
     assert item.link_text == "h"
 
 
-# ─── _OS_EOL dict — 정적 매핑 sanity ─────────────────────────────────────
+# ─── resolve_os_eol — 알려진 EOL distro 발화 sanity (endoflife 카탈로그, ADR 0031) ───
 
 
-def test_os_eol_has_known_eol_distros():
-    assert ("centos", "7") in _OS_EOL
-    assert ("rhel", "7") in _OS_EOL
-    assert ("ubuntu", "18.04") in _OS_EOL
+@pytest.mark.parametrize(
+    "os_id, os_version",
+    [("centos", "7"), ("rhel", "7"), ("ubuntu", "18.04")],
+)
+def test_resolve_os_eol_known_eol_distros(os_id, os_version):
+    # 2026 기준 모두 EOL 경과 -> (eol_iso, label) 반환 (None 아님).
+    assert resolve_os_eol(os_id, os_version, None, _NOW.date()) is not None
 
 
 # ─── to_inventory_export_entry v2 ─────────────────────────────────────────
@@ -834,6 +838,7 @@ def test_inventory_export_network_addresses_v4_v6_split():
         mem_total_kb=2 * 1024 * 1024,
         swap_total_kb=0,
         boot_time=None,
+        agent_started_at=None,
         ip_internal=["10.0.0.1", "fe80::1"],
         ip_external=["54.1.2.3"],
         disks=[],
@@ -872,6 +877,7 @@ def test_inventory_export_services_listeners_match_listen_ports():
         mem_total_kb=2 * 1024 * 1024,
         swap_total_kb=0,
         boot_time=None,
+        agent_started_at=None,
         ip_internal=["10.0.0.1"],
         ip_external=None,
         disks=[],
@@ -911,6 +917,7 @@ def test_inventory_export_services_listeners_fallback_when_no_listen_ports():
         mem_total_kb=2 * 1024 * 1024,
         swap_total_kb=0,
         boot_time=None,
+        agent_started_at=None,
         ip_internal=["10.0.0.1"],
         ip_external=None,
         disks=[],
@@ -993,26 +1000,26 @@ def test_report_row_item_disk_net_io_p95_peak_passthrough():
     ],
 )
 def test_recommendation_action_fixed_phrases(rec, expected):
-    assert _build_recommendation_action(rec, _raw()) == expected
+    assert _build_recommendation_action(recommendation.Assessment(rec, [], [])) == expected
 
 
 @pytest.mark.parametrize(
-    "kwargs, expected",
+    "triggers, expected",
     [
-        # under_provisioned 은 hit trigger 별 증설 권고 결합 (임계는 recommendation 모듈 단일 진실).
-        ({"swap_used": True}, "메모리 증설 (스왑 발생)"),
-        ({"mem_p95": 85.0}, "메모리 증설"),
-        ({"cpu_p95": 75.0}, "CPU 증설"),
-        ({"iowait_p95": 25.0}, "디스크 증설 (IO 병목)"),
-        ({"worst_used": 90.0}, "디스크 증설 (capacity)"),
-        ({}, "리소스 증설 검토"),  # trigger 0건 fallback
+        # under_provisioned 은 hit trigger(assess 산출) 별 증설 권고 결합 — mapper 는 키->문구 변환만(P2).
+        (["mem_saturation"], "메모리 증설 (스왑 발생)"),
+        (["mem_util"], "메모리 증설"),
+        (["cpu_util"], "CPU 증설"),
+        (["disk_io"], "디스크 증설 (IO 병목)"),
+        (["disk_capacity"], "디스크 증설 (capacity)"),
+        ([], "리소스 증설 검토"),  # trigger 0건 fallback
     ],
 )
-def test_recommendation_action_under_trigger(kwargs, expected):
-    assert _build_recommendation_action("under_provisioned", _raw(**kwargs)) == expected
+def test_under_provisioned_reason_per_trigger(triggers, expected):
+    assert _build_under_provisioned_reason(triggers) == expected
 
 
-def test_recommendation_action_under_combines_multiple_triggers():
-    """swap + cpu 동시 hit 시 '/' 결합. swap 발생 시 메모리 중복('메모리 증설')은 제거."""
-    action = _build_recommendation_action("under_provisioned", _raw(swap_used=True, cpu_p95=75.0))
-    assert action == "메모리 증설 (스왑 발생) / CPU 증설"
+def test_under_provisioned_reason_combines_and_dedups():
+    """여러 trigger '/' 결합. mem_saturation(스왑) + mem_util 중복 시 스왑 문구만."""
+    assert _build_under_provisioned_reason(["mem_saturation", "cpu_util"]) == "메모리 증설 (스왑 발생) / CPU 증설"
+    assert _build_under_provisioned_reason(["mem_saturation", "mem_util"]) == "메모리 증설 (스왑 발생)"

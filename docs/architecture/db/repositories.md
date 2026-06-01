@@ -40,8 +40,7 @@
 | `report_mount_worst(server_ids, period_days, end)` | mount별 worst usage + fill_rate (days_until_full 산출) |
 | `report_uptime_stats(server_ids, period_days, end)` | 가동률 통계 |
 | `report_disk_io_baseline` / `report_net_io_baseline` | I/O baseline (Export `recommended_size_class` 입력) |
-| `disk_usage_warnings(threshold_pct)` | 사용률 임계 초과 mount (attention 신호) |
-| `metric_gap_warnings(gap_min, recent_h)` | 메트릭 갭(통신 끊김) 후보 |
+| `metric_gap_warnings(gap_min, recent_h)` | 메트릭 갭(통신 끊김 운영신호) 후보 |
 | `environment_utilization(period_days, end)` | 대시보드 환경 평균 활용률 도넛 |
 
 ## Diagnostic 계층 — `BaseDiagnosticRepository` (ADR 0004)
@@ -77,7 +76,7 @@ interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedel
 - 신규 range·bucket 추가 시 backend Literal·`_BUCKET_INFO`·`chart-utils.js` `RANGE_LABEL`/`AUTO_BUCKET`/`BUCKET_LABEL`/`RANGE_MS`/`BUCKET_MS`·UI 토글 4곳 동시 갱신 의무 (F10)
 
 ### `list_servers` 부분 SELECT 정책
-`select(ServerInventory)` 풀 row 대신 11컬럼 명시. `mounts`/`listen_ports` JSONB는 페이지당 N행에서 직렬화 비용 큼 + 목록 미사용. 트레이드오프: `docs/tradeoffs.md` T8.
+`select(ServerInventory)` 풀 row 대신 11컬럼 명시. `mounts`/`listen_ports` JSONB는 페이지당 N행에서 직렬화 비용 큼 + 목록 미사용. 트레이드오프: `docs/tradeoffs.md` T8. 정렬은 `hostname` ASC.
 
 ## INSERT 통일 — `pg_insert` + `on_conflict_do_nothing`
 

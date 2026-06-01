@@ -44,7 +44,7 @@
   {% endif %}
 
   <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:8px; margin-top:16px; padding:12px 14px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0;">
-    {% for cat in ['web', 'db', 'cache', 'mq', 'container', 'monitor'] %}
+    {% for cat in service_categories %}
     <span class="badge {{ cat | service_badge_class }}">{{ cat }}</span>
     {% endfor %}
   </div>

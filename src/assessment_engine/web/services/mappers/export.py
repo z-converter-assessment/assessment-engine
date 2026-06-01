@@ -12,7 +12,7 @@ from assessment_engine.db.dtos.outbound import (
 )
 from assessment_engine.web.services.device_filters import find_parent_disk
 from assessment_engine.web.services.mappers.server import infer_role
-from assessment_engine.web.services.service_classifier import SERVICE_PORTS, classify
+from assessment_engine.web.services.service_classifier import classify, well_known_ports
 
 
 def _split_disks(disks: list[dict], mounts: list[dict]) -> tuple[int | None, list[dict]]:
@@ -61,7 +61,7 @@ def _services_for_export(services: list[dict] | None, listen_ports: list[dict] |
 
     `unknown` 카테고리는 제외 — 보안그룹 룰 자동 생성에 의미 없음.
     listeners: ports 매핑별 실제 (proto, address) 정보 — listen_ports inventory와 매칭.
-    매칭 실패 시 service_classifier의 `SERVICE_PORTS` 폴백 (proto=tcp, address=0.0.0.0 가정).
+    매칭 실패 시 service_classifier의 `well_known_ports` 폴백 (proto=tcp, address=0.0.0.0 가정).
     """
     if not services:
         return []
@@ -85,16 +85,11 @@ def _services_for_export(services: list[dict] | None, listen_ports: list[dict] |
         unit = s.get("unit") if isinstance(s, dict) else None
         if not unit:
             continue
-        cat = classify(unit)
+        cat = classify(unit, listen_ports)
         if cat == "unknown":
             continue
-        # SERVICE_PORTS는 unit normalized 이름(`nginx`/`postgresql` 등) 키 — classifier와 동일 normalize 의무.
-        unit_normalized = unit.lower().removesuffix(".service")
-        port_list: list[int] = []
-        for keyword, ports in SERVICE_PORTS.items():
-            if keyword in unit_normalized:
-                port_list = ports
-                break
+        # well-known 포트는 unit normalized 이름 substring 매칭 — classifier 카탈로그 단일 진실.
+        port_list = well_known_ports(unit)
         listeners: list[dict] = []
         for port in port_list:
             matched = by_port.get(port, [])
@@ -149,7 +144,7 @@ def to_inventory_export_entry(
     return InventoryExportEntry(
         composite_id=detail.composite_id,
         hostname=detail.hostname,
-        role=infer_role(detail.services),
+        role=infer_role(detail.services, detail.listen_ports),
         last_seen_at=detail.last_seen_at,
         services=_services_for_export(detail.services, detail.listen_ports),
         os={

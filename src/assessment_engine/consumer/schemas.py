@@ -19,6 +19,10 @@ class MessageBase(BaseModel):
     message_id: UUID
     agent_started_at: datetime
     boot_time: datetime
+    # OS family — 모든 메시지 진입 시점 OS 분기 단일 진실. agent 가 자기 OS 자체 보고.
+    # nullable — 옛 agent minor bump 호환 + task.result Linux worker 미발행 비대칭 흡수.
+    # 시계열 테이블 컬럼 추가는 시점별 활용처가 명확해질 때 별도 결정 (현 단계 schema 만).
+    os_family: Literal["linux", "windows"] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -64,10 +68,8 @@ class InventoryListenPortInfo(BaseModel):
 class InventoryInput(MessageBase):
     message_type: Literal["inventory"]
 
-    # OS family — task.install 발행 시 dispatch 단일 진실 (ADR 0020). agent 가 자기 OS 자체 보고.
-    # nullable — Linux agent minor bump 호환. agent 측 배포 완료 후 not-null tighten 별도.
-    os_family: Literal["linux", "windows"] | None = None
-
+    # os_family 는 MessageBase 정의 상속 (모든 메시지 단일 진실). InventoryInput 한정 활용처:
+    # task.install dispatch 단일 진실 (ADR 0020) — server_inventory.os_family 저장 후 task 발행 시 분기.
     os_id: str | None = Field(default=None, max_length=64)
     os_version: str | None = Field(default=None, max_length=64)
     os_codename: str | None = Field(default=None, max_length=64)
@@ -176,7 +178,9 @@ class MetricsInput(MessageBase):
 class ErrorInput(MessageBase):
     message_type: Literal["error"]
     error_code: str = Field(min_length=1, max_length=64)
-    error_message: str = Field(min_length=1)
+    # error_message — 빈 문자열 허용 (#B extra=ignore 정신 — 발행 측 NULL 인자 fallback 으로
+    # 빈 문자열 가능, engine 은 통과시키고 로깅 단에서 fallback 표기). agent 측 수정 없이 흡수.
+    error_message: str
     failed_component: Literal["collect", "publish"]
     # 에이전트가 retry 종료·복구 시점에만 채워서 발행 (평소엔 None)
     retry_count: int | None = Field(default=None, ge=0)
