@@ -29,7 +29,7 @@ docker compose up -d              # 루트 Dockerfile 로 빌드. web: http://lo
 GitHub Release 첨부 `docker-compose.yml` + `.env.example` 받아:
 ```bash
 cp .env.example .env
-ENGINE_IMAGE=ghcr.io/<org>/assessment-engine:v1.2.3 docker compose up -d --no-build   # 릴리즈 이미지 pull
+ENGINE_IMAGE=ghcr.io/<org>/assessment-engine:1.2.3 docker compose up -d --no-build   # 릴리즈 이미지 pull
 ```
 `ENGINE_IMAGE` 미설정 시 로컬 빌드 시도(`--no-build` 와 충돌) — 릴리즈 경로는 둘 다 필수.
 
@@ -231,8 +231,8 @@ Ansible 표준 패턴과 정합:
 
 GHCR pull (외부망 또는 사내 mirror via `docker save`):
 ```bash
-docker pull ghcr.io/zconverter/assessment-engine:v1.2.3
-cosign verify ghcr.io/zconverter/assessment-engine:v1.2.3 \
+docker pull ghcr.io/zconverter/assessment-engine:1.2.3
+cosign verify ghcr.io/zconverter/assessment-engine:1.2.3 \
   --certificate-identity-regexp='https://github\.com/zconverter/assessment-engine/.*' \
   --certificate-oidc-issuer='https://token.actions.githubusercontent.com'
 ```
@@ -240,7 +240,7 @@ cosign verify ghcr.io/zconverter/assessment-engine:v1.2.3 \
 Alembic migration (1회):
 ```bash
 docker run --rm --env-file /etc/assessment-engine.env \
-  --entrypoint /bin/sh ghcr.io/zconverter/assessment-engine:v1.2.3 \
+  --entrypoint /bin/sh ghcr.io/zconverter/assessment-engine:1.2.3 \
   -c 'ALEMBIC_INI=$(python -c "from importlib.resources import files; print(files(\"assessment_engine\") / \"_alembic.ini\")"); python -m alembic -c "$ALEMBIC_INI" upgrade head'
 ```
 
@@ -289,7 +289,7 @@ spec:
 - consumer — replicas N 자유 (broker prefetch_count=10 분산)
 - diagnostic-worker — replicas N 자유 (job 단위 분산)
 
-폐쇄망 (air-gapped) 운영: `docker save assessment-engine:v1.2.3 -o image.tar` + scp → 운영 환경에서 `docker load -i image.tar` (ADR 0017 본문).
+폐쇄망 (air-gapped) 운영: `docker save assessment-engine:1.2.3 -o image.tar` + scp → 운영 환경에서 `docker load -i image.tar` (ADR 0017 본문).
 
 ## 5. 운영 contract 한눈
 

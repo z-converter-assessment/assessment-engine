@@ -35,7 +35,7 @@
  |  - time invariants            |  |  Worker:                      |
  |  - agent restart signals      |  |   - rule-based classify       |
  |  - task.result -> Task        |  |   - retrieve RAG context      |
- |    row 6-column UPDATE        |  |     (pgvector, opt-in)        |
+ |    row 7-column UPDATE        |  |     (pgvector, opt-in)        |
  |                               |  |   - narrate (USE Method via   |
  |                               |  |     recommendation.py +       |
  |                               |  |     RAG-grounded LLM)         |
@@ -107,11 +107,11 @@
 | 산출물 | 위치 · 참고 문서 |
 |--------|--------------|
 | Python wheel + sdist + SHA256SUMS | GitHub Release (semver tag `v*`) · `docs/operations/release.md` |
-| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/{org}/assessment-engine:v*`+`:0.1`+`:0`+`:latest` · ADR 0017 |
+| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/{org}/assessment-engine:0.1.0`+`:0.1`+`:0`+`:latest` (semver tag `v0.1.0` -> 이미지 태그는 `v` 없는 `0.1.0`, metadata-action) · ADR 0017 |
 | SBOM (CycloneDX JSON) + Sigstore signature | wheel·sdist에 첨부 — 외부 인프라가 의존성 audit + `cosign verify-blob` 무결성 검증 |
-| SBOM (SPDX, BuildKit attestation) + cosign keyless signature | image 첨부 — `cosign verify ghcr.io/.../assessment-engine:v0.1.0` 무결성 검증 |
+| SBOM (SPDX, BuildKit attestation) + cosign keyless signature | image 첨부 — `cosign verify ghcr.io/.../assessment-engine:0.1.0` 무결성 검증 |
 | Alembic migrations·alembic.ini | wheel·image 동봉 (`hatch.force-include`) · `docs/operations/release.md` |
-| `docker-compose.yml` + `.env.example` | GitHub Release 첨부 — 릴리즈 다운로드만으로 퀵스타트 (`ENGINE_IMAGE=ghcr.io/...:v* docker compose up -d --no-build`, GHCR 이미지 pull, ADR 0033) |
+| `docker-compose.yml` + `.env.example` | GitHub Release 첨부 — 릴리즈 다운로드만으로 퀵스타트 (`ENGINE_IMAGE=ghcr.io/...:0.1.0 docker compose up -d --no-build`, GHCR 이미지 pull, ADR 0033) |
 | 환경변수·secret contract | `docs/operations/env.md` |
 | systemd unit reference | `docs/operations/deployment.md` 4절 |
 | install·실행 절차 | `docs/operations/deployment.md` |
