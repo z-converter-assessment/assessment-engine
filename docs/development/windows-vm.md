@@ -48,6 +48,10 @@ WIN_ENABLE=0 ./dev/dev-up.sh  # Windows 제외 (Linux 전용)
    - `build_win_autounattend` — `dev/win/autounattend.xml.tmpl` 치환 -> ISO(루트 autounattend.xml·provision.ps1) -> 풀 import.
    - `define_win_domain`(boot order hd 우선 — 빈 디스크 첫 부팅은 cdrom 폴백, 설치 후 재부팅은 hd 의 Windows Boot Manager 직행) -> `virsh start` -> `virsh send-key`(Enter 연타로 "Press any key to boot from CD" 통과).
    - SSH 도달 대기(cap `WIN_SSH_CAP`, 기본 2400s = 설치 + FirstLogonCommands(OpenSSH) 완료까지).
+   - 시계 UTC 동기화(`w32tm /resync`) — agent 배포(첫 발행) 이전에 수행. 골든 clone 부팅 직후 RTC 가
+     local TZ 로 떠 있으면 발행된 `collected_at` 이 UTC 오프셋만큼 미래로 튀어 "가짜 최신 행"이 잔존
+     -> 대시보드 CPU delta(최신 2행) 깨짐. 근본 차단은 provision.ps1 의 `RealTimeIsUniversal=1`(RTC=UTC 해석,
+     골든 영구), 본 resync 는 NTP 보정.
 3. `build_win_agent` — `ensure_win_vendor`(vendor static libs 없으면 자동 크로스빌드, 최초 1회 캐시) 후 mingw 크로스빌드(incremental).
 4. `install_win_redis` — tporadowski MSI host 다운로드 -> scp -> msiexec(/qn). redis 서비스 있으면 skip.
 5. `deploy_win_agent` — agent.env(RABBITMQ_HOST=게이트웨이 IP) scp -> agent.exe 설치·New-Service(공백 경로 quote) -> IIS/redis 기동 + agent restart.
@@ -56,13 +60,15 @@ WIN_ENABLE=0 ./dev/dev-up.sh  # Windows 제외 (Linux 전용)
 
 ## autounattend 응답 파일
 
-`dev/win/autounattend.xml.tmpl` (Server 2022 Std Desktop, UEFI/GPT). placeholder 3개를 `build_win_autounattend` 가 치환:
+`dev/win/autounattend.xml.tmpl` (Server 2022 Std Desktop, UEFI/GPT). placeholder 2개를 `build_win_autounattend` 가 치환:
 
 | placeholder | 값 |
 |-------------|----|
 | `@@HOSTNAME@@` | `win-server-01` (ComputerName) |
 | `@@ADMINPASS@@` | built-in Administrator 비밀번호 (`WIN_ADMIN_PASS`, dev 고정) |
-| `@@PROVISION_B64@@` | FirstLogonCommands PowerShell (UTF-16LE base64) |
+
+provision(OpenSSH·방화벽·SSH키·DefaultShell·IIS·`RealTimeIsUniversal`)은 `provision.ps1` 로 ISO 에 동봉 —
+FirstLogonCommands 가 CD 스캔 후 실행. 거대 base64 를 CommandLine 에 직접 넣으면 maxLength 초과로 oobeSystem reject 라 분리.
 
 핵심:
 - 이미지 선택 = `/IMAGE/INDEX` 2 (eval ISO: 1=Std Core, 2=Std Desktop, 3=DC Core, 4=DC Desktop). 인덱스가
@@ -176,7 +182,8 @@ virsh undefine win-server-01 --remove-all-storage --nvram   # 완전 제거 (재
 
 ## 한계 / 주의
 
-- 최초 설치 ~20min(무인) + ISO ~4.7GB 다운로드 1회. 기본 skip(`WIN_ENABLE=1` opt-in).
+- 최초 설치 ~20min(무인) + ISO ~4.7GB 다운로드 1회 — 이후 골든 이미지 clone 으로 재사용(설치 skip).
+  dev-up 기본 포함이며 `WIN_ENABLE=0` 으로 opt-out(Linux 전용).
 - Server 2022 Eval = 180일. 만료 후 `slmgr /rearm` 또는 재설치.
 - autounattend `/IMAGE/INDEX`·FirstLogonCommands 는 Win 빌드별 미세 차이 가능 — 설치 실패 시 screenshot 으로
   단계 확인 후 템플릿 보정.

@@ -1004,6 +1004,10 @@ build_win_autounattend() {
   # provision.ps1 — 실제 파일이라 길이·escape 제약 없음. ISO 에 동봉돼 FirstLogon 시 CD 에서 실행.
   cat > "$VM_WORK_DIR/unattend.d/provision.ps1" <<PS
 \$ErrorActionPreference='Continue'
+# RTC 를 UTC 로 해석 — libvirt 도메인이 <clock offset='utc'> 라 RTC 에 UTC 를 주는데, Windows 기본은
+# RTC 를 local TZ 로 읽어 collected_at 이 UTC 오프셋만큼 미래로 튄다. RealTimeIsUniversal=1 로 RTC=UTC
+# 해석을 강제해 부팅 직후부터 시각 정합 (골든 이미지에 영구 반영, w32tm resync 의 NTP 의존 이전 단계).
+New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\TimeZoneInformation' -Name RealTimeIsUniversal -Value 1 -PropertyType DWord -Force | Out-Null
 Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
 Set-Service sshd -StartupType Automatic
 Start-Service sshd
@@ -1136,6 +1140,10 @@ start_win_vm() {
     fi
   done
   echo "  [$WIN_VM_NAME] SSH OK ($WIN_VM_IP)"
+  # 시계 UTC 동기화 — agent 배포(첫 발행) 이전에 수행해야 한다. 골든 clone 부팅 직후 Windows RTC 가
+  # local TZ(예: PST)로 떠 있으면, resync 전 창에 agent 가 발행한 collected_at 이 미래로 튀어(UTC 오프셋만큼)
+  # "가짜 최신 행"으로 영구 잔존 -> 대시보드 CPU delta(최신 2행) 깨짐. 동기화를 먼저 하면 첫 발행부터 정상.
+  win_ps 'Set-Service w32time -StartupType Automatic -ErrorAction SilentlyContinue; Start-Service w32time -ErrorAction SilentlyContinue; w32tm /resync /force' >/dev/null 2>&1 || true
 }
 
 # redis(tporadowski) 설치 — host 에서 MSI 받아 scp -> msiexec. 서비스 redis 있으면 skip (멱등).
@@ -1256,10 +1264,7 @@ ENV
     win_ps 'if (-not (Get-Service assessment-agent -ErrorAction SilentlyContinue)) { New-Service -Name assessment-agent -BinaryPathName '\''"C:\Program Files\assessment-agent\assessment-agent.exe"'\'' -DisplayName "Assessment Agent" -StartupType Automatic | Out-Null; sc.exe failure assessment-agent reset= 86400 actions= restart/10000/restart/10000/restart/10000 | Out-Null }'
   fi
 
-  # Windows 시계 UTC 동기화 — RTC drift 시 collected_at 어긋나 신선도·online 판정 깨짐(F2).
-  echo "  [$WIN_VM_NAME] Windows 시계 UTC 동기화..."
-  win_ps 'Set-Service w32time -StartupType Automatic -ErrorAction SilentlyContinue; Start-Service w32time -ErrorAction SilentlyContinue; w32tm /resync /force' >/dev/null 2>&1 || true
-
+  # 시계 UTC 동기화는 start_win_vm(agent 배포 이전)에서 이미 수행 — 여기선 IIS·redis·agent 기동만.
   echo "  [$WIN_VM_NAME] IIS·redis 기동 보장 + agent (re)start..."
   win_ps 'Set-Service W3SVC -StartupType Automatic -ErrorAction SilentlyContinue; Set-Service redis -StartupType Automatic -ErrorAction SilentlyContinue; Start-Service W3SVC,redis -ErrorAction SilentlyContinue; if (Get-Service assessment-agent -ErrorAction SilentlyContinue) { Restart-Service assessment-agent -ErrorAction SilentlyContinue }'
 }
