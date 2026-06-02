@@ -28,6 +28,10 @@
     th { padding: 9px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid #e2e8f0; }
     td { padding: 11px 14px; border-top: 1px solid #f1f5f9; color: #334155; vertical-align: middle; }
     tr:hover td { background: #f8fafc; }
+    /* 서버 목록 — 칼럼 많아 기본 표보다 조밀하게: 셀 패딩 축소·폰트 통일·세로 가운데. */
+    .server-list-table th, .server-list-table td { padding: 7px 11px; font-size: 13px; }
+    .server-list-table th { font-size: 11px; }
+    .server-list-table td { vertical-align: middle; }
     /* 모든 link 일관 — color + 항상 밑줄 (옅음). hover 시 강조. 별도 class (.row-link 등) 와 단일 진실 정합. */
     a { color: #2563eb; text-decoration: underline; text-decoration-color: #cbd5e1; text-underline-offset: 2px; }
     a:hover { text-decoration-color: #2563eb; }
@@ -265,7 +269,7 @@
       table { box-shadow: none !important; }
       a { color: #1a1a1a !important; text-decoration: none !important; }
       .action-col { display: none !important; }
-      .progress-fill, .progress-bar, .badge, .bar-fill, .bar-track, .legend-dot, .legend-line { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .progress-fill, .progress-bar, .badge, .bar-fill, .bar-track, .legend-dot, .legend-line, .dot-ok, .dot-off { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
       /* 차트 범례 색 점·선은 인쇄에서 배경색이 빠져 식별 불가 — exact 강제. 칩 테두리/회색 토글 OFF 도 같이 유지. */
       .legend-chip { border-color: #cbd5e1 !important; }
       /* 막대 트랙은 인쇄 시 옅은 배경이 거의 흰색으로 빠져 영역 구분이 약해짐 — 테두리로 막대 길이 가시성 확보. */
@@ -275,6 +279,13 @@
       .print-break-before { page-break-before: always; }
       /* 성능 리포트 — 행 카드 안 2 차트를 인쇄에서도 2열 유지 (auto-fit 이 A4 폭에서 1열로 떨어지는 것 방지). */
       .perf-pair { grid-template-columns: repeat(2, 1fr) !important; }
+      /* 환경 보고서 — 부하 추이 + 토폴로지 한 카드 2열을 인쇄에서도 웹과 동일 구도(2열) 유지. */
+      .env-dual { grid-template-columns: repeat(2, 1fr) !important; }
+      /* 세부 서버 목록 — 칼럼 많아 A4 폭 초과. 인쇄에서 폰트·셀 패딩 축소 + 줄바꿈 허용으로 타이트하게. */
+      .detail-table { font-size: 9px !important; }
+      .detail-table th, .detail-table td { padding: 2px 4px !important; white-space: normal !important; word-break: keep-all; }
+      .detail-table .badge { font-size: 8px !important; padding: 1px 4px !important; }
+      .env-dual #env-trend-chart { width: 100% !important; height: 100% !important; }
       /* 차트 높이 축소 — 1페이지(서버정보+CPU+로드/메모리)가 A4 한 장에 들어가도록. 화면 180px -> 인쇄 100px. */
       .perf-chart { height: 100px !important; }
       /* 성능 리포트 1페이지 추가 압축 — 카드 간격·내부 패딩 축소, 인쇄 부가 식별자(Composite/Machine ID) 숨김. */

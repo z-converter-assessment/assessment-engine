@@ -19,6 +19,7 @@ from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS as _PROVISIONING_SEGMENT_DEFS,
 )
 from assessment_engine.web.services.mappers.topology import build_network_topology
+from assessment_engine.web.services.service_classifier import SINGLE_INSTANCE_CATEGORIES
 from assessment_engine.web.view_models.attention import (
     AttentionSignals,
     CapacityWarningItem,
@@ -32,6 +33,9 @@ from assessment_engine.web.view_models.environment_report import (
     EnvironmentReportSummary,
     InsufficientHostItem,
     OsCount,
+    ServiceCatalogGroup,
+    ServiceHost,
+    ServiceNameCount,
 )
 from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
 
@@ -128,6 +132,37 @@ def build_metric_trend(cpu_series: list, mem_series: list, disk_series: list) ->
     return [
         {"at": t.isoformat(), "cpu": cpu_by.get(t), "mem": mem_by.get(t), "disk": disk_by.get(t)} for t in timestamps
     ]
+
+
+def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalogGroup]:
+    """선택 N대 base.rows 의 workload_groups 를 카테고리 기준 집계 — 카테고리별 서비스명·등장 서버 수 (P2).
+
+    names_label 은 "nginx, gunicorn" comma-separated — split 후 서비스명별 등장 서버 수 카운트. 빈 names
+    (listen-only 탐지, T15)는 카테고리만 (services=[]). 범례(카테고리 색) + 색 뱃지(서비스명·개수)로 표시.
+    """
+    # 일반 카테고리: 서비스명별 hosts. single_instance(container 등, E7): docker+containerd 등을 1 런타임 스택으로
+    # 보아 카테고리 단위 서버당 1 (서비스명 합집합·서버 distinct 카운트) — 카테고리 카운트 정책과 일관.
+    multi: dict[str, dict[str, list[ServiceHost]]] = {}
+    single_names: dict[str, set[str]] = {}
+    single_hosts: dict[str, list[ServiceHost]] = {}
+    for r in rows:
+        for g in r.workload_groups:
+            host = ServiceHost(hostname=r.hostname, public_id=r.public_id)
+            names = [n.strip() for n in (g.names_label or "").split(", ") if n.strip()]
+            if g.category in SINGLE_INSTANCE_CATEGORIES:
+                single_names.setdefault(g.category, set()).update(names)
+                single_hosts.setdefault(g.category, []).append(host)
+            else:
+                cat_map = multi.setdefault(g.category, {})
+                for n in names:
+                    cat_map.setdefault(n, []).append(host)
+    groups: dict[str, list[ServiceNameCount]] = {}
+    for cat, cat_map in multi.items():
+        groups[cat] = [ServiceNameCount(name=n, count=len(hosts), hosts=hosts) for n, hosts in sorted(cat_map.items())]
+    for cat, hosts in single_hosts.items():
+        label = ", ".join(sorted(single_names.get(cat, set()))) or cat
+        groups[cat] = [ServiceNameCount(name=label, count=len(hosts), hosts=hosts)]
+    return [ServiceCatalogGroup(category=cat, services=groups[cat]) for cat in sorted(groups)]
 
 
 def _count_os(details: list[ServerDetail]) -> list[OsCount]:
@@ -423,6 +458,7 @@ def to_environment_report(
         top_risks=top_risks,
         summary_bullets_env=summary,
         under_provisioned_hosts=under_hosts,
+        service_catalog=_aggregate_service_catalog(base.rows),
         attention_hosts=attention_hosts,
         capacity_imminent=capacity_imminent,
         insufficient_hosts=insufficient,

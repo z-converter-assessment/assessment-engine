@@ -34,6 +34,12 @@ from assessment_engine.web.services.service_classifier import (
     matched_ports,
 )
 from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb, usage_pct
+from assessment_engine.web.view_models.environment_report import (
+    CpuBreakdown,
+    MemoryBreakdown,
+    ServerInventory,
+    VolumeUsage,
+)
 from assessment_engine.web.view_models.server import (
     DiskItem,
     IpAddr,
@@ -195,6 +201,49 @@ def _dedup_known(services: list[ServiceItem] | None) -> tuple[list[ServiceItem],
 def _os_display(os_id: str | None, os_version: str | None) -> str:
     parts = [p for p in [os_id, os_version] if p]
     return " ".join(parts) or "-"
+
+
+def build_server_inventory(detail, is_online: bool) -> ServerInventory:
+    """ServerDetail -> 개별 보고서 인벤토리 (충실 표시 — 전체 IP(IPv4/IPv6)·하드웨어·식별자, 생략·왜곡 0)."""
+    disk_total_bytes = sum((d.get("size_bytes") or 0) for d in detail.disks) if detail.disks else 0
+    return ServerInventory(
+        hostname=detail.hostname,
+        os_display=_os_display(detail.os_id, detail.os_version),
+        os_codename=detail.os_codename,
+        kernel_version=detail.kernel_version,
+        cpu_model=detail.cpu_model,
+        cpu_cores=detail.cpu_cores,
+        mem_total_gb=kb_to_gb(detail.mem_total_kb),
+        swap_total_gb=kb_to_gb(detail.swap_total_kb),
+        disk_total_gb=int(bytes_to_gb(disk_total_bytes) or 0),
+        ip_internal=_to_ip_addrs(detail.ip_internal),
+        ip_external=_to_ip_addrs(detail.ip_external) if detail.ip_external else [],
+        boot_time=detail.boot_time,
+        agent_version=detail.agent_version,
+        composite_id=detail.composite_id,
+        machine_id=detail.machine_id,
+        is_online=is_online,
+    )
+
+
+def build_volumes(raws) -> list[VolumeUsage]:
+    """ReportMountUsageRaw list -> VolumeUsage (bytes -> GB). 개별 보고서 마운트별 스토리지."""
+    return [VolumeUsage(mount=r.mount, total_gb=bytes_to_gb(r.total_bytes), used_pct=r.used_pct) for r in raws]
+
+
+def build_memory_breakdown(raw) -> MemoryBreakdown:
+    """MemoryBreakdownRaw -> MemoryBreakdown (1:1)."""
+    return MemoryBreakdown(
+        used_pct=raw.used_pct,
+        available_pct=raw.available_pct,
+        cached_pct=raw.cached_pct,
+        buffers_pct=raw.buffers_pct,
+    )
+
+
+def build_cpu_breakdown(raw) -> CpuBreakdown:
+    """CpuBreakdownRaw -> CpuBreakdown (1:1)."""
+    return CpuBreakdown(user_pct=raw.user_pct, system_pct=raw.system_pct, iowait_pct=raw.iowait_pct)
 
 
 # ─── 1차 매핑 (Outbound → ViewModel) ──────────────────────────────────────

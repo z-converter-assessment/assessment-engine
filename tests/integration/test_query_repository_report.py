@@ -6,6 +6,9 @@
 - report_uptime_stats — period 안 boot_time DISTINCT count - 1
 - report_disk_io_baseline — sectors·ops delta 평균 (IOPS·throughput_kbps)
 - report_net_io_baseline — rx/tx bytes delta 평균 (kbps)
+- report_mount_usage — 전체 마운트 윈도우 평균 사용률 (개별 보고서 스토리지 상세)
+- report_memory_breakdown — used/available/cached/buffers 윈도우 평균 (전체 메모리 대비)
+- report_cpu_breakdown — user/system/iowait LAG delta 비율
 """
 
 from datetime import UTC, datetime, timedelta
@@ -287,3 +290,37 @@ async def test_all_report_queries_share_server_ids_and_period(collect_repo, quer
     assert sid in net_io
     # uptime은 boot_time 변경 없으면 0 또는 누락 (둘 다 reboot_count=0 의미)
     assert uptime.get(sid, 0) == 0
+
+
+# ─── 개별 보고서 심화 — 마운트별 / 메모리 구성 / CPU 분류 ──────────────────
+
+
+async def test_report_mount_usage_returns_all_mounts_avg_pct(collect_repo, query_repo):
+    """worst 1개가 아닌 전체 마운트의 윈도우 평균 사용률 (avail 단조감소 -> 평균 50% 이상)."""
+    sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-mnt-usage")
+    vols = await query_repo.report_mount_usage(sid, period_days=1, end=end + timedelta(minutes=1))
+    assert len(vols) == 1
+    v = vols[0]
+    assert v.mount == "/data"
+    assert v.total_bytes == 100 * 10**9
+    assert v.used_pct is not None and v.used_pct >= 50.0
+
+
+async def test_report_memory_breakdown_pct_split(collect_repo, query_repo):
+    """used/available/cached/buffers 윈도우 평균 (전체 메모리 대비). 기본 mem 8GB·available 5GB."""
+    sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-mem-bd")
+    mb = await query_repo.report_memory_breakdown(sid, period_days=1, end=end + timedelta(minutes=1))
+    # mem_total=8GB, available=5GB -> used 37.5% / available 62.5%, cached 1GB=12.5%, buffers 200MB~2.4%
+    assert mb.used_pct == pytest.approx(37.5, abs=0.1)
+    assert mb.available_pct == pytest.approx(62.5, abs=0.1)
+    assert mb.cached_pct == pytest.approx(12.5, abs=0.1)
+    assert mb.buffers_pct is not None and 0 < mb.buffers_pct < 5
+
+
+async def test_report_cpu_breakdown_delta_split(collect_repo, query_repo):
+    """user/system/iowait LAG delta 비율. step delta user 100·system 30·iowait 40·idle 600 -> total 770."""
+    sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-cpu-bd")
+    cb = await query_repo.report_cpu_breakdown(sid, period_days=1, end=end + timedelta(minutes=1))
+    assert cb.user_pct == pytest.approx(100 / 770 * 100, abs=0.5)
+    assert cb.system_pct == pytest.approx(30 / 770 * 100, abs=0.5)
+    assert cb.iowait_pct == pytest.approx(40 / 770 * 100, abs=0.5)

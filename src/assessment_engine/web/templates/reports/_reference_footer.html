@@ -7,9 +7,9 @@
   <h2>참고자료</h2>
   <p style="margin:0 0 8px; font-size:13px; color:#475569;">
     {% if view == "engineer" %}
-    이 보고서의 판정 근거 — Right-sizing 분류 임계값, USE 축(Utilization·Saturation) 정의, 보조 지표(p95·peak·변동성·saturation·iowait) 정의, 운영 신호(OS 지원 종료 등) 임계:
+    이 보고서의 판정 근거 — Right-sizing 분류 임계값, USE 축(Utilization·Saturation) 정의, 보조 지표(p95·peak·변동성·saturation·iowait·메모리 구성·CPU 분류) 정의, 부하 추이·마운트별 스토리지 표기, 운영 신호(OS 지원 종료 등) 임계:
     {% else %}
-    이 보고서의 Right-sizing 분류(리소스 부족·과다 프로비저닝·유휴·종료 권장·정상)가 어떤 기준으로 판정되는지 — 분류 임계값과 근거 출처:
+    이 보고서의 Right-sizing 분류(리소스 부족·과다 프로비저닝·유휴·종료 권장·정상) 판정 기준, 그리고 OS 지원 종료(endoflife.date 기준) 신호. 사용률 통계는 평균·p95(작은 값부터 정렬해 95% 위치 값 — 상위 5%만 초과)·peak(최댓값)로 표기 — 분류 임계값과 근거 출처:
     {% endif %}
   </p>
   <p style="margin:0; font-size:13px;">

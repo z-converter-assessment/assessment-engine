@@ -9,7 +9,6 @@ server scope 보고서. 환경 단위 high-level 보고서는 `/reports/environm
 - GET (job 없음) — live read-only preview. 진단 트리거 없음 (engineer narrative 영역은 "발행 시 생성" 표시).
 """
 
-from collections import Counter
 from datetime import datetime
 from typing import Literal
 from urllib.parse import quote
@@ -19,7 +18,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_RANGE_DAYS,
-    DIAGNOSTIC_RANGE_LABEL_KR,
     DiagnosticTimeRange,
 )
 from assessment_engine.web.deps import get_diagnostic_service, get_service
@@ -27,11 +25,8 @@ from assessment_engine.web.services.diagnostic_service import DiagnosticService,
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.report_serializer import (
     REPORT_KIND_ENV,
-    REPORT_KIND_SUMMARY,
     env_report_from_dict,
     env_report_to_dict,
-    report_summary_from_dict,
-    report_summary_to_dict,
 )
 from assessment_engine.web.templating import templates
 from assessment_engine.web.view_models.attention import AttentionSignals
@@ -39,8 +34,8 @@ from assessment_engine.web.view_models.attention import AttentionSignals
 report_page_router = APIRouter()
 
 _REPORT_VIEW_TITLES: dict[str, str] = {
-    "customer": "고객 제출용 (양식 A)",
-    "engineer": "엔지니어 검토용 (양식 B)",
+    "customer": "고객 제출용",
+    "engineer": "엔지니어 검토용",
 }
 
 
@@ -74,26 +69,6 @@ def _attention_by_host(hostnames: set[str], attention: AttentionSignals) -> dict
     return by_host
 
 
-def _report_kpis(rows, attention_by_host: dict[str, dict[str, str]]) -> dict:
-    """KPI grid 카운트 — 정적 snapshot rows + attention_by_host 에서 재계산 (P3 정공, 결정적)."""
-    rec_counts = Counter(r.recommendation for r in rows)
-    attn_gap_count = sum(1 for a in attention_by_host.values() if a.get("gap"))
-    attn_eol_count = sum(1 for a in attention_by_host.values() if a.get("os_eol"))
-    attn_restart_count = sum(1 for a in attention_by_host.values() if a.get("restart"))
-    return {
-        "under_count": rec_counts.get("under_provisioned", 0),
-        "optimize_count": (
-            rec_counts.get("over_provisioned", 0) + rec_counts.get("idle", 0) + rec_counts.get("shutdown", 0)
-        ),
-        "optimal_count": rec_counts.get("optimal", 0),
-        "attn_active_count": sum(1 for a in attention_by_host.values() if a),
-        "attn_gap_count": attn_gap_count,
-        "attn_eol_count": attn_eol_count,
-        "attn_restart_count": attn_restart_count,
-        "attn_active_kpi_cols": sum(1 for c in (attn_gap_count, attn_eol_count, attn_restart_count) if c > 0) or 1,
-    }
-
-
 @report_page_router.get("/report")
 async def report(
     request: Request,
@@ -114,15 +89,12 @@ async def report(
 
     # live read-only preview — 진단 트리거 없음 (engineer narrative 영역은 "발행 시 생성").
     public_ids = [pid.strip() for pid in (ids or "").split(",") if pid.strip()]
-    sid_map = await service.resolve_server_ids(public_ids)
-    server_ids = [sid_map[pid] for pid in public_ids if pid in sid_map]
-    if not server_ids:
-        raise HTTPException(status_code=404, detail="no valid server ids")
-
     period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
-    summary = await service.get_report(server_ids, period_days, view=view)
+    summary = await service.get_selection_report(public_ids, period_days, view=view, time_range=time_range)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="no valid server ids")
     attention = await service.get_attention_signals()
-    attention_by_host = _attention_by_host({r.hostname for r in summary.rows}, attention)
+    attention_by_host = _attention_by_host({r.hostname for r in summary.base.rows}, attention)
     return templates.TemplateResponse(
         request=request,
         name="servers/report.html",
@@ -132,14 +104,13 @@ async def report(
             "view_title": _REPORT_VIEW_TITLES[view],
             "narratives": {},
             "narrative_status": "none",
+            "narrative_key": None,  # selection 자체엔 AI 진단 없음 (개별 보고서 child 가 per-pid narrative 표시)
             "report_job_id": None,
             "child_jobs": {},
             "back_url": back_url,
             "attention_by_host": attention_by_host,
             "self_back": self_back,
             "time_range": time_range,
-            "time_range_label": DIAGNOSTIC_RANGE_LABEL_KR.get(time_range, time_range),
-            **_report_kpis(summary.rows, attention_by_host),
         },
     )
 
@@ -151,12 +122,12 @@ async def _render_summary_snapshot(
     self_back: str,
     diag_service: DiagnosticService,
 ):
-    """발행된 N대 보고서 정적 스냅샷 렌더 (ReportSummary) + narrative/운영신호 (aux)."""
+    """발행된 N대 selection 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary) + narrative/운영신호 (aux)."""
     rec = await diag_service.get_one(job_id)
-    if rec is None or rec.result is None or rec.result.get("kind") != REPORT_KIND_SUMMARY:
+    if rec is None or rec.result is None or rec.result.get("kind") != REPORT_KIND_ENV:
         raise HTTPException(status_code=404, detail="report snapshot not found")
     result = rec.result
-    summary = report_summary_from_dict(result["snapshot"])
+    summary = env_report_from_dict(result["snapshot"])
     view = result.get("view", "engineer")
     time_range = rec.input_params.get("time_range", "14d")
     attention_by_host = result.get("aux", {}).get("attention_by_host", {})
@@ -169,14 +140,13 @@ async def _render_summary_snapshot(
             "view_title": _REPORT_VIEW_TITLES.get(view, view),
             "narratives": result.get("narratives", {}),
             "narrative_status": result.get("narrative_status", "none"),
+            "narrative_key": None,  # selection 자체엔 AI 진단 없음 (개별 보고서 child 가 per-pid narrative 표시)
             "report_job_id": rec.id,
             "child_jobs": result.get("child_jobs", {}),
             "back_url": back_url,
             "attention_by_host": attention_by_host,
             "self_back": self_back,
             "time_range": time_range,
-            "time_range_label": DIAGNOSTIC_RANGE_LABEL_KR.get(time_range, time_range),
-            **_report_kpis(summary.rows, attention_by_host),
         },
     )
 
@@ -223,20 +193,22 @@ async def report_emit(
         if cid:
             child_jobs[pid] = cid
 
-    # N대 표 보고서 — engineer 면 child_jobs 전달 (worker 가 narrative 를 child 에 복사).
-    server_ids = [sid_map[pid] for pid in valid_pids]
-    summary = await service.get_report(server_ids, period_days, end=anchor, view=view)
+    # N대 selection 보고서 (환경 보고서 양식, kind=ENV) — engineer 면 child_jobs 전달 (세부 목록 정적 link).
+    summary = await service.get_selection_report(
+        valid_pids, period_days, view=view, time_range=time_range, anchor_at=anchor
+    )
+    if summary is None:
+        raise HTTPException(status_code=404, detail="no valid server ids")
     table_job = await diag_service.emit_report(
         view=view,
         scope="server",
-        kind=REPORT_KIND_SUMMARY,
-        snapshot=report_summary_to_dict(summary),
+        kind=REPORT_KIND_ENV,
+        snapshot=env_report_to_dict(summary),
         server_public_ids=valid_pids,
         time_range=time_range,
         anchor_at=anchor,
-        aux={"attention_by_host": _attention_by_host({r.hostname for r in summary.rows}, attention)},
-        # 양 view 모두 child_jobs 저장 — engineer 는 worker narrative 복사 대상 + 표 hostname -> child 정적 link.
-        # customer 는 narrative 없지만 hostname -> child 정적 보고서 link 용 (worker 미발행).
+        aux={"attention_by_host": _attention_by_host({r.hostname for r in summary.base.rows}, attention)},
+        # 양 view 모두 child_jobs 저장 — 세부 서버 목록 hostname -> 개별 보고서(child) 정적 link.
         child_jobs=child_jobs,
     )
     return {"view_url": f"/servers/report?job={table_job}"}

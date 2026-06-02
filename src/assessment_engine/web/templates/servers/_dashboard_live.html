@@ -36,16 +36,12 @@
     <div>메모리 <strong class="text-strong">{{ overview.total_memory_gb | disksize }}</strong></div>
     <div>디스크 <strong class="text-strong">{{ overview.total_disk_gb | disksize }}</strong></div>
   </div>
-  {% if overview.role_distribution or overview.role_unknown_count > 0 %}
+  {% if overview.role_distribution %}
   <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;">
     <span style="font-size:12px; color:#64748b; padding:4px 0;">역할:</span>
     {% for role, n in overview.role_distribution.items() %}
     <span class="badge {{ role | service_badge_class }}">{{ role }} <strong>{{ n }}</strong></span>
     {% endfor %}
-    {# 역할 미분류(서비스 없음 또는 전부 unknown) 호스트 수 — 호스트 단위. 서버목록 unknown 뱃지와 동일 색. #}
-    {% if overview.role_unknown_count > 0 %}
-    <span class="badge badge-cat-unknown">unknown <strong>{{ overview.role_unknown_count }}</strong></span>
-    {% endif %}
   </div>
   {% endif %}
 
@@ -144,54 +140,49 @@
 </section>
 {% endif %}
 
-{# 환경 부하 추이 — 별도 카드(세로 1행 1개). #}
-{% if trend %}
+{# 환경 부하 추이 + 네트워크 토폴로지 — 한 카드 2열 (보고서와 동일 구도). swap 후 list.js 가 차트·토폴로지 재초기화. #}
+{% if trend or topology %}
 <section class="card no-print">
-  <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
-    <h2 style="margin:0;">환경 부하 추이</h2>
-    <span style="font-size:12px; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;">{{ window_days }}일 · 6시간 집계</span>
-    <span style="margin-left:auto; font-size:12px; color:#64748b;">수집 기준 {{ generated_at | kst }}</span>
-  </div>
-  <div style="height:280px;"><canvas id="env-trend-chart" data-trend='{{ trend | tojson }}' data-range="14d" data-grid="true"></canvas></div>
-  <p class="chart-desc" style="margin:10px 0 0;">이 차트는 최근 {{ window_days }}일 시간 구간을 기준으로, 그 안에서 수집 이력이 있는 범위만 동적으로 x축에 표시합니다(빈 구간 미표시) — 윈도우보다 데이터가 짧으면 있는 기간으로 정규화, 버킷 간격만 윈도우 기준 고정. 환경 평균 활용률도 같은 기준이며, 서버 상세 차트(윈도우 전체를 빈 구간 포함 표기)와 x축 범위가 다를 수 있습니다.</p>
-</section>
-{% endif %}
-
-{# 네트워크 토폴로지 — swap 후 list.js 가 NetworkTopology.render() 호출(캔버스 재생성). data 없으면 empty_state(#E9). #}
-{% if topology %}
-<section class="card no-print">
-  <h2>네트워크 토폴로지
-    {% if topology.has_data %}<span class="section-meta">(서브넷 {{ topology.subnet_count }} · 호스트 {{ topology.host_count }}{% if topology.multi_homed_count > 0 %} · 멀티홈 {{ topology.multi_homed_count }}{% endif %}{% if topology.isolated_count > 0 %} · 미연결 {{ topology.isolated_count }}{% endif %})</span>{% endif %}
-  </h2>
-  {% if topology.has_data %}
-  {# 확대/축소·전체보기 툴바 — 그래프 위 일반 흐름(캔버스 오버레이 아님, z-index/클릭 가로채기 원천 회피).
-     바인딩은 network-topology.js render() (P4: 라이브러리 인터랙션). #}
-  <div style="position:relative;">
-    <div id="topology-graph" style="height:420px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc;"
-         data-elements='{{ topology.elements | tojson }}'></div>
-    {# 확대/축소·전체보기 — 그래프 우상단 세로 오버레이. 대시보드 .chart-anchor 버튼 테마 재사용.
-       바인딩은 network-topology.js render() (P4: 라이브러리 인터랙션). #}
-    <div style="position:absolute; top:10px; right:10px; display:flex; flex-direction:column; gap:5px; z-index:10;">
-      <button type="button" class="chart-anchor" data-topo-zoom="in" title="확대"
-        style="width:32px; height:32px; padding:0; font-size:16px; font-weight:600; text-align:center;">+</button>
-      <button type="button" class="chart-anchor" data-topo-zoom="out" title="축소"
-        style="width:32px; height:32px; padding:0; font-size:16px; font-weight:600; text-align:center;">-</button>
-      <button type="button" class="chart-anchor" data-topo-zoom="fit" title="전체 보기"
-        style="width:32px; height:32px; padding:0; font-size:10px; text-align:center;">전체</button>
+  <div class="env-dual" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap:24px; align-items:start;">
+    {% if trend %}
+    <div>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+        <h2 style="margin:0;">환경 부하 추이</h2>
+        <span style="font-size:12px; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;">{{ window_days }}일 · 6시간 집계</span>
+        <span style="margin-left:auto; font-size:12px; color:#64748b;">수집 기준 {{ generated_at | kst }}</span>
+      </div>
+      <div style="height:320px;"><canvas id="env-trend-chart" data-trend='{{ trend | tojson }}' data-range="14d" data-grid="true"></canvas></div>
+      <p class="chart-desc" style="margin:10px 0 0;">이 차트는 최근 {{ window_days }}일 시간 구간을 기준으로, 그 안에서 수집 이력이 있는 범위만 동적으로 x축에 표시합니다(빈 구간 미표시) — 윈도우보다 데이터가 짧으면 있는 기간으로 정규화, 버킷 간격만 윈도우 기준 고정. 환경 평균 활용률도 같은 기준이며, 서버 상세 차트(윈도우 전체를 빈 구간 포함 표기)와 x축 범위가 다를 수 있습니다.</p>
     </div>
+    {% endif %}
+    {% if topology %}
+    <div>
+      <h2 style="margin:0 0 12px;">네트워크 토폴로지{% if topology.has_data %} <span class="section-meta">(서브넷 {{ topology.subnet_count }} · 호스트 {{ topology.host_count }}{% if topology.multi_homed_count > 0 %} · 멀티홈 {{ topology.multi_homed_count }}{% endif %}{% if topology.isolated_count > 0 %} · 미연결 {{ topology.isolated_count }}{% endif %})</span>{% endif %}</h2>
+      {% if topology.has_data %}
+      <div style="position:relative;">
+        <div id="topology-graph" style="height:320px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc;"
+             data-elements='{{ topology.elements | tojson }}'></div>
+        <div style="position:absolute; top:10px; right:10px; display:flex; flex-direction:column; gap:5px; z-index:10;">
+          <button type="button" class="chart-anchor" data-topo-zoom="in" title="확대" style="width:32px; height:32px; padding:0; font-size:16px; font-weight:600; text-align:center;">+</button>
+          <button type="button" class="chart-anchor" data-topo-zoom="out" title="축소" style="width:32px; height:32px; padding:0; font-size:16px; font-weight:600; text-align:center;">-</button>
+          <button type="button" class="chart-anchor" data-topo-zoom="fit" title="전체 보기" style="width:32px; height:32px; padding:0; font-size:10px; text-align:center;">전체</button>
+        </div>
+      </div>
+      <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; font-size:11px; color:#64748b;">
+        <span><span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:#64748b; vertical-align:middle;"></span> 서브넷</span>
+        <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#3b82f6; vertical-align:middle;"></span> Linux</span>
+        <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#0ea5e9; vertical-align:middle;"></span> Windows</span>
+        <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#f59e0b; vertical-align:middle;"></span> 멀티홈(라우팅 지점)</span>
+      </div>
+      <ul style="margin:10px 0 0; padding-left:18px; font-size:11px; line-height:1.6; color:#94a3b8;">
+        {% for c in topology.caveats %}<li>{{ c }}</li>{% endfor %}
+      </ul>
+      {% else %}
+      {{ empty_state("2대 이상이 공유하는 네트워크 세그먼트가 아직 없습니다 — 인벤토리가 쌓이면 호스트 간 서브넷 관계가 표시됩니다.") }}
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
-  <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; font-size:11px; color:#64748b;">
-    <span><span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:#64748b; vertical-align:middle;"></span> 서브넷</span>
-    <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#3b82f6; vertical-align:middle;"></span> Linux</span>
-    <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#0ea5e9; vertical-align:middle;"></span> Windows</span>
-    <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#f59e0b; vertical-align:middle;"></span> 멀티홈(라우팅 지점)</span>
-  </div>
-  <ul style="margin:10px 0 0; padding-left:18px; font-size:11px; line-height:1.6; color:#94a3b8;">
-    {% for c in topology.caveats %}<li>{{ c }}</li>{% endfor %}
-  </ul>
-  {% else %}
-  {{ empty_state("2대 이상이 공유하는 네트워크 세그먼트가 아직 없습니다 — 인벤토리가 쌓이면 호스트 간 서브넷 관계가 표시됩니다.") }}
-  {% endif %}
 </section>
 {% endif %}
 

@@ -28,8 +28,8 @@ from assessment_engine.web.templating import templates
 reports_router = APIRouter(prefix="/reports", tags=["pages"])
 
 _VIEW_TITLES: dict[str, str] = {
-    "customer": "고객 제출용 (양식 A)",
-    "engineer": "엔지니어 검토용 (양식 B)",
+    "customer": "고객 제출용",
+    "engineer": "엔지니어 검토용",
 }
 
 

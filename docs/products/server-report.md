@@ -100,6 +100,10 @@ Print 우선 — 인쇄 PDF 대응. 판단 근거(임계값 전문)는 모든 �
 - engineer: 등록 서비스(systemd unit) 표 (unit·카테고리·귀속 listen 포트) + listen 포트 전체 표 (process 포함, 사실 중심·최대 상세).
 - 데이터: `ReportRowRaw.listen_ports` (보고서 집계 SQL 유입) -> mapper `_build_workload_display` (service_classifier 단일 진실, listen-only 카테고리 `detect_listen_categories` 보강). customer/engineer 차등은 같은 데이터의 노출 깊이 차이 (#E7 카테고리 -> 제품명 -> 포트 3단).
 
+### 개별 서버 보고서 — engineer 심화 계층 (단일 deep-dive)
+
+N대 selection 은 서버 간 비교를 위해 행 단위 정량 표(양식 B)로 압축하지만, 단일 1대(`view=engineer`)는 비교 대상이 없어 그 1대를 카드 계층으로 펼친다 — 구성 -> 사용률(평균 + 심화) -> 추이 -> USE 신호 -> 스토리지 -> 종합 진단 -> 운영 신호 순. CPU 분류(user/system/iowait)·메모리 구성(used/available/cached/buffers)·마운트별 스토리지(worst 1개 아닌 전체)는 N대 표엔 없는 단일 전용 — repo `report_cpu_breakdown`·`report_memory_breakdown`·`report_mount_usage` (개별 server_id 단위). customer 단일은 이 심화를 생략하고 구성·평균 사용률·권고만 (현황 파악 범위). 양식 통일상 단일·selection·환경 모두 `EnvironmentReportSummary`(kind=`env_report`) 공유 — 단일 전용 필드(`server_inventory`·`volumes`·`memory_breakdown`·`cpu_breakdown`)는 selection·환경에서 None/빈 list (#C1).
+
 ### 서버 진단 — job 1건당 산출
 
 | 항목 | 내용 | source |

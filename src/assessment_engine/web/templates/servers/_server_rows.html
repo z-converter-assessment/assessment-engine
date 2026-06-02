@@ -19,17 +19,13 @@
     <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="row-link"><strong>{{ s.hostname }}</strong></a>
   </td>
   <td>
-    {% if s.services is none %}
-      <span class="text-meta" style="font-size:11px;">—</span>
-    {% elif s.services %}
+    {# 분류된 서비스만 뱃지 표시. unknown(미분류)은 뱃지 없이 빈 값(—). #}
+    {% if s.known_services %}
       {% for svc in s.known_services %}
         <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}{% if svc.category_count > 1 %} {{ svc.category_count }}{% endif %}</span>
       {% endfor %}
-      {% if s.show_unknown_badge %}
-        <span class="badge badge-cat-unknown">unknown</span>
-      {% endif %}
     {% else %}
-      <span class="text-meta" style="font-size:11px;">없음</span>
+      <span class="text-meta" style="font-size:11px;">—</span>
     {% endif %}
   </td>
   <td class="text-label">

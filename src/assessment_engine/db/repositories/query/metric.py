@@ -255,13 +255,17 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         end: datetime,
         bi: str,
         bucket_td: timedelta,
+        server_ids: list[int] | None = None,
     ) -> list[MetricSeries]:
-        """환경 전체(모든 서버) 시점별 평균 시계열 — 대시보드·환경 보고서 추이 차트 공용.
+        """환경 시점별 평균 시계열 — 대시보드·환경 보고서·선택 보고서 추이 차트 공용.
 
         서버 동등가중: 버킷+서버 평균 후 서버간 평균 (environment_utilization 정책 일관, 서버 1대=1표).
         cpu.usage_percent: LAG delta (서버별 PARTITION, reset 정책 _chart_cpu_delta 동일).
         mem.usage_percent: 시점값. agg 는 avg 고정 (환경 추이는 평균).
+        server_ids: None 이면 전체 환경, 주어지면 그 N대 한정 (selection 보고서).
         """
+        # selection N대 한정 술어 (None 이면 전체).
+        sid = "AND server_id = ANY(:server_ids)" if server_ids else ""
         if metric_type in _CPU_NUMERATOR:
             num = _CPU_NUMERATOR[metric_type]
             sql = text(f"""
@@ -270,7 +274,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                         {num}               AS num_j,
                         {_CPU_TOTAL_EXPR}   AS total_j
                     FROM {ServerMetrics.__tablename__}
-                    WHERE collected_at >= :window_start AND collected_at <= :end
+                    WHERE collected_at >= :window_start AND collected_at <= :end {sid}
                 ),
                 deltas AS (
                     SELECT collected_at, server_id, boot_time,
@@ -313,7 +317,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                                  THEN ((total_bytes - avail_bytes)::float / total_bytes) * 100 END) AS worst
                     FROM server_mount_usage
                     WHERE collected_at >= :start AND collected_at <= :end
-                      AND {_VIRTUAL_MOUNT_SQL_FILTER}
+                      AND {_VIRTUAL_MOUNT_SQL_FILTER} {sid}
                     GROUP BY collected_at, server_id
                 )
                 SELECT ts, avg(server_avg) AS value, NULL::text AS dimension
@@ -334,7 +338,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                     FROM (
                         SELECT collected_at, server_id, {value_expr} AS v
                         FROM {ServerMetrics.__tablename__}
-                        WHERE collected_at >= :start AND collected_at <= :end
+                        WHERE collected_at >= :start AND collected_at <= :end {sid}
                     ) s
                     WHERE v IS NOT NULL
                     GROUP BY ts, server_id
@@ -342,6 +346,8 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 GROUP BY ts ORDER BY ts
             """)
             params = {"start": start, "end": end}
+        if server_ids:
+            params["server_ids"] = server_ids
         result = await self.session.execute(sql, params)
         return [MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension) for row in result.all()]
 

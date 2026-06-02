@@ -44,6 +44,7 @@ class BaseMetricQueryRepository(ABC):
         end: datetime,
         bi: str,
         bucket_td: timedelta,
+        server_ids: list[int] | None = None,
     ) -> list[MetricSeries]: ...
 
     @abstractmethod

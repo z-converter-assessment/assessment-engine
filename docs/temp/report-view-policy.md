@@ -117,7 +117,19 @@ R5. 시각 단순성.
 - 대시보드 연동: right-sizing 도넛 범례 한글(LABEL_KO)·code/desc 제거, 추이·토폴로지는 별도 카드(세로 1행 1개).
 - 인쇄: 참고자료 전문 임베드(page-break), 막대 print-color-adjust + 트랙 테두리, 차트 폭 보정(#env-trend-chart).
 
-### 남은 (서버 보고서 — 2-1 customer / 2-2 engineer)
+### 완료 (서버 보고서 — selection 양식 통합)
+- 서버 N대 보고서를 환경 보고서 양식의 N대 scope 변형으로 통합 (요구: "환경 고객 보고서를 서버 개수만 특정 + 하단 세부 서버 목록").
+- 서비스: `query_service.get_selection_report(server_ids)` — 환경 보고서 양식(`to_environment_report`)을 선택 N대로. overview(OS·워크로드 분포·평균 활용률·right-sizing 도넛) N대 집계, 평균 활용률은 base.rows 서버별 평균 합성(repo `environment_utilization` 전체 호출 회피), attention 은 N대 호스트 필터(`_filter_attention`). 단일은 N=1 동치(`get_single_server_report` 유지).
+- 템플릿: 환경 보고서 본문을 `reports/_env_report_body.html` 공유 partial 로 추출 — `environment.html`·`servers/report.html`(selection) 단일 진실. report.html = 헤더 + partial + 하단 세부 서버 목록 표(선택 N대 전체, hostname -> 개별 보고서 link).
+- 라우터: `/servers/report` live·snapshot·emit 3경로를 `get_selection_report` + env_report 직렬화(kind=env_report)로 통일. `report_summary` 단독 표 양식·KPI helper(`_report_kpis`) 폐기. customer/engineer 모두 동일 양식.
+- 어휘: `recommendation` 영어 enum -> `recommendation_label` 한글, 제목·th 한글, OS 지원 종료 customer 노출.
+- 검증: customer/engineer live·발행·스냅샷 조회 HTTP 200, 환경 보고서·단일 보고서 회귀 없음.
+
+### 잔여 (후속)
+- engineer narrative 흐름: selection 은 단일 키(ENV_NARRATIVE_KEY) — 옛 per-row narrative 폐기. worker 측 kind=env_report 단일 narrative 합성 경로 실동작 검증은 LLM(ollama) 연동 후.
+- dead code: `REPORT_KIND_SUMMARY` 상수·복원 분기(구 스냅샷용)는 무해 잔존 — 후속 정리 가능.
+
+### (구) 남은 (서버 보고서 — 2-1 customer / 2-2 engineer)
 - 대상 파일: `docs/products/server-report.md`, `templates/servers/report.html`(선택 N대 표), `templates/servers/single_report.html`(개별 1대).
 - 서버 보고서는 1차 구현됨(구동 서비스 차등 `workload_groups`/`service_units`/`listen_ports_detail`, 선택 맥락 `build_selection_context`, 위험 우선 정렬 `sort_rows_for_report`, 인쇄 드릴다운 부록). 이를 환경 보고서 수준으로 다듬는 작업:
   - 어휘 = LABEL_KO 단일, 영어 enum·`<code>` 금지 (report.html 표의 `r.recommendation` 등 점검).

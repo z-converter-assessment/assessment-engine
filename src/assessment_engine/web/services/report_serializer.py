@@ -2,7 +2,7 @@
 
 발행(POST emit) 시 mapper 가 모든 파생(badge_class·pct·dash_length 등)을 채운 완성 ViewModel 을
 JSONB dict 로 저장(`report_summary_to_dict`·`env_report_to_dict`), GET(세부·이력 포함) 시 저장된 dict 를
-ViewModel 로 복원(`load_report_snapshot`·`*_from_dict`)해 정적 렌더. 재계산·재진단 없음 — 발행 시점
+ViewModel 로 복원(`*_from_dict`)해 정적 렌더. 재계산·재진단 없음 — 발행 시점
 데이터 그대로 (요구: 정적 보관 + 이력 동적변화 0).
 
 cache_serializer.py 와 동일 패턴 (asdict + json datetime, 역직렬화 nested 재구성).
@@ -22,7 +22,6 @@ from datetime import datetime
 from assessment_engine.diagnostic.report_result import (  # noqa: F401 (re-export)
     ENV_NARRATIVE_KEY,
     REPORT_KIND_ENV,
-    REPORT_KIND_SUMMARY,
     build_narrative_entry,
     build_report_result,
 )
@@ -39,10 +38,17 @@ from assessment_engine.web.view_models.environment_report import (
     AttentionHostItem,
     CapacityImminentItem,
     ClassificationCount,
+    CpuBreakdown,
     DistributionBar,
     EnvironmentReportSummary,
     InsufficientHostItem,
+    MemoryBreakdown,
     OsCount,
+    ServerInventory,
+    ServiceCatalogGroup,
+    ServiceHost,
+    ServiceNameCount,
+    VolumeUsage,
 )
 from assessment_engine.web.view_models.report import (
     ReportListenItem,
@@ -52,6 +58,7 @@ from assessment_engine.web.view_models.report import (
     ReportTotals,
     ReportWorkloadGroup,
 )
+from assessment_engine.web.view_models.server import IpAddr
 from assessment_engine.web.view_models.topology import NetworkTopology
 
 
@@ -71,18 +78,7 @@ def _to_jsonable(vm: object) -> dict:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 역직렬화 — result['snapshot'] -> ViewModel (정적 렌더용). 조립은 diagnostic.report_result 단일 진실.
-# ──────────────────────────────────────────────────────────────────────────
-def load_report_snapshot(result: dict) -> ReportSummary | EnvironmentReportSummary:
-    """result['snapshot'] 을 kind 별 ViewModel 로 복원 (정적 렌더용)."""
-    snapshot = result["snapshot"]
-    if result["kind"] == REPORT_KIND_SUMMARY:
-        return report_summary_from_dict(snapshot)
-    return env_report_from_dict(snapshot)
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# ReportSummary (server scope N대 보고서 — servers/report.html)
+# ReportSummary (server scope 보고서 base — EnvironmentReportSummary.base 직렬화·복원에 사용)
 # ──────────────────────────────────────────────────────────────────────────
 def report_summary_to_dict(vm: ReportSummary) -> dict:
     return _to_jsonable(vm)
@@ -129,11 +125,37 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
     data["top_risks"] = [_report_row_from_dict(r) for r in data.get("top_risks") or []]
     uph = data.get("under_provisioned_hosts") or []
     data["under_provisioned_hosts"] = [_capacity_warning_from_dict(c) for c in uph]
+    data["service_catalog"] = [
+        ServiceCatalogGroup(
+            category=g["category"],
+            services=[
+                ServiceNameCount(
+                    name=s["name"], count=s["count"], hosts=[ServiceHost(**h) for h in s.get("hosts") or []]
+                )
+                for s in g.get("services") or []
+            ],
+        )
+        for g in data.get("service_catalog") or []
+    ]
     data["attention_hosts"] = [AttentionHostItem(**a) for a in data.get("attention_hosts") or []]
     data["capacity_imminent"] = [CapacityImminentItem(**c) for c in data.get("capacity_imminent") or []]
     data["insufficient_hosts"] = [InsufficientHostItem(**i) for i in data.get("insufficient_hosts") or []]
     data["anchor_at"] = _dt(data.get("anchor_at"))
     data["generated_at"] = _dt(data.get("generated_at"))
+    si = data.get("server_inventory")
+    if si:
+        sid = dict(si)
+        sid["ip_internal"] = [IpAddr(**a) for a in sid.get("ip_internal") or []]
+        sid["ip_external"] = [IpAddr(**a) for a in sid.get("ip_external") or []]
+        sid["boot_time"] = _dt(sid.get("boot_time"))
+        data["server_inventory"] = ServerInventory(**sid)
+    data["volumes"] = [VolumeUsage(**v) for v in data.get("volumes") or []]
+    mb = data.get("memory_breakdown")
+    if mb:
+        data["memory_breakdown"] = MemoryBreakdown(**mb)
+    cb = data.get("cpu_breakdown")
+    if cb:
+        data["cpu_breakdown"] = CpuBreakdown(**cb)
     return EnvironmentReportSummary(**data)
 
 

@@ -7,7 +7,7 @@ report_serializer 는 web view_models 에 의존해 worker 가 import 못 하므
 
 result JSONB 구조 (job_type customer_report/engineer_report 공통):
   {
-    "kind": "report_summary" | "env_report",   # 역직렬화 분기 (server N대 vs 환경/단일서버)
+    "kind": "env_report",                       # 모든 보고서 (selection N대 + 환경 + 단일서버 공통 양식)
     "snapshot": {...},                          # ViewModel asdict (datetime ISO str)
     "view": "customer" | "engineer",
     "narrative_status": "none"|"pending"|"succeeded"|"failed",  # 발행 시점 worker 진행 신호
@@ -26,8 +26,7 @@ narrative entry (engineer 보고서 worker 가 채움 — key 별 1건):
   }
 """
 
-REPORT_KIND_SUMMARY = "report_summary"  # server scope N대 (ReportSummary)
-REPORT_KIND_ENV = "env_report"  # 환경 + 단일서버 (EnvironmentReportSummary)
+REPORT_KIND_ENV = "env_report"  # 모든 보고서 (selection N대 + 환경 + 단일서버) — EnvironmentReportSummary 양식
 
 # narrative dict 키 — server scope 는 public_id 별, environment scope 는 본 sentinel 단일 키.
 ENV_NARRATIVE_KEY = "environment"

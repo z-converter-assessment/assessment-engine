@@ -6,6 +6,36 @@
   순수 마크업 (extends·block 없음) — include 전용. 헤더/인쇄 버튼은 소비처 책임.
 #}
 <section class="card" style="margin-bottom:16px;">
+  <h2>보고서 용어·개념 정리</h2>
+  <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
+    환경·서버 보고서 본문에 등장하는 핵심 키워드·분류 기준의 정의. 임계값·판정 순서 상세는 아래 절 참조.
+  </p>
+  <table style="font-size:12px;">
+    <thead>
+      <tr>
+        <th>키워드</th>
+        <th>정의</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Right-sizing</td><td>관측 부하 대비 할당 자원의 적정성 평가 — 6 분류(리소스 부족·과다·유휴·종료 권장·정상·표본 부족)로 권고. 분류 기준은 아래 "분류 기준" 절.</td></tr>
+      <tr><td>USE Method</td><td>Brendan Gregg 의 자원 진단 프레임 — Utilization(이용률)·Saturation(포화)·Errors 세 축. 본 보고서는 Utilization·Saturation 두 축 적용.</td></tr>
+      <tr><td>평균 (avg)</td><td>윈도우 안 모든 시점값의 산술 평균. 정상 부하의 중심 경향.</td></tr>
+      <tr><td>p95</td><td>작은 값부터 정렬해 95% 위치의 값 — 상위 5%(일시 spike)만 초과. 분류 1차 입력. 평균보다 클 수 있음(분포 우측 꼬리).</td></tr>
+      <tr><td>peak</td><td>윈도우 안 시점별 최댓값. 실제 관측 burst 강도.</td></tr>
+      <tr><td>변동성</td><td>peak / p95 비율. 1.5 이상이면 burst 가 커 평균 아닌 peak 기준 sizing 권장.</td></tr>
+      <tr><td>Saturation (포화)</td><td>자원이 처리 한계를 넘어 대기열이 쌓이는 신호 — CPU load(run queue)·메모리 swap(page-out)·디스크 iowait. 발생 시 이용률이 낮아도 증설 신호.</td></tr>
+      <tr><td>서비스 분류</td><td>호스트 구동 워크로드를 카테고리(web·db·cache·container 등)로 분류 — 서비스 이름·실행 파일·listen 포트 신호 종합. container 등 런타임 스택은 호스트당 1로 카운트.</td></tr>
+      <tr><td>메모리 구성</td><td>전체 메모리 대비 used(사용)·available(가용)·cached(페이지 캐시)·buffers(버퍼) 윈도우 평균 비율. cached/buffers 는 회수 가능 영역이라 available 에 포함.</td></tr>
+      <tr><td>CPU 분류</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기) 로 분해한 윈도우 평균 비율. iowait 높으면 디스크 병목.</td></tr>
+      <tr><td>OS EOL</td><td>OS 배포판·버전의 vendor 지원 종료일(endoflife.date 기준). 임박·경과 시 보안 패치 중단 — 마이그레이션 선행 필요.</td></tr>
+      <tr><td>운영 신호</td><td>sizing 과 별도의 안정성 신호 — 데이터 수집 끊김(gap)·재부팅 빈도·에이전트 재시작. 분류 정상이어도 발화 시 운영 조치 선행.</td></tr>
+      <tr><td>평가 윈도우</td><td>통계 산출 기간 — 표준 14일(AWS Compute Optimizer). 짧으면 p95 표본 신뢰도 저하.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card" style="margin-bottom:16px;">
   <h2>분류 기준</h2>
   <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
     환경·서버 보고서의 Right-sizing 분류는 <code>recommendation</code> 모듈 단일 진실로 결정.

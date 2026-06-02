@@ -189,19 +189,19 @@
 
 {% if servers %}
 <div style="overflow-x:auto;">
-<table>
+<table class="server-list-table">
   <thead>
     <tr>
-      <th class="no-print" style="width:40px; text-align:center;">
+      <th class="no-print" style="width:36px; text-align:center;">
         <input type="checkbox" id="select-all">
       </th>
-      <th>상태</th>
+      <th style="width:48px; text-align:center;">상태</th>
       <th>Hostname</th>
       <th>서비스</th>
-      <th>외부 IP</th>
+      <th style="white-space:nowrap;">외부 IP</th>
       <th>OS</th>
-      <th>프로비저닝</th>
-      <th>최근 작업</th>
+      <th style="white-space:nowrap;">프로비저닝</th>
+      <th style="white-space:nowrap;">최근 작업</th>
       <th class="action-col"></th>
     </tr>
   </thead>
