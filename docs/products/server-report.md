@@ -49,7 +49,7 @@ engineer view 의 판단 컬럼 + 분류 컬럼이 USE Method 임계값 기반 �
 
 ### 서버 보고서 — 두 view 공통 상단
 
-KPI 6개 + 환경 총 자원 + 역할 분포 (환경 단위 산출물과 동일 — 사용자가 선택한 N대 기준).
+KPI 6개 + 환경 총 자원 + 선택 맥락 (선택 N대의 OS 구성·워크로드 한 줄 요약 — "이 묶음이 무엇인지", P-A 구성 계층. `build_selection_context`). 비교 표는 위험 우선 정렬 (`sort_rows_for_report` — under -> attention -> normal).
 
 ### view 분기 — customer (양식 A)
 
@@ -59,7 +59,9 @@ KPI 6개 + 환경 총 자원 + 역할 분포 (환경 단위 산출물과 동일 
 
 자동 정성 요약 (행동 시그널): 고위험·주의·디스크 임박·I/O 병목·재부팅·OS EOL
 
-Print 우선 — 인쇄 PDF 대응.
+각 서버명은 개별 상세 보고서 링크 (화면 클릭 이동). 인쇄본은 링크가 죽으므로 말미 "개별 서버 보고서(별첨)" 목차로 존재·식별 보존 (P-D 드릴다운).
+
+Print 우선 — 인쇄 PDF 대응. 판단 근거(임계값 전문)는 모든 보고서 공통 단일 partial(`reports/_thresholds_reference.html`)이 인쇄본 말미에 임베드 — 인쇄본 단독 검토 가능 (별도 페이지 인쇄 불필요).
 
 ### view 분기 — engineer (양식 B)
 
@@ -70,7 +72,7 @@ Print 우선 — 인쇄 PDF 대응.
 | # | 컬럼 | 표시 | source |
 |---|------|------|--------|
 | 1 | SERVER / internal IP | hostname + private IP | `server_inventory` |
-| 2 | ROLE | service_classifier 카테고리 | `service_classifier` |
+| 2 | ROLE | service_classifier 워크로드 카테고리 (engineer 다중 배지 — `workload_groups`, listen 보강) | `service_classifier` |
 | 3 | OS / KERNEL | os_id·version + kernel_version | `server_inventory` |
 | 4 | CPU | p95 · peak (%) | `report_aggregate` |
 | 5 | MEM | p95 · peak (%) | `report_aggregate` |
@@ -89,6 +91,18 @@ Print 우선 — 인쇄 PDF 대응.
 자동 정성 요약 (customer 시그널 + engineer 추가): 역할별 평균 CPU 최고치·Saturation 발생·CPU 변동성 큼.
 
 화면 분석 우선 (인쇄 가능하지만 가로 폭 한계).
+
+### 개별 서버 보고서 — 구동 서비스 (구성 계층)
+
+단일 서버 보고서(`/servers/{id}/report`)는 "이 서버가 무엇을 하는가"를 구성 계층(P-A)으로 노출 — right-sizing 평가(활용·평가 계층) 앞에 배치.
+
+- customer: 워크로드 카테고리별 제품명 묶음 (예: "web: nginx, gunicorn" — 포트·unit 숨김, 의미 중심).
+- engineer: 등록 서비스(systemd unit) 표 (unit·카테고리·귀속 listen 포트) + listen 포트 전체 표 (process 포함, 사실 중심·최대 상세).
+- 데이터: `ReportRowRaw.listen_ports` (보고서 집계 SQL 유입) -> mapper `_build_workload_display` (service_classifier 단일 진실, listen-only 카테고리 `detect_listen_categories` 보강). customer/engineer 차등은 같은 데이터의 노출 깊이 차이 (#E7 카테고리 -> 제품명 -> 포트 3단).
+
+### 개별 서버 보고서 — engineer 심화 계층 (단일 deep-dive)
+
+N대 selection 은 서버 간 비교를 위해 행 단위 정량 표(양식 B)로 압축하지만, 단일 1대(`view=engineer`)는 비교 대상이 없어 그 1대를 카드 계층으로 펼친다 — 구성 -> 사용률(평균 + 심화) -> 추이 -> USE 신호 -> 스토리지 -> 종합 진단 -> 운영 신호 순. CPU 분류(user/system/iowait)·메모리 구성(used/available/cached/buffers)·마운트별 스토리지(worst 1개 아닌 전체)는 N대 표엔 없는 단일 전용 — repo `report_cpu_breakdown`·`report_memory_breakdown`·`report_mount_usage` (개별 server_id 단위). customer 단일은 이 심화를 생략하고 구성·평균 사용률·권고만 (현황 파악 범위). 양식 통일상 단일·selection·환경 모두 `EnvironmentReportSummary`(kind=`env_report`) 공유 — 단일 전용 필드(`server_inventory`·`volumes`·`memory_breakdown`·`cpu_breakdown`)는 selection·환경에서 None/빈 list (#C1).
 
 ### 서버 진단 — job 1건당 산출
 
@@ -190,7 +204,7 @@ Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상�
 4. 진단 job stale 정리 미구현 — 워커 강제 종료 시 `status='running'` job 수동 정리 필요 (CLAUDE.md #F11).
 5. 단일 narrative 합성 — 결정론 템플릿이라 운영자가 추가 컨텍스트 반영 불가. 외부 LLM 도입 시 가능해질 영역 (ADR 0010).
 6. engineer view 인쇄 폭 한계 — 16 컬럼이라 A4 가로도 빠듯. PDF 대응 안 됨. 화면 분석 또는 가로 모드 인쇄 권장.
-7. 표 정렬·필터 미지원 — 브라우저 row 단위 정렬 안 됨. 추후 client-side sort 도입 검토 후보.
+7. 표는 위험 우선 기본 정렬 (발행 시점 under -> attention -> normal, 동순위 cpu_p95 DESC). 사용자 임의 재정렬·필터는 미지원 — 추후 client-side sort 도입 검토 후보.
 8. 시점 동기화 없음 — engineer view 의 "분류 / 판단" (이번 윈도우 raw) 과 "진단 (14일)" (별도 job) 이 다른 시점·다른 윈도우. 운영자가 두 컬럼 차이를 source 차이로 해석해야 함.
 9. URL 길이 한계 — `ids` query string 에 N개 public_id 넣음. N 이 매우 크면 URL 한계. 추후 POST + session 도입 검토.
 

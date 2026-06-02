@@ -402,12 +402,12 @@ def test_risk_donut_segments_order_and_colors():
         "insufficient_data",
     ]
     assert [s.label for s in segs] == [
-        "under_provisioned",
-        "over_provisioned",
-        "idle",
-        "shutdown",
-        "optimal",
-        "insufficient_data",
+        "리소스 부족",
+        "과다 프로비저닝",
+        "유휴",
+        "종료 권장",
+        "정상",
+        "데이터 부족",
     ]
     assert total == 10
     assert under == 1

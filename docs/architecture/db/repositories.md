@@ -40,8 +40,12 @@
 | `report_mount_worst(server_ids, period_days, end)` | mount별 worst usage + fill_rate (days_until_full 산출) |
 | `report_uptime_stats(server_ids, period_days, end)` | 가동률 통계 |
 | `report_disk_io_baseline` / `report_net_io_baseline` | I/O baseline (Export `recommended_size_class` 입력) |
+| `report_mount_usage(server_id, period_days, end)` | 개별 보고서 전체 마운트 윈도우 평균 사용률 (worst 1개 아님, 가상 mount 제외) |
+| `report_memory_breakdown(server_id, period_days, end)` | 개별 보고서 메모리 구성 (used/available/cached/buffers 전체 대비 %, 시점값 avg) |
+| `report_cpu_breakdown(server_id, period_days, end)` | 개별 보고서 CPU 분류 (user/system/iowait, jiffies LAG delta) |
 | `metric_gap_warnings(gap_min, recent_h)` | 메트릭 갭(통신 끊김 운영신호) 후보 |
 | `environment_utilization(period_days, end)` | 대시보드 환경 평균 활용률 도넛 |
+| `environment_metric_trend(metric_type, start, end, bi, bucket_td, server_ids?)` | 환경 부하 추이 시계열 (server_ids 한정 시 선택 N대·단일, None 이면 전체 환경) |
 
 ## Diagnostic 계층 — `BaseDiagnosticRepository` (ADR 0004)
 

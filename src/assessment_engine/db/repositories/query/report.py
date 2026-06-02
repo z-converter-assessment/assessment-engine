@@ -4,10 +4,16 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import text
 
-from assessment_engine.db.dtos.outbound import EnvironmentUtilizationRaw, ReportRowRaw
+from assessment_engine.db.dtos.outbound import (
+    CpuBreakdownRaw,
+    EnvironmentUtilizationRaw,
+    MemoryBreakdownRaw,
+    ReportMountUsageRaw,
+    ReportRowRaw,
+)
 from assessment_engine.db.repositories.query._base import _BaseQueryMixin
 from assessment_engine.db.repositories.query.base_report import BaseReportQueryRepository
-from assessment_engine.db.repositories.query.types import _VIRTUAL_MOUNT_SQL_FILTER
+from assessment_engine.db.repositories.query.types import _CPU_TOTAL_EXPR, _VIRTUAL_MOUNT_SQL_FILTER
 
 
 class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
@@ -101,6 +107,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 s.kernel_version AS kernel_version,
                 s.ip_internal   AS ip_internal,
                 s.services      AS services,
+                s.listen_ports  AS listen_ports,
                 s.last_seen_at  AS last_seen_at,
                 s.cpu_cores     AS cpu_cores,
                 s.mem_total_kb  AS mem_total_kb,
@@ -136,6 +143,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 kernel_version=r.kernel_version,
                 ip_internal=r.ip_internal,
                 services=r.services,
+                listen_ports=r.listen_ports,
                 last_seen_at=r.last_seen_at,
                 cpu_p95_pct=r.cpu_p95,
                 cpu_avg_pct=r.cpu_avg,
@@ -534,4 +542,81 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             mem_avg_pct=float(row.mem_avg) if row.mem_avg is not None else None,
             disk_avg_pct=float(row.disk_avg) if row.disk_avg is not None else None,
             sample_size=int(row.sample_size or 0),
+        )
+
+    async def report_mount_usage(self, server_id: int, period_days: float, end: datetime) -> list[ReportMountUsageRaw]:
+        """마운트별 윈도우 평균 사용률 — 개별 보고서 스토리지 상세 (worst 1개 아닌 전체, 가상 mount 제외)."""
+        start = end - timedelta(days=period_days)
+        sql = text(f"""
+            SELECT mount, max(total_bytes) AS total_bytes,
+                avg(CASE WHEN total_bytes > 0 AND avail_bytes IS NOT NULL
+                         THEN ((total_bytes - avail_bytes)::float / total_bytes) * 100 END) AS used_pct
+            FROM server_mount_usage
+            WHERE server_id = :sid AND collected_at >= :start AND collected_at <= :end
+              AND {_VIRTUAL_MOUNT_SQL_FILTER}
+            GROUP BY mount
+            ORDER BY used_pct DESC NULLS LAST
+        """)
+        result = await self.session.execute(sql, {"sid": server_id, "start": start, "end": end})
+        return [
+            ReportMountUsageRaw(
+                mount=r.mount,
+                total_bytes=int(r.total_bytes) if r.total_bytes is not None else None,
+                used_pct=float(r.used_pct) if r.used_pct is not None else None,
+            )
+            for r in result.all()
+        ]
+
+    async def report_memory_breakdown(self, server_id: int, period_days: float, end: datetime) -> MemoryBreakdownRaw:
+        """메모리 구성 윈도우 평균 — used/available/cached/buffers (전체 메모리 대비 %, 시점값 avg)."""
+        start = end - timedelta(days=period_days)
+        sql = text("""
+            SELECT
+                avg(CASE WHEN mem_total_kb > 0 THEN (1 - mem_available_kb::float / mem_total_kb) * 100 END) AS used_pct,
+                avg(CASE WHEN mem_total_kb > 0 AND mem_available_kb IS NOT NULL
+                         THEN mem_available_kb::float / mem_total_kb * 100 END) AS available_pct,
+                avg(CASE WHEN mem_total_kb > 0 AND mem_cached_kb IS NOT NULL
+                         THEN mem_cached_kb::float / mem_total_kb * 100 END) AS cached_pct,
+                avg(CASE WHEN mem_total_kb > 0 AND mem_buffers_kb IS NOT NULL
+                         THEN mem_buffers_kb::float / mem_total_kb * 100 END) AS buffers_pct
+            FROM server_metrics
+            WHERE server_id = :sid AND collected_at >= :start AND collected_at <= :end
+        """)
+        row = (await self.session.execute(sql, {"sid": server_id, "start": start, "end": end})).one()
+        return MemoryBreakdownRaw(
+            used_pct=float(row.used_pct) if row.used_pct is not None else None,
+            available_pct=float(row.available_pct) if row.available_pct is not None else None,
+            cached_pct=float(row.cached_pct) if row.cached_pct is not None else None,
+            buffers_pct=float(row.buffers_pct) if row.buffers_pct is not None else None,
+        )
+
+    async def report_cpu_breakdown(self, server_id: int, period_days: float, end: datetime) -> CpuBreakdownRaw:
+        """CPU 분류 윈도우 평균 — user/system/iowait (jiffies LAG delta, counter reset(dt<=0·d<0) 흡수)."""
+        start = end - timedelta(days=period_days)
+        sql = text(f"""
+            WITH raw AS (
+                SELECT collected_at, cpu_user AS u, cpu_system AS s, cpu_iowait AS w,
+                    ({_CPU_TOTAL_EXPR}) AS total
+                FROM server_metrics
+                WHERE server_id = :sid AND collected_at >= :start AND collected_at <= :end
+            ),
+            deltas AS (
+                SELECT
+                    u - LAG(u)         OVER (ORDER BY collected_at) AS du,
+                    s - LAG(s)         OVER (ORDER BY collected_at) AS ds,
+                    w - LAG(w)         OVER (ORDER BY collected_at) AS dw,
+                    total - LAG(total) OVER (ORDER BY collected_at) AS dt
+                FROM raw
+            )
+            SELECT
+                avg(CASE WHEN dt > 0 AND du >= 0 THEN du * 100.0 / dt END) AS user_pct,
+                avg(CASE WHEN dt > 0 AND ds >= 0 THEN ds * 100.0 / dt END) AS system_pct,
+                avg(CASE WHEN dt > 0 AND dw >= 0 THEN dw * 100.0 / dt END) AS iowait_pct
+            FROM deltas
+        """)
+        row = (await self.session.execute(sql, {"sid": server_id, "start": start, "end": end})).one()
+        return CpuBreakdownRaw(
+            user_pct=float(row.user_pct) if row.user_pct is not None else None,
+            system_pct=float(row.system_pct) if row.system_pct is not None else None,
+            iowait_pct=float(row.iowait_pct) if row.iowait_pct is not None else None,
         )

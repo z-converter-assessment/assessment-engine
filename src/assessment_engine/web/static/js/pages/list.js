@@ -529,6 +529,8 @@ if (filterForm) {
         // 네트워크 토폴로지 캔버스는 innerHTML 교체로 컨테이너가 새로 생기므로 재렌더 — 동기 호출(repaint 전)이라
         // 깜빡임 0, JS 내부 위치 캐시로 데이터 불변 시 배치 고정. (실시간/운영신호 카드는 순수 SVG·HTML 라 불요.)
         if (window.NetworkTopology) window.NetworkTopology.render();
+        // 환경 부하 추이 차트도 fragment 교체로 캔버스가 새로 생기므로 재렌더 (data-trend inline).
+        if (window.EnvTrend) window.EnvTrend.render();
         // 교체된 fragment 안 hidden 갱신시각 → 우측 상단 #dashboard-updated 텍스트 갱신.
         const stamp = live.querySelector('#dash-updated-at');
         const target = document.getElementById('dashboard-updated');

@@ -187,6 +187,34 @@ class EnvironmentUtilizationRaw:
     sample_size: int  # 어느 metric이든 데이터 들어온 서버 수 — UI에 표본 표시 (예: "12대 기준")
 
 
+@dataclass
+class ReportMountUsageRaw:
+    """마운트별 윈도우 평균 사용률 — 개별 보고서 스토리지 상세 (worst 1개 아닌 전체 마운트)."""
+
+    mount: str
+    total_bytes: int | None
+    used_pct: float | None
+
+
+@dataclass
+class MemoryBreakdownRaw:
+    """메모리 구성 윈도우 평균 — used/available/cached/buffers (전체 메모리 대비 %, 시점값 avg)."""
+
+    used_pct: float | None
+    available_pct: float | None
+    cached_pct: float | None
+    buffers_pct: float | None
+
+
+@dataclass
+class CpuBreakdownRaw:
+    """CPU 분류 윈도우 평균 — user/system/iowait (jiffies delta 기반 %, reset 정책 _chart_cpu_delta 동일)."""
+
+    user_pct: float | None
+    system_pct: float | None
+    iowait_pct: float | None
+
+
 # ---------- Series ----------
 
 
@@ -230,6 +258,9 @@ class ReportRowRaw:
     # USE Method Saturation
     load_15m_max: float | None
     swap_used: bool
+
+    # service_classifier listen 신호 (개별 보고서 구동 서비스 표시·role 보강). default — 옛 호출 호환.
+    listen_ports: list[dict] | None = None
 
     # I/O wait (cpu_stat.iowait jiffies / total non-idle 비율) — 디스크 병목 신호
     iowait_p95_pct: float | None = None

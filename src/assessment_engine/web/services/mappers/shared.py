@@ -9,6 +9,8 @@ from datetime import date
 from pathlib import Path
 from typing import Literal
 
+from assessment_engine import recommendation
+
 # ─── UI 임계값 — base.html body data-attribute 동기화 (#E1 P3 · ADR 0015) ────
 # template_setup.py 가 본 상수를 import 해 Jinja2 globals 로 노출 → body data-attribute 단일 진실.
 _USAGE_DANGER_PCT = 90  # 사용률 위험 임계 — disk_warning · server detail badge 공통
@@ -43,6 +45,12 @@ _DONUT_SEGMENT_FROM_REC: dict[str, str] = {
 
 # list 페이지 dropdown option — _DONUT_SEGMENT_DEFS 순서 그대로.
 PROVISIONING_CLASSES: tuple[str, ...] = tuple(key for key, _, _, _ in _DONUT_SEGMENT_DEFS)
+
+# list 페이지 dropdown (value, 한글 라벨) 쌍 — value=영어 enum(필터 매칭 data-classification),
+# 표시=recommendation.LABEL_KO 한글.
+PROVISIONING_CLASS_OPTIONS: tuple[tuple[str, str], ...] = tuple(
+    (key, recommendation.LABEL_KO.get(key, key)) for key, _, _, _ in _DONUT_SEGMENT_DEFS
+)
 
 # ─── 보고서·환경 보고서 공용 capacity 임박 임계 ───
 # build_report_summary_bullets (report.py) + _extract_capacity_imminent (environment_report.py).
@@ -111,7 +119,7 @@ def resolve_os_eol(
 
     attention OS EOL 카드 + 보고서 정성 요약 공용 (P2 단일 판정 — 두 표시 경로 일관).
     - Windows: os_id=="windows" -> windows-server 카탈로그, kernel build == latest build 매칭
-      (운영=Server 가정, build ↔ 제품 1:1). kernel_version "26100.8457" -> build "26100".
+      (운영=Server 가정, build <-> 제품 1:1). kernel_version "26100.8457" -> build "26100".
     - Linux: os_id -> product slug, os_version == cycle 또는 startswith(cycle+".") (rocky "9.7" -> "9").
     EOL 미도래(아직 지원 중)는 None — 카탈로그 등록만으로 발화하면 미래 EOL(Server 2025=2034) 오발화.
     카탈로그 미등록 OS 도 None (EOL 판정 불가 = 침묵, false negative 한계는 의식적 트레이드오프).
