@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_shared.html" import empty_state %}
 {% block title %}{{ hostname }} 보고서 — {{ view_title }}{% endblock %}
 
 {% block content %}
@@ -12,6 +13,7 @@
     <div style="font-size:12px; color:#64748b; text-align:right;">
       <div>발행 {{ summary.generated_at | kst }}</div>
       <div>기준 {{ summary.anchor_at | kst }} · 윈도우 {{ summary.time_range_label }}</div>
+      <div>에이전트 {{ summary.agent_versions_label or "—" }}</div>
     </div>
     <button class="btn-print no-print" type="button" onclick="window.print()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
@@ -20,33 +22,117 @@
   </div>
 </div>
 
+{% set si = summary.server_inventory %}
 <section class="card" style="margin-bottom:16px;">
   <h2>서버 인벤토리</h2>
+  {% if si %}
   <div class="metric-grid metric-grid-3" style="margin-bottom:14px;">
     <div class="metric-card">
       <div class="metric-label">vCPU</div>
-      <div class="metric-value">{{ summary.overview.total_vcpus }}</div>
+      <div class="metric-value">{{ si.cpu_cores | or_dash }}</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">메모리</div>
-      <div class="metric-value">{{ "%.1f" | format(summary.overview.total_memory_gb) }} GB</div>
+      <div class="metric-value">{% if si.mem_total_gb is not none %}{{ "%.1f" | format(si.mem_total_gb) }} GB{% else %}—{% endif %}</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">디스크</div>
-      <div class="metric-value">{{ summary.overview.total_disk_gb }} GB</div>
+      <div class="metric-value">{% if si.disk_total_gb %}{{ si.disk_total_gb }} GB{% else %}—{% endif %}</div>
     </div>
   </div>
-  {% if r %}
-  <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:center; font-size:13px; color:#475569;">
-    <div>OS: <strong class="text-strong">{{ r.os_display }}</strong>{% if r.kernel_version %} <span class="text-meta">({{ r.kernel_version }})</span>{% endif %}</div>
-    {% if r.role %}<div style="display:inline-flex; align-items:center; gap:4px;">역할: <span class="badge {{ r.role | service_badge_class }}">{{ r.role }}</span></div>{% endif %}
-    {% if r.internal_ip %}<div>내부 IP: <code>{{ r.internal_ip }}</code></div>{% endif %}
-    <div>상태: {% if r.is_online %}<span class="dot dot-ok"></span> <strong class="text-ok">온라인</strong>{% else %}<span class="dot dot-off"></span> <strong class="text-meta">오프라인</strong>{% endif %}</div>
-  </div>
+  <dl class="kv">
+    <dt>OS</dt>
+    <dd>{{ si.os_display }}{% if si.os_codename %} ({{ si.os_codename }}){% endif %}</dd>
+    <dt>Kernel</dt>
+    <dd>{{ si.kernel_version | or_dash }}</dd>
+    {% if si.cpu_model %}
+    <dt>CPU</dt>
+    <dd>{{ si.cpu_model }}</dd>
+    {% endif %}
+    {% if si.swap_total_gb %}
+    <dt>Swap</dt>
+    <dd>{{ "%.1f" | format(si.swap_total_gb) }} GB</dd>
+    {% endif %}
+    {% if r and r.workload_groups %}
+    <dt>역할</dt>
+    <dd>{% for g in r.workload_groups %}<span class="badge {{ g.category | service_badge_class }}">{{ g.category }}</span> {% endfor %}</dd>
+    {% endif %}
+    {% if si.ip_internal %}
+    <dt>내부 IP</dt>
+    <dd>{% for ip in si.ip_internal %}{{ ip.value }}{% if not ip.is_ipv4 %} (IPv6){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</dd>
+    {% endif %}
+    {% if si.ip_external %}
+    <dt>외부 IP</dt>
+    <dd>{% for ip in si.ip_external %}{{ ip.value }}{% if not ip.is_ipv4 %} (IPv6){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</dd>
+    {% endif %}
+    <dt>상태</dt>
+    <dd>{% if si.is_online %}<span class="dot dot-ok"></span> 온라인{% else %}<span class="dot dot-off"></span> 오프라인{% endif %}</dd>
+    <dt>Boot Time</dt>
+    <dd>{{ si.boot_time | kst }}</dd>
+    {% if view == "engineer" %}
+    <dt>Composite ID</dt>
+    <dd style="word-break:break-all; font-size:12px;">{{ si.composite_id }}</dd>
+    <dt>Machine ID</dt>
+    <dd style="word-break:break-all; font-size:12px;">{{ si.machine_id | or_dash }}</dd>
+    {% endif %}
+  </dl>
   {% endif %}
 </section>
 
 {% if r %}
+{# ── 그룹 1: 구성 — 이 서버가 무엇이고 무엇을 구동하는가 ── #}
+<section class="card" style="margin-bottom:16px;">
+  <h2>구동 서비스 <span class="section-meta">이 서버가 무엇을 하는가</span></h2>
+  {% if view == "customer" %}
+  {# customer — 카테고리별 제품명 묶음 (의미 중심, 포트 숨김) #}
+  {% if r.workload_groups %}
+  <div style="display:flex; flex-direction:column; gap:8px;">
+    {% for g in r.workload_groups %}
+    <div style="display:flex; align-items:baseline; gap:10px;">
+      <span class="badge {{ g.category | service_badge_class }}" style="min-width:64px; text-align:center;">{{ g.category }}</span>
+      <span style="font-size:13px; color:#1e293b;">{{ g.names_label or "—" }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  {{ empty_state("구동 중인 것으로 분류된 서비스가 없습니다.") }}
+  {% endif %}
+  {% else %}
+  {# engineer — 등록 서비스(unit) 표 + listen 포트 표 (최대 상세) #}
+  <h3>등록 서비스</h3>
+  {% if r.service_units %}
+  <table style="font-size:12px; margin-bottom:18px;">
+    <thead><tr><th>unit</th><th>카테고리</th><th>listen 포트</th></tr></thead>
+    <tbody>
+      {% for u in r.service_units %}
+      <tr>
+        <td style="font-size:11px;">{{ u.unit }}</td>
+        <td>{% if u.category != 'unknown' %}<span class="badge {{ u.category | service_badge_class }}">{{ u.category }}</span>{% else %}<span class="text-meta">미분류</span>{% endif %}</td>
+        <td>{{ u.ports_label or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="margin-bottom:18px;">{{ empty_state("등록된 서비스(systemd unit)가 없습니다.") }}</div>
+  {% endif %}
+  <h3>Listen 포트</h3>
+  {% if r.listen_ports_detail %}
+  <table style="font-size:12px;">
+    <thead><tr><th>포트</th><th>proto</th><th>process</th></tr></thead>
+    <tbody>
+      {% for p in r.listen_ports_detail %}
+      <tr><td>{{ p.port }}</td><td>{{ p.proto }}</td><td>{{ p.comm or "—" }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  {{ empty_state("수집된 listen 포트가 없습니다.") }}
+  {% endif %}
+  {% endif %}
+</section>
+
+{# ── 그룹 2: 사용률 — 핵심 지표 + 심화 분해(CPU·메모리) + 시계열 추이 ── #}
 <section class="card" style="margin-bottom:16px;">
   <h2>평균 사용률 <span class="section-meta">{{ summary.time_range_label }} 윈도우</span></h2>
   <div class="metric-grid metric-grid-2">
@@ -62,68 +148,51 @@
     </div>
   </div>
 </section>
-{% endif %}
 
-{# AI 진단 — 보고서 흐름 안 inline (engineer view 만, Right-sizing 평가 위 위치). #}
-{% if view == "engineer" and r %}
-{% set n = narratives.get(r.public_id) %}
-<section class="card" data-narrative-slot data-narrative-key="{{ r.public_id }}" style="margin-bottom:16px;">
-  <h2>AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
-  {% if n and n.status == 'succeeded' and n.narrative %}
-  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; line-height:1.6; font-size:14px; color:#1e293b;">{{ n.narrative }}</div>
-  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
-  {% elif n and n.status == 'failed' %}
-  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; color:#64748b; font-size:13px;">AI 진단 실패 — narrative 합성 실패 (보고서 통계는 위에 표시).</div>
-  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
-  {% else %}
-  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; color:#64748b; font-size:13px;">
-    {% if report_job_id %}AI 진단 진행 중 (LLM 합성 10~60초 소요). 자동 폴링으로 결과 표시.{% else %}발행 시 생성.{% endif %}
-  </div>
-  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
-  {% endif %}
-</section>
-{% endif %}
-
-<section class="card" style="margin-bottom:16px;">
-  <h2>Right-sizing 평가</h2>
-  {% if r %}
-  <div style="display:flex; align-items:center; gap:12px;">
-    <span class="badge {{ r.badge_class }}" style="font-size:13px; padding:4px 12px;">{{ r.recommendation }}</span>
-    <span class="text-strong" style="font-size:13px;">{{ r.recommendation_action }}</span>
-    {% if r.is_partial %}<span class="text-meta" style="font-size:12px;">(이용률 기준 평가 — CPU run queue 등 saturation 축 미관측)</span>{% endif %}
-  </div>
-  {% if view == "engineer" and r.diagnosis %}
-  <div style="margin-top:10px; padding-top:10px; border-top:1px solid #e2e8f0; font-size:12px; color:#475569;">
-    <span class="text-meta">USE 종합 신호 (자동):</span> {{ r.diagnosis }}
-  </div>
-  {% endif %}
-  {% else %}
-  <p style="margin:0; color:#94a3b8; font-size:13px;">평가 데이터 없음.</p>
-  {% endif %}
-</section>
-
-{% if r %}
 {% if view == "engineer" %}
+{# CPU 분류 — user/system/iowait (윈도우 평균, jiffies delta 기반). 평균 사용률 심화. #}
+{% if summary.cpu_breakdown %}
+{% set cb = summary.cpu_breakdown %}
 <section class="card" style="margin-bottom:16px;">
-  <h2>OS 지원 종료 <span class="section-meta">EOL 임박·경과 (재부팅은 아래 시스템 안정성)</span></h2>
-  {% if attention_for_host.get('os_eol') %}
-  <div class="alert-list">
-    <div class="alert-warn">
-      <span class="rec-badge attn-active">OS EOL</span>
-      <span>{{ attention_for_host.os_eol }}</span>
-    </div>
+  <h2>CPU 분류 <span class="section-meta">{{ summary.time_range_label }} 윈도우 평균 · user/system/iowait</span></h2>
+  <div class="metric-grid metric-grid-3">
+    <div class="metric-card"><div class="metric-label">User <span class="metric-sub" style="font-weight:400;">앱 부하</span></div><div class="metric-value">{% if cb.user_pct is not none %}{{ "%.1f"|format(cb.user_pct) }}%{% else %}—{% endif %}</div></div>
+    <div class="metric-card"><div class="metric-label">System <span class="metric-sub" style="font-weight:400;">커널</span></div><div class="metric-value">{% if cb.system_pct is not none %}{{ "%.1f"|format(cb.system_pct) }}%{% else %}—{% endif %}</div></div>
+    <div class="metric-card"><div class="metric-label">I/O Wait <span class="metric-sub" style="font-weight:400;">디스크 대기</span></div><div class="metric-value">{% if cb.iowait_pct is not none %}{{ "%.1f"|format(cb.iowait_pct) }}%{% else %}—{% endif %}</div></div>
   </div>
-  {% else %}
-  <p style="margin:0; color:#94a3b8; font-size:13px;">지원 종료(EOL) 임박·경과 아님.</p>
-  {% endif %}
 </section>
+{% endif %}
 
+{# 메모리 구성 — used/available/cached/buffers (윈도우 평균, 전체 메모리 대비). 평균 사용률 심화. #}
+{% if summary.memory_breakdown %}
+{% set mb = summary.memory_breakdown %}
+<section class="card" style="margin-bottom:16px;">
+  <h2>메모리 구성 <span class="section-meta">{{ summary.time_range_label }} 윈도우 평균 · 전체 메모리 대비</span></h2>
+  <div class="metric-grid" style="grid-template-columns:repeat(4, 1fr);">
+    <div class="metric-card"><div class="metric-label">Used</div><div class="metric-value">{% if mb.used_pct is not none %}{{ "%.1f"|format(mb.used_pct) }}%{% else %}—{% endif %}</div></div>
+    <div class="metric-card"><div class="metric-label">Available</div><div class="metric-value">{% if mb.available_pct is not none %}{{ "%.1f"|format(mb.available_pct) }}%{% else %}—{% endif %}</div></div>
+    <div class="metric-card"><div class="metric-label">Cached</div><div class="metric-value">{% if mb.cached_pct is not none %}{{ "%.1f"|format(mb.cached_pct) }}%{% else %}—{% endif %}</div></div>
+    <div class="metric-card"><div class="metric-label">Buffers</div><div class="metric-value">{% if mb.buffers_pct is not none %}{{ "%.1f"|format(mb.buffers_pct) }}%{% else %}—{% endif %}</div></div>
+  </div>
+</section>
+{% endif %}
+
+{# 부하 추이 — 1대 시계열. CPU/메모리/디스크 평균 버킷. 환경·선택과 동일 차트 컴포넌트 + 동일 정규화 맥락(caveat). #}
+{% if summary.trend %}
+<section class="card" style="margin-bottom:16px;">
+  <h2>부하 추이 <span class="section-meta">{{ summary.time_range_label }} 윈도우 · CPU·메모리·디스크 평균</span></h2>
+  <div style="height:280px;"><canvas id="env-trend-chart" data-trend='{{ summary.trend | tojson }}' data-range="{{ summary.time_range }}"></canvas></div>
+  <p class="chart-desc" style="margin:10px 0 0;">이 차트는 발행 시 선택한 {{ summary.time_range_label }} 시간 구간을 기준으로, 그 안에서 수집 이력이 있는 범위만 동적으로 x축에 표시합니다(빈 구간 미표시) — 윈도우보다 데이터가 짧으면 있는 기간으로 정규화, 버킷 간격만 윈도우 기준 고정. 서버 상세 차트(윈도우 전체를 빈 구간 포함 표기)와 x축 범위가 다를 수 있습니다.</p>
+</section>
+{% endif %}
+
+{# ── 그룹 3: USE 신호 — Saturation 축 + 변동성/IO/네트워크 보조 지표 ── #}
 <section class="card" style="margin-bottom:16px;">
   <h2>Saturation 신호 <span class="section-meta">USE Method · 부하·대기·압박 축</span></h2>
   <div class="metric-grid metric-grid-3">
     <div class="metric-card">
       <div class="metric-label">Load 15m</div>
-      <div class="metric-value" style="color:{{ r.saturation_color }};">{% if r.os_family == 'windows' %}N/A{% elif r.load_15m_max is not none %}{{ "%.2f"|format(r.load_15m_max) }}{% else %}—{% endif %}</div>
+      <div class="metric-value">{% if r.os_family == 'windows' %}N/A{% elif r.load_15m_max is not none %}{{ "%.2f"|format(r.load_15m_max) }}{% else %}—{% endif %}</div>
       <div class="metric-sub">saturation {% if r.os_family == 'windows' %}N/A{% elif r.saturation_ratio is not none %}{{ "%.2f"|format(r.saturation_ratio) }} (load / vCPU){% else %}—{% endif %}</div>
     </div>
     <div class="metric-card">
@@ -133,7 +202,7 @@
     </div>
     <div class="metric-card">
       <div class="metric-label">Swap 사용</div>
-      <div class="metric-value" style="color:{% if r.os_family == 'windows' %}#94a3b8{% elif r.swap_used %}#b91c1c{% else %}#94a3b8{% endif %};">{% if r.os_family == 'windows' %}N/A{% elif r.swap_used %}발생{% else %}—{% endif %}</div>
+      <div class="metric-value">{% if r.os_family == 'windows' %}N/A{% elif r.swap_used %}발생{% else %}—{% endif %}</div>
       <div class="metric-sub">{% if r.os_family == 'windows' %}Windows pagefile — saturation 미적용{% else %}메모리 saturation 1차 지표{% endif %}</div>
     </div>
   </div>
@@ -144,12 +213,12 @@
   <div class="metric-grid metric-grid-2">
     <div class="metric-card">
       <div class="metric-label">CPU 변동성 (peak / p95)</div>
-      <div class="metric-value" style="color:{{ r.cpu_variance_color }};">{% if r.cpu_variance_ratio is not none %}{{ "%.2f"|format(r.cpu_variance_ratio) }}{% else %}—{% endif %}</div>
+      <div class="metric-value">{% if r.cpu_variance_ratio is not none %}{{ "%.2f"|format(r.cpu_variance_ratio) }}{% else %}—{% endif %}</div>
       <div class="metric-sub">1.5 이상 burst 큼</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">MEM 변동성 (peak / p95)</div>
-      <div class="metric-value" style="color:{{ r.mem_variance_color }};">{% if r.mem_variance_ratio is not none %}{{ "%.2f"|format(r.mem_variance_ratio) }}{% else %}—{% endif %}</div>
+      <div class="metric-value">{% if r.mem_variance_ratio is not none %}{{ "%.2f"|format(r.mem_variance_ratio) }}{% else %}—{% endif %}</div>
       <div class="metric-sub">1.5 이상 burst 큼</div>
     </div>
     <div class="metric-card">
@@ -175,39 +244,102 @@
   </div>
 </section>
 
+{# ── 그룹 4: 스토리지 — 안정성 요약 + 마운트별 상세 ── #}
 <section class="card" style="margin-bottom:16px;">
   <h2>스토리지 / 시스템 안정성</h2>
   <div class="metric-grid metric-grid-2">
     <div class="metric-card">
       <div class="metric-label">worst mount</div>
-      <div class="metric-value-md">{% if r.worst_mount %}<code>{{ r.worst_mount }}</code>{% else %}—{% endif %}</div>
-      <div class="metric-sub">사용률 {% if r.worst_mount_used_pct is not none %}{{ "%.0f"|format(r.worst_mount_used_pct) }}%{% else %}—{% endif %}{% if r.worst_mount_days_until_full is not none %} · 소진 <span style="color:{{ r.worst_mount_days_color }};">{{ r.worst_mount_days_until_full }}일</span>{% endif %}</div>
+      <div class="metric-value-md">{% if r.worst_mount %}{{ r.worst_mount }}{% else %}—{% endif %}</div>
+      <div class="metric-sub">사용률 {% if r.worst_mount_used_pct is not none %}{{ "%.0f"|format(r.worst_mount_used_pct) }}%{% else %}—{% endif %}{% if r.worst_mount_days_until_full is not none %} · 소진 {{ r.worst_mount_days_until_full }}일{% endif %}</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">Uptime</div>
       <div class="metric-value">{% if r.uptime_days is not none %}{{ r.uptime_days }}<span style="font-size:14px; font-weight:400; color:#64748b;"> 일</span>{% else %}—{% endif %}</div>
-      <div class="metric-sub">재부팅 <span style="color:{{ r.reboot_count_color }};">{{ r.reboot_count }}회</span> · 에이전트 재시작 <span style="color:{{ r.agent_restart_count_color }};">{{ r.agent_restart_count }}회</span></div>
+      <div class="metric-sub">재부팅 {{ r.reboot_count }}회 · 에이전트 재시작 {{ r.agent_restart_count }}회</div>
       <div class="metric-sub" style="color:#94a3b8;">{{ summary.time_range_label }} 윈도우 기준</div>
     </div>
   </div>
 </section>
 
+{# 마운트별 스토리지 — 전체 파일시스템 (worst 1개 아닌 전체, 윈도우 평균 사용률). #}
+{% if summary.volumes %}
+<section class="card" style="margin-bottom:16px;">
+  <h2>마운트별 스토리지 <span class="section-meta">{{ summary.time_range_label }} 윈도우 평균 · 전체 파일시스템</span></h2>
+  <table style="font-size:12px;">
+    <thead><tr><th>마운트</th><th style="text-align:right;">총량</th><th style="text-align:right;">사용률</th></tr></thead>
+    <tbody>
+      {% for v in summary.volumes %}
+      <tr>
+        <td>{{ v.mount }}</td>
+        <td style="text-align:right;">{% if v.total_gb %}{{ "%.0f"|format(v.total_gb) }} GB{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if v.used_pct is not none %}{{ "%.1f"|format(v.used_pct) }}%{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
 {% endif %}
 {% endif %}
 
-<section class="card" style="margin-bottom:16px; background:#f8fafc;">
-  <h2>참고자료</h2>
-  <p style="margin:0; font-size:13px; color:#475569;">
-    Right-sizing 분류 임계값 · USE 축 · 보조 지표 정의{% if view == "engineer" %} · 운영 신호 임계{% endif %} · 근거 출처:
-    <a href="/reports/right-sizing-thresholds?back={{ self_back }}" class="row-link">Right-sizing 분류 임계값 (참고자료)</a>
-  </p>
-  <p class="print-only" style="margin:6px 0 0; font-size:11px; color:#94a3b8;">
-    인쇄본 단독 검토 시 참고자료 페이지를 별도 인쇄 -> 두 출력물을 함께 참조.
-  </p>
+{# ── 그룹 5: 종합 진단 — Right-sizing 분류 + AI narrative (모든 통계를 본 뒤 결론) ── #}
+<section class="card" style="margin-bottom:16px;">
+  <h2>Right-sizing 평가</h2>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <span class="badge {{ r.badge_class }}" style="font-size:13px; padding:4px 12px;">{{ r.recommendation_label }}</span>
+    <span class="text-strong" style="font-size:13px;">{{ r.recommendation_action }}</span>
+    {% if r.is_partial %}<span class="text-meta" style="font-size:12px;">(이용률 기준 평가 — CPU run queue 등 saturation 축 미관측)</span>{% endif %}
+  </div>
+  {% if view == "engineer" and r.diagnosis %}
+  <div style="margin-top:10px; padding-top:10px; border-top:1px solid #e2e8f0; font-size:12px; color:#475569;">
+    <span class="text-meta">USE 종합 신호 (자동):</span> {{ r.diagnosis }}
+  </div>
+  {% endif %}
 </section>
+
+{# AI 진단 — 보고서 흐름 안 inline (engineer view 만). 통계·분류를 본 뒤 LLM 종합. #}
+{% if view == "engineer" %}
+{% set n = narratives.get(r.public_id) %}
+<section class="card" data-narrative-slot data-narrative-key="{{ r.public_id }}" style="margin-bottom:16px;">
+  <h2>AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
+  {% if n and n.status == 'succeeded' and n.narrative %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; line-height:1.6; font-size:14px; color:#1e293b;">{{ n.narrative }}</div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
+  {% elif n and n.status == 'failed' %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; color:#64748b; font-size:13px;">AI 진단 실패 — narrative 합성 실패 (보고서 통계는 위에 표시).</div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
+  {% else %}
+  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; color:#64748b; font-size:13px;">
+    {% if report_job_id %}AI 진단 진행 중 (LLM 합성 10~60초 소요). 자동 폴링으로 결과 표시.{% else %}발행 시 생성.{% endif %}
+  </div>
+  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ── 그룹 6: 운영 신호 — OS EOL (sizing 과 별도 축, 발화 가능 정보 항상 노출) ── #}
+<section class="card" style="margin-bottom:16px;">
+  <h2>OS 지원 종료 <span class="section-meta">EOL 임박·경과</span></h2>
+  {% if attention_for_host.get('os_eol') %}
+  <div class="alert-list">
+    <div class="alert-warn">
+      <span class="rec-badge attn-active">OS EOL</span>
+      <span>{{ attention_for_host.os_eol }}</span>
+    </div>
+  </div>
+  {% else %}
+  <p style="margin:0; color:#94a3b8; font-size:13px;">지원 종료(EOL) 임박·경과 아님.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{% include "reports/_reference_footer.html" %}
 
 {% if view == "engineer" %}
 {% if report_job_id %}<div data-report-job data-job-id="{{ report_job_id }}" data-status="{{ narrative_status }}" hidden></div>{% endif %}
 <script src="/static/js/diagnostic-inline.js?v={{ asset_v }}" defer></script>
+{# 부하 추이 차트 — Chart.js(먼저) + inline 렌더 (environment-trend.js). chart-utils.js 는 base.html head 동기 로드. #}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
+<script src="/static/js/pages/environment-trend.js?v={{ asset_v }}" defer></script>
 {% endif %}
 {% endblock %}

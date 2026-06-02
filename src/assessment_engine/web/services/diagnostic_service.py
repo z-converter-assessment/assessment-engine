@@ -110,7 +110,7 @@ class DiagnosticService:
 
         anchor_at: 발행 시점 기준 시각 (필수) — 스냅샷 ViewModel 과 worker narrative 가 같은 윈도우 재현.
                    라우터가 _normalize_anchor 로 분 단위 truncate 후 snapshot 합성에도 동일 값 사용.
-        kind: report_result.REPORT_KIND_SUMMARY(server N대) | REPORT_KIND_ENV(환경·단일서버).
+        kind: report_result.REPORT_KIND_ENV — 모든 보고서(selection N대·환경·단일서버) 공통 양식.
         snapshot: 발행 시점 완성 ViewModel 직렬화 dict (report_serializer.*_to_dict).
         aux: ViewModel 밖 부가 정적 데이터 (운영신호 attention 등) — GET 정적 렌더가 그대로 읽음.
         child_jobs: {public_id: child_job_id} — N대 표(engineer)가 발행한 개별 단일 job 맵.

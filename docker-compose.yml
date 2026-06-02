@@ -4,8 +4,8 @@
 #   - 퀵스타트(운영): repo clone 후 `cp .env.example .env && docker compose up -d`
 #   - dev 파이프라인: dev/dev-up.sh 가 본 파일을 COMPOSE_FILE 로 사용 (+ libvirt VM 등 host 구성)
 #
-# 이미지: 루트 Dockerfile(wheel install prod 이미지). source bind mount·hot reload 없음 — 코드 수정은
-#   `docker compose up --build` 재빌드, 또는 dev 반복은 venv(README "개발 환경 셋업")로 host 실행.
+# 이미지: 루트 Dockerfile(wheel install). app-base 가 host src 를 컨테이너 site-packages 에 bind mount 해
+#   코드 수정이 컨테이너 restart(docker compose restart web)만으로 반영 — 재빌드는 의존성 변경 시에만.
 # 환경변수: env_file = ${ENV_FILE:-.env}. 퀵스타트는 루트 `.env`(`cp .env.example .env`), dev 파이프라인은
 #   dev-up.sh 가 `ENV_FILE=dev/.env` export 해 dev 카탈로그(dev/.env) 인식. APP_ENV 토글(기본 dev).
 #   hardened prod(APP_ENV=prod + 강 secret + LOG_FORMAT=json)는 추후 분리 (ADR 0033 "추후 분리").
@@ -37,6 +37,10 @@ x-app-base: &app-base
       condition: service_healthy
     migrate:
       condition: service_completed_successfully
+  # dev 편의 — host src 를 컨테이너 site-packages 에 bind mount. 코드 수정이 컨테이너 restart 만으로 반영(재빌드 불필요).
+  # 라이브러리 의존성(pyproject) 변경 시에만 재빌드 필요. (python 버전 경로는 Dockerfile python 과 일치 유지.)
+  volumes:
+    - ./src/assessment_engine:/usr/local/lib/python3.12/site-packages/assessment_engine
 
 services:
   postgres:

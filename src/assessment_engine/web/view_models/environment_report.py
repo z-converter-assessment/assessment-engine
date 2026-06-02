@@ -9,14 +9,16 @@ from assessment_engine.web.view_models.attention import (
     EnvironmentOverview,
 )
 from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
+from assessment_engine.web.view_models.server import IpAddr
+from assessment_engine.web.view_models.topology import NetworkTopology
 
 
 @dataclass
 class ClassificationCount:
     """USE Method 분포 1 segment — 환경 보고서 전용 (양식 A/B 공통).
 
-    label 은 recommend enum 영어 그대로 (대시보드 도넛과 단일 진실).
-    description: 보고서 분포 막대 옆 간단 보조 설명.
+    label 은 right-sizing 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 보고서 전역 동일 어휘.
+    description: 보고서 분포 막대 옆 조치 방향 보조 설명.
     pct: 본 segment 가 전체 classification_dist 중 차지하는 % (mapper precompute, P3 회피).
     """
 
@@ -34,6 +36,104 @@ class OsCount:
 
     os_display: str  # mapper `_os_display` 결과
     count: int
+
+
+@dataclass
+class DistributionBar:
+    """구성 분포 1 segment — OS family / 워크로드 카테고리 공용 (환경 보고서 구성 계층).
+
+    단순 분포 막대 (위험도 색 아님) — P-E 단일 색, 막대마다 색 달리하지 않음.
+    pct: 분포 내 최대 count 대비 막대 너비 % (mapper precompute, P3 회피). count 가 절대값.
+    """
+
+    label: str
+    count: int
+    pct: float = 0.0
+
+
+@dataclass
+class ServerInventory:
+    """개별 서버 보고서 인벤토리 — ServerDetail 충실 표시 (생략·왜곡 없음).
+
+    IP 전체(IPv4/IPv6 모두, 임의 1개 선택 금지) + 식별자·하드웨어·부팅 정보. customer/engineer 공용,
+    customer 는 식별자(composite_id/machine_id) 미표시(template 분기).
+    """
+
+    hostname: str
+    os_display: str
+    os_codename: str | None
+    kernel_version: str | None
+    cpu_model: str | None
+    cpu_cores: int | None
+    mem_total_gb: float | None
+    swap_total_gb: float | None
+    disk_total_gb: int | None
+    ip_internal: list[IpAddr]
+    ip_external: list[IpAddr]
+    boot_time: datetime | None
+    agent_version: str | None
+    composite_id: str
+    machine_id: str | None
+    is_online: bool
+
+
+@dataclass
+class VolumeUsage:
+    """개별 보고서 마운트별 스토리지 — 윈도우 평균 사용률 + 총량 (worst 1개 아닌 전체)."""
+
+    mount: str
+    total_gb: float | None
+    used_pct: float | None
+
+
+@dataclass
+class MemoryBreakdown:
+    """개별 보고서 메모리 구성 — used/available/cached/buffers (전체 대비 %, 윈도우 평균)."""
+
+    used_pct: float | None
+    available_pct: float | None
+    cached_pct: float | None
+    buffers_pct: float | None
+
+
+@dataclass
+class CpuBreakdown:
+    """개별 보고서 CPU 분류 — user/system/iowait (jiffies delta 기반 %, 윈도우 평균)."""
+
+    user_pct: float | None
+    system_pct: float | None
+    iowait_pct: float | None
+
+
+@dataclass
+class ServiceHost:
+    """서비스 구동 호스트 1개 — engineer 서비스 구성에서 서버 상세 링크용 (public_id = /servers/{id})."""
+
+    hostname: str
+    public_id: str
+
+
+@dataclass
+class ServiceNameCount:
+    """서비스 구성 — 구체 서비스명 1개 + 등장 서버 수 + 구동 호스트 list (engineer 표시).
+
+    예: name="redis", count=3, hosts=[3대]. customer 는 name·count 만, engineer 는 hosts 호스트명 링크 노출.
+    """
+
+    name: str
+    count: int
+    hosts: list[ServiceHost] = field(default_factory=list)
+
+
+@dataclass
+class ServiceCatalogGroup:
+    """서비스 구성 카드 — 워크로드 카테고리 1개 + 그 안 구체 서비스명·개수 list (뱃지 색 = 카테고리).
+
+    범례(카테고리 색) + 색 뱃지(서비스명·개수)로 표시. base.rows workload_groups 를 카테고리 기준 집계 (mapper, P2).
+    """
+
+    category: str
+    services: list[ServiceNameCount] = field(default_factory=list)
 
 
 @dataclass
@@ -104,7 +204,35 @@ class EnvironmentReportSummary:
     os_distribution: list[OsCount]
     top_risks: list[ReportRowItem]  # base.rows 위험도 정렬 Top N (기본 5)
     summary_bullets_env: list[str]  # 환경 단위 view 별 정성 요약
+    # 구성 계층 (P-A) — OS family(Windows/Linux) 구성·워크로드 카테고리 분포 막대. customer·engineer 공통.
+    os_family_dist: list[DistributionBar] = field(default_factory=list)
+    workload_dist: list[DistributionBar] = field(default_factory=list)
+    # 분류된 역할이 없는 호스트 수 (서비스 없음 또는 전부 unknown) — discoverability(#E9)
+    workload_unknown_count: int = 0
+    # 고객 보고서 의사결정 보조 (mapper precompute, P3) — 모두 기존 분류·신호 단일 진실 재사용.
+    evaluated_count: int = 0  # 평가 가능 호스트 수 (데이터 부족 제외) — 분포가 전체에 적용된다는 오해 방지
+    os_eol_count: int = 0  # OS 지원 종료 호스트 수 (attention.os_eol_warnings len)
+    # 효율화 검토 대상(과다 프로비저닝·유휴·종료 권장) 호스트 수 + 점유 자원 합 — 전환 비용 논의 입력.
+    efficiency_target_count: int = 0
+    efficiency_target_vcpus: int = 0
+    efficiency_target_memory_gb: float = 0.0
+    # 엔지니어 환경 구성 — 에이전트 버전 목록 (중복 제거·정렬). "어디 적용"은 미표시, 버전만 명시.
+    agent_versions_label: str = ""
+    # 네트워크 토폴로지 (engineer) — ip_internal CIDR 공동소속 그래프. 발행 시점 정적 스냅샷.
+    topology: NetworkTopology | None = None
+    # 환경 시계열 추이 (engineer) — 발행 모달 time_range 윈도우의 CPU·메모리 평균 버킷. 정적 스냅샷.
+    # 차트 JS inline(tojson)용 plain dict: [{"at": iso, "cpu": float|None, "mem": float|None}].
+    trend: list[dict] = field(default_factory=list)
     under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list)
+    # 서비스 구성 — 선택 N대 전체의 워크로드 카테고리별 제품명 집합 (뱃지 + 매칭 서비스명). base.rows 의
+    # workload_groups 를 카테고리 기준 merge (mapper 집계, P2). 카테고리 뱃지에 정확히 매칭되는 서비스명 노출.
+    service_catalog: list[ServiceCatalogGroup] = field(default_factory=list)
+    # 개별 서버 보고서(single) 전용 — ServerDetail 충실 인벤토리 (전체 IP·하드웨어·식별자). 환경·선택은 None.
+    server_inventory: "ServerInventory | None" = None
+    # 개별 보고서 심화 메트릭 (single engineer) — 마운트별 스토리지·메모리 구성·CPU 분류. 그 외 빈/None.
+    volumes: list["VolumeUsage"] = field(default_factory=list)
+    memory_breakdown: "MemoryBreakdown | None" = None
+    cpu_breakdown: "CpuBreakdown | None" = None
     # 엔지니어 보고서 전용 — 운영 신호 발화 호스트 통합 list (gap / os_eol / agent_unstable).
     attention_hosts: list[AttentionHostItem] = field(default_factory=list)
     # 엔지니어 보고서 전용 — 디스크 capacity 임박 (30일 안 full 위험, linear projection).

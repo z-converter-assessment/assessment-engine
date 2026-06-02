@@ -51,26 +51,33 @@
 | 영역 | 내용 | 데이터 source |
 |------|------|--------------|
 | KPI 6개 | 대상 서버 / 온라인 / 주의 필요 / 고위험 / 평균 CPU p95 / 평균 메모리 p95 | service KPI 집계 (time_range 윈도우) |
+| 환경 구성 (OS·워크로드) | OS family(Windows/Linux) 막대 + 워크로드 카테고리(web/db/cache/mq/container/monitor) 막대 — 단일색 분포 막대 + 카운트. "이 환경이 무엇으로 이루어졌는지"(P-A 구성 계층). customer·engineer 공통 | `overview.os_distribution`(family) / `overview.role_distribution` |
 | 환경 총 자원 | 총 vCPU / 메모리 / 디스크 | inventory 합산 |
-| 역할 분포 | service_classifier 카테고리별 카운트 | inventory + 분류 |
-| 분류 분포 도넛 | over/under/idle/optimal 카운트 | `recommendation.classify` |
+| 분류 분포 | right-sizing 6분류 카운트 막대 (한국어 분류명 LABEL_KO, 영어 enum 미노출) | `recommendation.assess` |
+| 환경 부하 추이 (시계열) | CPU·메모리·디스크 평균 추이 차트. 보고서=발행 윈도우 정적 스냅샷 / 대시보드=14일 live | `environment_metric_trend` |
+| 네트워크 토폴로지 (engineer) | ip_internal CIDR subnet 공동소속 그래프 (정적 스냅샷) | `build_network_topology` |
 
 ### view 분기 — customer (양식 A)
 
 목적: 컨설턴트가 고객 미팅·내부 보고에 들고 가는 한 장짜리 환경 자원 요약.
 
-- 위험도 3단계 압축 (high/attention/normal)
-- 자동 정성 요약 (행동 시그널만): 고위험·주의·디스크 임박·I/O 병목·재부팅·OS EOL
-- Print 우선 — 인쇄 PDF 대응
+- 분류 어휘 = right-sizing 한국어 분류명(LABEL_KO) 단일 — 요약·분포·조치 표 동일, 영어 enum·평행 어휘 없음.
+- Right-sizing 평가: 분류 분포(조치 방향) + 효율화 검토 대상(과다·유휴·종료 자원 합) + 조치 필요 호스트(리소스 부족). 평가 커버리지(평가 대상/전체) 명시.
+- 운영 신호: OS 지원 종료 카드만 (2축 정책, 디스크 capacity 는 right-sizing 흡수).
+- 자동 정성 요약: 분류 분포 + 우선 조치/효율화 여지.
+- 발화 항목은 제목 + placeholder (데이터 0 이어도 노출, #E9).
+- Print 우선 — 참고자료 전문 인쇄 임베드.
 
 ### view 분기 — engineer (양식 B)
 
-목적: 운영자·엔지니어가 환경 단위 정량 패턴 분석 + Right-sizing 근거 검증.
+목적: 운영자·엔지니어가 환경 단위 정량 패턴 분석 + Right-sizing 근거 검증. customer 와 동일 어휘(LABEL_KO) + 정량 상세.
 
-- 5분류 그대로 (under/over/idle/optimal/insufficient_data) + 판단 텍스트
-- 자동 정성 요약 (customer 시그널 + engineer 시그널): 역할별 평균 CPU 최고치·Saturation 발생·CPU 변동성 큼
-- 화면 분석 우선 (인쇄 가능하지만 가로 폭 한계)
-- 정량 표 추가: LOAD · 변동성 · I/O wait · DISK · NET · SWAP/Mount · Uptime/재부팅 · 판단
+- 요약: customer 기준(분류 분포 + 우선 조치/효율화 여지) + 자원 규모 + OS 지원 종료.
+- 환경 현황 카드: 인벤토리(등록 서버·총 vCPU/메모리/디스크) / 메트릭(평균 활용률 + p95 활용률) 소제목 구분. 에이전트 버전은 환경 구성 카드.
+- 환경 부하 추이(시계열 CPU/메모리/디스크) + 네트워크 토폴로지 (각 별도 카드).
+- Right-sizing 분류: 6분류 분포 + 효율화 검토 대상 + 언더 프로비저닝 trigger별 상세 + 호스트 상세 정량 표(LOAD·변동성·I/O wait·DISK·NET·SWAP/Mount·Uptime/재부팅). 호스트 상세에 분류(한국어)만 — 판단 칼럼은 분류와 의미 중복이라 제거.
+- 운영 신호 = OS 지원 종료만(2축 정책). 재부팅·에이전트 재시작은 호스트 상세 표 시스템 안정성 컬럼.
+- 화면 분석 우선 (인쇄 가능).
 
 분기 메커니즘:
 - 같은 endpoint·SQL·템플릿. `view` 파라미터로 `{% if view == "customer" %} ... {% elif view == "engineer" %} ... {% endif %}` 블록 토글.
@@ -107,13 +114,9 @@ over-provisioned 5대, under-provisioned 2대, idle 0대, optimal 16대.
 
 Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 사용은 saturation 아니라 분류에서 제외(swap_pressure 카운트·분포 도넛 모두). Windows는 utilization 축만으로 분류(부분 평가). 상세 `right_sizing_thresholds.html`.
 
-위험도 3단계 압축 (customer view 한정):
+분류 표시 (customer·engineer 공통): right-sizing 한국어 분류명(LABEL_KO) 단일. 내부 risk_level(high/attention/normal)은 조치 필요 호스트 선정·강조용으로만 쓰고, 화면 라벨로 노출하지 않는다 (영어 enum·평행 어휘 금지).
 
-| 위험도 | 트리거 조건 |
-|--------|-----------|
-| 고위험 | CPU p95 70% 이상 또는 메모리 p95 80% 이상 또는 swap 발생 |
-| 주의 필요 | over-provisioned 또는 거의 미사용(idle) |
-| 정상 | 그 외 (optimal) |
+운영 신호 (2축 분리): right-sizing(축1, 디스크 capacity·IO 포함)과 별개로 AttentionSignals 3종(통신 끊김·OS 지원 종료·에이전트 재시작)이 운영 신호 축. 보고서는 그중 OS 지원 종료만 카드로 표시(통신 끊김·에이전트 재시작은 윈도우 의미 불일치로 전역 카드 미표시 — 에이전트 재시작은 engineer 호스트 상세 컬럼). 상세는 `docs/temp/report-view-policy.md` 5절.
 
 ### 평가 윈도우 14일
 

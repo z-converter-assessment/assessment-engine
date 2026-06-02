@@ -28,6 +28,10 @@
     th { padding: 9px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid #e2e8f0; }
     td { padding: 11px 14px; border-top: 1px solid #f1f5f9; color: #334155; vertical-align: middle; }
     tr:hover td { background: #f8fafc; }
+    /* 서버 목록 — 칼럼 많아 기본 표보다 조밀하게: 셀 패딩 축소·폰트 통일·세로 가운데. */
+    .server-list-table th, .server-list-table td { padding: 7px 11px; font-size: 13px; }
+    .server-list-table th { font-size: 11px; }
+    .server-list-table td { vertical-align: middle; }
     /* 모든 link 일관 — color + 항상 밑줄 (옅음). hover 시 강조. 별도 class (.row-link 등) 와 단일 진실 정합. */
     a { color: #2563eb; text-decoration: underline; text-decoration-color: #cbd5e1; text-underline-offset: 2px; }
     a:hover { text-decoration-color: #2563eb; }
@@ -255,6 +259,8 @@
 
     /* ── Print ── */
     @media print {
+      /* 용지 여백 축소 — 1페이지 가용 세로 영역 확대 (성능 리포트 1페이지 압박 완화). */
+      @page { margin: 10mm; }
       .no-print { display: none !important; }
       .print-only { display: revert !important; }
       body { background: #fff; }
@@ -263,13 +269,35 @@
       table { box-shadow: none !important; }
       a { color: #1a1a1a !important; text-decoration: none !important; }
       .action-col { display: none !important; }
-      .progress-fill, .progress-bar, .badge { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .progress-fill, .progress-bar, .badge, .bar-fill, .bar-track, .legend-dot, .legend-line, .dot-ok, .dot-off { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      /* 차트 범례 색 점·선은 인쇄에서 배경색이 빠져 식별 불가 — exact 강제. 칩 테두리/회색 토글 OFF 도 같이 유지. */
+      .legend-chip { border-color: #cbd5e1 !important; }
+      /* 막대 트랙은 인쇄 시 옅은 배경이 거의 흰색으로 빠져 영역 구분이 약해짐 — 테두리로 막대 길이 가시성 확보. */
+      .bar-track { border: 1px solid #cbd5e1; }
       #realtime-metrics-card { page-break-before: always; }
+      /* 명시적 페이지 분기 유틸 — 성능 리포트 후반 차트 묶음을 2페이지로. */
+      .print-break-before { page-break-before: always; }
       /* 성능 리포트 — 행 카드 안 2 차트를 인쇄에서도 2열 유지 (auto-fit 이 A4 폭에서 1열로 떨어지는 것 방지). */
       .perf-pair { grid-template-columns: repeat(2, 1fr) !important; }
+      /* 환경 보고서 — 부하 추이 + 토폴로지 한 카드 2열을 인쇄에서도 웹과 동일 구도(2열) 유지. */
+      .env-dual { grid-template-columns: repeat(2, 1fr) !important; }
+      /* 세부 서버 목록 — 칼럼 많아 A4 폭 초과. 인쇄에서 폰트·셀 패딩 축소 + 줄바꿈 허용으로 타이트하게. */
+      .detail-table { font-size: 9px !important; }
+      .detail-table th, .detail-table td { padding: 2px 4px !important; white-space: normal !important; word-break: keep-all; }
+      .detail-table .badge { font-size: 8px !important; padding: 1px 4px !important; }
+      .env-dual #env-trend-chart { width: 100% !important; height: 100% !important; }
+      /* 차트 높이 축소 — 1페이지(서버정보+CPU+로드/메모리)가 A4 한 장에 들어가도록. 화면 180px -> 인쇄 100px. */
+      .perf-chart { height: 100px !important; }
+      /* 성능 리포트 1페이지 추가 압축 — 카드 간격·내부 패딩 축소, 인쇄 부가 식별자(Composite/Machine ID) 숨김. */
+      .perf-stack { gap: 12px !important; }
+      .perf-stack .card { padding: 12px 16px !important; }
+      .perf-stack h2 { font-size: 15px !important; }
+      .print-hide { display: none !important; }
       /* Chart.js 가 캔버스에 화면 폭(px)을 inline 으로 박아 인쇄 컨테이너를 넘는 것 보정 —
          캔버스를 컨테이너에 강제로 맞춰 꺾은선이 plot 경계를 넘지 않게. */
       .perf-pair canvas { width: 100% !important; height: 100% !important; }
+      /* 환경 부하 추이 차트(보고서 인쇄) — 동일 보정. */
+      #env-trend-chart { width: 100% !important; height: 100% !important; }
     }
   </style>
   <!-- 자식 template의 inline script(<main> 안)에서 ChartUtils를 즉시 destructure하므로

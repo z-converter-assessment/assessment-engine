@@ -3,7 +3,13 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from assessment_engine.db.dtos.outbound import EnvironmentUtilizationRaw, ReportRowRaw
+from assessment_engine.db.dtos.outbound import (
+    CpuBreakdownRaw,
+    EnvironmentUtilizationRaw,
+    MemoryBreakdownRaw,
+    ReportMountUsageRaw,
+    ReportRowRaw,
+)
 
 
 class BaseReportQueryRepository(ABC):
@@ -84,6 +90,33 @@ class BaseReportQueryRepository(ABC):
         baseline = SUM(delta_bytes) / SUM(dt) / 1024 (모든 interface 합산 평균).
         p95/peak = 시점별 interface 합산 rate에서 percentile_cont(0.95) + MAX.
         """
+
+    @abstractmethod
+    async def report_mount_usage(
+        self,
+        server_id: int,
+        period_days: float,
+        end: datetime,
+    ) -> list[ReportMountUsageRaw]:
+        """마운트별 윈도우 평균 사용률 — 개별 보고서 스토리지 상세 (worst 1개 아닌 전체, 가상 mount 제외)."""
+
+    @abstractmethod
+    async def report_memory_breakdown(
+        self,
+        server_id: int,
+        period_days: float,
+        end: datetime,
+    ) -> MemoryBreakdownRaw:
+        """메모리 구성 윈도우 평균 — used/available/cached/buffers (전체 메모리 대비 %, 시점값 avg)."""
+
+    @abstractmethod
+    async def report_cpu_breakdown(
+        self,
+        server_id: int,
+        period_days: float,
+        end: datetime,
+    ) -> CpuBreakdownRaw:
+        """CPU 분류 윈도우 평균 — user/system/iowait (jiffies LAG delta, counter reset 흡수)."""
 
     @abstractmethod
     async def environment_utilization(

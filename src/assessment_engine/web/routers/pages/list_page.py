@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from assessment_engine import recommendation
 from assessment_engine.web.deps import get_service
-from assessment_engine.web.services.mappers.shared import DISTRO_FILTER_OPTIONS, PROVISIONING_CLASSES
+from assessment_engine.web.services.mappers.shared import DISTRO_FILTER_OPTIONS, PROVISIONING_CLASS_OPTIONS
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.settings import web_settings
@@ -50,6 +50,7 @@ async def list_servers(
                 "attention": live.attention,
                 "realtime": live.realtime,
                 "topology": live.topology,
+                "trend": live.trend,
                 "generated_at": datetime.now(UTC),
                 "window_days": recommendation.WINDOW_DAYS,
                 "self_back": quote("/servers/", safe=""),
@@ -80,11 +81,13 @@ async def list_servers(
     attention = None
     realtime = None
     topology = None
+    trend = None
     if page == 1:
         live = await service.get_dashboard_live()
         overview, attention, realtime = live.overview, live.attention, live.realtime
         # 토폴로지는 자동갱신 라이브 fragment 밖에서 1회 렌더 (정적 인벤토리 — 30초 폴링 대상 아님).
         topology = live.topology
+        trend = live.trend
     return templates.TemplateResponse(
         request=request,
         name="servers/list.html",
@@ -94,6 +97,7 @@ async def list_servers(
             "attention": attention,
             "realtime": realtime,
             "topology": topology,
+            "trend": trend,
             # 페이지 렌더(새로고침) 시각 — 우측 상단 갱신 시각 표시용. UTC 전달, 템플릿 kst 필터로 표시(#F2).
             "generated_at": datetime.now(UTC),
             "window_days": recommendation.WINDOW_DAYS,
@@ -108,7 +112,7 @@ async def list_servers(
             "filter_options": {
                 "service_categories": SERVICE_CATEGORIES,
                 "distro_options": DISTRO_FILTER_OPTIONS,
-                "classifications": PROVISIONING_CLASSES,
+                "classifications": PROVISIONING_CLASS_OPTIONS,
             },
             # 자식 link (detail / 진단 이력 등) 의 back chain — 본 page URL (filter 상태 보존).
             "self_back": quote(f"{request.url.path}?{request.url.query}", safe=""),

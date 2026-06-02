@@ -188,7 +188,7 @@
       const isDash = ds.borderDash && ds.borderDash.length > 0;
       const lineHtml = isDash
         ? `<svg width="20" height="3" style="flex-shrink:0;"><line x1="0" y1="1.5" x2="20" y2="1.5" stroke="${ds.borderColor}" stroke-width="2" stroke-dasharray="4 2"/></svg>`
-        : `<span style="width:20px; height:3px; border-radius:2px; background:${ds.borderColor}; flex-shrink:0;"></span>`;
+        : `<span class="legend-line" style="width:20px; height:3px; border-radius:2px; background:${ds.borderColor}; flex-shrink:0;"></span>`;
       const labelHtml = opts.codeLabel
         ? `<code>${ds.label}</code>`
         : `<span class="text-label">${ds.label}</span>`;

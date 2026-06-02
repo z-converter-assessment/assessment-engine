@@ -2,7 +2,7 @@
 
 발행(POST emit) 시 mapper 가 모든 파생(badge_class·pct·dash_length 등)을 채운 완성 ViewModel 을
 JSONB dict 로 저장(`report_summary_to_dict`·`env_report_to_dict`), GET(세부·이력 포함) 시 저장된 dict 를
-ViewModel 로 복원(`load_report_snapshot`·`*_from_dict`)해 정적 렌더. 재계산·재진단 없음 — 발행 시점
+ViewModel 로 복원(`*_from_dict`)해 정적 렌더. 재계산·재진단 없음 — 발행 시점
 데이터 그대로 (요구: 정적 보관 + 이력 동적변화 0).
 
 cache_serializer.py 와 동일 패턴 (asdict + json datetime, 역직렬화 nested 재구성).
@@ -22,7 +22,6 @@ from datetime import datetime
 from assessment_engine.diagnostic.report_result import (  # noqa: F401 (re-export)
     ENV_NARRATIVE_KEY,
     REPORT_KIND_ENV,
-    REPORT_KIND_SUMMARY,
     build_narrative_entry,
     build_report_result,
 )
@@ -39,15 +38,28 @@ from assessment_engine.web.view_models.environment_report import (
     AttentionHostItem,
     CapacityImminentItem,
     ClassificationCount,
+    CpuBreakdown,
+    DistributionBar,
     EnvironmentReportSummary,
     InsufficientHostItem,
+    MemoryBreakdown,
     OsCount,
+    ServerInventory,
+    ServiceCatalogGroup,
+    ServiceHost,
+    ServiceNameCount,
+    VolumeUsage,
 )
 from assessment_engine.web.view_models.report import (
+    ReportListenItem,
     ReportRowItem,
+    ReportServiceUnit,
     ReportSummary,
     ReportTotals,
+    ReportWorkloadGroup,
 )
+from assessment_engine.web.view_models.server import IpAddr
+from assessment_engine.web.view_models.topology import NetworkTopology
 
 
 def _json_default(obj: object) -> str:
@@ -66,26 +78,24 @@ def _to_jsonable(vm: object) -> dict:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# 역직렬화 — result['snapshot'] -> ViewModel (정적 렌더용). 조립은 diagnostic.report_result 단일 진실.
-# ──────────────────────────────────────────────────────────────────────────
-def load_report_snapshot(result: dict) -> ReportSummary | EnvironmentReportSummary:
-    """result['snapshot'] 을 kind 별 ViewModel 로 복원 (정적 렌더용)."""
-    snapshot = result["snapshot"]
-    if result["kind"] == REPORT_KIND_SUMMARY:
-        return report_summary_from_dict(snapshot)
-    return env_report_from_dict(snapshot)
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# ReportSummary (server scope N대 보고서 — servers/report.html)
+# ReportSummary (server scope 보고서 base — EnvironmentReportSummary.base 직렬화·복원에 사용)
 # ──────────────────────────────────────────────────────────────────────────
 def report_summary_to_dict(vm: ReportSummary) -> dict:
     return _to_jsonable(vm)
 
 
+def _report_row_from_dict(r: dict) -> ReportRowItem:
+    """ReportRowItem 복원 — nested 구동 서비스 3 필드(list[dataclass]) 재구성 포함."""
+    data = dict(r)
+    data["workload_groups"] = [ReportWorkloadGroup(**g) for g in data.get("workload_groups") or []]
+    data["service_units"] = [ReportServiceUnit(**u) for u in data.get("service_units") or []]
+    data["listen_ports_detail"] = [ReportListenItem(**p) for p in data.get("listen_ports_detail") or []]
+    return ReportRowItem(**data)
+
+
 def report_summary_from_dict(d: dict) -> ReportSummary:
     data = dict(d)
-    data["rows"] = [ReportRowItem(**r) for r in data.get("rows") or []]
+    data["rows"] = [_report_row_from_dict(r) for r in data.get("rows") or []]
     totals = data.get("totals")
     data["totals"] = ReportTotals(**totals) if totals else ReportTotals(0, 0.0, 0)
     data["generated_at"] = _dt(data.get("generated_at"))
@@ -107,14 +117,45 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
     data["base"] = report_summary_from_dict(data["base"])
     data["classification_dist"] = [ClassificationCount(**c) for c in data.get("classification_dist") or []]
     data["os_distribution"] = [OsCount(**o) for o in data.get("os_distribution") or []]
-    data["top_risks"] = [ReportRowItem(**r) for r in data.get("top_risks") or []]
+    data["os_family_dist"] = [DistributionBar(**b) for b in data.get("os_family_dist") or []]
+    data["workload_dist"] = [DistributionBar(**b) for b in data.get("workload_dist") or []]
+    topo = data.get("topology")
+    data["topology"] = NetworkTopology(**topo) if topo else None
+    # trend 는 plain dict list (at=isoformat str) — 라운드트립 시 그대로 보존 (복원 불필요).
+    data["top_risks"] = [_report_row_from_dict(r) for r in data.get("top_risks") or []]
     uph = data.get("under_provisioned_hosts") or []
     data["under_provisioned_hosts"] = [_capacity_warning_from_dict(c) for c in uph]
+    data["service_catalog"] = [
+        ServiceCatalogGroup(
+            category=g["category"],
+            services=[
+                ServiceNameCount(
+                    name=s["name"], count=s["count"], hosts=[ServiceHost(**h) for h in s.get("hosts") or []]
+                )
+                for s in g.get("services") or []
+            ],
+        )
+        for g in data.get("service_catalog") or []
+    ]
     data["attention_hosts"] = [AttentionHostItem(**a) for a in data.get("attention_hosts") or []]
     data["capacity_imminent"] = [CapacityImminentItem(**c) for c in data.get("capacity_imminent") or []]
     data["insufficient_hosts"] = [InsufficientHostItem(**i) for i in data.get("insufficient_hosts") or []]
     data["anchor_at"] = _dt(data.get("anchor_at"))
     data["generated_at"] = _dt(data.get("generated_at"))
+    si = data.get("server_inventory")
+    if si:
+        sid = dict(si)
+        sid["ip_internal"] = [IpAddr(**a) for a in sid.get("ip_internal") or []]
+        sid["ip_external"] = [IpAddr(**a) for a in sid.get("ip_external") or []]
+        sid["boot_time"] = _dt(sid.get("boot_time"))
+        data["server_inventory"] = ServerInventory(**sid)
+    data["volumes"] = [VolumeUsage(**v) for v in data.get("volumes") or []]
+    mb = data.get("memory_breakdown")
+    if mb:
+        data["memory_breakdown"] = MemoryBreakdown(**mb)
+    cb = data.get("cpu_breakdown")
+    if cb:
+        data["cpu_breakdown"] = CpuBreakdown(**cb)
     return EnvironmentReportSummary(**data)
 
 

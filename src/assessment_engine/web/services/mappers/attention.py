@@ -115,7 +115,9 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
         segments.append(
             RiskDonutSegment(
                 key=key,
-                label=label,
+                # 표시 라벨 = right-sizing 한국어 분류명(LABEL_KO 단일 진실).
+                # 보고서·대시보드 통일, 영어 enum 노출 금지.
+                label=recommendation.LABEL_KO.get(key, label),
                 color=color,
                 count=count,
                 dash_length=dash_length,

@@ -7,6 +7,7 @@ server scope 보고서와 분리된 high-level 양식 — 분류 분포·OS 분�
 from collections import Counter
 from datetime import datetime
 
+from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ServerDetail
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_RANGE_LABEL_KR,
@@ -17,6 +18,8 @@ from assessment_engine.web.services.mappers.shared import (
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS as _PROVISIONING_SEGMENT_DEFS,
 )
+from assessment_engine.web.services.mappers.topology import build_network_topology
+from assessment_engine.web.services.service_classifier import SINGLE_INSTANCE_CATEGORIES
 from assessment_engine.web.view_models.attention import (
     AttentionSignals,
     CapacityWarningItem,
@@ -26,14 +29,29 @@ from assessment_engine.web.view_models.environment_report import (
     AttentionHostItem,
     CapacityImminentItem,
     ClassificationCount,
+    DistributionBar,
     EnvironmentReportSummary,
     InsufficientHostItem,
     OsCount,
+    ServiceCatalogGroup,
+    ServiceHost,
+    ServiceNameCount,
 )
 from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
 
 # `_PROVISIONING_SEGMENT_DEFS` / `_CAPACITY_IMMINENT_DAYS` 단일 진실 = mappers/shared.py (#E8).
 # 본 모듈은 import alias 만 — 환경 보고서·대시보드 도넛·보고서 row 색 통일 (T13).
+
+# 분류별 조치 방향 — 분포 막대 desc 단일 진실 (label=분류명과 어휘 중복 회피, 조치만).
+# 대시보드 도넛(_DONUT_SEGMENT_DEFS desc)과 분리 — 보고서 ClassificationCount 에만 적용.
+_CLASS_ACTION_KO: dict[str, str] = {
+    "under_provisioned": "사양 상향(증설) 검토",
+    "over_provisioned": "사양 축소 검토",
+    "idle": "용도 재평가",
+    "shutdown": "종료 검토",
+    "optimal": "적정",
+    "insufficient_data": "평가 표본 부족",
+}
 
 # 위험도 정렬 우선순위 (Top N 선정).
 _RISK_PRIORITY: dict[str, int] = {
@@ -60,13 +78,91 @@ def _count_classifications(rows: list[ReportRowItem]) -> list[ClassificationCoun
     return [
         ClassificationCount(
             key=key,
-            label=label,
+            # 표시 라벨 = right-sizing 한국어 분류명 단일 진실(LABEL_KO). 영어 enum 노출 금지·평행 어휘 금지.
+            label=recommendation.LABEL_KO.get(key, label),
             count=counts.get(key, 0),
             color=color,
-            description=description,
+            # desc = 조치 방향만 (label 분류명과 어휘 중복 회피). 대시보드 도넛 desc 와 분리.
+            description=_CLASS_ACTION_KO.get(key, description),
         )
         for key, label, color, description in _PROVISIONING_SEGMENT_DEFS
     ]
+
+
+# OS family key -> 표시명. 구성 막대 라벨 단일 진실 (unknown 은 "미상").
+_OS_FAMILY_LABEL: dict[str, str] = {"linux": "Linux", "windows": "Windows", "unknown": "미상"}
+
+
+def _to_distribution_bars(
+    counts: dict[str, int],
+    label_map: dict[str, str] | None = None,
+) -> list[DistributionBar]:
+    """카테고리 카운트 dict -> 구성 분포 막대 list (count DESC, label ASC tie-break).
+
+    pct = 분포 내 최대 count 대비 막대 너비 % (P3 회피 mapper precompute). 단순 분포라 위험도 색 없음.
+    """
+    if not counts:
+        return []
+    items = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    mx = max(c for _, c in items) or 1
+    return [
+        DistributionBar(
+            label=(label_map or {}).get(key, key),
+            count=count,
+            pct=round(count / mx * 100, 1),
+        )
+        for key, count in items
+    ]
+
+
+def build_metric_trend(cpu_series: list, mem_series: list, disk_series: list) -> list[dict]:
+    """환경 CPU·메모리·디스크 시계열(MetricSeries) 세 개를 버킷 시각 기준 merge -> 차트 JS inline plain dict (P2).
+
+    at 은 isoformat str (tojson·JS Date 파싱). 표본 없는 축은 None (차트 gap).
+    """
+
+    # SQL avg 는 numeric(Decimal) 반환 — JSON 직렬화(tojson) 위해 float 변환 + 소수 1자리.
+    def _f(v):
+        return round(float(v), 1) if v is not None else None
+
+    cpu_by = {s.collected_at: _f(s.value) for s in cpu_series}
+    mem_by = {s.collected_at: _f(s.value) for s in mem_series}
+    disk_by = {s.collected_at: _f(s.value) for s in disk_series}
+    timestamps = sorted(set(cpu_by) | set(mem_by) | set(disk_by))
+    return [
+        {"at": t.isoformat(), "cpu": cpu_by.get(t), "mem": mem_by.get(t), "disk": disk_by.get(t)} for t in timestamps
+    ]
+
+
+def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalogGroup]:
+    """선택 N대 base.rows 의 workload_groups 를 카테고리 기준 집계 — 카테고리별 서비스명·등장 서버 수 (P2).
+
+    names_label 은 "nginx, gunicorn" comma-separated — split 후 서비스명별 등장 서버 수 카운트. 빈 names
+    (listen-only 탐지, T15)는 카테고리만 (services=[]). 범례(카테고리 색) + 색 뱃지(서비스명·개수)로 표시.
+    """
+    # 일반 카테고리: 서비스명별 hosts. single_instance(container 등, E7): docker+containerd 등을 1 런타임 스택으로
+    # 보아 카테고리 단위 서버당 1 (서비스명 합집합·서버 distinct 카운트) — 카테고리 카운트 정책과 일관.
+    multi: dict[str, dict[str, list[ServiceHost]]] = {}
+    single_names: dict[str, set[str]] = {}
+    single_hosts: dict[str, list[ServiceHost]] = {}
+    for r in rows:
+        for g in r.workload_groups:
+            host = ServiceHost(hostname=r.hostname, public_id=r.public_id)
+            names = [n.strip() for n in (g.names_label or "").split(", ") if n.strip()]
+            if g.category in SINGLE_INSTANCE_CATEGORIES:
+                single_names.setdefault(g.category, set()).update(names)
+                single_hosts.setdefault(g.category, []).append(host)
+            else:
+                cat_map = multi.setdefault(g.category, {})
+                for n in names:
+                    cat_map.setdefault(n, []).append(host)
+    groups: dict[str, list[ServiceNameCount]] = {}
+    for cat, cat_map in multi.items():
+        groups[cat] = [ServiceNameCount(name=n, count=len(hosts), hosts=hosts) for n, hosts in sorted(cat_map.items())]
+    for cat, hosts in single_hosts.items():
+        label = ", ".join(sorted(single_names.get(cat, set()))) or cat
+        groups[cat] = [ServiceNameCount(name=label, count=len(hosts), hosts=hosts)]
+    return [ServiceCatalogGroup(category=cat, services=groups[cat]) for cat in sorted(groups)]
 
 
 def _count_os(details: list[ServerDetail]) -> list[OsCount]:
@@ -242,31 +338,59 @@ def _env_summary_bullets(
     under = classified.get("under_provisioned", 0)
     over = classified.get("over_provisioned", 0)
     idle = classified.get("idle", 0)
+    shutdown = classified.get("shutdown", 0)
     optimal = classified.get("optimal", 0)
     insufficient = classified.get("insufficient_data", 0)
     online_ratio = (overview.online / overview.total * 100) if overview.total else 0.0
 
     if view == "customer":
-        return [
-            f"등록 서버 총 {overview.total}대 — 온라인 {overview.online}대 ({online_ratio:.0f}%).",
-            (
-                f"[자원 평가] 위험(리소스 부족) {under}대 / 검토 권장(과다·유휴) {over + idle}대"
-                f" / 정상 {optimal}대 / 데이터 부족 {insufficient}대."
-            ),
+        # 분류 어휘는 LABEL_KO 단일 진실 그대로 — 분포 막대·조치 필요 표와 100% 동일 어휘 (혼란 0).
+        ko = recommendation.LABEL_KO
+        dist_line = (
+            f"Right-sizing: {ko['under_provisioned']} {under}대 · {ko['over_provisioned']} {over}대"
+            f" · {ko['idle']} {idle}대 · {ko['shutdown']} {shutdown}대 · {ko['optimal']} {optimal}대"
+        )
+        if insufficient:
+            dist_line += f" · {ko['insufficient_data']} {insufficient}대"
+        bullets = [
+            f"등록 서버 {overview.total}대 — 온라인 {overview.online}대 ({online_ratio:.0f}%).",
+            dist_line + ".",
         ]
+        # 우선 조치 — 분류 기반 행동 (분류명 그대로, 새 어휘 도입 없음).
+        efficiency = over + idle + shutdown
+        if under:
+            bullets.append(f"우선 조치 — {ko['under_provisioned']} {under}대 사양 상향(증설) 검토.")
+        elif efficiency:
+            grp = f"{ko['over_provisioned']}·{ko['idle']}·{ko['shutdown']}"
+            bullets.append(f"효율화 여지 — {grp} {efficiency}대 사양 축소·용도 재평가.")
+        return bullets
 
+    # engineer — 분류 어휘 LABEL_KO 통일(customer 와 동일), 자원 규모 상세, 운영 신호는 OS 지원 종료만(C1).
+    # gap/agent_unstable 전역 신호는 보고서 미표시(window 의미 불일치) — 요약에도 노출 안 함.
+    ko = recommendation.LABEL_KO
     resource = (
         f"vCPU {overview.total_vcpus} / 메모리 {overview.total_memory_gb:.1f} GB / 디스크 {overview.total_disk_gb} GB"
     )
-    distribution = f"under {under} / over {over} / idle {idle} / optimal {optimal} / insufficient {insufficient}"
+    evaluated = overview.total - insufficient
+    dist_line = (
+        f"Right-sizing: {ko['under_provisioned']} {under} · {ko['over_provisioned']} {over}"
+        f" · {ko['idle']} {idle} · {ko['shutdown']} {shutdown} · {ko['optimal']} {optimal}"
+    )
+    if insufficient:
+        dist_line += f" · {ko['insufficient_data']} {insufficient}"
     bullets = [
-        f"등록 {overview.total}대 ({resource}).",
-        f"[자원 평가] 분류 분포: {distribution}.",
+        f"등록 서버 {overview.total}대 — 온라인 {overview.online}대, 평가 가능 {evaluated}대 ({resource}).",
+        dist_line + ".",
     ]
+    # 우선 조치/효율화 여지 — customer 와 동일 기준 (엔지니어는 상세해야 하므로 최소 동일).
+    efficiency = over + idle + shutdown
+    if under:
+        bullets.append(f"우선 조치 — {ko['under_provisioned']} {under}대 사양 상향(증설) 검토.")
+    elif efficiency:
+        grp = f"{ko['over_provisioned']}·{ko['idle']}·{ko['shutdown']}"
+        bullets.append(f"효율화 여지 — {grp} {efficiency}대 사양 축소·용도 재평가.")
     if attention.os_eol_warnings:
-        bullets.append(f"[운영 신호] OS EOL {len(attention.os_eol_warnings)}건 — 업그레이드 계획.")
-    if attention.agent_unstable:
-        bullets.append(f"[운영 신호] 에이전트 재시작 {len(attention.agent_unstable)}건 — 호스트 안정성 점검.")
+        bullets.append(f"OS 지원 종료 {len(attention.os_eol_warnings)}대 — 보안 패치 중단, 업그레이드 계획.")
     return bullets
 
 
@@ -281,6 +405,7 @@ def to_environment_report(
     details: list[ServerDetail],
     generated_at: datetime,
     under_provisioned_hosts: list[CapacityWarningItem] | None = None,
+    trend: list[dict] | None = None,
 ) -> EnvironmentReportSummary:
     """ReportSummary + EnvironmentOverview + AttentionSignals → EnvironmentReportSummary 합성.
 
@@ -293,6 +418,9 @@ def to_environment_report(
     for c in classification_dist:
         c.pct = round((c.count / classified_total * 100), 1) if classified_total else 0.0
     os_dist = _count_os(details)
+    # 구성 계층 (P-A) — overview 가 이미 집계한 OS family·워크로드 분포를 막대 ViewModel 로 precompute.
+    os_family_dist = _to_distribution_bars(overview.os_distribution, _OS_FAMILY_LABEL)
+    workload_dist = _to_distribution_bars(overview.role_distribution)
     top_risks = _select_top_risks(base.rows, view)
     summary = _env_summary_bullets(view, overview, attention, classification_dist)
     under_hosts = (
@@ -303,6 +431,16 @@ def to_environment_report(
     attention_hosts = _extract_attention_hosts(attention, base.rows)
     capacity_imminent = _extract_capacity_imminent(base.rows)
     insufficient = _extract_insufficient(base.rows)
+    # 고객 의사결정 보조 (기존 분류·신호 단일 진실 재사용, 새 분류 도입 0).
+    insufficient_count = sum(1 for r in base.rows if r.recommendation == "insufficient_data")
+    evaluated_count = len(base.rows) - insufficient_count
+    eff_rows = [r for r in base.rows if r.recommendation in ("over_provisioned", "idle", "shutdown")]
+    eff_vcpus = sum(r.cpu_cores or 0 for r in eff_rows)
+    eff_mem = round(sum(r.mem_total_gb or 0.0 for r in eff_rows), 1)
+    # 에이전트 버전 목록 (중복 제거·정렬, 미상 포함) — 관리 현황. 어느 호스트인지는 미표시.
+    agent_versions_label = ", ".join(sorted({(d.agent_version or "미상") for d in details}))
+    # 네트워크 토폴로지 — 발행 시점 정적 스냅샷 (대시보드와 동일 mapper 단일 진실).
+    topology = build_network_topology(details)
     return EnvironmentReportSummary(
         view=view,
         time_range=time_range,
@@ -314,9 +452,13 @@ def to_environment_report(
         base=base,
         classification_dist=classification_dist,
         os_distribution=os_dist,
+        os_family_dist=os_family_dist,
+        workload_dist=workload_dist,
+        workload_unknown_count=overview.role_unknown_count,
         top_risks=top_risks,
         summary_bullets_env=summary,
         under_provisioned_hosts=under_hosts,
+        service_catalog=_aggregate_service_catalog(base.rows),
         attention_hosts=attention_hosts,
         capacity_imminent=capacity_imminent,
         insufficient_hosts=insufficient,
@@ -326,4 +468,12 @@ def to_environment_report(
         capacity_imminent_count=len(capacity_imminent),
         insufficient_hosts_count=len(insufficient),
         under_provisioned_hosts_count=len(under_hosts),
+        evaluated_count=evaluated_count,
+        os_eol_count=len(attention.os_eol_warnings),
+        efficiency_target_count=len(eff_rows),
+        efficiency_target_vcpus=eff_vcpus,
+        efficiency_target_memory_gb=eff_mem,
+        agent_versions_label=agent_versions_label,
+        topology=topology,
+        trend=trend or [],
     )

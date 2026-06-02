@@ -41,9 +41,9 @@
 - `detect_listen_categories(listen_ports)` — listen 소켓을 services unit 과 무관하게 직접 분류(comm 키워드 우선, 없으면 port). listen 소켓의 comm(exe basename)·port 는 지저분한 service 이름과 달리 깨끗·안정(OS·인스턴스명·로케일 무관) 식별자라, "이 호스트가 무슨 워크로드를 listen 하나"를 직접 탐지. Windows opaque SCM 이름(`MSSQL$무엇`)을 1433/`sqlservr` 로 우회.
 - `workload_category_counter(services, listen_ports)` — services 이름 분류(인스턴스 카운트) ∪ listen 탐지(이름이 못 잡은 카테고리만 +1, 이중 카운트 회피). role/뱃지/환경 분포 단일 진실.
 - 런타임 스택 카테고리(`CategoryDef.single_instance` — 현재 container)는 호스트당 1로 집계. docker+containerd, kubelet+containerd 처럼 1 런타임이 여러 서비스로 떠도 "container 2" 로 부풀리지 않는다 (카운터·목록 뱃지 category_count·detail 뱃지 모두 적용, `SINGLE_INSTANCE_CATEGORIES`). web/db 등 일반 카테고리는 인스턴스 카운트 유지.
-- 적용: server detail 뱃지(`enrich_server_detail`) · 환경요약 role 분포(`build_environment_overview`) · `infer_role`(export). 셋 다 listen_ports 보유.
+- 적용: server detail 뱃지(`enrich_server_detail`) · 환경요약 role 분포(`build_environment_overview`) · `infer_role`(export) · 보고서 mapper(`to_report_row_item`/`build_role_distribution` — `ReportRowRaw` 가 `listen_ports` 보유, 개별 보고서 구동 서비스 차등·role 보강). listen_ports 보유.
 - detail 뱃지 포트 표시 = 카테고리 단위 집계 — 각 카테고리 뱃지에 (comm 으로 unit 에 귀속된 포트) + (그 카테고리의 listen 포트, 카테고리당 1회)를 합쳐 붙인다. comm 귀속이 실패하는 워크로드(IIS `W3SVC`<->`System` 의 80/tcp·tcp6)도 카테고리 단위로 80 이 뱃지에 붙음. listen-only 카테고리(services 이름이 못 잡은)는 unit 없는 합성 `ServiceItem`. 뱃지에 귀속된 포트는 "주요 Listen 포트"(`key_listen_ports`)에서 제외, 카테고리 없는 OS 인프라 포트(svchost RPC/SMB/NTP 등)만 거기 남는다. 표시는 캡슐 박스로 카테고리-포트 대응을 한 묶음으로 (detail.html).
-- 미적용(name 신호만): 서버 목록 행 뱃지(`ServerSummary` 는 경량 partial SELECT 라 listen_ports 미보유, #C2/E2) · 보고서(`ReportRowRaw` listen_ports 미보유). 목록 행과 환경요약 카운트 간 약간의 비대칭은 의도 — `docs/tradeoffs.md` T15.
+- 미적용(name 신호만): 서버 목록 행 뱃지(`ServerSummary` 는 경량 partial SELECT 라 listen_ports 미보유, #C2/E2). 목록 행과 환경요약·보고서 카운트 간 약간의 비대칭은 의도 — `docs/tradeoffs.md` T15.
 - 잔존 한계: listen 안 하거나 localhost-only 바인드 워크로드 + opaque 이름은 여전히 미상(union 두 소스 모두 못 잡음). 노이즈는 unknown 통일 노출(E9).
 
 `infer_role(services, listen_ports=None)` = `workload_category_counter` 최빈 카테고리.

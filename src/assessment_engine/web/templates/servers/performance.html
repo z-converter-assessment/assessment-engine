@@ -12,7 +12,7 @@
 </div>
 
 <!-- 세로 스택 — 행마다 1 카드(안에 차트 2개 페어). 카드 경계가 행 단위라 좌우 높이 불일치 원천 차단. -->
-<div style="display:flex; flex-direction:column; gap:20px;">
+<div class="perf-stack" style="display:flex; flex-direction:column; gap:20px;">
 
   <!-- 서버 정보 -->
   <div class="card">
@@ -86,7 +86,7 @@
           <span id="cpu-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
         </div>
         <div class="chart-desc"></div>
-        <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+        <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="cpu-canvas"></canvas>
           <div id="cpu-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
         </div>
@@ -96,7 +96,7 @@
           <h2 style="margin:0;">CPU 분류</h2>
         </div>
         <div class="chart-desc">user: 앱 부하 / system: 커널 처리 / iowait: 디스크 대기</div>
-        <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+        <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="cpuclass-canvas"></canvas>
           <div id="cpuclass-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
         </div>
@@ -114,7 +114,7 @@
           <span id="load-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
         </div>
         <div class="chart-desc">15분 평균 실행 대기 프로세스 수 — 코어 수 초과 시 CPU 포화 상태</div>
-        <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+        <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="load-canvas"></canvas>
           <div id="load-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
         </div>
@@ -125,7 +125,7 @@
           <span id="mem-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
         </div>
         <div class="chart-desc"></div>
-        <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+        <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="mem-canvas"></canvas>
           <div id="mem-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
         </div>
@@ -133,15 +133,15 @@
     </div>
   </div>
 
-  <!-- 행: 메모리 구성 | 스왑 사용률 -->
-  <div class="card">
+  <!-- 행: 메모리 구성 | 스왑 사용률 — 인쇄 2페이지 시작 (1페이지 = 서버정보·CPU 사용률/분류·로드/메모리). -->
+  <div class="card print-break-before">
     <div class="perf-pair" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
           <h2 style="margin:0;">메모리 구성</h2>
         </div>
         <div class="chart-desc">{% if server.os_family == 'windows' %}Windows 는 Buffers·Cached 를 측정하지 않아 Used·Available 만 표시{% else %}전체 메모리 대비 Used / Available / Cached / Buffers{% endif %}</div>
-        <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+        <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="memcomp-canvas"></canvas>
           <div id="memcomp-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
         </div>
@@ -153,7 +153,7 @@
           <span id="swap-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
         </div>
         <div class="chart-desc">{% if server.os_family == 'windows' %}Windows 의 스왑(pagefile)은 여유 메모리가 있어도 상시 일정량 사용되므로, 사용률이 높아도 메모리 부족 신호 아님.{% endif %}</div>
-        <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+        <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="swap-canvas"></canvas>
           <div id="swap-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
         </div>
@@ -169,7 +169,7 @@
           <h2 style="margin:0;">물리 계층 I/O</h2>
         </div>
         <div class="chart-desc">Y축 기준: HDD 랜덤 I/O 한계 ~200 IOPS (SSD 초과 시 자동 확장)</div>
-        <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+        <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="physio-canvas"></canvas>
           <div id="physio-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
         </div>
@@ -181,7 +181,7 @@
           <span id="fs-max" style="font-size:12px; color:#94a3b8;">최대: —</span>
         </div>
         <div class="chart-desc"></div>
-        <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+        <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="fs-canvas"></canvas>
           <div id="fs-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
         </div>
@@ -198,7 +198,7 @@
           <h2 style="margin:0;">네트워크 I/O</h2>
         </div>
         <div class="chart-desc">Y축 기준: 10 MB/s (1 Gbps 이더넷의 약 8%, 유의미한 트래픽 기준선)</div>
-        <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+        <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="netio-canvas"></canvas>
           <div id="netio-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
         </div>
@@ -209,7 +209,7 @@
           <h2 style="margin:0;">네트워크 PPS</h2>
         </div>
         <div class="chart-desc"></div>
-        <div style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+        <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="netpps-canvas"></canvas>
           <div id="netpps-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
         </div>

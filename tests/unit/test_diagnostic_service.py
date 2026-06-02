@@ -14,7 +14,6 @@ import pytest
 from assessment_engine.diagnostic.report_result import (
     ENV_NARRATIVE_KEY,
     REPORT_KIND_ENV,
-    REPORT_KIND_SUMMARY,
     build_narrative_entry,
     build_report_result,
 )
@@ -92,7 +91,7 @@ def test_build_report_result_defaults():
 
 def test_build_report_result_engineer_pending_with_aux():
     r = build_report_result(
-        kind=REPORT_KIND_SUMMARY,
+        kind=REPORT_KIND_ENV,
         snapshot={},
         view="engineer",
         narrative_status="pending",
@@ -207,7 +206,7 @@ async def test_emit_report_engineer_saves_snapshot_pending_and_publishes(
     job_id = await service.emit_report(
         view="engineer",
         scope="server",
-        kind=REPORT_KIND_SUMMARY,
+        kind=REPORT_KIND_ENV,
         snapshot={"k": 2},
         server_public_ids=["a", "b"],
         time_range="7d",
@@ -289,7 +288,6 @@ def test_report_result_constants_single_source():
     from assessment_engine.web.services import report_serializer
 
     assert report_serializer.REPORT_KIND_ENV is REPORT_KIND_ENV
-    assert report_serializer.REPORT_KIND_SUMMARY is REPORT_KIND_SUMMARY
     assert report_serializer.ENV_NARRATIVE_KEY is ENV_NARRATIVE_KEY
 
 

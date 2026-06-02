@@ -1,7 +1,7 @@
 """Metric chart 도메인 추상 인터페이스 — dashboard snapshot · 시계열 · 차트 dispatch · reboot marker."""
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from assessment_engine.db.dtos.outbound import DashboardRaw, MetricSeries, RebootEvent
 from assessment_engine.db.repositories.query.types import (
@@ -34,6 +34,17 @@ class BaseMetricQueryRepository(ABC):
         bucket: BucketSize,
         agg: AggFunc,
         end: datetime | None = None,
+    ) -> list[MetricSeries]: ...
+
+    @abstractmethod
+    async def environment_metric_trend(
+        self,
+        metric_type: str,
+        start: datetime,
+        end: datetime,
+        bi: str,
+        bucket_td: timedelta,
+        server_ids: list[int] | None = None,
     ) -> list[MetricSeries]: ...
 
     @abstractmethod

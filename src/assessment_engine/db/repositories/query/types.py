@@ -31,6 +31,9 @@ MetricType = Literal[
     "net.rx_packets_per_sec",
     "net.tx_packets_per_sec",
 ]
+# 환경 전체 추이 차트 metric (대시보드·환경 보고서 공용) — CPU·메모리·디스크 평균.
+# disk.usage_percent 는 서버별 worst mount(가상 제외) 평균 — server_mount_usage 별도 분기.
+EnvironmentMetricType = Literal["cpu.usage_percent", "mem.usage_percent", "disk.usage_percent"]
 TimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d"]
 AggFunc = Literal["avg", "max", "p95"]
@@ -58,6 +61,18 @@ _BUCKET_INFO: dict[str, tuple[str, timedelta]] = {
     "6h": ("6 hours", timedelta(hours=6)),
     "12h": ("12 hours", timedelta(hours=12)),
     "1d": ("1 day", timedelta(days=1)),
+}
+
+# TimeRange → 자동 BucketSize — 범위별 적정 분해력. SSR 정적 차트(환경 부하 추이)·동적 fetch 차트 공통.
+# chart-utils.js `AUTO_BUCKET` 과 값 동기화 의무 (#F10 TimeRange/BucketSize 단일 진실).
+AUTO_BUCKET: dict[str, str] = {
+    "15m": "1m",
+    "1h": "5m",
+    "6h": "15m",
+    "24h": "30m",
+    "7d": "3h",
+    "14d": "6h",
+    "30d": "12h",
 }
 
 _AGG: dict[str, str] = {

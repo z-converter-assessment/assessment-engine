@@ -235,3 +235,6 @@ class DashboardLive:
     attention: AttentionSignals
     realtime: EnvironmentRealtime
     topology: NetworkTopology
+    # 환경 부하 추이 (14일 표준 윈도우) — CPU·메모리 평균 시계열. 차트 JS inline(tojson)용 plain dict.
+    # 토폴로지처럼 정적 인벤토리 아님(메트릭)이라 fragment 자동갱신 포함. [{"at": iso, "cpu", "mem"}].
+    trend: list[dict] = field(default_factory=list)
