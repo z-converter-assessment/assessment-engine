@@ -7,14 +7,16 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; color: #1a1a1a; background: #f1f5f9; }
-    header { background: #0f172a; color: #fff; padding: 0 24px; height: 52px; display: flex; align-items: center; gap: 24px; }
-    header a { color: #94a3b8; text-decoration: none; font-size: 13px; }
+    header { background: #3770C1; color: #fff; padding: 0 24px; height: 52px; display: flex; align-items: center; gap: 24px; }
+    header a { color: rgba(255,255,255,.85); text-decoration: none; font-size: 13px; }
     header a:hover { color: #fff; }
     header .brand { color: #fff; font-weight: 700; font-size: 15px; margin-right: 16px; letter-spacing: -.3px; text-decoration: none; }
     header .brand:hover { color: rgba(255,255,255,.75); }
     main { max-width: 1160px; margin: 28px auto; padding: 0 24px; }
     /* 폰트 위계 단일 진실 (static-assets.md "폰트 위계" 절). h1 > h2 > h3 영향력 차이 명확. */
     h1 { font-size: 20px; font-weight: 700; margin: 0 0 20px; color: #0f172a; }
+    /* 대제목 강조 — 글자 바로 아래 짧은 브랜드색 액센트 보더(card-title 좌측 바와 위계 구분). margin-top 7px 로 글자·밑줄 간격 타이트. */
+    h1::after { content: ''; display: block; width: 44px; height: 3px; margin-top: 2px; background: #3b82f6; border-radius: 2px; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
     h2 { font-size: 16px; font-weight: 700; margin: 0 0 14px; color: #1e293b; }
     h3 { font-size: 13px; font-weight: 600; margin: 0 0 10px; color: #475569; }
     /* 페이지 제목 (h1) 옆 sub-text — 양식 라벨 등. */
@@ -48,7 +50,7 @@
     .badge-cat-unknown   { background: #f1f5f9; color: #64748b; }
     /* USE Method 분류 badge — list/report 공유 (단일 진실). rec-swap은 메모리 부족 1차 신호 강조. */
     .rec-under_provisioned { background: #fee2e2; color: #b91c1c; }
-    .rec-over_provisioned  { background: #fef3c7; color: #92400e; }
+    .rec-over_provisioned  { background: #dbeafe; color: #1d4ed8; }
     .rec-optimal           { background: #dcfce7; color: #15803d; }
     .rec-idle, .rec-shutdown { background: #f1f5f9; color: #64748b; }
     .rec-swap              { background: #b91c1c; color: #fef2f2; }
@@ -57,8 +59,8 @@
     .rec-failure           { background: #fee2e2; color: #b91c1c; }
     .rec-pending           { background: #dbeafe; color: #1d4ed8; }
     .rec-unknown           { background: #f1f5f9; color: #64748b; }
-    /* 운영 신호 active — Right-sizing(amber) 와 분리된 주황 도메인. 뱃지(attn-active·cat-item active)=#9a3412, 텍스트(.text-attn)=#c2410c — danger 의 뱃지800/텍스트700 명암 패턴과 동일. */
-    .attn-active           { background: #ffedd5; color: #9a3412; }
+    /* 운영 신호 active — 경고(amber) 도메인. 발화 뱃지(attn-active·cat-item active) 호박색 채움. 테마 파랑은 카드 제목 악센트로 분리. */
+    .attn-active           { background: #fef3c7; color: #92400e; }
     /* row-link / task-cell — base a 스타일 (color + 밑줄) 그대로 상속. task-cell 은 inline-flex 부수 layout. */
     .task-cell             { display: inline-flex; align-items: center; gap: 6px; }
     .task-cell:hover .badge { filter: brightness(0.95); }
@@ -70,6 +72,8 @@
     .task-timeline tr.task-row td:last-child::after { content: "›"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #cbd5e1; font-size: 16px; transition: color .12s; }
     .task-timeline tr.task-row:hover td:last-child::after { color: #3b82f6; }
     .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07); padding: 20px 24px; margin-bottom: 18px; }
+    /* 카드 제목 미니멀 악센트 — 좌측 얇은 테마 막대만 (배경 0). 전 카드 통일. */
+    .card-title { border-left: 3px solid #3b82f6; padding-left: 7px; }
 
     /* Attention card 6 sub-section 표준 — list.html attention 전용. inline style 흩어짐 방지. */
     /* 카드 내부 서브섹션 구분 — 환경요약·운영신호 공통 위계 (h3 + 구분선). inline border-top 재구현 금지. */
@@ -84,8 +88,8 @@
     .attention-mount { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px; color: #475569; }
     /* 주의 신호 카탈로그 범례 — 6 카테고리 항상 표시 (count 0 포함). active=발화·inactive=무. */
     .attention-catalog { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; }
-    .attention-cat-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #f1f5f9; color: #94a3b8; }
-    .attention-cat-item[data-active="True"] { background: #ffedd5; color: #9a3412; font-weight: 600; }
+    .attention-cat-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: transparent; border: 1px solid #e2e8f0; color: #94a3b8; }
+    .attention-cat-item[data-active="True"] { background: #fef3c7; border-color: #fde68a; color: #92400e; font-weight: 600; }
     .attention-cat-item strong { font-weight: 700; }
     .kv { display: grid; grid-template-columns: 160px 1fr; gap: 7px 16px; }
     .kv dt { color: #64748b; font-size: 13px; }
@@ -218,11 +222,14 @@
     .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
     .dot-ok { background: #22c55e; box-shadow: 0 0 0 3px #dcfce7; }
     .dot-off { background: #94a3b8; }
+    /* is_online 상태 텍스트 — 불(dot) 대신 폰트색(공간 절약·명확). sse-dot(SSE 연결)은 .dot 유지. */
+    .status-on  { color: #16a34a; font-size: 10px; font-weight: 600; }
+    .status-off { color: #94a3b8; font-size: 10px; font-weight: 600; }
 
     /* Nav buttons */
     .btn { display: inline-block; padding: 7px 14px; background: #f1f5f9; border-radius: 6px; font-size: 13px; color: #334155; font-weight: 500; transition: background .15s; }
     .btn:hover { background: #e2e8f0; text-decoration: none; }
-    /* 보고서 인쇄 버튼 — 성능 리포트 패턴 단일 진실. 모든 보고서 헤더 우상단에 동일 적용. */
+    /* 보고서 인쇄 버튼 — 성능 추이 패턴 단일 진실. 모든 보고서 헤더 우상단에 동일 적용. */
     .btn-print { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #374151; font-size: 13px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; }
     .btn-print:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); }
 
@@ -230,6 +237,11 @@
     .btn-action { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #374151; font-size: 13px; font-weight: 500; text-decoration: none; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; cursor: pointer; }
     .btn-action:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); text-decoration: none; }
     .btn-action svg { width: 14px; height: 14px; }
+
+    /* 부하 상위 행 링크(환경 실시간 메트릭) — 링크 원칙(파란색 글씨 + 밑줄) 적용, hover 시 배경 강조. */
+    .peak-link { border-radius: 4px; padding: 2px 4px; margin: 0 -4px; transition: background .12s; }
+    .peak-link .peak-host { color: #2563eb; text-decoration: underline; text-underline-offset: 2px; }
+    .peak-link:hover { background: #f1f5f9; }
 
     /* Form controls */
     .search-row { display: flex; gap: 8px; margin-bottom: 18px; align-items: center; }
@@ -246,20 +258,36 @@
     .search-row button:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); }
 
     /* Primary action 버튼 — selection 그룹(보고서·Export·진단·Install) 공통 톤. 검색 버튼과 같은 파란색. */
-    .btn-primary { padding: 5px 11px; background: #2563eb; color: #fff; border: none; border-radius: 5px; font-size: 12px; cursor: pointer; font-weight: 500; transition: background .15s; }
-    .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+    .btn-primary { padding: 5px 11px; background: #3b82f6; color: #fff; border: none; border-radius: 5px; font-size: 12px; cursor: pointer; font-weight: 500; transition: background .15s; }
+    .btn-primary:hover:not(:disabled) { background: #2563eb; }
     .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; opacity: 0.7; }
+    /* selection 발행 버튼 — 주로 쓰는 btn-action 흰 톤 + 현재 작은 크기 유지. 활성=선명·hover, 비활성=opacity 흐림 구분. */
+    /* selection 발행 버튼 — 흰 톤·표준 크기 유지, 활성=테마색 outline(파랑 글씨·테두리·600) 강조 / 비활성=회색. 색으로 활성여부 명확. */
+    .btn-select { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #3b82f6; border-radius: 6px; background: #fff; color: #3b82f6; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
+    .btn-select:hover:not(:disabled) { background: #eff6ff; }
+    .btn-select:disabled { background: #fff; color: #cbd5e1; border-color: #e2e8f0; cursor: not-allowed; }
     .search-row .clear-btn { padding: 7px 12px; background: #f1f5f9; color: #64748b; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
     .search-row .clear-btn:hover { background: #e2e8f0; }
 
     /* sse status */
     #sse-status { font-size: 11px; color: #94a3b8; margin-top: 6px; display: flex; align-items: center; gap: 5px; }
 
+    /* 통합 차트 카드(perf-merged) 행 구분 — 카드 내부 서브섹션 구분선 표준(.card-section)과 동일 #e2e8f0 (통일). */
+    .perf-row + .perf-row { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; }
+
     .print-only { display: none; }
+
+    /* ── 화면 반응형 — 좁은 창에서 고정 다열 그리드를 1열로 (찌그러짐 방지, 카드 무파손).
+       env-dual·env-pair·stat-grid·부하상위는 auto-fit minmax 라 자동 분기 — 여기선 고정 grid 만 보강. */
+    @media (max-width: 640px) {
+      .metric-grid-2, .metric-grid-3,
+      .kpi-grid-2, .kpi-grid-3, .kpi-grid-4 { grid-template-columns: 1fr; }
+      .card { padding: 14px 16px; }
+    }
 
     /* ── Print ── */
     @media print {
-      /* 용지 여백 축소 — 1페이지 가용 세로 영역 확대 (성능 리포트 1페이지 압박 완화). */
+      /* 용지 여백 축소 — 1페이지 가용 세로 영역 확대 (성능 추이 1페이지 압박 완화). */
       @page { margin: 10mm; }
       .no-print { display: none !important; }
       .print-only { display: revert !important; }
@@ -275,10 +303,15 @@
       /* 막대 트랙은 인쇄 시 옅은 배경이 거의 흰색으로 빠져 영역 구분이 약해짐 — 테두리로 막대 길이 가시성 확보. */
       .bar-track { border: 1px solid #cbd5e1; }
       #realtime-metrics-card { page-break-before: always; }
-      /* 명시적 페이지 분기 유틸 — 성능 리포트 후반 차트 묶음을 2페이지로. */
+      /* 명시적 페이지 분기 유틸 — 성능 추이 후반 차트 묶음을 2페이지로. */
       .print-break-before { page-break-before: always; }
-      /* 성능 리포트 — 행 카드 안 2 차트를 인쇄에서도 2열 유지 (auto-fit 이 A4 폭에서 1열로 떨어지는 것 방지). */
+      /* 성능 추이 — 행 카드 안 2 차트를 인쇄에서도 2열 유지 (auto-fit 이 A4 폭에서 1열로 떨어지는 것 방지). */
       .perf-pair { grid-template-columns: repeat(2, 1fr) !important; }
+      /* 통합 카드(perf-merged)는 단일 .card 라 page-break-inside:avoid 가 5행을 한 페이지에 욱여넣어 깨짐 —
+         내부 분기 허용으로 되돌리고 행(perf-row) 단위로 avoid (행 2차트는 함께, 행 사이는 자유 분기). 화면 구분선은 인쇄서 제거. */
+      .perf-merged { page-break-inside: auto !important; }
+      .perf-row { page-break-inside: avoid; }
+      .perf-row + .perf-row { margin-top: 12px !important; padding-top: 0 !important; border-top: none !important; }
       /* 환경 보고서 — 부하 추이 + 토폴로지 한 카드 2열을 인쇄에서도 웹과 동일 구도(2열) 유지. */
       .env-dual { grid-template-columns: repeat(2, 1fr) !important; }
       /* 세부 서버 목록 — 칼럼 많아 A4 폭 초과. 인쇄에서 폰트·셀 패딩 축소 + 줄바꿈 허용으로 타이트하게. */
@@ -288,7 +321,7 @@
       .env-dual #env-trend-chart { width: 100% !important; height: 100% !important; }
       /* 차트 높이 축소 — 1페이지(서버정보+CPU+로드/메모리)가 A4 한 장에 들어가도록. 화면 180px -> 인쇄 100px. */
       .perf-chart { height: 100px !important; }
-      /* 성능 리포트 1페이지 추가 압축 — 카드 간격·내부 패딩 축소, 인쇄 부가 식별자(Composite/Machine ID) 숨김. */
+      /* 성능 추이 1페이지 추가 압축 — 카드 간격·내부 패딩 축소, 인쇄 부가 식별자(Composite/Machine ID) 숨김. */
       .perf-stack { gap: 12px !important; }
       .perf-stack .card { padding: 12px 16px !important; }
       .perf-stack h2 { font-size: 15px !important; }

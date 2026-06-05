@@ -196,7 +196,7 @@ dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.doc
 |------|--------|----------|
 | `disks[].major/minor` | inventory | `web/services/device_filters.find_parent_disk()` 에서 mount-disk 조인 키 |
 | `mounts[].major/minor` | inventory | `web/services/mappers.to_storage_detail` 에서 disks 와 매칭 -> `MountUsageItem.device_name` -> storage.html "Device" 컬럼 |
-| `boot_time` (inventory) | inventory | `server_inventory.boot_time` 컬럼 저장 + `server_inventory_history` append 시 비교. detail.html / performance.html 에 KST 표시 |
+| `boot_time` (inventory) | inventory | `server_inventory.boot_time` 컬럼 저장 + `server_inventory_history` append 시 비교. detail.html / metrics.html 에 KST 표시 |
 | `agent_started_at` (inventory) | inventory | `server_inventory.agent_started_at` 컬럼 저장 + history 변경 trigger. 발행 프로세스 재시작 이벤트 감지의 1차 단서 |
 | `boot_time` (metrics) | metrics | 시계열 4 테이블 모두 (`server_metrics`·`server_disk_io`·`server_net_io`·`server_mount_usage`) `boot_time` 컬럼 저장. metrics·disk_io·net_io 는 `metrics_calculator._is_counter_reset` 이 두 시점 비교 -> 시스템 재부팅 시 delta 건너뛰기. mount_usage 는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 위해 보존 (CLAUDE.md C1 + B) |
 | `agent_started_at` (metrics) | metrics | 동일 4 테이블 컬럼 저장. boot_time 동일·agent_started_at 만 다름 -> 발행 프로세스 재시작 (counter 는 /proc 기반 그대로 -> 정상 delta) |

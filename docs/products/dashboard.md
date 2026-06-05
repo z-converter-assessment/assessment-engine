@@ -23,8 +23,8 @@
 
 ### 영역 2: 환경 평균 활용률 도넛 (3개)
 
-- CPU 14일 평균 활용률
-- 메모리 14일 평균
+- CPU 7일 평균 활용률
+- 메모리 7일 평균
 - 디스크 평균
 - 임계 색 분기 60·80% (UI badge danger·warn 임계)
 - 평가 윈도우는 `recommendation.WINDOW_DAYS` 단일 진실
@@ -33,7 +33,7 @@
 
 ### 영역 3: 프로비저닝 분포 도넛
 
-- 14일 측정값 기반 분류 3 카테고리 (under·정상·over)
+- 7일 측정값 기반 분류 3 카테고리 (under·정상·over)
 - 진단 워커가 자동 계산한 분포 시각화
 - Windows (원칙 P2): swap 축 제외(pagefile baseline)·saturation 축 OS 부재라 utilization 축만으로 분류(부분 평가) — 도넛/카운트가 pagefile 사용으로 under 쪽 왜곡되지 않음. 상세 `docs/architecture/web/services.md` "OS 분기" 절
 
@@ -81,7 +81,7 @@ list에서 N대 선택 → 다음 4 액션 활성화:
 - UI badge "warn"(노랑)·"danger"(빨강) 두 단계로 시각 구분
 - 서버 badge 임계(`_USAGE_WARN_PCT`·`_USAGE_DANGER_PCT`)와 환경 평균 임계(`_UTIL_LOW_PCT`·`_UTIL_HIGH_PCT`)는 별 도메인 — 값은 `web/services/mappers/shared.py` 단일 진실, 대시보드는 표현만
 
-평가 윈도우 14일:
+평가 윈도우 7일:
 - `recommendation.WINDOW_DAYS` 단일 진실 (CLAUDE.md #F10)
 - 대시보드는 윈도우 override 안 함 (보고서만 `?period_days=N` 허용) — 산업 표준 윈도우 고정
 

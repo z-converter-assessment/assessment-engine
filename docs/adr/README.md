@@ -38,6 +38,8 @@
 | 0030 | tag-derived 버전 (hatch-vcs) | Accepted | 버전을 repo 에 저장 안 함 — git tag(`v*`) 단일 진실, hatch-vcs 가 빌드 시 derive. bump 커밋 자체 제거로 보호 브랜치 push·commit-msg hook `bump:` 충돌 소멸. release = main 에 tag push. release notes = GitHub 자동. CHANGELOG 자동 갱신 중단. cz 폐기. 0028 supersede |
 | 0031 | OS EOL 운영신호: endoflife.date 스냅샷 카탈로그 | Accepted | OS 지원종료(EOL) 신호를 endoflife.date 스냅샷 카탈로그로 도입 — 보고서 운영신호(os_eol)·distro 필터 옵션 단일 진실 |
 | 0032 | 서비스 분류: 단일 카탈로그 + 다중 신호 + 호스트 union | Accepted | 이름 substring 단일 신호 + 분산 카탈로그(5곳)를 `SERVICE_CATALOG` 단일 진실 + 다중 신호로 전환. per-unit 은 name->comm->port(귀속 포트에만). agent join key 부재(services 에 pid 없음) 제약상, 뱃지/role/환경분포는 `detect_listen_categories`(listen 소켓 직접 분류)와 이름 분류를 union — opaque Windows SCM 이름을 1433/`sqlservr` 로 구제. 목록 행은 partial SELECT 라 name 만(T15). 외부 API 미채택(IANA 포트는 큐레이션 반영) |
+| 0033 | 루트 docker-compose 단일 파일 (dev + 퀵스타트) | Accepted | `dev/docker-compose.yml` 제거, 루트 `docker-compose.yml` 하나가 dev 파이프라인·퀵스타트 겸용 (wheel 이미지·`.env` 단일). ADR 0012 5절 supersede. dev/hardened-prod 분리는 deferred |
+| 0034 | 환경 평균 활용률 capacity-weighted 전환 | Accepted | 서버 동등가중(1대=1표)을 자원 총량 가중(Σused/Σtotal)으로 전환. CPU `1-Σd_idle/Σd_total`·MEM/DISK `Σused/Σtotal`. `environment_utilization`(전체+selection server_ids 통일, end anchor)·`environment_metric_trend`(추이 차트) 동일 산식. 빈 구간/서버별 기간 편차 분모에 자연 반영. 거대 VM 지배는 의도(자원 활용률 관점). 윈도우 14일 고정 유지(ADR 0003) |
 
 트레이드오프 카탈로그(T1~T15)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 

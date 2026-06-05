@@ -8,7 +8,7 @@
 <!-- 현재 상태 (IP 주소 + 인터페이스 현황) -->
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-    <h2>현재 상태</h2>
+    <h2 class="card-title">현재 상태</h2>
     <div id="sse-status" class="no-print" style="display:flex; align-items:center; gap:5px; font-size:11px; color:#94a3b8; white-space:nowrap;">
       <span id="sse-dot" class="dot dot-off"></span>
       <span id="sse-label">연결 중...</span>
@@ -47,7 +47,7 @@
 <!-- 네트워크 I/O 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2>네트워크 I/O 추이<span class="print-only" id="net-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+    <h2 class="card-title">네트워크 I/O 추이<span class="print-only" id="net-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
     <span id="net-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
     <select class="chart-select no-print" id="net-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
@@ -75,7 +75,7 @@
 <!-- 네트워크 PPS 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2>네트워크 PPS 추이<span class="print-only" id="net-pps-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+    <h2 class="card-title">네트워크 PPS 추이<span class="print-only" id="net-pps-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
     <span id="net-pps-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
     <select class="chart-select no-print" id="net-pps-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
@@ -103,6 +103,8 @@
 <style>
   /* .toggle-group / .toggle 은 base.html 단일 진실 (#E6). */
 </style>
+
+{% include "_reference_link.html" %}
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
 <script src="/static/js/pages/network.js?v={{ asset_v }}" defer></script>

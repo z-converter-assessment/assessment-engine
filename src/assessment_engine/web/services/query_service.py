@@ -9,7 +9,6 @@ from redis.exceptions import RedisError
 from assessment_engine import recommendation
 from assessment_engine.cache.redis import safe_get, safe_mget, safe_set
 from assessment_engine.db.dtos.outbound import (
-    EnvironmentUtilizationRaw,
     InventoryExportEntry,
     MetricSeries,
     RebootEvent,
@@ -121,23 +120,6 @@ _GAP_RECENT_HOURS = 24
 _SSE_PING_INTERVAL_SEC = 15  # SSE idle keep-alive ping 주기 — 메시지 없을 때 프록시·브라우저 idle 끊김 방지
 
 
-def _selection_utilization(rows) -> EnvironmentUtilizationRaw:
-    """선택 N대 평균 활용률 — base.rows 서버별 평균(report_aggregate) -> 서버간 평균 (동등 가중).
-
-    repo environment_utilization(전체 환경) 재호출 회피. cpu/mem 은 서버별 평균, disk 는 worst mount 사용률.
-    sample_size = cpu 평균 산출된 서버 수 (활용률 표본 표시용).
-    """
-    cpu = [r.cpu_avg_pct for r in rows if r.cpu_avg_pct is not None]
-    mem = [r.mem_avg_pct for r in rows if r.mem_avg_pct is not None]
-    disk = [r.worst_mount_used_pct for r in rows if r.worst_mount_used_pct is not None]
-    return EnvironmentUtilizationRaw(
-        cpu_avg_pct=(sum(cpu) / len(cpu)) if cpu else None,
-        mem_avg_pct=(sum(mem) / len(mem)) if mem else None,
-        disk_avg_pct=(sum(disk) / len(disk)) if disk else None,
-        sample_size=len(cpu),
-    )
-
-
 def _filter_attention(attention: AttentionSignals, hostnames: set[str]) -> AttentionSignals:
     """전체 운영 신호를 선택 N대 호스트(link_text=hostname)로 필터 — selection 보고서 os_eol_count 등 N대 정합."""
     return AttentionSignals(
@@ -221,7 +203,7 @@ class QueryService:
         keys = [web_settings.redis_key_online.format(dto.id) for dto in dtos]
         online_flags = await safe_mget(self.redis, keys)
 
-        # 14일 USE Method 분류 — 페이지 서버만 별도 SQL 1회. 보고서·right-sizing과 동일 윈도우.
+        # 7일 USE Method 분류 — 페이지 서버만 별도 SQL 1회. 보고서·right-sizing과 동일 윈도우.
         page_server_ids = [dto.id for dto in dtos]
         raws_period = await self.repo.report_aggregate(
             page_server_ids,
@@ -320,12 +302,15 @@ class QueryService:
         time_range: TimeRange,
         bucket: BucketSize,
         end: datetime | None = None,
+        server_ids: list[int] | None = None,
     ) -> list[MetricSeriesItem]:
-        """환경 전체(모든 서버) 평균 시계열 — 대시보드 추이 차트 live (보고서는 정적 스냅샷 별도)."""
+        """환경 시계열 — 대시보드 추이 차트 live. server_ids=None 이면 전체 환경, 주어지면 선택 N대 한정."""
         end_dt = end or datetime.now(UTC)
         bi, bucket_td = _BUCKET_INFO[bucket]
         start = end_dt - TIME_RANGE_TD[time_range]
-        dtos = await self.repo.environment_metric_trend(metric_type, start, end_dt, bi, bucket_td)
+        dtos = await self.repo.environment_metric_trend(
+            metric_type, start, end_dt, bi, bucket_td, server_ids=server_ids
+        )
         return [to_metric_series_item(dto) for dto in dtos]
 
     async def get_metric_chart(
@@ -381,7 +366,7 @@ class QueryService:
 
         흐름:
           list_server_ids -> get_servers (inventory)
-                          + environment_utilization (14일 평균)
+                          + environment_utilization (7일 capacity-weighted 평균)
                           + report_aggregate(period_days=WINDOW_DAYS) (USE Method 분류)
                           -> mapper 집계.
         period_days는 보고서·right-sizing과 동일 윈도우 (AWS Compute Optimizer 표준).
@@ -392,20 +377,21 @@ class QueryService:
         if not server_ids:
             return _empty_overview()
         details = await self.repo.get_servers(server_ids)
-        util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS)
+        util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS, end=now)
         raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
         online_by_id = await self._online_map(server_ids, details, now)
         return self._assemble_overview(details, util, raws_period, online_by_id)
 
-    async def get_environment_realtime(self) -> "EnvironmentRealtime":
+    async def get_environment_realtime(self, server_ids: list[int] | None = None) -> "EnvironmentRealtime":
         """list 화면 '환경 실시간 메트릭' 카드 — 각 서버 최신 스냅샷(get_latest_metric, Redis cache 우선) 집계.
 
-        현황 모니터링 용도(right-sizing 14일 통계와 별개).
+        현황 모니터링 용도(right-sizing 7일 통계와 별개). server_ids=None 이면 전체 환경, 주어지면 선택 N대 한정.
         평균 도넛·자원별 부하상위: 현재 CPU/메모리/디스크(worst mount), online: Redis online:{id} TTL,
         last_collected_at: 환경 전체 최신 수집시각(신선도). 조립은 _assemble_realtime 단일 진실 (대시보드 묶음과 공유).
         """
         now = datetime.now(UTC)
-        server_ids = await self.repo.list_server_ids()
+        if server_ids is None:
+            server_ids = await self.repo.list_server_ids()
         if not server_ids:
             return build_environment_realtime(0, 0, [], None)
         details = await self.repo.get_servers(server_ids)
@@ -498,13 +484,28 @@ class QueryService:
             if not is_on:
                 continue
             disk = max((mt.usage_pct for mt in m.mounts if mt.usage_pct is not None), default=None)
+            mem = m.memory
+            # capacity-weighted 평균 도넛용 — 전 mount 통합 fs(Σused/Σtotal, worst mount 아님).
+            fs_total = sum(mt.total_gb for mt in m.mounts if mt.total_gb and mt.used_gb is not None)
+            fs_used = sum(mt.used_gb for mt in m.mounts if mt.total_gb and mt.used_gb is not None)
+            # 로드는 코어 대비 % 환산 (서버별 코어 수 상이 — 절대 load 비교 불가). cores 부재/0 이면 None.
+            load_pct = (m.load_15m / d.cpu_cores * 100) if (m.load_15m is not None and d.cpu_cores) else None
             snapshots.append(
                 {
                     "hostname": d.hostname,
                     "public_id": d.public_id,
+                    # 부하 상위(서버별 값) — 개별 호스트 랭킹. 로드=코어 대비 %, 스왑=사용률.
                     "cpu_pct": m.cpu.usage_pct if m.cpu else None,
-                    "mem_pct": m.memory.usage_pct if m.memory else None,
+                    "mem_pct": mem.usage_pct if mem else None,
                     "disk_pct": disk,
+                    "load_pct": load_pct,
+                    "swap_pct": m.swap.usage_pct if m.swap else None,
+                    # capacity-weighted 평균용 가중치 (cpu=코어 가중, mem/disk=절대 총량 Σ/Σ).
+                    "cpu_cores": d.cpu_cores,
+                    "mem_used_kb": mem.used_kb if mem else None,
+                    "mem_total_kb": mem.total_kb if mem else None,
+                    "fs_used_gb": fs_used if fs_total else None,
+                    "fs_total_gb": fs_total if fs_total else None,
                 }
             )
             if last_collected is None or m.collected_at > last_collected:
@@ -524,18 +525,18 @@ class QueryService:
             return DashboardLive(
                 overview=_empty_overview(),
                 attention=AttentionSignals(gap_warnings=[], os_eol_warnings=[], agent_unstable=[]),
-                realtime=build_environment_realtime(0, 0, [], None),
                 topology=build_network_topology([]),
             )
         details = await self.repo.get_servers(server_ids)
         raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
-        util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS)
+        util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS, end=now)
         online_by_id = await self._online_map(server_ids, details, now)
         gap_raws = await self.repo.metric_gap_warnings(_GAP_MINUTES, _GAP_RECENT_HOURS, _ATTENTION_LIMIT_EACH)
         restart_counts = await self.repo.agent_restart_counts_recent(server_ids, now - timedelta(hours=1))
-        # 환경 부하 추이 (14일 표준 윈도우, AUTO_BUCKET 6h) — 대시보드 차트. 토폴로지처럼 fragment SSR inline.
-        trend_bi, trend_td = _BUCKET_INFO["6h"]
-        trend_start = now - TIME_RANGE_TD["14d"]
+        # 환경 부하 추이 — WINDOW_DAYS 동일 기간 + AUTO_BUCKET 자동 분해력 (활용률과 일관).
+        trend_range = f"{recommendation.WINDOW_DAYS}d"
+        trend_bi, trend_td = _BUCKET_INFO[AUTO_BUCKET[trend_range]]
+        trend_start = now - TIME_RANGE_TD[trend_range]
         cpu_trend = await self.repo.environment_metric_trend("cpu.usage_percent", trend_start, now, trend_bi, trend_td)
         mem_trend = await self.repo.environment_metric_trend("mem.usage_percent", trend_start, now, trend_bi, trend_td)
         disk_trend = await self.repo.environment_metric_trend(
@@ -544,7 +545,6 @@ class QueryService:
         return DashboardLive(
             overview=self._assemble_overview(details, util, raws_period, online_by_id),
             attention=self._assemble_attention(raws_period, gap_raws, restart_counts, now, _ATTENTION_LIMIT_EACH),
-            realtime=await self._assemble_realtime(server_ids, details, online_by_id, now),
             topology=build_network_topology(details),
             trend=build_metric_trend(cpu_trend, mem_trend, disk_trend),
         )
@@ -576,7 +576,7 @@ class QueryService:
         if server_ids:
             base = await self.get_report(server_ids, period_days, end=end_dt, view=view)
             details = await self.repo.get_servers(server_ids)
-            # under_provisioned 호스트 추출 — time_range 윈도우 정확 정합 (overview 14일 고정 의존 회피).
+            # under_provisioned 호스트 추출 — time_range 윈도우 정확 정합 (overview 7일 고정 의존 회피).
             raws_window = await self.repo.report_aggregate(server_ids, period_days, end_dt)
             for raw in raws_window:
                 rec = recommendation.classify(
@@ -646,8 +646,8 @@ class QueryService:
         """선택 N대 보고서 — 환경 보고서 양식(`get_environment_report`)의 N대 scope 변형 (대상만 선택 서버 한정).
 
         환경 보고서와 동일 양식·ViewModel(EnvironmentReportSummary). overview(OS·워크로드 분포·평균 활용률·
-        right-sizing 도넛)·attention·rows 모두 선택 N대 집계. 평균 활용률은 base.rows 서버별 평균 -> 서버간 평균
-        으로 합성 (environment_utilization 동등 가중 일관, repo 전체 호출 회피). attention 은 N대 호스트로 필터.
+        right-sizing 도넛)·attention·rows 모두 선택 N대 집계. 평균 활용률은 environment_utilization 을
+        server_ids 로 N대 한정 호출 (전체 환경과 동일 capacity-weighted SQL). attention 은 N대 호스트로 필터.
         anchor_at: 발행 시점 기준 (None 이면 현재). 미존재/빈 선택 시 None.
         """
         end_dt = anchor_at if anchor_at is not None else datetime.now(UTC)
@@ -662,8 +662,8 @@ class QueryService:
         base = await self.get_report(server_ids, period_days, end=end_dt, view=view)
         raws_window = await self.repo.report_aggregate(server_ids, period_days, end_dt)
         online_by_id = await self._online_map(server_ids, details, end_dt)
-        # 평균 활용률 — base.rows 서버별 평균 합성 (repo environment_utilization 전체 호출 회피, 동등 가중 일관).
-        util = _selection_utilization(base.rows)
+        # 평균 활용률 — capacity-weighted (자원 총량 가중). 전체 환경과 동일 SQL, server_ids 로 N대 한정.
+        util = await self.repo.environment_utilization(period_days=period_days, end=end_dt, server_ids=server_ids)
         overview = self._assemble_overview(details, util, raws_window, online_by_id)
 
         # under_provisioned 호스트 trigger 뱃지 — raws_window 전체 (overview.under_provisioned_hosts 는 표시용 절단).

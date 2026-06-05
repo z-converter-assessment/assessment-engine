@@ -75,7 +75,7 @@ Windows VM (win-server-01)은 `windows-vm.md` 단일 진실 — libvirt autounat
 
 - http://localhost:8000/servers/ — Linux 5 VM + Windows 1 (기본 6대) 등록
 - 60초 주기 메트릭 갱신
-- 분류 분포 시연은 `/servers/report?period_days=1` (대시보드는 `recommendation.WINDOW_DAYS=14` 고정, #F10)
+- 분류 분포 시연은 `/servers/report?period_days=1` (대시보드는 `recommendation.WINDOW_DAYS=7` 고정, #F10)
 - attention 카드 상단 요약: app `agent_unstable` + edge `gap_warnings` (3회 발행 후 down)
 - AI 진단 발행 (engineer 보고서) — LLM 호출 실패 (ollama 제거) 동작 관찰
 - 서버 발견 모달 probe — `print_summary` 가 안내한 VM IP 를 모달에 직접 입력 (컨테이너에서 VM hostname DNS 미해석 + VM IP 동적이라 자동 기본값 없음). VM 은 post-provision `openssh-server` 설치라 `SSH-2.0-OpenSSH` banner 로 도달
@@ -105,7 +105,7 @@ VM 은 에이전트 E2E + 시연 분류 분포 가시화. 엔진(dev compose)은
 
 ```
 [VM: app-server-01  Linux ]   nginx+rabbitmq  attention.agent_unstable (3m restart, 시간당 20회)
-[VM: data-server-01 Linux ]   postgres+zabbix-agent  (db+monitor, over_provisioned)  -> MQ -> consumer -> DB -> web UI
+[VM: data-server-01 Linux ]   postgres+zabbix-agent  (db+monitor, under_provisioned: swap-demo)  -> MQ -> consumer -> DB -> web UI
 [VM: edge-server-01 Linux ]   docker+memcached  attention.gap_warnings (3회 발행 후 down)
 [VM: win-server-01  WinSrv ]   IIS+redis  (windows-vm.md, libvirt, default)
 ```
@@ -128,7 +128,7 @@ Linux VM 정의(distro/service/ext_ip)는 `dev-up.sh` 의 dispatch 함수(`vm_di
 | 순서 | VM | 가상화 | distro | family | 서비스 (2) | 카테고리 | 부하 | 분류 | attention 발화 |
 |---|----|----|----|--------|--------|------|------|------|----------------|
 | 1 | `app-server-01` | libvirt | `debian12` | apt | nginx, rabbitmq | web, mq | light | over | agent_unstable (1m boot + 3m, 시간당 20회) |
-| 2 | `data-server-01` | libvirt | `rocky9` | dnf | postgresql, zabbix-agent | db, monitor | light | over | (분류만, 운영신호 없음) |
+| 2 | `data-server-01` | libvirt | `rocky9` | dnf | postgresql, zabbix-agent | db, monitor | light + swap-demo | under | under_provisioned (swap-demo 1회 page-out → mem_saturation, 언더프로비저닝 상세 발화) |
 | 3 | `edge-server-01` | libvirt | `debian12` | apt | docker, memcached | container, cache | light | over | gap_warnings (3회 발행 후 poweroff) |
 | 4 | `offline-server-01` | libvirt | `debian12` | apt | (없음) | — | (offline-demo) | — | gap_warnings (목록 채우기·오프라인 표시) |
 | 5 | `offline-server-02` | libvirt | `debian12` | apt | (없음) | — | (offline-demo) | — | gap_warnings (목록 채우기·오프라인 표시) |
@@ -166,7 +166,7 @@ Linux VM 정의(distro/service/ext_ip)는 `dev-up.sh` 의 dispatch 함수(`vm_di
 
 원칙:
 - 분류 임계는 `recommendation.py` 모듈 상단 명명 상수 (#E3). 부하 프로파일은 임계 충족 설계.
-- `WINDOW_DAYS = 14` (#F10) — dev 시연에서 14일 못 채우면 분류 모두 `insufficient_data`. 보고서 라우터 `?period_days=1` 등 짧은 윈도우 시연 필수.
+- `WINDOW_DAYS = 7` (#F10) — dev 시연에서 7일 못 채우면 분류 모두 `insufficient_data`. 보고서 라우터 `?period_days=1` 등 짧은 윈도우 시연 필수.
 - light 부하 스크립트는 libvirt 게이트웨이 IP(192.168.122.1):8000 으로 ping/curl (health·chart-utils) — 차트 변동만 가시화. 게이트웨이 IP 는 post-provision 이 placeholder(__HOST_TARGET__) sed 치환으로 주입. 분류 임계 안 넘김 (over_provisioned 유지).
 
 운영신호(`AttentionSignals`) 카탈로그는 3개뿐 — gap_warnings / os_eol_warnings / agent_unstable (`query_service._assemble_attention`). disk·capacity·days_until_full 은 운영신호가 아니라 USE Method right-sizing 소속(중복 회피) — 운영신호 발화 매핑은 본 3개만:

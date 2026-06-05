@@ -20,6 +20,7 @@ from assessment_engine.web.services.mappers.shared import (
 )
 from assessment_engine.web.view_models.attention import (
     AttentionRow,
+    CapacityMetric,
     CapacityTriggerBadge,
     CapacityWarningItem,
     EnvironmentOverview,
@@ -57,6 +58,22 @@ _CAPACITY_TRIGGER_COLORS: dict[str, str] = {
 # inactive trigger badge 톤 — active 색은 위 dict, inactive는 본 상수.
 _CAPACITY_TRIGGER_INACTIVE_BG = "#f8fafc"
 _CAPACITY_TRIGGER_INACTIVE_FG = "#cbd5e1"
+
+# 언더 프로비저닝 카드 지표 값 색 — active(위반)는 under_provisioned 도넛과 동일 hex (E8 동일 의미 단일 진실).
+# 위반만 강조, 그 외(정상·N/A)는 동일 진한 색 (미관측 흐림 분기 없음 — N/A 도 같은 폰트).
+_METRIC_VIOLATION_COLOR = next(c for k, _, c, _ in _DONUT_SEGMENT_DEFS if k == "under_provisioned")
+_METRIC_NORMAL_COLOR = "#1e293b"
+
+
+def _pct(v: float | None) -> str:
+    """float 백분율 -> '94.0%' 표시 (소수 1자리). None(미관측)은 'N/A'."""
+    return f"{v:.1f}%" if v is not None else "N/A"
+
+
+def _metric(label: str, value: str, active: bool, measured: bool) -> CapacityMetric:
+    """CapacityMetric 1개 — active(위반)만 강조색, 그 외(정상·N/A)는 동일 진한 색 precompute (P3)."""
+    color = _METRIC_VIOLATION_COLOR if active else _METRIC_NORMAL_COLOR
+    return CapacityMetric(label=label, value=value, active=active, measured=measured, color=color)
 
 
 # ─── gap (운영신호) ────────────────────────────────────────────────────────
@@ -130,7 +147,7 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
     return segments, total, under_count
 
 
-# 자원 부족(언더 프로비저닝) 상세 표시 상한 — 환경 요약 카드는 호스트명 ASC 상위 N만, 전체 수는 count 로 노출.
+# 자원 부족(언더 프로비저닝) 상세 표시 상한 — 심각도 상위 N(탑3)만 카드 표시, 전체 수는 count 로 노출.
 _UNDER_PROVISIONED_DISPLAY_MAX = 3
 
 
@@ -201,8 +218,9 @@ def build_environment_overview(
     if risk_counts is not None:
         risk_segments, risk_total, risk_under = build_risk_donut_segments(risk_counts)
 
-    # 자원 부족 상세 — 호스트명 ASC 정렬(P2) 후 상위 N만 표시. 전체 수는 count, 표시 수는 shown 분리.
-    _under_all = sorted(under_provisioned_hosts or [], key=lambda c: c.hostname.lower())
+    # 자원 부족 상세 — 심각도(severity_score) DESC 정렬 후 상위 N(탑3)만 표시(P2). 전체 수 count·표시 수 shown 분리.
+    # 마이그레이션 우선순위: swap(paging) > 위반 자원 수 > 최고 활용률. 동률은 hostname ASC tie-break.
+    _under_all = sorted(under_provisioned_hosts or [], key=lambda c: (-c.severity_score, c.hostname.lower()))
     _under_shown = _under_all[:_UNDER_PROVISIONED_DISPLAY_MAX]
 
     return EnvironmentOverview(
@@ -234,20 +252,31 @@ def build_environment_realtime(
     last_collected_at,
     top_n: int = 3,
 ) -> EnvironmentRealtime:
-    """온라인 서버 최신 스냅샷 snapshots(hostname/public_id/cpu_pct/mem_pct/disk_pct) -> EnvironmentRealtime.
+    """온라인 서버 최신 스냅샷 snapshots -> EnvironmentRealtime.
 
     호출자가 온라인 서버만 snapshots 로 전달 (오프라인 stale 메트릭 제외 — sample_size = len(snapshots)).
-    utilization: CPU/메모리/디스크 평균 도넛 3개 (환경 평균 도넛과 동일 컴포넌트·푸른 단색).
-    peak_groups: 자원별(CPU/메모리/디스크) 상위 top_n 랭킹 3열.
+    snapshots 키: hostname/public_id + 부하상위용 서버별 값(cpu_pct/mem_pct/disk_pct/load_pct/swap_pct)
+                + capacity-weighted 가중치(cpu_cores·mem_used_kb·mem_total_kb·fs_used_gb·fs_total_gb).
+    utilization: CPU/메모리/디스크 평균 도넛 3개 — capacity-weighted(environment_utilization 동일 정의).
+    peak_groups: 자원별(CPU/메모리/디스크/로드/스왑) top_n 5열 — 서버별 값(load=코어대비%, disk=worst mount).
     """
 
-    def _avg(key: str) -> float | None:
-        vals = [s[key] for s in snapshots if s.get(key) is not None]
-        return round(sum(vals) / len(vals), 1) if vals else None
+    # capacity-weighted 평균 — 환경 전체 자원 풀 활용률(단순 산술평균 X). environment_utilization SQL 과 동일 정의:
+    #   CPU = Σ(usage%·cores)/Σcores (시점 usage 라 jiffies delta 대신 코어 가중 근사),
+    #   mem = Σused_kb/Σtotal_kb, disk = Σused_gb/Σtotal_gb (전 mount 통합, worst mount 아님).
+    def _cap_weighted(value_key: str, weight_key: str) -> float | None:
+        num = sum(s[value_key] * s[weight_key] for s in snapshots if s.get(value_key) is not None and s.get(weight_key))
+        den = sum(s[weight_key] for s in snapshots if s.get(value_key) is not None and s.get(weight_key))
+        return round(num / den, 1) if den else None
 
-    avg_cpu = _avg("cpu_pct")
-    avg_mem = _avg("mem_pct")
-    avg_disk = _avg("disk_pct")
+    def _ratio(used_key: str, total_key: str) -> float | None:
+        used = sum(s[used_key] for s in snapshots if s.get(used_key) is not None and s.get(total_key))
+        total = sum(s[total_key] for s in snapshots if s.get(used_key) is not None and s.get(total_key))
+        return round(used / total * 100, 1) if total else None
+
+    avg_cpu = _cap_weighted("cpu_pct", "cpu_cores")
+    avg_mem = _ratio("mem_used_kb", "mem_total_kb")
+    avg_disk = _ratio("fs_used_gb", "fs_total_gb")
     util_bars = [
         UtilizationBar(label="CPU", pct=avg_cpu, bar_color=_bar_color(avg_cpu), dash_length=_dash_length(avg_cpu)),
         UtilizationBar(label="메모리", pct=avg_mem, bar_color=_bar_color(avg_mem), dash_length=_dash_length(avg_mem)),
@@ -267,6 +296,8 @@ def build_environment_realtime(
         RealtimePeakGroup(label="CPU", peaks=_top("cpu_pct")),
         RealtimePeakGroup(label="메모리", peaks=_top("mem_pct")),
         RealtimePeakGroup(label="디스크", peaks=_top("disk_pct")),
+        RealtimePeakGroup(label="로드(코어 대비)", peaks=_top("load_pct")),
+        RealtimePeakGroup(label="스왑", peaks=_top("swap_pct")),
     ]
     return EnvironmentRealtime(
         total=total,
@@ -313,10 +344,32 @@ def to_capacity_warning_item(raw):
         _badge("Load", load_active),
         _badge("디스크", disk_active),
     ]
+
+    # 대시보드 카드 지표 6축 — 위반 여부 무관 평가에 쓰인 측정값 전부 노출(active 만 강조). hit 재사용(임계 재계산 0).
+    load_ratio = raw.load_15m_max / raw.cpu_cores if raw.load_15m_max is not None and raw.cpu_cores else None
+    load_value = f"{load_ratio:.2f}" if load_ratio is not None else "N/A"
+    metrics = [
+        _metric("CPU p95", _pct(raw.cpu_p95_pct), cpu_active, raw.cpu_p95_pct is not None),
+        _metric("메모리 p95", _pct(raw.mem_p95_pct), mem_active, raw.mem_p95_pct is not None),
+        _metric("스왑", "발생" if raw.swap_used else "없음", swap_active, True),
+        _metric("Load/core", load_value, load_active, load_ratio is not None),
+        _metric("디스크", _pct(raw.worst_mount_used_pct), "disk_capacity" in hit, raw.worst_mount_used_pct is not None),
+        _metric("iowait", _pct(raw.iowait_p95_pct), "disk_io" in hit, raw.iowait_p95_pct is not None),
+    ]
+    # 상위 N 절단용 심각도 — swap(paging) 최우선 > 위반 자원 수 > 최고 활용률(CPU/메모리/디스크 max).
+    # 가중치 자릿수 분리(swap 1e4 > active*100(max 500) > util(max 100))로 우선순위 충돌 없음.
+    util_vals = [v for v in (raw.cpu_p95_pct, raw.mem_p95_pct, raw.worst_mount_used_pct) if v is not None]
+    peak_util = max(util_vals) if util_vals else 0.0
+    active_count = sum([swap_active, cpu_active, mem_active, load_active, disk_active])
+    severity_score = (10000.0 if swap_active else 0.0) + active_count * 100.0 + peak_util
     return CapacityWarningItem(
         public_id=raw.public_id,
         hostname=raw.hostname,
         triggers=triggers,
+        # 워크로드 카테고리 카운트 — role_distribution 과 동일 단일 진실 (services 이름 ∪ listen 소켓).
+        services=dict(workload_category_counter(raw.services, raw.listen_ports)),
+        metrics=metrics,
+        severity_score=severity_score,
     )
 
 

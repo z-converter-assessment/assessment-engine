@@ -24,7 +24,7 @@
 
 {% set si = summary.server_inventory %}
 <section class="card" style="margin-bottom:16px;">
-  <h2>서버 인벤토리</h2>
+  <h2 class="card-title">서버 인벤토리</h2>
   {% if si %}
   <div class="metric-grid metric-grid-3" style="margin-bottom:14px;">
     <div class="metric-card">
@@ -66,7 +66,7 @@
     <dd>{% for ip in si.ip_external %}{{ ip.value }}{% if not ip.is_ipv4 %} (IPv6){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</dd>
     {% endif %}
     <dt>상태</dt>
-    <dd>{% if si.is_online %}<span class="dot dot-ok"></span> 온라인{% else %}<span class="dot dot-off"></span> 오프라인{% endif %}</dd>
+    <dd>{% if si.is_online %}<span class="status-on">온라인</span>{% else %}<span class="status-off">오프라인</span>{% endif %}</dd>
     <dt>Boot Time</dt>
     <dd>{{ si.boot_time | kst }}</dd>
     {% if view == "engineer" %}
@@ -82,7 +82,7 @@
 {% if r %}
 {# ── 그룹 1: 구성 — 이 서버가 무엇이고 무엇을 구동하는가 ── #}
 <section class="card" style="margin-bottom:16px;">
-  <h2>구동 서비스 <span class="section-meta">이 서버가 무엇을 하는가</span></h2>
+  <h2 class="card-title">구동 서비스 <span class="section-meta">이 서버가 무엇을 하는가</span></h2>
   {% if view == "customer" %}
   {# customer — 카테고리별 제품명 묶음 (의미 중심, 포트 숨김) #}
   {% if r.workload_groups %}
@@ -134,7 +134,7 @@
 
 {# ── 그룹 2: 사용률 — 핵심 지표 + 심화 분해(CPU·메모리) + 시계열 추이 ── #}
 <section class="card" style="margin-bottom:16px;">
-  <h2>평균 사용률 <span class="section-meta">{{ summary.time_range_label }} 윈도우</span></h2>
+  <h2 class="card-title">평균 사용률 <span class="section-meta">{{ summary.time_range_label }} 윈도우</span></h2>
   <div class="metric-grid metric-grid-2">
     <div class="metric-card">
       <div class="metric-label">CPU 평균</div>
@@ -154,7 +154,7 @@
 {% if summary.cpu_breakdown %}
 {% set cb = summary.cpu_breakdown %}
 <section class="card" style="margin-bottom:16px;">
-  <h2>CPU 분류 <span class="section-meta">{{ summary.time_range_label }} 윈도우 평균 · user/system/iowait</span></h2>
+  <h2 class="card-title">CPU 분류 <span class="section-meta">{{ summary.time_range_label }} 윈도우 평균 · user/system/iowait</span></h2>
   <div class="metric-grid metric-grid-3">
     <div class="metric-card"><div class="metric-label">User <span class="metric-sub" style="font-weight:400;">앱 부하</span></div><div class="metric-value">{% if cb.user_pct is not none %}{{ "%.1f"|format(cb.user_pct) }}%{% else %}—{% endif %}</div></div>
     <div class="metric-card"><div class="metric-label">System <span class="metric-sub" style="font-weight:400;">커널</span></div><div class="metric-value">{% if cb.system_pct is not none %}{{ "%.1f"|format(cb.system_pct) }}%{% else %}—{% endif %}</div></div>
@@ -167,7 +167,7 @@
 {% if summary.memory_breakdown %}
 {% set mb = summary.memory_breakdown %}
 <section class="card" style="margin-bottom:16px;">
-  <h2>메모리 구성 <span class="section-meta">{{ summary.time_range_label }} 윈도우 평균 · 전체 메모리 대비</span></h2>
+  <h2 class="card-title">메모리 구성 <span class="section-meta">{{ summary.time_range_label }} 윈도우 평균 · 전체 메모리 대비</span></h2>
   <div class="metric-grid" style="grid-template-columns:repeat(4, 1fr);">
     <div class="metric-card"><div class="metric-label">Used</div><div class="metric-value">{% if mb.used_pct is not none %}{{ "%.1f"|format(mb.used_pct) }}%{% else %}—{% endif %}</div></div>
     <div class="metric-card"><div class="metric-label">Available</div><div class="metric-value">{% if mb.available_pct is not none %}{{ "%.1f"|format(mb.available_pct) }}%{% else %}—{% endif %}</div></div>
@@ -180,7 +180,7 @@
 {# 부하 추이 — 1대 시계열. CPU/메모리/디스크 평균 버킷. 환경·선택과 동일 차트 컴포넌트 + 동일 정규화 맥락(caveat). #}
 {% if summary.trend %}
 <section class="card" style="margin-bottom:16px;">
-  <h2>부하 추이 <span class="section-meta">{{ summary.time_range_label }} 윈도우 · CPU·메모리·디스크 평균</span></h2>
+  <h2 class="card-title">부하 추이 <span class="section-meta">{{ summary.time_range_label }} 윈도우 · CPU·메모리·디스크 평균</span></h2>
   <div style="height:280px;"><canvas id="env-trend-chart" data-trend='{{ summary.trend | tojson }}' data-range="{{ summary.time_range }}"></canvas></div>
   <p class="chart-desc" style="margin:10px 0 0;">이 차트는 발행 시 선택한 {{ summary.time_range_label }} 시간 구간을 기준으로, 그 안에서 수집 이력이 있는 범위만 동적으로 x축에 표시합니다(빈 구간 미표시) — 윈도우보다 데이터가 짧으면 있는 기간으로 정규화, 버킷 간격만 윈도우 기준 고정. 서버 상세 차트(윈도우 전체를 빈 구간 포함 표기)와 x축 범위가 다를 수 있습니다.</p>
 </section>
@@ -188,7 +188,7 @@
 
 {# ── 그룹 3: USE 신호 — Saturation 축 + 변동성/IO/네트워크 보조 지표 ── #}
 <section class="card" style="margin-bottom:16px;">
-  <h2>Saturation 신호 <span class="section-meta">USE Method · 부하·대기·압박 축</span></h2>
+  <h2 class="card-title">Saturation 신호 <span class="section-meta">USE Method · 부하·대기·압박 축</span></h2>
   <div class="metric-grid metric-grid-3">
     <div class="metric-card">
       <div class="metric-label">Load 15m</div>
@@ -209,7 +209,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>변동성 / 디스크 / 네트워크 <span class="section-meta">{{ summary.time_range_label }} 윈도우</span></h2>
+  <h2 class="card-title">변동성 / 디스크 / 네트워크 <span class="section-meta">{{ summary.time_range_label }} 윈도우</span></h2>
   <div class="metric-grid metric-grid-2">
     <div class="metric-card">
       <div class="metric-label">CPU 변동성 (peak / p95)</div>
@@ -246,7 +246,7 @@
 
 {# ── 그룹 4: 스토리지 — 안정성 요약 + 마운트별 상세 ── #}
 <section class="card" style="margin-bottom:16px;">
-  <h2>스토리지 / 시스템 안정성</h2>
+  <h2 class="card-title">스토리지 / 시스템 안정성</h2>
   <div class="metric-grid metric-grid-2">
     <div class="metric-card">
       <div class="metric-label">worst mount</div>
@@ -265,7 +265,7 @@
 {# 마운트별 스토리지 — 전체 파일시스템 (worst 1개 아닌 전체, 윈도우 평균 사용률). #}
 {% if summary.volumes %}
 <section class="card" style="margin-bottom:16px;">
-  <h2>마운트별 스토리지 <span class="section-meta">{{ summary.time_range_label }} 윈도우 평균 · 전체 파일시스템</span></h2>
+  <h2 class="card-title">마운트별 스토리지 <span class="section-meta">{{ summary.time_range_label }} 윈도우 평균 · 전체 파일시스템</span></h2>
   <table style="font-size:12px;">
     <thead><tr><th>마운트</th><th style="text-align:right;">총량</th><th style="text-align:right;">사용률</th></tr></thead>
     <tbody>
@@ -284,7 +284,7 @@
 
 {# ── 그룹 5: 종합 진단 — Right-sizing 분류 + AI narrative (모든 통계를 본 뒤 결론) ── #}
 <section class="card" style="margin-bottom:16px;">
-  <h2>Right-sizing 평가</h2>
+  <h2 class="card-title">Right-sizing 평가</h2>
   <div style="display:flex; align-items:center; gap:12px;">
     <span class="badge {{ r.badge_class }}" style="font-size:13px; padding:4px 12px;">{{ r.recommendation_label }}</span>
     <span class="text-strong" style="font-size:13px;">{{ r.recommendation_action }}</span>
@@ -301,7 +301,7 @@
 {% if view == "engineer" %}
 {% set n = narratives.get(r.public_id) %}
 <section class="card" data-narrative-slot data-narrative-key="{{ r.public_id }}" style="margin-bottom:16px;">
-  <h2>AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
+  <h2 class="card-title">AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
   {% if n and n.status == 'succeeded' and n.narrative %}
   <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; line-height:1.6; font-size:14px; color:#1e293b;">{{ n.narrative }}</div>
   <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
@@ -319,7 +319,7 @@
 
 {# ── 그룹 6: 운영 신호 — OS EOL (sizing 과 별도 축, 발화 가능 정보 항상 노출) ── #}
 <section class="card" style="margin-bottom:16px;">
-  <h2>OS 지원 종료 <span class="section-meta">EOL 임박·경과</span></h2>
+  <h2 class="card-title">OS 지원 종료 <span class="section-meta">EOL 임박·경과</span></h2>
   {% if attention_for_host.get('os_eol') %}
   <div class="alert-list">
     <div class="alert-warn">

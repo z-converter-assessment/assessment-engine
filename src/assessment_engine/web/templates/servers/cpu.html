@@ -9,7 +9,7 @@
 <!-- 현재 스냅샷 -->
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2>현재 상태</h2>
+    <h2 class="card-title">현재 상태</h2>
     <div id="sse-status" class="no-print" style="display:flex; align-items:center; gap:5px; font-size:11px; color:#94a3b8; white-space:nowrap;">
       <span id="sse-dot" class="dot dot-off"></span>
       <span id="sse-label">연결 중...</span>
@@ -51,7 +51,7 @@
 <div class="card">
   <div style="margin-bottom:14px;">
     <div class="chart-head">
-      <h2>CPU 사용률 추이<span class="print-only" id="usage-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+      <h2 class="card-title">CPU 사용률 추이<span class="print-only" id="usage-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
       <span id="usage-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
       <select class="chart-select no-print" id="usage-range-btns" aria-label="구간 선택">
         <option value="15m">15분</option>
@@ -86,7 +86,7 @@
 <!-- CPU 분류 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2>CPU 분류 추이<span class="print-only" id="comp-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+    <h2 class="card-title">CPU 분류 추이<span class="print-only" id="comp-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
     <span id="comp-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
     <select class="chart-select no-print" id="comp-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
@@ -111,7 +111,7 @@
 <!-- 로드 평균 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2>로드 평균 추이<span class="print-only" id="load-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+    <h2 class="card-title">로드 평균 추이<span class="print-only" id="load-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
     {% if server.os_family != 'windows' %}
     <span id="load-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
     <select class="chart-select no-print" id="load-range-btns" aria-label="구간 선택">
@@ -142,6 +142,8 @@
 <style>
   /* .toggle-group / .toggle 은 base.html 단일 진실 (#E6 표준 컴포넌트). */
 </style>
+
+{% include "_reference_link.html" %}
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
 <script src="/static/js/pages/cpu.js?v={{ asset_v }}" defer></script>

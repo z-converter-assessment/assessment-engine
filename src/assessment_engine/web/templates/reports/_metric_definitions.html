@@ -1,0 +1,77 @@
+{#
+  지표 정의 참고자료 (D3) — 환경 성능 추이·대시보드 화면 수치의 계산·표본·시간 범위 정의.
+  소비처: reports/right_sizing_thresholds.html (참고자료 페이지). 보고서 인쇄 footer(_reference_footer.html)에는 미포함 — 화면 지표 전용.
+  right-sizing 분류·통계(p95·peak)·운영 신호 임계는 _thresholds_reference.html 단일 진실 — 여기서 중복 정의 금지, 절 이름으로 연결.
+  순수 마크업 (extends·block 없음) — include 전용.
+#}
+<section class="card" style="margin-bottom:16px;" id="metric-definitions">
+  <h2 class="card-title">지표 정의 — 활용률·집계 공통</h2>
+  <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
+    환경 성능 추이·대시보드 화면 수치의 계산 방식·표본·시간 범위 정의. right-sizing 분류, 통계(평균·p95·peak), 운영 신호 임계는 아래 "분류 기준"·"운영 신호 임계" 절 참조.
+  </p>
+  <table style="font-size:12px;">
+    <thead>
+      <tr>
+        <th>개념</th>
+        <th>정의</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>capacity-weighted 평균</td><td>서버별 단순 산술평균이 아니라 자원 총량으로 가중한 환경 전체 활용률 — 큰 서버가 더 큰 비중. CPU=각 서버 (사용률 * 코어수) 합 / 코어수 합, 메모리=sum(used_kb) / sum(total_kb), 디스크=전 mount sum(used) / sum(total). 작은 서버에 희석되지 않아 환경 실제 자원 활용을 반영. (예: 64코어 90% + 2코어 10% 서버 -> 단순평균 50% 가 아니라 가중 87.6%.)</td></tr>
+      <tr><td>현재 스냅샷 vs 윈도우</td><td>"현재" 표기 지표(실시간 메트릭)는 각 서버 최신 1개 스냅샷 집계 — 표본은 온라인이면서 최신 메트릭 보유 서버(오프라인 stale 제외). 차트·보고서의 윈도우 지표는 평가 윈도우(표준 7일) 통계.</td></tr>
+      <tr><td>온라인 / 오프라인</td><td>온라인=최근 수신이 Redis online TTL 안. 오프라인=TTL 경과(메트릭 stale). 현재 평균·부하 상위 표본은 온라인 서버만 — 오프라인 stale 값이 현황을 왜곡하지 않게.</td></tr>
+      <tr><td>구간 · 버킷 · 앵커</td><td>구간(time range)=조회 시간 폭(15분~30일). 버킷=구간별 자동 집계 단위(분해력 — 구간이 길수록 버킷도 커짐). 앵커=기준 종료 시각(과거 구간 조회). 한 화면의 모든 차트에 동일 적용.</td></tr>
+      <tr><td>avg · max</td><td>avg=버킷 안 평균선(중심 경향). max=버킷 안 최댓값 ghost 선(burst 강도). 토글로 표시.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">환경 성능 추이 지표</h2>
+  <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
+    환경 전체(전 서버) 집계. 활용률(%) 지표는 capacity-weighted, 처리량(I/O·PPS) 지표는 합산, 로드는 동등평균.
+  </p>
+  <table style="font-size:12px;">
+    <thead>
+      <tr>
+        <th>지표</th>
+        <th>정의</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>현재 평균 활용률</td><td>온라인 서버 최신 스냅샷의 CPU/메모리/디스크 capacity-weighted 평균. 디스크는 전 mount 통합(서버별 worst mount 아님).</td></tr>
+      <tr><td>현재 부하 상위</td><td>자원별(CPU/메모리/디스크) 서버 현재값 내림차순 상위 3. 디스크는 서버별 worst mount 사용률. 평균과 달리 개별 호스트 랭킹 — 호스트명 클릭 시 상세로 이동.</td></tr>
+      <tr><td>CPU 사용률</td><td>전 서버 capacity-weighted 시점 평균. 100%=전 코어 포화.</td></tr>
+      <tr><td>CPU 분류</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기)로 분해한 비율. iowait 높으면 디스크 병목.</td></tr>
+      <tr><td>코어당 로드</td><td>전 서버 15분 로드를 코어 수로 정규화한 capacity-weighted 값 — sum(load_15m) / sum(cpu_cores). 1.0 = 코어당 run queue 1(포화). 절대 load 동등평균은 코어 수 다른 서버 혼재 시 왜곡되므로 코어 정규화.</td></tr>
+      <tr><td>메모리 사용률</td><td>capacity-weighted 평균. cached·buffers 는 회수 가능이라 가용으로 간주.</td></tr>
+      <tr><td>메모리 구성</td><td>전체 메모리 대비 Used·Available·Cached·Buffers 비율.</td></tr>
+      <tr><td>스왑 사용률</td><td>스왑 총량 대비 사용량(swap 미설정 서버 제외). 사용 자체가 메모리 포화(page-out) 신호.</td></tr>
+      <tr><td>물리 계층 I/O</td><td>물리 디스크 IOPS 합산(Read/Write). LVM·파티션 계층 중복 집계 제외.</td></tr>
+      <tr><td>파일시스템 사용량</td><td>전 서버 capacity-weighted 평균.</td></tr>
+      <tr><td>네트워크 I/O</td><td>물리 인터페이스 트래픽 합산(RX/TX, bytes/s). 가상 인터페이스 제외.</td></tr>
+      <tr><td>네트워크 PPS</td><td>물리 인터페이스 패킷 처리량 합산(RX/TX).</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">대시보드 지표</h2>
+  <table style="font-size:12px;">
+    <thead>
+      <tr>
+        <th>지표</th>
+        <th>정의</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>환경 요약</td><td>등록 서버 총 vCPU·메모리·디스크 용량 합 + 온라인/오프라인 수 + OS·역할 분포.</td></tr>
+      <tr><td>환경 평균 활용률</td><td>전 서버 capacity-weighted 평균(평가 윈도우 7일 기준). 실시간 메트릭의 "현재 평균 활용률"과 같은 가중 방식이나, 시간 범위가 현재 스냅샷이 아닌 윈도우 통계.</td></tr>
+      <tr><td>Right-sizing 분포</td><td>USE Method 6분류(리소스 부족·과다 프로비저닝·유휴·종료 권장·정상·표본 부족) 호스트 수. 분류 임계는 "분류 기준" 절.</td></tr>
+      <tr><td>자원 부족 호스트</td><td>under_provisioned 호스트 + 발화 trigger(스왑·CPU·메모리·Load·디스크). 임계는 "임계 카탈로그" 절.</td></tr>
+      <tr><td>운영 신호</td><td>수집 끊김(gap)·OS 지원 종료(os_eol)·에이전트 불안정(재시작 빈도). 임계는 "운영 신호 임계" 절.</td></tr>
+      <tr><td>환경 부하 추이</td><td>7일 capacity-weighted CPU·메모리 시계열.</td></tr>
+      <tr><td>네트워크 토폴로지</td><td>L3 subnet 공동 소속 추론 그래프(노드=subnet/host). 인벤토리 IP 기반 추론이며 실측 도달성(reachability)은 아님.</td></tr>
+    </tbody>
+  </table>
+</section>

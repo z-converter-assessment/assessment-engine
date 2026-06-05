@@ -26,8 +26,11 @@ from assessment_engine.db.repositories.query.types import (
     _BUCKET_INFO,
     _CPU_NUMERATOR,
     _CPU_TOTAL_EXPR,
+    _ENV_SCALAR_WEIGHTED,
+    _PHYS_DISK_SQL_FILTER,
     _RATE_PER_DIM_DEFS,
     _SCALAR_VALUE_EXPR,
+    _VIRTUAL_IFACE_SQL_FILTER,
     _VIRTUAL_MOUNT_SQL_FILTER,
     TIME_RANGE_TD,
     AggFunc,
@@ -257,11 +260,14 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         bucket_td: timedelta,
         server_ids: list[int] | None = None,
     ) -> list[MetricSeries]:
-        """환경 시점별 평균 시계열 — 대시보드·환경 보고서·선택 보고서 추이 차트 공용.
+        """환경 시점별 capacity-weighted 시계열 — 대시보드·환경 보고서·선택 보고서 추이 차트 공용.
 
-        서버 동등가중: 버킷+서버 평균 후 서버간 평균 (environment_utilization 정책 일관, 서버 1대=1표).
-        cpu.usage_percent: LAG delta (서버별 PARTITION, reset 정책 _chart_cpu_delta 동일).
-        mem.usage_percent: 시점값. agg 는 avg 고정 (환경 추이는 평균).
+        capacity-weighted (자원 총량 가중): 버킷 안 전 서버·전 시점 Σused/Σtotal — 환경 평균 활용률
+        카드(environment_utilization)와 동일 가중 (카드는 윈도우 전체 1값, 본 함수는 버킷별 시계열).
+        서버 동등가중(서버별 라인 평균) 아님 — 거대 VM 이 큰 비중.
+        cpu.usage_percent: 버킷별 Σd_num/Σd_total (서버별 LAG delta, boot reset 제외 _chart_cpu_delta 동일).
+        mem.usage_percent: 버킷별 Σ(mem_total_kb - mem_available_kb)/Σ mem_total_kb.
+        disk.usage_percent: 버킷별 Σ(total_bytes - avail_bytes)/Σ total_bytes (가상 mount 제외).
         server_ids: None 이면 전체 환경, 주어지면 그 N대 한정 (selection 보고서).
         """
         # selection N대 한정 술어 (None 이면 전체).
@@ -277,29 +283,25 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                     WHERE collected_at >= :window_start AND collected_at <= :end {sid}
                 ),
                 deltas AS (
-                    SELECT collected_at, server_id, boot_time,
+                    SELECT collected_at, boot_time,
                         LAG(boot_time) OVER (PARTITION BY server_id ORDER BY collected_at) AS prev_boot,
                         num_j   - LAG(num_j)   OVER (PARTITION BY server_id ORDER BY collected_at) AS d_num,
                         total_j - LAG(total_j) OVER (PARTITION BY server_id ORDER BY collected_at) AS d_total
                     FROM raw
                 ),
-                per_point AS (
-                    SELECT collected_at, server_id,
-                        CASE
-                            WHEN boot_time IS NOT NULL AND prev_boot IS NOT NULL
-                                 AND ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) > :jitter_sec THEN NULL
-                            WHEN d_total IS NULL OR d_total <= 0 OR d_num < 0 THEN NULL
-                            ELSE d_num * 100.0 / d_total
-                        END AS v
+                valid AS (
+                    -- 유효 delta = d_total>0 AND d_num>=0 AND boot reset 아님 (시점값 아닌 raw delta 보존).
+                    SELECT collected_at, d_num, d_total
                     FROM deltas
                     WHERE collected_at >= :start
+                      AND d_total IS NOT NULL AND d_total > 0 AND d_num >= 0
+                      AND (boot_time IS NULL OR prev_boot IS NULL
+                           OR ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) <= :jitter_sec)
                 )
-                SELECT ts, avg(server_avg) AS value, NULL::text AS dimension
-                FROM (
-                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, avg(v) AS server_avg
-                    FROM per_point WHERE v IS NOT NULL
-                    GROUP BY ts, server_id
-                ) sb
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts,
+                    CASE WHEN SUM(d_total) > 0 THEN SUM(d_num) * 100.0 / SUM(d_total) END AS value,
+                    NULL::text AS dimension
+                FROM valid
                 GROUP BY ts ORDER BY ts
             """)
             params = {
@@ -308,44 +310,101 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 "window_start": start - bucket_td,
                 "jitter_sec": _BOOT_JITTER_SEC,
             }
-        elif metric_type == "disk.usage_percent":
-            # 디스크 = 서버별 worst mount(가상 제외) used_pct -> 버킷+서버 평균 (environment_utilization 정책 일관).
+        elif metric_type in ("disk.usage_percent", "fs.usage_percent"):
+            # 디스크/파일시스템 = 버킷별 전 mount Σ(total-avail)/Σtotal (가상 제외) — capacity-weighted.
             sql = text(f"""
-                WITH disk_point AS (
-                    SELECT collected_at, server_id,
-                        max(CASE WHEN total_bytes > 0 AND avail_bytes IS NOT NULL
-                                 THEN ((total_bytes - avail_bytes)::float / total_bytes) * 100 END) AS worst
-                    FROM server_mount_usage
-                    WHERE collected_at >= :start AND collected_at <= :end
-                      AND {_VIRTUAL_MOUNT_SQL_FILTER} {sid}
-                    GROUP BY collected_at, server_id
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts,
+                    CASE WHEN SUM(total_bytes) > 0
+                         THEN SUM(total_bytes - avail_bytes)::float / SUM(total_bytes) * 100 END AS value,
+                    NULL::text AS dimension
+                FROM server_mount_usage
+                WHERE collected_at >= :start AND collected_at <= :end
+                  AND {_VIRTUAL_MOUNT_SQL_FILTER} {sid}
+                  AND total_bytes > 0 AND avail_bytes IS NOT NULL
+                GROUP BY ts ORDER BY ts
+            """)
+            params = {"start": start, "end": end}
+        elif metric_type in _ENV_SCALAR_WEIGHTED:
+            # 메모리 구성·스왑 = 버킷별 Σnumerator/Σdenominator — capacity-weighted (큰 서버 큰 비중).
+            num, den = _ENV_SCALAR_WEIGHTED[metric_type]
+            sql = text(f"""
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts,
+                    CASE WHEN SUM({den}) > 0 THEN SUM({num})::float / SUM({den}) * 100 END AS value,
+                    NULL::text AS dimension
+                FROM {ServerMetrics.__tablename__}
+                WHERE collected_at >= :start AND collected_at <= :end {sid}
+                  AND {den} > 0
+                GROUP BY ts ORDER BY ts
+            """)
+            params = {"start": start, "end": end}
+        elif metric_type == "load.15m":
+            # 코어당 로드 = 버킷별 Σload_15m / Σcpu_cores (capacity-weighted, 코어 정규화).
+            # 절대 load 동등평균은 코어 수 다른 서버 혼재 시 왜곡(코어 많은 거대 서버의 큰 load 가 평균을 끌어올림) —
+            # 코어 정규화로 "코어당 run queue"(1.0 = 포화) 의미 통일.
+            # cpu_cores 는 server_inventory JOIN (server_metrics 미보유).
+            sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
+            sql = text(f"""
+                SELECT time_bucket(interval '{bi}', sm.collected_at) AS ts,
+                    CASE WHEN SUM(si.cpu_cores) > 0 THEN SUM(sm.load_15m) / SUM(si.cpu_cores) END AS value,
+                    NULL::text AS dimension
+                FROM {ServerMetrics.__tablename__} sm
+                JOIN {ServerInventory.__tablename__} si ON si.id = sm.server_id
+                WHERE sm.collected_at >= :start AND sm.collected_at <= :end {sid_sm}
+                  AND sm.load_15m IS NOT NULL AND si.cpu_cores > 0
+                GROUP BY ts ORDER BY ts
+            """)
+            params = {"start": start, "end": end}
+        elif metric_type in _RATE_PER_DIM_DEFS:
+            # 누적 카운터 rate 합산 = 시점별 전 서버·전 device(물리/비가상) rate 합 -> 버킷 avg.
+            # boot reset·dt<=0·음수 delta 가드는 _chart_rate_per_dimension 동일 정책 (#C1). disk=물리만, net=비가상만.
+            table, dim_col, value_col = _RATE_PER_DIM[metric_type]
+            dev_filter = _PHYS_DISK_SQL_FILTER if dim_col == "device" else _VIRTUAL_IFACE_SQL_FILTER
+            sql = text(f"""
+                WITH raw AS (
+                    SELECT collected_at, server_id, boot_time, {dim_col} AS dim, {value_col} AS cnt
+                    FROM {table}
+                    WHERE collected_at >= :window_start AND collected_at <= :end {sid}
+                      AND {dev_filter}
+                ),
+                deltas AS (
+                    SELECT collected_at, boot_time,
+                        LAG(boot_time) OVER w AS prev_boot,
+                        cnt - LAG(cnt) OVER w AS d_val,
+                        EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER w)) AS dt
+                    FROM raw
+                    WINDOW w AS (PARTITION BY server_id, dim ORDER BY collected_at)
+                ),
+                rates AS (
+                    SELECT collected_at,
+                        CASE
+                            WHEN dt IS NULL OR dt <= 0 THEN NULL
+                            WHEN boot_time IS NOT NULL AND prev_boot IS NOT NULL
+                                 AND ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) > :jitter_sec THEN NULL
+                            WHEN d_val IS NULL OR d_val < 0 THEN NULL
+                            ELSE d_val / dt
+                        END AS v
+                    FROM deltas
+                    WHERE collected_at >= :start
+                ),
+                per_ts AS (
+                    SELECT collected_at, SUM(v) AS env_rate
+                    FROM rates WHERE v IS NOT NULL
+                    GROUP BY collected_at
                 )
-                SELECT ts, avg(server_avg) AS value, NULL::text AS dimension
-                FROM (
-                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, avg(worst) AS server_avg
-                    FROM disk_point WHERE worst IS NOT NULL
-                    GROUP BY ts, server_id
-                ) sb
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts,
+                    avg(env_rate) AS value,
+                    NULL::text AS dimension
+                FROM per_ts
                 GROUP BY ts ORDER BY ts
             """)
-            params = {"start": start, "end": end}
+            params = {
+                "start": start,
+                "end": end,
+                "window_start": start - bucket_td,
+                "jitter_sec": _BOOT_JITTER_SEC,
+            }
         else:
-            value_expr = _SCALAR_VALUE_EXPR[metric_type]
-            sql = text(f"""
-                SELECT ts, avg(server_avg) AS value, NULL::text AS dimension
-                FROM (
-                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, avg(v) AS server_avg
-                    FROM (
-                        SELECT collected_at, server_id, {value_expr} AS v
-                        FROM {ServerMetrics.__tablename__}
-                        WHERE collected_at >= :start AND collected_at <= :end {sid}
-                    ) s
-                    WHERE v IS NOT NULL
-                    GROUP BY ts, server_id
-                ) sb
-                GROUP BY ts ORDER BY ts
-            """)
-            params = {"start": start, "end": end}
+            raise AssertionError(f"unsupported environment metric_type {metric_type!r}")
         if server_ids:
             params["server_ids"] = server_ids
         result = await self.session.execute(sql, params)

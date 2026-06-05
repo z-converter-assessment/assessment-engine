@@ -50,15 +50,15 @@
   <span id="online-badge" class="badge no-print" style="font-size:12px;">
     <span class="dot dot-off"></span>확인 중...
   </span>
-  <a href="/servers/{{ server.public_id }}/performance?back={{ self_back }}" class="btn-action no-print" style="margin-left:auto; text-decoration:none;">
+  <a href="/servers/{{ server.public_id }}/metrics?back={{ self_back }}" class="btn-action no-print" style="margin-left:auto; text-decoration:none;">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-    성능 리포트
+    성능 추이
   </a>
 </div>
 
 <!-- 정적 인벤토리 정보 -->
 <div class="card">
-  <h2>시스템 정보</h2>
+  <h2 class="card-title">시스템 정보</h2>
   <dl class="kv">
     <dt>OS</dt>
     <dd>{{ server.os_display }}{% if server.os_codename %} ({{ server.os_codename }}){% endif %}</dd>
@@ -146,7 +146,7 @@
 <!-- 서비스 / 포트 요약 -->
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2>서비스 / 포트</h2>
+    <h2 class="card-title">서비스 / 포트</h2>
     <a href="/servers/{{ server.public_id }}/services?back={{ self_back }}" class="btn-action no-print" style="font-size:12px; padding:4px 11px;">서비스/포트 상세 →</a>
   </div>
 
@@ -199,7 +199,7 @@
 <!-- 실시간 메트릭 대시보드 (AJAX + SSE) -->
 <div class="card" id="realtime-metrics-card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2>실시간 메트릭</h2>
+    <h2 class="card-title">실시간 메트릭</h2>
     <div style="display:flex; align-items:center; gap:12px;">
       <div id="sse-status" class="no-print" style="margin:0;">
         <span id="sse-dot" class="dot dot-off"></span>
@@ -389,7 +389,7 @@
          data-server-public-id="{{ server.public_id }}"
          data-server-hostname="{{ server.hostname }}">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2>보고서</h2>
+    <h2 class="card-title">보고서</h2>
     <a href="/reports/history?server_public_ids={{ server.public_id }}&scope=server&back={{ self_back }}" class="btn-action no-print" style="text-decoration:none;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       보고서 이력
@@ -446,7 +446,7 @@
      data-server-public-id="{{ server.public_id }}"
      data-server-hostname="{{ server.hostname }}">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-    <h2>최근 작업</h2>
+    <h2 class="card-title">최근 작업</h2>
     <button type="button" id="server-install-open" class="btn-action no-print">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       ZConverter Install
@@ -508,6 +508,8 @@
   <p class="text-meta" style="margin:0; font-size:13px;">발행된 작업이 없습니다.</p>
   {% endif %}
 </div>
+
+{% include "_reference_link.html" %}
 
 <script src="/static/js/pages/detail.js?v={{ asset_v }}" defer></script>
 {% endblock %}

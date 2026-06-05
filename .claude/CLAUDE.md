@@ -70,7 +70,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 - `server_inventory` 식별 분리 (ADR 0022 -> 0027 정정, agent v4): `id bigint PK` (FK 대상) / `composite_id varchar(64) UNIQUE` (agent 매칭·식별 단일 키 — SHA-256 composite hash) / `machine_id varchar(64)` (raw machine-id 표시 전용, nullable — 식별·라우팅 미사용) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{composite_id}` / routing key `task.install.{composite_id}`.
 - `diagnostic_jobs.job_type` (`customer_report`/`engineer_report`) + active partial UNIQUE = `(scope, input_hash, job_type)`. 발행 시점 정적 스냅샷을 `result` JSONB 에 보존. (AI 진단 독립 `ai_diagnostic` 폐기 — engineer 보고서 발행 통합. 잔존 row 만 존재, 신규 생성 없음.)
 - 보고서 발행 = 정적 스냅샷 (요구: 발행 시점 데이터 그대로 보관, 이력 동적변화 0). POST `/reports/environment/emit` · `/servers/report/emit` 가 발행 시점 ViewModel 을 `report_serializer` 직렬화 -> `emit_report` 가 `result` JSONB(`{kind,snapshot,view,narrative_status,narratives,aux}`) 저장. customer 즉시 succeeded(narrative 없음), engineer 는 pending + worker 가 narrative 채움(`diagnostic.report_result` 공유 계약). 응답 view_url=`?job={id}` — JS navigate. GET `?job={id}` 는 저장된 스냅샷 정적 렌더(재진단·재계산 0), job 없는 GET 은 read-only live preview (진단 트리거 없음). result 구조 단일 진실 = `diagnostic.report_result`.
-- 양식 통일: server scope 단일/N대 모두 환경 보고서 양식 (`EnvironmentReportSummary`, kind=env_report) 공유. N대 selection (`servers/report.html`) = 환경 보고서 본문 공유 partial (`reports/_env_report_body.html`, environment.html 과 단일 진실) + 하단 세부 서버 목록 표. 단일 1대 (`servers/single_report.html`) 는 customer high-level / engineer 심화 (1대 deep-dive — N대 비교 표엔 없는 CPU 분류·메모리 구성·마운트별 스토리지 전개; 단일 전용 필드 `server_inventory`·`volumes`·`memory_breakdown`·`cpu_breakdown` 는 selection·환경에서 None/빈 list, repo `report_cpu_breakdown`·`report_memory_breakdown`·`report_mount_usage` per server_id). 환경 (`reports/environment.html`) 은 high-level. selection ViewModel = `query_service.get_selection_report(server_ids)` (단일은 N=1 동치, 평균 활용률은 base.rows 서버별 평균 합성, attention 은 N대 호스트 필터). `report_summary` 단독 표 양식·kind 폐기. `/servers/report/emit` 은 ids 1개면 단일, 2개+ 면 selection.
+- 양식 통일: server scope 단일/N대 모두 환경 보고서 양식 (`EnvironmentReportSummary`, kind=env_report) 공유. N대 selection (`servers/report.html`) = 환경 보고서 본문 공유 partial (`reports/_env_report_body.html`, environment.html 과 단일 진실) + 하단 세부 서버 목록 표. 단일 1대 (`servers/single_report.html`) 는 customer high-level / engineer 심화 (1대 deep-dive — N대 비교 표엔 없는 CPU 분류·메모리 구성·마운트별 스토리지 전개; 단일 전용 필드 `server_inventory`·`volumes`·`memory_breakdown`·`cpu_breakdown` 는 selection·환경에서 None/빈 list, repo `report_cpu_breakdown`·`report_memory_breakdown`·`report_mount_usage` per server_id). 환경 (`reports/environment.html`) 은 high-level. selection ViewModel = `query_service.get_selection_report(server_ids)` (단일은 N=1 동치, 평균 활용률은 `environment_utilization` 을 server_ids 로 N대 한정 호출 — 전체 환경과 동일 capacity-weighted SQL, attention 은 N대 호스트 필터). `report_summary` 단독 표 양식·kind 폐기. `/servers/report/emit` 은 ids 1개면 단일, 2개+ 면 selection.
 - narrative 단위: server scope(단일·selection) = public_id 별 (worker `scope=server` per-pid 합성), environment = 단일 키(`ENV_NARRATIVE_KEY`). selection 종합 보고서(`servers/report.html`)는 자체 AI 진단 미표시(`narrative_key=None`) — 개별 서버 보고서(child, `single_report.html`)가 public_id narrative 표시(worker 가 부모 selection job 의 per-pid narrative 를 child 에 복사). environment·단일은 보고서 안 inline AI 진단 표시. 폴링 = `GET /api/diagnostics/{job_id}` 단건 (보고서 페이지 안 `diagnostic-inline.js` 가 `[data-report-job]` job_id 로 narrative_status 갱신).
 - 선택 N대 발행(`/servers/report/emit`, ids 2개+)은 selection 보고서 1건(env_report) + 개별 단일 보고서 N건 동시 fan-out (세부 서버 목록 hostname -> 개별 보고서 정적 link `child_jobs`, 이력 개별 조회). ids 1개는 단일 보고서 1건.
 - 보고서 운영신호 정책 (engineer): 표시는 OS 지원종료(os_eol)만 (`attention.os_eol_warnings`). 재부팅(`report_uptime_stats`)·에이전트 재시작(`report_agent_restart_stats`)은 보고서 anchor+window 안 카운트(boot_time/agent_started_at DISTINCT-1)해 호스트 상세 표 "시스템 안정성" 컬럼에 표시. `get_attention_signals` 의 전역 gap/agent_unstable 신호는 window-scoped 보고서에 미표시 (의미 불일치 회피).
@@ -352,6 +352,8 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 
 원칙: 영향받는 모든 곳 동시 갱신 의무 — 한 곳만 수정 후 PR 금지.
 
+적용 시점: 본 동시 갱신·테스트 작성 의무는 commit/PR 시점(wrap-up, `docs/development/wrap-up.md`) 기준이다. 기능 개발 중간 단계에서는 기능 코드만 작성한다 — 테스트·문서·ADR·CLAUDE.md 동기화를 기능마다 즉시 하지 않고 wrap-up 에서 일괄 처리한다. 개발 중 동작 검증은 실행 화면으로 확인(사용자 직접 또는 `/run`·`/verify`) — 메인 세션이 기능 추가와 함께 테스트·문서를 선제 작성하지 않는다. (테스트 자동 실행·보고 금지는 #F5 와 일관.)
+
 | 변경 유형 | 동시 갱신 위치 |
 |-----------|----------------|
 | 시계열 컬럼 추가 | (1) ORM 모델 (2) Alembic revision (3) Inbound DTO·mapper (4) Outbound DTO·mapper (5) `cache_serializer._DETAIL_DISPLAY_FIELDS` (6) ViewModel (7) 템플릿·외부 .js |
@@ -377,8 +379,9 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 원칙: 보고서·대시보드·차트 모두 같은 평가 윈도우·시계열 옵션 카탈로그 참조 — 화면별 의미 분기 방지.
 
 본 절 결정:
-- 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 14, AWS Compute Optimizer 표준). 대시보드·보고서 라우터·ADR 0003 모두 본 상수 참조.
-- 보고서 라우터만 `?period_days=N` override 허용. 대시보드는 산업 표준 윈도우 고정.
+- 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 7). 대시보드·보고서 라우터·환경 부하 추이·구간 선택 기본값(`DIAGNOSTIC_DEFAULT_TIME_RANGE`·보고서 발행 select)·ADR 0003 모두 본 상수/동일 값 참조. 변경 시 `_thresholds_reference.html`·`docs/development/pipeline.md` 표제도 동기화.
+- 보고서 라우터만 `?period_days=N` override 허용. 대시보드는 표준 윈도우 고정. 서버 상세 차트는 실시간 모니터링이라 별도(globalRange 기본 15m, 평가 윈도우와 무관).
+- 환경 부하 추이 bucket 은 `AUTO_BUCKET[f"{WINDOW_DAYS}d"]` 동적 (7d -> 3h). 윈도우 변경 시 집계 단위 자동 추종 — 하드코딩 금지.
 - TimeRange/BucketSize Literal 단일 진실 = `db/repositories/query/types.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
 - range -> 자동 bucket 매핑(`AUTO_BUCKET`)은 backend `types.AUTO_BUCKET` 와 frontend `chart-utils.js` 두 곳 — 값 동기화 의무 (range별 적정 분해력 단일 의미). 신규 TimeRange 도입 시 두 곳 동시 신설. SSR 정적 차트(환경 부하 추이)는 backend 매핑, 동적 fetch 차트는 frontend 매핑 적용 — 둘이 어긋나면 같은 range 가 화면별 다른 bucket.
 - 보고서 형태 산출물은 윈도우를 envelope·표제 명시 — JSON Export `period_window{days, start, end}` 의무 필드(#B 동일 원칙).

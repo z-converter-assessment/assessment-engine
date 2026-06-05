@@ -61,6 +61,14 @@ if command -v virsh >/dev/null 2>&1 && virsh version >/dev/null 2>&1; then
     echo "  $WIN_VM_NAME 도메인 없음 — 건너뜀"
   fi
 
+  # dev 전용 서브넷 2(assessment2) 정리 — default 는 libvirt 시스템 기본이라 보존, net2 는 dev 산물(무보존 원칙).
+  # net 을 지워야 다음 dev-up 이 새 정의로 재생성(대역·설정 변경 반영). VM 은 이미 undefine 됨.
+  if virsh net-info "$LIBVIRT_NET2" >/dev/null 2>&1; then
+    echo "  libvirt 네트워크 '$LIBVIRT_NET2' destroy + undefine..."
+    virsh net-destroy "$LIBVIRT_NET2" >/dev/null 2>&1 || true
+    virsh net-undefine "$LIBVIRT_NET2" >/dev/null 2>&1 || true
+  fi
+
   # VMS 외 본 프로젝트 명명 패턴 잔재 — 알림만 (자동 삭제 안 함, 다른 워크로드 보호).
   remaining=$(virsh list --all --name 2>/dev/null | grep -E "(cache|app|web|db|data|edge|legacy-mq|monitor|mq|offline|container)-server-01" | grep -vF -f <(printf '%s\n' "${VMS[@]}") || true)
   if [ -n "$remaining" ]; then

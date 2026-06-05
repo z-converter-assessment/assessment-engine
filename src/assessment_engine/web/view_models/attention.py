@@ -53,8 +53,29 @@ class CapacityTriggerBadge:
 
 
 @dataclass
+class CapacityMetric:
+    """언더 프로비저닝 카드 안 평가 지표 1개 — assess 입력 6축(CPU/메모리/스왑/Load/디스크/iowait).
+
+    프로비저닝 판정에 쓰인 모든 측정값을 노출(active 만이 아님) — 카드 본문을 채우고 근거 전모 제공.
+    active(임계 위반)·measured(관측 여부) 시각 분기는 mapper precompute (P3 — 템플릿 비교 금지).
+
+    label: "CPU p95" / "메모리 p95" / "스왑" / "Load" / "디스크" / "iowait"
+    value: 표시 문자열 ("94%" / "발생" / "2.3x" / "N/A")
+    active: 임계 위반 (강조 — under_provisioned 기여 trigger)
+    measured: 관측됨 (값 존재). Windows 미측정(load/iowait 등)은 False -> "N/A" 흐림.
+    color: 값 표시 hex — mapper 결정 (active 빨강 / 정상 진함 / 미관측 흐림).
+    """
+
+    label: str
+    value: str
+    active: bool
+    measured: bool
+    color: str
+
+
+@dataclass
 class CapacityWarningItem:
-    """14일 평균 자원 부족 서버 — 마이그레이션 capacity 산정 시 instance type 상향 검토.
+    """7일 평균 자원 부족 서버 — 마이그레이션 capacity 산정 시 instance type 상향 검토.
 
     triggers: USE Method classify 입력 5 trigger 와 1:1 정합 (스왑/CPU/메모리/Load/디스크).
     - swap_used=True → "스왑"
@@ -62,12 +83,21 @@ class CapacityWarningItem:
     - mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리"
     - load_15m / cpu_cores >= CPU_SATURATION_LOAD_RATIO → "Load"
     - disk_used >= DISK_CAPACITY_UPSIZE_PCT 또는 iowait_p95 >= IOWAIT_UPSIZE_PCT → "디스크"
-    under_provisioned 분류라 최소 1개 trigger 존재. 표시는 뱃지만 (구체값 메타 표시 안 함).
+    under_provisioned 분류라 최소 1개 trigger 존재.
+    triggers: 보고서(_env_report_body)용 5종 뱃지 list (active/inactive 시각).
+    metrics: 대시보드 카드용 평가 6축 측정값 — 위반 여부 무관 전부 노출(mapper precompute, P3).
+    services: 호스트 워크로드 카테고리 카운트 {category: n} — workload_category_counter 단일 진실.
+    템플릿은 role_distribution 과 동일하게 service_badge_class 필터 + count 렌더 (호스트명·지표와 분리).
     """
 
     public_id: str
     hostname: str
     triggers: list[CapacityTriggerBadge] = field(default_factory=list)
+    services: dict[str, int] = field(default_factory=dict)
+    metrics: list[CapacityMetric] = field(default_factory=list)
+    # 상위 N 절단 정렬용 심각도 점수 (mapper precompute) — swap(paging) 최우선 > 위반 자원 수 >
+    # 최고 활용률 max(CPU/메모리/디스크 p95·used). build_overview 가 DESC 정렬 후 hostname tie-break.
+    severity_score: float = 0.0
 
 
 @dataclass
@@ -203,7 +233,7 @@ class RealtimePeakGroup:
 
 @dataclass
 class EnvironmentRealtime:
-    """list 화면 '환경 실시간 메트릭' 카드 — 현황 모니터링(최신 스냅샷). right-sizing(14일 통계)과 별개 용도.
+    """list 화면 '환경 실시간 메트릭' 카드 — 현황 모니터링(최신 스냅샷). right-sizing(7일 통계)과 별개 용도.
 
     utilization: 온라인 서버(sample_size)의 현재 CPU/메모리/디스크(worst mount) 평균 도넛 3개
                  (환경 평균 활용률 도넛과 동일 컴포넌트·푸른 단색 게이지 — UtilizationBar).
@@ -233,8 +263,7 @@ class DashboardLive:
 
     overview: EnvironmentOverview
     attention: AttentionSignals
-    realtime: EnvironmentRealtime
     topology: NetworkTopology
-    # 환경 부하 추이 (14일 표준 윈도우) — CPU·메모리 평균 시계열. 차트 JS inline(tojson)용 plain dict.
+    # 환경 부하 추이 (7일 표준 윈도우) — CPU·메모리 평균 시계열. 차트 JS inline(tojson)용 plain dict.
     # 토폴로지처럼 정적 인벤토리 아님(메트릭)이라 fragment 자동갱신 포함. [{"at": iso, "cpu", "mem"}].
     trend: list[dict] = field(default_factory=list)

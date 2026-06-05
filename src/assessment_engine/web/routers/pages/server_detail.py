@@ -127,8 +127,8 @@ async def get_services(
     )
 
 
-@server_detail_router.get("/{server_id}/performance")
-async def get_performance(
+@server_detail_router.get("/{server_id}/metrics")
+async def get_metrics(
     request: Request,
     server_id: str,
     back: str | None = Query(None),
@@ -136,7 +136,7 @@ async def get_performance(
     service: QueryService = Depends(get_service),
 ):
     return await _render_server_tab(
-        request, "servers/performance.html", internal_id=internal_id, server_id=server_id, back=back, service=service
+        request, "servers/metrics.html", internal_id=internal_id, server_id=server_id, back=back, service=service
     )
 
 

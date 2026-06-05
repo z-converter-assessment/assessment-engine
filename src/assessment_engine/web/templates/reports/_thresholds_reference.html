@@ -6,7 +6,7 @@
   순수 마크업 (extends·block 없음) — include 전용. 헤더/인쇄 버튼은 소비처 책임.
 #}
 <section class="card" style="margin-bottom:16px;">
-  <h2>보고서 용어·개념 정리</h2>
+  <h2 class="card-title">보고서 용어·개념 정리</h2>
   <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
     환경·서버 보고서 본문에 등장하는 핵심 키워드·분류 기준의 정의. 임계값·판정 순서 상세는 아래 절 참조.
   </p>
@@ -30,13 +30,13 @@
       <tr><td>CPU 분류</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기) 로 분해한 윈도우 평균 비율. iowait 높으면 디스크 병목.</td></tr>
       <tr><td>OS EOL</td><td>OS 배포판·버전의 vendor 지원 종료일(endoflife.date 기준). 임박·경과 시 보안 패치 중단 — 마이그레이션 선행 필요.</td></tr>
       <tr><td>운영 신호</td><td>sizing 과 별도의 안정성 신호 — 데이터 수집 끊김(gap)·재부팅 빈도·에이전트 재시작. 분류 정상이어도 발화 시 운영 조치 선행.</td></tr>
-      <tr><td>평가 윈도우</td><td>통계 산출 기간 — 표준 14일(AWS Compute Optimizer). 짧으면 p95 표본 신뢰도 저하.</td></tr>
+      <tr><td>평가 윈도우</td><td>통계 산출 기간 — 표준 7일(recommendation.WINDOW_DAYS). 짧으면 p95 표본 신뢰도 저하.</td></tr>
     </tbody>
   </table>
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>분류 기준</h2>
+  <h2 class="card-title">분류 기준</h2>
   <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
     환경·서버 보고서의 Right-sizing 분류는 <code>recommendation</code> 모듈 단일 진실로 결정.
     아래 표의 임계값을 USE Method (Brendan Gregg) Utilization·Saturation 두 축으로 적용해 6 분류 (under_provisioned / over_provisioned / idle / shutdown / optimal / insufficient_data) 산출.
@@ -65,7 +65,7 @@
       <tr><td>under_provisioned</td><td>Utilization</td><td>disk worst mount %</td><td>>= 85%</td><td>Cloud Advisor storage capacity</td></tr>
       <tr><td>under_provisioned</td><td>Saturation</td><td>iowait_p95</td><td>>= 20%</td><td>Disk IO saturation</td></tr>
       <tr><td>optimal</td><td>—</td><td>위 임계 미해당</td><td>적정</td><td>USE 잔여</td></tr>
-      <tr><td>insufficient_data</td><td>—</td><td>cpu_p95·mem_p95 둘 다 null 이고 under 신호도 없음</td><td>표본 부재</td><td>신규/14일 미만 (OS 메트릭 부재만으로는 미발화)</td></tr>
+      <tr><td>insufficient_data</td><td>—</td><td>cpu_p95·mem_p95 둘 다 null 이고 under 신호도 없음</td><td>표본 부재</td><td>신규/7일 미만 (OS 메트릭 부재만으로는 미발화)</td></tr>
     </tbody>
   </table>
 
@@ -123,7 +123,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>엔지니어 보조 지표</h2>
+  <h2 class="card-title">엔지니어 보조 지표</h2>
   <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
     분류 자체는 위 표의 임계로 결정되지만, 엔지니어 검토 시 원인 진단·sizing 방향을 잡으려면 보조 지표가 필요.
     아래는 엔지니어 양식 (다중 요약·단일 세부) 에 노출되는 보조 메트릭의 정의·임계·근거.
@@ -181,7 +181,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>운영 신호 임계</h2>
+  <h2 class="card-title">운영 신호 임계</h2>
   <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
     Right-sizing 분류와 별도의 운영 안정성 신호 — 환경·서버 엔지니어 양식 KPI / 컬럼 / 세부 카드에 노출.
     분류 (under/over/optimal) 가 정상이어도 운영 신호가 발화하면 sizing 보다 운영 조치가 선행되어야 함.
@@ -204,11 +204,11 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>평가 윈도우</h2>
+  <h2 class="card-title">평가 윈도우</h2>
   <p style="margin:0; font-size:13px; color:#475569; line-height:1.6;">
-    평가 윈도우 표준은 <code>recommendation.WINDOW_DAYS</code> = 14일 (AWS Compute Optimizer 표준).
+    평가 윈도우 표준은 <code>recommendation.WINDOW_DAYS</code> = 7일.
     대시보드·환경 보고서·서버 보고서 모두 본 상수 참조.
     보고서 라우터에 한해 <code>?time_range=15m / 1h / 6h / 24h / 7d / 14d / 30d</code> override 허용.
-    윈도우가 14일 미만이면 p95 표본 신뢰도가 낮아짐 — 단기 윈도우 결과는 spike 확인용으로 한정 권장.
+    윈도우가 너무 짧으면 p95 표본 신뢰도가 낮아짐 — 단기 윈도우 결과는 spike 확인용으로 한정 권장.
   </p>
 </section>

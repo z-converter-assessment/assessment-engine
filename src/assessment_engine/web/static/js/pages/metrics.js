@@ -1,5 +1,5 @@
 /**
- * 성능 리포트 페이지 차트 로직.
+ * 성능 추이 페이지 차트 로직.
  *
  * 각 상세 페이지(cpu/memory/storage/network)의 추이 차트를 모은 종합 2열 뷰.
  * 외부 의존:
@@ -411,20 +411,6 @@ async function loadAllCharts() {
   ]);
 }
 
-/* ── 수집 기준 시간 ── */
-async function loadLastMetricTs() {
-  const el = document.getElementById('last-metric-ts');
-  // P4(d) 404 분기: try/catch 이전에 status 검사로 데이터 부재를 명시 분기.
-  const res = await fetch(`/api/servers/${SERVER_ID}/collection-status`);
-  if (res.status === 404 || !res.ok) { el.textContent = '—'; return; }
-  try {
-    const data = await res.json();
-    if (!data.last_metric_at) { el.textContent = '—'; return; }
-    // 라벨 "수집 기준:" 은 storage/network 와 통일. 시간 포맷 ChartUtils.fmtKst (static-assets.md).
-    el.textContent = '수집 기준: ' + ChartUtils.fmtKst(data.last_metric_at);
-  } catch { el.textContent = '—'; }
-}
-
 /* ── 인쇄 리사이즈 ──
  * Chart.js 캔버스는 화면 컨테이너 폭 기준 렌더. 인쇄로 전환되면 레이아웃 폭(2열 인쇄)이 달라
  * 캔버스가 인쇄 영역에 안 맞아 꺾은선이 plot 경계를 넘는다. 인쇄 직전/직후 명시 리사이즈로 보정. */
@@ -437,7 +423,7 @@ window.addEventListener('afterprint', resizeAllCharts);
 /* ── 날짜 인풋 초기화 + 컨트롤 바인딩 ── */
 ChartUtils.initAnchor('anchor-date');
 bindToggle('global-range-btns', val => { globalRange = val; loadAllCharts(); });
-document.getElementById('anchor-date').addEventListener('change', () => loadAllCharts());
+// 앵커는 '적용' 버튼으로 명시 반영 (환경 성능 추이와 통일).
+document.getElementById('anchor-apply').addEventListener('click', () => loadAllCharts());
 
 loadAllCharts();
-loadLastMetricTs();

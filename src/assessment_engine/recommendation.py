@@ -11,7 +11,7 @@ under(위험) 우선 우선순위로 단일 분류 하나 + 근거(triggers) + �
 
 UI badge 임계값(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인:
 - mapper 90/75 = 시점 사용량 시각 신호 (위험·주의·정상)
-- 본 모듈 = 14일 통계 기반 right-sizing 결정 (idle/over/under 등)
+- 본 모듈 = WINDOW_DAYS(7일) 통계 기반 right-sizing 결정 (idle/over/under 등)
 
 합성 규칙 (단일 진실):
 - under = 위험 신호 OR (어떤 자원이든 고이용·포화·용량초과 하나라도 -> 누락 0)
@@ -24,8 +24,8 @@ from typing import Literal
 
 # ─── 임계값 ─────────────
 
-# 관찰 윈도우 — AWS Compute Optimizer 기본값
-WINDOW_DAYS = 14
+# 관찰 윈도우 — 평가·차트·보고서 공통 표준 기간 (F10 단일 진실)
+WINDOW_DAYS = 7
 
 # Idle 판정 — AWS Compute Optimizer
 IDLE_CPU_PEAK_PCT = 1

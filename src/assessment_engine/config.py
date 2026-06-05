@@ -38,7 +38,8 @@ class WebSettings(BaseSettings):
     postgres_port: int = 5432
     web_port: int = 8000
     # uvicorn auto-reload — dev hot-reload 전용. prod 는 False (코드 변경 감시 프로세스가 prod 에서 불필요,
-    # bind mount 없는 wheel/image 배포에선 무의미). dev/docker-compose.yml 이 WEB_RELOAD=true 주입.
+    # bind mount 없는 wheel/image 배포에선 무의미). 루트 docker-compose.yml 이 WEB_RELOAD=${WEB_RELOAD:-true} 주입
+    # (web/__main__.py 가 reload_dirs=bind mount 패키지 경로 지정 — WORKDIR /app 밖이라 cwd watch 불가).
     web_reload: bool = False
 
     redis_host: str = "redis"

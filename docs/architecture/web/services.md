@@ -74,7 +74,7 @@ IP 필터 보류: `ip_internal`/`ip_external`은 평면 IP 목록만 발행돼(�
 
 ## Recommendation 분류 — USE Method 출처
 
-도메인 모듈: `assessment_engine/recommendation.py` (web·diagnostic 양쪽 import). `WINDOW_DAYS=14` 평가 윈도우(#F10)·USE Method 임계값 모두 본 모듈 코드 단일 진실(모듈 상단 명명 상수).
+도메인 모듈: `assessment_engine/recommendation.py` (web·diagnostic 양쪽 import). `WINDOW_DAYS=7` 평가 윈도우(#F10)·USE Method 임계값 모두 본 모듈 코드 단일 진실(모듈 상단 명명 상수).
 
 임계값 출처 주석 명시:
 - AWS Compute Optimizer: idle (CPU peak <=1%) / over (CPU p95 <=30%, MEM p95 <=50%)
@@ -89,11 +89,11 @@ OS 분기 (원칙 P2/P4 — evidence 기반): right-sizing 분류 단일 진실�
 
 ## 대시보드 상단 요약 — environment_overview + attention
 
-`/servers/` 첫 페이지에서 두 영역으로 표시. environment_overview는 환경 현황·평균·분포(도넛), attention은 즉시 조치 신호 카드. 시간 축은 F11 단일 윈도우(`recommendation.WINDOW_DAYS=14`).
+`/servers/` 첫 페이지에서 두 영역으로 표시. environment_overview는 환경 현황·평균·분포(도넛), attention은 즉시 조치 신호 카드. 시간 축은 단일 윈도우(`recommendation.WINDOW_DAYS=7`, #F10). 대시보드는 3 카드섹션(환경 요약 / 환경 자원 평가=활용률+Right-sizing+언더프로비저닝 / 환경 부하 추이+네트워크 토폴로지)으로 분리.
 
 | 시선 | service 메서드 | repo SQL | 시간 축 | 분류 |
 |------|----------------|----------|---------|------|
-| environment_overview | `get_environment_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(WINDOW_DAYS)` + `report_aggregate(WINDOW_DAYS)` + Redis online mget | 14일 USE Method + 14일 평균 활용률 | 자원 합계·역할 분포·활용률 도넛·프로비저닝 분포 도넛 + under_provisioned 호스트 (capacity — `to_capacity_warning_item`, trigger 5종 스왑·CPU·메모리·Load·디스크) |
+| environment_overview | `get_environment_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(WINDOW_DAYS, end)` + `report_aggregate(WINDOW_DAYS)` + Redis online mget | 7일 USE Method + 7일 평균 활용률 (capacity-weighted) | 자원 합계·역할 분포·활용률 도넛·프로비저닝 분포 도넛 + under_provisioned 호스트 (capacity — `to_capacity_warning_item`, trigger 5종 스왑·CPU·메모리·Load·디스크) |
 | attention.gap_warnings | `get_attention_signals` | `metric_gap_warnings(gap_min=5, recent_h=24)` 단일 SQL | 5min~24h 갭 (단기) | "한때 살아있다 끊김" |
 | attention.os_eol_warnings | `get_attention_signals` | `report_aggregate(WINDOW_DAYS)` raws + `resolve_os_eol`(endoflife.date 스냅샷, ADR 0031) | EOL 경과 한정 | 지원 종료 OS (Linux distro + Windows Server build) |
 | attention.agent_unstable | `get_attention_signals` | `agent_restart_counts_recent(since=now-1h)` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | restart_count >= `AGENT_RESTART_ALERT_THRESHOLD` |
@@ -105,3 +105,17 @@ OS 분기 (원칙 P2/P4 — evidence 기반): right-sizing 분류 단일 진실�
 - partition pruning binding 통일: gap SQL의 `recent_hours`가 동적 binding (`(:recent_h * interval '1 hour')`) — service 인자와 SQL 결합을 SQL 본문 hardcode로 묵시화하지 않음 (#F3·#F9).
 - 검색·온라인필터 사용 시 environment_overview·attention 자동 격리 — 라우터 `pages.py` 분기 (첫 페이지·검색 없음·필터 없음일 때만 노출).
 - ViewModel·mapper 카탈로그: `docs/architecture/web/view-models.md` "대시보드 상단 요약" 절.
+
+## 환경 성능 추이 (live) — `environment_metric_trend` 풀세트
+
+`/servers/environment/metrics` (list_page_router 등록 — server_detail `/{server_id}/metrics`(UUID) 보다 먼저라 'environment' 가 UUID 422 로 안 가고 본 라우트로 잡힘). 전체 환경 대상 10차트 live(시계열). `?ids=public_ids` 면 선택 N대 한정(대시보드 selection 버튼 -> navigate, 제목 "선택 N대 성능 추이"). 실시간 메트릭(현황 모니터링)은 `/servers/environment/realtime` 로 분리 — 시계열 추이와 별개 용도.
+
+| 영역 | service/repo | 비고 |
+|------|--------------|------|
+| 10차트 | `get_environment_metric_chart(server_ids=None)` -> `environment_metric_trend(server_ids?)` (풀세트 18 metric_type, 3그룹 집계 — `db/repositories.md`) | live fetch `GET /api/servers/environment/metrics-chart`(`ids` 면 N대 resolve), range 토글(기본 15m). 발행/스냅샷 아님. 컨트롤(버킷/구간/앵커/적용)은 카드 밖 좌상단 단일 — 앵커는 '적용' 버튼으로 반영, 구간 select 는 즉시 |
+
+서버 상세 성능 추이(`metrics.js`)와 동일 차트 로직, fetch URL·server_id·device_category 차이만(`environment-metrics.js` — 환경은 dimension 없는 단일선이라 avg only; `data-selection-ids` 있으면 fetch 에 `ids` 전달). 5행2열을 단일 `.perf-merged` 카드로 통합(행=`.perf-row`, `static-assets.md`). 프린트는 base.html @media print 클래스 공용. 페이지 하단 `_reference_link.html`(수치 정의 참고자료 링크).
+
+### 실시간 메트릭 (live 현황) — `/servers/environment/realtime`
+
+`get_environment_realtime(server_ids=None)` -> `build_environment_realtime` (`servers/_environment_realtime.html` partial + `servers/realtime.html` 페이지 wrapper). 현재 평균 활용률 도넛(CPU/메모리/디스크 — capacity-weighted: CPU=Σ(usage%·cores)/Σcores, mem=Σused/Σtotal, disk=Σ(전 mount)used/total, `environment_utilization` 과 동일 정의이며 단순 산술평균 아님) + 자원별 부하 상위 탑5(CPU/메모리/디스크 worst mount/로드 코어대비/스왑 — 서버별 값). 30초 폴링(`realtime.js`)이 partial 만 fragment 교체(`?fragment=realtime`), 갱신 stamp 는 카드 밖 제목 줄(카드 안 `#env-realtime-ts-data` 를 JS 가 읽어 '...초마다 자동 갱신 · 최근 {시각}' 조립). `?ids` 면 선택 N대. 대시보드에서는 이 카드 제거(`get_dashboard_live` realtime 폐기).

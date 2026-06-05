@@ -16,7 +16,7 @@ const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
 const SERVER_ID = document.body.dataset.serverId;
 
 // 추이 차트의 분해력 기준 (다중 interface x RX/TX 다중 라인 — idle 환경 트래픽도 보이도록).
-// 진단 리포트(performance.html)는 다른 정책: PERF_NET_SUGGESTED_MAX = 10 MB/s (1 Gbps의 8%).
+// 진단 리포트(metrics.html)는 다른 정책: PERF_NET_SUGGESTED_MAX = 10 MB/s (1 Gbps의 8%).
 // 실데이터가 본 값을 초과하면 자동 확장 (soft ceiling). Y축 단위는 fmtKbChart로 동적 표기.
 const NET_Y_SUGGESTED_MAX = 2048; // B/s ≈ 2 kB/s
 

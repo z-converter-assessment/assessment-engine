@@ -7,7 +7,7 @@
 
 <!-- 서비스 목록 -->
 <div class="card">
-  <h2>
+  <h2 class="card-title">
     실행 중인 서비스
     {% if server.services is not none %}
       <span style="font-size:12px; font-weight:400; color:#94a3b8; text-transform:none; letter-spacing:0;">
@@ -52,7 +52,7 @@
 
 <!-- 포트 목록 -->
 <div class="card">
-  <h2>
+  <h2 class="card-title">
     Listen 포트
     <span style="font-size:12px; font-weight:400; color:#94a3b8; text-transform:none; letter-spacing:0;">
       {{ server.listen_ports_count }}개
@@ -100,4 +100,6 @@
     </table>
   {% endif %}
 </div>
+
+{% include "_reference_link.html" %}
 {% endblock %}

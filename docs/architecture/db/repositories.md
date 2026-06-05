@@ -44,8 +44,20 @@
 | `report_memory_breakdown(server_id, period_days, end)` | 개별 보고서 메모리 구성 (used/available/cached/buffers 전체 대비 %, 시점값 avg) |
 | `report_cpu_breakdown(server_id, period_days, end)` | 개별 보고서 CPU 분류 (user/system/iowait, jiffies LAG delta) |
 | `metric_gap_warnings(gap_min, recent_h)` | 메트릭 갭(통신 끊김 운영신호) 후보 |
-| `environment_utilization(period_days, end)` | 대시보드 환경 평균 활용률 도넛 |
-| `environment_metric_trend(metric_type, start, end, bi, bucket_td, server_ids?)` | 환경 부하 추이 시계열 (server_ids 한정 시 선택 N대·단일, None 이면 전체 환경) |
+| `environment_utilization(period_days, end, server_ids?)` | 환경 평균 활용률 도넛 (capacity-weighted, Σused/Σtotal). server_ids 한정 시 선택 N대·단일(selection 보고서), None 이면 전체 환경 |
+| `environment_metric_trend(metric_type, start, end, bi, bucket_td, server_ids?)` | 환경 부하 추이(대시보드) + 환경 성능 추이 시계열. metric_type 풀세트 18종 — 집계 3그룹(아래). server_ids 한정 시 선택 N대, None 이면 전체 환경 |
+
+### 환경 차트 집계 (`environment_metric_trend`) — 3그룹
+
+대시보드 환경 부하 추이(cpu/mem/disk 3종)와 환경 성능 추이(`/servers/environment/metrics`, 10차트 풀세트) 공용. 서버별 차트(`_chart_*`, dimension 보존)와 달리 dimension 없는 환경 단일선 — device/iface 별 라인 폭증 회피. CPU 분류·메모리 구성·디스크 Read/Write·네트워크 RX/TX 는 JS 가 별도 metric_type 으로 각각 fetch 후 클라이언트에서 dimension 부여(`metrics.js`/`environment-metrics.js` 패턴).
+
+| 그룹 | metric_type | 집계 방식 |
+|------|-------------|-----------|
+| capacity-weighted util | `cpu.usage/user/system/iowait_percent`, `mem.usage/available/cached/buffers_percent`, `swap.usage_percent`, `disk.usage_percent`, `fs.usage_percent` | 버킷별 ΣnumeratorΣdenominator x 100 (자원 총량 가중 — 큰 서버 큰 비중). CPU=jiffies delta(boot reset 제외, `_CPU_NUMERATOR`), mem/swap=시점값 KB(`_ENV_SCALAR_WEIGHTED`), disk/fs=mount bytes(가상 mount 제외). `environment_utilization` 카드와 동일 가중(카드는 윈도우 1값, 본 함수는 버킷 시계열) |
+| 합산 rate | `disk.read/write_iops`, `net.rx/tx_bytes_per_sec`, `net.rx/tx_packets_per_sec` | 시점별 전 서버·전 device LAG delta/dt rate 를 합(SUM) -> 버킷 avg. disk=물리 whole-disk 만(`_PHYS_DISK_SQL_FILTER` — 파티션·LVM 이중계산 회피), net=물리 iface 만(`_VIRTUAL_IFACE_SQL_FILTER` — lo·veth·터널 + bond/team master·br/docker/virbr bridge·vlan 제외, master/member 이중계산 회피). boot reset·dt<=0·음수 delta 제외 |
+| 코어 정규화 | `load.15m` | 버킷별 Σload_15m / Σcpu_cores (코어당 로드, capacity-weighted — server_inventory JOIN). 절대 load 동등평균은 코어 수 다른 서버 혼재 시 왜곡(거대 서버 큰 load 가 평균 끌어올림) — 코어 정규화로 1.0=코어당 포화 |
+
+집계 필터 단일 진실(`db/repositories/query/types.py`): `_VIRTUAL_MOUNT_SQL_FILTER`(mount) · `_PHYS_DISK_SQL_FILTER`(물리 disk) · `_VIRTUAL_IFACE_SQL_FILTER`(비가상 iface) — `device_filters` 정규식의 PostgreSQL POSIX 번역(변경 시 동기화). 모든 그룹 partition pruning(#C5) `WHERE collected_at >= window_start` + boot jitter 가드 의무.
 
 ## Diagnostic 계층 — `BaseDiagnosticRepository` (ADR 0004)
 

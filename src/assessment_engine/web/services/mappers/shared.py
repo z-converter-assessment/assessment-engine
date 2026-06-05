@@ -15,7 +15,7 @@ from assessment_engine import recommendation
 # template_setup.py 가 본 상수를 import 해 Jinja2 globals 로 노출 → body data-attribute 단일 진실.
 _USAGE_DANGER_PCT = 90  # 사용률 위험 임계 — disk_warning · server detail badge 공통
 _USAGE_WARN_PCT = 75  # 사용률 주의 임계
-_SWAP_DANGER_PCT = 0.1  # 스왑 사용 자체가 이슈 — 0.1% 도 빨강 (JS performance.js 동일)
+_SWAP_DANGER_PCT = 0.1  # 스왑 사용 자체가 이슈 — 0.1% 도 빨강 (JS metrics.js 동일)
 
 # 보고서 view 분기 — 라우터 Pydantic Literal 정합 (#F3)
 # service · mapper 시그니처에도 적용해 typo 차단.
@@ -23,10 +23,11 @@ ReportView = Literal["customer", "engineer"]
 
 # ─── USE Method 도넛 카탈로그 — 대시보드 + 환경 보고서 + 서버 리스트 단일 진실 (T13) ────
 # USE Method recommendation enum 1:1 매핑. (key, label, hex, description) 튜플 정렬:
-#   under(빨강), over(청록), idle(회색), shutdown(보라), optimal(녹색), insufficient_data(옅은회색).
+#   under(빨강), over(파랑=주색), idle(회색), shutdown(보라), optimal(녹색), insufficient_data(옅은회색).
+# over 색 = _UTIL_COLOR_GAUGE(#3b82f6) 와 동일 주색 — 테마 통일 (활용률 게이지와 같은 파랑, under 빨강과 대비).
 _DONUT_SEGMENT_DEFS: list[tuple[str, str, str, str]] = [
     ("under_provisioned", "under_provisioned", "#ef4444", "자원 부족 — 사양 상향 검토"),
-    ("over_provisioned", "over_provisioned", "#06b6d4", "자원 여유 — 사양 축소 검토"),
+    ("over_provisioned", "over_provisioned", "#3b82f6", "자원 여유 — 사양 축소 검토"),
     ("idle", "idle", "#64748b", "사용률 매우 낮음 — 용도 재평가"),
     ("shutdown", "shutdown", "#9333ea", "사실상 미사용 — 종료 검토"),
     ("optimal", "optimal", "#22c55e", "적정"),

@@ -51,13 +51,16 @@ export ENV_FILE=dev/.env
 readonly TIMEOUT=180                         # docker compose / migrate / web 헬스체크 공통 cap
 
 # libvirt 토폴로지 단일 진실.
-readonly LIBVIRT_NET="${LIBVIRT_NET:-default}"     # NAT 네트워크 (virbr0)
+readonly LIBVIRT_NET="${LIBVIRT_NET:-default}"     # NAT 네트워크 (virbr0, 192.168.122.0/24) — 서브넷 1
+readonly LIBVIRT_NET2="${LIBVIRT_NET2:-assessment2}"  # NAT 네트워크 (virbr-assess2, 10.0.2.0/24) — 서브넷 2 (토폴로지 데모)
 readonly LIBVIRT_POOL="${LIBVIRT_POOL:-default}"   # storage 풀 (/var/lib/libvirt/images)
 # 풀 target 경로 — ensure_libvirt_ready 가 채움. 도메인 XML 이 disk 를 type='file' + 명시 경로로 참조해야
 # virt-aa-helper(apparmor)가 디스크 경로를 프로파일에 등록 (type='volume' 은 미해석 -> 빈 프로파일 -> qemu 접근 거부).
 POOL_PATH=""
 # VM -> host 도달 게이트웨이 — default net 의 <ip address>. resolve_libvirt_gw 가 동적 확인, 실패 시 fallback.
 LIBVIRT_GW=""
+# net2(서브넷 2, assessment2) VM->host 게이트웨이 — net2 전용 VM 의 RABBITMQ_HOST (resolve_libvirt_gw 가 채움).
+LIBVIRT_GW2=""
 # base cloud image qcow2 캐시는 libvirt 풀 안 `<distro>-base.qcow2` 볼륨 (qemu:///system 정석 — qemu-user
 # 가 홈/임시 경로를 traverse 못 하는 문제 회피, 모든 디스크를 풀에서 관리).
 # 본 repo dev 전용 SSH keypair — cloud-init 으로 VM 에 공개키 주입, vm_ssh 가 개인키로 접속. (.gitignore)
@@ -113,6 +116,23 @@ vm_distro() {
     edge-server-01)  echo "debian12" ;;
     offline-server-01|offline-server-02) echo "debian12" ;;  # 가벼운 base — 서비스 없이 agent 만
     *) echo "오류: 알 수 없는 VM: $1" >&2; return 1 ;;
+  esac
+}
+# VM 서브넷 배치 — 토폴로지 2 서브넷(각 4대) 데모. both=NIC 2개(멀티홈, 양쪽). net1=default, net2=assessment2.
+# net1(4): app,data(멀티홈),edge,offline-01 / net2(4): app,data(멀티홈),offline-02,win-server-01(define_win 별도).
+vm_network() {
+  case "$1" in
+    app-server-01|data-server-01)     echo "both" ;;
+    edge-server-01|offline-server-01) echo "net1" ;;
+    offline-server-02)                echo "net2" ;;
+    *) echo "오류: 알 수 없는 VM: $1" >&2; return 1 ;;
+  esac
+}
+# VM->host 도달 게이트웨이 — net2 전용은 GW2(net2 NIC), net1·멀티홈(both)은 net1 NIC 로 GW1 도달.
+vm_gateway() {
+  case "$(vm_network "$1")" in
+    net2) echo "$LIBVIRT_GW2" ;;
+    *)    echo "$LIBVIRT_GW" ;;
   esac
 }
 # distro key -> amd64 cloud image (qcow2, cloud-init NoCloud 지원). genericcloud = 최소 패키지 + cloud-init.
@@ -240,6 +260,25 @@ ensure_libvirt_ready() {
   fi
   virsh net-list --name 2>/dev/null | grep -qx "$LIBVIRT_NET" || virsh net-start "$LIBVIRT_NET" >/dev/null
   virsh net-autostart "$LIBVIRT_NET" >/dev/null 2>&1 || true
+  # 서브넷 2(assessment2, 10.0.2.0/24) — 토폴로지 2 서브넷 데모. 미존재 시 define (NAT, virbr-assess2).
+  if ! virsh net-info "$LIBVIRT_NET2" >/dev/null 2>&1; then
+    echo "  libvirt 네트워크 '$LIBVIRT_NET2' 없음 — define (10.0.2.0/24 NAT)"
+    local net2_xml="${TMPDIR:-/tmp}/_assessment_net2_$$.xml"
+    cat > "$net2_xml" <<NET2XML
+<network>
+  <name>${LIBVIRT_NET2}</name>
+  <forward mode='nat'/>
+  <bridge name='virbr-assess2' stp='on' delay='0'/>
+  <ip address='10.0.2.1' netmask='255.255.255.0'>
+    <dhcp><range start='10.0.2.2' end='10.0.2.254'/></dhcp>
+  </ip>
+</network>
+NET2XML
+    virsh net-define "$net2_xml" >/dev/null
+    rm -f "$net2_xml"
+  fi
+  virsh net-list --name 2>/dev/null | grep -qx "$LIBVIRT_NET2" || virsh net-start "$LIBVIRT_NET2" >/dev/null
+  virsh net-autostart "$LIBVIRT_NET2" >/dev/null 2>&1 || true
   # storage 풀 — 없으면 정의(기본 경로 /var/lib/libvirt/images). qemu:///system 정석.
   # target permissions 0711 명시 — qemu(libvirt-qemu)가 풀 디렉토리를 traverse 해 디스크 파일 접근.
   # (Ubuntu 일부 버전은 디렉토리 기본 0700 -> traverse 불가 -> qemu Permission denied.)
@@ -273,6 +312,10 @@ resolve_libvirt_gw() {
     | grep -oE "ip address='[0-9.]+'" | head -1 | grep -oE '[0-9.]+' || true)"
   LIBVIRT_GW="${LIBVIRT_GW:-192.168.122.1}"
   echo "  libvirt 게이트웨이(VM->host): $LIBVIRT_GW"
+  LIBVIRT_GW2="$(virsh net-dumpxml "$LIBVIRT_NET2" 2>/dev/null \
+    | grep -oE "ip address='[0-9.]+'" | head -1 | grep -oE '[0-9.]+' || true)"
+  LIBVIRT_GW2="${LIBVIRT_GW2:-10.0.2.1}"
+  echo "  libvirt 게이트웨이2(net2 VM->host): $LIBVIRT_GW2"
 }
 
 # dev 전용 SSH keypair — 없으면 생성 (passphrase 없음, dev 한정). cloud-init 이 공개키를 VM 에 주입.
@@ -448,7 +491,15 @@ ensure_base_image() {
 # overlay 디스크 + cloud-init seed ISO + 도메인 XML 작성 후 virsh define. 모든 디스크는 풀 안 관리.
 build_and_define_vm() {
   local vm="$1" distro="$2"
-  local base disk seed_iso pubkey memmib vcpu
+  local base disk seed_iso pubkey memmib vcpu net iface_xml
+  net="$(vm_network "$vm")"
+  # interface XML — net1/net2 단일 NIC, both 는 NIC 2개(멀티홈). heredoc(unquoted) 에 ${iface_xml} 확장 삽입.
+  case "$net" in
+    net1) iface_xml="<interface type='network'><source network='${LIBVIRT_NET}'/><model type='virtio'/></interface>" ;;
+    net2) iface_xml="<interface type='network'><source network='${LIBVIRT_NET2}'/><model type='virtio'/></interface>" ;;
+    both) iface_xml="<interface type='network'><source network='${LIBVIRT_NET}'/><model type='virtio'/></interface>
+    <interface type='network'><source network='${LIBVIRT_NET2}'/><model type='virtio'/></interface>" ;;
+  esac
   base="$(vm_base_vol "$distro")"
   disk="${vm}.qcow2"
   seed_iso="${vm}-seed.iso"
@@ -482,7 +533,16 @@ users:
 ssh_pwauth: false
 CLOUDCFG
   printf 'instance-id: %s\nlocal-hostname: %s\n' "$vm" "$vm" > "$md"
-  cloud-localds "$iso" "$ud" "$md"
+  # 멀티홈(both)은 NIC 2개 모두 DHCP — netplan v2 network-config 주입. 미주입 시 cloud image 가 첫 NIC 만 올려
+  # 둘째 NIC IP 부재 -> agent ip_internal 에 둘째 서브넷 누락 -> 토폴로지 멀티홈 미표시.
+  if [ "$net" = "both" ]; then
+    local nc="$VM_WORK_DIR/${vm}-network-config"
+    printf 'version: 2\nethernets:\n  all-eth:\n    match: {name: "e*"}\n    dhcp4: true\n' > "$nc"
+    cloud-localds --network-config "$nc" "$iso" "$ud" "$md"
+    rm -f "$nc"
+  else
+    cloud-localds "$iso" "$ud" "$md"
+  fi
   # 풀로 import (멱등 — 기존 seed 교체해 키/hostname 갱신 반영).
   virsh vol-info "$seed_iso" --pool "$LIBVIRT_POOL" >/dev/null 2>&1 \
     && virsh vol-delete "$seed_iso" --pool "$LIBVIRT_POOL" >/dev/null
@@ -518,10 +578,7 @@ CLOUDCFG
       <target dev='hda' bus='ide'/>
       <readonly/>
     </disk>
-    <interface type='network'>
-      <source network='${LIBVIRT_NET}'/>
-      <model type='virtio'/>
-    </interface>
+    ${iface_xml}
     <serial type='pty'><target port='0'/></serial>
     <console type='pty'><target type='serial' port='0'/></console>
     <graphics type='vnc' port='-1' listen='127.0.0.1'/>
@@ -573,9 +630,10 @@ start_or_resume_vm() {
 #   - inner `<<ENV` (unquoted): host expand된 값들을 inline (그 안에 '$' 없음).
 post_provision_vm() {
   local vm="$1"
-  local services ext_ip hostname_override
+  local services ext_ip hostname_override gw
   services="$(vm_service "$vm")"   # 공백 구분 다중 서비스 (예: "nginx rabbitmq")
   ext_ip="$(vm_ext_ip "$vm")"
+  gw="$(vm_gateway "$vm")"   # net2 전용 VM 은 GW2(10.0.2.1), net1·멀티홈(both)은 GW1
   # 모든 VM은 hostname=VM 이름 통일.
   hostname_override="$vm"
 
@@ -591,7 +649,7 @@ set -euo pipefail
 #    (엔진 ZDM_DEFAULT_IP host 와 일치). host shell 이 치환.
 #    env_needs_restart=1이면 env 변경됨 → 뒤 단계에서 restart 트리거.
 new_env=\$(cat <<ENV
-RABBITMQ_HOST=${LIBVIRT_GW}
+RABBITMQ_HOST=${gw}
 RABBITMQ_PORT=5672
 RABBITMQ_VHOST=/assessment
 RABBITMQ_USER=${RABBITMQ_USER}
@@ -751,7 +809,7 @@ SCRIPT
 # host 좌표는 quoted heredoc 안 placeholder(__HOST_TARGET__)로 두고 remote 에서 sed 치환 (RANDOM 등 보존).
 install_synthetic_load() {
   local vm="$1"
-  vm_ssh "$vm" sudo bash -s "$LIBVIRT_GW" <<'SCRIPT'
+  vm_ssh "$vm" sudo bash -s "$(vm_gateway "$vm")" <<'SCRIPT'
 set -euo pipefail
 gw="$1"
 cat > /usr/local/bin/synthetic-load.sh <<'EOF'
@@ -858,12 +916,57 @@ systemctl start offline-demo.timer
 SCRIPT
 }
 
+# swap-demo 설치 (data-server-01 전용) — swapfile on + cgroup 제한 메모리 점유로 1회 page-out 유발.
+# swap_free < swap_total 시점이 1회 발생 → agent 가 14일 윈도우 내 잡으면 under_provisioned(mem_saturation)
+# 발화 (recommendation.swap_saturation, Linux). MemoryMax(cgroup v2)로 초과분만 swap 으로 밀어 OOM 회피.
+# OnBootSec 1회만 (OnUnitActiveSec 없음 — "딱 한번"). python3 미설치 시 silent skip.
+install_swap_demo() {
+  local vm="$1"
+  vm_ssh "$vm" sudo bash -s <<'SCRIPT'
+set -euo pipefail
+if ! swapon --show 2>/dev/null | grep -q /swapfile-demo; then
+  dd if=/dev/zero of=/swapfile-demo bs=1M count=256 status=none
+  chmod 600 /swapfile-demo
+  mkswap /swapfile-demo >/dev/null
+  swapon /swapfile-demo
+fi
+sysctl -w vm.swappiness=100 >/dev/null
+cat > /usr/local/bin/swap-demo.sh <<'EOF'
+#!/bin/bash
+# 익명 메모리를 MemoryMax(256M) 초과로 잠깐 점유 -> 초과분 swap page-out 후 해제.
+python3 -c "import time; x=bytearray(360*1024*1024); time.sleep(25); del x" 2>/dev/null || true
+EOF
+chmod 755 /usr/local/bin/swap-demo.sh
+cat > /etc/systemd/system/swap-demo.service <<'EOF'
+[Unit]
+Description=Swap demo (under_provisioned mem_saturation 1회 발화)
+[Service]
+Type=oneshot
+MemoryMax=256M
+MemorySwapMax=512M
+ExecStart=/usr/local/bin/swap-demo.sh
+EOF
+cat > /etc/systemd/system/swap-demo.timer <<'EOF'
+[Unit]
+Description=Run swap-demo once after boot (under_provisioned 시연)
+[Timer]
+OnBootSec=4min
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+systemctl enable swap-demo.timer
+systemctl start swap-demo.timer
+SCRIPT
+}
+
 # VM별 합성 부하·시연 트리거 설치 — 옛 Lima yaml provision 분기 흡수.
 install_demo_loads() {
   local vm="$1"
   install_synthetic_load "$vm"
   case "$vm" in
     app-server-01)  install_agent_restart_demo "$vm" ;;
+    data-server-01) install_swap_demo "$vm" ;;
     edge-server-01) install_offline_demo "$vm" ;;
     # 오프라인 시연 VM — 서비스 없이 최초 메트릭만 발행 후 poweroff → 목록에 오프라인 2대(총 6대).
     offline-server-01|offline-server-02) install_offline_demo "$vm" ;;
@@ -1093,7 +1196,7 @@ define_win_domain() {
       <readonly/>
     </disk>
     <interface type='network'>
-      <source network='${LIBVIRT_NET}'/>
+      <source network='${LIBVIRT_NET2}'/>
       <model type='e1000e'/>
     </interface>
     <controller type='usb' model='qemu-xhci'/>
@@ -1237,7 +1340,7 @@ deploy_win_agent() {
   # 평문 secret 이 들어가므로 host /tmp 에 짧게만 두고 전송 직후 삭제 (#F8).
   tmp_env="$(mktemp)"
   cat > "$tmp_env" <<ENV
-RABBITMQ_HOST=${LIBVIRT_GW}
+RABBITMQ_HOST=${LIBVIRT_GW2}
 RABBITMQ_PORT=5672
 RABBITMQ_VHOST=/assessment
 RABBITMQ_USER=${RABBITMQ_USER}
@@ -1299,7 +1402,7 @@ print_win_summary() {
   echo ""
   echo "Windows agent 자동화 완료 (libvirt)"
   echo "  VM       : $WIN_VM_NAME ($WIN_VM_IP)"
-  echo "  agent.env: $WIN_ENV_PATH (RABBITMQ_HOST=${LIBVIRT_GW} 주입 완료)"
+  echo "  agent.env: $WIN_ENV_PATH (RABBITMQ_HOST=${LIBVIRT_GW2} 주입 완료)"
   echo "  확인:"
   echo "    RabbitMQ 콘솔  : http://localhost:${RABBITMQ_MANAGEMENT_PORT:-15672} ($WIN_VM_NAME 메시지 적재)"
   echo "    Web UI         : http://localhost:${WEB_PORT:-8000}/servers/ ($WIN_VM_NAME 등록, os_family=windows)"
@@ -1320,7 +1423,11 @@ main() {
     start_docker_stack
     wait_migrate_completed
     wait_web_healthy
-    start_vms
+    # start_vms 실패(Linux VM 일부 provision 실패)가 set -e 로 전파되면 아래 Windows 단계 전체가 skip 된다 —
+    # Linux 실패와 Windows 기동을 분리(구조적 결합 제거). 실패는 경고로 알리고 Windows 단계는 계속 진행.
+    if ! start_vms; then
+      echo "경고: 일부 Linux VM provisioning 실패 — Windows 단계는 계속 진행 (위 실패 로그 확인, 재실행 시 재시도)." >&2
+    fi
     print_summary
   fi
   # ── Windows (libvirt) — 기본 포함("모든 환경" 구성). 무거워도(ISO ~4.7GB + 설치 ~20min) 매 dev-up

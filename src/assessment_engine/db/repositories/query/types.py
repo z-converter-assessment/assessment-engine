@@ -31,9 +31,28 @@ MetricType = Literal[
     "net.rx_packets_per_sec",
     "net.tx_packets_per_sec",
 ]
-# 환경 전체 추이 차트 metric (대시보드·환경 보고서 공용) — CPU·메모리·디스크 평균.
-# disk.usage_percent 는 서버별 worst mount(가상 제외) 평균 — server_mount_usage 별도 분기.
-EnvironmentMetricType = Literal["cpu.usage_percent", "mem.usage_percent", "disk.usage_percent"]
+# 환경 전체 추이 차트 metric — 대시보드 추이 + 환경 성능 추이(서버상세 성능 추이 풀세트의 환경판).
+# capacity-weighted(cpu·mem·disk·fs·swap 시점값 Σ/Σ) / 동등평균(load) / 합산(disk·net rate).
+EnvironmentMetricType = Literal[
+    "cpu.usage_percent",
+    "cpu.user_percent",
+    "cpu.system_percent",
+    "cpu.iowait_percent",
+    "load.15m",
+    "mem.usage_percent",
+    "mem.available_percent",
+    "mem.cached_percent",
+    "mem.buffers_percent",
+    "swap.usage_percent",
+    "disk.usage_percent",
+    "fs.usage_percent",
+    "disk.read_iops",
+    "disk.write_iops",
+    "net.rx_bytes_per_sec",
+    "net.tx_bytes_per_sec",
+    "net.rx_packets_per_sec",
+    "net.tx_packets_per_sec",
+]
 TimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d"]
 AggFunc = Literal["avg", "max", "p95"]
@@ -132,4 +151,33 @@ _VIRTUAL_MOUNT_SQL_FILTER = """
     AND mount NOT LIKE '/dev/pts%'
     AND mount NOT LIKE '/snap%'
     AND mount NOT LIKE '/run/snapd%'
+"""
+
+# 환경 시점값 capacity-weighted (버킷 Σnumerator/Σdenominator * 100). server_metrics 컬럼.
+# environment_metric_trend 그룹2 — environment_utilization(mem)·서버별 _SCALAR_VALUE_EXPR 와 정의 정합(환경은 Σ/Σ).
+_ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str]] = {
+    "mem.usage_percent": ("mem_total_kb - mem_available_kb", "mem_total_kb"),
+    "mem.available_percent": ("mem_available_kb", "mem_total_kb"),
+    "mem.cached_percent": ("mem_cached_kb", "mem_total_kb"),
+    "mem.buffers_percent": ("mem_buffers_kb", "mem_total_kb"),
+    "swap.usage_percent": ("swap_total_kb - swap_free_kb", "swap_total_kb"),
+}
+
+# 물리 disk SQL 제외 — device_filters.is_physical_disk POSIX 번역(가상·LVM·파티션). 변경 시 동기화.
+# 환경 disk rate 합산 물리 device 한정(이중 집계 회피). 정적 상수 f-string 안전(#C5).
+_PHYS_DISK_SQL_FILTER = """
+    device !~ '^(loop[0-9]*|ram[0-9]*|zram[0-9]*|fd[0-9]*|sr[0-9]*|nbd[0-9]*)$'
+    AND device !~ '^(dm-[0-9]+|md[0-9]+)$'
+    AND device !~ '^(sd[a-z]+[0-9]+|vd[a-z]+[0-9]+|hd[a-z]+[0-9]+)$'
+    AND device !~ '^(xvd[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+|mmcblk[0-9]+p[0-9]+)$'
+"""
+
+# 가상 network interface SQL 제외 — device_filters._VIRTUAL_IFACE_RE/_WIN_IFACE_FILTER_RE POSIX 번역. 변경 시 동기화.
+# bond/team master·br/docker/virbr bridge·vlan sub-interface 제외 — master/member 이중 집계 회피(물리 member 만 합산).
+_VIRTUAL_IFACE_SQL_FILTER = """
+    interface !~ '^(lo|veth.*|sit[0-9]*|tunl[0-9]*|ip6tnl[0-9]*|gre[0-9]*)$'
+    AND interface !~ '^(gretap[0-9]*|erspan[0-9]*|dummy[0-9]*|ifb[0-9]*|nlmon[0-9]*)$'
+    AND interface !~ '^(bond[0-9]+|team[0-9]+|br[0-9]+|br-.+|docker[0-9]+|virbr[0-9]+(-nic)?)$'
+    AND interface !~ '.+\\.[0-9]+$'
+    AND interface !~ '.+-[0-9]{4}$'
 """

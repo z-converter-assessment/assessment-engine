@@ -28,6 +28,7 @@ from assessment_engine.diagnostic.report_result import (  # noqa: F401 (re-expor
 from assessment_engine.web.view_models.attention import (
     AttentionRow,
     AttentionSignals,
+    CapacityMetric,
     CapacityTriggerBadge,
     CapacityWarningItem,
     EnvironmentOverview,
@@ -186,4 +187,5 @@ def _attention_row_from_dict(d: dict) -> AttentionRow:
 def _capacity_warning_from_dict(d: dict) -> CapacityWarningItem:
     data = dict(d)
     data["triggers"] = [CapacityTriggerBadge(**t) for t in data.get("triggers") or []]
+    data["metrics"] = [CapacityMetric(**m) for m in data.get("metrics") or []]
     return CapacityWarningItem(**data)

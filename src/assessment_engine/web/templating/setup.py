@@ -46,7 +46,7 @@ env.globals["diagnostic_default_range_label"] = DIAGNOSTIC_RANGE_LABEL_KR.get(
 )
 
 # UI badge 임계값 — mappers 단일 진실 (#E3 UI badge 도메인). base.html body data-attribute 로 노출,
-# detail.js / performance.js 가 dataset 에서 읽기 (#E1 P4 — JS 임계 분류 단일 진실).
+# detail.js / metrics.js 가 dataset 에서 읽기 (#E1 P4 — JS 임계 분류 단일 진실).
 env.globals["ui_thresholds"] = {
     "usage_danger_pct": _USAGE_DANGER_PCT,
     "usage_warn_pct": _USAGE_WARN_PCT,

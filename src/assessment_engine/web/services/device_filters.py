@@ -11,9 +11,13 @@ import re
 _VIRTUAL_DISK_RE = re.compile(r"^(loop\d*|ram\d*|zram\d*|fd\d*|sr\d*|nbd\d*)$")
 _LVM_DISK_RE = re.compile(r"^(dm-\d+|md\d+)$")
 _PART_DISK_RE = re.compile(r"^(sd[a-z]+\d+|vd[a-z]+\d+|hd[a-z]+\d+|xvd[a-z]+\d+|nvme\d+n\d+p\d+|mmcblk\d+p\d+)$")
-# 가상·시스템 네트워크 인터페이스 (보수적 제외 — 물리 트래픽 관측 대상 아님). docker/br/bond/vlan 회색지대는 통과.
+# 가상·시스템 네트워크 인터페이스 (제외 — 물리 트래픽 관측 대상 아님).
+# bond/team master·br/docker/virbr bridge·vlan(eth0.100) sub-interface 도 제외 — master(집계기)와
+# member(물리 NIC) 양쪽이 같은 물리 트래픽을 카운트하는 이중 집계 회피(환경 합산 정합).
+# 물리 member(eth/ens/eno 등)만 남긴다.
 _VIRTUAL_IFACE_RE = re.compile(
-    r"^(lo|veth.*|sit\d*|tunl\d*|ip6tnl\d*|gre\d*|gretap\d*|erspan\d*|dummy\d*|ifb\d*|nlmon\d*)$"
+    r"^(lo|veth.*|sit\d*|tunl\d*|ip6tnl\d*|gre\d*|gretap\d*|erspan\d*|dummy\d*|ifb\d*|nlmon\d*"
+    r"|bond\d+|team\d+|br\d+|br-.+|docker\d+|virbr\d+(-nic)?|.+\.\d+)$"
 )
 # Windows NDIS 필터 드라이버 인스턴스 — "<adapter>-<filter>-NNNN" (하이픈 + 4자리 인덱스 suffix).
 _WIN_IFACE_FILTER_RE = re.compile(r".+-\d{4}$")

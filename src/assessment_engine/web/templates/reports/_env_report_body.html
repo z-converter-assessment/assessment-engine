@@ -26,7 +26,7 @@
    customer·engineer 공용 (환경·선택). self_back = 호스트 링크 back chain. #}
 {% macro service_config_card(catalog, view, self_back) %}
 <section class="card" style="margin-bottom:16px;">
-  <h2>서비스 구성 <span class="section-meta">분류(색) · 서비스명 (구동 서버 수){% if view == "engineer" %} · 구동 호스트{% endif %}</span></h2>
+  <h2 class="card-title">서비스 구성 <span class="section-meta">분류(색) · 서비스명 (구동 서버 수){% if view == "engineer" %} · 구동 호스트{% endif %}</span></h2>
   {% if catalog %}
   {# 범례 — 분류 뱃지 (색 매핑) #}
   <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid #e2e8f0;">
@@ -65,7 +65,7 @@
 {% if summary.view == "customer" %}
 {# ============================= 양식 A — 고객 제출용 ============================= #}
 <section class="card" style="margin-bottom:16px;">
-  <h2>요약</h2>
+  <h2 class="card-title">요약</h2>
   <ul style="margin:0; padding-left:20px; color:#1e293b; line-height:1.8;">
     {% for b in summary.summary_bullets_env %}
     <li>{{ b }}</li>
@@ -74,7 +74,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>환경 구성</h2>
+  <h2 class="card-title">환경 구성</h2>
   <p style="margin:0 0 14px; font-size:12px; color:#64748b;">이 환경이 무엇으로 이루어졌는지 — OS·워크로드 구성.</p>
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
     {{ config_dist("OS 구성", summary.os_family_dist, 0, "", "대") }}
@@ -85,7 +85,7 @@
 {{ service_config_card(summary.service_catalog, summary.view, self_back) }}
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>환경 요약</h2>
+  <h2 class="card-title">환경 요약</h2>
   <div class="metric-grid" style="grid-template-columns:repeat(4, 1fr);">
     <div class="metric-card">
       <div class="metric-label">등록 서버</div>
@@ -129,7 +129,7 @@
 
 <section class="card" style="margin-bottom:16px;">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #e2e8f0;">
-    <h2>Right-sizing 평가</h2>
+    <h2 class="card-title">Right-sizing 평가</h2>
     <span class="section-meta">평가 대상 {{ summary.evaluated_count }}대 (전체 {{ summary.overview.total }}대) · {{ summary.time_range_label }} 윈도우</span>
   </div>
 
@@ -182,7 +182,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>OS 지원 종료 <span class="section-meta">운영 신호 — 자원 평가(right-sizing)와 별개</span></h2>
+  <h2 class="card-title">OS 지원 종료 <span class="section-meta">운영 신호 — 자원 평가(right-sizing)와 별개</span></h2>
   {% if summary.os_eol_count %}
   <p style="margin:0; font-size:14px; color:#1e293b;">지원 종료(EOL) 임박·경과 {{ summary.os_eol_count }}대 — 보안 패치 중단으로 전환·업그레이드 선행 검토.</p>
   {% else %}
@@ -194,7 +194,7 @@
 {# ============================= 양식 B — 엔지니어 검토용 (상세·엄밀) ============================= #}
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>요약</h2>
+  <h2 class="card-title">요약</h2>
   <ul style="margin:0; padding-left:20px; color:#1e293b; line-height:1.8;">
     {% for b in summary.summary_bullets_env %}
     <li>{{ b }}</li>
@@ -207,7 +207,7 @@
 {% if narrative_key %}
 {% set n = narratives.get(narrative_key) %}
 <section class="card" data-narrative-slot data-narrative-key="{{ narrative_key }}" style="margin-bottom:16px;">
-  <h2>AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
+  <h2 class="card-title">AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
   {% if n and n.status == 'succeeded' and n.narrative %}
   <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; line-height:1.6; font-size:14px; color:#1e293b;">{{ n.narrative }}</div>
   <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
@@ -224,7 +224,7 @@
 {% endif %}
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>환경 구성</h2>
+  <h2 class="card-title">환경 구성</h2>
   <p style="margin:0 0 14px; font-size:12px; color:#64748b;">이 환경이 무엇으로 이루어졌는지 — OS·워크로드 구성.</p>
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
     {{ config_dist("OS 구성", summary.os_family_dist, 0, "", "대") }}
@@ -235,7 +235,7 @@
 {{ service_config_card(summary.service_catalog, summary.view, self_back) }}
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>환경 현황</h2>
+  <h2 class="card-title">환경 현황</h2>
   <h3>인벤토리</h3>
   <div class="metric-grid" style="grid-template-columns:repeat(4, 1fr);">
     <div class="metric-card">
@@ -300,7 +300,7 @@
 <section class="card" style="margin-bottom:16px;">
   <div class="env-dual" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap:24px; align-items:start;">
     <div>
-      <h2 style="margin:0 0 12px;">환경 부하 추이 <span class="section-meta">{{ summary.time_range_label }} 윈도우 · CPU·메모리 평균</span></h2>
+      <h2 class="card-title" style="margin:0 0 12px;">환경 부하 추이 <span class="section-meta">{{ summary.time_range_label }} 윈도우 · CPU·메모리 평균</span></h2>
       {% if summary.trend %}
       <div style="height:320px;"><canvas id="env-trend-chart" data-trend='{{ summary.trend | tojson }}' data-range="{{ summary.time_range }}"></canvas></div>
       <p class="chart-desc" style="margin:10px 0 0;">이 차트는 발행 시 선택한 {{ summary.time_range_label }} 시간 구간을 기준으로, 그 안에서 수집 이력이 있는 범위만 동적으로 x축에 표시합니다(빈 구간 미표시) — 윈도우보다 데이터가 짧으면 있는 기간으로 정규화, 버킷 간격만 윈도우 기준 고정. 서버 상세 차트(윈도우 전체를 빈 구간 포함 표기)와 x축 범위가 다를 수 있습니다.</p>
@@ -309,7 +309,7 @@
       {% endif %}
     </div>
     <div>
-      <h2 style="margin:0 0 12px;">네트워크 토폴로지{% if summary.topology and summary.topology.has_data %} <span class="section-meta">(서브넷 {{ summary.topology.subnet_count }} · 호스트 {{ summary.topology.host_count }}{% if summary.topology.multi_homed_count > 0 %} · 멀티홈 {{ summary.topology.multi_homed_count }}{% endif %}{% if summary.topology.isolated_count > 0 %} · 미연결 {{ summary.topology.isolated_count }}{% endif %})</span>{% endif %}</h2>
+      <h2 class="card-title" style="margin:0 0 12px;">네트워크 토폴로지{% if summary.topology and summary.topology.has_data %} <span class="section-meta">(서브넷 {{ summary.topology.subnet_count }} · 호스트 {{ summary.topology.host_count }}{% if summary.topology.multi_homed_count > 0 %} · 멀티홈 {{ summary.topology.multi_homed_count }}{% endif %}{% if summary.topology.isolated_count > 0 %} · 미연결 {{ summary.topology.isolated_count }}{% endif %})</span>{% endif %}</h2>
       {% if summary.topology and summary.topology.has_data %}
       <div style="position:relative;">
         <div id="topology-graph" style="height:320px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc;"
@@ -340,7 +340,7 @@
 
 <section class="card" style="margin-bottom:16px;">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #e2e8f0;">
-    <h2>Right-sizing 분류</h2>
+    <h2 class="card-title">Right-sizing 분류</h2>
     <span class="section-meta">{{ summary.time_range_label }} 윈도우</span>
   </div>
 
@@ -389,7 +389,7 @@
 
 <section class="card" style="margin-bottom:16px;">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #e2e8f0;">
-    <h2>OS 지원 종료</h2>
+    <h2 class="card-title">OS 지원 종료</h2>
     <span class="section-meta">EOL 임박·경과 호스트 (재부팅·에이전트 안정성은 아래 호스트 상세 표 reboot 컬럼)</span>
   </div>
   {% if summary.attention.os_eol_warnings %}
@@ -412,7 +412,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>OS 분포</h2>
+  <h2 class="card-title">OS 분포</h2>
   {% if summary.os_distribution %}
   <table style="font-size:12px;">
     <thead>
@@ -433,7 +433,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>평가 표본 부족 호스트 ({{ summary.insufficient_hosts_count }}건)</h2>
+  <h2 class="card-title">평가 표본 부족 호스트 ({{ summary.insufficient_hosts_count }}건)</h2>
   <p style="margin:0 0 12px; font-size:12px; color:#64748b;">에이전트 신규 설치 또는 메트릭 수집 문제 — 평가 정확도 확보 위해 점검 필요.</p>
   {% if summary.insufficient_hosts %}
   <table style="font-size:12px;">

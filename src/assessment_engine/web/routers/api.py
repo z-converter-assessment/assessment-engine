@@ -79,12 +79,21 @@ async def get_metric_chart(
 @api_router.get("/environment/metrics-chart")
 async def get_environment_metrics_chart(
     metric_type: EnvironmentMetricType = Query(...),
-    time_range: TimeRange = Query("14d"),
-    bucket: BucketSize = Query("6h"),
+    time_range: TimeRange = Query("15m"),
+    bucket: BucketSize = Query("1m"),
+    ids: str | None = Query(None, description="public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경."),
     service: QueryService = Depends(get_service),
 ):
-    """환경 전체(모든 서버) 평균 CPU·메모리 시계열 — 대시보드 추이 차트 live (server_id 무관)."""
-    return await service.get_environment_metric_chart(metric_type, time_range, bucket)
+    """환경 시계열 — 환경 성능 추이 live + 대시보드 추이. ids 면 선택 N대 한정, 없으면 전체 환경.
+
+    metric_type 풀세트(CPU분류·로드·메모리구성·스왑·디스크/네트워크 rate)는 environment_metric_trend 가
+    capacity-weighted/합산/평균으로 집계. 호출자가 time_range·bucket 명시(기본은 live 성능 페이지 15m·1m)."""
+    server_ids = None
+    if ids:
+        public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
+        sid_map = await service.resolve_server_ids(public_ids)
+        server_ids = list(sid_map.values())
+    return await service.get_environment_metric_chart(metric_type, time_range, bucket, server_ids=server_ids)
 
 
 @api_router.get("/{server_id}/events/reboot")

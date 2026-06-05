@@ -127,6 +127,10 @@ services:
   web:
     <<: *app-base
     command: ["assessment_engine.web"]
+    environment:
+      <<: *app-env
+      # dev hot-reload — uvicorn auto-reload (reload_dirs=bind mount 패키지, web/__main__.py). 퀵스타트는 WEB_RELOAD=false 로 끌 수 있음.
+      WEB_RELOAD: ${WEB_RELOAD:-true}
     ports:
       - "${WEB_PORT:-8000}:8000"
     healthcheck:
@@ -138,13 +142,18 @@ services:
 
   consumer:
     <<: *app-base
-    command: ["assessment_engine.consumer"]
+    # dev hot-reload — bind mount 패키지 .py 변경 시 watchfiles 가 프로세스 재시작 (web uvicorn reload 와 짝).
+    # consumer/diagnostic 은 uvicorn 이 아니라 watchfiles 래퍼로 reload (entrypoint=python -m override).
+    entrypoint: ["watchfiles", "--filter", "python"]
+    command: ["python -m assessment_engine.consumer", "/usr/local/lib/python3.12/site-packages/assessment_engine"]
 
   # 진단 워커 — RabbitMQ diagnostic.request 소비, 보고서 narrative 합성(LLM), DB 저장.
   # LLM(ollama)은 본 compose 미포함 — OLLAMA_BASE_URL 좌표 주입 시 동작, 미주입이면 narrative pending.
   diagnostic-worker:
     <<: *app-base
-    command: ["assessment_engine.diagnostic"]
+    # dev hot-reload — consumer 와 동일 (watchfiles 래퍼).
+    entrypoint: ["watchfiles", "--filter", "python"]
+    command: ["python -m assessment_engine.diagnostic", "/usr/local/lib/python3.12/site-packages/assessment_engine"]
     environment:
       <<: *app-env
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}

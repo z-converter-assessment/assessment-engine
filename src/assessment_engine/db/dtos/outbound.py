@@ -175,10 +175,12 @@ class NetworkWithIo:
 
 @dataclass
 class EnvironmentUtilizationRaw:
-    """환경 전체 latest 메트릭 평균 — list 화면 진행 막대용.
+    """환경(또는 선택 N대) capacity-weighted 평균 활용률 — 자원 총량 가중 (Σused / Σtotal).
 
-    CPU는 두 시점 delta (ROW_NUMBER + self-join). MEM은 latest 1행. DISK는 서버별 max mount.
-    1시간 안 메트릭 없는 서버 자동 제외 (offline 필터).
+    윈도우 안 전 서버·전 시점 통합 비율. CPU는 jiffies delta 합(1 - Σd_idle/Σd_total),
+    MEM은 Σused_kb/Σtotal_kb, DISK는 Σused_bytes/Σtotal_bytes(가상 mount 제외). 빈 구간/미수집
+    시점은 분자·분모 동시 제외. 거대 VM이 큰 비중 = 물리 자원 활용률 관점(서버 동등 가중 아님).
+    sample_size = 기간 내 metric 발행 서버 distinct count. 산식 단일 진실 = repo environment_utilization.
     """
 
     cpu_avg_pct: float | None

@@ -35,16 +35,16 @@
 
 대시보드 첫 페이지 + 검색·필터 미사용일 때만 두 섹션 노출 — `EnvironmentOverview`(환경 요약 KPI + 활용률 도넛 + 프로비저닝 분포 도넛) + `AttentionSignals`(통합 신호 카드 6종). 검색 결과·페이지네이션 화면에선 자동 격리(라우터 분기).
 
-시간 축은 F11 단일 윈도우 — `recommendation.WINDOW_DAYS=14`.
+시간 축은 단일 윈도우 — `recommendation.WINDOW_DAYS=7` (#F10).
 
 | ViewModel | 채우는 mapper | 데이터 소스 | 시간 축 | 색상 톤 |
 |-----------|---------------|-------------|---------|---------|
-| `EnvironmentOverview` | `build_environment_overview(details, online_count, utilization, risk_counts)` — `total`/`online`/`offline`/`total_vcpus`/`total_memory_gb`(float)/`total_disk_gb`/`os_distribution`(os_family별 수)/`role_distribution`(전체 서비스 카테고리 카운트, 대표 1개 아님)/`role_unknown_count`(known 역할 0인 호스트 수 — 서비스 없음·전부 unknown, 호스트 단위)/`utilization`/`util_sample_size`/`risk_donut`/`risk_donut_total`/`risk_high_count` | `list_server_ids` + `get_servers` + `environment_utilization(WINDOW_DAYS)` + `report_aggregate(WINDOW_DAYS)` + Redis `online:*` mget | 14일 평균 + 분류 | slate (`#f8fafc`) |
-| `UtilizationBar` | `build_environment_overview` 안에서 3종 (CPU·메모리·디스크) 생성 — `pct`/`bar_color`(단색 푸른, 값 무관)/`dash_length`(SVG dasharray, mapper 비례 산술) | `environment_utilization(WINDOW_DAYS)` SQL — CPU·메모리·디스크 모두 서버별 평균 후 서버간 평균 (서버 1대=1표) | 14일 평균 | 단색 푸른(`#3b82f6`)·`None` 회(`#cbd5e1`) |
-| `RiskDonutSegment` | `build_risk_donut_segments` — 6 카테고리 (under/over/idle/shutdown/optimal/insufficient) `key`/`label`/`color`/`count`/`dash_length`/`dash_offset` (multi-segment 누적 음수) | `report_aggregate(WINDOW_DAYS)` -> `recommendation.classify` -> `_DONUT_SEGMENT_FROM_REC` | 14일 USE Method | `_DONUT_SEGMENT_DEFS` 색 (E8) |
+| `EnvironmentOverview` | `build_environment_overview(details, online_count, utilization, risk_counts)` — `total`/`online`/`offline`/`total_vcpus`/`total_memory_gb`(float)/`total_disk_gb`/`os_distribution`(os_family별 수)/`role_distribution`(전체 서비스 카테고리 카운트, 대표 1개 아님)/`role_unknown_count`(known 역할 0인 호스트 수 — 서비스 없음·전부 unknown, 호스트 단위)/`utilization`/`util_sample_size`/`risk_donut`/`risk_donut_total`/`risk_high_count` | `list_server_ids` + `get_servers` + `environment_utilization(WINDOW_DAYS, end)` + `report_aggregate(WINDOW_DAYS)` + Redis `online:*` mget | 7일 평균 + 분류 | slate (`#f8fafc`) |
+| `UtilizationBar` | `build_environment_overview` 안에서 3종 (CPU·메모리·디스크) 생성 — `pct`/`bar_color`(단색 푸른, 값 무관)/`dash_length`(SVG dasharray, mapper 비례 산술) | `environment_utilization(WINDOW_DAYS, end)` SQL — CPU·메모리·디스크 모두 capacity-weighted (Σused/Σtotal, 자원 총량 가중 — 서버 1대=1표 아님) | 7일 평균 | 단색 푸른(`#3b82f6`)·`None` 회(`#cbd5e1`) |
+| `RiskDonutSegment` | `build_risk_donut_segments` — 6 카테고리 (under/over/idle/shutdown/optimal/insufficient) `key`/`label`/`color`/`count`/`dash_length`/`dash_offset` (multi-segment 누적 음수) | `report_aggregate(WINDOW_DAYS)` -> `recommendation.classify` -> `_DONUT_SEGMENT_FROM_REC` | 7일 USE Method | `_DONUT_SEGMENT_DEFS` 색 (E8) |
 | `GapWarningItem` | `to_gap_warning_item(raw, now)` — `gap_minutes` / `badge_class` (운영신호 통신끊김) | `metric_gap_warnings(gap_min, recent_h, limit)` 단일 SQL | 5min~24h 갭 | blue (`#eff6ff`) |
 | `CapacityTriggerBadge` | `to_capacity_warning_item` 안에서 5종 (스왑·CPU·메모리·Load·디스크) 생성 — `label`/`color`(hue 분리)/`active`(임계 초과 여부) | `_CAPACITY_TRIGGER_COLORS` 단일 색 진실 | — | 빨강/파랑/보라/주황/청록 |
-| `CapacityWarningItem` | `to_capacity_warning_item(raw)` — `triggers`. caller가 `under_provisioned` 필터링 -> EnvironmentOverview.under_provisioned_hosts (운영신호 아님, USE Method) | `report_aggregate(WINDOW_DAYS)` + `recommendation.classify` | 14일 USE Method | blue (`#eff6ff`) |
+| `CapacityWarningItem` | `to_capacity_warning_item(raw)` — `triggers`. caller가 `under_provisioned` 필터링 -> EnvironmentOverview.under_provisioned_hosts (운영신호 아님, USE Method) | `report_aggregate(WINDOW_DAYS)` + `recommendation.classify` | 7일 USE Method | blue (`#eff6ff`) |
 | `OSEolWarningItem` | `to_os_eol_warning_item(raw, now)` — `resolve_os_eol`(endoflife 카탈로그) EOL 경과 시 반환 (운영신호) | `os_id`/`os_version`/`kernel_version` + endoflife 스냅샷 카탈로그 | endoflife.date 스냅샷 (Linux distro + Windows Server build, ADR 0031) | blue (`#eff6ff`) |
 | `AgentUnstableItem` | `to_agent_unstable_item(public_id, hostname, restart_count)` — caller가 임계 필터링 | `agent_restart_counts_recent(since=now-1h)` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | blue (`#eff6ff`) |
 | `AttentionSignals` | `query_service.get_attention_signals` 묶음 (내부 `_assemble_attention` 조립) — 운영신호 3 카탈로그(gap·os_eol·agent_unstable). `has_any` property로 빈 카드 분기 | 위 3 builder(gap/os_eol/agent_unstable) | — | blue (`#eff6ff`) |
@@ -62,7 +62,7 @@
 - `resolve_os_eol` (mapper, shared) — endoflife.date 스냅샷 카탈로그(`os_eol_catalog.json`) 조회 + EOL 경과 판정 단일 진실 (ADR 0031). Linux: `os_id`->endoflife product slug(`_OS_ID_TO_EOL_PRODUCT`), `os_version`->cycle. Windows: `kernel build`->windows-server latest build (운영=Server 가정). attention 카드 + 보고서 정성 요약 공용.
 
 활용률 게이지 색 카탈로그 (mapper 상수):
-- `_UTIL_COLOR_GAUGE = "#3b82f6"` — 단색 푸른. 활용률 정도는 게이지 길이(`dash_length`)로, 색은 값 무관 단일 (그라데이션·임계 분기 제거). 위험도 색은 Right-sizing 도넛(`_DONUT_SEGMENT_DEFS`)이 별도 담당.
+- `_UTIL_COLOR_GAUGE = "#3b82f6"` — 주색(단색 푸른). 활용률 정도는 게이지 길이(`dash_length`)로, 색은 값 무관 단일. Right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over)·서버목록 `.rec-over_provisioned` 배지가 동일 주색 공유 (테마 통일, static-assets.md "색 테마"). under(`#ef4444`)와 대비.
 - `_UTIL_COLOR_NONE = "#cbd5e1"` — 표본 부재 (회색).
 
 ## dataclass 필드 순서 주의 (F1)
