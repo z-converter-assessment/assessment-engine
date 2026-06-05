@@ -306,7 +306,7 @@ class QueryService:
     ) -> list[MetricSeriesItem]:
         """환경 시계열 — 대시보드 추이 차트 live. server_ids=None 이면 전체 환경, 주어지면 선택 N대 한정.
 
-        통일 metric_trend(collapse=True) 위임 — 시점별 1값(그 시점 데이터 있는 서버 Σ/Σ) -> 버킷 avg.
+        통일 metric_trend(collapse=True) 위임 — 시점별 1값(그 시점 데이터 있는 서버 sum/sum) -> 버킷 avg.
         서버 상세(collapse=False, [1대])와 동일 산식 — dimension 없는 지표(cpu/mem/swap/load)는 선택 1대=상세 일치.
         """
         end_dt = end or datetime.now(UTC)
@@ -487,7 +487,7 @@ class QueryService:
             online += 1
             disk = max((mt.usage_pct for mt in m.mounts if mt.usage_pct is not None), default=None)
             mem = m.memory
-            # capacity-weighted 평균 도넛용 — 전 mount 통합 fs(Σused/Σtotal, worst mount 아님).
+            # capacity-weighted 평균 도넛용 — 전 mount 통합 fs(sum(used)/sum(total), worst mount 아님).
             fs_total = sum(mt.total_gb for mt in m.mounts if mt.total_gb and mt.used_gb is not None)
             fs_used = sum(mt.used_gb for mt in m.mounts if mt.total_gb and mt.used_gb is not None)
             # 로드는 코어 대비 % 환산 (서버별 코어 수 상이 — 절대 load 비교 불가). cores 부재/0 이면 None.
@@ -502,7 +502,7 @@ class QueryService:
                     "disk_pct": disk,
                     "load_pct": load_pct,
                     "swap_pct": m.swap.usage_pct if m.swap else None,
-                    # capacity-weighted 평균용 가중치 (cpu=코어 가중, mem/disk=절대 총량 Σ/Σ).
+                    # capacity-weighted 평균용 가중치 (cpu=코어 가중, mem/disk=절대 총량 sum/sum).
                     "cpu_cores": d.cpu_cores,
                     "mem_used_kb": mem.used_kb if mem else None,
                     "mem_total_kb": mem.total_kb if mem else None,
@@ -692,7 +692,7 @@ class QueryService:
         hostnames = {d.hostname for d in details}
         attention = _filter_attention(await self.get_attention_signals(), hostnames)
 
-        # 환경 시계열 추이 — 선택 N대 한정 (environment_metric_trend server_ids). 환경 보고서와 동일 버킷 정책.
+        # 환경 시계열 추이 — 선택 N대 한정 (metric_trend server_ids). 환경 보고서와 동일 버킷 정책.
         bi, bucket_td = _BUCKET_INFO[AUTO_BUCKET.get(time_range, "1h")]
         trend_start = end_dt - TIME_RANGE_TD[time_range]
         cpu_series = await self.repo.metric_trend(

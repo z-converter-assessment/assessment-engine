@@ -32,7 +32,7 @@ MetricType = Literal[
     "net.tx_packets_per_sec",
 ]
 # 환경 전체 추이 차트 metric — 대시보드 추이 + 환경 성능 추이(서버상세 성능 추이 풀세트의 환경판).
-# capacity-weighted(cpu·mem·disk·fs·swap 시점값 Σ/Σ) / 동등평균(load) / 합산(disk·net rate).
+# capacity-weighted(cpu·mem·disk·fs·swap = sum(num)/sum(den)) / 코어 정규화(load=sum(load)/sum(cores)) / 합산(disk·net rate).
 EnvironmentMetricType = Literal[
     "cpu.usage_percent",
     "cpu.user_percent",
@@ -153,8 +153,8 @@ _VIRTUAL_MOUNT_SQL_FILTER = """
     AND mount NOT LIKE '/run/snapd%'
 """
 
-# 환경 시점값 capacity-weighted (버킷 Σnumerator/Σdenominator * 100). server_metrics 컬럼.
-# environment_metric_trend 그룹2 — environment_utilization(mem)·서버별 _SCALAR_VALUE_EXPR 와 정의 정합(환경은 Σ/Σ).
+# 환경 시점값 capacity-weighted (시점별 sum(numerator)/sum(denominator) * 100). server_metrics 컬럼.
+# metric_trend 그룹2 — environment_utilization(mem)·서버별 _SCALAR_VALUE_EXPR 와 정의 정합(환경은 sum/sum).
 _ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str]] = {
     "mem.usage_percent": ("mem_total_kb - mem_available_kb", "mem_total_kb"),
     "mem.available_percent": ("mem_available_kb", "mem_total_kb"),

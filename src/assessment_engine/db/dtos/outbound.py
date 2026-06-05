@@ -175,10 +175,10 @@ class NetworkWithIo:
 
 @dataclass
 class EnvironmentUtilizationRaw:
-    """환경(또는 선택 N대) capacity-weighted 평균 활용률 — 자원 총량 가중 (Σused / Σtotal).
+    """환경(또는 선택 N대) capacity-weighted 평균 활용률 — 자원 총량 가중 (sum(used) / sum(total)).
 
-    윈도우 안 전 서버·전 시점 통합 비율. CPU는 jiffies delta 합(1 - Σd_idle/Σd_total),
-    MEM은 Σused_kb/Σtotal_kb, DISK는 Σused_bytes/Σtotal_bytes(가상 mount 제외). 빈 구간/미수집
+    윈도우 안 전 서버·전 시점 통합 비율. CPU는 jiffies delta 합(1 - sum(d_idle)/sum(d_total)),
+    MEM은 sum(used_kb)/sum(total_kb), DISK는 sum(used_bytes)/sum(total_bytes)(가상 mount 제외). 빈 구간/미수집
     시점은 분자·분모 동시 제외. 거대 VM이 큰 비중 = 물리 자원 활용률 관점(서버 동등 가중 아님).
     sample_size = 기간 내 metric 발행 서버 distinct count. 산식 단일 진실 = repo environment_utilization.
     """
@@ -210,7 +210,7 @@ class MemoryBreakdownRaw:
 
 @dataclass
 class CpuBreakdownRaw:
-    """CPU 분류 윈도우 평균 — user/system/iowait (jiffies delta 기반 %, reset 정책 _chart_cpu_delta 동일)."""
+    """CPU 분류 윈도우 평균 — user/system/iowait (jiffies delta 기반 %, reset 정책 metric_trend 동일)."""
 
     user_pct: float | None
     system_pct: float | None

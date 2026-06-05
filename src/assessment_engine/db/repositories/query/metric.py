@@ -207,7 +207,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         end: datetime | None = None,
     ) -> list[MetricSeries]:
         # 서버 상세 차트 = 통일 metric_trend(collapse=False, server_ids=[1대]) 위임.
-        # per_ts 의 Σ가 1서버뿐이라 시점값=그 서버값 -> 환경/선택과 동일 산식. dimension(device/iface/mount) 보존.
+        # per_ts 의 합산 대상이 1서버뿐이라 시점값=그 서버값 -> 환경/선택과 동일 산식. dimension 보존.
         end_dt = end or datetime.now(UTC)
         start = end_dt - TIME_RANGE_TD[time_range]
         bi, bucket_td = _BUCKET_INFO[bucket]
@@ -237,10 +237,10 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
     ) -> list[MetricSeries]:
         """통일 시계열 — 시점별 1값(그 시점 데이터 보낸 서버만) -> 버킷 agg(avg/max/p95).
 
-        단일 원칙: 각 collected_at 마다 환경값 1개를 만들고(활용률=Σnum/Σden, 처리량=Σrate, 로드=Σload/Σcpu_cores),
-        time_bucket 은 그 시점값들의 통계. 온라인/오프라인 별도 판단 없음 —
+        단일 원칙: 각 collected_at 마다 환경값 1개(활용률=sum(num)/sum(den), 처리량=sum(rate),
+        로드=sum(load_15m)/sum(cpu_cores)) -> time_bucket 통계. 온라인/오프라인 별도 판단 없음 —
         그 시점 데이터 있으면 포함(데이터 유무가 곧 필터).
-        server_ids=None 전체·[1대]=서버 상세 동치(per_ts Σ가 1서버라 시점값=그 서버값)·[N]=선택.
+        server_ids=None 전체·[1대]=서버 상세 동치(per_ts 합산 대상이 1서버라 시점값=그 서버값)·[N]=선택.
         collapse=False 면 device/iface/mount dimension 보존(서버 상세 멀티라인), True 면 합산 단일선(환경).
         """
         ae = _AGG[agg]

@@ -54,7 +54,7 @@
 | 환경 구성 (OS·워크로드) | OS family(Windows/Linux) 막대 + 워크로드 카테고리(web/db/cache/mq/container/monitor) 막대 — 단일색 분포 막대 + 카운트. "이 환경이 무엇으로 이루어졌는지"(P-A 구성 계층). customer·engineer 공통 | `overview.os_distribution`(family) / `overview.role_distribution` |
 | 환경 총 자원 | 총 vCPU / 메모리 / 디스크 | inventory 합산 |
 | 분류 분포 | right-sizing 6분류 카운트 막대 (한국어 분류명 LABEL_KO, 영어 enum 미노출) | `recommendation.assess` |
-| 환경 부하 추이 (시계열) | CPU·메모리·디스크 평균 추이 차트. 보고서=발행 윈도우 정적 스냅샷 / 대시보드=7일 live | `environment_metric_trend` |
+| 환경 부하 추이 (시계열) | CPU·메모리·디스크 평균 추이 차트. 보고서=발행 윈도우 정적 스냅샷 / 대시보드=7일 live | `metric_trend` |
 | 네트워크 토폴로지 (engineer) | ip_internal CIDR subnet 공동소속 그래프 (정적 스냅샷) | `build_network_topology` |
 
 ### view 분기 — customer (양식 A)

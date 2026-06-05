@@ -235,18 +235,20 @@ class RealtimePeakGroup:
 class EnvironmentRealtime:
     """list 화면 '환경 실시간 메트릭' 카드 — 현황 모니터링(최신 스냅샷). right-sizing(7일 통계)과 별개 용도.
 
-    utilization: 온라인 서버(sample_size)의 현재 CPU/메모리/디스크(worst mount) 평균 도넛 3개
+    utilization: 신선 데이터 서버(sample_size)의 현재 CPU/메모리/디스크(worst mount) 평균 도넛 3개
                  (환경 평균 활용률 도넛과 동일 컴포넌트·푸른 단색 게이지 — UtilizationBar).
-    sample_size: 평균 표본 = 온라인이면서 최신 메트릭 보유 서버 수. 오프라인 stale 메트릭은 제외 —
-                 표기는 'sample_size/total' (예: 3/4, 오프라인 1대 빠짐).
-    online/offline: Redis online:{id} TTL 기준. last_collected_at: 환경 전체 최신 수집시각(신선도).
+    sample_size: 평균 표본 = 최신 스냅샷이 신선(now-TTL 이내)한 서버 수. stale 메트릭은 제외 —
+                 표기는 'sample_size/total' (예: 3/4, stale 1대 빠짐).
+    online/offline: 최신 스냅샷 신선도 기준(now-TTL 이내 = 온라인, 데이터 유무가 곧 온라인 판정).
+                    Redis online flag 이중 게이트 없이 스냅샷 신선도만으로 판단.
+    last_collected_at: 환경 전체 최신 수집시각(신선도).
     peak_groups: 자원별(CPU/메모리/디스크) 부하 상위 N — 3열 grid. has_peaks: 전체 빈 여부(empty 분기).
     """
 
     total: int
     online: int
     offline: int
-    sample_size: int  # 평균 표본 = 온라인 + 최신 메트릭 보유 (avg 분자)
+    sample_size: int  # 평균 표본 = 최신 스냅샷 신선(now-TTL 이내) 서버 수 (avg 분자)
     utilization: list[UtilizationBar] = field(default_factory=list)
     last_collected_at: datetime | None = None
     peak_groups: list[RealtimePeakGroup] = field(default_factory=list)
