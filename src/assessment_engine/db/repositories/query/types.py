@@ -32,7 +32,8 @@ MetricType = Literal[
     "net.tx_packets_per_sec",
 ]
 # 환경 전체 추이 차트 metric — 대시보드 추이 + 환경 성능 추이(서버상세 성능 추이 풀세트의 환경판).
-# capacity-weighted(cpu·mem·disk·fs·swap = sum(num)/sum(den)) / 코어 정규화(load=sum(load)/sum(cores)) / 합산(disk·net rate).
+# capacity-weighted(cpu·mem·disk·fs·swap = sum(num)/sum(den)) / 코어 정규화(load=sum(load)/sum(cores))
+# / 합산(disk·net rate).
 EnvironmentMetricType = Literal[
     "cpu.usage_percent",
     "cpu.user_percent",
