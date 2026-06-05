@@ -304,12 +304,16 @@ class QueryService:
         end: datetime | None = None,
         server_ids: list[int] | None = None,
     ) -> list[MetricSeriesItem]:
-        """환경 시계열 — 대시보드 추이 차트 live. server_ids=None 이면 전체 환경, 주어지면 선택 N대 한정."""
+        """환경 시계열 — 대시보드 추이 차트 live. server_ids=None 이면 전체 환경, 주어지면 선택 N대 한정.
+
+        통일 metric_trend(collapse=True) 위임 — 시점별 1값(그 시점 데이터 있는 서버 Σ/Σ) -> 버킷 avg.
+        서버 상세(collapse=False, [1대])와 동일 산식 — dimension 없는 지표(cpu/mem/swap/load)는 선택 1대=상세 일치.
+        """
         end_dt = end or datetime.now(UTC)
         bi, bucket_td = _BUCKET_INFO[bucket]
         start = end_dt - TIME_RANGE_TD[time_range]
-        dtos = await self.repo.environment_metric_trend(
-            metric_type, start, end_dt, bi, bucket_td, server_ids=server_ids
+        dtos = await self.repo.metric_trend(
+            metric_type, start, end_dt, bi, bucket_td, server_ids=server_ids, agg="avg", collapse=True
         )
         return [to_metric_series_item(dto) for dto in dtos]
 
@@ -386,8 +390,9 @@ class QueryService:
         """list 화면 '환경 실시간 메트릭' 카드 — 각 서버 최신 스냅샷(get_latest_metric, Redis cache 우선) 집계.
 
         현황 모니터링 용도(right-sizing 7일 통계와 별개). server_ids=None 이면 전체 환경, 주어지면 선택 N대 한정.
-        평균 도넛·자원별 부하상위: 현재 CPU/메모리/디스크(worst mount), online: Redis online:{id} TTL,
-        last_collected_at: 환경 전체 최신 수집시각(신선도). 조립은 _assemble_realtime 단일 진실 (대시보드 묶음과 공유).
+        평균 도넛·자원별 부하상위: 현재 CPU/메모리/디스크(worst mount).
+        online: 최신 스냅샷 신선도(now-TTL 이내 = 온라인).
+        last_collected_at: 환경 전체 최신 수집시각. 조립은 _assemble_realtime 단일 진실.
         """
         now = datetime.now(UTC)
         if server_ids is None:
@@ -395,8 +400,7 @@ class QueryService:
         if not server_ids:
             return build_environment_realtime(0, 0, [], None)
         details = await self.repo.get_servers(server_ids)
-        online_by_id = await self._online_map(server_ids, details, now)
-        return await self._assemble_realtime(server_ids, details, online_by_id, now)
+        return await self._assemble_realtime(server_ids, details, now)
 
     # ─── 대시보드 live 조립 (단건 + get_dashboard_live 묶음 공유) ────────────
 
@@ -462,12 +466,14 @@ class QueryService:
             agent_unstable=agent_unstable,
         )
 
-    async def _assemble_realtime(self, server_ids, details, online_by_id: dict[int, bool], now) -> EnvironmentRealtime:
-        """각 서버 최신 스냅샷(get_latest_metric) 집계 — online_by_id 로 온라인 판정 공유.
+    async def _assemble_realtime(self, server_ids, details, now) -> EnvironmentRealtime:
+        """각 서버 최신 스냅샷(get_latest_metric) 집계 — 신선한 데이터 있으면 포함(데이터 유무 = 온라인).
 
-        평균·hotspot 표본은 온라인 서버만 (오프라인 stale 메트릭이 현황 평균 왜곡 방지) — sample_size/total 표기.
+        표본은 최신 스냅샷 collected_at 이 신선(now-TTL 이내)한 서버만 — stale 메트릭이 현황 평균 왜곡 방지.
+        online = 신선 데이터 서버 수(차트의 '그 시점 발행 서버' 기준과 동일 정렬). sample_size/total 표기.
         """
         detail_by_id = {d.id: d for d in details}
+        fresh_threshold = now - timedelta(seconds=web_settings.redis_ttl_online)
         online = 0
         snapshots: list[dict] = []
         last_collected = None
@@ -475,14 +481,10 @@ class QueryService:
             d = detail_by_id.get(sid)
             if d is None:
                 continue
-            is_on = online_by_id.get(sid, False)
-            if is_on:
-                online += 1
             m = await self.get_latest_metric(sid)
-            if not m or not m.collected_at:
-                continue
-            if not is_on:
-                continue
+            if not m or not m.collected_at or m.collected_at < fresh_threshold:
+                continue  # 데이터 없음/stale = 오프라인 (통일: 데이터 신선도가 곧 온라인)
+            online += 1
             disk = max((mt.usage_pct for mt in m.mounts if mt.usage_pct is not None), default=None)
             mem = m.memory
             # capacity-weighted 평균 도넛용 — 전 mount 통합 fs(Σused/Σtotal, worst mount 아님).
@@ -537,9 +539,9 @@ class QueryService:
         trend_range = f"{recommendation.WINDOW_DAYS}d"
         trend_bi, trend_td = _BUCKET_INFO[AUTO_BUCKET[trend_range]]
         trend_start = now - TIME_RANGE_TD[trend_range]
-        cpu_trend = await self.repo.environment_metric_trend("cpu.usage_percent", trend_start, now, trend_bi, trend_td)
-        mem_trend = await self.repo.environment_metric_trend("mem.usage_percent", trend_start, now, trend_bi, trend_td)
-        disk_trend = await self.repo.environment_metric_trend(
+        cpu_trend = await self.repo.metric_trend("cpu.usage_percent", trend_start, now, trend_bi, trend_td)
+        mem_trend = await self.repo.metric_trend("mem.usage_percent", trend_start, now, trend_bi, trend_td)
+        disk_trend = await self.repo.metric_trend(
             "disk.usage_percent", trend_start, now, trend_bi, trend_td
         )
         return DashboardLive(
@@ -611,13 +613,13 @@ class QueryService:
         if server_ids:
             bi, bucket_td = _BUCKET_INFO[AUTO_BUCKET.get(time_range, "1h")]
             trend_start = end_dt - TIME_RANGE_TD[time_range]
-            cpu_series = await self.repo.environment_metric_trend(
+            cpu_series = await self.repo.metric_trend(
                 "cpu.usage_percent", trend_start, end_dt, bi, bucket_td
             )
-            mem_series = await self.repo.environment_metric_trend(
+            mem_series = await self.repo.metric_trend(
                 "mem.usage_percent", trend_start, end_dt, bi, bucket_td
             )
-            disk_series = await self.repo.environment_metric_trend(
+            disk_series = await self.repo.metric_trend(
                 "disk.usage_percent", trend_start, end_dt, bi, bucket_td
             )
             trend = build_metric_trend(cpu_series, mem_series, disk_series)
@@ -693,13 +695,13 @@ class QueryService:
         # 환경 시계열 추이 — 선택 N대 한정 (environment_metric_trend server_ids). 환경 보고서와 동일 버킷 정책.
         bi, bucket_td = _BUCKET_INFO[AUTO_BUCKET.get(time_range, "1h")]
         trend_start = end_dt - TIME_RANGE_TD[time_range]
-        cpu_series = await self.repo.environment_metric_trend(
+        cpu_series = await self.repo.metric_trend(
             "cpu.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids
         )
-        mem_series = await self.repo.environment_metric_trend(
+        mem_series = await self.repo.metric_trend(
             "mem.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids
         )
-        disk_series = await self.repo.environment_metric_trend(
+        disk_series = await self.repo.metric_trend(
             "disk.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids
         )
         trend = build_metric_trend(cpu_series, mem_series, disk_series)
@@ -790,13 +792,13 @@ class QueryService:
         # 시계열 추이 — 1대 한정 (환경·선택 동일 버킷 정책). 개별 서버 부하 패턴.
         bi, bucket_td = _BUCKET_INFO[AUTO_BUCKET.get(time_range, "1h")]
         trend_start = end_dt - TIME_RANGE_TD[time_range]
-        cpu_series = await self.repo.environment_metric_trend(
+        cpu_series = await self.repo.metric_trend(
             "cpu.usage_percent", trend_start, end_dt, bi, bucket_td, [server_id]
         )
-        mem_series = await self.repo.environment_metric_trend(
+        mem_series = await self.repo.metric_trend(
             "mem.usage_percent", trend_start, end_dt, bi, bucket_td, [server_id]
         )
-        disk_series = await self.repo.environment_metric_trend(
+        disk_series = await self.repo.metric_trend(
             "disk.usage_percent", trend_start, end_dt, bi, bucket_td, [server_id]
         )
         trend = build_metric_trend(cpu_series, mem_series, disk_series)

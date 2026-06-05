@@ -29,28 +29,29 @@
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">환경 성능 추이 지표</h2>
   <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
-    환경 전체(전 서버) 집계. 활용률(%) 지표는 capacity-weighted, 처리량(I/O·PPS) 지표는 합산, 로드는 동등평균.
+    환경 전체(전 서버) 집계 — 집계 방식은 지표 성격에 따라 셋. 활용률(%) 지표는 capacity-weighted(자원 총량 가중 Σnum/Σden, 큰 서버 비중 큼), 처리량(I/O·PPS) 지표는 합산(SUM — 절대 총량이라 가중 평균 무의미), 로드는 코어 정규화(Σload/Σcpu_cores). 아래 "집계" 컬럼이 그래프별 방식.
   </p>
   <table style="font-size:12px;">
     <thead>
       <tr>
         <th>지표</th>
+        <th>집계</th>
         <th>정의</th>
       </tr>
     </thead>
     <tbody>
-      <tr><td>현재 평균 활용률</td><td>온라인 서버 최신 스냅샷의 CPU/메모리/디스크 capacity-weighted 평균. 디스크는 전 mount 통합(서버별 worst mount 아님).</td></tr>
-      <tr><td>현재 부하 상위</td><td>자원별(CPU/메모리/디스크) 서버 현재값 내림차순 상위 3. 디스크는 서버별 worst mount 사용률. 평균과 달리 개별 호스트 랭킹 — 호스트명 클릭 시 상세로 이동.</td></tr>
-      <tr><td>CPU 사용률</td><td>전 서버 capacity-weighted 시점 평균. 100%=전 코어 포화.</td></tr>
-      <tr><td>CPU 분류</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기)로 분해한 비율. iowait 높으면 디스크 병목.</td></tr>
-      <tr><td>코어당 로드</td><td>전 서버 15분 로드를 코어 수로 정규화한 capacity-weighted 값 — sum(load_15m) / sum(cpu_cores). 1.0 = 코어당 run queue 1(포화). 절대 load 동등평균은 코어 수 다른 서버 혼재 시 왜곡되므로 코어 정규화.</td></tr>
-      <tr><td>메모리 사용률</td><td>capacity-weighted 평균. cached·buffers 는 회수 가능이라 가용으로 간주.</td></tr>
-      <tr><td>메모리 구성</td><td>전체 메모리 대비 Used·Available·Cached·Buffers 비율.</td></tr>
-      <tr><td>스왑 사용률</td><td>스왑 총량 대비 사용량(swap 미설정 서버 제외). 사용 자체가 메모리 포화(page-out) 신호.</td></tr>
-      <tr><td>물리 계층 I/O</td><td>물리 디스크 IOPS 합산(Read/Write). LVM·파티션 계층 중복 집계 제외.</td></tr>
-      <tr><td>파일시스템 사용량</td><td>전 서버 capacity-weighted 평균.</td></tr>
-      <tr><td>네트워크 I/O</td><td>물리 인터페이스 트래픽 합산(RX/TX, bytes/s). 가상 인터페이스 제외.</td></tr>
-      <tr><td>네트워크 PPS</td><td>물리 인터페이스 패킷 처리량 합산(RX/TX).</td></tr>
+      <tr><td>현재 평균 활용률</td><td>capacity-weighted</td><td>온라인 서버 최신 스냅샷의 CPU/메모리/디스크 평균(실시간 메트릭). 디스크는 전 mount 통합(서버별 worst mount 아님).</td></tr>
+      <tr><td>현재 부하 상위</td><td>서버별 값</td><td>자원별(CPU/메모리/디스크/로드/스왑) 서버 현재값 내림차순 상위(실시간 메트릭). 평균과 달리 개별 호스트 랭킹 — 호스트명 클릭 시 상세로 이동.</td></tr>
+      <tr><td>CPU 사용률</td><td>capacity-weighted</td><td>전 서버 시점 평균(Σjiffies delta — 코어 수 내재). 100%=전 코어 포화.</td></tr>
+      <tr><td>CPU 분류</td><td>capacity-weighted</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기)로 분해한 비율. iowait 높으면 디스크 병목.</td></tr>
+      <tr><td>코어당 로드</td><td>코어 정규화</td><td>15분 로드를 코어 수로 정규화 — sum(load_15m) / sum(cpu_cores). 1.0 = 코어당 run queue 1(포화). 절대 load 동등평균은 코어 수 다른 서버 혼재 시 왜곡되므로 정규화.</td></tr>
+      <tr><td>메모리 사용률</td><td>capacity-weighted</td><td>Σused_kb / Σtotal_kb. cached·buffers 는 회수 가능이라 가용으로 간주.</td></tr>
+      <tr><td>메모리 구성</td><td>capacity-weighted</td><td>전체 메모리 대비 Used·Available·Cached·Buffers 비율.</td></tr>
+      <tr><td>스왑 사용률</td><td>capacity-weighted</td><td>스왑 총량 대비 사용량(swap 미설정 서버 제외). 사용 자체가 메모리 포화(page-out) 신호.</td></tr>
+      <tr><td>물리 계층 I/O</td><td>합산(SUM)</td><td>물리 디스크 IOPS 합산(Read/Write). LVM·파티션 계층 중복 집계 제외. 처리량 총량이라 가중 무의미.</td></tr>
+      <tr><td>파일시스템 사용량</td><td>capacity-weighted</td><td>전 mount 통합 Σused / Σtotal (가상 mount 제외).</td></tr>
+      <tr><td>네트워크 I/O</td><td>합산(SUM)</td><td>물리 인터페이스 트래픽 합산(RX/TX, bytes/s). 가상·bond/bridge master 이중계산 제외.</td></tr>
+      <tr><td>네트워크 PPS</td><td>합산(SUM)</td><td>물리 인터페이스 패킷 처리량 합산(RX/TX).</td></tr>
     </tbody>
   </table>
 </section>

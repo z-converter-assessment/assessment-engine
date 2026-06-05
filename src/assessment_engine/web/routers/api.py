@@ -86,8 +86,8 @@ async def get_environment_metrics_chart(
 ):
     """환경 시계열 — 환경 성능 추이 live + 대시보드 추이. ids 면 선택 N대 한정, 없으면 전체 환경.
 
-    metric_type 풀세트(CPU분류·로드·메모리구성·스왑·디스크/네트워크 rate)는 environment_metric_trend 가
-    capacity-weighted/합산/평균으로 집계. 호출자가 time_range·bucket 명시(기본은 live 성능 페이지 15m·1m)."""
+    metric_type 풀세트(CPU분류·로드·메모리구성·스왑·디스크/네트워크 rate)는 metric_trend 가
+    시점별 1값(per_ts) -> 버킷 집계. 호출자가 time_range·bucket 명시(기본은 live 성능 페이지 15m·1m)."""
     server_ids = None
     if ids:
         public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]

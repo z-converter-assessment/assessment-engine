@@ -45,17 +45,17 @@
 | `report_cpu_breakdown(server_id, period_days, end)` | 개별 보고서 CPU 분류 (user/system/iowait, jiffies LAG delta) |
 | `metric_gap_warnings(gap_min, recent_h)` | 메트릭 갭(통신 끊김 운영신호) 후보 |
 | `environment_utilization(period_days, end, server_ids?)` | 환경 평균 활용률 도넛 (capacity-weighted, Σused/Σtotal). server_ids 한정 시 선택 N대·단일(selection 보고서), None 이면 전체 환경 |
-| `environment_metric_trend(metric_type, start, end, bi, bucket_td, server_ids?)` | 환경 부하 추이(대시보드) + 환경 성능 추이 시계열. metric_type 풀세트 18종 — 집계 3그룹(아래). server_ids 한정 시 선택 N대, None 이면 전체 환경 |
+| `metric_trend(metric_type, start, end, bi, bucket_td, server_ids?, agg, dimension, collapse)` | 통일 차트 시계열 — 환경·선택·서버상세 단일 진실. metric_type 풀세트 18종 — 집계 3그룹(아래). server_ids=None 전체·[1대]=서버상세 동치·[N]=선택. collapse=False 면 device/iface/mount dimension 보존(상세 멀티라인), True 면 합산 단일선(환경). agg=avg/max/p95 |
 
-### 환경 차트 집계 (`environment_metric_trend`) — 3그룹
+### 차트 집계 (`metric_trend`) — 시점별 1값 -> 버킷 agg, 3그룹
 
-대시보드 환경 부하 추이(cpu/mem/disk 3종)와 환경 성능 추이(`/servers/environment/metrics`, 10차트 풀세트) 공용. 서버별 차트(`_chart_*`, dimension 보존)와 달리 dimension 없는 환경 단일선 — device/iface 별 라인 폭증 회피. CPU 분류·메모리 구성·디스크 Read/Write·네트워크 RX/TX 는 JS 가 별도 metric_type 으로 각각 fetch 후 클라이언트에서 dimension 부여(`metrics.js`/`environment-metrics.js` 패턴).
+단일 원칙: 각 collected_at 마다 그 시점 데이터 보낸 서버로 환경값 1개(per_ts)를 산출하고 -> `time_bucket` 의 `{agg}`(avg/max/p95). 온라인/오프라인 별도 판단 없음 — 그 시점 데이터 있으면 포함(데이터 유무가 곧 필터). server_ids=[1대]는 per_ts 의 Σ가 1서버뿐이라 시점값=그 서버값 -> 서버상세 차트와 동일 값. collapse=True(환경)는 dimension 합산 단일선, False(상세)는 device/iface/mount 보존. 대시보드 부하 추이·환경 성능 추이·서버상세 차트·실시간 카드(최신 1점)·보고서 추이가 모두 본 함수(또는 동일 산식). CPU 분류·메모리 구성 등은 JS 가 별도 metric_type fetch 후 클라이언트 dimension 부여.
 
-| 그룹 | metric_type | 집계 방식 |
+| 그룹 | metric_type | 집계 방식 (per_ts -> 버킷 {agg}) |
 |------|-------------|-----------|
-| capacity-weighted util | `cpu.usage/user/system/iowait_percent`, `mem.usage/available/cached/buffers_percent`, `swap.usage_percent`, `disk.usage_percent`, `fs.usage_percent` | 버킷별 ΣnumeratorΣdenominator x 100 (자원 총량 가중 — 큰 서버 큰 비중). CPU=jiffies delta(boot reset 제외, `_CPU_NUMERATOR`), mem/swap=시점값 KB(`_ENV_SCALAR_WEIGHTED`), disk/fs=mount bytes(가상 mount 제외). `environment_utilization` 카드와 동일 가중(카드는 윈도우 1값, 본 함수는 버킷 시계열) |
-| 합산 rate | `disk.read/write_iops`, `net.rx/tx_bytes_per_sec`, `net.rx/tx_packets_per_sec` | 시점별 전 서버·전 device LAG delta/dt rate 를 합(SUM) -> 버킷 avg. disk=물리 whole-disk 만(`_PHYS_DISK_SQL_FILTER` — 파티션·LVM 이중계산 회피), net=물리 iface 만(`_VIRTUAL_IFACE_SQL_FILTER` — lo·veth·터널 + bond/team master·br/docker/virbr bridge·vlan 제외, master/member 이중계산 회피). boot reset·dt<=0·음수 delta 제외 |
-| 코어 정규화 | `load.15m` | 버킷별 Σload_15m / Σcpu_cores (코어당 로드, capacity-weighted — server_inventory JOIN). 절대 load 동등평균은 코어 수 다른 서버 혼재 시 왜곡(거대 서버 큰 load 가 평균 끌어올림) — 코어 정규화로 1.0=코어당 포화 |
+| capacity-weighted util | `cpu.*`, `mem.*`, `swap.usage`, `disk.usage`, `fs.usage_percent` | 시점별 Σnum/Σden x 100 (per_ts) -> 버킷 {agg}. 자원 총량 가중(큰 서버 큰 비중). CPU=jiffies LAG delta(boot reset 제외, `_CPU_NUMERATOR`), mem/swap=시점값 KB(`_ENV_SCALAR_WEIGHTED`), disk/fs=mount bytes(collapse=True 가상 제외 합산 / False mount 보존) |
+| 합산 rate | `disk.read/write_iops`, `net.rx/tx_bytes_per_sec`, `net.rx/tx_packets_per_sec` | 시점별 Σ(전 device LAG delta/dt rate)(per_ts) -> 버킷 {agg}. disk=물리 whole-disk 만(`_PHYS_DISK_SQL_FILTER` — 파티션·LVM 이중계산 회피), net=물리 iface 만(`_VIRTUAL_IFACE_SQL_FILTER` — lo·veth·터널 + bond/team master·br/docker/virbr bridge·vlan 제외). collapse=False 면 device/iface 보존. boot reset·dt<=0·음수 delta 제외 |
+| 코어 정규화 | `load.1m/5m/15m` | 시점별 Σload / Σcpu_cores (per_ts, server_inventory JOIN) -> 버킷 {agg}. 코어당 로드(1.0=코어당 포화). 절대 load 동등평균은 코어 수 다른 서버 혼재 시 왜곡 — 코어 정규화. 환경·서버상세 모두 코어당 |
 
 집계 필터 단일 진실(`db/repositories/query/types.py`): `_VIRTUAL_MOUNT_SQL_FILTER`(mount) · `_PHYS_DISK_SQL_FILTER`(물리 disk) · `_VIRTUAL_IFACE_SQL_FILTER`(비가상 iface) — `device_filters` 정규식의 PostgreSQL POSIX 번역(변경 시 동기화). 모든 그룹 partition pruning(#C5) `WHERE collected_at >= window_start` + boot jitter 가드 의무.
 

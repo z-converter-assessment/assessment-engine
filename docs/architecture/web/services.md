@@ -106,15 +106,15 @@ OS 분기 (원칙 P2/P4 — evidence 기반): right-sizing 분류 단일 진실�
 - 검색·온라인필터 사용 시 environment_overview·attention 자동 격리 — 라우터 `pages.py` 분기 (첫 페이지·검색 없음·필터 없음일 때만 노출).
 - ViewModel·mapper 카탈로그: `docs/architecture/web/view-models.md` "대시보드 상단 요약" 절.
 
-## 환경 성능 추이 (live) — `environment_metric_trend` 풀세트
+## 환경 성능 추이 (live) — `metric_trend` 풀세트
 
 `/servers/environment/metrics` (list_page_router 등록 — server_detail `/{server_id}/metrics`(UUID) 보다 먼저라 'environment' 가 UUID 422 로 안 가고 본 라우트로 잡힘). 전체 환경 대상 10차트 live(시계열). `?ids=public_ids` 면 선택 N대 한정(대시보드 selection 버튼 -> navigate, 제목 "선택 N대 성능 추이"). 실시간 메트릭(현황 모니터링)은 `/servers/environment/realtime` 로 분리 — 시계열 추이와 별개 용도.
 
 | 영역 | service/repo | 비고 |
 |------|--------------|------|
-| 10차트 | `get_environment_metric_chart(server_ids=None)` -> `environment_metric_trend(server_ids?)` (풀세트 18 metric_type, 3그룹 집계 — `db/repositories.md`) | live fetch `GET /api/servers/environment/metrics-chart`(`ids` 면 N대 resolve), range 토글(기본 15m). 발행/스냅샷 아님. 컨트롤(버킷/구간/앵커/적용)은 카드 밖 좌상단 단일 — 앵커는 '적용' 버튼으로 반영, 구간 select 는 즉시 |
+| 10차트 | `get_environment_metric_chart(server_ids=None)` -> `metric_trend(server_ids?, collapse=True)` (풀세트 18 metric_type, 3그룹 집계 — `db/repositories.md`) | live fetch `GET /api/servers/environment/metrics-chart`(`ids` 면 N대 resolve), range 토글(기본 15m). 발행/스냅샷 아님. 컨트롤(버킷/구간/앵커/적용)은 카드 밖 좌상단 단일 — 앵커는 '적용' 버튼으로 반영, 구간 select 는 즉시 |
 
-서버 상세 성능 추이(`metrics.js`)와 동일 차트 로직, fetch URL·server_id·device_category 차이만(`environment-metrics.js` — 환경은 dimension 없는 단일선이라 avg only; `data-selection-ids` 있으면 fetch 에 `ids` 전달). 5행2열을 단일 `.perf-merged` 카드로 통합(행=`.perf-row`, `static-assets.md`). 프린트는 base.html @media print 클래스 공용. 페이지 하단 `_reference_link.html`(수치 정의 참고자료 링크).
+서버 상세 성능 추이(`metrics.js`)와 동일 함수(`metric_trend`) — 환경은 `collapse=True`(dimension 합산 단일선), 상세는 `collapse=False, server_ids=[1대]`(device/iface/mount 보존). server_ids=[1대] 는 per_ts Σ가 1서버라 시점값=그 서버값 -> 환경 선택 1대 = 서버 상세 동일. `data-selection-ids` 있으면 fetch 에 `ids` 전달. 5행2열을 단일 `.perf-merged` 카드로 통합(행=`.perf-row`, `static-assets.md`). 페이지 하단 `_reference_link.html`(수치 정의 참고자료 링크).
 
 ### 실시간 메트릭 (live 현황) — `/servers/environment/realtime`
 

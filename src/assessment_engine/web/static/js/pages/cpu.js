@@ -313,10 +313,10 @@ function renderLoadChart(range, anchorEnd) {
       scales: {
         x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
         y: {
-          title: { display:true, text:'Load', font:{size:11}, color:'#94a3b8' },
+          title: { display:true, text:'Load/core', font:{size:11}, color:'#94a3b8' },
           ticks: { font:{size:11}, color:'#64748b' },
           grid:  { color:'#f1f5f9' },
-          beginAtZero: true, suggestedMax: CPU_CORES,
+          beginAtZero: true, suggestedMax: 1.5,
         },
       },
     },

@@ -62,10 +62,10 @@
     <div class="perf-pair perf-row" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="card-title" style="margin:0;">로드 평균{% if server.cpu_cores %} <span style="font-size:13px; font-weight:400; color:#94a3b8;">({{ server.cpu_cores }}코어)</span>{% endif %}</h2>
+          <h2 class="card-title" style="margin:0;">코어당 로드{% if server.cpu_cores %} <span style="font-size:13px; font-weight:400; color:#94a3b8;">({{ server.cpu_cores }}코어)</span>{% endif %}</h2>
           <span id="load-max" style="font-size:12px; color:#94a3b8;">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">15분 평균 실행 대기 프로세스 수 — 코어 수 초과 시 CPU 포화 상태</div>
+        <div class="chart-desc">15분 로드를 코어 수로 정규화 (load_15m / 코어수) — 1.0 = 코어당 포화</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="load-canvas"></canvas>
           <div id="load-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
