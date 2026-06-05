@@ -7,7 +7,6 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
 
 from assessment_engine.db.repositories.query.types import EnvironmentMetricType
 from assessment_engine.web.deps import get_service, resolve_internal_id
@@ -109,16 +108,3 @@ async def get_reboot_events(
     kind: "reboot" (시스템 재부팅 또는 첫 등록) | "restart" (에이전트만 재시작)
     """
     return await service.get_reboot_events(internal_id, time_range, end)
-
-
-@api_router.get("/{server_id}/metrics/stream")
-async def metrics_stream(
-    internal_id: int = Depends(resolve_internal_id),
-    service: QueryService = Depends(get_service),
-):
-    # stream_metrics_events 가 SSE 라인(data:/comment ping) 을 직접 생성 — 라우터는 그대로 통과.
-    return StreamingResponse(
-        service.stream_metrics_events(internal_id),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )

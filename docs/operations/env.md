@@ -322,7 +322,6 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 - `redis_ttl_idempotent` (24h)·`redis_ttl_online` (5min)·`redis_ttl_token` (1h)
 - `redis_ttl_last_agent_start` (24h)·`redis_ttl_agent_restarts` (1h 슬라이딩 윈도우)·`redis_ttl_time_invariant_warned` (1h)
 - `redis_key_*` 패턴 (cache:*·idempotent·online·token·last_agent_start·agent_restarts·time_invariant_warned)
-- `redis_channel_metrics`
 
 ---
 

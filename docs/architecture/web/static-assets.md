@@ -23,7 +23,7 @@ src/assessment_engine/web/static/js/
 | `getAnchorEnd(inputId)` / `initAnchor(inputId)` | datetime input 처리 |
 | `makeBucketGrid(range, bucket, anchor)` / `joinToGrid(grid, rows, bMs)` | 버킷 그리드 + 응답 join |
 | `bindToggle(groupId, onChange)` | range/agg 컨트롤 바인딩 — element 가 `<select>`면 change, `.toggle` 버튼이면 click 자동 분기 (호출처 동일) |
-| `initSse(serverId, onMessage)` | SSE 초기화 + dot 표시 |
+| `initAutoRefresh(onRefresh, intervalMs)` | 30초 polling 자동 갱신 (setInterval + pagehide 정리) |
 | `safeArray(arr)` | `Array.isArray` 방어 (P4 c) |
 | `fetchRebootEvents(serverId, range, anchor)` | reboot/restart 이벤트 fetch (vertical marker용) |
 | `applyRebootMarkers(chart, events, gridMs)` | 차트 인스턴스에 marker 옵션 주입 + redraw |
@@ -84,7 +84,7 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 - under_provisioned = `#ef4444` (red-500) 대비 유지. 과다프로비저닝(여유)과 활용률 게이지가 같은 파랑 — 같은 화면 두 의미지만 테마 단색화를 위한 의식적 통일.
 - 헤더(전 페이지 상단 바) = `#335E8C`(브랜드 청회색)와 주색 `#3b82f6` 의 중간 `#3770C1`. 넓은 영역이라 주색보다 어둡게 — 브랜드 바탕, 콘텐츠 주색과 톤 분리(헤더 nav 링크 `rgba(255,255,255,.85)`).
 - 버튼 3종(base.html): `.btn-primary`(주색 채움, 모달 발행 등) / `.btn-select`(흰 톤·표준 크기, 서버 선택 발행 버튼 — 활성=테마색 outline(파랑 글씨·테두리·600) 강조, 비활성=회색 글씨·테두리) / `.btn-action`(흰 톤·표준 크기·회색 글씨, 보조 액션 — 환경보고서 발행·실시간 메트릭·성능 추이·서버 발견·전체보기). selection 은 활성 시 파랑 outline 으로 보조 버튼(회색)과 구별되고 활성/비활성도 색으로 명확. 선택 N대 실시간 메트릭·성능 추이 버튼은 `.btn-select`(체크 시 활성) — public_id navigate(`?ids=`).
-- 상태(is_online) 표시 = 불(dot) 아닌 폰트색 (`.status-on` #16a34a / `.status-off` #94a3b8, 10px). 공간 절약·명확. 프로젝트 전반(목록·보고서 표·단일 보고서) 통일. SSE 연결 표시(`sse-dot`)는 의미가 달라 `.dot` 유지.
+- 상태(is_online) 표시 = 불(dot) 아닌 폰트색 (`.status-on` #16a34a / `.status-off` #94a3b8, 10px). 공간 절약·명확. 프로젝트 전반(목록·보고서 표·단일 보고서·상세 헤더) 통일.
 - 운영 신호 경고 = 호박색(amber) 도메인 (`.attn-active`·`.attention-cat-item[active]` #fef3c7/#92400e). 정상(0건)은 회색 outline, 발화는 호박 채움 — 경고 의미를 색으로. 테마 파랑(브랜드)과 영역 분리.
 - 네트워크 토폴로지 노드 색(`network-topology.js`·범례 동기화): subnet #64748b / Linux #3b82f6 / Windows #8b5cf6(파랑과 구분되는 보라) / 다중 서브넷(multi-homed) #f59e0b. 범례 표기는 "다중 서브넷".
 - 색 상수 단일 진실 = `view-models.md` "신호 임계값 단일 정의".
@@ -235,7 +235,7 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 |------|-------------|------|
 | 1회 fetch + render (예: task-modal body) | 정공 — fragment endpoint (`/api/tasks/{id}/detail`) + JS `innerHTML = await fetch().text()` | overhead 0, P3 완전 정공 |
 | 저빈도 polling + 파생 많은 SSR 영역 (예: 대시보드 환경요약·운영신호·서버목록 30초 자동갱신) | 정공 — fragment endpoint (`?fragment=live`/`?fragment=rows`) HTML 반환 + JS `#dashboard-live` innerHTML·`#server-tbody` server-row 교체 | 30초 저빈도라 HTML fragment fetch overhead 무시 가능. mapper 파생 많아 JSON+JS render 시 P2 복제 — fragment 가 단일 진실 유지 |
-| polling 흐름 (예: detail page metrics/latest SSE / storage snapshot / diagnostic-results.js · diagnostic-inline.js result polling) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
+| polling 흐름 (예: detail page metrics/latest 30초 polling / storage snapshot / diagnostic-results.js · diagnostic-inline.js result polling) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
 
 폴링 흐름 JS render 의무:
 - inline `style="color:#xxx"` 금지 — base.html 색 전용 유틸 (중립 톤 `.text-strong`/`.text-label`/`.text-muted`/`.text-meta`/`.text-faint` + 의미색 `.text-danger`/`.text-ok`/`.text-warn`/`.text-attn`, 모두 color-only · size 는 부모 상속) 사용. font-size 는 위계 제목·컴포넌트 클래스(`.stat-*`/`.metric-*`/`.kpi-*`/`.text-narrative`/`.pre-output`) 우선 — size 전용 유틸 미도입(위계·컴포넌트 의미 우선).
@@ -245,7 +245,7 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 신규 dynamic UI 추가 시 흐름 판단:
 - 1회 fetch → fragment endpoint
 - 저빈도 polling(수십초) + 파생 많은 SSR 영역 → fragment endpoint(HTML) 교체 (P2 단일 진실 유지). 서버목록처럼 체크박스 선택·client 필터·직접 바인딩 이벤트가 있는 영역은 행만 교체 후 체크 상태·필터·이벤트를 복원 (discover 버튼 등 정적 요소는 교체 대상에서 보존). task-cell 모달처럼 event delegation 핸들러는 복원 불필요
-- 고빈도 polling / SSE 무한 → JSON + JS render (예외)
+- 고빈도 polling → JSON + JS render (예외)
 
 ## 시간 표기 — 단일 진실 (예외 0 의무)
 

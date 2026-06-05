@@ -5,7 +5,7 @@
 | 모듈 | 변수 | 접두사 | 응답 |
 |------|------|--------|------|
 | `routers/pages.py` | `pages_router` | `/servers` | HTML (Jinja2 SSR) |
-| `routers/api.py` | `api_router` | `/api/servers` | JSON (시계열·메트릭) + SSE |
+| `routers/api.py` | `api_router` | `/api/servers` | JSON (시계열·메트릭) |
 | `routers/discovery.py` | `discovery_router` | `/api/discovery` | JSON |
 | `routers/tasks.py` | `tasks_router` | `/api/tasks` | JSON |
 | `routers/exports.py` | `exports_router` | `/api/exports` | JSON (다운로드) |
@@ -44,7 +44,6 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | `GET /{id}/metrics/snapshots?cursor=&limit=` | 시계열 cursor pagination (#E2) |
 | `GET /{id}/metrics/chart?metric_type=&time_range=&bucket=&agg=` | 차트 시계열 (17 metric_type dispatcher) |
 | `GET /{id}/events/reboot?time_range=&end=` | reboot/restart vertical marker용 |
-| `GET /{id}/metrics/stream` | SSE — `text/event-stream` (Consumer PUB -> Redis -> SSE) |
 
 ### `discovery.py` — SSH 도달성 검사
 | 경로 | 용도 |

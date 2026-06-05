@@ -6,7 +6,7 @@
 
 - URL: `GET /servers/`
 - 진입점: 엔진 web 첫 페이지 — 운영자가 가장 자주 보는 화면
-- 산출물 형태: HTML SSR. JS가 실시간 SSE로 갱신
+- 산출물 형태: HTML SSR. JS가 30초 polling으로 갱신
 - 다른 산출물의 navigation hub — 보고서·진단·Install·Export 모두 본 화면에서 진입
 
 ## 존재 의의
@@ -101,7 +101,7 @@ prov 분포 도넛 3 카테고리:
 ## 한계
 
 1. page=1 + 검색·필터 미사용 시만 상단 요약·도넛·신호 노출 — 검색·다음 페이지에선 raw 테이블만. 의도된 단순화이지만 운영자가 "왜 갑자기 사라졌나" 혼란 가능. UI 가이드 보강 후보.
-2. SSE 단일 채널 + 서버 측 필터링 (T5) — 동시 운영자 증가 시 broker 부하. 본 프로젝트 규모는 OK.
+2. 실시간 메트릭은 30초 polling (T5) — 갱신 지연 최대 30초. push(SSE/WebSocket) 대비 즉시성은 낮으나 pubsub·스트림 핸들러 복잡도 제거.
 3. 활용률 도넛은 환경 평균만 — 분포(p50·p95)는 미노출. 양극화 환경에서 misleading (`docs/products/environment-report.md` 한계 #2와 동일 패턴).
 4. 행별 권장 단일 라벨 — recommendation 분류 1개만 표시. 다중 신호(예: CPU 정상 + 메모리 부족)는 우선순위 평가 후 1개만.
 5. 환경 진단 결과 자동 노출 — list 페이지가 사용자 trigger (web POST /api/diagnostics) 로 발행된 최근 succeeded 진단을 자동 표시. ADR 0023: cron 자동 발화 폐기로 운영자가 명시 발행 안 하면 진단 자료 누적 0. 진단 워커 중단 시 stale 표시 위험.

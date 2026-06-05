@@ -54,7 +54,7 @@
 
 선택
 - Web: cache MISS → DB query → `SET cache:metrics 60s`
-- Consumer: DB COMMIT → `DEL cache:metrics` → `PUBLISH metrics.events`
+- Consumer: DB COMMIT → `DEL cache:metrics`
 
 대안
 - write-through: consumer가 DB COMMIT 후 직접 ViewModel을 빌드해 Redis에 SET. cache MISS 자체가 발생 안 함.
@@ -65,7 +65,7 @@
 - 포기한 것: cache-aside race — web이 cache MISS 후 DB query를 마쳤지만 SET을 수행하기 전에 consumer가 새 metrics 커밋 + cache DELETE를 끝낼 수 있다. 이 경우 web의 SET은 stale 데이터를 60s TTL로 캐싱.
 
 왜 받아들였나
-- SSE가 즉시 다음 fetch를 트리거하므로 stale 캐시는 최대 1회 표시 지연.
+- 브라우저 30초 polling 이 다음 주기에 다시 fetch 하므로 stale 캐시는 최대 1회 표시 지연.
 - 메트릭 자체가 60s 주기라 60s TTL stale은 실용적 영향이 작음.
 - write-through는 consumer가 web 로직을 알게 되어 컴포넌트 경계 위반.
 
@@ -124,28 +124,27 @@
 
 ---
 
-## T5. SSE 단일 채널 + 서버 측 필터링
+## T5. 실시간 메트릭 전달: 30초 polling
 
-> 관련 코드: `src/assessment_engine/web/services/query_service.py` `stream_metrics_events`, `src/assessment_engine/consumer/handlers/` `redis.publish`
+> 관련 코드: `src/assessment_engine/web/services/query_service.py` `get_latest_metric`, `src/assessment_engine/web/static/js/pages/detail.js`, `chart-utils.js` `initAutoRefresh` (4탭 공용)
+
+현황
+- 서버 상세 실시간 메트릭과 4탭(cpu/memory/storage/network) 현재 상태는 브라우저 30초 polling(`setInterval`)으로 `/metrics/latest` 를 재요청한다. Redis PUB/SUB(`metrics.events`) 푸시·SSE EventSource 메커니즘은 사용하지 않는다.
 
 선택
-- 모든 SSE 클라이언트가 `metrics.events` 단일 채널 구독. 서버 측에서 `payload.server_id == subscribed_server_id`로 필터링.
-
-대안
-- 채널 분리: `metrics.events.{server_id}`로 publish/subscribe.
+- 환경 실시간 갱신과 동일한 30초 polling 으로 통일. consumer 메트릭 후처리는 DB 저장 + `online:{id}` SET + `cache:metrics` DEL 까지만 (publish 없음).
 
 트레이드오프
-- 얻은 것: 채널 관리 단순. publish 측이 server_id를 알 필요 없음 (단일 channel name 상수).
-- 포기한 것: web이 자기 server_id 외 모든 메시지를 수신 후 버림. 트래픽 N배 증가 (N=서버 수).
+- 얻은 것: pubsub 채널·SSE 스트림 핸들러·구독 클라이언트 관리 제거 — 메커니즘 단일화로 단순. web 이 자기 server_id 외 메시지를 수신·필터링하던 부하 소거.
+- 포기한 것: 푸시 즉시성 — 최대 30초 표시 지연. 갱신 없는 구간에도 주기 요청 발생.
 
 왜 받아들였나
-- B2B 내부 포털 — 동시 SSE 연결 수와 서버 수가 작음 (수십 대 미만).
-- 채널 수가 늘면 Redis pubsub keyspace notification 비용 증가.
+- 메트릭 자체가 60s 주기라 30초 polling 으로 충분. B2B 내부 포털 규모(수십 대)에서 polling 트래픽 무시 가능.
+- SSE 단일 채널 필터링·Redis pubsub keyspace 비용·브라우저 자동 재연결 처리 등 push 경로 복잡도 전부 제거.
 
 언제 다시 봐야 하는가
-- 서버 수가 수백 대 이상.
-- web 인스턴스가 SSE 트래픽으로 CPU 포화될 때.
-- → 채널을 `metrics.events.{server_id}` 형태로 분리.
+- 초 단위 즉시성이 필요해지거나 polling 트래픽이 web 부하로 드러날 때.
+- → SSE 또는 WebSocket push 재도입 (별도 ADR).
 
 ---
 
@@ -225,7 +224,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 > 관련 코드: `src/assessment_engine/web/static/js/chart-utils.js`, `src/assessment_engine/web/main.py` `StaticFiles` 마운트, `src/assessment_engine/web/templates/servers/*.html`
 
 선택
-- 5개 차트 템플릿에 흩어진 공통 정의(`fmtKst` / `bindToggle` / `COLORS` / `AUTO_BUCKET` / `BUCKET_MS` / `makeBucketGrid` / `joinToGrid` / `fmtLabel` / `getAnchorEnd` / `initAnchor` / SSE 초기화)를 `/static/js/chart-utils.js`로 추출. `base.html`에서 단일 로드 → 전역 `ChartUtils` IIFE 객체 노출.
+- 5개 차트 템플릿에 흩어진 공통 정의(`fmtKst` / `bindToggle` / `COLORS` / `AUTO_BUCKET` / `BUCKET_MS` / `makeBucketGrid` / `joinToGrid` / `fmtLabel` / `getAnchorEnd` / `initAnchor`)를 `/static/js/chart-utils.js`로 추출. `base.html`에서 단일 로드 → 전역 `ChartUtils` IIFE 객체 노출.
 - 각 템플릿은 상단에서 `const { ... } = ChartUtils;`로 destructure.
 
 대안
@@ -288,13 +287,13 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 > 관련 문서: `docs/architecture/redis.md`, `docs/adr/0001-redis-decoupling.md`
 
 선택
-- 한 Redis 인스턴스에서 5가지 역할 동시 처리: 캐시 / 온라인 TTL / 멱등성 / PUB/SUB / public_id 해석.
+- 한 Redis 인스턴스에서 4가지 역할 동시 처리: 캐시 / 온라인 TTL / 멱등성 / public_id 해석.
 - eviction 정책 `volatile-lru` (TTL 있는 키만 evict 대상).
 - 모든 Redis 호출은 `src/assessment_engine/cache/redis.py`의 `safe_*` helper 경유 — fail-open 정책.
 - list 화면 online 표시는 `last_seen_at` 컬럼 fallback 보유.
 
 대안
-- 분리: 캐시용 / 멱등성용 / PUB/SUB용 인스턴스 분리.
+- 분리: 캐시용 / 멱등성용 인스턴스 분리.
 - 외부 시스템: idempotency를 PostgreSQL `INSERT ... ON CONFLICT DO NOTHING` 으로 (멱등성 키 테이블).
 - 인터페이스 추상화 (옵션 E): `BaseCache`/`BaseEventBus`/`BasePresenceTracker` 추상으로 Redis 자체를 옵션화. Redis를 다른 캐시로 교체할 계획이 없으므로 채택 안 함.
 
@@ -304,8 +303,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
   - fail-open 정책으로 운영 결합도가 통상 수준 도달 — Redis 장애 시 web은 느려질 뿐 응답 가능, consumer는 DLQ 누적 없이 처리 진행.
 - 포기한 것:
   - 멱등성 키도 `volatile-lru` 대상 — maxmemory 압박 시 evict 가능 → 1단 방어 깨짐. fail-open과 동일하게 DB UNIQUE(2단)이 흡수 (T1과 연결).
-  - PUB/SUB 부하가 캐시 hit/miss 응답 latency에 영향 가능.
-  - Redis 단일 장애 시 5가지 역할 모두 영향 — 단 fail-open으로 시스템 다운은 회피. SSE는 끊김(브라우저 자동 재연결), 멱등성 1단은 우회(DB가 흡수), 캐시는 DB 직접 조회.
+  - Redis 단일 장애 시 모든 역할(online 판정·캐시·멱등성) 영향 — 단 fail-open으로 시스템 다운은 회피. 멱등성 1단은 우회(DB가 흡수), 캐시는 DB 직접 조회, online 은 폴링 데이터 신선도로 자연 회복.
 
 왜 받아들였나
 - B2B 내부 포털 — 동시 요청 수·멱등성 키 수가 작아 evict 시나리오 드묾.

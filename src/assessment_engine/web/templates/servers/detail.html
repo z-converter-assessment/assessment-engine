@@ -47,19 +47,14 @@
 
 <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
   <h1>{{ server.hostname }}</h1>
-  <span id="online-badge" class="badge no-print" style="font-size:12px;">
-    <span class="dot dot-off"></span>확인 중...
-  </span>
-  <a href="/servers/{{ server.public_id }}/metrics?back={{ self_back }}" class="btn-action no-print" style="margin-left:auto; text-decoration:none;">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-    성능 추이
-  </a>
+  <span id="online-badge" class="status-off no-print">확인 중...</span>
 </div>
 
 <!-- 정적 인벤토리 정보 -->
 <div class="card">
   <h2 class="card-title">시스템 정보</h2>
   <dl class="kv">
+    <dt class="kv-group">사양</dt>
     <dt>OS</dt>
     <dd>{{ server.os_display }}{% if server.os_codename %} ({{ server.os_codename }}){% endif %}</dd>
     <dt>Kernel</dt>
@@ -70,13 +65,8 @@
     <dd>{{ server.mem_total_gb | disksize }}</dd>
     <dt>Swap</dt>
     <dd>{{ server.swap_total_gb | disksize }}</dd>
-    {# 파일시스템 총 크기 합(volume_total_gb) — 실제 데이터 저장 가능 총량. 물리 raw(LVM·오버헤드 포함)와 별개. #}
-    <dt>파일시스템 용량</dt>
-    <dd>{{ server.volume_total_gb | disksize }}</dd>
-    <dt>Boot Time</dt>
-    <dd>{{ server.boot_time | kst }}</dd>
-    <dt>Agent Started</dt>
-    <dd>{{ server.agent_started_at | kst }}</dd>
+
+    <dt class="kv-group">네트워크</dt>
     <dt>Internal IP</dt>
     <dd>{% for ip in server.ip_internal %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% else %}-{% endfor %}</dd>
     <dt>External IP</dt>
@@ -87,14 +77,25 @@
         <span class="text-meta">내부망</span>
       {% endif %}
     </dd>
+
+    <dt class="kv-group">운영 · 식별</dt>
+    <dt>Boot Time</dt>
+    <dd>{{ server.boot_time | kst }}</dd>
+    <dt>Agent Started</dt>
+    <dd>{{ server.agent_started_at | kst }}</dd>
+    <dt>Last Inventory</dt>
+    <dd>{{ server.last_seen_at | kst }}</dd>
     <dt>Agent Version</dt>
     <dd>{{ server.agent_version or '-' }}</dd>
     <dt>Composite ID</dt>
-    <dd>{{ server.composite_id }}</dd>
+    <dd style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; word-break:break-all;">{{ server.composite_id }}</dd>
     <dt>Machine ID</dt>
-    <dd>{{ server.machine_id or '-' }}</dd>
-    <dt>Last Inventory</dt>
-    <dd>{{ server.last_seen_at | kst }}</dd>
+    <dd style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; word-break:break-all;">{{ server.machine_id or '-' }}</dd>
+
+    <dt class="kv-group">스토리지</dt>
+    {# 파일시스템 총 크기 합(volume_total_gb) — 실제 데이터 저장 가능 총량. 물리 raw(LVM·오버헤드 포함)와 별개. #}
+    <dt>파일시스템 용량</dt>
+    <dd>{{ server.volume_total_gb | disksize }}</dd>
     {# 파일시스템(논리 볼륨) — inventory.mounts 기준. 물리 디스크와 별개 축, 양 OS 일관(fstype 명시). #}
     <dt>파일시스템</dt>
     {% if server.volumes %}
@@ -196,17 +197,13 @@
   </div>
 </div>
 
-<!-- 실시간 메트릭 대시보드 (AJAX + SSE) -->
+<!-- 실시간 메트릭 대시보드 (AJAX + 30초 polling — 환경 실시간과 일관) -->
+<div class="no-print" style="display:flex; justify-content:flex-end; margin-bottom:6px;">
+  <span id="metrics-stamp" class="text-meta" style="font-size:12px;">30초마다 자동 갱신 · 최근 —</span>
+</div>
 <div class="card" id="realtime-metrics-card">
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+  <div style="margin-bottom:14px;">
     <h2 class="card-title">실시간 메트릭</h2>
-    <div style="display:flex; align-items:center; gap:12px;">
-      <div id="sse-status" class="no-print" style="margin:0;">
-        <span id="sse-dot" class="dot dot-off"></span>
-        <span id="sse-label">자동 갱신 연결 중...</span>
-      </div>
-      <span id="metrics-ts" class="text-meta" style="font-size:12px;"></span>
-    </div>
   </div>
 
   <div id="metrics-loading" class="text-meta" style="font-size:13px; padding:8px 0;">
@@ -397,6 +394,10 @@
   </div>
   <p class="text-meta" style="margin:0 0 12px; font-size:12px;">서버 <strong class="text-strong">{{ server.hostname }}</strong> 1대 대상 보고서 발행 (새 탭). 발행 이력은 보고서 이력에서 확인.</p>
   <div style="display:flex; gap:8px;">
+    <a href="/servers/{{ server.public_id }}/metrics?back={{ self_back }}" class="btn-action no-print" style="text-decoration:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      성능 추이
+    </a>
     <button type="button" id="server-report-customer-open" class="btn-action no-print" data-view="customer">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
       고객 보고서 발행

@@ -8,8 +8,8 @@
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
-        fmtKst, fmtKbChart, getAnchorEnd, initAnchor,
-        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray,
+        fmtKbChart, getAnchorEnd, initAnchor,
+        makeBucketGrid, joinToGrid, bindToggle, initAutoRefresh, safeArray,
         fetchRebootEvents, applyRebootMarkers,
         buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
 
@@ -52,7 +52,8 @@ async function loadNetSnapshot() {
       </tr>
     `).join('');
     document.getElementById('net-snapshot-table').style.display = '';
-    if (data.collected_at) document.getElementById('net-snapshot-ts').textContent = '수집 기준: ' + fmtKst(data.collected_at);
+    const stampEl = document.getElementById('metrics-stamp');
+    if (stampEl && data.collected_at) stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);
   } catch(e) { console.error(e); }
 }
 let netRange = '15m';
@@ -219,8 +220,8 @@ bindToggle('net-pps-range-btns', v => { netPpsRange = v; updateNetPpsBucketLabel
 document.getElementById('net-anchor').addEventListener('change', () => loadNetChart());
 document.getElementById('net-pps-anchor').addEventListener('change', () => loadNetPpsChart());
 
-/* ── SSE ── */
-initSse(SERVER_ID, loadNetSnapshot);
+/* ── 30초 polling 자동 갱신 (SSE 제거) ── */
+initAutoRefresh(loadNetSnapshot);
 
 initAnchor('net-anchor');
 initAnchor('net-pps-anchor');

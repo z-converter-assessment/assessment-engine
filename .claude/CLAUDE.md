@@ -82,10 +82,10 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 
 ## C3. Redis 전략 — fail-open 의무
 
-키 설계 표 / TTL 근거 / PUB/SUB 채널 / 캐시-aside race 한계 / 평시·장애 동작 매트릭스 / mget 효율 패턴: `docs/architecture/redis.md`. 의사결정 ADR: `docs/adr/0001-redis-decoupling.md`.
+키 설계 표 / TTL 근거 / 캐시-aside race 한계 / 평시·장애 동작 매트릭스 / mget 효율 패턴: `docs/architecture/redis.md`. 의사결정 ADR: `docs/adr/0001-redis-decoupling.md`.
 
 본 절 결정:
-- 모든 Redis 호출은 `src/assessment_engine/cache/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`/`safe_incr_with_ttl`) 경유. RedisError 시 silent fallback + warning 로그. 직접 redis client 호출 금지.
+- 모든 Redis 호출은 `src/assessment_engine/cache/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_incr_with_ttl`) 경유. RedisError 시 silent fallback + warning 로그. 직접 redis client 호출 금지.
 - fail-open 보장 의존성: 멱등성 1단 fail-open(#D2) → DB UNIQUE(#C1)가 중복 흡수. UNIQUE 누락 시 보장 자체가 깨짐.
 
 ## C4. 스키마 변경 — Alembic 단일 진실
@@ -391,7 +391,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 원칙: SIGTERM 시 in-flight 작업 손실 0 + 다음 기동 시 stale 상태 없음.
 
 본 절 결정:
-- web — uvicorn `timeout_graceful_shutdown=3s`. 진행 중 HTTP 요청 완료 후 exit. SSE는 client reconnect. 진단 publish (`DiagnosticSubmitter`) 중 SIGTERM은 aio-pika `connect_robust` transaction 보장.
+- web — uvicorn `timeout_graceful_shutdown=3s`. 진행 중 HTTP 요청 완료 후 exit. 실시간 메트릭 polling 은 다음 주기 자동 재요청이라 별도 처리 불요. 진단 publish (`DiagnosticSubmitter`) 중 SIGTERM은 aio-pika `connect_robust` transaction 보장.
 - consumer / diagnostic-worker — `async with message.process(requeue=False)` 컨텍스트 안에서 모든 await 완료. 정상 exit → ACK / raise → NACK + DLQ.
 - diagnostic-worker 진행 중 job(`status='running'`) stale 정리 미구현 — prod 도입 전 ADR 0004 정정 또는 별도 ADR 의무.
 - ADR 0023: scheduler cron 폐기. cron 발화 측 SIGTERM 본문 본 절 범위 밖.

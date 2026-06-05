@@ -1,10 +1,7 @@
-import json
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from redis.asyncio import Redis
-from redis.exceptions import RedisError
 
 from assessment_engine import recommendation
 from assessment_engine.cache.redis import safe_get, safe_mget, safe_set
@@ -117,7 +114,6 @@ _NET_METRIC_TYPES = frozenset(
 _ATTENTION_LIMIT_EACH = 5
 _GAP_MINUTES = 5
 _GAP_RECENT_HOURS = 24
-_SSE_PING_INTERVAL_SEC = 15  # SSE idle keep-alive ping 주기 — 메시지 없을 때 프록시·브라우저 idle 끊김 방지
 
 
 def _filter_attention(attention: AttentionSignals, hostnames: set[str]) -> AttentionSignals:
@@ -974,31 +970,6 @@ class QueryService:
         end_dt = end or datetime.now(UTC)
         start = end_dt - TIME_RANGE_TD[time_range]
         return await self.repo.reboot_events(server_id, start, end_dt)
-
-    async def stream_metrics_events(self, server_id: int) -> AsyncIterator[str]:
-        """SSE 라인 스트림 — 본 server_id 메트릭 이벤트 + idle keep-alive ping (라우터는 그대로 통과).
-
-        get_message timeout 으로 _SSE_PING_INTERVAL_SEC 마다 메시지 없으면 comment ping(`: keep-alive`) 전송 —
-        메시지 없는 idle 구간에 프록시·브라우저가 연결을 끊지 않게 함.
-        """
-        async with self.redis.pubsub() as pubsub:
-            await pubsub.subscribe(web_settings.redis_channel_metrics)
-            try:
-                while True:
-                    message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=_SSE_PING_INTERVAL_SEC)
-                    if message is None:
-                        yield ": keep-alive\n\n"
-                        continue
-                    if message["type"] != "message":
-                        continue
-                    try:
-                        payload = json.loads(message["data"])
-                    except (ValueError, TypeError):
-                        continue
-                    if payload.get("server_id") == server_id:
-                        yield f"data: {message['data']}\n\n"
-            except RedisError:
-                pass
 
     # ---------- Task 조회 ----------
 

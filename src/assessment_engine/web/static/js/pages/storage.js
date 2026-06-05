@@ -8,8 +8,8 @@
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
-        fmtKst, getAnchorEnd, initAnchor,
-        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray,
+        getAnchorEnd, initAnchor,
+        makeBucketGrid, joinToGrid, bindToggle, initAutoRefresh, safeArray,
         fetchRebootEvents, applyRebootMarkers,
         buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
 
@@ -54,8 +54,9 @@ async function loadIoSnapshot() {
     } else {
       document.getElementById('io-phys-empty').style.display = '';
     }
-    if (data.collected_at)
-      document.getElementById('io-snapshot-ts').textContent = '수집 기준: ' + fmtKst(data.collected_at);
+    const stampEl = document.getElementById('metrics-stamp');
+    if (stampEl && data.collected_at)
+      stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);
   } catch(e) {
     document.getElementById('io-snapshot-loading').textContent = '불러오기 실패';
   }
@@ -286,5 +287,5 @@ bindToggle('fs-range-btns', v => { fsRange = v; updateFsBucketLabel(); document.
 updateFsBucketLabel();
 loadFsChart();
 
-/* ── SSE ── */
-initSse(SERVER_ID, loadIoSnapshot);
+/* ── 30초 polling 자동 갱신 (SSE 제거) ── */
+initAutoRefresh(loadIoSnapshot);

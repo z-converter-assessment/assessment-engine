@@ -15,8 +15,6 @@
     main { max-width: 1160px; margin: 28px auto; padding: 0 24px; }
     /* 폰트 위계 단일 진실 (static-assets.md "폰트 위계" 절). h1 > h2 > h3 영향력 차이 명확. */
     h1 { font-size: 20px; font-weight: 700; margin: 0 0 20px; color: #0f172a; }
-    /* 대제목 강조 — 글자 바로 아래 짧은 브랜드색 액센트 보더(card-title 좌측 바와 위계 구분). margin-top 7px 로 글자·밑줄 간격 타이트. */
-    h1::after { content: ''; display: block; width: 44px; height: 4px; margin-top: 1px; background: #3b82f6; border-radius: 2px; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
     h2 { font-size: 16px; font-weight: 700; margin: 0 0 14px; color: #1e293b; }
     h3 { font-size: 13px; font-weight: 600; margin: 0 0 10px; color: #475569; }
     /* 페이지 제목 (h1) 옆 sub-text — 양식 라벨 등. */
@@ -94,6 +92,9 @@
     .kv { display: grid; grid-template-columns: 160px 1fr; gap: 7px 16px; }
     .kv dt { color: #64748b; font-size: 13px; }
     .kv dd { color: #0f172a; font-weight: 500; font-size: 13px; }
+    /* kv 그룹 소제목 — 전폭 행, 상단 구분선. 사양/네트워크/스토리지/운영·식별 묶음. */
+    .kv dt.kv-group { grid-column: 1 / -1; color: #94a3b8; font-size: 11px; font-weight: 600; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f1f5f9; }
+    .kv dt.kv-group:first-child { margin-top: 0; padding-top: 0; border-top: none; }
     .back { font-size: 13px; color: #64748b; margin-bottom: 14px; display: inline-block; }
     .back:hover { color: #0f172a; text-decoration: none; }
     /* code = base monospace (line 25) + inline code 표시 (background + padding). font-family 중복 제거 — line 25 단일 진실. */
@@ -218,11 +219,7 @@
     .section-title:first-child { margin-top: 0; padding-top: 0; border-top: none; }
     .sub-label { font-size: 12px; font-weight: 600; color: #475569; margin: 14px 0 6px; }
 
-    /* Dot indicators */
-    .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-    .dot-ok { background: #22c55e; box-shadow: 0 0 0 3px #dcfce7; }
-    .dot-off { background: #94a3b8; }
-    /* is_online 상태 텍스트 — 불(dot) 대신 폰트색(공간 절약·명확). sse-dot(SSE 연결)은 .dot 유지. */
+    /* is_online 상태 텍스트 — 불(dot) 대신 폰트색(공간 절약·명확). */
     .status-on  { color: #16a34a; font-size: 10px; font-weight: 600; }
     .status-off { color: #94a3b8; font-size: 10px; font-weight: 600; }
 
@@ -269,9 +266,6 @@
     .search-row .clear-btn { padding: 7px 12px; background: #f1f5f9; color: #64748b; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
     .search-row .clear-btn:hover { background: #e2e8f0; }
 
-    /* sse status */
-    #sse-status { font-size: 11px; color: #94a3b8; margin-top: 6px; display: flex; align-items: center; gap: 5px; }
-
     /* 통합 차트 카드(perf-merged) 행 구분 — 카드 내부 서브섹션 구분선 표준(.card-section)과 동일 #e2e8f0 (통일). */
     .perf-row + .perf-row { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; }
 
@@ -297,7 +291,7 @@
       table { box-shadow: none !important; }
       a { color: #1a1a1a !important; text-decoration: none !important; }
       .action-col { display: none !important; }
-      .progress-fill, .progress-bar, .badge, .bar-fill, .bar-track, .legend-dot, .legend-line, .dot-ok, .dot-off { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .progress-fill, .progress-bar, .badge, .bar-fill, .bar-track, .legend-dot, .legend-line { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
       /* 차트 범례 색 점·선은 인쇄에서 배경색이 빠져 식별 불가 — exact 강제. 칩 테두리/회색 토글 OFF 도 같이 유지. */
       .legend-chip { border-color: #cbd5e1 !important; }
       /* 막대 트랙은 인쇄 시 옅은 배경이 거의 흰색으로 빠져 영역 구분이 약해짐 — 테두리로 막대 길이 가시성 확보. */

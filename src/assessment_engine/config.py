@@ -71,9 +71,6 @@ class WebSettings(BaseSettings):
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
     agent_restart_alert_threshold: int = 3
 
-    # PUB/SUB channels
-    redis_channel_metrics: str = "metrics.events"
-
     # 서버 발견 모달 — SSH(기본 22) 도달성 probe 의 기본 target 주소.
     # 운영자가 모달에서 매 확인마다 override 가능. 빈값이면 폼이 빈 채로 시작.
     # dev·prod 모두 빈값 default — 운영자가 모달에 직접 입력 (weak default 거부 대상 아님).

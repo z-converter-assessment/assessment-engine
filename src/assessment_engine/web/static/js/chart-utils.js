@@ -96,18 +96,12 @@
     });
   }
 
-  // ── SSE 초기화 ──
-  function initSse(serverId, onMessage) {
-    const es = new EventSource(`/api/servers/${serverId}/metrics/stream`);
-    const dot = document.getElementById('sse-dot');
-    const lbl = document.getElementById('sse-label');
-    es.onopen    = () => { if (dot) dot.className = 'dot dot-ok'; if (lbl) lbl.textContent = '자동 갱신 중'; };
-    es.onmessage = () => onMessage();
-    es.onerror   = () => { if (dot) dot.className = 'dot dot-off'; if (lbl) lbl.textContent = '자동 갱신 중단 — 재연결 중...'; };
-    // 페이지 이탈(뒤로가기·네비게이션·탭 닫기) 시 SSE 정리 — 미정리 시 좀비 EventSource 가
-    // HTTP/1.1 도메인 연결 한도(6)를 점유해 재진입 시 새 요청이 대기에 걸려 무한로딩 발생.
-    window.addEventListener('pagehide', () => es.close());
-    return es;
+  // ── 30초 polling 자동 갱신 (detail 실시간 메트릭과 일관) ──
+  // 폴링은 연결 상태 개념이 없어 상태 DOM 갱신 없음. stamp 는 호출처 loader 가 갱신.
+  function initAutoRefresh(onRefresh, intervalMs = 30_000) {
+    const id = setInterval(onRefresh, intervalMs);
+    window.addEventListener('pagehide', () => clearInterval(id));  // 좀비 타이머 방지
+    return id;
   }
 
   // ── 응답 안전 변환 ──
@@ -301,7 +295,7 @@
     fmtKst, fmtLabel, fmtKbChart,
     getAnchorEnd, initAnchor,
     makeBucketGrid, joinToGrid,
-    bindToggle, initSse, safeArray, naWindows,
+    bindToggle, initAutoRefresh, safeArray, naWindows,
     fetchRebootEvents, applyRebootMarkers,
     buildAvgMaxDatasets, buildAvgMaxLegend,
     renderChipLegend,
