@@ -10,16 +10,15 @@
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtLabel, getAnchorEnd, initAnchor,
         makeBucketGrid, joinToGrid, bindToggle, initAutoRefresh, safeArray,
-        fetchRebootEvents, applyRebootMarkers, renderChipLegend } = ChartUtils;
+        renderChipLegend } = ChartUtils;
 
 // body data attribute 단일 진실 (#E6 inline <script> 금지).
 const SERVER_ID = document.body.dataset.serverId;
 const CPU_CORES = parseInt(document.body.dataset.cpuCores, 10) || 4;
 const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 메트릭 N/A 분기
 
-// 로드 추이의 분해력+포화 기준 하이브리드 — 작은 값은 그대로 보여주되
-// suggestedMax(=cpu_cores)를 두어 "코어수=포화" 임계선이 시각에 자연스럽게 노출.
-// 실데이터가 cpu_cores를 초과하면 자동 확장.
+// 로드 추이는 코어당(load/cpu_cores) 정규화 — 1.0 = 코어당 run queue 1(포화). 환경 추이(Σload/Σcores)와
+// 의미 일관. suggestedMax 1.5(포화선 위 여유)로 포화 임계가 시각에 자연 노출되고, 초과 시 자동 확장.
 
 function pct(v) { return v == null ? '—' : v.toFixed(1) + '%'; }
 
@@ -37,9 +36,10 @@ async function loadSnapshot() {
     document.getElementById('s-user').textContent   = pct(cpu.user_pct);
     document.getElementById('s-system').textContent = pct(cpu.system_pct);
     document.getElementById('s-iowait').textContent = ChartUtils.naWindows(OS_FAMILY, 'cpu_iowait', pct(cpu.iowait_pct));
-    document.getElementById('s-load1').textContent  = ChartUtils.naWindows(OS_FAMILY, 'load_1m', data.load_1m  != null ? data.load_1m.toFixed(2)  : '—');
-    document.getElementById('s-load5').textContent  = ChartUtils.naWindows(OS_FAMILY, 'load_5m', data.load_5m  != null ? data.load_5m.toFixed(2)  : '—');
-    document.getElementById('s-load15').textContent = ChartUtils.naWindows(OS_FAMILY, 'load_15m', data.load_15m != null ? data.load_15m.toFixed(2) : '—');
+    // 코어당 정규화(load/cpu_cores) — 로드 추이 차트와 통일. 1.0 = 코어당 포화.
+    document.getElementById('s-load1').textContent  = ChartUtils.naWindows(OS_FAMILY, 'load_1m', data.load_1m  != null ? (data.load_1m  / CPU_CORES).toFixed(2) : '—');
+    document.getElementById('s-load5').textContent  = ChartUtils.naWindows(OS_FAMILY, 'load_5m', data.load_5m  != null ? (data.load_5m  / CPU_CORES).toFixed(2) : '—');
+    document.getElementById('s-load15').textContent = ChartUtils.naWindows(OS_FAMILY, 'load_15m', data.load_15m != null ? (data.load_15m / CPU_CORES).toFixed(2) : '—');
     const stampEl = document.getElementById('metrics-stamp');
     if (stampEl && data.collected_at) stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);
     document.getElementById('snap-body').style.display = '';
@@ -100,12 +100,11 @@ async function loadUsageChart() {
           label: 'CPU 사용률',
           data,
           borderColor: '#3b82f6',
-          backgroundColor: '#3b82f622',
           borderWidth: 2,
           pointRadius: 1,
           pointHoverRadius: 3,
           tension: 0.3,
-          fill: true,
+          fill: false,
           spanGaps: false,
         }],
       },
@@ -128,10 +127,6 @@ async function loadUsageChart() {
         },
       },
     });
-    // reboot/restart vertical marker (P4(a) seq 검사로 stale 응답 방지)
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== usageSeq) return;
-    applyRebootMarkers(usageChart, events, grid);
   } catch(e) { console.error(e); }
 }
 
@@ -241,10 +236,6 @@ async function loadCompChart() {
     ];
     renderCompChart(capturedRange, capturedAnchor);
     buildCompLegend();
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== compSeq) return;
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    applyRebootMarkers(compChart, events, grid);
   } catch(e) { console.error(e); }
 }
 
@@ -280,7 +271,8 @@ function renderLoadChart(range, anchorEnd) {
   for (const r of rows) { (byDim[r.dimension] = byDim[r.dimension] || []).push(r); }
   const datasets = Object.entries(byDim).map(([dim, pts]) => {
     const map = {};
-    for (const p of pts) { map[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value; }
+    // P4 표시 정규화: 서버 cpu_cores(고정)로 나눠 코어당 로드 — 1.0=코어당 포화. raw load 를 "코어당"으로 표시.
+    for (const p of pts) { map[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value / CPU_CORES; }
     const color = LOAD_COLORS[dim] || '#8b5cf6';
     return {
       label: LOAD_LABELS[dim] || dim,
@@ -354,10 +346,6 @@ async function loadLoadChart() {
     if (loadChart) { loadChart.destroy(); loadChart = null; }
     renderLoadChart(capturedRange, capturedAnchor);
     buildLoadLegend();
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== loadSeq) return;
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    applyRebootMarkers(loadChart, events, grid);
   } catch(e) { console.error(e); }
 }
 

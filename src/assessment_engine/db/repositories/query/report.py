@@ -15,9 +15,9 @@ from assessment_engine.db.repositories.query._base import _BaseQueryMixin
 from assessment_engine.db.repositories.query.base_report import BaseReportQueryRepository
 from assessment_engine.db.repositories.query.types import (
     _CPU_TOTAL_EXPR,
+    _DATA_VOLUME_SQL_FILTER,
     _PHYS_DISK_SQL_FILTER,
     _VIRTUAL_IFACE_SQL_FILTER,
-    _VIRTUAL_MOUNT_SQL_FILTER,
 )
 
 
@@ -111,7 +111,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 FROM server_mount_usage
                 WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
                   AND total_bytes > 0
-                  AND {_VIRTUAL_MOUNT_SQL_FILTER}
+                  AND {_DATA_VOLUME_SQL_FILTER}
                 GROUP BY server_id
             )
             SELECT
@@ -199,13 +199,13 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
 
         sql = text(f"""
             WITH usage_max AS (
-                -- (server_id, mount)별 max used_pct. 가상 mount 제외 — 단일 진실 _VIRTUAL_MOUNT_SQL_FILTER.
+                -- (server_id, mount)별 max used_pct. 가상 mount 제외 — 단일 진실 _DATA_VOLUME_SQL_FILTER.
                 SELECT server_id, mount,
                     MAX((1 - avail_bytes::float / total_bytes) * 100) AS max_used_pct
                 FROM server_mount_usage
                 WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
                   AND total_bytes > 0
-                  AND {_VIRTUAL_MOUNT_SQL_FILTER}
+                  AND {_DATA_VOLUME_SQL_FILTER}
                 GROUP BY server_id, mount
             ),
             fill_rate AS (
@@ -216,7 +216,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 FROM server_mount_usage
                 WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
                   AND total_bytes > 0
-                  AND {_VIRTUAL_MOUNT_SQL_FILTER}
+                  AND {_DATA_VOLUME_SQL_FILTER}
                 WINDOW w AS (
                     PARTITION BY server_id, mount ORDER BY collected_at
                     ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
@@ -490,7 +490,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
           정의 + boot_time 변경 시 reset 제외.
         - mem_avg: Σ(mem_total_kb - mem_available_kb) / Σ mem_total_kb x 100. 절대 KB 라 메모리 큰 서버 큰 비중.
         - disk_avg: Σ(total_bytes - avail_bytes) / Σ total_bytes x 100. 전 mount 통합, 가상 mount 제외
-          (_VIRTUAL_MOUNT_SQL_FILTER). 서버별 worst mount 개념은 환경 평균에서 폐기 (호스트 상세엔 유지).
+          (_DATA_VOLUME_SQL_FILTER). 서버별 worst mount 개념은 환경 평균에서 폐기 (호스트 상세엔 유지).
         - sample_size: 기간 내 metric 발행 서버 distinct count.
         end 기준 윈도우 (selection 발행 시점 anchor 스냅샷 존중). server_ids=None 전체 환경,
         list 면 해당 서버만 (selection 보고서 동일 SQL 경로). partition pruning 의무 (C5).
@@ -533,7 +533,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                         END
                  FROM server_mount_usage
                  WHERE collected_at >= :start AND collected_at <= :end{sid}
-                   AND {_VIRTUAL_MOUNT_SQL_FILTER}
+                   AND {_DATA_VOLUME_SQL_FILTER}
                    AND total_bytes > 0 AND avail_bytes IS NOT NULL) AS disk_avg,
                 (SELECT COUNT(DISTINCT server_id) FROM server_metrics
                  WHERE collected_at >= :start AND collected_at <= :end{sid}) AS sample_size
@@ -559,7 +559,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                          THEN ((total_bytes - avail_bytes)::float / total_bytes) * 100 END) AS used_pct
             FROM server_mount_usage
             WHERE server_id = :sid AND collected_at >= :start AND collected_at <= :end
-              AND {_VIRTUAL_MOUNT_SQL_FILTER}
+              AND {_DATA_VOLUME_SQL_FILTER}
             GROUP BY mount
             ORDER BY used_pct DESC NULLS LAST
         """)

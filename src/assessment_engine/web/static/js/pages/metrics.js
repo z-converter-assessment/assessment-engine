@@ -6,9 +6,6 @@
  * - ChartUtils (base.html에서 chart-utils.js 로드)
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
  * - body data-server-id / data-cpu-cores / data-os-family (E6 외부화 규약, static-assets.md)
- *
- * 성능탭은 서버 리부트/에이전트 재시작 vertical 마커를 표시하지 않는다 (차트 가독성 — 사용자 결정).
- * 상세 페이지(cpu/memory/storage/network)는 마커 유지.
  */
 const { AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtKbChart, safeArray, bindToggle, renderChipLegend,
@@ -258,7 +255,8 @@ async function loadLoadChart(range, anchor) {
   canvas.style.display = ''; empty.style.display = 'none';
 
   const avgMap = {};
-  for (const r of safeAvg) avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
+  // 코어당 정규화(load/cpu_cores) — cpu 상세와 동일, Y축 'Load/core'·설명과 일치. cores 미상 시 raw(/1).
+  for (const r of safeAvg) avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value / (CPU_CORES || 1);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
   const data   = grid.map(t => avgMap[t] ?? null);
 
@@ -266,12 +264,13 @@ async function loadLoadChart(range, anchor) {
     type: 'line',
     data: { labels, datasets: [{
       label: 'Load 15m', data,
-      borderColor: '#f59e0b', backgroundColor: '#f59e0b22',
-      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: true, spanGaps: false,
+      borderColor: '#f59e0b',
+      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
     }] },
     options: makePerfOptions(Y_LOAD, v => v.toFixed(2)),
   });
-  updateMaxLabel('load-max', computePeriodMax(safeMax), v => v.toFixed(2), null);
+  const loadMax = computePeriodMax(safeMax);
+  updateMaxLabel('load-max', loadMax != null ? loadMax / (CPU_CORES || 1) : null, v => v.toFixed(2), null);
 }
 
 async function loadMemChart(range, anchor) {

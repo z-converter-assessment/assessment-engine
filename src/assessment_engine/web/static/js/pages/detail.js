@@ -80,10 +80,12 @@
     setTxt('mem-cached',  ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtKb(mem.cached_kb)));
     setTxt('mem-buffers', ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtKb(mem.buffers_kb)));
     // P5: 누적 비율은 서버 metrics_calculator.compute_mem 에서 계산. 클라이언트는 표시만.
+    // 정의서 구성 모델: used | cached | buffers | available(free 잔여) 4구획, 합 = 100.
     el('mem-used-bar').style.width      = (mem.usage_pct ?? 0) + '%';
     el('mem-used-bar').style.background = barColor(mem.usage_pct);
     el('mem-cached-bar').style.width    = (mem.cached_pct ?? 0) + '%';
     el('mem-buf-bar').style.width       = (mem.buffers_pct ?? 0) + '%';
+    el('mem-avail-bar').style.width     = (mem.free_pct ?? 0) + '%';
 
     /* Swap */
     const swap = d.swap || {};
@@ -217,8 +219,8 @@
   const hostname = card.dataset.serverHostname;
   const _VIEW_TITLES = { customer: '고객 보고서 발행', engineer: '엔지니어 보고서 발행' };
   const _VIEW_DESCS = {
-    customer: `서버 ${hostname} 1대 대상 Right-sizing 규칙 기반 고객 보고서 발행. 새 탭으로 이동합니다.`,
-    engineer: `서버 ${hostname} 1대 대상 Right-sizing 규칙 기반 엔지니어 보고서 발행. 새 탭으로 이동합니다.`,
+    customer: `서버 ${hostname} 1대 대상 Right-sizing 규칙 기반 고객 보고서 발행.`,
+    engineer: `서버 ${hostname} 1대 대상 Right-sizing 규칙 기반 엔지니어 보고서 발행.`,
   };
   let currentView = 'customer';
 

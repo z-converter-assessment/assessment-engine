@@ -57,7 +57,7 @@
 | 합산 rate | `disk.read/write_iops`, `net.rx/tx_bytes_per_sec`, `net.rx/tx_packets_per_sec` | 시점별 Σ(전 device LAG delta/dt rate)(per_ts) -> 버킷 {agg}. disk=물리 whole-disk 만(`_PHYS_DISK_SQL_FILTER` — 파티션·LVM 이중계산 회피), net=물리 iface 만(`_VIRTUAL_IFACE_SQL_FILTER` — lo·veth·터널 + bond/team master·br/docker/virbr bridge·vlan 제외). collapse=False 면 device/iface 보존. boot reset·dt<=0·음수 delta 제외 |
 | 코어 정규화 | `load.1m/5m/15m` | 시점별 Σload / Σcpu_cores (per_ts, server_inventory JOIN) -> 버킷 {agg}. 코어당 로드(1.0=코어당 포화). 절대 load 동등평균은 코어 수 다른 서버 혼재 시 왜곡 — 코어 정규화. 환경·서버상세 모두 코어당 |
 
-집계 필터 단일 진실(`db/repositories/query/types.py`): `_VIRTUAL_MOUNT_SQL_FILTER`(mount) · `_PHYS_DISK_SQL_FILTER`(물리 disk) · `_VIRTUAL_IFACE_SQL_FILTER`(비가상 iface) — `device_filters` 정규식의 PostgreSQL POSIX 번역(변경 시 동기화). 모든 그룹 partition pruning(#C5) `WHERE collected_at >= window_start` + boot jitter 가드 의무.
+집계 필터 단일 진실(`db/repositories/query/types.py`): `_DATA_VOLUME_SQL_FILTER`(mount 데이터볼륨 — `server_mount_usage.major` 주축, `device_filters.is_data_volume` 의 SQL 투영) · `_PHYS_DISK_SQL_FILTER`(물리 disk) · `_VIRTUAL_IFACE_SQL_FILTER`(비가상 iface) — disk·iface 는 `device_filters` 정규식의 PostgreSQL POSIX 번역(변경 시 동기화). 모든 그룹 partition pruning(#C5) `WHERE collected_at >= window_start` + boot jitter 가드 의무.
 
 ## Diagnostic 계층 — `BaseDiagnosticRepository` (ADR 0004)
 

@@ -1,13 +1,13 @@
-"""device_filters.py — 디바이스 분류·가상 마운트 필터·major/minor 조인."""
+"""device_filters.py — 디바이스 분류·data-volume 필터·major/minor 조인."""
 
 import pytest
 
 from assessment_engine.web.services.device_filters import (
     find_parent_disk,
+    is_data_volume,
     is_lvm_disk,
     is_partition,
     is_physical_disk,
-    is_virtual_mount,
 )
 
 # ─── is_physical_disk ─────────────────────────────────────────────────────
@@ -74,29 +74,39 @@ def test_is_partition(name, expected):
     assert is_partition(name) is expected
 
 
-# ─── is_virtual_mount ─────────────────────────────────────────────────────
+# ─── is_data_volume ───────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
-    "fstype, mount, expected",
+    "mount, major, fstype, expected",
     [
-        ("proc", "/proc", True),
-        ("sysfs", "/sys", True),
-        ("tmpfs", "/run", False),  # tmpfs는 가상 fstype 목록에 없음 (지킬 수도 있는 마운트)
-        ("ext4", "/", False),
-        ("ext4", "/data", False),
-        # mount prefix 기반
-        (None, "/proc/sys", True),
-        (None, "/sys/fs/cgroup", True),
-        (None, "/snap/core/12345", True),
-        (None, "/snap", True),  # 정확 일치
-        (None, "/snapper", False),  # /snap 으로 시작하지만 /snap/ 이 아님
-        (None, "/", False),
-        (None, "/var", False),
+        # major 신호 — Linux 블록 디바이스(major>0) = 데이터 볼륨
+        ("/", 254, "ext4", True),
+        ("/data", 8, "xfs", True),
+        # major==0 = 블록 디바이스 없는 가상 fs (fstype 블랙리스트 대체)
+        ("/sys/fs/selinux", 0, "selinuxfs", False),
+        ("/proc", 0, "proc", False),
+        ("/run", 0, "tmpfs", False),  # tmpfs major==0 — 옛 블랙리스트 누락도 major 로 잡힘
+        # Windows drive — major 0 이나 drive letter 로 인정
+        ("C:\\", 0, "ntfs", True),
+        ("D:\\", 0, "ntfs", True),
+        # 부트/펌웨어 — 실블록(major>0)이나 비데이터
+        ("/boot", 254, "xfs", False),
+        ("/boot/efi", 254, "vfat", False),
+        # 이미지 fstype (loop 기반 read-only)
+        ("/snap/core/123", 7, "squashfs", False),
+        # major 미전파(None) fallback — path 블랙리스트
+        (None, None, None, False),  # 빈 mount
+        ("/proc", None, None, False),
+        ("/sys/fs/cgroup", None, None, False),
+        ("/snap", None, None, False),
+        ("/", None, "ext4", True),
+        ("/data", None, None, True),
+        ("/snapper", None, None, True),  # /snap prefix 아님
     ],
 )
-def test_is_virtual_mount(fstype, mount, expected):
-    assert is_virtual_mount(fstype, mount) is expected
+def test_is_data_volume(mount, major, fstype, expected):
+    assert is_data_volume(mount or "", major, fstype) is expected
 
 
 # ─── find_parent_disk ─────────────────────────────────────────────────────

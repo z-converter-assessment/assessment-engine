@@ -124,8 +124,8 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         load_5m=data.load_5m,
         load_15m=data.load_15m,
         # ─── 시계열 4개 테이블 nested 행 매핑 ────────────────────────────────
-        # major/minor는 시계열 테이블에 컬럼 없어 미저장. 활용 시 ServerDiskIo/
-        # ServerMountUsage 모델에 컬럼 추가 + 스키마 변경(down -v) 필요.
+        # disk_io major/minor는 ServerDiskIo 에 컬럼 없어 미저장(현재 미활용).
+        # mount major/minor는 ServerMountUsage 에 저장 — data-volume 판단(major==0=가상 fs) 단일 신호.
         disk_io=[
             DiskIoEntry(
                 device=d.device,
@@ -142,6 +142,8 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
                 total_bytes=m.total_bytes,
                 free_bytes=m.free_bytes,
                 avail_bytes=m.avail_bytes,
+                major=m.major,
+                minor=m.minor,
             )
             for m in data.mounts
         ],

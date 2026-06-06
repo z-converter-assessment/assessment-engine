@@ -10,7 +10,6 @@
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
         fmtKbChart, getAnchorEnd, initAnchor,
         makeBucketGrid, joinToGrid, bindToggle, initAutoRefresh, safeArray,
-        fetchRebootEvents, applyRebootMarkers,
         buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
@@ -176,10 +175,6 @@ async function loadNetChart() {
     const bytesRows = ifaceOrderedRows(rxAvg, txAvg, rxMax, txMax);
     renderNetChartOne(BYTES_SPEC, bytesRows.avg, bytesRows.max, capturedRange, capturedAnchor);
     buildAvgMaxLegend(BYTES_SPEC.legendId, netChart, { withToggle: true });
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== netSeq) return;
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    applyRebootMarkers(netChart, events, grid);
   } catch(e) {
     console.error(e);
   }
@@ -206,10 +201,6 @@ async function loadNetPpsChart() {
     const ppsRows = ifaceOrderedRows(prxAvg, ptxAvg, prxMax, ptxMax);
     renderNetChartOne(PPS_SPEC, ppsRows.avg, ppsRows.max, capturedRange, capturedAnchor);
     buildAvgMaxLegend(PPS_SPEC.legendId, netPpsChart, { withToggle: true });
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== netPpsSeq) return;
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    applyRebootMarkers(netPpsChart, events, grid);
   } catch(e) {
     console.error(e);
   }

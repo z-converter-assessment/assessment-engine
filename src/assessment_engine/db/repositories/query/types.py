@@ -144,14 +144,19 @@ _RATE_PER_DIM_DEFS: dict[str, tuple[str, str]] = {
 
 # server_mount_usage 가상 mount 필터 — SQL fragment 단일 진실.
 # 모든 mount 합산·집계 SQL이 본 fragment를 적용. 변경 시 device_filters._VIRTUAL_MOUNT_PREFIXES와 동기화.
-# ServerMountUsage 모델에 fstype 컬럼이 없어 path 기반만 (storage detail mapper는 fstype도 사용 — defense in depth).
+# 데이터 볼륨 술어 — device_filters.is_data_volume 의 SQL 투영. server_mount_usage.major 활용
+# (major==0 = 블록 디바이스 없는 가상 fs: proc/sys/tmpfs/cgroup/overlay). fstype 은 메트릭에 없어 미적용
+# (inventory defense 전담 — squashfs 등은 agent 가 메트릭 거의 미발행). major NULL = 마이그레이션 전 행(path fallback).
 # 사용자 입력 0 — 정적 상수만이라 f-string 안전 (CLAUDE.md C5 whitelist).
-_VIRTUAL_MOUNT_SQL_FILTER = """
-    mount NOT LIKE '/proc%'
-    AND mount NOT LIKE '/sys%'
-    AND mount NOT LIKE '/dev/pts%'
-    AND mount NOT LIKE '/snap%'
-    AND mount NOT LIKE '/run/snapd%'
+_DATA_VOLUME_SQL_FILTER = """
+    (
+        mount ~ '^[A-Za-z]:'
+        OR (
+            (major IS NULL OR major <> 0)
+            AND mount <> '/boot'
+            AND mount NOT LIKE '/boot/%'
+        )
+    )
 """
 
 # 환경 시점값 capacity-weighted (시점별 sum(numerator)/sum(denominator) * 100). server_metrics 컬럼.

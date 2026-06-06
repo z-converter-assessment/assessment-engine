@@ -26,11 +26,11 @@ from assessment_engine.db.repositories.query.types import (
     _BUCKET_INFO,
     _CPU_NUMERATOR,
     _CPU_TOTAL_EXPR,
+    _DATA_VOLUME_SQL_FILTER,
     _ENV_SCALAR_WEIGHTED,
     _PHYS_DISK_SQL_FILTER,
     _RATE_PER_DIM_DEFS,
     _VIRTUAL_IFACE_SQL_FILTER,
-    _VIRTUAL_MOUNT_SQL_FILTER,
     TIME_RANGE_TD,
     AggFunc,
     BucketSize,
@@ -314,7 +314,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                             SUM(total_bytes - avail_bytes)::float / NULLIF(SUM(total_bytes), 0) * 100 AS v
                         FROM {ServerMountUsage.__tablename__}
                         WHERE collected_at >= :start AND collected_at <= :end {sid}
-                          AND {_VIRTUAL_MOUNT_SQL_FILTER}
+                          AND {_DATA_VOLUME_SQL_FILTER}
                           AND total_bytes > 0 AND avail_bytes IS NOT NULL
                         GROUP BY collected_at
                     )

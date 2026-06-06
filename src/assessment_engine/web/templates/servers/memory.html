@@ -20,9 +20,12 @@
     {% endif %}
   </dl>
   <hr style="border:none; border-top:1px solid #e2e8f0; margin:0 0 14px;">
-  <div id="snap-loading" style="color:#94a3b8; font-size:13px;">불러오는 중...</div>
+  <div id="snap-loading" class="text-meta" style="font-size:13px;">불러오는 중...</div>
   <div id="snap-body" style="display:none;">
-    <p class="text-meta" style="font-size:11px; margin:0 0 10px;">N/A : 해당 OS 에서 미측정하는 항목<br>— : 일시적으로 값 없음 (첫 수집·수집 끊김 등)</p>
+    <p class="text-meta" style="font-size:11px; margin:0 0 10px; line-height:1.8;">
+      <span class="identifier text-label" style="display:inline-block; min-width:36px;">N/A</span>해당 OS 에서 미측정하는 항목<br>
+      <span class="identifier text-label" style="display:inline-block; min-width:36px;">—</span>일시적으로 값 없음 (첫 수집·수집 끊김 등)
+    </p>
     <dl class="kv" style="margin-bottom:20px;">
       <dt>메모리 사용률</dt> <dd id="s-mem-pct">—</dd>
       <dt>Used</dt>          <dd id="s-mem-used">—</dd>
@@ -35,7 +38,7 @@
       <dt>스왑 Used</dt>   <dd id="s-swap-used">—</dd>
     </dl>
   </div>
-  <div id="snap-empty" style="display:none; color:#94a3b8; font-size:13px;">
+  <div id="snap-empty" class="text-meta" style="display:none; font-size:13px;">
     수집된 메트릭이 없습니다.
   </div>
 </div>
@@ -43,8 +46,8 @@
 <!-- 메모리 사용률 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2 class="card-title">메모리 사용률 추이<span class="print-only" id="mem-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-    <span id="mem-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <h2 class="card-title">메모리 사용률 추이<span class="print-only text-muted" id="mem-range-print" style="font-weight:normal; font-size:12px;"> — 1시간</span></h2>
+    <span id="mem-bucket-label" class="bucket-label"></span>
     <select class="chart-select no-print" id="mem-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
       <option value="1h">1시간</option>
@@ -59,10 +62,10 @@
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="mem-canvas"></canvas>
   </div>
-  <div id="mem-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+  <div id="mem-empty" class="text-meta" style="display:none; text-align:center; padding:40px 0; font-size:13px;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
-  <p style="font-size:11px; color:#94a3b8; margin:8px 0 0;">
+  <p class="chart-caption">
     음영 영역: 집계 구간 내 순간 최대 사용률과 평균의 차이.
   </p>
 </div>
@@ -70,8 +73,8 @@
 <!-- 메모리 구성 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2 class="card-title">메모리 구성 추이<span class="print-only" id="comp-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-    <span id="comp-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <h2 class="card-title">메모리 구성 추이<span class="print-only text-muted" id="comp-range-print" style="font-weight:normal; font-size:12px;"> — 1시간</span></h2>
+    <span id="comp-bucket-label" class="bucket-label"></span>
     <select class="chart-select no-print" id="comp-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
       <option value="1h">1시간</option>
@@ -83,11 +86,11 @@
     </select>
     <input type="datetime-local" id="comp-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
-  <p style="font-size:12px; color:#94a3b8; margin:-8px 0 14px;">전체 메모리 대비 비율 — Used / Cached / Buffers{% if server.os_family == 'windows' %} (Windows 는 Buffers·Cached 를 측정하지 않아 Used 만 표시){% endif %}</p>
+  <p class="text-meta" style="font-size:12px; margin:-8px 0 14px;">전체 메모리 대비 비율: Used / Available / Cached / Buffers{% if server.os_family == 'windows' %} (Windows 는 Cached·Buffers 미측정 — Used / Available 만 표시){% endif %}</p>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="comp-canvas"></canvas>
   </div>
-  <div id="comp-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+  <div id="comp-empty" class="text-meta" style="display:none; text-align:center; padding:40px 0; font-size:13px;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <div id="comp-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
@@ -96,8 +99,8 @@
 <!-- 스왑 사용률 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2 class="card-title">스왑 사용률 추이<span class="print-only" id="swap-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-    <span id="swap-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <h2 class="card-title">스왑 사용률 추이<span class="print-only text-muted" id="swap-range-print" style="font-weight:normal; font-size:12px;"> — 1시간</span></h2>
+    <span id="swap-bucket-label" class="bucket-label"></span>
     <select class="chart-select no-print" id="swap-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
       <option value="1h">1시간</option>
@@ -115,10 +118,10 @@
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="swap-canvas"></canvas>
   </div>
-  <div id="swap-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+  <div id="swap-empty" class="text-meta" style="display:none; text-align:center; padding:40px 0; font-size:13px;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
-  <p style="font-size:11px; color:#94a3b8; margin:8px 0 0;">
+  <p class="chart-caption">
     음영 영역: 집계 구간 내 순간 최대 사용률과 평균의 차이.
   </p>
 </div>
@@ -133,4 +136,4 @@
 <script src="/static/js/pages/memory.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} data-server-id="{{ server.public_id }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}
+{% block body_attrs %} class="metric-head" data-server-id="{{ server.public_id }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}

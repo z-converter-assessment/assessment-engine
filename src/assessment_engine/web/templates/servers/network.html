@@ -20,21 +20,21 @@
   </dl>
 
   <div class="section-title" style="margin-top:22px;">인터페이스 현황</div>
-  <p style="font-size:12px; color:#94a3b8; margin:0 0 14px;">연속 2회 측정의 delta 기반 처리량</p>
-  <div id="net-snapshot-loading" style="color:#94a3b8; font-size:13px;">불러오는 중...</div>
+  <p class="text-meta" style="font-size:12px; margin:0 0 14px;">물리 인터페이스만 표시 · 연속 2회 측정의 delta 기반 처리량</p>
+  <div id="net-snapshot-loading" class="text-meta" style="font-size:13px;">불러오는 중...</div>
   <table id="net-snapshot-table" style="display:none;">
     <thead>
       <tr>
         <th>Interface</th>
-        <th>RX</th>
-        <th>TX</th>
+        <th>RX (처리량)</th>
+        <th>TX (처리량)</th>
         <th>RX (pps)</th>
         <th>TX (pps)</th>
       </tr>
     </thead>
     <tbody id="net-snapshot-tbody"></tbody>
   </table>
-  <div id="net-snapshot-empty" style="display:none; color:#94a3b8; font-size:13px;">
+  <div id="net-snapshot-empty" class="text-meta" style="display:none; font-size:13px;">
     수집된 네트워크 I/O 데이터가 없습니다.
     에이전트가 최소 2회 메트릭을 전송하면 표시됩니다.
   </div>
@@ -43,8 +43,8 @@
 <!-- 네트워크 I/O 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2 class="card-title">네트워크 I/O 추이<span class="print-only" id="net-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-    <span id="net-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <h2 class="card-title">네트워크 I/O 추이<span class="print-only text-muted" id="net-range-print" style="font-weight:normal; font-size:12px;"> — 1시간</span></h2>
+    <span id="net-bucket-label" class="bucket-label"></span>
     <select class="chart-select no-print" id="net-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
       <option value="1h">1시간</option>
@@ -59,20 +59,20 @@
   <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="net-chart-canvas"></canvas>
   </div>
-  <div id="net-chart-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+  <div id="net-chart-empty" class="text-meta" style="display:none; text-align:center; padding:40px 0; font-size:13px;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <div id="net-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-  <p style="font-size:11px; color:#94a3b8; margin:8px 0 0;">
-    음영 영역: 집계 구간 내 순간 최대 처리량과 평균의 차이.
+  <p class="chart-caption">
+    물리 인터페이스만 표시 · 음영 영역은 집계 구간 내 순간 최대 처리량과 평균의 차이.
   </p>
 </div>
 
 <!-- 네트워크 PPS 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2 class="card-title">네트워크 PPS 추이<span class="print-only" id="net-pps-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-    <span id="net-pps-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <h2 class="card-title">네트워크 PPS 추이<span class="print-only text-muted" id="net-pps-range-print" style="font-weight:normal; font-size:12px;"> — 1시간</span></h2>
+    <span id="net-pps-bucket-label" class="bucket-label"></span>
     <select class="chart-select no-print" id="net-pps-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
       <option value="1h">1시간</option>
@@ -87,12 +87,12 @@
   <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="net-pps-canvas"></canvas>
   </div>
-  <div id="net-pps-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+  <div id="net-pps-empty" class="text-meta" style="display:none; text-align:center; padding:40px 0; font-size:13px;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <div id="net-pps-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-  <p style="font-size:11px; color:#94a3b8; margin:8px 0 0;">
-    음영 영역: 집계 구간 내 순간 최대 PPS와 평균의 차이.
+  <p class="chart-caption">
+    물리 인터페이스만 표시 · 음영 영역은 집계 구간 내 순간 최대 PPS와 평균의 차이.
   </p>
 </div>
 
@@ -106,4 +106,4 @@
 <script src="/static/js/pages/network.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} data-server-id="{{ network.public_id }}"{% endblock %}
+{% block body_attrs %} class="metric-head" data-server-id="{{ network.public_id }}"{% endblock %}

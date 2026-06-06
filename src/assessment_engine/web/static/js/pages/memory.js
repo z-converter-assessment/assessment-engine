@@ -9,7 +9,6 @@
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtLabel, getAnchorEnd, initAnchor,
         makeBucketGrid, bindToggle, initAutoRefresh, safeArray,
-        fetchRebootEvents, applyRebootMarkers,
         buildAvgMaxDatasets, renderChipLegend } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
@@ -157,9 +156,6 @@ function makePctLoader(def) {
           options: makeOptions(),
         });
       }
-      const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-      if (seq !== state.seq) return;
-      applyRebootMarkers(state.chart, events, grid);
     } catch(e) { console.error(e); }
   }
 
@@ -290,10 +286,6 @@ async function loadCompChart() {
       ...toRows(buffersRows, 'buffers'),
     ];
     renderCompChart(rows, capturedRange, capturedAnchor);
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== compSeq) return;
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    applyRebootMarkers(compChart, events, grid);
   } catch(e) { console.error(e); }
 }
 

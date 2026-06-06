@@ -26,10 +26,14 @@
     table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
     thead { background: #f8fafc; }
     th { padding: 9px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid #e2e8f0; }
-    td { padding: 11px 14px; border-top: 1px solid #f1f5f9; color: #334155; vertical-align: middle; }
+    /* 서버상세·메트릭세부 페이지(body.metric-head): 테이블 헤더 회색 + 흰 글씨 (폰트 크기·체·위계는 동일, 색만).
+       패널색(#eaeff5)과 slate-500(#64748b)의 중간 톤. */
+    body.metric-head thead { background: #a7b2c0; }
+    body.metric-head th { color: #fff; border-bottom-color: #a7b2c0; }
+    td { padding: 11px 14px; border-top: 1px solid #f1f5f9; color: #334155; vertical-align: middle; font-size: 13px; }
     tr:hover td { background: #f8fafc; }
     /* 서버 목록 — 칼럼 많아 기본 표보다 조밀하게: 셀 패딩 축소·폰트 통일·세로 가운데. */
-    .server-list-table th, .server-list-table td { padding: 7px 11px; font-size: 13px; }
+    .server-list-table th, .server-list-table td { padding: 7px 11px; }
     .server-list-table th { font-size: 11px; }
     .server-list-table td { vertical-align: middle; }
     /* 모든 link 일관 — color + 항상 밑줄 (옅음). hover 시 강조. 별도 class (.row-link 등) 와 단일 진실 정합. */
@@ -46,6 +50,15 @@
     .badge-cat-container { background: #e0f2fe; color: #075985; }
     .badge-cat-monitor   { background: #fef9c3; color: #713f12; }
     .badge-cat-unknown   { background: #f1f5f9; color: #64748b; }
+    /* 서비스 그룹 좌측 액센트 바 — 카테고리 색으로 소속 표현 (외곽 박스 대신, card-title 좌측 바와 동일 언어). */
+    .svc-group { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-left: 9px; border-left: 3px solid #cbd5e1; }
+    .svc-group.cat-web       { border-left-color: #1d4ed8; }
+    .svc-group.cat-db        { border-left-color: #9d174d; }
+    .svc-group.cat-cache     { border-left-color: #115e59; }
+    .svc-group.cat-mq        { border-left-color: #6b21a8; }
+    .svc-group.cat-container { border-left-color: #075985; }
+    .svc-group.cat-monitor   { border-left-color: #713f12; }
+    .svc-group.cat-unknown   { border-left-color: #64748b; }
     /* USE Method 분류 badge — list/report 공유 (단일 진실). rec-swap은 메모리 부족 1차 신호 강조. */
     .rec-under_provisioned { background: #fee2e2; color: #b91c1c; }
     .rec-over_provisioned  { background: #dbeafe; color: #1d4ed8; }
@@ -91,7 +104,7 @@
     .attention-cat-item strong { font-weight: 700; }
     .kv { display: grid; grid-template-columns: 160px 1fr; gap: 7px 16px; }
     .kv dt { color: #64748b; font-size: 13px; }
-    .kv dd { color: #0f172a; font-weight: 500; font-size: 13px; }
+    .kv dd { color: #0f172a; font-weight: 500; font-size: 13px; overflow-wrap: anywhere; }
     /* kv 그룹 소제목 — 전폭 행, 상단 구분선. 사양/네트워크/스토리지/운영·식별 묶음. */
     .kv dt.kv-group { grid-column: 1 / -1; color: #94a3b8; font-size: 11px; font-weight: 600; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f1f5f9; }
     .kv dt.kv-group:first-child { margin-top: 0; padding-top: 0; border-top: none; }
@@ -205,6 +218,10 @@
     .chart-select { padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; color: #334155; font-size: 12px; cursor: pointer; height: 30px; box-sizing: border-box; }
     .chart-select:hover { border-color: #94a3b8; }
     .chart-anchor { padding: 4px 6px; border: 1px solid #e2e8f0; border-radius: 5px; font-size: 11px; color: #475569; background: #fff; cursor: pointer; height: 32px; box-sizing: border-box; }
+    /* 차트 버킷(분해력) 표시 배지 — cpu/memory/storage/network 차트 페이지 공용. */
+    .bucket-label { font-size: 12px; font-weight: 400; color: #475569; background: #fff; border: 1px solid #cbd5e1; padding: 3px 8px; border-radius: 4px; }
+    /* 차트 하단 설명 캡션 — 전 차트 페이지 공용 (음영 영역 설명 등). */
+    .chart-caption { font-size: 11px; color: #94a3b8; margin: 8px 0 0; }
     .toggle { padding: 5px 12px; border: 1px solid #e2e8f0; border-radius: 5px; background: #fff; color: #475569; font-size: 12px; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
     .toggle:hover { background: #f8fafc; border-color: #cbd5e1; }
     .toggle.active { background: #0f172a; color: #fff; border-color: #0f172a; }

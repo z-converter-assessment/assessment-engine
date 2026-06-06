@@ -31,11 +31,11 @@ from assessment_engine.web.services.cache_serializer import (
     server_detail_to_json,
 )
 from assessment_engine.web.services.device_filters import (
+    is_data_volume,
     is_lvm_disk,
     is_partition,
     is_physical_disk,
     is_virtual_interface,
-    is_virtual_mount,
 )
 from assessment_engine.web.services.mappers.attention import (
     build_environment_overview,
@@ -327,7 +327,7 @@ class QueryService:
         # 검증은 라우터의 Query(MetricType) Literal Pydantic 단계에서 이미 처리됨.
         dtos = await self.repo.metric_chart(server_id, metric_type, dimension, time_range, bucket, agg, end)
         if metric_type == "fs.usage_percent":
-            dtos = [d for d in dtos if not is_virtual_mount(None, d.dimension)]
+            dtos = [d for d in dtos if not is_data_volume(d.dimension)]
         if metric_type in _NET_METRIC_TYPES:
             dtos = [d for d in dtos if not is_virtual_interface(d.dimension)]
         if device_category is not None and metric_type in _DISK_METRIC_TYPES:

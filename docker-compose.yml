@@ -122,6 +122,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # dev 편의 — host migrations 를 wheel 동봉 경로에 bind mount. src 코드(app-base)와 동일하게
+    # 새 revision 을 재빌드 없이 인식(migrate 는 app-base 미상속이라 별도 명시).
+    volumes:
+      - ./migrations:/usr/local/lib/python3.12/site-packages/assessment_engine/migrations
     restart: "no"
 
   web:

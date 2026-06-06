@@ -10,7 +10,6 @@
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
         getAnchorEnd, initAnchor,
         makeBucketGrid, joinToGrid, bindToggle, initAutoRefresh, safeArray,
-        fetchRebootEvents, applyRebootMarkers,
         buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
@@ -161,10 +160,6 @@ async function loadPhysChart() {
     ];
     if (physChart) { physChart.destroy(); physChart = null; }
     physChart = renderIoChartTo('io-phys-canvas', 'io-phys-chart-empty', 'io-phys-legend', physAvgRows, physMaxRows, capturedRange, null, capturedAnchor);
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== physSeq) return;
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    applyRebootMarkers(physChart, events, grid);
   } catch(e) { console.error(e); }
 }
 
@@ -271,10 +266,6 @@ async function loadFsChart() {
     if (seq !== fsSeq) return;
     if (!Array.isArray(avgRows)) return;
     renderFsChart(avgRows, Array.isArray(maxRows) ? maxRows : [], capturedRange, capturedAnchor);
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== fsSeq) return;
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    applyRebootMarkers(fsChart, events, grid);
   } catch(e) { console.error(e); }
 }
 

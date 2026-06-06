@@ -183,8 +183,7 @@ dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.doc
 
 | 필드 | 메시지 | drop 사유 |
 |------|--------|-----------|
-| `mounts[].major/minor` | metrics | 시계열 테이블 (`server_mount_usage`) 에 컬럼 없음. inventory 동일 필드만 mount-disk 조인에 활용 |
-| `disk_io[].major/minor` | metrics | 동일 — `server_disk_io` 시계열 테이블에 컬럼 없음. compute_disk_io 분류는 device 이름 정규식 |
+| `disk_io[].major/minor` | metrics | `server_disk_io` 시계열 테이블에 컬럼 없음. compute_disk_io 분류는 device 이름 정규식 |
 | `mounts[].free_bytes/avail_bytes` | inventory | 인벤토리는 정적 정보 (`total_bytes`) 만 저장. 동적 사용량은 `server_mount_usage` 시계열로 분리 (`consumer/mappers.py:to_inventory_create`) |
 | `boot_time` / `agent_started_at` | error | error 는 로깅 외 활용처 없음 — counter reset 식별과 무관 |
 
@@ -196,6 +195,7 @@ dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.doc
 |------|--------|----------|
 | `disks[].major/minor` | inventory | `web/services/device_filters.find_parent_disk()` 에서 mount-disk 조인 키 |
 | `mounts[].major/minor` | inventory | `web/services/mappers.to_storage_detail` 에서 disks 와 매칭 -> `MountUsageItem.device_name` -> storage.html "Device" 컬럼 |
+| `mounts[].major/minor` | metrics | `server_mount_usage.major`/`.minor` 컬럼 저장 (`consumer/mappers.py:to_metric_create`). data-volume 판단 단일 신호 — `device_filters.is_data_volume`(major==0 = 블록 디바이스 없는 가상 fs) + 집계 SQL `_DATA_VOLUME_SQL_FILTER` |
 | `boot_time` (inventory) | inventory | `server_inventory.boot_time` 컬럼 저장 + `server_inventory_history` append 시 비교. detail.html / metrics.html 에 KST 표시 |
 | `agent_started_at` (inventory) | inventory | `server_inventory.agent_started_at` 컬럼 저장 + history 변경 trigger. 발행 프로세스 재시작 이벤트 감지의 1차 단서 |
 | `boot_time` (metrics) | metrics | 시계열 4 테이블 모두 (`server_metrics`·`server_disk_io`·`server_net_io`·`server_mount_usage`) `boot_time` 컬럼 저장. metrics·disk_io·net_io 는 `metrics_calculator._is_counter_reset` 이 두 시점 비교 -> 시스템 재부팅 시 delta 건너뛰기. mount_usage 는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 위해 보존 (CLAUDE.md C1 + B) |
@@ -262,7 +262,7 @@ loop 디바이스 I/O 는 sda 에도 이미 반영된다 (`앱 read -> loop0(squ
 - 사용자 공간 파일시스템만 포함. 커널·가상 마운트 제외
 - 제외 fstype: `proc`, `sysfs`, `devtmpfs`, `devpts`, `squashfs`, `overlay`, `cgroup`, `cgroup2` 등
 
-엔진측 `device_filters.py` (`is_virtual_mount()`, `is_physical_disk()`) 는 유지 — defense in depth (옛 발행 버전 비대칭 배포 대응, 새 가상 fstype 등장 시 hot-fix, 발행 측 필터 버그 시 최종 방어선).
+엔진측 `device_filters.py` (`is_data_volume()`, `is_physical_disk()`) 는 유지 — defense in depth (옛 발행 버전 비대칭 배포 대응, major==0 가상 fs hot-fix, 발행 측 필터 버그 시 최종 방어선).
 
 ### Windows 한정
 

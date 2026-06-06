@@ -192,7 +192,7 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 
 ## E6. 정적 자원 — JS 외부화 의무
 
-디렉토리 구조 / `chart-utils.js` base.html 단일 로드 / `ChartUtils` API / 페이지별 .js / Reboot marker plugin: `docs/architecture/web/static-assets.md`. 외부화 강제 채널: #F5.
+디렉토리 구조 / `chart-utils.js` base.html 단일 로드 / `ChartUtils` API / 페이지별 .js: `docs/architecture/web/static-assets.md`. 외부화 강제 채널: #F5.
 
 ## E7. 도메인 분류 책임 (P2)
 

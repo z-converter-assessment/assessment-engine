@@ -25,9 +25,6 @@ src/assessment_engine/web/static/js/
 | `bindToggle(groupId, onChange)` | range/agg 컨트롤 바인딩 — element 가 `<select>`면 change, `.toggle` 버튼이면 click 자동 분기 (호출처 동일) |
 | `initAutoRefresh(onRefresh, intervalMs)` | 30초 polling 자동 갱신 (setInterval + pagehide 정리) |
 | `safeArray(arr)` | `Array.isArray` 방어 (P4 c) |
-| `fetchRebootEvents(serverId, range, anchor)` | reboot/restart 이벤트 fetch (vertical marker용) |
-| `applyRebootMarkers(chart, events, gridMs)` | 차트 인스턴스에 marker 옵션 주입 + redraw |
-| `rebootMarkersPlugin` | Chart.js 글로벌 plugin (`afterDraw`로 dashed line 그림). chart-utils 로드 시 자동 등록 |
 | `renderChipLegend(container, chart)` | 색점+라벨 칩(pill) 토글 범례 — dataset 1개당 1칩, 클릭 시 show/hide. comp/load 계열 (cpu·memory) |
 | `buildAvgMaxDatasets` / `buildAvgMaxLegend(id, chart, opts)` | avg+max ghost dataset·범례. `withToggle`=칩(avg/max 쌍 1칩 함께 토글 — storage io·network·metrics 통일), `codeLabel`=정적 선+code 라벨(현재 미사용) |
 
@@ -64,10 +61,11 @@ src/assessment_engine/web/static/js/
 
 ### 차트 컨트롤 (제목줄 통합)
 - 차트 헤더 = `.chart-head` 단일 행: 제목(h2 좌측) + bucket-label·구간·앵커·집계 컨트롤(우측, bucket-label 부터 `margin-left:auto`). 좁아지면 그룹 단위 wrap. (옛 별도 컨트롤 행 폐기.)
+- 버킷 라벨 = `<span class="bucket-label">` 배지 (현재 버킷=분해력 표시 — cpu/memory/storage/network 차트 페이지 공용 클래스, base.html 단일 진실). 성능 추이(metrics)는 전역 단일 컨트롤이라 높이·정렬이 달라 별도 스타일.
 - 구간/집계 = `<select class="chart-select">` 드롭다운 (옛 `.toggle` 버튼 그룹 대체 — 너비 절약). `bindToggle` 이 select/button 자동 분기라 JS 호출 동일.
 - 앵커 = `<input type="datetime-local" class="chart-anchor">`. select·anchor 높이 통일(`box-sizing`).
 - 다중 차트 한 페이지(network: I/O·PPS)는 차트별 독립 구간/앵커 (공유 X).
-- 성능 추이(metrics — 서버 상세 `/{id}/metrics` + 환경 `/environment/metrics`)는 예외 — 추이 차트 10개를 2열 5쌍으로 모은 종합 뷰라, 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(카드 밖 좌상단, 버킷/구간/앵커 + '적용' 버튼 — 앵커는 적용 클릭으로 반영·구간 select 즉시. 수집 기준 표시 폐기)이 모든 차트 동기. 5행 2열을 단일 `.card.perf-merged` 로 통합(행=`.perf-pair.perf-row`, 행 구분선 #e2e8f0; 인쇄는 `.perf-merged` 내부 분기 허용 + `.perf-row` 단위 `page-break-inside:avoid`). 서버 상세는 서버 정보 카드 제거(상세 탭에서 확인). 리부트/재시작 마커 미표시(가독성). 디스크 read+write·네트워크 RX+TX 각각 통합 1 차트.
+- 성능 추이(metrics — 서버 상세 `/{id}/metrics` + 환경 `/environment/metrics`)는 예외 — 추이 차트 10개를 2열 5쌍으로 모은 종합 뷰라, 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(카드 밖 좌상단, 버킷/구간/앵커 + '적용' 버튼 — 앵커는 적용 클릭으로 반영·구간 select 즉시. 수집 기준 표시 폐기)이 모든 차트 동기. 5행 2열을 단일 `.card.perf-merged` 로 통합(행=`.perf-pair.perf-row`, 행 구분선 #e2e8f0; 인쇄는 `.perf-merged` 내부 분기 허용 + `.perf-row` 단위 `page-break-inside:avoid`). 서버 상세는 서버 정보 카드 제거(상세 탭에서 확인). 디스크 read+write·네트워크 RX+TX 각각 통합 1 차트.
 
 ### 범례 (칩 토글)
 - `.legend-chip` (pill 버튼 + `.legend-dot` 색점): 클릭 시 dataset show/hide, 숨김은 `aria-pressed=false`로 흐려짐. `button`+`aria-pressed`라 키보드 토글 지원.
@@ -76,8 +74,11 @@ src/assessment_engine/web/static/js/
 ### avg + max ghost 패턴
 1차 dataset = avg (visible). 2차 dataset = max (`borderColor:'transparent'`, `realData` 보유) — tooltip에서 `realData`로 max 표시. legend는 짝수 인덱스만.
 
-### Reboot/Restart marker
-plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그림. 색상: `reboot=#ef4444`, `restart=#f59e0b`. 라벨 위치: chartArea top + 11px.
+### 추세선 · 면적 음영 정책 (예외 0)
+- 추이 차트의 면적 음영은 avg+max ghost(`buildAvgMaxDatasets`, avg dataset `fill:'+1'`)만 — avg~max 사이를 채워 burst(순간 최대−평균 차)를 시각화. 이것이 "음영"의 유일한 의미.
+- 선 아래 zero 까지 채우는 area fill(`fill:true`) 금지 — 추이 차트는 추세선만(`fill:false`). area fill 은 burst 음영과 혼동되고 값 밀집 시 가독성을 떨어뜨림.
+- 15분 구간(1분 버킷)은 버킷당 데이터 1포인트라 max=avg → ghost 음영 0. `buildAvgMaxDatasets` 가 `bMs <= BUCKET_MS['1m']` 일 때 maxRows 를 비워 전 차트 일괄 자동 비활성.
+- 코어당 로드 차트(cpu 상세·성능탭)는 raw load 를 `load / cpu_cores` 로 정규화(클라 P4 표시 변환, 서버 1대 cpu_cores 고정이라 SQL `Σload/Σcores` 와 동치) — 1.0 = 코어당 포화. 스냅샷·차트·환경 추이 모두 코어당으로 일관.
 
 ## 색 테마 — 주색 단일 진실 (예외 0)
 - 주색 = `#3b82f6` (blue-500). 환경 평균 활용률 도넛 게이지(`_UTIL_COLOR_GAUGE`, mappers/attention.py) · right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over, mappers/shared.py) · 서버목록 `.rec-over_provisioned` 배지가 동일 주색.
@@ -87,6 +88,8 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 - 상태(is_online) 표시 = 불(dot) 아닌 폰트색 (`.status-on` #16a34a / `.status-off` #94a3b8, 10px). 공간 절약·명확. 프로젝트 전반(목록·보고서 표·단일 보고서·상세 헤더) 통일.
 - 운영 신호 경고 = 호박색(amber) 도메인 (`.attn-active`·`.attention-cat-item[active]` #fef3c7/#92400e). 정상(0건)은 회색 outline, 발화는 호박 채움 — 경고 의미를 색으로. 테마 파랑(브랜드)과 영역 분리.
 - 네트워크 토폴로지 노드 색(`network-topology.js`·범례 동기화): subnet #64748b / Linux #3b82f6 / Windows #8b5cf6(파랑과 구분되는 보라) / 다중 서브넷(multi-homed) #f59e0b. 범례 표기는 "다중 서브넷".
+- 테이블 헤더 = 기본 연한(`thead` #f8fafc / `th` #64748b). 서버 상세·메트릭세부 페이지(`body.metric-head`)만 진한 회색 `#a7b2c0` + 흰 글씨 — 데이터 표 헤더 강조(폰트 크기·위계 동일, 색만). 목록·보고서는 기본 유지. `#a7b2c0` = 패널톤(#eaeff5)과 slate-500(#64748b)의 중간 — 흰 글씨 가독 하한.
+- 파일시스템 usage 게이지 막대 = 주색 `#3b82f6` 단색(`_MOUNT_BAR_COLOR`, mappers/server.py). 사용률 위험도는 게이지 색이 아니라 `badge_class`(`badge-warn`/`badge-danger`)로 — 게이지는 톤 통일, 경고는 배지로 분리.
 - 색 상수 단일 진실 = `view-models.md` "신호 임계값 단일 정의".
 
 ## 반응형·정렬 레이아웃 (예외 0)
@@ -139,9 +142,13 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 | .metric-sub | 11px / #94a3b8 | metric-card 부가 문구 |
 | .badge | 12px / 600 | 분류·카테고리 표시 |
 | .rec-badge | 11px / 600 | table cell 안 분류 badge (좁은 셀용) |
+| td (표 데이터) | 13px / #334155 | 모든 표 셀 — 전역 단일(목록·상세·보고서 통일). inline font-size 로 override 금지 |
+| .chart-caption | 11px / #94a3b8 | 차트 하단 설명 캡션 (음영 영역 등) — 전 차트 페이지 공용 |
+| .chart-desc | 11px / #94a3b8 | 차트 상단 설명 (성능탭 차트별 한 줄 설명) |
+| .chart-empty | 13px / #94a3b8 / center | 차트 빈상태 오버레이 |
 | code | 12px / monospace | inline code (식별자) |
 
-금지: 9px·10px·32px 등 카탈로그 외 값을 inline 으로 박지 않음. 새 위계가 필요하면 base.html 에 명명 클래스 추가 후 사용.
+금지: 9px·10px·32px 등 카탈로그 외 값, 그리고 inline `font-size`/`font-weight`/`color` 를 박지 않음 — 크기·굵기는 위계/컴포넌트 클래스, 색은 색 유틸(`.text-meta` 등)로. 새 위계가 필요하면 base.html 에 명명 클래스 추가 후 사용. 8/9/10px 은 `.status-on/off` 배지와 `@media print` 에만 허용.
 
 ### 박스 컴포넌트 (대형부터)
 

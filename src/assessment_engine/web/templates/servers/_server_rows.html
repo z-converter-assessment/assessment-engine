@@ -34,7 +34,7 @@
   <td class="text-label">{{ s.os_display }}</td>
   <td>
     {% if s.recommendation_label %}
-      <span style="font-size:11px; color:#475569;">{{ s.recommendation_label }}</span>
+      <span class="text-label" style="font-size:11px;">{{ s.recommendation_label }}</span>
     {% else %}
       <span class="text-meta" style="font-size:11px;">—</span>
     {% endif %}
@@ -43,7 +43,7 @@
     {% if s.last_task %}
       <a class="task-cell" href="#" data-task-id="{{ s.last_task.task_id }}" title="{{ s.last_task.failure_label or '' }}">
         <span class="badge {{ s.last_task.badge_class }}">{{ s.last_task.badge_label }}</span>
-        <span style="font-size:11px; color:#64748b;">{{ s.last_task.created_at | kst }}</span>
+        <span class="text-muted" style="font-size:11px;">{{ s.last_task.created_at | kst }}</span>
       </a>
     {% else %}
       <span class="text-meta" style="font-size:11px;">—</span>

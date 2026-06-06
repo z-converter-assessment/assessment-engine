@@ -19,9 +19,12 @@
     <dd>{{ server.cpu_cores ~ ' 코어' if server.cpu_cores is not none else '-' }}</dd>
   </dl>
   <hr style="border:none; border-top:1px solid #e2e8f0; margin:0 0 14px;">
-  <div id="snap-loading" style="color:#94a3b8; font-size:13px;">불러오는 중...</div>
+  <div id="snap-loading" class="text-meta" style="font-size:13px;">불러오는 중...</div>
   <div id="snap-body" style="display:none;">
-    <p class="text-meta" style="font-size:11px; margin:0 0 10px;">N/A : 해당 OS 에서 미측정하는 항목<br>— : 일시적으로 값 없음 (첫 수집·수집 끊김 등)</p>
+    <p class="text-meta" style="font-size:11px; margin:0 0 10px; line-height:1.8;">
+      <span class="identifier text-label" style="display:inline-block; min-width:36px;">N/A</span>해당 OS 에서 미측정하는 항목<br>
+      <span class="identifier text-label" style="display:inline-block; min-width:36px;">—</span>일시적으로 값 없음 (첫 수집·수집 끊김 등)
+    </p>
     <dl class="kv" style="margin-bottom:20px;">
       <dt>CPU 사용률</dt><dd id="s-usage">—</dd>
       <dt>User</dt>      <dd id="s-user">—</dd>
@@ -29,16 +32,16 @@
       <dt>I/O Wait</dt>  <dd id="s-iowait">—</dd>
     </dl>
     <dl class="kv">
-      <dt>Load (1분)</dt>  <dd id="s-load1">—</dd>
-      <dt>Load (5분)</dt>  <dd id="s-load5">—</dd>
-      <dt>Load (15분)</dt> <dd id="s-load15">—</dd>
+      <dt>코어당 로드 (1분)</dt>  <dd id="s-load1">—</dd>
+      <dt>코어당 로드 (5분)</dt>  <dd id="s-load5">—</dd>
+      <dt>코어당 로드 (15분)</dt> <dd id="s-load15">—</dd>
       {% if server.cpu_cores %}
-      <dt style="color:#94a3b8; font-size:12px;">코어당 포화 기준</dt>
-      <dd style="color:#94a3b8; font-size:12px;">Load {{ server.cpu_cores }}.0 = 100%</dd>
+      <dt class="text-meta" style="font-size:12px;">포화 기준</dt>
+      <dd class="text-meta" style="font-size:12px;">1.0 = 코어당 run queue 1 (포화) · {{ server.cpu_cores }}코어 정규화</dd>
       {% endif %}
     </dl>
   </div>
-  <div id="snap-empty" style="display:none; color:#94a3b8; font-size:13px;">
+  <div id="snap-empty" class="text-meta" style="display:none; font-size:13px;">
     메트릭이 최소 2회 수집되면 표시됩니다.
   </div>
 </div>
@@ -47,8 +50,8 @@
 <div class="card">
   <div style="margin-bottom:14px;">
     <div class="chart-head">
-      <h2 class="card-title">CPU 사용률 추이<span class="print-only" id="usage-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-      <span id="usage-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+      <h2 class="card-title">CPU 사용률 추이<span class="print-only text-muted" id="usage-range-print" style="font-weight:normal; font-size:12px;"> — 1시간</span></h2>
+      <span id="usage-bucket-label" class="bucket-label"></span>
       <select class="chart-select no-print" id="usage-range-btns" aria-label="구간 선택">
         <option value="15m">15분</option>
         <option value="1h">1시간</option>
@@ -69,10 +72,10 @@
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="usage-canvas"></canvas>
   </div>
-  <div id="usage-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+  <div id="usage-empty" class="text-meta" style="display:none; text-align:center; padding:40px 0; font-size:13px;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
-  <ul style="font-size:11px; color:#94a3b8; margin:8px 0 0; line-height:1.9; padding-left:14px;">
+  <ul class="text-meta" style="font-size:11px; margin:8px 0 0; line-height:1.9; padding-left:14px;">
     <li><b class="text-muted">평균</b>: 집계 구간 내 평균 사용률 — 전반적인 부하 수준 파악</li>
     <li><b class="text-muted">최대</b>: 구간 내 순간 최고값 — 스파이크 탐지</li>
     <li><b class="text-muted">p95</b>: 상위 5% 이상치를 제외한 최대값 — 일시적 노이즈 없는 피크 기준</li>
@@ -82,8 +85,8 @@
 <!-- CPU 분류 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2 class="card-title">CPU 분류 추이<span class="print-only" id="comp-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-    <span id="comp-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <h2 class="card-title">CPU 분류 추이<span class="print-only text-muted" id="comp-range-print" style="font-weight:normal; font-size:12px;"> — 1시간</span></h2>
+    <span id="comp-bucket-label" class="bucket-label"></span>
     <select class="chart-select no-print" id="comp-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
       <option value="1h">1시간</option>
@@ -98,7 +101,7 @@
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="comp-canvas"></canvas>
   </div>
-  <div id="comp-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+  <div id="comp-empty" class="text-meta" style="display:none; text-align:center; padding:40px 0; font-size:13px;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <div id="comp-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
@@ -107,9 +110,9 @@
 <!-- 로드 평균 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2 class="card-title">코어당 로드 추이<span class="print-only" id="load-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
+    <h2 class="card-title">코어당 로드 추이<span class="print-only text-muted" id="load-range-print" style="font-weight:normal; font-size:12px;"> — 1시간</span></h2>
     {% if server.os_family != 'windows' %}
-    <span id="load-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <span id="load-bucket-label" class="bucket-label"></span>
     <select class="chart-select no-print" id="load-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
       <option value="1h">1시간</option>
@@ -128,10 +131,11 @@
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="load-canvas"></canvas>
   </div>
-  <div id="load-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+  <div id="load-empty" class="text-meta" style="display:none; text-align:center; padding:40px 0; font-size:13px;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <div id="load-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
+  <p class="chart-caption">코어당 로드 = load / 코어수({{ server.cpu_cores or '?' }}). 1.0 = 코어당 run queue 1(포화 기준).</p>
   {% endif %}
 </div>
 
@@ -145,4 +149,4 @@
 <script src="/static/js/pages/cpu.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} data-server-id="{{ server.public_id }}" data-cpu-cores="{{ server.cpu_cores if server.cpu_cores is not none else 4 }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}
+{% block body_attrs %} class="metric-head" data-server-id="{{ server.public_id }}" data-cpu-cores="{{ server.cpu_cores if server.cpu_cores is not none else 4 }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}
