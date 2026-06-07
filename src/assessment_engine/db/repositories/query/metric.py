@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, text
 
-from assessment_engine.boot_time import BOOT_TIME_JITTER_TOLERANCE
 from assessment_engine.db.dtos.outbound import (
     DashboardRaw,
     DiskIoRaw,
@@ -31,15 +30,13 @@ from assessment_engine.db.repositories.query.types import (
     _PHYS_DISK_SQL_FILTER,
     _RATE_PER_DIM_DEFS,
     _VIRTUAL_IFACE_SQL_FILTER,
+    BOOT_JITTER_SEC,
     TIME_RANGE_TD,
     AggFunc,
     BucketSize,
     MetricType,
     TimeRange,
 )
-
-# boot_time 지터 허용치(초) — boot_time.BOOT_TIME_JITTER_TOLERANCE 단일 진실에서 파생. SQL bound param 으로 주입.
-_BOOT_JITTER_SEC = int(BOOT_TIME_JITTER_TOLERANCE.total_seconds())
 
 # table 매핑 — types.py 가 ORM import 안 하므로 본 모듈에서 ORM __tablename__ 결합.
 _RATE_PER_DIM: dict[str, tuple[str, str, str]] = {
@@ -278,14 +275,18 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 FROM per_ts GROUP BY ts ORDER BY ts
             """)
             params["window_start"] = start - bucket_td
-            params["jitter_sec"] = _BOOT_JITTER_SEC
+            params["jitter_sec"] = BOOT_JITTER_SEC
         elif metric_type in _ENV_SCALAR_WEIGHTED:
             num, den = _ENV_SCALAR_WEIGHTED[metric_type]
+            # swap_total=0(swap 미설정 VM)도 0-line 표시 — den=0 행 제외 시 swapless 서버
+            # 차트가 row 누락 → empty 표시(운영자 혼란)라 COALESCE 로 0% 환산.
+            # mem 은 mem_total>0 이라 영향 없음 (NULLIF 가드만 작동).
             sql = text(f"""
                 WITH per_ts AS (
-                    SELECT collected_at, SUM({num})::float / NULLIF(SUM({den}), 0) * 100 AS v
+                    SELECT collected_at,
+                        COALESCE(SUM({num})::float / NULLIF(SUM({den}), 0) * 100, 0) AS v
                     FROM {ServerMetrics.__tablename__}
-                    WHERE collected_at >= :start AND collected_at <= :end {sid} AND {den} > 0
+                    WHERE collected_at >= :start AND collected_at <= :end {sid}
                     GROUP BY collected_at
                 )
                 SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension
@@ -378,7 +379,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 FROM per_ts GROUP BY ts{dim_grp} ORDER BY ts{dim_grp}
             """)
             params["window_start"] = start - bucket_td
-            params["jitter_sec"] = _BOOT_JITTER_SEC
+            params["jitter_sec"] = BOOT_JITTER_SEC
         else:
             raise AssertionError(f"unsupported metric_type {metric_type!r}")
 
@@ -437,7 +438,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 "end": end,
                 # LAG 베이스 buffer — start 직전 30일 (그 안에 prev_boot 행 잡힘).
                 "buffer_start": start - timedelta(days=30),
-                "jitter_sec": _BOOT_JITTER_SEC,
+                "jitter_sec": BOOT_JITTER_SEC,
             },
         )
         return [

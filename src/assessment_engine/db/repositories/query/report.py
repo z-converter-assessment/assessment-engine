@@ -18,6 +18,7 @@ from assessment_engine.db.repositories.query.types import (
     _DATA_VOLUME_SQL_FILTER,
     _PHYS_DISK_SQL_FILTER,
     _VIRTUAL_IFACE_SQL_FILTER,
+    BOOT_JITTER_SEC,
 )
 
 
@@ -65,7 +66,8 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     END AS iowait_pct
                 FROM cpu_deltas
                 WHERE d_total > 0
-                  AND (boot_time IS NULL OR prev_boot IS NULL OR boot_time = prev_boot)
+                  AND (boot_time IS NULL OR prev_boot IS NULL
+                       OR ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) <= :jitter_sec)
             ),
             cpu_stats AS (
                 SELECT server_id,
@@ -149,7 +151,9 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             WHERE s.id = ANY(:sids)
             ORDER BY s.hostname
         """)
-        result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
+        result = await self.session.execute(
+            sql, {"sids": server_ids, "start": start, "end": end, "jitter_sec": BOOT_JITTER_SEC}
+        )
 
         return [
             ReportRowRaw(
@@ -515,7 +519,8 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 SELECT d_idle, d_total
                 FROM cpu_deltas
                 WHERE d_total > 0 AND d_idle IS NOT NULL
-                  AND (boot_time IS NULL OR prev_boot IS NULL OR boot_time = prev_boot)
+                  AND (boot_time IS NULL OR prev_boot IS NULL
+                       OR ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) <= :jitter_sec)
             )
             SELECT
                 -- capacity-weighted: 서버별 평균이 아니라 전 서버·전 시점 delta 합으로 통합 비율.
@@ -538,7 +543,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 (SELECT COUNT(DISTINCT server_id) FROM server_metrics
                  WHERE collected_at >= :start AND collected_at <= :end{sid}) AS sample_size
         """)
-        params: dict = {"start": start, "end": end}
+        params: dict = {"start": start, "end": end, "jitter_sec": BOOT_JITTER_SEC}
         if server_ids:
             params["sids"] = server_ids
         result = await self.session.execute(sql, params)

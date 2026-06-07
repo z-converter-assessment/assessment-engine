@@ -537,9 +537,7 @@ class QueryService:
         trend_start = now - TIME_RANGE_TD[trend_range]
         cpu_trend = await self.repo.metric_trend("cpu.usage_percent", trend_start, now, trend_bi, trend_td)
         mem_trend = await self.repo.metric_trend("mem.usage_percent", trend_start, now, trend_bi, trend_td)
-        disk_trend = await self.repo.metric_trend(
-            "disk.usage_percent", trend_start, now, trend_bi, trend_td
-        )
+        disk_trend = await self.repo.metric_trend("disk.usage_percent", trend_start, now, trend_bi, trend_td)
         return DashboardLive(
             overview=self._assemble_overview(details, util, raws_period, online_by_id),
             attention=self._assemble_attention(raws_period, gap_raws, restart_counts, now, _ATTENTION_LIMIT_EACH),
@@ -609,15 +607,9 @@ class QueryService:
         if server_ids:
             bi, bucket_td = _BUCKET_INFO[AUTO_BUCKET.get(time_range, "1h")]
             trend_start = end_dt - TIME_RANGE_TD[time_range]
-            cpu_series = await self.repo.metric_trend(
-                "cpu.usage_percent", trend_start, end_dt, bi, bucket_td
-            )
-            mem_series = await self.repo.metric_trend(
-                "mem.usage_percent", trend_start, end_dt, bi, bucket_td
-            )
-            disk_series = await self.repo.metric_trend(
-                "disk.usage_percent", trend_start, end_dt, bi, bucket_td
-            )
+            cpu_series = await self.repo.metric_trend("cpu.usage_percent", trend_start, end_dt, bi, bucket_td)
+            mem_series = await self.repo.metric_trend("mem.usage_percent", trend_start, end_dt, bi, bucket_td)
+            disk_series = await self.repo.metric_trend("disk.usage_percent", trend_start, end_dt, bi, bucket_td)
             trend = build_metric_trend(cpu_series, mem_series, disk_series)
 
         return to_environment_report(
@@ -691,15 +683,9 @@ class QueryService:
         # 환경 시계열 추이 — 선택 N대 한정 (metric_trend server_ids). 환경 보고서와 동일 버킷 정책.
         bi, bucket_td = _BUCKET_INFO[AUTO_BUCKET.get(time_range, "1h")]
         trend_start = end_dt - TIME_RANGE_TD[time_range]
-        cpu_series = await self.repo.metric_trend(
-            "cpu.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids
-        )
-        mem_series = await self.repo.metric_trend(
-            "mem.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids
-        )
-        disk_series = await self.repo.metric_trend(
-            "disk.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids
-        )
+        cpu_series = await self.repo.metric_trend("cpu.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids)
+        mem_series = await self.repo.metric_trend("mem.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids)
+        disk_series = await self.repo.metric_trend("disk.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids)
         trend = build_metric_trend(cpu_series, mem_series, disk_series)
 
         return to_environment_report(
@@ -788,12 +774,8 @@ class QueryService:
         # 시계열 추이 — 1대 한정 (환경·선택 동일 버킷 정책). 개별 서버 부하 패턴.
         bi, bucket_td = _BUCKET_INFO[AUTO_BUCKET.get(time_range, "1h")]
         trend_start = end_dt - TIME_RANGE_TD[time_range]
-        cpu_series = await self.repo.metric_trend(
-            "cpu.usage_percent", trend_start, end_dt, bi, bucket_td, [server_id]
-        )
-        mem_series = await self.repo.metric_trend(
-            "mem.usage_percent", trend_start, end_dt, bi, bucket_td, [server_id]
-        )
+        cpu_series = await self.repo.metric_trend("cpu.usage_percent", trend_start, end_dt, bi, bucket_td, [server_id])
+        mem_series = await self.repo.metric_trend("mem.usage_percent", trend_start, end_dt, bi, bucket_td, [server_id])
         disk_series = await self.repo.metric_trend(
             "disk.usage_percent", trend_start, end_dt, bi, bucket_td, [server_id]
         )

@@ -375,7 +375,7 @@ async def test_metric_chart_cpu_excludes_boot_time_change_point(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    """_chart_cpu_delta — boot_time 변경 시점은 reset 확정 → 차트 missing (CLAUDE.md B1).
+    """metric_chart(metric_trend 위임) — boot_time jitter 초과 변경 시점은 reset 확정 → 차트 missing (CLAUDE.md B1).
 
     재부팅 후 jiffies는 0부터 시작이지만 드물게 prev보다 큰 값일 수도. 옛 d<0 휴리스틱은
     못 잡지만 boot_time 비교는 spike 방지.
@@ -947,7 +947,7 @@ async def test_environment_utilization_server_ids_filter(
     assert both.sample_size == 2
 
 
-async def test_environment_metric_trend_capacity_weighted(
+async def test_metric_trend_capacity_weighted(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
@@ -978,9 +978,9 @@ async def test_environment_metric_trend_capacity_weighted(
                 ),
             )
     bi, td = "1 hour", timedelta(hours=1)  # 전 데이터 한 버킷으로 강제
-    cpu = await query_repo.environment_metric_trend("cpu.usage_percent", start, end, bi, td, [small, big])
+    cpu = await query_repo.metric_trend("cpu.usage_percent", start, end, bi, td, [small, big])
     # 버킷 Σd_num/Σd_total = (90+100)/(100+1000)*100 ≈ 17.3% (서버 동등가중이면 50%)
     assert cpu and cpu[-1].value is not None and 15.0 <= cpu[-1].value <= 20.0
-    mem = await query_repo.environment_metric_trend("mem.usage_percent", start, end, bi, td, [small, big])
+    mem = await query_repo.metric_trend("mem.usage_percent", start, end, bi, td, [small, big])
     # Σused/Σtotal = (180+200)/(200+2000)*100 ≈ 17.3% (서버 동등가중이면 50%)
     assert mem and mem[-1].value is not None and 15.0 <= mem[-1].value <= 20.0

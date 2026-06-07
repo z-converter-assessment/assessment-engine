@@ -4,7 +4,7 @@
 
 ## Context
 
-대시보드·보고서의 "환경 평균 활용률"(CPU/메모리/디스크)은 서버 동등가중으로 집계했다 — 서버별 평균을 낸 뒤 서버 간 단순 평균(서버 1대=1표). `environment_utilization`(전체 환경)과 `_selection_utilization`(선택 N대, base.rows 재합성), `environment_metric_trend`(추이 차트)가 모두 이 방식이었다.
+대시보드·보고서의 "환경 평균 활용률"(CPU/메모리/디스크)은 서버 동등가중으로 집계했다 — 서버별 평균을 낸 뒤 서버 간 단순 평균(서버 1대=1표). `environment_utilization`(전체 환경)과 `_selection_utilization`(선택 N대, base.rows 재합성), `metric_trend`(추이 차트)가 모두 이 방식이었다.
 
 두 가지 문제가 드러났다.
 
@@ -23,7 +23,7 @@
 
 적용 범위 (단일 산식, 단일 의미):
 - 전체 환경 카드 + 선택 N대 보고서: `environment_utilization(period_days, end, server_ids=None|list)` 단일 SQL로 통일. `_selection_utilization` 헬퍼(base.rows 재합성) 폐기. `end`(anchor) 파라미터로 selection 발행 시점 정적 스냅샷 존중.
-- 환경 부하 추이 차트: `environment_metric_trend`도 버킷별 capacity-weighted(`Σused/Σtotal`)로 전환 — 카드와 추이가 같은 가중. 같은 페이지에서 카드 값과 차트 값의 의미 불일치 제거.
+- 환경 부하 추이 차트: `metric_trend`도 버킷별 capacity-weighted(`Σused/Σtotal`)로 전환 — 카드와 추이가 같은 가중. 같은 페이지에서 카드 값과 차트 값의 의미 불일치 제거.
 - 평가 윈도우는 14일 고정 약속 유지(ADR 0003). "데이터에 맞춘 윈도우 자동 조정"은 도입하지 않는다 — VM마다 데이터 범위가 달라 환경 단위로 맞출 기준이 없다.
 
 ## Consequences

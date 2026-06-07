@@ -9,6 +9,13 @@ caller(`web/services/query_service.py`, `web/routers/api.py`, `tests/...`)는 �
 from datetime import timedelta
 from typing import Literal
 
+from assessment_engine.boot_time import BOOT_TIME_JITTER_TOLERANCE
+
+# boot_time 지터 허용치(초) — boot_time.BOOT_TIME_JITTER_TOLERANCE 단일 진실 파생.
+# metric_trend(차트)와 report(도넛·집계) CPU reset-gate 가 공유하는 SQL bound param 값.
+# 둘 다 본 상수를 참조해 동일 게이트(NTP 보정 흔들림을 false-reset 으로 오판 안 함)를 보장.
+BOOT_JITTER_SEC = int(BOOT_TIME_JITTER_TOLERANCE.total_seconds())
+
 # ─── chart metric 카탈로그 (router Literal whitelist) ───
 MetricType = Literal[
     "cpu.usage_percent",
@@ -112,24 +119,6 @@ _CPU_NUMERATOR: dict[str, str] = {
     "cpu.iowait_percent": "cpu_iowait",
 }
 
-# 시점 값. dimension 없음. value_expr는 server_metrics 컬럼/식.
-_SCALAR_VALUE_EXPR: dict[str, str] = {
-    "load.1m": "load_1m",
-    "load.5m": "load_5m",
-    "load.15m": "load_15m",
-    "mem.usage_percent": (
-        "CASE WHEN mem_total_kb > 0 THEN (mem_total_kb - mem_available_kb)::float / mem_total_kb * 100 END"
-    ),
-    "mem.available_percent": "CASE WHEN mem_total_kb > 0 THEN mem_available_kb::float / mem_total_kb * 100 END",
-    "mem.cached_percent": "CASE WHEN mem_total_kb > 0 THEN mem_cached_kb::float  / mem_total_kb * 100 END",
-    "mem.buffers_percent": "CASE WHEN mem_total_kb > 0 THEN mem_buffers_kb::float / mem_total_kb * 100 END",
-    # swap_total_kb=0 (swap 미설정 VM) 도 0% 반환 — chart 0 line 자연 표시.
-    # NULL 반환 시 chart endpoint 가 row 누락 → empty 표시 (운영자 혼란).
-    "swap.usage_percent": (
-        "CASE WHEN swap_total_kb > 0 THEN (swap_total_kb - swap_free_kb)::float / swap_total_kb * 100 ELSE 0 END"
-    ),
-}
-
 # (table, dim_col, value_col) 튜플 — disk/net rate per dimension.
 # table 명은 ORM 모델 __tablename__ — 동적 lookup 회피 위해 metric.py 본문에서 채움.
 # (sub-module 의존성 회피 — types.py는 ORM import 안 함)
@@ -160,7 +149,7 @@ _DATA_VOLUME_SQL_FILTER = """
 """
 
 # 환경 시점값 capacity-weighted (시점별 sum(numerator)/sum(denominator) * 100). server_metrics 컬럼.
-# metric_trend 그룹2 — environment_utilization(mem)·서버별 _SCALAR_VALUE_EXPR 와 정의 정합(환경은 sum/sum).
+# metric_trend 그룹2 — environment_utilization(mem)과 동일 capacity-weighted 정의(환경은 sum/sum).
 _ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str]] = {
     "mem.usage_percent": ("mem_total_kb - mem_available_kb", "mem_total_kb"),
     "mem.available_percent": ("mem_available_kb", "mem_total_kb"),

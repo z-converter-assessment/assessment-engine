@@ -46,7 +46,7 @@
 2. delta CTE — `LAG(...) OVER (PARTITION BY device ORDER BY collected_at)`로 누적 카운터 차 + `LAG(boot_time)`로 직전 boot_time 동시 추출
 3. reset 식별 CASE — calculator의 `_is_counter_reset`과 동일 정책 (CLAUDE.md B1):
    ① `dt IS NULL OR dt <= 0` → NULL
-   ② `boot_time != prev_boot` → NULL (시스템 재부팅)
+   ② `abs(boot_time - prev_boot) > BOOT_TIME_JITTER_TOLERANCE`(5s) → NULL (재부팅 — NTP 보정 흔들림은 흡수)
    ③ `d_val < 0` → NULL (옛 데이터 휴리스틱)
    ④ 정상 → `d_val / dt` 또는 `d_num * 100 / d_total`
    `dt`는 검증이 아니라 분모 — 실제 시간으로 자연 정규화

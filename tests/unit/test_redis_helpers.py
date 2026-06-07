@@ -17,7 +17,6 @@ from assessment_engine.cache.redis import (
     safe_delete,
     safe_get,
     safe_mget,
-    safe_publish,
     safe_set,
     safe_set_nx,
 )
@@ -122,18 +121,3 @@ async def test_safe_mget_returns_none_on_redis_error_for_fallback():
     redis = AsyncMock()
     redis.mget.side_effect = RedisError("oops")
     assert await safe_mget(redis, ["a", "b"]) is None
-
-
-# ─── safe_publish ─────────────────────────────────────────────────────────
-
-
-async def test_safe_publish_success():
-    redis = AsyncMock()
-    assert await safe_publish(redis, "ch", "msg") is True
-    redis.publish.assert_awaited_once_with("ch", "msg")
-
-
-async def test_safe_publish_failopen():
-    redis = AsyncMock()
-    redis.publish.side_effect = RedisError("oops")
-    assert await safe_publish(redis, "ch", "msg") is False
