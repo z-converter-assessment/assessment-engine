@@ -24,16 +24,14 @@
     background: #e2e8f0;
   }
   .group-panel {
-    /* slate-100(#f1f5f9) 과 slate-200(#e2e8f0) 의 중간 톤 — 흰 카드와 대비를 주되 과하지 않게 */
-    background: #eaeff5;
-    border-radius: 8px;
-    padding: 14px 16px 4px;
+    /* 박스 없이 흰 카드에 바로 — 배경·경계 제거. 그룹 구분은 위 group-header(라벨+구분선)가 담당.
+       좌우 패딩 0 으로 카드 콘텐츠와 정렬. progress-bar 트랙은 전역 slate-200 이 흰 배경과 충분히 대비돼 별도 오버라이드 불요 */
+    padding: 4px 0;
     margin-bottom: 4px;
   }
-  /* 빈 게이지(progress-bar 트랙) 전역색(slate-200)이 패널색과 가까워 묻히므로, 패널 안에서만 slate-300 으로 진하게 */
-  .group-panel .progress-bar {
-    background: #cbd5e1;
-  }
+  /* 실시간 메트릭 stat-box — 흰 배경 + 회색 경계 (글씨색 유지).
+     흰 카드에서 박스 경계만 또렷하게. group-panel 스코프 한정 — 다른 상세 페이지 stat-box 불변. */
+  .group-panel .stat-box { background: #fff; border: 1px solid #cbd5e1; }
   .legend-item {
     display: flex;
     align-items: center;

@@ -34,7 +34,10 @@
     tr:hover td { background: #f8fafc; }
     /* 서버 목록 — 칼럼 많아 기본 표보다 조밀하게: 셀 패딩 축소·폰트 통일·세로 가운데. */
     .server-list-table th, .server-list-table td { padding: 7px 11px; }
-    .server-list-table th { font-size: 11px; }
+    /* 헤더 회색 + 흰 글씨 — 서버상세·메트릭세부(body.metric-head)와 동일 톤 (#E8 색 단일 진실).
+       폰트 크기·체·구성은 그대로, 색만 변경. */
+    .server-list-table thead { background: #a7b2c0; }
+    .server-list-table th { font-size: 11px; color: #fff; border-bottom-color: #a7b2c0; }
     .server-list-table td { vertical-align: middle; }
     /* 모든 link 일관 — color + 항상 밑줄 (옅음). hover 시 강조. 별도 class (.row-link 등) 와 단일 진실 정합. */
     a { color: #2563eb; text-decoration: underline; text-decoration-color: #cbd5e1; text-underline-offset: 2px; }
