@@ -7,7 +7,7 @@
   <div class="label">완료</div><div>{{ (detail.completed_at | kst) if detail.completed_at else "—" }}</div>
   <div class="label">exit_code</div><div>{{ detail.exit_code if detail.exit_code is not none else "—" }}</div>
   <div class="label">소요</div><div>{% if detail.duration_ms is not none %}{{ detail.duration_ms }} ms{% else %}—{% endif %}</div>
-  <div class="label">실패 사유</div><div class="text-danger">{{ detail.failure_label or "—" }}</div>
+  <div class="label">실패 사유</div>{% if detail.failure_label %}<div class="text-danger">{{ detail.failure_label }}</div>{% else %}<div>—</div>{% endif %}
   {% if detail.params and detail.params.zdm_ip %}
   <div class="label">ZDM 주소</div><div><code style="word-break:break-all;">{{ detail.params.zdm_ip }}</code></div>
   {% endif %}

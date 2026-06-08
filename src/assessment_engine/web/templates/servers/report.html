@@ -8,7 +8,7 @@
 <div style="display:flex; align-items:center; justify-content:space-between; margin:8px 0 20px; gap:16px;">
   <h1>서버 평가 보고서 <span class="page-meta">{{ view_title }}</span></h1>
   <div style="display:flex; align-items:center; gap:14px;">
-    <div style="font-size:12px; color:#64748b; text-align:right;">
+    <div class="text-sm text-muted" style="text-align:right;">
       {% if summary.generated_at %}<div>발행 {{ summary.generated_at | kst }}</div>{% endif %}
       {% if summary.anchor_at %}<div>기준 {{ summary.anchor_at | kst }} · 윈도우 {{ summary.time_range_label }}</div>{% endif %}
       <div>에이전트 {{ summary.agent_versions_label or "—" }}</div>
@@ -20,7 +20,7 @@
   </div>
 </div>
 
-<div style="margin-bottom:16px; font-size:13px; color:#475569;">선택한 서버 {{ summary.overview.total }}대 대상 평가 — 환경 보고서 양식.</div>
+<div class="text-md text-label" style="margin-bottom:16px;">선택한 서버 {{ summary.overview.total }}대 대상 평가 — 환경 보고서 양식.</div>
 
 {# selection 보고서 — 세부 목록에 개별 보고서 칼럼 노출 (partial 의 engineer 세부 목록도 본 플래그 참조). #}
 {% set show_report_link = true %}

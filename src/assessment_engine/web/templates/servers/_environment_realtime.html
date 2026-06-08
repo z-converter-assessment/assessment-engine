@@ -1,0 +1,79 @@
+{% from "_shared.html" import empty_state %}
+{# 환경 실시간 메트릭 partial — 현재 평균 활용률 + 현재 부하 상위 (최신 스냅샷). 환경 성능 추이 최상단 전용.
+   realtime 객체면 데이터 없어도(서버 0대·sample 0) 카드 항상 노출. 내부는 sample_size/has_peaks 가드로 empty_state(#E9).
+   컨텍스트 의무: realtime(EnvironmentRealtime), generated_at, self_back. #}
+{% if realtime %}
+<section class="card">
+  {# 갱신 시각 data — 카드 밖 stamp(realtime.html 제목 줄)가 폴링 교체 시 읽어 '...초마다 자동 갱신 · 최근 {시각}' 조립. #}
+  <h2 class="card-title" style="margin:0 0 12px;">실시간 메트릭 <span id="env-realtime-ts-data" data-ts="{{ generated_at | kst }}" hidden></span></h2>
+  <div style="display:flex; flex-wrap:wrap; gap:24px; font-size:13px; color:#475569;">
+    <div>온라인 <strong class="text-strong">{{ realtime.online }}</strong> · 오프라인 <strong class="text-strong">{{ realtime.offline }}</strong></div>
+    <div>유효 표본 <strong class="text-strong">{{ realtime.sample_size }}/{{ realtime.total }}</strong>대</div>
+  </div>
+
+  <div class="card-section">
+    <h3>현재 평균 활용률 <span class="section-meta">온라인 {{ realtime.sample_size }}대 최신 스냅샷</span></h3>
+    {% if realtime.sample_size > 0 %}
+    {# 환경 평균 활용률 도넛과 동일 컴포넌트·푸른 단색 게이지 (통일). 7일 통계 아닌 현재 스냅샷. #}
+    <div style="display:flex; align-items:center; gap:14px;">
+      <div style="display:flex; flex-wrap:wrap; gap:20px;">
+        {% for u in realtime.utilization %}
+        <div style="text-align:center;">
+          <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
+            {% if u.pct is not none %}
+            <circle cx="50" cy="50" r="42" fill="none"
+                    stroke="{{ u.bar_color }}" stroke-width="10"
+                    stroke-dasharray="{{ "%.2f"|format(u.dash_length) }} 263.89"
+                    stroke-linecap="round"
+                    transform="rotate(-90 50 50)"/>
+            <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ "%.0f"|format(u.pct) }}%</text>
+            {% else %}
+            <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
+            {% endif %}
+          </svg>
+          <div style="font-size:12px; color:#475569; margin-top:4px;">{{ u.label }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    {{ empty_state("수집된 메트릭이 없습니다.") }}
+    {% endif %}
+  </div>
+
+  <div class="card-section">
+    <h3>현재 부하 상위 <span class="section-meta">자원별 · 탑 3</span></h3>
+    {% if realtime.has_peaks %}
+    {# CPU/메모리/디스크 각 자원의 상위 3대 — 한 컬럼당 한 자원. 좁은 화면 자동 1~2열(찌그러짐 방지). #}
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap:16px;">
+      {% for g in realtime.peak_groups %}
+      <div>
+        <div style="font-size:12px; font-weight:600; color:#475569; margin-bottom:8px;">{{ g.label }}</div>
+        {% if g.peaks %}
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          {% for p in g.peaks %}
+          {# 행 전체가 서버 상세 링크. peak-link hover 로 클릭 가능 affordance(배경+hostname 밑줄) — color:inherit 라 평소엔 본문톤 유지. #}
+          <a href="/servers/{{ p.public_id }}?back={{ self_back }}" class="peak-link"
+             style="display:flex; align-items:center; gap:6px; text-decoration:none; color:inherit;">
+            <span style="display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background:#eff6ff; color:#3b82f6; font-size:10px; font-weight:700; flex-shrink:0;">{{ loop.index }}</span>
+            <span class="peak-host" style="flex:0 1 auto; min-width:0; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.hostname }}</span>
+            {# leader dots — hostname 과 수치를 점선으로 연결 (목차 스타일). hostname 길면 ellipsis 로 줄고 점선 최소폭 유지. #}
+            <span style="flex:1 1 auto; min-width:10px; border-bottom:1px dotted #cbd5e1; height:1px;"></span>
+            <span style="flex-shrink:0; font-size:12px; font-weight:600; color:#1e293b;">{{ "%.1f"|format(p.pct) }}%</span>
+          </a>
+          {% endfor %}
+        </div>
+        {% else %}
+        <span class="text-meta" style="font-size:11px;">—</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <p class="no-print" style="font-size:11px; color:#94a3b8; margin:10px 0 0;">로드(코어 대비)는 Windows(load average 미측정) 호스트 제외.</p>
+    {% else %}
+    {{ empty_state("표시할 부하 데이터가 없습니다.") }}
+    {% endif %}
+  </div>
+</section>
+{% endif %}

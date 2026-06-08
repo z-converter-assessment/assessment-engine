@@ -53,8 +53,29 @@ class CapacityTriggerBadge:
 
 
 @dataclass
+class CapacityMetric:
+    """언더 프로비저닝 카드 안 평가 지표 1개 — assess 입력 6축(CPU/메모리/스왑/Load/디스크/iowait).
+
+    프로비저닝 판정에 쓰인 모든 측정값을 노출(active 만이 아님) — 카드 본문을 채우고 근거 전모 제공.
+    active(임계 위반)·measured(관측 여부) 시각 분기는 mapper precompute (P3 — 템플릿 비교 금지).
+
+    label: "CPU p95" / "메모리 p95" / "스왑" / "Load" / "디스크" / "iowait"
+    value: 표시 문자열 ("94%" / "발생" / "2.3x" / "N/A")
+    active: 임계 위반 (강조 — under_provisioned 기여 trigger)
+    measured: 관측됨 (값 존재). Windows 미측정(load/iowait 등)은 False -> "N/A" 흐림.
+    color: 값 표시 hex — mapper 결정 (active 빨강 / 정상 진함 / 미관측 흐림).
+    """
+
+    label: str
+    value: str
+    active: bool
+    measured: bool
+    color: str
+
+
+@dataclass
 class CapacityWarningItem:
-    """14일 평균 자원 부족 서버 — 마이그레이션 capacity 산정 시 instance type 상향 검토.
+    """7일 평균 자원 부족 서버 — 마이그레이션 capacity 산정 시 instance type 상향 검토.
 
     triggers: USE Method classify 입력 5 trigger 와 1:1 정합 (스왑/CPU/메모리/Load/디스크).
     - swap_used=True → "스왑"
@@ -62,12 +83,21 @@ class CapacityWarningItem:
     - mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리"
     - load_15m / cpu_cores >= CPU_SATURATION_LOAD_RATIO → "Load"
     - disk_used >= DISK_CAPACITY_UPSIZE_PCT 또는 iowait_p95 >= IOWAIT_UPSIZE_PCT → "디스크"
-    under_provisioned 분류라 최소 1개 trigger 존재. 표시는 뱃지만 (구체값 메타 표시 안 함).
+    under_provisioned 분류라 최소 1개 trigger 존재.
+    triggers: 보고서(_env_report_body)용 5종 뱃지 list (active/inactive 시각).
+    metrics: 대시보드 카드용 평가 6축 측정값 — 위반 여부 무관 전부 노출(mapper precompute, P3).
+    services: 호스트 워크로드 카테고리 카운트 {category: n} — workload_category_counter 단일 진실.
+    템플릿은 role_distribution 과 동일하게 service_badge_class 필터 + count 렌더 (호스트명·지표와 분리).
     """
 
     public_id: str
     hostname: str
     triggers: list[CapacityTriggerBadge] = field(default_factory=list)
+    services: dict[str, int] = field(default_factory=dict)
+    metrics: list[CapacityMetric] = field(default_factory=list)
+    # 상위 N 절단 정렬용 심각도 점수 (mapper precompute) — swap(paging) 최우선 > 위반 자원 수 >
+    # 최고 활용률 max(CPU/메모리/디스크 p95·used). build_overview 가 DESC 정렬 후 hostname tie-break.
+    severity_score: float = 0.0
 
 
 @dataclass
@@ -148,6 +178,7 @@ class RiskDonutSegment:
     dash_length: float  # 본 segment 원호 길이
     dash_offset: float  # 시계방향 시작 위치 (이전 segments 누적 음수)
     description: str = ""  # 한국어 보조 설명 ("자원 부족 (사양 상향)" 등)
+    pct: float = 0.0  # 분류 막대 너비 (%) — mapper precompute (P3). 도넛 -> 가로막대 게이지 전환 대응.
 
 
 @dataclass
@@ -173,6 +204,8 @@ class EnvironmentOverview:
     # known 역할(서비스 카테고리) 이 하나도 없는 호스트 수 — 서비스 없음 또는 전부 unknown. 호스트 단위.
     role_unknown_count: int = 0
     utilization: list[UtilizationBar] = field(default_factory=list)
+    # p95 활용률 3막대(CPU·메모리·디스크) — 평균과 동일 capacity-weighted 환경 분포 기반(per_ts 95퍼센타일).
+    utilization_p95: list[UtilizationBar] = field(default_factory=list)
     util_sample_size: int = 0
     risk_donut: list[RiskDonutSegment] = field(default_factory=list)
     risk_donut_total: int = 0  # 도넛 중심 표시용 (분류된 서버 수)
@@ -203,20 +236,22 @@ class RealtimePeakGroup:
 
 @dataclass
 class EnvironmentRealtime:
-    """list 화면 '환경 실시간 메트릭' 카드 — 현황 모니터링(최신 스냅샷). right-sizing(14일 통계)과 별개 용도.
+    """list 화면 '환경 실시간 메트릭' 카드 — 현황 모니터링(최신 스냅샷). right-sizing(7일 통계)과 별개 용도.
 
-    utilization: 온라인 서버(sample_size)의 현재 CPU/메모리/디스크(worst mount) 평균 도넛 3개
+    utilization: 신선 데이터 서버(sample_size)의 현재 CPU/메모리/디스크(worst mount) 평균 도넛 3개
                  (환경 평균 활용률 도넛과 동일 컴포넌트·푸른 단색 게이지 — UtilizationBar).
-    sample_size: 평균 표본 = 온라인이면서 최신 메트릭 보유 서버 수. 오프라인 stale 메트릭은 제외 —
-                 표기는 'sample_size/total' (예: 3/4, 오프라인 1대 빠짐).
-    online/offline: Redis online:{id} TTL 기준. last_collected_at: 환경 전체 최신 수집시각(신선도).
+    sample_size: 평균 표본 = 최신 스냅샷이 신선(now-TTL 이내)한 서버 수. stale 메트릭은 제외 —
+                 표기는 'sample_size/total' (예: 3/4, stale 1대 빠짐).
+    online/offline: 최신 스냅샷 신선도 기준(now-TTL 이내 = 온라인, 데이터 유무가 곧 온라인 판정).
+                    Redis online flag 이중 게이트 없이 스냅샷 신선도만으로 판단.
+    last_collected_at: 환경 전체 최신 수집시각(신선도).
     peak_groups: 자원별(CPU/메모리/디스크) 부하 상위 N — 3열 grid. has_peaks: 전체 빈 여부(empty 분기).
     """
 
     total: int
     online: int
     offline: int
-    sample_size: int  # 평균 표본 = 온라인 + 최신 메트릭 보유 (avg 분자)
+    sample_size: int  # 평균 표본 = 최신 스냅샷 신선(now-TTL 이내) 서버 수 (avg 분자)
     utilization: list[UtilizationBar] = field(default_factory=list)
     last_collected_at: datetime | None = None
     peak_groups: list[RealtimePeakGroup] = field(default_factory=list)
@@ -233,8 +268,7 @@ class DashboardLive:
 
     overview: EnvironmentOverview
     attention: AttentionSignals
-    realtime: EnvironmentRealtime
     topology: NetworkTopology
-    # 환경 부하 추이 (14일 표준 윈도우) — CPU·메모리 평균 시계열. 차트 JS inline(tojson)용 plain dict.
+    # 환경 부하 추이 (7일 표준 윈도우) — CPU·메모리 평균 시계열. 차트 JS inline(tojson)용 plain dict.
     # 토폴로지처럼 정적 인벤토리 아님(메트릭)이라 fragment 자동갱신 포함. [{"at": iso, "cpu", "mem"}].
     trend: list[dict] = field(default_factory=list)

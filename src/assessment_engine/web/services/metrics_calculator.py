@@ -20,11 +20,11 @@ from assessment_engine.db.dtos.outbound import (
     NetIoRaw,
 )
 from assessment_engine.web.services.device_filters import (
+    is_data_volume,
     is_lvm_disk,
     is_partition,
     is_physical_disk,
     is_virtual_interface,
-    is_virtual_mount,
 )
 from assessment_engine.web.services.unit_converter import bytes_to_gb, sector_to_kbps, usage_pct
 from assessment_engine.web.view_models.metric import (
@@ -147,8 +147,10 @@ def compute_mem(cur: MetricPairRaw | None) -> MemSnapshot | None:
     used = (cur.mem_total_kb - cur.mem_available_kb) if cur.mem_available_kb is not None else None
     used_pct = usage_pct(used, cur.mem_total_kb)
 
-    # stacked bar 누적: used 위에 cached, 그 위에 buffers. 남은 공간 안에서만 표시.
-    remaining_after_used = 100.0 - (used_pct or 0.0)
+    # 정의서 메모리 구성 모델(types._METRIC_EXPR): Used + Available = 100 (서로 겹치지 않는 두 축),
+    # Cached/Buffers 는 Available(회수 가능) 영역 안의 세부. 따라서 used 위 남은 공간(=available_pct)
+    # 안에서만 cached -> buffers 순으로 표시하고, 그 잔여를 free 로 채워 bar 합을 정확히 100 으로 맞춘다.
+    remaining_after_used = 100.0 - (used_pct or 0.0)  # = available_pct
     cached_pct = _clip_to_remaining(
         usage_pct(cur.mem_cached_kb, cur.mem_total_kb),
         remaining_after_used,
@@ -158,6 +160,7 @@ def compute_mem(cur: MetricPairRaw | None) -> MemSnapshot | None:
         usage_pct(cur.mem_buffers_kb, cur.mem_total_kb),
         remaining_after_cached,
     )
+    free_pct = round(max(0.0, remaining_after_cached - (buffers_pct or 0.0)), 1)
 
     return MemSnapshot(
         total_kb=cur.mem_total_kb,
@@ -168,6 +171,7 @@ def compute_mem(cur: MetricPairRaw | None) -> MemSnapshot | None:
         usage_pct=used_pct,
         cached_pct=cached_pct,
         buffers_pct=buffers_pct,
+        free_pct=free_pct,
     )
 
 
@@ -264,7 +268,7 @@ def _net_io_snapshot(iface: str, rows: list[NetIoRaw]) -> NetIoSnapshot:
 def compute_mounts(mounts: list[MountUsageRaw]) -> list[MountDashSnapshot]:
     result: list[MountDashSnapshot] = []
     for m in sorted(mounts, key=lambda x: x.mount):
-        if is_virtual_mount(None, m.mount):
+        if not is_data_volume(m.mount, getattr(m, "major", None)):
             continue
         used_bytes = (m.total_bytes - m.avail_bytes) if (m.total_bytes and m.avail_bytes is not None) else None
         result.append(

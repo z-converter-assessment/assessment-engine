@@ -44,7 +44,7 @@ class ProbeRequest(BaseModel):
     @classmethod
     def validate_target(cls, v: str) -> str:
         # IPv4/IPv6 우선 시도 — 정석 IP면 그대로 통과.
-        # 실패 시 hostname RFC 1035 패턴 매칭 (FQDN 포함, `host.docker.internal`·`engine.internal` 등 운영 시나리오).
+        # 실패 시 hostname RFC 1035 패턴 매칭 (FQDN 포함, `engine.internal`·`db.internal` 등 운영 시나리오).
         # SSRF 방지(localhost·metadata 차단)는 폐쇄망 가정상 추가 안 함 — 운영자 의도 입력.
         try:
             ip_address(v)

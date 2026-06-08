@@ -1,0 +1,24 @@
+name: notify-infra-deploy
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      # 본 워크플로는 별도 `release: published` 이벤트라 release.yml 의 resolve-version job output 을 직참조 못 한다.
+      # 대신 release.yml 이 stable semver `vX.Y.Z` 만 발사 허용(ADR 0030 정정 A) 하므로 PEP 440 단일 진실과
+      # `${GITHUB_REF_NAME#v}` strip 결과가 항상 동일 — 현행 strip 유지. prerelease 도입 시 본 strip 도 규약 정합 재검토.
+      - name: strip v prefix from tag
+        id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: dispatch to assessment-infra
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
+        with:
+          token: ${{ secrets.INFRA_DISPATCH_TOKEN }}
+          repository: z-converter-assessment/assessment-infra
+          event-type: engine-release
+          client-payload: '{"engine_version": "${{ steps.version.outputs.value }}"}'

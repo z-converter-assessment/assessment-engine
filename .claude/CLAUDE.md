@@ -35,13 +35,13 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 본 repo는 기능 개발에 필요한 환경 구성만 다룬다. 배포 인프라(IaC — Terraform·Ansible·OpenStack staging 등)는 본 repo 범위 밖. 추후 도입 결정 시 별도 repo로 분리 (ADR 0006 Withdrawn 사유).
 
 본 절 결정:
-- 루트 `docker-compose.yml` 단일 파일이 dev 파이프라인과 퀵스타트를 겸한다 (앱 3종·DB·MQ·Redis 한 번에 기동). dev/prod 분리 안 함 — 현 단계 단순 유지, hardened prod 분리는 추후 (ADR 0033, ADR 0012 5절 supersede). `dev/docker-compose.yml`·override 파일·`docker-compose.prod.yml` 은 두지 않는다 (compose 정의 1곳).
+- compose 2 파일 — prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) (ADR 0035). base 는 `build:` 키 없는 이미지 pull(GHCR 핀)·bind mount 없음·볼륨 env 바인딩(`PGDATA_HOST`·`MQ_DATA_HOST`)·diagnostic-worker 포함 = 빌드 없는 pull-and-run prod compose. override 는 dev 전용(소스 빌드·`./src` bind mount·hot reload)으로 `docker compose up` 시 base 에 자동 머지(prod/release 는 base 단독, override 미배포). Dockerfile 은 dev/prod 분리 안 함(단일 multi-stage 이미지, dev-prod parity) — dev 편의는 Dockerfile 이 아니라 override compose 의 bind mount 로만 주입. `docker-compose.prod.yml` 은 두지 않는다(base 자체가 prod). hardened prod(APP_ENV=prod·강 secret·LOG_FORMAT=json·HTTPS ingress)는 infra env 주입으로 달성.
 - prod 외부 인프라가 활용할 수 있는 정석 contract만 본 repo에서 유지:
   - 환경변수 contract — `docs/operations/env.md` 키 카탈로그
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
   - 환경 분기 — `APP_ENV=prod` + `_validate_prod_*` weak default 거부 (`docs/operations/env.md` 8절). secret 주입 방식은 무관, 결과(약한 default 거부)만 검증
   - CI 산출물 — Python wheel + GitHub Release (ADR 0012). 외부 인프라가 wheel 받아 install·systemd 자체 구성
-- IaC 코드(`*.tf`·Ansible playbook·OpenStack 시나리오 문서)는 본 repo에 두지 않는다. 인프라 시나리오 언급 자체 금지 — 단 어떤 인프라든 위 contract 충족 시 본 엔진 기동 가능. (루트 `docker-compose.yml` 퀵스타트는 예외적 편의 제공 — ADR 0033.)
+- IaC 코드(`*.tf`·Ansible playbook·OpenStack 시나리오 문서)는 본 repo에 두지 않는다. 인프라 시나리오 언급 자체 금지 — 단 어떤 인프라든 위 contract 충족 시 본 엔진 기동 가능. (루트 `docker-compose.yml` 단일 호스트 배포는 예외적 편의 제공 — ADR 0035·0036.)
 
 ---
 
@@ -70,7 +70,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 - `server_inventory` 식별 분리 (ADR 0022 -> 0027 정정, agent v4): `id bigint PK` (FK 대상) / `composite_id varchar(64) UNIQUE` (agent 매칭·식별 단일 키 — SHA-256 composite hash) / `machine_id varchar(64)` (raw machine-id 표시 전용, nullable — 식별·라우팅 미사용) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{composite_id}` / routing key `task.install.{composite_id}`.
 - `diagnostic_jobs.job_type` (`customer_report`/`engineer_report`) + active partial UNIQUE = `(scope, input_hash, job_type)`. 발행 시점 정적 스냅샷을 `result` JSONB 에 보존. (AI 진단 독립 `ai_diagnostic` 폐기 — engineer 보고서 발행 통합. 잔존 row 만 존재, 신규 생성 없음.)
 - 보고서 발행 = 정적 스냅샷 (요구: 발행 시점 데이터 그대로 보관, 이력 동적변화 0). POST `/reports/environment/emit` · `/servers/report/emit` 가 발행 시점 ViewModel 을 `report_serializer` 직렬화 -> `emit_report` 가 `result` JSONB(`{kind,snapshot,view,narrative_status,narratives,aux}`) 저장. customer 즉시 succeeded(narrative 없음), engineer 는 pending + worker 가 narrative 채움(`diagnostic.report_result` 공유 계약). 응답 view_url=`?job={id}` — JS navigate. GET `?job={id}` 는 저장된 스냅샷 정적 렌더(재진단·재계산 0), job 없는 GET 은 read-only live preview (진단 트리거 없음). result 구조 단일 진실 = `diagnostic.report_result`.
-- 양식 통일: server scope 단일/N대 모두 환경 보고서 양식 (`EnvironmentReportSummary`, kind=env_report) 공유. N대 selection (`servers/report.html`) = 환경 보고서 본문 공유 partial (`reports/_env_report_body.html`, environment.html 과 단일 진실) + 하단 세부 서버 목록 표. 단일 1대 (`servers/single_report.html`) 는 customer high-level / engineer 심화 (1대 deep-dive — N대 비교 표엔 없는 CPU 분류·메모리 구성·마운트별 스토리지 전개; 단일 전용 필드 `server_inventory`·`volumes`·`memory_breakdown`·`cpu_breakdown` 는 selection·환경에서 None/빈 list, repo `report_cpu_breakdown`·`report_memory_breakdown`·`report_mount_usage` per server_id). 환경 (`reports/environment.html`) 은 high-level. selection ViewModel = `query_service.get_selection_report(server_ids)` (단일은 N=1 동치, 평균 활용률은 base.rows 서버별 평균 합성, attention 은 N대 호스트 필터). `report_summary` 단독 표 양식·kind 폐기. `/servers/report/emit` 은 ids 1개면 단일, 2개+ 면 selection.
+- 양식 통일: server scope 단일/N대 모두 환경 보고서 양식 (`EnvironmentReportSummary`, kind=env_report) 공유. N대 selection (`servers/report.html`) = 환경 보고서 본문 공유 partial (`reports/_env_report_body.html`, environment.html 과 단일 진실) + 하단 세부 서버 목록 표. 단일 1대 (`servers/single_report.html`) 는 customer high-level / engineer 심화 (1대 deep-dive — N대 비교 표엔 없는 CPU 분류·메모리 구성·마운트별 스토리지 전개; 단일 전용 필드 `server_inventory`·`volumes`·`memory_breakdown`·`cpu_breakdown` 는 selection·환경에서 None/빈 list, repo `report_cpu_breakdown`·`report_memory_breakdown`·`report_mount_usage` per server_id). 환경 (`reports/environment.html`) 은 high-level. selection ViewModel = `query_service.get_selection_report(server_ids)` (단일은 N=1 동치, 평균 활용률은 `environment_utilization` 을 server_ids 로 N대 한정 호출 — 전체 환경과 동일 capacity-weighted SQL, attention 은 N대 호스트 필터). `report_summary` 단독 표 양식·kind 폐기. `/servers/report/emit` 은 ids 1개면 단일, 2개+ 면 selection.
 - narrative 단위: server scope(단일·selection) = public_id 별 (worker `scope=server` per-pid 합성), environment = 단일 키(`ENV_NARRATIVE_KEY`). selection 종합 보고서(`servers/report.html`)는 자체 AI 진단 미표시(`narrative_key=None`) — 개별 서버 보고서(child, `single_report.html`)가 public_id narrative 표시(worker 가 부모 selection job 의 per-pid narrative 를 child 에 복사). environment·단일은 보고서 안 inline AI 진단 표시. 폴링 = `GET /api/diagnostics/{job_id}` 단건 (보고서 페이지 안 `diagnostic-inline.js` 가 `[data-report-job]` job_id 로 narrative_status 갱신).
 - 선택 N대 발행(`/servers/report/emit`, ids 2개+)은 selection 보고서 1건(env_report) + 개별 단일 보고서 N건 동시 fan-out (세부 서버 목록 hostname -> 개별 보고서 정적 link `child_jobs`, 이력 개별 조회). ids 1개는 단일 보고서 1건.
 - 보고서 운영신호 정책 (engineer): 표시는 OS 지원종료(os_eol)만 (`attention.os_eol_warnings`). 재부팅(`report_uptime_stats`)·에이전트 재시작(`report_agent_restart_stats`)은 보고서 anchor+window 안 카운트(boot_time/agent_started_at DISTINCT-1)해 호스트 상세 표 "시스템 안정성" 컬럼에 표시. `get_attention_signals` 의 전역 gap/agent_unstable 신호는 window-scoped 보고서에 미표시 (의미 불일치 회피).
@@ -82,10 +82,10 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 
 ## C3. Redis 전략 — fail-open 의무
 
-키 설계 표 / TTL 근거 / PUB/SUB 채널 / 캐시-aside race 한계 / 평시·장애 동작 매트릭스 / mget 효율 패턴: `docs/architecture/redis.md`. 의사결정 ADR: `docs/adr/0001-redis-decoupling.md`.
+키 설계 표 / TTL 근거 / 캐시-aside race 한계 / 평시·장애 동작 매트릭스 / mget 효율 패턴: `docs/architecture/redis.md`. 의사결정 ADR: `docs/adr/0001-redis-decoupling.md`.
 
 본 절 결정:
-- 모든 Redis 호출은 `src/assessment_engine/cache/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_publish`/`safe_incr_with_ttl`) 경유. RedisError 시 silent fallback + warning 로그. 직접 redis client 호출 금지.
+- 모든 Redis 호출은 `src/assessment_engine/cache/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_incr_with_ttl`) 경유. RedisError 시 silent fallback + warning 로그. 직접 redis client 호출 금지.
 - fail-open 보장 의존성: 멱등성 1단 fail-open(#D2) → DB UNIQUE(#C1)가 중복 흡수. UNIQUE 누락 시 보장 자체가 깨짐.
 
 ## C4. 스키마 변경 — Alembic 단일 진실
@@ -178,7 +178,7 @@ Pagination 정책:
 본 절 결정:
 - 두 임계 도메인(UI badge / USE Method) 혼용 금지.
 - 신규 ViewModel 파생 필드 추가 시 #F9 영향도 체크리스트 적용.
-- right-sizing 분류 단일 진실 = `recommendation.assess(stats) -> Assessment(recommendation, triggers, unmeasured)` (evidence 기반, OS-aware, ADR 0029 정정). `classify` 는 분류 enum 만 돌려주는 호환 wrapper. 합성 규칙: under = 위험 신호 OR(하나라도 hit 되면 발화, 누락 0) / over = cpu/mem 둘 다 다운사이즈 임계 이하일 때만(보수적) / insufficient_data = utilization(cpu/mem) 둘 다 부재 + under 신호도 없을 때만(후순위 — swap 등 saturation 신호가 있으면 util 부재여도 under 로 결론). hit 신호(triggers)를 근거로 동반 — report mapper 권고(`_build_under_provisioned_reason`)와 attention capacity 배지(`to_capacity_warning_item`)가 `assess.triggers` 재사용(임계 재계산 금지), stats 생성은 `build_resource_stats` 공용. swap 은 `recommendation.swap_saturation(os_family, swap_used)` helper 경유 의무(Windows pagefile 제외, Linux/None 보존) — `if raw.swap_used` 직접 해석 금지. saturation 축 미관측(값 None, 예: Windows load)은 `unmeasured` 기록 -> `is_partial`(=bool(unmeasured)) -> `ReportRowItem.is_partial` 로 "이용률 기준 평가" confidence 노출 (분류는 utilization/capacity 로 완결, "데이터 부족" 아님 — cpu_p95/mem_p95 산출되는 한). Windows agent 가 등가 카운터(Processor Queue Length 등) 발행 시 unmeasured 자동 해제. 분류 명세·임계 근거(USE Method·AWS/Azure/GCP advisor 출처)·한계 단일 진실 = `docs/architecture/right-sizing.md`.
+- right-sizing 분류 단일 진실 = `recommendation.assess(stats) -> Assessment(recommendation, triggers, unmeasured)` (evidence 기반, OS-aware, ADR 0029 정정). `classify` 는 분류 enum 만 돌려주는 호환 wrapper. 판정 순서 = under(위험 신호 OR) -> idle -> shutdown -> insufficient_data -> over -> optimal — under 가 idle/shutdown 보다 우선이다(saturation·압박 신호가 "미사용" 분류를 가로채지 않음, 예: CPU idle 인데 swap 발생 = under). 합성 규칙: under = 위험 신호 OR(하나라도 hit 되면 발화, 누락 0) / over = cpu/mem 둘 다 다운사이즈 임계 이하일 때만(보수적) / insufficient_data = utilization(cpu/mem) 둘 다 부재 + under 신호도 없을 때만(후순위 — swap 등 saturation 신호가 있으면 util 부재여도 under 로 결론). hit 신호(triggers)를 근거로 동반 — report mapper 권고(`_build_under_provisioned_reason`)와 attention capacity 배지(`to_capacity_warning_item`)가 `assess.triggers` 재사용(임계 재계산 금지), stats 생성은 `build_resource_stats` 공용. swap 은 `recommendation.swap_saturation(os_family, swap_used)` helper 경유 의무(Windows pagefile 제외, Linux/None 보존) — `if raw.swap_used` 직접 해석 금지. saturation 축 미관측(값 None, 예: Windows load)은 `unmeasured` 기록 -> `is_partial`(=bool(unmeasured)) -> `ReportRowItem.is_partial` 로 "이용률 기준 평가" confidence 노출 (분류는 utilization/capacity 로 완결, "데이터 부족" 아님 — cpu_p95/mem_p95 산출되는 한). Windows agent 가 등가 카운터(Processor Queue Length 등) 발행 시 unmeasured 자동 해제. 분류 명세·임계 근거(USE Method·AWS/Azure/GCP advisor 출처)·한계 단일 진실 = `docs/architecture/right-sizing.md`.
 
 ## E4. URL 식별자 — 정수 PK 노출 금지
 
@@ -192,7 +192,7 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 
 ## E6. 정적 자원 — JS 외부화 의무
 
-디렉토리 구조 / `chart-utils.js` base.html 단일 로드 / `ChartUtils` API / 페이지별 .js / Reboot marker plugin: `docs/architecture/web/static-assets.md`. 외부화 강제 채널: #F5.
+디렉토리 구조 / `chart-utils.js` base.html 단일 로드 / `ChartUtils` API / 페이지별 .js: `docs/architecture/web/static-assets.md`. 외부화 강제 채널: #F5.
 
 ## E7. 도메인 분류 책임 (P2)
 
@@ -352,6 +352,8 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 
 원칙: 영향받는 모든 곳 동시 갱신 의무 — 한 곳만 수정 후 PR 금지.
 
+적용 시점: 본 동시 갱신·테스트 작성 의무는 commit/PR 시점(wrap-up, `docs/development/wrap-up.md`) 기준이다. 기능 개발 중간 단계에서는 기능 코드만 작성한다 — 테스트·문서·ADR·CLAUDE.md 동기화를 기능마다 즉시 하지 않고 wrap-up 에서 일괄 처리한다. 개발 중 동작 검증은 실행 화면으로 확인(사용자 직접 또는 `/run`·`/verify`) — 메인 세션이 기능 추가와 함께 테스트·문서를 선제 작성하지 않는다. (테스트 자동 실행·보고 금지는 #F5 와 일관.)
+
 | 변경 유형 | 동시 갱신 위치 |
 |-----------|----------------|
 | 시계열 컬럼 추가 | (1) ORM 모델 (2) Alembic revision (3) Inbound DTO·mapper (4) Outbound DTO·mapper (5) `cache_serializer._DETAIL_DISPLAY_FIELDS` (6) ViewModel (7) 템플릿·외부 .js |
@@ -377,8 +379,9 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 원칙: 보고서·대시보드·차트 모두 같은 평가 윈도우·시계열 옵션 카탈로그 참조 — 화면별 의미 분기 방지.
 
 본 절 결정:
-- 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 14, AWS Compute Optimizer 표준). 대시보드·보고서 라우터·ADR 0003 모두 본 상수 참조.
-- 보고서 라우터만 `?period_days=N` override 허용. 대시보드는 산업 표준 윈도우 고정.
+- 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 7). 대시보드·보고서 라우터·환경 부하 추이·구간 선택 기본값(`DIAGNOSTIC_DEFAULT_TIME_RANGE`·보고서 발행 select)·ADR 0003 모두 본 상수/동일 값 참조. 변경 시 `_thresholds_reference.html`·`docs/development/pipeline.md` 표제도 동기화.
+- 보고서 라우터만 `?period_days=N` override 허용. 대시보드는 표준 윈도우 고정. 서버 상세 차트는 실시간 모니터링이라 별도(globalRange 기본 15m, 평가 윈도우와 무관).
+- 환경 부하 추이 bucket 은 `AUTO_BUCKET[f"{WINDOW_DAYS}d"]` 동적 (7d -> 3h). 윈도우 변경 시 집계 단위 자동 추종 — 하드코딩 금지.
 - TimeRange/BucketSize Literal 단일 진실 = `db/repositories/query/types.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
 - range -> 자동 bucket 매핑(`AUTO_BUCKET`)은 backend `types.AUTO_BUCKET` 와 frontend `chart-utils.js` 두 곳 — 값 동기화 의무 (range별 적정 분해력 단일 의미). 신규 TimeRange 도입 시 두 곳 동시 신설. SSR 정적 차트(환경 부하 추이)는 backend 매핑, 동적 fetch 차트는 frontend 매핑 적용 — 둘이 어긋나면 같은 range 가 화면별 다른 bucket.
 - 보고서 형태 산출물은 윈도우를 envelope·표제 명시 — JSON Export `period_window{days, start, end}` 의무 필드(#B 동일 원칙).
@@ -388,7 +391,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 원칙: SIGTERM 시 in-flight 작업 손실 0 + 다음 기동 시 stale 상태 없음.
 
 본 절 결정:
-- web — uvicorn `timeout_graceful_shutdown=3s`. 진행 중 HTTP 요청 완료 후 exit. SSE는 client reconnect. 진단 publish (`DiagnosticSubmitter`) 중 SIGTERM은 aio-pika `connect_robust` transaction 보장.
+- web — uvicorn `timeout_graceful_shutdown=3s`. 진행 중 HTTP 요청 완료 후 exit. 실시간 메트릭 polling 은 다음 주기 자동 재요청이라 별도 처리 불요. 진단 publish (`DiagnosticSubmitter`) 중 SIGTERM은 aio-pika `connect_robust` transaction 보장.
 - consumer / diagnostic-worker — `async with message.process(requeue=False)` 컨텍스트 안에서 모든 await 완료. 정상 exit → ACK / raise → NACK + DLQ.
 - diagnostic-worker 진행 중 job(`status='running'`) stale 정리 미구현 — prod 도입 전 ADR 0004 정정 또는 별도 ADR 의무.
 - ADR 0023: scheduler cron 폐기. cron 발화 측 SIGTERM 본문 본 절 범위 밖.
@@ -399,5 +402,21 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 - `message.process()` 컨텍스트 밖 await — ACK/NACK 둘 다 안 됨.
 
 상세: `docs/architecture/consumer.md` · `docs/architecture/diagnostic.md` "Disposability" 절.
+
+---
+
+## F12. 문서·주석 현황 선언성
+
+원칙: 영구 문서(`docs/architecture/`·`operations/`·`products/`·`development/`·루트 `README.md`)와 코드 주석은 현재 상태만 선언적으로 기술한다. 변경 시 과거 흔적(폐기된 도구·용어·구조·경위)을 제거하고 현황으로 덮는다 — "이전엔 X 였다"·"Y 에서 전환" 회고형 서술 0.
+
+본 절 결정:
+- 도구·구조 전환 시 옛 이름·경위를 코드 주석·영구 문서에서 제거. 전환 직후 폐기 토큰 `rg` 0 검증 의무(주석 포함) — 예: OrbStack->libvirt 전환(ADR 0037) 후 `OrbStack`·`orb.local`·`host.docker.internal`·`pipeline-up.sh` 잔존 0.
+- 예외 — `docs/adr/` (결정 변경 = 새 ADR + 이전 `Superseded by`, 역사 기록 보존 — ADR 불변 규약) · `docs/tradeoffs.md` (의식적 한계·확장 트리거).
+
+금지:
+- 영구 문서·코드 주석에 회고형 서술("과거엔"·"이전 방식"·"~에서 전환했다")·폐기 도구/용어/경로/기본값 잔존 — ADR·tradeoffs 외.
+- 코드로 알 수 있는 사실(시그니처·디렉토리 트리·라인 수) 문서 중복 (#F9 단일 진실 원칙과 동렬).
+
+검사: 도구·구조 전환·기능 폐기 시 옛 토큰 `rg` 0 (코드 주석 포함). 위반 발견 시 현황 선언으로 즉시 정정 (덮어쓰기, 경위 서술 추가 X).
 
 ---

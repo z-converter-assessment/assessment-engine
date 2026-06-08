@@ -8,15 +8,14 @@
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
-        fmtKst, fmtKbChart, getAnchorEnd, initAnchor,
-        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray,
-        fetchRebootEvents, applyRebootMarkers,
+        fmtKbChart, getAnchorEnd, initAnchor,
+        makeBucketGrid, joinToGrid, bindToggle, initAutoRefresh, safeArray,
         buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
 
 // 추이 차트의 분해력 기준 (다중 interface x RX/TX 다중 라인 — idle 환경 트래픽도 보이도록).
-// 진단 리포트(performance.html)는 다른 정책: PERF_NET_SUGGESTED_MAX = 10 MB/s (1 Gbps의 8%).
+// 진단 리포트(metrics.html)는 다른 정책: PERF_NET_SUGGESTED_MAX = 10 MB/s (1 Gbps의 8%).
 // 실데이터가 본 값을 초과하면 자동 확장 (soft ceiling). Y축 단위는 fmtKbChart로 동적 표기.
 const NET_Y_SUGGESTED_MAX = 2048; // B/s ≈ 2 kB/s
 
@@ -52,7 +51,8 @@ async function loadNetSnapshot() {
       </tr>
     `).join('');
     document.getElementById('net-snapshot-table').style.display = '';
-    if (data.collected_at) document.getElementById('net-snapshot-ts').textContent = '수집 기준: ' + fmtKst(data.collected_at);
+    const stampEl = document.getElementById('metrics-stamp');
+    if (stampEl && data.collected_at) stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);
   } catch(e) { console.error(e); }
 }
 let netRange = '15m';
@@ -175,10 +175,6 @@ async function loadNetChart() {
     const bytesRows = ifaceOrderedRows(rxAvg, txAvg, rxMax, txMax);
     renderNetChartOne(BYTES_SPEC, bytesRows.avg, bytesRows.max, capturedRange, capturedAnchor);
     buildAvgMaxLegend(BYTES_SPEC.legendId, netChart, { withToggle: true });
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== netSeq) return;
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    applyRebootMarkers(netChart, events, grid);
   } catch(e) {
     console.error(e);
   }
@@ -205,10 +201,6 @@ async function loadNetPpsChart() {
     const ppsRows = ifaceOrderedRows(prxAvg, ptxAvg, prxMax, ptxMax);
     renderNetChartOne(PPS_SPEC, ppsRows.avg, ppsRows.max, capturedRange, capturedAnchor);
     buildAvgMaxLegend(PPS_SPEC.legendId, netPpsChart, { withToggle: true });
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== netPpsSeq) return;
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    applyRebootMarkers(netPpsChart, events, grid);
   } catch(e) {
     console.error(e);
   }
@@ -219,8 +211,8 @@ bindToggle('net-pps-range-btns', v => { netPpsRange = v; updateNetPpsBucketLabel
 document.getElementById('net-anchor').addEventListener('change', () => loadNetChart());
 document.getElementById('net-pps-anchor').addEventListener('change', () => loadNetPpsChart());
 
-/* ── SSE ── */
-initSse(SERVER_ID, loadNetSnapshot);
+/* ── 30초 polling 자동 갱신 (SSE 제거) ── */
+initAutoRefresh(loadNetSnapshot);
 
 initAnchor('net-anchor');
 initAnchor('net-pps-anchor');

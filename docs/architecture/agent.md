@@ -112,7 +112,7 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 - 운영자가 모달에 입력한 zdm_ip 허용 형식: IPv4 / IPv4:port / hostname / FQDN / hostname:port / http(s) URL. 엔진이 scheme·path strip 해서 host[:port] 만 추출 (`task_service._extract_zdm_host`) → download.url 조립 시 host[:port] 사용. agent `download_url_extract_host` 가 `':'` 도 host 종료 문자로 처리해 host-only 매칭. validator 매트릭스 단일 진실: `web/routers/tasks.py::_validate_zdm_ip` + `_is_valid_host_or_host_port`. IPv6 (raw / bracket) 는 agent 측 한계로 미지원.
 - agent 측 download.c 가 host whitelist(`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 강제. 운영자가 박은 ZDM host 가 등록되지 않았으면 `failure_reason="url_not_allowed"` reject. agent config 는 deploy 시점 고정 — 새 ZDM host 도입 시 agent 재배포 필요.
 - ZDM 좌표 default 는 `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` env. 패키지 메타는 `ZDM_PACKAGE_PATH` / `ZDM_PACKAGE_SCRIPT` env (`docs/operations/env.md`).
-- dev 환경 한정: `APP_ENV=dev` 일 때 web 컨테이너가 ZDM 본체 패키지를 mock 서빙 (ADR 0018) — `ZDM_DEFAULT_IP=host.docker.internal:8000` default 로 libvirt VM agent worker 가 host web 8000 으로 도달. prod 에서는 라우터 자체가 안 붙음.
+- dev 환경 한정: `APP_ENV=dev` 일 때 web 컨테이너가 ZDM 본체 패키지를 mock 서빙 (ADR 0018) — dev/.env 가 `ZDM_DEFAULT_IP` 를 libvirt host IP:8000(게이트웨이 192.168.122.1)으로 주입, libvirt VM agent worker 가 host web 8000 으로 도달. prod 에서는 라우터 자체가 안 붙음.
 
 ### sha256·size 동적 산출 (HttpZdmPackageResolver)
 
@@ -157,7 +157,7 @@ cache 동작:
 
 운영자 가시성: list.html "최근 작업" column (행별 마지막 task badge + polling 갱신) / detail.html "최근 작업" 섹션 (timeline 최근 10건 + row 클릭 modal) / Web API `GET /api/tasks/{task_id}` 단일 + `GET /api/tasks?server_public_id=...` 서버별 cursor pagination. 단일 진실: `web/services/mappers/task.py::to_task_summary` / `to_task_detail` + base.html `.rec-success`/`.rec-failure`/`.rec-pending`/`.rec-unknown`. failure_reason 한글 라벨은 `mappers/task.py::_FAILURE_REASON_LABEL` 카탈로그 (11 enum).
 
-dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.docker.internal:8000{ZDM_PACKAGE_PATH}` 로 더미 tar.gz 를 서빙 — libvirt VM agent worker 가 download → install.sh (echo + exit 0) exec → task.result success 발행 → consumer 6 컬럼 UPDATE → list UI badge `success` 전이. sha256·size 는 `HttpZdmPackageResolver` 가 ZDM 호스트 (dev 에서는 mock) 에서 HEAD/GET 으로 동적 산출하므로 별도 env 박을 필요 없음. agent download.c 는 http·https 둘 다 허용 (CURLOPT_PROTOCOLS_STR="https,http"), host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS=host.docker.internal`) 그대로 매칭. 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200 등) 시 publish 503 차단.
+dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `192.168.122.1:8000{ZDM_PACKAGE_PATH}` 로 더미 tar.gz 를 서빙 — libvirt VM agent worker 가 download → install.sh (echo + exit 0) exec → task.result success 발행 → consumer 6 컬럼 UPDATE → list UI badge `success` 전이. sha256·size 는 `HttpZdmPackageResolver` 가 ZDM 호스트 (dev 에서는 mock) 에서 HEAD/GET 으로 동적 산출하므로 별도 env 박을 필요 없음. agent download.c 는 http·https 둘 다 허용 (CURLOPT_PROTOCOLS_STR="https,http"), host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS=192.168.122.1`) 그대로 매칭. 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200 등) 시 publish 503 차단.
 
 ---
 
@@ -183,8 +183,7 @@ dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.doc
 
 | 필드 | 메시지 | drop 사유 |
 |------|--------|-----------|
-| `mounts[].major/minor` | metrics | 시계열 테이블 (`server_mount_usage`) 에 컬럼 없음. inventory 동일 필드만 mount-disk 조인에 활용 |
-| `disk_io[].major/minor` | metrics | 동일 — `server_disk_io` 시계열 테이블에 컬럼 없음. compute_disk_io 분류는 device 이름 정규식 |
+| `disk_io[].major/minor` | metrics | `server_disk_io` 시계열 테이블에 컬럼 없음. compute_disk_io 분류는 device 이름 정규식 |
 | `mounts[].free_bytes/avail_bytes` | inventory | 인벤토리는 정적 정보 (`total_bytes`) 만 저장. 동적 사용량은 `server_mount_usage` 시계열로 분리 (`consumer/mappers.py:to_inventory_create`) |
 | `boot_time` / `agent_started_at` | error | error 는 로깅 외 활용처 없음 — counter reset 식별과 무관 |
 
@@ -196,7 +195,8 @@ dev 환경 success 경로: ADR 0018 의 dev-only ZDM mock endpoint 가 `host.doc
 |------|--------|----------|
 | `disks[].major/minor` | inventory | `web/services/device_filters.find_parent_disk()` 에서 mount-disk 조인 키 |
 | `mounts[].major/minor` | inventory | `web/services/mappers.to_storage_detail` 에서 disks 와 매칭 -> `MountUsageItem.device_name` -> storage.html "Device" 컬럼 |
-| `boot_time` (inventory) | inventory | `server_inventory.boot_time` 컬럼 저장 + `server_inventory_history` append 시 비교. detail.html / performance.html 에 KST 표시 |
+| `mounts[].major/minor` | metrics | `server_mount_usage.major`/`.minor` 컬럼 저장 (`consumer/mappers.py:to_metric_create`). data-volume 판단 단일 신호 — `device_filters.is_data_volume`(major==0 = 블록 디바이스 없는 가상 fs) + 집계 SQL `_DATA_VOLUME_SQL_FILTER` |
+| `boot_time` (inventory) | inventory | `server_inventory.boot_time` 컬럼 저장 + `server_inventory_history` append 시 비교. detail.html / metrics.html 에 KST 표시 |
 | `agent_started_at` (inventory) | inventory | `server_inventory.agent_started_at` 컬럼 저장 + history 변경 trigger. 발행 프로세스 재시작 이벤트 감지의 1차 단서 |
 | `boot_time` (metrics) | metrics | 시계열 4 테이블 모두 (`server_metrics`·`server_disk_io`·`server_net_io`·`server_mount_usage`) `boot_time` 컬럼 저장. metrics·disk_io·net_io 는 `metrics_calculator._is_counter_reset` 이 두 시점 비교 -> 시스템 재부팅 시 delta 건너뛰기. mount_usage 는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 위해 보존 (CLAUDE.md C1 + B) |
 | `agent_started_at` (metrics) | metrics | 동일 4 테이블 컬럼 저장. boot_time 동일·agent_started_at 만 다름 -> 발행 프로세스 재시작 (counter 는 /proc 기반 그대로 -> 정상 delta) |
@@ -262,7 +262,7 @@ loop 디바이스 I/O 는 sda 에도 이미 반영된다 (`앱 read -> loop0(squ
 - 사용자 공간 파일시스템만 포함. 커널·가상 마운트 제외
 - 제외 fstype: `proc`, `sysfs`, `devtmpfs`, `devpts`, `squashfs`, `overlay`, `cgroup`, `cgroup2` 등
 
-엔진측 `device_filters.py` (`is_virtual_mount()`, `is_physical_disk()`) 는 유지 — defense in depth (옛 발행 버전 비대칭 배포 대응, 새 가상 fstype 등장 시 hot-fix, 발행 측 필터 버그 시 최종 방어선).
+엔진측 `device_filters.py` (`is_data_volume()`, `is_physical_disk()`) 는 유지 — defense in depth (옛 발행 버전 비대칭 배포 대응, major==0 가상 fs hot-fix, 발행 측 필터 버그 시 최종 방어선).
 
 ### Windows 한정
 

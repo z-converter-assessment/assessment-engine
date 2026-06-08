@@ -11,29 +11,28 @@ artifact 카탈로그·생성 trigger·무결성 검증·다운로드 채널: `d
 운영자 선택권 (ADR 0017):
 - (A) wheel + venv + systemd unit — 본 문서 3절 기본 시나리오
 - (B) Docker image (GHCR) + docker compose 또는 k8s — 본 문서 4절 multi-node 분리 inject 예시 (image 패턴 동등)
-- (C) 퀵스타트 — repo clone 후 루트 `docker-compose.yml` 한 줄 기동 (ADR 0033). 평가·신뢰된 내부망 소규모용. 아래 0절.
+- (C) 단일 호스트 배포 (compose all-in-one) — 릴리즈 base `docker-compose.yml` + `.env.example` 채워 한 줄 기동 (ADR 0036). 평가·내부망 소규모·단일 노드용. 아래 0절.
 
 토폴로지 자율 — 모두 동일 환경변수 contract (`docs/operations/env.md`) + Alembic migration 절차.
 
-## 0. 퀵스타트 (단일 호스트 all-in-one)
+## 0. 단일 호스트 배포 (compose all-in-one)
 
-repo clone 후 한 줄로 엔진 3 컴포넌트 + 의존 인프라(TimescaleDB·Redis·RabbitMQ) 기동. 평가(PoC)·내부망 소규모·데모용.
+릴리즈 base `docker-compose.yml` + `.env.example`(배포 템플릿) 한 세트로 단일 호스트에 엔진 3 컴포넌트 + 의존 인프라(TimescaleDB·Redis·RabbitMQ) 기동. 평가(PoC)·내부망 소규모·단일 노드 운영용 (ADR 0036).
 
-방법 1 — repo clone (소스에서 이미지 로컬 빌드):
-```bash
-cp .env.example .env              # 기본값으로 동작 — install 시 ZDM 좌표만 수동 설정
-docker compose up -d              # 루트 Dockerfile 로 빌드. web: http://localhost:8000
-```
+compose 2 파일 (ADR 0035·0036): 루트 `docker-compose.yml` = prod-safe base(build 키 없음, GHCR 이미지 pull), `docker-compose.override.yml` = dev 전용. 릴리즈는 base 만 첨부(override 미배포)라 배포는 base 단독으로 동작. dev 검증은 `dev/`(dev-up.sh + dev/.env.example).
 
-방법 2 — 릴리즈 다운로드 (소스 clone 불요, GHCR 이미지 pull):
-GitHub Release 첨부 `docker-compose.yml` + `.env.example` 받아:
+GitHub Release 첨부 `docker-compose.yml`(prod-safe base) + `.env.example`(배포 템플릿) 받아:
 ```bash
 cp .env.example .env
-ENGINE_IMAGE=ghcr.io/<org>/assessment-engine:1.2.3 docker compose up -d --no-build   # 릴리즈 이미지 pull
+# [필수] POSTGRES/RABBITMQ secret(changeme placeholder) · ENGINE_IMAGE · PGDATA_HOST 등 채움 (APP_ENV=prod 기본)
+docker compose up -d              # build 키 없음 -> GHCR 이미지 pull. web: http://localhost:8000
+# ENGINE_IMAGE 미설정 시 base 기본 = release CI 가 핀한 GHCR 정확 버전. 다른 버전·레지스트리면 override.
 ```
-`ENGINE_IMAGE` 미설정 시 로컬 빌드 시도(`--no-build` 와 충돌) — 릴리즈 경로는 둘 다 필수.
+GHCR public(ADR 0035 3절 정정) — 토큰 없이 pull. 영속 볼륨을 외부 디스크에 두려면 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(미설정 시 named volume).
 
-한계 (ADR 0033 "추후 분리"): 현 compose 는 `APP_ENV=dev` 기본(weak secret 허용·plain HTTP)이라 하드닝 prod 아님 — 인터넷 노출 운영은 wheel+systemd(3절) 또는 추후 hardened compose. install(ZDM)·AI 진단(LLM)은 외부 좌표 주입 전까지 비활성.
+`APP_ENV=prod` 기본이라 weak secret 은 기동 거부(fail-fast) — `.env` 의 `changeme` placeholder 를 진짜 secret 으로 채워야 뜬다.
+
+한계 (ADR 0036): 본 절은 단일 호스트 compose 까지. 인터넷 노출 hardened prod 는 HTTPS ingress(reverse proxy)·외부 secret 채널 추가 — wheel+systemd(3절) 또는 멀티노드(4절). install(ZDM)·AI 진단(LLM)은 외부 좌표 주입 전까지 비활성.
 
 ## 2. 사전 준비
 
@@ -151,7 +150,7 @@ curl -fsS http://<engine-host>:8000/health
 # {"status":"ok"} 응답이면 정상
 ```
 
-추가 endpoint(`/metrics`·`/docs`·web UI 등) 카탈로그: README "URL 카탈로그" 절.
+추가 endpoint(`/docs`·web UI 등) 카탈로그: README "URL 카탈로그" 절.
 
 ## 4. multi-node 분리 inject 예시
 
@@ -191,7 +190,7 @@ web 노드:                  /etc/assessment-engine/web.env
   WEB_PORT=8000
   ZDM_DEFAULT_IP=<ZDM_IP>
   ZDM_DEFAULT_USER=<ZDM_USER>
-  DIAGNOSTIC_ROUTING_KEY=diagnostic.request   # web도 진단 publish
+  RABBITMQ_ROUTING_KEY_DIAGNOSTIC=diagnostic.request   # web도 진단 publish
 
 consumer 노드:             /etc/assessment-engine/consumer.env
   WORKER_TASK_EXCHANGE=assessment.tasks
@@ -200,9 +199,8 @@ consumer 노드:             /etc/assessment-engine/consumer.env
 diagnostic-worker 노드:    /etc/assessment-engine/diagnostic-worker.env
   OLLAMA_BASE_URL=http://<ollama-host>:11434
   OLLAMA_MODEL=llama3.1:8b
-  WORKER_JOB_TIMEOUT_SECONDS=300
-  DIAGNOSTIC_QUEUE_TTL_MS=86400000
-  DIAGNOSTIC_QUEUE_MAX_LEN=100000
+  RABBITMQ_DIAGNOSTIC_QUEUE_TTL_MS=86400000
+  RABBITMQ_DIAGNOSTIC_QUEUE_MAX_LEN=100000
 ```
 
 ADR 0023: scheduler cron 폐기. 본 절 안 4 host 분리는 3 host 분리 정공 (web + consumer + diagnostic-worker).
@@ -244,7 +242,7 @@ docker run --rm --env-file /etc/assessment-engine.env \
   -c 'ALEMBIC_INI=$(python -c "from importlib.resources import files; print(files(\"assessment_engine\") / \"_alembic.ini\")"); python -m alembic -c "$ALEMBIC_INI" upgrade head'
 ```
 
-docker compose 운영 예시 (외부 인프라 작성 — 본 repo 두지 않음 ADR 0012):
+docker compose 운영 예시 (직접 작성 시 최소 형태. 릴리즈 첨부 prod-safe base `docker-compose.yml`(ADR 0035)을 받아 쓰면 backing 서비스·migrate·볼륨까지 포함되므로 보통 그쪽이 우선):
 ```yaml
 services:
   web:
@@ -300,8 +298,7 @@ spec:
 | Schema | wheel 안 `_alembic.ini` + `migrations/` | `alembic upgrade head` 사전 실행 |
 | graceful shutdown | F11 (`docs/architecture/consumer.md`·`diagnostic.md`) | systemd `KillSignal=SIGTERM` + `TimeoutStopSec` 충분히 |
 | 헬스 endpoint | `GET /health` (web) | systemd `Restart=always` + watchdog 외부 모니터 |
-| 관측 | `/metrics` (Prometheus, ADR 0011) + `LOG_FORMAT=json` (F7) | Prometheus scrape · log aggregator collector |
-| reverse proxy | `/metrics` 외부 노출 금지 (ADR 0011) | nginx·envoy 등에서 internal-only 라우트 |
+| 관측 | `LOG_FORMAT=json` (F7) 구조화 로그 | log aggregator collector |
 
 ## 6. 트러블슈팅 (자주 발견되는 사고)
 
@@ -311,7 +308,6 @@ spec:
 | `alembic upgrade head` 실패 — `extension "timescaledb" is not available` | PostgreSQL TimescaleDB extension 누락. 운영 DB 에서 `CREATE EXTENSION IF NOT EXISTS timescaledb` 사전 실행 (`docs/operations/alembic.md`) |
 | consumer 가 broker 연결 실패 반복 | `RABBITMQ_HOST`/`RABBITMQ_VHOST`/auth 검토. `sudo rabbitmqctl list_permissions -p /assessment` 로 vhost 권한 확인 (`docs/architecture/rabbitmq.md` "vhost·권한 모델") |
 | `/health` 는 200 인데 inventory 안 들어옴 | 에이전트가 별도 install·broker 연결 필요. agent 측 secret 채널 점검 (`docs/architecture/agent.md`) |
-| `/metrics` endpoint 외부 노출 | reverse proxy 에서 internal-only 라우트 차단 누락 (ADR 0011 한계 절 참조) |
 
 ## 7. 인프라 레포 자동화 (권장 패턴)
 
@@ -330,7 +326,7 @@ Ansible 매핑 예시 — 절 3.1 (wheel install) 일부를 task 로 옮긴 모�
   ansible.builtin.command:
     cmd: >
       gh release download {{ engine_version }}
-      --repo <org>/assessment-engine
+      --repo z-converter-assessment/assessment-engine
       --pattern '*.whl'
       --pattern 'SHA256SUMS'
       --dir /tmp/release-{{ engine_version }}

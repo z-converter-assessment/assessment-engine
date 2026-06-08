@@ -96,18 +96,12 @@
     });
   }
 
-  // ── SSE 초기화 ──
-  function initSse(serverId, onMessage) {
-    const es = new EventSource(`/api/servers/${serverId}/metrics/stream`);
-    const dot = document.getElementById('sse-dot');
-    const lbl = document.getElementById('sse-label');
-    es.onopen    = () => { if (dot) dot.className = 'dot dot-ok'; if (lbl) lbl.textContent = '자동 갱신 중'; };
-    es.onmessage = () => onMessage();
-    es.onerror   = () => { if (dot) dot.className = 'dot dot-off'; if (lbl) lbl.textContent = '자동 갱신 중단 — 재연결 중...'; };
-    // 페이지 이탈(뒤로가기·네비게이션·탭 닫기) 시 SSE 정리 — 미정리 시 좀비 EventSource 가
-    // HTTP/1.1 도메인 연결 한도(6)를 점유해 재진입 시 새 요청이 대기에 걸려 무한로딩 발생.
-    window.addEventListener('pagehide', () => es.close());
-    return es;
+  // ── 30초 polling 자동 갱신 (detail 실시간 메트릭과 일관) ──
+  // 폴링은 연결 상태 개념이 없어 상태 DOM 갱신 없음. stamp 는 호출처 loader 가 갱신.
+  function initAutoRefresh(onRefresh, intervalMs = 30_000) {
+    const id = setInterval(onRefresh, intervalMs);
+    window.addEventListener('pagehide', () => clearInterval(id));  // 좀비 타이머 방지
+    return id;
   }
 
   // ── 응답 안전 변환 ──
@@ -127,6 +121,9 @@
   // single-dim(라벨 1개) 또는 multi-dim(dim별 색·dash) 통합.
   // 결과: [avgDataset, maxGhostDataset]쌍 N개. tooltip filter `datasetIndex % 2 === 0`로 max ghost 숨김.
   function buildAvgMaxDatasets(avgRows, maxRows, bMs, grid, opts = {}) {
+    // 버킷이 최소 단위(1분)면 버킷당 데이터가 1포인트라 max=avg → 음영 무의미.
+    // 15분 구간(1분 버킷)에서 max ghost 비활성화 (음영·tooltip max 제거). environment 단일선과 동일하게 max=[] 처리.
+    if (bMs <= BUCKET_MS['1m']) maxRows = [];
     const dims = [...new Set([...avgRows, ...maxRows].map(r => r.dimension || ''))];
     const datasets = [];
     dims.forEach((dim, i) => {
@@ -196,87 +193,6 @@
     }).join('');
   }
 
-  // ── reboot / agent restart 이벤트 (차트 vertical marker용) ──
-  // 백엔드 API: GET /api/servers/{id}/events/reboot?time_range=...&end=...
-  // 응답: [{collected_at, boot_time, agent_started_at, kind: "reboot"|"restart"}]
-  async function fetchRebootEvents(serverId, range, anchor) {
-    const p = new URLSearchParams({ time_range: range });
-    if (anchor) p.append('end', anchor.toISOString());
-    const res = await fetch(`/api/servers/${serverId}/events/reboot?${p}`);
-    if (res.status === 404 || !res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
-  }
-
-  // grid는 timestamp(ms) 오름차순 배열. ts에 가장 가까운(<=) 인덱스 반환. 없으면 -1.
-  function _findGridIndex(grid, ts) {
-    if (!grid.length || ts < grid[0]) return -1;
-    let lo = 0, hi = grid.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (grid[mid] <= ts) lo = mid; else hi = mid - 1;
-    }
-    return lo;
-  }
-
-  // Chart.js custom plugin — 차트 인스턴스 chart.$rebootMarkers.{events, gridMs} 읽어
-  // vertical dashed line + 작은 라벨 그림. afterDraw로 dataset 위에 덮어 그림.
-  // 색상: reboot=red(#ef4444), restart=amber(#f59e0b). 기존 USAGE_DANGER/WARN 색과 일치.
-  const rebootMarkersPlugin = {
-    id: 'rebootMarkers',
-    afterDraw(chart) {
-      // events/gridMs 는 chart.options 밖(인스턴스 속성)에서 읽음 — Chart.js options resolver 가
-      // 배열을 scriptable 로 깊이 평가하다 무한 재귀(_scriptable->_scriptable)에 빠지는 것 회피.
-      const opts = chart.$rebootMarkers;
-      if (!opts || !Array.isArray(opts.events) || !opts.events.length) return;
-      const grid = opts.gridMs;
-      if (!Array.isArray(grid) || !grid.length) return;
-      const xScale = chart.scales.x;
-      if (!xScale) return;
-      const area = chart.chartArea;
-      const ctx = chart.ctx;
-      ctx.save();
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 3]);
-      ctx.font = '10px sans-serif';
-      ctx.textAlign = 'left';
-      for (const ev of opts.events) {
-        const ts = new Date(ev.collected_at).getTime();
-        const idx = _findGridIndex(grid, ts);
-        if (idx < 0) continue;
-        const x = xScale.getPixelForValue(idx);
-        if (x < area.left || x > area.right) continue;
-        const color = ev.kind === 'reboot' ? '#ef4444' : '#f59e0b';
-        ctx.strokeStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(x, area.top);
-        ctx.lineTo(x, area.bottom);
-        ctx.stroke();
-        ctx.fillStyle = color;
-        ctx.fillText(ev.kind === 'reboot' ? 'VM 리부트' : '에이전트 재시작', x + 3, area.top + 11);
-      }
-      ctx.restore();
-    },
-  };
-  // Chart.js 4.x global plugin 등록. base.html에서 chart.umd.min.js 로드 후 본 파일 실행.
-  if (root.Chart && typeof root.Chart.register === 'function') {
-    root.Chart.register(rebootMarkersPlugin);
-  }
-
-  // 차트 인스턴스에 marker 옵션 주입 + animation 없이 redraw.
-  // 호출자: 모든 chart load 후 (한 번에 모든 차트에 적용)
-  function applyRebootMarkers(chart, events, gridMs) {
-    if (!chart) return;
-    // chart-utils 가 chart.umd 보다 먼저(head 동기) 실행되면 위 register 가 누락(root.Chart undefined) —
-    // 여기서 보장 (같은 id 재등록은 무해). plugin 미등록이면 marker 가 안 그려져 차트 갱신까지 막던 문제 방지.
-    if (root.Chart && typeof root.Chart.register === 'function') {
-      root.Chart.register(rebootMarkersPlugin);
-    }
-    // options 밖(인스턴스 속성)에 둔다 — Chart.js resolver 무한 재귀 회피 (afterDraw 가 chart.$rebootMarkers 읽음).
-    chart.$rebootMarkers = { events, gridMs };
-    chart.update('none');
-  }
-
   // 색 점 + 라벨 칩(pill) 토글 범례 — 클릭 시 dataset show/hide. 모든 차트 페이지 공용.
   // 숨김 상태는 aria-pressed=false (CSS 가 흐리게). label/checkbox 대신 button 이라 키보드 토글 자연 지원.
   function renderChipLegend(container, chart) {
@@ -301,8 +217,7 @@
     fmtKst, fmtLabel, fmtKbChart,
     getAnchorEnd, initAnchor,
     makeBucketGrid, joinToGrid,
-    bindToggle, initSse, safeArray, naWindows,
-    fetchRebootEvents, applyRebootMarkers,
+    bindToggle, initAutoRefresh, safeArray, naWindows,
     buildAvgMaxDatasets, buildAvgMaxLegend,
     renderChipLegend,
   };

@@ -7,35 +7,43 @@
 
 <!-- 서비스 목록 -->
 <div class="card">
-  <h2>
+  <h2 class="card-title">
     실행 중인 서비스
     {% if server.services is not none %}
-      <span style="font-size:12px; font-weight:400; color:#94a3b8; text-transform:none; letter-spacing:0;">
-        {{ server.services_count }}개
-      </span>
+      <span class="section-meta">{{ server.services_count }}개</span>
     {% endif %}
   </h2>
 
   {% if server.services is none %}
-    <p style="color:#94a3b8; font-size:13px; margin:0;">수집 불가</p>
+    <p class="text-meta" style="font-size:13px; margin:0;">수집 불가</p>
   {% elif not server.services %}
-    <p style="color:#94a3b8; font-size:13px; margin:0;">실행 중인 서비스 없음</p>
+    <p class="text-meta" style="font-size:13px; margin:0;">실행 중인 서비스 없음</p>
   {% else %}
     <table>
       <thead>
         <tr>
           <th>Unit</th>
-          <th>상태</th>
-          <th>카테고리</th>
+          <th style="text-align:center;">카테고리</th>
+          <th>포트</th>
         </tr>
       </thead>
       <tbody>
         {% for svc in server.sorted_services %}
         <tr>
-          <td><code>{{ svc.unit }}</code></td>
-          <td><span class="text-ok" style="font-size:12px;">{{ svc.sub }}</span></td>
+          <td>{{ svc.unit }}</td>
+          <td style="text-align:center;">
+            {% if svc.category == 'unknown' %}
+              <span class="text-meta">—</span>
+            {% else %}
+              <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}</span>
+            {% endif %}
+          </td>
           <td>
-            <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}</span>
+            {% if svc.ports %}
+              {% for p in svc.ports %}{{ p.proto }}/{{ p.port }}{% if not loop.last %}, {% endif %}{% endfor %}
+            {% else %}
+              <span class="text-meta">—</span>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -52,15 +60,13 @@
 
 <!-- 포트 목록 -->
 <div class="card">
-  <h2>
+  <h2 class="card-title">
     Listen 포트
-    <span style="font-size:12px; font-weight:400; color:#94a3b8; text-transform:none; letter-spacing:0;">
-      {{ server.listen_ports_count }}개
-    </span>
+    <span class="section-meta">{{ server.listen_ports_count }}개</span>
   </h2>
 
   {% if not server.listen_ports %}
-    <p style="color:#94a3b8; font-size:13px; margin:0;">수집된 포트 없음</p>
+    <p class="text-meta" style="font-size:13px; margin:0;">수집된 포트 없음</p>
   {% else %}
     <table>
       <thead>
@@ -76,22 +82,16 @@
       <tbody>
         {% for p in server.sorted_listen_ports %}
         <tr>
-          <td><code>{{ p.proto }}</code></td>
-          <td><code class="text-meta">{{ p.addr }}</code></td>
-          <td>
-            {% if p.is_well_known %}
-              <strong class="text-strong">{{ p.port }}</strong>
-            {% else %}
-              {{ p.port }}
-            {% endif %}
-          </td>
-          <td class="text-muted">{{ p.uid if p.uid is not none else '—' }}</td>
-          <td class="text-muted">{{ p.pid if p.pid is not none else '—' }}</td>
+          <td>{{ p.proto }}</td>
+          <td>{{ p.addr }}</td>
+          <td>{{ p.port }}</td>
+          <td>{% if p.uid is not none %}{{ p.uid }}{% else %}<span class="text-meta">—</span>{% endif %}</td>
+          <td>{% if p.pid is not none %}{{ p.pid }}{% else %}<span class="text-meta">—</span>{% endif %}</td>
           <td>
             {% if p.comm %}
-              <code>{{ p.comm }}</code>
+              {{ p.comm }}
             {% else %}
-              <span class="text-faint">—</span>
+              <span class="text-meta">—</span>
             {% endif %}
           </td>
         </tr>
@@ -100,4 +100,7 @@
     </table>
   {% endif %}
 </div>
+
+{% include "_reference_link.html" %}
 {% endblock %}
+{% block body_attrs %} class="metric-head"{% endblock %}

@@ -1,11 +1,11 @@
-/* detail 페이지 — server 상세 latest metrics 표시 + SSE 자동 갱신.
+/* detail 페이지 — server 상세 latest metrics 표시 + 30초 polling 자동 갱신.
  *
  * body data-server-id 단일 진실 (#E6 inline <script> 금지).
  * 외부 의존: ChartUtils.fmtKst (F2 단일 KST 변환 경계).
  *
  * P4 5 의무 규약(a~e) 적용:
- *  (a) sequence counter — fetchMetrics는 SSE 트리거 또는 초기 1회만이라 race 없지만 collection-status는 30초 polling으로 동시 in-flight 가능 → seq counter.
- *  (b) capture-before-await — 본 페이지는 range/anchor 토글 없음. SSE는 단방향이라 stale 없음.
+ *  (a) sequence counter — fetchMetrics·collection-status 모두 30초 polling 으로 동시 in-flight 가능 → 각자 seq counter.
+ *  (b) capture-before-await — 본 페이지는 range/anchor 토글 없음. 단일 endpoint polling 이라 파라미터 stale 없음.
  *  (c) Array.isArray — collection-status·disk_io_phys·net_io 모두 fallback safe.
  *  (d) 404 분기 — /metrics/latest 404 시 metrics-no-data 표시.
  *  (e) 명명 상수 — USAGE_DANGER_PCT/USAGE_WARN_PCT + COLOR_* 모듈 상단.
@@ -54,8 +54,8 @@
     show('metrics-content');
 
     if (d.collected_at) {
-      // F2: KST 변환은 ChartUtils.fmtKst 단일 경계
-      el('metrics-ts').textContent = '수집 기준: ' + ChartUtils.fmtKst(d.collected_at);
+      // F2: KST 변환은 ChartUtils.fmtKst 단일 경계. 카드 밖 우측상단 stamp (환경 실시간과 동일 형식).
+      el('metrics-stamp').textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(d.collected_at);
     }
 
     /* CPU */
@@ -80,10 +80,12 @@
     setTxt('mem-cached',  ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtKb(mem.cached_kb)));
     setTxt('mem-buffers', ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtKb(mem.buffers_kb)));
     // P5: 누적 비율은 서버 metrics_calculator.compute_mem 에서 계산. 클라이언트는 표시만.
+    // 정의서 구성 모델: used | cached | buffers | available(free 잔여) 4구획, 합 = 100.
     el('mem-used-bar').style.width      = (mem.usage_pct ?? 0) + '%';
     el('mem-used-bar').style.background = barColor(mem.usage_pct);
     el('mem-cached-bar').style.width    = (mem.cached_pct ?? 0) + '%';
     el('mem-buf-bar').style.width       = (mem.buffers_pct ?? 0) + '%';
+    el('mem-avail-bar').style.width     = (mem.free_pct ?? 0) + '%';
 
     /* Swap */
     const swap = d.swap || {};
@@ -152,16 +154,21 @@
   }
 
   /* -------- AJAX -------- */
+  let metricsSeq = 0;
   async function fetchMetrics() {
+    const seq = ++metricsSeq;  // 30초 polling 동시 in-flight 시 stale 응답 폐기 (P4 a)
     try {
       const res = await fetch(`/api/servers/${SERVER_ID}/metrics/latest`);
+      if (seq !== metricsSeq) return;
       if (res.status === 404) {
         hide('metrics-loading');
         show('metrics-no-data');
         return;
       }
       if (!res.ok) return;
-      renderMetrics(await res.json());
+      const data = await res.json();
+      if (seq !== metricsSeq) return;
+      renderMetrics(data);
     } catch (e) { console.error('metrics fetch', e); }
   }
 
@@ -176,31 +183,21 @@
       const item = Array.isArray(data) ? data[0] : data;
       if (!item) return;
       const badge = el('online-badge');
+      // 상태 표시는 dot 뱃지 아닌 폰트색 글자 — 대시보드 목록(.status-on/.status-off)과 통일 (static-assets.md).
       if (item.is_online) {
-        badge.innerHTML = '<span class="dot dot-ok"></span>온라인';
-        badge.className = 'badge badge-ok';
+        badge.className = 'status-on no-print';
+        badge.textContent = '온라인';
       } else {
-        badge.innerHTML = '<span class="dot dot-off"></span>오프라인';
-        badge.className = 'badge';
+        badge.className = 'status-off no-print';
+        badge.textContent = '오프라인';
       }
     } catch (e) {}
   }
 
-  /* -------- SSE -------- */
-  const es = new EventSource(`/api/servers/${SERVER_ID}/metrics/stream`);
-  es.onopen = () => {
-    el('sse-dot').className = 'dot dot-ok';
-    el('sse-label').textContent = '자동 갱신 중';
-  };
-  es.onmessage = () => fetchMetrics();
-  es.onerror = () => {
-    el('sse-dot').className = 'dot dot-off';
-    el('sse-label').textContent = '자동 갱신 중단 — 재연결 중...';
-  };
-
-  /* -------- 초기 로드 -------- */
+  /* -------- 초기 로드 + 30초 polling (환경 실시간과 일관 — SSE 제거) -------- */
   fetchMetrics();
   fetchCollectionStatus();
+  setInterval(fetchMetrics, 30_000);
   setInterval(fetchCollectionStatus, 30_000);
 })();
 
@@ -222,8 +219,8 @@
   const hostname = card.dataset.serverHostname;
   const _VIEW_TITLES = { customer: '고객 보고서 발행', engineer: '엔지니어 보고서 발행' };
   const _VIEW_DESCS = {
-    customer: `서버 ${hostname} 1대 대상 Right-sizing 규칙 기반 고객 보고서 발행. 새 탭으로 이동합니다.`,
-    engineer: `서버 ${hostname} 1대 대상 Right-sizing 규칙 기반 엔지니어 보고서 발행. 새 탭으로 이동합니다.`,
+    customer: `서버 ${hostname} 1대 대상 Right-sizing 규칙 기반 고객 보고서 발행.`,
+    engineer: `서버 ${hostname} 1대 대상 Right-sizing 규칙 기반 엔지니어 보고서 발행.`,
   };
   let currentView = 'customer';
 

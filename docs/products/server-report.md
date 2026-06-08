@@ -86,7 +86,7 @@ Print 우선 — 인쇄 PDF 대응. 판단 근거(임계값 전문)는 모든 �
 | 13 | SWAP / Mount | swap 사용 여부 + worst mount(경로·사용률·잔여일) | `report_aggregate` + `report_mount_worst` |
 | 14 | Uptime / 재부팅 | uptime_days + reboot_count (period 안) | `report_uptime_stats` |
 | 15 | 분류 / 판단 | USE Method classification + 자동 판단 텍스트 | `recommendation.classify` + mapper `_build_diagnosis` |
-| 16 | 진단 (14일) | 진단 워커 latest succeeded 결과 | `diagnostic_jobs` |
+| 16 | 진단 (7일) | 진단 워커 latest succeeded 결과 | `diagnostic_jobs` |
 
 자동 정성 요약 (customer 시그널 + engineer 추가): 역할별 평균 CPU 최고치·Saturation 발생·CPU 변동성 큼.
 
@@ -116,7 +116,7 @@ N대 selection 은 서버 간 비교를 위해 행 단위 정량 표(양식 B)�
 
 산출 결과 예시:
 ```
-서버 db-01는 최근 14일 동안 CPU p95 12.3%, 메모리 p95 35.0% 사용.
+서버 db-01는 최근 7일 동안 CPU p95 12.3%, 메모리 p95 35.0% 사용.
 분류는 과다 프로비저닝.
 AWS Compute Optimizer 임계값(CPU p95 30%) 기준으로 CPU 다운사이즈 권장.
 ```
@@ -161,7 +161,7 @@ Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상�
 
 ### 평가 윈도우
 
-- 서버 보고서 default 14일 (`recommendation.WINDOW_DAYS`). URL `?period_days=N` (1~90일) override 가능.
+- 서버 보고서 default 7일 (`recommendation.WINDOW_DAYS`). URL `?period_days=N` (1~90일) override 가능.
 - 서버 진단 7개 옵션 (15m·1h·6h·24h·7d·14d default·30d) — 즉시 발행 모달에서 선택. 짧은 윈도우는 단발 부하·실시간 시연 검증, 긴 윈도우는 신뢰성 증가 최근 변동 반영 늦음.
 
 ### view 분기 의도
@@ -179,7 +179,7 @@ Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상�
 ### 분류 컬럼 vs 진단 컬럼 차이 (engineer view)
 
 - "분류 / 판단" — 본 보고서 윈도우 (period_days) raw 데이터 기반 즉시 분류. URL 파라미터 따라 윈도우 가변.
-- "진단 (14일)" — 별도 진단 job 결과 (사용자 발행 — ADR 0023). 14일 고정. 다른 시점에 발행된 job 의 결과라 stale 가능.
+- "진단 (7일)" — 별도 진단 job 결과 (사용자 발행 — ADR 0023). 7일 고정. 다른 시점에 발행된 job 의 결과라 stale 가능.
 
 같은 분류 이름 (under_provisioned 등) 을 쓸 수 있지만 source·시점 다름 — 두 컬럼이 다르게 보이면 윈도우 차이·진단 job 갱신 지연이 원인.
 
@@ -205,7 +205,7 @@ Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상�
 5. 단일 narrative 합성 — 결정론 템플릿이라 운영자가 추가 컨텍스트 반영 불가. 외부 LLM 도입 시 가능해질 영역 (ADR 0010).
 6. engineer view 인쇄 폭 한계 — 16 컬럼이라 A4 가로도 빠듯. PDF 대응 안 됨. 화면 분석 또는 가로 모드 인쇄 권장.
 7. 표는 위험 우선 기본 정렬 (발행 시점 under -> attention -> normal, 동순위 cpu_p95 DESC). 사용자 임의 재정렬·필터는 미지원 — 추후 client-side sort 도입 검토 후보.
-8. 시점 동기화 없음 — engineer view 의 "분류 / 판단" (이번 윈도우 raw) 과 "진단 (14일)" (별도 job) 이 다른 시점·다른 윈도우. 운영자가 두 컬럼 차이를 source 차이로 해석해야 함.
+8. 시점 동기화 없음 — engineer view 의 "분류 / 판단" (이번 윈도우 raw) 과 "진단 (7일)" (별도 job) 이 다른 시점·다른 윈도우. 운영자가 두 컬럼 차이를 source 차이로 해석해야 함.
 9. URL 길이 한계 — `ids` query string 에 N개 public_id 넣음. N 이 매우 크면 URL 한계. 추후 POST + session 도입 검토.
 
 ## 관련 문서·코드

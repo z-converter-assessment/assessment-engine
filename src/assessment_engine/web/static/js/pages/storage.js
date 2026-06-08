@@ -8,16 +8,15 @@
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
-        fmtKst, getAnchorEnd, initAnchor,
-        makeBucketGrid, joinToGrid, bindToggle, initSse, safeArray,
-        fetchRebootEvents, applyRebootMarkers,
+        getAnchorEnd, initAnchor,
+        makeBucketGrid, joinToGrid, bindToggle, initAutoRefresh, safeArray,
         buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
 
 
 // 추이 차트의 분해력 기준 (다중 device x Read/Write 다중 라인 — idle VM에서 0.1 IOPS도 보이도록).
-// 진단 리포트(performance.html)는 다른 정책: PERF_IOPS_SUGGESTED_MAX = 200 (HDD 물리 한계).
+// 진단 리포트(metrics.html)는 다른 정책: PERF_IOPS_SUGGESTED_MAX = 200 (HDD 물리 한계).
 // 실데이터가 본 값을 초과하면 자동 확장 (soft ceiling).
 const STORAGE_IOPS_SUGGESTED_MAX = 5;
 
@@ -54,8 +53,9 @@ async function loadIoSnapshot() {
     } else {
       document.getElementById('io-phys-empty').style.display = '';
     }
-    if (data.collected_at)
-      document.getElementById('io-snapshot-ts').textContent = '수집 기준: ' + fmtKst(data.collected_at);
+    const stampEl = document.getElementById('metrics-stamp');
+    if (stampEl && data.collected_at)
+      stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);
   } catch(e) {
     document.getElementById('io-snapshot-loading').textContent = '불러오기 실패';
   }
@@ -160,10 +160,6 @@ async function loadPhysChart() {
     ];
     if (physChart) { physChart.destroy(); physChart = null; }
     physChart = renderIoChartTo('io-phys-canvas', 'io-phys-chart-empty', 'io-phys-legend', physAvgRows, physMaxRows, capturedRange, null, capturedAnchor);
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== physSeq) return;
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    applyRebootMarkers(physChart, events, grid);
   } catch(e) { console.error(e); }
 }
 
@@ -270,10 +266,6 @@ async function loadFsChart() {
     if (seq !== fsSeq) return;
     if (!Array.isArray(avgRows)) return;
     renderFsChart(avgRows, Array.isArray(maxRows) ? maxRows : [], capturedRange, capturedAnchor);
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== fsSeq) return;
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    applyRebootMarkers(fsChart, events, grid);
   } catch(e) { console.error(e); }
 }
 
@@ -286,5 +278,5 @@ bindToggle('fs-range-btns', v => { fsRange = v; updateFsBucketLabel(); document.
 updateFsBucketLabel();
 loadFsChart();
 
-/* ── SSE ── */
-initSse(SERVER_ID, loadIoSnapshot);
+/* ── 30초 polling 자동 갱신 (SSE 제거) ── */
+initAutoRefresh(loadIoSnapshot);

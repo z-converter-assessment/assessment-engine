@@ -14,6 +14,7 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 )
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
+    UTIL_GAUGE_COLOR,
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS as _PROVISIONING_SEGMENT_DEFS,
@@ -81,8 +82,9 @@ def _count_classifications(rows: list[ReportRowItem]) -> list[ClassificationCoun
             # 표시 라벨 = right-sizing 한국어 분류명 단일 진실(LABEL_KO). 영어 enum 노출 금지·평행 어휘 금지.
             label=recommendation.LABEL_KO.get(key, label),
             count=counts.get(key, 0),
-            color=color,
-            # desc = 조치 방향만 (label 분류명과 어휘 중복 회피). 대시보드 도넛 desc 와 분리.
+            # 색 = 게이지 테마 단색 통일 (분류 막대 — 라벨이 의미 전달). _PROVISIONING_SEGMENT_DEFS 다색 미사용.
+            color=UTIL_GAUGE_COLOR,
+            # desc = 조치 방향만 (label 분류명과 어휘 중복 회피).
             description=_CLASS_ACTION_KO.get(key, description),
         )
         for key, label, color, description in _PROVISIONING_SEGMENT_DEFS

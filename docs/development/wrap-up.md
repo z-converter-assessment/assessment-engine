@@ -15,6 +15,10 @@
 - feature branch 위 (`main`·`master` 직접 X). 미커밋 변경만 또는 clean 상태.
 - commit·PR 전. commit·PR 자체는 본 워크플로 종료 후 사용자 명시 시 `/commit`·`/pr-create` 별도 발동.
 
+검증 강도 — 이벤트별 (사용자 정책):
+- 로컬 commit 단독 = 빡센 검증(ruff·pytest·파이프라인·전체 파싱 sweep) 비대상. 동작 검증(`/run`·`/verify`)과 변경 직후 자가 점검(#F5)만으로 충분 — 가볍게 자주 커밋.
+- push·PR·배포 등 외부 공유 이벤트(= push 이상) 직전에만 본 wrap-up 5단계(특히 Stage 2 테스트·Stage 3 파이프라인) 빡센 검증 발동. 커밋마다 무거운 검증을 강제하지 않는다.
+
 범위 밖:
 - 기능 동작 개발 자체 — 개발 시간의 대부분. 본 워크플로는 동작하는 코드를 전제로 그 위에서 정석화·정합만 수행 (make it work 후의 make it right).
 - commit 메시지·PR 본문 작성·push.

@@ -12,7 +12,7 @@
     var el = document.getElementById('env-trend-chart');
     if (!el || typeof Chart === 'undefined' || typeof ChartUtils === 'undefined') return;
     var raw = el.getAttribute('data-trend');
-    var range = el.getAttribute('data-range') || '14d';
+    var range = el.getAttribute('data-range') || '7d';
     // 가이드선(grid) — 대시보드만 표시(data-grid="true"), 보고서는 미표시. 범례는 양쪽 동일(토글 제거).
     var showGrid = el.getAttribute('data-grid') === 'true';
     if (!raw) return;
@@ -24,18 +24,24 @@
     }
     if (!Array.isArray(pts) || !pts.length) return;
 
-    var labels = pts.map(function (p) {
-      return ChartUtils.fmtLabel(p.at, range);
+    // 윈도우 전체 고정 그리드 — 서버 상세 차트와 동일 정책(makeBucketGrid + joinToGrid).
+    // 빈 구간은 null(gap), 최신(마지막 pt)이 오른쪽 끝. 데이터 있는 범위만 그리던 옛 방식 폐기.
+    var bucketKey = ChartUtils.AUTO_BUCKET[range] || '6h';
+    var bMs = ChartUtils.BUCKET_MS[bucketKey];
+    var anchor = new Date(pts[pts.length - 1].at);
+    var grid = ChartUtils.makeBucketGrid(range, bucketKey, anchor);
+    var labels = grid.map(function (t) {
+      return ChartUtils.fmtLabel(new Date(t).toISOString(), range);
     });
-    var cpu = pts.map(function (p) {
-      return p.cpu;
-    });
-    var mem = pts.map(function (p) {
-      return p.mem;
-    });
-    var disk = pts.map(function (p) {
-      return p.disk;
-    });
+    function series(key) {
+      var rows = pts.map(function (p) {
+        return { collected_at: p.at, value: p[key] };
+      });
+      return ChartUtils.joinToGrid(grid, rows, bMs);
+    }
+    var cpu = series('cpu');
+    var mem = series('mem');
+    var disk = series('disk');
 
     // 대시보드 자동갱신 fragment swap 후 재호출 대비 — 기존 인스턴스 정리(중복·메모리 누수 방지).
     var existing = Chart.getChart(el);
@@ -51,7 +57,7 @@
             borderColor: '#3b82f6',
             backgroundColor: 'transparent',
             tension: 0.2,
-            spanGaps: true,
+            spanGaps: false,
             pointRadius: 0,
             borderWidth: 1.5,
           },
@@ -61,7 +67,7 @@
             borderColor: '#f59e0b',
             backgroundColor: 'transparent',
             tension: 0.2,
-            spanGaps: true,
+            spanGaps: false,
             pointRadius: 0,
             borderWidth: 1.5,
           },
@@ -71,7 +77,7 @@
             borderColor: '#22c55e',
             backgroundColor: 'transparent',
             tension: 0.2,
-            spanGaps: true,
+            spanGaps: false,
             pointRadius: 0,
             borderWidth: 1.5,
           },
@@ -81,7 +87,7 @@
         responsive: true,
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
-        // 성능 리포트 차트 모양 — 가이드선(grid) 없음, x축 시간 표기 적당 간격(maxTicksLimit).
+        // 성능 추이 차트 모양 — 가이드선(grid) 없음, x축 시간 표기 적당 간격(maxTicksLimit).
         scales: {
           x: { ticks: { maxTicksLimit: 10, font: { size: 11 }, color: '#94a3b8' }, grid: { display: showGrid, color: '#f1f5f9' } },
           y: {
@@ -91,8 +97,9 @@
             grid: { display: showGrid, color: '#f1f5f9' },
           },
         },
-        // 범례: 활성/비활성 범례 모양 그대로, 체크/언체크(클릭 토글) 기능만 제거 (onClick no-op).
-        plugins: { legend: { position: 'bottom', onClick: function () {}, labels: { boxWidth: 12, font: { size: 11 } } } },
+        // 범례: 네트워크 토폴로지 범례와 동일 모양 — 원형 dot + 라벨(usePointStyle circle, color #64748b).
+        // 체크/언체크(클릭 토글) 기능은 제거 (onClick no-op).
+        plugins: { legend: { position: 'bottom', onClick: function () {}, labels: { usePointStyle: true, pointStyle: 'circle', boxWidth: 8, boxHeight: 8, font: { size: 11 }, color: '#64748b' } } },
       },
     });
   }

@@ -10,7 +10,7 @@
 ### 4테이블 `boot_time`/`agent_started_at` 컬럼 보존
 
 `server_metrics`/`server_disk_io`/`server_net_io`/`server_mount_usage` 4개 테이블은 행마다 `boot_time`/`agent_started_at` 컬럼을 함께 저장한다(CLAUDE.md #C1·#B). 근거:
-- metrics/disk_io/net_io는 `_chart_*` 헬퍼와 `metrics_calculator._is_counter_reset`이 `LAG(boot_time)`로 시스템 재부팅 식별 -> counter reset 시 delta 건너뛰기.
+- metrics/disk_io/net_io는 `metric_trend` 차트 SQL과 `metrics_calculator._is_counter_reset`이 `LAG(boot_time)`로 시스템 재부팅 식별 -> counter reset 시 delta 건너뛰기.
 - mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅 시 단일 테이블 SELECT로 boot_time까지 같이 보고 싶어서 보존.
 - 옛 데이터(컬럼 NULL)는 `d_val < 0` 휴리스틱 fallback (CASE 3순위).
 
@@ -23,13 +23,22 @@
 
 `create_all`은 기존 테이블에 컬럼/제약(UniqueConstraint 등)을 추가하지 않음. 스키마 변경 시 `docker compose down -v` 후 재기동.
 
-## 차트 SQL 패턴 (`_chart_*` 헬퍼 — 7개)
+## 차트 SQL 패턴 — 단일 함수 `metric_trend`
 
-`query_repository.metric_chart` dispatcher:
-- `_chart_cpu_delta` — jiffies delta → percent
-- `_chart_scalar` — 시점값 (load/mem/swap %)
-- `_chart_rate_per_dimension` — 누적 카운터 → rate (disk/net)
-- `_chart_fs` — fs.usage_percent (시점값)
+모든 차트(환경 성능 추이·선택 N대·서버 상세·대시보드 부하 추이·보고서 추이)는 단일 함수 `metric_trend`가 산출한다. `metric_chart`(서버 상세)는 `metric_trend(collapse=False, server_ids=[1대])`에 위임하는 thin wrapper. metric_type별 분기(jiffies delta percent·시점값 load/mem/swap %·누적 카운터 rate disk/net·fs.usage_percent)는 `metric_trend` 내부 SQL 분기로 흡수.
+
+### 통일 산식
+
+각 `collected_at`(시점)마다 그 시점에 데이터를 보낸 서버로 환경값 1개를 산출(`per_ts` CTE):
+- 활용률 = `sum(num)/sum(den)` (capacity-weighted)
+- 처리량 = 합산 `SUM`
+- 로드 = `sum(load_15m)/sum(cpu_cores)` (코어 정규화 — 환경·서버 상세 동일)
+
+이후 그 시점값을 `time_bucket`의 `agg`(avg/max/p95)로 집계. 시점 분리 없이 버킷 전체를 한 번에 합하는 방식은 폐기 — 시점별 환경값을 먼저 만들고 버킷 집계한다.
+
+온라인/오프라인을 별도로 판단하지 않는다 — 그 시점에 데이터가 있으면 포함, 없으면 자동 제외(데이터 유무가 곧 온라인 필터).
+
+`server_ids` 인자: `None`이면 전체 환경, `[1대]`이면 서버 상세와 동치(`per_ts`의 합산 대상이 1서버뿐이라 시점값=그 서버값), `[N대]`이면 선택. `collapse=True`면 dimension(device/iface/mount) 합산 단일선(환경), `False`면 dimension 보존(서버 상세 멀티라인).
 
 ### 공통 패턴
 
@@ -37,7 +46,7 @@
 2. delta CTE — `LAG(...) OVER (PARTITION BY device ORDER BY collected_at)`로 누적 카운터 차 + `LAG(boot_time)`로 직전 boot_time 동시 추출
 3. reset 식별 CASE — calculator의 `_is_counter_reset`과 동일 정책 (CLAUDE.md B1):
    ① `dt IS NULL OR dt <= 0` → NULL
-   ② `boot_time != prev_boot` → NULL (시스템 재부팅)
+   ② `abs(boot_time - prev_boot) > BOOT_TIME_JITTER_TOLERANCE`(5s) → NULL (재부팅 — NTP 보정 흔들림은 흡수)
    ③ `d_val < 0` → NULL (옛 데이터 휴리스틱)
    ④ 정상 → `d_val / dt` 또는 `d_num * 100 / d_total`
    `dt`는 검증이 아니라 분모 — 실제 시간으로 자연 정규화

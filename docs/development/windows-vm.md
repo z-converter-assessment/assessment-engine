@@ -12,8 +12,8 @@ x86_64 홈서버에선 Win11 대신 Windows Server 2022 Eval x64 가 모든 면�
 - agent 가 호출하는 Win32 API(`GetSystemTimes`·`GlobalMemoryStatusEx`·`IOCTL_DISK_PERFORMANCE`·
   `GetExtendedTcpTable`)·SCM·Performance Counter 는 Server 와 11 이 동일 -> 페이로드·스키마 정합 100% 커버.
 - 이 제품 자체가 "서버 평가" 포털이라 Server 게스트가 도메인상 더 현실적이다.
-- ARM 제약(ARM Server ISO 부재)으로 Win11 ARM 을 썼던 이유가 x86 에선 소멸. agent.exe(mingw PE32+ x86-64)는
-  x86 Server 에서 네이티브 실행 — UTM 시절의 x64 emulation(Prism) 오버헤드도 사라진다.
+- x86 host 라 Server ISO 가용 + agent.exe(mingw PE32+ x86-64)가 x86 Server 에서 네이티브 실행 — x64
+  emulation 오버헤드 없음.
 
 ## VM 역할 (Linux 5대 + Windows 1대)
 
@@ -29,7 +29,7 @@ native 서비스는 미등록 — 필요 시 카탈로그 확장 (#E7).
 
 ## 자동화 — autounattend 무인 설치 (기본 포함)
 
-Win11 UTM 시절의 "GUI 1회 수동 설치"가 libvirt + autounattend 로 완전 무인화됐다. 무거워도(ISO ~4.7GB +
+OS 설치는 libvirt + autounattend 로 완전 무인이다. 무거워도(ISO ~4.7GB +
 설치 ~20min) "모든 환경" 원칙으로 기본 포함 — `dev-up.sh` 를 인자 없이 실행하면 Linux VM 에 이어 항상
 실행된다. Linux 전용 dev 는 `WIN_ENABLE=0` 으로 opt-out. dev-down 이 Windows VM(qcow2)도 삭제하므로
 최초 1회 무인설치(~20min)로 설치 과정을 검증한 뒤 완성본을 골든 이미지(`win-server-01-golden.qcow2`)로
@@ -106,8 +106,7 @@ libvirt VM (win-server-01)  [virbr0 192.168.122.0/24]
   WORKER_DOWNLOAD_ALLOWED_HOSTS = 192.168.122.1 -> host:8000 (dev ZDM mock, ADR 0018)
 ```
 
-UTM 시절의 host IP 추론(`resolve_host_ip`)·`host.docker.internal` 분기가 사라졌다 — Linux VM 과 동일하게
-libvirt NAT 게이트웨이(`LIBVIRT_GW`, 기본 192.168.122.1)를 `dev-up.sh` 가 agent.env 에 주입. docker 퍼블리시
+Windows VM 도 Linux VM 과 동일하게 libvirt NAT 게이트웨이(`LIBVIRT_GW`, 기본 192.168.122.1)를 `dev-up.sh` 가 agent.env 에 주입. docker 퍼블리시
 포트는 libvirt 기본 forward 규칙(LIBVIRT_FWO) + docker DNAT 로 도달(막힐 경우 fallback:
 `sudo iptables -I DOCKER-USER -i virbr0 -j ACCEPT`, `pipeline.md` 참조).
 
@@ -132,8 +131,7 @@ make vendor-build CC=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar \
 make release CC=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar   # dist/assessment-agent.exe
 ```
 
-산출물 `assessment-agent.exe`(PE32+ x86-64 정적 링크). x86 Server 에서 네이티브 실행(Prism emulation 불요 —
-UTM ARM 시절 대비 단순). `deploy_win_agent` 가 staging 경로(`agent.exe.new`) scp -> 서비스 정지 -> 진짜 경로
+산출물 `assessment-agent.exe`(PE32+ x86-64 정적 링크). x86 Server 에서 네이티브 실행(emulation 불요). `deploy_win_agent` 가 staging 경로(`agent.exe.new`) scp -> 서비스 정지 -> 진짜 경로
 교체 -> 서비스 미등록이면 `New-Service` + `sc.exe failure` recovery. agent.env 위치·키는 Linux 와 동일
 (`dev/agent.env.example`), `RABBITMQ_HOST`·`WORKER_DOWNLOAD_ALLOWED_HOSTS` 만 게이트웨이 IP.
 

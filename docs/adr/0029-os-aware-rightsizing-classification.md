@@ -9,6 +9,10 @@
 > - 표시: "부분 평가" 문구를 "이용률 기준 평가(saturation 축 미관측)" confidence 단서로. report mapper 권고·attention capacity 배지가 `assess.triggers` 재사용(임계 재계산 중복 제거), stats 생성은 `build_resource_stats` 공용.
 > - 단일 진실: `recommendation.assess` + `right_sizing_thresholds.html`.
 
+> 정정 (2026-06-07, 판정 순서 명시 + 버그 수정):
+> - `assess` 판정 순서를 under(위험 신호 OR) -> idle -> shutdown -> insufficient_data -> over -> optimal 로 명시. under 가 idle/shutdown 보다 우선 — 본 ADR 의 "under = OR(누락 0)" 의도를 순서로 못 박는다. 기존 구현은 idle/shutdown 을 먼저 평가·return 해, CPU 낮고 스왑 중인 호스트(cpu_p95 <= 3% + swap)가 swap(under) 신호에 도달하기 전에 종료 권장으로 오분류됐다("누락 0" 위반). 위험 신호 수집을 idle/shutdown 앞으로 이동해 수정.
+> - 명세·임계·OS 분기·한계 단일 진실 문서 `docs/architecture/right-sizing.md` 신설 (CLAUDE.md 가 참조하던 공백을 메움). `_thresholds_reference.html` 판정 순서 표도 under=1 로 동기화.
+
 ## Context
 
 ADR 0027 로 Windows agent 가 합류했다. agent 는 raw 값을 canonical(Linux `/proc` 모델)로 변환 발행하고 엔진은 OS 무관 단일 공식으로 계산한다(`docs/architecture/agent.md`). 그러나 right-sizing 분류(`recommendation.classify`)는 USE Method 임계를 OS 무관(OS-blind)으로 적용해 왔고, 이게 Windows 에서 두 가지 왜곡을 낳았다:

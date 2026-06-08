@@ -48,9 +48,8 @@ DB 저장 (지수 백오프 재시도, _db_retry)
 ### metrics 후처리
 ```
 1. SET online:{server_id} 1 EX 90        — 온라인 상태 갱신
-2. DELETE cache:metrics:{server_id}      — 캐시 즉시 무효화
-3. PUBLISH metrics.events {...}          — 브라우저 SSE 트리거
-4. _track_agent_restart                  — 직전 agent_started_at 과 비교, 변경 시 1h 슬라이딩 카운터 INCR. threshold 도달 시 warning
+2. DELETE cache:metrics:{server_id}      — 캐시 즉시 무효화 (브라우저 30초 polling 이 다음 주기에 새 값 fetch)
+3. _track_agent_restart                  — 직전 agent_started_at 과 비교, 변경 시 1h 슬라이딩 카운터 INCR. threshold 도달 시 warning
 ```
 
 ### error 후처리

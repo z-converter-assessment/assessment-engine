@@ -7,7 +7,7 @@
  *
  * 한계: 포트 listen != 로그인 가능. 1차 필터일 뿐.
  * probe 기본 target/port는 서버가 #probe-ip / #probe-port value로 렌더
- * (discovery_default_target/port — dev=db-server-01.orb.local:22 / prod=빈값:22).
+ * (discovery_default_target/port — 빈값:22 default, 운영자가 모달에 VM IP 직접 입력).
  *
  * 외부 의존: 없음 (모달은 list.html에 inline markup).
  */
@@ -129,10 +129,27 @@ function refreshInstallButton() {
   exportBtn.disabled = n === 0;
   reportCustomerBtn.disabled = n === 0;
   reportEngineerBtn.disabled = n === 0;
+  if (realtimeSelBtn) realtimeSelBtn.disabled = n === 0;
+  if (metricsSelBtn) metricsSelBtn.disabled = n === 0;
 }
 
 const reportCustomerBtn = document.getElementById('report-customer-btn');
 const reportEngineerBtn = document.getElementById('report-engineer-btn');
+
+// 선택 N대 실시간/성능추이 — 환경 로직을 ids 한정으로 navigate (체크 서버 public_id 전달, #E4).
+const realtimeSelBtn = document.getElementById('realtime-sel-btn');
+const metricsSelBtn = document.getElementById('metrics-sel-btn');
+function _selectedPublicIds() {
+  return selectedRows().map(cb => cb.dataset.publicId).filter(Boolean);
+}
+realtimeSelBtn?.addEventListener('click', () => {
+  const ids = _selectedPublicIds();
+  if (ids.length) location.href = '/servers/environment/realtime?ids=' + encodeURIComponent(ids.join(','));
+});
+metricsSelBtn?.addEventListener('click', () => {
+  const ids = _selectedPublicIds();
+  if (ids.length) location.href = '/servers/environment/metrics?ids=' + encodeURIComponent(ids.join(','));
+});
 
 // 환경 보고서 발행 — 카드 본문 두 버튼 (고객/엔지니어) 이 view 사전 결정 후 모달 open.
 // 모달은 윈도우·anchor 입력 + 발행 단일 버튼. 발행 시 새 탭으로 /reports/environment.
@@ -422,8 +439,12 @@ if (filterForm) {
   function updateShowMore(visible, total) {
     const wrap = document.getElementById('show-more-wrap');
     if (wrap) wrap.style.display = visible ? '' : 'none';
+    if (!visible) return;
+    // 확장 상태면 "접기"(CLIP 복귀), 아니면 "전체보기 (CLIP/total)".
+    const btn = document.getElementById('show-more-btn');
     const c = document.getElementById('show-more-count');
-    if (c && visible) c.textContent = `(${CLIP_SIZE}/${total})`;
+    if (btn && btn.firstChild) btn.firstChild.nodeValue = expanded ? '접기 ' : '전체보기 ';
+    if (c) c.textContent = expanded ? '' : `(${CLIP_SIZE}/${total})`;
   }
 
   function applyFilters() {
@@ -462,7 +483,7 @@ if (filterForm) {
       tr.style.display = visible ? '' : 'none';
     });
     // 전체보기 버튼 — 필터 비활성·미확장·전체가 CLIP 초과일 때만. (CLIP_SIZE/total 표기)
-    updateShowMore(!active && !expanded && matchCount > CLIP_SIZE, matchCount);
+    updateShowMore(!active && matchCount > CLIP_SIZE, matchCount);
     // URL 갱신 — deep link / 새로고침 시 server-side filter 가 같은 query 받음 (일관).
     const params = new URLSearchParams();
     if (search) params.set('search', search);
@@ -475,9 +496,9 @@ if (filterForm) {
     history.replaceState(null, '', newUrl);
   }
 
-  // "더보기" — 확장 플래그 set 후 재적용 (전체 노출).
+  // 전체보기/접기 토글 — expanded 반전 후 재적용 (전체 노출 <-> CLIP 복귀).
   document.getElementById('show-more-btn')?.addEventListener('click', () => {
-    expanded = true;
+    expanded = !expanded;
     applyFilters();
   });
 
@@ -515,7 +536,7 @@ if (filterForm) {
   if (pageParam && pageParam !== '1') return;
   const REFRESH_MS = 30_000;
   const note = document.getElementById('dashboard-refresh-note');
-  if (note) note.textContent = ` · ${REFRESH_MS / 1000}초마다 자동 갱신`;
+  if (note) note.textContent = `${REFRESH_MS / 1000}초마다 자동 갱신 · `;
 
   async function refresh() {
     try {

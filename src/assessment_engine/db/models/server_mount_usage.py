@@ -19,6 +19,11 @@ class ServerMountUsage(Base):
     free_bytes: Mapped[int | None] = mapped_column(BigInteger)
     avail_bytes: Mapped[int | None] = mapped_column(BigInteger)
 
+    # 디바이스 식별 — data-volume 판단 단일 신호(major==0 = 블록 디바이스 없는 가상 fs).
+    # agent 메트릭이 발행(inventory 동일 필드).
+    major: Mapped[int | None] = mapped_column(Integer)
+    minor: Mapped[int | None] = mapped_column(Integer)
+
     # 시계열 4개 테이블 일관성 — server_metrics·server_disk_io·server_net_io와 동일 정책.
     # 본 테이블은 시점값(델타 없음)이라 calculator의 reset 판정엔 직접 활용 안 하지만,
     # 운영 디버깅(특정 mount 행만 보고 재부팅 여부 확인) + 미래 활용 + 메타데이터 균일을 위해 보존.

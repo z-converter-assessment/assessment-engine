@@ -7,9 +7,8 @@
  * - body data-server-id (E6 외부화 규약, static-assets.md)
  */
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
-        fmtKst, fmtLabel, getAnchorEnd, initAnchor,
-        makeBucketGrid, bindToggle, initSse, safeArray,
-        fetchRebootEvents, applyRebootMarkers,
+        fmtLabel, getAnchorEnd, initAnchor,
+        makeBucketGrid, bindToggle, initAutoRefresh, safeArray,
         buildAvgMaxDatasets, renderChipLegend } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
@@ -46,8 +45,9 @@ async function loadSnapshot() {
       document.getElementById('s-swap-used').textContent  = fmtGb(swapUsedKb);
     }
 
-    if (data.collected_at) {
-      document.getElementById('snap-ts').textContent = '수집 기준: ' + fmtKst(data.collected_at);
+    const stampEl = document.getElementById('metrics-stamp');
+    if (stampEl && data.collected_at) {
+      stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);
     }
     document.getElementById('snap-body').style.display = '';
   } catch(e) {
@@ -156,9 +156,6 @@ function makePctLoader(def) {
           options: makeOptions(),
         });
       }
-      const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-      if (seq !== state.seq) return;
-      applyRebootMarkers(state.chart, events, grid);
     } catch(e) { console.error(e); }
   }
 
@@ -289,10 +286,6 @@ async function loadCompChart() {
       ...toRows(buffersRows, 'buffers'),
     ];
     renderCompChart(rows, capturedRange, capturedAnchor);
-    const events = await fetchRebootEvents(SERVER_ID, capturedRange, capturedAnchor);
-    if (seq !== compSeq) return;
-    const grid = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    applyRebootMarkers(compChart, events, grid);
   } catch(e) { console.error(e); }
 }
 
@@ -303,8 +296,8 @@ bindToggle('comp-range-btns', v => {
   loadCompChart();
 });
 
-/* ── SSE ── */
-initSse(SERVER_ID, loadSnapshot);
+/* ── 30초 polling 자동 갱신 (SSE 제거) ── */
+initAutoRefresh(loadSnapshot);
 
 /* ── 기준일 초기화 ── */
 initAnchor('comp-anchor');

@@ -16,8 +16,8 @@ from assessment_engine.db.dtos.outbound import (
     StorageWithUsage,
 )
 from assessment_engine.web.services.device_filters import (
+    is_data_volume,
     is_physical_disk,
-    is_virtual_mount,
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
@@ -64,11 +64,9 @@ _BADGE_CLASS_BY_SEVERITY: dict[_Severity, str] = {
     "warn": "badge-warn",
     "danger": "badge-danger",
 }
-_BAR_COLOR_BY_SEVERITY: dict[_Severity, str] = {
-    "ok": "#22c55e",
-    "warn": "#f59e0b",
-    "danger": "#ef4444",
-}
+# 파일시스템 사용량 게이지 막대 = 테마 주색(blue-500) 단색 (사용자 결정 — 임계별 색 분기 없이 통일).
+# 사용률 위험/주의 신호는 badge_class(_usage_badge_class)가 담당. 게이지 막대는 단색.
+_MOUNT_BAR_COLOR = "#3b82f6"
 
 
 def _usage_severity(pct: float | None) -> _Severity:
@@ -81,10 +79,6 @@ def _usage_severity(pct: float | None) -> _Severity:
 
 def _usage_badge_class(pct: float | None) -> str:
     return _BADGE_CLASS_BY_SEVERITY[_usage_severity(pct)] if pct is not None else ""
-
-
-def _usage_bar_color(pct: float | None) -> str:
-    return _BAR_COLOR_BY_SEVERITY[_usage_severity(pct)]
 
 
 # ─── raw dict → typed ViewModel 단일 변환 진입점 ──────────────────────────
@@ -116,7 +110,7 @@ def _to_volumes(mounts: list[dict]) -> list[VolumeItem]:
     for m in mounts:
         path = m.get("mount", "")
         fstype = m.get("fstype")
-        if is_virtual_mount(fstype, path):
+        if not is_data_volume(path, m.get("major"), fstype):
             continue
         volumes.append(VolumeItem(mount=path, fstype=fstype, total_gb=bytes_to_gb(m.get("total_bytes"))))
     return sorted(volumes, key=lambda v: v.mount)
@@ -205,7 +199,10 @@ def _os_display(os_id: str | None, os_version: str | None) -> str:
 
 def build_server_inventory(detail, is_online: bool) -> ServerInventory:
     """ServerDetail -> 개별 보고서 인벤토리 (충실 표시 — 전체 IP(IPv4/IPv6)·하드웨어·식별자, 생략·왜곡 0)."""
-    disk_total_bytes = sum((d.get("size_bytes") or 0) for d in detail.disks) if detail.disks else 0
+    # 물리 디스크만 합산 — 파티션·LVM/RAID(논리) 제외 (to_report_row_item storage_total_gb 와 동일 기준).
+    # 미적용 시 물리+파티션+LVM 중복 합산으로 인벤토리 디스크가 과대 계상돼 환경/선택 목록 값과 어긋난다.
+    _physical_disks = [d for d in (detail.disks or []) if is_physical_disk(d.get("name", ""))]
+    disk_total_bytes = sum((d.get("size_bytes") or 0) for d in _physical_disks)
     return ServerInventory(
         hostname=detail.hostname,
         os_display=_os_display(detail.os_id, detail.os_version),
@@ -350,7 +347,7 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
         path = inv.get("mount", "")
         fstype = inv.get("fstype")
         seen.add(path)
-        if is_virtual_mount(fstype, path):
+        if not is_data_volume(path, inv.get("major"), fstype):
             continue
         usage = usage_by_mount.get(path)
         mounts.append(
@@ -364,7 +361,7 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
 
     # inventory에 없지만 시계열에 있는 mount (mount_usage 시계열 전용)
     for path, usage in usage_by_mount.items():
-        if path in seen or is_virtual_mount(None, path):
+        if path in seen or not is_data_volume(path, getattr(usage, "major", None)):
             continue
         mounts.append(
             _build_mount_item(
@@ -406,7 +403,7 @@ def _build_mount_item(
         avail_gb=bytes_to_gb(avail_bytes),
         usage_pct=pct,
         badge_class=_usage_badge_class(pct),
-        bar_color=_usage_bar_color(pct),
+        bar_color=_MOUNT_BAR_COLOR,
     )
 
 

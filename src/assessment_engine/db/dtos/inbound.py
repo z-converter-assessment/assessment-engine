@@ -64,6 +64,8 @@ class MountUsageEntry:
     total_bytes: int | None
     free_bytes: int | None
     avail_bytes: int | None
+    major: int | None = None
+    minor: int | None = None
 
 
 # ─── Task DTO ──────────────────────────────────────────────────────────────

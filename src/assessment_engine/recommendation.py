@@ -11,7 +11,7 @@ under(위험) 우선 우선순위로 단일 분류 하나 + 근거(triggers) + �
 
 UI badge 임계값(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인:
 - mapper 90/75 = 시점 사용량 시각 신호 (위험·주의·정상)
-- 본 모듈 = 14일 통계 기반 right-sizing 결정 (idle/over/under 등)
+- 본 모듈 = WINDOW_DAYS(7일) 통계 기반 right-sizing 결정 (idle/over/under 등)
 
 합성 규칙 (단일 진실):
 - under = 위험 신호 OR (어떤 자원이든 고이용·포화·용량초과 하나라도 -> 누락 0)
@@ -24,8 +24,8 @@ from typing import Literal
 
 # ─── 임계값 ─────────────
 
-# 관찰 윈도우 — AWS Compute Optimizer 기본값
-WINDOW_DAYS = 14
+# 관찰 윈도우 — 평가·차트·보고서 공통 표준 기간 (F10 단일 진실)
+WINDOW_DAYS = 7
 
 # Idle 판정 — AWS Compute Optimizer
 IDLE_CPU_PEAK_PCT = 1
@@ -125,8 +125,9 @@ def swap_saturation(os_family: str | None, swap_used: bool) -> bool:
 def assess(stats: ResourceStats) -> Assessment:
     """USE Method evidence 분류 — 자원별 가용 축을 신호로 모아 단일 분류 + 근거 산출.
 
-    판정 순서: idle → shutdown → under(위험 신호 OR) → insufficient(데이터 없음) → over(이용률 AND) → optimal.
-    under 는 어떤 위험 신호든 하나면 발화(누락 0), over 는 cpu·mem 이 둘 다 낮을 때만(보수적).
+    판정 순서: under(위험 신호 OR) → idle → shutdown → insufficient(데이터 없음) → over(이용률 AND) → optimal.
+    under 가 idle/shutdown 보다 우선 — 어떤 위험 신호든 하나면 발화(누락 0). CPU 가 낮아도 스왑·iowait·load·
+    mem·disk 압박이 있으면 "미사용(idle/shutdown)"이 아니라 자원 부족이다. over 는 cpu·mem 둘 다 낮을 때만(보수적).
     insufficient_data 는 utilization 도 없고 under 신호도 없을 때만 — swap·iowait 등 saturation 신호가
     있으면 util 부재여도 under 로 결론낸다(데이터로 반드시 판단). 못 본 saturation 축(예: Windows load)은
     unmeasured 에 기록 — 분류를 막지 않고 confidence 로만 노출.
@@ -142,19 +143,9 @@ def assess(stats: ResourceStats) -> Assessment:
     if stats.iowait_p95_pct is None:
         unmeasured.append("disk_io")
 
-    # Idle / Shutdown — net + cpu 의존. 필요한 값이 있을 때만 평가(없으면 fall-through).
-    if stats.net_avg_kbps is not None:
-        if (
-            stats.cpu_peak_pct is not None
-            and stats.cpu_peak_pct <= IDLE_CPU_PEAK_PCT
-            and stats.net_avg_kbps <= IDLE_NET_KBPS
-        ):
-            return Assessment("idle", unmeasured=unmeasured)
-        # net_avg_kbps(KB/s) → Mbps: x 8 / 1000
-        if cpu is not None and cpu <= SHUTDOWN_CPU_P95_PCT and (stats.net_avg_kbps * 8 / 1000) <= SHUTDOWN_NET_MBPS:
-            return Assessment("shutdown", unmeasured=unmeasured)
-
-    # under_provisioned — 위험 신호 수집(OR). 가진 축만 평가해 hit 된 신호를 근거로 모은다.
+    # under_provisioned — 위험 신호 수집(OR). idle/shutdown 보다 먼저 — 어떤 위험 신호든 하나면 발화(누락 0).
+    # CPU 가 낮아도 스왑·iowait·load·mem·disk 압박이 있으면 "미사용"이 아니라 자원 부족이다
+    # (예: CPU idle 인데 page-out = 메모리 부족). 가진 축만 평가해 hit 된 신호를 근거로 모은다.
     triggers: list[str] = []
     if cpu is not None and cpu >= CPU_UPSIZE_P95_PCT:
         triggers.append("cpu_util")
@@ -177,8 +168,19 @@ def assess(stats: ResourceStats) -> Assessment:
     if triggers:
         return Assessment("under_provisioned", triggers=triggers, unmeasured=unmeasured)
 
-    # 평가 불가 — utilization(cpu·mem) 둘 다 부재 + under 위험 신호도 없음 (신규/표본 부재).
-    # swap·iowait 등 saturation 신호가 있었다면 위 under 에서 이미 결론(데이터로 반드시 판단).
+    # Idle / Shutdown — 위험 신호 0 일 때만 (진짜 미사용). net + cpu 의존, 없으면 fall-through.
+    if stats.net_avg_kbps is not None:
+        if (
+            stats.cpu_peak_pct is not None
+            and stats.cpu_peak_pct <= IDLE_CPU_PEAK_PCT
+            and stats.net_avg_kbps <= IDLE_NET_KBPS
+        ):
+            return Assessment("idle", unmeasured=unmeasured)
+        # net_avg_kbps(KB/s) → Mbps: x 8 / 1000
+        if cpu is not None and cpu <= SHUTDOWN_CPU_P95_PCT and (stats.net_avg_kbps * 8 / 1000) <= SHUTDOWN_NET_MBPS:
+            return Assessment("shutdown", unmeasured=unmeasured)
+
+    # 평가 불가 — utilization(cpu·mem) 둘 다 부재 + 위 under 위험 신호도 없음 (신규/표본 부재).
     if cpu is None and mem is None:
         return Assessment("insufficient_data")
 

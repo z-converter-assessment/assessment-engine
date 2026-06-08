@@ -8,12 +8,8 @@
 <!-- 현재 상태 (물리 디스크 + 파일시스템 + 디스크 I/O 통합) -->
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-    <h2>현재 상태</h2>
-    <div style="display:flex; align-items:center; gap:8px; font-size:11px; color:#94a3b8;">
-      <span id="sse-dot" class="dot dot-off no-print"></span>
-      <span id="sse-label" class="no-print">연결 중...</span>
-      <span id="io-snapshot-ts" style="font-size:12px;"></span>
-    </div>
+    <h2 class="card-title">현재 상태</h2>
+    <span id="metrics-stamp" class="text-meta no-print" style="font-size:11px;">30초마다 자동 갱신 · 최근 —</span>
   </div>
 
   <dl class="kv" style="margin-bottom:6px;">
@@ -38,7 +34,7 @@
     </tbody>
   </table>
   {% else %}
-  <p style="color:#94a3b8; font-size:13px;">용량·유형 메타 미수집</p>
+  <p class="text-meta" style="font-size:13px;">용량·유형 메타 미수집</p>
   {% endif %}
 
   <!-- 파일시스템 사용량 (인벤토리 + 실시간 server_mount_usage) -->
@@ -66,13 +62,13 @@
         <td>
           {% if m.usage_pct is not none %}
             <div style="display:flex; align-items:center; gap:8px;">
-              <span style="min-width:42px; color:#334155;">{{ m.usage_pct }}%</span>
+              <span style="min-width:42px;">{{ m.usage_pct }}%</span>
               <div class="progress-bar" style="flex:1; min-width:80px;">
                 <div class="progress-fill" style="width:{{ m.usage_pct }}%; background:{{ m.bar_color }};"></div>
               </div>
             </div>
           {% else %}
-            <span style="color:#94a3b8; font-size:12px;">수집 대기 중</span>
+            <span class="text-meta" style="font-size:12px;">수집 대기 중</span>
           {% endif %}
         </td>
       </tr>
@@ -80,20 +76,20 @@
     </tbody>
   </table>
   {% else %}
-  <p style="color:#94a3b8; font-size:13px;">마운트 정보 없음</p>
+  <p class="text-meta" style="font-size:13px;">마운트 정보 없음</p>
   {% endif %}
 
   <!-- 디스크 I/O -->
   <div class="section-title" style="margin-top:22px;">디스크 I/O</div>
-  <div id="io-snapshot-loading" style="color:#94a3b8; font-size:13px;">불러오는 중...</div>
+  <div id="io-snapshot-loading" class="text-meta" style="font-size:13px;">불러오는 중...</div>
   <div class="sub-label" style="margin-top:10px;">물리 디바이스</div>
   <table id="io-phys-table" style="display:none;">
     <thead>
-      <tr><th>Device</th><th>Read IOPS</th><th>Write IOPS</th><th>Read</th><th>Write</th></tr>
+      <tr><th>Device</th><th>Read IOPS</th><th>Write IOPS</th><th>Read (처리량)</th><th>Write (처리량)</th></tr>
     </thead>
     <tbody id="io-phys-tbody"></tbody>
   </table>
-  <div id="io-phys-empty" style="display:none; color:#94a3b8; font-size:13px;">
+  <div id="io-phys-empty" class="text-meta" style="display:none; font-size:13px;">
     수집된 I/O 데이터가 없습니다. 에이전트가 최소 2회 메트릭을 전송하면 표시됩니다.
   </div>
 </div>
@@ -101,8 +97,8 @@
 <!-- 물리 계층 I/O 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2>물리 계층 I/O 추이<span class="print-only" id="io-phys-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 1시간</span></h2>
-    <span id="io-phys-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <h2 class="card-title">물리 계층 I/O 추이<span class="print-only text-muted" id="io-phys-range-print" style="font-weight:normal; font-size:12px;"> — 1시간</span></h2>
+    <span id="io-phys-bucket-label" class="bucket-label"></span>
     <select class="chart-select no-print" id="io-phys-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
       <option value="1h">1시간</option>
@@ -117,18 +113,18 @@
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="io-phys-canvas"></canvas>
   </div>
-  <div id="io-phys-chart-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+  <div id="io-phys-chart-empty" class="text-meta" style="display:none; text-align:center; padding:40px 0; font-size:13px;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <div id="io-phys-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-  <p style="font-size:11px; color:#94a3b8; margin:8px 0 0;">음영 영역: 집계 구간 내 순간 최대 IOPS와 평균의 차이.</p>
+  <p class="chart-caption">음영 영역: 집계 구간 내 순간 최대 IOPS와 평균의 차이.</p>
 </div>
 
 <!-- 파일시스템 사용량 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2>파일시스템 사용량 추이<span class="print-only" id="fs-range-print" style="font-weight:normal; font-size:12px; color:#64748b;"> — 15분</span></h2>
-    <span id="fs-bucket-label" style="font-size:12px; font-weight:400; color:#475569; background:#fff; border:1px solid #cbd5e1; padding:3px 8px; border-radius:4px;"></span>
+    <h2 class="card-title">파일시스템 사용량 추이<span class="print-only text-muted" id="fs-range-print" style="font-weight:normal; font-size:12px;"> — 15분</span></h2>
+    <span id="fs-bucket-label" class="bucket-label"></span>
     <select class="chart-select no-print" id="fs-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
       <option value="1h">1시간</option>
@@ -143,19 +139,21 @@
   <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="fs-chart-canvas"></canvas>
   </div>
-  <div id="fs-chart-empty" style="display:none; text-align:center; padding:40px 0; color:#94a3b8; font-size:13px;">
+  <div id="fs-chart-empty" class="text-meta" style="display:none; text-align:center; padding:40px 0; font-size:13px;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <div id="fs-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-  <p style="font-size:11px; color:#94a3b8; margin:8px 0 0;">음영 영역: 집계 구간 내 순간 최대 사용률과 평균의 차이.</p>
+  <p class="chart-caption">음영 영역: 집계 구간 내 순간 최대 사용률과 평균의 차이.</p>
 </div>
 
 <style>
   /* .toggle-group / .toggle 은 base.html 단일 진실 (#E6). */
 </style>
 
+{% include "_reference_link.html" %}
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
 <script src="/static/js/pages/storage.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} data-server-id="{{ storage.public_id }}"{% endblock %}
+{% block body_attrs %} class="metric-head" data-server-id="{{ storage.public_id }}"{% endblock %}

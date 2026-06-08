@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, text
 
-from assessment_engine.boot_time import BOOT_TIME_JITTER_TOLERANCE
 from assessment_engine.db.dtos.outbound import (
     DashboardRaw,
     DiskIoRaw,
@@ -26,18 +25,18 @@ from assessment_engine.db.repositories.query.types import (
     _BUCKET_INFO,
     _CPU_NUMERATOR,
     _CPU_TOTAL_EXPR,
+    _DATA_VOLUME_SQL_FILTER,
+    _ENV_SCALAR_WEIGHTED,
+    _PHYS_DISK_SQL_FILTER,
     _RATE_PER_DIM_DEFS,
-    _SCALAR_VALUE_EXPR,
-    _VIRTUAL_MOUNT_SQL_FILTER,
+    _VIRTUAL_IFACE_SQL_FILTER,
+    BOOT_JITTER_SEC,
     TIME_RANGE_TD,
     AggFunc,
     BucketSize,
     MetricType,
     TimeRange,
 )
-
-# boot_time 지터 허용치(초) — boot_time.BOOT_TIME_JITTER_TOLERANCE 단일 진실에서 파생. SQL bound param 으로 주입.
-_BOOT_JITTER_SEC = int(BOOT_TIME_JITTER_TOLERANCE.total_seconds())
 
 # table 매핑 — types.py 가 ORM import 안 하므로 본 모듈에서 ORM __tablename__ 결합.
 _RATE_PER_DIM: dict[str, tuple[str, str, str]] = {
@@ -204,51 +203,24 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         agg: AggFunc,
         end: datetime | None = None,
     ) -> list[MetricSeries]:
+        # 서버 상세 차트 = 통일 metric_trend(collapse=False, server_ids=[1대]) 위임.
+        # per_ts 의 합산 대상이 1서버뿐이라 시점값=그 서버값 -> 환경/선택과 동일 산식. dimension 보존.
         end_dt = end or datetime.now(UTC)
         start = end_dt - TIME_RANGE_TD[time_range]
         bi, bucket_td = _BUCKET_INFO[bucket]
-        ae = _AGG[agg]
+        return await self.metric_trend(
+            metric_type,
+            start,
+            end_dt,
+            bi,
+            bucket_td,
+            server_ids=[server_id],
+            agg=agg,
+            dimension=dimension,
+            collapse=False,
+        )
 
-        # router Literal(MetricType)로 metric_type가 whitelist 되어 있어 dispatch는 단순 lookup.
-        if metric_type in _CPU_NUMERATOR:
-            return await self._chart_cpu_delta(
-                server_id,
-                start,
-                end_dt,
-                bi,
-                ae,
-                bucket_td,
-                _CPU_NUMERATOR[metric_type],
-            )
-        if metric_type in _SCALAR_VALUE_EXPR:
-            return await self._chart_scalar(
-                server_id,
-                start,
-                end_dt,
-                bi,
-                ae,
-                _SCALAR_VALUE_EXPR[metric_type],
-            )
-        if metric_type in _RATE_PER_DIM:
-            table, dim_col, value_col = _RATE_PER_DIM[metric_type]
-            return await self._chart_rate_per_dimension(
-                server_id,
-                start,
-                end_dt,
-                bi,
-                ae,
-                bucket_td,
-                table,
-                dim_col,
-                value_col,
-                dimension,
-            )
-        if metric_type == "fs.usage_percent":
-            return await self._chart_fs(server_id, start, end_dt, bi, ae, dimension)
-
-        raise AssertionError(f"unreachable: unknown metric_type {metric_type!r}")
-
-    async def environment_metric_trend(
+    async def metric_trend(
         self,
         metric_type: str,
         start: datetime,
@@ -256,307 +228,164 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         bi: str,
         bucket_td: timedelta,
         server_ids: list[int] | None = None,
+        agg: str = "avg",
+        dimension: str | None = None,
+        collapse: bool = True,
     ) -> list[MetricSeries]:
-        """환경 시점별 평균 시계열 — 대시보드·환경 보고서·선택 보고서 추이 차트 공용.
+        """통일 시계열 — 시점별 1값(그 시점 데이터 보낸 서버만) -> 버킷 agg(avg/max/p95).
 
-        서버 동등가중: 버킷+서버 평균 후 서버간 평균 (environment_utilization 정책 일관, 서버 1대=1표).
-        cpu.usage_percent: LAG delta (서버별 PARTITION, reset 정책 _chart_cpu_delta 동일).
-        mem.usage_percent: 시점값. agg 는 avg 고정 (환경 추이는 평균).
-        server_ids: None 이면 전체 환경, 주어지면 그 N대 한정 (selection 보고서).
+        단일 원칙: 각 collected_at 마다 환경값 1개(활용률=sum(num)/sum(den), 처리량=sum(rate),
+        로드=sum(load_15m)/sum(cpu_cores)) -> time_bucket 통계. 온라인/오프라인 별도 판단 없음 —
+        그 시점 데이터 있으면 포함(데이터 유무가 곧 필터).
+        server_ids=None 전체·[1대]=서버 상세 동치(per_ts 합산 대상이 1서버라 시점값=그 서버값)·[N]=선택.
+        collapse=False 면 device/iface/mount dimension 보존(서버 상세 멀티라인), True 면 합산 단일선(환경).
         """
-        # selection N대 한정 술어 (None 이면 전체).
+        ae = _AGG[agg]
         sid = "AND server_id = ANY(:server_ids)" if server_ids else ""
+        params: dict = {"start": start, "end": end}
+        _load_cols = {"load.1m": "load_1m", "load.5m": "load_5m", "load.15m": "load_15m"}
+
         if metric_type in _CPU_NUMERATOR:
             num = _CPU_NUMERATOR[metric_type]
             sql = text(f"""
                 WITH raw AS (
                     SELECT collected_at, server_id, boot_time,
-                        {num}               AS num_j,
-                        {_CPU_TOTAL_EXPR}   AS total_j
+                        {num} AS num_j, {_CPU_TOTAL_EXPR} AS total_j
                     FROM {ServerMetrics.__tablename__}
                     WHERE collected_at >= :window_start AND collected_at <= :end {sid}
                 ),
                 deltas AS (
-                    SELECT collected_at, server_id, boot_time,
-                        LAG(boot_time) OVER (PARTITION BY server_id ORDER BY collected_at) AS prev_boot,
-                        num_j   - LAG(num_j)   OVER (PARTITION BY server_id ORDER BY collected_at) AS d_num,
-                        total_j - LAG(total_j) OVER (PARTITION BY server_id ORDER BY collected_at) AS d_total
-                    FROM raw
+                    SELECT collected_at, boot_time,
+                        LAG(boot_time) OVER w AS prev_boot,
+                        num_j   - LAG(num_j)   OVER w AS d_num,
+                        total_j - LAG(total_j) OVER w AS d_total
+                    FROM raw WINDOW w AS (PARTITION BY server_id ORDER BY collected_at)
                 ),
-                per_point AS (
-                    SELECT collected_at, server_id,
+                valid AS (
+                    SELECT collected_at, d_num, d_total FROM deltas
+                    WHERE collected_at >= :start AND d_total > 0 AND d_num >= 0
+                      AND (boot_time IS NULL OR prev_boot IS NULL
+                           OR ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) <= :jitter_sec)
+                ),
+                per_ts AS (
+                    SELECT collected_at, SUM(d_num) * 100.0 / SUM(d_total) AS v
+                    FROM valid GROUP BY collected_at HAVING SUM(d_total) > 0
+                )
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension
+                FROM per_ts GROUP BY ts ORDER BY ts
+            """)
+            params["window_start"] = start - bucket_td
+            params["jitter_sec"] = BOOT_JITTER_SEC
+        elif metric_type in _ENV_SCALAR_WEIGHTED:
+            num, den = _ENV_SCALAR_WEIGHTED[metric_type]
+            # swap_total=0(swap 미설정 VM)도 0-line 표시 — den=0 행 제외 시 swapless 서버
+            # 차트가 row 누락 → empty 표시(운영자 혼란)라 COALESCE 로 0% 환산.
+            # mem 은 mem_total>0 이라 영향 없음 (NULLIF 가드만 작동).
+            sql = text(f"""
+                WITH per_ts AS (
+                    SELECT collected_at,
+                        COALESCE(SUM({num})::float / NULLIF(SUM({den}), 0) * 100, 0) AS v
+                    FROM {ServerMetrics.__tablename__}
+                    WHERE collected_at >= :start AND collected_at <= :end {sid}
+                    GROUP BY collected_at
+                )
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension
+                FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
+            """)
+        elif metric_type in _load_cols:
+            load_col = _load_cols[metric_type]
+            sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
+            sql = text(f"""
+                WITH per_ts AS (
+                    SELECT sm.collected_at, SUM(sm.{load_col}) / NULLIF(SUM(si.cpu_cores), 0) AS v
+                    FROM {ServerMetrics.__tablename__} sm
+                    JOIN {ServerInventory.__tablename__} si ON si.id = sm.server_id
+                    WHERE sm.collected_at >= :start AND sm.collected_at <= :end {sid_sm}
+                      AND sm.{load_col} IS NOT NULL AND si.cpu_cores > 0
+                    GROUP BY sm.collected_at
+                )
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension
+                FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
+            """)
+        elif metric_type in ("disk.usage_percent", "fs.usage_percent"):
+            if collapse:
+                sql = text(f"""
+                    WITH per_ts AS (
+                        SELECT collected_at,
+                            SUM(total_bytes - avail_bytes)::float / NULLIF(SUM(total_bytes), 0) * 100 AS v
+                        FROM {ServerMountUsage.__tablename__}
+                        WHERE collected_at >= :start AND collected_at <= :end {sid}
+                          AND {_DATA_VOLUME_SQL_FILTER}
+                          AND total_bytes > 0 AND avail_bytes IS NOT NULL
+                        GROUP BY collected_at
+                    )
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension
+                    FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
+                """)
+            else:
+                sql = text(f"""
+                    WITH per_ts AS (
+                        SELECT collected_at, mount AS dim,
+                            SUM(total_bytes - avail_bytes)::float / NULLIF(SUM(total_bytes), 0) * 100 AS v
+                        FROM {ServerMountUsage.__tablename__}
+                        WHERE collected_at >= :start AND collected_at <= :end {sid}
+                          AND total_bytes > 0 AND avail_bytes IS NOT NULL
+                          AND (CAST(:dim_filter AS text) IS NULL OR mount = :dim_filter)
+                        GROUP BY collected_at, mount
+                    )
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, dim AS dimension
+                    FROM per_ts WHERE v IS NOT NULL GROUP BY ts, dim ORDER BY ts, dim
+                """)
+                params["dim_filter"] = dimension
+        elif metric_type in _RATE_PER_DIM_DEFS:
+            table, dim_col, value_col = _RATE_PER_DIM[metric_type]
+            if collapse:
+                dev_filter = _PHYS_DISK_SQL_FILTER if dim_col == "device" else _VIRTUAL_IFACE_SQL_FILTER
+                dim_sel, dim_grp, out_dim = "", "", "NULL::text"
+            else:
+                dev_filter = f"(CAST(:dim_filter AS text) IS NULL OR {dim_col} = :dim_filter)"
+                dim_sel, dim_grp, out_dim = ", dim", ", dim", "dim"
+                params["dim_filter"] = dimension
+            sql = text(f"""
+                WITH raw AS (
+                    SELECT collected_at, server_id, boot_time, {dim_col} AS dim, {value_col} AS cnt
+                    FROM {table}
+                    WHERE collected_at >= :window_start AND collected_at <= :end {sid}
+                      AND {dev_filter}
+                ),
+                deltas AS (
+                    SELECT collected_at, dim, boot_time,
+                        LAG(boot_time) OVER w AS prev_boot,
+                        cnt - LAG(cnt) OVER w AS d_val,
+                        EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER w)) AS dt
+                    FROM raw WINDOW w AS (PARTITION BY server_id, dim ORDER BY collected_at)
+                ),
+                rates AS (
+                    SELECT collected_at, dim,
                         CASE
+                            WHEN dt IS NULL OR dt <= 0 THEN NULL
                             WHEN boot_time IS NOT NULL AND prev_boot IS NOT NULL
                                  AND ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) > :jitter_sec THEN NULL
-                            WHEN d_total IS NULL OR d_total <= 0 OR d_num < 0 THEN NULL
-                            ELSE d_num * 100.0 / d_total
+                            WHEN d_val IS NULL OR d_val < 0 THEN NULL
+                            ELSE d_val / dt
                         END AS v
-                    FROM deltas
-                    WHERE collected_at >= :start
+                    FROM deltas WHERE collected_at >= :start
+                ),
+                per_ts AS (
+                    SELECT collected_at{dim_sel}, SUM(v) AS v
+                    FROM rates WHERE v IS NOT NULL GROUP BY collected_at{dim_grp}
                 )
-                SELECT ts, avg(server_avg) AS value, NULL::text AS dimension
-                FROM (
-                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, avg(v) AS server_avg
-                    FROM per_point WHERE v IS NOT NULL
-                    GROUP BY ts, server_id
-                ) sb
-                GROUP BY ts ORDER BY ts
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, {out_dim} AS dimension
+                FROM per_ts GROUP BY ts{dim_grp} ORDER BY ts{dim_grp}
             """)
-            params = {
-                "start": start,
-                "end": end,
-                "window_start": start - bucket_td,
-                "jitter_sec": _BOOT_JITTER_SEC,
-            }
-        elif metric_type == "disk.usage_percent":
-            # 디스크 = 서버별 worst mount(가상 제외) used_pct -> 버킷+서버 평균 (environment_utilization 정책 일관).
-            sql = text(f"""
-                WITH disk_point AS (
-                    SELECT collected_at, server_id,
-                        max(CASE WHEN total_bytes > 0 AND avail_bytes IS NOT NULL
-                                 THEN ((total_bytes - avail_bytes)::float / total_bytes) * 100 END) AS worst
-                    FROM server_mount_usage
-                    WHERE collected_at >= :start AND collected_at <= :end
-                      AND {_VIRTUAL_MOUNT_SQL_FILTER} {sid}
-                    GROUP BY collected_at, server_id
-                )
-                SELECT ts, avg(server_avg) AS value, NULL::text AS dimension
-                FROM (
-                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, avg(worst) AS server_avg
-                    FROM disk_point WHERE worst IS NOT NULL
-                    GROUP BY ts, server_id
-                ) sb
-                GROUP BY ts ORDER BY ts
-            """)
-            params = {"start": start, "end": end}
+            params["window_start"] = start - bucket_td
+            params["jitter_sec"] = BOOT_JITTER_SEC
         else:
-            value_expr = _SCALAR_VALUE_EXPR[metric_type]
-            sql = text(f"""
-                SELECT ts, avg(server_avg) AS value, NULL::text AS dimension
-                FROM (
-                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, avg(v) AS server_avg
-                    FROM (
-                        SELECT collected_at, server_id, {value_expr} AS v
-                        FROM {ServerMetrics.__tablename__}
-                        WHERE collected_at >= :start AND collected_at <= :end {sid}
-                    ) s
-                    WHERE v IS NOT NULL
-                    GROUP BY ts, server_id
-                ) sb
-                GROUP BY ts ORDER BY ts
-            """)
-            params = {"start": start, "end": end}
+            raise AssertionError(f"unsupported metric_type {metric_type!r}")
+
         if server_ids:
             params["server_ids"] = server_ids
         result = await self.session.execute(sql, params)
-        return [MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension) for row in result.all()]
-
-    async def _chart_cpu_delta(
-        self,
-        server_id: int,
-        start: datetime,
-        end: datetime,
-        bi: str,
-        ae: str,
-        bucket_td: timedelta,
-        numerator_expr: str,
-    ) -> list[MetricSeries]:
-        """LAG 기반 CPU jiffies delta. numerator_expr만 다른 cpu_active / cpu_user / cpu_system / cpu_iowait 통합.
-
-        window_start = start - bucket_td (LAG 시 첫 행의 d_total/d_active 계산을 위해 한 버킷 앞 데이터 필요).
-
-        reset 식별 (calculator와 동일 정책 — CLAUDE.md #C1):
-        - boot_time 차이 > 5초 → 시스템 재부팅 → NULL (±1초 측정 지터 흡수, 단순 음수가 아닌 진짜 reset)
-        - d_total <= 0 또는 d_num < 0 → NULL (옛 데이터 휴리스틱 fallback / wrap-around)
-        - 정상: d_num * 100 / d_total
-        시간차(dt)는 percent 계산엔 무관 (jiffies 비율이라 자연 정규화).
-        """
-        sql = text(f"""
-            WITH raw AS (
-                SELECT collected_at, boot_time,
-                    {numerator_expr}    AS num_j,
-                    {_CPU_TOTAL_EXPR}   AS total_j
-                FROM {ServerMetrics.__tablename__}
-                WHERE server_id = :sid
-                  AND collected_at >= :window_start
-                  AND collected_at <= :end
-            ),
-            deltas AS (
-                SELECT collected_at, boot_time,
-                    LAG(boot_time) OVER (ORDER BY collected_at) AS prev_boot,
-                    num_j   - LAG(num_j)   OVER (ORDER BY collected_at) AS d_num,
-                    total_j - LAG(total_j) OVER (ORDER BY collected_at) AS d_total
-                FROM raw
-            )
-            SELECT time_bucket(interval '{bi}', collected_at) AS ts,
-                   {ae}                                        AS value,
-                   NULL::text                                  AS dimension
-            FROM (
-                SELECT collected_at,
-                       CASE
-                           WHEN boot_time IS NOT NULL AND prev_boot IS NOT NULL
-                                AND ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) > :jitter_sec THEN NULL
-                           WHEN d_total IS NULL OR d_total <= 0 OR d_num < 0 THEN NULL
-                           ELSE d_num * 100.0 / d_total
-                       END AS v
-                FROM deltas
-                WHERE collected_at >= :start
-            ) sub
-            WHERE v IS NOT NULL
-            GROUP BY ts
-            ORDER BY ts
-        """)
-        result = await self.session.execute(
-            sql,
-            {
-                "sid": server_id,
-                "start": start,
-                "end": end,
-                "window_start": start - bucket_td,
-                "jitter_sec": _BOOT_JITTER_SEC,
-            },
-        )
-        return [MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension) for row in result.all()]
-
-    async def _chart_scalar(
-        self,
-        server_id: int,
-        start: datetime,
-        end: datetime,
-        bi: str,
-        ae: str,
-        value_expr: str,
-    ) -> list[MetricSeries]:
-        """server_metrics에서 dimension 없는 시점 값 (load/mem/swap %).
-
-        value_expr는 _SCALAR_VALUE_EXPR로 whitelist된 SQL 식 (단순 컬럼 또는 CASE WHEN).
-        """
-        sql = text(f"""
-            SELECT time_bucket(interval '{bi}', collected_at) AS ts,
-                   {ae}                                        AS value,
-                   NULL::text                                  AS dimension
-            FROM (
-                SELECT collected_at, {value_expr} AS v
-                FROM {ServerMetrics.__tablename__}
-                WHERE server_id = :sid
-                  AND collected_at >= :start
-                  AND collected_at <= :end
-            ) sub
-            WHERE v IS NOT NULL
-            GROUP BY ts
-            ORDER BY ts
-        """)
-        result = await self.session.execute(sql, {"sid": server_id, "start": start, "end": end})
-        return [MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension) for row in result.all()]
-
-    async def _chart_rate_per_dimension(
-        self,
-        server_id: int,
-        start: datetime,
-        end: datetime,
-        bi: str,
-        ae: str,
-        bucket_td: timedelta,
-        table: str,
-        dim_col: str,
-        value_col: str,
-        dimension: str | None,
-    ) -> list[MetricSeries]:
-        """LAG 기반 누적 카운터의 시간당 변화율. disk_io / net_io 통합.
-
-        - disk: reads_completed/writes_completed → IOPS (count/sec)
-        - net: rx_bytes/tx_bytes → bytes/sec
-
-        table·dim_col·value_col은 _RATE_PER_DIM dispatch 매핑으로 whitelist.
-        dimension이 있으면 그 dimension만 필터.
-
-        reset 식별 우선순위 (calculator와 동일 정책 — CLAUDE.md #C1):
-        ① dt 검증: dt <= 0 (동일 시점·역행) → NULL. dt 자체는 분모일 뿐 1분/3분 무관 — 실제 시간으로 자연 정규화.
-        ② boot_time 검증: boot_time 차이 > 5초 → 시스템 재부팅 → NULL (±1초 측정 지터 흡수, reset 확정).
-        ③ 음수 delta: d_val < 0 → NULL (옛 데이터 휴리스틱 fallback / wrap-around).
-        ④ 정상: d_val / dt
-        """
-        sql = text(f"""
-            WITH raw AS (
-                SELECT collected_at, boot_time, {dim_col} AS dim, {value_col} AS cnt
-                FROM {table}
-                WHERE server_id = :sid
-                  AND collected_at >= :window_start
-                  AND collected_at <= :end
-                  AND (CAST(:dim_filter AS text) IS NULL OR {dim_col} = :dim_filter)
-            ),
-            deltas AS (
-                SELECT collected_at, dim, boot_time,
-                    LAG(boot_time) OVER (PARTITION BY dim ORDER BY collected_at) AS prev_boot,
-                    cnt - LAG(cnt) OVER (PARTITION BY dim ORDER BY collected_at) AS d_val,
-                    EXTRACT(EPOCH FROM (collected_at
-                        - LAG(collected_at) OVER (PARTITION BY dim ORDER BY collected_at))) AS dt
-                FROM raw
-            )
-            SELECT time_bucket(interval '{bi}', collected_at) AS ts,
-                   {ae}                                        AS value,
-                   dim                                         AS dimension
-            FROM (
-                SELECT collected_at, dim,
-                       CASE
-                           WHEN dt IS NULL OR dt <= 0 THEN NULL
-                           WHEN boot_time IS NOT NULL AND prev_boot IS NOT NULL
-                                AND ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) > :jitter_sec THEN NULL
-                           WHEN d_val IS NULL OR d_val < 0 THEN NULL
-                           ELSE d_val / dt
-                       END AS v
-                FROM deltas
-                WHERE collected_at >= :start
-            ) sub
-            WHERE v IS NOT NULL
-            GROUP BY ts, dim
-            ORDER BY ts, dim
-        """)
-        result = await self.session.execute(
-            sql,
-            {
-                "sid": server_id,
-                "start": start,
-                "end": end,
-                "window_start": start - bucket_td,
-                "dim_filter": dimension,
-                "jitter_sec": _BOOT_JITTER_SEC,
-            },
-        )
-        return [MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension) for row in result.all()]
-
-    async def _chart_fs(
-        self,
-        server_id: int,
-        start: datetime,
-        end: datetime,
-        bi: str,
-        ae: str,
-        dimension: str | None,
-    ) -> list[MetricSeries]:
-        """server_mount_usage의 시점 사용률 % (mount당). LAG 불필요 — total/avail이 시점 값."""
-        sql = text(f"""
-            SELECT time_bucket(interval '{bi}', collected_at) AS ts,
-                   {ae}                                        AS value,
-                   mount                                       AS dimension
-            FROM (
-                SELECT collected_at, mount,
-                       CASE WHEN total_bytes > 0
-                            THEN (total_bytes - avail_bytes)::float / total_bytes * 100
-                       END AS v
-                FROM {ServerMountUsage.__tablename__}
-                WHERE server_id = :sid
-                  AND collected_at >= :start
-                  AND collected_at <= :end
-                  AND (CAST(:dim_filter AS text) IS NULL OR mount = :dim_filter)
-            ) sub
-            GROUP BY ts, mount
-            ORDER BY ts, mount
-        """)
-        result = await self.session.execute(
-            sql,
-            {"sid": server_id, "start": start, "end": end, "dim_filter": dimension},
-        )
         return [MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension) for row in result.all()]
 
     async def reboot_events(
@@ -609,7 +438,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 "end": end,
                 # LAG 베이스 buffer — start 직전 30일 (그 안에 prev_boot 행 잡힘).
                 "buffer_start": start - timedelta(days=30),
-                "jitter_sec": _BOOT_JITTER_SEC,
+                "jitter_sec": BOOT_JITTER_SEC,
             },
         )
         return [

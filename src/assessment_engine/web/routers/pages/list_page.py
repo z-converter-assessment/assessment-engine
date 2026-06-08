@@ -4,11 +4,12 @@ AI 진단 = 엔지니어 환경 보고서 안 본질 catalog 통합 (대시보�
 """
 
 from datetime import UTC, datetime
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Depends, Query, Request
 
 from assessment_engine import recommendation
+from assessment_engine.db.repositories.query.types import AUTO_BUCKET
 from assessment_engine.web.deps import get_service
 from assessment_engine.web.services.mappers.shared import DISTRO_FILTER_OPTIONS, PROVISIONING_CLASS_OPTIONS
 from assessment_engine.web.services.query_service import QueryService
@@ -18,10 +19,103 @@ from assessment_engine.web.templating import templates
 
 list_page_router = APIRouter()
 
+# 환경 부하 추이 집계 단위 라벨 — WINDOW_DAYS 윈도우의 AUTO_BUCKET 한국어 표기 (표제용).
+_BUCKET_KO = {
+    "1m": "1분",
+    "5m": "5분",
+    "15m": "15분",
+    "30m": "30분",
+    "1h": "1시간",
+    "3h": "3시간",
+    "6h": "6시간",
+    "12h": "12시간",
+    "1d": "1일",
+}
+_TREND_BUCKET_LABEL = _BUCKET_KO[AUTO_BUCKET[f"{recommendation.WINDOW_DAYS}d"]]
+
 # 대시보드 목록 전체 로드 한도 — 기본 20행만 표시(client "더보기" clip)하되, 필터 적용 시 조건 맞는
 # 전부를 보여주려면 client 에 전체가 있어야 한다(필터는 client-side hide/show). E2 page 기반의 의식적 예외:
 # 대시보드 단일 화면은 환경요약·realtime 도 이미 전 서버를 로드하므로 목록도 전체 로드로 일관.
 _LIST_FETCH_LIMIT = 10_000
+
+
+@list_page_router.get("/environment/metrics")
+async def environment_metrics(
+    request: Request,
+    back: str | None = Query(None),
+    ids: str | None = Query(None, description="public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경."),
+    service: QueryService = Depends(get_service),
+):
+    """환경 성능 추이 (live) — 전체 환경 차트 10종. ids 면 선택 N대 한정.
+
+    server_detail 의 `/{server_id}/metrics`(UUID) 보다 먼저 등록(list_page_router 우선 include)이라
+    'environment' 가 UUID 매칭 422 로 가지 않고 본 라우트로 잡힘.
+    실시간 메트릭은 `/environment/realtime` 로 분리(현황 모니터링과 시계열 추이는 별개 용도)."""
+    valid_pids = await _resolve_selection_pids(service, ids)
+    selection_ids = ",".join(valid_pids)
+    path = "/servers/environment/metrics" + (f"?ids={selection_ids}" if selection_ids else "")
+    return templates.TemplateResponse(
+        request=request,
+        name="servers/environment_metrics.html",
+        context={
+            "window_days": recommendation.WINDOW_DAYS,
+            "generated_at": datetime.now(UTC),
+            "back_url": unquote(back) if back else "/servers/",
+            "self_back": quote(path, safe=""),
+            "selection_ids": selection_ids,
+            "selection_count": len(valid_pids),
+        },
+    )
+
+
+@list_page_router.get("/environment/realtime")
+async def environment_realtime(
+    request: Request,
+    back: str | None = Query(None),
+    fragment: str | None = Query(None),
+    ids: str | None = Query(None, description="public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경."),
+    service: QueryService = Depends(get_service),
+):
+    """실시간 메트릭 (live 현황 모니터링) — 현재 평균 활용률 + 현재 부하 상위. ids 면 선택 N대 한정.
+
+    fragment=realtime: 실시간 메트릭 partial 만 재렌더 (JS 30초 폴링이 mount innerHTML 교체)."""
+    now = datetime.now(UTC)
+    valid_pids = await _resolve_selection_pids(service, ids)
+    server_ids = None
+    if valid_pids:
+        sid_map = await service.resolve_server_ids(valid_pids)
+        server_ids = [sid_map[p] for p in valid_pids]
+    selection_ids = ",".join(valid_pids)
+    path = "/servers/environment/realtime" + (f"?ids={selection_ids}" if selection_ids else "")
+    realtime = await service.get_environment_realtime(server_ids)
+    self_back = quote(path, safe="")
+    if fragment == "realtime":
+        return templates.TemplateResponse(
+            request=request,
+            name="servers/_environment_realtime.html",
+            context={"realtime": realtime, "generated_at": now, "self_back": self_back},
+        )
+    return templates.TemplateResponse(
+        request=request,
+        name="servers/realtime.html",
+        context={
+            "realtime": realtime,
+            "generated_at": now,
+            "back_url": unquote(back) if back else "/servers/",
+            "self_back": self_back,
+            "selection_ids": selection_ids,
+            "selection_count": len(valid_pids),
+        },
+    )
+
+
+async def _resolve_selection_pids(service: QueryService, ids: str | None) -> list[str]:
+    """ids(comma public_ids) -> 존재하는 public_id 만. 빈/미지정이면 빈 list (= 전체 환경)."""
+    public_ids = [pid.strip() for pid in (ids or "").split(",") if pid.strip()]
+    if not public_ids:
+        return []
+    sid_map = await service.resolve_server_ids(public_ids)
+    return [pid for pid in public_ids if pid in sid_map]
 
 
 @list_page_router.get("/")
@@ -48,11 +142,11 @@ async def list_servers(
             context={
                 "overview": live.overview,
                 "attention": live.attention,
-                "realtime": live.realtime,
                 "topology": live.topology,
                 "trend": live.trend,
                 "generated_at": datetime.now(UTC),
                 "window_days": recommendation.WINDOW_DAYS,
+                "trend_bucket_label": _TREND_BUCKET_LABEL,
                 "self_back": quote("/servers/", safe=""),
             },
         )
@@ -79,12 +173,11 @@ async def list_servers(
     # AI 진단 = 엔지니어 환경 보고서 안 본질 catalog 통합 (대시보드 안 별도 카드 없음).
     overview = None
     attention = None
-    realtime = None
     topology = None
     trend = None
     if page == 1:
         live = await service.get_dashboard_live()
-        overview, attention, realtime = live.overview, live.attention, live.realtime
+        overview, attention = live.overview, live.attention
         # 토폴로지는 자동갱신 라이브 fragment 밖에서 1회 렌더 (정적 인벤토리 — 30초 폴링 대상 아님).
         topology = live.topology
         trend = live.trend
@@ -95,12 +188,12 @@ async def list_servers(
             "servers": servers,
             "overview": overview,
             "attention": attention,
-            "realtime": realtime,
             "topology": topology,
             "trend": trend,
             # 페이지 렌더(새로고침) 시각 — 우측 상단 갱신 시각 표시용. UTC 전달, 템플릿 kst 필터로 표시(#F2).
             "generated_at": datetime.now(UTC),
             "window_days": recommendation.WINDOW_DAYS,
+            "trend_bucket_label": _TREND_BUCKET_LABEL,
             "zdm_defaults": {
                 "ip": web_settings.zdm_default_ip,
                 "user": web_settings.zdm_default_user,
