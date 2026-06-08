@@ -1,7 +1,7 @@
 name: release
 
 # semver tag(v*) push 시 두 산출물 동시 생성:
-#   (1) wheel + sdist + SHA256SUMS + SBOM + Sigstore signature + docker-compose.yml(prod-safe base) + .env.example → GitHub Release
+#   (1) wheel + sdist + SHA256SUMS + SBOM + Sigstore signature + docker-compose.yml(prod-safe base) + env.example → GitHub Release
 #   (2) Docker image (linux/amd64, linux/arm64) → GHCR push + cosign sign + SBOM (ADR 0017)
 # 외부 인프라는 wheel (systemd·venv) 또는 image (docker·k8s) 어느 채널이든 자유 선택. 첨부 docker-compose.yml 은
 # prod-safe base(build 키 없음, ADR 0035) — 릴리즈 다운로드만으로 빌드 없이 pull-and-run. base 의 __ENGINE_VERSION__
@@ -134,7 +134,7 @@ jobs:
       - name: Stage compose + env assets
         run: |
           cp docker-compose.yml dist/docker-compose.yml
-          cp .env.example dist/.env.example
+          cp env.example dist/env.example
           sed -i "s/__ENGINE_VERSION__/${{ needs.resolve-version.outputs.version }}/g" dist/docker-compose.yml
 
       # `--`로 glob 종료 — dash로 시작하는 우발적 파일명이 sha256sum option으로 해석되지 않게 (shellcheck SC2035).
@@ -142,7 +142,7 @@ jobs:
       - name: sha256 checksums
         run: |
           cd dist
-          sha256sum -- *.whl *.tar.gz docker-compose.yml .env.example > SHA256SUMS
+          sha256sum -- *.whl *.tar.gz docker-compose.yml env.example > SHA256SUMS
 
       # SBOM (Software Bill of Materials) — CycloneDX 표준. 의존성 트리 명세 첨부.
       # 외부 인프라가 release artifact의 의존성·CVE 추적 가능 (산업 표준 ADR 0012 강화).
@@ -175,7 +175,7 @@ jobs:
             dist/sbom.cdx.json
             dist/*.sigstore.json
             dist/docker-compose.yml
-            dist/.env.example
+            dist/env.example
           generate_release_notes: true
           fail_on_unmatched_files: true
 

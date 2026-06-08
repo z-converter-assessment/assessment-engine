@@ -25,7 +25,7 @@
 
 | 분류 | 정의 | 본 프로젝트 예시 | 보관 |
 |------|------|----------------|------|
-| config | 노출돼도 시스템이 즉시 위태롭지 않은 운영 값 | `POSTGRES_HOST`·`RABBITMQ_VHOST`·`WEB_PORT`·`APP_ENV`·`LOG_FORMAT` | `.env` 평문 OK, git 커밋 가능 (`.env.example`) |
+| config | 노출돼도 시스템이 즉시 위태롭지 않은 운영 값 | `POSTGRES_HOST`·`RABBITMQ_VHOST`·`WEB_PORT`·`APP_ENV`·`LOG_FORMAT` | `.env` 평문 OK, git 커밋 가능 (`env.example`) |
 | secret | 노출 시 즉시 무단 접근 가능한 자격 | `POSTGRES_PASSWORD`·`RABBITMQ_PASSWORD`·향후 API token / TLS key | dev 한정 `.env` 평문, prod 는 외부 인프라 자유 채널 |
 
 경계 케이스:
@@ -251,7 +251,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 
 ---
 
-## 12. 전체 키 카탈로그 (`.env.example` 순서)
+## 12. 전체 키 카탈로그 (`env.example` 순서)
 
 | 키 | 기본값 | 사용처 | 설명 |
 |----|--------|--------|------|
@@ -317,9 +317,9 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `RAG_TOP_K` | `5` | config.py | RAG 검색 top-k (handler retrieve_context 단계) |
 | `RAG_MAX_CONTEXT_CHARS` | `4000` | config.py | LLM prompt 안 RAG context 절 max 길이 cap |
 
-### `.env.example` 에 없고 config.py default 만 정의된 키
+### `env.example` 에 없고 config.py default 만 정의된 키
 
-다음 키는 운영 변경 빈도가 낮아 의도적으로 env 노출 안 함 — `.env.example` 미수록. 필요 시 운영자가 env 로 override 가능 (BaseSettings 필드라 자동 인식).
+다음 키는 운영 변경 빈도가 낮아 의도적으로 env 노출 안 함 — `env.example` 미수록. 필요 시 운영자가 env 로 override 가능 (BaseSettings 필드라 자동 인식).
 
 - `redis_ttl_idempotent` (24h)·`redis_ttl_online` (5min)·`redis_ttl_token` (1h)
 - `redis_ttl_last_agent_start` (24h)·`redis_ttl_agent_restarts` (1h 슬라이딩 윈도우)·`redis_ttl_time_invariant_warned` (1h)

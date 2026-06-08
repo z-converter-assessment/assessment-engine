@@ -52,7 +52,7 @@ override `docker-compose.override.yml` (dev only):
 
 ### 5. 릴리즈 에셋
 
-- env 카탈로그 에셋명 `.env.example` 단일(점 prefix).
+- env 카탈로그 에셋명 `.env.example` 단일(점 prefix). 정정 (ADR 0038, 2026-06-08): GitHub Release 가 점 prefix 를 `default.env.example` 로 변환하므로 에셋명을 `env.example`(점 없이)로 변경.
 - `release.yml` 이 base `docker-compose.yml` 의 `__ENGINE_VERSION__` 을 태그 semver 로 sed 치환 후 첨부. GHCR 이미지 태그·wheel 버전은 `v` 없는 semver(`0.3.1`), git tag 만 `v0.3.1`.
 - `SHA256SUMS` 에 compose·env 포함(무결성 검증 대상).
 

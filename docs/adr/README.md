@@ -43,6 +43,7 @@
 | 0035 | compose base(prod) + override(dev) 분리 | Accepted | 루트 `docker-compose.yml` 을 prod-safe base(build 키 없는 GHCR 이미지 pull·bind mount 없음·`PGDATA_HOST`/`MQ_DATA_HOST` 볼륨 바인딩·diagnostic-worker 포함)로 전환 = 빌드 없는 pull-and-run prod compose(릴리즈 첨부, infra B안). dev 편의는 `docker-compose.override.yml`(자동 머지)로 분리. Dockerfile 은 단일 유지(dev-prod parity). GHCR public(3절 정정 — private+PAT 철회, 토큰 없이 pull). env 정규 키 `RABBITMQ_*`. ADR 0033 "override 0·정의 1곳" supersede |
 | 0036 | 퀵스타트 카테고리 폐기, dev/배포 2분류 | Accepted | 환경 모델을 dev/prod 2분류로 고정, "퀵스타트" 제3 카테고리 폐기. 루트 `.env.example` = 배포 템플릿(APP_ENV=prod·secret placeholder `changeme`로 fail-fast·배포 키 중심), dev 검증은 `dev/.env.example`. compose base/override 구조(0035) 존속, 소스 clone `docker compose up` 은 여전히 dev(기능 손실 0). ADR 0033·0035 퀵스타트 개념 정정 |
 | 0037 | dev 가상화 OrbStack -> libvirt(KVM) 재전환 | Accepted | dev host macOS -> Linux x86_64 homeserver 이전. OrbStack(macOS 전용) -> libvirt+qemu-kvm(virsh·virbr0 NAT). `host.docker.internal`·`orb.local` -> libvirt 게이트웨이 IP·VM DHCP lease IP. dev-up.sh libvirt 매트릭스(Linux 5+Windows 1). `zdm_default_ip` default 빈값. ADR 0026 supersede |
+| 0038 | release 에셋명 env.example (점 prefix 제거) | Accepted | GitHub Release 가 점 prefix(`.env.example`)를 `default.env.example` 로 변환(download URL·asset name 모두) -> 에셋명·루트 배포 템플릿 파일명을 `env.example`(점 없이)로 rename. dev 전용 `dev/.env.example`·`agent.env.example`(release 미첨부)은 점 유지. ADR 0035 에셋명 점-prefix 부분 supersede |
 
 트레이드오프 카탈로그(T1~T15)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 
