@@ -2,7 +2,6 @@
 #
 # Prod 이미지 — 운영자가 GHCR pull 후 즉시 3 컴포넌트 (web/consumer/diagnostic-worker)
 # 운영 가능. wheel install 기반 — release artifact 와 동일 패키지 (assessment_engine-{version}-py3-none-any.whl).
-# ADR 0023: scheduler cron 폐기로 4 컴포넌트 → 3 컴포넌트.
 #
 # 책임 분담 (#A0):
 #   - 본 이미지는 운영자 선택권 (systemd · k8s · docker-compose 어느 토폴로지든 호환).

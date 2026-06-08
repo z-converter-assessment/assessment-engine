@@ -44,6 +44,8 @@ override `docker-compose.override.yml` (dev only):
 
 이미지 패키지 private 유지(소스 private 과 경계 일치). infra 가 `read:packages` 스코프 fine-grained PAT(엔진 패키지 한정)를 secret 으로 주입해 pull — infra 워크플로 기본 `GITHUB_TOKEN` 은 cross-repo pull 불가. 토큰 발급·로테이션은 조직 admin/infra, 엔진 레포 책임은 contract 문서화(`release.md`·`deployment.md`).
 
+정정 (2026-06-08): 본 3절 결정(private + PAT) 철회 — 이미지 패키지를 public 으로 전환. 사유: 고객사·infra 가 토큰 없이 pull (cross-repo PAT 발급·로테이션 부담 제거), 내부망 B2B 배포라 이미지 자체 민감도 낮다고 판단. pull 토큰 불요, cosign keyless 서명 검증은 그대로 유지. 실제 visibility 변경은 GitHub 패키지 설정(Package -> Settings -> Change visibility -> Public) — repo 코드로 강제 불가.
+
 ### 4. env 정규 키
 
 정규 키는 `RABBITMQ_*` (`config.py` 필드명 대문자, `env_prefix` 없음). `RABBITMQ_TASK_EXCHANGE`·`RABBITMQ_ROUTING_KEY_TASK_RESULT` 등. infra 의 `WORKER_*` 키는 미인식 — infra 가 `.env.j2` 를 정규 키로 맞춘다(엔진은 alias 미수용, 검증 단일 경로 #F3). task prefix 3종은 default 보유라 선택이나 agent 발행 값과 일치 필수.
@@ -58,7 +60,7 @@ override `docker-compose.override.yml` (dev only):
 
 - base 가 prod-safe 라 릴리즈 첨부 compose 가 그대로 pull-and-run prod 진입점 — 추가 에셋·소스 clone 불요. 공통부가 base 한 곳이라 dev/prod drift 가 구조적으로 작다.
 - base 는 빌드 없는 pull-and-run 까지. hardened prod(APP_ENV=prod·강 secret·LOG_FORMAT=json·HTTPS ingress)는 base 가 강제하지 않고 infra env 주입으로 달성 — 소스 clone bare up 은 dev-grade(weak secret 허용)이고, `APP_ENV=prod` 주입 시 `_validate_prod_*` 가 weak default 를 거부해 이중 안전장치.
-- GHCR private 유지로 infra 토큰 관리 부담 존재 — 보안 경계 일치와 맞바꿈.
+- GHCR 는 public (3절 정정) — 토큰 없이 pull, infra 토큰 관리 부담 0. 이미지 레이어 노출은 내부망 B2B 라 감수.
 
 ## 관계
 

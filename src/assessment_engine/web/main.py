@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
         aio_pika.ExchangeType.DIRECT,
         durable=True,
     )
-    routing_key = diagnostic_settings.diagnostic_routing_key
+    routing_key = diagnostic_settings.rabbitmq_routing_key_diagnostic
     dlq = await broker_channel.declare_queue(f"{routing_key}.dead", durable=True)
     await dlq.bind(dlx, routing_key=routing_key)
     queue = await broker_channel.declare_queue(
@@ -54,8 +54,8 @@ async def lifespan(app: FastAPI):
         arguments={
             "x-dead-letter-exchange": dlx_name,
             "x-dead-letter-routing-key": routing_key,
-            "x-message-ttl": diagnostic_settings.diagnostic_queue_ttl_ms,
-            "x-max-length": diagnostic_settings.diagnostic_queue_max_len,
+            "x-message-ttl": diagnostic_settings.rabbitmq_diagnostic_queue_ttl_ms,
+            "x-max-length": diagnostic_settings.rabbitmq_diagnostic_queue_max_len,
         },
     )
     await queue.bind(exchange, routing_key=routing_key)

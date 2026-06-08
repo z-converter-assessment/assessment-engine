@@ -281,7 +281,7 @@ submitter: web POST 안 호출 — uvicorn `timeout_graceful_shutdown=3s` 가 �
 
 진행 중 job 운영 정책 (#F11 본문 + ADR 0004 후속 결정 영역):
 - SIGTERM 시 `status='running'`인 job은 DB에 그대로 남는다. 다음 워커 기동 시 본 job은 retrieve 안 됨 (consumer는 `pending` 만 fetch).
-- `worker_job_timeout_seconds` (기본 300s) 초과한 stale `'running'`은 운영자가 수동 `'failed'` UPDATE 또는 timeout 기반 자동 정리. 현재 미구현 — prod 도입 전 별도 ADR 의무.
+- stale `'running'` job(워커 크래시 등)은 운영자가 수동 `'failed'` UPDATE 또는 timeout 기반 자동 정리 필요. 현재 미구현 — prod 도입 전 별도 ADR 의무 (진단 1건 전체 wall-clock cap 도 본 ADR 에서 함께 결정).
 - 임시 대응: SQL `UPDATE diagnostic_jobs SET status='failed', error_message='stale running cleanup' WHERE status='running' AND started_at < now() - interval '5 minutes'` 운영자 manual 실행.
 
 ## 운영 / 디버깅

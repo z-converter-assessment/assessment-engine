@@ -8,7 +8,7 @@
 # 책임 분담:
 #   - agent 바이너리는 dev/bin/assessment-agent 로 산출 — ensure_agent_binary 가 확보.
 #     AGENT_BINARY_URL set 시 curl fetch, 미설정 시 dev/agent-build/build.sh (sibling repo cross-build).
-#   - Docker compose 는 루트 docker-compose.yml (dev·퀵스타트 단일 파일, ADR 0033). migrate init-container 가 alembic 자동 적용.
+#   - Docker compose 는 루트 docker-compose.yml(prod base) + docker-compose.override.yml(dev), ADR 0035·0036. migrate init-container 가 alembic 자동 적용.
 #   - Linux VM 은 cloud image qcow2 vol-clone + cloud-init seed + virsh define 도메인 XML 로 생성
 #     (virt-install 의 python3-gi 의존 회피). VM 안 패키지·바이너리·systemd·합성 부하는 post-provision.
 #   - Windows VM 은 autounattend 무인 설치 후 골든 이미지 캐시 (docs/development/windows-vm.md).
@@ -39,11 +39,14 @@ cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.."
 # COMPOSE_FILE 미지정 — compose 기본 탐색이 루트 docker-compose.yml(prod-safe base) +
 # docker-compose.override.yml(dev) 을 자동 머지(ADR 0035). 명시하면 override 자동 머지가 꺼지므로 export 안 함.
 # 프로젝트명 고정 — 기본 프로젝트명이 루트 디렉토리명이 되지만, dev 컨테이너/볼륨 네임스페이스를
-# `dev` 로 안정화(퀵스타트 bare `docker compose up` 과 분리, dev-down 연속성 보장).
+# `dev` 로 안정화(배포 bare `docker compose up` 과 분리, dev-down 연속성 보장).
 export COMPOSE_PROJECT_NAME=dev
 # dev 파이프라인은 dev/.env(dev 카탈로그)를 compose env_file 로 인식 — compose 의 ${ENV_FILE:-.env} 분기.
-# (퀵스타트 bare `docker compose up` 은 ENV_FILE 미설정 -> 루트 .env.)
+# (배포 bare `docker compose up` 은 ENV_FILE 미설정 -> 루트 .env.)
 export ENV_FILE=dev/.env
+# compose 변수 보간(${VAR}) 소스도 dev/.env 로 통일 — 앱·postgres·rabbitmq 의 secret 보간이 같은 파일을 봐
+# 호스트 OS env 미주입 시에도 비번이 일치(루트 .env 부재 시 보간 fallback 이 env_file 과 어긋나는 것 방지).
+export COMPOSE_ENV_FILES=dev/.env
 
 # ────────────────────────────────────────────────────────────────────────────
 # 상수
@@ -241,7 +244,7 @@ check_prereqs() {
     echo "경고: 본 dev 파이프라인은 x86_64 + amd64 cloud image 가정. 다른 host arch 는 image URL·바이너리 검토 필요."
   fi
   # env 파일 자동 cp — dev 작업파일 dev/.env(dev 카탈로그 복사본)을 dev/ 안에 둔다.
-  # compose 는 ENV_FILE=dev/.env 로 본 파일을 env_file 인식 (퀵스타트는 루트 .env, ADR 0033).
+  # compose 는 ENV_FILE=dev/.env 로 본 파일을 env_file 인식 (배포는 루트 .env, ADR 0036).
   if [ ! -f dev/.env ]; then
     echo "  dev/.env 없음 — dev/.env.example 복사"
     cp dev/.env.example dev/.env

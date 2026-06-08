@@ -4,7 +4,7 @@
 
 고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, 진단 워커가 수집된 데이터를 규칙 기반으로 분석해 진단 결과를 생성한다. 운영자는 web UI 에서 대시보드·보고서·JSON Export·원격 설치 task 산출물을 활용해 다음 단계 의사결정을 진행한다.
 
-본 repo 는 엔진 자체 (애플리케이션 + 루트 docker-compose(dev·퀵스타트 겸용) + libvirt VM 매트릭스 등 `dev/` 격리 자산) 만 다룬다. 하드닝 prod 운영 (IaC — Terraform · Ansible 등 · systemd unit · k8s manifest) 은 본 repo 범위 밖 — 산출물·contract 를 외부 인프라에 통합. 단 루트 `docker-compose.yml` 로 단일 호스트 퀵스타트 제공 (ADR 0033).
+본 repo 는 엔진 자체 (애플리케이션 + 루트 docker-compose(prod base + dev override) + libvirt VM 매트릭스 등 `dev/` 격리 자산) 만 다룬다. 하드닝 prod 운영 (IaC — Terraform · Ansible 등 · systemd unit · k8s manifest) 은 본 repo 범위 밖 — 산출물·contract 를 외부 인프라에 통합. 단 루트 `docker-compose.yml` 로 단일 호스트 all-in-one 배포 지원 (ADR 0035·0036).
 
 ---
 
@@ -213,22 +213,24 @@ curl -fsS http://localhost:8000/health   # {"status":"ok"}
 
 ---
 
-## Quick Start
+## 실행 (dev / 배포)
 
-compose 2 파일 (ADR 0035): 루트 `docker-compose.yml` 은 prod-safe base(GHCR 이미지 pull, 빌드 없음 — 릴리즈 첨부 pull-and-run), `docker-compose.override.yml` 은 dev 전용(소스 빌드·`./src` bind mount·hot reload). `docker compose up` 은 소스 트리에서 둘을 자동 머지(퀵스타트·dev), prod 는 base 단독. 빌드는 루트 `Dockerfile`(단일 multi-stage 운영 이미지), `env_file = ${ENV_FILE:-.env}` — 미설정 시 루트 `.env`, dev-up.sh 가 `dev/.env` 로 전환.
+compose 2 파일 (ADR 0035·0036): 루트 `docker-compose.yml` = prod-safe base(GHCR 이미지 pull, 빌드 없음), `docker-compose.override.yml` = dev 전용(소스 빌드·`./src` bind mount·hot reload). `docker compose up` 은 소스 트리에서 둘을 자동 머지(dev), 릴리즈 base 단독은 배포. 빌드는 루트 `Dockerfile`(단일 multi-stage 운영 이미지).
 
-### 퀵스타트 (단일 호스트 운영 평가)
+### 배포 (단일 호스트 all-in-one 또는 멀티노드)
+
+릴리즈 첨부 base `docker-compose.yml` + `.env.example`(배포 템플릿)을 받아 [필수] secret·이미지 좌표를 채운 뒤 기동:
 
 ```bash
-cp .env.example .env
+cp .env.example .env        # POSTGRES/RABBITMQ secret · ENGINE_IMAGE 등 채움
 docker compose up -d        # web http://localhost:8000
 ```
 
-`cp` 만으로 기동한다 (`APP_ENV=dev` 기본 — weak secret 허용). 수동 설정은 선택 기능만: install 발행 시 `ZDM_DEFAULT_IP`, AI 진단 시 `OLLAMA_BASE_URL`. 인터넷 노출 하드닝 prod 는 wheel+systemd(아래 "설치·실행") — 한계·근거는 `docs/operations/deployment.md` 0절.
+`APP_ENV=prod` 기본이라 weak secret 은 기동 거부(fail-fast). wheel+systemd·멀티노드 토폴로지는 `docs/operations/deployment.md`.
 
 ### dev 파이프라인 (`dev/dev-up.sh`, Linux x86_64)
 
-같은 compose 를 띄우고 그 위에 libvirt VM 매트릭스 + 각 VM 에 C 에이전트 install 까지 자동화 — 수집·진단·원격 install 전 경로를 실제 호스트로 검증한다. `ENV_FILE=dev/.env`(dev 카탈로그) · `COMPOSE_PROJECT_NAME=dev` 를 설정해 퀵스타트와 컨테이너 네임스페이스를 분리한다.
+`dev/.env.example` 카탈로그로 base+override 를 띄우고 그 위에 libvirt VM 매트릭스 + 각 VM 에 C 에이전트 install 까지 자동화 — 수집·진단·원격 install 전 경로를 실제 호스트로 검증한다. `COMPOSE_PROJECT_NAME=dev` 로 배포와 컨테이너 네임스페이스를 분리한다. 컨테이너 스택만 빠르게 띄우려면 `ENV_FILE=dev/.env docker compose up`.
 
 ```bash
 ./dev/dev-up.sh        # 루트에서. 또는 `cd dev && ./dev-up.sh` — 둘 다 동작

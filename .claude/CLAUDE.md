@@ -41,7 +41,7 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
   - 환경 분기 — `APP_ENV=prod` + `_validate_prod_*` weak default 거부 (`docs/operations/env.md` 8절). secret 주입 방식은 무관, 결과(약한 default 거부)만 검증
   - CI 산출물 — Python wheel + GitHub Release (ADR 0012). 외부 인프라가 wheel 받아 install·systemd 자체 구성
-- IaC 코드(`*.tf`·Ansible playbook·OpenStack 시나리오 문서)는 본 repo에 두지 않는다. 인프라 시나리오 언급 자체 금지 — 단 어떤 인프라든 위 contract 충족 시 본 엔진 기동 가능. (루트 `docker-compose.yml` 퀵스타트는 예외적 편의 제공 — ADR 0033.)
+- IaC 코드(`*.tf`·Ansible playbook·OpenStack 시나리오 문서)는 본 repo에 두지 않는다. 인프라 시나리오 언급 자체 금지 — 단 어떤 인프라든 위 contract 충족 시 본 엔진 기동 가능. (루트 `docker-compose.yml` 단일 호스트 배포는 예외적 편의 제공 — ADR 0035·0036.)
 
 ---
 

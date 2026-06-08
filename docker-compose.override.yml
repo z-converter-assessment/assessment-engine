@@ -27,11 +27,15 @@ services:
   web:
     <<: *dev-app
     environment:
+      # base 의 APP_ENV fallback(prod)을 dev 로 덮음 — 소스 트리 기동은 dev (ADR 0036). cross-file deep merge.
+      APP_ENV: ${APP_ENV:-dev}
       # dev hot-reload — uvicorn auto-reload (reload_dirs=bind mount 패키지, web/__main__.py).
       WEB_RELOAD: ${WEB_RELOAD:-true}
 
   consumer:
     <<: *dev-app
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
     # dev hot-reload — bind mount 패키지 .py 변경 시 watchfiles 가 프로세스 재시작 (web uvicorn reload 와 짝).
     # consumer/diagnostic 은 uvicorn 이 아니라 watchfiles 래퍼로 reload (base 의 entrypoint=python -m override).
     entrypoint: ["watchfiles", "--filter", "python"]
@@ -39,6 +43,8 @@ services:
 
   diagnostic-worker:
     <<: *dev-app
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
     # dev hot-reload — consumer 와 동일 (watchfiles 래퍼).
     entrypoint: ["watchfiles", "--filter", "python"]
     command: ["python -m assessment_engine.diagnostic", "/usr/local/lib/python3.12/site-packages/assessment_engine"]
@@ -52,5 +58,7 @@ services:
       args:
         APP_VERSION: ${APP_VERSION:-0.0.0}
     image: ${ENGINE_IMAGE:-assessment-engine:local}
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
     volumes:
       - ./migrations:/usr/local/lib/python3.12/site-packages/assessment_engine/migrations

@@ -11,33 +11,28 @@ artifact 카탈로그·생성 trigger·무결성 검증·다운로드 채널: `d
 운영자 선택권 (ADR 0017):
 - (A) wheel + venv + systemd unit — 본 문서 3절 기본 시나리오
 - (B) Docker image (GHCR) + docker compose 또는 k8s — 본 문서 4절 multi-node 분리 inject 예시 (image 패턴 동등)
-- (C) 퀵스타트 — repo clone 후 루트 `docker-compose.yml` 한 줄 기동 (ADR 0033). 평가·신뢰된 내부망 소규모용. 아래 0절.
+- (C) 단일 호스트 배포 (compose all-in-one) — 릴리즈 base `docker-compose.yml` + `.env.example` 채워 한 줄 기동 (ADR 0036). 평가·내부망 소규모·단일 노드용. 아래 0절.
 
 토폴로지 자율 — 모두 동일 환경변수 contract (`docs/operations/env.md`) + Alembic migration 절차.
 
-## 0. 퀵스타트 (단일 호스트 all-in-one)
+## 0. 단일 호스트 배포 (compose all-in-one)
 
-repo clone 후 한 줄로 엔진 3 컴포넌트 + 의존 인프라(TimescaleDB·Redis·RabbitMQ) 기동. 평가(PoC)·내부망 소규모·데모용.
+릴리즈 base `docker-compose.yml` + `.env.example`(배포 템플릿) 한 세트로 단일 호스트에 엔진 3 컴포넌트 + 의존 인프라(TimescaleDB·Redis·RabbitMQ) 기동. 평가(PoC)·내부망 소규모·단일 노드 운영용 (ADR 0036).
 
-compose 2 파일 모델 (ADR 0035): 루트 `docker-compose.yml` 은 prod-safe base(build 키 없음, 이미지 pull), `docker-compose.override.yml` 은 dev 전용(소스 빌드·bind mount·hot reload). `docker compose up` 은 소스 트리에서 둘을 자동 머지. 릴리즈는 base 만 첨부(override 미배포)라 prod 는 base 단독으로 동작.
+compose 2 파일 (ADR 0035·0036): 루트 `docker-compose.yml` = prod-safe base(build 키 없음, GHCR 이미지 pull), `docker-compose.override.yml` = dev 전용. 릴리즈는 base 만 첨부(override 미배포)라 배포는 base 단독으로 동작. dev 검증은 `dev/`(dev-up.sh + dev/.env.example).
 
-방법 1 — repo clone (소스에서 이미지 로컬 빌드, dev/퀵스타트):
-```bash
-cp .env.example .env              # 기본값으로 동작 — install 시 ZDM 좌표만 수동 설정
-docker compose up -d              # base + override.yml 자동 머지 -> 루트 Dockerfile 로 로컬 빌드. web: http://localhost:8000
-```
-
-방법 2 — 릴리즈 다운로드 (소스 clone 불요, GHCR 이미지 pull):
-GitHub Release 첨부 `docker-compose.yml`(prod-safe base) + `.env.example` 받아:
+GitHub Release 첨부 `docker-compose.yml`(prod-safe base) + `.env.example`(배포 템플릿) 받아:
 ```bash
 cp .env.example .env
-# base 기본 이미지 = release CI 가 핀한 GHCR 정확 버전. 다른 버전·레지스트리면 ENGINE_IMAGE override.
-docker compose up -d              # build 키 없음 -> GHCR 이미지 pull (override.yml 미존재라 base 단독)
-# ENGINE_IMAGE=ghcr.io/<org>/assessment-engine:1.2.3 docker compose up -d   # 명시 override 예
+# [필수] POSTGRES/RABBITMQ secret(changeme placeholder) · ENGINE_IMAGE · PGDATA_HOST 등 채움 (APP_ENV=prod 기본)
+docker compose up -d              # build 키 없음 -> GHCR 이미지 pull. web: http://localhost:8000
+# ENGINE_IMAGE 미설정 시 base 기본 = release CI 가 핀한 GHCR 정확 버전. 다른 버전·레지스트리면 override.
 ```
-GHCR private(ADR 0035) — pull 전에 `docker login ghcr.io`(read:packages 토큰) 또는 infra 가 PAT 주입. 영속 볼륨을 외부 디스크에 두려면 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(미설정 시 named volume).
+GHCR public(ADR 0035 3절 정정) — 토큰 없이 pull. 영속 볼륨을 외부 디스크에 두려면 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(미설정 시 named volume).
 
-한계 (ADR 0035): base 는 빌드 없는 pull-and-run 까지 — `APP_ENV=dev` 기본(weak secret 허용·plain HTTP)이라 하드닝 prod 아님. hardened prod(APP_ENV=prod·강 secret·LOG_FORMAT=json·HTTPS ingress)는 infra env 주입으로 달성하거나 wheel+systemd(3절). install(ZDM)·AI 진단(LLM)은 외부 좌표 주입 전까지 비활성.
+`APP_ENV=prod` 기본이라 weak secret 은 기동 거부(fail-fast) — `.env` 의 `changeme` placeholder 를 진짜 secret 으로 채워야 뜬다.
+
+한계 (ADR 0036): 본 절은 단일 호스트 compose 까지. 인터넷 노출 hardened prod 는 HTTPS ingress(reverse proxy)·외부 secret 채널 추가 — wheel+systemd(3절) 또는 멀티노드(4절). install(ZDM)·AI 진단(LLM)은 외부 좌표 주입 전까지 비활성.
 
 ## 2. 사전 준비
 
@@ -195,7 +190,7 @@ web 노드:                  /etc/assessment-engine/web.env
   WEB_PORT=8000
   ZDM_DEFAULT_IP=<ZDM_IP>
   ZDM_DEFAULT_USER=<ZDM_USER>
-  DIAGNOSTIC_ROUTING_KEY=diagnostic.request   # web도 진단 publish
+  RABBITMQ_ROUTING_KEY_DIAGNOSTIC=diagnostic.request   # web도 진단 publish
 
 consumer 노드:             /etc/assessment-engine/consumer.env
   WORKER_TASK_EXCHANGE=assessment.tasks
@@ -204,9 +199,8 @@ consumer 노드:             /etc/assessment-engine/consumer.env
 diagnostic-worker 노드:    /etc/assessment-engine/diagnostic-worker.env
   OLLAMA_BASE_URL=http://<ollama-host>:11434
   OLLAMA_MODEL=llama3.1:8b
-  WORKER_JOB_TIMEOUT_SECONDS=300
-  DIAGNOSTIC_QUEUE_TTL_MS=86400000
-  DIAGNOSTIC_QUEUE_MAX_LEN=100000
+  RABBITMQ_DIAGNOSTIC_QUEUE_TTL_MS=86400000
+  RABBITMQ_DIAGNOSTIC_QUEUE_MAX_LEN=100000
 ```
 
 ADR 0023: scheduler cron 폐기. 본 절 안 4 host 분리는 3 host 분리 정공 (web + consumer + diagnostic-worker).

@@ -1,18 +1,17 @@
-# 루트 docker-compose.yml — prod-safe BASE (ADR 0035, ADR 0033 보완).
+# 루트 docker-compose.yml — prod-safe BASE (ADR 0035·0036).
 #
-# 본 파일은 빌드 없는 pull-and-run prod compose 다 (infra B안 — GHCR 선빌드 이미지 pull -> up).
+# 본 파일은 빌드 없는 pull-and-run prod compose 다 (GHCR 선빌드 이미지 pull -> up).
 # dev 편의(소스 빌드·bind mount·hot reload)는 docker-compose.override.yml 이 담는다 —
-# `docker compose up` 은 두 파일을 자동 머지(override 우선). prod/release 는 base 단독(override 미배포).
+# `docker compose up` 은 두 파일을 자동 머지(override 우선). 배포는 base 단독(override 미배포).
 #
-#   - prod/release : infra 가 릴리즈 첨부 docker-compose.yml 만 받아 ENGINE_IMAGE·PGDATA_HOST·MQ_DATA_HOST·
-#                    OLLAMA_* 주입 후 pull-and-run. 본 파일 단독은 build 키 없음 -> 이미지 pull 만.
-#   - dev / 퀵스타트(소스): override.yml 자동 머지로 로컬 빌드 + bind mount (dev-grade).
+#   - 배포(prod) : 릴리즈 첨부 docker-compose.yml + .env.example(배포 템플릿)을 받아 ENGINE_IMAGE·PGDATA_HOST·
+#                  MQ_DATA_HOST·OLLAMA_* + secret 주입 후 pull-and-run. 본 파일 단독은 build 키 없음 -> 이미지 pull 만.
+#   - dev (소스): override.yml 자동 머지로 로컬 빌드 + bind mount. dev 검증은 dev/.env.example(dev-up.sh).
 #
 # 이미지: 기본값 GHCR 정확 버전 핀(immutable). __ENGINE_VERSION__ 은 release CI 가 태그 semver(예 0.3.1)로 치환.
 #   소스 트리에서 base 단독(`-f docker-compose.yml`) 기동 시엔 ENGINE_IMAGE 주입 필수(placeholder 미치환).
-# 환경변수: env_file = ${ENV_FILE:-.env}. 퀵스타트는 루트 `.env`(`cp .env.example .env`), dev 파이프라인은
-#   dev-up.sh 가 `ENV_FILE=dev/.env` export. APP_ENV 토글(기본 dev). hardened prod(APP_ENV=prod·강 secret·
-#   LOG_FORMAT=json·HTTPS ingress)는 infra env 주입으로 달성 (base 가 강제 안 함, ADR 0035 한계 절).
+# 환경변수: env_file = ${ENV_FILE:-.env}. 배포는 루트 `.env`(배포 템플릿 .env.example, APP_ENV=prod·secret 필수),
+#   dev 파이프라인은 dev-up.sh 가 `ENV_FILE=dev/.env` export (ADR 0036).
 # 영속 볼륨: PGDATA_HOST·MQ_DATA_HOST 주입 시 host bind(예 Cinder /mnt/pgdata), 미주입 시 named volume.
 #
 # ENTRYPOINT 가 `python -m`(루트 Dockerfile)이라 앱 command 는 모듈명만. migrate 는 wheel 안 _alembic.ini
@@ -23,10 +22,14 @@ x-app-base: &app-base
   restart: unless-stopped
   env_file: ${ENV_FILE:-.env}
   environment: &app-env
-    APP_ENV: ${APP_ENV:-dev}
+    APP_ENV: ${APP_ENV:-prod}
     POSTGRES_HOST: postgres
     REDIS_HOST: redis
     RABBITMQ_HOST: rabbitmq
+    # secret — 호스트 OS env 있으면 우선(override) > compose 가 읽는 .env > changeme(미설정 = prod 거부).
+    # env_file 만으론 호스트 OS env override 가 안 돼(컨테이너에 .env 값 고정) 보간으로 명시. DB 컨테이너와 동일 소스라 항상 일치.
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-changeme}
   depends_on: &app-depends
     postgres:
       condition: service_healthy
@@ -45,12 +48,12 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-assessment}
       POSTGRES_USER: ${POSTGRES_USER:-assessment}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-assessment}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       # timescaledb-ha 실제 PGDATA 는 /home/postgres/pgdata/data. PGDATA_HOST 주입 시 host bind(Cinder),
-      # 미주입 시 named volume(postgres_data) — 퀵스타트 호환. infra 는 PGDATA_HOST=/mnt/pgdata 주입 (ADR 0035).
+      # 미주입 시 named volume(postgres_data). infra 는 PGDATA_HOST=/mnt/pgdata 주입 (ADR 0035).
       - ${PGDATA_HOST:-postgres_data}:/home/postgres/pgdata/data
     healthcheck:
       # -h 127.0.0.1 로 TCP 도달성 강제 (소켓 전용 부트스트랩 구간의 false-positive healthy 회피).
@@ -67,7 +70,7 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-assessment}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/assessment}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-assessment}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeme}
     ports:
       # 5672 는 dev 파이프라인 VM(libvirt) 이 host 게이트웨이 경유로 발행하는 통로 — 노출 필수.
       - "${RABBITMQ_PORT:-5672}:5672"
@@ -109,7 +112,7 @@ services:
         python -m alembic -c "$$(python -c 'from importlib.resources import files; print(files("assessment_engine") / "_alembic.ini")')" upgrade head
     env_file: ${ENV_FILE:-.env}
     environment:
-      APP_ENV: ${APP_ENV:-dev}
+      APP_ENV: ${APP_ENV:-prod}
       POSTGRES_HOST: postgres
     depends_on:
       postgres:
