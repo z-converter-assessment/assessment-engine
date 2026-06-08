@@ -71,7 +71,7 @@ class WebSettings(BaseSettings):
     redis_key_time_invariant_warned: str = "time_invariant_warned:{}:{}"
 
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
-    # 운영 alert 튜닝 노브 — env 카탈로그 미수록(.env.example·env.md), 필요 시 env override.
+    # 운영 alert 튜닝 노브 — env 카탈로그 미수록(env.example·env.md), 필요 시 env override.
     agent_restart_alert_threshold: int = 3
 
     # 서버 발견 모달 — SSH(기본 22) 도달성 probe 의 기본 target 주소.
@@ -96,7 +96,7 @@ class WebSettings(BaseSettings):
     zdm_resolver_host_override: str = ""
 
     # ZDM 본체 패키지 contract — task.install download 필드에 박혀 agent 가 fetch.
-    # ZDM 제품 layout 상수라 거의 안 바뀜 — env 카탈로그 미수록(.env.example·env.md), 필요 시 env override.
+    # ZDM 제품 layout 상수라 거의 안 바뀜 — env 카탈로그 미수록(env.example·env.md), 필요 시 env override.
     # sha256·size_bytes 는 publish 직전 engine 이 ZDM 에서 HEAD + GET 으로 동적 산출
     # (ETag 기반 Redis cache). ZDM 측이 패키지 갱신하면 ETag 변경 → cache miss → 자동 재계산.
     zdm_package_path: str = "/download/ZConverter_CloudSource_Setup_Linux.tar.gz"

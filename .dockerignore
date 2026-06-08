@@ -40,7 +40,7 @@ secrets/
 tests/
 
 # 문서 (이미지 내 불필요)
-.env.example
+env.example
 README.md
 .claude/
 .claudeignore

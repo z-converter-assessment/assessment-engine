@@ -110,7 +110,7 @@ semver tag `v*` push 시 릴리즈가 내놓는 산출물. 배포는 compose 기
 | SBOM (CycloneDX JSON) + Sigstore signature | wheel·sdist에 첨부 — 외부 인프라가 의존성 audit + `cosign verify-blob` 무결성 검증 |
 | SBOM (SPDX, BuildKit attestation) + cosign keyless signature | image 첨부 — `cosign verify ghcr.io/z-converter-assessment/assessment-engine:0.1.0` 무결성 검증 |
 | Alembic migrations·alembic.ini | wheel·image 동봉 (`hatch.force-include`) · `docs/operations/release.md` |
-| `docker-compose.yml` (prod-safe base) + `.env.example` | GitHub Release 첨부 — 빌드 없는 pull-and-run prod compose (build 키 없음, GHCR 이미지 핀). `docker compose up -d` 로 pull |
+| `docker-compose.yml` (prod-safe base) + `env.example` | GitHub Release 첨부 — 빌드 없는 pull-and-run prod compose (build 키 없음, GHCR 이미지 핀). `docker compose up -d` 로 pull |
 | 환경변수·secret contract | `docs/operations/env.md` |
 | systemd unit reference | `docs/operations/deployment.md` 4절 |
 | install·실행 절차 | `docs/operations/deployment.md` |
@@ -154,11 +154,11 @@ uv run alembic check             # ORM·migrations 정합 (alembic-check.yml CI 
 
 ## 배포 (prod)
 
-릴리즈 첨부 `docker-compose.yml`(prod-safe base) + `.env.example` 한 세트를 받아 secret·이미지 좌표를 채운 뒤 한 줄로 기동한다 — 빌드 없이 GHCR 이미지를 pull 한다.
+릴리즈 첨부 `docker-compose.yml`(prod-safe base) + `env.example` 한 세트를 받아 secret·이미지 좌표를 채운 뒤 한 줄로 기동한다 — 빌드 없이 GHCR 이미지를 pull 한다.
 
 ```bash
-gh release download v0.1.2 -R z-converter-assessment/assessment-engine -D /tmp/ae   # base compose + .env.example 첨부
-cd /tmp/ae && cp .env.example .env
+gh release download v0.1.2 -R z-converter-assessment/assessment-engine -D /tmp/ae   # base compose + env.example 첨부
+cd /tmp/ae && cp env.example .env
 # [필수] POSTGRES/RABBITMQ secret 채움. ENGINE_IMAGE·PGDATA_HOST·OLLAMA_* 등은 선택(미설정 시 base 기본값).
 docker compose up -d        # GHCR 이미지 pull. web http://localhost:8000
 ```

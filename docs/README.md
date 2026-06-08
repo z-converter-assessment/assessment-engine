@@ -58,7 +58,7 @@ docs/
 │   ├── use-method.md              USE Method 본질 요약 (Utilization · Saturation · Errors)
 │   ├── right-sizing-thresholds.md AWS Compute Optimizer + Azure Advisor 임계 catalog
 │   └── classification-rules.md    본 엔진 7 category 분류 규칙
-├── adr/                   Architecture Decision Records (영구·불변, 0001~0031)
+├── adr/                   Architecture Decision Records (영구·불변, 0001~0038)
 └── tradeoffs.md           의식적 설계 선택과 한계 (T1~T14) — 카탈로그
 ```
 
