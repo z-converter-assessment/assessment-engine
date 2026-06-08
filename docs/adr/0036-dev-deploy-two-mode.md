@@ -2,6 +2,8 @@
 
 상태: Accepted (2026-06-08)
 
+정정 (ADR 0038, 2026-06-08): 배포 템플릿 파일명·release 에셋명을 `.env.example` -> `env.example` 로 변경 (GitHub Release leading-dot `default.env.example` 변환 회피). 본문의 `.env.example` 은 당시 명명 기록 — 현행 파일명은 `env.example`.
+
 ## Context
 
 ADR 0033(dev+퀵스타트 단일 compose)·ADR 0035(base prod / override dev)를 거치며 "퀵스타트"가 환경도 배포 채널도 아닌 모호한 제3 카테고리로 남아 dev / prod / 퀵스타트 3원 구조가 됐다. 환경 모델의 정석은 dev / prod 다 (12-factor — 환경은 deploy 단위). "퀵스타트"는 환경이 아니라 "빠르게 띄우는 방법"이었다.

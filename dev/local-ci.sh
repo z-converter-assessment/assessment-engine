@@ -121,7 +121,7 @@ fi
 # ─── 5b. release 에셋 산출 정합 (release.yml GitHub Release files: — main 전용) ─
 # release.yml 은 fail_on_unmatched_files: true — files: 항목 하나라도 매치 0 이면 release 가 실패한다.
 # 빌드 산출물(wheel·sdist·SBOM)은 위에서 생성, sigstore 는 CI 전용(OIDC)이라 패턴만(1절). 여기선
-# 리터럴 repo 에셋(docker-compose.yml·.env.example) 존재 + 릴리즈 다운로드 배포(ENGINE_IMAGE GHCR pull)
+# 리터럴 repo 에셋(docker-compose.yml·env.example) 존재 + 릴리즈 다운로드 배포(ENGINE_IMAGE GHCR pull)
 # compose 유효까지 — 즉 "tag push -> release 에셋 산출" 전 경로를 머지 전 재현 (ADR 0036).
 section "release 에셋 정합 (GitHub Release files)"
 if ! need 3; then
@@ -135,13 +135,13 @@ else
   # SHA256SUMS 산출 가능 (release.yml 이 dist 안에서 생성)
   ( cd dist && sha256sum -- *.whl *.tar.gz > SHA256SUMS 2>/dev/null ) || miss+=" SHA256SUMS"
   # 리터럴 repo 에셋 — files: 에 선언 + 파일 존재 둘 다
-  for f in docker-compose.yml .env.example; do
+  for f in docker-compose.yml env.example; do
     grep -qE "(^[[:space:]]+|/)$f$" .github/workflows/release.yml || miss+=" release.yml-files:$f"
     [ -f "$f" ] || miss+=" file:$f"
   done
-  if [ -z "$miss" ]; then ok "release files: 전 항목 산출/존재 (wheel·sdist·SBOM·SHA256SUMS·compose·.env.example)"; else ng "release 에셋 누락:$miss"; fi
+  if [ -z "$miss" ]; then ok "release files: 전 항목 산출/존재 (wheel·sdist·SBOM·SHA256SUMS·compose·env.example)"; else ng "release 에셋 누락:$miss"; fi
   # 릴리즈 다운로드 배포 — GHCR 이미지 pull compose config 유효 (소스 clone 없이 ENGINE_IMAGE override)
-  if ENGINE_IMAGE=ghcr.io/x/assessment-engine:v0 ENV_FILE=.env.example docker compose config >/dev/null 2>&1; then
+  if ENGINE_IMAGE=ghcr.io/x/assessment-engine:v0 ENV_FILE=env.example docker compose config >/dev/null 2>&1; then
     ok "release compose — ENGINE_IMAGE GHCR pull config 유효"
   else
     ng "release compose — ENGINE_IMAGE override config 실패"

@@ -2,7 +2,7 @@
 # `docker compose up` 은 본 파일 + docker-compose.override.yml(dev) 을 자동 머지(override 우선).
 # 배포는 base 단독으로 동작 — 릴리즈는 base 만 첨부(override 미포함).
 #
-#   - 배포(prod): 릴리즈 첨부 base + .env.example 받아 secret·ENGINE_IMAGE·PGDATA_HOST·OLLAMA_* 주입 후 GHCR pull.
+#   - 배포(prod): 릴리즈 첨부 base + env.example 받아 secret·ENGINE_IMAGE·PGDATA_HOST·OLLAMA_* 주입 후 GHCR pull.
 #   - dev: override.yml 이 로컬 빌드·bind mount·hot reload. 검증 카탈로그는 dev/.env.example (dev-up.sh).
 #
 # 이미지: GHCR 정확 버전 핀. __ENGINE_VERSION__ 은 release CI 가 태그 semver 로 치환 — 소스에서 base 단독 기동 시 ENGINE_IMAGE 주입.

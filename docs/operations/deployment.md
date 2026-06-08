@@ -11,19 +11,19 @@ artifact 카탈로그·생성 trigger·무결성 검증·다운로드 채널: `d
 운영자 선택권 (ADR 0017):
 - (A) wheel + venv + systemd unit — 본 문서 3절 기본 시나리오
 - (B) Docker image (GHCR) + docker compose 또는 k8s — 본 문서 4절 multi-node 분리 inject 예시 (image 패턴 동등)
-- (C) 단일 호스트 배포 (compose all-in-one) — 릴리즈 base `docker-compose.yml` + `.env.example` 채워 한 줄 기동 (ADR 0036). 평가·내부망 소규모·단일 노드용. 아래 0절.
+- (C) 단일 호스트 배포 (compose all-in-one) — 릴리즈 base `docker-compose.yml` + `env.example` 채워 한 줄 기동 (ADR 0036). 평가·내부망 소규모·단일 노드용. 아래 0절.
 
 토폴로지 자율 — 모두 동일 환경변수 contract (`docs/operations/env.md`) + Alembic migration 절차.
 
 ## 0. 단일 호스트 배포 (compose all-in-one)
 
-릴리즈 base `docker-compose.yml` + `.env.example`(배포 템플릿) 한 세트로 단일 호스트에 엔진 3 컴포넌트 + 의존 인프라(TimescaleDB·Redis·RabbitMQ) 기동. 평가(PoC)·내부망 소규모·단일 노드 운영용 (ADR 0036).
+릴리즈 base `docker-compose.yml` + `env.example`(배포 템플릿) 한 세트로 단일 호스트에 엔진 3 컴포넌트 + 의존 인프라(TimescaleDB·Redis·RabbitMQ) 기동. 평가(PoC)·내부망 소규모·단일 노드 운영용 (ADR 0036).
 
 compose 2 파일 (ADR 0035·0036): 루트 `docker-compose.yml` = prod-safe base(build 키 없음, GHCR 이미지 pull), `docker-compose.override.yml` = dev 전용. 릴리즈는 base 만 첨부(override 미배포)라 배포는 base 단독으로 동작. dev 검증은 `dev/`(dev-up.sh + dev/.env.example).
 
-GitHub Release 첨부 `docker-compose.yml`(prod-safe base) + `.env.example`(배포 템플릿) 받아:
+GitHub Release 첨부 `docker-compose.yml`(prod-safe base) + `env.example`(배포 템플릿) 받아:
 ```bash
-cp .env.example .env
+cp env.example .env
 # [필수] POSTGRES/RABBITMQ secret(changeme placeholder) · ENGINE_IMAGE · PGDATA_HOST 등 채움 (APP_ENV=prod 기본)
 docker compose up -d              # build 키 없음 -> GHCR 이미지 pull. web: http://localhost:8000
 # ENGINE_IMAGE 미설정 시 base 기본 = release CI 가 핀한 GHCR 정확 버전. 다른 버전·레지스트리면 override.
