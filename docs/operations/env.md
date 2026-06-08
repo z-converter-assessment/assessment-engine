@@ -285,7 +285,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `WORKER_TASK_EXCHANGE` | `assessment.tasks` | dev/agent.env (agent 측) | task.install/task.result 전용 exchange. collector exchange 와 분리. 엔진 `RABBITMQ_TASK_EXCHANGE` 와 값 일치 의무 |
 | `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | dev/agent.env (agent 측) | 원격 호스트별 큐 prefix. full name = `<prefix>.<composite_id>`. 엔진 `RABBITMQ_TASK_QUEUE_PREFIX` 와 일치 |
 | `WORKER_TASK_RESULT_KEY` | `task.result` | dev/agent.env (agent 측) | 원격 호스트 → 엔진 결과 보고 routing key. 엔진 `RABBITMQ_ROUTING_KEY_TASK_RESULT` 와 일치 |
-| `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `host.docker.internal` | dev/agent.env | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치) |
+| `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `""` (빈값) | dev/agent.env | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치). 빈 whitelist 면 전부 거부 — dev/agent.env 가 ZDM_DEFAULT_IP host(libvirt host IP) 로 설정 |
 | `REDIS_HOST` | `redis` | config.py | (docker-compose 서비스명). prod 는 실제 host |
 | `REDIS_PORT` | `6379` | config.py | |
 | `REDIS_MAXMEMORY` | `256mb` | dev compose (redis command) | Redis maxmemory cap. prod 튜닝 가능 |
@@ -295,7 +295,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `DISCOVERY_DEFAULT_TARGET` | `""` (빈값) | config.py / dev compose | 서버 발견 모달 SSH 도달성 probe 의 기본 target 주소. dev·prod 모두 빈값 default — libvirt VM IP 는 동적이고 web 컨테이너에서 VM hostname DNS 미해석이라, 운영자가 모달에 VM IP 직접 입력(dev-up.sh print_summary 안내). weak default 거부 대상 아님 (빈값이 정상 동작) |
 | `DISCOVERY_DEFAULT_PORT` | `22` | config.py / dev compose | probe 폼 기본 포트. 표준 SSH 22 — libvirt VM 은 post-provision `openssh-server` 라 22 listen. 비표준 SSH 포트 host 는 폼 override |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |
-| `ZDM_DEFAULT_IP` | `host.docker.internal:8000` | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. dev default 는 web 컨테이너의 ZDM mock endpoint (ADR 0018) 가리킴. startup 거부 없음 — 잘못된 ZDM 발행은 런타임 503 + agent host whitelist 가 방어 |
+| `ZDM_DEFAULT_IP` | `""` (빈값) | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. dev·prod 모두 빈값 default — dev 는 dev/.env 가 libvirt host IP:8000(ZDM mock, ADR 0018) 주입, prod 는 운영자가 real ZDM 주입. startup 거부 없음 — 잘못된 ZDM 발행은 런타임 503 + agent host whitelist 가 방어 |
 | `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 관리자 계정 기본값. POST body `zdm_user` 누락 시 fallback. install.sh 의 `-u` 인자. startup 거부 없음 (secret 아님) |
 | `ZDM_RESOLVER_HOST_OVERRIDE` | `""` | config.py | resolver(엔진)가 sha256/size 산출용으로 fetch 하는 host override. set 이면 `HttpZdmPackageResolver` 가 이 host 로 HEAD/GET, download.url·install args 는 `ZDM_DEFAULT_IP` 유지. dev 한정 — mock 이 web 컨테이너 자신이라 host publish 포트 hairpin 불가하면 `localhost:8000` 으로 fetch. prod 빈값(엔진이 real ZDM 직접 도달) |
 | `ZDM_META_CONNECT_TIMEOUT_SEC` | `5.0` | config.py | ZDM 메타 조회 HTTP connect timeout |
@@ -372,7 +372,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 ## 관련 문서
 
 - `docs/operations/deployment.md` — release artifact 활용 단계별 install·systemd 가이드
-- `docs/operations/observability.md` — `LOG_FORMAT` toggle + Prometheus metrics
+- `docs/operations/observability.md` — `LOG_FORMAT` toggle
 - `docs/operations/alembic.md` — schema migrate contract
 - `docs/operations/release.md` — CI release artifact 카탈로그
 - CLAUDE.md #A0·#F8 — secret·PII 노출 금지 원칙

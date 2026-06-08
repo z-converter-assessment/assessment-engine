@@ -4,7 +4,7 @@
 
 고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, 진단 워커가 수집된 데이터를 규칙 기반으로 분석해 진단 결과를 생성한다. 운영자는 web UI 에서 대시보드·보고서·JSON Export·원격 설치 task 산출물을 활용해 다음 단계 의사결정을 진행한다.
 
-본 repo 는 엔진 자체 (애플리케이션 + 루트 docker-compose(prod base + dev override) + libvirt VM 매트릭스 등 `dev/` 격리 자산) 만 다룬다. 하드닝 prod 운영 (IaC — Terraform · Ansible 등 · systemd unit · k8s manifest) 은 본 repo 범위 밖 — 산출물·contract 를 외부 인프라에 통합. 단 루트 `docker-compose.yml` 로 단일 호스트 all-in-one 배포 지원 (ADR 0035·0036).
+본 repo 는 엔진 자체 (애플리케이션 + 루트 docker-compose(prod base + dev override) + libvirt VM 매트릭스 등 `dev/` 격리 자산) 만 다룬다. 하드닝 prod 운영 (IaC — Terraform · Ansible 등 · systemd unit · k8s manifest) 은 본 repo 범위 밖 — 산출물·contract 를 외부 인프라에 통합.
 
 ---
 
@@ -58,7 +58,6 @@
  |  - SSR  : dashboard / detail / env+server report + history       |
  |  - REST : discovery / tasks / exports / diagnostics (poll)       |
  |  - SSE  : live metrics (Consumer PUB -> Redis -> SSE)            |
- |  - /metrics : Prometheus scrape target (ADR 0011)                |
  |  - plain HTTP (dev) ; prod = external ingress (out of scope)     |
  +------------------------------------------------------------------+
 ```
@@ -75,8 +74,8 @@
 | DB / 캐시 / 브로커 | TimescaleDB (PostgreSQL 16) · Redis 7 · RabbitMQ 3.13 · pgvector (ADR 0024) |
 | Schema 관리 | Alembic 단일 진실 |
 | 진단 | 규칙 기반 (USE Method) + 단일 ollama LLM (ADR 0025) + RAG opt-in (ADR 0024, mxbai-embed-large + HNSW) |
-| 관측 | loguru `LOG_FORMAT=text\|json` + Prometheus `/metrics` |
-| 패키징 | uv + hatchling. CI 산출물 = Python wheel |
+| 관측 | loguru `LOG_FORMAT=text\|json` (구조화 로그) |
+| 패키징 | uv + hatchling. CI 산출물 = Python wheel + Docker image (GHCR) |
 | 정적 자원 | Chart.js (CDN) · Cytoscape.js (네트워크 토폴로지, vendored) · 외부 `.js` + `defer` |
 | 에이전트 (별도 repo) | C 단일 바이너리, RabbitMQ 직접 publish |
 
@@ -102,102 +101,42 @@
 
 ## 배포 산출물
 
-운영자 토폴로지 자율 선택 — wheel (systemd · venv) 또는 Docker image (docker · k8s) 어느 채널이든 즉시 사용 가능.
+semver tag `v*` push 시 릴리즈가 내놓는 산출물. 배포는 compose 기준(아래 배포 절) — wheel·image·systemd 등 다른 채널·토폴로지는 `docs/operations/deployment.md`.
 
 | 산출물 | 위치 · 참고 문서 |
 |--------|--------------|
 | Python wheel + sdist + SHA256SUMS | GitHub Release (semver tag `v*`) · `docs/operations/release.md` |
-| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/{org}/assessment-engine:0.1.0`+`:0.1`+`:0`+`:latest` (semver tag `v0.1.0` -> 이미지 태그는 `v` 없는 `0.1.0`, metadata-action) · ADR 0017 |
+| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/z-converter-assessment/assessment-engine:0.1.0`+`:0.1`+`:0`+`:latest` (semver tag `v0.1.0` -> 이미지 태그는 `v` 없는 `0.1.0`, metadata-action) · ADR 0017 |
 | SBOM (CycloneDX JSON) + Sigstore signature | wheel·sdist에 첨부 — 외부 인프라가 의존성 audit + `cosign verify-blob` 무결성 검증 |
-| SBOM (SPDX, BuildKit attestation) + cosign keyless signature | image 첨부 — `cosign verify ghcr.io/.../assessment-engine:0.1.0` 무결성 검증 |
+| SBOM (SPDX, BuildKit attestation) + cosign keyless signature | image 첨부 — `cosign verify ghcr.io/z-converter-assessment/assessment-engine:0.1.0` 무결성 검증 |
 | Alembic migrations·alembic.ini | wheel·image 동봉 (`hatch.force-include`) · `docs/operations/release.md` |
-| `docker-compose.yml` (prod-safe base) + `.env.example` | GitHub Release 첨부 — 빌드 없는 pull-and-run prod compose (build 키 없음, GHCR 이미지 핀). `docker compose up -d` 로 pull, ADR 0035 |
+| `docker-compose.yml` (prod-safe base) + `.env.example` | GitHub Release 첨부 — 빌드 없는 pull-and-run prod compose (build 키 없음, GHCR 이미지 핀). `docker compose up -d` 로 pull |
 | 환경변수·secret contract | `docs/operations/env.md` |
 | systemd unit reference | `docs/operations/deployment.md` 4절 |
 | install·실행 절차 | `docs/operations/deployment.md` |
 
 ---
 
-## 설치·실행 (prod)
+## 개발 환경 셋업 (IDE 자동완성·테스트·로컬 실행)
 
-wheel 하나가 3개 실행 모듈을 제공한다 (각각 별도 프로세스 — stateless, 같은 host 또는 분리·복제 N개):
+IDE (PyCharm·VS Code) 코드 탐색·자동완성·테스트 실행을 위한 의존성 설치. Docker compose 만 띄울 때는 불필요 — 컨테이너가 의존성을 갖고 있음. 전제: `uv` 0.4+.
 
-- `python -m assessment_engine.web` — 포털 UI·REST·SSE·`/metrics` (HTTP :8000). 필수.
-- `python -m assessment_engine.consumer` — inventory/metrics/error·task.result 소비·저장. 필수.
-- `python -m assessment_engine.diagnostic` — engineer 보고서 narrative 합성. engineer AI 보고서 사용 시만 (ollama 도달 필요).
-
-전제: Python 3.12+ / PostgreSQL 16 (`timescaledb`+`vector`) / RabbitMQ 3.13+ / Redis 7+ — 외부 인프라가 준비, 엔진은 도달만 전제.
-
-단일 host 설치 (multi-node·Docker image·업그레이드·트러블슈팅은 `docs/operations/deployment.md`):
-
-1) Release(`v*`) 받아 무결성 검증:
 ```bash
-gh release download v0.1.2 -R <org>/assessment-engine -D /tmp/ae
-cd /tmp/ae && sha256sum -c SHA256SUMS
+# 운영 의존성 + dev 그룹(pytest·ruff·hadolint·types) 모두 설치. uv 가 .venv/ 자동 생성·editable install.
+uv sync --group dev
+
+# IDE Python interpreter 를 .venv 로 지정:
+#  - PyCharm: Settings -> Project -> Python Interpreter -> Add -> Existing -> .venv/bin/python
+#  - VS Code: Cmd-Shift-P -> "Python: Select Interpreter" -> .venv/bin/python
+
+uv run pytest tests/unit/        # 단위 (DB 의존 0)
+uv run pytest tests/integration/ # 통합 (testcontainers 가 postgres/redis 자동 spawn)
+uv run ruff check .              # lint
+uv run ruff format .             # auto-format
+uv run alembic check             # ORM·migrations 정합 (alembic-check.yml CI 와 동일)
 ```
 
-2) venv + install:
-```bash
-sudo install -d -o "$USER" -g "$USER" /opt/assessment-engine
-python3.12 -m venv /opt/assessment-engine/venv
-/opt/assessment-engine/venv/bin/pip install /tmp/ae/assessment_engine-*.whl
-```
-
-3) `/etc/assessment-engine.env` 작성 (전체 키: `.env.example`·`docs/operations/env.md`):
-```ini
-APP_ENV=prod
-LOG_FORMAT=json
-POSTGRES_HOST=db.internal
-POSTGRES_DB=assessment
-POSTGRES_USER=assessment_app
-POSTGRES_PASSWORD=<secret>
-REDIS_HOST=redis.internal
-RABBITMQ_HOST=mq.internal
-RABBITMQ_USER=assessment_app
-RABBITMQ_PASSWORD=<secret>
-OLLAMA_BASE_URL=http://ollama.internal:11434
-OLLAMA_MODEL=llama3.1:8b
-```
-
-4) DB 마이그레이션 1회 (멱등, wheel 동봉 alembic 설정):
-```bash
-set -a; . /etc/assessment-engine.env; set +a
-V=/opt/assessment-engine/venv/bin/python
-INI=$($V -c 'from importlib.resources import files; print(files("assessment_engine")/"_alembic.ini")')
-$V -m alembic -c "$INI" upgrade head
-```
-
-5) systemd 영속화 — `/etc/systemd/system/assessment-engine-web.service`:
-```ini
-[Unit]
-Description=Assessment Engine (web)
-After=network-online.target
-
-[Service]
-Type=simple
-EnvironmentFile=/etc/assessment-engine.env
-ExecStart=/opt/assessment-engine/venv/bin/python -m assessment_engine.web
-Restart=always
-RestartSec=5s
-KillSignal=SIGTERM
-TimeoutStopSec=30s
-
-[Install]
-WantedBy=multi-user.target
-```
-consumer·diagnostic-worker unit은 `ExecStart` 모듈만 `assessment_engine.consumer`/`assessment_engine.diagnostic`로 교체. 등록:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now \
-  assessment-engine-web assessment-engine-consumer assessment-engine-diagnostic-worker
-```
-
-6) 헬스 확인:
-```bash
-curl -fsS http://localhost:8000/health   # {"status":"ok"}
-```
-
-`APP_ENV=prod`은 약한 기본값(`assessment` 등)을 기동 시 거부(fail-fast). 환경변수 전체·secret 채널: `docs/operations/env.md`.
+`--group dev` 누락 시 IDE 가 pytest·ruff symbol 을 못 찾는다 — 항상 명시. Docker 안 dev workflow·테스트 컨테이너·diagnostic ollama: `docs/development/`.
 
 ---
 
@@ -213,63 +152,18 @@ curl -fsS http://localhost:8000/health   # {"status":"ok"}
 
 ---
 
-## 실행 (dev / 배포)
+## 배포 (prod)
 
-compose 2 파일 (ADR 0035·0036): 루트 `docker-compose.yml` = prod-safe base(GHCR 이미지 pull, 빌드 없음), `docker-compose.override.yml` = dev 전용(소스 빌드·`./src` bind mount·hot reload). `docker compose up` 은 소스 트리에서 둘을 자동 머지(dev), 릴리즈 base 단독은 배포. 빌드는 루트 `Dockerfile`(단일 multi-stage 운영 이미지).
-
-### 배포 (단일 호스트 all-in-one 또는 멀티노드)
-
-릴리즈 첨부 base `docker-compose.yml` + `.env.example`(배포 템플릿)을 받아 [필수] secret·이미지 좌표를 채운 뒤 기동:
+릴리즈 첨부 `docker-compose.yml`(prod-safe base) + `.env.example` 한 세트를 받아 secret·이미지 좌표를 채운 뒤 한 줄로 기동한다 — 빌드 없이 GHCR 이미지를 pull 한다.
 
 ```bash
-cp .env.example .env        # POSTGRES/RABBITMQ secret · ENGINE_IMAGE 등 채움
-docker compose up -d        # web http://localhost:8000
+gh release download v0.1.2 -R z-converter-assessment/assessment-engine -D /tmp/ae   # base compose + .env.example 첨부
+cd /tmp/ae && cp .env.example .env
+# [필수] POSTGRES/RABBITMQ secret 채움. ENGINE_IMAGE·PGDATA_HOST·OLLAMA_* 등은 선택(미설정 시 base 기본값).
+docker compose up -d        # GHCR 이미지 pull. web http://localhost:8000
 ```
 
-`APP_ENV=prod` 기본이라 weak secret 은 기동 거부(fail-fast). wheel+systemd·멀티노드 토폴로지는 `docs/operations/deployment.md`.
-
-### dev 파이프라인 (`dev/dev-up.sh`, Linux x86_64)
-
-`dev/.env.example` 카탈로그로 base+override 를 띄우고 그 위에 libvirt VM 매트릭스 + 각 VM 에 C 에이전트 install 까지 자동화 — 수집·진단·원격 install 전 경로를 실제 호스트로 검증한다. `COMPOSE_PROJECT_NAME=dev` 로 배포와 컨테이너 네임스페이스를 분리한다. 컨테이너 스택만 빠르게 띄우려면 `ENV_FILE=dev/.env docker compose up`.
-
-```bash
-./dev/dev-up.sh        # 루트에서. 또는 `cd dev && ./dev-up.sh` — 둘 다 동작
-./dev/dev-down.sh      # 컨테이너·볼륨·VM 전부 정리
-```
-
-VM 매트릭스 · 합성 부하 · 접속 endpoint 카탈로그: `dev/README.md` · `docs/development/pipeline.md`.
-
----
-
-## 개발 환경 셋업 (IDE 자동완성·테스트·로컬 실행)
-
-본 절은 IDE (PyCharm·VS Code) 에서 코드 탐색·자동완성·테스트 실행을 위한 의존성 설치. Docker compose 만 띄울 때는 불필요 — 컨테이너 안에서 의존성을 갖고 있음.
-
-전제: `uv` 0.4+ (`pip install uv` 또는 distro 패키지).
-
-```bash
-# 의존성 동기화 — 운영 의존성 + dev 그룹 (pytest·ruff·hadolint·types 등) 모두 설치.
-# pyproject.toml [dependency-groups].dev 가 dev 그룹 정의. uv 가 .venv/ 자동 생성.
-uv sync --group dev
-
-# IDE Python interpreter 를 본 .venv 로 지정:
-#  - PyCharm: Settings → Project → Python Interpreter → Add Interpreter → Existing → .venv/bin/python
-#  - VS Code: Cmd-Shift-P → "Python: Select Interpreter" → .venv/bin/python
-
-# 테스트 (DB·Redis·broker 의존 없음 — testcontainers 가 자동 기동):
-uv run pytest tests/unit/              # 단위 (DB 의존 0, 빠름)
-uv run pytest tests/integration/       # 통합 (testcontainers 가 postgres/redis 자동 spawn)
-uv run pytest                          # 전체
-
-# 코드 quality:
-uv run ruff check .                    # lint
-uv run ruff format .                   # auto-format
-uv run alembic check                   # ORM·migrations 정합 (alembic-check.yml CI 와 동일)
-```
-
-`uv sync` 가 `.venv/` 안에 의존성 + 본 프로젝트 자체도 editable install — IDE 가 `src/assessment_engine/` 모듈 import 인식. dev 그룹 누락 시 IDE 가 pytest·ruff symbol 못 찾음 → 항상 `--group dev` 명시.
-
-상세 (Docker 안 dev workflow·테스트 컨테이너·diagnostic ollama LLM): `docs/development/`.
+`APP_ENV=prod` 기본이라 weak secret 은 기동 거부(fail-fast). GHCR public — 토큰 없이 pull. secret 은 `.env` 평문 또는 OS env(우선) 주입. PostgreSQL 16(timescaledb+vector)·RabbitMQ 3.13+·Redis 7+ 는 compose 가 함께 띄우거나 외부 managed 에 도달. wheel+systemd·멀티노드·업그레이드 등 다른 토폴로지·상세: `docs/operations/deployment.md`.
 
 ---
 
@@ -283,4 +177,4 @@ uv run alembic check                   # ORM·migrations 정합 (alembic-check.y
 | `docs/products/` | 운영 산출물 의의·근거 (dashboard · 환경 보고서 · 서버 보고서 · JSON Export · Install task) |
 | `docs/architecture/` | 컴포넌트별 deep dive (agent · consumer · diagnostic · rabbitmq · redis · db · web) |
 | `docs/adr/` | Architecture Decision Records (0001~) — "왜 이렇게 결정했나" + 트레이드오프 |
-| `docs/tradeoffs.md` | 의식적 설계 선택과 한계 (T1~T14) |
+| `docs/tradeoffs.md` | 의식적 설계 선택과 한계 (T1~T15) |

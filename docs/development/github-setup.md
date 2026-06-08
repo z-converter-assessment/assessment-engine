@@ -1,6 +1,6 @@
 # GitHub UI Setup
 
-본 repo CI workflow·release(Commitizen) ceremony·branch policy를 정상 작동시키기 위해 GitHub 측에서 한 번만 활성해야 하는 설정 카탈로그. 본 repo 코드 영역 밖이라 운영자가 GitHub Settings(또는 ruleset)에서 수동 활성.
+본 repo CI workflow·release(tag push) ceremony·branch policy를 정상 작동시키기 위해 GitHub 측에서 한 번만 활성해야 하는 설정 카탈로그. 본 repo 코드 영역 밖이라 운영자가 GitHub Settings(또는 ruleset)에서 수동 활성.
 
 ## 1. Actions 권한
 

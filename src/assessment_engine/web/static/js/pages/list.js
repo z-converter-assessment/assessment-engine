@@ -7,7 +7,7 @@
  *
  * 한계: 포트 listen != 로그인 가능. 1차 필터일 뿐.
  * probe 기본 target/port는 서버가 #probe-ip / #probe-port value로 렌더
- * (discovery_default_target/port — dev=db-server-01.orb.local:22 / prod=빈값:22).
+ * (discovery_default_target/port — 빈값:22 default, 운영자가 모달에 VM IP 직접 입력).
  *
  * 외부 의존: 없음 (모달은 list.html에 inline markup).
  */

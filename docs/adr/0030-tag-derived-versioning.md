@@ -1,6 +1,6 @@
 # ADR 0030 — tag-derived 버전 (hatch-vcs, 버전을 repo 에 저장 안 함)
 
-상태: Accepted
+상태: Accepted — 정정 (2026-06-08): tag derive 경로를 single-source 로 수렴 + stable semver 가드 + 등가성 검증 (하단 "정정" 절). tag-derived 원칙 불변.
 
 ## Context
 
@@ -74,10 +74,53 @@ CI 정합 (hatch-vcs 가 빌드 시 git tag 필요):
 | `docs/operations/release.md`·README·github-setup.md·dependencies.md | 갱신 | tag-derived 흐름 |
 | `docs/adr/0028-*.md` | Superseded by 0030 | |
 
+## 정정 (2026-06-08) — tag derive 경로 분산 가드 (single-source + 형식 가드 + 등가성 검증)
+
+### 보강 배경
+
+본 ADR 은 git tag(`v*`)를 버전 단일 진실로 세웠으나, 그 tag 를 semver 로 푸는 derive 로직이 4경로로 분산돼 있었다 — 입력은 하나지만 "정규화 규칙"이 도구마다 다르다.
+
+| 경로 | 산출물 | 규칙 |
+|------|--------|------|
+| hatch-vcs (`.git` 직접) | wheel·sdist 버전 | PEP 440 |
+| `--build-arg APP_VERSION` -> `SETUPTOOLS_SCM_PRETEND_VERSION` | 이미지 안 패키지 버전 | PEP 440 (주입값) |
+| `docker/metadata-action {{version}}` | 이미지 태그명 (`:X.Y.Z`) | Docker SemVer |
+| `${ref_name#v}` (sed) / `notify-infra ${GITHUB_REF_NAME#v}` | compose 핀·infra CD payload | 단순 문자열 strip |
+
+문제는 경로가 물리적으로 2개(`.git` 있는 wheel 빌드 / `.git` 없는 이미지 빌드)라는 점이 아니다 — 이건 빌드 컨텍스트 차이라 구조적으로 강제되며 hatch-vcs 채택 이유상 합칠 수 없다. 실제 문제는 둘이다:
+
+1. 정규화 규칙 차이 (잠재): stable `v0.3.1` 에선 4경로 모두 `0.3.1` 이라 무해. 그러나 prerelease 를 쓰는 순간 PEP 440(`1.0.0rc1`)과 SemVer(`1.0.0-rc.1`)가 갈려 wheel 버전 표기와 이미지 태그가 어긋난다.
+2. 등가성 미검증 (실질): 4경로가 같은 값을 냈는지 빌드 타임에 아무도 확인하지 않는다. drift 가 나도 release 가 그대로 발행된다.
+
+### 결정 (tag-derived 원칙 불변, derive 흐름에 가드 3종 추가)
+
+A. 입력 공간 제약 (stable-only) — release 발사 tag 를 `^v[0-9]+\.[0-9]+\.[0-9]+$` 로 한정. `resolve-version` job 이 push tag·`workflow_dispatch inputs.tag` 양쪽에 형식 가드, 비정규·prerelease 태그는 즉시 fail. 정규화 규칙 차이의 발현 원천을 제거한다. prerelease 는 현재 계획 없음 — 도입하려면 PEP 440 / SemVer 중 한 규약으로 통일하고 양쪽 도구 설정을 맞추는 별도 ADR 의무.
+
+B. 등가성 검증 (cross-check) — 두 release job 이 각자 산출물이 단일 진실과 같은지 assert. release-wheel 은 `uv build` 가 낸 wheel 파일명 버전 == single source, release-image 는 `metadata-action {{version}}` == single source. 불일치 시 release fail (partial 발행 방지). 일원화가 불가능한 경로를 cross-check 로 등가 보증한다.
+
+C. single-source fan-out — 버전을 `resolve-version` job 이 hatch-vcs(`uvx --with hatch-vcs hatch version`) 실측 PEP 440 값으로 1회 산출해 job output(`version`)으로 노출. compose 핀 sed 와 image job `--build-arg APP_VERSION` 이 `${ref_name#v}` strip·`metadata-action` 독립 파싱 대신 그 output 을 참조. `docker/metadata-action` 은 `:X.Y` `:X` `:latest` alias 매핑 전용으로 축소(`{{version}}` 은 B 로 등가 검증). strip 경로 2곳이 소멸하고 정규화 규칙이 hatch-vcs PEP 440 단일 소스로 수렴. `workflow_dispatch` ref 보정(`ref: inputs.tag`)으로 dispatch 경로도 정확 버전 derive.
+
+`notify-infra.yml` 은 별도 `release: published` 워크플로라 job output 직참조 불가 — A 제약(stable-only) 하에서 `${GITHUB_REF_NAME#v}` 가 PEP 440 산출값과 항상 동일하므로 현행 유지.
+
+### Consequences
+
+- prerelease 정규화 갈림이 입력 단계(A)에서 차단 + 잔여 drift 가 빌드 타임(B)에서 fail. derive 분산을 물리적으로 합치지 않고도 등가성이 보증된다.
+- strip 경로 2곳 제거(C) -> 정규화 규칙 hatch-vcs PEP 440 단일 수렴. 버전 산출 권위 소스 = `resolve-version` job 1곳.
+- 한계: prerelease/RC 릴리즈 불가(A). 필요해지면 규약 통일 별도 ADR 의무.
+
+### 정정 동시 갱신 (F9)
+
+| 위치 | 변경 |
+|------|------|
+| `.github/workflows/release.yml` | `resolve-version` job 신설 (A 형식 가드 + C hatch-vcs 단일 산출 output). 두 release job `needs: resolve-version` + ref 보정 + B assert step. compose sed·build-arg 가 job output 참조 |
+| `.github/workflows/notify-infra.yml` | A 제약 명시 주석 (stable-only 전제로 `#v` strip 안전) — 코드 무변경 |
+| `docs/operations/release.md` | 2절 흐름에 single-source·가드 반영 + 7절 한계 "stable semver only (prerelease 미지원)" 추가 |
+| `docs/adr/README.md` | 0030 행 요약에 derive 가드 정정 한 줄 |
+
 ## 관련 문서·코드
 
 - `pyproject.toml` `[tool.hatch.version]` — 버전 source = vcs(tag)
-- `.github/workflows/release.yml` — tag push -> wheel + image (fetch-depth 0 · APP_VERSION 주입)
+- `.github/workflows/release.yml` — tag push -> resolve-version(single source) -> wheel + image (fetch-depth 0 · APP_VERSION 주입 · 등가성 assert)
 - `Dockerfile` — `SETUPTOOLS_SCM_PRETEND_VERSION` 주입
 - `docs/operations/release.md` — release ceremony 단일 진실
 - ADR 0028 — Commitizen (본 ADR 이 supersede)

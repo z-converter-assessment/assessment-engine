@@ -19,7 +19,6 @@
 #     VM IP 는 libvirt DHCP lease 에서 동적 확인 (virsh domifaddr --source lease).
 #   - VM -> host 도달: libvirt NAT 게이트웨이 IP(LIBVIRT_GW, 기본 192.168.122.1). agent RABBITMQ_HOST 가
 #     이 IP 를 가리킨다. WORKER_DOWNLOAD_ALLOWED_HOSTS 는 agent.env 값(엔진 ZDM_DEFAULT_IP host 와 일치).
-#   - 컨테이너 -> host: docker-compose web extra_hosts host.docker.internal:host-gateway.
 #   - 컨테이너(web) -> VM(서버 발견 probe :22): 운영자가 VM IP 직접 입력 (컨테이너에서 VM hostname DNS 미해석).
 #
 # 멱등성: 모든 단계 안전 재실행. VM 이미 있으면 define 건너뜀, post-provision 은 매번 재적용.

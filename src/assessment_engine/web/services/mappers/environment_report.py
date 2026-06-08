@@ -14,12 +14,10 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 )
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
+    UTIL_GAUGE_COLOR,
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS as _PROVISIONING_SEGMENT_DEFS,
-)
-from assessment_engine.web.services.mappers.shared import (
-    UTIL_GAUGE_COLOR,
 )
 from assessment_engine.web.services.mappers.topology import build_network_topology
 from assessment_engine.web.services.service_classifier import SINGLE_INSTANCE_CATEGORIES

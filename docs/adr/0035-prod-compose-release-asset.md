@@ -4,7 +4,7 @@
 
 ## Context
 
-infra 배포 파이프라인(별도 레포)은 "GHCR 선빌드 이미지 pull -> compose up" 모델이라, 릴리즈로 받은 compose 가 빌드 없이 단일 인스턴스 VM 에서 그대로 떠야 한다. 요건(인바운드 요청 `docs/temp/infra-prod-compose-release-request.md`):
+infra 배포 파이프라인(별도 레포)은 "GHCR 선빌드 이미지 pull -> compose up" 모델이라, 릴리즈로 받은 compose 가 빌드 없이 단일 인스턴스 VM 에서 그대로 떠야 한다. infra 인바운드 요청 요건:
 
 - 앱 서비스가 `build:` 없이 GHCR 이미지 pull 만. 소스 bind mount 없음(VM 에 `./src` 없어 빈 디렉토리가 패키지를 덮으면 컨테이너 즉사).
 - postgres·rabbitmq 영속 경로를 외부 볼륨(Cinder /mnt/pgdata·/mnt/mqdata)에 bind 가능.

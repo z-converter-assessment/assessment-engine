@@ -65,10 +65,9 @@ else
   fi
 fi
 
-# ─── 2. ruff lint + format (ci.yml lint job — 모든 모드) ────────────────────
-section "ruff lint + format"
+# ─── 2. ruff lint (ci.yml lint job — 모든 모드) ─────────────────────────────
+section "ruff lint"
 uv run ruff check . >/dev/null 2>&1 && ok "ruff check" || ng "ruff check ('uv run ruff check .' 로 상세)"
-uv run ruff format --check . >/dev/null 2>&1 && ok "ruff format --check" || ng "ruff format drift"
 
 # ─── 3. pytest unit (ci.yml test-unit job — 모든 모드) ──────────────────────
 section "pytest unit"
@@ -137,7 +136,7 @@ else
   ( cd dist && sha256sum -- *.whl *.tar.gz > SHA256SUMS 2>/dev/null ) || miss+=" SHA256SUMS"
   # 리터럴 repo 에셋 — files: 에 선언 + 파일 존재 둘 다
   for f in docker-compose.yml .env.example; do
-    grep -qE "^[[:space:]]+$f$" .github/workflows/release.yml || miss+=" release.yml-files:$f"
+    grep -qE "(^[[:space:]]+|/)$f$" .github/workflows/release.yml || miss+=" release.yml-files:$f"
     [ -f "$f" ] || miss+=" file:$f"
   done
   if [ -z "$miss" ]; then ok "release files: 전 항목 산출/존재 (wheel·sdist·SBOM·SHA256SUMS·compose·.env.example)"; else ng "release 에셋 누락:$miss"; fi

@@ -29,7 +29,7 @@ HOST MACHINE (Ubuntu x86_64)
 libvirt(KVM)와 Docker 는 분리된 두 네트워크다. 컨테이너는 docker0
 브리지, VM 은 virbr0 NAT(192.168.122.0/24)에 붙는다. VM 은 NAT 게이트웨이 IP(192.168.122.1, = host)로
 host 의 docker 퍼블리시 포트(RabbitMQ 5672·web 8000)에 도달한다 — DNAT + libvirt 기본 forward 규칙(LIBVIRT_FWO).
-컨테이너(web)가 host 로 자기참조할 때는 `host.docker.internal`(extra_hosts: host-gateway). VM hostname DNS 는
+컨테이너(web) ZDM mock resolver 는 자기 컨테이너 `localhost:8000`(`ZDM_RESOLVER_HOST_OVERRIDE`). VM hostname DNS 는
 컨테이너에서 미해석이라 서버 발견 probe 는 운영자가 VM IP 직접 입력. Windows VM 도 동일 virbr0 라 게이트웨이 192.168.122.1 로 host 도달.
 
 LLM 서버(ollama)는 본 파이프라인에서 제거됨 — AI 진단(engineer 보고서 narrative) 발행 시 LLM 호출
@@ -216,7 +216,7 @@ web container (discovery probe)  [docker0]
 ```
 
 - VM -> host: libvirt NAT 게이트웨이 IP(192.168.122.1 = host). docker 퍼블리시 포트(5672·8000)는 DNAT + libvirt 기본 forward 규칙(LIBVIRT_FWO)로 도달. 엔진 `.env` 의 `RABBITMQ_HOST`(=`rabbitmq` 도커 서비스명)와 다르며, `dev-up.sh`가 VM별 `/etc/assessment-agent.env` 생성 시 게이트웨이 IP 로 주입.
-- 컨테이너 -> host(자기참조, ZDM mock): `host.docker.internal`(compose web `extra_hosts: host-gateway`).
+- 컨테이너 ZDM mock resolver: 자기 컨테이너 `localhost:8000`(`ZDM_RESOLVER_HOST_OVERRIDE`) — host 경유 안 함.
 - host -> VM: VM hostname DNS 는 컨테이너에서 미해석 — web 컨테이너 probe 는 VM IP(동적, `print_summary` 안내)를 운영자가 모달 입력. VM 22 는 post-provision `openssh-server` 라 listen.
 - VM 간 통신 사용 안 함 — 각 VM 독립, 모든 통신은 host RabbitMQ 경유.
 

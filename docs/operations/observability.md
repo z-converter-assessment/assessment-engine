@@ -2,7 +2,7 @@
 
 본 문서는 본 repo 가 제공하는 관측 contract 단일 진실. 두 절로 구분:
 
-- 1 부 — 현재 활성 (로그 레벨·실패 매트릭스·log format·Prometheus metrics)
+- 1 부 — 현재 활성 (로그 레벨·실패 매트릭스·log format)
 - 2 부 — 향후 확장 (Request/Correlation ID 분산 trace — 미구현, 도입 트리거·정석 패턴·ADR 의무)
 
 정책 출처: CLAUDE.md #F7 (로깅) · #F6 (외부 의존 실패 모드).
@@ -11,7 +11,7 @@
 
 # 1 부. 현재 활성
 
-본 repo 가 즉시 제공하는 관측 channel. 운영자가 본 절 contract 만 충족하면 인프라 측 log aggregator·Prometheus stack 으로 indexing·alerting 가능.
+본 repo 가 즉시 제공하는 관측 channel. 운영자가 본 절 contract 만 충족하면 인프라 측 log aggregator 로 indexing·alerting 가능.
 
 ## 로그 레벨 (CLAUDE.md #F7 단일 진실)
 
@@ -61,32 +61,6 @@ stdout 로그 출력 format 을 `LOG_FORMAT` 환경변수로 토글.
 
 본 repo 책임 한계:
 - 로그 format 출력만. log aggregator stack 선택·운영 (Loki·ELK 등) + collector (Fluentbit·Promtail) 배포는 인프라 책임 (CLAUDE.md #A0).
-
-## Prometheus metrics endpoint
-
-web 컨테이너가 `GET /metrics` 로 Prometheus 호환 metrics 노출. 외부 Prometheus (인프라 책임) 가 polling 수집 → Grafana 시각화·alerting.
-
-```
-Prometheus (인프라)              Web 컨테이너
-   ├─ scrape_interval=15s  →  GET /metrics
-   ├─ scrape_target=...           v
-   └─ TSDB 저장                prometheus_fastapi_instrumentator
-                                  v
-                              HTTP request count·latency·error rate
-                              (built-in Python process metrics — CPU·mem·GC)
-```
-
-구현: `web/main.py` 에서 `Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)`. middleware 등록 시점에 모든 라우터 자동 계측.
-
-기본 노출 metrics:
-- `http_request_duration_seconds` (histogram) — endpoint·method·status_code 라벨
-- `http_requests_total` (counter) — endpoint·method·status_code 라벨
-- `process_*` (process_cpu_seconds·process_resident_memory_bytes·process_start_time 등 — Python 런타임 자동)
-
-본 repo 책임 한계:
-- `/metrics` endpoint 노출만. Prometheus 서버·Grafana·alerting rule 은 인프라 책임 (CLAUDE.md #A0).
-- prod 에서 `/metrics` 는 외부 노출 금지 — reverse proxy 에서 internal-only 라우트로 차단 권장. 인증·인가 없는 endpoint 라 외부 노출 시 환경 메타데이터 leak.
-- consumer/diagnostic worker 는 HTTP server 없음 — 별도 `/metrics` 미노출. broker 측 큐 길이 (RabbitMQ management API) 로 대신 관측.
 
 ---
 
@@ -158,5 +132,5 @@ handler → service → repo → loguru
 - CLAUDE.md #F6 — 외부 의존 fail-open/close 결정 매트릭스
 - CLAUDE.md #F4 — Composition Root 패턴 (middleware 등록 위치)
 - `docs/operations/env.md` "전체 키 카탈로그" — `LOG_FORMAT` env
-- ADR 0011 — Prometheus metrics endpoint 채택
+- ADR 0011 — Prometheus metrics endpoint (Withdrawn — 미적용)
 - ADR (도입 시 신규) — 분산 trace 채택 사유

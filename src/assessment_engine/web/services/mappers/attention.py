@@ -127,7 +127,7 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
     total = sum(risk_counts.values())
     segments: list = []
     cum_offset = 0.0
-    for key, label, color, description in _DONUT_SEGMENT_DEFS:
+    for key, label, _color, description in _DONUT_SEGMENT_DEFS:
         count = risk_counts.get(key, 0)
         dash_length = (count / total) * _UTIL_DONUT_CIRC if (total > 0 and count > 0) else 0.0
         pct = round(count / total * 100, 1) if total > 0 else 0.0

@@ -68,13 +68,6 @@ if command -v virsh >/dev/null 2>&1 && virsh version >/dev/null 2>&1; then
     virsh net-destroy "$LIBVIRT_NET2" >/dev/null 2>&1 || true
     virsh net-undefine "$LIBVIRT_NET2" >/dev/null 2>&1 || true
   fi
-
-  # VMS 외 본 프로젝트 명명 패턴 잔재 — 알림만 (자동 삭제 안 함, 다른 워크로드 보호).
-  remaining=$(virsh list --all --name 2>/dev/null | grep -E "(cache|app|web|db|data|edge|legacy-mq|monitor|mq|offline|container)-server-01" | grep -vF -f <(printf '%s\n' "${VMS[@]}") || true)
-  if [ -n "$remaining" ]; then
-    echo "  주의: VMS 외 프로젝트 명명 패턴 잔재 발견 — 수동 정리 검토:"
-    echo "$remaining"
-  fi
 else
   echo "  virsh/libvirt 접근 불가 — 건너뜀"
 fi

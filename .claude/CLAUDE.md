@@ -404,3 +404,19 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 상세: `docs/architecture/consumer.md` · `docs/architecture/diagnostic.md` "Disposability" 절.
 
 ---
+
+## F12. 문서·주석 현황 선언성
+
+원칙: 영구 문서(`docs/architecture/`·`operations/`·`products/`·`development/`·루트 `README.md`)와 코드 주석은 현재 상태만 선언적으로 기술한다. 변경 시 과거 흔적(폐기된 도구·용어·구조·경위)을 제거하고 현황으로 덮는다 — "이전엔 X 였다"·"Y 에서 전환" 회고형 서술 0.
+
+본 절 결정:
+- 도구·구조 전환 시 옛 이름·경위를 코드 주석·영구 문서에서 제거. 전환 직후 폐기 토큰 `rg` 0 검증 의무(주석 포함) — 예: OrbStack->libvirt 전환(ADR 0037) 후 `OrbStack`·`orb.local`·`host.docker.internal`·`pipeline-up.sh` 잔존 0.
+- 예외 — `docs/adr/` (결정 변경 = 새 ADR + 이전 `Superseded by`, 역사 기록 보존 — ADR 불변 규약) · `docs/tradeoffs.md` (의식적 한계·확장 트리거).
+
+금지:
+- 영구 문서·코드 주석에 회고형 서술("과거엔"·"이전 방식"·"~에서 전환했다")·폐기 도구/용어/경로/기본값 잔존 — ADR·tradeoffs 외.
+- 코드로 알 수 있는 사실(시그니처·디렉토리 트리·라인 수) 문서 중복 (#F9 단일 진실 원칙과 동렬).
+
+검사: 도구·구조 전환·기능 폐기 시 옛 토큰 `rg` 0 (코드 주석 포함). 위반 발견 시 현황 선언으로 즉시 정정 (덮어쓰기, 경위 서술 추가 X).
+
+---

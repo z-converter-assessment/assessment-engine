@@ -77,18 +77,18 @@ class WebSettings(BaseSettings):
     # 서버 발견 모달 — SSH(기본 22) 도달성 probe 의 기본 target 주소.
     # 운영자가 모달에서 매 확인마다 override 가능. 빈값이면 폼이 빈 채로 시작.
     # dev·prod 모두 빈값 default — 운영자가 모달에 직접 입력 (weak default 거부 대상 아님).
-    # dev: OrbStack .orb.local 은 host(macOS)만 등록되고 컨테이너 미해석 + VM IP 동적이라 자동 기본값 부적합.
-    # pipeline-up.sh 가 post-provision 으로 VM 에 openssh-server 설치 + print_summary 로 VM IP 안내 (운영자 입력).
+    # dev: libvirt VM IP 가 DHCP lease 로 동적이라 자동 기본값 부적합 — dev-up.sh 가 VM 에 openssh-server
+    # 설치 + VM IP 안내, 운영자가 모달에 직접 입력.
     discovery_default_target: str = ""
     # probe 폼 기본 포트. prod·dev 모두 22(표준 SSH). 비표준 host 는 폼 override.
     discovery_default_port: int = 22
 
     # ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표 — install 모달 default 값.
     # 운영자가 모달에서 매 발행마다 override 가능. POST body 누락 시 본 값으로 fallback.
-    # dev 한정 ZDM mock (ADR 0018) 으로 OrbStack VM agent worker 가 host web 8000 도달.
+    # dev 한정 ZDM mock (ADR 0018) 으로 libvirt VM agent worker 가 host web 8000 도달 (dev/.env 가 host IP 주입).
     # 잘못된 ZDM 발행 방어는 런타임 (HttpZdmPackageResolver 메타 도달 실패 시 503 차단) + agent host
-    # whitelist (WORKER_DOWNLOAD_ALLOWED_HOSTS) 가 담당. startup 거부 없음 — discovery_default_target 과 동일 정책.
-    zdm_default_ip: str = "host.docker.internal:8000"
+    # whitelist (WORKER_DOWNLOAD_ALLOWED_HOSTS) 가 담당. startup 거부 없음 — discovery_default_target 과 동일 정책(빈값 default).
+    zdm_default_ip: str = ""
     zdm_default_user: str = "admin@zconverter.com"
     # resolver(엔진) 가 sha256/size 산출용으로 fetch 하는 호스트 override. download.url·install args 는
     # zdm_default_ip 유지. dev 한정 — mock 이 web 컨테이너 자기 자신이라 host publish 포트 hairpin 불가하면

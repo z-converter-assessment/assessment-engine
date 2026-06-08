@@ -6,7 +6,7 @@
 (신뢰성 확인됨). 갱신은 본 스크립트 재실행 + 카탈로그 재commit.
 
 사용:
-    python3 dev/tools/snapshot_os_eol.py \\
+    python3 scripts/snapshot_os_eol.py \\
         src/assessment_engine/web/services/mappers/os_eol_catalog.json
 
 카탈로그 구조:

@@ -1,6 +1,6 @@
 # ADR 0033 — 루트 docker-compose 단일 파일 (dev + 퀵스타트), ADR 0012 5절 supersede
 
-상태: Accepted (2026-06-01)
+상태: Superseded by ADR 0035 (2026-06-08, 원 Accepted 2026-06-01) — base(prod)/override(dev) 분리(0035) + 퀵스타트 폐기(0036)로 "단일 파일·dev+퀵스타트 겸용" 결정 대체. 본 ADR 은 단일 compose 시기 역사 기록으로 보존.
 
 ## Context
 

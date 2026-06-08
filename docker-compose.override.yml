@@ -1,25 +1,20 @@
-# docker-compose.override.yml — dev 전용 (ADR 0035).
+# docker-compose.override.yml — dev 전용. `docker compose up` 시 base 에 자동 머지(override 우선).
+# 소스 로컬 빌드 + ./src bind mount + hot reload (base 의 GHCR 이미지 핀을 dev 빌드로 덮음).
+# 릴리즈는 base 만 첨부하므로 배포엔 본 파일이 없다. base 단독 기동: `docker compose -f docker-compose.yml up`.
 #
-# `docker compose up` 시 base docker-compose.yml 에 자동 머지된다(compose 기본 동작, override 우선).
-# 소스에서 로컬 빌드 + bind mount + hot reload 복원 — base 의 prod-safe 이미지 핀을 dev 빌드로 덮는다.
-# prod/release 는 이 파일을 배포하지 않으므로(릴리즈 에셋은 base 만) 자동 머지 대상이 아님.
-#
-# base 단독 검증이 필요하면 `docker compose -f docker-compose.yml up` (override 제외).
-#
-# 주의: YAML 앵커는 파일 스코프 — base 의 *app-base 를 못 쓰므로 dev 공통(build·image·volumes)을
-#   본 파일 자체 앵커(*dev-app)로 재정의한다. 환경변수·command·depends_on 등 나머지는 base 에서 머지.
+# YAML 앵커는 파일 스코프라 base 의 *app-base 를 못 써 dev 공통(build·image·volumes)을 *dev-app 으로 재정의.
+# 환경변수·command·depends_on 등 나머지는 base 에서 머지.
 
 x-dev-app: &dev-app
   build:
     context: .
     dockerfile: Dockerfile
     args:
-      # hatch-vcs(ADR 0030) 버전 주입 — .git 이 build context 에서 제외되므로 host 가 구한 값 전달.
+      # hatch-vcs 버전 주입 — .git 이 build context 제외라 host 가 구한 값 전달.
       APP_VERSION: ${APP_VERSION:-0.0.0}
-  # dev 로컬 빌드 태그 — base 의 GHCR 핀을 덮어 dev 가 GHCR pull 안 하고 로컬 이미지 사용.
+  # dev 로컬 빌드 태그 — base 의 GHCR 핀을 덮어 GHCR pull 없이 로컬 이미지 사용.
   image: ${ENGINE_IMAGE:-assessment-engine:local}
-  # dev 편의 — host src 를 컨테이너 site-packages 에 bind mount. 코드 수정이 컨테이너 restart 만으로 반영(재빌드 불필요).
-  # 라이브러리 의존성(pyproject) 변경 시에만 재빌드 필요. (python 버전 경로는 Dockerfile python 과 일치 유지.)
+  # host src 를 컨테이너 site-packages 에 bind mount — 코드 수정이 컨테이너 restart 만으로 반영(의존성 변경 시에만 재빌드).
   volumes:
     - ./src/assessment_engine:/usr/local/lib/python3.12/site-packages/assessment_engine
 
@@ -27,7 +22,7 @@ services:
   web:
     <<: *dev-app
     environment:
-      # base 의 APP_ENV fallback(prod)을 dev 로 덮음 — 소스 트리 기동은 dev (ADR 0036). cross-file deep merge.
+      # base 의 APP_ENV fallback(prod)을 dev 로 덮음 (cross-file deep merge).
       APP_ENV: ${APP_ENV:-dev}
       # dev hot-reload — uvicorn auto-reload (reload_dirs=bind mount 패키지, web/__main__.py).
       WEB_RELOAD: ${WEB_RELOAD:-true}
@@ -49,8 +44,8 @@ services:
     entrypoint: ["watchfiles", "--filter", "python"]
     command: ["python -m assessment_engine.diagnostic", "/usr/local/lib/python3.12/site-packages/assessment_engine"]
 
-  # 마이그레이션 — base 의 entrypoint(sh -c alembic)·command 유지. dev 는 build + host migrations bind mount 만 더함
-  # (새 revision 을 재빌드 없이 인식). migrate 는 *app-base 미상속이라 base 에서도 별도였고, 여기서도 별도 명시.
+  # 마이그레이션 — base 의 alembic entrypoint·command 유지. dev 는 build + host migrations bind mount 만 더함
+  # (새 revision 을 재빌드 없이 인식).
   migrate:
     build:
       context: .

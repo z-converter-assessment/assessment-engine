@@ -21,7 +21,6 @@ dependencies = [
     "redis[hiredis]>=5.0.0",
     "httpx>=0.27",
     "alembic>=1.13",
-    "prometheus-fastapi-instrumentator>=7.1.0",   # /metrics endpoint + HTTP 계측 (ADR 0011)
 ]
 
 
@@ -89,16 +88,8 @@ extend-immutable-calls = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Alembic autogenerate 산출물 — line length(E501)는 자동 생성된 ColumnList·CreateTable 인자 나열 때문.
-# 사람이 자주 손대는 코드 아니므로 ignore. 다른 룰은 그대로 적용.
-"migrations/*" = ["E501"]
-# raw SQL `CASE WHEN ... END` 표현식·`LAG() OVER (PARTITION BY ...)` window function이 한 줄에
-# 자연스러운 의미 단위를 이룸. 줄바꿈하면 가독성 더 떨어져서 본 파일만 E501 line-too-long 예외.
-# 일반 Python 코드의 line-too-long은 그대로 강제.
-"src/assessment_engine/db/repositories/query_repository.py" = ["E501"]
-# 매퍼의 긴 한글 주석·테이블·dict 매핑 한 줄 표현이 line-length 초과. 의미 단위 보존을 위해 본 파일만 예외.
-"src/assessment_engine/web/services/mappers.py" = ["E501"]
-# 운영 정책 단일 진실 한글 주석(TTL 임계·운영 신호)이 한 줄에 의미 단위 — 줄바꿈하면 의미 파편화.
-"src/assessment_engine/config.py" = ["E501"]
-# FastAPI Query/Path/Body description 한글 문자열이 UI 노출 텍스트 — 줄바꿈하면 문자열 합성 분기 발생.
-"src/assessment_engine/web/routers/pages.py" = ["E501"]
+# E501 예외 — 줄바꿈하면 의미가 파편화되는 곳만. 일반 Python 코드의 line-too-long 은 그대로 강제.
+"migrations/*" = ["E501"]                                       # Alembic autogenerate 산출물 (ColumnList·CreateTable)
+"src/assessment_engine/db/repositories/query/*" = ["E501"]      # raw SQL(CASE/window)·집계 한 줄
+"src/assessment_engine/web/services/mappers/*" = ["E501"]       # 매퍼 한글 주석·dict 매핑 한 줄
+"src/assessment_engine/config.py" = ["E501"]                    # 운영 정책 한글 주석 한 줄

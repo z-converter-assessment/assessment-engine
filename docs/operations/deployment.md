@@ -150,7 +150,7 @@ curl -fsS http://<engine-host>:8000/health
 # {"status":"ok"} 응답이면 정상
 ```
 
-추가 endpoint(`/metrics`·`/docs`·web UI 등) 카탈로그: README "URL 카탈로그" 절.
+추가 endpoint(`/docs`·web UI 등) 카탈로그: README "URL 카탈로그" 절.
 
 ## 4. multi-node 분리 inject 예시
 
@@ -298,8 +298,7 @@ spec:
 | Schema | wheel 안 `_alembic.ini` + `migrations/` | `alembic upgrade head` 사전 실행 |
 | graceful shutdown | F11 (`docs/architecture/consumer.md`·`diagnostic.md`) | systemd `KillSignal=SIGTERM` + `TimeoutStopSec` 충분히 |
 | 헬스 endpoint | `GET /health` (web) | systemd `Restart=always` + watchdog 외부 모니터 |
-| 관측 | `/metrics` (Prometheus, ADR 0011) + `LOG_FORMAT=json` (F7) | Prometheus scrape · log aggregator collector |
-| reverse proxy | `/metrics` 외부 노출 금지 (ADR 0011) | nginx·envoy 등에서 internal-only 라우트 |
+| 관측 | `LOG_FORMAT=json` (F7) 구조화 로그 | log aggregator collector |
 
 ## 6. 트러블슈팅 (자주 발견되는 사고)
 
@@ -309,7 +308,6 @@ spec:
 | `alembic upgrade head` 실패 — `extension "timescaledb" is not available` | PostgreSQL TimescaleDB extension 누락. 운영 DB 에서 `CREATE EXTENSION IF NOT EXISTS timescaledb` 사전 실행 (`docs/operations/alembic.md`) |
 | consumer 가 broker 연결 실패 반복 | `RABBITMQ_HOST`/`RABBITMQ_VHOST`/auth 검토. `sudo rabbitmqctl list_permissions -p /assessment` 로 vhost 권한 확인 (`docs/architecture/rabbitmq.md` "vhost·권한 모델") |
 | `/health` 는 200 인데 inventory 안 들어옴 | 에이전트가 별도 install·broker 연결 필요. agent 측 secret 채널 점검 (`docs/architecture/agent.md`) |
-| `/metrics` endpoint 외부 노출 | reverse proxy 에서 internal-only 라우트 차단 누락 (ADR 0011 한계 절 참조) |
 
 ## 7. 인프라 레포 자동화 (권장 패턴)
 
@@ -328,7 +326,7 @@ Ansible 매핑 예시 — 절 3.1 (wheel install) 일부를 task 로 옮긴 모�
   ansible.builtin.command:
     cmd: >
       gh release download {{ engine_version }}
-      --repo <org>/assessment-engine
+      --repo z-converter-assessment/assessment-engine
       --pattern '*.whl'
       --pattern 'SHA256SUMS'
       --dir /tmp/release-{{ engine_version }}
