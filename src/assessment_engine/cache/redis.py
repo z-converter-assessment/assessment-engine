@@ -88,15 +88,6 @@ async def safe_mget(redis: Redis, keys: list[str]) -> list[str | None] | None:
         return None
 
 
-async def safe_publish(redis: Redis, channel: str, message: str) -> bool:
-    try:
-        await redis.publish(channel, message)
-        return True
-    except RedisError as e:
-        logger.warning("redis publish failed channel={} err={}", channel, e)
-        return False
-
-
 async def safe_incr_with_ttl(redis: Redis, key: str, ttl: int) -> int | None:
     """슬라이딩 윈도우 카운터 — INCR + EXPIRE를 pipeline으로 묶어 1 RTT.
 

@@ -6,7 +6,6 @@ import httpx
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
-from prometheus_fastapi_instrumentator import Instrumentator
 
 from assessment_engine.cache.redis import close_pool
 from assessment_engine.log_config import setup_logging
@@ -45,7 +44,7 @@ async def lifespan(app: FastAPI):
         aio_pika.ExchangeType.DIRECT,
         durable=True,
     )
-    routing_key = diagnostic_settings.diagnostic_routing_key
+    routing_key = diagnostic_settings.rabbitmq_routing_key_diagnostic
     dlq = await broker_channel.declare_queue(f"{routing_key}.dead", durable=True)
     await dlq.bind(dlx, routing_key=routing_key)
     queue = await broker_channel.declare_queue(
@@ -54,8 +53,8 @@ async def lifespan(app: FastAPI):
         arguments={
             "x-dead-letter-exchange": dlx_name,
             "x-dead-letter-routing-key": routing_key,
-            "x-message-ttl": diagnostic_settings.diagnostic_queue_ttl_ms,
-            "x-max-length": diagnostic_settings.diagnostic_queue_max_len,
+            "x-message-ttl": diagnostic_settings.rabbitmq_diagnostic_queue_ttl_ms,
+            "x-max-length": diagnostic_settings.rabbitmq_diagnostic_queue_max_len,
         },
     )
     await queue.bind(exchange, routing_key=routing_key)
@@ -97,11 +96,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ZConverter Assessment Portal", lifespan=lifespan)
-
-# Prometheus 계측 — HTTP request count·latency·error rate 자동.
-# `/metrics` endpoint를 expose해 외부 Prometheus(인프라 책임)가 polling 수집.
-# instrument() 호출 시점에 middleware 등록 → 모든 라우터에 자동 적용. expose()는 endpoint 등록.
-Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 
 @app.middleware("http")

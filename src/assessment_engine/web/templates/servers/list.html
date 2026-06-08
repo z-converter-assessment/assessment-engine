@@ -5,7 +5,7 @@
 {% block content %}
 <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:8px;">
   <h1 style="margin:0;">대시보드</h1>
-  <div style="font-size:12px; color:#64748b; text-align:right;">갱신 <span id="dashboard-updated">{{ generated_at | kst }}</span><span id="dashboard-refresh-note"></span></div>
+  <div class="text-muted" style="font-size:12px; text-align:right;"><span id="dashboard-refresh-note"></span>최근 <span id="dashboard-updated">{{ generated_at | kst }}</span></div>
 </div>
 
 <!-- ZConverter Install 모달 — 선택 호스트 N대에 task.install 발행 -->
@@ -13,19 +13,19 @@
   <div style="background:#fff; border-radius:8px; padding:24px; width:520px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <h3 class="modal-title">ZConverter Install 발행</h3>
-      <button type="button" id="install-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
+      <button type="button" id="install-close" class="text-meta" style="background:none; border:none; font-size:20px; cursor:pointer; line-height:1;">X</button>
     </div>
-    <p style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">
+    <p class="text-muted" style="margin:0 0 12px; font-size:12px; line-height:1.5;">
       선택된 <span id="install-count" style="font-weight:600; color:#1e293b;">0</span>대 호스트에 아래 ZDM 좌표로 ZConverter 설치를 발행합니다.
       <br>각 호스트의 agent 가 ZDM 서버에서 본체 패키지를 fetch 후 <code>install.sh -s ZDM_IP -u ZDM_USER</code> 실행.
     </p>
     <div style="margin:12px 0;">
-      <label for="install-zdm-target" style="display:block; font-size:12px; color:#475569; margin-bottom:4px;">ZDM 서버 IP/hostname</label>
+      <label for="install-zdm-target" class="text-label" style="display:block; font-size:12px; margin-bottom:4px;">ZDM 서버 IP/hostname</label>
       <input type="text" id="install-zdm-target" name="install-zdm-target-{{ asset_v }}" value="{{ zdm_defaults.ip }}" autocomplete="off"
              style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px; box-sizing:border-box;">
     </div>
     <div style="margin:12px 0;">
-      <label for="install-zdm-account" style="display:block; font-size:12px; color:#475569; margin-bottom:4px;">ZDM 관리자 계정 (email)</label>
+      <label for="install-zdm-account" class="text-label" style="display:block; font-size:12px; margin-bottom:4px;">ZDM 관리자 계정 (email)</label>
       <input type="email" id="install-zdm-account" name="install-zdm-account-{{ asset_v }}" value="{{ zdm_defaults.user }}" autocomplete="off"
              style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px; box-sizing:border-box;">
     </div>
@@ -38,9 +38,9 @@
   <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <h3 class="modal-title">SSH 도달성 확인</h3>
-      <button type="button" id="discover-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
+      <button type="button" id="discover-close" class="text-meta" style="background:none; border:none; font-size:20px; cursor:pointer; line-height:1;">X</button>
     </div>
-    <p style="margin:0 0 16px; font-size:12px; color:#64748b; line-height:1.5;">
+    <p class="text-muted" style="margin:0 0 16px; font-size:12px; line-height:1.5;">
       대상 서버 IP 또는 hostname의 SSH 포트(기본 22)에 TCP 연결을 시도해 도달성을 확인합니다. (1차 검사 — 로그인 가능 여부는 credential 등록 후 별도 확인)
     </p>
     <div style="display:grid; grid-template-columns:1fr 80px; gap:8px; margin-bottom:12px;">
@@ -64,14 +64,22 @@
 
 <section class="card no-print">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2>환경 보고서</h2>
+    <h2 class="card-title">환경 보고서</h2>
     <a href="/reports/history?back={{ self_back }}" class="btn-action no-print" style="text-decoration:none;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       보고서 이력
     </a>
   </div>
-  <p style="margin:0 0 12px; font-size:12px; color:#64748b;">전체 등록 서버 대상 보고서 발행. 발행 이력은 보고서 이력에서 확인.</p>
+  <p class="text-muted" style="margin:0 0 12px; font-size:12px;">전체 등록 서버 대상 보고서 발행. 발행 이력은 보고서 이력에서 확인.</p>
   <div style="display:flex; gap:8px;">
+    <a href="/servers/environment/realtime" class="btn-action no-print" style="text-decoration:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      실시간 메트릭
+    </a>
+    <a href="/servers/environment/metrics" class="btn-action no-print" style="text-decoration:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      성능 추이
+    </a>
     <button type="button" id="env-report-customer-open" class="btn-action no-print" data-view="customer">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
       고객 보고서 발행
@@ -87,24 +95,24 @@
     <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
         <h3 id="env-report-title" class="modal-title">환경 보고서 발행</h3>
-        <button type="button" id="env-report-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
+        <button type="button" id="env-report-close" class="text-meta" style="background:none; border:none; font-size:20px; cursor:pointer; line-height:1;">X</button>
       </div>
-      <p id="env-report-desc" style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">전체 등록 서버 대상 Right-sizing 규칙 기반 보고서 발행. 새 탭으로 이동합니다.</p>
+      <p id="env-report-desc" class="text-muted" style="margin:0 0 12px; font-size:12px; line-height:1.5;">전체 등록 서버 대상 Right-sizing 규칙 기반 보고서 발행. 새 탭으로 이동합니다.</p>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
         <div>
-          <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">윈도우</label>
+          <label class="text-label" style="display:block; font-size:12px; margin-bottom:6px;">윈도우</label>
           <select id="env-report-range" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
             <option value="15m">15분</option>
             <option value="1h">1시간</option>
             <option value="6h">6시간</option>
             <option value="24h">24시간</option>
-            <option value="7d">7일</option>
-            <option value="14d" selected>14일 (표준)</option>
+            <option value="7d" selected>7일 (표준)</option>
+            <option value="14d">14일</option>
             <option value="30d">30일</option>
           </select>
         </div>
         <div>
-          <label style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">Anchor (KST)</label>
+          <label class="text-label" style="display:block; font-size:12px; margin-bottom:6px;">Anchor (KST)</label>
           <input type="datetime-local" id="env-report-anchor" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
         </div>
       </div>
@@ -118,24 +126,24 @@
   <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <h3 id="multi-server-report-title" class="modal-title">선택 서버 보고서 발행</h3>
-      <button type="button" id="multi-server-report-close" style="background:none; border:none; font-size:20px; color:#94a3b8; cursor:pointer; line-height:1;">X</button>
+      <button type="button" id="multi-server-report-close" class="text-meta" style="background:none; border:none; font-size:20px; cursor:pointer; line-height:1;">X</button>
     </div>
-    <p id="multi-server-report-desc" style="margin:0 0 12px; font-size:12px; color:#64748b; line-height:1.5;">선택된 <span id="multi-server-report-count" style="font-weight:600; color:#1e293b;">0</span>대 서버 Right-sizing 규칙 기반 보고서 발행. 결과 페이지로 이동합니다.</p>
+    <p id="multi-server-report-desc" class="text-muted" style="margin:0 0 12px; font-size:12px; line-height:1.5;">선택된 <span id="multi-server-report-count" style="font-weight:600; color:#1e293b;">0</span>대 서버 Right-sizing 규칙 기반 보고서 발행. 결과 페이지로 이동합니다.</p>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
       <div>
-        <label for="multi-server-report-range" style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">윈도우</label>
+        <label for="multi-server-report-range" class="text-label" style="display:block; font-size:12px; margin-bottom:6px;">윈도우</label>
         <select id="multi-server-report-range" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
           <option value="15m">15분</option>
           <option value="1h">1시간</option>
           <option value="6h">6시간</option>
           <option value="24h">24시간</option>
-          <option value="7d">7일</option>
-          <option value="14d" selected>14일 (표준)</option>
+          <option value="7d" selected>7일 (표준)</option>
+          <option value="14d">14일</option>
           <option value="30d">30일</option>
         </select>
       </div>
       <div>
-        <label for="multi-server-report-anchor" style="display:block; font-size:12px; color:#475569; margin-bottom:6px;">Anchor (KST)</label>
+        <label for="multi-server-report-anchor" class="text-label" style="display:block; font-size:12px; margin-bottom:6px;">Anchor (KST)</label>
         <input type="datetime-local" id="multi-server-report-anchor" autocomplete="off" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
       </div>
     </div>
@@ -145,7 +153,7 @@
 
 <section class="card no-print">
 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-  <h2 style="margin:0;">서버 목록</h2>
+  <h2 class="card-title" style="margin:0;">서버 목록</h2>
   {# 서버 발견 — 서버 목록 카드 제목 우측 끝. type=button(폼 submit 안 함), id 유지로 list.js 동작 동일. #}
   <button type="button" id="discover-btn" class="btn-action no-print">+ 서버 발견</button>
 </div>
@@ -181,10 +189,12 @@
 </form>
 
 <div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; margin-bottom:14px; align-items:center;">
-  <button type="button" id="report-customer-btn" class="btn-primary no-print" disabled title="고객 제출용 — 양식 A">고객 보고서</button>
-  <button type="button" id="report-engineer-btn" class="btn-primary no-print" disabled title="엔지니어 검토용 — 양식 B (AI 진단 컬럼 포함)">엔지니어 보고서 (AI)</button>
-  <button type="button" id="export-btn" class="btn-primary no-print" disabled>JSON Export</button>
-  <button type="button" id="install-btn" class="btn-primary no-print" disabled>ZConverter Install</button>
+  <button type="button" id="realtime-sel-btn" class="btn-select no-print" disabled title="선택 N대 실시간 메트릭 (현황 모니터링)">실시간 메트릭</button>
+  <button type="button" id="metrics-sel-btn" class="btn-select no-print" disabled title="선택 N대 성능 추이 (시계열)">성능 추이</button>
+  <button type="button" id="report-customer-btn" class="btn-select no-print" disabled title="고객 제출용 — 양식 A">고객 보고서</button>
+  <button type="button" id="report-engineer-btn" class="btn-select no-print" disabled title="엔지니어 검토용 — 양식 B (AI 진단 컬럼 포함)">엔지니어 보고서 (AI)</button>
+  <button type="button" id="export-btn" class="btn-select no-print" disabled>JSON Export</button>
+  <button type="button" id="install-btn" class="btn-select no-print" disabled>ZConverter Install</button>
 </div>
 
 {% if servers %}
@@ -213,7 +223,7 @@
 {# 전체보기 — 기본 N행만 표시, 클릭 시 전체 표시 (JS clip). 필터 활성 시 숨김(조건 맞는 전부 노출).
    서버 발견 버튼과 동일 btn-action 모양. #}
 <div class="no-print" id="show-more-wrap" style="display:none; margin-top:12px; text-align:center;">
-  <button type="button" id="show-more-btn" class="btn-action">전체보기 <span id="show-more-count" style="color:#94a3b8; font-weight:400;"></span></button>
+  <button type="button" id="show-more-btn" class="btn-action">전체보기 <span id="show-more-count" class="text-meta" style="font-weight:400;"></span></button>
 </div>
 {% else %}
 <p class="text-muted" style="margin:0; padding:20px 0;">등록된 서버가 없습니다. 에이전트가 연결되거나 아래에서 서버를 발견하세요.</p>
@@ -224,4 +234,5 @@
 {# risk_top 카드 섹션 제거 (2026-05-12) — 환경 요약(USE Method 도넛) + 운영신호 카드(3 카탈로그)로 흡수.
    Chart.js·list-risk-cards.js 의존도 동시 제거됨. #}
 
+{% include "_reference_link.html" %}
 {% endblock %}

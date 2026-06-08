@@ -5,20 +5,36 @@ __pycache__/
 *.pyo
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 .coverage
 coverage*.xml
 htmlcov/
 
-# 버전 관리 / IDE
+# 빌드 산출물 (builder stage 가 자체 생성 — host 산출물은 context 불필요)
+dist/
+build/
+*.egg-info/
+
+# 버전 관리 / IDE / OS
 .git/
 .github/
 .idea/
+.vscode/
+.DS_Store
+
+# 로그
+*.log
+
+# compose (wheel 이미지 build 에 불필요 — Dockerfile 만 사용)
+docker-compose.yml
+docker-compose.override.yml
 
 # dev 보조 자료 (wheel 이미지에 불필요 — libvirt VM·agent 빌드·dev env·dev 스크립트)
 dev/
 
 # 시크릿 — 절대 이미지에 포함되면 안 됨 (CLAUDE.md #F8)
 .env
+secrets/
 
 # 테스트 (이미지 내 불필요)
 tests/

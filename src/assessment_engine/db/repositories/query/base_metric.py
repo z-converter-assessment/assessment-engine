@@ -37,7 +37,7 @@ class BaseMetricQueryRepository(ABC):
     ) -> list[MetricSeries]: ...
 
     @abstractmethod
-    async def environment_metric_trend(
+    async def metric_trend(
         self,
         metric_type: str,
         start: datetime,
@@ -45,6 +45,9 @@ class BaseMetricQueryRepository(ABC):
         bi: str,
         bucket_td: timedelta,
         server_ids: list[int] | None = None,
+        agg: str = "avg",
+        dimension: str | None = None,
+        collapse: bool = True,
     ) -> list[MetricSeries]: ...
 
     @abstractmethod

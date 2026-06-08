@@ -28,6 +28,7 @@ from assessment_engine.diagnostic.report_result import (  # noqa: F401 (re-expor
 from assessment_engine.web.view_models.attention import (
     AttentionRow,
     AttentionSignals,
+    CapacityMetric,
     CapacityTriggerBadge,
     CapacityWarningItem,
     EnvironmentOverview,
@@ -162,6 +163,7 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
 def _overview_from_dict(d: dict) -> EnvironmentOverview:
     data = dict(d)
     data["utilization"] = [UtilizationBar(**u) for u in data.get("utilization") or []]
+    data["utilization_p95"] = [UtilizationBar(**u) for u in data.get("utilization_p95") or []]
     data["risk_donut"] = [RiskDonutSegment(**s) for s in data.get("risk_donut") or []]
     uph = data.get("under_provisioned_hosts") or []
     data["under_provisioned_hosts"] = [_capacity_warning_from_dict(c) for c in uph]
@@ -186,4 +188,5 @@ def _attention_row_from_dict(d: dict) -> AttentionRow:
 def _capacity_warning_from_dict(d: dict) -> CapacityWarningItem:
     data = dict(d)
     data["triggers"] = [CapacityTriggerBadge(**t) for t in data.get("triggers") or []]
+    data["metrics"] = [CapacityMetric(**m) for m in data.get("metrics") or []]
     return CapacityWarningItem(**data)

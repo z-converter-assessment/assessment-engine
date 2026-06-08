@@ -6,7 +6,7 @@
 src/assessment_engine/web/static/js/
 ├── chart-utils.js              ← base.html에서 단일 로드, 전역 ChartUtils
 └── pages/
-    ├── cpu.js / memory.js / storage.js / network.js / performance.js
+    ├── cpu.js / memory.js / storage.js / network.js / metrics.js
     └── list.js                 ← 서버 목록 4 액션 (발견·Install·Export·보고서)
 ```
 
@@ -23,19 +23,16 @@ src/assessment_engine/web/static/js/
 | `getAnchorEnd(inputId)` / `initAnchor(inputId)` | datetime input 처리 |
 | `makeBucketGrid(range, bucket, anchor)` / `joinToGrid(grid, rows, bMs)` | 버킷 그리드 + 응답 join |
 | `bindToggle(groupId, onChange)` | range/agg 컨트롤 바인딩 — element 가 `<select>`면 change, `.toggle` 버튼이면 click 자동 분기 (호출처 동일) |
-| `initSse(serverId, onMessage)` | SSE 초기화 + dot 표시 |
+| `initAutoRefresh(onRefresh, intervalMs)` | 30초 polling 자동 갱신 (setInterval + pagehide 정리) |
 | `safeArray(arr)` | `Array.isArray` 방어 (P4 c) |
-| `fetchRebootEvents(serverId, range, anchor)` | reboot/restart 이벤트 fetch (vertical marker용) |
-| `applyRebootMarkers(chart, events, gridMs)` | 차트 인스턴스에 marker 옵션 주입 + redraw |
-| `rebootMarkersPlugin` | Chart.js 글로벌 plugin (`afterDraw`로 dashed line 그림). chart-utils 로드 시 자동 등록 |
 | `renderChipLegend(container, chart)` | 색점+라벨 칩(pill) 토글 범례 — dataset 1개당 1칩, 클릭 시 show/hide. comp/load 계열 (cpu·memory) |
-| `buildAvgMaxDatasets` / `buildAvgMaxLegend(id, chart, opts)` | avg+max ghost dataset·범례. `withToggle`=칩(avg/max 쌍 1칩 함께 토글 — storage io·network·performance 통일), `codeLabel`=정적 선+code 라벨(현재 미사용) |
+| `buildAvgMaxDatasets` / `buildAvgMaxLegend(id, chart, opts)` | avg+max ghost dataset·범례. `withToggle`=칩(avg/max 쌍 1칩 함께 토글 — storage io·network·metrics 통일), `codeLabel`=정적 선+code 라벨(현재 미사용) |
 
 ## 페이지별 .js 패턴
 
 | 페이지 | 차트 인스턴스 패턴 |
 |--------|-------------------|
-| `performance.js` | `chartInstances` 객체 + 통합 `loadAllCharts()` — 한 곳에서 모든 차트에 marker 일괄 적용 |
+| `metrics.js` | `chartInstances` 객체 + 통합 `loadAllCharts()` — 한 곳에서 모든 차트에 marker 일괄 적용 |
 | `cpu/memory/network/storage.js` | 차트 인스턴스 개별 변수 + 차트별 range/anchor — 각 loader 끝에 marker 적용 |
 | `list.js` | 4 모달 (서버 발견 / Install / JSON Export / 보고서). 차트 없음 — 체크박스 + bulk action |
 
@@ -49,30 +46,58 @@ src/assessment_engine/web/static/js/
 | (d) 404 분기 | `/metrics/latest` 등 데이터 부재는 `res.status === 404` 분기 |
 | (e) suggestedMax 명명 상수 | `PERF_IOPS_SUGGESTED_MAX = 200` 형식 + 임계값 색상도 `USAGE_DANGER_PCT` 등 명명 상수 |
 
-5개 페이지 모두 (a)~(e) 적용. `performance.js`가 11개 차트 loader 모두 `(seq, capturedRange, capturedAnchor)` 시그니처 표준.
+5개 페이지 모두 (a)~(e) 적용. `metrics.js`가 11개 차트 loader 모두 `(seq, capturedRange, capturedAnchor)` 시그니처 표준.
 
 ## 차트 UI 디테일
 
 ### Y축 정책
 - 추이 차트 (cpu/network 페이지): 분해력 우선 — 작은 값도 보이게 `suggestedMax` 낮게
-- 진단 리포트 (performance 페이지): 절대 기준 — `PERF_IOPS_SUGGESTED_MAX=200`(HDD 한계) / `PERF_NET_SUGGESTED_MAX=10MB/s`(1Gbps 8%)
+- 성능 추이 (metrics 페이지): 절대 기준 — `PERF_IOPS_SUGGESTED_MAX=200`(HDD 한계) / `PERF_NET_SUGGESTED_MAX=10MB/s`(1Gbps 8%)
+
+### X축 정책 (예외 0)
+- 모든 차트(대시보드·서버 상세·환경 부하 추이·보고서)는 윈도우 전체 고정 그리드. `makeBucketGrid(range, AUTO_BUCKET[range], anchor)` + `joinToGrid` — 빈 구간 null(gap, `spanGaps:false`), 최신이 오른쪽 끝 고정.
+- anchor = 마지막 데이터 시각(보고서 정적 스냅샷) 또는 사용자 선택·now(라이브).
+- "데이터 있는 범위만 그리기"(옛 environment-trend, 왼쪽부터 채움)는 폐기 — 차트 간 x축 비교 위해 단일 정책.
 
 ### 차트 컨트롤 (제목줄 통합)
 - 차트 헤더 = `.chart-head` 단일 행: 제목(h2 좌측) + bucket-label·구간·앵커·집계 컨트롤(우측, bucket-label 부터 `margin-left:auto`). 좁아지면 그룹 단위 wrap. (옛 별도 컨트롤 행 폐기.)
+- 버킷 라벨 = `<span class="bucket-label">` 배지 (현재 버킷=분해력 표시 — cpu/memory/storage/network 차트 페이지 공용 클래스, base.html 단일 진실). 성능 추이(metrics)는 전역 단일 컨트롤이라 높이·정렬이 달라 별도 스타일.
 - 구간/집계 = `<select class="chart-select">` 드롭다운 (옛 `.toggle` 버튼 그룹 대체 — 너비 절약). `bindToggle` 이 select/button 자동 분기라 JS 호출 동일.
 - 앵커 = `<input type="datetime-local" class="chart-anchor">`. select·anchor 높이 통일(`box-sizing`).
 - 다중 차트 한 페이지(network: I/O·PPS)는 차트별 독립 구간/앵커 (공유 X).
-- 성능 리포트(performance)는 예외 — 각 상세(cpu/memory/storage/network) 추이 차트 10개를 2열 5쌍으로 모은 종합 뷰라, 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(서버 정보 카드 아래, 버킷/구간/앵커 좌측 + 수집 기준 우측)이 모든 차트 동기. 행마다 1 카드(`.perf-pair` 안 2 차트, `.chart-desc` 고정 높이로 캔버스 top 정렬)로 좌우 카드 높이 통일. 리부트/재시작 마커는 미표시(가독성). 디스크 read+write·네트워크 RX+TX 는 각각 통합 1 차트.
+- 성능 추이(metrics — 서버 상세 `/{id}/metrics` + 환경 `/environment/metrics`)는 예외 — 추이 차트 10개를 2열 5쌍으로 모은 종합 뷰라, 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(카드 밖 좌상단, 버킷/구간/앵커 + '적용' 버튼 — 앵커는 적용 클릭으로 반영·구간 select 즉시. 수집 기준 표시 폐기)이 모든 차트 동기. 5행 2열을 단일 `.card.perf-merged` 로 통합(행=`.perf-pair.perf-row`, 행 구분선 #e2e8f0; 인쇄는 `.perf-merged` 내부 분기 허용 + `.perf-row` 단위 `page-break-inside:avoid`). 서버 상세는 서버 정보 카드 제거(상세 탭에서 확인). 디스크 read+write·네트워크 RX+TX 각각 통합 1 차트.
 
 ### 범례 (칩 토글)
 - `.legend-chip` (pill 버튼 + `.legend-dot` 색점): 클릭 시 dataset show/hide, 숨김은 `aria-pressed=false`로 흐려짐. `button`+`aria-pressed`라 키보드 토글 지원.
-- comp/load 계열(고정 dimension) = `renderChipLegend` (dataset 1칩 — cpu·memory comp, performance CPU 분류·메모리 구성). avg+max ghost = `buildAvgMaxLegend({withToggle})` (avg/max 쌍 1칩 함께 토글 — storage io·network·performance 물리 I/O·파일시스템·네트워크). 옛 `buildNetGroupedLegend`(인터페이스별 그룹 행)·`codeLabel` 정적 범례는 폐기 — 전 차트 칩 토글로 통일.
+- comp/load 계열(고정 dimension) = `renderChipLegend` (dataset 1칩 — cpu·memory comp, metrics CPU 분류·메모리 구성). avg+max ghost = `buildAvgMaxLegend({withToggle})` (avg/max 쌍 1칩 함께 토글 — storage io·network·metrics 물리 I/O·파일시스템·네트워크). 옛 `buildNetGroupedLegend`(인터페이스별 그룹 행)·`codeLabel` 정적 범례는 폐기 — 전 차트 칩 토글로 통일.
 
 ### avg + max ghost 패턴
 1차 dataset = avg (visible). 2차 dataset = max (`borderColor:'transparent'`, `realData` 보유) — tooltip에서 `realData`로 max 표시. legend는 짝수 인덱스만.
 
-### Reboot/Restart marker
-plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그림. 색상: `reboot=#ef4444`, `restart=#f59e0b`. 라벨 위치: chartArea top + 11px.
+### 추세선 · 면적 음영 정책 (예외 0)
+- 추이 차트의 면적 음영은 avg+max ghost(`buildAvgMaxDatasets`, avg dataset `fill:'+1'`)만 — avg~max 사이를 채워 burst(순간 최대−평균 차)를 시각화. 이것이 "음영"의 유일한 의미.
+- 선 아래 zero 까지 채우는 area fill(`fill:true`) 금지 — 추이 차트는 추세선만(`fill:false`). area fill 은 burst 음영과 혼동되고 값 밀집 시 가독성을 떨어뜨림.
+- 15분 구간(1분 버킷)은 버킷당 데이터 1포인트라 max=avg → ghost 음영 0. `buildAvgMaxDatasets` 가 `bMs <= BUCKET_MS['1m']` 일 때 maxRows 를 비워 전 차트 일괄 자동 비활성.
+- 코어당 로드 차트(cpu 상세·성능탭)는 raw load 를 `load / cpu_cores` 로 정규화(클라 P4 표시 변환, 서버 1대 cpu_cores 고정이라 SQL `Σload/Σcores` 와 동치) — 1.0 = 코어당 포화. 스냅샷·차트·환경 추이 모두 코어당으로 일관.
+
+## 색 테마 — 주색 단일 진실 (예외 0)
+- 주색 = `#3b82f6` (blue-500). 환경 평균 활용률 도넛 게이지(`_UTIL_COLOR_GAUGE`, mappers/attention.py) · right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over, mappers/shared.py) · 서버목록 `.rec-over_provisioned` 배지가 동일 주색.
+- under_provisioned = `#ef4444` (red-500) 대비 유지. 과다프로비저닝(여유)과 활용률 게이지가 같은 파랑 — 같은 화면 두 의미지만 테마 단색화를 위한 의식적 통일.
+- 헤더(전 페이지 상단 바) = `#335E8C`(브랜드 청회색)와 주색 `#3b82f6` 의 중간 `#3770C1`. 넓은 영역이라 주색보다 어둡게 — 브랜드 바탕, 콘텐츠 주색과 톤 분리(헤더 nav 링크 `rgba(255,255,255,.85)`).
+- 버튼 3종(base.html): `.btn-primary`(주색 채움, 모달 발행 등) / `.btn-select`(흰 톤·표준 크기, 서버 선택 발행 버튼 — 활성=테마색 outline(파랑 글씨·테두리·600) 강조, 비활성=회색 글씨·테두리) / `.btn-action`(흰 톤·표준 크기·회색 글씨, 보조 액션 — 환경보고서 발행·실시간 메트릭·성능 추이·서버 발견·전체보기). selection 은 활성 시 파랑 outline 으로 보조 버튼(회색)과 구별되고 활성/비활성도 색으로 명확. 선택 N대 실시간 메트릭·성능 추이 버튼은 `.btn-select`(체크 시 활성) — public_id navigate(`?ids=`).
+- 상태(is_online) 표시 = 불(dot) 아닌 폰트색 (`.status-on` #16a34a / `.status-off` #94a3b8, 10px). 공간 절약·명확. 프로젝트 전반(목록·보고서 표·단일 보고서·상세 헤더) 통일.
+- 운영 신호 경고 = 호박색(amber) 도메인 (`.attn-active`·`.attention-cat-item[active]` #fef3c7/#92400e). 정상(0건)은 회색 outline, 발화는 호박 채움 — 경고 의미를 색으로. 테마 파랑(브랜드)과 영역 분리.
+- 네트워크 토폴로지 노드 색(`network-topology.js`·범례 동기화): subnet #64748b / Linux #3b82f6 / Windows #8b5cf6(파랑과 구분되는 보라) / 다중 서브넷(multi-homed) #f59e0b. 범례 표기는 "다중 서브넷".
+- 테이블 헤더 = 기본 연한(`thead` #f8fafc / `th` #64748b). 서버 상세·메트릭세부 페이지(`body.metric-head`)만 진한 회색 `#a7b2c0` + 흰 글씨 — 데이터 표 헤더 강조(폰트 크기·위계 동일, 색만). 목록·보고서는 기본 유지. `#a7b2c0` = 패널톤(#eaeff5)과 slate-500(#64748b)의 중간 — 흰 글씨 가독 하한.
+- 파일시스템 usage 게이지 막대 = 주색 `#3b82f6` 단색(`_MOUNT_BAR_COLOR`, mappers/server.py). 사용률 위험도는 게이지 색이 아니라 `badge_class`(`badge-warn`/`badge-danger`)로 — 게이지는 톤 통일, 경고는 배지로 분리.
+- 색 상수 단일 진실 = `view-models.md` "신호 임계값 단일 정의".
+
+## 반응형·정렬 레이아웃 (예외 0)
+- 작은 창에서 카드 무파손. 다열 영역은 `grid-template-columns:repeat(auto-fit, minmax(min(100%, Npx), 1fr))` — 폭 부족 시 자동 1열, 한쪽 칼럼 찌그러짐 0.
+- 고정 다열(`kpi-grid-2/3/4` · `metric-grid-2/3`)은 `@media (max-width:640px)` 에서 1열 (base.html).
+- 2칼럼 카드(`env-dual` · `env-pair`)는 `align-items:start`로 칼럼 독립, 같은 행 항목은 grid 정렬로 높이 일치.
+- 언더 프로비저닝 상세 = 호스트명 | 서비스 배지 | 평가 6축 지표 3칼럼 grid(행마다 칼럼 정렬, 각 행 1줄 강제 — 지표 칼럼만 좁으면 가로 스크롤). 박스·구분선 없음. 심각도 상위 3(`severity_score` = swap(paging) > 위반 자원 수 > max(CPU/메모리/디스크 util)).
+- 대시보드 환경 영역 = 환경 요약 / 환경 자원 평가(활용률+Right-sizing+언더프로비저닝) / 환경 부하 추이+네트워크 토폴로지 — 3개 별도 카드 section. 운영 신호 카드는 3 카테고리(통신끊김/OS지원종료/에이전트재시작)를 한 행 3칼럼 grid + 카탈로그 뱃지 한 줄(nowrap).
 
 ## report.html print CSS
 
@@ -86,7 +111,7 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 
 `.no-print` 클래스로 navbar/검색폼/버튼 인쇄 시 숨김 (base.html). 컨설턴트가 브라우저 인쇄 → PDF/PPT 캡처. 백엔드 PDF export는 미도입 (`docs/tradeoffs.md` 참조).
 
-성능 리포트 인쇄(base.html `@media print`): `.perf-pair` 2열 강제(auto-fit 이 A4 폭에서 1열로 collapse 방지) + `.perf-pair canvas { width/height:100% !important }` 로 Chart.js 가 캔버스에 박은 화면 폭(px)이 인쇄 컨테이너를 넘어 꺾은선이 plot 경계를 넘는 것 보정. `beforeprint`/`afterprint` 차트 `resize()` 보강(performance.js).
+성능 추이 인쇄(base.html `@media print`): `.perf-pair` 2열 강제(auto-fit 이 A4 폭에서 1열로 collapse 방지) + `.perf-pair canvas { width/height:100% !important }` 로 Chart.js 가 캔버스에 박은 화면 폭(px)이 인쇄 컨테이너를 넘어 꺾은선이 plot 경계를 넘는 것 보정. `beforeprint`/`afterprint` 차트 `resize()` 보강(metrics.js).
 
 ## 의존성
 
@@ -117,9 +142,13 @@ plugin이 `chart.options.plugins.rebootMarkers.events`를 `afterDraw`에서 그�
 | .metric-sub | 11px / #94a3b8 | metric-card 부가 문구 |
 | .badge | 12px / 600 | 분류·카테고리 표시 |
 | .rec-badge | 11px / 600 | table cell 안 분류 badge (좁은 셀용) |
+| td (표 데이터) | 13px / #334155 | 모든 표 셀 — 전역 단일(목록·상세·보고서 통일). inline font-size 로 override 금지 |
+| .chart-caption | 11px / #94a3b8 | 차트 하단 설명 캡션 (음영 영역 등) — 전 차트 페이지 공용 |
+| .chart-desc | 11px / #94a3b8 | 차트 상단 설명 (성능탭 차트별 한 줄 설명) |
+| .chart-empty | 13px / #94a3b8 / center | 차트 빈상태 오버레이 |
 | code | 12px / monospace | inline code (식별자) |
 
-금지: 9px·10px·32px 등 카탈로그 외 값을 inline 으로 박지 않음. 새 위계가 필요하면 base.html 에 명명 클래스 추가 후 사용.
+금지: 9px·10px·32px 등 카탈로그 외 값, 그리고 inline `font-size`/`font-weight`/`color` 를 박지 않음 — 크기·굵기는 위계/컴포넌트 클래스, 색은 색 유틸(`.text-meta` 등)로. 새 위계가 필요하면 base.html 에 명명 클래스 추가 후 사용. 8/9/10px 은 `.status-on/off` 배지와 `@media print` 에만 허용.
 
 ### 박스 컴포넌트 (대형부터)
 
@@ -142,7 +171,7 @@ base.html 컴포넌트와 동급의 표시 계층 단일 진실 — 페이지 �
 | 매크로 | 용도 | 정책 |
 |--------|------|------|
 | `empty_state(message)` | 발화/조건부 섹션이 비었을 때 placeholder (제목은 유지, 내용 없음 명시) | dumb — 분기·계산 0, 정적 message만 렌더 (P3). discoverability 원칙 #E9 단일 진실. |
-| `window_meta(count, days)` | 표제 메타 "(N대 기준 · 최근 M일)" — 활용률·Right-sizing 표제 공통 | days 는 `recommendation.WINDOW_DAYS`(#F10) 전달. 하드코딩 "14일" 반복 제거. |
+| `window_meta(count, days)` | 표제 메타 "(N대 기준 · 최근 M일)" — 활용률·Right-sizing 표제 공통 | days 는 `recommendation.WINDOW_DAYS`(#F10) 전달. 일수 하드코딩 반복 제거. |
 
 ### Badge 카탈로그
 
@@ -213,7 +242,7 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 |------|-------------|------|
 | 1회 fetch + render (예: task-modal body) | 정공 — fragment endpoint (`/api/tasks/{id}/detail`) + JS `innerHTML = await fetch().text()` | overhead 0, P3 완전 정공 |
 | 저빈도 polling + 파생 많은 SSR 영역 (예: 대시보드 환경요약·운영신호·서버목록 30초 자동갱신) | 정공 — fragment endpoint (`?fragment=live`/`?fragment=rows`) HTML 반환 + JS `#dashboard-live` innerHTML·`#server-tbody` server-row 교체 | 30초 저빈도라 HTML fragment fetch overhead 무시 가능. mapper 파생 많아 JSON+JS render 시 P2 복제 — fragment 가 단일 진실 유지 |
-| polling 흐름 (예: detail page metrics/latest SSE / storage snapshot / diagnostic-results.js · diagnostic-inline.js result polling) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
+| polling 흐름 (예: detail page metrics/latest 30초 polling / storage snapshot / diagnostic-results.js · diagnostic-inline.js result polling) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
 
 폴링 흐름 JS render 의무:
 - inline `style="color:#xxx"` 금지 — base.html 색 전용 유틸 (중립 톤 `.text-strong`/`.text-label`/`.text-muted`/`.text-meta`/`.text-faint` + 의미색 `.text-danger`/`.text-ok`/`.text-warn`/`.text-attn`, 모두 color-only · size 는 부모 상속) 사용. font-size 는 위계 제목·컴포넌트 클래스(`.stat-*`/`.metric-*`/`.kpi-*`/`.text-narrative`/`.pre-output`) 우선 — size 전용 유틸 미도입(위계·컴포넌트 의미 우선).
@@ -223,7 +252,7 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 신규 dynamic UI 추가 시 흐름 판단:
 - 1회 fetch → fragment endpoint
 - 저빈도 polling(수십초) + 파생 많은 SSR 영역 → fragment endpoint(HTML) 교체 (P2 단일 진실 유지). 서버목록처럼 체크박스 선택·client 필터·직접 바인딩 이벤트가 있는 영역은 행만 교체 후 체크 상태·필터·이벤트를 복원 (discover 버튼 등 정적 요소는 교체 대상에서 보존). task-cell 모달처럼 event delegation 핸들러는 복원 불필요
-- 고빈도 polling / SSE 무한 → JSON + JS render (예외)
+- 고빈도 polling → JSON + JS render (예외)
 
 ## 시간 표기 — 단일 진실 (예외 0 의무)
 

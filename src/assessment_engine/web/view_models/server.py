@@ -79,7 +79,7 @@ class ServerListItem:
     known_services: list[ServiceItem] = field(default_factory=list)
     show_unknown_badge: bool = False
     os_display: str = ""
-    # 권장 조치 — 14일 USE Method 분류. 색은 도넛 _DONUT_SEGMENT_DEFS와 동기화. mapper 단일 결정 (P2).
+    # 권장 조치 — 7일 USE Method 분류. 색은 도넛 _DONUT_SEGMENT_DEFS와 동기화. mapper 단일 결정 (P2).
     # raws_period 부재 시 빈 문자열 (도넛/분류 데이터 없음 — 페이지 2+ 또는 신규 등록 직후).
     recommendation_label: str = ""
     recommendation_color: str = ""

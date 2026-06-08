@@ -13,9 +13,9 @@ description: TRIGGER when user requests commit ("커밋", "/commit", "commit it"
 
 ## 절차
 
-0. Pre-check (commit 직전 의무): `bash dev/local-ci.sh --fast` 실행. NG 항목 있으면 commit 진행 안 함, 원인 수정 후 재시도.
-   - 검증 범위는 `dev/local-ci.sh` 단일 진실 — skill 이 항목을 나열하지 않는다 (drift 차단).
-   - --fast 의 unit 은 트리거 전 회귀 차단용 — 메모리 "테스트 자동 실행 금지"(개발 흐름)와 구분되는 사용자 명시 정책.
+0. Pre-check (선택 — 기본은 생략, 단순 커밋): 일반 커밋은 바로 1로 진행한다. NG 게이트로 commit 을 막지 않는다.
+   - lint 자가검증이 필요하면 빠른 `uv run ruff format . && uv run ruff check .` 만 (선택). 전체 회귀 검증(`dev/local-ci.sh`)은 매 커밋 의무가 아니라 PR 생성/푸시 시점(develop·main 대상)에 수행 — wrap-up Stage 3·CI 책임.
+   - 최종 게이트는 git hook(`.githooks/commit-msg` type prefix·AI 메타·이모지 / `pre-push` main 직접 차단) — 스킬은 작성 가이드(opt-in).
 
 1. 다음 3개를 병렬 Bash로 실행:
    - `git status` (`-uall` 금지 — 메모리 폭주)

@@ -15,7 +15,7 @@ semver tag `v*` push 시 두 채널 동시 발행 — 운영자 선택권 (#A0 �
 | `SHA256SUMS` | 텍스트 (sha256sum 형식) | wheel·sdist 무결성 검증 |
 | `sbom.cdx.json` | CycloneDX JSON | 의존성 트리 명세 (CVE 추적) |
 | `*.sigstore.json` | Sigstore signature | `cosign verify-blob` 무결성·발행자 검증 |
-| `docker-compose.yml` + `.env.example` | compose + env 카탈로그 | 릴리즈 다운로드만으로 퀵스타트 — `ENGINE_IMAGE=ghcr.io/{org}/assessment-engine:0.1.0 docker compose up -d --no-build` 로 1.2 GHCR 이미지 pull (ADR 0033) |
+| `docker-compose.yml` (prod-safe base) + `.env.example` | compose base + env 카탈로그 | 빌드 없는 pull-and-run prod compose (ADR 0035). `build:` 키 없음 — 받은 base 에 `ENGINE_IMAGE`(또는 base 기본 핀)·`PGDATA_HOST`·`MQ_DATA_HOST`·`OLLAMA_*` 주입 후 `docker compose up -d` 로 1.2 GHCR 이미지 pull. base 의 `__ENGINE_VERSION__` 은 release CI 가 태그 semver(예 `0.1.0`)로 치환. dev 편의(빌드·bind mount)는 repo `docker-compose.override.yml`(릴리즈 미첨부) |
 
 wheel 안 force-include (`pyproject.toml` `[tool.hatch.build.targets.wheel].force-include`):
 - `assessment_engine/migrations/` — Alembic versions (ADR 0005)
@@ -27,7 +27,7 @@ wheel 안 force-include (`pyproject.toml` `[tool.hatch.build.targets.wheel].forc
 
 | 태그 | 의미 | 용도 |
 |------|------|------|
-| `ghcr.io/{org}/assessment-engine:0.1.0` | immutable 정확 버전 (semver, git tag `v0.1.0` -> 태그는 `v` 없는 `0.1.0`) | prod pin 권장 |
+| `ghcr.io/z-converter-assessment/assessment-engine:0.1.0` | immutable 정확 버전 (semver, git tag `v0.1.0` -> 태그는 `v` 없는 `0.1.0`) | prod pin 권장 |
 | `:0.1` | minor 최신 | minor patch auto-track |
 | `:0` | major 최신 | major lock |
 | `:latest` | stable release 최신 | dev 시연 / 모니터링 — prod 비추천 (변경 무경고) |
@@ -58,10 +58,11 @@ ADR 0023: scheduler cron 폐기로 4 컴포넌트 → 3 컴포넌트.
    git checkout main && git pull
    git tag v0.2.0 && git push origin v0.2.0
    ```
-   tag 생성은 tag ruleset이 허용 (deletion·non-fast-forward만 차단). "다음 버전" semver는 사람이 결정 (직전 tag 이후 `feat`/`fix`/`BREAKING` 비율 보고 — 필요 시 `git log <last-tag>..main`).
-4. tag push → `release.yml` 발사 (2 job 병렬):
-   - `release-wheel` job: checkout `fetch-depth: 0`(hatch-vcs가 tag 읽음) → `uv build` (wheel + sdist, 버전=tag) → SHA256SUMS → SBOM (cyclonedx-py) → Sigstore signing → GitHub Release 첨부
-   - `release-image` job: tag semver를 `--build-arg APP_VERSION`로 전달(Dockerfile이 `SETUPTOOLS_SCM_PRETEND_VERSION`로 hatch-vcs 주입 — 빌드 컨텍스트에 `.git` 없음) → docker buildx multi-arch (`linux/amd64,arm64`) → GHCR push → cosign keyless signing → BuildKit SBOM (SPDX)
+   tag 생성은 tag ruleset이 허용 (deletion·non-fast-forward만 차단). 단 `release.yml`이 stable semver `vX.Y.Z`만 수락 — prerelease/비정규 태그는 `resolve-version` job 형식 가드가 fail (ADR 0030 정정, prerelease 미지원). "다음 버전" semver는 사람이 결정 (직전 tag 이후 `feat`/`fix`/`BREAKING` 비율 보고 — 필요 시 `git log <last-tag>..main`).
+4. tag push → `release.yml` 발사:
+   - `resolve-version` job (앞단, 버전 derive 단일 진실): tag 형식 가드(A) → hatch-vcs(`uvx --with hatch-vcs hatch version`) 실측 PEP 440 버전 1회 산출 → job output `version`. 두 release job이 이 output을 받아쓴다 (ADR 0030 정정 C — tag derive 4경로 분산을 single-source로 수렴).
+   - `release-wheel` job (`needs: resolve-version`): checkout `fetch-depth: 0`(hatch-vcs가 tag 읽음) → `uv build` (wheel + sdist) → wheel 파일명 버전 == single source assert(B) → compose `__ENGINE_VERSION__` 핀 = job output 치환 → SHA256SUMS → SBOM (cyclonedx-py) → Sigstore signing → GitHub Release 첨부
+   - `release-image` job (`needs: resolve-version`): `metadata-action` `{{version}}` == single source assert(B) → 버전(job output)을 `--build-arg APP_VERSION`로 전달(Dockerfile이 `SETUPTOOLS_SCM_PRETEND_VERSION`로 hatch-vcs 주입 — 빌드 컨텍스트에 `.git` 없음) → docker buildx multi-arch (`linux/amd64,arm64`) → GHCR push → cosign keyless signing → BuildKit SBOM (SPDX). `metadata-action`은 `:X.Y`·`:X`·`:latest` alias 매핑 전용.
 
    release notes는 GitHub가 자동 생성 (`generate_release_notes: true`) — 누적 CHANGELOG 파일 미유지.
 
@@ -116,10 +117,11 @@ cd /tmp/release && sha256sum -c SHA256SUMS
 - ADR 0012 — wheel + GitHub Release 채택, Docker image·devpi·S3 등 옵션 비교
 - ADR 0013 — release-please 자동화 (Superseded by 0028)
 - ADR 0028 — Commitizen 전환 (Superseded by 0030)
-- ADR 0030 — tag-derived 버전 (hatch-vcs, 버전을 repo에 저장 안 함) — 현행
+- ADR 0030 — tag-derived 버전 (hatch-vcs, 버전을 repo에 저장 안 함) — 현행. 정정(2026-06-08): tag derive single-source(`resolve-version` job) + stable semver 가드 + 등가성 검증
+- ADR 0035 — prod-safe compose base 첨부 (build 키 없는 pull-and-run) + override(dev) 분리. base `__ENGINE_VERSION__` CI 치환, SHA256SUMS 에 compose·env 포함
 
 ## 7. 한계
 
-- semver tag 정책 운영 의무 — 본 repo는 tag 정책 명시 안 함 (추후 별도 결정)
+- semver tag 정책 — stable semver `vX.Y.Z`만 지원 (prerelease/RC 미지원, `resolve-version` job 형식 가드가 거부, ADR 0030 정정). prerelease 도입 시 PEP 440/SemVer 규약 통일 + 양쪽 도구 설정 정합 별도 ADR 의무. "다음 버전" 결정은 사람이 (semver 규칙 표 참조)
 - wheel arch 무관 (`py3-none-any`) — Python pure code라 arch·OS 의존성 0. 단, install 환경의 Python 3.12+ 필수 (`pyproject.toml` `requires-python`)
 - prod 운영 방식 자체 (systemd·k8s·docker 등) 강제 안 함 — 외부 인프라 자유 (#A0)

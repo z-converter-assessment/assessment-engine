@@ -1,7 +1,7 @@
 """config.py multi-node refactor 핵심 invariant — `_validate_prod_*` weak default 거부.
 
 본 테스트 영역은 prod 운영 안전망 단일 진실 (CLAUDE.md #A0·#F8·docs/operations/env.md 6절).
-APP_ENV=prod 시 weak default(`assessment`/`password`/`admin`/`root`/`changeme`/``)가 흘러가지
+APP_ENV=prod 시 weak default(`password`/`admin`/`root`/`changeme`/``)가 흘러가지
 못하게 차단. multi-node 분리 배포에서 web/consumer/diagnostic 각 노드가 자기 Settings만
 인스턴스화해도 본 검증이 노드별 작동 (Composition Root #F4 정합).
 """
@@ -9,7 +9,7 @@ APP_ENV=prod 시 weak default(`assessment`/`password`/`admin`/`root`/`changeme`/
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from assessment_engine.config import ConsumerSettings, DiagnosticSettings, WebSettings
+from assessment_engine.config import _WEAK_VALUES, ConsumerSettings, DiagnosticSettings, WebSettings
 
 
 def _web_kwargs(**overrides):
@@ -44,9 +44,9 @@ def _consumer_kwargs(**overrides):
 
 def test_web_settings_dev_default_passes():
     """app_env=dev면 weak default 그대로 허용 — 검증 skip."""
-    s = WebSettings(app_env="dev")  # 다른 모든 필드 default ("assessment" 등)
+    s = WebSettings(app_env="dev")  # user default "assessment", password default "changeme"
     assert s.app_env == "dev"
-    assert s.postgres_password.get_secret_value() == "assessment"
+    assert s.postgres_password.get_secret_value() == "changeme"
 
 
 def test_web_settings_prod_with_strong_defaults_passes():
@@ -56,7 +56,7 @@ def test_web_settings_prod_with_strong_defaults_passes():
     assert s.postgres_user == "strong_user"
 
 
-@pytest.mark.parametrize("weak_password", ["", "assessment", "password", "admin", "root", "changeme"])
+@pytest.mark.parametrize("weak_password", sorted(_WEAK_VALUES))
 def test_web_settings_prod_rejects_weak_postgres_password(weak_password):
     """POSTGRES_PASSWORD가 weak default면 ValidationError — `_WEAK_VALUES` 단일 진실."""
     with pytest.raises(ValidationError) as exc:
@@ -64,7 +64,7 @@ def test_web_settings_prod_rejects_weak_postgres_password(weak_password):
     assert "POSTGRES_PASSWORD" in str(exc.value)
 
 
-@pytest.mark.parametrize("weak_user", ["", "assessment", "admin", "root"])
+@pytest.mark.parametrize("weak_user", sorted(_WEAK_VALUES))
 def test_web_settings_prod_rejects_weak_postgres_user(weak_user):
     """POSTGRES_USER도 weak default 거부 — 사용자 식별까지 강제."""
     with pytest.raises(ValidationError) as exc:
@@ -81,7 +81,7 @@ def test_consumer_settings_prod_with_strong_defaults_passes():
     assert s.rabbitmq_user == "strong_mq_user"
 
 
-@pytest.mark.parametrize("weak_password", ["", "assessment", "password", "admin"])
+@pytest.mark.parametrize("weak_password", sorted(_WEAK_VALUES))
 def test_consumer_settings_prod_rejects_weak_rabbitmq_password(weak_password):
     """RABBITMQ_PASSWORD weak default 거부 — broker 자격 보호."""
     with pytest.raises(ValidationError) as exc:
@@ -89,7 +89,7 @@ def test_consumer_settings_prod_rejects_weak_rabbitmq_password(weak_password):
     assert "RABBITMQ_PASSWORD" in str(exc.value)
 
 
-@pytest.mark.parametrize("weak_user", ["", "assessment", "admin", "root"])
+@pytest.mark.parametrize("weak_user", sorted(_WEAK_VALUES))
 def test_consumer_settings_prod_rejects_weak_rabbitmq_user(weak_user):
     """RABBITMQ_USER도 weak default 거부."""
     with pytest.raises(ValidationError) as exc:
@@ -100,7 +100,7 @@ def test_consumer_settings_prod_rejects_weak_rabbitmq_user(weak_user):
 def test_consumer_settings_prod_inherits_web_validation():
     """ConsumerSettings은 WebSettings 상속 — POSTGRES_PASSWORD weak도 거부 의무."""
     with pytest.raises(ValidationError) as exc:
-        ConsumerSettings(**_consumer_kwargs(postgres_password=SecretStr("assessment")))
+        ConsumerSettings(**_consumer_kwargs(postgres_password=SecretStr("changeme")))
     assert "POSTGRES_PASSWORD" in str(exc.value)
 
 

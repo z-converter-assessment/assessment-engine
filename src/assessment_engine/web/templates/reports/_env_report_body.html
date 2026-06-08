@@ -1,21 +1,21 @@
 {% from "_shared.html" import empty_state, service_legend, detail_server_list %}
-{# 구성 계층 막대 (P-A) — 단일 색 분포 막대 (P-E). OS·워크로드 공용. customer·engineer 동일 호출. #}
+{# 구성 계층 막대 (P-A) — 단일 색 분포 막대 (P-E), 게이지 테마색(#3b82f6) 통일. OS·워크로드 공용. customer·engineer 동일 호출. #}
 {% macro config_dist(title, bars, unknown_count, unknown_label, count_unit) %}
 <div>
-  <div style="font-size:12px; color:#64748b; margin-bottom:8px;">{{ title }}</div>
+  <div class="text-sm text-muted" style="margin-bottom:8px;">{{ title }}</div>
   {% if bars %}
   <div style="display:flex; flex-direction:column; gap:6px;">
     {% for b in bars %}
     <div style="display:flex; align-items:center; gap:10px;">
-      <div style="width:96px; font-size:12px; color:#1e293b;">{{ b.label }}</div>
+      <div class="text-sm text-strong" style="width:96px;">{{ b.label }}</div>
       <div class="bar-track" style="flex:1; background:#f1f5f9; border-radius:4px; height:16px; overflow:hidden;">
-        <div class="bar-fill" style="width:{{ b.pct }}%; background:#94a3b8; height:100%;"></div>
+        <div class="bar-fill" style="width:{{ b.pct }}%; background:#3b82f6; height:100%;"></div>
       </div>
-      <div style="width:44px; text-align:right; font-size:12px; color:#64748b;">{{ b.count }}{{ count_unit }}</div>
+      <div class="text-sm text-muted" style="width:44px; text-align:right;">{{ b.count }}{{ count_unit }}</div>
     </div>
     {% endfor %}
   </div>
-  {% if unknown_count %}<div style="margin-top:6px; font-size:11px; color:#94a3b8;">{{ unknown_label }} {{ unknown_count }}대</div>{% endif %}
+  {% if unknown_count %}<div class="text-xs text-meta" style="margin-top:6px;">{{ unknown_label }} {{ unknown_count }}대</div>{% endif %}
   {% else %}
   {{ empty_state("수집된 구성 정보가 없습니다.") }}
   {% endif %}
@@ -26,7 +26,7 @@
    customer·engineer 공용 (환경·선택). self_back = 호스트 링크 back chain. #}
 {% macro service_config_card(catalog, view, self_back) %}
 <section class="card" style="margin-bottom:16px;">
-  <h2>서비스 구성 <span class="section-meta">분류(색) · 서비스명 (구동 서버 수){% if view == "engineer" %} · 구동 호스트{% endif %}</span></h2>
+  <h2 class="card-title">서비스 구성 <span class="section-meta">분류(색) · 서비스명 (구동 서버 수){% if view == "engineer" %} · 구동 호스트{% endif %}</span></h2>
   {% if catalog %}
   {# 범례 — 분류 뱃지 (색 매핑) #}
   <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid #e2e8f0;">
@@ -41,17 +41,17 @@
         {% for s in g.services %}
         <span style="display:inline-flex; align-items:baseline; gap:6px;">
           <span class="badge {{ g.category | service_badge_class }}" style="flex-shrink:0;">{{ s.name }} ({{ s.count }})</span>
-          <span style="font-size:10px; color:#94a3b8; line-height:1.7;">{% for h in s.hosts %}<a href="/servers/{{ h.public_id }}?back={{ self_back }}" class="row-link" style="font-size:10px;">{{ h.hostname }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</span>
+          <span class="text-xs text-meta" style="line-height:1.7;">{% for h in s.hosts %}<a href="/servers/{{ h.public_id }}?back={{ self_back }}" class="row-link">{{ h.hostname }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</span>
         </span>
         {% endfor %}
       {% else %}
-        <span class="badge {{ g.category | service_badge_class }}">{{ g.category }}</span><span class="text-meta" style="font-size:11px;">제품명 미상 (listen 소켓 탐지)</span>
+        <span class="badge {{ g.category | service_badge_class }}">{{ g.category }}</span><span class="text-xs text-meta">제품명 미상 (listen 소켓 탐지)</span>
       {% endif %}
       </div>
     {% else %}
       {# customer — 분류별 한 줄, 서비스 뱃지 나열 (호스트 숨김) #}
       <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
-        {% if g.services %}{% for s in g.services %}<span class="badge {{ g.category | service_badge_class }}">{{ s.name }} ({{ s.count }})</span>{% endfor %}{% else %}<span class="badge {{ g.category | service_badge_class }}">{{ g.category }}</span><span class="text-meta" style="font-size:11px;">제품명 미상 (listen 소켓 탐지)</span>{% endif %}
+        {% if g.services %}{% for s in g.services %}<span class="badge {{ g.category | service_badge_class }}">{{ s.name }} ({{ s.count }})</span>{% endfor %}{% else %}<span class="badge {{ g.category | service_badge_class }}">{{ g.category }}</span><span class="text-xs text-meta">제품명 미상 (listen 소켓 탐지)</span>{% endif %}
       </div>
     {% endif %}
     {% endfor %}
@@ -65,8 +65,8 @@
 {% if summary.view == "customer" %}
 {# ============================= 양식 A — 고객 제출용 ============================= #}
 <section class="card" style="margin-bottom:16px;">
-  <h2>요약</h2>
-  <ul style="margin:0; padding-left:20px; color:#1e293b; line-height:1.8;">
+  <h2 class="card-title">요약</h2>
+  <ul class="text-strong" style="margin:0; padding-left:20px; line-height:1.8;">
     {% for b in summary.summary_bullets_env %}
     <li>{{ b }}</li>
     {% endfor %}
@@ -74,19 +74,18 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>환경 구성</h2>
-  <p style="margin:0 0 14px; font-size:12px; color:#64748b;">이 환경이 무엇으로 이루어졌는지 — OS·워크로드 구성.</p>
+  <h2 class="card-title">환경 구성</h2>
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
     {{ config_dist("OS 구성", summary.os_family_dist, 0, "", "대") }}
-    {{ config_dist("워크로드 구성", summary.workload_dist, summary.workload_unknown_count, "역할 분류 미상", "개") }}
+    {{ config_dist("워크로드 구성", summary.workload_dist, summary.workload_unknown_count, "워크로드 분류 미상", "개") }}
   </div>
 </section>
 
 {{ service_config_card(summary.service_catalog, summary.view, self_back) }}
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>환경 요약</h2>
-  <div class="metric-grid" style="grid-template-columns:repeat(4, 1fr);">
+  <h2 class="card-title">환경 요약</h2>
+  <div class="metric-grid metric-grid-4">
     <div class="metric-card">
       <div class="metric-label">등록 서버</div>
       <div class="metric-value">{{ summary.overview.total }}대</div>
@@ -106,14 +105,14 @@
     </div>
   </div>
   <div style="margin-top:14px;">
-    <div style="font-size:12px; color:#64748b; margin-bottom:6px;">평균 활용률{% if summary.overview.utilization %} ({{ summary.overview.util_sample_size }}대 표본 · {{ summary.time_range_label }}){% endif %}</div>
+    <div class="text-sm text-muted" style="margin-bottom:6px;">평균 활용률{% if summary.overview.utilization %} ({{ summary.overview.util_sample_size }}대 표본 · {{ summary.time_range_label }}){% endif %}</div>
     {% if summary.overview.utilization %}
     <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;">
       {% for u in summary.overview.utilization %}
       <div>
-        <div style="display:flex; justify-content:space-between; font-size:12px; color:#475569;">
+        <div class="text-sm text-label" style="display:flex; justify-content:space-between;">
           <span>{{ u.label }}</span>
-          <span style="font-weight:700; font-size:15px; color:#1e293b;">{% if u.pct is not none %}{{ "%.1f" | format(u.pct) }}%{% else %}—{% endif %}</span>
+          <span class="metric-inline text-strong">{% if u.pct is not none %}{{ "%.1f" | format(u.pct) }}%{% else %}—{% endif %}</span>
         </div>
         <div class="bar-track" style="background:#f1f5f9; border-radius:4px; height:8px; overflow:hidden; margin-top:4px;">
           <div class="bar-fill" style="width:{{ u.pct or 0 }}%; background:{{ u.bar_color }}; height:100%;"></div>
@@ -129,7 +128,7 @@
 
 <section class="card" style="margin-bottom:16px;">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #e2e8f0;">
-    <h2>Right-sizing 평가</h2>
+    <h2 class="card-title">Right-sizing 평가</h2>
     <span class="section-meta">평가 대상 {{ summary.evaluated_count }}대 (전체 {{ summary.overview.total }}대) · {{ summary.time_range_label }} 윈도우</span>
   </div>
 
@@ -137,19 +136,19 @@
   <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:20px;">
     {% for c in summary.classification_dist %}
     <div style="display:flex; align-items:center; gap:10px;">
-      <div style="width:160px; font-size:12px; color:#1e293b;">{{ c.label }}</div>
+      <div class="text-sm text-strong" style="width:160px;">{{ c.label }}</div>
       <div class="bar-track" style="flex:1; background:#f1f5f9; border-radius:4px; height:18px; overflow:hidden;">
         <div class="bar-fill" style="width:{{ c.pct }}%; background:{{ c.color }}; height:100%;"></div>
       </div>
-      <div style="width:48px; text-align:right; font-size:12px; color:#64748b;">{{ c.count }}대</div>
-      <div style="width:200px; font-size:11px; color:#94a3b8;">{{ c.description }}</div>
+      <div class="text-sm text-muted" style="width:48px; text-align:right;">{{ c.count }}대</div>
+      <div class="text-xs text-meta" style="width:200px;">{{ c.description }}</div>
     </div>
     {% endfor %}
   </div>
 
   <h3>효율화 검토 대상</h3>
   {% if summary.efficiency_target_count %}
-  <p style="margin:0 0 20px; font-size:12px; color:#475569;">
+  <p class="text-sm text-label" style="margin:0 0 20px;">
     과다 프로비저닝·유휴·종료 권장 {{ summary.efficiency_target_count }}대 — 총 {{ summary.efficiency_target_vcpus }} vCPU · {{ "%.1f" | format(summary.efficiency_target_memory_gb) }} GB 점유. 전환 시 사양 최적화 여지.
   </p>
   {% else %}
@@ -171,7 +170,7 @@
       <tr>
         <td><a href="/servers/{{ r.public_id }}?back={{ self_back }}" class="row-link">{{ r.hostname }}</a></td>
         <td><span class="badge {{ r.badge_class }}">{{ r.recommendation_label }}</span></td>
-        <td class="text-strong" style="font-size:12px;">{{ r.recommendation_action or "—" }}</td>
+        <td class="text-strong">{{ r.recommendation_action or "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -182,9 +181,9 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>OS 지원 종료 <span class="section-meta">운영 신호 — 자원 평가(right-sizing)와 별개</span></h2>
+  <h2 class="card-title">OS 지원 종료 <span class="section-meta">운영 신호 — 자원 평가(right-sizing)와 별개</span></h2>
   {% if summary.os_eol_count %}
-  <p style="margin:0; font-size:14px; color:#1e293b;">지원 종료(EOL) 임박·경과 {{ summary.os_eol_count }}대 — 보안 패치 중단으로 전환·업그레이드 선행 검토.</p>
+  <p class="text-strong" style="margin:0;">지원 종료(EOL) 임박·경과 {{ summary.os_eol_count }}대 — 보안 패치 중단으로 전환·업그레이드 선행 검토.</p>
   {% else %}
   {{ empty_state("지원 종료(EOL) 임박·경과 호스트 없음.") }}
   {% endif %}
@@ -194,8 +193,8 @@
 {# ============================= 양식 B — 엔지니어 검토용 (상세·엄밀) ============================= #}
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>요약</h2>
-  <ul style="margin:0; padding-left:20px; color:#1e293b; line-height:1.8;">
+  <h2 class="card-title">요약</h2>
+  <ul class="text-strong" style="margin:0; padding-left:20px; line-height:1.8;">
     {% for b in summary.summary_bullets_env %}
     <li>{{ b }}</li>
     {% endfor %}
@@ -207,37 +206,36 @@
 {% if narrative_key %}
 {% set n = narratives.get(narrative_key) %}
 <section class="card" data-narrative-slot data-narrative-key="{{ narrative_key }}" style="margin-bottom:16px;">
-  <h2>AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
+  <h2 class="card-title">AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
   {% if n and n.status == 'succeeded' and n.narrative %}
-  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; line-height:1.6; font-size:14px; color:#1e293b;">{{ n.narrative }}</div>
-  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
+  <div class="diag-inline-body text-strong">{{ n.narrative }}</div>
+  <div class="diag-inline-meta"></div>
   {% elif n and n.status == 'failed' %}
-  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; color:#64748b; font-size:13px;">AI 진단 실패 — narrative 합성 실패.</div>
-  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
+  <div class="diag-inline-body text-muted">AI 진단 실패 — narrative 합성 실패.</div>
+  <div class="diag-inline-meta"></div>
   {% else %}
-  <div class="diag-inline-body" style="padding:14px; background:#f8fafc; border-radius:6px; color:#64748b; font-size:13px;">
+  <div class="diag-inline-body text-muted">
     {% if report_job_id %}AI 진단 진행 중 (LLM 합성 10~60초 소요). 자동 폴링으로 결과 표시.{% else %}발행 시 생성.{% endif %}
   </div>
-  <div class="diag-inline-meta" style="margin-top:8px; font-size:12px; color:#94a3b8;"></div>
+  <div class="diag-inline-meta"></div>
   {% endif %}
 </section>
 {% endif %}
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>환경 구성</h2>
-  <p style="margin:0 0 14px; font-size:12px; color:#64748b;">이 환경이 무엇으로 이루어졌는지 — OS·워크로드 구성.</p>
+  <h2 class="card-title">환경 구성</h2>
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
     {{ config_dist("OS 구성", summary.os_family_dist, 0, "", "대") }}
-    {{ config_dist("워크로드 구성", summary.workload_dist, summary.workload_unknown_count, "역할 분류 미상", "개") }}
+    {{ config_dist("워크로드 구성", summary.workload_dist, summary.workload_unknown_count, "워크로드 분류 미상", "개") }}
   </div>
 </section>
 
 {{ service_config_card(summary.service_catalog, summary.view, self_back) }}
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>환경 현황</h2>
+  <h2 class="card-title">환경 현황</h2>
   <h3>인벤토리</h3>
-  <div class="metric-grid" style="grid-template-columns:repeat(4, 1fr);">
+  <div class="metric-grid metric-grid-4">
     <div class="metric-card">
       <div class="metric-label">등록 서버</div>
       <div class="metric-value">{{ summary.overview.total }}대</div>
@@ -258,14 +256,14 @@
   </div>
   <h3 style="margin-top:18px;">메트릭</h3>
   <div style="margin-top:14px;">
-    <div style="font-size:12px; color:#64748b; margin-bottom:6px;">평균 활용률{% if summary.overview.utilization %} ({{ summary.overview.util_sample_size }}대 표본 · {{ summary.time_range_label }}){% endif %}</div>
+    <div class="text-sm text-muted" style="margin-bottom:6px;">평균 활용률{% if summary.overview.utilization %} ({{ summary.overview.util_sample_size }}대 표본 · {{ summary.time_range_label }}){% endif %}</div>
     {% if summary.overview.utilization %}
     <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;">
       {% for u in summary.overview.utilization %}
       <div>
-        <div style="display:flex; justify-content:space-between; font-size:12px; color:#475569;">
+        <div class="text-sm text-label" style="display:flex; justify-content:space-between;">
           <span>{{ u.label }}</span>
-          <span style="font-weight:700; font-size:15px; color:#1e293b;">{% if u.pct is not none %}{{ "%.1f" | format(u.pct) }}%{% else %}—{% endif %}</span>
+          <span class="metric-inline text-strong">{% if u.pct is not none %}{{ "%.1f" | format(u.pct) }}%{% else %}—{% endif %}</span>
         </div>
         <div class="bar-track" style="background:#f1f5f9; border-radius:4px; height:8px; overflow:hidden; margin-top:4px;">
           <div class="bar-fill" style="width:{{ u.pct or 0 }}%; background:{{ u.bar_color }}; height:100%;"></div>
@@ -278,17 +276,20 @@
     {% endif %}
   </div>
   <div style="margin-top:14px;">
-    <div style="font-size:12px; color:#64748b; margin-bottom:6px;">p95 활용률{% if summary.base.avg_cpu_p95_pct is not none or summary.base.avg_mem_p95_pct is not none %} ({{ summary.base.total }}대 표본 · {{ summary.time_range_label }}){% endif %}</div>
-    {% if summary.base.avg_cpu_p95_pct is not none or summary.base.avg_mem_p95_pct is not none %}
-    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;">
+    <div class="text-sm text-muted" style="margin-bottom:6px;">p95 활용률{% if summary.overview.utilization_p95 %} ({{ summary.overview.util_sample_size }}대 표본 · {{ summary.time_range_label }}){% endif %}</div>
+    {% if summary.overview.utilization_p95 %}
+    <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:10px;">
+      {% for u in summary.overview.utilization_p95 %}
       <div>
-        <div style="display:flex; justify-content:space-between; font-size:12px; color:#475569;"><span>CPU</span><span style="font-weight:700; font-size:15px; color:#1e293b;">{% if summary.base.avg_cpu_p95_pct is not none %}{{ "%.1f" | format(summary.base.avg_cpu_p95_pct) }}%{% else %}—{% endif %}</span></div>
-        <div class="bar-track" style="background:#f1f5f9; border-radius:4px; height:8px; overflow:hidden; margin-top:4px;"><div class="bar-fill" style="width:{{ summary.base.avg_cpu_p95_pct or 0 }}%; background:#3b82f6; height:100%;"></div></div>
+        <div class="text-sm text-label" style="display:flex; justify-content:space-between;">
+          <span>{{ u.label }}</span>
+          <span class="metric-inline text-strong">{% if u.pct is not none %}{{ "%.1f" | format(u.pct) }}%{% else %}—{% endif %}</span>
+        </div>
+        <div class="bar-track" style="background:#f1f5f9; border-radius:4px; height:8px; overflow:hidden; margin-top:4px;">
+          <div class="bar-fill" style="width:{{ u.pct or 0 }}%; background:{{ u.bar_color }}; height:100%;"></div>
+        </div>
       </div>
-      <div>
-        <div style="display:flex; justify-content:space-between; font-size:12px; color:#475569;"><span>메모리</span><span style="font-weight:700; font-size:15px; color:#1e293b;">{% if summary.base.avg_mem_p95_pct is not none %}{{ "%.1f" | format(summary.base.avg_mem_p95_pct) }}%{% else %}—{% endif %}</span></div>
-        <div class="bar-track" style="background:#f1f5f9; border-radius:4px; height:8px; overflow:hidden; margin-top:4px;"><div class="bar-fill" style="width:{{ summary.base.avg_mem_p95_pct or 0 }}%; background:#3b82f6; height:100%;"></div></div>
-      </div>
+      {% endfor %}
     </div>
     {% else %}
     {{ empty_state("p95 표본이 아직 없습니다.") }}
@@ -300,16 +301,16 @@
 <section class="card" style="margin-bottom:16px;">
   <div class="env-dual" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap:24px; align-items:start;">
     <div>
-      <h2 style="margin:0 0 12px;">환경 부하 추이 <span class="section-meta">{{ summary.time_range_label }} 윈도우 · CPU·메모리 평균</span></h2>
+      <h2 class="card-title" style="margin:0 0 12px;">환경 부하 추이 <span class="section-meta">{{ summary.time_range_label }} 윈도우 · CPU·메모리 평균</span></h2>
       {% if summary.trend %}
       <div style="height:320px;"><canvas id="env-trend-chart" data-trend='{{ summary.trend | tojson }}' data-range="{{ summary.time_range }}"></canvas></div>
-      <p class="chart-desc" style="margin:10px 0 0;">이 차트는 발행 시 선택한 {{ summary.time_range_label }} 시간 구간을 기준으로, 그 안에서 수집 이력이 있는 범위만 동적으로 x축에 표시합니다(빈 구간 미표시) — 윈도우보다 데이터가 짧으면 있는 기간으로 정규화, 버킷 간격만 윈도우 기준 고정. 서버 상세 차트(윈도우 전체를 빈 구간 포함 표기)와 x축 범위가 다를 수 있습니다.</p>
+      <p class="chart-desc" style="margin:10px 0 0;">{{ summary.time_range_label }} 구간 · 수집 이력이 있는 범위만 표시. 상세 정의는 참고자료.</p>
       {% else %}
       {{ empty_state("추이 표본이 아직 없습니다.") }}
       {% endif %}
     </div>
     <div>
-      <h2 style="margin:0 0 12px;">네트워크 토폴로지{% if summary.topology and summary.topology.has_data %} <span class="section-meta">(서브넷 {{ summary.topology.subnet_count }} · 호스트 {{ summary.topology.host_count }}{% if summary.topology.multi_homed_count > 0 %} · 멀티홈 {{ summary.topology.multi_homed_count }}{% endif %}{% if summary.topology.isolated_count > 0 %} · 미연결 {{ summary.topology.isolated_count }}{% endif %})</span>{% endif %}</h2>
+      <h2 class="card-title" style="margin:0 0 12px;">네트워크 토폴로지{% if summary.topology and summary.topology.has_data %} <span class="section-meta">(서브넷 {{ summary.topology.subnet_count }} · 호스트 {{ summary.topology.host_count }}{% if summary.topology.multi_homed_count > 0 %} · 멀티홈 {{ summary.topology.multi_homed_count }}{% endif %}{% if summary.topology.isolated_count > 0 %} · 미연결 {{ summary.topology.isolated_count }}{% endif %})</span>{% endif %}</h2>
       {% if summary.topology and summary.topology.has_data %}
       <div style="position:relative;">
         <div id="topology-graph" style="height:320px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc;"
@@ -320,17 +321,13 @@
           <button type="button" class="chart-anchor" data-topo-zoom="fit" title="전체 보기" style="width:32px; height:32px; padding:0; font-size:10px; text-align:center;">전체</button>
         </div>
       </div>
-      <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; font-size:11px; color:#64748b;">
+      <div class="text-xs text-muted" style="display:flex; gap:14px; flex-wrap:wrap; margin-top:10px;">
         <span><span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:#64748b; vertical-align:middle;"></span> 서브넷</span>
         <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#3b82f6; vertical-align:middle;"></span> Linux</span>
         <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#0ea5e9; vertical-align:middle;"></span> Windows</span>
         <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#f59e0b; vertical-align:middle;"></span> 멀티홈(라우팅 지점)</span>
       </div>
-      {% if summary.topology.caveats %}
-      <ul style="margin:10px 0 0; padding-left:18px; font-size:11px; line-height:1.6; color:#94a3b8;">
-        {% for c in summary.topology.caveats %}<li>{{ c }}</li>{% endfor %}
-      </ul>
-      {% endif %}
+      <p class="chart-desc" style="margin:10px 0 0;">추론 토폴로지 — 상세·한계는 참고자료.</p>
       {% else %}
       {{ empty_state("공유 서브넷이 없습니다 — IP 토폴로지로 표시할 데이터가 없습니다.") }}
       {% endif %}
@@ -340,7 +337,7 @@
 
 <section class="card" style="margin-bottom:16px;">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #e2e8f0;">
-    <h2>Right-sizing 분류</h2>
+    <h2 class="card-title">Right-sizing 분류</h2>
     <span class="section-meta">{{ summary.time_range_label }} 윈도우</span>
   </div>
 
@@ -348,19 +345,19 @@
   <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:20px;">
     {% for c in summary.classification_dist %}
     <div style="display:flex; align-items:center; gap:10px;">
-      <div style="width:160px; font-size:12px; color:#1e293b;">{{ c.label }}</div>
+      <div class="text-sm text-strong" style="width:160px;">{{ c.label }}</div>
       <div class="bar-track" style="flex:1; background:#f1f5f9; border-radius:4px; height:18px; overflow:hidden;">
         <div class="bar-fill" style="width:{{ c.pct }}%; background:{{ c.color }}; height:100%;"></div>
       </div>
-      <div style="width:48px; text-align:right; font-size:12px; color:#64748b;">{{ c.count }}대</div>
-      <div style="width:240px; font-size:11px; color:#94a3b8;">{{ c.description }}</div>
+      <div class="text-sm text-muted" style="width:48px; text-align:right;">{{ c.count }}대</div>
+      <div class="text-xs text-meta" style="width:240px;">{{ c.description }}</div>
     </div>
     {% endfor %}
   </div>
 
   <h3>효율화 검토 대상</h3>
   {% if summary.efficiency_target_count %}
-  <p style="margin:0 0 20px; font-size:12px; color:#475569;">
+  <p class="text-sm text-label" style="margin:0 0 20px;">
     과다 프로비저닝·유휴·종료 권장 {{ summary.efficiency_target_count }}대 — 총 {{ summary.efficiency_target_vcpus }} vCPU · {{ "%.1f" | format(summary.efficiency_target_memory_gb) }} GB 점유. 전환 시 사양 최적화 여지.
   </p>
   {% else %}
@@ -389,11 +386,11 @@
 
 <section class="card" style="margin-bottom:16px;">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #e2e8f0;">
-    <h2>OS 지원 종료</h2>
+    <h2 class="card-title">OS 지원 종료</h2>
     <span class="section-meta">EOL 임박·경과 호스트 (재부팅·에이전트 안정성은 아래 호스트 상세 표 reboot 컬럼)</span>
   </div>
   {% if summary.attention.os_eol_warnings %}
-  <table style="font-size:12px;">
+  <table>
     <thead>
       <tr><th>호스트</th><th>OS / 지원 종료</th></tr>
     </thead>
@@ -401,7 +398,7 @@
       {% for row in summary.attention.os_eol_warnings %}
       <tr>
         <td><a href="{{ row.link_href }}?back={{ self_back }}" class="row-link">{{ row.link_text }}</a></td>
-        <td style="font-size:11px;">{{ row.meta_text }}</td>
+        <td>{{ row.meta_text }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -412,9 +409,9 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>OS 분포</h2>
+  <h2 class="card-title">OS 분포</h2>
   {% if summary.os_distribution %}
-  <table style="font-size:12px;">
+  <table>
     <thead>
       <tr><th>OS</th><th>서버 수</th></tr>
     </thead>
@@ -428,15 +425,15 @@
     </tbody>
   </table>
   {% else %}
-  <p style="color:#94a3b8; font-size:13px; margin:0;">OS 정보 수집된 서버 없음.</p>
+  {{ empty_state("OS 정보 수집된 서버 없음.") }}
   {% endif %}
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2>평가 표본 부족 호스트 ({{ summary.insufficient_hosts_count }}건)</h2>
-  <p style="margin:0 0 12px; font-size:12px; color:#64748b;">에이전트 신규 설치 또는 메트릭 수집 문제 — 평가 정확도 확보 위해 점검 필요.</p>
+  <h2 class="card-title">평가 표본 부족 호스트 ({{ summary.insufficient_hosts_count }}건)</h2>
+  <p class="text-sm text-muted" style="margin:0 0 12px;">에이전트 신규 설치 또는 메트릭 수집 문제 — 평가 정확도 확보 위해 점검 필요.</p>
   {% if summary.insufficient_hosts %}
-  <table style="font-size:12px;">
+  <table>
     <thead>
       <tr><th>호스트</th><th>OS</th><th>원인</th></tr>
     </thead>

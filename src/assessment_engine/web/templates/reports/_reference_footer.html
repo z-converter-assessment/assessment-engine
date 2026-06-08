@@ -1,22 +1,10 @@
 {#
   보고서 꼬리 참고자료 블록 (D3) — 전 보고서(환경·N대·개별 x customer·engineer) 공통.
-  화면: 링크로 절제 노출(본문 길이 억제, 웹 우선). 인쇄: 전문 펼침 -> 인쇄본 단독으로 근거 완결(P-B).
+  화면: 대시보드 하단과 동일한 경량 링크(_reference_link.html 재사용 — 화면 링크 마크업 단일 진실).
+  인쇄: 임계값 전문 펼침 -> 인쇄본 단독으로 근거 완결(P-B).
   소비처는 self_back 컨텍스트 변수를 제공해야 함 (← 이전 back chain).
 #}
-<section class="card no-print" style="margin-bottom:16px; background:#f8fafc;">
-  <h2>참고자료</h2>
-  <p style="margin:0 0 8px; font-size:13px; color:#475569;">
-    {% if view == "engineer" %}
-    이 보고서의 판정 근거 — Right-sizing 분류 임계값, USE 축(Utilization·Saturation) 정의, 보조 지표(p95·peak·변동성·saturation·iowait·메모리 구성·CPU 분류) 정의, 부하 추이·마운트별 스토리지 표기, 운영 신호(OS 지원 종료 등) 임계:
-    {% else %}
-    이 보고서의 Right-sizing 분류(리소스 부족·과다 프로비저닝·유휴·종료 권장·정상) 판정 기준, 그리고 OS 지원 종료(endoflife.date 기준) 신호. 사용률 통계는 평균·p95(작은 값부터 정렬해 95% 위치 값 — 상위 5%만 초과)·peak(최댓값)로 표기 — 분류 임계값과 근거 출처:
-    {% endif %}
-  </p>
-  <p style="margin:0; font-size:13px;">
-    <a href="/reports/right-sizing-thresholds?back={{ self_back }}" class="row-link">Right-sizing 분류 임계값 (참고자료)</a>
-    <span style="color:#94a3b8;">— 인쇄 시 본 보고서 말미에 전문이 함께 출력됩니다.</span>
-  </p>
-</section>
+{% include "_reference_link.html" %}
 
 <div class="print-only" style="page-break-before: always;">
   <h1 style="font-size:18px; margin:0 0 16px;">참고자료 — Right-sizing 분류 임계값</h1>

@@ -16,7 +16,7 @@ dev-up.sh 가 자동 확보 (sibling repo cross-build 또는 release artifact fe
 ### 1. 엔진만 기동 (가장 단순)
 
 ```bash
-# compose 는 루트 docker-compose.yml 단일 (ADR 0033). dev 는 dev/.env(dev 카탈로그)를 env_file 로 인식.
+# compose 는 루트 docker-compose.yml(base) + docker-compose.override.yml(dev) 자동 머지 (ADR 0035·0036). dev 는 dev/.env 를 env_file 로 인식.
 cp dev/.env.example dev/.env
 ENV_FILE=dev/.env docker compose up --build -d   # web + consumer + diagnostic + DB + MQ + Redis 한 번에
 ENV_FILE=dev/.env docker compose down -v         # 종료 (데이터 삭제)
@@ -60,7 +60,6 @@ dev 전체 endpoint 가 plain HTTP port 8000. prod 외부 ingress 종단은 외�
 |------|------|
 | http://localhost:8000/servers/ | 대시보드 Web UI — 모든 SSR 페이지의 진입점 |
 | http://localhost:8000/health | 헬스체크 (외부 monitoring 용) |
-| http://localhost:8000/metrics | Prometheus scrape target — prod 외부 노출 금지 (reverse proxy internal-only) |
 | http://localhost:8000/docs | FastAPI Swagger UI (REST API contract) |
 | http://localhost:8000/download/ZConverter_CloudSource_Setup_Linux.tar.gz | dev 한정 ZDM mock endpoint (ADR 0018). agent worker 가 fetch. prod 등록 안 됨 |
 | http://localhost:15672 | RabbitMQ 관리 콘솔 (외부 GUI) |
@@ -70,8 +69,7 @@ dev 전체 endpoint 가 plain HTTP port 8000. prod 외부 ingress 종단은 외�
 
 | 항목 | 역할 | git |
 |------|------|-----|
-| `docker-compose.yml` | 엔진 dev compose (web + consumer + diagnostic + DB + MQ + Redis) | 커밋 |
-| `.env.example` | dev compose 기준 환경변수 카탈로그 (`cp dev/.env.example dev/.env`) | 커밋 |
+| `.env.example` | dev 파이프라인 환경변수 카탈로그 (`cp dev/.env.example dev/.env`) | 커밋 |
 | `.env` | dev compose 실값 | gitignore |
 | `agent-build/Dockerfile` | agent 빌드 Dockerfile (debian:bookworm-slim base, vendored static link) | 커밋 |
 | `agent-build/build.sh` | agent cross-build 스크립트 (sibling repo buildx 호출) | 커밋 |

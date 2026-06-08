@@ -42,7 +42,7 @@
 
 질문 3: "고객사·내부 보고 시 자원 현황을 어떻게 요약하는가?"
 
-고객 미팅·내부 정기 보고에서 환경 자원 현황을 한 줄로 표현 가능 — "14일 평가 기준 평가 가능 23대 중 over-provisioned 5대·under-provisioned 2대·optimal 16대, 우선 검토는 over-provisioned 다운사이즈". customer view 보고서는 한 장 KPI·자동 요약, engineer view 는 정량 분석 추가.
+고객 미팅·내부 정기 보고에서 환경 자원 현황을 한 줄로 표현 가능 — "7일 평가 기준 평가 가능 23대 중 over-provisioned 5대·under-provisioned 2대·optimal 16대, 우선 검토는 over-provisioned 다운사이즈". customer view 보고서는 한 장 KPI·자동 요약, engineer view 는 정량 분석 추가.
 
 ## 산출 정보
 
@@ -54,7 +54,7 @@
 | 환경 구성 (OS·워크로드) | OS family(Windows/Linux) 막대 + 워크로드 카테고리(web/db/cache/mq/container/monitor) 막대 — 단일색 분포 막대 + 카운트. "이 환경이 무엇으로 이루어졌는지"(P-A 구성 계층). customer·engineer 공통 | `overview.os_distribution`(family) / `overview.role_distribution` |
 | 환경 총 자원 | 총 vCPU / 메모리 / 디스크 | inventory 합산 |
 | 분류 분포 | right-sizing 6분류 카운트 막대 (한국어 분류명 LABEL_KO, 영어 enum 미노출) | `recommendation.assess` |
-| 환경 부하 추이 (시계열) | CPU·메모리·디스크 평균 추이 차트. 보고서=발행 윈도우 정적 스냅샷 / 대시보드=14일 live | `environment_metric_trend` |
+| 환경 부하 추이 (시계열) | CPU·메모리·디스크 평균 추이 차트. 보고서=발행 윈도우 정적 스냅샷 / 대시보드=7일 live | `metric_trend` |
 | 네트워크 토폴로지 (engineer) | ip_internal CIDR subnet 공동소속 그래프 (정적 스냅샷) | `build_network_topology` |
 
 ### view 분기 — customer (양식 A)
@@ -89,14 +89,14 @@
 
 | 항목 | 내용 | source |
 |------|------|--------|
-| 평가 윈도우 | 14일 default (`recommendation.WINDOW_DAYS`) | AWS Compute Optimizer 표준 |
+| 평가 윈도우 | 7일 default (`recommendation.WINDOW_DAYS`) | Azure Advisor 단기 표준 (7일) — 14일·30일은 라우터 override |
 | 평가 커버리지 | `evaluated_servers / total_servers` — 메트릭 데이터가 분류 가능한 정도로 누적된 서버 수 | DB 시계열 집계 |
 | 분류 분포 | over_provisioned / under_provisioned / idle / optimal 각 카운트 | `recommendation.classify` |
 | 우선 검토 권장 | 분포 중 가장 시급한 카테고리 1개 | 규칙 |
 
 산출 결과 예시:
 ```
-최근 14일 환경 진단 — 평가 대상 23대 (전체 25대). 분류 분포:
+최근 7일 환경 진단 — 평가 대상 23대 (전체 25대). 분류 분포:
 over-provisioned 5대, under-provisioned 2대, idle 0대, optimal 16대.
 우선 검토 권장: over-provisioned 5대의 다운사이즈.
 ```
@@ -118,10 +118,10 @@ Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 
 
 운영 신호 (2축 분리): right-sizing(축1, 디스크 capacity·IO 포함)과 별개로 AttentionSignals 3종(통신 끊김·OS 지원 종료·에이전트 재시작)이 운영 신호 축. 보고서는 그중 OS 지원 종료만 카드로 표시(통신 끊김·에이전트 재시작은 윈도우 의미 불일치로 전역 카드 미표시 — 에이전트 재시작은 engineer 호스트 상세 컬럼). 상세는 `docs/temp/report-view-policy.md` 5절.
 
-### 평가 윈도우 14일
+### 평가 윈도우 7일
 
-- AWS Compute Optimizer right-sizing 권장의 표준 윈도우
-- Azure Advisor 도 7~14일 사용
+- Azure Advisor right-sizing 단기 권장 윈도우 (7일) — AWS Compute Optimizer(14일)는 라우터 override 로 지원
+- 사용량 주기성 평탄화에 충분한 단기 구간 (7~14일 범위)
 - 사용량의 일·주 단위 주기성(주중·주말) 평탄화에 충분
 - 너무 짧으면(1~3일) 일시 부하·정기 백업을 평상 부하로 오인
 - 너무 길면(30일+) 최근 도입된 워크로드 부하 반영 늦음
@@ -136,7 +136,7 @@ Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 
 
 `total_servers` vs `evaluated_servers` 는 다른 수치다.
 - `total_servers` — 인벤토리에 등록된 모든 활성 서버 수 (최근 N 시간 안에 에이전트가 살아 있었던 서버).
-- `evaluated_servers` — 그중 분류 가능한 서버 수. 시계열 데이터가 평가 윈도우 (14일) 에 비해 너무 짧은 신규 서버나 메트릭 누적이 부족한 서버는 평가 불가.
+- `evaluated_servers` — 그중 분류 가능한 서버 수. 시계열 데이터가 평가 윈도우 (7일) 에 비해 너무 짧은 신규 서버나 메트릭 누적이 부족한 서버는 평가 불가.
 
 운영자에게 보여줘야 하는 이유: 환경 진단이 신뢰성 있게 답한 대상의 범위 명시. "23대 평가 후 분포가 이렇다"가 "25대 전체에 적용된다"는 오해 회피.
 
@@ -158,7 +158,7 @@ Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 
 1. 위험도 3단계 압축 (customer view 한정) — `recommendation.classify` 5분류를 high/attention/normal 3단계로 압축. shutdown·idle·over_provisioned 가 모두 "주의 필요" 로 묶임. 고객에게 더 세분된 행동을 제시하지 못함.
 2. 평균 활용률 KPI 는 산술 평균 — 환경 안 서버 부하 분포가 양극화 (절반 고부하·절반 저부하) 되면 평균은 misleading. p50·p95 분포 표시도 검토 후보.
 3. 워크로드 역할 무관 임계 — DB·캐시·앱서버 모두 같은 70%/80% 임계. DB 는 메모리 압박이 정상 운영일 수 있는데 "고위험" 으로 잡힐 가능성. 향후 역할별 임계 분기 시 정밀도 증가.
-4. 14일 윈도우 내 일회성 부하 — 단발 부하 (월 1회 배치 등) 가 그 윈도우 안에 들면 평상 부하로 오인. 외부 윈도우 (30일·90일)·요일/시간대 분리 미적용.
+4. 7일 윈도우 내 일회성 부하 — 단발 부하 (월 1회 배치 등) 가 그 윈도우 안에 들면 평상 부하로 오인. 외부 윈도우 (30일·90일)·요일/시간대 분리 미적용.
 5. 자연어 narrative 의 표현 한정 — 결정론 템플릿이라 운영자가 추가 컨텍스트 (예: "이 서버는 신규 도입 한 달째"·"비용 절감 우선") 를 narrative 에 반영 불가. 외부 LLM 도입 시 가능해질 영역.
 6. 인쇄 색상 — 브라우저 인쇄 시 색 처리가 브라우저별 다름. 흑백 PDF 에서 위험도 색이 비슷해 보일 수 있음. `print` CSS 에서 별도 처리.
 
@@ -166,7 +166,7 @@ Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 
 
 - 워크로드 역할별 임계 분기 → 별도 ADR.
 - 외부 LLM (가격·보안 제약 해소 시) 도입 → ADR 0010 정정.
-- 통계 윈도우 옵션 (7d·14d·30d) UI 토글 → 현재 14일 default 만 노출.
+- 통계 윈도우 옵션 (7d·14d·30d) UI 토글 → 현재 7일 default 만 노출.
 
 ## 관련 문서·코드
 

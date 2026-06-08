@@ -29,7 +29,7 @@
 | secret | 노출 시 즉시 무단 접근 가능한 자격 | `POSTGRES_PASSWORD`·`RABBITMQ_PASSWORD`·향후 API token / TLS key | dev 한정 `.env` 평문, prod 는 외부 인프라 자유 채널 |
 
 경계 케이스:
-- `POSTGRES_USER` — 보통 config. 단 user 자체가 권한 분리 키이면 secret. 본 프로젝트는 config 분류하되 prod 검증 시 약한 default (`assessment`) 거부.
+- `POSTGRES_USER` — 보통 config. 단 user 자체가 권한 분리 키이면 secret. 본 프로젝트는 config 분류하되 prod 검증 시 약한 값(빈값·password·admin·root·changeme) 거부 — `assessment`(dev default)는 운영 편의로 허용.
 - `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` — config (secret 아님, 노출 무해). startup 거부 안 함 — 잘못된 ZDM 발행은 런타임 (`HttpZdmPackageResolver` 메타 도달 실패 시 503) + agent host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`, `url_not_allowed` reject) 가 방어. discovery 와 동일 정책 (startup 거부 없음).
 
 규칙: config 인지 secret 인지 헷갈리면 secret 으로 간주. 잘못 분류해 secret 을 평문 노출하는 비용이 그 반대보다 크다.
@@ -70,7 +70,9 @@ model_config = SettingsConfigDict(
 
 secret 파일명은 pydantic 필드명과 정확히 일치 의무. 외부 인프라가 file 채널이면 `<SECRETS_DIR>/postgres_password` → pydantic `postgres_password: SecretStr` 자동 매핑. env 채널이면 `POSTGRES_PASSWORD=<value>` 환경변수 (env 가 secrets_dir 보다 우선).
 
-docker-compose `environment:` 블록은 `env_file:` 보다 후순위라 마지막 덮어쓰기 — 컨테이너 안에서는 `environment:` 가 항상 우선.
+docker-compose `environment:` 블록은 `env_file:` 보다 우선이라 컨테이너 안 값을 덮어쓴다.
+
+docker-compose 에서 secret 의 OS env override 동작: `env_file:` 만으론 호스트 OS env 가 컨테이너에 전달되지 않아 `.env` 값이 고정된다(override 불가). 그래서 secret(`*_PASSWORD`)은 `environment:` 에 `${VAR:-changeme}` 보간으로 명시한다 — 호스트 OS env 있으면 우선(override) > compose 가 읽는 `.env` > `changeme`(미설정 시 prod 거부). 앱·DB 컨테이너가 동일 소스를 봐 항상 일치한다. dev 파이프라인은 루트 `.env` 가 없으므로 `COMPOSE_ENV_FILES=dev/.env`(dev-up.sh)로 보간 소스를 `env_file` 과 통일한다.
 
 ---
 
@@ -96,13 +98,15 @@ docker-compose `environment:` 블록은 `env_file:` 보다 후순위라 마지�
 
 ## 5. dev/prod 차이 매트릭스
 
-dev 는 본 repo 가 제공 (`docker-compose.yml (루트)`). prod 는 외부 인프라 책임 — 본 표는 외부 인프라가 만족해야 할 contract reference.
+compose 는 prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) 2 파일 (ADR 0035). dev 는 둘 자동 머지, prod 는 base 단독(릴리즈 첨부, override 미배포). 본 표는 외부 인프라가 만족해야 할 contract reference.
 
 | 항목 | dev (본 repo) | prod (외부 인프라) |
 |------|--------------|---------------------|
-| 기동 방식 | `docker compose up` | systemd + wheel install (`docs/operations/deployment.md`) 또는 외부 인프라 자유 (ADR 0012) |
+| 기동 방식 | `docker compose up` (base + override.yml 머지, 로컬 빌드) | 릴리즈 base `docker-compose.yml` pull-and-run, systemd + wheel install, 또는 외부 인프라 자유 (ADR 0012·0035) |
+| compose 이미지 | override.yml 로컬 빌드(`assessment-engine:local`) | base 의 GHCR 핀(`ENGINE_IMAGE` 또는 기본 핀) pull |
 | `APP_ENV` | `dev` | `prod` 명시 (env var 또는 EnvironmentFile) |
-| 코드 마운트 (`./:/app`) | OK 빠른 반복 | NG 이미지·wheel 불변성 |
+| 코드 마운트 (bind mount) | OK override.yml 의 `./src` bind mount, 빠른 반복 | NG base 는 bind mount 없음 — 이미지·wheel 불변성 |
+| 영속 볼륨 | named volume(`postgres_data`·`rabbitmq_data`) | `PGDATA_HOST`·`MQ_DATA_HOST` 로 외부 디스크 bind(Cinder 등) |
 | 백킹 서비스 포트 외부 노출 | OK 5432·5672·6379·15672 | NG web 만 (또는 reverse proxy 뒤) |
 | Password 주입 | `dev/.env` 평문 | 자유 채널 — env var·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 |
 | Schema 관리 | `migrate` init-container 가 `alembic upgrade head` 1회 (ADR 0005) | 외부 인프라 ansible task 또는 systemd one-shot 으로 사전 실행 (wheel 안 `_alembic.ini` 활용) |
@@ -120,7 +124,7 @@ prod 환경에서 secret 누락·약한 default 통과 차단. secret 주입 채
 
 | 위치 | 검증 대상 | 강제 시점 |
 |------|---------|---------|
-| `config.py` `_validate_prod_*` model_validator | `_WEAK_VALUES`(`""`/`assessment`/`password`/`admin`/`root`/`changeme`) 거부 (POSTGRES·RABBITMQ password·user) | 앱 import 직후 (`Settings()` 인스턴스 생성 시) |
+| `config.py` `_validate_prod_*` model_validator | `_WEAK_VALUES`(`""`/`password`/`admin`/`root`/`changeme`) 거부 (POSTGRES·RABBITMQ password·user). `assessment`(dev default)는 허용 — 명시하면 USER·PASSWORD 둘 다 통과. PASSWORD default 는 `changeme`(weak)라 미설정 시 거부 | 앱 import 직후 (`Settings()` 인스턴스 생성 시) |
 
 ```python
 @model_validator(mode="after")
@@ -200,11 +204,10 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 | `RABBITMQ_*` (broker 접속) | 의무 (진단 publish) | 의무 (consume) | 의무 (consume) |
 | `RABBITMQ_ROUTING_KEY_*`·`RABBITMQ_EXCHANGE` | 의무 | 의무 | 의무 |
 | `WORKER_*` (worker.result·task.install) | 의무 (task.install publish) | 의무 (worker.result consume) | 선택 |
-| `WEB_PORT`·`WEB_RELOAD`·`INSTALL_TIMEOUT_SEC`·`ZDM_*`·`ZDM_PACKAGE_*`·`AGENT_RESTART_ALERT_THRESHOLD` | 의무 | 사용 안 함 | 사용 안 함 |
+| `WEB_PORT`·`WEB_RELOAD`·`INSTALL_TIMEOUT_SEC`·`ZDM_*` | 의무 | 사용 안 함 | 사용 안 함 |
 | `LLM_*`·`OLLAMA_*` | 사용 안 함 | 사용 안 함 | 의무 |
 | `RAG_ENABLED`·`EMBEDDING_*`·`RAG_TOP_K`·`RAG_MAX_CONTEXT_CHARS` | 사용 안 함 | 사용 안 함 | 의무 (handler retrieve_context + ingest CLI 공통) |
-| `DIAGNOSTIC_QUEUE_*`·`DIAGNOSTIC_ROUTING_KEY` | 의무 (publish) | 사용 안 함 | 의무 (consume) |
-| `WORKER_JOB_TIMEOUT_SECONDS` | 사용 안 함 | 사용 안 함 | 의무 |
+| `RABBITMQ_DIAGNOSTIC_QUEUE_*`·`RABBITMQ_ROUTING_KEY_DIAGNOSTIC` | 의무 (publish) | 사용 안 함 | 의무 (consume) |
 | `SQLALCHEMY_ECHO` | 의무 | 의무 | 의무 |
 
 코드 단일 진실 (Composition Root, CLAUDE.md #F4):
@@ -254,16 +257,19 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 |----|--------|--------|------|
 | `APP_ENV` | `dev` | config.py / docker-compose | 환경 마커. `dev`/`staging`/`prod`. `prod` 일 때 weak default 거부 |
 | `LOG_FORMAT` | `text` | config.py / 각 entry `setup_logging()` | 로그 출력 format. `text`(dev colorized·grep) 또는 `json`(외부 log aggregator). prod 는 `json` 권장 |
+| `ENGINE_IMAGE` | base 기본 핀 (`ghcr.io/z-converter-assessment/assessment-engine:<version>`) | compose base (ADR 0035) | 앱 서비스 이미지. config.py 미사용 — compose 전용. 미설정 시 base `docker-compose.yml` 기본값(release CI 가 태그 semver 로 핀한 GHCR 이미지). dev override.yml 은 `assessment-engine:local`(로컬 빌드)로 덮음. GHCR public — 토큰 없이 pull |
+| `PGDATA_HOST` | `postgres_data` (named volume) | compose base (ADR 0035) | postgres 영속 경로. host 절대경로 주입 시 bind mount(infra Cinder `/mnt/pgdata`), 미설정 시 named volume |
+| `MQ_DATA_HOST` | `rabbitmq_data` (named volume) | compose base (ADR 0035) | rabbitmq 영속 경로. 주입 시 host bind(`/mnt/mqdata`), 미설정 시 named volume |
 | `POSTGRES_HOST` | `postgres` | config.py / dev compose | PostgreSQL 호스트 (docker-compose 서비스명). prod 는 실제 host 명시 |
 | `POSTGRES_PORT` | `5432` | config.py / dev compose | |
 | `POSTGRES_DB` | `assessment` | config.py / dev compose | |
-| `POSTGRES_USER` | `assessment` | config.py / dev compose | prod 에서 weak default 거부 |
-| `POSTGRES_PASSWORD` | `assessment` | config.py / dev compose | prod 에서 weak default 거부 (의무 강한 secret) |
+| `POSTGRES_USER` | `assessment` | config.py / compose | assessment 허용 — 빈값·password·admin·root·changeme 만 prod 거부 |
+| `POSTGRES_PASSWORD` | `changeme` | config.py / compose | default `changeme`(weak)라 미설정 시 prod 거부. 명시 `assessment` 는 허용. 강한 secret 권장 |
 | `RABBITMQ_HOST` | `rabbitmq` | config.py | 컨슈머 broker 접속 (docker-compose 서비스명). 에이전트는 본 키 안 씀 — dev-up.sh 가 게이트웨이 IP(192.168.122.1) 별도 주입 |
 | `RABBITMQ_PORT` | `5672` | config.py / dev compose | |
 | `RABBITMQ_VHOST` | `/assessment` | config.py / dev compose / dev-up.sh | 전용 vhost. 에이전트와 동일 값. AMQP URL 의 `/` 는 `%2F` 인코딩 (config.py `broker_url` 자동) |
-| `RABBITMQ_USER` | `assessment` | config.py / dev compose / dev/agent.env | prod 에서 weak default 거부 |
-| `RABBITMQ_PASSWORD` | `assessment` | config.py / dev compose / dev/agent.env | prod 에서 weak default 거부 (의무 강한 secret) |
+| `RABBITMQ_USER` | `assessment` | config.py / compose / dev/agent.env | assessment 허용 — 빈값·password·admin·root·changeme 만 prod 거부 |
+| `RABBITMQ_PASSWORD` | `changeme` | config.py / compose / dev/agent.env | default `changeme`(weak)라 미설정 시 prod 거부. 명시 `assessment` 는 허용. 강한 secret 권장 |
 | `RABBITMQ_MANAGEMENT_PORT` | `15672` | dev compose | RabbitMQ 관리 콘솔 포트 노출 (config.py 미사용) |
 | `RABBITMQ_EXCHANGE` | `assessment` | config.py / dev/agent.env | 에이전트·consumer routing 계약. 변경 시 양쪽 동기화 |
 | `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | config.py / dev/agent.env | 동일 |
@@ -279,7 +285,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `WORKER_TASK_EXCHANGE` | `assessment.tasks` | dev/agent.env (agent 측) | task.install/task.result 전용 exchange. collector exchange 와 분리. 엔진 `RABBITMQ_TASK_EXCHANGE` 와 값 일치 의무 |
 | `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | dev/agent.env (agent 측) | 원격 호스트별 큐 prefix. full name = `<prefix>.<composite_id>`. 엔진 `RABBITMQ_TASK_QUEUE_PREFIX` 와 일치 |
 | `WORKER_TASK_RESULT_KEY` | `task.result` | dev/agent.env (agent 측) | 원격 호스트 → 엔진 결과 보고 routing key. 엔진 `RABBITMQ_ROUTING_KEY_TASK_RESULT` 와 일치 |
-| `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `host.docker.internal` | dev/agent.env | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치) |
+| `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `""` (빈값) | dev/agent.env | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치). 빈 whitelist 면 전부 거부 — dev/agent.env 가 ZDM_DEFAULT_IP host(libvirt host IP) 로 설정 |
 | `REDIS_HOST` | `redis` | config.py | (docker-compose 서비스명). prod 는 실제 host |
 | `REDIS_PORT` | `6379` | config.py | |
 | `REDIS_MAXMEMORY` | `256mb` | dev compose (redis command) | Redis maxmemory cap. prod 튜닝 가능 |
@@ -289,20 +295,17 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `DISCOVERY_DEFAULT_TARGET` | `""` (빈값) | config.py / dev compose | 서버 발견 모달 SSH 도달성 probe 의 기본 target 주소. dev·prod 모두 빈값 default — libvirt VM IP 는 동적이고 web 컨테이너에서 VM hostname DNS 미해석이라, 운영자가 모달에 VM IP 직접 입력(dev-up.sh print_summary 안내). weak default 거부 대상 아님 (빈값이 정상 동작) |
 | `DISCOVERY_DEFAULT_PORT` | `22` | config.py / dev compose | probe 폼 기본 포트. 표준 SSH 22 — libvirt VM 은 post-provision `openssh-server` 라 22 listen. 비표준 SSH 포트 host 는 폼 override |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |
-| `ZDM_DEFAULT_IP` | `host.docker.internal:8000` | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. dev default 는 web 컨테이너의 ZDM mock endpoint (ADR 0018) 가리킴. startup 거부 없음 — 잘못된 ZDM 발행은 런타임 503 + agent host whitelist 가 방어 |
+| `ZDM_DEFAULT_IP` | `""` (빈값) | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. dev·prod 모두 빈값 default — dev 는 dev/.env 가 libvirt host IP:8000(ZDM mock, ADR 0018) 주입, prod 는 운영자가 real ZDM 주입. startup 거부 없음 — 잘못된 ZDM 발행은 런타임 503 + agent host whitelist 가 방어 |
 | `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 관리자 계정 기본값. POST body `zdm_user` 누락 시 fallback. install.sh 의 `-u` 인자. startup 거부 없음 (secret 아님) |
 | `ZDM_RESOLVER_HOST_OVERRIDE` | `""` | config.py | resolver(엔진)가 sha256/size 산출용으로 fetch 하는 host override. set 이면 `HttpZdmPackageResolver` 가 이 host 로 HEAD/GET, download.url·install args 는 `ZDM_DEFAULT_IP` 유지. dev 한정 — mock 이 web 컨테이너 자신이라 host publish 포트 hairpin 불가하면 `localhost:8000` 으로 fetch. prod 빈값(엔진이 real ZDM 직접 도달) |
-| `ZDM_PACKAGE_PATH` | `/download/ZConverter_CloudSource_Setup_Linux.tar.gz` | config.py | ZDM 호스트의 본체 패키지 URL path. task.install download.url 은 `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` 조립. dev mock endpoint 도 동일 path 로 라우팅 (ADR 0018) |
-| `ZDM_PACKAGE_SCRIPT` | `zconverter_install_source/install.sh` | config.py | tar 추출 후 실행할 스크립트 경로 |
 | `ZDM_META_CONNECT_TIMEOUT_SEC` | `5.0` | config.py | ZDM 메타 조회 HTTP connect timeout |
 | `ZDM_META_TOTAL_TIMEOUT_SEC` | `120.0` | config.py | ZDM 메타 조회 HTTP total timeout (HEAD + GET full). 44MB 가정, 동일 LAN 1~2s |
 | `REDIS_TTL_ZDM_PACKAGE_SHA256` | `21600` (6h) | config.py | ETag 기반 sha256 cache TTL |
-| `AGENT_RESTART_ALERT_THRESHOLD` | `3` | config.py | 1h 슬라이딩 윈도우 내 에이전트 재시작 횟수 임계값. attention 신호 카드 + consumer 부가 시그널 |
 | `SQLALCHEMY_ECHO` | `false` | config.py | SQLAlchemy 엔진 SQL 로깅. dev 디버깅 시 true (운영 환경은 false 유지 — 로그 폭증·secret 노출 위험) |
 | `PGADMIN_PORT` | `5050` | dev compose override | pgAdmin GUI 포트 (dev 전용) |
-| `DIAGNOSTIC_ROUTING_KEY` | `diagnostic.request` | config.py | engine 내부 routing key (web·worker 공통) |
-| `DIAGNOSTIC_QUEUE_TTL_MS` | `86400000` | config.py | 큐 메시지 TTL 24h |
-| `DIAGNOSTIC_QUEUE_MAX_LEN` | `100000` | config.py | 큐 max length |
+| `RABBITMQ_ROUTING_KEY_DIAGNOSTIC` | `diagnostic.request` | config.py | engine 내부 진단 routing key (web·worker 공통) |
+| `RABBITMQ_DIAGNOSTIC_QUEUE_TTL_MS` | `86400000` | config.py | 진단 큐 메시지 TTL 24h |
+| `RABBITMQ_DIAGNOSTIC_QUEUE_MAX_LEN` | `100000` | config.py | 진단 큐 max length |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | config.py | ollama HTTP 호출 base URL. embedding + LLM 공통 ollama server. dev docker compose default = `http://ollama:11434` (compose 안 ollama 서비스) |
 | `OLLAMA_MODEL` | `llama3.1:8b` | config.py | ollama LLM 모델명. 한국어 정합 우위 모델 (qwen2.5:14b 등) 으로 운영자 교체 가능 |
 | `LLM_TIMEOUT_SECONDS` | `60` | config.py | LLM 호출 cap |
@@ -313,7 +316,6 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `EMBEDDING_TIMEOUT_SECONDS` | `30.0` | config.py | embedding HTTP 호출 cap |
 | `RAG_TOP_K` | `5` | config.py | RAG 검색 top-k (handler retrieve_context 단계) |
 | `RAG_MAX_CONTEXT_CHARS` | `4000` | config.py | LLM prompt 안 RAG context 절 max 길이 cap |
-| `WORKER_JOB_TIMEOUT_SECONDS` | `300` | config.py | 워커 진단 1건 전체 cap (클라이언트 polling timeout 과 정렬) |
 
 ### `.env.example` 에 없고 config.py default 만 정의된 키
 
@@ -322,7 +324,8 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 - `redis_ttl_idempotent` (24h)·`redis_ttl_online` (5min)·`redis_ttl_token` (1h)
 - `redis_ttl_last_agent_start` (24h)·`redis_ttl_agent_restarts` (1h 슬라이딩 윈도우)·`redis_ttl_time_invariant_warned` (1h)
 - `redis_key_*` 패턴 (cache:*·idempotent·online·token·last_agent_start·agent_restarts·time_invariant_warned)
-- `redis_channel_metrics`
+- `zdm_package_path`·`zdm_package_script`·`zdm_package_path_windows` — ZDM 제품 패키지 layout 상수 (거의 안 바뀜, ZDM 버전업 시에나). 배포 변동값 아니라 미수록 — task.install download.url 은 `http://{ZDM_IP}{zdm_package_path}` 조립
+- `agent_restart_alert_threshold` (기본 3) — 에이전트 재시작 alert 임계값(1h 윈도우). 운영 alert 튜닝 노브, 평소 default 유지 — 필요 시 env override
 
 ---
 
@@ -332,7 +335,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 
 - [ ] `APP_ENV=prod` 환경변수 명시
 - [ ] `POSTGRES_PASSWORD`·`RABBITMQ_PASSWORD` 강한 random secret 주입 (채널은 자유 — env·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등)
-- [ ] `POSTGRES_USER`·`RABBITMQ_USER` 도 dev default(`assessment`) 아닌 값 (weak default 거부 대상)
+- [ ] `POSTGRES_USER`·`RABBITMQ_USER` 강한 값 권장 (assessment 는 허용 — 빈값·password·admin·root·changeme 만 거부)
 - [ ] `ZDM_DEFAULT_IP`·`ZDM_DEFAULT_USER` 고객사 ZDM 좌표로 override (startup 거부는 없음 — 미설정 시 첫 install 발행이 런타임 503 또는 agent `url_not_allowed` 로 실패)
 - [ ] `ZDM_PACKAGE_*` 운영 ZDM 측 패키지 layout 과 일치 (path·script)
 - [ ] Alembic 마이그레이션 사전 적용 — wheel 안 `assessment_engine/_alembic.ini` + `migrations/` 활용 (`docs/operations/alembic.md`)
@@ -369,7 +372,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 ## 관련 문서
 
 - `docs/operations/deployment.md` — release artifact 활용 단계별 install·systemd 가이드
-- `docs/operations/observability.md` — `LOG_FORMAT` toggle + Prometheus metrics
+- `docs/operations/observability.md` — `LOG_FORMAT` toggle
 - `docs/operations/alembic.md` — schema migrate contract
 - `docs/operations/release.md` — CI release artifact 카탈로그
 - CLAUDE.md #A0·#F8 — secret·PII 노출 금지 원칙

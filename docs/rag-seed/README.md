@@ -4,6 +4,8 @@
 
 운영자가 본 sample 만으로도 RAG 활성 catalog 즉시 검증 가능. 본격 운영 시 외부 백서 (Brendan Gregg blog · AWS Compute Optimizer · Azure Advisor 등) 를 직접 다운로드 후 같은 형식 (MD/Text) 으로 추가 ingest 정공.
 
+> 경고 (corpus 미유지): 본 sample 은 도메인 본질 요약일 뿐 분류 임계·판정 순서의 단일 진실이 아니다. 임계·평가 윈도우·분류 순서의 단일 진실은 `recommendation.py` 상수 + `docs/architecture/right-sizing.md` 이며, 본 sample 은 코드 변경에 자동 동기화되지 않는다 (현재 일부 옛값 잔존 — 예: 윈도우 14일·under cpu/mem 90%·cpu_high/mem_high 카테고리. 코드는 7일·cpu 70%/mem 80%·6분류). RAG 는 기본 비활성(`RAG_ENABLED=False`)이라 평시 LLM grounding 에 미사용 — 본 stale corpus 도 inert. 활성화(`RAG_ENABLED=true`) 전 본 catalog 를 `recommendation.py`·`right-sizing.md` 대비 검증·갱신 후 ingest 할 것. 옛 임계로 LLM 을 grounding 하면 분류 설명이 코드와 어긋난다.
+
 ## ingest 방법
 
 ```bash

@@ -5,7 +5,7 @@
 | 모듈 | 변수 | 접두사 | 응답 |
 |------|------|--------|------|
 | `routers/pages.py` | `pages_router` | `/servers` | HTML (Jinja2 SSR) |
-| `routers/api.py` | `api_router` | `/api/servers` | JSON (시계열·메트릭) + SSE |
+| `routers/api.py` | `api_router` | `/api/servers` | JSON (시계열·메트릭) |
 | `routers/discovery.py` | `discovery_router` | `/api/discovery` | JSON |
 | `routers/tasks.py` | `tasks_router` | `/api/tasks` | JSON |
 | `routers/exports.py` | `exports_router` | `/api/exports` | JSON (다운로드) |
@@ -24,8 +24,10 @@
 | `GET /servers/report?ids=&view=customer\|engineer&time_range=` | `report` | 서버 보고서 표시 (scope=server). GET 은 read-only — record 안 함 (PRG). 동일 SQL·동일 템플릿, view 파라미터로 분기 |
 | `POST /servers/report/emit?ids=&view=&time_range=` | `report_emit` | 서버 보고서 발행 record (PRG). `record_report_emission` 호출 + `{view_url}` 응답 — JS 가 navigate. 다시 보기/북마크/직접 URL 은 GET 만 → 중복 row 방지 |
 | `GET /servers/{server_id}` | `get_server` | detail 탭. 서버 진단 latest 카드 포함 |
-| `GET /servers/{server_id}/{cpu,memory,services,performance}` | 동일 helper | `_render_server_tab` 5 탭 공유 |
+| `GET /servers/{server_id}/{cpu,memory,services,metrics}` | 동일 helper | `_render_server_tab` 탭 공유. metrics=성능 추이(추이 차트 5행2열 `.perf-merged` 단일 카드) |
 | `GET /servers/{server_id}/{storage,network}` | 별도 핸들러 | 다른 service 메서드 |
+| `GET /servers/environment/metrics?ids=` | `environment_metrics` | 환경(또는 선택 N대) 성능 추이 — 10차트 live. ids(public_ids) 면 선택 N대 한정, 제목 "선택 N대" |
+| `GET /servers/environment/realtime?ids=&fragment=` | `environment_realtime` | 환경(또는 선택 N대) 실시간 메트릭 — 현황 모니터링(평균 활용률 도넛 + 부하 상위 탑5). fragment=realtime 면 partial 만(30초 폴링). 성능 추이(시계열)와 분리 |
 | `GET /servers/{server_id}/report?view=&time_range=` | `single_server_report` | 단일 server 보고서 read-only. record 안 함 (1대 단위는 발행 흐름 없음) |
 
 `_render_server_tab` helper — 5개 탭이 `service.get_server` + `{"server": ...}` context로 동일하게 렌더링되어 묶음. storage/network는 별도 service 메서드라 분리.
@@ -42,7 +44,6 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | `GET /{id}/metrics/snapshots?cursor=&limit=` | 시계열 cursor pagination (#E2) |
 | `GET /{id}/metrics/chart?metric_type=&time_range=&bucket=&agg=` | 차트 시계열 (17 metric_type dispatcher) |
 | `GET /{id}/events/reboot?time_range=&end=` | reboot/restart vertical marker용 |
-| `GET /{id}/metrics/stream` | SSE — `text/event-stream` (Consumer PUB -> Redis -> SSE) |
 
 ### `discovery.py` — SSH 도달성 검사
 | 경로 | 용도 |
@@ -90,7 +91,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | `GET /reports/environment?view=&time_range=&anchor_at=` | 환경 보고서 표시. GET 은 read-only — record 안 함 (PRG) |
 | `POST /reports/environment/emit?view=&time_range=&anchor_at=` | 환경 보고서 발행 record + `{view_url}` 응답 (JS navigate) |
 | `GET /reports/history?days=&view=&scope=&server_public_ids=&full=&fragment=` | 보고서 발행 이력. 기본 20건 + `full=1` 시 전체. `fragment=1` 시 partial HTML 만 (filter 변경 즉시 적용용) |
-| `GET /reports/right-sizing-thresholds` | Right-sizing 분류 임계값 참고자료 (recommendation 모듈 단일 진실 시각화) |
+| `GET /reports/right-sizing-thresholds` | 참고자료 페이지 — 지표 정의(`_metric_definitions`: 활용률·집계·환경/대시보드 지표 계산 정의) + Right-sizing 분류 임계값(`_thresholds_reference`, recommendation 단일 진실). 각 페이지 하단 `_reference_link` 가 `#metric-definitions` 앵커로 링크 |
 
 ## 검증·에러 매핑
 

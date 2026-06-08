@@ -11,8 +11,9 @@ _SECRETS_DIR = os.environ.get("SECRETS_DIR", "/run/secrets")
 _SECRETS_DIR = _SECRETS_DIR if os.path.isdir(_SECRETS_DIR) else None
 
 # prod에서 거부할 약한 default 값 (dev/PoC 표준 자격을 prod에 그대로 흘리는 사고 방지).
-# 본 프로젝트의 dev default는 "assessment". 다른 흔한 약한 값도 함께 차단.
-_WEAK_VALUES = frozenset({"", "assessment", "password", "admin", "root", "changeme"})
+# prod 기동 거부할 약한 값 (USER·PASSWORD 공용). "assessment"(dev default)는 운영 편의로 허용 제외 —
+# 빈값·뻔한 값만 차단. USER/PASSWORD 동일 정책.
+_WEAK_VALUES = frozenset({"", "password", "admin", "root", "changeme"})
 
 
 class WebSettings(BaseSettings):
@@ -34,11 +35,13 @@ class WebSettings(BaseSettings):
     postgres_host: str = "postgres"
     postgres_db: str = "assessment"
     postgres_user: str = "assessment"
-    postgres_password: SecretStr = SecretStr("assessment")
+    # default 는 weak(changeme) — 미설정 시 prod 거부 강제 (명시 assessment 는 허용). USER 는 식별자라 default 허용.
+    postgres_password: SecretStr = SecretStr("changeme")
     postgres_port: int = 5432
     web_port: int = 8000
     # uvicorn auto-reload — dev hot-reload 전용. prod 는 False (코드 변경 감시 프로세스가 prod 에서 불필요,
-    # bind mount 없는 wheel/image 배포에선 무의미). dev/docker-compose.yml 이 WEB_RELOAD=true 주입.
+    # bind mount 없는 wheel/image 배포에선 무의미). 루트 docker-compose.yml 이 WEB_RELOAD=${WEB_RELOAD:-true} 주입
+    # (web/__main__.py 가 reload_dirs=bind mount 패키지 경로 지정 — WORKDIR /app 밖이라 cwd watch 불가).
     web_reload: bool = False
 
     redis_host: str = "redis"
@@ -68,26 +71,24 @@ class WebSettings(BaseSettings):
     redis_key_time_invariant_warned: str = "time_invariant_warned:{}:{}"
 
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
+    # 운영 alert 튜닝 노브 — env 카탈로그 미수록(.env.example·env.md), 필요 시 env override.
     agent_restart_alert_threshold: int = 3
-
-    # PUB/SUB channels
-    redis_channel_metrics: str = "metrics.events"
 
     # 서버 발견 모달 — SSH(기본 22) 도달성 probe 의 기본 target 주소.
     # 운영자가 모달에서 매 확인마다 override 가능. 빈값이면 폼이 빈 채로 시작.
     # dev·prod 모두 빈값 default — 운영자가 모달에 직접 입력 (weak default 거부 대상 아님).
-    # dev: OrbStack .orb.local 은 host(macOS)만 등록되고 컨테이너 미해석 + VM IP 동적이라 자동 기본값 부적합.
-    # pipeline-up.sh 가 post-provision 으로 VM 에 openssh-server 설치 + print_summary 로 VM IP 안내 (운영자 입력).
+    # dev: libvirt VM IP 가 DHCP lease 로 동적이라 자동 기본값 부적합 — dev-up.sh 가 VM 에 openssh-server
+    # 설치 + VM IP 안내, 운영자가 모달에 직접 입력.
     discovery_default_target: str = ""
     # probe 폼 기본 포트. prod·dev 모두 22(표준 SSH). 비표준 host 는 폼 override.
     discovery_default_port: int = 22
 
     # ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표 — install 모달 default 값.
     # 운영자가 모달에서 매 발행마다 override 가능. POST body 누락 시 본 값으로 fallback.
-    # dev 한정 ZDM mock (ADR 0018) 으로 OrbStack VM agent worker 가 host web 8000 도달.
+    # dev 한정 ZDM mock (ADR 0018) 으로 libvirt VM agent worker 가 host web 8000 도달 (dev/.env 가 host IP 주입).
     # 잘못된 ZDM 발행 방어는 런타임 (HttpZdmPackageResolver 메타 도달 실패 시 503 차단) + agent host
-    # whitelist (WORKER_DOWNLOAD_ALLOWED_HOSTS) 가 담당. startup 거부 없음 — discovery_default_target 과 동일 정책.
-    zdm_default_ip: str = "host.docker.internal:8000"
+    # whitelist (WORKER_DOWNLOAD_ALLOWED_HOSTS) 가 담당. startup 거부 없음 — discovery_default_target 과 동일 정책(빈값 default).
+    zdm_default_ip: str = ""
     zdm_default_user: str = "admin@zconverter.com"
     # resolver(엔진) 가 sha256/size 산출용으로 fetch 하는 호스트 override. download.url·install args 는
     # zdm_default_ip 유지. dev 한정 — mock 이 web 컨테이너 자기 자신이라 host publish 포트 hairpin 불가하면
@@ -95,6 +96,7 @@ class WebSettings(BaseSettings):
     zdm_resolver_host_override: str = ""
 
     # ZDM 본체 패키지 contract — task.install download 필드에 박혀 agent 가 fetch.
+    # ZDM 제품 layout 상수라 거의 안 바뀜 — env 카탈로그 미수록(.env.example·env.md), 필요 시 env override.
     # sha256·size_bytes 는 publish 직전 engine 이 ZDM 에서 HEAD + GET 으로 동적 산출
     # (ETag 기반 Redis cache). ZDM 측이 패키지 갱신하면 ETag 변경 → cache miss → 자동 재계산.
     zdm_package_path: str = "/download/ZConverter_CloudSource_Setup_Linux.tar.gz"
@@ -132,7 +134,7 @@ class WebSettings(BaseSettings):
                 "Provide via env var or secret channel (systemd EnvironmentFile·Vault·k8s Secret 등)."
             )
         if self.postgres_user in _WEAK_VALUES:
-            raise ValueError("POSTGRES_USER must be set to a non-default value in prod.")
+            raise ValueError("POSTGRES_USER must not be a weak value (empty/password/admin/root/changeme) in prod.")
         return self
 
 
@@ -141,7 +143,8 @@ class ConsumerSettings(WebSettings):
     rabbitmq_port: int = 5672
     rabbitmq_vhost: str = "/assessment"  # 에이전트가 발행하는 전용 vhost
     rabbitmq_user: str = "assessment"
-    rabbitmq_password: SecretStr = SecretStr("assessment")
+    # default 는 weak(changeme) — 미설정 시 prod 거부 강제 (명시 assessment 는 허용). USER 는 식별자라 default 허용.
+    rabbitmq_password: SecretStr = SecretStr("changeme")
     rabbitmq_exchange: str = "assessment"
     rabbitmq_routing_key_inventory: str = "server.inventory"
     rabbitmq_routing_key_metrics: str = "server.metrics"
@@ -187,7 +190,7 @@ class ConsumerSettings(WebSettings):
                 "Provide via env var or secret channel (systemd EnvironmentFile·Vault·k8s Secret 등)."
             )
         if self.rabbitmq_user in _WEAK_VALUES:
-            raise ValueError("RABBITMQ_USER must be set to a non-default value in prod.")
+            raise ValueError("RABBITMQ_USER must not be a weak value (empty/password/admin/root/changeme) in prod.")
         return self
 
 
@@ -199,10 +202,10 @@ class DiagnosticSettings(ConsumerSettings):
     AI 진단 = 본 엔진 본질 기능 — feature flag 제거 (항상 활성).
     """
 
-    # routing key + TTL (모두 RabbitMQ broker — 큐 인자 변경 시 broker 재선언 의무)
-    diagnostic_routing_key: str = "diagnostic.request"
-    diagnostic_queue_ttl_ms: int = 24 * 60 * 60 * 1000  # 24h — pending job 처리 못 하면 DLQ
-    diagnostic_queue_max_len: int = 100_000
+    # routing key + 큐 정책 (모두 RabbitMQ broker — 큐 인자 변경 시 broker 재선언 의무)
+    rabbitmq_routing_key_diagnostic: str = "diagnostic.request"
+    rabbitmq_diagnostic_queue_ttl_ms: int = 24 * 60 * 60 * 1000  # 24h — pending job 처리 못 하면 DLQ
+    rabbitmq_diagnostic_queue_max_len: int = 100_000
 
     # Redis polling 캐시 (워커가 각 단계 후 SET, web polling이 우선 read)
     redis_key_diagnostic_progress: str = "diagnostic:job:{}"  # {job_id}
@@ -222,9 +225,6 @@ class DiagnosticSettings(ConsumerSettings):
     embedding_timeout_seconds: float = 30.0
     rag_top_k: int = 5
     rag_max_context_chars: int = 4000  # LLM prompt 안 RAG context 절 max 길이 cap
-
-    # 워커 단계별 timeout cap (단일 진단 1건 전체) — 클라이언트 polling timeout(5분)과 정렬
-    worker_job_timeout_seconds: int = 300
 
 
 # Settings 인스턴스는 컴포넌트별 sub-module에서 단일 진실로 생성 (Composition Root 패턴, CLAUDE.md #F4).

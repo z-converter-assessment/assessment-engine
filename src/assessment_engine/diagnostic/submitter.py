@@ -38,7 +38,7 @@ class DiagnosticSubmitter:
         exchange = await self.broker_channel.get_exchange(diagnostic_settings.rabbitmq_exchange)
         await exchange.publish(
             message,
-            routing_key=diagnostic_settings.diagnostic_routing_key,
+            routing_key=diagnostic_settings.rabbitmq_routing_key_diagnostic,
         )
 
 

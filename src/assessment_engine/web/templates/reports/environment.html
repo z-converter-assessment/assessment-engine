@@ -9,7 +9,7 @@
     <span class="page-meta">{{ view_title }}</span>
   </h1>
   <div style="display:flex; align-items:center; gap:14px;">
-    <div style="font-size:12px; color:#64748b; text-align:right;">
+    <div class="text-sm text-muted" style="text-align:right;">
       <div>발행 {{ summary.generated_at | kst }}</div>
       <div>기준 {{ summary.anchor_at | kst }} · 윈도우 {{ summary.time_range_label }}</div>
       <div>에이전트 {{ summary.agent_versions_label or "—" }}</div>

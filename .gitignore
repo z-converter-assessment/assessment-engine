@@ -2,6 +2,7 @@
 .env
 dev/.env
 dev/agent.env
+secrets/
 
 # 빌드 산출물 — agent 바이너리는 dev-up.sh / dev/agent-build/build.sh 가 빌드
 # (sibling repo Docker cross-build) 또는 AGENT_BINARY_URL 로 fetch.
@@ -13,9 +14,7 @@ dev/run/
 
 # 빌드 산출물
 dist/
-
-# IDE
-.idea/
+build/
 
 # Python
 __pycache__/
@@ -30,6 +29,7 @@ __pycache__/
 # 테스트 / 빌드 캐시
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 .coverage
 coverage*.xml
 htmlcov/
@@ -39,6 +39,12 @@ htmlcov/
 
 # 인프라 상태
 .vagrant/
+
+# 에디터 (JetBrains 통째 무시 / VS Code는 공용 규칙만 화이트리스트)
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 
 # Claude Code 런타임 상태 (CLAUDE.md는 프로젝트 규약이므로 제외)
 .claude/*.lock

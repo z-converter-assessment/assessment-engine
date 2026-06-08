@@ -24,3 +24,4 @@ secrets/
 # 빌드 산출물 (binary — Claude read 의미 0)
 dev/bin/assessment-agent
 dist/
+build/

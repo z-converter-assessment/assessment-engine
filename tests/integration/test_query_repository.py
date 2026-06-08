@@ -375,7 +375,7 @@ async def test_metric_chart_cpu_excludes_boot_time_change_point(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    """_chart_cpu_delta — boot_time 변경 시점은 reset 확정 → 차트 missing (CLAUDE.md B1).
+    """metric_chart(metric_trend 위임) — boot_time jitter 초과 변경 시점은 reset 확정 → 차트 missing (CLAUDE.md B1).
 
     재부팅 후 jiffies는 0부터 시작이지만 드물게 prev보다 큰 값일 수도. 옛 d<0 휴리스틱은
     못 잡지만 boot_time 비교는 spike 방지.
@@ -797,7 +797,7 @@ async def test_environment_utilization_returns_averages(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    """CPU·MEM·DISK 평균이 정상 산출 — 두 시점 jiffies delta + latest mem + max mount."""
+    """CPU·MEM·DISK capacity-weighted 평균 정상 산출 (단일 서버라 동등가중과 동치)."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-util-01", hostname="util-host"))
     base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=2)
     # T0: 누적 100 (busy 30, idle 70) → 30%, mem available 50/100, mount used 60%
@@ -830,12 +830,12 @@ async def test_environment_utilization_returns_averages(
             net_io=[],
         ),
     )
-    # 24h 평균: 두 시점만 있을 때 LAG pair 1개 = 그 delta가 곧 평균
-    util = await query_repo.environment_utilization(period_days=1)
+    # CPU: LAG pair 1개. (1 - Σd_idle/Σd_total)*100 = (1 - 50/100)*100 = 50%
+    util = await query_repo.environment_utilization(period_days=1, end=datetime.now(UTC))
     assert util.cpu_avg_pct is not None and 49.0 <= util.cpu_avg_pct <= 51.0
-    # MEM 24h 평균 = (50% + 70%) / 2 = 60%
+    # MEM capacity-weighted = Σused/Σtotal = (50+70)/(100+100) = 60%
     assert util.mem_avg_pct is not None and 59.0 <= util.mem_avg_pct <= 61.0
-    # DISK 24h 평균 = mount별 평균 (60+80)/2 = 70% → 서버별 max 1개 = 70%
+    # DISK capacity-weighted = Σused/Σtotal = (60+80)/(100+100) = 70%
     assert util.disk_avg_pct is not None and 69.0 <= util.disk_avg_pct <= 71.0
     assert util.sample_size >= 1
 
@@ -861,5 +861,126 @@ async def test_environment_utilization_excludes_outside_window(
             net_io=[],
         ),
     )
-    util = await query_repo.environment_utilization(period_days=1)
+    util = await query_repo.environment_utilization(period_days=1, end=datetime.now(UTC))
     assert util is not None  # 정상 호출 + 기간 밖 데이터로 인한 예외 없음
+
+
+async def test_environment_utilization_capacity_weighted(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """capacity-weighted: 자원 총량(jiffies/KB) 큰 서버가 큰 비중 — 서버 동등가중과 다른 결과."""
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=2)
+    end = datetime.now(UTC)
+    # 소형·고활용: d_total 100, d_idle 10 -> CPU 90%, MEM used 90/100
+    small = await collect_repo.upsert_server(make_inventory(composite_id="q-cap-small"))
+    for i, (user, idle) in enumerate([(0, 0), (90, 10)]):
+        await collect_repo.record_metrics(
+            small,
+            make_metrics(
+                collected_at=base_ts + timedelta(minutes=i),
+                cpu_user=user,
+                cpu_system=0,
+                cpu_idle=idle,
+                mem_total_kb=100,
+                mem_available_kb=10,
+                mounts=[],
+                disk_io=[],
+                net_io=[],
+            ),
+        )
+    # 대형·저활용: d_total 1000, d_idle 900 -> CPU 10%, MEM used 100/1000. 자원 10배
+    big = await collect_repo.upsert_server(make_inventory(composite_id="q-cap-big"))
+    for i, (user, idle) in enumerate([(0, 0), (100, 900)]):
+        await collect_repo.record_metrics(
+            big,
+            make_metrics(
+                collected_at=base_ts + timedelta(minutes=i),
+                cpu_user=user,
+                cpu_system=0,
+                cpu_idle=idle,
+                mem_total_kb=1000,
+                mem_available_kb=900,
+                mounts=[],
+                disk_io=[],
+                net_io=[],
+            ),
+        )
+    util = await query_repo.environment_utilization(period_days=1, end=end, server_ids=[small, big])
+    # CPU capacity-weighted = (1 - Σd_idle/Σd_total)*100 = (1 - 910/1100)*100 ≈ 17.3% (동등가중이면 50%)
+    assert util.cpu_avg_pct is not None and 15.0 <= util.cpu_avg_pct <= 20.0
+    # MEM capacity-weighted = Σused/Σtotal = (180+200)/(200+2000)*100 ≈ 17.3% (동등가중이면 50%)
+    assert util.mem_avg_pct is not None and 15.0 <= util.mem_avg_pct <= 20.0
+
+
+async def test_environment_utilization_server_ids_filter(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """server_ids 지정 시 해당 서버만 집계 (selection 보고서 경로)."""
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=2)
+    end = datetime.now(UTC)
+    a = await collect_repo.upsert_server(make_inventory(composite_id="q-sid-a"))
+    b = await collect_repo.upsert_server(make_inventory(composite_id="q-sid-b"))
+    # A: CPU 90%, B: CPU 10% (동일 jiffies 규모 — capacity-weighted=동등가중)
+    for sid_, pairs in [(a, [(0, 0), (90, 10)]), (b, [(0, 0), (10, 90)])]:
+        for i, (user, idle) in enumerate(pairs):
+            await collect_repo.record_metrics(
+                sid_,
+                make_metrics(
+                    collected_at=base_ts + timedelta(minutes=i),
+                    cpu_user=user,
+                    cpu_system=0,
+                    cpu_idle=idle,
+                    mem_total_kb=100,
+                    mem_available_kb=50,
+                    mounts=[],
+                    disk_io=[],
+                    net_io=[],
+                ),
+            )
+    only_a = await query_repo.environment_utilization(period_days=1, end=end, server_ids=[a])
+    assert only_a.cpu_avg_pct is not None and 89.0 <= only_a.cpu_avg_pct <= 91.0
+    assert only_a.sample_size == 1
+    both = await query_repo.environment_utilization(period_days=1, end=end, server_ids=[a, b])
+    assert both.cpu_avg_pct is not None and 49.0 <= both.cpu_avg_pct <= 51.0  # (90+10) 통합 = 50%
+    assert both.sample_size == 2
+
+
+async def test_metric_trend_capacity_weighted(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """환경 추이 차트도 capacity-weighted — 버킷 값을 큰 자원 서버가 지배 (카드와 동일 가중)."""
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=2)
+    start = base_ts - timedelta(minutes=1)
+    end = datetime.now(UTC)
+    small = await collect_repo.upsert_server(make_inventory(composite_id="q-trend-small"))
+    big = await collect_repo.upsert_server(make_inventory(composite_id="q-trend-big"))
+    # small 고활용(cpu 90%, mem 90%) / big 저활용(cpu 10%, mem 10%) + 자원 10배
+    for sid_, pairs, mtot, mavail in [
+        (small, [(0, 0), (90, 10)], 100, 10),
+        (big, [(0, 0), (100, 900)], 1000, 900),
+    ]:
+        for i, (user, idle) in enumerate(pairs):
+            await collect_repo.record_metrics(
+                sid_,
+                make_metrics(
+                    collected_at=base_ts + timedelta(minutes=i),
+                    cpu_user=user,
+                    cpu_system=0,
+                    cpu_idle=idle,
+                    mem_total_kb=mtot,
+                    mem_available_kb=mavail,
+                    mounts=[],
+                    disk_io=[],
+                    net_io=[],
+                ),
+            )
+    bi, td = "1 hour", timedelta(hours=1)  # 전 데이터 한 버킷으로 강제
+    cpu = await query_repo.metric_trend("cpu.usage_percent", start, end, bi, td, [small, big])
+    # 버킷 Σd_num/Σd_total = (90+100)/(100+1000)*100 ≈ 17.3% (서버 동등가중이면 50%)
+    assert cpu and cpu[-1].value is not None and 15.0 <= cpu[-1].value <= 20.0
+    mem = await query_repo.metric_trend("mem.usage_percent", start, end, bi, td, [small, big])
+    # Σused/Σtotal = (180+200)/(200+2000)*100 ≈ 17.3% (서버 동등가중이면 50%)
+    assert mem and mem[-1].value is not None and 15.0 <= mem[-1].value <= 20.0

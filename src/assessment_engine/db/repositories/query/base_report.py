@@ -121,14 +121,16 @@ class BaseReportQueryRepository(ABC):
     @abstractmethod
     async def environment_utilization(
         self,
-        period_days: int = 1,
+        period_days: float,
+        end: datetime,
+        server_ids: list[int] | None = None,
     ) -> EnvironmentUtilizationRaw:
-        """환경 전체 서버 N일 평균 활용률 — list 화면 도넛.
+        """환경(또는 선택 N대) capacity-weighted 평균 활용률 — 자원 총량 가중 (Σused / Σtotal).
 
-        - CPU: 기간 내 모든 인접 시점 jiffies delta 평균 (LAG 윈도우)
-        - MEM: 기간 내 모든 시점 (1 - available/total) 평균
-        - DISK: 기간 내 mount별 평균 사용률 → 서버별 max → 서버 간 평균
-        기간 내 메트릭 없는 서버 자동 제외. partition pruning 의무 (C5).
-        period_days는 보고서 분류 SQL과 동일 기간으로 호출해 일관성 유지.
+        - CPU: (1 - Σ d_idle / Σ d_total) x 100 — 전 서버·전 시점 jiffies delta 합 통합
+        - MEM: Σ(mem_total_kb - mem_available_kb) / Σ mem_total_kb x 100
+        - DISK: Σ(total_bytes - avail_bytes) / Σ total_bytes x 100 (가상 mount 제외)
+        빈 구간/미수집 시점은 분자·분모 동시 제외. end 기준 윈도우 (selection anchor 스냅샷 존중).
+        server_ids=None 전체, list 면 N대 한정. partition pruning 의무 (C5). period_days <= 30 cap.
         """
         ...

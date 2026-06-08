@@ -14,11 +14,11 @@
 
 질문 1: "이 N대를 다른 환경(클라우드 등)으로 마이그레이션하려면 instance type을 어떻게 결정하나?"
 
-각 서버의 vCPU·메모리·디스크 raw spec + 14일 사용량 통계(p95·peak)가 JSON 한 파일에 묶임. Terraform·Heat·CSP SDK가 그대로 받아 `instance_type` lookup table과 매핑 → 신규 환경 sizing 결정.
+각 서버의 vCPU·메모리·디스크 raw spec + 7일 사용량 통계(p95·peak)가 JSON 한 파일에 묶임. Terraform·Heat·CSP SDK가 그대로 받아 `instance_type` lookup table과 매핑 → 신규 환경 sizing 결정.
 
 질문 2: "마이그레이션 전 자원 적정 산정에 측정값 기반 근거가 있어야 한다."
 
-사용량 통계 p95·peak가 raw spec과 같이 들어가므로 다운사이즈·동등 sizing·업사이즈 어느 쪽도 측정값 근거로 결정 가능. "우리 추측"이 아닌 "14일 측정"이 기준.
+사용량 통계 p95·peak가 raw spec과 같이 들어가므로 다운사이즈·동등 sizing·업사이즈 어느 쪽도 측정값 근거로 결정 가능. "우리 추측"이 아닌 "7일 측정"이 기준.
 
 질문 3: "Ansible inventory·Terraform tfvars로 N대 일괄 자동화하려면?"
 
@@ -101,9 +101,9 @@ size_class_guide envelope:
 ## 한계
 
 1. instance type 직접 매핑 X — JSON에는 raw spec만 (`vcpu_count`·`mem_total_gb`). 실제 `t3.medium`·`m5.large` 결정은 자동화 도구 측 책임 — 도구가 자체 lookup table 보유 의무.
-2. 시간 흐름 export 미지원 — 단일 시점 snapshot만. 시계열 export(같은 서버의 14일 분포)는 별도 endpoint·도구로 (`/api/charts/...`).
+2. 시간 흐름 export 미지원 — 단일 시점 snapshot만. 시계열 export(같은 서버의 7일 분포)는 별도 endpoint·도구로 (`/api/charts/...`).
 3. PII·secret 노출 위험 — inventory에 hostname·internal IP 박힘. 외부 도구 입력 시 sanitize 의무는 외부 인프라 책임 — 본 엔진은 원본 데이터 그대로 export.
-4. 평가 윈도우 14일 default — `?period_days=N`으로 override 가능 (1~90일). 정책 단일 진실은 CLAUDE.md #F10.
+4. 평가 윈도우 7일 default — `?period_days=N`으로 override 가능 (1~90일). 정책 단일 진실은 CLAUDE.md #F10.
 5. 자동화 도구 매핑은 reference만 — 실제 도구가 본 매핑을 따른다는 보장 없음. 도구 측 변환 코드 검증 의무.
 
 ## 관련 문서·코드

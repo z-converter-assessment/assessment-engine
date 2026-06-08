@@ -17,7 +17,6 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from assessment_engine.db.repositories.base_diagnostic_repository import (
-    DIAGNOSTIC_RANGE_DAYS,
     DiagnosticTimeRange,
 )
 from assessment_engine.web.deps import get_diagnostic_service, get_service
@@ -89,8 +88,7 @@ async def report(
 
     # live read-only preview — 진단 트리거 없음 (engineer narrative 영역은 "발행 시 생성").
     public_ids = [pid.strip() for pid in (ids or "").split(",") if pid.strip()]
-    period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
-    summary = await service.get_selection_report(public_ids, period_days, view=view, time_range=time_range)
+    summary = await service.get_selection_report(public_ids, view=view, time_range=time_range)
     if summary is None:
         raise HTTPException(status_code=404, detail="no valid server ids")
     attention = await service.get_attention_signals()
@@ -171,13 +169,11 @@ async def report_emit(
     if not valid_pids:
         raise HTTPException(status_code=404, detail="no valid server ids")
     anchor = _normalize_anchor(datetime.fromisoformat(anchor_at) if anchor_at else None)
-    period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
-
     attention = await service.get_attention_signals()
 
     if len(valid_pids) == 1:
         single_job = await _emit_single_report(
-            service, diag_service, valid_pids[0], view, time_range, period_days, anchor, attention
+            service, diag_service, valid_pids[0], view, time_range, anchor, attention
         )
         if single_job is None:
             raise HTTPException(status_code=404, detail="server not found")
@@ -188,14 +184,14 @@ async def report_emit(
     child_jobs: dict[str, str] = {}
     for pid in valid_pids:
         cid = await _emit_single_report(
-            service, diag_service, pid, view, time_range, period_days, anchor, attention, publish=False
+            service, diag_service, pid, view, time_range, anchor, attention, publish=False
         )
         if cid:
             child_jobs[pid] = cid
 
     # N대 selection 보고서 (환경 보고서 양식, kind=ENV) — engineer 면 child_jobs 전달 (세부 목록 정적 link).
     summary = await service.get_selection_report(
-        valid_pids, period_days, view=view, time_range=time_range, anchor_at=anchor
+        valid_pids, view=view, time_range=time_range, anchor_at=anchor
     )
     if summary is None:
         raise HTTPException(status_code=404, detail="no valid server ids")
@@ -220,7 +216,6 @@ async def _emit_single_report(
     pid: str,
     view: str,
     time_range: str,
-    period_days: float,
     anchor: datetime,
     attention: AttentionSignals,
     publish: bool = True,
@@ -231,7 +226,7 @@ async def _emit_single_report(
     미존재 시 None.
     """
     summary = await service.get_single_server_report(
-        pid, period_days=period_days, view=view, time_range=time_range, anchor_at=anchor
+        pid, view=view, time_range=time_range, anchor_at=anchor
     )
     if summary is None:
         return None
@@ -267,9 +262,8 @@ async def single_server_report(
     if job:
         return await _render_single_snapshot(request, job, back_url, self_back, diag_service)
 
-    period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
     summary = await service.get_single_server_report(
-        str(server_id), period_days=period_days, view=view, time_range=time_range
+        str(server_id), view=view, time_range=time_range
     )
     if summary is None:
         raise HTTPException(status_code=404, detail="server not found")

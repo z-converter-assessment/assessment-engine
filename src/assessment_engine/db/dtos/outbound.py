@@ -175,16 +175,23 @@ class NetworkWithIo:
 
 @dataclass
 class EnvironmentUtilizationRaw:
-    """환경 전체 latest 메트릭 평균 — list 화면 진행 막대용.
+    """환경(또는 선택 N대) capacity-weighted 평균 활용률 — 자원 총량 가중 (sum(used) / sum(total)).
 
-    CPU는 두 시점 delta (ROW_NUMBER + self-join). MEM은 latest 1행. DISK는 서버별 max mount.
-    1시간 안 메트릭 없는 서버 자동 제외 (offline 필터).
+    윈도우 안 전 서버·전 시점 통합 비율. CPU는 jiffies delta 합(1 - sum(d_idle)/sum(d_total)),
+    MEM은 sum(used_kb)/sum(total_kb), DISK는 sum(used_bytes)/sum(total_bytes)(가상 mount 제외). 빈 구간/미수집
+    시점은 분자·분모 동시 제외. 거대 VM이 큰 비중 = 물리 자원 활용률 관점(서버 동등 가중 아님).
+    sample_size = 기간 내 metric 발행 서버 distinct count. 산식 단일 진실 = repo environment_utilization.
     """
 
     cpu_avg_pct: float | None
     mem_avg_pct: float | None
     disk_avg_pct: float | None
     sample_size: int  # 어느 metric이든 데이터 들어온 서버 수 — UI에 표본 표시 (예: "12대 기준")
+    # 시점별 capacity-weighted 환경값 분포의 p95 (avg 와 동일 per_ts 기반, 진정한 환경 p95).
+    # 호스트별 p95 산술평균(compute_report_avg_p95)이 아님 — 분포 95퍼센타일. None=표본 부재.
+    # 디스크는 물리디스크/디바이스 인식이 Windows 에서 불완전 -> capacity 합 신뢰 불가라 p95 제외 (CPU·메모리만).
+    cpu_p95_pct: float | None = None
+    mem_p95_pct: float | None = None
 
 
 @dataclass
@@ -208,7 +215,7 @@ class MemoryBreakdownRaw:
 
 @dataclass
 class CpuBreakdownRaw:
-    """CPU 분류 윈도우 평균 — user/system/iowait (jiffies delta 기반 %, reset 정책 _chart_cpu_delta 동일)."""
+    """CPU 분류 윈도우 평균 — user/system/iowait (jiffies delta 기반 %, reset 정책 metric_trend 동일)."""
 
     user_pct: float | None
     system_pct: float | None

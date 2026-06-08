@@ -1,6 +1,6 @@
 # ADR 0033 — 루트 docker-compose 단일 파일 (dev + 퀵스타트), ADR 0012 5절 supersede
 
-상태: Accepted (2026-06-01)
+상태: Superseded by ADR 0035 (2026-06-08, 원 Accepted 2026-06-01) — base(prod)/override(dev) 분리(0035) + 퀵스타트 폐기(0036)로 "단일 파일·dev+퀵스타트 겸용" 결정 대체. 본 ADR 은 단일 compose 시기 역사 기록으로 보존.
 
 ## Context
 
@@ -42,3 +42,5 @@ ADR 0012 5절은 `docker-compose.prod.yml`을 제거하고 "본 repo는 prod 운
 
 - ADR 0012 5절("docker-compose.prod 미제공 / prod를 compose로 강제 안 함") -> 본 ADR이 supersede. 루트 `docker-compose.yml`을 dev + 퀵스타트 단일 파일로 제공.
 - ADR 0012 3절(force-include 경로)은 본 ADR에서 `_migrations` -> `migrations`로 정정 — ADR 0012 정정 note에 동반 기록.
+
+정정 note (2026-06-08, ADR 0035): 본 ADR의 "단일 파일·override 파일 0·정의 1곳" 결정은 ADR 0035가 supersede. infra B안(GHCR 선빌드 이미지 pull-and-run)이 확정되며 본 ADR "추후 분리(dev/hardened-prod)"가 트리거됐고, 루트 `docker-compose.yml`을 prod-safe base(build 키 없는 이미지 pull)로 역할 전환 + dev 편의(build·bind mount·hot reload)를 `docker-compose.override.yml`로 분리했다. 단일 이미지(Dockerfile)·퀵스타트 진입 가치·`docker-compose.prod.yml` 미존재 원칙은 본 ADR 그대로 존속(base 자체가 prod). 상세는 ADR 0035.

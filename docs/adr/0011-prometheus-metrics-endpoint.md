@@ -1,6 +1,8 @@
 # ADR 0011 — Prometheus metrics endpoint 도입 (web 한정)
 
-상태: Accepted (2026-05-16)
+상태: Withdrawn (2026-06-08, 원 Accepted 2026-05-16)
+
+정정 (2026-06-08): 본 ADR 철회 — Prometheus metrics endpoint(`/metrics`·prometheus-fastapi-instrumentator)를 본 프로젝트에서 미적용으로 결정. 코드(`web/main.py` instrument)·의존성(pyproject·uv.lock)·관측 문서에서 제거. 관측은 `LOG_FORMAT=json` 구조화 로그 단독. 아래 본문은 당시 결정 기록.
 
 ## Context
 

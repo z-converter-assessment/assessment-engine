@@ -41,8 +41,8 @@ CLASSIFICATION_LABEL_KR: dict[str, str] = {
     "insufficient_data": "데이터 부족",
 }
 
-# 진단 발행 기본 윈도우 — service default·UI 기본값 단일 진실 (F10).
-DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"
+# 진단 발행 기본 윈도우 — service default·UI 기본값 단일 진실 (F10). WINDOW_DAYS(7d)와 정합.
+DIAGNOSTIC_DEFAULT_TIME_RANGE = "7d"
 
 
 class BaseDiagnosticRepository(ABC):

@@ -94,7 +94,7 @@ async def main() -> None:
     )
 
     dlx_name = f"{diagnostic_settings.rabbitmq_exchange}.dlx"
-    routing_key = diagnostic_settings.diagnostic_routing_key
+    routing_key = diagnostic_settings.rabbitmq_routing_key_diagnostic
 
     try:
         conn = await aio_pika.connect_robust(diagnostic_settings.broker_url, timeout=10)
@@ -121,8 +121,8 @@ async def main() -> None:
                 arguments={
                     "x-dead-letter-exchange": dlx_name,
                     "x-dead-letter-routing-key": routing_key,
-                    "x-message-ttl": diagnostic_settings.diagnostic_queue_ttl_ms,
-                    "x-max-length": diagnostic_settings.diagnostic_queue_max_len,
+                    "x-message-ttl": diagnostic_settings.rabbitmq_diagnostic_queue_ttl_ms,
+                    "x-max-length": diagnostic_settings.rabbitmq_diagnostic_queue_max_len,
                 },
             )
             await queue.bind(exchange, routing_key=routing_key)

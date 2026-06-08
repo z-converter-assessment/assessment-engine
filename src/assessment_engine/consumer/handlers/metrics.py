@@ -1,6 +1,5 @@
 """Metrics 메시지 핸들러 — server.metrics routing key. metrics 핸들러는 미등록 서버 auto-register."""
 
-import json
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -10,7 +9,7 @@ from pydantic import ValidationError
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from assessment_engine.cache.redis import safe_delete, safe_publish, safe_set
+from assessment_engine.cache.redis import safe_delete, safe_set
 from assessment_engine.consumer.handlers._common import (
     _check_idempotent,
     _db_retry,
@@ -65,11 +64,6 @@ def make_metrics_handler(
             cache_key = consumer_settings.redis_key_cache_metrics.format(resolved_server_id)
             await safe_set(redis, online_key, "1", ex=consumer_settings.redis_ttl_online)
             await safe_delete(redis, cache_key)
-            await safe_publish(
-                redis,
-                consumer_settings.redis_channel_metrics,
-                json.dumps({"server_id": resolved_server_id, "composite_id": data.composite_id}),
-            )
             await _track_agent_restart(redis, resolved_server_id, data.composite_id, data.agent_started_at)
 
             # F7: 메시지별 처리 흐름은 DEBUG — 1만 서버 시 분당 1만 line 방지.

@@ -6,7 +6,7 @@
 
 - URL: `GET /servers/`
 - 진입점: 엔진 web 첫 페이지 — 운영자가 가장 자주 보는 화면
-- 산출물 형태: HTML SSR. JS가 실시간 SSE로 갱신
+- 산출물 형태: HTML SSR. JS가 30초 polling으로 갱신
 - 다른 산출물의 navigation hub — 보고서·진단·Install·Export 모두 본 화면에서 진입
 
 ## 존재 의의
@@ -23,8 +23,8 @@
 
 ### 영역 2: 환경 평균 활용률 도넛 (3개)
 
-- CPU 14일 평균 활용률
-- 메모리 14일 평균
+- CPU 7일 평균 활용률
+- 메모리 7일 평균
 - 디스크 평균
 - 임계 색 분기 60·80% (UI badge danger·warn 임계)
 - 평가 윈도우는 `recommendation.WINDOW_DAYS` 단일 진실
@@ -33,7 +33,7 @@
 
 ### 영역 3: 프로비저닝 분포 도넛
 
-- 14일 측정값 기반 분류 3 카테고리 (under·정상·over)
+- 7일 측정값 기반 분류 3 카테고리 (under·정상·over)
 - 진단 워커가 자동 계산한 분포 시각화
 - Windows (원칙 P2): swap 축 제외(pagefile baseline)·saturation 축 OS 부재라 utilization 축만으로 분류(부분 평가) — 도넛/카운트가 pagefile 사용으로 under 쪽 왜곡되지 않음. 상세 `docs/architecture/web/services.md` "OS 분기" 절
 
@@ -81,7 +81,7 @@ list에서 N대 선택 → 다음 4 액션 활성화:
 - UI badge "warn"(노랑)·"danger"(빨강) 두 단계로 시각 구분
 - 서버 badge 임계(`_USAGE_WARN_PCT`·`_USAGE_DANGER_PCT`)와 환경 평균 임계(`_UTIL_LOW_PCT`·`_UTIL_HIGH_PCT`)는 별 도메인 — 값은 `web/services/mappers/shared.py` 단일 진실, 대시보드는 표현만
 
-평가 윈도우 14일:
+평가 윈도우 7일:
 - `recommendation.WINDOW_DAYS` 단일 진실 (CLAUDE.md #F10)
 - 대시보드는 윈도우 override 안 함 (보고서만 `?period_days=N` 허용) — 산업 표준 윈도우 고정
 
@@ -101,7 +101,7 @@ prov 분포 도넛 3 카테고리:
 ## 한계
 
 1. page=1 + 검색·필터 미사용 시만 상단 요약·도넛·신호 노출 — 검색·다음 페이지에선 raw 테이블만. 의도된 단순화이지만 운영자가 "왜 갑자기 사라졌나" 혼란 가능. UI 가이드 보강 후보.
-2. SSE 단일 채널 + 서버 측 필터링 (T5) — 동시 운영자 증가 시 broker 부하. 본 프로젝트 규모는 OK.
+2. 실시간 메트릭은 30초 polling (T5) — 갱신 지연 최대 30초. push(SSE/WebSocket) 대비 즉시성은 낮으나 pubsub·스트림 핸들러 복잡도 제거.
 3. 활용률 도넛은 환경 평균만 — 분포(p50·p95)는 미노출. 양극화 환경에서 misleading (`docs/products/environment-report.md` 한계 #2와 동일 패턴).
 4. 행별 권장 단일 라벨 — recommendation 분류 1개만 표시. 다중 신호(예: CPU 정상 + 메모리 부족)는 우선순위 평가 후 1개만.
 5. 환경 진단 결과 자동 노출 — list 페이지가 사용자 trigger (web POST /api/diagnostics) 로 발행된 최근 succeeded 진단을 자동 표시. ADR 0023: cron 자동 발화 폐기로 운영자가 명시 발행 안 하면 진단 자료 누적 0. 진단 워커 중단 시 stale 표시 위험.

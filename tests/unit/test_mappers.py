@@ -18,7 +18,6 @@ from assessment_engine.web.services.mappers.server import (
     _to_listen_port_item,
     _to_service_item,
     _usage_badge_class,
-    _usage_bar_color,
     _usage_severity,
     enrich_server_detail,
     infer_role,
@@ -62,19 +61,6 @@ def test_usage_badge_class_none_returns_empty():
 )
 def test_usage_badge_class(pct, expected):
     assert _usage_badge_class(pct) == expected
-
-
-@pytest.mark.parametrize(
-    "pct, expected",
-    [
-        (None, "#22c55e"),  # bar는 None이어도 default green
-        (50.0, "#22c55e"),
-        (80.0, "#f59e0b"),
-        (95.0, "#ef4444"),
-    ],
-)
-def test_usage_bar_color(pct, expected):
-    assert _usage_bar_color(pct) == expected
 
 
 # ─── raw dict → ViewModel 변환 ────────────────────────────────────────────
