@@ -506,6 +506,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         sql = text(f"""
             WITH cpu_deltas AS (
                 SELECT server_id,
+                    collected_at,
                     boot_time,
                     LAG(boot_time) OVER (PARTITION BY server_id ORDER BY collected_at) AS prev_boot,
                     cpu_idle - LAG(cpu_idle) OVER (PARTITION BY server_id ORDER BY collected_at) AS d_idle,
@@ -516,11 +517,24 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             ),
             cpu_valid AS (
                 -- 유효 delta = d_total>0 AND idle present AND reset 아님 (report_aggregate 와 동일 게이트).
-                SELECT d_idle, d_total
+                SELECT collected_at, d_idle, d_total
                 FROM cpu_deltas
                 WHERE d_total > 0 AND d_idle IS NOT NULL
                   AND (boot_time IS NULL OR prev_boot IS NULL
                        OR ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) <= :jitter_sec)
+            ),
+            -- 시점별 capacity-weighted 환경값 (p95 입력) — metric_trend per_ts 와 동일 정의.
+            -- avg(윈도우 단일 비율)와 달리 각 collected_at 환경값 분포의 95퍼센타일을 산출.
+            cpu_per_ts AS (
+                SELECT GREATEST(0, (1 - SUM(d_idle)::float / SUM(d_total)) * 100) AS v
+                FROM cpu_valid GROUP BY collected_at HAVING SUM(d_total) > 0
+            ),
+            mem_per_ts AS (
+                SELECT SUM(mem_total_kb - mem_available_kb)::float / NULLIF(SUM(mem_total_kb), 0) * 100 AS v
+                FROM server_metrics
+                WHERE collected_at >= :start AND collected_at <= :end{sid}
+                  AND mem_total_kb > 0 AND mem_available_kb IS NOT NULL
+                GROUP BY collected_at
             )
             SELECT
                 -- capacity-weighted: 서버별 평균이 아니라 전 서버·전 시점 delta 합으로 통합 비율.
@@ -540,6 +554,11 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                  WHERE collected_at >= :start AND collected_at <= :end{sid}
                    AND {_DATA_VOLUME_SQL_FILTER}
                    AND total_bytes > 0 AND avail_bytes IS NOT NULL) AS disk_avg,
+                -- p95: 시점별 환경값 분포의 95퍼센타일 (avg 와 동일 per_ts 기반). CPU·메모리만 —
+                -- 디스크는 물리디스크/디바이스(major·minor) 인식이 Windows 에서 불완전해 capacity 합이 신뢰 불가라 제외.
+                (SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY v) FROM cpu_per_ts) AS cpu_p95,
+                (SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY v)
+                 FROM mem_per_ts WHERE v IS NOT NULL) AS mem_p95,
                 (SELECT COUNT(DISTINCT server_id) FROM server_metrics
                  WHERE collected_at >= :start AND collected_at <= :end{sid}) AS sample_size
         """)
@@ -553,6 +572,8 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             mem_avg_pct=float(row.mem_avg) if row.mem_avg is not None else None,
             disk_avg_pct=float(row.disk_avg) if row.disk_avg is not None else None,
             sample_size=int(row.sample_size or 0),
+            cpu_p95_pct=float(row.cpu_p95) if row.cpu_p95 is not None else None,
+            mem_p95_pct=float(row.mem_p95) if row.mem_p95 is not None else None,
         )
 
     async def report_mount_usage(self, server_id: int, period_days: float, end: datetime) -> list[ReportMountUsageRaw]:

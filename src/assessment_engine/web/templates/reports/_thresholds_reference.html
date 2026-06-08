@@ -7,10 +7,10 @@
 #}
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">보고서 용어·개념 정리</h2>
-  <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
+  <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     환경·서버 보고서 본문에 등장하는 핵심 키워드·분류 기준의 정의. 임계값·판정 순서 상세는 아래 절 참조.
   </p>
-  <table style="font-size:12px;">
+  <table>
     <thead>
       <tr>
         <th>키워드</th>
@@ -37,14 +37,14 @@
 
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">분류 기준</h2>
-  <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
+  <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     환경·서버 보고서의 Right-sizing 분류는 <code>recommendation</code> 모듈 단일 진실로 결정.
     아래 표의 임계값을 USE Method (Brendan Gregg) Utilization·Saturation 두 축으로 적용해 6 분류 (under_provisioned / over_provisioned / idle / shutdown / optimal / insufficient_data) 산출.
     임계 출처는 AWS Compute Optimizer · Azure Advisor · GCP Recommender · Kleinrock 등 산업 표준 종합.
   </p>
 
   <h3>임계 카탈로그</h3>
-  <table style="font-size:12px;">
+  <table>
     <thead>
       <tr>
         <th>분류</th>
@@ -70,13 +70,13 @@
   </table>
 
   <h3 style="margin-top:18px;">판정 순서</h3>
-  <p style="margin:0 0 10px; font-size:13px; color:#475569; line-height:1.6;">
+  <p class="text-md text-label" style="margin:0 0 10px; line-height:1.6;">
     evidence 기반: 자원(CPU/Mem/Disk)별로 가진 축을 신호로 모은다. under_provisioned 는 위험 신호 중 하나라도 hit 되면 발화하고(OR — 누락 0), hit 된 신호를 근거(triggers)로 권고에 노출한다. over_provisioned 는 cpu·mem 이 둘 다 다운사이즈 임계 이하일 때만(AND — 보수적). saturation 못 본 Windows 를 over 로 단정하지 않는다.
   </p>
-  <p style="margin:0 0 10px; font-size:13px; color:#475569; line-height:1.6;">
+  <p class="text-md text-label" style="margin:0 0 10px; line-height:1.6;">
     OS 분기 (Windows): swap 은 Linux page-out(메모리 압박) 신호이나 Windows pagefile 은 여유 RAM 에도 상시 사용되는 baseline 이라 saturation 신호가 아니다. 따라서 Windows 는 swap 축을 제외하고(swap_used 무시), load(CPU run queue) 는 OS 부재라 미관측 축으로 기록된다. utilization·capacity 로 분류는 완결되며("이용률 기준 평가" confidence 단서), "데이터 부족"이 아니다 — cpu_p95·mem_p95 가 산출되기 때문. 동일 통계라도 Linux 는 load/swap 으로 under, Windows 는 utilization 기준으로 같은 분류 체계 안에서 결론난다. Windows agent 가 등가 카운터(Processor Queue Length 등)를 발행하면 미관측 축이 자동 채워진다.
   </p>
-  <table style="font-size:12px;">
+  <table>
     <thead>
       <tr>
         <th>순위</th>
@@ -85,20 +85,20 @@
       </tr>
     </thead>
     <tbody>
-      <tr><td>1</td><td>idle</td><td>cpu_peak <= 1% AND net <= 1 KB/s</td></tr>
-      <tr><td>2</td><td>shutdown</td><td>cpu_p95 <= 3% AND net <= 2 Mbps</td></tr>
-      <tr><td>3</td><td>under_provisioned</td><td>위험 신호 OR (하나라도): cpu_p95>=70% / mem_p95>=80% / disk>=85% / (load_15m/cores)>=1.0 / iowait>=20% / swap(Linux)</td></tr>
-      <tr><td>4</td><td>insufficient_data</td><td>cpu_p95·mem_p95 둘 다 null + 위 under 신호 없음 (평가 데이터 없음)</td></tr>
+      <tr><td>1</td><td>under_provisioned</td><td>위험 신호 OR (하나라도): cpu_p95>=70% / mem_p95>=80% / disk>=85% / (load_15m/cores)>=1.0 / iowait>=20% / swap(Linux). idle/shutdown 보다 우선 — CPU 가 낮아도 압박 신호가 있으면 미사용이 아니라 자원 부족.</td></tr>
+      <tr><td>2</td><td>idle</td><td>cpu_peak <= 1% AND net <= 1 KB/s (위험 신호 0)</td></tr>
+      <tr><td>3</td><td>shutdown</td><td>cpu_p95 <= 3% AND net <= 2 Mbps (위험 신호 0)</td></tr>
+      <tr><td>4</td><td>insufficient_data</td><td>cpu_p95·mem_p95 둘 다 null + under 신호 없음 (평가 데이터 없음)</td></tr>
       <tr><td>5</td><td>over_provisioned</td><td>cpu_p95 <= 30% AND mem_p95 <= 50% (둘 다 관측·낮음)</td></tr>
       <tr><td>6</td><td>optimal</td><td>위 모두 미해당</td></tr>
     </tbody>
   </table>
 
   <h3 style="margin-top:18px;">고객 양식 권고</h3>
-  <p style="margin:0 0 10px; font-size:13px; color:#475569; line-height:1.6;">
+  <p class="text-md text-label" style="margin:0 0 10px; line-height:1.6;">
     환경 보고서 "조치 필요 호스트"(under/over/idle/shutdown)와 서버 단일 보고서의 "권고" 표시는 mapper <code>_build_recommendation_action</code> 단일 진실. under_provisioned 는 <code>recommendation.assess</code> 가 산출한 hit 신호(triggers)를 mapper 가 증설 권고로 변환·결합 ("/" 구분 — 임계 재계산 없이 assess 단일 소스), 그 외는 분류별 고정 문구. optimal/insufficient_data 는 조치 불필요라 환경 "조치 필요 호스트"엔 미노출, 서버 단일 보고서엔 상태로 표시. 엔지니어 "판단"(원인 진단)과 별도 축으로, 권고는 다음 행동(조치)을 제시한다.
   </p>
-  <table style="font-size:12px;">
+  <table>
     <thead>
       <tr>
         <th>분류 / trigger</th>
@@ -124,11 +124,11 @@
 
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">엔지니어 보조 지표</h2>
-  <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
+  <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     분류 자체는 위 표의 임계로 결정되지만, 엔지니어 검토 시 원인 진단·sizing 방향을 잡으려면 보조 지표가 필요.
     아래는 엔지니어 양식 (다중 요약·단일 세부) 에 노출되는 보조 메트릭의 정의·임계·근거.
   </p>
-  <table style="font-size:12px;">
+  <table>
     <thead>
       <tr>
         <th>지표</th>
@@ -155,10 +155,10 @@
   </table>
 
   <h3 style="margin-top:18px;">판단 컬럼 해석</h3>
-  <p style="margin:0 0 10px; font-size:13px; color:#475569; line-height:1.6;">
+  <p class="text-md text-label" style="margin:0 0 10px; line-height:1.6;">
     엔지니어 양식 "판단" 컬럼은 위 보조 지표를 아래 우선순위로 평가해 가장 시급한 신호 1개를 자동 진단 — 분류 판정 순서와 동일하게 위에서부터 첫 매칭에서 확정 (short-circuit). 분류(sizing 방향)와 별도 축으로, 입력 지표는 겹치나 출력은 원인 해석 문구다.
   </p>
-  <table style="font-size:12px;">
+  <table>
     <thead>
       <tr>
         <th>순위</th>
@@ -182,11 +182,11 @@
 
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">운영 신호 임계</h2>
-  <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
+  <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     Right-sizing 분류와 별도의 운영 안정성 신호 — 환경·서버 엔지니어 양식 KPI / 컬럼 / 세부 카드에 노출.
     분류 (under/over/optimal) 가 정상이어도 운영 신호가 발화하면 sizing 보다 운영 조치가 선행되어야 함.
   </p>
-  <table style="font-size:12px;">
+  <table>
     <thead>
       <tr>
         <th>신호</th>
@@ -205,7 +205,7 @@
 
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">평가 윈도우</h2>
-  <p style="margin:0; font-size:13px; color:#475569; line-height:1.6;">
+  <p class="text-md text-label" style="margin:0; line-height:1.6;">
     평가 윈도우 표준은 <code>recommendation.WINDOW_DAYS</code> = 7일.
     대시보드·환경 보고서·서버 보고서 모두 본 상수 참조.
     보고서 라우터에 한해 <code>?time_range=15m / 1h / 6h / 24h / 7d / 14d / 30d</code> override 허용.

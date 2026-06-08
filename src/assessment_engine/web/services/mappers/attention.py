@@ -16,6 +16,7 @@ from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.server import workload_category_counter
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
+    UTIL_GAUGE_COLOR,
     resolve_os_eol,
 )
 from assessment_engine.web.view_models.attention import (
@@ -39,7 +40,7 @@ _ATTN_ACTIVE_BADGE = "attn-active"
 # UtilizationBar 게이지 색 — 환경 평균 활용률 도넛/바 단색 (그라데이션·임계 분기 제거).
 # 활용률 정도는 게이지 길이(dash_length)로, 색은 값 무관 단일 푸른색. 색으로 임계 의미를 주지
 # 않는다 — 위험도 색은 Right-sizing 분류 도넛이 별도 담당.
-_UTIL_COLOR_GAUGE = "#3b82f6"  # 푸른 단색 (blue-500)
+_UTIL_COLOR_GAUGE = UTIL_GAUGE_COLOR  # 푸른 단색 (blue-500) — shared.UTIL_GAUGE_COLOR 단일 진실
 _UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재 (회색)
 
 # 도넛 SVG 원주 — r=42, 2*pi*r ≈ 263.89. pct 0~100을 0~_UTIL_DONUT_CIRC로 매핑.
@@ -129,16 +130,19 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
     for key, label, color, description in _DONUT_SEGMENT_DEFS:
         count = risk_counts.get(key, 0)
         dash_length = (count / total) * _UTIL_DONUT_CIRC if (total > 0 and count > 0) else 0.0
+        pct = round(count / total * 100, 1) if total > 0 else 0.0
         segments.append(
             RiskDonutSegment(
                 key=key,
                 # 표시 라벨 = right-sizing 한국어 분류명(LABEL_KO 단일 진실).
                 # 보고서·대시보드 통일, 영어 enum 노출 금지.
                 label=recommendation.LABEL_KO.get(key, label),
-                color=color,
+                # 색 = 게이지 테마 단색 통일 (분류 막대 — 라벨이 의미 전달, 색 무관). _DONUT_SEGMENT_DEFS 다색 미사용.
+                color=UTIL_GAUGE_COLOR,
                 count=count,
+                pct=pct,
                 dash_length=dash_length,
-                dash_offset=-cum_offset,  # 음수 offset = 시계방향 이동
+                dash_offset=-cum_offset,  # 음수 offset = 시계방향 이동 (잔존 — 도넛 폐기 후 미사용)
                 description=description,
             )
         )
@@ -188,6 +192,7 @@ def build_environment_overview(
             role_unknown += 1
 
     util_bars: list = []
+    util_bars_p95: list = []
     util_sample = 0
     if utilization is not None:
         util_sample = utilization.sample_size
@@ -209,6 +214,22 @@ def build_environment_overview(
                 pct=utilization.disk_avg_pct,
                 bar_color=_bar_color(utilization.disk_avg_pct),
                 dash_length=_dash_length(utilization.disk_avg_pct),
+            ),
+        ]
+        # p95 활용률 — 평균과 동일 capacity-weighted 환경 분포 기반(per_ts 95퍼센타일). CPU·메모리만 —
+        # 디스크는 물리디스크/디바이스 인식이 Windows 에서 불완전해 capacity 합이 신뢰 불가라 제외.
+        util_bars_p95 = [
+            UtilizationBar(
+                label="CPU",
+                pct=utilization.cpu_p95_pct,
+                bar_color=_bar_color(utilization.cpu_p95_pct),
+                dash_length=_dash_length(utilization.cpu_p95_pct),
+            ),
+            UtilizationBar(
+                label="메모리",
+                pct=utilization.mem_p95_pct,
+                bar_color=_bar_color(utilization.mem_p95_pct),
+                dash_length=_dash_length(utilization.mem_p95_pct),
             ),
         ]
 
@@ -235,6 +256,7 @@ def build_environment_overview(
         role_distribution=dict(sorted(role_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
         role_unknown_count=role_unknown,
         utilization=util_bars,
+        utilization_p95=util_bars_p95,
         util_sample_size=util_sample,
         risk_donut=risk_segments,
         risk_donut_total=risk_total,

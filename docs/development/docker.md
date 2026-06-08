@@ -2,32 +2,37 @@
 
 정책: CLAUDE.md #A. 본 문서는 docker-compose 운영 단일 진실 — Dockerfile·compose 파일 구조·서비스 카탈로그·healthcheck·기동 순서.
 
-docker-compose는 엔진 그 자체 — web·consumer·diagnostic-worker·postgres·rabbitmq·redis·migrate 7 서비스가 고객사 네트워크 내 설치 단위. Python 앱(web·consumer·worker·migrate)은 로컬 빌드 단일 이미지 + command 분기, 인프라(postgres·rabbitmq·redis)는 공식 이미지. ADR 0023: scheduler cron 폐기로 8 → 7.
+docker-compose는 엔진 그 자체 — web·consumer·diagnostic-worker·postgres·rabbitmq·redis·migrate 7 서비스가 고객사 네트워크 내 설치 단위. Python 앱(web·consumer·worker·migrate)은 단일 이미지 + command 분기(prod 는 GHCR pull, dev 는 로컬 빌드), 인프라(postgres·rabbitmq·redis)는 공식 이미지. ADR 0023: scheduler cron 폐기로 8 → 7.
 
 ---
 
 ## 파일 구조
 
+compose 2 파일 (ADR 0035) — base(prod-safe) + override(dev) 자동 머지:
+
 ```
-docker-compose.yml   — 루트 단일 compose (dev + 퀵스타트, ADR 0033). 루트 Dockerfile(wheel) build + 루트 .env + 포트 노출 + APP_ENV 토글(기본 dev). bind mount·hot reload 없음
-Dockerfile           — 엔진 이미지 (web·consumer·diagnostic-worker·migrate 공용, wheel install·non-root). 위 compose·CI/release·systemd·k8s 공용 단일 이미지
-.env.example         — 환경변수 카탈로그 (루트 단일). `cp .env.example .env` 후 그대로 dev·퀵스타트 동작
-.dockerignore        — wheel build context 제외 경로 (dev/·docs/·tests/·.env 등)
-dev/dev-up.sh        — Docker -> migrate -> web 헬스체크 -> libvirt(VM 생성 + agent install) 순서 기동. COMPOSE_FILE=docker-compose.yml export
-dev/dev-down.sh      — libvirt(virsh undefine) -> docker compose down -v (dev-up.sh source 로 COMPOSE_FILE·PROJECT_NAME 공유)
+docker-compose.yml          — prod-safe BASE. 앱 서비스 `build:` 없음, GHCR 이미지 핀 pull. bind mount 없음.
+                              볼륨 env 바인딩(PGDATA_HOST·MQ_DATA_HOST). 릴리즈 첨부 = 빌드 없는 pull-and-run prod compose
+docker-compose.override.yml — dev 전용. 소스 빌드(루트 Dockerfile)·`./src` bind mount·hot reload(watchfiles). `docker compose up` 시 base 에 자동 머지(override 우선). prod/release 미배포
+Dockerfile                  — 엔진 이미지 (web·consumer·diagnostic-worker·migrate 공용, multi-stage wheel install·non-root). base·override·CI/release·systemd·k8s 공용 단일 이미지 (dev-prod parity — dev/prod Dockerfile 분리 안 함)
+.env.example                — 환경변수 카탈로그 (루트 단일). `cp .env.example .env` 후 그대로 dev·퀵스타트 동작
+.dockerignore               — wheel build context 제외 경로 (dev/·docs/·tests/·.env 등)
+dev/dev-up.sh               — Docker -> migrate -> web 헬스체크 -> libvirt(VM 생성 + agent install) 순서 기동. COMPOSE_FILE 미지정(base+override 자동 머지), COMPOSE_PROJECT_NAME=dev
+dev/dev-down.sh             — libvirt(virsh undefine) -> docker compose down -v (dev-up.sh source 로 PROJECT_NAME 공유)
 ```
 
-compose 가 루트라 별도 `-f` 없이 인식:
+compose 가 루트라 별도 `-f` 없이 base+override 자동 인식:
 
 ```bash
 cp .env.example .env
-docker compose up -d      # 퀵스타트 (repo clone 후). 코드 수정 반영은 `up --build -d`
+docker compose up -d                      # dev/퀵스타트: base + override.yml 머지 -> 로컬 빌드. 코드 수정 반영은 `up --build -d`
+docker compose -f docker-compose.yml up -d # base 단독(prod 시뮬레이션, override 제외) — GHCR 이미지 pull
 docker compose down -v
 ```
 
-이미지가 wheel install 이라 코드 bind mount·hot reload 없음 — dev 코드 반복은 venv(README "개발 환경 셋업")로 host 실행하거나 `up --build`. dev 파이프라인은 `dev/dev-up.sh` 가 본 파일을 COMPOSE_FILE 로 쓰고 libvirt VM 등 host 구성을 추가 수행.
+dev 코드 반복은 override.yml 의 `./src` bind mount + hot reload(web=uvicorn reload, consumer/diag=watchfiles)로 컨테이너 restart 없이 반영 — 의존성(pyproject) 변경 시에만 `up --build`. prod base 는 bind mount 없음(이미지·wheel 불변성). dev 파이프라인은 `dev/dev-up.sh` 가 base+override 를 그대로 쓰고 libvirt VM 등 host 구성을 추가 수행.
 
-prod 하드닝(APP_ENV=prod·강 secret·외부 secret 채널·HTTPS ingress)은 본 repo 범위 밖 — `docs/operations/env.md` + `config.py` `_validate_prod_*` 에 contract 로 표현 (ADR 0033 "추후 분리").
+prod 하드닝(APP_ENV=prod·강 secret·외부 secret 채널·HTTPS ingress)은 base 가 강제하지 않음 — infra env 주입으로 달성하거나 `docs/operations/env.md` + `config.py` `_validate_prod_*` contract (ADR 0035).
 
 ---
 
@@ -120,10 +125,10 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 | `postgres` | `timescale/timescaledb-ha:pg16` | 메인 DB + TimescaleDB + pgvector (ADR 0024) 등 all-in-one | dev / prod |
 | `rabbitmq` | `rabbitmq:3.13-management-alpine` | 메시지 브로커 (AMQP + 관리 UI) | dev / prod |
 | `redis` | `redis:7-alpine` | 캐시·온라인 TTL·PUB/SUB | dev / prod |
-| `migrate` | 로컬 빌드 | `alembic upgrade head` 1회 실행 후 종료 (ADR 0005). 앱 서비스 4종이 `depends_on: service_completed_successfully`로 그 뒤 기동 | dev / prod |
-| `web` | 로컬 빌드 | FastAPI SSR + API + StaticFiles | dev / prod |
-| `consumer` | 로컬 빌드 | aio-pika 컨슈머 (server.* + task.result 큐) | dev / prod |
-| `diagnostic-worker` | 로컬 빌드 | `diagnostic.request` 큐 소비, LLM 호출 (ADR 0004 + 0023) | dev / prod |
+| `migrate` | GHCR pull (dev: override 로컬 빌드) | `alembic upgrade head` 1회 실행 후 종료 (ADR 0005). 앱 서비스 4종이 `depends_on: service_completed_successfully`로 그 뒤 기동 | dev / prod |
+| `web` | GHCR pull (dev: override 로컬 빌드) | FastAPI SSR + API + StaticFiles | dev / prod |
+| `consumer` | GHCR pull (dev: override 로컬 빌드) | aio-pika 컨슈머 (server.* + task.result 큐) | dev / prod |
+| `diagnostic-worker` | GHCR pull (dev: override 로컬 빌드) | `diagnostic.request` 큐 소비, LLM 호출 (ADR 0004 + 0023) | dev / prod |
 | `pgadmin` | `dpage/pgadmin4` | DB GUI (`profiles:[gui]` 전용). `docker compose --profile gui up -d pgadmin`으로 명시 호출 — idle 250 MiB 절감 | dev gui only |
 
 ### 포트 노출
@@ -137,46 +142,51 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 
 redis·consumer는 포트 미노출. 모두 docker 네트워크 내부에서만 접근.
 
-### 네임드 볼륨
+### 영속 볼륨
 
 ```yaml
 volumes:
   postgres_data:
+  rabbitmq_data:
 ```
 
-`postgres_data` 네임드 볼륨 1개. PostgreSQL 데이터 디렉토리(`/var/lib/postgresql/data`)를 마운트한다.
+base 는 postgres·rabbitmq 영속 볼륨을 env 바인딩으로 둔다 (ADR 0035):
+- postgres: `${PGDATA_HOST:-postgres_data}:/home/postgres/pgdata/data` (timescaledb-ha 실제 PGDATA 경로).
+- rabbitmq: `${MQ_DATA_HOST:-rabbitmq_data}:/var/lib/rabbitmq`.
+- `PGDATA_HOST`/`MQ_DATA_HOST` 미설정 시 named volume(`postgres_data`·`rabbitmq_data`), host 절대경로 주입 시 bind mount(infra Cinder `/mnt/pgdata`·`/mnt/mqdata`).
 
-| 동작 | 명령 | postgres_data |
+| 동작 | 명령 | named volume |
 |------|------|---------------|
 | 일반 종료 | `docker compose down` | 보존 |
-| 완전 초기화 | `docker compose down -v` | 삭제 |
+| 완전 초기화 | `docker compose down -v` | 삭제 (host bind 주입 시엔 외부 디스크라 미삭제) |
 
 `down -v`가 필요한 시나리오:
-- ORM 모델에 컬럼/제약(`UniqueConstraint` 등) 추가 — `create_all`은 기존 테이블에 변경 적용 안 함.
+- ORM 모델에 컬럼/제약(`UniqueConstraint` 등) 추가 — alembic revision 미적용분 초기화 시.
 - TimescaleDB hypertable 정의 변경.
 - 테스트 시나리오 초기화.
 
-redis·rabbitmq는 볼륨 없음 — 재시작 시 상태 초기화. 멱등성 키·메시지 큐·캐시 모두 휘발성. 운영 환경이라면 `rabbitmq_data` / `redis_data` 볼륨 추가 검토.
+redis 는 볼륨 없음 — 재시작 시 캐시·온라인 TTL 초기화 (휘발성 의도, fail-open #C3).
 
-### 코드 마운트 (DEV 전용)
+### 코드 마운트 (DEV 전용 — docker-compose.override.yml)
+
+bind mount·hot reload 는 override.yml 에만 있다 (base 는 불변 이미지). override 가 앱 패키지를 컨테이너 site-packages 에 덮어 코드 변경을 즉시 반영:
 
 ```yaml
-web:
-  volumes: [./:/app]
-consumer:
-  volumes: [./:/app]
+# docker-compose.override.yml
+web|consumer|diagnostic-worker:
+  volumes: [./src/assessment_engine:/usr/local/lib/python3.12/site-packages/assessment_engine]
+migrate:
+  volumes: [./migrations:/usr/local/lib/python3.12/site-packages/assessment_engine/migrations]
 ```
 
-호스트 프로젝트 루트를 컨테이너 `/app`에 마운트. `Dockerfile`의 `COPY . .`는 빌드 시점 복사라 이후 호스트 변경이 반영 안 되지만, 이 마운트가 위에 덮여 코드 변경이 컨테이너 내부에 즉시 노출된다.
+base 의 wheel install 패키지를 host 소스가 덮어 재빌드 없이 코드 변경 반영. 의존성(pyproject) 변경 시에만 `up --build`.
 
 조합 효과:
-- `web`: uvicorn `reload=True` (`src/assessment_engine/web/__main__.py`)가 파일 변경 감지 → 자동 재기동. 새로고침만으로 변경 확인.
-- `consumer`: reload 없음. 변경 후 `docker compose restart consumer` 필요.
-- `src/assessment_engine/web/static/js/chart-utils.js` 같은 정적 자원도 별도 빌드 없이 즉시 서빙.
+- `web`: uvicorn `reload=True`(`WEB_RELOAD=true`, override 주입)가 파일 변경 감지 -> 자동 재기동. 새로고침만으로 변경 확인.
+- `consumer`·`diagnostic-worker`: watchfiles 래퍼 entrypoint(override)가 `.py` 변경 시 프로세스 재시작.
+- `migrate`: host `./migrations` bind 로 새 alembic revision 을 재빌드 없이 인식.
 
-프로덕션 마이그레이션 가이드: `volumes: ./:/app` 제거 → `Dockerfile`의 `COPY . .` 결과만 사용. uvicorn `reload=True`도 제거 (`src/assessment_engine/web/__main__.py`).
-
-보안 — `.env` 노출: 코드 마운트의 부작용으로 호스트 `.env`가 컨테이너 안 `/app/.env`에 그대로 노출된다 (`-rw-r--r--` root 소유). `.dockerignore`에 `.env`가 명시되어 있어 이미지 빌드(`COPY . .`) 시점에는 제외되지만, 런타임 코드 마운트는 빌드 산출물이 아니므로 `.dockerignore`가 적용되지 않는다. 프로덕션에서 코드 마운트를 제거하면 `.env`도 자동으로 컨테이너 안에서 사라진다.
+prod (base 단독): override 미배포라 위 bind mount·reload 전부 없음 — `Dockerfile` wheel install 결과(불변 이미지)만 사용. `.dockerignore` 가 `.env` 를 이미지에서 제외하고, base 는 코드 마운트가 없어 호스트 `.env` 가 컨테이너에 노출되지 않는다 (dev override bind 는 `./src` 한정이라 루트 `.env` 미포함).
 
 ### Redis 인라인 설정
 

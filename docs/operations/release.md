@@ -15,7 +15,7 @@ semver tag `v*` push 시 두 채널 동시 발행 — 운영자 선택권 (#A0 �
 | `SHA256SUMS` | 텍스트 (sha256sum 형식) | wheel·sdist 무결성 검증 |
 | `sbom.cdx.json` | CycloneDX JSON | 의존성 트리 명세 (CVE 추적) |
 | `*.sigstore.json` | Sigstore signature | `cosign verify-blob` 무결성·발행자 검증 |
-| `docker-compose.yml` + `.env.example` | compose + env 카탈로그 | 릴리즈 다운로드만으로 퀵스타트 — `ENGINE_IMAGE=ghcr.io/{org}/assessment-engine:0.1.0 docker compose up -d --no-build` 로 1.2 GHCR 이미지 pull (ADR 0033) |
+| `docker-compose.yml` (prod-safe base) + `.env.example` | compose base + env 카탈로그 | 빌드 없는 pull-and-run prod compose (ADR 0035). `build:` 키 없음 — 받은 base 에 `ENGINE_IMAGE`(또는 base 기본 핀)·`PGDATA_HOST`·`MQ_DATA_HOST`·`OLLAMA_*` 주입 후 `docker compose up -d` 로 1.2 GHCR 이미지 pull. base 의 `__ENGINE_VERSION__` 은 release CI 가 태그 semver(예 `0.1.0`)로 치환. dev 편의(빌드·bind mount)는 repo `docker-compose.override.yml`(릴리즈 미첨부) |
 
 wheel 안 force-include (`pyproject.toml` `[tool.hatch.build.targets.wheel].force-include`):
 - `assessment_engine/migrations/` — Alembic versions (ADR 0005)
@@ -117,6 +117,7 @@ cd /tmp/release && sha256sum -c SHA256SUMS
 - ADR 0013 — release-please 자동화 (Superseded by 0028)
 - ADR 0028 — Commitizen 전환 (Superseded by 0030)
 - ADR 0030 — tag-derived 버전 (hatch-vcs, 버전을 repo에 저장 안 함) — 현행
+- ADR 0035 — prod-safe compose base 첨부 (build 키 없는 pull-and-run) + override(dev) 분리. base `__ENGINE_VERSION__` CI 치환, SHA256SUMS 에 compose·env 포함
 
 ## 7. 한계
 

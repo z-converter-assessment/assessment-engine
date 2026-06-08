@@ -199,7 +199,10 @@ def _os_display(os_id: str | None, os_version: str | None) -> str:
 
 def build_server_inventory(detail, is_online: bool) -> ServerInventory:
     """ServerDetail -> 개별 보고서 인벤토리 (충실 표시 — 전체 IP(IPv4/IPv6)·하드웨어·식별자, 생략·왜곡 0)."""
-    disk_total_bytes = sum((d.get("size_bytes") or 0) for d in detail.disks) if detail.disks else 0
+    # 물리 디스크만 합산 — 파티션·LVM/RAID(논리) 제외 (to_report_row_item storage_total_gb 와 동일 기준).
+    # 미적용 시 물리+파티션+LVM 중복 합산으로 인벤토리 디스크가 과대 계상돼 환경/선택 목록 값과 어긋난다.
+    _physical_disks = [d for d in (detail.disks or []) if is_physical_disk(d.get("name", ""))]
+    disk_total_bytes = sum((d.get("size_bytes") or 0) for d in _physical_disks)
     return ServerInventory(
         hostname=detail.hostname,
         os_display=_os_display(detail.os_id, detail.os_version),

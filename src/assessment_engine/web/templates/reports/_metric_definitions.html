@@ -6,10 +6,10 @@
 #}
 <section class="card" style="margin-bottom:16px;" id="metric-definitions">
   <h2 class="card-title">지표 정의 — 활용률·집계 공통</h2>
-  <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
+  <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     환경 성능 추이·대시보드 화면 수치의 계산 방식·표본·시간 범위 정의. right-sizing 분류, 통계(평균·p95·peak), 운영 신호 임계는 아래 "분류 기준"·"운영 신호 임계" 절 참조.
   </p>
-  <table style="font-size:12px;">
+  <table>
     <thead>
       <tr>
         <th>개념</th>
@@ -29,10 +29,10 @@
 
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">환경 성능 추이 지표</h2>
-  <p style="margin:0 0 12px; font-size:13px; color:#475569; line-height:1.6;">
+  <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     환경 전체(전 서버) 집계 — 집계 방식은 지표 성격에 따라 셋. 활용률(%) 지표는 capacity-weighted(자원 총량 가중 Σnum/Σden, 큰 서버 비중 큼), 처리량(I/O·PPS) 지표는 합산(SUM — 절대 총량이라 가중 평균 무의미), 로드는 코어 정규화(Σload/Σcpu_cores). 아래 "집계" 컬럼이 그래프별 방식.
   </p>
-  <table style="font-size:12px;">
+  <table>
     <thead>
       <tr>
         <th>지표</th>
@@ -59,7 +59,7 @@
 
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">대시보드 지표</h2>
-  <table style="font-size:12px;">
+  <table>
     <thead>
       <tr>
         <th>지표</th>
@@ -72,8 +72,8 @@
       <tr><td>Right-sizing 분포</td><td>USE Method 6분류(리소스 부족·과다 프로비저닝·유휴·종료 권장·정상·표본 부족) 호스트 수. 분류 임계는 "분류 기준" 절.</td></tr>
       <tr><td>자원 부족 호스트</td><td>under_provisioned 호스트 + 발화 trigger(스왑·CPU·메모리·Load·디스크). 임계는 "임계 카탈로그" 절.</td></tr>
       <tr><td>운영 신호</td><td>수집 끊김(gap)·OS 지원 종료(os_eol)·에이전트 불안정(재시작 빈도). 임계는 "운영 신호 임계" 절.</td></tr>
-      <tr><td>환경 부하 추이</td><td>7일 capacity-weighted CPU·메모리 시계열.</td></tr>
-      <tr><td>네트워크 토폴로지</td><td>L3 subnet 공동 소속 추론 그래프(노드=subnet/host). 인벤토리 IP 기반 추론이며 실측 도달성(reachability)은 아님.</td></tr>
+      <tr><td>환경 부하 추이</td><td>선택 구간(표준 7일) capacity-weighted CPU·메모리 시계열. 수집 이력이 있는 범위만 동적 x축(빈 구간 제외) — 윈도우보다 데이터가 짧으면 있는 기간으로 정규화, 버킷 간격만 윈도우 기준 고정. 서버 상세 차트(윈도우 전체를 빈 구간 포함 표기)와 x축 범위가 다를 수 있음.</td></tr>
+      <tr><td>네트워크 토폴로지</td><td>L3 subnet 공동 소속 추론 그래프(노드=subnet/host). 인벤토리 IP 기반 추론이며 실측 도달성(reachability)은 아님 — 방화벽·VLAN 격리 미반영. docker·libvirt 등 호스트 내부 가상 네트워크와 IPv6는 제외. 사설 IP 대역이 서로 다른 네트워크에서 중복되면 한 서브넷으로 합쳐 보일 수 있음.</td></tr>
     </tbody>
   </table>
 </section>

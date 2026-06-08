@@ -111,7 +111,7 @@
 | SBOM (CycloneDX JSON) + Sigstore signature | wheel·sdist에 첨부 — 외부 인프라가 의존성 audit + `cosign verify-blob` 무결성 검증 |
 | SBOM (SPDX, BuildKit attestation) + cosign keyless signature | image 첨부 — `cosign verify ghcr.io/.../assessment-engine:0.1.0` 무결성 검증 |
 | Alembic migrations·alembic.ini | wheel·image 동봉 (`hatch.force-include`) · `docs/operations/release.md` |
-| `docker-compose.yml` + `.env.example` | GitHub Release 첨부 — 릴리즈 다운로드만으로 퀵스타트 (`ENGINE_IMAGE=ghcr.io/...:0.1.0 docker compose up -d --no-build`, GHCR 이미지 pull, ADR 0033) |
+| `docker-compose.yml` (prod-safe base) + `.env.example` | GitHub Release 첨부 — 빌드 없는 pull-and-run prod compose (build 키 없음, GHCR 이미지 핀). `docker compose up -d` 로 pull, ADR 0035 |
 | 환경변수·secret contract | `docs/operations/env.md` |
 | systemd unit reference | `docs/operations/deployment.md` 4절 |
 | install·실행 절차 | `docs/operations/deployment.md` |
@@ -215,7 +215,7 @@ curl -fsS http://localhost:8000/health   # {"status":"ok"}
 
 ## Quick Start
 
-루트 `docker-compose.yml` 한 파일이 퀵스타트와 dev 파이프라인을 겸한다 (ADR 0033). 빌드는 루트 `Dockerfile`(wheel install 운영 이미지), `env_file = ${ENV_FILE:-.env}` — 미설정 시 루트 `.env`, dev-up.sh 가 `dev/.env` 로 전환.
+compose 2 파일 (ADR 0035): 루트 `docker-compose.yml` 은 prod-safe base(GHCR 이미지 pull, 빌드 없음 — 릴리즈 첨부 pull-and-run), `docker-compose.override.yml` 은 dev 전용(소스 빌드·`./src` bind mount·hot reload). `docker compose up` 은 소스 트리에서 둘을 자동 머지(퀵스타트·dev), prod 는 base 단독. 빌드는 루트 `Dockerfile`(단일 multi-stage 운영 이미지), `env_file = ${ENV_FILE:-.env}` — 미설정 시 루트 `.env`, dev-up.sh 가 `dev/.env` 로 전환.
 
 ### 퀵스타트 (단일 호스트 운영 평가)
 

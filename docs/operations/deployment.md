@@ -19,21 +19,25 @@ artifact 카탈로그·생성 trigger·무결성 검증·다운로드 채널: `d
 
 repo clone 후 한 줄로 엔진 3 컴포넌트 + 의존 인프라(TimescaleDB·Redis·RabbitMQ) 기동. 평가(PoC)·내부망 소규모·데모용.
 
-방법 1 — repo clone (소스에서 이미지 로컬 빌드):
+compose 2 파일 모델 (ADR 0035): 루트 `docker-compose.yml` 은 prod-safe base(build 키 없음, 이미지 pull), `docker-compose.override.yml` 은 dev 전용(소스 빌드·bind mount·hot reload). `docker compose up` 은 소스 트리에서 둘을 자동 머지. 릴리즈는 base 만 첨부(override 미배포)라 prod 는 base 단독으로 동작.
+
+방법 1 — repo clone (소스에서 이미지 로컬 빌드, dev/퀵스타트):
 ```bash
 cp .env.example .env              # 기본값으로 동작 — install 시 ZDM 좌표만 수동 설정
-docker compose up -d              # 루트 Dockerfile 로 빌드. web: http://localhost:8000
+docker compose up -d              # base + override.yml 자동 머지 -> 루트 Dockerfile 로 로컬 빌드. web: http://localhost:8000
 ```
 
 방법 2 — 릴리즈 다운로드 (소스 clone 불요, GHCR 이미지 pull):
-GitHub Release 첨부 `docker-compose.yml` + `.env.example` 받아:
+GitHub Release 첨부 `docker-compose.yml`(prod-safe base) + `.env.example` 받아:
 ```bash
 cp .env.example .env
-ENGINE_IMAGE=ghcr.io/<org>/assessment-engine:1.2.3 docker compose up -d --no-build   # 릴리즈 이미지 pull
+# base 기본 이미지 = release CI 가 핀한 GHCR 정확 버전. 다른 버전·레지스트리면 ENGINE_IMAGE override.
+docker compose up -d              # build 키 없음 -> GHCR 이미지 pull (override.yml 미존재라 base 단독)
+# ENGINE_IMAGE=ghcr.io/<org>/assessment-engine:1.2.3 docker compose up -d   # 명시 override 예
 ```
-`ENGINE_IMAGE` 미설정 시 로컬 빌드 시도(`--no-build` 와 충돌) — 릴리즈 경로는 둘 다 필수.
+GHCR private(ADR 0035) — pull 전에 `docker login ghcr.io`(read:packages 토큰) 또는 infra 가 PAT 주입. 영속 볼륨을 외부 디스크에 두려면 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(미설정 시 named volume).
 
-한계 (ADR 0033 "추후 분리"): 현 compose 는 `APP_ENV=dev` 기본(weak secret 허용·plain HTTP)이라 하드닝 prod 아님 — 인터넷 노출 운영은 wheel+systemd(3절) 또는 추후 hardened compose. install(ZDM)·AI 진단(LLM)은 외부 좌표 주입 전까지 비활성.
+한계 (ADR 0035): base 는 빌드 없는 pull-and-run 까지 — `APP_ENV=dev` 기본(weak secret 허용·plain HTTP)이라 하드닝 prod 아님. hardened prod(APP_ENV=prod·강 secret·LOG_FORMAT=json·HTTPS ingress)는 infra env 주입으로 달성하거나 wheel+systemd(3절). install(ZDM)·AI 진단(LLM)은 외부 좌표 주입 전까지 비활성.
 
 ## 2. 사전 준비
 
@@ -244,7 +248,7 @@ docker run --rm --env-file /etc/assessment-engine.env \
   -c 'ALEMBIC_INI=$(python -c "from importlib.resources import files; print(files(\"assessment_engine\") / \"_alembic.ini\")"); python -m alembic -c "$ALEMBIC_INI" upgrade head'
 ```
 
-docker compose 운영 예시 (외부 인프라 작성 — 본 repo 두지 않음 ADR 0012):
+docker compose 운영 예시 (직접 작성 시 최소 형태. 릴리즈 첨부 prod-safe base `docker-compose.yml`(ADR 0035)을 받아 쓰면 backing 서비스·migrate·볼륨까지 포함되므로 보통 그쪽이 우선):
 ```yaml
 services:
   web:

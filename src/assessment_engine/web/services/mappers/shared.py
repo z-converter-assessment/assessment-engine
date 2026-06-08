@@ -34,6 +34,10 @@ _DONUT_SEGMENT_DEFS: list[tuple[str, str, str, str]] = [
     ("insufficient_data", "insufficient_data", "#cbd5e1", "평가 표본 부족"),
 ]
 
+# 게이지 테마 단색 (blue-500) — 활용률 게이지(attention._UTIL_COLOR_GAUGE) + Right-sizing 분류 막대 색 단일 통일.
+# 분류 막대는 라벨이 의미를 전하므로 색은 값 무관 단색. 도넛(_DONUT_SEGMENT_DEFS 다색) -> 막대(단색 게이지) 전환 시 사용.
+UTIL_GAUGE_COLOR = "#3b82f6"
+
 # USE Method recommendation enum -> donut segment key (식별 매핑, 라벨·색은 _DONUT_SEGMENT_DEFS 단일 진실).
 _DONUT_SEGMENT_FROM_REC: dict[str, str] = {
     "under_provisioned": "under_provisioned",

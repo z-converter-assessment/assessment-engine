@@ -58,7 +58,7 @@
             backgroundColor: 'transparent',
             tension: 0.2,
             spanGaps: false,
-            pointRadius: 1,
+            pointRadius: 0,
             borderWidth: 1.5,
           },
           {
@@ -68,7 +68,7 @@
             backgroundColor: 'transparent',
             tension: 0.2,
             spanGaps: false,
-            pointRadius: 1,
+            pointRadius: 0,
             borderWidth: 1.5,
           },
           {
@@ -78,7 +78,7 @@
             backgroundColor: 'transparent',
             tension: 0.2,
             spanGaps: false,
-            pointRadius: 1,
+            pointRadius: 0,
             borderWidth: 1.5,
           },
         ],

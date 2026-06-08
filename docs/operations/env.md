@@ -96,13 +96,15 @@ docker-compose `environment:` 블록은 `env_file:` 보다 후순위라 마지�
 
 ## 5. dev/prod 차이 매트릭스
 
-dev 는 본 repo 가 제공 (`docker-compose.yml (루트)`). prod 는 외부 인프라 책임 — 본 표는 외부 인프라가 만족해야 할 contract reference.
+compose 는 prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) 2 파일 (ADR 0035). dev 는 둘 자동 머지, prod 는 base 단독(릴리즈 첨부, override 미배포). 본 표는 외부 인프라가 만족해야 할 contract reference.
 
 | 항목 | dev (본 repo) | prod (외부 인프라) |
 |------|--------------|---------------------|
-| 기동 방식 | `docker compose up` | systemd + wheel install (`docs/operations/deployment.md`) 또는 외부 인프라 자유 (ADR 0012) |
+| 기동 방식 | `docker compose up` (base + override.yml 머지, 로컬 빌드) | 릴리즈 base `docker-compose.yml` pull-and-run, systemd + wheel install, 또는 외부 인프라 자유 (ADR 0012·0035) |
+| compose 이미지 | override.yml 로컬 빌드(`assessment-engine:local`) | base 의 GHCR 핀(`ENGINE_IMAGE` 또는 기본 핀) pull |
 | `APP_ENV` | `dev` | `prod` 명시 (env var 또는 EnvironmentFile) |
-| 코드 마운트 (`./:/app`) | OK 빠른 반복 | NG 이미지·wheel 불변성 |
+| 코드 마운트 (bind mount) | OK override.yml 의 `./src` bind mount, 빠른 반복 | NG base 는 bind mount 없음 — 이미지·wheel 불변성 |
+| 영속 볼륨 | named volume(`postgres_data`·`rabbitmq_data`) | `PGDATA_HOST`·`MQ_DATA_HOST` 로 외부 디스크 bind(Cinder 등) |
 | 백킹 서비스 포트 외부 노출 | OK 5432·5672·6379·15672 | NG web 만 (또는 reverse proxy 뒤) |
 | Password 주입 | `dev/.env` 평문 | 자유 채널 — env var·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 |
 | Schema 관리 | `migrate` init-container 가 `alembic upgrade head` 1회 (ADR 0005) | 외부 인프라 ansible task 또는 systemd one-shot 으로 사전 실행 (wheel 안 `_alembic.ini` 활용) |
@@ -254,6 +256,9 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 |----|--------|--------|------|
 | `APP_ENV` | `dev` | config.py / docker-compose | 환경 마커. `dev`/`staging`/`prod`. `prod` 일 때 weak default 거부 |
 | `LOG_FORMAT` | `text` | config.py / 각 entry `setup_logging()` | 로그 출력 format. `text`(dev colorized·grep) 또는 `json`(외부 log aggregator). prod 는 `json` 권장 |
+| `ENGINE_IMAGE` | base 기본 핀 (`ghcr.io/z-converter-assessment/assessment-engine:<version>`) | compose base (ADR 0035) | 앱 서비스 이미지. config.py 미사용 — compose 전용. 미설정 시 base `docker-compose.yml` 기본값(release CI 가 태그 semver 로 핀한 GHCR 이미지). dev override.yml 은 `assessment-engine:local`(로컬 빌드)로 덮음. GHCR private — pull 에 read:packages 토큰 |
+| `PGDATA_HOST` | `postgres_data` (named volume) | compose base (ADR 0035) | postgres 영속 경로. host 절대경로 주입 시 bind mount(infra Cinder `/mnt/pgdata`), 미설정 시 named volume |
+| `MQ_DATA_HOST` | `rabbitmq_data` (named volume) | compose base (ADR 0035) | rabbitmq 영속 경로. 주입 시 host bind(`/mnt/mqdata`), 미설정 시 named volume |
 | `POSTGRES_HOST` | `postgres` | config.py / dev compose | PostgreSQL 호스트 (docker-compose 서비스명). prod 는 실제 host 명시 |
 | `POSTGRES_PORT` | `5432` | config.py / dev compose | |
 | `POSTGRES_DB` | `assessment` | config.py / dev compose | |

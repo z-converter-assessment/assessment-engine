@@ -36,10 +36,10 @@ unset SSH_ASKPASS SSH_ASKPASS_REQUIRE GIT_ASKPASS 2>/dev/null || true
 # BASH_SOURCE는 source된 스크립트 자체 경로 (직접 실행 시 $0과 동일) — source 시 부모의 $0으로 잘못 cd하지 않게.
 cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.."
 
-# 루트 docker-compose.yml 단일 compose (dev·퀵스타트 겸용, ADR 0033) — `docker compose` 호출이 자동 인식.
-export COMPOSE_FILE=docker-compose.yml
-# 프로젝트명 고정 — compose 파일이 루트라 기본 프로젝트명이 루트 디렉토리명이 되지만, dev 컨테이너/볼륨
-# 네임스페이스를 `dev` 로 안정화(퀵스타트 bare `docker compose up` 과 분리, dev-down 연속성 보장).
+# COMPOSE_FILE 미지정 — compose 기본 탐색이 루트 docker-compose.yml(prod-safe base) +
+# docker-compose.override.yml(dev) 을 자동 머지(ADR 0035). 명시하면 override 자동 머지가 꺼지므로 export 안 함.
+# 프로젝트명 고정 — 기본 프로젝트명이 루트 디렉토리명이 되지만, dev 컨테이너/볼륨 네임스페이스를
+# `dev` 로 안정화(퀵스타트 bare `docker compose up` 과 분리, dev-down 연속성 보장).
 export COMPOSE_PROJECT_NAME=dev
 # dev 파이프라인은 dev/.env(dev 카탈로그)를 compose env_file 로 인식 — compose 의 ${ENV_FILE:-.env} 분기.
 # (퀵스타트 bare `docker compose up` 은 ENV_FILE 미설정 -> 루트 .env.)

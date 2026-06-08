@@ -341,6 +341,7 @@ class QueryService:
         gap_recent_hours: int = _GAP_RECENT_HOURS,
         limit_each: int = _ATTENTION_LIMIT_EACH,
         days_until_full_threshold: int = 30,
+        end: datetime | None = None,
     ) -> AttentionSignals:
         """list 화면 운영 신호 카드 — USE Method 외 시스템 운영 이상 3 카탈로그.
 
@@ -351,15 +352,17 @@ class QueryService:
         디스크(capacity·IO)는 USE Method classify 통합 — 본 catalog 에서 제외 (중복 회피).
         조립은 _assemble_attention 단일 진실 (대시보드 묶음 get_dashboard_live 와 공유).
         """
-        now = datetime.now(UTC)
+        # end=보고서 anchor(없으면 현재). os_eol 임박/경과 판정이 이 시각 기준 — 보고서 다른 지표(end_dt)와 정합.
+        # gap/agent_unstable 은 보고서 미표시(C1)라 anchor 영향 없음.
+        ref = end if end is not None else datetime.now(UTC)
         gap_raws = await self.repo.metric_gap_warnings(gap_minutes, gap_recent_hours, limit_each)
         server_ids = await self.repo.list_server_ids()
         raws_period = []
         restart_counts: dict[int, int] = {}
         if server_ids:
-            raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
-            restart_counts = await self.repo.agent_restart_counts_recent(server_ids, now - timedelta(hours=1))
-        return self._assemble_attention(raws_period, gap_raws, restart_counts, now, limit_each)
+            raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=ref)
+            restart_counts = await self.repo.agent_restart_counts_recent(server_ids, ref - timedelta(hours=1))
+        return self._assemble_attention(raws_period, gap_raws, restart_counts, ref, limit_each)
 
     async def get_environment_overview(self) -> "EnvironmentOverview":
         """list 화면 상단 환경 요약 — 총 N대·온라인/오프라인·자원 합계·역할 분포·평균 활용률·위험도 분포 (P2).
@@ -561,8 +564,7 @@ class QueryService:
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
         end_dt = anchor_at if anchor_at is not None else datetime.now(UTC)
 
-        overview = await self.get_environment_overview()
-        attention = await self.get_attention_signals()
+        attention = await self.get_attention_signals(end=end_dt)
 
         public_ids = await self.repo.list_all_server_public_ids()
         sid_map = await self.repo.resolve_server_ids(public_ids) if public_ids else {}
@@ -570,10 +572,16 @@ class QueryService:
 
         under_hosts: list[CapacityWarningItem] = []
         if server_ids:
-            base = await self.get_report(server_ids, period_days, end=end_dt, view=view)
             details = await self.repo.get_servers(server_ids)
-            # under_provisioned 호스트 추출 — time_range 윈도우 정확 정합 (overview 7일 고정 의존 회피).
+            base = await self.get_report(server_ids, period_days, end=end_dt, view=view)
+            # overview(평균 활용률·분류 도넛)도 선택 time_range 윈도우+anchor 기준 — 선택 N대 보고서와 동일 경로
+            # (환경 요약 용량 합은 인벤토리라 구간 무관). 고정 7일 get_environment_overview 의존 제거.
             raws_window = await self.repo.report_aggregate(server_ids, period_days, end_dt)
+            online_by_id = await self._online_map(server_ids, details, end_dt)
+            util = await self.repo.environment_utilization(
+                period_days=period_days, end=end_dt, server_ids=server_ids
+            )
+            overview = self._assemble_overview(details, util, raws_window, online_by_id)
             for raw in raws_window:
                 rec = recommendation.classify(
                     recommendation.ResourceStats(
@@ -592,6 +600,7 @@ class QueryService:
                 if rec == "under_provisioned":
                     under_hosts.append(to_capacity_warning_item(raw))
         else:
+            overview = _empty_overview()
             base = ReportSummary(
                 rows=[],
                 period_days=int(period_days),
@@ -628,7 +637,6 @@ class QueryService:
     async def get_selection_report(
         self,
         server_public_ids: list[str],
-        period_days: float = 14,
         view: ReportView = "customer",
         time_range: str = "14d",
         anchor_at: datetime | None = None,
@@ -640,6 +648,8 @@ class QueryService:
         server_ids 로 N대 한정 호출 (전체 환경과 동일 capacity-weighted SQL). attention 은 N대 호스트로 필터.
         anchor_at: 발행 시점 기준 (None 이면 현재). 미존재/빈 선택 시 None.
         """
+        # period_days 는 time_range 에서 내부 도출 (환경 보고서와 동일 — 호출자 불일치 여지 0).
+        period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
         end_dt = anchor_at if anchor_at is not None else datetime.now(UTC)
         sid_map = await self.repo.resolve_server_ids(server_public_ids)
         server_ids = [sid_map[p] for p in server_public_ids if p in sid_map]
@@ -678,7 +688,7 @@ class QueryService:
 
         # 운영 신호 — 전체 attention 을 선택 N대 호스트로 필터 (os_eol_count 등 N대 정합).
         hostnames = {d.hostname for d in details}
-        attention = _filter_attention(await self.get_attention_signals(), hostnames)
+        attention = _filter_attention(await self.get_attention_signals(end=end_dt), hostnames)
 
         # 환경 시계열 추이 — 선택 N대 한정 (metric_trend server_ids). 환경 보고서와 동일 버킷 정책.
         bi, bucket_td = _BUCKET_INFO[AUTO_BUCKET.get(time_range, "1h")]
@@ -704,7 +714,6 @@ class QueryService:
     async def get_single_server_report(
         self,
         server_public_id: str,
-        period_days: float = 14,
         view: ReportView = "customer",
         time_range: str = "14d",
         anchor_at: datetime | None = None,
@@ -715,6 +724,8 @@ class QueryService:
         환경 보고서와 동일 양식 (overview·attention·rows·top_risks).
         anchor_at: 발행 시점 기준 시각 (None 이면 현재) — worker narrative 와 같은 윈도우 재현.
         """
+        # period_days 는 time_range 에서 내부 도출 (환경·선택 보고서와 동일 — 호출자 불일치 여지 0).
+        period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
         end_dt = anchor_at if anchor_at is not None else datetime.now(UTC)
         sid_map = await self.repo.resolve_server_ids([server_public_id])
         if server_public_id not in sid_map:
@@ -728,7 +739,7 @@ class QueryService:
 
         # 1대 한정 합성 — 환경 양식과 동일 흐름.
         base = await self.get_report([server_id], period_days, end=end_dt, view=view)
-        attention = await self.get_attention_signals()
+        attention = await self.get_attention_signals(end=end_dt)
 
         raws_window = await self.repo.report_aggregate([server_id], period_days, end_dt)
         under_hosts: list[CapacityWarningItem] = []

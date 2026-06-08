@@ -39,6 +39,8 @@
     .server-list-table thead { background: #a7b2c0; }
     .server-list-table th { font-size: 11px; color: #fff; border-bottom-color: #a7b2c0; }
     .server-list-table td { vertical-align: middle; }
+    /* 세부 서버 목록 — 다열 표라 조밀하게: 패딩만 축소(폰트는 td 13px·th 11px 표준 유지, 넘치면 가로 스크롤). server-list-table 와 동일 정책(폰트 아닌 패딩으로 밀도). */
+    .detail-table th, .detail-table td { padding: 6px 9px; }
     /* 모든 link 일관 — color + 항상 밑줄 (옅음). hover 시 강조. 별도 class (.row-link 등) 와 단일 진실 정합. */
     a { color: #2563eb; text-decoration: underline; text-decoration-color: #cbd5e1; text-underline-offset: 2px; }
     a:hover { text-decoration-color: #2563eb; }
@@ -131,6 +133,12 @@
     .text-attn   { color: #c2410c; }   /* 운영 신호 (주황) */
     /* 서술 — line-height 동반 (색만 아님). */
     .text-narrative { color: #475569; font-size: 12px; line-height: 1.6; }
+    /* 텍스트 크기 유틸 — 색 유틸(.text-*)과 조합해 카드·보고서 micro 라벨/값에 적용. inline font-size 파편화 방지(static-assets 표준). 카탈로그 크기만(기본 14=body·13=td/h3 외 12·11). */
+    .text-md { font-size: 13px; }
+    .text-sm { font-size: 12px; }
+    .text-xs { font-size: 11px; }
+    /* 보고서 활용률·p95 강조 수치 (라벨 옆 큰 %). 색은 .text-strong 조합. */
+    .metric-inline { font-size: 15px; font-weight: 700; }
 
     /* 다중 보고서 안 AI 진단 컬럼 cell narrative 시각 truncate — 2줄 + 말줄임. title attribute 호버 시 전체. */
     .diag-clamp {
@@ -140,6 +148,9 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    /* AI 진단 inline 본문/메타 — 보고서(환경·단일) narrative slot. JS(diagnostic-inline.js)가 textContent 만 갱신, 스타일은 클래스 단일 진실(inline 금지). 본문 색은 .text-strong(성공)·.text-muted(실패·대기) 조합. */
+    .diag-inline-body { padding: 14px; background: #f8fafc; border-radius: 6px; line-height: 1.6; }
+    .diag-inline-meta { margin-top: 8px; font-size: 12px; color: #94a3b8; }
 
     /* AI 진단 본질 표시 tag — 버튼 안 inline 배지 (엔지니어 보고서 = AI 진단 포함 catalog 명시).
        `.btn-action` (display: inline-flex + gap: 6px) 안 활용 정공 — margin 의무 X, line-height 1 로 baseline 정렬. */
@@ -190,6 +201,7 @@
     .metric-grid { display: grid; gap: 14px; }
     .metric-grid-2 { grid-template-columns: repeat(2, 1fr); }
     .metric-grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .metric-grid-4 { grid-template-columns: repeat(4, 1fr); }
 
     /* KPI card — KPI 그리드 (대시보드 환경 요약, 보고서 분류 카운트). */
     .kpi-grid { display: grid; gap: 12px; margin-bottom: 24px; }
@@ -294,7 +306,7 @@
     /* ── 화면 반응형 — 좁은 창에서 고정 다열 그리드를 1열로 (찌그러짐 방지, 카드 무파손).
        env-dual·env-pair·stat-grid·부하상위는 auto-fit minmax 라 자동 분기 — 여기선 고정 grid 만 보강. */
     @media (max-width: 640px) {
-      .metric-grid-2, .metric-grid-3,
+      .metric-grid-2, .metric-grid-3, .metric-grid-4,
       .kpi-grid-2, .kpi-grid-3, .kpi-grid-4 { grid-template-columns: 1fr; }
       .card { padding: 14px 16px; }
     }
@@ -329,8 +341,7 @@
       /* 환경 보고서 — 부하 추이 + 토폴로지 한 카드 2열을 인쇄에서도 웹과 동일 구도(2열) 유지. */
       .env-dual { grid-template-columns: repeat(2, 1fr) !important; }
       /* 세부 서버 목록 — 칼럼 많아 A4 폭 초과. 인쇄에서 폰트·셀 패딩 축소 + 줄바꿈 허용으로 타이트하게. */
-      .detail-table { font-size: 9px !important; }
-      .detail-table th, .detail-table td { padding: 2px 4px !important; white-space: normal !important; word-break: keep-all; }
+      .detail-table th, .detail-table td { font-size: 9px !important; padding: 2px 4px !important; white-space: normal !important; word-break: keep-all; }
       .detail-table .badge { font-size: 8px !important; padding: 1px 4px !important; }
       .env-dual #env-trend-chart { width: 100% !important; height: 100% !important; }
       /* 차트 높이 축소 — 1페이지(서버정보+CPU+로드/메모리)가 A4 한 장에 들어가도록. 화면 180px -> 인쇄 100px. */

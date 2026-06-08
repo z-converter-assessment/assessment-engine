@@ -163,6 +163,7 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
 def _overview_from_dict(d: dict) -> EnvironmentOverview:
     data = dict(d)
     data["utilization"] = [UtilizationBar(**u) for u in data.get("utilization") or []]
+    data["utilization_p95"] = [UtilizationBar(**u) for u in data.get("utilization_p95") or []]
     data["risk_donut"] = [RiskDonutSegment(**s) for s in data.get("risk_donut") or []]
     uph = data.get("under_provisioned_hosts") or []
     data["under_provisioned_hosts"] = [_capacity_warning_from_dict(c) for c in uph]

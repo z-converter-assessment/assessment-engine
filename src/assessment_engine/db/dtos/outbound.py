@@ -187,6 +187,11 @@ class EnvironmentUtilizationRaw:
     mem_avg_pct: float | None
     disk_avg_pct: float | None
     sample_size: int  # 어느 metric이든 데이터 들어온 서버 수 — UI에 표본 표시 (예: "12대 기준")
+    # 시점별 capacity-weighted 환경값 분포의 p95 (avg 와 동일 per_ts 기반, 진정한 환경 p95).
+    # 호스트별 p95 산술평균(compute_report_avg_p95)이 아님 — 분포 95퍼센타일. None=표본 부재.
+    # 디스크는 물리디스크/디바이스 인식이 Windows 에서 불완전 -> capacity 합 신뢰 불가라 p95 제외 (CPU·메모리만).
+    cpu_p95_pct: float | None = None
+    mem_p95_pct: float | None = None
 
 
 @dataclass

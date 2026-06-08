@@ -40,6 +40,7 @@
 | 0032 | 서비스 분류: 단일 카탈로그 + 다중 신호 + 호스트 union | Accepted | 이름 substring 단일 신호 + 분산 카탈로그(5곳)를 `SERVICE_CATALOG` 단일 진실 + 다중 신호로 전환. per-unit 은 name->comm->port(귀속 포트에만). agent join key 부재(services 에 pid 없음) 제약상, 뱃지/role/환경분포는 `detect_listen_categories`(listen 소켓 직접 분류)와 이름 분류를 union — opaque Windows SCM 이름을 1433/`sqlservr` 로 구제. 목록 행은 partial SELECT 라 name 만(T15). 외부 API 미채택(IANA 포트는 큐레이션 반영) |
 | 0033 | 루트 docker-compose 단일 파일 (dev + 퀵스타트) | Accepted | `dev/docker-compose.yml` 제거, 루트 `docker-compose.yml` 하나가 dev 파이프라인·퀵스타트 겸용 (wheel 이미지·`.env` 단일). ADR 0012 5절 supersede. dev/hardened-prod 분리는 deferred |
 | 0034 | 환경 평균 활용률 capacity-weighted 전환 | Accepted | 서버 동등가중(1대=1표)을 자원 총량 가중(Σused/Σtotal)으로 전환. CPU `1-Σd_idle/Σd_total`·MEM/DISK `Σused/Σtotal`. `environment_utilization`(전체+selection server_ids 통일, end anchor)·`metric_trend`(추이 차트) 동일 산식. 빈 구간/서버별 기간 편차 분모에 자연 반영. 거대 VM 지배는 의도(자원 활용률 관점). 윈도우 14일 고정 유지(ADR 0003) |
+| 0035 | compose base(prod) + override(dev) 분리 | Accepted | 루트 `docker-compose.yml` 을 prod-safe base(build 키 없는 GHCR 이미지 pull·bind mount 없음·`PGDATA_HOST`/`MQ_DATA_HOST` 볼륨 바인딩·diagnostic-worker 포함)로 전환 = 빌드 없는 pull-and-run prod compose(릴리즈 첨부, infra B안). dev 편의는 `docker-compose.override.yml`(자동 머지)로 분리. Dockerfile 은 단일 유지(dev-prod parity). GHCR private + fine-grained PAT(read:packages). env 정규 키 `RABBITMQ_*`. ADR 0033 "override 0·정의 1곳" supersede |
 
 트레이드오프 카탈로그(T1~T15)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 

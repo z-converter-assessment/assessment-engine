@@ -178,6 +178,7 @@ class RiskDonutSegment:
     dash_length: float  # 본 segment 원호 길이
     dash_offset: float  # 시계방향 시작 위치 (이전 segments 누적 음수)
     description: str = ""  # 한국어 보조 설명 ("자원 부족 (사양 상향)" 등)
+    pct: float = 0.0  # 분류 막대 너비 (%) — mapper precompute (P3). 도넛 -> 가로막대 게이지 전환 대응.
 
 
 @dataclass
@@ -203,6 +204,8 @@ class EnvironmentOverview:
     # known 역할(서비스 카테고리) 이 하나도 없는 호스트 수 — 서비스 없음 또는 전부 unknown. 호스트 단위.
     role_unknown_count: int = 0
     utilization: list[UtilizationBar] = field(default_factory=list)
+    # p95 활용률 3막대(CPU·메모리·디스크) — 평균과 동일 capacity-weighted 환경 분포 기반(per_ts 95퍼센타일).
+    utilization_p95: list[UtilizationBar] = field(default_factory=list)
     util_sample_size: int = 0
     risk_donut: list[RiskDonutSegment] = field(default_factory=list)
     risk_donut_total: int = 0  # 도넛 중심 표시용 (분류된 서버 수)
