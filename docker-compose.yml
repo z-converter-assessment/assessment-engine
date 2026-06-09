@@ -150,7 +150,7 @@ services:
     image: dpage/pgadmin4:8.14
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@zconverter.local}
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-assessment@zconverter.com}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-changeme}
     ports:
       - "${PGADMIN_PORT:-5050}:80"
