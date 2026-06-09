@@ -252,6 +252,12 @@ check_prereqs() {
     echo "  dev/agent.env 없음 — dev/agent.env.example 복사"
     cp dev/agent.env.example dev/agent.env
   fi
+  # pgAdmin 무입력 passfile — pgpass(권한 600) 자동 생성. pgAdmin 은 600 아니면 무시하므로 chmod 필수.
+  if [ ! -f docker/pgadmin/pgpass ]; then
+    echo "  docker/pgadmin/pgpass 없음 — pgpass.example 복사 (권한 600)"
+    cp docker/pgadmin/pgpass.example docker/pgadmin/pgpass
+    chmod 600 docker/pgadmin/pgpass
+  fi
 }
 
 # default 네트워크·storage 풀 active 보장 (autostart 미설정·정지 상태 멱등 복구).

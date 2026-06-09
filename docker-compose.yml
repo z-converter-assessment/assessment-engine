@@ -142,16 +142,18 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
 
-  # PostgreSQL 웹 관리 UI — pgAdmin4 (이미지 pull, build 없음). prod 에서 DB 조회·관리 용도.
+  # PostgreSQL 웹 관리 UI — pgAdmin4 (servers.json 내장 GHCR 이미지, build 없는 pull). prod DB 조회·관리.
   # 접속: http://<host>:${PGADMIN_PORT:-5050} → 로그인 PGADMIN_DEFAULT_EMAIL/PASSWORD.
-  # 로그인 후 서버 등록: Host=postgres, Port=5432, 계정=POSTGRES_USER/PASSWORD (compose 내부 네트워크명 postgres).
+  # 이미지에 못 박힌 servers.json 으로 'assessment' 서버(Host=postgres)가 첫 부팅 시 트리에 자동 등록(bind mount 0).
+  # prod 는 PassFile 없어 첫 연결 시 DB 비번 1회 입력(DB 비번 pgAdmin 미보관). dev override 는 /pgpass 로 무입력.
   # DB 웹 접근은 민감 — prod 외부 노출 시 ingress 인증·방화벽 뒤 배치 권장. PGADMIN_PASSWORD 는 강 secret 주입.
   pgadmin:
-    image: dpage/pgadmin4:8.14
+    image: ghcr.io/z-converter-assessment/assessment-pgadmin:__ENGINE_VERSION__
     restart: unless-stopped
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-assessment@zconverter.com}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-changeme}
+      PGADMIN_SERVER_JSON_FILE: /pgadmin4/servers.json
     ports:
       - "${PGADMIN_PORT:-5050}:80"
     depends_on:
