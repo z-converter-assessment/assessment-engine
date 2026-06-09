@@ -26,6 +26,7 @@
       <span class="identifier text-label" style="display:inline-block; min-width:36px;">N/A</span>해당 OS 에서 미측정하는 항목<br>
       <span class="identifier text-label" style="display:inline-block; min-width:36px;">—</span>일시적으로 값 없음 (첫 수집·수집 끊김 등)
     </p>
+    <p class="text-meta" style="font-size:11px; margin:0 0 10px;">전체 메모리 대비 비율: Used / Available / Cached / Buffers{% if server.os_family == 'windows' %} (Windows 는 Cached·Buffers 미측정 — Used / Available 만){% endif %}</p>
     <dl class="kv" style="margin-bottom:20px;">
       <dt>메모리 사용률</dt> <dd id="s-mem-pct">—</dd>
       <dt>Used</dt>          <dd id="s-mem-used">—</dd>

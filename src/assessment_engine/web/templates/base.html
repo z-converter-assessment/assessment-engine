@@ -234,7 +234,8 @@
     .chart-select:hover { border-color: #94a3b8; }
     .chart-anchor { padding: 4px 6px; border: 1px solid #e2e8f0; border-radius: 5px; font-size: 11px; color: #475569; background: #fff; cursor: pointer; height: 32px; box-sizing: border-box; }
     /* 차트 버킷(분해력) 표시 배지 — cpu/memory/storage/network 차트 페이지 공용. */
-    .bucket-label { font-size: 12px; font-weight: 400; color: #475569; background: #fff; border: 1px solid #cbd5e1; padding: 3px 8px; border-radius: 4px; }
+    /* 차트 기간 컨트롤 배지 — chart-select·chart-anchor(height 30) 와 정렬. 성능 추이 환경·개별 공용 단일 진실. */
+    .bucket-label { font-size: 11px; font-weight: 500; color: #475569; background: #fff; border: 1px solid #cbd5e1; border-radius: 5px; height: 30px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 10px; }
     /* 차트 하단 설명 캡션 — 전 차트 페이지 공용 (음영 영역 설명 등). */
     .chart-caption { font-size: 11px; color: #94a3b8; margin: 8px 0 0; }
     .toggle { padding: 5px 12px; border: 1px solid #e2e8f0; border-radius: 5px; background: #fff; color: #475569; font-size: 12px; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }

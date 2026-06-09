@@ -233,8 +233,8 @@ async function loadLoadChart(range, anchor) {
     type: 'line',
     data: { labels, datasets: [{
       label: 'Load 15m', data,
-      borderColor: '#f59e0b', backgroundColor: '#f59e0b22',
-      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: true, spanGaps: false,
+      borderColor: '#f59e0b',
+      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
     }] },
     options: makePerfOptions(Y_LOAD, v => v.toFixed(2)),
   });
