@@ -338,7 +338,9 @@ class QueryService:
         # 검증은 라우터의 Query(MetricType) Literal Pydantic 단계에서 이미 처리됨.
         dtos = await self.repo.metric_chart(server_id, metric_type, dimension, time_range, bucket, agg, end)
         if metric_type == "fs.usage_percent":
-            dtos = [d for d in dtos if not is_data_volume(d.dimension)]
+            # 데이터 볼륨만 남김 (/ · C: 등) — 가상/부트(/boot · /sys · /proc) · major0 제외.
+            # net 의 is_virtual_interface 필터와 동일 의도(유효 차원만 표시). Windows 는 C: 가 유일 데이터 볼륨.
+            dtos = [d for d in dtos if is_data_volume(d.dimension)]
         if metric_type in _NET_METRIC_TYPES:
             dtos = [d for d in dtos if not is_virtual_interface(d.dimension)]
         if device_category is not None and metric_type in _DISK_METRIC_TYPES:

@@ -99,7 +99,7 @@
     {# 파일시스템 총 크기 합(volume_total_gb) — 실제 데이터 저장 가능 총량. 물리 raw(LVM·오버헤드 포함)와 별개. #}
     <dt>파일시스템 용량</dt>
     <dd>{{ server.volume_total_gb | disksize }}</dd>
-    {# 파일시스템(논리 볼륨) — inventory.mounts 기준. 물리 디스크와 별개 축, 양 OS 일관(fstype 명시). #}
+    {# 파일시스템(논리 볼륨) — inventory.mounts 기준. 양 OS 일관(fstype 명시). #}
     <dt>파일시스템</dt>
     {% if server.volumes %}
     <dd>{{ server.volumes_count }}개</dd>
@@ -121,28 +121,6 @@
     </dd>
     {% else %}
     <dd><span class="text-meta">수집된 파일시스템 정보 없음</span></dd>
-    {% endif %}
-    {# 물리 디스크(하드웨어 블록 디바이스) — inventory.disks 기준. Windows agent 는 미발행 → placeholder. #}
-    <dt>물리 디스크</dt>
-    {% if server.disks %}
-    <dd>{{ server.disks_count }}개</dd>
-    <dd style="grid-column: 1 / -1;">
-      <table style="margin:0;">
-        <thead>
-          <tr><th>디바이스</th><th>용량</th></tr>
-        </thead>
-        <tbody>
-          {% for d in server.disks %}
-          <tr>
-            <td>{{ d.name }}</td>
-            <td>{{ d.size_gb | disksize }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </dd>
-    {% else %}
-    <dd><span class="text-meta">용량·유형 메타 미수집 — IO 활동은 아래 Disk I/O 참조</span></dd>
     {% endif %}
   </dl>
 </div>
@@ -197,7 +175,7 @@
 
 <!-- 실시간 메트릭 대시보드 (AJAX + 30초 polling — 환경 실시간과 일관) -->
 <div class="no-print" style="display:flex; justify-content:flex-end; margin-bottom:6px;">
-  <span id="metrics-stamp" class="text-meta" style="font-size:12px;">30초마다 자동 갱신 · 최근 —</span>
+  <span id="metrics-stamp" class="text-meta" style="font-size:11px;">30초마다 자동 갱신 · 최근 —</span>
 </div>
 <div class="card" id="realtime-metrics-card">
   <div style="margin-bottom:14px;">
@@ -339,13 +317,13 @@
       </div>
       <div class="group-panel">
         <div id="disk-io-section">
-          <div class="sub-label" style="margin-top:0;">Disk I/O <small class="text-meta" style="font-size:11px; font-weight:400;">물리 디스크 · 연속 2회 측정 delta</small></div>
+          <div class="sub-label" style="margin-top:0;">디스크 I/O <small class="text-meta" style="font-size:11px; font-weight:400;">연속 2회 측정 delta</small></div>
           <table id="disk-io-table" style="margin-bottom:8px;">
             <thead>
               <tr>
                 <th>Device</th>
                 <th>Read IOPS</th><th>Write IOPS</th>
-                <th>Read kBps</th><th>Write kBps</th>
+                <th>Read (처리량)</th><th>Write (처리량)</th>
               </tr>
             </thead>
             <tbody id="disk-io-body"></tbody>
@@ -372,7 +350,7 @@
           <thead>
             <tr>
               <th>Interface</th>
-              <th>RX kBps</th><th>TX kBps</th>
+              <th>RX (처리량)</th><th>TX (처리량)</th>
               <th>RX pps</th><th>TX pps</th>
             </tr>
           </thead>
