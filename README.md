@@ -159,7 +159,7 @@ uv run alembic check             # ORM·migrations 정합 (alembic-check.yml CI 
 ```bash
 gh release download v0.1.2 -R z-converter-assessment/assessment-engine -D /tmp/ae   # base compose + env.example 첨부
 cd /tmp/ae && cp env.example .env
-# [필수] POSTGRES/RABBITMQ secret 채움. ENGINE_IMAGE·PGDATA_HOST·OLLAMA_* 등은 선택(미설정 시 base 기본값).
+# [필수] POSTGRES/RABBITMQ/PGADMIN secret 채움. ENGINE_IMAGE·PGDATA_HOST·OLLAMA_* 등은 선택(미설정 시 base 기본값).
 docker compose up -d        # GHCR 이미지 pull. web http://localhost:8000
 ```
 
