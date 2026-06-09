@@ -165,6 +165,10 @@ docker compose up -d        # GHCR 이미지 pull. web http://localhost:8000
 
 `APP_ENV=prod` 기본이라 weak secret 은 기동 거부(fail-fast). GHCR public — 토큰 없이 pull. secret 은 `.env` 평문 또는 OS env(우선) 주입. PostgreSQL 16(timescaledb+vector)·RabbitMQ 3.13+·Redis 7+ 는 compose 가 함께 띄우거나 외부 managed 에 도달. wheel+systemd·멀티노드·업그레이드 등 다른 토폴로지·상세: `docs/operations/deployment.md`.
 
+### DB 웹 관리 (pgAdmin)
+
+compose 는 PostgreSQL 웹 관리 UI(pgAdmin4)를 함께 띄운다 — `http://localhost:${PGADMIN_PORT:-5050}`. 로그인은 `PGADMIN_EMAIL`/`PGADMIN_PASSWORD`(`env.example` 참조, 이메일은 유효 형식 필수 — `.local` 등 예약 TLD 는 pgAdmin 이 거부). 로그인 후 서버 등록: Host=`postgres`, Port=5432, 계정=`POSTGRES_USER`/`POSTGRES_PASSWORD`. DB 웹 접근은 민감하므로 prod 외부 노출 시 ingress 인증·방화벽 뒤 배치하고 `PGADMIN_PASSWORD` 는 강 secret 으로 주입한다.
+
 ---
 
 ## 문서
