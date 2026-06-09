@@ -37,9 +37,13 @@ class Task(Base):
     task_type: Mapped[str] = mapped_column(String(64), nullable=False)
     params: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
-    # pending -> in_progress -> success / failure
+    # pending -> success / failure. agent 무응답 시 deadline_at 경과로 failure(failure_reason='timeout') 전이.
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # deadline_at — 발행 시점 확정 응답 마감 (install 발행 시 now + install_timeout_sec + margin).
+    # 경과한 pending 은 표시 계층에서 "응답 시간 초과"로 노출 + 재발행 시점에 failure(timeout) 로
+    # 실제 전이 (부분 UNIQUE 해소). install 외 null.
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # completed_at — task 종료 시각. result 보고 메시지에서 받은 값 그대로 저장 (DB 측 now() 사용 안 함).
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

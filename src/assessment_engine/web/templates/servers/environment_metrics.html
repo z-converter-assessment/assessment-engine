@@ -15,7 +15,7 @@
 
   <!-- 통합 차트 카드 — 버킷/구간/앵커가 모든 차트 공통이라 단일 카드. 행(perf-row)마다 차트 2개 페어.
        실시간 메트릭(현황 모니터링)은 /environment/realtime 로 분리. -->
-  <!-- 기간 컨트롤 — 카드 왼쪽 위 (버킷/구간/앵커, 모든 차트 공통). 앵커는 '적용' 으로 반영, 구간은 즉시. -->
+  <!-- 기간 컨트롤 — 카드 왼쪽 위 (버킷/구간/앵커, 모든 차트 공통). 구간·앵커 모두 변경 즉시 반영(상세 차트와 동일). -->
   <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
     <span id="bucket-label" style="font-size:11px; font-weight:500; color:#475569; background:#fff; border:1px solid #cbd5e1; border-radius:5px; height:30px; box-sizing:border-box; display:inline-flex; align-items:center; padding:0 10px;"></span>
     <select class="chart-select no-print" id="global-range-btns" aria-label="구간 선택">
@@ -28,8 +28,6 @@
       <option value="30d">30일</option>
     </select>
     <input type="datetime-local" id="anchor-date" class="chart-anchor no-print" style="height:30px;" aria-label="기준 시각">
-    {# 앵커는 명시적 '적용' 으로 반영 (datetime picker 의 '오늘'/'삭제' 만으론 적용 흐름이 안 보여 가시성 보강). 구간 select 는 즉시 반영. #}
-    <button type="button" id="anchor-apply" class="chart-select no-print" style="height:30px; cursor:pointer;">적용</button>
   </div>
 
   <div class="card perf-merged">

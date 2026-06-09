@@ -219,8 +219,8 @@
   const hostname = card.dataset.serverHostname;
   const _VIEW_TITLES = { customer: '고객 보고서 발행', engineer: '엔지니어 보고서 발행' };
   const _VIEW_DESCS = {
-    customer: `서버 ${hostname} 1대 대상 Right-sizing 규칙 기반 고객 보고서 발행.`,
-    engineer: `서버 ${hostname} 1대 대상 Right-sizing 규칙 기반 엔지니어 보고서 발행.`,
+    customer: `서버 ${hostname} 1대 대상 자원 적정성 규칙 기반 고객 보고서 발행.`,
+    engineer: `서버 ${hostname} 1대 대상 자원 적정성 규칙 기반 엔지니어 보고서 발행.`,
   };
   let currentView = 'customer';
 

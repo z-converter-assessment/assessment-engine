@@ -17,6 +17,7 @@ from assessment_engine.web.services.mappers.server import workload_category_coun
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
     UTIL_GAUGE_COLOR,
+    build_confidence_notes,
     resolve_os_eol,
 )
 from assessment_engine.web.view_models.attention import (
@@ -60,10 +61,11 @@ _CAPACITY_TRIGGER_COLORS: dict[str, str] = {
 _CAPACITY_TRIGGER_INACTIVE_BG = "#f8fafc"
 _CAPACITY_TRIGGER_INACTIVE_FG = "#cbd5e1"
 
-# 언더 프로비저닝 카드 지표 값 색 — active(위반)는 under_provisioned 도넛과 동일 hex (E8 동일 의미 단일 진실).
-# 위반만 강조, 그 외(정상·N/A)는 동일 진한 색 (미관측 흐림 분기 없음 — N/A 도 같은 폰트).
+# 리소스 부족 카드 지표 값 색 — active(위반)는 under_provisioned 도넛과 동일 hex (E8 동일 의미 단일 진실).
+# 위반 강조 / 정상 진함 / 미관측(N/A) 흐림 — 3분기.
 _METRIC_VIOLATION_COLOR = next(c for k, _, c, _ in _DONUT_SEGMENT_DEFS if k == "under_provisioned")
 _METRIC_NORMAL_COLOR = "#1e293b"
+_METRIC_UNMEASURED_COLOR = "#94a3b8"  # 미관측(N/A) 흐림 — Windows load 등 OS 부재 축
 
 
 def _pct(v: float | None) -> str:
@@ -72,8 +74,11 @@ def _pct(v: float | None) -> str:
 
 
 def _metric(label: str, value: str, active: bool, measured: bool) -> CapacityMetric:
-    """CapacityMetric 1개 — active(위반)만 강조색, 그 외(정상·N/A)는 동일 진한 색 precompute (P3)."""
-    color = _METRIC_VIOLATION_COLOR if active else _METRIC_NORMAL_COLOR
+    """CapacityMetric 1개 — active(위반) 강조 / 정상 진함 / 미관측(N/A) 흐림 precompute (P3)."""
+    if not measured:
+        color = _METRIC_UNMEASURED_COLOR
+    else:
+        color = _METRIC_VIOLATION_COLOR if active else _METRIC_NORMAL_COLOR
     return CapacityMetric(label=label, value=value, active=active, measured=measured, color=color)
 
 
@@ -277,10 +282,11 @@ def build_environment_realtime(
     """온라인 서버 최신 스냅샷 snapshots -> EnvironmentRealtime.
 
     호출자가 온라인 서버만 snapshots 로 전달 (오프라인 stale 메트릭 제외 — sample_size = len(snapshots)).
-    snapshots 키: hostname/public_id + 부하상위용 서버별 값(cpu_pct/mem_pct/disk_pct/load_pct/swap_pct)
+    snapshots 키: hostname/public_id + 부하상위용 서버별 값(cpu_pct/mem_pct/disk_pct + disk_iops/net_kbps)
                 + capacity-weighted 가중치(cpu_cores·mem_used_kb·mem_total_kb·fs_used_gb·fs_total_gb).
     utilization: CPU/메모리/디스크 평균 도넛 3개 — capacity-weighted(environment_utilization 동일 정의).
-    peak_groups: 자원별(CPU/메모리/디스크/로드/스왑) top_n 5열 — 서버별 값(load=코어대비%, disk=worst mount).
+    io_*: 환경 I/O 총량(신선 표본 합산) — 평균 섹션 수치 카드(rate 라 도넛 아님).
+    peak_groups: 자원별(CPU/메모리/디스크/디스크 I/O/네트워크 I/O) top_n 5열 — I/O 는 2행 페어 delta(build_dashboard).
     """
 
     # capacity-weighted 평균 — 환경 전체 자원 풀 활용률(단순 산술평균 X). environment_utilization SQL 과 동일 정의:
@@ -307,19 +313,38 @@ def build_environment_realtime(
         ),
     ]
 
-    def _top(key: str) -> list[RealtimePeak]:
+    # 환경 I/O 총량 — 신선 표본 합산(rate, 도넛 아님). net/disk 처리량은 kbps -> MB/s.
+    def _dict_sum(key: str) -> float | None:
+        vals = [s[key] for s in snapshots if s.get(key) is not None]
+        return round(sum(vals), 1) if vals else None
+
+    net_kbps_total = _dict_sum("net_kbps")
+    io_net_mbps = round(net_kbps_total / 1024, 1) if net_kbps_total is not None else None
+    io_disk_iops = _dict_sum("disk_iops")
+
+    def _mbps(kbps: float | None) -> str:
+        return f"{kbps / 1024:.1f}" if kbps is not None else "—"
+
+    def _top_pct(key: str) -> list[RealtimePeak]:
         ranked = sorted((s for s in snapshots if s.get(key) is not None), key=lambda s: s[key], reverse=True)
         return [
-            RealtimePeak(hostname=s["hostname"], public_id=s["public_id"], pct=s[key], color=_bar_color(s[key]))
+            RealtimePeak(hostname=s["hostname"], public_id=s["public_id"], value=s[key], display=f"{s[key]:.1f}%")
+            for s in ranked[:top_n]
+        ]
+
+    def _top_io(sort_key: str, fmt) -> list[RealtimePeak]:
+        ranked = sorted((s for s in snapshots if s.get(sort_key) is not None), key=lambda s: s[sort_key], reverse=True)
+        return [
+            RealtimePeak(hostname=s["hostname"], public_id=s["public_id"], value=s[sort_key], display=fmt(s))
             for s in ranked[:top_n]
         ]
 
     peak_groups = [
-        RealtimePeakGroup(label="CPU", peaks=_top("cpu_pct")),
-        RealtimePeakGroup(label="메모리", peaks=_top("mem_pct")),
-        RealtimePeakGroup(label="디스크", peaks=_top("disk_pct")),
-        RealtimePeakGroup(label="로드(코어 대비)", peaks=_top("load_pct")),
-        RealtimePeakGroup(label="스왑", peaks=_top("swap_pct")),
+        RealtimePeakGroup(label="CPU", peaks=_top_pct("cpu_pct")),
+        RealtimePeakGroup(label="메모리", peaks=_top_pct("mem_pct")),
+        RealtimePeakGroup(label="디스크", peaks=_top_pct("disk_pct")),
+        RealtimePeakGroup(label="디스크 I/O", peaks=_top_io("disk_iops", lambda s: f"{s['disk_iops']:.0f} IOPS")),
+        RealtimePeakGroup(label="네트워크 I/O", peaks=_top_io("net_kbps", lambda s: f"{_mbps(s['net_kbps'])} MB/s")),
     ]
     return EnvironmentRealtime(
         total=total,
@@ -330,6 +355,8 @@ def build_environment_realtime(
         last_collected_at=last_collected_at,
         peak_groups=peak_groups,
         has_peaks=any(g.peaks for g in peak_groups),
+        io_net_mbps=io_net_mbps,
+        io_disk_iops=io_disk_iops,
     )
 
 
@@ -344,7 +371,8 @@ def to_capacity_warning_item(raw):
     매핑(drift 방지). 디스크 = capacity 또는 IO 포화. 비활성 trigger 도 list 포함(시각 일관 — 5종 자원 추적).
     swap 은 Windows pagefile 제외(assess 내부 swap_saturation, P2).
     """
-    hit = set(recommendation.assess(build_resource_stats(raw)).triggers)
+    assessment = recommendation.assess(build_resource_stats(raw))
+    hit = set(assessment.triggers)
     swap_active = "mem_saturation" in hit
     cpu_active = "cpu_util" in hit
     mem_active = "mem_util" in hit
@@ -367,7 +395,8 @@ def to_capacity_warning_item(raw):
         _badge("디스크", disk_active),
     ]
 
-    # 대시보드 카드 지표 6축 — 위반 여부 무관 평가에 쓰인 측정값 전부 노출(active 만 강조). hit 재사용(임계 재계산 0).
+    # 카드 지표 — 판단 6축 전부 노출. 미관측 축(예: Windows load/iowait)은 "N/A" 흐림 placeholder, active 만 강조.
+    # hit 재사용(임계 재계산 0). 발화 trigger 는 항상 measured(값 있어야 임계 비교).
     load_ratio = raw.load_15m_max / raw.cpu_cores if raw.load_15m_max is not None and raw.cpu_cores else None
     load_value = f"{load_ratio:.2f}" if load_ratio is not None else "N/A"
     metrics = [
@@ -391,6 +420,7 @@ def to_capacity_warning_item(raw):
         # 워크로드 카테고리 카운트 — role_distribution 과 동일 단일 진실 (services 이름 ∪ listen 소켓).
         services=dict(workload_category_counter(raw.services, raw.listen_ports)),
         metrics=metrics,
+        confidence_notes=build_confidence_notes(assessment),
         severity_score=severity_score,
     )
 

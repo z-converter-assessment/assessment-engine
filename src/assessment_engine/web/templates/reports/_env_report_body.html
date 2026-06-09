@@ -128,7 +128,7 @@
 
 <section class="card" style="margin-bottom:16px;">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #e2e8f0;">
-    <h2 class="card-title">Right-sizing 평가</h2>
+    <h2 class="card-title">자원 적정성 평가</h2>
     <span class="section-meta">평가 대상 {{ summary.evaluated_count }}대 (전체 {{ summary.overview.total }}대) · {{ summary.time_range_label }} 윈도우</span>
   </div>
 
@@ -337,7 +337,7 @@
 
 <section class="card" style="margin-bottom:16px;">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #e2e8f0;">
-    <h2 class="card-title">Right-sizing 분류</h2>
+    <h2 class="card-title">자원 적정성 분류</h2>
     <span class="section-meta">{{ summary.time_range_label }} 윈도우</span>
   </div>
 
@@ -364,7 +364,7 @@
   <div style="margin-bottom:20px;">{{ empty_state("효율화 검토 대상 없음 (과다·유휴·종료 권장 0대).") }}</div>
   {% endif %}
 
-  <h3>언더 프로비저닝 상세 ({{ summary.under_provisioned_hosts_count }}건) — trigger 별 hit</h3>
+  <h3>리소스 부족 상세 ({{ summary.under_provisioned_hosts_count }}건) — trigger 별 hit</h3>
   {% if summary.under_provisioned_hosts %}
   <ul class="attention-list" style="margin:0 0 20px; padding:0; list-style:none;">
     {% for c in summary.under_provisioned_hosts %}
@@ -379,7 +379,7 @@
     {% endfor %}
   </ul>
   {% else %}
-  <div style="margin-bottom:20px;">{{ empty_state("자원 부족(언더 프로비저닝)으로 분류된 호스트가 없습니다.") }}</div>
+  <div style="margin-bottom:20px;">{{ empty_state("리소스 부족으로 분류된 호스트가 없습니다.") }}</div>
   {% endif %}
 
 </section>

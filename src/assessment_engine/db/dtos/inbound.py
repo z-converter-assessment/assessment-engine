@@ -79,6 +79,7 @@ class TaskCreate:
     target_composite_id: str
     task_type: str
     params: dict | None
+    deadline_at: datetime | None = None  # 응답 마감 (install 발행 시 세팅, 그 외 None)
 
 
 @dataclass

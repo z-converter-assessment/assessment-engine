@@ -122,6 +122,10 @@ class ReportRowItem:
     # mapper 가 recommendation.is_partial_evaluation 으로 precompute, 템플릿은 본 bool 만 분기 (P3).
     is_partial: bool = False
 
+    # 분류 confidence 단서 — is_partial(축 미관측) + low_sample(표본 부족) 통합 라벨 (shared.build_confidence_notes).
+    # 분류는 가진 데이터로 완결(원칙1), 신뢰도 저하 요인만 본 채널로 분리 노출(원칙2). 템플릿은 list 렌더만 (P3).
+    confidence_notes: list[str] = field(default_factory=list)
+
     # 임계값 분류 색 (P3 — 템플릿 산술·분기 금지. mapper에서 미리 계산)
     # 모두 #b91c1c (danger) / #92400e (warn) / #94a3b8 (muted) / #1e293b (default) hex 중 하나.
     saturation_color: str = "#94a3b8"

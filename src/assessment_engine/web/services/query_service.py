@@ -150,6 +150,17 @@ def _filter_disk_category(dtos: list[MetricSeries], category: DeviceCategory) ->
     return lvm if lvm else [d for d in dtos if is_partition(d.dimension)]
 
 
+def _io_sum(snaps: list, *attrs: str) -> float | None:
+    """I/O 스냅샷 list 의 attr(들) 환경/서버 합산 — None 제외, 유효값 0개면 None(페어 부재)."""
+    total: float | None = None
+    for s in snaps:
+        for a in attrs:
+            v = getattr(s, a)
+            if v is not None:
+                total = (total or 0.0) + v
+    return None if total is None else round(total, 1)
+
+
 class QueryService:
     def __init__(self, repo: BaseQueryRepository, redis: Redis):
         self.repo = repo
@@ -389,7 +400,7 @@ class QueryService:
         """list 화면 '환경 실시간 메트릭' 카드 — 각 서버 최신 스냅샷(get_latest_metric, Redis cache 우선) 집계.
 
         현황 모니터링 용도(right-sizing 7일 통계와 별개). server_ids=None 이면 전체 환경, 주어지면 선택 N대 한정.
-        평균 도넛·자원별 부하상위: 현재 CPU/메모리/디스크(worst mount).
+        평균 도넛·자원별 부하상위: CPU/메모리/디스크(전 mount 통합 풀, 평균·탑3 동일 기준) + 네트워크·디스크 I/O.
         online: 최신 스냅샷 신선도(now-TTL 이내 = 온라인).
         last_collected_at: 환경 전체 최신 수집시각. 조립은 _assemble_realtime 단일 진실.
         """
@@ -484,23 +495,23 @@ class QueryService:
             if not m or not m.collected_at or m.collected_at < fresh_threshold:
                 continue  # 데이터 없음/stale = 오프라인 (통일: 데이터 신선도가 곧 온라인)
             online += 1
-            disk = max((mt.usage_pct for mt in m.mounts if mt.usage_pct is not None), default=None)
             mem = m.memory
-            # capacity-weighted 평균 도넛용 — 전 mount 통합 fs(sum(used)/sum(total), worst mount 아님).
+            # 디스크 활용률 — 전 mount 통합 풀(sum(used)/sum(total)). 평균 도넛·탑3 동일 기준(worst mount 아님).
             fs_total = sum(mt.total_gb for mt in m.mounts if mt.total_gb and mt.used_gb is not None)
             fs_used = sum(mt.used_gb for mt in m.mounts if mt.total_gb and mt.used_gb is not None)
-            # 로드는 코어 대비 % 환산 (서버별 코어 수 상이 — 절대 load 비교 불가). cores 부재/0 이면 None.
-            load_pct = (m.load_15m / d.cpu_cores * 100) if (m.load_15m is not None and d.cpu_cores) else None
+            disk_pool_pct = round(fs_used / fs_total * 100, 1) if fs_total else None
             snapshots.append(
                 {
                     "hostname": d.hostname,
                     "public_id": d.public_id,
-                    # 부하 상위(서버별 값) — 개별 호스트 랭킹. 로드=코어 대비 %, 스왑=사용률.
+                    # 부하 상위(서버별 값) — 개별 호스트 랭킹. CPU/메모리/디스크 활용률 + I/O rate.
                     "cpu_pct": m.cpu.usage_pct if m.cpu else None,
                     "mem_pct": mem.usage_pct if mem else None,
-                    "disk_pct": disk,
-                    "load_pct": load_pct,
-                    "swap_pct": m.swap.usage_pct if m.swap else None,
+                    "disk_pct": disk_pool_pct,  # 통합 풀 — 평균 도넛(fs_used/fs_total)과 동일 기준
+                    # I/O rate — CPU 와 동일 2행 페어 delta (build_dashboard 산출분). 물리 디스크·실 iface 합산.
+                    # 디스크=IOPS(작업), 네트워크=처리량(MB/s) 단일 지표만 (read/write·rx/tx 합산).
+                    "disk_iops": _io_sum(m.disk_io_phys, "read_iops", "write_iops"),
+                    "net_kbps": _io_sum(m.net_io, "rx_kbps", "tx_kbps"),
                     # capacity-weighted 평균용 가중치 (cpu=코어 가중, mem/disk=절대 총량 sum/sum).
                     "cpu_cores": d.cpu_cores,
                     "mem_used_kb": mem.used_kb if mem else None,
@@ -968,7 +979,7 @@ class QueryService:
 
     async def get_task(self, task_id: str) -> TaskDetailItem | None:
         row = await self.repo.get_task_by_public_id(task_id)
-        return to_task_detail(row) if row else None
+        return to_task_detail(row, datetime.now(UTC)) if row else None
 
     async def list_recent_tasks(
         self,
@@ -980,11 +991,13 @@ class QueryService:
         if sid is None:
             return []
         rows = await self.repo.list_recent_tasks(sid, limit, cursor)
-        return [to_task_summary(r) for r in rows]
+        now = datetime.now(UTC)
+        return [to_task_summary(r, now) for r in rows]
 
     async def latest_tasks_by_servers(
         self,
         server_ids: list[int],
     ) -> dict[int, TaskSummaryItem]:
         rows = await self.repo.latest_tasks_by_servers(server_ids)
-        return {sid: to_task_summary(r) for sid, r in rows.items()}
+        now = datetime.now(UTC)
+        return {sid: to_task_summary(r, now) for sid, r in rows.items()}
