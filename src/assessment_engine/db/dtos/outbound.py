@@ -71,6 +71,8 @@ class TaskRow:
     stdout_tail: str | None
     stderr_tail: str | None
     params: dict | None = None  # install task 의 {zdm_ip, zdm_user} 등 발행 파라미터
+    # 응답 마감 — mapper 가 경과 pending 을 "응답 시간 초과"로 파생 (install 외 None)
+    deadline_at: datetime | None = None
 
 
 # ---------- Dashboard raw DTOs (delta 계산용 2행 페어) ----------
@@ -305,6 +307,10 @@ class ReportRowRaw:
     net_tx_kbps: float | None = None
     net_tx_kbps_p95: float | None = None
     net_tx_kbps_peak: float | None = None
+
+    # 표본 충분성 — 실측 cpu/mem 샘플 / 윈도우 기대 샘플 비율 (report_aggregate). p95 신뢰도 단서, None = 측정 축 부재.
+    cpu_sufficiency: float | None = None
+    mem_sufficiency: float | None = None
 
 
 @dataclass

@@ -422,7 +422,7 @@ window.addEventListener('afterprint', resizeAllCharts);
 /* ── 날짜 인풋 초기화 + 컨트롤 바인딩 ── */
 ChartUtils.initAnchor('anchor-date');
 bindToggle('global-range-btns', val => { globalRange = val; loadAllCharts(); });
-// 앵커는 '적용' 버튼으로 명시 반영 (환경 성능 추이와 통일).
-document.getElementById('anchor-apply').addEventListener('click', () => loadAllCharts());
+// 앵커 변경 즉시 반영 — 구간 토글·상세 차트(cpu/network/storage)와 동일 (적용 버튼 없이 change 로 갱신).
+document.getElementById('anchor-date').addEventListener('change', () => loadAllCharts());
 
 loadAllCharts();

@@ -293,11 +293,11 @@
 
 {# ── 그룹 5: 종합 진단 — Right-sizing 분류 + AI narrative (모든 통계를 본 뒤 결론) ── #}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">Right-sizing 평가</h2>
+  <h2 class="card-title">자원 적정성 평가</h2>
   <div style="display:flex; align-items:center; gap:12px;">
     <span class="badge {{ r.badge_class }}" style="padding:4px 12px;">{{ r.recommendation_label }}</span>
     <span class="text-md text-strong">{{ r.recommendation_action }}</span>
-    {% if r.is_partial %}<span class="text-meta text-sm">(이용률 기준 평가 — CPU run queue 등 saturation 축 미관측)</span>{% endif %}
+    {% for n in r.confidence_notes %}<span class="text-meta text-sm">({{ n }})</span>{% endfor %}
   </div>
   {% if view == "engineer" and r.diagnosis %}
   <div class="text-sm text-label" style="margin-top:10px; padding-top:10px; border-top:1px solid #e2e8f0;">

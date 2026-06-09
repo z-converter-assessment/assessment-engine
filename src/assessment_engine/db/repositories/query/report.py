@@ -74,6 +74,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY pct) AS cpu_p95,
                     AVG(pct) AS cpu_avg,
                     MAX(pct) AS cpu_peak,
+                    COUNT(pct) AS cpu_sample,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY iowait_pct) AS iowait_p95,
                     MAX(iowait_pct) AS iowait_peak
                 FROM cpu_pct GROUP BY server_id
@@ -95,6 +96,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY pct) AS mem_p95,
                     AVG(pct) AS mem_avg,
                     MAX(pct) AS mem_peak,
+                    COUNT(pct) AS mem_sample,
                     MAX(swap_in_use) > 0 AS swap_used
                 FROM mem_pct
                 WHERE pct IS NOT NULL
@@ -142,7 +144,10 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 ms.mem_peak     AS mem_peak,
                 COALESCE(ms.swap_used, false) AS swap_used,
                 ls.load_15m_max AS load_15m_max,
-                mm.worst_used_pct AS worst_mount_used_pct
+                mm.worst_used_pct AS worst_mount_used_pct,
+                -- 표본 충분성 — 실측 cpu/mem 샘플 / 윈도우 기대 샘플(period_days*1440, 1분 주기). p95 신뢰도 단서.
+                cs.cpu_sample::float / NULLIF(:expected_samples, 0) AS cpu_sufficiency,
+                ms.mem_sample::float / NULLIF(:expected_samples, 0) AS mem_sufficiency
             FROM server_inventory s
             LEFT JOIN cpu_stats  cs ON cs.server_id = s.id
             LEFT JOIN mem_stats  ms ON ms.server_id = s.id
@@ -152,7 +157,14 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             ORDER BY s.hostname
         """)
         result = await self.session.execute(
-            sql, {"sids": server_ids, "start": start, "end": end, "jitter_sec": BOOT_JITTER_SEC}
+            sql,
+            {
+                "sids": server_ids,
+                "start": start,
+                "end": end,
+                "jitter_sec": BOOT_JITTER_SEC,
+                "expected_samples": period_days * 1440,  # 1분 주기 윈도우 기대 샘플
+            },
         )
 
         return [
@@ -183,6 +195,8 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 disks=r.disks,
                 boot_time=r.boot_time,
                 worst_mount_used_pct=r.worst_mount_used_pct,
+                cpu_sufficiency=r.cpu_sufficiency,
+                mem_sufficiency=r.mem_sufficiency,
             )
             for r in result.all()
         ]

@@ -50,6 +50,10 @@ CPU_SATURATION_LOAD_RATIO = 1.0  # load_15m / cpu_cores >= 1.0 — run queue sat
 IOWAIT_UPSIZE_PCT = 20  # iowait_p95 >= 20% — disk IO saturation
 DISK_CAPACITY_UPSIZE_PCT = 85  # worst mount used_pct >= 85% — storage capacity utilization
 
+# 표본 충분성 — 측정 축(cpu/mem) 실측 샘플 / 윈도우 기대 샘플(period_days*1440, 1분 주기) 비율이 이 미만이면
+# 표본 부족(low_sample). 분류를 막지 않고(원칙1) confidence 단서로만 노출(원칙2). 0.5 = 실질 관측 절반 미만.
+SAMPLE_SUFFICIENCY_RATIO = 0.5
+
 
 Recommendation = Literal[
     "idle",
@@ -87,6 +91,8 @@ class ResourceStats:
     net_avg_kbps: float | None  # idle/shutdown 판정용 (saturation metric 미수집)
     # OS family — 신호 의미 분기 (원칙 P2). default None = unknown -> Linux 의미(엔진 fallback 정합).
     os_family: str | None = None
+    # 표본 충분성 — 측정 축(cpu/mem) 실측/기대 샘플 비율. None = 측정 축 부재(판정 불가, low_sample 무관).
+    sample_sufficiency: float | None = None
 
 
 @dataclass
@@ -102,6 +108,9 @@ class Assessment:
     recommendation: Recommendation
     triggers: list[str] = field(default_factory=list)
     unmeasured: list[str] = field(default_factory=list)
+    # 표본 부족 — 측정 축 sufficiency < SAMPLE_SUFFICIENCY_RATIO. 분류는 완결, 신뢰도 단서로만 (원칙2).
+    # is_partial(축 미관측)과 별개 confidence 축 — 둘 다 confidence_notes 로 표시 계층에 통합 노출.
+    low_sample: bool = False
 
     @property
     def is_partial(self) -> bool:
@@ -143,6 +152,9 @@ def assess(stats: ResourceStats) -> Assessment:
     if stats.iowait_p95_pct is None:
         unmeasured.append("disk_io")
 
+    # 표본 부족 — 측정 축 sufficiency < 임계. 분류를 막지 않고 confidence 단서로만 동반 (원칙2).
+    low_sample = stats.sample_sufficiency is not None and stats.sample_sufficiency < SAMPLE_SUFFICIENCY_RATIO
+
     # under_provisioned — 위험 신호 수집(OR). idle/shutdown 보다 먼저 — 어떤 위험 신호든 하나면 발화(누락 0).
     # CPU 가 낮아도 스왑·iowait·load·mem·disk 압박이 있으면 "미사용"이 아니라 자원 부족이다
     # (예: CPU idle 인데 page-out = 메모리 부족). 가진 축만 평가해 hit 된 신호를 근거로 모은다.
@@ -166,7 +178,7 @@ def assess(stats: ResourceStats) -> Assessment:
         triggers.append("mem_saturation")
 
     if triggers:
-        return Assessment("under_provisioned", triggers=triggers, unmeasured=unmeasured)
+        return Assessment("under_provisioned", triggers=triggers, unmeasured=unmeasured, low_sample=low_sample)
 
     # Idle / Shutdown — 위험 신호 0 일 때만 (진짜 미사용). net + cpu 의존, 없으면 fall-through.
     if stats.net_avg_kbps is not None:
@@ -175,21 +187,22 @@ def assess(stats: ResourceStats) -> Assessment:
             and stats.cpu_peak_pct <= IDLE_CPU_PEAK_PCT
             and stats.net_avg_kbps <= IDLE_NET_KBPS
         ):
-            return Assessment("idle", unmeasured=unmeasured)
+            return Assessment("idle", unmeasured=unmeasured, low_sample=low_sample)
         # net_avg_kbps(KB/s) → Mbps: x 8 / 1000
         if cpu is not None and cpu <= SHUTDOWN_CPU_P95_PCT and (stats.net_avg_kbps * 8 / 1000) <= SHUTDOWN_NET_MBPS:
-            return Assessment("shutdown", unmeasured=unmeasured)
+            return Assessment("shutdown", unmeasured=unmeasured, low_sample=low_sample)
 
     # 평가 불가 — utilization(cpu·mem) 둘 다 부재 + 위 under 위험 신호도 없음 (신규/표본 부재).
+    # sufficiency 도 None(측정 축 부재)이라 low_sample 무관 — insufficient_data 가 "관측 자체 부재"를 이미 표현.
     if cpu is None and mem is None:
         return Assessment("insufficient_data")
 
     # over_provisioned — 보수적: cpu·mem p95 가 둘 다 있고 둘 다 다운사이즈 임계 이하일 때만.
     # 한쪽이라도 None 이거나 높으면 over 로 단정하지 않는다(saturation 못 본 Windows 오판 회피).
     if cpu is not None and mem is not None and cpu <= CPU_DOWNSIZE_P95_PCT and mem <= MEM_DOWNSIZE_P95_PCT:
-        return Assessment("over_provisioned", unmeasured=unmeasured)
+        return Assessment("over_provisioned", unmeasured=unmeasured, low_sample=low_sample)
 
-    return Assessment("optimal", unmeasured=unmeasured)
+    return Assessment("optimal", unmeasured=unmeasured, low_sample=low_sample)
 
 
 def classify(stats: ResourceStats) -> Recommendation:

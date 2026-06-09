@@ -15,7 +15,7 @@ class TaskQueryRepository(_BaseQueryMixin, BaseTaskQueryRepository):
         sql = text("""
             SELECT
                 t.public_id, t.target_server_id, t.task_type, t.status,
-                t.created_at, t.completed_at,
+                t.created_at, t.deadline_at, t.completed_at,
                 t.failure_reason, t.exit_code, t.duration_ms,
                 t.stdout_tail, t.stderr_tail, t.params,
                 s.public_id AS target_public_id, s.hostname AS target_hostname
@@ -45,7 +45,7 @@ class TaskQueryRepository(_BaseQueryMixin, BaseTaskQueryRepository):
         sql = text(f"""
             SELECT
                 t.public_id, t.target_server_id, t.task_type, t.status,
-                t.created_at, t.completed_at,
+                t.created_at, t.deadline_at, t.completed_at,
                 t.failure_reason, t.exit_code, t.duration_ms,
                 t.stdout_tail, t.stderr_tail, t.params,
                 s.public_id AS target_public_id, s.hostname AS target_hostname
@@ -69,7 +69,7 @@ class TaskQueryRepository(_BaseQueryMixin, BaseTaskQueryRepository):
         sql = text("""
             SELECT DISTINCT ON (t.target_server_id)
                 t.public_id, t.target_server_id, t.task_type, t.status,
-                t.created_at, t.completed_at,
+                t.created_at, t.deadline_at, t.completed_at,
                 t.failure_reason, t.exit_code, t.duration_ms,
                 t.stdout_tail, t.stderr_tail, t.params,
                 s.public_id AS target_public_id, s.hostname AS target_hostname
@@ -91,6 +91,7 @@ class TaskQueryRepository(_BaseQueryMixin, BaseTaskQueryRepository):
             task_type=row.task_type,
             status=row.status,
             created_at=row.created_at,
+            deadline_at=row.deadline_at,
             completed_at=row.completed_at,
             failure_reason=row.failure_reason,
             exit_code=row.exit_code,

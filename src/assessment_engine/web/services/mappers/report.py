@@ -20,6 +20,7 @@ from assessment_engine.web.services.mappers.server import (
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
     ReportView,
+    build_confidence_notes,
     resolve_os_eol,
 )
 from assessment_engine.web.services.service_classifier import detect_listen_categories
@@ -351,6 +352,12 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
     net_avg = (
         None if raw.net_rx_kbps is None and raw.net_tx_kbps is None else (raw.net_rx_kbps or 0) + (raw.net_tx_kbps or 0)
     )
+    # 표본 충분성 — 측정된 축(p95 not None)의 sufficiency 만 모아 min(보수적). 둘 다 부재면 None(판정 무관).
+    suffs = [
+        s
+        for p95, s in ((raw.cpu_p95_pct, raw.cpu_sufficiency), (raw.mem_p95_pct, raw.mem_sufficiency))
+        if p95 is not None and s is not None
+    ]
     return recommendation.ResourceStats(
         cpu_p95_pct=raw.cpu_p95_pct,
         cpu_peak_pct=raw.cpu_peak_pct,
@@ -362,6 +369,7 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         iowait_p95_pct=raw.iowait_p95_pct,
         net_avg_kbps=net_avg,
         os_family=raw.os_family,
+        sample_sufficiency=min(suffs) if suffs else None,
     )
 
 
@@ -450,6 +458,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         is_online=is_online,
         os_family=raw.os_family,
         is_partial=is_partial,
+        confidence_notes=build_confidence_notes(assessment),
         os_display=_os_display(raw.os_id, raw.os_version),
         kernel_version=raw.kernel_version,
         internal_ip=raw.ip_internal[0] if raw.ip_internal else None,

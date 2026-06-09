@@ -17,7 +17,7 @@ import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 import aio_pika
@@ -35,6 +35,9 @@ from assessment_engine.db.repositories.query.base_query_repository import BaseQu
 from assessment_engine.web.settings import diagnostic_settings, web_settings
 
 _TASK_TYPE_INSTALL = "zconverter_install"
+# engine 측 응답 마감 = install_timeout_sec(agent wall-clock) + 네트워크 margin.
+# 경과 시 표시 timeout + 재발행 시 expire.
+_DEADLINE_MARGIN_SEC = 60
 _TASK_QUEUE_TTL_MS = 60 * 60 * 1000  # 1h — 원격 호스트가 그 사이 consume 못 하면 만료
 _TASK_QUEUE_MAX_LEN = 100
 
@@ -197,10 +200,28 @@ class TaskService:
         sid_map = await self.query_repo.resolve_server_ids(target_public_ids)
         missing = [pid for pid in target_public_ids if pid not in sid_map]
         if missing:
-            raise TaskNotFound(f"server not found: {','.join(missing[:5])}")
+            logger.warning("install target not found public_ids={}", missing[:5])
+            raise TaskNotFound("선택한 서버 중 일부를 찾을 수 없어 전체 발행을 취소했습니다 (이미 삭제됐을 수 있음).")
         server_ids = [sid_map[pid] for pid in target_public_ids]
         details = await self.query_repo.get_servers(server_ids)
         detail_by_id = {d.id: d for d in details}
+
+        # 직전 발행분 중 deadline 경과 pending 을 failure(timeout) 로 전이 후, 남은 활성 pending 보유 서버 사전 검증.
+        # All-or-nothing — 하나라도 진행 중 작업이 있으면 전체 발행 취소(부분 발행 방지).
+        async with self.session_factory() as session:
+            repo = self.collect_repo_factory(session)
+            expired = await repo.expire_overdue_tasks(server_ids)
+            busy_ids = await repo.find_pending_deadline_servers(server_ids)
+            await session.commit()
+        if expired:
+            logger.info("expired overdue tasks count={}", expired)
+        if busy_ids:
+            busy_names = sorted(detail_by_id[sid].hostname for sid in busy_ids if sid in detail_by_id)
+            raise TaskDuplicatePending(
+                f"이미 설치 작업이 진행 중인 서버가 있어 전체 발행을 취소했습니다: {', '.join(busy_names)}"
+            )
+        # 응답 마감 — 발행 시점 확정 (agent wall-clock + 네트워크 margin). 경과 시 표시 timeout + 다음 발행 시 expire.
+        deadline_at = datetime.now(UTC) + timedelta(seconds=web_settings.install_timeout_sec + _DEADLINE_MARGIN_SEC)
 
         zdm_host = _extract_zdm_host(zdm_ip)
         # resolver(엔진) 가 sha256/size 산출하려고 fetch 하는 호스트. download.url·install args 는 zdm_host 유지.
@@ -221,7 +242,10 @@ class TaskService:
                 try:
                     meta_by_path[package_path] = await self.zdm_resolver.resolve(resolve_host, package_path)
                 except ZdmPackageMetaError as e:
-                    raise TaskNotConfigured(f"ZDM package meta fetch failed: {e}") from e
+                    logger.error("ZDM package meta fetch failed path={} err={}", package_path, e)
+                    raise TaskNotConfigured(
+                        "ZDM 패키지 정보를 가져오지 못해 발행을 취소했습니다. ZDM 서버 연결을 확인하세요."
+                    ) from e
 
         exchange = await self.broker_channel.get_exchange(diagnostic_settings.rabbitmq_task_exchange)
 
@@ -230,7 +254,8 @@ class TaskService:
             server_id = sid_map[public_id]
             detail = detail_by_id.get(server_id)
             if detail is None:
-                raise TaskNotFound(f"server detail missing: {public_id}")
+                logger.warning("install server detail missing public_id={}", public_id)
+                raise TaskNotFound("서버 정보를 불러오지 못해 발행을 취소했습니다.")
 
             package_path, install_type, install_script = dispatch_by_host[server_id]
             sha256_hex, size_bytes = meta_by_path[package_path]
@@ -247,12 +272,15 @@ class TaskService:
                                 "zdm_ip": zdm_ip,
                                 "zdm_user": zdm_user,
                             },
+                            deadline_at=deadline_at,
                         )
                     )
                     await session.commit()
                 except IntegrityError as e:
+                    # 사전 검증 통과 후 race(동시 발행) — 극히 드묾. 부분 발행 가능성은 T1 한계.
+                    logger.warning("install race conflict server_id={} public_id={}", server_id, public_id)
                     raise TaskDuplicatePending(
-                        f"pending task already exists for {public_id} ({_TASK_TYPE_INSTALL})"
+                        f"발행 도중 다른 작업과 충돌했습니다: {detail.hostname}. 잠시 후 다시 시도하세요."
                     ) from e
 
             await self._ensure_machine_queue(detail.composite_id)
