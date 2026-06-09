@@ -69,6 +69,22 @@ class BaseCollectRepository(ABC):
         """
 
     @abstractmethod
+    async def expire_overdue_tasks(self, server_ids: list[int]) -> int:
+        """deadline 경과 pending(마감 있는 = install) 을 failure(failure_reason='timeout') 로 전이. 반환: 전이 건수.
+
+        발행 경로가 INSERT 직전 호출 — 만료 pending 을 정리해 pending 부분 UNIQUE 충돌(409) 없이 재발행.
+        대상은 deadline_at IS NOT NULL 인 pending (현재 install 만 deadline 세팅). race-safe (WHERE status='pending').
+        agent 가 뒤늦게 result 를 보내면 complete_task 가 덮어씀.
+        """
+
+    @abstractmethod
+    async def find_pending_deadline_servers(self, server_ids: list[int]) -> list[int]:
+        """deadline 안 지난 활성 pending(마감 있는 = install) 보유 server_id 목록.
+
+        발행 경로가 expire 직후 호출 — all-or-nothing 사전 중복 검증. 하나라도 있으면 전체 발행 취소.
+        """
+
+    @abstractmethod
     async def record_metrics(
         self,
         server_id: int,

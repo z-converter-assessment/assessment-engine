@@ -12,7 +12,7 @@
   </div>
 
   <div class="card-section">
-    <h3>현재 평균 활용률 <span class="section-meta">온라인 {{ realtime.sample_size }}대 최신 스냅샷</span></h3>
+    <h3>현재 자원 현황 <span class="section-meta">온라인 {{ realtime.sample_size }}대 최신 스냅샷</span></h3>
     {% if realtime.sample_size > 0 %}
     {# 환경 평균 활용률 도넛과 동일 컴포넌트·푸른 단색 게이지 (통일). 7일 통계 아닌 현재 스냅샷. #}
     <div style="display:flex; align-items:center; gap:14px;">
@@ -35,6 +35,32 @@
           <div style="font-size:12px; color:#475569; margin-top:4px;">{{ u.label }}</div>
         </div>
         {% endfor %}
+        {# 네트워크·디스크 I/O — 게이지(부분 호 채움)가 아니라 절대 rate. 도넛과 동일 모양·폰트(20/700)지만
+           트랙 색을 서버 목록 제목행과 동일 회색(#a7b2c0)으로 둬 게이지와 구분. #}
+        <div style="text-align:center;">
+          <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="#a7b2c0" stroke-width="10"/>
+            {% if realtime.io_net_mbps is not none %}
+            <text x="50" y="50" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ "%.1f"|format(realtime.io_net_mbps) }}</text>
+            <text x="50" y="66" text-anchor="middle" font-size="10" fill="#94a3b8">MB/s</text>
+            {% else %}
+            <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
+            {% endif %}
+          </svg>
+          <div style="font-size:12px; color:#475569; margin-top:4px;">네트워크</div>
+        </div>
+        <div style="text-align:center;">
+          <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="#a7b2c0" stroke-width="10"/>
+            {% if realtime.io_disk_iops is not none %}
+            <text x="50" y="50" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ "%.0f"|format(realtime.io_disk_iops) }}</text>
+            <text x="50" y="66" text-anchor="middle" font-size="10" fill="#94a3b8">IOPS</text>
+            {% else %}
+            <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
+            {% endif %}
+          </svg>
+          <div style="font-size:12px; color:#475569; margin-top:4px;">디스크 I/O</div>
+        </div>
       </div>
     </div>
     {% else %}
@@ -53,15 +79,15 @@
         {% if g.peaks %}
         <div style="display:flex; flex-direction:column; gap:6px;">
           {% for p in g.peaks %}
-          {# 행 전체가 서버 상세 링크. peak-link hover 로 클릭 가능 affordance(배경+hostname 밑줄) — color:inherit 라 평소엔 본문톤 유지. #}
-          <a href="/servers/{{ p.public_id }}?back={{ self_back }}" class="peak-link"
-             style="display:flex; align-items:center; gap:6px; text-decoration:none; color:inherit;">
+          {# 호스트명만 서버 상세 링크 — 번호·수치는 링크 밖. 전 자원(CPU/메모리/디스크/I/O) 일관. #}
+          <div style="display:flex; align-items:center; gap:6px;">
             <span style="display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background:#eff6ff; color:#3b82f6; font-size:10px; font-weight:700; flex-shrink:0;">{{ loop.index }}</span>
-            <span class="peak-host" style="flex:0 1 auto; min-width:0; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.hostname }}</span>
+            <a href="/servers/{{ p.public_id }}?back={{ self_back }}"
+               style="flex:0 1 auto; min-width:0; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.hostname }}</a>
             {# leader dots — hostname 과 수치를 점선으로 연결 (목차 스타일). hostname 길면 ellipsis 로 줄고 점선 최소폭 유지. #}
             <span style="flex:1 1 auto; min-width:10px; border-bottom:1px dotted #cbd5e1; height:1px;"></span>
-            <span style="flex-shrink:0; font-size:12px; font-weight:600; color:#1e293b;">{{ "%.1f"|format(p.pct) }}%</span>
-          </a>
+            <span style="flex-shrink:0; font-size:12px; font-weight:600; color:#1e293b; white-space:nowrap;">{{ p.display }}</span>
+          </div>
           {% endfor %}
         </div>
         {% else %}
@@ -70,7 +96,6 @@
       </div>
       {% endfor %}
     </div>
-    <p class="no-print" style="font-size:11px; color:#94a3b8; margin:10px 0 0;">로드(코어 대비)는 Windows(load average 미측정) 호스트 제외.</p>
     {% else %}
     {{ empty_state("표시할 부하 데이터가 없습니다.") }}
     {% endif %}

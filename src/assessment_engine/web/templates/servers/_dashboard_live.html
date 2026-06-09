@@ -6,7 +6,7 @@
    AttentionRow attribute access only — 표시 string은 mapper가 결정 (P2 단일 진실). KST 표시는 meta_at + kst 필터(#F2). #}
 {% macro attention_row(label, meta, items) %}
 <div>
-  <h3>{{ label }}{% if meta %} <span class="section-meta">{{ meta }}</span>{% endif %}</h3>
+  <h3>{{ label }} <strong>{{ items|length }}</strong>{% if meta %} <span class="section-meta">{{ meta }}</span>{% endif %}</h3>
   {% if items %}
   <ul class="attention-list">
     {% for it in items %}
@@ -84,7 +84,7 @@
       </div>
 
       <div>
-        <h3 style="margin:0 0 10px;">Right-sizing 분류</h3>
+        <h3 style="margin:0 0 10px;">자원 적정성 분류</h3>
         {# 분류 가로막대 게이지 — 환경 보고서 Right-sizing 평가와 동일 형태. 색은 게이지 테마 단색 통일(s.color = UTIL_GAUGE_COLOR). #}
         {% if overview.risk_donut and overview.risk_donut_total > 0 %}
         <div style="display:flex; flex-direction:column; gap:6px;">
@@ -105,9 +105,9 @@
 
     </div>
 
-    {# 언더 프로비저닝 상세 — 심각도 상위 3. 호스트명|서비스|평가 6축 3칼럼 grid 정렬(행마다 칼럼 맞춤), 각 행 1줄 강제(지표 칼럼만 좁으면 가로 스크롤). 박스·구분선 없음. #}
+    {# 리소스 부족 상세 — 심각도 상위 3. 호스트명|서비스|판단 6축(+confidence) 3칼럼 grid 정렬, 각 행 1줄 강제(지표 칼럼만 좁으면 가로 스크롤). 박스·구분선 없음. #}
     <div class="card-section" style="border-top:none;">
-      <h3>언더 프로비저닝 상세 <span class="section-meta">{{ overview.under_provisioned_hosts_shown }}/{{ overview.under_provisioned_hosts_count }}건</span></h3>
+      <h3>리소스 부족 상세 <span class="section-meta">{{ overview.under_provisioned_hosts_shown }}/{{ overview.under_provisioned_hosts_count }}건</span></h3>
       {% if overview.under_provisioned_hosts %}
       <div class="under-grid" style="display:grid; grid-template-columns:minmax(100px, max-content) max-content minmax(0, 1fr); gap:8px 16px; align-items:center; font-size:12px;">
         {% for c in overview.under_provisioned_hosts %}
@@ -117,15 +117,17 @@
           <span class="badge {{ cat | service_badge_class }}">{{ cat }} <strong>{{ n }}</strong></span>
           {% endfor %}
         </span>
-        <span style="display:flex; gap:14px; white-space:nowrap; overflow-x:auto;">
+        {# 판단 6축 + confidence 단서(표본부족·축 미관측)를 같은 줄 끝에 흐린 이탤릭으로 — 호스트명 단일 줄 유지(가시성). #}
+        <span style="display:flex; gap:14px; align-items:baseline; white-space:nowrap; overflow-x:auto;">
           {% for m in c.metrics %}
           <span><span class="text-meta">{{ m.label }}</span> <span style="color:{{ m.color }}; font-weight:{{ 700 if m.active else 600 }};">{{ m.value }}</span></span>
           {% endfor %}
+          {% for n in c.confidence_notes %}<span class="text-meta" style="color:#94a3b8; padding-left:6px;">{{ n }}</span>{% endfor %}
         </span>
         {% endfor %}
       </div>
       {% else %}
-      {{ empty_state("자원 부족(언더 프로비저닝)으로 분류된 호스트가 없습니다.") }}
+      {{ empty_state("리소스 부족으로 분류된 호스트가 없습니다.") }}
       {% endif %}
     </div>
 </section>
@@ -185,18 +187,11 @@
 <section class="card no-print">
   <h2 class="card-title" style="margin:0 0 12px;">운영 신호</h2>
 
-  {# 카탈로그 뱃지 — 줄넘김 없이 한 줄(좁으면 가로 스크롤). #}
-  <div class="attention-catalog" style="display:flex; flex-wrap:nowrap; overflow-x:auto; gap:8px;">
-    {% for cat in attention.catalog %}
-    <span class="attention-cat-item" data-active="{{ cat.active }}">{{ cat.label }} <strong>{{ cat.count }}</strong></span>
-    {% endfor %}
-  </div>
-
-  {# 3 카테고리 — 한 행 3칼럼 정렬. 발화 없어도 제목 유지, 비면 empty_state (discoverability #E9). #}
-  <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:24px; align-items:start; border-top:1px solid #e2e8f0; padding-top:14px; margin-top:14px;">
-    {{ attention_row("통신 끊김", "5분 이상 메트릭 미수신", attention.gap_warnings) }}
-    {{ attention_row("OS 지원종료", "", attention.os_eol_warnings) }}
-    {{ attention_row("에이전트 재시작 빈번", "최근 1시간", attention.agent_unstable) }}
+  {# 3 카테고리 — 한 행 3칼럼. 카운트는 각 칼럼 제목에 통합(상단 뱃지 폐기). 발화 0건도 제목 유지(discoverability #E9). #}
+  <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:24px; align-items:start;">
+    {{ attention_row("통신 끊김", "5분 이상 미수신", attention.gap_warnings) }}
+    {{ attention_row("OS 지원종료", "지원 종료·임박", attention.os_eol_warnings) }}
+    {{ attention_row("에이전트 재시작", "최근 1시간 빈번", attention.agent_unstable) }}
   </div>
 </section>
 {% endif %}

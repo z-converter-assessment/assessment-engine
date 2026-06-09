@@ -1,6 +1,6 @@
 import dataclasses
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -250,11 +250,45 @@ class CollectRepository(BaseCollectRepository):
                 task_type=data.task_type,
                 params=data.params,
                 status="pending",
+                deadline_at=data.deadline_at,
             )
             .returning(Task.public_id)
         )
         result = await self.session.execute(stmt)
         return str(result.scalar_one())
+
+    async def expire_overdue_tasks(self, server_ids: list[int]) -> int:
+        if not server_ids:
+            return 0
+        # deadline 경과 pending(마감 있는 = install) -> failure(timeout). DB now() 로 서버 시각 단일 비교.
+        stmt = (
+            update(Task)
+            .where(
+                Task.target_server_id.in_(server_ids),
+                Task.status == "pending",
+                Task.deadline_at.is_not(None),
+                Task.deadline_at < func.now(),
+            )
+            .values(status="failure", failure_reason="timeout", completed_at=func.now())
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0
+
+    async def find_pending_deadline_servers(self, server_ids: list[int]) -> list[int]:
+        if not server_ids:
+            return []
+        # deadline 안 지난 활성 pending(마감 있는 = install) 보유 서버 — expire 직후라 만료분은 이미 failure.
+        stmt = (
+            select(Task.target_server_id)
+            .where(
+                Task.target_server_id.in_(server_ids),
+                Task.status == "pending",
+                Task.deadline_at.is_not(None),
+            )
+            .distinct()
+        )
+        result = await self.session.execute(stmt)
+        return [row[0] for row in result.all()]
 
     async def complete_task(self, data: TaskResultUpdate) -> bool:
         stmt = (

@@ -54,15 +54,15 @@ class CapacityTriggerBadge:
 
 @dataclass
 class CapacityMetric:
-    """언더 프로비저닝 카드 안 평가 지표 1개 — assess 입력 6축(CPU/메모리/스왑/Load/디스크/iowait).
+    """리소스 부족 카드 안 평가 지표 1개 — assess 입력 6축(CPU/메모리/스왑/Load/디스크/iowait) 전부 노출.
 
-    프로비저닝 판정에 쓰인 모든 측정값을 노출(active 만이 아님) — 카드 본문을 채우고 근거 전모 제공.
+    미관측 축(예: Windows load/iowait OS 부재)도 "N/A" 흐림 placeholder 로 노출(제외 안 함 — 평가 6축 전모 제공).
     active(임계 위반)·measured(관측 여부) 시각 분기는 mapper precompute (P3 — 템플릿 비교 금지).
 
-    label: "CPU p95" / "메모리 p95" / "스왑" / "Load" / "디스크" / "iowait"
-    value: 표시 문자열 ("94%" / "발생" / "2.3x" / "N/A")
+    label: "CPU p95" / "메모리 p95" / "스왑" / "Load/core" / "디스크" / "iowait"
+    value: 표시 문자열 ("94.0%" / "발생" / "2.3x" / "N/A")
     active: 임계 위반 (강조 — under_provisioned 기여 trigger)
-    measured: 관측됨 (값 존재). Windows 미측정(load/iowait 등)은 False -> "N/A" 흐림.
+    measured: 관측됨 (값 존재). False(미관측)는 흐린 색 placeholder.
     color: 값 표시 hex — mapper 결정 (active 빨강 / 정상 진함 / 미관측 흐림).
     """
 
@@ -95,6 +95,9 @@ class CapacityWarningItem:
     triggers: list[CapacityTriggerBadge] = field(default_factory=list)
     services: dict[str, int] = field(default_factory=dict)
     metrics: list[CapacityMetric] = field(default_factory=list)
+    # 분류 confidence 단서 — is_partial(축 미관측) + low_sample(표본 부족) 통합 라벨 (shared.build_confidence_notes,
+    # 원칙2). 보고서 행과 동일 채널 — 카드가 list 렌더(P3). 발화 trigger(빨강)와 시각 구분.
+    confidence_notes: list[str] = field(default_factory=list)
     # 상위 N 절단 정렬용 심각도 점수 (mapper precompute) — swap(paging) 최우선 > 위반 자원 수 >
     # 최고 활용률 max(CPU/메모리/디스크 p95·used). build_overview 가 DESC 정렬 후 hostname tie-break.
     severity_score: float = 0.0
@@ -218,12 +221,15 @@ class EnvironmentOverview:
 
 @dataclass
 class RealtimePeak:
-    """실시간 '현재 부하 상위' 1개 셀 — 자원별(CPU/메모리/디스크) 랭킹. pct/color 는 해당 자원 값."""
+    """실시간 '현재 부하 상위' 1개 셀 — 자원별 랭킹. value=정렬용 raw, display=표시 문자열(mapper precompute).
+
+    수치 색은 전 자원 검정 통일(템플릿 고정) — 색 분기 없음. 호스트명만 표준 링크 포맷(파란+밑줄).
+    """
 
     hostname: str
     public_id: str
-    pct: float
-    color: str  # _bar_color(pct) — 푸른 단색 (P3 precompute)
+    value: float  # 정렬용 raw 값 (%·IOPS·kbps 등 자원별)
+    display: str  # 표시 문자열 — "{pct}%" / "{iops} IOPS" / "{mbps} MB/s" (P3 precompute)
 
 
 @dataclass
@@ -256,6 +262,9 @@ class EnvironmentRealtime:
     last_collected_at: datetime | None = None
     peak_groups: list[RealtimePeakGroup] = field(default_factory=list)
     has_peaks: bool = False
+    # 환경 I/O 총량(신선 표본 합산) — 평균 섹션 원형 수치. rate 라 게이지 없는 원. None = 표본 전부 페어 부재.
+    io_net_mbps: float | None = None  # Σ(rx+tx) MB/s
+    io_disk_iops: float | None = None  # Σ(read+write) IOPS
 
 
 @dataclass

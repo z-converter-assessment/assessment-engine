@@ -167,8 +167,8 @@ metricsSelBtn?.addEventListener('click', () => {
   // 문구 단일 진실 — 선택 N대/서버 1대 보고서 발행 모달과 어조 통일.
   const _VIEW_TITLES = { customer: '환경 고객 보고서 발행', engineer: '환경 엔지니어 보고서 발행' };
   const _VIEW_DESCS = {
-    customer: '전체 등록 서버 대상 Right-sizing 규칙 기반 고객 보고서 발행. 새 탭으로 이동합니다.',
-    engineer: '전체 등록 서버 대상 Right-sizing 규칙 기반 엔지니어 보고서 발행. 새 탭으로 이동합니다.',
+    customer: '전체 등록 서버 대상 자원 적정성 규칙 기반 고객 보고서 발행. 새 탭으로 이동합니다.',
+    engineer: '전체 등록 서버 대상 자원 적정성 규칙 기반 엔지니어 보고서 발행. 새 탭으로 이동합니다.',
   };
   let currentView = 'customer';
 
@@ -176,6 +176,8 @@ metricsSelBtn?.addEventListener('click', () => {
     currentView = view;
     titleEl.textContent = _VIEW_TITLES[view];
     descEl.textContent = _VIEW_DESCS[view];
+    // 발행 버튼 활성 리셋 — 직전 발행 후 navigate + back(bfcache) 시 disabled=true 가 sticky 하게 남아 먹통 방지.
+    submitBtn.disabled = false;
     modal.style.display = 'flex';
   }
   function close() { modal.style.display = 'none'; }
@@ -236,6 +238,8 @@ metricsSelBtn?.addEventListener('click', () => {
     currentRows = rows;
     titleEl.textContent = _VIEW_TITLES[view];
     countEl.textContent = rows.length;
+    // 발행 버튼 활성 리셋 — 직전 발행 후 navigate + back(bfcache) 시 disabled=true 가 sticky 하게 남아 먹통 방지.
+    submitBtn.disabled = false;
     modal.style.display = 'flex';
   }
   function close() { modal.style.display = 'none'; }
@@ -379,8 +383,10 @@ async function submitInstall() {
     });
     pending.remove();
     if (!res.ok) {
-      const detail = await res.text();
-      ToastUtils.show(`Install 발행 실패 (HTTP ${res.status}): ${detail}`, 'err');
+      // detail(친화 메시지)만 노출 — JSON raw·HTTP 코드 숨김. 파싱 실패 시 fallback.
+      let msg;
+      try { msg = (await res.json()).detail; } catch (_) { msg = '요청을 처리하지 못했습니다.'; }
+      ToastUtils.show('Install 발행 실패: ' + (msg || '요청을 처리하지 못했습니다.'), 'err');
       return;
     }
     const data = await res.json();
