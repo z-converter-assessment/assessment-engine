@@ -19,6 +19,8 @@ const SERVER_ID = document.body.dataset.serverId;
 // 진단 리포트(metrics.html)는 다른 정책: PERF_IOPS_SUGGESTED_MAX = 200 (HDD 물리 한계).
 // 실데이터가 본 값을 초과하면 자동 확장 (soft ceiling).
 const STORAGE_IOPS_SUGGESTED_MAX = 5;
+// 처리량(kBps) 추이 분해력 — idle 환경 작은 처리량도 보이게 (IOPS 와 동일 분해력 우선 정책).
+const STORAGE_KBPS_SUGGESTED_MAX = 256;
 
 function kbps(kb) {
   if (kb == null) return '—';
@@ -65,6 +67,9 @@ async function loadIoSnapshot() {
 let physRange = '15m';
 let physChart = null;
 let physSeq   = 0;
+let kbpsRange = '15m';
+let kbpsChart = null;
+let kbpsSeq   = 0;
 
 const fmtLabel = ChartUtils.fmtLabel;
 
@@ -77,7 +82,11 @@ function makeIoDatasets(avgRows, maxRows, range, anchorEnd) {
   return { labels, datasets };
 }
 
-function ioChartOptions() {
+function ioChartOptions(opts) {
+  opts = opts || {};
+  const yTitle = opts.yTitle || 'IOPS';
+  const sMax   = opts.suggestedMax != null ? opts.suggestedMax : STORAGE_IOPS_SUGGESTED_MAX;
+  const fmt    = opts.fmt || iops;  // 값+단위 포함 (iops 또는 kbps 동적 단위)
   return {
     responsive: true, maintainAspectRatio: false,
     interaction: { mode:'index', intersect:false },
@@ -92,8 +101,8 @@ function ioChartOptions() {
             const maxDs  = ctx.chart.data.datasets[ctx.datasetIndex + 1];
             const maxVal = maxDs?.realData?.[ctx.dataIndex];
             if (maxVal != null)
-              return ` ${ctx.dataset.label}: 평균 ${avgVal.toFixed(1)} / 최대 ${maxVal.toFixed(1)} IOPS`;
-            return ` ${ctx.dataset.label}: ${avgVal.toFixed(1)} IOPS`;
+              return ` ${ctx.dataset.label}: 평균 ${fmt(avgVal)} / 최대 ${fmt(maxVal)}`;
+            return ` ${ctx.dataset.label}: ${fmt(avgVal)}`;
           },
         },
       },
@@ -101,15 +110,15 @@ function ioChartOptions() {
     scales: {
       x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
       y: {
-        title: { display:true, text:'IOPS', font:{size:11}, color:'#94a3b8' },
+        title: { display:true, text:yTitle, font:{size:11}, color:'#94a3b8' },
         ticks: { precision:0, font:{size:11}, color:'#64748b' },
-        grid: { color:'#f1f5f9' }, beginAtZero: true, suggestedMax: STORAGE_IOPS_SUGGESTED_MAX,
+        grid: { color:'#f1f5f9' }, beginAtZero: true, suggestedMax: sMax,
       },
     },
   };
 }
 
-function renderIoChartTo(canvasId, emptyId, legendId, avgRows, maxRows, range, chartRef, anchorEnd) {
+function renderIoChartTo(canvasId, emptyId, legendId, avgRows, maxRows, range, chartRef, anchorEnd, opts) {
   const canvas = document.getElementById(canvasId);
   const empty  = document.getElementById(emptyId);
   if (!avgRows.length) {
@@ -123,7 +132,7 @@ function renderIoChartTo(canvasId, emptyId, legendId, avgRows, maxRows, range, c
     chartRef.data.labels = labels; chartRef.data.datasets = datasets;
     chartRef.update('none'); return chartRef;
   }
-  const chart = new Chart(canvas, { type:'line', data:{labels, datasets}, options: ioChartOptions() });
+  const chart = new Chart(canvas, { type:'line', data:{labels, datasets}, options: ioChartOptions(opts) });
   buildAvgMaxLegend(legendId, chart, { withToggle: true });
   return chart;
 }
@@ -177,6 +186,53 @@ document.getElementById('fs-anchor').addEventListener('change', () => loadFsChar
 loadIoSnapshot();
 updatePhysBucketLabel();
 loadPhysChart();
+
+/* ── 디스크 I/O 처리량(kBps) 추이 — 위 IOPS 추이와 동일 포맷, Y축만 KB/s ── */
+function updateKbpsBucketLabel() {
+  document.getElementById('io-kbps-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[kbpsRange]] || '';
+}
+async function loadKbpsChart() {
+  const seq = ++kbpsSeq;
+  const capturedRange = kbpsRange;
+  const capturedAnchor = getAnchorEnd('kbps-anchor');
+  const bucket = AUTO_BUCKET[capturedRange];
+  const mkQ = (type, agg) => {
+    const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg, device_category: 'phys' });
+    if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
+    return p;
+  };
+  try {
+    const [readAvg, readMax, writeAvg, writeMax] = await Promise.all([
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_kbps',  'avg')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.read_kbps',  'max')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_kbps', 'avg')}`).then(r => r.json()),
+      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_kbps', 'max')}`).then(r => r.json()),
+    ]);
+    if (seq !== kbpsSeq) return;
+    const safe = arr => Array.isArray(arr) ? arr : [];
+    const kbpsAvgRows = [
+      ...safe(readAvg).map(r  => ({ ...r, dimension: `${r.dimension} Read` })),
+      ...safe(writeAvg).map(r => ({ ...r, dimension: `${r.dimension} Write` })),
+    ];
+    const kbpsMaxRows = [
+      ...safe(readMax).map(r  => ({ ...r, dimension: `${r.dimension} Read` })),
+      ...safe(writeMax).map(r => ({ ...r, dimension: `${r.dimension} Write` })),
+    ];
+    if (kbpsChart) { kbpsChart.destroy(); kbpsChart = null; }
+    kbpsChart = renderIoChartTo('io-kbps-canvas', 'io-kbps-chart-empty', 'io-kbps-legend', kbpsAvgRows, kbpsMaxRows, capturedRange, null, capturedAnchor, { yTitle: 'KB/s', suggestedMax: STORAGE_KBPS_SUGGESTED_MAX, fmt: kbps });
+  } catch(e) { console.error(e); }
+}
+
+bindToggle('io-kbps-range-btns', v => {
+  kbpsRange = v;
+  updateKbpsBucketLabel();
+  document.getElementById('io-kbps-range-print').textContent = ' — ' + RANGE_LABEL[v];
+  loadKbpsChart();
+});
+initAnchor('kbps-anchor');
+document.getElementById('kbps-anchor').addEventListener('change', () => loadKbpsChart());
+updateKbpsBucketLabel();
+loadKbpsChart();
 
 /* ── 파일시스템 사용량 추이 ── */
 let fsRange = '15m';

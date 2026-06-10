@@ -263,7 +263,8 @@ class EnvironmentRealtime:
     peak_groups: list[RealtimePeakGroup] = field(default_factory=list)
     has_peaks: bool = False
     # 환경 I/O 총량(신선 표본 합산) — 평균 섹션 원형 수치. rate 라 게이지 없는 원. None = 표본 전부 페어 부재.
-    io_net_mbps: float | None = None  # Σ(rx+tx) MB/s
+    io_net_value: str | None = None   # Σ(rx+tx) 처리량 값 — 동적 단위(kBps/MBps), mapper precompute
+    io_net_unit: str | None = None    # 처리량 단위 (kBps 또는 MBps)
     io_disk_iops: float | None = None  # Σ(read+write) IOPS
 
 

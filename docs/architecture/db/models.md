@@ -55,30 +55,6 @@ CREATE UNIQUE INDEX uq_tasks_pending_per_server_type
 
 `ON CONFLICT DO NOTHING(server_id, collected_at)` — broker 재전송·동시 워커 race 시 중복 INSERT 흡수.
 
-## rag_documents — RAG 자료 (ADR 0024)
-
-`src/assessment_engine/db/models/rag_document.py` ORM. 일반 테이블 (시계열 X, hypertable 아님).
-
-| 컬럼 | 타입 | 비고 |
-|------|------|------|
-| id | BIGSERIAL PK | 내부 식별자 |
-| source_type | VARCHAR(32) NOT NULL | `'domain_knowledge'` (본 phase) / `'operation_note'` · `'peer_snapshot'` (보류) |
-| source_id | VARCHAR(512) NOT NULL UNIQUE | file_path + chunk_index 합성 — UPSERT 키 |
-| content | TEXT NOT NULL | chunk 원문 (LLM prompt 인용 대상) |
-| metadata | JSONB | source 출처·tag·날짜 등 |
-| embedding | vector(1024) NOT NULL | mxbai-embed-large default. raw SQL 단독 read/write (ORM placeholder = Text) |
-| created_at / updated_at | TIMESTAMPTZ NOT NULL | |
-
-제약·인덱스:
-- `uq_rag_documents_source_id` UNIQUE — UPSERT 키 (ingest CLI ON CONFLICT 흡수)
-- `ix_rag_documents_source_type` — 자료 카탈로그 필터
-- `rag_documents_embedding_hnsw_idx` HNSW (embedding vector_cosine_ops) — recall 95%+ 안정
-
-특수성:
-- `embedding` 컬럼 = ORM 안 String placeholder. SQLAlchemy `vector` 타입 미지원 → raw SQL 단독 (PgVectorRetriever · ingest CLI 에서 `CAST(... AS vector)` 명시).
-- `metadata_json` Python 속성명 (실제 컬럼명 `metadata`) — SQLAlchemy DeclarativeBase 예약 속성 충돌 회피.
-- alembic `_include_object` filter — 본 테이블·embedding 컬럼·HNSW 인덱스 autogenerate 비교 제외 (`migrations/env.py`).
-
 ## 스키마 변경 운영
 
 dev·staging·prod 모든 환경 Alembic 단일 진실 (ADR 0005).

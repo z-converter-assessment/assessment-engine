@@ -32,6 +32,8 @@ MetricType = Literal[
     "swap.usage_percent",
     "disk.read_iops",
     "disk.write_iops",
+    "disk.read_kbps",
+    "disk.write_kbps",
     "fs.usage_percent",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
@@ -56,6 +58,8 @@ EnvironmentMetricType = Literal[
     "fs.usage_percent",
     "disk.read_iops",
     "disk.write_iops",
+    "disk.read_kbps",
+    "disk.write_kbps",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
     "net.rx_packets_per_sec",
@@ -125,6 +129,9 @@ _CPU_NUMERATOR: dict[str, str] = {
 _RATE_PER_DIM_DEFS: dict[str, tuple[str, str]] = {
     "disk.read_iops": ("device", "reads_completed"),
     "disk.write_iops": ("device", "writes_completed"),
+    # 처리량 — sectors(512B) -> KB. value 표현식이 rate SQL cnt 로 삽입(정적 상수, #C5 안전).
+    "disk.read_kbps": ("device", "sectors_read * 512.0 / 1024"),
+    "disk.write_kbps": ("device", "sectors_written * 512.0 / 1024"),
     "net.rx_bytes_per_sec": ("interface", "rx_bytes"),
     "net.tx_bytes_per_sec": ("interface", "tx_bytes"),
     "net.rx_packets_per_sec": ("interface", "rx_packets"),

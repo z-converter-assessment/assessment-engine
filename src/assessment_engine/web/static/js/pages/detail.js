@@ -18,7 +18,7 @@
   /* -------- 표시 임계값 — backend mappers._USAGE_*_PCT 단일 진실, body data-attribute 로 주입 (#E1 P4). */
   const USAGE_DANGER_PCT = parseFloat(document.body.dataset.usageDangerPct) || 90;
   const USAGE_WARN_PCT   = parseFloat(document.body.dataset.usageWarnPct)   || 75;
-  const COLOR_OK     = '#3b82f6';
+  const COLOR_OK     = ChartUtils.themeColor();
   const COLOR_WARN   = '#f59e0b';
   const COLOR_DANGER = '#ef4444';
 
@@ -26,7 +26,8 @@
   const fmtPct  = (v) => v != null ? v.toFixed(1) + '%' : '—';
   const fmtLoad = (v) => v != null ? v.toFixed(2) : '—';
   const fmtIops = (v) => v != null ? v.toFixed(1) + ' IOPS' : '—';
-  const fmtKbps = (v) => v != null ? v.toFixed(1) + ' kBps' : '—';
+  // 처리량 동적 단위 (kBps/MBps) — storage/network 페이지와 일관. 큰 값도 가독성 유지.
+  const fmtKbps = (v) => v == null ? '—' : (v >= 1024 ? (v / 1024).toFixed(1) + ' MBps' : v.toFixed(1) + ' kBps');
   // swap 은 used 가 작아도 GB 소숫점1 고정 — KB/MB 자동 단위(fmtKb)는 비현실적이라 단위 통일.
   const fmtGb   = (kb) => kb != null ? (kb / 1024 / 1024).toFixed(1) + ' GB' : '—';
   const fmtPps  = (v) => v != null ? v.toFixed(1) + ' pps' : '—';

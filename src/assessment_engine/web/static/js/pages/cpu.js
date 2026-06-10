@@ -99,7 +99,7 @@ async function loadUsageChart() {
         datasets: [{
           label: 'CPU 사용률',
           data,
-          borderColor: '#3b82f6',
+          borderColor: ChartUtils.themeColor(),
           borderWidth: 2,
           pointRadius: 1,
           pointHoverRadius: 3,
@@ -155,7 +155,7 @@ function renderCompChart(range, anchorEnd) {
   canvas.style.display = ''; empty.style.display = 'none';
 
   const COMP_LABELS = { 'user':'User', 'system':'System', 'iowait':'I/O Wait' };
-  const COMP_COLORS = { 'user':'#3b82f6', 'system':'#f59e0b', 'iowait':'#ef4444' };
+  const COMP_COLORS = { 'user':ChartUtils.themeColor(), 'system':'#f59e0b', 'iowait':'#ef4444' };
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
@@ -263,7 +263,7 @@ function renderLoadChart(range, anchorEnd) {
   canvas.style.display = ''; empty.style.display = 'none';
 
   const LOAD_LABELS = { 'load1':'Load 1m', 'load5':'Load 5m', 'load15':'Load 15m' };
-  const LOAD_COLORS = { 'load1':'#3b82f6', 'load5':'#22c55e', 'load15':'#f59e0b' };
+  const LOAD_COLORS = { 'load1':ChartUtils.themeColor(), 'load5':'#22c55e', 'load15':'#f59e0b' };
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));

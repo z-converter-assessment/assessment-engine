@@ -108,6 +108,22 @@ def is_data_volume(mount: str, major: int | None = None, fstype: str | None = No
     return True
 
 
+def disk_total_bytes(disks: list[dict], inventory_mounts: list[dict]) -> int:
+    """디스크 총 용량(bytes) — 물리 disks 우선, 비면(Windows 등 물리 미발행) data volume 파일시스템 합.
+
+    물리 디스크가 정석 용량이나 Windows agent 는 물리 disks 미발행(파일시스템만)이라 inventory mounts 로
+    fallback. 환경·개별·세부 목록 보고서 단일 산식 (Windows 포함 일관).
+    """
+    physical = sum((d.get("size_bytes") or 0) for d in disks if is_physical_disk(d.get("name", "")))
+    if physical > 0:
+        return physical
+    return sum(
+        (m.get("total_bytes") or 0)
+        for m in inventory_mounts
+        if is_data_volume(m.get("mount", ""), None, m.get("fstype"))
+    )
+
+
 # ── major/minor 기반 조인 헬퍼 ──
 # Linux 디바이스 식별 표준 (POSIX). 정규식 휴리스틱보다 정확.
 # inventory.disks[]의 (major, minor)와 inventory.mounts[]의 (major, minor) 비교로

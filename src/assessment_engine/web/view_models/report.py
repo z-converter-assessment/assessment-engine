@@ -126,15 +126,6 @@ class ReportRowItem:
     # 분류는 가진 데이터로 완결(원칙1), 신뢰도 저하 요인만 본 채널로 분리 노출(원칙2). 템플릿은 list 렌더만 (P3).
     confidence_notes: list[str] = field(default_factory=list)
 
-    # 임계값 분류 색 (P3 — 템플릿 산술·분기 금지. mapper에서 미리 계산)
-    # 모두 #b91c1c (danger) / #92400e (warn) / #94a3b8 (muted) / #1e293b (default) hex 중 하나.
-    saturation_color: str = "#94a3b8"
-    cpu_variance_color: str = "#1e293b"
-    mem_variance_color: str = "#94a3b8"
-    worst_mount_days_color: str = "#64748b"  # days_until_full 표시색 — 30일 이하 시 danger
-    reboot_count_color: str = "#94a3b8"  # 3회 이상 시 danger
-    agent_restart_count_color: str = "#1e293b"  # 3회 이상 시 danger, 그 외 기본색
-
     # 구동 서비스 (P-A 구성 계층) — 개별 서버 보고서(single_report)에서만 렌더. N대 표·환경 보고서는 미사용.
     # customer: workload_groups (카테고리별 제품명) / engineer: service_units(등록 unit) + listen_ports_detail.
     # mapper 가 service_classifier 로 precompute (P2), 템플릿은 순수 렌더 (P3).

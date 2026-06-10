@@ -5,7 +5,7 @@ from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 
 # ADR 0004 — 차트 TimeRange와 동일 7개. 짧은 윈도우(15m/1h/6h)는 USE Method 표본 부족으로
-# 의미 약하지만 차트와 토글 통합 UX 일관성을 위해 노출. 기본 "14d" — ADR 0003 WINDOW_DAYS와 동일.
+# 의미 약하지만 차트와 토글 통합 UX 일관성을 위해 노출. 기본 "7d" — ADR 0003 WINDOW_DAYS와 동일.
 DiagnosticTimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 
 # fraction day — SQL interval 표현은 fraction 지원 (e.g., interval '0.25 days' = 6h).

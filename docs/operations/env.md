@@ -206,7 +206,6 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 | `WORKER_*` (worker.result·task.install) | 의무 (task.install publish) | 의무 (worker.result consume) | 선택 |
 | `WEB_PORT`·`WEB_RELOAD`·`INSTALL_TIMEOUT_SEC`·`ZDM_*` | 의무 | 사용 안 함 | 사용 안 함 |
 | `LLM_*`·`OLLAMA_*` | 사용 안 함 | 사용 안 함 | 의무 |
-| `RAG_ENABLED`·`EMBEDDING_*`·`RAG_TOP_K`·`RAG_MAX_CONTEXT_CHARS` | 사용 안 함 | 사용 안 함 | 의무 (handler retrieve_context + ingest CLI 공통) |
 | `RABBITMQ_DIAGNOSTIC_QUEUE_*`·`RABBITMQ_ROUTING_KEY_DIAGNOSTIC` | 의무 (publish) | 사용 안 함 | 의무 (consume) |
 | `SQLALCHEMY_ECHO` | 의무 | 의무 | 의무 |
 
@@ -306,16 +305,9 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `RABBITMQ_ROUTING_KEY_DIAGNOSTIC` | `diagnostic.request` | config.py | engine 내부 진단 routing key (web·worker 공통) |
 | `RABBITMQ_DIAGNOSTIC_QUEUE_TTL_MS` | `86400000` | config.py | 진단 큐 메시지 TTL 24h |
 | `RABBITMQ_DIAGNOSTIC_QUEUE_MAX_LEN` | `100000` | config.py | 진단 큐 max length |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | config.py | ollama HTTP 호출 base URL. embedding + LLM 공통 ollama server. dev docker compose default = `http://ollama:11434` (compose 안 ollama 서비스) |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | config.py | ollama HTTP 호출 base URL (LLM narrative). dev docker compose default = `http://ollama:11434` (compose 안 ollama 서비스) |
 | `OLLAMA_MODEL` | `llama3.1:8b` | config.py | ollama LLM 모델명. 한국어 정합 우위 모델 (qwen2.5:14b 등) 으로 운영자 교체 가능 |
 | `LLM_TIMEOUT_SECONDS` | `60` | config.py | LLM 호출 cap |
-| `RAG_ENABLED` | `false` | config.py | RAG 활성 flag (ADR 0024). false 시 handler retrieve_context 단계 skip + payload['rag_context']=[] |
-| `EMBEDDING_PROVIDER` | `mock` | config.py | embedding client. `mock` (deterministic random) 또는 `ollama` (mxbai-embed-large) |
-| `EMBEDDING_MODEL` | `mxbai-embed-large` | config.py | ollama 안 embedding 모델명 (`ollama pull mxbai-embed-large` 의무) |
-| `EMBEDDING_DIMENSION` | `1024` | config.py | embedding vector 차원 (mxbai default). 모델 변경 시 alembic migration 1회 |
-| `EMBEDDING_TIMEOUT_SECONDS` | `30.0` | config.py | embedding HTTP 호출 cap |
-| `RAG_TOP_K` | `5` | config.py | RAG 검색 top-k (handler retrieve_context 단계) |
-| `RAG_MAX_CONTEXT_CHARS` | `4000` | config.py | LLM prompt 안 RAG context 절 max 길이 cap |
 
 ### `env.example` 에 없고 config.py default 만 정의된 키
 

@@ -20,6 +20,10 @@ from assessment_engine.db.models.server_net_io import ServerNetIo
 from assessment_engine.db.repositories.query._base import _BaseQueryMixin
 from assessment_engine.db.repositories.query.base_server import BaseServerQueryRepository
 
+# 수집 상태 조회 윈도우 — "이 기간 내 metric 無 = 수집 끊김(None 표시)" 기준 + C5 hypertable pruning 술어.
+# 수집 생존 신호용 운영 윈도우로 right-sizing 평가 윈도우(recommendation.WINDOW_DAYS)와 독립 — 연동 금지.
+_COLLECTION_STATUS_WINDOW = timedelta(days=7)
+
 
 class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
     async def resolve_server_id(self, public_id: str) -> int | None:
@@ -206,9 +210,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
         row = inv_result.scalar_one_or_none()
         if row is None:
             return None
-        # C5 — hypertable partition pruning 의무. 7일 윈도우면 운영 의미 충분
-        # (7일 이상 metric 없으면 None 표시 = offline 신호와 정합).
-        metric_window_start = datetime.now(UTC) - timedelta(days=7)
+        metric_window_start = datetime.now(UTC) - _COLLECTION_STATUS_WINDOW
         metric_result = await self.session.execute(
             select(func.max(ServerMetrics.collected_at)).where(
                 ServerMetrics.server_id == server_id,

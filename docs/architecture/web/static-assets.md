@@ -80,15 +80,17 @@ src/assessment_engine/web/static/js/
 - 15분 구간(1분 버킷)은 버킷당 데이터 1포인트라 max=avg → ghost 음영 0. `buildAvgMaxDatasets` 가 `bMs <= BUCKET_MS['1m']` 일 때 maxRows 를 비워 전 차트 일괄 자동 비활성.
 - 코어당 로드 차트(cpu 상세·성능탭)는 raw load 를 `load / cpu_cores` 로 정규화(클라 P4 표시 변환, 서버 1대 cpu_cores 고정이라 SQL `Σload/Σcores` 와 동치) — 1.0 = 코어당 포화. 스냅샷·차트·환경 추이 모두 코어당으로 일관.
 
-## 색 테마 — 주색 단일 진실 (예외 0)
-- 주색 = `#3b82f6` (blue-500). 환경 평균 활용률 도넛 게이지(`_UTIL_COLOR_GAUGE`, mappers/attention.py) · right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over, mappers/shared.py) · 서버목록 `.rec-over_provisioned` 배지가 동일 주색.
+## 색 테마 — 2색 변수 + 주색 단일 진실 (예외 0)
+- 테마색 2개 = `base.html :root` CSS 변수. `--color-title`(#3b82f6) = 제목 악센트(`.card-title` 좌측 바·`.btn-primary`·`.btn-select`·task hover)·게이지/막대/도넛 주색. `--color-table-head`(#a7b2c0) = 전 테이블 제목행 배경. 색 변경 시 본 변수만 수정.
+- JS 차트 시리즈 주색도 본 변수 추종 — `chart-utils.js` `ChartUtils.themeColor()`(getComputedStyle 로 `--color-title` 읽기, 실패 시 #3b82f6 fallback). 페이지 차트 JS(cpu/metrics/memory/environment-metrics/environment-trend/detail/network-topology)가 hex 직박 대신 본 helper 참조. SVG 게이지는 presentation attribute 가 var 미지원이라 inline `style="stroke: ..."` 로 적용.
+- 주색 `#3b82f6` 는 `--color-title` 이자 데이터 시각화 주색 — 환경 평균 활용률 도넛 게이지(`_UTIL_COLOR_GAUGE`, mappers/attention.py) · right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over, mappers/shared.py) · 서버목록 `.rec-over_provisioned` 배지가 동일 주색.
 - under_provisioned = `#ef4444` (red-500) 대비 유지. 과다프로비저닝(여유)과 활용률 게이지가 같은 파랑 — 같은 화면 두 의미지만 테마 단색화를 위한 의식적 통일.
 - 헤더(전 페이지 상단 바) = `#335E8C`(브랜드 청회색)와 주색 `#3b82f6` 의 중간 `#3770C1`. 넓은 영역이라 주색보다 어둡게 — 브랜드 바탕, 콘텐츠 주색과 톤 분리(헤더 nav 링크 `rgba(255,255,255,.85)`).
 - 버튼 3종(base.html): `.btn-primary`(주색 채움, 모달 발행 등) / `.btn-select`(흰 톤·표준 크기, 서버 선택 발행 버튼 — 활성=테마색 outline(파랑 글씨·테두리·600) 강조, 비활성=회색 글씨·테두리) / `.btn-action`(흰 톤·표준 크기·회색 글씨, 보조 액션 — 환경보고서 발행·실시간 메트릭·성능 추이·서버 발견·전체보기). selection 은 활성 시 파랑 outline 으로 보조 버튼(회색)과 구별되고 활성/비활성도 색으로 명확. 선택 N대 실시간 메트릭·성능 추이 버튼은 `.btn-select`(체크 시 활성) — public_id navigate(`?ids=`).
-- 상태(is_online) 표시 = 불(dot) 아닌 폰트색 (`.status-on` #16a34a / `.status-off` #94a3b8, 10px). 공간 절약·명확. 프로젝트 전반(목록·보고서 표·단일 보고서·상세 헤더) 통일.
+- 상태(is_online) 표시 = 폰트색 (`.status-on` #16a34a / `.status-off` #94a3b8, 10px) — 목록·보고서 표·상세 헤더. 개별 보고서 인벤토리 상태는 일반 폰트(보고서 본문 톤 통일).
 - 운영 신호 경고 = 호박색(amber) 도메인 (`.attn-active`·`.attention-cat-item[active]` #fef3c7/#92400e). 정상(0건)은 회색 outline, 발화는 호박 채움 — 경고 의미를 색으로. 테마 파랑(브랜드)과 영역 분리.
 - 네트워크 토폴로지 노드 색(`network-topology.js`·범례 동기화): subnet #64748b / Linux #3b82f6 / Windows #8b5cf6(파랑과 구분되는 보라) / 다중 서브넷(multi-homed) #f59e0b. 범례 표기는 "다중 서브넷".
-- 테이블 헤더 = 기본 연한(`thead` #f8fafc / `th` #64748b). 서버 상세·메트릭세부 페이지(`body.metric-head`)만 진한 회색 `#a7b2c0` + 흰 글씨 — 데이터 표 헤더 강조(폰트 크기·위계 동일, 색만). 목록·보고서는 기본 유지. `#a7b2c0` = 패널톤(#eaeff5)과 slate-500(#64748b)의 중간 — 흰 글씨 가독 하한.
+- 테이블 제목행 = 테마색2(`--color-table-head` #a7b2c0) + 흰 글씨, `base.html` `thead`/`th` 전 테이블 단일 진실 (폰트 크기·위계 표준 유지, 색만). `#a7b2c0` = 패널톤(#eaeff5)과 slate-500(#64748b)의 중간 — 흰 글씨 가독 하한.
 - 파일시스템 usage 게이지 막대 = 주색 `#3b82f6` 단색(`_MOUNT_BAR_COLOR`, mappers/server.py). 사용률 위험도는 게이지 색이 아니라 `badge_class`(`badge-warn`/`badge-danger`)로 — 게이지는 톤 통일, 경고는 배지로 분리.
 - 색 상수 단일 진실 = `view-models.md` "신호 임계값 단일 정의".
 

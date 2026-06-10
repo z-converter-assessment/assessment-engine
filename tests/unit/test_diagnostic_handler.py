@@ -88,7 +88,7 @@ def stub_components():
     return session_factory, query_repo, diag_repo, llm, redis
 
 
-def _build_handler(stub_components, retriever=None):
+def _build_handler(stub_components):
     session_factory, query_repo, diag_repo, llm, redis = stub_components
     return make_diagnostic_handler(
         session_factory=session_factory,
@@ -96,7 +96,6 @@ def _build_handler(stub_components, retriever=None):
         diagnostic_repo_factory=lambda s: diag_repo,
         llm_client=llm,
         redis=redis,
-        retriever=retriever,
     ), diag_repo
 
 
@@ -229,56 +228,3 @@ async def test_handler_invalid_message_silent_ack(stub_components):
     bad_msg.process = _process
     await handler(bad_msg)
     diag_repo.get_by_id.assert_not_called()
-
-
-# ─── RAG retrieve_context 분기 (ADR 0024) ──────────────────────────────
-
-
-@pytest.mark.asyncio
-@patch("assessment_engine.diagnostic.handler.safe_set_nx", new=AsyncMock(return_value=True))
-@patch("assessment_engine.diagnostic.handler.safe_set", new=AsyncMock(return_value=None))
-@patch("assessment_engine.diagnostic.handler.aggregator")
-async def test_handler_rag_disabled_no_retrieve(mock_agg, stub_components):
-    """retriever=None 시 RAG 검색 없이 narrative 합성 성공."""
-    mock_agg.extract_server = AsyncMock(return_value={})
-    handler, diag_repo = _build_handler(stub_components, retriever=None)
-    await handler(_make_message())
-    entry = diag_repo.mark_succeeded.await_args.args[1]["narratives"]["uuid-x"]
-    assert entry["status"] == "succeeded"
-
-
-@pytest.mark.asyncio
-@patch("assessment_engine.diagnostic.handler.safe_set_nx", new=AsyncMock(return_value=True))
-@patch("assessment_engine.diagnostic.handler.safe_set", new=AsyncMock(return_value=None))
-@patch("assessment_engine.diagnostic.handler.aggregator")
-async def test_handler_rag_enabled_calls_retrieve(mock_agg, stub_components):
-    """retriever 주입 시 retrieve 호출 — narrative 합성 성공 (RAG context 주입)."""
-    from assessment_engine.rag.retriever.base import RetrievedDoc
-
-    mock_agg.extract_server = AsyncMock(return_value={})
-    retriever = AsyncMock()
-    retriever.retrieve = AsyncMock(
-        return_value=[RetrievedDoc(content="cpu best practice", score=0.9, metadata={}, source_id="use.md#0")]
-    )
-    handler, diag_repo = _build_handler(stub_components, retriever=retriever)
-    await handler(_make_message())
-    retriever.retrieve.assert_awaited_once()
-    entry = diag_repo.mark_succeeded.await_args.args[1]["narratives"]["uuid-x"]
-    assert entry["status"] == "succeeded"
-
-
-@pytest.mark.asyncio
-@patch("assessment_engine.diagnostic.handler.safe_set_nx", new=AsyncMock(return_value=True))
-@patch("assessment_engine.diagnostic.handler.safe_set", new=AsyncMock(return_value=None))
-@patch("assessment_engine.diagnostic.handler.aggregator")
-async def test_handler_rag_retrieve_failure_silent_fallback(mock_agg, stub_components):
-    """RAG 검색 실패(fail-open) → narrative 합성 진행 (entry succeeded)."""
-    import httpx
-
-    mock_agg.extract_server = AsyncMock(return_value={})
-    retriever = AsyncMock()
-    retriever.retrieve = AsyncMock(side_effect=httpx.ConnectError("ollama down"))
-    handler, diag_repo = _build_handler(stub_components, retriever=retriever)
-    await handler(_make_message())
-    entry = diag_repo.mark_succeeded.await_args.args[1]["narratives"]["uuid-x"]
-    assert entry["status"] == "succeeded"

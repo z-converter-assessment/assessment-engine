@@ -11,6 +11,7 @@ from assessment_engine.db.dtos.outbound import (
     RebootEvent,
 )
 from assessment_engine.db.repositories.base_diagnostic_repository import (
+    DIAGNOSTIC_DEFAULT_TIME_RANGE,
     DIAGNOSTIC_RANGE_DAYS,
     DiagnosticTimeRange,
 )
@@ -53,6 +54,7 @@ from assessment_engine.web.services.mappers.metric import (
 )
 from assessment_engine.web.services.mappers.report import (
     build_report_summary_bullets,
+    build_resource_stats,
     build_role_distribution,
     build_selection_context,
     compute_report_avg_p95,
@@ -105,7 +107,7 @@ from assessment_engine.web.view_models.server import (
 )
 from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
 
-_DISK_METRIC_TYPES = frozenset({"disk.read_iops", "disk.write_iops"})
+_DISK_METRIC_TYPES = frozenset({"disk.read_iops", "disk.write_iops", "disk.read_kbps", "disk.write_kbps"})
 _NET_METRIC_TYPES = frozenset(
     {"net.rx_bytes_per_sec", "net.tx_bytes_per_sec", "net.rx_packets_per_sec", "net.tx_packets_per_sec"}
 )
@@ -114,6 +116,12 @@ _NET_METRIC_TYPES = frozenset(
 _ATTENTION_LIMIT_EACH = 5
 _GAP_MINUTES = 5
 _GAP_RECENT_HOURS = 24
+
+# 대시보드 현황 윈도우 — 활용률 게이지·자원 적정성 분류·부하 추이 표시 전용 (최근 현황 모니터링).
+# right-sizing 표준 평가 윈도우(recommendation.WINDOW_DAYS=7d — 보고서 기본·서버 목록 분류)와 의도 분리.
+# 버킷은 AUTO_BUCKET[DASHBOARD_TIME_RANGE] 자동 추종 (#F10 range->bucket 단일 매핑).
+DASHBOARD_TIME_RANGE: TimeRange = "6h"
+DASHBOARD_WINDOW_DAYS: float = DIAGNOSTIC_RANGE_DAYS[DASHBOARD_TIME_RANGE]
 
 
 def _filter_attention(attention: AttentionSignals, hostnames: set[str]) -> AttentionSignals:
@@ -210,13 +218,16 @@ class QueryService:
         keys = [web_settings.redis_key_online.format(dto.id) for dto in dtos]
         online_flags = await safe_mget(self.redis, keys)
 
-        # 7일 USE Method 분류 — 페이지 서버만 별도 SQL 1회. 보고서·right-sizing과 동일 윈도우.
+        # 7일 USE Method 분류 — 페이지 서버만 별도 SQL. 보고서·right-sizing과 동일 윈도우·입력(net 포함).
         page_server_ids = [dto.id for dto in dtos]
+        now = datetime.now(UTC)
         raws_period = await self.repo.report_aggregate(
             page_server_ids,
             period_days=recommendation.WINDOW_DAYS,
-            end=datetime.now(UTC),
+            end=now,
         )
+        # net baseline 주입 — build_resource_stats 의 idle/shutdown 판정이 net 사용 (도넛·보고서와 정합).
+        await self._inject_net_baseline(raws_period, page_server_ids, recommendation.WINDOW_DAYS, now)
         raws_by_id: dict[int, object] = {r.server_id: r for r in raws_period}
 
         # 페이지 서버별 마지막 task — 별도 SQL 1회 (DISTINCT ON). 빈 dict면 row 없는 서버.
@@ -338,7 +349,9 @@ class QueryService:
         # 검증은 라우터의 Query(MetricType) Literal Pydantic 단계에서 이미 처리됨.
         dtos = await self.repo.metric_chart(server_id, metric_type, dimension, time_range, bucket, agg, end)
         if metric_type == "fs.usage_percent":
-            dtos = [d for d in dtos if not is_data_volume(d.dimension)]
+            # 데이터 볼륨만 남김 (/ · C: 등) — 가상/부트(/boot · /sys · /proc) · major0 제외.
+            # net 의 is_virtual_interface 필터와 동일 의도(유효 차원만 표시). Windows 는 C: 가 유일 데이터 볼륨.
+            dtos = [d for d in dtos if is_data_volume(d.dimension)]
         if metric_type in _NET_METRIC_TYPES:
             dtos = [d for d in dtos if not is_virtual_interface(d.dimension)]
         if device_category is not None and metric_type in _DISK_METRIC_TYPES:
@@ -350,7 +363,7 @@ class QueryService:
         disk_threshold_pct: float = 85,
         gap_minutes: int = _GAP_MINUTES,
         gap_recent_hours: int = _GAP_RECENT_HOURS,
-        limit_each: int = _ATTENTION_LIMIT_EACH,
+        limit_each: int | None = _ATTENTION_LIMIT_EACH,
         days_until_full_threshold: int = 30,
         end: datetime | None = None,
     ) -> AttentionSignals:
@@ -366,7 +379,10 @@ class QueryService:
         # end=보고서 anchor(없으면 현재). os_eol 임박/경과 판정이 이 시각 기준 — 보고서 다른 지표(end_dt)와 정합.
         # gap/agent_unstable 은 보고서 미표시(C1)라 anchor 영향 없음.
         ref = end if end is not None else datetime.now(UTC)
-        gap_raws = await self.repo.metric_gap_warnings(gap_minutes, gap_recent_hours, limit_each)
+        # gap 은 보고서 미표시(C1) — limit_each=None(보고서 전수)이어도 SQL LIMIT 은 기본 cap 유지.
+        gap_raws = await self.repo.metric_gap_warnings(
+            gap_minutes, gap_recent_hours, limit_each if limit_each is not None else _ATTENTION_LIMIT_EACH
+        )
         server_ids = await self.repo.list_server_ids()
         raws_period = []
         restart_counts: dict[int, int] = {}
@@ -393,6 +409,7 @@ class QueryService:
         details = await self.repo.get_servers(server_ids)
         util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS, end=now)
         raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
+        await self._inject_net_baseline(raws_period, server_ids, recommendation.WINDOW_DAYS, now)
         online_by_id = await self._online_map(server_ids, details, now)
         return self._assemble_overview(details, util, raws_period, online_by_id)
 
@@ -426,25 +443,38 @@ class QueryService:
             return {d.id: bool(d.last_seen_at and d.last_seen_at > threshold) for d in details}
         return {sid: (flags[i] is not None) for i, sid in enumerate(server_ids)}
 
+    async def _inject_net_baseline(
+        self, raws, server_ids: list[int], period_days: float, end: datetime
+    ) -> None:
+        """raws(report_aggregate)에 net I/O baseline 주입 — get_report 와 동일한 분류 입력 정합.
+
+        `_assemble_overview`·under_hosts 분류가 `build_resource_stats`(net 반영)를 타려면 raw 에 net
+        baseline 이 채워져 있어야 한다. 미주입(net None) 시 idle/shutdown 판정이 구조적으로 빠져
+        get_report(세부행)와 분류가 어긋난다 (#E3 build_resource_stats 단일 진실).
+        """
+        net_io = await self.repo.report_net_io_baseline(server_ids, period_days, end)
+        for raw in raws:
+            net_tuple = net_io.get(raw.server_id)
+            if net_tuple is not None:
+                (
+                    raw.net_rx_kbps,
+                    raw.net_tx_kbps,
+                    raw.net_rx_kbps_p95,
+                    raw.net_rx_kbps_peak,
+                    raw.net_tx_kbps_p95,
+                    raw.net_tx_kbps_peak,
+                ) = net_tuple
+
     def _assemble_overview(self, details, util, raws_period, online_by_id: dict[int, bool]) -> EnvironmentOverview:
-        """report_aggregate raws -> USE Method 분류 도넛 + under_provisioned 상세, online_by_id -> online_count."""
+        """report_aggregate raws -> USE Method 분류 도넛 + under_provisioned 상세, online_by_id -> online_count.
+
+        분류는 `build_resource_stats`(net 반영) 단일 진실 — 호출자가 `_inject_net_baseline` 로 raw 에 net
+        baseline 을 주입한 뒤 호출한다 (get_report 세부행과 동일 입력 -> idle/shutdown 정합).
+        """
         risk_counts: dict[str, int] = {}
         under_hosts: list[CapacityWarningItem] = []
         for raw in raws_period:
-            rec = recommendation.classify(
-                recommendation.ResourceStats(
-                    cpu_p95_pct=raw.cpu_p95_pct,
-                    cpu_peak_pct=raw.cpu_peak_pct,
-                    cpu_load_15m_max=raw.load_15m_max,
-                    cpu_cores=raw.cpu_cores,
-                    mem_p95_pct=raw.mem_p95_pct,
-                    swap_used=raw.swap_used,
-                    disk_used_pct=raw.worst_mount_used_pct,
-                    iowait_p95_pct=raw.iowait_p95_pct,
-                    net_avg_kbps=None,
-                    os_family=raw.os_family,  # P2 — Windows swap 축 제외
-                )
-            )
+            rec = recommendation.classify(build_resource_stats(raw))
             seg = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
             risk_counts[seg] = risk_counts.get(seg, 0) + 1
             if rec == "under_provisioned":
@@ -452,7 +482,9 @@ class QueryService:
         online_count = sum(1 for d in details if online_by_id.get(d.id))
         return build_environment_overview(details, online_count, util, risk_counts, under_hosts)
 
-    def _assemble_attention(self, raws_period, gap_raws, restart_counts, now, limit_each) -> AttentionSignals:
+    def _assemble_attention(
+        self, raws_period, gap_raws, restart_counts, now, limit_each: int | None
+    ) -> AttentionSignals:
         """gap/os_eol/agent_unstable 3 카탈로그 조립 — raws_period(report_aggregate) 재사용.
 
         agent_unstable: 1h 윈도우 재시작 임계 초과(server_inventory_history agent_started_at DISTINCT-1).
@@ -460,7 +492,7 @@ class QueryService:
         os_eol_warnings: list[AttentionRow] = []
         for raw in raws_period:
             eol = to_os_eol_warning_item(raw, now)
-            if eol and len(os_eol_warnings) < limit_each:
+            if eol and (limit_each is None or len(os_eol_warnings) < limit_each):
                 os_eol_warnings.append(eol)
         agent_unstable: list[AttentionRow] = []
         raws_by_id = {r.server_id: r for r in raws_period}
@@ -468,7 +500,7 @@ class QueryService:
         for sid, count in restart_counts.items():
             if count >= threshold_n:
                 raw = raws_by_id.get(sid)
-                if raw and len(agent_unstable) < limit_each:
+                if raw and (limit_each is None or len(agent_unstable) < limit_each):
                     agent_unstable.append(to_agent_unstable_item(raw.public_id, raw.hostname, count))
         return AttentionSignals(
             gap_warnings=[to_gap_warning_item(r, now) for r in gap_raws],
@@ -540,13 +572,14 @@ class QueryService:
                 topology=build_network_topology([]),
             )
         details = await self.repo.get_servers(server_ids)
-        raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
-        util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS, end=now)
+        raws_period = await self.repo.report_aggregate(server_ids, period_days=DASHBOARD_WINDOW_DAYS, end=now)
+        await self._inject_net_baseline(raws_period, server_ids, DASHBOARD_WINDOW_DAYS, now)
+        util = await self.repo.environment_utilization(period_days=DASHBOARD_WINDOW_DAYS, end=now)
         online_by_id = await self._online_map(server_ids, details, now)
         gap_raws = await self.repo.metric_gap_warnings(_GAP_MINUTES, _GAP_RECENT_HOURS, _ATTENTION_LIMIT_EACH)
         restart_counts = await self.repo.agent_restart_counts_recent(server_ids, now - timedelta(hours=1))
-        # 환경 부하 추이 — WINDOW_DAYS 동일 기간 + AUTO_BUCKET 자동 분해력 (활용률과 일관).
-        trend_range = f"{recommendation.WINDOW_DAYS}d"
+        # 환경 부하 추이 — DASHBOARD_TIME_RANGE 동일 기간 + AUTO_BUCKET 자동 분해력 (활용률·분류와 일관).
+        trend_range = DASHBOARD_TIME_RANGE
         trend_bi, trend_td = _BUCKET_INFO[AUTO_BUCKET[trend_range]]
         trend_start = now - TIME_RANGE_TD[trend_range]
         cpu_trend = await self.repo.metric_trend("cpu.usage_percent", trend_start, now, trend_bi, trend_td)
@@ -561,7 +594,7 @@ class QueryService:
 
     async def get_environment_report(
         self,
-        time_range: DiagnosticTimeRange = "14d",
+        time_range: DiagnosticTimeRange = DIAGNOSTIC_DEFAULT_TIME_RANGE,
         anchor_at: datetime | None = None,
         view: ReportView = "customer",
     ) -> EnvironmentReportSummary:
@@ -575,7 +608,7 @@ class QueryService:
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
         end_dt = anchor_at if anchor_at is not None else datetime.now(UTC)
 
-        attention = await self.get_attention_signals(end=end_dt)
+        attention = await self.get_attention_signals(end=end_dt, limit_each=None)
 
         public_ids = await self.repo.list_all_server_public_ids()
         sid_map = await self.repo.resolve_server_ids(public_ids) if public_ids else {}
@@ -588,26 +621,14 @@ class QueryService:
             # overview(평균 활용률·분류 도넛)도 선택 time_range 윈도우+anchor 기준 — 선택 N대 보고서와 동일 경로
             # (환경 요약 용량 합은 인벤토리라 구간 무관). 고정 7일 get_environment_overview 의존 제거.
             raws_window = await self.repo.report_aggregate(server_ids, period_days, end_dt)
+            await self._inject_net_baseline(raws_window, server_ids, period_days, end_dt)
             online_by_id = await self._online_map(server_ids, details, end_dt)
             util = await self.repo.environment_utilization(
                 period_days=period_days, end=end_dt, server_ids=server_ids
             )
             overview = self._assemble_overview(details, util, raws_window, online_by_id)
             for raw in raws_window:
-                rec = recommendation.classify(
-                    recommendation.ResourceStats(
-                        cpu_p95_pct=raw.cpu_p95_pct,
-                        cpu_peak_pct=raw.cpu_peak_pct,
-                        cpu_load_15m_max=raw.load_15m_max,
-                        cpu_cores=raw.cpu_cores,
-                        mem_p95_pct=raw.mem_p95_pct,
-                        swap_used=raw.swap_used,
-                        disk_used_pct=raw.worst_mount_used_pct,
-                        iowait_p95_pct=raw.iowait_p95_pct,
-                        net_avg_kbps=None,
-                        os_family=raw.os_family,  # P2 — Windows swap 축 제외
-                    )
-                )
+                rec = recommendation.classify(build_resource_stats(raw))
                 if rec == "under_provisioned":
                     under_hosts.append(to_capacity_warning_item(raw))
         else:
@@ -649,7 +670,7 @@ class QueryService:
         self,
         server_public_ids: list[str],
         view: ReportView = "customer",
-        time_range: str = "14d",
+        time_range: str = DIAGNOSTIC_DEFAULT_TIME_RANGE,
         anchor_at: datetime | None = None,
     ) -> "EnvironmentReportSummary":
         """선택 N대 보고서 — 환경 보고서 양식(`get_environment_report`)의 N대 scope 변형 (대상만 선택 서버 한정).
@@ -672,6 +693,7 @@ class QueryService:
 
         base = await self.get_report(server_ids, period_days, end=end_dt, view=view)
         raws_window = await self.repo.report_aggregate(server_ids, period_days, end_dt)
+        await self._inject_net_baseline(raws_window, server_ids, period_days, end_dt)
         online_by_id = await self._online_map(server_ids, details, end_dt)
         # 평균 활용률 — capacity-weighted (자원 총량 가중). 전체 환경과 동일 SQL, server_ids 로 N대 한정.
         util = await self.repo.environment_utilization(period_days=period_days, end=end_dt, server_ids=server_ids)
@@ -680,26 +702,13 @@ class QueryService:
         # under_provisioned 호스트 trigger 뱃지 — raws_window 전체 (overview.under_provisioned_hosts 는 표시용 절단).
         under_hosts: list[CapacityWarningItem] = []
         for raw in raws_window:
-            rec = recommendation.classify(
-                recommendation.ResourceStats(
-                    cpu_p95_pct=raw.cpu_p95_pct,
-                    cpu_peak_pct=raw.cpu_peak_pct,
-                    cpu_load_15m_max=raw.load_15m_max,
-                    cpu_cores=raw.cpu_cores,
-                    mem_p95_pct=raw.mem_p95_pct,
-                    swap_used=raw.swap_used,
-                    disk_used_pct=raw.worst_mount_used_pct,
-                    iowait_p95_pct=raw.iowait_p95_pct,
-                    net_avg_kbps=None,
-                    os_family=raw.os_family,  # P2 — Windows swap 축 제외
-                )
-            )
+            rec = recommendation.classify(build_resource_stats(raw))
             if rec == "under_provisioned":
                 under_hosts.append(to_capacity_warning_item(raw))
 
         # 운영 신호 — 전체 attention 을 선택 N대 호스트로 필터 (os_eol_count 등 N대 정합).
         hostnames = {d.hostname for d in details}
-        attention = _filter_attention(await self.get_attention_signals(end=end_dt), hostnames)
+        attention = _filter_attention(await self.get_attention_signals(end=end_dt, limit_each=None), hostnames)
 
         # 환경 시계열 추이 — 선택 N대 한정 (metric_trend server_ids). 환경 보고서와 동일 버킷 정책.
         bi, bucket_td = _BUCKET_INFO[AUTO_BUCKET.get(time_range, "1h")]
@@ -726,7 +735,7 @@ class QueryService:
         self,
         server_public_id: str,
         view: ReportView = "customer",
-        time_range: str = "14d",
+        time_range: str = DIAGNOSTIC_DEFAULT_TIME_RANGE,
         anchor_at: datetime | None = None,
     ) -> "EnvironmentReportSummary":
         """단일 서버 보고서 — 환경 보고서 양식 (`get_environment_report`) 의 1대 scope 변형.
@@ -750,25 +759,12 @@ class QueryService:
 
         # 1대 한정 합성 — 환경 양식과 동일 흐름.
         base = await self.get_report([server_id], period_days, end=end_dt, view=view)
-        attention = await self.get_attention_signals(end=end_dt)
+        attention = await self.get_attention_signals(end=end_dt, limit_each=None)
 
         raws_window = await self.repo.report_aggregate([server_id], period_days, end_dt)
         under_hosts: list[CapacityWarningItem] = []
         for raw in raws_window:
-            rec = recommendation.classify(
-                recommendation.ResourceStats(
-                    cpu_p95_pct=raw.cpu_p95_pct,
-                    cpu_peak_pct=raw.cpu_peak_pct,
-                    cpu_load_15m_max=raw.load_15m_max,
-                    cpu_cores=raw.cpu_cores,
-                    mem_p95_pct=raw.mem_p95_pct,
-                    swap_used=raw.swap_used,
-                    disk_used_pct=raw.worst_mount_used_pct,
-                    iowait_p95_pct=raw.iowait_p95_pct,
-                    net_avg_kbps=None,
-                    os_family=raw.os_family,  # P2 — Windows swap 축 제외
-                )
-            )
+            rec = recommendation.classify(build_resource_stats(raw))
             if rec == "under_provisioned":
                 under_hosts.append(to_capacity_warning_item(raw))
 
@@ -830,7 +826,7 @@ class QueryService:
     async def get_report(
         self,
         server_ids: list[int],
-        period_days: float = 14,
+        period_days: float = recommendation.WINDOW_DAYS,
         end: datetime | None = None,
         view: ReportView = "customer",
     ) -> ReportSummary:
@@ -924,7 +920,7 @@ class QueryService:
         각 서버는 ServerDetail + ReportRowRaw -> mapper로 변환. 누락된 server_id는 silent skip.
 
         C5: `get_servers` + `report_aggregate` 단일 SQL 각 1회 — 입력 server_ids 순서 보존.
-        스키마·정제 원칙·사용처: docs/architecture/inventory-export.md.
+        스키마·정제 원칙·사용처: docs/architecture/web/export-schema.md.
         """
         end_dt = datetime.now(UTC)
         details = await self.repo.get_servers(server_ids)

@@ -92,16 +92,6 @@ def test_payload_with_period_window_days_inline():
     assert find_hallucinated_numbers(narrative, payload) == set()
 
 
-def test_rag_context_content_numbers_pass():
-    """payload['rag_context'] 안 content 본문 숫자도 collect_payload_numbers 가 추출."""
-    payload = {
-        "cpu_p95": 85.3,
-        "rag_context": [{"content": "USE Method 안 CPU 30% 이하 = over-provisioned", "score": 0.9}],
-    }
-    narrative = "CPU p95 85.3%, USE Method 임계값 30% 초과."
-    assert find_hallucinated_numbers(narrative, payload) == set()
-
-
 def test_multiple_hallucinations_all_reported():
     payload = {"cpu_p95": 85.3}
     narrative = "CPU 85.3%, 어제 70.1%, 작년 평균 65.5%."

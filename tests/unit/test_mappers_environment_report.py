@@ -108,7 +108,6 @@ def test_to_environment_report_precomputes_count_fields():
     assert result.top_risks_count == len(result.top_risks)
     assert result.attention_hosts_count == len(result.attention_hosts)
     assert result.capacity_imminent_count == len(result.capacity_imminent)
-    assert result.insufficient_hosts_count == len(result.insufficient_hosts)
     assert result.under_provisioned_hosts_count == len(result.under_provisioned_hosts)
 
 

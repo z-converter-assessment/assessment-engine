@@ -279,6 +279,7 @@ class ReportRowRaw:
     cpu_cores: int | None = None
     mem_total_kb: int | None = None
     disks: list[dict] | None = None  # 합계 산정 위해 size_bytes 합산
+    inventory_mounts: list[dict] | None = None  # Windows 물리 disks 미발행 시 디스크 총량 fallback
     boot_time: datetime | None = None  # uptime_days = now - boot_time
 
     # Mount worst — 별도 SQL(`report_mount_worst`)에서 채움. mapper는 그 결과를 zip
@@ -315,23 +316,20 @@ class ReportRowRaw:
 
 @dataclass
 class InventoryExportEntry:
-    """정제 inventory JSON 항목 — 자동화 도구(Terraform/OpenStack/Ansible/CSP SDK) 입력 표준.
+    """정제 inventory JSON 항목 — 사용처축 배치(v4). 자동화 도구(Terraform/OpenStack/Ansible/CSP SDK) 입력 표준.
 
-    스키마·정제 원칙·사용처: docs/architecture/inventory-export.md (v3).
-    벤더 중립 — recommended_size_class만 노출, 도구가 자기 도메인 instance type에 매핑.
+    스키마·정제 원칙·사용처: docs/architecture/web/export-schema.md (v4).
+    벤더 중립 — assessment.recommended_size_class만 노출, 도구가 자기 도메인 instance type에 매핑.
+    블록은 사용처 1:1 — spec(VM 생성) / usage(right-sizing 측정) / assessment(평가 결과) / services(보안그룹).
     """
 
-    composite_id: str
-    hostname: str
-    role: str
-    last_seen_at: datetime | None
-    services: list[dict]  # [{"category": str, "unit": str, "ports": [int]}]
+    identity: dict  # {"composite_id", "hostname", "role", "last_seen_at"}
     os: dict  # {"family", "version", "kernel"}
-    compute: dict  # {"vcpu_count", "memory_mb", "cpu_p95_pct", "cpu_peak_pct",
-    #  "mem_p95_pct", "mem_peak_pct", "load_15m_max", "swap_used",
-    #  "recommended_size_class"}
-    storage: dict  # {"boot_disk_gb", "additional_disks":[{"mount_point","size_gb","fstype"}]}
-    network: dict  # {"addresses": [{"scope","family","address"}]}
+    spec: dict  # {"vcpu_count", "memory_mb", "boot_disk_gb", "additional_disks":[...], "addresses":[...]}
+    usage: dict  # {"cpu":{"p95_pct","peak_pct"}, "mem":{...}, "load_15m_max", "swap_used",
+    #  "disk_io":{"iops_*","throughput_kbps_*"}, "network":{"rx_kbps_*","tx_kbps_*"}}
+    assessment: dict  # {"recommended_size_class":{"key","label"}}
+    services: list[dict]  # [{"category", "unit", "listeners":[{"port","proto","address"}]}]
 
 
 @dataclass

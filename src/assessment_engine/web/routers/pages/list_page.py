@@ -9,17 +9,18 @@ from urllib.parse import quote, unquote
 from fastapi import APIRouter, Depends, Query, Request
 
 from assessment_engine import recommendation
+from assessment_engine.db.repositories.base_diagnostic_repository import DIAGNOSTIC_RANGE_LABEL_KR
 from assessment_engine.db.repositories.query.types import AUTO_BUCKET
 from assessment_engine.web.deps import get_service
 from assessment_engine.web.services.mappers.shared import DISTRO_FILTER_OPTIONS, PROVISIONING_CLASS_OPTIONS
-from assessment_engine.web.services.query_service import QueryService
+from assessment_engine.web.services.query_service import DASHBOARD_TIME_RANGE, QueryService
 from assessment_engine.web.services.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.settings import web_settings
 from assessment_engine.web.templating import templates
 
 list_page_router = APIRouter()
 
-# 환경 부하 추이 집계 단위 라벨 — WINDOW_DAYS 윈도우의 AUTO_BUCKET 한국어 표기 (표제용).
+# 환경 부하 추이 집계 단위 라벨 — DASHBOARD_TIME_RANGE 윈도우의 AUTO_BUCKET 한국어 표기 (표제용).
 _BUCKET_KO = {
     "1m": "1분",
     "5m": "5분",
@@ -31,7 +32,9 @@ _BUCKET_KO = {
     "12h": "12시간",
     "1d": "1일",
 }
-_TREND_BUCKET_LABEL = _BUCKET_KO[AUTO_BUCKET[f"{recommendation.WINDOW_DAYS}d"]]
+_TREND_BUCKET_LABEL = _BUCKET_KO[AUTO_BUCKET[DASHBOARD_TIME_RANGE]]
+# 대시보드 윈도우 한국어 라벨 ("6시간") — window_meta 표제 "최근 {라벨}" 표기.
+_DASHBOARD_WINDOW_LABEL = DIAGNOSTIC_RANGE_LABEL_KR[DASHBOARD_TIME_RANGE]
 
 # 대시보드 목록 전체 로드 한도 — 기본 20행만 표시(client "더보기" clip)하되, 필터 적용 시 조건 맞는
 # 전부를 보여주려면 client 에 전체가 있어야 한다(필터는 client-side hide/show). E2 page 기반의 의식적 예외:
@@ -145,7 +148,8 @@ async def list_servers(
                 "topology": live.topology,
                 "trend": live.trend,
                 "generated_at": datetime.now(UTC),
-                "window_days": recommendation.WINDOW_DAYS,
+                "window_label": _DASHBOARD_WINDOW_LABEL,
+                "window_range": DASHBOARD_TIME_RANGE,
                 "trend_bucket_label": _TREND_BUCKET_LABEL,
                 "self_back": quote("/servers/", safe=""),
             },
@@ -192,7 +196,8 @@ async def list_servers(
             "trend": trend,
             # 페이지 렌더(새로고침) 시각 — 우측 상단 갱신 시각 표시용. UTC 전달, 템플릿 kst 필터로 표시(#F2).
             "generated_at": datetime.now(UTC),
-            "window_days": recommendation.WINDOW_DAYS,
+            "window_label": _DASHBOARD_WINDOW_LABEL,
+            "window_range": DASHBOARD_TIME_RANGE,
             "trend_bucket_label": _TREND_BUCKET_LABEL,
             "zdm_defaults": {
                 "ip": web_settings.zdm_default_ip,

@@ -170,19 +170,6 @@ class CapacityImminentItem:
 
 
 @dataclass
-class InsufficientHostItem:
-    """평가 표본 부족 호스트 — 엔지니어 보고서 별도 list (운영 액션: 에이전트 점검/메트릭 수집 확인).
-
-    reason: 표본 부족 원인 ("CPU 메트릭 없음" / "메모리 메트릭 없음" / "둘 다 없음").
-    """
-
-    public_id: str
-    hostname: str
-    os_display: str
-    reason: str
-
-
-@dataclass
 class EnvironmentReportSummary:
     """환경 단위 보고서 (전체 등록 서버 대상) — server scope ReportSummary 와 별도 양식.
 
@@ -211,6 +198,8 @@ class EnvironmentReportSummary:
     workload_unknown_count: int = 0
     # 고객 보고서 의사결정 보조 (mapper precompute, P3) — 모두 기존 분류·신호 단일 진실 재사용.
     evaluated_count: int = 0  # 평가 가능 호스트 수 (데이터 부족 제외) — 분포가 전체에 적용된다는 오해 방지
+    # 환경 현황 메트릭 카드 5축 (engineer) — {label, value, sub} plain dict (스냅샷 복원 불요, trend 동일).
+    env_metrics: list[dict] = field(default_factory=list)
     os_eol_count: int = 0  # OS 지원 종료 호스트 수 (attention.os_eol_warnings len)
     # 효율화 검토 대상(과다 프로비저닝·유휴·종료 권장) 호스트 수 + 점유 자원 합 — 전환 비용 논의 입력.
     efficiency_target_count: int = 0
@@ -238,10 +227,8 @@ class EnvironmentReportSummary:
     # 엔지니어 보고서 전용 — 디스크 capacity 임박 (30일 안 full 위험, linear projection).
     capacity_imminent: list[CapacityImminentItem] = field(default_factory=list)
     # 엔지니어 보고서 전용 — 평가 표본 부족 호스트 (에이전트 점검 대상).
-    insufficient_hosts: list[InsufficientHostItem] = field(default_factory=list)
     # 템플릿 P3 회피 precompute count — mapper 가 list len 단일 합성 (#E1 P3).
     top_risks_count: int = 0
     attention_hosts_count: int = 0
     capacity_imminent_count: int = 0
-    insufficient_hosts_count: int = 0
     under_provisioned_hosts_count: int = 0
