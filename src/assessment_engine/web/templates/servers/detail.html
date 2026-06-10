@@ -144,7 +144,7 @@
         <span class="svc-group cat-{{ svc.category }}">
           <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}{% if svc.display_name %}<span style="font-weight:400; opacity:0.75; margin-left:5px;">{{ svc.display_name }}</span>{% endif %}</span>
           {% for p in svc.ports %}
-          <span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:3px 8px; font-size:12px;"><span class="identifier" style="font-size:12px; color:#3b82f6;">{{ p.proto }}</span><strong>{{ p.port }}</strong></span>
+          <span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:3px 8px; font-size:12px;"><span class="identifier" style="font-size:12px; color:var(--color-title);">{{ p.proto }}</span><strong>{{ p.port }}</strong></span>
           {% endfor %}
         </span>
         {% endfor %}
@@ -161,7 +161,7 @@
     <div style="display:flex; flex-wrap:wrap; gap:8px;">
       {% for p in server.key_listen_ports %}
       <span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:4px 10px; font-size:12px;">
-        <span class="identifier" style="font-size:12px; color:#3b82f6;">{{ p.proto }}</span>
+        <span class="identifier" style="font-size:12px; color:var(--color-title);">{{ p.proto }}</span>
         <strong>{{ p.port }}</strong>
         {% if p.comm %}<span class="text-meta">{{ p.comm }}</span>{% endif %}
       </span>
@@ -235,7 +235,7 @@
         </div>
       </div>
       <div class="progress-bar" style="margin-bottom:14px;">
-        <div id="cpu-bar" class="progress-fill" style="width:0%; background:#3b82f6;"></div>
+        <div id="cpu-bar" class="progress-fill" style="width:0%; background:var(--color-title);"></div>
       </div>
     </div>
 
@@ -271,13 +271,13 @@
       </div>
       <!-- 정의서 메모리 구성(types._METRIC_EXPR): Used + Available = 100. Cached/Buffers/free 는 Available(회수 가능) 영역 세부. 4구획 합 = 100. -->
       <div class="progress-bar" style="margin-bottom:8px; display:flex; overflow:hidden; border-radius:99px;">
-        <div id="mem-used-bar"   style="height:6px; transition:width .3s; background:#3b82f6;"></div>
+        <div id="mem-used-bar"   style="height:6px; transition:width .3s; background:var(--color-title);"></div>
         <div id="mem-cached-bar" style="height:6px; transition:width .3s; background:#93c5fd;"></div>
         <div id="mem-buf-bar"    style="height:6px; transition:width .3s; background:#818cf8;"></div>
         <div id="mem-avail-bar"  style="height:6px; transition:width .3s; background:#cbd5e1;"></div>
       </div>
       <div style="display:flex; gap:14px; margin-bottom:14px;">
-        <span class="legend-item"><span class="legend-swatch" style="background:#3b82f6;"></span>Used</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--color-title);"></span>Used</span>
         <span class="legend-item"><span class="legend-swatch" style="background:#93c5fd;"></span>Cached</span>
         <span class="legend-item"><span class="legend-swatch" style="background:#818cf8;"></span>Buffers</span>
       </div>
@@ -414,7 +414,7 @@
           <input type="datetime-local" id="server-report-anchor" autocomplete="off" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
         </div>
       </div>
-      <button type="button" id="server-report-submit" class="btn" style="background:#3b82f6; color:#fff; padding:8px 16px; cursor:pointer; border:none;">발행</button>
+      <button type="button" id="server-report-submit" class="btn" style="background:var(--color-title); color:#fff; padding:8px 16px; cursor:pointer; border:none;">발행</button>
     </div>
   </div>
 </section>
@@ -456,7 +456,7 @@
         <input type="email" id="server-install-zdm-account" name="server-install-zdm-account-{{ asset_v }}" value="{{ zdm_defaults.user }}" autocomplete="off"
                style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px; box-sizing:border-box;">
       </div>
-      <button type="button" id="server-install-submit" class="btn" style="background:#3b82f6; color:#fff; padding:8px 16px; cursor:pointer; border:none; margin-top:12px;">발행</button>
+      <button type="button" id="server-install-submit" class="btn" style="background:var(--color-title); color:#fff; padding:8px 16px; cursor:pointer; border:none; margin-top:12px;">발행</button>
     </div>
   </div>
 
@@ -495,4 +495,4 @@
 <script src="/static/js/pages/detail.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} class="metric-head" data-server-id="{{ server.public_id }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}
+{% block body_attrs %} data-server-id="{{ server.public_id }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}

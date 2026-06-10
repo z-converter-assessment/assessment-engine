@@ -3,6 +3,7 @@
 import pytest
 
 from assessment_engine.web.services.device_filters import (
+    disk_total_bytes,
     find_parent_disk,
     is_data_volume,
     is_lvm_disk,
@@ -147,3 +148,32 @@ def test_find_parent_disk_skips_disk_without_major_minor():
         {"name": "sda", "major": 8, "minor": 0},
     ]
     assert find_parent_disk(8, 1, disks) == "sda"
+
+
+# ─── disk_total_bytes — 보고서·export 디스크 총량 단일 산식 ──────────────
+
+
+def test_disk_total_bytes_prefers_physical_disks():
+    """물리 disks 가 있으면 물리 합만 — 파티션·가상 disk·mounts 무시."""
+    disks = [
+        {"name": "sda", "size_bytes": 100 * 10**9},
+        {"name": "sda1", "size_bytes": 99 * 10**9},  # 파티션 — 제외
+        {"name": "loop0", "size_bytes": 5 * 10**9},  # 가상 — 제외
+    ]
+    mounts = [{"mount": "/", "total_bytes": 80 * 10**9, "fstype": "ext4"}]
+    assert disk_total_bytes(disks, mounts) == 100 * 10**9
+
+
+def test_disk_total_bytes_falls_back_to_data_volume_mounts():
+    """물리 합 0(Windows agent 물리 disks 미발행)이면 data volume mounts 합 — 가상 fs 제외."""
+    disks = [{"name": "loop0", "size_bytes": 5 * 10**9}]  # 가상만 — 물리 합 0
+    mounts = [
+        {"mount": "C:\\", "total_bytes": 120 * 10**9, "fstype": "NTFS"},
+        {"mount": "D:\\", "total_bytes": 200 * 10**9, "fstype": "NTFS"},
+        {"mount": "/proc", "total_bytes": 1, "fstype": None},  # 가상 prefix — 제외
+    ]
+    assert disk_total_bytes(disks, mounts) == 320 * 10**9
+
+
+def test_disk_total_bytes_zero_when_no_sources():
+    assert disk_total_bytes([], []) == 0

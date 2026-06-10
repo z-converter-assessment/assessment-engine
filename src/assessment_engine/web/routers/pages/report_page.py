@@ -17,6 +17,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from assessment_engine.db.repositories.base_diagnostic_repository import (
+    DIAGNOSTIC_DEFAULT_TIME_RANGE,
     DiagnosticTimeRange,
 )
 from assessment_engine.web.deps import get_diagnostic_service, get_service
@@ -73,7 +74,9 @@ async def report(
     request: Request,
     ids: str | None = Query(None, description="comma-separated public_id 목록 (live preview). job 모드 시 무시"),
     job: str | None = Query(None, description="발행된 보고서 job_id — 정적 스냅샷 렌더"),
-    time_range: DiagnosticTimeRange = Query("14d", description="윈도우 (live preview). job 모드 시 input_params 사용"),
+    time_range: DiagnosticTimeRange = Query(
+        DIAGNOSTIC_DEFAULT_TIME_RANGE, description="윈도우 (live preview). job 모드 시 input_params 사용"
+    ),
     view: Literal["customer", "engineer"] = Query("customer", description="고객용(A) / 엔지니어용(B) (live preview)"),
     back: str | None = Query(None, description="← 이전 link 의 referrer. 미명시 시 /servers/"),
     service: QueryService = Depends(get_service),
@@ -91,7 +94,7 @@ async def report(
     summary = await service.get_selection_report(public_ids, view=view, time_range=time_range)
     if summary is None:
         raise HTTPException(status_code=404, detail="no valid server ids")
-    attention = await service.get_attention_signals()
+    attention = await service.get_attention_signals(limit_each=None)
     attention_by_host = _attention_by_host({r.hostname for r in summary.base.rows}, attention)
     return templates.TemplateResponse(
         request=request,
@@ -127,7 +130,7 @@ async def _render_summary_snapshot(
     result = rec.result
     summary = env_report_from_dict(result["snapshot"])
     view = result.get("view", "engineer")
-    time_range = rec.input_params.get("time_range", "14d")
+    time_range = rec.input_params.get("time_range", DIAGNOSTIC_DEFAULT_TIME_RANGE)
     attention_by_host = result.get("aux", {}).get("attention_by_host", {})
     return templates.TemplateResponse(
         request=request,
@@ -152,7 +155,7 @@ async def _render_summary_snapshot(
 @report_page_router.post("/report/emit")
 async def report_emit(
     ids: str = Query(..., description="comma-separated public_id 목록 (1개=단일 양식, 2개+=N대 표)"),
-    time_range: DiagnosticTimeRange = Query("14d"),
+    time_range: DiagnosticTimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
     view: Literal["customer", "engineer"] = Query("customer"),
     anchor_at: str | None = Query(None, description="발행 기준 시각 (ISO 8601). 미명시 시 발행 시점"),
     service: QueryService = Depends(get_service),
@@ -169,7 +172,7 @@ async def report_emit(
     if not valid_pids:
         raise HTTPException(status_code=404, detail="no valid server ids")
     anchor = _normalize_anchor(datetime.fromisoformat(anchor_at) if anchor_at else None)
-    attention = await service.get_attention_signals()
+    attention = await service.get_attention_signals(limit_each=None)
 
     if len(valid_pids) == 1:
         single_job = await _emit_single_report(
@@ -249,7 +252,7 @@ async def single_server_report(
     request: Request,
     server_id: UUID,
     job: str | None = Query(None, description="발행된 보고서 job_id — 정적 스냅샷 렌더"),
-    time_range: DiagnosticTimeRange = Query("14d", description="윈도우 (live preview)"),
+    time_range: DiagnosticTimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE, description="윈도우 (live preview)"),
     view: Literal["customer", "engineer"] = Query("customer"),
     back: str | None = Query(None),
     service: QueryService = Depends(get_service),
@@ -268,7 +271,7 @@ async def single_server_report(
     if summary is None:
         raise HTTPException(status_code=404, detail="server not found")
     hostname = summary.base.rows[0].hostname if summary.base.rows else str(server_id)
-    attention = await service.get_attention_signals()
+    attention = await service.get_attention_signals(limit_each=None)
     return templates.TemplateResponse(
         request=request,
         name="servers/single_report.html",
@@ -317,6 +320,6 @@ async def _render_single_snapshot(
             "report_job_id": rec.id,
             "attention_for_host": result.get("aux", {}).get("attention_for_host", {}),
             "self_back": self_back,
-            "time_range": rec.input_params.get("time_range", "14d"),
+            "time_range": rec.input_params.get("time_range", DIAGNOSTIC_DEFAULT_TIME_RANGE),
         },
     )

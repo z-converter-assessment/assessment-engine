@@ -18,7 +18,7 @@
   /* -------- 표시 임계값 — backend mappers._USAGE_*_PCT 단일 진실, body data-attribute 로 주입 (#E1 P4). */
   const USAGE_DANGER_PCT = parseFloat(document.body.dataset.usageDangerPct) || 90;
   const USAGE_WARN_PCT   = parseFloat(document.body.dataset.usageWarnPct)   || 75;
-  const COLOR_OK     = '#3b82f6';
+  const COLOR_OK     = ChartUtils.themeColor();
   const COLOR_WARN   = '#f59e0b';
   const COLOR_DANGER = '#ef4444';
 

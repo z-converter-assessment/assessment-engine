@@ -37,12 +37,12 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
 ```json
 {
   "inventory_export": {
-    "schema_version":   "3",
+    "schema_version":   "4",
     "schema_doc":       "docs/architecture/web/export-schema.md",
     "engine_id":        "zconverter-assessment-portal",
     "exported_at":      "2026-05-12T03:45:00Z",
     "period_window": {
-      "days":  14,
+      "days":  7,
       "start": "2026-04-28T03:45:00Z",
       "end":   "2026-05-12T03:45:00Z"
     },
@@ -71,12 +71,58 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
 
 ### Server 항목
 
+v4 = 사용처축 배치. server 항목 블록이 사용처 1:1 — `spec`(생성) / `usage`(측정) / `assessment`(결과) / `services`(보안그룹). 자동화 도구가 자기 사용처 블록을 통째로 소비(필드 골라내기 0).
+
 ```json
 {
-  "composite_id":  "a1b2c3...",
-  "hostname":    "web-server-01",
-  "role":        "web",
-  "last_seen_at": "2026-05-12T03:42:15Z",
+  "identity": {
+    "composite_id": "a1b2c3...",
+    "hostname":     "web-server-01",
+    "role":         "web",
+    "last_seen_at": "2026-05-12T03:42:15Z"
+  },
+
+  "os": {
+    "family":  "ubuntu",
+    "version": "22.04",
+    "kernel":  "5.15.0-101-generic"
+  },
+
+  "spec": {
+    "vcpu_count":    4,
+    "memory_mb":     16384,
+    "boot_disk_gb":  30,
+    "additional_disks": [
+      {"mount_point": "/data", "size_gb": 100, "fstype": "xfs"}
+    ],
+    "addresses": [
+      {"scope": "internal", "family": "v4", "address": "10.0.1.15"},
+      {"scope": "external", "family": "v4", "address": "54.123.45.67"}
+    ]
+  },
+
+  "usage": {
+    "cpu":  {"p95_pct": 35.2, "peak_pct": 72.1},
+    "mem":  {"p95_pct": 68.4, "peak_pct": 81.0},
+    "load_15m_max": 2.3,
+    "swap_used":    false,
+    "disk_io": {
+      "iops_baseline":            120,
+      "iops_p95":                 280.0,
+      "iops_peak":                540.0,
+      "throughput_kbps_baseline": 850.0,
+      "throughput_kbps_p95":      2100.0,
+      "throughput_kbps_peak":     4800.0
+    },
+    "network": {
+      "rx_kbps_baseline": 1200.0, "rx_kbps_p95": 2800.0, "rx_kbps_peak": 5400.0,
+      "tx_kbps_baseline": 2400.0, "tx_kbps_p95": 4900.0, "tx_kbps_peak": 9200.0
+    }
+  },
+
+  "assessment": {
+    "recommended_size_class": {"key": "optimal", "label": "적정"}
+  },
 
   "services": [
     {
@@ -87,65 +133,20 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
         {"port": 443, "proto": "tcp", "address": "0.0.0.0"}
       ]
     }
-  ],
-
-  "os": {
-    "family":  "ubuntu",
-    "version": "22.04",
-    "kernel":  "5.15.0-101-generic"
-  },
-
-  "compute": {
-    "vcpu_count":              4,
-    "memory_mb":               16384,
-    "cpu_p95_pct":             35.2,
-    "cpu_peak_pct":            72.1,
-    "mem_p95_pct":             68.4,
-    "mem_peak_pct":            81.0,
-    "load_15m_max":            2.3,
-    "swap_used":               false,
-    "recommended_size_class": {
-      "key":   "optimal",
-      "label": "적정"
-    }
-  },
-
-  "storage": {
-    "boot_disk_gb":              30,
-    "iops_baseline":             120,
-    "iops_p95":                  280.0,
-    "iops_peak":                 540.0,
-    "throughput_kbps_baseline":  850.0,
-    "throughput_kbps_p95":       2100.0,
-    "throughput_kbps_peak":      4800.0,
-    "additional_disks": [
-      {"mount_point": "/data", "size_gb": 100, "fstype": "xfs"}
-    ]
-  },
-
-  "network": {
-    "addresses": [
-      {"scope": "internal", "family": "v4", "address": "10.0.1.15"},
-      {"scope": "external", "family": "v4", "address": "54.123.45.67"}
-    ],
-    "rx_kbps_baseline":  1200.0,
-    "rx_kbps_p95":       2800.0,
-    "rx_kbps_peak":      5400.0,
-    "tx_kbps_baseline":  2400.0,
-    "tx_kbps_p95":       4900.0,
-    "tx_kbps_peak":      9200.0
-  }
+  ]
 }
 ```
 
-### 사용처별 필드 매핑
+`usage` 측정값은 `stats` 부재(신규 서버)면 null, `assessment.recommended_size_class.key`는 `insufficient_data`. `spec.boot_disk_gb`는 물리 disks 우선·Windows 등 미발행 시 data volume 파일시스템 fallback (`device_filters.disk_total_bytes` 정책).
 
-| 사용처 | 필수 필드 |
-|--------|----------|
-| A. VM 생성 | `os.*`, `compute.{vcpu_count, memory_mb}`, `storage.{boot_disk_gb, additional_disks[*]}`, `network.addresses[]` |
-| B. Right-sizing | `compute.{cpu_p95_pct, cpu_peak_pct, mem_p95_pct, mem_peak_pct, load_15m_max, swap_used, recommended_size_class}`, `storage.iops_*`, `storage.throughput_kbps_*`, `network.rx_kbps_*`, `network.tx_kbps_*` (baseline·p95·peak) |
+### 사용처별 필드 매핑 — 블록 1:1
+
+| 사용처 | 블록 |
+|--------|------|
+| A. VM 생성 | `os.*` + `spec` 블록 전체 (`vcpu_count`, `memory_mb`, `boot_disk_gb`, `additional_disks[]`, `addresses[]`) |
+| B. Right-sizing | `usage` 블록 전체 (`cpu`/`mem` p95·peak, `load_15m_max`, `swap_used`, `disk_io.*`, `network.*`) + `assessment.recommended_size_class` |
 | C. Security Group | `services[].{category, listeners[].{port, proto, address}}` |
-| D. 보고서·감사 | envelope 전체 + `composite_id`, `hostname`, `role`, `last_seen_at` + `period_window`로 reproducibility |
+| D. 보고서·감사 | envelope 전체 + `identity.*` + `period_window`로 reproducibility |
 
 ## 4. 자동화 도구별 매핑 가이드
 
@@ -153,11 +154,11 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
 
 | export 필드 | Terraform | OpenStack Heat | Ansible |
 |------------|-----------|----------------|---------|
-| `compute.recommended_size_class` | `aws_instance.instance_type` 매핑 테이블 | `OS::Nova::Server.flavor` 매핑 | `when: size_class != 'idle'` 조건 분기 |
-| `storage.boot_disk_gb` | `root_block_device.volume_size` | `OS::Cinder::Volume`(boot) | — |
-| `storage.additional_disks[]` | `aws_ebs_volume` + attachment per item | `OS::Cinder::Volume` + attachment per item | — |
+| `assessment.recommended_size_class` | `aws_instance.instance_type` 매핑 테이블 | `OS::Nova::Server.flavor` 매핑 | `when: size_class != 'idle'` 조건 분기 |
+| `spec.boot_disk_gb` | `root_block_device.volume_size` | `OS::Cinder::Volume`(boot) | — |
+| `spec.additional_disks[]` | `aws_ebs_volume` + attachment per item | `OS::Cinder::Volume` + attachment per item | — |
 | `services[].listeners[]` | `aws_security_group.ingress` per port | `OS::Neutron::SecurityGroupRule` | apt/yum 패키지 설치 (`os.family`별) |
-| `network.addresses[]` | `aws_network_interface.private_ips` | `OS::Neutron::Port.fixed_ips` | dynamic inventory 그룹 |
+| `spec.addresses[]` | `aws_network_interface.private_ips` | `OS::Neutron::Port.fixed_ips` | dynamic inventory 그룹 |
 | `os.family`/`os.version` | AMI selection 보조 | image selection 보조 | inventory 그룹 분류 |
 
 CSP SDK 직접 호출(boto3·azure-mgmt·google-cloud-compute)은 자동화 도구 미사용 시 컨설턴트가 SDK 스크립트로 N대 일괄 생성 — JSON을 dict load 후 SDK 인자 직접 매핑.
@@ -170,7 +171,7 @@ CSP SDK 직접 호출(boto3·azure-mgmt·google-cloud-compute)은 자동화 도�
 - 트레이드오프: 도구마다 매핑 테이블 필요 — `m5.large` 같은 직접 값보다 한 단계 변환 비용
 
 ### 측정값 포함 — period 기준
-- 결정: envelope `period_window.days` 기본 7. 운영자가 endpoint에서 변경 가능 (1~30일). 보고서 라우터 기본 14는 별도 (F11 단일 진실 — `recommendation.WINDOW_DAYS`).
+- 결정: envelope `period_window.days` 기본 7. 운영자가 endpoint에서 변경 가능 (1~30일). 대시보드·보고서와 동일 윈도우 (`recommendation.WINDOW_DAYS`·`DIAGNOSTIC_DEFAULT_TIME_RANGE` 단일 진실, CLAUDE.md #F10).
 - 근거: AWS Compute Optimizer 기본 14일 / Azure Advisor 7일. 단기 export는 7일도 의미 있음
 - 데이터 부족: 윈도우 안 metrics가 적은 신규 서버 — p95·peak 필드가 null. 자동화 도구는 null이면 size_class 추천만 사용
 

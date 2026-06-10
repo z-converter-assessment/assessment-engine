@@ -66,7 +66,7 @@
     <dd>{% for ip in si.ip_external %}{{ ip.value }}{% if not ip.is_ipv4 %} (IPv6){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</dd>
     {% endif %}
     <dt>상태</dt>
-    <dd>{% if si.is_online %}<span class="status-on">온라인</span>{% else %}<span class="status-off">오프라인</span>{% endif %}</dd>
+    <dd>{% if si.is_online %}온라인{% else %}오프라인{% endif %}</dd>
     <dt>Boot Time</dt>
     <dd>{{ si.boot_time | kst }}</dd>
     {% if view == "engineer" %}
@@ -82,7 +82,7 @@
 {% if r %}
 {# ── 그룹 1: 구성 — 이 서버가 무엇이고 무엇을 구동하는가 ── #}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">구동 서비스 <span class="section-meta">이 서버가 무엇을 하는가</span></h2>
+  <h2 class="card-title">구동 서비스</h2>
   {% if view == "customer" %}
   {# customer — 카테고리별 제품명 묶음 (의미 중심, 포트 숨김) #}
   {% if r.workload_groups %}
@@ -135,17 +135,17 @@
 
 {# ── 그룹 2: 사용률 — 핵심 지표 + 심화 분해(CPU·메모리) + 시계열 추이 ── #}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">평균 사용률 <span class="section-meta">{{ summary.time_range_label }} 윈도우</span></h2>
+  <h2 class="card-title">평균 사용률</h2>
   <div class="metric-grid metric-grid-2">
     <div class="metric-card">
       <div class="metric-label">CPU 평균</div>
       <div class="metric-value">{% if r.cpu_avg_pct is not none %}{{ "%.1f"|format(r.cpu_avg_pct) }}%{% else %}—{% endif %}</div>
-      <div class="metric-sub">p95 {% if r.cpu_p95_pct is not none %}{{ "%.1f"|format(r.cpu_p95_pct) }}%{% else %}—{% endif %} / peak {% if r.cpu_peak_pct is not none %}{{ "%.0f"|format(r.cpu_peak_pct) }}%{% else %}—{% endif %}</div>
+      <div class="metric-sub">p95 {% if r.cpu_p95_pct is not none %}{{ "%.1f"|format(r.cpu_p95_pct) }}%{% else %}—{% endif %} · peak {% if r.cpu_peak_pct is not none %}{{ "%.1f"|format(r.cpu_peak_pct) }}%{% else %}—{% endif %}</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">메모리 평균</div>
       <div class="metric-value">{% if r.mem_avg_pct is not none %}{{ "%.1f"|format(r.mem_avg_pct) }}%{% else %}—{% endif %}</div>
-      <div class="metric-sub">p95 {% if r.mem_p95_pct is not none %}{{ "%.1f"|format(r.mem_p95_pct) }}%{% else %}—{% endif %} / peak {% if r.mem_peak_pct is not none %}{{ "%.0f"|format(r.mem_peak_pct) }}%{% else %}—{% endif %}</div>
+      <div class="metric-sub">p95 {% if r.mem_p95_pct is not none %}{{ "%.1f"|format(r.mem_p95_pct) }}%{% else %}—{% endif %} · peak {% if r.mem_peak_pct is not none %}{{ "%.1f"|format(r.mem_peak_pct) }}%{% else %}—{% endif %}</div>
     </div>
   </div>
 </section>
@@ -153,13 +153,13 @@
 {% if view == "engineer" %}
 {# CPU 분류 — user/system/iowait (윈도우 평균, jiffies delta 기반). 평균 사용률 심화. 발화 가능 — 빈 데이터도 제목 노출(E9). #}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">CPU 분류 <span class="section-meta">{{ summary.time_range_label }} 윈도우 평균 · user/system/iowait</span></h2>
+  <h2 class="card-title">CPU 분류</h2>
   {% if summary.cpu_breakdown %}
   {% set cb = summary.cpu_breakdown %}
   <div class="metric-grid metric-grid-3">
-    <div class="metric-card"><div class="metric-label">User <span class="metric-sub">앱 부하</span></div><div class="metric-value">{% if cb.user_pct is not none %}{{ "%.1f"|format(cb.user_pct) }}%{% else %}—{% endif %}</div></div>
-    <div class="metric-card"><div class="metric-label">System <span class="metric-sub">커널</span></div><div class="metric-value">{% if cb.system_pct is not none %}{{ "%.1f"|format(cb.system_pct) }}%{% else %}—{% endif %}</div></div>
-    <div class="metric-card"><div class="metric-label">I/O Wait <span class="metric-sub">디스크 대기</span></div><div class="metric-value">{% if cb.iowait_pct is not none %}{{ "%.1f"|format(cb.iowait_pct) }}%{% else %}—{% endif %}</div></div>
+    <div class="metric-card"><div class="metric-label">User</div><div class="metric-value">{% if cb.user_pct is not none %}{{ "%.1f"|format(cb.user_pct) }}%{% else %}—{% endif %}</div></div>
+    <div class="metric-card"><div class="metric-label">System</div><div class="metric-value">{% if cb.system_pct is not none %}{{ "%.1f"|format(cb.system_pct) }}%{% else %}—{% endif %}</div></div>
+    <div class="metric-card"><div class="metric-label">I/O Wait</div><div class="metric-value">{% if cb.iowait_pct is not none %}{{ "%.1f"|format(cb.iowait_pct) }}%{% else %}—{% endif %}</div></div>
   </div>
   {% else %}
   {{ empty_state("CPU 분류 표본이 아직 없습니다.") }}
@@ -168,7 +168,7 @@
 
 {# 메모리 구성 — used/available/cached/buffers (윈도우 평균, 전체 메모리 대비). 평균 사용률 심화. 발화 가능 — 빈 데이터도 제목 노출(E9). #}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">메모리 구성 <span class="section-meta">{{ summary.time_range_label }} 윈도우 평균 · 전체 메모리 대비</span></h2>
+  <h2 class="card-title">메모리 구성</h2>
   {% if summary.memory_breakdown %}
   {% set mb = summary.memory_breakdown %}
   <div class="metric-grid metric-grid-4">
@@ -184,7 +184,7 @@
 
 {# 부하 추이 — 1대 시계열. CPU/메모리/디스크 평균 버킷. 발화 가능 — 빈 데이터도 제목 노출(E9). 상세는 참고자료. #}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">부하 추이 <span class="section-meta">{{ summary.time_range_label }} 윈도우 · CPU·메모리·디스크 평균</span></h2>
+  <h2 class="card-title">부하 추이</h2>
   {% if summary.trend %}
   <div style="height:280px;"><canvas id="env-trend-chart" data-trend='{{ summary.trend | tojson }}' data-range="{{ summary.time_range }}"></canvas></div>
   <p class="chart-desc" style="margin:10px 0 0;">{{ summary.time_range_label }} 구간 · 수집 이력이 있는 범위만 표시. 상세 정의는 참고자료.</p>
@@ -195,7 +195,7 @@
 
 {# ── 그룹 3: USE 신호 — Saturation 축 + 변동성/IO/네트워크 보조 지표 ── #}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">Saturation 신호 <span class="section-meta">USE Method · 부하·대기·압박 축</span></h2>
+  <h2 class="card-title">Saturation 신호 <span class="section-meta">포화</span></h2>
   <div class="metric-grid metric-grid-3">
     <div class="metric-card">
       <div class="metric-label">Load 15m</div>
@@ -216,37 +216,33 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">변동성 / 디스크 / 네트워크 <span class="section-meta">{{ summary.time_range_label }} 윈도우</span></h2>
+  <h2 class="card-title">디스크 I/O</h2>
   <div class="metric-grid metric-grid-2">
-    <div class="metric-card">
-      <div class="metric-label">CPU 변동성 (peak / p95)</div>
-      <div class="metric-value">{% if r.cpu_variance_ratio is not none %}{{ "%.2f"|format(r.cpu_variance_ratio) }}{% else %}—{% endif %}</div>
-      <div class="metric-sub">1.5 이상 burst 큼</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">MEM 변동성 (peak / p95)</div>
-      <div class="metric-value">{% if r.mem_variance_ratio is not none %}{{ "%.2f"|format(r.mem_variance_ratio) }}{% else %}—{% endif %}</div>
-      <div class="metric-sub">1.5 이상 burst 큼</div>
-    </div>
     <div class="metric-card">
       <div class="metric-label">디스크 IOPS (avg)</div>
       <div class="metric-value">{% if r.disk_iops_baseline is not none %}{{ r.disk_iops_baseline }}{% else %}—{% endif %}</div>
-      <div class="metric-sub">p95 {% if r.disk_iops_p95 is not none %}{{ "%.0f"|format(r.disk_iops_p95) }}{% else %}—{% endif %} / peak {% if r.disk_iops_peak is not none %}{{ "%.0f"|format(r.disk_iops_peak) }}{% else %}—{% endif %}</div>
+      <div class="metric-sub">p95 {% if r.disk_iops_p95 is not none %}{{ "%.0f"|format(r.disk_iops_p95) }}{% else %}—{% endif %} · peak {% if r.disk_iops_peak is not none %}{{ "%.0f"|format(r.disk_iops_peak) }}{% else %}—{% endif %}</div>
     </div>
     <div class="metric-card">
-      <div class="metric-label">디스크 처리량 (avg kB/s)</div>
+      <div class="metric-label">디스크 처리량 (avg kBps)</div>
       <div class="metric-value">{% if r.disk_throughput_kbps is not none %}{{ "%.0f"|format(r.disk_throughput_kbps) }}{% else %}—{% endif %}</div>
-      <div class="metric-sub">p95 {% if r.disk_throughput_kbps_p95 is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_p95) }}{% else %}—{% endif %} / peak {% if r.disk_throughput_kbps_peak is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_peak) }}{% else %}—{% endif %}</div>
+      <div class="metric-sub">p95 {% if r.disk_throughput_kbps_p95 is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_p95) }}{% else %}—{% endif %} · peak {% if r.disk_throughput_kbps_peak is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_peak) }}{% else %}—{% endif %}</div>
     </div>
+  </div>
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">네트워크</h2>
+  <div class="metric-grid metric-grid-2">
     <div class="metric-card">
-      <div class="metric-label">네트워크 RX (avg kB/s)</div>
+      <div class="metric-label">네트워크 RX (avg kBps)</div>
       <div class="metric-value">{% if r.net_rx_kbps is not none %}{{ "%.0f"|format(r.net_rx_kbps) }}{% else %}—{% endif %}</div>
-      <div class="metric-sub">p95 {% if r.net_rx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_rx_kbps_p95) }}{% else %}—{% endif %} / peak {% if r.net_rx_kbps_peak is not none %}{{ "%.0f"|format(r.net_rx_kbps_peak) }}{% else %}—{% endif %}</div>
+      <div class="metric-sub">p95 {% if r.net_rx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_rx_kbps_p95) }}{% else %}—{% endif %} · peak {% if r.net_rx_kbps_peak is not none %}{{ "%.0f"|format(r.net_rx_kbps_peak) }}{% else %}—{% endif %}</div>
     </div>
     <div class="metric-card">
-      <div class="metric-label">네트워크 TX (avg kB/s)</div>
+      <div class="metric-label">네트워크 TX (avg kBps)</div>
       <div class="metric-value">{% if r.net_tx_kbps is not none %}{{ "%.0f"|format(r.net_tx_kbps) }}{% else %}—{% endif %}</div>
-      <div class="metric-sub">p95 {% if r.net_tx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_tx_kbps_p95) }}{% else %}—{% endif %} / peak {% if r.net_tx_kbps_peak is not none %}{{ "%.0f"|format(r.net_tx_kbps_peak) }}{% else %}—{% endif %}</div>
+      <div class="metric-sub">p95 {% if r.net_tx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_tx_kbps_p95) }}{% else %}—{% endif %} · peak {% if r.net_tx_kbps_peak is not none %}{{ "%.0f"|format(r.net_tx_kbps_peak) }}{% else %}—{% endif %}</div>
     </div>
   </div>
 </section>
@@ -264,7 +260,6 @@
       <div class="metric-label">Uptime</div>
       <div class="metric-value">{% if r.uptime_days is not none %}{{ r.uptime_days }}<span class="stat-unit"> 일</span>{% else %}—{% endif %}</div>
       <div class="metric-sub">재부팅 {{ r.reboot_count }}회 · 에이전트 재시작 {{ r.agent_restart_count }}회</div>
-      <div class="metric-sub">{{ summary.time_range_label }} 윈도우 기준</div>
     </div>
   </div>
 </section>
@@ -294,16 +289,25 @@
 {# ── 그룹 5: 종합 진단 — Right-sizing 분류 + AI narrative (모든 통계를 본 뒤 결론) ── #}
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">자원 적정성 평가</h2>
-  <div style="display:flex; align-items:center; gap:12px;">
-    <span class="badge {{ r.badge_class }}" style="padding:4px 12px;">{{ r.recommendation_label }}</span>
-    <span class="text-md text-strong">{{ r.recommendation_action }}</span>
-    {% for n in r.confidence_notes %}<span class="text-meta text-sm">({{ n }})</span>{% endfor %}
-  </div>
-  {% if view == "engineer" and r.diagnosis %}
-  <div class="text-sm text-label" style="margin-top:10px; padding-top:10px; border-top:1px solid #e2e8f0;">
-    <span class="text-meta">USE 종합 신호 (자동):</span> {{ r.diagnosis }}
-  </div>
-  {% endif %}
+  {# 환경·선택 보고서 호스트 권고 표와 동일 판독 프레임 (분류·진단·권고·신뢰도). 진단은 engineer 심화 어휘라 engineer 만. #}
+  <table>
+    <thead>
+      <tr>
+        <th>분류</th>
+        {% if view == "engineer" %}<th>진단</th>{% endif %}
+        <th>권고</th>
+        <th>신뢰도</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>{{ r.recommendation_label }}</td>
+        {% if view == "engineer" %}<td>{{ r.diagnosis or "—" }}</td>{% endif %}
+        <td class="text-strong">{{ r.recommendation_action or "—" }}</td>
+        <td>{% if r.confidence_notes %}{% for n in r.confidence_notes %}<span class="text-meta text-sm">{{ n }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
+      </tr>
+    </tbody>
+  </table>
 </section>
 
 {# AI 진단 — 보고서 흐름 안 inline (engineer view 만). 통계·분류를 본 뒤 LLM 종합. #}
@@ -330,11 +334,9 @@
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">OS 지원 종료 <span class="section-meta">EOL 임박·경과</span></h2>
   {% if attention_for_host.get('os_eol') %}
-  <div class="alert-list">
-    <div class="alert-warn">
-      <span class="rec-badge attn-active">OS EOL</span>
-      <span>{{ attention_for_host.os_eol }}</span>
-    </div>
+  <div class="alert-warn" style="display:inline-flex;">
+    <span class="rec-badge attn-active">OS EOL</span>
+    <span>{{ attention_for_host.os_eol }}</span>
   </div>
   {% else %}
   {{ empty_state("지원 종료(EOL) 임박·경과 아님.") }}

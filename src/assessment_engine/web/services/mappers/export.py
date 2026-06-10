@@ -10,19 +10,42 @@ from assessment_engine.db.dtos.outbound import (
     ReportRowRaw,
     ServerDetail,
 )
-from assessment_engine.web.services.device_filters import find_parent_disk
+from assessment_engine.web.services.device_filters import find_parent_disk, is_data_volume
+from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.server import infer_role
 from assessment_engine.web.services.service_classifier import classify, well_known_ports
+
+
+def _split_from_mounts(mounts: list[dict]) -> tuple[int | None, list[dict]]:
+    """물리 disks 부재(Windows 등 미발행) 시 data volume mounts(total_bytes)로 boot/additional 도출.
+
+    device_filters.disk_total_bytes 와 동일 fallback 정책 — export 디스크 정보 누락 0.
+    """
+    data = [m for m in (mounts or []) if is_data_volume(m.get("mount", ""), None, m.get("fstype"))]
+    if not data:
+        return (None, [])
+    sorted_m = sorted(data, key=lambda m: m.get("total_bytes") or 0, reverse=True)
+    boot_gb = (sorted_m[0]["total_bytes"] // 10**9) if sorted_m[0].get("total_bytes") else None
+    additional = [
+        {
+            "mount_point": m.get("mount"),
+            "size_gb": (m["total_bytes"] // 10**9) if m.get("total_bytes") else None,
+            "fstype": m.get("fstype"),
+        }
+        for m in sorted_m[1:]
+    ]
+    return (boot_gb, additional)
 
 
 def _split_disks(disks: list[dict], mounts: list[dict]) -> tuple[int | None, list[dict]]:
     """disks 중 가장 큰 1개를 boot, 나머지를 additional로 분리.
 
+    물리 disks 미발행(Windows 등)이면 data volume mounts 로 fallback(`_split_from_mounts`).
     additional의 mount_point는 find_parent_disk(mount.major/minor -> disk) 역방향 매칭.
     fstype은 동일 mount의 fstype 필드. iops_baseline은 mapper 호출자가 별도 주입.
     """
     if not disks:
-        return (None, [])
+        return _split_from_mounts(mounts)
     sorted_disks = sorted(disks, key=lambda d: d.get("size_bytes") or 0, reverse=True)
     boot = sorted_disks[0]
     boot_gb = (boot["size_bytes"] // 10**9) if boot.get("size_bytes") else None
@@ -107,82 +130,71 @@ def to_inventory_export_entry(
     detail: ServerDetail,
     stats: ReportRowRaw | None = None,
 ) -> InventoryExportEntry:
-    """ServerDetail(outbound) + 선택적 ReportRowRaw -> InventoryExportEntry v3.
+    """ServerDetail(outbound) + 선택적 ReportRowRaw -> InventoryExportEntry v4 (사용처축 배치).
 
-    `stats`가 None이면 right-sizing 필드 null로 발행 — 신규 서버 / 데이터 부족 시.
-
-    AI narrative 본질 catalog 본 시점 본질 catalog 본 시점 정공 — 자동화 도구 (Terraform · Ansible 등)
-    안 자연어 parse 불가, 구조화 데이터 (`recommended_size_class` 필드) 만 활용 catalog 정공.
+    블록 = 사용처 1:1 — spec(VM 생성) / usage(right-sizing 측정) / assessment(평가 결과) / services(보안그룹).
+    `stats`가 None이면 usage 측정값 null + assessment=insufficient_data — 신규 서버 / 데이터 부족 시.
+    자동화 도구는 자연어 narrative 미사용 — assessment.recommended_size_class 구조화 값만 활용.
     """
     boot_gb, additional = _split_disks(detail.disks, detail.mounts)
     if stats is not None:
-        rec = recommendation.classify(
-            recommendation.ResourceStats(
-                cpu_p95_pct=stats.cpu_p95_pct,
-                cpu_peak_pct=stats.cpu_peak_pct,
-                cpu_load_15m_max=stats.load_15m_max,
-                cpu_cores=stats.cpu_cores,
-                mem_p95_pct=stats.mem_p95_pct,
-                swap_used=stats.swap_used,
-                disk_used_pct=stats.worst_mount_used_pct,
-                iowait_p95_pct=stats.iowait_p95_pct,
-                net_avg_kbps=None,  # 현재 net 집계 미통합 — idle/shutdown 판정 skip
-                os_family=stats.os_family,  # P2 — Windows swap 축 제외
-            )
-        )
-        cpu_p95 = stats.cpu_p95_pct
-        cpu_peak = stats.cpu_peak_pct
-        mem_p95 = stats.mem_p95_pct
-        mem_peak = stats.mem_peak_pct
-        load_15m_max = stats.load_15m_max
-        swap_used = stats.swap_used
+        # 분류 입력은 build_resource_stats 단일 진실 — net baseline 포함, 보고서·대시보드와 동일 분류.
+        rec = recommendation.classify(build_resource_stats(stats))
     else:
         rec = "insufficient_data"
-        cpu_p95 = cpu_peak = mem_p95 = mem_peak = load_15m_max = None
-        swap_used = False
 
     return InventoryExportEntry(
-        composite_id=detail.composite_id,
-        hostname=detail.hostname,
-        role=infer_role(detail.services, detail.listen_ports),
-        last_seen_at=detail.last_seen_at,
-        services=_services_for_export(detail.services, detail.listen_ports),
+        identity={
+            "composite_id": detail.composite_id,
+            "hostname": detail.hostname,
+            "role": infer_role(detail.services, detail.listen_ports),
+            "last_seen_at": detail.last_seen_at,
+        },
         os={
             "family": detail.os_id,
             "version": detail.os_version,
             "kernel": detail.kernel_version,
         },
-        compute={
+        spec={
             "vcpu_count": detail.cpu_cores,
             "memory_mb": (detail.mem_total_kb // 1024) if detail.mem_total_kb else None,
-            "cpu_p95_pct": cpu_p95,
-            "cpu_peak_pct": cpu_peak,
-            "mem_p95_pct": mem_p95,
-            "mem_peak_pct": mem_peak,
-            "load_15m_max": load_15m_max,
-            "swap_used": swap_used,
+            "boot_disk_gb": boot_gb,
+            "additional_disks": additional,
+            "addresses": _network_addresses(detail.ip_internal, detail.ip_external),
+        },
+        usage={
+            "cpu": {
+                "p95_pct": stats.cpu_p95_pct if stats else None,
+                "peak_pct": stats.cpu_peak_pct if stats else None,
+            },
+            "mem": {
+                "p95_pct": stats.mem_p95_pct if stats else None,
+                "peak_pct": stats.mem_peak_pct if stats else None,
+            },
+            "load_15m_max": stats.load_15m_max if stats else None,
+            "swap_used": stats.swap_used if stats else False,
+            "disk_io": {
+                "iops_baseline": stats.disk_iops_baseline if stats else None,
+                "iops_p95": stats.disk_iops_p95 if stats else None,
+                "iops_peak": stats.disk_iops_peak if stats else None,
+                "throughput_kbps_baseline": stats.disk_throughput_kbps if stats else None,
+                "throughput_kbps_p95": stats.disk_throughput_kbps_p95 if stats else None,
+                "throughput_kbps_peak": stats.disk_throughput_kbps_peak if stats else None,
+            },
+            "network": {
+                "rx_kbps_baseline": stats.net_rx_kbps if stats else None,
+                "rx_kbps_p95": stats.net_rx_kbps_p95 if stats else None,
+                "rx_kbps_peak": stats.net_rx_kbps_peak if stats else None,
+                "tx_kbps_baseline": stats.net_tx_kbps if stats else None,
+                "tx_kbps_p95": stats.net_tx_kbps_p95 if stats else None,
+                "tx_kbps_peak": stats.net_tx_kbps_peak if stats else None,
+            },
+        },
+        assessment={
             "recommended_size_class": {
                 "key": rec,
                 "label": recommendation.LABEL_KO.get(rec, rec),
             },
         },
-        storage={
-            "boot_disk_gb": boot_gb,
-            "iops_baseline": stats.disk_iops_baseline if stats else None,
-            "iops_p95": stats.disk_iops_p95 if stats else None,
-            "iops_peak": stats.disk_iops_peak if stats else None,
-            "throughput_kbps_baseline": stats.disk_throughput_kbps if stats else None,
-            "throughput_kbps_p95": stats.disk_throughput_kbps_p95 if stats else None,
-            "throughput_kbps_peak": stats.disk_throughput_kbps_peak if stats else None,
-            "additional_disks": additional,
-        },
-        network={
-            "addresses": _network_addresses(detail.ip_internal, detail.ip_external),
-            "rx_kbps_baseline": stats.net_rx_kbps if stats else None,
-            "rx_kbps_p95": stats.net_rx_kbps_p95 if stats else None,
-            "rx_kbps_peak": stats.net_rx_kbps_peak if stats else None,
-            "tx_kbps_baseline": stats.net_tx_kbps if stats else None,
-            "tx_kbps_p95": stats.net_tx_kbps_p95 if stats else None,
-            "tx_kbps_peak": stats.net_tx_kbps_peak if stats else None,
-        },
+        services=_services_for_export(detail.services, detail.listen_ports),
     )

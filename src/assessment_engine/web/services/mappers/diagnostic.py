@@ -108,7 +108,9 @@ def to_view(rec: DiagnosticJobRecord | None) -> DiagnosticPanelView | None:
     if rec is None:
         return None
 
-    time_range = rec.input_params.get("time_range", "14d")
+    # time_range 는 발행 시 항상 기록되는 필수 키 (diagnostic_service input_params 계약 — worker 도 필수 소비).
+    # 표시 계층 fallback 으로 윈도우 값을 만들어내지 않는다 (F10 — 윈도우 명시 의무).
+    time_range = rec.input_params["time_range"]
     anchor_at_str = rec.input_params.get("anchor_at")
     anchor_at = datetime.fromisoformat(anchor_at_str) if anchor_at_str else None
 

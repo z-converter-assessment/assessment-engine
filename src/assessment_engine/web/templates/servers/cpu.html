@@ -149,4 +149,4 @@
 <script src="/static/js/pages/cpu.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} class="metric-head" data-server-id="{{ server.public_id }}" data-cpu-cores="{{ server.cpu_cores if server.cpu_cores is not none else 4 }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}
+{% block body_attrs %} data-server-id="{{ server.public_id }}" data-cpu-cores="{{ server.cpu_cores if server.cpu_cores is not none else 4 }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}

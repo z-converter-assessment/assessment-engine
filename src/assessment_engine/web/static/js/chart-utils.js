@@ -14,7 +14,15 @@
   const BUCKET_MS = { '1m':6e4, '5m':3e5, '15m':9e5, '30m':18e5, '1h':36e5, '3h':108e5, '6h':216e5, '12h':432e5, '1d':864e5 };
 
   // ── 색상 팔레트 ──
-  const COLORS = ['#3b82f6','#f59e0b','#22c55e','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
+  // 테마색1 (base.html :root --color-title) — JS 차트 시리즈가 CSS 변수를 추종.
+  // getComputedStyle 실패·빈 값 시 #3b82f6 fallback (현행과 동일 색 — 회귀 0 보장).
+  function themeColor() {
+    try {
+      var v = getComputedStyle(document.documentElement).getPropertyValue('--color-title').trim();
+      return v || '#3b82f6';
+    } catch (e) { return '#3b82f6'; }
+  }
+  const COLORS = [themeColor(),'#f59e0b','#22c55e','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
 
   // ── 시간 포매팅 (KST) ──
   function fmtKst(isoStr) {
@@ -213,7 +221,7 @@
   }
 
   root.ChartUtils = {
-    RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, RANGE_MS, BUCKET_MS, COLORS,
+    RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, RANGE_MS, BUCKET_MS, COLORS, themeColor,
     fmtKst, fmtLabel, fmtKbChart,
     getAnchorEnd, initAnchor,
     makeBucketGrid, joinToGrid,

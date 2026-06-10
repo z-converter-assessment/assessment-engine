@@ -42,7 +42,6 @@ from assessment_engine.web.view_models.environment_report import (
     CpuBreakdown,
     DistributionBar,
     EnvironmentReportSummary,
-    InsufficientHostItem,
     MemoryBreakdown,
     OsCount,
     ServerInventory,
@@ -91,6 +90,16 @@ def _report_row_from_dict(r: dict) -> ReportRowItem:
     data["workload_groups"] = [ReportWorkloadGroup(**g) for g in data.get("workload_groups") or []]
     data["service_units"] = [ReportServiceUnit(**u) for u in data.get("service_units") or []]
     data["listen_ports_detail"] = [ReportListenItem(**p) for p in data.get("listen_ports_detail") or []]
+    # 표시 색 필드 폐기(P3 precompute UI 제거) — 구 스냅샷 잔존 키 무시(ReportRowItem(**data) 호환).
+    for legacy in (
+        "saturation_color",
+        "cpu_variance_color",
+        "mem_variance_color",
+        "worst_mount_days_color",
+        "reboot_count_color",
+        "agent_restart_count_color",
+    ):
+        data.pop(legacy, None)
     return ReportRowItem(**data)
 
 
@@ -140,7 +149,9 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
     ]
     data["attention_hosts"] = [AttentionHostItem(**a) for a in data.get("attention_hosts") or []]
     data["capacity_imminent"] = [CapacityImminentItem(**c) for c in data.get("capacity_imminent") or []]
-    data["insufficient_hosts"] = [InsufficientHostItem(**i) for i in data.get("insufficient_hosts") or []]
+    # 데이터 부족 카드 폐기(호스트 권고 진단 통합) — 구 스냅샷 잔존 키는 무시(EnvironmentReportSummary(**data) 호환).
+    data.pop("insufficient_hosts", None)
+    data.pop("insufficient_hosts_count", None)
     data["anchor_at"] = _dt(data.get("anchor_at"))
     data["generated_at"] = _dt(data.get("generated_at"))
     si = data.get("server_inventory")

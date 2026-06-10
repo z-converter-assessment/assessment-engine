@@ -30,7 +30,6 @@ WINDOW_DAYS = 7
 # Idle 판정 — AWS Compute Optimizer
 IDLE_CPU_PEAK_PCT = 1
 IDLE_NET_KBPS = 1
-IDLE_DURATION_DAYS = 14
 
 # Shutdown 권장 — Azure Advisor
 SHUTDOWN_CPU_P95_PCT = 3

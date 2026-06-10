@@ -194,7 +194,7 @@ async function loadCpuChart(range, anchor) {
 }
 
 const CPUCLASS_META = {
-  user:   { label: 'User',     color: '#3b82f6' },
+  user:   { label: 'User',     color: ChartUtils.themeColor() },
   system: { label: 'System',   color: '#f59e0b' },
   iowait: { label: 'I/O Wait', color: '#ef4444' },
 };
@@ -259,7 +259,7 @@ async function loadMemChart(range, anchor) {
 }
 
 const MEMCOMP_META = {
-  used:      { label: 'Used',      color: '#3b82f6' },
+  used:      { label: 'Used',      color: ChartUtils.themeColor() },
   available: { label: 'Available', color: '#8b5cf6' },
   cached:    { label: 'Cached',    color: '#22c55e' },
   buffers:   { label: 'Buffers',   color: '#f59e0b' },

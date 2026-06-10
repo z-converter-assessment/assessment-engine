@@ -12,12 +12,14 @@ from datetime import datetime
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import MetricGapWarningRaw
+from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.server import workload_category_counter
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
     UTIL_GAUGE_COLOR,
     build_confidence_notes,
+    format_net_rate,
     resolve_os_eol,
 )
 from assessment_engine.web.view_models.attention import (
@@ -176,10 +178,8 @@ def build_environment_overview(
     total = len(details)
     total_vcpus = sum(d.cpu_cores or 0 for d in details)
     total_mem_kb = sum(d.mem_total_kb or 0 for d in details)
-    total_disk_bytes = 0
-    for d in details:
-        for disk in d.disks or []:
-            total_disk_bytes += disk.get("size_bytes") or 0
+    # 디스크 총량 — 물리 disks 우선, 비면(Windows) 파일시스템 mounts fallback (device_filters 단일 산식).
+    total_disk_bytes = sum(disk_total_bytes(d.disks or [], d.mounts or []) for d in details)
     # OS 구성 — os_family(windows/linux) 별 서버 수.
     os_counter: Counter[str] = Counter()
     for d in details:
@@ -325,12 +325,12 @@ def build_environment_realtime(
     def _throughput_str(kbps: float) -> str:
         return f"{kbps / 1024:.1f} MBps" if kbps >= 1024 else f"{kbps:.1f} kBps"
 
-    if net_kbps_total is None:
+    # 값·단위 산출 = shared.format_net_rate 단일 진실 (보고서 환경 현황과 동일 규칙) — 도넛은 값/단위 분리 표시.
+    _net_label = format_net_rate(net_kbps_total)
+    if _net_label is None:
         io_net_value, io_net_unit = None, None
-    elif net_kbps_total >= 1024:
-        io_net_value, io_net_unit = f"{net_kbps_total / 1024:.1f}", "MBps"
     else:
-        io_net_value, io_net_unit = f"{net_kbps_total:.1f}", "kBps"
+        io_net_value, io_net_unit = _net_label.rsplit(" ", 1)
 
     def _top_pct(key: str) -> list[RealtimePeak]:
         ranked = sorted((s for s in snapshots if s.get(key) is not None), key=lambda s: s[key], reverse=True)

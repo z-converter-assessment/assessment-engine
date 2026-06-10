@@ -1,5 +1,5 @@
 {% from "_shared.html" import empty_state, service_legend, detail_server_list %}
-{# 구성 계층 막대 (P-A) — 단일 색 분포 막대 (P-E), 게이지 테마색(#3b82f6) 통일. OS·워크로드 공용. customer·engineer 동일 호출. #}
+{# 구성 계층 막대 (P-A) — 단일 색 분포 막대 (P-E), 게이지 테마색(var(--color-title)) 통일. OS·워크로드 공용. customer·engineer 동일 호출. #}
 {% macro config_dist(title, bars, unknown_count, unknown_label, count_unit) %}
 <div>
   <div class="text-sm text-muted" style="margin-bottom:8px;">{{ title }}</div>
@@ -9,7 +9,7 @@
     <div style="display:flex; align-items:center; gap:10px;">
       <div class="text-sm text-strong" style="width:96px;">{{ b.label }}</div>
       <div class="bar-track" style="flex:1; background:#f1f5f9; border-radius:4px; height:16px; overflow:hidden;">
-        <div class="bar-fill" style="width:{{ b.pct }}%; background:#3b82f6; height:100%;"></div>
+        <div class="bar-fill" style="width:{{ b.pct }}%; background:var(--color-title); height:100%;"></div>
       </div>
       <div class="text-sm text-muted" style="width:44px; text-align:right;">{{ b.count }}{{ count_unit }}</div>
     </div>
@@ -26,7 +26,7 @@
    customer·engineer 공용 (환경·선택). self_back = 호스트 링크 back chain. #}
 {% macro service_config_card(catalog, view, self_back) %}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">서비스 구성 <span class="section-meta">분류(색) · 서비스명 (구동 서버 수){% if view == "engineer" %} · 구동 호스트{% endif %}</span></h2>
+  <h2 class="card-title">서비스 구성</h2>
   {% if catalog %}
   {# 범례 — 분류 뱃지 (색 매핑) #}
   <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid #e2e8f0;">
@@ -105,7 +105,7 @@
     </div>
   </div>
   <div style="margin-top:14px;">
-    <div class="text-sm text-muted" style="margin-bottom:6px;">평균 활용률{% if summary.overview.utilization %} ({{ summary.overview.util_sample_size }}대 표본 · {{ summary.time_range_label }}){% endif %}</div>
+    <div class="text-sm text-muted" style="margin-bottom:6px;">평균 활용률</div>
     {% if summary.overview.utilization %}
     <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;">
       {% for u in summary.overview.utilization %}
@@ -129,7 +129,6 @@
 <section class="card" style="margin-bottom:16px;">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #e2e8f0;">
     <h2 class="card-title">자원 적정성 평가</h2>
-    <span class="section-meta">평가 대상 {{ summary.evaluated_count }}대 (전체 {{ summary.overview.total }}대) · {{ summary.time_range_label }} 윈도우</span>
   </div>
 
   <h3>분류 분포</h3>
@@ -169,7 +168,7 @@
       {% for r in summary.top_risks %}
       <tr>
         <td><a href="/servers/{{ r.public_id }}?back={{ self_back }}" class="row-link">{{ r.hostname }}</a></td>
-        <td><span class="badge {{ r.badge_class }}">{{ r.recommendation_label }}</span></td>
+        <td>{{ r.recommendation_label }}</td>
         <td class="text-strong">{{ r.recommendation_action or "—" }}</td>
       </tr>
       {% endfor %}
@@ -181,7 +180,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">OS 지원 종료 <span class="section-meta">운영 신호 — 자원 평가(right-sizing)와 별개</span></h2>
+  <h2 class="card-title">OS 지원 종료</h2>
   {% if summary.os_eol_count %}
   <p class="text-strong" style="margin:0;">지원 종료(EOL) 임박·경과 {{ summary.os_eol_count }}대 — 보안 패치 중단으로 전환·업그레이드 선행 검토.</p>
   {% else %}
@@ -255,45 +254,14 @@
     </div>
   </div>
   <h3 style="margin-top:18px;">메트릭</h3>
-  <div style="margin-top:14px;">
-    <div class="text-sm text-muted" style="margin-bottom:6px;">평균 활용률{% if summary.overview.utilization %} ({{ summary.overview.util_sample_size }}대 표본 · {{ summary.time_range_label }}){% endif %}</div>
-    {% if summary.overview.utilization %}
-    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;">
-      {% for u in summary.overview.utilization %}
-      <div>
-        <div class="text-sm text-label" style="display:flex; justify-content:space-between;">
-          <span>{{ u.label }}</span>
-          <span class="metric-inline text-strong">{% if u.pct is not none %}{{ "%.1f" | format(u.pct) }}%{% else %}—{% endif %}</span>
-        </div>
-        <div class="bar-track" style="background:#f1f5f9; border-radius:4px; height:8px; overflow:hidden; margin-top:4px;">
-          <div class="bar-fill" style="width:{{ u.pct or 0 }}%; background:{{ u.bar_color }}; height:100%;"></div>
-        </div>
-      </div>
-      {% endfor %}
+  <div class="metric-grid metric-grid-5">
+    {% for m in summary.env_metrics %}
+    <div class="metric-card">
+      <div class="metric-label">{{ m.label }}</div>
+      <div class="metric-value">{{ m.value }}</div>
+      {% if m.sub %}<div class="metric-sub">{{ m.sub }}</div>{% endif %}
     </div>
-    {% else %}
-    {{ empty_state("활용률 표본이 아직 없습니다.") }}
-    {% endif %}
-  </div>
-  <div style="margin-top:14px;">
-    <div class="text-sm text-muted" style="margin-bottom:6px;">p95 활용률{% if summary.overview.utilization_p95 %} ({{ summary.overview.util_sample_size }}대 표본 · {{ summary.time_range_label }}){% endif %}</div>
-    {% if summary.overview.utilization_p95 %}
-    <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:10px;">
-      {% for u in summary.overview.utilization_p95 %}
-      <div>
-        <div class="text-sm text-label" style="display:flex; justify-content:space-between;">
-          <span>{{ u.label }}</span>
-          <span class="metric-inline text-strong">{% if u.pct is not none %}{{ "%.1f" | format(u.pct) }}%{% else %}—{% endif %}</span>
-        </div>
-        <div class="bar-track" style="background:#f1f5f9; border-radius:4px; height:8px; overflow:hidden; margin-top:4px;">
-          <div class="bar-fill" style="width:{{ u.pct or 0 }}%; background:{{ u.bar_color }}; height:100%;"></div>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-    {% else %}
-    {{ empty_state("p95 표본이 아직 없습니다.") }}
-    {% endif %}
+    {% endfor %}
   </div>
 </section>
 
@@ -323,7 +291,7 @@
       </div>
       <div class="text-xs text-muted" style="display:flex; gap:14px; flex-wrap:wrap; margin-top:10px;">
         <span><span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:#64748b; vertical-align:middle;"></span> 서브넷</span>
-        <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#3b82f6; vertical-align:middle;"></span> Linux</span>
+        <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--color-title); vertical-align:middle;"></span> Linux</span>
         <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#0ea5e9; vertical-align:middle;"></span> Windows</span>
         <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#f59e0b; vertical-align:middle;"></span> 멀티홈(라우팅 지점)</span>
       </div>
@@ -338,7 +306,6 @@
 <section class="card" style="margin-bottom:16px;">
   <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #e2e8f0;">
     <h2 class="card-title">자원 적정성 분류</h2>
-    <span class="section-meta">{{ summary.time_range_label }} 윈도우</span>
   </div>
 
   <h3>분포</h3>
@@ -364,7 +331,7 @@
   <div style="margin-bottom:20px;">{{ empty_state("효율화 검토 대상 없음 (과다·유휴·종료 권장 0대).") }}</div>
   {% endif %}
 
-  <h3>리소스 부족 상세 ({{ summary.under_provisioned_hosts_count }}건) — trigger 별 hit</h3>
+  <h3>리소스 부족 상세 ({{ summary.under_provisioned_hosts_count }}건)</h3>
   {% if summary.under_provisioned_hosts %}
   <ul class="attention-list" style="margin:0 0 20px; padding:0; list-style:none;">
     {% for c in summary.under_provisioned_hosts %}
@@ -380,6 +347,35 @@
   </ul>
   {% else %}
   <div style="margin-bottom:20px;">{{ empty_state("리소스 부족으로 분류된 호스트가 없습니다.") }}</div>
+  {% endif %}
+
+  {# 호스트 권고 — 전수 위험도 정렬 (engineer top_risks = 제한 없는 운영 검토 list). customer 조치 필요 호스트(high 만)의 상위집합. #}
+  <h3>호스트 권고 ({{ summary.top_risks_count }}대, 위험도 순)</h3>
+  {% if summary.top_risks %}
+  <table>
+    <thead>
+      <tr>
+        <th>호스트</th>
+        <th>분류</th>
+        <th>진단</th>
+        <th>권고</th>
+        <th>신뢰도</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in summary.top_risks %}
+      <tr>
+        <td><a href="/servers/{{ r.public_id }}?back={{ self_back }}" class="row-link">{{ r.hostname }}</a></td>
+        <td>{{ r.recommendation_label }}</td>
+        <td>{{ r.diagnosis or "—" }}</td>
+        <td class="text-strong">{{ r.recommendation_action or "—" }}</td>
+        <td>{% if r.confidence_notes %}{% for n in r.confidence_notes %}<span class="text-meta text-sm">{{ n }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  {{ empty_state("평가 대상 호스트가 없습니다.") }}
   {% endif %}
 
 </section>
@@ -409,7 +405,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">OS 분포</h2>
+  <h2 class="card-title">OS 버전 분포</h2>
   {% if summary.os_distribution %}
   <table>
     <thead>
@@ -429,28 +425,6 @@
   {% endif %}
 </section>
 
-<section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">평가 표본 부족 호스트 ({{ summary.insufficient_hosts_count }}건)</h2>
-  <p class="text-sm text-muted" style="margin:0 0 12px;">에이전트 신규 설치 또는 메트릭 수집 문제 — 평가 정확도 확보 위해 점검 필요.</p>
-  {% if summary.insufficient_hosts %}
-  <table>
-    <thead>
-      <tr><th>호스트</th><th>OS</th><th>원인</th></tr>
-    </thead>
-    <tbody>
-      {% for h in summary.insufficient_hosts %}
-      <tr>
-        <td><a href="/servers/{{ h.public_id }}?back={{ self_back }}" class="row-link">{{ h.hostname }}</a></td>
-        <td>{{ h.os_display }}</td>
-        <td class="text-muted">{{ h.reason }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  {{ empty_state("평가 표본이 부족한 호스트가 없습니다 — 모든 호스트가 평가 가능합니다.") }}
-  {% endif %}
-</section>
 
 {# 세부 서버 목록 — 참고자료 바로 위. 엔지니어 환경·선택 통일 (호스트 상세 대체). 개별 보고서 칼럼은 selection(show_report_link)만. #}
 {{ detail_server_list(summary.base.rows, "engineer", summary.time_range, self_back, child_jobs|default({}), attention_by_host|default({}), summary.overview.total, show_report_link|default(false)) }}

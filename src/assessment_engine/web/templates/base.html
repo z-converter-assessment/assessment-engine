@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}ZConverter Assessment{% endblock %}</title>
   <style>
+    /* 테마색 2개 (단일 진실) — 제목 악센트(card-title 등)·테이블 제목행 배경. 색 변경 시 본 변수만 수정. */
+    :root { --color-title: #3b82f6; --color-table-head: #a7b2c0; }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; color: #1a1a1a; background: #f1f5f9; }
     header { background: #3770C1; color: #fff; padding: 0 24px; height: 52px; display: flex; align-items: center; gap: 24px; }
@@ -24,20 +26,13 @@
     /* 식별자 (hostname / UUID / IP / path) — 정렬·식별 affordance 위 monospace. base a 스타일 그대로 상속. */
     code, .identifier { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
     table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
-    thead { background: #f8fafc; }
-    th { padding: 9px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid #e2e8f0; }
-    /* 서버상세·메트릭세부 페이지(body.metric-head): 테이블 헤더 회색 + 흰 글씨 (폰트 크기·체·위계는 동일, 색만).
-       패널색(#eaeff5)과 slate-500(#64748b)의 중간 톤. */
-    body.metric-head thead { background: #a7b2c0; }
-    body.metric-head th { color: #fff; border-bottom-color: #a7b2c0; }
+    /* 테이블 제목행 — 테마색2 배경 + 흰 글씨 (전 테이블 단일 진실). */
+    thead { background: var(--color-table-head); }
+    th { padding: 9px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #fff; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid var(--color-table-head); }
     td { padding: 11px 14px; border-top: 1px solid #f1f5f9; color: #334155; vertical-align: middle; font-size: 13px; }
     tr:hover td { background: #f8fafc; }
-    /* 서버 목록 — 칼럼 많아 기본 표보다 조밀하게: 셀 패딩 축소·폰트 통일·세로 가운데. */
+    /* 서버 목록 — 칼럼 많아 기본 표보다 조밀하게: 셀 패딩만 축소 (제목행 색·폰트는 표준 thead/th 상속). */
     .server-list-table th, .server-list-table td { padding: 7px 11px; }
-    /* 헤더 회색 + 흰 글씨 — 서버상세·메트릭세부(body.metric-head)와 동일 톤 (#E8 색 단일 진실).
-       폰트 크기·체·구성은 그대로, 색만 변경. */
-    .server-list-table thead { background: #a7b2c0; }
-    .server-list-table th { font-size: 11px; color: #fff; border-bottom-color: #a7b2c0; }
     .server-list-table td { vertical-align: middle; }
     /* 세부 서버 목록 — 다열 표라 조밀하게: 패딩만 축소(폰트는 td 13px·th 11px 표준 유지, 넘치면 가로 스크롤). server-list-table 와 동일 정책(폰트 아닌 패딩으로 밀도). */
     .detail-table th, .detail-table td { padding: 6px 9px; }
@@ -69,6 +64,7 @@
     .rec-over_provisioned  { background: #dbeafe; color: #1d4ed8; }
     .rec-optimal           { background: #dcfce7; color: #15803d; }
     .rec-idle, .rec-shutdown { background: #f1f5f9; color: #64748b; }
+    .rec-insufficient_data { background: #e2e8f0; color: #475569; }
     .rec-swap              { background: #b91c1c; color: #fef2f2; }
     /* Task status badge — list 행별 "최근 작업" column + detail timeline 공유. mapper _TASK_STATUS_DISPLAY 단일 진실. */
     .rec-success           { background: #dcfce7; color: #15803d; }
@@ -83,13 +79,13 @@
     /* 서버 상세 최근 작업 row — 클릭 시 task 상세 모달. 시각 affordance: hover 시 음영 강조 + 우측 ">" 화살표. */
     .task-timeline tr.task-row { transition: background .12s, box-shadow .12s; }
     .task-timeline tr.task-row:hover td { background: #dbeafe; }
-    .task-timeline tr.task-row:hover { box-shadow: inset 3px 0 0 #3b82f6; }
+    .task-timeline tr.task-row:hover { box-shadow: inset 3px 0 0 var(--color-title); }
     .task-timeline tr.task-row td:last-child { position: relative; padding-right: 24px; }
     .task-timeline tr.task-row td:last-child::after { content: "›"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #cbd5e1; font-size: 16px; transition: color .12s; }
-    .task-timeline tr.task-row:hover td:last-child::after { color: #3b82f6; }
+    .task-timeline tr.task-row:hover td:last-child::after { color: var(--color-title); }
     .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07); padding: 20px 24px; margin-bottom: 18px; }
     /* 카드 제목 미니멀 악센트 — 좌측 얇은 테마 막대만 (배경 0). 전 카드 통일. */
-    .card-title { border-left: 3px solid #3b82f6; padding-left: 7px; }
+    .card-title { border-left: 4px solid var(--color-title); padding-left: 7px; }
 
     /* Attention card 6 sub-section 표준 — list.html attention 전용. inline style 흩어짐 방지. */
     /* 카드 내부 서브섹션 구분 — 환경요약·운영신호 공통 위계 (h3 + 구분선). inline border-top 재구현 금지. */
@@ -107,7 +103,7 @@
     .attention-cat-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: transparent; border: 1px solid #e2e8f0; color: #94a3b8; }
     .attention-cat-item[data-active="True"] { background: #fef3c7; border-color: #fde68a; color: #92400e; font-weight: 600; }
     .attention-cat-item strong { font-weight: 700; }
-    .kv { display: grid; grid-template-columns: 160px 1fr; gap: 7px 16px; }
+    .kv { display: grid; grid-template-columns: 160px 1fr; gap: 7px 16px; align-items: center; }
     .kv dt { color: #64748b; font-size: 13px; }
     .kv dd { color: #0f172a; font-weight: 500; font-size: 13px; overflow-wrap: anywhere; }
     /* kv 그룹 소제목 — 전폭 행, 상단 구분선. 사양/네트워크/스토리지/운영·식별 묶음. */
@@ -202,6 +198,7 @@
     .metric-grid-2 { grid-template-columns: repeat(2, 1fr); }
     .metric-grid-3 { grid-template-columns: repeat(3, 1fr); }
     .metric-grid-4 { grid-template-columns: repeat(4, 1fr); }
+    .metric-grid-5 { grid-template-columns: repeat(5, 1fr); }
 
     /* KPI card — KPI 그리드 (대시보드 환경 요약, 보고서 분류 카운트). */
     .kpi-grid { display: grid; gap: 12px; margin-bottom: 24px; }
@@ -288,12 +285,12 @@
     .search-row button:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); }
 
     /* Primary action 버튼 — selection 그룹(보고서·Export·진단·Install) 공통 톤. 검색 버튼과 같은 파란색. */
-    .btn-primary { padding: 5px 11px; background: #3b82f6; color: #fff; border: none; border-radius: 5px; font-size: 12px; cursor: pointer; font-weight: 500; transition: background .15s; }
+    .btn-primary { padding: 5px 11px; background: var(--color-title); color: #fff; border: none; border-radius: 5px; font-size: 12px; cursor: pointer; font-weight: 500; transition: background .15s; }
     .btn-primary:hover:not(:disabled) { background: #2563eb; }
     .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; opacity: 0.7; }
     /* selection 발행 버튼 — 주로 쓰는 btn-action 흰 톤 + 현재 작은 크기 유지. 활성=선명·hover, 비활성=opacity 흐림 구분. */
     /* selection 발행 버튼 — 흰 톤·표준 크기 유지, 활성=테마색 outline(파랑 글씨·테두리·600) 강조 / 비활성=회색. 색으로 활성여부 명확. */
-    .btn-select { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #3b82f6; border-radius: 6px; background: #fff; color: #3b82f6; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
+    .btn-select { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid var(--color-title); border-radius: 6px; background: #fff; color: var(--color-title); font-size: 13px; font-weight: 600; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
     .btn-select:hover:not(:disabled) { background: #eff6ff; }
     .btn-select:disabled { background: #fff; color: #cbd5e1; border-color: #e2e8f0; cursor: not-allowed; }
     .search-row .clear-btn { padding: 7px 12px; background: #f1f5f9; color: #64748b; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
@@ -307,7 +304,7 @@
     /* ── 화면 반응형 — 좁은 창에서 고정 다열 그리드를 1열로 (찌그러짐 방지, 카드 무파손).
        env-dual·env-pair·stat-grid·부하상위는 auto-fit minmax 라 자동 분기 — 여기선 고정 grid 만 보강. */
     @media (max-width: 640px) {
-      .metric-grid-2, .metric-grid-3, .metric-grid-4,
+      .metric-grid-2, .metric-grid-3, .metric-grid-4, .metric-grid-5,
       .kpi-grid-2, .kpi-grid-3, .kpi-grid-4 { grid-template-columns: 1fr; }
       .card { padding: 14px 16px; }
     }
@@ -339,8 +336,12 @@
       .perf-merged { page-break-inside: auto !important; }
       .perf-row { page-break-inside: avoid; }
       .perf-row + .perf-row { margin-top: 12px !important; padding-top: 0 !important; border-top: none !important; }
-      /* 환경 보고서 — 부하 추이 + 토폴로지 한 카드 2열을 인쇄에서도 웹과 동일 구도(2열) 유지. */
-      .env-dual { grid-template-columns: repeat(2, 1fr) !important; }
+      /* 환경 보고서 — 부하 추이 + 토폴로지 한 카드 2열을 인쇄에서도 웹과 동일 구도(2열) 유지.
+         minmax(0,1fr)+min-width:0 — 1fr 의 암묵 min-width:auto 가 cytoscape 고정 px 캔버스에 밀려
+         토폴로지 칸이 넓어지는 쏠림 방지(두 칸 균등). 캔버스 초과분은 overflow 클립. */
+      .env-dual { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+      .env-dual > div { min-width: 0; }
+      .env-dual #topology-graph { overflow: hidden; }
       /* 세부 서버 목록 — 칼럼 많아 A4 폭 초과. 인쇄에서 폰트·셀 패딩 축소 + 줄바꿈 허용으로 타이트하게. */
       .detail-table th, .detail-table td { font-size: 9px !important; padding: 2px 4px !important; white-space: normal !important; word-break: keep-all; }
       .detail-table .badge { font-size: 8px !important; padding: 1px 4px !important; }

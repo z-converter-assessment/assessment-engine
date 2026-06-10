@@ -54,7 +54,7 @@
           {
             label: 'CPU 평균',
             data: cpu,
-            borderColor: '#3b82f6',
+            borderColor: ChartUtils.themeColor(),
             backgroundColor: 'transparent',
             tension: 0.2,
             spanGaps: false,

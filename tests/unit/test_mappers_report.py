@@ -26,6 +26,7 @@ from assessment_engine.web.services.mappers.report import (
     _build_recommendation_action,
     _build_under_provisioned_reason,
     build_report_summary_bullets,
+    build_resource_stats,
     build_role_distribution,
     compute_report_avg_p95,
     compute_report_totals_from_raw,
@@ -33,6 +34,7 @@ from assessment_engine.web.services.mappers.report import (
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_FROM_REC,
+    format_net_rate,
     resolve_os_eol,
 )
 
@@ -74,6 +76,8 @@ def _raw(
     disk_throughput=None,
     net_rx=None,
     net_tx=None,
+    cpu_sufficiency=None,
+    mem_sufficiency=None,
 ) -> ReportRowRaw:
     return ReportRowRaw(
         server_id=server_id,
@@ -98,7 +102,7 @@ def _raw(
         iowait_peak_pct=iowait_peak,
         cpu_cores=cpu_cores,
         mem_total_kb=mem_total_kb,
-        disks=disks if disks is not None else [{"size_bytes": 50 * 10**9}],
+        disks=disks if disks is not None else [{"name": "sda", "size_bytes": 50 * 10**9}],
         boot_time=boot_time if boot_time is not None else _NOW - timedelta(days=30),
         worst_mount=worst_mount,
         worst_mount_used_pct=worst_used,
@@ -108,6 +112,8 @@ def _raw(
         disk_throughput_kbps=disk_throughput,
         net_rx_kbps=net_rx,
         net_tx_kbps=net_tx,
+        cpu_sufficiency=cpu_sufficiency,
+        mem_sufficiency=mem_sufficiency,
     )
 
 
@@ -229,9 +235,9 @@ def test_report_totals_sum_vcpu_memory_disk():
             server_id=1,
             cpu_cores=4,
             mem_total_kb=8 * 1024 * 1024,
-            disks=[{"size_bytes": 50 * 10**9}, {"size_bytes": 100 * 10**9}],
+            disks=[{"name": "sda", "size_bytes": 50 * 10**9}, {"name": "sdb", "size_bytes": 100 * 10**9}],
         ),
-        _raw(server_id=2, cpu_cores=2, mem_total_kb=4 * 1024 * 1024, disks=[{"size_bytes": 30 * 10**9}]),
+        _raw(server_id=2, cpu_cores=2, mem_total_kb=4 * 1024 * 1024, disks=[{"name": "vda", "size_bytes": 30 * 10**9}]),
     ]
     t = compute_report_totals_from_raw(raws)
     assert t.total_vcpus == 6
@@ -271,7 +277,7 @@ def _detail(*, id_, hostname, cpu_cores, mem_total_kb, disk_size, role_unit=None
         agent_started_at=None,
         ip_internal=["10.0.0.1"],
         ip_external=None,
-        disks=[{"size_bytes": disk_size}],
+        disks=[{"name": "sda", "size_bytes": disk_size}],
         mounts=[],
         services=[{"unit": role_unit, "sub": "running"}] if role_unit else [],
         listen_ports=[],
@@ -771,7 +777,7 @@ def test_resolve_os_eol_known_eol_distros(os_id, os_version):
 
 
 def test_inventory_export_with_stats():
-    """v3 — recommended_size_class 객체화 + I/O p95/peak + services.listeners."""
+    """v4 — 사용처축 배치(spec/usage/assessment) + I/O p95/peak + services.listeners."""
     detail = _detail(
         id_=1,
         hostname="db-01",
@@ -794,30 +800,30 @@ def test_inventory_export_with_stats():
         net_tx=180.0,
     )
     entry = to_inventory_export_entry(detail, stats)
-    assert entry.hostname == "db-01"
-    assert entry.role == "db"
-    assert entry.compute["vcpu_count"] == 4
-    assert entry.compute["cpu_p95_pct"] == 95.0
-    # v3: 객체 {key, label}
-    assert entry.compute["recommended_size_class"]["key"] == "under_provisioned"
-    assert entry.compute["recommended_size_class"]["label"]  # 한국어 라벨 채움
-    assert entry.storage["iops_baseline"] == 850
-    assert entry.storage["throughput_kbps_baseline"] == 4500.0
-    assert entry.network["rx_kbps_baseline"] == 300.0
-    # v3: services 항목에 listeners 키 (ports 대신)
+    assert entry.identity["hostname"] == "db-01"
+    assert entry.identity["role"] == "db"
+    assert entry.spec["vcpu_count"] == 4
+    assert entry.usage["cpu"]["p95_pct"] == 95.0
+    # v4: assessment 블록 객체 {key, label}
+    assert entry.assessment["recommended_size_class"]["key"] == "under_provisioned"
+    assert entry.assessment["recommended_size_class"]["label"]  # 한국어 라벨 채움
+    assert entry.usage["disk_io"]["iops_baseline"] == 850
+    assert entry.usage["disk_io"]["throughput_kbps_baseline"] == 4500.0
+    assert entry.usage["network"]["rx_kbps_baseline"] == 300.0
+    # v4: services 항목에 listeners 키 (ports 대신)
     assert all("listeners" in s for s in entry.services)
 
 
 def test_inventory_export_without_stats():
     detail = _detail(id_=1, hostname="new-01", cpu_cores=2, mem_total_kb=2 * 1024 * 1024, disk_size=30 * 10**9)
     entry = to_inventory_export_entry(detail, stats=None)
-    assert entry.compute["recommended_size_class"]["key"] == "insufficient_data"
-    assert entry.compute["cpu_p95_pct"] is None
-    assert entry.storage["iops_baseline"] is None
-    assert entry.network["rx_kbps_baseline"] is None
+    assert entry.assessment["recommended_size_class"]["key"] == "insufficient_data"
+    assert entry.usage["cpu"]["p95_pct"] is None
+    assert entry.usage["disk_io"]["iops_baseline"] is None
+    assert entry.usage["network"]["rx_kbps_baseline"] is None
     # 본 contract에 없는 필드 (`arch`/`boot_iops_baseline`) 부재 확인
     assert "arch" not in entry.os
-    assert "boot_iops_baseline" not in entry.storage
+    assert "boot_iops_baseline" not in entry.usage["disk_io"]
 
 
 def test_inventory_export_network_addresses_v4_v6_split():
@@ -848,14 +854,14 @@ def test_inventory_export_network_addresses_v4_v6_split():
         last_seen_at=_NOW,
     )
     entry = to_inventory_export_entry(detail, stats=None)
-    addrs = entry.network["addresses"]
+    addrs = entry.spec["addresses"]
     assert {"scope": "internal", "family": "v4", "address": "10.0.0.1"} in addrs
     assert {"scope": "internal", "family": "v6", "address": "fe80::1"} in addrs
     assert {"scope": "external", "family": "v4", "address": "54.1.2.3"} in addrs
 
 
 def test_inventory_export_services_listeners_match_listen_ports():
-    """v3 — services.listeners가 listen_ports inventory 매칭으로 proto/address 채움.
+    """v4 — services.listeners가 listen_ports inventory 매칭으로 proto/address 채움.
 
     nginx.service(web) -> ports [80, 443] -> listen_ports에서 매칭하여 실제 proto/addr 추출.
     매칭 실패 시 폴백 (tcp/0.0.0.0).
@@ -996,7 +1002,7 @@ def test_report_row_item_disk_net_io_p95_peak_passthrough():
         ("idle", "용도 재평가 / 종료 검토"),
         ("shutdown", "종료 가능 검토"),
         ("optimal", "적정 운영"),
-        ("insufficient_data", "평가 표본 부족"),
+        ("insufficient_data", "데이터 부족 — 수집 점검"),
     ],
 )
 def test_recommendation_action_fixed_phrases(rec, expected):
@@ -1023,3 +1029,51 @@ def test_under_provisioned_reason_combines_and_dedups():
     """여러 trigger '/' 결합. mem_saturation(스왑) + mem_util 중복 시 스왑 문구만."""
     assert _build_under_provisioned_reason(["mem_saturation", "cpu_util"]) == "메모리 증설 (스왑 발생) / CPU 증설"
     assert _build_under_provisioned_reason(["mem_saturation", "mem_util"]) == "메모리 증설 (스왑 발생)"
+
+
+# ─── build_resource_stats — 분류 입력 단일 진실 (report·attention·목록·도넛 공용) ───
+
+
+def test_build_resource_stats_sums_net_rx_tx():
+    """net baseline = rx+tx 합 — idle/shutdown 판정 입력."""
+    assert build_resource_stats(_raw(net_rx=10.0, net_tx=5.0)).net_avg_kbps == 15.0
+
+
+def test_build_resource_stats_net_none_when_both_missing():
+    """rx·tx 둘 다 None 이면 net None — idle/shutdown 판정 skip (미관측을 0 으로 단정 금지)."""
+    assert build_resource_stats(_raw()).net_avg_kbps is None
+
+
+def test_build_resource_stats_net_single_side_counts_other_as_zero():
+    assert build_resource_stats(_raw(net_rx=10.0)).net_avg_kbps == 10.0
+
+
+def test_build_resource_stats_sample_sufficiency_min_of_measured():
+    """sufficiency = 측정된 축(p95 not None)의 min — 보수적."""
+    stats = build_resource_stats(
+        _raw(cpu_p95=50.0, cpu_sufficiency=0.4, mem_p95=50.0, mem_sufficiency=0.9)
+    )
+    assert stats.sample_sufficiency == 0.4
+
+
+def test_build_resource_stats_sample_sufficiency_ignores_unmeasured_axis():
+    """p95 None 인 축의 sufficiency 는 제외 — 미측정 축이 표본 판정 왜곡 금지."""
+    stats = build_resource_stats(_raw(cpu_p95=50.0, cpu_sufficiency=0.8, mem_sufficiency=0.1))
+    assert stats.sample_sufficiency == 0.8
+
+
+# ─── format_net_rate — 실시간·보고서 네트워크 rate 표시 단일 진실 ───
+
+
+@pytest.mark.parametrize(
+    "kbps, expected",
+    [
+        (None, None),
+        (0.0, "0.0 kBps"),
+        (512.0, "512.0 kBps"),
+        (1024.0, "1.0 MBps"),
+        (2560.0, "2.5 MBps"),
+    ],
+)
+def test_format_net_rate(kbps, expected):
+    assert format_net_rate(kbps) == expected

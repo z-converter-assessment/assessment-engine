@@ -1,8 +1,8 @@
 """Exports router — 자동화 도구 입력용 정제 산출물 다운로드.
 
-스키마·정제 원칙·사용처: docs/architecture/inventory-export.md.
-v3: envelope 강화(engine_id·schema_doc·period_window) + I/O p95/peak + recommended_size_class 객체화
-   + services.listeners (proto·address) — listen_ports inventory 매칭.
+스키마·정제 원칙·사용처: docs/architecture/web/export-schema.md.
+v4: 사용처축 배치 — server 항목을 identity/os/spec(VM 생성)/usage(right-sizing 측정)/assessment(평가 결과)/
+   services(보안그룹)로 재정렬. 자동화 도구가 사용처 블록을 통째로 소비.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -55,8 +55,8 @@ async def export_inventory(
     entries = await service.get_inventory_export(server_ids, req.period_days)
     return {
         "inventory_export": {
-            "schema_version": "3",
-            "schema_doc": "docs/architecture/inventory-export.md",
+            "schema_version": "4",
+            "schema_doc": "docs/architecture/web/export-schema.md",
             "engine_id": "zconverter-assessment-portal",
             "exported_at": now.isoformat(),
             "period_window": {

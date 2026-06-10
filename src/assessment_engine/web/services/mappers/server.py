@@ -16,6 +16,7 @@ from assessment_engine.db.dtos.outbound import (
     StorageWithUsage,
 )
 from assessment_engine.web.services.device_filters import (
+    disk_total_bytes,
     is_data_volume,
     is_physical_disk,
 )
@@ -66,7 +67,7 @@ _BADGE_CLASS_BY_SEVERITY: dict[_Severity, str] = {
 }
 # 파일시스템 사용량 게이지 막대 = 테마 주색(blue-500) 단색 (사용자 결정 — 임계별 색 분기 없이 통일).
 # 사용률 위험/주의 신호는 badge_class(_usage_badge_class)가 담당. 게이지 막대는 단색.
-_MOUNT_BAR_COLOR = "#3b82f6"
+_MOUNT_BAR_COLOR = "var(--color-title)"  # 테마색1 (base.html :root) — 마운트 usage 막대 CSS background
 
 
 def _usage_severity(pct: float | None) -> _Severity:
@@ -199,10 +200,9 @@ def _os_display(os_id: str | None, os_version: str | None) -> str:
 
 def build_server_inventory(detail, is_online: bool) -> ServerInventory:
     """ServerDetail -> 개별 보고서 인벤토리 (충실 표시 — 전체 IP(IPv4/IPv6)·하드웨어·식별자, 생략·왜곡 0)."""
-    # 물리 디스크만 합산 — 파티션·LVM/RAID(논리) 제외 (to_report_row_item storage_total_gb 와 동일 기준).
-    # 미적용 시 물리+파티션+LVM 중복 합산으로 인벤토리 디스크가 과대 계상돼 환경/선택 목록 값과 어긋난다.
-    _physical_disks = [d for d in (detail.disks or []) if is_physical_disk(d.get("name", ""))]
-    disk_total_bytes = sum((d.get("size_bytes") or 0) for d in _physical_disks)
+    # 디스크 총량 — 물리 disks 우선, 비면(Windows 등 물리 미발행) 파일시스템 mounts fallback.
+    # device_filters.disk_total_bytes 단일 산식 (환경·세부 목록 보고서와 동일, Windows 포함 일관).
+    disk_bytes = disk_total_bytes(detail.disks or [], detail.mounts or [])
     return ServerInventory(
         hostname=detail.hostname,
         os_display=_os_display(detail.os_id, detail.os_version),
@@ -212,7 +212,7 @@ def build_server_inventory(detail, is_online: bool) -> ServerInventory:
         cpu_cores=detail.cpu_cores,
         mem_total_gb=kb_to_gb(detail.mem_total_kb),
         swap_total_gb=kb_to_gb(detail.swap_total_kb),
-        disk_total_gb=int(bytes_to_gb(disk_total_bytes) or 0),
+        disk_total_gb=int(bytes_to_gb(disk_bytes) or 0),
         ip_internal=_to_ip_addrs(detail.ip_internal),
         ip_external=_to_ip_addrs(detail.ip_external) if detail.ip_external else [],
         boot_time=detail.boot_time,
@@ -261,20 +261,11 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
 
     rec_label, rec_color, seg_key = "", "", ""
     if raw_period is not None:
-        rec = recommendation.classify(
-            recommendation.ResourceStats(
-                cpu_p95_pct=raw_period.cpu_p95_pct,
-                cpu_peak_pct=raw_period.cpu_peak_pct,
-                cpu_load_15m_max=raw_period.load_15m_max,
-                cpu_cores=raw_period.cpu_cores,
-                mem_p95_pct=raw_period.mem_p95_pct,
-                swap_used=raw_period.swap_used,
-                disk_used_pct=raw_period.worst_mount_used_pct,
-                iowait_p95_pct=raw_period.iowait_p95_pct,
-                net_avg_kbps=None,
-                os_family=raw_period.os_family,  # P2 — Windows swap 축 제외
-            )
-        )
+        # build_resource_stats 단일 진실(net baseline 포함) — 보고서·대시보드와 동일 분류 입력 (#E3).
+        # report mapper 지연 import: report.py 가 본 모듈을 import 하므로 모듈 레벨 순환 회피.
+        from assessment_engine.web.services.mappers.report import build_resource_stats
+
+        rec = recommendation.classify(build_resource_stats(raw_period))
         seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
         # 색은 _DONUT_SEGMENT_DEFS, 라벨은 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 서버목록 칼럼 한글 표시.
         for key, _label, color, _desc in _DONUT_SEGMENT_DEFS:
