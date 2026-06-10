@@ -18,8 +18,6 @@ from assessment_engine.diagnostic.handler import make_diagnostic_handler
 from assessment_engine.diagnostic.llm.base import BaseLlmClient
 from assessment_engine.diagnostic.settings import diagnostic_settings
 from assessment_engine.log_config import setup_logging
-from assessment_engine.rag.embedding.base import BaseEmbeddingClient
-from assessment_engine.rag.retriever.base import BaseRetriever
 
 
 def _build_llm_client() -> BaseLlmClient:
@@ -37,36 +35,6 @@ def _build_llm_client() -> BaseLlmClient:
     )
 
 
-def _build_embedding_client() -> BaseEmbeddingClient:
-    """Embedding 토글 (ADR 0024) — composition root."""
-    provider = diagnostic_settings.embedding_provider
-    if provider == "mock":
-        from assessment_engine.rag.embedding.mock import MockEmbeddingClient
-
-        return MockEmbeddingClient(dimension=diagnostic_settings.embedding_dimension)
-    if provider == "ollama":
-        from assessment_engine.rag.embedding.ollama import OllamaEmbeddingClient
-
-        return OllamaEmbeddingClient(
-            base_url=diagnostic_settings.ollama_base_url,
-            model=diagnostic_settings.embedding_model,
-            timeout_seconds=diagnostic_settings.embedding_timeout_seconds,
-        )
-    raise ValueError(f"unknown EMBEDDING_PROVIDER: {provider}")
-
-
-def _build_retriever() -> BaseRetriever | None:
-    """RAG retriever — RAG_ENABLED=False 시 None (handler 안 skip)."""
-    if not diagnostic_settings.rag_enabled:
-        return None
-    from assessment_engine.rag.retriever.pgvector import PgVectorRetriever
-
-    return PgVectorRetriever(
-        session_factory=AsyncSessionLocal,
-        embedding_client=_build_embedding_client(),
-    )
-
-
 async def main() -> None:
     setup_logging(diagnostic_settings.log_format)
 
@@ -78,19 +46,12 @@ async def main() -> None:
 
     redis = get_redis()
     llm_client = _build_llm_client()
-    retriever = _build_retriever()
-    logger.info(
-        "diagnostic worker rag_enabled={} embedding_provider={}",
-        diagnostic_settings.rag_enabled,
-        diagnostic_settings.embedding_provider,
-    )
     handler = make_diagnostic_handler(
         session_factory=AsyncSessionLocal,
         query_repo_factory=QueryRepository,
         diagnostic_repo_factory=DiagnosticRepository,
         llm_client=llm_client,
         redis=redis,
-        retriever=retriever,
     )
 
     dlx_name = f"{diagnostic_settings.rabbitmq_exchange}.dlx"

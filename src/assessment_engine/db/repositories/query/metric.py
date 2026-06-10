@@ -50,6 +50,16 @@ _RATE_PER_DIM: dict[str, tuple[str, str, str]] = {
         _RATE_PER_DIM_DEFS["disk.write_iops"][0],
         _RATE_PER_DIM_DEFS["disk.write_iops"][1],
     ),
+    "disk.read_kbps": (
+        ServerDiskIo.__tablename__,
+        _RATE_PER_DIM_DEFS["disk.read_kbps"][0],
+        _RATE_PER_DIM_DEFS["disk.read_kbps"][1],
+    ),
+    "disk.write_kbps": (
+        ServerDiskIo.__tablename__,
+        _RATE_PER_DIM_DEFS["disk.write_kbps"][0],
+        _RATE_PER_DIM_DEFS["disk.write_kbps"][1],
+    ),
     "net.rx_bytes_per_sec": (
         ServerNetIo.__tablename__,
         _RATE_PER_DIM_DEFS["net.rx_bytes_per_sec"][0],

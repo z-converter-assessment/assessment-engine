@@ -105,7 +105,7 @@ from assessment_engine.web.view_models.server import (
 )
 from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
 
-_DISK_METRIC_TYPES = frozenset({"disk.read_iops", "disk.write_iops"})
+_DISK_METRIC_TYPES = frozenset({"disk.read_iops", "disk.write_iops", "disk.read_kbps", "disk.write_kbps"})
 _NET_METRIC_TYPES = frozenset(
     {"net.rx_bytes_per_sec", "net.tx_bytes_per_sec", "net.rx_packets_per_sec", "net.tx_packets_per_sec"}
 )

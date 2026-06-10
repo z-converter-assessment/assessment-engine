@@ -1,4 +1,4 @@
-"""진단 메시지 핸들러 — RabbitMQ 메시지 1건 = engineer 보고서 narrative job 1건 처리 (ADR 0004 + 0024).
+"""진단 메시지 핸들러 — RabbitMQ 메시지 1건 = engineer 보고서 narrative job 1건 처리 (ADR 0004).
 
 engineer 보고서 발행(web `emit_report`)이 status=pending job + 정적 스냅샷을 저장하고 publish.
 워커는 본 핸들러로 pending job 을 받아 narrative 를 합성, 스냅샷 result 에 merge 후 mark_succeeded.
@@ -9,7 +9,6 @@ narrative 단위:
 
 요구 정합: narrative 는 발행 시점에만 1회. 개별 narrative 실패는 entry.status='failed' 로 흡수 —
 보고서 스냅샷 자체는 항상 표시 (요구: 발행 외 진단 금지·실패해도 발행 보존). DB 일시 장애만 DLQ 재시도.
-RAG_ENABLED=False 시 retriever None (rag_context=[]).
 """
 
 import asyncio
@@ -22,7 +21,7 @@ import aio_pika
 import httpx
 from loguru import logger
 from redis.asyncio import Redis
-from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.cache.redis import safe_set, safe_set_nx
@@ -41,8 +40,6 @@ from assessment_engine.diagnostic.report_result import (
     build_narrative_entry,
 )
 from assessment_engine.diagnostic.settings import diagnostic_settings
-from assessment_engine.rag.query import build_query
-from assessment_engine.rag.retriever.base import BaseRetriever
 
 _REPORT_JOB_TYPES = ("engineer_report",)
 
@@ -53,13 +50,8 @@ def make_diagnostic_handler(
     diagnostic_repo_factory: Callable[[AsyncSession], BaseDiagnosticRepository],
     llm_client: BaseLlmClient,
     redis: Redis,
-    retriever: BaseRetriever | None = None,
 ):
-    """consumer handler 팩토리 패턴(F4) — composition root에서 의존성 주입.
-
-    retriever 가 None 이면 RAG 비활성 (RAG_ENABLED=False default). composition root 가
-    `diagnostic_settings.rag_enabled` 기준 분기 — True 시 PgVectorRetriever 주입, False 시 None.
-    """
+    """consumer handler 팩토리 패턴(F4) — composition root에서 의존성 주입."""
 
     async def handler(message: aio_pika.abc.AbstractIncomingMessage):
         async with message.process(requeue=False):
@@ -115,7 +107,6 @@ def make_diagnostic_handler(
                     narratives = await _build_report_narratives(
                         query_repo,
                         llm_client,
-                        retriever,
                         job.scope,
                         job.input_params,
                     )
@@ -194,7 +185,6 @@ async def _copy_narratives_to_children(
 async def _build_report_narratives(
     query_repo: BaseQueryRepository,
     llm_client: BaseLlmClient,
-    retriever: BaseRetriever | None,
     scope: str,
     input_params: dict,
 ) -> dict[str, dict]:
@@ -210,12 +200,12 @@ async def _build_report_narratives(
     narratives: dict[str, dict] = {}
     if scope == "environment":
         narratives[ENV_NARRATIVE_KEY] = await _narrative_for(
-            query_repo, llm_client, retriever, "environment", None, period_days, end, time_range
+            query_repo, llm_client, "environment", None, period_days, end, time_range
         )
     else:
         for pid in input_params.get("server_public_ids") or []:
             narratives[pid] = await _narrative_for(
-                query_repo, llm_client, retriever, "server", pid, period_days, end, time_range
+                query_repo, llm_client, "server", pid, period_days, end, time_range
             )
     return narratives
 
@@ -223,14 +213,13 @@ async def _build_report_narratives(
 async def _narrative_for(
     query_repo: BaseQueryRepository,
     llm_client: BaseLlmClient,
-    retriever: BaseRetriever | None,
     scope: str,
     server_public_id: str | None,
     period_days: float,
     end: datetime,
     time_range: str,
 ) -> dict:
-    """단일 key narrative entry — 집계 payload -> RAG -> LLM 합성 + 환각 검증.
+    """단일 key narrative entry — 집계 payload -> LLM 합성 + 환각 검증.
 
     실패(집계 데이터 부족 ValueError·LLM timeout/HTTP·환각 ValueError·payload KeyError)는
     entry.status='failed' 로 반환 — 보고서 스냅샷은 항상 표시.
@@ -241,7 +230,6 @@ async def _narrative_for(
         else:
             payload = await aggregator.extract_environment(query_repo, period_days, end, time_range)
 
-        payload["rag_context"] = await _retrieve_rag_context(retriever, scope, payload)
         narrative = await _generate_narrative_with_verification(llm_client, scope, payload)
 
         # server scope 는 단일 분류 라벨, environment 는 분포 dict 라 단일 라벨 없음 (None).
@@ -296,51 +284,6 @@ async def _generate_narrative_with_verification(
             sorted(hallucinated)[:5],
         )
     raise ValueError(f"llm_hallucination: {sorted(hallucinated)[:5]}")
-
-
-async def _retrieve_rag_context(
-    retriever: BaseRetriever | None,
-    scope: str,
-    payload: dict,
-) -> list[dict]:
-    """RAG 검색 (ADR 0024).
-
-    retriever None 시 빈 list. 외부 호출 실패 시 silent fallback (RAG 결과 없어도 narrative 합성 가능).
-    """
-    if retriever is None:
-        return []
-    try:
-        query = build_query(scope, payload)
-        docs = await retriever.retrieve(
-            query=query,
-            top_k=diagnostic_settings.rag_top_k,
-            source_type="domain_knowledge",
-        )
-    except (SQLAlchemyError, httpx.HTTPError, TimeoutError, ValueError) as e:
-        # RAG 실패는 narrative 자체 실패 아님 — 합성으로 진행. 운영자 인지용 WARNING.
-        # 본질 catch = DB query (SQLAlchemyError) · embedding HTTP (httpx.HTTPError)
-        # · timeout · response shape (ValueError).
-        logger.warning("rag retrieve failed scope={} err_type={}", scope, type(e).__name__)
-        return []
-    # rag_max_context_chars cap — LLM prompt 안 context 절 길이 제한.
-    max_chars = diagnostic_settings.rag_max_context_chars
-    out: list[dict] = []
-    total = 0
-    for doc in docs:
-        remaining = max_chars - total
-        if remaining <= 0:
-            break
-        content = doc.content[:remaining] if len(doc.content) > remaining else doc.content
-        out.append(
-            {
-                "content": content,
-                "score": doc.score,
-                "metadata": doc.metadata,
-                "source_id": doc.source_id,
-            }
-        )
-        total += len(content)
-    return out
 
 
 async def _publish_progress(redis: Redis, diag_repo: BaseDiagnosticRepository, job_id: str) -> None:

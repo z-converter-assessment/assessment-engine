@@ -103,6 +103,6 @@ ADR 0004 (Refined by 0010 + 0023) LLM 토글 결정 = `LLM_PROVIDER=mock|ollama`
 
 - ADR 0004: 진단 워커 아키텍처 (LLM 토글 본문 supersede)
 - ADR 0010: 진단 규칙 기반 한정 (LLM 분기 보류 본문 supersede)
-- ADR 0024: AI 진단 RAG 도입 (RAG context 인용 catalog ollama prompt 본질 정합)
+- ADR 0024: AI 진단 RAG 도입 (Superseded by 0039 — RAG 제거, ollama prompt RAG context 절 폐기)
 - `docs/architecture/diagnostic.md` "LLM 토글" 절 — 단일 provider 본문
 - `docs/operations/env.md` `OLLAMA_*` 카탈로그

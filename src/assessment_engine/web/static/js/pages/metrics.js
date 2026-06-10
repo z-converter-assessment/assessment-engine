@@ -18,6 +18,9 @@ const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows load 미측�
 const PERF_IOPS_SUGGESTED_MAX = 200;              // HDD 랜덤 I/O 한계(~100–200 IOPS) 기준
 const PERF_NET_SUGGESTED_MAX  = 10 * 1024 * 1024; // 10 MB/s — 1 Gbps 이더넷의 약 8%
 const PERF_PPS_SUGGESTED_MAX  = 10;               // pps soft ceiling (idle 환경도 보이도록)
+const PERF_DISK_KBPS_SUGGESTED_MAX = 10 * 1024;   // 10 MB/s — net 처리량 차트와 동일 절대 기준선
+// 처리량 동적 단위 (kBps/MBps) — storage/detail 과 일관. Y축 ticks·tooltip 공용.
+const fmtThroughput = (kb) => kb == null ? '—' : (kb >= 1024 ? (kb / 1024).toFixed(1) + ' MBps' : kb.toFixed(1) + ' kBps');
 
 // 색상 임계값 — backend mappers._USAGE_*_PCT 단일 진실, body data-attribute 로 주입 (#E1 P4).
 // 파일시스템 사용률 게이지만 임계 색 사용. 그 외 추이 차트는 단색(검정) 통일.
@@ -33,7 +36,7 @@ const chartInstances = {};
 // P4(a) sequence counter — per-chart 분리 (다른 page 와 일관). chart 별 독립 counter.
 const seqs = {
   cpu: 0, cpuClass: 0, load: 0, mem: 0, memComp: 0, swap: 0,
-  physIo: 0, fs: 0, netIo: 0, netPps: 0,
+  physIo: 0, diskKbps: 0, fs: 0, netIo: 0, netPps: 0,
 };
 
 /* ── 유틸 ──
@@ -195,6 +198,7 @@ const Y_PCT   = { min:0, max:100, ticks: pctTicks };
 const Y_SWAP  = { min:0, beginAtZero:true, suggestedMax:25, ticks: pctTicks };
 const Y_LOAD  = { beginAtZero:true, suggestedMax: 1.5, ticks:{ font:{size:11}, color:'#64748b' }, title:{ display:true, text:'Load/core', font:{size:11}, color:'#94a3b8' } };
 const Y_IOPS  = { beginAtZero:true, suggestedMax: PERF_IOPS_SUGGESTED_MAX, ticks:{ precision:0, font:{size:11}, color:'#64748b' }, title:{ display:true, text:'IOPS', font:{size:11}, color:'#94a3b8' } };
+const Y_DISK_KBPS = { beginAtZero:true, suggestedMax: PERF_DISK_KBPS_SUGGESTED_MAX, ticks:{ callback: v => fmtThroughput(v), font:{size:11}, color:'#64748b' }, title:{ display:true, text:'KB/s', font:{size:11}, color:'#94a3b8' } };
 const Y_NET   = { beginAtZero:true, suggestedMax: PERF_NET_SUGGESTED_MAX, ticks:{ callback: v => fmtKbChart(v), font:{size:11}, color:'#64748b' } };
 const Y_PPS   = { beginAtZero:true, suggestedMax: PERF_PPS_SUGGESTED_MAX, ticks:{ callback: v => v.toFixed(0) + ' pps', font:{size:11}, color:'#64748b' } };
 
@@ -343,6 +347,26 @@ async function loadPhysIoChart(range, anchor) {
   buildAvgMaxLegend('physio-legend', chart, { withToggle: true });
 }
 
+// 디스크 처리량(kBps) — 물리 I/O(IOPS) 와 동일 모델, 처리량 축(동적 kBps/MBps).
+async function loadDiskKbpsChart(range, anchor) {
+  const seq = ++seqs.diskKbps;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const [readAvg, readMax, writeAvg, writeMax] = await Promise.all([
+    fetchChart('disk.read_kbps','avg', range, anchor, 'phys'),
+    fetchChart('disk.read_kbps','max', range, anchor, 'phys'),
+    fetchChart('disk.write_kbps','avg', range, anchor, 'phys'),
+    fetchChart('disk.write_kbps','max', range, anchor, 'phys'),
+  ]);
+  if (seq !== seqs.diskKbps) return;
+  const avgRows = [..._safe(readAvg).map(r => ({ ...r, dimension: `${r.dimension} Read` })), ..._safe(writeAvg).map(r => ({ ...r, dimension: `${r.dimension} Write` }))];
+  const maxRows = [..._safe(readMax).map(r => ({ ...r, dimension: `${r.dimension} Read` })), ..._safe(writeMax).map(r => ({ ...r, dimension: `${r.dimension} Write` }))];
+  const datasets = buildDatasets(avgRows, maxRows, bMs, grid, null);
+  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const chart = setChart('diskkbps-canvas', 'diskkbps-empty', avgRows, Y_DISK_KBPS, fmtThroughput, datasets, labels);
+  buildAvgMaxLegend('diskkbps-legend', chart, { withToggle: true });
+}
+
 async function loadFsChart(range, anchor) {
   const seq = ++seqs.fs;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
@@ -405,8 +429,9 @@ async function loadAllCharts() {
     loadCpuChart(range, anchor),     loadCpuClassChart(range, anchor),
     loadLoadChart(range, anchor),    loadMemChart(range, anchor),
     loadMemCompChart(range, anchor), loadSwapChart(range, anchor),
-    loadPhysIoChart(range, anchor),  loadFsChart(range, anchor),
-    loadNetIoChart(range, anchor),   loadNetPpsChart(range, anchor),
+    loadPhysIoChart(range, anchor),  loadDiskKbpsChart(range, anchor),
+    loadFsChart(range, anchor),      loadNetIoChart(range, anchor),
+    loadNetPpsChart(range, anchor),
   ]);
 }
 

@@ -26,7 +26,7 @@ _REPO_ROOT = Path(__file__).parent.parent
 
 @pytest.fixture(scope="session")
 def _postgres_container() -> PostgresContainer:
-    """세션 전체 1회 spawn. TimescaleDB + pgvector all-in-one 이미지 (ADR 0024)."""
+    """세션 전체 1회 spawn. TimescaleDB all-in-one 이미지."""
     container = PostgresContainer(
         image="timescale/timescaledb-ha:pg16",
         username="test",

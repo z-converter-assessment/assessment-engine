@@ -83,10 +83,9 @@ docker compose run --rm migrate alembic revision --autogenerate -m "add boot_tim
 생성된 파일을 반드시 검토하고 다음 항목은 직접 추가:
 
 - `create_hypertable` / TimescaleDB retention·continuous aggregate
-- `CREATE EXTENSION` (예: TimescaleDB · pgvector)
+- `CREATE EXTENSION` (예: TimescaleDB)
 - partial index의 `postgresql_where` 일부
 - CHECK 제약 / JSONB GIN 옵션 일부
-- pgvector `vector(N)` 타입 컬럼 + `USING hnsw` 인덱스 (ADR 0024 — SQLAlchemy autogenerate 가 vector 타입·HNSW 미지원)
 
 시계열 새 테이블 추가 시 의무:
 
@@ -94,26 +93,7 @@ docker compose run --rm migrate alembic revision --autogenerate -m "add boot_tim
 op.execute("SELECT create_hypertable('table_name', 'collected_at', if_not_exists => true)")
 ```
 
-pgvector 안 vector 타입 + HNSW 인덱스 (ADR 0024) — autogenerate 미지원, raw SQL 직접 작성:
-
-```python
-op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-op.execute("""
-    CREATE TABLE rag_documents (
-        ...
-        embedding vector(1024) NOT NULL,
-        ...
-    )
-""")
-op.execute("""
-    CREATE INDEX rag_documents_embedding_hnsw_idx
-    ON rag_documents USING hnsw (embedding vector_cosine_ops)
-""")
-```
-
-본 경우 `migrations/env.py` 안 `_include_object` 가 본 테이블·컬럼·HNSW 인덱스 비교 제외 — autogenerate false positive 회피 (참조: `f8b2c4d6e1a3_rag_documents_pgvector.py`).
-
-`downgrade()`도 검토 — autogenerate가 만든 DROP COLUMN이 데이터 손실을 무릅쓰는 경우라면 운영자가 인지하도록 주석을 더해 둔다. pgvector extension 자체는 `downgrade()` 안 DROP 안 함 (다른 테이블 의존 가능성).
+`downgrade()`도 검토 — autogenerate가 만든 DROP COLUMN이 데이터 손실을 무릅쓰는 경우라면 운영자가 인지하도록 주석을 더해 둔다.
 
 ### 4. 라운드트립 검증
 

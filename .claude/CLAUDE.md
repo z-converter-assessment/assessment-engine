@@ -278,7 +278,7 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 - `assessment_engine.config`에서 직접 `web_settings`·`consumer_settings`·`diagnostic_settings` import — class만 export.
 - `APP_ENV` 환경 분기를 `config.py` model_validator · entry lifespan 외 위치에 추가.
 
-추상 인터페이스 카탈로그·새 Repository 절차: `docs/architecture/web/layering.md` · `docs/architecture/db/repositories.md`. 진단 워커 LLM (`BaseLlmClient`) + RAG (`BaseEmbeddingClient`·`BaseRetriever`) 추상·구체·composition root: `docs/architecture/diagnostic.md` "LLM 토글" + "RAG infra" 절 단일 진실 (ADR 0024 + 0025).
+추상 인터페이스 카탈로그·새 Repository 절차: `docs/architecture/web/layering.md` · `docs/architecture/db/repositories.md`. 진단 워커 LLM (`BaseLlmClient`) 추상·구체·composition root: `docs/architecture/diagnostic.md` "LLM 토글" 절 단일 진실 (ADR 0025).
 
 ## F5. 자동화 변환 — 책임 분담
 
@@ -369,8 +369,6 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 | 신규 조건부(발화) UI 섹션 추가 | (1) 제목·카테고리 항상 노출 (2) 빈 상태 `empty_state` placeholder (3) 화면 컨텍스트 가드와 데이터 발화 가드 분리 (#E9) |
 | 신규 외부 의존(HTTP·LLM·외부 큐) | (1) fail-open/close 결정(#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) #F6 매트릭스 갱신 |
 | 신규 의존성(`pyproject.toml`) | (1) `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토. 워크플로 단일 진실: `docs/development/dependencies.md` |
-| RAG 자료 카탈로그 추가 (ADR 0024) | (1) `rag_documents.source_type` enum 추가 (2) BaseRetriever 호출처 source_type 분기 (3) `docs/architecture/diagnostic.md` "RAG infra" 절 (4) 본 phase 결정 cataolg 갱신 ADR 정정 |
-| embedding 모델 변경 (ADR 0024 결정 2) | (1) `EMBEDDING_MODEL` env (2) `EMBEDDING_DIMENSION` env (3) alembic revision (`embedding vector(N)` 타입 변경) (4) 전체 rag_documents 재 embedding (ingest CLI 재실행) (5) HNSW 인덱스 재 build |
 | 신규 차트 MetricType (net/disk rate 등) | (1) `db/repositories/query/types.py` `MetricType` Literal (2) rate 메트릭이면 동 파일 `_RATE_PER_DIM_DEFS` (dim_col, value_col) (3) `db/repositories/query/metric.py` `_RATE_PER_DIM` table 매핑 — 누락 시 `unknown metric_type` AssertionError 500 (Promise.all 한 fetch 실패가 같은 페이지 다른 차트까지 막음) (4) 페이지 JS fetch (5) 가상 제외 필터(`device_filters`) 해당 시 표시 경계 적용 |
 
 

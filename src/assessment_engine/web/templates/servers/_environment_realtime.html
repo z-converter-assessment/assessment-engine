@@ -40,9 +40,9 @@
         <div style="text-align:center;">
           <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
             <circle cx="50" cy="50" r="42" fill="none" stroke="#a7b2c0" stroke-width="10"/>
-            {% if realtime.io_net_mbps is not none %}
-            <text x="50" y="50" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ "%.1f"|format(realtime.io_net_mbps) }}</text>
-            <text x="50" y="66" text-anchor="middle" font-size="10" fill="#94a3b8">MB/s</text>
+            {% if realtime.io_net_value is not none %}
+            <text x="50" y="50" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ realtime.io_net_value }}</text>
+            <text x="50" y="66" text-anchor="middle" font-size="10" fill="#94a3b8">{{ realtime.io_net_unit }}</text>
             {% else %}
             <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
             {% endif %}

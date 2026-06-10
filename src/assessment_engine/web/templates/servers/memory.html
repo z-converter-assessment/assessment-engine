@@ -13,10 +13,10 @@
   </div>
   <dl class="kv" style="margin-bottom:16px;">
     <dt>전체 메모리</dt>
-    <dd>{{ '%.1f GB'|format(server.mem_total_gb) if server.mem_total_gb is not none else '-' }}</dd>
+    <dd>{{ server.mem_total_gb | disksize }}</dd>
     {% if server.swap_total_gb is not none %}
     <dt>스왑 전체</dt>
-    <dd>{{ '%.1f GB'|format(server.swap_total_gb) }}</dd>
+    <dd>{{ server.swap_total_gb | disksize }}</dd>
     {% endif %}
   </dl>
   <hr style="border:none; border-top:1px solid #e2e8f0; margin:0 0 14px;">

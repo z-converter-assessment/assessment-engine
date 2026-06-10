@@ -16,7 +16,7 @@
     <dt>모델</dt>
     <dd>{{ server.cpu_model or '-' }}</dd>
     <dt>코어 수</dt>
-    <dd>{{ server.cpu_cores ~ ' 코어' if server.cpu_cores is not none else '-' }}</dd>
+    <dd>{% if server.cpu_cores is not none %}{{ server.cpu_cores }} 코어{% else %}-{% endif %}</dd>
   </dl>
   <hr style="border:none; border-top:1px solid #e2e8f0; margin:0 0 14px;">
   <div id="snap-loading" class="text-meta" style="font-size:13px;">불러오는 중...</div>

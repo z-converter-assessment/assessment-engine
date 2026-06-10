@@ -31,14 +31,11 @@
     v                v                 v                 | publish
  +-------------------------------+  +-------------------------------+
  |  Consumer (aio-pika)          |  |  Diagnostic (ADR 0004 + 0010  |
- |  - parse/idempot/persist      |  |          + 0023 + 0024 + 0025)|
+ |  - parse/idempot/persist      |  |          + 0023 + 0025 + 0039)|
  |  - time invariants            |  |  Worker:                      |
  |  - agent restart signals      |  |   - rule-based classify       |
- |  - task.result -> Task        |  |   - retrieve RAG context      |
- |    row 7-column UPDATE        |  |     (pgvector, opt-in)        |
- |                               |  |   - narrate (USE Method via   |
- |                               |  |     recommendation.py +       |
- |                               |  |     RAG-grounded LLM)         |
+ |  - task.result -> Task        |  |   - narrate (USE Method via   |
+ |    row 7-column UPDATE        |  |     recommendation.py + LLM)  |
  |                               |  |  Trigger: web POST only       |
  |                               |  |   (no cron, ADR 0023)         |
  +--------------+----------------+  +--------------+----------------+
@@ -71,9 +68,9 @@
 | 영역 | 기술 |
 |------|------|
 | 애플리케이션 | Python 3.12 · FastAPI · uvicorn · aio-pika · SQLAlchemy async · asyncpg · Jinja2 · loguru · httpx |
-| DB / 캐시 / 브로커 | TimescaleDB (PostgreSQL 16) · Redis 7 · RabbitMQ 3.13 · pgvector (ADR 0024) |
+| DB / 캐시 / 브로커 | TimescaleDB (PostgreSQL 16) · Redis 7 · RabbitMQ 3.13 |
 | Schema 관리 | Alembic 단일 진실 |
-| 진단 | 규칙 기반 (USE Method) + 단일 ollama LLM (ADR 0025) + RAG opt-in (ADR 0024, mxbai-embed-large + HNSW) |
+| 진단 | 규칙 기반 (USE Method) + 단일 ollama LLM narrative (ADR 0025) |
 | 관측 | loguru `LOG_FORMAT=text\|json` (구조화 로그) |
 | 패키징 | uv + hatchling. CI 산출물 = Python wheel + Docker image (GHCR) |
 | 정적 자원 | Chart.js (CDN) · Cytoscape.js (네트워크 토폴로지, vendored) · 외부 `.js` + `defer` |

@@ -36,7 +36,7 @@ x-app-base: &app-base
 services:
   postgres:
     restart: unless-stopped
-    image: timescale/timescaledb-ha:pg16  # TimescaleDB + pgvector
+    image: timescale/timescaledb-ha:pg16  # TimescaleDB
     env_file: ${ENV_FILE:-.env}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-assessment}
