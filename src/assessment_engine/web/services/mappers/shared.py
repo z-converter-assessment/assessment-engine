@@ -38,19 +38,19 @@ def build_confidence_notes(assessment: recommendation.Assessment) -> list[str]:
 # ─── USE Method 도넛 카탈로그 — 대시보드 + 환경 보고서 + 서버 리스트 단일 진실 (T13) ────
 # USE Method recommendation enum 1:1 매핑. (key, label, hex, description) 튜플 정렬:
 #   under(빨강), over(파랑=주색), idle(회색), shutdown(보라), optimal(녹색), insufficient_data(옅은회색).
-# over 색 = _UTIL_COLOR_GAUGE(#3b82f6) 와 동일 주색 — 테마 통일 (활용률 게이지와 같은 파랑, under 빨강과 대비).
+# over 색 = 테마색1(var(--color-title)) 동일 주색 — 활용률 게이지와 같은 파랑, under 빨강과 대비.
 _DONUT_SEGMENT_DEFS: list[tuple[str, str, str, str]] = [
     ("under_provisioned", "under_provisioned", "#ef4444", "자원 부족 — 사양 상향 검토"),
-    ("over_provisioned", "over_provisioned", "#3b82f6", "자원 여유 — 사양 축소 검토"),
+    ("over_provisioned", "over_provisioned", "var(--color-title)", "자원 여유 — 사양 축소 검토"),
     ("idle", "idle", "#64748b", "사용률 매우 낮음 — 용도 재평가"),
     ("shutdown", "shutdown", "#9333ea", "사실상 미사용 — 종료 검토"),
     ("optimal", "optimal", "#22c55e", "적정"),
     ("insufficient_data", "insufficient_data", "#cbd5e1", "평가 표본 부족"),
 ]
 
-# 게이지 테마 단색 (blue-500) — 활용률 게이지(attention._UTIL_COLOR_GAUGE) + Right-sizing 분류 막대 색 단일 통일.
-# 분류 막대는 라벨이 의미를 전하므로 색은 값 무관 단색. 도넛(_DONUT_SEGMENT_DEFS 다색) -> 막대(단색 게이지) 전환 시 사용.
-UTIL_GAUGE_COLOR = "#3b82f6"
+# 게이지 테마 단색 = 테마색1 CSS 변수 (base.html :root --color-title). 활용률 게이지 + Right-sizing 분류 막대 단일 통일.
+# CSS background 는 var 직접, SVG stroke 는 inline style 로 적용(presentation attribute 는 var 미지원). 테마 변경 시 자동 추종.
+UTIL_GAUGE_COLOR = "var(--color-title)"
 
 # USE Method recommendation enum -> donut segment key (식별 매핑, 라벨·색은 _DONUT_SEGMENT_DEFS 단일 진실).
 _DONUT_SEGMENT_FROM_REC: dict[str, str] = {
@@ -169,3 +169,15 @@ def resolve_os_eol(
             label = " ".join(p for p in [os_id, os_version] if p) or "-"
             return (eol_iso, label)
     return None
+
+
+def format_net_rate(kbps_total: float | None) -> str | None:
+    """환경 합산 네트워크 rate(kBps) -> 표시 문자열 — 실시간 현재 자원 현황·보고서 환경 현황 공용 단일 진실.
+
+    1024 kBps 이상은 MBps 승급. None(표본 부재)은 None — 호출자가 placeholder 처리.
+    """
+    if kbps_total is None:
+        return None
+    if kbps_total >= 1024:
+        return f"{kbps_total / 1024:.1f} MBps"
+    return f"{kbps_total:.1f} kBps"

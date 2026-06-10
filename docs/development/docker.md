@@ -123,7 +123,7 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 
 | 서비스 | 이미지 | 역할 | 적용 환경 |
 |--------|--------|------|-----------|
-| `postgres` | `timescale/timescaledb-ha:pg16` | 메인 DB + TimescaleDB + pgvector (ADR 0024) 등 all-in-one | dev / prod |
+| `postgres` | `timescale/timescaledb-ha:pg16` | 메인 DB + TimescaleDB all-in-one | dev / prod |
 | `rabbitmq` | `rabbitmq:3.13-management-alpine` | 메시지 브로커 (AMQP + 관리 UI) | dev / prod |
 | `redis` | `redis:7-alpine` | 캐시·온라인 TTL·PUB/SUB | dev / prod |
 | `migrate` | GHCR pull (dev: override 로컬 빌드) | `alembic upgrade head` 1회 실행 후 종료 (ADR 0005). 앱 서비스 4종이 `depends_on: service_completed_successfully`로 그 뒤 기동 | dev / prod |

@@ -110,7 +110,7 @@ raw 단위 그대로 (P1) — KB·bytes. percent·delta 변환은 SQL 표현식�
 - 호출자가 정규식으로 추출·검증, 실패 시 재생성 1회 후 `status='failed'`
 - mock = template 합성이라 자동 통과. ollama = handler 안 검증 단계 적용 의무
 
-실제 LLM latency 본질 (ollama llama3.1:8b CPU 10~30s · GPU 수초) — UI progress_stage 단계 표시 (`extracting_stats` → `applying_rules` → `retrieving_context` → `generating_narrative`) 가 사용자 인내심 제공.
+실제 LLM latency 본질 (ollama llama3.1:8b CPU 10~30s · GPU 수초) — UI progress_stage 단계 표시 (`extracting_stats` → `applying_rules` → `generating_narrative`) 가 사용자 인내심 제공.
 
 ### ollama 운영 (dev = compose 서비스 / prod = 운영자 활성)
 
@@ -122,7 +122,6 @@ docker compose up -d
 
 # 2. 모델 1회 pull (ollama_data 볼륨 영속)
 docker compose exec ollama ollama pull qwen2.5:1.5b      # dev default (CPU 추론 경량)
-docker compose exec ollama ollama pull mxbai-embed-large # ADR 0024 RAG embedding (RAG_ENABLED 시)
 
 # 3. diagnostic-worker env (compose 가 default 주입 — override 시만 명시. ADR 0025: 단일 provider, LLM_PROVIDER env 없음)
 #    OLLAMA_BASE_URL=http://ollama:11434   (compose 서비스명 — default)
@@ -132,116 +131,6 @@ docker compose exec ollama ollama pull mxbai-embed-large # ADR 0024 RAG embeddin
 prod — ollama 를 host·별도 노드 어디서 구동하든 운영자가 `OLLAMA_BASE_URL` 로 주입 (env.md). GPU 가속 활용 시 host/전용 노드 직접 구동 권장 (Docker GPU pass-through 회피).
 
 본 catalog 본질 = 운영자 명시 활성 catalog. ollama 가 미가동·연결거부면 `mark_failed('llm_error: <예외타입>')`, 연결됐으나 `LLM_TIMEOUT_SECONDS`(60s) 내 미응답(hang)이면 `mark_failed('llm_timeout')` — 둘 다 DLQ 재시도 없이 job status='failed' 로 흡수, 운영자 polling 인지 후 재발행.
-
-## RAG infra (ADR 0024)
-
-본 phase = infra 구축 단계. handler retrieve_context 단계 본문은 phase 2 (별도 ADR 0024 결정 catalog 7).
-
-### 모듈 구조
-
-```
-src/assessment_engine/rag/
-├── embedding/
-│   ├── base.py        - BaseEmbeddingClient 추상 (F4)
-│   ├── mock.py        - MockEmbeddingClient — SHA-256 seed deterministic random vector (비용 0)
-│   └── ollama.py      - OllamaEmbeddingClient — HTTP /api/embed (mxbai-embed-large)
-└── retriever/
-    ├── base.py        - BaseRetriever 추상 + RetrievedDoc dataclass
-    └── pgvector.py    - PgVectorRetriever — embedding -> ORDER BY <=> + LIMIT
-```
-
-top-level `src/assessment_engine/rag/` package — diagnostic 안 phase 1 활용, 향후 운영 노트 phase 시점 web 측 활용 가능성 (모듈 분리 정공).
-
-### rag_documents 테이블
-
-ORM: `src/assessment_engine/db/models/rag_document.py`. alembic revision `f8b2c4d6e1a3_rag_documents_pgvector` 가 pgvector extension + 테이블 + HNSW 인덱스 생성.
-
-| 컬럼 | 타입 | 비고 |
-|------|------|------|
-| id | BIGSERIAL PK | 내부 식별자 |
-| source_type | VARCHAR(32) NOT NULL | `'domain_knowledge'` (본 phase) / `'operation_note'` (보류) / `'peer_snapshot'` (보류) |
-| source_id | VARCHAR(512) NOT NULL UNIQUE | file_path + chunk_index 합성 (UPSERT 키). 백서 갱신 시 같은 source_id 재 insert |
-| content | TEXT NOT NULL | chunk 원문 (LLM prompt 인용 대상) |
-| metadata | JSONB | source 출처·tag·날짜 등 (예: {'source': 'use-method.md', 'chunk_index': 3, 'title': 'CPU saturation'}) |
-| embedding | vector(1024) NOT NULL | mxbai-embed-large default. raw SQL 단독 read/write (`CAST(... AS vector)`) |
-| created_at / updated_at | TIMESTAMPTZ NOT NULL | |
-
-인덱스:
-- `uq_rag_documents_source_id` UNIQUE (source_id) — UPSERT 키
-- `ix_rag_documents_source_type` (source_type) — 카탈로그 필터
-- `rag_documents_embedding_hnsw_idx` HNSW (embedding vector_cosine_ops) — recall 95%+ 안정, ORDER BY <=> + LIMIT 패턴 가속
-
-alembic env.py `_include_object` filter — autogenerate 가 vector 타입·HNSW 인덱스 인식 못 함 → rag_documents 테이블·embedding 컬럼·HNSW 인덱스 비교 제외.
-
-### 추상 인터페이스 (F4)
-
-```python
-class BaseEmbeddingClient(ABC):
-    async def embed(self, texts: list[str]) -> list[list[float]]: ...
-
-@dataclass
-class RetrievedDoc:
-    content: str
-    score: float  # cosine similarity (1.0 = 정확 일치)
-    metadata: dict[str, Any]
-    source_id: str
-
-class BaseRetriever(ABC):
-    async def retrieve(self, query: str, top_k: int, source_type: str) -> list[RetrievedDoc]: ...
-```
-
-composition root (worker main · ingest CLI) 에서 `EMBEDDING_PROVIDER` 분기 + 구체 주입.
-
-### RAG_ENABLED feature flag
-
-`DiagnosticSettings.rag_enabled` (default False) — phase 2 handler 안 분기 시점 활용. False 시 retrieve_context 단계 skip + payload['rag_context']=[].
-
-### ingest CLI (ADR 0024 결정 8)
-
-```bash
-# 도메인 지식 ingest — 파일 1건
-python -m assessment_engine.rag.ingest docs/rag-seed/use-method.md
-
-# source_type 명시 (default = domain_knowledge)
-python -m assessment_engine.rag.ingest --source-type domain_knowledge file.md
-
-# 재실행 = UPSERT (source_id = file_path + chunk_index 키), 백서 갱신 자연 반영
-
-# 본 repo 자체 sample 일괄 ingest (RAG 활성 검증)
-for f in docs/rag-seed/*.md; do
-  [ "$f" = "docs/rag-seed/README.md" ] && continue
-  python -m assessment_engine.rag.ingest "$f"
-done
-```
-
-본 repo 안 `docs/rag-seed/` 디렉토리 = 자체 작성 sample 도메인 지식 (USE Method · right-sizing 임계 · classification 본질) — license 의무 0. 외부 백서 (Brendan Gregg · AWS Compute Optimizer 등) 는 운영자가 직접 다운로드 후 같은 형식 (MD/Text) 으로 추가 ingest.
-
-흐름: 파일 read -> `recursive_split` (chunk 500 token + overlap 50, 단락 우선) -> embedding batch -> rag_documents UPSERT -> HNSW 인덱스 자동 갱신.
-
-본 CLI 는 worker 와 동일 settings (`EMBEDDING_PROVIDER` 등) 활용. mock provider = deterministic random vector (비용 0, 동작 검증). ollama provider = 로컬 mxbai-embed-large 호출.
-
-PDF/DOCX 자료는 외부 도구 사전 변환 의무:
-```bash
-pdftotext -layout original.pdf converted.txt
-pandoc original.docx -o converted.md
-python -m assessment_engine.rag.ingest converted.md
-```
-
-### 운영 / 디버깅 (RAG 안)
-
-```bash
-# pgvector 활성 확인
-docker compose exec postgres psql -U assessment -d assessment -c "SELECT * FROM pg_extension WHERE extname='vector'"
-
-# rag_documents 카운트 + 카탈로그 분포
-docker compose exec postgres psql -U assessment -d assessment -c "SELECT source_type, count(*) FROM rag_documents GROUP BY source_type"
-
-# 검색 본문 (raw SQL 직접 검증)
-docker compose exec postgres psql -U assessment -d assessment -c "
-SELECT source_id, 1 - (embedding <=> '[0.1,0.2,...]'::vector) AS score
-FROM rag_documents WHERE source_type='domain_knowledge'
-ORDER BY embedding <=> '[0.1,0.2,...]'::vector LIMIT 5"
-```
 
 ## diagnostic_jobs 테이블
 
@@ -305,7 +194,7 @@ docker compose exec postgres psql -U assessment -d assessment -c "SELECT status,
 - ADR 0010 — 진단 규칙 기반 한정 (LLM 분기 보류)
 - ADR 0014 — Diagnostic submitter 분리 (web service 단독 사용처)
 - ADR 0023 — scheduler 폐기 (cron 자동 발화 -> 사용자 trigger 만)
-- ADR 0024 — AI 진단 RAG 도입 (도메인 지식 phase)
+- ADR 0039 — RAG 제거 (0024 supersede — 통계 집계 + LLM 단독 narrative)
 - ADR 0003 — AI/LLM 활용 로드맵 (Phase 2~3 — 임계값·방법론·LLM 모델)
 - `docs/architecture/consumer.md` — 워커 구현 시 참조 패턴 (F4·D2·C3 공유)
 - `docs/architecture/web/services.md` — `diagnostic_service.py`·`mappers/diagnostic.py` 책임 분리

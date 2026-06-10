@@ -8,9 +8,9 @@
 <p class="empty-state">{{ message }}</p>
 {% endmacro %}
 
-{# window_meta — 표제 메타 "N대 기준 · 최근 M일" 공통 (괄호 없이). days 는 recommendation.WINDOW_DAYS 단일 진실(#F10) 전달.
+{# window_meta — 표제 메타 "N대 기준 · 최근 {라벨}" 공통 (괄호 없이). window_label 은 대시보드 윈도우 라벨(DASHBOARD_TIME_RANGE, #F10) 전달.
    대시보드 활용률·Right-sizing 분류 표제 통일 — 하드코딩 "14일" 반복 제거. #}
-{% macro window_meta(count, days) %}{{ count }}대 기준 · 최근 {{ days }}일{% endmacro %}
+{% macro window_meta(count, window_label) %}{{ count }}대 기준 · 최근 {{ window_label }}{% endmacro %}
 
 {# service_legend — 구동 서비스 칼럼/카드가 색만(서비스명) 표시할 때 분류-색 매핑 범례. service_catalog 카테고리. #}
 {% macro service_legend(catalog) %}
@@ -26,8 +26,7 @@
    호스트 상세(진단 칼럼)를 대체하는 통일 표. child_jobs/attention_by_host 는 selection 만 값(환경은 default {}). #}
 {% macro detail_server_list(rows, view, time_range, self_back, child_jobs, attention_by_host, total, show_report_link) %}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">세부 서버 목록{% if show_report_link %} <span class="section-meta">서버마다 개별 상세 보고서가 함께 발행됩니다</span>{% endif %}</h2>
-  {% if show_report_link %}<p class="no-print text-sm text-muted" style="margin:-4px 0 12px;">{{ total }}대 각각 개별 상세 보고서를 가집니다 — 서버명 또는 우측 <strong>개별 보고서</strong> 링크로 이동하세요. (인쇄본은 말미 별첨 목록 참조)</p>{% endif %}
+  <h2 class="card-title">세부 서버 목록</h2>
   <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
   <table class="detail-table" style="min-width:100%;">
     <thead>
@@ -50,7 +49,7 @@
         <td><strong>{{ r.hostname }}</strong></td>
         <td>{% if r.workload_groups %}{% for g in r.workload_groups %}<span class="badge {{ g.category | service_badge_class }}">{{ g.category }}</span>{% if not loop.last %} {% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
         <td>{{ r.os_display }}</td>
-        <td style="line-height:1.5; white-space:nowrap;">{% if r.cpu_cores is not none %}{{ r.cpu_cores }} vCPU{% else %}—{% endif %}{% if r.mem_total_gb is not none %} · {{ "%.0f"|format(r.mem_total_gb) }}GB{% endif %}{% if r.disk_total_gb is not none %} · {{ "%.0f"|format(r.disk_total_gb) }}GB{% endif %}</td>
+        <td style="line-height:1.5; white-space:nowrap;">{% if r.cpu_cores is not none %}{{ r.cpu_cores }} vCPU{% else %}—{% endif %}{% if r.mem_total_gb is not none %} · {{ "%.0f"|format(r.mem_total_gb) }} GB{% endif %}{% if r.disk_total_gb is not none %} · {{ "%.0f"|format(r.disk_total_gb) }} GB{% endif %}</td>
         <td style="text-align:right;">{% if r.cpu_avg_pct is not none %}{{ "%.1f"|format(r.cpu_avg_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.mem_avg_pct is not none %}{{ "%.1f"|format(r.mem_avg_pct) }}%{% else %}—{% endif %}</td>
         <td>{% if r.recommendation_label %}<span class="text-label">{{ r.recommendation_label }}</span>{% else %}<span class="text-meta">—</span>{% endif %}</td>
@@ -64,15 +63,4 @@
   </div>
 </section>
 
-{% if show_report_link %}
-<div class="print-only" style="margin-top:16px; page-break-inside:avoid;">
-  <h3>개별 서버 보고서 (별첨)</h3>
-  <p class="text-sm text-label" style="margin:0 0 8px;">{{ total }}대 각각 개별 상세 보고서가 함께 발행됩니다. 포털에서 서버명으로 조회하거나 개별 보고서를 함께 인쇄해 참조하세요.</p>
-  <ol class="text-sm text-strong" style="margin:0; padding-left:20px; line-height:1.7;">
-    {% for r in rows %}
-    <li>{{ r.hostname }}{% if r.internal_ip %} <span class="text-meta">({{ r.internal_ip }})</span>{% endif %} — {{ r.recommendation_label }}</li>
-    {% endfor %}
-  </ol>
-</div>
-{% endif %}
 {% endmacro %}

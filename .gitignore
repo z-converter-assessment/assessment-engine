@@ -2,6 +2,7 @@
 .env
 dev/.env
 dev/agent.env
+docker/pgadmin/pgpass
 secrets/
 
 # 빌드 산출물 — agent 바이너리는 dev-up.sh / dev/agent-build/build.sh 가 빌드

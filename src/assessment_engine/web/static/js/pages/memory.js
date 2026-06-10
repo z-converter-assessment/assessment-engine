@@ -60,7 +60,7 @@ async function loadSnapshot() {
  * Y축 정책: mem은 분해력 우선 0~100%, swap은 부분절대 suggestedMax=25 (낮은 사용률 0~10%도 시각화).
  */
 const PCT_CHARTS = [
-  { id: 'mem',  metric: 'mem.usage_percent',  label: '메모리 사용률', color: '#3b82f6', yMax: 100 },
+  { id: 'mem',  metric: 'mem.usage_percent',  label: '메모리 사용률', color: ChartUtils.themeColor(), yMax: 100 },
   { id: 'swap', metric: 'swap.usage_percent', label: '스왑 사용률',   color: '#ef4444', ySuggestedMax: 25 },
 ];
 
@@ -185,7 +185,7 @@ function updateCompBucketLabel() {
 }
 
 const COMP_META = {
-  used:      { label: 'Used',      color: '#3b82f6' },
+  used:      { label: 'Used',      color: ChartUtils.themeColor() },
   available: { label: 'Available', color: '#8b5cf6' },
   cached:    { label: 'Cached',    color: '#22c55e' },
   buffers:   { label: 'Buffers',   color: '#f59e0b' },

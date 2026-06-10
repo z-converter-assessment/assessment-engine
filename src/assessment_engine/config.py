@@ -216,16 +216,6 @@ class DiagnosticSettings(ConsumerSettings):
     ollama_model: str = "llama3.1:8b"
     llm_timeout_seconds: int = 60
 
-    # RAG (ADR 0024) — handler retrieve_context 단계 + ingest CLI 공통 사용.
-    # rag_enabled=False default — 단계별 검증 후 운영자 명시 활성화. False 시 retrieve_context skip + payload['rag_context']=[]
-    rag_enabled: bool = False
-    embedding_provider: Literal["mock", "ollama"] = "mock"
-    embedding_model: str = "mxbai-embed-large"  # ollama 안 pull 의무 (`ollama pull mxbai-embed-large`)
-    embedding_dimension: int = 1024  # mxbai-embed-large default. 모델 변경 시 alembic migration 1회
-    embedding_timeout_seconds: float = 30.0
-    rag_top_k: int = 5
-    rag_max_context_chars: int = 4000  # LLM prompt 안 RAG context 절 max 길이 cap
-
 
 # Settings 인스턴스는 컴포넌트별 sub-module에서 단일 진실로 생성 (Composition Root 패턴, CLAUDE.md #F4).
 # - web 컴포넌트: src/assessment_engine/web/settings.py

@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  var OS_COLOR = { linux: '#3b82f6', windows: '#8b5cf6' };
+  var OS_COLOR = { linux: ChartUtils.themeColor(), windows: '#8b5cf6' };
   var MULTI_HOMED = '#f59e0b';
   var SUBNET = '#64748b';
 

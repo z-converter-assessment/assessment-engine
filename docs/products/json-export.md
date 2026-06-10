@@ -30,31 +30,23 @@ JSON envelope (요약 — 자세한 스키마는 architecture/web/export-schema.
 
 ```json
 {
-  "period_window": {"days": 14, "start": "...", "end": "..."},
+  "period_window": {"days": 7, "start": "...", "end": "..."},
   "size_class_guide": {...},
   "servers": [
     {
-      "hostname": "db-01",
-      "role": "db",
-      "os_id": "ubuntu",
-      "os_version": "22.04",
-      "vcpu_count": 4,
-      "mem_total_gb": 16,
-      "disks": [{"mount_point": "/", "total_gb": 100, "used_gb": 45}, ...],
-      "addresses": [{"type": "internal", "ip": "10.0.0.1"}],
-      "usage": {
-        "cpu_p95_pct": 12.3,
-        "cpu_peak_pct": 45.1,
-        "mem_p95_pct": 35.0,
-        "mem_peak_pct": 60.2,
-        ...
-      },
-      ...
+      "identity": {"composite_id": "...", "hostname": "db-01", "role": "db", "last_seen_at": "..."},
+      "os": {"family": "ubuntu", "version": "22.04", "kernel": "..."},
+      "spec":   {"vcpu_count": 4, "memory_mb": 16384, "boot_disk_gb": 100, "additional_disks": [...], "addresses": [...]},
+      "usage":  {"cpu": {"p95_pct": 12.3, "peak_pct": 45.1}, "mem": {"p95_pct": 35.0, "peak_pct": 60.2}, "disk_io": {...}, "network": {...}},
+      "assessment": {"recommended_size_class": {"key": "over_provisioned", "label": "과다 프로비저닝"}},
+      "services": [{"category": "db", "unit": "...", "listeners": [...]}]
     },
     ...
   ]
 }
 ```
+
+server 항목은 사용처축 블록 — `spec`(VM 생성) / `usage`(right-sizing 측정) / `assessment`(권고) / `services`(보안그룹). 자동화 도구가 자기 사용처 블록을 통째로 소비. 자세한 스키마는 architecture/web/export-schema.md.
 
 핵심 메타:
 - `period_window` — 평가 윈도우 (CLAUDE.md #F10 단일 진실. JSON envelope·표제 명시 의무)
@@ -103,7 +95,7 @@ size_class_guide envelope:
 1. instance type 직접 매핑 X — JSON에는 raw spec만 (`vcpu_count`·`mem_total_gb`). 실제 `t3.medium`·`m5.large` 결정은 자동화 도구 측 책임 — 도구가 자체 lookup table 보유 의무.
 2. 시간 흐름 export 미지원 — 단일 시점 snapshot만. 시계열 export(같은 서버의 7일 분포)는 별도 endpoint·도구로 (`/api/charts/...`).
 3. PII·secret 노출 위험 — inventory에 hostname·internal IP 박힘. 외부 도구 입력 시 sanitize 의무는 외부 인프라 책임 — 본 엔진은 원본 데이터 그대로 export.
-4. 평가 윈도우 7일 default — `?period_days=N`으로 override 가능 (1~90일). 정책 단일 진실은 CLAUDE.md #F10.
+4. 평가 윈도우 7일 default — 요청 body `period_days`(1~30일)로 override 가능. 정책 단일 진실은 CLAUDE.md #F10.
 5. 자동화 도구 매핑은 reference만 — 실제 도구가 본 매핑을 따른다는 보장 없음. 도구 측 변환 코드 검증 의무.
 
 ## 관련 문서·코드

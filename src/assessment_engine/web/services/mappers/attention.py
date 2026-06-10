@@ -12,12 +12,14 @@ from datetime import datetime
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import MetricGapWarningRaw
+from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.server import workload_category_counter
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
     UTIL_GAUGE_COLOR,
     build_confidence_notes,
+    format_net_rate,
     resolve_os_eol,
 )
 from assessment_engine.web.view_models.attention import (
@@ -176,10 +178,8 @@ def build_environment_overview(
     total = len(details)
     total_vcpus = sum(d.cpu_cores or 0 for d in details)
     total_mem_kb = sum(d.mem_total_kb or 0 for d in details)
-    total_disk_bytes = 0
-    for d in details:
-        for disk in d.disks or []:
-            total_disk_bytes += disk.get("size_bytes") or 0
+    # 디스크 총량 — 물리 disks 우선, 비면(Windows) 파일시스템 mounts fallback (device_filters 단일 산식).
+    total_disk_bytes = sum(disk_total_bytes(d.disks or [], d.mounts or []) for d in details)
     # OS 구성 — os_family(windows/linux) 별 서버 수.
     os_counter: Counter[str] = Counter()
     for d in details:
@@ -319,11 +319,18 @@ def build_environment_realtime(
         return round(sum(vals), 1) if vals else None
 
     net_kbps_total = _dict_sum("net_kbps")
-    io_net_mbps = round(net_kbps_total / 1024, 1) if net_kbps_total is not None else None
     io_disk_iops = _dict_sum("disk_iops")
 
-    def _mbps(kbps: float | None) -> str:
-        return f"{kbps / 1024:.1f}" if kbps is not None else "—"
+    # 처리량 동적 단위 — storage/detail/성능추이 fmtThroughput 과 일관(kBps/MBps).
+    def _throughput_str(kbps: float) -> str:
+        return f"{kbps / 1024:.1f} MBps" if kbps >= 1024 else f"{kbps:.1f} kBps"
+
+    # 값·단위 산출 = shared.format_net_rate 단일 진실 (보고서 환경 현황과 동일 규칙) — 도넛은 값/단위 분리 표시.
+    _net_label = format_net_rate(net_kbps_total)
+    if _net_label is None:
+        io_net_value, io_net_unit = None, None
+    else:
+        io_net_value, io_net_unit = _net_label.rsplit(" ", 1)
 
     def _top_pct(key: str) -> list[RealtimePeak]:
         ranked = sorted((s for s in snapshots if s.get(key) is not None), key=lambda s: s[key], reverse=True)
@@ -344,7 +351,7 @@ def build_environment_realtime(
         RealtimePeakGroup(label="메모리", peaks=_top_pct("mem_pct")),
         RealtimePeakGroup(label="디스크", peaks=_top_pct("disk_pct")),
         RealtimePeakGroup(label="디스크 I/O", peaks=_top_io("disk_iops", lambda s: f"{s['disk_iops']:.0f} IOPS")),
-        RealtimePeakGroup(label="네트워크 I/O", peaks=_top_io("net_kbps", lambda s: f"{_mbps(s['net_kbps'])} MB/s")),
+        RealtimePeakGroup(label="네트워크 I/O", peaks=_top_io("net_kbps", lambda s: _throughput_str(s["net_kbps"]))),
     ]
     return EnvironmentRealtime(
         total=total,
@@ -355,7 +362,8 @@ def build_environment_realtime(
         last_collected_at=last_collected_at,
         peak_groups=peak_groups,
         has_peaks=any(g.peaks for g in peak_groups),
-        io_net_mbps=io_net_mbps,
+        io_net_value=io_net_value,
+        io_net_unit=io_net_unit,
         io_disk_iops=io_disk_iops,
     )
 

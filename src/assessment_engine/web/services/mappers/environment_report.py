@@ -15,6 +15,7 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
     UTIL_GAUGE_COLOR,
+    format_net_rate,
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS as _PROVISIONING_SEGMENT_DEFS,
@@ -32,7 +33,6 @@ from assessment_engine.web.view_models.environment_report import (
     ClassificationCount,
     DistributionBar,
     EnvironmentReportSummary,
-    InsufficientHostItem,
     OsCount,
     ServiceCatalogGroup,
     ServiceHost,
@@ -177,6 +177,35 @@ def _count_os(details: list[ServerDetail]) -> list[OsCount]:
     return [OsCount(os_display=label, count=n) for label, n in counts.most_common()]
 
 
+def _build_env_metrics(overview, rows: list[ReportRowItem]) -> list[dict]:
+    """환경 현황 메트릭 카드 5축 (P2) — 실시간 '현재 자원 현황' 축과 동기 (CPU·메모리·디스크·네트워크·디스크 I/O).
+
+    값은 전부 보고서 윈도우 통계 — CPU/메모리/디스크 = environment_utilization(capacity-weighted) avg(+p95),
+    네트워크/디스크 I/O = base.rows 의 per-server 윈도우 baseline 합(실시간 합산과 동일 의미, 윈도우 평균).
+    plain dict list — 스냅샷 직렬화 시 trend 와 동일하게 복원 불요. 값 부재는 "—" placeholder (#E9).
+    """
+    util = {b.label: b.pct for b in overview.utilization}
+    util_p95 = {b.label: b.pct for b in overview.utilization_p95}
+
+    def _pct(v: float | None) -> str:
+        return f"{v:.1f}%" if v is not None else "—"
+
+    net_total: float | None = None
+    iops_total: float | None = None
+    for r in rows:
+        if r.net_rx_kbps is not None or r.net_tx_kbps is not None:
+            net_total = (net_total or 0.0) + (r.net_rx_kbps or 0.0) + (r.net_tx_kbps or 0.0)
+        if r.disk_iops_baseline is not None:
+            iops_total = (iops_total or 0.0) + r.disk_iops_baseline
+    return [
+        {"label": "CPU", "value": _pct(util.get("CPU")), "sub": f"p95 {_pct(util_p95.get('CPU'))}"},
+        {"label": "메모리", "value": _pct(util.get("메모리")), "sub": f"p95 {_pct(util_p95.get('메모리'))}"},
+        {"label": "디스크", "value": _pct(util.get("디스크")), "sub": ""},
+        {"label": "네트워크", "value": format_net_rate(net_total) or "—", "sub": ""},
+        {"label": "디스크 I/O", "value": f"{iops_total:.0f} IOPS" if iops_total is not None else "—", "sub": ""},
+    ]
+
+
 def _select_top_risks(rows: list[ReportRowItem], view: str) -> list[ReportRowItem]:
     """view 별 위험 list 선정.
 
@@ -286,45 +315,6 @@ def _extract_capacity_imminent(rows: list[ReportRowItem]) -> list[CapacityImmine
     return out
 
 
-def _extract_insufficient(rows: list[ReportRowItem]) -> list[InsufficientHostItem]:
-    """insufficient_data 분류 호스트 추출 + 원인 순차 진단.
-
-    1순위: 오프라인 — 에이전트 미가동 (메트릭 자연스러운 부재, root cause).
-    2순위: 온라인이나 메트릭 수집 누락 — 누락 메트릭 명시 (CPU·메모리·Load·iowait·디스크).
-    3순위: 모든 메트릭 있지만 표본 부족 (윈도우 미만).
-    """
-    out: list[InsufficientHostItem] = []
-    for r in rows:
-        if r.recommendation != "insufficient_data":
-            continue
-        if not r.is_online:
-            reason = "오프라인 — 에이전트 미가동"
-        else:
-            # 온라인 — 세부 메트릭 점검 후 누락 list 명시.
-            missing: list[str] = []
-            if r.cpu_p95_pct is None:
-                missing.append("CPU")
-            if r.mem_p95_pct is None:
-                missing.append("메모리")
-            if r.load_15m_max is None:
-                missing.append("Load")
-            if r.iowait_p95_pct is None:
-                missing.append("iowait")
-            if r.worst_mount_used_pct is None:
-                missing.append("디스크")
-            reason = f"메트릭 수집 누락: {' · '.join(missing)}" if missing else "윈도우 내 표본 부족"
-        out.append(
-            InsufficientHostItem(
-                public_id=r.public_id,
-                hostname=r.hostname,
-                os_display=r.os_display,
-                reason=reason,
-            )
-        )
-    out.sort(key=lambda x: x.hostname)
-    return out
-
-
 def _env_summary_bullets(
     view: str,
     overview: EnvironmentOverview,
@@ -424,6 +414,7 @@ def to_environment_report(
     os_family_dist = _to_distribution_bars(overview.os_distribution, _OS_FAMILY_LABEL)
     workload_dist = _to_distribution_bars(overview.role_distribution)
     top_risks = _select_top_risks(base.rows, view)
+    env_metrics = _build_env_metrics(overview, base.rows)
     summary = _env_summary_bullets(view, overview, attention, classification_dist)
     under_hosts = (
         under_provisioned_hosts if under_provisioned_hosts is not None else list(overview.under_provisioned_hosts)
@@ -432,7 +423,6 @@ def to_environment_report(
     # customer 도 동일 헬퍼 호출 (로직 단일, 미사용 필드는 template 분기로 노출 안 함).
     attention_hosts = _extract_attention_hosts(attention, base.rows)
     capacity_imminent = _extract_capacity_imminent(base.rows)
-    insufficient = _extract_insufficient(base.rows)
     # 고객 의사결정 보조 (기존 분류·신호 단일 진실 재사용, 새 분류 도입 0).
     insufficient_count = sum(1 for r in base.rows if r.recommendation == "insufficient_data")
     evaluated_count = len(base.rows) - insufficient_count
@@ -458,17 +448,16 @@ def to_environment_report(
         workload_dist=workload_dist,
         workload_unknown_count=overview.role_unknown_count,
         top_risks=top_risks,
+        env_metrics=env_metrics,
         summary_bullets_env=summary,
         under_provisioned_hosts=under_hosts,
         service_catalog=_aggregate_service_catalog(base.rows),
         attention_hosts=attention_hosts,
         capacity_imminent=capacity_imminent,
-        insufficient_hosts=insufficient,
         # 템플릿 P3 회피 — 카운트 mapper precompute (#E1 P3).
         top_risks_count=len(top_risks),
         attention_hosts_count=len(attention_hosts),
         capacity_imminent_count=len(capacity_imminent),
-        insufficient_hosts_count=len(insufficient),
         under_provisioned_hosts_count=len(under_hosts),
         evaluated_count=evaluated_count,
         os_eol_count=len(attention.os_eol_warnings),

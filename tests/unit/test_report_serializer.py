@@ -6,6 +6,7 @@ cpu_breakdown·service_catalog)가 dict 가 아닌 dataclass 로 복원돼야 te
 (#C1 정적 스냅샷). 본 테스트는 그 복원 정합을 고정한다.
 """
 
+import dataclasses
 from datetime import UTC, datetime
 
 from assessment_engine.web.services.mappers.environment_report import to_environment_report
@@ -20,7 +21,7 @@ from assessment_engine.web.view_models.environment_report import (
     ServiceNameCount,
     VolumeUsage,
 )
-from assessment_engine.web.view_models.report import ReportSummary, ReportTotals
+from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary, ReportTotals
 from assessment_engine.web.view_models.server import IpAddr
 
 
@@ -122,3 +123,37 @@ def test_env_report_roundtrip_empty_nested_stays_default():
     assert restored.volumes == []
     assert restored.memory_breakdown is None
     assert restored.cpu_breakdown is None
+
+
+def _legacy_row_dict() -> dict:
+    """구 스냅샷 row dict 모사 — 현 필수 필드 + 폐기 키. 필드 변경 시 자동 추종(직렬화 호환이 검증 대상)."""
+    d: dict = {}
+    for f in dataclasses.fields(ReportRowItem):
+        if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING:
+            d[f.name] = False if f.type == "bool" else (1 if f.name == "server_id" else None)
+    d["hostname"] = "legacy-host"
+    return d
+
+
+def test_env_report_from_dict_drops_legacy_snapshot_keys():
+    """폐기 필드가 남은 구 스냅샷 복원 호환 — row 색 6키 + summary insufficient 2키 pop (#C1 정적 스냅샷)."""
+    data = env_report_to_dict(_make_env_report())
+    data["insufficient_hosts"] = []
+    data["insufficient_hosts_count"] = 0
+    row = _legacy_row_dict()
+    for legacy in (
+        "saturation_color",
+        "cpu_variance_color",
+        "mem_variance_color",
+        "worst_mount_days_color",
+        "reboot_count_color",
+        "agent_restart_count_color",
+    ):
+        row[legacy] = "#b91c1c"
+    data["top_risks"] = [row]
+
+    restored = env_report_from_dict(data)
+
+    assert restored.top_risks[0].hostname == "legacy-host"
+    assert not hasattr(restored, "insufficient_hosts")
+    assert not hasattr(restored.top_risks[0], "saturation_color")

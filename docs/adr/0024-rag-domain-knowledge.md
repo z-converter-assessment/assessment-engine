@@ -1,6 +1,6 @@
 # ADR 0024 — AI 진단 RAG 도입 (도메인 지식 phase)
 
-상태: Proposed (2026-05-23)
+상태: Superseded by 0039 (2026-06-10)
 
 ## Context
 

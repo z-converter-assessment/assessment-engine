@@ -12,6 +12,9 @@ const { AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
 
 const PERF_IOPS_SUGGESTED_MAX = 200;              // HDD 랜덤 I/O 한계 기준 (환경 합산이라 자동 확장 가능)
 const PERF_NET_SUGGESTED_MAX  = 10 * 1024 * 1024; // 10 MB/s
+const PERF_DISK_KBPS_SUGGESTED_MAX = 10 * 1024;   // 10 MB/s — net 처리량과 동일 절대 기준선
+// 처리량 동적 단위 (kBps/MBps) — storage/detail/개별 성능추이와 일관.
+const fmtThroughput = (kb) => kb == null ? '—' : (kb >= 1024 ? (kb / 1024).toFixed(1) + ' MBps' : kb.toFixed(1) + ' kBps');
 const PERF_PPS_SUGGESTED_MAX  = 10;
 
 const USAGE_DANGER_PCT = parseFloat(document.body.dataset.usageDangerPct) || 90;
@@ -29,7 +32,7 @@ const chartInstances = {};
 // P4(a) sequence counter — per-chart 분리.
 const seqs = {
   cpu: 0, cpuClass: 0, load: 0, mem: 0, memComp: 0, swap: 0,
-  physIo: 0, fs: 0, netIo: 0, netPps: 0,
+  physIo: 0, diskKbps: 0, fs: 0, netIo: 0, netPps: 0,
 };
 
 const _safe = safeArray;
@@ -171,6 +174,7 @@ const Y_PCT   = { min:0, max:100, ticks: pctTicks };
 const Y_SWAP  = { min:0, beginAtZero:true, suggestedMax:25, ticks: pctTicks };
 const Y_LOAD  = { beginAtZero:true, suggestedMax: 1.5, ticks:{ font:{size:11}, color:'#64748b' }, title:{ display:true, text:'Load/core', font:{size:11}, color:'#94a3b8' } };
 const Y_IOPS  = { beginAtZero:true, suggestedMax: PERF_IOPS_SUGGESTED_MAX, ticks:{ precision:0, font:{size:11}, color:'#64748b' }, title:{ display:true, text:'IOPS', font:{size:11}, color:'#94a3b8' } };
+const Y_DISK_KBPS = { beginAtZero:true, suggestedMax: PERF_DISK_KBPS_SUGGESTED_MAX, ticks:{ callback: v => fmtThroughput(v), font:{size:11}, color:'#64748b' }, title:{ display:true, text:'KB/s', font:{size:11}, color:'#94a3b8' } };
 const Y_NET   = { beginAtZero:true, suggestedMax: PERF_NET_SUGGESTED_MAX, ticks:{ callback: v => fmtKbChart(v), font:{size:11}, color:'#64748b' } };
 const Y_PPS   = { beginAtZero:true, suggestedMax: PERF_PPS_SUGGESTED_MAX, ticks:{ callback: v => v.toFixed(0) + ' pps', font:{size:11}, color:'#64748b' } };
 
@@ -190,7 +194,7 @@ async function loadCpuChart(range, anchor) {
 }
 
 const CPUCLASS_META = {
-  user:   { label: 'User',     color: '#3b82f6' },
+  user:   { label: 'User',     color: ChartUtils.themeColor() },
   system: { label: 'System',   color: '#f59e0b' },
   iowait: { label: 'I/O Wait', color: '#ef4444' },
 };
@@ -233,8 +237,8 @@ async function loadLoadChart(range, anchor) {
     type: 'line',
     data: { labels, datasets: [{
       label: 'Load 15m', data,
-      borderColor: '#f59e0b', backgroundColor: '#f59e0b22',
-      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: true, spanGaps: false,
+      borderColor: '#f59e0b',
+      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
     }] },
     options: makePerfOptions(Y_LOAD, v => v.toFixed(2)),
   });
@@ -255,7 +259,7 @@ async function loadMemChart(range, anchor) {
 }
 
 const MEMCOMP_META = {
-  used:      { label: 'Used',      color: '#3b82f6' },
+  used:      { label: 'Used',      color: ChartUtils.themeColor() },
   available: { label: 'Available', color: '#8b5cf6' },
   cached:    { label: 'Cached',    color: '#22c55e' },
   buffers:   { label: 'Buffers',   color: '#f59e0b' },
@@ -309,6 +313,26 @@ async function loadPhysIoChart(range, anchor) {
   const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
   const chart = setChart('physio-canvas', 'physio-empty', rows, Y_IOPS, v => Math.round(v)+' IOPS', datasets, labels);
   buildAvgMaxLegend('physio-legend', chart, { withToggle: true });
+}
+
+// 디스크 처리량(kBps) — 환경 합산(Read/Write). 물리 device 만 합산(IOPS 와 동일 device).
+async function loadDiskKbpsChart(range, anchor) {
+  const seq = ++seqs.diskKbps;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const [read, write] = await Promise.all([
+    fetchChart('disk.read_kbps', range, anchor),
+    fetchChart('disk.write_kbps', range, anchor),
+  ]);
+  if (seq !== seqs.diskKbps) return;
+  const rows = [
+    ..._safe(read).map(r => ({ ...r, dimension: 'Read' })),
+    ..._safe(write).map(r => ({ ...r, dimension: 'Write' })),
+  ];
+  const datasets = buildDatasets(rows, bMs, grid, null);
+  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const chart = setChart('diskkbps-canvas', 'diskkbps-empty', rows, Y_DISK_KBPS, fmtThroughput, datasets, labels);
+  buildAvgMaxLegend('diskkbps-legend', chart, { withToggle: true });
 }
 
 async function loadFsChart(range, anchor) {
@@ -378,7 +402,8 @@ async function loadAllCharts() {
     loadCpuChart(range, anchor),     loadCpuClassChart(range, anchor),
     loadLoadChart(range, anchor),    loadMemChart(range, anchor),
     loadMemCompChart(range, anchor), loadSwapChart(range, anchor),
-    loadPhysIoChart(range, anchor),  loadFsChart(range, anchor),
+    loadPhysIoChart(range, anchor),  loadDiskKbpsChart(range, anchor),
+    loadFsChart(range, anchor),
     loadNetIoChart(range, anchor),   loadNetPpsChart(range, anchor),
   ]);
 }

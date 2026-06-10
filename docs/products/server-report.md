@@ -43,7 +43,7 @@ server detail 페이지에서 "서버 진단" 카드가 USE Method 분류·권�
 
 질문 4: "Right-sizing 결정의 근거를 어디서 확인하나?"
 
-engineer view 의 판단 컬럼 + 분류 컬럼이 USE Method 임계값 기반 자동 판단 노출. 운영자가 "왜 이 서버가 under_provisioned 인가" 를 같은 행의 CPU p95·메모리 p95·swap·variance 에서 즉시 검증. 별도 detail 페이지 없이 보고서 한 장에서 right-sizing 의사결정 시그널 확인.
+engineer view 의 진단·분류 칼럼이 USE Method 임계값 기반 자동 해석 노출. 운영자가 "왜 이 서버가 under_provisioned 인가" 를 같은 행의 CPU p95·메모리 p95·swap·variance 에서 즉시 검증. 별도 detail 페이지 없이 보고서 한 장에서 right-sizing 의사결정 시그널 확인.
 
 ## 산출 정보
 
@@ -53,44 +53,27 @@ KPI 6개 + 환경 총 자원 + 선택 맥락 (선택 N대의 OS 구성·워크�
 
 ### view 분기 — customer (양식 A)
 
-목적: 컨설턴트가 고객 미팅·내부 보고에 들고 가는 한 장짜리 N대 자원 요약.
+목적: 컨설턴트가 고객 미팅·내부 보고에 들고 가는 N대 자원 요약.
 
-메인 표 8 컬럼: SERVER · ROLE · OS · CPU p95 · MEM p95 · 위험도 · 상태 · 진단
+구성 = 환경 보고서 본문 공유(customer 분기 — 요약·환경 구성·서비스 구성·환경 요약·자원 적정성 평가(분류 분포·효율화·조치 필요 호스트)·OS 지원 종료, 단일 진실 `docs/products/environment-report.md`) + 세부 서버 목록 표.
 
-자동 정성 요약 (행동 시그널): 고위험·주의·디스크 임박·I/O 병목·재부팅·OS EOL
+세부 서버 목록 컬럼(customer): 상태 · 서버 · 구동 서비스 · OS · 자원(vCPU·MEM·DISK) · CPU 평균 · MEM 평균 · 프로비저닝 · 개별 보고서 링크 (`_shared.html` `detail_server_list` 단일 진실, 환경·선택 공유).
 
-각 서버명은 개별 상세 보고서 링크 (화면 클릭 이동). 인쇄본은 링크가 죽으므로 말미 "개별 서버 보고서(별첨)" 목차로 존재·식별 보존 (P-D 드릴다운).
+자동 정성 요약 (행동 시그널): 디스크 임박·I/O 병목·재부팅·OS EOL.
 
-Print 우선 — 인쇄 PDF 대응. 판단 근거(임계값 전문)는 모든 보고서 공통 단일 partial(`reports/_thresholds_reference.html`)이 인쇄본 말미에 임베드 — 인쇄본 단독 검토 가능 (별도 페이지 인쇄 불필요).
+판단 근거(임계값 전문)는 모든 보고서 공통 단일 partial(`reports/_thresholds_reference.html`)이 인쇄본 말미에 임베드 — 인쇄본 단독 검토 가능.
 
 ### view 분기 — engineer (양식 B)
 
 목적: 운영자·엔지니어 정량 분석 + Right-sizing 근거 검증.
 
-메인 표 16 컬럼:
+구성 = 환경 보고서 본문 공유(engineer 분기 — 환경 현황 5축 메트릭·부하 추이+토폴로지·자원 적정성 분류(분포·리소스 부족 상세·호스트 권고 표)·OS 지원 종료·OS 버전 분포, 단일 진실 `docs/products/environment-report.md`) + 세부 서버 목록 표.
 
-| # | 컬럼 | 표시 | source |
-|---|------|------|--------|
-| 1 | SERVER / internal IP | hostname + private IP | `server_inventory` |
-| 2 | ROLE | service_classifier 워크로드 카테고리 (engineer 다중 배지 — `workload_groups`, listen 보강) | `service_classifier` |
-| 3 | OS / KERNEL | os_id·version + kernel_version | `server_inventory` |
-| 4 | CPU | p95 · peak (%) | `report_aggregate` |
-| 5 | MEM | p95 · peak (%) | `report_aggregate` |
-| 6 | LOAD | 15m max · saturation (load/cores) | `report_aggregate` |
-| 7 | 변동성 | cpu · mem (peak/p95) | `report_aggregate` |
-| 8 | I/O wait | p95 · peak (%) | `report_aggregate` |
-| 9 | DISK IOPS | avg · p95 · peak | `report_disk_io_baseline` |
-| 10 | DISK KB/s | avg · p95 · peak | `report_disk_io_baseline` |
-| 11 | NET RX | avg · p95 · peak (kB/s) | `report_net_io_baseline` |
-| 12 | NET TX | avg · p95 · peak (kB/s) | `report_net_io_baseline` |
-| 13 | SWAP / Mount | swap 사용 여부 + worst mount(경로·사용률·잔여일) | `report_aggregate` + `report_mount_worst` |
-| 14 | Uptime / 재부팅 | uptime_days + reboot_count (period 안) | `report_uptime_stats` |
-| 15 | 분류 / 판단 | USE Method classification + 자동 판단 텍스트 | `recommendation.classify` + mapper `_build_diagnosis` |
-| 16 | 진단 (7일) | 진단 워커 latest succeeded 결과 | `diagnostic_jobs` |
+세부 서버 목록 컬럼(engineer): customer 컬럼 + 재부팅 · 에이전트 재시작 (시스템 안정성 — anchor+window 안 카운트).
 
-자동 정성 요약 (customer 시그널 + engineer 추가): 역할별 평균 CPU 최고치·Saturation 발생·CPU 변동성 큼.
+호스트 권고 표(본문 공유): 분류 · 진단 · 권고 · 신뢰도 — 분류는 `recommendation.assess`, 진단은 가장 시급한 신호 1개(`_build_diagnosis`, 데이터 부족 호스트는 원인 진단·오프라인은 "오프라인" 접두), 권고는 분류+trigger 파생(`_build_recommendation_action`), 신뢰도는 `build_confidence_notes`(is_partial·low_sample). 단일 보고서 자원 적정성 평가 표와 동일 판독 프레임.
 
-화면 분석 우선 (인쇄 가능하지만 가로 폭 한계).
+자동 정성 요약 (customer 시그널 + engineer 추가): 역할별 평균 CPU 최고치·Saturation 발생·CPU 변동성 큼(peak/p95 1.5배+).
 
 ### 개별 서버 보고서 — 구동 서비스 (구성 계층)
 
@@ -108,11 +91,11 @@ N대 selection 은 서버 간 비교를 위해 행 단위 정량 표(양식 B)�
 
 | 항목 | 내용 | source |
 |------|------|--------|
-| 평가 윈도우 | 사용자 선택 (15m/1h/6h/24h/7d/14d default/30d) | UI 모달 또는 14d default |
+| 평가 윈도우 | 사용자 선택 (15m/1h/6h/24h/7d default/14d/30d) | UI 모달 또는 7d default (`DIAGNOSTIC_DEFAULT_TIME_RANGE`) |
 | Anchor 시점 | 사용자 선택 (KST datetime) 또는 현재 | UI 모달 또는 default now |
 | 분류 | under/over/idle/shutdown/optimal/insufficient_data | `recommendation.classify` |
 | 권장 action | upsize_cpu / upsize_memory / downsize_cpu / downsize_memory / shutdown_idle / no_action | `recommendation` |
-| 자연어 narrative | "서버 {hostname}는 최근 {window} 동안 CPU p95 {%}, 메모리 p95 {%} 사용 ..." | `mock.py::_server_narrative` (결정론 템플릿) |
+| 자연어 narrative | "서버 {hostname}는 최근 {window} 동안 CPU p95 {%}, 메모리 p95 {%} 사용 ..." | `llm/ollama.py` `OllamaLlmClient` (단일 provider, ADR 0025) + 수치 환각 검증 |
 
 산출 결과 예시:
 ```
@@ -127,10 +110,14 @@ AWS Compute Optimizer 임계값(CPU p95 30%) 기준으로 CPU 다운사이즈 �
 
 | 분류 | 트리거 조건 | 출처 |
 |------|-----------|------|
-| idle | CPU p95 < 3% + 네트워크 미사용 (`SHUTDOWN_CPU_P95_PCT=3`) | Azure Advisor "underutilized VM" |
-| over_provisioned | CPU p95 <= 30% + 메모리 p95 <= 50% (`CPU_DOWNSIZE_P95_PCT=30`·`MEM_DOWNSIZE_P95_PCT=50`) | AWS Compute Optimizer "over-provisioned" |
-| under_provisioned | CPU p95 >= 70% 또는 메모리 p95 >= 80% 또는 swap 발생 (`CPU_UPSIZE_P95_PCT=70`·`MEM_UPSIZE_P95_PCT=80`) | Kleinrock 큐잉 + Linux page cache 운영 통념 |
+| under_provisioned | 위험 신호 OR — CPU p95 >= 70 / 메모리 p95 >= 80 / swap 발생 / load >= cores / iowait p95 >= 20 / worst mount >= 85% (`CPU_UPSIZE_P95_PCT`·`MEM_UPSIZE_P95_PCT`·`CPU_SATURATION_LOAD_RATIO`·`IOWAIT_UPSIZE_PCT`·`DISK_CAPACITY_UPSIZE_PCT`) | USE Method + Kleinrock 큐잉 |
+| idle | CPU peak <= 1% + 네트워크 <= 1 kBps (`IDLE_CPU_PEAK_PCT`·`IDLE_NET_KBPS`) | AWS Compute Optimizer |
+| shutdown | CPU p95 <= 3% + 네트워크 <= 2 Mbps (`SHUTDOWN_CPU_P95_PCT`·`SHUTDOWN_NET_MBPS`) | Azure Advisor "underutilized VM" |
+| insufficient_data | CPU·메모리 p95 둘 다 부재 + under 신호 없음 | 평가 불가 (관측 부재) |
+| over_provisioned | CPU p95 <= 30 + 메모리 p95 <= 50 둘 다 (`CPU_DOWNSIZE_P95_PCT`·`MEM_DOWNSIZE_P95_PCT`) | AWS Compute Optimizer "over-provisioned" |
 | optimal | 위 어디에도 해당 안 함 | residual |
+
+판정 순서 = under -> idle -> shutdown -> insufficient_data -> over -> optimal (`recommendation.assess`, CLAUDE.md #E3).
 
 Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상시 사용은 saturation 아니라 제외. load/iowait도 OS 부재라 Windows는 cpu/mem utilization 축만으로 분류되고 swap·load·iowait 셀은 N/A, 분류 옆에 "부분 평가" 마커 표시. 상세 `right_sizing_thresholds.html`.
 
@@ -147,21 +134,23 @@ Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상�
 | DISK I/O | (서버, 시점) device 합산 rate | iops·throughput baseline | `/proc/diskstats` |
 | NET I/O | interface 합산 rate | rx·tx baseline | `/proc/net/dev` |
 
-### 판단 컬럼 평가 순서 (engineer view)
+### 진단 칼럼 평가 순서 (engineer view)
 
-1. swap 사용 — 메모리 부족 신호 (스왑 발생 자체가 위험)
+1. swap 사용 — "메모리 부족 (스왑 발생)" (paging 발생 자체가 1차 강신호)
 2. 디스크 I/O 병목 (iowait p95 >= 20%)
-3. CPU saturation (load > cores)
-4. 자원 압박 (cpu/mem p95 임계 초과)
-5. 변동성 큼 (peak/p95 >= 1.5)
-6. 미사용 (거의 0%)
-7. 여유 (다운사이즈 검토)
+3. CPU saturation (load >= cores)
+4. 메모리 압박 (mem p95 >= 80%)
+5. CPU 압박 (cpu p95 >= 70%)
+6. 변동성 큼 (peak/p95 >= 1.5 — burst)
+7. 거의 미사용 (cpu p95 <= 3%)
+8. 여유 있음 (cpu <= 30 + mem <= 50 — 축소 검토)
+9. 정상
 
-최상위 신호 1개만 노출 — 엔지니어가 가장 시급한 문제를 즉시 식별.
+최상위 신호 1개만 노출 — 엔지니어가 가장 시급한 문제를 즉시 식별. 예외 2개: 데이터 부족 분류 호스트는 신호 대신 원인 진단(오프라인—에이전트 미가동 / 누락 메트릭 명시 / 윈도우 내 표본 부족), 오프라인 호스트는 진단 앞에 "오프라인" 접두 (분류는 윈도우 측정 기반 유지).
 
 ### 평가 윈도우
 
-- 서버 보고서 default 7일 (`recommendation.WINDOW_DAYS`). URL `?period_days=N` (1~90일) override 가능.
+- 서버 보고서 default 7일 (`recommendation.WINDOW_DAYS`). URL `?time_range=`(15m~30d) override 가능.
 - 서버 진단 7개 옵션 (15m·1h·6h·24h·7d·14d default·30d) — 즉시 발행 모달에서 선택. 짧은 윈도우는 단발 부하·실시간 시연 검증, 긴 윈도우는 신뢰성 증가 최근 변동 반영 늦음.
 
 ### view 분기 의도
@@ -224,7 +213,7 @@ Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상�
 - `src/assessment_engine/web/services/diagnostic_service.py` — job 발행·polling
 - `src/assessment_engine/web/services/query_service.py::get_report` — 5 SQL round-trip + view 분기
 - `src/assessment_engine/web/services/mappers/report.py::build_report_summary_bullets` — view 분기 시그널
-- `src/assessment_engine/web/services/mappers/report.py::_build_diagnosis` — 판단 컬럼 우선순위 평가
+- `src/assessment_engine/web/services/mappers/report.py::_build_diagnosis` — 진단 칼럼 우선순위 평가
 - `src/assessment_engine/web/templates/servers/report.html` — 양식 A·B 분기 템플릿
 - `src/assessment_engine/web/templates/servers/detail.html` — server detail 페이지 진단 카드
 - `docs/products/environment-report.md` — 환경 단위 산출물 (cross-reference)

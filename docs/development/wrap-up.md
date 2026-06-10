@@ -81,7 +81,7 @@ Self-audit 메타 인용 제외:
   - FastAPI: `Depends(...)` · `APIRouter` · 라우터 분리. 글로벌 state X.
   - Jinja2: 필터 · `{% if %}` · `{% for %}` 만 (#E1 P3). 계산 X.
   - aio-pika: `async with message.process(requeue=False)` 컨텍스트 안에서 모든 await 완료 (#F11).
-- [1.2] 추상화는 정석 위치에만. `BaseSettings` · `Base*Repository` · `*Service` · `Base*Client`(`BaseLlmClient` · `BaseEmbeddingClient` · `BaseRetriever`) 외 ad-hoc abstract 0건.
+- [1.2] 추상화는 정석 위치에만. `BaseSettings` · `Base*Repository` · `*Service` · `BaseLlmClient` 외 ad-hoc abstract 0건.
 - [1.3] composition root 외 위치에서 `Settings()` 인스턴스 생성 0건 (#F4 6 위치만). 검사: `rg 'Settings\(\)|WebSettings\(\)|ConsumerSettings\(\)|DiagnosticSettings\(\)' src/`.
 - [1.4] 중복 함수·중복 상수 0건. 같은 의미는 단일 모듈 (UI badge 임계 = `mappers/shared.py` / USE Method 임계 = `recommendation.py`). 두 도메인 혼용 0건 (#E3).
 - [1.5] 죽은 코드 0건 — unused import · unreachable branch · 호출처 없는 public 함수. `ruff` · IDE inspection 통과.
@@ -134,7 +134,7 @@ Self-audit 메타 인용 제외:
 - [2.6] pytest-asyncio `loop_scope=session`(`pyproject.toml`). `@pytest.mark.asyncio` 명시 0건(`asyncio_mode=auto`).
 - [2.7] `tests/factories.py` `make_inventory()` · `make_metrics()` 활용. raw dict 직접 생성 0건. 신규 도메인은 factory 추가 후 활용.
 - [2.8] DB 의존 테스트는 `tests/integration/conftest.py` testcontainers + alembic round-trip fixture 사용. 함수 안 fixture 정의 0건 — 신규는 `conftest.py` 에만.
-- [2.9] mock 범위: 외부 의존(HTTP · LLM · 외부 큐 · ollama · embedding endpoint)에만. 내부 모듈 mock 0건. AsyncMock(Redis)는 unit `safe_*` 검증 시에만, integration 은 실제 컨테이너.
+- [2.9] mock 범위: 외부 의존(HTTP · LLM · 외부 큐 · ollama)에만. 내부 모듈 mock 0건. AsyncMock(Redis)는 unit `safe_*` 검증 시에만, integration 은 실제 컨테이너.
 - [2.10] 동일 시나리오 분기(같은 setup + 다른 입력·기대값)는 `@pytest.mark.parametrize`. 중복 함수 0건.
 
 레이어 결정 (test-write 흡수):
@@ -253,7 +253,7 @@ Self-audit 메타 인용 제외:
 정석 (4):
 - [5.6] ADR 은 정정만 (덮어쓰기 금지). 결정 변경은 새 ADR + 이전 ADR `Status: Superseded by 00NN` (Withdrawn 이면 사유 1줄). retroactive 수정 0건.
 - [5.7] CLAUDE.md F9 "변경 영향도 체크리스트" 에 본 feature 가 추가한 변경 유형이 빠졌으면 행 추가 (변경 유형 + 동시 갱신 위치).
-- [5.8] 새 외부 의존(HTTP · LLM · 외부 큐 · embedding endpoint) 도입 시 F6 "외부 의존 실패 모드 매트릭스"(`docs/operations/observability.md`)에 행 추가 (fail-open/close · timeout · 재시도).
+- [5.8] 새 외부 의존(HTTP · LLM · 외부 큐) 도입 시 F6 "외부 의존 실패 모드 매트릭스"(`docs/operations/observability.md`)에 행 추가 (fail-open/close · timeout · 재시도).
 - [5.9] CLAUDE.md "본 절 결정" 신규는 (a) 검사 가능(`rg`·`ruff`·hook·테스트로 위반 발견) (b) F9 영향도 표시 (c) 위반 시 행동 명시 셋 다 충족. 새 F-policy 는 번호 단조 증가. 단순 조언(`...하는 게 좋다`)이면 채택 X — 결정·금지·매트릭스 형태만.
 
 원칙 (3):

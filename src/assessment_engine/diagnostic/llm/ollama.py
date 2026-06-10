@@ -1,4 +1,4 @@
-"""Ollama LLM client — 로컬 무료 LLM (ADR 0004 + 0010 + 0024).
+"""Ollama LLM client — 로컬 무료 LLM (ADR 0004 + 0010).
 
 HTTP POST /api/chat (ollama 표준 API) — system + user prompt -> Korean narrative.
 default 모델 = llama3.1:8b. 한국어 정합 우위 모델 (qwen2.5:14b 등) 으로 운영자 교체 가능.
@@ -10,12 +10,10 @@ system prompt 본질:
 - right-sizing expert role
 - payload 안 숫자만 활용 (외부 숫자 생성 금지) — handler 수치 검증과 정합
 - classification + action 라벨 그대로 인용
-- RAG context (도메인 지식) 있으면 인용
 - 2~4 문장 Korean narrative (markdown · code block 금지)
 
 user prompt 본질:
 - scope (server / environment) 별 statistics + classification + action
-- payload['rag_context'] 안 top-3 chunk content 인용
 """
 
 import asyncio
@@ -158,7 +156,6 @@ def _build_server_prompt(payload: dict[str, Any]) -> str:
         f"- Classification: {classification}",
         f"- Recommended action: {action}",
     ]
-    _append_rag_context(lines, payload)
     lines.append("")
     lines.append("Generate a Korean narrative (2-4 sentences).")
     return "\n".join(lines)
@@ -187,22 +184,9 @@ def _build_environment_prompt(payload: dict[str, Any]) -> str:
         f"- Idle: {idle_n}",
         f"- Optimal: {optimal_n}",
     ]
-    _append_rag_context(lines, payload)
     lines.append("")
     lines.append("Generate a Korean narrative summarizing fleet right-sizing strategy (2-4 sentences).")
     return "\n".join(lines)
-
-
-def _append_rag_context(lines: list[str], payload: dict[str, Any]) -> None:
-    rag_context = payload.get("rag_context") or []
-    if not rag_context:
-        return
-    lines.append("")
-    lines.append("Relevant domain knowledge:")
-    for idx, doc in enumerate(rag_context[:3], start=1):
-        content = doc.get("content", "").strip()
-        if content:
-            lines.append(f"[{idx}] {content}")
 
 
 def _safe_count(classification: dict[str, Any], key: str) -> int:

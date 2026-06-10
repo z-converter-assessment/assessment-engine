@@ -12,7 +12,10 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from assessment_engine.db.repositories.base_diagnostic_repository import DiagnosticTimeRange
+from assessment_engine.db.repositories.base_diagnostic_repository import (
+    DIAGNOSTIC_DEFAULT_TIME_RANGE,
+    DiagnosticTimeRange,
+)
 from assessment_engine.web.deps import get_diagnostic_service, get_service
 from assessment_engine.web.services.diagnostic_service import DiagnosticService, _normalize_anchor
 from assessment_engine.web.services.mappers.report_history import to_report_history_item
@@ -38,7 +41,7 @@ async def environment_report(
     request: Request,
     job: str | None = Query(None, description="발행된 보고서 job_id — 정적 스냅샷 렌더"),
     time_range: DiagnosticTimeRange = Query(
-        "14d",
+        DIAGNOSTIC_DEFAULT_TIME_RANGE,
         description="윈도우 (live preview) — 7개 (15m/1h/6h/24h/7d/14d/30d)",
     ),
     anchor_at: datetime | None = Query(None, description="분석 기준 시각 (live preview). 미명시 시 현재"),
@@ -103,14 +106,14 @@ async def _render_environment_snapshot(
             "narrative_status": result.get("narrative_status", "none"),
             "report_job_id": rec.id,
             "narrative_key": ENV_NARRATIVE_KEY,
-            "time_range": rec.input_params.get("time_range", "14d"),
+            "time_range": rec.input_params.get("time_range", DIAGNOSTIC_DEFAULT_TIME_RANGE),
         },
     )
 
 
 @reports_router.post("/environment/emit")
 async def environment_report_emit(
-    time_range: DiagnosticTimeRange = Query("14d"),
+    time_range: DiagnosticTimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
     anchor_at: datetime | None = Query(None),
     view: Literal["customer", "engineer"] = Query("customer"),
     service: QueryService = Depends(get_service),
