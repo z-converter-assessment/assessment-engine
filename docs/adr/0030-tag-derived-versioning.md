@@ -1,6 +1,6 @@
 # ADR 0030 — tag-derived 버전 (hatch-vcs, 버전을 repo 에 저장 안 함)
 
-상태: Accepted — 정정 (2026-06-08): tag derive 경로를 single-source 로 수렴 + stable semver 가드 + 등가성 검증 (하단 "정정" 절). tag-derived 원칙 불변.
+상태: Accepted — 정정 (2026-06-08): tag derive 경로를 single-source 로 수렴 + stable semver 가드 + 등가성 검증. 정정 (2026-06-13): infra CD dispatch 를 `release: published` 이벤트 워크플로(`notify-infra.yml`)에서 `release.yml` 통합 job 으로 전환 — GITHUB_TOKEN 이벤트 재귀 차단 함정 해소 + single-source fan-out 완성 (하단 두 "정정" 절). tag-derived 원칙 불변.
 
 ## Context
 
@@ -116,6 +116,37 @@ C. single-source fan-out — 버전을 `resolve-version` job 이 hatch-vcs(`uvx 
 | `.github/workflows/notify-infra.yml` | A 제약 명시 주석 (stable-only 전제로 `#v` strip 안전) — 코드 무변경 |
 | `docs/operations/release.md` | 2절 흐름에 single-source·가드 반영 + 7절 한계 "stable semver only (prerelease 미지원)" 추가 |
 | `docs/adr/README.md` | 0030 행 요약에 derive 가드 정정 한 줄 |
+
+## 정정 (2026-06-13) — infra CD dispatch 를 release.yml 통합 job 으로 (이벤트 의존 제거)
+
+### 보강 배경
+
+2026-06-08 정정 C 는 single-source fan-out 을 세웠으나, infra CD dispatch(`engine-release` repository_dispatch)만 `${GITHUB_REF_NAME#v}` strip 경로로 남겼다 (당시 `notify-infra.yml` 이 별도 `release: published` 워크플로라 `resolve-version` job output 직참조 불가, line 103). 그런데 그 전제 자체가 작동하지 않았다:
+
+`release.yml` 의 GitHub Release 는 `softprops/action-gh-release` 가 token 미지정 -> 기본 `GITHUB_TOKEN`(주체 `github-actions[bot]`)으로 생성한다. GitHub Actions 재귀 방지 규칙상 `GITHUB_TOKEN` 으로 발생시킨 이벤트는 다른 워크플로 run 을 트리거하지 못한다. 따라서 그 Release 의 `release: published` 이벤트는 `notify-infra.yml` 을 깨우지 못한다 — 실측 결과 `notify-infra.yml` 은 도입(2026-06-09) 후 단 한 번도 발화하지 않았다(실행 0건, v0.6.0 Release author = `github-actions[bot]`로 확인). release.yml 본문 주석은 "tag 를 GITHUB_TOKEN 으로 push 하면 release.yml 이 안 돈다"는 함정의 1단계만 인지했고, 동일 규칙이 release.yml 이 만드는 Release -> notify-infra 2단계에도 적용된다는 점은 누락했다.
+
+### 결정 (이벤트 의존 폐기 -> 동일 워크플로 job 의존)
+
+`notify-infra.yml` 폐기. dispatch 를 `release.yml` 안 `notify-infra` job(`needs: [resolve-version, release-wheel, release-image]`)으로 통합한다.
+
+- `release: published` 이벤트에 의존하지 않으므로 GITHUB_TOKEN 재귀 차단 함정과 무관 — 같은 워크플로 안 job DAG 으로 결정적 실행.
+- 버전은 `resolve-version` job output(`version`)을 직접 참조 -> 2026-06-08 정정에서 직참조 불가라 유일하게 남겨둔 `${GITHUB_REF_NAME#v}` strip 경로마저 소멸. C single-source fan-out 이 dispatch payload 까지 완성된다 (정규화 규칙 hatch-vcs PEP 440 단일 수렴, strip 경로 0).
+- dispatch 는 wheel·image release 성공 후에만 발사(`needs`) — infra 가 신호를 받는 시점에 GitHub Release artifact 와 GHCR image 가 이미 존재함을 보장.
+- `INFRA_DISPATCH_TOKEN`(대상 repo dispatch 권한 PAT, secret)·`event-type: engine-release`·payload `{engine_version}` 계약은 동일 — 발사 위치만 이동.
+
+### Consequences
+
+- dispatch 가 release 성공에 결정적으로 묶여 관측·디버깅이 같은 워크플로 run 안에서 끝난다 (이벤트 체인 추적 불요).
+- strip 경로 0 — 버전 산출 권위 소스가 `resolve-version` job 1곳으로 완전 수렴.
+- 한계: dispatch 가 release.yml 전체 성공에 의존하므로, release job 일부 실패 시 dispatch 도 미발사 (의도 — partial release 를 infra 에 통지하지 않음).
+
+### 정정 동시 갱신 (F9)
+
+| 위치 | 변경 |
+|------|------|
+| `.github/workflows/release.yml` | `notify-infra` job 신설 (`needs: resolve-version·release-wheel·release-image`, payload 버전 = resolve-version output) |
+| `.github/workflows/notify-infra.yml` | 폐기(삭제) — 이벤트 의존 워크플로 제거 |
+| `docs/adr/README.md` | 0030 행 요약에 본 정정 한 줄 |
 
 ## 관련 문서·코드
 
