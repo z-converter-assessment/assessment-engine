@@ -6,15 +6,68 @@
   <title>{% block title %}ZConverter Assessment{% endblock %}</title>
   <style>
     /* 테마색 2개 (단일 진실) — 제목 악센트(card-title 등)·테이블 제목행 배경. 색 변경 시 본 변수만 수정. */
-    :root { --color-title: #3b82f6; --color-table-head: #a7b2c0; }
+    :root {
+      /* 테마색 3가지 (단일 진실) — 파란 주색 / 사이드바 회색 / 테이블 제목행 회색. 색 변경 시 본 3개만 수정. */
+      --color-title: #3b82f6;
+      --color-sidebar: #475569;
+      --color-table-head: #a7b2c0;
+      /* 사이드바 색 — --color-sidebar 파생(음영). 흰 글씨. */
+      --sidebar-bg: var(--color-sidebar);
+      --sidebar-border: color-mix(in srgb, var(--color-sidebar) 82%, black);
+      --sidebar-border-strong: color-mix(in srgb, var(--color-sidebar) 72%, black);
+      --sidebar-fg: #ffffff;
+      --sidebar-hover: color-mix(in srgb, var(--color-sidebar) 88%, white);
+      --sidebar-active: color-mix(in srgb, var(--color-sidebar) 80%, white);
+      --sidebar-width: 224px;
+    }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; color: #1a1a1a; background: #f1f5f9; }
-    header { background: #3770C1; color: #fff; padding: 0 24px; height: 52px; display: flex; align-items: center; gap: 24px; }
-    header a { color: rgba(255,255,255,.85); text-decoration: none; font-size: 13px; }
-    header a:hover { color: #fff; }
-    header .brand { color: #fff; font-weight: 700; font-size: 15px; margin-right: 16px; letter-spacing: -.3px; text-decoration: none; }
-    header .brand:hover { color: rgba(255,255,255,.75); }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; color: #1a1a1a; background: #f1f5f9; display: flex; align-items: stretch; min-height: 100vh; }
+
+    /* ── 사이드바 네비게이션 (top navbar 대체) — _sidebar.html 마크업 + nav_groups 글로벌. ── */
+    /* 폰트 위계 없음(그룹·항목 동일 크기 13px) + 전부 흰 글씨 (회색 바탕). */
+    .sidebar { width: var(--sidebar-width); flex-shrink: 0; background: var(--sidebar-bg); border-right: 1px solid var(--sidebar-border); display: flex; flex-direction: column; }
+    .sidebar-brand-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 14px 14px 18px; border-bottom: 1px solid var(--sidebar-border); }
+    .sidebar-brand { font-weight: 700; font-size: 13px; letter-spacing: -.2px; color: var(--sidebar-fg); text-decoration: none; }
+    .sidebar-collapse-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex-shrink: 0; background: none; border: none; cursor: pointer; color: var(--sidebar-fg); opacity: .8; }
+    .sidebar-collapse-btn:hover { opacity: 1; background: var(--sidebar-hover); border-radius: 4px; }
+    .sidebar-collapse-btn::before { content: ""; width: 7px; height: 7px; border-left: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); margin-left: 2px; }
+    .sidebar-nav { padding: 8px 0; overflow-y: auto; }
+    .sidebar-group { margin-bottom: 2px; }
+    .sidebar-group-label { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 8px 18px; background: none; border: none; cursor: pointer; font: inherit; font-size: 13px; color: var(--sidebar-fg); text-align: left; }
+    .sidebar-group-label::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--sidebar-fg); border-bottom: 1.5px solid var(--sidebar-fg); transform: rotate(45deg); transition: transform .15s; opacity: .7; margin-bottom: 2px; }
+    .sidebar-group.is-collapsed .sidebar-group-label::after { transform: rotate(-45deg); margin-bottom: -2px; }
+    .sidebar-items { list-style: none; }
+    .sidebar-group.is-collapsed .sidebar-items { display: none; }
+    .sidebar-item { display: block; padding: 7px 18px 7px 30px; color: var(--sidebar-fg); text-decoration: none; font-size: 13px; border-left: 3px solid transparent; }
+    .sidebar-item:hover { background: var(--sidebar-hover); }
+    .sidebar-item.is-active { background: var(--sidebar-active); border-left-color: var(--color-title); }
+
+    .content-area { flex: 1; min-width: 0; }
     main { max-width: 1160px; margin: 28px auto; padding: 0 24px; }
+    /* 제목 위 경로 (breadcrumb) — active_nav 기반 "그룹 / 항목". P3: nav_breadcrumb dict 조회만. */
+    .breadcrumb { font-size: 12px; color: #94a3b8; margin-bottom: 8px; }
+
+    /* 데스크탑 접기 — body.sidebar-collapsed 시 사이드바 숨김 + 좌상단 펼치기(햄버거) 노출. */
+    .sidebar-toggle-btn { display: none; }
+    body.sidebar-collapsed .sidebar { display: none; }
+    body.sidebar-collapsed .sidebar-toggle-btn { display: inline-flex; }
+    body.sidebar-collapsed main { margin-top: 60px; }
+
+    /* 좁은 화면 — 사이드바 off-canvas (햄버거 토글). 기본 숨김, body.sidebar-open 시 슬라이드 인. */
+    /* 펼치기 버튼은 프로젝트 버튼 테마(.btn-action) 따름 — 흰 배경·경계·그림자·회색 글씨. */
+    .sidebar-toggle-btn { position: fixed; top: 12px; left: 12px; z-index: 60; width: 38px; height: 38px; align-items: center; justify-content: center; background: #fff; color: #374151; border: 1px solid #e2e8f0; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; cursor: pointer; }
+    .sidebar-toggle-btn:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); }
+    @media (max-width: 768px) {
+      body { display: block; }
+      .sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 70; transform: translateX(-100%); transition: transform .2s; box-shadow: 2px 0 8px rgba(0,0,0,.08); }
+      body.sidebar-open .sidebar { transform: translateX(0); }
+      body:not(.sidebar-collapsed) .sidebar { display: flex; }
+      .sidebar-collapse-btn { display: none; }
+      .sidebar-toggle-btn { display: inline-flex; }
+      .sidebar-backdrop { display: none; position: fixed; inset: 0; z-index: 65; background: rgba(15,23,42,.3); }
+      body.sidebar-open .sidebar-backdrop { display: block; }
+      main, body.sidebar-collapsed main { margin: 64px auto 28px; }
+    }
     /* 폰트 위계 단일 진실 (static-assets.md "폰트 위계" 절). h1 > h2 > h3 영향력 차이 명확. */
     h1 { font-size: 20px; font-weight: 700; margin: 0 0 20px; color: #0f172a; }
     h2 { font-size: 16px; font-weight: 700; margin: 0 0 14px; color: #1e293b; }
@@ -37,18 +90,19 @@
     /* 세부 서버 목록 — 다열 표라 조밀하게: 패딩만 축소(폰트는 td 13px·th 11px 표준 유지, 넘치면 가로 스크롤). server-list-table 와 동일 정책(폰트 아닌 패딩으로 밀도). */
     .detail-table th, .detail-table td { padding: 6px 9px; }
     /* 모든 link 일관 — color + 항상 밑줄 (옅음). hover 시 강조. 별도 class (.row-link 등) 와 단일 진실 정합. */
-    a { color: #2563eb; text-decoration: underline; text-decoration-color: #cbd5e1; text-underline-offset: 2px; }
-    a:hover { text-decoration-color: #2563eb; }
+    a { color: #666666; text-decoration: underline; text-decoration-color: #b0b0b0; text-underline-offset: 2px; }
+    a:hover { text-decoration-color: #666666; }
     .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; background: #e2e8f0; color: #475569; }
     .badge-ok   { background: #dcfce7; color: #166534; }
     .badge-warn { background: #fef3c7; color: #92400e; }
     .badge-danger { background: #fee2e2; color: #991b1b; }
-    .badge-cat-web       { background: #dbeafe; color: #1d4ed8; }
-    .badge-cat-db        { background: #fce7f3; color: #9d174d; }
-    .badge-cat-cache     { background: #ccfbf1; color: #115e59; }
-    .badge-cat-mq        { background: #f3e8ff; color: #6b21a8; }
-    .badge-cat-container { background: #e0f2fe; color: #075985; }
-    .badge-cat-monitor   { background: #fef9c3; color: #713f12; }
+    /* 서비스 카테고리 뱃지 — 배경은 옅은 회색 통일(알록달록 회피), 구분은 글씨 색으로만. */
+    .badge-cat-web       { background: #eef2f6; color: #1d4ed8; }
+    .badge-cat-db        { background: #eef2f6; color: #9d174d; }
+    .badge-cat-cache     { background: #eef2f6; color: #115e59; }
+    .badge-cat-mq        { background: #eef2f6; color: #6b21a8; }
+    .badge-cat-container { background: #eef2f6; color: #075985; }
+    .badge-cat-monitor   { background: #eef2f6; color: #713f12; }
     .badge-cat-unknown   { background: #f1f5f9; color: #64748b; }
     /* 서비스 그룹 좌측 액센트 바 — 카테고리 색으로 소속 표현 (외곽 박스 대신, card-title 좌측 바와 동일 언어). */
     .svc-group { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-left: 9px; border-left: 3px solid #cbd5e1; }
@@ -84,15 +138,16 @@
     .task-timeline tr.task-row td:last-child::after { content: "›"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #cbd5e1; font-size: 16px; transition: color .12s; }
     .task-timeline tr.task-row:hover td:last-child::after { color: var(--color-title); }
     .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07); padding: 20px 24px; margin-bottom: 18px; }
-    /* 카드 제목 미니멀 악센트 — 좌측 얇은 테마 막대만 (배경 0). 전 카드 통일. */
-    .card-title { border-left: 4px solid var(--color-title); padding-left: 7px; }
 
     /* Attention card 6 sub-section 표준 — list.html attention 전용. inline style 흩어짐 방지. */
     /* 카드 내부 서브섹션 구분 — 환경요약·운영신호 공통 위계 (h3 + 구분선). inline border-top 재구현 금지. */
     .card-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid #e2e8f0; }
     .attention-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
     .attention-item { display: flex; align-items: center; gap: 12px; font-size: 13px; }
-    .attention-badge { min-width: 80px; justify-content: center; }
+    .attention-cause { font-size: 12px; color: #94a3b8; }
+    /* 리소스 부족 지표 — 위반(active)은 빨강 대신 진한 무채 + 굵기 + 회색 배경 박스로 강조 (테마 무오염). */
+    .metric-val { font-weight: 600; }
+    .metric-val-active { font-weight: 700; background: #e2e8f0; padding: 1px 7px; border-radius: 4px; }
     /* attention-link — base a 스타일 (color + 밑줄) 상속, font-weight 만 강조. */
     .attention-link { font-weight: 600; }
     .attention-meta { color: #64748b; font-size: 12px; }
@@ -208,6 +263,8 @@
     .kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; }
     .kpi span { display: block; color: #64748b; font-size: 12px; }
     .kpi strong { display: block; font-size: 24px; font-weight: 700; color: #1e293b; margin-top: 4px; }
+    .kpi-sub { font-size: 11px; color: #94a3b8; margin-top: 5px; font-weight: 400; }
+    .role-chip { display: inline-flex; gap: 4px; align-items: baseline; font-size: 12px; color: #475569; background: #f1f5f9; padding: 3px 9px; border-radius: 4px; }
     .kpi-label { font-size: 11px; color: #94a3b8; margin: 0 0 4px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
     .kpi-label-sub { font-weight: 400; text-transform: none; letter-spacing: 0; color: #cbd5e1; }
 
@@ -365,14 +422,22 @@
   <script src="/static/js/chart-utils.js?v={{ asset_v }}"></script>
   <script src="/static/js/toast-utils.js?v={{ asset_v }}"></script>
   <script src="/static/js/task-modal.js?v={{ asset_v }}" defer></script>
+  <script src="/static/js/sidebar.js?v={{ asset_v }}" defer></script>
 </head>
 <body data-usage-danger-pct="{{ ui_thresholds.usage_danger_pct }}" data-usage-warn-pct="{{ ui_thresholds.usage_warn_pct }}" data-swap-danger-pct="{{ ui_thresholds.swap_danger_pct }}"{% block body_attrs %}{% endblock %}>
-  <header class="no-print">
-    <a href="/servers/" class="brand">ZConverter Assessment</a>
-  </header>
-  <main>
-    {% block content %}{% endblock %}
-  </main>
+  <button type="button" class="sidebar-toggle-btn no-print" id="sidebar-toggle" aria-label="메뉴 열기" aria-controls="sidebar" aria-expanded="false">
+    <span style="display:block; width:18px; height:2px; background:#374151; box-shadow:0 5px 0 #374151, 0 -5px 0 #374151;"></span>
+  </button>
+  <div class="sidebar-backdrop no-print" id="sidebar-backdrop"></div>
+  {% include "_sidebar.html" %}
+  <div class="content-area">
+    <main>
+      {% if active_nav and nav_breadcrumb.get(active_nav) %}
+      <div class="breadcrumb no-print">{{ nav_breadcrumb[active_nav].group }} / {{ nav_breadcrumb[active_nav].item }}</div>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
 
   <!-- Task 상세 modal — list.html "최근 작업" cell / detail.html timeline row 클릭 시 채워짐.
        data-task-id 속성 가진 element 클릭 → TaskModal.open(taskId) 자동 호출. -->

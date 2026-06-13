@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% from "_shared.html" import empty_state %}
+{% block title %}ZConverter Assessment — 네트워크 토폴로지{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:8px;">
+  <h1 style="margin:0;">네트워크 토폴로지</h1>
+  <div class="text-muted" style="font-size:12px; text-align:right;">최근 <span id="dashboard-updated">{{ generated_at | kst }}</span></div>
+</div>
+
+<script src="/static/js/vendor/cytoscape.min.js?v={{ asset_v }}" defer></script>
+<script src="/static/js/pages/network-topology.js?v={{ asset_v }}" defer></script>
+
+<section class="card no-print">
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; min-height:30px; margin-bottom:12px; flex-wrap:wrap;">
+    <h2 class="card-title" style="margin:0;">L3 서브넷 공동소속 그래프</h2>
+    {% if topology.has_data %}<span class="section-meta">서브넷 {{ topology.subnet_count }} · 호스트 {{ topology.host_count }}{% if topology.multi_homed_count > 0 %} · 다중 서브넷 {{ topology.multi_homed_count }}{% endif %}</span>{% endif %}
+  </div>
+  {% if topology.has_data %}
+  <div style="position:relative;">
+    <div id="topology-graph" style="height:560px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc;"
+         data-elements='{{ topology.elements | tojson }}'></div>
+    <div style="position:absolute; top:10px; right:10px; display:flex; flex-direction:column; gap:5px; z-index:10;">
+      <button type="button" class="chart-anchor" data-topo-zoom="in" title="확대" style="width:32px; height:32px; padding:0; font-size:16px; font-weight:600; text-align:center;">+</button>
+      <button type="button" class="chart-anchor" data-topo-zoom="out" title="축소" style="width:32px; height:32px; padding:0; font-size:16px; font-weight:600; text-align:center;">-</button>
+      <button type="button" class="chart-anchor" data-topo-zoom="fit" title="전체 보기" style="width:32px; height:32px; padding:0; font-size:10px; text-align:center;">전체</button>
+    </div>
+  </div>
+  <div class="text-muted" style="display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; font-size:11px;">
+    <span><span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:#64748b; vertical-align:middle;"></span> 서브넷</span>
+    <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--color-title); vertical-align:middle;"></span> Linux</span>
+    <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#8b5cf6; vertical-align:middle;"></span> Windows</span>
+    <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#f59e0b; vertical-align:middle;"></span> 다중 서브넷</span>
+  </div>
+  {% else %}
+  {{ empty_state("2대 이상이 공유하는 네트워크 세그먼트가 아직 없습니다 — 인벤토리가 쌓이면 호스트 간 서브넷 관계가 표시됩니다.") }}
+  {% endif %}
+</section>
+
+{% include "_reference_link.html" %}
+{% endblock %}

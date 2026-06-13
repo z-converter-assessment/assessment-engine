@@ -65,6 +65,7 @@ async def environment_report(
         request=request,
         name="reports/environment.html",
         context={
+            "active_nav": "environment",
             "summary": summary,
             "view": view,
             "view_title": _VIEW_TITLES[view],
@@ -97,6 +98,7 @@ async def _render_environment_snapshot(
         request=request,
         name="reports/environment.html",
         context={
+            "active_nav": "environment",
             "summary": summary,
             "view": view,
             "view_title": _VIEW_TITLES.get(view, view),
@@ -187,6 +189,7 @@ async def history(
     items = [to_report_history_item(r, history_back) for r in records]
     back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
     context = {
+        "active_nav": "history",
         "items": items,
         "items_count": len(items),  # P3 정공 — template 안 `length` 계산 회피, server precompute.
         "days": days,
@@ -215,7 +218,7 @@ async def right_sizing_thresholds(
     return templates.TemplateResponse(
         request=request,
         name="reports/right_sizing_thresholds.html",
-        context={"back_url": back_url},
+        context={"active_nav": "thresholds", "back_url": back_url},
     )
 
 

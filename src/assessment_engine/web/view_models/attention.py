@@ -3,8 +3,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from assessment_engine.web.view_models.topology import NetworkTopology
-
 
 @dataclass
 class AttentionRow:
@@ -206,6 +204,8 @@ class EnvironmentOverview:
     role_distribution: dict[str, int] = field(default_factory=dict)
     # known 역할(서비스 카테고리) 이 하나도 없는 호스트 수 — 서비스 없음 또는 전부 unknown. 호스트 단위.
     role_unknown_count: int = 0
+    # 서비스(역할) 1개 이상 식별된 호스트 수 = total - role_unknown_count. "서비스 식별 N대" 표시.
+    role_identified_count: int = 0
     utilization: list[UtilizationBar] = field(default_factory=list)
     # p95 활용률 3막대(CPU·메모리·디스크) — 평균과 동일 capacity-weighted 환경 분포 기반(per_ts 95퍼센타일).
     utilization_p95: list[UtilizationBar] = field(default_factory=list)
@@ -270,15 +270,11 @@ class EnvironmentRealtime:
 
 @dataclass
 class DashboardLive:
-    """list 화면 fragment=live·page1 공용 묶음 — 공유 기초 데이터(now·report_aggregate·online flags)를
-    1회 조회 후 ViewModel 조립. 세 라이브 카드가 같은 스냅샷 기준이라 카드 간 값 일관 (중복 쿼리 제거 + 비결정성 해소).
+    """개요 화면(overview) fragment=live 공용 묶음 — 공유 기초 데이터(now·report_aggregate·online flags)를
+    1회 조회 후 ViewModel 조립. 라이브 카드가 같은 스냅샷 기준이라 카드 간 값 일관 (중복 쿼리 제거 + 비결정성 해소).
 
-    topology 는 동일 details 에서 파생하지만 자동갱신 라이브 fragment 가 아니라 page 렌더에서만 1회 표시
-    (토폴로지는 정적 인벤토리라 30초 폴링 대상 아님 — list_page 가 page==1 에서만 context 전달)."""
+    토폴로지는 별도 페이지(`/servers/topology`)·전용 메서드(`get_topology`)로 분리 — 노드 규모가 커서
+    개요 집계 카드와 수명·렌더 비용이 다르다."""
 
     overview: EnvironmentOverview
     attention: AttentionSignals
-    topology: NetworkTopology
-    # 환경 부하 추이 (7일 표준 윈도우) — CPU·메모리 평균 시계열. 차트 JS inline(tojson)용 plain dict.
-    # 토폴로지처럼 정적 인벤토리 아님(메트릭)이라 fragment 자동갱신 포함. [{"at": iso, "cpu", "mem"}].
-    trend: list[dict] = field(default_factory=list)

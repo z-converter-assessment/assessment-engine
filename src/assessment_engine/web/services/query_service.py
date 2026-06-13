@@ -106,6 +106,7 @@ from assessment_engine.web.view_models.server import (
     StorageDetailResponse,
 )
 from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
+from assessment_engine.web.view_models.topology import NetworkTopology
 
 _DISK_METRIC_TYPES = frozenset({"disk.read_iops", "disk.write_iops", "disk.read_kbps", "disk.write_kbps"})
 _NET_METRIC_TYPES = frozenset(
@@ -117,10 +118,9 @@ _ATTENTION_LIMIT_EACH = 5
 _GAP_MINUTES = 5
 _GAP_RECENT_HOURS = 24
 
-# 대시보드 현황 윈도우 — 활용률 게이지·자원 적정성 분류·부하 추이 표시 전용 (최근 현황 모니터링).
+# 대시보드 현황 윈도우 — 활용률 게이지·자원 적정성 분류 표시 전용 (최근 현황 모니터링).
 # right-sizing 표준 평가 윈도우(recommendation.WINDOW_DAYS=7d — 보고서 기본·서버 목록 분류)와 의도 분리.
-# 버킷은 AUTO_BUCKET[DASHBOARD_TIME_RANGE] 자동 추종 (#F10 range->bucket 단일 매핑).
-DASHBOARD_TIME_RANGE: TimeRange = "6h"
+DASHBOARD_TIME_RANGE: TimeRange = "24h"
 DASHBOARD_WINDOW_DAYS: float = DIAGNOSTIC_RANGE_DAYS[DASHBOARD_TIME_RANGE]
 
 
@@ -569,7 +569,6 @@ class QueryService:
             return DashboardLive(
                 overview=_empty_overview(),
                 attention=AttentionSignals(gap_warnings=[], os_eol_warnings=[], agent_unstable=[]),
-                topology=build_network_topology([]),
             )
         details = await self.repo.get_servers(server_ids)
         raws_period = await self.repo.report_aggregate(server_ids, period_days=DASHBOARD_WINDOW_DAYS, end=now)
@@ -578,19 +577,21 @@ class QueryService:
         online_by_id = await self._online_map(server_ids, details, now)
         gap_raws = await self.repo.metric_gap_warnings(_GAP_MINUTES, _GAP_RECENT_HOURS, _ATTENTION_LIMIT_EACH)
         restart_counts = await self.repo.agent_restart_counts_recent(server_ids, now - timedelta(hours=1))
-        # 환경 부하 추이 — DASHBOARD_TIME_RANGE 동일 기간 + AUTO_BUCKET 자동 분해력 (활용률·분류와 일관).
-        trend_range = DASHBOARD_TIME_RANGE
-        trend_bi, trend_td = _BUCKET_INFO[AUTO_BUCKET[trend_range]]
-        trend_start = now - TIME_RANGE_TD[trend_range]
-        cpu_trend = await self.repo.metric_trend("cpu.usage_percent", trend_start, now, trend_bi, trend_td)
-        mem_trend = await self.repo.metric_trend("mem.usage_percent", trend_start, now, trend_bi, trend_td)
-        disk_trend = await self.repo.metric_trend("disk.usage_percent", trend_start, now, trend_bi, trend_td)
         return DashboardLive(
             overview=self._assemble_overview(details, util, raws_period, online_by_id),
             attention=self._assemble_attention(raws_period, gap_raws, restart_counts, now, _ATTENTION_LIMIT_EACH),
-            topology=build_network_topology(details),
-            trend=build_metric_trend(cpu_trend, mem_trend, disk_trend),
         )
+
+    async def get_topology(self) -> NetworkTopology:
+        """네트워크 토폴로지 — 전체 인벤토리의 L3 subnet 공동소속 그래프.
+
+        개요(get_dashboard_live)와 분리: 노드 규모가 커 별도 페이지(`/servers/topology`)에서 렌더.
+        """
+        server_ids = await self.repo.list_server_ids()
+        if not server_ids:
+            return build_network_topology([])
+        details = await self.repo.get_servers(server_ids)
+        return build_network_topology(details)
 
     async def get_environment_report(
         self,

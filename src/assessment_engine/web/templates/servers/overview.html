@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}ZConverter Assessment — 환경 개요{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:8px;">
+  <h1 style="margin:0;">환경 개요</h1>
+  <div class="text-muted" style="font-size:12px; text-align:right;">최근 {{ generated_at | kst }}</div>
+</div>
+
+{% include "servers/_dashboard_live.html" %}
+
+{% include "_reference_link.html" %}
+{% endblock %}

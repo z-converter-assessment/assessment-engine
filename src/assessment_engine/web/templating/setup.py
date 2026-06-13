@@ -52,3 +52,41 @@ env.globals["ui_thresholds"] = {
     "usage_warn_pct": _USAGE_WARN_PCT,
     "swap_danger_pct": _SWAP_DANGER_PCT,
 }
+
+# 사이드바 네비게이션 — 8항목 3그룹 정적 트리 (불변 표시 상수). _sidebar.html 이 그룹·항목 반복 렌더.
+# active 판정은 페이지 핸들러가 넘기는 active_nav 토큰과 item.match 단순 동등 비교 (#E1 P3 — 템플릿 계산 0).
+# active_nav 미전달 페이지(상세·결과 등)는 default None -> 어느 항목도 active 아님.
+NAV_GROUPS = [
+    {
+        "label": "모니터링",
+        "links": [
+            {"label": "환경 개요", "href": "/servers/", "match": "overview"},
+            {"label": "서버 목록", "href": "/servers/list", "match": "list"},
+            {"label": "네트워크 토폴로지", "href": "/servers/topology", "match": "topology"},
+            {"label": "실시간 현황", "href": "/servers/environment/realtime", "match": "realtime"},
+            {"label": "성능 추이", "href": "/servers/environment/metrics", "match": "performance"},
+        ],
+    },
+    {
+        "label": "보고서",
+        "links": [
+            {"label": "환경 보고서", "href": "/reports/environment", "match": "environment"},
+            {"label": "발행 이력", "href": "/reports/history", "match": "history"},
+        ],
+    },
+    {
+        "label": "참고",
+        "links": [
+            {"label": "기준·임계값", "href": "/reports/right-sizing-thresholds", "match": "thresholds"},
+        ],
+    },
+]
+env.globals["nav_groups"] = NAV_GROUPS
+
+# breadcrumb — active_nav 토큰 -> (그룹, 항목) 라벨. 각 페이지 제목 위 경로 표시 (P3 — 템플릿은 dict 조회만).
+env.globals["nav_breadcrumb"] = {
+    link["match"]: {"group": group["label"], "item": link["label"]}
+    for group in NAV_GROUPS
+    for link in group["links"]
+}
+env.globals["active_nav"] = None

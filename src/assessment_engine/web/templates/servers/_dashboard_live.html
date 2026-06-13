@@ -11,8 +11,8 @@
   <ul class="attention-list">
     {% for it in items %}
     <li class="attention-item">
-      <span class="badge attention-badge {{ it.badge_class }}">{{ it.badge_text }}</span>
       <a class="attention-link" href="{{ it.link_href }}">{{ it.link_text }}</a>
+      {% if it.badge_text %}<span class="attention-cause">{{ it.badge_text }}</span>{% endif %}
     </li>
     {% endfor %}
   </ul>
@@ -25,25 +25,23 @@
 {% if overview and overview.total > 0 %}
 <section class="card no-print">
   <h2 class="card-title">환경 요약</h2>
-  <div class="text-label" style="display:flex; flex-wrap:wrap; gap:24px; font-size:13px;">
-    <div>총 <strong class="text-strong">{{ overview.total }}</strong>대</div>
-    {% if overview.os_distribution %}
-    <div>OS
-      {% for os_name, n in overview.os_distribution.items() %}<strong class="text-strong">{{ os_name }} {{ n }}</strong>{% if not loop.last %} · {% endif %}{% endfor %}
+  <div class="kpi-grid kpi-grid-4">
+    <div class="kpi">
+      <span>총 서버</span>
+      <strong>{{ overview.total }}</strong>
+      {% if overview.os_distribution %}<div class="kpi-sub">{% for os_name, n in overview.os_distribution.items() %}{{ os_name }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</div>{% endif %}
     </div>
-    {% endif %}
-    <div>총 vCPU <strong class="text-strong">{{ overview.total_vcpus }}</strong></div>
-    <div>메모리 <strong class="text-strong">{{ overview.total_memory_gb | disksize }}</strong></div>
-    <div>디스크 <strong class="text-strong">{{ overview.total_disk_gb | disksize }}</strong></div>
+    <div class="kpi"><span>총 vCPU</span><strong>{{ overview.total_vcpus }}</strong></div>
+    <div class="kpi"><span>메모리</span><strong>{{ overview.total_memory_gb | disksize }}</strong></div>
+    <div class="kpi"><span>디스크</span><strong>{{ overview.total_disk_gb | disksize }}</strong></div>
   </div>
+  <div class="text-muted" style="margin-top:16px; font-size:12px;">서비스 식별 <strong class="text-strong">{{ overview.role_identified_count }}</strong>대</div>
   {% if overview.role_distribution %}
-  <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;">
-    <span class="text-muted" style="font-size:12px; padding:4px 0;">역할:</span>
-    {% for role, n in overview.role_distribution.items() %}
-    <span class="badge {{ role | service_badge_class }}">{{ role }} <strong>{{ n }}</strong></span>
-    {% endfor %}
+  <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;">
+    {% for role, n in overview.role_distribution.items() %}<span class="role-chip">{{ role }} <strong class="text-strong">{{ n }}</strong></span>{% endfor %}
   </div>
   {% endif %}
+  <div class="text-muted" style="margin-top:8px; font-size:12px;">서비스 미식별 <strong class="text-strong">{{ overview.role_unknown_count }}</strong>대</div>
 </section>
 
 {# 환경 자원 평가 — 환경 평균 활용률 + Right-sizing 분류 묶음. 환경요약과 별도 카드섹션. 같은 윈도우(WINDOW_DAYS)·모집단 공유라 표제 1회(우측). 하위 소제목 h3. #}
@@ -109,18 +107,13 @@
     <div class="card-section" style="border-top:none;">
       <h3>리소스 부족 상세 <span class="section-meta">{{ overview.under_provisioned_hosts_shown }}/{{ overview.under_provisioned_hosts_count }}건</span></h3>
       {% if overview.under_provisioned_hosts %}
-      <div class="under-grid" style="display:grid; grid-template-columns:minmax(100px, max-content) max-content minmax(0, 1fr); gap:8px 16px; align-items:center; font-size:12px;">
+      <div class="under-grid" style="display:grid; grid-template-columns:minmax(100px, max-content) minmax(0, 1fr); gap:8px 16px; align-items:center; font-size:12px;">
         {% for c in overview.under_provisioned_hosts %}
         <a class="attention-link" href="/servers/{{ c.public_id }}?back={{ self_back }}" style="font-weight:600;">{{ c.hostname }}</a>
-        <span style="display:flex; gap:4px;">
-          {% for cat, n in c.services.items() %}
-          <span class="badge {{ cat | service_badge_class }}">{{ cat }} <strong>{{ n }}</strong></span>
-          {% endfor %}
-        </span>
         {# 판단 6축 + confidence 단서(표본부족·축 미관측)를 같은 줄 끝에 흐린 이탤릭으로 — 호스트명 단일 줄 유지(가시성). #}
         <span style="display:flex; gap:14px; align-items:baseline; white-space:nowrap; overflow-x:auto;">
           {% for m in c.metrics %}
-          <span><span class="text-meta">{{ m.label }}</span> <span style="color:{{ m.color }}; font-weight:{{ 700 if m.active else 600 }};">{{ m.value }}</span></span>
+          <span><span class="text-meta">{{ m.label }}</span> <span class="metric-val{% if m.active %} metric-val-active{% endif %}" style="color:{{ m.color }};">{{ m.value }}</span></span>
           {% endfor %}
           {% for n in c.confidence_notes %}<span class="text-meta" style="color:#94a3b8; padding-left:6px;">{{ n }}</span>{% endfor %}
         </span>
@@ -133,49 +126,6 @@
 </section>
 {% endif %}
 
-{# 환경 부하 추이 + 네트워크 토폴로지 — 별도 카드섹션. 1행 2열, 헤더 높이 일치. swap 후 list.js 재초기화. #}
-{% if trend or topology %}
-<section class="card no-print">
-    <div class="env-dual" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap:24px; align-items:start;">
-      {% if trend %}
-      <div>
-        <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; min-height:30px; margin-bottom:12px; flex-wrap:wrap;">
-          <h2 class="card-title" style="margin:0;">환경 부하 추이</h2>
-          <span class="section-meta">{{ window_meta(overview.total, window_label) }} · {{ trend_bucket_label }} 집계</span>
-        </div>
-        <div style="height:362px;"><canvas id="env-trend-chart" data-trend='{{ trend | tojson }}' data-range="{{ window_range }}" data-grid="true"></canvas></div>
-      </div>
-      {% endif %}
-      {% if topology %}
-      <div>
-        <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; min-height:30px; margin-bottom:12px; flex-wrap:wrap;">
-          <h2 class="card-title" style="margin:0;">네트워크 토폴로지</h2>
-          {% if topology.has_data %}<span class="section-meta">서브넷 {{ topology.subnet_count }} · 호스트 {{ topology.host_count }}{% if topology.multi_homed_count > 0 %} · 다중 서브넷 {{ topology.multi_homed_count }}{% endif %}</span>{% endif %}
-        </div>
-        {% if topology.has_data %}
-        <div style="position:relative;">
-          <div id="topology-graph" style="height:320px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc;"
-               data-elements='{{ topology.elements | tojson }}'></div>
-          <div style="position:absolute; top:10px; right:10px; display:flex; flex-direction:column; gap:5px; z-index:10;">
-            <button type="button" class="chart-anchor" data-topo-zoom="in" title="확대" style="width:32px; height:32px; padding:0; font-size:16px; font-weight:600; text-align:center;">+</button>
-            <button type="button" class="chart-anchor" data-topo-zoom="out" title="축소" style="width:32px; height:32px; padding:0; font-size:16px; font-weight:600; text-align:center;">-</button>
-            <button type="button" class="chart-anchor" data-topo-zoom="fit" title="전체 보기" style="width:32px; height:32px; padding:0; font-size:10px; text-align:center;">전체</button>
-          </div>
-        </div>
-        <div class="text-muted" style="display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; font-size:11px;">
-          <span><span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:#64748b; vertical-align:middle;"></span> 서브넷</span>
-          <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--color-title); vertical-align:middle;"></span> Linux</span>
-          <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#8b5cf6; vertical-align:middle;"></span> Windows</span>
-          <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#f59e0b; vertical-align:middle;"></span> 다중 서브넷</span>
-        </div>
-        {% else %}
-        {{ empty_state("2대 이상이 공유하는 네트워크 세그먼트가 아직 없습니다 — 인벤토리가 쌓이면 호스트 간 서브넷 관계가 표시됩니다.") }}
-        {% endif %}
-      </div>
-      {% endif %}
-    </div>
-</section>
-{% endif %}
 {% elif overview %}
 <section class="card no-print">
   <h2 class="card-title">환경 요약</h2>
@@ -190,11 +140,8 @@
   {# 3 카테고리 — 한 행 3칼럼. 카운트는 각 칼럼 제목에 통합(상단 뱃지 폐기). 발화 0건도 제목 유지(discoverability #E9). #}
   <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:24px; align-items:start;">
     {{ attention_row("통신 끊김", "5분 이상 미수신", attention.gap_warnings) }}
-    {{ attention_row("OS 지원종료", "지원 종료·임박", attention.os_eol_warnings) }}
-    {{ attention_row("에이전트 재시작", "최근 1시간 빈번", attention.agent_unstable) }}
+    {{ attention_row("OS 지원종료", "지원 종료", attention.os_eol_warnings) }}
+    {{ attention_row("에이전트 재시작", "최근 1시간 " ~ agent_restart_threshold ~ "회 이상", attention.agent_unstable) }}
   </div>
 </section>
 {% endif %}
-
-{# 자동 갱신 시각 — JS(list.js)가 fragment 교체 후 본 값을 읽어 우측 상단 #dashboard-updated 갱신. #}
-<span id="dash-updated-at" hidden>{{ generated_at | kst }}</span>
