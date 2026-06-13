@@ -325,3 +325,23 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ─── (4) assessment-infra 로 release 신호 dispatch ────────────────────────
+  # wheel·image release 성공 후 같은 워크플로 안에서 repository-dispatch 로 인프라 CD 트리거.
+  # `release: published` 이벤트에 의존하지 않는다 — release.yml 의 GitHub Release 는 GITHUB_TOKEN(github-actions[bot])
+  # 으로 생성되고, GITHUB_TOKEN 으로 만든 이벤트는 다른 워크플로를 트리거하지 못하므로(Actions 재귀 방지) 이벤트 체인이
+  # 끊긴다. 본 job 이 동일 워크플로 안에서 직접 발사해 그 함정을 우회. 버전은 resolve-version 단일 진실(ADR 0030 정합)
+  # 을 받아쓰므로 별도 ref strip 불요. INFRA_DISPATCH_TOKEN 은 대상 repo dispatch 권한 PAT(secret).
+  notify-infra:
+    name: dispatch release to assessment-infra
+    needs: [resolve-version, release-wheel, release-image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: dispatch to assessment-infra
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
+        with:
+          token: ${{ secrets.INFRA_DISPATCH_TOKEN }}
+          repository: z-converter-assessment/assessment-infra
+          event-type: engine-release
+          client-payload: '{"engine_version": "${{ needs.resolve-version.outputs.version }}"}'
