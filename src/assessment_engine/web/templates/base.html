@@ -148,6 +148,9 @@
     /* 리소스 부족 지표 — 위반(active)은 빨강 대신 진한 무채 + 굵기 + 회색 배경 박스로 강조 (테마 무오염). */
     .metric-val { font-weight: 600; }
     .metric-val-active { font-weight: 700; background: #e2e8f0; padding: 1px 7px; border-radius: 4px; }
+    /* 리소스 부족 지표 — 메트릭 사이 간격(구분선 없이 padding 만). 첫 메트릭은 좌측 여백 없음. */
+    .metric-cell { padding-left: 16px; }
+    .metric-cell:first-child { padding-left: 0; }
     /* attention-link — base a 스타일 (color + 밑줄) 상속, font-weight 만 강조. */
     .attention-link { font-weight: 600; }
     .attention-meta { color: #64748b; font-size: 12px; }
@@ -328,17 +331,17 @@
     .peak-link:hover { background: #f1f5f9; }
 
     /* Form controls */
-    .search-row { display: flex; gap: 8px; margin-bottom: 18px; align-items: center; }
-    .search-row input[type=text] { padding: 7px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; width: 240px; outline: none; }
+    .search-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; align-items: center; }
+    .search-row input[type=text] { padding: 5px 9px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 12px; width: 160px; outline: none; }
     .search-row input[type=text]:focus { border-color: #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
     /* select — input 과 동일 톤 (둥근 모서리·#e2e8f0 border·#fff bg·focus 강조). 브라우저 default chrome 제거 + 화살표 SVG. */
-    .search-row select { padding: 7px 28px 7px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; background: #fff; color: #374151; cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%2364748b' stroke-width='1.5' d='M1 1l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; outline: none; }
+    .search-row select { padding: 5px 24px 5px 9px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 12px; background: #fff; color: #374151; cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%2364748b' stroke-width='1.5' d='M1 1l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; outline: none; }
     .search-row select:focus { border-color: #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
     /* checkbox — brand 색 (accent-color) + 적당 size + pointer. native widget 유지 (custom box 부담 회피). */
     .search-row input[type=checkbox] { accent-color: #2563eb; width: 16px; height: 16px; cursor: pointer; margin: 0; }
     .search-row label { font-size: 13px; color: #475569; display: flex; align-items: center; gap: 5px; cursor: pointer; }
-    /* 검색 버튼은 secondary 톤 — selection 그룹(.btn-primary 파란색)과 분리. + 서버 발견 버튼(.btn-action)과 동일 톤. */
-    .search-row button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #374151; font-size: 13px; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; cursor: pointer; }
+    /* 검색 버튼은 secondary 톤 — selection 그룹(.btn-primary 파란색)과 분리. */
+    .search-row button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #374151; font-size: 12px; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; cursor: pointer; }
     .search-row button:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); }
 
     /* Primary action 버튼 — selection 그룹(보고서·Export·진단·Install) 공통 톤. 검색 버튼과 같은 파란색. */
@@ -347,11 +350,19 @@
     .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; opacity: 0.7; }
     /* selection 발행 버튼 — 주로 쓰는 btn-action 흰 톤 + 현재 작은 크기 유지. 활성=선명·hover, 비활성=opacity 흐림 구분. */
     /* selection 발행 버튼 — 흰 톤·표준 크기 유지, 활성=테마색 outline(파랑 글씨·테두리·600) 강조 / 비활성=회색. 색으로 활성여부 명확. */
-    .btn-select { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid var(--color-title); border-radius: 6px; background: #fff; color: var(--color-title); font-size: 13px; font-weight: 600; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
+    .btn-select { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--color-title); border-radius: 6px; background: #fff; color: var(--color-title); font-size: 11px; font-weight: 600; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
     .btn-select:hover:not(:disabled) { background: #eff6ff; }
     .btn-select:disabled { background: #fff; color: #cbd5e1; border-color: #e2e8f0; cursor: not-allowed; }
-    .search-row .clear-btn { padding: 7px 12px; background: #f1f5f9; color: #64748b; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
+    .search-row .clear-btn { padding: 5px 9px; background: #f1f5f9; color: #64748b; border: none; border-radius: 6px; font-size: 12px; cursor: pointer; }
     .search-row .clear-btn:hover { background: #e2e8f0; }
+    /* thead 인라인 필터 — 제목행 각 칼럼 아래 필터 위젯 (검색·select). 테이블 제목이 필터 역할 겸함. */
+    /* 서버 목록 필터 — 제목행과 분리된 별도 행. 위 선택 버튼(btn-select) 톤·크기. 미선택=회색, 값 선택 시 .active=테마색 강조. */
+    .list-filter { height: 28px; box-sizing: border-box; min-width: 0; padding: 4px 9px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #64748b; font-size: 11px; font-weight: 500; outline: none; }
+    select.list-filter { appearance: none; -webkit-appearance: none; padding-right: 24px; cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%2364748b' stroke-width='1.5' d='M1 1l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
+    .list-filter:focus { border-color: var(--color-title); }
+    .list-filter.active { border-color: var(--color-title); color: var(--color-title); font-weight: 600; }
+    #filter-form .clear-btn { height: 28px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 4px 10px; background: #f1f5f9; color: #64748b; border: none; border-radius: 6px; font-size: 11px; cursor: pointer; text-decoration: none; }
+    #filter-form .clear-btn:hover { background: #e2e8f0; }
 
     /* 통합 차트 카드(perf-merged) 행 구분 — 카드 내부 서브섹션 구분선 표준(.card-section)과 동일 #e2e8f0 (통일). */
     .perf-row + .perf-row { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; }
@@ -372,7 +383,9 @@
       @page { margin: 10mm; }
       .no-print { display: none !important; }
       .print-only { display: revert !important; }
-      body { background: #fff; }
+      /* 사이드바 제외(no-print) + body flex 해제 — 본문이 전체 폭으로 출력 (사이드바 접힌 화면 전제). */
+      body { display: block; background: #fff; }
+      .content-area { width: 100%; }
       main { max-width: 100%; margin: 0; padding: 16px; }
       .card { box-shadow: none !important; border: 1px solid #d1d5db; page-break-inside: avoid; }
       table { box-shadow: none !important; }
@@ -393,12 +406,10 @@
       .perf-merged { page-break-inside: auto !important; }
       .perf-row { page-break-inside: avoid; }
       .perf-row + .perf-row { margin-top: 12px !important; padding-top: 0 !important; border-top: none !important; }
-      /* 환경 보고서 — 부하 추이 + 토폴로지 한 카드 2열을 인쇄에서도 웹과 동일 구도(2열) 유지.
-         minmax(0,1fr)+min-width:0 — 1fr 의 암묵 min-width:auto 가 cytoscape 고정 px 캔버스에 밀려
-         토폴로지 칸이 넓어지는 쏠림 방지(두 칸 균등). 캔버스 초과분은 overflow 클립. */
+      /* 환경 보고서 — 부하 추이 차트 + 토폴로지 서브넷 표 한 카드 2열을 인쇄에서도 2열 유지.
+         minmax(0,1fr)+min-width:0 으로 1fr 암묵 min-width:auto 쏠림 방지(두 칸 균등). */
       .env-dual { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
       .env-dual > div { min-width: 0; }
-      .env-dual #topology-graph { overflow: hidden; }
       /* 세부 서버 목록 — 칼럼 많아 A4 폭 초과. 인쇄에서 폰트·셀 패딩 축소 + 줄바꿈 허용으로 타이트하게. */
       .detail-table th, .detail-table td { font-size: 9px !important; padding: 2px 4px !important; white-space: normal !important; word-break: keep-all; }
       .detail-table .badge { font-size: 8px !important; padding: 1px 4px !important; }

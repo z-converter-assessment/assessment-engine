@@ -1,20 +1,11 @@
 {% extends "base.html" %}
-{% block title %}ZConverter Assessment — 실시간 메트릭{% endblock %}
+{% block title %}ZConverter Assessment — 실시간 현황{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
-<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; gap:16px;">
-  <h1 style="margin:0;">{% if selection_count %}선택 {{ selection_count }}대 실시간 메트릭{% else %}환경 실시간 메트릭{% endif %}</h1>
-  {# 카드 밖 우측 상단 갱신 표시 — 폴링 교체 시 카드 안 data-ts 를 realtime.js 가 읽어 조립. #}
-  <span id="env-realtime-stamp" class="no-print" style="font-size:12px; color:#94a3b8; white-space:nowrap;"></span>
-</div>
+<h1 style="margin:0 0 8px;">{% if selection_count %}선택 {{ selection_count }}대 실시간 현황{% else %}실시간 현황{% endif %}</h1>
 
-{# 환경 실시간 메트릭 카드 — 30초 폴링이 mount innerHTML 교체 (realtime.js). 성능 추이(시계열)와 분리된 현황 모니터링. #}
-<div id="env-realtime-mount">{% include "servers/_environment_realtime.html" %}</div>
+{# 현재 평균 활용률 + 현재 부하 상위 (최신 스냅샷). 정적 렌더 — 자동 갱신 없음. #}
+{% include "servers/_environment_realtime.html" %}
 
 {% include "_reference_link.html" %}
-
-<script src="/static/js/pages/realtime.js?v={{ asset_v }}" defer></script>
 {% endblock %}
-
-{% block body_attrs %} data-selection-ids="{{ selection_ids }}"{% endblock %}

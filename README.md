@@ -53,7 +53,7 @@
  +------------------------------------------------------------------+
  |  FastAPI (uvicorn, port 8000)                                    |
  |  - SSR  : dashboard / detail / env+server report + history       |
- |  - REST : discovery / tasks / exports / diagnostics (poll)       |
+ |  - REST : tasks / exports / diagnostics (poll)                   |
  |  - SSE  : live metrics (Consumer PUB -> Redis -> SSE)            |
  |  - plain HTTP (dev) ; prod = external ingress (out of scope)     |
  +------------------------------------------------------------------+

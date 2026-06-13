@@ -1,5 +1,5 @@
 {#
-  참고자료 본문 단일 진실 (D3) — Right-sizing 분류 임계값·USE 축·보조 지표·운영 신호·평가 윈도우.
+  참고자료 본문 단일 진실 (D3) — 자원 적정성 분류 임계값·USE 축·보조 지표·운영 신호·평가 윈도우.
   recommendation 모듈 단일 진실의 표시본. 한 곳 수정 -> 아래 소비처 전부 반영:
    - reports/right_sizing_thresholds.html (전용 reference 페이지)
    - reports/_reference_footer.html (전 보고서 꼬리 인쇄 임베드)
@@ -18,7 +18,7 @@
       </tr>
     </thead>
     <tbody>
-      <tr><td>Right-sizing</td><td>관측 부하 대비 할당 자원의 적정성 평가 — 6 분류(리소스 부족·과다·유휴·종료 권장·정상·표본 부족)로 권고. 분류 기준은 아래 "분류 기준" 절.</td></tr>
+      <tr><td>자원 적정성 분류</td><td>관측 부하 대비 할당 자원의 적정성 평가 — 6 분류(리소스 부족·과다·유휴·종료 권장·정상·표본 부족)로 권고. 분류 기준은 아래 "분류 기준" 절.</td></tr>
       <tr><td>USE Method</td><td>Brendan Gregg 의 자원 진단 프레임 — Utilization(이용률)·Saturation(포화)·Errors 세 축. 본 보고서는 Utilization·Saturation 두 축 적용.</td></tr>
       <tr><td>평균 (avg)</td><td>윈도우 안 모든 시점값의 산술 평균. 정상 부하의 중심 경향.</td></tr>
       <tr><td>p95</td><td>작은 값부터 정렬해 95% 위치의 값 — 상위 5%(일시 spike)만 초과. 분류 1차 입력. 평균보다 클 수 있음(분포 우측 꼬리).</td></tr>
@@ -39,7 +39,7 @@
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">분류 기준</h2>
   <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
-    환경·서버 보고서의 Right-sizing 분류는 <code>recommendation</code> 모듈 단일 진실로 결정.
+    환경·서버 보고서의 자원 적정성 분류는 <code>recommendation</code> 모듈 단일 진실로 결정.
     아래 표의 임계값을 USE Method (Brendan Gregg) Utilization·Saturation 두 축으로 적용해 6 분류 (under_provisioned / over_provisioned / idle / shutdown / optimal / insufficient_data) 산출.
     임계 출처는 AWS Compute Optimizer · Azure Advisor · GCP Recommender · Kleinrock 등 산업 표준 종합.
   </p>
@@ -207,7 +207,7 @@
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">운영 신호 임계</h2>
   <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
-    Right-sizing 분류와 별도의 운영 안정성 신호 — 분류가 정상이어도 발화하면 sizing 보다 운영 조치가 선행되어야 함.
+    자원 적정성 분류와 별도의 운영 안정성 신호 — 분류가 정상이어도 발화하면 sizing 보다 운영 조치가 선행되어야 함.
     대시보드 운영 신호 카드에 3종 노출. 보고서는 발행 윈도우 기준이라 전역 신호(gap·에이전트 불안정)는 미표시 — OS EOL 만 표시하고, 재부팅·에이전트 재시작은 윈도우 안 카운트로 세부 서버 목록 시스템 안정성 칼럼에 표시.
   </p>
   <table>
@@ -230,7 +230,7 @@
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">평가 윈도우</h2>
   <p class="text-md text-label" style="margin:0; line-height:1.6;">
-    Right-sizing 평가 표준은 <code>recommendation.WINDOW_DAYS</code> = 7일 — 보고서·서버 목록 분류 기준.
+    자원 적정성 평가 표준은 <code>recommendation.WINDOW_DAYS</code> = 7일 — 보고서·서버 목록 분류 기준.
     보고서 발행 시 <code>15m / 1h / 6h / 24h / 7d / 14d / 30d</code> 구간 선택 가능하며 분류·통계·세부 목록 모두 선택 구간으로 평가.
     대시보드 현황 카드(환경 평균 활용률·자원 적정성 분류·환경 부하 추이)는 최근 6시간 고정 — 표준 평가와 의도 분리(최근 현황 모니터링).
     버킷(집계 단위)은 구간별 자동 결정. 윈도우가 너무 짧으면 p95 표본 신뢰도가 낮아짐 — 단기 구간 결과는 spike 확인용으로 한정 권장.

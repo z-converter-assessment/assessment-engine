@@ -17,7 +17,7 @@ from assessment_engine.web.services.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.settings import web_settings
 from assessment_engine.web.templating import templates
 
-server_detail_router = APIRouter()
+server_detail_router = APIRouter(prefix="/servers")
 
 
 def _safe_back(back: str | None, fallback: str) -> str:
@@ -62,7 +62,7 @@ async def _render_server_tab(
 async def get_server(
     request: Request,
     server_id: str,
-    back: str | None = Query(None, description="← 이전 link referrer. 미명시 시 /servers/"),
+    back: str | None = Query(None, description="← 이전 link referrer. 미명시 시 / (환경 개요)"),
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
@@ -78,7 +78,7 @@ async def get_server(
         context={
             "server": server,
             "recent_tasks": recent_tasks,
-            "back_url": _safe_back(back, "/servers/"),
+            "back_url": _safe_back(back, "/"),
             "self_back": _self_back(request),
             "zdm_defaults": {
                 "ip": web_settings.zdm_default_ip,

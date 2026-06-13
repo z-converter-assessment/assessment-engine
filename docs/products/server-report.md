@@ -1,6 +1,6 @@
 # 서버 보고서 (Server Report)
 
-본 문서는 서버 단위 (scope=server) 산출물의 존재 의의·구현 의도·근거를 정리한다. 운영자가 선택한 N대 또는 단일 서버에 대해 row 단위 상세·right-sizing 판단을 받는 산출물. 보고서와 진단이 같은 서버 단위라 한 산출물 카탈로그로 통합.
+본 문서는 서버 단위 (scope=server) 산출물의 존재 의의·구현 의도·근거를 정리한다. 운영자가 선택한 N대 또는 단일 서버에 대해 row 단위 상세·자원 적정성 판단을 받는 산출물. 보고서와 진단이 같은 서버 단위라 한 산출물 카탈로그로 통합.
 
 환경 단위 산출물(scope=environment, 분포 카운트·high-level KPI)은 `docs/products/environment-report.md` 별도.
 
@@ -10,7 +10,7 @@
 
 | 산출물 | 라우터 | 의도 |
 |--------|--------|------|
-| 서버 보고서 | `GET /servers/report?ids=<public_id,...>&period_days=14&view=customer\|engineer` | 선택 N대 row 단위 상세. customer(양식 A) view=KPI 8 컬럼, engineer(양식 B) view=정량 16 컬럼 |
+| 서버 보고서 (선택 N대) | `GET /reports/servers?ids=<public_id,...>&period_days=14&view=customer\|engineer`, 발행 `POST /reports/servers/emit`. 단일 1대는 `GET /servers/{id}/report` | 선택 N대 row 단위 상세. customer(양식 A) view=KPI 8 컬럼, engineer(양식 B) view=정량 16 컬럼 |
 | 서버 진단 | `POST /api/diagnostics` scope=server + 결과 polling | 개별 서버 분류·action·narrative. detail 페이지 "서버 진단" 카드 또는 list 에서 N대 batch 발행 |
 
 두 산출물의 관계 (T13): 보고서·진단 동일 `diagnostic_jobs` 테이블 record. 서버 보고서 라우터가 합성 직후 `record_report_emission` 으로 succeeded row 즉시 INSERT (best-effort). 보고서 이력은 `/reports/history`, 진단 발행 이력은 `/diagnostics/history`.
@@ -27,7 +27,7 @@
 
 ## 존재 의의
 
-운영자가 단일 서버 또는 N대 batch 에 대한 정량 분석·right-sizing 판단을 받기 위한 산출물. 다음 질문에 답한다.
+운영자가 단일 서버 또는 N대 batch 에 대한 정량 분석·자원 적정성 판단을 받기 위한 산출물. 다음 질문에 답한다.
 
 질문 1: "이 N대, 어떤 부하 특성을 보이는가?"
 
@@ -41,9 +41,9 @@ server detail 페이지에서 "서버 진단" 카드가 USE Method 분류·권�
 
 환경 단위 산출물은 분포 카운트만 — 개별 식별 안 됨. 본 서버 단위 batch 발행으로 어떤 서버가 어떤 분류인지 행 단위 확인. 환경 단위 산출물의 행동 follow-up.
 
-질문 4: "Right-sizing 결정의 근거를 어디서 확인하나?"
+질문 4: "자원 적정성 결정의 근거를 어디서 확인하나?"
 
-engineer view 의 진단·분류 칼럼이 USE Method 임계값 기반 자동 해석 노출. 운영자가 "왜 이 서버가 under_provisioned 인가" 를 같은 행의 CPU p95·메모리 p95·swap·variance 에서 즉시 검증. 별도 detail 페이지 없이 보고서 한 장에서 right-sizing 의사결정 시그널 확인.
+engineer view 의 진단·분류 칼럼이 USE Method 임계값 기반 자동 해석 노출. 운영자가 "왜 이 서버가 under_provisioned 인가" 를 같은 행의 CPU p95·메모리 p95·swap·variance 에서 즉시 검증. 별도 detail 페이지 없이 보고서 한 장에서 자원 적정성 의사결정 시그널 확인.
 
 ## 산출 정보
 
@@ -65,19 +65,19 @@ KPI 6개 + 환경 총 자원 + 선택 맥락 (선택 N대의 OS 구성·워크�
 
 ### view 분기 — engineer (양식 B)
 
-목적: 운영자·엔지니어 정량 분석 + Right-sizing 근거 검증.
+목적: 운영자·엔지니어 정량 분석 + 자원 적정성 근거 검증.
 
-구성 = 환경 보고서 본문 공유(engineer 분기 — 환경 현황 5축 메트릭·부하 추이+토폴로지·자원 적정성 분류(분포·리소스 부족 상세·호스트 권고 표)·OS 지원 종료·OS 버전 분포, 단일 진실 `docs/products/environment-report.md`) + 세부 서버 목록 표.
+구성 = 환경 보고서 본문 공유(engineer 분기 — 환경 현황 5축 메트릭·부하 추이+토폴로지·자원 적정성 분류(분포·효율화 검토 대상·리소스 부족 6축 상세)·OS 지원 종료·OS 버전 분포, 단일 진실 `docs/products/environment-report.md`) + 세부 서버 목록 표.
 
 세부 서버 목록 컬럼(engineer): customer 컬럼 + 재부팅 · 에이전트 재시작 (시스템 안정성 — anchor+window 안 카운트).
 
-호스트 권고 표(본문 공유): 분류 · 진단 · 권고 · 신뢰도 — 분류는 `recommendation.assess`, 진단은 가장 시급한 신호 1개(`_build_diagnosis`, 데이터 부족 호스트는 원인 진단·오프라인은 "오프라인" 접두), 권고는 분류+trigger 파생(`_build_recommendation_action`), 신뢰도는 `build_confidence_notes`(is_partial·low_sample). 단일 보고서 자원 적정성 평가 표와 동일 판독 프레임.
+효율화 검토 대상 표(본문 공유, over/idle/shutdown Top 30): 분류 · 진단 · 권고 · 신뢰도 — 분류는 `recommendation.assess`, 진단은 가장 시급한 신호 1개(`_build_diagnosis`, 데이터 부족 호스트는 원인 진단·오프라인은 "오프라인" 접두), 권고는 분류+trigger 파생(`_build_recommendation_action`), 신뢰도는 `build_confidence_notes`(is_partial·low_sample). 단일 보고서 자원 적정성 평가 표와 동일 판독 프레임.
 
 자동 정성 요약 (customer 시그널 + engineer 추가): 역할별 평균 CPU 최고치·Saturation 발생·CPU 변동성 큼(peak/p95 1.5배+).
 
 ### 개별 서버 보고서 — 구동 서비스 (구성 계층)
 
-단일 서버 보고서(`/servers/{id}/report`)는 "이 서버가 무엇을 하는가"를 구성 계층(P-A)으로 노출 — right-sizing 평가(활용·평가 계층) 앞에 배치.
+단일 서버 보고서(`/servers/{id}/report`)는 "이 서버가 무엇을 하는가"를 구성 계층(P-A)으로 노출 — 자원 적정성 평가(활용·평가 계층) 앞에 배치.
 
 - customer: 워크로드 카테고리별 제품명 묶음 (예: "web: nginx, gunicorn" — 포트·unit 숨김, 의미 중심).
 - engineer: 등록 서비스(systemd unit) 표 (unit·카테고리·귀속 listen 포트) + listen 포트 전체 표 (process 포함, 사실 중심·최대 상세).
@@ -157,7 +157,7 @@ Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상�
 
 | 항목 | customer (양식 A) | engineer (양식 B) |
 |------|-------------------|-------------------|
-| 목적 | 고객 의사결정 한 장 요약 | 정량 분석 + Right-sizing 근거 |
+| 목적 | 고객 의사결정 한 장 요약 | 정량 분석 + 자원 적정성 근거 |
 | 컬럼 수 | 8 (SERVER·ROLE·OS·CPU p95·MEM p95·위험도·상태·진단) | 16 (위 + LOAD·변동성·I/O wait·DISK·NET·SWAP/Mount·Uptime/재부팅·판단) |
 | 정성 요약 | 행동 시그널 (고위험·주의·디스크·I/O·재부팅·OS EOL) | 위 + 엔지니어 시그널 (역할별 평균·Saturation·CPU 변동성) |
 | 위험도 표시 | 3단계 압축 (high/attention/normal) | 5분류 그대로 + 판단 텍스트 |
@@ -177,7 +177,7 @@ Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상�
 | 항목 | 환경 (`environment-report.md`) | 서버 (본 문서) |
 |------|-------------------------------|----------------|
 | 발행 단위 | 환경 전체 1건 | 1대 또는 N대 batch (각 1건씩) |
-| 보고서 라우터 | `/reports/environment` | `/servers/report?ids=...` |
+| 보고서 라우터 | `/reports/environment` | `/reports/servers?ids=...` (단일 1대 `/servers/{id}/report`) |
 | 진단 scope | environment | server |
 | 산출물 | 분류 분포 카운트 + 우선순위 권장 | 개별 서버 분류·action·narrative |
 | 답 | "환경 안 over-provisioned 5대 있음" | "이 서버는 under_provisioned, 업사이즈 검토" |

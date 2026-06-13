@@ -1,18 +1,26 @@
-"""SSR 페이지 라우터 — 도메인별 sub-module 합성.
+"""SSR 페이지 라우터 — URL 명사 분리 (환경 단위 `/`·`/environment/*`, 서버 단위 `/servers/*`, 보고서 `/reports/*`).
 
-`pages_router` 단일 prefix `/servers` 아래 3 도메인 sub-router 결합:
-- `list_page.py`  — 목록 (/servers/, 환경 요약·신호·다중 액션 모달)
-- `server_detail.py` — 상세 5 탭 (cpu/memory/services/performance/detail) + storage/network
-- `report_page.py` — 보고서 (/servers/report 다중, /servers/{id}/report 단일)
+각 sub-router 가 자체 prefix 를 가져 `pages_router` 는 묶음만(추가 prefix 없음):
+- `list_page.py`  — 개요(`/`) · 서버 목록(`/servers`) · 환경 단위(`/environment/{assessment,realtime,metrics,topology}`)
+- `server_detail.py` — 상세 5 탭 + storage/network (`/servers/{id}/*`)
+- `report_page.py` — 단일 보고서(`/servers/{id}/report`) · 선택 N대 보고서(`/reports/servers`)
 """
 
 from fastapi import APIRouter
 
-from assessment_engine.web.routers.pages.list_page import list_page_router
-from assessment_engine.web.routers.pages.report_page import report_page_router
+from assessment_engine.web.routers.pages.list_page import (
+    environment_router,
+    overview_router,
+    servers_list_router,
+)
+from assessment_engine.web.routers.pages.report_page import report_multi_router, report_single_router
 from assessment_engine.web.routers.pages.server_detail import server_detail_router
 
-pages_router = APIRouter(prefix="/servers", tags=["pages"])
-pages_router.include_router(list_page_router)
-pages_router.include_router(report_page_router)
+# 묶음 prefix 없음 — 각 sub-router 자체 prefix. 리터럴(/servers·/environment/*)이 /servers/{id} UUID 보다 먼저 매칭.
+pages_router = APIRouter(tags=["pages"])
+pages_router.include_router(overview_router)
+pages_router.include_router(servers_list_router)
+pages_router.include_router(environment_router)
 pages_router.include_router(server_detail_router)
+pages_router.include_router(report_single_router)
+pages_router.include_router(report_multi_router)

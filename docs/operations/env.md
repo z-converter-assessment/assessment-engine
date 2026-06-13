@@ -30,7 +30,7 @@
 
 경계 케이스:
 - `POSTGRES_USER` — 보통 config. 단 user 자체가 권한 분리 키이면 secret. 본 프로젝트는 config 분류하되 prod 검증 시 약한 값(빈값·password·admin·root·changeme) 거부 — `assessment`(dev default)는 운영 편의로 허용.
-- `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` — config (secret 아님, 노출 무해). startup 거부 안 함 — 잘못된 ZDM 발행은 런타임 (`HttpZdmPackageResolver` 메타 도달 실패 시 503) + agent host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`, `url_not_allowed` reject) 가 방어. discovery 와 동일 정책 (startup 거부 없음).
+- `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` — config (secret 아님, 노출 무해). startup 거부 안 함 — 잘못된 ZDM 발행은 런타임 (`HttpZdmPackageResolver` 메타 도달 실패 시 503) + agent host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`, `url_not_allowed` reject) 가 방어 (빈값 default 정상 동작, startup 거부 없음).
 
 규칙: config 인지 secret 인지 헷갈리면 secret 으로 간주. 잘못 분류해 secret 을 평문 노출하는 비용이 그 반대보다 크다.
 
@@ -291,8 +291,6 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | dev compose (redis command) | maxmemory 도달 시 eviction policy. TTL 키 우선 evict |
 | `WEB_PORT` | `8000` | config.py / dev compose | Web UI 접속 포트 |
 | `WEB_RELOAD` | `false` | config.py / dev compose | uvicorn auto-reload. dev hot-reload 전용 (dev compose 가 `true` 주입, `./:/app` bind mount 와 짝). prod 미설정 → false (코드 변경 감시 프로세스 불필요·bind mount 없는 wheel/image 배포에 무의미) |
-| `DISCOVERY_DEFAULT_TARGET` | `""` (빈값) | config.py / dev compose | 서버 발견 모달 SSH 도달성 probe 의 기본 target 주소. dev·prod 모두 빈값 default — libvirt VM IP 는 동적이고 web 컨테이너에서 VM hostname DNS 미해석이라, 운영자가 모달에 VM IP 직접 입력(dev-up.sh print_summary 안내). weak default 거부 대상 아님 (빈값이 정상 동작) |
-| `DISCOVERY_DEFAULT_PORT` | `22` | config.py / dev compose | probe 폼 기본 포트. 표준 SSH 22 — libvirt VM 은 post-provision `openssh-server` 라 22 listen. 비표준 SSH 포트 host 는 폼 override |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |
 | `ZDM_DEFAULT_IP` | `""` (빈값) | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. dev·prod 모두 빈값 default — dev 는 dev/.env 가 libvirt host IP:8000(ZDM mock, ADR 0018) 주입, prod 는 운영자가 real ZDM 주입. startup 거부 없음 — 잘못된 ZDM 발행은 런타임 503 + agent host whitelist 가 방어 |
 | `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 관리자 계정 기본값. POST body `zdm_user` 누락 시 fallback. install.sh 의 `-u` 인자. startup 거부 없음 (secret 아님) |

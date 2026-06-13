@@ -7,7 +7,7 @@ src/assessment_engine/web/static/js/
 ├── chart-utils.js              ← base.html에서 단일 로드, 전역 ChartUtils
 └── pages/
     ├── cpu.js / memory.js / storage.js / network.js / metrics.js
-    └── list.js                 ← 서버 목록 4 액션 (발견·Install·Export·보고서)
+    └── list-table.js           ← 서버 목록 액션 (Install·Export·보고서) + 검색·필터·더보기
 ```
 
 ## ChartUtils API (chart-utils.js)
@@ -34,7 +34,7 @@ src/assessment_engine/web/static/js/
 |--------|-------------------|
 | `metrics.js` | `chartInstances` 객체 + 통합 `loadAllCharts()` — 한 곳에서 모든 차트에 marker 일괄 적용 |
 | `cpu/memory/network/storage.js` | 차트 인스턴스 개별 변수 + 차트별 range/anchor — 각 loader 끝에 marker 적용 |
-| `list.js` | 4 모달 (서버 발견 / Install / JSON Export / 보고서). 차트 없음 — 체크박스 + bulk action |
+| `list-table.js` | 모달 (Install / JSON Export / 보고서) + 검색·필터·더보기/접기. 차트 없음 — 체크박스 + bulk action |
 
 ## P4 차트 JS 5 의무 규약 (loader 표준)
 
@@ -86,10 +86,10 @@ src/assessment_engine/web/static/js/
 - 주색 `#3b82f6` 는 `--color-title` 이자 데이터 시각화 주색 — 환경 평균 활용률 도넛 게이지(`_UTIL_COLOR_GAUGE`, mappers/attention.py) · right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over, mappers/shared.py) · 서버목록 `.rec-over_provisioned` 배지가 동일 주색.
 - under_provisioned = `#ef4444` (red-500) 대비 유지. 과다프로비저닝(여유)과 활용률 게이지가 같은 파랑 — 같은 화면 두 의미지만 테마 단색화를 위한 의식적 통일.
 - 네비게이션 = 좌측 사이드바(`--color-sidebar` #475569 회색 바탕 + 흰 글씨, `_sidebar.html` + `nav_groups` 글로벌). active 항목만 좌측 주색 바. 본문 링크(`a`)는 무채 #666666(밑줄 #b0b0b0). 옛 상단 바(top navbar)는 사이드바로 대체.
-- 버튼 3종(base.html): `.btn-primary`(주색 채움, 모달 발행 등) / `.btn-select`(흰 톤·표준 크기, 서버 선택 발행 버튼 — 활성=테마색 outline(파랑 글씨·테두리·600) 강조, 비활성=회색 글씨·테두리) / `.btn-action`(흰 톤·표준 크기·회색 글씨, 보조 액션 — 환경보고서 발행·실시간 메트릭·성능 추이·서버 발견·전체보기). selection 은 활성 시 파랑 outline 으로 보조 버튼(회색)과 구별되고 활성/비활성도 색으로 명확. 선택 N대 실시간 메트릭·성능 추이 버튼은 `.btn-select`(체크 시 활성) — public_id navigate(`?ids=`).
+- 버튼 3종(base.html): `.btn-primary`(주색 채움, 모달 발행 등) / `.btn-select`(흰 톤·표준 크기, 서버 선택 발행 버튼 — 활성=테마색 outline(파랑 글씨·테두리·600) 강조, 비활성=회색 글씨·테두리) / `.btn-action`(흰 톤·표준 크기·회색 글씨, 보조 액션 — 환경보고서 발행·실시간 메트릭·성능 추이·전체보기). selection 은 활성 시 파랑 outline 으로 보조 버튼(회색)과 구별되고 활성/비활성도 색으로 명확. 선택 N대 실시간 메트릭·성능 추이 버튼은 `.btn-select`(체크 시 활성) — public_id navigate(`?ids=`).
 - 상태(is_online) 표시 = 폰트색 (`.status-on` #16a34a / `.status-off` #94a3b8, 10px) — 목록·보고서 표·상세 헤더. 개별 보고서 인벤토리 상태는 일반 폰트(보고서 본문 톤 통일).
 - 운영 신호 경고 = 호박색(amber) 도메인 (`.attn-active`·`.attention-cat-item[active]` #fef3c7/#92400e). 정상(0건)은 회색 outline, 발화는 호박 채움 — 경고 의미를 색으로. 테마 파랑(브랜드)과 영역 분리.
-- 네트워크 토폴로지 노드 색(`network-topology.js`·범례 동기화): subnet #64748b / Linux #3b82f6 / Windows #8b5cf6(파랑과 구분되는 보라) / 다중 서브넷(multi-homed) #f59e0b. 범례 표기는 "다중 서브넷".
+- 네트워크 토폴로지 노드 색(`network-topology.js`·범례 동기화): subnet #64748b / Linux #3b82f6 / Windows #8b5cf6(파랑과 구분되는 보라). host 는 OS 로만 구분(멀티홈 별도 색 없음).
 - 테이블 제목행 = 테마색2(`--color-table-head` #a7b2c0) + 흰 글씨, `base.html` `thead`/`th` 전 테이블 단일 진실 (폰트 크기·위계 표준 유지, 색만). `#a7b2c0` = 패널톤(#eaeff5)과 slate-500(#64748b)의 중간 — 흰 글씨 가독 하한.
 - 파일시스템 usage 게이지 막대 = 주색 `#3b82f6` 단색(`_MOUNT_BAR_COLOR`, mappers/server.py). 사용률 위험도는 게이지 색이 아니라 `badge_class`(`badge-warn`/`badge-danger`)로 — 게이지는 톤 통일, 경고는 배지로 분리.
 - 색 상수 단일 진실 = `view-models.md` "신호 임계값 단일 정의".
@@ -99,7 +99,7 @@ src/assessment_engine/web/static/js/
 - 고정 다열(`kpi-grid-2/3/4` · `metric-grid-2/3`)은 `@media (max-width:640px)` 에서 1열 (base.html).
 - 2칼럼 카드(`env-dual` · `env-pair`)는 `align-items:start`로 칼럼 독립, 같은 행 항목은 grid 정렬로 높이 일치.
 - 언더 프로비저닝 상세 = 호스트명 | 서비스 배지 | 평가 6축 지표 3칼럼 grid(행마다 칼럼 정렬, 각 행 1줄 강제 — 지표 칼럼만 좁으면 가로 스크롤). 박스·구분선 없음. 심각도 상위 3(`severity_score` = swap(paging) > 위반 자원 수 > max(CPU/메모리/디스크 util)).
-- 대시보드 환경 영역 = 환경 요약 / 환경 자원 평가(활용률+Right-sizing+언더프로비저닝) / 환경 부하 추이+네트워크 토폴로지 — 3개 별도 카드 section. 운영 신호 카드는 3 카테고리(통신끊김/OS지원종료/에이전트재시작)를 한 행 3칼럼 grid + 카탈로그 뱃지 한 줄(nowrap).
+- 환경 개요(`/`) 영역 = 환경 요약 / 환경 자원 평가(활용률+자원 적정성 분류+언더프로비저닝) / 환경 부하 추이+네트워크 토폴로지 — 3개 별도 카드 section. 운영 신호 카드는 3 카테고리(통신끊김/OS지원종료/에이전트재시작)를 한 행 3칼럼 grid + 카탈로그 뱃지 한 줄(nowrap).
 
 ## report.html print CSS
 
@@ -173,7 +173,7 @@ base.html 컴포넌트와 동급의 표시 계층 단일 진실 — 페이지 �
 | 매크로 | 용도 | 정책 |
 |--------|------|------|
 | `empty_state(message)` | 발화/조건부 섹션이 비었을 때 placeholder (제목은 유지, 내용 없음 명시) | dumb — 분기·계산 0, 정적 message만 렌더 (P3). discoverability 원칙 #E9 단일 진실. |
-| `window_meta(count, days)` | 표제 메타 "(N대 기준 · 최근 M일)" — 활용률·Right-sizing 표제 공통 | days 는 `recommendation.WINDOW_DAYS`(#F10) 전달. 일수 하드코딩 반복 제거. |
+| `window_meta(count, days)` | 표제 메타 "(N대 기준 · 최근 M일)" — 활용률·자원 적정성 표제 공통 | days 는 `recommendation.WINDOW_DAYS`(#F10) 전달. 일수 하드코딩 반복 제거. |
 
 ### Badge 카탈로그
 
@@ -203,7 +203,7 @@ base.html `<style>` 정의 — 모든 page 가 같은 위계 사용. inline `sty
 | 위계 | 정의 | 용도 |
 |------|------|------|
 | `h1` | 20px / 700 / #0f172a | 페이지 제목 (대시보드 / 환경 보고서 / 서버 상세) — 페이지당 1 개 |
-| `h2` | 16px / 700 / #1e293b | 카드 섹션 제목 (요약 / 환경 메트릭 / Right-sizing 분류 등) |
+| `h2` | 16px / 700 / #1e293b | 카드 섹션 제목 (요약 / 환경 메트릭 / 자원 적정성 분류 등) |
 | `h3` | 13px / 600 / #475569 | 소제목 (환경 현황 / 분포 / 조치 필요 호스트 등) — h2 보다 영향력 약함 |
 | `.page-meta` | 14px / 400 / #64748b / margin-left 8px | h1 옆 sub-text (예: view_title 양식 라벨) |
 | `.section-meta` | 12px / 400 / #94a3b8 / margin-left 8px | h2 옆 sub-text (예: 윈도우 / 부가 설명) |
@@ -295,12 +295,12 @@ const params = new URLSearchParams();
 params.set('view', currentView);
 params.set('time_range', rangeSel.value);
 params.set('back', location.pathname);  // referrer 보존
-window.location.href = `/servers/report?${params.toString()}`;
+window.location.href = `/reports/servers?${params.toString()}`;
 ```
 
 라우터의 결과 페이지 표준:
 ```python
-back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
+back_url = back if back and back.startswith("/") and not back.startswith("//") else "/"
 # open-redirect 방어: '/' 시작 + '//' 제외 (same-origin path 만 허용)
 ```
 
@@ -311,7 +311,7 @@ back_url = back if back and back.startswith("/") and not back.startswith("//") e
 
 ### 결과 페이지 → 자식 detail link 의 back chain
 
-다중 N대 보고서 (`/servers/report?ids=...`) 의 hostname 클릭 → 단일 detail (`/servers/{id}/report`) 진입 시, 자식 detail 페이지의 ← 이전 link 가 부모 보고서로 복귀해야 함. 부모 라우터에서 `self_back` 합성:
+다중 N대 보고서 (`/reports/servers?ids=...`) 의 hostname 클릭 → 단일 detail (`/servers/{id}/report`) 진입 시, 자식 detail 페이지의 ← 이전 link 가 부모 보고서로 복귀해야 함. 부모 라우터에서 `self_back` 합성:
 ```python
 from urllib.parse import quote
 self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
@@ -322,18 +322,20 @@ self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 
 | 라우터 | back 사용 여부 | back fallback |
 |--------|----------------|----------------|
-| `/servers/` (대시보드) | X (root 진입점) | — |
-| `/servers/{id}` (detail) | O | `/servers/` |
+| `/` (환경 개요) | X (root 진입점) | — |
+| `/servers` (목록) | X (root 진입점) | — |
+| `/servers/{id}` (detail) | O | `/` |
 | `/servers/{id}/{cpu,memory,services,performance,storage,network}` (tab) | O | `/servers/{id}` |
-| `/servers/report` (다중) | O | `/servers/` |
+| `/environment/{assessment,realtime,metrics,topology}` | O | `/` |
+| `/reports/servers` (선택 N대) | O | `/` |
 | `/servers/{id}/report` (단일) | O | `/servers/{id}` |
-| `/reports/environment` | O | `/servers/` |
-| `/reports/history` | O | `/servers/` |
-| `/reports/right-sizing-thresholds` (참고자료) | O | `/servers/` |
-| `/diagnostics?ids=...` (결과) | O | `/servers/` |
-| `/diagnostics/history` | O | `/servers/` |
+| `/reports/environment` | O | `/` |
+| `/reports/history` | O | `/` |
+| `/reference` (참고) | O | `/` |
+| `/diagnostics?ids=...` (결과) | O | `/` |
+| `/diagnostics/history` | O | `/` |
 
-대시보드 (`/servers/`) 만 root 진입점이라 back 안 받음 — 다른 페이지에서 그쪽으로 가는 link 도 back 불필요. 다만 대시보드 자체는 `self_back` 산출 의무 (자식 link 에 박기 위해).
+환경 개요(`/`)만 root 진입점이라 back 안 받음 — 다른 페이지에서 그쪽으로 가는 link 도 back 불필요. 다만 개요 자체는 `self_back` 산출 의무 (자식 link 에 박기 위해).
 
 ### 에러 표시 — toast 단일 진실
 
@@ -349,7 +351,7 @@ statusEl 은 이전 상태 복원 — 에러 흔적 본문에 잔존 금지.
 - 발행 publish 함수에서 `window.open(url, '_blank')` — 사용자 의도 (현재 탭 일관) 위반.
 - ← 이전 link 에 `javascript:history.back()` 단독 사용 (back chain 끊김 시 이상한 곳으로 복귀) — 명시 `back_url` 항상 같이.
 - back query 인자 sanitize 누락 (open-redirect — 외부 URL 로 점프 가능).
-- `.back` 버튼에 hardcoded URL (`/servers/{id}` / `/servers/` 등) 박음 — back_url context 활용 의무. fallback 은 router 측 `_safe_back` 단일 진실.
+- `.back` 버튼에 hardcoded URL (`/servers/{id}` / `/` 등) 박음 — back_url context 활용 의무. fallback 은 router 측 `_safe_back` 단일 진실.
 - 자식 진입 link 에 `?back=` 박지 않음 — 진입한 자식 페이지가 fallback 으로 점프하는 결과.
 
 ## 링크 포맷 — 단일 진실 (예외 0)

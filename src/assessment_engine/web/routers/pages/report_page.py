@@ -31,7 +31,9 @@ from assessment_engine.web.services.report_serializer import (
 from assessment_engine.web.templating import templates
 from assessment_engine.web.view_models.attention import AttentionSignals
 
-report_page_router = APIRouter()
+# 단일 보고서는 서버 단위(/servers/{id}/report), N대 선택 보고서는 보고서 그룹(/reports/servers) — URL 명사 분리.
+report_single_router = APIRouter(prefix="/servers")
+report_multi_router = APIRouter(prefix="/reports")
 
 _REPORT_VIEW_TITLES: dict[str, str] = {
     "customer": "고객 제출용",
@@ -69,7 +71,7 @@ def _attention_by_host(hostnames: set[str], attention: AttentionSignals) -> dict
     return by_host
 
 
-@report_page_router.get("/report")
+@report_multi_router.get("/servers")
 async def report(
     request: Request,
     ids: str | None = Query(None, description="comma-separated public_id 목록 (live preview). job 모드 시 무시"),
@@ -83,7 +85,7 @@ async def report(
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """Server scope N대 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview."""
-    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
+    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/"
     self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 
     if job:
@@ -152,7 +154,7 @@ async def _render_summary_snapshot(
     )
 
 
-@report_page_router.post("/report/emit")
+@report_multi_router.post("/servers/emit")
 async def report_emit(
     ids: str = Query(..., description="comma-separated public_id 목록 (1개=단일 양식, 2개+=N대 표)"),
     time_range: DiagnosticTimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
@@ -210,7 +212,7 @@ async def report_emit(
         # 양 view 모두 child_jobs 저장 — 세부 서버 목록 hostname -> 개별 보고서(child) 정적 link.
         child_jobs=child_jobs,
     )
-    return {"view_url": f"/servers/report?job={table_job}"}
+    return {"view_url": f"/reports/servers?job={table_job}"}
 
 
 async def _emit_single_report(
@@ -247,7 +249,7 @@ async def _emit_single_report(
     )
 
 
-@report_page_router.get("/{server_id}/report")
+@report_single_router.get("/{server_id}/report")
 async def single_server_report(
     request: Request,
     server_id: UUID,

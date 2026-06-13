@@ -44,85 +44,38 @@
   <div class="text-muted" style="margin-top:8px; font-size:12px;">서비스 미식별 <strong class="text-strong">{{ overview.role_unknown_count }}</strong>대</div>
 </section>
 
-{# 환경 자원 평가 — 환경 평균 활용률 + Right-sizing 분류 묶음. 환경요약과 별도 카드섹션. 같은 윈도우(WINDOW_DAYS)·모집단 공유라 표제 1회(우측). 하위 소제목 h3. #}
-{% if overview.utilization or overview.risk_donut %}
+{# 자원 적정성 분류 게이지 + 리소스 부족 상세(상위 N). 전체 목록·윈도우/앵커 조정은 환경 자원 평가 페이지. #}
+{% if overview.risk_donut and overview.risk_donut_total > 0 %}
 <section class="card no-print">
-    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
-      <h2 class="card-title" style="margin:0;">환경 자원 평가</h2>
-      <span class="section-meta">{{ window_meta(overview.risk_donut_total, window_label) }}</span>
-    </div>
-    <div class="env-pair" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
-
-      <div>
-        <h3 style="margin:0 0 10px;">환경 평균 활용률</h3>
-        {% if overview.utilization %}
-        <div style="display:flex; flex-wrap:wrap; gap:20px;">
-          {% for u in overview.utilization %}
-          <div style="text-align:center;">
-            <svg viewBox="0 0 100 100" width="110" height="110" style="display:block;">
-              <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
-              {% if u.pct is not none %}
-              <circle cx="50" cy="50" r="42" fill="none"
-                      style="stroke: {{ u.bar_color }}" stroke-width="10"
-                      stroke-dasharray="{{ "%.2f"|format(u.dash_length) }} 263.89"
-                      stroke-linecap="round"
-                      transform="rotate(-90 50 50)"/>
-              <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ "%.0f"|format(u.pct) }}%</text>
-              {% else %}
-              <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
-              {% endif %}
-            </svg>
-            <div class="text-label" style="font-size:12px; margin-top:4px;">{{ u.label }}</div>
-          </div>
-          {% endfor %}
-        </div>
-        {% else %}
-        {{ empty_state("표본이 쌓이면 평균 활용률이 표시됩니다.") }}
-        {% endif %}
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+    <h2 class="card-title" style="margin:0;">자원 적정성 분류</h2>
+    <span class="section-meta">{{ window_meta(overview.risk_donut_total, window_label) }}</span>
+  </div>
+  <div style="display:flex; flex-direction:column; gap:6px;">
+    {% for s in overview.risk_donut %}
+    <div style="display:flex; align-items:center; gap:8px;">
+      <div class="text-sm text-strong" style="width:104px; flex-shrink:0;">{{ s.label }}</div>
+      <div class="bar-track" style="flex:1; background:#f1f5f9; border-radius:4px; height:16px; overflow:hidden;">
+        <div class="bar-fill" style="width:{{ s.pct }}%; background:{{ s.color }}; height:100%;"></div>
       </div>
-
-      <div>
-        <h3 style="margin:0 0 10px;">자원 적정성 분류</h3>
-        {# 분류 가로막대 게이지 — 환경 보고서 Right-sizing 평가와 동일 형태. 색은 게이지 테마 단색 통일(s.color = UTIL_GAUGE_COLOR). #}
-        {% if overview.risk_donut and overview.risk_donut_total > 0 %}
-        <div style="display:flex; flex-direction:column; gap:6px;">
-          {% for s in overview.risk_donut %}
-          <div style="display:flex; align-items:center; gap:8px;">
-            <div class="text-sm text-strong" style="width:104px; flex-shrink:0;">{{ s.label }}</div>
-            <div class="bar-track" style="flex:1; background:#f1f5f9; border-radius:4px; height:16px; overflow:hidden;">
-              <div class="bar-fill" style="width:{{ s.pct }}%; background:{{ s.color }}; height:100%;"></div>
-            </div>
-            <strong class="text-sm text-strong" style="width:32px; text-align:right; flex-shrink:0;">{{ s.count }}</strong>
-          </div>
-          {% endfor %}
-        </div>
-        {% else %}
-        {{ empty_state("평가된 서버가 없습니다 — 표본이 쌓이면 분류 결과가 표시됩니다.") }}
-        {% endif %}
-      </div>
-
+      <strong class="text-sm text-strong" style="width:32px; text-align:right; flex-shrink:0;">{{ s.count }}</strong>
     </div>
+    {% endfor %}
+  </div>
 
-    {# 리소스 부족 상세 — 심각도 상위 3. 호스트명|서비스|판단 6축(+confidence) 3칼럼 grid 정렬, 각 행 1줄 강제(지표 칼럼만 좁으면 가로 스크롤). 박스·구분선 없음. #}
-    <div class="card-section" style="border-top:none;">
-      <h3>리소스 부족 상세 <span class="section-meta">{{ overview.under_provisioned_hosts_shown }}/{{ overview.under_provisioned_hosts_count }}건</span></h3>
-      {% if overview.under_provisioned_hosts %}
-      <div class="under-grid" style="display:grid; grid-template-columns:minmax(100px, max-content) minmax(0, 1fr); gap:8px 16px; align-items:center; font-size:12px;">
-        {% for c in overview.under_provisioned_hosts %}
-        <a class="attention-link" href="/servers/{{ c.public_id }}?back={{ self_back }}" style="font-weight:600;">{{ c.hostname }}</a>
-        {# 판단 6축 + confidence 단서(표본부족·축 미관측)를 같은 줄 끝에 흐린 이탤릭으로 — 호스트명 단일 줄 유지(가시성). #}
-        <span style="display:flex; gap:14px; align-items:baseline; white-space:nowrap; overflow-x:auto;">
-          {% for m in c.metrics %}
-          <span><span class="text-meta">{{ m.label }}</span> <span class="metric-val{% if m.active %} metric-val-active{% endif %}" style="color:{{ m.color }};">{{ m.value }}</span></span>
-          {% endfor %}
-          {% for n in c.confidence_notes %}<span class="text-meta" style="color:#94a3b8; padding-left:6px;">{{ n }}</span>{% endfor %}
-        </span>
-        {% endfor %}
-      </div>
-      {% else %}
-      {{ empty_state("리소스 부족으로 분류된 호스트가 없습니다.") }}
-      {% endif %}
+  {# 리소스 부족 — 호스트명 한 줄 나열만 (메트릭 상세는 환경 자원 평가 페이지). #}
+  <div class="card-section" style="border-top:none;">
+    <h3>리소스 부족 <span class="section-meta">{{ overview.under_provisioned_hosts_count }}건</span></h3>
+    {% if overview.under_provisioned_hosts %}
+    <div id="under-grid" style="display:flex; flex-wrap:wrap; gap:8px 14px; font-size:12px;">
+      {% for c in overview.under_provisioned_hosts %}
+      <a class="attention-link" href="/servers/{{ c.public_id }}?back={{ self_back }}" style="font-weight:600;">{{ c.hostname }}</a>
+      {% endfor %}
     </div>
+    {% else %}
+    {{ empty_state("리소스 부족으로 분류된 호스트가 없습니다.") }}
+    {% endif %}
+  </div>
 </section>
 {% endif %}
 

@@ -29,6 +29,8 @@ from assessment_engine.web.services.report_serializer import (
 from assessment_engine.web.templating import templates
 
 reports_router = APIRouter(prefix="/reports", tags=["pages"])
+# 참고(기준·임계값)는 보고서가 아닌 독립 reference — /reference (사이드바 참고 그룹).
+reference_router = APIRouter(tags=["pages"])
 
 _VIEW_TITLES: dict[str, str] = {
     "customer": "고객 제출용",
@@ -51,30 +53,24 @@ async def environment_report(
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """환경 단위 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview (진단 트리거 없음)."""
-    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
+    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/"
     self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 
     if job:
         return await _render_environment_snapshot(request, job, back_url, self_back, diag_service)
 
-    # live read-only preview — engineer narrative 영역은 "발행 시 생성".
-    summary = await service.get_environment_report(time_range, anchor_at, view=view)
-    if summary.overview.total == 0:
-        raise HTTPException(status_code=404, detail="no registered servers")
+    # 발행 전 — 컨트롤만 노출(본문 미표시, summary 미계산). 발행(POST emit)해야 스냅샷 생성 + 화면 표시 + 이력 추가.
     return templates.TemplateResponse(
         request=request,
         name="reports/environment.html",
         context={
             "active_nav": "environment",
-            "summary": summary,
+            "summary": None,
             "view": view,
             "view_title": _VIEW_TITLES[view],
             "back_url": back_url,
             "self_back": self_back,
-            "narratives": {},
-            "narrative_status": "none",
             "report_job_id": None,
-            "narrative_key": ENV_NARRATIVE_KEY,
             "time_range": time_range,
         },
     )
@@ -187,7 +183,7 @@ async def history(
     # 본 이력 페이지 URL — 진입한 보고서의 "이전" 버튼이 돌아올 위치 (back chain).
     history_back = quote(f"{request.url.path}?{request.url.query}", safe="")
     items = [to_report_history_item(r, history_back) for r in records]
-    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
+    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/"
     context = {
         "active_nav": "history",
         "items": items,
@@ -204,17 +200,17 @@ async def history(
     return templates.TemplateResponse(request=request, name=template, context=context)
 
 
-@reports_router.get("/right-sizing-thresholds")
+@reference_router.get("/reference")
 async def right_sizing_thresholds(
     request: Request,
-    back: str | None = Query(None, description="← 이전 link referrer. 미명시 시 /servers/"),
+    back: str | None = Query(None, description="← 이전 link referrer. 미명시 시 / (환경 개요)"),
 ):
     """Right-sizing 분류 임계값 reference 페이지 — 환경 엔지니어 보고서에서 link 로 분리.
 
     `recommendation` 모듈 단일 진실의 분류·USE 축·입력·임계·근거 표 + 출처 설명.
     보고서·진단 양쪽이 참조하는 reference 자료 — 본 페이지에서만 한 번 정의 (T13).
     """
-    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
+    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/"
     return templates.TemplateResponse(
         request=request,
         name="reports/right_sizing_thresholds.html",

@@ -1,5 +1,4 @@
-{# 서버목록 행 fragment — list.html tbody include + 라우터 ?fragment=rows 자동갱신 공용 렌더.
-   server-row 만 (discover 버튼 행은 list.html tbody 에 정적 유지 — 자동 교체 시 보존). #}
+{# 서버목록 행 fragment — list_table.html tbody include + 라우터 ?fragment=rows 자동갱신 공용 렌더. #}
 {% for s in servers %}
 <tr class="server-row"
     data-hostname="{{ s.hostname | lower }}"
@@ -15,20 +14,15 @@
     <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="row-link"><strong>{{ s.hostname }}</strong></a>
   </td>
   <td>
-    {# 분류된 서비스만 뱃지 표시. unknown(미분류)은 뱃지 없이 빈 값(—). #}
+    {# 분류된 서비스만 칩 표시 (환경 개요 role-chip 방식, count 항상 노출). unknown(미분류)은 빈 값(—). #}
     {% if s.known_services %}
+      <span style="display:flex; flex-wrap:wrap; gap:4px;">
       {% for svc in s.known_services %}
-        <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}{% if svc.category_count > 1 %} {{ svc.category_count }}{% endif %}</span>
+        <span class="role-chip">{{ svc.category }} <strong class="text-strong">{{ svc.category_count }}</strong></span>
       {% endfor %}
+      </span>
     {% else %}
       <span class="text-meta" style="font-size:11px;">—</span>
-    {% endif %}
-  </td>
-  <td class="text-label">
-    {% if s.ip_external %}
-      {% for ip in s.ip_external %}{{ ip }}{% if not loop.last %}, {% endif %}{% endfor %}
-    {% else %}
-      <span class="text-meta" style="font-size:11px;">내부망</span>
     {% endif %}
   </td>
   <td class="text-label">{{ s.os_display }}</td>

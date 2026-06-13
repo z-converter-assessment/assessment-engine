@@ -15,16 +15,16 @@
 
 두 산출물의 관계 (T13):
 - 동일 `diagnostic_jobs` 테이블 row 보존. 보고서 / AI 진단 둘 다 본 테이블 record.
-- 보고서 발행 record 는 PRG pattern — `POST /reports/environment/emit` 가 `record_report_emission` 호출 (GET 은 read-only, 다시 보기 / 직접 URL 진입 시 중복 row 방지).
-- 이력 표시 분리: 보고서 이력 `/reports/history` (customer + engineer union, view 필터), 진단 발행 이력 `/diagnostics/history` (job_type='ai_diagnostic' 자동 필터).
+- 환경 보고서 발행 흐름 — 발행(`POST /reports/environment/emit`)을 눌러야 스냅샷 생성 + 본문 표시 + 이력 추가. 발행 전 GET 은 컨트롤(보고서 양식·윈도우·앵커 select + 발행 버튼)만 노출, live preview 본문 없음. 발행된 스냅샷은 `GET /reports/environment?job={id}` 정적 렌더 (서버 scope `/reports/servers` 는 발행 전에도 live preview 본문 유지 — 환경 보고서만 컨트롤-only).
+- 이력 표시 분리: 보고서 이력 `/reports/history` (customer + engineer union, view 필터), 진단 발행 이력 `/diagnostics/history`.
 
 ## 위치
 
 - UI 진입점:
-  - 환경 보고서 — 대시보드 list 페이지 상단 "환경 보고서" 버튼 또는 `/reports/environment?view=customer|engineer` 직접 호출
-  - 환경 진단 — 대시보드 list 상단 환경 진단 패널 + 결과 페이지 `/diagnostics?ids=<job_id>` + 이력 `/diagnostics/history`
+  - 환경 보고서 — 홈/네비 "환경 보고서" 또는 `/reports/environment?view=customer|engineer` 직접 호출 (컨트롤 노출, 발행 후 본문)
+  - 환경 진단 — 환경 진단 패널 + 결과 페이지 `/diagnostics?ids=<job_id>` + 이력 `/diagnostics/history`
 - 발행 경로:
-  - 환경 보고서 — 운영자 즉시 호출 (HTTP GET). 발행 시점 즉시 SQL 집계 + render
+  - 환경 보고서 — 운영자가 양식·윈도우·앵커 선택 후 발행(POST emit) — 발행 시점 SQL 집계 + 스냅샷 INSERT + render. 발행 전 GET 은 컨트롤만
   - 환경 진단 — 운영자 즉시 발행 (웹 모달) — ADR 0023: scheduler cron 폐기, 사용자 trigger 만
 - 산출물 형태: HTML SSR. 브라우저 인쇄로 PDF/PPT 캡처 (백엔드 PDF export 미도입 — `docs/tradeoffs.md` T 참조)
 
@@ -51,33 +51,34 @@
 | 영역 | 내용 | 데이터 source |
 |------|------|--------------|
 | KPI 6개 | 대상 서버 / 온라인 / 주의 필요 / 고위험 / 평균 CPU p95 / 평균 메모리 p95 | service KPI 집계 (time_range 윈도우) |
-| 환경 구성 (OS·워크로드) | OS family(Windows/Linux) 막대 + 워크로드 카테고리(web/db/cache/mq/container/monitor) 막대 — 단일색 분포 막대 + 카운트. "이 환경이 무엇으로 이루어졌는지"(P-A 구성 계층). customer·engineer 공통 | `overview.os_distribution`(family) / `overview.role_distribution` |
+| 환경 구성 + 서비스 구성 (한 카드 2열) | 환경 구성(OS family Windows/Linux 분포) + 서비스 구성(카테고리별 칩 "카테고리명 + 서비스명·개수", 전 카테고리 노출 count 0 포함 #E9, "분류 미상 서버 N대" 표기). engineer 호스트 전수 나열 없음 | `overview.os_distribution` / 워크로드 카테고리 칩 |
 | 환경 총 자원 | 총 vCPU / 메모리 / 디스크 | inventory 합산 |
-| 분류 분포 | right-sizing 6분류 카운트 막대 (한국어 분류명 LABEL_KO, 영어 enum 미노출) | `recommendation.assess` |
-| 환경 부하 추이 (시계열) | CPU·메모리·디스크 평균 추이 차트. 보고서=발행 윈도우 정적 스냅샷 / 대시보드=7일 live | `metric_trend` |
-| 네트워크 토폴로지 (engineer) | ip_internal CIDR subnet 공동소속 그래프 (정적 스냅샷) | `build_network_topology` |
+| 분류 분포 | 자원 적정성 6분류 카운트 막대 (한국어 분류명 LABEL_KO, 영어 enum 미노출) | `recommendation.assess` |
+| 환경 부하 추이 (시계열) | CPU·메모리·디스크 평균 추이 차트. 보고서=발행 윈도우 정적 스냅샷 | `metric_trend` |
+| 네트워크 토폴로지 (engineer) | 정적 서브넷 요약 표 (서브넷 대역·호스트 수). 인터랙티브 Cytoscape 그래프는 화면 토폴로지 페이지(`/environment/topology`) 전용. OS(linux/windows)로만 구분 — 멀티홈 색 구분 없음 | `build_network_topology` (subnet 집계) |
 
 ### view 분기 — customer (양식 A)
 
 목적: 컨설턴트가 고객 미팅·내부 보고에 들고 가는 한 장짜리 환경 자원 요약.
 
-- 분류 어휘 = right-sizing 한국어 분류명(LABEL_KO) 단일 — 요약·분포·조치 표 동일, 영어 enum·평행 어휘 없음.
-- Right-sizing 평가: 분류 분포(조치 방향) + 효율화 검토 대상(과다·유휴·종료 자원 합) + 조치 필요 호스트(리소스 부족). 평가 커버리지(평가 대상/전체) 명시.
-- 운영 신호: OS 지원 종료 카드만 (2축 정책, 디스크 capacity 는 right-sizing 흡수).
+- 분류 어휘 = 자원 적정성 한국어 분류명(LABEL_KO) 단일 — 요약·분포·조치 표 동일, 영어 enum·평행 어휘 없음.
+- 환경 요약: 인벤토리(등록 서버·총 vCPU/메모리/디스크) + 메트릭(CPU/메모리/디스크 평균 활용률) metric-card — engineer 환경 현황과 동일 소제목 구조.
+- 자원 적정성 평가: 분류 분포(조치 방향) + 효율화 검토 대상(과다·유휴·종료 자원 합) + 조치 필요 호스트(리소스 부족, high 만). 평가 커버리지(평가 대상/전체) 명시.
+- 운영 신호: OS 지원 종료 카드만 (2축 정책, 디스크 capacity 는 자원 적정성 분류가 흡수).
 - 자동 정성 요약: 분류 분포 + 우선 조치/효율화 여지.
 - 발화 항목은 제목 + placeholder (데이터 0 이어도 노출, #E9).
 - Print 우선 — 참고자료 전문 인쇄 임베드.
 
 ### view 분기 — engineer (양식 B)
 
-목적: 운영자·엔지니어가 환경 단위 정량 패턴 분석 + Right-sizing 근거 검증. customer 와 동일 어휘(LABEL_KO) + 정량 상세.
+목적: 운영자·엔지니어가 환경 단위 정량 패턴 분석 + 자원 적정성 근거 검증. customer 와 동일 어휘(LABEL_KO) + 정량 상세.
 
 - 요약: customer 기준(분류 분포 + 우선 조치/효율화 여지) + 자원 규모 + OS 지원 종료.
 - 환경 현황 카드: 인벤토리(등록 서버·총 vCPU/메모리/디스크) / 메트릭 소제목 구분. 메트릭 = 인벤토리식 metric-card 5축(CPU·메모리·디스크·네트워크·디스크 I/O) — 실시간 '현재 자원 현황' 축과 동기, 값은 전부 보고서 윈도우 통계(CPU/메모리/디스크 = capacity-weighted avg+p95, 네트워크/디스크 I/O = per-server 윈도우 baseline 합, 단위 표기 `format_net_rate` 실시간 공용 단일 진실). 디스크 p95 는 시점별 capacity 합이 Windows 디바이스(major/minor) 인식 불완전으로 신뢰 불가라 의도 제외(repo `environment_utilization` SQL 주석 단일 진실). 에이전트 버전은 환경 구성 카드.
-- 환경 부하 추이(시계열 CPU/메모리/디스크) + 네트워크 토폴로지 (각 별도 카드).
-- Right-sizing 분류: 6분류 분포 + 효율화 검토 대상 + 리소스 부족 상세(trigger별) + 호스트 권고 표(전수, 위험도 순 — 분류·진단(가장 시급한 신호 1개, 데이터 부족 호스트는 원인 진단·오프라인은 "오프라인" 접두)·권고·신뢰도 한 표. customer 조치 필요 호스트의 상위집합).
-- 세부 서버 목록: `_shared.html` `detail_server_list` — 선택 보고서와 단일 진실. customer 칼럼(상태·서버·구동 서비스·OS·자원·CPU/MEM 평균·프로비저닝) + engineer 전용 재부팅·에이전트 재시작(시스템 안정성).
-- 운영 신호 = OS 지원 종료만(2축 정책) — 보고서는 전수 표시(절단 없음, 대시보드 카드 5건 한도와 분리). 재부팅·에이전트 재시작은 세부 서버 목록 표에 표시.
+- 환경 부하 추이(시계열 CPU/메모리/디스크) + 네트워크 토폴로지(정적 서브넷 요약 표) — 한 카드 2열.
+- 자원 적정성 분류: 6분류 분포 + 효율화 검토 대상(over/idle/shutdown 호스트 표 Top 30 — 호스트별 분류·진단·권고·신뢰도) + 리소스 부족(6축 메트릭 테이블 — trigger별 hit 강조). 조치 호스트 노출은 이 두 표가 단일 진실(전수 위험도 종합 표 없음).
+- 세부 서버 목록: 환경 보고서는 미표시 (전수 인쇄 폭주 회피 — 조치 대상은 효율화/리소스 부족 표가 담음). 선택 N대 보고서(selection)만 표시.
+- 운영 신호 = OS 지원 종료만(2축 정책) — 보고서는 전수 표시(절단 없음, 대시보드 카드 한도와 분리). 재부팅·에이전트 재시작은 selection 세부 서버 목록 표에 표시.
 - 화면 분석 우선 (인쇄 가능).
 
 분기 메커니즘:
@@ -115,9 +116,9 @@ over-provisioned 5대, under-provisioned 2대, idle 0대, optimal 16대.
 
 Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 사용은 saturation 아니라 분류에서 제외(swap_pressure 카운트·분포 도넛 모두). Windows는 utilization 축만으로 분류(부분 평가). 상세 `right_sizing_thresholds.html`.
 
-분류 표시 (customer·engineer 공통): right-sizing 한국어 분류명(LABEL_KO) 단일. 내부 risk_level(high/attention/normal)은 조치 필요 호스트 선정·강조용으로만 쓰고, 화면 라벨로 노출하지 않는다 (영어 enum·평행 어휘 금지).
+분류 표시 (customer·engineer 공통): 자원 적정성 한국어 분류명(LABEL_KO) 단일. 내부 risk_level(high/attention/normal)은 조치 필요 호스트 선정·강조용으로만 쓰고, 화면 라벨로 노출하지 않는다 (영어 enum·평행 어휘 금지).
 
-운영 신호 (2축 분리): right-sizing(축1, 디스크 capacity·IO 포함)과 별개로 AttentionSignals 3종(통신 끊김·OS 지원 종료·에이전트 재시작)이 운영 신호 축. 보고서는 그중 OS 지원 종료만 카드로 표시(통신 끊김·에이전트 재시작은 윈도우 의미 불일치로 전역 카드 미표시 — 에이전트 재시작은 engineer 호스트 상세 컬럼). 상세는 `docs/temp/report-view-policy.md` 5절.
+운영 신호 (2축 분리): 자원 적정성 분류(축1, 디스크 capacity·IO 포함)과 별개로 AttentionSignals 3종(통신 끊김·OS 지원 종료·에이전트 재시작)이 운영 신호 축. 보고서는 그중 OS 지원 종료만 카드로 표시(통신 끊김·에이전트 재시작은 윈도우 의미 불일치로 전역 카드 미표시 — 에이전트 재시작은 engineer 호스트 상세 컬럼). 상세는 `docs/temp/report-view-policy.md` 5절.
 
 ### 평가 윈도우 7일
 
@@ -146,7 +147,7 @@ Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 
 | 항목 | 환경 (본 문서) | 서버 (`server-report.md`) |
 |------|---------------|--------------------------|
 | 발행 단위 | 환경 전체 1건 | 1대 또는 N대 batch (각 1건씩) |
-| 보고서 라우터 | `/reports/environment` | `/servers/report?ids=...` |
+| 보고서 라우터 | `/reports/environment` | `/reports/servers?ids=...` |
 | 진단 scope | environment | server |
 | 산출물 | 분류 분포 카운트 + 우선순위 권장 | 개별 서버 분류·action·narrative |
 | 답 | "환경 안 over-provisioned 5대 있음" | "이 서버는 under_provisioned, 업사이즈 검토" |

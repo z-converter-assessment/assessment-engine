@@ -361,7 +361,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 선택
 - `diagnostic_jobs.job_type` 컬럼 (`ai_diagnostic`/`customer_report`/`engineer_report`) — 보고서 생성도 본 테이블에 row 저장 (이력 보존).
 - 양식 분리:
-  - server scope (`/servers/report?ids=...`): row 단위 상세, 양식 A/B (`servers/report.html`).
+  - server scope (`/reports/servers?ids=...`): row 단위 상세, 양식 A/B (`servers/report.html`).
   - environment scope (`/reports/environment`): high-level (KPI·USE Method 분류 도넛·Top N risk·OS 분포·view별 정성 요약, `reports/environment.html`). 전체 등록 서버 자동, `EnvironmentReportSummary` view_model + `mappers.environment_report`.
 - 두 라우터 모두 합성 직후 `record_report_emission` 호출 (best-effort, 응답 흐름 영향 없음).
 - AI 진단 이력 (`/diagnostics/history`) 과 보고서 이력 (`/reports/history`) 페이지 분리 — AI 진단 이력은 `job_type='ai_diagnostic'` 자동 필터, 보고서 이력은 customer + engineer union + view 필터 select. 서버 목록에서 진입점 둘 다 지원 (선택 N대 버튼 + 환경 카드 link).

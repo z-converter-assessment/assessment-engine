@@ -203,7 +203,7 @@
 })();
 
 // 서버 1대 scope 보고서 발행 모달 — 대시보드 환경 보고서 모달과 동일 form (time_range select + anchor).
-// /servers/report 라우터가 time_range 그대로 받음 — JS 변환 없음.
+// /reports/servers 라우터가 time_range 그대로 받음 — JS 변환 없음.
 (function () {
   const card = document.getElementById('server-report-card');
   if (!card) return;
@@ -242,7 +242,7 @@
       params.set('ids', publicId);
       params.set('view', currentView);
       params.set('time_range', rangeSel.value);
-      const res = await fetch(`/servers/report/emit?${params.toString()}`, { method: 'POST' });
+      const res = await fetch(`/reports/servers/emit?${params.toString()}`, { method: 'POST' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const viewUrl = data.view_url + `&back=${encodeURIComponent(location.pathname)}`;

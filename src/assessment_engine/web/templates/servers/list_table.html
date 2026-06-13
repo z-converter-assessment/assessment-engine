@@ -3,10 +3,7 @@
 {% block title %}ZConverter Assessment — 서버 목록{% endblock %}
 
 {% block content %}
-<div style="display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:8px;">
-  <h1 style="margin:0;">서버 목록</h1>
-  <div class="text-muted" style="font-size:12px; text-align:right;">최근 <span id="dashboard-updated">{{ generated_at | kst }}</span></div>
-</div>
+<h1 style="margin:0 0 8px;">서버 목록</h1>
 
 <!-- ZConverter Install 모달 — 선택 호스트 N대에 task.install 발행 -->
 <div id="install-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
@@ -30,25 +27,6 @@
              style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px; box-sizing:border-box;">
     </div>
     <button type="button" id="install-submit" class="btn" style="background:var(--color-title); color:#fff; padding:8px 16px; cursor:pointer; border:none; margin-top:12px;">발행</button>
-  </div>
-</div>
-
-<!-- 서버 발견 모달 — IP 입력 → SSH 포트 TCP connect로 도달성 확인 (Ansible 배포 워크플로우 1단계) -->
-<div id="discover-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
-  <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <h3 class="modal-title">SSH 도달성 확인</h3>
-      <button type="button" id="discover-close" class="text-meta" style="background:none; border:none; font-size:20px; cursor:pointer; line-height:1;">X</button>
-    </div>
-    <p class="text-muted" style="margin:0 0 16px; font-size:12px; line-height:1.5;">
-      대상 서버 IP 또는 hostname의 SSH 포트(기본 22)에 TCP 연결을 시도해 도달성을 확인합니다. (1차 검사 — 로그인 가능 여부는 credential 등록 후 별도 확인)
-    </p>
-    <div style="display:grid; grid-template-columns:1fr 80px; gap:8px; margin-bottom:12px;">
-      <input type="text" id="probe-ip" value="{{ discovery_default_target }}" placeholder="IP 또는 hostname (예: 192.168.0.42 또는 engine.internal)" style="padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; font-family:monospace;">
-      <input type="number" id="probe-port" value="{{ discovery_default_port }}" min="1" max="65535" style="padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-    </div>
-    <button type="button" id="probe-btn" class="btn" style="background:var(--color-title); color:#fff; padding:8px 16px; cursor:pointer; border:none;">연결 확인</button>
-    <div id="probe-result" style="margin-top:16px; padding:12px; border-radius:6px; font-size:13px; display:none;"></div>
   </div>
 </div>
 
@@ -85,63 +63,57 @@
 <script src="/static/js/pages/list-table.js?v={{ asset_v }}" defer></script>
 
 <section class="card no-print">
-<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-  <h2 class="card-title" style="margin:0;">서버 목록</h2>
-  {# 서버 발견 — 서버 목록 카드 제목 우측 끝. type=button(폼 submit 안 함), id 유지로 list-table.js 동작 동일. #}
-  <button type="button" id="discover-btn" class="btn-action no-print">+ 서버 발견</button>
+{% if servers %}
+{# 필터는 제목행(thead)에 인라인. client-side(list-table.js data-* 비교) — form submit 없이 즉시 hide/show. #}
+{% set filters_active = request.query_params.get('search') or request.query_params.get('is_online') or request.query_params.get('service') or request.query_params.get('os_distro') or request.query_params.get('classification') %}
+
+<div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; align-items:center;">
+  <button type="button" id="realtime-sel-btn" class="btn-select no-print" disabled title="선택 N대 실시간 현황 (현황 모니터링)">실시간 현황</button>
+  <button type="button" id="metrics-sel-btn" class="btn-select no-print" disabled title="선택 N대 성능 추이 (시계열)">성능 추이</button>
+  <button type="button" id="report-customer-btn" class="btn-select no-print" disabled title="고객 제출용 — 양식 A">고객 보고서</button>
+  <button type="button" id="report-engineer-btn" class="btn-select no-print" disabled title="엔지니어 검토용 — 양식 B (AI 진단 컬럼 포함)">엔지니어 보고서</button>
+  <button type="button" id="export-btn" class="btn-select no-print" disabled>JSON Export</button>
+  <button type="button" id="install-btn" class="btn-select no-print" disabled>ZConverter Install</button>
 </div>
 
-<form method="get" class="search-row no-print" id="filter-form">
-  <input type="text" name="search" value="{{ request.query_params.get('search', '') }}" placeholder="hostname 검색">
-  <select name="is_online">
+{# 필터 — 제목행과 분리된 별도 행. 위젯 모양·크기는 위 선택 버튼(btn-select)에 맞춤(list-filter).
+   값 선택 시 active(테마색 강조), 미선택 시 회색(list-table.js 토글). client-side 필터. #}
+<form method="get" id="filter-form" class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:14px;">
+  <input type="text" name="search" class="list-filter" value="{{ request.query_params.get('search', '') }}" placeholder="검색" aria-label="hostname 검색" style="width:90px;">
+  <select name="is_online" class="list-filter" aria-label="상태 필터">
     <option value="">상태 전체</option>
     <option value="true" {% if request.query_params.get('is_online') == 'true' %}selected{% endif %}>온라인</option>
     <option value="false" {% if request.query_params.get('is_online') == 'false' %}selected{% endif %}>오프라인</option>
   </select>
-  <select name="service">
+  <select name="service" class="list-filter" aria-label="서비스 필터">
     <option value="">서비스 전체</option>
     {% for cat in filter_options.service_categories %}
     <option value="{{ cat }}" {% if request.query_params.get('service') == cat %}selected{% endif %}>{{ cat }}</option>
     {% endfor %}
   </select>
-  <select name="os_distro">
+  <select name="os_distro" class="list-filter" aria-label="OS 필터" style="width:104px;">
     <option value="">OS 전체</option>
     {% for slug, label in filter_options.distro_options %}
     <option value="{{ slug }}" {% if request.query_params.get('os_distro') == slug %}selected{% endif %}>{{ label }}</option>
     {% endfor %}
   </select>
-  <select name="classification">
+  <select name="classification" class="list-filter" aria-label="프로비저닝 필터">
     <option value="">프로비저닝 전체</option>
     {% for cls, cls_label in filter_options.classifications %}
     <option value="{{ cls }}" {% if request.query_params.get('classification') == cls %}selected{% endif %}>{{ cls_label }}</option>
     {% endfor %}
   </select>
-  {% if request.query_params.get('search') or request.query_params.get('is_online') or request.query_params.get('service') or request.query_params.get('os_distro') or request.query_params.get('classification') %}
-  <a href="/servers/list" class="clear-btn" style="display:inline-flex;align-items:center;">초기화</a>
-  {% endif %}
+  <a href="/servers" class="clear-btn" id="filter-clear" style="align-items:center; display:{% if filters_active %}inline-flex{% else %}none{% endif %};">초기화</a>
 </form>
 
-<div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; margin-bottom:14px; align-items:center;">
-  <button type="button" id="realtime-sel-btn" class="btn-select no-print" disabled title="선택 N대 실시간 메트릭 (현황 모니터링)">실시간 메트릭</button>
-  <button type="button" id="metrics-sel-btn" class="btn-select no-print" disabled title="선택 N대 성능 추이 (시계열)">성능 추이</button>
-  <button type="button" id="report-customer-btn" class="btn-select no-print" disabled title="고객 제출용 — 양식 A">고객 보고서</button>
-  <button type="button" id="report-engineer-btn" class="btn-select no-print" disabled title="엔지니어 검토용 — 양식 B (AI 진단 컬럼 포함)">엔지니어 보고서 (AI)</button>
-  <button type="button" id="export-btn" class="btn-select no-print" disabled>JSON Export</button>
-  <button type="button" id="install-btn" class="btn-select no-print" disabled>ZConverter Install</button>
-</div>
-
-{% if servers %}
 <div style="overflow-x:auto;">
 <table class="server-list-table">
   <thead>
     <tr>
-      <th class="no-print" style="width:36px; text-align:center;">
-        <input type="checkbox" id="select-all">
-      </th>
+      <th class="no-print" style="width:36px; text-align:center;"><input type="checkbox" id="select-all"></th>
       <th style="width:48px; text-align:center;">상태</th>
       <th>Hostname</th>
       <th>서비스</th>
-      <th style="white-space:nowrap;">외부 IP</th>
       <th>OS</th>
       <th style="white-space:nowrap;">프로비저닝</th>
       <th style="white-space:nowrap;">최근 작업</th>
@@ -153,13 +125,12 @@
   </tbody>
 </table>
 </div>
-{# 전체보기 — 기본 N행만 표시, 클릭 시 전체 표시 (JS clip). 필터 활성 시 숨김(조건 맞는 전부 노출).
-   서버 발견 버튼과 동일 btn-action 모양. #}
+{# 전체보기 — 기본 N행만 표시, 클릭 시 전체 표시 (JS clip). 필터 활성 시 숨김(조건 맞는 전부 노출). #}
 <div class="no-print" id="show-more-wrap" style="display:none; margin-top:12px; text-align:center;">
   <button type="button" id="show-more-btn" class="btn-action">전체보기 <span id="show-more-count" class="text-meta" style="font-weight:400;"></span></button>
 </div>
 {% else %}
-<p class="text-muted" style="margin:0; padding:20px 0;">등록된 서버가 없습니다. 에이전트가 연결되거나 위에서 서버를 발견하세요.</p>
+<p class="text-muted" style="margin:0; padding:20px 0;">등록된 서버가 없습니다. 에이전트가 연결되면 표시됩니다.</p>
 {% endif %}
 
 </section>

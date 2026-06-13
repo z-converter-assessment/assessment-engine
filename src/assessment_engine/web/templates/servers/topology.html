@@ -3,20 +3,18 @@
 {% block title %}ZConverter Assessment — 네트워크 토폴로지{% endblock %}
 
 {% block content %}
-<div style="display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:8px;">
-  <h1 style="margin:0;">네트워크 토폴로지</h1>
-  <div class="text-muted" style="font-size:12px; text-align:right;">최근 <span id="dashboard-updated">{{ generated_at | kst }}</span></div>
-</div>
+<h1 style="margin:0 0 8px;">네트워크 토폴로지</h1>
 
 <script src="/static/js/vendor/cytoscape.min.js?v={{ asset_v }}" defer></script>
 <script src="/static/js/pages/network-topology.js?v={{ asset_v }}" defer></script>
 
 <section class="card no-print">
   <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; min-height:30px; margin-bottom:12px; flex-wrap:wrap;">
-    <h2 class="card-title" style="margin:0;">L3 서브넷 공동소속 그래프</h2>
-    {% if topology.has_data %}<span class="section-meta">서브넷 {{ topology.subnet_count }} · 호스트 {{ topology.host_count }}{% if topology.multi_homed_count > 0 %} · 다중 서브넷 {{ topology.multi_homed_count }}{% endif %}</span>{% endif %}
+    <h2 class="card-title" style="margin:0;">서브넷 연결도</h2>
+    {% if topology.has_data %}<span class="section-meta">서브넷 {{ topology.subnet_count }} · 호스트 {{ topology.host_count }}</span>{% endif %}
   </div>
   {% if topology.has_data %}
+  <p class="text-muted" style="margin:0 0 10px; font-size:12px;">서브넷 노드를 클릭하면 소속 호스트가 펼쳐집니다.</p>
   <div style="position:relative;">
     <div id="topology-graph" style="height:560px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc;"
          data-elements='{{ topology.elements | tojson }}'></div>
@@ -30,10 +28,35 @@
     <span><span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:#64748b; vertical-align:middle;"></span> 서브넷</span>
     <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--color-title); vertical-align:middle;"></span> Linux</span>
     <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#8b5cf6; vertical-align:middle;"></span> Windows</span>
-    <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#f59e0b; vertical-align:middle;"></span> 다중 서브넷</span>
   </div>
   {% else %}
   {{ empty_state("2대 이상이 공유하는 네트워크 세그먼트가 아직 없습니다 — 인벤토리가 쌓이면 호스트 간 서브넷 관계가 표시됩니다.") }}
+  {% endif %}
+</section>
+
+{# 서브넷별 소속 서버 목록 (IP 표시) — 그래프와 별개. 발화 가드(#E9): 데이터 없어도 제목 노출. #}
+<section class="card no-print">
+  <h2 class="card-title" style="margin:0 0 14px;">서브넷별 서버</h2>
+  {% if topology.subnets %}
+  {# 단일 table — 서브넷은 colspan 헤더 행으로 구분. 전 서브넷이 같은 칼럼 너비로 정렬(서브넷별 table 분리 시 너비 제각각 문제 해소). #}
+  <table style="border-collapse:collapse; font-size:12px;">
+    <tbody>
+    {% for sn in topology.subnets %}
+    <tr>
+      <td colspan="3" style="font-family:monospace; font-weight:600; font-size:13px; color:#334155; padding:{% if not loop.first %}16px{% else %}0{% endif %} 0 7px; border-bottom:1px solid #e2e8f0;">{{ sn.net_key }}</td>
+    </tr>
+    {% for h in sn.hosts %}
+    <tr>
+      <td style="padding:4px 28px 4px 0;"><a href="/servers/{{ h.public_id }}?back={{ self_back }}">{{ h.hostname }}</a></td>
+      <td style="padding:4px 28px 4px 0; color:#475569;">{{ h.ip }}</td>
+      <td style="padding:4px 0; color:#475569;">{{ h.os_family }}</td>
+    </tr>
+    {% endfor %}
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  {{ empty_state("표시할 공유 서브넷이 없습니다 — 인벤토리가 쌓이면 서브넷별 서버가 표시됩니다.") }}
   {% endif %}
 </section>
 

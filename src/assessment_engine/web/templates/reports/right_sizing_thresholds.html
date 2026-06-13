@@ -5,8 +5,6 @@
 {# 전용 페이지 인쇄 포맷 = 보고서 말미 footer 임베드(_reference_footer.html)와 동일.
    별도 압축 CSS 없이 _thresholds_reference 를 그대로 렌더 -> base.html @media print 의 .card 규칙만 적용
    (카드 박스 유지·page-break-inside avoid·원본 폰트). 두 경로 단일 형태. #}
-<a href="{{ back_url }}" class="back no-print">&larr; 이전</a>
-
 <div style="display:flex; align-items:center; justify-content:space-between; margin:8px 0 20px; gap:16px;">
   <h1>참고자료
     <span class="page-meta">지표·분류 기준</span>

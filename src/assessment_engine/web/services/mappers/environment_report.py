@@ -21,7 +21,7 @@ from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS as _PROVISIONING_SEGMENT_DEFS,
 )
 from assessment_engine.web.services.mappers.topology import build_network_topology
-from assessment_engine.web.services.service_classifier import SINGLE_INSTANCE_CATEGORIES
+from assessment_engine.web.services.service_classifier import SERVICE_CATEGORIES, SINGLE_INSTANCE_CATEGORIES
 from assessment_engine.web.view_models.attention import (
     AttentionSignals,
     CapacityWarningItem,
@@ -140,7 +140,8 @@ def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalog
     """선택 N대 base.rows 의 workload_groups 를 카테고리 기준 집계 — 카테고리별 서비스명·등장 서버 수 (P2).
 
     names_label 은 "nginx, gunicorn" comma-separated — split 후 서비스명별 등장 서버 수 카운트. 빈 names
-    (listen-only 탐지, T15)는 카테고리만 (services=[]). 범례(카테고리 색) + 색 뱃지(서비스명·개수)로 표시.
+    (listen-only 탐지, T15)는 카테고리만 (services=[]). 전 카테고리 노출(count 0 포함, #E9) — 색 없이
+    "카테고리 N --- 서비스명 개수" 형식. total_count = 서비스 count 합.
     """
     # 일반 카테고리: 서비스명별 hosts. single_instance(container 등, E7): docker+containerd 등을 1 런타임 스택으로
     # 보아 카테고리 단위 서버당 1 (서비스명 합집합·서버 distinct 카운트) — 카테고리 카운트 정책과 일관.
@@ -164,7 +165,12 @@ def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalog
     for cat, hosts in single_hosts.items():
         label = ", ".join(sorted(single_names.get(cat, set()))) or cat
         groups[cat] = [ServiceNameCount(name=label, count=len(hosts), hosts=hosts)]
-    return [ServiceCatalogGroup(category=cat, services=groups[cat]) for cat in sorted(groups)]
+    # 전 워크로드 카테고리 노출(count 0 포함, #E9). total_count = 서비스 count 합 (카탈로그 정의 순).
+    result = []
+    for cat in SERVICE_CATEGORIES:
+        services = groups.get(cat, [])
+        result.append(ServiceCatalogGroup(category=cat, total_count=sum(s.count for s in services), services=services))
+    return result
 
 
 def _count_os(details: list[ServerDetail]) -> list[OsCount]:
@@ -228,6 +234,21 @@ def _select_top_risks(rows: list[ReportRowItem], view: str) -> list[ReportRowIte
     limit = _TOP_RISK_N_BY_VIEW.get(view, 10)
     sorted_rows = sorted(rows, key=_key)
     return sorted_rows if limit is None else sorted_rows[:limit]
+
+
+_EFFICIENCY_PRIORITY: dict[str, int] = {"shutdown": 0, "idle": 1, "over_provisioned": 2}
+_EFFICIENCY_TARGET_N = 30
+
+
+def _select_efficiency_targets(rows: list[ReportRowItem]) -> list[ReportRowItem]:
+    """효율화(감축·정리) 대상 호스트 — over/idle/shutdown 을 정리 시급도 순 상위 N.
+
+    shutdown(거의 미사용) > idle(저활용) > over(과프로비전), 동순위는 cpu_p95 ASC(저활용 우선).
+    """
+    targets = [r for r in rows if r.recommendation in _EFFICIENCY_PRIORITY]
+    return sorted(
+        targets, key=lambda r: (_EFFICIENCY_PRIORITY[r.recommendation], r.cpu_p95_pct or 0.0)
+    )[:_EFFICIENCY_TARGET_N]
 
 
 def _extract_attention_hosts(
@@ -339,7 +360,7 @@ def _env_summary_bullets(
         # 분류 어휘는 LABEL_KO 단일 진실 그대로 — 분포 막대·조치 필요 표와 100% 동일 어휘 (혼란 0).
         ko = recommendation.LABEL_KO
         dist_line = (
-            f"Right-sizing: {ko['under_provisioned']} {under}대 · {ko['over_provisioned']} {over}대"
+            f"자원 적정성 분류 — {ko['under_provisioned']} {under}대 · {ko['over_provisioned']} {over}대"
             f" · {ko['idle']} {idle}대 · {ko['shutdown']} {shutdown}대 · {ko['optimal']} {optimal}대"
         )
         if insufficient:
@@ -365,7 +386,7 @@ def _env_summary_bullets(
     )
     evaluated = overview.total - insufficient
     dist_line = (
-        f"Right-sizing: {ko['under_provisioned']} {under} · {ko['over_provisioned']} {over}"
+        f"자원 적정성 분류 — {ko['under_provisioned']} {under} · {ko['over_provisioned']} {over}"
         f" · {ko['idle']} {idle} · {ko['shutdown']} {shutdown} · {ko['optimal']} {optimal}"
     )
     if insufficient:
@@ -414,6 +435,7 @@ def to_environment_report(
     os_family_dist = _to_distribution_bars(overview.os_distribution, _OS_FAMILY_LABEL)
     workload_dist = _to_distribution_bars(overview.role_distribution)
     top_risks = _select_top_risks(base.rows, view)
+    efficiency_hosts = _select_efficiency_targets(base.rows)
     env_metrics = _build_env_metrics(overview, base.rows)
     summary = _env_summary_bullets(view, overview, attention, classification_dist)
     under_hosts = (
@@ -448,6 +470,7 @@ def to_environment_report(
         workload_dist=workload_dist,
         workload_unknown_count=overview.role_unknown_count,
         top_risks=top_risks,
+        efficiency_hosts=efficiency_hosts,
         env_metrics=env_metrics,
         summary_bullets_env=summary,
         under_provisioned_hosts=under_hosts,
@@ -456,6 +479,7 @@ def to_environment_report(
         capacity_imminent=capacity_imminent,
         # 템플릿 P3 회피 — 카운트 mapper precompute (#E1 P3).
         top_risks_count=len(top_risks),
+        efficiency_hosts_count=len(efficiency_hosts),
         attention_hosts_count=len(attention_hosts),
         capacity_imminent_count=len(capacity_imminent),
         under_provisioned_hosts_count=len(under_hosts),

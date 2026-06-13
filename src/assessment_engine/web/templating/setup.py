@@ -60,11 +60,12 @@ NAV_GROUPS = [
     {
         "label": "모니터링",
         "links": [
-            {"label": "환경 개요", "href": "/servers/", "match": "overview"},
-            {"label": "서버 목록", "href": "/servers/list", "match": "list"},
-            {"label": "네트워크 토폴로지", "href": "/servers/topology", "match": "topology"},
-            {"label": "실시간 현황", "href": "/servers/environment/realtime", "match": "realtime"},
-            {"label": "성능 추이", "href": "/servers/environment/metrics", "match": "performance"},
+            {"label": "환경 개요", "href": "/", "match": "overview"},
+            {"label": "서버 목록", "href": "/servers", "match": "list"},
+            {"label": "환경 자원 평가", "href": "/environment/assessment", "match": "assessment"},
+            {"label": "네트워크 토폴로지", "href": "/environment/topology", "match": "topology"},
+            {"label": "실시간 현황", "href": "/environment/realtime", "match": "realtime"},
+            {"label": "환경 성능 추이", "href": "/environment/metrics", "match": "performance"},
         ],
     },
     {
@@ -77,7 +78,7 @@ NAV_GROUPS = [
     {
         "label": "참고",
         "links": [
-            {"label": "기준·임계값", "href": "/reports/right-sizing-thresholds", "match": "thresholds"},
+            {"label": "기준·임계값", "href": "/reference", "match": "thresholds"},
         ],
     },
 ]

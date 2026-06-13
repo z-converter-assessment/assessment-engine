@@ -1,3 +1,4 @@
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -11,12 +12,12 @@ from assessment_engine.cache.redis import close_pool
 from assessment_engine.log_config import setup_logging
 from assessment_engine.web.routers.api import api_router
 from assessment_engine.web.routers.diagnostics import diagnostics_router
-from assessment_engine.web.routers.discovery import discovery_router
 from assessment_engine.web.routers.exports import exports_router
 from assessment_engine.web.routers.pages import pages_router
-from assessment_engine.web.routers.reports import reports_router
+from assessment_engine.web.routers.reports import reference_router, reports_router
 from assessment_engine.web.routers.tasks import tasks_router
 from assessment_engine.web.settings import diagnostic_settings, web_settings
+from assessment_engine.web.templating import templates
 
 # Composition Root에서 log sink 단일 등록 — text(dev) vs json(prod) 분기 (LOG_FORMAT env).
 setup_logging(web_settings.log_format)
@@ -28,6 +29,8 @@ async def lifespan(app: FastAPI):
     # postgres healthy 후 `alembic upgrade head` 1회 실행 후 종료. 본 lifespan은 schema 가정만 함.
     # web을 포함한 모든 앱 서비스는 `depends_on: migrate (service_completed_successfully)`로 그 뒤에 기동 (ADR 0005).
     logger.info("app_env={} — schema is Alembic-managed (entrypoint applied upgrade)", web_settings.app_env)
+    # dev 한정 정적 자원 캐시 무효화 신호 — 미들웨어가 매 요청 asset_v 재발급(F4: app_env 판정은 lifespan 에서만).
+    app.state.dev_assets = web_settings.app_env == "dev"
 
     # 진단 broker connection (ADR 0004) — consumer/worker와 동일 인자로 declare 의무 (rabbitmq.md 토폴로지).
     # exchange type·DLX·큐 인자 mismatch 시 PRECONDITION_FAILED. DIRECT exchange + {exchange}.dlx 컨벤션.
@@ -109,9 +112,14 @@ async def disable_html_cache(request, call_next):
     cache hit 우선시하는 경우 옛 JS 가 잔존 — dev 에서 코드 hot reload 후 클라이언트도 즉시
     새 JS 받게 강제. prod 는 cdn·long-cache 운영을 위해 본 분기 비활성.
     """
+    dev = getattr(request.app.state, "dev_assets", False)
+    # dev — 매 요청 asset_v 재발급: 정적 자원 URL(`?v=`)이 매번 바뀌어 브라우저 disk cache·304 까지 회피.
+    # ASSET_V 가 프로세스 시작 시각 고정이라, .py 재시작 없는 .js/.css/.html 변경이 캐시에 묻히던 문제 해소.
+    if dev:
+        templates.env.globals["asset_v"] = format(int(time.time() * 1000), "x")
     response = await call_next(request)
     ct = response.headers.get("content-type", "")
-    if ct.startswith("text/html") or web_settings.app_env == "dev" and request.url.path.startswith("/static/"):
+    if ct.startswith("text/html") or (dev and request.url.path.startswith("/static/")):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -121,10 +129,10 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 app.include_router(pages_router)
 app.include_router(api_router)
-app.include_router(discovery_router)
 app.include_router(tasks_router)
 app.include_router(diagnostics_router)
 app.include_router(reports_router)
+app.include_router(reference_router)
 app.include_router(exports_router)
 
 # dev 한정 ZDM mock endpoint (ADR 0018) — install task E2E 시연·자동화 검증.

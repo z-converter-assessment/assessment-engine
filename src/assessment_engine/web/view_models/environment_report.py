@@ -127,12 +127,14 @@ class ServiceNameCount:
 
 @dataclass
 class ServiceCatalogGroup:
-    """서비스 구성 카드 — 워크로드 카테고리 1개 + 그 안 구체 서비스명·개수 list (뱃지 색 = 카테고리).
+    """서비스 구성 카드 — 워크로드 카테고리 1개 + 총 개수 + 그 안 구체 서비스명·개수 list.
 
-    범례(카테고리 색) + 색 뱃지(서비스명·개수)로 표시. base.rows workload_groups 를 카테고리 기준 집계 (mapper, P2).
+    전 카테고리 노출(count 0 포함, #E9). 색 없이 "카테고리 N --- 서비스명 개수 ..." 형식.
+    total_count = 서비스 count 합. base.rows workload_groups 를 카테고리 기준 집계 (mapper, P2).
     """
 
     category: str
+    total_count: int = 0
     services: list[ServiceNameCount] = field(default_factory=list)
 
 
@@ -205,6 +207,9 @@ class EnvironmentReportSummary:
     efficiency_target_count: int = 0
     efficiency_target_vcpus: int = 0
     efficiency_target_memory_gb: float = 0.0
+    # 효율화 대상 호스트 표(engineer) — over/idle/shutdown 정리 시급도 순 Top 30. 호스트 권고(종합) 대체.
+    efficiency_hosts: list[ReportRowItem] = field(default_factory=list)
+    efficiency_hosts_count: int = 0
     # 엔지니어 환경 구성 — 에이전트 버전 목록 (중복 제거·정렬). "어디 적용"은 미표시, 버전만 명시.
     agent_versions_label: str = ""
     # 네트워크 토폴로지 (engineer) — ip_internal CIDR 공동소속 그래프. 발행 시점 정적 스냅샷.

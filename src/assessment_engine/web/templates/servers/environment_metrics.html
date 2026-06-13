@@ -2,16 +2,15 @@
 {% block title %}ZConverter Assessment — 환경 성능 추이{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
-<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-  <h1>{% if selection_count %}선택 {{ selection_count }}대 성능 추이{% else %}환경 성능 추이{% endif %}</h1>
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+  <h1 style="margin:0;">{% if selection_count %}선택 {{ selection_count }}대 성능 추이{% else %}환경 성능 추이{% endif %}</h1>
   <button class="btn-print no-print" type="button" onclick="window.print()">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
     인쇄
   </button>
 </div>
 
-<div class="perf-stack" style="display:flex; flex-direction:column; gap:20px;">
+<div class="perf-stack" style="display:flex; flex-direction:column; gap:12px;">
 
   <!-- 통합 차트 카드 — 버킷/구간/앵커가 모든 차트 공통이라 단일 카드. 행(perf-row)마다 차트 2개 페어.
        실시간 메트릭(현황 모니터링)은 /environment/realtime 로 분리. -->

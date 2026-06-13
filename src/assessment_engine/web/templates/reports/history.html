@@ -1,12 +1,8 @@
 {% extends "base.html" %}
-{% block title %}ZConverter Assessment — 보고서 이력{% endblock %}
+{% block title %}ZConverter Assessment — 발행 이력{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
-<h1>보고서 이력</h1>
-<p class="text-md text-muted" style="margin-bottom:16px;">
-  고객/엔지니어 보고서 발행 이력.
-</p>
+<h1 style="margin:0 0 16px;">발행 이력</h1>
 
 <form method="get" class="search-row no-print" id="report-history-filter" style="margin:16px 0 20px;">
   <select name="days">

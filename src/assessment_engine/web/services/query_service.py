@@ -465,11 +465,14 @@ class QueryService:
                     raw.net_tx_kbps_peak,
                 ) = net_tuple
 
-    def _assemble_overview(self, details, util, raws_period, online_by_id: dict[int, bool]) -> EnvironmentOverview:
+    def _assemble_overview(
+        self, details, util, raws_period, online_by_id: dict[int, bool], full_under: bool = False
+    ) -> EnvironmentOverview:
         """report_aggregate raws -> USE Method 분류 도넛 + under_provisioned 상세, online_by_id -> online_count.
 
         분류는 `build_resource_stats`(net 반영) 단일 진실 — 호출자가 `_inject_net_baseline` 로 raw 에 net
         baseline 을 주입한 뒤 호출한다 (get_report 세부행과 동일 입력 -> idle/shutdown 정합).
+        full_under=True 면 리소스 부족 호스트 전체(상위 N 절단 해제) — 자원 평가 전용 페이지용.
         """
         risk_counts: dict[str, int] = {}
         under_hosts: list[CapacityWarningItem] = []
@@ -480,7 +483,29 @@ class QueryService:
             if rec == "under_provisioned":
                 under_hosts.append(to_capacity_warning_item(raw))
         online_count = sum(1 for d in details if online_by_id.get(d.id))
+        if full_under:
+            return build_environment_overview(details, online_count, util, risk_counts, under_hosts, under_limit=None)
         return build_environment_overview(details, online_count, util, risk_counts, under_hosts)
+
+    async def get_environment_assessment(
+        self, time_range: DiagnosticTimeRange, anchor_at: datetime | None = None
+    ) -> EnvironmentOverview:
+        """자원 평가 전용 — 윈도우(time_range)·앵커(anchor) 기준 자원 적정성 분류 + 리소스 부족 전체.
+
+        get_dashboard_live 의 overview 조립부를 가변 윈도우·앵커로 재사용(attention/trend 제외, 경량).
+        리소스 부족은 상위 N 절단 없이 전체(full_under) — 전용 페이지에서 목록 출력.
+        """
+        end = anchor_at or datetime.now(UTC)
+        period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
+        server_ids = await self.repo.list_server_ids()
+        if not server_ids:
+            return _empty_overview()
+        details = await self.repo.get_servers(server_ids)
+        raws_period = await self.repo.report_aggregate(server_ids, period_days=period_days, end=end)
+        await self._inject_net_baseline(raws_period, server_ids, period_days, end)
+        util = await self.repo.environment_utilization(period_days=period_days, end=end)
+        online_by_id = await self._online_map(server_ids, details, end)
+        return self._assemble_overview(details, util, raws_period, online_by_id, full_under=True)
 
     def _assemble_attention(
         self, raws_period, gap_raws, restart_counts, now, limit_each: int | None
@@ -578,7 +603,8 @@ class QueryService:
         gap_raws = await self.repo.metric_gap_warnings(_GAP_MINUTES, _GAP_RECENT_HOURS, _ATTENTION_LIMIT_EACH)
         restart_counts = await self.repo.agent_restart_counts_recent(server_ids, now - timedelta(hours=1))
         return DashboardLive(
-            overview=self._assemble_overview(details, util, raws_period, online_by_id),
+            # full_under=True — 리소스 부족 전체 산출(개요는 JS 가 3개 clip + 더보기/접기, 데이터는 전체).
+            overview=self._assemble_overview(details, util, raws_period, online_by_id, full_under=True),
             attention=self._assemble_attention(raws_period, gap_raws, restart_counts, now, _ATTENTION_LIMIT_EACH),
         )
 

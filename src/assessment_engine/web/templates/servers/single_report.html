@@ -314,7 +314,7 @@
 {% if view == "engineer" %}
 {% set n = narratives.get(r.public_id) %}
 <section class="card" data-narrative-slot data-narrative-key="{{ r.public_id }}" style="margin-bottom:16px;">
-  <h2 class="card-title">AI 진단 <span class="section-meta">{{ time_range }} 윈도우 · LLM narrative 합성</span></h2>
+  <h2 class="card-title">AI 진단</h2>
   {% if n and n.status == 'succeeded' and n.narrative %}
   <div class="diag-inline-body text-strong">{{ n.narrative }}</div>
   <div class="diag-inline-meta"></div>

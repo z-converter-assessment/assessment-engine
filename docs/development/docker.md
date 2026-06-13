@@ -186,6 +186,7 @@ base 의 wheel install 패키지를 host 소스가 덮어 재빌드 없이 코�
 - `web`: uvicorn `reload=True`(`WEB_RELOAD=true`, override 주입)가 파일 변경 감지 -> 자동 재기동. 새로고침만으로 변경 확인.
 - `consumer`·`diagnostic-worker`: watchfiles 래퍼 entrypoint(override)가 `.py` 변경 시 프로세스 재시작.
 - `migrate`: host `./migrations` bind 로 새 alembic revision 을 재빌드 없이 인식.
+- 정적 자원(`.js`/`.css`/`.html`): dev 에서 `web/main.py` 미들웨어가 매 요청 `asset_v` 를 재발급(`app.state.dev_assets`, `app_env=="dev"` 일 때만 — APP_ENV 판정은 lifespan 단일 경로 #F4)해 `?v=` URL 이 매번 바뀌고 HTML·`/static/*` 응답에 `Cache-Control: no-store` 부여 — 브라우저 disk cache·304 까지 회피. `.py` 재시작이 없는 정적 변경(ASSET_V 가 프로세스 시작 시각 고정이라 캐시에 묻히던 경로)도 새로고침만으로 반영. prod 는 본 분기 비활성(cdn·long-cache).
 
 prod (base 단독): override 미배포라 위 bind mount·reload 전부 없음 — `Dockerfile` wheel install 결과(불변 이미지)만 사용. `.dockerignore` 가 `.env` 를 이미지에서 제외하고, base 는 코드 마운트가 없어 호스트 `.env` 가 컨테이너에 노출되지 않는다 (dev override bind 는 `./src` 한정이라 루트 `.env` 미포함).
 

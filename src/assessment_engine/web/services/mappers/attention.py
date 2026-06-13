@@ -169,6 +169,7 @@ def build_environment_overview(
     utilization=None,
     risk_counts=None,
     under_provisioned_hosts: list | None = None,
+    under_limit: int | None = _UNDER_PROVISIONED_DISPLAY_MAX,
 ):
     """ServerDetail list + online_count + EnvironmentUtilizationRaw + risk_counts -> EnvironmentOverview.
 
@@ -248,7 +249,7 @@ def build_environment_overview(
     # 자원 부족 상세 — 심각도(severity_score) DESC 정렬 후 상위 N(탑3)만 표시(P2). 전체 수 count·표시 수 shown 분리.
     # 마이그레이션 우선순위: swap(paging) > 위반 자원 수 > 최고 활용률. 동률은 hostname ASC tie-break.
     _under_all = sorted(under_provisioned_hosts or [], key=lambda c: (-c.severity_score, c.hostname.lower()))
-    _under_shown = _under_all[:_UNDER_PROVISIONED_DISPLAY_MAX]
+    _under_shown = _under_all if under_limit is None else _under_all[:under_limit]
     role_sorted = dict(sorted(role_counter.items(), key=lambda kv: (-kv[1], kv[0])))
 
     return EnvironmentOverview(
