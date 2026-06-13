@@ -100,7 +100,7 @@ async def _render_environment_snapshot(
             "view_title": _VIEW_TITLES.get(view, view),
             "back_url": back_url,
             "self_back": self_back,
-            "narratives": result.get("narratives", {}),
+            "env_narrative": result.get("narratives", {}).get(ENV_NARRATIVE_KEY),
             "narrative_status": result.get("narrative_status", "none"),
             "report_job_id": rec.id,
             "narrative_key": ENV_NARRATIVE_KEY,

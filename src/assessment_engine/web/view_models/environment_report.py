@@ -218,6 +218,8 @@ class EnvironmentReportSummary:
     # 차트 JS inline(tojson)용 plain dict: [{"at": iso, "cpu": float|None, "mem": float|None}].
     trend: list[dict] = field(default_factory=list)
     under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list)
+    # 리소스 부족 6축 테이블 헤더 라벨 — 첫 호스트 metrics 라벨 precompute (P3: 템플릿 인덱싱 회피). plain str list 라 serializer 복원 불요.
+    under_provisioned_metric_labels: list[str] = field(default_factory=list)
     # 서비스 구성 — 선택 N대 전체의 워크로드 카테고리별 제품명 집합 (뱃지 + 매칭 서비스명). base.rows 의
     # workload_groups 를 카테고리 기준 merge (mapper 집계, P2). 카테고리 뱃지에 정확히 매칭되는 서비스명 노출.
     service_catalog: list[ServiceCatalogGroup] = field(default_factory=list)

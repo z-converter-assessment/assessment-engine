@@ -14,6 +14,7 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 )
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
+    ReportView,
     UTIL_GAUGE_COLOR,
     format_net_rate,
 )
@@ -183,7 +184,7 @@ def _count_os(details: list[ServerDetail]) -> list[OsCount]:
     return [OsCount(os_display=label, count=n) for label, n in counts.most_common()]
 
 
-def _build_env_metrics(overview, rows: list[ReportRowItem]) -> list[dict]:
+def _build_env_metrics(overview: EnvironmentOverview, rows: list[ReportRowItem]) -> list[dict]:
     """환경 현황 메트릭 카드 5축 (P2) — 실시간 '현재 자원 현황' 축과 동기 (CPU·메모리·디스크·네트워크·디스크 I/O).
 
     값은 전부 보고서 윈도우 통계 — CPU/메모리/디스크 = environment_utilization(capacity-weighted) avg(+p95),
@@ -212,7 +213,7 @@ def _build_env_metrics(overview, rows: list[ReportRowItem]) -> list[dict]:
     ]
 
 
-def _select_top_risks(rows: list[ReportRowItem], view: str) -> list[ReportRowItem]:
+def _select_top_risks(rows: list[ReportRowItem], view: ReportView) -> list[ReportRowItem]:
     """view 별 위험 list 선정.
 
     customer: 위험(risk_level='high')만 필터 (정상·주의 제외). 즉시 액션 필요한 호스트 자체.
@@ -337,7 +338,7 @@ def _extract_capacity_imminent(rows: list[ReportRowItem]) -> list[CapacityImmine
 
 
 def _env_summary_bullets(
-    view: str,
+    view: ReportView,
     overview: EnvironmentOverview,
     attention: AttentionSignals,
     classification_dist: list[ClassificationCount],
@@ -409,7 +410,7 @@ def _env_summary_bullets(
 
 def to_environment_report(
     *,
-    view: str,
+    view: ReportView,
     time_range: str,
     anchor_at: datetime,
     overview: EnvironmentOverview,
@@ -474,6 +475,7 @@ def to_environment_report(
         env_metrics=env_metrics,
         summary_bullets_env=summary,
         under_provisioned_hosts=under_hosts,
+        under_provisioned_metric_labels=[m.label for m in under_hosts[0].metrics] if under_hosts else [],
         service_catalog=_aggregate_service_catalog(base.rows),
         attention_hosts=attention_hosts,
         capacity_imminent=capacity_imminent,

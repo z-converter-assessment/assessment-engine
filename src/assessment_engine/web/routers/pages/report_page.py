@@ -105,7 +105,7 @@ async def report(
             "summary": summary,
             "view": view,
             "view_title": _REPORT_VIEW_TITLES[view],
-            "narratives": {},
+            "env_narrative": None,
             "narrative_status": "none",
             "narrative_key": None,  # selection 자체엔 AI 진단 없음 (개별 보고서 child 가 per-pid narrative 표시)
             "report_job_id": None,
@@ -141,7 +141,7 @@ async def _render_summary_snapshot(
             "summary": summary,
             "view": view,
             "view_title": _REPORT_VIEW_TITLES.get(view, view),
-            "narratives": result.get("narratives", {}),
+            "env_narrative": None,
             "narrative_status": result.get("narrative_status", "none"),
             "narrative_key": None,  # selection 자체엔 AI 진단 없음 (개별 보고서 child 가 per-pid narrative 표시)
             "report_job_id": rec.id,
