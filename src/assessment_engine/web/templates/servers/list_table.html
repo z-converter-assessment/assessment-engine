@@ -12,19 +12,19 @@
       <h3 class="modal-title">ZConverter Install 발행</h3>
       <button type="button" id="install-close" class="text-meta" style="background:none; border:none; font-size:20px; cursor:pointer; line-height:1;">X</button>
     </div>
-    <p class="text-muted" style="margin:0 0 12px; font-size:12px; line-height:1.5;">
-      선택된 <span id="install-count" style="font-weight:600; color:#1e293b;">0</span>대 호스트에 아래 ZDM 좌표로 ZConverter 설치를 발행합니다.
+    <p class="text-muted text-sm" style="margin:0 0 12px; line-height:1.5;">
+      선택된 <span id="install-count" class="text-strong" style="font-weight:600;">0</span>대 호스트에 아래 ZDM 좌표로 ZConverter 설치를 발행합니다.
       <br>각 호스트의 agent 가 ZDM 서버에서 본체 패키지를 fetch 후 <code>install.sh -s ZDM_IP -u ZDM_USER</code> 실행.
     </p>
     <div style="margin:12px 0;">
-      <label for="install-zdm-target" class="text-label" style="display:block; font-size:12px; margin-bottom:4px;">ZDM 서버 IP/hostname</label>
-      <input type="text" id="install-zdm-target" name="install-zdm-target-{{ asset_v }}" value="{{ zdm_defaults.ip }}" autocomplete="off"
-             style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px; box-sizing:border-box;">
+      <label for="install-zdm-target" class="text-label text-sm" style="display:block; margin-bottom:4px;">ZDM 서버 IP/hostname</label>
+      <input type="text" id="install-zdm-target" name="install-zdm-target-{{ asset_v }}" value="{{ zdm_defaults.ip }}" autocomplete="off" class="text-md"
+             style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; box-sizing:border-box;">
     </div>
     <div style="margin:12px 0;">
-      <label for="install-zdm-account" class="text-label" style="display:block; font-size:12px; margin-bottom:4px;">ZDM 관리자 계정 (email)</label>
-      <input type="email" id="install-zdm-account" name="install-zdm-account-{{ asset_v }}" value="{{ zdm_defaults.user }}" autocomplete="off"
-             style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px; box-sizing:border-box;">
+      <label for="install-zdm-account" class="text-label text-sm" style="display:block; margin-bottom:4px;">ZDM 관리자 계정 (email)</label>
+      <input type="email" id="install-zdm-account" name="install-zdm-account-{{ asset_v }}" value="{{ zdm_defaults.user }}" autocomplete="off" class="text-md"
+             style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; box-sizing:border-box;">
     </div>
     <button type="button" id="install-submit" class="btn" style="background:var(--color-title); color:#fff; padding:8px 16px; cursor:pointer; border:none; margin-top:12px;">발행</button>
   </div>
@@ -37,11 +37,11 @@
       <h3 id="multi-server-report-title" class="modal-title">선택 서버 보고서 발행</h3>
       <button type="button" id="multi-server-report-close" class="text-meta" style="background:none; border:none; font-size:20px; cursor:pointer; line-height:1;">X</button>
     </div>
-    <p id="multi-server-report-desc" class="text-muted" style="margin:0 0 12px; font-size:12px; line-height:1.5;">선택된 <span id="multi-server-report-count" style="font-weight:600; color:#1e293b;">0</span>대 서버 자원 적정성 규칙 기반 보고서 발행. 결과 페이지로 이동합니다.</p>
+    <p id="multi-server-report-desc" class="text-muted text-sm" style="margin:0 0 12px; line-height:1.5;">선택된 <span id="multi-server-report-count" class="text-strong" style="font-weight:600;">0</span>대 서버 자원 적정성 규칙 기반 보고서 발행. 결과 페이지로 이동합니다.</p>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
       <div>
-        <label for="multi-server-report-range" class="text-label" style="display:block; font-size:12px; margin-bottom:6px;">윈도우</label>
-        <select id="multi-server-report-range" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
+        <label for="multi-server-report-range" class="text-label text-sm" style="display:block; margin-bottom:6px;">윈도우</label>
+        <select id="multi-server-report-range" class="text-md" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px;">
           <option value="15m">15분</option>
           <option value="1h">1시간</option>
           <option value="6h">6시간</option>
@@ -52,8 +52,8 @@
         </select>
       </div>
       <div>
-        <label for="multi-server-report-anchor" class="text-label" style="display:block; font-size:12px; margin-bottom:6px;">Anchor (KST)</label>
-        <input type="datetime-local" id="multi-server-report-anchor" autocomplete="off" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
+        <label for="multi-server-report-anchor" class="text-label text-sm" style="display:block; margin-bottom:6px;">Anchor (KST)</label>
+        <input type="datetime-local" id="multi-server-report-anchor" autocomplete="off" class="text-md" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px;">
       </div>
     </div>
     <button type="button" id="multi-server-report-submit" class="btn" style="background:var(--color-title); color:#fff; padding:8px 16px; cursor:pointer; border:none;">발행</button>

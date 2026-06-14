@@ -14,7 +14,7 @@
     {% if topology.has_data %}<span class="section-meta">서브넷 {{ topology.subnet_count }} · 호스트 {{ topology.host_count }}</span>{% endif %}
   </div>
   {% if topology.has_data %}
-  <p class="text-muted" style="margin:0 0 10px; font-size:12px;">서브넷 노드를 클릭하면 소속 호스트가 펼쳐집니다.</p>
+  <p class="text-muted text-sm" style="margin:0 0 10px;">서브넷 노드를 클릭하면 소속 호스트가 펼쳐집니다.</p>
   <div style="position:relative;">
     <div id="topology-graph" style="height:560px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc;"
          data-elements='{{ topology.elements | tojson }}'></div>
@@ -24,7 +24,7 @@
       <button type="button" class="chart-anchor" data-topo-zoom="fit" title="전체 보기" style="width:32px; height:32px; padding:0; font-size:10px; text-align:center;">전체</button>
     </div>
   </div>
-  <div class="text-muted" style="display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; font-size:11px;">
+  <div class="text-muted text-xs" style="display:flex; gap:14px; flex-wrap:wrap; margin-top:10px;">
     <span><span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:#64748b; vertical-align:middle;"></span> 서브넷</span>
     <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--color-title); vertical-align:middle;"></span> Linux</span>
     <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#8b5cf6; vertical-align:middle;"></span> Windows</span>
@@ -39,17 +39,17 @@
   <h2 class="card-title" style="margin:0 0 14px;">서브넷별 서버</h2>
   {% if topology.subnets %}
   {# 단일 table — 서브넷은 colspan 헤더 행으로 구분. 전 서브넷이 같은 칼럼 너비로 정렬(서브넷별 table 분리 시 너비 제각각 문제 해소). #}
-  <table style="border-collapse:collapse; font-size:12px;">
+  <table class="text-sm" style="border-collapse:collapse;">
     <tbody>
     {% for sn in topology.subnets %}
     <tr>
-      <td colspan="3" style="font-family:monospace; font-weight:600; font-size:13px; color:#334155; padding:{% if not loop.first %}16px{% else %}0{% endif %} 0 7px; border-bottom:1px solid #e2e8f0;">{{ sn.net_key }}</td>
+      <td colspan="3" class="text-md" style="font-family:monospace; font-weight:600; color:#334155; padding:{% if not loop.first %}16px{% else %}0{% endif %} 0 7px; border-bottom:1px solid #e2e8f0;">{{ sn.net_key }}</td>
     </tr>
     {% for h in sn.hosts %}
     <tr>
       <td style="padding:4px 28px 4px 0;"><a href="/servers/{{ h.public_id }}?back={{ self_back }}">{{ h.hostname }}</a></td>
-      <td style="padding:4px 28px 4px 0; color:#475569;">{{ h.ip }}</td>
-      <td style="padding:4px 0; color:#475569;">{{ h.os_family }}</td>
+      <td class="text-label" style="padding:4px 28px 4px 0;">{{ h.ip }}</td>
+      <td class="text-label" style="padding:4px 0;">{{ h.os_family }}</td>
     </tr>
     {% endfor %}
     {% endfor %}

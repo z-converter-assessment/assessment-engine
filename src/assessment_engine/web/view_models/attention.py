@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from assessment_engine.web.view_models.report import ReportRowItem
+
 
 @dataclass
 class AttentionRow:
@@ -52,7 +54,7 @@ class CapacityTriggerBadge:
 
 @dataclass
 class CapacityMetric:
-    """리소스 부족 카드 안 평가 지표 1개 — assess 입력 6축(CPU/메모리/스왑/Load/디스크/iowait) 전부 노출.
+    """자원 부족 카드 안 평가 지표 1개 — assess 입력 6축(CPU/메모리/스왑/Load/디스크/iowait) 전부 노출.
 
     미관측 축(예: Windows load/iowait OS 부재)도 "N/A" 흐림 placeholder 로 노출(제외 안 함 — 평가 6축 전모 제공).
     active(임계 위반)·measured(관측 여부) 시각 분기는 mapper precompute (P3 — 템플릿 비교 금지).
@@ -220,6 +222,25 @@ class EnvironmentOverview:
 
 
 @dataclass
+class EnvironmentAssessment:
+    """환경 자원 평가 페이지(/environment/assessment) 전용 — overview + 효율화/자원 부족 표 데이터.
+
+    EnvironmentOverview 에 효율화(ReportRowItem 보유) 필드를 얹지 않는 이유: overview 는 보고서 스냅샷에
+    nested 직렬화되므로(report_serializer) 표시 전용 필드로 오염시키지 않는다. 효율화 산출은 보고서와
+    동일 헬퍼(`build_efficiency_summary`)·동일 정렬 단일 진실.
+    """
+
+    overview: EnvironmentOverview
+    efficiency_hosts: list[ReportRowItem] = field(default_factory=list)
+    efficiency_hosts_count: int = 0
+    efficiency_target_count: int = 0
+    efficiency_target_vcpus: int = 0
+    efficiency_target_memory_gb: float = 0.0
+    # 자원 부족 표 헤더 라벨 — 첫 호스트 metrics 라벨 precompute (보고서와 동일, P3 인덱싱 회피).
+    under_provisioned_metric_labels: list[str] = field(default_factory=list)
+
+
+@dataclass
 class RealtimePeak:
     """실시간 '현재 부하 상위' 1개 셀 — 자원별 랭킹. value=정렬용 raw, display=표시 문자열(mapper precompute).
 
@@ -266,15 +287,3 @@ class EnvironmentRealtime:
     io_net_value: str | None = None   # Σ(rx+tx) 처리량 값 — 동적 단위(kBps/MBps), mapper precompute
     io_net_unit: str | None = None    # 처리량 단위 (kBps 또는 MBps)
     io_disk_iops: float | None = None  # Σ(read+write) IOPS
-
-
-@dataclass
-class DashboardLive:
-    """개요 화면(overview) fragment=live 공용 묶음 — 공유 기초 데이터(now·report_aggregate·online flags)를
-    1회 조회 후 ViewModel 조립. 라이브 카드가 같은 스냅샷 기준이라 카드 간 값 일관 (중복 쿼리 제거 + 비결정성 해소).
-
-    토폴로지는 별도 페이지(`/servers/topology`)·전용 메서드(`get_topology`)로 분리 — 노드 규모가 커서
-    개요 집계 카드와 수명·렌더 비용이 다르다."""
-
-    overview: EnvironmentOverview
-    attention: AttentionSignals

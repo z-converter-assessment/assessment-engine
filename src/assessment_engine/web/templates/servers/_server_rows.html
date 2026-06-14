@@ -14,37 +14,37 @@
     <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="row-link"><strong>{{ s.hostname }}</strong></a>
   </td>
   <td>
-    {# 분류된 서비스만 칩 표시 (환경 개요 role-chip 방식, count 항상 노출). unknown(미분류)은 빈 값(—). #}
+    {# 분류된 서비스만 칩 표시 (서비스 카테고리 색 뱃지 통일, count 항상 노출). unknown(미분류)은 빈 값(—). #}
     {% if s.known_services %}
       <span style="display:flex; flex-wrap:wrap; gap:4px;">
       {% for svc in s.known_services %}
-        <span class="role-chip">{{ svc.category }} <strong class="text-strong">{{ svc.category_count }}</strong></span>
+        <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }} <strong class="text-strong">{{ svc.category_count }}</strong></span>
       {% endfor %}
       </span>
     {% else %}
-      <span class="text-meta" style="font-size:11px;">—</span>
+      <span class="text-meta text-xs">—</span>
     {% endif %}
   </td>
   <td class="text-label">{{ s.os_display }}</td>
   <td>
     {% if s.recommendation_label %}
-      <span class="text-label" style="font-size:11px;">{{ s.recommendation_label }}</span>
+      <span class="text-label text-xs">{{ s.recommendation_label }}</span>
     {% else %}
-      <span class="text-meta" style="font-size:11px;">—</span>
+      <span class="text-meta text-xs">—</span>
     {% endif %}
   </td>
   <td>
     {% if s.last_task %}
       <a class="task-cell" href="#" data-task-id="{{ s.last_task.task_id }}" title="{{ s.last_task.failure_label or '' }}">
         <span class="badge {{ s.last_task.badge_class }}">{{ s.last_task.badge_label }}</span>
-        <span class="text-muted" style="font-size:11px;">{{ s.last_task.created_at | kst }}</span>
+        <span class="text-muted text-xs">{{ s.last_task.created_at | kst }}</span>
       </a>
     {% else %}
-      <span class="text-meta" style="font-size:11px;">—</span>
+      <span class="text-meta text-xs">—</span>
     {% endif %}
   </td>
   <td class="action-col">
-    <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="btn-action" style="font-size:12px; padding:4px 11px;">상세 →</a>
+    <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="btn-action text-sm" style="padding:4px 11px;">상세 →</a>
   </td>
 </tr>
 {% endfor %}

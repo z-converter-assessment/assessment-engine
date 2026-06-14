@@ -81,16 +81,21 @@ async def environment_realtime(
     realtime = await service.get_environment_realtime(server_ids)
     self_back = quote(path, safe="")
     if fragment == "realtime":
+        # 현황 메트릭 fragment 만 — 운영 신호는 느린 신호라 full-page 에만 정적 렌더(fragment 재조회에 불포함).
         return templates.TemplateResponse(
             request=request,
             name="servers/_environment_realtime.html",
             context={"realtime": realtime, "generated_at": now, "self_back": self_back},
         )
+    # 운영 신호 — 선택과 무관하게 환경 전체 고정 (통신 끊김·OS EOL·에이전트 재시작은 환경 단위 운영 신호).
+    attention = await service.get_attention_signals(end=now)
     return templates.TemplateResponse(
         request=request,
         name="servers/realtime.html",
         context={
             "realtime": realtime,
+            "attention": attention,
+            "agent_restart_threshold": web_settings.agent_restart_alert_threshold,
             "generated_at": now,
             "back_url": unquote(back) if back else "/",
             "self_back": self_back,
@@ -142,13 +147,19 @@ async def assessment(
     back: str | None = Query(None),
     service: QueryService = Depends(get_service),
 ):
-    """환경 자원 평가 (모니터링) — 윈도우/앵커 선택 -> 자원 적정성 분류 + 리소스 부족 전체 목록.
+    """환경 자원 평가 (모니터링) — 윈도우/앵커 선택 -> 자원 적정성 분류 + 자원 부족 전체 목록.
 
     환경 단위 `/environment` 그룹. fragment=result: 결과 partial 만 재렌더 (JS swap, 풀 reload 회피)."""
-    overview = await service.get_environment_assessment(time_range, anchor_at)
+    result = await service.get_environment_assessment(time_range, anchor_at)
     qs = f"?time_range={time_range}" + (f"&anchor_at={quote(anchor_at.isoformat(), safe='')}" if anchor_at else "")
     ctx = {
-        "overview": overview,
+        "overview": result.overview,
+        "efficiency_hosts": result.efficiency_hosts,
+        "efficiency_hosts_count": result.efficiency_hosts_count,
+        "efficiency_target_count": result.efficiency_target_count,
+        "efficiency_target_vcpus": result.efficiency_target_vcpus,
+        "efficiency_target_memory_gb": result.efficiency_target_memory_gb,
+        "under_provisioned_metric_labels": result.under_provisioned_metric_labels,
         "time_range": time_range,
         "window_label": DIAGNOSTIC_RANGE_LABEL_KR.get(time_range, time_range),
         "self_back": quote(f"/environment/assessment{qs}", safe=""),
@@ -165,19 +176,16 @@ async def overview(
     request: Request,
     service: QueryService = Depends(get_service),
 ):
-    """환경 개요 (홈, `/`) — 집계 위젯(환경 요약·자원 적정성·운영 신호).
+    """환경 개요 (홈, `/`) — 집계 위젯(환경 요약·평균 활용률 도넛·수집 건전성).
 
     서버 목록은 `/servers`, 환경 단위 분석은 `/environment/*` 로 분리. 집계형 위젯만 본 페이지에 남는다.
-    자동 갱신 없음 — 정적 집계라 페이지 진입(새로고침) 시 1회 렌더."""
-    live = await service.get_dashboard_live()
+    운영 신호는 실시간 현황(`/environment/realtime`)으로 분리. 자동 갱신 없음 — 정적 집계라 진입 시 1회 렌더."""
+    overview = await service.get_dashboard_overview()
     ctx = {
-        "overview": live.overview,
-        "attention": live.attention,
+        "overview": overview,
         # 페이지 렌더(새로고침) 시각 — 우측 상단 표시용. UTC 전달, 템플릿 kst 필터로 표시(#F2).
         "generated_at": datetime.now(UTC),
         "window_label": _DASHBOARD_WINDOW_LABEL,
-        # 운영 신호 "에이전트 재시작" 설명에 임계 동적 표기 ("최근 1시간 N회 이상") — settings 단일 진실.
-        "agent_restart_threshold": web_settings.agent_restart_alert_threshold,
         "active_nav": "overview",
         "self_back": quote("/", safe=""),
     }

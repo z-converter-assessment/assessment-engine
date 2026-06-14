@@ -1,5 +1,6 @@
-{# 환경 자원 평가 결과 partial — 자원 적정성 분류 + 리소스 부족 전체. assessment.html include + ?fragment=result JS swap 공용. #}
+{# 환경 자원 평가 결과 partial — 자원 적정성 분류 + 효율화 검토 대상 + 자원 부족. assessment.html include + ?fragment=result JS swap 공용. #}
 {% from "_shared.html" import empty_state %}
+{% from "reports/_resource_tables.html" import efficiency_table, under_provisioned_table %}
 
 {# 평가 대상 수 — 컨트롤 줄 'N대 기준' 뱃지를 JS(assessment.js)가 swap 후 갱신 (윈도우별 변동). #}
 <span hidden id="assess-total" data-total="{{ overview.risk_donut_total }}"></span>
@@ -22,26 +23,19 @@
   {% endif %}
 </section>
 
+{# 효율화 검토 대상 — 엔지니어 보고서와 동일 표(`reports/_resource_tables.html` 공유). 데이터는 시급도 순 상위 N(보고서 동일 산식). #}
 <section class="card no-print">
-  <h2 class="card-title" style="margin:0 0 14px;">리소스 부족 <span class="section-meta">{{ overview.under_provisioned_hosts_count }}대</span></h2>
-  {% if overview.under_provisioned_hosts %}
-  <div class="under-grid" id="under-grid" style="display:grid; grid-template-columns:minmax(100px, max-content) minmax(0, 1fr); gap:8px 16px; align-items:baseline; font-size:12px;">
-    {% for c in overview.under_provisioned_hosts %}
-    <a class="attention-link" href="/servers/{{ c.public_id }}?back={{ self_back }}" style="font-weight:600;">{{ c.hostname }}</a>
-    {# 판단 6축 + confidence 단서(표본부족·축 미관측) — 보고서 리소스 부족 상세와 동일 줄넘김(wrap, 가로 스크롤 없음). #}
-    <span style="display:flex; flex-wrap:wrap; gap:2px 4px; align-items:baseline;">
-      {% for m in c.metrics %}
-      <span class="metric-cell"><span class="text-meta">{{ m.label }}</span> <span class="metric-val{% if m.active %} metric-val-active{% endif %}" style="color:{{ m.color }};">{{ m.value }}</span></span>
-      {% endfor %}
-      {% for n in c.confidence_notes %}<span class="metric-cell text-meta" style="color:#94a3b8;">{{ n }}</span>{% endfor %}
-    </span>
-    {% endfor %}
+  <h2 class="card-title" style="margin:0 0 14px;">효율화 검토 대상 <span class="section-meta">{{ efficiency_target_count }}대</span></h2>
+  {{ efficiency_table(efficiency_hosts, efficiency_target_count, efficiency_target_vcpus, efficiency_target_memory_gb, efficiency_hosts_count, self_back) }}
+</section>
+
+{# 자원 부족 — 엔지니어 보고서와 동일 표. 20대 초과 시 JS(assessment.js)가 #under-wrap tbody 행 clip + 더보기/접기. #}
+<section class="card no-print">
+  <h2 class="card-title" style="margin:0 0 14px;">자원 부족 <span class="section-meta">{{ overview.under_provisioned_hosts_count }}대</span></h2>
+  <div id="under-wrap">
+  {{ under_provisioned_table(overview.under_provisioned_hosts, under_provisioned_metric_labels, self_back) }}
   </div>
-  {# 20개 초과 시 JS(assessment.js)가 21+ 행 숨김 + 더보기/접기 토글 (clip은 표시 디테일, 데이터는 전체). #}
   <div class="no-print" id="under-more-wrap" style="margin-top:12px; text-align:center; display:none;">
     <button type="button" id="under-more-btn" class="btn-action"></button>
   </div>
-  {% else %}
-  {{ empty_state("리소스 부족으로 분류된 호스트가 없습니다.") }}
-  {% endif %}
 </section>

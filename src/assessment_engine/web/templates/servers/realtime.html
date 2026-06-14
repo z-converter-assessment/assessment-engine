@@ -2,10 +2,20 @@
 {% block title %}ZConverter Assessment — 실시간 현황{% endblock %}
 
 {% block content %}
-<h1 style="margin:0 0 8px;">{% if selection_count %}선택 {{ selection_count }}대 실시간 현황{% else %}실시간 현황{% endif %}</h1>
+<div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+  <h1 style="margin:0;">{% if selection_count %}선택 {{ selection_count }}대 실시간 현황{% else %}실시간 현황{% endif %}</h1>
+  <span class="text-meta text-sm no-print">30초마다 자동 갱신 · <span id="rt-last">최근 {{ generated_at | kst }}</span></span>
+</div>
 
-{# 현재 평균 활용률 + 현재 부하 상위 (최신 스냅샷). 정적 렌더 — 자동 갱신 없음. #}
+{# 현재 평균 활용률 + 현재 부하 상위 (최신 스냅샷). realtime.js 가 30초마다 #rt-mount 만 fragment 재조회로 교체. #}
+<div id="rt-mount">
 {% include "servers/_environment_realtime.html" %}
+</div>
+
+{# 운영 신호 — 환경 전체 고정 (선택 N대 무관). 느린 신호라 현황 메트릭과 분리해 정적 표시(폴링 밖). #}
+{% include "servers/_operational_signals.html" %}
 
 {% include "_reference_link.html" %}
+<script src="/static/js/pages/realtime.js?v={{ asset_v }}" defer></script>
 {% endblock %}
+{% block body_attrs %} data-selection-ids="{{ selection_ids }}"{% endblock %}

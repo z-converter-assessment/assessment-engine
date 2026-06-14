@@ -1,0 +1,35 @@
+{# 운영 신호 카드 — 통신 끊김 / OS 지원종료 / 에이전트 재시작 3 카탈로그 (환경 전체 고정). 실시간 현황 페이지.
+   발화 없어도 제목 유지(discoverability #E9). 느린 신호라 폴링 fragment 밖 정적 렌더 (full-page 1회).
+   컨텍스트: attention(AttentionSignals), agent_restart_threshold. #}
+{% from "_shared.html" import empty_state %}
+
+{# AttentionRow attribute access only — 표시 string 은 mapper 결정 (P2). #}
+{% macro attention_row(label, meta, items) %}
+<div>
+  <h3>{{ label }} <strong>{{ items|length }}</strong>{% if meta %} <span class="section-meta">{{ meta }}</span>{% endif %}</h3>
+  {% if items %}
+  <ul class="attention-list">
+    {% for it in items %}
+    <li class="attention-item">
+      <a class="attention-link" href="{{ it.link_href }}">{{ it.link_text }}</a>
+      {% if it.badge_text %}<span class="attention-cause">{{ it.badge_text }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  {{ empty_state("현재 발화된 신호가 없습니다.") }}
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% if attention %}
+<section class="card no-print">
+  <h2 class="card-title" style="margin:0 0 12px;">운영 신호</h2>
+  {# 3 카테고리 한 행 3칼럼. 카운트는 칼럼 제목에 통합. 발화 0건도 제목 유지(#E9). #}
+  <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:24px; align-items:start;">
+    {{ attention_row("통신 끊김", "5분 이상 미수신", attention.gap_warnings) }}
+    {{ attention_row("OS 지원종료", "지원 종료", attention.os_eol_warnings) }}
+    {{ attention_row("에이전트 재시작", "최근 1시간 " ~ agent_restart_threshold ~ "회 이상", attention.agent_unstable) }}
+  </div>
+</section>
+{% endif %}

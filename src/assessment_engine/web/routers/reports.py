@@ -1,7 +1,7 @@
 """보고서 라우터 — 환경 단위 발행 + (고객/엔지니어) 발행 이력 (T13).
 
 흐름:
-- /reports/environment: 환경 단위 high-level 양식. /servers/report (server scope)와 별도 template.
+- /reports/environment: 환경 단위 high-level 양식. /reports/servers (server scope)와 별도 template.
   GET `?job={id}` = 정적 스냅샷, job 없음 = live read-only preview. POST `/environment/emit` = 발행.
 - /reports/history: 보고서 발행 이력. job_type='customer_report'|'engineer_report'.
 """

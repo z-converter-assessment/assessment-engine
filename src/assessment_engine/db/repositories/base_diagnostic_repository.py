@@ -38,7 +38,7 @@ CLASSIFICATION_LABEL_KR: dict[str, str] = {
     "over_provisioned": "over-provisioned",
     "under_provisioned": "under-provisioned",
     "optimal": "optimal",
-    "insufficient_data": "데이터 부족",
+    "insufficient_data": "표본 부족",
 }
 
 # 진단 발행 기본 윈도우 — service default·UI 기본값 단일 진실 (F10). WINDOW_DAYS(7d)와 정합.

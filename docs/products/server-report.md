@@ -67,11 +67,11 @@ KPI 6개 + 환경 총 자원 + 선택 맥락 (선택 N대의 OS 구성·워크�
 
 목적: 운영자·엔지니어 정량 분석 + 자원 적정성 근거 검증.
 
-구성 = 환경 보고서 본문 공유(engineer 분기 — 환경 현황 5축 메트릭·부하 추이+토폴로지·자원 적정성 분류(분포·효율화 검토 대상·리소스 부족 6축 상세)·OS 지원 종료·OS 버전 분포, 단일 진실 `docs/products/environment-report.md`) + 세부 서버 목록 표.
+구성 = 환경 보고서 본문 공유(engineer 분기 — 환경 현황 5축 메트릭·부하 추이+토폴로지·자원 적정성 분류(분포·효율화 검토 대상·자원 부족 6축 상세)·OS 지원 종료·OS 버전 분포, 단일 진실 `docs/products/environment-report.md`) + 세부 서버 목록 표.
 
 세부 서버 목록 컬럼(engineer): customer 컬럼 + 재부팅 · 에이전트 재시작 (시스템 안정성 — anchor+window 안 카운트).
 
-효율화 검토 대상 표(본문 공유, over/idle/shutdown Top 30): 분류 · 진단 · 권고 · 신뢰도 — 분류는 `recommendation.assess`, 진단은 가장 시급한 신호 1개(`_build_diagnosis`, 데이터 부족 호스트는 원인 진단·오프라인은 "오프라인" 접두), 권고는 분류+trigger 파생(`_build_recommendation_action`), 신뢰도는 `build_confidence_notes`(is_partial·low_sample). 단일 보고서 자원 적정성 평가 표와 동일 판독 프레임.
+효율화 검토 대상 표(본문 공유, over/idle/shutdown Top 30): 분류 · 진단 · 권고 · 신뢰도 — 분류는 `recommendation.assess`, 진단은 가장 시급한 신호 1개(`_build_diagnosis`, 표본 부족 호스트는 원인 진단·오프라인은 "오프라인" 접두), 권고는 분류+trigger 파생(`_build_recommendation_action`), 신뢰도는 `build_confidence_notes`(is_partial·low_sample). 단일 보고서 자원 적정성 평가 표와 동일 판독 프레임.
 
 자동 정성 요약 (customer 시그널 + engineer 추가): 역할별 평균 CPU 최고치·Saturation 발생·CPU 변동성 큼(peak/p95 1.5배+).
 
@@ -100,7 +100,7 @@ N대 selection 은 서버 간 비교를 위해 행 단위 정량 표(양식 B)�
 산출 결과 예시:
 ```
 서버 db-01는 최근 7일 동안 CPU p95 12.3%, 메모리 p95 35.0% 사용.
-분류는 과다 프로비저닝.
+분류는 과다 할당.
 AWS Compute Optimizer 임계값(CPU p95 30%) 기준으로 CPU 다운사이즈 권장.
 ```
 
@@ -146,7 +146,7 @@ Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상�
 8. 여유 있음 (cpu <= 30 + mem <= 50 — 축소 검토)
 9. 정상
 
-최상위 신호 1개만 노출 — 엔지니어가 가장 시급한 문제를 즉시 식별. 예외 2개: 데이터 부족 분류 호스트는 신호 대신 원인 진단(오프라인—에이전트 미가동 / 누락 메트릭 명시 / 윈도우 내 표본 부족), 오프라인 호스트는 진단 앞에 "오프라인" 접두 (분류는 윈도우 측정 기반 유지).
+최상위 신호 1개만 노출 — 엔지니어가 가장 시급한 문제를 즉시 식별. 예외 2개: 표본 부족 분류 호스트는 신호 대신 원인 진단(오프라인—에이전트 미가동 / 누락 메트릭 명시 / 윈도우 내 표본 부족), 오프라인 호스트는 진단 앞에 "오프라인" 접두 (분류는 윈도우 측정 기반 유지).
 
 ### 평가 윈도우
 

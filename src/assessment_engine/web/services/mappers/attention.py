@@ -63,7 +63,7 @@ _CAPACITY_TRIGGER_COLORS: dict[str, str] = {
 _CAPACITY_TRIGGER_INACTIVE_BG = "#f8fafc"
 _CAPACITY_TRIGGER_INACTIVE_FG = "#cbd5e1"
 
-# 리소스 부족 카드 지표 값 색 — 위반 강조 / 정상 / 미관측(N/A) 흐림 3분기.
+# 자원 부족 카드 지표 값 색 — 위반 강조 / 정상 / 미관측(N/A) 흐림 3분기.
 # 위반은 빨강 대신 가장 진한 무채(#0f172a) + 굵기·배경(템플릿 .metric-val-active)으로 강조 — 테마(파랑·회색) 무오염.
 # 정상은 중간 회색(#475569)으로 위반과 진하기 대비. 색이 아니라 진하기·굵기·배경으로 위반을 부각.
 _METRIC_VIOLATION_COLOR = "#0f172a"

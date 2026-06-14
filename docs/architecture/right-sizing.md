@@ -59,7 +59,7 @@ idle / shutdown / over_provisioned / under_provisioned / optimal / insufficient_
 ## 6. OS 분기 (Windows)
 
 - swap: `swap_saturation(os_family, swap_used) = swap_used and os_family != "windows"` 단일 helper 경유 의무. Windows pagefile 은 여유 RAM 에도 상시 사용되는 baseline 이라 saturation 신호가 아니다(제외). Linux/unknown 은 swap_used 그대로 page-out 신호로 해석. `if raw.swap_used` 직접 해석 금지.
-- load/iowait: Windows 는 loadavg·iowait 가 OS 부재라 saturation 축을 못 본다. 값 None 인 축은 `unmeasured` 에 기록 -> `is_partial`(=bool(unmeasured)) -> ViewModel/템플릿이 "이용률 기준 평가(saturation 축 미관측)" confidence 단서로 노출한다. 분류 자체는 utilization/capacity 로 완결되며 "데이터 부족"이 아니다(cpu_p95·mem_p95 가 산출되는 한).
+- load/iowait: Windows 는 loadavg·iowait 가 OS 부재라 saturation 축을 못 본다. 값 None 인 축은 `unmeasured` 에 기록 -> `is_partial`(=bool(unmeasured)) -> ViewModel/템플릿이 "이용률 기준 평가(saturation 축 미관측)" confidence 단서로 노출한다. 분류 자체는 utilization/capacity 로 완결되며 "표본 부족"이 아니다(cpu_p95·mem_p95 가 산출되는 한).
 - Windows agent 가 등가 카운터(Processor Queue Length 등)를 발행하면 미관측 축이 자동 채워진다(unmeasured 자동 해제).
 
 동일 통계라도 Linux 는 load/swap 으로 under 결론, Windows 는 utilization 기준으로 같은 분류 체계 안에서 결론난다.

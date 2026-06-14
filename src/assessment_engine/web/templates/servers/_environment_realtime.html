@@ -1,38 +1,21 @@
-{% from "_shared.html" import empty_state %}
+{% from "_shared.html" import empty_state, util_donut %}
 {# 실시간 현황 partial — 현재 자원 현황(활용률 도넛 + 네트워크·디스크 I/O) + 현재 부하 상위 (최신 스냅샷, 정적 렌더).
    realtime 객체면 데이터 없어도(서버 0대·sample 0) 카드 항상 노출. 내부는 sample_size/has_peaks 가드로 empty_state(#E9).
    컨텍스트 의무: realtime(EnvironmentRealtime), self_back. #}
 {% if realtime %}
+{# 갱신 시각 — realtime.js 가 폴링 후 본 텍스트(서버 kst 단일 진실, #F2)를 읽어 #rt-last 갱신. #}
+<span hidden class="rt-gen">{{ generated_at | kst }}</span>
 <section class="card">
-  <div style="display:flex; flex-wrap:wrap; gap:24px; font-size:13px; color:#475569;">
-    <div>온라인 <strong class="text-strong">{{ realtime.online }}</strong> · 오프라인 <strong class="text-strong">{{ realtime.offline }}</strong></div>
-    <div>유효 표본 <strong class="text-strong">{{ realtime.sample_size }}/{{ realtime.total }}</strong>대</div>
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+    <h2 class="card-title" style="margin:0;">현재 자원 현황</h2>
+    <span class="section-meta">온라인 {{ realtime.online }} · 오프라인 {{ realtime.offline }} · 유효 표본 {{ realtime.sample_size }}/{{ realtime.total }}대</span>
   </div>
-
-  <div class="card-section">
-    <h3>현재 자원 현황 <span class="section-meta">온라인 {{ realtime.sample_size }}대 최신 스냅샷</span></h3>
+  <div>
     {% if realtime.sample_size > 0 %}
     {# 환경 평균 활용률 도넛과 동일 컴포넌트·푸른 단색 게이지 (통일). 7일 통계 아닌 현재 스냅샷. #}
     {# 활용률 도넛(CPU/메모리/디스크)과 네트워크·디스크 I/O KPI 카드를 한 행에 — align center 로 세로 정렬. #}
     <div style="display:flex; align-items:center; flex-wrap:wrap; gap:20px;">
-      {% for u in realtime.utilization %}
-      <div style="text-align:center;">
-        <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
-          {% if u.pct is not none %}
-          <circle cx="50" cy="50" r="42" fill="none"
-                  style="stroke: {{ u.bar_color }}" stroke-width="10"
-                  stroke-dasharray="{{ "%.2f"|format(u.dash_length) }} 263.89"
-                  stroke-linecap="round"
-                  transform="rotate(-90 50 50)"/>
-          <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ "%.0f"|format(u.pct) }}%</text>
-          {% else %}
-          <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
-          {% endif %}
-        </svg>
-        <div style="font-size:12px; color:#475569; margin-top:4px;">{{ u.label }}</div>
-      </div>
-      {% endfor %}
+      {% for u in realtime.utilization %}{{ util_donut(u) }}{% endfor %}
       {# 네트워크·디스크 I/O — 게이지(부분 호 채움)가 아니라 절대 rate. 활용률 도넛과 동일 빈 트랙 색(#f1f5f9)·모양·폰트(20/700). #}
       <div style="text-align:center;">
         <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
@@ -44,7 +27,7 @@
           <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
           {% endif %}
         </svg>
-        <div style="font-size:12px; color:#475569; margin-top:4px;">네트워크</div>
+        <div class="text-label text-sm" style="margin-top:4px;">네트워크</div>
       </div>
       <div style="text-align:center;">
         <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
@@ -56,38 +39,43 @@
           <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
           {% endif %}
         </svg>
-        <div style="font-size:12px; color:#475569; margin-top:4px;">디스크 I/O</div>
+        <div class="text-label text-sm" style="margin-top:4px;">디스크 I/O</div>
       </div>
     </div>
     {% else %}
     {{ empty_state("수집된 메트릭이 없습니다.") }}
     {% endif %}
   </div>
+</section>
 
-  <div class="card-section">
-    <h3>현재 부하 상위 <span class="section-meta">자원별 · 탑 3</span></h3>
+<section class="card">
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+    <h2 class="card-title" style="margin:0;">현재 부하 상위</h2>
+    <span class="section-meta">자원별 · 탑 3</span>
+  </div>
+  <div>
     {% if realtime.has_peaks %}
     {# CPU/메모리/디스크 각 자원의 상위 3대 — 한 컬럼당 한 자원. 좁은 화면 자동 1~2열(찌그러짐 방지). #}
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap:16px;">
       {% for g in realtime.peak_groups %}
       <div>
-        <div style="font-size:12px; font-weight:600; color:#475569; margin-bottom:8px;">{{ g.label }}</div>
+        <div class="text-label text-sm" style="font-weight:600; margin-bottom:8px;">{{ g.label }}</div>
         {% if g.peaks %}
         <div style="display:flex; flex-direction:column; gap:6px;">
           {% for p in g.peaks %}
           {# 호스트명만 서버 상세 링크 — 번호·수치는 링크 밖. 전 자원(CPU/메모리/디스크/I/O) 일관. #}
           <div style="display:flex; align-items:center; gap:6px;">
             <span style="display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background:#eff6ff; color:var(--color-title); font-size:10px; font-weight:700; flex-shrink:0;">{{ loop.index }}</span>
-            <a href="/servers/{{ p.public_id }}?back={{ self_back }}"
-               style="flex:0 1 auto; min-width:0; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.hostname }}</a>
+            <a href="/servers/{{ p.public_id }}?back={{ self_back }}" class="text-sm"
+               style="flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.hostname }}</a>
             {# leader dots — hostname 과 수치를 점선으로 연결 (목차 스타일). hostname 길면 ellipsis 로 줄고 점선 최소폭 유지. #}
             <span style="flex:1 1 auto; min-width:10px; border-bottom:1px dotted #cbd5e1; height:1px;"></span>
-            <span style="flex-shrink:0; font-size:12px; font-weight:600; color:#1e293b; white-space:nowrap;">{{ p.display }}</span>
+            <span class="text-strong text-sm" style="flex-shrink:0; font-weight:600; white-space:nowrap;">{{ p.display }}</span>
           </div>
           {% endfor %}
         </div>
         {% else %}
-        <span class="text-meta" style="font-size:11px;">—</span>
+        <span class="text-meta text-xs">—</span>
         {% endif %}
       </div>
       {% endfor %}

@@ -164,7 +164,7 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
     ]
     data["attention_hosts"] = [AttentionHostItem(**a) for a in data.get("attention_hosts") or []]
     data["capacity_imminent"] = [CapacityImminentItem(**c) for c in data.get("capacity_imminent") or []]
-    # 데이터 부족 카드 폐기(호스트 권고 진단 통합) — 구 스냅샷 잔존 키는 무시(EnvironmentReportSummary(**data) 호환).
+    # 표본 부족 카드 폐기(호스트 권고 진단 통합) — 구 스냅샷 잔존 키는 무시(EnvironmentReportSummary(**data) 호환).
     data.pop("insufficient_hosts", None)
     data.pop("insufficient_hosts_count", None)
     data["anchor_at"] = _dt(data.get("anchor_at"))

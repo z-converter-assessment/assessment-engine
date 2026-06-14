@@ -37,6 +37,19 @@ def _cidr_str(item) -> str:
     return item.value if hasattr(item, "value") else item
 
 
+def _net_sort_key(net_key):
+    """서브넷 표시 순서 — 네트워크 주소 숫자 오름차순 (문자열 정렬은 10.0.2.0 뒤에 10.0.10.0 못 옴)."""
+    return ipaddress.ip_network(net_key)
+
+
+def _subnet_host_sort_key(host):
+    """서브넷 내 호스트 정렬 키 — IP 숫자 오름차순, 파싱 불가(빈 IP)는 후순위."""
+    try:
+        return (0, int(ipaddress.ip_address(host.ip)))
+    except ValueError:
+        return (1, 0)
+
+
 def build_network_topology(hosts) -> NetworkTopology:
     """hosts: ServerDetail/DTO 리스트 (public_id·hostname·os_family·ip_internal 사용).
 
@@ -85,12 +98,14 @@ def build_network_topology(hosts) -> NetworkTopology:
         for pid in pids:
             host_subnet_count[pid] += 1
 
+    ordered_nets = sorted(surviving, key=_net_sort_key)  # 그래프·서브넷 목록·보고서 표 공통 순서
+
     # 집계 뷰: subnet 노드만 기본 표시(hostCount 라벨), host 노드/엣지는 "collapsed" 로 시작 ->
     # network-topology.js 가 subnet 노드 클릭 시 해당 호스트를 펼친다 (대규모 호스트 hairball 회피).
     elements: list[dict] = []
     graph_hosts: set[str] = set()
     edges: list[tuple[str, str]] = []
-    for net_key in sorted(surviving):
+    for net_key in ordered_nets:
         elements.append(
             {
                 "data": {
@@ -127,7 +142,7 @@ def build_network_topology(hosts) -> NetworkTopology:
 
     # 서브넷별 소속 서버 목록 (IP 표시) — 그래프와 별개 카드. net_members 에서 pid->ip 복원.
     subnets: list[SubnetGroup] = []
-    for net_key in sorted(surviving):
+    for net_key in ordered_nets:
         pid_ip = {pid: ip for pid, ip in net_members[net_key]}
         hosts_list = []
         for pid in surviving[net_key]:
@@ -135,6 +150,7 @@ def build_network_topology(hosts) -> NetworkTopology:
             hosts_list.append(
                 SubnetHost(hostname=hostname, ip=pid_ip.get(pid, ""), os_family=os_family, public_id=pid)
             )
+        hosts_list.sort(key=_subnet_host_sort_key)  # 서브넷 내 IP 숫자 오름차순
         subnets.append(SubnetGroup(net_key=net_key, host_count=len(hosts_list), hosts=hosts_list))
 
     multi_homed_count = sum(1 for pid in graph_hosts if host_subnet_count[pid] >= 2)

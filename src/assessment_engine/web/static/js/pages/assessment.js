@@ -1,8 +1,8 @@
 /**
- * 환경 자원 평가 페이지(assessment.html) — 윈도우/앵커 변경 시 결과 partial fetch + swap + 리소스 부족 clip.
+ * 환경 자원 평가 페이지(assessment.html) — 윈도우/앵커 변경 시 결과 partial fetch + swap + 자원 부족 clip.
  *
  * select(윈도우)·datetime-local(앵커) 변경 -> ?fragment=result fetch -> #assessment-result innerHTML 교체.
- * 리소스 부족: 데이터는 전체 렌더, 20개 초과 시 21+ 행 숨김 + 더보기/접기 토글 (표시 디테일만 JS, P3 서버 렌더 유지).
+ * 자원 부족: 데이터는 전체 렌더, 20개 초과 시 21+ 행 숨김 + 더보기/접기 토글 (표시 디테일만 JS, P3 서버 렌더 유지).
  * 외부 의존: chart-utils.js(ChartUtils.initAnchor).
  */
 (function () {
@@ -16,25 +16,25 @@
     window.ChartUtils.initAnchor('assess-anchor');
   }
 
-  // ─── 리소스 부족 20개 clip + 더보기/접기 ──────────────────────────────────
+  // ─── 자원 부족 20개 clip + 더보기/접기 ──────────────────────────────────
   const UNDER_SHOWN = 20;
   let underExpanded = false;
 
   function applyUnderClip() {
-    const grid = result.querySelector('#under-grid');
-    const wrap = result.querySelector('#under-more-wrap');
+    const wrap = result.querySelector('#under-wrap');
+    const moreWrap = result.querySelector('#under-more-wrap');
     const btn = result.querySelector('#under-more-btn');
-    if (!grid) return;
-    const cells = Array.from(grid.children); // a + span 교차 (서버당 2 grid 셀)
-    const serverCount = cells.length / 2;
+    if (!wrap) return;
+    const rows = Array.from(wrap.querySelectorAll('tbody tr')); // 서버당 1 표 행
+    const serverCount = rows.length;
     if (serverCount <= UNDER_SHOWN) {
-      if (wrap) wrap.style.display = 'none';
-      cells.forEach((el) => { el.style.display = ''; });
+      if (moreWrap) moreWrap.style.display = 'none';
+      rows.forEach((el) => { el.style.display = ''; });
       return;
     }
-    if (wrap) wrap.style.display = '';
-    const limit = underExpanded ? cells.length : UNDER_SHOWN * 2;
-    cells.forEach((el, i) => { el.style.display = i < limit ? '' : 'none'; });
+    if (moreWrap) moreWrap.style.display = '';
+    const limit = underExpanded ? serverCount : UNDER_SHOWN;
+    rows.forEach((el, i) => { el.style.display = i < limit ? '' : 'none'; });
     if (btn) btn.textContent = underExpanded ? '접기' : `더보기 (${serverCount - UNDER_SHOWN}개 더)`;
   }
 

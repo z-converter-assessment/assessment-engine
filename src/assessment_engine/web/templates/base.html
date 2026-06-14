@@ -104,15 +104,8 @@
     .badge-cat-container { background: #eef2f6; color: #075985; }
     .badge-cat-monitor   { background: #eef2f6; color: #713f12; }
     .badge-cat-unknown   { background: #f1f5f9; color: #64748b; }
-    /* 서비스 그룹 좌측 액센트 바 — 카테고리 색으로 소속 표현 (외곽 박스 대신, card-title 좌측 바와 동일 언어). */
-    .svc-group { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-left: 9px; border-left: 3px solid #cbd5e1; }
-    .svc-group.cat-web       { border-left-color: #1d4ed8; }
-    .svc-group.cat-db        { border-left-color: #9d174d; }
-    .svc-group.cat-cache     { border-left-color: #115e59; }
-    .svc-group.cat-mq        { border-left-color: #6b21a8; }
-    .svc-group.cat-container { border-left-color: #075985; }
-    .svc-group.cat-monitor   { border-left-color: #713f12; }
-    .svc-group.cat-unknown   { border-left-color: #64748b; }
+    /* 서비스 포트 칩 — proto+port 단일 칩. 카테고리 묶음은 행 정렬(2열 grid)로 표현, 외곽 박스 없음. */
+    .port-chip { display: inline-flex; align-items: center; gap: 5px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 3px 8px; font-size: 12px; }
     /* USE Method 분류 badge — list/report 공유 (단일 진실). rec-swap은 메모리 부족 1차 신호 강조. */
     .rec-under_provisioned { background: #fee2e2; color: #b91c1c; }
     .rec-over_provisioned  { background: #dbeafe; color: #1d4ed8; }
@@ -145,10 +138,10 @@
     .attention-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
     .attention-item { display: flex; align-items: center; gap: 12px; font-size: 13px; }
     .attention-cause { font-size: 12px; color: #94a3b8; }
-    /* 리소스 부족 지표 — 위반(active)은 빨강 대신 진한 무채 + 굵기 + 회색 배경 박스로 강조 (테마 무오염). */
+    /* 자원 부족 지표 — 위반(active)은 빨강 대신 진한 무채 + 굵기 + 회색 배경 박스로 강조 (테마 무오염). */
     .metric-val { font-weight: 600; }
     .metric-val-active { font-weight: 700; background: #e2e8f0; padding: 1px 7px; border-radius: 4px; }
-    /* 리소스 부족 지표 — 메트릭 사이 간격(구분선 없이 padding 만). 첫 메트릭은 좌측 여백 없음. */
+    /* 자원 부족 지표 — 메트릭 사이 간격(구분선 없이 padding 만). 첫 메트릭은 좌측 여백 없음. */
     .metric-cell { padding-left: 16px; }
     .metric-cell:first-child { padding-left: 0; }
     /* attention-link — base a 스타일 (color + 밑줄) 상속, font-weight 만 강조. */
@@ -161,12 +154,14 @@
     .attention-cat-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: transparent; border: 1px solid #e2e8f0; color: #94a3b8; }
     .attention-cat-item[data-active="True"] { background: #fef3c7; border-color: #fde68a; color: #92400e; font-weight: 600; }
     .attention-cat-item strong { font-weight: 700; }
-    .kv { display: grid; grid-template-columns: 160px 1fr; gap: 7px 16px; align-items: center; }
+    .kv { display: grid; grid-template-columns: 160px 1fr; gap: 7px 16px; align-items: baseline; }
     .kv dt { color: #64748b; font-size: 13px; }
     .kv dd { color: #0f172a; font-weight: 500; font-size: 13px; overflow-wrap: anywhere; }
     /* kv 그룹 소제목 — 전폭 행, 상단 구분선. 사양/네트워크/스토리지/운영·식별 묶음. */
-    .kv dt.kv-group { grid-column: 1 / -1; color: #94a3b8; font-size: 11px; font-weight: 600; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f1f5f9; }
+    .kv dt.kv-group { grid-column: 1 / -1; color: #334155; font-size: 14px; font-weight: 700; margin-top: 14px; padding-top: 12px; border-top: 1px solid #f1f5f9; }
     .kv dt.kv-group:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+    /* kv 하위 항목 — 상위(예: Available)에 속함을 들여쓰기 + 좌측 세로선으로 표현 (Cached/Buffers 등). */
+    .kv dt.kv-sub { padding-left: 14px; margin-left: 6px; border-left: 2px solid #e2e8f0; }
     .back { font-size: 13px; color: #64748b; margin-bottom: 14px; display: inline-block; }
     .back:hover { color: #0f172a; text-decoration: none; }
     /* code = base monospace (line 25) + inline code 표시 (background + padding). font-family 중복 제거 — line 25 단일 진실. */
@@ -294,7 +289,7 @@
     /* 차트 기간 컨트롤 배지 — chart-select·chart-anchor(height 30) 와 정렬. 성능 추이 환경·개별 공용 단일 진실. */
     .bucket-label { font-size: 11px; font-weight: 500; color: #475569; background: #fff; border: 1px solid #cbd5e1; border-radius: 5px; height: 30px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 10px; }
     /* 차트 하단 설명 캡션 — 전 차트 페이지 공용 (음영 영역 설명 등). */
-    .chart-caption { font-size: 11px; color: #94a3b8; margin: 8px 0 0; }
+    .chart-caption { font-size: 11px; color: #94a3b8; margin: 14px 0 0; }
     .toggle { padding: 5px 12px; border: 1px solid #e2e8f0; border-radius: 5px; background: #fff; color: #475569; font-size: 12px; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
     .toggle:hover { background: #f8fafc; border-color: #cbd5e1; }
     .toggle.active { background: #0f172a; color: #fff; border-color: #0f172a; }
@@ -302,7 +297,7 @@
        기본 숨김, 표시 시 JS 가 display:flex. canvas 와 같은 높이를 차지해 카드 크기 일관. */
     .chart-empty { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; text-align: center; color: #94a3b8; font-size: 13px; padding: 0 16px; box-sizing: border-box; }
     /* 차트 제목 아래 설명 한 줄 — 설명 유무와 무관하게 고정 높이로 같은 행 차트의 캔버스 top 정렬. */
-    .chart-desc { min-height: 17px; font-size: 11px; line-height: 1.5; color: #94a3b8; margin-bottom: 10px; }
+    .chart-desc { min-height: 17px; font-size: 11px; line-height: 1.5; color: #94a3b8; margin: 0 0 12px; }
 
     /* Section header within card */
     .section-title { font-size: 13px; font-weight: 600; color: #334155; margin: 20px 0 10px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
@@ -324,6 +319,8 @@
     .btn-action { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #374151; font-size: 13px; font-weight: 500; text-decoration: none; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; cursor: pointer; }
     .btn-action:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); text-decoration: none; }
     .btn-action svg { width: 14px; height: 14px; }
+    /* btn-action 축소 변형 — 그룹헤더 보조 '상세 ->' 링크 (상세 페이지 공통). 함께 사용: class="btn-action btn-action-sm". */
+    .btn-action-sm { font-size: 12px; padding: 4px 11px; }
 
     /* 부하 상위 행 링크(환경 실시간 메트릭) — 링크 원칙(파란색 글씨 + 밑줄) 적용, hover 시 배경 강조. */
     .peak-link { border-radius: 4px; padding: 2px 4px; margin: 0 -4px; transition: background .12s; }

@@ -37,7 +37,7 @@ from assessment_engine.web.view_models.report import (
 # USE Method 분류 -> (risk_level, 한글 라벨, badge CSS 클래스).
 # under_provisioned → 고위험 (자원 부족, 즉시 조치)
 # shutdown · idle · over_provisioned → 주의 (저사용·과다 — 운영자 점검)
-# optimal · insufficient_data → 정상 (또는 데이터 부족)
+# optimal · insufficient_data → 정상 (또는 표본 부족)
 _RISK_FROM_RECOMMENDATION: dict[str, tuple[str, str, str]] = {
     "under_provisioned": ("high", "고위험", "rec-under_provisioned"),
     "shutdown": ("attention", "주의 필요", "rec-over_provisioned"),
@@ -154,7 +154,7 @@ def build_report_summary_bullets(
         suffix = " 외" if n_iowait > 3 else ""
         bullets.append(
             f"I/O wait p95 {iowait_threshold}%+ {n_iowait}대 ({', '.join(hosts)}{suffix})"
-            " — 디스크 병목. SSD/iops 상향 검토."
+            " — 디스크 I/O 병목."
         )
 
     # Mount 임박 — _CAPACITY_IMMINENT_DAYS 안 채워질 마운트가 있는 서버 카운트
@@ -171,14 +171,14 @@ def build_report_summary_bullets(
                 if len(hosts) >= 3:
                     break
         suffix = " 외" if n_mount > 3 else ""
-        bullets.append(f"디스크 채움 임박 {n_mount}대 ({', '.join(hosts)}{suffix}) — 디스크 증설 또는 정리 검토.")
+        bullets.append(f"디스크 채움 임박 {n_mount}대 ({', '.join(hosts)}{suffix}).")
 
     # 재부팅 빈번 — period 안 _REBOOT_UNSTABLE_COUNT 이상
     n_reboot = sum(1 for r in rows if r.reboot_count >= _REBOOT_UNSTABLE_COUNT)
     if n_reboot:
         hosts = [f"{r.hostname}({r.reboot_count}회)" for r in rows if r.reboot_count >= _REBOOT_UNSTABLE_COUNT][:3]
         suffix = " 외" if n_reboot > 3 else ""
-        bullets.append(f"재부팅 빈번 {n_reboot}대 ({', '.join(hosts)}{suffix}) — 안정성 점검 필요.")
+        bullets.append(f"재부팅 빈번 {n_reboot}대 ({', '.join(hosts)}{suffix}).")
 
     if view == "engineer":
         # 역할별 평균 CPU — 엔지니어가 자원 집약 역할 식별. 고객 보고서엔 정보 과다. (#F10 recommendation 상수)
@@ -218,7 +218,7 @@ def build_report_summary_bullets(
             suffix = " 외" if n_var > 3 else ""
             bullets.append(
                 f"CPU 부하 변동 큼 {n_var}대 ({', '.join(hosts)}{suffix})"
-                " — 일시 spike 빈번. 평균보다 peak 기준 sizing 권장."
+                " — 일시 spike 빈번 (부하 변동성 큼)."
             )
 
     # OS EOL 신호 — raws 있을 때만. attention 카드와 동일 판정(resolve_os_eol): Windows build /
@@ -235,7 +235,7 @@ def build_report_summary_bullets(
             shown = eol_hosts[:3]
             suffix = " 외" if len(eol_hosts) > 3 else ""
             bullets.append(
-                f"OS EOL {len(eol_hosts)}대 ({', '.join(shown)}{suffix}) — 마이그레이션 전 OS 업그레이드 검토."
+                f"OS EOL {len(eol_hosts)}대 ({', '.join(shown)}{suffix}) — 보안 패치 중단됨."
             )
 
     return bullets
@@ -285,7 +285,7 @@ def _build_recommendation_action(assessment: recommendation.Assessment) -> str:
         "idle": "용도 재평가 / 종료 검토",
         "shutdown": "종료 가능 검토",
         "optimal": "적정 운영",
-        "insufficient_data": "데이터 부족 — 수집 점검",
+        "insufficient_data": "표본 부족 — 수집 점검",
     }.get(rec, "")
 
 
@@ -297,12 +297,12 @@ def _build_diagnosis(
     우선순위 (가장 시급한 신호 1개 선택, 임계는 recommendation 상수·_VARIANCE_BURST_RATIO 단일 진실):
     1. swap_used → "메모리 부족 (스왑 발생)" — paging 활성, 1차 강신호
     2. iowait_p95 >= IOWAIT_UPSIZE_PCT → "디스크 I/O 병목"
-    3. saturation >= CPU_SATURATION_LOAD_RATIO → "CPU saturation"
+    3. saturation >= CPU_SATURATION_LOAD_RATIO → "CPU 포화"
     4. mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리 압박"
     5. cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU 압박"
-    6. cpu/mem variance >= _VARIANCE_BURST_RATIO → "변동성 큼 (burst)"
+    6. cpu/mem variance >= _VARIANCE_BURST_RATIO → "부하 변동 큼"
     7. cpu_p95 <= SHUTDOWN_CPU_P95_PCT → "거의 미사용"
-    8. cpu_p95 <= CPU_DOWNSIZE_P95_PCT and mem_p95 <= MEM_DOWNSIZE_P95_PCT → "여유 있음 (축소 검토)"
+    8. cpu_p95 <= CPU_DOWNSIZE_P95_PCT and mem_p95 <= MEM_DOWNSIZE_P95_PCT → "여유 있음"
     9. 그 외 → "정상"
     """
     if recommendation.swap_saturation(raw.os_family, raw.swap_used):
@@ -310,7 +310,7 @@ def _build_diagnosis(
     if raw.iowait_p95_pct is not None and raw.iowait_p95_pct >= recommendation.IOWAIT_UPSIZE_PCT:
         return "디스크 I/O 병목"
     if saturation is not None and saturation >= recommendation.CPU_SATURATION_LOAD_RATIO:
-        return "CPU saturation"
+        return "CPU 포화"
     if raw.mem_p95_pct is not None and raw.mem_p95_pct >= recommendation.MEM_UPSIZE_P95_PCT:
         return "메모리 압박"
     if raw.cpu_p95_pct is not None and raw.cpu_p95_pct >= recommendation.CPU_UPSIZE_P95_PCT:
@@ -318,7 +318,7 @@ def _build_diagnosis(
     if (cpu_variance is not None and cpu_variance >= _VARIANCE_BURST_RATIO) or (
         mem_variance is not None and mem_variance >= _VARIANCE_BURST_RATIO
     ):
-        return "변동성 큼 (burst)"
+        return "부하 변동 큼"
     if raw.cpu_p95_pct is not None and raw.cpu_p95_pct <= recommendation.SHUTDOWN_CPU_P95_PCT:
         return "거의 미사용"
     if (
@@ -327,7 +327,7 @@ def _build_diagnosis(
         and raw.mem_p95_pct is not None
         and raw.mem_p95_pct <= recommendation.MEM_DOWNSIZE_P95_PCT
     ):
-        return "여유 있음 (축소 검토)"
+        return "여유 있음"
     return "정상"
 
 
@@ -515,7 +515,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         net_tx_kbps=raw.net_tx_kbps,
         net_tx_kbps_p95=raw.net_tx_kbps_p95,
         net_tx_kbps_peak=raw.net_tx_kbps_peak,
-        # 데이터 부족 호스트는 USE 진단(메트릭 기반) 대신 원인 진단 — fall-through '정상' 오표시 방지.
+        # 표본 부족 호스트는 USE 진단(메트릭 기반) 대신 원인 진단 — fall-through '정상' 오표시 방지.
         # 오프라인 호스트는 진단에 "오프라인" 접두 — 분류는 윈도우 측정 기반 유지, 현재 미가동 맥락만 보강.
         diagnosis=(
             _build_insufficient_reason(raw, is_online)

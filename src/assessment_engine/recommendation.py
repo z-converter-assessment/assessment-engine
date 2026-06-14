@@ -219,10 +219,10 @@ def is_partial_evaluation(stats: ResourceStats) -> bool:
 LABEL_KO: dict[str, str] = {
     "idle": "유휴",
     "shutdown": "종료 권장",
-    "over_provisioned": "과다 프로비저닝",
-    "under_provisioned": "리소스 부족",
+    "over_provisioned": "과다 할당",
+    "under_provisioned": "자원 부족",
     "optimal": "정상",
-    "insufficient_data": "데이터 부족",
+    "insufficient_data": "표본 부족",
 }
 
 # 양식 A의 RISK 색상 매핑 — report.html `.rec-{recommendation}` CSS와 짝.

@@ -1,4 +1,5 @@
 {% from "_shared.html" import empty_state, service_legend, detail_server_list %}
+{% from "reports/_resource_tables.html" import efficiency_table, under_provisioned_table %}
 {# 구성 계층 막대 (P-A) — 단일 색 분포 막대 (P-E), 게이지 테마색(var(--color-title)) 통일. OS·워크로드 공용. customer·engineer 동일 호출. #}
 {% macro config_dist(title, bars, count_unit) %}
 <div>
@@ -33,11 +34,11 @@
   <div style="display:flex; flex-direction:column;">
     {% for g in catalog %}
     <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:5px 0;{% if not loop.last %} border-bottom:1px solid #f1f5f9;{% endif %}">
-      <span class="text-strong" style="min-width:110px; font-size:13px;">{{ g.category }} <span class="text-meta" style="font-weight:400;">{{ g.total_count }}</span></span>
+      <span class="badge {{ g.category | service_badge_class }}" style="min-width:96px; justify-content:center;">{{ g.category }} <strong class="text-strong">{{ g.total_count }}</strong></span>
       {% if g.services %}
       <span style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
         {% for s in g.services %}
-        <span class="role-chip">{{ s.name }} <strong class="text-strong">{{ s.count }}</strong></span>
+        <span class="badge {{ g.category | service_badge_class }}">{{ s.name }} <strong class="text-strong">{{ s.count }}</strong></span>
         {% endfor %}
       </span>
       {% endif %}
@@ -142,7 +143,7 @@
   <h3>효율화 검토 대상 ({{ summary.efficiency_target_count }}대)</h3>
   {% if summary.efficiency_target_count %}
   <p class="text-sm text-label" style="margin:0 0 20px;">
-    과다 프로비저닝·유휴·종료 권장 {{ summary.efficiency_target_count }}대 — 총 {{ summary.efficiency_target_vcpus }} vCPU · {{ "%.1f" | format(summary.efficiency_target_memory_gb) }} GB 점유. 전환 시 사양 최적화 여지.
+    과다 할당·유휴·종료 권장 {{ summary.efficiency_target_count }}대 — 총 {{ summary.efficiency_target_vcpus }} vCPU · {{ "%.1f" | format(summary.efficiency_target_memory_gb) }} GB 점유. 전환 시 사양 최적화 여지.
   </p>
   {% else %}
   <div style="margin-bottom:20px;">{{ empty_state("효율화 검토 대상 없음 (과다·유휴·종료 권장 0대).") }}</div>
@@ -270,49 +271,10 @@
   {{ classification_dist_bars(summary.classification_dist) }}
 
   <h3>효율화 검토 대상 ({{ summary.efficiency_target_count }}대)</h3>
-  {% if summary.efficiency_hosts %}
-  <p class="text-sm text-label" style="margin:0 0 12px;">과다 프로비저닝·유휴·종료 권장 {{ summary.efficiency_target_count }}대 — 총 {{ summary.efficiency_target_vcpus }} vCPU · {{ "%.1f" | format(summary.efficiency_target_memory_gb) }} GB 점유.{% if summary.efficiency_target_count > summary.efficiency_hosts_count %} 시급도 순 상위 {{ summary.efficiency_hosts_count }}대.{% endif %}</p>
-  <table style="margin-bottom:20px;">
-    <thead>
-      <tr><th>호스트</th><th>분류</th><th>진단</th><th>권고</th><th>신뢰도</th></tr>
-    </thead>
-    <tbody>
-      {% for r in summary.efficiency_hosts %}
-      <tr>
-        <td><a href="/servers/{{ r.public_id }}?back={{ self_back }}" class="row-link">{{ r.hostname }}</a></td>
-        <td>{{ r.recommendation_label }}</td>
-        <td>{{ r.diagnosis or "—" }}</td>
-        <td class="text-strong">{{ r.recommendation_action or "—" }}</td>
-        <td>{% if r.confidence_notes %}{% for n in r.confidence_notes %}<span class="text-meta text-sm">{{ n }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div style="margin-bottom:20px;">{{ empty_state("효율화 검토 대상 없음 (과다·유휴·종료 권장 0대).") }}</div>
-  {% endif %}
+  {{ efficiency_table(summary.efficiency_hosts, summary.efficiency_target_count, summary.efficiency_target_vcpus, summary.efficiency_target_memory_gb, summary.efficiency_hosts_count, self_back) }}
 
-  <h3>리소스 부족 ({{ summary.under_provisioned_hosts_count }}건)</h3>
-  {% if summary.under_provisioned_hosts %}
-  <div style="overflow-x:auto; margin-bottom:20px;">
-  <table style="width:100%; min-width:560px;">
-    <thead>
-      <tr><th style="white-space:nowrap;">호스트</th>{% for m in summary.under_provisioned_metric_labels %}<th style="white-space:nowrap;">{{ m }}</th>{% endfor %}<th style="white-space:nowrap;">신뢰도</th></tr>
-    </thead>
-    <tbody>
-      {% for c in summary.under_provisioned_hosts %}
-      <tr>
-        <td style="white-space:nowrap;"><a href="/servers/{{ c.public_id }}?back={{ self_back }}" class="row-link">{{ c.hostname }}</a></td>
-        {% for m in c.metrics %}<td style="color:{{ m.color }}; white-space:nowrap;{% if m.active %} font-weight:600;{% endif %}">{{ m.value }}</td>{% endfor %}
-        <td style="white-space:nowrap;">{% if c.confidence_notes %}{% for n in c.confidence_notes %}<span class="text-meta text-sm">{{ n }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  {% else %}
-  <div style="margin-bottom:20px;">{{ empty_state("리소스 부족으로 분류된 호스트가 없습니다.") }}</div>
-  {% endif %}
+  <h3>자원 부족 ({{ summary.under_provisioned_hosts_count }}대)</h3>
+  {{ under_provisioned_table(summary.under_provisioned_hosts, summary.under_provisioned_metric_labels, self_back) }}
 
 </section>
 
@@ -359,7 +321,7 @@
 </section>
 
 
-{# 세부 서버 목록 — 선택 N대 보고서(selection)만. 환경 보고서는 전체(500대 가능) 인쇄 폭주라 미표시 — 조치 대상은 효율화/리소스 부족 표가 담음. #}
+{# 세부 서버 목록 — 선택 N대 보고서(selection)만. 환경 보고서는 전체(500대 가능) 인쇄 폭주라 미표시 — 조치 대상은 효율화/자원 부족 표가 담음. #}
 {% if show_report_link|default(false) %}
 {{ detail_server_list(summary.base.rows, "engineer", summary.time_range, self_back, child_jobs|default({}), attention_by_host|default({}), summary.overview.total, show_report_link) }}
 {% endif %}

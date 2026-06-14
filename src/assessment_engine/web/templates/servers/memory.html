@@ -8,8 +8,8 @@
 <!-- 현재 상태 -->
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 class="card-title">현재 상태</h2>
-    <span id="metrics-stamp" class="text-meta no-print" style="font-size:11px;">30초마다 자동 갱신 · 최근 —</span>
+    <h2 class="card-title" style="margin:0;">현재 상태</h2>
+    <span id="metrics-stamp" class="text-meta no-print text-xs">30초마다 자동 갱신 · 최근 —</span>
   </div>
   <dl class="kv" style="margin-bottom:16px;">
     <dt>전체 메모리</dt>
@@ -20,26 +20,25 @@
     {% endif %}
   </dl>
   <hr style="border:none; border-top:1px solid #e2e8f0; margin:0 0 14px;">
-  <div id="snap-loading" class="text-meta" style="font-size:13px;">불러오는 중...</div>
+  <div id="snap-loading" class="text-meta text-md">불러오는 중...</div>
   <div id="snap-body" style="display:none;">
-    <p class="text-meta" style="font-size:11px; margin:0 0 10px; line-height:1.8;">
-      <span class="identifier text-label" style="display:inline-block; min-width:36px;">N/A</span>해당 OS 에서 미측정하는 항목<br>
-      <span class="identifier text-label" style="display:inline-block; min-width:36px;">—</span>일시적으로 값 없음 (첫 수집·수집 끊김 등)
-    </p>
-    <p class="text-meta" style="font-size:11px; margin:0 0 10px;">전체 메모리 대비 비율: Used / Available / Cached / Buffers{% if server.os_family == 'windows' %} (Windows 는 Cached·Buffers 미측정 — Used / Available 만){% endif %}</p>
     <dl class="kv" style="margin-bottom:20px;">
       <dt>메모리 사용률</dt> <dd id="s-mem-pct">—</dd>
       <dt>Used</dt>          <dd id="s-mem-used">—</dd>
       <dt>Available</dt>     <dd id="s-mem-avail">—</dd>
-      <dt>Cached</dt>        <dd id="s-mem-cached">—</dd>
-      <dt>Buffers</dt>       <dd id="s-mem-buffers">—</dd>
+      <dt class="kv-sub text-muted">Cached</dt>  <dd id="s-mem-cached">—</dd>
+      <dt class="kv-sub text-muted">Buffers</dt> <dd id="s-mem-buffers">—</dd>
     </dl>
     <dl class="kv">
       <dt>스왑 사용률</dt> <dd id="s-swap-pct">—</dd>
       <dt>스왑 Used</dt>   <dd id="s-swap-used">—</dd>
     </dl>
+    <p class="text-meta text-xs" style="margin:12px 0 0; line-height:1.8;">
+      <span class="identifier text-label" style="display:inline-block; min-width:36px;">N/A</span>해당 OS 에서 미측정하는 항목<br>
+      <span class="identifier text-label" style="display:inline-block; min-width:36px;">—</span>일시적으로 값 없음 (첫 수집·수집 끊김 등)
+    </p>
   </div>
-  <div id="snap-empty" class="text-meta" style="display:none; font-size:13px;">
+  <div id="snap-empty" class="text-meta text-md" style="display:none;">
     수집된 메트릭이 없습니다.
   </div>
 </div>
@@ -47,7 +46,7 @@
 <!-- 메모리 사용률 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2 class="card-title">메모리 사용률 추이<span class="print-only text-muted" id="mem-range-print" style="font-weight:normal; font-size:12px;"> — 1시간</span></h2>
+    <h2 class="card-title">메모리 사용률 추이<span class="print-only text-muted text-sm" id="mem-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     <span id="mem-bucket-label" class="bucket-label"></span>
     <select class="chart-select no-print" id="mem-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
@@ -63,7 +62,7 @@
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="mem-canvas"></canvas>
   </div>
-  <div id="mem-empty" class="text-meta" style="display:none; text-align:center; padding:40px 0; font-size:13px;">
+  <div id="mem-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <p class="chart-caption">
@@ -74,7 +73,7 @@
 <!-- 메모리 구성 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2 class="card-title">메모리 구성 추이<span class="print-only text-muted" id="comp-range-print" style="font-weight:normal; font-size:12px;"> — 1시간</span></h2>
+    <h2 class="card-title">메모리 구성 추이<span class="print-only text-muted text-sm" id="comp-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     <span id="comp-bucket-label" class="bucket-label"></span>
     <select class="chart-select no-print" id="comp-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
@@ -87,20 +86,20 @@
     </select>
     <input type="datetime-local" id="comp-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
-  <p class="text-meta" style="font-size:12px; margin:-8px 0 14px;">전체 메모리 대비 비율: Used / Available / Cached / Buffers{% if server.os_family == 'windows' %} (Windows 는 Cached·Buffers 미측정 — Used / Available 만 표시){% endif %}</p>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="comp-canvas"></canvas>
   </div>
-  <div id="comp-empty" class="text-meta" style="display:none; text-align:center; padding:40px 0; font-size:13px;">
+  <div id="comp-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <div id="comp-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
+  <p class="text-meta text-sm" style="margin:14px 0 0;">전체 메모리 대비 비율: Used / Available / Cached / Buffers{% if server.os_family == 'windows' %} (Windows 는 Cached·Buffers 미측정 — Used / Available 만 표시){% endif %}</p>
 </div>
 
 <!-- 스왑 사용률 추이 -->
 <div class="card">
   <div class="chart-head">
-    <h2 class="card-title">스왑 사용률 추이<span class="print-only text-muted" id="swap-range-print" style="font-weight:normal; font-size:12px;"> — 1시간</span></h2>
+    <h2 class="card-title">스왑 사용률 추이<span class="print-only text-muted text-sm" id="swap-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     <span id="swap-bucket-label" class="bucket-label"></span>
     <select class="chart-select no-print" id="swap-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
@@ -113,20 +112,20 @@
     </select>
     <input type="datetime-local" id="swap-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
-  {% if server.swap_total_gb is none %}
-  <p class="text-meta" style="font-size:11px; margin:0 0 12px;">스왑 미설정 서버 — 차트의 0%는 스왑 용량 자체가 없음을 의미 (사용률 아님).</p>
-  {% elif server.os_family == 'windows' %}
-  <p class="text-meta" style="font-size:11px; margin:0 0 12px;">Windows 의 스왑(pagefile)은 여유 메모리가 있어도 상시 일정량 사용되므로, 사용률이 높아도 메모리 부족 신호 아님.</p>
-  {% endif %}
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="swap-canvas"></canvas>
   </div>
-  <div id="swap-empty" class="text-meta" style="display:none; text-align:center; padding:40px 0; font-size:13px;">
+  <div id="swap-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <p class="chart-caption">
     음영 영역: 집계 구간 내 순간 최대 사용률과 평균의 차이.
   </p>
+  {% if server.swap_total_gb is none %}
+  <p class="text-meta text-xs" style="margin:8px 0 0;">스왑 미설정 서버 — 차트의 0%는 스왑 용량 자체가 없음을 의미 (사용률 아님).</p>
+  {% elif server.os_family == 'windows' %}
+  <p class="text-meta text-xs" style="margin:8px 0 0;">Windows 의 스왑(pagefile)은 여유 메모리가 있어도 상시 일정량 사용되므로, 사용률이 높아도 메모리 부족 신호 아님.</p>
+  {% endif %}
 </div>
 
 <style>

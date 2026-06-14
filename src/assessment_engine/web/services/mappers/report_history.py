@@ -53,10 +53,10 @@ def _result_link(rec: DiagnosticJobRecord, back: str = "") -> str:
     if rec.scope == "environment":
         return f"/reports/environment?job={rec.id}{back_suffix}"
     server_public_ids = rec.input_params.get("server_public_ids") or []
-    # server scope 1대는 단일 양식(`/servers/{pid}/report`), 2대+ 는 N대 표(`/servers/report`).
+    # server scope 1대는 단일 양식(`/servers/{pid}/report`), 2대+ 는 N대 표(`/reports/servers`).
     if len(server_public_ids) == 1:
         return f"/servers/{server_public_ids[0]}/report?job={rec.id}{back_suffix}"
-    return f"/servers/report?job={rec.id}{back_suffix}"
+    return f"/reports/servers?job={rec.id}{back_suffix}"
 
 
 def to_report_history_item(rec: DiagnosticJobRecord, back: str = "") -> dict[str, Any]:

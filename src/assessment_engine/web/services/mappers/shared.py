@@ -26,13 +26,13 @@ def build_confidence_notes(assessment: recommendation.Assessment) -> list[str]:
     """분류 confidence 단서 라벨 — is_partial(saturation 축 미관측) + low_sample(표본 부족) 통합 (원칙2, P2).
 
     분류는 가진 데이터로 완결(원칙1)하고, 신뢰도를 떨어뜨리는 요인만 본 채널로 분리 노출. 보고서 행·대시보드
-    '리소스 부족 상세' 카드가 동일 list 를 렌더(P3) — 비면 신뢰도 저하 요인 없음. report·attention 공용 단일 진실.
+    '자원 부족 상세' 카드가 동일 list 를 렌더(P3) — 비면 신뢰도 저하 요인 없음. report·attention 공용 단일 진실.
     """
     notes: list[str] = []
     if assessment.is_partial:
-        notes.append("이용률 기준 평가 — saturation 축 미관측")
+        notes.append("이용률 기준 (포화 축 미관측)")
     if assessment.low_sample:
-        notes.append("표본 부족 — 이용률 신뢰도 낮음(관측 데이터 부족)")
+        notes.append("표본 부족")
     return notes
 
 # ─── USE Method 도넛 카탈로그 — 대시보드 + 환경 보고서 + 서버 리스트 단일 진실 (T13) ────

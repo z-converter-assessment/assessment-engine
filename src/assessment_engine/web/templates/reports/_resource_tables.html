@@ -1,0 +1,52 @@
+{# 효율화 검토 대상 · 자원 부족 표 — 환경 보고서(engineer)와 환경 자원 평가 페이지 공유 단일 진실.
+   제목(h2/h3)·카운트는 호출부가 렌더(카드 양식 차이 보존), 본 매크로는 요약문+표 본문만 렌더. #}
+{% from "_shared.html" import empty_state %}
+
+{# 효율화 검토 대상 표 — over/idle/shutdown 정리 시급도 순. hosts = ReportRowItem(top-N). #}
+{% macro efficiency_table(hosts, target_count, target_vcpus, target_memory_gb, shown_count, self_back) %}
+{% if hosts %}
+<p class="text-sm text-label" style="margin:0 0 12px;">과다 할당·유휴·종료 권장 {{ target_count }}대 — 총 {{ target_vcpus }} vCPU · {{ "%.1f" | format(target_memory_gb) }} GB 점유.{% if target_count > shown_count %} 시급도 순 상위 {{ shown_count }}대.{% endif %}</p>
+<table style="margin-bottom:20px;">
+  <thead>
+    <tr><th>호스트</th><th>분류</th><th>진단</th><th>권고</th><th>신뢰도</th></tr>
+  </thead>
+  <tbody>
+    {% for r in hosts %}
+    <tr>
+      <td><a href="/servers/{{ r.public_id }}?back={{ self_back }}" class="row-link">{{ r.hostname }}</a></td>
+      <td>{{ r.recommendation_label }}</td>
+      <td>{{ r.diagnosis or "—" }}</td>
+      <td class="text-strong">{{ r.recommendation_action or "—" }}</td>
+      <td>{% if r.confidence_notes %}{% for n in r.confidence_notes %}<span class="text-meta text-sm">{{ n }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div style="margin-bottom:20px;">{{ empty_state("효율화 검토 대상 없음 (과다·유휴·종료 권장 0대).") }}</div>
+{% endif %}
+{% endmacro %}
+
+{# 자원 부족 표 — 판단 6축 + 신뢰도. hosts = CapacityWarningItem, metric_labels = 첫 행 라벨 precompute. #}
+{% macro under_provisioned_table(hosts, metric_labels, self_back) %}
+{% if hosts %}
+<div style="overflow-x:auto; margin-bottom:20px;">
+<table style="width:100%; min-width:560px;">
+  <thead>
+    <tr><th style="white-space:nowrap;">호스트</th>{% for m in metric_labels %}<th style="white-space:nowrap;">{{ m }}</th>{% endfor %}<th style="white-space:nowrap;">신뢰도</th></tr>
+  </thead>
+  <tbody>
+    {% for c in hosts %}
+    <tr>
+      <td style="white-space:nowrap;"><a href="/servers/{{ c.public_id }}?back={{ self_back }}" class="row-link">{{ c.hostname }}</a></td>
+      {% for m in c.metrics %}<td style="color:{{ m.color }}; white-space:nowrap;{% if m.active %} font-weight:600;{% endif %}">{{ m.value }}</td>{% endfor %}
+      <td style="white-space:nowrap;">{% if c.confidence_notes %}{% for n in c.confidence_notes %}<span class="text-meta text-sm">{{ n }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div style="margin-bottom:20px;">{{ empty_state("자원 부족으로 분류된 호스트가 없습니다.") }}</div>
+{% endif %}
+{% endmacro %}

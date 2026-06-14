@@ -5,6 +5,7 @@ server scope 보고서와 분리된 high-level 양식 — 분류 분포·OS 분�
 """
 
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime
 
 from assessment_engine import recommendation
@@ -252,6 +253,37 @@ def _select_efficiency_targets(rows: list[ReportRowItem]) -> list[ReportRowItem]
     )[:_EFFICIENCY_TARGET_N]
 
 
+@dataclass
+class EfficiencySummary:
+    """효율화 검토 대상 표 데이터 — 보고서·자원 평가 공용 단일 진실 (`build_efficiency_summary`).
+
+    hosts: 정리 시급도 순 상위 N (표 행). target_count/vcpus/memory_gb: 전체(절단 전) 대상 수·점유 자원 합.
+    """
+
+    hosts: list[ReportRowItem]
+    hosts_count: int
+    target_count: int
+    target_vcpus: int
+    target_memory_gb: float
+
+
+def build_efficiency_summary(rows: list[ReportRowItem]) -> EfficiencySummary:
+    """효율화 대상 호스트(top-N) + 점유 자원 합 — over/idle/shutdown 단일 산식.
+
+    보고서(`to_environment_report`)와 자원 평가 페이지(`get_environment_assessment`)가 공유 — 분류·정렬
+    어휘 일관. 점유 자원 합(target_*)은 절단 전 전체 대상 기준, hosts 는 상위 N.
+    """
+    hosts = _select_efficiency_targets(rows)
+    eff_rows = [r for r in rows if r.recommendation in _EFFICIENCY_PRIORITY]
+    return EfficiencySummary(
+        hosts=hosts,
+        hosts_count=len(hosts),
+        target_count=len(eff_rows),
+        target_vcpus=sum(r.cpu_cores or 0 for r in eff_rows),
+        target_memory_gb=round(sum(r.mem_total_gb or 0.0 for r in eff_rows), 1),
+    )
+
+
 def _extract_attention_hosts(
     attention: AttentionSignals,
     rows: list[ReportRowItem],
@@ -370,13 +402,13 @@ def _env_summary_bullets(
             f"등록 서버 {overview.total}대 — 온라인 {overview.online}대 ({online_ratio:.0f}%).",
             dist_line + ".",
         ]
-        # 우선 조치 — 분류 기반 행동 (분류명 그대로, 새 어휘 도입 없음).
+        # 주요 현상 강조 — 분류 기반 (조치 지시 없이 현상·진단만, 분류명 그대로).
         efficiency = over + idle + shutdown
         if under:
-            bullets.append(f"우선 조치 — {ko['under_provisioned']} {under}대 사양 상향(증설) 검토.")
+            bullets.append(f"{ko['under_provisioned']} {under}대 — 관측 부하 대비 할당 자원 부족.")
         elif efficiency:
             grp = f"{ko['over_provisioned']}·{ko['idle']}·{ko['shutdown']}"
-            bullets.append(f"효율화 여지 — {grp} {efficiency}대 사양 축소·용도 재평가.")
+            bullets.append(f"{grp} {efficiency}대 — 관측 부하 대비 할당 자원 여유.")
         return bullets
 
     # engineer — 분류 어휘 LABEL_KO 통일(customer 와 동일), 자원 규모 상세, 운영 신호는 OS 지원 종료만(C1).
@@ -396,15 +428,15 @@ def _env_summary_bullets(
         f"등록 서버 {overview.total}대 — 온라인 {overview.online}대, 평가 가능 {evaluated}대 ({resource}).",
         dist_line + ".",
     ]
-    # 우선 조치/효율화 여지 — customer 와 동일 기준 (엔지니어는 상세해야 하므로 최소 동일).
+    # 주요 현상 강조 — customer 와 동일 기준 (조치 지시 없이 현상·진단만).
     efficiency = over + idle + shutdown
     if under:
-        bullets.append(f"우선 조치 — {ko['under_provisioned']} {under}대 사양 상향(증설) 검토.")
+        bullets.append(f"{ko['under_provisioned']} {under}대 — 관측 부하 대비 할당 자원 부족.")
     elif efficiency:
         grp = f"{ko['over_provisioned']}·{ko['idle']}·{ko['shutdown']}"
-        bullets.append(f"효율화 여지 — {grp} {efficiency}대 사양 축소·용도 재평가.")
+        bullets.append(f"{grp} {efficiency}대 — 관측 부하 대비 할당 자원 여유.")
     if attention.os_eol_warnings:
-        bullets.append(f"OS 지원 종료 {len(attention.os_eol_warnings)}대 — 보안 패치 중단, 업그레이드 계획.")
+        bullets.append(f"OS 지원 종료 {len(attention.os_eol_warnings)}대 — 보안 패치 중단됨.")
     return bullets
 
 
@@ -436,7 +468,7 @@ def to_environment_report(
     os_family_dist = _to_distribution_bars(overview.os_distribution, _OS_FAMILY_LABEL)
     workload_dist = _to_distribution_bars(overview.role_distribution)
     top_risks = _select_top_risks(base.rows, view)
-    efficiency_hosts = _select_efficiency_targets(base.rows)
+    efficiency = build_efficiency_summary(base.rows)
     env_metrics = _build_env_metrics(overview, base.rows)
     summary = _env_summary_bullets(view, overview, attention, classification_dist)
     under_hosts = (
@@ -449,9 +481,6 @@ def to_environment_report(
     # 고객 의사결정 보조 (기존 분류·신호 단일 진실 재사용, 새 분류 도입 0).
     insufficient_count = sum(1 for r in base.rows if r.recommendation == "insufficient_data")
     evaluated_count = len(base.rows) - insufficient_count
-    eff_rows = [r for r in base.rows if r.recommendation in ("over_provisioned", "idle", "shutdown")]
-    eff_vcpus = sum(r.cpu_cores or 0 for r in eff_rows)
-    eff_mem = round(sum(r.mem_total_gb or 0.0 for r in eff_rows), 1)
     # 에이전트 버전 목록 (중복 제거·정렬, 미상 포함) — 관리 현황. 어느 호스트인지는 미표시.
     agent_versions_label = ", ".join(sorted({(d.agent_version or "미상") for d in details}))
     # 네트워크 토폴로지 — 발행 시점 정적 스냅샷 (대시보드와 동일 mapper 단일 진실).
@@ -471,7 +500,7 @@ def to_environment_report(
         workload_dist=workload_dist,
         workload_unknown_count=overview.role_unknown_count,
         top_risks=top_risks,
-        efficiency_hosts=efficiency_hosts,
+        efficiency_hosts=efficiency.hosts,
         env_metrics=env_metrics,
         summary_bullets_env=summary,
         under_provisioned_hosts=under_hosts,
@@ -481,15 +510,15 @@ def to_environment_report(
         capacity_imminent=capacity_imminent,
         # 템플릿 P3 회피 — 카운트 mapper precompute (#E1 P3).
         top_risks_count=len(top_risks),
-        efficiency_hosts_count=len(efficiency_hosts),
+        efficiency_hosts_count=efficiency.hosts_count,
         attention_hosts_count=len(attention_hosts),
         capacity_imminent_count=len(capacity_imminent),
         under_provisioned_hosts_count=len(under_hosts),
         evaluated_count=evaluated_count,
         os_eol_count=len(attention.os_eol_warnings),
-        efficiency_target_count=len(eff_rows),
-        efficiency_target_vcpus=eff_vcpus,
-        efficiency_target_memory_gb=eff_mem,
+        efficiency_target_count=efficiency.target_count,
+        efficiency_target_vcpus=efficiency.target_vcpus,
+        efficiency_target_memory_gb=efficiency.target_memory_gb,
         agent_versions_label=agent_versions_label,
         topology=topology,
         trend=trend or [],

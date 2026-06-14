@@ -1,9 +1,9 @@
-"""서버 보고서 SSR — 선택 N대 (`/servers/report`) + 단일 1대 (`/servers/{id}/report`).
+"""서버 보고서 SSR — 선택 N대 (`/reports/servers`) + 단일 1대 (`/servers/{id}/report`).
 
 server scope 보고서. 환경 단위 high-level 보고서는 `/reports/environment` 별도 endpoint (T13).
 
 발행/표시 분리 (PRG):
-- POST `/servers/report/emit` (ids 1개=단일 양식, 2개+=N대 표 양식) — 발행 시점 정적 스냅샷 + (engineer) narrative
+- POST `/reports/servers/emit` (ids 1개=단일 양식, 2개+=N대 표 양식) — 발행 시점 정적 스냅샷 + (engineer) narrative
   worker 발행. 응답 view_url = `?job={id}` (단일은 `/servers/{pid}/report?job=`).
 - GET `?job={id}` — 저장된 정적 스냅샷 렌더 (재계산·재진단 없음, 이력 동적변화 0).
 - GET (job 없음) — live read-only preview. 진단 트리거 없음 (engineer narrative 영역은 "발행 시 생성" 표시).
@@ -166,7 +166,7 @@ async def report_emit(
     """Server scope 보고서 발행 (PRG) — 발행 시점 정적 스냅샷 + (engineer) narrative worker 발행.
 
     응답 view_url = `?job={id}` — 클라이언트가 navigate. ids 1개면 단일 양식(`/servers/{pid}/report?job=`),
-    2개+ 면 N대 표 양식(`/servers/report?job=`). engineer 면 worker 가 narrative 채운 뒤 polling 갱신.
+    2개+ 면 N대 표 양식(`/reports/servers?job=`). engineer 면 worker 가 narrative 채운 뒤 polling 갱신.
     """
     public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
     sid_map = await service.resolve_server_ids(public_ids)

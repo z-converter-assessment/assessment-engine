@@ -149,8 +149,10 @@ src/assessment_engine/web/static/js/
 | .chart-desc | 11px / #94a3b8 | 차트 상단 설명 (성능탭 차트별 한 줄 설명) |
 | .chart-empty | 13px / #94a3b8 / center | 차트 빈상태 오버레이 |
 | code | 12px / monospace | inline code (식별자) |
+| .text-md / .text-sm / .text-xs | 13 / 12 / 11px (size-only) | 보조 텍스트 size 유틸 — 색 유틸(`.text-*`)과 조합. 위계 제목·값 컴포넌트(`.stat-*`/`.metric-*`/`.kpi-*`)는 각자 size 보유라 미적용 |
+| .btn-action-sm | 12px / padding 4px 11px | `.btn-action` 축소 변형 — 상세 페이지 그룹헤더 보조 '상세 ->' 링크 (함께 사용: `class="btn-action btn-action-sm"`) |
 
-금지: 9px·10px·32px 등 카탈로그 외 값, 그리고 inline `font-size`/`font-weight`/`color` 를 박지 않음 — 크기·굵기는 위계/컴포넌트 클래스, 색은 색 유틸(`.text-meta` 등)로. 새 위계가 필요하면 base.html 에 명명 클래스 추가 후 사용. 8/9/10px 은 `.status-on/off` 배지와 `@media print` 에만 허용.
+금지: 9px·10px·32px 등 카탈로그 외 값, 그리고 inline `font-size`/`font-weight`/`color` 를 박지 않음 — 크기는 위계/컴포넌트 클래스 또는 size 유틸(`.text-md`/`.text-sm`/`.text-xs`, 색 유틸과 조합), 굵기는 위계/컴포넌트, 색은 색 유틸(`.text-meta` 등)로. 새 위계가 필요하면 base.html 에 명명 클래스 추가 후 사용. 8/9/10px 은 `.status-on/off` 배지와 `@media print` 에만 허용. SVG `<text>`·modal 내부는 별도(인라인 허용).
 
 ### 박스 컴포넌트 (대형부터)
 
@@ -247,7 +249,7 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 | polling 흐름 (예: detail page metrics/latest 30초 polling / storage snapshot / diagnostic-results.js · diagnostic-inline.js result polling) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
 
 폴링 흐름 JS render 의무:
-- inline `style="color:#xxx"` 금지 — base.html 색 전용 유틸 (중립 톤 `.text-strong`/`.text-label`/`.text-muted`/`.text-meta`/`.text-faint` + 의미색 `.text-danger`/`.text-ok`/`.text-warn`/`.text-attn`, 모두 color-only · size 는 부모 상속) 사용. font-size 는 위계 제목·컴포넌트 클래스(`.stat-*`/`.metric-*`/`.kpi-*`/`.text-narrative`/`.pre-output`) 우선 — size 전용 유틸 미도입(위계·컴포넌트 의미 우선).
+- inline `style="color:#xxx"` 금지 — base.html 색 전용 유틸 (중립 톤 `.text-strong`/`.text-label`/`.text-muted`/`.text-meta`/`.text-faint` + 의미색 `.text-danger`/`.text-ok`/`.text-warn`/`.text-attn`, 모두 color-only · size 는 부모 상속) 사용. font-size 는 위계 제목·값 컴포넌트(`.stat-*`/`.metric-*`/`.kpi-*`/`.text-narrative`/`.pre-output`) 우선, 그 외 보조 텍스트는 size 유틸(`.text-md`/`.text-sm`/`.text-xs`)을 색 유틸과 조합.
 - layout 관련 inline style (display:flex / grid / table 등) 허용 — 모듈별 부수 정렬, utility class 화 강제 X.
 - 동일 데이터의 SSR template 이 있으면 그쪽이 우선 (server 단일 진실 정공).
 
