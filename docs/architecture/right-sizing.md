@@ -7,7 +7,7 @@
 
 ## 1. 목적·범위
 
-right-sizing = 관측 부하(`WINDOW_DAYS` = 7일 통계) 대비 할당 자원의 적정성 평가. 결정적(LLM 무관) — 자원(CPU/Mem/Disk)별로 "가진 축"을 신호로 모아 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다. 가진 데이터로 항상 결론을 내며("어떤 데이터로 이 분류" 설명 가능), OS 비대칭(Windows saturation 축 부재)은 분류를 막지 않고 confidence 단서로만 노출한다.
+right-sizing = 관측 부하(`WINDOW_DAYS` = 7일 통계) 대비 할당 자원의 적정성 평가. 규칙 기반 결정적 분류 — 자원(CPU/Mem/Disk)별로 "가진 축"을 신호로 모아 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다. 가진 데이터로 항상 결론을 내며("어떤 데이터로 이 분류" 설명 가능), OS 비대칭(Windows saturation 축 부재)은 분류를 막지 않고 confidence 단서로만 노출한다.
 
 UI badge 임계(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`, 90/75)와는 별 도메인이다 — 그쪽은 시점 사용량 시각 신호, 본 모듈은 윈도우 통계 기반 사이징 결정. 혼용 금지.
 

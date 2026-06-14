@@ -186,33 +186,17 @@ class ConsumerSettings(WebSettings):
 
 
 class DiagnosticSettings(ConsumerSettings):
-    """진단 워커·웹 공통 설정 (ADR 0004 + 0023).
+    """web 의 task.install 발행용 설정.
 
-    ConsumerSettings 상속 — broker_url·prod secret 검증 그대로 활용. 진단 워크플로 고유 필드만 추가.
-    ADR 0023: scheduler cron 폐기. trigger 채널 = 사용자 명시 (web POST) 만.
-    AI 진단 = 본 엔진 본질 기능 — feature flag 제거 (항상 활성).
+    ConsumerSettings 상속 — broker_url·task exchange·agent_task_queue·prod secret 검증 그대로 활용.
+    고유 필드 없음 (보고서 발행은 DB enqueue 로 완결, broker 미경유).
     """
-
-    # routing key + 큐 정책 (모두 RabbitMQ broker — 큐 인자 변경 시 broker 재선언 의무)
-    rabbitmq_routing_key_diagnostic: str = "diagnostic.request"
-    rabbitmq_diagnostic_queue_ttl_ms: int = 24 * 60 * 60 * 1000  # 24h — pending job 처리 못 하면 DLQ
-    rabbitmq_diagnostic_queue_max_len: int = 100_000
-
-    # Redis polling 캐시 (워커가 각 단계 후 SET, web polling이 우선 read)
-    redis_key_diagnostic_progress: str = "diagnostic:job:{}"  # {job_id}
-    redis_ttl_diagnostic_progress: int = 3600
-
-    # LLM — ollama 단일 provider (ADR 0025). 과금 발생 외부 유료 API 호출 금지 (정책).
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.1:8b"
-    llm_timeout_seconds: int = 60
 
 
 # Settings 인스턴스는 컴포넌트별 sub-module에서 단일 진실로 생성 (Composition Root 패턴, CLAUDE.md #F4).
 # - web 컴포넌트: src/assessment_engine/web/settings.py
 # - consumer 컴포넌트: src/assessment_engine/consumer/settings.py
-# - diagnostic 컴포넌트: src/assessment_engine/diagnostic/settings.py
 # - db layer(session·redis)는 모든 컴포넌트 공통 — 자체 WebSettings 인스턴스화로 circular import 회피.
 #
-# multi-node 분리 배포 시 web 노드는 ConsumerSettings·DiagnosticSettings 인스턴스화 안 함 →
-# 해당 컴포넌트 한정 키(LLM_*·DIAGNOSTIC_*·WORKER_*) 검증 skip — 최소 권한 원칙 정합.
+# multi-node 분리 배포 시 web 노드는 ConsumerSettings 인스턴스화 안 함 →
+# 해당 컴포넌트 한정 키 검증 skip — 최소 권한 원칙 정합.

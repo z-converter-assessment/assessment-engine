@@ -141,7 +141,6 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 발동 위치 (multi-node 분리 시):
 - web 노드: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
 - consumer 노드: `ConsumerSettings` → POSTGRES·RABBITMQ password weak default 거부
-- diagnostic-worker 노드: `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
 
 효과:
 - prod 에서 `.env` 미주입·dev default 잔존 시 `Settings()` 호출이 즉시 `ValueError` → 컨테이너 crash·systemd unit fail.
@@ -194,26 +193,23 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 
 ## 9. 컴포넌트별 read 매트릭스 (multi-node 분리 시)
 
-본 repo 의 3 컴포넌트 (web · consumer · diagnostic-worker) 가 각자 다른 키 집합을 read. multi-node 분리 배포 시 어느 노드에 어느 키 inject 할지 reference. ADR 0023: scheduler cron 폐기로 4 → 3.
+본 repo 의 2 컴포넌트 (web · consumer) 가 각자 다른 키 집합을 read. multi-node 분리 배포 시 어느 노드에 어느 키 inject 할지 reference.
 
-| 키 그룹 | web | consumer | diagnostic-worker |
-|--------|:---:|:--------:|:-----------------:|
-| `APP_ENV`·`LOG_FORMAT` | 의무 | 의무 | 의무 |
-| `POSTGRES_*` | 의무 | 의무 | 의무 |
-| `REDIS_*` | 의무 | 의무 | 의무 |
-| `RABBITMQ_*` (broker 접속) | 의무 (진단 publish) | 의무 (consume) | 의무 (consume) |
-| `RABBITMQ_ROUTING_KEY_*`·`RABBITMQ_EXCHANGE` | 의무 | 의무 | 의무 |
-| `WORKER_*` (worker.result·task.install) | 의무 (task.install publish) | 의무 (worker.result consume) | 선택 |
-| `WEB_PORT`·`WEB_RELOAD`·`INSTALL_TIMEOUT_SEC`·`ZDM_*` | 의무 | 사용 안 함 | 사용 안 함 |
-| `LLM_*`·`OLLAMA_*` | 사용 안 함 | 사용 안 함 | 의무 |
-| `RABBITMQ_DIAGNOSTIC_QUEUE_*`·`RABBITMQ_ROUTING_KEY_DIAGNOSTIC` | 의무 (publish) | 사용 안 함 | 의무 (consume) |
-| `SQLALCHEMY_ECHO` | 의무 | 의무 | 의무 |
+| 키 그룹 | web | consumer |
+|--------|:---:|:--------:|
+| `APP_ENV`·`LOG_FORMAT` | 의무 | 의무 |
+| `POSTGRES_*` | 의무 | 의무 |
+| `REDIS_*` | 의무 | 의무 |
+| `RABBITMQ_*` (broker 접속) | 의무 | 의무 (consume) |
+| `RABBITMQ_ROUTING_KEY_*`·`RABBITMQ_EXCHANGE` | 의무 | 의무 |
+| `WORKER_*` (worker.result·task.install) | 의무 (task.install publish) | 의무 (worker.result consume) |
+| `WEB_PORT`·`WEB_RELOAD`·`INSTALL_TIMEOUT_SEC`·`ZDM_*` | 의무 | 사용 안 함 |
+| `SQLALCHEMY_ECHO` | 의무 | 의무 |
 
 코드 단일 진실 (Composition Root, CLAUDE.md #F4):
 - `src/assessment_engine/config.py` — class 정의만 (인스턴스 0)
-- `src/assessment_engine/web/settings.py` — WebSettings + DiagnosticSettings
+- `src/assessment_engine/web/settings.py` — WebSettings + DiagnosticSettings (보고서 발행 publish 용 broker)
 - `src/assessment_engine/consumer/settings.py` — ConsumerSettings
-- `src/assessment_engine/diagnostic/settings.py` — DiagnosticSettings
 - `src/assessment_engine/db/session.py`·`cache/redis.py` — 자체 WebSettings (공통 db layer)
 
 ---
@@ -300,12 +296,6 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `REDIS_TTL_ZDM_PACKAGE_SHA256` | `21600` (6h) | config.py | ETag 기반 sha256 cache TTL |
 | `SQLALCHEMY_ECHO` | `false` | config.py | SQLAlchemy 엔진 SQL 로깅. dev 디버깅 시 true (운영 환경은 false 유지 — 로그 폭증·secret 노출 위험) |
 | `PGADMIN_PORT` | `5050` | dev compose override | pgAdmin GUI 포트 (dev 전용) |
-| `RABBITMQ_ROUTING_KEY_DIAGNOSTIC` | `diagnostic.request` | config.py | engine 내부 진단 routing key (web·worker 공통) |
-| `RABBITMQ_DIAGNOSTIC_QUEUE_TTL_MS` | `86400000` | config.py | 진단 큐 메시지 TTL 24h |
-| `RABBITMQ_DIAGNOSTIC_QUEUE_MAX_LEN` | `100000` | config.py | 진단 큐 max length |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | config.py | ollama HTTP 호출 base URL (LLM narrative). dev docker compose default = `http://ollama:11434` (compose 안 ollama 서비스) |
-| `OLLAMA_MODEL` | `llama3.1:8b` | config.py | ollama LLM 모델명. 한국어 정합 우위 모델 (qwen2.5:14b 등) 으로 운영자 교체 가능 |
-| `LLM_TIMEOUT_SECONDS` | `60` | config.py | LLM 호출 cap |
 
 ### `env.example` 에 없고 config.py default 만 정의된 키
 

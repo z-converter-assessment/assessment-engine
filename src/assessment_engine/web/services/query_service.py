@@ -766,6 +766,15 @@ class QueryService:
             trend=trend,
         )
 
+    async def get_selection_attention(self, server_ids: list[int], end: datetime) -> "AttentionSignals":
+        """선택 N대 한정 운영 신호 — 실시간 현황(/environment/realtime?ids=) selection 범위 필터.
+
+        전체 attention 을 선택 호스트 hostname 으로 필터 (get_selection_report 와 동일 _filter_attention 채널).
+        """
+        details = await self.repo.get_servers(server_ids)
+        hostnames = {d.hostname for d in details}
+        return _filter_attention(await self.get_attention_signals(end=end), hostnames)
+
     async def get_single_server_report(
         self,
         server_public_id: str,
@@ -777,7 +786,7 @@ class QueryService:
 
         발행(POST /reports/servers/emit, ids 1개) 시 스냅샷 합성 + 이력 1대 row link 진입.
         환경 보고서와 동일 양식 (overview·attention·rows·top_risks).
-        anchor_at: 발행 시점 기준 시각 (None 이면 현재) — worker narrative 와 같은 윈도우 재현.
+        anchor_at: 발행 시점 기준 시각 (None 이면 현재) — 발행 스냅샷 윈도우 재현.
         """
         # period_days 는 time_range 에서 내부 도출 (환경·선택 보고서와 동일 — 호출자 불일치 여지 0).
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]

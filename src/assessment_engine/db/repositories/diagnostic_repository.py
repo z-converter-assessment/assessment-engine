@@ -58,96 +58,11 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_latest_succeeded(
-        self,
-        scope: str,
-        input_hash: str,
-    ) -> DiagnosticJobRecord | None:
-        stmt = (
-            select(DiagnosticJob)
-            .where(
-                DiagnosticJob.scope == scope,
-                DiagnosticJob.input_hash == input_hash,
-                DiagnosticJob.status == "succeeded",
-            )
-            .order_by(DiagnosticJob.finished_at.desc())
-            .limit(1)
-        )
-        result = await self.session.execute(stmt)
-        row = result.scalar_one_or_none()
-        return _row_to_diagnostic_record(row) if row is not None else None
-
-    async def get_many_latest_by_context_server(
-        self,
-        time_range: str,
-        server_public_ids: list[str],
-    ) -> dict[str, DiagnosticJobRecord]:
-        if not server_public_ids:
-            return {}
-        # DISTINCT ON (server_public_id) — server별 가장 최근 finished_at 1건 선택.
-        # PostgreSQL DISTINCT ON은 ORDER BY 첫 컬럼을 DISTINCT 키로 사용.
-        pid_expr = DiagnosticJob.input_params["server_public_id"].astext
-        stmt = (
-            select(DiagnosticJob)
-            .where(
-                DiagnosticJob.scope == "server",
-                DiagnosticJob.status == "succeeded",
-                DiagnosticJob.input_params["time_range"].astext == time_range,
-                pid_expr.in_(server_public_ids),
-            )
-            .distinct(pid_expr)
-            .order_by(pid_expr, DiagnosticJob.finished_at.desc())
-        )
-        result = await self.session.execute(stmt)
-        rows = result.scalars().all()
-        return {row.input_params["server_public_id"]: _row_to_diagnostic_record(row) for row in rows}
-
-    async def get_latest_by_context(
-        self,
-        scope: str,
-        time_range: str,
-        server_public_id: str | None,
-    ) -> DiagnosticJobRecord | None:
-        # JSONB 필드 매칭 — input_params['time_range'] + (server scope면 server_public_id).
-        # input_hash 일치 안 봐도 됨 — anchor 달라도 같은 context는 latest 후보.
-        stmt = select(DiagnosticJob).where(
-            DiagnosticJob.scope == scope,
-            DiagnosticJob.status == "succeeded",
-            DiagnosticJob.input_params["time_range"].astext == time_range,
-        )
-        if scope == "server":
-            stmt = stmt.where(
-                DiagnosticJob.input_params["server_public_id"].astext == server_public_id,
-            )
-        stmt = stmt.order_by(DiagnosticJob.finished_at.desc()).limit(1)
-        result = await self.session.execute(stmt)
-        row = result.scalar_one_or_none()
-        return _row_to_diagnostic_record(row) if row is not None else None
-
     async def get_by_id(self, job_id: str) -> DiagnosticJobRecord | None:
         stmt = select(DiagnosticJob).where(DiagnosticJob.id == job_id)
         result = await self.session.execute(stmt)
         row = result.scalar_one_or_none()
         return _row_to_diagnostic_record(row) if row is not None else None
-
-    async def get_many_by_ids(self, job_ids: list[str]) -> list[DiagnosticJobRecord]:
-        if not job_ids:
-            return []
-        stmt = select(DiagnosticJob).where(DiagnosticJob.id.in_(job_ids))
-        result = await self.session.execute(stmt)
-        return [_row_to_diagnostic_record(row) for row in result.scalars().all()]
-
-    async def mark_running(self, job_id: str, stage: str) -> None:
-        stmt = (
-            update(DiagnosticJob)
-            .where(DiagnosticJob.id == job_id)
-            .values(status="running", started_at=func.now(), progress_stage=stage)
-        )
-        await self.session.execute(stmt)
-
-    async def update_progress_stage(self, job_id: str, stage: str) -> None:
-        stmt = update(DiagnosticJob).where(DiagnosticJob.id == job_id).values(progress_stage=stage)
-        await self.session.execute(stmt)
 
     async def mark_succeeded(self, job_id: str, result: dict) -> None:
         stmt = (
@@ -156,24 +71,6 @@ class DiagnosticRepository(BaseDiagnosticRepository):
             .values(
                 status="succeeded",
                 result=result,
-                finished_at=func.now(),
-                progress_stage=None,
-            )
-        )
-        await self.session.execute(stmt)
-
-    async def save_report_snapshot(self, job_id: str, result: dict) -> None:
-        # status 유지 (pending) — worker 가 pending job 을 받아 mark_running 후 narrative.
-        stmt = update(DiagnosticJob).where(DiagnosticJob.id == job_id).values(result=result)
-        await self.session.execute(stmt)
-
-    async def mark_failed(self, job_id: str, error_message: str) -> None:
-        stmt = (
-            update(DiagnosticJob)
-            .where(DiagnosticJob.id == job_id)
-            .values(
-                status="failed",
-                error_message=error_message,
                 finished_at=func.now(),
                 progress_stage=None,
             )

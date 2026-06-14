@@ -6,7 +6,7 @@
 
 <form method="get" class="search-row no-print" id="report-history-filter" style="margin:16px 0 20px;">
   <select name="days">
-    {% for d in [1, 3, 7, 14, 30, 90] %}
+    {% for d in [1, 7, 14, 30, 90] %}
     <option value="{{ d }}" {% if d == days %}selected{% endif %}>최근 {{ d }}일</option>
     {% endfor %}
     <option value="0" {% if days == 0 %}selected{% endif %}>전체 기간</option>
@@ -18,8 +18,9 @@
   </select>
   <select name="scope">
     <option value="all" {% if scope == "all" %}selected{% endif %}>범위 전체</option>
-    <option value="environment" {% if scope == "environment" %}selected{% endif %}>환경 전체</option>
-    <option value="server" {% if scope == "server" %}selected{% endif %}>서버 1대</option>
+    <option value="environment" {% if scope == "environment" %}selected{% endif %}>환경</option>
+    <option value="selection" {% if scope == "selection" %}selected{% endif %}>선택 N대</option>
+    <option value="single" {% if scope == "single" %}selected{% endif %}>1대</option>
   </select>
   {% if server_public_ids %}
     {% for pid in server_public_ids %}

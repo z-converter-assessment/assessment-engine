@@ -98,6 +98,8 @@ class CapacityWarningItem:
     # 분류 confidence 단서 — is_partial(축 미관측) + low_sample(표본 부족) 통합 라벨 (shared.build_confidence_notes,
     # 원칙2). 보고서 행과 동일 채널 — 카드가 list 렌더(P3). 발화 trigger(빨강)와 시각 구분.
     confidence_notes: list[str] = field(default_factory=list)
+    # 증설 권고 — hit trigger 별 결합 문구(report._build_under_provisioned_reason 단일 진실). 자원 부족 표 권고 칼럼.
+    recommendation_action: str = ""
     # 상위 N 절단 정렬용 심각도 점수 (mapper precompute) — swap(paging) 최우선 > 위반 자원 수 >
     # 최고 활용률 max(CPU/메모리/디스크 p95·used). build_overview 가 DESC 정렬 후 hostname tie-break.
     severity_score: float = 0.0

@@ -35,7 +35,7 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 본 repo는 기능 개발에 필요한 환경 구성만 다룬다. 배포 인프라(IaC — Terraform·Ansible·OpenStack staging 등)는 본 repo 범위 밖. 추후 도입 결정 시 별도 repo로 분리 (ADR 0006 Withdrawn 사유).
 
 본 절 결정:
-- compose 2 파일 — prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) (ADR 0035). base 는 `build:` 키 없는 이미지 pull(GHCR 핀)·bind mount 없음·볼륨 env 바인딩(`PGDATA_HOST`·`MQ_DATA_HOST`)·diagnostic-worker 포함 = 빌드 없는 pull-and-run prod compose. override 는 dev 전용(소스 빌드·`./src` bind mount·hot reload)으로 `docker compose up` 시 base 에 자동 머지(prod/release 는 base 단독, override 미배포). Dockerfile 은 dev/prod 분리 안 함(단일 multi-stage 이미지, dev-prod parity) — dev 편의는 Dockerfile 이 아니라 override compose 의 bind mount 로만 주입. `docker-compose.prod.yml` 은 두지 않는다(base 자체가 prod). hardened prod(APP_ENV=prod·강 secret·LOG_FORMAT=json·HTTPS ingress)는 infra env 주입으로 달성.
+- compose 2 파일 — prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) (ADR 0035). base 는 `build:` 키 없는 이미지 pull(GHCR 핀)·bind mount 없음·볼륨 env 바인딩(`PGDATA_HOST`·`MQ_DATA_HOST`) = 빌드 없는 pull-and-run prod compose. override 는 dev 전용(소스 빌드·`./src` bind mount·hot reload)으로 `docker compose up` 시 base 에 자동 머지(prod/release 는 base 단독, override 미배포). Dockerfile 은 dev/prod 분리 안 함(단일 multi-stage 이미지, dev-prod parity) — dev 편의는 Dockerfile 이 아니라 override compose 의 bind mount 로만 주입. `docker-compose.prod.yml` 은 두지 않는다(base 자체가 prod). hardened prod(APP_ENV=prod·강 secret·LOG_FORMAT=json·HTTPS ingress)는 infra env 주입으로 달성.
 - prod 외부 인프라가 활용할 수 있는 정석 contract만 본 repo에서 유지:
   - 환경변수 contract — `docs/operations/env.md` 키 카탈로그
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
@@ -47,7 +47,7 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 
 # B. 메시지 데이터 계약 (양방향)
 
-메시지 데이터 형식·필드 카탈로그·task.install / task.result 흐름·수신/발행 routing key 카탈로그: `docs/architecture/agent.md`. MQ 토폴로지·큐 정책: `docs/architecture/rabbitmq.md`. 채택 사유: ADR 0007 (Task 별도 큐 모델 — 0002 supersede) · ADR 0004 (진단 워커 큐).
+메시지 데이터 형식·필드 카탈로그·task.install / task.result 흐름·수신/발행 routing key 카탈로그: `docs/architecture/agent.md`. MQ 토폴로지·큐 정책: `docs/architecture/rabbitmq.md`. 채택 사유: ADR 0007 (Task 별도 큐 모델 — 0002 supersede).
 
 본 절 결정:
 - Pydantic Input 모델 `extra=ignore` 유지 — 메시지에 새 필드가 도착해도 엔진은 통과시키고 무시. 비대칭 배포에서 reject 로 엔진이 죽지 않게 함.
@@ -68,13 +68,13 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 - 시계열 4개 테이블 `boot_time` + `agent_started_at` 컬럼 보존 의무 — counter reset 정밀 식별 (#B 동일 진실).
 - `server_inventory.public_id` (UUID) URL 식별자 — 정수 PK 노출 금지 (#E4).
 - `server_inventory` 식별 분리 (ADR 0022 -> 0027 정정, agent v4): `id bigint PK` (FK 대상) / `composite_id varchar(64) UNIQUE` (agent 매칭·식별 단일 키 — SHA-256 composite hash) / `machine_id varchar(64)` (raw machine-id 표시 전용, nullable — 식별·라우팅 미사용) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{composite_id}` / routing key `task.install.{composite_id}`.
-- `diagnostic_jobs.job_type` (`customer_report`/`engineer_report`) + active partial UNIQUE = `(scope, input_hash, job_type)`. 발행 시점 정적 스냅샷을 `result` JSONB 에 보존. (AI 진단 독립 `ai_diagnostic` 폐기 — engineer 보고서 발행 통합. 잔존 row 만 존재, 신규 생성 없음.)
-- 보고서 발행 = 정적 스냅샷 (요구: 발행 시점 데이터 그대로 보관, 이력 동적변화 0). POST `/reports/environment/emit` · `/reports/servers/emit` 가 발행 시점 ViewModel 을 `report_serializer` 직렬화 -> `emit_report` 가 `result` JSONB(`{kind,snapshot,view,narrative_status,narratives,aux}`) 저장. customer 즉시 succeeded(narrative 없음), engineer 는 pending + worker 가 narrative 채움(`diagnostic.report_result` 공유 계약). 응답 view_url=`?job={id}` — JS navigate. GET `?job={id}` 는 저장된 스냅샷 정적 렌더(재진단·재계산 0). 환경 보고서(`/reports/environment`)는 job 없는 GET 이 컨트롤만(양식·윈도우·앵커 select + 발행 버튼) 노출 — 발행해야 스냅샷 생성·화면 표시·이력 추가(발행 전 본문·live preview 없음). server scope(`/reports/servers`)는 job 없는 GET 이 read-only live preview (진단 트리거 없음). result 구조 단일 진실 = `diagnostic.report_result`.
+- `diagnostic_jobs.job_type` (`customer_report`/`engineer_report` 둘만) + active partial UNIQUE = `(scope, input_hash, job_type)`. 발행 시점 정적 스냅샷을 `result` JSONB 에 보존. customer/engineer 모두 발행 즉시 succeeded (별도 비동기 처리 없음).
+- 보고서 발행 = 정적 스냅샷 (요구: 발행 시점 데이터 그대로 보관, 이력 동적변화 0). POST `/reports/environment/emit` · `/reports/servers/emit` 가 발행 시점 ViewModel 을 `report_serializer` 직렬화 -> `emit_report` 가 `result` JSONB(`{kind,snapshot,view,aux}`) 저장 후 발행 즉시 succeeded (customer/engineer 동일). 응답 view_url=`?job={id}` — JS navigate. GET `?job={id}` 는 저장된 스냅샷 정적 렌더(재계산 0). 환경 보고서(`/reports/environment`)는 job 없는 GET 이 컨트롤만(양식·윈도우·앵커 select + 발행 버튼) 노출 — 발행해야 스냅샷 생성·화면 표시·이력 추가(발행 전 본문·live preview 없음). server scope(`/reports/servers`)는 job 없는 GET 이 read-only live preview (진단 트리거 없음). result 구조 단일 진실 = `diagnostic.report_result`.
 - 양식 통일: server scope 단일/N대 모두 환경 보고서 양식 (`EnvironmentReportSummary`, kind=env_report) 공유. N대 selection (`servers/report.html`) = 환경 보고서 본문 공유 partial (`reports/_env_report_body.html`, environment.html 과 단일 진실) + 하단 세부 서버 목록 표 (`show_report_link` selection 한정 — 환경 보고서는 세부 서버 목록 미표시, 500대 인쇄 폭주 회피, 조치 대상은 효율화/리소스 부족 표가 담당). 단일 1대 (`servers/single_report.html`) 는 customer high-level / engineer 심화 (1대 deep-dive — N대 비교 표엔 없는 CPU 분류·메모리 구성·마운트별 스토리지 전개; 단일 전용 필드 `server_inventory`·`volumes`·`memory_breakdown`·`cpu_breakdown` 는 selection·환경에서 None/빈 list, repo `report_cpu_breakdown`·`report_memory_breakdown`·`report_mount_usage` per server_id). 환경 (`reports/environment.html`) 은 high-level. selection ViewModel = `query_service.get_selection_report(server_ids)` (단일은 N=1 동치, 평균 활용률은 `environment_utilization` 을 server_ids 로 N대 한정 호출 — 전체 환경과 동일 capacity-weighted SQL, attention 은 N대 호스트 필터). `report_summary` 단독 표 양식·kind 폐기. `/reports/servers/emit` 은 ids 1개면 단일, 2개+ 면 selection.
-- narrative 단위: server scope(단일·selection) = public_id 별 (worker `scope=server` per-pid 합성), environment = 단일 키(`ENV_NARRATIVE_KEY`). selection 종합 보고서(`servers/report.html`)는 자체 AI 진단 미표시(`narrative_key=None`) — 개별 서버 보고서(child, `single_report.html`)가 public_id narrative 표시(worker 가 부모 selection job 의 per-pid narrative 를 child 에 복사). environment·단일은 보고서 안 inline AI 진단 표시. 폴링 = `GET /api/diagnostics/{job_id}` 단건 (보고서 페이지 안 `diagnostic-inline.js` 가 `[data-report-job]` job_id 로 narrative_status 갱신).
 - 선택 N대 발행(`/reports/servers/emit`, ids 2개+)은 selection 보고서 1건(env_report) + 개별 단일 보고서 N건 동시 fan-out (세부 서버 목록 hostname -> 개별 보고서 정적 link `child_jobs`, 이력 개별 조회). ids 1개는 단일 보고서 1건.
 - 보고서 운영신호 정책 (engineer): 표시는 OS 지원종료(os_eol)만 (`attention.os_eol_warnings`). 재부팅(`report_uptime_stats`)·에이전트 재시작(`report_agent_restart_stats`)은 보고서 anchor+window 안 카운트(boot_time/agent_started_at DISTINCT-1)해 세부 서버 목록 표 "시스템 안정성" 컬럼에 표시 (세부 서버 목록은 selection 한정이라 환경 보고서엔 미표시). `get_attention_signals` 의 전역 gap/agent_unstable 신호는 window-scoped 보고서에 미표시 (의미 불일치 회피).
-- 자원 적정성 본문 구조 (engineer): 분포 막대 + 효율화 검토 대상 표(`efficiency_hosts` — over/idle/shutdown 을 정리 시급도 순 Top 30, 호스트별 분류·진단·권고·신뢰도. `_select_efficiency_targets`) + 리소스 부족 표(`under_provisioned_hosts` 6축 메트릭). 조치 호스트 노출은 효율화 대상·리소스 부족 두 표가 단일 진실(전수 위험도 종합 표 없음). customer "조치 필요 호스트"(high 만)는 유지. 네트워크 토폴로지는 보고서에선 정적 서브넷 요약 표(`topology.subnets` SubnetGroup — net_key·host_count) — 인터랙티브 Cytoscape 그래프는 화면 토폴로지 페이지(`/environment/topology`) 전용. 서비스 구성은 카테고리별 칩(서비스명·개수, 전 카테고리 노출 #E9·`ServiceCatalogGroup.total_count`) + "분류 미상 서버 N대" 표기, 환경 구성(OS)과 한 카드 2열 통합.
+- 보고서 요약 섹션은 customer/engineer 동일 (`_env_summary_bullets` view 무관 단일): 등록 서버(+vCPU/메모리/디스크) / 온라인·오프라인 / 자원 적정성 분류 분포 / 자원 부족(active trigger 원인별 `_under_cause_summary`) / OS 지원 종료. bullet 끝 마침표 없음.
+- 자원 적정성 본문 구조 (engineer): 분포 막대(소제목 "분류 분포 (N대)") + 효율화 검토 대상 표(`efficiency_hosts` — over/idle/shutdown 정리 시급도 순 Top 30, 호스트·분류·진단·신뢰도. 권고 칼럼 폐기 — 분류와 1:1. `_select_efficiency_targets`) + 리소스 부족 표(`under_provisioned_hosts` 6축 메트릭 + 권고(`CapacityWarningItem.recommendation_action` = `report._build_under_provisioned_reason`) + 신뢰도). 조치 호스트 노출은 두 표가 단일 진실(전수 위험도 종합 표 없음). customer "조치 필요 호스트"(high 만)는 유지. 네트워크 토폴로지는 보고서에선 정적 서브넷 요약 표(`topology.subnets` SubnetGroup — net_key·host_count) — 인터랙티브 Cytoscape 그래프는 화면 토폴로지 페이지(`/environment/topology`) 전용. 서비스 구성은 별도 카드 — "서비스 식별 (N대)"·"서비스 미식별 (M대)" 소제목 하위 카테고리별 칩(전 카테고리 노출 #E9·`ServiceCatalogGroup.total_count`). OS 구성(Linux/Windows, 0대 포함 #E9)은 환경 요약(customer)·환경 현황(engineer) 카드 하위 metric-card 소제목(`.env-stat-card` 인벤토리·메트릭과 높이 통일).
 - 이력 표시: 보고서 발행 이력 `/reports/history` (customer + engineer union, view 필터). 재조회 link = `?job={id}` 정적 스냅샷 (scope 별 라우터 분기).
 
 ## C2. Repository 계층 — 인터페이스 우선 (#F4)
@@ -266,20 +266,19 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 원칙: Service/Handler는 추상 인터페이스(`Base*Repository`)만 의존. 구체 구현체·`Settings()` 인스턴스는 Composition Root에서만.
 
 `Settings()` 인스턴스 단일 진실 위치:
-- `src/assessment_engine/web/settings.py` — `web_settings` (WebSettings) + `diagnostic_settings` (DiagnosticSettings, web도 진단 publish 위해 broker 사용)
+- `src/assessment_engine/web/settings.py` — `web_settings` (WebSettings) + `diagnostic_settings` (DiagnosticSettings, web 이 task.install 발행 위해 broker 사용)
 - `src/assessment_engine/consumer/settings.py` — `consumer_settings` (ConsumerSettings)
-- `src/assessment_engine/diagnostic/settings.py` — `diagnostic_settings` (DiagnosticSettings, worker 전용 — ADR 0023: scheduler 폐기)
 - `src/assessment_engine/db/session.py`·`cache/redis.py` + repo root `migrations/env.py` — 자체 `WebSettings()` (모든 컴포넌트 공통 db layer·캐시·schema 진입점, circular import 회피)
 
 `src/assessment_engine/config.py`는 class 정의만 — module-level instance 0 (multi-node 분리 정합, ADR/문서 패턴 정합).
 
 금지:
 - Service/Handler 안 구체 구현체 import.
-- Composition Root 외 위치에서 `Settings()` 인스턴스 생성 — 위 6 위치 (web/settings·consumer/settings·diagnostic/settings·db/session·cache/redis·migrations/env)만 허용.
+- Composition Root 외 위치에서 `Settings()` 인스턴스 생성 — 위 5 위치 (web/settings·consumer/settings·db/session·cache/redis·migrations/env)만 허용.
 - `assessment_engine.config`에서 직접 `web_settings`·`consumer_settings`·`diagnostic_settings` import — class만 export.
 - `APP_ENV` 환경 분기를 `config.py` model_validator · entry lifespan 외 위치에 추가.
 
-추상 인터페이스 카탈로그·새 Repository 절차: `docs/architecture/web/layering.md` · `docs/architecture/db/repositories.md`. 진단 워커 LLM (`BaseLlmClient`) 추상·구체·composition root: `docs/architecture/diagnostic.md` "LLM 토글" 절 단일 진실 (ADR 0025).
+추상 인터페이스 카탈로그·새 Repository 절차: `docs/architecture/web/layering.md` · `docs/architecture/db/repositories.md`.
 
 ## F5. 자동화 변환 — 책임 분담
 
@@ -331,7 +330,7 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 
 금지: payload·secret raw dump — 식별자(composite_id·routing key·message_id·server_id)와 카운트만.
 
-로그 format: `LOG_FORMAT` env 분기 — `text`(dev colorized) 또는 `json`(prod, loguru `serialize=True`). 각 entry(web/consumer/diagnostic-worker)가 기동 직후 `setup_logging(settings.log_format)` 호출. 단일 진실은 `src/assessment_engine/log_config.py`.
+로그 format: `LOG_FORMAT` env 분기 — `text`(dev colorized) 또는 `json`(prod, loguru `serialize=True`). 각 entry(web/consumer)가 기동 직후 `setup_logging(settings.log_format)` 호출. 단일 진실은 `src/assessment_engine/log_config.py`.
 
 Request/Correlation ID 분산 trace 도입 트리거·정석 패턴: `docs/operations/observability.md` (현재 미적용, 도입 시 별도 ADR 의무).
 
@@ -368,7 +367,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 | ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass(P2) |
 | 보고서 스냅샷 ViewModel nested 필드 추가 (`EnvironmentReportSummary` 등 정적 스냅샷, #C1) | (1) ViewModel dataclass (2) mapper precompute (3) `report_serializer.*_from_dict` nested 복원 (dict -> dataclass, datetime/IpAddr 재구성 — 누락 시 dict 잔류로 template `.attr` 런타임 깨짐) (4) 템플릿 `.attr` 접근 (5) 라운드트립 단위 테스트(`test_report_serializer`) |
 | 신규 조건부(발화) UI 섹션 추가 | (1) 제목·카테고리 항상 노출 (2) 빈 상태 `empty_state` placeholder (3) 화면 컨텍스트 가드와 데이터 발화 가드 분리 (#E9) |
-| 신규 외부 의존(HTTP·LLM·외부 큐) | (1) fail-open/close 결정(#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) #F6 매트릭스 갱신 |
+| 신규 외부 의존(HTTP·외부 큐) | (1) fail-open/close 결정(#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) #F6 매트릭스 갱신 |
 | 신규 의존성(`pyproject.toml`) | (1) `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토. 워크플로 단일 진실: `docs/development/dependencies.md` |
 | 신규 차트 MetricType (net/disk rate 등) | (1) `db/repositories/query/types.py` `MetricType` Literal (2) rate 메트릭이면 동 파일 `_RATE_PER_DIM_DEFS` (dim_col, value_col) (3) `db/repositories/query/metric.py` `_RATE_PER_DIM` table 매핑 — 누락 시 `unknown metric_type` AssertionError 500 (Promise.all 한 fetch 실패가 같은 페이지 다른 차트까지 막음) (4) 페이지 JS fetch (5) 가상 제외 필터(`device_filters`) 해당 시 표시 경계 적용 |
 
@@ -390,17 +389,15 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 원칙: SIGTERM 시 in-flight 작업 손실 0 + 다음 기동 시 stale 상태 없음.
 
 본 절 결정:
-- web — uvicorn `timeout_graceful_shutdown=3s`. 진행 중 HTTP 요청 완료 후 exit. 실시간 메트릭 polling 은 다음 주기 자동 재요청이라 별도 처리 불요. 진단 publish (`DiagnosticSubmitter`) 중 SIGTERM은 aio-pika `connect_robust` transaction 보장.
-- consumer / diagnostic-worker — `async with message.process(requeue=False)` 컨텍스트 안에서 모든 await 완료. 정상 exit → ACK / raise → NACK + DLQ.
-- diagnostic-worker 진행 중 job(`status='running'`) stale 정리 미구현 — prod 도입 전 ADR 0004 정정 또는 별도 ADR 의무.
-- ADR 0023: scheduler cron 폐기. cron 발화 측 SIGTERM 본문 본 절 범위 밖.
+- web — uvicorn `timeout_graceful_shutdown=3s`. 진행 중 HTTP 요청 완료 후 exit. 실시간 메트릭 polling 은 다음 주기 자동 재요청이라 별도 처리 불요. task.install publish 중 SIGTERM은 aio-pika `connect_robust` transaction 보장.
+- consumer — `async with message.process(requeue=False)` 컨텍스트 안에서 모든 await 완료. 정상 exit → ACK / raise → NACK + DLQ.
 
 금지:
 - `signal.signal(SIGTERM, ...)` 직접 핸들러 — uvicorn/asyncio 자체 처리, 중복은 종료 race.
 - `os._exit()` — graceful shutdown 우회.
 - `message.process()` 컨텍스트 밖 await — ACK/NACK 둘 다 안 됨.
 
-상세: `docs/architecture/consumer.md` · `docs/architecture/diagnostic.md` "Disposability" 절.
+상세: `docs/architecture/consumer.md` "Disposability" 절.
 
 ---
 

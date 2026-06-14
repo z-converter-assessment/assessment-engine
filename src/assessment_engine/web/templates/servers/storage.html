@@ -2,7 +2,7 @@
 {% block title %}ZConverter Assessment — {{ storage.hostname }} 스토리지{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
+<a class="back no-print" href="{{ back_url }}">이전</a>
 <h1>{{ storage.hostname }} — 스토리지</h1>
 
 <!-- 현재 상태 (파일시스템 + 디스크 I/O 통합) -->
@@ -84,6 +84,7 @@
     </select>
     <input type="datetime-local" id="phys-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
+  <div class="chart-desc">물리 디스크 IOPS (Read/Write)</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="io-phys-canvas"></canvas>
   </div>
@@ -110,6 +111,7 @@
     </select>
     <input type="datetime-local" id="kbps-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
+  <div class="chart-desc">물리 디스크 처리량 (Read/Write)</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="io-kbps-canvas"></canvas>
   </div>
@@ -136,6 +138,7 @@
     </select>
     <input type="datetime-local" id="fs-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
+  <div class="chart-desc">마운트별 디스크 사용률 (100% = 가득 참)</div>
   <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="fs-chart-canvas"></canvas>
   </div>

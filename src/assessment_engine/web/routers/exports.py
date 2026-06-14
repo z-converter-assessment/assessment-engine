@@ -41,8 +41,8 @@ async def export_inventory(
     응답을 클라이언트가 파일로 저장 (브라우저 download). 서버에서 파일 생성 안 함 — stateless.
     envelope에 평가 기간 시작·종료 + size_class 매핑 가이드 포함 (reproducibility).
 
-    AI 진단 narrative 포함 X — 자동화 도구 (Terraform · Ansible 등) 안 자연어 parse 불가,
-    구조화 데이터 (`recommended_size_class` 필드 + 분류·임계 수치) 만 활용 catalog 정공.
+    자동화 도구 (Terraform · Ansible 등) 는 구조화 값만 사용 — 구조화 데이터
+    (`recommended_size_class` 필드 + 분류·임계 수치) 만 활용 catalog 정공.
     """
     sid_map = await service.resolve_server_ids(req.target_public_ids)
     missing = [pid for pid in req.target_public_ids if pid not in sid_map]

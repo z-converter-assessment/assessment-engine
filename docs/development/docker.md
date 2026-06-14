@@ -2,7 +2,7 @@
 
 정책: CLAUDE.md #A. 본 문서는 docker-compose 운영 단일 진실 — Dockerfile·compose 파일 구조·서비스 카탈로그·healthcheck·기동 순서.
 
-docker-compose는 엔진 그 자체 — web·consumer·diagnostic-worker·postgres·rabbitmq·redis·migrate 7 서비스가 고객사 네트워크 내 설치 단위. Python 앱(web·consumer·worker·migrate)은 단일 이미지 + command 분기(prod 는 GHCR pull, dev 는 로컬 빌드), 인프라(postgres·rabbitmq·redis)는 공식 이미지. ADR 0023: scheduler cron 폐기로 8 → 7.
+docker-compose는 엔진 그 자체 — web·consumer·postgres·rabbitmq·redis·migrate 6 서비스가 고객사 네트워크 내 설치 단위. Python 앱(web·consumer·migrate)은 단일 이미지 + command 분기(prod 는 GHCR pull, dev 는 로컬 빌드), 인프라(postgres·rabbitmq·redis)는 공식 이미지.
 
 ---
 
@@ -14,7 +14,7 @@ compose 2 파일 (ADR 0035) — base(prod-safe) + override(dev) 자동 머지:
 docker-compose.yml          — prod-safe BASE. 앱 서비스 `build:` 없음, GHCR 이미지 핀 pull. bind mount 없음.
                               볼륨 env 바인딩(PGDATA_HOST·MQ_DATA_HOST). 릴리즈 첨부 = 빌드 없는 pull-and-run prod compose
 docker-compose.override.yml — dev 전용. 소스 빌드(루트 Dockerfile)·`./src` bind mount·hot reload(watchfiles). `docker compose up` 시 base 에 자동 머지(override 우선). prod/release 미배포
-Dockerfile                  — 엔진 이미지 (web·consumer·diagnostic-worker·migrate 공용, multi-stage wheel install·non-root). base·override·CI/release·systemd·k8s 공용 단일 이미지 (dev-prod parity — dev/prod Dockerfile 분리 안 함)
+Dockerfile                  — 엔진 이미지 (web·consumer·migrate 공용, multi-stage wheel install·non-root). base·override·CI/release·systemd·k8s 공용 단일 이미지 (dev-prod parity — dev/prod Dockerfile 분리 안 함)
 env.example                — 배포 템플릿 (릴리즈 첨부, APP_ENV=prod·secret 필수). dev 검증 카탈로그는 dev/.env.example
 .dockerignore               — wheel build context 제외 경로 (dev/·docs/·tests/·.env 등)
 dev/dev-up.sh               — Docker -> migrate -> web 헬스체크 -> libvirt(VM 생성 + agent install) 순서 기동. COMPOSE_FILE 미지정(base+override 자동 머지), COMPOSE_PROJECT_NAME=dev
@@ -31,7 +31,7 @@ cp env.example .env && docker compose -f docker-compose.yml up -d   # GHCR 이�
 docker compose down -v
 ```
 
-dev 코드 반복은 override.yml 의 `./src` bind mount + hot reload(web=uvicorn reload, consumer/diag=watchfiles)로 컨테이너 restart 없이 반영 — 의존성(pyproject) 변경 시에만 `up --build`. prod base 는 bind mount 없음(이미지·wheel 불변성). dev 파이프라인은 `dev/dev-up.sh` 가 base+override 를 그대로 쓰고 libvirt VM 등 host 구성을 추가 수행.
+dev 코드 반복은 override.yml 의 `./src` bind mount + hot reload(web=uvicorn reload, consumer=watchfiles)로 컨테이너 restart 없이 반영 — 의존성(pyproject) 변경 시에만 `up --build`. prod base 는 bind mount 없음(이미지·wheel 불변성). dev 파이프라인은 `dev/dev-up.sh` 가 base+override 를 그대로 쓰고 libvirt VM 등 host 구성을 추가 수행.
 
 prod 하드닝(APP_ENV=prod·강 secret·외부 secret 채널·HTTPS ingress)은 base 가 강제하지 않음 — infra env 주입으로 달성하거나 `docs/operations/env.md` + `config.py` `_validate_prod_*` contract (ADR 0035).
 
@@ -58,13 +58,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 ### 단일 이미지 + command 분기
 
-web·consumer·diagnostic 워커·스케줄러·migrate 모두 같은 이미지를 쓰고, docker-compose의 `command` 필드로 진입점을 분기한다.
+web·consumer·migrate 모두 같은 이미지를 쓰고, docker-compose의 `command` 필드로 진입점을 분기한다.
 
 | 서비스 | command | 진입점 |
 |--------|---------|--------|
 | web | `python -m assessment_engine.web` | `src/assessment_engine/web/__main__.py` → uvicorn 기동 (override에서 reload) |
 | consumer | `python -m assessment_engine.consumer` | `src/assessment_engine/consumer/__main__.py` → `asyncio.run(consumer.main.main())` |
-| diagnostic-worker | `python -m assessment_engine.diagnostic` | ADR 0004 + 0023 — `diagnostic.request` 큐 소비, LLM 호출. trigger 채널 = web POST `/api/diagnostics` 만 |
 | migrate | `alembic upgrade head` | postgres healthy 후 1회 실행하고 종료 (`restart: "no"`). ADR 0005 |
 
 이미지가 1개라 빌드/푸시·패치 운영 비용이 최소화된다. 의존성 패키지(SQLAlchemy·aio-pika·redis·FastAPI 등)도 양쪽이 모두 사용하므로 분리 이득이 적다.
@@ -119,17 +118,16 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 
 ## docker-compose.yml (루트, 단일)
 
-### 서비스 구성 (7개 — web·consumer·diagnostic-worker·migrate·postgres·rabbitmq·redis)
+### 서비스 구성 (6개 — web·consumer·migrate·postgres·rabbitmq·redis)
 
 | 서비스 | 이미지 | 역할 | 적용 환경 |
 |--------|--------|------|-----------|
 | `postgres` | `timescale/timescaledb-ha:pg16` | 메인 DB + TimescaleDB all-in-one | dev / prod |
 | `rabbitmq` | `rabbitmq:3.13-management-alpine` | 메시지 브로커 (AMQP + 관리 UI) | dev / prod |
 | `redis` | `redis:7-alpine` | 캐시·온라인 TTL·PUB/SUB | dev / prod |
-| `migrate` | GHCR pull (dev: override 로컬 빌드) | `alembic upgrade head` 1회 실행 후 종료 (ADR 0005). 앱 서비스 4종이 `depends_on: service_completed_successfully`로 그 뒤 기동 | dev / prod |
+| `migrate` | GHCR pull (dev: override 로컬 빌드) | `alembic upgrade head` 1회 실행 후 종료 (ADR 0005). 앱 서비스 2종이 `depends_on: service_completed_successfully`로 그 뒤 기동 | dev / prod |
 | `web` | GHCR pull (dev: override 로컬 빌드) | FastAPI SSR + API + StaticFiles | dev / prod |
 | `consumer` | GHCR pull (dev: override 로컬 빌드) | aio-pika 컨슈머 (server.* + task.result 큐) | dev / prod |
-| `diagnostic-worker` | GHCR pull (dev: override 로컬 빌드) | `diagnostic.request` 큐 소비, LLM 호출 (ADR 0004 + 0023) | dev / prod |
 | `pgadmin` | `dpage/pgadmin4` | DB GUI (`profiles:[gui]` 전용). `docker compose --profile gui up -d pgadmin`으로 명시 호출 — idle 250 MiB 절감 | dev gui only |
 
 ### 포트 노출
@@ -174,7 +172,7 @@ bind mount·hot reload 는 override.yml 에만 있다 (base 는 불변 이미지
 
 ```yaml
 # docker-compose.override.yml
-web|consumer|diagnostic-worker:
+web|consumer:
   volumes: [./src/assessment_engine:/usr/local/lib/python3.12/site-packages/assessment_engine]
 migrate:
   volumes: [./migrations:/usr/local/lib/python3.12/site-packages/assessment_engine/migrations]
@@ -184,7 +182,7 @@ base 의 wheel install 패키지를 host 소스가 덮어 재빌드 없이 코�
 
 조합 효과:
 - `web`: uvicorn `reload=True`(`WEB_RELOAD=true`, override 주입)가 파일 변경 감지 -> 자동 재기동. 새로고침만으로 변경 확인.
-- `consumer`·`diagnostic-worker`: watchfiles 래퍼 entrypoint(override)가 `.py` 변경 시 프로세스 재시작.
+- `consumer`: watchfiles 래퍼 entrypoint(override)가 `.py` 변경 시 프로세스 재시작.
 - `migrate`: host `./migrations` bind 로 새 alembic revision 을 재빌드 없이 인식.
 - 정적 자원(`.js`/`.css`/`.html`): dev 에서 `web/main.py` 미들웨어가 매 요청 `asset_v` 를 재발급(`app.state.dev_assets`, `app_env=="dev"` 일 때만 — APP_ENV 판정은 lifespan 단일 경로 #F4)해 `?v=` URL 이 매번 바뀌고 HTML·`/static/*` 응답에 `Cache-Control: no-store` 부여 — 브라우저 disk cache·304 까지 회피. `.py` 재시작이 없는 정적 변경(ASSET_V 가 프로세스 시작 시각 고정이라 캐시에 묻히던 경로)도 새로고침만으로 반영. prod 는 본 분기 비활성(cdn·long-cache).
 
@@ -211,7 +209,7 @@ env_file: .env
 environment:
   POSTGRES_HOST: postgres   # .env의 localhost 값 오버라이드
   REDIS_HOST: redis
-  RABBITMQ_HOST: rabbitmq   # consumer·diagnostic-worker — web 도 진단 publish 위해 사용
+  RABBITMQ_HOST: rabbitmq   # consumer — web 도 task publish 위해 사용
 ```
 
 호스트에서 직접 실행 시 `.env`의 기본값(`localhost`)을 쓰고, 컨테이너에서는 `environment` 블록이 오버라이드.
@@ -242,15 +240,15 @@ environment:
 postgres ─ healthy ─▶ migrate (alembic upgrade head, 1회 실행 후 exit)
                           │
                           ▼ service_completed_successfully
-            ┌──────┬──────┴───────────┐
-            ▼      ▼                  ▼
-           web   consumer    diagnostic-worker
-            ▲      ▲                  ▲
-   redis ───┴──────┴──────────────────┤
-rabbitmq ──────────┴──────────────────┘
+            ┌──────┬──────┴
+            ▼      ▼
+           web   consumer
+            ▲      ▲
+   redis ───┴──────┤
+rabbitmq ──────────┘
 ```
 
-ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migrate` 컨테이너가 schema 준비 완료를 보장한 뒤 앱 3종 기동. ADR 0023: scheduler cron 폐기로 4종 → 3종.
+ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migrate` 컨테이너가 schema 준비 완료를 보장한 뒤 앱 2종 기동.
 
 ### restart 정책
 

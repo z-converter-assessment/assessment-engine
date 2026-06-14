@@ -1,7 +1,7 @@
 /**
  * 환경 보고서 live preview 발행 컨트롤(reports/environment.html, job 없는 preview 전용).
  *
- * 보고서 양식(고객/엔지니어)·윈도우·앵커 select -> navigate 로 preview 갱신(GET).
+ * 보고서 양식(고객/엔지니어)·윈도우·앵커 select 는 발행 버튼 누를 때만 반영 — 변경 자체로는 navigate 안 함(발행 전 본문·설명 없음).
  * 발행 버튼 -> POST /reports/environment/emit?view=&time_range=&anchor_at= -> {view_url} navigate (PRG).
  * 앵커 초기값은 URL anchor_at(이미 KST 문자열) 우선, 없으면 현재(ChartUtils.initAnchor) — KST 변환 연산 0(F2).
  * 외부 의존: chart-utils.js(ChartUtils.initAnchor), toast(ToastUtils).
@@ -26,13 +26,7 @@
     return p.toString();
   }
 
-  // 양식/윈도우/앵커 변경 -> navigate (preview 갱신).
-  function reload() { window.location.href = '/reports/environment?' + buildParams(); }
-  viewSel.addEventListener('change', reload);
-  range.addEventListener('change', reload);
-  anchor.addEventListener('change', reload);
-
-  // 발행 -> POST emit -> 발행된 스냅샷으로 navigate.
+  // 발행 -> POST emit -> 발행된 스냅샷으로 navigate. (select 변경은 navigate 없이 발행 시점 값만 사용.)
   if (emit) {
     emit.addEventListener('click', async function () {
       emit.disabled = true;

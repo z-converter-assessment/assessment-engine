@@ -1,6 +1,8 @@
 # ADR 0025 — LLM 단일 provider 통합 (ollama), mock 폐기
 
-상태: Proposed (2026-05-24)
+상태: Superseded — AI 진단(LLM narrative) 기능 폐기 (2026-06-14)
+
+이전 상태: Proposed (2026-05-24)
 
 ## Context
 

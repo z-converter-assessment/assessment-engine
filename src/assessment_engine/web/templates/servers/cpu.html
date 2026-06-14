@@ -3,7 +3,7 @@
 {% block title %}ZConverter Assessment — {{ server.hostname }} CPU 상세{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
+<a class="back no-print" href="{{ back_url }}">이전</a>
 <h1>{{ server.hostname }} — CPU 상세</h1>
 
 <!-- 현재 스냅샷 -->
@@ -65,6 +65,7 @@
       </select>
     </div>
   </div>
+  <div class="chart-desc">100% = 전 코어 포화 (idle 제외, iowait 포함)</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="usage-canvas"></canvas>
   </div>
@@ -94,6 +95,7 @@
     </select>
     <input type="datetime-local" id="comp-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
+  <div class="chart-desc">User 앱 부하 / System 커널 처리 / I/O Wait 디스크 대기</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="comp-canvas"></canvas>
   </div>
@@ -124,6 +126,7 @@
   {% if server.os_family == 'windows' %}
   <div style="padding:44px 0; text-align:center;">{{ empty_state('Windows 환경에서는 로드 평균(load average)을 측정하지 않습니다.') }}</div>
   {% else %}
+  <div class="chart-desc">15분 로드 / 코어 수 정규화 (1.0 = 코어당 포화)</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="load-canvas"></canvas>
   </div>
@@ -131,7 +134,6 @@
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <div id="load-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-  <p class="chart-caption">코어당 로드가 1 이상이면 포화.</p>
   {% endif %}
 </div>
 

@@ -31,9 +31,6 @@ libvirt(KVM)와 Docker 는 분리된 두 네트워크다. 컨테이너는 docker
 host 의 docker 퍼블리시 포트(RabbitMQ 5672·web 8000)에 도달한다 — DNAT + libvirt 기본 forward 규칙(LIBVIRT_FWO).
 컨테이너(web) ZDM mock resolver 는 자기 컨테이너 `localhost:8000`(`ZDM_RESOLVER_HOST_OVERRIDE`). Windows VM 도 동일 virbr0 라 게이트웨이 192.168.122.1 로 host 도달.
 
-LLM 서버(ollama)는 본 파이프라인에서 제거됨 — AI 진단(engineer 보고서 narrative) 발행 시 LLM 호출
-실패 시나리오를 의도적으로 재현 (루트 `docker-compose.yml` diagnostic-worker 주석). 진단 워커 로직 무수정.
-
 ## 사전 요구
 
 | 도구 | 설치 | 용도 |
@@ -76,7 +73,7 @@ Windows VM (win-server-01)은 `windows-vm.md` 단일 진실 — libvirt autounat
 - 60초 주기 메트릭 갱신
 - 분류 분포 시연은 `/reports/servers?period_days=1` (대시보드는 `recommendation.WINDOW_DAYS=7` 고정, #F10)
 - attention 카드 상단 요약: app `agent_unstable` + edge `gap_warnings` (3회 발행 후 down)
-- AI 진단 발행 (engineer 보고서) — LLM 호출 실패 (ollama 제거) 동작 관찰
+- 보고서 발행 (engineer/customer) — 정적 스냅샷 생성·`?job={id}` 조회 동작 관찰
 
 ## 종료
 
@@ -112,7 +109,6 @@ VM 구성 의도 (호스트 영향 최소화 우선):
 - 1 VM = 2 서비스: `service_classifier` 6 카테고리(web/db/cache/mq/container/monitor) 전부 커버.
 - OS 다양성: 패키지 매니저 분기(apt/dnf) + systemd + Windows SCM. distro (Debian 12, Rocky 9, Win Server 2022).
 - attention 카탈로그 발화: `AttentionSignals` 카테고리 중 2개 (agent_unstable, gap_warnings) 의도 발화.
-- LLM 실패: ollama 제거 → AI 진단 발행 시 호출 실패 (진단 워커 로직 무수정).
 - 합성 부하: 모든 VM light (sustained CPU 1~3s + mem 5~20MB) — 차트 변동만 가시화. CPU 임계 안 넘김 → over_provisioned 분류 (CPU 부담 0).
 
 libvirt(KVM) 채택 (Linux): cloud image qcow2 + cloud-init 으로 VM 부팅, virt-install(python3-gi) 대신 storage 볼륨 API(vol-clone)+`virsh define` 도메인 XML 직접 생성 — 의존 최소화. VM disk 는 type='file' 명시 경로(virt-aa-helper apparmor 프로파일 정합), cdrom 은 IDE(i440fx 네이티브, cloud-init NoCloud 인식). Windows(win-server-01)는 동일 libvirt 에 Win Server 2022 autounattend 무인 설치 — q35 + OVMF UEFI + SATA + e1000e, 기본 포함 (`windows-vm.md`).

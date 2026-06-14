@@ -16,7 +16,8 @@
   'use strict';
 
   var OS_COLOR = { linux: ChartUtils.themeColor(), windows: '#8b5cf6' };
-  var SUBNET = '#64748b';
+  // 서브넷 노드 — 연한 회색 테마색(base.html --color-table-head) 추종. getComputedStyle 실패 시 fallback.
+  var SUBNET = (getComputedStyle(document.documentElement).getPropertyValue('--color-table-head').trim() || '#a7b2c0');
 
   var COSE = { name: 'cose', animate: false, padding: 24, nodeRepulsion: 6000, idealEdgeLength: 90 };
 

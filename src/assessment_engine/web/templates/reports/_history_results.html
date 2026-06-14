@@ -26,22 +26,25 @@
         {% endif %}
       </td>
       <td>{{ it.window_label }}</td>
-      <td><a href="{{ it.result_link }}" class="btn-action" style="padding:4px 11px;">보기 →</a></td>
+      <td><a href="{{ it.result_link }}" class="btn-action" style="padding:4px 11px;">보기</a></td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
-{% if show_all_link %}
+{# 더보기/접기 — 더보기는 전체보기(data-next-limit=total), 접기는 첫 페이지 복귀. JS 가 fragment 재조회 후 결과 영역 교체. 카운트는 버튼에 통합(shown/total). #}
 <div style="margin-top:14px; text-align:center;">
-  <a href="?{% if days %}days={{ days }}&{% endif %}view={{ view }}&scope={{ scope }}{% if server_public_ids %}{% for pid in server_public_ids %}&server_public_ids={{ pid }}{% endfor %}{% endif %}&full=1"
-     class="btn text-label" style="background:#f1f5f9; padding:8px 20px; border:1px solid #cbd5e1; border-radius:4px; text-decoration:none; display:inline-block;">
-    전체보기
-  </a>
+  {% if has_more %}
+  <button type="button" id="history-more-btn" data-next-limit="{{ total }}"
+          class="btn text-label" style="background:#f1f5f9; padding:8px 20px; border:1px solid #cbd5e1; border-radius:4px; cursor:pointer;">
+    전체보기 {{ items_count }}/{{ total }}
+  </button>
+  {% elif items_count > page_limit %}
+  <button type="button" id="history-collapse-btn"
+          class="btn text-label" style="background:#f1f5f9; padding:8px 20px; border:1px solid #cbd5e1; border-radius:4px; cursor:pointer;">
+    접기 {{ items_count }}/{{ total }}
+  </button>
+  {% endif %}
 </div>
-<div class="text-sm text-meta" style="margin-top:8px;">최근 20건만 표시. "전체보기" 클릭 시 모든 row.</div>
-{% elif full %}
-<div class="text-sm text-meta" style="margin-top:10px;">전체 {{ items_count }}건.</div>
-{% endif %}
 {% else %}
 <div class="card text-muted" style="text-align:center; padding:40px;">
   해당 조건의 보고서 이력 없음.

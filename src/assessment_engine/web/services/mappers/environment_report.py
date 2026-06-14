@@ -101,9 +101,9 @@ def _to_distribution_bars(
     counts: dict[str, int],
     label_map: dict[str, str] | None = None,
 ) -> list[DistributionBar]:
-    """카테고리 카운트 dict -> 구성 분포 막대 list (count DESC, label ASC tie-break).
+    """카테고리 카운트 dict -> 구성 분포 list (count DESC, label ASC tie-break).
 
-    pct = 분포 내 최대 count 대비 막대 너비 % (P3 회피 mapper precompute). 단순 분포라 위험도 색 없음.
+    pct = 최대 count 대비 비율 — 현재 보고서 표시는 label+대수만 쓰나(게이지 폐기), 스냅샷 복원 호환 위해 필드 유지.
     """
     if not counts:
         return []
@@ -369,17 +369,31 @@ def _extract_capacity_imminent(rows: list[ReportRowItem]) -> list[CapacityImmine
     return out
 
 
+# 자원 부족 trigger badge 정의 순서(스왑·CPU·메모리·Load·디스크, attention.to_capacity_warning_item) 보존 — 요약 표시 안정화.
+_UNDER_CAUSE_ORDER = ("스왑", "CPU", "메모리", "Load", "디스크")
+
+
+def _under_cause_summary(under_hosts: list[CapacityWarningItem]) -> str:
+    """자원 부족 호스트들의 active trigger 를 원인별 집계 -> "스왑 2대 · CPU 1대".
+
+    원인 라벨은 CapacityTriggerBadge.label 단일 진실 재사용 (요약 전용 매핑 신설 안 함, P2).
+    한 호스트가 복수 원인이면 각 원인에 1대씩 누적 — 합이 자원 부족 대수보다 클 수 있음(원인 가시화 목적).
+    """
+    counts: dict[str, int] = {}
+    for h in under_hosts:
+        for t in h.triggers:
+            if t.active:
+                counts[t.label] = counts.get(t.label, 0) + 1
+    return " · ".join(f"{lbl} {counts[lbl]}대" for lbl in _UNDER_CAUSE_ORDER if lbl in counts)
+
+
 def _env_summary_bullets(
-    view: ReportView,
     overview: EnvironmentOverview,
     attention: AttentionSignals,
     classification_dist: list[ClassificationCount],
+    under_hosts: list[CapacityWarningItem],
 ) -> list[str]:
-    """환경 단위 정성 요약 — view (customer/engineer) 별 다른 톤·우선순위.
-
-    customer: 비즈니스 시그널 (전체 N대 / 위험 N대 / 권고 사항).
-    engineer: 기술 시그널 (분류 분포 / capacity trigger / OS EOL).
-    """
+    """환경 단위 정성 요약 — customer/engineer 동일 내용 (양식 무관 동기화)."""
     classified = {c.key: c.count for c in classification_dist}
     under = classified.get("under_provisioned", 0)
     over = classified.get("over_provisioned", 0)
@@ -387,37 +401,13 @@ def _env_summary_bullets(
     shutdown = classified.get("shutdown", 0)
     optimal = classified.get("optimal", 0)
     insufficient = classified.get("insufficient_data", 0)
-    online_ratio = (overview.online / overview.total * 100) if overview.total else 0.0
 
-    if view == "customer":
-        # 분류 어휘는 LABEL_KO 단일 진실 그대로 — 분포 막대·조치 필요 표와 100% 동일 어휘 (혼란 0).
-        ko = recommendation.LABEL_KO
-        dist_line = (
-            f"자원 적정성 분류 — {ko['under_provisioned']} {under}대 · {ko['over_provisioned']} {over}대"
-            f" · {ko['idle']} {idle}대 · {ko['shutdown']} {shutdown}대 · {ko['optimal']} {optimal}대"
-        )
-        if insufficient:
-            dist_line += f" · {ko['insufficient_data']} {insufficient}대"
-        bullets = [
-            f"등록 서버 {overview.total}대 — 온라인 {overview.online}대 ({online_ratio:.0f}%).",
-            dist_line + ".",
-        ]
-        # 주요 현상 강조 — 분류 기반 (조치 지시 없이 현상·진단만, 분류명 그대로).
-        efficiency = over + idle + shutdown
-        if under:
-            bullets.append(f"{ko['under_provisioned']} {under}대 — 관측 부하 대비 할당 자원 부족.")
-        elif efficiency:
-            grp = f"{ko['over_provisioned']}·{ko['idle']}·{ko['shutdown']}"
-            bullets.append(f"{grp} {efficiency}대 — 관측 부하 대비 할당 자원 여유.")
-        return bullets
-
-    # engineer — 분류 어휘 LABEL_KO 통일(customer 와 동일), 자원 규모 상세, 운영 신호는 OS 지원 종료만(C1).
-    # gap/agent_unstable 전역 신호는 보고서 미표시(window 의미 불일치) — 요약에도 노출 안 함.
+    # 분류 어휘 LABEL_KO 단일 진실(분포 막대·표와 동일 어휘). 운영 신호는 OS 지원 종료만(C1) —
+    # gap/agent_unstable 전역 신호는 window 의미 불일치로 보고서·요약 미표시.
     ko = recommendation.LABEL_KO
     resource = (
         f"vCPU {overview.total_vcpus} / 메모리 {overview.total_memory_gb:.1f} GB / 디스크 {overview.total_disk_gb} GB"
     )
-    evaluated = overview.total - insufficient
     dist_line = (
         f"자원 적정성 분류 — {ko['under_provisioned']} {under} · {ko['over_provisioned']} {over}"
         f" · {ko['idle']} {idle} · {ko['shutdown']} {shutdown} · {ko['optimal']} {optimal}"
@@ -425,18 +415,23 @@ def _env_summary_bullets(
     if insufficient:
         dist_line += f" · {ko['insufficient_data']} {insufficient}"
     bullets = [
-        f"등록 서버 {overview.total}대 — 온라인 {overview.online}대, 평가 가능 {evaluated}대 ({resource}).",
-        dist_line + ".",
+        f"등록 서버 {overview.total}대 ({resource})",
+        f"온라인 {overview.online}대 / 오프라인 {overview.offline}대",
+        dist_line,
     ]
-    # 주요 현상 강조 — customer 와 동일 기준 (조치 지시 없이 현상·진단만).
+    # 주요 현상 강조 — 조치 지시 없이 현상·진단만 (분류명 그대로).
     efficiency = over + idle + shutdown
     if under:
-        bullets.append(f"{ko['under_provisioned']} {under}대 — 관측 부하 대비 할당 자원 부족.")
+        cause = _under_cause_summary(under_hosts)
+        if cause:
+            bullets.append(f"{ko['under_provisioned']} — {cause}")
+        else:
+            bullets.append(f"{ko['under_provisioned']} — 관측 부하 대비 할당 자원 부족")
     elif efficiency:
         grp = f"{ko['over_provisioned']}·{ko['idle']}·{ko['shutdown']}"
-        bullets.append(f"{grp} {efficiency}대 — 관측 부하 대비 할당 자원 여유.")
+        bullets.append(f"{grp} {efficiency}대 — 관측 부하 대비 할당 자원 여유")
     if attention.os_eol_warnings:
-        bullets.append(f"OS 지원 종료 {len(attention.os_eol_warnings)}대 — 보안 패치 중단됨.")
+        bullets.append(f"OS 지원 종료 {len(attention.os_eol_warnings)}대")
     return bullets
 
 
@@ -466,14 +461,22 @@ def to_environment_report(
     os_dist = _count_os(details)
     # 구성 계층 (P-A) — overview 가 이미 집계한 OS family·워크로드 분포를 막대 ViewModel 로 precompute.
     os_family_dist = _to_distribution_bars(overview.os_distribution, _OS_FAMILY_LABEL)
+    # Linux/Windows 는 0대여도 항상 노출 (#E9 발화 — "윈도우 0대" 표기). count DESC 뒤에 0대 보강.
+    _os_present = {b.label for b in os_family_dist}
+    for _key in ("linux", "windows"):
+        if _OS_FAMILY_LABEL[_key] not in _os_present:
+            os_family_dist.append(DistributionBar(label=_OS_FAMILY_LABEL[_key], count=0, pct=0.0))
     workload_dist = _to_distribution_bars(overview.role_distribution)
+    # OS 지원 종료 OS별 집계 (customer 나열) — os_eol_warnings.meta_text="{os} · EOL {date}" 에서 os 추출, 대수 DESC.
+    _eol_os = Counter(w.meta_text.split(" · ", 1)[0] for w in attention.os_eol_warnings)
+    os_eol_breakdown_label = " · ".join(f"{os} {n}대" for os, n in _eol_os.most_common())
     top_risks = _select_top_risks(base.rows, view)
     efficiency = build_efficiency_summary(base.rows)
     env_metrics = _build_env_metrics(overview, base.rows)
-    summary = _env_summary_bullets(view, overview, attention, classification_dist)
     under_hosts = (
         under_provisioned_hosts if under_provisioned_hosts is not None else list(overview.under_provisioned_hosts)
     )
+    summary = _env_summary_bullets(overview, attention, classification_dist, under_hosts)
     # engineer 보고서 전용 — 운영 신호 호스트 통합 / capacity 임박 / 표본 부족.
     # customer 도 동일 헬퍼 호출 (로직 단일, 미사용 필드는 template 분기로 노출 안 함).
     attention_hosts = _extract_attention_hosts(attention, base.rows)
@@ -499,6 +502,7 @@ def to_environment_report(
         os_family_dist=os_family_dist,
         workload_dist=workload_dist,
         workload_unknown_count=overview.role_unknown_count,
+        workload_identified_count=overview.total - overview.role_unknown_count,
         top_risks=top_risks,
         efficiency_hosts=efficiency.hosts,
         env_metrics=env_metrics,
@@ -516,6 +520,7 @@ def to_environment_report(
         under_provisioned_hosts_count=len(under_hosts),
         evaluated_count=evaluated_count,
         os_eol_count=len(attention.os_eol_warnings),
+        os_eol_breakdown_label=os_eol_breakdown_label,
         efficiency_target_count=efficiency.target_count,
         efficiency_target_vcpus=efficiency.target_vcpus,
         efficiency_target_memory_gb=efficiency.target_memory_gb,

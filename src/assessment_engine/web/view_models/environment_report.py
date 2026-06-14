@@ -198,11 +198,15 @@ class EnvironmentReportSummary:
     workload_dist: list[DistributionBar] = field(default_factory=list)
     # 분류된 역할이 없는 호스트 수 (서비스 없음 또는 전부 unknown) — discoverability(#E9)
     workload_unknown_count: int = 0
+    # 서비스 식별된 호스트 수 (= total - unknown) — 서비스 구성 "식별 N대" 소제목 (mapper precompute, P3)
+    workload_identified_count: int = 0
     # 고객 보고서 의사결정 보조 (mapper precompute, P3) — 모두 기존 분류·신호 단일 진실 재사용.
     evaluated_count: int = 0  # 평가 가능 호스트 수 (표본 부족 제외) — 분포가 전체에 적용된다는 오해 방지
     # 환경 현황 메트릭 카드 5축 (engineer) — {label, value, sub} plain dict (스냅샷 복원 불요, trend 동일).
     env_metrics: list[dict] = field(default_factory=list)
     os_eol_count: int = 0  # OS 지원 종료 호스트 수 (attention.os_eol_warnings len)
+    # OS 지원 종료 OS별 집계 라벨 — "debian 11 2대 · debian 12 3대" (customer 나열, mapper precompute, P3)
+    os_eol_breakdown_label: str = ""
     # 효율화 검토 대상(과다 할당·유휴·종료 권장) 호스트 수 + 점유 자원 합 — 전환 비용 논의 입력.
     efficiency_target_count: int = 0
     efficiency_target_vcpus: int = 0

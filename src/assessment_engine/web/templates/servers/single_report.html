@@ -5,7 +5,7 @@
 {% block content %}
 {% set r = summary.base.rows[0] if summary.base.rows else None %}
 
-<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
+<a class="back no-print" href="{{ back_url }}">이전</a>
 
 <div style="display:flex; align-items:center; justify-content:space-between; margin:8px 0 20px; gap:16px;">
   <h1>{{ hostname }} <span class="page-meta">{{ view_title }}</span></h1>
@@ -16,7 +16,6 @@
       <div>에이전트 {{ summary.agent_versions_label or "—" }}</div>
     </div>
     <button class="btn-print no-print" type="button" onclick="window.print()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
       인쇄
     </button>
   </div>
@@ -284,7 +283,7 @@
 </section>
 {% endif %}
 
-{# ── 그룹 5: 종합 진단 — Right-sizing 분류 + AI narrative (모든 통계를 본 뒤 결론) ── #}
+{# ── 그룹 5: 종합 진단 — Right-sizing 분류 (모든 통계를 본 뒤 결론) ── #}
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">자원 적정성 평가</h2>
   {# 환경·선택 보고서 호스트 권고 표와 동일 판독 프레임 (분류·진단·권고·신뢰도). 진단은 engineer 심화 어휘라 engineer 만. #}
@@ -308,26 +307,6 @@
   </table>
 </section>
 
-{# AI 진단 — 보고서 흐름 안 inline (engineer view 만). 통계·분류를 본 뒤 LLM 종합. #}
-{% if view == "engineer" %}
-{% set n = narratives.get(r.public_id) %}
-<section class="card" data-narrative-slot data-narrative-key="{{ r.public_id }}" style="margin-bottom:16px;">
-  <h2 class="card-title">AI 진단</h2>
-  {% if n and n.status == 'succeeded' and n.narrative %}
-  <div class="diag-inline-body text-strong">{{ n.narrative }}</div>
-  <div class="diag-inline-meta"></div>
-  {% elif n and n.status == 'failed' %}
-  <div class="diag-inline-body text-muted">AI 진단 실패 — narrative 합성 실패 (보고서 통계는 위에 표시).</div>
-  <div class="diag-inline-meta"></div>
-  {% else %}
-  <div class="diag-inline-body text-muted">
-    {% if report_job_id %}AI 진단 진행 중 (LLM 합성 10~60초 소요). 자동 폴링으로 결과 표시.{% else %}발행 시 생성.{% endif %}
-  </div>
-  <div class="diag-inline-meta"></div>
-  {% endif %}
-</section>
-{% endif %}
-
 {# ── 그룹 6: 운영 신호 — OS EOL (sizing 과 별도 축, 발화 가능 정보 항상 노출) ── #}
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">OS 지원 종료 <span class="section-meta">EOL 임박·경과</span></h2>
@@ -345,8 +324,6 @@
 {% include "reports/_reference_footer.html" %}
 
 {% if view == "engineer" %}
-{% if report_job_id %}<div data-report-job data-job-id="{{ report_job_id }}" data-status="{{ narrative_status }}" hidden></div>{% endif %}
-<script src="/static/js/diagnostic-inline.js?v={{ asset_v }}" defer></script>
 {# 부하 추이 차트 — Chart.js(먼저) + inline 렌더 (environment-trend.js). chart-utils.js 는 base.html head 동기 로드. #}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
 <script src="/static/js/pages/environment-trend.js?v={{ asset_v }}" defer></script>

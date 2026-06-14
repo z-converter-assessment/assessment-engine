@@ -2,7 +2,7 @@
 {% block title %}ZConverter Assessment — {{ network.hostname }} 네트워크{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
+<a class="back no-print" href="{{ back_url }}">이전</a>
 <h1>{{ network.hostname }} — 네트워크</h1>
 
 <!-- 현재 상태 (IP 주소 + 인터페이스 현황) -->
@@ -55,6 +55,7 @@
     </select>
     <input type="datetime-local" id="net-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
+  <div class="chart-desc">물리 인터페이스 트래픽 (RX/TX)</div>
   <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="net-chart-canvas"></canvas>
   </div>
@@ -83,6 +84,7 @@
     </select>
     <input type="datetime-local" id="net-pps-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
+  <div class="chart-desc">물리 인터페이스 패킷 처리량 (RX/TX)</div>
   <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="net-pps-canvas"></canvas>
   </div>

@@ -1,15 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Assessment 환경 보고서 — {{ view_title }}{% endblock %}
+{% block title %}Assessment 환경 보고서{% if report_job_id %} — {{ view_title }}{% endif %}{% endblock %}
 
 {% block content %}
 <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; margin:8px 0 12px;">
-  <h1 style="margin:0;">환경 보고서
-    <span class="page-meta">{{ view_title }}</span>
-  </h1>
+  <h1 style="margin:0;">환경 보고서{% if report_job_id %} <span class="page-meta">{{ view_title }}</span>{% endif %}</h1>
+  {% if report_job_id %}
   <button class="btn-print no-print" type="button" onclick="window.print()">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
     인쇄
   </button>
+  {% endif %}
 </div>
 
 {% if report_job_id %}
@@ -47,8 +46,6 @@
 {% include "reports/_reference_footer.html" %}
 
 {% if view == "engineer" %}
-<div data-report-job data-job-id="{{ report_job_id }}" data-status="{{ narrative_status }}" hidden></div>
-<script src="/static/js/diagnostic-inline.js?v={{ asset_v }}" defer></script>
 {# 환경 부하 추이 차트 — Chart.js(먼저) + inline 렌더. chart-utils.js 는 base.html head 동기 로드.
    네트워크 토폴로지는 보고서에선 정적 서브넷 요약 표(인쇄 전제) — cytoscape/그래프 스크립트 불요. #}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>

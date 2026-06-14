@@ -1,4 +1,4 @@
-{# 운영 신호 카드 — 통신 끊김 / OS 지원종료 / 에이전트 재시작 3 카탈로그 (환경 전체 고정). 실시간 현황 페이지.
+{# 운영 신호 카드 — 통신 끊김 / OS 지원종료 / 에이전트 재시작 3 카탈로그 (selection 이면 N대 한정, 전체면 환경 전체). 실시간 현황 페이지.
    발화 없어도 제목 유지(discoverability #E9). 느린 신호라 폴링 fragment 밖 정적 렌더 (full-page 1회).
    컨텍스트: attention(AttentionSignals), agent_restart_threshold. #}
 {% from "_shared.html" import empty_state %}
@@ -10,9 +10,10 @@
   {% if items %}
   <ul class="attention-list">
     {% for it in items %}
+    {# 부하 상위와 동일 링크 포맷 — 호스트명(좌, ellipsis) + leader dots(가변폭) + 원인(우). 간격은 호스트명 길이 무관 일정. #}
     <li class="attention-item">
-      <a class="attention-link" href="{{ it.link_href }}">{{ it.link_text }}</a>
-      {% if it.badge_text %}<span class="attention-cause">{{ it.badge_text }}</span>{% endif %}
+      <a href="{{ it.link_href }}" style="flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ it.link_text }}</a>
+      {% if it.badge_text %}<span style="flex:1 1 auto; min-width:10px; border-bottom:1px dotted #cbd5e1; height:1px;"></span><span class="attention-cause" style="flex-shrink:0; white-space:nowrap;">{{ it.badge_text }}</span>{% endif %}
     </li>
     {% endfor %}
   </ul>
@@ -29,7 +30,7 @@
   <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:24px; align-items:start;">
     {{ attention_row("통신 끊김", "5분 이상 미수신", attention.gap_warnings) }}
     {{ attention_row("OS 지원종료", "지원 종료", attention.os_eol_warnings) }}
-    {{ attention_row("에이전트 재시작", "최근 1시간 " ~ agent_restart_threshold ~ "회 이상", attention.agent_unstable) }}
+    {{ attention_row("에이전트 재시작", "최근 1시간", attention.agent_unstable) }}
   </div>
 </section>
 {% endif %}

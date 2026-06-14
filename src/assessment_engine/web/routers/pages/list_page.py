@@ -26,7 +26,7 @@ overview_router = APIRouter()
 servers_list_router = APIRouter(prefix="/servers")
 environment_router = APIRouter(prefix="/environment")
 
-# 대시보드 윈도우 한국어 라벨 ("24시간") — window_meta 표제 "최근 {라벨}" 표기.
+# 대시보드 윈도우 한국어 라벨 ("1일") — window_meta 표제 "최근 {라벨}" 표기.
 _DASHBOARD_WINDOW_LABEL = DIAGNOSTIC_RANGE_LABEL_KR[DASHBOARD_TIME_RANGE]
 
 # 서버 목록 전체 로드 한도 — 기본 20행 표시(client clip), 필터는 client-side hide/show. E2 page 의식적 예외.
@@ -87,8 +87,11 @@ async def environment_realtime(
             name="servers/_environment_realtime.html",
             context={"realtime": realtime, "generated_at": now, "self_back": self_back},
         )
-    # 운영 신호 — 선택과 무관하게 환경 전체 고정 (통신 끊김·OS EOL·에이전트 재시작은 환경 단위 운영 신호).
-    attention = await service.get_attention_signals(end=now)
+    # 운영 신호 — selection(ids) 이면 선택 N대 호스트로 한정, 전체면 환경 전체.
+    if server_ids is not None:
+        attention = await service.get_selection_attention(server_ids, now)
+    else:
+        attention = await service.get_attention_signals(end=now)
     return templates.TemplateResponse(
         request=request,
         name="servers/realtime.html",

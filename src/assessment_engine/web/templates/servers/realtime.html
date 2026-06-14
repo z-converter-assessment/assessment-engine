@@ -12,7 +12,7 @@
 {% include "servers/_environment_realtime.html" %}
 </div>
 
-{# 운영 신호 — 환경 전체 고정 (선택 N대 무관). 느린 신호라 현황 메트릭과 분리해 정적 표시(폴링 밖). #}
+{# 운영 신호 — selection(ids) 이면 선택 N대 한정, 전체면 환경 전체 (라우터 필터). 느린 신호라 현황 메트릭과 분리해 정적 표시(폴링 밖). #}
 {% include "servers/_operational_signals.html" %}
 
 {% include "_reference_link.html" %}

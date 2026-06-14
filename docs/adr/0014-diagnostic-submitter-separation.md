@@ -1,6 +1,8 @@
 # ADR 0014 — Diagnostic 발행 책임 분리 (scheduler 노드 web 의존 끊기)
 
-상태: Accepted (2026-05-19), Refined by 0023 (2026-05-23) — scheduler 노드 폐기 후도 `DiagnosticSubmitter` 본질 유지 (web POST `/api/diagnostics` 단독 사용처). 본 ADR 본문 안 "scheduler 노드 의존 끊기" 모티브는 historical context, 본 ADR 의 모듈 분리 정공 본질 (`submitter` package 안 `web.services` 의존 0) 은 그대로 유효.
+상태: Superseded — AI 진단(LLM narrative) 기능 폐기 (2026-06-14). `DiagnosticSubmitter` package·`diagnostic/submitter.py` 제거. 보고서 발행은 `web/services/diagnostic_service.py` 의 `emit_report` 가 broker 미경유 DB enqueue 로 직접 수행(발행 시점 정적 스냅샷 즉시 succeeded). input_hash·anchor helper(`_compute_hash`·`_normalize_anchor`)는 `diagnostic/report_result.py` 단일 진실.
+
+이전 상태: Accepted (2026-05-19), Refined by 0023 (2026-05-23) — scheduler 노드 폐기 후도 `DiagnosticSubmitter` 본질 유지. 본 ADR 본문 안 "scheduler 노드 의존 끊기" 모티브·`submitter` package 분리 정공은 historical record.
 
 ## Context
 

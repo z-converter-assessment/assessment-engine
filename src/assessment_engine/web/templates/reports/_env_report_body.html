@@ -1,35 +1,11 @@
 {% from "_shared.html" import empty_state, service_legend, detail_server_list %}
 {% from "reports/_resource_tables.html" import efficiency_table, under_provisioned_table %}
-{# 구성 계층 막대 (P-A) — 단일 색 분포 막대 (P-E), 게이지 테마색(var(--color-title)) 통일. OS·워크로드 공용. customer·engineer 동일 호출. #}
-{% macro config_dist(title, bars, count_unit) %}
-<div>
-  <div class="text-sm text-muted" style="margin-bottom:8px;">{{ title }}</div>
-  {% if bars %}
-  <div style="display:flex; flex-direction:column; gap:6px;">
-    {% for b in bars %}
-    <div style="display:flex; align-items:center; gap:10px;">
-      <div class="text-sm text-strong" style="width:96px;">{{ b.label }}</div>
-      <div class="bar-track" style="flex:1; background:#f1f5f9; border-radius:4px; height:16px; overflow:hidden;">
-        <div class="bar-fill" style="width:{{ b.pct }}%; background:var(--color-title); height:100%;"></div>
-      </div>
-      <div style="display:flex; align-items:center; gap:5px; width:74px; flex:0 0 auto;">
-        <span style="flex:1; border-bottom:1px dotted #cbd5e1; height:1px;"></span>
-        <span class="text-sm text-muted" style="white-space:nowrap;">{{ b.count }}{{ count_unit }}</span>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  {% else %}
-  {{ empty_state("수집된 구성 정보가 없습니다.") }}
-  {% endif %}
-</div>
-{% endmacro %}
-
 {# 서비스 구성 카드 — 카테고리별 "카테고리 N --- 서비스명 개수 ..." (색 없음). 전 카테고리 노출(count 0 포함, #E9).
    engineer 는 서비스마다 구동 호스트명 링크(서버 상세). customer·engineer 공용. self_back = 호스트 링크 back chain. #}
-{% macro service_config_card(catalog, unknown_count) %}
+{% macro service_config_card(catalog, identified_count, unknown_count) %}
 <div>
   <h2 class="card-title">서비스 구성</h2>
+  <h3>서비스 식별 ({{ identified_count }}대)</h3>
   {% if catalog %}
   <div style="display:flex; flex-direction:column;">
     {% for g in catalog %}
@@ -48,41 +24,28 @@
   {% else %}
   {{ empty_state("구동 중인 것으로 분류된 서비스가 없습니다.") }}
   {% endif %}
-  {% if unknown_count %}<p class="text-sm text-muted" style="margin:12px 0 0;">분류 미상 서버 {{ unknown_count }}대</p>{% endif %}
+  <h3 style="margin-top:16px;">서비스 미식별 ({{ unknown_count }}대)</h3>
 </div>
 {% endmacro %}
 
-{# customer/engineer 양식 공유 — byte 동일 markup 단일 정의(P2 표시 단일 소스). 양식 차이(메트릭 축·자원 적정성 심화)는 분기 유지. #}
-{% macro env_config_section(summary) %}
-<section class="card" style="margin-bottom:16px;">
-  <div class="env-dual" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:24px; align-items:start;">
-    <div>
-      <h2 class="card-title">환경 구성</h2>
-      {{ config_dist("OS 구성", summary.os_family_dist, "대") }}
-    </div>
-    {{ service_config_card(summary.service_catalog, summary.workload_unknown_count) }}
-  </div>
-</section>
-{% endmacro %}
-
 {% macro inventory_cards(overview) %}
-<div class="metric-grid metric-grid-4">
-  <div class="metric-card">
+<div class="metric-grid" style="grid-template-columns:repeat(auto-fit, minmax(min(100%, 110px), 1fr));">
+  <div class="metric-card env-stat-card">
     <div class="metric-label">등록 서버</div>
-    <div class="metric-value">{{ overview.total }}대</div>
+    <div class="metric-value-md">{{ overview.total }}대</div>
     <div class="metric-sub">오프라인 {{ overview.offline }}</div>
   </div>
-  <div class="metric-card">
+  <div class="metric-card env-stat-card">
     <div class="metric-label">총 vCPU</div>
-    <div class="metric-value">{{ overview.total_vcpus }}</div>
+    <div class="metric-value-md">{{ overview.total_vcpus }}</div>
   </div>
-  <div class="metric-card">
+  <div class="metric-card env-stat-card">
     <div class="metric-label">총 메모리</div>
-    <div class="metric-value">{{ "%.1f" | format(overview.total_memory_gb) }} GB</div>
+    <div class="metric-value-md">{{ "%.1f" | format(overview.total_memory_gb) }} GB</div>
   </div>
-  <div class="metric-card">
+  <div class="metric-card env-stat-card">
     <div class="metric-label">총 디스크</div>
-    <div class="metric-value">{{ overview.total_disk_gb }} GB</div>
+    <div class="metric-value-md">{{ overview.total_disk_gb }} GB</div>
   </div>
 </div>
 {% endmacro %}
@@ -113,31 +76,52 @@
   </ul>
 </section>
 
-{{ env_config_section(summary) }}
-
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">환경 요약</h2>
   <h3>인벤토리</h3>
   {{ inventory_cards(summary.overview) }}
-  <h3 style="margin-top:18px;">메트릭</h3>
-  {% if summary.overview.utilization %}
-  <div class="metric-grid metric-grid-3">
-    {% for u in summary.overview.utilization %}
-    <div class="metric-card">
-      <div class="metric-label">{{ u.label }} 평균 활용률</div>
-      <div class="metric-value">{% if u.pct is not none %}{{ "%.1f" | format(u.pct) }}%{% else %}—{% endif %}</div>
+  <div class="env-dual" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap:24px; align-items:start;">
+    <div>
+      <h3 style="margin-top:18px;">메트릭</h3>
+      {% if summary.overview.utilization %}
+      <div class="metric-grid" style="grid-template-columns:repeat(3, minmax(0, 1fr));">
+        {% for u in summary.overview.utilization %}
+        <div class="metric-card env-stat-card">
+          <div class="metric-label">{{ u.label }} 평균</div>
+          <div class="metric-value-md">{% if u.pct is not none %}{{ "%.1f" | format(u.pct) }}%{% else %}—{% endif %}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      {{ empty_state("활용률 표본이 아직 없습니다.") }}
+      {% endif %}
     </div>
-    {% endfor %}
+    <div>
+      <h3 style="margin-top:18px;">OS 구성</h3>
+      {% if summary.os_family_dist %}
+      <div class="metric-grid" style="grid-template-columns:repeat(auto-fit, minmax(min(100%, 110px), 1fr));">
+        {% for b in summary.os_family_dist %}
+        <div class="metric-card env-stat-card">
+          <div class="metric-label">{{ b.label }}</div>
+          <div class="metric-value-md">{{ b.count }}대</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      {{ empty_state("수집된 OS 정보가 없습니다.") }}
+      {% endif %}
+    </div>
   </div>
-  {% else %}
-  {{ empty_state("활용률 표본이 아직 없습니다.") }}
-  {% endif %}
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  {{ service_config_card(summary.service_catalog, summary.workload_identified_count, summary.workload_unknown_count) }}
 </section>
 
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">자원 적정성 평가</h2>
 
-  <h3>분류 분포</h3>
+  <h3>분류 분포 ({{ summary.overview.total }}대)</h3>
   {{ classification_dist_bars(summary.classification_dist) }}
 
   <h3>효율화 검토 대상 ({{ summary.efficiency_target_count }}대)</h3>
@@ -177,7 +161,7 @@
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">OS 지원 종료</h2>
   {% if summary.os_eol_count %}
-  <p class="text-strong" style="margin:0;">지원 종료(EOL) 임박·경과 {{ summary.os_eol_count }}대 — 보안 패치 중단으로 전환·업그레이드 선행 검토.</p>
+  <p class="text-strong" style="margin:0;">지원 종료 {{ summary.os_eol_count }}대{% if summary.os_eol_breakdown_label %} — {{ summary.os_eol_breakdown_label }}{% endif %}</p>
   {% else %}
   {{ empty_state("지원 종료(EOL) 임박·경과 호스트 없음.") }}
   {% endif %}
@@ -195,28 +179,6 @@
   </ul>
 </section>
 
-{# AI 진단 — narrative_key 있을 때(environment scope 단일 narrative)만 노출. selection(scope=server)은
-   개별 서버 보고서(child)가 public_id 별 narrative 를 표시하므로 종합 보고서 자체엔 AI 진단 섹션 없음. #}
-{% if narrative_key %}
-<section class="card" data-narrative-slot data-narrative-key="{{ narrative_key }}" style="margin-bottom:16px;">
-  <h2 class="card-title">AI 진단</h2>
-  {% if env_narrative and env_narrative.status == 'succeeded' and env_narrative.narrative %}
-  <div class="diag-inline-body text-strong">{{ env_narrative.narrative }}</div>
-  <div class="diag-inline-meta"></div>
-  {% elif env_narrative and env_narrative.status == 'failed' %}
-  <div class="diag-inline-body text-muted">AI 진단 실패 — narrative 합성 실패.</div>
-  <div class="diag-inline-meta"></div>
-  {% else %}
-  <div class="diag-inline-body text-muted">
-    {% if report_job_id %}AI 진단 진행 중 (LLM 합성 10~60초 소요). 자동 폴링으로 결과 표시.{% else %}발행 시 생성.{% endif %}
-  </div>
-  <div class="diag-inline-meta"></div>
-  {% endif %}
-</section>
-{% endif %}
-
-{{ env_config_section(summary) }}
-
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">환경 현황</h2>
   <h3>인벤토리</h3>
@@ -224,58 +186,30 @@
   <h3 style="margin-top:18px;">메트릭</h3>
   <div class="metric-grid metric-grid-5">
     {% for m in summary.env_metrics %}
-    <div class="metric-card">
+    <div class="metric-card env-stat-card">
       <div class="metric-label">{{ m.label }}</div>
-      <div class="metric-value">{{ m.value }}</div>
+      <div class="metric-value-md">{{ m.value }}</div>
       {% if m.sub %}<div class="metric-sub">{{ m.sub }}</div>{% endif %}
     </div>
     {% endfor %}
   </div>
-</section>
-
-{# 환경 부하 추이 + 네트워크 토폴로지 (engineer) — 한 카드 2열, 두 렌더 높이 통일(320px). 화면 좁으면·인쇄 1열. #}
-<section class="card" style="margin-bottom:16px;">
-  <div class="env-dual" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap:24px; align-items:start;">
-    <div>
-      <h2 class="card-title" style="margin:0 0 12px;">환경 부하 추이 <span class="section-meta">{{ summary.time_range_label }} 윈도우 · CPU·메모리 평균</span></h2>
-      {% if summary.trend %}
-      <div style="height:320px;"><canvas id="env-trend-chart" data-trend='{{ summary.trend | tojson }}' data-range="{{ summary.time_range }}"></canvas></div>
-      {% else %}
-      {{ empty_state("추이 표본이 아직 없습니다.") }}
-      {% endif %}
+  <h3 style="margin-top:18px;">OS 구성</h3>
+  {% if summary.os_family_dist %}
+  <div class="metric-grid" style="grid-template-columns:repeat(auto-fit, 120px);">
+    {% for b in summary.os_family_dist %}
+    <div class="metric-card env-stat-card">
+      <div class="metric-label">{{ b.label }}</div>
+      <div class="metric-value-md">{{ b.count }}대</div>
     </div>
-    <div>
-      <h2 class="card-title" style="margin:0 0 12px;">네트워크 토폴로지{% if summary.topology and summary.topology.has_data %} <span class="section-meta">(서브넷 {{ summary.topology.subnet_count }} · 호스트 {{ summary.topology.host_count }})</span>{% endif %}</h2>
-      {# 보고서는 인쇄 전제 — 인터랙티브 그래프(클릭 펼침)는 인쇄 시 접힌 채 찍히고 대규모는 hairball 이라,
-         정적 서브넷 요약 표로 표시. 인터랙티브 그래프는 네트워크 토폴로지 페이지(화면) 전용. #}
-      {% if summary.topology and summary.topology.subnets %}
-      <table>
-        <thead><tr><th>서브넷 대역</th><th style="text-align:right; white-space:nowrap;">호스트 수</th></tr></thead>
-        <tbody>
-          {% for sn in summary.topology.subnets %}
-          <tr><td style="font-family:monospace;">{{ sn.net_key }}</td><td style="text-align:right;">{{ sn.host_count }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% else %}
-      {{ empty_state("공유 서브넷이 없습니다 — IP 토폴로지로 표시할 데이터가 없습니다.") }}
-      {% endif %}
-    </div>
+    {% endfor %}
   </div>
+  {% else %}
+  {{ empty_state("수집된 OS 정보가 없습니다.") }}
+  {% endif %}
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">자원 적정성 분류</h2>
-
-  <h3>분포</h3>
-  {{ classification_dist_bars(summary.classification_dist) }}
-
-  <h3>효율화 검토 대상 ({{ summary.efficiency_target_count }}대)</h3>
-  {{ efficiency_table(summary.efficiency_hosts, summary.efficiency_target_count, summary.efficiency_target_vcpus, summary.efficiency_target_memory_gb, summary.efficiency_hosts_count, self_back) }}
-
-  <h3>자원 부족 ({{ summary.under_provisioned_hosts_count }}대)</h3>
-  {{ under_provisioned_table(summary.under_provisioned_hosts, summary.under_provisioned_metric_labels, self_back) }}
-
+  {{ service_config_card(summary.service_catalog, summary.workload_identified_count, summary.workload_unknown_count) }}
 </section>
 
 <section class="card" style="margin-bottom:16px;">
@@ -297,6 +231,51 @@
   {% else %}
   {{ empty_state("OS 정보 수집된 서버 없음.") }}
   {% endif %}
+</section>
+
+{# 환경 부하 추이 + 네트워크 토폴로지 (engineer) — 한 카드 2열, 두 렌더 높이 통일(320px). 화면 좁으면·인쇄 1열. #}
+<section class="card" style="margin-bottom:16px;">
+  <div class="env-dual" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap:24px; align-items:start;">
+    <div>
+      <h2 class="card-title" style="margin:0 0 12px;">환경 부하 추이 <span class="section-meta">{{ summary.time_range_label }} 윈도우</span></h2>
+      {% if summary.trend %}
+      <div style="height:320px;"><canvas id="env-trend-chart" data-trend='{{ summary.trend | tojson }}' data-range="{{ summary.time_range }}"></canvas></div>
+      {% else %}
+      {{ empty_state("추이 표본이 아직 없습니다.") }}
+      {% endif %}
+    </div>
+    <div>
+      <h2 class="card-title" style="margin:0 0 12px;">네트워크 토폴로지{% if summary.topology and summary.topology.has_data %} <span class="section-meta">서브넷 {{ summary.topology.subnet_count }} · 호스트 {{ summary.topology.host_count }}</span>{% endif %}</h2>
+      {# 보고서는 인쇄 전제 — 인터랙티브 그래프(클릭 펼침)는 인쇄 시 접힌 채 찍히고 대규모는 hairball 이라,
+         정적 서브넷 요약 표로 표시. 인터랙티브 그래프는 네트워크 토폴로지 페이지(화면) 전용. #}
+      {% if summary.topology and summary.topology.subnets %}
+      <table>
+        <thead><tr><th>서브넷 대역</th><th style="text-align:right; white-space:nowrap;">호스트 수</th></tr></thead>
+        <tbody>
+          {% for sn in summary.topology.subnets %}
+          <tr><td style="font-family:monospace;">{{ sn.net_key }}</td><td style="text-align:right;">{{ sn.host_count }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      {{ empty_state("공유 서브넷이 없습니다 — IP 토폴로지로 표시할 데이터가 없습니다.") }}
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">자원 적정성 분류</h2>
+
+  <h3>분류 분포 ({{ summary.overview.total }}대)</h3>
+  {{ classification_dist_bars(summary.classification_dist) }}
+
+  <h3>효율화 검토 대상 ({{ summary.efficiency_target_count }}대)</h3>
+  {{ efficiency_table(summary.efficiency_hosts, summary.efficiency_target_count, summary.efficiency_target_vcpus, summary.efficiency_target_memory_gb, summary.efficiency_hosts_count, self_back) }}
+
+  <h3>자원 부족 ({{ summary.under_provisioned_hosts_count }}대)</h3>
+  {{ under_provisioned_table(summary.under_provisioned_hosts, summary.under_provisioned_metric_labels, self_back) }}
+
 </section>
 
 <section class="card" style="margin-bottom:16px;">

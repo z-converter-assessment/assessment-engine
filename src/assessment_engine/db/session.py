@@ -4,8 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from assessment_engine.config import WebSettings
 
-# db layer는 모든 컴포넌트(web·consumer·diagnostic) 공통 — 자체 WebSettings 인스턴스화로
-# 컴포넌트별 sub-module(web/settings·consumer/settings·diagnostic/settings)에 대한 circular import 회피.
+# db layer는 모든 컴포넌트(web·consumer) 공통 — 자체 WebSettings 인스턴스화로
+# 컴포넌트별 sub-module(web/settings·consumer/settings)에 대한 circular import 회피.
 # 같은 환경변수 read라 다른 instance와 결과 동일.
 _settings = WebSettings()
 

@@ -13,7 +13,10 @@ from datetime import datetime
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import MetricGapWarningRaw
 from assessment_engine.web.services.device_filters import disk_total_bytes
-from assessment_engine.web.services.mappers.report import build_resource_stats
+from assessment_engine.web.services.mappers.report import (
+    _build_under_provisioned_reason,
+    build_resource_stats,
+)
 from assessment_engine.web.services.mappers.server import workload_category_counter
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
@@ -433,6 +436,7 @@ def to_capacity_warning_item(raw):
         services=dict(workload_category_counter(raw.services, raw.listen_ports)),
         metrics=metrics,
         confidence_notes=build_confidence_notes(assessment),
+        recommendation_action=_build_under_provisioned_reason(assessment.triggers),
         severity_score=severity_score,
     )
 

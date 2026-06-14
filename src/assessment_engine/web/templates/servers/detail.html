@@ -46,7 +46,7 @@
     display: inline-block;
   }
 </style>
-<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
+<a class="back no-print" href="{{ back_url }}">이전</a>
 
 <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
   <h1>{{ server.hostname }}</h1>
@@ -127,7 +127,7 @@
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
     <h2 class="card-title" style="margin:0;">서비스 / 포트</h2>
-    <a href="/servers/{{ server.public_id }}/services?back={{ self_back }}" class="btn-action btn-action-sm no-print">서비스/포트 상세 →</a>
+    <a href="/servers/{{ server.public_id }}/services?back={{ self_back }}" class="btn-action btn-action-sm no-print">서비스/포트 상세</a>
   </div>
 
   <!-- 카테고리 뱃지 + 매핑 포트 -->
@@ -224,7 +224,7 @@
     <div class="group-header" style="margin-top:8px;">
       <span class="group-label">CPU</span>
       <div class="group-line"></div>
-      <a href="/servers/{{ server.public_id }}/cpu?back={{ self_back }}" class="btn-action btn-action-sm no-print">CPU 상세 →</a>
+      <a href="/servers/{{ server.public_id }}/cpu?back={{ self_back }}" class="btn-action btn-action-sm no-print">CPU 상세</a>
     </div>
     <div class="group-panel">
       <div class="sub-label" style="margin-top:0;">CPU / Load</div>
@@ -264,7 +264,7 @@
     <div class="group-header">
       <span class="group-label">메모리</span>
       <div class="group-line"></div>
-      <a href="/servers/{{ server.public_id }}/memory?back={{ self_back }}" class="btn-action btn-action-sm no-print">메모리 상세 →</a>
+      <a href="/servers/{{ server.public_id }}/memory?back={{ self_back }}" class="btn-action btn-action-sm no-print">메모리 상세</a>
     </div>
     <div class="group-panel">
       <div class="sub-label" style="margin-top:0;">Memory</div>
@@ -322,7 +322,7 @@
       <div class="group-header">
         <span class="group-label">스토리지</span>
         <div class="group-line"></div>
-        <a href="/servers/{{ server.public_id }}/storage?back={{ self_back }}" class="btn-action btn-action-sm no-print">스토리지 상세 →</a>
+        <a href="/servers/{{ server.public_id }}/storage?back={{ self_back }}" class="btn-action btn-action-sm no-print">스토리지 상세</a>
       </div>
       <div class="group-panel">
         <div id="disk-io-section">
@@ -347,7 +347,7 @@
       <div class="group-header">
         <span class="group-label">네트워크</span>
         <div class="group-line"></div>
-        <a href="/servers/{{ server.public_id }}/network?back={{ self_back }}" class="btn-action btn-action-sm no-print">네트워크 상세 →</a>
+        <a href="/servers/{{ server.public_id }}/network?back={{ self_back }}" class="btn-action btn-action-sm no-print">네트워크 상세</a>
       </div>
       <div class="group-panel">
         <div class="sub-label" style="margin-top:0;">Network I/O</div>
@@ -373,23 +373,19 @@
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
     <h2 class="card-title" style="margin:0;">보고서</h2>
     <a href="/reports/history?server_public_ids={{ server.public_id }}&scope=server&back={{ self_back }}" class="btn-action no-print" style="text-decoration:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       보고서 이력
     </a>
   </div>
   <p class="text-meta text-sm" style="margin:0 0 12px;">서버 <strong class="text-strong">{{ server.hostname }}</strong> 1대 대상 보고서 발행. 발행 이력은 보고서 이력에서 확인.</p>
   <div style="display:flex; gap:8px;">
     <a href="/servers/{{ server.public_id }}/metrics?back={{ self_back }}" class="btn-action no-print" style="text-decoration:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       성능 추이
     </a>
     <button type="button" id="server-report-customer-open" class="btn-action no-print" data-view="customer">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
       고객 보고서 발행
     </button>
     <button type="button" id="server-report-engineer-open" class="btn-action no-print" data-view="engineer">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="9 13 11 15 15 11"/></svg>
-      엔지니어 보고서 발행 <span class="tag-ai">AI</span>
+      엔지니어 보고서 발행
     </button>
   </div>
 
@@ -408,7 +404,7 @@
             <option value="15m">15분</option>
             <option value="1h">1시간</option>
             <option value="6h">6시간</option>
-            <option value="24h">24시간</option>
+            <option value="24h">1일</option>
             <option value="7d">7일</option>
             <option value="14d" selected>14일 (표준)</option>
             <option value="30d">30일</option>
@@ -424,7 +420,6 @@
   </div>
 </section>
 
-<!-- AI 진단 = 엔지니어 보고서 안 본질 catalog 통합 (서버 detail 안 별도 카드 없음). -->
 <!-- 본 서버 보고서 (engineer view) 진입: /servers/{{ server.public_id }}/report?view=engineer -->
 
 <!-- 최근 작업 — task.install 이력 (최근 10건). 클릭 시 modal 로 stdout_tail/stderr_tail/failure_reason 확장 -->
@@ -434,7 +429,6 @@
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
     <h2 class="card-title" style="margin:0;">최근 작업</h2>
     <button type="button" id="server-install-open" class="btn-action no-print">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       ZConverter Install
     </button>
   </div>

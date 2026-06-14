@@ -36,7 +36,7 @@
 ### 영역 3: 자원 적정성 분포 도넛
 
 - 24시간 측정값 기반 분류 3 카테고리 (under·정상·over)
-- 진단 워커가 자동 계산한 분포 시각화
+- `recommendation` 규칙 분류로 자동 계산한 분포 시각화
 - Windows (원칙 P2): swap 축 제외(pagefile baseline)·saturation 축 OS 부재라 utilization 축만으로 분류(부분 평가) — 도넛/카운트가 pagefile 사용으로 under 쪽 왜곡되지 않음. 상세 `docs/architecture/web/services.md` "OS 분기" 절
 
 답: "환경 안 자원 부족·자원 과다 서버 비율은?"
@@ -78,7 +78,6 @@ list에서 N대 선택 → 다음 액션 활성화:
 - 고객 보고서 (양식 A 발행)
 - 엔지니어 보고서 (양식 B 발행)
 - JSON Export (자동화 도구 입력)
-- 서버 진단 (batch 발행)
 - Install (zconverter task 발행)
 
 답: "선택한 N대에 어떤 다음 단계를 진행할 것인가?"
@@ -121,16 +120,15 @@ list에서 N대 선택 → 다음 액션 활성화:
 
 1. 활용률 도넛은 환경 평균만 — 분포(p50·p95)는 미노출. 양극화 환경에서 misleading (`docs/products/environment-report.md` 한계 #2와 동일 패턴).
 2. 행별 권장 단일 라벨 — recommendation 분류 1개만 표시. 다중 신호(예: CPU 정상 + 메모리 부족)는 우선순위 평가 후 1개만.
-3. 환경 진단 결과 자동 노출 — 홈 페이지가 사용자 trigger (web POST /api/diagnostics) 로 발행된 최근 succeeded 진단을 자동 표시. ADR 0023: cron 자동 발화 폐기로 운영자가 명시 발행 안 하면 진단 자료 누적 0. 진단 워커 중단 시 stale 표시 위험.
-4. 실시간 현황은 정적 스냅샷 — 진입 시점 1회 렌더라 갱신은 새로고침 의존. 자동 push(SSE/WebSocket) 미도입.
+3. 실시간 현황은 정적 스냅샷 — 진입 시점 1회 렌더라 갱신은 새로고침 의존. 자동 push(SSE/WebSocket) 미도입.
 
 ## 관련 문서·코드
 
 - `docs/architecture/web/layering.md` — 라우터 흐름·다이어그램
-- `docs/architecture/web/services.md` — query_service·diagnostic_service·service_classifier
+- `docs/architecture/web/services.md` — query_service·service_classifier
 - `docs/architecture/web/view-models.md` — ViewModel 카탈로그·도넛 SVG 상수
 - `docs/architecture/web/static-assets.md` — list-table.js·차트 P4 규약
-- `docs/products/{environment-report,server-report}.md` — 보고서 + 진단 통합 산출물 (scope별)
+- `docs/products/{environment-report,server-report}.md` — 보고서 산출물 (scope별)
 - `docs/products/install-task.md` — "최근 작업" column source
 - `src/assessment_engine/web/routers/pages/list_page.py` — overview·서버 목록·실시간 라우터
 - `src/assessment_engine/web/templates/servers/overview.html` — 환경 개요 홈

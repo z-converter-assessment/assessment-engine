@@ -53,8 +53,8 @@
     <thead>
       <tr>
         <th>상태</th><th>서버</th><th>구동 서비스</th><th>OS</th>
-        <th>자원 <span class="text-meta" style="font-weight:400;">vCPU·MEM·DISK</span></th>
-        <th style="text-align:right;">CPU 평균</th><th style="text-align:right;">MEM 평균</th>
+        <th>인벤토리</th>
+        <th style="text-align:right;">CPU 평균</th><th style="text-align:right;">MEM 평균</th><th style="text-align:right;">디스크 최대</th>
         <th>프로비저닝</th>
         {# 운영 안정성 컬럼 — engineer 전용 (customer high-level 에선 숨김). #}
         {% if view == "engineer" %}<th style="text-align:right;">재부팅</th><th style="text-align:right;">에이전트<br>재시작</th>{% endif %}
@@ -70,13 +70,14 @@
         <td><strong>{{ r.hostname }}</strong></td>
         <td>{% if r.workload_groups %}{% for g in r.workload_groups %}<span class="badge {{ g.category | service_badge_class }}">{{ g.category }}</span>{% if not loop.last %} {% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
         <td>{{ r.os_display }}</td>
-        <td style="line-height:1.5; white-space:nowrap;">{% if r.cpu_cores is not none %}{{ r.cpu_cores }} vCPU{% else %}—{% endif %}{% if r.mem_total_gb is not none %} · {{ "%.0f"|format(r.mem_total_gb) }} GB{% endif %}{% if r.disk_total_gb is not none %} · {{ "%.0f"|format(r.disk_total_gb) }} GB{% endif %}</td>
+        <td style="line-height:1.5; white-space:nowrap;">{% if r.cpu_cores is not none %}{{ r.cpu_cores }} vCPU{% else %}—{% endif %}{% if r.mem_total_gb is not none %} · {{ "%.1f"|format(r.mem_total_gb) }} GB{% endif %}{% if r.disk_total_gb is not none %} · {{ "%.0f"|format(r.disk_total_gb) }} GB{% endif %}</td>
         <td style="text-align:right;">{% if r.cpu_avg_pct is not none %}{{ "%.1f"|format(r.cpu_avg_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.mem_avg_pct is not none %}{{ "%.1f"|format(r.mem_avg_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.worst_mount_used_pct is not none %}{{ "%.1f"|format(r.worst_mount_used_pct) }}%{% else %}—{% endif %}</td>
         <td>{% if r.recommendation_label %}<span class="text-label">{{ r.recommendation_label }}</span>{% else %}<span class="text-meta">—</span>{% endif %}</td>
         {% if view == "engineer" %}<td style="text-align:right;">{{ r.reboot_count }}</td>
         <td style="text-align:right;">{{ r.agent_restart_count }}</td>{% endif %}
-        {% if show_report_link %}<td class="no-print"><a href="/servers/{{ r.public_id }}/report?{% if child %}job={{ child }}{% else %}view={{ view }}&time_range={{ time_range }}{% endif %}&back={{ self_back }}" class="btn-action" style="padding:4px 11px; white-space:nowrap;">보고서 &rarr;</a></td>{% endif %}
+        {% if show_report_link %}<td class="no-print"><a href="/servers/{{ r.public_id }}/report?{% if child %}job={{ child }}{% else %}view={{ view }}&time_range={{ time_range }}{% endif %}&back={{ self_back }}" class="btn-action" style="padding:4px 11px; white-space:nowrap;">보고서</a></td>{% endif %}
       </tr>
       {% endfor %}
     </tbody>

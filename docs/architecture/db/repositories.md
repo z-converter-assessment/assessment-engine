@@ -1,6 +1,6 @@
 # Repository 계층
 
-정책: CLAUDE.md #C2 · #F4. 3개 추상 인터페이스 `BaseCollectRepository`(Consumer) / `BaseQueryRepository`(Web) / `BaseDiagnosticRepository`(워커, ADR 0004 + 0023). 구체 구현체 import는 composition root(`web/deps.py` / `consumer/main.py` / `diagnostic/main.py`)만. ADR 0023: scheduler 폐기.
+정책: CLAUDE.md #C2 · #F4. 3개 추상 인터페이스 `BaseCollectRepository`(Consumer) / `BaseQueryRepository`(Web) / `BaseDiagnosticRepository`(보고서 발행·diagnostic_jobs 스냅샷). 구체 구현체 import는 composition root(`web/deps.py` / `consumer/main.py`)만.
 
 ## Collect 계층 — `BaseCollectRepository` (Consumer)
 
@@ -59,29 +59,30 @@
 
 집계 필터 단일 진실(`db/repositories/query/types.py`): `_DATA_VOLUME_SQL_FILTER`(mount 데이터볼륨 — `server_mount_usage.major` 주축, `device_filters.is_data_volume` 의 SQL 투영) · `_PHYS_DISK_SQL_FILTER`(물리 disk) · `_VIRTUAL_IFACE_SQL_FILTER`(비가상 iface) — disk·iface 는 `device_filters` 정규식의 PostgreSQL POSIX 번역(변경 시 동기화). 모든 그룹 partition pruning(#C5) `WHERE collected_at >= window_start` + boot jitter 가드 의무.
 
-## Diagnostic 계층 — `BaseDiagnosticRepository` (ADR 0004)
+## Diagnostic 계층 — `BaseDiagnosticRepository` (보고서 발행 스냅샷)
+
+`diagnostic_jobs` 테이블에 발행 시점 정적 스냅샷을 INSERT·조회 (#C1).
 
 | 메서드 | 설명 |
 |--------|------|
 | `enqueue(job: DiagnosticJobCreate) -> str \| None` | active partial UNIQUE 충돌 시 None (기존 job 그대로 반환) |
-| `get_active_by_hash(scope, input_hash)` | 더블클릭 방어 lookup — pending/running 활성 job 1건 반환 |
+| `get_active_by_hash(scope, input_hash)` | 더블클릭 방어 lookup — 활성 job 1건 반환 |
 | `get_latest_succeeded(scope, input_hash)` | input_hash 정확 매칭 latest |
-| `get_latest_by_context(scope, time_range, server_public_id?)` | anchor_at 무관 (JSONB 검색) 최근 결과 — SSR latest 카드 |
+| `get_latest_by_context(scope, time_range, server_public_id?)` | anchor_at 무관 (JSONB 검색) 최근 발행 스냅샷 |
 | `get_many_latest_by_context_server(time_range, public_ids)` | 보고서 batch fetch (#C5 N+1 회피, DISTINCT ON) |
-| `get_by_id(job_id)` / `get_many_by_ids(job_ids)` | polling 응답 단건/batch |
-| `mark_running(job_id, stage)` / `update_progress_stage` | 워커 stage UPDATE |
-| `mark_succeeded(job_id, result)` / `mark_failed(job_id, error_message)` | 최종 상태 전이 |
-| `list_recent(days, scope?, server_public_ids?, limit)` | 진단 이력 페이지 — created_at DESC |
-| `delete_retention(older_than_days)` | 스케줄러 retention DELETE |
+| `get_by_id(job_id)` / `get_many_by_ids(job_ids)` | `?job={id}` 스냅샷 조회 단건/batch |
+| `mark_succeeded(job_id, result)` / `mark_failed(job_id, error_message)` | 발행 결과 상태 전이 |
+| `list_recent(days, scope?, server_public_ids?, limit)` | 보고서 이력 페이지 — created_at DESC |
+| `delete_retention(older_than_days)` | retention DELETE |
 
 interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedelta(hours=N)` (SQLAlchemy idiomatic — Python timedelta가 PostgreSQL interval로 자동 변환·bind 파라미터 안전, C5 의무). f-string `text("interval '{N} days'")` 금지.
 
 상수 카탈로그 (`base_diagnostic_repository.py`):
 - `DiagnosticTimeRange` Literal — 차트 TimeRange와 동일 7개
 - `DIAGNOSTIC_RANGE_DAYS` — TimeRange -> float day 매핑 (fraction 지원)
-- `DIAGNOSTIC_RANGE_LABEL_KR` — UI/narrative 한국어 라벨
-- `CLASSIFICATION_LABEL_KR` — USE Method 분류 라벨 (`mappers.diagnostic` view + `llm/mock` narrative 공용)
-- `DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"` — F10 단일 진실 (service default · UI 기본값. ADR 0023: scheduler 폐기로 cron 발화 catalog 제거)
+- `DIAGNOSTIC_RANGE_LABEL_KR` — UI 한국어 라벨
+- `CLASSIFICATION_LABEL_KR` — USE Method 분류 라벨
+- `DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"` — F10 단일 진실 (service default · UI 기본값)
 
 ### 타입 별칭 (`db/repositories/query/types.py`)
 - `MetricType` Literal — 17개 chart metric

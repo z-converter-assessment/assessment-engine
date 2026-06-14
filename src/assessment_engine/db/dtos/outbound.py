@@ -359,15 +359,15 @@ class MetricGapWarningRaw:
     last_metric_at: datetime
 
 
-# --- 진단 job 조회 결과 (ADR 0004) ---
+# --- 보고서 발행 job 조회 결과 ---
 
 
 @dataclass
 class DiagnosticJobRecord:
-    """진단 job 단건 — 라우터 polling 응답·워커 작업 단위 표현.
+    """보고서 발행 job 단건 — 라우터 조회 응답·발행 이력 표현.
 
     id는 UUID 문자열 (PG_UUID as_uuid=False). result·error_message는 status 따라 둘 중 하나만 채움.
-    job_type: 'ai_diagnostic' | 'customer_report' | 'engineer_report'
+    job_type: 'customer_report' | 'engineer_report'
     """
 
     id: str

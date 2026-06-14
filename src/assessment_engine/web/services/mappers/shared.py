@@ -30,7 +30,7 @@ def build_confidence_notes(assessment: recommendation.Assessment) -> list[str]:
     """
     notes: list[str] = []
     if assessment.is_partial:
-        notes.append("이용률 기준 (포화 축 미관측)")
+        notes.append("포화 수치 미관측")
     if assessment.low_sample:
         notes.append("표본 부족")
     return notes

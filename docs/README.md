@@ -13,7 +13,7 @@
 | 기능 개발 마무리 5단계 표준 워크플로 | `development/wrap-up.md` |
 | 외부 인프라용 contract (deployment·env·alembic·observability·release) | `operations/` |
 | 본 repo CI · release(tag push) · branch protection 활성 (GitHub UI) | `development/github-setup.md` |
-| 운영 산출물별 의의·근거 (보고서·진단·Install·Export 등) | `products/` |
+| 운영 산출물별 의의·근거 (보고서·Install·Export 등) | `products/` |
 | 왜 그렇게 결정했나 | `adr/` |
 | 트레이드오프와 한계 (T1~T14) | `tradeoffs.md` |
 
@@ -25,7 +25,6 @@ docs/
 ├── architecture/          컴포넌트별 deep dive (영구·갱신)
 │   ├── agent.md           메시지 데이터 형식 (inventory / metrics / error / task.install / task.result)·포트 수집·디스크 필터링
 │   ├── consumer.md        handler·main·멱등성·재시도·부가 시그널
-│   ├── diagnostic.md      진단 워커·LLM (ollama 단일, ADR 0025)·diagnostic_jobs
 │   ├── rabbitmq.md        vhost·권한 모델·토폴로지·dev·prod 분기
 │   ├── redis.md           키 설계·TTL·PUB/SUB·캐시 무효화·mget
 │   ├── right-sizing.md    right-sizing 분류 기준·임계 근거 (USE Method·AWS/Azure/GCP advisor)·OS 분기·한계

@@ -45,7 +45,7 @@
           <option value="15m">15분</option>
           <option value="1h">1시간</option>
           <option value="6h">6시간</option>
-          <option value="24h">24시간</option>
+          <option value="24h">1일</option>
           <option value="7d" selected>7일 (표준)</option>
           <option value="14d">14일</option>
           <option value="30d">30일</option>
@@ -71,7 +71,7 @@
   <button type="button" id="realtime-sel-btn" class="btn-select no-print" disabled title="선택 N대 실시간 현황 (현황 모니터링)">실시간 현황</button>
   <button type="button" id="metrics-sel-btn" class="btn-select no-print" disabled title="선택 N대 성능 추이 (시계열)">성능 추이</button>
   <button type="button" id="report-customer-btn" class="btn-select no-print" disabled title="고객 제출용 — 양식 A">고객 보고서</button>
-  <button type="button" id="report-engineer-btn" class="btn-select no-print" disabled title="엔지니어 검토용 — 양식 B (AI 진단 컬럼 포함)">엔지니어 보고서</button>
+  <button type="button" id="report-engineer-btn" class="btn-select no-print" disabled title="엔지니어 검토용 — 양식 B">엔지니어 보고서</button>
   <button type="button" id="export-btn" class="btn-select no-print" disabled>JSON Export</button>
   <button type="button" id="install-btn" class="btn-select no-print" disabled>ZConverter Install</button>
 </div>
@@ -111,13 +111,13 @@
   <thead>
     <tr>
       <th class="no-print" style="width:36px; text-align:center;"><input type="checkbox" id="select-all"></th>
-      <th style="width:48px; text-align:center;">상태</th>
-      <th>Hostname</th>
-      <th>서비스</th>
-      <th>OS</th>
+      <th style="text-align:center; white-space:nowrap;">상태</th>
+      <th style="min-width:150px;">Hostname</th>
+      <th style="min-width:200px;">서비스</th>
+      <th style="min-width:130px;">OS</th>
       <th style="white-space:nowrap;">프로비저닝</th>
       <th style="white-space:nowrap;">최근 작업</th>
-      <th class="action-col"></th>
+      <th class="action-col" style="min-width:110px;"></th>
     </tr>
   </thead>
   <tbody id="server-tbody">

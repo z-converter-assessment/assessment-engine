@@ -21,7 +21,6 @@ from assessment_engine.web.services.diagnostic_service import DiagnosticService,
 from assessment_engine.web.services.mappers.report_history import to_report_history_item
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.report_serializer import (
-    ENV_NARRATIVE_KEY,
     REPORT_KIND_ENV,
     env_report_from_dict,
     env_report_to_dict,
@@ -83,8 +82,8 @@ async def _render_environment_snapshot(
     self_back: str,
     diag_service: DiagnosticService,
 ):
-    """발행된 환경 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary) + narrative."""
-    rec = await diag_service.get_one(job_id)
+    """발행된 환경 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary)."""
+    rec = await diag_service.get_report_snapshot(job_id)
     if rec is None or rec.result is None or rec.result.get("kind") != REPORT_KIND_ENV:
         raise HTTPException(status_code=404, detail="report snapshot not found")
     result = rec.result
@@ -100,10 +99,7 @@ async def _render_environment_snapshot(
             "view_title": _VIEW_TITLES.get(view, view),
             "back_url": back_url,
             "self_back": self_back,
-            "env_narrative": result.get("narratives", {}).get(ENV_NARRATIVE_KEY),
-            "narrative_status": result.get("narrative_status", "none"),
             "report_job_id": rec.id,
-            "narrative_key": ENV_NARRATIVE_KEY,
             "time_range": rec.input_params.get("time_range", DIAGNOSTIC_DEFAULT_TIME_RANGE),
         },
     )
@@ -117,9 +113,9 @@ async def environment_report_emit(
     service: QueryService = Depends(get_service),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """환경 보고서 발행 (PRG) — 발행 시점 정적 스냅샷 + (engineer) narrative worker 발행.
+    """환경 보고서 발행 (PRG) — 발행 시점 정적 스냅샷.
 
-    응답 view_url = `?job={id}` — 클라이언트가 navigate. engineer 면 worker 가 환경 narrative 채운 뒤 polling 갱신.
+    응답 view_url = `?job={id}` — 클라이언트가 navigate.
     같은 input 활성 충돌(더블클릭) 시 기존 job_id 회수 (emit_report 안).
     """
     anchor = _normalize_anchor(anchor_at)
@@ -140,8 +136,6 @@ async def environment_report_emit(
 
 
 _HISTORY_PAGE_LIMIT = 20
-# 전체보기 mode — retention 90일 가정 + 운영자 회고용. 한 번에 SSR (페이지네이션 폐기, 단순화).
-_HISTORY_FULL_LIMIT = 10000
 
 
 @reports_router.get("/history")
@@ -152,31 +146,27 @@ async def history(
         "all",
         description="양식 필터: 전체 / 고객 / 엔지니어",
     ),
-    scope: Literal["all", "environment", "server"] = Query(
+    scope: Literal["all", "environment", "selection", "single"] = Query(
         "all",
-        description="범위 필터: 전체 / 환경 / 서버 1대",
+        description="범위 필터: 전체 / 환경 / 선택 N대 / 서버 1대",
     ),
     server_public_ids: list[str] | None = Query(
         None,
         description="특정 서버 관련 보고서만 필터. 서버 목록 'N대 선택 + 보고서 이력' 진입 시 자동 채워짐.",
     ),
-    full: bool = Query(False, description="전체 보기 (기본 20건 → 전체)"),
+    limit: int = Query(_HISTORY_PAGE_LIMIT, ge=1, le=10000, description="표시 한도 — '더보기' 클릭 시 누적(20씩)"),
     fragment: bool = Query(False, description="HTML partial 만 반환 — JS 즉시 filter (full page reload 회피)"),
     back: str | None = Query(None, description="← 이전 link referrer"),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """보고서 발행 이력 — 운영자 회고용. created_at DESC. SSR 첫 20건 + "전체보기" 옵션 (full=1).
+    """보고서 발행 이력 — 운영자 회고용. created_at DESC. 기본 20건 + "더보기"(limit 누적).
 
-    full=False (default): 최근 20 건. 운영자 빠른 확인.
-    full=True: 모든 row. 한 번에 SSR (페이지네이션 없음 — 단순화, retention 90일 가정).
-    fragment=True: tbody + footer partial 만 반환 — JS 가 filter 변경 시 즉시 fetch + DOM 교체 (서버 목록과 동일 UX).
+    fragment=True: 결과 partial 만 반환 — JS 가 filter 변경·더보기 시 즉시 fetch + DOM 교체 (서버 목록과 동일 UX).
     """
-    limit = _HISTORY_FULL_LIMIT if full else _HISTORY_PAGE_LIMIT
-    records = await diag_service.list_reports(
+    records, total = await diag_service.list_reports(
         days,
         view,
         server_public_ids,
-        cursor=None,
         limit=limit,
         scope=None if scope == "all" else scope,
     )
@@ -188,12 +178,13 @@ async def history(
         "active_nav": "history",
         "items": items,
         "items_count": len(items),  # P3 정공 — template 안 `length` 계산 회피, server precompute.
+        "total": total,
+        "has_more": len(items) < total,
+        "page_limit": _HISTORY_PAGE_LIMIT,
         "days": days,
         "view": view,
         "scope": scope,
         "server_public_ids": server_public_ids,
-        "full": full,
-        "show_all_link": (not full) and len(records) == _HISTORY_PAGE_LIMIT,
         "back_url": back_url,
     }
     template = "reports/_history_results.html" if fragment else "reports/history.html"
@@ -218,5 +209,5 @@ async def right_sizing_thresholds(
     )
 
 
-# history.json endpoint 폐기 — JS 무한 fetch loop 버그 + UX 단순화 ("전체보기" 단일 옵션 SSR).
-# 페이지네이션 자체 폐기, retention 90일 가정으로 _HISTORY_FULL_LIMIT (10000) 한 번에 SSR.
+# history 이력은 "더보기"(limit 누적) 단일 옵션 — fragment 재조회로 결과 영역 교체(page reload 없음).
+# total 은 list_reports 가 필터 후 전체 건수로 반환(retention 90일 가정, COUNT 비용 수용) — shown/total 카운트용.

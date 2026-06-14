@@ -8,8 +8,6 @@
 | `routers/api.py` | `api_router` | `/api/servers` | JSON (시계열·메트릭) |
 | `routers/tasks.py` | `tasks_router` | `/api/tasks` | JSON |
 | `routers/exports.py` | `exports_router` | `/api/exports` | JSON (다운로드) |
-| `routers/diagnostics.py` | `diagnostics_router` | `/api/diagnostics` | JSON (ADR 0004) |
-| `routers/diagnostic_results.py` | `diagnostic_results_router` | `/diagnostics` | HTML (SSR — 결과·이력 페이지) |
 | `routers/reports.py` | `reports_router` | `/reports` | HTML (SSR — 환경 보고서·이력) + JSON (POST emit) |
 | `routers/reports.py` | `reference_router` | (없음) | HTML (SSR — `/reference` 기준·임계값 참고) |
 
@@ -27,7 +25,7 @@
 | `GET /environment/topology` | `topology` | 네트워크 토폴로지 — L3 subnet 공동소속 집계 그래프(subnet 노드 클릭 시 host 펼침) + 서브넷별 서버 카드 |
 | `GET /environment/metrics?ids=` | `environment_metrics` | 환경(또는 선택 N대) 성능 추이 — 10차트 live. ids(public_ids) 면 선택 N대 한정, 제목 "선택 N대" |
 | `GET /environment/realtime?ids=&fragment=` | `environment_realtime` | 환경(또는 선택 N대) 실시간 현황 — 평균 활용률 도넛 + 네트워크·디스크 I/O + 부하 상위 탑5. 정적 렌더(자동 갱신 없음). fragment=realtime 면 partial 만 |
-| `GET /servers/{server_id}` | `get_server` | detail 탭. 서버 진단 latest 카드 포함 |
+| `GET /servers/{server_id}` | `get_server` | detail 탭 |
 | `GET /servers/{server_id}/{cpu,memory,services,metrics}` | 동일 helper | `_render_server_tab` 탭 공유. metrics=성능 추이(추이 차트 5행2열 `.perf-merged` 단일 카드) |
 | `GET /servers/{server_id}/{storage,network}` | 별도 핸들러 | 다른 service 메서드 |
 | `GET /servers/{server_id}/report?view=&time_range=` | `single_server_report` | 단일 server 보고서 read-only. record 안 함 (1대 단위는 발행 흐름 없음) |
@@ -61,19 +59,6 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 |------|------|
 | `POST /inventory` | 정제 Inventory JSON (`docs/architecture/web/export-schema.md`). envelope에 period_window + size_class_guide 포함. 클라이언트 다운로드 — 서버 stateless |
 
-### `diagnostics.py` — 진단 (ADR 0004 + 0010)
-| 경로 | 용도 |
-|------|------|
-| `POST /` | scope=server|environment 진단 enqueue. server_ids batch. active partial UNIQUE 충돌 시 기존 job_id 반환. 400/404/409는 `DiagnosticBadRequest`/`DiagnosticNotFound`/`DiagnosticRaceMiss` 매핑 |
-| `GET /?ids=j1,j2,...` | N개 batch polling. UUID 형식 검증 (422), 100건 상한 |
-| `GET /{job_id}` | 단건 polling 편의 |
-
-### `diagnostic_results.py` — SSR 결과·이력 (ADR 0004)
-| 경로 | 용도 |
-|------|------|
-| `GET /diagnostics?ids=j1,j2,...` | 진단 결과 페이지 (polling 으로 succeeded 추적). environment scope job 마다 `/reports/environment` iframe 2 view 미리 합성 |
-| `GET /diagnostics/history?days=&scope=&server_public_ids=&full=` | 진단 발행 이력 — job_type='ai_diagnostic' 자동 필터, scope 으로 environment/server 분기. 기본 20건 + `full=1` 시 전체 (보고서 이력과 동일 패턴) |
-
 ### `reports.py` — 보고서 SSR + 발행 (PRG 패턴)
 | 경로 | 용도 |
 |------|------|
@@ -87,8 +72,8 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | HTTP | 의미 | 발생 위치 |
 |------|------|-----------|
 | 422 | 입력 형식 오류 | Pydantic field validator (IP 형식·UUID 형식·Literal enum) |
-| 404 | 리소스 없음 | `resolve_internal_id` 또는 service `TaskNotFound`/`DiagnosticNotFound` exception |
-| 409 | 충돌 | `tasks/install` pending 중복 (`TaskDuplicatePending`) 또는 진단 enqueue race (`DiagnosticRaceMiss`) |
+| 404 | 리소스 없음 | `resolve_internal_id` 또는 service `TaskNotFound` exception |
+| 409 | 충돌 | `tasks/install` pending 중복 (`TaskDuplicatePending`) |
 | 500 | 서버 오류 | service 측 예기치 못한 Exception (DB·외부 의존 비정형 오류 등) |
 | 503 | 설정 미충족 | `TaskNotConfigured` — `HttpZdmPackageResolver` 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200·size mismatch) 시 install 발행 차단 |
 

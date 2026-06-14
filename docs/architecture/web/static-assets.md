@@ -246,10 +246,10 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 |------|-------------|------|
 | 1회 fetch + render (예: task-modal body) | 정공 — fragment endpoint (`/api/tasks/{id}/detail`) + JS `innerHTML = await fetch().text()` | overhead 0, P3 완전 정공 |
 | 저빈도 polling + 파생 많은 SSR 영역 (예: 대시보드 환경요약·운영신호·서버목록 30초 자동갱신) | 정공 — fragment endpoint (`?fragment=live`/`?fragment=rows`) HTML 반환 + JS `#dashboard-live` innerHTML·`#server-tbody` server-row 교체 | 30초 저빈도라 HTML fragment fetch overhead 무시 가능. mapper 파생 많아 JSON+JS render 시 P2 복제 — fragment 가 단일 진실 유지 |
-| polling 흐름 (예: detail page metrics/latest 30초 polling / storage snapshot / diagnostic-results.js · diagnostic-inline.js result polling) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
+| polling 흐름 (예: detail page metrics/latest 30초 polling / storage snapshot) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
 
 폴링 흐름 JS render 의무:
-- inline `style="color:#xxx"` 금지 — base.html 색 전용 유틸 (중립 톤 `.text-strong`/`.text-label`/`.text-muted`/`.text-meta`/`.text-faint` + 의미색 `.text-danger`/`.text-ok`/`.text-warn`/`.text-attn`, 모두 color-only · size 는 부모 상속) 사용. font-size 는 위계 제목·값 컴포넌트(`.stat-*`/`.metric-*`/`.kpi-*`/`.text-narrative`/`.pre-output`) 우선, 그 외 보조 텍스트는 size 유틸(`.text-md`/`.text-sm`/`.text-xs`)을 색 유틸과 조합.
+- inline `style="color:#xxx"` 금지 — base.html 색 전용 유틸 (중립 톤 `.text-strong`/`.text-label`/`.text-muted`/`.text-meta`/`.text-faint` + 의미색 `.text-danger`/`.text-ok`/`.text-warn`/`.text-attn`, 모두 color-only · size 는 부모 상속) 사용. font-size 는 위계 제목·값 컴포넌트(`.stat-*`/`.metric-*`/`.kpi-*`/`.pre-output`) 우선, 그 외 보조 텍스트는 size 유틸(`.text-md`/`.text-sm`/`.text-xs`)을 색 유틸과 조합.
 - layout 관련 inline style (display:flex / grid / table 등) 허용 — 모듈별 부수 정렬, utility class 화 강제 X.
 - 동일 데이터의 SSR template 이 있으면 그쪽이 우선 (server 단일 진실 정공).
 
@@ -334,8 +334,6 @@ self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 | `/reports/environment` | O | `/` |
 | `/reports/history` | O | `/` |
 | `/reference` (참고) | O | `/` |
-| `/diagnostics?ids=...` (결과) | O | `/` |
-| `/diagnostics/history` | O | `/` |
 
 환경 개요(`/`)만 root 진입점이라 back 안 받음 — 다른 페이지에서 그쪽으로 가는 link 도 back 불필요. 다만 개요 자체는 `self_back` 산출 의무 (자식 link 에 박기 위해).
 
@@ -344,7 +342,7 @@ self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 발행 실패·API 오류는 페이지 본문 (statusEl 영구 표시) 가 아닌 toast (sub-window) 로 표시:
 ```js
 if (window.ToastUtils) {
-  ToastUtils.show(`AI 진단 발행 실패: ${e.message}`, 'err');
+  ToastUtils.show(`보고서 발행 실패: ${e.message}`, 'err');
 }
 ```
 statusEl 은 이전 상태 복원 — 에러 흔적 본문에 잔존 금지.
