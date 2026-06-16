@@ -1,5 +1,4 @@
-{# 환경 개요(`/`) 본문 — 환경 요약(인벤토리) + 평균 활용률 도넛(24h) + 수집 건전성. 정적 집계(자동 갱신 없음).
-   자원 적정성 분류는 환경 자원 평가 페이지, 운영 신호는 실시간 현황 페이지로 분리. 컨텍스트: overview, window_label. #}
+{# 환경 개요(`/`) 본문 — 정적 집계(자동 갱신 없음). 컨텍스트 의무: overview, window_label. #}
 {% from "_shared.html" import empty_state, window_meta, util_donut %}
 
 {% if overview and overview.total > 0 %}
@@ -9,7 +8,7 @@
     <div class="kpi">
       <span>총 서버</span>
       <strong>{{ overview.total }}</strong>
-      {% if overview.os_distribution %}<div class="kpi-sub">{% for os_name, n in overview.os_distribution.items() %}{{ os_name }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</div>{% endif %}
+      {% if overview.os_distribution %}<div class="kpi-sub">{% for os_name, n in overview.os_distribution.items() %}{{ os_name | replace('windows', 'win') }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</div>{% endif %}
     </div>
     <div class="kpi"><span>총 vCPU</span><strong>{{ overview.total_vcpus }}</strong></div>
     <div class="kpi"><span>메모리</span><strong>{{ overview.total_memory_gb | disksize }}</strong></div>
@@ -24,7 +23,7 @@
   <div class="text-muted text-sm" style="margin-top:8px;">서비스 미식별 <strong class="text-strong">{{ overview.role_unknown_count }}</strong>대</div>
 </section>
 
-{# 평균 활용률 도넛 — 24h capacity-weighted 평균(#F10 DASHBOARD_TIME_RANGE). 순간 스냅샷은 실시간 현황 페이지. #}
+{# 24h capacity-weighted 평균(#F10 DASHBOARD_TIME_RANGE). 순간 스냅샷은 실시간 현황 페이지. #}
 <section class="card no-print">
   <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
     <h2 class="card-title" style="margin:0;">평균 활용률</h2>
@@ -39,7 +38,7 @@
   {% endif %}
 </section>
 
-{# 수집 건전성 — 현재 온라인/오프라인(Redis online TTL 기준). 환경이 제대로 수집되고 있는지 한눈에. #}
+{# 수집 건전성 — 온라인/오프라인 (Redis online TTL 기준). #}
 <section class="card no-print">
   <h2 class="card-title" style="margin:0 0 12px;">수집 건전성</h2>
   <div class="text-label text-md" style="display:flex; flex-wrap:wrap; gap:24px;">

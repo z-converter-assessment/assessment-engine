@@ -56,7 +56,6 @@ def server_detail_to_json(v: ServerDetailResponse) -> str:
 
 def server_detail_from_json(raw: str) -> ServerDetailResponse:
     data = json.loads(raw)
-    # 옛 캐시 호환: 제거된 type 키가 남아 있어도 무시 (DiskItem 은 name/size_gb 만).
     data["disks"] = [DiskItem(name=d["name"], size_gb=d.get("size_gb")) for d in data.get("disks") or []]
     data["volumes"] = [VolumeItem(**v) for v in data.get("volumes") or []]
     data["ip_internal"] = [IpAddr(**a) for a in data.get("ip_internal") or []]
@@ -97,12 +96,11 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
         data.pop(key, None)
     if "public_id" not in data:
         data["public_id"] = ""
-    # 옛 캐시 호환 — host_id -> composite_id rename + machine_id 신규 (배포 직후 stale 캐시 보정).
     if "composite_id" not in data:
         data["composite_id"] = data.pop("host_id", "")
     data.pop("host_id", None)
     data.setdefault("machine_id", None)
-    data.setdefault("os_family", None)  # 옛 캐시 호환 — os_family 신규 base 필드
+    data.setdefault("os_family", None)
     return enrich_server_detail(ServerDetailResponse(**data))
 
 

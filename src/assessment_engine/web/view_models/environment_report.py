@@ -18,16 +18,15 @@ class ClassificationCount:
     """USE Method 분포 1 segment — 환경 보고서 전용 (양식 A/B 공통).
 
     label 은 right-sizing 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 보고서 전역 동일 어휘.
-    description: 보고서 분포 막대 옆 조치 방향 보조 설명.
-    pct: 본 segment 가 전체 classification_dist 중 차지하는 % (mapper precompute, P3 회피).
+    pct: classification_dist 중 차지하는 % (mapper precompute, P3 회피).
     """
 
-    key: str  # recommend enum
-    label: str  # 영어 enum 그대로
+    key: str
+    label: str
     count: int
-    color: str  # hex 색
+    color: str
     description: str = ""  # 한국어 보조 설명
-    pct: float = 0.0  # 0~100 — mapper 가 _count_classifications 직후 채움
+    pct: float = 0.0
 
 
 @dataclass
@@ -42,8 +41,8 @@ class OsCount:
 class DistributionBar:
     """구성 분포 1 segment — OS family / 워크로드 카테고리 공용 (환경 보고서 구성 계층).
 
-    단순 분포 막대 (위험도 색 아님) — P-E 단일 색, 막대마다 색 달리하지 않음.
-    pct: 분포 내 최대 count 대비 막대 너비 % (mapper precompute, P3 회피). count 가 절대값.
+    단순 분포 막대 (위험도 색 아님, 단일 색).
+    pct: 분포 내 최대 count 대비 막대 너비 % (mapper precompute, P3 회피).
     """
 
     label: str
@@ -71,6 +70,8 @@ class ServerInventory:
     ip_internal: list[IpAddr]
     ip_external: list[IpAddr]
     boot_time: datetime | None
+    agent_started_at: datetime | None
+    last_seen_at: datetime | None
     agent_version: str | None
     composite_id: str
     machine_id: str | None
@@ -178,7 +179,7 @@ class EnvironmentReportSummary:
     server scope 보고서: row 단위 검토 중심 (선택 N대 상세).
     environment scope 보고서: high-level overview·분류 분포·top risk·OS 분포 중심.
     view ('customer'|'engineer') 분기 — summary_bullets_env 가 view 별 다른 텍스트.
-    time_range/anchor_at: AI 진단과 동일 윈도우 매트릭스 (15m~30d) + 운영자 명시 anchor.
+    time_range/anchor_at: 윈도우 매트릭스 (15m~30d) + 운영자 명시 anchor.
     """
 
     view: str
@@ -186,7 +187,7 @@ class EnvironmentReportSummary:
     time_range_label: str  # "15분"/"1시간"/...  한국어 표시 단일 진실 (mapper)
     anchor_at: datetime  # 분석 기준 시각 (보고서 본문 끝점)
     generated_at: datetime  # 응답 합성 시각 (DB 저장·UI 표시용)
-    overview: EnvironmentOverview  # 기존 list 페이지와 동일 source (utilization 3 bar 포함)
+    overview: EnvironmentOverview
     attention: AttentionSignals  # 운영신호 3 카탈로그 (gap/os_eol/agent_unstable)
     base: ReportSummary  # 전체 서버 raw aggregation 결과 (KPI·totals·rows 전부)
     classification_dist: list[ClassificationCount]
@@ -222,7 +223,8 @@ class EnvironmentReportSummary:
     # 차트 JS inline(tojson)용 plain dict: [{"at": iso, "cpu": float|None, "mem": float|None}].
     trend: list[dict] = field(default_factory=list)
     under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list)
-    # 자원 부족 6축 테이블 헤더 라벨 — 첫 호스트 metrics 라벨 precompute (P3: 템플릿 인덱싱 회피). plain str list 라 serializer 복원 불요.
+    # 자원 부족 6축 테이블 헤더 라벨 — 첫 호스트 metrics 라벨 precompute (P3: 템플릿 인덱싱 회피).
+    # plain str list 라 serializer 복원 불요.
     under_provisioned_metric_labels: list[str] = field(default_factory=list)
     # 서비스 구성 — 선택 N대 전체의 워크로드 카테고리별 제품명 집합 (뱃지 + 매칭 서비스명). base.rows 의
     # workload_groups 를 카테고리 기준 merge (mapper 집계, P2). 카테고리 뱃지에 정확히 매칭되는 서비스명 노출.

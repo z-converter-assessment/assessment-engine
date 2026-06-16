@@ -1,8 +1,8 @@
 """Exports router — 자동화 도구 입력용 정제 산출물 다운로드.
 
 스키마·정제 원칙·사용처: docs/architecture/web/export-schema.md.
-v4: 사용처축 배치 — server 항목을 identity/os/spec(VM 생성)/usage(right-sizing 측정)/assessment(평가 결과)/
-   services(보안그룹)로 재정렬. 자동화 도구가 사용처 블록을 통째로 소비.
+server 항목은 사용처축 배치 — identity/os/spec(VM 생성)/usage(right-sizing 측정)/assessment(평가 결과)/
+services(보안그룹). 자동화 도구가 사용처 블록을 통째로 소비.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -36,13 +36,11 @@ async def export_inventory(
     req: InventoryExportRequest,
     service: QueryService = Depends(get_service),
 ):
-    """선택 서버 N대의 정제 inventory v3 JSON 반환.
+    """선택 서버 N대의 정제 inventory JSON 반환.
 
     응답을 클라이언트가 파일로 저장 (브라우저 download). 서버에서 파일 생성 안 함 — stateless.
     envelope에 평가 기간 시작·종료 + size_class 매핑 가이드 포함 (reproducibility).
-
-    자동화 도구 (Terraform · Ansible 등) 는 구조화 값만 사용 — 구조화 데이터
-    (`recommended_size_class` 필드 + 분류·임계 수치) 만 활용 catalog 정공.
+    자동화 도구(Terraform·Ansible 등)는 구조화 값(`recommended_size_class` + 분류·임계 수치)만 소비.
     """
     sid_map = await service.resolve_server_ids(req.target_public_ids)
     missing = [pid for pid in req.target_public_ids if pid not in sid_map]

@@ -65,14 +65,11 @@
 
 | 메서드 | 설명 |
 |--------|------|
-| `enqueue(job: DiagnosticJobCreate) -> str \| None` | active partial UNIQUE 충돌 시 None (기존 job 그대로 반환) |
-| `get_active_by_hash(scope, input_hash)` | 더블클릭 방어 lookup — 활성 job 1건 반환 |
-| `get_latest_succeeded(scope, input_hash)` | input_hash 정확 매칭 latest |
-| `get_latest_by_context(scope, time_range, server_public_id?)` | anchor_at 무관 (JSONB 검색) 최근 발행 스냅샷 |
-| `get_many_latest_by_context_server(time_range, public_ids)` | 보고서 batch fetch (#C5 N+1 회피, DISTINCT ON) |
-| `get_by_id(job_id)` / `get_many_by_ids(job_ids)` | `?job={id}` 스냅샷 조회 단건/batch |
-| `mark_succeeded(job_id, result)` / `mark_failed(job_id, error_message)` | 발행 결과 상태 전이 |
-| `list_recent(days, scope?, server_public_ids?, limit)` | 보고서 이력 페이지 — created_at DESC |
+| `enqueue(job: DiagnosticJobCreate) -> str \| None` | active partial UNIQUE(scope·input_hash·job_type) 충돌 시 None (기존 job 그대로 반환) |
+| `get_active_by_hash(scope, input_hash, job_type)` | 더블클릭 방어 lookup — 활성 job 1건 반환 |
+| `get_by_id(job_id)` | `?job={id}` 스냅샷 단건 조회 |
+| `mark_succeeded(job_id, result)` | 발행 즉시 succeeded 상태 전이 (customer/engineer 동일, 비동기·실패 상태 없음) |
+| `list_recent(days, scope?, server_public_ids?, job_type?, limit)` | 보고서 이력 페이지 — created_at DESC |
 | `delete_retention(older_than_days)` | retention DELETE |
 
 interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedelta(hours=N)` (SQLAlchemy idiomatic — Python timedelta가 PostgreSQL interval로 자동 변환·bind 파라미터 안전, C5 의무). f-string `text("interval '{N} days'")` 금지.

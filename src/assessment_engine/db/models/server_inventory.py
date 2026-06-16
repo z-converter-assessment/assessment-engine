@@ -11,9 +11,8 @@ from assessment_engine.db.models.base import Base
 class ServerInventory(Base):
     """등록 호스트 인벤토리.
 
-    Unique 식별 = `composite_id` 단일 (SHA-256 composite hash, agent v4 계약 — ADR 0022 정정).
-    machine_id 는 raw machine-id 표시 전용 (식별·라우팅 미사용).
-    hostname 은 display field (운영자 변경 가능, UNIQUE 제약 X).
+    식별 단일 키 = `composite_id` (UNIQUE, #C1). `machine_id` 는 표시 전용,
+    `hostname` 은 display field (UNIQUE X), `public_id` 는 URL 노출용 (ADR 0022 정정).
     """
 
     __tablename__ = "server_inventory"
@@ -26,17 +25,14 @@ class ServerInventory(Base):
         unique=True,
         nullable=False,
     )
-    # composite_id — SHA-256 composite hash (agent v4). 호스트 식별 단일 키 (UNIQUE).
+    # 호스트 식별 단일 키 (#C1) — agent 매칭·라우팅 (MQ queue·routing key 도 본 값).
     composite_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    # machine_id — raw machine-id (Linux /etc/machine-id, Windows MachineGuid). 표시 전용 —
-    # 식별·라우팅은 composite_id. 옛 agent(미발행) 호환 위해 nullable.
+    # raw machine-id (Linux /etc/machine-id, Windows MachineGuid). 표시 전용 — 식별 미사용.
     machine_id: Mapped[str | None] = mapped_column(String(64))
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     agent_version: Mapped[str | None] = mapped_column(String(32))
 
-    # os_family — agent 가 publish 하는 OS family (linux / windows). task.install 발행 시
-    # OS 별 dispatch (install.type / download.url / install.script) 의 단일 진실.
-    # Linux agent minor bump 호환 단계라 nullable. agent 배포 완료 후 별도 revision 에서 not-null tighten.
+    # OS family (linux / windows) — task.install OS 별 dispatch 단일 진실 (ADR 0020).
     os_family: Mapped[str | None] = mapped_column(String(16))
     os_id: Mapped[str | None] = mapped_column(String(64))
     os_version: Mapped[str | None] = mapped_column(String(64))
@@ -53,7 +49,7 @@ class ServerInventory(Base):
 
     ip_internal: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     ip_external: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
-    # mac_addresses — NIC MAC 목록 (clone collision 감사용 raw 보존). 식별·라우팅 미사용 (composite_id 단일).
+    # NIC MAC 목록 (clone collision 감사용 raw 보존). 식별 미사용.
     mac_addresses: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
     disks: Mapped[list[Any] | None] = mapped_column(JSONB)

@@ -8,12 +8,11 @@ from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 # 의미 약하지만 차트와 토글 통합 UX 일관성을 위해 노출. 기본 "7d" — ADR 0003 WINDOW_DAYS와 동일.
 DiagnosticTimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 
-# fraction day — SQL interval 표현은 fraction 지원 (e.g., interval '0.25 days' = 6h).
-# report_aggregate의 period_days 인자는 float·int 둘 다 호환.
+# fraction day — SQL interval 은 fraction 지원 (interval '0.25 days' = 6h). period_days 는 float·int 호환.
 DIAGNOSTIC_RANGE_DAYS: dict[str, float] = {
-    "15m": 15 / 1440,  # 0.0104 day
-    "1h": 1 / 24,  # 0.0417 day
-    "6h": 6 / 24,  # 0.25 day
+    "15m": 15 / 1440,
+    "1h": 1 / 24,
+    "6h": 6 / 24,
     "24h": 1.0,
     "7d": 7.0,
     "14d": 14.0,
@@ -46,18 +45,14 @@ DIAGNOSTIC_DEFAULT_TIME_RANGE = "7d"
 
 
 class BaseDiagnosticRepository(ABC):
-    """진단 job 영속성 인터페이스.
-
-    Web router 가 본 추상에만 의존. 구체 구현체는 composition root(`web/deps.py`)에서만 import (F4).
-    보고서 발행 이력·right-sizing 진단 job 의 enqueue·조회·발행 확정·retention 만 담당.
-    """
+    """진단 job 영속성 인터페이스. 보고서 발행 이력·진단 job enqueue·조회·확정·retention."""
 
     @abstractmethod
     async def enqueue(self, job: DiagnosticJobCreate) -> str | None:
-        """진단 job INSERT. 새 id (UUID 문자열) 반환.
+        """진단 job INSERT. 새 id (UUID) 반환.
 
-        active UNIQUE = (scope, input_hash, job_type). 충돌 시 None — caller는
-        `get_active_by_hash(scope, input_hash, job_type)` 로 기존 job_id 조회.
+        active UNIQUE = (scope, input_hash, job_type). 충돌 시 None — caller 가
+        `get_active_by_hash` 로 기존 job_id 조회.
         """
         ...
 
@@ -68,10 +63,7 @@ class BaseDiagnosticRepository(ABC):
         input_hash: str,
         job_type: str,
     ) -> str | None:
-        """동일 (scope, input_hash, job_type) + status IN ('pending','running') job_id 조회.
-
-        active UNIQUE 충돌 시 caller가 기존 진행 중 job_id 회수.
-        """
+        """동일 (scope, input_hash, job_type) + status IN ('pending','running') job_id 조회."""
         ...
 
     @abstractmethod
@@ -79,10 +71,7 @@ class BaseDiagnosticRepository(ABC):
 
     @abstractmethod
     async def mark_succeeded(self, job_id: str, result: dict) -> None:
-        """status → succeeded, result 저장, finished_at=now(), progress_stage=NULL.
-
-        보고서 발행은 즉시 succeeded — web 이 ViewModel snapshot 을 result 에 저장하며 확정.
-        """
+        """status → succeeded, result 저장, finished_at=now(), progress_stage=NULL."""
         ...
 
     @abstractmethod
@@ -96,9 +85,8 @@ class BaseDiagnosticRepository(ABC):
     ) -> list["DiagnosticJobRecord"]:
         """최근 N일 보고서 발행 이력. scope·server_public_ids·job_type 필터 옵션. created_at DESC.
 
-        보고서 이력 페이지(`/reports/history`)용. 모든 상태(succeeded/failed) 포함.
-        server_public_ids 지정 시 input_params JSONB에서 ANY 매칭 (server scope job만 자연 필터).
-        job_type 미지정은 전체 (customer_report + engineer_report).
+        모든 상태(succeeded/failed) 포함. server_public_ids 지정 시 input_params JSONB ANY 매칭
+        (server scope job 만 자연 필터). job_type 미지정은 전체.
         """
         ...
 

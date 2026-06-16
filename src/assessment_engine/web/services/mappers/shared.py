@@ -18,7 +18,6 @@ _USAGE_WARN_PCT = 75  # 사용률 주의 임계
 _SWAP_DANGER_PCT = 0.1  # 스왑 사용 자체가 이슈 — 0.1% 도 빨강 (JS metrics.js 동일)
 
 # 보고서 view 분기 — 라우터 Pydantic Literal 정합 (#F3)
-# service · mapper 시그니처에도 적용해 typo 차단.
 ReportView = Literal["customer", "engineer"]
 
 

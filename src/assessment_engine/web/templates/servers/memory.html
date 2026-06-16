@@ -5,13 +5,12 @@
 <a class="back no-print" href="{{ back_url }}">이전</a>
 <h1>{{ server.hostname }} — 메모리 상세</h1>
 
-<!-- 현재 상태 -->
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
     <h2 class="card-title" style="margin:0;">현재 상태</h2>
     <span id="metrics-stamp" class="text-meta no-print text-xs">30초마다 자동 갱신 · 최근 —</span>
   </div>
-  <dl class="kv" style="margin-bottom:16px;">
+  <dl class="kv kv-soft" style="margin-bottom:16px;">
     <dt>전체 메모리</dt>
     <dd>{{ server.mem_total_gb | disksize }}</dd>
     {% if server.swap_total_gb is not none %}
@@ -22,14 +21,14 @@
   <hr style="border:none; border-top:1px solid #e2e8f0; margin:0 0 14px;">
   <div id="snap-loading" class="text-meta text-md">불러오는 중...</div>
   <div id="snap-body" style="display:none;">
-    <dl class="kv" style="margin-bottom:20px;">
+    <dl class="kv kv-soft" style="margin-bottom:20px;">
       <dt>메모리 사용률</dt> <dd id="s-mem-pct">—</dd>
       <dt>Used</dt>          <dd id="s-mem-used">—</dd>
       <dt>Available</dt>     <dd id="s-mem-avail">—</dd>
       <dt class="kv-sub text-muted">Cached</dt>  <dd id="s-mem-cached">—</dd>
       <dt class="kv-sub text-muted">Buffers</dt> <dd id="s-mem-buffers">—</dd>
     </dl>
-    <dl class="kv">
+    <dl class="kv kv-soft">
       <dt>스왑 사용률</dt> <dd id="s-swap-pct">—</dd>
       <dt>스왑 Used</dt>   <dd id="s-swap-used">—</dd>
     </dl>
@@ -43,7 +42,6 @@
   </div>
 </div>
 
-<!-- 메모리 사용률 추이 -->
 <div class="card">
   <div class="chart-head">
     <h2 class="card-title">메모리 사용률 추이<span class="print-only text-muted text-sm" id="mem-range-print" style="font-weight:normal;"> — 1시간</span></h2>
@@ -59,7 +57,6 @@
     </select>
     <input type="datetime-local" id="mem-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
-  <div class="chart-desc">(Total - Available) / Total — Cached·Buffers 제외</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="mem-canvas"></canvas>
   </div>
@@ -71,7 +68,6 @@
   </p>
 </div>
 
-<!-- 메모리 구성 추이 -->
 <div class="card">
   <div class="chart-head">
     <h2 class="card-title">메모리 구성 추이<span class="print-only text-muted text-sm" id="comp-range-print" style="font-weight:normal;"> — 1시간</span></h2>
@@ -87,7 +83,7 @@
     </select>
     <input type="datetime-local" id="comp-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
-  <div class="chart-desc">{% if server.os_family == 'windows' %}Windows 는 Cached·Buffers 미측정 — Used / Available 만 표시{% else %}전체 메모리 대비 Used / Available / Cached / Buffers{% endif %}</div>
+  {% if server.os_family == 'windows' %}<div class="chart-desc">Windows 는 Cached·Buffers 미측정 — Used / Available 만 표시</div>{% endif %}
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="comp-canvas"></canvas>
   </div>
@@ -97,7 +93,6 @@
   <div id="comp-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
 </div>
 
-<!-- 스왑 사용률 추이 -->
 <div class="card">
   <div class="chart-head">
     <h2 class="card-title">스왑 사용률 추이<span class="print-only text-muted text-sm" id="swap-range-print" style="font-weight:normal;"> — 1시간</span></h2>
@@ -113,7 +108,7 @@
     </select>
     <input type="datetime-local" id="swap-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
-  <div class="chart-desc">{% if server.swap_total_gb is none %}스왑 미설정 서버 — 차트의 0%는 스왑 용량 자체가 없음을 의미 (사용률 아님).{% elif server.os_family == 'windows' %}Windows 의 스왑(pagefile)은 여유 메모리가 있어도 상시 일정량 사용되므로, 사용률이 높아도 메모리 부족 신호 아님.{% endif %}</div>
+  {% if server.os_family == 'windows' %}<div class="chart-desc">Windows 의 스왑(pagefile)은 여유 메모리가 있어도 상시 일정량 사용되므로, 사용률이 높아도 메모리 부족 신호 아님.</div>{% endif %}
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="swap-canvas"></canvas>
   </div>

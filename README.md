@@ -2,7 +2,7 @@
 
 온프레미스 서버 인벤토리·메트릭을 수집·저장하고, 수집된 데이터를 기반으로 자원 사용량을 진단해 운영 의사결정을 보조하는 B2B 내부 포털.
 
-고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, web 이 수집된 데이터를 규칙 기반(USE Method right-sizing)으로 분석해 진단·보고서를 생성한다. 운영자는 web UI 에서 대시보드·보고서·JSON Export·원격 설치 task 산출물을 활용해 다음 단계 의사결정을 진행한다.
+고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, web 이 수집된 데이터를 규칙 기반(USE Method right-sizing)으로 분석해 진단·보고서를 생성한다. 운영자는 web UI 에서 모니터링 화면·보고서·JSON Export·원격 설치 task 산출물을 활용해 다음 단계 의사결정을 진행한다.
 
 본 repo 는 엔진 자체 (애플리케이션 + 루트 docker-compose(prod base + dev override) + libvirt VM 매트릭스 등 `dev/` 격리 자산) 만 다룬다. 하드닝 prod 운영 (IaC — Terraform · Ansible 등 · systemd unit · k8s manifest) 은 본 repo 범위 밖 — 산출물·contract 를 외부 인프라에 통합.
 
@@ -140,9 +140,9 @@ uv run alembic check             # ORM·migrations 정합 (alembic-check.yml CI 
 
 | 산출물 | URL · 참고 문서 |
 |--------|--------------|
-| 대시보드 | `/servers/` · `docs/products/dashboard.md` |
-| 환경 보고서 (보고서 + 환경 진단 통합) | `/reports/environment?view=customer\|engineer` · `docs/products/environment-report.md` |
-| 서버 보고서 (보고서 + 서버 진단 통합) | `/servers/report?ids=...&view=customer\|engineer` · `docs/products/server-report.md` |
+| 모니터링 화면 | `/` (환경 개요 · 사이드바 "모니터링" 그룹) · `docs/products/dashboard.md` |
+| 환경 보고서 (규칙 기반 진단 통합) | `/reports/environment?view=customer\|engineer` · `docs/products/environment-report.md` |
+| 서버 보고서 (규칙 기반 진단 통합) | `/reports/servers?ids=...&view=customer\|engineer` · `docs/products/server-report.md` |
 | JSON Export | `/api/exports/inventory` · `docs/products/json-export.md` |
 | Install task | `docs/products/install-task.md` |
 

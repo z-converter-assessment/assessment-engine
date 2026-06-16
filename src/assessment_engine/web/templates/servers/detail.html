@@ -24,13 +24,10 @@
     background: #e2e8f0;
   }
   .group-panel {
-    /* 박스 없이 흰 카드에 바로 — 배경·경계 제거. 그룹 구분은 위 group-header(라벨+구분선)가 담당.
-       좌우 패딩 0 으로 카드 콘텐츠와 정렬. progress-bar 트랙은 전역 slate-200 이 흰 배경과 충분히 대비돼 별도 오버라이드 불요 */
     padding: 4px 0;
     margin-bottom: 4px;
   }
-  /* 실시간 메트릭 stat-box — 흰 배경 + 회색 경계 (글씨색 유지).
-     흰 카드에서 박스 경계만 또렷하게. group-panel 스코프 한정 — 다른 상세 페이지 stat-box 불변. */
+  /* group-panel 스코프 한정 — 다른 상세 페이지 stat-box 불변. */
   .group-panel .stat-box { background: #fff; border: 1px solid #cbd5e1; }
   .legend-item {
     display: flex;
@@ -53,10 +50,9 @@
   <span id="online-badge" class="status-off no-print">확인 중...</span>
 </div>
 
-<!-- 정적 인벤토리 정보 -->
 <div class="card">
   <h2 class="card-title">시스템 정보</h2>
-  <dl class="kv">
+  <dl class="kv kv-soft">
     <dt class="kv-group">사양</dt>
     <dt>OS</dt>
     <dd>{{ server.os_display }}{% if server.os_codename %} ({{ server.os_codename }}){% endif %}</dd>
@@ -82,10 +78,16 @@
     </dd>
 
     <dt class="kv-group">운영 · 식별</dt>
+    <dt>OS EOL</dt>
+    <dd>{% if stability.os_eol_label %}{{ stability.os_eol_label }}{% else %}-{% endif %}</dd>
     <dt>Boot Time</dt>
     <dd>{{ server.boot_time | kst }}</dd>
+    <dt>Reboots</dt>
+    <dd>{{ stability.reboot_count }}회</dd>
     <dt>Agent Started</dt>
     <dd>{{ server.agent_started_at | kst }}</dd>
+    <dt>Agent Restarts</dt>
+    <dd>{{ stability.agent_restart_count }}회</dd>
     <dt>Last Inventory</dt>
     <dd>{{ server.last_seen_at | kst }}</dd>
     <dt>Agent Version</dt>
@@ -94,10 +96,9 @@
     <dd>{{ server.composite_id }}</dd>
 
     <dt class="kv-group">스토리지</dt>
-    {# 파일시스템 총 크기 합(volume_total_gb) — 실제 데이터 저장 가능 총량. 물리 raw(LVM·오버헤드 포함)와 별개. #}
+    {# volume_total_gb = 파일시스템 총 크기 합(저장 가능 총량). 물리 raw(LVM·오버헤드 포함)와 별개. #}
     <dt>파일시스템 용량</dt>
     <dd>{{ server.volume_total_gb | disksize }}</dd>
-    {# 파일시스템(논리 볼륨) — inventory.mounts 기준. 양 OS 일관(fstype 명시). #}
     <dt>파일시스템</dt>
     {% if server.volumes %}
     <dd>{{ server.volumes_count }}개</dd>
@@ -123,20 +124,17 @@
   </dl>
 </div>
 
-<!-- 서비스 / 포트 요약 -->
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
     <h2 class="card-title" style="margin:0;">서비스 / 포트</h2>
     <a href="/servers/{{ server.public_id }}/services?back={{ self_back }}" class="btn-action btn-action-sm no-print">서비스/포트 상세</a>
   </div>
 
-  <!-- 카테고리 뱃지 + 매핑 포트 -->
   <div style="margin-bottom:16px;">
     <div class="sub-label" style="margin-top:0; margin-bottom:8px;">실행 중인 서비스 카테고리</div>
     {% if server.services is none %}
       <span class="text-meta text-md">수집 불가</span>
     {% elif server.services %}
-      {# 카테고리 = 한 행. 2열 grid(badge | 포트칩)로 정렬 — 외곽 박스 없이 행 정렬로 소속 표현. 카테고리 색은 badge 책임. #}
       <div style="display:grid; grid-template-columns:auto 1fr; gap:8px 12px; align-items:center;">
         {% for svc in server.known_services %}
         <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}{% if svc.display_name %}<span style="font-weight:400; opacity:0.75; margin-left:5px;">{{ svc.display_name }}</span>{% endif %}</span>
@@ -152,7 +150,6 @@
     {% endif %}
   </div>
 
-  <!-- 주요 포트 (<= 1024) -->
   <div>
     <div class="sub-label" style="margin-bottom:8px;">주요 Listen 포트</div>
     {% if server.key_listen_ports %}
@@ -171,7 +168,7 @@
   </div>
 </div>
 
-<!-- 실시간 메트릭 대시보드 (AJAX + 30초 polling — 환경 실시간과 일관) -->
+<!-- AJAX + 30초 polling (P3 예외, detail.js). -->
 <div class="card" id="realtime-metrics-card">
   <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
     <h2 class="card-title" style="margin:0;">실시간 메트릭</h2>
@@ -192,7 +189,7 @@
       <span class="identifier text-label" style="display:inline-block; min-width:36px;">—</span>일시적으로 값 없음 (첫 수집·수집 끊김 등)
     </p>
 
-    <!-- 활용률 도넛 요약 (CPU / 메모리 / 디스크) — 환경 실시간·개요 도넛과 일관(단색 게이지). detail.js 가 값 갱신. -->
+    <!-- detail.js 가 값 갱신. -->
     <div style="display:flex; align-items:center; flex-wrap:wrap; gap:24px; margin:4px 0 20px;">
       <div style="text-align:center;">
         <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
@@ -220,93 +217,88 @@
       </div>
     </div>
 
-    <!-- 그룹: CPU -->
     <div class="group-header" style="margin-top:8px;">
       <span class="group-label">CPU</span>
       <div class="group-line"></div>
       <a href="/servers/{{ server.public_id }}/cpu?back={{ self_back }}" class="btn-action btn-action-sm no-print">CPU 상세</a>
     </div>
     <div class="group-panel">
-      <div class="sub-label" style="margin-top:0;">CPU / Load</div>
-      <div class="stat-grid stat-grid-sm" style="margin-bottom:10px;">
-        <div class="stat-box">
-          <div class="stat-label">Usage</div>
-          <div class="stat-value" id="cpu-usage">—<span class="stat-unit">%</span></div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">User</div>
-          <div class="stat-value" id="cpu-user">—<span class="stat-unit">%</span></div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">System</div>
-          <div class="stat-value" id="cpu-system">—<span class="stat-unit">%</span></div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">I/O Wait</div>
-          <div class="stat-value" id="cpu-iowait">—<span class="stat-unit">%</span></div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Load 1m</div>
-          <div class="stat-value" id="load-1m">—</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Load 5m</div>
-          <div class="stat-value" id="load-5m">—</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Load 15m</div>
-          <div class="stat-value" id="load-15m">—</div>
-        </div>
+      <div style="overflow-x:auto; margin-bottom:10px;">
+        <table style="min-width:560px;">
+          <thead>
+            <tr>
+              <th style="white-space:nowrap;">Usage</th>
+              <th style="white-space:nowrap;">User</th>
+              <th style="white-space:nowrap;">System</th>
+              <th style="white-space:nowrap;">I/O Wait</th>
+              <th style="white-space:nowrap;">Load 1m</th>
+              <th style="white-space:nowrap;">Load 5m</th>
+              <th style="white-space:nowrap;">Load 15m</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td id="cpu-usage" style="white-space:nowrap;">—</td>
+              <td id="cpu-user" style="white-space:nowrap;">—</td>
+              <td id="cpu-system" style="white-space:nowrap;">—</td>
+              <td id="cpu-iowait" style="white-space:nowrap;">—</td>
+              <td id="load-1m" style="white-space:nowrap;">—</td>
+              <td id="load-5m" style="white-space:nowrap;">—</td>
+              <td id="load-15m" style="white-space:nowrap;">—</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
-    <!-- 그룹: 메모리 -->
     <div class="group-header">
       <span class="group-label">메모리</span>
       <div class="group-line"></div>
       <a href="/servers/{{ server.public_id }}/memory?back={{ self_back }}" class="btn-action btn-action-sm no-print">메모리 상세</a>
     </div>
     <div class="group-panel">
-      <div class="sub-label" style="margin-top:0;">Memory</div>
-      <div class="stat-grid stat-grid-sm" style="margin-bottom:10px;">
-        <div class="stat-box">
-          <div class="stat-label">Usage</div>
-          <div class="stat-value" id="mem-usage">—<span class="stat-unit">%</span></div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Used</div>
-          <div class="stat-value" id="mem-used">—</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Available</div>
-          <div class="stat-value" id="mem-avail">—</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Cached</div>
-          <div class="stat-value" id="mem-cached">—</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Buffers</div>
-          <div class="stat-value" id="mem-buffers">—</div>
-        </div>
+      <div style="overflow-x:auto; margin-bottom:10px;">
+        <table style="min-width:480px;">
+          <thead>
+            <tr>
+              <th style="white-space:nowrap;">Usage</th>
+              <th style="white-space:nowrap;">Used</th>
+              <th style="white-space:nowrap;">Available</th>
+              <th style="white-space:nowrap;">Cached</th>
+              <th style="white-space:nowrap;">Buffers</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td id="mem-usage" style="white-space:nowrap;">—</td>
+              <td id="mem-used" style="white-space:nowrap;">—</td>
+              <td id="mem-avail" style="white-space:nowrap;">—</td>
+              <td id="mem-cached" style="white-space:nowrap;">—</td>
+              <td id="mem-buffers" style="white-space:nowrap;">—</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
-      <!-- Swap -->
       <div id="swap-section" style="display:none;">
         <div class="sub-label">Swap</div>
-        <div class="stat-grid stat-grid-sm" style="margin-bottom:10px;">
-          <div class="stat-box">
-            <div class="stat-label">Usage</div>
-            <div class="stat-value" id="swap-usage">—<span class="stat-unit">%</span></div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-label">Used</div>
-            <div class="stat-value" id="swap-used">—</div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-label">Total</div>
-            <div class="stat-value" id="swap-total">—</div>
-          </div>
+        <div style="overflow-x:auto; margin-bottom:10px;">
+          <table style="min-width:300px;">
+            <thead>
+              <tr>
+                <th style="white-space:nowrap;">Usage</th>
+                <th style="white-space:nowrap;">Used</th>
+                <th style="white-space:nowrap;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td id="swap-usage" style="white-space:nowrap;">—</td>
+                <td id="swap-used" style="white-space:nowrap;">—</td>
+                <td id="swap-total" style="white-space:nowrap;">—</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
         <div class="progress-bar" style="margin-bottom:14px;">
           <div id="swap-bar" class="progress-fill" style="width:0%;"></div>
@@ -317,7 +309,6 @@
       </div>
     </div>
 
-    <!-- 그룹: 스토리지 -->
     <div id="storage-group" style="display:none;">
       <div class="group-header">
         <span class="group-label">스토리지</span>
@@ -326,7 +317,6 @@
       </div>
       <div class="group-panel">
         <div id="disk-io-section">
-          <div class="sub-label" style="margin-top:0;">디스크 I/O</div>
           <table id="disk-io-table" style="margin-bottom:8px;">
             <thead>
               <tr>
@@ -342,7 +332,6 @@
       </div>
     </div>
 
-    <!-- 그룹: 네트워크 -->
     <div id="net-io-section" style="display:none;">
       <div class="group-header">
         <span class="group-label">네트워크</span>
@@ -350,7 +339,6 @@
         <a href="/servers/{{ server.public_id }}/network?back={{ self_back }}" class="btn-action btn-action-sm no-print">네트워크 상세</a>
       </div>
       <div class="group-panel">
-        <div class="sub-label" style="margin-top:0;">Network I/O</div>
         <table id="net-io-table" style="margin-bottom:14px;">
           <thead>
             <tr>
@@ -376,7 +364,7 @@
       보고서 이력
     </a>
   </div>
-  <p class="text-meta text-sm" style="margin:0 0 12px;">서버 <strong class="text-strong">{{ server.hostname }}</strong> 1대 대상 보고서 발행. 발행 이력은 보고서 이력에서 확인.</p>
+  <p class="text-meta text-sm" style="margin:0 0 12px;">서버 <strong class="text-strong">{{ server.hostname }}</strong> 1대 대상 보고서 발행</p>
   <div style="display:flex; gap:8px;">
     <a href="/servers/{{ server.public_id }}/metrics?back={{ self_back }}" class="btn-action no-print" style="text-decoration:none;">
       성능 추이
@@ -389,7 +377,6 @@
     </button>
   </div>
 
-  <!-- 발행 모달 — 대시보드 환경 보고서 모달과 동일 UX 패턴 (서버 1대 scope) -->
   <div id="server-report-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
@@ -420,9 +407,7 @@
   </div>
 </section>
 
-<!-- 본 서버 보고서 (engineer view) 진입: /servers/{{ server.public_id }}/report?view=engineer -->
-
-<!-- 최근 작업 — task.install 이력 (최근 10건). 클릭 시 modal 로 stdout_tail/stderr_tail/failure_reason 확장 -->
+<!-- 행 클릭 시 modal 로 stdout_tail/stderr_tail/failure_reason 확장 (detail.js). -->
 <div class="card" id="server-install-card"
      data-server-public-id="{{ server.public_id }}"
      data-server-hostname="{{ server.hostname }}">
@@ -432,9 +417,7 @@
       ZConverter Install
     </button>
   </div>
-  <p class="text-meta text-sm" style="margin:0 0 12px;">최근 10건 — task.install</p>
 
-  <!-- 발행 모달 — 대시보드 ZConverter Install 모달과 동일 form (1대 scope) -->
   <div id="server-install-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
@@ -460,7 +443,8 @@
   </div>
 
   {% if recent_tasks %}
-  <table class="task-timeline" style="width:100%; border-collapse:collapse;">
+  <div style="overflow-x:auto;">
+  <table class="task-timeline" style="width:100%; min-width:680px; border-collapse:collapse;">
     <thead>
       <tr class="text-meta text-sm" style="text-align:left; border-bottom:1px solid #e2e8f0;">
         <th style="padding:6px 8px;">상태</th>
@@ -468,22 +452,23 @@
         <th style="padding:6px 8px;">발행</th>
         <th style="padding:6px 8px;">완료</th>
         <th style="padding:6px 8px;">소요</th>
-        <th style="padding:6px 8px;">실패 사유</th>
+        <th style="padding:6px 8px; min-width:280px;">실패 사유</th>
       </tr>
     </thead>
     <tbody>
       {% for t in recent_tasks %}
       <tr class="task-row" data-task-id="{{ t.task_id }}" style="cursor:pointer; border-bottom:1px solid #f1f5f9;">
-        <td style="padding:8px;"><span class="badge {{ t.badge_class }}">{{ t.badge_label }}</span></td>
-        <td style="padding:8px;">{{ t.task_type }}</td>
-        <td class="text-label" style="padding:8px;">{{ t.created_at | kst }}</td>
-        <td class="text-label" style="padding:8px;">{{ t.completed_at | kst | or_dash }}</td>
-        <td class="text-label" style="padding:8px;">{% if t.duration_ms is not none %}{{ t.duration_ms }} ms{% else %}—{% endif %}</td>
-        <td class="text-danger" style="padding:8px;">{{ t.failure_label or "" }}</td>
+        <td style="padding:8px; white-space:nowrap;"><span class="badge {{ t.badge_class }}">{{ t.badge_label }}</span></td>
+        <td style="padding:8px; white-space:nowrap;">{{ t.task_type }}</td>
+        <td class="text-label" style="padding:8px; white-space:nowrap;">{{ t.created_at | kst }}</td>
+        <td class="text-label" style="padding:8px; white-space:nowrap;">{{ t.completed_at | kst | or_dash }}</td>
+        <td class="text-label" style="padding:8px; white-space:nowrap;">{% if t.duration_ms is not none %}{{ t.duration_ms }} ms{% else %}—{% endif %}</td>
+        <td class="text-danger" style="padding:8px; min-width:280px;">{{ t.failure_label or "" }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <p class="text-meta text-md" style="margin:0;">발행된 작업이 없습니다.</p>
   {% endif %}

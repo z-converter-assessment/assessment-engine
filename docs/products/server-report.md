@@ -8,7 +8,7 @@
 
 서버 보고서 (선택 N대) — `GET /reports/servers?ids=<public_id,...>&period_days=14&view=customer|engineer`, 발행 `POST /reports/servers/emit`. 단일 1대는 `GET /servers/{id}/report`. 선택 N대 row 단위 상세. customer(양식 A) view=KPI 8 컬럼, engineer(양식 B) view=정량 16 컬럼.
 
-발행 흐름 (T13): 보고서 발행은 `diagnostic_jobs` 테이블 record 로 보존. 서버 보고서 라우터가 합성 직후 `record_report_emission` 으로 succeeded row 즉시 INSERT (best-effort). 보고서 이력은 `/reports/history`.
+발행 흐름 (T13): 보고서 발행(`POST /reports/servers/emit`)은 발행 시점 ViewModel 정적 스냅샷을 `diagnostic_jobs` 테이블 `result` JSONB 에 보존 — `emit_report` 가 발행 즉시 succeeded row INSERT (customer/engineer 동일, 별도 비동기 처리 없음). GET `?job={id}` 는 저장된 스냅샷만 정적 렌더(재계산 0). 보고서 이력은 `/reports/history`.
 
 ## 위치
 
@@ -58,7 +58,7 @@ KPI 6개 + 환경 총 자원 + 선택 맥락 (선택 N대의 OS 구성·워크�
 
 목적: 운영자·엔지니어 정량 분석 + 자원 적정성 근거 검증.
 
-구성 = 환경 보고서 본문 공유(engineer 분기 — 환경 현황 5축 메트릭·부하 추이+토폴로지·자원 적정성 분류(분포·효율화 검토 대상·자원 부족 6축 상세)·OS 지원 종료·OS 버전 분포, 단일 진실 `docs/products/environment-report.md`) + 세부 서버 목록 표.
+구성 = 환경 보고서 본문 공유(engineer 분기 — 환경 현황 5축 메트릭·부하 추이+토폴로지·자원 적정성 평가(분류 분포·효율화 검토 대상·자원 부족 6축 상세)·OS 지원 종료·OS 버전 분포, 단일 진실 `docs/products/environment-report.md`) + 세부 서버 목록 표.
 
 세부 서버 목록 컬럼(engineer): customer 컬럼 + 재부팅 · 에이전트 재시작 (시스템 안정성 — anchor+window 안 카운트).
 
@@ -127,15 +127,17 @@ Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상�
 
 ### 진단 칼럼 평가 순서 (engineer view)
 
+진단 라벨은 `report.py::_build_diagnosis` 단일 진실 (괄호 없는 단문):
+
 1. swap 사용 — "메모리 부족 (스왑 발생)" (paging 발생 자체가 1차 강신호)
-2. 디스크 I/O 병목 (iowait p95 >= 20%)
-3. CPU saturation (load >= cores)
-4. 메모리 압박 (mem p95 >= 80%)
-5. CPU 압박 (cpu p95 >= 70%)
-6. 변동성 큼 (peak/p95 >= 1.5 — burst)
-7. 거의 미사용 (cpu p95 <= 3%)
-8. 여유 있음 (cpu <= 30 + mem <= 50 — 축소 검토)
-9. 정상
+2. iowait p95 >= 20% — "디스크 I/O 병목"
+3. load >= cores — "CPU 포화"
+4. mem p95 >= 80% — "메모리 압박"
+5. cpu p95 >= 70% — "CPU 압박"
+6. peak/p95 >= 1.5 (burst) — "부하 변동 큼"
+7. cpu p95 <= 3% — "거의 미사용"
+8. cpu <= 30 + mem <= 50 (축소 검토) — "여유 있음"
+9. 그 외 — "정상"
 
 최상위 신호 1개만 노출 — 엔지니어가 가장 시급한 문제를 즉시 식별. 예외 2개: 표본 부족 분류 호스트는 신호 대신 원인 진단(오프라인—에이전트 미가동 / 누락 메트릭 명시 / 윈도우 내 표본 부족), 오프라인 호스트는 진단 앞에 "오프라인" 접두 (분류는 윈도우 측정 기반 유지).
 

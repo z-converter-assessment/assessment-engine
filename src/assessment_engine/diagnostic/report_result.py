@@ -18,7 +18,7 @@ import hashlib
 import json
 from datetime import UTC, datetime
 
-REPORT_KIND_ENV = "env_report"  # 모든 보고서 (selection N대 + 환경 + 단일서버) — EnvironmentReportSummary 양식
+REPORT_KIND_ENV = "env_report"  # 전 보고서 공통 양식 (EnvironmentReportSummary)
 
 
 def build_report_result(*, kind: str, snapshot: dict, view: str, aux: dict | None = None) -> dict:

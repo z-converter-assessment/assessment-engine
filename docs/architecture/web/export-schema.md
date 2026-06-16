@@ -166,7 +166,7 @@ CSP SDK 직접 호출(boto3·azure-mgmt·google-cloud-compute)은 자동화 도�
 ## 5. 정제 원칙별 결정 근거
 
 ### 벤더 중립 vs CSP 특정 instance type
-- 결정: 벤더 중립 유지. `recommended_size_class` 5종(idle/shutdown/over_provisioned/under_provisioned/optimal)만 노출
+- 결정: 벤더 중립 유지. `recommended_size_class` 6종(under_provisioned/over_provisioned/idle/shutdown/optimal/insufficient_data)만 노출
 - 근거: 같은 export JSON을 AWS / Azure / GCP / OpenStack 어디든 입력 가능해야 함. 도구·CSP별 매핑은 도구 측 책임 (단순 dict lookup)
 - 트레이드오프: 도구마다 매핑 테이블 필요 — `m5.large` 같은 직접 값보다 한 단계 변환 비용
 

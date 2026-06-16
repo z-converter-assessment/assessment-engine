@@ -209,5 +209,4 @@ async def right_sizing_thresholds(
     )
 
 
-# history 이력은 "더보기"(limit 누적) 단일 옵션 — fragment 재조회로 결과 영역 교체(page reload 없음).
-# total 은 list_reports 가 필터 후 전체 건수로 반환(retention 90일 가정, COUNT 비용 수용) — shown/total 카운트용.
+# total 은 list_reports 가 필터 후 전체 건수로 반환 — retention 90일 가정이라 COUNT 비용 수용 (E2 일반 정책 예외).

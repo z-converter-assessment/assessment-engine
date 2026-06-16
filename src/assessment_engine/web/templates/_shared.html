@@ -1,19 +1,15 @@
 {# 전역 공통 매크로 — 표시 계층 P3 순수 렌더링. 계산·임계값 분기 금지 (mapper 단일 진실). #}
 
-{# empty_state — 발화 가능하나 현재 데이터 없는 슬롯의 placeholder.
-   discoverability 원칙(#E9): 조건부 정보는 데이터가 없어도 제목·카테고리를 노출하고,
-   비었을 때 본 매크로로 "내용 없음"을 명시한다 (섹션 통째 사라짐 금지).
-   dumb 매크로 — 분기·계산 0, message 정적 문자열만 받아 렌더. #}
+{# empty_state — 조건부 정보가 비어도 섹션 제목을 유지하며 "내용 없음"을 명시하는 placeholder (#E9).
+   dumb 매크로 — 분기·계산 0, message 정적 문자열만 렌더. #}
 {% macro empty_state(message) %}
 <p class="empty-state">{{ message }}</p>
 {% endmacro %}
 
-{# window_meta — 표제 메타 "N대 기준 · 최근 {라벨}" 공통 (괄호 없이). window_label 은 대시보드 윈도우 라벨(DASHBOARD_TIME_RANGE, #F10) 전달.
-   대시보드 활용률·Right-sizing 분류 표제 통일 — 하드코딩 "14일" 반복 제거. #}
+{# window_meta — 표제 메타 "N대 기준 · 최근 {라벨}". window_label = DASHBOARD_TIME_RANGE 윈도우 라벨(#F10). #}
 {% macro window_meta(count, window_label) %}{{ count }}대 기준 · 최근 {{ window_label }}{% endmacro %}
 
-{# util_donut — 활용률 게이지 도넛 1개 (UtilizationBar). 환경 개요(24h 평균)·실시간 현황(최신 스냅샷) 공유.
-   원주 263.89(r=42)·푸른 단색 게이지. dash_length·bar_color 는 mapper precompute (P3 — 템플릿 산술 0). #}
+{# util_donut — 활용률 게이지 도넛 1개 (UtilizationBar). 원주 263.89(r=42). dash_length·bar_color 는 mapper precompute (P3 — 템플릿 산술 0). #}
 {% macro util_donut(u) %}
 <div style="text-align:center;">
   <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
@@ -43,8 +39,7 @@
 {% endif %}
 {% endmacro %}
 
-{# detail_server_list — 세부 서버 목록 표 + 인쇄 별첨. 환경(engineer)·선택(customer/engineer) 공유 단일 진실.
-   호스트 상세(진단 칼럼)를 대체하는 통일 표. child_jobs/attention_by_host 는 selection 만 값(환경은 default {}). #}
+{# detail_server_list — 세부 서버 목록 표. 환경·선택 보고서 공유. child_jobs/attention_by_host 는 selection 만 값(환경은 default {}). #}
 {% macro detail_server_list(rows, view, time_range, self_back, child_jobs, attention_by_host, total, show_report_link) %}
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">세부 서버 목록</h2>
@@ -56,8 +51,7 @@
         <th>인벤토리</th>
         <th style="text-align:right;">CPU 평균</th><th style="text-align:right;">MEM 평균</th><th style="text-align:right;">디스크 최대</th>
         <th>프로비저닝</th>
-        {# 운영 안정성 컬럼 — engineer 전용 (customer high-level 에선 숨김). #}
-        {% if view == "engineer" %}<th style="text-align:right;">재부팅</th><th style="text-align:right;">에이전트<br>재시작</th>{% endif %}
+        {% if view == "engineer" %}<th style="text-align:right;">재부팅</th><th style="text-align:right;">재시작</th>{% endif %}
         {% if show_report_link %}<th class="no-print">개별 보고서</th>{% endif %}
       </tr>
     </thead>
@@ -67,7 +61,7 @@
       {% set sig = attention_by_host.get(r.hostname, {}) %}
       <tr>
         <td style="text-align:center;">{% if r.is_online %}<span class="status-on">온라인</span>{% else %}<span class="status-off">오프라인</span>{% endif %}</td>
-        <td><strong>{{ r.hostname }}</strong></td>
+        <td>{{ r.hostname }}</td>
         <td>{% if r.workload_groups %}{% for g in r.workload_groups %}<span class="badge {{ g.category | service_badge_class }}">{{ g.category }}</span>{% if not loop.last %} {% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
         <td>{{ r.os_display }}</td>
         <td style="line-height:1.5; white-space:nowrap;">{% if r.cpu_cores is not none %}{{ r.cpu_cores }} vCPU{% else %}—{% endif %}{% if r.mem_total_gb is not none %} · {{ "%.1f"|format(r.mem_total_gb) }} GB{% endif %}{% if r.disk_total_gb is not none %} · {{ "%.0f"|format(r.disk_total_gb) }} GB{% endif %}</td>

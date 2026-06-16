@@ -31,13 +31,10 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
     ) -> list[ReportRowRaw]:
         """N서버 x period_days 통계 → ReportRowRaw list. role/recommendation 등 표시 파생은 service에서.
 
-        SQL 구조:
-        - cpu_pct CTE: LAG로 jiffies delta → (1 - d_idle/d_total) x 100. boot_time 변경 시 reset 제외.
-        - mem_pct CTE: 시점값 (1 - mem_available/mem_total) x 100. swap_used flag 동시 추출.
-        - 통계: percentile_cont(0.95) + MAX. server_id별 GROUP BY.
-        - mount_max CTE: 디스크 capacity 활용률 (서버 worst mount used_pct). USE Method disk_capacity
-          평가·표시 단일 진실 — report_mount_worst(이름·days 별도)와 산식 동일(가상 mount 제외).
-        - server_inventory LEFT JOIN — metric 없는 서버도 행 반환. services JSONB 동시 SELECT (N+1 회피).
+        보존 의도:
+        - cpu/IO delta 는 boot_time 변경(reset) 행 제외 — jiffies counter reset 흡수.
+        - mount_max = USE Method disk_capacity 평가 단일 진실, report_mount_worst 와 동일 산식(가상 mount 제외).
+        - server_inventory LEFT JOIN — metric 없는 서버도 행 반환, services JSONB 동시 SELECT (N+1 회피).
         """
         start = end - timedelta(days=period_days)
 
@@ -209,11 +206,9 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         period_days: int,
         end: datetime,
     ) -> dict[int, tuple[str | None, float | None, int | None]]:
-        """마운트별 max used_pct + fill_rate 기반 days_until_full 추정. 서버당 최악 1건만 반환.
+        """마운트별 max used_pct + fill_rate 기반 days_until_full 추정. 서버당 worst 1건만 반환.
 
-        SQL 구조:
-        - mount_stats CTE: (server_id, mount)별 max used_pct + FIRST/LAST avail_bytes로 fill_rate
-        - 서버당 worst = used_pct DESC 첫 행 (used_pct 동률 시 days_until_full ASC)
+        worst = used_pct DESC 첫 행 (동률 시 days_until_full ASC). fill_rate = (avail_start - avail_end)/period_days.
         """
         start = end - timedelta(days=period_days)
 
@@ -275,11 +270,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         period_days: int,
         end: datetime,
     ) -> dict[int, int]:
-        """period 안 server_inventory_history의 boot_time DISTINCT count - 1 (=재부팅 횟수).
-
-        SQL: server_inventory_history의 boot_time DISTINCT - 1 (현재 boot_time 포함이라 -1).
-        period 안 1회 부팅이면 reboot_count=0, 2회면 1 (=1회 재부팅).
-        """
+        """period 안 boot_time DISTINCT count - 1 (=재부팅 횟수). 현재 boot_time 포함이라 -1."""
         start = end - timedelta(days=period_days)
 
         sql = text("""
@@ -298,10 +289,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         period_days: int,
         end: datetime,
     ) -> dict[int, int]:
-        """period 안 server_inventory_history의 agent_started_at DISTINCT count - 1 (=에이전트 재시작 횟수).
-
-        report_uptime_stats(재부팅, boot_time)와 동일 산식 — anchor+window 정합 (#F10).
-        """
+        """period 안 agent_started_at DISTINCT count - 1 (=재시작 횟수). report_uptime_stats 와 동일 산식 (#F10)."""
         start = end - timedelta(days=period_days)
 
         sql = text("""
@@ -315,11 +303,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         return {r.server_id: int(r.restart_count) for r in result.all()}
 
     async def agent_restart_counts_recent(self, server_ids: list[int], since: datetime) -> dict[int, int]:
-        """since 이후 server별 agent 재시작 횟수 (DISTINCT agent_started_at - 1).
-
-        attention agent_unstable fixed 윈도우 표시 — Redis sliding 카운터 대체 (정확한 '최근 N시간').
-        report_agent_restart_stats(보고서 window)와 동일 산식, since~now 고정 윈도우만 다름.
-        """
+        """since 이후 server별 agent 재시작 횟수 — attention agent_unstable fixed 윈도우 (Redis sliding 대체)."""
         if not server_ids:
             return {}
         sql = text("""
@@ -338,12 +322,9 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         period_days: int,
         end: datetime,
     ) -> dict[int, tuple[int | None, float | None, float | None, float | None, float | None, float | None]]:
-        """server_id -> (iops_baseline, throughput_kbps_baseline,
-                          iops_p95, iops_peak, throughput_kbps_p95, throughput_kbps_peak).
+        """server_id -> (iops_baseline, throughput_kbps_baseline, iops_p95, iops_peak, kbps_p95, kbps_peak).
 
-        - baseline(평균) = SUM(delta) / SUM(dt) — 기존 의미 유지
-        - p95/peak = 시점별 (서버, collected_at) device 합산 rate에서 percentile_cont(0.95) + MAX
-        - reset 행 제외: dt > 0 AND delta >= 0
+        baseline = SUM(delta)/SUM(dt). p95/peak = 시점별 device 합산 rate 분포. reset 행 제외(dt>0 AND delta>=0).
         """
         start = end - timedelta(days=period_days)
 
@@ -424,10 +405,9 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         period_days: int,
         end: datetime,
     ) -> dict[int, tuple[float | None, float | None, float | None, float | None, float | None, float | None]]:
-        """server_id -> (rx_kbps_baseline, tx_kbps_baseline,
-                          rx_kbps_p95, rx_kbps_peak, tx_kbps_p95, tx_kbps_peak).
+        """server_id -> (rx_kbps_baseline, tx_kbps_baseline, rx_p95, rx_peak, tx_p95, tx_peak).
 
-        시점별 interface 합산 rate에서 percentile_cont(0.95) + MAX. baseline은 SUM/SUM (기존 의미).
+        baseline = SUM/SUM. p95/peak = 시점별 interface 합산 rate 분포.
         """
         start = end - timedelta(days=period_days)
 
@@ -501,20 +481,11 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
     ) -> EnvironmentUtilizationRaw:
         """환경(또는 선택 N대) capacity-weighted 평균 활용률 — 자원 총량 가중 (Σused / Σtotal).
 
-        전 서버·전 시점 통합 비율. 빈 구간/미수집 시점은 분자·분모에서 동시에 빠져
-        "그 시점 살아있는 VM" 만 자동 반영 — 서버별 측정 기간 편차도 분모에 녹아들어
-        별도 정규화 불필요. 거대 VM 이 큰 비중 = 환경 물리 자원 활용률 관점 정확
-        (서버 1대=1표 동등 가중이 아님 — 작은 VM 1대와 큰 VM 1대를 동급 취급하지 않는다).
-        - cpu_avg: (1 - Σ d_idle / Σ d_total) x 100. jiffies delta 합 통합 — 코어 수가 jiffies 에
-          내재해 코어 수 곱셈 없이 capacity-weighted. report_aggregate 와 동일한 d_idle/d_total
-          정의 + boot_time 변경 시 reset 제외.
-        - mem_avg: Σ(mem_total_kb - mem_available_kb) / Σ mem_total_kb x 100. 절대 KB 라 메모리 큰 서버 큰 비중.
-        - disk_avg: Σ(total_bytes - avail_bytes) / Σ total_bytes x 100. 전 mount 통합, 가상 mount 제외
-          (_DATA_VOLUME_SQL_FILTER). 서버별 worst mount 개념은 환경 평균에서 폐기 (호스트 상세엔 유지).
-        - sample_size: 기간 내 metric 발행 서버 distinct count.
-        end 기준 윈도우 (selection 발행 시점 anchor 스냅샷 존중). server_ids=None 전체 환경,
-        list 면 해당 서버만 (selection 보고서 동일 SQL 경로). partition pruning 의무 (C5).
-        period_days <= 30 cap (DB scan 보호).
+        전 서버·전 시점 통합 비율. 빈 구간/미수집 시점은 분자·분모 동시 제외 — "그 시점 살아있는 VM" 만
+        자동 반영, 측정 기간 편차도 분모에 녹아 별도 정규화 불필요. 서버 1대=1표가 아닌 자원량 가중이라
+        거대 VM 이 큰 비중 = 물리 자원 활용률 관점에서 정확.
+        cpu 는 코어 수가 jiffies 에 내재해 곱셈 없이 capacity-weighted. report_aggregate 와 동일 reset 게이트.
+        end 기준 윈도우(selection anchor 스냅샷 존중). C5 partition pruning, period_days <= 30 cap.
         """
         capped = min(max(period_days, 0.0), 30)
         start = end - timedelta(days=capped)

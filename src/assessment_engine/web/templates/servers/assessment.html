@@ -4,7 +4,7 @@
 {% block content %}
 <h1 style="margin:0 0 14px;">환경 자원 평가</h1>
 
-<!-- 기간 컨트롤 — 성능 추이(/environment/metrics)와 동일 모양 (chart-select·chart-anchor). 구간·앵커 변경 즉시 반영. -->
+<!-- 구간·앵커 변경 즉시 반영 (assessment.js). -->
 <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
   <span class="bucket-label" id="assess-total-badge">{{ overview.risk_donut_total }}대 기준</span>
   <select class="chart-select no-print" id="assess-range" aria-label="구간 선택">

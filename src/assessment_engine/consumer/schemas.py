@@ -11,7 +11,7 @@ class MessageBase(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     composite_id: str = Field(min_length=1, max_length=64)
-    # machine_id — raw machine-id, 표시 전용 (식별·라우팅은 composite_id). 옛 agent 미발행 호환 nullable.
+    # machine_id — raw machine-id, 표시 전용 (식별·라우팅은 composite_id).
     machine_id: str | None = Field(default=None, max_length=64)
     agent_version: str = Field(min_length=1, max_length=32)
     collected_at: datetime
@@ -19,9 +19,7 @@ class MessageBase(BaseModel):
     message_id: UUID
     agent_started_at: datetime
     boot_time: datetime
-    # OS family — 모든 메시지 진입 시점 OS 분기 단일 진실. agent 가 자기 OS 자체 보고.
-    # nullable — 옛 agent minor bump 호환 + task.result Linux worker 미발행 비대칭 흡수.
-    # 시계열 테이블 컬럼 추가는 시점별 활용처가 명확해질 때 별도 결정 (현 단계 schema 만).
+    # OS family — 모든 메시지 진입 시점 OS 분기 단일 진실. nullable — task.result Linux worker 미발행 비대칭 흡수.
     os_family: Literal["linux", "windows"] | None = None
 
 
@@ -34,8 +32,7 @@ class DiskInfo(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     size_bytes: int | None = Field(default=None, ge=0)
     type: str | None = Field(default=None, max_length=32)
-    # Linux 디바이스 식별 표준 (POSIX). mount-disk 조인 키.
-    # 옛 에이전트 호환 위해 옵셔널.
+    # major/minor — Linux 디바이스 식별 (POSIX). mount-disk 조인 키.
     major: int | None = Field(default=None, ge=0)
     minor: int | None = Field(default=None, ge=0)
 
@@ -68,8 +65,7 @@ class InventoryListenPortInfo(BaseModel):
 class InventoryInput(MessageBase):
     message_type: Literal["inventory"]
 
-    # os_family 는 MessageBase 정의 상속 (모든 메시지 단일 진실). InventoryInput 한정 활용처:
-    # task.install dispatch 단일 진실 (ADR 0020) — server_inventory.os_family 저장 후 task 발행 시 분기.
+    # os_family(MessageBase 상속) 활용처: task.install dispatch 분기 단일 진실 (ADR 0020).
     os_id: str | None = Field(default=None, max_length=64)
     os_version: str | None = Field(default=None, max_length=64)
     os_codename: str | None = Field(default=None, max_length=64)
@@ -85,9 +81,8 @@ class InventoryInput(MessageBase):
     @field_validator("ip_internal", "ip_external", mode="before")
     @classmethod
     def validate_ip_list(cls, v: object) -> object:
-        # mode="before" — Pydantic 검증 전이라 v는 임의 타입(JSON 파싱 직후). list/tuple만 허용.
-        # ip_interface 는 bare IP("10.0.1.15")와 CIDR("10.0.1.15/24") 둘 다 허용 — agent payload v3.4+ 가
-        # ip_internal 을 CIDR 표기로 발행(#B). ip_external 은 bare IP 유지이나 ip_interface 가 상위호환 수용.
+        # mode="before" — JSON 파싱 직후 임의 타입. list/tuple만 허용.
+        # ip_interface 는 bare IP 와 CIDR 둘 다 수용 — agent 가 ip_internal 을 CIDR 로 발행(#B).
         if v is None:
             return v
         if not isinstance(v, (list, tuple)):
@@ -96,8 +91,7 @@ class InventoryInput(MessageBase):
             ip_interface(str(item))
         return v
 
-    # mac_addresses — NIC별 MAC 목록 (lowercase·정렬·dedup, 빈 배열 가능). 다중 NIC 라 단일 식별 불가
-    # (composite_id 가 sha256 으로 흡수). raw 목록은 clone collision 감사용 보존 (payload-schema v3.3).
+    # mac_addresses — NIC별 MAC 목록. clone collision 감사용 raw 보존 (식별은 composite_id).
     mac_addresses: list[str] = Field(default_factory=list)
 
     disks: list[DiskInfo] = Field(default_factory=list)
@@ -210,16 +204,11 @@ class TaskResultInput(MessageBase):
 
     task_id: UUID
     status: Literal["success", "failure"]
-    # 실패 분류. 알려진 값: url_not_allowed / download_failed / sha256_mismatch /
-    # extract_failed / script_not_found / script_failed / script_timeout /
-    # insufficient_disk / internal_error / already_done / unsupported_install_type.
-    # 성공 시 null. 새 enum 도입 시 silent pass — extra=ignore 정신과 일관, max_length만 강제.
+    # 실패 분류 문자열 (성공 시 null). 새 enum 은 silent pass — extra=ignore 정신, max_length만 강제.
     failure_reason: str | None = Field(default=None, max_length=32)
     exit_code: int | None = None
     duration_ms: int = Field(ge=0)
-    # agent 측 wire 상한은 `exec.c` 의 `out_storage[4096]` / `err_storage[4096]` = 4 KB.
-    # 본 8192 cap 은 over-provision — agent minor bump 로 tail size 가 늘어도 (#B "minor bump
-    # silent 호환") 엔진 무수정 흡수. 한도 본질은 agent 단일 진실.
+    # 8192 cap 은 over-provision (agent wire 상한 4 KB). minor bump 로 tail 늘어도 무수정 흡수 (#B).
     stdout_tail: str = Field(max_length=8192)
     stderr_tail: str = Field(max_length=8192)
     completed_at: datetime

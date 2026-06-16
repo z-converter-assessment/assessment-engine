@@ -22,7 +22,7 @@ class BaseServerQueryRepository(ABC):
 
     @abstractmethod
     async def get_servers(self, server_ids: list[int]) -> list[ServerDetail]:
-        """N개 server_id → ServerDetail 리스트 단일 SQL. 순서는 DB 임의 — caller 정렬 책임."""
+        """N개 server_id → ServerDetail 단일 SQL. 순서는 DB 임의 — caller 정렬 책임."""
         ...
 
     @abstractmethod

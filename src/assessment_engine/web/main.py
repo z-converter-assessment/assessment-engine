@@ -81,13 +81,11 @@ async def disable_html_cache(request, call_next):
     HTML: 진단 발행 -> 결과 페이지 -> 뒤로가기 시점에 브라우저 HTTP cache·BFCache 로
     list 페이지가 stale HTML 그대로 복원되는 회귀 회피.
 
-    Static (JS/CSS): dev 환경 한정. `?v={{ asset_v }}` query bust 가 있으나 브라우저가 disk
-    cache hit 우선시하는 경우 옛 JS 가 잔존 — dev 에서 코드 hot reload 후 클라이언트도 즉시
-    새 JS 받게 강제. prod 는 cdn·long-cache 운영을 위해 본 분기 비활성.
+    Static (JS/CSS): dev 환경 한정. hot reload 후 클라이언트가 즉시 새 JS 받게 강제.
+    prod 는 cdn·long-cache 운영을 위해 본 분기 비활성.
     """
     dev = getattr(request.app.state, "dev_assets", False)
     # dev — 매 요청 asset_v 재발급: 정적 자원 URL(`?v=`)이 매번 바뀌어 브라우저 disk cache·304 까지 회피.
-    # ASSET_V 가 프로세스 시작 시각 고정이라, .py 재시작 없는 .js/.css/.html 변경이 캐시에 묻히던 문제 해소.
     if dev:
         templates.env.globals["asset_v"] = format(int(time.time() * 1000), "x")
     response = await call_next(request)

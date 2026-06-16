@@ -36,9 +36,8 @@ class CollectRepository(BaseCollectRepository):
         )
         return result.scalar_one_or_none()
 
-    # C5: full row select 대신 비교 대상 컬럼만 (id/public_id/last_seen_at/composite_id/machine_id 제외).
-    # composite_id 는 UNIQUE 키 — prev 와 new 가 항상 같아 비교 의미 없음. machine_id 는 표시용(history 미추적).
-    # 매 inventory 메시지 hot path — 불필요 컬럼 read 비용 절약.
+    # 비교 대상 컬럼만 SELECT (매 inventory 메시지 hot path — 불필요 컬럼 read 절약).
+    # composite_id 는 UNIQUE 키라 비교 무의미, machine_id 는 표시용(history 미추적)이라 제외.
     _INVENTORY_COMPARE_COLS = (
         ServerInventory.agent_version,
         ServerInventory.os_family,
@@ -61,16 +60,14 @@ class CollectRepository(BaseCollectRepository):
     )
 
     async def upsert_server(self, data: ServerInventoryCreate) -> int:
-        # 변경 감지: 직전 행과 비교 후 다를 때만 history 한 행 INSERT (앱 레벨 trigger).
-        # 1시간 주기 재발행이라도 정적 정보 동일하면 history는 그대로 — noise 차단.
+        # 변경 감지: 직전 행과 다를 때만 history 한 행 INSERT (앱 레벨 trigger).
         prev_q = await self.session.execute(
             select(*self._INVENTORY_COMPARE_COLS).where(ServerInventory.composite_id == data.composite_id)
         )
         prev = prev_q.first()
 
-        # values()와 set_={}에 같은 컬럼 dict를 재사용 — 컬럼 추가 시 한 곳만 수정.
-        # composite_id 는 UNIQUE 키이므로 set_ 에서 제외 (자기 자신 덮어쓰기 무의미).
-        # machine_id 는 set_ 포함 — 최신 표시.
+        # values()/set_ 에 같은 dict 재사용 — 컬럼 추가 시 한 곳만 수정.
+        # composite_id 는 UNIQUE 키라 set_ 제외 (자기 덮어쓰기 무의미).
         row = {
             "composite_id": data.composite_id,
             "machine_id": data.machine_id,
@@ -110,8 +107,6 @@ class CollectRepository(BaseCollectRepository):
         result = await self.session.execute(stmt)
         server_id = result.scalar_one()
 
-        # history append: 신규(prev=None) 또는 비교 대상 필드 차이 발생 시.
-        # placeholder가 만든 prev에 None이 많아도 비교 결과 다르면 자연스럽게 첫 history 행 생성.
         if prev is None or self._inventory_changed(prev, data):
             await self._append_inventory_history(server_id, data)
 
@@ -119,7 +114,7 @@ class CollectRepository(BaseCollectRepository):
 
     @staticmethod
     def _inventory_changed(prev: ServerInventory, new: ServerInventoryCreate) -> bool:
-        """변경 감지. collected_at·last_seen_at·composite_id·machine_id·hostname 제외 비교 (machine_id 는 표시용)."""
+        """변경 감지. collected_at·last_seen_at·composite_id·machine_id·hostname 제외 비교."""
         return (
             prev.agent_version != new.agent_version
             or prev.os_family != new.os_family
@@ -142,10 +137,10 @@ class CollectRepository(BaseCollectRepository):
         )
 
     async def _append_inventory_history(self, server_id: int, data: ServerInventoryCreate) -> None:
-        """직전 행과 다른(또는 첫) 인벤토리 스냅샷을 history에 append.
+        """인벤토리 스냅샷을 history에 append.
 
-        ON CONFLICT DO NOTHING — broker 재전송·동시 워커 race로 동일 (server_id, collected_at)
-        2번째 INSERT가 와도 silent no-op (시계열 4개 테이블과 동일 안전망).
+        ON CONFLICT DO NOTHING — broker 재전송·동시 워커 race 로 동일 (server_id, collected_at)
+        2번째 INSERT 가 와도 silent no-op (시계열 4개 테이블과 동일 안전망).
         """
         stmt = (
             pg_insert(ServerInventoryHistory)
@@ -186,8 +181,7 @@ class CollectRepository(BaseCollectRepository):
         if server_id is not None:
             return server_id, False
 
-        # 2. INSERT 시도. inventory_handler가 동시에 commit 중이면 ON CONFLICT DO NOTHING으로 보호
-        #    (placeholder가 진짜 inventory의 OS/CPU/Memory 등을 None으로 덮어쓰는 race 방지).
+        # 2. INSERT 시도. ON CONFLICT DO NOTHING — inventory_handler 동시 commit 시 보호.
         new_id = await self._insert_placeholder_server(fallback)
         if new_id is not None:
             return new_id, True
@@ -199,11 +193,10 @@ class CollectRepository(BaseCollectRepository):
         return server_id, False
 
     async def _insert_placeholder_server(self, data: ServerInventoryCreate) -> int | None:
-        """placeholder 전용 INSERT. ON CONFLICT DO NOTHING — 이미 있으면 건드리지 않고 None 반환.
+        """placeholder 전용 INSERT. ON CONFLICT DO NOTHING — 이미 있으면 손대지 않고 None 반환.
 
-        `upsert_server`(ON CONFLICT DO UPDATE)를 placeholder가 호출하면 진짜 inventory의 OS/CPU/Memory 등을
-        None으로 덮어쓰는 race(에이전트 부팅 직후 inventory와 metrics 거의 동시 도착) 발생.
-        placeholder는 "이미 있으면 손대지 않는다"는 의미가 자연스러움.
+        upsert_server(DO UPDATE)를 placeholder 가 호출하면 진짜 inventory 의 OS/CPU/Memory 를
+        None 으로 덮어쓰는 race(부팅 직후 inventory·metrics 거의 동시 도착) 발생 — 그래서 DO NOTHING.
         """
         row = {
             "composite_id": data.composite_id,
@@ -260,7 +253,7 @@ class CollectRepository(BaseCollectRepository):
     async def expire_overdue_tasks(self, server_ids: list[int]) -> int:
         if not server_ids:
             return 0
-        # deadline 경과 pending(마감 있는 = install) -> failure(timeout). DB now() 로 서버 시각 단일 비교.
+        # DB now() 로 서버 시각 단일 비교 (클라이언트 시각차 회피).
         stmt = (
             update(Task)
             .where(
@@ -277,7 +270,7 @@ class CollectRepository(BaseCollectRepository):
     async def find_pending_deadline_servers(self, server_ids: list[int]) -> list[int]:
         if not server_ids:
             return []
-        # deadline 안 지난 활성 pending(마감 있는 = install) 보유 서버 — expire 직후라 만료분은 이미 failure.
+        # expire 직후 호출 가정 — 만료분은 이미 failure 전이됨.
         stmt = (
             select(Task.target_server_id)
             .where(
@@ -314,12 +307,10 @@ class CollectRepository(BaseCollectRepository):
         server_id: int,
         data: ServerMetricCreate,
     ) -> MetricInsertResult:
-        # ON CONFLICT DO NOTHING — Redis 멱등성 키(24h TTL) 만료/evict/Redis 장애로 중복 메시지가
-        # 들어와도 자연키 UNIQUE 위반을 silent no-op으로 처리. 4개 테이블 모두 동일 정책.
-        # `pg_insert(...).on_conflict_do_nothing(...)` 결과의 rowcount는 실제 INSERT된 행 수.
-        # boot_time/agent_started_at은 시계열 4개 테이블 모두에 동일 시점값으로 함께 저장.
-        # metrics/disk_io/net_io는 calculator가 두 시점 비교로 counter reset 정밀 식별.
-        # mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 위해 보존.
+        # ON CONFLICT DO NOTHING — Redis 멱등성 키 만료/장애로 중복 메시지가 들어와도
+        # 자연키 UNIQUE 위반을 silent no-op (D2 2단 방어). 4개 테이블 동일 정책.
+        # boot_time/agent_started_at 은 4개 테이블에 동일 시점값 — calculator counter reset 식별용
+        # (mount_usage 는 시점값이라 직접 활용 없으나 메타데이터 일관성 위해 보존).
         metrics_n = await self._insert_scalar_metrics(server_id, data)
         disk_io_n = await self._insert_disk_io(server_id, data, data.disk_io)
         net_io_n = await self._insert_net_io(server_id, data, data.net_io)

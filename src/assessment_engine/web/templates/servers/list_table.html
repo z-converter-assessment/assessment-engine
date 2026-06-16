@@ -5,7 +5,6 @@
 {% block content %}
 <h1 style="margin:0 0 8px;">서버 목록</h1>
 
-<!-- ZConverter Install 모달 — 선택 호스트 N대에 task.install 발행 -->
 <div id="install-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:8px; padding:24px; width:520px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
@@ -30,7 +29,6 @@
   </div>
 </div>
 
-<!-- 선택 N대 보고서 발행 모달 — 선택 액션 영역 '고객 보고서' / '엔지니어 보고서' 버튼 클릭 시 open. -->
 <div id="multi-server-report-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
@@ -76,8 +74,7 @@
   <button type="button" id="install-btn" class="btn-select no-print" disabled>ZConverter Install</button>
 </div>
 
-{# 필터 — 제목행과 분리된 별도 행. 위젯 모양·크기는 위 선택 버튼(btn-select)에 맞춤(list-filter).
-   값 선택 시 active(테마색 강조), 미선택 시 회색(list-table.js 토글). client-side 필터. #}
+{# client-side 필터 (list-table.js). 값 선택 시 active 토글. #}
 <form method="get" id="filter-form" class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:14px;">
   <input type="text" name="search" class="list-filter" value="{{ request.query_params.get('search', '') }}" placeholder="검색" aria-label="hostname 검색" style="width:90px;">
   <select name="is_online" class="list-filter" aria-label="상태 필터">
@@ -116,8 +113,8 @@
       <th style="min-width:200px;">서비스</th>
       <th style="min-width:130px;">OS</th>
       <th style="white-space:nowrap;">프로비저닝</th>
-      <th style="white-space:nowrap;">최근 작업</th>
-      <th class="action-col" style="min-width:110px;"></th>
+      <th style="min-width:240px; white-space:nowrap;">최근 작업</th>
+      <th class="action-col" style="width:1%; white-space:nowrap;"></th>
     </tr>
   </thead>
   <tbody id="server-tbody">

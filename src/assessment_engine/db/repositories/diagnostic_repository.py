@@ -16,9 +16,9 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         self.session = session
 
     async def enqueue(self, job: DiagnosticJobCreate) -> str | None:
-        # active partial UNIQUE = (scope, input_hash, job_type). 충돌 시 do_nothing → returning None.
-        # index_where 명시 의무 — partial unique index는 column만으로 자동 매칭 안 되고
-        # WHERE 조건이 정확히 일치해야 한다.
+        # active partial UNIQUE = (scope, input_hash, job_type). 충돌 시 returning None.
+        # index_where 명시 의무 — partial unique index 는 column 만으로 자동 매칭 안 되고
+        # WHERE 조건이 정확히 일치해야 ON CONFLICT 가 인덱스를 잡는다.
         stmt = (
             pg_insert(DiagnosticJob)
             .values(
@@ -96,9 +96,8 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         if job_type:
             stmt = stmt.where(DiagnosticJob.job_type == job_type)
         if server_public_ids:
-            # 단수 키(server scope 1대) 또는 복수 키(server scope N대) 중 하나라도 매칭하면 hit.
-            # environment scope는 두 키 모두 없어 자연 제외.
-            # 복수 키는 JSONB ?| 연산자로 array element 중 하나라도 일치하는지 검사.
+            # 단수 키(1대) 또는 복수 키(N대) 중 하나라도 매칭하면 hit (environment scope 는 두 키 부재로 자연 제외).
+            # 복수 키는 JSONB ?| 로 array element 중 하나라도 일치하는지 검사.
             single_match = DiagnosticJob.input_params["server_public_id"].astext.in_(
                 server_public_ids,
             )

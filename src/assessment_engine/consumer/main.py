@@ -24,13 +24,10 @@ _COLLECT_DLX = f"{_COLLECT_EXCHANGE}.dlx"
 _TASK_EXCHANGE = consumer_settings.rabbitmq_task_exchange
 _TASK_DLX = f"{_TASK_EXCHANGE}.dlx"
 
-# 큐 정책 (변경 시 broker의 기존 큐 재선언 PRECONDITION_FAILED 발생 — 큐 수동 삭제 필요)
-# - metrics: 1분 주기 발행 + 단기 장애 회복 여유.
-#   TTL 72h + max-length 1M(≈70KB/msg → broker 디스크 ~70GB), 둘 중 먼저 도달 시 oldest→DLX
-# - error: 운영 알림용. 노이즈 방지를 위해 단기 TTL 유지
-# - worker.result: 결과 보고. 24h TTL로 운영자 처리 시간 확보, max-length로 백로그 폭주 방어
+# 큐 정책 변경 시 broker의 기존 큐 재선언이 PRECONDITION_FAILED — 큐 수동 삭제 필요.
+# TTL/max-length 둘 중 먼저 도달 시 oldest -> DLX.
 _METRICS_TTL_MS = 72 * 60 * 60 * 1000  # 72h
-_METRICS_MAX_LEN = 1_000_000  # 큐 폭주 방어 (초과 시 oldest → DLX)
+_METRICS_MAX_LEN = 1_000_000
 _ERROR_TTL_MS = 300_000  # 5분
 _TASK_RESULT_TTL_MS = 24 * 60 * 60 * 1000  # 24h
 _TASK_RESULT_MAX_LEN = 100_000

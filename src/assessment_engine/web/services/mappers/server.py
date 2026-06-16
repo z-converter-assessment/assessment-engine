@@ -118,7 +118,7 @@ def _to_volumes(mounts: list[dict]) -> list[VolumeItem]:
 
 
 def _to_disk_item(d: dict) -> DiskItem | None:
-    """inventory.disks의 raw dict → DiskItem. 물리 디스크 아니면 None."""
+    """물리 디스크 아니면 None."""
     name = d.get("name", "")
     if not is_physical_disk(name):
         return None
@@ -142,10 +142,7 @@ def _to_listen_port_item(p: dict) -> ListenPortItem:
 
 
 def _to_service_item(s: dict, listen_ports: list[dict] | None = None) -> ServiceItem:
-    """inventory.services의 raw dict → ServiceItem.
-
-    listen_ports가 주어지면 매핑된 포트를 채움 (detail). 없으면 빈 리스트 (list 화면).
-    """
+    """listen_ports가 주어지면 매핑된 포트를 채움 (detail). 없으면 빈 리스트 (list 화면)."""
     unit = s.get("unit", "")
     return ServiceItem(
         unit=unit,
@@ -216,6 +213,8 @@ def build_server_inventory(detail, is_online: bool) -> ServerInventory:
         ip_internal=_to_ip_addrs(detail.ip_internal),
         ip_external=_to_ip_addrs(detail.ip_external) if detail.ip_external else [],
         boot_time=detail.boot_time,
+        agent_started_at=detail.agent_started_at,
+        last_seen_at=detail.last_seen_at,
         agent_version=detail.agent_version,
         composite_id=detail.composite_id,
         machine_id=detail.machine_id,
@@ -229,7 +228,6 @@ def build_volumes(raws) -> list[VolumeUsage]:
 
 
 def build_memory_breakdown(raw) -> MemoryBreakdown:
-    """MemoryBreakdownRaw -> MemoryBreakdown (1:1)."""
     return MemoryBreakdown(
         used_pct=raw.used_pct,
         available_pct=raw.available_pct,
@@ -239,7 +237,6 @@ def build_memory_breakdown(raw) -> MemoryBreakdown:
 
 
 def build_cpu_breakdown(raw) -> CpuBreakdown:
-    """CpuBreakdownRaw -> CpuBreakdown (1:1)."""
     return CpuBreakdown(user_pct=raw.user_pct, system_pct=raw.system_pct, iowait_pct=raw.iowait_pct)
 
 

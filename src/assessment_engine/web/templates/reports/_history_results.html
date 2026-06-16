@@ -1,5 +1,4 @@
-{# 보고서 이력 결과 fragment — full page (reports/history.html) 와 fetch 응답 양쪽 공유.
-   단일 진실 위해 fragment endpoint 가 본 template 만 render. #}
+{# 보고서 이력 결과 fragment — reports/history.html full page 와 fetch 응답 공유. #}
 {% if items %}
 <table id="report-history-table">
   <thead>
@@ -31,7 +30,7 @@
     {% endfor %}
   </tbody>
 </table>
-{# 더보기/접기 — 더보기는 전체보기(data-next-limit=total), 접기는 첫 페이지 복귀. JS 가 fragment 재조회 후 결과 영역 교체. 카운트는 버튼에 통합(shown/total). #}
+{# 더보기/접기 — JS 가 fragment 재조회 후 결과 영역 교체. #}
 <div style="margin-top:14px; text-align:center;">
   {% if has_more %}
   <button type="button" id="history-more-btn" data-next-limit="{{ total }}"

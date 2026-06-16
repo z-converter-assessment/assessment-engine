@@ -21,12 +21,12 @@
 
 <div class="text-md text-label" style="margin-bottom:16px;">선택한 서버 {{ summary.overview.total }}대 대상 평가 — 환경 보고서 양식.</div>
 
-{# selection 보고서 — 세부 목록에 개별 보고서 칼럼 노출 (partial 의 engineer 세부 목록도 본 플래그 참조). #}
+{# 세부 목록에 개별 보고서 칼럼 노출 (partial 의 engineer 세부 목록도 본 플래그 참조). #}
 {% set show_report_link = true %}
-{# 환경 보고서 본문 (요약·환경 구성·서비스 구성·환경 요약·Right-sizing·세부 서버 목록 — view 분기). 환경 보고서와 단일 진실 공유. #}
+{# 환경 보고서 본문과 단일 진실 공유 (view 분기). #}
 {% include "reports/_env_report_body.html" %}
 
-{# 세부 서버 목록 — 선택 customer 만 (engineer 는 본문 partial 이 호스트상세 대체로 동일 표를 가짐, 중복 회피). #}
+{# 세부 서버 목록 — customer 만 (engineer 는 본문 partial 이 동일 표를 가져 중복 회피). #}
 {% if summary.view == "customer" %}
 {{ detail_server_list(summary.base.rows, summary.view, summary.time_range, self_back, child_jobs, attention_by_host, summary.overview.total, true) }}
 {% endif %}

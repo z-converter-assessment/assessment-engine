@@ -5,14 +5,13 @@
 <a class="back no-print" href="{{ back_url }}">이전</a>
 <h1>{{ network.hostname }} — 네트워크</h1>
 
-<!-- 현재 상태 (IP 주소 + 인터페이스 현황) -->
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
     <h2 class="card-title" style="margin:0;">현재 상태</h2>
     <span id="metrics-stamp" class="text-meta text-xs no-print">30초마다 자동 갱신 · 최근 —</span>
   </div>
 
-  <dl class="kv">
+  <dl class="kv kv-soft">
     <dt>Internal IP</dt>
     <dd>{% for ip in network.ip_internal %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% else %}-{% endfor %}</dd>
     <dt>External IP</dt>
@@ -39,7 +38,6 @@
   </div>
 </div>
 
-<!-- 네트워크 I/O 추이 -->
 <div class="card">
   <div class="chart-head">
     <h2 class="card-title">네트워크 I/O 추이<span class="print-only text-muted text-sm" id="net-range-print" style="font-weight:normal;"> — 1시간</span></h2>
@@ -55,7 +53,6 @@
     </select>
     <input type="datetime-local" id="net-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
-  <div class="chart-desc">물리 인터페이스 트래픽 (RX/TX)</div>
   <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="net-chart-canvas"></canvas>
   </div>
@@ -68,7 +65,6 @@
   </p>
 </div>
 
-<!-- 네트워크 PPS 추이 -->
 <div class="card">
   <div class="chart-head">
     <h2 class="card-title">네트워크 PPS 추이<span class="print-only text-muted text-sm" id="net-pps-range-print" style="font-weight:normal;"> — 1시간</span></h2>
@@ -84,7 +80,6 @@
     </select>
     <input type="datetime-local" id="net-pps-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
-  <div class="chart-desc">물리 인터페이스 패킷 처리량 (RX/TX)</div>
   <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="net-pps-canvas"></canvas>
   </div>

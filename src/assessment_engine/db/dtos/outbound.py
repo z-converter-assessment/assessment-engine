@@ -62,7 +62,7 @@ class TaskRow:
     target_public_id: str | None  # JOIN server_inventory.public_id (목록 응답 시각·운영자용)
     target_hostname: str | None  # JOIN server_inventory.hostname
     task_type: str
-    status: str  # "pending" / "success" / "failure" (legacy "failed" 가능)
+    status: str  # "pending" / "success" / "failure"
     created_at: datetime
     completed_at: datetime | None
     failure_reason: str | None
@@ -137,7 +137,7 @@ class MountUsageRaw:
     avail_bytes: int | None
     free_bytes: int | None
     collected_at: datetime | None
-    # 시계열 4개 테이블 메타데이터 일관성 — calculator는 시점값이라 활용 안 하지만 보존.
+    # 시계열 4개 테이블 메타 일관성 (#C1·#B) — 시점값이라 reset 판정 미사용, 메타 균일 위해 보존.
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
 
@@ -177,21 +177,18 @@ class NetworkWithIo:
 
 @dataclass
 class EnvironmentUtilizationRaw:
-    """환경(또는 선택 N대) capacity-weighted 평균 활용률 — 자원 총량 가중 (sum(used) / sum(total)).
+    """환경(또는 선택 N대) capacity-weighted 평균 활용률 (sum(used) / sum(total)).
 
-    윈도우 안 전 서버·전 시점 통합 비율. CPU는 jiffies delta 합(1 - sum(d_idle)/sum(d_total)),
-    MEM은 sum(used_kb)/sum(total_kb), DISK는 sum(used_bytes)/sum(total_bytes)(가상 mount 제외). 빈 구간/미수집
-    시점은 분자·분모 동시 제외. 거대 VM이 큰 비중 = 물리 자원 활용률 관점(서버 동등 가중 아님).
-    sample_size = 기간 내 metric 발행 서버 distinct count. 산식 단일 진실 = repo environment_utilization.
+    윈도우 안 전 서버·전 시점 통합 비율 — CPU는 jiffies delta 합, MEM/DISK는 total 가중(가상 mount 제외).
+    거대 VM이 큰 비중 = 물리 자원 관점(서버 동등 가중 아님). 산식 단일 진실 = repo environment_utilization.
     """
 
     cpu_avg_pct: float | None
     mem_avg_pct: float | None
     disk_avg_pct: float | None
-    sample_size: int  # 어느 metric이든 데이터 들어온 서버 수 — UI에 표본 표시 (예: "12대 기준")
-    # 시점별 capacity-weighted 환경값 분포의 p95 (avg 와 동일 per_ts 기반, 진정한 환경 p95).
-    # 호스트별 p95 산술평균(compute_report_avg_p95)이 아님 — 분포 95퍼센타일. None=표본 부재.
-    # 디스크는 물리디스크/디바이스 인식이 Windows 에서 불완전 -> capacity 합 신뢰 불가라 p95 제외 (CPU·메모리만).
+    sample_size: int  # 기간 내 metric 발행 서버 distinct count — UI 표본 표시
+    # 시점별 capacity-weighted 환경값 분포의 p95 (호스트별 p95 평균 아닌 분포 95퍼센타일).
+    # 디스크는 Windows 물리디스크 인식 불완전 -> capacity 합 신뢰 불가라 p95 제외 (CPU·메모리만).
     cpu_p95_pct: float | None = None
     mem_p95_pct: float | None = None
 
@@ -268,7 +265,7 @@ class ReportRowRaw:
     load_15m_max: float | None
     swap_used: bool
 
-    # service_classifier listen 신호 (개별 보고서 구동 서비스 표시·role 보강). default — 옛 호출 호환.
+    # service_classifier listen 신호 (개별 보고서 구동 서비스 표시·role 보강).
     listen_ports: list[dict] | None = None
 
     # I/O wait (cpu_stat.iowait jiffies / total non-idle 비율) — 디스크 병목 신호

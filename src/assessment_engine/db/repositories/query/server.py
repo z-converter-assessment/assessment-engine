@@ -44,7 +44,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
         limit: int,
         search: str | None,
     ) -> list[ServerSummary]:
-        # mounts/listen_ports/kernel_version 등 큰 JSONB·텍스트는 list 화면 미사용 — 명시 SELECT.
+        # 명시 SELECT — mounts/listen_ports/kernel_version 등 큰 JSONB·텍스트는 list 화면 미사용.
         stmt = select(
             ServerInventory.id,
             ServerInventory.public_id,

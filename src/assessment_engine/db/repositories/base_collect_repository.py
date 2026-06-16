@@ -11,22 +11,16 @@ from assessment_engine.db.dtos.inbound import (
 
 @dataclass
 class MetricInsertResult:
-    """record_metrics 결과 — 4개 테이블 각각 INSERT된 행 수.
+    """record_metrics 결과 — 4개 테이블 각각 INSERT된 행 수. 멱등성 충돌 시 0."""
 
-    ON CONFLICT DO NOTHING이므로 멱등성 충돌 시 0. 관측·디버깅 용도.
-    """
-
-    metrics: int  # server_metrics: 0 또는 1
-    disk_io: int  # server_disk_io
-    net_io: int  # server_net_io
-    mount_usage: int  # server_mount_usage
+    metrics: int
+    disk_io: int
+    net_io: int
+    mount_usage: int
 
 
 class BaseCollectRepository(ABC):
-    """Consumer 측 데이터 접근 인터페이스.
-
-    트랜잭션 경계는 호출자(`_db_retry`)가 관리. 본 인터페이스는 SQL 실행만.
-    """
+    """Consumer 측 데이터 접근 인터페이스. 트랜잭션 경계는 호출자(`_db_retry`)가 관리."""
 
     @abstractmethod
     async def find_server_id(self, composite_id: str) -> int | None:
@@ -36,8 +30,8 @@ class BaseCollectRepository(ABC):
     async def upsert_server(self, data: ServerInventoryCreate) -> int:
         """composite_id UNIQUE 키 ON CONFLICT DO UPDATE upsert. server_inventory.id 반환.
 
-        부수효과: 직전 행과 비교 시 변경(또는 신규) 감지되면 server_inventory_history에
-        한 행 append (앱 레벨 trigger). 1시간 주기 재발행이라도 정적 정보 동일하면 history 그대로.
+        부수효과: 직전 행 대비 변경(또는 신규) 감지 시 server_inventory_history append.
+        정적 정보 동일하면 주기 재발행이라도 history 그대로 — noise 차단.
         """
 
     @abstractmethod
@@ -46,40 +40,30 @@ class BaseCollectRepository(ABC):
         composite_id: str,
         fallback: ServerInventoryCreate,
     ) -> tuple[int, bool]:
-        """find_server_id 시도 후, 없으면 fallback inventory로 upsert.
+        """metrics 핸들러 auto-register 캡슐화. find 후 없으면 fallback upsert.
 
-        metrics 핸들러의 auto-register 흐름을 캡슐화.
-
-        반환: (server_id, auto_registered).
-            - auto_registered=True: composite_id 가 server_inventory에 없어서
-              fallback으로 새로 등록. 호출자는 placeholder임을 인지하고 운영 로그 남김.
-            - auto_registered=False: 기존 server_id 사용. fallback 미사용.
+        반환 (server_id, auto_registered). True 면 placeholder 신규 등록(호출자 운영 로그 남김).
         """
 
     @abstractmethod
     async def create_task(self, data: TaskCreate) -> str:
-        """task 1건 INSERT. 반환: public_id (UUID 문자열). agent에 노출되는 식별자."""
+        """task 1건 INSERT. 반환: public_id (UUID) — agent에 노출되는 식별자."""
 
     @abstractmethod
     async def complete_task(self, data: TaskResultUpdate) -> bool:
-        """결과 보고 수신 — status / completed_at / failure_reason / exit_code /
-        duration_ms / stdout_tail / stderr_tail UPDATE.
-
-        반환: True 정상 update / False public_id 미존재 (DLQ 또는 silent ack 결정).
-        """
+        """결과 보고 수신 UPDATE. 반환: True 정상 / False public_id 미존재 (DLQ·silent ack 결정)."""
 
     @abstractmethod
     async def expire_overdue_tasks(self, server_ids: list[int]) -> int:
-        """deadline 경과 pending(마감 있는 = install) 을 failure(failure_reason='timeout') 로 전이. 반환: 전이 건수.
+        """deadline 경과 pending(install) 을 failure(timeout) 로 전이. 반환: 전이 건수.
 
-        발행 경로가 INSERT 직전 호출 — 만료 pending 을 정리해 pending 부분 UNIQUE 충돌(409) 없이 재발행.
-        대상은 deadline_at IS NOT NULL 인 pending (현재 install 만 deadline 세팅). race-safe (WHERE status='pending').
-        agent 가 뒤늦게 result 를 보내면 complete_task 가 덮어씀.
+        발행 경로가 INSERT 직전 호출 — 만료 pending 정리로 pending 부분 UNIQUE 충돌(409) 없이 재발행.
+        race-safe (WHERE status='pending'). agent 뒤늦은 result 는 complete_task 가 덮어씀.
         """
 
     @abstractmethod
     async def find_pending_deadline_servers(self, server_ids: list[int]) -> list[int]:
-        """deadline 안 지난 활성 pending(마감 있는 = install) 보유 server_id 목록.
+        """deadline 안 지난 활성 pending(install) 보유 server_id 목록.
 
         발행 경로가 expire 직후 호출 — all-or-nothing 사전 중복 검증. 하나라도 있으면 전체 발행 취소.
         """
@@ -90,12 +74,7 @@ class BaseCollectRepository(ABC):
         server_id: int,
         data: ServerMetricCreate,
     ) -> MetricInsertResult:
-        """metrics 메시지 1건을 4개 시계열 테이블에 INSERT.
-
-        - server_metrics: 스칼라 1행
-        - server_disk_io: 디바이스별 N행 (data.disk_io 비어있으면 skip)
-        - server_net_io: 인터페이스별 N행 (data.net_io 비어있으면 skip)
-        - server_mount_usage: 마운트별 N행 (data.mounts 비어있으면 skip)
+        """metrics 메시지 1건을 4개 시계열 테이블에 INSERT. 빈 list 차원은 skip.
 
         모두 ON CONFLICT DO NOTHING — 멱등성 자연키 흡수.
         """

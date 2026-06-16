@@ -47,8 +47,8 @@ class ServiceItem:
     category: str
     ports: list[MatchedPort]
     display_name: str = ""
-    # 같은 카테고리 서비스 개수 (서버목록 뱃지 "db 2" 표시 — 환경요약 role 인스턴스 수와 일관).
-    # 런타임 스택(container)은 호스트당 1 (docker+containerd 를 부풀리지 않음). _dedup_known 이 set.
+    # 같은 카테고리 서비스 개수 (서버목록 뱃지 "db 2" — 환경요약 role 인스턴스 수와 일관).
+    # 런타임 스택(container)은 호스트당 1 (docker+containerd 부풀림 방지).
     category_count: int = 1
 
 
@@ -118,7 +118,7 @@ class ServerDetailResponse:
     services: list[ServiceItem] | None
     listen_ports: list[ListenPortItem]
     last_seen_at: datetime | None
-    # 이하 mapper(enrich_server_detail)에서 채우는 파생 필드 — default 필수 (dataclass 순서 제약)
+    # 이하 mapper(enrich_server_detail) 파생 필드 — default 필수 (dataclass 순서 제약)
     sorted_services: list[ServiceItem] = field(default_factory=list)  # P3: unit ASC 정렬
     sorted_listen_ports: list[ListenPortItem] = field(default_factory=list)  # P3: port ASC 정렬
     known_services: list[ServiceItem] = field(default_factory=list)
@@ -135,6 +135,19 @@ class ServerDetailResponse:
     volumes: list[VolumeItem] = field(default_factory=list)
     volume_total_gb: float | None = None
     volumes_count: int = 0
+
+
+@dataclass
+class ServerStabilitySignals:
+    """서버 세부 운영 신호 — 전구간(전체 수집 기간) 재부팅·에이전트 재시작 카운트 + OS 지원종료 라벨.
+
+    selection 엔지니어 보고서는 anchor+7일 window 카운트지만, 서버 세부는 전체 수집 기간(전구간) 기준.
+    window 집계라 ServerDetailResponse 캐시에 넣지 않고 라우터가 매 요청 query_service 로 조회해 context 전달.
+    """
+
+    reboot_count: int
+    agent_restart_count: int
+    os_eol_label: str | None  # EOL 경과 시 "{제품} · EOL {date}", 아니면 None(지원 중)
 
 
 @dataclass

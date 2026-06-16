@@ -6,13 +6,12 @@
 <a class="back no-print" href="{{ back_url }}">이전</a>
 <h1>{{ server.hostname }} — CPU 상세</h1>
 
-<!-- 현재 스냅샷 -->
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
     <h2 class="card-title" style="margin:0;">현재 상태</h2>
     <span id="metrics-stamp" class="text-meta no-print text-xs">30초마다 자동 갱신 · 최근 —</span>
   </div>
-  <dl class="kv" style="margin-bottom:16px;">
+  <dl class="kv kv-soft" style="margin-bottom:16px;">
     <dt>모델</dt>
     <dd>{{ server.cpu_model or '-' }}</dd>
     <dt>코어 수</dt>
@@ -21,13 +20,13 @@
   <hr style="border:none; border-top:1px solid #e2e8f0; margin:0 0 14px;">
   <div id="snap-loading" class="text-meta text-md">불러오는 중...</div>
   <div id="snap-body" style="display:none;">
-    <dl class="kv" style="margin-bottom:20px;">
+    <dl class="kv kv-soft" style="margin-bottom:20px;">
       <dt>CPU 사용률</dt><dd id="s-usage">—</dd>
       <dt>User</dt>      <dd id="s-user">—</dd>
       <dt>System</dt>    <dd id="s-system">—</dd>
       <dt>I/O Wait</dt>  <dd id="s-iowait">—</dd>
     </dl>
-    <dl class="kv">
+    <dl class="kv kv-soft">
       <dt>코어당 로드 (1분)</dt>  <dd id="s-load1">—</dd>
       <dt>코어당 로드 (5분)</dt>  <dd id="s-load5">—</dd>
       <dt>코어당 로드 (15분)</dt> <dd id="s-load15">—</dd>
@@ -42,7 +41,6 @@
   </div>
 </div>
 
-<!-- CPU 사용률 추이 -->
 <div class="card">
   <div style="margin-bottom:14px;">
     <div class="chart-head">
@@ -65,7 +63,6 @@
       </select>
     </div>
   </div>
-  <div class="chart-desc">100% = 전 코어 포화 (idle 제외, iowait 포함)</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="usage-canvas"></canvas>
   </div>
@@ -79,7 +76,6 @@
   </ul>
 </div>
 
-<!-- CPU 분류 추이 -->
 <div class="card">
   <div class="chart-head">
     <h2 class="card-title">CPU 분류 추이<span class="print-only text-muted text-sm" id="comp-range-print" style="font-weight:normal;"> — 1시간</span></h2>
@@ -105,7 +101,6 @@
   <div id="comp-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
 </div>
 
-<!-- 로드 평균 추이 -->
 <div class="card">
   <div class="chart-head">
     <h2 class="card-title">코어당 로드 추이<span class="print-only text-muted text-sm" id="load-range-print" style="font-weight:normal;"> — 1시간</span></h2>

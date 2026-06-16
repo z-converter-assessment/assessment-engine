@@ -23,23 +23,42 @@
 
 {% set si = summary.server_inventory %}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">서버 인벤토리</h2>
   {% if si %}
-  <div class="metric-grid metric-grid-3" style="margin-bottom:14px;">
-    <div class="metric-card">
-      <div class="metric-label">vCPU</div>
-      <div class="metric-value">{{ si.cpu_cores | or_dash }}</div>
+  <div class="inv-row" style="display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start; margin-bottom:14px;">
+    <div>
+      <h2 class="card-title" style="margin:0 0 12px; display:flex; align-items:center; gap:10px;">서버 인벤토리 {% if si.is_online %}<span class="status-on">온라인</span>{% else %}<span class="status-off">오프라인</span>{% endif %}</h2>
+      <div class="metric-grid metric-grid-3">
+      <div class="metric-card">
+        <div class="metric-label">vCPU</div>
+        <div class="metric-value">{{ si.cpu_cores | or_dash }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">메모리</div>
+        <div class="metric-value">{% if si.mem_total_gb is not none %}{{ "%.1f" | format(si.mem_total_gb) }} GB{% else %}—{% endif %}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">디스크</div>
+        <div class="metric-value">{% if si.disk_total_gb %}{{ si.disk_total_gb }} GB{% else %}—{% endif %}</div>
+      </div>
+      </div>
     </div>
-    <div class="metric-card">
-      <div class="metric-label">메모리</div>
-      <div class="metric-value">{% if si.mem_total_gb is not none %}{{ "%.1f" | format(si.mem_total_gb) }} GB{% else %}—{% endif %}</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">디스크</div>
-      <div class="metric-value">{% if si.disk_total_gb %}{{ si.disk_total_gb }} GB{% else %}—{% endif %}</div>
+    <div>
+      <h2 class="card-title" style="margin:0 0 12px;">서비스 요약</h2>
+      {% if r and r.workload_groups %}
+      <div style="display:flex; flex-direction:column; gap:6px;">
+        {% for g in r.workload_groups %}
+        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
+          <span class="badge {{ g.category | service_badge_class }}">{{ g.category }}{% if g.names_label %}<span style="font-weight:400; opacity:0.75; margin-left:5px;">{{ g.names_label }}</span>{% endif %}</span>
+          {% for p in g.ports %}{% set _p = p.split('/') %}<span class="port-chip"><span class="identifier text-sm" style="color:var(--color-title);">{{ _p[1] }}</span><strong>{{ _p[0] }}</strong></span>{% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      {{ empty_state("구동 서비스 없음") }}
+      {% endif %}
     </div>
   </div>
-  <dl class="kv">
+  <dl class="kv kv-soft">
     <dt>OS</dt>
     <dd>{{ si.os_display }}{% if si.os_codename %} ({{ si.os_codename }}){% endif %}</dd>
     <dt>Kernel</dt>
@@ -52,22 +71,20 @@
     <dt>Swap</dt>
     <dd>{{ "%.1f" | format(si.swap_total_gb) }} GB</dd>
     {% endif %}
-    {% if r and r.workload_groups %}
-    <dt>역할</dt>
-    <dd>{% for g in r.workload_groups %}<span class="badge {{ g.category | service_badge_class }}">{{ g.category }}</span> {% endfor %}</dd>
-    {% endif %}
     {% if si.ip_internal %}
     <dt>내부 IP</dt>
-    <dd>{% for ip in si.ip_internal %}{{ ip.value }}{% if not ip.is_ipv4 %} (IPv6){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</dd>
+    <dd>{% for ip in si.ip_internal %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}</dd>
     {% endif %}
     {% if si.ip_external %}
     <dt>외부 IP</dt>
-    <dd>{% for ip in si.ip_external %}{{ ip.value }}{% if not ip.is_ipv4 %} (IPv6){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</dd>
+    <dd>{% for ip in si.ip_external %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}</dd>
     {% endif %}
-    <dt>상태</dt>
-    <dd>{% if si.is_online %}온라인{% else %}오프라인{% endif %}</dd>
     <dt>Boot Time</dt>
     <dd>{{ si.boot_time | kst }}</dd>
+    <dt>Agent Started</dt>
+    <dd>{{ si.agent_started_at | kst }}</dd>
+    <dt>Last Inventory</dt>
+    <dd>{{ si.last_seen_at | kst }}</dd>
     {% if view == "engineer" %}
     <dt>Composite ID</dt>
     <dd style="word-break:break-all;">{{ si.composite_id }}</dd>
@@ -76,35 +93,59 @@
   {% endif %}
 </section>
 
-{% if r %}
-{# ── 그룹 1: 구성 — 이 서버가 무엇이고 무엇을 구동하는가 ── #}
+{% if r and view == "engineer" %}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">구동 서비스</h2>
-  {% if view == "customer" %}
-  {# customer — 카테고리별 제품명 묶음 (의미 중심, 포트 숨김) #}
-  {% if r.workload_groups %}
-  <div style="display:flex; flex-direction:column; gap:8px;">
-    {% for g in r.workload_groups %}
-    <div style="display:flex; align-items:baseline; gap:10px;">
-      <span class="badge {{ g.category | service_badge_class }}" style="min-width:64px; text-align:center;">{{ g.category }}</span>
-      <span class="text-md text-strong">{{ g.names_label or "—" }}</span>
-    </div>
-    {% endfor %}
+  <h2 class="card-title">자원 적정성 평가</h2>
+  <table class="detail-table">
+    <thead>
+      <tr><th>분류</th><th>진단</th><th>권고</th><th>신뢰도</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>{{ r.recommendation_label }}</td>
+        <td>{{ r.diagnosis or "—" }}</td>
+        <td class="text-strong">{{ r.recommendation_action or "—" }}</td>
+        <td>{% if r.confidence_notes %}{% for n in r.confidence_notes %}<span class="text-meta text-sm">{{ n }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+{# 발화 가능 정보 항상 노출(E9). #}
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">운영·안정성</h2>
+  <div style="overflow-x:auto;">
+  <table class="detail-table" style="min-width:420px;">
+    <thead>
+      <tr>
+        <th style="text-align:right;">재부팅</th>
+        <th style="text-align:right;">에이전트 재시작</th>
+        <th>OS 지원 종료</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="text-align:right;">{{ r.reboot_count }}회</td>
+        <td style="text-align:right;">{{ r.agent_restart_count }}회</td>
+        <td>{% if attention_for_host.get('os_eol') %}{{ attention_for_host.os_eol }}{% else %}<span class="text-meta">해당 없음</span>{% endif %}</td>
+      </tr>
+    </tbody>
+  </table>
   </div>
-  {% else %}
-  {{ empty_state("구동 중인 것으로 분류된 서비스가 없습니다.") }}
-  {% endif %}
-  {% else %}
-  {# engineer — 등록 서비스(unit) 표 + listen 포트 표 (최대 상세) #}
+</section>
+
+{# print-break-after: 인쇄 시 다음 카드(자원 상세)부터 새 페이지. #}
+<section class="card print-break-after" style="margin-bottom:16px;">
+  <h2 class="card-title">구동 서비스</h2>
   <h3>등록 서비스</h3>
   {% if r.service_units %}
-  <table style="margin-bottom:18px;">
+  <table class="detail-table" style="margin-bottom:18px;">
     <thead><tr><th>unit</th><th>카테고리</th><th>listen 포트</th></tr></thead>
     <tbody>
       {% for u in r.service_units %}
       <tr>
         <td>{{ u.unit }}</td>
-        {# unknown 카테고리는 뱃지 없이 "—" — 서버 목록(_server_rows.html)·보고서 일반 placeholder(E9) 와 통일. #}
+        {# unknown 카테고리는 뱃지 없이 placeholder "—" 로 통일(E9). #}
         <td>{% if u.category != 'unknown' %}<span class="badge {{ u.category | service_badge_class }}">{{ u.category }}</span>{% else %}<span class="text-meta">—</span>{% endif %}</td>
         <td>{{ u.ports_label or "—" }}</td>
       </tr>
@@ -116,156 +157,162 @@
   {% endif %}
   <h3>Listen 포트</h3>
   {% if r.listen_ports_detail %}
-  <table>
-    <thead><tr><th>포트</th><th>proto</th><th>process</th></tr></thead>
+  <table class="detail-table">
+    <thead><tr><th>Proto</th><th>Addr</th><th>Port</th><th>UID</th><th>PID</th><th>Process</th></tr></thead>
     <tbody>
       {% for p in r.listen_ports_detail %}
-      <tr><td>{{ p.port }}</td><td>{{ p.proto }}</td><td>{{ p.comm or "—" }}</td></tr>
+      <tr>
+        <td>{{ p.proto }}</td>
+        <td>{{ p.addr }}</td>
+        <td>{{ p.port }}</td>
+        <td>{% if p.uid is not none %}{{ p.uid }}{% else %}<span class="text-meta">—</span>{% endif %}</td>
+        <td>{% if p.pid is not none %}{{ p.pid }}{% else %}<span class="text-meta">—</span>{% endif %}</td>
+        <td>{% if p.comm %}{{ p.comm }}{% else %}<span class="text-meta">—</span>{% endif %}</td>
+      </tr>
       {% endfor %}
     </tbody>
   </table>
   {% else %}
   {{ empty_state("수집된 listen 포트가 없습니다.") }}
   {% endif %}
-  {% endif %}
 </section>
+{% endif %}
 
-{# ── 그룹 2: 사용률 — 핵심 지표 + 심화 분해(CPU·메모리) + 시계열 추이 ── #}
+{% if r %}
+{# 주요 메트릭 요약 표는 customer 전용 — engineer 는 아래 자원별 상세 카드가 사용률을 직접 담아 중복. #}
+{% if view == "customer" %}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">평균 사용률</h2>
-  <div class="metric-grid metric-grid-2">
-    <div class="metric-card">
-      <div class="metric-label">CPU 평균</div>
-      <div class="metric-value">{% if r.cpu_avg_pct is not none %}{{ "%.1f"|format(r.cpu_avg_pct) }}%{% else %}—{% endif %}</div>
-      <div class="metric-sub">p95 {% if r.cpu_p95_pct is not none %}{{ "%.1f"|format(r.cpu_p95_pct) }}%{% else %}—{% endif %} · peak {% if r.cpu_peak_pct is not none %}{{ "%.1f"|format(r.cpu_peak_pct) }}%{% else %}—{% endif %}</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">메모리 평균</div>
-      <div class="metric-value">{% if r.mem_avg_pct is not none %}{{ "%.1f"|format(r.mem_avg_pct) }}%{% else %}—{% endif %}</div>
-      <div class="metric-sub">p95 {% if r.mem_p95_pct is not none %}{{ "%.1f"|format(r.mem_p95_pct) }}%{% else %}—{% endif %} · peak {% if r.mem_peak_pct is not none %}{{ "%.1f"|format(r.mem_peak_pct) }}%{% else %}—{% endif %}</div>
-    </div>
+  <h2 class="card-title">주요 메트릭</h2>
+  <div style="overflow-x:auto;">
+  <table class="detail-table" style="min-width:680px;">
+    <thead>
+      <tr>
+        <th style="text-align:right; white-space:nowrap;">CPU 평균</th>
+        <th style="text-align:right; white-space:nowrap;">CPU peak</th>
+        <th style="text-align:right; white-space:nowrap;">메모리 평균</th>
+        <th style="text-align:right; white-space:nowrap;">메모리 peak</th>
+        <th style="text-align:right; white-space:nowrap;">디스크</th>
+        <th style="text-align:right; white-space:nowrap;">재부팅</th>
+        <th style="text-align:right; white-space:nowrap;">재시작</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="text-align:right;">{% if r.cpu_avg_pct is not none %}{{ "%.1f"|format(r.cpu_avg_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.cpu_peak_pct is not none %}{{ "%.1f"|format(r.cpu_peak_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.mem_avg_pct is not none %}{{ "%.1f"|format(r.mem_avg_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.mem_peak_pct is not none %}{{ "%.1f"|format(r.mem_peak_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.worst_mount_used_pct is not none %}{{ "%.0f"|format(r.worst_mount_used_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{{ r.reboot_count }}회</td>
+        <td style="text-align:right;">{{ r.agent_restart_count }}회</td>
+      </tr>
+    </tbody>
+  </table>
   </div>
 </section>
+{% endif %}
 
 {% if view == "engineer" %}
-{# CPU 분류 — user/system/iowait (윈도우 평균, jiffies delta 기반). 평균 사용률 심화. 발화 가능 — 빈 데이터도 제목 노출(E9). #}
-<section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">CPU 분류</h2>
-  {% if summary.cpu_breakdown %}
-  {% set cb = summary.cpu_breakdown %}
-  <div class="metric-grid metric-grid-3">
-    <div class="metric-card"><div class="metric-label">User</div><div class="metric-value">{% if cb.user_pct is not none %}{{ "%.1f"|format(cb.user_pct) }}%{% else %}—{% endif %}</div></div>
-    <div class="metric-card"><div class="metric-label">System</div><div class="metric-value">{% if cb.system_pct is not none %}{{ "%.1f"|format(cb.system_pct) }}%{% else %}—{% endif %}</div></div>
-    <div class="metric-card"><div class="metric-label">I/O Wait</div><div class="metric-value">{% if cb.iowait_pct is not none %}{{ "%.1f"|format(cb.iowait_pct) }}%{% else %}—{% endif %}</div></div>
-  </div>
-  {% else %}
-  {{ empty_state("CPU 분류 표본이 아직 없습니다.") }}
-  {% endif %}
-</section>
+{% set cb = summary.cpu_breakdown %}
+{% set mb = summary.memory_breakdown %}
 
-{# 메모리 구성 — used/available/cached/buffers (윈도우 평균, 전체 메모리 대비). 평균 사용률 심화. 발화 가능 — 빈 데이터도 제목 노출(E9). #}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">메모리 구성</h2>
-  {% if summary.memory_breakdown %}
-  {% set mb = summary.memory_breakdown %}
-  <div class="metric-grid metric-grid-4">
-    <div class="metric-card"><div class="metric-label">Used</div><div class="metric-value">{% if mb.used_pct is not none %}{{ "%.1f"|format(mb.used_pct) }}%{% else %}—{% endif %}</div></div>
-    <div class="metric-card"><div class="metric-label">Available</div><div class="metric-value">{% if mb.available_pct is not none %}{{ "%.1f"|format(mb.available_pct) }}%{% else %}—{% endif %}</div></div>
-    <div class="metric-card"><div class="metric-label">Cached</div><div class="metric-value">{% if mb.cached_pct is not none %}{{ "%.1f"|format(mb.cached_pct) }}%{% else %}—{% endif %}</div></div>
-    <div class="metric-card"><div class="metric-label">Buffers</div><div class="metric-value">{% if mb.buffers_pct is not none %}{{ "%.1f"|format(mb.buffers_pct) }}%{% else %}—{% endif %}</div></div>
-  </div>
-  {% else %}
-  {{ empty_state("메모리 구성 표본이 아직 없습니다.") }}
-  {% endif %}
-</section>
-
-{# 부하 추이 — 1대 시계열. CPU/메모리/디스크 평균 버킷. 발화 가능 — 빈 데이터도 제목 노출(E9). 상세는 참고자료. #}
-<section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">부하 추이</h2>
-  {% if summary.trend %}
-  <div style="height:280px;"><canvas id="env-trend-chart" data-trend='{{ summary.trend | tojson }}' data-range="{{ summary.time_range }}"></canvas></div>
-  <p class="chart-desc" style="margin:10px 0 0;">{{ summary.time_range_label }} 구간 · 수집 이력이 있는 범위만 표시. 상세 정의는 참고자료.</p>
-  {% else %}
-  {{ empty_state("추이 표본이 아직 없습니다.") }}
-  {% endif %}
-</section>
-
-{# ── 그룹 3: USE 신호 — Saturation 축 + 변동성/IO/네트워크 보조 지표 ── #}
-<section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">Saturation 신호 <span class="section-meta">포화</span></h2>
-  <div class="metric-grid metric-grid-3">
-    <div class="metric-card">
-      <div class="metric-label">Load 15m</div>
-      <div class="metric-value">{% if r.os_family == 'windows' %}N/A{% elif r.load_15m_max is not none %}{{ "%.2f"|format(r.load_15m_max) }}{% else %}—{% endif %}</div>
-      <div class="metric-sub">saturation {% if r.os_family == 'windows' %}N/A{% elif r.saturation_ratio is not none %}{{ "%.2f"|format(r.saturation_ratio) }} (load / vCPU){% else %}—{% endif %}</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">iowait p95</div>
-      <div class="metric-value">{% if r.os_family == 'windows' %}N/A{% elif r.iowait_p95_pct is not none %}{{ "%.1f"|format(r.iowait_p95_pct) }}%{% else %}—{% endif %}</div>
-      <div class="metric-sub">peak {% if r.os_family == 'windows' %}N/A{% elif r.iowait_peak_pct is not none %}{{ "%.1f"|format(r.iowait_peak_pct) }}%{% else %}—{% endif %}</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">Swap 사용</div>
-      <div class="metric-value">{% if r.os_family == 'windows' %}N/A{% elif r.swap_used %}발생{% else %}—{% endif %}</div>
-      <div class="metric-sub">{% if r.os_family == 'windows' %}Windows pagefile — saturation 미적용{% else %}메모리 saturation 1차 지표{% endif %}</div>
-    </div>
+  <h2 class="card-title">CPU 상세</h2>
+  <div style="overflow-x:auto;">
+  <table class="detail-table" style="min-width:560px;">
+    <thead>
+      <tr>
+        <th style="text-align:right;">평균</th>
+        <th style="text-align:right;">p95</th>
+        <th style="text-align:right;">peak</th>
+        <th style="text-align:right;">User</th>
+        <th style="text-align:right;">System</th>
+        <th style="text-align:right;">I/O Wait</th>
+        <th style="text-align:right;">Load 15m</th>
+        <th style="text-align:right;">iowait p95</th>
+        <th style="text-align:right;">iowait peak</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="text-align:right;">{% if r.cpu_avg_pct is not none %}{{ "%.1f"|format(r.cpu_avg_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.cpu_p95_pct is not none %}{{ "%.1f"|format(r.cpu_p95_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.cpu_peak_pct is not none %}{{ "%.1f"|format(r.cpu_peak_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if cb and cb.user_pct is not none %}{{ "%.1f"|format(cb.user_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if cb and cb.system_pct is not none %}{{ "%.1f"|format(cb.system_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if cb and cb.iowait_pct is not none %}{{ "%.1f"|format(cb.iowait_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif r.load_15m_max is not none %}{{ "%.2f"|format(r.load_15m_max) }}{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif r.iowait_p95_pct is not none %}{{ "%.1f"|format(r.iowait_p95_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif r.iowait_peak_pct is not none %}{{ "%.1f"|format(r.iowait_peak_pct) }}%{% else %}—{% endif %}</td>
+      </tr>
+    </tbody>
+  </table>
   </div>
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">디스크 I/O</h2>
-  <div class="metric-grid metric-grid-2">
-    <div class="metric-card">
-      <div class="metric-label">디스크 IOPS (avg)</div>
-      <div class="metric-value">{% if r.disk_iops_baseline is not none %}{{ r.disk_iops_baseline }}{% else %}—{% endif %}</div>
-      <div class="metric-sub">p95 {% if r.disk_iops_p95 is not none %}{{ "%.0f"|format(r.disk_iops_p95) }}{% else %}—{% endif %} · peak {% if r.disk_iops_peak is not none %}{{ "%.0f"|format(r.disk_iops_peak) }}{% else %}—{% endif %}</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">디스크 처리량 (avg kBps)</div>
-      <div class="metric-value">{% if r.disk_throughput_kbps is not none %}{{ "%.0f"|format(r.disk_throughput_kbps) }}{% else %}—{% endif %}</div>
-      <div class="metric-sub">p95 {% if r.disk_throughput_kbps_p95 is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_p95) }}{% else %}—{% endif %} · peak {% if r.disk_throughput_kbps_peak is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_peak) }}{% else %}—{% endif %}</div>
-    </div>
+  <h2 class="card-title">메모리 상세</h2>
+  <div style="overflow-x:auto;">
+  <table class="detail-table" style="min-width:480px;">
+    <thead>
+      <tr>
+        <th style="text-align:right;">평균</th>
+        <th style="text-align:right;">p95</th>
+        <th style="text-align:right;">peak</th>
+        <th style="text-align:right;">Used</th>
+        <th style="text-align:right;">Available</th>
+        <th style="text-align:right;">Cached</th>
+        <th style="text-align:right;">Buffers</th>
+        <th style="text-align:right;">Swap 사용</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="text-align:right;">{% if r.mem_avg_pct is not none %}{{ "%.1f"|format(r.mem_avg_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.mem_p95_pct is not none %}{{ "%.1f"|format(r.mem_p95_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.mem_peak_pct is not none %}{{ "%.1f"|format(r.mem_peak_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if mb and mb.used_pct is not none %}{{ "%.1f"|format(mb.used_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if mb and mb.available_pct is not none %}{{ "%.1f"|format(mb.available_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if mb and mb.cached_pct is not none %}{{ "%.1f"|format(mb.cached_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if mb and mb.buffers_pct is not none %}{{ "%.1f"|format(mb.buffers_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif r.swap_used %}발생{% else %}—{% endif %}</td>
+      </tr>
+    </tbody>
+  </table>
   </div>
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">네트워크</h2>
-  <div class="metric-grid metric-grid-2">
-    <div class="metric-card">
-      <div class="metric-label">네트워크 RX (avg kBps)</div>
-      <div class="metric-value">{% if r.net_rx_kbps is not none %}{{ "%.0f"|format(r.net_rx_kbps) }}{% else %}—{% endif %}</div>
-      <div class="metric-sub">p95 {% if r.net_rx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_rx_kbps_p95) }}{% else %}—{% endif %} · peak {% if r.net_rx_kbps_peak is not none %}{{ "%.0f"|format(r.net_rx_kbps_peak) }}{% else %}—{% endif %}</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">네트워크 TX (avg kBps)</div>
-      <div class="metric-value">{% if r.net_tx_kbps is not none %}{{ "%.0f"|format(r.net_tx_kbps) }}{% else %}—{% endif %}</div>
-      <div class="metric-sub">p95 {% if r.net_tx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_tx_kbps_p95) }}{% else %}—{% endif %} · peak {% if r.net_tx_kbps_peak is not none %}{{ "%.0f"|format(r.net_tx_kbps_peak) }}{% else %}—{% endif %}</div>
-    </div>
+  <h2 class="card-title">디스크 상세</h2>
+  <div style="overflow-x:auto;">
+  <table class="detail-table" style="min-width:560px;">
+    <thead>
+      <tr>
+        <th style="text-align:right;">최대 사용률</th>
+        <th style="text-align:right;">IOPS avg</th>
+        <th style="text-align:right;">IOPS p95</th>
+        <th style="text-align:right;">IOPS peak</th>
+        <th style="text-align:right;">처리량 avg</th>
+        <th style="text-align:right;">처리량 p95</th>
+        <th style="text-align:right;">처리량 peak</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="text-align:right;">{% if r.worst_mount_used_pct is not none %}{{ "%.0f"|format(r.worst_mount_used_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.disk_iops_baseline is not none %}{{ r.disk_iops_baseline }}{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.disk_iops_p95 is not none %}{{ "%.0f"|format(r.disk_iops_p95) }}{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.disk_iops_peak is not none %}{{ "%.0f"|format(r.disk_iops_peak) }}{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.disk_throughput_kbps is not none %}{{ "%.0f"|format(r.disk_throughput_kbps) }} kBps{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.disk_throughput_kbps_p95 is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_p95) }} kBps{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.disk_throughput_kbps_peak is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_peak) }} kBps{% else %}—{% endif %}</td>
+      </tr>
+    </tbody>
+  </table>
   </div>
-</section>
-
-{# ── 그룹 4: 스토리지 — 안정성 요약 + 마운트별 상세 ── #}
-<section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">스토리지 / 시스템 안정성</h2>
-  <div class="metric-grid metric-grid-2">
-    <div class="metric-card">
-      <div class="metric-label">worst mount</div>
-      <div class="metric-value-md">{% if r.worst_mount %}{{ r.worst_mount }}{% else %}—{% endif %}</div>
-      <div class="metric-sub">사용률 {% if r.worst_mount_used_pct is not none %}{{ "%.0f"|format(r.worst_mount_used_pct) }}%{% else %}—{% endif %}{% if r.worst_mount_days_until_full is not none %} · 소진 {{ r.worst_mount_days_until_full }}일{% endif %}</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">Uptime</div>
-      <div class="metric-value">{% if r.uptime_days is not none %}{{ r.uptime_days }}<span class="stat-unit"> 일</span>{% else %}—{% endif %}</div>
-      <div class="metric-sub">재부팅 {{ r.reboot_count }}회 · 에이전트 재시작 {{ r.agent_restart_count }}회</div>
-    </div>
-  </div>
-</section>
-
-{# 마운트별 스토리지 — 전체 파일시스템 (worst 1개 아닌 전체, 윈도우 평균 사용률). 발화 가능 — 빈 데이터도 제목 노출(E9). #}
-<section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">마운트별 스토리지 <span class="section-meta">{{ summary.time_range_label }} 윈도우 평균 · 전체 파일시스템</span></h2>
+  <h3 style="margin:14px 0 8px;">마운트별</h3>
   {% if summary.volumes %}
-  <table>
+  <table class="detail-table">
     <thead><tr><th>마운트</th><th style="text-align:right;">총량</th><th style="text-align:right;">사용률</th></tr></thead>
     <tbody>
       {% for v in summary.volumes %}
@@ -281,17 +328,54 @@
   {{ empty_state("마운트 사용률 표본이 아직 없습니다.") }}
   {% endif %}
 </section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">네트워크 상세</h2>
+  <div style="overflow-x:auto;">
+  <table class="detail-table" style="min-width:560px;">
+    <thead>
+      <tr>
+        <th style="text-align:right;">RX avg</th>
+        <th style="text-align:right;">RX p95</th>
+        <th style="text-align:right;">RX peak</th>
+        <th style="text-align:right;">TX avg</th>
+        <th style="text-align:right;">TX p95</th>
+        <th style="text-align:right;">TX peak</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="text-align:right;">{% if r.net_rx_kbps is not none %}{{ "%.0f"|format(r.net_rx_kbps) }} kBps{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.net_rx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_rx_kbps_p95) }} kBps{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.net_rx_kbps_peak is not none %}{{ "%.0f"|format(r.net_rx_kbps_peak) }} kBps{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.net_tx_kbps is not none %}{{ "%.0f"|format(r.net_tx_kbps) }} kBps{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.net_tx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_tx_kbps_p95) }} kBps{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.net_tx_kbps_peak is not none %}{{ "%.0f"|format(r.net_tx_kbps_peak) }} kBps{% else %}—{% endif %}</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">부하 추이</h2>
+  {% if summary.trend %}
+  <div style="height:280px;"><canvas id="env-trend-chart" data-trend='{{ summary.trend | tojson }}' data-range="{{ summary.time_range }}" data-grid="true"></canvas></div>
+  {% else %}
+  {{ empty_state("추이 표본이 아직 없습니다.") }}
+  {% endif %}
+</section>
 {% endif %}
 
-{# ── 그룹 5: 종합 진단 — Right-sizing 분류 (모든 통계를 본 뒤 결론) ── #}
+{% if view == "customer" %}
+<div class="report-row-2">
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">자원 적정성 평가</h2>
-  {# 환경·선택 보고서 호스트 권고 표와 동일 판독 프레임 (분류·진단·권고·신뢰도). 진단은 engineer 심화 어휘라 engineer 만. #}
-  <table>
+  {# 진단 칼럼은 engineer 심화 어휘라 customer 미표시. #}
+  <table class="detail-table">
     <thead>
       <tr>
         <th>분류</th>
-        {% if view == "engineer" %}<th>진단</th>{% endif %}
         <th>권고</th>
         <th>신뢰도</th>
       </tr>
@@ -299,7 +383,6 @@
     <tbody>
       <tr>
         <td>{{ r.recommendation_label }}</td>
-        {% if view == "engineer" %}<td>{{ r.diagnosis or "—" }}</td>{% endif %}
         <td class="text-strong">{{ r.recommendation_action or "—" }}</td>
         <td>{% if r.confidence_notes %}{% for n in r.confidence_notes %}<span class="text-meta text-sm">{{ n }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
       </tr>
@@ -307,24 +390,23 @@
   </table>
 </section>
 
-{# ── 그룹 6: 운영 신호 — OS EOL (sizing 과 별도 축, 발화 가능 정보 항상 노출) ── #}
+{# 발화 가능 정보 항상 노출(E9). #}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">OS 지원 종료 <span class="section-meta">EOL 임박·경과</span></h2>
+  <h2 class="card-title">OS 지원 종료</h2>
   {% if attention_for_host.get('os_eol') %}
-  <div class="alert-warn" style="display:inline-flex;">
-    <span class="rec-badge attn-active">OS EOL</span>
-    <span>{{ attention_for_host.os_eol }}</span>
-  </div>
+  <div>{{ attention_for_host.os_eol }}</div>
   {% else %}
-  {{ empty_state("지원 종료(EOL) 임박·경과 아님.") }}
+  {{ empty_state("해당 없음") }}
   {% endif %}
 </section>
+</div>
+{% endif %}
 {% endif %}
 
 {% include "reports/_reference_footer.html" %}
 
 {% if view == "engineer" %}
-{# 부하 추이 차트 — Chart.js(먼저) + inline 렌더 (environment-trend.js). chart-utils.js 는 base.html head 동기 로드. #}
+{# chart-utils.js 는 base.html head 동기 로드. #}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
 <script src="/static/js/pages/environment-trend.js?v={{ asset_v }}" defer></script>
 {% endif %}

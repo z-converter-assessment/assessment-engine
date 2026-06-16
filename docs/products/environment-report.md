@@ -55,7 +55,7 @@
 - 분류 어휘 = 자원 적정성 한국어 분류명(LABEL_KO) 단일 — 요약·분포·조치 표 동일, 영어 enum·평행 어휘 없음.
 - 환경 요약: 인벤토리(등록 서버·총 vCPU/메모리/디스크) + 메트릭(CPU/메모리/디스크 평균) + OS 구성(Linux/Windows, 0대 포함 #E9) metric-card 소제목 — 카드는 `.env-stat-card` 너비·높이 통일. 서비스 구성은 별도 카드("서비스 식별 (N대)"·"서비스 미식별 (M대)" 소제목). engineer 환경 현황과 동일 구조.
 - 자원 적정성 평가: 분류 분포(조치 방향) + 효율화 검토 대상(과다·유휴·종료 자원 합) + 조치 필요 호스트(자원 부족, high 만). 평가 커버리지(평가 대상/전체) 명시.
-- 운영 신호: OS 지원 종료 카드만 (2축 정책, 디스크 capacity 는 자원 적정성 분류가 흡수).
+- 운영 신호: OS 지원 종료 카드만 (2축 정책, 디스크 capacity 는 자원 적정성 평가가 흡수).
 - 정성 요약: 분류 분포 + 우선 조치/효율화 여지 (결정론 템플릿 합성).
 - 발화 항목은 제목 + placeholder (데이터 0 이어도 노출, #E9).
 - Print 우선 — 참고자료 전문 인쇄 임베드.
@@ -67,7 +67,7 @@
 - 요약: customer 와 동일 (view 무관 단일 `_env_summary_bullets`) — 등록 서버(+vCPU/메모리/디스크) / 온라인·오프라인 / 분류 분포 / 자원 부족(원인별) / OS 지원 종료.
 - 환경 현황 카드: 인벤토리(등록 서버·총 vCPU/메모리/디스크) / 메트릭 / OS 구성 소제목. 메트릭 = metric-card 5축(CPU·메모리·디스크·네트워크·디스크 I/O) — 실시간 '현재 자원 현황' 축과 동기, 값은 전부 보고서 윈도우 통계(CPU/메모리/디스크 = capacity-weighted avg+p95, 네트워크/디스크 I/O = per-server 윈도우 baseline 합, 단위 표기 `format_net_rate` 실시간 공용 단일 진실). 디스크 p95 는 시점별 capacity 합이 Windows 디바이스(major/minor) 인식 불완전으로 신뢰 불가라 의도 제외(repo `environment_utilization` SQL 주석 단일 진실). 인벤토리/메트릭/OS 카드 `.env-stat-card` 높이 통일. 에이전트 버전은 보고서 헤더 메타.
 - 환경 부하 추이(시계열 CPU/메모리/디스크) + 네트워크 토폴로지(정적 서브넷 요약 표) — 한 카드 2열.
-- 자원 적정성 분류: 분포(소제목 "분류 분포 (N대)") + 효율화 검토 대상(over/idle/shutdown 호스트 표 Top 30 — 호스트·분류·진단·신뢰도. 권고 칼럼 폐기 — 분류와 1:1) + 자원 부족(6축 메트릭 + 권고(`recommendation_action`) + 신뢰도). 조치 호스트 노출은 이 두 표가 단일 진실(전수 위험도 종합 표 없음).
+- 자원 적정성 평가: 분류 분포(소제목 "분류 분포 (N대)") + 효율화 검토 대상(over/idle/shutdown 호스트 표 Top 30 — 호스트·분류·진단·신뢰도. 권고 칼럼 폐기 — 분류와 1:1) + 자원 부족(6축 메트릭 + 권고(`recommendation_action`) + 신뢰도). 조치 호스트 노출은 이 두 표가 단일 진실(전수 위험도 종합 표 없음).
 - 세부 서버 목록: 환경 보고서는 미표시 (전수 인쇄 폭주 회피 — 조치 대상은 효율화/자원 부족 표가 담음). 선택 N대 보고서(selection)만 표시.
 - 운영 신호 = OS 지원 종료만(2축 정책) — 보고서는 전수 표시(절단 없음, 대시보드 카드 한도와 분리). 재부팅·에이전트 재시작은 selection 세부 서버 목록 표에 표시.
 - 화면 분석 우선 (인쇄 가능).
@@ -100,16 +100,19 @@ over-provisioned 5대, under-provisioned 2대, idle 0대, optimal 16대.
 
 | 분류 | 트리거 조건 | 출처 |
 |------|-----------|------|
-| idle | CPU p95 < 3% + 네트워크 미사용 | Azure Advisor "underutilized VM" 기준 |
-| over_provisioned | CPU p95 <= 30% + 메모리 p95 <= 50% | AWS Compute Optimizer "over-provisioned" 기준 |
-| under_provisioned | CPU p95 >= 70% 또는 메모리 p95 >= 80% 또는 swap 발생 | Kleinrock 큐잉 + Linux page cache 운영 통념 |
+| under_provisioned | 위험 신호 OR — CPU p95 >= 70 / 메모리 p95 >= 80 / swap 발생 / load >= cores / iowait p95 >= 20 / worst mount >= 85% | USE Method + Kleinrock 큐잉 |
+| idle | CPU peak <= 1% + 네트워크 <= 1 kBps | AWS Compute Optimizer |
+| shutdown | CPU p95 <= 3% + 네트워크 <= 2 Mbps | Azure Advisor "underutilized VM" |
+| over_provisioned | CPU p95 <= 30% + 메모리 p95 <= 50% | AWS Compute Optimizer "over-provisioned" |
 | optimal | 위 어디에도 해당 안 함 | residual |
+
+판정 순서 = under -> idle -> shutdown -> insufficient_data -> over -> optimal (`recommendation.assess`). 임계 상수·근거 단일 진실은 `recommendation.py` + `docs/products/server-report.md` 분류 표.
 
 Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 사용은 saturation 아니라 분류에서 제외(swap_pressure 카운트·분포 도넛 모두). Windows는 utilization 축만으로 분류(부분 평가). 상세 `right_sizing_thresholds.html`.
 
 분류 표시 (customer·engineer 공통): 자원 적정성 한국어 분류명(LABEL_KO) 단일. 내부 risk_level(high/attention/normal)은 조치 필요 호스트 선정·강조용으로만 쓰고, 화면 라벨로 노출하지 않는다 (영어 enum·평행 어휘 금지).
 
-운영 신호 (2축 분리): 자원 적정성 분류(축1, 디스크 capacity·IO 포함)과 별개로 AttentionSignals 3종(통신 끊김·OS 지원 종료·에이전트 재시작)이 운영 신호 축. 보고서는 그중 OS 지원 종료만 카드로 표시(통신 끊김·에이전트 재시작은 윈도우 의미 불일치로 전역 카드 미표시 — 에이전트 재시작은 engineer 호스트 상세 컬럼). 상세는 `docs/temp/report-view-policy.md` 5절.
+운영 신호 (2축 분리): 자원 적정성 평가(축1, 디스크 capacity·IO 포함)와 별개로 AttentionSignals 3종(통신 끊김·OS 지원 종료·에이전트 재시작)이 운영 신호 축. 보고서는 그중 OS 지원 종료만 카드로 표시(통신 끊김·에이전트 재시작은 윈도우 의미 불일치로 전역 카드 미표시 — 에이전트 재시작은 engineer 호스트 상세 컬럼).
 
 ### 평가 윈도우 7일
 
@@ -147,7 +150,7 @@ Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 
 
 ## 한계
 
-1. 위험도 3단계 압축 (customer view 한정) — `recommendation.classify` 5분류를 high/attention/normal 3단계로 압축. shutdown·idle·over_provisioned 가 모두 "주의 필요" 로 묶임. 고객에게 더 세분된 행동을 제시하지 못함.
+1. 위험도 3단계 압축 (customer view 한정) — `recommendation` 6분류를 high/attention/normal 3단계로 압축. shutdown·idle·over_provisioned 가 모두 "주의 필요" 로 묶임. 고객에게 더 세분된 행동을 제시하지 못함.
 2. 평균 활용률 KPI 는 산술 평균 — 환경 안 서버 부하 분포가 양극화 (절반 고부하·절반 저부하) 되면 평균은 misleading. p50·p95 분포 표시도 검토 후보.
 3. 워크로드 역할 무관 임계 — DB·캐시·앱서버 모두 같은 70%/80% 임계. DB 는 메모리 압박이 정상 운영일 수 있는데 "고위험" 으로 잡힐 가능성. 향후 역할별 임계 분기 시 정밀도 증가.
 4. 7일 윈도우 내 일회성 부하 — 단발 부하 (월 1회 배치 등) 가 그 윈도우 안에 들면 평상 부하로 오인. 외부 윈도우 (30일·90일)·요일/시간대 분리 미적용.

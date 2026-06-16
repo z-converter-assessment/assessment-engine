@@ -1,5 +1,5 @@
 {# Task 상세 modal body fragment — /api/tasks/{id}/detail endpoint 가 반환.
-   task-modal.js 가 fetch + innerHTML 교체 (P3 정공 — JS HTML 합성 폐기). #}
+   task-modal.js 가 fetch + innerHTML 교체 (P3 정공). #}
 <div class="task-detail-grid" style="display:grid; grid-template-columns:120px 1fr; gap:6px 12px; margin-bottom:14px;">
   <div class="label">상태</div><div><span class="badge {{ detail.badge_class }}">{{ detail.badge_label }}</span></div>
   <div class="label">유형</div><div>{{ detail.task_type }}</div>
@@ -9,10 +9,10 @@
   <div class="label">소요</div><div>{% if detail.duration_ms is not none %}{{ detail.duration_ms }} ms{% else %}—{% endif %}</div>
   <div class="label">실패 사유</div>{% if detail.failure_label %}<div class="text-danger">{{ detail.failure_label }}</div>{% else %}<div>—</div>{% endif %}
   {% if detail.params and detail.params.zdm_ip %}
-  <div class="label">ZDM 주소</div><div><code style="word-break:break-all;">{{ detail.params.zdm_ip }}</code></div>
+  <div class="label">ZDM 주소</div><div style="word-break:break-all;">{{ detail.params.zdm_ip }}</div>
   {% endif %}
   {% if detail.params and detail.params.zdm_user %}
-  <div class="label">발행 유저 (ZDM)</div><div><code>{{ detail.params.zdm_user }}</code></div>
+  <div class="label">발행 유저 (ZDM)</div><div>{{ detail.params.zdm_user }}</div>
   {% endif %}
 </div>
 <div style="margin-bottom:10px;">

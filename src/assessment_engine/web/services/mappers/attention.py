@@ -153,7 +153,7 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
                 count=count,
                 pct=pct,
                 dash_length=dash_length,
-                dash_offset=-cum_offset,  # 음수 offset = 시계방향 이동 (잔존 — 도넛 폐기 후 미사용)
+                dash_offset=-cum_offset,  # 음수 offset = 시계방향 이동
                 description=description,
             )
         )
@@ -453,7 +453,7 @@ def to_os_eol_warning_item(raw, now: datetime) -> AttentionRow | None:
     eol_iso, label = result
     return AttentionRow(
         badge_class=_ATTN_ACTIVE_BADGE,
-        badge_text="",  # OS 지원종료는 나열만 — hostname 만 (원인 텍스트·뱃지 없이, 매크로 if 가드로 미표시)
+        badge_text=label,  # 호스트명 - distro(날짜 제외) 점선 leader. 원인 칸엔 distro 만 짧게.
         link_href=f"/servers/{raw.public_id}",
         link_text=raw.hostname,
         meta_text=f"{label} · EOL {eol_iso}",

@@ -60,7 +60,6 @@ def compute_report_avg_p95(rows: list) -> tuple[float | None, float | None]:
     """ReportRowItem list에서 CPU·메모리 p95 평균을 계산 (양식 A KPI).
 
     None 항목은 제외 후 산술 평균. 모두 None이면 None 반환 (divide-by-zero 회피).
-    P2 단일 변환 — service 안 inline 계산 대신 mapper helper로 추출해 unit test·재사용 정합.
     """
     cpu_vals = [r.cpu_p95_pct for r in rows if r.cpu_p95_pct is not None]
     mem_vals = [r.mem_p95_pct for r in rows if r.mem_p95_pct is not None]
@@ -80,8 +79,8 @@ def compute_report_totals_from_raw(raws: list) -> ReportTotals:
     total_disk_bytes = sum(disk_total_bytes(r.disks or [], r.inventory_mounts or []) for r in raws)
     return ReportTotals(
         total_vcpus=total_vcpus,
-        total_memory_gb=round(total_mem_kb / 1024 / 1024, 1),  # KB -> GB, 소수 첫째 자리 (표시 왜곡 회피)
-        total_disk_gb=int(total_disk_bytes / 10**9),  # bytes -> GB (벤더 표기 관례)
+        total_memory_gb=round(total_mem_kb / 1024 / 1024, 1),
+        total_disk_gb=int(total_disk_bytes / 10**9),
     )
 
 
@@ -247,12 +246,12 @@ def build_report_summary_bullets(
 # under trigger 키 -> 한국어 증설 권고. 표시 순서 고정(mem -> cpu -> disk). recommendation.assess
 # 가 산출한 triggers(근거)를 mapper 가 문구로 변환만 한다(P2, 임계 재계산 중복 제거).
 _TRIGGER_ACTION_KO: dict[str, str] = {
-    "mem_saturation": "메모리 증설 (스왑 발생)",
+    "mem_saturation": "메모리 증설",
     "mem_util": "메모리 증설",
     "cpu_util": "CPU 증설",
-    "cpu_saturation": "CPU 증설 (load 포화)",
-    "disk_capacity": "디스크 증설 (capacity)",
-    "disk_io": "디스크 증설 (IO 병목)",
+    "cpu_saturation": "CPU 증설",
+    "disk_capacity": "디스크 증설",
+    "disk_io": "디스크 증설",
 }
 _TRIGGER_ACTION_ORDER = ("mem_saturation", "mem_util", "cpu_util", "cpu_saturation", "disk_capacity", "disk_io")
 
@@ -260,13 +259,11 @@ _TRIGGER_ACTION_ORDER = ("mem_saturation", "mem_util", "cpu_util", "cpu_saturati
 def _build_under_provisioned_reason(triggers: list[str]) -> str:
     """under_provisioned hit trigger -> 한국어 증설 권고 결합 (`/` 구분) — 양식 A "권고" 컬럼.
 
-    근거(triggers)는 recommendation.assess 단일 산출 — mapper 는 키->문구 변환만(P2).
-    mem_saturation(스왑) + mem_util 둘 다 hit 시 스왑 문구만(중복 회피). trigger 0건 fallback.
+    근거(triggers)는 recommendation.assess 단일 산출 — mapper 는 키->조치 방법 변환만(P2, 원인 미표기).
+    같은 자원에 복수 trigger 가 hit 해도 방법(증설) 중복은 제거(dict.fromkeys). trigger 0건 fallback.
     """
     picked = [t for t in _TRIGGER_ACTION_ORDER if t in triggers]
-    if "mem_saturation" in picked and "mem_util" in picked:
-        picked.remove("mem_util")
-    reasons = [_TRIGGER_ACTION_KO[t] for t in picked]
+    reasons = list(dict.fromkeys(_TRIGGER_ACTION_KO[t] for t in picked))
     return " / ".join(reasons) if reasons else "리소스 증설 검토"
 
 
@@ -410,22 +407,29 @@ def _build_workload_display(
     units.sort(key=lambda u: (u.category, u.unit))
     # engineer — listen 포트 전체 (raw 표시본)
     listen = [
-        ReportListenItem(port=lp.port, proto=lp.proto, comm=lp.comm or "")
+        ReportListenItem(port=lp.port, proto=lp.proto, comm=lp.comm or "", addr=lp.addr, uid=lp.uid, pid=lp.pid)
         for lp in (_to_listen_port_item(p) for p in (raw.listen_ports or []))
     ]
     listen.sort(key=lambda x: (x.port, x.proto))
     # customer — 카테고리별 제품명 묶음 (unknown 제외) + listen-only 카테고리 보강(이름 미상).
     by_cat: dict[str, list[str]] = {}
+    by_cat_ports: dict[str, list[str]] = {}
     for si in services:
         if si.category == "unknown":
             continue
         name = si.display_name or si.unit
         if name:
             by_cat.setdefault(si.category, []).append(name)
+        by_cat_ports.setdefault(si.category, []).extend(f"{p.port}/{p.proto}" for p in si.ports)
     for cat in detect_listen_categories(raw.listen_ports or []):
         by_cat.setdefault(cat, [])
     groups = [
-        ReportWorkloadGroup(category=cat, names_label=", ".join(dict.fromkeys(by_cat[cat]))) for cat in sorted(by_cat)
+        ReportWorkloadGroup(
+            category=cat,
+            names_label=", ".join(dict.fromkeys(by_cat[cat])),
+            ports=list(dict.fromkeys(by_cat_ports.get(cat, []))),
+        )
+        for cat in sorted(by_cat)
     ]
     return groups, units, listen
 

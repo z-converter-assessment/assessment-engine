@@ -45,7 +45,7 @@ def make_metrics_handler(
             placeholder = build_placeholder_inventory(data)
 
             async def save(repo: BaseCollectRepository) -> tuple[int, bool, MetricInsertResult]:
-                # find→upsert 흐름은 repo.ensure_server_id로 캡슐화. find 성공 시 placeholder 미사용.
+                # ensure_server_id 가 find->upsert 캡슐화. find 성공 시 placeholder 미사용.
                 server_id, auto_registered = await repo.ensure_server_id(data.composite_id, placeholder)
                 result = await repo.record_metrics(server_id, dto)
                 return server_id, auto_registered, result

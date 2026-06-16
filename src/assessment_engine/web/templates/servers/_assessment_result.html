@@ -1,11 +1,11 @@
-{# 환경 자원 평가 결과 partial — 자원 적정성 분류 + 효율화 검토 대상 + 자원 부족. assessment.html include + ?fragment=result JS swap 공용. #}
+{# 환경 자원 평가 결과 partial — assessment.html include + ?fragment=result JS swap 공용. #}
 {% from "_shared.html" import empty_state %}
 {% from "reports/_resource_tables.html" import efficiency_table, under_provisioned_table %}
 
 {# 평가 대상 수 — 컨트롤 줄 'N대 기준' 뱃지를 JS(assessment.js)가 swap 후 갱신 (윈도우별 변동). #}
 <span hidden id="assess-total" data-total="{{ overview.risk_donut_total }}"></span>
 <section class="card no-print">
-  <h2 class="card-title" style="margin:0 0 14px;">자원 적정성 분류</h2>
+  <h2 class="card-title" style="margin:0 0 14px;">자원 적정성 평가 <span class="section-meta">{{ overview.risk_donut_total }}대</span></h2>
   {% if overview.risk_donut and overview.risk_donut_total > 0 %}
   <div style="display:flex; flex-direction:column; gap:6px;">
     {% for s in overview.risk_donut %}
@@ -23,13 +23,13 @@
   {% endif %}
 </section>
 
-{# 효율화 검토 대상 — 엔지니어 보고서와 동일 표(`reports/_resource_tables.html` 공유). 데이터는 시급도 순 상위 N(보고서 동일 산식). #}
+{# 엔지니어 보고서와 동일 표 (reports/_resource_tables.html 공유). #}
 <section class="card no-print">
   <h2 class="card-title" style="margin:0 0 14px;">효율화 검토 대상 <span class="section-meta">{{ efficiency_target_count }}대</span></h2>
   {{ efficiency_table(efficiency_hosts, efficiency_target_count, efficiency_target_vcpus, efficiency_target_memory_gb, efficiency_hosts_count, self_back) }}
 </section>
 
-{# 자원 부족 — 엔지니어 보고서와 동일 표. 20대 초과 시 JS(assessment.js)가 #under-wrap tbody 행 clip + 더보기/접기. #}
+{# 엔지니어 보고서와 동일 표. 초과 행은 JS(assessment.js)가 #under-wrap tbody clip + 더보기/접기. #}
 <section class="card no-print">
   <h2 class="card-title" style="margin:0 0 14px;">자원 부족 <span class="section-meta">{{ overview.under_provisioned_hosts_count }}대</span></h2>
   <div id="under-wrap">

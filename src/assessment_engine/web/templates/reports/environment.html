@@ -12,14 +12,13 @@
 </div>
 
 {% if report_job_id %}
-{# 발행된 정적 스냅샷 — 발행 메타 표시 (우측 정렬). #}
 <div class="text-sm text-muted" style="margin-bottom:20px; text-align:right;">
   <div>발행 {{ summary.generated_at | kst }}</div>
   <div>윈도우 {{ summary.time_range_label }} · 기준 {{ summary.anchor_at | kst }}</div>
   <div>에이전트 {{ summary.agent_versions_label or "—" }}</div>
 </div>
 {% else %}
-{# live preview — 보고서 양식·윈도우·앵커 선택 후 발행. 변경은 navigate 로 preview 갱신(environment-report.js). #}
+{# 발행 컨트롤 — 변경은 navigate 로 preview 갱신(environment-report.js). #}
 <div class="no-print" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:20px;">
   <select id="report-view" class="chart-select" aria-label="보고서 양식 선택">
     <option value="customer" {% if view == 'customer' %}selected{% endif %}>고객 보고서</option>
@@ -40,19 +39,17 @@
 {% endif %}
 
 {% if report_job_id %}
-{# 발행된 정적 스냅샷 — 본문 표시. #}
 {% include "reports/_env_report_body.html" %}
 
 {% include "reports/_reference_footer.html" %}
 
 {% if view == "engineer" %}
-{# 환경 부하 추이 차트 — Chart.js(먼저) + inline 렌더. chart-utils.js 는 base.html head 동기 로드.
-   네트워크 토폴로지는 보고서에선 정적 서브넷 요약 표(인쇄 전제) — cytoscape/그래프 스크립트 불요. #}
+{# chart-utils.js 는 base.html head 동기 로드. 토폴로지는 정적 표라 cytoscape 스크립트 불요. #}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
 <script src="/static/js/pages/environment-trend.js?v={{ asset_v }}" defer></script>
 {% endif %}
 {% else %}
-{# 발행 전 — 본문 없음. 발행해야 스냅샷 생성 + 화면 표시 + 이력 추가. 컨트롤만 노출. #}
+{# 발행 전 — 본문·live preview 없음. 발행해야 스냅샷 생성·표시·이력 추가 (#C1). #}
 <section class="card">
   <p class="text-muted" style="margin:0; padding:8px 0;">보고서 양식·윈도우·앵커를 선택하고 발행을 누르면 보고서가 생성되어 화면에 표시되고 발행 이력에 추가됩니다.</p>
 </section>

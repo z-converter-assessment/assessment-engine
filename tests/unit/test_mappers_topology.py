@@ -26,10 +26,6 @@ def _edges(t) -> set[tuple[str, str]]:
     return {(e["data"]["source"], e["data"]["target"]) for e in t.elements if "source" in e["data"]}
 
 
-def _host_node(t, pid: str) -> dict:
-    return next(e["data"] for e in t.elements if e["data"].get("id") == f"host:{pid}")
-
-
 def test_empty_hosts():
     t = build_network_topology([])
     assert t.has_data is False
@@ -60,8 +56,10 @@ def test_multi_homed_host_spans_two_subnets():
     ]
     t = build_network_topology(hosts)
     assert _subnet_ids(t) == ["subnet:10.0.1.0/24", "subnet:10.0.2.0/24"]
-    assert _host_node(t, "c")["multiHomed"] is True
-    assert _host_node(t, "a")["multiHomed"] is False
+    # host c 가 두 서브넷에 걸침 — 노드 플래그(폐기) 대신 엣지로 검증
+    assert ("host:c", "subnet:10.0.1.0/24") in _edges(t)
+    assert ("host:c", "subnet:10.0.2.0/24") in _edges(t)
+    assert ("host:a", "subnet:10.0.2.0/24") not in _edges(t)
     assert t.multi_homed_count == 1
 
 

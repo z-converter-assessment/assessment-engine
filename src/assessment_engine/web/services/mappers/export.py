@@ -134,7 +134,6 @@ def to_inventory_export_entry(
 
     블록 = 사용처 1:1 — spec(VM 생성) / usage(right-sizing 측정) / assessment(평가 결과) / services(보안그룹).
     `stats`가 None이면 usage 측정값 null + assessment=insufficient_data — 신규 서버 / 데이터 부족 시.
-    자동화 도구는 구조화 값만 사용 — assessment.recommended_size_class 구조화 값만 활용.
     """
     boot_gb, additional = _split_disks(detail.disks, detail.mounts)
     if stats is not None:

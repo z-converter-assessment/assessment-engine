@@ -33,8 +33,7 @@ env.filters["service_badge_class"] = service_badge_class
 env.filters["or_dash"] = or_dash
 
 # Static asset versioning — process startup time hex를 모든 페이지 static URL의 querystring에 부착.
-# 코드 변경 후 web 재시작 → 새 token → 브라우저가 새 URL로 인식 → 강제 재다운로드.
-# dev/staging/prod 동일 패턴. 정식 deploy에는 commit hash 등으로 대체 가능 — 그때는 ASSET_V 갱신.
+# 코드 변경 후 web 재시작 -> 새 token -> 브라우저가 새 URL로 인식 -> 강제 재다운로드.
 ASSET_V: str = format(int(time.time()), "x")
 env.globals["asset_v"] = ASSET_V
 
@@ -78,7 +77,7 @@ NAV_GROUPS = [
     {
         "label": "참고",
         "links": [
-            {"label": "기준·임계값", "href": "/reference", "match": "thresholds"},
+            {"label": "지표·기준", "href": "/reference", "match": "thresholds"},
         ],
     },
 ]

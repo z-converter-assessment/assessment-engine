@@ -10,9 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _SECRETS_DIR = os.environ.get("SECRETS_DIR", "/run/secrets")
 _SECRETS_DIR = _SECRETS_DIR if os.path.isdir(_SECRETS_DIR) else None
 
-# prod에서 거부할 약한 default 값 (dev/PoC 표준 자격을 prod에 그대로 흘리는 사고 방지).
-# prod 기동 거부할 약한 값 (USER·PASSWORD 공용). "assessment"(dev default)는 운영 편의로 허용 제외 —
-# 빈값·뻔한 값만 차단. USER/PASSWORD 동일 정책.
+# prod 기동 거부할 약한 값 (USER·PASSWORD 공용). "assessment"(dev default)는 허용 — 빈값·뻔한 값만 차단.
 _WEAK_VALUES = frozenset({"", "password", "admin", "root", "changeme"})
 
 
@@ -25,23 +23,20 @@ class WebSettings(BaseSettings):
         extra="ignore",
     )
 
-    # 환경 마커. prod일 때 model_validator가 약한 default를 거부.
+    # prod 일 때 model_validator 가 약한 default 거부.
     app_env: Literal["dev", "staging", "prod"] = "dev"
 
-    # 로그 출력 format. dev=text(colorized·grep 친화), prod=json(외부 log aggregator indexing).
-    # JSON 출력 시 loguru `serialize=True` — record를 JSON으로 변환 후 stdout.
+    # dev=text(colorized·grep 친화), prod=json(외부 log aggregator indexing).
     log_format: Literal["text", "json"] = "text"
 
     postgres_host: str = "postgres"
     postgres_db: str = "assessment"
     postgres_user: str = "assessment"
-    # default 는 weak(changeme) — 미설정 시 prod 거부 강제 (명시 assessment 는 허용). USER 는 식별자라 default 허용.
+    # default 는 weak(changeme) — 미설정 시 prod 거부 강제 (명시 assessment 는 허용).
     postgres_password: SecretStr = SecretStr("changeme")
     postgres_port: int = 5432
     web_port: int = 8000
-    # uvicorn auto-reload — dev hot-reload 전용. prod 는 False (코드 변경 감시 프로세스가 prod 에서 불필요,
-    # bind mount 없는 wheel/image 배포에선 무의미). 루트 docker-compose.yml 이 WEB_RELOAD=${WEB_RELOAD:-true} 주입
-    # (web/__main__.py 가 reload_dirs=bind mount 패키지 경로 지정 — WORKDIR /app 밖이라 cwd watch 불가).
+    # uvicorn auto-reload — dev hot-reload 전용, prod False. 루트 docker-compose.yml 이 WEB_RELOAD 주입.
     web_reload: bool = False
 
     redis_host: str = "redis"
@@ -74,30 +69,22 @@ class WebSettings(BaseSettings):
     # 운영 alert 튜닝 노브 — env 카탈로그 미수록(env.example·env.md), 필요 시 env override.
     agent_restart_alert_threshold: int = 3
 
-    # ZConverter Cloud Source Setup (ZDM) 서버 기본 좌표 — install 모달 default 값.
-    # 운영자가 모달에서 매 발행마다 override 가능. POST body 누락 시 본 값으로 fallback.
-    # dev 한정 ZDM mock (ADR 0018) 으로 libvirt VM agent worker 가 host web 8000 도달 (dev/.env 가 host IP 주입).
-    # 잘못된 ZDM 발행 방어는 런타임 (HttpZdmPackageResolver 메타 도달 실패 시 503 차단) + agent host
-    # whitelist (WORKER_DOWNLOAD_ALLOWED_HOSTS) 가 담당. startup 거부 없음 — 빈값 default 정상 동작.
+    # ZDM 서버 기본 좌표 — install 모달 default (POST body 누락 시 fallback, 운영자 override 가능).
+    # 잘못된 발행 방어는 런타임(resolver 503 차단) + agent host whitelist — startup 거부 없음.
     zdm_default_ip: str = ""
     zdm_default_user: str = "admin@zconverter.com"
-    # resolver(엔진) 가 sha256/size 산출용으로 fetch 하는 호스트 override. download.url·install args 는
-    # zdm_default_ip 유지. dev 한정 — mock 이 web 컨테이너 자기 자신이라 host publish 포트 hairpin 불가하면
-    # localhost 로 fetch. prod 빈값(엔진이 real ZDM 직접 도달).
+    # sha256/size 산출 fetch 호스트 override (download.url·install args 는 zdm_default_ip 유지).
+    # dev 한정 — mock hairpin 불가 시 localhost fetch. prod 빈값(real ZDM 직접 도달).
     zdm_resolver_host_override: str = ""
 
-    # ZDM 본체 패키지 contract — task.install download 필드에 박혀 agent 가 fetch.
-    # ZDM 제품 layout 상수라 거의 안 바뀜 — env 카탈로그 미수록(env.example·env.md), 필요 시 env override.
-    # sha256·size_bytes 는 publish 직전 engine 이 ZDM 에서 HEAD + GET 으로 동적 산출
-    # (ETag 기반 Redis cache). ZDM 측이 패키지 갱신하면 ETag 변경 → cache miss → 자동 재계산.
+    # ZDM 패키지 contract — task.install download 필드에 박혀 agent 가 fetch.
+    # sha256·size_bytes 는 publish 직전 ETag 기반 동적 산출 (cache invalidation = ETag 변경).
     zdm_package_path: str = "/download/ZConverter_CloudSource_Setup_Linux.tar.gz"
     zdm_package_script: str = "zconverter_install_source/install.sh"
     # Windows install (ADR 0019 install.type=direct_exec). single binary 라 script 없음.
     zdm_package_path_windows: str = "/download/ZConverter_CloudSource_Setup_Windows.exe"
-    # 메타 조회 HTTP 옵션 — connect 5s, total 120s (44MB GET 가정, 동일 LAN 이면 1~2s).
     zdm_meta_connect_timeout_sec: float = 5.0
     zdm_meta_total_timeout_sec: float = 120.0
-    # ETag 기반 cache TTL — ETag 자체가 invalidation 이라 길게 잡아도 안전.
     redis_key_zdm_package_sha256: str = "cache:zdm_package:sha256:{}:{}"  # {host}:{etag}
     redis_ttl_zdm_package_sha256: int = 6 * 60 * 60  # 6h
     install_timeout_sec: int = 600  # install.sh wall-clock timeout (원격 host worker 강제 종료)

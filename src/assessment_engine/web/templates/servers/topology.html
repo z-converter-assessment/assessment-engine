@@ -38,7 +38,7 @@
 <section class="card no-print">
   <h2 class="card-title" style="margin:0 0 14px;">서브넷별 서버</h2>
   {% if topology.subnets %}
-  {# 단일 table — 서브넷은 colspan 헤더 행으로 구분. 전 서브넷이 같은 칼럼 너비로 정렬(서브넷별 table 분리 시 너비 제각각 문제 해소). #}
+  {# 단일 table — 서브넷은 colspan 헤더 행으로 구분, 전 서브넷 칼럼 너비 정렬 통일. #}
   <table class="text-sm" style="border-collapse:collapse;">
     <tbody>
     {% for sn in topology.subnets %}

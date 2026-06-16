@@ -14,7 +14,7 @@
     <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="row-link">{{ s.hostname }}</a>
   </td>
   <td>
-    {# 분류된 서비스만 칩 표시 (서비스 카테고리 색 뱃지 통일, count 항상 노출). unknown(미분류)은 빈 값(—). #}
+    {# 분류된 서비스만 칩 표시 — unknown(미분류)은 placeholder "—". #}
     {% if s.known_services %}
       <span style="display:flex; flex-wrap:wrap; gap:4px;">
       {% for svc in s.known_services %}
@@ -43,8 +43,8 @@
       <span class="text-meta text-xs">—</span>
     {% endif %}
   </td>
-  <td class="action-col">
-    <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="btn-action text-sm" style="padding:4px 11px;">상세</a>
+  <td class="action-col" style="white-space:nowrap;">
+    <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="btn-action text-xs" style="padding:2px 9px; white-space:nowrap;">상세</a>
   </td>
 </tr>
 {% endfor %}

@@ -15,8 +15,8 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 )
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
-    ReportView,
     UTIL_GAUGE_COLOR,
+    ReportView,
     format_net_rate,
 )
 from assessment_engine.web.services.mappers.shared import (
@@ -64,8 +64,7 @@ _RISK_PRIORITY: dict[str, int] = {
     "normal": 3,
 }
 
-# view 별 Top N — customer 는 즉시 액션 항목 (high) 전체, engineer 는 전체 호스트 (제한 없음).
-# 엔지니어 보고서는 운영 검토 list 라 N 잘림 없이 전수 노출.
+# view 별 Top N — customer/engineer 모두 전수 노출 (운영 검토 list, N 잘림 없음).
 _TOP_RISK_N_BY_VIEW: dict[str, int | None] = {
     "customer": None,
     "engineer": None,
@@ -103,7 +102,7 @@ def _to_distribution_bars(
 ) -> list[DistributionBar]:
     """카테고리 카운트 dict -> 구성 분포 list (count DESC, label ASC tie-break).
 
-    pct = 최대 count 대비 비율 — 현재 보고서 표시는 label+대수만 쓰나(게이지 폐기), 스냅샷 복원 호환 위해 필드 유지.
+    pct = 최대 count 대비 비율 — 표시는 label+대수만 쓰나 스냅샷 복원 호환 위해 필드 유지.
     """
     if not counts:
         return []

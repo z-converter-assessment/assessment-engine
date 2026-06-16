@@ -50,7 +50,7 @@ def make_inventory_handler(
             online_key = consumer_settings.redis_key_online.format(resolved_server_id)
             inventory_key = consumer_settings.redis_key_cache_inventory.format(resolved_server_id)
             await safe_set(redis, online_key, "1", ex=consumer_settings.redis_ttl_online)
-            # 인벤토리 변경(서비스/포트/디스크 등) 즉시 반영 — TTL 만료 대기 제거
+            # 인벤토리 변경 즉시 반영 — TTL 만료 대기 제거
             await safe_delete(redis, inventory_key)
 
             logger.info("inventory stored composite_id={}", data.composite_id)

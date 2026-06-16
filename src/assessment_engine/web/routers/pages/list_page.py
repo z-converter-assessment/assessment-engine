@@ -1,7 +1,7 @@
 """SSR 페이지 — 환경 개요(`/`) · 서버 목록(`/servers`) · 환경 단위(`/environment/*`).
 
 URL 명사 분리: 환경 단위(개요·자원평가·실시간·성능·토폴로지)는 `/` 와 `/environment/*`, 서버 단위는
-`/servers/*`(server_detail). AI 진단 = 엔지니어 환경 보고서 안 catalog 통합 (별도 카드 없음).
+`/servers/*`(server_detail).
 """
 
 from datetime import UTC, datetime
@@ -208,10 +208,10 @@ async def servers_list(
     fragment: str | None = Query(None),
     service: QueryService = Depends(get_service),
 ):
-    """서버 목록 (`/servers`) — 검색·필터 + 선택 N대 액션(보고서·install·export·발견).
+    """서버 목록 (`/servers`) — 검색·필터 + 선택 N대 액션(보고서·install·export).
 
     fragment=rows: 서버목록 행 partial 만 재렌더.
-    page/limit Query 는 하위호환 — 현재 전체 로드 후 client clip (서버사이드 페이지네이션은 후속)."""
+    현재 전체 로드 후 client clip — page/limit Query 는 서버사이드 페이지네이션 도입 시 사용 (E2 page 정책)."""
     if fragment == "rows":
         rows = await service.list_servers(
             1, _LIST_FETCH_LIMIT, None, None, service=None, os_distro=None, classification=None

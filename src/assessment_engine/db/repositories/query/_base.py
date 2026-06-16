@@ -17,11 +17,7 @@ _FUTURE_SKEW_SQL = "now() + interval '2 minutes'"
 
 
 class _BaseQueryMixin:
-    """`__init__(session)` + `_latest_per_dimension` 공통 helper.
-
-    `self.session` 은 모든 sub-repository 가 사용. `_latest_per_dimension` 은 server / metric 양쪽 사용
-    (server: get_storage·get_network, metric: latest_dashboard).
-    """
+    """`__init__(session)` + `_latest_per_dimension` 공통 helper (server / metric sub-repo 공유)."""
 
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -33,14 +29,10 @@ class _BaseQueryMixin:
         server_id: int,
         n: int,
     ) -> list[Any]:
-        """{table}에서 (server_id 한정) {dim_col}별 최신 n행 반환.
+        """{table}에서 (server_id 한정) {dim_col}별 최신 n행 반환. n=1: DISTINCT ON, n>=2: ROW_NUMBER.
 
-        n=1: DISTINCT ON (가장 단순), n>=2: PARTITION BY + ROW_NUMBER.
-        table·dim_col은 ORM 모델의 정적 attribute로 whitelisted — SQL에 직접 포맷
-        (C5 예외 — dispatch table whitelist만).
-
-        C5: hypertable partition pruning 의무. 30d 윈도우 — 30d 이상 오프라인 서버는
-        metrics 조회 의미 약함 + 7d chunk 기준 4~5 chunk만 스캔.
+        table·dim_col 은 ORM 정적 attribute 로 whitelisted — SQL 직접 포맷 (C5 예외 — dispatch whitelist).
+        C5 partition pruning: 30d 윈도우 — 30d 이상 오프라인 서버는 조회 의미 약함 + chunk 4~5개만 스캔.
         """
         if n == 1:
             sql = text(f"""

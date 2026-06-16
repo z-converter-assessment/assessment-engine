@@ -18,7 +18,7 @@
 | `docs/operations/` | 외부 인프라가 활용할 contract (deployment·env·alembic·observability·release) | 영구·갱신 |
 | `docs/products/` | 운영 산출물별 존재 의의·근거 (dashboard·환경 보고서·서버 보고서·JSON Export·Install task) | 영구·갱신 |
 | `docs/adr/` | Architecture Decision Records — "왜 이렇게 결정했나" + 트레이드오프. ADR은 정정만, 덮어쓰기 금지 | 영구·불변 |
-| `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T14) | 영구·갱신 |
+| `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T15) | 영구·갱신 |
 
 그 외 명시되지 않은 경로의 문서는 코드·영구 문서에서 인용 금지.
 
@@ -174,7 +174,7 @@ Pagination 정책:
 
 ## E3. 서비스 계층·ViewModel·Mapper (P2)
 
-서비스 모듈 카탈로그·`mappers/` sub-package 표시 파생 집중 (`server`/`metric`/`attention`/`report`/`export`/`task`/`shared`/`diagnostic`/`environment_report`/`report_history`/`topology` 11 sub-module)·`enrich_*` idempotent·UI badge 임계값(`_USAGE_DANGER_PCT`·`_USAGE_WARN_PCT` — `mappers/shared.py`)·USE Method right-sizing 임계값(`assessment_engine/recommendation.py` 도메인 모듈 — web·diagnostic 공용 import)·ViewModel 카탈로그·mapper 파생 필드(`is_well_known`·`badge_class`·`bar_color` 등)·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/architecture/web/services.md` · `docs/architecture/web/view-models.md` 단일 진실.
+서비스 모듈 카탈로그·`mappers/` sub-package 표시 파생 집중 (`server`/`metric`/`attention`/`report`/`export`/`task`/`shared`/`environment_report`/`report_history`/`topology` 10 sub-module)·`enrich_*` idempotent·UI badge 임계값(`_USAGE_DANGER_PCT`·`_USAGE_WARN_PCT` — `mappers/shared.py`)·USE Method right-sizing 임계값(`assessment_engine/recommendation.py` 도메인 모듈 — web 공용 import)·ViewModel 카탈로그·mapper 파생 필드(`is_well_known`·`badge_class`·`bar_color` 등)·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/architecture/web/services.md` · `docs/architecture/web/view-models.md` 단일 진실.
 
 본 절 결정:
 - 두 임계 도메인(UI badge / USE Method) 혼용 금지.
@@ -378,8 +378,8 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 
 본 절 결정:
 - right-sizing 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 7). 보고서 라우터·서버 목록 분류·구간 선택 기본값(`DIAGNOSTIC_DEFAULT_TIME_RANGE`·보고서 발행 select)·ADR 0003 모두 본 상수/동일 값 참조. 변경 시 `_thresholds_reference.html`·`docs/development/pipeline.md` 표제도 동기화.
-- 대시보드 현황 카드(평균 활용률·자원 적정성 분류·환경 부하 추이)는 `DASHBOARD_TIME_RANGE`("24h", query_service) 고정 — 최근 현황 모니터링, right-sizing 표준 평가와 의도 분리. 보고서 라우터·환경 자원 평가 페이지(`/environment/assessment`)만 `?time_range=` override 허용(평가 페이지 기본값도 `DASHBOARD_TIME_RANGE`). 서버 상세 차트는 실시간 모니터링이라 별도(globalRange 기본 15m, 평가 윈도우와 무관).
-- 환경 부하 추이 bucket 은 `AUTO_BUCKET[range]` 동적 — 대시보드 `AUTO_BUCKET[DASHBOARD_TIME_RANGE]`(24h -> 30m), 보고서는 선택 time_range. 윈도우 변경 시 집계 단위 자동 추종 — 하드코딩 금지.
+- 모니터링 현황 카드 — 환경 개요(평균 활용률)·환경 자원 평가(자원 적정성 평가)는 `DASHBOARD_TIME_RANGE`("24h", query_service) 고정 — 최근 현황 모니터링, right-sizing 표준 평가와 의도 분리. 보고서 라우터·환경 자원 평가 페이지(`/environment/assessment`)만 `?time_range=` override 허용(평가 페이지 기본값도 `DASHBOARD_TIME_RANGE`). 서버 상세 차트는 실시간 모니터링이라 별도(globalRange 기본 15m, 평가 윈도우와 무관).
+- 환경 부하 추이(보고서 SSR 정적 차트) bucket 은 `AUTO_BUCKET[range]` 동적 — 발행 time_range 기준(예: 7d -> 3h, 24h -> 30m). 윈도우 변경 시 집계 단위 자동 추종 — 하드코딩 금지.
 - TimeRange/BucketSize Literal 단일 진실 = `db/repositories/query/types.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
 - range -> 자동 bucket 매핑(`AUTO_BUCKET`)은 backend `types.AUTO_BUCKET` 와 frontend `chart-utils.js` 두 곳 — 값 동기화 의무 (range별 적정 분해력 단일 의미). 신규 TimeRange 도입 시 두 곳 동시 신설. SSR 정적 차트(환경 부하 추이)는 backend 매핑, 동적 fetch 차트는 frontend 매핑 적용 — 둘이 어긋나면 같은 range 가 화면별 다른 bucket.
 - 보고서 형태 산출물은 윈도우를 envelope·표제 명시 — JSON Export `period_window{days, start, end}` 의무 필드(#B 동일 원칙).

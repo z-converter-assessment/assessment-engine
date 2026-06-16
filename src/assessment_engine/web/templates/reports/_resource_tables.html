@@ -1,5 +1,5 @@
-{# 효율화 검토 대상 · 자원 부족 표 — 환경 보고서(engineer)와 환경 자원 평가 페이지 공유 단일 진실.
-   제목(h2/h3)·카운트는 호출부가 렌더(카드 양식 차이 보존), 본 매크로는 요약문+표 본문만 렌더. #}
+{# 효율화 검토 대상 · 자원 부족 표 — 환경 보고서·환경 자원 평가 페이지 공유.
+   제목(h2/h3)·카운트는 호출부 렌더, 본 매크로는 요약문+표 본문만. #}
 {% from "_shared.html" import empty_state %}
 
 {# 효율화 검토 대상 표 — over/idle/shutdown 정리 시급도 순. hosts = ReportRowItem(top-N). #}
@@ -32,7 +32,7 @@
 {% macro under_provisioned_table(hosts, metric_labels, self_back) %}
 {% if hosts %}
 <div style="overflow-x:auto; margin-bottom:20px;">
-<table style="width:100%; min-width:560px;">
+<table class="detail-table" style="width:100%; min-width:560px;">
   <thead>
     <tr><th style="white-space:nowrap;">호스트</th>{% for m in metric_labels %}<th style="white-space:nowrap;">{{ m }}</th>{% endfor %}<th style="white-space:nowrap;">권고</th><th style="white-space:nowrap;">신뢰도</th></tr>
   </thead>

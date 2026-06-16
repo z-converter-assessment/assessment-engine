@@ -57,7 +57,8 @@ class DiagnosticService:
         view='all' 이면 두 job_type union (SQL 2회 + Python merge — 발행 빈도 낮아 비효율 수용).
         scope=None 전체 / 'environment' / 'selection'(server N대) / 'single'(server 1대) — record scope 기준 filter.
         selection·single 은 DB scope='server' 공유 — server_public_ids 개수로 Python 분기 (DB 컬럼만으론 구분 불가).
-        total = 필터 후 전체 건수 — "더보기"(limit 누적) 카운트 "shown/total" 용. retention 90일 가정이라 전체 로드 수용.
+        total = 필터 후 전체 건수 — "더보기"(limit 누적) 카운트 "shown/total" 용.
+        retention 90일 가정이라 전체 로드 수용.
         """
         # selection·single 은 DB 상 동일 scope='server' — repo 에는 'server' 로 질의 후 개수로 분리.
         repo_scope = "server" if scope in ("selection", "single") else scope

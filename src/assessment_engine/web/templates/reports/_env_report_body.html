@@ -1,7 +1,6 @@
 {% from "_shared.html" import empty_state, service_legend, detail_server_list %}
 {% from "reports/_resource_tables.html" import efficiency_table, under_provisioned_table %}
-{# 서비스 구성 카드 — 카테고리별 "카테고리 N --- 서비스명 개수 ..." (색 없음). 전 카테고리 노출(count 0 포함, #E9).
-   engineer 는 서비스마다 구동 호스트명 링크(서버 상세). customer·engineer 공용. self_back = 호스트 링크 back chain. #}
+{# 서비스 구성 카드 — 카테고리별 서비스명·개수. 전 카테고리 노출(count 0 포함, #E9). customer·engineer 공용. #}
 {% macro service_config_card(catalog, identified_count, unknown_count) %}
 <div>
   <h2 class="card-title">서비스 구성</h2>
@@ -66,7 +65,7 @@
 {% endmacro %}
 
 {% if summary.view == "customer" %}
-{# ============================= 양식 A — 고객 제출용 ============================= #}
+{# 양식 A — 고객 제출용 (high-level) #}
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">요약</h2>
   <ul class="text-strong" style="margin:0; padding-left:20px; line-height:1.8;">
@@ -168,7 +167,7 @@
 </section>
 
 {% else %}
-{# ============================= 양식 B — 엔지니어 검토용 (상세·엄밀) ============================= #}
+{# 양식 B — 엔지니어 검토용 (상세·엄밀) #}
 
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">요약</h2>
@@ -233,7 +232,7 @@
   {% endif %}
 </section>
 
-{# 환경 부하 추이 + 네트워크 토폴로지 (engineer) — 한 카드 2열, 두 렌더 높이 통일(320px). 화면 좁으면·인쇄 1열. #}
+{# 한 카드 2열, 화면 좁으면·인쇄 1열. #}
 <section class="card" style="margin-bottom:16px;">
   <div class="env-dual" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap:24px; align-items:start;">
     <div>
@@ -246,8 +245,7 @@
     </div>
     <div>
       <h2 class="card-title" style="margin:0 0 12px;">네트워크 토폴로지{% if summary.topology and summary.topology.has_data %} <span class="section-meta">서브넷 {{ summary.topology.subnet_count }} · 호스트 {{ summary.topology.host_count }}</span>{% endif %}</h2>
-      {# 보고서는 인쇄 전제 — 인터랙티브 그래프(클릭 펼침)는 인쇄 시 접힌 채 찍히고 대규모는 hairball 이라,
-         정적 서브넷 요약 표로 표시. 인터랙티브 그래프는 네트워크 토폴로지 페이지(화면) 전용. #}
+      {# 보고서는 인쇄 전제라 정적 서브넷 요약 표. 인터랙티브 그래프는 토폴로지 페이지(화면) 전용. #}
       {% if summary.topology and summary.topology.subnets %}
       <table>
         <thead><tr><th>서브넷 대역</th><th style="text-align:right; white-space:nowrap;">호스트 수</th></tr></thead>
@@ -265,7 +263,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">자원 적정성 분류</h2>
+  <h2 class="card-title">자원 적정성 평가</h2>
 
   <h3>분류 분포 ({{ summary.overview.total }}대)</h3>
   {{ classification_dist_bars(summary.classification_dist) }}
@@ -300,7 +298,7 @@
 </section>
 
 
-{# 세부 서버 목록 — 선택 N대 보고서(selection)만. 환경 보고서는 전체(500대 가능) 인쇄 폭주라 미표시 — 조치 대상은 효율화/자원 부족 표가 담음. #}
+{# 세부 서버 목록 — 선택 N대 보고서만. 환경 보고서는 전체 인쇄 폭주라 미표시(조치 대상은 효율화/자원 부족 표가 담음). #}
 {% if show_report_link|default(false) %}
 {{ detail_server_list(summary.base.rows, "engineer", summary.time_range, self_back, child_jobs|default({}), attention_by_host|default({}), summary.overview.total, show_report_link) }}
 {% endif %}
