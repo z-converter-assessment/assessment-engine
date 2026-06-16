@@ -51,12 +51,7 @@ jobs:
       # `--strict` — vulnerability 발견 시 exit 1로 CI fail.
       # `uv run --no-sync` — uv run의 자동 sync 차단. 자동 sync가 self를 .venv에 재install해서
       #   self editable 이슈를 다시 트리거하는 걸 방지 (`--no-install-project` 효과 보존).
-      # `--ignore-vuln PYSEC-2026-161` — starlette Host 헤더 검증 취약점. fix는 1.0.1 한 곳뿐인데
-      #   (0.x 전 버전이 취약 범위라 다운그레이드 회피 불가) 현재 fastapi 라인이 starlette 1.0 을
-      #   지원하지 않아 의존성 버전으로 해결 불가. 본 엔진은 reverse proxy 뒤 내부 포털 + Host 기반
-      #   인증 미사용이라 실질 노출 낮음. fastapi 가 starlette 1.0 지원 버전을 게시하면 본 예외 제거
-      #   + starlette 1.0.1 로 bump 한다. 다른 신규 CVE 는 그대로 차단.
       - name: pip-audit
         run: |
           uv pip install pip-audit
-          uv run --no-sync pip-audit --strict --ignore-vuln PYSEC-2026-161
+          uv run --no-sync pip-audit --strict
