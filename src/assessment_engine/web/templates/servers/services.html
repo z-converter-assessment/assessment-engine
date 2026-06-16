@@ -2,10 +2,11 @@
 {% block title %}ZConverter Assessment — {{ server.hostname }} 서비스/포트{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
+<a class="back no-print" href="{{ back_url }}">이전</a>
 <h1>{{ server.hostname }} — 서비스 / 포트</h1>
 
-<!-- 서비스 목록 -->
+{# 서비스(해석된 워크로드)와 Listen 포트(raw 소켓)를 별개 카드로 분리 — agent pid 미발행(T15)으로 unit/port join 불가, union 시 sparse 빈칸·중복. #}
+
 <div class="card">
   <h2 class="card-title">
     실행 중인 서비스
@@ -15,9 +16,9 @@
   </h2>
 
   {% if server.services is none %}
-    <p class="text-meta" style="font-size:13px; margin:0;">수집 불가</p>
+    <p class="text-meta text-md" style="margin:0;">수집 불가</p>
   {% elif not server.services %}
-    <p class="text-meta" style="font-size:13px; margin:0;">실행 중인 서비스 없음</p>
+    <p class="text-meta text-md" style="margin:0;">실행 중인 서비스 없음</p>
   {% else %}
     <table>
       <thead>
@@ -50,15 +51,8 @@
       </tbody>
     </table>
   {% endif %}
-
-  <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:8px; margin-top:16px; padding:12px 14px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0;">
-    {% for cat in service_categories %}
-    <span class="badge {{ cat | service_badge_class }}">{{ cat }}</span>
-    {% endfor %}
-  </div>
 </div>
 
-<!-- 포트 목록 -->
 <div class="card">
   <h2 class="card-title">
     Listen 포트
@@ -66,7 +60,7 @@
   </h2>
 
   {% if not server.listen_ports %}
-    <p class="text-meta" style="font-size:13px; margin:0;">수집된 포트 없음</p>
+    <p class="text-meta text-md" style="margin:0;">수집된 포트 없음</p>
   {% else %}
     <table>
       <thead>

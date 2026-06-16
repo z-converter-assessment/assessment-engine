@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
-# Prod 이미지 — wheel install 기반, release artifact 와 동일 패키지. GHCR pull 후 3 컴포넌트
-# (web/consumer/diagnostic-worker) 운영.
+# Prod 이미지 — wheel install 기반, release artifact 와 동일 패키지. GHCR pull 후 2 컴포넌트
+# (web/consumer) 운영.
 #
 # Multi-stage: (1) builder = uv wheel build (migrations·alembic.ini force-include 동봉)
 #              (2) runtime = wheel pip install + non-root. 빌드 도구 runtime 미잔존 (크기·CVE 최소).
@@ -64,15 +64,14 @@ USER app
 
 # OCI image labels — GHCR UI / cosign / SBOM 도구가 인식.
 LABEL org.opencontainers.image.title="ZConverter Cloud Assessment Engine" \
-      org.opencontainers.image.description="B2B 서버 인벤토리·메트릭 수집·진단 엔진 — 3 컴포넌트 단일 이미지 (web/consumer/diagnostic-worker)" \
+      org.opencontainers.image.description="B2B 서버 인벤토리·메트릭 수집·진단 엔진 — 2 컴포넌트 단일 이미지 (web/consumer)" \
       org.opencontainers.image.source="https://github.com/zconverter/assessment-engine" \
       org.opencontainers.image.licenses="Proprietary" \
       org.opencontainers.image.vendor="ZConverter"
 
-# 3 컴포넌트 단일 이미지 — ENTRYPOINT 가 `python -m`, CMD 가 default module.
+# 2 컴포넌트 단일 이미지 — ENTRYPOINT 가 `python -m`, CMD 가 default module.
 #   default (web):           docker run image
 #   consumer:                docker run image assessment_engine.consumer
-#   diagnostic-worker:       docker run image assessment_engine.diagnostic
 # docker compose: `command: assessment_engine.consumer` / k8s: `args: ["assessment_engine.consumer"]`.
 ENTRYPOINT ["python", "-m"]
 CMD ["assessment_engine.web"]

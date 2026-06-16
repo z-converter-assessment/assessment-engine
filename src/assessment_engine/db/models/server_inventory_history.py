@@ -11,9 +11,8 @@ from assessment_engine.db.models.base import Base
 class ServerInventoryHistory(Base):
     """server_inventory append-only 변경 이력.
 
-    upsert_server에서 직전 행과 비교 후 다를 때만 한 행 INSERT (앱 레벨 trigger).
-    Shadow 스키마 — server_inventory의 컬럼을 그대로 미러링하되, 자기 식별자(id, server_id, collected_at)
-    와 멱등성 UNIQUE를 추가. agent_started_at·boot_time 변경이 가장 빈번한 trigger 이벤트.
+    upsert_server에서 직전 행과 다를 때만 INSERT (앱 레벨 trigger). server_inventory 컬럼을
+    미러링 + 자기 식별자(id, server_id, collected_at)·멱등성 UNIQUE 추가.
     """
 
     __tablename__ = "server_inventory_history"
@@ -23,7 +22,7 @@ class ServerInventoryHistory(Base):
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)
     server_id: Mapped[int] = mapped_column(Integer, ForeignKey("server_inventory.id"), nullable=False)
 
-    # ─── server_inventory mirror (composite_id·machine_id·public_id 제외 — server_id로 충분) ───
+    # server_inventory mirror — 식별자(composite_id·machine_id·public_id) 제외, server_id로 충분
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     agent_version: Mapped[str | None] = mapped_column(String(32))
 

@@ -19,20 +19,13 @@ from assessment_engine.consumer.schemas import MessageBase
 from assessment_engine.consumer.settings import consumer_settings
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 
-# retry 가치가 있는 예외(connection lost, deadlock 등)와 영구 장애(스키마 위반·UNIQUE 등)를 분리.
-# - OperationalError: connection·timeout·deadlock 등 일시 장애.
-# - DBAPIError: asyncpg 드라이버 일시 오류. 단 IntegrityError는 DBAPIError를 상속하므로 별도 캐치.
-# - IntegrityError: UNIQUE/FK 위반 — retry 무의미 (단 record_metrics는 ON CONFLICT DO NOTHING이라 도달 거의 없음).
+# 일시 장애(connection·deadlock)만 retry, 영구 장애(IntegrityError = UNIQUE/FK 위반)는 즉시 raise.
+# IntegrityError 는 DBAPIError 를 상속하므로 _db_retry 에서 별도 먼저 캐치.
 _RETRYABLE_DB_EXC = (OperationalError, DBAPIError)
 
 
 def _format_db_err(e: DBAPIError) -> str:
-    """DB 예외에서 SQL·param·connection string 제외한 진단 메타만 추출 (F8).
-
-    - SQLAlchemy 클래스명 (OperationalError·IntegrityError 등)
-    - asyncpg origin 클래스 (`UniqueViolationError`·`ConnectionDoesNotExistError` 등) — `e.orig`
-    - PostgreSQL SQLSTATE 5자 코드 — asyncpg `e.orig.sqlstate`
-    """
+    """DB 예외에서 SQL·param·connection string 제외한 진단 메타만 추출 (F8)."""
     sa_cls = type(e).__name__
     orig = getattr(e, "orig", None)
     if orig is None:
@@ -56,12 +49,10 @@ async def _db_retry[T](
                 await session.commit()
             return result
         except IntegrityError as e:
-            # 영구 장애 — retry 의미 없음. 즉시 raise → 핸들러가 nack → DLQ.
-            # F8: e.orig 메시지엔 SQL·param·테이블 컬럼 노출 가능 — 진단용 메타만 로깅.
+            # 영구 장애 — 즉시 raise -> 핸들러 nack -> DLQ. F8: 진단 메타만 로깅.
             logger.error("db integrity error (non-retryable) {}", _format_db_err(e))
             raise
         except _RETRYABLE_DB_EXC as e:
-            # F8: connection string·param 노출 가능 — 진단용 메타만 로깅.
             if attempt == 2:
                 logger.error("db error after 3 attempts {}", _format_db_err(e))
                 raise
@@ -84,22 +75,21 @@ async def _check_idempotent(redis: Redis, message_id: UUID) -> bool:
 async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
     """시계·systemd 시작 순서 invariant 검증. warning 로그만, 처리는 그대로 진행.
 
-    - boot_time > agent_started_at: systemd 시작 순서 비정상 또는 시계 동기화 문제 (드뭄)
-    - agent_started_at > collected_at: VM 시계 동기화 문제 (가장 흔함 — VM resume 직후)
-    DLQ로 보내지 않음 — 시계 문제는 데이터 reject 의미 없고 운영자 인지가 목적.
+    - boot_time > agent_started_at: systemd 시작 순서 비정상 또는 시계 동기화 문제
+    - agent_started_at > collected_at: VM 시계 동기화 문제 (VM resume 직후 흔함)
+    DLQ 미전송 — 시계 문제는 reject 의미 없고 운영자 인지가 목적.
 
-    F7: 같은 서버 시계 문제 지속 시 매 메시지 warning → 1h 쿨다운 (Redis 키)으로 스팸 방지.
-    Redis 장애 시 fail-open — 쿨다운 없이 매번 출력 (장애 자체가 시그널).
+    F7: 같은 서버 지속 시 매 메시지 warning 방지 위해 1h 쿨다운. Redis 장애 시 fail-open (매번 출력).
     """
     if data.boot_time <= data.agent_started_at and data.agent_started_at <= data.collected_at:
-        return  # invariant 정상 — 즉시 종료
+        return
     cooldown_key = consumer_settings.redis_key_time_invariant_warned.format(
         data.composite_id,
         data.hostname,
     )
     set_result = await safe_set_nx(redis, cooldown_key, "1", consumer_settings.redis_ttl_time_invariant_warned)
     if set_result is False:
-        return  # 쿨다운 윈도우 안 — silent skip
+        return  # 쿨다운 윈도우 안
     if data.boot_time > data.agent_started_at:
         logger.warning(
             "time invariant violated boot_time>agent_started_at composite_id={} boot_time={} agent_started_at={}",
@@ -117,13 +107,12 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
 
 
 async def _track_agent_restart(redis: Redis, server_id: int, composite_id: str, agent_started_at: datetime) -> None:
-    """직전 agent_started_at과 비교 → 변경 시 1h 슬라이딩 윈도우 카운터 INCR.
+    """직전 agent_started_at 과 비교 -> 변경 시 1h 슬라이딩 윈도우 카운터 INCR.
 
-    threshold 도달 시 warning 로그 (운영자가 "에이전트 crash loop"으로 인지). 시스템 재부팅도
-    agent_started_at이 자연히 변경되므로 같은 카운터에 포함 — 시스템 재부팅이 1h 내 3회면
-    그것도 unusual이라 alert 적정.
+    threshold 도달 시 warning (agent crash loop 인지). 시스템 재부팅도 agent_started_at 변경이라
+    같은 카운터 포함 (1h 내 3회면 그것도 alert 적정).
 
-    fail-open — Redis 장애 시 silent skip. 정확성 보장 안 됨 (옛 휴리스틱과 동일).
+    fail-open — Redis 장애 시 silent skip (정확성 미보장).
     """
     last_key = consumer_settings.redis_key_last_agent_start.format(server_id)
     counter_key = consumer_settings.redis_key_agent_restarts.format(server_id)

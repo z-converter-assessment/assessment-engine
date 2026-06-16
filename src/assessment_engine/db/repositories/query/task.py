@@ -64,8 +64,7 @@ class TaskQueryRepository(_BaseQueryMixin, BaseTaskQueryRepository):
     ) -> dict[int, TaskRow]:
         if not server_ids:
             return {}
-        # DISTINCT ON — 서버별 가장 최근 task 1건만.
-        # id DESC tie-breaker — 같은 created_at microsecond INSERT 시 정렬 안정성.
+        # DISTINCT ON 서버별 최근 1건. id DESC tie-breaker — 같은 created_at microsecond INSERT 정렬 안정성.
         sql = text("""
             SELECT DISTINCT ON (t.target_server_id)
                 t.public_id, t.target_server_id, t.task_type, t.status,

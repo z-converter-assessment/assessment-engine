@@ -133,7 +133,6 @@ function renderNetChartOne(spec, avgRows, maxRows, range, anchorEnd) {
       scales: {
         x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
         y: {
-          title: { display:true, text:spec.yTitle, font:{size:11}, color:'#94a3b8' },
           ticks: { callback: v => spec.fmt(v), font:{size:11}, color:'#64748b' },
           grid:  { color:'#f1f5f9' },
           beginAtZero: true,

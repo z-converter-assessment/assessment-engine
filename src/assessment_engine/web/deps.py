@@ -50,22 +50,17 @@ def get_task_service(
 
 
 def get_diagnostic_service(
-    request: Request,
     db: AsyncSession = Depends(get_db),
-    redis=Depends(get_redis),
 ) -> DiagnosticService:
-    """DiagnosticService DI (ADR 0004).
+    """DiagnosticService DI — 보고서 발행·이력.
 
-    query_repo는 request-scoped(get_db)로 resolve_server_ids 1회. diagnostic_repo는 별도
-    session(session_factory)로 enqueue/조회 트랜잭션 분리 — task_service 동일 패턴.
-    broker_channel은 lifespan에서 app.state에 저장한 영속 channel 재사용.
+    query_repo는 request-scoped(get_db). diagnostic_repo는 별도 session(session_factory)로
+    enqueue/조회 트랜잭션 분리 — task_service 동일 패턴.
     """
     return DiagnosticService(
         query_repo=QueryRepository(db),
         session_factory=AsyncSessionLocal,
         diagnostic_repo_factory=DiagnosticRepository,
-        broker_channel=request.app.state.broker_channel,
-        redis=redis,
     )
 
 

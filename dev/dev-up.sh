@@ -19,7 +19,7 @@
 #     VM IP 는 libvirt DHCP lease 에서 동적 확인 (virsh domifaddr --source lease).
 #   - VM -> host 도달: libvirt NAT 게이트웨이 IP(LIBVIRT_GW, 기본 192.168.122.1). agent RABBITMQ_HOST 가
 #     이 IP 를 가리킨다. WORKER_DOWNLOAD_ALLOWED_HOSTS 는 agent.env 값(엔진 ZDM_DEFAULT_IP host 와 일치).
-#   - 컨테이너(web) -> VM(서버 발견 probe :22): 운영자가 VM IP 직접 입력 (컨테이너에서 VM hostname DNS 미해석).
+#   - host -> VM(:22): dev-up 자동화가 dev SSH 키로 접속해 바이너리·env·systemd 를 post-provision.
 #
 # 멱등성: 모든 단계 안전 재실행. VM 이미 있으면 define 건너뜀, post-provision 은 매번 재적용.
 
@@ -147,10 +147,6 @@ vm_image_url() {
 }
 # distro key -> 풀 안 base 볼륨 이름 (1회 import 후 overlay backing 으로 공유).
 vm_base_vol() { echo "$1-base.qcow2"; }
-
-# probe 도달 시연 — web 컨테이너(docker0) -> VM(virbr0) 는 host 라우팅 경유. VM IP 가 동적이고
-# 컨테이너에서 VM hostname DNS 해석이 없어 운영자가 VM IP 를 모달에 직접 입력 (print_summary 안내).
-# DISCOVERY_DEFAULT_TARGET 는 docker-compose default 빈값 유지.
 
 # dev/agent.env 필수 키 (agent.env.example과 단일 진실).
 readonly REQUIRED_AGENT_KEYS=(
@@ -386,7 +382,6 @@ start_docker_stack() {
   APP_VERSION="${APP_VERSION:-0.0.0}"
   export APP_VERSION
   echo "  APP_VERSION=${APP_VERSION} (hatch-vcs 주입)"
-  # discovery probe 좌표는 운영자가 VM IP 직접 입력 (print_summary 안내) — docker-compose default 빈값.
   docker compose up -d --build
 }
 
@@ -693,8 +688,8 @@ fi
 # Recommends 차단(transaction 메모리·디스크 절약, 1GiB OOM 회피), tsflags=nodocs 로 man/info skip.
 dnf_opts="--setopt=install_weak_deps=False --setopt=tsflags=nodocs"
 
-# base 패키지 — openssh-server(서버 발견 probe 시연: web 컨테이너 -> VM IP:22) + curl + ping.
-# cloud image 는 cloud-init 으로 SSH 가능하나, probe 시연용 표준 22 sshd unit 을 명시 enable.
+# base 패키지 — openssh-server(host -> VM dev-up post-provision SSH) + curl + ping.
+# cloud image 는 cloud-init 으로 SSH 가능하나, 표준 22 sshd unit 을 명시 enable 해 접속 일관성 보장.
 case "\${ID}" in
   ubuntu|debian)
     export DEBIAN_FRONTEND=noninteractive
@@ -1020,10 +1015,10 @@ start_vms() {
 print_summary() {
   echo ""
   echo "환경 준비 완료"
-  echo "  Web UI  : http://localhost:${WEB_PORT:-8000}/servers/"
+  echo "  Web UI  : http://localhost:${WEB_PORT:-8000}/"
   echo "  RabbitMQ: http://localhost:${RABBITMQ_MANAGEMENT_PORT:-15672}"
-  # 서버 발견 probe 시연 — web 컨테이너에서 VM hostname DNS 미해석이라 운영자가 VM IP 를 모달에 직접 입력.
-  echo "  서버 발견 probe 대상 VM IP (모달에 입력 -> SSH 도달성 확인):"
+  # VM IP 목록 — SSH 디버깅·journalctl 확인용 (ssh -i dev/.ssh/id_dev dev@<IP>).
+  echo "  VM IP (SSH 디버깅용, ssh -i dev/.ssh/id_dev dev@<IP>):"
   local vm ip
   for vm in "${VMS[@]}"; do
     ip="$(vm_ip "$vm" 2>/dev/null || true)"

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}ZConverter Assessment — 환경 자원 평가{% endblock %}
+
+{% block content %}
+<h1 style="margin:0 0 14px;">환경 자원 평가</h1>
+
+<!-- 구간·앵커 변경 즉시 반영 (assessment.js). -->
+<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+  <span class="bucket-label" id="assess-total-badge">{{ overview.risk_donut_total }}대 기준</span>
+  <select class="chart-select no-print" id="assess-range" aria-label="구간 선택">
+    <option value="15m" {% if time_range == '15m' %}selected{% endif %}>15분</option>
+    <option value="1h" {% if time_range == '1h' %}selected{% endif %}>1시간</option>
+    <option value="6h" {% if time_range == '6h' %}selected{% endif %}>6시간</option>
+    <option value="24h" {% if time_range == '24h' %}selected{% endif %}>1일</option>
+    <option value="7d" {% if time_range == '7d' %}selected{% endif %}>7일</option>
+    <option value="14d" {% if time_range == '14d' %}selected{% endif %}>14일</option>
+    <option value="30d" {% if time_range == '30d' %}selected{% endif %}>30일</option>
+  </select>
+  <input type="datetime-local" id="assess-anchor" class="chart-anchor no-print" style="height:30px;" aria-label="기준 시각">
+</div>
+
+<script src="/static/js/pages/assessment.js?v={{ asset_v }}" defer></script>
+
+<div id="assessment-result">
+{% include "servers/_assessment_result.html" %}
+</div>
+
+{% include "_reference_link.html" %}
+{% endblock %}

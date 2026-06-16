@@ -30,7 +30,7 @@
 
 경계 케이스:
 - `POSTGRES_USER` — 보통 config. 단 user 자체가 권한 분리 키이면 secret. 본 프로젝트는 config 분류하되 prod 검증 시 약한 값(빈값·password·admin·root·changeme) 거부 — `assessment`(dev default)는 운영 편의로 허용.
-- `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` — config (secret 아님, 노출 무해). startup 거부 안 함 — 잘못된 ZDM 발행은 런타임 (`HttpZdmPackageResolver` 메타 도달 실패 시 503) + agent host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`, `url_not_allowed` reject) 가 방어. discovery 와 동일 정책 (startup 거부 없음).
+- `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` — config (secret 아님, 노출 무해). startup 거부 안 함 — 잘못된 ZDM 발행은 런타임 (`HttpZdmPackageResolver` 메타 도달 실패 시 503) + agent host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`, `url_not_allowed` reject) 가 방어 (빈값 default 정상 동작, startup 거부 없음).
 
 규칙: config 인지 secret 인지 헷갈리면 secret 으로 간주. 잘못 분류해 secret 을 평문 노출하는 비용이 그 반대보다 크다.
 
@@ -141,7 +141,6 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 발동 위치 (multi-node 분리 시):
 - web 노드: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
 - consumer 노드: `ConsumerSettings` → POSTGRES·RABBITMQ password weak default 거부
-- diagnostic-worker 노드: `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
 
 효과:
 - prod 에서 `.env` 미주입·dev default 잔존 시 `Settings()` 호출이 즉시 `ValueError` → 컨테이너 crash·systemd unit fail.
@@ -194,26 +193,23 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 
 ## 9. 컴포넌트별 read 매트릭스 (multi-node 분리 시)
 
-본 repo 의 3 컴포넌트 (web · consumer · diagnostic-worker) 가 각자 다른 키 집합을 read. multi-node 분리 배포 시 어느 노드에 어느 키 inject 할지 reference. ADR 0023: scheduler cron 폐기로 4 → 3.
+본 repo 의 2 컴포넌트 (web · consumer) 가 각자 다른 키 집합을 read. multi-node 분리 배포 시 어느 노드에 어느 키 inject 할지 reference.
 
-| 키 그룹 | web | consumer | diagnostic-worker |
-|--------|:---:|:--------:|:-----------------:|
-| `APP_ENV`·`LOG_FORMAT` | 의무 | 의무 | 의무 |
-| `POSTGRES_*` | 의무 | 의무 | 의무 |
-| `REDIS_*` | 의무 | 의무 | 의무 |
-| `RABBITMQ_*` (broker 접속) | 의무 (진단 publish) | 의무 (consume) | 의무 (consume) |
-| `RABBITMQ_ROUTING_KEY_*`·`RABBITMQ_EXCHANGE` | 의무 | 의무 | 의무 |
-| `WORKER_*` (worker.result·task.install) | 의무 (task.install publish) | 의무 (worker.result consume) | 선택 |
-| `WEB_PORT`·`WEB_RELOAD`·`INSTALL_TIMEOUT_SEC`·`ZDM_*` | 의무 | 사용 안 함 | 사용 안 함 |
-| `LLM_*`·`OLLAMA_*` | 사용 안 함 | 사용 안 함 | 의무 |
-| `RABBITMQ_DIAGNOSTIC_QUEUE_*`·`RABBITMQ_ROUTING_KEY_DIAGNOSTIC` | 의무 (publish) | 사용 안 함 | 의무 (consume) |
-| `SQLALCHEMY_ECHO` | 의무 | 의무 | 의무 |
+| 키 그룹 | web | consumer |
+|--------|:---:|:--------:|
+| `APP_ENV`·`LOG_FORMAT` | 의무 | 의무 |
+| `POSTGRES_*` | 의무 | 의무 |
+| `REDIS_*` | 의무 | 의무 |
+| `RABBITMQ_*` (broker 접속) | 의무 | 의무 (consume) |
+| `RABBITMQ_ROUTING_KEY_*`·`RABBITMQ_EXCHANGE` | 의무 | 의무 |
+| `WORKER_*` (worker.result·task.install) | 의무 (task.install publish) | 의무 (worker.result consume) |
+| `WEB_PORT`·`WEB_RELOAD`·`INSTALL_TIMEOUT_SEC`·`ZDM_*` | 의무 | 사용 안 함 |
+| `SQLALCHEMY_ECHO` | 의무 | 의무 |
 
 코드 단일 진실 (Composition Root, CLAUDE.md #F4):
 - `src/assessment_engine/config.py` — class 정의만 (인스턴스 0)
-- `src/assessment_engine/web/settings.py` — WebSettings + DiagnosticSettings
+- `src/assessment_engine/web/settings.py` — WebSettings + DiagnosticSettings (보고서 발행 publish 용 broker)
 - `src/assessment_engine/consumer/settings.py` — ConsumerSettings
-- `src/assessment_engine/diagnostic/settings.py` — DiagnosticSettings
 - `src/assessment_engine/db/session.py`·`cache/redis.py` — 자체 WebSettings (공통 db layer)
 
 ---
@@ -291,8 +287,6 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | dev compose (redis command) | maxmemory 도달 시 eviction policy. TTL 키 우선 evict |
 | `WEB_PORT` | `8000` | config.py / dev compose | Web UI 접속 포트 |
 | `WEB_RELOAD` | `false` | config.py / dev compose | uvicorn auto-reload. dev hot-reload 전용 (dev compose 가 `true` 주입, `./:/app` bind mount 와 짝). prod 미설정 → false (코드 변경 감시 프로세스 불필요·bind mount 없는 wheel/image 배포에 무의미) |
-| `DISCOVERY_DEFAULT_TARGET` | `""` (빈값) | config.py / dev compose | 서버 발견 모달 SSH 도달성 probe 의 기본 target 주소. dev·prod 모두 빈값 default — libvirt VM IP 는 동적이고 web 컨테이너에서 VM hostname DNS 미해석이라, 운영자가 모달에 VM IP 직접 입력(dev-up.sh print_summary 안내). weak default 거부 대상 아님 (빈값이 정상 동작) |
-| `DISCOVERY_DEFAULT_PORT` | `22` | config.py / dev compose | probe 폼 기본 포트. 표준 SSH 22 — libvirt VM 은 post-provision `openssh-server` 라 22 listen. 비표준 SSH 포트 host 는 폼 override |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |
 | `ZDM_DEFAULT_IP` | `""` (빈값) | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. dev·prod 모두 빈값 default — dev 는 dev/.env 가 libvirt host IP:8000(ZDM mock, ADR 0018) 주입, prod 는 운영자가 real ZDM 주입. startup 거부 없음 — 잘못된 ZDM 발행은 런타임 503 + agent host whitelist 가 방어 |
 | `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 관리자 계정 기본값. POST body `zdm_user` 누락 시 fallback. install.sh 의 `-u` 인자. startup 거부 없음 (secret 아님) |
@@ -302,12 +296,6 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `REDIS_TTL_ZDM_PACKAGE_SHA256` | `21600` (6h) | config.py | ETag 기반 sha256 cache TTL |
 | `SQLALCHEMY_ECHO` | `false` | config.py | SQLAlchemy 엔진 SQL 로깅. dev 디버깅 시 true (운영 환경은 false 유지 — 로그 폭증·secret 노출 위험) |
 | `PGADMIN_PORT` | `5050` | dev compose override | pgAdmin GUI 포트 (dev 전용) |
-| `RABBITMQ_ROUTING_KEY_DIAGNOSTIC` | `diagnostic.request` | config.py | engine 내부 진단 routing key (web·worker 공통) |
-| `RABBITMQ_DIAGNOSTIC_QUEUE_TTL_MS` | `86400000` | config.py | 진단 큐 메시지 TTL 24h |
-| `RABBITMQ_DIAGNOSTIC_QUEUE_MAX_LEN` | `100000` | config.py | 진단 큐 max length |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | config.py | ollama HTTP 호출 base URL (LLM narrative). dev docker compose default = `http://ollama:11434` (compose 안 ollama 서비스) |
-| `OLLAMA_MODEL` | `llama3.1:8b` | config.py | ollama LLM 모델명. 한국어 정합 우위 모델 (qwen2.5:14b 등) 으로 운영자 교체 가능 |
-| `LLM_TIMEOUT_SECONDS` | `60` | config.py | LLM 호출 cap |
 
 ### `env.example` 에 없고 config.py default 만 정의된 키
 

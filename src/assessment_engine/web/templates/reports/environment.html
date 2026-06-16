@@ -1,38 +1,58 @@
 {% extends "base.html" %}
-{% block title %}Assessment 환경 보고서 — {{ view_title }}{% endblock %}
+{% block title %}Assessment 환경 보고서{% if report_job_id %} — {{ view_title }}{% endif %}{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="{{ back_url or '/servers/' }}">&larr; 이전</a>
-
-<div style="display:flex; align-items:center; justify-content:space-between; margin:8px 0 20px; gap:16px;">
-  <h1>환경 보고서
-    <span class="page-meta">{{ view_title }}</span>
-  </h1>
-  <div style="display:flex; align-items:center; gap:14px;">
-    <div class="text-sm text-muted" style="text-align:right;">
-      <div>발행 {{ summary.generated_at | kst }}</div>
-      <div>기준 {{ summary.anchor_at | kst }} · 윈도우 {{ summary.time_range_label }}</div>
-      <div>에이전트 {{ summary.agent_versions_label or "—" }}</div>
-    </div>
-    <button class="btn-print no-print" type="button" onclick="window.print()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-      인쇄
-    </button>
-  </div>
+<div style="display:flex; align-items:center; justify-content:space-between; gap:16px; margin:8px 0 12px;">
+  <h1 style="margin:0;">환경 보고서{% if report_job_id %} <span class="page-meta">{{ view_title }}</span>{% endif %}</h1>
+  {% if report_job_id %}
+  <button class="btn-print no-print" type="button" onclick="window.print()">
+    인쇄
+  </button>
+  {% endif %}
 </div>
 
+{% if report_job_id %}
+<div class="text-sm text-muted" style="margin-bottom:20px; text-align:right;">
+  <div>발행 {{ summary.generated_at | kst }}</div>
+  <div>윈도우 {{ summary.time_range_label }} · 기준 {{ summary.anchor_at | kst }}</div>
+  <div>에이전트 {{ summary.agent_versions_label or "—" }}</div>
+</div>
+{% else %}
+{# 발행 컨트롤 — 변경은 navigate 로 preview 갱신(environment-report.js). #}
+<div class="no-print" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:20px;">
+  <select id="report-view" class="chart-select" aria-label="보고서 양식 선택">
+    <option value="customer" {% if view == 'customer' %}selected{% endif %}>고객 보고서</option>
+    <option value="engineer" {% if view == 'engineer' %}selected{% endif %}>엔지니어 보고서</option>
+  </select>
+  <select id="report-range" class="chart-select" aria-label="윈도우 선택">
+    <option value="15m" {% if time_range == '15m' %}selected{% endif %}>15분</option>
+    <option value="1h" {% if time_range == '1h' %}selected{% endif %}>1시간</option>
+    <option value="6h" {% if time_range == '6h' %}selected{% endif %}>6시간</option>
+    <option value="24h" {% if time_range == '24h' %}selected{% endif %}>1일</option>
+    <option value="7d" {% if time_range == '7d' %}selected{% endif %}>7일</option>
+    <option value="14d" {% if time_range == '14d' %}selected{% endif %}>14일</option>
+    <option value="30d" {% if time_range == '30d' %}selected{% endif %}>30일</option>
+  </select>
+  <input type="datetime-local" id="report-anchor" class="chart-anchor" aria-label="앵커 시각">
+  <button type="button" id="report-emit" class="btn-print">발행</button>
+</div>
+{% endif %}
+
+{% if report_job_id %}
 {% include "reports/_env_report_body.html" %}
 
 {% include "reports/_reference_footer.html" %}
 
 {% if view == "engineer" %}
-{% if report_job_id %}<div data-report-job data-job-id="{{ report_job_id }}" data-status="{{ narrative_status }}" hidden></div>{% endif %}
-<script src="/static/js/diagnostic-inline.js?v={{ asset_v }}" defer></script>
-{# 네트워크 토폴로지 — cytoscape vendor 먼저, network-topology.js 가 #topology-graph 렌더 (없으면 silent skip). #}
-<script src="/static/js/vendor/cytoscape.min.js?v={{ asset_v }}" defer></script>
-<script src="/static/js/pages/network-topology.js?v={{ asset_v }}" defer></script>
-{# 환경 부하 추이 차트 — Chart.js(먼저) + inline 렌더. chart-utils.js 는 base.html head 동기 로드. #}
+{# chart-utils.js 는 base.html head 동기 로드. 토폴로지는 정적 표라 cytoscape 스크립트 불요. #}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
 <script src="/static/js/pages/environment-trend.js?v={{ asset_v }}" defer></script>
+{% endif %}
+{% else %}
+{# 발행 전 — 본문·live preview 없음. 발행해야 스냅샷 생성·표시·이력 추가 (#C1). #}
+<section class="card">
+  <p class="text-muted" style="margin:0; padding:8px 0;">보고서 양식·윈도우·앵커를 선택하고 발행을 누르면 보고서가 생성되어 화면에 표시되고 발행 이력에 추가됩니다.</p>
+</section>
+<script src="/static/js/pages/environment-report.js?v={{ asset_v }}" defer></script>
 {% endif %}
 {% endblock %}

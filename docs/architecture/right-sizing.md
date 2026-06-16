@@ -7,7 +7,7 @@
 
 ## 1. 목적·범위
 
-right-sizing = 관측 부하(`WINDOW_DAYS` = 7일 통계) 대비 할당 자원의 적정성 평가. 결정적(LLM 무관) — 자원(CPU/Mem/Disk)별로 "가진 축"을 신호로 모아 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다. 가진 데이터로 항상 결론을 내며("어떤 데이터로 이 분류" 설명 가능), OS 비대칭(Windows saturation 축 부재)은 분류를 막지 않고 confidence 단서로만 노출한다.
+right-sizing = 관측 부하(`WINDOW_DAYS` = 7일 통계) 대비 할당 자원의 적정성 평가. 규칙 기반 결정적 분류 — 자원(CPU/Mem/Disk)별로 "가진 축"을 신호로 모아 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다. 가진 데이터로 항상 결론을 내며("어떤 데이터로 이 분류" 설명 가능), OS 비대칭(Windows saturation 축 부재)은 분류를 막지 않고 confidence 단서로만 노출한다.
 
 UI badge 임계(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`, 90/75)와는 별 도메인이다 — 그쪽은 시점 사용량 시각 신호, 본 모듈은 윈도우 통계 기반 사이징 결정. 혼용 금지.
 
@@ -59,7 +59,7 @@ idle / shutdown / over_provisioned / under_provisioned / optimal / insufficient_
 ## 6. OS 분기 (Windows)
 
 - swap: `swap_saturation(os_family, swap_used) = swap_used and os_family != "windows"` 단일 helper 경유 의무. Windows pagefile 은 여유 RAM 에도 상시 사용되는 baseline 이라 saturation 신호가 아니다(제외). Linux/unknown 은 swap_used 그대로 page-out 신호로 해석. `if raw.swap_used` 직접 해석 금지.
-- load/iowait: Windows 는 loadavg·iowait 가 OS 부재라 saturation 축을 못 본다. 값 None 인 축은 `unmeasured` 에 기록 -> `is_partial`(=bool(unmeasured)) -> ViewModel/템플릿이 "이용률 기준 평가(saturation 축 미관측)" confidence 단서로 노출한다. 분류 자체는 utilization/capacity 로 완결되며 "데이터 부족"이 아니다(cpu_p95·mem_p95 가 산출되는 한).
+- load/iowait: Windows 는 loadavg·iowait 가 OS 부재라 saturation 축을 못 본다. 값 None 인 축은 `unmeasured` 에 기록 -> `is_partial`(=bool(unmeasured)) -> ViewModel/템플릿이 "이용률 기준 평가(saturation 축 미관측)" confidence 단서로 노출한다. 분류 자체는 utilization/capacity 로 완결되며 "표본 부족"이 아니다(cpu_p95·mem_p95 가 산출되는 한).
 - Windows agent 가 등가 카운터(Processor Queue Length 등)를 발행하면 미관측 축이 자동 채워진다(unmeasured 자동 해제).
 
 동일 통계라도 Linux 는 load/swap 으로 under 결론, Windows 는 utilization 기준으로 같은 분류 체계 안에서 결론난다.

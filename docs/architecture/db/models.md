@@ -11,7 +11,7 @@
 | `ServerNetIo` | `server_net_io` | BigInteger + collected_at | hypertable | per interface I/O 누적 카운터 |
 | `ServerMountUsage` | `server_mount_usage` | BigInteger + collected_at | hypertable | per mount 시점 사용량 |
 | `Task` | `tasks` | BigInteger | 단일 행 (audit log) | 원격 작업 명령 + 실행 이력 |
-| `DiagnosticJob` | `diagnostic_jobs` | UUID | 일반 테이블 (hypertable 아님) | 진단 job + 보고서 발행 이력 통합 (ADR 0004 + 0010). `job_type` 으로 분류 (`ai_diagnostic`/`customer_report`/`engineer_report`). active UNIQUE = `(scope, input_hash, job_type)`. UUID PK는 URL 노출용 (E5) |
+| `DiagnosticJob` | `diagnostic_jobs` | UUID | 일반 테이블 (hypertable 아님) | 보고서 발행 스냅샷·이력. `job_type` 으로 분류 (`customer_report`/`engineer_report`). active UNIQUE = `(scope, input_hash, job_type)`. UUID PK는 URL 노출용 (E5) |
 
 ## 식별자 규약 (CLAUDE.md C1)
 

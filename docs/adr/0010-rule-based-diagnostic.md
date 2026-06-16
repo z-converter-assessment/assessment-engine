@@ -1,6 +1,8 @@
 # ADR 0010 — 진단을 규칙 기반으로 한정, LLM 분기 보류
 
-상태: Accepted (2026-05-16), Refined by 0023 (2026-05-23) + 0025 (2026-05-24) — scheduler cron 자동 발화 폐기 (0023) + LLM 분기 보류 결정 supersede (0025 — 단일 provider ollama 활성, mock 폐기). 본 ADR 안 "LLM 분기 보류"·"mock default" 본문은 historical record. ADR 0003 + 0004 의 LLM(narrative 합성) 활용 부분을 본 ADR 로 정정한 history 유효.
+상태: Accepted (2026-05-16). 규칙 기반 진단(USE Method right-sizing, `recommendation.py`) 본질은 그대로 유효 — web 인라인 계산으로 보고서·대시보드·서버 분류에 활용. LLM narrative 합성 계층(0025 ollama)·진단 워커(0004)는 2026-06-14 폐기(0004·0025 Superseded). 본 ADR 안 "LLM 분기 보류"·"mock default"·ollama 활성 본문은 historical record.
+
+이전 상태: Refined by 0023 (2026-05-23) + 0025 (2026-05-24) — scheduler cron 자동 발화 폐기 (0023) + LLM 분기 보류 결정 supersede (0025).
 
 ## Context
 

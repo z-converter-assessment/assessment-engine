@@ -46,7 +46,11 @@ from assessment_engine.web.services.mappers.attention import (
     to_gap_warning_item,
     to_os_eol_warning_item,
 )
-from assessment_engine.web.services.mappers.environment_report import build_metric_trend, to_environment_report
+from assessment_engine.web.services.mappers.environment_report import (
+    build_efficiency_summary,
+    build_metric_trend,
+    to_environment_report,
+)
 from assessment_engine.web.services.mappers.export import to_inventory_export_entry
 from assessment_engine.web.services.mappers.metric import (
     to_collection_status_item,
@@ -75,6 +79,7 @@ from assessment_engine.web.services.mappers.server import (
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_FROM_REC,
     ReportView,
+    resolve_os_eol,
 )
 from assessment_engine.web.services.mappers.task import (
     to_task_detail,
@@ -88,7 +93,7 @@ from assessment_engine.web.view_models.attention import (
     AttentionRow,
     AttentionSignals,
     CapacityWarningItem,
-    DashboardLive,
+    EnvironmentAssessment,
     EnvironmentOverview,
     EnvironmentRealtime,
 )
@@ -103,9 +108,11 @@ from assessment_engine.web.view_models.server import (
     NetworkDetailResponse,
     ServerDetailResponse,
     ServerListItem,
+    ServerStabilitySignals,
     StorageDetailResponse,
 )
 from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
+from assessment_engine.web.view_models.topology import NetworkTopology
 
 _DISK_METRIC_TYPES = frozenset({"disk.read_iops", "disk.write_iops", "disk.read_kbps", "disk.write_kbps"})
 _NET_METRIC_TYPES = frozenset(
@@ -117,10 +124,12 @@ _ATTENTION_LIMIT_EACH = 5
 _GAP_MINUTES = 5
 _GAP_RECENT_HOURS = 24
 
-# 대시보드 현황 윈도우 — 활용률 게이지·자원 적정성 분류·부하 추이 표시 전용 (최근 현황 모니터링).
+# 서버 세부 운영 신호 전구간 — 재부팅·에이전트 재시작을 window 제한 없이 전체 수집 기간 카운트(약 100년).
+_DETAIL_ALL_TIME_DAYS = 36500
+
+# 대시보드 현황 윈도우 — 활용률 게이지·자원 적정성 분류 표시 전용 (최근 현황 모니터링).
 # right-sizing 표준 평가 윈도우(recommendation.WINDOW_DAYS=7d — 보고서 기본·서버 목록 분류)와 의도 분리.
-# 버킷은 AUTO_BUCKET[DASHBOARD_TIME_RANGE] 자동 추종 (#F10 range->bucket 단일 매핑).
-DASHBOARD_TIME_RANGE: TimeRange = "6h"
+DASHBOARD_TIME_RANGE: TimeRange = "24h"
 DASHBOARD_WINDOW_DAYS: float = DIAGNOSTIC_RANGE_DAYS[DASHBOARD_TIME_RANGE]
 
 
@@ -187,15 +196,13 @@ class QueryService:
     async def resolve_server_ids(self, public_ids: list[str]) -> dict[str, int]:
         """N개 public_id → {public_id: server_id} 단일 SQL (C5 N+1 회피).
 
-        cache 활용 안 함 — batch 미스 시 DB는 어차피 단일 SQL이라 cache mget 복잡도 감수 대비 이득 미미.
-        단건 path(`resolve_server_id`)는 cache 그대로.
+        cache 미활용 — batch 미스 시 DB도 단일 SQL이라 cache mget 복잡도 대비 이득 미미.
         """
         if not public_ids:
             return {}
         return await self.repo.resolve_server_ids(public_ids)
 
     async def list_all_server_public_ids(self) -> list[str]:
-        """전체 등록 서버 public_id — 환경 단위 보고서 URL 합성용."""
         return await self.repo.list_all_server_public_ids()
 
     async def _is_online(self, server_id: int) -> bool:
@@ -218,7 +225,7 @@ class QueryService:
         keys = [web_settings.redis_key_online.format(dto.id) for dto in dtos]
         online_flags = await safe_mget(self.redis, keys)
 
-        # 7일 USE Method 분류 — 페이지 서버만 별도 SQL. 보고서·right-sizing과 동일 윈도우·입력(net 포함).
+        # USE Method 분류 — 보고서·right-sizing과 동일 윈도우·입력(net 포함).
         page_server_ids = [dto.id for dto in dtos]
         now = datetime.now(UTC)
         raws_period = await self.repo.report_aggregate(
@@ -230,7 +237,6 @@ class QueryService:
         await self._inject_net_baseline(raws_period, page_server_ids, recommendation.WINDOW_DAYS, now)
         raws_by_id: dict[int, object] = {r.server_id: r for r in raws_period}
 
-        # 페이지 서버별 마지막 task — 별도 SQL 1회 (DISTINCT ON). 빈 dict면 row 없는 서버.
         last_tasks = await self.latest_tasks_by_servers(page_server_ids)
 
         items: list[ServerListItem] = []
@@ -276,6 +282,25 @@ class QueryService:
         result = to_server_detail(dto)
         await safe_set(self.redis, cache_key, server_detail_to_json(result), ex=300)
         return result
+
+    async def get_server_stability(
+        self, detail: ServerDetailResponse, end: datetime | None = None
+    ) -> ServerStabilitySignals:
+        """서버 세부 운영 신호 — 전구간 재부팅·에이전트 재시작 + OS 지원종료(P2).
+
+        selection 엔지니어 보고서는 7일 window 카운트지만 서버 세부는 전체 수집 기간(전구간) 기준.
+        ServerDetailResponse 캐시(inventory)와 분리 — window 집계라 매 요청 산출.
+        """
+        end_dt = end or datetime.now(UTC)
+        sid = detail.id
+        uptime = await self.repo.report_uptime_stats([sid], _DETAIL_ALL_TIME_DAYS, end_dt)
+        restart = await self.repo.report_agent_restart_stats([sid], _DETAIL_ALL_TIME_DAYS, end_dt)
+        eol = resolve_os_eol(detail.os_id, detail.os_version, detail.kernel_version, end_dt.date())
+        return ServerStabilitySignals(
+            reboot_count=uptime.get(sid, 0),
+            agent_restart_count=restart.get(sid, 0),
+            os_eol_label=f"{eol[1]} · EOL {eol[0]}" if eol else None,
+        )
 
     async def get_storage(self, server_id: int) -> StorageDetailResponse | None:
         dto = await self.repo.get_storage(server_id)
@@ -374,7 +399,7 @@ class QueryService:
         - agent_unstable: 1h 윈도우 안 재시작 임계 초과
 
         디스크(capacity·IO)는 USE Method classify 통합 — 본 catalog 에서 제외 (중복 회피).
-        조립은 _assemble_attention 단일 진실 (대시보드 묶음 get_dashboard_live 와 공유).
+        조립은 _assemble_attention 단일 진실. 실시간 현황 페이지·보고서가 본 메서드 공유.
         """
         # end=보고서 anchor(없으면 현재). os_eol 임박/경과 판정이 이 시각 기준 — 보고서 다른 지표(end_dt)와 정합.
         # gap/agent_unstable 은 보고서 미표시(C1)라 anchor 영향 없음.
@@ -394,13 +419,7 @@ class QueryService:
     async def get_environment_overview(self) -> "EnvironmentOverview":
         """list 화면 상단 환경 요약 — 총 N대·온라인/오프라인·자원 합계·역할 분포·평균 활용률·위험도 분포 (P2).
 
-        흐름:
-          list_server_ids -> get_servers (inventory)
-                          + environment_utilization (7일 capacity-weighted 평균)
-                          + report_aggregate(period_days=WINDOW_DAYS) (USE Method 분류)
-                          -> mapper 집계.
         period_days는 보고서·right-sizing과 동일 윈도우 (AWS Compute Optimizer 표준).
-        모든 등록 서버 대상 단일 SQL. 첫 페이지 호출에서만 사용.
         """
         now = datetime.now(UTC)
         server_ids = await self.repo.list_server_ids()
@@ -417,9 +436,7 @@ class QueryService:
         """list 화면 '환경 실시간 메트릭' 카드 — 각 서버 최신 스냅샷(get_latest_metric, Redis cache 우선) 집계.
 
         현황 모니터링 용도(right-sizing 7일 통계와 별개). server_ids=None 이면 전체 환경, 주어지면 선택 N대 한정.
-        평균 도넛·자원별 부하상위: CPU/메모리/디스크(전 mount 통합 풀, 평균·탑3 동일 기준) + 네트워크·디스크 I/O.
-        online: 최신 스냅샷 신선도(now-TTL 이내 = 온라인).
-        last_collected_at: 환경 전체 최신 수집시각. 조립은 _assemble_realtime 단일 진실.
+        조립은 _assemble_realtime 단일 진실.
         """
         now = datetime.now(UTC)
         if server_ids is None:
@@ -429,12 +446,12 @@ class QueryService:
         details = await self.repo.get_servers(server_ids)
         return await self._assemble_realtime(server_ids, details, now)
 
-    # ─── 대시보드 live 조립 (단건 + get_dashboard_live 묶음 공유) ────────────
+    # ─── 환경 개요·현황 조립 헬퍼 (overview·attention·realtime 공유) ────────────
 
     async def _online_map(self, server_ids: list[int], details: list, now: datetime) -> dict[int, bool]:
         """server_id -> online bool. Redis online flags(safe_mget) 우선, 장애(None) 시 last_seen_at fallback.
 
-        flags 는 online_keys(server_ids 순서) 대응. get_servers 는 순서 비보존이라 dict 매칭으로 순서 의존 제거.
+        get_servers 는 순서 비보존이라 server_ids 기준 dict 매칭으로 순서 의존 제거.
         """
         online_keys = [web_settings.redis_key_online.format(sid) for sid in server_ids]
         flags = await safe_mget(self.redis, online_keys)
@@ -465,11 +482,14 @@ class QueryService:
                     raw.net_tx_kbps_peak,
                 ) = net_tuple
 
-    def _assemble_overview(self, details, util, raws_period, online_by_id: dict[int, bool]) -> EnvironmentOverview:
+    def _assemble_overview(
+        self, details, util, raws_period, online_by_id: dict[int, bool], full_under: bool = False
+    ) -> EnvironmentOverview:
         """report_aggregate raws -> USE Method 분류 도넛 + under_provisioned 상세, online_by_id -> online_count.
 
         분류는 `build_resource_stats`(net 반영) 단일 진실 — 호출자가 `_inject_net_baseline` 로 raw 에 net
         baseline 을 주입한 뒤 호출한다 (get_report 세부행과 동일 입력 -> idle/shutdown 정합).
+        full_under=True 면 자원 부족 호스트 전체(상위 N 절단 해제) — 자원 평가 전용 페이지용.
         """
         risk_counts: dict[str, int] = {}
         under_hosts: list[CapacityWarningItem] = []
@@ -480,7 +500,43 @@ class QueryService:
             if rec == "under_provisioned":
                 under_hosts.append(to_capacity_warning_item(raw))
         online_count = sum(1 for d in details if online_by_id.get(d.id))
+        if full_under:
+            return build_environment_overview(details, online_count, util, risk_counts, under_hosts, under_limit=None)
         return build_environment_overview(details, online_count, util, risk_counts, under_hosts)
+
+    async def get_environment_assessment(
+        self, time_range: DiagnosticTimeRange, anchor_at: datetime | None = None
+    ) -> EnvironmentAssessment:
+        """자원 평가 전용 — 윈도우(time_range)·앵커(anchor) 기준 자원 적정성 분류 + 효율화/자원 부족 표.
+
+        get_dashboard_overview 의 overview 조립부를 가변 윈도우·앵커로 재사용(attention/trend 제외, 경량).
+        자원 부족은 상위 N 절단 없이 전체(full_under). 효율화 검토 대상은 보고서와 동일 산식
+        (`build_efficiency_summary`) — base.rows(get_report) 단일 진실에서 도출해 보고서와 분류·정렬 일관.
+        """
+        end = anchor_at or datetime.now(UTC)
+        period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
+        server_ids = await self.repo.list_server_ids()
+        if not server_ids:
+            return EnvironmentAssessment(overview=_empty_overview())
+        details = await self.repo.get_servers(server_ids)
+        raws_period = await self.repo.report_aggregate(server_ids, period_days=period_days, end=end)
+        await self._inject_net_baseline(raws_period, server_ids, period_days, end)
+        util = await self.repo.environment_utilization(period_days=period_days, end=end)
+        online_by_id = await self._online_map(server_ids, details, end)
+        overview = self._assemble_overview(details, util, raws_period, online_by_id, full_under=True)
+        # 효율화 검토 대상 — 진단·권고 컬럼이 ReportRowItem 파생이라 get_report 행에서 산출 (보고서와 동일 경로).
+        base = await self.get_report(server_ids, period_days, end=end, view="engineer")
+        eff = build_efficiency_summary(base.rows)
+        under = overview.under_provisioned_hosts
+        return EnvironmentAssessment(
+            overview=overview,
+            efficiency_hosts=eff.hosts,
+            efficiency_hosts_count=eff.hosts_count,
+            efficiency_target_count=eff.target_count,
+            efficiency_target_vcpus=eff.target_vcpus,
+            efficiency_target_memory_gb=eff.target_memory_gb,
+            under_provisioned_metric_labels=[m.label for m in under[0].metrics] if under else [],
+        )
 
     def _assemble_attention(
         self, raws_period, gap_raws, restart_counts, now, limit_each: int | None
@@ -556,41 +612,33 @@ class QueryService:
                 last_collected = m.collected_at
         return build_environment_realtime(len(server_ids), online, snapshots, last_collected)
 
-    async def get_dashboard_live(self) -> DashboardLive:
-        """fragment=live·page1 공용 — 공유 기초 데이터 1회 조회 후 3 ViewModel 조립.
+    async def get_dashboard_overview(self) -> EnvironmentOverview:
+        """환경 개요(`/`) 집계 — 24h(DASHBOARD_WINDOW_DAYS) capacity-weighted 평균 활용률·자원 합계·수집 상태.
 
-        단건 3 메서드를 각각 호출하면 list_server_ids 3회·report_aggregate 2회·get_servers 2회·online flags 2회
-        중복. 본 메서드는 공유분(server_ids·details·raws_period·online_by_id)을 1회만 조회해 _assemble_* 에 주입.
-        세 카드가 동일 now·스냅샷 기준이라 카드 간 값 일관(비결정성 해소).
+        right-sizing 표준 평가(7일)와 의도 분리한 최근 24h 현황 (#F10 DASHBOARD_TIME_RANGE). 운영 신호
+        (attention)는 실시간 현황 페이지(`get_attention_signals`)로 분리 — 본 메서드는 overview 단일 책임.
         """
         now = datetime.now(UTC)
         server_ids = await self.repo.list_server_ids()
         if not server_ids:
-            return DashboardLive(
-                overview=_empty_overview(),
-                attention=AttentionSignals(gap_warnings=[], os_eol_warnings=[], agent_unstable=[]),
-                topology=build_network_topology([]),
-            )
+            return _empty_overview()
         details = await self.repo.get_servers(server_ids)
         raws_period = await self.repo.report_aggregate(server_ids, period_days=DASHBOARD_WINDOW_DAYS, end=now)
         await self._inject_net_baseline(raws_period, server_ids, DASHBOARD_WINDOW_DAYS, now)
         util = await self.repo.environment_utilization(period_days=DASHBOARD_WINDOW_DAYS, end=now)
         online_by_id = await self._online_map(server_ids, details, now)
-        gap_raws = await self.repo.metric_gap_warnings(_GAP_MINUTES, _GAP_RECENT_HOURS, _ATTENTION_LIMIT_EACH)
-        restart_counts = await self.repo.agent_restart_counts_recent(server_ids, now - timedelta(hours=1))
-        # 환경 부하 추이 — DASHBOARD_TIME_RANGE 동일 기간 + AUTO_BUCKET 자동 분해력 (활용률·분류와 일관).
-        trend_range = DASHBOARD_TIME_RANGE
-        trend_bi, trend_td = _BUCKET_INFO[AUTO_BUCKET[trend_range]]
-        trend_start = now - TIME_RANGE_TD[trend_range]
-        cpu_trend = await self.repo.metric_trend("cpu.usage_percent", trend_start, now, trend_bi, trend_td)
-        mem_trend = await self.repo.metric_trend("mem.usage_percent", trend_start, now, trend_bi, trend_td)
-        disk_trend = await self.repo.metric_trend("disk.usage_percent", trend_start, now, trend_bi, trend_td)
-        return DashboardLive(
-            overview=self._assemble_overview(details, util, raws_period, online_by_id),
-            attention=self._assemble_attention(raws_period, gap_raws, restart_counts, now, _ATTENTION_LIMIT_EACH),
-            topology=build_network_topology(details),
-            trend=build_metric_trend(cpu_trend, mem_trend, disk_trend),
-        )
+        return self._assemble_overview(details, util, raws_period, online_by_id)
+
+    async def get_topology(self) -> NetworkTopology:
+        """네트워크 토폴로지 — 전체 인벤토리의 L3 subnet 공동소속 그래프.
+
+        개요(get_dashboard_overview)와 분리: 노드 규모가 커 별도 페이지(`/servers/topology`)에서 렌더.
+        """
+        server_ids = await self.repo.list_server_ids()
+        if not server_ids:
+            return build_network_topology([])
+        details = await self.repo.get_servers(server_ids)
+        return build_network_topology(details)
 
     async def get_environment_report(
         self,
@@ -600,10 +648,8 @@ class QueryService:
     ) -> EnvironmentReportSummary:
         """환경 단위 보고서 (전체 등록 서버 대상) — server scope 양식과 별도 high-level.
 
-        time_range: AI 진단과 동일 7개 윈도우 (15m/1h/6h/24h/7d/14d/30d) — DIAGNOSTIC_RANGE_DAYS.
-        anchor_at: 보고서 기준 시각 (None 이면 현재 시각). period_days = window days.
-        구성: overview (KPI/utilization) + attention (운영신호 3 카탈로그) + base ReportSummary (분류·KPI)
-            + classification_dist 도넛 + os_distribution + top_risks + view 별 summary_bullets_env.
+        time_range: 7개 윈도우 (15m/1h/6h/24h/7d/14d/30d) — DIAGNOSTIC_RANGE_DAYS.
+        anchor_at: 보고서 기준 시각 (None 이면 현재 시각).
         """
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
         end_dt = anchor_at if anchor_at is not None else datetime.now(UTC)
@@ -675,10 +721,8 @@ class QueryService:
     ) -> "EnvironmentReportSummary":
         """선택 N대 보고서 — 환경 보고서 양식(`get_environment_report`)의 N대 scope 변형 (대상만 선택 서버 한정).
 
-        환경 보고서와 동일 양식·ViewModel(EnvironmentReportSummary). overview(OS·워크로드 분포·평균 활용률·
-        right-sizing 도넛)·attention·rows 모두 선택 N대 집계. 평균 활용률은 environment_utilization 을
-        server_ids 로 N대 한정 호출 (전체 환경과 동일 capacity-weighted SQL). attention 은 N대 호스트로 필터.
-        anchor_at: 발행 시점 기준 (None 이면 현재). 미존재/빈 선택 시 None.
+        평균 활용률은 environment_utilization 을 server_ids 로 N대 한정 호출 (전체 환경과 동일
+        capacity-weighted SQL). attention 은 N대 호스트로 필터. 미존재/빈 선택 시 None.
         """
         # period_days 는 time_range 에서 내부 도출 (환경 보고서와 동일 — 호출자 불일치 여지 0).
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
@@ -731,6 +775,15 @@ class QueryService:
             trend=trend,
         )
 
+    async def get_selection_attention(self, server_ids: list[int], end: datetime) -> "AttentionSignals":
+        """선택 N대 한정 운영 신호 — 실시간 현황(/environment/realtime?ids=) selection 범위 필터.
+
+        전체 attention 을 선택 호스트 hostname 으로 필터 (get_selection_report 와 동일 _filter_attention 채널).
+        """
+        details = await self.repo.get_servers(server_ids)
+        hostnames = {d.hostname for d in details}
+        return _filter_attention(await self.get_attention_signals(end=end), hostnames)
+
     async def get_single_server_report(
         self,
         server_public_id: str,
@@ -740,9 +793,7 @@ class QueryService:
     ) -> "EnvironmentReportSummary":
         """단일 서버 보고서 — 환경 보고서 양식 (`get_environment_report`) 의 1대 scope 변형.
 
-        발행(POST /servers/report/emit, ids 1개) 시 스냅샷 합성 + 이력 1대 row link 진입.
-        환경 보고서와 동일 양식 (overview·attention·rows·top_risks).
-        anchor_at: 발행 시점 기준 시각 (None 이면 현재) — worker narrative 와 같은 윈도우 재현.
+        anchor_at: 발행 시점 기준 시각 (None 이면 현재) — 발행 스냅샷 윈도우 재현.
         """
         # period_days 는 time_range 에서 내부 도출 (환경·선택 보고서와 동일 — 호출자 불일치 여지 0).
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
@@ -757,7 +808,6 @@ class QueryService:
         if detail is None:
             return None  # type: ignore[return-value]
 
-        # 1대 한정 합성 — 환경 양식과 동일 흐름.
         base = await self.get_report([server_id], period_days, end=end_dt, view=view)
         attention = await self.get_attention_signals(end=end_dt, limit_each=None)
 

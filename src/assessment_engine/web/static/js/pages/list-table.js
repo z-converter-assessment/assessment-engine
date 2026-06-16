@@ -1,108 +1,13 @@
 /**
- * 서버 목록 페이지 — 서버 발견 모달.
+ * 서버 목록 페이지(list_table.html) — ZConverter Install·선택 N대 액션(보고서·Export·실시간/성능추이)·검색 필터.
  *
- * 역할: IP/hostname 입력 -> SSH 포트(기본 22) TCP connect로 도달성 확인.
- * Ansible 자동 배포 워크플로우의 1단계 (도달성 검사). 추후 SSH credential 등록 +
- * ansible-playbook 실행이 이 위에 얹힘.
- *
- * 한계: 포트 listen != 로그인 가능. 1차 필터일 뿐.
- * probe 기본 target/port는 서버가 #probe-ip / #probe-port value로 렌더
- * (discovery_default_target/port — 빈값:22 default, 운영자가 모달에 VM IP 직접 입력).
- *
- * 외부 의존: 없음 (모달은 list.html에 inline markup).
+ * 외부 의존: 없음 (모달은 list_table.html에 inline markup).
  */
 
-const modal       = document.getElementById('discover-modal');
-const openBtn     = document.getElementById('discover-btn');
-const closeBtn    = document.getElementById('discover-close');
-const probeBtn    = document.getElementById('probe-btn');
-const ipInput     = document.getElementById('probe-ip');
-const portInput   = document.getElementById('probe-port');
-const resultEl    = document.getElementById('probe-result');
-
-function showModal() {
-  modal.style.display = 'flex';
-  ipInput.focus();
-  ipInput.select();
-  resultEl.style.display = 'none';
-  resultEl.textContent = '';
-}
-
-function hideModal() {
-  modal.style.display = 'none';
-}
-
-function renderResult(data, errMsg) {
-  resultEl.style.display = '';
-  if (errMsg) {
-    resultEl.style.background = '#fef2f2';
-    resultEl.style.color = '#991b1b';
-    resultEl.style.border = '1px solid #fecaca';
-    resultEl.textContent = '도달 불가 — ' + errMsg;
-    return;
-  }
-  if (data.reachable) {
-    resultEl.style.background = '#f0fdf4';
-    resultEl.style.color = '#166534';
-    resultEl.style.border = '1px solid #bbf7d0';
-    // banner 는 외부(SSH 서버)가 보낸 문자열 — textContent 로 삽입해 XSS 차단.
-    const detail = data.banner ? `SSH 확인 — ${data.banner}` : '포트 열림 (SSH 응답 없음)';
-    resultEl.textContent = `도달 가능 — ${detail}, ${data.elapsed_ms}ms`;
-  } else {
-    resultEl.style.background = '#fef2f2';
-    resultEl.style.color = '#991b1b';
-    resultEl.style.border = '1px solid #fecaca';
-    resultEl.textContent = `도달 불가 — ${data.error || 'unknown error'} (${data.elapsed_ms}ms)`;
-  }
-}
-
-async function runProbe() {
-  const target = ipInput.value.trim();
-  const port   = parseInt(portInput.value, 10);
-
-  if (!target) { renderResult(null, '대상(IP 또는 hostname)을 입력하세요'); return; }
-  if (!port || port < 1 || port > 65535) { renderResult(null, '포트는 1~65535 범위'); return; }
-
-  // 진행 표시
-  resultEl.style.display = '';
-  resultEl.style.background = '#f1f5f9';
-  resultEl.style.color = '#64748b';
-  resultEl.style.border = '1px solid #e2e8f0';
-  resultEl.textContent = '확인 중...';
-  probeBtn.disabled = true;
-
-  try {
-    const res = await fetch('/api/discovery/probe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target, port }),
-    });
-    if (res.status === 422) {
-      const detail = await res.json();
-      renderResult(null, '입력 형식 오류: ' + JSON.stringify(detail.detail));
-      return;
-    }
-    if (!res.ok) {
-      renderResult(null, `서버 오류 (HTTP ${res.status})`);
-      return;
-    }
-    const data = await res.json();
-    renderResult(data, null);
-  } catch (e) {
-    renderResult(null, '요청 실패: ' + e.message);
-  } finally {
-    probeBtn.disabled = false;
-  }
-}
-
-openBtn.addEventListener('click', showModal);
-closeBtn.addEventListener('click', hideModal);
-modal.addEventListener('click', e => { if (e.target === modal) hideModal(); });  // 배경 클릭 시 닫기
-probeBtn.addEventListener('click', runProbe);
-ipInput.addEventListener('keypress', e => { if (e.key === 'Enter') runProbe(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && (modal.style.display === 'flex' || installModal.style.display === 'flex')) {
-  hideModal(); hideInstallModal();
-}});
+// Install 모달 Escape 닫기 (installModal·hideInstallModal 은 아래 Install 섹션에서 정의 — 콜백 실행 시점엔 바인딩됨).
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && installModal.style.display === 'flex') hideInstallModal();
+});
 
 
 // ─── ZConverter Install ────────────────────────────────────────────────────
@@ -144,77 +49,12 @@ function _selectedPublicIds() {
 }
 realtimeSelBtn?.addEventListener('click', () => {
   const ids = _selectedPublicIds();
-  if (ids.length) location.href = '/servers/environment/realtime?ids=' + encodeURIComponent(ids.join(','));
+  if (ids.length) location.href = '/environment/realtime?ids=' + encodeURIComponent(ids.join(','));
 });
 metricsSelBtn?.addEventListener('click', () => {
   const ids = _selectedPublicIds();
-  if (ids.length) location.href = '/servers/environment/metrics?ids=' + encodeURIComponent(ids.join(','));
+  if (ids.length) location.href = '/environment/metrics?ids=' + encodeURIComponent(ids.join(','));
 });
-
-// 환경 보고서 발행 — 카드 본문 두 버튼 (고객/엔지니어) 이 view 사전 결정 후 모달 open.
-// 모달은 윈도우·anchor 입력 + 발행 단일 버튼. 발행 시 새 탭으로 /reports/environment.
-(function () {
-  const modal = document.getElementById('env-report-modal');
-  if (!modal) return;
-  const customerOpenBtn = document.getElementById('env-report-customer-open');
-  const engineerOpenBtn = document.getElementById('env-report-engineer-open');
-  const closeBtn = document.getElementById('env-report-close');
-  const submitBtn = document.getElementById('env-report-submit');
-  const titleEl = document.getElementById('env-report-title');
-  const descEl = document.getElementById('env-report-desc');
-  const rangeSel = document.getElementById('env-report-range');
-  const anchorInput = document.getElementById('env-report-anchor');
-  // 문구 단일 진실 — 선택 N대/서버 1대 보고서 발행 모달과 어조 통일.
-  const _VIEW_TITLES = { customer: '환경 고객 보고서 발행', engineer: '환경 엔지니어 보고서 발행' };
-  const _VIEW_DESCS = {
-    customer: '전체 등록 서버 대상 자원 적정성 규칙 기반 고객 보고서 발행. 새 탭으로 이동합니다.',
-    engineer: '전체 등록 서버 대상 자원 적정성 규칙 기반 엔지니어 보고서 발행. 새 탭으로 이동합니다.',
-  };
-  let currentView = 'customer';
-
-  function open(view) {
-    currentView = view;
-    titleEl.textContent = _VIEW_TITLES[view];
-    descEl.textContent = _VIEW_DESCS[view];
-    // 발행 버튼 활성 리셋 — 직전 발행 후 navigate + back(bfcache) 시 disabled=true 가 sticky 하게 남아 먹통 방지.
-    submitBtn.disabled = false;
-    modal.style.display = 'flex';
-  }
-  function close() { modal.style.display = 'none'; }
-
-  async function publish() {
-    const params = new URLSearchParams();
-    params.set('view', currentView);
-    params.set('time_range', rangeSel.value);
-    const anchor = anchorInput.value;
-    if (anchor) params.set('anchor_at', anchor + ':00+09:00');
-    // PRG pattern — POST emit (record) → 응답 view_url 로 GET navigate (read-only 표시).
-    // 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
-    submitBtn.disabled = true;
-    try {
-      const res = await fetch(`/reports/environment/emit?${params.toString()}`, { method: 'POST' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const viewUrl = data.view_url + `&back=${encodeURIComponent(location.pathname + location.search)}`;
-      window.location.href = viewUrl;
-    } catch (e) {
-      if (window.ToastUtils) ToastUtils.show('환경 보고서 발행 실패: ' + e.message, 'err');
-      submitBtn.disabled = false;
-    }
-    close();
-  }
-
-  // 페이지 로드 시점에 anchor 기본값 채움 — 모달 open 시 reset 안 함 (사용자 변경 값 보존).
-  if (anchorInput && window.ChartUtils && window.ChartUtils.initAnchor) {
-    window.ChartUtils.initAnchor('env-report-anchor');
-  }
-
-  customerOpenBtn.addEventListener('click', () => open('customer'));
-  engineerOpenBtn.addEventListener('click', () => open('engineer'));
-  closeBtn.addEventListener('click', close);
-  submitBtn.addEventListener('click', publish);
-  modal.addEventListener('click', e => { if (e.target === modal) close(); });
-})();
 
 // 선택 N대 보고서 발행 모달 — 대시보드 액션 영역 '고객 보고서' / '엔지니어 보고서' 클릭 시 open.
 // 서버 상세 모달 / 환경 보고서 모달과 동일 form (time_range + anchor). 발행 시 현재 탭 이동 (history.back 정합).
@@ -254,7 +94,7 @@ metricsSelBtn?.addEventListener('click', () => {
     // 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
     submitBtn.disabled = true;
     try {
-      const res = await fetch(`/servers/report/emit?${params.toString()}`, { method: 'POST' });
+      const res = await fetch(`/reports/servers/emit?${params.toString()}`, { method: 'POST' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const viewUrl = data.view_url + `&back=${encodeURIComponent(location.pathname + location.search)}`;
@@ -439,7 +279,7 @@ const filterForm = document.getElementById('filter-form');
 if (filterForm) {
   // 기본 표시 행 수 — 필터 비활성 시 처음 CLIP_SIZE 행만 보이고 "더보기"로 전체 노출.
   // 필터 활성(검색·온라인·서비스·OS·분류 중 하나라도) 시엔 clip 없이 조건 맞는 전부 노출.
-  const CLIP_SIZE = 5;
+  const CLIP_SIZE = 20;
   let expanded = false;  // "더보기" 클릭 여부 (필터 비활성 상태에서만 의미)
 
   function updateShowMore(visible, total) {
@@ -500,6 +340,13 @@ if (filterForm) {
     const qs = params.toString();
     const newUrl = qs ? `${location.pathname}?${qs}` : location.pathname;
     history.replaceState(null, '', newUrl);
+    // thead 초기화 링크 — client 필터라 Jinja 재평가가 없어 JS 가 활성 여부로 표시 토글.
+    const clearBtn = document.getElementById('filter-clear');
+    if (clearBtn) clearBtn.style.display = active ? 'inline-flex' : 'none';
+    // 각 필터 위젯 — 값 선택 시 active(테마색 강조), 미선택 회색.
+    [searchInput, onlineSel, serviceSel, osSel, classSel].forEach(function (el) {
+      if (el) el.classList.toggle('active', !!(el.value || '').trim());
+    });
   }
 
   // 전체보기/접기 토글 — expanded 반전 후 재적용 (전체 노출 <-> CLIP 복귀).
@@ -530,51 +377,9 @@ if (filterForm) {
   applyFilters();
 }
 
-// ─── 대시보드 자동 갱신 ──────────────────────────────────────────────────
-// page 1 대시보드를 30초마다 fragment 부분 교체 (static-assets.md polling 정공).
-// live(환경요약·운영신호·실시간 메트릭) + rows(서버목록 행) 두 fragment 동시 갱신.
-// 서버목록은 replaceServerRows 가 체크박스 선택·client 필터·진행중 task 추적을 보존하며 교체 (전체 reload 회피).
-// 검색/필터는 client-side hide/show라 fragment(전체 환경 기준)와 무관. page>1 일 땐 환경요약 무의미해 폴링 skip.
-(function () {
-  const live = document.getElementById('dashboard-live');
-  if (!live) return;
-  const pageParam = new URLSearchParams(location.search).get('page');
-  if (pageParam && pageParam !== '1') return;
-  const REFRESH_MS = 30_000;
-  const note = document.getElementById('dashboard-refresh-note');
-  if (note) note.textContent = `${REFRESH_MS / 1000}초마다 자동 갱신 · `;
-
-  async function refresh() {
-    try {
-      // live(환경요약·운영신호·실시간 메트릭) + rows(서버목록 행) 동시 갱신 — 페이지 전체 데이터 일괄 최신화.
-      const [liveRes, rowsRes] = await Promise.all([
-        fetch('/servers/?fragment=live'),
-        fetch('/servers/?fragment=rows'),
-      ]);
-      if (liveRes.ok) {
-        live.innerHTML = await liveRes.text();
-        // 네트워크 토폴로지 캔버스는 innerHTML 교체로 컨테이너가 새로 생기므로 재렌더 — 동기 호출(repaint 전)이라
-        // 깜빡임 0, JS 내부 위치 캐시로 데이터 불변 시 배치 고정. (실시간/운영신호 카드는 순수 SVG·HTML 라 불요.)
-        if (window.NetworkTopology) window.NetworkTopology.render();
-        // 환경 부하 추이 차트도 fragment 교체로 캔버스가 새로 생기므로 재렌더 (data-trend inline).
-        if (window.EnvTrend) window.EnvTrend.render();
-        // 교체된 fragment 안 hidden 갱신시각 → 우측 상단 #dashboard-updated 텍스트 갱신.
-        const stamp = live.querySelector('#dash-updated-at');
-        const target = document.getElementById('dashboard-updated');
-        if (stamp && target) target.textContent = stamp.textContent.trim();
-      }
-      if (rowsRes.ok) replaceServerRows(await rowsRes.text());
-    } catch (e) {
-      // 네트워크 일시 오류 — 다음 주기에 재시도 (fail-soft, 화면 유지).
-    }
-  }
-
-  setInterval(refresh, REFRESH_MS);
-})();
-
 // ─── 진행 중 작업 자동 추적 ──────────────────────────────────────────────
 // 서버목록의 진행 중(rec-pending) task cell 을 pollUntilFinal 로 추적 — 완료까지 cell 갱신.
-// 페이지 로드 시 + 자동갱신 행 교체(replaceServerRows) 후 재호출. task-cell 모달은 delegation(task-modal.js) 이라 교체해도 유지.
+// 페이지 로드 시 + install 발행 직후 호출. task-cell 모달은 delegation(task-modal.js).
 function trackPendingTasks() {
   document.querySelectorAll('.task-cell').forEach(a => {
     if (!a.querySelector('.badge.rec-pending')) return;
@@ -583,23 +388,6 @@ function trackPendingTasks() {
     const cell = a.closest('td');
     window.TaskModal.pollUntilFinal(taskId, { onUpdate(detail) { renderTaskCell(cell, detail); } });
   });
-}
-
-// 자동갱신 시 서버목록 행(server-row) 만 교체 — discover 버튼 행은 보존. 체크박스 선택·client 필터·진행중 추적 복원.
-function replaceServerRows(html) {
-  const tbody = document.getElementById('server-tbody');
-  if (!tbody) return;
-  // 체크 상태 보존 (보고서·install 선택 중 갱신돼도 유지). discover 버튼은 tbody 밖이라 교체 무관.
-  const checked = new Set([...tbody.querySelectorAll('.row-select:checked')].map(cb => cb.dataset.publicId));
-  tbody.innerHTML = html;
-  // 체크 복원 + change 재바인딩 (직접 바인딩이라 교체 후 재연결 필요).
-  tbody.querySelectorAll('.row-select').forEach(cb => {
-    if (checked.has(cb.dataset.publicId)) cb.checked = true;
-    cb.addEventListener('change', refreshInstallButton);
-  });
-  trackPendingTasks();
-  if (window.__applyDashboardFilters) window.__applyDashboardFilters();
-  refreshInstallButton();
 }
 
 trackPendingTasks();

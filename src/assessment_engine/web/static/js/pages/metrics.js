@@ -129,7 +129,6 @@ function makeMultiDimOptions() {
     scales: {
       x: { ticks:{ maxTicksLimit:10, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
       y: {
-        title: { display:true, text:'%', font:{size:11}, color:'#94a3b8' },
         ticks: { callback: v => v + '%', font:{size:11}, color:'#64748b' },
         grid:  { color:'#f1f5f9' }, beginAtZero: true,
       },
@@ -196,9 +195,9 @@ function renderMultiDimChart(canvasId, emptyId, legendId, rows, range, anchor, m
 const pctTicks = { callback: v => v + '%', font:{size:11}, color:'#64748b' };
 const Y_PCT   = { min:0, max:100, ticks: pctTicks };
 const Y_SWAP  = { min:0, beginAtZero:true, suggestedMax:25, ticks: pctTicks };
-const Y_LOAD  = { beginAtZero:true, suggestedMax: 1.5, ticks:{ font:{size:11}, color:'#64748b' }, title:{ display:true, text:'Load/core', font:{size:11}, color:'#94a3b8' } };
-const Y_IOPS  = { beginAtZero:true, suggestedMax: PERF_IOPS_SUGGESTED_MAX, ticks:{ precision:0, font:{size:11}, color:'#64748b' }, title:{ display:true, text:'IOPS', font:{size:11}, color:'#94a3b8' } };
-const Y_DISK_KBPS = { beginAtZero:true, suggestedMax: PERF_DISK_KBPS_SUGGESTED_MAX, ticks:{ callback: v => fmtThroughput(v), font:{size:11}, color:'#64748b' }, title:{ display:true, text:'KB/s', font:{size:11}, color:'#94a3b8' } };
+const Y_LOAD  = { beginAtZero:true, suggestedMax: 1.5, ticks:{ font:{size:11}, color:'#64748b' } };
+const Y_IOPS  = { beginAtZero:true, suggestedMax: PERF_IOPS_SUGGESTED_MAX, ticks:{ precision:0, font:{size:11}, color:'#64748b' } };
+const Y_DISK_KBPS = { beginAtZero:true, suggestedMax: PERF_DISK_KBPS_SUGGESTED_MAX, ticks:{ callback: v => fmtThroughput(v), font:{size:11}, color:'#64748b' } };
 const Y_NET   = { beginAtZero:true, suggestedMax: PERF_NET_SUGGESTED_MAX, ticks:{ callback: v => fmtKbChart(v), font:{size:11}, color:'#64748b' } };
 const Y_PPS   = { beginAtZero:true, suggestedMax: PERF_PPS_SUGGESTED_MAX, ticks:{ callback: v => v.toFixed(0) + ' pps', font:{size:11}, color:'#64748b' } };
 

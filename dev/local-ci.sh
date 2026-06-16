@@ -85,8 +85,8 @@ else
     # uv 관리 python 3.12 로 격리 venv — 호스트 PATH 에 python3.12 가 없어도 동작 (CI runner·로컬 동일).
     uv venv "$tmp/venv" --python 3.12 >/dev/null 2>&1
     uv pip install --python "$tmp/venv/bin/python" --quiet dist/*.whl >/dev/null 2>&1
-    if "$tmp/venv/bin/python" -c "import assessment_engine.web.main, assessment_engine.consumer.main, assessment_engine.diagnostic.main" >/dev/null 2>&1; then
-      ok "3컴포넌트 import"
+    if "$tmp/venv/bin/python" -c "import assessment_engine.web.main, assessment_engine.consumer.main" >/dev/null 2>&1; then
+      ok "2컴포넌트 import"
     else
       ng "wheel import 실패"
     fi
@@ -230,7 +230,7 @@ if ! need 3; then
   skip "$MODE 모드 — docker image 는 main"
 elif docker info >/dev/null 2>&1; then
   if docker build -t assessment-engine:local-ci -f Dockerfile . >/dev/null 2>&1; then
-    ok "docker build (3컴포넌트 단일 이미지)"
+    ok "docker build (2컴포넌트 단일 이미지)"
   else
     ng "docker build 실패 — 'docker build -f Dockerfile .' 로 상세"
   fi

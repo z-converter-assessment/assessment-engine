@@ -25,7 +25,6 @@ vhost: `/assessment` 단일 사용. broker 한 대를 다른 도메인 시스템
 | Collector DLX | `assessment.dlx` (direct, durable) |
 | Task exchange | `assessment.tasks` (direct, durable) — task.install/task.result |
 | Task DLX | `assessment.tasks.dlx` (direct, durable) |
-| Diagnostic exchange | `assessment` 재사용 — `diagnostic.request` routing key |
 | prefetch_count | 10 |
 | 메시지 delivery_mode | `persistent` (2) — 모든 발행 측 설정 |
 
@@ -38,7 +37,6 @@ vhost: `/assessment` 단일 사용. broker 한 대를 다른 도메인 시스템
 | `server.error` | `assessment` | `server.error` | 원격 호스트 | `server.error.dead` | 300s | 없음 |
 | `worker.result` | `assessment.tasks` | `task.result` | 원격 호스트 | `worker.result.dead` | 24h | 100,000 |
 | `agent.tasks.<composite_id>` | `assessment.tasks` | `task.install.<composite_id>` | 엔진 (web) | (없음 — 본 PR 단순화) | 1h (`x-message-ttl=3600000`) | 100 (`x-overflow=reject-publish`) |
-| `diagnostic.request` | `assessment` | `diagnostic.request` | 엔진 내부 (web·스케줄러 → 워커, ADR 0004) | `diagnostic.request.dead` | 24h | 100,000 |
 
 `server.metrics` 정책 근거:
 - 72h TTL: 1분 주기 발행 + consumer/DB 단기 장애(최대 3일) 내 회복 시 누적 메시지 정상 처리.
@@ -59,12 +57,6 @@ vhost: `/assessment` 단일 사용. broker 한 대를 다른 도메인 시스템
 - 1h TTL: 머신이 그 사이 consume 못 하면 만료 (해당 머신 오프라인). DLX 없음 — 만료 메시지는 drop, 운영자는 task 상태로 인지.
 - max-length 100 + `x-overflow=reject-publish`: 버퍼 폭주 차단. publish 시 publisher 측이 error 인지 (best-effort 운영 시그널).
 - prod 에서 DLX 정책 보강은 별도 ADR.
-
-`diagnostic.request` 정책 근거 (ADR 0004 + 0023):
-- engine 내부 (agent 발행 아님) — web POST /api/diagnostics 단독 (사용자 trigger 만, ADR 0023: scheduler cron 폐기) → 워커 소비.
-- 24h TTL: 진단 1건 처리 cap 5분. 24h 안 미처리는 운영자 개입 신호.
-- 100K 상한: 사용자 trigger 발행 → 발화 빈도 운영자 의도 비례. 100K로 충분.
-- 워커 prefetch_count 1 — LLM 호출 동시 1건만 (rate limit 자연 throttle).
 
 ### DLQ 라우팅 트리거
 

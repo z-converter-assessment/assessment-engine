@@ -52,7 +52,7 @@ target 클라우드의 SG·방화벽 룰을 자동 생성하려면 listen_ports[
       "idle":              "운영 종료 또는 통합 검토 — 사용 거의 없음",
       "shutdown":          "운영 종료 검토 — 사용 0에 근접",
       "optimal":           "변경 불필요 — 적정 사양",
-      "insufficient_data": "데이터 부족 — 평가 기간 안 메트릭 부재"
+      "insufficient_data": "표본 부족 — 평가 기간 안 메트릭 부재"
     },
     "servers": [ /* 항목 N개 */ ]
   }
@@ -166,14 +166,14 @@ CSP SDK 직접 호출(boto3·azure-mgmt·google-cloud-compute)은 자동화 도�
 ## 5. 정제 원칙별 결정 근거
 
 ### 벤더 중립 vs CSP 특정 instance type
-- 결정: 벤더 중립 유지. `recommended_size_class` 5종(idle/shutdown/over_provisioned/under_provisioned/optimal)만 노출
+- 결정: 벤더 중립 유지. `recommended_size_class` 6종(under_provisioned/over_provisioned/idle/shutdown/optimal/insufficient_data)만 노출
 - 근거: 같은 export JSON을 AWS / Azure / GCP / OpenStack 어디든 입력 가능해야 함. 도구·CSP별 매핑은 도구 측 책임 (단순 dict lookup)
 - 트레이드오프: 도구마다 매핑 테이블 필요 — `m5.large` 같은 직접 값보다 한 단계 변환 비용
 
 ### 측정값 포함 — period 기준
 - 결정: envelope `period_window.days` 기본 7. 운영자가 endpoint에서 변경 가능 (1~30일). 대시보드·보고서와 동일 윈도우 (`recommendation.WINDOW_DAYS`·`DIAGNOSTIC_DEFAULT_TIME_RANGE` 단일 진실, CLAUDE.md #F10).
 - 근거: AWS Compute Optimizer 기본 14일 / Azure Advisor 7일. 단기 export는 7일도 의미 있음
-- 데이터 부족: 윈도우 안 metrics가 적은 신규 서버 — p95·peak 필드가 null. 자동화 도구는 null이면 size_class 추천만 사용
+- 표본 부족: 윈도우 안 metrics가 적은 신규 서버 — p95·peak 필드가 null. 자동화 도구는 null이면 size_class 추천만 사용
 
 ### 멀티 NIC·multi-IP
 - 결정: `network.addresses[]` 배열. scope(internal/external) + family(v4/v6) 명시

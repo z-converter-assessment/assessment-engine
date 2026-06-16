@@ -123,9 +123,8 @@ _CPU_NUMERATOR: dict[str, str] = {
     "cpu.iowait_percent": "cpu_iowait",
 }
 
-# (table, dim_col, value_col) 튜플 — disk/net rate per dimension.
-# table 명은 ORM 모델 __tablename__ — 동적 lookup 회피 위해 metric.py 본문에서 채움.
-# (sub-module 의존성 회피 — types.py는 ORM import 안 함)
+# (dim_col, value_col) — disk/net rate per dimension. table 명은 metric.py 에서 결합
+# (types.py 는 ORM import 안 함 — circular 회피).
 _RATE_PER_DIM_DEFS: dict[str, tuple[str, str]] = {
     "disk.read_iops": ("device", "reads_completed"),
     "disk.write_iops": ("device", "writes_completed"),

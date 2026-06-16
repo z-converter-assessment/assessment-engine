@@ -79,6 +79,8 @@ def test_env_report_roundtrip_restores_nested_dataclasses():
         ip_internal=[IpAddr(value="10.0.0.1/24", is_ipv4=True)],
         ip_external=[IpAddr(value="2001:db8::1", is_ipv4=False)],
         boot_time=datetime(2026, 5, 1, tzinfo=UTC),
+        agent_started_at=datetime(2026, 5, 1, 3, 0, tzinfo=UTC),
+        last_seen_at=datetime(2026, 5, 12, tzinfo=UTC),
         agent_version="4.1.0",
         composite_id="abc",
         machine_id="m1",

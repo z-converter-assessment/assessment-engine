@@ -1,12 +1,10 @@
 {#
-  보고서 꼬리 참고자료 블록 (D3) — 전 보고서(환경·N대·개별 x customer·engineer) 공통.
-  화면: 대시보드 하단과 동일한 경량 링크(_reference_link.html 재사용 — 화면 링크 마크업 단일 진실).
-  인쇄: 임계값 전문 펼침 -> 인쇄본 단독으로 근거 완결(P-B).
-  소비처는 self_back 컨텍스트 변수를 제공해야 함 (← 이전 back chain).
+  보고서 꼬리 참고자료 — 전 보고서 공통. 컨텍스트 의무: self_back.
+  화면은 경량 링크(_reference_link.html), 인쇄는 임계값 전문 펼침(인쇄본 단독 근거 완결).
 #}
 {% include "_reference_link.html" %}
 
 <div class="print-only" style="page-break-before: always;">
-  <h1 style="font-size:18px; margin:0 0 16px;">참고자료 — Right-sizing 분류 임계값</h1>
+  <h1 style="font-size:18px; margin:0 0 16px;">참고자료 — 자원 적정성 평가 임계값</h1>
   {% include "reports/_thresholds_reference.html" %}
 </div>

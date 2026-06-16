@@ -31,22 +31,22 @@
 
 `InventoryExportEntry`는 `db/dtos/outbound.py` (vendor 중립 vendor JSON 응답 — ViewModel 아님). `to_inventory_export_entry`가 변환.
 
-## 목록 화면 상단 요약 (list.html)
+## 환경 개요 상단 요약 (overview, `/`)
 
-대시보드 첫 페이지 + 검색·필터 미사용일 때만 두 섹션 노출 — `EnvironmentOverview`(환경 요약 KPI + 활용률 도넛 + 프로비저닝 분포 도넛) + `AttentionSignals`(통합 신호 카드 6종). 검색 결과·페이지네이션 화면에선 자동 격리(라우터 분기).
+환경 개요(`/`)에서 두 영역 노출 — `EnvironmentOverview`(환경 요약 KPI + 활용률 도넛 + 프로비저닝 분포 도넛) + `AttentionSignals`(운영신호 카드 3 카탈로그 — 통신끊김/OS지원종료/에이전트재시작). 서버 목록(`/servers`)은 행만 — 화면 분리 자체가 컨텍스트 가드(#E9).
 
-시간 축은 단일 윈도우 — `recommendation.WINDOW_DAYS=7` (#F10).
+요약 위젯 윈도우는 `DASHBOARD_TIME_RANGE`(24h, #F10), right-sizing 표준 평가 윈도우는 `recommendation.WINDOW_DAYS=7` (#F10) — 의도 분리.
 
 | ViewModel | 채우는 mapper | 데이터 소스 | 시간 축 | 색상 톤 |
 |-----------|---------------|-------------|---------|---------|
-| `EnvironmentOverview` | `build_environment_overview(details, online_count, utilization, risk_counts)` — `total`/`online`/`offline`/`total_vcpus`/`total_memory_gb`(float)/`total_disk_gb`/`os_distribution`(os_family별 수)/`role_distribution`(전체 서비스 카테고리 카운트, 대표 1개 아님)/`role_unknown_count`(known 역할 0인 호스트 수 — 서비스 없음·전부 unknown, 호스트 단위)/`utilization`/`util_sample_size`/`risk_donut`/`risk_donut_total`/`risk_high_count` | `list_server_ids` + `get_servers` + `environment_utilization(DASHBOARD_WINDOW_DAYS, end)` + `report_aggregate(DASHBOARD_WINDOW_DAYS)` + Redis `online:*` mget | 최근 6시간 (`DASHBOARD_TIME_RANGE`, #F10) | slate (`#f8fafc`) |
-| `UtilizationBar` | `build_environment_overview` 안에서 3종 (CPU·메모리·디스크) 생성 — `pct`/`bar_color`(단색 푸른, 값 무관)/`dash_length`(SVG dasharray, mapper 비례 산술) | `environment_utilization(DASHBOARD_WINDOW_DAYS, end)` SQL — CPU·메모리·디스크 모두 capacity-weighted (Σused/Σtotal, 자원 총량 가중 — 서버 1대=1표 아님) | 최근 6시간 | 테마색1 `var(--color-title)`·`None` 회(`#cbd5e1`) |
-| `RiskDonutSegment` | `build_risk_donut_segments` — 6 카테고리 (under/over/idle/shutdown/optimal/insufficient) `key`/`label`/`color`/`count`/`dash_length`/`dash_offset` (multi-segment 누적 음수) | `report_aggregate(DASHBOARD_WINDOW_DAYS)` + net baseline 주입 -> `build_resource_stats` -> `recommendation.assess` -> `_DONUT_SEGMENT_FROM_REC` | 최근 6시간 USE Method | `_DONUT_SEGMENT_DEFS` 색 (E8) |
-| `GapWarningItem` | `to_gap_warning_item(raw, now)` — `gap_minutes` / `badge_class` (운영신호 통신끊김) | `metric_gap_warnings(gap_min, recent_h, limit)` 단일 SQL | 5min~24h 갭 | blue (`#eff6ff`) |
+| `EnvironmentOverview` | `build_environment_overview(details, online_count, utilization, risk_counts)` — `total`/`online`/`offline`/`total_vcpus`/`total_memory_gb`(float)/`total_disk_gb`/`os_distribution`(os_family별 수)/`role_distribution`(전체 서비스 카테고리 카운트, 대표 1개 아님)/`role_unknown_count`(known 역할 0인 호스트 수 — 서비스 없음·전부 unknown, 호스트 단위)/`utilization`/`util_sample_size`/`risk_donut`/`risk_donut_total`/`risk_high_count` | `list_server_ids` + `get_servers` + `environment_utilization(DASHBOARD_WINDOW_DAYS, end)` + `report_aggregate(DASHBOARD_WINDOW_DAYS)` + Redis `online:*` mget | 최근 24시간 (`DASHBOARD_TIME_RANGE`, #F10) | slate (`#f8fafc`) |
+| `UtilizationBar` | `build_environment_overview` 안에서 3종 (CPU·메모리·디스크) 생성 — `pct`/`bar_color`(단색 푸른, 값 무관)/`dash_length`(SVG dasharray, mapper 비례 산술) | `environment_utilization(DASHBOARD_WINDOW_DAYS, end)` SQL — CPU·메모리·디스크 모두 capacity-weighted (Σused/Σtotal, 자원 총량 가중 — 서버 1대=1표 아님) | 최근 24시간 | 테마색1 `var(--color-title)`·`None` 회(`#cbd5e1`) |
+| `RiskDonutSegment` | `build_risk_donut_segments` — 6 카테고리 (under/over/idle/shutdown/optimal/insufficient) `key`/`label`/`color`/`count`/`dash_length`/`dash_offset` (multi-segment 누적 음수) | `report_aggregate(DASHBOARD_WINDOW_DAYS)` + net baseline 주입 -> `build_resource_stats` -> `recommendation.assess` -> `_DONUT_SEGMENT_FROM_REC` | 최근 24시간 USE Method | `_DONUT_SEGMENT_DEFS` 색 (E8) |
+| `AttentionRow` (gap) | `to_gap_warning_item(raw, now)` — `gap_minutes` / `badge_class` (운영신호 통신끊김) | `metric_gap_warnings(gap_min, recent_h, limit)` 단일 SQL | 5min~24h 갭 | blue (`#eff6ff`) |
 | `CapacityTriggerBadge` | `to_capacity_warning_item` 안에서 5종 (스왑·CPU·메모리·Load·디스크) 생성 — `label`/`color`(hue 분리)/`active`(임계 초과 여부) | `_CAPACITY_TRIGGER_COLORS` 단일 색 진실 | — | 빨강/파랑/보라/주황/청록 |
-| `CapacityWarningItem` | `to_capacity_warning_item(raw)` — `triggers`. caller가 `under_provisioned` 필터링 -> EnvironmentOverview.under_provisioned_hosts (운영신호 아님, USE Method) | `report_aggregate(DASHBOARD_WINDOW_DAYS)` + `build_resource_stats` -> `recommendation.assess`(triggers) | 최근 6시간 USE Method | blue (`#eff6ff`) |
-| `OSEolWarningItem` | `to_os_eol_warning_item(raw, now)` — `resolve_os_eol`(endoflife 카탈로그) EOL 경과 시 반환 (운영신호) | `os_id`/`os_version`/`kernel_version` + endoflife 스냅샷 카탈로그 | endoflife.date 스냅샷 (Linux distro + Windows Server build, ADR 0031) | blue (`#eff6ff`) |
-| `AgentUnstableItem` | `to_agent_unstable_item(public_id, hostname, restart_count)` — caller가 임계 필터링 | `agent_restart_counts_recent(since=now-1h)` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | blue (`#eff6ff`) |
+| `CapacityWarningItem` | `to_capacity_warning_item(raw)` — `triggers`. caller가 `under_provisioned` 필터링 -> EnvironmentOverview.under_provisioned_hosts (운영신호 아님, USE Method) | `report_aggregate(DASHBOARD_WINDOW_DAYS)` + `build_resource_stats` -> `recommendation.assess`(triggers) | 최근 24시간 USE Method | blue (`#eff6ff`) |
+| `AttentionRow` (os_eol) | `to_os_eol_warning_item(raw, now)` — `resolve_os_eol`(endoflife 카탈로그) EOL 경과 시 반환 (운영신호) | `os_id`/`os_version`/`kernel_version` + endoflife 스냅샷 카탈로그 | endoflife.date 스냅샷 (Linux distro + Windows Server build, ADR 0031) | blue (`#eff6ff`) |
+| `AttentionRow` (agent_unstable) | `to_agent_unstable_item(public_id, hostname, restart_count)` — caller가 임계 필터링 | `agent_restart_counts_recent(since=now-1h)` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | blue (`#eff6ff`) |
 | `AttentionSignals` | `query_service.get_attention_signals` 묶음 (내부 `_assemble_attention` 조립) — 운영신호 3 카탈로그(gap·os_eol·agent_unstable). `has_any` property로 빈 카드 분기 | 위 3 builder(gap/os_eol/agent_unstable) | — | blue (`#eff6ff`) |
 
 신호 임계값 단일 정의 (mapper·service 모듈 상단):

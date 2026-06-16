@@ -4,7 +4,7 @@
  * 외부 의존: ChartUtils.fmtKst (F2 단일 KST 변환 경계).
  *
  * P4 5 의무 규약(a~e) 적용:
- *  (a) sequence counter — fetchMetrics·collection-status 모두 30초 polling 으로 동시 in-flight 가능 → 각자 seq counter.
+ *  (a) sequence counter — fetchMetrics 30초 polling in-flight 가능 → seq counter. collection-status 는 초기 1회(statusSeq).
  *  (b) capture-before-await — 본 페이지는 range/anchor 토글 없음. 단일 endpoint polling 이라 파라미터 stale 없음.
  *  (c) Array.isArray — collection-status·disk_io_phys·net_io 모두 fallback safe.
  *  (d) 404 분기 — /metrics/latest 404 시 metrics-no-data 표시.
@@ -48,6 +48,21 @@
   const el    = (id) => document.getElementById(id);
   const setTxt = (id, v) => el(id).textContent = v;
 
+  /* 활용률 도넛 게이지 — 단색(임계색 아님, E8 일관). pct null = 빈 게이지 + 회색 '—'. P4 동적 SVG 산술. */
+  const DONUT_CIRC = 263.89;  // 2*pi*42 (r=42)
+  function setDonut(arcId, textId, pct) {
+    const arc = el(arcId), txt = el(textId);
+    if (pct == null) {
+      arc.setAttribute('stroke-dasharray', '0 ' + DONUT_CIRC);
+      txt.textContent = '—'; txt.setAttribute('fill', '#94a3b8');
+      return;
+    }
+    const len = Math.max(0, Math.min(pct, 100)) / 100 * DONUT_CIRC;
+    arc.setAttribute('stroke-dasharray', len.toFixed(2) + ' ' + DONUT_CIRC);
+    txt.textContent = Math.round(pct) + '%';
+    txt.setAttribute('fill', '#1e293b');
+  }
+
   /* -------- 메트릭 렌더링 -------- */
   function renderMetrics(d) {
     hide('metrics-loading');
@@ -65,8 +80,7 @@
     setTxt('cpu-user',   fmtPct(cpu.user_pct));
     setTxt('cpu-system', fmtPct(cpu.system_pct));
     setTxt('cpu-iowait', ChartUtils.naWindows(OS_FAMILY, 'cpu_iowait', fmtPct(cpu.iowait_pct)));
-    el('cpu-bar').style.width = (cpu.usage_pct ?? 0) + '%';
-    el('cpu-bar').style.background = barColor(cpu.usage_pct);
+    setDonut('cpu-donut-arc', 'cpu-donut-text', cpu.usage_pct);
 
     /* Load */
     setTxt('load-1m',  ChartUtils.naWindows(OS_FAMILY, 'load_1m', fmtLoad(d.load_1m)));
@@ -80,13 +94,7 @@
     setTxt('mem-avail',   fmtKb(mem.available_kb));
     setTxt('mem-cached',  ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtKb(mem.cached_kb)));
     setTxt('mem-buffers', ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtKb(mem.buffers_kb)));
-    // P5: 누적 비율은 서버 metrics_calculator.compute_mem 에서 계산. 클라이언트는 표시만.
-    // 정의서 구성 모델: used | cached | buffers | available(free 잔여) 4구획, 합 = 100.
-    el('mem-used-bar').style.width      = (mem.usage_pct ?? 0) + '%';
-    el('mem-used-bar').style.background = barColor(mem.usage_pct);
-    el('mem-cached-bar').style.width    = (mem.cached_pct ?? 0) + '%';
-    el('mem-buf-bar').style.width       = (mem.buffers_pct ?? 0) + '%';
-    el('mem-avail-bar').style.width     = (mem.free_pct ?? 0) + '%';
+    setDonut('mem-donut-arc', 'mem-donut-text', mem.usage_pct);
 
     /* Swap */
     const swap = d.swap || {};
@@ -130,28 +138,14 @@
         </tr>`).join('');
     }
 
-    /* Filesystem */
+    /* 디스크 활용률 도넛용 mounts — Filesystem 목록은 스토리지 상세 페이지로 분리(detail 미표시) */
     const mounts = ChartUtils.safeArray(d.mounts);
     if (diskIo.length > 0 || mounts.length > 0) show('storage-group');
-    if (mounts.length > 0) {
-      el('fs-body').innerHTML = mounts.map(m => {
-        const pct   = m.usage_pct ?? 0;
-        const color = barColor(m.usage_pct);
-        const label = m.usage_pct != null
-          ? `${m.used_gb?.toFixed(2) ?? '?'} / ${m.total_gb?.toFixed(2) ?? '?'} GB (${m.usage_pct.toFixed(1)}%)`
-          : '데이터 없음';
-        return `
-          <div style="margin-bottom:14px;">
-            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-              <span style="font-weight:500; font-size:13px;">${m.mount}</span>
-              <span class="text-muted">${label}</span>
-            </div>
-            <div class="progress-bar">
-              <div class="progress-fill" style="width:${pct}%; background:${color};"></div>
-            </div>
-          </div>`;
-      }).join('');
-    }
+
+    /* 디스크 활용률 도넛 — 전 mount 통합 풀(sum used / sum total), 환경 실시간 disk_pool_pct 와 동일 기준. */
+    const fsRows = mounts.filter(m => m.total_gb && m.used_gb != null);
+    const fsTotal = fsRows.reduce((s, m) => s + m.total_gb, 0);
+    setDonut('disk-donut-arc', 'disk-donut-text', fsTotal > 0 ? fsRows.reduce((s, m) => s + m.used_gb, 0) / fsTotal * 100 : null);
   }
 
   /* -------- AJAX -------- */
@@ -195,15 +189,15 @@
     } catch (e) {}
   }
 
-  /* -------- 초기 로드 + 30초 polling (환경 실시간과 일관 — SSE 제거) -------- */
+  /* -------- 초기 로드 + 30초 polling — 실시간 메트릭 카드만 자동 갱신 -------- */
+  /* online-badge(수집 상태)는 실시간 메트릭 카드 밖이라 초기 1회만 — 카드의 "최근 시각"이 끊김 신호 겸함. */
   fetchMetrics();
   fetchCollectionStatus();
   setInterval(fetchMetrics, 30_000);
-  setInterval(fetchCollectionStatus, 30_000);
 })();
 
 // 서버 1대 scope 보고서 발행 모달 — 대시보드 환경 보고서 모달과 동일 form (time_range select + anchor).
-// /servers/report 라우터가 time_range 그대로 받음 — JS 변환 없음.
+// /reports/servers 라우터가 time_range 그대로 받음 — JS 변환 없음.
 (function () {
   const card = document.getElementById('server-report-card');
   if (!card) return;
@@ -242,7 +236,7 @@
       params.set('ids', publicId);
       params.set('view', currentView);
       params.set('time_range', rangeSel.value);
-      const res = await fetch(`/servers/report/emit?${params.toString()}`, { method: 'POST' });
+      const res = await fetch(`/reports/servers/emit?${params.toString()}`, { method: 'POST' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const viewUrl = data.view_url + `&back=${encodeURIComponent(location.pathname)}`;

@@ -11,7 +11,7 @@ _TASK_STATUS_DISPLAY: dict[str, tuple[str, str]] = {
     "in_progress": ("rec-pending", "진행 중"),
     "success": ("rec-success", "성공"),
     "failure": ("rec-failure", "실패"),
-    "failed": ("rec-failure", "실패"),  # 레거시 row 호환
+    "failed": ("rec-failure", "실패"),
 }
 _TASK_STATUS_UNKNOWN: tuple[str, str] = ("rec-unknown", "—")
 

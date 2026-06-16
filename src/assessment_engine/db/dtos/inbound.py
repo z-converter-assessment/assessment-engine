@@ -4,17 +4,15 @@ from datetime import datetime
 
 @dataclass
 class ServerInventoryCreate:
-    # ─── 공통 메타데이터 (모든 메시지 공통, MessageBase 대응) ─────────────────────
-    # message_id는 consumer에서 멱등성 체크에만 사용되고 DTO에는 안 옴.
+    # message_id는 consumer 멱등성 체크 전용 — DTO 미포함.
     composite_id: str
-    machine_id: str | None  # raw machine-id, 표시 전용 (식별·라우팅은 composite_id)
+    machine_id: str | None  # raw machine-id, 표시 전용 (식별은 composite_id)
     hostname: str
     agent_version: str
     collected_at: datetime
     boot_time: datetime | None
     agent_started_at: datetime | None
 
-    # ─── inventory 본문 (정적 인프라 정보) ─────────────────────────────────────
     os_family: str | None  # "linux" | "windows" — task.install dispatch 단일 진실 (ADR 0020)
     os_id: str | None
     os_version: str | None
@@ -27,15 +25,13 @@ class ServerInventoryCreate:
     ip_internal: list[str]
     ip_external: list[str] | None
     mac_addresses: list[str]  # NIC MAC 목록 (clone collision 감사용, 식별 미사용)
-    disks: list[dict]  # JSONB 컬럼 — [{name, size_bytes, type, major, minor}]
-    mounts: list[dict]  # JSONB 컬럼 — [{mount, fstype, total_bytes, major, minor}]
-    services: list[dict] | None  # JSONB 컬럼 — [{unit, sub}] | None (non-systemd host)
-    listen_ports: list[dict]  # JSONB 컬럼 — [{proto, addr, port, uid, pid, comm}]
+    disks: list[dict]  # JSONB — [{name, size_bytes, type, major, minor}]
+    mounts: list[dict]  # JSONB — [{mount, fstype, total_bytes, major, minor}]
+    services: list[dict] | None  # JSONB — [{unit, sub}] | None (non-systemd host)
+    listen_ports: list[dict]  # JSONB — [{proto, addr, port, uid, pid, comm}]
 
 
-# ─── metrics 시계열 행 단위 DTO ─────────────────────────────────────────────
-# inventory의 list[dict]는 JSONB 컬럼 직렬화용이라 dict 유지가 자연스러우나,
-# metrics는 4개 시계열 테이블의 한 행에 매핑되므로 컴파일 타임 타입 보장이 정확성에 유리.
+# metrics 는 inventory(JSONB dict) 와 달리 4개 시계열 테이블 행에 매핑 — dataclass 타입 보장.
 
 
 @dataclass
@@ -101,15 +97,13 @@ class TaskResultUpdate:
 
 @dataclass
 class ServerMetricCreate:
-    # ─── 공통 메타데이터 ────────────────────────────────────────────────────
-    # composite_id는 consumer 단에서 server_id 해석에 사용. 본 DTO엔 안 담음.
-    # boot_time/agent_started_at은 시계열 행마다 함께 저장 — calculator가 두 시점
-    # 비교로 counter reset(시스템 재부팅) 정밀 식별 (CLAUDE.md #C1 정책).
+    # composite_id는 consumer 가 server_id 해석에 사용 — 본 DTO 미포함.
+    # boot_time/agent_started_at: 시계열 행마다 저장, counter reset 정밀 식별 (#C1·#B).
     collected_at: datetime
     boot_time: datetime | None
     agent_started_at: datetime | None
 
-    # ─── /proc/stat CPU jiffies (raw 누적값) ─────────────────────────────────
+    # /proc/stat CPU jiffies (raw 누적값)
     cpu_user: int | None
     cpu_nice: int | None
     cpu_system: int | None
@@ -119,7 +113,7 @@ class ServerMetricCreate:
     cpu_softirq: int | None
     cpu_steal: int | None
 
-    # ─── 메모리·스왑 (kB, /proc/meminfo) ─────────────────────────────────────
+    # 메모리·스왑 (kB, /proc/meminfo)
     mem_total_kb: int | None
     mem_free_kb: int | None
     mem_available_kb: int | None
@@ -128,27 +122,25 @@ class ServerMetricCreate:
     swap_total_kb: int | None
     swap_free_kb: int | None
 
-    # ─── load average (/proc/loadavg) ────────────────────────────────────────
+    # load average (/proc/loadavg)
     load_1m: float | None
     load_5m: float | None
     load_15m: float | None
 
-    # ─── 시계열 4개 테이블 nested 행 매핑 ────────────────────────────────────
+    # 시계열 4개 테이블 nested 행 매핑
     disk_io: list[DiskIoEntry]
     mounts: list[MountUsageEntry]
     net_io: list[NetIoEntry]
 
 
-# --- 진단 job INSERT 입력 (ADR 0004) ---
+# --- 보고서 발행 job INSERT 입력 ---
 
 
 @dataclass
 class DiagnosticJobCreate:
-    """진단 job INSERT 입력 — id·created_at·status는 DB default가 채움.
+    """보고서 발행 job INSERT 입력 — id·created_at·status는 DB default가 채움.
 
-    job_type:
-    - 'ai_diagnostic' (default): 규칙 기반·LLM narrative 진단 (ADR 0004 + 0010)
-    - 'customer_report' / 'engineer_report': 보고서 발행 이력 (즉시 succeeded)
+    job_type: 'customer_report' / 'engineer_report' — 보고서 발행 이력 (즉시 succeeded)
     scope: 'server' | 'environment'
     input_hash: sha256(scope + canonical(input_params) + job_type) — 캐시·active UNIQUE 키
     """
@@ -156,5 +148,5 @@ class DiagnosticJobCreate:
     scope: str
     input_params: dict
     input_hash: str
-    job_type: str = "ai_diagnostic"
+    job_type: str = "customer_report"
     requested_by: str | None = None

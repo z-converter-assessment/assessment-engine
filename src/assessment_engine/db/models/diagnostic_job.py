@@ -10,22 +10,13 @@ from assessment_engine.db.models.base import Base
 
 
 class DiagnosticJob(Base):
-    """진단 job — 스케줄러·웹 양쪽이 enqueue, 진단 워커가 처리. 보고서 생성도 본 테이블에 통합 (이력 보존).
+    """보고서 발행 job — 발행 시점 정적 스냅샷을 result 에 보존 (이력 보존).
 
-    상세 설계는 ADR 0004 참조.
+    active partial UNIQUE (scope, input_hash, job_type) — pending/running 동시 1건만 (중복 enqueue 차단).
+    job_type 포함이라 같은 대상 다른 양식(customer_report/engineer_report) 동시 발행 허용.
+    충돌 시 service가 IntegrityError catch → 기존 job_id 반환.
 
-    제약 1개:
-    - active partial UNIQUE — (scope, input_hash, job_type)가 pending/running 상태로 동시 1건만.
-      더블클릭·중복 enqueue 차단. job_type 까지 포함해 같은 대상 다른 양식 보고서 동시 발행 허용.
-      충돌 시 service가 IntegrityError catch → 기존 job_id 반환.
-
-    id는 UUID PK — 라우터 path param에 직접 노출 (E5 정수 PK 노출 금지). 일반 테이블이라
-    별도 public_id 컬럼 없이 id 자체가 외부 식별자.
-
-    job_type:
-    - 'ai_diagnostic' — 규칙 기반 (USE Method) 또는 LLM narrative 진단 (ADR 0004 + 0010)
-    - 'customer_report' — 고객 제출용 보고서 (양식 A)
-    - 'engineer_report' — 엔지니어 검토용 보고서 (양식 B)
+    id는 UUID PK 자체가 외부 식별자 — 별도 public_id 없이 라우터 path param 노출 (#E4).
     """
 
     __tablename__ = "diagnostic_jobs"
@@ -48,7 +39,7 @@ class DiagnosticJob(Base):
     job_type: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
-        server_default="ai_diagnostic",
+        server_default="customer_report",
     )
     scope: Mapped[str] = mapped_column(String(32), nullable=False)
     input_params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)

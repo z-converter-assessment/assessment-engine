@@ -1,6 +1,8 @@
 # ADR 0023 — diagnostic scheduler 폐기 (사용자 trigger 모델로 통합)
 
-상태: Proposed (2026-05-23)
+상태: Superseded — AI 진단(LLM narrative) 기능 폐기 (2026-06-14)
+
+이전 상태: Proposed (2026-05-23)
 
 ## Context
 

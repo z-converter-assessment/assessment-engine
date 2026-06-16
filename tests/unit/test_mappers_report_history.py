@@ -93,12 +93,12 @@ def test_server_scope_multi_server_link():
         },
     )
     item = to_report_history_item(rec)
-    assert item["result_link"] == f"/servers/report?job={_JOB_ID}"
+    assert item["result_link"] == f"/reports/servers?job={_JOB_ID}"
     assert item["server_count"] == 3
 
 
 def test_server_scope_zero_servers_link():
-    """server_public_ids 없음 (희소) → /servers/report?job={id}. server_count=0."""
+    """server_public_ids 없음 (희소) → /reports/servers?job={id}. server_count=0."""
     rec = _rec(
         job_type="customer_report",
         scope="server",
@@ -106,7 +106,7 @@ def test_server_scope_zero_servers_link():
     )
     item = to_report_history_item(rec)
     assert item["server_count"] == 0
-    assert item["result_link"] == f"/servers/report?job={_JOB_ID}"
+    assert item["result_link"] == f"/reports/servers?job={_JOB_ID}"
 
 
 def test_environment_scope_link():
@@ -193,7 +193,7 @@ def test_window_label_falls_back_to_result_time_range():
         result={"time_range": "24h"},
     )
     item = to_report_history_item(rec)
-    assert item["window_label"] == "24시간"
+    assert item["window_label"] == "1일"
 
 
 def test_window_label_default_when_both_missing():

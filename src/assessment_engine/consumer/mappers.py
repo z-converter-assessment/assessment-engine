@@ -12,16 +12,10 @@ from assessment_engine.db.dtos.inbound import (
 def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
     """metrics 메시지로부터 최소 정보의 placeholder inventory 생성.
 
-    auto-register 시나리오: server_inventory에 composite_id가 없는데 metrics가 들어왔을 때
-    metrics를 drop하지 않기 위한 임시 등록. 정적 정보(OS·CPU·메모리·디스크 등)는 None/빈 배열로
-    채우고, 다음 진짜 inventory가 도착하면 `upsert_server`의 `ON CONFLICT DO UPDATE`로
-    자동 풀 정보 덮어씀 (composite_id UNIQUE 제약).
-
-    공통 메타(boot_time·agent_started_at)는 metrics에도 포함되므로 placeholder도 채움 (option A).
-    placeholder 상태에서 web UI는 정보 부족 표시(현재 ViewModel의 None 처리로 자연 노출).
+    composite_id 미등록 상태에서 metrics 가 도착하면 drop 하지 않기 위한 임시 등록. 정적 정보는
+    None/빈 배열로 두고, 다음 진짜 inventory 도착 시 `upsert_server` ON CONFLICT DO UPDATE 로 덮어씀.
     """
     return ServerInventoryCreate(
-        # ─── 공통 메타데이터 ─────────────────────────────────────────────────
         composite_id=data.composite_id,
         machine_id=data.machine_id,
         hostname=data.hostname,
@@ -29,7 +23,6 @@ def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
         collected_at=data.collected_at,
         boot_time=data.boot_time,
         agent_started_at=data.agent_started_at,
-        # ─── inventory 본문 (placeholder는 모두 None/빈 배열) ────────────────
         os_family=None,
         os_id=None,
         os_version=None,
@@ -51,7 +44,6 @@ def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
 
 def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
     return ServerInventoryCreate(
-        # ─── 공통 메타데이터 ─────────────────────────────────────────────────
         composite_id=data.composite_id,
         machine_id=data.machine_id,
         hostname=data.hostname,
@@ -59,7 +51,6 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
         collected_at=data.collected_at,
         boot_time=data.boot_time,
         agent_started_at=data.agent_started_at,
-        # ─── inventory 본문 ──────────────────────────────────────────────────
         os_family=data.os_family,
         os_id=data.os_id,
         os_version=data.os_version,
@@ -91,13 +82,10 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
 def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
     cpu = data.cpu_stat
     return ServerMetricCreate(
-        # ─── 공통 메타데이터 ─────────────────────────────────────────────────
-        # composite_id는 handler가 server_id 해석에 직접 사용. boot_time·agent_started_at은
-        # 시계열 행에 저장 — counter reset 정밀 식별 (CLAUDE.md #C1).
+        # boot_time·agent_started_at은 시계열 행에 저장 — counter reset 정밀 식별 (#C1).
         collected_at=data.collected_at,
         boot_time=data.boot_time,
         agent_started_at=data.agent_started_at,
-        # ─── /proc/stat CPU jiffies ──────────────────────────────────────────
         cpu_user=cpu.user if cpu else None,
         cpu_nice=cpu.nice if cpu else None,
         cpu_system=cpu.system if cpu else None,
@@ -106,7 +94,6 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         cpu_irq=cpu.irq if cpu else None,
         cpu_softirq=cpu.softirq if cpu else None,
         cpu_steal=cpu.steal if cpu else None,
-        # ─── 메모리·스왑 (kB) ────────────────────────────────────────────────
         # canonical 정규화 경계 — available/free 가 total 초과 시 클램프 (used 음수 방지, Windows 매핑 방어).
         mem_total_kb=data.mem_total_kb,
         mem_free_kb=data.mem_free_kb,
@@ -119,12 +106,10 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         swap_free_kb=clamp_ceiling(
             data.swap_free_kb, data.swap_total_kb, field="swap_free_kb", composite_id=data.composite_id
         ),
-        # ─── load average ────────────────────────────────────────────────────
         load_1m=data.load_1m,
         load_5m=data.load_5m,
         load_15m=data.load_15m,
-        # ─── 시계열 4개 테이블 nested 행 매핑 ────────────────────────────────
-        # disk_io major/minor는 ServerDiskIo 에 컬럼 없어 미저장(현재 미활용).
+        # disk_io major/minor는 ServerDiskIo 에 컬럼 없어 미저장.
         # mount major/minor는 ServerMountUsage 에 저장 — data-volume 판단(major==0=가상 fs) 단일 신호.
         disk_io=[
             DiskIoEntry(

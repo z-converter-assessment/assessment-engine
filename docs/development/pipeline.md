@@ -29,11 +29,7 @@ HOST MACHINE (Ubuntu x86_64)
 libvirt(KVM)와 Docker 는 분리된 두 네트워크다. 컨테이너는 docker0
 브리지, VM 은 virbr0 NAT(192.168.122.0/24)에 붙는다. VM 은 NAT 게이트웨이 IP(192.168.122.1, = host)로
 host 의 docker 퍼블리시 포트(RabbitMQ 5672·web 8000)에 도달한다 — DNAT + libvirt 기본 forward 규칙(LIBVIRT_FWO).
-컨테이너(web) ZDM mock resolver 는 자기 컨테이너 `localhost:8000`(`ZDM_RESOLVER_HOST_OVERRIDE`). VM hostname DNS 는
-컨테이너에서 미해석이라 서버 발견 probe 는 운영자가 VM IP 직접 입력. Windows VM 도 동일 virbr0 라 게이트웨이 192.168.122.1 로 host 도달.
-
-LLM 서버(ollama)는 본 파이프라인에서 제거됨 — AI 진단(engineer 보고서 narrative) 발행 시 LLM 호출
-실패 시나리오를 의도적으로 재현 (루트 `docker-compose.yml` diagnostic-worker 주석). 진단 워커 로직 무수정.
+컨테이너(web) ZDM mock resolver 는 자기 컨테이너 `localhost:8000`(`ZDM_RESOLVER_HOST_OVERRIDE`). Windows VM 도 동일 virbr0 라 게이트웨이 192.168.122.1 로 host 도달.
 
 ## 사전 요구
 
@@ -73,12 +69,11 @@ Windows VM (win-server-01)은 `windows-vm.md` 단일 진실 — libvirt autounat
 
 ## 결과 확인
 
-- http://localhost:8000/servers/ — Linux 5 VM + Windows 1 (기본 6대) 등록
+- http://localhost:8000/ — Linux 5 VM + Windows 1 (기본 6대) 등록 (환경 개요 홈)
 - 60초 주기 메트릭 갱신
-- 분류 분포 시연은 `/servers/report?period_days=1` (대시보드는 `recommendation.WINDOW_DAYS=7` 고정, #F10)
+- 분류 분포 시연은 `/reports/servers?period_days=1` (대시보드는 `recommendation.WINDOW_DAYS=7` 고정, #F10)
 - attention 카드 상단 요약: app `agent_unstable` + edge `gap_warnings` (3회 발행 후 down)
-- AI 진단 발행 (engineer 보고서) — LLM 호출 실패 (ollama 제거) 동작 관찰
-- 서버 발견 모달 probe — `print_summary` 가 안내한 VM IP 를 모달에 직접 입력 (컨테이너에서 VM hostname DNS 미해석 + VM IP 동적이라 자동 기본값 없음). VM 은 post-provision `openssh-server` 설치라 `SSH-2.0-OpenSSH` banner 로 도달
+- 보고서 발행 (engineer/customer) — 정적 스냅샷 생성·`?job={id}` 조회 동작 관찰
 
 ## 종료
 
@@ -114,7 +109,6 @@ VM 구성 의도 (호스트 영향 최소화 우선):
 - 1 VM = 2 서비스: `service_classifier` 6 카테고리(web/db/cache/mq/container/monitor) 전부 커버.
 - OS 다양성: 패키지 매니저 분기(apt/dnf) + systemd + Windows SCM. distro (Debian 12, Rocky 9, Win Server 2022).
 - attention 카탈로그 발화: `AttentionSignals` 카테고리 중 2개 (agent_unstable, gap_warnings) 의도 발화.
-- LLM 실패: ollama 제거 → AI 진단 발행 시 호출 실패 (진단 워커 로직 무수정).
 - 합성 부하: 모든 VM light (sustained CPU 1~3s + mem 5~20MB) — 차트 변동만 가시화. CPU 임계 안 넘김 → over_provisioned 분류 (CPU 부담 0).
 
 libvirt(KVM) 채택 (Linux): cloud image qcow2 + cloud-init 으로 VM 부팅, virt-install(python3-gi) 대신 storage 볼륨 API(vol-clone)+`virsh define` 도메인 XML 직접 생성 — 의존 최소화. VM disk 는 type='file' 명시 경로(virt-aa-helper apparmor 프로파일 정합), cdrom 은 IDE(i440fx 네이티브, cloud-init NoCloud 인식). Windows(win-server-01)는 동일 libvirt 에 Win Server 2022 autounattend 무인 설치 — q35 + OVMF UEFI + SATA + e1000e, 기본 포함 (`windows-vm.md`).
@@ -205,19 +199,19 @@ fi
 
 ## 네트워크 구조
 
-libvirt(virbr0 NAT) + Docker(docker0) 분리망. VM -> host 는 NAT 게이트웨이, host(web 컨테이너) -> VM 은 운영자 입력 IP.
+libvirt(virbr0 NAT) + Docker(docker0) 분리망. VM -> host 는 NAT 게이트웨이, host(dev-up 자동화) -> VM 은 dev SSH 키 접속.
 
 ```
 VM (assessment-agent)  [virbr0 192.168.122.0/24]
-  RABBITMQ_HOST=192.168.122.1  ->  host:5672 (docker 퍼블리시 -> DNAT -> rabbitmq 컨테이너)
+  RABBITMQ_HOST=192.168.122.1  ->  host:5672 (docker publish -> DNAT -> rabbitmq container)
 
-web container (discovery probe)  [docker0]
-  <VM IP>:22  (operator-entered)  ->  agent VM sshd (OpenSSH)
+dev-up.sh (host)
+  ssh dev@<VM IP>:22  ->  agent VM sshd (OpenSSH, post-provision)
 ```
 
 - VM -> host: libvirt NAT 게이트웨이 IP(192.168.122.1 = host). docker 퍼블리시 포트(5672·8000)는 DNAT + libvirt 기본 forward 규칙(LIBVIRT_FWO)로 도달. 엔진 `.env` 의 `RABBITMQ_HOST`(=`rabbitmq` 도커 서비스명)와 다르며, `dev-up.sh`가 VM별 `/etc/assessment-agent.env` 생성 시 게이트웨이 IP 로 주입.
 - 컨테이너 ZDM mock resolver: 자기 컨테이너 `localhost:8000`(`ZDM_RESOLVER_HOST_OVERRIDE`) — host 경유 안 함.
-- host -> VM: VM hostname DNS 는 컨테이너에서 미해석 — web 컨테이너 probe 는 VM IP(동적, `print_summary` 안내)를 운영자가 모달 입력. VM 22 는 post-provision `openssh-server` 라 listen.
+- host -> VM: dev-up.sh 가 VM IP(동적, DHCP lease)를 resolve 해 dev SSH 키로 접속, post-provision 수행. VM 22 는 post-provision `openssh-server` 라 listen.
 - VM 간 통신 사용 안 함 — 각 VM 독립, 모든 통신은 host RabbitMQ 경유.
 
 ---
@@ -277,7 +271,7 @@ agent 바이너리는 `ensure_agent_binary` 단계가 `dev/bin/assessment-agent`
 | Debian (apt) | `apt-get install -y --no-install-recommends curl iputils-ping openssh-server` + `systemctl enable --now ssh` |
 | Rocky 9 (dnf) | `dnf install -y --setopt=install_weak_deps=False epel-release` → `dnf install -y ... curl iputils openssh-server` + `systemctl enable --now sshd` |
 
-`openssh-server` 는 서버 발견 probe(web 컨테이너 -> VM IP:22) 시연용 — cloud image 의 cloud-init SSH 와 별개로 표준 22 sshd unit 명시 enable. apt 는 `ssh`, dnf 는 `sshd` unit.
+`openssh-server` 는 host -> VM post-provision SSH 접속용 — cloud image 의 cloud-init SSH 와 별개로 표준 22 sshd unit 명시 enable 해 접속 일관성 보장. apt 는 `ssh`, dnf 는 `sshd` unit.
 
 서비스별 패키지·유닛 dispatch (`case "${ID}:${svc}"` 단일 진실, `dev-up.sh` `post_provision_vm` for-loop):
 
@@ -351,7 +345,7 @@ ssh_vm app-server-01 sudo journalctl -u assessment-agent --no-pager -n 50
 | VM 부팅 OK 인데 hostname=localhost·SSH 안 됨 | cloud-init 이 seed(cidata) 미인식 — cdrom bus 문제 | cdrom `bus='ide'` 확인 (i440fx 네이티브) |
 | 에이전트 publish 실패 로그 (CONNREFUSED) | host docker rabbitmq 안 떠 있음 / 게이트웨이 도달 실패 | `docker compose ps rabbitmq` + VM 안 `curl -m3 http://192.168.122.1:5672` (또는 fallback `sudo iptables -I DOCKER-USER -i virbr0 -j ACCEPT`) |
 | consumer가 metrics 받지만 server_inventory 비어 있음 | inventory 메시지 유실 (broker 재기동 등) | VM 안 `systemctl restart assessment-agent` |
-| 서버 발견 probe unreachable | agent VM 미기동 / IP 변경 | `virsh list --all` + `virsh domifaddr <vm> --source lease` 확인 |
+| post-provision SSH unreachable | agent VM 미기동 / IP 변경 | `virsh list --all` + `virsh domifaddr <vm> --source lease` 확인 |
 
 ### 개별 VM 조작
 

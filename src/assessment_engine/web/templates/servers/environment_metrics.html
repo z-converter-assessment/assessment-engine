@@ -2,20 +2,16 @@
 {% block title %}ZConverter Assessment — 환경 성능 추이{% endblock %}
 
 {% block content %}
-<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
-<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-  <h1>{% if selection_count %}선택 {{ selection_count }}대 성능 추이{% else %}환경 성능 추이{% endif %}</h1>
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+  <h1 style="margin:0;">{% if selection_count %}선택 {{ selection_count }}대 성능 추이{% else %}환경 성능 추이{% endif %}</h1>
   <button class="btn-print no-print" type="button" onclick="window.print()">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
     인쇄
   </button>
 </div>
 
-<div class="perf-stack" style="display:flex; flex-direction:column; gap:20px;">
+<div class="perf-stack" style="display:flex; flex-direction:column; gap:12px;">
 
-  <!-- 통합 차트 카드 — 버킷/구간/앵커가 모든 차트 공통이라 단일 카드. 행(perf-row)마다 차트 2개 페어.
-       실시간 메트릭(현황 모니터링)은 /environment/realtime 로 분리. -->
-  <!-- 기간 컨트롤 — 카드 왼쪽 위 (버킷/구간/앵커, 모든 차트 공통). 구간·앵커 모두 변경 즉시 반영(상세 차트와 동일). -->
+  <!-- 버킷/구간/앵커는 모든 차트 공통, 변경 즉시 반영. 실시간 모니터링은 /environment/realtime 로 분리. -->
   <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
     <span id="bucket-label" class="bucket-label"></span>
     <select class="chart-select no-print" id="global-range-btns" aria-label="구간 선택">
@@ -30,16 +26,16 @@
     <input type="datetime-local" id="anchor-date" class="chart-anchor no-print" style="height:30px;" aria-label="기준 시각">
   </div>
 
-  <div class="card perf-merged">
+  <section class="card">
+    <h2 class="card-title">CPU</h2>
 
-    <!-- 행: CPU 사용률 | CPU 분류 -->
     <div class="perf-pair perf-row" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="card-title" style="margin:0;">CPU 사용률</h2>
-          <span id="cpu-max" style="font-size:12px; color:#94a3b8;">최대: &mdash;</span>
+          <h2 class="chart-subtitle" style="margin:0;">CPU 사용률</h2>
+          <span id="cpu-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">전 서버 자원 총량 기준(capacity-weighted) 평균</div>
+        <div class="chart-desc">전 서버 capacity-weighted 평균</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="cpu-canvas"></canvas>
           <div id="cpu-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -47,9 +43,9 @@
       </div>
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="card-title" style="margin:0;">CPU 분류</h2>
+          <h2 class="chart-subtitle" style="margin:0;">CPU 분류</h2>
         </div>
-        <div class="chart-desc">user: 앱 부하 / system: 커널 처리 / iowait: 디스크 대기</div>
+        <div class="chart-desc">User 앱 부하 / System 커널 처리 / I/O Wait 디스크 대기</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="cpuclass-canvas"></canvas>
           <div id="cpuclass-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -58,14 +54,13 @@
       </div>
     </div>
 
-    <!-- 행: 코어당 로드 (CPU 영역 단독, 우측 빈) -->
     <div class="perf-pair perf-row" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="card-title" style="margin:0;">코어당 로드</h2>
-          <span id="load-max" style="font-size:12px; color:#94a3b8;">최대: &mdash;</span>
+          <h2 class="chart-subtitle" style="margin:0;">코어당 로드</h2>
+          <span id="load-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">전 서버 15분 로드를 코어 수로 정규화 (sum load / sum cpu) — 1.0 = 코어당 포화</div>
+        <div class="chart-desc">전 서버 15분 로드 / 코어 수 정규화 (1.0 = 코어당 포화)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="load-canvas"></canvas>
           <div id="load-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -73,15 +68,18 @@
       </div>
       <div></div>
     </div>
+  </section>
 
-    <!-- 행: 메모리 사용률 | 메모리 구성 -->
+  <section class="card">
+    <h2 class="card-title">메모리</h2>
+
     <div class="perf-pair perf-row" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="card-title" style="margin:0;">메모리 사용률</h2>
-          <span id="mem-max" style="font-size:12px; color:#94a3b8;">최대: &mdash;</span>
+          <h2 class="chart-subtitle" style="margin:0;">메모리 사용률</h2>
+          <span id="mem-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">전 서버 자원 총량 기준(capacity-weighted) 평균</div>
+        <div class="chart-desc">전 서버 capacity-weighted 평균</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="mem-canvas"></canvas>
           <div id="mem-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -89,9 +87,9 @@
       </div>
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="card-title" style="margin:0;">메모리 구성</h2>
+          <h2 class="chart-subtitle" style="margin:0;">메모리 구성</h2>
         </div>
-        <div class="chart-desc">전체 메모리 대비 Used / Available / Cached / Buffers (capacity-weighted)</div>
+        <div class="chart-desc">전체 대비 Used / Available / Cached / Buffers (capacity-weighted)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="memcomp-canvas"></canvas>
           <div id="memcomp-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -100,14 +98,13 @@
       </div>
     </div>
 
-    <!-- 행: 스왑 사용률 (메모리 영역 단독, 우측 빈) -->
     <div class="perf-pair perf-row" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="card-title" style="margin:0;">스왑 사용률</h2>
-          <span id="swap-max" style="font-size:12px; color:#94a3b8;">최대: &mdash;</span>
+          <h2 class="chart-subtitle" style="margin:0;">스왑 사용률</h2>
+          <span id="swap-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">전 서버 스왑 총량 대비 사용량 (swap 미설정 서버 제외)</div>
+        <div class="chart-desc">전 서버 capacity-weighted 평균 (미설정 서버 제외)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="swap-canvas"></canvas>
           <div id="swap-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -115,12 +112,15 @@
       </div>
       <div></div>
     </div>
+  </section>
 
-    <!-- 행: 물리 계층 I/O(IOPS) | 디스크 I/O 처리량(kBps) — 인쇄 2페이지 시작 -->
-    <div class="perf-pair perf-row print-break-before" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
+  <section class="card">
+    <h2 class="card-title">스토리지</h2>
+
+    <div class="perf-pair perf-row" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="card-title" style="margin:0;">물리 계층 I/O</h2>
+          <h2 class="chart-subtitle" style="margin:0;">물리 계층 I/O</h2>
         </div>
         <div class="chart-desc">전 서버 물리 디스크 IOPS 합산 (Read/Write)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
@@ -131,9 +131,9 @@
       </div>
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="card-title" style="margin:0;">디스크 I/O 처리량</h2>
+          <h2 class="chart-subtitle" style="margin:0;">디스크 I/O 처리량</h2>
         </div>
-        <div class="chart-desc">전 서버 물리 디스크 Read/Write 처리량(kBps) 합산</div>
+        <div class="chart-desc">전 서버 물리 디스크 처리량 합산 (Read/Write)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="diskkbps-canvas"></canvas>
           <div id="diskkbps-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -142,14 +142,13 @@
       </div>
     </div>
 
-    <!-- 행: 파일시스템 사용량 (단독, 우측 빈 — 인쇄 시 좌측 정렬) -->
     <div class="perf-pair perf-row" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="card-title" style="margin:0;">파일시스템 사용량</h2>
-          <span id="fs-max" style="font-size:12px; color:#94a3b8;">최대: &mdash;</span>
+          <h2 class="chart-subtitle" style="margin:0;">파일시스템 사용량</h2>
+          <span id="fs-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">전 서버 파일시스템 총량 기준(capacity-weighted) 평균</div>
+        <div class="chart-desc">전 서버 capacity-weighted 평균</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="fs-canvas"></canvas>
           <div id="fs-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -158,12 +157,15 @@
       </div>
       <div></div>
     </div>
+  </section>
 
-    <!-- 행: 네트워크 I/O | 네트워크 PPS -->
+  <section class="card">
+    <h2 class="card-title">네트워크</h2>
+
     <div class="perf-pair perf-row" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="card-title" style="margin:0;">네트워크 I/O</h2>
+          <h2 class="chart-subtitle" style="margin:0;">네트워크 I/O</h2>
         </div>
         <div class="chart-desc">전 서버 물리 인터페이스 트래픽 합산 (RX/TX)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
@@ -174,7 +176,7 @@
       </div>
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="card-title" style="margin:0;">네트워크 PPS</h2>
+          <h2 class="chart-subtitle" style="margin:0;">네트워크 PPS</h2>
         </div>
         <div class="chart-desc">전 서버 패킷 처리량 합산 (RX/TX)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
@@ -185,7 +187,7 @@
       </div>
     </div>
 
-  </div><!-- /perf-merged -->
+  </section>
 
 </div><!-- /stack -->
 

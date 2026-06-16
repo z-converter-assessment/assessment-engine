@@ -387,7 +387,7 @@ def test_environment_overview_utilization_dash_length(pct, expected_dash):
 def test_risk_donut_segments_order_and_colors():
     """segments 는 _DONUT_SEGMENT_DEFS 순서 (USE Method 6 분류 정석) 고정.
 
-    label 은 recommendation enum 값 그대로 영어 — 코드/문서/UI 동일 키 (T13).
+    label 은 recommendation.LABEL_KO 한국어 분류명 — 보고서·대시보드 통일 (영어 enum 미노출).
     """
     segs, total, under = build_risk_donut_segments(
         {
@@ -408,12 +408,12 @@ def test_risk_donut_segments_order_and_colors():
         "insufficient_data",
     ]
     assert [s.label for s in segs] == [
-        "리소스 부족",
-        "과다 프로비저닝",
+        "자원 부족",
+        "과다 할당",
         "유휴",
         "종료 권장",
         "정상",
-        "데이터 부족",
+        "표본 부족",
     ]
     assert total == 10
     assert under == 1
@@ -945,12 +945,12 @@ def test_inventory_export_services_listeners_fallback_when_no_listen_ports():
     [
         ({"swap_used": True}, "메모리 부족 (스왑 발생)"),
         ({"iowait_p95": 25.0}, "디스크 I/O 병목"),
-        ({"cpu_cores": 4, "load_15m_max": 5.0}, "CPU saturation"),
+        ({"cpu_cores": 4, "load_15m_max": 5.0}, "CPU 포화"),
         ({"mem_p95": 85.0}, "메모리 압박"),
         ({"cpu_p95": 75.0}, "CPU 압박"),
-        ({"cpu_p95": 50.0, "cpu_peak": 99.0}, "변동성 큼 (burst)"),
+        ({"cpu_p95": 50.0, "cpu_peak": 99.0}, "부하 변동 큼"),
         ({"cpu_p95": 2.0}, "거의 미사용"),
-        ({"cpu_p95": 20.0, "mem_p95": 30.0}, "여유 있음 (축소 검토)"),
+        ({"cpu_p95": 20.0, "mem_p95": 30.0}, "여유 있음"),
         ({"cpu_p95": 50.0, "mem_p95": 60.0}, "정상"),
     ],
 )
@@ -1002,7 +1002,7 @@ def test_report_row_item_disk_net_io_p95_peak_passthrough():
         ("idle", "용도 재평가 / 종료 검토"),
         ("shutdown", "종료 가능 검토"),
         ("optimal", "적정 운영"),
-        ("insufficient_data", "데이터 부족 — 수집 점검"),
+        ("insufficient_data", "표본 부족 — 수집 점검"),
     ],
 )
 def test_recommendation_action_fixed_phrases(rec, expected):
@@ -1013,11 +1013,11 @@ def test_recommendation_action_fixed_phrases(rec, expected):
     "triggers, expected",
     [
         # under_provisioned 은 hit trigger(assess 산출) 별 증설 권고 결합 — mapper 는 키->문구 변환만(P2).
-        (["mem_saturation"], "메모리 증설 (스왑 발생)"),
+        (["mem_saturation"], "메모리 증설"),
         (["mem_util"], "메모리 증설"),
         (["cpu_util"], "CPU 증설"),
-        (["disk_io"], "디스크 증설 (IO 병목)"),
-        (["disk_capacity"], "디스크 증설 (capacity)"),
+        (["disk_io"], "디스크 증설"),
+        (["disk_capacity"], "디스크 증설"),
         ([], "리소스 증설 검토"),  # trigger 0건 fallback
     ],
 )
@@ -1026,9 +1026,9 @@ def test_under_provisioned_reason_per_trigger(triggers, expected):
 
 
 def test_under_provisioned_reason_combines_and_dedups():
-    """여러 trigger '/' 결합. mem_saturation(스왑) + mem_util 중복 시 스왑 문구만."""
-    assert _build_under_provisioned_reason(["mem_saturation", "cpu_util"]) == "메모리 증설 (스왑 발생) / CPU 증설"
-    assert _build_under_provisioned_reason(["mem_saturation", "mem_util"]) == "메모리 증설 (스왑 발생)"
+    """여러 trigger '/' 결합. mem_saturation·mem_util 같은 자원은 조치(증설) 중복 제거."""
+    assert _build_under_provisioned_reason(["mem_saturation", "cpu_util"]) == "메모리 증설 / CPU 증설"
+    assert _build_under_provisioned_reason(["mem_saturation", "mem_util"]) == "메모리 증설"
 
 
 # ─── build_resource_stats — 분류 입력 단일 진실 (report·attention·목록·도넛 공용) ───
