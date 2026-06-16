@@ -17,7 +17,7 @@ from assessment_engine.web.services.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.settings import web_settings
 from assessment_engine.web.templating import templates
 
-server_detail_router = APIRouter()
+server_detail_router = APIRouter(prefix="/servers")
 
 
 def _safe_back(back: str | None, fallback: str) -> str:
@@ -62,23 +62,25 @@ async def _render_server_tab(
 async def get_server(
     request: Request,
     server_id: str,
-    back: str | None = Query(None, description="← 이전 link referrer. 미명시 시 /servers/"),
+    back: str | None = Query(None, description="← 이전 link referrer. 미명시 시 / (환경 개요)"),
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
-    # AI 진단 = 서버 엔지니어 보고서 안 본질 catalog 통합 (`/servers/{id}/report?view=engineer`).
-    # 서버 detail = 인벤토리·메트릭·메모리·서비스·성능 본질 catalog.
     server = await service.get_server(internal_id)
     if not server:
         raise HTTPException(status_code=404)
-    recent_tasks = await service.list_recent_tasks(str(server.public_id), limit=10, cursor=None)
+    # 운영 신호 — 전구간 재부팅·에이전트 재시작 + OS 지원종료 (window 집계라 inventory 캐시와 분리 조회).
+    stability = await service.get_server_stability(server)
+    # 최근 작업은 전체 노출 — task.install 이력은 서버 1대당 수십 건 규모라 큰 상한으로 사실상 전부 출력.
+    recent_tasks = await service.list_recent_tasks(str(server.public_id), limit=1000, cursor=None)
     return templates.TemplateResponse(
         request=request,
         name="servers/detail.html",
         context={
             "server": server,
+            "stability": stability,
             "recent_tasks": recent_tasks,
-            "back_url": _safe_back(back, "/servers/"),
+            "back_url": _safe_back(back, "/"),
             "self_back": _self_back(request),
             "zdm_defaults": {
                 "ip": web_settings.zdm_default_ip,
@@ -140,7 +142,7 @@ async def get_metrics(
     )
 
 
-# ─── 별도 service 메서드를 쓰는 탭 ───────────────────────────────────────
+# 별도 service 메서드를 쓰는 탭 (공유 helper 미사용)
 
 
 @server_detail_router.get("/{server_id}/storage")

@@ -120,8 +120,8 @@ async def dev_zdm_mock_download(request: Request) -> Response:
 
 # Windows 본체 mock — direct_exec(.exe). Linux .tar.gz install.sh 와 대칭.
 # 유효 PE (mingw x86_64 cross-build, args echo + exit 0) — Win11 ARM 의 x64 emulation(Prism)으로 실행되어
-# task.result success(exit_code 0) 까지 시연. 옛 더미(MZ+padding)는 CreateProcess 실패로 internal_error 였음.
-# 빌드: x86_64-w64-mingw32-gcc -O2 -s (zdm_mock_windows.exe). 본 모듈은 dev 한정(web/main.py 분기)이라 prod 미import.
+# task.result success(exit_code 0) 까지 시연.
+# 빌드: x86_64-w64-mingw32-gcc -O2 -s (zdm_mock_windows.exe).
 _EXE_BYTES = (pathlib.Path(__file__).parent / "zdm_mock_windows.exe").read_bytes()
 _EXE_SHA256 = hashlib.sha256(_EXE_BYTES).hexdigest()
 _EXE_SIZE = len(_EXE_BYTES)

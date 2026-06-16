@@ -16,9 +16,9 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         self.session = session
 
     async def enqueue(self, job: DiagnosticJobCreate) -> str | None:
-        # active partial UNIQUE = (scope, input_hash, job_type). 충돌 시 do_nothing → returning None.
-        # index_where 명시 의무 — partial unique index는 column만으로 자동 매칭 안 되고
-        # WHERE 조건이 정확히 일치해야 한다.
+        # active partial UNIQUE = (scope, input_hash, job_type). 충돌 시 returning None.
+        # index_where 명시 의무 — partial unique index 는 column 만으로 자동 매칭 안 되고
+        # WHERE 조건이 정확히 일치해야 ON CONFLICT 가 인덱스를 잡는다.
         stmt = (
             pg_insert(DiagnosticJob)
             .values(
@@ -58,96 +58,11 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_latest_succeeded(
-        self,
-        scope: str,
-        input_hash: str,
-    ) -> DiagnosticJobRecord | None:
-        stmt = (
-            select(DiagnosticJob)
-            .where(
-                DiagnosticJob.scope == scope,
-                DiagnosticJob.input_hash == input_hash,
-                DiagnosticJob.status == "succeeded",
-            )
-            .order_by(DiagnosticJob.finished_at.desc())
-            .limit(1)
-        )
-        result = await self.session.execute(stmt)
-        row = result.scalar_one_or_none()
-        return _row_to_diagnostic_record(row) if row is not None else None
-
-    async def get_many_latest_by_context_server(
-        self,
-        time_range: str,
-        server_public_ids: list[str],
-    ) -> dict[str, DiagnosticJobRecord]:
-        if not server_public_ids:
-            return {}
-        # DISTINCT ON (server_public_id) — server별 가장 최근 finished_at 1건 선택.
-        # PostgreSQL DISTINCT ON은 ORDER BY 첫 컬럼을 DISTINCT 키로 사용.
-        pid_expr = DiagnosticJob.input_params["server_public_id"].astext
-        stmt = (
-            select(DiagnosticJob)
-            .where(
-                DiagnosticJob.scope == "server",
-                DiagnosticJob.status == "succeeded",
-                DiagnosticJob.input_params["time_range"].astext == time_range,
-                pid_expr.in_(server_public_ids),
-            )
-            .distinct(pid_expr)
-            .order_by(pid_expr, DiagnosticJob.finished_at.desc())
-        )
-        result = await self.session.execute(stmt)
-        rows = result.scalars().all()
-        return {row.input_params["server_public_id"]: _row_to_diagnostic_record(row) for row in rows}
-
-    async def get_latest_by_context(
-        self,
-        scope: str,
-        time_range: str,
-        server_public_id: str | None,
-    ) -> DiagnosticJobRecord | None:
-        # JSONB 필드 매칭 — input_params['time_range'] + (server scope면 server_public_id).
-        # input_hash 일치 안 봐도 됨 — anchor 달라도 같은 context는 latest 후보.
-        stmt = select(DiagnosticJob).where(
-            DiagnosticJob.scope == scope,
-            DiagnosticJob.status == "succeeded",
-            DiagnosticJob.input_params["time_range"].astext == time_range,
-        )
-        if scope == "server":
-            stmt = stmt.where(
-                DiagnosticJob.input_params["server_public_id"].astext == server_public_id,
-            )
-        stmt = stmt.order_by(DiagnosticJob.finished_at.desc()).limit(1)
-        result = await self.session.execute(stmt)
-        row = result.scalar_one_or_none()
-        return _row_to_diagnostic_record(row) if row is not None else None
-
     async def get_by_id(self, job_id: str) -> DiagnosticJobRecord | None:
         stmt = select(DiagnosticJob).where(DiagnosticJob.id == job_id)
         result = await self.session.execute(stmt)
         row = result.scalar_one_or_none()
         return _row_to_diagnostic_record(row) if row is not None else None
-
-    async def get_many_by_ids(self, job_ids: list[str]) -> list[DiagnosticJobRecord]:
-        if not job_ids:
-            return []
-        stmt = select(DiagnosticJob).where(DiagnosticJob.id.in_(job_ids))
-        result = await self.session.execute(stmt)
-        return [_row_to_diagnostic_record(row) for row in result.scalars().all()]
-
-    async def mark_running(self, job_id: str, stage: str) -> None:
-        stmt = (
-            update(DiagnosticJob)
-            .where(DiagnosticJob.id == job_id)
-            .values(status="running", started_at=func.now(), progress_stage=stage)
-        )
-        await self.session.execute(stmt)
-
-    async def update_progress_stage(self, job_id: str, stage: str) -> None:
-        stmt = update(DiagnosticJob).where(DiagnosticJob.id == job_id).values(progress_stage=stage)
-        await self.session.execute(stmt)
 
     async def mark_succeeded(self, job_id: str, result: dict) -> None:
         stmt = (
@@ -156,24 +71,6 @@ class DiagnosticRepository(BaseDiagnosticRepository):
             .values(
                 status="succeeded",
                 result=result,
-                finished_at=func.now(),
-                progress_stage=None,
-            )
-        )
-        await self.session.execute(stmt)
-
-    async def save_report_snapshot(self, job_id: str, result: dict) -> None:
-        # status 유지 (pending) — worker 가 pending job 을 받아 mark_running 후 narrative.
-        stmt = update(DiagnosticJob).where(DiagnosticJob.id == job_id).values(result=result)
-        await self.session.execute(stmt)
-
-    async def mark_failed(self, job_id: str, error_message: str) -> None:
-        stmt = (
-            update(DiagnosticJob)
-            .where(DiagnosticJob.id == job_id)
-            .values(
-                status="failed",
-                error_message=error_message,
                 finished_at=func.now(),
                 progress_stage=None,
             )
@@ -199,9 +96,8 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         if job_type:
             stmt = stmt.where(DiagnosticJob.job_type == job_type)
         if server_public_ids:
-            # 단수 키(server scope 1대) 또는 복수 키(server scope N대) 중 하나라도 매칭하면 hit.
-            # environment scope는 두 키 모두 없어 자연 제외.
-            # 복수 키는 JSONB ?| 연산자로 array element 중 하나라도 일치하는지 검사.
+            # 단수 키(1대) 또는 복수 키(N대) 중 하나라도 매칭하면 hit (environment scope 는 두 키 부재로 자연 제외).
+            # 복수 키는 JSONB ?| 로 array element 중 하나라도 일치하는지 검사.
             single_match = DiagnosticJob.input_params["server_public_id"].astext.in_(
                 server_public_ids,
             )

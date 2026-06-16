@@ -1,33 +1,31 @@
 /**
- * 실시간 메트릭 페이지 — 환경 실시간 메트릭 카드 자동 갱신.
+ * 실시간 현황 30초 자동 갱신 — fragment=realtime fetch 후 #rt-mount innerHTML 교체 + 갱신 시각 표시.
  *
- * 30초마다 partial(fragment=realtime)을 fetch 해 #env-realtime-mount innerHTML 교체 (list.js 대시보드 폴링 패턴).
- * 갱신 주기(REFRESH_MS)는 본 JS 단일 진실 — stamp 의 '...초마다 자동 갱신' prefix 를 JS 가 조립(SSR 하드코딩 회피).
- * 외부 의존: 없음 (순수 fetch + DOM 교체).
+ * mount(#rt-mount) = 현재 자원 현황 + 현재 부하 상위(최신 스냅샷). 운영 신호는 폴링 밖(느린 신호, full-page 정적).
+ * 갱신 시각은 fragment 안 .rt-gen(서버 kst 렌더, #F2 단일 진실) 텍스트를 읽어 #rt-last 에 반영 — 클라 임의 포맷 금지.
+ * 선택 N대(ids)는 body data-selection-ids 로 보존. fail-soft — 네트워크 오류 시 현재 화면 유지.
  */
 (function () {
-  const REFRESH_MS = 30_000;
-  const mount = document.getElementById('env-realtime-mount');
+  const mount = document.getElementById('rt-mount');
   if (!mount) return;
-  // 선택 N대 한정(있으면) — 폴링 fetch 에 ids 전달. 없으면 전체 환경.
-  const SELECTION_IDS = document.body.dataset.selectionIds || '';
-  const FRAGMENT_URL = '/servers/environment/realtime?fragment=realtime' + (SELECTION_IDS ? '&ids=' + encodeURIComponent(SELECTION_IDS) : '');
+  const lastEl = document.getElementById('rt-last');
+  const ids = document.body.dataset.selectionIds || '';
+  const url = '/environment/realtime?fragment=realtime' + (ids ? '&ids=' + encodeURIComponent(ids) : '');
 
-  function paintStamp() {
-    // 시각 data 는 카드 안(폴링 교체 대상), 표시 stamp 는 카드 밖 제목 줄 — 교체 후 data 를 읽어 밖 stamp 갱신.
-    const data = mount.querySelector('#env-realtime-ts-data');
-    const target = document.getElementById('env-realtime-stamp');
-    if (data && target) target.textContent = `${REFRESH_MS / 1000}초마다 자동 갱신 · 최근 ${data.dataset.ts}`;
-  }
-  paintStamp();  // SSR 초기 stamp 에 갱신 주기 prefix 주입.
-
+  let seq = 0;
   async function refresh() {
+    const mySeq = ++seq; // capture-before-await — 더 늦은 요청이 우선
     try {
-      const res = await fetch(FRAGMENT_URL);
-      if (res.ok) { mount.innerHTML = await res.text(); paintStamp(); }
+      const res = await fetch(url);
+      if (mySeq !== seq) return; // stale 응답 무시
+      if (!res.ok) return;
+      mount.innerHTML = await res.text();
+      const gen = mount.querySelector('.rt-gen');
+      if (gen && lastEl) lastEl.textContent = '최근 ' + gen.textContent.trim();
     } catch (e) {
-      // 네트워크 일시 오류 — 다음 주기 재시도 (fail-soft, 화면 유지).
+      // 네트워크 일시 오류 — 현재 화면 유지 (fail-soft)
     }
   }
-  setInterval(refresh, REFRESH_MS);
+
+  setInterval(refresh, 30000);
 })();

@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% from "_shared.html" import empty_state %}
+{% block title %}ZConverter Assessment — 서버 목록{% endblock %}
+
+{% block content %}
+<h1 style="margin:0 0 8px;">서버 목록</h1>
+
+<div id="install-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:8px; padding:24px; width:520px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h3 class="modal-title">ZConverter Install 발행</h3>
+      <button type="button" id="install-close" class="text-meta" style="background:none; border:none; font-size:20px; cursor:pointer; line-height:1;">X</button>
+    </div>
+    <p class="text-muted text-sm" style="margin:0 0 12px; line-height:1.5;">
+      선택된 <span id="install-count" class="text-strong" style="font-weight:600;">0</span>대 호스트에 아래 ZDM 좌표로 ZConverter 설치를 발행합니다.
+      <br>각 호스트의 agent 가 ZDM 서버에서 본체 패키지를 fetch 후 <code>install.sh -s ZDM_IP -u ZDM_USER</code> 실행.
+    </p>
+    <div style="margin:12px 0;">
+      <label for="install-zdm-target" class="text-label text-sm" style="display:block; margin-bottom:4px;">ZDM 서버 IP/hostname</label>
+      <input type="text" id="install-zdm-target" name="install-zdm-target-{{ asset_v }}" value="{{ zdm_defaults.ip }}" autocomplete="off" class="text-md"
+             style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; box-sizing:border-box;">
+    </div>
+    <div style="margin:12px 0;">
+      <label for="install-zdm-account" class="text-label text-sm" style="display:block; margin-bottom:4px;">ZDM 관리자 계정 (email)</label>
+      <input type="email" id="install-zdm-account" name="install-zdm-account-{{ asset_v }}" value="{{ zdm_defaults.user }}" autocomplete="off" class="text-md"
+             style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; box-sizing:border-box;">
+    </div>
+    <button type="button" id="install-submit" class="btn" style="background:var(--color-title); color:#fff; padding:8px 16px; cursor:pointer; border:none; margin-top:12px;">발행</button>
+  </div>
+</div>
+
+<div id="multi-server-report-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h3 id="multi-server-report-title" class="modal-title">선택 서버 보고서 발행</h3>
+      <button type="button" id="multi-server-report-close" class="text-meta" style="background:none; border:none; font-size:20px; cursor:pointer; line-height:1;">X</button>
+    </div>
+    <p id="multi-server-report-desc" class="text-muted text-sm" style="margin:0 0 12px; line-height:1.5;">선택된 <span id="multi-server-report-count" class="text-strong" style="font-weight:600;">0</span>대 서버 자원 적정성 규칙 기반 보고서 발행. 결과 페이지로 이동합니다.</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+      <div>
+        <label for="multi-server-report-range" class="text-label text-sm" style="display:block; margin-bottom:6px;">윈도우</label>
+        <select id="multi-server-report-range" class="text-md" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px;">
+          <option value="15m">15분</option>
+          <option value="1h">1시간</option>
+          <option value="6h">6시간</option>
+          <option value="24h">1일</option>
+          <option value="7d" selected>7일 (표준)</option>
+          <option value="14d">14일</option>
+          <option value="30d">30일</option>
+        </select>
+      </div>
+      <div>
+        <label for="multi-server-report-anchor" class="text-label text-sm" style="display:block; margin-bottom:6px;">Anchor (KST)</label>
+        <input type="datetime-local" id="multi-server-report-anchor" autocomplete="off" class="text-md" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px;">
+      </div>
+    </div>
+    <button type="button" id="multi-server-report-submit" class="btn" style="background:var(--color-title); color:#fff; padding:8px 16px; cursor:pointer; border:none;">발행</button>
+  </div>
+</div>
+
+<script src="/static/js/pages/list-table.js?v={{ asset_v }}" defer></script>
+
+<section class="card no-print">
+{% if servers %}
+{# 필터는 제목행(thead)에 인라인. client-side(list-table.js data-* 비교) — form submit 없이 즉시 hide/show. #}
+{% set filters_active = request.query_params.get('search') or request.query_params.get('is_online') or request.query_params.get('service') or request.query_params.get('os_distro') or request.query_params.get('classification') %}
+
+<div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; align-items:center;">
+  <button type="button" id="realtime-sel-btn" class="btn-select no-print" disabled title="선택 N대 실시간 현황 (현황 모니터링)">실시간 현황</button>
+  <button type="button" id="metrics-sel-btn" class="btn-select no-print" disabled title="선택 N대 성능 추이 (시계열)">성능 추이</button>
+  <button type="button" id="report-customer-btn" class="btn-select no-print" disabled title="고객 제출용 — 양식 A">고객 보고서</button>
+  <button type="button" id="report-engineer-btn" class="btn-select no-print" disabled title="엔지니어 검토용 — 양식 B">엔지니어 보고서</button>
+  <button type="button" id="export-btn" class="btn-select no-print" disabled>JSON Export</button>
+  <button type="button" id="install-btn" class="btn-select no-print" disabled>ZConverter Install</button>
+</div>
+
+{# client-side 필터 (list-table.js). 값 선택 시 active 토글. #}
+<form method="get" id="filter-form" class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:14px;">
+  <input type="text" name="search" class="list-filter" value="{{ request.query_params.get('search', '') }}" placeholder="검색" aria-label="hostname 검색" style="width:90px;">
+  <select name="is_online" class="list-filter" aria-label="상태 필터">
+    <option value="">상태 전체</option>
+    <option value="true" {% if request.query_params.get('is_online') == 'true' %}selected{% endif %}>온라인</option>
+    <option value="false" {% if request.query_params.get('is_online') == 'false' %}selected{% endif %}>오프라인</option>
+  </select>
+  <select name="service" class="list-filter" aria-label="서비스 필터">
+    <option value="">서비스 전체</option>
+    {% for cat in filter_options.service_categories %}
+    <option value="{{ cat }}" {% if request.query_params.get('service') == cat %}selected{% endif %}>{{ cat }}</option>
+    {% endfor %}
+  </select>
+  <select name="os_distro" class="list-filter" aria-label="OS 필터" style="width:104px;">
+    <option value="">OS 전체</option>
+    {% for slug, label in filter_options.distro_options %}
+    <option value="{{ slug }}" {% if request.query_params.get('os_distro') == slug %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <select name="classification" class="list-filter" aria-label="프로비저닝 필터">
+    <option value="">프로비저닝 전체</option>
+    {% for cls, cls_label in filter_options.classifications %}
+    <option value="{{ cls }}" {% if request.query_params.get('classification') == cls %}selected{% endif %}>{{ cls_label }}</option>
+    {% endfor %}
+  </select>
+  <a href="/servers" class="clear-btn" id="filter-clear" style="align-items:center; display:{% if filters_active %}inline-flex{% else %}none{% endif %};">초기화</a>
+</form>
+
+<div style="overflow-x:auto;">
+<table class="server-list-table">
+  <thead>
+    <tr>
+      <th class="no-print" style="width:36px; text-align:center;"><input type="checkbox" id="select-all"></th>
+      <th style="text-align:center; white-space:nowrap;">상태</th>
+      <th style="min-width:150px;">Hostname</th>
+      <th style="min-width:200px;">서비스</th>
+      <th style="min-width:130px;">OS</th>
+      <th style="white-space:nowrap;">프로비저닝</th>
+      <th style="min-width:240px; white-space:nowrap;">최근 작업</th>
+      <th class="action-col" style="width:1%; white-space:nowrap;"></th>
+    </tr>
+  </thead>
+  <tbody id="server-tbody">
+    {% include "servers/_server_rows.html" %}
+  </tbody>
+</table>
+</div>
+{# 전체보기 — 기본 N행만 표시, 클릭 시 전체 표시 (JS clip). 필터 활성 시 숨김(조건 맞는 전부 노출). #}
+<div class="no-print" id="show-more-wrap" style="display:none; margin-top:12px; text-align:center;">
+  <button type="button" id="show-more-btn" class="btn-action">전체보기 <span id="show-more-count" class="text-meta" style="font-weight:400;"></span></button>
+</div>
+{% else %}
+<p class="text-muted" style="margin:0; padding:20px 0;">등록된 서버가 없습니다. 에이전트가 연결되면 표시됩니다.</p>
+{% endif %}
+
+</section>
+
+{% include "_reference_link.html" %}
+{% endblock %}

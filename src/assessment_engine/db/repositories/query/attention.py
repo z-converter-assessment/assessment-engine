@@ -1,7 +1,4 @@
-"""Attention warning 도메인 concrete — metric gap (통신 끊김 운영신호).
-
-disk usage 신호는 운영신호에서 USE Method right-sizing(classify disk capacity/IO)으로 이동 — 본 모듈은 gap 전용.
-"""
+"""Attention warning 도메인 concrete — metric gap (통신 끊김 운영신호) 전용."""
 
 from sqlalchemy import text
 

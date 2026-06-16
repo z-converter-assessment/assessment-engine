@@ -32,7 +32,6 @@
 | RabbitMQ broker | fail-close | aio-pika 자동 재연결, persistent 메시지 | ERROR |
 | Redis | fail-open | `safe_*` 흡수 (#C3) → 다음 계층 fallback | WARNING |
 | HTTP 외부 호출 | fail-open | timeout → "unreachable" 결과 | INFO |
-| ollama LLM (진단 narrative) | job 단위 fail-close | timeout·미연결·HTTP 오류 → `mark_failed('llm_timeout'/'llm_error')`, DLQ 재시도 없음 (워커는 다음 job 계속) | WARNING |
 
 원칙·금지·예외 타입 catch 규약은 CLAUDE.md #F6.
 
@@ -53,7 +52,7 @@ stdout 로그 출력 format 을 `LOG_FORMAT` 환경변수로 토글.
               indexed search·filter·alerting
 ```
 
-구현: `src/assessment_engine/log_config.py` 의 `setup_logging(log_format)`. 각 entry (web/consumer/diagnostic-worker) 가 Composition Root 에서 호출 (F4 단일 진실). `web_settings.log_format` · `consumer_settings.log_format` · `diagnostic_settings.log_format` 모두 동일 env 읽음.
+구현: `src/assessment_engine/log_config.py` 의 `setup_logging(log_format)`. 각 entry (web/consumer) 가 Composition Root 에서 호출 (F4 단일 진실). `web_settings.log_format` · `consumer_settings.log_format` 모두 동일 env 읽음.
 
 운영 권장:
 - dev: `LOG_FORMAT=text` — 사람이 직접 stream 을 보거나 grep 할 때 가독성 우선.
@@ -107,7 +106,7 @@ handler → service → repo → loguru
 | 컴포넌트 | 위치 | 책임 |
 |----------|------|------|
 | HTTP middleware | `src/assessment_engine/web/main.py` lifespan 뒤 `app.middleware("http")` | 요청 진입 시 헤더 read + contextvars set + 응답 헤더 echo |
-| MQ handler 진입 | `src/assessment_engine/consumer/handlers/` 각 핸들러 첫 줄, `src/assessment_engine/diagnostic/handler.py` 동일 | `message.message_id` 를 contextvars set |
+| MQ handler 진입 | `src/assessment_engine/consumer/handlers/` 각 핸들러 첫 줄 | `message.message_id` 를 contextvars set |
 | logger 설정 | `src/assessment_engine/log_config.py` (신규 또는 기존 setup) | loguru `logger.configure(extra={"request_id": "-"})` + format 에 `{extra[request_id]}` 포함 |
 
 ### 도입 트리거

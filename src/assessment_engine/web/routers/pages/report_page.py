@@ -1,12 +1,12 @@
-"""서버 보고서 SSR — 선택 N대 (`/servers/report`) + 단일 1대 (`/servers/{id}/report`).
+"""서버 보고서 SSR — 선택 N대 (`/reports/servers`) + 단일 1대 (`/servers/{id}/report`).
 
 server scope 보고서. 환경 단위 high-level 보고서는 `/reports/environment` 별도 endpoint (T13).
 
 발행/표시 분리 (PRG):
-- POST `/servers/report/emit` (ids 1개=단일 양식, 2개+=N대 표 양식) — 발행 시점 정적 스냅샷 + (engineer) narrative
-  worker 발행. 응답 view_url = `?job={id}` (단일은 `/servers/{pid}/report?job=`).
+- POST `/reports/servers/emit` (ids 1개=단일 양식, 2개+=N대 표 양식) — 발행 시점 정적 스냅샷.
+  응답 view_url = `?job={id}` (단일은 `/servers/{pid}/report?job=`).
 - GET `?job={id}` — 저장된 정적 스냅샷 렌더 (재계산·재진단 없음, 이력 동적변화 0).
-- GET (job 없음) — live read-only preview. 진단 트리거 없음 (engineer narrative 영역은 "발행 시 생성" 표시).
+- GET (job 없음) — live read-only preview. 진단 트리거 없음.
 """
 
 from datetime import datetime
@@ -31,7 +31,9 @@ from assessment_engine.web.services.report_serializer import (
 from assessment_engine.web.templating import templates
 from assessment_engine.web.view_models.attention import AttentionSignals
 
-report_page_router = APIRouter()
+# 단일 보고서는 서버 단위(/servers/{id}/report), N대 선택 보고서는 보고서 그룹(/reports/servers) — URL 명사 분리.
+report_single_router = APIRouter(prefix="/servers")
+report_multi_router = APIRouter(prefix="/reports")
 
 _REPORT_VIEW_TITLES: dict[str, str] = {
     "customer": "고객 제출용",
@@ -69,7 +71,7 @@ def _attention_by_host(hostnames: set[str], attention: AttentionSignals) -> dict
     return by_host
 
 
-@report_page_router.get("/report")
+@report_multi_router.get("/servers")
 async def report(
     request: Request,
     ids: str | None = Query(None, description="comma-separated public_id 목록 (live preview). job 모드 시 무시"),
@@ -83,13 +85,13 @@ async def report(
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """Server scope N대 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview."""
-    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/servers/"
+    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/"
     self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 
     if job:
         return await _render_summary_snapshot(request, job, back_url, self_back, diag_service)
 
-    # live read-only preview — 진단 트리거 없음 (engineer narrative 영역은 "발행 시 생성").
+    # live read-only preview — 진단 트리거 없음.
     public_ids = [pid.strip() for pid in (ids or "").split(",") if pid.strip()]
     summary = await service.get_selection_report(public_ids, view=view, time_range=time_range)
     if summary is None:
@@ -103,9 +105,6 @@ async def report(
             "summary": summary,
             "view": view,
             "view_title": _REPORT_VIEW_TITLES[view],
-            "narratives": {},
-            "narrative_status": "none",
-            "narrative_key": None,  # selection 자체엔 AI 진단 없음 (개별 보고서 child 가 per-pid narrative 표시)
             "report_job_id": None,
             "child_jobs": {},
             "back_url": back_url,
@@ -123,8 +122,8 @@ async def _render_summary_snapshot(
     self_back: str,
     diag_service: DiagnosticService,
 ):
-    """발행된 N대 selection 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary) + narrative/운영신호 (aux)."""
-    rec = await diag_service.get_one(job_id)
+    """발행된 N대 selection 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary) + 운영신호 (aux)."""
+    rec = await diag_service.get_report_snapshot(job_id)
     if rec is None or rec.result is None or rec.result.get("kind") != REPORT_KIND_ENV:
         raise HTTPException(status_code=404, detail="report snapshot not found")
     result = rec.result
@@ -139,9 +138,6 @@ async def _render_summary_snapshot(
             "summary": summary,
             "view": view,
             "view_title": _REPORT_VIEW_TITLES.get(view, view),
-            "narratives": result.get("narratives", {}),
-            "narrative_status": result.get("narrative_status", "none"),
-            "narrative_key": None,  # selection 자체엔 AI 진단 없음 (개별 보고서 child 가 per-pid narrative 표시)
             "report_job_id": rec.id,
             "child_jobs": result.get("child_jobs", {}),
             "back_url": back_url,
@@ -152,7 +148,7 @@ async def _render_summary_snapshot(
     )
 
 
-@report_page_router.post("/report/emit")
+@report_multi_router.post("/servers/emit")
 async def report_emit(
     ids: str = Query(..., description="comma-separated public_id 목록 (1개=단일 양식, 2개+=N대 표)"),
     time_range: DiagnosticTimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
@@ -161,10 +157,10 @@ async def report_emit(
     service: QueryService = Depends(get_service),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """Server scope 보고서 발행 (PRG) — 발행 시점 정적 스냅샷 + (engineer) narrative worker 발행.
+    """Server scope 보고서 발행 (PRG) — 발행 시점 정적 스냅샷.
 
     응답 view_url = `?job={id}` — 클라이언트가 navigate. ids 1개면 단일 양식(`/servers/{pid}/report?job=`),
-    2개+ 면 N대 표 양식(`/servers/report?job=`). engineer 면 worker 가 narrative 채운 뒤 polling 갱신.
+    2개+ 면 N대 표 양식(`/reports/servers?job=`).
     """
     public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
     sid_map = await service.resolve_server_ids(public_ids)
@@ -182,12 +178,11 @@ async def report_emit(
             raise HTTPException(status_code=404, detail="server not found")
         return {"view_url": f"/servers/{valid_pids[0]}/report?job={single_job}"}
 
-    # 개별 단일 보고서 먼저 발행 (이력 개별 조회). engineer 는 publish=False child — narrative 는
-    # 부모 표 worker 가 server 별로 1회 생성한 값을 복사(단일 생성·표·개별 항상 일관). customer 는 즉시 succeeded.
+    # 개별 단일 보고서 먼저 발행 (이력 개별 조회) — 모두 즉시 succeeded 정적 스냅샷.
     child_jobs: dict[str, str] = {}
     for pid in valid_pids:
         cid = await _emit_single_report(
-            service, diag_service, pid, view, time_range, anchor, attention, publish=False
+            service, diag_service, pid, view, time_range, anchor, attention
         )
         if cid:
             child_jobs[pid] = cid
@@ -210,7 +205,7 @@ async def report_emit(
         # 양 view 모두 child_jobs 저장 — 세부 서버 목록 hostname -> 개별 보고서(child) 정적 link.
         child_jobs=child_jobs,
     )
-    return {"view_url": f"/servers/report?job={table_job}"}
+    return {"view_url": f"/reports/servers?job={table_job}"}
 
 
 async def _emit_single_report(
@@ -221,13 +216,8 @@ async def _emit_single_report(
     time_range: str,
     anchor: datetime,
     attention: AttentionSignals,
-    publish: bool = True,
 ) -> str | None:
-    """단일 서버 보고서 발행 (kind=ENV) — 단독 emit(publish=True) + N대 fan-out child(publish=False) 공용.
-
-    publish=False (engineer child): pending 저장만, worker publish 생략 — 부모 표 worker 가 narrative 복사.
-    미존재 시 None.
-    """
+    """단일 서버 보고서 발행 (kind=ENV) — 단독 emit + N대 fan-out child 공용. 미존재 시 None."""
     summary = await service.get_single_server_report(
         pid, view=view, time_range=time_range, anchor_at=anchor
     )
@@ -243,11 +233,10 @@ async def _emit_single_report(
         time_range=time_range,
         anchor_at=anchor,
         aux={"attention_for_host": _attention_for_host(hostname, attention)},
-        publish=publish,
     )
 
 
-@report_page_router.get("/{server_id}/report")
+@report_single_router.get("/{server_id}/report")
 async def single_server_report(
     request: Request,
     server_id: UUID,
@@ -281,8 +270,6 @@ async def single_server_report(
             "view_title": _REPORT_VIEW_TITLES[view],
             "back_url": back_url,
             "hostname": hostname,
-            "narratives": {},
-            "narrative_status": "none",
             "report_job_id": None,
             "attention_for_host": _attention_for_host(hostname, attention),
             "self_back": self_back,
@@ -298,8 +285,8 @@ async def _render_single_snapshot(
     self_back: str,
     diag_service: DiagnosticService,
 ):
-    """발행된 단일 서버 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary) + narrative/운영신호 (aux)."""
-    rec = await diag_service.get_one(job_id)
+    """발행된 단일 서버 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary) + 운영신호 (aux)."""
+    rec = await diag_service.get_report_snapshot(job_id)
     if rec is None or rec.result is None or rec.result.get("kind") != REPORT_KIND_ENV:
         raise HTTPException(status_code=404, detail="report snapshot not found")
     result = rec.result
@@ -315,8 +302,6 @@ async def _render_single_snapshot(
             "view_title": _REPORT_VIEW_TITLES.get(view, view),
             "back_url": back_url,
             "hostname": hostname,
-            "narratives": result.get("narratives", {}),
-            "narrative_status": result.get("narrative_status", "none"),
             "report_job_id": rec.id,
             "attention_for_host": result.get("aux", {}).get("attention_for_host", {}),
             "self_back": self_back,

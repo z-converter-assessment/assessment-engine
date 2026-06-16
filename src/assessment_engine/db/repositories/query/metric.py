@@ -38,7 +38,7 @@ from assessment_engine.db.repositories.query.types import (
     TimeRange,
 )
 
-# table 매핑 — types.py 가 ORM import 안 하므로 본 모듈에서 ORM __tablename__ 결합.
+# table 매핑 — types.py 가 ORM import 안 하므로 여기서 __tablename__ 결합.
 _RATE_PER_DIM: dict[str, tuple[str, str, str]] = {
     "disk.read_iops": (
         ServerDiskIo.__tablename__,
@@ -84,8 +84,7 @@ _RATE_PER_DIM: dict[str, tuple[str, str, str]] = {
 
 
 class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
-    # 시계열 cursor pagination 윈도우 — partition pruning 의무 하한 (#C5).
-    # 30일이면 backward scroll N 페이지 안정적으로 커버 (cursor 마다 cursor - 30d 동적).
+    # cursor pagination 윈도우 — C5 partition pruning 하한. cursor 마다 cursor-30d 동적.
     _METRIC_SNAPSHOTS_WINDOW = timedelta(days=30)
 
     async def latest_dashboard(self, server_id: int) -> DashboardRaw | None:
@@ -93,7 +92,6 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         if not exists.scalar_one_or_none():
             return None
 
-        # server_metrics는 dimension 없음. 단순 최신 2행.
         # 미래 timestamp 방어 — 시계 어긋난 agent 의 미래 collected_at 행이 "가짜 최신"으로 잡혀
         # CPU delta(연속 2행)를 깨뜨리는 것 차단 (now()+skew 상한, _base._FUTURE_SKEW_SQL 와 동일 정책).
         m_result = await self.session.execute(
@@ -186,7 +184,6 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         cursor: datetime | None,
         limit: int,
     ) -> list[MetricSeries]:
-        # cursor 가 있으면 그 시점부터 30일 뒤로, 없으면 현재로부터 30일.
         upper = cursor if cursor else datetime.now(UTC)
         lower = upper - self._METRIC_SNAPSHOTS_WINDOW
         stmt = (
@@ -213,8 +210,8 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         agg: AggFunc,
         end: datetime | None = None,
     ) -> list[MetricSeries]:
-        # 서버 상세 차트 = 통일 metric_trend(collapse=False, server_ids=[1대]) 위임.
-        # per_ts 의 합산 대상이 1서버뿐이라 시점값=그 서버값 -> 환경/선택과 동일 산식. dimension 보존.
+        # 서버 상세 차트 = metric_trend(collapse=False, server_ids=[1대]) 위임 — 합산 대상이 1서버뿐이라
+        # 시점값=그 서버값 -> 환경/선택과 동일 산식, dimension 보존.
         end_dt = end or datetime.now(UTC)
         start = end_dt - TIME_RANGE_TD[time_range]
         bi, bucket_td = _BUCKET_INFO[bucket]
@@ -242,13 +239,11 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         dimension: str | None = None,
         collapse: bool = True,
     ) -> list[MetricSeries]:
-        """통일 시계열 — 시점별 1값(그 시점 데이터 보낸 서버만) -> 버킷 agg(avg/max/p95).
+        """통일 시계열 — 각 collected_at 마다 환경값 1개 -> time_bucket agg(avg/max/p95).
 
-        단일 원칙: 각 collected_at 마다 환경값 1개(활용률=sum(num)/sum(den), 처리량=sum(rate),
-        로드=sum(load_15m)/sum(cpu_cores)) -> time_bucket 통계. 온라인/오프라인 별도 판단 없음 —
-        그 시점 데이터 있으면 포함(데이터 유무가 곧 필터).
-        server_ids=None 전체·[1대]=서버 상세 동치(per_ts 합산 대상이 1서버라 시점값=그 서버값)·[N]=선택.
-        collapse=False 면 device/iface/mount dimension 보존(서버 상세 멀티라인), True 면 합산 단일선(환경).
+        시점값 = 활용률 sum(num)/sum(den), 처리량 sum(rate), 로드 sum(load_15m)/sum(cpu_cores).
+        그 시점 데이터 있는 서버만 포함(데이터 유무가 곧 온라인 필터). server_ids=None 전체·[1대]=서버 상세·[N]=선택.
+        collapse=False 면 device/iface/mount dimension 보존(멀티라인), True 면 합산 단일선(환경).
         """
         ae = _AGG[agg]
         sid = "AND server_id = ANY(:server_ids)" if server_ids else ""

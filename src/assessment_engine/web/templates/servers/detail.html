@@ -24,13 +24,10 @@
     background: #e2e8f0;
   }
   .group-panel {
-    /* 박스 없이 흰 카드에 바로 — 배경·경계 제거. 그룹 구분은 위 group-header(라벨+구분선)가 담당.
-       좌우 패딩 0 으로 카드 콘텐츠와 정렬. progress-bar 트랙은 전역 slate-200 이 흰 배경과 충분히 대비돼 별도 오버라이드 불요 */
     padding: 4px 0;
     margin-bottom: 4px;
   }
-  /* 실시간 메트릭 stat-box — 흰 배경 + 회색 경계 (글씨색 유지).
-     흰 카드에서 박스 경계만 또렷하게. group-panel 스코프 한정 — 다른 상세 페이지 stat-box 불변. */
+  /* group-panel 스코프 한정 — 다른 상세 페이지 stat-box 불변. */
   .group-panel .stat-box { background: #fff; border: 1px solid #cbd5e1; }
   .legend-item {
     display: flex;
@@ -46,17 +43,16 @@
     display: inline-block;
   }
 </style>
-<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
+<a class="back no-print" href="{{ back_url }}">이전</a>
 
 <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
   <h1>{{ server.hostname }}</h1>
   <span id="online-badge" class="status-off no-print">확인 중...</span>
 </div>
 
-<!-- 정적 인벤토리 정보 -->
 <div class="card">
   <h2 class="card-title">시스템 정보</h2>
-  <dl class="kv">
+  <dl class="kv kv-soft">
     <dt class="kv-group">사양</dt>
     <dt>OS</dt>
     <dd>{{ server.os_display }}{% if server.os_codename %} ({{ server.os_codename }}){% endif %}</dd>
@@ -82,24 +78,27 @@
     </dd>
 
     <dt class="kv-group">운영 · 식별</dt>
+    <dt>OS EOL</dt>
+    <dd>{% if stability.os_eol_label %}{{ stability.os_eol_label }}{% else %}-{% endif %}</dd>
     <dt>Boot Time</dt>
     <dd>{{ server.boot_time | kst }}</dd>
+    <dt>Reboots</dt>
+    <dd>{{ stability.reboot_count }}회</dd>
     <dt>Agent Started</dt>
     <dd>{{ server.agent_started_at | kst }}</dd>
+    <dt>Agent Restarts</dt>
+    <dd>{{ stability.agent_restart_count }}회</dd>
     <dt>Last Inventory</dt>
     <dd>{{ server.last_seen_at | kst }}</dd>
     <dt>Agent Version</dt>
     <dd>{{ server.agent_version or '-' }}</dd>
     <dt>Composite ID</dt>
     <dd>{{ server.composite_id }}</dd>
-    <dt>Machine ID</dt>
-    <dd>{{ server.machine_id or '-' }}</dd>
 
     <dt class="kv-group">스토리지</dt>
-    {# 파일시스템 총 크기 합(volume_total_gb) — 실제 데이터 저장 가능 총량. 물리 raw(LVM·오버헤드 포함)와 별개. #}
+    {# volume_total_gb = 파일시스템 총 크기 합(저장 가능 총량). 물리 raw(LVM·오버헤드 포함)와 별개. #}
     <dt>파일시스템 용량</dt>
     <dd>{{ server.volume_total_gb | disksize }}</dd>
-    {# 파일시스템(논리 볼륨) — inventory.mounts 기준. 양 OS 일관(fstype 명시). #}
     <dt>파일시스템</dt>
     {% if server.volumes %}
     <dd>{{ server.volumes_count }}개</dd>
@@ -125,43 +124,39 @@
   </dl>
 </div>
 
-<!-- 서비스 / 포트 요약 -->
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 class="card-title">서비스 / 포트</h2>
-    <a href="/servers/{{ server.public_id }}/services?back={{ self_back }}" class="btn-action no-print" style="font-size:12px; padding:4px 11px;">서비스/포트 상세 →</a>
+    <h2 class="card-title" style="margin:0;">서비스 / 포트</h2>
+    <a href="/servers/{{ server.public_id }}/services?back={{ self_back }}" class="btn-action btn-action-sm no-print">서비스/포트 상세</a>
   </div>
 
-  <!-- 카테고리 뱃지 + 매핑 포트 -->
   <div style="margin-bottom:16px;">
     <div class="sub-label" style="margin-top:0; margin-bottom:8px;">실행 중인 서비스 카테고리</div>
     {% if server.services is none %}
-      <span class="text-meta" style="font-size:13px;">수집 불가</span>
+      <span class="text-meta text-md">수집 불가</span>
     {% elif server.services %}
-      <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:stretch;">
-        {# 좌측 액센트 바 — 카테고리 색 세로 바로 뱃지+포트의 소속을 묶음 (외곽 박스 대신, card-title 좌측 바와 동일 언어). #}
+      <div style="display:grid; grid-template-columns:auto 1fr; gap:8px 12px; align-items:center;">
         {% for svc in server.known_services %}
-        <span class="svc-group cat-{{ svc.category }}">
-          <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}{% if svc.display_name %}<span style="font-weight:400; opacity:0.75; margin-left:5px;">{{ svc.display_name }}</span>{% endif %}</span>
+        <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}{% if svc.display_name %}<span style="font-weight:400; opacity:0.75; margin-left:5px;">{{ svc.display_name }}</span>{% endif %}</span>
+        <span style="display:flex; flex-wrap:wrap; gap:6px;">
           {% for p in svc.ports %}
-          <span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:3px 8px; font-size:12px;"><span class="identifier" style="font-size:12px; color:var(--color-title);">{{ p.proto }}</span><strong>{{ p.port }}</strong></span>
+          <span class="port-chip"><span class="identifier text-sm" style="color:var(--color-title);">{{ p.proto }}</span><strong>{{ p.port }}</strong></span>
           {% endfor %}
         </span>
         {% endfor %}
       </div>
     {% else %}
-      <span class="text-meta" style="font-size:13px;">실행 중인 서비스 없음</span>
+      <span class="text-meta text-md">실행 중인 서비스 없음</span>
     {% endif %}
   </div>
 
-  <!-- 주요 포트 (<= 1024) -->
   <div>
-    <div class="sub-label" style="margin-bottom:8px;">주요 Listen 포트 <span class="text-meta" style="font-weight:400; font-size:11px;">(port <= 1024)</span></div>
+    <div class="sub-label" style="margin-bottom:8px;">주요 Listen 포트</div>
     {% if server.key_listen_ports %}
     <div style="display:flex; flex-wrap:wrap; gap:8px;">
       {% for p in server.key_listen_ports %}
-      <span style="display:inline-flex; align-items:center; gap:5px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:4px 10px; font-size:12px;">
-        <span class="identifier" style="font-size:12px; color:var(--color-title);">{{ p.proto }}</span>
+      <span class="port-chip">
+        <span class="identifier text-sm" style="color:var(--color-title);">{{ p.proto }}</span>
         <strong>{{ p.port }}</strong>
         {% if p.comm %}<span class="text-meta">{{ p.comm }}</span>{% endif %}
       </span>
@@ -173,151 +168,155 @@
   </div>
 </div>
 
-<!-- 실시간 메트릭 대시보드 (AJAX + 30초 polling — 환경 실시간과 일관) -->
-<div class="no-print" style="display:flex; justify-content:flex-end; margin-bottom:6px;">
-  <span id="metrics-stamp" class="text-meta" style="font-size:11px;">30초마다 자동 갱신 · 최근 —</span>
-</div>
+<!-- AJAX + 30초 polling (P3 예외, detail.js). -->
 <div class="card" id="realtime-metrics-card">
-  <div style="margin-bottom:14px;">
-    <h2 class="card-title">실시간 메트릭</h2>
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+    <h2 class="card-title" style="margin:0;">실시간 메트릭</h2>
+    <span id="metrics-stamp" class="text-meta text-xs no-print">30초마다 자동 갱신 · 최근 —</span>
   </div>
 
-  <div id="metrics-loading" class="text-meta" style="font-size:13px; padding:8px 0;">
+  <div id="metrics-loading" class="text-meta text-md" style="padding:8px 0;">
     메트릭 데이터를 불러오는 중...
   </div>
 
-  <div id="metrics-no-data" class="text-meta" style="display:none; font-size:13px; padding:8px 0;">
+  <div id="metrics-no-data" class="text-meta text-md" style="display:none; padding:8px 0;">
     수집된 메트릭이 없습니다. 에이전트가 연결되면 자동으로 표시됩니다.
   </div>
 
   <div id="metrics-content" style="display:none;">
-    <p class="text-meta" style="font-size:11px; margin:0 0 10px; line-height:1.8;">
+    <p class="text-meta text-xs" style="margin:0 0 10px; line-height:1.8;">
       <span class="identifier text-label" style="display:inline-block; min-width:36px;">N/A</span>해당 OS 에서 미측정하는 항목<br>
       <span class="identifier text-label" style="display:inline-block; min-width:36px;">—</span>일시적으로 값 없음 (첫 수집·수집 끊김 등)
     </p>
 
-    <!-- 그룹: CPU -->
+    <!-- detail.js 가 값 갱신. -->
+    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:24px; margin:4px 0 20px;">
+      <div style="text-align:center;">
+        <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
+          <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
+          <circle id="cpu-donut-arc" cx="50" cy="50" r="42" fill="none" stroke="var(--color-title)" stroke-width="10" stroke-dasharray="0 263.89" stroke-linecap="round" transform="rotate(-90 50 50)"/>
+          <text id="cpu-donut-text" x="50" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#94a3b8">—</text>
+        </svg>
+        <div class="text-label text-sm" style="margin-top:4px;">CPU</div>
+      </div>
+      <div style="text-align:center;">
+        <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
+          <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
+          <circle id="mem-donut-arc" cx="50" cy="50" r="42" fill="none" stroke="var(--color-title)" stroke-width="10" stroke-dasharray="0 263.89" stroke-linecap="round" transform="rotate(-90 50 50)"/>
+          <text id="mem-donut-text" x="50" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#94a3b8">—</text>
+        </svg>
+        <div class="text-label text-sm" style="margin-top:4px;">메모리</div>
+      </div>
+      <div style="text-align:center;">
+        <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
+          <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
+          <circle id="disk-donut-arc" cx="50" cy="50" r="42" fill="none" stroke="var(--color-title)" stroke-width="10" stroke-dasharray="0 263.89" stroke-linecap="round" transform="rotate(-90 50 50)"/>
+          <text id="disk-donut-text" x="50" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#94a3b8">—</text>
+        </svg>
+        <div class="text-label text-sm" style="margin-top:4px;">디스크</div>
+      </div>
+    </div>
+
     <div class="group-header" style="margin-top:8px;">
       <span class="group-label">CPU</span>
       <div class="group-line"></div>
-      <a href="/servers/{{ server.public_id }}/cpu?back={{ self_back }}" class="btn-action no-print" style="font-size:11px; padding:4px 11px;">CPU 상세 →</a>
+      <a href="/servers/{{ server.public_id }}/cpu?back={{ self_back }}" class="btn-action btn-action-sm no-print">CPU 상세</a>
     </div>
     <div class="group-panel">
-      <div class="sub-label" style="margin-top:0;">CPU / Load</div>
-      <div class="stat-grid stat-grid-sm" style="margin-bottom:10px;">
-        <div class="stat-box">
-          <div class="stat-label">Usage</div>
-          <div class="stat-value" id="cpu-usage">—<span class="stat-unit">%</span></div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">User</div>
-          <div class="stat-value" id="cpu-user">—<span class="stat-unit">%</span></div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">System</div>
-          <div class="stat-value" id="cpu-system">—<span class="stat-unit">%</span></div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">I/O Wait</div>
-          <div class="stat-value" id="cpu-iowait">—<span class="stat-unit">%</span></div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Load 1m</div>
-          <div class="stat-value" id="load-1m">—</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Load 5m</div>
-          <div class="stat-value" id="load-5m">—</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Load 15m</div>
-          <div class="stat-value" id="load-15m">—</div>
-        </div>
-      </div>
-      <div class="progress-bar" style="margin-bottom:14px;">
-        <div id="cpu-bar" class="progress-fill" style="width:0%; background:var(--color-title);"></div>
+      <div style="overflow-x:auto; margin-bottom:10px;">
+        <table style="min-width:560px;">
+          <thead>
+            <tr>
+              <th style="white-space:nowrap;">Usage</th>
+              <th style="white-space:nowrap;">User</th>
+              <th style="white-space:nowrap;">System</th>
+              <th style="white-space:nowrap;">I/O Wait</th>
+              <th style="white-space:nowrap;">Load 1m</th>
+              <th style="white-space:nowrap;">Load 5m</th>
+              <th style="white-space:nowrap;">Load 15m</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td id="cpu-usage" style="white-space:nowrap;">—</td>
+              <td id="cpu-user" style="white-space:nowrap;">—</td>
+              <td id="cpu-system" style="white-space:nowrap;">—</td>
+              <td id="cpu-iowait" style="white-space:nowrap;">—</td>
+              <td id="load-1m" style="white-space:nowrap;">—</td>
+              <td id="load-5m" style="white-space:nowrap;">—</td>
+              <td id="load-15m" style="white-space:nowrap;">—</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
-    <!-- 그룹: 메모리 -->
     <div class="group-header">
       <span class="group-label">메모리</span>
       <div class="group-line"></div>
-      <a href="/servers/{{ server.public_id }}/memory?back={{ self_back }}" class="btn-action no-print" style="font-size:11px; padding:4px 11px;">메모리 상세 →</a>
+      <a href="/servers/{{ server.public_id }}/memory?back={{ self_back }}" class="btn-action btn-action-sm no-print">메모리 상세</a>
     </div>
     <div class="group-panel">
-      <div class="sub-label" style="margin-top:0;">Memory</div>
-      <div class="stat-grid stat-grid-sm" style="margin-bottom:10px;">
-        <div class="stat-box">
-          <div class="stat-label">Usage</div>
-          <div class="stat-value" id="mem-usage">—<span class="stat-unit">%</span></div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Used</div>
-          <div class="stat-value" id="mem-used">—</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Available</div>
-          <div class="stat-value" id="mem-avail">—</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Cached</div>
-          <div class="stat-value" id="mem-cached">—</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Buffers</div>
-          <div class="stat-value" id="mem-buffers">—</div>
-        </div>
-      </div>
-      <!-- 정의서 메모리 구성(types._METRIC_EXPR): Used + Available = 100. Cached/Buffers/free 는 Available(회수 가능) 영역 세부. 4구획 합 = 100. -->
-      <div class="progress-bar" style="margin-bottom:8px; display:flex; overflow:hidden; border-radius:99px;">
-        <div id="mem-used-bar"   style="height:6px; transition:width .3s; background:var(--color-title);"></div>
-        <div id="mem-cached-bar" style="height:6px; transition:width .3s; background:#93c5fd;"></div>
-        <div id="mem-buf-bar"    style="height:6px; transition:width .3s; background:#818cf8;"></div>
-        <div id="mem-avail-bar"  style="height:6px; transition:width .3s; background:#cbd5e1;"></div>
-      </div>
-      <div style="display:flex; gap:14px; margin-bottom:14px;">
-        <span class="legend-item"><span class="legend-swatch" style="background:var(--color-title);"></span>Used</span>
-        <span class="legend-item"><span class="legend-swatch" style="background:#93c5fd;"></span>Cached</span>
-        <span class="legend-item"><span class="legend-swatch" style="background:#818cf8;"></span>Buffers</span>
+      <div style="overflow-x:auto; margin-bottom:10px;">
+        <table style="min-width:480px;">
+          <thead>
+            <tr>
+              <th style="white-space:nowrap;">Usage</th>
+              <th style="white-space:nowrap;">Used</th>
+              <th style="white-space:nowrap;">Available</th>
+              <th style="white-space:nowrap;">Cached</th>
+              <th style="white-space:nowrap;">Buffers</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td id="mem-usage" style="white-space:nowrap;">—</td>
+              <td id="mem-used" style="white-space:nowrap;">—</td>
+              <td id="mem-avail" style="white-space:nowrap;">—</td>
+              <td id="mem-cached" style="white-space:nowrap;">—</td>
+              <td id="mem-buffers" style="white-space:nowrap;">—</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
-      <!-- Swap -->
       <div id="swap-section" style="display:none;">
         <div class="sub-label">Swap</div>
-        <div class="stat-grid stat-grid-sm" style="margin-bottom:10px;">
-          <div class="stat-box">
-            <div class="stat-label">Usage</div>
-            <div class="stat-value" id="swap-usage">—<span class="stat-unit">%</span></div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-label">Used</div>
-            <div class="stat-value" id="swap-used">—</div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-label">Total</div>
-            <div class="stat-value" id="swap-total">—</div>
-          </div>
+        <div style="overflow-x:auto; margin-bottom:10px;">
+          <table style="min-width:300px;">
+            <thead>
+              <tr>
+                <th style="white-space:nowrap;">Usage</th>
+                <th style="white-space:nowrap;">Used</th>
+                <th style="white-space:nowrap;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td id="swap-usage" style="white-space:nowrap;">—</td>
+                <td id="swap-used" style="white-space:nowrap;">—</td>
+                <td id="swap-total" style="white-space:nowrap;">—</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
         <div class="progress-bar" style="margin-bottom:14px;">
           <div id="swap-bar" class="progress-fill" style="width:0%;"></div>
         </div>
         {% if server.os_family == 'windows' %}
-        <p class="text-meta" style="font-size:11px; margin:0 0 4px;">Windows 의 스왑(pagefile)은 여유 메모리가 있어도 상시 일정량 사용되므로, 사용률이 높아도 메모리 부족 신호 아님.</p>
+        <p class="text-meta text-xs" style="margin:0 0 4px;">Windows 의 스왑(pagefile)은 여유 메모리가 있어도 상시 일정량 사용되므로, 사용률이 높아도 메모리 부족 신호 아님.</p>
         {% endif %}
       </div>
     </div>
 
-    <!-- 그룹: 스토리지 -->
     <div id="storage-group" style="display:none;">
       <div class="group-header">
         <span class="group-label">스토리지</span>
         <div class="group-line"></div>
-        <a href="/servers/{{ server.public_id }}/storage?back={{ self_back }}" class="btn-action no-print" style="font-size:11px; padding:4px 11px;">스토리지 상세 →</a>
+        <a href="/servers/{{ server.public_id }}/storage?back={{ self_back }}" class="btn-action btn-action-sm no-print">스토리지 상세</a>
       </div>
       <div class="group-panel">
         <div id="disk-io-section">
-          <div class="sub-label" style="margin-top:0;">디스크 I/O <small class="text-meta" style="font-size:11px; font-weight:400;">연속 2회 측정 delta</small></div>
           <table id="disk-io-table" style="margin-bottom:8px;">
             <thead>
               <tr>
@@ -328,24 +327,18 @@
             </thead>
             <tbody id="disk-io-body"></tbody>
           </table>
-          <div id="disk-io-empty" class="text-meta" style="display:none; font-size:12px;">디스크 I/O 미수집 — 연속 2회 측정 시 표시</div>
-        </div>
-        <div id="fs-section">
-          <div class="sub-label">Filesystem 사용량</div>
-          <div id="fs-body" style="padding-bottom:4px;"></div>
+          <div id="disk-io-empty" class="text-meta text-sm" style="display:none;">디스크 I/O 미수집 — 연속 2회 측정 시 표시</div>
         </div>
       </div>
     </div>
 
-    <!-- 그룹: 네트워크 -->
     <div id="net-io-section" style="display:none;">
       <div class="group-header">
         <span class="group-label">네트워크</span>
         <div class="group-line"></div>
-        <a href="/servers/{{ server.public_id }}/network?back={{ self_back }}" class="btn-action no-print" style="font-size:11px; padding:4px 11px;">네트워크 상세 →</a>
+        <a href="/servers/{{ server.public_id }}/network?back={{ self_back }}" class="btn-action btn-action-sm no-print">네트워크 상세</a>
       </div>
       <div class="group-panel">
-        <div class="sub-label" style="margin-top:0;">Network I/O <small class="text-meta" style="font-size:11px; font-weight:400;">연속 2회 측정 delta</small></div>
         <table id="net-io-table" style="margin-bottom:14px;">
           <thead>
             <tr>
@@ -366,127 +359,118 @@
          data-server-public-id="{{ server.public_id }}"
          data-server-hostname="{{ server.hostname }}">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 class="card-title">보고서</h2>
+    <h2 class="card-title" style="margin:0;">보고서</h2>
     <a href="/reports/history?server_public_ids={{ server.public_id }}&scope=server&back={{ self_back }}" class="btn-action no-print" style="text-decoration:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       보고서 이력
     </a>
   </div>
-  <p class="text-meta" style="margin:0 0 12px; font-size:12px;">서버 <strong class="text-strong">{{ server.hostname }}</strong> 1대 대상 보고서 발행. 발행 이력은 보고서 이력에서 확인.</p>
+  <p class="text-meta text-sm" style="margin:0 0 12px;">서버 <strong class="text-strong">{{ server.hostname }}</strong> 1대 대상 보고서 발행</p>
   <div style="display:flex; gap:8px;">
     <a href="/servers/{{ server.public_id }}/metrics?back={{ self_back }}" class="btn-action no-print" style="text-decoration:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       성능 추이
     </a>
     <button type="button" id="server-report-customer-open" class="btn-action no-print" data-view="customer">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
       고객 보고서 발행
     </button>
     <button type="button" id="server-report-engineer-open" class="btn-action no-print" data-view="engineer">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="9 13 11 15 15 11"/></svg>
-      엔지니어 보고서 발행 <span class="tag-ai">AI</span>
+      엔지니어 보고서 발행
     </button>
   </div>
 
-  <!-- 발행 모달 — 대시보드 환경 보고서 모달과 동일 UX 패턴 (서버 1대 scope) -->
   <div id="server-report-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
         <h3 id="server-report-title" class="modal-title">보고서 발행</h3>
         <button type="button" id="server-report-close" class="text-meta" style="background:none; border:none; font-size:20px; cursor:pointer; line-height:1;">X</button>
       </div>
-      <p id="server-report-desc" class="text-meta" style="margin:0 0 12px; font-size:12px; line-height:1.5;">서버 {{ server.hostname }} 자원 적정성 규칙 기반 보고서 발행.</p>
+      <p id="server-report-desc" class="text-meta text-sm" style="margin:0 0 12px; line-height:1.5;">서버 {{ server.hostname }} 자원 적정성 규칙 기반 보고서 발행.</p>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
         <div>
-          <label for="server-report-range" class="text-label" style="display:block; font-size:12px; margin-bottom:6px;">윈도우</label>
-          <select id="server-report-range" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
+          <label for="server-report-range" class="text-label text-sm" style="display:block; margin-bottom:6px;">윈도우</label>
+          <select id="server-report-range" class="text-md" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px;">
             <option value="15m">15분</option>
             <option value="1h">1시간</option>
             <option value="6h">6시간</option>
-            <option value="24h">24시간</option>
+            <option value="24h">1일</option>
             <option value="7d">7일</option>
             <option value="14d" selected>14일 (표준)</option>
             <option value="30d">30일</option>
           </select>
         </div>
         <div>
-          <label for="server-report-anchor" class="text-label" style="display:block; font-size:12px; margin-bottom:6px;">Anchor (KST)</label>
-          <input type="datetime-local" id="server-report-anchor" autocomplete="off" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
+          <label for="server-report-anchor" class="text-label text-sm" style="display:block; margin-bottom:6px;">Anchor (KST)</label>
+          <input type="datetime-local" id="server-report-anchor" autocomplete="off" class="text-md" style="width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px;">
         </div>
       </div>
-      <button type="button" id="server-report-submit" class="btn" style="background:var(--color-title); color:#fff; padding:8px 16px; cursor:pointer; border:none;">발행</button>
+      <button type="button" id="server-report-submit" class="btn-primary">발행</button>
     </div>
   </div>
 </section>
 
-<!-- AI 진단 = 엔지니어 보고서 안 본질 catalog 통합 (서버 detail 안 별도 카드 없음). -->
-<!-- 본 서버 보고서 (engineer view) 진입: /servers/{{ server.public_id }}/report?view=engineer -->
-
-<!-- 최근 작업 — task.install 이력 (최근 10건). 클릭 시 modal 로 stdout_tail/stderr_tail/failure_reason 확장 -->
+<!-- 행 클릭 시 modal 로 stdout_tail/stderr_tail/failure_reason 확장 (detail.js). -->
 <div class="card" id="server-install-card"
      data-server-public-id="{{ server.public_id }}"
      data-server-hostname="{{ server.hostname }}">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-    <h2 class="card-title">최근 작업</h2>
+    <h2 class="card-title" style="margin:0;">최근 작업</h2>
     <button type="button" id="server-install-open" class="btn-action no-print">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       ZConverter Install
     </button>
   </div>
-  <p class="text-meta" style="margin:0 0 12px; font-size:12px;">최근 10건 — task.install</p>
 
-  <!-- 발행 모달 — 대시보드 ZConverter Install 모달과 동일 form (1대 scope) -->
   <div id="server-install-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
         <h3 class="modal-title">ZConverter Install 발행</h3>
         <button type="button" id="server-install-close" class="text-meta" style="background:none; border:none; font-size:20px; cursor:pointer; line-height:1;">X</button>
       </div>
-      <p class="text-meta" style="margin:0 0 12px; font-size:12px; line-height:1.5;">
+      <p class="text-meta text-sm" style="margin:0 0 12px; line-height:1.5;">
         서버 <strong class="text-strong">{{ server.hostname }}</strong> 1대에 아래 ZDM 좌표로 ZConverter 설치를 발행합니다.
         <br>agent 가 ZDM 서버에서 본체 패키지를 fetch 후 <code>install.sh -s ZDM_IP -u ZDM_USER</code> 실행.
       </p>
       <div style="margin:12px 0;">
-        <label for="server-install-zdm-target" class="text-label" style="display:block; font-size:12px; margin-bottom:4px;">ZDM 서버 IP/hostname</label>
+        <label for="server-install-zdm-target" class="text-label text-sm" style="display:block; margin-bottom:4px;">ZDM 서버 IP/hostname</label>
         <input type="text" id="server-install-zdm-target" name="server-install-zdm-target-{{ asset_v }}" value="{{ zdm_defaults.ip }}" autocomplete="off"
-               style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px; box-sizing:border-box;">
+               class="text-md" style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; box-sizing:border-box;">
       </div>
       <div style="margin:12px 0;">
-        <label for="server-install-zdm-account" class="text-label" style="display:block; font-size:12px; margin-bottom:4px;">ZDM 관리자 계정 (email)</label>
+        <label for="server-install-zdm-account" class="text-label text-sm" style="display:block; margin-bottom:4px;">ZDM 관리자 계정 (email)</label>
         <input type="email" id="server-install-zdm-account" name="server-install-zdm-account-{{ asset_v }}" value="{{ zdm_defaults.user }}" autocomplete="off"
-               style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:13px; box-sizing:border-box;">
+               class="text-md" style="width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px; box-sizing:border-box;">
       </div>
-      <button type="button" id="server-install-submit" class="btn" style="background:var(--color-title); color:#fff; padding:8px 16px; cursor:pointer; border:none; margin-top:12px;">발행</button>
+      <button type="button" id="server-install-submit" class="btn-primary" style="margin-top:12px;">발행</button>
     </div>
   </div>
 
   {% if recent_tasks %}
-  <table class="task-timeline" style="width:100%; border-collapse:collapse;">
+  <div style="overflow-x:auto;">
+  <table class="task-timeline" style="width:100%; min-width:680px; border-collapse:collapse;">
     <thead>
-      <tr class="text-meta" style="text-align:left; font-size:12px; border-bottom:1px solid #e2e8f0;">
+      <tr class="text-meta text-sm" style="text-align:left; border-bottom:1px solid #e2e8f0;">
         <th style="padding:6px 8px;">상태</th>
         <th style="padding:6px 8px;">유형</th>
         <th style="padding:6px 8px;">발행</th>
         <th style="padding:6px 8px;">완료</th>
         <th style="padding:6px 8px;">소요</th>
-        <th style="padding:6px 8px;">실패 사유</th>
+        <th style="padding:6px 8px; min-width:280px;">실패 사유</th>
       </tr>
     </thead>
     <tbody>
       {% for t in recent_tasks %}
       <tr class="task-row" data-task-id="{{ t.task_id }}" style="cursor:pointer; border-bottom:1px solid #f1f5f9;">
-        <td style="padding:8px;"><span class="badge {{ t.badge_class }}">{{ t.badge_label }}</span></td>
-        <td style="padding:8px;">{{ t.task_type }}</td>
-        <td class="text-label" style="padding:8px;">{{ t.created_at | kst }}</td>
-        <td class="text-label" style="padding:8px;">{{ t.completed_at | kst | or_dash }}</td>
-        <td class="text-label" style="padding:8px;">{% if t.duration_ms is not none %}{{ t.duration_ms }} ms{% else %}—{% endif %}</td>
-        <td class="text-danger" style="padding:8px;">{{ t.failure_label or "" }}</td>
+        <td style="padding:8px; white-space:nowrap;"><span class="badge {{ t.badge_class }}">{{ t.badge_label }}</span></td>
+        <td style="padding:8px; white-space:nowrap;">{{ t.task_type }}</td>
+        <td class="text-label" style="padding:8px; white-space:nowrap;">{{ t.created_at | kst }}</td>
+        <td class="text-label" style="padding:8px; white-space:nowrap;">{{ t.completed_at | kst | or_dash }}</td>
+        <td class="text-label" style="padding:8px; white-space:nowrap;">{% if t.duration_ms is not none %}{{ t.duration_ms }} ms{% else %}—{% endif %}</td>
+        <td class="text-danger" style="padding:8px; min-width:280px;">{{ t.failure_label or "" }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
-  <p class="text-meta" style="margin:0; font-size:13px;">발행된 작업이 없습니다.</p>
+  <p class="text-meta text-md" style="margin:0;">발행된 작업이 없습니다.</p>
   {% endif %}
 </div>
 

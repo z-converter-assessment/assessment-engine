@@ -2,7 +2,7 @@
 
 온프레미스 서버 인벤토리·메트릭을 수집·저장하고, 수집된 데이터를 기반으로 자원 사용량을 진단해 운영 의사결정을 보조하는 B2B 내부 포털.
 
-고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, 진단 워커가 수집된 데이터를 규칙 기반으로 분석해 진단 결과를 생성한다. 운영자는 web UI 에서 대시보드·보고서·JSON Export·원격 설치 task 산출물을 활용해 다음 단계 의사결정을 진행한다.
+고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, web 이 수집된 데이터를 규칙 기반(USE Method right-sizing)으로 분석해 진단·보고서를 생성한다. 운영자는 web UI 에서 모니터링 화면·보고서·JSON Export·원격 설치 task 산출물을 활용해 다음 단계 의사결정을 진행한다.
 
 본 repo 는 엔진 자체 (애플리케이션 + 루트 docker-compose(prod base + dev override) + libvirt VM 매트릭스 등 `dev/` 격리 자산) 만 다룬다. 하드닝 prod 운영 (IaC — Terraform · Ansible 등 · systemd unit · k8s manifest) 은 본 repo 범위 밖 — 산출물·contract 를 외부 인프라에 통합.
 
@@ -16,45 +16,44 @@
  |  collector  : /proc scrape + inventory/metrics/error publish     |
  |  worker     : task.install consume + OS script exec + result     |
  +-----+----------------------------------------+-------------------+
-       | inventory/metrics/error                ^ task.install
-       | (server.* routing keys)                |
+       | inventory/metrics/error + task.result  ^ task.install.<id>
+       | (server.* / worker.result)             | (agent consumes)
        v                                        |
  +------------------------------------------------------------------+
  |  RabbitMQ                                                        |
  |  - assessment exchange       : server.inventory/metrics/error    |
- |                                + diagnostic.request              |
- |  - assessment.tasks exchange : task.install.<composite_id>    |
+ |  - assessment.tasks exchange : task.install.<composite_id>       |
  |                                + task.result -> worker.result    |
  |  - DLX/DLQ per exchange                                          |
- +--+----------------+-----------------+-----------------+----------+
-    | server.*       | diagnostic.req  | task.result     ^ task.install
-    v                v                 v                 | publish
+ +--+----------------+----------------------------------------------+
+    | server.*       | task.result
+    v                v
  +-------------------------------+  +-------------------------------+
- |  Consumer (aio-pika)          |  |  Diagnostic (ADR 0004 + 0010  |
- |  - parse/idempot/persist      |  |          + 0023 + 0025 + 0039)|
- |  - time invariants            |  |  Worker:                      |
- |  - agent restart signals      |  |   - rule-based classify       |
- |  - task.result -> Task        |  |   - narrate (USE Method via   |
- |    row 7-column UPDATE        |  |     recommendation.py + LLM)  |
- |                               |  |  Trigger: web POST only       |
- |                               |  |   (no cron, ADR 0023)         |
+ |  Consumer (aio-pika)          |  |  Redis                        |
+ |  - parse/idempot/persist      |  |  - cache / online TTL         |
+ |  - time invariants            |  |  - idempotency SET NX         |
+ |  - agent restart signals      |  |  - agent restart counter      |
+ |  - task.result -> Task UPDATE |  |  - PUB/SUB metrics.events     |
  +--------------+----------------+  +--------------+----------------+
-                v                                  v
- +-------------------------------+  +-------------------------------+
- |  TimescaleDB                  |  |  Redis                        |
- |  - 5 timeseries tables        |  |  - cache / online TTL         |
- |  - server_inventory + history |  |  - idempotency SET NX         |
- |  - tasks (audit log)          |  |  - agent restart counter      |
- |  - diagnostic_jobs            |  |  - PUB/SUB metrics.events     |
- +--------------+----------------+  +--------------+----------------+
-                ^                                  |
-                |  read                            |  SUBSCRIBE
+                v                                  |
+ +-------------------------------+                 |  SUBSCRIBE
+ |  TimescaleDB                  |                 |
+ |  - 5 timeseries tables        |                 |
+ |  - server_inventory + history |                 |
+ |  - tasks (audit log)          |                 |
+ |  - diagnostic_jobs (report    |                 |
+ |    snapshots)                 |                 |
+ +--------------+----------------+                 |
+                ^  read / report emit              |
                 |                                  |
- +------------------------------------------------------------------+
+ +--------------+----------------------------------+---------------+
  |  FastAPI (uvicorn, port 8000)                                    |
  |  - SSR  : dashboard / detail / env+server report + history       |
- |  - REST : discovery / tasks / exports / diagnostics (poll)       |
+ |  - REST : tasks / exports                                        |
  |  - SSE  : live metrics (Consumer PUB -> Redis -> SSE)            |
+ |  - rule-based right-sizing (recommendation.py, USE Method)       |
+ |  - report emit -> diagnostic_jobs static snapshot                |
+ |  - publishes task.install (assessment.tasks exchange)            |
  |  - plain HTTP (dev) ; prod = external ingress (out of scope)     |
  +------------------------------------------------------------------+
 ```
@@ -70,7 +69,7 @@
 | 애플리케이션 | Python 3.12 · FastAPI · uvicorn · aio-pika · SQLAlchemy async · asyncpg · Jinja2 · loguru · httpx |
 | DB / 캐시 / 브로커 | TimescaleDB (PostgreSQL 16) · Redis 7 · RabbitMQ 3.13 |
 | Schema 관리 | Alembic 단일 진실 |
-| 진단 | 규칙 기반 (USE Method) + 단일 ollama LLM narrative (ADR 0025) |
+| 진단 | 규칙 기반 right-sizing (USE Method, `recommendation.py` — web 인라인 계산) |
 | 관측 | loguru `LOG_FORMAT=text\|json` (구조화 로그) |
 | 패키징 | uv + hatchling. CI 산출물 = Python wheel + Docker image (GHCR) |
 | 정적 자원 | Chart.js (CDN) · Cytoscape.js (네트워크 토폴로지, vendored) · 외부 `.js` + `defer` |
@@ -133,7 +132,7 @@ uv run ruff format .             # auto-format
 uv run alembic check             # ORM·migrations 정합 (alembic-check.yml CI 와 동일)
 ```
 
-`--group dev` 누락 시 IDE 가 pytest·ruff symbol 을 못 찾는다 — 항상 명시. Docker 안 dev workflow·테스트 컨테이너·diagnostic ollama: `docs/development/`.
+`--group dev` 누락 시 IDE 가 pytest·ruff symbol 을 못 찾는다 — 항상 명시. Docker 안 dev workflow·테스트 컨테이너: `docs/development/`.
 
 ---
 
@@ -141,9 +140,9 @@ uv run alembic check             # ORM·migrations 정합 (alembic-check.yml CI 
 
 | 산출물 | URL · 참고 문서 |
 |--------|--------------|
-| 대시보드 | `/servers/` · `docs/products/dashboard.md` |
-| 환경 보고서 (보고서 + 환경 진단 통합) | `/reports/environment?view=customer\|engineer` · `docs/products/environment-report.md` |
-| 서버 보고서 (보고서 + 서버 진단 통합) | `/servers/report?ids=...&view=customer\|engineer` · `docs/products/server-report.md` |
+| 모니터링 화면 | `/` (환경 개요 · 사이드바 "모니터링" 그룹) · `docs/products/dashboard.md` |
+| 환경 보고서 (규칙 기반 진단 통합) | `/reports/environment?view=customer\|engineer` · `docs/products/environment-report.md` |
+| 서버 보고서 (규칙 기반 진단 통합) | `/reports/servers?ids=...&view=customer\|engineer` · `docs/products/server-report.md` |
 | JSON Export | `/api/exports/inventory` · `docs/products/json-export.md` |
 | Install task | `docs/products/install-task.md` |
 
@@ -156,7 +155,7 @@ uv run alembic check             # ORM·migrations 정합 (alembic-check.yml CI 
 ```bash
 gh release download v0.1.2 -R z-converter-assessment/assessment-engine -D /tmp/ae   # base compose + env.example 첨부
 cd /tmp/ae && cp env.example .env
-# [필수] POSTGRES/RABBITMQ/PGADMIN secret 채움. ENGINE_IMAGE·PGDATA_HOST·OLLAMA_* 등은 선택(미설정 시 base 기본값).
+# [필수] POSTGRES/RABBITMQ/PGADMIN secret 채움. ENGINE_IMAGE·PGDATA_HOST·MQ_DATA_HOST 등은 선택(미설정 시 base 기본값).
 docker compose up -d        # GHCR 이미지 pull. web http://localhost:8000
 ```
 
@@ -172,6 +171,6 @@ docker compose up -d        # GHCR 이미지 pull. web http://localhost:8000
 | `docs/development/` | 본 repo 안 dev 작업·코드 규약 (docker · dependencies · pipeline · testing · conventions) |
 | `docs/operations/` | 외부 인프라가 활용할 contract (release · deployment · env · alembic · observability) |
 | `docs/products/` | 운영 산출물 의의·근거 (dashboard · 환경 보고서 · 서버 보고서 · JSON Export · Install task) |
-| `docs/architecture/` | 컴포넌트별 deep dive (agent · consumer · diagnostic · rabbitmq · redis · db · web) |
+| `docs/architecture/` | 컴포넌트별 deep dive (agent · consumer · rabbitmq · redis · right-sizing · db · web) |
 | `docs/adr/` | Architecture Decision Records (0001~) — "왜 이렇게 결정했나" + 트레이드오프 |
 | `docs/tradeoffs.md` | 의식적 설계 선택과 한계 (T1~T15) |

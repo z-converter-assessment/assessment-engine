@@ -1,7 +1,4 @@
-"""보고서 이력 페이지 mapper — DiagnosticJobRecord → 표시용 dict (P2 단일 변환).
-
-AI 진단 이력과 분리 (T13) — 보고서 양식·서버 수·재조회 link 만 표시.
-"""
+"""보고서 이력 페이지 mapper — DiagnosticJobRecord → 표시용 dict (P2 단일 변환)."""
 
 from typing import Any
 
@@ -17,7 +14,6 @@ _VIEW_LABEL: dict[str, str] = {
 
 
 def _view_from_job_type(job_type: str) -> str:
-    """job_type ('customer_report'|'engineer_report') → view ('customer'|'engineer')."""
     if job_type == "engineer_report":
         return "engineer"
     return "customer"
@@ -53,18 +49,14 @@ def _result_link(rec: DiagnosticJobRecord, back: str = "") -> str:
     if rec.scope == "environment":
         return f"/reports/environment?job={rec.id}{back_suffix}"
     server_public_ids = rec.input_params.get("server_public_ids") or []
-    # server scope 1대는 단일 양식(`/servers/{pid}/report`), 2대+ 는 N대 표(`/servers/report`).
+    # server scope 1대는 단일 양식(`/servers/{pid}/report`), 2대+ 는 N대 표(`/reports/servers`).
     if len(server_public_ids) == 1:
         return f"/servers/{server_public_ids[0]}/report?job={rec.id}{back_suffix}"
-    return f"/servers/report?job={rec.id}{back_suffix}"
+    return f"/reports/servers?job={rec.id}{back_suffix}"
 
 
 def to_report_history_item(rec: DiagnosticJobRecord, back: str = "") -> dict[str, Any]:
-    """보고서 이력 행 1개 — 발행 시각·양식·서버 수·윈도우·재조회 link.
-
-    재조회 link 는 발행된 정적 스냅샷 `?job={id}` (scope 별 라우터 분기). 윈도우 라벨은 표시 전용.
-    back = 본 이력 페이지 URL — 진입한 보고서의 "이전" 버튼 chain.
-    """
+    """보고서 이력 행 1개 — 발행 시각·양식·서버 수·윈도우·재조회 link."""
     server_public_ids = rec.input_params.get("server_public_ids") or []
     period_days = float(rec.input_params.get("period_days", 14))
     view = _view_from_job_type(rec.job_type)

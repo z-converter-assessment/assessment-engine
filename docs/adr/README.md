@@ -9,17 +9,17 @@
 | 0001 | Redis fail-open 전환 | Accepted | 멱등성·캐시·부수 작업의 Redis 의존을 fail-open — DB UNIQUE 2단이 정확성 보장 |
 | 0002 | Task RPC piggyback vs polling | Superseded by 0007 | 운영자 작업 명령을 `server.metrics` reply 채널에 piggyback — 발행 측 별도 worker 진화로 폐기 |
 | 0003 | AI/LLM 활용 로드맵 | Refined by 0010 | Phase 2~3 — USE Method 임계값·방법론·LLM 모델 선택. LLM narrative·리포트 생성은 0010으로 보류 |
-| 0004 | 진단 워커 아키텍처 | Refined by 0010 | 워커·스케줄러·diagnostic_jobs·LLM 토글 인프라. "AI 진단" 명칭은 0010으로 "진단"(환경/서버 scope)으로 정정 |
+| 0004 | 진단 워커 아키텍처 | Superseded (2026-06-14) | AI 진단(LLM narrative) 폐기 — 워커·LLM 인프라 제거. `diagnostic_jobs` 테이블은 보고서 발행 정적 스냅샷 용도로 존속 |
 | 0005 | DB Schema 관리 표준화 | Accepted | Alembic 단일 진실, migrate init-container, `alembic check` CI |
 | 0006 | OpenStack 분산 staging 배포 | Withdrawn | 본 repo 범위를 기능 개발 환경으로 한정 (2026-05-16) — IaC out-of-scope, `deploy/openstack/` 삭제 |
 | 0007 | Task 별도 큐 모델 | Accepted | task.install / task.result 를 `assessment.tasks` exchange + 머신별 큐로. 0002 supersede |
 | 0008 | dev engine HTTPS endpoint (전체 통합) + SAN 동적화 | Superseded by 0016 | self-host install bundle endpoint 자체가 사라져 결정 무효 |
 | 0009 | dev plain HTTP 복귀 (0008 supersede) | Superseded by 0016 | self-host install bundle endpoint 자체가 사라져 결정 무효 |
-| 0010 | 진단 규칙 기반 한정 | Accepted | "AI 진단" 명칭 제거 (scope에 따라 환경/서버 진단). LLM 분기 보류 (mock default·ollama 미구현 유지). ADR 0003·0004 정정 |
+| 0010 | 진단 규칙 기반 한정 | Accepted | 규칙 기반 right-sizing(USE Method, `recommendation.py`)을 web 인라인 계산으로 활용 — 본질 유효. LLM narrative 계층(0025)은 2026-06-14 폐기, 규칙 기반만 존속 |
 | 0011 | Prometheus metrics endpoint | Withdrawn | `/metrics`·prometheus-fastapi-instrumentator 미적용으로 철회 (2026-06-08). 관측은 `LOG_FORMAT=json` 구조화 로그 단독 |
 | 0012 | CI 산출물 = wheel + GitHub Release | Accepted | Python wheel 단일 artifact (migrations·alembic.ini 동봉) + tag(v*) → GitHub Release 자동. Dockerfile·docker-compose는 dev 한정 (`docker-compose.prod.yml` 제거) |
 | 0013 | release-please 자동화 | Superseded by 0028 | Conventional Commits 기반 자동 semver bump + Release PR + tag push. release-please(트렁크 전용)가 develop git-flow 와 구조 충돌 — 0028 Commitizen 으로 대체 |
-| 0014 | Diagnostic 발행 책임 분리 | Accepted | `DiagnosticSubmitter` (`diagnostic/submitter.py`) 신규 — scheduler 노드 `web.services` 의존 끊김. web service 는 호환 re-export + 조회/기록 유지 |
+| 0014 | Diagnostic 발행 책임 분리 | Superseded (2026-06-14) | AI 진단 폐기로 `DiagnosticSubmitter`(`diagnostic/submitter.py`) 제거. 보고서 발행은 `diagnostic_service.emit_report` 가 broker 미경유 DB enqueue 로 직접 수행 |
 | 0015 | UI 임계값 단일 진실 (body data-attribute) | Accepted | `mappers._USAGE_*_PCT`/`_SWAP_DANGER_PCT` → `template_setup.env.globals["ui_thresholds"]` → `base.html` body data-attribute → JS `document.body.dataset`. P4 임계 분류 hardcoded drift 제거 |
 | 0016 | self-host install bundle 제거 + ZDM 본체 패키지 직접 fetch (0008·0009 supersede) | Accepted | `web/routers/payloads.py` 삭제. task.install download.url 을 ZDM host + `ZDM_PACKAGE_PATH` 로 조립. sha256·size 는 env 단일 진실, 미설정 시 publish 차단(503). Linux 만 지원 |
 | 0017 | Docker 이미지 CI 산출물 추가 (wheel 보조) | Accepted | wheel + GHCR multi-arch image (`linux/amd64,arm64`) 양쪽 발행. 4 컴포넌트 단일 이미지 + ENTRYPOINT `python -m` + CMD override. cosign keyless + BuildKit SBOM. ADR 0012 refines |
@@ -28,9 +28,9 @@
 | 0020 | inventory payload 에 os_family 필드 + server_inventory.os_family 컬럼 도입 | Accepted | OS family 식별 단일 진실. agent 가 자기 OS 명시 보고 (silent drift 위험 0). task.install dispatch (ADR 0019) 의 신호 출처. 호환 단계 (nullable + fallback "linux"). Linux agent minor bump 배포 완료 후 not-null tighten 별도 |
 | 0021 | API URL prefix 단순화 (`/api/v1` → `/api`) | Accepted | URL versioning prefix 폐기. 모든 JSON API 는 `/api/...` 직접. B2B 내부 포털 + 외부 client 0 이라 versioning 가치 없음. routers.md 의 breaking change 절차 절 supersede |
 | 0022 | 호스트 식별자 분리 (host_id 단일 식별자) | Superseded by 0027 | server_inventory 식별 3 분리 — id bigint PK (FK 대상) / host_id char(64) UNIQUE (agent 매칭, MAC+machine-id 합성 해시) / public_id UUID (URL 노출) / hostname display. MQ queue `agent.tasks.{host_id}`. ADR 0027 에서 host_id -> composite_id 단일 식별 + machine_id 표시 분리 (agent v4) 로 대체 |
-| 0023 | diagnostic scheduler 폐기 (사용자 trigger 모델로 통합) | Proposed | cron 자동 발화 폐기. 사용자 trigger 만 — 14일 윈도우 변화 빈도 낮음 + RAG (0024) 도입 시도 cron 누적 정당화 약. 워커 + LLM 토글 (0004) 유지. 0004 cron 부분 supersede |
+| 0023 | diagnostic scheduler 폐기 (사용자 trigger 모델로 통합) | Superseded (2026-06-14) | cron 자동 발화 폐기 (0004 cron 부분 supersede). 이후 AI 진단(워커·LLM) 전면 폐기로 본 ADR 대상 자체 소멸 |
 | 0024 | AI 진단 RAG 도입 (도메인 지식 phase) | Superseded by 0039 | pgvector + rag_documents + 도메인 지식 만 (본 phase). embedding = mxbai-embed-large-v1 (1024d) · 인덱스 HNSW · RAG_ENABLED False default · query 영어 통일 · ingest CLI. 운영 노트·peer = 보류. phase 1 infra 만 구축·미활성 끝에 0039 제거 |
-| 0025 | LLM 단일 provider 통합 (ollama), mock 폐기 | Proposed | mock vs ollama 분기 제거 → 단일 `OllamaLlmClient` 통합. `LLM_PROVIDER`·`LLM_MOCK_LATENCY_SECONDS` env 제거. dev/prod 일관 LLM 호출. ADR 0004 LLM 토글 + 0010 LLM 분기 보류 supersede. 외부 유료 API 도입은 별도 ADR 의무 |
+| 0025 | LLM 단일 provider 통합 (ollama), mock 폐기 | Superseded (2026-06-14) | AI 진단(LLM narrative) 전면 폐기 — `OllamaLlmClient`·`OLLAMA_*` env·LLM 호출 계층 제거. 진단은 규칙 기반 right-sizing(0010)만 존속 |
 | 0026 | dev 가상화 스택 Lima -> OrbStack 전환 | Superseded by 0037 | Lima -> OrbStack(macOS): `host.docker.internal`·`<name>.orb.local`·post-provision 흡수·lima yaml 삭제. homeserver Linux 이전으로 0037 libvirt 재전환에 supersede — OrbStack(macOS) 시기 역사 기록 |
 | 0027 | composite_id 단일 식별 + machine_id 표시 분리 (agent v4) | Accepted | agent v4 가 host_id -> machine_id(raw) + composite_id(SHA-256 hash) 분리. 엔진 식별 단일 키 = composite_id (ADR 0022 host_id 역할 전면 대체) — server_inventory UNIQUE·task 라우팅(`agent.tasks.{composite_id}`)·URL 매핑. machine_id 표시 전용(nullable). Windows agent 합류(os_family·수치 정규화·플랫폼 부재 필드 null/0, listen_ports.uid nullable). revision b3e1d7f9a2c4 |
 | 0028 | Commitizen 전환 (release-please 폐기) | Superseded by 0030 | Commitizen `cz bump` 이 버전을 repo 에 commit 하는 모델 — bump 커밋이 보호된 develop·main 직접 push 불가 + `bump:` 메시지 commit-msg hook 거부. ruleset+hook 과 구조 충돌. 0030 tag-derived 로 대체 |

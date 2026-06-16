@@ -13,6 +13,8 @@ class ReportWorkloadGroup:
 
     category: str
     names_label: str = ""
+    # ["80/tcp", "443/tcp"] — 카테고리 귀속 listen 포트 (mapper precompute, P3)
+    ports: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -31,6 +33,9 @@ class ReportListenItem:
     port: int
     proto: str
     comm: str = ""
+    addr: str = ""
+    uid: int | None = None
+    pid: int | None = None
 
 
 @dataclass
@@ -56,18 +61,16 @@ class ReportRowItem:
     load_15m_max: float | None
     swap_used: bool
 
-    recommendation: str  # USE Method enum 값 (양식 B에 노출)
+    recommendation: str  # USE Method enum 값
     recommendation_label: str  # 한국어
-    badge_class: str  # CSS 클래스 (USE 분류용)
+    badge_class: str  # USE 분류 CSS 클래스
 
-    # 옵션 B 매핑 — UI 친화 위험도 (양식 A KPI·표 노출)
+    # UI 친화 위험도 매핑
     risk_level: str  # "high" / "attention" / "normal" / "low_usage"
     risk_label: str  # "고위험" / "주의 필요" / "정상" / "저사용"
-    risk_badge_class: str  # rec-under_provisioned / rec-over_provisioned / rec-optimal 재사용
+    risk_badge_class: str  # rec-* CSS 재사용
 
-    # 서버 인벤토리 (정적 — 환경 엔지니어 호스트 상세 표 노출용).
-    # None 가능 (옛 agent 가 안 보낸 경우 / 신규 등록 직후). dataclass field 순서 의무로
-    # default 영역에 배치 (non-default 위에 두면 TypeError).
+    # 서버 인벤토리 (정적 — 환경 엔지니어 호스트 상세 표 노출용). None 가능 (신규 등록 직후 등).
     cpu_cores: int | None = None
     mem_total_gb: float | None = None
     disk_total_gb: float | None = None

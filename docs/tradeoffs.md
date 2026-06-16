@@ -1,6 +1,6 @@
 # 설계 트레이드오프
 
-의식적 설계 선택과 그로 인한 한계 카탈로그 (T1~T14). 단순성·운영 비용·scope 기준 결정 — 버그 아님.
+의식적 설계 선택과 그로 인한 한계 카탈로그 (T1~T15). 단순성·운영 비용·scope 기준 결정 — 버그 아님.
 
 각 항목 형식: 선택 / 대안 / 트레이드오프 / 언제 다시 봐야 하는가.
 
@@ -118,7 +118,7 @@
 - Alembic: 마이그레이션 스크립트로 스키마 관리. consumer가 web에 의존하지 않음.
 
 해소 (ADR 0005 채택 후)
-- migrate init-container 패턴 — `migrate` 서비스가 1회 실행 후 종료(`restart: "no"`). 앱 3 서비스(`web`/`consumer`/`diagnostic-worker`) 모두 `depends_on: migrate: service_completed_successfully`. ADR 0023: scheduler cron 폐기로 4 서비스 → 3.
+- migrate init-container 패턴 — `migrate` 서비스가 1회 실행 후 종료(`restart: "no"`). 앱 2 서비스(`web`/`consumer`) 모두 `depends_on: migrate: service_completed_successfully`.
 - `consumer depends_on web` 제거됨 — web과 consumer가 동등 lifecycle.
 - CI `alembic check`가 ORM·migration drift 자동 차단.
 
@@ -352,20 +352,20 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ---
 
-## T13. 보고서 = diagnostic_jobs 통합 (job_type) + 환경 진단 결과 iframe view toggle
+## T13. 보고서 = diagnostic_jobs 통합 (job_type) + 환경 보고서 view toggle
 
 > 관련 코드: `src/assessment_engine/db/models/diagnostic_job.py`, `src/assessment_engine/web/services/diagnostic_service.py::record_report_emission`, `src/assessment_engine/web/templates/diagnostics/results.html`
 > 관련 문서: CLAUDE.md #C1, `docs/architecture/db/models.md`
 > 관련 migration: `migrations/versions/a1b2c3d4e5f6_diagnostic_jobs_job_type.py`
 
 선택
-- `diagnostic_jobs.job_type` 컬럼 (`ai_diagnostic`/`customer_report`/`engineer_report`) — 보고서 생성도 본 테이블에 row 저장 (이력 보존).
+- `diagnostic_jobs.job_type` 컬럼 (`customer_report`/`engineer_report`) — 보고서 발행이 본 테이블에 row 저장 (이력 보존).
 - 양식 분리:
-  - server scope (`/servers/report?ids=...`): row 단위 상세, 양식 A/B (`servers/report.html`).
+  - server scope (`/reports/servers?ids=...`): row 단위 상세, 양식 A/B (`servers/report.html`).
   - environment scope (`/reports/environment`): high-level (KPI·USE Method 분류 도넛·Top N risk·OS 분포·view별 정성 요약, `reports/environment.html`). 전체 등록 서버 자동, `EnvironmentReportSummary` view_model + `mappers.environment_report`.
 - 두 라우터 모두 합성 직후 `record_report_emission` 호출 (best-effort, 응답 흐름 영향 없음).
-- AI 진단 이력 (`/diagnostics/history`) 과 보고서 이력 (`/reports/history`) 페이지 분리 — AI 진단 이력은 `job_type='ai_diagnostic'` 자동 필터, 보고서 이력은 customer + engineer union + view 필터 select. 서버 목록에서 진입점 둘 다 지원 (선택 N대 버튼 + 환경 카드 link).
-- 환경 scope 진단 결과 페이지 (`/diagnostics?ids=X`) 는 같은 페이지 안 3 view tab (AI 분석/고객 보고서/엔지니어 보고서). 고객·엔지니어 view 는 `<iframe src="/reports/environment?view=...">` SSR 미리 렌더 + JS `display` toggle.
+- 보고서 이력 (`/reports/history`) 페이지 — customer + engineer union + view 필터 select. 서버 목록에서 진입점 지원 (선택 N대 버튼 + 환경 카드 link).
+- 환경 scope 보고서 페이지는 같은 페이지 안 view tab (고객 보고서/엔지니어 보고서). 각 view 는 `<iframe src="/reports/environment?view=...">` SSR 미리 렌더 + JS `display` toggle.
 
 대안
 - 보고서를 별도 테이블 `report_jobs` 로 분리 — 모델 명확하나 두 테이블 간 통합 표시 SQL union 복잡. job_type 단일 분기로 충분.
@@ -374,8 +374,8 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 트레이드오프
 - 얻은 것:
-  - AI 진단 + 보고서 발행 이력 단일 페이지에서 통합 추적.
-  - 환경 AI 진단 결과 같은 페이지에서 고객/엔지니어 보고서 즉시 비교 (toggle).
+  - 보고서 발행 이력 단일 페이지에서 통합 추적.
+  - 같은 페이지에서 고객/엔지니어 보고서 즉시 비교 (toggle).
   - 모델 통합 — 보고서별 별도 service·테이블 신설 없이 기존 diagnostic_jobs 재사용.
 - 포기한 것:
   - 매 보고서 GET 마다 row INSERT (active UNIQUE 통과 후 즉시 succeeded) — 같은 입력 N회 조회 시 N row 생성. retention 90일로 sizing 자체는 OK 이나 dedup view 또는 view_count 증분 모델은 미적용.

@@ -40,14 +40,13 @@ _VIRTUAL_MOUNT_PREFIXES: tuple[str, ...] = (
 
 
 def is_virtual_disk(name: str) -> bool:
-    """디스크가 가상·시스템(loopback·RAM·압축RAM·플로피·광학·network block)인지 — 블랙리스트."""
     return bool(_VIRTUAL_DISK_RE.match(name))
 
 
 def is_physical_disk(name: str) -> bool:
     """물리 디스크 — 블랙리스트(가상·논리(LVM/RAID)·파티션 제외, 나머지 통과).
 
-    화이트리스트(알려진 sd/vd/nvme 패턴만)와 달리 특이 물리 컨트롤러(mpath·cciss 등) 놓침 방지 (관측성 정석).
+    화이트리스트(sd/vd/nvme 패턴만)와 달리 특이 물리 컨트롤러(mpath·cciss 등) 놓침 방지.
     """
     if not name:
         return False
@@ -63,9 +62,8 @@ def is_partition(name: str) -> bool:
 
 
 def is_virtual_interface(name: str) -> bool:
-    """네트워크 인터페이스가 가상·시스템 레이어(루프백·터널·veth·dummy·Windows NDIS 필터)인지.
+    """가상·시스템 레이어 인터페이스 — 물리 트래픽 관측 대상이 아닌 것만 보수적으로 제외.
 
-    물리 트래픽 관측 대상이 아닌 것만 보수적으로 제외 (docker/br/bond/vlan 회색지대는 통과).
     표시 경계(차트·스냅샷)에서만 적용 — 저장은 모두 유지.
     """
     if not name:
@@ -138,14 +136,7 @@ def find_parent_disk(
     mount_minor: int | None,
     disks: list[dict],
 ) -> str | None:
-    """mount의 (major, minor)와 매칭되는 disk의 name 반환. 없으면 None.
-
-    매칭 규칙:
-    - mount.major == disk.major AND mount.minor == disk.minor → 디스크 자체에 마운트
-    - mount.major == disk.major AND mount.minor 가 disk.minor 의 파티션 영역 → 그 디스크의 파티션
-      (SCSI/virtio: disk.minor + 1..15)
-    - 가상 파일시스템(major=0, tmpfs 등)은 None.
-    """
+    """mount의 (major, minor)와 매칭되는 disk의 name 반환. 없으면 None."""
     if mount_major is None or mount_minor is None or mount_major == 0:
         return None
     for d in disks:

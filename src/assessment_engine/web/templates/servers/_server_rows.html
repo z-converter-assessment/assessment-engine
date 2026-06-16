@@ -1,5 +1,4 @@
-{# 서버목록 행 fragment — list.html tbody include + 라우터 ?fragment=rows 자동갱신 공용 렌더.
-   server-row 만 (discover 버튼 행은 list.html tbody 에 정적 유지 — 자동 교체 시 보존). #}
+{# 서버목록 행 fragment — list_table.html tbody include + 라우터 ?fragment=rows 자동갱신 공용 렌더. #}
 {% for s in servers %}
 <tr class="server-row"
     data-hostname="{{ s.hostname | lower }}"
@@ -8,49 +7,44 @@
     data-classification="{{ s.provisioning_class }}"
     data-services="{% for svc in s.known_services %}{{ svc.category }} {% endfor %}">
   <td class="no-print"><input type="checkbox" class="row-select" data-public-id="{{ s.public_id }}" data-hostname="{{ s.hostname }}"></td>
-  <td style="text-align:center;">
+  <td style="text-align:center; white-space:nowrap;">
     {% if s.is_online %}<span class="status-on">온라인</span>{% else %}<span class="status-off">오프라인</span>{% endif %}
   </td>
   <td>
-    <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="row-link"><strong>{{ s.hostname }}</strong></a>
+    <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="row-link">{{ s.hostname }}</a>
   </td>
   <td>
-    {# 분류된 서비스만 뱃지 표시. unknown(미분류)은 뱃지 없이 빈 값(—). #}
+    {# 분류된 서비스만 칩 표시 — unknown(미분류)은 placeholder "—". #}
     {% if s.known_services %}
+      <span style="display:flex; flex-wrap:wrap; gap:4px;">
       {% for svc in s.known_services %}
-        <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}{% if svc.category_count > 1 %} {{ svc.category_count }}{% endif %}</span>
+        <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }} <strong class="text-strong">{{ svc.category_count }}</strong></span>
       {% endfor %}
+      </span>
     {% else %}
-      <span class="text-meta" style="font-size:11px;">—</span>
-    {% endif %}
-  </td>
-  <td class="text-label">
-    {% if s.ip_external %}
-      {% for ip in s.ip_external %}{{ ip }}{% if not loop.last %}, {% endif %}{% endfor %}
-    {% else %}
-      <span class="text-meta" style="font-size:11px;">내부망</span>
+      <span class="text-meta text-xs">—</span>
     {% endif %}
   </td>
   <td class="text-label">{{ s.os_display }}</td>
   <td>
     {% if s.recommendation_label %}
-      <span class="text-label" style="font-size:11px;">{{ s.recommendation_label }}</span>
+      <span class="text-label text-xs">{{ s.recommendation_label }}</span>
     {% else %}
-      <span class="text-meta" style="font-size:11px;">—</span>
+      <span class="text-meta text-xs">—</span>
     {% endif %}
   </td>
   <td>
     {% if s.last_task %}
       <a class="task-cell" href="#" data-task-id="{{ s.last_task.task_id }}" title="{{ s.last_task.failure_label or '' }}">
         <span class="badge {{ s.last_task.badge_class }}">{{ s.last_task.badge_label }}</span>
-        <span class="text-muted" style="font-size:11px;">{{ s.last_task.created_at | kst }}</span>
+        <span class="text-muted text-xs">{{ s.last_task.created_at | kst }}</span>
       </a>
     {% else %}
-      <span class="text-meta" style="font-size:11px;">—</span>
+      <span class="text-meta text-xs">—</span>
     {% endif %}
   </td>
-  <td class="action-col">
-    <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="btn-action" style="font-size:12px; padding:4px 11px;">상세 →</a>
+  <td class="action-col" style="white-space:nowrap;">
+    <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="btn-action text-xs" style="padding:2px 9px; white-space:nowrap;">상세</a>
   </td>
 </tr>
 {% endfor %}

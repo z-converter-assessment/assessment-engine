@@ -7,8 +7,6 @@
 읽기 시점 정규화(P1 raw-first): DB 에는 agent raw boot_time 을 그대로 저장하고, "동일 부팅인가" 판정만
 본 모듈 단일 헬퍼/상수 경유. SQL(db.repositories.query.metric·report 가 types.BOOT_JITTER_SEC 공유)도
 BOOT_TIME_JITTER_TOLERANCE 에서 파생한 초 단위 값을 bound parameter 로 사용해 단일 진실 유지.
-(보정값 저장 대안 검토·기각 — 정답 btime 부재로
-보정도 임의 휴리스틱 + 시계열 4테이블 write 비용·raw 소실. 트레이드오프 상세는 본 결정 맥락 참조.)
 """
 
 from datetime import datetime, timedelta

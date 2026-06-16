@@ -2,7 +2,7 @@
 # `docker compose up` 은 본 파일 + docker-compose.override.yml(dev) 을 자동 머지(override 우선).
 # 배포는 base 단독으로 동작 — 릴리즈는 base 만 첨부(override 미포함).
 #
-#   - 배포(prod): 릴리즈 첨부 base + env.example 받아 secret·ENGINE_IMAGE·PGDATA_HOST·OLLAMA_* 주입 후 GHCR pull.
+#   - 배포(prod): 릴리즈 첨부 base + env.example 받아 secret·ENGINE_IMAGE·PGDATA_HOST 주입 후 GHCR pull.
 #   - dev: override.yml 이 로컬 빌드·bind mount·hot reload. 검증 카탈로그는 dev/.env.example (dev-up.sh).
 #
 # 이미지: GHCR 정확 버전 핀. __ENGINE_VERSION__ 은 release CI 가 태그 semver 로 치환 — 소스에서 base 단독 기동 시 ENGINE_IMAGE 주입.
@@ -132,15 +132,6 @@ services:
     <<: *app-base
     # ENTRYPOINT(python -m) + command 모듈명 -> `python -m assessment_engine.consumer`. dev hot-reload(watchfiles)는 override.yml.
     command: ["assessment_engine.consumer"]
-
-  # 진단 워커 — RabbitMQ diagnostic.request 소비, 보고서 narrative 합성(LLM), DB 저장.
-  diagnostic-worker:
-    <<: *app-base
-    command: ["assessment_engine.diagnostic"]
-    environment:
-      <<: *app-env
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
 
   # PostgreSQL 웹 관리 UI — pgAdmin4 (servers.json 내장 GHCR 이미지, build 없는 pull). prod DB 조회·관리.
   # 접속: http://<host>:${PGADMIN_PORT:-5050} → 로그인 PGADMIN_DEFAULT_EMAIL/PASSWORD.

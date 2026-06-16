@@ -38,7 +38,7 @@ JSON envelope (요약 — 자세한 스키마는 architecture/web/export-schema.
       "os": {"family": "ubuntu", "version": "22.04", "kernel": "..."},
       "spec":   {"vcpu_count": 4, "memory_mb": 16384, "boot_disk_gb": 100, "additional_disks": [...], "addresses": [...]},
       "usage":  {"cpu": {"p95_pct": 12.3, "peak_pct": 45.1}, "mem": {"p95_pct": 35.0, "peak_pct": 60.2}, "disk_io": {...}, "network": {...}},
-      "assessment": {"recommended_size_class": {"key": "over_provisioned", "label": "과다 프로비저닝"}},
+      "assessment": {"recommended_size_class": {"key": "over_provisioned", "label": "과다 할당"}},
       "services": [{"category": "db", "unit": "...", "listeners": [...]}]
     },
     ...

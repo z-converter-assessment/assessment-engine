@@ -107,13 +107,6 @@ def test_consumer_settings_prod_inherits_web_validation():
 # ─── DiagnosticSettings — ConsumerSettings 상속, 추가 검증 없음 ────────────
 
 
-def test_diagnostic_settings_prod_with_strong_defaults_passes():
-    s = DiagnosticSettings(**_consumer_kwargs())
-    # ADR 0025: 단일 ollama provider — LLM_PROVIDER env 제거. ollama 호출은 host 안 `ollama serve` 의무.
-    assert s.ollama_model == "llama3.1:8b"
-    assert s.ollama_base_url == "http://localhost:11434"
-
-
 def test_diagnostic_settings_prod_inherits_consumer_validation():
     """DiagnosticSettings은 ConsumerSettings 상속 — RABBITMQ·POSTGRES weak 둘 다 거부."""
     with pytest.raises(ValidationError) as exc:

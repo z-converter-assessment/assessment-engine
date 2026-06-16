@@ -17,7 +17,7 @@ artifact 카탈로그·생성 trigger·무결성 검증·다운로드 채널: `d
 
 ## 0. 단일 호스트 배포 (compose all-in-one)
 
-릴리즈 base `docker-compose.yml` + `env.example`(배포 템플릿) 한 세트로 단일 호스트에 엔진 3 컴포넌트 + 의존 인프라(TimescaleDB·Redis·RabbitMQ) 기동. 평가(PoC)·내부망 소규모·단일 노드 운영용 (ADR 0036).
+릴리즈 base `docker-compose.yml` + `env.example`(배포 템플릿) 한 세트로 단일 호스트에 엔진 2 컴포넌트 + 의존 인프라(TimescaleDB·Redis·RabbitMQ) 기동. 평가(PoC)·내부망 소규모·단일 노드 운영용 (ADR 0036).
 
 compose 2 파일 (ADR 0035·0036): 루트 `docker-compose.yml` = prod-safe base(build 키 없음, GHCR 이미지 pull), `docker-compose.override.yml` = dev 전용. 릴리즈는 base 만 첨부(override 미배포)라 배포는 base 단독으로 동작. dev 검증은 `dev/`(dev-up.sh + dev/.env.example).
 
@@ -32,7 +32,7 @@ GHCR public(ADR 0035 3절 정정) — 토큰 없이 pull. 영속 볼륨을 외�
 
 `APP_ENV=prod` 기본이라 weak secret 은 기동 거부(fail-fast) — `.env` 의 `changeme` placeholder 를 진짜 secret 으로 채워야 뜬다.
 
-한계 (ADR 0036): 본 절은 단일 호스트 compose 까지. 인터넷 노출 hardened prod 는 HTTPS ingress(reverse proxy)·외부 secret 채널 추가 — wheel+systemd(3절) 또는 멀티노드(4절). install(ZDM)·AI 진단(LLM)은 외부 좌표 주입 전까지 비활성.
+한계 (ADR 0036): 본 절은 단일 호스트 compose 까지. 인터넷 노출 hardened prod 는 HTTPS ingress(reverse proxy)·외부 secret 채널 추가 — wheel+systemd(3절) 또는 멀티노드(4절). install(ZDM)은 외부 좌표 주입 전까지 비활성.
 
 ## 2. 사전 준비
 
@@ -113,7 +113,7 @@ ALEMBIC_INI=$(/opt/assessment-engine/venv/bin/python -c \
 각 unit이 가정하는 contract:
 - `WorkingDirectory=/opt/assessment-engine` (또는 자유 경로)
 - `EnvironmentFile=` 한 줄 이상 (4절 layered 패턴)
-- `ExecStart=/opt/assessment-engine/venv/bin/python -m assessment_engine.<module>` — module은 `web`·`consumer`·`diagnostic` 중 하나 (ADR 0023: scheduler 폐기)
+- `ExecStart=/opt/assessment-engine/venv/bin/python -m assessment_engine.<module>` — module은 `web`·`consumer` 중 하나
 - `User=` system user (Linux distro 정합 임의 이름)
 - `KillSignal=SIGTERM` + `TimeoutStopSec` 충분 (#F11 graceful shutdown)
 - `Restart=always` 권장
@@ -141,7 +141,7 @@ TimeoutStopSec=30s
 WantedBy=multi-user.target
 ```
 
-다른 컴포넌트(consumer·diagnostic-worker)는 `ExecStart` 모듈만 교체. 외부 인프라가 자체 Ansible template·자체 운영 도구로 생성.
+다른 컴포넌트(consumer)는 `ExecStart` 모듈만 교체. 외부 인프라가 자체 Ansible template·자체 운영 도구로 생성.
 
 ### 3.6. 헬스 확인
 
@@ -154,21 +154,21 @@ curl -fsS http://<engine-host>:8000/health
 
 ## 4. multi-node 분리 inject 예시
 
-본 repo는 3 컴포넌트(web·consumer·diagnostic-worker)를 같은 host 또는 분리 host에 배포 가능. ADR 0023: scheduler cron 폐기로 4 컴포넌트 → 3 컴포넌트. 컴포넌트별 필요 키는 `docs/operations/env.md` "컴포넌트별 read 매트릭스" 참조.
+본 repo는 2 컴포넌트(web·consumer)를 같은 host 또는 분리 host에 배포 가능. 컴포넌트별 필요 키는 `docs/operations/env.md` "컴포넌트별 read 매트릭스" 참조.
 
 ### 단일 host (모든 컴포넌트 같이)
 
-가장 단순. 한 `.env` 또는 `EnvironmentFile`에 모든 키 주입. 3 systemd unit이 같은 파일을 `EnvironmentFile=/etc/assessment-engine.env`로 read.
+가장 단순. 한 `.env` 또는 `EnvironmentFile`에 모든 키 주입. 2 systemd unit이 같은 파일을 `EnvironmentFile=/etc/assessment-engine.env`로 read.
 
 ```ini
 # /etc/systemd/system/assessment-engine-web.service
 [Service]
 EnvironmentFile=/etc/assessment-engine.env
 ExecStart=/opt/assessment-engine/venv/bin/python -m assessment_engine.web
-# ... (consumer·diagnostic-worker도 동일 EnvironmentFile)
+# ... (consumer도 동일 EnvironmentFile)
 ```
 
-### 4 host 분리 (계층화 — 권장 패턴 C)
+### 2 host 분리 (계층화 — 권장 패턴 C)
 
 공통 키와 컴포넌트별 키 분리. systemd는 `EnvironmentFile=`을 여러 줄 지원 — 공통 + 자기 컴포넌트 파일 2 단계.
 
@@ -190,20 +190,13 @@ web 노드:                  /etc/assessment-engine/web.env
   WEB_PORT=8000
   ZDM_DEFAULT_IP=<ZDM_IP>
   ZDM_DEFAULT_USER=<ZDM_USER>
-  RABBITMQ_ROUTING_KEY_DIAGNOSTIC=diagnostic.request   # web도 진단 publish
 
 consumer 노드:             /etc/assessment-engine/consumer.env
   WORKER_TASK_EXCHANGE=assessment.tasks
   WORKER_TASK_QUEUE_PREFIX=agent.tasks
-
-diagnostic-worker 노드:    /etc/assessment-engine/diagnostic-worker.env
-  OLLAMA_BASE_URL=http://<ollama-host>:11434
-  OLLAMA_MODEL=llama3.1:8b
-  RABBITMQ_DIAGNOSTIC_QUEUE_TTL_MS=86400000
-  RABBITMQ_DIAGNOSTIC_QUEUE_MAX_LEN=100000
 ```
 
-ADR 0023: scheduler cron 폐기. 본 절 안 4 host 분리는 3 host 분리 정공 (web + consumer + diagnostic-worker).
+본 절 안 host 분리는 web + consumer 2 노드.
 
 각 노드의 systemd unit:
 ```ini
@@ -219,7 +212,7 @@ Ansible 표준 패턴과 정합:
 
 ### 효과
 
-- secret 분포 최소 — 노드 침해 시 그 노드 키만 leak. 공통 키(DB·MQ)는 모든 노드에 있지만 컴포넌트 한정 키(LLM·DIAGNOSTIC·INSTALL_*)는 해당 노드만
+- secret 분포 최소 — 노드 침해 시 그 노드 키만 leak. 공통 키(DB·MQ)는 모든 노드에 있지만 컴포넌트 한정 키(ZDM·INSTALL_*)는 해당 노드만
 - prod 검증 (`_validate_prod_*`) 컴포넌트별 — web 노드는 `WebSettings`·`DiagnosticSettings` 인스턴스화, consumer 노드는 `ConsumerSettings`만. 노드가 안 쓰는 키 검증 skip
 - drift 차단 — 공통 키는 한 파일만 갱신, 모든 노드 자동 동기화. Ansible group_vars/host_vars로 자동화 친화
 
@@ -255,11 +248,6 @@ services:
     env_file: /etc/assessment-engine.env
     command: assessment_engine.consumer
     restart: unless-stopped
-  diagnostic-worker:
-    image: ghcr.io/zconverter/assessment-engine:0.1
-    env_file: /etc/assessment-engine.env
-    command: assessment_engine.diagnostic
-    restart: unless-stopped
 ```
 
 k8s Deployment (외부 인프라 — 본 repo 두지 않음):
@@ -285,7 +273,6 @@ spec:
 수평 확장 정합:
 - web — replicas N 자유 (stateless HTTP)
 - consumer — replicas N 자유 (broker prefetch_count=10 분산)
-- diagnostic-worker — replicas N 자유 (job 단위 분산)
 
 폐쇄망 (air-gapped) 운영: `docker save assessment-engine:1.2.3 -o image.tar` + scp → 운영 환경에서 `docker load -i image.tar` (ADR 0017 본문).
 
@@ -296,7 +283,7 @@ spec:
 | 환경변수 | `docs/operations/env.md` | 모든 키를 어떤 채널이든 inject |
 | Secret | `config.py` `_validate_prod_*` | `APP_ENV=prod`에서 weak default 거부 — strong random 주입 |
 | Schema | wheel 안 `_alembic.ini` + `migrations/` | `alembic upgrade head` 사전 실행 |
-| graceful shutdown | F11 (`docs/architecture/consumer.md`·`diagnostic.md`) | systemd `KillSignal=SIGTERM` + `TimeoutStopSec` 충분히 |
+| graceful shutdown | F11 (`docs/architecture/consumer.md`) | systemd `KillSignal=SIGTERM` + `TimeoutStopSec` 충분히 |
 | 헬스 endpoint | `GET /health` (web) | systemd `Restart=always` + watchdog 외부 모니터 |
 | 관측 | `LOG_FORMAT=json` (F7) 구조화 로그 | log aggregator collector |
 
@@ -358,7 +345,7 @@ infra-assessment/                     # 본 repo 와 별개 repo
       postgres/                       # PG + TimescaleDB install
       rabbitmq/                       # MQ install
       redis/                          # Redis install
-      assessment_engine/              # engine 4 컴포넌트
+      assessment_engine/              # engine 2 컴포넌트
         tasks/
           install.yml                 # wheel 다운로드 + venv install
           env.yml                     # shared.env + <component>.env 템플릿 렌더

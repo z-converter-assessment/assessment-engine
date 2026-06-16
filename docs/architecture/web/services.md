@@ -1,26 +1,23 @@
 # Web 서비스 계층 모듈
 
-정책: CLAUDE.md #E3 · #E7 (도메인 분류) · #F10 (평가 윈도우). 본 문서는 service 모듈 카탈로그·서비스 분류·Recommendation·대시보드 상단 요약 단일 진실.
+정책: CLAUDE.md #E3 · #E7 (도메인 분류) · #F10 (평가 윈도우). 본 문서는 service 모듈 카탈로그·서비스 분류·Recommendation·환경 개요 상단 요약 단일 진실.
 
 | 모듈 | 책임 |
 |------|------|
 | `query_service.py` | Redis 캐시 + repository 오케스트레이션. SSR/JSON 양 경로에 일관된 ViewModel·Summary 반환 |
 | `task_service.py` | Task 발행 (DB INSERT + Redis SET). 트랜잭션 경계 + `IntegrityError` -> `TaskDuplicatePending` 변환. 본 모듈 상단 `HttpZdmPackageResolver` (ZDM 패키지 sha256·size 동적 조회 — install 발행 의존성) |
-| `diagnostic_service.py` | 진단 job 발행 (input_hash 계산·INSERT·RabbitMQ publish) + polling 조회 + SSR latest fetch. 추상 `BaseDiagnosticRepository` + `BaseQueryRepository`만 의존 (F4). 트랜잭션 경계 자체 관리 — router는 service만 호출. ADR 0004 + 0010 |
-| `mappers/` (sub-package) | Outbound DTO + Detail -> ViewModel 변환 단일 진실 (P2). 11 sub-module — `server.py` / `metric.py` / `attention.py` / `report.py` / `export.py` / `task.py` / `shared.py` (공용 임계 상수 + ReportView Literal + `_DONUT_SEGMENT_DEFS` + `UTIL_GAUGE_COLOR` + `format_net_rate`(네트워크 rate 표시 단일 진실) + `resolve_os_eol`/endoflife 카탈로그 ADR 0031) / `diagnostic.py` (진단 결과 표시 파생 — `to_view` / `to_panel_payload` / `to_history_item`) / `environment_report.py` (환경 보고서 합성) / `report_history.py` (보고서 이력 row) / `topology.py` (네트워크 토폴로지 그래프) |
+| `mappers/` (sub-package) | Outbound DTO + Detail -> ViewModel 변환 단일 진실 (P2). 10 sub-module — `server.py` / `metric.py` / `attention.py` / `report.py` / `export.py` / `task.py` / `shared.py` (공용 임계 상수 + ReportView Literal + `_DONUT_SEGMENT_DEFS` + `UTIL_GAUGE_COLOR` + `format_net_rate`(네트워크 rate 표시 단일 진실) + `resolve_os_eol`/endoflife 카탈로그 ADR 0031) / `environment_report.py` (환경 보고서 합성) / `report_history.py` (보고서 이력 row) / `topology.py` (네트워크 토폴로지 — Cytoscape 집계 그래프 elements + 서브넷별 서버 목록 `SubnetGroup`) |
 | `metrics_calculator.py` | CPU/Disk/Net delta + Mem/Swap 시점값 -> Snapshot. `_is_counter_reset` (boot_time 비교) |
 | `cache_serializer.py` | Redis serde — `ServerDetailResponse` / `MetricDashboard`. 역직렬화 후 `enrich_*` 재호출 (idempotent) |
 | `unit_converter.py` | KB->GB / sectors->KB/s / usage_pct 단위 변환 |
 | `device_filters.py` | 디스크/인터페이스 블랙리스트 필터 (`is_physical_disk`·`is_virtual_disk`·`is_lvm_disk`·`is_partition`·`is_virtual_interface`) + 마운트 데이터볼륨 필터 (`is_data_volume` — major 주축) + `find_parent_disk` (mount-disk 조인) + `disk_total_bytes` (디스크 총량 단일 산식 — 물리 disks 우선, Windows 등 미발행 시 data volume mounts fallback. 환경·개별·세부목록 보고서 동일) |
 | `service_classifier.py` | 서비스 -> 카테고리 (`web`/`db`/`cache`/`mq`/`container`/`monitor`) + 포트 매핑. 단일 카탈로그(`SERVICE_CATALOG`) 파생 |
 
-진단 deep dive(워커·스케줄러·LLM 토글·diagnostic_jobs): `docs/architecture/diagnostic.md`.
-
 ## 서비스 분류 — 3단계 표시 계층
 
 | 단계 | 페이지 | 표시 |
 |------|--------|------|
-| 목록 | `/servers/` | 카테고리 badge만 (`web`/`db`/...) — 원본 unit 노출 안 함 |
+| 목록 | `/servers` | 카테고리 role-chip (카테고리+개수) — 원본 unit 노출 안 함 |
 | 상세 | `/servers/{id}` | unit 이름 + matched_ports + 카테고리 badge |
 | services 탭 | `/servers/{id}/services` | unit 전체 + sub state + 포트 + 카테고리 |
 
@@ -92,17 +89,17 @@ IP 필터 보류: `ip_internal`/`ip_external`은 평면 IP 목록만 발행돼(�
 
 UI badge 임계값(`mappers/shared.py` `_USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
 
-OS 분기 (원칙 P2/P4 — evidence 기반): right-sizing 분류 단일 진실은 `recommendation.assess(stats) -> Assessment(recommendation, triggers, unmeasured)`이고, `classify`는 분류 enum만 돌려주는 호환 wrapper다. assess는 자원(CPU/Mem/Disk)별로 가진 축을 신호로 모아 under(위험 신호 OR — 하나라도 hit 되면 발화, 누락 0)/over(cpu·mem 이 둘 다 다운사이즈 임계 이하일 때만 — 보수적)/optimal 로 단일 분류를 내고 hit 신호를 근거(triggers)로 동반한다("어떤 데이터로 이 분류"). swap은 Linux page-out(메모리 압박) 신호이나 Windows pagefile은 baseline이라 `recommendation.swap_saturation(os_family, swap_used)` helper가 Windows에서 swap 축을 제외한다. load(CPU run queue)·iowait가 미관측(값 None)이면 `unmeasured`에 기록되고 `is_partial`(=bool(unmeasured))이 confidence 단서가 된다 — 분류 자체는 utilization·capacity로 완결되어 항상 under/over/optimal 결론이 나며("이용률 기준 평가" 표기), cpu_p95·mem_p95가 산출되는 한 "데이터 부족"이 아니다. `insufficient_data`는 utilization(cpu·mem) 둘 다 부재 + under 신호도 없을 때만(신규/표본 부재 — swap 등 saturation 신호가 있으면 util 부재여도 under로 결론). report mapper의 권고(`_build_under_provisioned_reason`)·attention의 capacity 배지(`to_capacity_warning_item`)는 `assess.triggers`를 재사용해 임계 재계산 중복을 제거한다(stats 생성은 `build_resource_stats` 공용). os_family None(unknown)은 Linux로 취급. 분류 명세·근거(USE Method·벤더 임계 출처·한계) 단일 진실은 `docs/architecture/right-sizing.md`, 운영자 임계 카탈로그는 `right_sizing_thresholds.html`.
+OS 분기 (원칙 P2/P4 — evidence 기반): right-sizing 분류 단일 진실은 `recommendation.assess(stats) -> Assessment(recommendation, triggers, unmeasured)`이고, `classify`는 분류 enum만 돌려주는 호환 wrapper다. assess는 자원(CPU/Mem/Disk)별로 가진 축을 신호로 모아 under(위험 신호 OR — 하나라도 hit 되면 발화, 누락 0)/over(cpu·mem 이 둘 다 다운사이즈 임계 이하일 때만 — 보수적)/optimal 로 단일 분류를 내고 hit 신호를 근거(triggers)로 동반한다("어떤 데이터로 이 분류"). swap은 Linux page-out(메모리 압박) 신호이나 Windows pagefile은 baseline이라 `recommendation.swap_saturation(os_family, swap_used)` helper가 Windows에서 swap 축을 제외한다. load(CPU run queue)·iowait가 미관측(값 None)이면 `unmeasured`에 기록되고 `is_partial`(=bool(unmeasured))이 confidence 단서가 된다 — 분류 자체는 utilization·capacity로 완결되어 항상 under/over/optimal 결론이 나며("이용률 기준 평가" 표기), cpu_p95·mem_p95가 산출되는 한 "표본 부족"이 아니다. `insufficient_data`는 utilization(cpu·mem) 둘 다 부재 + under 신호도 없을 때만(신규/표본 부재 — swap 등 saturation 신호가 있으면 util 부재여도 under로 결론). report mapper의 권고(`_build_under_provisioned_reason`)·attention의 capacity 배지(`to_capacity_warning_item`)는 `assess.triggers`를 재사용해 임계 재계산 중복을 제거한다(stats 생성은 `build_resource_stats` 공용). os_family None(unknown)은 Linux로 취급. 분류 명세·근거(USE Method·벤더 임계 출처·한계) 단일 진실은 `docs/architecture/right-sizing.md`, 운영자 임계 카탈로그는 `right_sizing_thresholds.html`.
 
-## 대시보드 상단 요약 — environment_overview + attention
+## 환경 개요 상단 요약 — environment_overview + attention
 
-`/servers/` 첫 페이지에서 두 영역으로 표시. environment_overview는 환경 현황·평균·분포(도넛), attention은 즉시 조치 신호 카드. 시간 축은 단일 윈도우(`recommendation.WINDOW_DAYS=7`, #F10). 대시보드는 3 카드섹션(환경 요약 / 환경 자원 평가=활용률+Right-sizing+언더프로비저닝 / 환경 부하 추이+네트워크 토폴로지)으로 분리.
+환경 개요(`/`)에서 두 영역으로 표시. environment_overview는 환경 현황·평균·분포(도넛), attention은 즉시 조치 신호 카드. 평균 활용률·자원 적정성 평가 현황은 `DASHBOARD_TIME_RANGE`(24h, #F10) 윈도우. 개요는 3 카드섹션(환경 요약 / 환경 자원 평가=활용률+자원 적정성 평가+언더프로비저닝 / 환경 부하 추이+네트워크 토폴로지)으로 분리. 가변 윈도우·앵커로 적정성을 따로 보는 전용 페이지는 `/environment/assessment` (`get_environment_assessment(time_range, anchor)` — 개요 overview 조립부를 attention/trend 제외 경량 재사용, 자원 부족은 `full_under=True` 로 상위 N 절단 해제 전체 출력).
 
 | 시선 | service 메서드 | repo SQL | 시간 축 | 분류 |
 |------|----------------|----------|---------|------|
-| environment_overview | `get_environment_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(WINDOW_DAYS, end)` + `report_aggregate(WINDOW_DAYS)` + Redis online mget | 7일 USE Method + 7일 평균 활용률 (capacity-weighted) | 자원 합계·역할 분포·활용률 도넛·프로비저닝 분포 도넛 + under_provisioned 호스트 (capacity — `to_capacity_warning_item`, trigger 5종 스왑·CPU·메모리·Load·디스크) |
+| environment_overview | `get_dashboard_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(DASHBOARD_WINDOW_DAYS, end)` + `report_aggregate(DASHBOARD_WINDOW_DAYS)` + Redis online mget | 24h USE Method + 24h 평균 활용률 (capacity-weighted) | 자원 합계·역할 분포·활용률 도넛·프로비저닝 분포 도넛 + under_provisioned 호스트 (capacity — `to_capacity_warning_item`, trigger 5종 스왑·CPU·메모리·Load·디스크) |
 | attention.gap_warnings | `get_attention_signals` | `metric_gap_warnings(gap_min=5, recent_h=24)` 단일 SQL | 5min~24h 갭 (단기) | "한때 살아있다 끊김" |
-| attention.os_eol_warnings | `get_attention_signals` | `report_aggregate(WINDOW_DAYS)` raws + `resolve_os_eol`(endoflife.date 스냅샷, ADR 0031) | EOL 경과 한정 | 지원 종료 OS (Linux distro + Windows Server build) |
+| attention.os_eol_warnings | `get_attention_signals` | `report_aggregate(DASHBOARD_WINDOW_DAYS)` raws + `resolve_os_eol`(endoflife.date 스냅샷, ADR 0031) | EOL 경과 한정 | 지원 종료 OS (Linux distro + Windows Server build) |
 | attention.agent_unstable | `get_attention_signals` | `agent_restart_counts_recent(since=now-1h)` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | restart_count >= `AGENT_RESTART_ALERT_THRESHOLD` |
 
 운영신호 카드(`AttentionSignals`)는 위 3개뿐 — public `get_attention_signals` 가 내부 `_assemble_attention` 으로 조립. disk·capacity·days_until_full 은 운영신호에서 USE Method right-sizing 으로 이동(중복 회피): capacity(under_provisioned)는 environment_overview, disk capacity/IO 는 `recommendation.classify`, days_until_full 은 보고서 스토리지 컬럼.
@@ -111,11 +108,11 @@ OS 분기 (원칙 P2/P4 — evidence 기반): right-sizing 분류 단일 진실�
 - `list_server_ids()`는 정수 PK만 fetch — `list_servers`(disks JSONB 등 11컬럼) 대비 페이로드 절감 (T8 패턴 동일 적용).
 - partition pruning binding 통일: gap SQL의 `recent_hours`가 동적 binding (`(:recent_h * interval '1 hour')`) — service 인자와 SQL 결합을 SQL 본문 hardcode로 묵시화하지 않음 (#F3·#F9).
 - 검색·온라인필터 사용 시 environment_overview·attention 자동 격리 — 라우터 `pages.py` 분기 (첫 페이지·검색 없음·필터 없음일 때만 노출).
-- ViewModel·mapper 카탈로그: `docs/architecture/web/view-models.md` "대시보드 상단 요약" 절.
+- ViewModel·mapper 카탈로그: `docs/architecture/web/view-models.md` "환경 개요 상단 요약" 절.
 
 ## 환경 성능 추이 (live) — `metric_trend` 풀세트
 
-`/servers/environment/metrics` (list_page_router 등록 — server_detail `/{server_id}/metrics`(UUID) 보다 먼저라 'environment' 가 UUID 422 로 안 가고 본 라우트로 잡힘). 전체 환경 대상 10차트 live(시계열). `?ids=public_ids` 면 선택 N대 한정(대시보드 selection 버튼 -> navigate, 제목 "선택 N대 성능 추이"). 실시간 메트릭(현황 모니터링)은 `/servers/environment/realtime` 로 분리 — 시계열 추이와 별개 용도.
+`/environment/metrics` (환경 단위 `/environment` 그룹). 전체 환경 대상 10차트 live(시계열). `?ids=public_ids` 면 선택 N대 한정(목록 selection 버튼 -> navigate, 제목 "선택 N대 성능 추이"). 실시간 현황(모니터링)은 `/environment/realtime` 로 분리 — 시계열 추이와 별개 용도.
 
 | 영역 | service/repo | 비고 |
 |------|--------------|------|
@@ -123,6 +120,6 @@ OS 분기 (원칙 P2/P4 — evidence 기반): right-sizing 분류 단일 진실�
 
 서버 상세 성능 추이(`metrics.js`)와 동일 함수(`metric_trend`) — 환경은 `collapse=True`(dimension 합산 단일선), 상세는 `collapse=False, server_ids=[1대]`(device/iface/mount 보존). server_ids=[1대] 는 per_ts 합산 대상이 1서버라 시점값=그 서버값 -> 환경 선택 1대 = 서버 상세 동일. `data-selection-ids` 있으면 fetch 에 `ids` 전달. 5행2열을 단일 `.perf-merged` 카드로 통합(행=`.perf-row`, `static-assets.md`). 페이지 하단 `_reference_link.html`(수치 정의 참고자료 링크).
 
-### 실시간 메트릭 (live 현황) — `/servers/environment/realtime`
+### 실시간 현황 (live) — `/environment/realtime`
 
-`get_environment_realtime(server_ids=None)` -> `build_environment_realtime` (`servers/_environment_realtime.html` partial + `servers/realtime.html` 페이지 wrapper). 현재 평균 활용률 도넛(CPU/메모리/디스크 — capacity-weighted: CPU=sum(usage%·cores)/sum(cores), mem=sum(used)/sum(total), disk=sum(전 mount used)/sum(total), `environment_utilization` 과 동일 정의이며 단순 산술평균 아님) + 자원별 부하 상위 탑5(CPU/메모리/디스크 worst mount/로드 코어대비/스왑 — 서버별 값). 30초 폴링(`realtime.js`)이 partial 만 fragment 교체(`?fragment=realtime`), 갱신 stamp 는 카드 밖 제목 줄(카드 안 `#env-realtime-ts-data` 를 JS 가 읽어 '...초마다 자동 갱신 · 최근 {시각}' 조립). `?ids` 면 선택 N대. 대시보드에서는 이 카드 제거(`get_dashboard_live` realtime 폐기).
+`get_environment_realtime(server_ids=None)` -> `build_environment_realtime` (`servers/_environment_realtime.html` partial + `servers/realtime.html` 페이지 wrapper). 현재 평균 활용률 도넛(CPU/메모리/디스크 — capacity-weighted: CPU=sum(usage%·cores)/sum(cores), mem=sum(used)/sum(total), disk=sum(전 mount used)/sum(total), `environment_utilization` 과 동일 정의이며 단순 산술평균 아님) + 네트워크·디스크 I/O(절대 rate) + 자원별 부하 상위 탑5(CPU/메모리/디스크 worst mount/로드 코어대비/스왑 — 서버별 값). 정적 렌더(페이지 진입 시 1회, 자동 갱신 없음). `?fragment=realtime` 면 partial 만 반환(선택 N대 navigate 등). `?ids` 면 선택 N대.

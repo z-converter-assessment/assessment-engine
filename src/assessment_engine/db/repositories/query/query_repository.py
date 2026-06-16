@@ -1,8 +1,7 @@
 """5 도메인 concrete repository 결합 — composition root 에서 단일 instance 생성.
 
-`QueryRepository(session)` 호출은 `_BaseQueryMixin.__init__(session)` 한 번 — MRO C3 linearization
-으로 5 concrete 모두 동일 session 공유. 새 메서드 추가 시 sub-module (server / metric / ...) 의
-concrete class 갱신 의무 — 본 모듈은 결합만 표현.
+`QueryRepository(session)` 는 `_BaseQueryMixin.__init__` 한 번 — MRO C3 linearization 으로
+5 concrete 모두 동일 session 공유. 새 메서드 추가 시 해당 sub-module concrete class 갱신 의무.
 """
 
 from assessment_engine.db.repositories.query.attention import AttentionQueryRepository

@@ -13,7 +13,10 @@ from datetime import datetime
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import MetricGapWarningRaw
 from assessment_engine.web.services.device_filters import disk_total_bytes
-from assessment_engine.web.services.mappers.report import build_resource_stats
+from assessment_engine.web.services.mappers.report import (
+    _build_under_provisioned_reason,
+    build_resource_stats,
+)
 from assessment_engine.web.services.mappers.server import workload_category_counter
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
@@ -63,10 +66,11 @@ _CAPACITY_TRIGGER_COLORS: dict[str, str] = {
 _CAPACITY_TRIGGER_INACTIVE_BG = "#f8fafc"
 _CAPACITY_TRIGGER_INACTIVE_FG = "#cbd5e1"
 
-# 리소스 부족 카드 지표 값 색 — active(위반)는 under_provisioned 도넛과 동일 hex (E8 동일 의미 단일 진실).
-# 위반 강조 / 정상 진함 / 미관측(N/A) 흐림 — 3분기.
-_METRIC_VIOLATION_COLOR = next(c for k, _, c, _ in _DONUT_SEGMENT_DEFS if k == "under_provisioned")
-_METRIC_NORMAL_COLOR = "#1e293b"
+# 자원 부족 카드 지표 값 색 — 위반 강조 / 정상 / 미관측(N/A) 흐림 3분기.
+# 위반은 빨강 대신 가장 진한 무채(#0f172a) + 굵기·배경(템플릿 .metric-val-active)으로 강조 — 테마(파랑·회색) 무오염.
+# 정상은 중간 회색(#475569)으로 위반과 진하기 대비. 색이 아니라 진하기·굵기·배경으로 위반을 부각.
+_METRIC_VIOLATION_COLOR = "#0f172a"
+_METRIC_NORMAL_COLOR = "#475569"
 _METRIC_UNMEASURED_COLOR = "#94a3b8"  # 미관측(N/A) 흐림 — Windows load 등 OS 부재 축
 
 
@@ -149,7 +153,7 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
                 count=count,
                 pct=pct,
                 dash_length=dash_length,
-                dash_offset=-cum_offset,  # 음수 offset = 시계방향 이동 (잔존 — 도넛 폐기 후 미사용)
+                dash_offset=-cum_offset,  # 음수 offset = 시계방향 이동
                 description=description,
             )
         )
@@ -168,6 +172,7 @@ def build_environment_overview(
     utilization=None,
     risk_counts=None,
     under_provisioned_hosts: list | None = None,
+    under_limit: int | None = _UNDER_PROVISIONED_DISPLAY_MAX,
 ):
     """ServerDetail list + online_count + EnvironmentUtilizationRaw + risk_counts -> EnvironmentOverview.
 
@@ -247,7 +252,8 @@ def build_environment_overview(
     # 자원 부족 상세 — 심각도(severity_score) DESC 정렬 후 상위 N(탑3)만 표시(P2). 전체 수 count·표시 수 shown 분리.
     # 마이그레이션 우선순위: swap(paging) > 위반 자원 수 > 최고 활용률. 동률은 hostname ASC tie-break.
     _under_all = sorted(under_provisioned_hosts or [], key=lambda c: (-c.severity_score, c.hostname.lower()))
-    _under_shown = _under_all[:_UNDER_PROVISIONED_DISPLAY_MAX]
+    _under_shown = _under_all if under_limit is None else _under_all[:under_limit]
+    role_sorted = dict(sorted(role_counter.items(), key=lambda kv: (-kv[1], kv[0])))
 
     return EnvironmentOverview(
         total=total,
@@ -258,8 +264,9 @@ def build_environment_overview(
         total_disk_gb=int(total_disk_bytes / 10**9),
         # count 내림차순 + 동count는 이름 오름차순 tie-break (most_common 동순위는 삽입순=DB row 순서라 비결정적).
         os_distribution=dict(sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
-        role_distribution=dict(sorted(role_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
+        role_distribution=role_sorted,
         role_unknown_count=role_unknown,
+        role_identified_count=total - role_unknown,
         utilization=util_bars,
         utilization_p95=util_bars_p95,
         util_sample_size=util_sample,
@@ -429,6 +436,7 @@ def to_capacity_warning_item(raw):
         services=dict(workload_category_counter(raw.services, raw.listen_ports)),
         metrics=metrics,
         confidence_notes=build_confidence_notes(assessment),
+        recommendation_action=_build_under_provisioned_reason(assessment.triggers),
         severity_score=severity_score,
     )
 
@@ -445,7 +453,7 @@ def to_os_eol_warning_item(raw, now: datetime) -> AttentionRow | None:
     eol_iso, label = result
     return AttentionRow(
         badge_class=_ATTN_ACTIVE_BADGE,
-        badge_text="EOL",
+        badge_text=label,  # 호스트명 - distro(날짜 제외) 점선 leader. 원인 칸엔 distro 만 짧게.
         link_href=f"/servers/{raw.public_id}",
         link_text=raw.hostname,
         meta_text=f"{label} · EOL {eol_iso}",

@@ -1,6 +1,7 @@
-"""서버 목록 SSR — `/servers/` (page=1 + 검색/필터 미사용 시 환경 요약·신호).
+"""SSR 페이지 — 환경 개요(`/`) · 서버 목록(`/servers`) · 환경 단위(`/environment/*`).
 
-AI 진단 = 엔지니어 환경 보고서 안 본질 catalog 통합 (대시보드 안 별도 카드 없음).
+URL 명사 분리: 환경 단위(개요·자원평가·실시간·성능·토폴로지)는 `/` 와 `/environment/*`, 서버 단위는
+`/servers/*`(server_detail).
 """
 
 from datetime import UTC, datetime
@@ -9,8 +10,10 @@ from urllib.parse import quote, unquote
 from fastapi import APIRouter, Depends, Query, Request
 
 from assessment_engine import recommendation
-from assessment_engine.db.repositories.base_diagnostic_repository import DIAGNOSTIC_RANGE_LABEL_KR
-from assessment_engine.db.repositories.query.types import AUTO_BUCKET
+from assessment_engine.db.repositories.base_diagnostic_repository import (
+    DIAGNOSTIC_RANGE_LABEL_KR,
+    DiagnosticTimeRange,
+)
 from assessment_engine.web.deps import get_service
 from assessment_engine.web.services.mappers.shared import DISTRO_FILTER_OPTIONS, PROVISIONING_CLASS_OPTIONS
 from assessment_engine.web.services.query_service import DASHBOARD_TIME_RANGE, QueryService
@@ -18,52 +21,37 @@ from assessment_engine.web.services.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.settings import web_settings
 from assessment_engine.web.templating import templates
 
-list_page_router = APIRouter()
+# 환경 개요(/) · 서버 목록(/servers) · 환경 단위(/environment/*) 3 라우터 — URL 명사 분리.
+overview_router = APIRouter()
+servers_list_router = APIRouter(prefix="/servers")
+environment_router = APIRouter(prefix="/environment")
 
-# 환경 부하 추이 집계 단위 라벨 — DASHBOARD_TIME_RANGE 윈도우의 AUTO_BUCKET 한국어 표기 (표제용).
-_BUCKET_KO = {
-    "1m": "1분",
-    "5m": "5분",
-    "15m": "15분",
-    "30m": "30분",
-    "1h": "1시간",
-    "3h": "3시간",
-    "6h": "6시간",
-    "12h": "12시간",
-    "1d": "1일",
-}
-_TREND_BUCKET_LABEL = _BUCKET_KO[AUTO_BUCKET[DASHBOARD_TIME_RANGE]]
-# 대시보드 윈도우 한국어 라벨 ("6시간") — window_meta 표제 "최근 {라벨}" 표기.
+# 대시보드 윈도우 한국어 라벨 ("1일") — window_meta 표제 "최근 {라벨}" 표기.
 _DASHBOARD_WINDOW_LABEL = DIAGNOSTIC_RANGE_LABEL_KR[DASHBOARD_TIME_RANGE]
 
-# 대시보드 목록 전체 로드 한도 — 기본 20행만 표시(client "더보기" clip)하되, 필터 적용 시 조건 맞는
-# 전부를 보여주려면 client 에 전체가 있어야 한다(필터는 client-side hide/show). E2 page 기반의 의식적 예외:
-# 대시보드 단일 화면은 환경요약·realtime 도 이미 전 서버를 로드하므로 목록도 전체 로드로 일관.
+# 서버 목록 전체 로드 한도 — 기본 20행 표시(client clip), 필터는 client-side hide/show. E2 page 의식적 예외.
 _LIST_FETCH_LIMIT = 10_000
 
 
-@list_page_router.get("/environment/metrics")
+@environment_router.get("/metrics")
 async def environment_metrics(
     request: Request,
     back: str | None = Query(None),
     ids: str | None = Query(None, description="public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경."),
     service: QueryService = Depends(get_service),
 ):
-    """환경 성능 추이 (live) — 전체 환경 차트 10종. ids 면 선택 N대 한정.
-
-    server_detail 의 `/{server_id}/metrics`(UUID) 보다 먼저 등록(list_page_router 우선 include)이라
-    'environment' 가 UUID 매칭 422 로 가지 않고 본 라우트로 잡힘.
-    실시간 메트릭은 `/environment/realtime` 로 분리(현황 모니터링과 시계열 추이는 별개 용도)."""
+    """환경 성능 추이 (live) — 전체 환경 차트 10종. ids 면 선택 N대 한정. 환경 단위 `/environment` 그룹."""
     valid_pids = await _resolve_selection_pids(service, ids)
     selection_ids = ",".join(valid_pids)
-    path = "/servers/environment/metrics" + (f"?ids={selection_ids}" if selection_ids else "")
+    path = "/environment/metrics" + (f"?ids={selection_ids}" if selection_ids else "")
     return templates.TemplateResponse(
         request=request,
         name="servers/environment_metrics.html",
         context={
+            "active_nav": "performance",
             "window_days": recommendation.WINDOW_DAYS,
             "generated_at": datetime.now(UTC),
-            "back_url": unquote(back) if back else "/servers/",
+            "back_url": unquote(back) if back else "/",
             "self_back": quote(path, safe=""),
             "selection_ids": selection_ids,
             "selection_count": len(valid_pids),
@@ -71,7 +59,7 @@ async def environment_metrics(
     )
 
 
-@list_page_router.get("/environment/realtime")
+@environment_router.get("/realtime")
 async def environment_realtime(
     request: Request,
     back: str | None = Query(None),
@@ -89,25 +77,34 @@ async def environment_realtime(
         sid_map = await service.resolve_server_ids(valid_pids)
         server_ids = [sid_map[p] for p in valid_pids]
     selection_ids = ",".join(valid_pids)
-    path = "/servers/environment/realtime" + (f"?ids={selection_ids}" if selection_ids else "")
+    path = "/environment/realtime" + (f"?ids={selection_ids}" if selection_ids else "")
     realtime = await service.get_environment_realtime(server_ids)
     self_back = quote(path, safe="")
     if fragment == "realtime":
+        # 현황 메트릭 fragment 만 — 운영 신호는 느린 신호라 full-page 에만 정적 렌더(fragment 재조회에 불포함).
         return templates.TemplateResponse(
             request=request,
             name="servers/_environment_realtime.html",
             context={"realtime": realtime, "generated_at": now, "self_back": self_back},
         )
+    # 운영 신호 — selection(ids) 이면 선택 N대 호스트로 한정, 전체면 환경 전체.
+    if server_ids is not None:
+        attention = await service.get_selection_attention(server_ids, now)
+    else:
+        attention = await service.get_attention_signals(end=now)
     return templates.TemplateResponse(
         request=request,
         name="servers/realtime.html",
         context={
             "realtime": realtime,
+            "attention": attention,
+            "agent_restart_threshold": web_settings.agent_restart_alert_threshold,
             "generated_at": now,
-            "back_url": unquote(back) if back else "/servers/",
+            "back_url": unquote(back) if back else "/",
             "self_back": self_back,
             "selection_ids": selection_ids,
             "selection_count": len(valid_pids),
+            "active_nav": "realtime",
         },
     )
 
@@ -121,8 +118,85 @@ async def _resolve_selection_pids(service: QueryService, ids: str | None) -> lis
     return [pid for pid in public_ids if pid in sid_map]
 
 
-@list_page_router.get("/")
-async def list_servers(
+@environment_router.get("/topology")
+async def topology(
+    request: Request,
+    back: str | None = Query(None),
+    service: QueryService = Depends(get_service),
+):
+    """네트워크 토폴로지 전용 — L3 subnet 공동소속 그래프. 환경 단위 `/environment` 그룹.
+
+    현재 전체 인벤토리 그래프 — 대규모 범위 좁히기(subnet/host 필터)는 후속."""
+    topo = await service.get_topology()
+    return templates.TemplateResponse(
+        request=request,
+        name="servers/topology.html",
+        context={
+            "topology": topo,
+            "generated_at": datetime.now(UTC),
+            "back_url": unquote(back) if back else "/",
+            "self_back": quote("/environment/topology", safe=""),
+            "active_nav": "topology",
+        },
+    )
+
+
+@environment_router.get("/assessment")
+async def assessment(
+    request: Request,
+    time_range: DiagnosticTimeRange = Query(DASHBOARD_TIME_RANGE),
+    anchor_at: datetime | None = Query(None),
+    fragment: str | None = Query(None),
+    back: str | None = Query(None),
+    service: QueryService = Depends(get_service),
+):
+    """환경 자원 평가 (모니터링) — 윈도우/앵커 선택 -> 자원 적정성 분류 + 자원 부족 전체 목록.
+
+    환경 단위 `/environment` 그룹. fragment=result: 결과 partial 만 재렌더 (JS swap, 풀 reload 회피)."""
+    result = await service.get_environment_assessment(time_range, anchor_at)
+    qs = f"?time_range={time_range}" + (f"&anchor_at={quote(anchor_at.isoformat(), safe='')}" if anchor_at else "")
+    ctx = {
+        "overview": result.overview,
+        "efficiency_hosts": result.efficiency_hosts,
+        "efficiency_hosts_count": result.efficiency_hosts_count,
+        "efficiency_target_count": result.efficiency_target_count,
+        "efficiency_target_vcpus": result.efficiency_target_vcpus,
+        "efficiency_target_memory_gb": result.efficiency_target_memory_gb,
+        "under_provisioned_metric_labels": result.under_provisioned_metric_labels,
+        "time_range": time_range,
+        "window_label": DIAGNOSTIC_RANGE_LABEL_KR.get(time_range, time_range),
+        "self_back": quote(f"/environment/assessment{qs}", safe=""),
+    }
+    if fragment == "result":
+        return templates.TemplateResponse(request=request, name="servers/_assessment_result.html", context=ctx)
+    ctx["active_nav"] = "assessment"
+    ctx["back_url"] = unquote(back) if back else "/"
+    return templates.TemplateResponse(request=request, name="servers/assessment.html", context=ctx)
+
+
+@overview_router.get("/")
+async def overview(
+    request: Request,
+    service: QueryService = Depends(get_service),
+):
+    """환경 개요 (홈, `/`) — 집계 위젯(환경 요약·평균 활용률 도넛·수집 건전성).
+
+    서버 목록은 `/servers`, 환경 단위 분석은 `/environment/*` 로 분리. 집계형 위젯만 본 페이지에 남는다.
+    운영 신호는 실시간 현황(`/environment/realtime`)으로 분리. 자동 갱신 없음 — 정적 집계라 진입 시 1회 렌더."""
+    overview = await service.get_dashboard_overview()
+    ctx = {
+        "overview": overview,
+        # 페이지 렌더(새로고침) 시각 — 우측 상단 표시용. UTC 전달, 템플릿 kst 필터로 표시(#F2).
+        "generated_at": datetime.now(UTC),
+        "window_label": _DASHBOARD_WINDOW_LABEL,
+        "active_nav": "overview",
+        "self_back": quote("/", safe=""),
+    }
+    return templates.TemplateResponse(request=request, name="servers/overview.html", context=ctx)
+
+
+@servers_list_router.get("")
+async def servers_list(
     request: Request,
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
@@ -134,26 +208,10 @@ async def list_servers(
     fragment: str | None = Query(None),
     service: QueryService = Depends(get_service),
 ):
-    # 자동 갱신 fragment — live(환경요약·운영신호·실시간 메트릭) / rows(서버목록 행) 분리 렌더.
-    # list.js 30초 폴링이 교체. 별도 path 대신 ?fragment= 분기 — /servers/{public_id} UUID 라우트 충돌 회피.
-    # page 1 전체 기준(필터는 client 재적용).
-    if fragment == "live":
-        live = await service.get_dashboard_live()
-        return templates.TemplateResponse(
-            request=request,
-            name="servers/_dashboard_live.html",
-            context={
-                "overview": live.overview,
-                "attention": live.attention,
-                "topology": live.topology,
-                "trend": live.trend,
-                "generated_at": datetime.now(UTC),
-                "window_label": _DASHBOARD_WINDOW_LABEL,
-                "window_range": DASHBOARD_TIME_RANGE,
-                "trend_bucket_label": _TREND_BUCKET_LABEL,
-                "self_back": quote("/servers/", safe=""),
-            },
-        )
+    """서버 목록 (`/servers`) — 검색·필터 + 선택 N대 액션(보고서·install·export).
+
+    fragment=rows: 서버목록 행 partial 만 재렌더.
+    현재 전체 로드 후 client clip — page/limit Query 는 서버사이드 페이지네이션 도입 시 사용 (E2 page 정책)."""
     if fragment == "rows":
         rows = await service.list_servers(
             1, _LIST_FETCH_LIMIT, None, None, service=None, os_distro=None, classification=None
@@ -161,9 +219,8 @@ async def list_servers(
         return templates.TemplateResponse(
             request=request,
             name="servers/_server_rows.html",
-            context={"servers": rows, "self_back": quote("/servers/", safe="")},
+            context={"servers": rows, "self_back": quote("/servers", safe="")},
         )
-    # page/limit Query 는 하위호환용 — 대시보드는 전체 로드 후 client 가 20행 clip("더보기")·필터 적용.
     servers = await service.list_servers(
         1,
         _LIST_FETCH_LIMIT,
@@ -173,38 +230,16 @@ async def list_servers(
         os_distro=os_distro,
         classification=classification,
     )
-    # 첫 페이지 + 검색·필터 미사용일 때만 환경 요약·신호 노출.
-    # AI 진단 = 엔지니어 환경 보고서 안 본질 catalog 통합 (대시보드 안 별도 카드 없음).
-    overview = None
-    attention = None
-    topology = None
-    trend = None
-    if page == 1:
-        live = await service.get_dashboard_live()
-        overview, attention = live.overview, live.attention
-        # 토폴로지는 자동갱신 라이브 fragment 밖에서 1회 렌더 (정적 인벤토리 — 30초 폴링 대상 아님).
-        topology = live.topology
-        trend = live.trend
     return templates.TemplateResponse(
         request=request,
-        name="servers/list.html",
+        name="servers/list_table.html",
         context={
             "servers": servers,
-            "overview": overview,
-            "attention": attention,
-            "topology": topology,
-            "trend": trend,
-            # 페이지 렌더(새로고침) 시각 — 우측 상단 갱신 시각 표시용. UTC 전달, 템플릿 kst 필터로 표시(#F2).
             "generated_at": datetime.now(UTC),
-            "window_label": _DASHBOARD_WINDOW_LABEL,
-            "window_range": DASHBOARD_TIME_RANGE,
-            "trend_bucket_label": _TREND_BUCKET_LABEL,
             "zdm_defaults": {
                 "ip": web_settings.zdm_default_ip,
                 "user": web_settings.zdm_default_user,
             },
-            "discovery_default_target": web_settings.discovery_default_target,
-            "discovery_default_port": web_settings.discovery_default_port,
             # OS 필터 옵션 — endoflife 카탈로그 distro 전체(수집 무관, 지원 distro 노출).
             # single source: shared.DISTRO_FILTER_OPTIONS.
             "filter_options": {
@@ -212,6 +247,7 @@ async def list_servers(
                 "distro_options": DISTRO_FILTER_OPTIONS,
                 "classifications": PROVISIONING_CLASS_OPTIONS,
             },
+            "active_nav": "list",
             # 자식 link (detail / 진단 이력 등) 의 back chain — 본 page URL (filter 상태 보존).
             "self_back": quote(f"{request.url.path}?{request.url.query}", safe=""),
         },

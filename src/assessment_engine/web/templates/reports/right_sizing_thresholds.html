@@ -1,18 +1,13 @@
 {% extends "base.html" %}
-{% block title %}참고자료 — 지표·분류 기준{% endblock %}
+{% block title %}참고자료 — 지표·기준{% endblock %}
 
 {% block content %}
-{# 전용 페이지 인쇄 포맷 = 보고서 말미 footer 임베드(_reference_footer.html)와 동일.
-   별도 압축 CSS 없이 _thresholds_reference 를 그대로 렌더 -> base.html @media print 의 .card 규칙만 적용
-   (카드 박스 유지·page-break-inside avoid·원본 폰트). 두 경로 단일 형태. #}
-<a href="{{ back_url }}" class="back no-print">&larr; 이전</a>
-
+{# 별도 압축 CSS 없이 base.html @media print .card 규칙만 적용 — 보고서 footer 임베드와 단일 형태. #}
 <div style="display:flex; align-items:center; justify-content:space-between; margin:8px 0 20px; gap:16px;">
   <h1>참고자료
-    <span class="page-meta">지표·분류 기준</span>
+    <span class="page-meta">지표·기준</span>
   </h1>
   <button class="btn-print no-print" type="button" onclick="window.print()">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
     인쇄
   </button>
 </div>

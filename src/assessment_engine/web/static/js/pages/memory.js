@@ -73,7 +73,6 @@ function makePctLoader(def) {
 
   function makeYScale() {
     const y = {
-      title: { display:true, text:'%', font:{size:11}, color:'#94a3b8' },
       ticks: { callback: v => v + '%', font:{size:11}, color:'#64748b' },
       grid:  { color:'#f1f5f9' },
       min: 0,
@@ -245,7 +244,6 @@ function renderCompChart(rows, range, anchorEnd) {
       scales: {
         x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
         y: {
-          title: { display:true, text:'%', font:{size:11}, color:'#94a3b8' },
           ticks: { callback: v => v + '%', font:{size:11}, color:'#64748b' },
           grid:  { color:'#f1f5f9' },
           beginAtZero: true,
