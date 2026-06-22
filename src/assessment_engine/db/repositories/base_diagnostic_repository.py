@@ -75,6 +75,30 @@ class BaseDiagnosticRepository(ABC):
         ...
 
     @abstractmethod
+    async def claim_next_pending(self) -> "DiagnosticJobRecord | None":
+        """pending job 1건 원자적 claim — SELECT ... FOR UPDATE SKIP LOCKED + status=running.
+
+        멀티워커·멀티노드 안전 (row-lock 으로 1 job = 1 워커, 큐 없이 DB 가 분산 조정). created_at
+        오름차순(FIFO). claim 된 row 의 started_at=now()·progress_stage='running'. None 이면 큐 빔.
+        커밋은 호출자(워커) — claim 트랜잭션은 running 마킹까지 짧게 닫고, 보고서 생성은 별도 세션.
+        """
+        ...
+
+    @abstractmethod
+    async def mark_failed(self, job_id: str, error_message: str) -> None:
+        """status → failed, finished_at=now(), error_message 저장(F8 sanitize 후 전달), progress_stage=NULL."""
+        ...
+
+    @abstractmethod
+    async def recover_stale_running(self, stale_seconds: int) -> int:
+        """started_at 이 stale_seconds 초과한 running job 을 pending 으로 복구 (크래시/SIGTERM in-flight 회수).
+
+        워커 기동 시 1회 호출 — 처리 노드 다운으로 running 에 멈춘 job 을 다른 노드가 재집도록.
+        started_at=NULL·progress_stage='requeued' 로 되돌림. 복구 건수 반환.
+        """
+        ...
+
+    @abstractmethod
     async def list_recent(
         self,
         days: int,

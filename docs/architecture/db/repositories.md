@@ -68,7 +68,10 @@
 | `enqueue(job: DiagnosticJobCreate) -> str \| None` | active partial UNIQUE(scope·input_hash·job_type) 충돌 시 None (기존 job 그대로 반환) |
 | `get_active_by_hash(scope, input_hash, job_type)` | 더블클릭 방어 lookup — 활성 job 1건 반환 |
 | `get_by_id(job_id)` | `?job={id}` 스냅샷 단건 조회 |
-| `mark_succeeded(job_id, result)` | 발행 즉시 succeeded 상태 전이 (customer/engineer 동일, 비동기·실패 상태 없음) |
+| `claim_next_pending()` | pending job 1건 원자적 claim (`FOR UPDATE SKIP LOCKED` + running 마킹) — 워커 분산 (ADR 0040) |
+| `mark_succeeded(job_id, result)` | running -> succeeded + result 저장 (워커 생성 완료 시) |
+| `mark_failed(job_id, error_message)` | running -> failed + error_message (생성 불가·내부 오류, F8 sanitize 후) |
+| `recover_stale_running(stale_seconds)` | started_at 초과 running -> pending 회수 (크래시 in-flight, 워커 기동 시) |
 | `list_recent(days, scope?, server_public_ids?, job_type?, limit)` | 보고서 이력 페이지 — created_at DESC |
 | `delete_retention(older_than_days)` | retention DELETE |
 

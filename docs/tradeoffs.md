@@ -429,3 +429,25 @@ agent 불변 전제의 최선 — 호스트 워크로드 union:
 언제 다시 봐야 하는가
 - agent 가 `services[]` 에 main pid 또는 exe basename 을 실어주면 → listen_ports 와 pid join 으로 per-unit 정확 귀속, 행 단위까지 정확. union 보완 불필요.
 - 목록 행 뱃지 정확도가 운영 이슈로 부상 시 → `list_servers` SELECT 에 listen_ports JSONB 추가해 목록도 union (partial SELECT 정책 재검토 동반).
+
+## T16. 비동기 보고서 발행 — web job-claim 워커 (ADR 0040)
+
+무엇을
+- 보고서 발행을 동기 즉시 succeeded 에서 비동기로 전환: emit 은 parent job 을 pending enqueue 후 즉시 `?job={id}` 반환, web lifespan 의 job-claim 워커가 생성. consumer 큐 워커(ADR 0004 옵션 B)가 아니라 web 내부 워커 + DB 상태머신(옵션 C).
+
+왜 큐 워커가 아니라 web 내부 워커인가
+- 보고서 생성 코드(query_service report 메서드 + mappers·view_models·serializer, 약 4900+ LOC)가 web/services 강결합. consumer(F4 BaseCollectRepository 만)로 위임하면 web 표시계층 절반을 web 비의존 패키지로 승격하는 대공사 + 양방향 의존. 워크로드가 DB 집계 I/O(수초)라 큐 분리 효용도 낮다.
+- 옵션 A(메모리 task) 기각 사유(in-flight 손실)는 job 상태를 DB 에 두고 stale 복구로 무효화 — FOR UPDATE SKIP LOCKED 로 멀티노드 분산까지.
+
+포기한 것 / 한계
+- web 프로세스가 생성 부하를 짊어진다(요청과 완전 격리 아님). DB I/O 바운드라 경미하나 생성 폭주 시 web 자원 경합.
+- 크래시/타임아웃으로 parent 가 running 잔류 -> stale 복구 후 재처리 시, 이전 run 에서 이미 succeeded 로 만든 child(단일 보고서)가 orphan 으로 이력에 중복될 수 있다. 데이터 정합성 허점은 아님 — parent succeeded 시 `child_jobs` 는 최신 유효분을 가리키고, orphan child 는 retention 으로 정리. child 멱등(같은 input_hash succeeded 재사용)·재처리 전 cleanup 은 드문 크래시 경로라 미구현.
+
+왜 받아들였나
+- 발행 응답을 즉시(job_id)로 만들어 N 증가에도 사용자 응답 시간 일정 — 가장 큰 요구(발행 느림) 해소. 생성은 백그라운드.
+- 추출 0 으로 큐 워커 대공사·회귀 위험 회피하면서 in-flight 손실 0·멀티노드·graceful 달성.
+
+언제 다시 봐야 하는가
+- 생성 부하가 web 요청 처리를 압박하면 → consumer 큐 워커(옵션 B)로 분리(보고서 생성 도메인 계층 추출 동반).
+- orphan child 중복이 운영 이슈로 부상하면 → child 멱등(get_latest_succeeded_by_hash 재사용) 또는 parent 재처리 전 이전 child cleanup.
+- A2(aggregate/net 중복 제거)·A3(breakdown 배치)·A5(fan-out prefetch 배치)는 적용 완료 — child fan-out 의 raws·breakdown·details 를 배치 1회 조회(`build_child_prefetched_reports` -> `get_single_server_report(prefetch=)`). A4(trend)만 보류: cpu/mem/disk 가 다른 테이블이라 단일 SQL 불가, 서버별 시계열이라 배치 불가, gather 는 QueryService composition root 대수술 + 커넥션 3배 + B 백그라운드라 응답 ROI 0. trend·online redis 는 서버별 잔존.

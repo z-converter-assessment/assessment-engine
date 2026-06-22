@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
@@ -6,9 +7,13 @@ from redis.asyncio import Redis
 from assessment_engine import recommendation
 from assessment_engine.cache.redis import safe_get, safe_mget, safe_set
 from assessment_engine.db.dtos.outbound import (
+    CpuBreakdownRaw,
     InventoryExportEntry,
+    MemoryBreakdownRaw,
     MetricSeries,
     RebootEvent,
+    ReportMountUsageRaw,
+    ReportRowRaw,
 )
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
@@ -131,6 +136,21 @@ _DETAIL_ALL_TIME_DAYS = 36500
 # right-sizing 표준 평가 윈도우(recommendation.WINDOW_DAYS=7d — 보고서 기본·서버 목록 분류)와 의도 분리.
 DASHBOARD_TIME_RANGE: TimeRange = "24h"
 DASHBOARD_WINDOW_DAYS: float = DIAGNOSTIC_RANGE_DAYS[DASHBOARD_TIME_RANGE]
+
+
+@dataclass
+class _ChildPrefetch:
+    """N대 fan-out generator 가 배치 조회한 1대분 — get_single_server_report 주입 (A5).
+
+    raws·detail·breakdown 만 배치(report_aggregate·get_servers·breakdown 1회). trend·online redis 는
+    서버별이라 get_single_server_report 내부 유지(AsyncSession 동시 await 금지로 배치/gather 불가).
+    """
+
+    raw: ReportRowRaw
+    detail: ServerDetailResponse
+    mount_raws: list[ReportMountUsageRaw]
+    mem_raw: MemoryBreakdownRaw
+    cpu_raw: CpuBreakdownRaw
 
 
 def _filter_attention(attention: AttentionSignals, hostnames: set[str]) -> AttentionSignals:
@@ -663,11 +683,10 @@ class QueryService:
         under_hosts: list[CapacityWarningItem] = []
         if server_ids:
             details = await self.repo.get_servers(server_ids)
-            base = await self.get_report(server_ids, period_days, end=end_dt, view=view)
-            # overview(평균 활용률·분류 도넛)도 선택 time_range 윈도우+anchor 기준 — 선택 N대 보고서와 동일 경로
-            # (환경 요약 용량 합은 인벤토리라 구간 무관). 고정 7일 get_environment_overview 의존 제거.
-            raws_window = await self.repo.report_aggregate(server_ids, period_days, end_dt)
-            await self._inject_net_baseline(raws_window, server_ids, period_days, end_dt)
+            # raws 1회 조립 후 get_report·overview·under_hosts 공유 (A2: report_aggregate/net_io 중복 제거).
+            # overview(평균 활용률·분류 도넛)도 선택 time_range 윈도우+anchor 기준 — 선택 N대 보고서와 동일 경로.
+            raws_window = await self._assemble_report_raws(server_ids, period_days, end_dt)
+            base = await self.get_report(server_ids, period_days, end=end_dt, view=view, raws=raws_window)
             online_by_id = await self._online_map(server_ids, details, end_dt)
             util = await self.repo.environment_utilization(
                 period_days=period_days, end=end_dt, server_ids=server_ids
@@ -735,9 +754,9 @@ class QueryService:
         if not details:
             return None  # type: ignore[return-value]
 
-        base = await self.get_report(server_ids, period_days, end=end_dt, view=view)
-        raws_window = await self.repo.report_aggregate(server_ids, period_days, end_dt)
-        await self._inject_net_baseline(raws_window, server_ids, period_days, end_dt)
+        # raws 1회 조립 후 get_report·overview·under_hosts 공유 (A2: report_aggregate/net_io 중복 제거).
+        raws_window = await self._assemble_report_raws(server_ids, period_days, end_dt)
+        base = await self.get_report(server_ids, period_days, end=end_dt, view=view, raws=raws_window)
         online_by_id = await self._online_map(server_ids, details, end_dt)
         # 평균 활용률 — capacity-weighted (자원 총량 가중). 전체 환경과 동일 SQL, server_ids 로 N대 한정.
         util = await self.repo.environment_utilization(period_days=period_days, end=end_dt, server_ids=server_ids)
@@ -790,10 +809,16 @@ class QueryService:
         view: ReportView = "customer",
         time_range: str = DIAGNOSTIC_DEFAULT_TIME_RANGE,
         anchor_at: datetime | None = None,
+        attention: AttentionSignals | None = None,
+        prefetch: "_ChildPrefetch | None" = None,
     ) -> "EnvironmentReportSummary":
         """단일 서버 보고서 — 환경 보고서 양식 (`get_environment_report`) 의 1대 scope 변형.
 
         anchor_at: 발행 시점 기준 시각 (None 이면 현재) — 발행 스냅샷 윈도우 재현.
+        attention: 호출자가 이미 수집한 전역 운영 신호 주입 (N대 fan-out 시 재계산 회피).
+            None 이면 내부 1회 수집 (단독 라우트 호환). os_eol 만 보고서에 표시(C1).
+        prefetch: N대 fan-out generator 가 배치 조회한 1대분(raw·detail·breakdown) 주입 (A5).
+            None 이면 자체 조회. trend·online 은 서버별이라 prefetch 무관하게 내부 조회.
         """
         # period_days 는 time_range 에서 내부 도출 (환경·선택 보고서와 동일 — 호출자 불일치 여지 0).
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
@@ -803,15 +828,24 @@ class QueryService:
             return None  # type: ignore[return-value]
         server_id = sid_map[server_public_id]
 
-        details = await self.repo.get_servers([server_id])
-        detail = details[0] if details else None
-        if detail is None:
-            return None  # type: ignore[return-value]
+        # prefetch: N대 fan-out generator 가 배치 조회한 1대분 주입(A5) — raws·detail·breakdown 만 배치.
+        if prefetch is not None:
+            detail = prefetch.detail
+            raws_window = [prefetch.raw]
+        else:
+            fetched = await self.repo.get_servers([server_id])
+            detail = fetched[0] if fetched else None
+            if detail is None:
+                return None  # type: ignore[return-value]
+            # raws 1회 조립 후 get_report·under_hosts 공유 (A2: report_aggregate 중복 제거 + net·worst_mount
+            # 주입으로 단일 보고서 under 분류가 세부 행과 정합 — 기존 single 은 net 미주입이었음).
+            raws_window = await self._assemble_report_raws([server_id], period_days, end_dt)
+        details = [detail]
+        base = await self.get_report([server_id], period_days, end=end_dt, view=view, raws=raws_window)
+        # N대 fan-out 은 라우터가 1회 수집한 attention 주입 — 루프마다 전역 집계(report_aggregate 전체서버) 재계산 회피.
+        if attention is None:
+            attention = await self.get_attention_signals(end=end_dt, limit_each=None)
 
-        base = await self.get_report([server_id], period_days, end=end_dt, view=view)
-        attention = await self.get_attention_signals(end=end_dt, limit_each=None)
-
-        raws_window = await self.repo.report_aggregate([server_id], period_days, end_dt)
         under_hosts: list[CapacityWarningItem] = []
         for raw in raws_window:
             rec = recommendation.classify(build_resource_stats(raw))
@@ -865,38 +899,83 @@ class QueryService:
         summary.server_inventory = build_server_inventory(detail, is_online)
         # 심화 메트릭 (engineer 전용) — 마운트별 스토리지·메모리 구성·CPU 분류 (윈도우 집계).
         if view == "engineer":
-            mount_raws = await self.repo.report_mount_usage(server_id, period_days, end_dt)
-            mem_raw = await self.repo.report_memory_breakdown(server_id, period_days, end_dt)
-            cpu_raw = await self.repo.report_cpu_breakdown(server_id, period_days, end_dt)
+            if prefetch is not None:
+                mount_raws, mem_raw, cpu_raw = prefetch.mount_raws, prefetch.mem_raw, prefetch.cpu_raw
+            else:
+                mount_raws = await self.repo.report_mount_usage(server_id, period_days, end_dt)
+                mem_raw = await self.repo.report_memory_breakdown(server_id, period_days, end_dt)
+                cpu_raw = await self.repo.report_cpu_breakdown(server_id, period_days, end_dt)
             summary.volumes = build_volumes(mount_raws)
             summary.memory_breakdown = build_memory_breakdown(mem_raw)
             summary.cpu_breakdown = build_cpu_breakdown(cpu_raw)
         return summary
 
-    async def get_report(
+    async def build_child_prefetched_reports(
         self,
-        server_ids: list[int],
-        period_days: float = recommendation.WINDOW_DAYS,
-        end: datetime | None = None,
-        view: ReportView = "customer",
-    ) -> ReportSummary:
-        """Assessment 보고서 — raw → ViewModel + KPI 집계 (P2 단일 변환).
+        server_public_ids: list[str],
+        sid_map: dict[str, int],
+        view: ReportView,
+        time_range: str,
+        anchor_at: datetime,
+        attention: AttentionSignals | None = None,
+    ) -> list[tuple[str, "EnvironmentReportSummary | None"]]:
+        """N대 child 단일 보고서 — 공통 데이터(raws·details·breakdown) 배치 1회 조회 후 서버별 조립 (A5).
 
-        repo는 raw stats(`ReportRowRaw`)만 산출. mapper(`to_report_row_item`)가 표시 파생
-        (role/recommendation/badge_class/os_display) 채움. KPI도 service 책임.
-        is_online은 Redis mget 일괄 (N+1 회피, fail-open 시 last_seen_at fallback).
-        view는 summary_bullets 분기에만 사용 (양식 A/B로 행동 시그널 vs 엔지니어 시그널 분리).
+        get_single_server_report 를 prefetch 주입으로 N회 호출 — report_aggregate(6N->6)·get_servers(N->1)·
+        breakdown(3N->3) 배치 절감. trend·online redis 는 서버별이라 내부 유지(AsyncSession 동시 await 금지).
+        반환 [(public_id, summary|None)] — 미존재 서버는 None.
         """
-        end_dt = end or datetime.now(UTC)
-        # 5개 SQL 단일 round-trip씩. 결과 dict는 server_id 키로 zip.
+        period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
+        sids = [sid_map[p] for p in server_public_ids if p in sid_map]
+        if not sids:
+            return [(p, None) for p in server_public_ids]
+        raws_by_id = {r.server_id: r for r in await self._assemble_report_raws(sids, period_days, anchor_at)}
+        details_by_id = {d.id: d for d in await self.repo.get_servers(sids)}
+        mount_by_id: dict[int, list[ReportMountUsageRaw]] = {}
+        mem_by_id: dict[int, MemoryBreakdownRaw] = {}
+        cpu_by_id: dict[int, CpuBreakdownRaw] = {}
+        if view == "engineer":
+            mount_by_id = await self.repo.report_mount_usage_batch(sids, period_days, anchor_at)
+            mem_by_id = await self.repo.report_memory_breakdown_batch(sids, period_days, anchor_at)
+            cpu_by_id = await self.repo.report_cpu_breakdown_batch(sids, period_days, anchor_at)
+
+        results: list[tuple[str, EnvironmentReportSummary | None]] = []
+        for pid in server_public_ids:
+            sid = sid_map.get(pid)
+            raw = raws_by_id.get(sid) if sid is not None else None
+            detail = details_by_id.get(sid) if sid is not None else None
+            if raw is None or detail is None:
+                results.append((pid, None))
+                continue
+            prefetch = _ChildPrefetch(
+                raw=raw,
+                detail=detail,
+                # 배치는 GROUP BY 라 데이터 없는 서버는 행 부재 — 단수 .one()(null avg row)과 동치로 빈 객체 채움.
+                mount_raws=mount_by_id.get(sid, []),
+                mem_raw=mem_by_id.get(sid) or MemoryBreakdownRaw(None, None, None, None),
+                cpu_raw=cpu_by_id.get(sid) or CpuBreakdownRaw(None, None, None),
+            )
+            summary = await self.get_single_server_report(
+                pid, view=view, time_range=time_range, anchor_at=anchor_at, attention=attention, prefetch=prefetch
+            )
+            results.append((pid, summary))
+        return results
+
+    async def _assemble_report_raws(
+        self, server_ids: list[int], period_days: float, end_dt: datetime
+    ) -> list:
+        """report_aggregate + 5 baseline(mount_worst·uptime·agent_restart·disk_io·net_io) 주입 raws.
+
+        보고서 3경로(env·selection·single)가 get_report 세부 행·under_hosts 분류·overview 에 동일
+        raws 를 공유 — report_aggregate/net_io 중복 호출 제거 + build_resource_stats(net·worst_mount
+        포함, #E3) 입력 일치로 idle/shutdown 분류 정합(세부 행·under·도넛 동일 입력).
+        """
         raws = await self.repo.report_aggregate(server_ids, period_days, end_dt)
         mount_worst = await self.repo.report_mount_worst(server_ids, period_days, end_dt)
         uptime_stats = await self.repo.report_uptime_stats(server_ids, period_days, end_dt)
         agent_restart_stats = await self.repo.report_agent_restart_stats(server_ids, period_days, end_dt)
         disk_io = await self.repo.report_disk_io_baseline(server_ids, period_days, end_dt)
         net_io = await self.repo.report_net_io_baseline(server_ids, period_days, end_dt)
-
-        # raws에 결과 주입 (P1 raw 단계 합성)
         for raw in raws:
             mount_tuple = mount_worst.get(raw.server_id)
             if mount_tuple is not None:
@@ -923,6 +1002,28 @@ class QueryService:
                     raw.net_tx_kbps_p95,
                     raw.net_tx_kbps_peak,
                 ) = net_tuple
+        return raws
+
+    async def get_report(
+        self,
+        server_ids: list[int],
+        period_days: float = recommendation.WINDOW_DAYS,
+        end: datetime | None = None,
+        view: ReportView = "customer",
+        raws: list | None = None,
+    ) -> ReportSummary:
+        """Assessment 보고서 — raw → ViewModel + KPI 집계 (P2 단일 변환).
+
+        repo는 raw stats(`ReportRowRaw`)만 산출. mapper(`to_report_row_item`)가 표시 파생
+        (role/recommendation/badge_class/os_display) 채움. KPI도 service 책임.
+        is_online은 Redis mget 일괄 (N+1 회피, fail-open 시 last_seen_at fallback).
+        view는 summary_bullets 분기에만 사용 (양식 A/B로 행동 시그널 vs 엔지니어 시그널 분리).
+        """
+        end_dt = end or datetime.now(UTC)
+        # raws 주입 시 재사용(보고서 3경로가 under_hosts 분류·overview 와 공유 — report_aggregate/net_io
+        # 중복 호출 제거), 없으면 자체 조립(단독 라우트·dashboard 호환).
+        if raws is None:
+            raws = await self._assemble_report_raws(server_ids, period_days, end_dt)
 
         online_keys = [web_settings.redis_key_online.format(r.server_id) for r in raws]
         flags = await safe_mget(self.redis, online_keys)

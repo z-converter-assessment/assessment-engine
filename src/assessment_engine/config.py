@@ -69,6 +69,14 @@ class WebSettings(BaseSettings):
     # 운영 alert 튜닝 노브 — env 카탈로그 미수록(env.example·env.md), 필요 시 env override.
     agent_restart_alert_threshold: int = 3
 
+    # 비동기 보고서 생성 워커 (web 프로세스 내 백그라운드 루프 — 발행 응답성·확장성).
+    # poll: pending job 점검 주기. stale_seconds: running 잔류 job 회수 임계(생성이 이 안에 끝난다는 가정,
+    # 초과 = 크래시로 간주해 재집음). shutdown_timeout: graceful 시 진행 중 1건 완료 대기(초과 시 cancel
+    # -> running 잔류 -> 다음 기동 recover_stale 회수, in-flight 손실 0).
+    report_worker_poll_interval_sec: float = 2.0
+    report_worker_stale_seconds: int = 600
+    report_worker_shutdown_timeout_sec: float = 10.0
+
     # ZDM 서버 기본 좌표 — install 모달 default (POST body 누락 시 fallback, 운영자 override 가능).
     # 잘못된 발행 방어는 런타임(resolver 503 차단) + agent host whitelist — startup 거부 없음.
     zdm_default_ip: str = ""

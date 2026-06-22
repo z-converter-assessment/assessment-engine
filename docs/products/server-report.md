@@ -8,7 +8,7 @@
 
 서버 보고서 (선택 N대) — `GET /reports/servers?ids=<public_id,...>&period_days=14&view=customer|engineer`, 발행 `POST /reports/servers/emit`. 단일 1대는 `GET /servers/{id}/report`. 선택 N대 row 단위 상세. customer(양식 A) view=KPI 8 컬럼, engineer(양식 B) view=정량 16 컬럼.
 
-발행 흐름 (T13): 보고서 발행(`POST /reports/servers/emit`)은 발행 시점 ViewModel 정적 스냅샷을 `diagnostic_jobs` 테이블 `result` JSONB 에 보존 — `emit_report` 가 발행 즉시 succeeded row INSERT (customer/engineer 동일, 별도 비동기 처리 없음). GET `?job={id}` 는 저장된 스냅샷만 정적 렌더(재계산 0). 보고서 이력은 `/reports/history`.
+발행 흐름 (T13, ADR 0040): 보고서 발행(`POST /reports/servers/emit`)은 parent job 을 pending enqueue 후 즉시 `?job={id}` 반환 — web 내부 job-claim 워커가 발행 시점 ViewModel 정적 스냅샷을 생성해 `diagnostic_jobs` `result` JSONB 에 보존하고 succeeded 전이 (customer/engineer 동일). GET `?job={id}` 는 succeeded 면 저장된 스냅샷 정적 렌더(재계산 0), 생성 중이면 진행 화면 + 폴링. 보고서 이력은 `/reports/history`.
 
 ## 위치
 

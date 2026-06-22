@@ -16,14 +16,12 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
     DiagnosticTimeRange,
 )
-from assessment_engine.web.deps import get_diagnostic_service, get_service
+from assessment_engine.web.deps import get_diagnostic_service
 from assessment_engine.web.services.diagnostic_service import DiagnosticService, _normalize_anchor
 from assessment_engine.web.services.mappers.report_history import to_report_history_item
-from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.report_serializer import (
     REPORT_KIND_ENV,
     env_report_from_dict,
-    env_report_to_dict,
 )
 from assessment_engine.web.templating import templates
 
@@ -48,10 +46,9 @@ async def environment_report(
     anchor_at: datetime | None = Query(None, description="분석 기준 시각 (live preview). 미명시 시 현재"),
     view: Literal["customer", "engineer"] = Query("customer"),
     back: str | None = Query(None, description="← 이전 link 의 referrer. 미명시 시 /servers/"),
-    service: QueryService = Depends(get_service),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """환경 단위 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview (진단 트리거 없음)."""
+    """환경 단위 보고서 — job 있으면 정적 스냅샷, 없으면 발행 전 컨트롤(본문은 발행해야 생성)."""
     back_url = back if back and back.startswith("/") and not back.startswith("//") else "/"
     self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 
@@ -75,6 +72,24 @@ async def environment_report(
     )
 
 
+def _render_job_progress(request: Request, rec, back_url: str):
+    """비동기 보고서 job 이 succeeded 아님 — 진행(pending/running) 폴링 또는 실패(failed) 안내 화면.
+
+    pending/running 은 report-poll.js 가 status 폴링 -> 완료 시 reload. failed 는 재발행 안내(폴링 안 함).
+    환경·selection·단일 GET 공용 — 모든 보고서 scope 가 같은 비동기 생성 흐름이라 진행 화면 단일.
+    """
+    return templates.TemplateResponse(
+        request=request,
+        name="reports/report_pending.html",
+        context={
+            "job_id": rec.id,
+            "status": rec.status,
+            "error": rec.error_message if rec.status == "failed" else None,
+            "back_url": back_url,
+        },
+    )
+
+
 async def _render_environment_snapshot(
     request: Request,
     job_id: str,
@@ -82,9 +97,13 @@ async def _render_environment_snapshot(
     self_back: str,
     diag_service: DiagnosticService,
 ):
-    """발행된 환경 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary)."""
+    """발행된 환경 보고서 렌더 — succeeded 면 정적 스냅샷, 그 외(pending/running/failed)는 진행 화면."""
     rec = await diag_service.get_report_snapshot(job_id)
-    if rec is None or rec.result is None or rec.result.get("kind") != REPORT_KIND_ENV:
+    if rec is None:
+        raise HTTPException(status_code=404, detail="report snapshot not found")
+    if rec.status != "succeeded":
+        return _render_job_progress(request, rec, back_url)
+    if rec.result is None or rec.result.get("kind") != REPORT_KIND_ENV:
         raise HTTPException(status_code=404, detail="report snapshot not found")
     result = rec.result
     summary = env_report_from_dict(result["snapshot"])
@@ -110,25 +129,19 @@ async def environment_report_emit(
     time_range: DiagnosticTimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
     anchor_at: datetime | None = Query(None),
     view: Literal["customer", "engineer"] = Query("customer"),
-    service: QueryService = Depends(get_service),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
-    """환경 보고서 발행 (PRG) — 발행 시점 정적 스냅샷.
+    """환경 보고서 발행 (PRG) — parent job enqueue 후 즉시 `?job={id}` 반환(워커가 비동기 생성).
 
-    응답 view_url = `?job={id}` — 클라이언트가 navigate.
-    같은 input 활성 충돌(더블클릭) 시 기존 job_id 회수 (emit_report 안).
+    응답 view_url = `?job={id}` — 클라이언트가 navigate -> 생성 중이면 진행 화면 + 폴링, 완료 시 스냅샷.
+    같은 input 활성 충돌(더블클릭) 시 기존 job_id 회수(enqueue_report). 등록 서버 0 등 생성 불가는
+    워커가 job 을 failed 로 전이 -> GET 이 실패 화면 표시.
     """
     anchor = _normalize_anchor(anchor_at)
-    summary = await service.get_environment_report(time_range, anchor, view=view)
-    if summary.overview.total == 0:
-        raise HTTPException(status_code=404, detail="no registered servers")
-    public_ids = await service.list_all_server_public_ids()
-    job_id = await diag_service.emit_report(
+    job_id = await diag_service.enqueue_report(
         view=view,
         scope="environment",
-        kind=REPORT_KIND_ENV,
-        snapshot=env_report_to_dict(summary),
-        server_public_ids=public_ids,
+        server_public_ids=[],
         time_range=time_range,
         anchor_at=anchor,
     )
@@ -189,6 +202,26 @@ async def history(
     }
     template = "reports/_history_results.html" if fragment else "reports/history.html"
     return templates.TemplateResponse(request=request, name=template, context=context)
+
+
+@reports_router.get("/{job_id}/status")
+async def report_status(
+    job_id: str,
+    diag_service: DiagnosticService = Depends(get_diagnostic_service),
+):
+    """비동기 보고서 생성 진행 상태 — report-poll.js 폴링용 JSON. 미존재 404.
+
+    failed 의 error 는 도메인 사유만(워커가 raw 예외는 'internal error' 로 sanitize, F8).
+    정적 라우트(/environment·/history·/servers·*/emit)와 segment 구조가 달라 충돌 없음.
+    """
+    rec = await diag_service.get_report_snapshot(job_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    return {
+        "status": rec.status,
+        "progress_stage": rec.progress_stage,
+        "error": rec.error_message if rec.status == "failed" else None,
+    }
 
 
 @reference_router.get("/reference")

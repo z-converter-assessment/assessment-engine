@@ -45,8 +45,9 @@
 | 0037 | dev 가상화 OrbStack -> libvirt(KVM) 재전환 | Accepted | dev host macOS -> Linux x86_64 homeserver 이전. OrbStack(macOS 전용) -> libvirt+qemu-kvm(virsh·virbr0 NAT). `host.docker.internal`·`orb.local` -> libvirt 게이트웨이 IP·VM DHCP lease IP. dev-up.sh libvirt 매트릭스(Linux 5+Windows 1). `zdm_default_ip` default 빈값. ADR 0026 supersede |
 | 0038 | release 에셋명 env.example (점 prefix 제거) | Accepted | GitHub Release 가 점 prefix(`.env.example`)를 `default.env.example` 로 변환(download URL·asset name 모두) -> 에셋명·루트 배포 템플릿 파일명을 `env.example`(점 없이)로 rename. dev 전용 `dev/.env.example`·`agent.env.example`(release 미첨부)은 점 유지. ADR 0035 에셋명 점-prefix 부분 supersede |
 | 0039 | RAG 제거 (0024 supersede) | Accepted | 미활성(`RAG_ENABLED=False`) RAG infra 전면 제거 — `rag/` 패키지·`rag_documents` 테이블·pgvector extension(drop revision `e2f4a6c8b0d3`)·embedding/retriever 추상·ingest CLI·`docs/rag-seed/`·config 7 필드. 진단 = 통계 집계 + 결정론 분류 + LLM narrative 단독. LLM(ADR 0025) 유지. 재도입은 새 ADR |
+| 0040 | 비동기 보고서 발행 복원 (web job-claim 워커) | Accepted | 동기 즉시 succeeded 발행 -> 비동기. emit=`enqueue_report`(parent pending) 즉시 `?job=` 반환, web lifespan job-claim 워커(`FOR UPDATE SKIP LOCKED`)가 `build_report_result_for_job` 생성 -> succeeded/failed. GET pending/running 폴링(`report-poll.js`+`/status`). ADR 0004 옵션 B(큐 워커) 대신 옵션 C(web 내부 + DB 상태머신) — 보고서 생성 web/services 강결합으로 consumer 위임 대공사 회피. in-flight 손실 0(stale 복구)·멀티노드(SKIP LOCKED). 0004·0014 정정 |
 
-트레이드오프 카탈로그(T1~T15)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
+트레이드오프 카탈로그(T1~T16)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 
 ## 새 ADR 작성
 

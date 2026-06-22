@@ -6,7 +6,7 @@
 {% macro efficiency_table(hosts, target_count, target_vcpus, target_memory_gb, shown_count, self_back) %}
 {% if hosts %}
 <p class="text-sm text-label" style="margin:0 0 12px;">과다 할당·유휴·종료 권장 {{ target_count }}대 — 총 {{ target_vcpus }} vCPU · {{ "%.1f" | format(target_memory_gb) }} GB 점유.{% if target_count > shown_count %} 시급도 순 상위 {{ shown_count }}대.{% endif %}</p>
-<div style="overflow-x:auto; margin-bottom:20px;">
+<div class="table-scroll" style="margin-bottom:20px;">
 <table style="width:100%;">
   <thead>
     <tr><th>호스트</th><th>분류</th><th>진단</th><th>신뢰도</th></tr>
@@ -31,7 +31,7 @@
 {# 자원 부족 표 — 판단 6축 + 신뢰도. hosts = CapacityWarningItem, metric_labels = 첫 행 라벨 precompute. #}
 {% macro under_provisioned_table(hosts, metric_labels, self_back) %}
 {% if hosts %}
-<div style="overflow-x:auto; margin-bottom:20px;">
+<div class="table-scroll" style="margin-bottom:20px;">
 <table class="detail-table" style="width:100%; min-width:560px;">
   <thead>
     <tr><th style="white-space:nowrap;">호스트</th>{% for m in metric_labels %}<th style="white-space:nowrap;">{{ m }}</th>{% endfor %}<th style="white-space:nowrap;">권고</th><th style="white-space:nowrap;">신뢰도</th></tr>

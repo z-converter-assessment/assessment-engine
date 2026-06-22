@@ -77,6 +77,15 @@
     /* 식별자 (hostname / UUID / IP / path) — 정렬·식별 affordance 위 monospace. base a 스타일 그대로 상속. */
     code, .identifier { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
     table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+    /* 가로 스크롤 컨테이너 — 넘칠 때 가로 스크롤바를 idle 에도 항상 노출(테마 accent 파랑 thumb).
+       주의: 표준 scrollbar-width/scrollbar-color 를 지정하면 Chrome 121+ 가 그 표준을 우선해
+       ::-webkit-scrollbar 커스텀을 통째로 무시하고 macOS 에선 overlay(idle 숨김)로 렌더된다.
+       그래서 표준 속성은 쓰지 않고 ::-webkit-scrollbar 만 사용 — -webkit-appearance:none 으로 항상 표시. */
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table-scroll::-webkit-scrollbar { height: 10px; -webkit-appearance: none; }
+    .table-scroll::-webkit-scrollbar-track { background: #e2e8f0; border-radius: 99px; }
+    .table-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-title) 60%, white); border-radius: 99px; border: 1px solid #e2e8f0; min-width: 48px; }
+    .table-scroll::-webkit-scrollbar-thumb:hover { background: var(--color-title); }
     /* 테이블 제목행 — 테마 파란색 배경 + 흰 글씨 (전 테이블 단일 진실). */
     thead { background: color-mix(in srgb, var(--color-title) 60%, white); }
     th { padding: 9px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #fff; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid var(--color-table-head); }
@@ -372,7 +381,7 @@
       /* 내용행 zebra — 화면과 동일하게 인쇄도 옅은 바탕 강제(배경 빠짐 방지). */
       tbody tr:nth-child(even) td { background: #fafbfc !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
       /* overflow 스크롤 컨테이너 — 인쇄는 스크롤 불가라 visible 로 전체 노출(테이블 잘림 방지). */
-      div[style*="overflow"] { overflow: visible !important; }
+      div[style*="overflow"], .table-scroll { overflow: visible !important; }
       /* 개별 보고서 2열 카드(자원 적정성+OS EOL 등) — 웹과 동일하게 2열 유지. 안쪽 section 은 card 테두리 제거(각자 영역으로 분리돼 보이는 것 방지). */
       .report-row-2 > section { border: none !important; }
       a { color: #1a1a1a !important; text-decoration: none !important; }

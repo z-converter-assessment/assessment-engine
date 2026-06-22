@@ -639,3 +639,95 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             system_pct=float(row.system_pct) if row.system_pct is not None else None,
             iowait_pct=float(row.iowait_pct) if row.iowait_pct is not None else None,
         )
+
+    async def report_mount_usage_batch(
+        self, server_ids: list[int], period_days: float, end: datetime
+    ) -> dict[int, list[ReportMountUsageRaw]]:
+        """`report_mount_usage` 배치 — server_id IN + GROUP BY (server_id, mount). child fan-out 1회 조회 (A5)."""
+        start = end - timedelta(days=period_days)
+        sql = text(f"""
+            SELECT server_id, mount, max(total_bytes) AS total_bytes,
+                avg(CASE WHEN total_bytes > 0 AND avail_bytes IS NOT NULL
+                         THEN ((total_bytes - avail_bytes)::float / total_bytes) * 100 END) AS used_pct
+            FROM server_mount_usage
+            WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
+              AND {_DATA_VOLUME_SQL_FILTER}
+            GROUP BY server_id, mount
+            ORDER BY server_id, used_pct DESC NULLS LAST
+        """)
+        result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
+        out: dict[int, list[ReportMountUsageRaw]] = {}
+        for r in result.all():
+            out.setdefault(r.server_id, []).append(
+                ReportMountUsageRaw(
+                    mount=r.mount,
+                    total_bytes=int(r.total_bytes) if r.total_bytes is not None else None,
+                    used_pct=float(r.used_pct) if r.used_pct is not None else None,
+                )
+            )
+        return out
+
+    async def report_memory_breakdown_batch(
+        self, server_ids: list[int], period_days: float, end: datetime
+    ) -> dict[int, MemoryBreakdownRaw]:
+        """`report_memory_breakdown` 배치 — GROUP BY server_id."""
+        start = end - timedelta(days=period_days)
+        sql = text("""
+            SELECT server_id,
+                avg(CASE WHEN mem_total_kb > 0 THEN (1 - mem_available_kb::float / mem_total_kb) * 100 END) AS used_pct,
+                avg(CASE WHEN mem_total_kb > 0 AND mem_available_kb IS NOT NULL
+                         THEN mem_available_kb::float / mem_total_kb * 100 END) AS available_pct,
+                avg(CASE WHEN mem_total_kb > 0 AND mem_cached_kb IS NOT NULL
+                         THEN mem_cached_kb::float / mem_total_kb * 100 END) AS cached_pct,
+                avg(CASE WHEN mem_total_kb > 0 AND mem_buffers_kb IS NOT NULL
+                         THEN mem_buffers_kb::float / mem_total_kb * 100 END) AS buffers_pct
+            FROM server_metrics
+            WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
+            GROUP BY server_id
+        """)
+        result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
+        return {
+            r.server_id: MemoryBreakdownRaw(
+                used_pct=float(r.used_pct) if r.used_pct is not None else None,
+                available_pct=float(r.available_pct) if r.available_pct is not None else None,
+                cached_pct=float(r.cached_pct) if r.cached_pct is not None else None,
+                buffers_pct=float(r.buffers_pct) if r.buffers_pct is not None else None,
+            )
+            for r in result.all()
+        }
+
+    async def report_cpu_breakdown_batch(
+        self, server_ids: list[int], period_days: float, end: datetime
+    ) -> dict[int, CpuBreakdownRaw]:
+        """`report_cpu_breakdown` 배치 — PARTITION BY server_id (LAG 가 서버 경계 안), GROUP BY server_id."""
+        start = end - timedelta(days=period_days)
+        sql = text(f"""
+            WITH raw AS (
+                SELECT server_id, collected_at, cpu_user AS u, cpu_system AS s, cpu_iowait AS iow,
+                    ({_CPU_TOTAL_EXPR}) AS total
+                FROM server_metrics
+                WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
+            ),
+            deltas AS (
+                SELECT server_id,
+                    u   - LAG(u)   OVER win AS du,
+                    s   - LAG(s)   OVER win AS ds,
+                    iow - LAG(iow) OVER win AS dw,
+                    total - LAG(total) OVER win AS dt
+                FROM raw WINDOW win AS (PARTITION BY server_id ORDER BY collected_at)
+            )
+            SELECT server_id,
+                avg(CASE WHEN dt > 0 AND du >= 0 THEN du * 100.0 / dt END) AS user_pct,
+                avg(CASE WHEN dt > 0 AND ds >= 0 THEN ds * 100.0 / dt END) AS system_pct,
+                avg(CASE WHEN dt > 0 AND dw >= 0 THEN dw * 100.0 / dt END) AS iowait_pct
+            FROM deltas GROUP BY server_id
+        """)
+        result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
+        return {
+            r.server_id: CpuBreakdownRaw(
+                user_pct=float(r.user_pct) if r.user_pct is not None else None,
+                system_pct=float(r.system_pct) if r.system_pct is not None else None,
+                iowait_pct=float(r.iowait_pct) if r.iowait_pct is not None else None,
+            )
+            for r in result.all()
+        }
