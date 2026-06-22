@@ -171,6 +171,7 @@ def make_task_result_payload(
     completed_at: datetime = _DEFAULT_TASK_COMPLETED_AT,
     boot_time: datetime | None = None,
     agent_started_at: datetime | None = None,
+    os_version: str | None = None,
     message_id: str = "550e8400-e29b-41d4-a716-446655440099",
 ) -> dict:
     """task.result wire JSON 빌더 — TaskResultInput.model_validate_json 검증용.
@@ -191,6 +192,7 @@ def make_task_result_payload(
         "status": status,
         "failure_reason": failure_reason,
         "exit_code": exit_code,
+        "os_version": os_version,
         "duration_ms": duration_ms,
         "stdout_tail": stdout_tail,
         "stderr_tail": stderr_tail,
