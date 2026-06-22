@@ -207,6 +207,9 @@ class TaskResultInput(MessageBase):
     # 실패 분류 문자열 (성공 시 null). 새 enum 은 silent pass — extra=ignore 정신, max_length만 강제.
     failure_reason: str | None = Field(default=None, max_length=32)
     exit_code: int | None = None
+    # OS 버전 식별자 (Windows worker = CurrentBuildNumber, 예 "20348"). 성공 exit code 보정
+    # 정책(task_policy.effective_task_result)의 키. Linux worker 미발행이라 nullable.
+    os_version: str | None = Field(default=None, max_length=64)
     duration_ms: int = Field(ge=0)
     # 8192 cap 은 over-provision (agent wire 상한 4 KB). minor bump 로 tail 늘어도 무수정 흡수 (#B).
     stdout_tail: str = Field(max_length=8192)

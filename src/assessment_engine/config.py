@@ -146,6 +146,13 @@ class ConsumerSettings(WebSettings):
     rabbitmq_routing_key_task_result: str = "task.result"
     rabbitmq_queue_worker_result: str = "worker.result"
 
+    # task.result 성공 보정 정책 (assessment_engine.task_policy). OS 버전(Windows
+    # CurrentBuildNumber) -> 성공으로 취급할 추가 exit code 목록. status=failure +
+    # failure_reason=script_failed 인 direct_exec 결과에만 적용.
+    # 기본값: Windows Server 2022(build 20348) 는 ZConverter installer 의 exit code 2 를
+    # 설치 성공으로 본다. env(JSON)로 override — 예: '{"20348":[2],"26100":[2]}'.
+    task_install_success_exit_codes: dict[str, list[int]] = {"20348": [2]}
+
     @property
     def broker_url(self) -> str:
         # vhost의 '/'는 AMQP URL에서 %2F로 인코딩되어야 함
