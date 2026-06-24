@@ -11,6 +11,8 @@ class ServerSummary:
     hostname: str
     os_id: str | None
     os_version: str | None
+    # 레거시 Windows Server 표시명 보강용 (build -> 버전, os_version 빈값 Server 세대). _os_display 단일 소비.
+    kernel_version: str | None
     cpu_cores: int | None
     mem_total_kb: int | None
     ip_external: list[str] | None

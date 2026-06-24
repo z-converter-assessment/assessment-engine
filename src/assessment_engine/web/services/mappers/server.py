@@ -32,6 +32,7 @@ from assessment_engine.web.services.mappers.shared import (
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
     os_id_to_distro,
+    windows_legacy_version_from_build,
 )
 from assessment_engine.web.services.metrics_calculator import compute_net_io
 from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb, usage_pct
@@ -163,8 +164,12 @@ def _services_or_none(
     return [_to_service_item(s, listen_ports) for s in raw]
 
 
-def _os_display(os_id: str | None, os_version: str | None) -> str:
-    parts = [p for p in [os_id, os_version] if p]
+def _os_display(os_id: str | None, os_version: str | None, kernel_version: str | None = None) -> str:
+    ver = os_version
+    if os_id == "windows" and not ver:
+        # 레거시 Windows Server 는 os_version 빈값 -> kernel build 로 버전 보강 ("windows 2012").
+        ver = windows_legacy_version_from_build(kernel_version)
+    parts = [p for p in [os_id, ver] if p]
     return " ".join(parts) or "-"
 
 
@@ -175,7 +180,7 @@ def build_server_inventory(detail, is_online: bool) -> ServerInventory:
     disk_bytes = disk_total_bytes(detail.disks or [], detail.mounts or [])
     return ServerInventory(
         hostname=detail.hostname,
-        os_display=_os_display(detail.os_id, detail.os_version),
+        os_display=_os_display(detail.os_id, detail.os_version, detail.kernel_version),
         os_codename=detail.os_codename,
         kernel_version=detail.kernel_version,
         cpu_model=detail.cpu_model,
@@ -261,7 +266,7 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
         services=services,
         known_services=known,
         show_unknown_badge=show_unknown,
-        os_display=_os_display(dto.os_id, dto.os_version),
+        os_display=_os_display(dto.os_id, dto.os_version, dto.kernel_version),
         recommendation_label=rec_label,
         recommendation_color=rec_color,
         provisioning_class=seg_key,
@@ -470,7 +475,7 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     detail.sorted_services = sorted(detail.services or [], key=lambda s: s.unit) if detail.services else []
     detail.sorted_listen_ports = sorted(detail.listen_ports, key=lambda lp: (lp.port, lp.proto))
 
-    detail.os_display = _os_display(detail.os_id, detail.os_version)
+    detail.os_display = _os_display(detail.os_id, detail.os_version, detail.kernel_version)
 
     cpu_parts = [p for p in [detail.cpu_model, f"{detail.cpu_cores} cores" if detail.cpu_cores else None] if p]
     detail.cpu_display = " ".join(cpu_parts) or "-"

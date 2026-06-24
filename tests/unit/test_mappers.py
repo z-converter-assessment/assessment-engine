@@ -26,6 +26,7 @@ from assessment_engine.web.services.mappers.server import (
     to_storage_detail,
     workload_category_counter,
 )
+from assessment_engine.web.services.mappers.shared import windows_legacy_version_from_build
 
 # ─── 임계값·severity ──────────────────────────────────────────────────────
 
@@ -118,6 +119,7 @@ def _summary(**overrides) -> ServerSummary:
         hostname="host",
         os_id="ubuntu",
         os_version="22.04",
+        kernel_version=None,
         cpu_cores=4,
         mem_total_kb=8 * 1024**2,
         ip_external=None,
@@ -164,6 +166,38 @@ def test_list_item_os_display():
     assert item_partial.os_display == "22.04"
     item_none = to_server_list_item(_summary(os_id=None, os_version=None))
     assert item_none.os_display == "-"
+
+
+@pytest.mark.parametrize(
+    "kernel_version,expected",
+    [
+        ("9600", "2012 R2"),
+        ("9200", "2012"),
+        ("7601", "2008 R2"),
+        ("6003", "2008"),
+        ("3790", "2003"),
+        ("2195", "2000"),
+        ("9200.1234", "2012"),  # UBR/revision suffix 무시 (build 만)
+        ("14393", None),  # Server 2016 — 비레거시(보강 범위 밖)
+        ("19045", None),  # Windows 10 — 비레거시
+        ("", None),
+        (None, None),
+    ],
+)
+def test_windows_legacy_version_from_build(kernel_version, expected):
+    assert windows_legacy_version_from_build(kernel_version) == expected
+
+
+def test_list_item_os_display_windows_legacy_from_build():
+    # 레거시 Windows Server 는 agent 가 os_version 빈값으로 보냄 -> kernel build 로 보강
+    item = to_server_list_item(_summary(os_id="windows", os_version="", kernel_version="9200"))
+    assert item.os_display == "windows 2012"
+    # os_version 있으면(클라이언트 DisplayVersion 등) 그대로 우선 — build 보강 안 함
+    item_ver = to_server_list_item(_summary(os_id="windows", os_version="22H2", kernel_version="19045"))
+    assert item_ver.os_display == "windows 22H2"
+    # 비레거시(2016+) 빈 os_version 은 미보강 — "windows" 만 (보강 범위는 레거시 한정)
+    item_2016 = to_server_list_item(_summary(os_id="windows", os_version="", kernel_version="14393"))
+    assert item_2016.os_display == "windows"
 
 
 # ─── to_server_detail + enrich (idempotent) ───────────────────────────────

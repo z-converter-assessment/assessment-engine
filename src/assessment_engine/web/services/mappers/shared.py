@@ -194,6 +194,29 @@ def resolve_os_eol(
     return None
 
 
+# 레거시 Windows Server (build <= 9600) kernel build -> 표시용 버전 라벨.
+# agent 가 Server 세대 os_version 을 빈값으로 보낸다(DisplayVersion/ReleaseId 레지스트리 키가 Server 2016
+# 이전엔 부재) -> 표시가 "windows" 로만 나옴. kernel build(CurrentBuildNumber, 모든 Windows 존재)로 보강.
+# build <-> 제품 출처는 resolve_os_eol 과 동일 카탈로그(windows-server), 표시 라벨만 별도(같은 build 가 여러
+# SP/edition 공유 — 노이즈 제외, 운영=Server 가정). 2016(14393)+ 은 미등록(레거시 한정, os_version 보강 범위 결정).
+_WINDOWS_LEGACY_BUILD_LABEL: dict[str, str] = {
+    "9600": "2012 R2",
+    "9200": "2012",
+    "7601": "2008 R2",
+    "6003": "2008",
+    "3790": "2003",
+    "2195": "2000",
+}
+
+
+def windows_legacy_version_from_build(kernel_version: str | None) -> str | None:
+    """레거시 Windows Server(build <= 9600) kernel build -> 표시 버전 라벨. 비레거시·미매칭은 None."""
+    if not kernel_version:
+        return None
+    build = kernel_version.split(".")[0]
+    return _WINDOWS_LEGACY_BUILD_LABEL.get(build)
+
+
 def format_net_rate(kbps_total: float | None) -> str | None:
     """환경 합산 네트워크 rate(kBps) -> 표시 문자열 — 실시간 현재 자원 현황·보고서 환경 현황 공용 단일 진실.
 
