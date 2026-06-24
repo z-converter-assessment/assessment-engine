@@ -57,34 +57,51 @@
 
 `v IS NOT NULL` WHERE filter — reset 시점 missing point로 자연 표시. 별도 marker는 web/static-assets.md "Reboot/Restart marker" 참조.
 
+## 카운터 메트릭 사전집계 — continuous aggregate (ADR 0043)
+
+CPU jiffies·disk/net bytes 는 카운터다. 매 요청 7일치 raw 를 LAG 로 스캔하지 않고 continuous aggregate +
+timescaledb_toolkit `counter_agg` 로 사전집계한다. 5분 버킷(클라우드 right-sizing 표준), `materialized_only=false`
+(real-time aggregation — 미materialize 최근 구간 실시간 집계, staleness 0), 5분 refresh policy. 초기 materialize 는
+`refresh_continuous_aggregate`(트랜잭션 밖)로 마이그레이션 외 1회.
+
+| cagg | 그룹 | 저장 |
+|------|------|------|
+| `server_metrics_5m` | server_id, bucket | CPU `counter_agg`(total/idle/user/system/iowait) + mem% avg/max + load max + swap |
+| `server_disk_io_5m` | server_id, device, bucket | reads/writes/sectors `counter_agg` (물리 device만) |
+| `server_net_io_5m` | server_id, interface, bucket | rx/tx bytes·packets `counter_agg` (물리 interface만) |
+
+counter reset(재부팅·agent재시작·wraparound)은 `counter_agg` 가 값-감소 기준 일률 처리 — boot_time gate 불요.
+가상 device/interface 는 cagg 단계 필터(물리만, types 필터 스냅샷).
+
 ## 보고서 집계 — `report_aggregate` SQL
 
-USE Method (Brendan Gregg) 기반 N서버 X period_days 통계:
+USE Method (Brendan Gregg) 기반 N서버 X period_days 통계 — `server_metrics_5m` cagg 조회:
 
 ```sql
-WITH cpu_deltas AS (
-  -- LAG로 jiffies delta + boot_time reset 제외
+WITH bkt AS (
+  -- 버킷별 delta(counter_agg)로 CPU%/iowait% (reset 일률 처리). per-bucket = 5분 평균.
+  SELECT server_id, bucket,
+    CASE WHEN delta(cpu_total_ca) > 0
+         THEN GREATEST(0, (1 - delta(cpu_idle_ca)/delta(cpu_total_ca)) * 100) END AS cpu_pct,
+    mem_pct_avg, mem_pct_max, load_15m_max, swap_in_use
+  FROM server_metrics_5m WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
 ),
-cpu_pct AS (...),
-cpu_stats AS (
-  SELECT server_id,
-    percentile_cont(0.95) WITHIN GROUP (ORDER BY pct) AS cpu_p95,
-    MAX(pct) AS cpu_peak
-  FROM cpu_pct GROUP BY server_id
+cpu_stats AS (  -- 버킷에 percentile_cont(정확), avg, max
+  SELECT server_id, percentile_cont(0.95) WITHIN GROUP (ORDER BY cpu_pct) AS cpu_p95, MAX(cpu_pct) AS cpu_peak
+  FROM bkt GROUP BY server_id
 ),
-mem_pct AS (...), mem_stats AS (...), load_stats AS (...)
-SELECT s.id, s.public_id, s.hostname, s.os_id, s.os_version, s.kernel_version,
-       s.ip_internal, s.services, s.last_seen_at,
-       cs.cpu_p95, cs.cpu_peak, ms.mem_p95, ms.mem_peak, ms.swap_used, ls.load_15m_max
+mem_stats AS (...), load_stats AS (...),
+mount_max AS (-- server_mount_usage(가상 mount 제외), 카운터 아님 raw 집계)
+SELECT s.id, ..., cs.cpu_p95, cs.cpu_peak, ms.mem_p95, ms.mem_peak, ms.swap_used, ls.load_15m_max, mm.worst_used_pct
 FROM server_inventory s
-LEFT JOIN cpu_stats  cs ON cs.server_id = s.id
-LEFT JOIN mem_stats  ms ON ms.server_id = s.id
-LEFT JOIN load_stats ls ON ls.server_id = s.id
+LEFT JOIN cpu_stats cs ON cs.server_id = s.id
+... (mem/load/mount LEFT JOIN)
 WHERE s.id = ANY(:sids)
 ```
 
 - `services` JSONB 동시 SELECT — N+1 회피 (role 추론용)
 - LEFT JOIN — metric 없는 서버도 행 반환 (service에서 `insufficient_data` 분류)
+- sufficiency = 실측 버킷 / 기대 버킷(period_days*288, 5분). `report_disk_io_baseline`·`report_net_io_baseline`·`report_cpu_breakdown` 도 동일 cagg 조회.
 - repository는 raw 컬럼만 (P1) — `os_display`/`internal_ip[0]` 등 표시 가공은 mapper
 
 ## 운영 / 디버깅

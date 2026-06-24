@@ -10,10 +10,10 @@ from assessment_engine.db.dtos.outbound import (
     ReportRowRaw,
     ServerDetail,
 )
+from assessment_engine.service_classifier import classify, well_known_ports
 from assessment_engine.web.services.device_filters import find_parent_disk, is_data_volume
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.server import infer_role
-from assessment_engine.web.services.service_classifier import classify, well_known_ports
 
 
 def _split_from_mounts(mounts: list[dict]) -> tuple[int | None, list[dict]]:

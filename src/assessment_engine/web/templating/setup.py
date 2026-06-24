@@ -19,7 +19,14 @@ from assessment_engine.web.services.mappers.shared import (
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
 )
-from assessment_engine.web.templating.filters import disksize, kbps, kst, or_dash, service_badge_class
+from assessment_engine.web.templating.filters import (
+    disksize,
+    disksize_styled,
+    kbps,
+    kst,
+    or_dash,
+    service_badge_class,
+)
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
@@ -28,12 +35,14 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 env: Environment = templates.env  # type: ignore[assignment]
 env.filters["kst"] = kst
 env.filters["disksize"] = disksize
+env.filters["disksize_styled"] = disksize_styled
 env.filters["kbps"] = kbps
 env.filters["service_badge_class"] = service_badge_class
 env.filters["or_dash"] = or_dash
 
 # Static asset versioning — process startup time hex를 모든 페이지 static URL의 querystring에 부착.
 # 코드 변경 후 web 재시작 -> 새 token -> 브라우저가 새 URL로 인식 -> 강제 재다운로드.
+# dev(app_env=dev)는 main.py 미들웨어가 매 요청 asset_v 를 재발급해 hot reload 즉시 반영 (prod 는 본 고정값 유지).
 ASSET_V: str = format(int(time.time()), "x")
 env.globals["asset_v"] = ASSET_V
 

@@ -101,6 +101,33 @@ class BaseReportQueryRepository(ABC):
         """CPU 분류 윈도우 평균 — user/system/iowait (jiffies LAG delta, counter reset 흡수)."""
 
     @abstractmethod
+    async def report_mount_usage_batch(
+        self,
+        server_ids: list[int],
+        period_days: float,
+        end: datetime,
+    ) -> dict[int, list[ReportMountUsageRaw]]:
+        """N대 마운트별 윈도우 평균 — `report_mount_usage` 배치(server_id IN). child fan-out 1회 조회 (A5)."""
+
+    @abstractmethod
+    async def report_memory_breakdown_batch(
+        self,
+        server_ids: list[int],
+        period_days: float,
+        end: datetime,
+    ) -> dict[int, MemoryBreakdownRaw]:
+        """N대 메모리 구성 윈도우 평균 — `report_memory_breakdown` 배치(GROUP BY server_id)."""
+
+    @abstractmethod
+    async def report_cpu_breakdown_batch(
+        self,
+        server_ids: list[int],
+        period_days: float,
+        end: datetime,
+    ) -> dict[int, CpuBreakdownRaw]:
+        """N대 CPU 분류 윈도우 평균 — `report_cpu_breakdown` 배치(PARTITION BY server_id, GROUP BY server_id)."""
+
+    @abstractmethod
     async def environment_utilization(
         self,
         period_days: float,

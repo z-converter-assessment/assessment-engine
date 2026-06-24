@@ -14,10 +14,10 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_RANGE_LABEL_KR,
     DiagnosticTimeRange,
 )
+from assessment_engine.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.deps import get_service
 from assessment_engine.web.services.mappers.shared import DISTRO_FILTER_OPTIONS, PROVISIONING_CLASS_OPTIONS
 from assessment_engine.web.services.query_service import DASHBOARD_TIME_RANGE, QueryService
-from assessment_engine.web.services.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.settings import web_settings
 from assessment_engine.web.templating import templates
 
@@ -87,11 +87,11 @@ async def environment_realtime(
             name="servers/_environment_realtime.html",
             context={"realtime": realtime, "generated_at": now, "self_back": self_back},
         )
-    # 운영 신호 — selection(ids) 이면 선택 N대 호스트로 한정, 전체면 환경 전체.
+    # 운영 신호 — selection(ids) 이면 선택 N대 호스트로 한정, 전체면 환경 전체. limit_each=None = 3 카탈로그 전수 출력.
     if server_ids is not None:
         attention = await service.get_selection_attention(server_ids, now)
     else:
-        attention = await service.get_attention_signals(end=now)
+        attention = await service.get_attention_signals(end=now, limit_each=None)
     return templates.TemplateResponse(
         request=request,
         name="servers/realtime.html",

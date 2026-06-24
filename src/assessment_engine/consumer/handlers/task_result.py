@@ -1,6 +1,6 @@
 """task.result 메시지 핸들러 — agent worker 가 task 실행 종료 후 발행."""
 
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from typing import Any
 
 from aio_pika.abc import AbstractIncomingMessage
@@ -13,19 +13,22 @@ from assessment_engine.consumer.handlers._common import _check_idempotent, _db_r
 from assessment_engine.consumer.schemas import TaskResultInput
 from assessment_engine.db.dtos.inbound import TaskResultUpdate
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
+from assessment_engine.task_policy import effective_task_result
 
 
 def make_task_result_handler(
     session_factory: async_sessionmaker[AsyncSession],
     repo_factory: Callable[[AsyncSession], BaseCollectRepository],
     redis: Redis,
+    success_exit_codes: Mapping[str, Sequence[int]],
 ) -> Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]:
     """작업 결과 수신 핸들러.
 
-    흐름: 멱등성 → DB UPDATE (status / completed_at / failure_reason / exit_code /
-    duration_ms / stdout_tail / stderr_tail).
+    흐름: 멱등성 → 성공 보정 정책(task_policy) → DB UPDATE (status / completed_at /
+    failure_reason / exit_code / duration_ms / stdout_tail / stderr_tail).
     task_id 미존재 시 silent ack (운영자가 task 삭제했을 가능성 — DLQ 부적합).
     boot_time / agent_started_at은 본 메시지에서 항상 null이라 time invariant 검증 생략.
+    exit_code 는 raw 보존(감사용), status/failure_reason 만 정책 보정 결과로 저장.
     """
 
     async def _handle(message: AbstractIncomingMessage) -> None:
@@ -40,30 +43,59 @@ def make_task_result_handler(
                 logger.info("task_result duplicate skipped message_id={}", data.message_id)
                 return
 
-            update = TaskResultUpdate(
-                public_id=str(data.task_id),
-                status=data.status,
-                failure_reason=data.failure_reason,
-                exit_code=data.exit_code,
-                duration_ms=data.duration_ms,
-                stdout_tail=data.stdout_tail,
-                stderr_tail=data.stderr_tail,
-                completed_at=data.completed_at,
-            )
+            async def commit(repo: BaseCollectRepository) -> tuple[bool, str, str | None]:
+                # 성공 보정 매칭 OS — Windows 는 메시지 build os_version, Linux 등은 task.result 미발행이라
+                # inventory 에서 대상 서버 os_id/os_version 조회 (실패+script_failed+exit_code 일 때만 1회).
+                os_family, os_id, os_version = data.os_family, None, data.os_version
+                if (
+                    data.status == "failure"
+                    and data.failure_reason == "script_failed"
+                    and data.exit_code is not None
+                    and data.os_family != "windows"
+                ):
+                    server_os = await repo.get_task_server_os(str(data.task_id))
+                    if server_os is not None:
+                        os_family, os_id, os_version = server_os
+                eff_status, eff_reason = effective_task_result(
+                    status=data.status,
+                    failure_reason=data.failure_reason,
+                    exit_code=data.exit_code,
+                    os_family=os_family,
+                    os_version=os_version,
+                    os_id=os_id,
+                    success_exit_codes=success_exit_codes,
+                )
+                update = TaskResultUpdate(
+                    public_id=str(data.task_id),
+                    status=eff_status,
+                    failure_reason=eff_reason,
+                    exit_code=data.exit_code,
+                    duration_ms=data.duration_ms,
+                    stdout_tail=data.stdout_tail,
+                    stderr_tail=data.stderr_tail,
+                    completed_at=data.completed_at,
+                )
+                ok = await repo.complete_task(update)
+                return ok, eff_status, eff_reason
 
-            async def commit(repo: BaseCollectRepository) -> bool:
-                return await repo.complete_task(update)
-
-            updated = await _db_retry(session_factory, repo_factory, commit)
+            updated, eff_status, eff_reason = await _db_retry(session_factory, repo_factory, commit)
             if not updated:
                 logger.warning("task_result for unknown task_id={} (silent ack)", data.task_id)
                 return
 
+            if eff_status != data.status:
+                logger.info(
+                    "task_result status remapped task_id={} {}->{} exit_code={}",
+                    data.task_id,
+                    data.status,
+                    eff_status,
+                    data.exit_code,
+                )
             logger.info(
                 "task_result stored task_id={} status={} failure_reason={} composite_id={}",
                 data.task_id,
-                data.status,
-                data.failure_reason,
+                eff_status,
+                eff_reason,
                 data.composite_id,
             )
 

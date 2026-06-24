@@ -13,6 +13,7 @@ from assessment_engine.db.dtos.outbound import ServerDetail
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_RANGE_LABEL_KR,
 )
+from assessment_engine.service_classifier import SERVICE_CATEGORIES, SINGLE_INSTANCE_CATEGORIES
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
     UTIL_GAUGE_COLOR,
@@ -23,7 +24,6 @@ from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS as _PROVISIONING_SEGMENT_DEFS,
 )
 from assessment_engine.web.services.mappers.topology import build_network_topology
-from assessment_engine.web.services.service_classifier import SERVICE_CATEGORIES, SINGLE_INSTANCE_CATEGORIES
 from assessment_engine.web.view_models.attention import (
     AttentionSignals,
     CapacityWarningItem,
@@ -238,25 +238,22 @@ def _select_top_risks(rows: list[ReportRowItem], view: ReportView) -> list[Repor
 
 
 _EFFICIENCY_PRIORITY: dict[str, int] = {"shutdown": 0, "idle": 1, "over_provisioned": 2}
-_EFFICIENCY_TARGET_N = 30
-
-
 def _select_efficiency_targets(rows: list[ReportRowItem]) -> list[ReportRowItem]:
-    """효율화(감축·정리) 대상 호스트 — over/idle/shutdown 을 정리 시급도 순 상위 N.
+    """효율화(감축·정리) 대상 호스트 — over/idle/shutdown 전수를 정리 우선순위 순 정렬 (절단 없음).
 
     shutdown(거의 미사용) > idle(저활용) > over(과프로비전), 동순위는 cpu_p95 ASC(저활용 우선).
     """
     targets = [r for r in rows if r.recommendation in _EFFICIENCY_PRIORITY]
     return sorted(
         targets, key=lambda r: (_EFFICIENCY_PRIORITY[r.recommendation], r.cpu_p95_pct or 0.0)
-    )[:_EFFICIENCY_TARGET_N]
+    )
 
 
 @dataclass
 class EfficiencySummary:
     """효율화 검토 대상 표 데이터 — 보고서·자원 평가 공용 단일 진실 (`build_efficiency_summary`).
 
-    hosts: 정리 시급도 순 상위 N (표 행). target_count/vcpus/memory_gb: 전체(절단 전) 대상 수·점유 자원 합.
+    hosts: 정리 우선순위 순 전수 (표 행, 절단 없음). target_count/vcpus/memory_gb: 대상 수·점유 자원 합.
     """
 
     hosts: list[ReportRowItem]
@@ -267,10 +264,10 @@ class EfficiencySummary:
 
 
 def build_efficiency_summary(rows: list[ReportRowItem]) -> EfficiencySummary:
-    """효율화 대상 호스트(top-N) + 점유 자원 합 — over/idle/shutdown 단일 산식.
+    """효율화 대상 호스트(전수) + 점유 자원 합 — over/idle/shutdown 단일 산식.
 
     보고서(`to_environment_report`)와 자원 평가 페이지(`get_environment_assessment`)가 공유 — 분류·정렬
-    어휘 일관. 점유 자원 합(target_*)은 절단 전 전체 대상 기준, hosts 는 상위 N.
+    어휘 일관. hosts 는 정리 우선순위 순 전수(절단 없음), 점유 자원 합(target_*)도 동일 대상 기준.
     """
     hosts = _select_efficiency_targets(rows)
     eff_rows = [r for r in rows if r.recommendation in _EFFICIENCY_PRIORITY]

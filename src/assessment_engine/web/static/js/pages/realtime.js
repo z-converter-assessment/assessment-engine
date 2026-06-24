@@ -27,5 +27,5 @@
     }
   }
 
-  setInterval(refresh, 30000);
+  ChartUtils.initAutoRefresh(refresh, 30000);  // 탭 비활성 시 일시정지 (chart-utils 단일 진실)
 })();

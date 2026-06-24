@@ -1,5 +1,6 @@
 import dataclasses
 
+from loguru import logger
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,7 +60,50 @@ class CollectRepository(BaseCollectRepository):
         ServerInventory.listen_ports,
     )
 
+    async def _relink_rebooted_host(
+        self,
+        composite_id: str,
+        machine_id: str | None,
+        hostname: str,
+    ) -> int | None:
+        """composite_id 미등록 시, 재부팅으로 composite_id 가 바뀐 동일 호스트를 찾아 composite_id 재지정.
+
+        배경: agent 는 composite_id = sha256(machine_id + NIC MAC들) 을 부팅마다 1회 계산한다. 일부 환경
+        (예: OpenStack Windows VM)은 부팅마다 NIC MAC 이 통째로 재발급되거나 UP NIC 집합이 흔들려 같은 VM 인데
+        composite_id 가 달라진다(중복 행 발생). 안정 식별자는 machine_id(MachineGuid·/etc/machine-id) + hostname.
+
+        매칭: machine_id(not null) + hostname 일치, 후보가 정확히 1개일 때만 재연결(0=신규, 2+=모호 -> 새 행).
+        MAC 은 매칭에 쓰지 않는다 — 부팅마다 바뀌는 환경이 있어 무용. trade-off: machine_id+hostname 을 둘 다
+        공유하는 서로 다른 clone(미sysprep+미rename)은 오병합될 수 있다(둘 다 같으면 사실상 식별 불가라 수용).
+        재연결은 후보 행 composite_id 만 UPDATE -> server_id(식별·시계열 FK·history 연속) 보존. 반환: server_id|None.
+        """
+        if not machine_id:
+            return None
+        rows = (
+            await self.session.execute(
+                select(ServerInventory.id, ServerInventory.composite_id).where(
+                    ServerInventory.machine_id == machine_id,
+                    ServerInventory.hostname == hostname,
+                )
+            )
+        ).all()
+        if len(rows) != 1:
+            return None
+        cand = rows[0]
+        await self.session.execute(
+            update(ServerInventory).where(ServerInventory.id == cand.id).values(composite_id=composite_id)
+        )
+        logger.bind(
+            server_id=cand.id, old_composite_id=cand.composite_id, new_composite_id=composite_id
+        ).info("relinked rebooted host (machine_id+hostname) — composite_id changed")
+        return cand.id
+
     async def upsert_server(self, data: ServerInventoryCreate) -> int:
+        # composite_id 미등록이면 재부팅으로 composite_id 가 바뀐 동일 호스트 재연결 시도 (#C1 식별 안정화).
+        # 재연결되면 그 행 composite_id 가 data.composite_id 로 바뀌어 아래 prev 조회·upsert 가 동일 행을 잡는다.
+        if await self.find_server_id(data.composite_id) is None:
+            await self._relink_rebooted_host(data.composite_id, data.machine_id, data.hostname)
+
         # 변경 감지: 직전 행과 다를 때만 history 한 행 INSERT (앱 레벨 trigger).
         prev_q = await self.session.execute(
             select(*self._INVENTORY_COMPARE_COLS).where(ServerInventory.composite_id == data.composite_id)
@@ -91,6 +135,7 @@ class CollectRepository(BaseCollectRepository):
             "mounts": data.mounts,
             "services": data.services,
             "listen_ports": data.listen_ports,
+            "service_categories": data.service_categories,
             "last_seen_at": data.collected_at,
         }
         update_set = {k: v for k, v in row.items() if k != "composite_id"}
@@ -221,6 +266,7 @@ class CollectRepository(BaseCollectRepository):
             "mounts": data.mounts,
             "services": data.services,
             "listen_ports": data.listen_ports,
+            "service_categories": data.service_categories,
             "last_seen_at": data.collected_at,
         }
         stmt = (
@@ -299,6 +345,24 @@ class CollectRepository(BaseCollectRepository):
         )
         result = await self.session.execute(stmt)
         return (result.rowcount or 0) > 0
+
+    async def get_task_server_os(
+        self, task_public_id: str
+    ) -> tuple[str | None, str | None, str | None] | None:
+        """task 의 대상 서버 OS (os_family, os_id, os_version) — task.result 미발행 Linux 성공 보정 매칭용.
+
+        task.result 는 Windows os_version(build) 만 싣고 Linux 는 os_id/os_version 미발행이라, Linux 보정은
+        inventory 에서 대상 서버 OS 를 조회해 task_policy 키(os_id:major)를 구성한다. task 미존재 시 None.
+        """
+        stmt = (
+            select(ServerInventory.os_family, ServerInventory.os_id, ServerInventory.os_version)
+            .join(Task, Task.target_server_id == ServerInventory.id)
+            .where(Task.public_id == task_public_id)
+        )
+        row = (await self.session.execute(stmt)).first()
+        if row is None:
+            return None
+        return row.os_family, row.os_id, row.os_version
 
     # ─── 시계열 (record_metrics) ───────────────────────────────────────────
 

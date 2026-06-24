@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
+# MatchedPort 는 분류 도메인 개념 — service_classifier(domain)에 정의, 본 모듈은 ServiceItem.ports 로 소비.
+from assessment_engine.service_classifier import MatchedPort
 from assessment_engine.web.view_models.task import TaskSummaryItem
 
 
@@ -33,11 +35,18 @@ class IpAddr:
 
 
 @dataclass
-class MatchedPort:
-    """서비스 유닛에 매핑된 listen 포트 1개. service_classifier.matched_ports의 결과 단위."""
+class ServiceBadgeRef:
+    """참고자료 — 서비스 뱃지 카탈로그 1행. SERVICE_CATALOG(E7) 파생, 표시 전용.
 
-    proto: str
-    port: int
+    category 는 UI 뱃지에 노출되는 키 텍스트(web·db 등)와 동일 — 사용자가 화면 뱃지를 본 페이지에서 조회.
+    """
+
+    category: str
+    label_ko: str
+    desc_ko: str
+    badge_class: str
+    # 대상 서비스 표시 — 포트를 서비스명에 인라인 ("nginx(80/443)·..."). 포트 없으면 desc_ko. mapper precompute.
+    services_label: str = ""
 
 
 @dataclass

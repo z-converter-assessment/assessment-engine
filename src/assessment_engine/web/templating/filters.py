@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta, timezone
 
-from assessment_engine.web.services.service_classifier import BADGE_CLASS_BY_CATEGORY
+from markupsafe import Markup
+
+from assessment_engine.service_classifier import BADGE_CLASS_BY_CATEGORY
 
 _KST = timezone(timedelta(hours=9))
 
@@ -23,6 +25,17 @@ def disksize(gb: float | None) -> str:
     if gb >= 1024:
         return f"{round(gb / 1024, 1)} TB"
     return f"{gb} GB"
+
+
+def disksize_styled(gb: float | None) -> Markup:
+    """disksize 값 + 단위(.stat-unit, 작은 폰트·옅은 색) 인라인. 값 크기에 따라 GB/TB 유동. None 이면 '-'."""
+    if gb is None:
+        return Markup("-")
+    if gb >= 1024:
+        value, unit = round(gb / 1024, 1), "TB"
+    else:
+        value, unit = gb, "GB"
+    return Markup(f'{value} <span class="stat-unit">{unit}</span>')
 
 
 def kbps(kb: float | None) -> str:

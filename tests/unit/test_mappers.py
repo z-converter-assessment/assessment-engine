@@ -122,7 +122,7 @@ def _summary(**overrides) -> ServerSummary:
         mem_total_kb=8 * 1024**2,
         ip_external=None,
         disks=[{"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk"}],
-        services=None,
+        service_categories=[],
         last_seen_at=datetime.now(UTC),
     )
     base.update(overrides)
@@ -141,36 +141,19 @@ def test_list_item_storage_total_sum():
     assert item.storage_total_gb == 150.0
 
 
-def test_list_item_known_services_dedup():
-    summary = _summary(
-        services=[
-            {"unit": "nginx.service", "sub": "running"},
-            {"unit": "apache2.service", "sub": "running"},  # web 중복 → dedup
-            {"unit": "postgresql.service", "sub": "running"},
-            {"unit": "ssh.service", "sub": "running"},  # unknown
-        ]
-    )
+def test_list_item_badges_from_service_categories():
+    """뱃지는 ingest 사전계산 service_categories(키 집합) 소비 — 카테고리당 ServiceItem 1개 (E7)."""
+    summary = _summary(service_categories=["db", "web"])
     item = to_server_list_item(summary)
     assert {s.category for s in item.known_services} == {"web", "db"}
-    assert item.show_unknown_badge is False  # known 있으니 unknown 뱃지 안 보임
+    assert item.show_unknown_badge is False
 
 
-def test_list_item_show_unknown_badge_when_all_unknown():
-    summary = _summary(
-        services=[
-            {"unit": "ssh.service", "sub": "running"},
-            {"unit": "cron.service", "sub": "running"},
-        ]
-    )
+def test_list_item_no_categories_no_badge():
+    """service_categories 빈 집합 -> 뱃지 없음. show_unknown_badge 는 목록에서 항상 False (저장 집합만, T15)."""
+    summary = _summary(service_categories=[])
     item = to_server_list_item(summary)
     assert item.known_services == []
-    assert item.show_unknown_badge is True
-
-
-def test_list_item_no_services_no_badge():
-    """services=None은 non-systemd 호스트 — show_unknown_badge=False"""
-    summary = _summary(services=None)
-    item = to_server_list_item(summary)
     assert item.show_unknown_badge is False
 
 

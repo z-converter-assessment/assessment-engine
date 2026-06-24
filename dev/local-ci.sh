@@ -3,7 +3,7 @@
 #
 # CI 는 PR 대상별로 발화 범위가 다르다 — 모드를 그에 맞춘다:
 #   develop PR/push : ruff + hadolint + unit + alembic + integration
-#   main PR/release : 위 전부 + wheel build + codeql + pip-audit + release 산출물(액션버전·SBOM·image)
+#   main PR/release : 위 전부 + wheel build + codeql + release 산출물(액션버전·SBOM·image)
 # release 파이프라인은 tag 가 찍혀야 도므로 "PR 만 보고 통과로 단정"하면 release 버그를 머지 후 발견한다
 # (sigstore 액션 버전·파일명 버그가 그렇게 늦게 드러난 적 있다). main 모드가 그 갈래까지 재현한다.
 #
@@ -188,25 +188,6 @@ elif docker info >/dev/null 2>&1; then
   fi
 else
   skip "docker 미가용"
-fi
-
-# ─── 7. pip-audit (security.yml — main 전용) ────────────────────────────────
-# CI 와 동일: self·dev 를 제외(--no-install-project)해 운영 의존성만 .venv 에 둔 뒤 audit.
-section "pip-audit (security.yml 와 동일 절차)"
-if ! need 3; then
-  skip "$MODE 모드 — pip-audit 는 main"
-else
-  ignore_args=$(grep -oE '(PYSEC|GHSA|CVE)-[A-Za-z0-9-]+' .github/workflows/security.yml 2>/dev/null \
-    | sort -u | sed 's/^/--ignore-vuln /' | paste -sd' ' -)
-  uv sync --frozen --no-install-project >/dev/null 2>&1
-  uv pip install pip-audit >/dev/null 2>&1
-  # shellcheck disable=SC2086
-  if uv run --no-sync pip-audit --strict $ignore_args >/dev/null 2>&1; then
-    ok "pip-audit 통과 (ignore: ${ignore_args:-없음})"
-  else
-    ng "pip-audit 실패 — 'uv run --no-sync pip-audit --strict $ignore_args' 로 상세"
-  fi
-  uv sync --frozen --group dev >/dev/null 2>&1   # 운영-only -> dev 그룹 복구
 fi
 
 # ─── 8. hadolint Dockerfile (ci.yml lint job — develop 이상, docker) ────────

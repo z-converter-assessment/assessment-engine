@@ -1,6 +1,6 @@
 # ADR 0004 — AI 진단 워커 아키텍처
 
-상태: Superseded — AI 진단(LLM narrative) 기능 폐기 (2026-06-14)
+상태: Superseded — AI 진단(LLM narrative) 기능 폐기 (2026-06-14). 비동기 발행은 ADR 0040 으로 복원 — 단 LLM 큐 워커(옵션 B)가 아니라 web job-claim 워커(옵션 C, DB 상태머신). 본 ADR 옵션 A 기각 사유(in-flight 손실)는 0040 에서 DB 상태로 무효화.
 
 이전 상태: Refined by 0010 (2026-05-16) + 0023 (2026-05-23) + 0025 (2026-05-24) — 워커·`diagnostic_jobs` 인프라 그대로 유효. "AI 진단" 명칭 정정 (0010), scheduler cron 폐기 (0023), LLM 단일 provider 통합 (0025 — ollama 단독, mock 폐기, `LLM_PROVIDER` env 제거). 본 ADR 본문 안 LLM 토글·`mock`/`ollama` 분기 본문은 historical record — 본 시점 단일 `OllamaLlmClient` 만 활용.
 

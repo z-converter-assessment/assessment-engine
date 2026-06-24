@@ -144,6 +144,7 @@ cache 동작:
 | `status` | `"success"` \| `"failure"` | 실행 결과 |
 | `failure_reason` | string\|null max=32 | 실패 분류. 알려진 값: `url_not_allowed` / `download_failed` / `sha256_mismatch` / `extract_failed` / `script_not_found` / `script_failed` / `script_timeout` / `insufficient_disk` / `internal_error` / `already_done` / `unsupported_install_type`. 성공 시 null. 알려지지 않은 값은 silent pass (DB 저장은 그대로) |
 | `exit_code` | int\|null | install.sh 종료 코드. 실행 전 실패 시 null |
+| `os_version` | string\|null max=64 | OS 버전 식별자. Windows worker = `CurrentBuildNumber` (예 `"20348"` = Server 2022). Linux worker 미발행 → null (`task.result` 한정 비대칭, `extra=ignore` 흡수). 엔진 success exit code 보정 정책(`task_policy`)의 매칭 키 |
 | `duration_ms` | int (>=0) | 다운로드 + 추출 + install 합계 |
 | `stdout_tail` | string max=4096 | install.sh stdout 끝부분 4 KB. agent `exec.c` 의 `out_storage[4096]` circular tail buffer 단일 진실. 미실행 시 `""` |
 | `stderr_tail` | string max=4096 | install.sh stderr 끝부분 4 KB. agent `exec.c` 의 `err_storage[4096]` 단일 진실. 미실행 시 `""` |
@@ -151,7 +152,9 @@ cache 동작:
 엔진 Inbound DTO (`consumer/schemas.py` `TaskResultInput`) 의 `max_length=8192` 는 over-provision — agent minor bump 로 tail cap 이 늘어도 (#B "minor bump silent 호환") 엔진 무수정 흡수. 현재 wire 상한은 agent 측 4 KB.
 | `completed_at` | datetime (ISO 8601 UTC) | 처리 완료 시각. `Task.completed_at` 컬럼에 그대로 저장 |
 
-엔진 처리: 멱등성 -> DB UPDATE (`status` / `completed_at` / `failure_reason` / `exit_code` / `duration_ms` / `stdout_tail` / `stderr_tail`). `task_id` 미존재 시 silent ack — 운영자가 task 삭제했을 가능성, DLQ 부적합.
+엔진 처리: 멱등성 -> 성공 보정 정책(`task_policy.effective_task_result`) -> DB UPDATE (`status` / `completed_at` / `failure_reason` / `exit_code` / `duration_ms` / `stdout_tail` / `stderr_tail`). `task_id` 미존재 시 silent ack — 운영자가 task 삭제했을 가능성, DLQ 부적합.
+
+성공 보정 정책: 일부 Windows 버전에서 ZConverter installer 가 설치 성공임에도 exit code 2 로 종료해 worker 가 `status=failure`(`script_failed`) 로 보고하는 케이스 대응. `status=failure` & `failure_reason=script_failed` & `os_family=windows` & `os_version` 이 allowlist 키와 일치 & `exit_code` 가 허용 목록에 포함일 때만 effective `status` 를 `success` 로 전환(`failure_reason`=null). `exit_code` 는 raw 보존(감사용), `status`/`failure_reason` 만 보정 저장. allowlist = `ConsumerSettings.task_install_success_exit_codes` (기본 `{"20348": [2]}` = Server 2022 / exit 2, env `TASK_INSTALL_SUCCESS_EXIT_CODES` JSON override). 보정은 Server 2022 한정 — 다른 버전·exit code 는 미보정. 운영자 가시성: 보정 태스크는 `success` 배지로 표시되며 별도 안내 라벨은 현재 없음(상세의 `exit_code=2` + 서버 로그 `task_result status remapped` 가 단서).
 
 `boot_time` / `agent_started_at` 가 null 이라 `_log_time_invariants` 검증은 본 메시지에서 호출 안 함.
 

@@ -8,6 +8,9 @@ from assessment_engine.db.dtos.inbound import (
     ServerMetricCreate,
 )
 
+# 분류 단일 진실(service_classifier)을 ingest 가 호출 — 순수 함수라 레이어 결합 없음(인프라 DI 아님, F4).
+from assessment_engine.service_classifier import compute_service_categories
+
 
 def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
     """metrics 메시지로부터 최소 정보의 placeholder inventory 생성.
@@ -39,6 +42,7 @@ def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
         mounts=[],
         services=None,
         listen_ports=[],
+        service_categories=[],  # metrics placeholder — services/listen_ports 부재. 다음 진짜 inventory 가 채움.
     )
 
 
@@ -76,6 +80,11 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
             {"proto": p.proto, "addr": p.addr, "port": p.port, "uid": p.uid, "pid": p.pid, "comm": p.comm}
             for p in data.listen_ports
         ],
+        # 서비스 카테고리 ingest 사전계산 — services(unit 이름) ∪ listen_ports(comm·port) 단일 산식.
+        service_categories=compute_service_categories(
+            [{"unit": s.unit, "sub": s.sub} for s in data.services] if data.services is not None else None,
+            [{"proto": p.proto, "port": p.port, "comm": p.comm} for p in data.listen_ports],
+        ),
     )
 
 

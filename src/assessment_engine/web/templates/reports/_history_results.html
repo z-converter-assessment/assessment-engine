@@ -17,7 +17,7 @@
       <td>{{ it.view_label }}</td>
       <td>
         {% if it.scope == "environment" %}
-        환경 전체 ({{ it.server_count }}대)
+        환경 전체{% if it.server_count %} ({{ it.server_count }}대){% endif %}
         {% elif it.server_count == 1 %}
         1개
         {% else %}

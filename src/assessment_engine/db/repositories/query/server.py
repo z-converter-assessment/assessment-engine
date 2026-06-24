@@ -44,7 +44,8 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
         limit: int,
         search: str | None,
     ) -> list[ServerSummary]:
-        # 명시 SELECT — mounts/listen_ports/kernel_version 등 큰 JSONB·텍스트는 list 화면 미사용.
+        # 명시 SELECT — mounts/listen_ports/services 등 큰 JSONB 는 list 화면 미사용.
+        # 뱃지는 ingest 사전계산 service_categories(text[]) 소비 — services JSONB 역직렬화 불요(경량).
         stmt = select(
             ServerInventory.id,
             ServerInventory.public_id,
@@ -56,7 +57,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             ServerInventory.mem_total_kb,
             ServerInventory.ip_external,
             ServerInventory.disks,
-            ServerInventory.services,
+            ServerInventory.service_categories,
             ServerInventory.last_seen_at,
         ).order_by(ServerInventory.hostname.asc())
         if search:
@@ -76,7 +77,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
                 mem_total_kb=r.mem_total_kb,
                 ip_external=r.ip_external,
                 disks=r.disks or [],
-                services=r.services,
+                service_categories=r.service_categories or [],
                 last_seen_at=r.last_seen_at,
             )
             for r in result.all()

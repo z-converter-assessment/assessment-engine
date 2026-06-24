@@ -15,7 +15,8 @@
 
 ### 구현 디테일
 
-- `upsert_server`: `pg_insert ... on_conflict_do_update`. values·set_ dict는 한 번 만들어 재사용 (컬럼 추가 시 한 곳만 수정). `composite_id` UNIQUE 키는 set_ 제외 (machine_id 는 set_ 포함 — 최신 표시)
+- `upsert_server`: `pg_insert ... on_conflict_do_update`. values·set_ dict는 한 번 만들어 재사용 (컬럼 추가 시 한 곳만 수정). `composite_id` UNIQUE 키는 set_ 제외 (machine_id 는 set_ 포함 — 최신 표시). `service_categories`(ingest 사전계산, ADR 0042)도 set_ 포함.
+- `_relink_rebooted_host`: `upsert_server` 진입 시 `composite_id` 미등록이면 호출 — 재부팅으로 composite_id 가 바뀐 동일 호스트(machine_id+hostname 일치, 후보 정확히 1개)를 찾아 기존 행 composite_id 를 새 값으로 re-point(server_id·시계열 FK·history 보존). 일부 환경(OpenStack Windows VM)이 부팅마다 NIC MAC 재발급 -> composite_id 변동 중복을 흡수. machine_id 없거나 후보 2+ (모호한 clone)면 미연결(새 행). 트랜잭션 안 UPDATE (find miss 확인 후라 UNIQUE 충돌 불가)
 - `ensure_server_id`: `_insert_placeholder_server`는 `ON CONFLICT DO NOTHING` (placeholder가 진짜 inventory 덮어쓰는 race 방지)
 - `record_metrics`: 4 테이블 모두 `pg_insert.on_conflict_do_nothing(index_elements=...)` — 멱등성 2단 방어 (D2)
 - `create_task`: `IntegrityError` 가능 (부분 UNIQUE `uq_tasks_pending_per_server_type`) — service가 catch
@@ -36,13 +37,13 @@
 | `metric_snapshots(server_id, cursor, limit)` | 시계열 cursor pagination |
 | `metric_chart(server_id, type, dim, range, bucket, agg, end)` | 차트 dispatcher (17 metric_type) |
 | `reboot_events(server_id, start, end)` | server_inventory_history boot_time/agent_started_at 변경 시점 |
-| `report_aggregate(server_ids, period_days, end)` | USE Method 통계 (CPU p95/peak + MEM p95/peak + load_15m max + swap_used) |
+| `report_aggregate(server_ids, period_days, end)` | USE Method 통계 (CPU p95/peak + MEM p95/peak + load_15m max + swap_used) — `server_metrics_5m` cagg counter_agg(ADR 0043) |
 | `report_mount_worst(server_ids, period_days, end)` | mount별 worst usage + fill_rate (days_until_full 산출) |
 | `report_uptime_stats(server_ids, period_days, end)` | 가동률 통계 |
-| `report_disk_io_baseline` / `report_net_io_baseline` | I/O baseline (Export `recommended_size_class` 입력) |
+| `report_disk_io_baseline` / `report_net_io_baseline` | I/O baseline (Export `recommended_size_class` 입력) — `server_disk_io_5m`/`server_net_io_5m` cagg counter_agg(ADR 0043, reset 일률 처리) |
 | `report_mount_usage(server_id, period_days, end)` | 개별 보고서 전체 마운트 윈도우 평균 사용률 (worst 1개 아님, 가상 mount 제외) |
 | `report_memory_breakdown(server_id, period_days, end)` | 개별 보고서 메모리 구성 (used/available/cached/buffers 전체 대비 %, 시점값 avg) |
-| `report_cpu_breakdown(server_id, period_days, end)` | 개별 보고서 CPU 분류 (user/system/iowait, jiffies LAG delta) |
+| `report_cpu_breakdown(server_id, period_days, end)` | 개별 보고서 CPU 분류 (user/system/iowait, `server_metrics_5m` cagg counter_agg delta, ADR 0043) |
 | `metric_gap_warnings(gap_min, recent_h)` | 메트릭 갭(통신 끊김 운영신호) 후보 |
 | `environment_utilization(period_days, end, server_ids?)` | 환경 평균 활용률 도넛 (capacity-weighted, Σused/Σtotal). server_ids 한정 시 선택 N대·단일(selection 보고서), None 이면 전체 환경 |
 | `metric_trend(metric_type, start, end, bi, bucket_td, server_ids?, agg, dimension, collapse)` | 통일 차트 시계열 — 환경·선택·서버상세 단일 진실. metric_type 풀세트 18종 — 집계 3그룹(아래). server_ids=None 전체·[1대]=서버상세 동치·[N]=선택. collapse=False 면 device/iface/mount dimension 보존(상세 멀티라인), True 면 합산 단일선(환경). agg=avg/max/p95 |
@@ -68,7 +69,10 @@
 | `enqueue(job: DiagnosticJobCreate) -> str \| None` | active partial UNIQUE(scope·input_hash·job_type) 충돌 시 None (기존 job 그대로 반환) |
 | `get_active_by_hash(scope, input_hash, job_type)` | 더블클릭 방어 lookup — 활성 job 1건 반환 |
 | `get_by_id(job_id)` | `?job={id}` 스냅샷 단건 조회 |
-| `mark_succeeded(job_id, result)` | 발행 즉시 succeeded 상태 전이 (customer/engineer 동일, 비동기·실패 상태 없음) |
+| `claim_next_pending()` | pending job 1건 원자적 claim (`FOR UPDATE SKIP LOCKED` + running 마킹) — 워커 분산 (ADR 0040) |
+| `mark_succeeded(job_id, result)` | running -> succeeded + result 저장 (워커 생성 완료 시) |
+| `mark_failed(job_id, error_message)` | running -> failed + error_message (생성 불가·내부 오류, F8 sanitize 후) |
+| `recover_stale_running(stale_seconds)` | started_at 초과 running -> pending 회수 (크래시 in-flight, 워커 기동 시) |
 | `list_recent(days, scope?, server_public_ids?, job_type?, limit)` | 보고서 이력 페이지 — created_at DESC |
 | `delete_retention(older_than_days)` | retention DELETE |
 

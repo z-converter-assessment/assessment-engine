@@ -17,6 +17,7 @@ from assessment_engine.db.dtos.inbound import (
     TaskResultUpdate,
 )
 from assessment_engine.db.dtos.outbound import TaskRow
+from assessment_engine.service_classifier import compute_service_categories
 
 _DEFAULT_BOOT_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 _DEFAULT_AGENT_STARTED_AT = datetime(2026, 1, 1, 0, 5, tzinfo=UTC)
@@ -25,7 +26,9 @@ _DEFAULT_AGENT_STARTED_AT = datetime(2026, 1, 1, 0, 5, tzinfo=UTC)
 def make_inventory(
     *,
     composite_id: str = "test-composite-id-0001",
-    machine_id: str | None = "test-machine-id-0001",
+    # 미지정 시 composite_id 파생(서버마다 고유) — 실 VM MachineGuid 고유성 모사. 같은 default 공유 시
+    # `_relink_rebooted_host`(machine_id+hostname)가 서로 다른 테스트 서버를 오병합하는 것 방지. 명시 None 은 보존.
+    machine_id: str | None = "__DERIVE__",
     hostname: str = "test-host-01",
     agent_version: str = "1.0.0",
     collected_at: datetime | None = None,
@@ -39,6 +42,8 @@ def make_inventory(
     listen_ports: list[dict] | None = None,
 ) -> ServerInventoryCreate:
     """기본값은 placeholder가 아닌 '정상' inventory — 미지정 시 실제와 유사한 값."""
+    if machine_id == "__DERIVE__":
+        machine_id = f"mid-{composite_id}"
     return ServerInventoryCreate(
         composite_id=composite_id,
         machine_id=machine_id,
@@ -59,6 +64,7 @@ def make_inventory(
         ip_internal=["10.0.0.1"],
         ip_external=None,
         mac_addresses=[],
+        service_categories=compute_service_categories(services, listen_ports),
         disks=disks
         if disks is not None
         else [
@@ -171,6 +177,7 @@ def make_task_result_payload(
     completed_at: datetime = _DEFAULT_TASK_COMPLETED_AT,
     boot_time: datetime | None = None,
     agent_started_at: datetime | None = None,
+    os_version: str | None = None,
     message_id: str = "550e8400-e29b-41d4-a716-446655440099",
 ) -> dict:
     """task.result wire JSON 빌더 — TaskResultInput.model_validate_json 검증용.
@@ -191,6 +198,7 @@ def make_task_result_payload(
         "status": status,
         "failure_reason": failure_reason,
         "exit_code": exit_code,
+        "os_version": os_version,
         "duration_ms": duration_ms,
         "stdout_tail": stdout_tail,
         "stderr_tail": stderr_tail,

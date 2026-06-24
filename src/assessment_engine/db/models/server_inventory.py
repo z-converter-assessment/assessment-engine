@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, DateTime, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,7 +16,11 @@ class ServerInventory(Base):
     """
 
     __tablename__ = "server_inventory"
-    __table_args__ = (UniqueConstraint("composite_id", name="uq_server_inventory_composite_id"),)
+    __table_args__ = (
+        UniqueConstraint("composite_id", name="uq_server_inventory_composite_id"),
+        # 서비스 카테고리 필터(category 멤버십 @>/&&) GIN — 마이그레이션 a7c3e5f1b9d4 와 동기 (alembic drift 0).
+        Index("ix_server_inventory_service_categories", "service_categories", postgresql_using="gin"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     public_id: Mapped[str] = mapped_column(
@@ -56,5 +60,8 @@ class ServerInventory(Base):
     mounts: Mapped[list[Any] | None] = mapped_column(JSONB)
     services: Mapped[list[Any] | None] = mapped_column(JSONB)
     listen_ports: Mapped[list[Any] | None] = mapped_column(JSONB)
+    # 서비스 카테고리 집합 (ingest 사전계산, service_classifier.compute_service_categories 단일 진실).
+    # 이름·comm·포트 어느 신호로 식별되든 동일 — 모든 read 경로가 본 저장값 소비(목록·상세·리포트·필터 뱃지 일치).
+    service_categories: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

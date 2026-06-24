@@ -15,6 +15,12 @@ from assessment_engine.db.dtos.outbound import (
     ServerSummary,
     StorageWithUsage,
 )
+from assessment_engine.service_classifier import (
+    SINGLE_INSTANCE_CATEGORIES,
+    classify,
+    detect_listen_categories,
+    matched_ports,
+)
 from assessment_engine.web.services.device_filters import (
     disk_total_bytes,
     is_data_volume,
@@ -28,12 +34,6 @@ from assessment_engine.web.services.mappers.shared import (
     os_id_to_distro,
 )
 from assessment_engine.web.services.metrics_calculator import compute_net_io
-from assessment_engine.web.services.service_classifier import (
-    SINGLE_INSTANCE_CATEGORIES,
-    classify,
-    detect_listen_categories,
-    matched_ports,
-)
 from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb, usage_pct
 from assessment_engine.web.view_models.environment_report import (
     CpuBreakdown,
@@ -163,33 +163,6 @@ def _services_or_none(
     return [_to_service_item(s, listen_ports) for s in raw]
 
 
-def _dedup_known(services: list[ServiceItem] | None) -> tuple[list[ServiceItem], bool]:
-    """known 카테고리만 dedup된 list + show_unknown_badge boolean.
-
-    show_unknown_badge: services는 있지만 모두 unknown인 경우만 True.
-    """
-    if services is None:
-        return [], False
-    known: list[ServiceItem] = []
-    seen_categories: set[str] = set()
-    counts: dict[str, int] = {}
-    for s in services:
-        if s.category == "unknown":
-            continue
-        counts[s.category] = counts.get(s.category, 0) + 1
-        if s.category not in seen_categories:
-            seen_categories.add(s.category)
-            known.append(s)
-    # 카테고리별 서비스 개수를 대표 item 에 기록 — 뱃지 "db 2" 등 (환경요약 role 인스턴스 수와 일관).
-    # 런타임 스택(container)은 호스트당 1 — docker+containerd 를 "container 2" 로 부풀리지 않음.
-    for s in known:
-        s.category_count = 1 if s.category in SINGLE_INSTANCE_CATEGORIES else counts[s.category]
-    # 뱃지 정렬 단일 기준 — category 알파벳 오름차순 (등장 순=DB row 순은 비결정적). 템플릿 P3 정렬 회피.
-    known.sort(key=lambda s: s.category)
-    show_unknown = bool(services) and not known
-    return known, show_unknown
-
-
 def _os_display(os_id: str | None, os_version: str | None) -> str:
     parts = [p for p in [os_id, os_version] if p]
     return " ".join(parts) or "-"
@@ -253,8 +226,11 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
     raw_total = sum(bytes_to_gb(d.get("size_bytes")) or 0.0 for d in physical)
     storage_total_gb = round(raw_total, 1) if physical else None
 
-    services = _services_or_none(dto.services, listen_ports=None)
-    known, show_unknown = _dedup_known(services)
+    # 서비스 뱃지 — ingest 사전계산 저장값(service_classifier 단일 진실, #E7). 이름·comm·포트 어느 신호로
+    # 식별되든 상세·리포트·필터와 동일 집합. services JSONB 행별 재분류 제거(목록 경량).
+    known = [ServiceItem(unit="", sub="", category=cat, ports=[]) for cat in dto.service_categories]
+    services = known
+    show_unknown = False
 
     rec_label, rec_color, seg_key = "", "", ""
     if raw_period is not None:

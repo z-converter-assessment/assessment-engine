@@ -45,8 +45,17 @@
 | 0037 | dev 가상화 OrbStack -> libvirt(KVM) 재전환 | Accepted | dev host macOS -> Linux x86_64 homeserver 이전. OrbStack(macOS 전용) -> libvirt+qemu-kvm(virsh·virbr0 NAT). `host.docker.internal`·`orb.local` -> libvirt 게이트웨이 IP·VM DHCP lease IP. dev-up.sh libvirt 매트릭스(Linux 5+Windows 1). `zdm_default_ip` default 빈값. ADR 0026 supersede |
 | 0038 | release 에셋명 env.example (점 prefix 제거) | Accepted | GitHub Release 가 점 prefix(`.env.example`)를 `default.env.example` 로 변환(download URL·asset name 모두) -> 에셋명·루트 배포 템플릿 파일명을 `env.example`(점 없이)로 rename. dev 전용 `dev/.env.example`·`agent.env.example`(release 미첨부)은 점 유지. ADR 0035 에셋명 점-prefix 부분 supersede |
 | 0039 | RAG 제거 (0024 supersede) | Accepted | 미활성(`RAG_ENABLED=False`) RAG infra 전면 제거 — `rag/` 패키지·`rag_documents` 테이블·pgvector extension(drop revision `e2f4a6c8b0d3`)·embedding/retriever 추상·ingest CLI·`docs/rag-seed/`·config 7 필드. 진단 = 통계 집계 + 결정론 분류 + LLM narrative 단독. LLM(ADR 0025) 유지. 재도입은 새 ADR |
+| 0040 | 비동기 보고서 발행 복원 (web job-claim 워커) | Accepted | 동기 즉시 succeeded 발행 -> 비동기. emit=`enqueue_report`(parent pending) 즉시 `?job=` 반환, web lifespan job-claim 워커(`FOR UPDATE SKIP LOCKED`)가 `build_report_result_for_job` 생성 -> succeeded/failed. GET pending/running 폴링(`report-poll.js`+`/status`). ADR 0004 옵션 B(큐 워커) 대신 옵션 C(web 내부 + DB 상태머신) — 보고서 생성 web/services 강결합으로 consumer 위임 대공사 회피. in-flight 손실 0(stale 복구)·멀티노드(SKIP LOCKED). 0004·0014 정정 |
 
-트레이드오프 카탈로그(T1~T15)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
+| 0041 | collected_at 수신 경계 보정 (시계오차, 양방향) | Accepted | Windows 게스트 시계가 틀어진 메시지의 `collected_at` 을 수신 경계(`_correct_skewed_collected_at`, 멱등성 체크 직후)에서 `received_at` 으로 보정 — `abs(collected_at - now) > 5분`(미래·과거 양방향, 최초 future-only -> 정정 확장). `collected_at` 만 보정(boot_time/agent_started_at 미보정). D2 2단 약화는 1단 message_id dedup 으로 흡수(T17). 근본은 게스트 시각 동기 |
+
+| 0042 | 서비스 카테고리 ingest 사전계산 + service_classifier 도메인 이전 | Accepted | 카테고리(web/db/cache/mq/container/monitor)를 inventory upsert 시 `compute_service_categories`(이름 분류 ∪ listen 소켓 분류)로 1회 산출해 `server_inventory.service_categories text[]`(마이그레이션 `a7c3e5f1b9d4` + GIN)에 저장. 목록·상세·리포트·필터가 저장값 소비 -> 화면 간 카테고리 집합 비대칭 0(T15 목록-상세 해소), 목록은 services JSONB·행별 classify 제거(경량). `service_classifier` 를 도메인 `assessment_engine/` 로 이전(`MatchedPort` 포함, web 역의존 0) — consumer·web 공용. ADR 0032 분류 카탈로그 기반 |
+
+| 0043 | 보고서 메트릭 집계 continuous aggregate + counter_agg reset 통일 | Accepted | 카운터(CPU jiffies·disk/net bytes) 7일 집계를 매 요청 LAG 스캔에서 cagg 4개(`server_metrics_5m`·`server_disk_io_5m`·`server_net_io_5m`·`server_mount_usage_5m`, 5분 버킷, real-time agg)로 사전집계. `counter_agg` 가 reset(재부팅·agent재시작·wraparound) 값-감소 기준 일률 처리 -> disk/net/cpu_breakdown 의 boot_time gate 누락 weirdness 근본 제거(CPU 와 정석 통일). percentile 은 버킷에 `percentile_cont`(정확, tdigest 불요). report_aggregate 693->239ms, 서버목록 1.57->0.30s·환경자원평가 3.43->1.04s, 분류 변동 0/66. environment_utilization CPU·mount(worst/usage/fill_rate)도 cagg, 차트(metric_trend 동적 버킷)는 raw. 마이그레이션 `b5d8f2a1c9e3`·`c8e2a4f6d1b3`·`d1f3b5a7c2e4` |
+
+| 0044 | composite_id 재연결 (재부팅 composite_id 변동 흡수) | Accepted | OpenStack Windows VM 등 부팅마다 NIC MAC 재발급 -> composite_id(=sha256(machine_id+MAC)) 가 같은 VM 인데 달라져 중복 행. inventory upsert 시 composite_id 미등록이면 `_relink_rebooted_host`(machine_id+hostname, 후보 정확히 1개) 기존 행 composite_id 를 re-point — server_id·시계열·history 보존, 중복 0. MAC 은 부팅마다 바뀌어 매칭 미사용. 후보 0/2+(모호한 clone) 미연결(오병합 방지). ADR 0027 식별 모델 fallback 한정 완화 |
+
+트레이드오프 카탈로그(T1~T17)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 
 ## 새 ADR 작성
 

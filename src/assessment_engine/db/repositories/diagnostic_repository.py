@@ -77,6 +77,51 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         )
         await self.session.execute(stmt)
 
+    async def claim_next_pending(self) -> DiagnosticJobRecord | None:
+        # FOR UPDATE SKIP LOCKED — 다른 워커가 이미 잠근 row 는 건너뛰어 1 job = 1 워커 보장(멀티노드 분산).
+        # created_at 오름차순(FIFO). running 마킹까지가 claim 트랜잭션 — 커밋은 워커.
+        sel = (
+            select(DiagnosticJob)
+            .where(DiagnosticJob.status == "pending")
+            .order_by(DiagnosticJob.created_at)
+            .with_for_update(skip_locked=True)
+            .limit(1)
+        )
+        row = (await self.session.execute(sel)).scalar_one_or_none()
+        if row is None:
+            return None
+        row.status = "running"
+        row.started_at = func.now()
+        row.progress_stage = "running"
+        await self.session.flush()
+        await self.session.refresh(row)  # started_at func.now() 실제값 반영
+        return _row_to_diagnostic_record(row)
+
+    async def mark_failed(self, job_id: str, error_message: str) -> None:
+        stmt = (
+            update(DiagnosticJob)
+            .where(DiagnosticJob.id == job_id)
+            .values(
+                status="failed",
+                error_message=error_message,
+                finished_at=func.now(),
+                progress_stage=None,
+            )
+        )
+        await self.session.execute(stmt)
+
+    async def recover_stale_running(self, stale_seconds: int) -> int:
+        stmt = (
+            update(DiagnosticJob)
+            .where(
+                DiagnosticJob.status == "running",
+                DiagnosticJob.started_at < func.now() - timedelta(seconds=stale_seconds),
+            )
+            .values(status="pending", started_at=None, progress_stage="requeued")
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0
+
     async def list_recent(
         self,
         days: int,

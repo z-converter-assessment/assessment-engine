@@ -2,7 +2,7 @@
 
 import pytest
 
-from assessment_engine.web.services.service_classifier import (
+from assessment_engine.service_classifier import (
     BADGE_CLASS_BY_CATEGORY,
     SERVICE_CATALOG,
     SERVICE_CATEGORIES,
@@ -81,7 +81,7 @@ def test_classify_extended_catalog(unit, expected):
 )
 def test_detect_listen_categories_extended_ports(port, expected):
     # 호스트 레벨 port 신호 — comm 부재(Windows 권한 부족 등)에도 포트로 분류.
-    from assessment_engine.web.services.service_classifier import detect_listen_categories
+    from assessment_engine.service_classifier import detect_listen_categories
 
     result = detect_listen_categories([{"proto": "tcp", "port": port, "comm": None}])
     assert list(result.keys()) == [expected]
@@ -228,3 +228,44 @@ def test_catalog_ports_no_cross_category_collision():
                 if port in seen:
                     assert seen[port] == d.key, f"port {port} 충돌: {seen[port]} vs {d.key}"
                 seen[port] = d.key
+
+
+# ─── compute_service_categories: ingest 사전계산 (목록·상세·리포트·필터 단일 진실) ──────────
+
+
+def test_compute_categories_port_only_workload():
+    """이름·comm 미상이라도 listen 포트(6379)로 cache 식별 — 목록 뱃지 버그 케이스."""
+    from assessment_engine.service_classifier import compute_service_categories
+
+    cats = compute_service_categories(None, [{"proto": "tcp", "port": 6379, "comm": "opaquebin"}])
+    assert cats == ["cache"]
+
+
+def test_compute_categories_name_listen_union_sorted_dedup():
+    """services 이름 분류 ∪ listen 탐지, 정렬·dedup·unknown 제외."""
+    from assessment_engine.service_classifier import compute_service_categories
+
+    cats = compute_service_categories(
+        [{"unit": "nginx.service"}, {"unit": "sshd.service"}],  # web + unknown(제외)
+        [{"proto": "tcp", "port": 6379, "comm": "redis-server"}],  # cache
+    )
+    assert cats == ["cache", "web"]
+
+
+def test_compute_categories_empty():
+    from assessment_engine.service_classifier import compute_service_categories
+
+    assert compute_service_categories(None, []) == []
+    assert compute_service_categories([], None) == []
+
+
+def test_compute_categories_matches_workload_counter_keyset():
+    """저장 집합 키셋 == workload_category_counter 키셋 (분류 로직 단일 진실 — 화면 간 일치 보장)."""
+    from assessment_engine.service_classifier import compute_service_categories
+    from assessment_engine.web.services.mappers.server import workload_category_counter
+
+    services = [{"unit": "nginx.service"}, {"unit": "docker.service"}, {"unit": "containerd.service"}]
+    listen = [{"proto": "tcp", "port": 6379, "comm": "redis-server"}, {"proto": "tcp", "port": 9090, "comm": "x"}]
+    computed = sorted(compute_service_categories(services, listen))
+    counter_keys = sorted(workload_category_counter(services, listen).keys())
+    assert computed == counter_keys

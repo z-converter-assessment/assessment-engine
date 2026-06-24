@@ -419,13 +419,52 @@ agent 불변 전제의 최선 — 호스트 워크로드 union:
 - 포기한 것(union 후 잔존):
   - listen 안 하거나 localhost-only 바인드 워크로드 + opaque 이름 = 두 소스 모두 못 잡아 미상. (listen 하는 워크로드는 union 으로 거의 구제됨.)
   - per-unit services 탭의 행별 카테고리는 여전히 이름 기반 best-effort — opaque unit 은 그 행에서 unknown (호스트 뱃지는 union 으로 db 표시되어도). 행 단위 정확 귀속은 pid join 부재로 불가.
-  - 서버 목록 행 뱃지는 `ServerSummary` 경량 partial SELECT(#C2/E2)라 listen_ports 미보유 -> name 신호만. 목록 행과 환경요약 카운트 간 약간 비대칭.
+
+  호스트 union 은 ingest 시 1회 계산(`compute_service_categories`)해 `server_inventory.service_categories`(text[])에 저장 — 목록·상세·리포트·필터가 동일 저장값 소비라 화면 간 카테고리 집합 비대칭 0(목록은 listen_ports 재로드·행별 재분류 없이 경량 유지, #E7). 남는 한계는 위 per-unit 행 단위 귀속뿐.
 
 왜 받아들였나
 - per-unit 귀속 게이트를 풀어 임의 listen 포트를 아무 unknown service 에 붙이면 multi-service 호스트(nginx:80 + opaque:1433)에서 오분류 — 그래서 per-unit 은 보수적으로 두고, 호스트 레벨에서만 union 으로 보충(set 합집합이라 오분류 아닌 "탐지 누락 보완").
 - 분류 산출물(뱃지·role)은 본질적으로 "이 호스트가 무슨 워크로드를 도느냐" 의 근사 — listen 이 그 질문의 직접 증거다.
-- 목록의 비대칭은 partial SELECT 정책(목록 경량 유지)과의 트레이드오프 — 대시보드 환경요약·상세는 정확, 목록 행만 근사.
 
 언제 다시 봐야 하는가
 - agent 가 `services[]` 에 main pid 또는 exe basename 을 실어주면 → listen_ports 와 pid join 으로 per-unit 정확 귀속, 행 단위까지 정확. union 보완 불필요.
-- 목록 행 뱃지 정확도가 운영 이슈로 부상 시 → `list_servers` SELECT 에 listen_ports JSONB 추가해 목록도 union (partial SELECT 정책 재검토 동반).
+
+## T16. 비동기 보고서 발행 — web job-claim 워커 (ADR 0040)
+
+무엇을
+- 보고서 발행을 동기 즉시 succeeded 에서 비동기로 전환: emit 은 parent job 을 pending enqueue 후 즉시 `?job={id}` 반환, web lifespan 의 job-claim 워커가 생성. consumer 큐 워커(ADR 0004 옵션 B)가 아니라 web 내부 워커 + DB 상태머신(옵션 C).
+
+왜 큐 워커가 아니라 web 내부 워커인가
+- 보고서 생성 코드(query_service report 메서드 + mappers·view_models·serializer, 약 4900+ LOC)가 web/services 강결합. consumer(F4 BaseCollectRepository 만)로 위임하면 web 표시계층 절반을 web 비의존 패키지로 승격하는 대공사 + 양방향 의존. 워크로드가 DB 집계 I/O(수초)라 큐 분리 효용도 낮다.
+- 옵션 A(메모리 task) 기각 사유(in-flight 손실)는 job 상태를 DB 에 두고 stale 복구로 무효화 — FOR UPDATE SKIP LOCKED 로 멀티노드 분산까지.
+
+포기한 것 / 한계
+- web 프로세스가 생성 부하를 짊어진다(요청과 완전 격리 아님). DB I/O 바운드라 경미하나 생성 폭주 시 web 자원 경합.
+- 크래시/타임아웃으로 parent 가 running 잔류 -> stale 복구 후 재처리 시, 이전 run 에서 이미 succeeded 로 만든 child(단일 보고서)가 orphan 으로 이력에 중복될 수 있다. 데이터 정합성 허점은 아님 — parent succeeded 시 `child_jobs` 는 최신 유효분을 가리키고, orphan child 는 retention 으로 정리. child 멱등(같은 input_hash succeeded 재사용)·재처리 전 cleanup 은 드문 크래시 경로라 미구현.
+
+왜 받아들였나
+- 발행 응답을 즉시(job_id)로 만들어 N 증가에도 사용자 응답 시간 일정 — 가장 큰 요구(발행 느림) 해소. 생성은 백그라운드.
+- 추출 0 으로 큐 워커 대공사·회귀 위험 회피하면서 in-flight 손실 0·멀티노드·graceful 달성.
+
+언제 다시 봐야 하는가
+- 생성 부하가 web 요청 처리를 압박하면 → consumer 큐 워커(옵션 B)로 분리(보고서 생성 도메인 계층 추출 동반).
+- orphan child 중복이 운영 이슈로 부상하면 → child 멱등(get_latest_succeeded_by_hash 재사용) 또는 parent 재처리 전 이전 child cleanup.
+- A2(aggregate/net 중복 제거)·A3(breakdown 배치)·A5(fan-out prefetch 배치)는 적용 완료 — child fan-out 의 raws·breakdown·details 를 배치 1회 조회(`build_child_prefetched_reports` -> `get_single_server_report(prefetch=)`). A4(trend)만 보류: cpu/mem/disk 가 다른 테이블이라 단일 SQL 불가, 서버별 시계열이라 배치 불가, gather 는 QueryService composition root 대수술 + 커넥션 3배 + B 백그라운드라 응답 ROI 0. trend·online redis 는 서버별 잔존.
+
+## T17. 미래 collected_at 수신 경계 보정 — D2 멱등성 2단 약화 (ADR 0041)
+
+무엇을
+- Windows 게스트 시계가 틀어진 메시지의 `collected_at` 을 수신 경계(`_correct_skewed_collected_at`)에서 `received_at` 으로 보정한다 (`abs(collected_at - now) > 5분`, 미래·과거 양방향 — ADR 0041 정정). `collected_at` 은 시계열 자연키(#C1 `UNIQUE(server_id, collected_at)`)라 보정이 멱등성에 영향.
+
+포기한 것 / 한계
+- 수신시각 기준 보정은 비결정적 — 같은 메시지 재처리 시 server now 가 달라 다른 `collected_at` 이 나온다. 즉 D2 2단(DB UNIQUE on_conflict_do_nothing)이 "동일 메시지 재전송"을 중복으로 못 잡을 수 있다(서로 다른 collected_at -> 두 행).
+- 과거 방향은 보정하지 않는다 — backlog 정상 지연을 오보정하지 않기 위한 의도적 비대칭(미래만 물리적으로 불가능).
+- `boot_time`·`agent_started_at` 은 미보정이라 보정된 행에서 `agent_started_at > collected_at` 잔여 — 의도적(부팅 내 불변 가정 보존), `_log_time_invariants` 가 시계이상으로 노출.
+
+왜 받아들였나
+- D2 1단(Redis `safe_set_nx(idempotent:{message_id}, 24h)`)이 재전송을 DB 도달 전에 흡수하므로, 2단이 흔들리는 건 "Redis 장애 + 재전송 + 시계불량" 동시 발생의 좁은 창뿐.
+- 그 좁은 노출 대비, 한 호스트의 미래 시각이 partition pruning·차트·right-sizing 윈도우를 전역 오염시키는 손해가 크다. 수신 경계가 진짜 UTC 를 아는 유일 지점이고 쿼리 시점엔 보정 불가.
+
+언제 다시 봐야 하는가
+- 게스트 시각 동기(NTP/`RealTimeIsUniversal`)가 인프라에서 해결되면 보정은 no-op 으로 남아 무해 — 방어선만 유지.
+- 멱등성 2단 약화가 실제 중복 행으로 관측되면 → 보정을 결정적으로(메시지 자체에서 파생 가능한 기준) 만들거나, 미래값을 보정 대신 reject(DLQ)로 전환.
