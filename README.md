@@ -88,7 +88,6 @@
 | `ci.yml` | develop PR · main PR · develop push | lint(ruff+hadolint) → test-unit → test-integration (develop push·main PR), wheel build (main PR) |
 | `alembic-check.yml` | develop PR · main PR | ORM·migrations 라운드트립 정합 |
 | `codeql.yml` | main PR · 주간 cron | CodeQL SAST (SQL injection·secret leak·XSS 정적 분석, Security 탭 alert) |
-| `security.yml` | main PR · 주간 cron (Mon 09:00 UTC) | pip-audit dependency CVE 검사 |
 | `release.yml` | `main`에 tag `v*` push · workflow_dispatch | uv build wheel + sdist (버전=tag, hatch-vcs) + SHA256SUMS + SBOM + Sigstore signature → GitHub Release + GHCR image(multi-arch) 자동 첨부 |
 
 본 repo는 CI 영역만 (코드 quality + artifact 생성). CD(배포·secret 주입·롤백)는 외부 인프라 책임.

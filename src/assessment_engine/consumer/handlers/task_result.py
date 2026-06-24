@@ -43,43 +43,54 @@ def make_task_result_handler(
                 logger.info("task_result duplicate skipped message_id={}", data.message_id)
                 return
 
-            eff_status, eff_reason = effective_task_result(
-                status=data.status,
-                failure_reason=data.failure_reason,
-                exit_code=data.exit_code,
-                os_family=data.os_family,
-                os_version=data.os_version,
-                success_exit_codes=success_exit_codes,
-            )
-            if eff_status != data.status:
-                logger.info(
-                    "task_result status remapped task_id={} {}->{} exit_code={} os_version={}",
-                    data.task_id,
-                    data.status,
-                    eff_status,
-                    data.exit_code,
-                    data.os_version,
+            async def commit(repo: BaseCollectRepository) -> tuple[bool, str, str | None]:
+                # 성공 보정 매칭 OS — Windows 는 메시지 build os_version, Linux 등은 task.result 미발행이라
+                # inventory 에서 대상 서버 os_id/os_version 조회 (실패+script_failed+exit_code 일 때만 1회).
+                os_family, os_id, os_version = data.os_family, None, data.os_version
+                if (
+                    data.status == "failure"
+                    and data.failure_reason == "script_failed"
+                    and data.exit_code is not None
+                    and data.os_family != "windows"
+                ):
+                    server_os = await repo.get_task_server_os(str(data.task_id))
+                    if server_os is not None:
+                        os_family, os_id, os_version = server_os
+                eff_status, eff_reason = effective_task_result(
+                    status=data.status,
+                    failure_reason=data.failure_reason,
+                    exit_code=data.exit_code,
+                    os_family=os_family,
+                    os_version=os_version,
+                    os_id=os_id,
+                    success_exit_codes=success_exit_codes,
                 )
+                update = TaskResultUpdate(
+                    public_id=str(data.task_id),
+                    status=eff_status,
+                    failure_reason=eff_reason,
+                    exit_code=data.exit_code,
+                    duration_ms=data.duration_ms,
+                    stdout_tail=data.stdout_tail,
+                    stderr_tail=data.stderr_tail,
+                    completed_at=data.completed_at,
+                )
+                ok = await repo.complete_task(update)
+                return ok, eff_status, eff_reason
 
-            update = TaskResultUpdate(
-                public_id=str(data.task_id),
-                status=eff_status,
-                failure_reason=eff_reason,
-                exit_code=data.exit_code,
-                duration_ms=data.duration_ms,
-                stdout_tail=data.stdout_tail,
-                stderr_tail=data.stderr_tail,
-                completed_at=data.completed_at,
-            )
-
-            async def commit(repo: BaseCollectRepository) -> bool:
-                return await repo.complete_task(update)
-
-            updated = await _db_retry(session_factory, repo_factory, commit)
+            updated, eff_status, eff_reason = await _db_retry(session_factory, repo_factory, commit)
             if not updated:
                 logger.warning("task_result for unknown task_id={} (silent ack)", data.task_id)
                 return
 
+            if eff_status != data.status:
+                logger.info(
+                    "task_result status remapped task_id={} {}->{} exit_code={}",
+                    data.task_id,
+                    data.status,
+                    eff_status,
+                    data.exit_code,
+                )
             logger.info(
                 "task_result stored task_id={} status={} failure_reason={} composite_id={}",
                 data.task_id,

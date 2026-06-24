@@ -324,3 +324,79 @@ async def test_report_cpu_breakdown_delta_split(collect_repo, query_repo):
     assert cb.user_pct == pytest.approx(100 / 770 * 100, abs=0.5)
     assert cb.system_pct == pytest.approx(30 / 770 * 100, abs=0.5)
     assert cb.iowait_pct == pytest.approx(40 / 770 * 100, abs=0.5)
+
+
+# ─── cagg counter reset 처리 (ADR 0043 — counter_agg 정석) ────────────────────
+
+
+async def test_report_aggregate_counter_reset_segments_summed(collect_repo, query_repo):
+    """재부팅 counter reset 을 server_metrics_5m cagg counter_agg 가 값-감소 기준 일률 흡수.
+
+    reset 전후 CPU 부하가 다를 때, naive last-first 는 reset 이후 세그먼트만 보아 틀리지만(여기선 50%),
+    counter_agg 는 두 단조 세그먼트를 합산해 가중 평균(약 32%)을 산출한다. 5분 버킷 1개 안에 reset 포함.
+    """
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="r-reset-cagg"))
+    # 한 5분 버킷에 7표본(30s 간격) — 정렬된 과거 base. cpu total = user+idle (system/iowait/others=0).
+    now = datetime.now(UTC).replace(second=0, microsecond=0)
+    base = now - timedelta(minutes=12)
+    base = base - timedelta(minutes=base.minute % 5) + timedelta(seconds=30)
+    # (user, idle) 누적. i0~3: 부하 20%(idle 80%), i4 reset(0,0), i5~6: 부하 50%(idle 50%).
+    series = [(0, 0), (200, 800), (400, 1600), (600, 2400), (0, 0), (500, 500), (1000, 1000)]
+    for i, (user, idle) in enumerate(series):
+        await collect_repo.record_metrics(
+            sid,
+            make_metrics(
+                collected_at=base + timedelta(seconds=30 * i),
+                cpu_user=user,
+                cpu_system=0,
+                cpu_idle=idle,
+                cpu_iowait=0,
+                mounts=[],
+                disk_io=[],
+                net_io=[],
+            ),
+        )
+    rows = await query_repo.report_aggregate([sid], period_days=1, end=now)
+    assert len(rows) == 1
+    cpu_p95 = rows[0].cpu_p95_pct
+    # counter_agg: total delta = 3000+2000=5000, idle delta = 2400+1000=3400 -> 1-3400/5000 = 32%.
+    # reset 점프(naive 50% 또는 비정상 spike)로 부풀지 않음.
+    assert cpu_p95 is not None and 30.0 <= cpu_p95 <= 34.0
+
+
+async def test_report_disk_io_baseline_counter_reset_segments_summed(collect_repo, query_repo):
+    """disk reads/writes 카운터 reset(재부팅)을 server_disk_io_5m cagg counter_agg 가 일률 흡수.
+
+    기존 LAG baseline 은 boot_time gate 없이 delta>=0 만이라 reset 처리가 CPU 와 불일치했다(ADR 0043 weirdness).
+    counter_agg 는 reset 전후 단조 세그먼트를 합산 — IOPS baseline 이 reset 점프로 왜곡되지 않는다.
+    """
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="r-disk-reset"))
+    now = datetime.now(UTC).replace(second=0, microsecond=0)
+    base = now - timedelta(minutes=12)
+    base = base - timedelta(minutes=base.minute % 5) + timedelta(seconds=30)
+    # reads 누적 분당 약 100/min(= delta 50/30s). reset at idx 3 (값 감소). 한 5분 버킷.
+    reads = [0, 50, 100, 150, 0, 50, 100]  # idx 3->4 에서 150->0 감소(reset)
+    for i, r in enumerate(reads):
+        await collect_repo.record_metrics(
+            sid,
+            make_metrics(
+                collected_at=base + timedelta(seconds=30 * i),
+                disk_io=[
+                    DiskIoEntry(
+                        device="sda",
+                        reads_completed=r,
+                        writes_completed=0,
+                        sectors_read=r * 8,
+                        sectors_written=0,
+                    )
+                ],
+                mounts=[],
+                net_io=[],
+            ),
+        )
+    d = await query_repo.report_disk_io_baseline([sid], 1, now)
+    assert sid in d
+    iops_baseline = d[sid][0]
+    # counter_agg: reads delta = (150-0)+(100-0)=250 over ~5분 관측. naive last-first=100-0=100 이면 과소.
+    # reset 음수 점프(150->0)가 IOPS 를 음수/0 으로 왜곡하지 않고 양수 baseline 산출.
+    assert iops_baseline is not None and iops_baseline > 0

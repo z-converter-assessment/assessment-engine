@@ -72,6 +72,8 @@
   <button type="button" id="report-engineer-btn" class="btn-select no-print" disabled title="엔지니어 검토용 — 양식 B">엔지니어 보고서</button>
   <button type="button" id="export-btn" class="btn-select no-print" disabled>JSON Export</button>
   <button type="button" id="install-btn" class="btn-select no-print" disabled>ZConverter Install</button>
+  {# 선택 개수 라이브 표시 — 체크 시 list-table.js 가 갱신, 0 이면 빈 문자열. 액션 바 우측 정렬. #}
+  <span id="selection-count" class="section-meta" style="margin-left:auto;"></span>
 </div>
 
 {# client-side 필터 (list-table.js). 값 선택 시 active 토글. #}

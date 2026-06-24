@@ -155,9 +155,7 @@ git add pyproject.toml uv.lock
 git commit -m "chore(deps): fastapi bump 0.135 -> 0.136"
 ```
 
-보안 알림은 다음 두 채널로 별도 수신:
-- GitHub Dependabot alerts + security updates (UI 활성, 자동 PR 없음 — 알림만)
-- `security.yml` workflow — 주간 cron 으로 pip-audit 실행, CVE 검출 시 CI fail
+보안 알림은 GitHub Dependabot alerts + security updates (UI 활성, 자동 PR 없음 — 알림만)로 수신. CI 단계의 의존성 CVE 자동 gate 는 두지 않는다 — CVE 평가·대응(수정본 유무 판단·bump·예외 수용)은 Dependabot alerts 로 운영자가 판단.
 
 ## 6. 흐름·체크리스트
 
@@ -193,5 +191,4 @@ git commit -m "chore(deps): fastapi bump 0.135 -> 0.136"
 - `docs/development/testing.md` — pytest 실행·fixture
 - `docs/operations/release.md` — wheel 빌드·GitHub Release artifact
 - `.github/workflows/ci.yml`·`alembic-check.yml` — frozen sync CI 검증
-- `.github/workflows/security.yml` — pip-audit CVE 검사
 - ADR 0012 — CI 산출물 = wheel (uv build) 정책

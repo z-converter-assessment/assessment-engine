@@ -11,8 +11,8 @@
       {% if overview.os_distribution %}<div class="kpi-sub">{% for os_name, n in overview.os_distribution.items() %}{{ os_name | replace('windows', 'win') }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</div>{% endif %}
     </div>
     <div class="kpi"><span>총 vCPU</span><strong>{{ overview.total_vcpus }}</strong></div>
-    <div class="kpi"><span>메모리</span><strong>{{ overview.total_memory_gb | disksize }}</strong></div>
-    <div class="kpi"><span>디스크</span><strong>{{ overview.total_disk_gb | disksize }}</strong></div>
+    <div class="kpi"><span>메모리</span><strong>{{ overview.total_memory_gb | disksize_styled }}</strong></div>
+    <div class="kpi"><span>디스크</span><strong>{{ overview.total_disk_gb | disksize_styled }}</strong></div>
   </div>
   <div class="text-muted text-sm" style="margin-top:16px;">서비스 식별 <strong class="text-strong">{{ overview.role_identified_count }}</strong>대</div>
   {% if overview.role_distribution %}

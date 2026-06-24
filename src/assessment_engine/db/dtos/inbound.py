@@ -29,6 +29,8 @@ class ServerInventoryCreate:
     mounts: list[dict]  # JSONB — [{mount, fstype, total_bytes, major, minor}]
     services: list[dict] | None  # JSONB — [{unit, sub}] | None (non-systemd host)
     listen_ports: list[dict]  # JSONB — [{proto, addr, port, uid, pid, comm}]
+    # 서비스 카테고리 집합 (ingest 사전계산, service_classifier.compute_service_categories). read 경로 뱃지 단일 진실.
+    service_categories: list[str]
 
 
 # metrics 는 inventory(JSONB dict) 와 달리 4개 시계열 테이블 행에 매핑 — dataclass 타입 보장.

@@ -424,10 +424,9 @@ class QueryService:
         # end=보고서 anchor(없으면 현재). os_eol 임박/경과 판정이 이 시각 기준 — 보고서 다른 지표(end_dt)와 정합.
         # gap/agent_unstable 은 보고서 미표시(C1)라 anchor 영향 없음.
         ref = end if end is not None else datetime.now(UTC)
-        # gap 은 보고서 미표시(C1) — limit_each=None(보고서 전수)이어도 SQL LIMIT 은 기본 cap 유지.
-        gap_raws = await self.repo.metric_gap_warnings(
-            gap_minutes, gap_recent_hours, limit_each if limit_each is not None else _ATTENTION_LIMIT_EACH
-        )
+        # limit_each=None 이면 gap 도 전수(LIMIT NULL) — 운영신호 카드 3 카탈로그 모두 전수 출력.
+        # 보고서는 gap 미표시(C1)라 전수여도 결과만 버려질 뿐(소량, 무해).
+        gap_raws = await self.repo.metric_gap_warnings(gap_minutes, gap_recent_hours, limit_each)
         server_ids = await self.repo.list_server_ids()
         raws_period = []
         restart_counts: dict[int, int] = {}
@@ -801,7 +800,7 @@ class QueryService:
         """
         details = await self.repo.get_servers(server_ids)
         hostnames = {d.hostname for d in details}
-        return _filter_attention(await self.get_attention_signals(end=end), hostnames)
+        return _filter_attention(await self.get_attention_signals(end=end, limit_each=None), hostnames)
 
     async def get_single_server_report(
         self,

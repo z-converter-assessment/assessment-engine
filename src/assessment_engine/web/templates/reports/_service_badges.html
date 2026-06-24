@@ -1,0 +1,33 @@
+{#
+  참고자료 — 서비스 뱃지 카탈로그. service_badges (ServiceBadgeRef list, SERVICE_CATALOG 파생 — mappers.shared) 렌더.
+  소비처: right_sizing_thresholds.html. include 전용 (extends·block 없음). P3 — 계산·정렬 0, mapper precompute 만 표시.
+#}
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">서비스 뱃지</h2>
+  <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
+    서버 목록·상세·환경 보고서의 "구동 서비스"에 표시되는 카테고리 뱃지. 호스트가 구동하는 워크로드를 서비스 이름·실행 파일(comm)·listen 포트 신호를 종합해 아래 카테고리로 분류한다 (정밀도 순 name -> comm -> port). 같은 카테고리가 여러 개면 "db 2" 처럼 개수를 병기하고, 컨테이너 런타임은 docker+containerd 가 함께 떠도 호스트당 1로 집계한다.
+  </p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>뱃지</th>
+          <th style="white-space:nowrap;">분류</th>
+          <th>대상 서비스</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in service_badges %}
+        <tr>
+          <td><span class="badge {{ b.badge_class }}">{{ b.category }}</span></td>
+          <td style="white-space:nowrap;">{{ b.label_ko }}</td>
+          <td class="text-label">{{ b.services_label }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-md text-label" style="margin:10px 0 0; line-height:1.6;">
+    "대상 서비스"는 대표 예시이며 실제 식별은 더 넓은 이름·실행 파일(comm)·listen 포트 신호를 종합한다. 비표준 포트로 떠도 이름·comm 신호로 분류되고 (예: HAProxy 가 5432 를 프록시해도 db 가 아니라 웹), 어느 신호로도 특정되지 않으면 미식별로 표시된다.
+  </p>
+</section>

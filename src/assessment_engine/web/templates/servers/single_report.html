@@ -34,11 +34,11 @@
       </div>
       <div class="metric-card">
         <div class="metric-label">메모리</div>
-        <div class="metric-value">{% if si.mem_total_gb is not none %}{{ "%.1f" | format(si.mem_total_gb) }} GB{% else %}—{% endif %}</div>
+        <div class="metric-value">{% if si.mem_total_gb is not none %}{{ si.mem_total_gb | disksize_styled }}{% else %}—{% endif %}</div>
       </div>
       <div class="metric-card">
         <div class="metric-label">디스크</div>
-        <div class="metric-value">{% if si.disk_total_gb %}{{ si.disk_total_gb }} GB{% else %}—{% endif %}</div>
+        <div class="metric-value">{% if si.disk_total_gb %}{{ si.disk_total_gb | disksize_styled }}{% else %}—{% endif %}</div>
       </div>
       </div>
     </div>
@@ -407,7 +407,7 @@
 
 {% if view == "engineer" %}
 {# chart-utils.js 는 base.html head 동기 로드. #}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
+<script src="/static/js/vendor/chart.umd.min.js?v={{ asset_v }}" defer></script>
 <script src="/static/js/pages/environment-trend.js?v={{ asset_v }}" defer></script>
 {% endif %}
 {% endblock %}

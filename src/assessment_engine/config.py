@@ -52,6 +52,7 @@ class WebSettings(BaseSettings):
     redis_ttl_last_agent_start: int = 86400  # 24h — 직전 agent_started_at 캐시 (재시작 감지용)
     redis_ttl_agent_restarts: int = 3600  # 1h  — 슬라이딩 윈도우 카운터
     redis_ttl_time_invariant_warned: int = 3600  # 1h  — 시계 invariant 위반 로그 쿨다운 (스팸 방지)
+    redis_ttl_clock_corrected: int = 3600  # 1h  — collected_at 보정 로그 쿨다운 (스팸 방지)
 
     # Key prefixes
     redis_key_cache_inventory: str = "cache:inventory:{}"
@@ -64,10 +65,16 @@ class WebSettings(BaseSettings):
     redis_key_agent_restarts: str = "agent_restarts:{}"
     # {composite_id}:{hostname} 쿨다운 마커 (#C1)
     redis_key_time_invariant_warned: str = "time_invariant_warned:{}:{}"
+    redis_key_clock_corrected: str = "clock_corrected:{}:{}"  # {composite_id}:{hostname} 보정 로그 쿨다운
 
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
     # 운영 alert 튜닝 노브 — env 카탈로그 미수록(env.example·env.md), 필요 시 env override.
     agent_restart_alert_threshold: int = 3
+
+    # collected_at 시계오차 보정 임계 (초, 양방향). 수신시각과 이 값 넘게 벌어지면(미래=게스트 시계 앞섬,
+    # 과거=뒤처짐) 게스트 시계 불량 — collected_at 만 수신시각으로 보정 (#F2 수신 경계 보정).
+    # 운영 튜닝 노브 — env 카탈로그 미수록, 필요 시 env override.
+    clock_skew_threshold_sec: int = 300  # 5min
 
     # 비동기 보고서 생성 워커 (web 프로세스 내 백그라운드 루프 — 발행 응답성·확장성).
     # poll: pending job 점검 주기. stale_seconds: running 잔류 job 회수 임계(생성이 이 안에 끝난다는 가정,
@@ -146,12 +153,26 @@ class ConsumerSettings(WebSettings):
     rabbitmq_routing_key_task_result: str = "task.result"
     rabbitmq_queue_worker_result: str = "worker.result"
 
-    # task.result 성공 보정 정책 (assessment_engine.task_policy). OS 버전(Windows
-    # CurrentBuildNumber) -> 성공으로 취급할 추가 exit code 목록. status=failure +
-    # failure_reason=script_failed 인 direct_exec 결과에만 적용.
-    # 기본값: Windows Server 2022(build 20348) 는 ZConverter installer 의 exit code 2 를
-    # 설치 성공으로 본다. env(JSON)로 override — 예: '{"20348":[2],"26100":[2]}'.
-    task_install_success_exit_codes: dict[str, list[int]] = {"20348": [2]}
+    # task.result 성공 보정 정책 (assessment_engine.task_policy). 매칭 키 -> 성공으로 취급할 추가 exit code 목록.
+    # status=failure + failure_reason=script_failed + 매칭 키 일치 + exit_code 포함일 때만 success 로 보정.
+    # 키 규약 (os_family 로 분기, task_policy.effective_task_result):
+    #   - Windows: os_version = CurrentBuildNumber (예 "20348"). 메시지에서 발행.
+    #   - Linux:   "os_id:major" (예 "rocky:9"). task.result 가 os 미발행이라 엔진이 inventory 에서 조회.
+    # 기본값:
+    #   - Windows(family-level "windows" 키): ZConverter installer 가 설치 성공임에도 exit 2 로 종료(전
+    #     세대 공통 동작). 빌드번호별 키를 일일이 유지하는 건 취약(예 2008R2=7601 누락)하므로 family 한 키로
+    #     일괄. 설치 성공 검증 = 해당 호스트 services 에 ZConCloudAgent(RUNNING) 등장으로 확인됨.
+    #     (특정 빌드만 다르게 두려면 CurrentBuildNumber 키를 추가 — effective_task_result 가 빌드 키를 우선 매칭.)
+    #   - rocky/almalinux/ol/centos major 9(EL9): installer 가 새 systemd start-limit 로 exit 3 을 내나
+    #     설치·ZDM 등록은 성공 (rhel9 는 미해당이라 제외, centos-stream8 은 centos8 과 os_id 구분 불가라 보류).
+    # env(JSON)로 override — 예: '{"windows":[2],"rocky:9":[3]}'.
+    task_install_success_exit_codes: dict[str, list[int]] = {
+        "windows": [2],
+        "rocky:9": [3],
+        "almalinux:9": [3],
+        "ol:9": [3],
+        "centos:9": [3],
+    }
 
     @property
     def broker_url(self) -> str:

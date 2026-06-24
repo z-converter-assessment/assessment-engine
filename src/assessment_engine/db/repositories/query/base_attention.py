@@ -11,7 +11,10 @@ class BaseAttentionQueryRepository(ABC):
         self,
         gap_minutes: int,
         recent_hours: int,
-        limit: int,
+        limit: int | None,
     ) -> list[MetricGapWarningRaw]:
-        """metric 발행 갭이 gap_minutes 초과 + 최근 recent_hours 안 발행 있던 서버 — '한때 살아있다 끊김'."""
+        """metric 발행 갭이 gap_minutes 초과 + 최근 recent_hours 안 발행 있던 서버 — '한때 살아있다 끊김'.
+
+        limit=None 이면 무제한(Postgres LIMIT NULL) — 운영신호 카드 전수 출력.
+        """
         ...

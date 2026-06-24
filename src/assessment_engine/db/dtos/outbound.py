@@ -15,7 +15,8 @@ class ServerSummary:
     mem_total_kb: int | None
     ip_external: list[str] | None
     disks: list[dict]
-    services: list[dict] | None
+    # 서비스 뱃지 — ingest 사전계산 카테고리 키 집합(service_classifier 단일 진실). services JSONB 는 목록 미로드(경량).
+    service_categories: list[str]
     last_seen_at: datetime | None  # Redis online TTL fallback 용도
 
 

@@ -3,24 +3,16 @@
  * body data-server-id 단일 진실 (#E6 inline <script> 금지).
  * 외부 의존: ChartUtils.fmtKst (F2 단일 KST 변환 경계).
  *
- * P4 5 의무 규약(a~e) 적용:
+ * P4 의무 규약 적용 (해당 항목 a~d):
  *  (a) sequence counter — fetchMetrics 30초 polling in-flight 가능 → seq counter. collection-status 는 초기 1회(statusSeq).
  *  (b) capture-before-await — 본 페이지는 range/anchor 토글 없음. 단일 endpoint polling 이라 파라미터 stale 없음.
  *  (c) Array.isArray — collection-status·disk_io_phys·net_io 모두 fallback safe.
  *  (d) 404 분기 — /metrics/latest 404 시 metrics-no-data 표시.
- *  (e) 명명 상수 — USAGE_DANGER_PCT/USAGE_WARN_PCT + COLOR_* 모듈 상단.
  */
 (() => {
   const SERVER_ID = document.body.dataset.serverId;
   if (!SERVER_ID) { console.error('detail.js: body data-server-id missing'); return; }
   const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 메트릭 N/A 분기
-
-  /* -------- 표시 임계값 — backend mappers._USAGE_*_PCT 단일 진실, body data-attribute 로 주입 (#E1 P4). */
-  const USAGE_DANGER_PCT = parseFloat(document.body.dataset.usageDangerPct) || 90;
-  const USAGE_WARN_PCT   = parseFloat(document.body.dataset.usageWarnPct)   || 75;
-  const COLOR_OK     = ChartUtils.themeColor();
-  const COLOR_WARN   = '#f59e0b';
-  const COLOR_DANGER = '#ef4444';
 
   /* -------- 포맷 유틸 -------- */
   const fmtPct  = (v) => v != null ? v.toFixed(1) + '%' : '—';
@@ -37,12 +29,6 @@
     if (kb >= 1024)        return (kb / 1024).toFixed(0) + ' MB';
     return kb + ' KB';
   }
-  function barColor(pct) {
-    if (pct == null)              return COLOR_OK;
-    if (pct >= USAGE_DANGER_PCT)  return COLOR_DANGER;
-    if (pct >= USAGE_WARN_PCT)    return COLOR_WARN;
-    return COLOR_OK;
-  }
   const show = (id) => document.getElementById(id).style.display = '';
   const hide = (id) => document.getElementById(id).style.display = 'none';
   const el    = (id) => document.getElementById(id);
@@ -52,15 +38,17 @@
   const DONUT_CIRC = 263.89;  // 2*pi*42 (r=42)
   function setDonut(arcId, textId, pct) {
     const arc = el(arcId), txt = el(textId);
+    const unit = el(textId.replace('-text', '-unit'));  // 값 아래 작은 % 단위 (네트워크·디스크IO 도넛과 일관)
     if (pct == null) {
       arc.setAttribute('stroke-dasharray', '0 ' + DONUT_CIRC);
-      txt.textContent = '—'; txt.setAttribute('fill', '#94a3b8');
+      txt.textContent = '—'; txt.setAttribute('fill', '#94a3b8'); txt.setAttribute('y', 56);
+      if (unit) unit.style.display = 'none';
       return;
     }
     const len = Math.max(0, Math.min(pct, 100)) / 100 * DONUT_CIRC;
     arc.setAttribute('stroke-dasharray', len.toFixed(2) + ' ' + DONUT_CIRC);
-    txt.textContent = Math.round(pct) + '%';
-    txt.setAttribute('fill', '#1e293b');
+    txt.textContent = pct.toFixed(1); txt.setAttribute('fill', '#1e293b'); txt.setAttribute('y', 50);
+    if (unit) unit.style.display = '';
   }
 
   /* -------- 메트릭 렌더링 -------- */
@@ -103,8 +91,6 @@
       setTxt('swap-usage', fmtPct(swap.usage_pct));
       setTxt('swap-used',  fmtGb(swap.used_kb));
       setTxt('swap-total', fmtGb(swap.total_kb));
-      el('swap-bar').style.width = (swap.usage_pct ?? 0) + '%';
-      el('swap-bar').style.background = barColor(swap.usage_pct);
     }
 
     /* Disk I/O — 물리 / 논리·가상 (E9: 데이터 없어도 제목 노출 + placeholder) */
@@ -193,7 +179,7 @@
   /* online-badge(수집 상태)는 실시간 메트릭 카드 밖이라 초기 1회만 — 카드의 "최근 시각"이 끊김 신호 겸함. */
   fetchMetrics();
   fetchCollectionStatus();
-  setInterval(fetchMetrics, 30_000);
+  ChartUtils.initAutoRefresh(fetchMetrics, 30_000);  // 탭 비활성 시 일시정지 (chart-utils 단일 진실)
 })();
 
 // 서버 1대 scope 보고서 발행 모달 — 대시보드 환경 보고서 모달과 동일 form (time_range select + anchor).
@@ -223,6 +209,7 @@
     currentView = view;
     titleEl.textContent = _VIEW_TITLES[view];
     descEl.textContent = _VIEW_DESCS[view];
+    submitBtn.disabled = false;  // 매번 재활성화 — 직전 발행(PRG navigate) 후 bfcache 복귀 시 disabled 잔존 우회
     modal.style.display = 'flex';
   }
   function close() { modal.style.display = 'none'; }
@@ -258,6 +245,8 @@
   closeBtn.addEventListener('click', close);
   submitBtn.addEventListener('click', publish);
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  // bfcache 복귀(뒤로가기) — 발행 후 navigate 로 얼어붙은 disabled 버튼·열린 모달 초기화.
+  window.addEventListener('pageshow', e => { if (e.persisted) { submitBtn.disabled = false; close(); } });
 })();
 
 // 서버 1대 scope ZConverter Install 발행 모달 — 대시보드 #install-modal 과 동일 form.

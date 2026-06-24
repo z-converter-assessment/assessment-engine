@@ -10,7 +10,7 @@
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtLabel, getAnchorEnd, initAnchor,
         makeBucketGrid, joinToGrid, bindToggle, initAutoRefresh, safeArray,
-        renderChipLegend } = ChartUtils;
+        buildDimDatasets, renderChipLegend } = ChartUtils;
 
 // body data attribute 단일 진실 (#E6 inline <script> 금지).
 const SERVER_ID = document.body.dataset.serverId;
@@ -153,30 +153,15 @@ function renderCompChart(range, anchorEnd) {
   }
   canvas.style.display = ''; empty.style.display = 'none';
 
-  const COMP_LABELS = { 'user':'User', 'system':'System', 'iowait':'I/O Wait' };
-  const COMP_COLORS = { 'user':ChartUtils.themeColor(), 'system':'#f59e0b', 'iowait':'#ef4444' };
+  const COMP_META = {
+    user:   { label: 'User',     color: ChartUtils.themeColor() },
+    system: { label: 'System',   color: '#f59e0b' },
+    iowait: { label: 'I/O Wait', color: '#ef4444' },
+  };
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const byDim  = {};
-  for (const r of rows) { (byDim[r.dimension] = byDim[r.dimension] || []).push(r); }
-  const datasets = Object.entries(byDim).map(([dim, pts]) => {
-    const map = {};
-    for (const p of pts) { map[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value; }
-    const color = COMP_COLORS[dim] || '#8b5cf6';
-    return {
-      label: COMP_LABELS[dim] || dim,
-      data: grid.map(t => map[t] ?? null),
-      borderColor: color,
-      backgroundColor: color + '22',
-      borderWidth: 2,
-      pointRadius: 1,
-      pointHoverRadius: 3,
-      tension: 0.3,
-      fill: false,
-      spanGaps: false,
-    };
-  });
+  const datasets = buildDimDatasets(rows, bMs, grid, COMP_META, { pointRadius: 1 });
 
   if (compChart) {
     compChart.data.labels = labels; compChart.data.datasets = datasets;
@@ -260,31 +245,16 @@ function renderLoadChart(range, anchorEnd) {
   }
   canvas.style.display = ''; empty.style.display = 'none';
 
-  const LOAD_LABELS = { 'load1':'Load 1m', 'load5':'Load 5m', 'load15':'Load 15m' };
-  const LOAD_COLORS = { 'load1':ChartUtils.themeColor(), 'load5':'#22c55e', 'load15':'#f59e0b' };
+  const LOAD_META = {
+    load1:  { label: 'Load 1m',  color: ChartUtils.themeColor() },
+    load5:  { label: 'Load 5m',  color: '#22c55e' },
+    load15: { label: 'Load 15m', color: '#f59e0b' },
+  };
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const byDim  = {};
-  for (const r of rows) { (byDim[r.dimension] = byDim[r.dimension] || []).push(r); }
-  const datasets = Object.entries(byDim).map(([dim, pts]) => {
-    const map = {};
-    // P4 표시 정규화: 서버 cpu_cores(고정)로 나눠 코어당 로드 — 1.0=코어당 포화. raw load 를 "코어당"으로 표시.
-    for (const p of pts) { map[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value / CPU_CORES; }
-    const color = LOAD_COLORS[dim] || '#8b5cf6';
-    return {
-      label: LOAD_LABELS[dim] || dim,
-      data: grid.map(t => map[t] ?? null),
-      borderColor: color,
-      backgroundColor: color + '22',
-      borderWidth: 2,
-      pointRadius: 1,
-      pointHoverRadius: 3,
-      tension: 0.3,
-      fill: false,
-      spanGaps: false,
-    };
-  });
+  // P4 표시 정규화: 서버 cpu_cores(고정)로 나눠 코어당 로드 — 1.0=코어당 포화. raw load 를 "코어당"으로 표시.
+  const datasets = buildDimDatasets(rows, bMs, grid, LOAD_META, { pointRadius: 1, valueFn: v => v / CPU_CORES });
 
   if (loadChart) {
     loadChart.data.labels = labels; loadChart.data.datasets = datasets;

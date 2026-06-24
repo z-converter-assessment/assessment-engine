@@ -19,6 +19,7 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 from assessment_engine.web.deps import get_diagnostic_service
 from assessment_engine.web.services.diagnostic_service import DiagnosticService, _normalize_anchor
 from assessment_engine.web.services.mappers.report_history import to_report_history_item
+from assessment_engine.web.services.mappers.shared import build_service_badge_reference
 from assessment_engine.web.services.report_serializer import (
     REPORT_KIND_ENV,
     env_report_from_dict,
@@ -238,7 +239,11 @@ async def right_sizing_thresholds(
     return templates.TemplateResponse(
         request=request,
         name="reports/right_sizing_thresholds.html",
-        context={"active_nav": "thresholds", "back_url": back_url},
+        context={
+            "active_nav": "thresholds",
+            "back_url": back_url,
+            "service_badges": build_service_badge_reference(),
+        },
     )
 
 

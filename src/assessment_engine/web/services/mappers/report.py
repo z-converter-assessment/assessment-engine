@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ReportRowRaw
+from assessment_engine.service_classifier import detect_listen_categories
 from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.server import (
     _os_display,
@@ -23,7 +24,6 @@ from assessment_engine.web.services.mappers.shared import (
     build_confidence_notes,
     resolve_os_eol,
 )
-from assessment_engine.web.services.service_classifier import detect_listen_categories
 from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb
 from assessment_engine.web.view_models.report import (
     ReportListenItem,

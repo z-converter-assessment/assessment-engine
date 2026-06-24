@@ -23,12 +23,6 @@
   {% endif %}
 </section>
 
-{# 엔지니어 보고서와 동일 표 (reports/_resource_tables.html 공유). #}
-<section class="card no-print">
-  <h2 class="card-title" style="margin:0 0 14px;">효율화 검토 대상 <span class="section-meta">{{ efficiency_target_count }}대</span></h2>
-  {{ efficiency_table(efficiency_hosts, efficiency_target_count, efficiency_target_vcpus, efficiency_target_memory_gb, efficiency_hosts_count, self_back) }}
-</section>
-
 {# 엔지니어 보고서와 동일 표. 초과 행은 JS(assessment.js)가 #under-wrap tbody clip + 더보기/접기. #}
 <section class="card no-print">
   <h2 class="card-title" style="margin:0 0 14px;">자원 부족 <span class="section-meta">{{ overview.under_provisioned_hosts_count }}대</span></h2>
@@ -38,4 +32,10 @@
   <div class="no-print" id="under-more-wrap" style="margin-top:12px; text-align:center; display:none;">
     <button type="button" id="under-more-btn" class="btn-action"></button>
   </div>
+</section>
+
+{# 엔지니어 보고서와 동일 표 (reports/_resource_tables.html 공유). #}
+<section class="card no-print">
+  <h2 class="card-title" style="margin:0 0 14px;">효율화 검토 대상 <span class="section-meta">{{ efficiency_target_count }}대</span></h2>
+  {{ efficiency_table(efficiency_hosts, efficiency_target_count, efficiency_target_vcpus, efficiency_target_memory_gb, efficiency_hosts_count, self_back) }}
 </section>

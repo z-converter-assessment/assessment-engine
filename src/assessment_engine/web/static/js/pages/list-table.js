@@ -28,6 +28,7 @@ function selectedRows() {
 
 // selection 버튼 상태 갱신 — 선택 N대면 액션 버튼 enabled.
 // CSS .btn-primary:disabled 가 시각 분기 (opacity inline 불필요).
+const selectionCountEl = document.getElementById('selection-count');
 function refreshInstallButton() {
   const n = selectedRows().length;
   installBtn.disabled = n === 0;
@@ -36,6 +37,8 @@ function refreshInstallButton() {
   reportEngineerBtn.disabled = n === 0;
   if (realtimeSelBtn) realtimeSelBtn.disabled = n === 0;
   if (metricsSelBtn) metricsSelBtn.disabled = n === 0;
+  // 선택 개수 라이브 표시 — 0 이면 빈 문자열(숨김 효과).
+  if (selectionCountEl) selectionCountEl.textContent = n > 0 ? n + '대 선택' : '';
 }
 
 const reportCustomerBtn = document.getElementById('report-customer-btn');
@@ -255,7 +258,11 @@ document.querySelectorAll('.row-select').forEach(cb => {
 // 전체 선택 토글
 if (selectAllCb) {
   selectAllCb.addEventListener('change', () => {
-    document.querySelectorAll('.row-select').forEach(cb => { cb.checked = selectAllCb.checked; });
+    // 필터 통과 행만 토글 — 필터로 숨겨진 행(예: 오프라인)은 전체선택 제외. clip 으로만 숨은 행(match)은 포함.
+    document.querySelectorAll('tr.server-row').forEach(tr => {
+      const cb = tr.querySelector('.row-select');
+      if (cb) cb.checked = (tr.dataset.filterMatch !== '0') && selectAllCb.checked;
+    });
     refreshInstallButton();
   });
 }
@@ -326,6 +333,8 @@ if (filterForm) {
         // 필터 비활성 + 미확장이면 CLIP_SIZE 초과 행은 숨김 (더보기 대상).
         if (!active && !expanded && matchCount > CLIP_SIZE) visible = false;
       }
+      // 전체선택이 필터 통과 행만 잡도록 표식 (clip 으로만 숨은 행은 match='1' 이라 포함).
+      tr.dataset.filterMatch = match ? '1' : '0';
       tr.style.display = visible ? '' : 'none';
     });
     // 전체보기 버튼 — 필터 비활성·미확장·전체가 CLIP 초과일 때만. (CLIP_SIZE/total 표기)
@@ -355,19 +364,28 @@ if (filterForm) {
     applyFilters();
   });
 
+  // 필터 변경 시 선택 초기화 — 전체선택 후 필터를 바꾸면 깨끗한 전체해제 상태 (숨은 행이 선택에 남지 않게).
+  // show-more(전체보기)·init 은 필터 변경이 아니므로 미적용 (선택 보존).
+  function clearSelectionOnFilterChange() {
+    document.querySelectorAll('.row-select').forEach(cb => { cb.checked = false; });
+    if (selectAllCb) selectAllCb.checked = false;
+    refreshInstallButton();
+  }
+
   // text input — typing 마다 debounce (200ms) client filter.
   let debounceTimer = null;
   filterForm.querySelector('input[name=search]')?.addEventListener('input', () => {
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(applyFilters, 200);
+    debounceTimer = setTimeout(() => { clearSelectionOnFilterChange(); applyFilters(); }, 200);
   });
   // select / checkbox — change 즉시.
   filterForm.querySelectorAll('select, input[type=checkbox]').forEach(el => {
-    el.addEventListener('change', applyFilters);
+    el.addEventListener('change', () => { clearSelectionOnFilterChange(); applyFilters(); });
   });
   // Enter 키 default form submit 방지 (page reload 없이).
   filterForm.addEventListener('submit', e => {
     e.preventDefault();
+    clearSelectionOnFilterChange();
     applyFilters();
   });
 

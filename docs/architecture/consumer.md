@@ -67,6 +67,8 @@ metrics 핸들러는 `repo.ensure_server_id(composite_id, placeholder)`로 한 �
 
 placeholder는 `mappers.build_placeholder_inventory`가 생성. composite_id/machine_id/hostname/agent_version만 실값, 나머지 정적 정보(OS·CPU·메모리·디스크 등)는 None/빈 배열. 다음 진짜 inventory 도착 시 ON CONFLICT DO UPDATE로 풀 정보 자동 덮어씀 (`composite_id` UNIQUE 제약).
 
+재부팅 재연결 (`_relink_rebooted_host`, ADR 0044): 일부 환경(OpenStack Windows VM)은 부팅마다 NIC MAC 이 재발급돼 composite_id(=sha256(machine_id+MAC))가 같은 VM 인데 달라진다. inventory upsert 진입 시 composite_id 미등록이면 machine_id+hostname 일치(후보 정확히 1개) 기존 행의 composite_id 를 새 값으로 re-point — server_id·시계열 FK·history 보존(중복 행 0). machine_id 없거나 후보 2+ (모호한 clone)면 미연결(새 행 = clone 오병합 방지). inventory 가 startup 시 metrics 보다 먼저 발행돼 재부팅을 먼저 잡는다.
+
 metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 4개 시계열 테이블 INSERT를 facade로 묶어 처리. `boot_time`·`agent_started_at`은 시계열 4개 테이블 모두에 동일 시점값으로 함께 저장 → metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 비교로 시스템 재부팅 시 delta 건너뛰기 (CLAUDE.md B1). mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅 단일 테이블 SELECT 위해 보존. 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
 
 → metrics drop 0. inventory one-shot 정책으로 인한 영구 미등록 시나리오 해소. 에이전트 변경 없이 엔진 단독 안전망.

@@ -2,10 +2,10 @@
    제목(h2/h3)·카운트는 호출부 렌더, 본 매크로는 요약문+표 본문만. #}
 {% from "_shared.html" import empty_state %}
 
-{# 효율화 검토 대상 표 — over/idle/shutdown 정리 시급도 순. hosts = ReportRowItem(top-N). #}
+{# 효율화 검토 대상 표 — over/idle/shutdown 정리 우선순위 순 전수. hosts = ReportRowItem. #}
 {% macro efficiency_table(hosts, target_count, target_vcpus, target_memory_gb, shown_count, self_back) %}
 {% if hosts %}
-<p class="text-sm text-label" style="margin:0 0 12px;">과다 할당·유휴·종료 권장 {{ target_count }}대 — 총 {{ target_vcpus }} vCPU · {{ "%.1f" | format(target_memory_gb) }} GB 점유.{% if target_count > shown_count %} 시급도 순 상위 {{ shown_count }}대.{% endif %}</p>
+<p class="text-sm text-label" style="margin:0 0 12px;">과다 할당·유휴·종료 권장 {{ target_count }}대 — 총 {{ target_vcpus }} vCPU · {{ "%.1f" | format(target_memory_gb) }} GB 점유.{% if target_count > shown_count %} 정리 우선순위 순 상위 {{ shown_count }}대.{% endif %}</p>
 <div class="table-scroll" style="margin-bottom:20px;">
 <table style="width:100%;">
   <thead>

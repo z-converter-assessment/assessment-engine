@@ -20,7 +20,8 @@
             stroke-dasharray="{{ "%.2f"|format(u.dash_length) }} 263.89"
             stroke-linecap="round"
             transform="rotate(-90 50 50)"/>
-    <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ "%.0f"|format(u.pct) }}%</text>
+    <text x="50" y="50" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ "%.1f"|format(u.pct) }}</text>
+    <text x="50" y="66" text-anchor="middle" font-size="10" fill="#94a3b8">%</text>
     {% else %}
     <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
     {% endif %}

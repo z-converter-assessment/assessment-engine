@@ -67,7 +67,8 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 - 시계열 5개 테이블 자연키 UNIQUE 보존 의무 — 누락 시 #D2 멱등성 2단 방어 깨짐. 모델 변경 시 검증 필수.
 - 시계열 4개 테이블 `boot_time` + `agent_started_at` 컬럼 보존 의무 — counter reset 정밀 식별 (#B 동일 진실).
 - `server_inventory.public_id` (UUID) URL 식별자 — 정수 PK 노출 금지 (#E4).
-- `server_inventory` 식별 분리 (ADR 0022 -> 0027 정정, agent v4): `id bigint PK` (FK 대상) / `composite_id varchar(64) UNIQUE` (agent 매칭·식별 단일 키 — SHA-256 composite hash) / `machine_id varchar(64)` (raw machine-id 표시 전용, nullable — 식별·라우팅 미사용) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{composite_id}` / routing key `task.install.{composite_id}`.
+- `server_inventory` 식별 분리 (ADR 0022 -> 0027 정정, agent v4): `id bigint PK` (FK 대상) / `composite_id varchar(64) UNIQUE` (agent 매칭·식별 단일 키 — SHA-256 composite hash) / `machine_id varchar(64)` (raw machine-id 표시 전용, nullable — 평시 식별·라우팅 미사용) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{composite_id}` / routing key `task.install.{composite_id}`.
+- composite_id 재연결 (ADR 0044): inventory upsert 시 composite_id 미등록이면 `_relink_rebooted_host`(machine_id + hostname 일치, 후보 정확히 1개)가 기존 행 composite_id 를 re-point — 부팅마다 NIC MAC 재발급(OpenStack Windows VM)으로 composite_id 가 바뀌는 같은 VM 의 중복 행 흡수(server_id·시계열·history 보존). machine_id 는 평시 식별 미사용이나 본 fallback 한정 키. 후보 0/2+ (모호한 clone)면 미연결(오병합 방지). MAC 은 부팅마다 변동이라 매칭 미사용.
 - `diagnostic_jobs.job_type` (`customer_report`/`engineer_report` 둘만) + active partial UNIQUE = `(scope, input_hash, job_type)`. 발행 시점 정적 스냅샷을 `result` JSONB 에 보존. customer/engineer 모두 비동기 생성 (pending -> 워커 claim·running -> succeeded/failed, ADR 0040). status·progress_stage·started_at·error_message + active partial UNIQUE 가 비동기 상태머신.
 - 보고서 발행 = 정적 스냅샷 (요구: 발행 시점 데이터 그대로 보관, 이력 동적변화 0). POST `/reports/environment/emit` · `/reports/servers/emit` 가 `enqueue_report` 로 parent job 을 pending enqueue 후 즉시 `?job={id}` 반환(생성 안 함, 더블클릭은 active UNIQUE 로 기존 job 합류). web lifespan 의 job-claim 워커(`report_worker.py`)가 `claim_pending`(FOR UPDATE SKIP LOCKED) -> `report_generator.build_report_result_for_job`(발행 시점 ViewModel 생성·`report_serializer` 직렬화) -> `result` JSONB(`{kind,snapshot,view,aux}`) 저장 + succeeded (생성 불가 시 failed, ADR 0040). 응답 view_url=`?job={id}` — JS navigate. GET `?job={id}` 는 succeeded 면 저장된 스냅샷 정적 렌더(재계산 0), pending/running 이면 진행 화면 + `report-poll.js` 폴링(`GET /reports/{job}/status`) -> 완료 시 reload, failed 면 안내(`reports/report_pending.html`). 환경 보고서(`/reports/environment`)는 job 없는 GET 이 컨트롤만(양식·윈도우·앵커 select + 발행 버튼) 노출. server scope(`/reports/servers`)는 job 없는 GET 이 read-only live preview (진단 트리거 없음). result 구조 단일 진실 = `diagnostic.report_result`.
 - 양식 통일: server scope 단일/N대 모두 환경 보고서 양식 (`EnvironmentReportSummary`, kind=env_report) 공유. N대 selection (`servers/report.html`) = 환경 보고서 본문 공유 partial (`reports/_env_report_body.html`, environment.html 과 단일 진실) + 하단 세부 서버 목록 표 (`show_report_link` selection 한정 — 환경 보고서는 세부 서버 목록 미표시, 500대 인쇄 폭주 회피, 조치 대상은 효율화/리소스 부족 표가 담당). 단일 1대 (`servers/single_report.html`) 는 customer high-level / engineer 심화 (1대 deep-dive — N대 비교 표엔 없는 CPU 분류·메모리 구성·마운트별 스토리지 전개; 단일 전용 필드 `server_inventory`·`volumes`·`memory_breakdown`·`cpu_breakdown` 는 selection·환경에서 None/빈 list, repo `report_cpu_breakdown`·`report_memory_breakdown`·`report_mount_usage` per server_id). 환경 (`reports/environment.html`) 은 high-level. selection ViewModel = `query_service.get_selection_report(server_ids)` (단일은 N=1 동치, 평균 활용률은 `environment_utilization` 을 server_ids 로 N대 한정 호출 — 전체 환경과 동일 capacity-weighted SQL, attention 은 N대 호스트 필터). `report_summary` 단독 표 양식·kind 폐기. `/reports/servers/emit` 은 ids 1개면 단일, 2개+ 면 selection.
@@ -95,11 +96,13 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 
 본 절 결정:
 - 시계열 신규 테이블 추가 시 마이그레이션에 `op.execute("SELECT create_hypertable(...)")` 보강 + 자연키 UNIQUE(#C1) + `boot_time`/`agent_started_at` 컬럼(#B) 동시 검토.
+- continuous aggregate(ADR 0043): 마이그레이션은 `CREATE MATERIALIZED VIEW ... WITH (timescaledb.continuous, timescaledb.materialized_only=false) ... WITH NO DATA` + `add_continuous_aggregate_policy`(둘 다 트랜잭션 내 OK, TimescaleDB 2.27). 초기 materialize(`refresh_continuous_aggregate`)는 트랜잭션 밖 전용이라 마이그레이션 외 1회(real-time aggregation 이라 refresh 전에도 값 정확). cagg 정의에 박힌 필터(물리 device 등)는 types 필터 스냅샷 — 규약 변경 시 cagg 재생성 마이그레이션 동반.
 
 ## C5. 쿼리 안전성
 
 본 절 결정:
-- hypertable 조회는 `WHERE collected_at >= ?` 술어 의무 — partition pruning. 누락 시 모든 chunk full scan. `_chart_*` 헬퍼·repo 메서드 모두 적용.
+- hypertable 조회는 `WHERE collected_at >= ?` 술어 의무 — partition pruning. 누락 시 모든 chunk full scan. `_chart_*` 헬퍼·repo 메서드 모두 적용. continuous aggregate 조회는 `WHERE bucket >= ?`(동일 pruning).
+- 카운터 메트릭(CPU jiffies·disk/net bytes) 집계는 continuous aggregate + timescaledb_toolkit `counter_agg` 사전집계 단일 진실(ADR 0043). counter reset(재부팅·agent재시작·wraparound)은 `counter_agg` 가 값-감소 기준 일률 처리 — 보고서 집계(`report_aggregate`·`report_*_baseline`·`report_cpu_breakdown`)에서 hand-rolled LAG + boot_time gate 부활 금지. 차트(`metric_trend`, 동적 버킷)는 목적상 raw 유지.
 - raw SQL의 사용자 입력은 `text()` + bound parameter만. f-string으로 사용자 입력 직접 삽입 금지 — SQL injection + asyncpg statement cache 키 폭증. dispatch table whitelist 상수(Pydantic Literal → enum 매핑 정적 상수)는 f-string 허용.
 - 트랜잭션 경계: consumer는 1 메시지 = 1 트랜잭션 (`session_factory()` 컨텍스트), web은 1 request = 1 세션 (`Depends(get_session)`). autocommit 금지·세션 공유·중첩 금지.
 
@@ -197,12 +200,12 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 
 ## E7. 도메인 분류 책임 (P2)
 
-서비스 카테고리 분류(`classify`)·포트 매핑(`matched_ports`)은 `service_classifier.py`에서. 매퍼가 호출해 `ServiceItem`에 채움. 템플릿은 `service_badge_class` 필터로 category → CSS 클래스 변환만(P3).
+서비스 카테고리 분류(`classify`)·포트 매핑(`matched_ports`)·카테고리 집합 사전계산(`compute_service_categories`)은 도메인 모듈 `assessment_engine/service_classifier.py`(web·consumer 공용 — `recommendation.py` 동급 도메인, web 역의존 0). `MatchedPort` 도 본 모듈 정의(web view_model 이 re-export). ingest(consumer)가 inventory upsert 시 `compute_service_categories` 로 카테고리 집합을 산출해 `server_inventory.service_categories`(text[]) 에 저장하고, 모든 read 경로(목록·상세·리포트·필터)가 저장값 소비. 매퍼가 호출해 `ServiceItem`에 채움. 템플릿은 `service_badge_class` 필터로 category → CSS 클래스 변환만(P3).
 
 본 절 결정 (ADR 0032):
 - 카테고리 규약 단일 진실 = `SERVICE_CATALOG`(`CategoryDef`). 분류 키워드·포트·드롭다운(`SERVICE_CATEGORIES`)·뱃지 CSS(`BADGE_CLASS_BY_CATEGORY`)·템플릿 범례가 모두 본 카탈로그 파생 — 서비스 추가는 카탈로그 1곳만 수정. 분산 정의(옛 `_PATTERNS`/`SERVICE_PORTS`/`_BADGE_CLASSES`) 부활 금지.
 - `classify(unit, listen_ports=None)` 다중 신호 우선순위 = name -> comm -> port (정밀도 순). comm/port 는 `_attributed_ports`(comm~name 또는 name well-known 포트) 귀속 포트에만 적용 — per-unit(services 탭) multi-service 오분류 방지.
-- 호스트 워크로드(뱃지·role·환경분포)는 per-unit `classify` 가 아니라 `workload_category_counter`(services 이름 분류 ∪ `detect_listen_categories` listen 소켓 직접 분류) 경유. agent 가 services<->listen_ports join key(pid) 미발행이라(T15), opaque 한 Windows SCM 이름을 listen 소켓 comm/port 로 구제하는 단일 보완 경로. detail 뱃지·환경요약·`infer_role`(export)에 적용, 목록 행·보고서는 listen_ports 미보유라 name 만(의도적 비대칭).
+- 호스트 워크로드 카테고리 집합 = ingest 사전계산 `service_categories`(`compute_service_categories`: services 이름 분류 ∪ `detect_listen_categories` listen 소켓 직접 분류, "unknown" 제외). agent 가 services<->listen_ports join key(pid) 미발행이라(T15), opaque 한 Windows SCM 이름을 listen 소켓 comm/port 로 구제하는 단일 보완 경로. 모든 read 경로가 본 저장값을 소비 — 목록·상세·리포트·필터가 이름·comm·포트 어느 신호로 식별되든 동일 카테고리 집합(화면별 재계산·불일치 0, 목록은 services JSONB 재로드·행별 재분류 없이 경량). 카운트가 필요한 경로(환경분포·`infer_role` export·attention)는 `workload_category_counter`(동일 분류 로직, 키셋은 `service_categories` 와 일치 + 인스턴스 카운트).
 - 런타임 스택 카테고리(`CategoryDef.single_instance`, 현재 container)는 호스트당 1로 카운트 — docker+containerd 등이 떠도 "container 2" 금지(`SINGLE_INSTANCE_CATEGORIES`, 카운터·목록 뱃지·detail 뱃지 일관). 일반 카테고리는 인스턴스 카운트.
 - detail 뱃지 포트는 카테고리 단위 집계 — comm 귀속 실패 워크로드 포트(W3SVC<->System 80 등)도 카테고리 뱃지에 붙임. 뱃지에 귀속된 포트는 "주요 Listen 포트"에서 제외.
 - 본 `classify`(서비스 카테고리)와 `recommendation.classify`(USE Method right-sizing) 혼용 금지 — 다른 함수.

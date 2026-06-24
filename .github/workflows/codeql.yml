@@ -1,8 +1,8 @@
 name: codeql
 
 # Static Application Security Testing (SAST) — GitHub CodeQL.
-# pip-audit가 dependency CVE만 검사하는 반면 본 workflow는 본 repo 코드 자체의
-# SQL injection·secret leak·XSS·hardcoded credentials 등 패턴 정적 분석.
+# 본 repo 코드 자체의 SQL injection·secret leak·XSS·hardcoded credentials 등 패턴 정적 분석.
+# 의존성 CVE 는 별도 — GitHub Dependabot alerts 로 수신 (CI gate 아님, docs/development/dependencies.md).
 #
 # 결과는 Security 탭의 "Code scanning alerts"에 보고됨.
 
