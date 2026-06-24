@@ -21,6 +21,13 @@ from assessment_engine.db.repositories.collect_repository import CollectReposito
 from assessment_engine.db.repositories.query.query_repository import QueryRepository
 from tests.factories import make_inventory, make_metrics
 
+
+def _bucket_aligned_base(minutes_ago: int = 7) -> datetime:
+    """5분 버킷 시작에 정렬된 과거 시각. server_metrics_5m 등 cagg 가 counter_agg delta 를 내려면 같은 5분
+    버킷에 표본 2+ 가 필요 — 1분 간격 표본이 버킷 경계에 갈리지 않도록 base 를 버킷 시작에 맞춘다(ADR 0043)."""
+    t = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).replace(second=0, microsecond=0)
+    return t - timedelta(minutes=t.minute % 5)
+
 pytestmark = pytest.mark.asyncio
 
 
@@ -799,7 +806,7 @@ async def test_environment_utilization_returns_averages(
 ):
     """CPU·MEM·DISK capacity-weighted 평균 정상 산출 (단일 서버라 동등가중과 동치)."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-util-01", hostname="util-host"))
-    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=2)
+    base_ts = _bucket_aligned_base()
     # T0: 누적 100 (busy 30, idle 70) → 30%, mem available 50/100, mount used 60%
     await collect_repo.record_metrics(
         sid,
@@ -870,7 +877,7 @@ async def test_environment_utilization_capacity_weighted(
     query_repo: QueryRepository,
 ):
     """capacity-weighted: 자원 총량(jiffies/KB) 큰 서버가 큰 비중 — 서버 동등가중과 다른 결과."""
-    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=2)
+    base_ts = _bucket_aligned_base()
     end = datetime.now(UTC)
     # 소형·고활용: d_total 100, d_idle 10 -> CPU 90%, MEM used 90/100
     small = await collect_repo.upsert_server(make_inventory(composite_id="q-cap-small"))
@@ -918,7 +925,7 @@ async def test_environment_utilization_server_ids_filter(
     query_repo: QueryRepository,
 ):
     """server_ids 지정 시 해당 서버만 집계 (selection 보고서 경로)."""
-    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=2)
+    base_ts = _bucket_aligned_base()
     end = datetime.now(UTC)
     a = await collect_repo.upsert_server(make_inventory(composite_id="q-sid-a"))
     b = await collect_repo.upsert_server(make_inventory(composite_id="q-sid-b"))
@@ -952,7 +959,7 @@ async def test_metric_trend_capacity_weighted(
     query_repo: QueryRepository,
 ):
     """환경 추이 차트도 capacity-weighted — 버킷 값을 큰 자원 서버가 지배 (카드와 동일 가중)."""
-    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=2)
+    base_ts = _bucket_aligned_base()
     start = base_ts - timedelta(minutes=1)
     end = datetime.now(UTC)
     small = await collect_repo.upsert_server(make_inventory(composite_id="q-trend-small"))

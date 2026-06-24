@@ -26,10 +26,12 @@
 <section class="card no-print">
   <h2 class="card-title" style="margin:0 0 12px;">운영 신호</h2>
   {% set cat = attention.catalog %}
-  <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:24px; align-items:start;">
+  {# 2칼럼 고정 그리드 — 통신 끊김 + 에이전트 재시작은 1행, OS 지원 종료는 다음 줄 좌측 1칼럼(타 칼럼과 동일 폭).
+     긴 호스트명+OS명이 좁은 폭에서 왜곡되지 않게 줄을 분리하되, 전체폭으로 늘이지 않아 칼럼 폭 통일성 유지. #}
+  <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:20px 24px; align-items:start;">
     {{ attention_row(cat[0], "5분 이상 미수신", attention.gap_warnings) }}
-    {{ attention_row(cat[1], "지원 종료", attention.os_eol_warnings) }}
     {{ attention_row(cat[2], "최근 1시간", attention.agent_unstable) }}
+    {{ attention_row(cat[1], "지원 종료", attention.os_eol_warnings) }}
   </div>
 </section>
 {% endif %}

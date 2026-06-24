@@ -7,14 +7,13 @@
  * 외부 의존: ChartUtils (base.html), Chart.js (페이지 로드). 수집 기준은 SSR(#last-metric-ts) 고정.
  */
 const { AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
-        fmtKbChart, safeArray, bindToggle, renderChipLegend,
-        buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
+        fmtKbChart, fmtThroughput, safeArray, bindToggle, renderChipLegend,
+        buildAvgMaxDatasets, buildAvgMaxLegend, buildDimDatasets } = ChartUtils;
 
 const PERF_IOPS_SUGGESTED_MAX = 200;              // HDD 랜덤 I/O 한계 기준 (환경 합산이라 자동 확장 가능)
 const PERF_NET_SUGGESTED_MAX  = 10 * 1024 * 1024; // 10 MB/s
 const PERF_DISK_KBPS_SUGGESTED_MAX = 10 * 1024;   // 10 MB/s — net 처리량과 동일 절대 기준선
-// 처리량 동적 단위 (kBps/MBps) — storage/detail/개별 성능추이와 일관.
-const fmtThroughput = (kb) => kb == null ? '—' : (kb >= 1024 ? (kb / 1024).toFixed(1) + ' MBps' : kb.toFixed(1) + ' kBps');
+// 처리량 동적 단위(kBps/MBps)는 ChartUtils.fmtThroughput 단일 진실 (storage/detail/개별 성능추이 공용).
 const PERF_PPS_SUGGESTED_MAX  = 10;
 
 const USAGE_DANGER_PCT = parseFloat(document.body.dataset.usageDangerPct) || 90;
@@ -149,19 +148,7 @@ function renderMultiDimChart(canvasId, emptyId, legendId, rows, range, anchor, m
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, anchor);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const byDim  = {};
-  for (const r of rows) { (byDim[r.dimension] = byDim[r.dimension] || []).push(r); }
-  const datasets = Object.entries(byDim).map(([dim, pts]) => {
-    const map = {};
-    for (const p of pts) { map[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value; }
-    const meta = metaMap[dim] || { label: dim, color: '#8b5cf6' };
-    return {
-      label: meta.label,
-      data: grid.map(t => map[t] ?? null),
-      borderColor: meta.color, backgroundColor: meta.color + '22',
-      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
-    };
-  });
+  const datasets = buildDimDatasets(rows, bMs, grid, metaMap);
   const chart = new Chart(canvas, { type: 'line', data: { labels, datasets }, options: makeMultiDimOptions() });
   chartInstances[canvasId] = chart;
   renderChipLegend(document.getElementById(legendId), chart);

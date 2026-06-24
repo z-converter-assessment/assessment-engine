@@ -55,10 +55,12 @@
     const anchor = anchorInput ? anchorInput.value : '';
     if (anchor) params.set('anchor_at', anchor + ':00+09:00');
     const mySeq = ++seq; // capture-before-await — 더 늦은 요청이 우선
+    // 로딩 표시 — 윈도우/앵커 변경 즉시 (재계산이 길 수 있어 진행 중임을 명시).
+    result.innerHTML = '<div class="empty-state">자원 평가를 불러오는 중…</div>';
     try {
       const res = await fetch('/environment/assessment?' + params.toString());
       if (mySeq !== seq) return; // stale 응답 무시
-      if (!res.ok) return;
+      if (!res.ok) { result.innerHTML = '<div class="empty-state">자원 평가를 불러오지 못했습니다. 다시 시도해 주세요.</div>'; return; }
       result.innerHTML = await res.text();
       underExpanded = false; // 새 결과 — 접힌 상태로 시작
       applyUnderClip();
@@ -67,7 +69,7 @@
       const badge = document.getElementById('assess-total-badge');
       if (totalEl && badge) badge.textContent = totalEl.dataset.total + '대 기준';
     } catch (e) {
-      // 네트워크 일시 오류 — 현재 화면 유지 (fail-soft).
+      if (mySeq === seq) result.innerHTML = '<div class="empty-state">자원 평가를 불러오는 중 오류가 발생했습니다.</div>';
     }
   }
 

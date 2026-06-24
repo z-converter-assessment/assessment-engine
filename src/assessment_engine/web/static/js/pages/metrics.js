@@ -8,8 +8,8 @@
  * - body data-server-id / data-cpu-cores / data-os-family (E6 외부화 규약, static-assets.md)
  */
 const { AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
-        fmtKbChart, safeArray, bindToggle, renderChipLegend,
-        buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
+        fmtKbChart, fmtThroughput, safeArray, bindToggle, renderChipLegend,
+        buildAvgMaxDatasets, buildAvgMaxLegend, buildDimDatasets } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
 const CPU_CORES = parseInt(document.body.dataset.cpuCores, 10) || null;
@@ -19,8 +19,7 @@ const PERF_IOPS_SUGGESTED_MAX = 200;              // HDD 랜덤 I/O 한계(~100�
 const PERF_NET_SUGGESTED_MAX  = 10 * 1024 * 1024; // 10 MB/s — 1 Gbps 이더넷의 약 8%
 const PERF_PPS_SUGGESTED_MAX  = 10;               // pps soft ceiling (idle 환경도 보이도록)
 const PERF_DISK_KBPS_SUGGESTED_MAX = 10 * 1024;   // 10 MB/s — net 처리량 차트와 동일 절대 기준선
-// 처리량 동적 단위 (kBps/MBps) — storage/detail 과 일관. Y축 ticks·tooltip 공용.
-const fmtThroughput = (kb) => kb == null ? '—' : (kb >= 1024 ? (kb / 1024).toFixed(1) + ' MBps' : kb.toFixed(1) + ' kBps');
+// 처리량 동적 단위(kBps/MBps)는 ChartUtils.fmtThroughput 단일 진실 (storage/detail/환경 추이 공용).
 
 // 색상 임계값 — backend mappers._USAGE_*_PCT 단일 진실, body data-attribute 로 주입 (#E1 P4).
 // 파일시스템 사용률 게이지만 임계 색 사용. 그 외 추이 차트는 단색(검정) 통일.
@@ -173,19 +172,7 @@ function renderMultiDimChart(canvasId, emptyId, legendId, rows, range, anchor, m
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, anchor);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const byDim  = {};
-  for (const r of rows) { (byDim[r.dimension] = byDim[r.dimension] || []).push(r); }
-  const datasets = Object.entries(byDim).map(([dim, pts]) => {
-    const map = {};
-    for (const p of pts) { map[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value; }
-    const meta = metaMap[dim] || { label: dim, color: '#8b5cf6' };
-    return {
-      label: meta.label,
-      data: grid.map(t => map[t] ?? null),
-      borderColor: meta.color, backgroundColor: meta.color + '22',
-      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
-    };
-  });
+  const datasets = buildDimDatasets(rows, bMs, grid, metaMap);
   const chart = new Chart(canvas, { type: 'line', data: { labels, datasets }, options: makeMultiDimOptions() });
   chartInstances[canvasId] = chart;
   renderChipLegend(document.getElementById(legendId), chart);

@@ -56,6 +56,21 @@ def test_unknown_failure_reason_silent_pass() -> None:
     assert data.failure_reason == "future_new_reason"
 
 
+def test_os_version_received() -> None:
+    """os_version 수신 — Windows worker 의 CurrentBuildNumber (성공 보정 정책 키)."""
+    payload = make_task_result_payload(
+        status="failure", failure_reason="script_failed", exit_code=2, os_version="20348"
+    )
+    data = _validate(payload)
+    assert data.os_version == "20348"
+
+
+def test_os_version_defaults_null() -> None:
+    """os_version 미발행(Linux worker) 시 null (task.result 한정 nullable)."""
+    data = _validate(make_task_result_payload(status="success", exit_code=0))
+    assert data.os_version is None
+
+
 def test_failure_reason_max_length() -> None:
     payload = make_task_result_payload(status="failure", failure_reason="x" * 33)
     with pytest.raises(ValidationError):

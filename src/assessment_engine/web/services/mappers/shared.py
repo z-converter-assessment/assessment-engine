@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Literal
 
 from assessment_engine import recommendation
+from assessment_engine.service_classifier import SERVICE_CATALOG
+from assessment_engine.web.view_models.server import ServiceBadgeRef
 
 # ─── UI 임계값 — base.html body data-attribute 동기화 (#E1 P3 · ADR 0015) ────
 # template_setup.py 가 본 상수를 import 해 Jinja2 globals 로 노출 → body data-attribute 단일 진실.
@@ -33,6 +35,28 @@ def build_confidence_notes(assessment: recommendation.Assessment) -> list[str]:
     if assessment.low_sample:
         notes.append("표본 부족")
     return notes
+
+
+def build_service_badge_reference() -> list[ServiceBadgeRef]:
+    """참고자료 — 서비스 뱃지 카탈로그 표시 행 (SERVICE_CATALOG 파생, P2). 카탈로그 1곳 수정이 본 표에 자동 반영(F12).
+
+    services_label = port_names 를 "서비스명(포트/포트)" 인라인으로 (예 "nginx(80/443)"). 포트 없는 카테고리(container)는 desc_ko.
+    """
+    refs: list[ServiceBadgeRef] = []
+    for d in SERVICE_CATALOG:
+        named_ports = "·".join(
+            f"{name}({'/'.join(str(p) for p in ports)})" for name, ports in d.port_names.items()
+        )
+        refs.append(
+            ServiceBadgeRef(
+                category=d.key,
+                label_ko=d.label_ko,
+                desc_ko=d.desc_ko,
+                badge_class=d.badge_class,
+                services_label=named_ports or d.desc_ko,
+            )
+        )
+    return refs
 
 # ─── USE Method 도넛 카탈로그 — 대시보드 + 환경 보고서 + 서버 리스트 단일 진실 (T13) ────
 # USE Method recommendation enum 1:1 매핑. (key, label, hex, description) 튜플 정렬:

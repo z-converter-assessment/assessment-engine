@@ -7,6 +7,7 @@
   <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     환경 성능 추이·모니터링 화면 수치의 계산 방식·표본·시간 범위 정의. 자원 적정성 평가, 통계(평균·p95·peak), 운영 신호 임계는 아래 "분류 기준"·"운영 신호 임계" 절 참조.
   </p>
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -24,6 +25,7 @@
       <tr><td>디스크 총량</td><td>물리 디스크(size) 합 — 물리 디스크 미발행 OS(Windows)는 데이터 볼륨 mount 총량 합으로 대체. 인벤토리·세부 서버 목록·보고서·Export 동일 산식.</td></tr>
     </tbody>
   </table>
+  </div>
 </section>
 
 <section class="card" style="margin-bottom:16px;">
@@ -31,6 +33,7 @@
   <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     환경 성능 추이 페이지(좌측 네비 "환경 성능 추이")의 시계열 차트 — 전 서버 집계, 구간(기본 15분)·앵커 선택. 집계 방식은 지표 성격에 따라 셋. 활용률(%) 지표는 capacity-weighted(자원 총량 가중 Σnum/Σden, 큰 서버 비중 큼), 처리량(I/O·PPS) 지표는 합산(SUM — 절대 총량이라 가중 평균 무의미), 로드는 코어 정규화(Σload/Σcpu_cores). 아래 "집계" 컬럼이 그래프별 방식.
   </p>
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -53,6 +56,7 @@
       <tr><td>네트워크 PPS</td><td>합산(SUM)</td><td>물리 인터페이스 패킷 처리량 합산(RX/TX).</td></tr>
     </tbody>
   </table>
+  </div>
   <p class="text-md text-label" style="margin:10px 0 0; line-height:1.6;">
     보고서(환경·서버 단일)의 "환경 부하 추이" 차트는 위 CPU·메모리 사용률과 동일 capacity-weighted 산식 — 보고서 발행 윈도우(기본 7일) 시계열. 수집 이력이 있는 범위만 동적 x축(빈 구간 제외)이라 서버 상세 차트(윈도우 전체를 빈 구간 포함 표기)와 x축 범위가 다를 수 있음.
   </p>
@@ -63,6 +67,7 @@
   <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     좌측 네비 "모니터링" 그룹 페이지별 표시 지표. 자원 적정성 평가 분류 임계·운영 신호 임계 상세는 아래 "분류 기준"·"운영 신호 임계" 절.
   </p>
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -86,4 +91,5 @@
       <tr><td>네트워크 토폴로지</td><td>토폴로지 그래프</td><td>L3 subnet 공동 소속 추론 그래프(노드=subnet/host). 인벤토리 IP 기반 추론이며 실측 도달성(reachability)은 아님 — 방화벽·VLAN 격리 미반영. docker·libvirt 등 호스트 내부 가상 네트워크와 IPv6는 제외. 사설 IP 대역이 서로 다른 네트워크에서 중복되면 한 서브넷으로 합쳐 보일 수 있음.</td></tr>
     </tbody>
   </table>
+  </div>
 </section>

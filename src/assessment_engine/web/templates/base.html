@@ -20,6 +20,10 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; color: #1a1a1a; background: #e9edf4; display: flex; align-items: stretch; min-height: 100vh; }
 
+    /* 전역 네비게이션 진행바 — full-page 이동(링크 클릭·폼 전송) 즉시 피드백. nav-progress.js 제어, 새 문서 로드 시 자연 소멸. */
+    .nav-progress { position: fixed; top: 0; left: 0; height: 6px; width: 0; background: var(--color-title); z-index: 9999; opacity: 0; pointer-events: none; transition: width .2s ease, opacity .3s ease; box-shadow: 0 0 8px color-mix(in srgb, var(--color-title) 70%, transparent); }
+    .nav-progress.is-active { opacity: 1; }
+
     /* 사이드바 네비게이션 — _sidebar.html 마크업 + nav_groups 글로벌. 그룹·항목 동일 크기 13px. */
     .sidebar { width: var(--sidebar-width); flex-shrink: 0; background: var(--sidebar-bg); display: flex; flex-direction: column; }
     .sidebar-brand-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 14px 14px 18px; background: var(--color-title); }
@@ -77,6 +81,15 @@
     /* 식별자 (hostname / UUID / IP / path) — 정렬·식별 affordance 위 monospace. base a 스타일 그대로 상속. */
     code, .identifier { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
     table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+    /* 가로 스크롤 컨테이너 — 넘칠 때 가로 스크롤바를 idle 에도 항상 노출(테마 accent 파랑 thumb).
+       주의: 표준 scrollbar-width/scrollbar-color 를 지정하면 Chrome 121+ 가 그 표준을 우선해
+       ::-webkit-scrollbar 커스텀을 통째로 무시하고 macOS 에선 overlay(idle 숨김)로 렌더된다.
+       그래서 표준 속성은 쓰지 않고 ::-webkit-scrollbar 만 사용 — -webkit-appearance:none 으로 항상 표시. */
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table-scroll::-webkit-scrollbar { height: 10px; -webkit-appearance: none; }
+    .table-scroll::-webkit-scrollbar-track { background: #e2e8f0; border-radius: 99px; }
+    .table-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-title) 60%, white); border-radius: 99px; border: 1px solid #e2e8f0; min-width: 48px; }
+    .table-scroll::-webkit-scrollbar-thumb:hover { background: var(--color-title); }
     /* 테이블 제목행 — 테마 파란색 배경 + 흰 글씨 (전 테이블 단일 진실). */
     thead { background: color-mix(in srgb, var(--color-title) 60%, white); }
     th { padding: 9px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #fff; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid var(--color-table-head); }
@@ -200,16 +213,13 @@
     /* task-detail-grid — task-modal 의 라벨/값 grid (key-value). */
     .task-detail-grid > .label { color: #64748b; font-size: 13px; }
 
-    /* Progress bars */
-    .progress-bar { height: 6px; background: #e2e8f0; border-radius: 99px; overflow: hidden; position: relative; }
-    .progress-fill { height: 100%; border-radius: 99px; transition: width .3s ease; }
-
     /* Stat mini cards — 실시간 메트릭 dashboard 용 (작은 그리드, soft bg). */
     .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; margin-bottom: 12px; }
     .stat-box { background: #f8fafc; border-radius: 6px; padding: 10px 12px; }
     .stat-label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
     .stat-value { font-size: 20px; font-weight: 700; color: #0f172a; }
-    .stat-unit { font-size: 12px; font-weight: 400; color: #64748b; margin-left: 2px; }
+    /* 카드 값 옆 단위 — 값보다 작은 폰트(em 상대)·옅은 색. 도넛/카드/보고서 단위 표기 단일 클래스. */
+    .stat-unit { font-size: 0.66em; font-weight: 500; color: #94a3b8; margin-left: 2px; }
     .stat-grid-sm { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; }
     .stat-grid-sm .stat-box { padding: 6px 10px; }
     .stat-grid-sm .stat-value { font-size: 15px; }
@@ -247,6 +257,7 @@
 
     /* Empty state — 발화 가능하나 현재 데이터 없는 슬롯 (discoverability: 제목은 유지, 내용 없음을 명시). 박스 없이 회색 텍스트만. */
     .empty-state { font-size: 13px; color: #94a3b8; margin: 0; }
+
 
     /* Chart toggle 버튼 — cpu/memory/network/storage/performance 공통 (range/anchor/agg toggle). */
     .toggle-group { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -331,8 +342,9 @@
     select.list-filter { appearance: none; -webkit-appearance: none; padding-right: 24px; cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%2364748b' stroke-width='1.5' d='M1 1l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
     .list-filter:focus { border-color: var(--color-title); }
     .list-filter.active { border-color: var(--color-title); color: var(--color-title); font-weight: 600; }
-    #filter-form .clear-btn { height: 28px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 4px 10px; background: #f1f5f9; color: #64748b; border: none; border-radius: 6px; font-size: 11px; cursor: pointer; text-decoration: none; }
-    #filter-form .clear-btn:hover { background: #e2e8f0; }
+    /* 초기화 = 파란 버튼 계열 (.btn-select 톤 통일). */
+    #filter-form .clear-btn { height: 28px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 4px 10px; background: var(--color-title); color: #fff; border: 1px solid var(--color-title); border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; text-decoration: none; }
+    #filter-form .clear-btn:hover { background: color-mix(in srgb, var(--color-title) 88%, black); }
 
     /* 차트 카드(CPU/메모리/스토리지/네트워크) 내부 행 구분 — 서브섹션 구분선 표준(.card-section)과 동일 #e2e8f0. */
     .perf-row + .perf-row { margin-top: 24px; }
@@ -372,12 +384,12 @@
       /* 내용행 zebra — 화면과 동일하게 인쇄도 옅은 바탕 강제(배경 빠짐 방지). */
       tbody tr:nth-child(even) td { background: #fafbfc !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
       /* overflow 스크롤 컨테이너 — 인쇄는 스크롤 불가라 visible 로 전체 노출(테이블 잘림 방지). */
-      div[style*="overflow"] { overflow: visible !important; }
+      div[style*="overflow"], .table-scroll { overflow: visible !important; }
       /* 개별 보고서 2열 카드(자원 적정성+OS EOL 등) — 웹과 동일하게 2열 유지. 안쪽 section 은 card 테두리 제거(각자 영역으로 분리돼 보이는 것 방지). */
       .report-row-2 > section { border: none !important; }
       a { color: #1a1a1a !important; text-decoration: none !important; }
       .action-col { display: none !important; }
-      .progress-fill, .progress-bar, .badge, .bar-fill, .bar-track, .legend-dot, .legend-line { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .badge, .bar-fill, .bar-track, .legend-dot, .legend-line { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
       /* 차트 범례 색 점·선은 인쇄에서 배경색이 빠져 식별 불가 — exact 강제. 칩 테두리/회색 토글 OFF 도 같이 유지. */
       .legend-chip { border-color: #cbd5e1 !important; }
       /* 막대 트랙은 인쇄 시 옅은 배경이 거의 흰색으로 빠져 영역 구분이 약해짐 — 테두리로 막대 길이 가시성 확보. */
@@ -420,8 +432,10 @@
   <script src="/static/js/toast-utils.js?v={{ asset_v }}"></script>
   <script src="/static/js/task-modal.js?v={{ asset_v }}" defer></script>
   <script src="/static/js/sidebar.js?v={{ asset_v }}" defer></script>
+  <script src="/static/js/nav-progress.js?v={{ asset_v }}" defer></script>
 </head>
 <body data-usage-danger-pct="{{ ui_thresholds.usage_danger_pct }}" data-usage-warn-pct="{{ ui_thresholds.usage_warn_pct }}" data-swap-danger-pct="{{ ui_thresholds.swap_danger_pct }}"{% block body_attrs %}{% endblock %}>
+  <div id="nav-progress" class="nav-progress no-print" aria-hidden="true"></div>
   <button type="button" class="sidebar-toggle-btn no-print" id="sidebar-toggle" aria-label="메뉴 열기" aria-controls="sidebar" aria-expanded="false">
     <span style="display:block; width:18px; height:2px; background:#374151; box-shadow:0 5px 0 #374151, 0 -5px 0 #374151;"></span>
   </button>

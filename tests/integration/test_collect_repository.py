@@ -52,17 +52,6 @@ async def test_upsert_server_stores_machine_id(
     assert machine_id == "raw-machine-xyz"
 
 
-async def test_upsert_server_idempotent_on_same_machine_hostname(
-    collect_repo: CollectRepository,
-):
-    """같은 (composite_id, hostname) 재호출 시 같은 server_id (ON CONFLICT DO UPDATE + RETURNING)."""
-    inv1 = make_inventory(composite_id="mid-002", hostname="h1")
-    inv2 = make_inventory(composite_id="mid-002", hostname="h1", cpu_cores=8)
-    sid1 = await collect_repo.upsert_server(inv1)
-    sid2 = await collect_repo.upsert_server(inv2)
-    assert sid1 == sid2
-
-
 async def test_upsert_server_overwrites_fields_on_conflict(
     collect_repo: CollectRepository,
     db_session,
@@ -136,6 +125,48 @@ async def test_find_server_id_distinct_composite_ids_isolated(
     assert await collect_repo.find_server_id("mid-iso-a") == sid_a
     assert await collect_repo.find_server_id("mid-iso-b") == sid_b
     assert sid_a != sid_b
+
+
+# ─── _relink_rebooted_host (재부팅으로 composite_id 변동 → 동일 호스트 재연결) ──────────
+
+
+async def test_upsert_server_relinks_rebooted_host(
+    collect_repo: CollectRepository,
+    db_session,
+):
+    """machine_id+hostname 동일 + composite_id 미등록 = 재부팅으로 composite_id 가 바뀐 동일 VM.
+
+    새 행 생성 대신 기존 행의 composite_id 를 새 값으로 re-point — server_id(식별·시계열 FK·history) 보존.
+    """
+    sid_a = await collect_repo.upsert_server(
+        make_inventory(composite_id="reboot-A", machine_id="mid-reboot", hostname="hostR")
+    )
+    sid_b = await collect_repo.upsert_server(
+        make_inventory(composite_id="reboot-B", machine_id="mid-reboot", hostname="hostR")
+    )
+    assert sid_b == sid_a  # 같은 행 재연결 (새 server_id 발급 안 함)
+
+    rows = (
+        await db_session.execute(
+            text("SELECT composite_id FROM server_inventory WHERE machine_id = 'mid-reboot'")
+        )
+    ).all()
+    assert len(rows) == 1  # 행 1개 (중복 0)
+    assert rows[0].composite_id == "reboot-B"  # 최신 composite_id 로 갱신
+    assert await collect_repo.find_server_id("reboot-B") == sid_a
+
+
+async def test_upsert_server_no_relink_when_machine_id_differs(
+    collect_repo: CollectRepository,
+):
+    """hostname 같아도 machine_id 다르면 재연결 안 함 — 서로 다른 VM(클론 등) 오병합 방지."""
+    sid_a = await collect_repo.upsert_server(
+        make_inventory(composite_id="clone-A", machine_id="mid-clone-1", hostname="same-host")
+    )
+    sid_b = await collect_repo.upsert_server(
+        make_inventory(composite_id="clone-B", machine_id="mid-clone-2", hostname="same-host")
+    )
+    assert sid_b != sid_a  # 별개 행
 
 
 # ─── ensure_server_id (D — facade with auto_registered flag) ──────────────

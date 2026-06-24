@@ -39,6 +39,20 @@ def _window_label(rec: DiagnosticJobRecord, period_days: float) -> str:
     return f"{period_days}일"
 
 
+def _environment_server_count(rec: DiagnosticJobRecord) -> int | None:
+    """environment scope 등록 서버 수 — 발행 스냅샷 base.total.
+
+    environment 보고서는 input_params.server_public_ids 가 비어 있다(전체 대상이라 선택 list 부재)
+    — len() 으로는 항상 0 이라 "환경 전체 (0대)" 오해를 부른다. 발행 시점 스냅샷의
+    등록 서버 총수(base.total)를 대신 표시. 스냅샷 부재(pending/running/failed)면 None —
+    표시 단계에서 수량을 생략한다("환경 전체").
+    """
+    snapshot = (rec.result or {}).get("snapshot") or {}
+    base = snapshot.get("base") or {}
+    total = base.get("total")
+    return total if isinstance(total, int) else None
+
+
 def _result_link(rec: DiagnosticJobRecord, back: str = "") -> str:
     """재조회 link — 발행된 정적 스냅샷 `?job={id}` 로. scope/서버 수에 따라 라우터만 분기.
 
@@ -60,12 +74,18 @@ def to_report_history_item(rec: DiagnosticJobRecord, back: str = "") -> dict[str
     server_public_ids = rec.input_params.get("server_public_ids") or []
     period_days = float(rec.input_params.get("period_days", 14))
     view = _view_from_job_type(rec.job_type)
+    # environment scope 는 선택 list 부재라 등록 서버 총수(스냅샷 base.total)로 산출,
+    # server scope 는 선택 개수. (#E9 "환경 전체 (N대)" 모호성 제거)
+    if rec.scope == "environment":
+        server_count = _environment_server_count(rec)
+    else:
+        server_count = len(server_public_ids)
     return {
         "job_id": rec.id,
         "scope": rec.scope,
         "view": view,
         "view_label": _VIEW_LABEL.get(view, view),
-        "server_count": len(server_public_ids),
+        "server_count": server_count,
         "window_label": _window_label(rec, period_days),
         "created_at": rec.created_at,
         "result_link": _result_link(rec, back),

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% from "_shared.html" import empty_state %}
+{% block title %}보고서 생성 중{% endblock %}
+{% block content %}
+<section class="report-pending" data-job-id="{{ job_id }}" data-status="{{ status }}">
+  {% if status == "failed" %}
+  {{ empty_state("보고서 생성에 실패했습니다. 다시 발행해 주세요.") }}
+  {% if error %}<p class="report-error-detail">{{ error }}</p>{% endif %}
+  {% else %}
+  {{ empty_state("보고서를 생성하고 있습니다. 완료되면 자동으로 표시됩니다…") }}
+  {% endif %}
+  <p><a href="{{ back_url }}">← 돌아가기</a></p>
+</section>
+<script src="/static/js/pages/report-poll.js?v={{ asset_v }}" defer></script>
+{% endblock %}

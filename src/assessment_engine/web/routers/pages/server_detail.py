@@ -11,9 +11,9 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from assessment_engine.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.deps import get_service, resolve_internal_id
 from assessment_engine.web.services.query_service import QueryService
-from assessment_engine.web.services.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.settings import web_settings
 from assessment_engine.web.templating import templates
 

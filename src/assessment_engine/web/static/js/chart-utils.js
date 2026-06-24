@@ -85,6 +85,37 @@
     return grid.map(t => map[t] ?? null);
   }
 
+  // ── 다중 dimension avg-only 라인 dataset 빌드 ──
+  // cpu 분류/로드·메모리 구성·종합 추이가 공유. rows: [{collected_at, value, dimension}].
+  // metaMap: { dim: {label, color} } — 미정의 dim 은 dim 이름·기본색(#8b5cf6).
+  // opts.valueFn: per-point 값 변환(load 코어당 정규화 등, 기본 항등). opts.pointRadius: 0(추이)·1(분류).
+  function buildDimDatasets(rows, bMs, grid, metaMap = {}, opts = {}) {
+    const valueFn = opts.valueFn || (v => v);
+    const pointRadius = opts.pointRadius ?? 0;
+    const byDim = {};
+    for (const r of rows) { (byDim[r.dimension] = byDim[r.dimension] || []).push(r); }
+    return Object.entries(byDim).map(([dim, pts]) => {
+      const map = {};
+      for (const p of pts) { map[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = valueFn(p.value); }
+      const meta  = metaMap[dim] || { label: dim, color: '#8b5cf6' };
+      const color = meta.color || '#8b5cf6';
+      return {
+        label: meta.label || dim,
+        data: grid.map(t => map[t] ?? null),
+        borderColor: color, backgroundColor: color + '22',
+        borderWidth: 2, pointRadius, pointHoverRadius: 3,
+        tension: 0.3, fill: false, spanGaps: false,
+      };
+    });
+  }
+
+  // ── 처리량 동적 단위 포매터 (kBps → MBps) ──
+  // 종합·환경 성능 추이(metrics·environment-metrics) Y축 단위 포매터 (B/s 기준 fmtKbChart 와 구분 — 이쪽은 kB 입력).
+  function fmtThroughput(kb) {
+    if (kb == null) return '—';
+    return kb >= 1024 ? (kb / 1024).toFixed(1) + ' MBps' : kb.toFixed(1) + ' kBps';
+  }
+
   // ── 토글 그룹 바인딩 ──
   // groupId 가 <select> 면 change 로, .toggle 버튼 그룹이면 click 으로 자동 분기.
   // 호출처는 (groupId, onChange(val)) 동일 — HTML 만 select/button 선택.
@@ -105,10 +136,17 @@
   }
 
   // ── 30초 polling 자동 갱신 (detail 실시간 메트릭과 일관) ──
+  // 탭 비활성(document.hidden) 시 tick skip — 다중 탭에서 누적 폴링 요청 차단(서버 부하 감소).
+  // 숨겨졌다 다시 보이면 즉시 1회 refresh 해 멈춰있던 화면 보정 (loader 의 seq 가드가 중복 응답 흡수).
   // 폴링은 연결 상태 개념이 없어 상태 DOM 갱신 없음. stamp 는 호출처 loader 가 갱신.
   function initAutoRefresh(onRefresh, intervalMs = 30_000) {
-    const id = setInterval(onRefresh, intervalMs);
-    window.addEventListener('pagehide', () => clearInterval(id));  // 좀비 타이머 방지
+    const id = setInterval(() => { if (!document.hidden) onRefresh(); }, intervalMs);
+    const onVisible = () => { if (!document.hidden) onRefresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('pagehide', () => {                    // 좀비 타이머 방지
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    });
     return id;
   }
 
@@ -224,7 +262,7 @@
     RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, RANGE_MS, BUCKET_MS, COLORS, themeColor,
     fmtKst, fmtLabel, fmtKbChart,
     getAnchorEnd, initAnchor,
-    makeBucketGrid, joinToGrid,
+    makeBucketGrid, joinToGrid, buildDimDatasets, fmtThroughput,
     bindToggle, initAutoRefresh, safeArray, naWindows,
     buildAvgMaxDatasets, buildAvgMaxLegend,
     renderChipLegend,

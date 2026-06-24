@@ -49,16 +49,13 @@ def get_task_service(
     )
 
 
-def get_diagnostic_service(
-    db: AsyncSession = Depends(get_db),
-) -> DiagnosticService:
-    """DiagnosticService DI — 보고서 발행·이력.
+def get_diagnostic_service() -> DiagnosticService:
+    """DiagnosticService DI — 보고서 발행(enqueue)·이력·워커 lifecycle.
 
-    query_repo는 request-scoped(get_db). diagnostic_repo는 별도 session(session_factory)로
-    enqueue/조회 트랜잭션 분리 — task_service 동일 패턴.
+    diagnostic_repo 는 모두 별도 session(session_factory)로 트랜잭션 분리 — 보고서 생성은 워커가
+    독립 세션으로 수행하므로 request-scoped 세션 의존 없음(워커가 DI 없이도 동일 인스턴스 구성 가능).
     """
     return DiagnosticService(
-        query_repo=QueryRepository(db),
         session_factory=AsyncSessionLocal,
         diagnostic_repo_factory=DiagnosticRepository,
     )

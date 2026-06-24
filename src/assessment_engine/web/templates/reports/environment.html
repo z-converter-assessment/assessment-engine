@@ -45,7 +45,7 @@
 
 {% if view == "engineer" %}
 {# chart-utils.js 는 base.html head 동기 로드. 토폴로지는 정적 표라 cytoscape 스크립트 불요. #}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
+<script src="/static/js/vendor/chart.umd.min.js?v={{ asset_v }}" defer></script>
 <script src="/static/js/pages/environment-trend.js?v={{ asset_v }}" defer></script>
 {% endif %}
 {% else %}

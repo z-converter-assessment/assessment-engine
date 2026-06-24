@@ -1,7 +1,8 @@
-"""diagnostic_service — input_hash·anchor 순수 함수 + emit_report 핵심 시나리오 (ADR 0004).
+"""diagnostic_service — input_hash·anchor 순수 함수 + emit_report(동기 child) + 비동기 발행 lifecycle.
 
-보고서 발행(emit_report)은 발행 시점 정적 스냅샷 저장 후 즉시 succeeded — customer/engineer 동일
-(별도 비동기·publish 없음, #C1). 본 테스트는 emit_report + 발행 helper(_compute_hash/_normalize_anchor)만 다룬다.
+emit_report 는 완성 스냅샷을 즉시 succeeded 로 저장(워커의 child 단일 보고서 경로). parent 발행은
+enqueue_report(pending) -> 워커 claim_pending/finish/recover. 본 테스트는 발행 helper
+(_compute_hash/_normalize_anchor) + emit_report + enqueue/lifecycle 위임을 다룬다.
 """
 
 import hashlib
@@ -111,7 +112,6 @@ def stub_diag_repo():
 
 def _service(session_factory, diag_repo):
     return DiagnosticService(
-        query_repo=AsyncMock(),
         session_factory=session_factory,
         diagnostic_repo_factory=lambda s: diag_repo,
     )
@@ -212,6 +212,104 @@ async def test_emit_report_active_conflict_returns_existing(stub_session_factory
     session.rollback.assert_awaited_once()
     stub_diag_repo.mark_succeeded.assert_not_called()
     session.commit.assert_not_called()
+
+
+# ─── enqueue_report (비동기 parent pending) + 워커 lifecycle ──────────────
+
+
+@pytest.mark.asyncio
+async def test_enqueue_report_pending_no_mark_succeeded(stub_session_factory, stub_diag_repo):
+    """비동기 발행 — parent 를 pending 으로 enqueue + commit, mark_succeeded 안 함(워커가 생성)."""
+    stub_diag_repo.enqueue = AsyncMock(return_value="parent-1")
+    stub_diag_repo.mark_succeeded = AsyncMock()
+    session = stub_session_factory.return_value
+    service = _service(stub_session_factory, stub_diag_repo)
+
+    job_id = await service.enqueue_report(
+        view="engineer",
+        scope="server",
+        server_public_ids=["b", "a"],
+        time_range="7d",
+        anchor_at=_FIXED_ANCHOR,
+    )
+    assert job_id == "parent-1"
+    stub_diag_repo.mark_succeeded.assert_not_called()
+    session.commit.assert_awaited_once()
+    create_arg = stub_diag_repo.enqueue.call_args[0][0]
+    assert create_arg.input_params["server_public_ids"] == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_enqueue_report_active_conflict_returns_existing(stub_session_factory, stub_diag_repo):
+    """더블클릭 — enqueue None → get_active_by_hash 회수 + rollback (같은 job 합류, commit 없음)."""
+    stub_diag_repo.enqueue = AsyncMock(return_value=None)
+    stub_diag_repo.get_active_by_hash = AsyncMock(return_value="active-parent")
+    session = stub_session_factory.return_value
+    service = _service(stub_session_factory, stub_diag_repo)
+
+    job_id = await service.enqueue_report(
+        view="customer",
+        scope="environment",
+        server_public_ids=[],
+        time_range="7d",
+        anchor_at=_FIXED_ANCHOR,
+    )
+    assert job_id == "active-parent"
+    session.rollback.assert_awaited_once()
+    session.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_and_emit_same_input_hash(stub_session_factory, stub_diag_repo):
+    """enqueue_report(parent)·emit_report(동기 child) 가 같은 입력에 같은 input_hash — 멱등 정합 의무."""
+    captured = []
+
+    def _capture(create):
+        captured.append(create)
+        return "j"
+
+    stub_diag_repo.enqueue = AsyncMock(side_effect=_capture)
+    stub_diag_repo.mark_succeeded = AsyncMock()
+    service = _service(stub_session_factory, stub_diag_repo)
+    common = dict(
+        view="engineer", scope="server", server_public_ids=["a"], time_range="7d", anchor_at=_FIXED_ANCHOR
+    )
+    await service.enqueue_report(**common)
+    await service.emit_report(kind=REPORT_KIND_ENV, snapshot={}, **common)
+    assert captured[0].input_hash == captured[1].input_hash
+
+
+@pytest.mark.asyncio
+async def test_claim_pending_commits_and_returns(stub_session_factory, stub_diag_repo):
+    """claim_pending — repo.claim_next_pending 위임 + running 마킹 커밋 후 record 반환."""
+    rec = MagicMock()
+    stub_diag_repo.claim_next_pending = AsyncMock(return_value=rec)
+    session = stub_session_factory.return_value
+    service = _service(stub_session_factory, stub_diag_repo)
+    out = await service.claim_pending()
+    assert out is rec
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_recover_stale_delegates(stub_session_factory, stub_diag_repo):
+    """recover_stale — repo.recover_stale_running(stale_seconds) 위임 + commit, 복구 건수 반환."""
+    stub_diag_repo.recover_stale_running = AsyncMock(return_value=3)
+    session = stub_session_factory.return_value
+    service = _service(stub_session_factory, stub_diag_repo)
+    n = await service.recover_stale(600)
+    assert n == 3
+    stub_diag_repo.recover_stale_running.assert_awaited_once_with(600)
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_finish_failed_delegates(stub_session_factory, stub_diag_repo):
+    """finish_failed — repo.mark_failed(job_id, error) 위임 (error 는 워커가 sanitize 후 전달)."""
+    stub_diag_repo.mark_failed = AsyncMock()
+    service = _service(stub_session_factory, stub_diag_repo)
+    await service.finish_failed("job-x", "internal error")
+    stub_diag_repo.mark_failed.assert_awaited_once_with("job-x", "internal error")
 
 
 # ─── report_result 단일 진실 + recommendation 상수 import sanity ──────────

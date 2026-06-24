@@ -164,10 +164,10 @@ Self-audit 메타 인용 제외:
 - Stage 2 통과 코드 + 테스트.
 
 목적:
-- CI 트리거(PR 의 ci · alembic-check · security · codeql, tag push 의 release)가 발화하기 전에 로컬에서 동일 검증을 재현 — 회귀·산출물 버그를 머지·이메일 폭탄 전에 차단.
+- CI 트리거(PR 의 ci · alembic-check · codeql, tag push 의 release)가 발화하기 전에 로컬에서 동일 검증을 재현 — 회귀·산출물 버그를 머지·이메일 폭탄 전에 차단.
 
 체크리스트:
-- [3.1] PR base 대상 모드로 `dev/local-ci.sh` 실행 (feature->develop = `develop`, develop->main = `main`), NG 0건. 모드별 검증 범위(`develop`: ruff·hadolint·unit·alembic·integration / `main`: 전부 + wheel·codeql·pip-audit·release 산출물 + release 에셋 files: 정합·GHCR pull compose)는 스크립트 단일 진실 — 본 명세가 항목을 복제하지 않는다. main 모드는 tag push -> release 의 에셋 산출 전 경로(wheel·SBOM·image·compose+env.example 첨부)를 머지 전 재현해 release 버그를 머지 후 발견하는 것을 막는다.
+- [3.1] PR base 대상 모드로 `dev/local-ci.sh` 실행 (feature->develop = `develop`, develop->main = `main`), NG 0건. 모드별 검증 범위(`develop`: ruff·hadolint·unit·alembic·integration / `main`: 전부 + wheel·codeql·release 산출물 + release 에셋 files: 정합·GHCR pull compose)는 스크립트 단일 진실 — 본 명세가 항목을 복제하지 않는다. main 모드는 tag push -> release 의 에셋 산출 전 경로(wheel·SBOM·image·compose+env.example 첨부)를 머지 전 재현해 release 버그를 머지 후 발견하는 것을 막는다.
 - [3.2] libvirt VM 매트릭스 영향(합성 부하·swap_used 트리거 등) 있으면 `docs/development/pipeline.md` 와 정합 확인.
 - [3.3] OIDC·GHCR 인증 필요한 step(sigstore 서명 · cosign · GHCR push)은 본질적으로 CI 전용 — 로컬 skip (그 직전까지 산출물·파일명 패턴·액션 resolve 는 검증됨).
 

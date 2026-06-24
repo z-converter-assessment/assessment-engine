@@ -14,7 +14,17 @@ Windows SCM 이름은 정규화 없이 들어와(MSSQLSERVER / MSSQL$INSTANCE / 
 
 from dataclasses import dataclass
 
-from assessment_engine.web.view_models.server import MatchedPort
+
+@dataclass
+class MatchedPort:
+    """서비스 유닛에 매핑된 listen 포트 1개. `matched_ports`/`detect_listen_categories` 결과 단위.
+
+    분류 도메인 개념이라 본 모듈(domain)에 정의 — web view_model(`ServiceItem.ports`)이 re-export 소비.
+    consumer(ingest)·web 양쪽이 web 역의존 없이 분류 단일 진실을 import (recommendation.py 도메인 패턴 정합).
+    """
+
+    proto: str
+    port: int
 
 
 @dataclass(frozen=True)
@@ -32,6 +42,10 @@ class CategoryDef:
     name_keywords: tuple[str, ...]
     port_names: dict[str, tuple[int, ...]]
     badge_class: str
+    # 참고자료 표시용 한국어 — 카테고리 뜻(label_ko) + 대표 제품·범위(desc_ko). 분류 로직과 무관, 표시 전용.
+    # desc_ko 의 제품명은 큐레이션된 대표 예시(읽기용)일 뿐 매칭 진실은 name_keywords (exhaustive) 단일.
+    label_ko: str
+    desc_ko: str
     # 런타임 스택 카테고리 — 구성 요소가 여러 서비스로 떠도(docker+containerd, kubelet+containerd)
     # 1개 워크로드다. 카운트를 인스턴스 합이 아니라 호스트당 1로 집계 (뱃지·role·환경분포 일관).
     single_instance: bool = False
@@ -70,6 +84,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "tomcat": (8080,),  # 나머지 app server 는 포트 가변 — 이름/comm 신호로만 식별
         },
         badge_class="badge-cat-web",
+        label_ko="웹 / 애플리케이션",
+        desc_ko="Nginx·Apache·HAProxy·Caddy·IIS·Tomcat 등 웹 서버·리버스 프록시·애플리케이션 서버(WAS)",
     ),
     CategoryDef(
         key="db",
@@ -107,6 +123,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "db2": (50000,),
         },
         badge_class="badge-cat-db",
+        label_ko="데이터베이스",
+        desc_ko="PostgreSQL·MySQL/MariaDB·MongoDB·SQL Server·Oracle·Elasticsearch 등 관계형·NoSQL·검색 데이터 저장소",
     ),
     CategoryDef(
         key="cache",
@@ -128,6 +146,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "dragonfly": (6379,),
         },
         badge_class="badge-cat-cache",
+        label_ko="캐시 / 인메모리",
+        desc_ko="Redis·Memcached·Valkey·Varnish 등 인메모리 캐시·콘텐츠 가속",
     ),
     CategoryDef(
         key="mq",
@@ -153,6 +173,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "emqx": (1883,),
         },
         badge_class="badge-cat-mq",
+        label_ko="메시지 큐",
+        desc_ko="RabbitMQ·Kafka·NATS·ActiveMQ·MQTT(Mosquitto/EMQX) 등 메시지 브로커",
     ),
     CategoryDef(
         key="container",
@@ -167,6 +189,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
         ),
         port_names={},  # 외부 listen 포트 표준 없음 — 이름 신호로만 식별
         badge_class="badge-cat-container",
+        label_ko="컨테이너 런타임",
+        desc_ko="Docker·containerd·Kubernetes(kubelet/k3s)·Podman 등 컨테이너 런타임 스택 (호스트당 1로 집계)",
         single_instance=True,  # docker+containerd 등은 1 런타임 스택 — 호스트당 1로 카운트
     ),
     CategoryDef(
@@ -197,6 +221,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "netdata": (19999,),
         },  # grafana 3000 은 일반 Node 앱과 충돌 위험이라 제외 — 이름/comm 신호로만 식별
         badge_class="badge-cat-monitor",
+        label_ko="모니터링 / 관측",
+        desc_ko="Prometheus·Grafana·Zabbix·node_exporter·Telegraf·Loki 등 메트릭·로그 수집 에이전트",
     ),
 )
 
@@ -343,3 +369,25 @@ def detect_listen_categories(listen_ports: list[dict]) -> dict[str, list[Matched
             out.setdefault(cat, []).append(MatchedPort(proto=proto, port=port))
             seen.add((proto, port))
     return out
+
+
+def compute_service_categories(
+    services: list[dict] | None, listen_ports: list[dict] | None
+) -> list[str]:
+    """ingest 사전계산 — 호스트 서비스 카테고리 키 집합 (정렬·dedup, "unknown" 제외).
+
+    services unit 이름 분류(`classify`: name->comm->port) ∪ listen 소켓 직접 분류(`detect_listen_categories`).
+    `workload_category_counter` 의 키셋과 동일 분류 로직 단일 진실 — inventory upsert 시 1회 계산해
+    `server_inventory.service_categories` 에 저장하고, 모든 read 경로(목록·상세·리포트·필터)가 본 저장값을
+    소비해 화면 간 뱃지 집합 일치(이름·comm·포트 어느 신호로 식별되든 동일). 화면별 재계산·불일치 제거.
+    """
+    cats: set[str] = set()
+    for s in services or []:
+        unit = s.get("unit") if isinstance(s, dict) else None
+        if not unit:
+            continue
+        cat = classify(unit, listen_ports)
+        if cat != "unknown":
+            cats.add(cat)
+    cats |= set(detect_listen_categories(listen_ports or []).keys())
+    return sorted(cats)

@@ -275,6 +275,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `RABBITMQ_TASK_INSTALL_KEY_PREFIX` | `task.install` | config.py | task.install 호스트별 routing key prefix. full = `<prefix>.<composite_id>` (`task_install_routing_key()`) |
 | `RABBITMQ_ROUTING_KEY_TASK_RESULT` | `task.result` | config.py | worker.result 큐 바인딩 routing key (원격 호스트 결과 보고 수신). agent `WORKER_TASK_RESULT_KEY` 와 일치 의무 |
 | `RABBITMQ_QUEUE_WORKER_RESULT` | `worker.result` | config.py | 엔진이 task.result 를 소비하는 단일 결과 큐 이름 |
+| `TASK_INSTALL_SUCCESS_EXIT_CODES` | `{"20348": [2]}` | config.py | task.result 성공 보정 정책 (`task_policy`). OS 버전(Windows `CurrentBuildNumber`) -> 성공으로 취급할 추가 exit code 목록. JSON 객체. 기본값 = Server 2022(20348) 의 exit code 2 를 설치 성공으로 보정. `script_failed` & `os_family=windows` 결과에만 적용. 예: `{"20348":[2],"26100":[2]}` |
 | `RABBITMQ_WORKER_USER` | `assessment` | dev/agent.env | 원격 호스트 worker 가 사용할 AMQP user. 비어 있으면 worker 자동 비활성 (collector 만 동작) |
 | `RABBITMQ_WORKER_PASSWORD` | `assessment` | dev/agent.env | `RABBITMQ_WORKER_USER` 의 암호. heredoc 안에서 `RABBITMQ_WORKER_PASS` 매핑 |
 | `WORKER_TASK_EXCHANGE` | `assessment.tasks` | dev/agent.env (agent 측) | task.install/task.result 전용 exchange. collector exchange 와 분리. 엔진 `RABBITMQ_TASK_EXCHANGE` 와 값 일치 의무 |

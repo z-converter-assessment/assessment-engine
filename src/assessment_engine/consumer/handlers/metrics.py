@@ -1,6 +1,7 @@
 """Metrics 메시지 핸들러 — server.metrics routing key. metrics 핸들러는 미등록 서버 auto-register."""
 
 from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
 from typing import Any
 
 from aio_pika.abc import AbstractIncomingMessage
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from assessment_engine.cache.redis import safe_delete, safe_set
 from assessment_engine.consumer.handlers._common import (
     _check_idempotent,
+    _correct_skewed_collected_at,
     _db_retry,
     _log_time_invariants,
     _track_agent_restart,
@@ -39,6 +41,9 @@ def make_metrics_handler(
                 logger.info("metrics duplicate skipped message_id={}", data.message_id)
                 return
 
+            # 수신 경계 보정 — 시계오차로 미래·과거로 틀어진 collected_at 을 수신시각으로 보정 (양방향, #F2).
+            # _log_time_invariants 앞에 둬 보정 후 잔여 시계이상값이 신호로 노출되게.
+            await _correct_skewed_collected_at(redis, data, datetime.now(UTC))
             await _log_time_invariants(redis, data)
 
             dto = to_metric_create(data)

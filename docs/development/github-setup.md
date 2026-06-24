@@ -36,7 +36,7 @@ UI 활성 안 하고 workflow만 두어도 동작 — 단 Security 탭 통합이
 | Require approvals | 1+ (선택) | 1인 운영이면 0, 팀이면 1+ |
 | Dismiss stale pull request approvals when new commits are pushed | 활성 | 강제 push로 우회 차단 |
 | Require status checks to pass before merging | 활성 | CI workflow 통과 의무 |
-| Required status checks | 아래 7 항목 모두 의무 등록 (체크) — 모든 PR 이 본 check 통과해야 merge 가능 |
+| Required status checks | 아래 6 항목 모두 의무 등록 (체크) — 모든 PR 이 본 check 통과해야 merge 가능 |
 | Require branches to be up to date before merging | 활성 | merge 직전 main rebase 강제 |
 | Require conversation resolution before merging | 활성 | PR comment 미해결 차단 |
 | Require linear history | 비활성 | `develop` → `main` 승격을 merge commit 으로 해 이력 공유 (divergence 0, ADR 0030). linear 강제 시 squash 만 되어 main/develop 영구 분기 |
@@ -44,7 +44,7 @@ UI 활성 안 하고 workflow만 두어도 동작 — 단 Security 탭 통합이
 | Allow force pushes | 비활성 | git history 보호 |
 | Allow deletions | 비활성 | branch 삭제 차단 |
 
-#### Required status checks 카탈로그 (7 항목 — main 머지 의무)
+#### Required status checks 카탈로그 (6 항목 — main 머지 의무)
 
 | Check 이름 (GitHub UI 표시) | 발화 workflow | 검증 | 비고 |
 |------------------------------|-----------------|------|------|
@@ -54,16 +54,15 @@ UI 활성 안 하고 workflow만 두어도 동작 — 단 Security 탭 통합이
 | `ci / wheel build` | `ci.yml` | `uv build` 성공 | release artifact 산출물 정합 |
 | `ci / pytest (integration)` | `ci.yml` | testcontainers postgres/redis + 통합 | wheel build 의존 |
 | `alembic-check` | `alembic-check.yml` | ORM·migrations 라운드트립 정합 | paths 무관 매 PR 발화 (paths 조건 제거 — branch protection skip 함정 회피) |
-| `security / pip-audit` | `security.yml` | 의존성 CVE 검사 | paths 무관 매 PR 발화 (동일 사유) |
 
-본 7 check 모두 통과 의무 — paths 조건 없는 워크플로라 main PR 매번 발화 (`alembic-check` ~10s, `pip-audit` ~1min). CodeQL SAST 는 `codeql.yml` 이 별도 SARIF 업로드라 본 required 목록 외 — Security 탭 alert 으로 운영자 인지.
+본 6 check 모두 통과 의무 — paths 조건 없는 워크플로라 main PR 매번 발화 (`alembic-check` ~10s). CodeQL SAST 는 `codeql.yml` 이 별도 SARIF 업로드라 본 required 목록 외 — Security 탭 alert 으로 운영자 인지. 의존성 CVE 는 GitHub Dependabot alerts(아래 5.2)로 수신 — CI gate 아님.
 
 main PR 분기 강화는 `.claude/skills/pr-create/SKILL.md` "main PR 추가 강화" 절 — `pytest tests/integration` 의무·BREAKING change 시 ADR 신설 의무·`hotfix/*` branch naming 권장.
 
 ### 3.2. `develop` branch
 
 `main`과 동일 패턴 — `develop`도 PR 강제. 단:
-- "Required status checks" — 위 7 항목 동일 적용 (`alembic-check`·`security / pip-audit` 도 paths 무관 매 PR 발화)
+- "Required status checks" — 위 6 항목 동일 적용 (`alembic-check` 도 paths 무관 매 PR 발화)
 - "Require linear history" 비활성 — feature 는 squash 로 들어오지만 `develop` 자체가 merge commit 을 받을 수 있어야 화해·승격 정합 (ADR 0030)
 - "Do not allow bypassing" 활성
 

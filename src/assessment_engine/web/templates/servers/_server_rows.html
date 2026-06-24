@@ -18,7 +18,7 @@
     {% if s.known_services %}
       <span style="display:flex; flex-wrap:wrap; gap:4px;">
       {% for svc in s.known_services %}
-        <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }} <strong class="text-strong">{{ svc.category_count }}</strong></span>
+        <span class="badge {{ svc.category | service_badge_class }}">{{ svc.category }}</span>
       {% endfor %}
       </span>
     {% else %}

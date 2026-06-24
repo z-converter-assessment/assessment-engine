@@ -88,7 +88,12 @@ async def main() -> None:
                 dlx_name=_TASK_DLX,
                 queue_name=consumer_settings.rabbitmq_queue_worker_result,
                 routing_key=consumer_settings.rabbitmq_routing_key_task_result,
-                handler=make_task_result_handler(AsyncSessionLocal, CollectRepository, redis),
+                handler=make_task_result_handler(
+                    AsyncSessionLocal,
+                    CollectRepository,
+                    redis,
+                    consumer_settings.task_install_success_exit_codes,
+                ),
                 ttl_ms=_TASK_RESULT_TTL_MS,
                 max_len=_TASK_RESULT_MAX_LEN,
             ),

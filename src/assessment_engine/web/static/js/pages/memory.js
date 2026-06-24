@@ -9,7 +9,7 @@
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtLabel, getAnchorEnd, initAnchor,
         makeBucketGrid, bindToggle, initAutoRefresh, safeArray,
-        buildAvgMaxDatasets, renderChipLegend } = ChartUtils;
+        buildAvgMaxDatasets, buildDimDatasets, renderChipLegend } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
 const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 메트릭 N/A 분기
@@ -204,25 +204,7 @@ function renderCompChart(rows, range, anchorEnd) {
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const byDim  = {};
-  for (const r of rows) { (byDim[r.dimension] = byDim[r.dimension] || []).push(r); }
-  const datasets = Object.entries(byDim).map(([dim, pts]) => {
-    const map = {};
-    for (const p of pts) { map[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = p.value; }
-    const meta = COMP_META[dim] || { label: dim, color: '#8b5cf6' };
-    return {
-      label: meta.label,
-      data: grid.map(t => map[t] ?? null),
-      borderColor: meta.color,
-      backgroundColor: meta.color + '22',
-      borderWidth: 2,
-      pointRadius: 1,
-      pointHoverRadius: 3,
-      tension: 0.3,
-      fill: false,
-      spanGaps: false,
-    };
-  });
+  const datasets = buildDimDatasets(rows, bMs, grid, COMP_META, { pointRadius: 1 });
 
   if (compChart) {
     compChart.data.labels = labels; compChart.data.datasets = datasets;

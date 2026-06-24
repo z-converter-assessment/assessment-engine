@@ -31,7 +31,7 @@
 <div class="metric-grid" style="grid-template-columns:repeat(auto-fit, minmax(min(100%, 110px), 1fr));">
   <div class="metric-card env-stat-card">
     <div class="metric-label">등록 서버</div>
-    <div class="metric-value-md">{{ overview.total }}대</div>
+    <div class="metric-value-md">{{ overview.total }}<span class="stat-unit">대</span></div>
     <div class="metric-sub">오프라인 {{ overview.offline }}</div>
   </div>
   <div class="metric-card env-stat-card">
@@ -40,11 +40,11 @@
   </div>
   <div class="metric-card env-stat-card">
     <div class="metric-label">총 메모리</div>
-    <div class="metric-value-md">{{ "%.1f" | format(overview.total_memory_gb) }} GB</div>
+    <div class="metric-value-md">{{ overview.total_memory_gb | disksize_styled }}</div>
   </div>
   <div class="metric-card env-stat-card">
     <div class="metric-label">총 디스크</div>
-    <div class="metric-value-md">{{ overview.total_disk_gb }} GB</div>
+    <div class="metric-value-md">{{ overview.total_disk_gb | disksize_styled }}</div>
   </div>
 </div>
 {% endmacro %}
@@ -87,7 +87,7 @@
         {% for u in summary.overview.utilization %}
         <div class="metric-card env-stat-card">
           <div class="metric-label">{{ u.label }} 평균</div>
-          <div class="metric-value-md">{% if u.pct is not none %}{{ "%.1f" | format(u.pct) }}%{% else %}—{% endif %}</div>
+          <div class="metric-value-md">{% if u.pct is not none %}{{ "%.1f" | format(u.pct) }}<span class="stat-unit">%</span>{% else %}—{% endif %}</div>
         </div>
         {% endfor %}
       </div>
@@ -102,7 +102,7 @@
         {% for b in summary.os_family_dist %}
         <div class="metric-card env-stat-card">
           <div class="metric-label">{{ b.label }}</div>
-          <div class="metric-value-md">{{ b.count }}대</div>
+          <div class="metric-value-md">{{ b.count }}<span class="stat-unit">대</span></div>
         </div>
         {% endfor %}
       </div>
@@ -198,7 +198,7 @@
     {% for b in summary.os_family_dist %}
     <div class="metric-card env-stat-card">
       <div class="metric-label">{{ b.label }}</div>
-      <div class="metric-value-md">{{ b.count }}대</div>
+      <div class="metric-value-md">{{ b.count }}<span class="stat-unit">대</span></div>
     </div>
     {% endfor %}
   </div>

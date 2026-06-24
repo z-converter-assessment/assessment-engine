@@ -8,6 +8,7 @@
   <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     환경·서버 보고서 본문에 등장하는 핵심 키워드·분류 기준의 정의. 임계값·판정 순서 상세는 아래 절 참조.
   </p>
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -32,6 +33,7 @@
       <tr><td>평가 윈도우</td><td>통계 산출 기간 — 보고서 표준 7일. 상세는 "평가 윈도우" 절.</td></tr>
     </tbody>
   </table>
+  </div>
 </section>
 
 <section class="card" style="margin-bottom:16px;">
@@ -43,6 +45,7 @@
   </p>
 
   <h3>임계 카탈로그</h3>
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -67,6 +70,7 @@
       <tr><td>insufficient_data</td><td>—</td><td>cpu_p95·mem_p95 둘 다 null 이고 under 신호도 없음</td><td>표본 부재</td><td>신규/7일 미만 (OS 메트릭 부재만으로는 미발화)</td></tr>
     </tbody>
   </table>
+  </div>
   <p class="text-md text-label" style="margin:10px 0 0; line-height:1.6;">
     화면 badge·게이지 색 임계(위험 90% / 주의 75%)는 표시 전용 도메인으로 본 분류 임계와 별개 — 색은 현재 표시값 강조, 분류는 윈도우 통계 기반 적정성 판정. 예: 마운트 87% 는 표시 "주의" 색이면서 동시에 분류 disk >= 85% trigger hit — 모순이 아니라 도메인 차이.
   </p>
@@ -78,6 +82,7 @@
   <p class="text-md text-label" style="margin:0 0 10px; line-height:1.6;">
     OS 분기 (Windows): swap 은 Linux page-out(메모리 압박) 신호이나 Windows pagefile 은 여유 RAM 에도 상시 사용되는 baseline 이라 saturation 신호가 아니다. 따라서 Windows 는 swap 축을 제외하고(swap_used 무시), load(CPU run queue) 는 OS 부재라 미관측 축으로 기록된다. utilization·capacity 로 분류는 완결되며("이용률 기준 평가" confidence 단서), "표본 부족"이 아니다 — cpu_p95·mem_p95 가 산출되기 때문. 동일 통계라도 Linux 는 load/swap 으로 under, Windows 는 utilization 기준으로 같은 분류 체계 안에서 결론난다. Windows agent 가 등가 카운터(Processor Queue Length 등)를 발행하면 미관측 축이 자동 채워진다.
   </p>
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -95,11 +100,13 @@
       <tr><td>6</td><td>optimal</td><td>위 모두 미해당</td></tr>
     </tbody>
   </table>
+  </div>
 
   <h3 style="margin-top:18px;">신뢰도 단서</h3>
   <p class="text-md text-label" style="margin:0 0 10px; line-height:1.6;">
     분류는 가진 데이터로 완결하고, 확신을 떨어뜨리는 요인은 별도 단서로만 노출 — 보고서 "신뢰도" 칼럼·환경 자원 평가 "자원 부족" 카드 공통. 비어 있으면 신뢰도 저하 요인 없음.
   </p>
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -113,11 +120,13 @@
       <tr><td>표본 부족 — 이용률 신뢰도 낮음</td><td>윈도우 기대 표본 대비 실측 비율 50% 미만</td><td>p95 통계 신뢰도 저하 — 짧은 관측·수집 공백 가능성.</td></tr>
     </tbody>
   </table>
+  </div>
 
   <h3 style="margin-top:18px;">권고 (분류 -> 조치)</h3>
   <p class="text-md text-label" style="margin:0 0 10px; line-height:1.6;">
     권고는 분류의 함수 — 환경 보고서 "조치 필요 호스트"(customer)·"자원 부족"(engineer)·서버 단일 보고서 "자원 적정성 평가"가 동일 문구 공유. under_provisioned 는 hit 신호(triggers)별 증설 권고를 "/" 로 결합(임계 재계산 없이 분류 산출 재사용), 그 외는 분류별 고정 문구. optimal·insufficient_data 는 조치 불필요라 customer "조치 필요 호스트"엔 미노출. 판독 프레임: 분류(결론) - 진단(원인) - 권고(조치) - 신뢰도(단서).
   </p>
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -140,6 +149,7 @@
       <tr><td>under: trigger 0건</td><td>리소스 증설 검토</td></tr>
     </tbody>
   </table>
+  </div>
 </section>
 
 <section class="card" style="margin-bottom:16px;">
@@ -148,6 +158,7 @@
     분류 자체는 위 표의 임계로 결정되지만, 엔지니어 검토 시 원인 진단·증설/축소 방향을 잡으려면 보조 지표가 필요.
     아래는 엔지니어 양식 (환경·선택 요약, 단일 세부) 에 노출되는 보조 메트릭의 정의·임계·근거. 통계 개념(평균·p95·peak)은 "보고서 용어·개념 정리" 절.
   </p>
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -172,11 +183,13 @@
       <tr><td>uptime</td><td>현재 시각 - boot_time</td><td>reference</td><td>마지막 부팅 이후 경과 — patch 적용·재시작 주기 가시화</td></tr>
     </tbody>
   </table>
+  </div>
 
   <h3 style="margin-top:18px;">진단 칼럼 해석</h3>
   <p class="text-md text-label" style="margin:0 0 10px; line-height:1.6;">
     "진단" 칼럼(효율화 검토 대상·자원 적정성 평가)은 위 보조 지표를 아래 우선순위로 평가해 가장 시급한 신호 1개를 자동 해석 — 위에서부터 첫 매칭에서 확정 (short-circuit). 분류(적정성 결론)와 별도 축으로, 입력 지표는 겹치나 출력은 원인 해석 문구다.
   </p>
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -197,6 +210,7 @@
       <tr><td>9</td><td>위 모두 미해당</td><td>정상</td></tr>
     </tbody>
   </table>
+  </div>
   <p class="text-md text-label" style="margin:10px 0 0; line-height:1.6;">
     예외 2개 — 표본 부족(insufficient_data) 분류 호스트는 신호 대신 원인을 진단 (오프라인 — 에이전트 미가동 / 누락 메트릭 명시 / 윈도우 내 표본 부족). 오프라인 호스트는 진단 앞에 "오프라인" 접두 — 분류는 윈도우 측정 기반 그대로 유지.
   </p>
@@ -208,6 +222,7 @@
     자원 적정성 평가와 별도의 운영 안정성 신호 — 분류가 정상이어도 발화하면 적정성 판정보다 운영 조치가 선행되어야 함.
     실시간 현황 페이지 운영 신호 카드에 3종 노출. 보고서는 발행 윈도우 기준이라 전역 신호(gap·에이전트 불안정)는 미표시 — OS EOL 만 표시하고, 재부팅·에이전트 재시작은 윈도우 안 카운트로 세부 서버 목록 시스템 안정성 칼럼에 표시.
   </p>
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -223,6 +238,7 @@
       <tr><td>에이전트 불안정</td><td>최근 1시간 안 에이전트 재시작 횟수 (agent_started_at 변경)</td><td>3회 이상</td><td>재시작 누적 - 수집 연속성·적정성 평가 신뢰도 저하</td></tr>
     </tbody>
   </table>
+  </div>
 </section>
 
 <section class="card" style="margin-bottom:16px;">
