@@ -115,11 +115,24 @@ def test_environment_scope_link():
         job_type="customer_report",
         scope="environment",
         input_params={"time_range": "14d", "period_days": 14},
-        result={},
+        result={"snapshot": {"base": {"total": 55}}},
     )
     item = to_report_history_item(rec)
     assert item["result_link"] == f"/reports/environment?job={_JOB_ID}"
-    assert item["server_count"] == 0  # environment scope 는 server_public_ids 없음
+    # environment 는 선택 list 부재 → 스냅샷 등록 서버 총수(base.total)로 표시.
+    assert item["server_count"] == 55
+
+
+def test_environment_scope_count_none_without_snapshot():
+    """environment scope 인데 스냅샷 부재(pending/running/failed) → server_count None (표시 단계 수량 생략)."""
+    rec = _rec(
+        job_type="customer_report",
+        scope="environment",
+        input_params={"time_range": "14d", "period_days": 14},
+        result={},
+    )
+    item = to_report_history_item(rec)
+    assert item["server_count"] is None
 
 
 def test_link_with_back_appends_referrer():
