@@ -167,7 +167,11 @@ cd /tmp/ae && cp env.example .env
 docker compose up -d        # GHCR 이미지 pull. web http://localhost:8000
 ```
 
-`APP_ENV=prod` 기본이라 weak secret 은 기동 거부(fail-fast). GHCR public — 토큰 없이 pull. secret 은 `.env` 평문 또는 OS env(우선) 주입. PostgreSQL 16(timescaledb+vector)·RabbitMQ 3.13+·Redis 7+ 는 compose 가 함께 띄우거나 외부 managed 에 도달. wheel+systemd·멀티노드·업그레이드 등 다른 토폴로지·상세: `docs/operations/deployment.md`.
+`APP_ENV=prod` 기본이라 weak secret 은 기동 거부(fail-fast). GHCR public — 토큰 없이 pull. PostgreSQL 16(timescaledb+vector)·RabbitMQ 3.13+·Redis 7+ 는 compose 가 함께 띄우거나 외부 managed 에 도달.
+
+비번 채널 2가지(택1): (a) env-channel — `.env` 평문 또는 OS env(우선) 주입. (b) file-channel(권장, ADR 0046) — `.env` 의 password 줄을 빼고 `./secrets/*`(권한 600)를 둔 뒤 `docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d`. secret 이 컨테이너 env(`docker inspect`)에 안 뜬다. 배치는 `secrets/README.md`.
+
+wheel+systemd·멀티노드·업그레이드 등 다른 토폴로지·상세: `docs/operations/deployment.md`.
 
 ---
 

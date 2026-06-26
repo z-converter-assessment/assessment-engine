@@ -16,6 +16,7 @@ semver tag `v*` push 시 두 채널 동시 발행 — 운영자 선택권 (#A0 �
 | `sbom.cdx.json` | CycloneDX JSON | 의존성 트리 명세 (CVE 추적) |
 | `*.sigstore.json` | Sigstore signature | `cosign verify-blob` 무결성·발행자 검증 |
 | `docker-compose.yml` (prod-safe base) + `env.example` | compose base + env 카탈로그 | 빌드 없는 pull-and-run prod compose (ADR 0035). `build:` 키 없음 — 받은 base 에 `ENGINE_IMAGE`(또는 base 기본 핀)·`PGDATA_HOST`·`MQ_DATA_HOST` 주입 후 `docker compose up -d` 로 1.2 GHCR 이미지 pull. base 의 `__ENGINE_VERSION__` 은 release CI 가 태그 semver(예 `0.1.0`)로 치환. dev 편의(빌드·bind mount)는 repo `docker-compose.override.yml`(릴리즈 미첨부) |
+| `docker-compose.secrets.yml` (file-secret overlay) | compose overlay | 비번 file-secret 채널 (opt-in, ADR 0046). `-f docker-compose.yml -f docker-compose.secrets.yml` 로 `./secrets/*` -> `/run/secrets/*` 주입(env 노출 회피). image 핀 없음(서비스명만 참조). 배치는 `secrets/README.md` |
 
 wheel 안 force-include (`pyproject.toml` `[tool.hatch.build.targets.wheel].force-include`):
 - `assessment_engine/migrations/` — Alembic versions (ADR 0005)

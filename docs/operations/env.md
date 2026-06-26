@@ -108,7 +108,7 @@ compose 는 prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.
 | 코드 마운트 (bind mount) | OK override.yml 의 `./src` bind mount, 빠른 반복 | NG base 는 bind mount 없음 — 이미지·wheel 불변성 |
 | 영속 볼륨 | named volume(`postgres_data`·`rabbitmq_data`) | `PGDATA_HOST`·`MQ_DATA_HOST` 로 외부 디스크 bind(Cinder 등) |
 | 백킹 서비스 포트 외부 노출 | OK 5432·5672·6379·15672 | NG web 만 (또는 reverse proxy 뒤) |
-| Password 주입 | `.env`(env.dev.example 복사) 평문 | 자유 채널 — env var·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 |
+| Password 주입 | `.env`(env.dev.example 복사) 평문 | 자유 채널 — env-channel(.env·env var·systemd EnvironmentFile·Vault) 또는 file-channel(`docker-compose.secrets.yml` overlay + `./secrets/*`, ADR 0046) |
 | Schema 관리 | `migrate` init-container 가 `alembic upgrade head` 1회 (ADR 0005) | 외부 인프라 ansible task 또는 systemd one-shot 으로 사전 실행 (wheel 안 `_alembic.ini` 활용) |
 | Fail-fast 검증 | 약한 default 허용 | `_WEAK_VALUES` 거부 → `Settings()` 생성 시점 `ValueError` |
 | restart 정책 | `unless-stopped` | `always` 권장 (systemd `Restart=always`) |
@@ -157,13 +157,14 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 | `.env` 평문 | `env_file` 또는 `--env-file` | 로컬 dev (본 repo 채택) |
 | 환경변수 직접 | systemd `Environment=`·shell export | 작은 prod, 모든 OS |
 | systemd `EnvironmentFile=` | 파일 1개에 KEY=VALUE | VM + systemd 운영 (ADR 0012 정합) |
-| Docker secrets | `/run/secrets/*` 마운트 + pydantic `secrets_dir` | Docker 운영자 결정 시 |
+| Docker compose file-secret (본 repo 제공) | `docker-compose.secrets.yml` overlay 가 `./secrets/*`(권한 600) -> `/run/secrets/*` 마운트. app 은 `secrets_dir`, DB/MQ/pgadmin 은 `*_FILE` env (ADR 0046) | 단일 호스트 compose prod (env 노출 회피) |
 | SOPS/age + git | git 에 암호화 커밋, 운영 시 복호화 후 env 또는 file 주입 | GitOps |
 | Vault / AWS Secrets Manager / k8s External Secrets | 외부 secret manager → env 또는 file 주입 | 다중 환경·동적 회전 |
 
 본 repo 책임 한계:
 - pydantic-settings 가 OS env·`secrets_dir` 둘 다 지원 — 외부 인프라 채널 선택 자유
 - `_validate_prod_*` 가 결과 (weak default 거부) 만 검증 — 채널 자체는 본 repo 무관
+- file-secret 채널은 본 repo 가 `docker-compose.secrets.yml` overlay 로 1급 제공 (opt-in) — 호출·파일 배치는 `secrets/README.md`. 단일 호스트 non-swarm 에서 env 노출 회피가 핵심 이득(호스트 디스크 평문은 파일 권한 600 으로 보호).
 
 ---
 
@@ -181,8 +182,8 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
                 v                           v                             v
    docker-compose env_file        config.py BaseSettings        외부 인프라가 agent env 구성
    → 컨테이너 환경변수 주입       → Python 인스턴스 필드        → /etc/assessment-agent.env
-   → environment: 블록이          → 환경변수 > .env > default   → agent 프로세스로 전달
-     일부 키 강제 override        (cwd /app/.env 도 read)       → RABBITMQ_HOST 등 broker 좌표 주입
+   → environment: 블록이          → env > .env > secrets_dir    → agent 프로세스로 전달
+     일부 키 강제 override          > default (cwd /app/.env)     → RABBITMQ_HOST 등 broker 좌표 주입
                 │
                 └─ (4) 컨테이너 안 Python 시작 시 (1)+(2) 결합:
                        환경변수가 이미 주입돼 있으므로 (2) 의 .env read 는 redundant
@@ -219,6 +220,7 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 | 단계 | 패턴 | 적합 환경 | 외부 인프라 구현 |
 |------|------|----------|---------------|
 | A. 단일 `.env` 모든 노드 동일 inject | 한 파일 전부 — 단순 | 단일 host 또는 dev | docker-compose `env_file`·systemd `EnvironmentFile=/etc/assessment-engine.env` |
+| A2. compose file-secret (본 repo 제공) | config 는 `.env`, 비번만 `./secrets/*`(600) -> `/run/secrets/*` | 단일 host compose prod (env 노출 회피) | `docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d` (ADR 0046, `secrets/README.md`) |
 | B. 컴포넌트별 `.env` 분리 | 노드별 자기 키만 | small multi-node | systemd unit 별 `EnvironmentFile=/etc/<component>.env` |
 | C. 계층화 — 공통 + 컴포넌트별 (권장) | `shared.env` (DB·MQ·Redis·LOG_FORMAT) + `<component>.env` (특화 키) | 4 node 분리 prod | Ansible `group_vars`(shared) + `host_vars`(component별). systemd `EnvironmentFile=` 여러 줄 |
 | D. 중앙 secret store | Vault·Consul·AWS Parameter Store·k8s ConfigMap·External Secrets | 다중 환경·동적 회전 | 인프라 측 자체 운영 |
@@ -330,7 +332,7 @@ agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible 
 - 코드 (`config.py`) 에 `if env == "prod"` 비즈니스 분기 도입 — 정책 분기 1개 지점만 허용
 - `.env.production` / `.env.development` 같은 환경별 .env 동시 보유 — 활성 파일 모호
 - prod 에서 `volumes: ./:/app` 코드 마운트 유지 — 컨테이너 안 `.env` 노출 + 코드 변조 위험
-- 본 repo 에 prod 운영용 docker compose·secret 디렉토리 추가 — CLAUDE.md #A0 위반. prod 운영은 외부 인프라 책임
+- 본 repo 에 prod 환경 전체를 가르는 docker compose(`docker-compose.prod.yml`) 추가 — #A0 위반(base 자체가 prod, ADR 0035). 단 prod-safe base·file-secret overlay(`docker-compose.secrets.yml`)·`secrets/` placeholder 는 의식적 편의 제공(ADR 0035·0046) — 실제 secret 파일은 `secrets/*` ignore(commit 금지)
 - secret 을 git 저장소에 커밋 — `.dockerignore`·`.gitignore` 의 `.env` 항목 절대 제거 금지 (카탈로그 env.example·env.dev.example 만 commit)
 - 컨테이너 안에서 `/app/.env` 를 직접 read 하는 코드 추가 — pydantic-settings 의 `env_file` 폴백 외 직접 read 금지
 - `secrets_dir` 강제 활성화 — 디렉토리 부재 시 noisy 경고. `os.path.isdir` 분기로 None fallback 유지

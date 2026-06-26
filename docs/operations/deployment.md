@@ -32,6 +32,18 @@ GHCR public(ADR 0035 3절 정정) — 토큰 없이 pull. 영속 볼륨을 외�
 
 `APP_ENV=prod` 기본이라 weak secret 은 기동 거부(fail-fast) — `.env` 의 `changeme` placeholder 를 진짜 secret 으로 채워야 뜬다.
 
+비번 file-secret 채널 (opt-in, ADR 0046): secret 을 컨테이너 env 에 안 띄우려면 `docker-compose.secrets.yml` overlay 를 함께 로드한다. `.env` 에서 `POSTGRES_PASSWORD`·`RABBITMQ_PASSWORD`·`PGADMIN_PASSWORD` 줄을 제거하고 `./secrets/*` 파일(권한 600)을 둔 뒤:
+```bash
+# secret 파일 배치 (secrets/README.md 참고)
+printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
+printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
+printf '%s' "$(openssl rand -base64 24)" > secrets/pgadmin_password
+chmod 600 secrets/*
+docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d
+# 또는 COMPOSE_FILE=docker-compose.yml:docker-compose.secrets.yml docker compose up -d
+```
+`./secrets/*` 는 `/run/secrets/*` 로 마운트돼 app 은 `secrets_dir`, postgres/pgadmin 은 `*_FILE`, rabbitmq 는 entrypoint wrapper 로 읽는다. 호스트 디스크 평문은 파일 권한 600 으로 보호한다(env 노출은 회피).
+
 한계 (ADR 0036): 본 절은 단일 호스트 compose 까지. 인터넷 노출 hardened prod 는 HTTPS ingress(reverse proxy)·외부 secret 채널 추가 — wheel+systemd(3절) 또는 멀티노드(4절). install(ZDM)은 외부 좌표 주입 전까지 비활성.
 
 ## 2. 사전 준비

@@ -1,12 +1,13 @@
 name: release
 
 # semver tag(v*) push 시 두 산출물 동시 생성:
-#   (1) wheel + sdist + SHA256SUMS + SBOM + Sigstore signature + docker-compose.yml(prod-safe base) + env.example → GitHub Release
+#   (1) wheel + sdist + SHA256SUMS + SBOM + Sigstore signature + docker-compose.yml(prod-safe base)
+#       + docker-compose.secrets.yml(file-secret overlay, ADR 0046) + env.example → GitHub Release
 #   (2) Docker image (linux/amd64, linux/arm64) → GHCR push + cosign sign + SBOM (ADR 0017)
 # 외부 인프라는 wheel (systemd·venv) 또는 image (docker·k8s) 어느 채널이든 자유 선택. 첨부 docker-compose.yml 은
 # prod-safe base(build 키 없음, ADR 0035) — 릴리즈 다운로드만으로 빌드 없이 pull-and-run. base 의 __ENGINE_VERSION__
-# 은 본 워크플로가 단일 진실 버전으로 치환해 GHCR 정확 버전을 핀. infra 는 받은 base 에 PGDATA_HOST·MQ_DATA_HOST·
-# OLLAMA_* 주입 후 `docker compose up -d` (GHCR public — 토큰 없이 pull, ADR 0035 3절 정정).
+# 은 본 워크플로가 단일 진실 버전으로 치환해 GHCR 정확 버전을 핀. infra 는 받은 base 에 PGDATA_HOST·MQ_DATA_HOST
+# 주입 후 `docker compose up -d` (GHCR public — 토큰 없이 pull, ADR 0035 3절 정정).
 #
 # 발사 trigger: develop->main PR 머지 후 운영자가 main 에 직접 push 하는 semver tag(v*) (ADR 0030).
 # 버전은 repo 에 없고 tag 가 단일 진실 — hatch-vcs 가 빌드 시 tag 에서 derive (bump 커밋 없음).
@@ -134,6 +135,7 @@ jobs:
       - name: Stage compose + env assets
         run: |
           cp docker-compose.yml dist/docker-compose.yml
+          cp docker-compose.secrets.yml dist/docker-compose.secrets.yml   # prod file-secret overlay (ADR 0046, image 핀 없어 sed 불요)
           cp env.example dist/env.example
           sed -i "s/__ENGINE_VERSION__/${{ needs.resolve-version.outputs.version }}/g" dist/docker-compose.yml
 
@@ -142,7 +144,7 @@ jobs:
       - name: sha256 checksums
         run: |
           cd dist
-          sha256sum -- *.whl *.tar.gz docker-compose.yml env.example > SHA256SUMS
+          sha256sum -- *.whl *.tar.gz docker-compose.yml docker-compose.secrets.yml env.example > SHA256SUMS
 
       # SBOM (Software Bill of Materials) — CycloneDX 표준. 의존성 트리 명세 첨부.
       # 외부 인프라가 release artifact의 의존성·CVE 추적 가능 (산업 표준 ADR 0012 강화).
@@ -175,6 +177,7 @@ jobs:
             dist/sbom.cdx.json
             dist/*.sigstore.json
             dist/docker-compose.yml
+            dist/docker-compose.secrets.yml
             dist/env.example
           generate_release_notes: true
           fail_on_unmatched_files: true

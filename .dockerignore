@@ -28,6 +28,7 @@ build/
 # compose (wheel 이미지 build 에 불필요 — Dockerfile 만 사용)
 docker-compose.yml
 docker-compose.override.yml
+docker-compose.secrets.yml
 
 # 시크릿 — 절대 이미지에 포함되면 안 됨 (CLAUDE.md #F8)
 .env

@@ -1,6 +1,8 @@
 # 시크릿
 .env
-secrets/
+secrets/*
+!secrets/.gitkeep
+!secrets/README.md
 
 # 빌드 산출물
 dist/
