@@ -343,7 +343,7 @@ Request/Correlation ID 분산 trace 도입 트리거·정석 패턴: `docs/opera
 
 금지:
 - pydantic Settings 비밀 필드 `SecretStr` 미적용 — 신규 비밀 필드 의무.
-- `.env`·`dev/agent.env` 파일 commit. PR diff `password`/`secret`/`token`/`key` 패턴 검토 의무.
+- `.env`·`secrets/*`(실 secret 파일) commit. PR diff `password`/`secret`/`token`/`key` 패턴 검토 의무.
 - 예외 메시지에 raw payload·접속 문자열 — catch 후 sanitize 후 reraise.
 - HTTP 응답·ViewModel·JSON export에 PII. 운영 식별자는 `public_id`(UUID)만(#E4).
 - Redis·DB에 raw payload 캐싱 — Outbound DTO·ViewModel 단계에서 sanitize 후.
