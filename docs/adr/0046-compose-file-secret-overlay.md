@@ -64,3 +64,12 @@ prod 전용 overlay `docker-compose.secrets.yml` 을 신설하고, file-secret �
 - #F9 동시 갱신: `docker-compose.secrets.yml`(신규)·`.gitignore`·`secrets/{.gitkeep,README.md}`·
   `env.example`·`.dockerignore`·`release.yml`·`docs/operations/{env,deployment,release}.md`·`README.md`·
   CLAUDE.md #A0·ADR 0035 정정 note·ADR 인덱스.
+
+## 정정 (2026-06-26)
+
+초안의 "file-channel opt-in(base 단독=env-channel 존속)"을 file-channel 단일 통합으로 변경.
+prod 비번 채널을 file-channel 하나로 통합한다 — `env.example` 에서 평문 password 제거 +
+`COMPOSE_FILE=docker-compose.yml:docker-compose.secrets.yml` 추가로 prod 는 `docker compose up -d`
+한 줄에 base+secrets 자동 머지. base 단독 env-channel prod 는 폐지(secret 부재 시 fail-fast,
+base 단독은 APP_ENV=dev weak 빠른 테스트만). prod = base+secrets, dev = base+override 로 경로 2개가
+깔끔히 분리. ADR 0035 "base 단독 pull-and-run" 정정 동반.

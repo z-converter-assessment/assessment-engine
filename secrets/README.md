@@ -25,15 +25,16 @@ chmod 600 secrets/*
 
 ## 기동
 
+`env.example`(= prod `.env`)에 이미 `COMPOSE_FILE=docker-compose.yml:docker-compose.secrets.yml` 이
+박혀 있어 base+secrets 가 자동 머지된다 — 위 secret 파일만 두면 한 줄로 기동:
+
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d
-# 또는 COMPOSE_FILE=docker-compose.yml:docker-compose.secrets.yml docker compose up -d
+docker compose up -d
 ```
 
-file-channel 사용 시 `.env` 에서 `POSTGRES_PASSWORD`·`RABBITMQ_PASSWORD`·`PGADMIN_PASSWORD` 줄을
-제거하고, OS 환경변수에도 두지 않는다 — 남아 있으면 `env_file`/OS env 로 컨테이너에 평문 비번이
-주입돼 file-channel 의 env 노출 회피가 무의미해진다 (postgres 는 `POSTGRES_PASSWORD` 와 `_FILE`
-동시 set 시 에러).
+`env.example` 에는 평문 password 가 없다(file-channel 단일). OS 환경변수에도 `*_PASSWORD` 를 두지
+않는다 — 남아 있으면 컨테이너에 평문 비번이 주입돼 env 노출 회피가 무의미해진다(postgres 는
+`POSTGRES_PASSWORD` 와 `_FILE` 동시 set 시 에러).
 
 ## 금지
 

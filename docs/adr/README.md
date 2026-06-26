@@ -57,7 +57,7 @@
 
 | 0045 | dev 런타임 경계 확정: libvirt VM 파이프라인·ZDM mock 제거 | Accepted | 본 repo 는 엔진 런타임만 담당 — agent VM 은 OpenStack 공급(범위 밖). `dev/` libvirt 시연 파이프라인(dev-up/down·agent 크로스빌드·Windows autounattend)·dev ZDM mock(`dev_zdm_mock.py`·`zdm_resolver_host_override`) 제거. dev = `docker-compose.override.yml` 핫리로드만. local-ci.sh -> `scripts/`. dev env 카탈로그 = 루트 `env.dev.example`. pgAdmin `/pgpass` mount 제거(첫 연결 1회 입력). ADR 0037·0018 supersede, 0036 refines |
 
-| 0046 | prod 비밀번호 file-secret 채널 (compose overlay) | Accepted | 단일 호스트 non-swarm 에서 비번을 env 가 아닌 파일로 주입(env 노출 회피). compose merge append 제약상 base 가 아닌 prod 전용 overlay `docker-compose.secrets.yml` 신설 — `./secrets/*`(600) -> `/run/secrets/*`. app=secrets_dir(코드 변경 0)·postgres/pgadmin=`*_FILE`·rabbitmq=entrypoint wrapper(3.13 _FILE 제거). password env null 중화. dev 는 overlay 미로드라 복사만 유지. base 단독=env-channel 존속. ADR 0035/0036 refine, #A0 정합 |
+| 0046 | prod 비밀번호 file-secret 채널 (compose overlay, 단일) | Accepted | 단일 호스트 non-swarm prod 비번을 file-secret 채널 단일로. prod 전용 overlay `docker-compose.secrets.yml` — `./secrets/*`(600) -> `/run/secrets/*`. app=secrets_dir(코드 변경 0)·postgres/pgadmin=`*_FILE`·rabbitmq=entrypoint wrapper(3.13 _FILE 제거). password env null 중화. `env.example` 평문 password 제거 + `COMPOSE_FILE` 로 base+secrets 자동(prod=`docker compose up` 한 줄). dev 는 base+override(복사만). base 단독 env-channel prod 폐지. ADR 0035/0036 refine, #A0 정합 |
 
 트레이드오프 카탈로그(T1~T17)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 

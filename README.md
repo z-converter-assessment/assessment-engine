@@ -112,35 +112,27 @@ semver tag `v*` push 시 릴리즈가 내놓는 산출물. 배포는 compose 기
 
 ---
 
-## 개발 환경 (dev 기동 · IDE · 테스트)
+## 개발 (dev)
 
-dev 는 핫리로드 compose 로 띄운다 — base `docker-compose.yml` 에 `docker-compose.override.yml`(소스 로컬 빌드 · `./src` bind mount · uvicorn/watchfiles reload · `APP_ENV=dev`)이 `docker compose` 명령에서 자동 머지된다.
-
-```bash
-cp env.dev.example .env && docker compose up -d   # web http://localhost:8000. 코드 수정은 컨테이너 restart 없이 반영
-docker compose down -v                            # 종료 (데이터 삭제)
-```
-
-의존성·볼륨·헬스체크·반영 매트릭스 상세: `docs/development/docker.md`. agent 가 붙는 VM 은 본 repo 범위 밖(OpenStack 공급).
-
-IDE (PyCharm·VS Code) 코드 탐색·자동완성·테스트 실행을 위한 의존성 설치 (위 compose 만 띄울 때는 불필요 — 컨테이너가 의존성을 갖고 있음). 전제: `uv` 0.4+.
+dev = base + `docker-compose.override.yml` 핫리로드. 코드 수정이 컨테이너 restart 없이 반영된다.
 
 ```bash
-# 운영 의존성 + dev 그룹(pytest·ruff·hadolint·types) 모두 설치. uv 가 .venv/ 자동 생성·editable install.
-uv sync --group dev
-
-# IDE Python interpreter 를 .venv 로 지정:
-#  - PyCharm: Settings -> Project -> Python Interpreter -> Add -> Existing -> .venv/bin/python
-#  - VS Code: Cmd-Shift-P -> "Python: Select Interpreter" -> .venv/bin/python
-
-uv run pytest tests/unit/        # 단위 (DB 의존 0)
-uv run pytest tests/integration/ # 통합 (testcontainers 가 postgres/redis 자동 spawn)
-uv run ruff check .              # lint
-uv run ruff format .             # auto-format
-uv run alembic check             # ORM·migrations 정합 (alembic-check.yml CI 와 동일)
+cp env.dev.example .env
+docker compose up -d      # web http://localhost:8000
+docker compose down -v    # 종료 (데이터 삭제)
 ```
 
-`--group dev` 누락 시 IDE 가 pytest·ruff symbol 을 못 찾는다 — 항상 명시. Docker 안 dev workflow·테스트 컨테이너: `docs/development/`.
+IDE 자동완성·테스트 (compose 만 띄울 땐 불필요. 전제 `uv` 0.4+):
+
+```bash
+uv sync --group dev               # .venv 생성 + dev 그룹(pytest·ruff·types)
+uv run pytest tests/unit/         # 단위
+uv run pytest tests/integration/  # 통합 (testcontainers)
+uv run ruff check .               # lint
+uv run alembic check              # ORM·migrations 정합
+```
+
+상세: `docs/development/docker.md` · `testing.md`. agent 가 붙는 VM 은 본 repo 범위 밖(OpenStack 공급).
 
 ---
 
@@ -158,20 +150,24 @@ uv run alembic check             # ORM·migrations 정합 (alembic-check.yml CI 
 
 ## 배포 (prod)
 
-릴리즈 첨부 `docker-compose.yml`(prod-safe base) + `env.example` 한 세트를 받아 secret·이미지 좌표를 채운 뒤 한 줄로 기동한다 — 빌드 없이 GHCR 이미지를 pull 한다.
+prod = base + `docker-compose.secrets.yml`(file-secret). 비번을 `./secrets/*` 파일로 주입한다 — 컨테이너 env 에 안 뜬다. 빌드 없이 GHCR 이미지를 pull.
 
 ```bash
-gh release download v0.1.2 -R z-converter-assessment/assessment-engine -D /tmp/ae   # base compose + env.example 첨부
-cd /tmp/ae && cp env.example .env
-# [필수] POSTGRES/RABBITMQ/PGADMIN secret 채움. ENGINE_IMAGE·PGDATA_HOST·MQ_DATA_HOST 등은 선택(미설정 시 base 기본값).
-docker compose up -d        # GHCR 이미지 pull. web http://localhost:8000
+gh release download <tag> -R z-converter-assessment/assessment-engine -D /tmp/ae
+cd /tmp/ae && cp env.example .env          # COMPOSE_FILE 포함(base+secrets) · 평문 비번 없음
+
+mkdir -p secrets                            # 비번 파일 (강 random, 권한 600)
+printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
+printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
+printf '%s' "$(openssl rand -base64 24)" > secrets/pgadmin_password
+chmod 600 secrets/*
+
+docker compose up -d                        # base+secrets pull-and-run. web http://localhost:8000
 ```
 
-`APP_ENV=prod` 기본이라 weak secret 은 기동 거부(fail-fast). GHCR public — 토큰 없이 pull. PostgreSQL 16(timescaledb+vector)·RabbitMQ 3.13+·Redis 7+ 는 compose 가 함께 띄우거나 외부 managed 에 도달.
+`APP_ENV=prod` 라 secret 부재·weak 면 기동 거부(fail-fast). GHCR public — 토큰 없이 pull. 외부 디스크 볼륨은 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(선택).
 
-비번 채널 2가지(택1): (a) env-channel — `.env` 평문 또는 OS env(우선) 주입. (b) file-channel(권장, ADR 0046) — `.env` 의 password 줄을 빼고 `./secrets/*`(권한 600)를 둔 뒤 `docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d`. secret 이 컨테이너 env(`docker inspect`)에 안 뜬다. 배치는 `secrets/README.md`.
-
-wheel+systemd·멀티노드·업그레이드 등 다른 토폴로지·상세: `docs/operations/deployment.md`.
+secret 배치 상세: `secrets/README.md`. wheel+systemd·멀티노드 등 다른 토폴로지: `docs/operations/deployment.md`.
 
 ---
 

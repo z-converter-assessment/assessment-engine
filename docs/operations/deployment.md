@@ -17,32 +17,25 @@ artifact 카탈로그·생성 trigger·무결성 검증·다운로드 채널: `d
 
 ## 0. 단일 호스트 배포 (compose all-in-one)
 
-릴리즈 base `docker-compose.yml` + `env.example`(배포 템플릿) 한 세트로 단일 호스트에 엔진 2 컴포넌트 + 의존 인프라(TimescaleDB·Redis·RabbitMQ) 기동. 평가(PoC)·내부망 소규모·단일 노드 운영용 (ADR 0036).
+릴리즈 base `docker-compose.yml` + `docker-compose.secrets.yml` + `env.example`(배포 템플릿) 한 세트로 단일 호스트에 엔진 2 컴포넌트 + 의존 인프라(TimescaleDB·Redis·RabbitMQ) 기동. 평가(PoC)·내부망 소규모·단일 노드 운영용 (ADR 0036).
 
-compose 2 파일 (ADR 0035·0036): 루트 `docker-compose.yml` = prod-safe base(build 키 없음, GHCR 이미지 pull), `docker-compose.override.yml` = dev 전용 핫리로드(소스 빌드·bind mount·reload). 릴리즈는 base 만 첨부(override 미배포)라 배포는 base 단독으로 동작. dev 는 `cp env.dev.example .env && docker compose up`.
+compose 파일 (ADR 0035·0036·0046): 루트 `docker-compose.yml` = prod-safe base(build 키 없음, GHCR 이미지 pull), `docker-compose.secrets.yml` = prod file-secret overlay, `docker-compose.override.yml` = dev 전용 핫리로드. prod = base+secrets, dev = base+override. 릴리즈는 base+secrets 첨부(override 미배포). dev 는 `cp env.dev.example .env && docker compose up`.
 
-GitHub Release 첨부 `docker-compose.yml`(prod-safe base) + `env.example`(배포 템플릿) 받아:
+GitHub Release 첨부 `docker-compose.yml` + `docker-compose.secrets.yml` + `env.example` 받아:
 ```bash
-cp env.example .env
-# [필수] POSTGRES/RABBITMQ secret(changeme placeholder) · ENGINE_IMAGE · PGDATA_HOST 등 채움 (APP_ENV=prod 기본)
-docker compose up -d              # build 키 없음 -> GHCR 이미지 pull. web: http://localhost:8000
-# ENGINE_IMAGE 미설정 시 base 기본 = release CI 가 핀한 GHCR 정확 버전. 다른 버전·레지스트리면 override.
-```
-GHCR public(ADR 0035 3절 정정) — 토큰 없이 pull. 영속 볼륨을 외부 디스크에 두려면 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(미설정 시 named volume).
-
-`APP_ENV=prod` 기본이라 weak secret 은 기동 거부(fail-fast) — `.env` 의 `changeme` placeholder 를 진짜 secret 으로 채워야 뜬다.
-
-비번 file-secret 채널 (opt-in, ADR 0046): secret 을 컨테이너 env 에 안 띄우려면 `docker-compose.secrets.yml` overlay 를 함께 로드한다. `.env` 에서 `POSTGRES_PASSWORD`·`RABBITMQ_PASSWORD`·`PGADMIN_PASSWORD` 줄을 제거하고 `./secrets/*` 파일(권한 600)을 둔 뒤:
-```bash
-# secret 파일 배치 (secrets/README.md 참고)
+cp env.example .env               # COMPOSE_FILE 포함(base+secrets 자동 머지) · 평문 비번 없음
+# secret 파일 배치 (강 random, 권한 600 — secrets/README.md)
+mkdir -p secrets
 printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
 printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
 printf '%s' "$(openssl rand -base64 24)" > secrets/pgadmin_password
 chmod 600 secrets/*
-docker compose -f docker-compose.yml -f docker-compose.secrets.yml up -d
-# 또는 COMPOSE_FILE=docker-compose.yml:docker-compose.secrets.yml docker compose up -d
+docker compose up -d              # COMPOSE_FILE 로 base+secrets pull-and-run. web: http://localhost:8000
+# ENGINE_IMAGE 미설정 시 base 기본 = release CI 가 핀한 GHCR 정확 버전. 다른 버전·레지스트리면 override.
 ```
-`./secrets/*` 는 `/run/secrets/*` 로 마운트돼 app 은 `secrets_dir`, postgres/pgadmin 은 `*_FILE`, rabbitmq 는 entrypoint wrapper 로 읽는다. 호스트 디스크 평문은 파일 권한 600 으로 보호한다(env 노출은 회피).
+GHCR public(ADR 0035 3절 정정) — 토큰 없이 pull. 영속 볼륨을 외부 디스크에 두려면 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(미설정 시 named volume).
+
+비번은 file-secret 채널 단일(ADR 0046) — `./secrets/*`(600)이 `/run/secrets/*` 로 마운트돼 app 은 `secrets_dir`, postgres/pgadmin 은 `*_FILE`, rabbitmq 는 entrypoint wrapper 로 읽는다. secret 이 컨테이너 env(`docker inspect`)에 안 뜬다. 호스트 디스크 평문은 파일 권한 600 으로 보호. `APP_ENV=prod` 기본이라 secret 파일 부재·weak 면 기동 거부(fail-fast).
 
 한계 (ADR 0036): 본 절은 단일 호스트 compose 까지. 인터넷 노출 hardened prod 는 HTTPS ingress(reverse proxy)·외부 secret 채널 추가 — wheel+systemd(3절) 또는 멀티노드(4절). install(ZDM)은 외부 좌표 주입 전까지 비활성.
 

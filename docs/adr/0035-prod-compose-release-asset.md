@@ -59,7 +59,7 @@ override `docker-compose.override.yml` (dev only):
 ## Consequences
 
 - base 가 prod-safe 라 릴리즈 첨부 compose 가 그대로 pull-and-run prod 진입점 — 추가 에셋·소스 clone 불요. 공통부가 base 한 곳이라 dev/prod drift 가 구조적으로 작다.
-- base 는 빌드 없는 pull-and-run 까지. hardened prod(APP_ENV=prod·강 secret·LOG_FORMAT=json·HTTPS ingress)는 base 가 강제하지 않고 infra env 주입으로 달성 — 소스 clone bare up 은 dev-grade(weak secret 허용)이고, `APP_ENV=prod` 주입 시 `_validate_prod_*` 가 weak default 를 거부해 이중 안전장치. 정정 (ADR 0046, 2026-06-26): 비번 file-secret overlay(`docker-compose.secrets.yml`, opt-in)를 secret 채널 옵션으로 1급 제공 — prod 환경 전체를 가르는 compose 는 여전히 안 둠.
+- base 는 빌드 없는 pull-and-run 까지. hardened prod(APP_ENV=prod·강 secret·LOG_FORMAT=json·HTTPS ingress)는 base 가 강제하지 않고 infra env 주입으로 달성 — 소스 clone bare up 은 dev-grade(weak secret 허용)이고, `APP_ENV=prod` 주입 시 `_validate_prod_*` 가 weak default 를 거부해 이중 안전장치. 정정 (ADR 0046, 2026-06-26): prod 비번을 file-secret 채널 단일로 통합 — prod = base + `docker-compose.secrets.yml`(`env.example` 의 `COMPOSE_FILE` 로 자동 머지). "base 단독 pull-and-run prod"는 "base+secrets pull-and-run"으로(base 단독은 dev-grade). env 평문 채널 폐지. prod 환경 전체를 가르는 compose 는 여전히 안 둠.
 - GHCR 는 public (3절 정정) — 토큰 없이 pull, infra 토큰 관리 부담 0. 이미지 레이어 노출은 내부망 B2B 라 감수.
 
 ## 관계
