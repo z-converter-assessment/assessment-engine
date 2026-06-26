@@ -3,10 +3,10 @@
 # 배포는 base 단독으로 동작 — 릴리즈는 base 만 첨부(override 미포함).
 #
 #   - 배포(prod): 릴리즈 첨부 base + env.example 받아 secret·ENGINE_IMAGE·PGDATA_HOST 주입 후 GHCR pull.
-#   - dev: override.yml 이 로컬 빌드·bind mount·hot reload. 검증 카탈로그는 dev/.env.example (dev-up.sh).
+#   - dev: override.yml 이 로컬 빌드·bind mount·hot reload. 검증 카탈로그는 루트 env.dev.example.
 #
 # 이미지: GHCR 정확 버전 핀. __ENGINE_VERSION__ 은 release CI 가 태그 semver 로 치환 — 소스에서 base 단독 기동 시 ENGINE_IMAGE 주입.
-# 환경변수: env_file = ${ENV_FILE:-.env} (배포=루트 .env, dev=dev/.env). secret 은 OS env > .env > changeme 보간.
+# 환경변수: env_file = ${ENV_FILE:-.env} (배포=env.example, dev=env.dev.example 를 .env 로 복사). secret 은 OS env > .env > changeme 보간.
 # 영속 볼륨: PGDATA_HOST·MQ_DATA_HOST 주입 시 host bind(Cinder 등), 미주입 시 named volume.
 # ENTRYPOINT(`python -m`, Dockerfile)라 앱 command 는 모듈명만. migrate 는 wheel 내 _alembic.ini 동적 해석($$ = compose escape).
 
@@ -65,7 +65,7 @@ services:
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/assessment}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeme}
     ports:
-      # 5672 는 dev 파이프라인 VM(libvirt) 이 host 게이트웨이 경유로 발행하는 통로 — 노출 필수.
+      # 5672 는 외부 호스트의 agent 가 broker 로 메트릭·결과를 발행하는 통로 — 노출 필수.
       - "${RABBITMQ_PORT:-5672}:5672"
       - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
     volumes:
@@ -136,7 +136,7 @@ services:
   # PostgreSQL 웹 관리 UI — pgAdmin4 (servers.json 내장 GHCR 이미지, build 없는 pull). prod DB 조회·관리.
   # 접속: http://<host>:${PGADMIN_PORT:-5050} → 로그인 PGADMIN_DEFAULT_EMAIL/PASSWORD.
   # 이미지에 못 박힌 servers.json 으로 'assessment' 서버(Host=postgres)가 첫 부팅 시 트리에 자동 등록(bind mount 0).
-  # prod 는 PassFile 없어 첫 연결 시 DB 비번 1회 입력(DB 비번 pgAdmin 미보관). dev override 는 /pgpass 로 무입력.
+  # PassFile 없어 첫 연결 시 DB 비번 1회 입력(DB 비번 pgAdmin 미보관) — dev·prod 동일.
   # DB 웹 접근은 민감 — prod 외부 노출 시 ingress 인증·방화벽 뒤 배치 권장. PGADMIN_PASSWORD 는 강 secret 주입.
   pgadmin:
     image: ghcr.io/z-converter-assessment/assessment-pgadmin:__ENGINE_VERSION__

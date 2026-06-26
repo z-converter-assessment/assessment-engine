@@ -84,7 +84,7 @@ production 표준을 dev에도 적용 — namespace 격리·내구성 외 부담
 
 | 항목 | 적용 |
 |------|------|
-| Vhost `/assessment` | `docker-compose.yml` 의 `RABBITMQ_DEFAULT_VHOST` + `src/assessment_engine/config.py` 의 `rabbitmq_vhost` + dev-up.sh 가 VM 안 `/etc/assessment-agent.env` 에 쓰는 `RABBITMQ_VHOST` 모두 `/assessment` |
+| Vhost `/assessment` | `docker-compose.yml` 의 `RABBITMQ_DEFAULT_VHOST` + `src/assessment_engine/config.py` 의 `rabbitmq_vhost` + agent 의 `RABBITMQ_VHOST` 모두 `/assessment` |
 | Collector exchange `assessment` (direct, durable) | 동일 |
 | Collector DLX `assessment.dlx` (direct, durable) | 동일 |
 | Task exchange `assessment.tasks` (direct, durable) | 동일 (web 측 lifespan + consumer 측 main.py 양쪽 declare, idempotent) |

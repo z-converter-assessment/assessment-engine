@@ -14,7 +14,7 @@ description: TRIGGER when user requests commit ("커밋", "/commit", "commit it"
 ## 절차
 
 0. Pre-check (선택 — 기본은 생략, 단순 커밋): 일반 커밋은 바로 1로 진행한다. NG 게이트로 commit 을 막지 않는다.
-   - lint 자가검증이 필요하면 빠른 `uv run ruff format . && uv run ruff check .` 만 (선택). 전체 회귀 검증(`dev/local-ci.sh`)은 매 커밋 의무가 아니라 PR 생성/푸시 시점(develop·main 대상)에 수행 — wrap-up Stage 3·CI 책임.
+   - lint 자가검증이 필요하면 빠른 `uv run ruff format . && uv run ruff check .` 만 (선택). 전체 회귀 검증(`scripts/local-ci.sh`)은 매 커밋 의무가 아니라 PR 생성/푸시 시점(develop·main 대상)에 수행 — wrap-up Stage 3·CI 책임.
    - 최종 게이트는 git hook(`.githooks/commit-msg` type prefix·AI 메타·이모지 / `pre-push` main 직접 차단) — 스킬은 작성 가이드(opt-in).
 
 1. 다음 3개를 병렬 Bash로 실행:
@@ -52,7 +52,7 @@ description: TRIGGER when user requests commit ("커밋", "/commit", "commit it"
 - `--no-verify`, `--no-gpg-sign` 등 hook/signing 스킵 금지 (사용자 명시 요청 없으면)
 - `--amend` 금지 (사용자 명시 요청 없으면) — 새 커밋 생성이 기본
 
-git hook 강제 게이트: `.githooks/commit-msg`가 type prefix 컨벤션·AI 메타데이터·이모지를 검사, `.githooks/pre-push`가 main 직접 push 차단. `core.hooksPath`는 `dev/local-ci.sh`가 자동 설정. hook 실패 시 우회(`--no-verify`) 금지 — 원인 수정 후 새 커밋. 본 skill 은 작성 가이드(opt-in), hook 은 최종 게이트.
+git hook 강제 게이트: `.githooks/commit-msg`가 type prefix 컨벤션·AI 메타데이터·이모지를 검사, `.githooks/pre-push`가 main 직접 push 차단. `core.hooksPath`는 `scripts/local-ci.sh`가 자동 설정. hook 실패 시 우회(`--no-verify`) 금지 — 원인 수정 후 새 커밋. 본 skill 은 작성 가이드(opt-in), hook 은 최종 게이트.
 
 ## push
 

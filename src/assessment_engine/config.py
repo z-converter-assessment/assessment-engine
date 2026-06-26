@@ -88,9 +88,6 @@ class WebSettings(BaseSettings):
     # 잘못된 발행 방어는 런타임(resolver 503 차단) + agent host whitelist — startup 거부 없음.
     zdm_default_ip: str = ""
     zdm_default_user: str = "admin@zconverter.com"
-    # sha256/size 산출 fetch 호스트 override (download.url·install args 는 zdm_default_ip 유지).
-    # dev 한정 — mock hairpin 불가 시 localhost fetch. prod 빈값(real ZDM 직접 도달).
-    zdm_resolver_host_override: str = ""
 
     # ZDM 패키지 contract — task.install download 필드에 박혀 agent 가 fetch.
     # sha256·size_bytes 는 publish 직전 ETag 기반 동적 산출 (cache invalidation = ETag 변경).

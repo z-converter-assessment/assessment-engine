@@ -26,7 +26,7 @@ main 은 배포 branch — 강화 의무 (운영자가 main PR 시 적용):
 3. PR body 추가 명시:
    - "main PR 사유" 절 (hotfix · release · 기타) 강제
    - hotfix 면 영향 receive 운영자 가시화
-4. CI 통과 의무 검증: `bash dev/local-ci.sh main` 으로 전체 로컬 재현 (워크플로 카탈로그는 `.github/workflows/` 단일 진실). codeql 은 CLI 미설치 시 skip — CI 가 최종 SAST.
+4. CI 통과 의무 검증: `bash scripts/local-ci.sh main` 으로 전체 로컬 재현 (워크플로 카탈로그는 `.github/workflows/` 단일 진실). codeql 은 CLI 미설치 시 skip — CI 가 최종 SAST.
 
 ## PR template 우선 (본 프로젝트 의무)
 
@@ -70,9 +70,9 @@ PR title 작성 패턴 (정합):
 - NG: `feat: ZDM 직접 fetch` (Z 대문자 시작)
 - NG: `feat: Add new endpoint` (A 대문자 시작)
 
-### B. 코드 검증 — base PR 대상 모드로 `dev/local-ci.sh` 실행
+### B. 코드 검증 — base PR 대상 모드로 `scripts/local-ci.sh` 실행
 
-base=develop -> `bash dev/local-ci.sh develop` (ruff·hadolint·unit·alembic·integration). base=main -> `bash dev/local-ci.sh main` (전부 + release 산출물). 검증 범위는 스크립트 단일 진실. NG 항목 있으면 PR 발행 차단 — 원인 수정 + 새 commit 후 재시도.
+base=develop -> `bash scripts/local-ci.sh develop` (ruff·hadolint·unit·alembic·integration). base=main -> `bash scripts/local-ci.sh main` (전부 + release 산출물). 검증 범위는 스크립트 단일 진실. NG 항목 있으면 PR 발행 차단 — 원인 수정 + 새 commit 후 재시도.
 
 ## 사전 분석 (병렬 Bash)
 

@@ -15,7 +15,7 @@
 | 3 | secret 과 일반 config 분리 | dev `.env` 평문 / prod 외부 인프라 자유 채널 (env·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등) |
 | 4 | Fail-fast 검증 | `config.py` `model_validator` 가 `APP_ENV=prod` 일 때 약한 default 거부 |
 | 5 | dev 에 안전한 default + prod 에서 거부 | `_WEAK_VALUES` 집합 (POSTGRES·RABBITMQ password·user) 거부 — prod 에서 시작 차단 |
-| 6 | secret 을 코드·이미지·git 에 박지 않음 | `.dockerignore`·`.gitignore` 에 `.env` / `dev/agent.env` / `dev/.env` 명시 |
+| 6 | secret 을 코드·이미지·git 에 박지 않음 | `.dockerignore`·`.gitignore` 에 `.env` 명시 (env.example·env.dev.example 카탈로그만 commit) |
 
 ---
 
@@ -72,7 +72,7 @@ secret 파일명은 pydantic 필드명과 정확히 일치 의무. 외부 인프
 
 docker-compose `environment:` 블록은 `env_file:` 보다 우선이라 컨테이너 안 값을 덮어쓴다.
 
-docker-compose 에서 secret 의 OS env override 동작: `env_file:` 만으론 호스트 OS env 가 컨테이너에 전달되지 않아 `.env` 값이 고정된다(override 불가). 그래서 secret(`*_PASSWORD`)은 `environment:` 에 `${VAR:-changeme}` 보간으로 명시한다 — 호스트 OS env 있으면 우선(override) > compose 가 읽는 `.env` > `changeme`(미설정 시 prod 거부). 앱·DB 컨테이너가 동일 소스를 봐 항상 일치한다. dev 파이프라인은 루트 `.env` 가 없으므로 `COMPOSE_ENV_FILES=dev/.env`(dev-up.sh)로 보간 소스를 `env_file` 과 통일한다.
+docker-compose 에서 secret 의 OS env override 동작: `env_file:` 만으론 호스트 OS env 가 컨테이너에 전달되지 않아 `.env` 값이 고정된다(override 불가). 그래서 secret(`*_PASSWORD`)은 `environment:` 에 `${VAR:-changeme}` 보간으로 명시한다 — 호스트 OS env 있으면 우선(override) > compose 가 읽는 `.env` > `changeme`(미설정 시 prod 거부). 앱·DB 컨테이너가 동일 소스를 봐 항상 일치한다. dev 는 `cp env.dev.example .env` 로 루트 `.env` 를 만들어 보간 소스를 `env_file` 과 통일한다.
 
 ---
 
@@ -108,7 +108,7 @@ compose 는 prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.
 | 코드 마운트 (bind mount) | OK override.yml 의 `./src` bind mount, 빠른 반복 | NG base 는 bind mount 없음 — 이미지·wheel 불변성 |
 | 영속 볼륨 | named volume(`postgres_data`·`rabbitmq_data`) | `PGDATA_HOST`·`MQ_DATA_HOST` 로 외부 디스크 bind(Cinder 등) |
 | 백킹 서비스 포트 외부 노출 | OK 5432·5672·6379·15672 | NG web 만 (또는 reverse proxy 뒤) |
-| Password 주입 | `dev/.env` 평문 | 자유 채널 — env var·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 |
+| Password 주입 | `.env`(env.dev.example 복사) 평문 | 자유 채널 — env var·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 |
 | Schema 관리 | `migrate` init-container 가 `alembic upgrade head` 1회 (ADR 0005) | 외부 인프라 ansible task 또는 systemd one-shot 으로 사전 실행 (wheel 안 `_alembic.ini` 활용) |
 | Fail-fast 검증 | 약한 default 허용 | `_WEAK_VALUES` 거부 → `Settings()` 생성 시점 `ValueError` |
 | restart 정책 | `unless-stopped` | `always` 권장 (systemd `Restart=always`) |
@@ -179,10 +179,10 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
                 ┌────────────────┘          │          └──────────────────┐
                 │ (1)                       │ (2)                         │ (3)
                 v                           v                             v
-   docker-compose env_file        config.py BaseSettings        dev-up.sh source dev/agent.env
+   docker-compose env_file        config.py BaseSettings        외부 인프라가 agent env 구성
    → 컨테이너 환경변수 주입       → Python 인스턴스 필드        → /etc/assessment-agent.env
-   → environment: 블록이          → 환경변수 > .env > default   → libvirt VM 안 에이전트로 전달
-     일부 키 강제 override        (cwd /app/.env 도 read)       → RABBITMQ_HOST 는 별도 주입
+   → environment: 블록이          → 환경변수 > .env > default   → agent 프로세스로 전달
+     일부 키 강제 override        (cwd /app/.env 도 read)       → RABBITMQ_HOST 등 broker 좌표 주입
                 │
                 └─ (4) 컨테이너 안 Python 시작 시 (1)+(2) 결합:
                        환경변수가 이미 주입돼 있으므로 (2) 의 .env read 는 redundant
@@ -234,11 +234,9 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 이유:
 - 엔진 `.env` 변경이 에이전트 동작에 의도치 않게 영향 미치는 경로 차단.
 - 에이전트 secret 라이프사이클 (VM 재프로비저닝 시점) 이 엔진 (컨테이너 재기동 시점) 과 독립.
-- prod 에서는 에이전트가 K8s/Docker 내부에 있지 않으므로 Docker secrets 적용 불가 — 별도 secret 도구 필요.
+- 에이전트가 K8s/Docker 내부에 있지 않으므로 Docker secrets 적용 불가 — 별도 secret 도구 필요.
 
-현재 dev: `dev/agent.env.example` 복사 → 운영 값 수정 → `./dev/dev-up.sh` 가 libvirt VM 안 `/etc/assessment-agent.env` 로 옮김. RABBITMQ_HOST 는 dev-up.sh 가 libvirt NAT 게이트웨이 IP(`192.168.122.1`)로 별도 주입.
-
-prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생성 — libvirt 구성은 dev 한정으로 격리.
+agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible vault·SaltStack pillar 등으로 VM 안 `/etc/assessment-agent.env` 생성. `RABBITMQ_HOST` 는 엔진 broker 에 도달하는 host(IP·FQDN)로 주입.
 
 호스트명 정책 (dev compose 한정):
 
@@ -260,28 +258,28 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `POSTGRES_DB` | `assessment` | config.py / dev compose | |
 | `POSTGRES_USER` | `assessment` | config.py / compose | assessment 허용 — 빈값·password·admin·root·changeme 만 prod 거부 |
 | `POSTGRES_PASSWORD` | `changeme` | config.py / compose | default `changeme`(weak)라 미설정 시 prod 거부. 명시 `assessment` 는 허용. 강한 secret 권장 |
-| `RABBITMQ_HOST` | `rabbitmq` | config.py | 컨슈머 broker 접속 (docker-compose 서비스명). 에이전트는 본 키 안 씀 — dev-up.sh 가 게이트웨이 IP(192.168.122.1) 별도 주입 |
+| `RABBITMQ_HOST` | `rabbitmq` | config.py | 컨슈머 broker 접속 (docker-compose 서비스명). 에이전트는 본 키 안 씀 — 외부 인프라가 broker 도달 host 별도 주입 |
 | `RABBITMQ_PORT` | `5672` | config.py / dev compose | |
-| `RABBITMQ_VHOST` | `/assessment` | config.py / dev compose / dev-up.sh | 전용 vhost. 에이전트와 동일 값. AMQP URL 의 `/` 는 `%2F` 인코딩 (config.py `broker_url` 자동) |
-| `RABBITMQ_USER` | `assessment` | config.py / compose / dev/agent.env | assessment 허용 — 빈값·password·admin·root·changeme 만 prod 거부 |
-| `RABBITMQ_PASSWORD` | `changeme` | config.py / compose / dev/agent.env | default `changeme`(weak)라 미설정 시 prod 거부. 명시 `assessment` 는 허용. 강한 secret 권장 |
+| `RABBITMQ_VHOST` | `/assessment` | config.py / compose | 전용 vhost. 에이전트와 동일 값. AMQP URL 의 `/` 는 `%2F` 인코딩 (config.py `broker_url` 자동) |
+| `RABBITMQ_USER` | `assessment` | config.py / compose | assessment 허용 — 빈값·password·admin·root·changeme 만 prod 거부 |
+| `RABBITMQ_PASSWORD` | `changeme` | config.py / compose | default `changeme`(weak)라 미설정 시 prod 거부. 명시 `assessment` 는 허용. 강한 secret 권장 |
 | `RABBITMQ_MANAGEMENT_PORT` | `15672` | dev compose | RabbitMQ 관리 콘솔 포트 노출 (config.py 미사용) |
-| `RABBITMQ_EXCHANGE` | `assessment` | config.py / dev/agent.env | 에이전트·consumer routing 계약. 변경 시 양쪽 동기화 |
-| `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | config.py / dev/agent.env | 동일 |
-| `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | config.py / dev/agent.env | 동일 |
-| `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | config.py / dev/agent.env | 동일 |
+| `RABBITMQ_EXCHANGE` | `assessment` | config.py / agent env (repo 밖) | 에이전트·consumer routing 계약. 변경 시 양쪽 동기화 |
+| `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | config.py / agent env (repo 밖) | 동일 |
+| `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | config.py / agent env (repo 밖) | 동일 |
+| `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | config.py / agent env (repo 밖) | 동일 |
 | `RABBITMQ_TASK_EXCHANGE` | `assessment.tasks` | config.py | 엔진 발행 task.install + worker.result 소비 전용 exchange (collector `RABBITMQ_EXCHANGE` 와 분리). agent `WORKER_TASK_EXCHANGE` 와 값 일치 의무 |
 | `RABBITMQ_TASK_QUEUE_PREFIX` | `agent.tasks` | config.py | task.install 발행 대상 호스트별 큐 prefix. full = `<prefix>.<composite_id>` (`agent_task_queue()`). agent `WORKER_TASK_QUEUE_PREFIX` 와 일치 |
 | `RABBITMQ_TASK_INSTALL_KEY_PREFIX` | `task.install` | config.py | task.install 호스트별 routing key prefix. full = `<prefix>.<composite_id>` (`task_install_routing_key()`) |
 | `RABBITMQ_ROUTING_KEY_TASK_RESULT` | `task.result` | config.py | worker.result 큐 바인딩 routing key (원격 호스트 결과 보고 수신). agent `WORKER_TASK_RESULT_KEY` 와 일치 의무 |
 | `RABBITMQ_QUEUE_WORKER_RESULT` | `worker.result` | config.py | 엔진이 task.result 를 소비하는 단일 결과 큐 이름 |
 | `TASK_INSTALL_SUCCESS_EXIT_CODES` | `{"20348": [2]}` | config.py | task.result 성공 보정 정책 (`task_policy`). OS 버전(Windows `CurrentBuildNumber`) -> 성공으로 취급할 추가 exit code 목록. JSON 객체. 기본값 = Server 2022(20348) 의 exit code 2 를 설치 성공으로 보정. `script_failed` & `os_family=windows` 결과에만 적용. 예: `{"20348":[2],"26100":[2]}` |
-| `RABBITMQ_WORKER_USER` | `assessment` | dev/agent.env | 원격 호스트 worker 가 사용할 AMQP user. 비어 있으면 worker 자동 비활성 (collector 만 동작) |
-| `RABBITMQ_WORKER_PASSWORD` | `assessment` | dev/agent.env | `RABBITMQ_WORKER_USER` 의 암호. heredoc 안에서 `RABBITMQ_WORKER_PASS` 매핑 |
-| `WORKER_TASK_EXCHANGE` | `assessment.tasks` | dev/agent.env (agent 측) | task.install/task.result 전용 exchange. collector exchange 와 분리. 엔진 `RABBITMQ_TASK_EXCHANGE` 와 값 일치 의무 |
-| `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | dev/agent.env (agent 측) | 원격 호스트별 큐 prefix. full name = `<prefix>.<composite_id>`. 엔진 `RABBITMQ_TASK_QUEUE_PREFIX` 와 일치 |
-| `WORKER_TASK_RESULT_KEY` | `task.result` | dev/agent.env (agent 측) | 원격 호스트 → 엔진 결과 보고 routing key. 엔진 `RABBITMQ_ROUTING_KEY_TASK_RESULT` 와 일치 |
-| `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `""` (빈값) | dev/agent.env | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치). 빈 whitelist 면 전부 거부 — dev/agent.env 가 ZDM_DEFAULT_IP host(libvirt host IP) 로 설정 |
+| `RABBITMQ_WORKER_USER` | `assessment` | agent env (repo 밖) | 원격 호스트 worker 가 사용할 AMQP user. 비어 있으면 worker 자동 비활성 (collector 만 동작) |
+| `RABBITMQ_WORKER_PASSWORD` | `assessment` | agent env (repo 밖) | `RABBITMQ_WORKER_USER` 의 암호. heredoc 안에서 `RABBITMQ_WORKER_PASS` 매핑 |
+| `WORKER_TASK_EXCHANGE` | `assessment.tasks` | agent env (repo 밖) | task.install/task.result 전용 exchange. collector exchange 와 분리. 엔진 `RABBITMQ_TASK_EXCHANGE` 와 값 일치 의무 |
+| `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | agent env (repo 밖) | 원격 호스트별 큐 prefix. full name = `<prefix>.<composite_id>`. 엔진 `RABBITMQ_TASK_QUEUE_PREFIX` 와 일치 |
+| `WORKER_TASK_RESULT_KEY` | `task.result` | agent env (repo 밖) | 원격 호스트 → 엔진 결과 보고 routing key. 엔진 `RABBITMQ_ROUTING_KEY_TASK_RESULT` 와 일치 |
+| `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `""` (빈값) | agent env (repo 밖) | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치). 빈 whitelist 면 전부 거부 — 운영자가 ZDM_DEFAULT_IP host 를 등록 |
 | `REDIS_HOST` | `redis` | config.py | (docker-compose 서비스명). prod 는 실제 host |
 | `REDIS_PORT` | `6379` | config.py | |
 | `REDIS_MAXMEMORY` | `256mb` | dev compose (redis command) | Redis maxmemory cap. prod 튜닝 가능 |
@@ -289,9 +287,8 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 | `WEB_PORT` | `8000` | config.py / dev compose | Web UI 접속 포트 |
 | `WEB_RELOAD` | `false` | config.py / dev compose | uvicorn auto-reload. dev hot-reload 전용 (dev compose 가 `true` 주입, `./:/app` bind mount 와 짝). prod 미설정 → false (코드 변경 감시 프로세스 불필요·bind mount 없는 wheel/image 배포에 무의미) |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |
-| `ZDM_DEFAULT_IP` | `""` (빈값) | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. dev·prod 모두 빈값 default — dev 는 dev/.env 가 libvirt host IP:8000(ZDM mock, ADR 0018) 주입, prod 는 운영자가 real ZDM 주입. startup 거부 없음 — 잘못된 ZDM 발행은 런타임 503 + agent host whitelist 가 방어 |
+| `ZDM_DEFAULT_IP` | `""` (빈값) | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. 운영자가 real ZDM 좌표 주입. startup 거부 없음 — 잘못된 ZDM 발행은 런타임 503 + agent host whitelist 가 방어 |
 | `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 관리자 계정 기본값. POST body `zdm_user` 누락 시 fallback. install.sh 의 `-u` 인자. startup 거부 없음 (secret 아님) |
-| `ZDM_RESOLVER_HOST_OVERRIDE` | `""` | config.py | resolver(엔진)가 sha256/size 산출용으로 fetch 하는 host override. set 이면 `HttpZdmPackageResolver` 가 이 host 로 HEAD/GET, download.url·install args 는 `ZDM_DEFAULT_IP` 유지. dev 한정 — mock 이 web 컨테이너 자신이라 host publish 포트 hairpin 불가하면 `localhost:8000` 으로 fetch. prod 빈값(엔진이 real ZDM 직접 도달) |
 | `ZDM_META_CONNECT_TIMEOUT_SEC` | `5.0` | config.py | ZDM 메타 조회 HTTP connect timeout |
 | `ZDM_META_TOTAL_TIMEOUT_SEC` | `120.0` | config.py | ZDM 메타 조회 HTTP total timeout (HEAD + GET full). 44MB 가정, 동일 LAN 1~2s |
 | `REDIS_TTL_ZDM_PACKAGE_SHA256` | `21600` (6h) | config.py | ETag 기반 sha256 cache TTL |
@@ -334,7 +331,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 - `.env.production` / `.env.development` 같은 환경별 .env 동시 보유 — 활성 파일 모호
 - prod 에서 `volumes: ./:/app` 코드 마운트 유지 — 컨테이너 안 `.env` 노출 + 코드 변조 위험
 - 본 repo 에 prod 운영용 docker compose·secret 디렉토리 추가 — CLAUDE.md #A0 위반. prod 운영은 외부 인프라 책임
-- secret 을 git 저장소에 커밋 — `.dockerignore`·`.gitignore` 의 `.env`·`dev/.env`·`dev/agent.env` 항목 절대 제거 금지
+- secret 을 git 저장소에 커밋 — `.dockerignore`·`.gitignore` 의 `.env` 항목 절대 제거 금지 (카탈로그 env.example·env.dev.example 만 commit)
 - 컨테이너 안에서 `/app/.env` 를 직접 read 하는 코드 추가 — pydantic-settings 의 `env_file` 폴백 외 직접 read 금지
 - `secrets_dir` 강제 활성화 — 디렉토리 부재 시 noisy 경고. `os.path.isdir` 분기로 None fallback 유지
 
@@ -342,7 +339,7 @@ prod: Ansible vault·SaltStack pillar 등으로 `/etc/assessment-agent.env` 생�
 
 ## 15. 핵심 의도 요약
 
-1. secret 을 git 에 커밋하지 않는다 — `.env`·`dev/agent.env`·`dev/.env` 모두 .gitignore. prod secret 은 외부 인프라의 secret 채널.
+1. secret 을 git 에 커밋하지 않는다 — `.env` 는 .gitignore (카탈로그 env.example·env.dev.example 만 commit). prod secret 은 외부 인프라의 secret 채널.
 2. dev 편의성을 prod 안전성과 거래하지 않는다 — `.env` 평문은 dev 에만, prod 는 secret 채널 강제.
 3. 약한 default 를 prod 로 흘려보내지 않는다 — `APP_ENV=prod` fail-fast 검증.
 4. 이미지는 환경 무관 — `Dockerfile` 1개, 차이는 환경변수·compose override·secret 주입으로만.

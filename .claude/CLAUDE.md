@@ -364,7 +364,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 | 신규 routing key | (1) 발행 측 (agent 또는 engine web) 상수 (2) consumer 핸들러 팩토리 + dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 (4) `docs/architecture/agent.md` 메시지 타입 절 |
 | `EXCHANGE`/`ROUTING_KEY_*` 값 변경 | (1) 발행 측 상수 (2) consumer subscriber dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 |
 | 메시지 페이로드 schema 변경 (필드 추가·삭제·rename·Literal 값 변경) | (1) `consumer/schemas.py` 또는 발행 측 payload 빌드 (2) Inbound DTO (3) handler 매핑 (4) DB 모델·Alembic revision (필요 시) (5) `docs/architecture/agent.md` 데이터 형식 절 (6) 운영자 가시성 ViewModel·템플릿·API (필요 시) |
-| `recommendation.py` 분류 임계 또는 libvirt VM 매트릭스 변경 | (1) `recommendation.py` 임계 상수 (2) `docs/development/pipeline.md` "VM 매트릭스"(합성 부하·swap_used 트리거) (3) #F10 평가 윈도우 정합 |
+| `recommendation.py` 분류 임계 변경 | (1) `recommendation.py` 임계 상수 (2) #F10 평가 윈도우 정합 (3) `docs/architecture/right-sizing.md` 임계 근거 |
 | 분류 신호·OS 분기 (USE Method 축·임계·trigger, ADR 0029 evidence) | (1) `recommendation.py` `assess`/`Assessment`(triggers·unmeasured)·임계 상수·`swap_saturation` helper·`ResourceStats` 필드 (2) trigger 키 추가 시 report 권고(`_TRIGGER_ACTION_KO`)·attention capacity 배지 active 매핑 동시 갱신 (3) stats 생성은 `build_resource_stats` 공용(report·attention·서버목록·도넛 단일 진실) — 직접 해석·임계 재계산 금지 (4) 표시 N/A·confidence(`is_partial`=bool(unmeasured)) 마커 (ViewModel precompute + 템플릿) (5) `docs/architecture/right-sizing.md`(명세·근거 단일 진실) + `docs/architecture/web/services.md` "OS 분기" + `right_sizing_thresholds.html` + ADR 0029 정정 |
 | 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) 루트 `docker-compose.yml` `environment:` (필요 시) (4) prod secret 분류면 `SecretStr` 타입 + `_validate_prod_*` 에 weak default 거부 추가 + `docs/operations/env.md` 2절·7절 |
 | ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass(P2) |
@@ -381,7 +381,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 원칙: 보고서·대시보드·차트 모두 같은 평가 윈도우·시계열 옵션 카탈로그 참조 — 화면별 의미 분기 방지.
 
 본 절 결정:
-- right-sizing 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 7). 보고서 라우터·서버 목록 분류·구간 선택 기본값(`DIAGNOSTIC_DEFAULT_TIME_RANGE`·보고서 발행 select)·ADR 0003 모두 본 상수/동일 값 참조. 변경 시 `_thresholds_reference.html`·`docs/development/pipeline.md` 표제도 동기화.
+- right-sizing 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 7). 보고서 라우터·서버 목록 분류·구간 선택 기본값(`DIAGNOSTIC_DEFAULT_TIME_RANGE`·보고서 발행 select)·ADR 0003 모두 본 상수/동일 값 참조. 변경 시 `_thresholds_reference.html` 표제도 동기화.
 - 모니터링 현황 카드 — 환경 개요(평균 활용률)·환경 자원 평가(자원 적정성 평가)는 `DASHBOARD_TIME_RANGE`("24h", query_service) 고정 — 최근 현황 모니터링, right-sizing 표준 평가와 의도 분리. 보고서 라우터·환경 자원 평가 페이지(`/environment/assessment`)만 `?time_range=` override 허용(평가 페이지 기본값도 `DASHBOARD_TIME_RANGE`). 서버 상세 차트는 실시간 모니터링이라 별도(globalRange 기본 15m, 평가 윈도우와 무관).
 - 환경 부하 추이(보고서 SSR 정적 차트) bucket 은 `AUTO_BUCKET[range]` 동적 — 발행 time_range 기준(예: 7d -> 3h, 24h -> 30m). 윈도우 변경 시 집계 단위 자동 추종 — 하드코딩 금지.
 - TimeRange/BucketSize Literal 단일 진실 = `db/repositories/query/types.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
@@ -411,7 +411,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 원칙: 영구 문서(`docs/architecture/`·`operations/`·`products/`·`development/`·루트 `README.md`)와 코드 주석은 현재 상태만 선언적으로 기술한다. 변경 시 과거 흔적(폐기된 도구·용어·구조·경위)을 제거하고 현황으로 덮는다 — "이전엔 X 였다"·"Y 에서 전환" 회고형 서술 0.
 
 본 절 결정:
-- 도구·구조 전환 시 옛 이름·경위를 코드 주석·영구 문서에서 제거. 전환 직후 폐기 토큰 `rg` 0 검증 의무(주석 포함) — 예: OrbStack->libvirt 전환(ADR 0037) 후 `OrbStack`·`orb.local`·`host.docker.internal`·`pipeline-up.sh` 잔존 0.
+- 도구·구조 전환 시 옛 이름·경위를 코드 주석·영구 문서에서 제거. 전환 직후 폐기 토큰 `rg` 0 검증 의무(주석 포함) — 예: dev libvirt 파이프라인·ZDM mock 제거(ADR 0045) 후 `libvirt`(도메인 가상망 용례 제외)·`virsh`·`dev-up`·`dev-down`·`win-server-01`·`dev_zdm_mock`·`host.docker.internal` 잔존 0.
 - 예외 — `docs/adr/` (결정 변경 = 새 ADR + 이전 `Superseded by`, 역사 기록 보존 — ADR 불변 규약) · `docs/tradeoffs.md` (의식적 한계·확장 트리거).
 
 금지:

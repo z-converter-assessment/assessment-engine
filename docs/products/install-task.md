@@ -96,10 +96,6 @@ ZDM 패키지 contract:
 - 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200·size mismatch) 시 install 발행 503 차단.
 - agent 측 host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 에 운영자가 박을 ZDM host 가 사전 등록되어야 함. agent config 는 deploy 시점 고정 — 새 host 도입 시 agent 재배포 필요.
 
-dev 시연 흐름 (ADR 0018):
-- `APP_ENV=dev` 일 때 web 컨테이너에 ZDM mock router 등록 — `GET {ZDM_PACKAGE_PATH}` 로 더미 tar.gz (install.sh = args echo + exit 0) 서빙. prod 등록 안 됨.
-- `ZDM_DEFAULT_IP` dev default = `192.168.122.1:8000`(libvirt 게이트웨이) — 모달 default 값 그대로 "발행" 시 libvirt VM agent worker 가 host web 8000 으로 download → install.sh exec → task.result success → list UI badge 전이. install task E2E 1 cycle 시연.
-
 ## 한계
 
 1. task_type이 install 1종 — 다른 작업(uninstall·rollback·재시작 등) 미지원. 향후 task_type enum 확장 시 별도 결정.

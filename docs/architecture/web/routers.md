@@ -82,11 +82,3 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 URL prefix versioning (`/api/v1/...` / `/api/v2/...`) 안 함. 모든 JSON API 는 `/api/...` 직접 사용. B2B 내부 포털이라 외부 client 없음 — breaking change 시 라우터 + front-end JS + docs 동시 정정 (본 repo 안 일관). 외부 contract 도입 시 별도 결정.
 
 엔진 측 self-host install bundle endpoint(`/zconverter.tar.gz`) 는 제거됨 (ADR 0016). task.install download.url 은 ZDM 측 contract (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`) 로 발행 — `docs/architecture/agent.md` "Download URL 조립 contract" 절 단일 진실.
-
-## dev 한정 라우터 (ADR 0018)
-
-| 모듈 | 변수 | 경로 | 등록 조건 |
-|------|------|------|-----------|
-| `routers/dev_zdm_mock.py` | `dev_zdm_mock_router` | `GET {ZDM_PACKAGE_PATH}` (default `/download/ZConverter_CloudSource_Setup_Linux.tar.gz`) | `app_env == "dev"` 일 때만 `web/main.py` 가 include_router. prod 등록 안 됨 |
-
-용도: install task E2E (publish → agent worker download → install.sh exec → task.result → consumer UPDATE → list UI badge) 를 dev 한정으로 실증. 더미 tar.gz (startup 1회 in-memory build) + ETag/Content-Length/Last-Modified 응답 헤더로 `HttpZdmPackageResolver` HEAD/GET 흐름 정합. install.sh 는 인자 echo + exit 0 만 — 실제 ZConverter 설치 동작은 평가 범위 밖.

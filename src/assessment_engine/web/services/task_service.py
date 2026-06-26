@@ -224,11 +224,8 @@ class TaskService:
         deadline_at = datetime.now(UTC) + timedelta(seconds=web_settings.install_timeout_sec + _DEADLINE_MARGIN_SEC)
 
         zdm_host = _extract_zdm_host(zdm_ip)
-        # resolver(엔진) 가 sha256/size 산출하려고 fetch 하는 호스트. download.url·install args 는 zdm_host 유지.
-        # dev 한정 override: mock 은 web 컨테이너 자기 자신이라 host publish 포트 hairpin 불가 -> localhost fetch.
-        # prod 미설정 -> zdm_host 그대로 (엔진이 real ZDM 직접 도달).
-        _resolver_override = web_settings.zdm_resolver_host_override
-        resolve_host = _extract_zdm_host(_resolver_override) if _resolver_override else zdm_host
+        # 엔진이 sha256/size 산출하려고 fetch 하는 호스트 = download.url·install args 와 동일 (real ZDM 직접 도달).
+        resolve_host = zdm_host
 
         # OS family 별 ZDM 메타 fetch — batch 안 OS 섞이면 OS 별 1 회씩 (캐시 효과 + 정합성).
         # detail.os_family None (Linux agent minor bump 전) → fallback "linux".

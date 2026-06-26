@@ -8,9 +8,9 @@
 # (sigstore 액션 버전·파일명 버그가 그렇게 늦게 드러난 적 있다). main 모드가 그 갈래까지 재현한다.
 #
 # 사용:
-#   dev/local-ci.sh --fast    # commit 전 빠른 회귀 (ruff + unit, docker 0)
-#   dev/local-ci.sh develop   # develop PR/push 대응 (+ hadolint·alembic·integration)
-#   dev/local-ci.sh main      # main PR/release 대응 (전부). 인자 없으면 main
+#   scripts/local-ci.sh --fast    # commit 전 빠른 회귀 (ruff + unit, docker 0)
+#   scripts/local-ci.sh develop   # develop PR/push 대응 (+ hadolint·alembic·integration)
+#   scripts/local-ci.sh main      # main PR/release 대응 (전부). 인자 없으면 main
 #
 # 모드 포함관계: fast ⊂ develop ⊂ main. 종료 코드: 실패 항목 있으면 1.
 

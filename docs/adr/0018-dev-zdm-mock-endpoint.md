@@ -1,6 +1,6 @@
 # ADR 0018: dev 한정 ZDM mock endpoint (web 컨테이너 재활용)
 
-Status: Accepted (2026-05-22)
+Status: Superseded by ADR 0045 (2026-06-26). 원: Accepted (2026-05-22)
 
 Refines: ADR 0016 (self-host install bundle 제거 + ZDM 본체 패키지 직접 fetch)
 

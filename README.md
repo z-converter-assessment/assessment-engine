@@ -4,7 +4,7 @@
 
 고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, web 이 수집된 데이터를 규칙 기반(USE Method right-sizing)으로 분석해 진단·보고서를 생성한다. 운영자는 web UI 에서 모니터링 화면·보고서·JSON Export·원격 설치 task 산출물을 활용해 다음 단계 의사결정을 진행한다.
 
-본 repo 는 엔진 자체 (애플리케이션 + 루트 docker-compose(prod base + dev override) + libvirt VM 매트릭스 등 `dev/` 격리 자산) 만 다룬다. 하드닝 prod 운영 (IaC — Terraform · Ansible 등 · systemd unit · k8s manifest) 은 본 repo 범위 밖 — 산출물·contract 를 외부 인프라에 통합.
+본 repo 는 엔진을 런타임에 띄우는 것까지만 다룬다 (애플리케이션 + 루트 docker-compose(prod base + dev override 핫리로드)). agent 가 붙는 VM·하드닝 prod 운영 (IaC — Terraform · Ansible 등 · systemd unit · k8s manifest) 은 본 repo 범위 밖 — 산출물·contract 를 외부 인프라에 통합.
 
 ---
 

@@ -33,8 +33,6 @@ docs/
 ├── development/           본 repo 안 dev 작업·코드 규약 (영구·갱신)
 │   ├── docker.md          Dockerfile·루트 docker-compose(prod base + dev override) 명세
 │   ├── dependencies.md    pyproject.toml + uv.lock 관리·운영자 수동 bump·CI drift 검증
-│   ├── pipeline.md        E2E 파이프라인 검증 + libvirt Linux 5 VM 매트릭스·합성 부하·provisioning (Linux x86_64)
-│   ├── windows-vm.md      Windows agent 검증 — libvirt Win Server 2022 autounattend VM (win-server-01, opt-in)
 │   ├── testing.md         pytest 단위·통합 테스트
 │   ├── conventions.md     본 repo 작업 규약 단일 — IDE·Hook(F1) + 자동화 변환 검증·누적 사고 패턴(F5)
 │   ├── wrap-up.md         기능 개발 마무리 5단계 표준 워크플로 — 문서 정합·코드 리뷰·테스트·README·CLAUDE.md (skill: /wrap-up)
