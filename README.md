@@ -112,9 +112,18 @@ semver tag `v*` push 시 릴리즈가 내놓는 산출물. 배포는 compose 기
 
 ---
 
-## 개발 환경 셋업 (IDE 자동완성·테스트·로컬 실행)
+## 개발 환경 (dev 기동 · IDE · 테스트)
 
-IDE (PyCharm·VS Code) 코드 탐색·자동완성·테스트 실행을 위한 의존성 설치. Docker compose 만 띄울 때는 불필요 — 컨테이너가 의존성을 갖고 있음. 전제: `uv` 0.4+.
+dev 는 핫리로드 compose 로 띄운다 — base `docker-compose.yml` 에 `docker-compose.override.yml`(소스 로컬 빌드 · `./src` bind mount · uvicorn/watchfiles reload · `APP_ENV=dev`)이 `docker compose` 명령에서 자동 머지된다.
+
+```bash
+cp env.dev.example .env && docker compose up -d   # web http://localhost:8000. 코드 수정은 컨테이너 restart 없이 반영
+docker compose down -v                            # 종료 (데이터 삭제)
+```
+
+의존성·볼륨·헬스체크·반영 매트릭스 상세: `docs/development/docker.md`. agent 가 붙는 VM 은 본 repo 범위 밖(OpenStack 공급).
+
+IDE (PyCharm·VS Code) 코드 탐색·자동완성·테스트 실행을 위한 의존성 설치 (위 compose 만 띄울 때는 불필요 — 컨테이너가 의존성을 갖고 있음). 전제: `uv` 0.4+.
 
 ```bash
 # 운영 의존성 + dev 그룹(pytest·ruff·hadolint·types) 모두 설치. uv 가 .venv/ 자동 생성·editable install.
@@ -167,9 +176,9 @@ docker compose up -d        # GHCR 이미지 pull. web http://localhost:8000
 | 디렉토리 | 용도 |
 |----------|------|
 | `docs/README.md` | 카테고리·파일 인덱스 — 어떤 문서를 언제 보는지 길잡이 |
-| `docs/development/` | 본 repo 안 dev 작업·코드 규약 (docker · dependencies · pipeline · testing · conventions) |
+| `docs/development/` | 본 repo 안 dev 작업·코드 규약 (docker · dependencies · testing · conventions · wrap-up · github-setup) |
 | `docs/operations/` | 외부 인프라가 활용할 contract (release · deployment · env · alembic · observability) |
 | `docs/products/` | 운영 산출물 의의·근거 (dashboard · 환경 보고서 · 서버 보고서 · JSON Export · Install task) |
 | `docs/architecture/` | 컴포넌트별 deep dive (agent · consumer · rabbitmq · redis · right-sizing · db · web) |
 | `docs/adr/` | Architecture Decision Records (0001~) — "왜 이렇게 결정했나" + 트레이드오프 |
-| `docs/tradeoffs.md` | 의식적 설계 선택과 한계 (T1~T15) |
+| `docs/tradeoffs.md` | 의식적 설계 선택과 한계 (T1~T17) |

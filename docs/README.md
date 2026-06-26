@@ -9,13 +9,13 @@
 | 시스템 한눈에 / 처음 진입 | 루트 `README.md` |
 | 결정된 규약·금지 사항·계층 책임 | `.claude/CLAUDE.md` |
 | 컴포넌트가 어떻게 동작하나 | `architecture/` |
-| 본 repo dev 작업·코드 규약 (Docker·dependencies·pipeline 검증·testing·conventions·wrap-up) | `development/` |
+| 본 repo dev 작업·코드 규약 (Docker·dependencies·testing·conventions·wrap-up·github-setup) | `development/` |
 | 기능 개발 마무리 5단계 표준 워크플로 | `development/wrap-up.md` |
 | 외부 인프라용 contract (deployment·env·alembic·observability·release) | `operations/` |
 | 본 repo CI · release(tag push) · branch protection 활성 (GitHub UI) | `development/github-setup.md` |
 | 운영 산출물별 의의·근거 (보고서·Install·Export 등) | `products/` |
 | 왜 그렇게 결정했나 | `adr/` |
-| 트레이드오프와 한계 (T1~T15) | `tradeoffs.md` |
+| 트레이드오프와 한계 (T1~T17) | `tradeoffs.md` |
 
 ## 디렉토리
 
@@ -50,7 +50,7 @@ docs/
 │   ├── json-export.md             JSON Export 의의·근거 (자동화 도구 입력)
 │   └── install-task.md            Install task 의의·근거 (원격 설치 워크플로)
 ├── adr/                   Architecture Decision Records (영구·불변, 0001~0039)
-└── tradeoffs.md           의식적 설계 선택과 한계 (T1~T15) — 카탈로그
+└── tradeoffs.md           의식적 설계 선택과 한계 (T1~T17) — 카탈로그
 ```
 
 ## 범위
