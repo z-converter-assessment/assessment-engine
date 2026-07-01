@@ -1,6 +1,6 @@
 # ADR 0044 — composite_id 재연결 (재부팅으로 composite_id 변동 시 동일 호스트 흡수)
 
-상태: Accepted (2026-06-24)
+상태: Superseded by 0049 (2026-07-01) — 이전 Accepted (2026-06-24)
 
 ## Context
 

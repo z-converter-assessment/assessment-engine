@@ -32,7 +32,8 @@ class Task(Base):
         PG_UUID(as_uuid=False), nullable=False, server_default=func.gen_random_uuid(), unique=True
     )
     target_server_id: Mapped[int] = mapped_column(Integer, ForeignKey("server_inventory.id"), nullable=False)
-    target_composite_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # 발행 대상 호스트 식별자 (agent_id UUID) — 감사·라우팅 대상 기록. MQ 큐/라우팅 키와 동일 값.
+    target_agent_id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), nullable=False, index=True)
 
     task_type: Mapped[str] = mapped_column(String(64), nullable=False)
     params: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

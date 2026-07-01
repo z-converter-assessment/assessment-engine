@@ -146,11 +146,13 @@ def build_report_summary_bullets(
     # 자원 부족 / 효율화 권장 줄 — KPI grid 에서 이미 카운트 노출. summary_bullets 에서 중복 제거 (사용자 의도).
 
     # 디스크 I/O 포화 신호 — OS별 정규화(disk_io_saturated: Linux iowait / Windows disk_queue). 디스크 병목 = 고객 의사결정 직결.
-    disk_sat_rows = [r for r in rows if recommendation.disk_io_saturated(build_resource_stats(r))]
-    if disk_sat_rows:
-        hosts = [r.hostname for r in disk_sat_rows][:3]
-        suffix = " 외" if len(disk_sat_rows) > 3 else ""
-        bullets.append(f"디스크 I/O 포화 {len(disk_sat_rows)}대 ({', '.join(hosts)}{suffix}) — 디스크 병목.")
+    # build_resource_stats 는 ReportRowRaw 필요(cpu_sufficiency 등 raw 축) — raws 있을 때만 산출 (OS EOL 신호와 동일 게이트).
+    if raws:
+        disk_sat_raws = [r for r in raws if recommendation.disk_io_saturated(build_resource_stats(r))]
+        if disk_sat_raws:
+            hosts = [r.hostname for r in disk_sat_raws][:3]
+            suffix = " 외" if len(disk_sat_raws) > 3 else ""
+            bullets.append(f"디스크 I/O 포화 {len(disk_sat_raws)}대 ({', '.join(hosts)}{suffix}) — 디스크 병목.")
 
     # Mount 임박 — _CAPACITY_IMMINENT_DAYS 안 채워질 마운트가 있는 서버 카운트
     n_mount = sum(

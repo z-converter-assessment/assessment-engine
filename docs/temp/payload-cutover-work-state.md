@@ -10,10 +10,11 @@
 - gateway: `InterfaceInfo.gateway`. `topology` 가 같은 서브넷·다른 gateway 를 분리(중복 사설 대역 disambiguation), null 안전(단일 gateway 서브넷 합류·모호 서브넷 제외).
 - collection_interval_sec: 필드 수용. sufficiency 는 5분 버킷(288/day) 기반이라 주기<=5분이면 무관 — 필드는 저장, 느린 주기 정밀화는 미배선.
 - `agent.md` 현행화(계약 흡수) + 교환 문서(요청/회신/결정) 삭제.
+- 식별키 agent_id 전환 (ADR 0049, item 4 완료): 엔진 식별·저장·MQ 라우팅을 composite_id 에서 불변 UUID `agent_id` 로. `server_inventory.agent_id` UNIQUE·`tasks.target_agent_id`, task.install 큐/라우팅 `agent.tasks.{agent_id}`, `_relink_rebooted_host` 제거. composite_id/machine_id 감사·표시용 nullable 강등. MessageBase 는 agent_id required(task.result nullable override). agent.md·CLAUDE.md(#C1·#D1·#E2·#F8)·architecture(consumer/models/repositories/layering/rabbitmq/redis/dtos/timescaledb)·ADR(0027·0044 supersede) 동기화 완료.
 
-## 마이그레이션 체인 (head `d7f9b1c3e5a2`)
+## 마이그레이션 체인 (head `e8b4d2f6a1c9`)
 
-`d1f3b5a7c2e4` -> `f2a4c6e8b1d3`(interfaces) -> `a1b3c5d7e9f2`(시계열 kind) -> `b4d6f8a0c2e3`(cagg kind 필터) -> `c5e7a9b1d3f4`(server_metrics saturation 컬럼) -> `d7f9b1c3e5a2`(server_metrics_5m cagg disk_queue).
+`d1f3b5a7c2e4` -> `f2a4c6e8b1d3`(interfaces) -> `a1b3c5d7e9f2`(시계열 kind) -> `b4d6f8a0c2e3`(cagg kind 필터) -> `c5e7a9b1d3f4`(server_metrics saturation 컬럼) -> `d7f9b1c3e5a2`(server_metrics_5m cagg disk_queue) -> `e8b4d2f6a1c9`(agent_id 식별 승격·composite_id 강등).
 
 ## 검증
 
@@ -21,6 +22,7 @@
 
 ## 남은 작업
 
-- item 4 (식별·라우팅 agent_id 전환): 에이전트 완료(worker 큐 `agent.tasks.{agent_id}`), 엔진 미완(현재 composite_id). 미완 시 task.install 배달 어긋남(수집은 정상). 엔진 짝 = consumer 식별·`task_service` 큐/라우팅·DB UNIQUE 를 agent_id 로 + ADR(0027/0044 supersede) + `_relink_rebooted_host` 제거.
 - item 2 값: 에이전트 `cpu_run_queue`/`mem_paging_rate` null(perflib 실기 검증 대기). 값 발행되면 엔진 cpu_saturation/mem_saturation 축 소비 추가 + 임계.
-- wrap-up(#F9): 테스트 작성, cutover ADR 신설, CLAUDE.md #B·#C·#E·#F 관련 동기화, 폐기 토큰(`ip_internal` 등 코드·문서) `rg` 0 검증, `right-sizing.md`(disk_queue 임계 `DISK_QUEUE_PER_DISK_SATURATION`) 갱신.
+- 통합/단위 테스트 정합 (agent_id 전환분): `test_collect_repository`(find_server_id 를 agent_id 기준으로, `_relink_rebooted_host` 테스트 제거·agent_id 불변 수렴 테스트로 대체, docstring), `test_task_queries`(target_composite_id -> target_agent_id, raw INSERT 포함), `test_query_repository`(find_server_id 호출 2곳), task.result wire payload agent_id. factory 는 `agent_id_for` 라벨 파생으로 정합 완료.
+- export identity(`web/services/mappers/export.py`·`docs/architecture/web/export-schema.md`)의 composite_id -> agent_id 승격 검토 (자동화 도구 계약 breaking 여부 판단 후).
+- wrap-up(#F9) 잔여: `right-sizing.md`(disk_queue 임계 `DISK_QUEUE_PER_DISK_SATURATION`) 갱신, 테스트 정합 후 pytest 실행 검증(사용자 요청 시).

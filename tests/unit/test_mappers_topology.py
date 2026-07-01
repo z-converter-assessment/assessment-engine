@@ -1,12 +1,14 @@
-"""네트워크 토폴로지 mapper — ip_internal CIDR -> subnet 공동소속 그래프 도출 검증.
+"""네트워크 토폴로지 mapper — 구조화 interfaces -> subnet 공동소속 그래프 도출 검증.
 
 build_network_topology 의 핵심 분기 회귀 가드:
   - 같은 network address 공유 -> subnet 노드 + host 엣지
   - 멀티홈(2+ subnet) host 표식
-  - 가상망 필터 3종: 동일 host IP 중복(docker 브리지), 단독 subnet, link-local/host route/prefix0
-  - IPv4 only (IPv6 제외), CIDR 파싱 실패 흡수
+  - 가상망 필터: kind!=physical 제외, 단독 subnet 제외, link-local/host route/prefix0 안전망 제외
+  - gateway disambiguation: 같은 CIDR 라도 서로 다른 gateway 면 분리
+  - IPv4 only (family=ipv6 제외), address 파싱 실패 흡수
   - isolated_count = 그래프 미포함 호스트
-입력은 duck-typed (public_id·hostname·os_family·ip_internal) — SimpleNamespace 로 최소 결합.
+입력은 duck-typed (public_id·hostname·os_family·interfaces) — SimpleNamespace 로 최소 결합.
+interfaces 는 구조화 dict [{name, address, prefix, family, kind, gateway}] (agent 공용 iface 분류기).
 """
 
 from types import SimpleNamespace
@@ -14,8 +16,20 @@ from types import SimpleNamespace
 from assessment_engine.web.services.mappers.topology import build_network_topology
 
 
-def _host(pid: str, name: str, os_family: str, ips: list[str]) -> SimpleNamespace:
-    return SimpleNamespace(public_id=pid, hostname=name, os_family=os_family, ip_internal=ips)
+def _iface(cidr: str, kind: str = "physical", gateway: str | None = None) -> dict:
+    """CIDR 문자열 -> 구조화 interface dict. family(ipv4/ipv6) 자동 판정, prefix 파싱 불가는 None.
+
+    테스트 편의 헬퍼 — agent 는 이미 구조화된 InterfaceInfo 를 발행하나, 케이스별 주소·kind·gateway 를
+    간결히 지정하려고 CIDR 문자열을 dict 로 변환한다.
+    """
+    addr, _, prefix_s = cidr.partition("/")
+    prefix = int(prefix_s) if prefix_s.isdigit() else None
+    family = "ipv6" if ":" in addr else "ipv4"
+    return {"name": "eth0", "address": addr, "prefix": prefix, "family": family, "kind": kind, "gateway": gateway}
+
+
+def _host(pid: str, name: str, os_family: str, ifaces: list[dict]) -> SimpleNamespace:
+    return SimpleNamespace(public_id=pid, hostname=name, os_family=os_family, interfaces=ifaces)
 
 
 def _subnet_ids(t) -> list[str]:
@@ -37,8 +51,8 @@ def test_empty_hosts():
 
 def test_shared_subnet_forms_hub_and_edges():
     hosts = [
-        _host("a", "hostA", "linux", ["10.0.1.10/24"]),
-        _host("b", "hostB", "linux", ["10.0.1.11/24"]),
+        _host("a", "hostA", "linux", [_iface("10.0.1.10/24")]),
+        _host("b", "hostB", "linux", [_iface("10.0.1.11/24")]),
     ]
     t = build_network_topology(hosts)
     assert t.has_data is True
@@ -50,9 +64,9 @@ def test_shared_subnet_forms_hub_and_edges():
 
 def test_multi_homed_host_spans_two_subnets():
     hosts = [
-        _host("a", "hostA", "linux", ["10.0.1.10/24"]),
-        _host("c", "hostC", "windows", ["10.0.1.12/24", "10.0.2.5/24"]),
-        _host("d", "hostD", "linux", ["10.0.2.6/24"]),
+        _host("a", "hostA", "linux", [_iface("10.0.1.10/24")]),
+        _host("c", "hostC", "windows", [_iface("10.0.1.12/24"), _iface("10.0.2.5/24")]),
+        _host("d", "hostD", "linux", [_iface("10.0.2.6/24")]),
     ]
     t = build_network_topology(hosts)
     assert _subnet_ids(t) == ["subnet:10.0.1.0/24", "subnet:10.0.2.0/24"]
@@ -63,11 +77,11 @@ def test_multi_homed_host_spans_two_subnets():
     assert t.multi_homed_count == 1
 
 
-def test_docker_bridge_dropped_by_duplicate_host_ip():
-    # docker0: 두 호스트 모두 게이트웨이 .1 을 주장 -> host-local 가상 -> 제외.
+def test_virtual_interface_dropped_by_kind():
+    # docker0(kind=bridge)는 가상 인터페이스라 kind 태그로 직접 제외 (physical 만 채택).
     hosts = [
-        _host("a", "hostA", "linux", ["10.0.1.10/24", "172.17.0.1/16"]),
-        _host("b", "hostB", "linux", ["10.0.1.11/24", "172.17.0.1/16"]),
+        _host("a", "hostA", "linux", [_iface("10.0.1.10/24"), _iface("172.17.0.1/16", kind="bridge")]),
+        _host("b", "hostB", "linux", [_iface("10.0.1.11/24"), _iface("172.17.0.1/16", kind="bridge")]),
     ]
     t = build_network_topology(hosts)
     assert _subnet_ids(t) == ["subnet:10.0.1.0/24"]
@@ -76,9 +90,9 @@ def test_docker_bridge_dropped_by_duplicate_host_ip():
 
 def test_singleton_subnet_dropped_and_host_isolated():
     hosts = [
-        _host("a", "hostA", "linux", ["10.0.1.10/24"]),
-        _host("b", "hostB", "linux", ["10.0.1.11/24"]),
-        _host("e", "hostE", "linux", ["192.168.50.9/24"]),  # 단독 -> isolated
+        _host("a", "hostA", "linux", [_iface("10.0.1.10/24")]),
+        _host("b", "hostB", "linux", [_iface("10.0.1.11/24")]),
+        _host("e", "hostE", "linux", [_iface("192.168.50.9/24")]),  # 단독 -> isolated
     ]
     t = build_network_topology(hosts)
     assert _subnet_ids(t) == ["subnet:10.0.1.0/24"]
@@ -88,10 +102,27 @@ def test_singleton_subnet_dropped_and_host_isolated():
 
 def test_ipv6_and_link_local_and_garbage_excluded():
     hosts = [
-        _host("a", "hostA", "linux", ["10.0.1.10/24"]),
-        _host("b", "hostB", "linux", ["10.0.1.11/24"]),
-        _host("c", "hostC", "windows", ["10.0.1.12/24", "fe80::1/64"]),  # IPv6 link-local 제외
-        _host("f", "hostF", "linux", ["169.254.1.1/16", "garbage", "10.0.1.99/32"]),  # 전부 제외 -> isolated
+        _host("a", "hostA", "linux", [_iface("10.0.1.10/24")]),
+        _host("b", "hostB", "linux", [_iface("10.0.1.11/24")]),
+        _host("c", "hostC", "windows", [_iface("10.0.1.12/24"), _iface("fe80::1/64")]),  # IPv6 family 제외
+        _host(
+            "f",
+            "hostF",
+            "linux",
+            [
+                _iface("169.254.1.1/16"),  # link-local 안전망 제외
+                # address 파싱 실패 (prefix 있어 ip_interface try/except 분기 진입) -> 흡수
+                {
+                    "name": "x",
+                    "address": "garbage",
+                    "prefix": 24,
+                    "family": "ipv4",
+                    "kind": "physical",
+                    "gateway": None,
+                },
+                _iface("10.0.1.99/32"),  # host route(/32) 제외
+            ],
+        ),  # 전부 제외 -> isolated
     ]
     t = build_network_topology(hosts)
     assert _subnet_ids(t) == ["subnet:10.0.1.0/24"]
@@ -103,20 +134,24 @@ def test_ipv6_and_link_local_and_garbage_excluded():
 def test_prefix_zero_excluded():
     # netmask 부재 폴백 prefix 0 (0.0.0.0/0) -> 전역 합쳐짐 방지 위해 제외.
     hosts = [
-        _host("a", "hostA", "linux", ["10.0.1.10/0"]),
-        _host("b", "hostB", "linux", ["10.0.1.11/0"]),
+        _host("a", "hostA", "linux", [_iface("10.0.1.10/0")]),
+        _host("b", "hostB", "linux", [_iface("10.0.1.11/0")]),
     ]
     t = build_network_topology(hosts)
     assert t.has_data is False
 
 
-def test_ipaddr_value_attribute_accepted():
-    # ip_internal 이 enrich 후 IpAddr(value=...) 라도 _cidr_str 가 흡수.
-    ipaddr_a = SimpleNamespace(value="10.0.1.10/24", is_ipv4=True)
-    ipaddr_b = SimpleNamespace(value="10.0.1.11/24", is_ipv4=True)
+def test_gateway_disambiguates_overlapping_subnet():
+    # 같은 CIDR(10.0.1.0/24) 라도 서로 다른 non-null gateway 면 다른 물리망으로 분리
+    # (사설 대역 중복 오병합 방지). gateway 별 그룹 각 2대+ 라 둘 다 생존.
     hosts = [
-        _host("a", "hostA", "linux", [ipaddr_a]),
-        _host("b", "hostB", "linux", [ipaddr_b]),
+        _host("a", "hostA", "linux", [_iface("10.0.1.10/24", gateway="10.0.1.1")]),
+        _host("b", "hostB", "linux", [_iface("10.0.1.11/24", gateway="10.0.1.1")]),
+        _host("c", "hostC", "linux", [_iface("10.0.1.12/24", gateway="10.0.1.254")]),
+        _host("d", "hostD", "linux", [_iface("10.0.1.13/24", gateway="10.0.1.254")]),
     ]
     t = build_network_topology(hosts)
-    assert _subnet_ids(t) == ["subnet:10.0.1.0/24"]
+    labels = sorted(e["data"]["label"] for e in t.elements if e["data"].get("kind") == "subnet")
+    assert labels == ["10.0.1.0/24 (via 10.0.1.1)", "10.0.1.0/24 (via 10.0.1.254)"]
+    assert t.subnet_count == 2
+    assert t.host_count == 4

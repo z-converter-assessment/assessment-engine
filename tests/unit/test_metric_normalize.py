@@ -29,10 +29,12 @@ def _metrics(**over) -> MetricsInput:
         "message_id": "00000000-0000-0000-0000-000000000001",
         "agent_version": "4.0.0",
         "hostname": "win-1",
+        "agent_id": "00000000-0000-4000-8000-000000000001",
         "composite_id": "z" + "0" * 63,
         "collected_at": datetime(2026, 5, 27, tzinfo=UTC),
         "boot_time": datetime(2026, 5, 1, tzinfo=UTC),
         "agent_started_at": datetime(2026, 5, 1, tzinfo=UTC),
+        "os_family": "windows",  # MessageBase required — swap clamp 는 Windows pagefile 방어 맥락.
     }
     base.update(over)
     return MetricsInput(**base)

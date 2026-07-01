@@ -1,7 +1,7 @@
 """원격 작업 발행 service — 운영자가 등록 호스트에 task.install 명령을 발행.
 
-흐름: web POST -> DB INSERT (이력) -> agent.tasks.<composite_id> 큐 declare (idempotent)
-      -> assessment.tasks exchange 에 task.install.<composite_id> routing key 로 publish.
+흐름: web POST -> DB INSERT (이력) -> agent.tasks.<agent_id> 큐 declare (idempotent)
+      -> assessment.tasks exchange 에 task.install.<agent_id> routing key 로 publish.
 원격 호스트의 worker 가 본 큐를 consume 해 install bundle fetch + 실행 후 task.result 발행.
 
 책임 경계:
@@ -263,7 +263,7 @@ class TaskService:
                     task_id = await repo.create_task(
                         TaskCreate(
                             target_server_id=server_id,
-                            target_composite_id=detail.composite_id,
+                            target_agent_id=detail.agent_id,
                             task_type=_TASK_TYPE_INSTALL,
                             params={
                                 "zdm_ip": zdm_ip,
@@ -282,11 +282,11 @@ class TaskService:
                 # publish-then-commit — 발행 성공 후에만 commit. 발행 실패 시 commit 하지 않고 async with 종료가
                 # task INSERT 를 rollback -> "메시지 없는 유령 pending" 방지 (dual-write 갭 축소).
                 try:
-                    await self._ensure_machine_queue(detail.composite_id)
+                    await self._ensure_machine_queue(detail.agent_id)
                     await self._publish_install(
                         exchange,
                         task_id,
-                        detail.composite_id,
+                        detail.agent_id,
                         zdm_host,
                         zdm_user,
                         sha256_hex,
@@ -303,22 +303,22 @@ class TaskService:
                 await session.commit()
 
             logger.info(
-                "task.install published task_id={} composite_id={} target={}",
+                "task.install published task_id={} agent_id={} target={}",
                 task_id,
-                detail.composite_id,
+                detail.agent_id,
                 public_id,
             )
             created.append(TaskCreated(target_public_id=public_id, task_id=task_id))
 
         return created
 
-    async def _ensure_machine_queue(self, composite_id: str) -> None:
+    async def _ensure_machine_queue(self, agent_id: str) -> None:
         """원격 호스트 전용 큐 declare. idempotent — 동일 인자 재선언 안전.
 
         worker 측은 declare 권한이 없어 engine 이 책임진다.
         """
-        queue_name = diagnostic_settings.agent_task_queue(composite_id)
-        routing_key = diagnostic_settings.task_install_routing_key(composite_id)
+        queue_name = diagnostic_settings.agent_task_queue(agent_id)
+        routing_key = diagnostic_settings.task_install_routing_key(agent_id)
         queue = await self.broker_channel.declare_queue(
             queue_name,
             durable=True,
@@ -335,7 +335,7 @@ class TaskService:
         self,
         exchange: aio_pika.abc.AbstractExchange,
         task_id: str,
-        composite_id: str,
+        agent_id: str,
         zdm_host: str,
         zdm_user: str,
         sha256_hex: str,
@@ -348,7 +348,7 @@ class TaskService:
         payload = {
             "message_type": "task.install",
             "task_id": task_id,
-            "composite_id": composite_id,
+            "agent_id": agent_id,
             "issued_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "download": {
                 "url": download_url,
@@ -368,7 +368,7 @@ class TaskService:
             content_type="application/json",
             message_id=str(uuid.uuid4()),
         )
-        routing_key = diagnostic_settings.task_install_routing_key(composite_id)
+        routing_key = diagnostic_settings.task_install_routing_key(agent_id)
         await exchange.publish(message, routing_key=routing_key)
 
 

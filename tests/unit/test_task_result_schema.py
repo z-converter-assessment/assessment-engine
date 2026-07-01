@@ -108,6 +108,26 @@ def test_composite_id_nullable_for_task_result() -> None:
     assert data.status == "success"
 
 
+def test_agent_id_nullable_for_task_result() -> None:
+    """ADR 0049 — worker 컨텍스트는 식별자 미산출. task.result 한정 agent_id nullable override.
+
+    다른 메시지 타입은 agent_id required. worker 는 결과를 task_id 로 매칭하므로 agent_id 생략 수용.
+    """
+    payload = make_task_result_payload()  # agent_id 미포함 (worker 발행 현실)
+    assert "agent_id" not in payload
+    data = _validate(payload)
+    assert data.agent_id is None
+    assert data.status == "success"
+
+
+def test_agent_id_value_accepted_for_task_result() -> None:
+    """agent_id 를 실어 보내도 UUID 로 파싱·수용 (nullable override 는 필수 완화일 뿐 값 배제 아님)."""
+    payload = make_task_result_payload()
+    payload["agent_id"] = "00000000-0000-4000-8000-0000000000c1"
+    data = _validate(payload)
+    assert str(data.agent_id) == "00000000-0000-4000-8000-0000000000c1"
+
+
 # ─── ADR 0007 4 ERROR 회귀 가드 ────────────────────────────────────────────
 
 

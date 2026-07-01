@@ -106,7 +106,7 @@ class ServerListItem:
 class ServerDetailResponse:
     id: int
     public_id: str
-    composite_id: str
+    composite_id: str | None  # 감사·표시용 (식별은 agent_id, URL 은 public_id)
     machine_id: str | None  # raw machine-id 표시 전용
     hostname: str
     agent_version: str | None

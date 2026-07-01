@@ -11,8 +11,8 @@
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | `message_type` | string | 본 문서 메시지 타입별 Literal |
-| `agent_id` | string (UUID v4) | 호스트 식별자 — 첫 실행 시 생성·영구 저장하는 UUID (MAC/machine_id 재발급과 무관하게 불변). agent worker 큐 키 (`agent.tasks.{agent_id}`). 엔진 식별키를 composite_id 에서 agent_id 로 옮기는 전환은 별도 ADR 대상 (현재 엔진은 composite_id 로 식별) |
-| `composite_id` | string max=64 | SHA-256(`machine_id` + 정렬·dedup MAC). 현재 엔진 식별·저장 키 (DB UNIQUE·URL public_id 매핑). `task.result` 한정 `null` 허용 (worker 컨텍스트 — `task_id` 로 매칭) |
+| `agent_id` | string (UUID v4) | 호스트 식별 단일 키 — 첫 실행 시 생성·영구 저장하는 UUID (MAC/machine_id 재발급과 무관하게 불변). 엔진 DB UNIQUE·MQ 큐/라우팅 (`agent.tasks.{agent_id}`) 단일 진실. `task.result` 한정 `null` 허용 (worker 컨텍스트 — `task_id` 로 매칭) |
+| `composite_id` | string\|null max=64 | SHA-256(`machine_id` + 정렬·dedup MAC). 감사·표시용 (clone collision 진단). 식별·라우팅 미사용 — nullable 저장. `task.result` 한정 `null` 허용 |
 | `machine_id` | string\|null max=64 | raw machine-id (Linux `/etc/machine-id`, Windows `MachineGuid`). 표시·감사 전용 |
 | `agent_version` | string max=32 | 발행 측 빌드 버전 (스키마 계약 버전 아님 — 릴리즈 정체성. 계약 변경은 필드/큐 구조로 표현) |
 | `collected_at` | datetime (ISO 8601 UTC) | 수집 시각 |
@@ -88,9 +88,8 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 
 라우팅:
 - Exchange: `assessment.tasks` (direct, durable, collector exchange 와 분리)
-- Routing key: `task.install.<composite_id>` — broker 가 해당 머신 전용 큐로만 배달
-- 수신 큐: `agent.tasks.<composite_id>` (durable, `x-message-ttl=3600000`, `x-max-length=100`, `x-overflow=reject-publish`). 큐는 엔진이 task 발행 시점에 동적 declare — 수신 측은 declare 권한 없음.
-- 식별 전환 (미완, ADR 대상): agent worker 는 `agent.tasks.{agent_id}` 를 구독한다. 엔진 라우팅·큐 declare 를 composite_id 에서 agent_id 로 옮기는 것이 짝 — 전환 완료 전까지 task.install 배달이 어긋난다 (수집은 정상).
+- Routing key: `task.install.<agent_id>` — broker 가 해당 머신 전용 큐로만 배달
+- 수신 큐: `agent.tasks.<agent_id>` (durable, `x-message-ttl=3600000`, `x-max-length=100`, `x-overflow=reject-publish`). 큐는 엔진이 task 발행 시점에 동적 declare — 수신 측은 declare 권한 없음.
 
 본 메시지는 엔진 발행이라 `MessageBase` 공통 메타와 별개로 다음 필드만 사용:
 
@@ -98,7 +97,7 @@ routing key `server.error`. 호스트 측 수집·발행 실패 보고.
 |------|------|------|
 | `message_type` | `"task.install"` | Literal |
 | `task_id` | string (UUID v4) | 작업 고유 ID. `task.result` 회신·중복 검출·로그 추적 키. 엔진의 `Task.public_id` 그대로 |
-| `composite_id` | string | 타겟 호스트 식별 (SHA-256 composite hash). 수신 큐 라우팅과 동일 값 |
+| `agent_id` | string (UUID) | 타겟 호스트 식별 (불변 UUID). 수신 큐 라우팅과 동일 값 |
 | `issued_at` | datetime (ISO 8601 UTC) | 발행 시각 |
 | `download.url` | string | HTTP/HTTPS URL. 운영자 입력 ZDM host + `ZDM_PACKAGE_PATH` env 로 엔진이 조립 (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`). agent 측 host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 통과 필요 |
 | `download.sha256` | string (hex 64) | 다운로드 파일 sha256. 엔진이 publish 직전 ZDM 에서 HEAD + (cache miss 시) GET full 로 동적 산출. ETag 기반 Redis cache (`HttpZdmPackageResolver`). ZDM 측 패키지 갱신 시 ETag 자동 변경 → cache miss → 자동 재계산 |
@@ -136,7 +135,7 @@ cache 동작:
 
 원격 호스트가 install 완료 시점(성공·실패 무관) 에 발행. routing key `task.result` -> 엔진 큐 `worker.result` (TTL 24h, max-length 100,000).
 
-본 메시지는 수집 컨텍스트와 분리된 worker 프로세스에서 발행되어 `composite_id` / `boot_time` / `agent_started_at` 가 `null` 가능 — 엔진은 `TaskResultInput` 에서 세 필드를 nullable override. 결과 매칭은 `task_id` 로 한다. `os_family` / `os_id` / `os_version` 은 양 OS worker 가 발행 (inventory 와 동일 소스) — 성공 보정 정책 매칭 키.
+본 메시지는 수집 컨텍스트와 분리된 worker 프로세스에서 발행되어 `agent_id` / `composite_id` / `boot_time` / `agent_started_at` 가 `null` 가능 — 엔진은 `TaskResultInput` 에서 네 필드를 nullable override. 결과 매칭은 `task_id` 로 한다. `os_family` / `os_id` / `os_version` 은 양 OS worker 가 발행 (inventory 와 동일 소스) — 성공 보정 정책 매칭 키.
 
 | 필드 | 타입 | 설명 |
 |------|------|------|

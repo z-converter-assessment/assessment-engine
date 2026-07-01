@@ -1,6 +1,6 @@
 # 설계 트레이드오프
 
-의식적 설계 선택과 그로 인한 한계 카탈로그 (T1~T15). 단순성·운영 비용·scope 기준 결정 — 버그 아님.
+의식적 설계 선택과 그로 인한 한계 카탈로그 (T1~T16). 단순성·운영 비용·scope 기준 결정 — 버그 아님.
 
 각 항목 형식: 선택 / 대안 / 트레이드오프 / 언제 다시 봐야 하는가.
 
@@ -316,20 +316,20 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ---
 
-## T12. server_inventory 호스트 식별 — `composite_id` 단독 UNIQUE (ADR 0027 정정)
+## T12. server_inventory 호스트 식별 — `agent_id` 단독 UNIQUE (ADR 0049 정정)
 
 > 관련 코드: `src/assessment_engine/db/models/server_inventory.py`, `src/assessment_engine/db/repositories/collect_repository.py`
 > 관련 문서: CLAUDE.md #C1, `docs/architecture/db/models.md`, `docs/architecture/agent.md`
-> 관련 migration: `migrations/versions/f5c1e2d3a4b8_inventory_composite_unique.py`
+> 관련 migration: `migrations/versions/e8b4d2f6a1c9_agent_id_identity.py`
 
-선택 (현행, ADR 0027)
-- `server_inventory` UNIQUE = `composite_id` 단독 (SHA-256(machine_id + 정렬·dedup MAC 들), agent v4 발행). machine_id 는 표시 전용 (nullable), hostname 은 display.
-- 식별 진화: ADR 0022 `host_id` 단독 -> (한때 `(host_id, hostname)` 복합 시도, migration `f5c1e2d3a4b8`) -> 0027 `composite_id` 단독. 복합 UNIQUE 방식은 폐기 — composite hash 가 clone 식별을 담당하면서 hostname 의존 제거. 아래 대안·트레이드오프 본문 중 복합 UNIQUE 논의는 그 이전 단계 기록.
+선택 (현행, ADR 0049)
+- `server_inventory` UNIQUE = `agent_id` 단독 (agent 가 첫 실행 시 생성·영구저장한 불변 UUID). `composite_id`(SHA-256(machine_id + 정렬·dedup MAC 들), nullable)·`machine_id`(raw, nullable) 는 clone collision 진단용 감사·표시 컬럼, hostname 은 display.
+- 식별 진화: ADR 0022 `host_id` 단독 -> (한때 `(host_id, hostname)` 복합 시도, migration `f5c1e2d3a4b8`) -> 0027 `composite_id` 단독 -> 0049 `agent_id` 단독. composite_id 는 부팅마다 NIC MAC 재발급(OpenStack Windows VM)으로 변동해 중복 행·재연결 로직(ADR 0044)이 필요했으나, 불변 agent_id 는 그 문제 자체를 제거 (재연결 불요). 아래 대안·본문 중 composite_id/복합 UNIQUE 논의는 그 이전 단계 기록.
 
-대안
-- agent_id 신설: agent 첫 install 시 UUID 생성 + `/var/lib/.../agent-id` 영구 저장. agent C source + payload schema 변경 (#B). 가장 정석이나 외부 repo 작업 부담.
+대안 (채택 안 함, 단 agent_id 는 결국 ADR 0049 로 채택)
 - hardware UUID (`/sys/class/dmi/id/product_uuid`) 우선 + machine-id fallback. VM clone 시 hardware UUID 도 동일 가능. agent 변경 필요.
 - 운영자 부여 server_id (install 시 운영자가 UUID 주입). install workflow 에 등록 step 추가.
+- composite_id 유지 + 재연결(ADR 0044): machine_id+hostname 으로 재부팅 변동을 흡수. clone(미sysprep) 오병합 위험 잔존. agent_id 도입으로 폐기.
 
 트레이드오프
 - 얻은 것:
@@ -450,21 +450,3 @@ agent 불변 전제의 최선 — 호스트 워크로드 union:
 - 생성 부하가 web 요청 처리를 압박하면 → consumer 큐 워커(옵션 B)로 분리(보고서 생성 도메인 계층 추출 동반).
 - orphan child 중복이 운영 이슈로 부상하면 → child 멱등(get_latest_succeeded_by_hash 재사용) 또는 parent 재처리 전 이전 child cleanup.
 - A2(aggregate/net 중복 제거)·A3(breakdown 배치)·A5(fan-out prefetch 배치)는 적용 완료 — child fan-out 의 raws·breakdown·details 를 배치 1회 조회(`build_child_prefetched_reports` -> `get_single_server_report(prefetch=)`). A4(trend)만 보류: cpu/mem/disk 가 다른 테이블이라 단일 SQL 불가, 서버별 시계열이라 배치 불가, gather 는 QueryService composition root 대수술 + 커넥션 3배 + B 백그라운드라 응답 ROI 0. trend·online redis 는 서버별 잔존.
-
-## T17. 미래 collected_at 수신 경계 보정 — D2 멱등성 2단 약화 (ADR 0041)
-
-무엇을
-- Windows 게스트 시계가 틀어진 메시지의 `collected_at` 을 수신 경계(`_correct_skewed_collected_at`)에서 `received_at` 으로 보정한다 (`abs(collected_at - now) > 5분`, 미래·과거 양방향 — ADR 0041 정정). `collected_at` 은 시계열 자연키(#C1 `UNIQUE(server_id, collected_at)`)라 보정이 멱등성에 영향.
-
-포기한 것 / 한계
-- 수신시각 기준 보정은 비결정적 — 같은 메시지 재처리 시 server now 가 달라 다른 `collected_at` 이 나온다. 즉 D2 2단(DB UNIQUE on_conflict_do_nothing)이 "동일 메시지 재전송"을 중복으로 못 잡을 수 있다(서로 다른 collected_at -> 두 행).
-- 과거 방향은 보정하지 않는다 — backlog 정상 지연을 오보정하지 않기 위한 의도적 비대칭(미래만 물리적으로 불가능).
-- `boot_time`·`agent_started_at` 은 미보정이라 보정된 행에서 `agent_started_at > collected_at` 잔여 — 의도적(부팅 내 불변 가정 보존), `_log_time_invariants` 가 시계이상으로 노출.
-
-왜 받아들였나
-- D2 1단(Redis `safe_set_nx(idempotent:{message_id}, 24h)`)이 재전송을 DB 도달 전에 흡수하므로, 2단이 흔들리는 건 "Redis 장애 + 재전송 + 시계불량" 동시 발생의 좁은 창뿐.
-- 그 좁은 노출 대비, 한 호스트의 미래 시각이 partition pruning·차트·right-sizing 윈도우를 전역 오염시키는 손해가 크다. 수신 경계가 진짜 UTC 를 아는 유일 지점이고 쿼리 시점엔 보정 불가.
-
-언제 다시 봐야 하는가
-- 게스트 시각 동기(NTP/`RealTimeIsUniversal`)가 인프라에서 해결되면 보정은 no-op 으로 남아 무해 — 방어선만 유지.
-- 멱등성 2단 약화가 실제 중복 행으로 관측되면 → 보정을 결정적으로(메시지 자체에서 파생 가능한 기준) 만들거나, 미래값을 보정 대신 reject(DLQ)로 전환.

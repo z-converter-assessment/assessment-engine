@@ -7,7 +7,7 @@ from typing import Literal
 class ServerSummary:
     id: int
     public_id: str
-    composite_id: str
+    composite_id: str | None  # 감사·표시용 (식별은 agent_id, URL 은 public_id)
     hostname: str
     os_id: str | None
     os_version: str | None
@@ -26,7 +26,8 @@ class ServerSummary:
 class ServerDetail:
     id: int
     public_id: str
-    composite_id: str
+    agent_id: str  # 식별 단일 키 (UUID) — task.install 라우팅 대상
+    composite_id: str | None  # 감사·표시용 (식별 미사용)
     machine_id: str | None  # raw machine-id 표시 전용
     hostname: str
     agent_version: str | None

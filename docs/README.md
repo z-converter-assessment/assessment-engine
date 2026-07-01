@@ -15,7 +15,7 @@
 | 본 repo CI · release(tag push) · branch protection 활성 (GitHub UI) | `development/github-setup.md` |
 | 운영 산출물별 의의·근거 (보고서·Install·Export 등) | `products/` |
 | 왜 그렇게 결정했나 | `adr/` |
-| 트레이드오프와 한계 (T1~T17) | `tradeoffs.md` |
+| 트레이드오프와 한계 (T1~T16) | `tradeoffs.md` |
 
 ## 디렉토리
 
@@ -50,7 +50,7 @@ docs/
 │   ├── json-export.md             JSON Export 의의·근거 (자동화 도구 입력)
 │   └── install-task.md            Install task 의의·근거 (원격 설치 워크플로)
 ├── adr/                   Architecture Decision Records (영구·불변, 0001~0039)
-└── tradeoffs.md           의식적 설계 선택과 한계 (T1~T17) — 카탈로그
+└── tradeoffs.md           의식적 설계 선택과 한계 (T1~T16) — 카탈로그
 ```
 
 ## 범위

@@ -87,7 +87,7 @@
     <dd>{{ si.last_seen_at | kst }}</dd>
     {% if view == "engineer" %}
     <dt>Composite ID</dt>
-    <dd style="word-break:break-all;">{{ si.composite_id }}</dd>
+    <dd style="word-break:break-all;">{{ si.composite_id | or_dash }}</dd>
     {% endif %}
   </dl>
   {% endif %}

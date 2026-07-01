@@ -23,21 +23,30 @@ from tests.factories import make_inventory, make_task_result_update
 pytestmark = pytest.mark.asyncio
 
 
-async def _setup_server(collect_repo: CollectRepository, composite_id: str = "test-task-host-01") -> int:
-    inv = make_inventory(composite_id=composite_id, hostname=composite_id)
+# 발행 대상 식별자 = agent_id (UUID). tasks.target_agent_id 는 UUID 컬럼이라 유효 UUID 형식 필수.
+_AGENT_A = "00000000-0000-4000-8000-0000000000b1"
+_AGENT_B = "00000000-0000-4000-8000-0000000000b2"
+
+
+async def _setup_server(
+    collect_repo: CollectRepository,
+    agent_id: str = _AGENT_A,
+    hostname: str = "test-task-host-01",
+) -> int:
+    inv = make_inventory(agent_id=agent_id, hostname=hostname)
     return await collect_repo.upsert_server(inv)
 
 
 async def _insert_task(
     collect_repo: CollectRepository,
     server_id: int,
-    composite_id: str,
+    agent_id: str,
     task_type: str = "zconverter_install",
 ) -> str:
     return await collect_repo.create_task(
         TaskCreate(
             target_server_id=server_id,
-            target_composite_id=composite_id,
+            target_agent_id=agent_id,
             task_type=task_type,
             params=None,
         )
@@ -49,7 +58,7 @@ async def _insert_task(
 
 async def test_complete_task_success(collect_repo: CollectRepository) -> None:
     sid = await _setup_server(collect_repo)
-    pid = await _insert_task(collect_repo, sid, "test-task-host-01")
+    pid = await _insert_task(collect_repo, sid, _AGENT_A)
 
     update = make_task_result_update(
         public_id=pid,
@@ -81,7 +90,7 @@ async def test_complete_task_success(collect_repo: CollectRepository) -> None:
 
 async def test_complete_task_failure_with_reason(collect_repo: CollectRepository) -> None:
     sid = await _setup_server(collect_repo)
-    pid = await _insert_task(collect_repo, sid, "test-task-host-01")
+    pid = await _insert_task(collect_repo, sid, _AGENT_A)
 
     update = make_task_result_update(
         public_id=pid,
@@ -120,7 +129,7 @@ async def test_get_task_by_public_id_joins_server(
     query_repo: QueryRepository,
 ) -> None:
     sid = await _setup_server(collect_repo)
-    pid = await _insert_task(collect_repo, sid, "test-task-host-01")
+    pid = await _insert_task(collect_repo, sid, _AGENT_A)
     await collect_repo.complete_task(
         make_task_result_update(
             public_id=pid,
@@ -153,7 +162,7 @@ async def test_list_recent_tasks_orders_by_created_desc(
     query_repo: QueryRepository,
 ) -> None:
     sid = await _setup_server(collect_repo)
-    pids = [await _insert_task(collect_repo, sid, "test-task-host-01", task_type=f"t-{i}") for i in range(3)]
+    pids = [await _insert_task(collect_repo, sid, _AGENT_A, task_type=f"t-{i}") for i in range(3)]
     await collect_repo.session.flush()
 
     rows = await query_repo.list_recent_tasks(sid, limit=10, cursor=None)
@@ -173,10 +182,10 @@ async def test_list_recent_tasks_cursor_pagination(
     for i in range(5):
         await collect_repo.session.execute(
             text("""
-            INSERT INTO tasks (target_server_id, target_composite_id, task_type, status, created_at)
-            VALUES (:sid, :mid, :tt, 'success', :ts)
+            INSERT INTO tasks (target_server_id, target_agent_id, task_type, status, created_at)
+            VALUES (:sid, :aid, :tt, 'success', :ts)
         """),
-            {"sid": sid, "mid": "test-task-host-01", "tt": f"cursor-t-{i}", "ts": base + timedelta(seconds=i)},
+            {"sid": sid, "aid": _AGENT_A, "tt": f"cursor-t-{i}", "ts": base + timedelta(seconds=i)},
         )
     await collect_repo.session.flush()
 
@@ -196,12 +205,12 @@ async def test_latest_tasks_by_servers_distinct_on(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ) -> None:
-    s1 = await _setup_server(collect_repo, composite_id="test-task-host-A")
-    s2 = await _setup_server(collect_repo, composite_id="test-task-host-B")
+    s1 = await _setup_server(collect_repo, agent_id=_AGENT_A, hostname="test-task-host-A")
+    s2 = await _setup_server(collect_repo, agent_id=_AGENT_B, hostname="test-task-host-B")
 
-    await _insert_task(collect_repo, s1, "test-task-host-A", task_type="t-old")
-    p1_new = await _insert_task(collect_repo, s1, "test-task-host-A", task_type="t-new")
-    p2_only = await _insert_task(collect_repo, s2, "test-task-host-B", task_type="t-only")
+    await _insert_task(collect_repo, s1, _AGENT_A, task_type="t-old")
+    p1_new = await _insert_task(collect_repo, s1, _AGENT_A, task_type="t-new")
+    p2_only = await _insert_task(collect_repo, s2, _AGENT_B, task_type="t-only")
     await collect_repo.session.flush()
 
     latest = await query_repo.latest_tasks_by_servers([s1, s2])

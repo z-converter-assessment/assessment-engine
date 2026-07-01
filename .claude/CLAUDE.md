@@ -18,7 +18,7 @@
 | `docs/operations/` | 외부 인프라가 활용할 contract (deployment·env·alembic·observability·release) | 영구·갱신 |
 | `docs/products/` | 운영 산출물별 존재 의의·근거 (dashboard·환경 보고서·서버 보고서·JSON Export·Install task) | 영구·갱신 |
 | `docs/adr/` | Architecture Decision Records — "왜 이렇게 결정했나" + 트레이드오프. ADR은 정정만, 덮어쓰기 금지 | 영구·불변 |
-| `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T15) | 영구·갱신 |
+| `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T16) | 영구·갱신 |
 
 그 외 명시되지 않은 경로의 문서는 코드·영구 문서에서 인용 금지.
 
@@ -67,8 +67,8 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 - 시계열 5개 테이블 자연키 UNIQUE 보존 의무 — 누락 시 #D2 멱등성 2단 방어 깨짐. 모델 변경 시 검증 필수.
 - 시계열 4개 테이블 `boot_time` + `agent_started_at` 컬럼 보존 의무 — counter reset 정밀 식별 (#B 동일 진실).
 - `server_inventory.public_id` (UUID) URL 식별자 — 정수 PK 노출 금지 (#E4).
-- `server_inventory` 식별 분리 (ADR 0022 -> 0027 정정, agent v4): `id bigint PK` (FK 대상) / `composite_id varchar(64) UNIQUE` (agent 매칭·식별 단일 키 — SHA-256 composite hash) / `machine_id varchar(64)` (raw machine-id 표시 전용, nullable — 평시 식별·라우팅 미사용) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{composite_id}` / routing key `task.install.{composite_id}`.
-- composite_id 재연결 (ADR 0044): inventory upsert 시 composite_id 미등록이면 `_relink_rebooted_host`(machine_id + hostname 일치, 후보 정확히 1개)가 기존 행 composite_id 를 re-point — 부팅마다 NIC MAC 재발급(OpenStack Windows VM)으로 composite_id 가 바뀌는 같은 VM 의 중복 행 흡수(server_id·시계열·history 보존). machine_id 는 평시 식별 미사용이나 본 fallback 한정 키. 후보 0/2+ (모호한 clone)면 미연결(오병합 방지). MAC 은 부팅마다 변동이라 매칭 미사용.
+- `server_inventory` 식별 분리 (ADR 0022 -> 0027 -> 0049 정정): `id bigint PK` (FK 대상) / `agent_id UUID UNIQUE` (agent 매칭·식별·라우팅 단일 키 — 첫 실행 시 생성·영구저장한 불변 UUID) / `composite_id varchar(64)` (SHA-256 composite hash, 감사·표시용 nullable — 식별·라우팅 미사용) / `machine_id varchar(64)` (raw machine-id 표시 전용, nullable) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{agent_id}` / routing key `task.install.{agent_id}`.
+- 식별키 agent_id 불변 (ADR 0049, 0044 supersede): agent_id 는 첫 실행 시 1회 생성·영구저장되어 부팅 무관 불변 — 부팅마다 NIC MAC 재발급(OpenStack Windows VM)으로 composite_id 가 바뀌던 중복 행 문제 자체가 사라진다. 동일 agent_id 가 자연히 같은 행을 upsert 하므로 `_relink_rebooted_host`(machine_id+hostname 재연결) 제거. composite_id/machine_id 는 clone collision 진단용 감사 컬럼으로만 잔존.
 - `diagnostic_jobs.job_type` (`customer_report`/`engineer_report` 둘만) + active partial UNIQUE = `(scope, input_hash, job_type)`. 발행 시점 정적 스냅샷을 `result` JSONB 에 보존. customer/engineer 모두 비동기 생성 (pending -> 워커 claim·running -> succeeded/failed, ADR 0040). status·progress_stage·started_at·error_message + active partial UNIQUE 가 비동기 상태머신.
 - 보고서 발행 = 정적 스냅샷 (요구: 발행 시점 데이터 그대로 보관, 이력 동적변화 0). POST `/reports/environment/emit` · `/reports/servers/emit` 가 `enqueue_report` 로 parent job 을 pending enqueue 후 즉시 `?job={id}` 반환(생성 안 함, 더블클릭은 active UNIQUE 로 기존 job 합류). web lifespan 의 job-claim 워커(`report_worker.py`)가 `claim_pending`(FOR UPDATE SKIP LOCKED) -> `report_generator.build_report_result_for_job`(발행 시점 ViewModel 생성·`report_serializer` 직렬화) -> `result` JSONB(`{kind,snapshot,view,aux}`) 저장 + succeeded (생성 불가 시 failed, ADR 0040). 응답 view_url=`?job={id}` — JS navigate. GET `?job={id}` 는 succeeded 면 저장된 스냅샷 정적 렌더(재계산 0), pending/running 이면 진행 화면 + `report-poll.js` 폴링(`GET /reports/{job}/status`) -> 완료 시 reload, failed 면 안내(`reports/report_pending.html`). 환경 보고서(`/reports/environment`)는 job 없는 GET 이 컨트롤만(양식·윈도우·앵커 select + 발행 버튼) 노출. server scope(`/reports/servers`)는 job 없는 GET 이 read-only live preview (진단 트리거 없음). result 구조 단일 진실 = `diagnostic.report_result`.
 - 양식 통일: server scope 단일/N대 모두 환경 보고서 양식 (`EnvironmentReportSummary`, kind=env_report) 공유. N대 selection (`servers/report.html`) = 환경 보고서 본문 공유 partial (`reports/_env_report_body.html`, environment.html 과 단일 진실) + 하단 세부 서버 목록 표 (`show_report_link` selection 한정 — 환경 보고서는 세부 서버 목록 미표시, 500대 인쇄 폭주 회피, 조치 대상은 효율화/리소스 부족 표가 담당). 단일 1대 (`servers/single_report.html`) 는 customer high-level / engineer 심화 (1대 deep-dive — N대 비교 표엔 없는 CPU 분류·메모리 구성·마운트별 스토리지 전개; 단일 전용 필드 `server_inventory`·`volumes`·`memory_breakdown`·`cpu_breakdown` 는 selection·환경에서 None/빈 list, repo `report_cpu_breakdown`·`report_memory_breakdown`·`report_mount_usage` per server_id). 환경 (`reports/environment.html`) 은 high-level. selection ViewModel = `query_service.get_selection_report(server_ids)` (단일은 N=1 동치, 평균 활용률은 `environment_utilization` 을 server_ids 로 N대 한정 호출 — 전체 환경과 동일 capacity-weighted SQL, attention 은 N대 호스트 필터). `report_summary` 단독 표 양식·kind 폐기. `/reports/servers/emit` 은 ids 1개면 단일, 2개+ 면 selection.
@@ -112,7 +112,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 
 ## D1. 구조·후처리·실패 처리
 
-aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸들러 팩토리 · `composite_id` 단일 키 식별 (#C1) · `ensure_server_id` placeholder 분기 · auto-register · `_db_retry` 백오프 · routing key별 후처리 시퀀스 · 부가 시그널(`_log_time_invariants`·`_track_agent_restart`) · 실패 분기·DLQ 운영: `docs/architecture/consumer.md` 단일 진실.
+aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸들러 팩토리 · `agent_id` 단일 키 식별 (#C1) · `ensure_server_id` placeholder 분기 · auto-register · `_db_retry` 백오프 · routing key별 후처리 시퀀스 · 부가 시그널(`_log_time_invariants`·`_track_agent_restart`) · 실패 분기·DLQ 운영: `docs/architecture/consumer.md` 단일 진실.
 
 본 절 결정:
 - 모든 후처리는 `safe_*` helper 경유(#C3) — 부수 작업 실패가 메시지 처리 ack를 막지 않는다.
@@ -162,7 +162,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 ## E2. 데이터 흐름 결정
 
 - DTO(dataclass)와 ORM 모델 분리 — 변환은 repository 책임.
-- inventory upsert·metrics 저장·server_id 조회 모두 `composite_id` 단일 키 기준 (#C1). 미등록 metrics는 drop.
+- inventory upsert·metrics 저장·server_id 조회 모두 `agent_id` 단일 키 기준 (#C1). 미등록 metrics는 drop.
 - `last_seen_at`은 `ServerDetail`(단일 조회)에만 포함. `ServerSummary`(목록)는 Redis `online:{id}` TTL로 표시.
 - `CollectionStatusItem`은 `last_metric_at` + `last_inventory_at` 별도 필드.
 - `ip_internal`은 CIDR 표기 문자열 raw 저장(agent v3.4+, #B). 인바운드는 `ip_interface` 형식 검증만(bare·CIDR 호환). 표시 파생은 `mappers/server._to_ip_addrs`(`ip_interface` 파싱)와 대시보드 네트워크 토폴로지(`mappers/topology.build_network_topology`)에서 — L3 subnet 공동소속 추론 그래프(노드=subnet/host, 가상망·IPv6·단독 subnet 제외). 추론이라 실측 reachability 아님 — 한계는 caveat 노출(#E9). Cytoscape.js(vendored)로 렌더, 자동갱신 fragment 안이라 swap 후 재초기화.
@@ -331,7 +331,7 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 - 시그널 로그(`_log_time_invariants`·`_track_agent_restart`)는 쿨다운·슬라이딩 윈도우 의무 — 매 메시지 발생 시 진짜 시그널 매몰.
 - 새 시그널 도입 시 (a) 레벨 (b) 빈도 제어 (c) 운영자 행동 — 셋 다 명시.
 
-금지: payload·secret raw dump — 식별자(composite_id·routing key·message_id·server_id)와 카운트만.
+금지: payload·secret raw dump — 식별자(agent_id·composite_id·routing key·message_id·server_id)와 카운트만.
 
 로그 format: `LOG_FORMAT` env 분기 — `text`(dev colorized) 또는 `json`(prod, loguru `serialize=True`). 각 entry(web/consumer)가 기동 직후 `setup_logging(settings.log_format)` 호출. 단일 진실은 `src/assessment_engine/log_config.py`.
 
@@ -347,7 +347,7 @@ Request/Correlation ID 분산 trace 도입 트리거·정석 패턴: `docs/opera
 - 예외 메시지에 raw payload·접속 문자열 — catch 후 sanitize 후 reraise.
 - HTTP 응답·ViewModel·JSON export에 PII. 운영 식별자는 `public_id`(UUID)만(#E4).
 - Redis·DB에 raw payload 캐싱 — Outbound DTO·ViewModel 단계에서 sanitize 후.
-- 메시지 payload 본문 로깅 (`composite_id`는 식별자라 OK).
+- 메시지 payload 본문 로깅 (`agent_id`·`composite_id`는 식별자라 OK).
 
 secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/env.md`.
 

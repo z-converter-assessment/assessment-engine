@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
     broker_channel = await broker_conn.channel()
 
     # 원격 작업 발행용 exchange. 동일 인자 재선언은 idempotent — consumer 가 먼저 declare 해도 안전.
-    # agent.tasks.<composite_id> 머신별 큐는 task.install 발행 시점에 TaskService 가 동적 declare.
+    # agent.tasks.<agent_id> 머신별 큐는 task.install 발행 시점에 TaskService 가 동적 declare.
     await broker_channel.declare_exchange(
         diagnostic_settings.rabbitmq_task_exchange,
         aio_pika.ExchangeType.DIRECT,

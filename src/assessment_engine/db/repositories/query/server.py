@@ -90,6 +90,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
         return ServerDetail(
             id=r.id,
             public_id=r.public_id,
+            agent_id=r.agent_id,
             composite_id=r.composite_id,
             machine_id=r.machine_id,
             hostname=r.hostname,

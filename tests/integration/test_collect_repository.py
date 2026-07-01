@@ -2,7 +2,7 @@
 
 각 테스트는 db_session이 function-scope이라 transaction rollback으로 격리.
 테스트 시나리오:
-- upsert_server (C — DRY): 멱등 INSERT, composite_id UNIQUE
+- upsert_server (C — DRY): 멱등 INSERT, agent_id UNIQUE
 - find_server_id: 존재/미존재
 - ensure_server_id (D — facade): auto_registered 플래그
 - record_metrics (A — 분리, F — MetricInsertResult 반환):
@@ -31,7 +31,7 @@ pytestmark = pytest.mark.asyncio
 
 
 async def test_upsert_server_inserts_new(collect_repo: CollectRepository):
-    inv = make_inventory(composite_id="mid-001", hostname="h1")
+    inv = make_inventory(agent_id="00000000-0000-4000-8000-000000000001", hostname="h1")
     server_id = await collect_repo.upsert_server(inv)
     assert server_id > 0
 
@@ -40,8 +40,12 @@ async def test_upsert_server_stores_machine_id(
     collect_repo: CollectRepository,
     db_session,
 ):
-    """machine_id 표시 컬럼 저장 (ADR 0027) — composite_id 식별과 별개, 표시 전용 nullable."""
-    inv = make_inventory(composite_id="mid-mach", machine_id="raw-machine-xyz", hostname="h")
+    """machine_id 표시 컬럼 저장 (ADR 0027) — agent_id 식별과 별개, 표시 전용 nullable."""
+    inv = make_inventory(
+        agent_id="00000000-0000-4000-8000-000000000002",
+        machine_id="raw-machine-xyz",
+        hostname="h",
+    )
     sid = await collect_repo.upsert_server(inv)
     machine_id = (
         await db_session.execute(
@@ -56,49 +60,52 @@ async def test_upsert_server_overwrites_fields_on_conflict(
     collect_repo: CollectRepository,
     db_session,
 ):
-    """ON CONFLICT DO UPDATE — 같은 (composite_id, hostname) 의 다른 필드가 덮어씀."""
-    inv1 = make_inventory(composite_id="mid-003", hostname="srv-a", cpu_cores=4)
-    inv2 = make_inventory(composite_id="mid-003", hostname="srv-a", cpu_cores=16)
+    """ON CONFLICT DO UPDATE — 같은 agent_id 의 다른 필드가 덮어씀."""
+    aid = "00000000-0000-4000-8000-000000000003"
+    inv1 = make_inventory(agent_id=aid, hostname="srv-a", cpu_cores=4)
+    inv2 = make_inventory(agent_id=aid, hostname="srv-a", cpu_cores=16)
     await collect_repo.upsert_server(inv1)
     await collect_repo.upsert_server(inv2)
 
     row = (
         await db_session.execute(
-            text("SELECT cpu_cores FROM server_inventory WHERE composite_id = :m AND hostname = :h"),
-            {"m": "mid-003", "h": "srv-a"},
+            text("SELECT cpu_cores FROM server_inventory WHERE agent_id = :a"),
+            {"a": aid},
         )
     ).one()
     assert row.cpu_cores == 16
 
 
-async def test_upsert_server_same_composite_id_converges_to_single_row(
+async def test_upsert_server_same_agent_id_converges_across_reboot(
     collect_repo: CollectRepository,
     db_session,
 ):
-    """composite_id 단일 UNIQUE 키 — 같은 composite_id 면 hostname 이 달라도 한 row 로 수렴 (ADR 0022).
+    """agent_id 단일 UNIQUE 키 — 같은 agent_id 면 composite_id·hostname 이 바뀌어도 한 row 로 수렴 (ADR 0049).
 
-    composite_id 는 primary MAC + /etc/machine-id 합성 SHA-256 이라 호스트마다 고유.
-    hostname 은 display(non-UNIQUE)라 같은 composite_id 로 다른 hostname 이 와도 동일 row 의
-    hostname 만 갱신 — 별도 row 생성 안 함.
+    agent_id 는 첫 실행 시 생성·영구저장한 불변 UUID. 재부팅으로 NIC MAC 재발급 -> composite_id 가
+    바뀌어도(OpenStack Windows VM) 같은 agent_id 라 동일 row 의 composite_id·hostname 만 갱신 —
+    별도 row 생성 안 함. 옛 _relink_rebooted_host 재연결(machine_id+hostname) 불요 (ADR 0044 supersede).
     """
-    inv1 = make_inventory(composite_id="mid-dup", hostname="host-a", cpu_cores=4)
-    inv2 = make_inventory(composite_id="mid-dup", hostname="host-b", cpu_cores=8)
+    aid = "00000000-0000-4000-8000-000000000004"
+    inv1 = make_inventory(agent_id=aid, composite_id="reboot-A", hostname="host-a", cpu_cores=4)
+    inv2 = make_inventory(agent_id=aid, composite_id="reboot-B", hostname="host-b", cpu_cores=8)
     sid1 = await collect_repo.upsert_server(inv1)
     sid2 = await collect_repo.upsert_server(inv2)
-    assert sid1 == sid2
+    assert sid1 == sid2  # 같은 agent_id -> server_id(시계열 FK·history) 보존
 
-    hostname = (
+    row = (
         await db_session.execute(
-            text("SELECT hostname FROM server_inventory WHERE composite_id = :m"),
-            {"m": "mid-dup"},
+            text("SELECT hostname, composite_id FROM server_inventory WHERE agent_id = :a"),
+            {"a": aid},
         )
-    ).scalar_one()
-    assert hostname == "host-b"  # 마지막 upsert 의 hostname 으로 갱신
+    ).one()
+    assert row.hostname == "host-b"  # 마지막 upsert 값으로 갱신
+    assert row.composite_id == "reboot-B"
 
     count = (
         await db_session.execute(
-            text("SELECT COUNT(*) FROM server_inventory WHERE composite_id = :m"),
-            {"m": "mid-dup"},
+            text("SELECT COUNT(*) FROM server_inventory WHERE agent_id = :a"),
+            {"a": aid},
         )
     ).scalar_one()
     assert count == 1
@@ -108,63 +115,53 @@ async def test_upsert_server_same_composite_id_converges_to_single_row(
 
 
 async def test_find_server_id_existing(collect_repo: CollectRepository):
-    sid = await collect_repo.upsert_server(make_inventory(composite_id="mid-find-1", hostname="h"))
-    assert await collect_repo.find_server_id("mid-find-1") == sid
+    aid = "00000000-0000-4000-8000-000000000011"
+    sid = await collect_repo.upsert_server(make_inventory(agent_id=aid, hostname="h"))
+    assert await collect_repo.find_server_id(aid) == sid
 
 
 async def test_find_server_id_missing(collect_repo: CollectRepository):
-    assert await collect_repo.find_server_id("mid-does-not-exist") is None
+    # 미존재 agent_id — UUID 컬럼이라 유효 UUID 형식 (비-UUID 문자열은 DataError).
+    assert await collect_repo.find_server_id("00000000-0000-4000-8000-0000000000ff") is None
 
 
-async def test_find_server_id_distinct_composite_ids_isolated(
+async def test_find_server_id_distinct_agent_ids_isolated(
     collect_repo: CollectRepository,
 ):
-    """서로 다른 composite_id 는 각각 다른 server_id 로 격리 (composite_id 단일 UNIQUE 매칭)."""
-    sid_a = await collect_repo.upsert_server(make_inventory(composite_id="mid-iso-a", hostname="a"))
-    sid_b = await collect_repo.upsert_server(make_inventory(composite_id="mid-iso-b", hostname="b"))
-    assert await collect_repo.find_server_id("mid-iso-a") == sid_a
-    assert await collect_repo.find_server_id("mid-iso-b") == sid_b
+    """서로 다른 agent_id 는 각각 다른 server_id 로 격리 (agent_id 단일 UNIQUE 매칭)."""
+    aid_a = "00000000-0000-4000-8000-000000000012"
+    aid_b = "00000000-0000-4000-8000-000000000013"
+    sid_a = await collect_repo.upsert_server(make_inventory(agent_id=aid_a, hostname="a"))
+    sid_b = await collect_repo.upsert_server(make_inventory(agent_id=aid_b, hostname="b"))
+    assert await collect_repo.find_server_id(aid_a) == sid_a
+    assert await collect_repo.find_server_id(aid_b) == sid_b
     assert sid_a != sid_b
 
 
-# ─── _relink_rebooted_host (재부팅으로 composite_id 변동 → 동일 호스트 재연결) ──────────
+# ─── clone 격리 (같은 machine_id+hostname, 다른 agent_id) ───────────────────
 
 
-async def test_upsert_server_relinks_rebooted_host(
+async def test_different_agent_id_same_machine_id_hostname_isolated(
     collect_repo: CollectRepository,
-    db_session,
 ):
-    """machine_id+hostname 동일 + composite_id 미등록 = 재부팅으로 composite_id 가 바뀐 동일 VM.
+    """agent_id 가 다르면 machine_id·hostname 이 같아도 별개 행 — clone(미sysprep) 오병합 방지.
 
-    새 행 생성 대신 기존 행의 composite_id 를 새 값으로 re-point — server_id(식별·시계열 FK·history) 보존.
+    옛 모델은 machine_id+hostname 으로 재연결했으나(ADR 0044 _relink_rebooted_host), agent_id 불변
+    UUID 는 clone 마다 고유해 오병합 위험 자체가 없다 — 재연결 로직 없이 자연 격리 (ADR 0049).
     """
     sid_a = await collect_repo.upsert_server(
-        make_inventory(composite_id="reboot-A", machine_id="mid-reboot", hostname="hostR")
-    )
-    sid_b = await collect_repo.upsert_server(
-        make_inventory(composite_id="reboot-B", machine_id="mid-reboot", hostname="hostR")
-    )
-    assert sid_b == sid_a  # 같은 행 재연결 (새 server_id 발급 안 함)
-
-    rows = (
-        await db_session.execute(
-            text("SELECT composite_id FROM server_inventory WHERE machine_id = 'mid-reboot'")
+        make_inventory(
+            agent_id="00000000-0000-4000-8000-000000000021",
+            machine_id="mid-clone",
+            hostname="same-host",
         )
-    ).all()
-    assert len(rows) == 1  # 행 1개 (중복 0)
-    assert rows[0].composite_id == "reboot-B"  # 최신 composite_id 로 갱신
-    assert await collect_repo.find_server_id("reboot-B") == sid_a
-
-
-async def test_upsert_server_no_relink_when_machine_id_differs(
-    collect_repo: CollectRepository,
-):
-    """hostname 같아도 machine_id 다르면 재연결 안 함 — 서로 다른 VM(클론 등) 오병합 방지."""
-    sid_a = await collect_repo.upsert_server(
-        make_inventory(composite_id="clone-A", machine_id="mid-clone-1", hostname="same-host")
     )
     sid_b = await collect_repo.upsert_server(
-        make_inventory(composite_id="clone-B", machine_id="mid-clone-2", hostname="same-host")
+        make_inventory(
+            agent_id="00000000-0000-4000-8000-000000000022",
+            machine_id="mid-clone",
+            hostname="same-host",
+        )
     )
     assert sid_b != sid_a  # 별개 행
 
@@ -175,9 +172,10 @@ async def test_upsert_server_no_relink_when_machine_id_differs(
 async def test_ensure_server_id_auto_registers_when_missing(
     collect_repo: CollectRepository,
 ):
-    """(composite_id, hostname) 미등록 시 fallback inventory로 INSERT, auto_registered=True."""
-    fallback = make_inventory(composite_id="mid-ensure-1", hostname="placeholder")
-    server_id, auto = await collect_repo.ensure_server_id("mid-ensure-1", fallback)
+    """agent_id 미등록 시 fallback inventory로 INSERT, auto_registered=True."""
+    aid = "00000000-0000-4000-8000-000000000031"
+    fallback = make_inventory(agent_id=aid, hostname="placeholder")
+    server_id, auto = await collect_repo.ensure_server_id(aid, fallback)
     assert server_id > 0
     assert auto is True
 
@@ -187,14 +185,12 @@ async def test_ensure_server_id_uses_existing_without_fallback(
     db_session,
 ):
     """기존 server_id 사용. fallback은 미사용 — 데이터가 fallback 값으로 덮이지 않음."""
-    real = make_inventory(composite_id="mid-ensure-2", hostname="real-host", cpu_cores=8)
+    aid = "00000000-0000-4000-8000-000000000032"
+    real = make_inventory(agent_id=aid, hostname="real-host", cpu_cores=8)
     sid_real = await collect_repo.upsert_server(real)
 
-    fallback = make_inventory(composite_id="mid-ensure-2", hostname="real-host", cpu_cores=1)
-    sid_ensured, auto = await collect_repo.ensure_server_id(
-        "mid-ensure-2",
-        fallback,
-    )
+    fallback = make_inventory(agent_id=aid, hostname="real-host", cpu_cores=1)
+    sid_ensured, auto = await collect_repo.ensure_server_id(aid, fallback)
 
     assert sid_ensured == sid_real
     assert auto is False
@@ -386,11 +382,12 @@ async def test_upsert_server_history_appended_on_change(
     hostname 은 복합 conflict 키라 변경 시 새 row 가 되어 history append 의미가 사라짐.
     여기서는 hostname 동일 + cpu_cores·mem_total_kb 변경으로 진짜 history 트리거 검증.
     """
-    inv1 = make_inventory(composite_id="mid-hist-1", hostname="h1", cpu_cores=4, mem_total_kb=4_000_000)
-    inv2 = make_inventory(composite_id="mid-hist-1", hostname="h1", cpu_cores=8, mem_total_kb=8_000_000)
+    aid = "00000000-0000-4000-8000-000000000041"
+    inv1 = make_inventory(agent_id=aid, hostname="h1", cpu_cores=4, mem_total_kb=4_000_000)
+    inv2 = make_inventory(agent_id=aid, hostname="h1", cpu_cores=8, mem_total_kb=8_000_000)
     await collect_repo.upsert_server(inv1)
     await collect_repo.upsert_server(inv2)
-    sid = await collect_repo.find_server_id("mid-hist-1")
+    sid = await collect_repo.find_server_id(aid)
     count = (
         await db_session.execute(
             text("SELECT COUNT(*) FROM server_inventory_history WHERE server_id = :sid"),
@@ -405,15 +402,16 @@ async def test_upsert_server_history_not_appended_when_unchanged(
     db_session,
 ):
     """비교 컬럼 동일 + collected_at만 다름 (1h 주기 재발행 시뮬) → history 추가 없음."""
+    aid = "00000000-0000-4000-8000-000000000042"
     inv1 = make_inventory(
-        composite_id="mid-hist-2", hostname="h1", cpu_cores=4, collected_at=datetime.now(UTC) - timedelta(hours=1)
+        agent_id=aid, hostname="h1", cpu_cores=4, collected_at=datetime.now(UTC) - timedelta(hours=1)
     )
     inv2 = make_inventory(
-        composite_id="mid-hist-2", hostname="h1", cpu_cores=4, collected_at=datetime.now(UTC)
+        agent_id=aid, hostname="h1", cpu_cores=4, collected_at=datetime.now(UTC)
     )  # 모든 비교 컬럼 동일
     await collect_repo.upsert_server(inv1)
     await collect_repo.upsert_server(inv2)
-    sid = await collect_repo.find_server_id("mid-hist-2")
+    sid = await collect_repo.find_server_id(aid)
     count = (
         await db_session.execute(
             text("SELECT COUNT(*) FROM server_inventory_history WHERE server_id = :sid"),

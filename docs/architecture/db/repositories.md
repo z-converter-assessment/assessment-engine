@@ -6,17 +6,16 @@
 
 | 메서드 | 설명 |
 |--------|------|
-| `find_server_id(composite_id) -> int \| None` | `composite_id` 단일 키로 server_id 조회 (#C1, ADR 0027) |
-| `upsert_server(data) -> int` | `composite_id` UNIQUE 기준 ON CONFLICT DO UPDATE. 변경 감지 시 history append |
-| `ensure_server_id(composite_id, fallback) -> tuple[int, bool]` | find → 없으면 placeholder INSERT. metrics 핸들러 auto-register. 단일 키 (#C1, ADR 0027) |
+| `find_server_id(agent_id) -> int \| None` | `agent_id` 단일 키로 server_id 조회 (#C1, ADR 0049) |
+| `upsert_server(data) -> int` | `agent_id` UNIQUE 기준 ON CONFLICT DO UPDATE. 변경 감지 시 history append |
+| `ensure_server_id(agent_id, fallback) -> tuple[int, bool]` | find → 없으면 placeholder INSERT. metrics 핸들러 auto-register. 단일 키 (#C1, ADR 0049) |
 | `record_metrics(server_id, data) -> MetricInsertResult` | 4 시계열 테이블 INSERT. 각 테이블 행 수 반환 |
 | `create_task(data) -> str` | tasks INSERT. public_id(UUID) 반환 |
 | `complete_task(data) -> bool` | task.result handler — status / completed_at / failure_reason / exit_code / duration_ms / stdout_tail / stderr_tail UPDATE |
 
 ### 구현 디테일
 
-- `upsert_server`: `pg_insert ... on_conflict_do_update`. values·set_ dict는 한 번 만들어 재사용 (컬럼 추가 시 한 곳만 수정). `composite_id` UNIQUE 키는 set_ 제외 (machine_id 는 set_ 포함 — 최신 표시). `service_categories`(ingest 사전계산, ADR 0042)도 set_ 포함.
-- `_relink_rebooted_host`: `upsert_server` 진입 시 `composite_id` 미등록이면 호출 — 재부팅으로 composite_id 가 바뀐 동일 호스트(machine_id+hostname 일치, 후보 정확히 1개)를 찾아 기존 행 composite_id 를 새 값으로 re-point(server_id·시계열 FK·history 보존). 일부 환경(OpenStack Windows VM)이 부팅마다 NIC MAC 재발급 -> composite_id 변동 중복을 흡수. machine_id 없거나 후보 2+ (모호한 clone)면 미연결(새 행). 트랜잭션 안 UPDATE (find miss 확인 후라 UNIQUE 충돌 불가)
+- `upsert_server`: `pg_insert ... on_conflict_do_update`. values·set_ dict는 한 번 만들어 재사용 (컬럼 추가 시 한 곳만 수정). `agent_id` UNIQUE 키는 set_ 제외 (composite_id·machine_id 는 set_ 포함 — 최신 감사값 표시). `service_categories`(ingest 사전계산, ADR 0042)도 set_ 포함. agent_id 가 부팅 무관 불변이라 재부팅 재연결 로직 없이 동일 agent_id 가 같은 행을 잡는다 (ADR 0049, _relink 제거).
 - `ensure_server_id`: `_insert_placeholder_server`는 `ON CONFLICT DO NOTHING` (placeholder가 진짜 inventory 덮어쓰는 race 방지)
 - `record_metrics`: 4 테이블 모두 `pg_insert.on_conflict_do_nothing(index_elements=...)` — 멱등성 2단 방어 (D2)
 - `create_task`: `IntegrityError` 가능 (부분 UNIQUE `uq_tasks_pending_per_server_type`) — service가 catch

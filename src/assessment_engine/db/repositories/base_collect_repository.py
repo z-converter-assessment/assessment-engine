@@ -23,12 +23,12 @@ class BaseCollectRepository(ABC):
     """Consumer 측 데이터 접근 인터페이스. 트랜잭션 경계는 호출자(`_db_retry`)가 관리."""
 
     @abstractmethod
-    async def find_server_id(self, composite_id: str) -> int | None:
-        """composite_id 단일 키로 server_inventory.id 조회. 없으면 None."""
+    async def find_server_id(self, agent_id: str) -> int | None:
+        """agent_id 단일 키로 server_inventory.id 조회. 없으면 None."""
 
     @abstractmethod
     async def upsert_server(self, data: ServerInventoryCreate) -> int:
-        """composite_id UNIQUE 키 ON CONFLICT DO UPDATE upsert. server_inventory.id 반환.
+        """agent_id UNIQUE 키 ON CONFLICT DO UPDATE upsert. server_inventory.id 반환.
 
         부수효과: 직전 행 대비 변경(또는 신규) 감지 시 server_inventory_history append.
         정적 정보 동일하면 주기 재발행이라도 history 그대로 — noise 차단.
@@ -37,7 +37,7 @@ class BaseCollectRepository(ABC):
     @abstractmethod
     async def ensure_server_id(
         self,
-        composite_id: str,
+        agent_id: str,
         fallback: ServerInventoryCreate,
     ) -> tuple[int, bool]:
         """metrics 핸들러 auto-register 캡슐화. find 후 없으면 fallback upsert.

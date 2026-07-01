@@ -27,10 +27,11 @@ def _max_disk_queue(sat: SaturationInfo | None) -> float | None:
 def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
     """metrics 메시지로부터 최소 정보의 placeholder inventory 생성.
 
-    composite_id 미등록 상태에서 metrics 가 도착하면 drop 하지 않기 위한 임시 등록. 정적 정보는
+    agent_id 미등록 상태에서 metrics 가 도착하면 drop 하지 않기 위한 임시 등록. 정적 정보는
     None/빈 배열로 두고, 다음 진짜 inventory 도착 시 `upsert_server` ON CONFLICT DO UPDATE 로 덮어씀.
     """
     return ServerInventoryCreate(
+        agent_id=str(data.agent_id),
         composite_id=data.composite_id,
         machine_id=data.machine_id,
         hostname=data.hostname,
@@ -60,6 +61,7 @@ def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
 
 def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
     return ServerInventoryCreate(
+        agent_id=str(data.agent_id),
         composite_id=data.composite_id,
         machine_id=data.machine_id,
         hostname=data.hostname,
@@ -161,8 +163,8 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         sat_disk_queue=_max_disk_queue(data.saturation),
         sat_cpu_run_queue=data.saturation.cpu_run_queue if data.saturation else None,
         sat_mem_paging_rate=data.saturation.mem_paging_rate if data.saturation else None,
-        # disk_io major/minor는 ServerDiskIo 에 컬럼 없어 미저장.
-        # mount major/minor는 ServerMountUsage 에 저장 — data-volume 판단(major==0=가상 fs) 단일 신호.
+        # disk_io major/minor는 ServerDiskIo 에 컬럼 없어 미저장 (물리 판정은 kind).
+        # mount major/minor는 ServerMountUsage 에 저장 — mount-disk 조인 보조. data-volume 판정은 kind=="data".
         disk_io=[
             DiskIoEntry(
                 device=d.device,

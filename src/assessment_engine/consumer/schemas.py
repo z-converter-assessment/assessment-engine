@@ -10,8 +10,12 @@ class MessageBase(BaseModel):
     # 계약 진화 정책 (#B) — `extra=ignore`로 agent가 새 필드 추가해도 엔진은 통과·무시. 자식 클래스 상속.
     model_config = ConfigDict(extra="ignore")
 
-    composite_id: str = Field(min_length=1, max_length=64)
-    # machine_id — raw machine-id, 표시 전용 (식별·라우팅은 composite_id).
+    # agent_id — 호스트 식별 단일 키 (UUID v4). 첫 실행 시 생성·영구저장 — MAC/machine_id 재발급과 무관 불변.
+    # DB UNIQUE·MQ 라우팅(agent.tasks.{agent_id}) 키. task.result 한정 null override (worker 컨텍스트, task_id 매칭).
+    agent_id: UUID
+    # composite_id — SHA-256(machine_id + MAC). 감사·표시용 강등 (clone collision 진단). 식별·라우팅 미사용.
+    composite_id: str | None = Field(default=None, min_length=1, max_length=64)
+    # machine_id — raw machine-id, 표시 전용.
     machine_id: str | None = Field(default=None, max_length=64)
     agent_version: str = Field(min_length=1, max_length=32)
     collected_at: datetime
@@ -113,7 +117,7 @@ class InventoryInput(MessageBase):
     mem_total_kb: int | None = Field(default=None, ge=0)
     swap_total_kb: int | None = Field(default=None, ge=0)
 
-    # 내부 인터페이스 — 구조화(name/address/prefix/family/kind). ip_internal(CIDR 문자열) 대체 (#E2).
+    # 내부 인터페이스 — 구조화(name/address/prefix/family/kind/gateway). 토폴로지·상세 표시 소스 (#E2).
     interfaces: list[InterfaceInfo] = Field(default_factory=list)
     ip_external: list[str] | None = None
 
@@ -129,7 +133,7 @@ class InventoryInput(MessageBase):
             ip_interface(str(item))
         return v
 
-    # mac_addresses — NIC별 MAC 목록. clone collision 감사용 raw 보존 (식별은 composite_id).
+    # mac_addresses — NIC별 MAC 목록. clone collision 감사용 raw 보존 (식별은 agent_id).
     mac_addresses: list[str] = Field(default_factory=list)
 
     disks: list[DiskInfo] = Field(default_factory=list)
@@ -259,12 +263,14 @@ class ErrorInput(MessageBase):
 class TaskResultInput(MessageBase):
     """원격 작업 실행 결과 수신 메시지.
 
-    공통 메타(composite_id 등)는 MessageBase. composite_id / boot_time / agent_started_at은
-    본 메시지에서는 null 가능 (수집 캐시와 분리된 worker 컨텍스트에서 발행 — composite_id 미산출) —
-    부모 required 필드를 nullable로 override. 결과 매칭은 task_id 로 하므로 composite_id 불필요.
+    공통 메타는 MessageBase. agent_id / composite_id / boot_time / agent_started_at은
+    본 메시지에서는 null 가능 (수집 캐시와 분리된 worker 컨텍스트에서 발행 — 식별자 미산출) —
+    부모 required 필드를 nullable로 override. 결과 매칭은 task_id 로 하므로 식별자 불필요.
     """
 
     message_type: Literal["task.result"]
+    # worker 컨텍스트라 식별자(agent_id/composite_id)·부팅 메타 null 가능 — 결과 매칭은 task_id.
+    agent_id: UUID | None = None
     composite_id: str | None = Field(default=None, min_length=1, max_length=64)
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None

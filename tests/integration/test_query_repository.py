@@ -19,7 +19,7 @@ from assessment_engine.db.dtos.inbound import (
 )
 from assessment_engine.db.repositories.collect_repository import CollectRepository
 from assessment_engine.db.repositories.query.query_repository import QueryRepository
-from tests.factories import make_inventory, make_metrics
+from tests.factories import agent_id_for, make_inventory, make_metrics
 
 
 def _bucket_aligned_base(minutes_ago: int = 7) -> datetime:
@@ -27,6 +27,7 @@ def _bucket_aligned_base(minutes_ago: int = 7) -> datetime:
     버킷에 표본 2+ 가 필요 — 1분 간격 표본이 버킷 경계에 갈리지 않도록 base 를 버킷 시작에 맞춘다(ADR 0043)."""
     t = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).replace(second=0, microsecond=0)
     return t - timedelta(minutes=t.minute % 5)
+
 
 pytestmark = pytest.mark.asyncio
 
@@ -501,8 +502,8 @@ async def test_reboot_events_classifies_boot_time_change_as_reboot(
         )
     )
 
-    # composite_id 단일 키 (#C1)
-    sid = await collect_repo.find_server_id("q-rb-1")
+    # agent_id 단일 키 (#C1) — make_inventory 가 composite_id 라벨로 파생한 값과 일치.
+    sid = await collect_repo.find_server_id(agent_id_for("q-rb-1"))
     events = await query_repo.reboot_events(
         sid,
         start=base_ts - timedelta(minutes=1),
@@ -540,8 +541,8 @@ async def test_reboot_events_classifies_agent_only_change_as_restart(
         )
     )
 
-    # composite_id 단일 키 (#C1)
-    sid = await collect_repo.find_server_id("q-rb-2")
+    # agent_id 단일 키 (#C1) — make_inventory 가 composite_id 라벨로 파생한 값과 일치.
+    sid = await collect_repo.find_server_id(agent_id_for("q-rb-2"))
     events = await query_repo.reboot_events(
         sid,
         start=base_ts - timedelta(minutes=1),
@@ -817,7 +818,7 @@ async def test_environment_utilization_returns_averages(
             cpu_idle=70,
             mem_total_kb=100,
             mem_available_kb=50,
-            mounts=[MountUsageEntry(mount="/", total_bytes=100, free_bytes=40, avail_bytes=40)],
+            mounts=[MountUsageEntry(mount="/", total_bytes=100, free_bytes=40, avail_bytes=40, kind="data")],
             disk_io=[],
             net_io=[],
         ),
@@ -832,7 +833,9 @@ async def test_environment_utilization_returns_averages(
             cpu_idle=120,
             mem_total_kb=100,
             mem_available_kb=30,  # latest → 사용률 70%
-            mounts=[MountUsageEntry(mount="/", total_bytes=100, free_bytes=20, avail_bytes=20)],  # latest → 80%
+            mounts=[
+                MountUsageEntry(mount="/", total_bytes=100, free_bytes=20, avail_bytes=20, kind="data")
+            ],  # latest → 80%
             disk_io=[],
             net_io=[],
         ),

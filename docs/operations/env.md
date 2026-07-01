@@ -271,15 +271,15 @@ agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible 
 | `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | config.py / agent env (repo 밖) | 동일 |
 | `RABBITMQ_ROUTING_KEY_ERROR` | `server.error` | config.py / agent env (repo 밖) | 동일 |
 | `RABBITMQ_TASK_EXCHANGE` | `assessment.tasks` | config.py | 엔진 발행 task.install + worker.result 소비 전용 exchange (collector `RABBITMQ_EXCHANGE` 와 분리). agent `WORKER_TASK_EXCHANGE` 와 값 일치 의무 |
-| `RABBITMQ_TASK_QUEUE_PREFIX` | `agent.tasks` | config.py | task.install 발행 대상 호스트별 큐 prefix. full = `<prefix>.<composite_id>` (`agent_task_queue()`). agent `WORKER_TASK_QUEUE_PREFIX` 와 일치 |
-| `RABBITMQ_TASK_INSTALL_KEY_PREFIX` | `task.install` | config.py | task.install 호스트별 routing key prefix. full = `<prefix>.<composite_id>` (`task_install_routing_key()`) |
+| `RABBITMQ_TASK_QUEUE_PREFIX` | `agent.tasks` | config.py | task.install 발행 대상 호스트별 큐 prefix. full = `<prefix>.<agent_id>` (`agent_task_queue()`). agent `WORKER_TASK_QUEUE_PREFIX` 와 일치 |
+| `RABBITMQ_TASK_INSTALL_KEY_PREFIX` | `task.install` | config.py | task.install 호스트별 routing key prefix. full = `<prefix>.<agent_id>` (`task_install_routing_key()`) |
 | `RABBITMQ_ROUTING_KEY_TASK_RESULT` | `task.result` | config.py | worker.result 큐 바인딩 routing key (원격 호스트 결과 보고 수신). agent `WORKER_TASK_RESULT_KEY` 와 일치 의무 |
 | `RABBITMQ_QUEUE_WORKER_RESULT` | `worker.result` | config.py | 엔진이 task.result 를 소비하는 단일 결과 큐 이름 |
 | `TASK_INSTALL_SUCCESS_EXIT_CODES` | `{"20348": [2]}` | config.py | task.result 성공 보정 정책 (`task_policy`). OS 버전(Windows `CurrentBuildNumber`) -> 성공으로 취급할 추가 exit code 목록. JSON 객체. 기본값 = Server 2022(20348) 의 exit code 2 를 설치 성공으로 보정. `script_failed` & `os_family=windows` 결과에만 적용. 예: `{"20348":[2],"26100":[2]}` |
 | `RABBITMQ_WORKER_USER` | `assessment` | agent env (repo 밖) | 원격 호스트 worker 가 사용할 AMQP user. 비어 있으면 worker 자동 비활성 (collector 만 동작) |
 | `RABBITMQ_WORKER_PASSWORD` | `assessment` | agent env (repo 밖) | `RABBITMQ_WORKER_USER` 의 암호. heredoc 안에서 `RABBITMQ_WORKER_PASS` 매핑 |
 | `WORKER_TASK_EXCHANGE` | `assessment.tasks` | agent env (repo 밖) | task.install/task.result 전용 exchange. collector exchange 와 분리. 엔진 `RABBITMQ_TASK_EXCHANGE` 와 값 일치 의무 |
-| `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | agent env (repo 밖) | 원격 호스트별 큐 prefix. full name = `<prefix>.<composite_id>`. 엔진 `RABBITMQ_TASK_QUEUE_PREFIX` 와 일치 |
+| `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | agent env (repo 밖) | 원격 호스트별 큐 prefix. full name = `<prefix>.<agent_id>`. 엔진 `RABBITMQ_TASK_QUEUE_PREFIX` 와 일치 |
 | `WORKER_TASK_RESULT_KEY` | `task.result` | agent env (repo 밖) | 원격 호스트 → 엔진 결과 보고 routing key. 엔진 `RABBITMQ_ROUTING_KEY_TASK_RESULT` 와 일치 |
 | `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `""` (빈값) | agent env (repo 밖) | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치). 빈 whitelist 면 전부 거부 — 운영자가 ZDM_DEFAULT_IP host 를 등록 |
 | `REDIS_HOST` | `redis` | config.py | (docker-compose 서비스명). prod 는 실제 host |

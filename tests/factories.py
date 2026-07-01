@@ -7,6 +7,7 @@
 """
 
 from datetime import UTC, datetime
+from uuid import NAMESPACE_DNS, uuid5
 
 from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
@@ -23,11 +24,20 @@ _DEFAULT_BOOT_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 _DEFAULT_AGENT_STARTED_AT = datetime(2026, 1, 1, 0, 5, tzinfo=UTC)
 
 
+def agent_id_for(label: str) -> str:
+    """테스트 편의 — 라벨(구 composite_id)을 deterministic agent_id(UUID)로 파생.
+
+    식별키가 agent_id(UUID) 라, 테스트가 composite_id 라벨로 서버를 구분하던 관습을 유지하면서
+    서버마다 고유한 agent_id 를 얻는다. find_server_id 등 식별 API 는 본 헬퍼로 파생한 값을 쓴다.
+    """
+    return str(uuid5(NAMESPACE_DNS, label))
+
+
 def make_inventory(
     *,
-    composite_id: str = "test-composite-id-0001",
-    # 미지정 시 composite_id 파생(서버마다 고유) — 실 VM MachineGuid 고유성 모사. 같은 default 공유 시
-    # `_relink_rebooted_host`(machine_id+hostname)가 서로 다른 테스트 서버를 오병합하는 것 방지. 명시 None 은 보존.
+    agent_id: str | None = None,  # 미지정 시 composite_id 라벨 파생 (서버마다 고유 — 식별키는 agent_id)
+    composite_id: str | None = "test-composite-id-0001",
+    # 미지정 시 composite_id 파생 (서버마다 고유, clone collision 진단용 감사 컬럼). 명시 None 은 보존.
     machine_id: str | None = "__DERIVE__",
     hostname: str = "test-host-01",
     agent_version: str = "1.0.0",
@@ -42,9 +52,12 @@ def make_inventory(
     listen_ports: list[dict] | None = None,
 ) -> ServerInventoryCreate:
     """기본값은 placeholder가 아닌 '정상' inventory — 미지정 시 실제와 유사한 값."""
+    if agent_id is None:
+        agent_id = agent_id_for(composite_id or "none")
     if machine_id == "__DERIVE__":
         machine_id = f"mid-{composite_id}"
     return ServerInventoryCreate(
+        agent_id=agent_id,
         composite_id=composite_id,
         machine_id=machine_id,
         hostname=hostname,
@@ -61,7 +74,16 @@ def make_inventory(
         swap_total_kb=2 * 1024 * 1024,
         boot_time=boot_time,
         agent_started_at=agent_started_at,
-        ip_internal=["10.0.0.1"],
+        interfaces=[
+            {
+                "name": "eth0",
+                "address": "10.0.0.1",
+                "prefix": 24,
+                "family": "ipv4",
+                "kind": "physical",
+                "gateway": "10.0.0.254",
+            }
+        ],
         ip_external=None,
         mac_addresses=[],
         service_categories=compute_service_categories(services, listen_ports),
@@ -103,6 +125,9 @@ def make_metrics(
     load_1m: float = 0.5,
     load_5m: float = 0.4,
     load_15m: float = 0.3,
+    sat_disk_queue: float | None = None,
+    sat_cpu_run_queue: float | None = None,
+    sat_mem_paging_rate: float | None = None,
     disk_io: list[DiskIoEntry] | None = None,
     mounts: list[MountUsageEntry] | None = None,
     net_io: list[NetIoEntry] | None = None,
@@ -130,17 +155,28 @@ def make_metrics(
         load_1m=load_1m,
         load_5m=load_5m,
         load_15m=load_15m,
+        sat_disk_queue=sat_disk_queue,
+        sat_cpu_run_queue=sat_cpu_run_queue,
+        sat_mem_paging_rate=sat_mem_paging_rate,
         disk_io=disk_io
         if disk_io is not None
         else [
+            # kind — 물리/data 집계 필터(cagg physical·mount data) 통과용 기본값 (agent 공용 분류기).
             DiskIoEntry(
-                device="sda", reads_completed=100, writes_completed=50, sectors_read=2000, sectors_written=1000
+                device="sda",
+                reads_completed=100,
+                writes_completed=50,
+                sectors_read=2000,
+                sectors_written=1000,
+                kind="physical",
             ),
         ],
         mounts=mounts
         if mounts is not None
         else [
-            MountUsageEntry(mount="/", total_bytes=50 * 10**9, free_bytes=20 * 10**9, avail_bytes=18 * 10**9),
+            MountUsageEntry(
+                mount="/", total_bytes=50 * 10**9, free_bytes=20 * 10**9, avail_bytes=18 * 10**9, kind="data"
+            ),
         ],
         net_io=net_io
         if net_io is not None
@@ -153,6 +189,7 @@ def make_metrics(
                 tx_packets=500,
                 rx_errors=0,
                 tx_errors=0,
+                kind="physical",
             ),
         ],
     )
@@ -177,6 +214,7 @@ def make_task_result_payload(
     completed_at: datetime = _DEFAULT_TASK_COMPLETED_AT,
     boot_time: datetime | None = None,
     agent_started_at: datetime | None = None,
+    os_family: str = "linux",
     os_version: str | None = None,
     message_id: str = "550e8400-e29b-41d4-a716-446655440099",
 ) -> dict:
@@ -198,6 +236,7 @@ def make_task_result_payload(
         "status": status,
         "failure_reason": failure_reason,
         "exit_code": exit_code,
+        "os_family": os_family,
         "os_version": os_version,
         "duration_ms": duration_ms,
         "stdout_tail": stdout_tail,

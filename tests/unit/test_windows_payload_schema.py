@@ -17,6 +17,7 @@ _MACS = ["02:42:ac:11:00:03", "fa:16:3e:7a:1b:5c"]
 
 def _meta() -> dict:
     return {
+        "agent_id": "00000000-0000-4000-8000-000000000001",
         "composite_id": "a" * 64,
         "machine_id": "12345678-1234-1234-1234-123456789abc",  # Windows MachineGuid
         "agent_version": "4.0.0",
@@ -41,7 +42,17 @@ def _windows_inventory() -> dict:
         "cpu_model": "Intel(R) Core(TM) i7",
         "mem_total_kb": 8388608,
         "swap_total_kb": 0,
-        "ip_internal": ["10.0.0.5"],
+        # 구조화 interface — Windows coarse kind(physical/loopback/tunnel/virtual), gateway 있음.
+        "interfaces": [
+            {
+                "name": "Ethernet0",
+                "address": "10.0.0.5",
+                "prefix": 24,
+                "family": "ipv4",
+                "kind": "physical",
+                "gateway": "10.0.0.1",
+            }
+        ],
         "ip_external": None,
         "mac_addresses": _MACS,
         "disks": [{"name": "PhysicalDrive0", "size_bytes": 256000000000, "type": None, "major": None, "minor": None}],
@@ -65,6 +76,7 @@ def _windows_metrics() -> dict:
     return {
         **_meta(),
         "message_type": "metrics",
+        "os_family": "windows",
         # /proc 부재 — user/system/idle 실값, nice/iowait/irq/softirq/steal 항상 0
         "cpu_stat": {
             "user": 1000,
@@ -111,6 +123,16 @@ def _windows_metrics() -> dict:
                 "tx_errors": 0,
             }
         ],
+        # Windows saturation — 물리 디스크별 큐만 채우고 cpu_run_queue/mem_paging_rate 는 null.
+        # 엔진은 per-device max(디스크당 임계) 로 축약 (합 아님).
+        "saturation": {
+            "disk_queue": [
+                {"device": "PhysicalDrive0", "queue": 1.5},
+                {"device": "PhysicalDrive1", "queue": 3.0},
+            ],
+            "cpu_run_queue": None,
+            "mem_paging_rate": None,
+        },
     }
 
 
@@ -131,6 +153,17 @@ def test_windows_inventory_to_dto_preserves_mac() -> None:
     dto = to_inventory_create(data)
     assert dto.mac_addresses == _MACS
     assert dto.os_family == "windows"
+    # 구조화 interface 가 DTO JSONB payload 로 손실 없이 매핑 (bare address + prefix + coarse kind + gateway).
+    assert dto.interfaces == [
+        {
+            "name": "Ethernet0",
+            "address": "10.0.0.5",
+            "prefix": 24,
+            "family": "ipv4",
+            "kind": "physical",
+            "gateway": "10.0.0.1",
+        }
+    ]
 
 
 def test_mac_addresses_defaults_empty_when_absent() -> None:
@@ -145,12 +178,17 @@ def test_mac_addresses_defaults_empty_when_absent() -> None:
 
 def test_windows_metrics_wire_parses() -> None:
     data = MetricsInput.model_validate_json(json.dumps(_windows_metrics()))
+    assert data.os_family == "windows"
     assert data.cpu_stat is not None
     assert data.cpu_stat.iowait == 0 and data.cpu_stat.steal == 0  # /proc 부재 0
     assert data.load_1m is None and data.load_15m is None
     assert data.mem_cached_kb is None
     assert data.net_io[0].interface == _LONG_IFACE  # 긴 인터페이스 수용
     assert data.disk_io[0].device == "PhysicalDrive0"
+    # Windows saturation — disk_queue 만 채우고 cpu/mem 축은 null.
+    assert data.saturation is not None
+    assert data.saturation.cpu_run_queue is None and data.saturation.mem_paging_rate is None
+    assert [e.queue for e in data.saturation.disk_queue] == [1.5, 3.0]
 
 
 def test_windows_metrics_to_dto() -> None:
@@ -160,6 +198,10 @@ def test_windows_metrics_to_dto() -> None:
     assert dto.load_1m is None
     assert dto.mem_cached_kb is None
     assert dto.disk_io[0].device == "PhysicalDrive0"
+    # saturation 은 per-device max 로 축약 저장 (합 아님) — 3.0 이 가장 바쁜 디스크.
+    assert dto.sat_disk_queue == 3.0
+    assert dto.sat_cpu_run_queue is None
+    assert dto.sat_mem_paging_rate is None
 
 
 def test_long_net_interface_within_limit() -> None:

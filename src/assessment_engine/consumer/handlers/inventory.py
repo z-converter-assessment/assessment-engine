@@ -53,6 +53,6 @@ def make_inventory_handler(
             # 인벤토리 변경 즉시 반영 — TTL 만료 대기 제거
             await safe_delete(redis, inventory_key)
 
-            logger.info("inventory stored composite_id={}", data.composite_id)
+            logger.info("inventory stored agent_id={}", data.agent_id)
 
     return _handle

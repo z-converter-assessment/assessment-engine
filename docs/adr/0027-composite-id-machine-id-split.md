@@ -1,6 +1,6 @@
 # ADR 0027 — composite_id 단일 식별 + machine_id 표시 분리
 
-상태: Accepted (2026-05-26)
+상태: Superseded by 0049 (2026-07-01) — 이전 Accepted (2026-05-26)
 
 ADR 0022 supersede (host_id 단일 식별 결정 대체). agent v4 (assessment-agent #8 / #10 / #11) payload contract 변경 반영.
 

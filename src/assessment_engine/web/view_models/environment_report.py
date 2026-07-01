@@ -73,7 +73,7 @@ class ServerInventory:
     agent_started_at: datetime | None
     last_seen_at: datetime | None
     agent_version: str | None
-    composite_id: str
+    composite_id: str | None
     machine_id: str | None
     is_online: bool
 

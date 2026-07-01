@@ -74,7 +74,7 @@ def test_to_disk_item_returns_none_for_non_physical():
 
 
 def test_to_disk_item_for_physical():
-    item = _to_disk_item({"name": "sda", "size_bytes": 1024**3, "type": "disk"})
+    item = _to_disk_item({"name": "sda", "size_bytes": 1024**3, "type": "disk", "kind": "physical"})
     assert item.name == "sda"
     assert item.size_gb == 1.0
 
@@ -123,7 +123,7 @@ def _summary(**overrides) -> ServerSummary:
         cpu_cores=4,
         mem_total_kb=8 * 1024**2,
         ip_external=None,
-        disks=[{"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk"}],
+        disks=[{"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk", "kind": "physical"}],
         service_categories=[],
         last_seen_at=datetime.now(UTC),
     )
@@ -134,9 +134,9 @@ def _summary(**overrides) -> ServerSummary:
 def test_list_item_storage_total_sum():
     summary = _summary(
         disks=[
-            {"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk"},
-            {"name": "sdb", "size_bytes": 50 * 1024**3, "type": "disk"},
-            {"name": "loop0", "size_bytes": 999 * 1024**3, "type": "loop"},  # 가상은 제외
+            {"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk", "kind": "physical"},
+            {"name": "sdb", "size_bytes": 50 * 1024**3, "type": "disk", "kind": "physical"},
+            {"name": "loop0", "size_bytes": 999 * 1024**3, "type": "loop", "kind": "virtual"},  # 가상은 제외
         ]
     )
     item = to_server_list_item(summary)
@@ -207,6 +207,7 @@ def _detail(**overrides) -> ServerDetail:
     base = dict(
         id=1,
         public_id="pub-1",
+        agent_id="00000000-0000-4000-8000-000000000001",
         composite_id="m-1",
         machine_id=None,
         hostname="host",
@@ -222,9 +223,18 @@ def _detail(**overrides) -> ServerDetail:
         swap_total_kb=2 * 1024**2,
         boot_time=datetime(2026, 1, 1, tzinfo=UTC),
         agent_started_at=datetime(2026, 1, 1, tzinfo=UTC),
-        ip_internal=["10.0.0.1"],
+        interfaces=[
+            {
+                "name": "eth0",
+                "address": "10.0.0.1",
+                "prefix": 24,
+                "family": "ipv4",
+                "kind": "physical",
+                "gateway": "10.0.0.254",
+            }
+        ],
         ip_external=None,
-        disks=[{"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk"}],
+        disks=[{"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk", "kind": "physical"}],
         mounts=[],
         services=[
             {"unit": "nginx.service", "sub": "running"},
@@ -385,11 +395,11 @@ def test_to_storage_detail_filters_virtual_mounts():
         server_id=1,
         public_id="pub-1",
         hostname="h",
-        disks=[{"name": "sda", "size_bytes": 10**11, "type": "disk", "major": 8, "minor": 0}],
+        disks=[{"name": "sda", "size_bytes": 10**11, "type": "disk", "major": 8, "minor": 0, "kind": "physical"}],
         inventory_mounts=[
-            {"mount": "/", "fstype": "ext4", "total_bytes": 5 * 10**10, "major": 8, "minor": 1},
-            {"mount": "/proc", "fstype": "proc", "total_bytes": 0},  # 가상
-            {"mount": "/snap/core/123", "fstype": "squashfs", "total_bytes": 10**8},  # 가상
+            {"mount": "/", "fstype": "ext4", "total_bytes": 5 * 10**10, "major": 8, "minor": 1, "kind": "data"},
+            {"mount": "/proc", "fstype": "proc", "total_bytes": 0},  # 가상 (kind 부재 -> 제외)
+            {"mount": "/snap/core/123", "fstype": "squashfs", "total_bytes": 10**8},  # 가상 (kind 부재 -> 제외)
         ],
         mount_usage=[],
         inventory_at=datetime.now(UTC),

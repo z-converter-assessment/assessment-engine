@@ -63,11 +63,11 @@ DB 저장 (지수 백오프 재시도, _db_retry)
 `boot_time` / `agent_started_at` 은 본 메시지에서 항상 null 이라 `_log_time_invariants` 호출 생략.
 
 ### 미등록 서버 metrics — auto-register
-metrics 핸들러는 `repo.ensure_server_id(composite_id, placeholder)`로 한 번에 처리 — find 실패 시 fallback placeholder 사용. `(server_id, auto_registered)` 튜플 반환으로 handler가 auto-register 시점만 운영 로그를 남김. 식별자는 `composite_id` 단일 키 (#C1, ADR 0027) — SHA-256 composite hash (machine_id + 정렬 MAC 들) 라 VM 템플릿 복제·container `/etc/machine-id` 마운트 등 machine_id 중복도 MAC 조합으로 구분.
+metrics 핸들러는 `repo.ensure_server_id(agent_id, placeholder)`로 한 번에 처리 — find 실패 시 fallback placeholder 사용. `(server_id, auto_registered)` 튜플 반환으로 handler가 auto-register 시점만 운영 로그를 남김. 식별자는 `agent_id` 단일 키 (#C1, ADR 0049) — agent 가 첫 실행 시 생성·영구저장한 불변 UUID 라 재부팅·MAC 재발급·machine_id 중복과 무관.
 
-placeholder는 `mappers.build_placeholder_inventory`가 생성. composite_id/machine_id/hostname/agent_version만 실값, 나머지 정적 정보(OS·CPU·메모리·디스크 등)는 None/빈 배열. 다음 진짜 inventory 도착 시 ON CONFLICT DO UPDATE로 풀 정보 자동 덮어씀 (`composite_id` UNIQUE 제약).
+placeholder는 `mappers.build_placeholder_inventory`가 생성. agent_id/composite_id/machine_id/hostname/agent_version만 실값, 나머지 정적 정보(OS·CPU·메모리·디스크 등)는 None/빈 배열. 다음 진짜 inventory 도착 시 ON CONFLICT DO UPDATE로 풀 정보 자동 덮어씀 (`agent_id` UNIQUE 제약).
 
-재부팅 재연결 (`_relink_rebooted_host`, ADR 0044): 일부 환경(OpenStack Windows VM)은 부팅마다 NIC MAC 이 재발급돼 composite_id(=sha256(machine_id+MAC))가 같은 VM 인데 달라진다. inventory upsert 진입 시 composite_id 미등록이면 machine_id+hostname 일치(후보 정확히 1개) 기존 행의 composite_id 를 새 값으로 re-point — server_id·시계열 FK·history 보존(중복 행 0). machine_id 없거나 후보 2+ (모호한 clone)면 미연결(새 행 = clone 오병합 방지). inventory 가 startup 시 metrics 보다 먼저 발행돼 재부팅을 먼저 잡는다.
+식별키 불변 (agent_id, ADR 0049): agent_id 는 agent 가 첫 실행 시 1회 생성·영구저장하는 UUID 라 재부팅·NIC MAC 재발급·machine_id 재발급과 무관하게 불변이다. 구 composite_id(=sha256(machine_id+MAC)) 식별에서는 일부 환경(OpenStack Windows VM)이 부팅마다 MAC 을 재발급해 같은 VM 이 중복 행으로 쪼개졌으나, agent_id 불변으로 그 문제 자체가 사라져 재연결 휴리스틱이 불요하다 — 동일 agent_id 가 자연히 같은 행을 upsert 한다. composite_id/machine_id 는 clone collision 진단용 감사 컬럼으로만 저장.
 
 metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 4개 시계열 테이블 INSERT를 facade로 묶어 처리. `boot_time`·`agent_started_at`은 시계열 4개 테이블 모두에 동일 시점값으로 함께 저장 → metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 비교로 시스템 재부팅 시 delta 건너뛰기 (CLAUDE.md B1). mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅 단일 테이블 SELECT 위해 보존. 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
 
@@ -154,7 +154,7 @@ handler 본 처리 흐름과 별개로 두 가지 부가 시그널을 발행 (�
    - `agent_started_at > collected_at` → VM 시계 동기화 문제 (가장 흔함, VM resume 직후)
    위반 시 warning 로그만. DLQ 안 보냄 — 시계 문제는 데이터 reject 의미 없음.
 
-2. `_track_agent_restart(redis, server_id, composite_id, agent_started_at)` — metrics 핸들러 후처리 끝에서 호출.
+2. `_track_agent_restart(redis, server_id, agent_id, agent_started_at)` — metrics 핸들러 후처리 끝에서 호출.
    - `last_agent_start:{sid}` (24h)에서 직전 값 비교 → 변경 시 `agent_restarts:{sid}` (1h 슬라이딩) INCR
    - `agent_restart_alert_threshold` (기본 3) 도달 시 warning (운영자가 crash loop 인지)
    - 시스템 재부팅도 같은 카운터 — 1h 내 3회 재부팅도 unusual이라 alert 적정
