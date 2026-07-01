@@ -46,7 +46,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     CASE WHEN delta(cpu_total_ca) > 0
                          THEN GREATEST(0, delta(cpu_iowait_ca) / delta(cpu_total_ca) * 100)
                     END AS iowait_pct,
-                    mem_pct_avg, mem_pct_max, load_15m_max, swap_in_use
+                    mem_pct_avg, mem_pct_max, load_15m_max, swap_in_use, disk_queue_avg
                 FROM server_metrics_5m
                 WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
             ),
@@ -57,7 +57,8 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     MAX(cpu_pct) AS cpu_peak,
                     COUNT(cpu_pct) AS cpu_sample,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY iowait_pct) AS iowait_p95,
-                    MAX(iowait_pct) AS iowait_peak
+                    MAX(iowait_pct) AS iowait_peak,
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY disk_queue_avg) AS disk_queue_p95
                 FROM bkt GROUP BY server_id
             ),
             mem_stats AS (
@@ -101,6 +102,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 cs.cpu_peak     AS cpu_peak,
                 cs.iowait_p95   AS iowait_p95,
                 cs.iowait_peak  AS iowait_peak,
+                cs.disk_queue_p95 AS disk_queue_p95,
                 ms.mem_p95      AS mem_p95,
                 ms.mem_avg      AS mem_avg,
                 ms.mem_peak     AS mem_peak,
@@ -151,6 +153,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 swap_used=bool(r.swap_used),
                 iowait_p95_pct=r.iowait_p95,
                 iowait_peak_pct=r.iowait_peak,
+                disk_queue_p95=r.disk_queue_p95,
                 cpu_cores=r.cpu_cores,
                 mem_total_kb=r.mem_total_kb,
                 disks=r.disks,

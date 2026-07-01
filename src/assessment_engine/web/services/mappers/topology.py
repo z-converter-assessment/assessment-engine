@@ -25,13 +25,8 @@ from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGr
 _CAVEATS = [
     "추론 토폴로지 — 같은 서브넷(IP·prefix) 공유 기준이며, 실제 통신 가능 여부(방화벽·VLAN 격리)는 반영하지 않습니다.",
     "물리 인터페이스(kind=physical)의 IPv4 주소만 사용합니다 — 가상 네트워크(docker·bridge·veth 등)와 IPv6는 제외했습니다.",
-    "사설 IP 대역이 서로 다른 네트워크에서 중복되면 한 서브넷으로 합쳐 보일 수 있습니다.",
+    "사설 IP 대역 중복은 게이트웨이가 다르면 분리하나, 게이트웨이 미제공(구형 OS) 호스트는 한 서브넷으로 합쳐 보일 수 있습니다.",
 ]
-
-
-def _net_sort_key(net_key):
-    """서브넷 표시 순서 — 네트워크 주소 숫자 오름차순 (문자열 정렬은 10.0.2.0 뒤에 10.0.10.0 못 옴)."""
-    return ipaddress.ip_network(net_key)
 
 
 def _subnet_host_sort_key(host):
@@ -47,8 +42,8 @@ def build_network_topology(hosts) -> NetworkTopology:
 
     interfaces 는 구조화 dict 리스트 [{name, address, prefix, family, kind}]. 물리(kind=physical) IPv4 만 채택.
     """
-    # net_key -> [(public_id, host_ip_str)] — 한 호스트가 같은 서브넷에 여러 IP 면 멤버십 1회만.
-    net_members: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    # subnet CIDR -> [(pid, ip, gateway)]. 한 호스트가 같은 서브넷에 여러 IP 면 멤버십 1회만.
+    subnet_members: dict[str, list[tuple[str, str, str | None]]] = defaultdict(list)
     host_meta: dict[str, tuple[str, str]] = {}  # public_id -> (hostname, os_family)
 
     for h in hosts:
@@ -73,26 +68,43 @@ def build_network_topology(hosts) -> NetworkTopology:
                 continue  # (a) 안전망 — 루프백 / 169.254 APIPA
             if prefix == 0 or prefix >= 32:
                 continue  # (a) netmask 부재 / host route
-            net_key = str(iface.network)  # "10.0.1.0/24"
-            if net_key in seen_nets:
+            subnet = str(iface.network)  # "10.0.1.0/24"
+            if subnet in seen_nets:
                 continue
-            seen_nets.add(net_key)
-            net_members[net_key].append((pid, str(ip)))
+            seen_nets.add(subnet)
+            subnet_members[subnet].append((pid, str(ip), iface_info.get("gateway")))
 
-    # 단독 서브넷 필터 -> 살아남은 서브넷별 호스트 목록 (가상망은 kind 로 이미 제외).
-    surviving: dict[str, list[str]] = {}
-    for net_key, members in net_members.items():
-        pids = sorted({m[0] for m in members})
-        if len(pids) < 2:
-            continue  # 단독 서브넷 -> inter-host 토폴로지 무의미
-        surviving[net_key] = pids
+    # gateway disambiguation + 단독 서브넷 필터. 한 서브넷에 서로 다른 non-null gateway 2+ 면 다른 물리망으로
+    # 간주해 gateway 별로 분리(사설 대역 중복 오병합 방지). null gateway 는 gateway 1개뿐인 서브넷엔 합류,
+    # 모호(2+)한 서브넷에선 귀속 불가라 제외. 가상망은 kind 로 이미 제외됨.
+    surviving: dict[str, list[str]] = {}         # net_key -> pids
+    seg_pid_ip: dict[str, dict[str, str]] = {}   # net_key -> {pid: ip}
+    net_cidr: dict[str, str] = {}                # net_key -> subnet CIDR (정렬용)
+    net_label: dict[str, str] = {}               # net_key -> 표시 라벨
+    for subnet, members in subnet_members.items():
+        gws = {gw for (_, _, gw) in members if gw}
+        if len(gws) >= 2:
+            groups = [
+                (f"{subnet}#{gw}", f"{subnet} (via {gw})", [(p, i) for (p, i, g) in members if g == gw])
+                for gw in sorted(gws)
+            ]
+        else:
+            groups = [(subnet, subnet, [(p, i) for (p, i, _) in members])]
+        for net_key, label, gm in groups:
+            pids = sorted({p for (p, _) in gm})
+            if len(pids) < 2:
+                continue  # 단독 서브넷 -> inter-host 토폴로지 무의미
+            surviving[net_key] = pids
+            seg_pid_ip[net_key] = {p: i for (p, i) in gm}
+            net_cidr[net_key] = subnet
+            net_label[net_key] = label
 
     host_subnet_count: dict[str, int] = defaultdict(int)
     for pids in surviving.values():
         for pid in pids:
             host_subnet_count[pid] += 1
 
-    ordered_nets = sorted(surviving, key=_net_sort_key)  # 그래프·서브넷 목록·보고서 표 공통 순서
+    ordered_nets = sorted(surviving, key=lambda k: ipaddress.ip_network(net_cidr[k]))  # 서브넷 주소 오름차순
 
     # 집계 뷰: subnet 노드만 기본 표시(hostCount 라벨), host 노드/엣지는 "collapsed" 로 시작 ->
     # network-topology.js 가 subnet 노드 클릭 시 해당 호스트를 펼친다 (대규모 호스트 hairball 회피).
@@ -104,7 +116,7 @@ def build_network_topology(hosts) -> NetworkTopology:
             {
                 "data": {
                     "id": f"subnet:{net_key}",
-                    "label": net_key,
+                    "label": net_label[net_key],
                     "kind": "subnet",
                     "hostCount": len(surviving[net_key]),
                 }
@@ -137,7 +149,7 @@ def build_network_topology(hosts) -> NetworkTopology:
     # 서브넷별 소속 서버 목록 (IP 표시) — 그래프와 별개 카드. net_members 에서 pid->ip 복원.
     subnets: list[SubnetGroup] = []
     for net_key in ordered_nets:
-        pid_ip = {pid: ip for pid, ip in net_members[net_key]}
+        pid_ip = seg_pid_ip[net_key]
         hosts_list = []
         for pid in surviving[net_key]:
             hostname, os_family = host_meta[pid]
@@ -145,7 +157,7 @@ def build_network_topology(hosts) -> NetworkTopology:
                 SubnetHost(hostname=hostname, ip=pid_ip.get(pid, ""), os_family=os_family, public_id=pid)
             )
         hosts_list.sort(key=_subnet_host_sort_key)  # 서브넷 내 IP 숫자 오름차순
-        subnets.append(SubnetGroup(net_key=net_key, host_count=len(hosts_list), hosts=hosts_list))
+        subnets.append(SubnetGroup(net_key=net_label[net_key], host_count=len(hosts_list), hosts=hosts_list))
 
     multi_homed_count = sum(1 for pid in graph_hosts if host_subnet_count[pid] >= 2)
     isolated_count = len(host_meta) - len(graph_hosts)

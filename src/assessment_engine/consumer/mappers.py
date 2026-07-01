@@ -1,5 +1,5 @@
 from assessment_engine.consumer.metric_normalize import clamp_ceiling
-from assessment_engine.consumer.schemas import InventoryInput, MetricsInput
+from assessment_engine.consumer.schemas import InventoryInput, MetricsInput, SaturationInfo
 from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
     MountUsageEntry,
@@ -10,6 +10,18 @@ from assessment_engine.db.dtos.inbound import (
 
 # 분류 단일 진실(service_classifier)을 ingest 가 호출 — 순수 함수라 레이어 결합 없음(인프라 DI 아님, F4).
 from assessment_engine.service_classifier import compute_service_categories
+
+
+def _max_disk_queue(sat: SaturationInfo | None) -> float | None:
+    """per-disk 큐 배열 -> 가장 큰 디스크당 큐 (saturation 판정용, 합 아님). 빈/전부 None 이면 None.
+
+    agent 가 디스크별 [{device, queue}] 발행 -> 엔진은 "가장 바쁜 디스크" 큐만 저장(server_metrics.sat_disk_queue).
+    합·정규화 우회 제거 — 디스크당 임계로 바로 판정 (recommendation.disk_io_saturated).
+    """
+    if sat is None or not sat.disk_queue:
+        return None
+    queues = [e.queue for e in sat.disk_queue if e.queue is not None]
+    return max(queues) if queues else None
 
 
 def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
@@ -65,7 +77,14 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
         mem_total_kb=data.mem_total_kb,
         swap_total_kb=data.swap_total_kb,
         interfaces=[
-            {"name": i.name, "address": i.address, "prefix": i.prefix, "family": i.family, "kind": i.kind}
+            {
+                "name": i.name,
+                "address": i.address,
+                "prefix": i.prefix,
+                "family": i.family,
+                "kind": i.kind,
+                "gateway": i.gateway,
+            }
             for i in data.interfaces
         ],
         ip_external=data.ip_external,
@@ -139,6 +158,9 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         load_1m=data.load_1m,
         load_5m=data.load_5m,
         load_15m=data.load_15m,
+        sat_disk_queue=_max_disk_queue(data.saturation),
+        sat_cpu_run_queue=data.saturation.cpu_run_queue if data.saturation else None,
+        sat_mem_paging_rate=data.saturation.mem_paging_rate if data.saturation else None,
         # disk_io major/minor는 ServerDiskIo 에 컬럼 없어 미저장.
         # mount major/minor는 ServerMountUsage 에 저장 — data-volume 판단(major==0=가상 fs) 단일 신호.
         disk_io=[

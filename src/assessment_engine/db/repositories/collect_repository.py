@@ -396,6 +396,9 @@ class CollectRepository(BaseCollectRepository):
                 load_1m=data.load_1m,
                 load_5m=data.load_5m,
                 load_15m=data.load_15m,
+                sat_disk_queue=data.sat_disk_queue,
+                sat_cpu_run_queue=data.sat_cpu_run_queue,
+                sat_mem_paging_rate=data.sat_mem_paging_rate,
                 boot_time=data.boot_time,
                 agent_started_at=data.agent_started_at,
             )

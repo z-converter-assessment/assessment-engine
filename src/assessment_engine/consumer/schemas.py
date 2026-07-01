@@ -82,11 +82,21 @@ class InterfaceInfo(BaseModel):
     prefix: int = Field(ge=0, le=128)
     family: Literal["ipv4", "ipv6"]
     kind: str = Field(min_length=1, max_length=32)
+    # default route 게이트웨이 IP (없으면 null — legacy Windows NT5.2 등). 토폴로지 subnet disambiguation 신호.
+    gateway: str | None = Field(default=None, max_length=64)
 
     @field_validator("address", mode="before")
     @classmethod
     def validate_address(cls, v: object) -> object:
         ip_address(str(v))  # bare IP (prefix 는 별도 필드) — 형식 검증만
+        return v
+
+    @field_validator("gateway", mode="before")
+    @classmethod
+    def validate_gateway(cls, v: object) -> object:
+        if v is None or v == "":
+            return None
+        ip_address(str(v))  # 형식 검증만
         return v
 
 
@@ -180,6 +190,25 @@ class NetIoInfo(BaseModel):
     kind: str | None = Field(default=None, max_length=32)
 
 
+class DiskQueueEntry(BaseModel):
+    # 물리 디스크별 순간 큐 깊이 (Windows PhysicalDriveN IOCTL_DISK_PERFORMANCE.QueueDepth). device = disks[].name.
+    device: str = Field(min_length=1, max_length=128)
+    queue: float | None = Field(default=None, ge=0)
+
+
+class SaturationInfo(BaseModel):
+    """USE Method saturation raw 신호 (정규화 안 함, os-aware 임계는 recommendation). 미측정 축은 null.
+
+    disk_queue: 물리 디스크별 큐 깊이 배열 [{device, queue}] (Windows). 엔진이 per-device max 로 축약해 판정
+    (디스크당 임계 — 합/정규화 불요). 빈 배열=신호 없음. Linux 는 iowait 사용이라 미발행.
+    cpu_run_queue: Processor Queue Length. mem_paging_rate: Pages/sec. (Windows 는 disk_queue 만 채우고 나머지 null)
+    """
+
+    disk_queue: list[DiskQueueEntry] | None = None
+    cpu_run_queue: float | None = Field(default=None, ge=0)
+    mem_paging_rate: float | None = Field(default=None, ge=0)
+
+
 class MetricsInput(MessageBase):
     message_type: Literal["metrics"]
 
@@ -198,6 +227,10 @@ class MetricsInput(MessageBase):
     disk_io: list[DiskIoInfo] = Field(default_factory=list)
     mounts: list[MetricsMountInfo] = Field(default_factory=list)
     net_io: list[NetIoInfo] = Field(default_factory=list)
+    saturation: SaturationInfo | None = None
+    # agent 수집 주기(초). sample_sufficiency 는 5분 버킷 기반(288/day)이라 주기<=5분이면 무관 —
+    # 5분 초과 주기 엣지케이스에서 기대 버킷 보정용 (없으면 288 가정).
+    collection_interval_sec: int | None = Field(default=None, gt=0)
 
 
 # ---------------------------------------------------------------------------

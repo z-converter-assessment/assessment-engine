@@ -117,6 +117,7 @@ class DiskIoRaw:
     sectors_written: int
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
+    kind: str | None = None  # physical/partition/lvm/raid/virtual — 물리 판정 신호
 
 
 @dataclass
@@ -131,6 +132,7 @@ class NetIoRaw:
     tx_errors: int
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
+    kind: str | None = None  # physical/loopback/bridge/veth/... — 물리 판정 신호
 
 
 @dataclass
@@ -143,6 +145,7 @@ class MountUsageRaw:
     # 시계열 4개 테이블 메타 일관성 (#C1·#B) — 시점값이라 reset 판정 미사용, 메타 균일 위해 보존.
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
+    kind: str | None = None  # data/boot/image — 데이터 볼륨 판정 신호
 
 
 @dataclass
@@ -232,6 +235,7 @@ class MetricSeries:
     collected_at: datetime
     value: float | None
     dimension: str | None
+    kind: str | None = None  # per-dimension 차트 필터용 (device/iface/mount kind). 환경 합산선은 None.
 
 
 # ---------- Reboot / Agent restart 이벤트 (차트 vertical marker용) ----------
@@ -271,9 +275,11 @@ class ReportRowRaw:
     # service_classifier listen 신호 (개별 보고서 구동 서비스 표시·role 보강).
     listen_ports: list[dict] | None = None
 
-    # I/O wait (cpu_stat.iowait jiffies / total non-idle 비율) — 디스크 병목 신호
+    # I/O wait (cpu_stat.iowait jiffies / total non-idle 비율) — Linux 디스크 병목 신호
     iowait_p95_pct: float | None = None
     iowait_peak_pct: float | None = None
+    # Windows 디스크 saturation — 물리 디스크 큐 깊이 p95 (Linux iowait 등가 축, os-aware 소비)
+    disk_queue_p95: float | None = None
 
     # Inventory 합계 산정용 — query_service.get_report가 totals 계산 시 사용
     cpu_cores: int | None = None

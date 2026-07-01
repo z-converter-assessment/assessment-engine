@@ -154,6 +154,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
                 collected_at=row.collected_at,
                 boot_time=row.boot_time,
                 agent_started_at=row.agent_started_at,
+                kind=row.kind,
             )
             for row in rows
         ]
@@ -193,6 +194,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
                 tx_packets=row.tx_packets,
                 rx_errors=row.rx_errors,
                 tx_errors=row.tx_errors,
+                kind=row.kind,
             )
             for row in rows
         ]

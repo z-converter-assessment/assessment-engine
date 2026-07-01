@@ -21,7 +21,7 @@ def _split_from_mounts(mounts: list[dict]) -> tuple[int | None, list[dict]]:
 
     device_filters.disk_total_bytes 와 동일 fallback 정책 — export 디스크 정보 누락 0.
     """
-    data = [m for m in (mounts or []) if is_data_volume(m.get("mount", ""), None, m.get("fstype"))]
+    data = [m for m in (mounts or []) if is_data_volume(m.get("kind"))]
     if not data:
         return (None, [])
     sorted_m = sorted(data, key=lambda m: m.get("total_bytes") or 0, reverse=True)

@@ -181,10 +181,10 @@ DeviceCategory = Literal["phys", "logical"]
 
 def _filter_disk_category(dtos: list[MetricSeries], category: DeviceCategory) -> list[MetricSeries]:
     if category == "phys":
-        return [d for d in dtos if is_physical_disk(d.dimension)]
+        return [d for d in dtos if is_physical_disk(d.kind)]
     # category == "logical"
-    lvm = [d for d in dtos if is_lvm_disk(d.dimension)]
-    return lvm if lvm else [d for d in dtos if is_partition(d.dimension)]
+    lvm = [d for d in dtos if is_lvm_disk(d.kind)]
+    return lvm if lvm else [d for d in dtos if is_partition(d.kind)]
 
 
 def _io_sum(snaps: list, *attrs: str) -> float | None:
@@ -396,9 +396,9 @@ class QueryService:
         if metric_type == "fs.usage_percent":
             # 데이터 볼륨만 남김 (/ · C: 등) — 가상/부트(/boot · /sys · /proc) · major0 제외.
             # net 의 is_virtual_interface 필터와 동일 의도(유효 차원만 표시). Windows 는 C: 가 유일 데이터 볼륨.
-            dtos = [d for d in dtos if is_data_volume(d.dimension)]
+            dtos = [d for d in dtos if is_data_volume(d.kind)]
         if metric_type in _NET_METRIC_TYPES:
-            dtos = [d for d in dtos if not is_virtual_interface(d.dimension)]
+            dtos = [d for d in dtos if not is_virtual_interface(d.kind)]
         if device_category is not None and metric_type in _DISK_METRIC_TYPES:
             dtos = _filter_disk_category(dtos, device_category)
         return [to_metric_series_item(dto) for dto in dtos]

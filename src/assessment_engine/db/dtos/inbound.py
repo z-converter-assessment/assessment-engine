@@ -132,6 +132,11 @@ class ServerMetricCreate:
     load_5m: float | None
     load_15m: float | None
 
+    # saturation (USE Method raw 신호, os-aware 임계는 recommendation) — 미측정 축 None
+    sat_disk_queue: float | None
+    sat_cpu_run_queue: float | None
+    sat_mem_paging_rate: float | None
+
     # 시계열 4개 테이블 nested 행 매핑
     disk_io: list[DiskIoEntry]
     mounts: list[MountUsageEntry]

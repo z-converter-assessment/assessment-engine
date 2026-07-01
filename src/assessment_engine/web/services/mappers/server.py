@@ -111,7 +111,7 @@ def _to_volumes(mounts: list[dict]) -> list[VolumeItem]:
     for m in mounts:
         path = m.get("mount", "")
         fstype = m.get("fstype")
-        if not is_data_volume(path, m.get("major"), fstype):
+        if not is_data_volume(m.get("kind")):
             continue
         volumes.append(VolumeItem(mount=path, fstype=fstype, total_gb=bytes_to_gb(m.get("total_bytes"))))
     return sorted(volumes, key=lambda v: v.mount)
@@ -120,7 +120,7 @@ def _to_volumes(mounts: list[dict]) -> list[VolumeItem]:
 def _to_disk_item(d: dict) -> DiskItem | None:
     """물리 디스크 아니면 None."""
     name = d.get("name", "")
-    if not is_physical_disk(name):
+    if not is_physical_disk(d.get("kind")):
         return None
     return DiskItem(
         name=name,
@@ -226,7 +226,7 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
     분류 색·라벨은 shared._DONUT_SEGMENT_FROM_REC + _DONUT_SEGMENT_DEFS와 동기화 (P2 단일 진실).
     raw_period=None이면 미분류 — 빈 문자열 (페이지 2+ 등 raws_period 부재).
     """
-    physical = [d for d in dto.disks if is_physical_disk(d.get("name", ""))]
+    physical = [d for d in dto.disks if is_physical_disk(d.get("kind"))]
     raw_total = sum(bytes_to_gb(d.get("size_bytes")) or 0.0 for d in physical)
     storage_total_gb = round(raw_total, 1) if physical else None
 
@@ -306,7 +306,7 @@ def to_server_detail(dto: ServerDetail) -> ServerDetailResponse:
 
 def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
     usage_by_mount = {u.mount: u for u in dto.mount_usage}
-    physical_disks = [d for d in dto.disks if is_physical_disk(d.get("name", ""))]
+    physical_disks = [d for d in dto.disks if is_physical_disk(d.get("kind"))]
 
     mounts: list[MountUsageItem] = []
     seen: set[str] = set()
@@ -315,7 +315,7 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
         path = inv.get("mount", "")
         fstype = inv.get("fstype")
         seen.add(path)
-        if not is_data_volume(path, inv.get("major"), fstype):
+        if not is_data_volume(inv.get("kind")):
             continue
         usage = usage_by_mount.get(path)
         mounts.append(
@@ -329,7 +329,7 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
 
     # inventory에 없지만 시계열에 있는 mount (mount_usage 시계열 전용)
     for path, usage in usage_by_mount.items():
-        if path in seen or not is_data_volume(path, getattr(usage, "major", None)):
+        if path in seen or not is_data_volume(usage.kind):
             continue
         mounts.append(
             _build_mount_item(
