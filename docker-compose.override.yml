@@ -49,13 +49,3 @@ services:
       APP_ENV: ${APP_ENV:-dev}
     volumes:
       - ./migrations:/usr/local/lib/python3.12/site-packages/assessment_engine/migrations
-
-  # dev — servers.json 내장 이미지 로컬 빌드(base 의 GHCR 핀을 덮음). dev·prod 모두 첫 연결 시 DB 비번 1회 입력
-  # (PassFile 없음 — DB 비번이 pgAdmin 에 안 남음).
-  pgadmin:
-    build:
-      context: .
-      dockerfile: docker/pgadmin/Dockerfile
-    image: ${PGADMIN_IMAGE:-assessment-pgadmin:local}
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin

@@ -11,7 +11,6 @@ prod 에서 비밀번호를 env 가 아닌 파일로 주입하기 위한 채널 
 ```
 secrets/postgres_password    # PostgreSQL 비밀번호
 secrets/rabbitmq_password    # RabbitMQ 비밀번호
-secrets/pgadmin_password     # pgAdmin 로그인 비밀번호
 ```
 
 생성 예 (강 random + 권한 600, trailing newline 없이):
@@ -19,7 +18,6 @@ secrets/pgadmin_password     # pgAdmin 로그인 비밀번호
 ```bash
 printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
 printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
-printf '%s' "$(openssl rand -base64 24)" > secrets/pgadmin_password
 chmod 600 secrets/*
 ```
 

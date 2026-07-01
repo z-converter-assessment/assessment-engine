@@ -98,20 +98,20 @@ docker-compose 에서 secret 의 OS env override 동작: `env_file:` 만으론 �
 
 ## 5. dev/prod 차이 매트릭스
 
-compose 는 prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) 2 파일 (ADR 0035). dev 는 둘 자동 머지, prod 는 base 단독(릴리즈 첨부, override 미배포). 본 표는 외부 인프라가 만족해야 할 contract reference.
+compose 는 prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) + prod file-secret overlay(`docker-compose.secrets.yml`) (ADR 0035·0046). dev 는 base+override 자동 머지, prod 는 base+secrets(`deploy.yml` rollout 또는 수동 compose, ADR 0048). 본 표는 dev/prod 구성 차이.
 
 | 항목 | dev (본 repo) | prod (외부 인프라) |
 |------|--------------|---------------------|
-| 기동 방식 | `docker compose up` (base + override.yml 머지, 로컬 빌드) | 릴리즈 base `docker-compose.yml` pull-and-run, systemd + wheel install, 또는 외부 인프라 자유 (ADR 0012·0035) |
+| 기동 방식 | `docker compose up` (base + override.yml 머지, 로컬 빌드) | base+secrets pull-and-run — `deploy.yml` rollout 또는 수동 `docker compose up -d` (ADR 0048) |
 | compose 이미지 | override.yml 로컬 빌드(`assessment-engine:local`) | base 의 GHCR 핀(`ENGINE_IMAGE` 또는 기본 핀) pull |
 | `APP_ENV` | `dev` | `prod` 명시 (env var 또는 EnvironmentFile) |
 | 코드 마운트 (bind mount) | OK override.yml 의 `./src` bind mount, 빠른 반복 | NG base 는 bind mount 없음 — 이미지·wheel 불변성 |
 | 영속 볼륨 | named volume(`postgres_data`·`rabbitmq_data`) | `PGDATA_HOST`·`MQ_DATA_HOST` 로 외부 디스크 bind(Cinder 등) |
 | 백킹 서비스 포트 외부 노출 | OK 5432·5672·6379·15672 | NG web 만 (또는 reverse proxy 뒤) |
-| Password 주입 | `.env`(env.dev.example 복사) 평문 | compose 배포 = file-secret 단일(`docker-compose.secrets.yml` + `./secrets/*` 600, ADR 0046). compose 외(wheel+systemd 등)는 7절 채널 자유 |
-| Schema 관리 | `migrate` init-container 가 `alembic upgrade head` 1회 (ADR 0005) | 외부 인프라 ansible task 또는 systemd one-shot 으로 사전 실행 (wheel 안 `_alembic.ini` 활용) |
+| Password 주입 | `.env`(env.dev.example 복사) 평문 | file-secret 단일(`docker-compose.secrets.yml` + `./secrets/*` 600, ADR 0046) — `/run/secrets/*` 마운트, env 노출 회피 |
+| Schema 관리 | `migrate` init-container 가 `alembic upgrade head` 1회 (ADR 0005) | 동일 — base compose `migrate` init-container 가 web/consumer 기동 전 실행 (deploy.yml rollout 내재) |
 | Fail-fast 검증 | 약한 default 허용 | `_WEAK_VALUES` 거부 → `Settings()` 생성 시점 `ValueError` |
-| restart 정책 | `unless-stopped` | `always` 권장 (systemd `Restart=always`) |
+| restart 정책 | `unless-stopped` | `unless-stopped` (base compose `restart:`) |
 | Logging | `LOG_FORMAT=text` (colorized·grep 친화) | `LOG_FORMAT=json` 권장 (외부 log aggregator indexing) |
 | web 노출 | plain HTTP port 8000 | HTTPS 외부 ingress (nginx·envoy 등) 종단, 앱은 plain |
 | broker AMQP | plain (port 5672) | AMQPS (port 5671) 권장 |
@@ -138,12 +138,12 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
     return self
 ```
 
-발동 위치 (multi-node 분리 시):
-- web 노드: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
-- consumer 노드: `ConsumerSettings` → POSTGRES·RABBITMQ password weak default 거부
+발동 위치 (컴포넌트별):
+- web: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
+- consumer: `ConsumerSettings` → POSTGRES·RABBITMQ password weak default 거부
 
 효과:
-- prod 에서 `.env` 미주입·dev default 잔존 시 `Settings()` 호출이 즉시 `ValueError` → 컨테이너 crash·systemd unit fail.
+- prod 에서 `.env` 미주입·dev default 잔존 시 `Settings()` 호출이 즉시 `ValueError` → 컨테이너 crash (fail-fast).
 - 운영자가 secret 채널 점검 신호 즉시 수신.
 
 ---
@@ -156,15 +156,15 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 |------|----------|---------|
 | `.env` 평문 | `env_file` 또는 `--env-file` | 로컬 dev (본 repo 채택) |
 | 환경변수 직접 | systemd `Environment=`·shell export | 작은 prod, 모든 OS |
-| systemd `EnvironmentFile=` | 파일 1개에 KEY=VALUE | VM + systemd 운영 (ADR 0012 정합) |
-| Docker compose file-secret (compose 배포 표준) | `docker-compose.secrets.yml` 이 `./secrets/*`(권한 600) -> `/run/secrets/*` 마운트. app 은 `secrets_dir`, DB/MQ/pgadmin 은 `*_FILE` env (ADR 0046) | 단일 호스트 compose prod (유일 정석) |
+| systemd `EnvironmentFile=` | 파일 1개에 KEY=VALUE | 비-compose 운영 (엔진은 env 채널도 지원) |
+| Docker compose file-secret (compose 배포 표준) | `docker-compose.secrets.yml` 이 `./secrets/*`(권한 600) -> `/run/secrets/*` 마운트. app 은 `secrets_dir`, DB/MQ 는 `*_FILE` env (ADR 0046) | 단일 호스트 compose prod (유일 정석) |
 | SOPS/age + git | git 에 암호화 커밋, 운영 시 복호화 후 env 또는 file 주입 | GitOps |
 | Vault / AWS Secrets Manager / k8s External Secrets | 외부 secret manager → env 또는 file 주입 | 다중 환경·동적 회전 |
 
 본 repo 책임 한계:
 - pydantic-settings 가 OS env·`secrets_dir` 둘 다 지원 — 외부 인프라 채널 선택 자유
 - `_validate_prod_*` 가 결과 (weak default 거부) 만 검증 — 채널 자체는 본 repo 무관
-- compose 배포는 file-secret 채널 단일 — `docker-compose.secrets.yml` + `./secrets/*`(`secrets/README.md`). `env.example` 에 평문 password 없고 `COMPOSE_FILE` 이 base+secrets 자동 머지. 단일 호스트 non-swarm 에서 env 노출 회피가 핵심 이득(호스트 디스크 평문은 파일 권한 600 으로 보호). compose 외 배포(wheel+systemd 등)는 위 표의 다른 채널 자유.
+- compose 배포는 file-secret 채널 단일 — `docker-compose.secrets.yml` + `./secrets/*`(`secrets/README.md`). `env.example` 에 평문 password 없고 `COMPOSE_FILE` 이 base+secrets 자동 머지. 단일 호스트 non-swarm 에서 env 노출 회피가 핵심 이득(호스트 디스크 평문은 파일 권한 600 으로 보호). 엔진은 env·secrets_dir 어느 채널도 읽으나(위 표) 배포 매체는 compose file-secret 단일(ADR 0048).
 
 ---
 
@@ -295,7 +295,6 @@ agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible 
 | `ZDM_META_TOTAL_TIMEOUT_SEC` | `120.0` | config.py | ZDM 메타 조회 HTTP total timeout (HEAD + GET full). 44MB 가정, 동일 LAN 1~2s |
 | `REDIS_TTL_ZDM_PACKAGE_SHA256` | `21600` (6h) | config.py | ETag 기반 sha256 cache TTL |
 | `SQLALCHEMY_ECHO` | `false` | config.py | SQLAlchemy 엔진 SQL 로깅. dev 디버깅 시 true (운영 환경은 false 유지 — 로그 폭증·secret 노출 위험) |
-| `PGADMIN_PORT` | `5050` | dev compose override | pgAdmin GUI 포트 (dev 전용) |
 
 ### `env.example` 에 없고 config.py default 만 정의된 키
 

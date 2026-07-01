@@ -105,13 +105,13 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 - 멀티스테이지 빌드 미적용 — Python 슬림 이미지가 이미 작고 (~150MB), 빌드 도구가 추가로 필요 없음.
 - multi-arch 빌드도 미적용 — 운영 타겟이 Linux/x86_64로 고정.
 
-### CI 빌드 산출물 (ADR 0012)
+### CI 빌드 산출물 (ADR 0048)
 
-본 repo CI 산출물은 Docker image가 아닌 Python wheel — ADR 0012 채택 후. Dockerfile + docker-compose는 dev·기능 개발 환경 한정. prod 운영은 외부 인프라 책임 (`docs/operations/deployment.md` 4절 inline 예시 + `docs/operations/release.md`).
+본 repo CI 산출물 = 서명·SBOM·provenance 된 GHCR 엔진 이미지 (ADR 0048). Dockerfile 은 dev·prod 공용 단일 이미지(dev-prod parity), docker compose 는 dev(override 핫리로드)·prod(secrets) 배포 매체. 배포는 `deploy.yml` rollout — 상세는 `docs/operations/{release,deployment}.md`.
 
 `.github/workflows/ci.yml`의 `build` job — `uv build` + 빌드된 wheel을 fresh venv에 install + import·정적 자원 포함 검증. Docker image build verify는 본 워크플로에서 제거됨 (Dockerfile 정합 자체는 dev `docker compose build`로 확인).
 
-`.github/workflows/release.yml` — semver tag(`v*`) push 시 wheel + sdist + SHA256SUMS를 GitHub Release artifact로 자동 첨부. 인프라 측은 release page·API로 다운로드. 사내 폐쇄망 mirror 필요 시 인프라 측 결정 (devpi·MinIO 등).
+`.github/workflows/release.yml` — semver tag(`v*`) push 시 서명·SBOM·provenance 된 멀티아치 엔진 이미지를 GHCR 로 발행 (ADR 0048). 배포는 `deploy.yml` rollout — 상세는 `docs/operations/{release,deployment}.md`. 사내 폐쇄망은 `docker save/load` 로 대응.
 
 ---
 
@@ -127,7 +127,6 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 | `migrate` | GHCR pull (dev: override 로컬 빌드) | `alembic upgrade head` 1회 실행 후 종료 (ADR 0005). 앱 서비스 2종이 `depends_on: service_completed_successfully`로 그 뒤 기동 | dev / prod |
 | `web` | GHCR pull (dev: override 로컬 빌드) | FastAPI SSR + API + StaticFiles | dev / prod |
 | `consumer` | GHCR pull (dev: override 로컬 빌드) | aio-pika 컨슈머 (server.* + task.result 큐) | dev / prod |
-| `pgadmin` | `dpage/pgadmin4` | DB GUI (`profiles:[gui]` 전용). `docker compose --profile gui up -d pgadmin`으로 명시 호출 — idle 250 MiB 절감 | dev gui only |
 
 ### 포트 노출
 

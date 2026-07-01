@@ -1,6 +1,6 @@
 # GitHub UI Setup
 
-본 repo CI workflow·release(tag push) ceremony·branch policy를 정상 작동시키기 위해 GitHub 측에서 한 번만 활성해야 하는 설정 카탈로그. 본 repo 코드 영역 밖이라 운영자가 GitHub Settings(또는 ruleset)에서 수동 활성.
+본 repo CI workflow·release(tag push) ceremony·배포(deploy.yml rollout)·branch policy를 정상 작동시키기 위해 GitHub 측에서 한 번만 활성해야 하는 설정 카탈로그. 본 repo 코드 영역 밖이라 운영자가 GitHub Settings(또는 ruleset)에서 수동 활성.
 
 ## 1. Actions 권한
 
@@ -8,7 +8,7 @@
 
 | 항목 | 값 | 사유 |
 |------|----------|------|
-| Read and write permissions | 권장(필수 아님) | 각 워크플로가 `permissions:` 블록으로 최소권한 자체 선언 (release.yml `contents: write` 등). 전역 read-only 여도 동작 |
+| Read and write permissions | 권장(필수 아님) | 각 워크플로가 `permissions:` 블록으로 최소권한 자체 선언 (release.yml `packages: write`·`id-token: write`, deploy.yml 동일). 전역 read-only 여도 동작 |
 | Allow GitHub Actions to create and approve pull requests | 불필요 | bot 의 PR 생성 없음 (ADR 0030 — 버전은 tag 단일 진실, bump 커밋 없음). 릴리즈 = 운영자가 main 에 tag push |
 
 릴리즈는 GitHub Actions bot 이 아니라 운영자가 `main` 에 `v*` tag 를 push -> `release.yml` 발사 (ADR 0030). bot PR 생성 권한 불필요.
@@ -48,10 +48,10 @@ UI 활성 안 하고 workflow만 두어도 동작 — 단 Security 탭 통합이
 
 | Check 이름 (GitHub UI 표시) | 발화 workflow | 검증 | 비고 |
 |------------------------------|-----------------|------|------|
-| `PR title (conventional commits)` | `pr-title-check.yml` | PR title 형식 (`feat:`·`fix:`·`feat!:` 등) | git history·GitHub release notes 일관 (ADR 0030) |
+| `PR title (conventional commits)` | `pr-title-check.yml` | PR title 형식 (`feat:`·`fix:`·`feat!:` 등) | git history 일관 (ADR 0030) |
 | `ci / ruff + hadolint` | `ci.yml` | python lint + Dockerfile lint | |
 | `ci / pytest (unit)` | `ci.yml` | 단위 테스트 + coverage | |
-| `ci / wheel build` | `ci.yml` | `uv build` 성공 | release artifact 산출물 정합 |
+| `ci / wheel build` | `ci.yml` | `uv build` 성공 | 패키징 빌드 검증 (PEP 517 — 이미지 빌드가 소비하는 패키지 정합) |
 | `ci / pytest (integration)` | `ci.yml` | testcontainers postgres/redis + 통합 | wheel build 의존 |
 | `alembic-check` | `alembic-check.yml` | ORM·migrations 라운드트립 정합 | paths 무관 매 PR 발화 (paths 조건 제거 — branch protection skip 함정 회피) |
 
@@ -105,14 +105,37 @@ merge + squash 병행 — feature·fix 는 squash 로 develop 에 들어가고(P
 
 본 repo 는 Dependabot version updates 를 비활성 — 의존성 PR 폭주 회피 + uv.lock 자동 갱신 미지원 한계 (PR 머지 시 lockfile drift 누적 → 다음 PR CI fail). 의존성 버전 bump 는 운영자 수동 (`uv lock --upgrade-package <name>` 또는 주기 검토). 보안 알림은 alerts + security updates 로 별도 신호 수신.
 
-## 6. Secrets (현재 불필요)
+## 6. 배포 (deploy.yml) — self-hosted runner + Environment
 
-본 repo는 `GITHUB_TOKEN` 외 추가 secret 사용 안 함. 외부 secret 추가 시점:
+엔진 rollout(`deploy.yml`, ADR 0048)이 동작하려면 GitHub 측에서 2 가지를 활성한다.
+
+### 6.1. self-hosted runner (배포 대상 VM)
+
+위치: Settings → Actions → Runners → New self-hosted runner
+
+- 배포 대상 내부망 VM 에서 `bootstrap.sh` 가 runner 를 systemd 서비스로 등록 (registration token 은 본 페이지에서 발급 -> `GITHUB_RUNNER_TOKEN`).
+- label = `assessment-prod` (deploy.yml `runs-on` 과 일치 필수).
+- 보안: Settings → Actions → General → Fork pull request workflows 에서 outside collaborator 승인 요구 활성 — fork PR·비신뢰 브랜치가 self-hosted runner 에서 실행되지 않게 차단.
+
+### 6.2. `production` Environment (승인 게이트)
+
+위치: Settings → Environments → New environment → `production`
+
+| 옵션 | 값 | 사유 |
+|------|-----|------|
+| Required reviewers | 1+ 지정 | deploy.yml rollout 전 운영자 수동 승인 (prod 비가역 작업 게이트) |
+| Deployment branches and tags | protected/선택 | 배포 트리거를 신뢰 ref 로 제한 |
+
+선택: `vars.DEPLOY_DIR`(repo Variables) 로 배포 디렉토리 override (기본 `/opt/assessment-engine`).
+
+## 7. Secrets (배포용 추가 없음)
+
+본 repo는 `GITHUB_TOKEN` 외 추가 secret 사용 안 함 — deploy.yml 도 `GITHUB_TOKEN`(GHCR pull)·OIDC(cosign verify) 만. bootstrap.sh 의 runner registration token 은 1회성(repo secret 아님). 외부 secret 추가 시점:
 - PyPI publish 시 — `PYPI_API_TOKEN`
 - 사내 Nexus·devpi mirror push 시 — `NEXUS_USER`·`NEXUS_PASSWORD`
 - Codecov upload 시 — `CODECOV_TOKEN` (현재는 GitHub artifact만 사용)
 
-## 7. 활성 체크리스트 (운영 시작 전)
+## 8. 활성 체크리스트 (운영 시작 전)
 
 순서대로 활성:
 
@@ -122,12 +145,14 @@ merge + squash 병행 — feature·fix 는 squash 로 develop 에 들어가고(P
 - [ ] Branches → develop branch protection rule (위 3.2 적용)
 - [ ] Tags → `v*` tag protection rule (위 4 — deletion·force-push 차단, creation 허용)
 - [ ] General → Pull Requests → merge + squash 병행 활성 + Auto-delete head branches
+- [ ] Actions → Runners → self-hosted runner 등록 (label `assessment-prod`, `bootstrap.sh`)
+- [ ] Environments → `production` (Required reviewers 지정 — deploy.yml 승인 게이트)
 
-본 체크리스트 모두 완료 = 본 repo CI·release ceremony 정합 활성.
+본 체크리스트 모두 완료 = 본 repo CI·release·배포(deploy.yml) 정합 활성.
 
-## 8. 관련 문서
+## 9. 관련 문서
 
 - CI workflow 카탈로그: README "CI 파이프라인" 절
 - release artifact contract: `docs/operations/release.md`
 - release(tag-derived) ceremony 정책: `docs/adr/0030-tag-derived-versioning.md` (cz/commitizen supersede)
-- wheel + GitHub Release: `docs/adr/0012-wheel-ci-artifact.md`
+- 배포(rollout·compose 매체): `docs/adr/0048-engine-rollout-in-repo.md` · `docs/operations/deployment.md`

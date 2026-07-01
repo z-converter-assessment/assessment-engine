@@ -32,7 +32,7 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 
 ## A0. 범위
 
-본 repo는 기능 개발에 필요한 환경 구성만 다룬다. 배포 인프라(IaC — Terraform·Ansible·OpenStack staging 등)는 본 repo 범위 밖. 추후 도입 결정 시 별도 repo로 분리 (ADR 0006 Withdrawn 사유).
+본 repo는 엔진 애플리케이션 + docker compose 배포 + 엔진 rollout(`deploy.yml` self-hosted runner)까지 다룬다 (ADR 0048). 배포 대상 VM 자체의 provisioning(IaC — Terraform·Ansible·VM 생성·OS 설정)은 범위 밖 — docker engine 설치는 1회성 `bootstrap.sh` 로 편의 제공. (ADR 0006 Withdrawn 은 IaC 전면 배제였고, 0048 이 rollout 을 범위 안으로 재획정.)
 
 본 절 결정:
 - compose 파일 — prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) (ADR 0035) + prod file-secret overlay(`docker-compose.secrets.yml`, ADR 0046). base 는 `build:` 키 없는 이미지 pull(GHCR 핀)·bind mount 없음·볼륨 env 바인딩(`PGDATA_HOST`·`MQ_DATA_HOST`) = 빌드 없는 pull-and-run prod compose. override 는 dev 전용(소스 빌드·`./src` bind mount·hot reload)으로 `docker compose up` 시 base 에 자동 머지(릴리즈는 override 미배포, prod 는 base+secrets). Dockerfile 은 dev/prod 분리 안 함(단일 multi-stage 이미지, dev-prod parity) — dev 편의는 Dockerfile 이 아니라 override compose 의 bind mount 로만 주입. `docker-compose.prod.yml`(prod 환경 전체를 가르는 compose)은 두지 않는다(base 자체가 prod). prod 비번은 file-secret 채널 단일(ADR 0046) — `docker-compose.secrets.yml`(`./secrets/*` -> `/run/secrets/*`)을 `env.example` 의 `COMPOSE_FILE` 로 base 에 자동 머지. 즉 prod = base+secrets, dev = base+override. hardened prod(APP_ENV=prod·강 secret·LOG_FORMAT=json·HTTPS ingress)는 infra env 주입으로 달성.
@@ -40,8 +40,8 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
   - 환경변수 contract — `docs/operations/env.md` 키 카탈로그
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
   - 환경 분기 — `APP_ENV=prod` + `_validate_prod_*` weak default 거부 (`docs/operations/env.md` 8절). secret 주입 방식은 무관, 결과(약한 default 거부)만 검증
-  - CI 산출물 — Python wheel + GitHub Release (ADR 0012). 외부 인프라가 wheel 받아 install·systemd 자체 구성
-- IaC 코드(`*.tf`·Ansible playbook·OpenStack 시나리오 문서)는 본 repo에 두지 않는다. 인프라 시나리오 언급 자체 금지 — 단 어떤 인프라든 위 contract 충족 시 본 엔진 기동 가능. (루트 `docker-compose.yml` 단일 호스트 배포는 예외적 편의 제공 — ADR 0035·0036.)
+  - CI 산출물 — 서명(cosign)·SBOM(SPDX)·provenance 된 OCI 이미지 단일 (GHCR, ADR 0048). 배포는 `deploy.yml` rollout (cosign verify -> compose pull -> migration -> up -> health -> rollback)
+- VM provisioning 코드(`*.tf`·Ansible playbook·VM 생성·OS 설정)는 본 repo에 두지 않는다 — 배포 대상 VM 은 provisioning 완료 상태를 전제. 엔진 rollout(`deploy.yml`)·docker engine 부트스트랩(`bootstrap.sh`)은 범위 안(ADR 0048). 단일 호스트 compose 수동 기동도 지원 (ADR 0035·0036).
 
 ---
 

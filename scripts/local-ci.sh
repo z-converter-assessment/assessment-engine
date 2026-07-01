@@ -3,9 +3,9 @@
 #
 # CI 는 PR 대상별로 발화 범위가 다르다 — 모드를 그에 맞춘다:
 #   develop PR/push : ruff + hadolint + unit + alembic + integration
-#   main PR/release : 위 전부 + wheel build + codeql + release 산출물(액션버전·SBOM·image)
+#   main PR/release : 위 전부 + wheel build + codeql + release 산출물(액션버전·image build·compose 정합)
 # release 파이프라인은 tag 가 찍혀야 도므로 "PR 만 보고 통과로 단정"하면 release 버그를 머지 후 발견한다
-# (sigstore 액션 버전·파일명 버그가 그렇게 늦게 드러난 적 있다). main 모드가 그 갈래까지 재현한다.
+# (액션 버전 resolve 버그가 그렇게 늦게 드러난 적 있다). main 모드가 그 갈래까지 재현한다.
 #
 # 사용:
 #   scripts/local-ci.sh --fast    # commit 전 빠른 회귀 (ruff + unit, docker 0)
@@ -55,14 +55,6 @@ else
   else
     ok "floating 태그 0 — 모든 액션 commit SHA 고정"
   fi
-  # release.yml 산출물 파일명 정합: sigstore-python 은 {input}.sigstore.json 을 만든다.
-  if grep -q 'gh-action-sigstore-python' .github/workflows/release.yml 2>/dev/null; then
-    if grep -qE 'dist/\*\.sigstore\.json' .github/workflows/release.yml; then
-      ok "sigstore 산출물 패턴 *.sigstore.json 정합"
-    elif grep -qE 'dist/\*\.sigstore([^.]|$)' .github/workflows/release.yml; then
-      ng "release.yml 이 *.sigstore 를 찾지만 sigstore v3 는 *.sigstore.json 을 생성한다"
-    fi
-  fi
 fi
 
 # ─── 2. ruff lint (ci.yml lint job — 모든 모드) ─────────────────────────────
@@ -101,51 +93,17 @@ else
   fi
 fi
 
-# ─── 5. SBOM 생성 (release.yml release-wheel 의 SBOM step — main 전용) ───────
-section "SBOM (cyclonedx) — release-wheel step"
+# ─── 5. compose config 정합 (배포 — main 전용) ──────────────────────────────
+# 배포는 GHCR 이미지 pull compose (base+secrets). prod compose 가 ENGINE_IMAGE override 로 유효
+# 파싱되는지 재현 — deploy.yml rollout 이 대상 VM 에서 실행할 compose 정합 (ADR 0048).
+section "compose config (base+secrets, ENGINE_IMAGE override)"
 if ! need 3; then
-  skip "$MODE 모드 — SBOM 은 main"
+  skip "$MODE 모드 — compose 정합은 main"
+elif ENGINE_IMAGE=ghcr.io/x/assessment-engine:v0 ENV_FILE=env.example \
+     docker compose -f docker-compose.yml -f docker-compose.secrets.yml config >/dev/null 2>&1; then
+  ok "prod compose (base+secrets) config 유효"
 else
-  mkdir -p dist
-  # release.yml 과 동일 — venv 비의존 (uv export -> uvx cyclonedx). 이전 `uv pip install` 은 .venv 요구라 CI 에서 실패.
-  uv export --frozen --no-dev --format requirements-txt > dist/_sbom-requirements.txt 2>/dev/null
-  if uvx --from cyclonedx-bom cyclonedx-py requirements dist/_sbom-requirements.txt --output-file dist/sbom.cdx.json >/dev/null 2>&1 && [ -s dist/sbom.cdx.json ]; then
-    ok "cyclonedx SBOM 생성"
-  else
-    ng "cyclonedx SBOM 생성 실패"
-  fi
-  rm -f dist/_sbom-requirements.txt
-  uv sync --frozen --group dev >/dev/null 2>&1   # cyclonedx 임시 설치 -> lock 상태 복구
-fi
-
-# ─── 5b. release 에셋 산출 정합 (release.yml GitHub Release files: — main 전용) ─
-# release.yml 은 fail_on_unmatched_files: true — files: 항목 하나라도 매치 0 이면 release 가 실패한다.
-# 빌드 산출물(wheel·sdist·SBOM)은 위에서 생성, sigstore 는 CI 전용(OIDC)이라 패턴만(1절). 여기선
-# 리터럴 repo 에셋(docker-compose.yml·env.example) 존재 + 릴리즈 다운로드 배포(ENGINE_IMAGE GHCR pull)
-# compose 유효까지 — 즉 "tag push -> release 에셋 산출" 전 경로를 머지 전 재현 (ADR 0036).
-section "release 에셋 정합 (GitHub Release files)"
-if ! need 3; then
-  skip "$MODE 모드 — release 에셋 정합은 main"
-else
-  miss=""
-  # 빌드 산출물 (4절·5절에서 생성)
-  for g in 'dist/'*.whl 'dist/'*.tar.gz dist/sbom.cdx.json; do
-    compgen -G "$g" >/dev/null 2>&1 || miss+=" $g"
-  done
-  # SHA256SUMS 산출 가능 (release.yml 이 dist 안에서 생성)
-  ( cd dist && sha256sum -- *.whl *.tar.gz > SHA256SUMS 2>/dev/null ) || miss+=" SHA256SUMS"
-  # 리터럴 repo 에셋 — files: 에 선언 + 파일 존재 둘 다
-  for f in docker-compose.yml env.example; do
-    grep -qE "(^[[:space:]]+|/)$f$" .github/workflows/release.yml || miss+=" release.yml-files:$f"
-    [ -f "$f" ] || miss+=" file:$f"
-  done
-  if [ -z "$miss" ]; then ok "release files: 전 항목 산출/존재 (wheel·sdist·SBOM·SHA256SUMS·compose·env.example)"; else ng "release 에셋 누락:$miss"; fi
-  # 릴리즈 다운로드 배포 — GHCR 이미지 pull compose config 유효 (소스 clone 없이 ENGINE_IMAGE override)
-  if ENGINE_IMAGE=ghcr.io/x/assessment-engine:v0 ENV_FILE=env.example docker compose config >/dev/null 2>&1; then
-    ok "release compose — ENGINE_IMAGE GHCR pull config 유효"
-  else
-    ng "release compose — ENGINE_IMAGE override config 실패"
-  fi
+  ng "prod compose config 실패 — 'docker compose -f docker-compose.yml -f docker-compose.secrets.yml config'"
 fi
 
 # ─── 6. pytest integration (ci.yml test-integration — develop 이상, docker) ──
@@ -247,8 +205,9 @@ fi
 # ─── CI 전용 (본질적 로컬 재현 불가) — 인지용 안내 ───────────────────────────
 # 아래는 GitHub OIDC 토큰·레지스트리 인증·GitHub 이벤트 컨텍스트가 필수라 로컬 자동 재현 불가.
 section "CI 전용 (OIDC·인증·이벤트 필요 — 안내만)"
-skip "sigstore 서명 / cosign 이미지 서명 — GitHub OIDC 토큰 필요"
+skip "cosign 이미지 서명 + SBOM/provenance attestation — GitHub OIDC 토큰 필요"
 skip "GHCR push — 레지스트리 인증 + 외부 부작용"
+skip "deploy.yml rollout — self-hosted runner + production Environment 승인 (실 VM)"
 skip "pr-title-check — GitHub PR 이벤트 컨텍스트 필요 (릴리즈는 main 에 tag push, ADR 0030)"
 
 # ─── 결과 ───────────────────────────────────────────────────────────────────

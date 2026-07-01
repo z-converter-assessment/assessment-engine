@@ -4,7 +4,7 @@
 
 고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, web 이 수집된 데이터를 규칙 기반(USE Method right-sizing)으로 분석해 진단·보고서를 생성한다. 운영자는 web UI 에서 모니터링 화면·보고서·JSON Export·원격 설치 task 산출물을 활용해 다음 단계 의사결정을 진행한다.
 
-본 repo 는 엔진을 런타임에 띄우는 것까지만 다룬다 (애플리케이션 + 루트 docker-compose(prod base + dev override 핫리로드)). agent 가 붙는 VM·하드닝 prod 운영 (IaC — Terraform · Ansible 등 · systemd unit · k8s manifest) 은 본 repo 범위 밖 — 산출물·contract 를 외부 인프라에 통합.
+본 repo 는 엔진 애플리케이션 + docker-compose 배포(prod base · dev override 핫리로드) + 엔진 rollout(`deploy.yml`, self-hosted runner)까지 다룬다 (ADR 0048). 배포 대상 VM 자체의 provisioning(IaC — Terraform · Ansible 등 · VM 생성 · OS 설정)은 본 repo 범위 밖 — docker engine 설치는 1회성 `bootstrap.sh` 로 편의 제공. agent 가 붙는 VM 은 OpenStack 공급.
 
 ---
 
@@ -71,7 +71,7 @@
 | Schema 관리 | Alembic 단일 진실 |
 | 진단 | 규칙 기반 right-sizing (USE Method, `recommendation.py` — web 인라인 계산) |
 | 관측 | loguru `LOG_FORMAT=text\|json` (구조화 로그) |
-| 패키징 | uv + hatchling. CI 산출물 = Python wheel + Docker image (GHCR) |
+| 패키징 | uv + hatchling. CI 산출물 = Docker image (GHCR, 서명·SBOM·provenance) |
 | 정적 자원 | Chart.js (CDN) · Cytoscape.js (네트워크 토폴로지, vendored) · 외부 `.js` + `defer` |
 | 에이전트 (별도 repo) | C 단일 바이너리, RabbitMQ 직접 publish |
 
@@ -88,27 +88,24 @@
 | `ci.yml` | develop PR · main PR · develop push | lint(ruff+hadolint) → test-unit → test-integration (develop push·main PR), wheel build (main PR) |
 | `alembic-check.yml` | develop PR · main PR | ORM·migrations 라운드트립 정합 |
 | `codeql.yml` | main PR · 주간 cron | CodeQL SAST (SQL injection·secret leak·XSS 정적 분석, Security 탭 alert) |
-| `release.yml` | `main`에 tag `v*` push · workflow_dispatch | uv build wheel + sdist (버전=tag, hatch-vcs) + SHA256SUMS + SBOM + Sigstore signature → GitHub Release + GHCR image(multi-arch) 자동 첨부 |
+| `release.yml` | `main`에 tag `v*` push · workflow_dispatch | 멀티아치 엔진 이미지 빌드(버전=tag, hatch-vcs) → GHCR push + cosign 서명 + SBOM(SPDX) + SLSA provenance |
+| `deploy.yml` | workflow_dispatch (version 입력) + `production` 승인 | self-hosted runner rollout — cosign verify → compose pull → migration + up → `/health` gate → 실패 시 rollback (ADR 0048) |
 
-본 repo는 CI 영역만 (코드 quality + artifact 생성). CD(배포·secret 주입·롤백)는 외부 인프라 책임.
+본 repo는 CI(코드 quality + 이미지 발행)와 CD(엔진 rollout, `deploy.yml`) 모두 담당 (ADR 0048). 배포 대상 VM provisioning(IaC)은 범위 밖.
 
 ---
 
 ## 배포 산출물
 
-semver tag `v*` push 시 릴리즈가 내놓는 산출물. 배포는 compose 기준(아래 배포 절) — wheel·image·systemd 등 다른 채널·토폴로지는 `docs/operations/deployment.md`.
+semver tag `v*` push 시 릴리즈가 내놓는 산출물. 배포 매체는 docker compose 단일 — 상세는 `docs/operations/release.md`·`deployment.md`.
 
 | 산출물 | 위치 · 참고 문서 |
 |--------|--------------|
-| Python wheel + sdist + SHA256SUMS | GitHub Release (semver tag `v*`) · `docs/operations/release.md` |
-| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/z-converter-assessment/assessment-engine:0.1.0`+`:0.1`+`:0`+`:latest` (semver tag `v0.1.0` -> 이미지 태그는 `v` 없는 `0.1.0`, metadata-action) · ADR 0017 |
-| SBOM (CycloneDX JSON) + Sigstore signature | wheel·sdist에 첨부 — 외부 인프라가 의존성 audit + `cosign verify-blob` 무결성 검증 |
-| SBOM (SPDX, BuildKit attestation) + cosign keyless signature | image 첨부 — `cosign verify ghcr.io/z-converter-assessment/assessment-engine:0.1.0` 무결성 검증 |
-| Alembic migrations·alembic.ini | wheel·image 동봉 (`hatch.force-include`) · `docs/operations/release.md` |
-| `docker-compose.yml` (prod-safe base) + `env.example` | GitHub Release 첨부 — 빌드 없는 pull-and-run prod compose (build 키 없음, GHCR 이미지 핀). `docker compose up -d` 로 pull |
+| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/z-converter-assessment/assessment-engine:0.1.0`+`:0.1`+`:0`+`:latest` (semver tag `v0.1.0` -> 이미지 태그는 `v` 없는 `0.1.0`, metadata-action) · ADR 0048 |
+| cosign 서명 + SBOM (SPDX) + SLSA provenance | 이미지 attestation (별도 파일 아님) — `cosign verify ghcr.io/z-converter-assessment/assessment-engine:0.1.0` · `docs/operations/release.md` |
+| Alembic migrations·`_alembic.ini` | 이미지 동봉 (`hatch.force-include`) · base compose migrate init-container |
 | 환경변수·secret contract | `docs/operations/env.md` |
-| systemd unit reference | `docs/operations/deployment.md` 4절 |
-| install·실행 절차 | `docs/operations/deployment.md` |
+| bootstrap + rollout 절차 | `docs/operations/deployment.md` |
 
 ---
 
@@ -150,16 +147,16 @@ uv run alembic check              # ORM·migrations 정합
 
 ## 배포 (prod)
 
-prod = base + `docker-compose.secrets.yml`(file-secret). 비번을 `./secrets/*` 파일로 주입한다 — 컨테이너 env 에 안 뜬다. 빌드 없이 GHCR 이미지를 pull.
+엔진 rollout 은 `deploy.yml`(self-hosted runner · 수동 승인 게이트)이 담당 — cosign verify -> compose pull -> migration + up -> `/health` gate -> 실패 시 rollback (ADR 0048). VM bootstrap·rollout 상세: `docs/operations/deployment.md`.
+
+prod = base + `docker-compose.secrets.yml`(file-secret). 비번을 `./secrets/*` 파일로 주입한다 — 컨테이너 env 에 안 뜬다. 단일 호스트 수동 기동 (repo checkout 기준):
 
 ```bash
-gh release download <tag> -R z-converter-assessment/assessment-engine -D /tmp/ae
-cd /tmp/ae && cp env.example .env          # COMPOSE_FILE 포함(base+secrets) · 평문 비번 없음
+cp env.example .env                         # COMPOSE_FILE 포함(base+secrets) · 평문 비번 없음
 
 mkdir -p secrets                            # 비번 파일 (강 random, 권한 600)
 printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
 printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
-printf '%s' "$(openssl rand -base64 24)" > secrets/pgadmin_password
 chmod 600 secrets/*
 
 docker compose up -d                        # base+secrets pull-and-run. web http://localhost:8000
@@ -167,7 +164,7 @@ docker compose up -d                        # base+secrets pull-and-run. web htt
 
 `APP_ENV=prod` 라 secret 부재·weak 면 기동 거부(fail-fast). GHCR public — 토큰 없이 pull. 외부 디스크 볼륨은 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(선택).
 
-secret 배치 상세: `secrets/README.md`. wheel+systemd·멀티노드 등 다른 토폴로지: `docs/operations/deployment.md`.
+secret 배치 상세: `secrets/README.md`.
 
 ---
 

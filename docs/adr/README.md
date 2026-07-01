@@ -59,6 +59,10 @@
 
 | 0046 | prod 비밀번호 file-secret 채널 (compose overlay, 단일) | Accepted | 단일 호스트 non-swarm prod 비번을 file-secret 채널 단일로. prod 전용 overlay `docker-compose.secrets.yml` — `./secrets/*`(600) -> `/run/secrets/*`. app=secrets_dir(코드 변경 0)·postgres/pgadmin=`*_FILE`·rabbitmq=entrypoint wrapper(3.13 _FILE 제거). password env null 중화. `env.example` 평문 password 제거 + `COMPOSE_FILE` 로 base+secrets 자동(prod=`docker compose up` 한 줄). dev 는 base+override(복사만). base 단독 env-channel prod 폐지. ADR 0035/0036 refine, #A0 정합 |
 
+| 0047 | pgAdmin 제거 (repo 에서 완전 삭제) | Accepted | 운영 편의 DB GUI(pgAdmin4 wrapper)를 코드·설정·문서 잔재 0 으로 제거 — `docker/pgadmin/`·compose 3종 pgadmin 서비스·`release-pgadmin-image` job(GHCR `assessment-pgadmin` 발행 중단)·`PGADMIN_*` env·`pgadmin_password` secret. 서비스 6개(postgres·rabbitmq·redis·migrate·web·consumer)로 축소, 릴리즈 이미지 `assessment-engine` 단일 수렴. DB 웹 접근 표면·idle 메모리 제거. 배포 범위 재정의(compose 단일 매체 + 엔진 rollout 통합)의 선행 정리. ADR 0046 file-secret 을 postgres·rabbitmq 2개로 refine, 0045 pgpass 세부 무의미화 |
+
+| 0048 | 엔진 배포(rollout)를 본 repo 로 통합 (compose 매체 + self-hosted runner) | Accepted | artifact 게시에 그치던 배포를 rollout 까지 본 repo 소유로 재정의 — 별도 인프라 repo 없이 내부망 VM 단일 prod 에 배포. `deploy.yml`(self-hosted runner·`workflow_dispatch`+`production` 승인 게이트): cosign verify -> compose pull -> migration(init-container)+up -> `/health` gate -> 실패 시 `.last-good` 이미지 rollback(capture-before-swap). docker engine 설치·runner 등록은 1회성 멱등 `bootstrap.sh`(provisioning 도구 미도입, VM 생성은 범위 밖). 릴리즈 표면 축소 = wheel·sdist·SHA256SUMS·Sigstore·compose 첨부·notify-infra 폐기, 서명·SBOM·provenance OCI 이미지 단일. ADR 0012·0017 supersede, 0006·0030·0035/0036·0038 refine, #A0 정정 |
+
 트레이드오프 카탈로그(T1~T17)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 
 ## 새 ADR 작성

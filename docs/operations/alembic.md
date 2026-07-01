@@ -129,13 +129,13 @@ git commit -m "..."
 | 환경 | 적용 시점 | 자동 여부 |
 |------|----------|----------|
 | dev (`docker compose up`) | up 시점에 migrate 컨테이너 자동 실행 | 자동 |
-| prod (외부 인프라) | 외부 인프라 ansible/systemd task가 `python -m alembic ... upgrade head` 사전 실행. wheel 안 `_alembic.ini`+`migrations/` 활용 (ADR 0012) | 수동 (외부 인프라 책임) |
+| prod (compose) | base compose `migrate` init-container 가 web/consumer 기동 전 `alembic upgrade head` 실행 (deploy.yml rollout 내재, 이미지 안 `_alembic.ini`+`migrations/`) | 자동 |
 | 테스트 (`pytest`) | testcontainers fixture가 alembic upgrade subprocess 실행 (`tests/conftest.py`) | 자동 |
 
-prod에 큰 변경(데이터 손실 가능 DROP·대량 행 ALTER) 적용 전 — 외부 인프라 환경에서:
+prod에 큰 변경(데이터 손실 가능 DROP·대량 행 ALTER) 적용 전 — 배포 환경 이미지 컨테이너에서:
 
 ```bash
-# wheel install된 venv에서 (예시)
+# 이미지 컨테이너 안에서 (예시)
 ALEMBIC_INI=$(python -c 'from importlib.resources import files; print(files("assessment_engine") / "_alembic.ini")')
 
 # history 확인 — 어디까지 가는지
