@@ -98,18 +98,18 @@ docker-compose 에서 secret 의 OS env override 동작: `env_file:` 만으론 �
 
 ## 5. dev/prod 차이 매트릭스
 
-compose 는 prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) + prod file-secret overlay(`docker-compose.secrets.yml`) (ADR 0035·0046). dev 는 base+override 자동 머지, prod 는 base+secrets(`deploy.yml` rollout 또는 수동 compose, ADR 0048). 본 표는 dev/prod 구성 차이.
+compose 는 prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) + prod file-secret overlay(`docker-compose.secrets.yml`) (ADR 0035·0046). dev 는 base+override 자동 머지, prod 는 base+secrets(`deploy.sh` rollout 또는 수동 compose, ADR 0048). 본 표는 dev/prod 구성 차이.
 
 | 항목 | dev (본 repo) | prod (외부 인프라) |
 |------|--------------|---------------------|
-| 기동 방식 | `docker compose up` (base + override.yml 머지, 로컬 빌드) | base+secrets pull-and-run — `deploy.yml` rollout 또는 수동 `docker compose up -d` (ADR 0048) |
+| 기동 방식 | `docker compose up` (base + override.yml 머지, 로컬 빌드) | base+secrets pull-and-run — `deploy.sh` rollout 또는 수동 `docker compose up -d` (ADR 0048) |
 | compose 이미지 | override.yml 로컬 빌드(`assessment-engine:local`) | base 의 GHCR 핀(`ENGINE_IMAGE` 또는 기본 핀) pull |
 | `APP_ENV` | `dev` | `prod` 명시 (env var 또는 EnvironmentFile) |
 | 코드 마운트 (bind mount) | OK override.yml 의 `./src` bind mount, 빠른 반복 | NG base 는 bind mount 없음 — 이미지·wheel 불변성 |
 | 영속 볼륨 | named volume(`postgres_data`·`rabbitmq_data`) | `PGDATA_HOST`·`MQ_DATA_HOST` 로 외부 디스크 bind(Cinder 등) |
 | 백킹 서비스 포트 외부 노출 | OK 5432·5672·6379·15672 | NG web 만 (또는 reverse proxy 뒤) |
 | Password 주입 | `.env`(env.dev.example 복사) 평문 | file-secret 단일(`docker-compose.secrets.yml` + `./secrets/*` 600, ADR 0046) — `/run/secrets/*` 마운트, env 노출 회피 |
-| Schema 관리 | `migrate` init-container 가 `alembic upgrade head` 1회 (ADR 0005) | 동일 — base compose `migrate` init-container 가 web/consumer 기동 전 실행 (deploy.yml rollout 내재) |
+| Schema 관리 | `migrate` init-container 가 `alembic upgrade head` 1회 (ADR 0005) | 동일 — base compose `migrate` init-container 가 web/consumer 기동 전 실행 (deploy.sh rollout 내재) |
 | Fail-fast 검증 | 약한 default 허용 | `_WEAK_VALUES` 거부 → `Settings()` 생성 시점 `ValueError` |
 | restart 정책 | `unless-stopped` | `unless-stopped` (base compose `restart:`) |
 | Logging | `LOG_FORMAT=text` (colorized·grep 친화) | `LOG_FORMAT=json` 권장 (외부 log aggregator indexing) |

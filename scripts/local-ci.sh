@@ -95,7 +95,7 @@ fi
 
 # ─── 5. compose config 정합 (배포 — main 전용) ──────────────────────────────
 # 배포는 GHCR 이미지 pull compose (base+secrets). prod compose 가 ENGINE_IMAGE override 로 유효
-# 파싱되는지 재현 — deploy.yml rollout 이 대상 VM 에서 실행할 compose 정합 (ADR 0048).
+# 파싱되는지 재현 — deploy.sh rollout 이 대상 VM 에서 실행할 compose 정합 (ADR 0048).
 section "compose config (base+secrets, ENGINE_IMAGE override)"
 if ! need 3; then
   skip "$MODE 모드 — compose 정합은 main"
@@ -207,7 +207,7 @@ fi
 section "CI 전용 (OIDC·인증·이벤트 필요 — 안내만)"
 skip "cosign 이미지 서명 + SBOM/provenance attestation — GitHub OIDC 토큰 필요"
 skip "GHCR push — 레지스트리 인증 + 외부 부작용"
-skip "deploy.yml rollout — self-hosted runner + production Environment 승인 (실 VM)"
+skip "deploy.sh rollout — 배포 대상 VM 에서 사람이 실행 (실 VM)"
 skip "pr-title-check — GitHub PR 이벤트 컨텍스트 필요 (릴리즈는 main 에 tag push, ADR 0030)"
 
 # ─── 결과 ───────────────────────────────────────────────────────────────────

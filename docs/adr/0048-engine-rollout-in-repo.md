@@ -70,3 +70,29 @@ health -> rollback)까지 본 repo 가 소유하도록 성격을 재정의한다
 - ADR 0047 pgAdmin 제거의 후속 — 배포 토폴로지 축소 위에서 rollout 구현.
 - #F9 동시 갱신: `deploy.yml`(신규)·`bootstrap.sh`(신규)·`release.yml`·`docs/operations/{deployment,release,env}.md`·
   `README.md`·CLAUDE.md #A0·ADR 인덱스.
+
+## 정정 (2026-07-01): self-hosted runner -> VM 실행 `deploy.sh`
+
+초안의 rollout 매체(`deploy.yml` = self-hosted runner + `workflow_dispatch` + `production` Environment 승인)를
+배포 대상 VM 에서 실행하는 `deploy.sh` 로 변경한다.
+
+사유:
+- repo 가 public 이다. GitHub 은 self-hosted runner 를 public repo 에서 쓰지 말라고 권고한다 — fork PR 이
+  runner(=prod VM)에서 코드를 실행할 수 있기 때문. self-hosted 선택 자체는 옳았으나(내부망 VM 은 GitHub-hosted
+  runner 가 inbound 로 도달 못 함), public repo 와의 조합이 안티패턴이었다.
+- 단일 내부 VM 에 CI runner 에이전트 상주 + Environment 승인 machinery 는 과설계. 내부망 outbound-only VM 은
+  "밖에서 push" 가 아니라 "스스로 pull" 이 자연스럽다.
+
+변경:
+- `deploy.yml`·self-hosted runner·`production` Environment 폐기. rollout 로직(cosign verify -> 버전 태그 compose
+  raw fetch -> pull -> migration(init-container) -> up -> health -> `.last-good` rollback)을 `deploy.sh` 로 이전.
+- 배포 = VM 에서 `sudo deploy.sh vX.Y.Z` (사람이 실행 = 배포 게이트). 감사는 git tag + 이미지 digest.
+- `bootstrap.sh` 개편 — runner 등록 제거, cosign 설치 + `deploy.sh` 배치 추가. `bootstrap.sh`·`env.example`·
+  `deploy.sh` 는 public raw 에서 curl (clone·토큰 불요).
+- GHCR/repo 는 public 유지 — runner 를 안 쓰므로 private 전환 불요. 이미지 무결성은 cosign verify 가 보장
+  (privacy 무관). release.yml(이미지 발행)은 GitHub-hosted runner 그대로 — CI 는 영향 없음.
+
+존속: image-only 릴리즈·공급망(cosign/SBOM/provenance)·migration 선행·health/rollback·단일 VM 범위.
+동시 갱신: `deploy.sh`(신규)·`bootstrap.sh`(개편)·`deploy.yml`(삭제)·`README.md`·
+`docs/operations/{deployment,release,env,alembic}.md`·`docs/development/{github-setup,docker}.md`·`docs/README.md`·
+`scripts/local-ci.sh`·`.github/workflows/ci.yml`·CLAUDE.md #A0·ADR 인덱스.

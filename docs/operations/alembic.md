@@ -129,7 +129,7 @@ git commit -m "..."
 | 환경 | 적용 시점 | 자동 여부 |
 |------|----------|----------|
 | dev (`docker compose up`) | up 시점에 migrate 컨테이너 자동 실행 | 자동 |
-| prod (compose) | base compose `migrate` init-container 가 web/consumer 기동 전 `alembic upgrade head` 실행 (deploy.yml rollout 내재, 이미지 안 `_alembic.ini`+`migrations/`) | 자동 |
+| prod (compose) | base compose `migrate` init-container 가 web/consumer 기동 전 `alembic upgrade head` 실행 (deploy.sh rollout 내재, 이미지 안 `_alembic.ini`+`migrations/`) | 자동 |
 | 테스트 (`pytest`) | testcontainers fixture가 alembic upgrade subprocess 실행 (`tests/conftest.py`) | 자동 |
 
 prod에 큰 변경(데이터 손실 가능 DROP·대량 행 ALTER) 적용 전 — 배포 환경 이미지 컨테이너에서:

@@ -107,11 +107,11 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 
 ### CI 빌드 산출물 (ADR 0048)
 
-본 repo CI 산출물 = 서명·SBOM·provenance 된 GHCR 엔진 이미지 (ADR 0048). Dockerfile 은 dev·prod 공용 단일 이미지(dev-prod parity), docker compose 는 dev(override 핫리로드)·prod(secrets) 배포 매체. 배포는 `deploy.yml` rollout — 상세는 `docs/operations/{release,deployment}.md`.
+본 repo CI 산출물 = 서명·SBOM·provenance 된 GHCR 엔진 이미지 (ADR 0048). Dockerfile 은 dev·prod 공용 단일 이미지(dev-prod parity), docker compose 는 dev(override 핫리로드)·prod(secrets) 배포 매체. 배포는 VM 에서 `deploy.sh` 실행 — 상세는 `docs/operations/{release,deployment}.md`.
 
 `.github/workflows/ci.yml`의 `build` job — `uv build` + 빌드된 wheel을 fresh venv에 install + import·정적 자원 포함 검증. Docker image build verify는 본 워크플로에서 제거됨 (Dockerfile 정합 자체는 dev `docker compose build`로 확인).
 
-`.github/workflows/release.yml` — semver tag(`v*`) push 시 서명·SBOM·provenance 된 멀티아치 엔진 이미지를 GHCR 로 발행 (ADR 0048). 배포는 `deploy.yml` rollout — 상세는 `docs/operations/{release,deployment}.md`. 사내 폐쇄망은 `docker save/load` 로 대응.
+`.github/workflows/release.yml` — semver tag(`v*`) push 시 서명·SBOM·provenance 된 멀티아치 엔진 이미지를 GHCR 로 발행 (ADR 0048). 배포는 VM 에서 `deploy.sh` 실행 — 상세는 `docs/operations/{release,deployment}.md`. 사내 폐쇄망은 `docker save/load` 로 대응.
 
 ---
 

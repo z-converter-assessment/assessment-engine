@@ -39,7 +39,7 @@ docs/
 │   └── github-setup.md    GitHub UI 활성 의무 카탈로그 — CI·release(tag push)·배포(runner·Environment)·branch protection
 ├── operations/            배포·운영 contract (영구·갱신)
 │   ├── release.md         release artifact(서명·SBOM·provenance OCI 이미지) 카탈로그·생성 trigger(tag push)·검증 (ADR 0048·0030)
-│   ├── deployment.md      bootstrap + rollout(deploy.yml) 배포 가이드 (트러블슈팅 포함, ADR 0048)
+│   ├── deployment.md      bootstrap + rollout(deploy.sh) 배포 가이드 (트러블슈팅 포함, ADR 0048)
 │   ├── env.md             환경변수 관리 단일 진실 — 정책·매트릭스·secret 채널·전체 키 카탈로그·운영 체크리스트
 │   ├── alembic.md         DB schema 마이그레이션 contract
 │   └── observability.md   로그 레벨·외부 의존 실패 매트릭스·LOG_FORMAT toggle + 확장 트리거 (Request ID 분산 trace)
@@ -55,7 +55,7 @@ docs/
 
 ## 범위
 
-본 repo는 엔진 애플리케이션 + docker compose 배포 + 엔진 rollout(`deploy.yml` self-hosted runner)까지 다룬다 (CLAUDE.md #A0, ADR 0048). 배포 대상 VM 자체의 provisioning(IaC — Terraform·Ansible·VM 생성·OS 설정)은 범위 밖 — docker engine 설치는 1회성 `bootstrap.sh` 편의 제공.
+본 repo는 엔진 애플리케이션 + docker compose 배포 + 엔진 rollout(`deploy.sh`, VM 에서 실행)까지 다룬다 (CLAUDE.md #A0, ADR 0048). VM provisioning(IaC — VM 생성·OS 설정)은 별도 준비 VM 전제 — docker·cosign·deploy.sh 설치는 1회성 `bootstrap.sh`.
 
 ## 라이프사이클 규약
 

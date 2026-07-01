@@ -62,7 +62,7 @@ semver 규칙 (사람이 tag 결정 시 가이드):
 
 ## 3. 무결성 검증 (배포 게이트)
 
-배포(`deploy.yml`)가 pull 전에 cosign 서명을 검증한다 — 미통과 시 배포 중단. 수동 검증:
+배포(`deploy.sh`)가 pull 전에 cosign 서명을 검증한다 — 미통과 시 배포 중단. 수동 검증:
 
 ```bash
 cosign verify ghcr.io/z-converter-assessment/assessment-engine:1.2.3 \
@@ -85,7 +85,7 @@ cosign verify ghcr.io/z-converter-assessment/assessment-engine:1.2.3 \
 
 본 문서는 artifact 정의·생성·검증까지. VM 부트스트랩·rollout·환경변수·alembic 절차는 별도:
 
-- `docs/operations/deployment.md` — bootstrap + rollout(deploy.yml) 가이드
+- `docs/operations/deployment.md` — bootstrap + rollout(deploy.sh) 가이드
 - `docs/operations/env.md` — secret·환경변수 contract + APP_ENV=prod fail-fast 검증
 - `docs/operations/alembic.md` — schema 마이그레이션 (이미지 안 `_alembic.ini`, base compose migrate init-container)
 
@@ -93,7 +93,7 @@ cosign verify ghcr.io/z-converter-assessment/assessment-engine:1.2.3 \
 
 - ADR 0005 — Alembic schema 관리 단일 진실 (migrations 동봉 사유)
 - ADR 0030 — tag-derived 버전 (hatch-vcs, 버전을 repo에 저장 안 함). 정정(2026-06-08): tag derive single-source(`resolve-version` job) + stable semver 가드 + 등가성 검증
-- ADR 0048 — 엔진 rollout 을 본 repo 로 통합 (compose 매체 + self-hosted runner). wheel 산출물 폐기·image 단일, release 표면 축소
+- ADR 0048 — 엔진 rollout 을 본 repo 로 통합 (compose 매체 + VM `deploy.sh`). wheel 산출물 폐기·image 단일, release 표면 축소
 
 ## 7. 한계
 
