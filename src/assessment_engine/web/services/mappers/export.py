@@ -69,11 +69,14 @@ def _split_disks(disks: list[dict], mounts: list[dict]) -> tuple[int | None, lis
     return (boot_gb, additional)
 
 
-def _network_addresses(ip_internal: list[str] | None, ip_external: list[str] | None) -> list[dict]:
-    """v4·v6 family 자동 분류 — `:` 포함 시 v6, 아니면 v4. scope는 input 파라미터로 결정."""
+def _network_addresses(interfaces: list[dict] | None, ip_external: list[str] | None) -> list[dict]:
+    """internal 은 구조화 interfaces(family/address), external 은 문자열. scope·family 로 분류 (loopback 제외)."""
     out: list[dict] = []
-    for ip in ip_internal or []:
-        out.append({"scope": "internal", "family": "v6" if ":" in ip else "v4", "address": ip})
+    for i in interfaces or []:
+        if i.get("kind") == "loopback":
+            continue
+        family = "v6" if i.get("family") == "ipv6" else "v4"
+        out.append({"scope": "internal", "family": family, "address": i.get("address", "")})
     for ip in ip_external or []:
         out.append({"scope": "external", "family": "v6" if ":" in ip else "v4", "address": ip})
     return out
@@ -108,7 +111,7 @@ def _services_for_export(services: list[dict] | None, listen_ports: list[dict] |
         unit = s.get("unit") if isinstance(s, dict) else None
         if not unit:
             continue
-        cat = classify(unit, listen_ports)
+        cat = classify(unit, listen_ports, s.get("pid"))
         if cat == "unknown":
             continue
         # well-known 포트는 unit normalized 이름 substring 매칭 — classifier 카탈로그 단일 진실.
@@ -159,7 +162,7 @@ def to_inventory_export_entry(
             "memory_mb": (detail.mem_total_kb // 1024) if detail.mem_total_kb else None,
             "boot_disk_gb": boot_gb,
             "additional_disks": additional,
-            "addresses": _network_addresses(detail.ip_internal, detail.ip_external),
+            "addresses": _network_addresses(detail.interfaces, detail.ip_external),
         },
         usage={
             "cpu": {

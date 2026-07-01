@@ -41,7 +41,7 @@ class ServerDetail:
     swap_total_kb: int | None
     boot_time: datetime | None
     agent_started_at: datetime | None
-    ip_internal: list[str]
+    interfaces: list[dict]
     ip_external: list[str] | None
     disks: list[dict]
     mounts: list[dict]
@@ -172,7 +172,7 @@ class NetworkWithIo:
     server_id: int
     public_id: str
     hostname: str
-    ip_internal: list[str]
+    interfaces: list[dict]
     ip_external: list[str] | None
     net_io: list[NetIoRaw]  # 인터페이스당 최대 2행 (delta 계산용)
     inventory_at: datetime | None
@@ -252,7 +252,7 @@ class ReportRowRaw:
     os_id: str | None
     os_version: str | None
     kernel_version: str | None
-    ip_internal: list[str] | None
+    interfaces: list[dict] | None
     services: list[dict] | None  # service_classifier 입력 (role 추론용)
     last_seen_at: datetime | None
 

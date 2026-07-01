@@ -22,7 +22,7 @@ class ServerInventoryCreate:
     cpu_model: str | None
     mem_total_kb: int | None
     swap_total_kb: int | None
-    ip_internal: list[str]
+    interfaces: list[dict]  # JSONB — [{name, address, prefix, family, kind}]
     ip_external: list[str] | None
     mac_addresses: list[str]  # NIC MAC 목록 (clone collision 감사용, 식별 미사용)
     disks: list[dict]  # JSONB — [{name, size_bytes, type, major, minor}]
@@ -43,6 +43,7 @@ class DiskIoEntry:
     writes_completed: int | None
     sectors_read: int | None
     sectors_written: int | None
+    kind: str | None = None
 
 
 @dataclass
@@ -54,6 +55,7 @@ class NetIoEntry:
     tx_packets: int | None
     rx_errors: int | None
     tx_errors: int | None
+    kind: str | None = None
 
 
 @dataclass
@@ -64,6 +66,7 @@ class MountUsageEntry:
     avail_bytes: int | None
     major: int | None = None
     minor: int | None = None
+    kind: str | None = None
 
 
 # ─── Task DTO ──────────────────────────────────────────────────────────────

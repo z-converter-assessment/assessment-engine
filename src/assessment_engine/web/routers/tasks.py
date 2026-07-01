@@ -19,6 +19,7 @@ from assessment_engine.web.services.task_service import (
     TaskDuplicatePending,
     TaskNotConfigured,
     TaskNotFound,
+    TaskPublishFailed,
     TaskService,
 )
 from assessment_engine.web.settings import web_settings
@@ -122,6 +123,8 @@ async def install(
     except TaskDuplicatePending as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     except TaskNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except TaskPublishFailed as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
 
 

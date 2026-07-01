@@ -51,7 +51,8 @@ class ServerInventory(Base):
     boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     agent_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    ip_internal: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    # 내부 인터페이스 구조화 — [{name, address, prefix, family, kind}] (ip_internal CIDR 문자열 대체).
+    interfaces: Mapped[list[Any] | None] = mapped_column(JSONB)
     ip_external: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     # NIC MAC 목록 (clone collision 감사용 raw 보존). 식별 미사용.
     mac_addresses: Mapped[list[str] | None] = mapped_column(ARRAY(Text))

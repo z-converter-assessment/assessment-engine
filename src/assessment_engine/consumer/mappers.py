@@ -35,7 +35,7 @@ def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
         cpu_model=None,
         mem_total_kb=None,
         swap_total_kb=None,
-        ip_internal=[],
+        interfaces=[],
         ip_external=None,
         mac_addresses=[],
         disks=[],
@@ -64,25 +64,46 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
         cpu_model=data.cpu_model,
         mem_total_kb=data.mem_total_kb,
         swap_total_kb=data.swap_total_kb,
-        ip_internal=data.ip_internal,
+        interfaces=[
+            {"name": i.name, "address": i.address, "prefix": i.prefix, "family": i.family, "kind": i.kind}
+            for i in data.interfaces
+        ],
         ip_external=data.ip_external,
         mac_addresses=data.mac_addresses,
         disks=[
-            {"name": d.name, "size_bytes": d.size_bytes, "type": d.type, "major": d.major, "minor": d.minor}
+            {
+                "name": d.name,
+                "size_bytes": d.size_bytes,
+                "type": d.type,
+                "major": d.major,
+                "minor": d.minor,
+                "kind": d.kind,
+            }
             for d in data.disks
         ],
         mounts=[
-            {"mount": m.mount, "fstype": m.fstype, "total_bytes": m.total_bytes, "major": m.major, "minor": m.minor}
+            {
+                "mount": m.mount,
+                "fstype": m.fstype,
+                "total_bytes": m.total_bytes,
+                "major": m.major,
+                "minor": m.minor,
+                "kind": m.kind,
+            }
             for m in data.mounts
         ],
-        services=[{"unit": s.unit, "sub": s.sub} for s in data.services] if data.services is not None else None,
+        services=[{"unit": s.unit, "sub": s.sub, "pid": s.pid, "exe": s.exe} for s in data.services]
+        if data.services is not None
+        else None,
         listen_ports=[
             {"proto": p.proto, "addr": p.addr, "port": p.port, "uid": p.uid, "pid": p.pid, "comm": p.comm}
             for p in data.listen_ports
         ],
         # 서비스 카테고리 ingest 사전계산 — services(unit 이름) ∪ listen_ports(comm·port) 단일 산식.
         service_categories=compute_service_categories(
-            [{"unit": s.unit, "sub": s.sub} for s in data.services] if data.services is not None else None,
+            [{"unit": s.unit, "sub": s.sub, "pid": s.pid} for s in data.services]
+            if data.services is not None
+            else None,
             [{"proto": p.proto, "port": p.port, "comm": p.comm} for p in data.listen_ports],
         ),
     )
@@ -127,6 +148,7 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
                 writes_completed=d.writes_completed,
                 sectors_read=d.sectors_read,
                 sectors_written=d.sectors_written,
+                kind=d.kind,
             )
             for d in data.disk_io
         ],
@@ -138,6 +160,7 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
                 avail_bytes=m.avail_bytes,
                 major=m.major,
                 minor=m.minor,
+                kind=m.kind,
             )
             for m in data.mounts
         ],
@@ -150,6 +173,7 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
                 tx_packets=n.tx_packets,
                 rx_errors=n.rx_errors,
                 tx_errors=n.tx_errors,
+                kind=n.kind,
             )
             for n in data.net_io
         ],

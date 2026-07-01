@@ -1,5 +1,5 @@
 from datetime import datetime
-from ipaddress import ip_interface
+from ipaddress import ip_address, ip_interface
 from typing import Literal
 from uuid import UUID
 
@@ -19,8 +19,8 @@ class MessageBase(BaseModel):
     message_id: UUID
     agent_started_at: datetime
     boot_time: datetime
-    # OS family — 모든 메시지 진입 시점 OS 분기 단일 진실. nullable — task.result Linux worker 미발행 비대칭 흡수.
-    os_family: Literal["linux", "windows"] | None = None
+    # OS family — 모든 메시지 진입 시점 OS 분기 단일 진실. agent 가 전 메시지에 항상 발행 (required).
+    os_family: Literal["linux", "windows"]
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +35,8 @@ class DiskInfo(BaseModel):
     # major/minor — Linux 디바이스 식별 (POSIX). mount-disk 조인 키.
     major: int | None = Field(default=None, ge=0)
     minor: int | None = Field(default=None, ge=0)
+    # kind — agent 공용 분류기 (physical/partition/lvm/raid/virtual). 물리 판정 단일 신호 (#E2).
+    kind: str | None = Field(default=None, max_length=32)
 
 
 class InventoryMountInfo(BaseModel):
@@ -45,11 +47,17 @@ class InventoryMountInfo(BaseModel):
     fstype: str | None = Field(default=None, max_length=32)
     major: int | None = Field(default=None, ge=0)
     minor: int | None = Field(default=None, ge=0)
+    # kind — data/boot/image (가상 fs 는 agent pre-drop). 데이터 볼륨 판정 = kind=="data" (#E2).
+    kind: str | None = Field(default=None, max_length=32)
 
 
 class InventoryServiceInfo(BaseModel):
     unit: str = Field(min_length=1, max_length=255)
     sub: str = Field(min_length=1, max_length=64)
+    # pid — services <-> listen_ports 정확 join 키. Windows dwProcessId / Linux systemctl MainPID.
+    # 비-systemd(EL6)·NT5 는 null (플랫폼 차이) -> classify 가 comm~name 휴리스틱 fallback.
+    pid: int | None = Field(default=None, ge=0)
+    exe: str | None = Field(default=None, max_length=255)
 
 
 class InventoryListenPortInfo(BaseModel):
@@ -60,6 +68,26 @@ class InventoryListenPortInfo(BaseModel):
     uid: int | None = Field(default=None, ge=0)
     pid: int | None = None
     comm: str | None = Field(default=None, max_length=64)
+
+
+class InterfaceInfo(BaseModel):
+    """내부 네트워크 인터페이스 — bare address + prefix + family + kind 구조화 (agent 공용 iface 분류기).
+
+    kind 는 물리/가상 taxonomy(physical/loopback/bridge/veth/bond_master/bond_member/vlan/tunnel/virtual;
+    Windows 는 coarse physical/loopback/tunnel/virtual) — 토폴로지 가상망 제외 단일 신호.
+    """
+
+    name: str = Field(min_length=1, max_length=256)
+    address: str = Field(min_length=1, max_length=64)
+    prefix: int = Field(ge=0, le=128)
+    family: Literal["ipv4", "ipv6"]
+    kind: str = Field(min_length=1, max_length=32)
+
+    @field_validator("address", mode="before")
+    @classmethod
+    def validate_address(cls, v: object) -> object:
+        ip_address(str(v))  # bare IP (prefix 는 별도 필드) — 형식 검증만
+        return v
 
 
 class InventoryInput(MessageBase):
@@ -75,14 +103,14 @@ class InventoryInput(MessageBase):
     mem_total_kb: int | None = Field(default=None, ge=0)
     swap_total_kb: int | None = Field(default=None, ge=0)
 
-    ip_internal: list[str] = Field(default_factory=list)
+    # 내부 인터페이스 — 구조화(name/address/prefix/family/kind). ip_internal(CIDR 문자열) 대체 (#E2).
+    interfaces: list[InterfaceInfo] = Field(default_factory=list)
     ip_external: list[str] | None = None
 
-    @field_validator("ip_internal", "ip_external", mode="before")
+    @field_validator("ip_external", mode="before")
     @classmethod
-    def validate_ip_list(cls, v: object) -> object:
-        # mode="before" — JSON 파싱 직후 임의 타입. list/tuple만 허용.
-        # ip_interface 는 bare IP 와 CIDR 둘 다 수용 — agent 가 ip_internal 을 CIDR 로 발행(#B).
+    def validate_ip_external(cls, v: object) -> object:
+        # mode="before" — JSON 파싱 직후 임의 타입. list/tuple만 허용. bare IP·CIDR 둘 다 수용.
         if v is None:
             return v
         if not isinstance(v, (list, tuple)):
@@ -124,6 +152,8 @@ class DiskIoInfo(BaseModel):
     sectors_written: int | None = Field(default=None, ge=0)
     major: int | None = Field(default=None, ge=0)
     minor: int | None = Field(default=None, ge=0)
+    # kind — physical/partition/lvm/raid/virtual. cagg 물리 필터 = kind=="physical" (#C5).
+    kind: str | None = Field(default=None, max_length=32)
 
 
 class MetricsMountInfo(BaseModel):
@@ -133,6 +163,8 @@ class MetricsMountInfo(BaseModel):
     avail_bytes: int | None = Field(default=None, ge=0)
     major: int | None = Field(default=None, ge=0)
     minor: int | None = Field(default=None, ge=0)
+    # kind — data/boot/image. cagg 데이터 볼륨 필터 = kind=="data" (#C5).
+    kind: str | None = Field(default=None, max_length=32)
 
 
 class NetIoInfo(BaseModel):
@@ -144,6 +176,8 @@ class NetIoInfo(BaseModel):
     tx_packets: int | None = Field(default=None, ge=0)
     rx_errors: int | None = Field(default=None, ge=0)
     tx_errors: int | None = Field(default=None, ge=0)
+    # kind — physical/loopback/bridge/veth/bond_*/vlan/tunnel/virtual (Windows coarse). 물리 = kind=="physical" (#C5).
+    kind: str | None = Field(default=None, max_length=32)
 
 
 class MetricsInput(MessageBase):
@@ -207,8 +241,9 @@ class TaskResultInput(MessageBase):
     # 실패 분류 문자열 (성공 시 null). 새 enum 은 silent pass — extra=ignore 정신, max_length만 강제.
     failure_reason: str | None = Field(default=None, max_length=32)
     exit_code: int | None = None
-    # OS 버전 식별자 (Windows worker = CurrentBuildNumber, 예 "20348"). 성공 exit code 보정
-    # 정책(task_policy.effective_task_result)의 키. Linux worker 미발행이라 nullable.
+    # OS 식별자 — 성공 exit code 보정 정책(task_policy.effective_task_result)의 키. agent 가 task.result 에
+    # os_family(MessageBase)·os_id·os_version 을 inventory 와 동일 소스로 발행 (Windows os_version=DisplayVersion).
+    os_id: str | None = Field(default=None, max_length=64)
     os_version: str | None = Field(default=None, max_length=64)
     duration_ms: int = Field(ge=0)
     # 8192 cap 은 over-provision (agent wire 상한 4 KB). minor bump 로 tail 늘어도 무수정 흡수 (#B).

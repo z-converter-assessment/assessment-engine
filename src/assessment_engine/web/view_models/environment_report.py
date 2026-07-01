@@ -217,7 +217,7 @@ class EnvironmentReportSummary:
     efficiency_hosts_count: int = 0
     # 엔지니어 환경 구성 — 에이전트 버전 목록 (중복 제거·정렬). "어디 적용"은 미표시, 버전만 명시.
     agent_versions_label: str = ""
-    # 네트워크 토폴로지 (engineer) — ip_internal CIDR 공동소속 그래프. 발행 시점 정적 스냅샷.
+    # 네트워크 토폴로지 (engineer) — 물리 인터페이스 subnet 공동소속 그래프. 발행 시점 정적 스냅샷.
     topology: NetworkTopology | None = None
     # 환경 시계열 추이 (engineer) — 발행 모달 time_range 윈도우의 CPU·메모리 평균 버킷. 정적 스냅샷.
     # 차트 JS inline(tojson)용 plain dict: [{"at": iso, "cpu": float|None, "mem": float|None}].

@@ -19,9 +19,10 @@ class ServerMountUsage(Base):
     free_bytes: Mapped[int | None] = mapped_column(BigInteger)
     avail_bytes: Mapped[int | None] = mapped_column(BigInteger)
 
-    # data-volume 판단 신호 — major==0 = 블록 디바이스 없는 가상 fs.
+    # data-volume 판단 신호 — kind=="data" (agent 공용 분류기). major/minor 는 mount-disk 조인 보조.
     major: Mapped[int | None] = mapped_column(Integer)
     minor: Mapped[int | None] = mapped_column(Integer)
+    kind: Mapped[str | None] = mapped_column(String(32))
 
     # 시계열 4개 테이블 메타 일관성 (#C1·#B). 본 테이블은 시점값이라 reset 판정 미사용, 메타 균일 위해 보존.
     boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

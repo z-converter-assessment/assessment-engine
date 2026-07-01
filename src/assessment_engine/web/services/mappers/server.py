@@ -4,7 +4,6 @@
 다른 sub-module 이 import 하는 항목: `infer_role`, `WELL_KNOWN_PORT_MAX`, `enrich_server_detail`.
 """
 
-import ipaddress
 from collections import Counter
 from typing import Literal
 
@@ -86,19 +85,19 @@ def _usage_badge_class(pct: float | None) -> str:
 # ─── raw dict → typed ViewModel 단일 변환 진입점 ──────────────────────────
 
 
-def _to_ip_addrs(ips: list[str]) -> list[IpAddr]:
-    """IP 문자열 → IpAddr(value, is_ipv4). IPv4 우선 정렬 (안정 정렬 — 종류 내 원순서 유지).
+def _to_ip_addrs(interfaces: list[dict]) -> list[IpAddr]:
+    """interface dict 목록 → IpAddr(value=CIDR, is_ipv4). IPv4 우선 정렬(안정), loopback 제외.
 
     IPv4 는 실제 접속·식별 주력이라 상단·진하게 표시, IPv6(ULA/link-local)는 보조(연하게).
     """
     items: list[IpAddr] = []
-    for ip in ips:
-        try:
-            # ip_interface — agent payload v3.4+ 는 CIDR 표기("10.0.1.15/24")라 ip_address 면 ValueError.
-            v4 = ipaddress.ip_interface(ip).version == 4
-        except ValueError:
-            v4 = False
-        items.append(IpAddr(value=ip, is_ipv4=v4))
+    for i in interfaces or []:
+        if i.get("kind") == "loopback":
+            continue  # 표시 무의미
+        addr = i.get("address", "")
+        prefix = i.get("prefix")
+        value = f"{addr}/{prefix}" if prefix is not None else addr
+        items.append(IpAddr(value=value, is_ipv4=i.get("family") == "ipv4"))
     return sorted(items, key=lambda x: not x.is_ipv4)
 
 
@@ -148,8 +147,8 @@ def _to_service_item(s: dict, listen_ports: list[dict] | None = None) -> Service
     return ServiceItem(
         unit=unit,
         sub=s.get("sub", ""),
-        category=classify(unit, listen_ports),
-        ports=matched_ports(unit, listen_ports) if listen_ports else [],
+        category=classify(unit, listen_ports, s.get("pid")),
+        ports=matched_ports(unit, listen_ports, s.get("pid")) if listen_ports else [],
         display_name=unit.removesuffix(".service"),
     )
 
@@ -188,7 +187,7 @@ def build_server_inventory(detail, is_online: bool) -> ServerInventory:
         mem_total_gb=kb_to_gb(detail.mem_total_kb),
         swap_total_gb=kb_to_gb(detail.swap_total_kb),
         disk_total_gb=int(bytes_to_gb(disk_bytes) or 0),
-        ip_internal=_to_ip_addrs(detail.ip_internal),
+        ip_internal=_to_ip_addrs(detail.interfaces),
         ip_external=_to_ip_addrs(detail.ip_external) if detail.ip_external else [],
         boot_time=detail.boot_time,
         agent_started_at=detail.agent_started_at,
@@ -293,7 +292,7 @@ def to_server_detail(dto: ServerDetail) -> ServerDetailResponse:
         swap_total_gb=kb_to_gb(dto.swap_total_kb),
         boot_time=dto.boot_time,
         agent_started_at=dto.agent_started_at,
-        ip_internal=_to_ip_addrs(dto.ip_internal),
+        ip_internal=_to_ip_addrs(dto.interfaces),
         ip_external=_to_ip_addrs(dto.ip_external) if dto.ip_external else None,
         disks=[item for d in dto.disks if (item := _to_disk_item(d)) is not None],
         services=_services_or_none(dto.services, listen_ports=dto.listen_ports),
@@ -382,7 +381,7 @@ def to_network_detail(dto: NetworkWithIo) -> NetworkDetailResponse:
         server_id=dto.server_id,
         public_id=dto.public_id,
         hostname=dto.hostname,
-        ip_internal=_to_ip_addrs(dto.ip_internal),
+        ip_internal=_to_ip_addrs(dto.interfaces),
         ip_external=_to_ip_addrs(dto.ip_external) if dto.ip_external else None,
         interfaces=compute_net_io(dto.net_io),
         inventory_at=dto.inventory_at,
@@ -512,7 +511,7 @@ def workload_category_counter(
         unit = s.get("unit") if isinstance(s, dict) else None
         if not unit:
             continue
-        cat = classify(unit, listen_ports)
+        cat = classify(unit, listen_ports, s.get("pid"))
         if cat == "unknown":
             continue
         # 런타임 스택(container)은 구성 요소가 여러 서비스로 떠도 호스트당 1 (docker+containerd → 1).

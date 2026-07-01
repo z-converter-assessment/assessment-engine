@@ -40,7 +40,7 @@ class ServerInventoryHistory(Base):
     boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     agent_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    ip_internal: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    interfaces: Mapped[list[Any] | None] = mapped_column(JSONB)
     ip_external: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
     disks: Mapped[list[Any] | None] = mapped_column(JSONB)

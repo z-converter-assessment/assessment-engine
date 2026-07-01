@@ -272,7 +272,6 @@ class TaskService:
                             deadline_at=deadline_at,
                         )
                     )
-                    await session.commit()
                 except IntegrityError as e:
                     # 사전 검증 통과 후 race(동시 발행) — 극히 드묾. 부분 발행 가능성은 T1 한계.
                     logger.warning("install race conflict server_id={} public_id={}", server_id, public_id)
@@ -280,19 +279,28 @@ class TaskService:
                         f"발행 도중 다른 작업과 충돌했습니다: {detail.hostname}. 잠시 후 다시 시도하세요."
                     ) from e
 
-            await self._ensure_machine_queue(detail.composite_id)
-            await self._publish_install(
-                exchange,
-                task_id,
-                detail.composite_id,
-                zdm_host,
-                zdm_user,
-                sha256_hex,
-                size_bytes,
-                package_path,
-                install_type,
-                install_script,
-            )
+                # publish-then-commit — 발행 성공 후에만 commit. 발행 실패 시 commit 하지 않고 async with 종료가
+                # task INSERT 를 rollback -> "메시지 없는 유령 pending" 방지 (dual-write 갭 축소).
+                try:
+                    await self._ensure_machine_queue(detail.composite_id)
+                    await self._publish_install(
+                        exchange,
+                        task_id,
+                        detail.composite_id,
+                        zdm_host,
+                        zdm_user,
+                        sha256_hex,
+                        size_bytes,
+                        package_path,
+                        install_type,
+                        install_script,
+                    )
+                except (aio_pika.exceptions.AMQPError, TimeoutError) as e:
+                    logger.error("task.install publish failed server_id={} public_id={}", server_id, public_id)
+                    raise TaskPublishFailed(
+                        f"작업 발행 중 broker 오류로 취소했습니다: {detail.hostname}. 잠시 후 다시 시도하세요."
+                    ) from e
+                await session.commit()
 
             logger.info(
                 "task.install published task_id={} composite_id={} target={}",
@@ -374,3 +382,7 @@ class TaskDuplicatePending(Exception):
 
 class TaskNotConfigured(Exception):
     """router 가 HTTPException(503) 로 변환 — ZDM 패키지 contract 미설정."""
+
+
+class TaskPublishFailed(Exception):
+    """router 가 HTTPException(503) 로 변환 — broker publish 실패 (task INSERT 는 rollback, 유령 pending 없음)."""

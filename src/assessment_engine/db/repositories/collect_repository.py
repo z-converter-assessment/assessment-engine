@@ -52,7 +52,7 @@ class CollectRepository(BaseCollectRepository):
         ServerInventory.swap_total_kb,
         ServerInventory.boot_time,
         ServerInventory.agent_started_at,
-        ServerInventory.ip_internal,
+        ServerInventory.interfaces,
         ServerInventory.ip_external,
         ServerInventory.disks,
         ServerInventory.mounts,
@@ -128,7 +128,7 @@ class CollectRepository(BaseCollectRepository):
             "swap_total_kb": data.swap_total_kb,
             "boot_time": data.boot_time,
             "agent_started_at": data.agent_started_at,
-            "ip_internal": data.ip_internal,
+            "interfaces": data.interfaces,
             "ip_external": data.ip_external,
             "mac_addresses": data.mac_addresses,
             "disks": data.disks,
@@ -173,7 +173,7 @@ class CollectRepository(BaseCollectRepository):
             or prev.swap_total_kb != new.swap_total_kb
             or boot_time_changed(prev.boot_time, new.boot_time)
             or prev.agent_started_at != new.agent_started_at
-            or prev.ip_internal != new.ip_internal
+            or prev.interfaces != new.interfaces
             or prev.ip_external != new.ip_external
             or prev.disks != new.disks
             or prev.mounts != new.mounts
@@ -205,7 +205,7 @@ class CollectRepository(BaseCollectRepository):
                 swap_total_kb=data.swap_total_kb,
                 boot_time=data.boot_time,
                 agent_started_at=data.agent_started_at,
-                ip_internal=data.ip_internal,
+                interfaces=data.interfaces,
                 ip_external=data.ip_external,
                 disks=data.disks,
                 mounts=data.mounts,
@@ -259,7 +259,7 @@ class CollectRepository(BaseCollectRepository):
             "swap_total_kb": data.swap_total_kb,
             "boot_time": data.boot_time,
             "agent_started_at": data.agent_started_at,
-            "ip_internal": data.ip_internal,
+            "interfaces": data.interfaces,
             "ip_external": data.ip_external,
             "mac_addresses": data.mac_addresses,
             "disks": data.disks,
@@ -345,24 +345,6 @@ class CollectRepository(BaseCollectRepository):
         )
         result = await self.session.execute(stmt)
         return (result.rowcount or 0) > 0
-
-    async def get_task_server_os(
-        self, task_public_id: str
-    ) -> tuple[str | None, str | None, str | None] | None:
-        """task 의 대상 서버 OS (os_family, os_id, os_version) — task.result 미발행 Linux 성공 보정 매칭용.
-
-        task.result 는 Windows os_version(build) 만 싣고 Linux 는 os_id/os_version 미발행이라, Linux 보정은
-        inventory 에서 대상 서버 OS 를 조회해 task_policy 키(os_id:major)를 구성한다. task 미존재 시 None.
-        """
-        stmt = (
-            select(ServerInventory.os_family, ServerInventory.os_id, ServerInventory.os_version)
-            .join(Task, Task.target_server_id == ServerInventory.id)
-            .where(Task.public_id == task_public_id)
-        )
-        row = (await self.session.execute(stmt)).first()
-        if row is None:
-            return None
-        return row.os_family, row.os_id, row.os_version
 
     # ─── 시계열 (record_metrics) ───────────────────────────────────────────
 

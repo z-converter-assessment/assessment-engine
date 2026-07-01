@@ -139,9 +139,9 @@ uv run alembic check              # ORM·migrations 정합
 
 ## 배포 (prod)
 
-배포 대상은 내부망 VM 단일 prod. 최초 1회 서버 구성으로 바 VM을 엔진 기동까지 만든 뒤, 이후 배포는 새 태그 발행 + `deploy.sh` 실행만 반복한다.
+배포 대상은 내부망 운영 VM 한 대다. 최초 1회 서버 구성으로 빈 VM에서 엔진이 실행될 때까지 세팅한 뒤, 이후 배포는 새 태그 발행 + `deploy.sh` 실행만 반복한다.
 
-### 최초 서버 구성 (바 VM → 엔진 기동)
+### 최초 서버 구성 (빈 VM에서 엔진 실행까지)
 
 Debian/Ubuntu VM(GitHub로 outbound HTTPS 가능)에서 순서대로 진행한다.
 

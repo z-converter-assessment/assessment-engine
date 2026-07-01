@@ -478,7 +478,10 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         confidence_notes=build_confidence_notes(assessment),
         os_display=_os_display(raw.os_id, raw.os_version),
         kernel_version=raw.kernel_version,
-        internal_ip=raw.ip_internal[0] if raw.ip_internal else None,
+        internal_ip=next(
+            (i["address"] for i in raw.interfaces or [] if i.get("kind") == "physical" and i.get("family") == "ipv4"),
+            None,
+        ),
         cpu_cores=raw.cpu_cores,
         mem_total_gb=kb_to_gb(raw.mem_total_kb),
         disk_total_gb=disk_total_gb_val,

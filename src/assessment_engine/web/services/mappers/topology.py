@@ -1,21 +1,18 @@
-"""네트워크 토폴로지 mapper (P2) — 호스트별 ip_internal CIDR 에서 L3 subnet 공동소속 그래프 도출.
+"""네트워크 토폴로지 mapper (P2) — 호스트별 물리 인터페이스에서 L3 subnet 공동소속 그래프 도출.
 
-Repository 는 ip_internal 을 raw CIDR 문자열(agent payload v3.4+, 예 "10.0.1.15/24")로 보존(P1).
-본 mapper 가 파싱·subnet 그룹핑·가상망 필터·노드/엣지 조립을 단일 책임으로 수행(P2).
+Repository 는 interfaces 를 구조화 dict(name/address/prefix/family/kind)로 보존(P1). 본 mapper 가
+subnet 그룹핑·가상망 필터·노드/엣지 조립을 단일 책임으로 수행(P2).
 
 토폴로지 의미: agent 는 인터페이스 IP+prefix 만 발행한다 (LLDP/ARP/traceroute 같은 실측 인접 정보 없음).
 유일하게 도출 가능한 관계 = "두 호스트가 같은 network address(IP & prefix)면 같은 브로드캐스트 도메인"이라는
 추론이다. 실측 reachability 가 아니다 — VLAN/방화벽 격리 미반영, RFC1918 중복이면 별개 네트워크를 한
 서브넷으로 오병합할 수 있다 (caveats 로 정직 노출).
 
-가상망 제거 (engine-side, agent 무수정 제약): ip_internal 에 인터페이스 이름이 없어 docker0/virbr0 를
-이름으로 판별할 수 없다. 대신 세 단계 필터로 호스트-로컬 가상 브리지를 흡수한다:
-  (a) link-local(169.254)·host route(prefix 32)·netmask 부재(prefix 0) 제외.
-  (b) 동일 network 안에서 2대+ 호스트가 같은 host IP 를 주장하면 host-local 가상으로 간주 — docker0 는 모든
-      호스트가 게이트웨이 .1 을 주장하므로 결정론적 신호 (실제 LAN 은 IP 중복 불가).
-  (c) 2대 미만 단독 서브넷 제외 — inter-host 토폴로지에 무의미하고, 단독 docker 호스트의 브리지도 흡수.
+가상망 제거: interface `kind` 태그(agent 공용 분류기)로 물리(physical)만 채택 — docker0/veth/bridge/tunnel/
+loopback 은 kind 로 직접 제외(과거 host-local IP 중복 휴리스틱 불요). link-local·prefix 0/32 은 안전망으로 추가 제외.
+2대 미만 단독 서브넷은 inter-host 토폴로지에 무의미해 제외.
 
-IPv4 only (v1): Linux agent 가 IPv6 미발행이라 혼합 시 Windows 편향. IPv6(특히 fe80 link-local)은 (a)에서 제외.
+IPv4 only (v1): 그래프는 physical IPv4 만. IPv6 는 family 로 제외.
 
 명세·근거 단일 진실은 본 모듈 docstring + view_models/topology.NetworkTopology.
 """
@@ -27,14 +24,9 @@ from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGr
 
 _CAVEATS = [
     "추론 토폴로지 — 같은 서브넷(IP·prefix) 공유 기준이며, 실제 통신 가능 여부(방화벽·VLAN 격리)는 반영하지 않습니다.",
-    "docker·libvirt 등 호스트 내부 가상 네트워크와 IPv6 주소는 제외했습니다.",
+    "물리 인터페이스(kind=physical)의 IPv4 주소만 사용합니다 — 가상 네트워크(docker·bridge·veth 등)와 IPv6는 제외했습니다.",
     "사설 IP 대역이 서로 다른 네트워크에서 중복되면 한 서브넷으로 합쳐 보일 수 있습니다.",
 ]
-
-
-def _cidr_str(item) -> str:
-    """ip_internal 항목 정규화 — 단계에 따라 raw CIDR str 또는 IpAddr(value) 둘 다 수용."""
-    return item.value if hasattr(item, "value") else item
 
 
 def _net_sort_key(net_key):
@@ -51,9 +43,9 @@ def _subnet_host_sort_key(host):
 
 
 def build_network_topology(hosts) -> NetworkTopology:
-    """hosts: ServerDetail/DTO 리스트 (public_id·hostname·os_family·ip_internal 사용).
+    """hosts: ServerDetail/DTO 리스트 (public_id·hostname·os_family·interfaces 사용).
 
-    ip_internal 은 raw CIDR 문자열 리스트 (get_servers 단계는 enrich 전이라 str). IpAddr 도 방어 수용.
+    interfaces 는 구조화 dict 리스트 [{name, address, prefix, family, kind}]. 물리(kind=physical) IPv4 만 채택.
     """
     # net_key -> [(public_id, host_ip_str)] — 한 호스트가 같은 서브넷에 여러 IP 면 멤버십 1회만.
     net_members: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -63,34 +55,36 @@ def build_network_topology(hosts) -> NetworkTopology:
         pid = str(h.public_id)
         host_meta[pid] = (h.hostname, h.os_family or "unknown")
         seen_nets: set[str] = set()
-        for raw in h.ip_internal or []:
+        for iface_info in h.interfaces or []:
+            if iface_info.get("kind") != "physical":
+                continue  # 가상(bridge/veth/tunnel/loopback 등) 제외 — agent kind 태그 단일 신호
+            if iface_info.get("family") != "ipv4":
+                continue  # IPv4 v1 (IPv6 은 그래프 제외)
+            addr = iface_info.get("address")
+            prefix = iface_info.get("prefix")
+            if addr is None or prefix is None:
+                continue
             try:
-                iface = ipaddress.ip_interface(_cidr_str(raw))
+                iface = ipaddress.ip_interface(f"{addr}/{prefix}")
             except ValueError:
                 continue
-            if iface.version != 4:
-                continue  # IPv4 v1
             ip = iface.ip
             if ip.is_loopback or ip.is_link_local:
-                continue  # (a) 169.254 APIPA / 루프백 — 세그먼트 아님
-            prefix = iface.network.prefixlen
+                continue  # (a) 안전망 — 루프백 / 169.254 APIPA
             if prefix == 0 or prefix >= 32:
-                continue  # (a) netmask 부재 폴백 / host route
+                continue  # (a) netmask 부재 / host route
             net_key = str(iface.network)  # "10.0.1.0/24"
             if net_key in seen_nets:
                 continue
             seen_nets.add(net_key)
             net_members[net_key].append((pid, str(ip)))
 
-    # 가상망/단독 필터 -> 살아남은 서브넷별 호스트 목록.
+    # 단독 서브넷 필터 -> 살아남은 서브넷별 호스트 목록 (가상망은 kind 로 이미 제외).
     surviving: dict[str, list[str]] = {}
     for net_key, members in net_members.items():
-        ips = [m[1] for m in members]
-        if len(set(ips)) < len(ips):
-            continue  # (b) 동일 host IP 중복 -> host-local 가상 브리지
         pids = sorted({m[0] for m in members})
         if len(pids) < 2:
-            continue  # (c) 단독 서브넷 -> inter-host 토폴로지 무의미
+            continue  # 단독 서브넷 -> inter-host 토폴로지 무의미
         surviving[net_key] = pids
 
     host_subnet_count: dict[str, int] = defaultdict(int)

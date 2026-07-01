@@ -54,12 +54,6 @@ class BaseCollectRepository(ABC):
         """결과 보고 수신 UPDATE. 반환: True 정상 / False public_id 미존재 (DLQ·silent ack 결정)."""
 
     @abstractmethod
-    async def get_task_server_os(
-        self, task_public_id: str
-    ) -> tuple[str | None, str | None, str | None] | None:
-        """task 의 대상 서버 OS (os_family, os_id, os_version) — Linux 성공 보정 매칭용. 미존재 시 None."""
-
-    @abstractmethod
     async def expire_overdue_tasks(self, server_ids: list[int]) -> int:
         """deadline 경과 pending(install) 을 failure(timeout) 로 전이. 반환: 전이 건수.
 
