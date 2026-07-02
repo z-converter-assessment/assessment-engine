@@ -101,7 +101,7 @@ async def test_dispatcher(metric_type, query_repo):
     ...
 ```
 
-17개 metric_type 일괄 검증 — 누락 metric_type 즉시 발견.
+전 metric_type(카탈로그는 `types.py` `MetricType`) 일괄 검증 — 누락 metric_type 즉시 발견.
 
 ## 5. 원칙
 
