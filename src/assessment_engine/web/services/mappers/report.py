@@ -121,6 +121,11 @@ def sort_rows_for_report(items: list[ReportRowItem]) -> list[ReportRowItem]:
 # ─── 정성 요약 (양식 A/B 분기) ───
 
 
+def _top_phrase(labels: list[str]) -> str:
+    """요약 불릿의 호스트 나열 — 상위 3개 + 초과 시 ' 외' (P2, 6개 신호 공통 반복 제거)."""
+    return f"{', '.join(labels[:3])}{' 외' if len(labels) > 3 else ''}"
+
+
 def build_report_summary_bullets(
     rows: list, raws: list | None = None, view: ReportView = "customer", today: date | None = None
 ) -> list[str]:
@@ -145,32 +150,22 @@ def build_report_summary_bullets(
     if raws:
         disk_sat_raws = [r for r in raws if recommendation.disk_io_saturated(build_resource_stats(r))]
         if disk_sat_raws:
-            hosts = [r.hostname for r in disk_sat_raws][:3]
-            suffix = " 외" if len(disk_sat_raws) > 3 else ""
-            bullets.append(f"디스크 I/O 포화 {len(disk_sat_raws)}대 ({', '.join(hosts)}{suffix}) — 디스크 병목.")
+            phrase = _top_phrase([r.hostname for r in disk_sat_raws])
+            bullets.append(f"디스크 I/O 포화 {len(disk_sat_raws)}대 ({phrase}) — 디스크 병목.")
 
-    # Mount 임박 — _CAPACITY_IMMINENT_DAYS 안 채워질 마운트가 있는 서버 카운트
-    n_mount = sum(
-        1
+    # Mount 임박 — _CAPACITY_IMMINENT_DAYS 안 채워질 마운트가 있는 서버
+    mount_hosts = [
+        f"{r.hostname}({r.worst_mount} {r.worst_mount_days_until_full}일)"
         for r in rows
         if r.worst_mount_days_until_full is not None and r.worst_mount_days_until_full <= _CAPACITY_IMMINENT_DAYS
-    )
-    if n_mount:
-        hosts = []
-        for r in rows:
-            if r.worst_mount_days_until_full is not None and r.worst_mount_days_until_full <= _CAPACITY_IMMINENT_DAYS:
-                hosts.append(f"{r.hostname}({r.worst_mount} {r.worst_mount_days_until_full}일)")
-                if len(hosts) >= 3:
-                    break
-        suffix = " 외" if n_mount > 3 else ""
-        bullets.append(f"디스크 채움 임박 {n_mount}대 ({', '.join(hosts)}{suffix}).")
+    ]
+    if mount_hosts:
+        bullets.append(f"디스크 채움 임박 {len(mount_hosts)}대 ({_top_phrase(mount_hosts)}).")
 
     # 재부팅 빈번 — period 안 _REBOOT_UNSTABLE_COUNT 이상
-    n_reboot = sum(1 for r in rows if r.reboot_count >= _REBOOT_UNSTABLE_COUNT)
-    if n_reboot:
-        hosts = [f"{r.hostname}({r.reboot_count}회)" for r in rows if r.reboot_count >= _REBOOT_UNSTABLE_COUNT][:3]
-        suffix = " 외" if n_reboot > 3 else ""
-        bullets.append(f"재부팅 빈번 {n_reboot}대 ({', '.join(hosts)}{suffix}).")
+    reboot_hosts = [f"{r.hostname}({r.reboot_count}회)" for r in rows if r.reboot_count >= _REBOOT_UNSTABLE_COUNT]
+    if reboot_hosts:
+        bullets.append(f"재부팅 빈번 {len(reboot_hosts)}대 ({_top_phrase(reboot_hosts)}).")
 
     if view == "engineer":
         # 역할별 평균 CPU — 엔지니어가 자원 집약 역할 식별. 고객 보고서엔 정보 과다. (#F10 recommendation 상수)
@@ -185,32 +180,25 @@ def build_report_summary_bullets(
                 bullets.append(f"{top_cpu_role} 계열 서버의 평균 CPU p95가 {top_cpu_avg:.0f}%로 높게 관찰됨.")
 
         # Saturation — load_15m_max / cpu_cores 임계 초과 (saturated). 큐잉 이론 시그널 — 엔지니어용.
-        n_sat = sum(1 for r in rows if r.saturation_ratio is not None and r.saturation_ratio >= _SATURATION_BURST_RATIO)
-        if n_sat:
-            hosts = [
-                f"{r.hostname}({r.saturation_ratio:.1f})"
-                for r in rows
-                if r.saturation_ratio is not None and r.saturation_ratio >= _SATURATION_BURST_RATIO
-            ][:3]
-            suffix = " 외" if n_sat > 3 else ""
+        sat_hosts = [
+            f"{r.hostname}({r.saturation_ratio:.1f})"
+            for r in rows
+            if r.saturation_ratio is not None and r.saturation_ratio >= _SATURATION_BURST_RATIO
+        ]
+        if sat_hosts:
             bullets.append(
-                f"Saturation {n_sat}대 ({', '.join(hosts)}{suffix}) — load가 cpu_cores 초과. 처리 한계 신호."
+                f"Saturation {len(sat_hosts)}대 ({_top_phrase(sat_hosts)}) — load가 cpu_cores 초과. 처리 한계 신호."
             )
 
         # 변동성 큼 — cpu peak/p95 임계 초과. sizing 전략 시그널 — 엔지니어용.
-        n_var = sum(
-            1 for r in rows if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= _VARIANCE_BURST_RATIO
-        )
-        if n_var:
-            hosts = [
-                r.hostname
-                for r in rows
-                if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= _VARIANCE_BURST_RATIO
-            ][:3]
-            suffix = " 외" if n_var > 3 else ""
+        var_hosts = [
+            r.hostname
+            for r in rows
+            if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= _VARIANCE_BURST_RATIO
+        ]
+        if var_hosts:
             bullets.append(
-                f"CPU 부하 변동 큼 {n_var}대 ({', '.join(hosts)}{suffix})"
-                " — 일시 spike 빈번 (부하 변동성 큼)."
+                f"CPU 부하 변동 큼 {len(var_hosts)}대 ({_top_phrase(var_hosts)}) — 일시 spike 빈번 (부하 변동성 큼)."
             )
 
     # OS EOL 신호 — raws 있을 때만. attention 카드와 동일 판정(resolve_os_eol): Windows build /
@@ -224,11 +212,7 @@ def build_report_summary_bullets(
                 eol_iso, label = result
                 eol_hosts.append(f"{r.hostname}({label}, EOL {eol_iso})")
         if eol_hosts:
-            shown = eol_hosts[:3]
-            suffix = " 외" if len(eol_hosts) > 3 else ""
-            bullets.append(
-                f"OS EOL {len(eol_hosts)}대 ({', '.join(shown)}{suffix}) — 보안 패치 중단됨."
-            )
+            bullets.append(f"OS EOL {len(eol_hosts)}대 ({_top_phrase(eol_hosts)}) — 보안 패치 중단됨.")
 
     return bullets
 
