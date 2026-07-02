@@ -63,13 +63,11 @@ DB 저장 (지수 백오프 재시도, _db_retry)
 `boot_time` / `agent_started_at` 은 본 메시지에서 항상 null 이라 `_log_time_invariants` 호출 생략.
 
 ### 미등록 서버 metrics — auto-register
-metrics 핸들러는 `repo.ensure_server_id(composite_id, placeholder)`로 한 번에 처리 — find 실패 시 fallback placeholder 사용. `(server_id, auto_registered)` 튜플 반환으로 handler가 auto-register 시점만 운영 로그를 남김. 식별자는 `composite_id` 단일 키 (#C1, ADR 0027) — SHA-256 composite hash (machine_id + 정렬 MAC 들) 라 VM 템플릿 복제·container `/etc/machine-id` 마운트 등 machine_id 중복도 MAC 조합으로 구분.
+metrics 핸들러는 `repo.ensure_server_id(agent_id, placeholder)`로 한 번에 처리 — find 실패 시 fallback placeholder 사용. `(server_id, auto_registered)` 튜플 반환으로 handler가 auto-register 시점만 운영 로그를 남김. 식별자는 `agent_id` 단일 키 (#C1, ADR 0049) — agent 가 첫 실행 시 생성·영구저장한 불변 UUID 라 재부팅·MAC 재발급·machine_id 중복과 무관.
 
-placeholder는 `mappers.build_placeholder_inventory`가 생성. composite_id/machine_id/hostname/agent_version만 실값, 나머지 정적 정보(OS·CPU·메모리·디스크 등)는 None/빈 배열. 다음 진짜 inventory 도착 시 ON CONFLICT DO UPDATE로 풀 정보 자동 덮어씀 (`composite_id` UNIQUE 제약).
+placeholder는 `mappers.build_placeholder_inventory`가 생성. agent_id/composite_id/machine_id/hostname/agent_version만 실값, 나머지 정적 정보(OS·CPU·메모리·디스크 등)는 None/빈 배열. 다음 진짜 inventory 도착 시 ON CONFLICT DO UPDATE로 풀 정보 자동 덮어씀 (`agent_id` UNIQUE 제약).
 
-재부팅 재연결 (`_relink_rebooted_host`, ADR 0044): 일부 환경(OpenStack Windows VM)은 부팅마다 NIC MAC 이 재발급돼 composite_id(=sha256(machine_id+MAC))가 같은 VM 인데 달라진다. inventory upsert 진입 시 composite_id 미등록이면 machine_id+hostname 일치(후보 정확히 1개) 기존 행의 composite_id 를 새 값으로 re-point — server_id·시계열 FK·history 보존(중복 행 0). machine_id 없거나 후보 2+ (모호한 clone)면 미연결(새 행 = clone 오병합 방지). inventory 가 startup 시 metrics 보다 먼저 발행돼 재부팅을 먼저 잡는다.
-
-metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 4개 시계열 테이블 INSERT를 facade로 묶어 처리. `boot_time`·`agent_started_at`은 시계열 4개 테이블 모두에 동일 시점값으로 함께 저장 → metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 비교로 시스템 재부팅 시 delta 건너뛰기 (CLAUDE.md B1). mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅 단일 테이블 SELECT 위해 보존. 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
+metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 4개 시계열 테이블 INSERT를 facade로 묶어 처리. `boot_time`·`agent_started_at`은 시계열 4개 테이블 모두에 동일 시점값으로 함께 저장 → metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 비교로 시스템 재부팅 시 delta 건너뛰기 (CLAUDE.md B1). mount_usage는 시점값(calculator 직접 활용 없음 — 보존 사유는 `db/models.md` #C1). 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
 
 → metrics drop 0. inventory one-shot 정책으로 인한 영구 미등록 시나리오 해소. 에이전트 변경 없이 엔진 단독 안전망.
 
@@ -141,9 +139,7 @@ upsert 성공 후 `SET online:{server_id} EX 90`. 첫 메트릭 수신 전(최�
 
 ### InventoryMountInfo 미사용 필드
 
-`free_bytes`, `avail_bytes`가 스키마에 있으나 `src/assessment_engine/consumer/mappers.py:to_inventory_create`에서 명시적으로 drop된다 (`{"mount": ..., "fstype": ..., "total_bytes": ...}`만 매핑). 인벤토리에는 정적 정보만 저장하고, 동적 사용량은 metrics 메시지의 `mounts[]` → `server_mount_usage` 시계열 테이블로 분리한다.
-
-`disks[].major/minor`와 inventory `mounts[].major/minor`는 mount-disk 조인 키로 활용 중 (`web/services/device_filters.find_parent_disk`, mapper의 `MountUsageItem.device_name` 채움). 반면 metrics `mounts[].major/minor`·`disk_io[].major/minor`는 시계열 테이블에 컬럼 없어 Pydantic `extra=ignore`로 통과 후 미저장 — 정확한 활용 카탈로그는 `agent.md` "활용 중인 필드" / "엔진이 받지만 사용하지 않는 필드" 표.
+inventory mounts 는 정적 정보만 저장 — `to_inventory_create` 가 `free_bytes`/`avail_bytes` 를 drop 하고, 동적 사용량은 metrics `mounts[]` -> `server_mount_usage` 시계열로 분리한다. major/minor 활용(mount-disk 조인)·미저장 필드 카탈로그는 `agent.md` "활용 중인 필드"/"엔진이 받지만 사용하지 않는 필드" 표 단일 진실.
 
 ### 부가 시그널 — 운영 가시성
 
@@ -154,11 +150,11 @@ handler 본 처리 흐름과 별개로 두 가지 부가 시그널을 발행 (�
    - `agent_started_at > collected_at` → VM 시계 동기화 문제 (가장 흔함, VM resume 직후)
    위반 시 warning 로그만. DLQ 안 보냄 — 시계 문제는 데이터 reject 의미 없음.
 
-2. `_track_agent_restart(redis, server_id, composite_id, agent_started_at)` — metrics 핸들러 후처리 끝에서 호출.
+2. `_track_agent_restart(redis, server_id, agent_id, agent_started_at)` — metrics 핸들러 후처리 끝에서 호출.
    - `last_agent_start:{sid}` (24h)에서 직전 값 비교 → 변경 시 `agent_restarts:{sid}` (1h 슬라이딩) INCR
    - `agent_restart_alert_threshold` (기본 3) 도달 시 warning (운영자가 crash loop 인지)
    - 시스템 재부팅도 같은 카운터 — 1h 내 3회 재부팅도 unusual이라 alert 적정
-   - Redis 장애 시 silent skip (옛 휴리스틱과 동일 효과)
+   - Redis 장애 시 silent skip (fail-open — 재시작 감지 1회 누락, 다음 sample 회복)
 
 ### Disposability — SIGTERM 흐름 (#F11)
 

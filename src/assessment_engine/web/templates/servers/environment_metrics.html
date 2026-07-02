@@ -155,7 +155,17 @@
         </div>
         <div id="fs-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; justify-content:center;"></div>
       </div>
-      <div></div>
+      <div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+          <h2 class="chart-subtitle" style="margin:0;">디스크 큐 길이</h2>
+          <span id="diskqueue-max" class="text-meta text-sm">최대: &mdash;</span>
+        </div>
+        <div class="chart-desc">Windows Avg Disk Queue Length (디스크 대기 — 2 이상 포화). Linux 는 I/O Wait 참조</div>
+        <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+          <canvas id="diskqueue-canvas"></canvas>
+          <div id="diskqueue-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
+        </div>
+      </div>
     </div>
   </section>
 

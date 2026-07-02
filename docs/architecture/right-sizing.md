@@ -7,7 +7,7 @@
 
 ## 1. 목적·범위
 
-right-sizing = 관측 부하(`WINDOW_DAYS` = 7일 통계) 대비 할당 자원의 적정성 평가. 규칙 기반 결정적 분류 — 자원(CPU/Mem/Disk)별로 "가진 축"을 신호로 모아 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다. 가진 데이터로 항상 결론을 내며("어떤 데이터로 이 분류" 설명 가능), OS 비대칭(Windows saturation 축 부재)은 분류를 막지 않고 confidence 단서로만 노출한다.
+right-sizing = 관측 부하(`WINDOW_DAYS` = 7일 통계) 대비 할당 자원의 적정성 평가. 규칙 기반 결정적 분류 — 자원(CPU/Mem/Disk)별로 "가진 축"을 신호로 모아 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다. 가진 데이터로 항상 결론을 내며("어떤 데이터로 이 분류" 설명 가능), OS 비대칭(Windows CPU run queue 축 부재)은 분류를 막지 않고 confidence 단서로만 노출한다.
 
 UI badge 임계(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`, 90/75)와는 별 도메인이다 — 그쪽은 시점 사용량 시각 신호, 본 모듈은 윈도우 통계 기반 사이징 결정. 혼용 금지.
 
@@ -23,14 +23,14 @@ idle / shutdown / over_provisioned / under_provisioned / optimal / insufficient_
 
 | 순위 | 분류 | 조건 |
 |------|------|------|
-| 1 | under_provisioned | 위험 신호 OR (하나라도): cpu_p95 >= 70 / mem_p95 >= 80 / worst mount >= 85 / (load_15m / cores) >= 1.0 / iowait_p95 >= 20 / swap(Linux) |
+| 1 | under_provisioned | 위험 신호 OR (하나라도): cpu_p95 >= 70 / mem_p95 >= 80 / worst mount >= 85 / (load_15m / cores) >= 1.0 / disk_io(Linux iowait_p95 >= 20 · Windows disk queue >= 2) / swap(Linux) |
 | 2 | idle | cpu_peak <= 1% AND net_avg <= 1 KB/s (위험 신호 0) |
 | 3 | shutdown | cpu_p95 <= 3% AND net_avg <= 2 Mbps (위험 신호 0) |
 | 4 | insufficient_data | cpu_p95·mem_p95 둘 다 부재 AND under 위험 신호 0 |
 | 5 | over_provisioned | cpu_p95 <= 30% AND mem_p95 <= 50% (둘 다 관측·낮음, 보수적 AND) |
 | 6 | optimal | 위 모두 미해당 |
 
-핵심 원칙 — under 가 idle/shutdown 보다 우선이다. saturation/압박 신호(swap·iowait·load·고이용·용량 초과)가 하나라도 있으면, CPU 가 낮아도 그 호스트는 "미사용(idle/shutdown)"이 아니라 자원 부족이다. 예: CPU 는 idle 인데 page-out(swap)이 발생 = 메모리 부족 -> under_provisioned. idle/shutdown 이 under 를 가로채면 "누락 0" 원칙이 깨지고, 스왑 중인 호스트를 종료 권장으로 오분류한다(과거 버그, 본 순서로 수정).
+핵심 원칙 — under 가 idle/shutdown 보다 우선이다. saturation/압박 신호(swap·iowait·load·고이용·용량 초과)가 하나라도 있으면, CPU 가 낮아도 그 호스트는 "미사용(idle/shutdown)"이 아니라 자원 부족이다. 예: CPU 는 idle 인데 page-out(swap)이 발생 = 메모리 부족 -> under_provisioned. idle/shutdown 이 under 를 가로채면 "누락 0" 원칙이 깨지고, 스왑 중인 호스트를 종료 권장으로 오분류한다.
 
 `net_avg_kbps` 가 없으면 idle/shutdown 판정은 skip(fall-through)된다. idle/shutdown 은 net + cpu 가 있어야 평가된다.
 
@@ -42,7 +42,7 @@ idle / shutdown / over_provisioned / under_provisioned / optimal / insufficient_
 | mem_util | mem_p95 >= 80% | Utilization | Linux page cache 압박 시작점 |
 | disk_capacity | worst mount used >= 85% | Utilization | Cloud Advisor storage capacity |
 | cpu_saturation | load_15m / cores >= 1.0 | Saturation | USE Method (Brendan Gregg) — run queue |
-| disk_io | iowait_p95 >= 20% | Saturation | USE Method — disk IO 병목 |
+| disk_io | Linux iowait_p95 >= 20% / Windows Avg Disk Queue Length >= 2 | Saturation | USE Method — disk IO 병목 (os-aware) |
 | mem_saturation | swap_used (Linux) | Saturation | Linux page-out = 메모리 압박 |
 | (idle) | cpu_peak <= 1% AND net <= 1 KB/s | Utilization | AWS Compute Optimizer |
 | (shutdown) | cpu_p95 <= 3% AND net <= 2 Mbps | Utilization | Azure Advisor |
@@ -59,8 +59,9 @@ idle / shutdown / over_provisioned / under_provisioned / optimal / insufficient_
 ## 6. OS 분기 (Windows)
 
 - swap: `swap_saturation(os_family, swap_used) = swap_used and os_family != "windows"` 단일 helper 경유 의무. Windows pagefile 은 여유 RAM 에도 상시 사용되는 baseline 이라 saturation 신호가 아니다(제외). Linux/unknown 은 swap_used 그대로 page-out 신호로 해석. `if raw.swap_used` 직접 해석 금지.
-- load/iowait: Windows 는 loadavg·iowait 가 OS 부재라 saturation 축을 못 본다. 값 None 인 축은 `unmeasured` 에 기록 -> `is_partial`(=bool(unmeasured)) -> ViewModel/템플릿이 "이용률 기준 평가(saturation 축 미관측)" confidence 단서로 노출한다. 분류 자체는 utilization/capacity 로 완결되며 "표본 부족"이 아니다(cpu_p95·mem_p95 가 산출되는 한).
-- Windows agent 가 등가 카운터(Processor Queue Length 등)를 발행하면 미관측 축이 자동 채워진다(unmeasured 자동 해제).
+- disk_io: OS-aware — Linux 는 cpu iowait_p95, Windows 는 가장 바쁜 디스크의 Avg Disk Queue Length(disk_queue_p95, agent 가 디스크별 발행 -> ingest per-device max 축약) 를 `disk_io_saturated` helper 로 통일 판정한다. Windows cpu_iowait 는 더미 0이라 미사용. 즉 Windows 도 디스크 포화는 측정 축이다(미관측 아님).
+- CPU run queue: Windows 는 loadavg 가 OS 부재라 cpu_saturation 축을 못 본다 — 유일한 미관측 축. 값 None 이라 `unmeasured`(cpu_saturation) 에 기록 -> `is_partial`(=bool(unmeasured)) -> ViewModel/템플릿이 "포화 수치 미관측" confidence 단서로 노출. 분류 자체는 utilization/capacity 로 완결되며 "표본 부족"이 아니다(cpu_p95·mem_p95 가 산출되는 한).
+- 남은 미관측 축(Windows CPU run queue)은 agent 가 Processor Queue Length(loadavg 등가)를 발행하면 자동 채워진다(unmeasured 자동 해제).
 
 동일 통계라도 Linux 는 load/swap 으로 under 결론, Windows 는 utilization 기준으로 같은 분류 체계 안에서 결론난다.
 
@@ -70,6 +71,6 @@ trigger 6키(`cpu_util`·`mem_util`·`disk_capacity`·`cpu_saturation`·`disk_io
 
 ## 8. 한계
 
-- Windows saturation 미관측: Windows 는 load/iowait 부재라 saturation 병목을 분류로 못 잡고 utilization 축만으로 판정한다(부분 평가). `docs/tradeoffs.md` T14.
+- Windows CPU run queue 미관측: Windows 는 loadavg 부재라 CPU run queue 포화 축만 못 본다(디스크 포화는 Avg Disk Queue Length 로 측정, swap 은 pagefile baseline 이라 의도 제외). CPU 포화 축만 부분 평가 — Processor Queue Length 발행 시 해제. `docs/tradeoffs.md` T14.
 - 디스크 용량 환경 집계: 개별 호스트 `disk_capacity` trigger(worst mount used %)는 단일 마운트 비율이라 OS 무관하게 신뢰 가능하나, 환경 전체 디스크 활용률을 자원 총량으로 합산(Σtotal_bytes)하는 capacity-weighted 집계는 Windows 물리디스크/디바이스(major·minor) 인식이 불완전해 신뢰가 떨어진다 — 환경 p95 등 디스크 합산 지표 도입 시 주의(현재 환경 평균 활용률 disk 바만 유지, 환경 p95 는 CPU·메모리만).
 - p95 표본: 윈도우(7일)보다 데이터가 짧으면 p95 표본 신뢰도가 저하된다. cpu_p95·mem_p95 둘 다 부재면 insufficient_data.

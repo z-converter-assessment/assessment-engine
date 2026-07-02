@@ -34,6 +34,7 @@ MetricType = Literal[
     "disk.write_iops",
     "disk.read_kbps",
     "disk.write_kbps",
+    "disk.queue",
     "fs.usage_percent",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
@@ -60,6 +61,7 @@ EnvironmentMetricType = Literal[
     "disk.write_iops",
     "disk.read_kbps",
     "disk.write_kbps",
+    "disk.queue",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
     "net.rx_packets_per_sec",
@@ -137,22 +139,10 @@ _RATE_PER_DIM_DEFS: dict[str, tuple[str, str]] = {
     "net.tx_packets_per_sec": ("interface", "tx_packets"),
 }
 
-# server_mount_usage 가상 mount 필터 — SQL fragment 단일 진실.
-# 모든 mount 합산·집계 SQL이 본 fragment를 적용. 변경 시 device_filters._VIRTUAL_MOUNT_PREFIXES와 동기화.
-# 데이터 볼륨 술어 — device_filters.is_data_volume 의 SQL 투영. server_mount_usage.major 활용
-# (major==0 = 블록 디바이스 없는 가상 fs: proc/sys/tmpfs/cgroup/overlay). fstype 은 메트릭에 없어 미적용
-# (inventory defense 전담 — squashfs 등은 agent 가 메트릭 거의 미발행). major NULL = 마이그레이션 전 행(path fallback).
-# 사용자 입력 0 — 정적 상수만이라 f-string 안전 (CLAUDE.md C5 whitelist).
-_DATA_VOLUME_SQL_FILTER = """
-    (
-        mount ~ '^[A-Za-z]:'
-        OR (
-            (major IS NULL OR major <> 0)
-            AND mount <> '/boot'
-            AND mount NOT LIKE '/boot/%'
-        )
-    )
-"""
+# 데이터 볼륨 술어 — device kind 태그(agent 공용 분류기)의 SQL 투영. data 만 (boot/image/가상 fs 제외).
+# 가상 fs 는 agent pre-drop, Windows drive 도 kind='data' 로 통일 — major/정규식/path 추론 전부 폐기.
+# 정적 상수만이라 f-string 안전 (CLAUDE.md C5 whitelist).
+_DATA_VOLUME_SQL_FILTER = "kind = 'data'"
 
 # 환경 시점값 capacity-weighted (시점별 sum(numerator)/sum(denominator) * 100). server_metrics 컬럼.
 # metric_trend 그룹2 — environment_utilization(mem)과 동일 capacity-weighted 정의(환경은 sum/sum).
@@ -164,21 +154,8 @@ _ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str]] = {
     "swap.usage_percent": ("swap_total_kb - swap_free_kb", "swap_total_kb"),
 }
 
-# 물리 disk SQL 제외 — device_filters.is_physical_disk POSIX 번역(가상·LVM·파티션). 변경 시 동기화.
-# 환경 disk rate 합산 물리 device 한정(이중 집계 회피). 정적 상수 f-string 안전(#C5).
-_PHYS_DISK_SQL_FILTER = """
-    device !~ '^(loop[0-9]*|ram[0-9]*|zram[0-9]*|fd[0-9]*|sr[0-9]*|nbd[0-9]*)$'
-    AND device !~ '^(dm-[0-9]+|md[0-9]+)$'
-    AND device !~ '^(sd[a-z]+[0-9]+|vd[a-z]+[0-9]+|hd[a-z]+[0-9]+)$'
-    AND device !~ '^(xvd[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+|mmcblk[0-9]+p[0-9]+)$'
-"""
-
-# 가상 network interface SQL 제외 — device_filters._VIRTUAL_IFACE_RE/_WIN_IFACE_FILTER_RE POSIX 번역. 변경 시 동기화.
-# bond/team master·br/docker/virbr bridge·vlan sub-interface 제외 — master/member 이중 집계 회피(물리 member 만 합산).
-_VIRTUAL_IFACE_SQL_FILTER = """
-    interface !~ '^(lo|veth.*|sit[0-9]*|tunl[0-9]*|ip6tnl[0-9]*|gre[0-9]*)$'
-    AND interface !~ '^(gretap[0-9]*|erspan[0-9]*|dummy[0-9]*|ifb[0-9]*|nlmon[0-9]*)$'
-    AND interface !~ '^(bond[0-9]+|team[0-9]+|br[0-9]+|br-.+|docker[0-9]+|virbr[0-9]+(-nic)?)$'
-    AND interface !~ '.+\\.[0-9]+$'
-    AND interface !~ '.+-[0-9]{4}$'
-"""
+# 물리 disk/iface 술어 — device kind 태그 기반. physical 만 집계(이중 집계 회피).
+# disk: partition/lvm/raid/virtual 제외. iface: loopback/bridge/veth/bond/vlan/tunnel/virtual 제외(master/member 이중 집계 회피).
+# 정적 상수 f-string 안전(#C5). cagg 정의도 동일 kind 필터.
+_PHYS_DISK_SQL_FILTER = "kind = 'physical'"
+_PHYS_IFACE_SQL_FILTER = "kind = 'physical'"

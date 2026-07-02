@@ -4,7 +4,6 @@
 다른 sub-module 이 import 하는 항목: `infer_role`, `WELL_KNOWN_PORT_MAX`, `enrich_server_detail`.
 """
 
-import ipaddress
 from collections import Counter
 from typing import Literal
 
@@ -32,6 +31,7 @@ from assessment_engine.web.services.mappers.shared import (
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
     os_id_to_distro,
+    windows_legacy_version_from_build,
 )
 from assessment_engine.web.services.metrics_calculator import compute_net_io
 from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb, usage_pct
@@ -85,19 +85,19 @@ def _usage_badge_class(pct: float | None) -> str:
 # ─── raw dict → typed ViewModel 단일 변환 진입점 ──────────────────────────
 
 
-def _to_ip_addrs(ips: list[str]) -> list[IpAddr]:
-    """IP 문자열 → IpAddr(value, is_ipv4). IPv4 우선 정렬 (안정 정렬 — 종류 내 원순서 유지).
+def _to_ip_addrs(interfaces: list[dict]) -> list[IpAddr]:
+    """interface dict 목록 → IpAddr(value=CIDR, is_ipv4). IPv4 우선 정렬(안정), loopback 제외.
 
     IPv4 는 실제 접속·식별 주력이라 상단·진하게 표시, IPv6(ULA/link-local)는 보조(연하게).
     """
     items: list[IpAddr] = []
-    for ip in ips:
-        try:
-            # ip_interface — agent payload v3.4+ 는 CIDR 표기("10.0.1.15/24")라 ip_address 면 ValueError.
-            v4 = ipaddress.ip_interface(ip).version == 4
-        except ValueError:
-            v4 = False
-        items.append(IpAddr(value=ip, is_ipv4=v4))
+    for i in interfaces or []:
+        if i.get("kind") == "loopback":
+            continue  # 표시 무의미
+        addr = i.get("address", "")
+        prefix = i.get("prefix")
+        value = f"{addr}/{prefix}" if prefix is not None else addr
+        items.append(IpAddr(value=value, is_ipv4=i.get("family") == "ipv4"))
     return sorted(items, key=lambda x: not x.is_ipv4)
 
 
@@ -111,7 +111,7 @@ def _to_volumes(mounts: list[dict]) -> list[VolumeItem]:
     for m in mounts:
         path = m.get("mount", "")
         fstype = m.get("fstype")
-        if not is_data_volume(path, m.get("major"), fstype):
+        if not is_data_volume(m.get("kind")):
             continue
         volumes.append(VolumeItem(mount=path, fstype=fstype, total_gb=bytes_to_gb(m.get("total_bytes"))))
     return sorted(volumes, key=lambda v: v.mount)
@@ -120,7 +120,7 @@ def _to_volumes(mounts: list[dict]) -> list[VolumeItem]:
 def _to_disk_item(d: dict) -> DiskItem | None:
     """물리 디스크 아니면 None."""
     name = d.get("name", "")
-    if not is_physical_disk(name):
+    if not is_physical_disk(d.get("kind")):
         return None
     return DiskItem(
         name=name,
@@ -147,8 +147,8 @@ def _to_service_item(s: dict, listen_ports: list[dict] | None = None) -> Service
     return ServiceItem(
         unit=unit,
         sub=s.get("sub", ""),
-        category=classify(unit, listen_ports),
-        ports=matched_ports(unit, listen_ports) if listen_ports else [],
+        category=classify(unit, listen_ports, s.get("pid")),
+        ports=matched_ports(unit, listen_ports, s.get("pid")) if listen_ports else [],
         display_name=unit.removesuffix(".service"),
     )
 
@@ -163,8 +163,12 @@ def _services_or_none(
     return [_to_service_item(s, listen_ports) for s in raw]
 
 
-def _os_display(os_id: str | None, os_version: str | None) -> str:
-    parts = [p for p in [os_id, os_version] if p]
+def _os_display(os_id: str | None, os_version: str | None, kernel_version: str | None = None) -> str:
+    ver = os_version
+    if os_id == "windows" and not ver:
+        # 레거시 Windows Server 는 os_version 빈값 -> kernel build 로 버전 보강 ("windows 2012").
+        ver = windows_legacy_version_from_build(kernel_version)
+    parts = [p for p in [os_id, ver] if p]
     return " ".join(parts) or "-"
 
 
@@ -175,7 +179,7 @@ def build_server_inventory(detail, is_online: bool) -> ServerInventory:
     disk_bytes = disk_total_bytes(detail.disks or [], detail.mounts or [])
     return ServerInventory(
         hostname=detail.hostname,
-        os_display=_os_display(detail.os_id, detail.os_version),
+        os_display=_os_display(detail.os_id, detail.os_version, detail.kernel_version),
         os_codename=detail.os_codename,
         kernel_version=detail.kernel_version,
         cpu_model=detail.cpu_model,
@@ -183,7 +187,7 @@ def build_server_inventory(detail, is_online: bool) -> ServerInventory:
         mem_total_gb=kb_to_gb(detail.mem_total_kb),
         swap_total_gb=kb_to_gb(detail.swap_total_kb),
         disk_total_gb=int(bytes_to_gb(disk_bytes) or 0),
-        ip_internal=_to_ip_addrs(detail.ip_internal),
+        ip_internal=_to_ip_addrs(detail.interfaces),
         ip_external=_to_ip_addrs(detail.ip_external) if detail.ip_external else [],
         boot_time=detail.boot_time,
         agent_started_at=detail.agent_started_at,
@@ -222,7 +226,7 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
     분류 색·라벨은 shared._DONUT_SEGMENT_FROM_REC + _DONUT_SEGMENT_DEFS와 동기화 (P2 단일 진실).
     raw_period=None이면 미분류 — 빈 문자열 (페이지 2+ 등 raws_period 부재).
     """
-    physical = [d for d in dto.disks if is_physical_disk(d.get("name", ""))]
+    physical = [d for d in dto.disks if is_physical_disk(d.get("kind"))]
     raw_total = sum(bytes_to_gb(d.get("size_bytes")) or 0.0 for d in physical)
     storage_total_gb = round(raw_total, 1) if physical else None
 
@@ -261,7 +265,7 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
         services=services,
         known_services=known,
         show_unknown_badge=show_unknown,
-        os_display=_os_display(dto.os_id, dto.os_version),
+        os_display=_os_display(dto.os_id, dto.os_version, dto.kernel_version),
         recommendation_label=rec_label,
         recommendation_color=rec_color,
         provisioning_class=seg_key,
@@ -288,7 +292,7 @@ def to_server_detail(dto: ServerDetail) -> ServerDetailResponse:
         swap_total_gb=kb_to_gb(dto.swap_total_kb),
         boot_time=dto.boot_time,
         agent_started_at=dto.agent_started_at,
-        ip_internal=_to_ip_addrs(dto.ip_internal),
+        ip_internal=_to_ip_addrs(dto.interfaces),
         ip_external=_to_ip_addrs(dto.ip_external) if dto.ip_external else None,
         disks=[item for d in dto.disks if (item := _to_disk_item(d)) is not None],
         services=_services_or_none(dto.services, listen_ports=dto.listen_ports),
@@ -302,7 +306,7 @@ def to_server_detail(dto: ServerDetail) -> ServerDetailResponse:
 
 def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
     usage_by_mount = {u.mount: u for u in dto.mount_usage}
-    physical_disks = [d for d in dto.disks if is_physical_disk(d.get("name", ""))]
+    physical_disks = [d for d in dto.disks if is_physical_disk(d.get("kind"))]
 
     mounts: list[MountUsageItem] = []
     seen: set[str] = set()
@@ -311,7 +315,7 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
         path = inv.get("mount", "")
         fstype = inv.get("fstype")
         seen.add(path)
-        if not is_data_volume(path, inv.get("major"), fstype):
+        if not is_data_volume(inv.get("kind")):
             continue
         usage = usage_by_mount.get(path)
         mounts.append(
@@ -325,7 +329,7 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
 
     # inventory에 없지만 시계열에 있는 mount (mount_usage 시계열 전용)
     for path, usage in usage_by_mount.items():
-        if path in seen or not is_data_volume(path, getattr(usage, "major", None)):
+        if path in seen or not is_data_volume(usage.kind):
             continue
         mounts.append(
             _build_mount_item(
@@ -377,7 +381,7 @@ def to_network_detail(dto: NetworkWithIo) -> NetworkDetailResponse:
         server_id=dto.server_id,
         public_id=dto.public_id,
         hostname=dto.hostname,
-        ip_internal=_to_ip_addrs(dto.ip_internal),
+        ip_internal=_to_ip_addrs(dto.interfaces),
         ip_external=_to_ip_addrs(dto.ip_external) if dto.ip_external else None,
         interfaces=compute_net_io(dto.net_io),
         inventory_at=dto.inventory_at,
@@ -470,7 +474,7 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     detail.sorted_services = sorted(detail.services or [], key=lambda s: s.unit) if detail.services else []
     detail.sorted_listen_ports = sorted(detail.listen_ports, key=lambda lp: (lp.port, lp.proto))
 
-    detail.os_display = _os_display(detail.os_id, detail.os_version)
+    detail.os_display = _os_display(detail.os_id, detail.os_version, detail.kernel_version)
 
     cpu_parts = [p for p in [detail.cpu_model, f"{detail.cpu_cores} cores" if detail.cpu_cores else None] if p]
     detail.cpu_display = " ".join(cpu_parts) or "-"
@@ -507,7 +511,7 @@ def workload_category_counter(
         unit = s.get("unit") if isinstance(s, dict) else None
         if not unit:
             continue
-        cat = classify(unit, listen_ports)
+        cat = classify(unit, listen_ports, s.get("pid"))
         if cat == "unknown":
             continue
         # 런타임 스택(container)은 구성 요소가 여러 서비스로 떠도 호스트당 1 (docker+containerd → 1).

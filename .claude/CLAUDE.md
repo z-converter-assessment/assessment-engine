@@ -18,7 +18,7 @@
 | `docs/operations/` | 외부 인프라가 활용할 contract (deployment·env·alembic·observability·release) | 영구·갱신 |
 | `docs/products/` | 운영 산출물별 존재 의의·근거 (dashboard·환경 보고서·서버 보고서·JSON Export·Install task) | 영구·갱신 |
 | `docs/adr/` | Architecture Decision Records — "왜 이렇게 결정했나" + 트레이드오프. ADR은 정정만, 덮어쓰기 금지 | 영구·불변 |
-| `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T15) | 영구·갱신 |
+| `docs/tradeoffs.md` | 의식적 설계 선택과 그 한계 (T1~T16) | 영구·갱신 |
 
 그 외 명시되지 않은 경로의 문서는 코드·영구 문서에서 인용 금지.
 
@@ -32,16 +32,16 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 
 ## A0. 범위
 
-본 repo는 기능 개발에 필요한 환경 구성만 다룬다. 배포 인프라(IaC — Terraform·Ansible·OpenStack staging 등)는 본 repo 범위 밖. 추후 도입 결정 시 별도 repo로 분리 (ADR 0006 Withdrawn 사유).
+본 repo는 엔진 애플리케이션 + docker compose 배포 + 엔진 rollout(`deploy.sh`, 배포 대상 VM 에서 실행)까지 다룬다 (ADR 0048). VM provisioning(IaC — VM 생성·OS 설정)은 별도 준비 VM 전제. docker·cosign·deploy.sh 설치는 1회성 `bootstrap.sh`. (ADR 0006 Withdrawn 은 IaC 전면 배제였고, 0048 이 rollout 을 범위 안으로 재획정.)
 
 본 절 결정:
-- compose 2 파일 — prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) (ADR 0035). base 는 `build:` 키 없는 이미지 pull(GHCR 핀)·bind mount 없음·볼륨 env 바인딩(`PGDATA_HOST`·`MQ_DATA_HOST`) = 빌드 없는 pull-and-run prod compose. override 는 dev 전용(소스 빌드·`./src` bind mount·hot reload)으로 `docker compose up` 시 base 에 자동 머지(prod/release 는 base 단독, override 미배포). Dockerfile 은 dev/prod 분리 안 함(단일 multi-stage 이미지, dev-prod parity) — dev 편의는 Dockerfile 이 아니라 override compose 의 bind mount 로만 주입. `docker-compose.prod.yml` 은 두지 않는다(base 자체가 prod). hardened prod(APP_ENV=prod·강 secret·LOG_FORMAT=json·HTTPS ingress)는 infra env 주입으로 달성.
+- compose 파일 — prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) (ADR 0035) + prod file-secret overlay(`docker-compose.secrets.yml`, ADR 0046). base 는 `build:` 키 없는 이미지 pull(GHCR 핀)·bind mount 없음·볼륨 env 바인딩(`PGDATA_HOST`·`MQ_DATA_HOST`) = 빌드 없는 pull-and-run prod compose. override 는 dev 전용(소스 빌드·`./src` bind mount·hot reload)으로 `docker compose up` 시 base 에 자동 머지(릴리즈는 override 미배포, prod 는 base+secrets). Dockerfile 은 dev/prod 분리 안 함(단일 multi-stage 이미지, dev-prod parity) — dev 편의는 Dockerfile 이 아니라 override compose 의 bind mount 로만 주입. `docker-compose.prod.yml`(prod 환경 전체를 가르는 compose)은 두지 않는다(base 자체가 prod). prod 비번은 file-secret 채널 단일(ADR 0046) — `docker-compose.secrets.yml`(`./secrets/*` -> `/run/secrets/*`)을 `env.example` 의 `COMPOSE_FILE` 로 base 에 자동 머지. 즉 prod = base+secrets, dev = base+override. hardened prod(APP_ENV=prod·강 secret·LOG_FORMAT=json·HTTPS ingress)는 infra env 주입으로 달성.
 - prod 외부 인프라가 활용할 수 있는 정석 contract만 본 repo에서 유지:
   - 환경변수 contract — `docs/operations/env.md` 키 카탈로그
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
   - 환경 분기 — `APP_ENV=prod` + `_validate_prod_*` weak default 거부 (`docs/operations/env.md` 8절). secret 주입 방식은 무관, 결과(약한 default 거부)만 검증
-  - CI 산출물 — Python wheel + GitHub Release (ADR 0012). 외부 인프라가 wheel 받아 install·systemd 자체 구성
-- IaC 코드(`*.tf`·Ansible playbook·OpenStack 시나리오 문서)는 본 repo에 두지 않는다. 인프라 시나리오 언급 자체 금지 — 단 어떤 인프라든 위 contract 충족 시 본 엔진 기동 가능. (루트 `docker-compose.yml` 단일 호스트 배포는 예외적 편의 제공 — ADR 0035·0036.)
+  - CI 산출물 — 서명(cosign)·SBOM(SPDX)·provenance 된 OCI 이미지 단일 (GHCR, ADR 0048). 배포는 VM 에서 `deploy.sh` 실행 (cosign verify -> compose pull -> migration -> up -> health -> rollback). GitHub Actions runner 미사용(public repo 에 self-hosted runner 안티패턴 회피) — 내부망 VM 이 outbound 로 이미지 pull
+- VM provisioning 코드(`*.tf`·Ansible playbook·VM 생성·OS 설정)는 본 repo에 두지 않는다 — 배포 대상 VM 은 provisioning 완료 상태를 전제. 엔진 rollout(`deploy.sh`)·VM 부트스트랩(`bootstrap.sh`)은 범위 안(ADR 0048). 단일 호스트 compose 수동 기동도 지원 (ADR 0035·0036).
 
 ---
 
@@ -67,8 +67,8 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 - 시계열 5개 테이블 자연키 UNIQUE 보존 의무 — 누락 시 #D2 멱등성 2단 방어 깨짐. 모델 변경 시 검증 필수.
 - 시계열 4개 테이블 `boot_time` + `agent_started_at` 컬럼 보존 의무 — counter reset 정밀 식별 (#B 동일 진실).
 - `server_inventory.public_id` (UUID) URL 식별자 — 정수 PK 노출 금지 (#E4).
-- `server_inventory` 식별 분리 (ADR 0022 -> 0027 정정, agent v4): `id bigint PK` (FK 대상) / `composite_id varchar(64) UNIQUE` (agent 매칭·식별 단일 키 — SHA-256 composite hash) / `machine_id varchar(64)` (raw machine-id 표시 전용, nullable — 평시 식별·라우팅 미사용) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{composite_id}` / routing key `task.install.{composite_id}`.
-- composite_id 재연결 (ADR 0044): inventory upsert 시 composite_id 미등록이면 `_relink_rebooted_host`(machine_id + hostname 일치, 후보 정확히 1개)가 기존 행 composite_id 를 re-point — 부팅마다 NIC MAC 재발급(OpenStack Windows VM)으로 composite_id 가 바뀌는 같은 VM 의 중복 행 흡수(server_id·시계열·history 보존). machine_id 는 평시 식별 미사용이나 본 fallback 한정 키. 후보 0/2+ (모호한 clone)면 미연결(오병합 방지). MAC 은 부팅마다 변동이라 매칭 미사용.
+- `server_inventory` 식별 분리 (ADR 0022 -> 0027 -> 0049 정정): `id bigint PK` (FK 대상) / `agent_id UUID UNIQUE` (agent 매칭·식별·라우팅 단일 키 — 첫 실행 시 생성·영구저장한 불변 UUID) / `composite_id varchar(64)` (SHA-256 composite hash, 감사·표시용 nullable — 식별·라우팅 미사용) / `machine_id varchar(64)` (raw machine-id 표시 전용, nullable) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{agent_id}` / routing key `task.install.{agent_id}`.
+- 식별키 agent_id 불변 (ADR 0049, 0044 supersede): agent_id 는 첫 실행 시 1회 생성·영구저장하는 불변 UUID — 부팅마다 NIC MAC 이 재발급되는 환경(OpenStack Windows VM)에서도 동일 agent_id 가 자연히 같은 행을 upsert 한다. 별도 호스트 재연결 로직 없음. composite_id/machine_id 는 clone collision 진단용 감사 컬럼.
 - `diagnostic_jobs.job_type` (`customer_report`/`engineer_report` 둘만) + active partial UNIQUE = `(scope, input_hash, job_type)`. 발행 시점 정적 스냅샷을 `result` JSONB 에 보존. customer/engineer 모두 비동기 생성 (pending -> 워커 claim·running -> succeeded/failed, ADR 0040). status·progress_stage·started_at·error_message + active partial UNIQUE 가 비동기 상태머신.
 - 보고서 발행 = 정적 스냅샷 (요구: 발행 시점 데이터 그대로 보관, 이력 동적변화 0). POST `/reports/environment/emit` · `/reports/servers/emit` 가 `enqueue_report` 로 parent job 을 pending enqueue 후 즉시 `?job={id}` 반환(생성 안 함, 더블클릭은 active UNIQUE 로 기존 job 합류). web lifespan 의 job-claim 워커(`report_worker.py`)가 `claim_pending`(FOR UPDATE SKIP LOCKED) -> `report_generator.build_report_result_for_job`(발행 시점 ViewModel 생성·`report_serializer` 직렬화) -> `result` JSONB(`{kind,snapshot,view,aux}`) 저장 + succeeded (생성 불가 시 failed, ADR 0040). 응답 view_url=`?job={id}` — JS navigate. GET `?job={id}` 는 succeeded 면 저장된 스냅샷 정적 렌더(재계산 0), pending/running 이면 진행 화면 + `report-poll.js` 폴링(`GET /reports/{job}/status`) -> 완료 시 reload, failed 면 안내(`reports/report_pending.html`). 환경 보고서(`/reports/environment`)는 job 없는 GET 이 컨트롤만(양식·윈도우·앵커 select + 발행 버튼) 노출. server scope(`/reports/servers`)는 job 없는 GET 이 read-only live preview (진단 트리거 없음). result 구조 단일 진실 = `diagnostic.report_result`.
 - 양식 통일: server scope 단일/N대 모두 환경 보고서 양식 (`EnvironmentReportSummary`, kind=env_report) 공유. N대 selection (`servers/report.html`) = 환경 보고서 본문 공유 partial (`reports/_env_report_body.html`, environment.html 과 단일 진실) + 하단 세부 서버 목록 표 (`show_report_link` selection 한정 — 환경 보고서는 세부 서버 목록 미표시, 500대 인쇄 폭주 회피, 조치 대상은 효율화/리소스 부족 표가 담당). 단일 1대 (`servers/single_report.html`) 는 customer high-level / engineer 심화 (1대 deep-dive — N대 비교 표엔 없는 CPU 분류·메모리 구성·마운트별 스토리지 전개; 단일 전용 필드 `server_inventory`·`volumes`·`memory_breakdown`·`cpu_breakdown` 는 selection·환경에서 None/빈 list, repo `report_cpu_breakdown`·`report_memory_breakdown`·`report_mount_usage` per server_id). 환경 (`reports/environment.html`) 은 high-level. selection ViewModel = `query_service.get_selection_report(server_ids)` (단일은 N=1 동치, 평균 활용률은 `environment_utilization` 을 server_ids 로 N대 한정 호출 — 전체 환경과 동일 capacity-weighted SQL, attention 은 N대 호스트 필터). `report_summary` 단독 표 양식·kind 폐기. `/reports/servers/emit` 은 ids 1개면 단일, 2개+ 면 selection.
@@ -112,7 +112,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 
 ## D1. 구조·후처리·실패 처리
 
-aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸들러 팩토리 · `composite_id` 단일 키 식별 (#C1) · `ensure_server_id` placeholder 분기 · auto-register · `_db_retry` 백오프 · routing key별 후처리 시퀀스 · 부가 시그널(`_log_time_invariants`·`_track_agent_restart`) · 실패 분기·DLQ 운영: `docs/architecture/consumer.md` 단일 진실.
+aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸들러 팩토리 · `agent_id` 단일 키 식별 (#C1) · `ensure_server_id` placeholder 분기 · auto-register · `_db_retry` 백오프 · routing key별 후처리 시퀀스 · 부가 시그널(`_log_time_invariants`·`_track_agent_restart`) · 실패 분기·DLQ 운영: `docs/architecture/consumer.md` 단일 진실.
 
 본 절 결정:
 - 모든 후처리는 `safe_*` helper 경유(#C3) — 부수 작업 실패가 메시지 처리 ack를 막지 않는다.
@@ -162,10 +162,10 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 ## E2. 데이터 흐름 결정
 
 - DTO(dataclass)와 ORM 모델 분리 — 변환은 repository 책임.
-- inventory upsert·metrics 저장·server_id 조회 모두 `composite_id` 단일 키 기준 (#C1). 미등록 metrics는 drop.
+- inventory upsert·metrics 저장·server_id 조회 모두 `agent_id` 단일 키 기준 (#C1). 미등록 metrics는 drop.
 - `last_seen_at`은 `ServerDetail`(단일 조회)에만 포함. `ServerSummary`(목록)는 Redis `online:{id}` TTL로 표시.
 - `CollectionStatusItem`은 `last_metric_at` + `last_inventory_at` 별도 필드.
-- `ip_internal`은 CIDR 표기 문자열 raw 저장(agent v3.4+, #B). 인바운드는 `ip_interface` 형식 검증만(bare·CIDR 호환). 표시 파생은 `mappers/server._to_ip_addrs`(`ip_interface` 파싱)와 대시보드 네트워크 토폴로지(`mappers/topology.build_network_topology`)에서 — L3 subnet 공동소속 추론 그래프(노드=subnet/host, 가상망·IPv6·단독 subnet 제외). 추론이라 실측 reachability 아님 — 한계는 caveat 노출(#E9). Cytoscape.js(vendored)로 렌더, 자동갱신 fragment 안이라 swap 후 재초기화.
+- 내부 인터페이스는 `interfaces` JSONB(구조화 `{name,address,prefix,family,kind,gateway}`) raw 저장(#B). 인바운드는 `interfaces[].address` 를 `ip_interface` 형식 검증만(bare·CIDR 호환). 표시 파생은 mapper — 서버 상세 IP 는 `mappers/server._to_ip_addrs`, 네트워크 토폴로지는 `mappers/topology.build_network_topology`(L3 subnet 공동소속 추론 그래프, 노드=subnet/host, 가상망·IPv6·단독 subnet 제외, gateway 로 사설대역 중복 분리). 추론이라 실측 reachability 아님 — 한계는 caveat 노출(#E9). Cytoscape.js(vendored) 렌더, 자동갱신 fragment 안이라 swap 후 재초기화.
 
 Pagination 정책:
 - 목록 endpoint(`list_servers` 등 정적 row): page 기반 — `page=1`, `limit=20` (max 100). 라우터 Query Pydantic 검증.
@@ -182,7 +182,7 @@ Pagination 정책:
 본 절 결정:
 - 두 임계 도메인(UI badge / USE Method) 혼용 금지.
 - 신규 ViewModel 파생 필드 추가 시 #F9 영향도 체크리스트 적용.
-- right-sizing 분류 단일 진실 = `recommendation.assess(stats) -> Assessment(recommendation, triggers, unmeasured)` (evidence 기반, OS-aware, ADR 0029 정정). `classify` 는 분류 enum 만 돌려주는 호환 wrapper. 판정 순서 = under(위험 신호 OR) -> idle -> shutdown -> insufficient_data -> over -> optimal — under 가 idle/shutdown 보다 우선이다(saturation·압박 신호가 "미사용" 분류를 가로채지 않음, 예: CPU idle 인데 swap 발생 = under). 합성 규칙: under = 위험 신호 OR(하나라도 hit 되면 발화, 누락 0) / over = cpu/mem 둘 다 다운사이즈 임계 이하일 때만(보수적) / insufficient_data = utilization(cpu/mem) 둘 다 부재 + under 신호도 없을 때만(후순위 — swap 등 saturation 신호가 있으면 util 부재여도 under 로 결론). hit 신호(triggers)를 근거로 동반 — report mapper 권고(`_build_under_provisioned_reason`)와 attention capacity 배지(`to_capacity_warning_item`)가 `assess.triggers` 재사용(임계 재계산 금지), stats 생성은 `build_resource_stats` 공용 — report·attention·서버목록(`to_server_list_item`)·도넛(`_assemble_overview`)이 동일 입력(net baseline·worst_mount disk 포함, 화면 간 idle/shutdown 정합 의무). swap 은 `recommendation.swap_saturation(os_family, swap_used)` helper 경유 의무(Windows pagefile 제외, Linux/None 보존) — `if raw.swap_used` 직접 해석 금지. saturation 축 미관측(값 None, 예: Windows load)은 `unmeasured` 기록 -> `is_partial`(=bool(unmeasured)) -> `ReportRowItem.is_partial` 로 "이용률 기준 평가" confidence 노출 (분류는 utilization/capacity 로 완결, "데이터 부족" 아님 — cpu_p95/mem_p95 산출되는 한). Windows agent 가 등가 카운터(Processor Queue Length 등) 발행 시 unmeasured 자동 해제. 분류 명세·임계 근거(USE Method·AWS/Azure/GCP advisor 출처)·한계 단일 진실 = `docs/architecture/right-sizing.md`.
+- right-sizing 분류 단일 진실 = `recommendation.assess(stats) -> Assessment(recommendation, triggers, unmeasured)` (evidence 기반, OS-aware, ADR 0029 정정). `classify` 는 분류 enum 만 돌려주는 호환 wrapper. 판정 순서 = under(위험 신호 OR) -> idle -> shutdown -> insufficient_data -> over -> optimal — under 가 idle/shutdown 보다 우선이다(saturation·압박 신호가 "미사용" 분류를 가로채지 않음, 예: CPU idle 인데 swap 발생 = under). 합성 규칙: under = 위험 신호 OR(하나라도 hit 되면 발화, 누락 0) / over = cpu/mem 둘 다 다운사이즈 임계 이하일 때만(보수적) / insufficient_data = utilization(cpu/mem) 둘 다 부재 + under 신호도 없을 때만(후순위 — swap 등 saturation 신호가 있으면 util 부재여도 under 로 결론). hit 신호(triggers)를 근거로 동반 — report mapper 권고(`_build_under_provisioned_reason`)와 attention capacity 배지(`to_capacity_warning_item`)가 `assess.triggers` 재사용(임계 재계산 금지), stats 생성은 `build_resource_stats` 공용 — report·attention·서버목록(`to_server_list_item`)·도넛(`_assemble_overview`)이 동일 입력(net baseline·worst_mount disk 포함, 화면 간 idle/shutdown 정합 의무). swap 은 `recommendation.swap_saturation(os_family, swap_used)` helper 경유 의무(Windows pagefile 제외, Linux/None 보존) — `if raw.swap_used` 직접 해석 금지. disk_io saturation 은 `recommendation.disk_io_saturated` os-aware helper 경유(Linux iowait_p95 / Windows Avg Disk Queue Length `disk_queue_p95`>=2) — Windows 도 디스크 포화는 측정 축(cpu iowait 는 canonical 0이라 미사용). 남은 미관측 축(값 None, 예: Windows CPU run queue — loadavg 부재)만 `unmeasured` 기록 -> `is_partial`(=bool(unmeasured)) -> `ReportRowItem.is_partial` 로 "포화 수치 미관측" confidence 노출 (분류는 utilization/capacity/측정된 포화 축으로 완결, "데이터 부족" 아님 — cpu_p95/mem_p95 산출되는 한). Windows agent 가 Processor Queue Length(loadavg 등가) 발행 시 남은 CPU run queue 축도 자동 해제. 분류 명세·임계 근거(USE Method·AWS/Azure/GCP advisor 출처)·한계 단일 진실 = `docs/architecture/right-sizing.md`.
 
 ## E4. URL 식별자 — 정수 PK 노출 금지
 
@@ -331,7 +331,7 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/developmen
 - 시그널 로그(`_log_time_invariants`·`_track_agent_restart`)는 쿨다운·슬라이딩 윈도우 의무 — 매 메시지 발생 시 진짜 시그널 매몰.
 - 새 시그널 도입 시 (a) 레벨 (b) 빈도 제어 (c) 운영자 행동 — 셋 다 명시.
 
-금지: payload·secret raw dump — 식별자(composite_id·routing key·message_id·server_id)와 카운트만.
+금지: payload·secret raw dump — 식별자(agent_id·composite_id·routing key·message_id·server_id)와 카운트만.
 
 로그 format: `LOG_FORMAT` env 분기 — `text`(dev colorized) 또는 `json`(prod, loguru `serialize=True`). 각 entry(web/consumer)가 기동 직후 `setup_logging(settings.log_format)` 호출. 단일 진실은 `src/assessment_engine/log_config.py`.
 
@@ -343,11 +343,11 @@ Request/Correlation ID 분산 trace 도입 트리거·정석 패턴: `docs/opera
 
 금지:
 - pydantic Settings 비밀 필드 `SecretStr` 미적용 — 신규 비밀 필드 의무.
-- `.env`·`dev/agent.env` 파일 commit. PR diff `password`/`secret`/`token`/`key` 패턴 검토 의무.
+- `.env`·`secrets/*`(실 secret 파일) commit. PR diff `password`/`secret`/`token`/`key` 패턴 검토 의무.
 - 예외 메시지에 raw payload·접속 문자열 — catch 후 sanitize 후 reraise.
 - HTTP 응답·ViewModel·JSON export에 PII. 운영 식별자는 `public_id`(UUID)만(#E4).
 - Redis·DB에 raw payload 캐싱 — Outbound DTO·ViewModel 단계에서 sanitize 후.
-- 메시지 payload 본문 로깅 (`composite_id`는 식별자라 OK).
+- 메시지 payload 본문 로깅 (`agent_id`·`composite_id`는 식별자라 OK).
 
 secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/env.md`.
 
@@ -364,15 +364,15 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 | 신규 routing key | (1) 발행 측 (agent 또는 engine web) 상수 (2) consumer 핸들러 팩토리 + dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 (4) `docs/architecture/agent.md` 메시지 타입 절 |
 | `EXCHANGE`/`ROUTING_KEY_*` 값 변경 | (1) 발행 측 상수 (2) consumer subscriber dispatch (3) `docs/architecture/rabbitmq.md` 토폴로지 표 |
 | 메시지 페이로드 schema 변경 (필드 추가·삭제·rename·Literal 값 변경) | (1) `consumer/schemas.py` 또는 발행 측 payload 빌드 (2) Inbound DTO (3) handler 매핑 (4) DB 모델·Alembic revision (필요 시) (5) `docs/architecture/agent.md` 데이터 형식 절 (6) 운영자 가시성 ViewModel·템플릿·API (필요 시) |
-| `recommendation.py` 분류 임계 또는 libvirt VM 매트릭스 변경 | (1) `recommendation.py` 임계 상수 (2) `docs/development/pipeline.md` "VM 매트릭스"(합성 부하·swap_used 트리거) (3) #F10 평가 윈도우 정합 |
-| 분류 신호·OS 분기 (USE Method 축·임계·trigger, ADR 0029 evidence) | (1) `recommendation.py` `assess`/`Assessment`(triggers·unmeasured)·임계 상수·`swap_saturation` helper·`ResourceStats` 필드 (2) trigger 키 추가 시 report 권고(`_TRIGGER_ACTION_KO`)·attention capacity 배지 active 매핑 동시 갱신 (3) stats 생성은 `build_resource_stats` 공용(report·attention·서버목록·도넛 단일 진실) — 직접 해석·임계 재계산 금지 (4) 표시 N/A·confidence(`is_partial`=bool(unmeasured)) 마커 (ViewModel precompute + 템플릿) (5) `docs/architecture/right-sizing.md`(명세·근거 단일 진실) + `docs/architecture/web/services.md` "OS 분기" + `right_sizing_thresholds.html` + ADR 0029 정정 |
+| `recommendation.py` 분류 임계 변경 | (1) `recommendation.py` 임계 상수 (2) #F10 평가 윈도우 정합 (3) `docs/architecture/right-sizing.md` 임계 근거 |
+| 분류 신호·OS 분기 (USE Method 축·임계·trigger, ADR 0029 evidence) | (1) `recommendation.py` `assess`/`Assessment`(triggers·unmeasured)·임계 상수·`swap_saturation`·`disk_io_saturated`(os-aware) helper·`ResourceStats` 필드(`disk_queue_p95` 등) (2) trigger 키 추가 시 report 권고(`_TRIGGER_ACTION_KO`)·attention capacity 배지 active 매핑 동시 갱신 (3) stats 생성은 `build_resource_stats` 공용(report·attention·서버목록·도넛 단일 진실) — 직접 해석·임계 재계산 금지 (4) 표시 N/A·confidence(`is_partial`=bool(unmeasured)) 마커 (ViewModel precompute + 템플릿) (5) `docs/architecture/right-sizing.md`(명세·근거 단일 진실) + `docs/architecture/web/services.md` "OS 분기" + `right_sizing_thresholds.html` + ADR 0029 정정 |
 | 환경변수 추가 | (1) `Settings` 필드 (2) `docs/operations/env.md` 카탈로그 (3) 루트 `docker-compose.yml` `environment:` (필요 시) (4) prod secret 분류면 `SecretStr` 타입 + `_validate_prod_*` 에 weak default 거부 추가 + `docs/operations/env.md` 2절·7절 |
 | ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass(P2) |
 | 보고서 스냅샷 ViewModel nested 필드 추가 (`EnvironmentReportSummary` 등 정적 스냅샷, #C1) | (1) ViewModel dataclass (2) mapper precompute (3) `report_serializer.*_from_dict` nested 복원 (dict -> dataclass, datetime/IpAddr 재구성 — 누락 시 dict 잔류로 template `.attr` 런타임 깨짐) (4) 템플릿 `.attr` 접근 (5) 라운드트립 단위 테스트(`test_report_serializer`) |
 | 신규 조건부(발화) UI 섹션 추가 | (1) 제목·카테고리 항상 노출 (2) 빈 상태 `empty_state` placeholder (3) 화면 컨텍스트 가드와 데이터 발화 가드 분리 (#E9) |
 | 신규 외부 의존(HTTP·외부 큐) | (1) fail-open/close 결정(#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) #F6 매트릭스 갱신 |
 | 신규 의존성(`pyproject.toml`) | (1) `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토. 워크플로 단일 진실: `docs/development/dependencies.md` |
-| 신규 차트 MetricType (net/disk rate 등) | (1) `db/repositories/query/types.py` `MetricType` Literal (2) rate 메트릭이면 동 파일 `_RATE_PER_DIM_DEFS` (dim_col, value_col) (3) `db/repositories/query/metric.py` `_RATE_PER_DIM` table 매핑 — 누락 시 `unknown metric_type` AssertionError 500 (Promise.all 한 fetch 실패가 같은 페이지 다른 차트까지 막음) (4) 페이지 JS fetch (5) 가상 제외 필터(`device_filters`) 해당 시 표시 경계 적용 |
+| 신규 차트 MetricType (net/disk rate·gauge 등) | (1) `db/repositories/query/types.py` `MetricType` Literal (+ 환경 차트면 `EnvironmentMetricType` 도) (2) rate 메트릭이면 동 파일 `_RATE_PER_DIM_DEFS` (dim_col, value_col) + `metric.py` `_RATE_PER_DIM` 매핑 / gauge 면 `metric.py` `metric_trend` 에 dispatch branch 직접 추가 — 둘 다 누락 시 `unknown metric_type` AssertionError 500 (Promise.all 한 fetch 실패가 같은 페이지 다른 차트까지 막음) (3) 페이지 JS fetch (env-metrics.js·metrics.js, seqs·Y축 suggestedMax 명명 상수·os-aware 분기) + 템플릿 차트 카드 (4) 가상 제외 필터(`device_filters`) 해당 시 표시 경계 적용 (gauge 는 미대상) (5) `test_query_repository._ALL_METRIC_TYPES` dispatch 커버 + 값 테스트 |
 | 비동기 보고서 발행 (job-claim 워커·생성 디스패치·폴링, ADR 0040) | (1) emit 라우터 `enqueue_report` 분리 (2) `report_generator.build_report_result_for_job` 생성 디스패치 (3) `report_worker.py` 루프 + `main.py` lifespan 기동·graceful (4) repo `claim_next_pending`/`mark_failed`/`recover_stale_running` (+ `BaseDiagnosticRepository` 추상) (5) GET pending/running/failed 분기 + `GET /reports/{job}/status` + `report-poll.js` + `report_pending.html` (6) `WebSettings` 워커 설정 (7) #C1·#F11·ADR 0040 (8) 단위테스트(`test_diagnostic_service`·`test_report_generator`) |
 
 
@@ -381,7 +381,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 원칙: 보고서·대시보드·차트 모두 같은 평가 윈도우·시계열 옵션 카탈로그 참조 — 화면별 의미 분기 방지.
 
 본 절 결정:
-- right-sizing 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 7). 보고서 라우터·서버 목록 분류·구간 선택 기본값(`DIAGNOSTIC_DEFAULT_TIME_RANGE`·보고서 발행 select)·ADR 0003 모두 본 상수/동일 값 참조. 변경 시 `_thresholds_reference.html`·`docs/development/pipeline.md` 표제도 동기화.
+- right-sizing 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 7). 보고서 라우터·서버 목록 분류·구간 선택 기본값(`DIAGNOSTIC_DEFAULT_TIME_RANGE`·보고서 발행 select)·ADR 0003 모두 본 상수/동일 값 참조. 변경 시 `_thresholds_reference.html` 표제도 동기화.
 - 모니터링 현황 카드 — 환경 개요(평균 활용률)·환경 자원 평가(자원 적정성 평가)는 `DASHBOARD_TIME_RANGE`("24h", query_service) 고정 — 최근 현황 모니터링, right-sizing 표준 평가와 의도 분리. 보고서 라우터·환경 자원 평가 페이지(`/environment/assessment`)만 `?time_range=` override 허용(평가 페이지 기본값도 `DASHBOARD_TIME_RANGE`). 서버 상세 차트는 실시간 모니터링이라 별도(globalRange 기본 15m, 평가 윈도우와 무관).
 - 환경 부하 추이(보고서 SSR 정적 차트) bucket 은 `AUTO_BUCKET[range]` 동적 — 발행 time_range 기준(예: 7d -> 3h, 24h -> 30m). 윈도우 변경 시 집계 단위 자동 추종 — 하드코딩 금지.
 - TimeRange/BucketSize Literal 단일 진실 = `db/repositories/query/types.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
@@ -411,7 +411,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 원칙: 영구 문서(`docs/architecture/`·`operations/`·`products/`·`development/`·루트 `README.md`)와 코드 주석은 현재 상태만 선언적으로 기술한다. 변경 시 과거 흔적(폐기된 도구·용어·구조·경위)을 제거하고 현황으로 덮는다 — "이전엔 X 였다"·"Y 에서 전환" 회고형 서술 0.
 
 본 절 결정:
-- 도구·구조 전환 시 옛 이름·경위를 코드 주석·영구 문서에서 제거. 전환 직후 폐기 토큰 `rg` 0 검증 의무(주석 포함) — 예: OrbStack->libvirt 전환(ADR 0037) 후 `OrbStack`·`orb.local`·`host.docker.internal`·`pipeline-up.sh` 잔존 0.
+- 도구·구조 전환 시 옛 이름·경위를 코드 주석·영구 문서에서 제거. 전환 직후 폐기 토큰 `rg` 0 검증 의무(주석 포함) — 예: dev libvirt 파이프라인·ZDM mock 제거(ADR 0045) 후 `libvirt`(도메인 가상망 용례 제외)·`virsh`·`dev-up`·`dev-down`·`win-server-01`·`dev_zdm_mock`·`host.docker.internal` 잔존 0.
 - 예외 — `docs/adr/` (결정 변경 = 새 ADR + 이전 `Superseded by`, 역사 기록 보존 — ADR 불변 규약) · `docs/tradeoffs.md` (의식적 한계·확장 트리거).
 
 금지:

@@ -1,6 +1,6 @@
 # 테스트
 
-본 문서는 pytest 단위·통합 테스트 실행·작성 단일 진실. E2E 파이프라인 검증 (libvirt) 은 `docs/development/pipeline.md`.
+본 문서는 pytest 단위·통합 테스트 실행·작성 단일 진실. agent 가 붙는 실 VM 을 동반한 E2E 는 본 repo 범위 밖(OpenStack 공급 환경에서 수행).
 
 ## 1. 계층
 
@@ -101,11 +101,11 @@ async def test_dispatcher(metric_type, query_repo):
     ...
 ```
 
-17개 metric_type 일괄 검증 — 누락 metric_type 즉시 발견.
+전 metric_type(카탈로그는 `types.py` `MetricType`) 일괄 검증 — 누락 metric_type 즉시 발견.
 
 ## 5. 원칙
 
 - 새 코드 추가 시 테스트도 함께 작성 — 코드 리뷰 시 누락 지적.
 - 리팩토링은 테스트 통과 baseline 위에서만 진행 — 회귀 즉시 식별.
-- E2E (libvirt) 검증은 pytest 범위 외 — `docs/development/pipeline.md` 참조.
+- 실 VM 동반 E2E 는 pytest 범위 외 — 본 repo 범위 밖(OpenStack 공급 환경).
 - pytest 자동 실행 금지 — 사용자 명시 요청 시에만 (개발 중 회귀 상태일 수 있음).

@@ -1,5 +1,5 @@
 from assessment_engine.consumer.metric_normalize import clamp_ceiling
-from assessment_engine.consumer.schemas import InventoryInput, MetricsInput
+from assessment_engine.consumer.schemas import InventoryInput, MetricsInput, SaturationInfo
 from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
     MountUsageEntry,
@@ -12,13 +12,26 @@ from assessment_engine.db.dtos.inbound import (
 from assessment_engine.service_classifier import compute_service_categories
 
 
+def _max_disk_queue(sat: SaturationInfo | None) -> float | None:
+    """per-disk 큐 배열 -> 가장 큰 디스크당 큐 (saturation 판정용, 합 아님). 빈/전부 None 이면 None.
+
+    agent 가 디스크별 [{device, queue}] 발행 -> 엔진은 "가장 바쁜 디스크" 큐만 저장(server_metrics.sat_disk_queue).
+    합·정규화 우회 제거 — 디스크당 임계로 바로 판정 (recommendation.disk_io_saturated).
+    """
+    if sat is None or not sat.disk_queue:
+        return None
+    queues = [e.queue for e in sat.disk_queue if e.queue is not None]
+    return max(queues) if queues else None
+
+
 def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
     """metrics 메시지로부터 최소 정보의 placeholder inventory 생성.
 
-    composite_id 미등록 상태에서 metrics 가 도착하면 drop 하지 않기 위한 임시 등록. 정적 정보는
+    agent_id 미등록 상태에서 metrics 가 도착하면 drop 하지 않기 위한 임시 등록. 정적 정보는
     None/빈 배열로 두고, 다음 진짜 inventory 도착 시 `upsert_server` ON CONFLICT DO UPDATE 로 덮어씀.
     """
     return ServerInventoryCreate(
+        agent_id=str(data.agent_id),
         composite_id=data.composite_id,
         machine_id=data.machine_id,
         hostname=data.hostname,
@@ -35,7 +48,7 @@ def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
         cpu_model=None,
         mem_total_kb=None,
         swap_total_kb=None,
-        ip_internal=[],
+        interfaces=[],
         ip_external=None,
         mac_addresses=[],
         disks=[],
@@ -48,6 +61,7 @@ def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
 
 def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
     return ServerInventoryCreate(
+        agent_id=str(data.agent_id),
         composite_id=data.composite_id,
         machine_id=data.machine_id,
         hostname=data.hostname,
@@ -64,25 +78,53 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
         cpu_model=data.cpu_model,
         mem_total_kb=data.mem_total_kb,
         swap_total_kb=data.swap_total_kb,
-        ip_internal=data.ip_internal,
+        interfaces=[
+            {
+                "name": i.name,
+                "address": i.address,
+                "prefix": i.prefix,
+                "family": i.family,
+                "kind": i.kind,
+                "gateway": i.gateway,
+            }
+            for i in data.interfaces
+        ],
         ip_external=data.ip_external,
         mac_addresses=data.mac_addresses,
         disks=[
-            {"name": d.name, "size_bytes": d.size_bytes, "type": d.type, "major": d.major, "minor": d.minor}
+            {
+                "name": d.name,
+                "size_bytes": d.size_bytes,
+                "type": d.type,
+                "major": d.major,
+                "minor": d.minor,
+                "kind": d.kind,
+            }
             for d in data.disks
         ],
         mounts=[
-            {"mount": m.mount, "fstype": m.fstype, "total_bytes": m.total_bytes, "major": m.major, "minor": m.minor}
+            {
+                "mount": m.mount,
+                "fstype": m.fstype,
+                "total_bytes": m.total_bytes,
+                "major": m.major,
+                "minor": m.minor,
+                "kind": m.kind,
+            }
             for m in data.mounts
         ],
-        services=[{"unit": s.unit, "sub": s.sub} for s in data.services] if data.services is not None else None,
+        services=[{"unit": s.unit, "sub": s.sub, "pid": s.pid, "exe": s.exe} for s in data.services]
+        if data.services is not None
+        else None,
         listen_ports=[
             {"proto": p.proto, "addr": p.addr, "port": p.port, "uid": p.uid, "pid": p.pid, "comm": p.comm}
             for p in data.listen_ports
         ],
         # 서비스 카테고리 ingest 사전계산 — services(unit 이름) ∪ listen_ports(comm·port) 단일 산식.
         service_categories=compute_service_categories(
-            [{"unit": s.unit, "sub": s.sub} for s in data.services] if data.services is not None else None,
+            [{"unit": s.unit, "sub": s.sub, "pid": s.pid} for s in data.services]
+            if data.services is not None
+            else None,
             [{"proto": p.proto, "port": p.port, "comm": p.comm} for p in data.listen_ports],
         ),
     )
@@ -118,8 +160,11 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         load_1m=data.load_1m,
         load_5m=data.load_5m,
         load_15m=data.load_15m,
-        # disk_io major/minor는 ServerDiskIo 에 컬럼 없어 미저장.
-        # mount major/minor는 ServerMountUsage 에 저장 — data-volume 판단(major==0=가상 fs) 단일 신호.
+        sat_disk_queue=_max_disk_queue(data.saturation),
+        sat_cpu_run_queue=data.saturation.cpu_run_queue if data.saturation else None,
+        sat_mem_paging_rate=data.saturation.mem_paging_rate if data.saturation else None,
+        # disk_io major/minor는 ServerDiskIo 에 컬럼 없어 미저장 (물리 판정은 kind).
+        # mount major/minor는 ServerMountUsage 에 저장 — mount-disk 조인 보조. data-volume 판정은 kind=="data".
         disk_io=[
             DiskIoEntry(
                 device=d.device,
@@ -127,6 +172,7 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
                 writes_completed=d.writes_completed,
                 sectors_read=d.sectors_read,
                 sectors_written=d.sectors_written,
+                kind=d.kind,
             )
             for d in data.disk_io
         ],
@@ -138,6 +184,7 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
                 avail_bytes=m.avail_bytes,
                 major=m.major,
                 minor=m.minor,
+                kind=m.kind,
             )
             for m in data.mounts
         ],
@@ -150,6 +197,7 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
                 tx_packets=n.tx_packets,
                 rx_errors=n.rx_errors,
                 tx_errors=n.tx_errors,
+                kind=n.kind,
             )
             for n in data.net_io
         ],

@@ -93,7 +93,7 @@
     <dt>Agent Version</dt>
     <dd>{{ server.agent_version or '-' }}</dd>
     <dt>Composite ID</dt>
-    <dd>{{ server.composite_id }}</dd>
+    <dd>{{ server.composite_id | or_dash }}</dd>
 
     <dt class="kv-group">스토리지</dt>
     {# volume_total_gb = 파일시스템 총 크기 합(저장 가능 총량). 물리 raw(LVM·오버헤드 포함)와 별개. #}

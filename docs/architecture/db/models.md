@@ -4,7 +4,7 @@
 
 | 모델 | 테이블 | PK | 종류 | 설명 |
 |------|--------|----|----|------|
-| `ServerInventory` | `server_inventory` | Integer | 단일 행 | `composite_id` 단독 UNIQUE 기준 upsert (ADR 0027). `machine_id` 표시 전용 |
+| `ServerInventory` | `server_inventory` | Integer | 단일 행 | `agent_id` 단독 UNIQUE 기준 upsert (ADR 0049). `composite_id`/`machine_id` 감사·표시 전용 |
 | `ServerInventoryHistory` | `server_inventory_history` | BigInteger + collected_at | hypertable (append-only) | 인벤토리 변경 이력 (boot_time/agent_started_at 변경이 trigger) |
 | `ServerMetrics` | `server_metrics` | BigInteger + collected_at | hypertable | 스칼라 메트릭 시계열 (CPU/Mem/Load) |
 | `ServerDiskIo` | `server_disk_io` | BigInteger + collected_at | hypertable | per device I/O 누적 카운터 |
@@ -16,7 +16,7 @@
 ## 식별자 규약 (CLAUDE.md C1)
 
 - 대리키 패턴: 내부 참조는 정수 PK, 비즈니스 식별자는 unique 제약
-- `server_inventory` 호스트 식별 = `composite_id` 단독 UNIQUE (`uq_server_inventory_composite_id`) — upsert 키 (ADR 0027, agent v4). `composite_id` = SHA-256(machine_id + 정렬·dedup MAC 들) 라 VM 템플릿 복제·이미지 clone·container host `/etc/machine-id` 마운트 등 machine_id 중복도 MAC 조합으로 구분. `machine_id` 는 raw machine-id 표시 전용 (nullable, 식별·라우팅 미사용).
+- `server_inventory` 호스트 식별 = `agent_id` 단독 UNIQUE (`uq_server_inventory_agent_id`) — upsert 키 (ADR 0049). `agent_id` 는 agent 가 첫 실행 시 생성·영구저장한 불변 UUID 라 MAC/machine_id 재발급과 무관. `composite_id`(SHA-256(machine_id + 정렬·dedup MAC 들), nullable)·`machine_id`(raw machine-id, nullable) 는 clone collision 진단용 감사·표시 컬럼 — 식별·라우팅 미사용.
 - `server_inventory.public_id` `UUID DEFAULT gen_random_uuid()` — URL 식별자 (정수 PK 노출 금지)
 - 시계열 5개 테이블 복합 PK `(id BIGINT, collected_at TIMESTAMPTZ)` — TimescaleDB 파티션 키 포함
 - 시계열 5개 테이블 자연키 UNIQUE (D2 멱등성 2단 방어):

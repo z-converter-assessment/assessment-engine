@@ -201,11 +201,12 @@ def compute_disk_io(
 
     for device, rows in sorted(by_device.items()):
         snap = _disk_io_snapshot(device, rows)
-        if is_physical_disk(device):
+        kind = rows[0].kind
+        if is_physical_disk(kind):
             phys.append(snap)
-        elif is_lvm_disk(device):
+        elif is_lvm_disk(kind):
             lvm.append(snap)
-        elif is_partition(device):
+        elif is_partition(kind):
             part.append(snap)
 
     return phys, lvm, part
@@ -234,7 +235,9 @@ def compute_net_io(pairs: list[NetIoRaw]) -> list[NetIoSnapshot]:
     by_iface = _group_by_dim(pairs, key=lambda r: r.interface)
     # 표시 경계 필터 — 가상·시스템 인터페이스 제외 (저장은 유지). 차트(query_service)와 동일 정책.
     return [
-        _net_io_snapshot(iface, rows) for iface, rows in sorted(by_iface.items()) if not is_virtual_interface(iface)
+        _net_io_snapshot(iface, rows)
+        for iface, rows in sorted(by_iface.items())
+        if not is_virtual_interface(rows[0].kind)
     ]
 
 
@@ -268,7 +271,7 @@ def _net_io_snapshot(iface: str, rows: list[NetIoRaw]) -> NetIoSnapshot:
 def compute_mounts(mounts: list[MountUsageRaw]) -> list[MountDashSnapshot]:
     result: list[MountDashSnapshot] = []
     for m in sorted(mounts, key=lambda x: x.mount):
-        if not is_data_volume(m.mount, getattr(m, "major", None)):
+        if not is_data_volume(m.kind):
             continue
         used_bytes = (m.total_bytes - m.avail_bytes) if (m.total_bytes and m.avail_bytes is not None) else None
         result.append(

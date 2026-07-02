@@ -26,6 +26,7 @@ from assessment_engine.web.services.mappers.server import (
     to_storage_detail,
     workload_category_counter,
 )
+from assessment_engine.web.services.mappers.shared import windows_legacy_version_from_build
 
 # ─── 임계값·severity ──────────────────────────────────────────────────────
 
@@ -73,7 +74,7 @@ def test_to_disk_item_returns_none_for_non_physical():
 
 
 def test_to_disk_item_for_physical():
-    item = _to_disk_item({"name": "sda", "size_bytes": 1024**3, "type": "disk"})
+    item = _to_disk_item({"name": "sda", "size_bytes": 1024**3, "type": "disk", "kind": "physical"})
     assert item.name == "sda"
     assert item.size_gb == 1.0
 
@@ -118,10 +119,11 @@ def _summary(**overrides) -> ServerSummary:
         hostname="host",
         os_id="ubuntu",
         os_version="22.04",
+        kernel_version=None,
         cpu_cores=4,
         mem_total_kb=8 * 1024**2,
         ip_external=None,
-        disks=[{"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk"}],
+        disks=[{"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk", "kind": "physical"}],
         service_categories=[],
         last_seen_at=datetime.now(UTC),
     )
@@ -132,9 +134,9 @@ def _summary(**overrides) -> ServerSummary:
 def test_list_item_storage_total_sum():
     summary = _summary(
         disks=[
-            {"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk"},
-            {"name": "sdb", "size_bytes": 50 * 1024**3, "type": "disk"},
-            {"name": "loop0", "size_bytes": 999 * 1024**3, "type": "loop"},  # 가상은 제외
+            {"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk", "kind": "physical"},
+            {"name": "sdb", "size_bytes": 50 * 1024**3, "type": "disk", "kind": "physical"},
+            {"name": "loop0", "size_bytes": 999 * 1024**3, "type": "loop", "kind": "virtual"},  # 가상은 제외
         ]
     )
     item = to_server_list_item(summary)
@@ -166,6 +168,38 @@ def test_list_item_os_display():
     assert item_none.os_display == "-"
 
 
+@pytest.mark.parametrize(
+    "kernel_version,expected",
+    [
+        ("9600", "2012 R2"),
+        ("9200", "2012"),
+        ("7601", "2008 R2"),
+        ("6003", "2008"),
+        ("3790", "2003"),
+        ("2195", "2000"),
+        ("9200.1234", "2012"),  # UBR/revision suffix 무시 (build 만)
+        ("14393", None),  # Server 2016 — 비레거시(보강 범위 밖)
+        ("19045", None),  # Windows 10 — 비레거시
+        ("", None),
+        (None, None),
+    ],
+)
+def test_windows_legacy_version_from_build(kernel_version, expected):
+    assert windows_legacy_version_from_build(kernel_version) == expected
+
+
+def test_list_item_os_display_windows_legacy_from_build():
+    # 레거시 Windows Server 는 agent 가 os_version 빈값으로 보냄 -> kernel build 로 보강
+    item = to_server_list_item(_summary(os_id="windows", os_version="", kernel_version="9200"))
+    assert item.os_display == "windows 2012"
+    # os_version 있으면(클라이언트 DisplayVersion 등) 그대로 우선 — build 보강 안 함
+    item_ver = to_server_list_item(_summary(os_id="windows", os_version="22H2", kernel_version="19045"))
+    assert item_ver.os_display == "windows 22H2"
+    # 비레거시(2016+) 빈 os_version 은 미보강 — "windows" 만 (보강 범위는 레거시 한정)
+    item_2016 = to_server_list_item(_summary(os_id="windows", os_version="", kernel_version="14393"))
+    assert item_2016.os_display == "windows"
+
+
 # ─── to_server_detail + enrich (idempotent) ───────────────────────────────
 
 
@@ -173,6 +207,7 @@ def _detail(**overrides) -> ServerDetail:
     base = dict(
         id=1,
         public_id="pub-1",
+        agent_id="00000000-0000-4000-8000-000000000001",
         composite_id="m-1",
         machine_id=None,
         hostname="host",
@@ -188,9 +223,18 @@ def _detail(**overrides) -> ServerDetail:
         swap_total_kb=2 * 1024**2,
         boot_time=datetime(2026, 1, 1, tzinfo=UTC),
         agent_started_at=datetime(2026, 1, 1, tzinfo=UTC),
-        ip_internal=["10.0.0.1"],
+        interfaces=[
+            {
+                "name": "eth0",
+                "address": "10.0.0.1",
+                "prefix": 24,
+                "family": "ipv4",
+                "kind": "physical",
+                "gateway": "10.0.0.254",
+            }
+        ],
         ip_external=None,
-        disks=[{"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk"}],
+        disks=[{"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk", "kind": "physical"}],
         mounts=[],
         services=[
             {"unit": "nginx.service", "sub": "running"},
@@ -351,11 +395,11 @@ def test_to_storage_detail_filters_virtual_mounts():
         server_id=1,
         public_id="pub-1",
         hostname="h",
-        disks=[{"name": "sda", "size_bytes": 10**11, "type": "disk", "major": 8, "minor": 0}],
+        disks=[{"name": "sda", "size_bytes": 10**11, "type": "disk", "major": 8, "minor": 0, "kind": "physical"}],
         inventory_mounts=[
-            {"mount": "/", "fstype": "ext4", "total_bytes": 5 * 10**10, "major": 8, "minor": 1},
-            {"mount": "/proc", "fstype": "proc", "total_bytes": 0},  # 가상
-            {"mount": "/snap/core/123", "fstype": "squashfs", "total_bytes": 10**8},  # 가상
+            {"mount": "/", "fstype": "ext4", "total_bytes": 5 * 10**10, "major": 8, "minor": 1, "kind": "data"},
+            {"mount": "/proc", "fstype": "proc", "total_bytes": 0},  # 가상 (kind 부재 -> 제외)
+            {"mount": "/snap/core/123", "fstype": "squashfs", "total_bytes": 10**8},  # 가상 (kind 부재 -> 제외)
         ],
         mount_usage=[],
         inventory_at=datetime.now(UTC),

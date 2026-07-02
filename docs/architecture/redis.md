@@ -40,7 +40,7 @@ src/assessment_engine/web/services/query_service.py
 - `last_agent_start:{server_id}` 24h — 직전 비교용 캐시. evict 시 다음 메시지에서 재시작 감지 1회 누락만 — 다음 정상 sample에서 회복.
 - `agent_restarts:{server_id}` 1h — 슬라이딩 윈도우 (마지막 INCR 후 1h). `agent_restart_alert_threshold` (기본 3) 도달 시 warning 로그.
 
-원격 작업 명령 전달은 ADR 0007 (별도 큐 모델) 채택으로 broker 가 메시지 보유 — Redis pending hot path 캐시 폐기. DB `tasks` + broker `agent.tasks.<composite_id>` 큐가 단일 진실.
+원격 작업 명령 전달은 ADR 0007 (별도 큐 모델) 채택으로 broker 가 메시지 보유 — Redis pending hot path 캐시 폐기. DB `tasks` + broker `agent.tasks.<agent_id>` 큐가 단일 진실.
 
 ---
 

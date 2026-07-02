@@ -72,45 +72,6 @@ async def _check_idempotent(redis: Redis, message_id: UUID) -> bool:
     return True if result is None else result
 
 
-async def _correct_skewed_collected_at(redis: Redis, data: MessageBase, received_at: datetime) -> None:
-    """시계오차로 찍힌 collected_at 을 수신 경계에서 수신시각으로 보정한다 (미래·과거 양방향, #F2).
-
-    실시간 메트릭의 collected_at 은 수신시각과 threshold(기본 5분) 넘게 벌어질 수 없다 — 게스트 시계가
-    앞서거나(미래: 미래에서 수집 불가) 뒤처진(과거) 경우다. |collected_at - received_at| > threshold 면
-    collected_at = received_at 로 보정. threshold 안의 정상 전송 지연(초 단위)은 보존.
-
-    과거 방향 trade-off: consumer backlog/재처리로 정상 메트릭이 늦게 도착하면(received_at >> collected_at)
-    threshold 넘는 정상 지연도 보정될 수 있다 — 시계오차 흡수를 위해 수용. 진짜 해결은 게스트 NTP 동기.
-
-    collected_at 만 보정한다. boot_time/agent_started_at 은 그대로 둔다 — 수신시각 기반 평행이동은
-    per-message 전송 지연 jitter 를 부팅 내 안정값(boot_time·agent_started_at)에 주입해 counter-reset(#B/#D)·
-    재시작 추적의 '부팅 내 불변' 가정을 깬다. 잔여 시계이상값은 _log_time_invariants 가 신호로 노출.
-
-    멱등성 주의: collected_at 은 시계열 자연키(#C1) — 수신시각 기준 보정은 비결정적이라 D2 2단(DB UNIQUE)을
-    약화한다. 단 D2 1단(message_id SET NX, 24h)이 재전송을 DB 도달 전에 흡수하므로 노출은 'Redis 장애 + 재전송 +
-    시계불량' 동시 발생의 좁은 창뿐 (의식적 trade-off). 진짜 해결은 게스트 시각 동기(NTP/RealTimeIsUniversal).
-
-    F7: 같은 서버 지속 보정 시 매 메시지 로그 방지 1h 쿨다운. Redis 장애 시 fail-open (매번 출력).
-    """
-    skew_sec = (data.collected_at - received_at).total_seconds()
-    if abs(skew_sec) <= consumer_settings.clock_skew_threshold_sec:
-        return
-    original = data.collected_at
-    data.collected_at = received_at
-    cooldown_key = consumer_settings.redis_key_clock_corrected.format(data.composite_id, data.hostname)
-    if await safe_set_nx(redis, cooldown_key, "1", consumer_settings.redis_ttl_clock_corrected) is False:
-        return  # 쿨다운 윈도우 안 — 보정은 했고 로그만 억제
-    logger.warning(
-        "collected_at corrected ({}) composite_id={} hostname={} skew_sec={} from={} to={}",
-        "future" if skew_sec > 0 else "past",
-        data.composite_id,
-        data.hostname,
-        round(skew_sec),
-        original,
-        received_at,
-    )
-
-
 async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
     """시계·systemd 시작 순서 invariant 검증. warning 로그만, 처리는 그대로 진행.
 
@@ -123,7 +84,7 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
     if data.boot_time <= data.agent_started_at and data.agent_started_at <= data.collected_at:
         return
     cooldown_key = consumer_settings.redis_key_time_invariant_warned.format(
-        data.composite_id,
+        data.agent_id,
         data.hostname,
     )
     set_result = await safe_set_nx(redis, cooldown_key, "1", consumer_settings.redis_ttl_time_invariant_warned)
@@ -131,21 +92,21 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
         return  # 쿨다운 윈도우 안
     if data.boot_time > data.agent_started_at:
         logger.warning(
-            "time invariant violated boot_time>agent_started_at composite_id={} boot_time={} agent_started_at={}",
-            data.composite_id,
+            "time invariant violated boot_time>agent_started_at agent_id={} boot_time={} agent_started_at={}",
+            data.agent_id,
             data.boot_time,
             data.agent_started_at,
         )
     if data.agent_started_at > data.collected_at:
         logger.warning(
-            "time invariant violated agent_started_at>collected_at composite_id={} agent_started_at={} collected_at={}",
-            data.composite_id,
+            "time invariant violated agent_started_at>collected_at agent_id={} agent_started_at={} collected_at={}",
+            data.agent_id,
             data.agent_started_at,
             data.collected_at,
         )
 
 
-async def _track_agent_restart(redis: Redis, server_id: int, composite_id: str, agent_started_at: datetime) -> None:
+async def _track_agent_restart(redis: Redis, server_id: int, agent_id: str, agent_started_at: datetime) -> None:
     """직전 agent_started_at 과 비교 -> 변경 시 1h 슬라이딩 윈도우 카운터 INCR.
 
     threshold 도달 시 warning (agent crash loop 인지). 시스템 재부팅도 agent_started_at 변경이라
@@ -162,8 +123,8 @@ async def _track_agent_restart(redis: Redis, server_id: int, composite_id: str, 
         count = await safe_incr_with_ttl(redis, counter_key, consumer_settings.redis_ttl_agent_restarts)
         if count is not None and count >= consumer_settings.agent_restart_alert_threshold:
             logger.warning(
-                "agent restart frequency alert composite_id={} server_id={} count={}/h threshold={}",
-                composite_id,
+                "agent restart frequency alert agent_id={} server_id={} count={}/h threshold={}",
+                agent_id,
                 server_id,
                 count,
                 consumer_settings.agent_restart_alert_threshold,

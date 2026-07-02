@@ -410,7 +410,7 @@ def to_capacity_warning_item(raw):
         _badge("디스크", disk_active),
     ]
 
-    # 카드 지표 — 판단 6축 전부 노출. 미관측 축(예: Windows load/iowait)은 "N/A" 흐림 placeholder, active 만 강조.
+    # 카드 지표 — 판단 6축 전부 노출. 미관측 축(예: Windows CPU run queue=load)은 "N/A" 흐림 placeholder, active 만 강조 (disk_io 는 Windows disk queue 로 측정).
     # hit 재사용(임계 재계산 0). 발화 trigger 는 항상 measured(값 있어야 임계 비교).
     load_ratio = raw.load_15m_max / raw.cpu_cores if raw.load_15m_max is not None and raw.cpu_cores else None
     load_value = f"{load_ratio:.2f}" if load_ratio is not None else "N/A"

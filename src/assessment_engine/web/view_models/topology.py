@@ -1,6 +1,6 @@
 """네트워크 토폴로지 ViewModel — 대시보드 '네트워크 토폴로지' 카드 (P2 precompute).
 
-호스트별 ip_internal CIDR 목록에서 도출한 L3 subnet 공동소속 그래프.
+호스트별 물리 인터페이스에서 도출한 L3 subnet 공동소속 그래프.
 조립·필터·파싱은 mappers/topology.build_network_topology 단일 진실 (본 dataclass 는 결과 형태만 정의).
 
 elements: Cytoscape.js elements 형식(`{"data": {...}}` 리스트)으로 mapper 가 precompute.

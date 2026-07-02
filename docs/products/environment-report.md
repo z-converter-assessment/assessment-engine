@@ -17,7 +17,7 @@
 
 - UI 진입점: 홈/네비 "환경 보고서" 또는 `/reports/environment?view=customer|engineer` 직접 호출 (컨트롤 노출, 발행 후 본문)
 - 발행 경로: 운영자가 양식·윈도우·앵커 선택 후 발행(POST emit) — parent job pending enqueue 후 `?job=` 이동, 워커가 SQL 집계 + 스냅샷 저장 + succeeded, GET 이 진행->완료 렌더. 발행 전 GET 은 컨트롤만
-- 산출물 형태: HTML SSR. 브라우저 인쇄로 PDF/PPT 캡처 (백엔드 PDF export 미도입 — `docs/tradeoffs.md` T 참조)
+- 산출물 형태: HTML SSR. 브라우저 인쇄로 PDF/PPT 캡처 (백엔드 PDF export 미도입)
 
 ## 존재 의의
 
@@ -67,7 +67,7 @@
 - 요약: customer 와 동일 (view 무관 단일 `_env_summary_bullets`) — 등록 서버(+vCPU/메모리/디스크) / 온라인·오프라인 / 분류 분포 / 자원 부족(원인별) / OS 지원 종료.
 - 환경 현황 카드: 인벤토리(등록 서버·총 vCPU/메모리/디스크) / 메트릭 / OS 구성 소제목. 메트릭 = metric-card 5축(CPU·메모리·디스크·네트워크·디스크 I/O) — 실시간 '현재 자원 현황' 축과 동기, 값은 전부 보고서 윈도우 통계(CPU/메모리/디스크 = capacity-weighted avg+p95, 네트워크/디스크 I/O = per-server 윈도우 baseline 합, 단위 표기 `format_net_rate` 실시간 공용 단일 진실). 디스크 p95 는 시점별 capacity 합이 Windows 디바이스(major/minor) 인식 불완전으로 신뢰 불가라 의도 제외(repo `environment_utilization` SQL 주석 단일 진실). 인벤토리/메트릭/OS 카드 `.env-stat-card` 높이 통일. 에이전트 버전은 보고서 헤더 메타.
 - 환경 부하 추이(시계열 CPU/메모리/디스크) + 네트워크 토폴로지(정적 서브넷 요약 표) — 한 카드 2열.
-- 자원 적정성 평가: 분류 분포(소제목 "분류 분포 (N대)") + 효율화 검토 대상(over/idle/shutdown 호스트 표 Top 30 — 호스트·분류·진단·신뢰도. 권고 칼럼 폐기 — 분류와 1:1) + 자원 부족(6축 메트릭 + 권고(`recommendation_action`) + 신뢰도). 조치 호스트 노출은 이 두 표가 단일 진실(전수 위험도 종합 표 없음).
+- 자원 적정성 평가: 분류 분포(소제목 "분류 분포 (N대)") + 효율화 검토 대상(over/idle/shutdown 호스트 표 Top 30 — 호스트·분류·진단·신뢰도. 권고 칼럼 없음 — 분류와 1:1) + 자원 부족(6축 메트릭 + 권고(`recommendation_action`) + 신뢰도). 조치 호스트 노출은 이 두 표가 단일 진실(전수 위험도 종합 표 없음).
 - 세부 서버 목록: 환경 보고서는 미표시 (전수 인쇄 폭주 회피 — 조치 대상은 효율화/자원 부족 표가 담음). 선택 N대 보고서(selection)만 표시.
 - 운영 신호 = OS 지원 종료만(2축 정책) — 보고서는 전수 표시(절단 없음, 대시보드 카드 한도와 분리). 재부팅·에이전트 재시작은 selection 세부 서버 목록 표에 표시.
 - 화면 분석 우선 (인쇄 가능).
@@ -96,19 +96,11 @@ over-provisioned 5대, under-provisioned 2대, idle 0대, optimal 16대.
 
 ## 의사결정 근거
 
-### 분류 임계값 출처
+### 분류 임계값·판정
 
-| 분류 | 트리거 조건 | 출처 |
-|------|-----------|------|
-| under_provisioned | 위험 신호 OR — CPU p95 >= 70 / 메모리 p95 >= 80 / swap 발생 / load >= cores / iowait p95 >= 20 / worst mount >= 85% | USE Method + Kleinrock 큐잉 |
-| idle | CPU peak <= 1% + 네트워크 <= 1 kBps | AWS Compute Optimizer |
-| shutdown | CPU p95 <= 3% + 네트워크 <= 2 Mbps | Azure Advisor "underutilized VM" |
-| over_provisioned | CPU p95 <= 30% + 메모리 p95 <= 50% | AWS Compute Optimizer "over-provisioned" |
-| optimal | 위 어디에도 해당 안 함 | residual |
+6분류·트리거 조건·임계·벤더 출처 상세는 `docs/architecture/right-sizing.md` 4절, 운영자 카탈로그는 `right_sizing_thresholds.html`. 판정 순서 = under -> idle -> shutdown -> insufficient_data -> over -> optimal (`recommendation.assess`, 임계 상수는 `recommendation.py`).
 
-판정 순서 = under -> idle -> shutdown -> insufficient_data -> over -> optimal (`recommendation.assess`). 임계 상수·근거 단일 진실은 `recommendation.py` + `docs/products/server-report.md` 분류 표.
-
-Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 사용은 saturation 아니라 분류에서 제외(swap_pressure 카운트·분포 도넛 모두). Windows는 utilization 축만으로 분류(부분 평가). 상세 `right_sizing_thresholds.html`.
+Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 사용은 saturation 아니라 분류에서 제외(swap_pressure 카운트·분포 도넛 모두). 디스크 포화는 Avg Disk Queue Length 로 측정하고 CPU run queue(load) 축만 OS 부재로 미관측 — utilization·capacity·disk queue 로 분류(CPU run queue 만 부분 평가, T14).
 
 분류 표시 (customer·engineer 공통): 자원 적정성 한국어 분류명(LABEL_KO) 단일. 내부 risk_level(high/attention/normal)은 조치 필요 호스트 선정·강조용으로만 쓰고, 화면 라벨로 노출하지 않는다 (영어 enum·평행 어휘 금지).
 

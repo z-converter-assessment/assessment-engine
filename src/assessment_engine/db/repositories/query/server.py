@@ -53,6 +53,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             ServerInventory.hostname,
             ServerInventory.os_id,
             ServerInventory.os_version,
+            ServerInventory.kernel_version,
             ServerInventory.cpu_cores,
             ServerInventory.mem_total_kb,
             ServerInventory.ip_external,
@@ -73,6 +74,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
                 hostname=r.hostname,
                 os_id=r.os_id,
                 os_version=r.os_version,
+                kernel_version=r.kernel_version,
                 cpu_cores=r.cpu_cores,
                 mem_total_kb=r.mem_total_kb,
                 ip_external=r.ip_external,
@@ -88,6 +90,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
         return ServerDetail(
             id=r.id,
             public_id=r.public_id,
+            agent_id=r.agent_id,
             composite_id=r.composite_id,
             machine_id=r.machine_id,
             hostname=r.hostname,
@@ -103,7 +106,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             swap_total_kb=r.swap_total_kb,
             boot_time=r.boot_time,
             agent_started_at=r.agent_started_at,
-            ip_internal=r.ip_internal or [],
+            interfaces=r.interfaces or [],
             ip_external=r.ip_external,
             disks=r.disks or [],
             mounts=r.mounts or [],
@@ -152,6 +155,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
                 collected_at=row.collected_at,
                 boot_time=row.boot_time,
                 agent_started_at=row.agent_started_at,
+                kind=row.kind,
             )
             for row in rows
         ]
@@ -171,7 +175,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
                 ServerInventory.id,
                 ServerInventory.public_id,
                 ServerInventory.hostname,
-                ServerInventory.ip_internal,
+                ServerInventory.interfaces,
                 ServerInventory.ip_external,
                 ServerInventory.last_seen_at,
             ).where(ServerInventory.id == server_id)
@@ -191,6 +195,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
                 tx_packets=row.tx_packets,
                 rx_errors=row.rx_errors,
                 tx_errors=row.tx_errors,
+                kind=row.kind,
             )
             for row in rows
         ]
@@ -198,7 +203,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             server_id=r.id,
             public_id=r.public_id,
             hostname=r.hostname,
-            ip_internal=r.ip_internal or [],
+            interfaces=r.interfaces or [],
             ip_external=r.ip_external,
             net_io=net_io,
             inventory_at=r.last_seen_at,

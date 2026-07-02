@@ -271,17 +271,29 @@ def _match_keyword(text: str) -> str | None:
     return None
 
 
-def _attributed_ports(unit: str, listen_ports: list[dict]) -> list[dict]:
+def _attributed_ports(unit: str, listen_ports: list[dict], pid: int | None = None) -> list[dict]:
     """unit 에 귀속된 listen_port dict 목록.
 
-    comm~name 양방향 substring 매칭 우선, 없으면 name 의 well-known 포트로 폴백.
+    pid 제공 시(agent 가 services 에 pid 발행) 동일 pid 소켓을 정확 join — services<->listen_ports 확정 귀속.
+    pid 부재(비-systemd EL6·Windows NT5)면 comm~name 양방향 substring -> name well-known 포트 순 fallback.
     동일 (proto, port) 중복 제거. comm/port 신호 분류·`matched_ports` 공용 진입점.
     """
-    name = unit.removesuffix(".service").lower()
-    well_known = set(_NAME_PORTS.get(name, ()))
     result: list[dict] = []
     seen: set[tuple[str, int]] = set()
 
+    if pid is not None:
+        for p in sorted(listen_ports, key=lambda x: (x.get("port", 0), x.get("proto", ""))):
+            if p.get("pid") != pid:
+                continue
+            key = (p.get("proto", ""), p.get("port", 0))
+            if key in seen:
+                continue
+            result.append(p)
+            seen.add(key)
+        return result
+
+    name = unit.removesuffix(".service").lower()
+    well_known = set(_NAME_PORTS.get(name, ()))
     for p in sorted(listen_ports, key=lambda x: (x.get("port", 0), x.get("proto", ""))):
         port = p.get("port", 0)
         proto = p.get("proto", "")
@@ -296,10 +308,11 @@ def _attributed_ports(unit: str, listen_ports: list[dict]) -> list[dict]:
     return result
 
 
-def classify(unit: str, listen_ports: list[dict] | None = None) -> str:
+def classify(unit: str, listen_ports: list[dict] | None = None, pid: int | None = None) -> str:
     """서비스 unit -> 카테고리. 다중 신호 (name -> comm -> port), 미매칭 시 "unknown".
 
-    listen_ports 미제공(목록 화면 등 경량 SELECT) 시 name 신호만 사용 — 현행 동작 보존.
+    listen_ports 미제공(목록 화면 등 경량 SELECT) 시 name 신호만 사용. pid 제공 시 services<->listen_ports
+    정확 join 으로 comm/port 신호 귀속 (pid 부재면 comm~name 휴리스틱).
     """
     name = unit.lower().removesuffix(".service")
     # 1. unit 이름 키워드 (최고 정밀 — 소프트웨어 정체성)
@@ -308,7 +321,7 @@ def classify(unit: str, listen_ports: list[dict] | None = None) -> str:
         return cat
 
     if listen_ports:
-        attributed = _attributed_ports(unit, listen_ports)
+        attributed = _attributed_ports(unit, listen_ports, pid)
         # 2. comm 키워드 (이름 미스매치 흡수 — Windows SCM 이름과 exe basename 불일치 등)
         for p in attributed:
             cat = _match_keyword((p.get("comm") or "").lower())
@@ -323,13 +336,16 @@ def classify(unit: str, listen_ports: list[dict] | None = None) -> str:
     return "unknown"
 
 
-def matched_ports(unit: str, listen_ports: list[dict]) -> list[MatchedPort]:
+def matched_ports(unit: str, listen_ports: list[dict], pid: int | None = None) -> list[MatchedPort]:
     """서비스 유닛에 해당하는 listen 포트 목록을 반환한다.
 
-    comm 기반 매칭을 우선하고, comm이 없으면 well-known 포트 테이블로 폴백한다.
+    pid 제공 시 동일 pid 소켓을 정확 join, 없으면 comm~name -> well-known 포트 fallback.
     동일 포트라도 proto(tcp/tcp6/udp 등)가 다르면 별도 항목으로 반환한다.
     """
-    return [MatchedPort(proto=p.get("proto", ""), port=p.get("port", 0)) for p in _attributed_ports(unit, listen_ports)]
+    return [
+        MatchedPort(proto=p.get("proto", ""), port=p.get("port", 0))
+        for p in _attributed_ports(unit, listen_ports, pid)
+    ]
 
 
 def well_known_ports(unit: str) -> tuple[int, ...]:
@@ -347,9 +363,9 @@ def well_known_ports(unit: str) -> tuple[int, ...]:
 def detect_listen_categories(listen_ports: list[dict]) -> dict[str, list[MatchedPort]]:
     """listen 소켓을 카테고리로 직접 분류 — services unit 과 무관 (ADR 0032, T15 보완).
 
-    agent 가 services 와 listen_ports 를 잇는 join key(pid)를 안 실어, opaque 한 service
-    이름은 분류 불가다. 반면 listen 소켓의 comm(exe basename)·port 는 깨끗한 식별자라,
-    "이 호스트가 무슨 워크로드를 listen 하나"를 이름 무관하게 직접 탐지한다.
+    per-unit 분류(`classify`)가 pid join 으로 정확해진 뒤에도, 어떤 service unit 에도 속하지 않는
+    listen 소켓(비-service 프로세스)은 여전히 이 경로가 comm(exe basename)·port 로 직접 잡는다 —
+    "이 호스트가 무슨 워크로드를 listen 하나"의 host union 보완.
 
     소켓별 우선순위: comm 키워드 -> port 인덱스. 카테고리 -> 그 근거가 된 포트 목록 반환.
     동일 (proto, port) 중복 제거. 워크로드 카테고리(카탈로그 등재 comm·port)만 잡힘 — ssh 등 제외.
@@ -386,7 +402,7 @@ def compute_service_categories(
         unit = s.get("unit") if isinstance(s, dict) else None
         if not unit:
             continue
-        cat = classify(unit, listen_ports)
+        cat = classify(unit, listen_ports, s.get("pid"))
         if cat != "unknown":
             cats.add(cat)
     cats |= set(detect_listen_categories(listen_ports or []).keys())

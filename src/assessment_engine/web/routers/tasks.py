@@ -19,6 +19,7 @@ from assessment_engine.web.services.task_service import (
     TaskDuplicatePending,
     TaskNotConfigured,
     TaskNotFound,
+    TaskPublishFailed,
     TaskService,
 )
 from assessment_engine.web.settings import web_settings
@@ -96,7 +97,7 @@ class InstallRequest(BaseModel):
         #   - IPv4               192.168.3.94
         #   - IPv4:port          192.168.3.94:8080
         #   - hostname / FQDN    zdm.example.com / zdm.example.com.
-        #   - hostname:port      192.168.122.1:8000 (dev mock, libvirt host)
+        #   - hostname:port      zdm.example.com:8000
         #   - http/https URL     http://zdm.example.com:8443/download/x.tar.gz
         # IPv6 (raw / bracket) 는 reject — agent download.c 한계.
         if v.lower().startswith(("http://", "https://")):
@@ -122,6 +123,8 @@ async def install(
     except TaskDuplicatePending as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     except TaskNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except TaskPublishFailed as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
 
 

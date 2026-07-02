@@ -43,7 +43,7 @@ Stage 순서는 실제 작업 흐름과 일치: 리팩토링 -> 테스트 -> 파
 - 산출물: `tests/unit/` · `tests/integration/`.
 
 ### Stage 3 — 파이프라인 검증 (3 항목)
-- 도구: PR base 대상 모드로 `dev/local-ci.sh` 실행 — feature->develop 이면 `develop`, develop->main 이면 `main`. CI 트리거를 발화 전 로컬 재현.
+- 도구: PR base 대상 모드로 `scripts/local-ci.sh` 실행 — feature->develop 이면 `develop`, develop->main 이면 `main`. CI 트리거를 발화 전 로컬 재현.
 - 체크리스트: `docs/development/wrap-up.md` 4절 [3.1]~[3.3]. 검증 범위는 스크립트 단일 진실.
 - NG 항목 발생 시 코드 수정 -> Stage 1·2 재실행.
 - 산출물: 검증 결과 (코드 수정 시 `src/`·`tests/`).

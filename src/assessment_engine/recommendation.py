@@ -46,10 +46,13 @@ MEM_UPSIZE_P95_PCT = 80  # Linux page cache 압박 시작점
 
 # USE Method Saturation 임계 — utilization 외 saturation 축 평가 (Brendan Gregg 정석).
 CPU_SATURATION_LOAD_RATIO = 1.0  # load_15m / cpu_cores >= 1.0 — run queue saturation
-IOWAIT_UPSIZE_PCT = 20  # iowait_p95 >= 20% — disk IO saturation
+IOWAIT_UPSIZE_PCT = 20  # iowait_p95 >= 20% — disk IO saturation (Linux)
+# Windows disk IO saturation — 디스크당 Avg Disk Queue Length >= 2 (Microsoft 정석 병목 기준).
+# agent 가 디스크별 큐를 발행 -> ingest 에서 per-device max 축약 -> 이 임계로 바로 비교 (정규화 불요).
+DISK_QUEUE_PER_DISK_SATURATION = 2.0
 DISK_CAPACITY_UPSIZE_PCT = 85  # worst mount used_pct >= 85% — storage capacity utilization
 
-# 표본 충분성 — 측정 축(cpu/mem) 실측 샘플 / 윈도우 기대 샘플(period_days*1440, 1분 주기) 비율이 이 미만이면
+# 표본 충분성 — 측정 축(cpu/mem) 실측 5분 버킷 / 윈도우 기대 버킷(period_days*288, cagg 5분) 비율이 이 미만이면
 # 표본 부족(low_sample). 분류를 막지 않고(원칙1) confidence 단서로만 노출(원칙2). 0.5 = 실질 관측 절반 미만.
 SAMPLE_SUFFICIENCY_RATIO = 0.5
 
@@ -92,6 +95,9 @@ class ResourceStats:
     os_family: str | None = None
     # 표본 충분성 — 측정 축(cpu/mem) 실측/기대 샘플 비율. None = 측정 축 부재(판정 불가, low_sample 무관).
     sample_sufficiency: float | None = None
+    # Windows 디스크 I/O saturation (Linux iowait 등가 축) — disk_io_saturated 가 os-aware 로 소비.
+    # disk_queue_p95 = 가장 바쁜 디스크의 큐 깊이 p95 (agent 가 디스크별 발행 -> ingest 에서 per-device max 축약).
+    disk_queue_p95: float | None = None
 
 
 @dataclass
@@ -130,6 +136,25 @@ def swap_saturation(os_family: str | None, swap_used: bool) -> bool:
     return swap_used and os_family != "windows"
 
 
+def disk_io_saturated(stats: "ResourceStats") -> bool | None:
+    """디스크 I/O 포화 여부 — OS별 raw 신호를 통일 축으로 정규화 (원칙 P2, os-aware).
+
+    Linux: iowait_p95 >= IOWAIT_UPSIZE_PCT (cpu 의 IO 대기 비율).
+    Windows: 가장 바쁜 디스크의 큐 깊이(disk_queue_p95) >= DISK_QUEUE_PER_DISK_SATURATION.
+             agent 가 디스크별 큐를 발행 -> ingest 에서 per-device max 축약(정규화 불요).
+             Windows cpu_iowait 는 더미 0이라 신뢰 금지 — disk_queue 를 신호로 사용.
+    측정 불가(값 None)면 None -> assess 가 unmeasured("disk_io")로 표시.
+    assess·report·attention 이 본 helper 단일 진실 경유 (임계 재계산 금지).
+    """
+    if stats.os_family == "windows":
+        if stats.disk_queue_p95 is None:
+            return None
+        return stats.disk_queue_p95 >= DISK_QUEUE_PER_DISK_SATURATION
+    if stats.iowait_p95_pct is None:
+        return None
+    return stats.iowait_p95_pct >= IOWAIT_UPSIZE_PCT
+
+
 def assess(stats: ResourceStats) -> Assessment:
     """USE Method evidence 분류 — 자원별 가용 축을 신호로 모아 단일 분류 + 근거 산출.
 
@@ -148,7 +173,9 @@ def assess(stats: ResourceStats) -> Assessment:
     unmeasured: list[str] = []
     if stats.cpu_load_15m_max is None or stats.cpu_cores is None:
         unmeasured.append("cpu_saturation")
-    if stats.iowait_p95_pct is None:
+    # disk_io 는 OS별 신호 정규화(Linux iowait / Windows disk_queue) — helper 단일 진실.
+    disk_sat = disk_io_saturated(stats)
+    if disk_sat is None:
         unmeasured.append("disk_io")
 
     # 표본 부족 — 측정 축 sufficiency < 임계. 분류를 막지 않고 confidence 단서로만 동반 (원칙2).
@@ -171,7 +198,7 @@ def assess(stats: ResourceStats) -> Assessment:
         and (stats.cpu_load_15m_max / stats.cpu_cores) >= CPU_SATURATION_LOAD_RATIO
     ):
         triggers.append("cpu_saturation")
-    if stats.iowait_p95_pct is not None and stats.iowait_p95_pct >= IOWAIT_UPSIZE_PCT:
+    if disk_sat:
         triggers.append("disk_io")
     if swap_saturation(stats.os_family, stats.swap_used):
         triggers.append("mem_saturation")

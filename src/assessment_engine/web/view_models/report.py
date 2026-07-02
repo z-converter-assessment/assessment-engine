@@ -47,7 +47,7 @@ class ReportRowItem:
     hostname: str
     role: str
     is_online: bool
-    os_family: str | None  # "windows" 면 load/iowait 통계 N/A 표시
+    os_family: str | None  # "windows" 면 load(run queue) 통계 N/A 표시 (disk 는 queue 로 측정)
     os_display: str
     kernel_version: str | None
     internal_ip: str | None
@@ -121,7 +121,7 @@ class ReportRowItem:
     # over/idle/shutdown/optimal/insufficient 는 고정 문구.
     recommendation_action: str = ""
 
-    # 부분 평가 — Windows 는 saturation 축(swap/load/iowait) 부재·제외라 utilization 축만으로 분류 (원칙 P2/P4).
+    # 부분 평가 — Windows swap 제외·load(run queue) OS 부재로 그 축만 미관측 (disk 는 queue 로 측정, P2/P4).
     # mapper 가 recommendation.is_partial_evaluation 으로 precompute, 템플릿은 본 bool 만 분기 (P3).
     is_partial: bool = False
 

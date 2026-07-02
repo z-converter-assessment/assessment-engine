@@ -15,99 +15,76 @@ from assessment_engine.web.services.device_filters import (
 
 
 @pytest.mark.parametrize(
-    "name, expected",
+    "kind, expected",
     [
-        ("sda", True),
-        ("sdb", True),
-        ("sdaa", True),
-        ("vda", True),
-        ("hda", True),
-        ("xvda", True),
-        ("nvme0n1", True),
-        ("mmcblk0", True),
-        # 파티션은 physical 아님
-        ("sda1", False),
-        ("nvme0n1p1", False),
-        # LVM은 physical 아님
-        ("dm-0", False),
-        ("md0", False),
-        # 가상·빈 이름 제외
-        ("loop0", False),
+        # kind=="physical" 만 물리 디스크
+        ("physical", True),
+        # 파티션·LVM·RAID·가상은 physical 아님
+        ("partition", False),
+        ("lvm", False),
+        ("raid", False),
+        ("virtual", False),
+        # data volume kind 도 physical 아님
+        ("data", False),
+        # placeholder(None)·빈 kind 제외
+        (None, False),
         ("", False),
-        # 블랙리스트 정책 — 미지·특이 컨트롤러도 통과 (화이트리스트면 놓칠 mpath/cciss 등 관측성 보존)
-        ("foo", True),
-        ("mpatha", True),
-        ("cciss", True),
     ],
 )
-def test_is_physical_disk(name, expected):
-    assert is_physical_disk(name) is expected
+def test_is_physical_disk(kind, expected):
+    assert is_physical_disk(kind) is expected
 
 
 @pytest.mark.parametrize(
-    "name, expected",
+    "kind, expected",
     [
-        ("dm-0", True),
-        ("dm-12", True),
-        ("md0", True),
-        ("md127", True),
-        ("sda", False),
-        ("nvme0n1", False),
+        # kind in ("lvm","raid") 가 논리 볼륨
+        ("lvm", True),
+        ("raid", True),
+        ("physical", False),
+        ("partition", False),
+        ("virtual", False),
+        (None, False),
     ],
 )
-def test_is_lvm_disk(name, expected):
-    assert is_lvm_disk(name) is expected
+def test_is_lvm_disk(kind, expected):
+    assert is_lvm_disk(kind) is expected
 
 
 @pytest.mark.parametrize(
-    "name, expected",
+    "kind, expected",
     [
-        ("sda1", True),
-        ("vda12", True),
-        ("nvme0n1p1", True),
-        ("mmcblk0p1", True),
-        ("sda", False),
-        ("nvme0n1", False),
-        ("dm-0", False),
+        ("partition", True),
+        ("physical", False),
+        ("lvm", False),
+        ("raid", False),
+        ("virtual", False),
+        (None, False),
     ],
 )
-def test_is_partition(name, expected):
-    assert is_partition(name) is expected
+def test_is_partition(kind, expected):
+    assert is_partition(kind) is expected
 
 
 # ─── is_data_volume ───────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
-    "mount, major, fstype, expected",
+    "kind, expected",
     [
-        # major 신호 — Linux 블록 디바이스(major>0) = 데이터 볼륨
-        ("/", 254, "ext4", True),
-        ("/data", 8, "xfs", True),
-        # major==0 = 블록 디바이스 없는 가상 fs (fstype 블랙리스트 대체)
-        ("/sys/fs/selinux", 0, "selinuxfs", False),
-        ("/proc", 0, "proc", False),
-        ("/run", 0, "tmpfs", False),  # tmpfs major==0 — 옛 블랙리스트 누락도 major 로 잡힘
-        # Windows drive — major 0 이나 drive letter 로 인정
-        ("C:\\", 0, "ntfs", True),
-        ("D:\\", 0, "ntfs", True),
-        # 부트/펌웨어 — 실블록(major>0)이나 비데이터
-        ("/boot", 254, "xfs", False),
-        ("/boot/efi", 254, "vfat", False),
-        # 이미지 fstype (loop 기반 read-only)
-        ("/snap/core/123", 7, "squashfs", False),
-        # major 미전파(None) fallback — path 블랙리스트
-        (None, None, None, False),  # 빈 mount
-        ("/proc", None, None, False),
-        ("/sys/fs/cgroup", None, None, False),
-        ("/snap", None, None, False),
-        ("/", None, "ext4", True),
-        ("/data", None, None, True),
-        ("/snapper", None, None, True),  # /snap prefix 아님
+        # kind=="data" 만 데이터 볼륨 (agent 가 boot/image/가상 fs 를 kind 로 사전 분류)
+        ("data", True),
+        # 부트/펌웨어·이미지·가상은 데이터 아님
+        ("boot", False),
+        ("image", False),
+        ("virtual", False),
+        # placeholder(None)·빈 kind 제외
+        (None, False),
+        ("", False),
     ],
 )
-def test_is_data_volume(mount, major, fstype, expected):
-    assert is_data_volume(mount or "", major, fstype) is expected
+def test_is_data_volume(kind, expected):
+    assert is_data_volume(kind) is expected
 
 
 # ─── find_parent_disk ─────────────────────────────────────────────────────
@@ -156,21 +133,21 @@ def test_find_parent_disk_skips_disk_without_major_minor():
 def test_disk_total_bytes_prefers_physical_disks():
     """물리 disks 가 있으면 물리 합만 — 파티션·가상 disk·mounts 무시."""
     disks = [
-        {"name": "sda", "size_bytes": 100 * 10**9},
-        {"name": "sda1", "size_bytes": 99 * 10**9},  # 파티션 — 제외
-        {"name": "loop0", "size_bytes": 5 * 10**9},  # 가상 — 제외
+        {"name": "sda", "kind": "physical", "size_bytes": 100 * 10**9},
+        {"name": "sda1", "kind": "partition", "size_bytes": 99 * 10**9},  # 파티션 — 제외
+        {"name": "loop0", "kind": "virtual", "size_bytes": 5 * 10**9},  # 가상 — 제외
     ]
-    mounts = [{"mount": "/", "total_bytes": 80 * 10**9, "fstype": "ext4"}]
+    mounts = [{"mount": "/", "kind": "data", "total_bytes": 80 * 10**9}]
     assert disk_total_bytes(disks, mounts) == 100 * 10**9
 
 
 def test_disk_total_bytes_falls_back_to_data_volume_mounts():
     """물리 합 0(Windows agent 물리 disks 미발행)이면 data volume mounts 합 — 가상 fs 제외."""
-    disks = [{"name": "loop0", "size_bytes": 5 * 10**9}]  # 가상만 — 물리 합 0
+    disks = [{"name": "loop0", "kind": "virtual", "size_bytes": 5 * 10**9}]  # 가상만 — 물리 합 0
     mounts = [
-        {"mount": "C:\\", "total_bytes": 120 * 10**9, "fstype": "NTFS"},
-        {"mount": "D:\\", "total_bytes": 200 * 10**9, "fstype": "NTFS"},
-        {"mount": "/proc", "total_bytes": 1, "fstype": None},  # 가상 prefix — 제외
+        {"mount": "C:\\", "kind": "data", "total_bytes": 120 * 10**9},
+        {"mount": "D:\\", "kind": "data", "total_bytes": 200 * 10**9},
+        {"mount": "/proc", "kind": "virtual", "total_bytes": 1},  # 가상 — 제외
     ]
     assert disk_total_bytes(disks, mounts) == 320 * 10**9
 
