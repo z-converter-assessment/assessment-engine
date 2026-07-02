@@ -11,12 +11,15 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from assessment_engine import recommendation
 from assessment_engine.db.repositories.base_diagnostic_repository import (
-    DIAGNOSTIC_RANGE_LABEL_KR,
     DiagnosticTimeRange,
 )
 from assessment_engine.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.deps import get_service
-from assessment_engine.web.services.mappers.shared import DISTRO_FILTER_OPTIONS, PROVISIONING_CLASS_OPTIONS
+from assessment_engine.web.services.mappers.shared import (
+    DIAGNOSTIC_RANGE_LABEL_KR,
+    DISTRO_FILTER_OPTIONS,
+    PROVISIONING_CLASS_OPTIONS,
+)
 from assessment_engine.web.services.query_service import DASHBOARD_TIME_RANGE, QueryService
 from assessment_engine.web.settings import web_settings
 from assessment_engine.web.templating import templates

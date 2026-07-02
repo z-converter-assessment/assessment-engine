@@ -42,7 +42,7 @@ from assessment_engine.web.view_models.environment_report import (
     EnvironmentReportSummary,
     MemoryBreakdown,
     OsCount,
-    ServerInventory,
+    ServerInventorySnapshot,
     ServiceCatalogGroup,
     ServiceHost,
     ServiceNameCount,
@@ -175,7 +175,7 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
         sid["boot_time"] = _dt(sid.get("boot_time"))
         sid["agent_started_at"] = _dt(sid.get("agent_started_at"))
         sid["last_seen_at"] = _dt(sid.get("last_seen_at"))
-        data["server_inventory"] = ServerInventory(**sid)
+        data["server_inventory"] = ServerInventorySnapshot(**sid)
     data["volumes"] = [VolumeUsage(**v) for v in data.get("volumes") or []]
     mb = data.get("memory_breakdown")
     if mb:

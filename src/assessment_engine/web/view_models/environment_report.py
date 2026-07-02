@@ -51,7 +51,7 @@ class DistributionBar:
 
 
 @dataclass
-class ServerInventory:
+class ServerInventorySnapshot:
     """개별 서버 보고서 인벤토리 — ServerDetail 충실 표시 (생략·왜곡 없음).
 
     IP 전체(IPv4/IPv6 모두, 임의 1개 선택 금지) + 식별자·하드웨어·부팅 정보. customer/engineer 공용,
@@ -230,7 +230,7 @@ class EnvironmentReportSummary:
     # workload_groups 를 카테고리 기준 merge (mapper 집계, P2). 카테고리 뱃지에 정확히 매칭되는 서비스명 노출.
     service_catalog: list[ServiceCatalogGroup] = field(default_factory=list)
     # 개별 서버 보고서(single) 전용 — ServerDetail 충실 인벤토리 (전체 IP·하드웨어·식별자). 환경·선택은 None.
-    server_inventory: ServerInventory | None = None
+    server_inventory: ServerInventorySnapshot | None = None
     # 개별 보고서 심화 메트릭 (single engineer) — 마운트별 스토리지·메모리 구성·CPU 분류. 그 외 빈/None.
     volumes: list[VolumeUsage] = field(default_factory=list)
     memory_breakdown: MemoryBreakdown | None = None

@@ -12,12 +12,12 @@ from jinja2 import Environment
 
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
-    DIAGNOSTIC_RANGE_LABEL_KR,
 )
 from assessment_engine.web.services.mappers.shared import (
     _SWAP_DANGER_PCT,
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
+    DIAGNOSTIC_RANGE_LABEL_KR,
 )
 from assessment_engine.web.templating.filters import (
     disksize,

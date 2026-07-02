@@ -10,12 +10,10 @@ from datetime import datetime
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ServerDetail
-from assessment_engine.db.repositories.base_diagnostic_repository import (
-    DIAGNOSTIC_RANGE_LABEL_KR,
-)
 from assessment_engine.service_classifier import SERVICE_CATEGORIES, SINGLE_INSTANCE_CATEGORIES
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
+    DIAGNOSTIC_RANGE_LABEL_KR,
     OS_FAMILY_LABEL_KO,
     RISK_LEVEL_ORDER,
     UTIL_GAUGE_COLOR,

@@ -20,16 +20,6 @@ DIAGNOSTIC_RANGE_DAYS: dict[str, float] = {
 }
 
 # 한국어 표시 라벨 — frontend 표시 단일 진실 (서버/클라 동일).
-DIAGNOSTIC_RANGE_LABEL_KR: dict[str, str] = {
-    "15m": "15분",
-    "1h": "1시간",
-    "6h": "6시간",
-    "24h": "1일",
-    "7d": "7일",
-    "14d": "14일",
-    "30d": "30일",
-}
-
 # USE Method 분류 라벨 — mapper(view) import. 분류 추가 시 본 dict만 갱신.
 CLASSIFICATION_LABEL_KR: dict[str, str] = {
     "idle": "idle",
