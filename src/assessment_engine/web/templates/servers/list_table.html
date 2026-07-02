@@ -105,6 +105,10 @@
   <a href="/servers" class="clear-btn" id="filter-clear" style="align-items:center; display:{% if filters_active %}inline-flex{% else %}none{% endif %};">초기화</a>
 </form>
 
+{# 분류 윈도우 명시 — 목록 자원 적정성 분류는 7일 표준(WINDOW_DAYS). 홈·환경 평가(최근 24시간)와 윈도우가 달라
+   축적 후 분류가 갈릴 수 있어 라벨로 오인 방지 (#F10). #}
+<p class="text-meta text-xs" style="margin:0 0 10px;">자원 적정성 분류는 최근 7일 표준 윈도우 기준 (홈·환경 평가는 최근 24시간).</p>
+
 <div class="table-scroll">
 <table class="server-list-table">
   <thead>

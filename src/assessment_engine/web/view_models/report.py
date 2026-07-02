@@ -39,6 +39,23 @@ class ReportListenItem:
 
 
 @dataclass
+class SaturationAxis:
+    """USE Saturation 축 1개 — single_report '포화 축 평가' 카드 행 (os-aware precompute, P2/P3).
+
+    단일 서버 deep-dive 전용 — 분류 진단·권고의 근거 수치를 OS별 실측 신호로 노출. 3축(CPU/메모리/디스크 I/O)
+    을 OS 무관 축 이름으로 통일하고, 측정 신호 이름·값·임계·판정은 os-aware. 미관측(perflib 미발행)은 status
+    '미관측'. E9 발화 가능 정보 노출 — 축은 항상 3행 노출(값 없어도).
+    """
+
+    axis: str  # os-neutral 축 이름 (CPU 포화 / 메모리 포화 / 디스크 I/O)
+    signal: str  # 해당 OS 측정 신호 이름 (Linux load avg / Windows Processor Queue Length 등)
+    value: str  # 형식화 값 (미관측 'N/A')
+    threshold: str  # 임계 표기
+    status: str  # '포화' | '정상' | '미관측'
+    status_class: str  # 템플릿 CSS 클래스 (mapper 결정, P3 — 템플릿 비교 금지)
+
+
+@dataclass
 class ReportRowItem:
     """ReportRowRaw + 표시 파생. 모든 표시 결정(role/recommendation/badge)은 mapper에서 채움 (P2)."""
 
@@ -89,8 +106,9 @@ class ReportRowItem:
     reboot_count: int = 0
     agent_restart_count: int = 0
 
-    # Saturation — load_15m_max / cpu_cores. 1 이상이면 saturated. mapper에서 계산.
-    saturation_ratio: float | None = None
+    # USE Saturation 3축 os-aware 평가 — single_report '포화 축 평가' 카드(분류 근거 수치 노출). mapper precompute.
+    # (구 saturation_ratio(load/cores 단일값)는 미렌더·Linux 전용이라 폐기 — saturation_axes 가 os-aware 대체.)
+    saturation_axes: list[SaturationAxis] = field(default_factory=list)
 
     # 이상치 변동성 — peak/p95 비율. 1.5 이상이면 변동 큼.
     cpu_variance_ratio: float | None = None
@@ -121,8 +139,9 @@ class ReportRowItem:
     # over/idle/shutdown/optimal/insufficient 는 고정 문구.
     recommendation_action: str = ""
 
-    # 부분 평가 — Windows swap 제외·load(run queue) OS 부재로 그 축만 미관측 (disk 는 queue 로 측정, P2/P4).
-    # mapper 가 recommendation.is_partial_evaluation 으로 precompute, 템플릿은 본 bool 만 분기 (P3).
+    # 부분 평가 — saturation 축 중 해당 OS 의 perflib 미발행 축만 미관측(os-aware, P2/P4). Windows 도 run queue/
+    # paging/disk queue 를 실측하되 카운터를 못 읽은 축만 unmeasured. mapper 가 assessment.is_partial(=bool(unmeasured))
+    # 로 precompute, 템플릿은 본 bool 만 분기 (P3).
     is_partial: bool = False
 
     # 분류 confidence 단서 — is_partial(축 미관측) + low_sample(표본 부족) 통합 라벨 (shared.build_confidence_notes).

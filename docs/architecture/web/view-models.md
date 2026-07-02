@@ -43,8 +43,8 @@
 | `UtilizationBar` | `build_environment_overview` 안에서 3종 (CPU·메모리·디스크) 생성 — `pct`/`bar_color`(단색 푸른, 값 무관)/`dash_length`(SVG dasharray, mapper 비례 산술) | `environment_utilization(DASHBOARD_WINDOW_DAYS, end)` SQL — CPU·메모리·디스크 모두 capacity-weighted (Σused/Σtotal, 자원 총량 가중 — 서버 1대=1표 아님) | 최근 24시간 | 테마색1 `var(--color-title)`·`None` 회(`#cbd5e1`) |
 | `RiskDonutSegment` | `build_risk_donut_segments` — 6 카테고리 (under/over/idle/shutdown/optimal/insufficient) `key`/`label`/`color`/`count`/`dash_length`/`dash_offset` (multi-segment 누적 음수) | `report_aggregate(DASHBOARD_WINDOW_DAYS)` + net baseline 주입 -> `build_resource_stats` -> `recommendation.assess` -> `_DONUT_SEGMENT_FROM_REC` | 최근 24시간 USE Method | `_DONUT_SEGMENT_DEFS` 색 (E8) |
 | `AttentionRow` (gap) | `to_gap_warning_item(raw, now)` — `gap_minutes` / `badge_class` (운영신호 통신끊김) | `metric_gap_warnings(gap_min, recent_h, limit)` 단일 SQL | 5min~24h 갭 | blue (`#eff6ff`) |
-| `CapacityTriggerBadge` | `to_capacity_warning_item` 안에서 5종 (스왑·CPU·메모리·Load·디스크) 생성 — `label`/`color`(hue 분리)/`active`(임계 초과 여부) | `_CAPACITY_TRIGGER_COLORS` 단일 색 진실 | — | 빨강/파랑/보라/주황/청록 |
-| `CapacityWarningItem` | `to_capacity_warning_item(raw)` — `triggers`. caller가 `under_provisioned` 필터링 -> EnvironmentOverview.under_provisioned_hosts (운영신호 아님, USE Method) | `report_aggregate(DASHBOARD_WINDOW_DAYS)` + `build_resource_stats` -> `recommendation.assess`(triggers) | 최근 24시간 USE Method | blue (`#eff6ff`) |
+| `CapacityWarningItem` | `to_capacity_warning_item(raw)` — `active_causes`(발화 원인 os-neutral 라벨, `_CAUSE_LABEL_BY_TRIGGER` 파생 — 환경 요약 원인 집계 `_under_cause_summary` 단일 소스)·`metrics`(6축 os-aware). caller가 `under_provisioned` 필터링 -> EnvironmentOverview.under_provisioned_hosts (운영신호 아님, USE Method) | `report_aggregate(DASHBOARD_WINDOW_DAYS)` + `build_resource_stats` -> `recommendation.assess`(triggers) | 최근 24시간 USE Method | blue (`#eff6ff`) |
+| `SaturationAxis` | `_build_saturation_axes(raw, stats)` — single_report '포화 축 평가' 카드 3행(CPU/메모리/디스크 I/O). `axis`(os-neutral)/`signal`(OS별 측정 신호)/`value`/`threshold`/`status`(포화·정상·미관측)/`status_class`. os-aware helper 판정 재사용 | `report_aggregate` + `build_resource_stats` -> os-aware helper | 발행 윈도우 | — |
 | `AttentionRow` (os_eol) | `to_os_eol_warning_item(raw, now)` — `resolve_os_eol`(endoflife 카탈로그) EOL 경과 시 반환 (운영신호) | `os_id`/`os_version`/`kernel_version` + endoflife 스냅샷 카탈로그 | endoflife.date 스냅샷 (Linux distro + Windows Server build, ADR 0031) | blue (`#eff6ff`) |
 | `AttentionRow` (agent_unstable) | `to_agent_unstable_item(public_id, hostname, restart_count)` — caller가 임계 필터링 | `agent_restart_counts_recent(since=now-1h)` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | blue (`#eff6ff`) |
 | `AttentionSignals` | `query_service.get_attention_signals` 묶음 (내부 `_assemble_attention` 조립) — 운영신호 3 카탈로그(gap·os_eol·agent_unstable). `has_any` property로 빈 카드 분기 | 위 3 builder(gap/os_eol/agent_unstable) | — | blue (`#eff6ff`) |
@@ -55,7 +55,7 @@
 - `_GAP_DANGER_MINUTES = 30` — gap_warning 위험 색 (mapper)
 - `_UTIL_DONUT_CIRC = 263.89` — SVG 원주 r=42 단일 진실 (mapper, E8)
 - `_DONUT_SEGMENT_FROM_REC` / `_DONUT_SEGMENT_DEFS` — 프로비저닝 도넛 6 카테고리 단일 매핑
-- `_CAPACITY_TRIGGER_COLORS` — capacity trigger 3종 hue 분리 단일 색 (mapper)
+- `_CAUSE_LABEL_BY_TRIGGER` — trigger key -> os-neutral 원인 라벨 (자원 부족 원인 집계 단일 진실, mapper)
 - `disk_threshold_pct = 85` — disk_warnings 진입 임계 (service 기본값)
 - `days_until_full_threshold = 30` — 디스크 잔여 신호 진입 임계 (service 기본값)
 - `agent_restart_alert_threshold = 3` — 1h 윈도우 재시작 임계 (web_settings)

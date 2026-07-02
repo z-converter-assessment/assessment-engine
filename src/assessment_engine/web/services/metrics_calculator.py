@@ -103,9 +103,12 @@ def compute_cpu(cur: MetricPairRaw | None, prev: MetricPairRaw | None) -> CpuSna
     if cur is None:
         return None
 
-    def cpu_total(r: MetricPairRaw) -> int | None:
+    def cpu_total(r: MetricPairRaw) -> int:
+        # Windows 는 nice/iowait/irq/softirq/steal 이 null (OS 개념 부재) — None->0 정규화(#C2 SQL COALESCE 와 동일).
+        # Windows total = user+system+idle (GetSystemTimes 전체 스케줄러 시간과 일치). cpu_stat 전부 부재면 0 ->
+        # delta<=0 로 자연히 N/A. 성분 하나가 null 이라고 total 을 null 로 만들면 Windows CPU 가 항상 N/A 가 된다.
         vals = [r.cpu_user, r.cpu_nice, r.cpu_system, r.cpu_idle, r.cpu_iowait, r.cpu_irq, r.cpu_softirq, r.cpu_steal]
-        return None if any(v is None for v in vals) else sum(vals)  # type: ignore[arg-type]
+        return sum(v for v in vals if v is not None)
 
     if prev is None:
         return CpuSnapshot(usage_pct=None, user_pct=None, system_pct=None, iowait_pct=None)
@@ -114,12 +117,7 @@ def compute_cpu(cur: MetricPairRaw | None, prev: MetricPairRaw | None) -> CpuSna
     if is_counter_reset(cur.boot_time, prev.boot_time):
         return CpuSnapshot(usage_pct=None, user_pct=None, system_pct=None, iowait_pct=None)
 
-    dt_total = cpu_total(cur)
-    dp_total = cpu_total(prev)
-    if dt_total is None or dp_total is None:
-        return CpuSnapshot(usage_pct=None, user_pct=None, system_pct=None, iowait_pct=None)
-
-    delta_total = dt_total - dp_total
+    delta_total = cpu_total(cur) - cpu_total(prev)
     if delta_total <= 0:
         return CpuSnapshot(usage_pct=None, user_pct=None, system_pct=None, iowait_pct=None)
 
@@ -176,8 +174,12 @@ def compute_mem(cur: MetricPairRaw | None) -> MemSnapshot | None:
 
 
 def compute_swap(cur: MetricPairRaw | None) -> SwapSnapshot | None:
-    if cur is None or not cur.swap_total_kb:
-        return None
+    if cur is None or cur.swap_total_kb is None:
+        return None  # 미수집만 None -> 표시 "—" (일시적 값 없음)
+    # swap_total=0 = swapless(측정된 사실, 미수집 아님) -> 0% 로 표시. 차트 swap.usage_percent 의 swapless
+    # 0-line 과 통일하고, "measured 0 은 값, 미측정만 N/A" 원칙(#C2) 준수 — 0/0 을 "—" 로 뭉개지 않는다.
+    if cur.swap_total_kb == 0:
+        return SwapSnapshot(total_kb=0, used_kb=0, usage_pct=0.0)
     used = (cur.swap_total_kb - cur.swap_free_kb) if cur.swap_free_kb is not None else None
     return SwapSnapshot(
         total_kb=cur.swap_total_kb,

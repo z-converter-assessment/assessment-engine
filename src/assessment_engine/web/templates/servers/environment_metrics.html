@@ -104,7 +104,7 @@
           <h2 class="chart-subtitle" style="margin:0;">스왑 사용률</h2>
           <span id="swap-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">전 서버 capacity-weighted 평균 (미설정 서버 제외)</div>
+        <div class="chart-desc">전 서버 capacity-weighted 평균 (미설정 서버 제외). Windows pagefile 은 여유 RAM 에도 상시 baseline 이라 사용률이 높아도 메모리 부족 신호 아님 — Linux swap page-out 만 포화 신호.</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="swap-canvas"></canvas>
           <div id="swap-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>

@@ -48,7 +48,7 @@
       <tr><td>코어당 로드</td><td>코어 정규화</td><td>15분 로드를 코어 수로 정규화 — sum(load_15m) / sum(cpu_cores). 1.0 = 코어당 run queue 1(포화). 절대 load 동등평균은 코어 수 다른 서버 혼재 시 왜곡되므로 정규화.</td></tr>
       <tr><td>메모리 사용률</td><td>capacity-weighted</td><td>Σused_kb / Σtotal_kb. cached·buffers 는 회수 가능이라 가용으로 간주.</td></tr>
       <tr><td>메모리 구성</td><td>capacity-weighted</td><td>전체 메모리 대비 Used·Available·Cached·Buffers 비율.</td></tr>
-      <tr><td>스왑 사용률</td><td>capacity-weighted</td><td>스왑 총량 대비 사용량(swap 미설정 서버 제외). 사용 자체가 메모리 포화(page-out) 신호.</td></tr>
+      <tr><td>스왑 사용률</td><td>capacity-weighted</td><td>스왑 총량 대비 사용량(swap 미설정 서버 제외). Linux 는 사용 자체가 page-out(메모리 포화) 신호이나, Windows pagefile 은 여유 RAM 에도 상시 baseline 이라 사용률이 높아도 메모리 부족 신호 아님(Windows 포화는 Pages/sec 로 판정). 혼재 fleet 집계엔 Windows baseline 이 포함됨에 유의.</td></tr>
       <tr><td>물리 계층 I/O</td><td>합산(SUM)</td><td>물리 디스크 IOPS 합산(Read/Write). LVM·파티션 계층 중복 집계 제외. 처리량 총량이라 가중 무의미.</td></tr>
       <tr><td>디스크 I/O 처리량</td><td>합산(SUM)</td><td>물리 디스크 read+write 처리량 합산(kB/s). IOPS 와 함께 디스크 대역 산정 입력.</td></tr>
       <tr><td>파일시스템 사용량</td><td>capacity-weighted</td><td>전 mount 통합 Σused / Σtotal (가상 mount 제외).</td></tr>
@@ -86,7 +86,7 @@
       <tr><td>실시간 현황</td><td>운영 신호</td><td>수집 끊김(gap)·OS 지원 종료(os_eol)·에이전트 불안정(재시작 빈도) 3종. 임계는 "운영 신호 임계" 절.</td></tr>
       <tr><td>환경 자원 평가</td><td>자원 적정성 평가</td><td>USE Method 6분류(자원 부족·과다 할당·유휴·종료 권장·정상·표본 부족) 호스트 수 분포 — 최근 24시간 윈도우 기본(구간 선택 가능). 분류 임계는 "분류 기준" 절.</td></tr>
       <tr><td>환경 자원 평가</td><td>효율화 검토 대상</td><td>과다 할당·유휴·종료 권장 호스트 — 시급도 순. 분류·진단·신뢰도.</td></tr>
-      <tr><td>환경 자원 평가</td><td>자원 부족</td><td>under_provisioned 호스트 6축 메트릭 + 권고·신뢰도. 발화 trigger(스왑·CPU·메모리·Load·디스크) 임계는 "분류 기준" 절.</td></tr>
+      <tr><td>환경 자원 평가</td><td>자원 부족</td><td>자원 부족 (under_provisioned) 호스트 6축 메트릭 + 권고·신뢰도. 발화 trigger(메모리 포화·CPU·메모리·CPU 포화·디스크, saturation 축은 os-aware) 임계는 "분류 기준" 절.</td></tr>
       <tr><td>서버 목록</td><td>서버 행·필터</td><td>호스트별 인벤토리·현재 활용률·자원 적정성 분류 뱃지 + OS·분류·검색 필터. (목록 행은 listen 포트 미보유라 서비스 이름 분류만.)</td></tr>
       <tr><td>네트워크 토폴로지</td><td>토폴로지 그래프</td><td>L3 subnet 공동 소속 추론 그래프(노드=subnet/host). 인벤토리 IP 기반 추론이며 실측 도달성(reachability)은 아님 — 방화벽·VLAN 격리 미반영. docker·libvirt 등 호스트 내부 가상 네트워크와 IPv6는 제외. 사설 IP 대역이 서로 다른 네트워크에서 중복되면 한 서브넷으로 합쳐 보일 수 있음.</td></tr>
     </tbody>

@@ -4,7 +4,8 @@
 
 evidence 기반 분류: 자원(CPU/Mem/Disk)별로 "가진 축"을 평가해 신호(trigger)를 모으고,
 under(위험) 우선 우선순위로 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다.
-가진 데이터로 항상 결론을 내며("C 로 판단" 설명 가능), OS 비대칭(Windows 의 saturation 축 부재)은
+가진 데이터로 항상 결론을 내며("C 로 판단" 설명 가능), saturation 축은 OS별 실측 신호로 정규화하되
+(Linux load/swap/iowait, Windows run queue/paging/disk queue) 해당 카운터를 못 읽어 값이 없으면
 분류를 막지 않고 confidence 단서(unmeasured)로만 노출한다.
 
 분류 enum: idle / shutdown / over_provisioned / under_provisioned / optimal / insufficient_data.
@@ -16,7 +17,7 @@ UI badge 임계값(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도�
 합성 규칙 (단일 진실):
 - under = 위험 신호 OR (어떤 자원이든 고이용·포화·용량초과 하나라도 -> 누락 0)
 - over  = 가용 이용률 AND (cpu·mem p95 가 둘 다 있고 둘 다 낮을 때만 -> 보수적)
-- insufficient_data = cpu_p95·mem_p95 가 둘 다 None (진짜 평가 불가 = 신규/표본 부재)
+- insufficient_data = cpu_p95·mem_p95 가 둘 다 None (진짜 평가 불가 = 신규/표본 부족)
 """
 
 from dataclasses import dataclass, field
@@ -45,11 +46,18 @@ CPU_UPSIZE_P95_PCT = 70  # Kleinrock — Queueing Systems (1975), Google SRE Boo
 MEM_UPSIZE_P95_PCT = 80  # Linux page cache 압박 시작점
 
 # USE Method Saturation 임계 — utilization 외 saturation 축 평가 (Brendan Gregg 정석).
-CPU_SATURATION_LOAD_RATIO = 1.0  # load_15m / cpu_cores >= 1.0 — run queue saturation
+CPU_SATURATION_LOAD_RATIO = 1.0  # load_15m / cpu_cores >= 1.0 — run queue saturation (Linux)
+# Windows CPU saturation — Processor Queue Length 를 코어 수로 정규화 후 >= 2 (Microsoft "sustained > 2 per CPU").
+# Linux loadavg 와 스케일이 다르다(loadavg = running+runnable+uninterruptible, run queue = ready 만)라 별도 상수.
+CPU_RUN_QUEUE_PER_CORE_SATURATION = 2.0
 IOWAIT_UPSIZE_PCT = 20  # iowait_p95 >= 20% — disk IO saturation (Linux)
 # Windows disk IO saturation — 디스크당 Avg Disk Queue Length >= 2 (Microsoft 정석 병목 기준).
 # agent 가 디스크별 큐를 발행 -> ingest 에서 per-device max 축약 -> 이 임계로 바로 비교 (정규화 불요).
 DISK_QUEUE_PER_DISK_SATURATION = 2.0
+# Windows memory saturation — Memory\Pages/sec(하드 페이지 폴트율) p95 >= 1000 pages/sec.
+# 잠정 임계 (Microsoft rule-of-thumb "sustained > 1000"). disk_queue/cpu_run_queue 의 MS 표준 채택과 달리
+# 절대 임계 근거가 약해 보수적으로 두고 실측 튜닝 대상 — 근거·한계는 docs/architecture/right-sizing.md.
+MEM_PAGING_RATE_SATURATION = 1000.0
 DISK_CAPACITY_UPSIZE_PCT = 85  # worst mount used_pct >= 85% — storage capacity utilization
 
 # 표본 충분성 — 측정 축(cpu/mem) 실측 5분 버킷 / 윈도우 기대 버킷(period_days*288, cagg 5분) 비율이 이 미만이면
@@ -63,7 +71,7 @@ Recommendation = Literal[
     "over_provisioned",
     "under_provisioned",
     "optimal",
-    "insufficient_data",  # cpu_p95·mem_p95 둘 다 부재 (신규/표본 부재)
+    "insufficient_data",  # cpu_p95·mem_p95 둘 다 부재 (신규/표본 부족)
 ]
 
 # under_provisioned 유발 신호 키 — 도메인 식별자(머신용). mapper 가 한국어 권고로 변환(P2).
@@ -98,6 +106,12 @@ class ResourceStats:
     # Windows 디스크 I/O saturation (Linux iowait 등가 축) — disk_io_saturated 가 os-aware 로 소비.
     # disk_queue_p95 = 가장 바쁜 디스크의 큐 깊이 p95 (agent 가 디스크별 발행 -> ingest 에서 per-device max 축약).
     disk_queue_p95: float | None = None
+    # Windows CPU saturation (Linux load 등가 축) — cpu_saturated 가 os-aware 로 소비.
+    # cpu_run_queue_p95 = Processor Queue Length p95 (ready 상태 스레드 큐 깊이 gauge, per-core 정규화 후 비교).
+    cpu_run_queue_p95: float | None = None
+    # Windows Memory saturation (Linux swap page-out 등가 축) — mem_saturated 가 os-aware 로 소비.
+    # mem_paging_rate_p95 = Memory\Pages/sec rate p95 (누적 counter -> pages/sec 환산된 하드 페이지 폴트율).
+    mem_paging_rate_p95: float | None = None
 
 
 @dataclass
@@ -106,8 +120,8 @@ class Assessment:
 
     - triggers: under_provisioned 를 유발한 hit 신호 키 목록 (그 외 분류는 빈 목록).
                 "어떤 데이터로 under 판정인가"의 근거. mapper 가 한국어 권고로 변환.
-    - unmeasured: 평가하지 못한 saturation 축 키 목록 (값이 None 이라 skip 된 축).
-                  Windows 는 load 부재 -> ["cpu_saturation"]. confidence 단서(분류는 완결).
+    - unmeasured: 평가하지 못한 saturation 축 키 목록 (os-aware helper 가 None 을 돌려준 축).
+                  예: Windows perflib 미발행 -> ["cpu_saturation"] 등. confidence 단서(분류는 완결).
     """
 
     recommendation: Recommendation
@@ -142,7 +156,7 @@ def disk_io_saturated(stats: ResourceStats) -> bool | None:
     Linux: iowait_p95 >= IOWAIT_UPSIZE_PCT (cpu 의 IO 대기 비율).
     Windows: 가장 바쁜 디스크의 큐 깊이(disk_queue_p95) >= DISK_QUEUE_PER_DISK_SATURATION.
              agent 가 디스크별 큐를 발행 -> ingest 에서 per-device max 축약(정규화 불요).
-             Windows cpu_iowait 는 더미 0이라 신뢰 금지 — disk_queue 를 신호로 사용.
+             Windows cpu_iowait 는 OS 개념 부재로 null 발행 — disk_queue 를 신호로 사용.
     측정 불가(값 None)면 None -> assess 가 unmeasured("disk_io")로 표시.
     assess·report·attention 이 본 helper 단일 진실 경유 (임계 재계산 금지).
     """
@@ -155,6 +169,42 @@ def disk_io_saturated(stats: ResourceStats) -> bool | None:
     return stats.iowait_p95_pct >= IOWAIT_UPSIZE_PCT
 
 
+def cpu_saturated(stats: ResourceStats) -> bool | None:
+    """CPU run queue 포화 여부 — OS별 raw 신호를 통일 축으로 정규화 (원칙 P2, os-aware).
+
+    Linux: load_15m / cpu_cores >= CPU_SATURATION_LOAD_RATIO (run queue saturation).
+    Windows: Processor Queue Length p95 / cpu_cores >= CPU_RUN_QUEUE_PER_CORE_SATURATION.
+             Windows 는 loadavg 개념 부재 -> agent 가 Processor Queue Length 를 발행(loadavg 등가 축).
+    측정 불가(값 None·cores 0)면 None -> assess 가 unmeasured("cpu_saturation")로 표시.
+    assess·report·attention 이 본 helper 단일 진실 경유 (임계 재계산 금지).
+    """
+    if stats.cpu_cores is None or stats.cpu_cores <= 0:
+        return None
+    if stats.os_family == "windows":
+        if stats.cpu_run_queue_p95 is None:
+            return None
+        return (stats.cpu_run_queue_p95 / stats.cpu_cores) >= CPU_RUN_QUEUE_PER_CORE_SATURATION
+    if stats.cpu_load_15m_max is None:
+        return None
+    return (stats.cpu_load_15m_max / stats.cpu_cores) >= CPU_SATURATION_LOAD_RATIO
+
+
+def mem_saturated(stats: ResourceStats) -> bool | None:
+    """메모리 포화 여부 — OS별 raw 신호를 통일 축으로 정규화 (원칙 P2, os-aware).
+
+    Linux: swap page-out 발생(swap_saturation). swap 은 항상 관측되므로 None 없음(측정됨).
+    Windows: Memory\\Pages/sec rate p95 >= MEM_PAGING_RATE_SATURATION. pagefile 은 여유 RAM 에도
+             상시 baseline 이라 swap 사용량이 아닌 페이징 rate 를 saturation 신호로 사용.
+    Windows 에서 mem_paging_rate None 이면 None -> assess 가 unmeasured("mem_saturation")로 표시.
+    assess·report·attention 이 본 helper 단일 진실 경유 (임계 재계산 금지).
+    """
+    if stats.os_family == "windows":
+        if stats.mem_paging_rate_p95 is None:
+            return None
+        return stats.mem_paging_rate_p95 >= MEM_PAGING_RATE_SATURATION
+    return swap_saturation(stats.os_family, stats.swap_used)
+
+
 def assess(stats: ResourceStats) -> Assessment:
     """USE Method evidence 분류 — 자원별 가용 축을 신호로 모아 단일 분류 + 근거 산출.
 
@@ -162,18 +212,22 @@ def assess(stats: ResourceStats) -> Assessment:
     under 가 idle/shutdown 보다 우선 — 어떤 위험 신호든 하나면 발화(누락 0). CPU 가 낮아도 스왑·iowait·load·
     mem·disk 압박이 있으면 "미사용(idle/shutdown)"이 아니라 자원 부족이다. over 는 cpu·mem 둘 다 낮을 때만(보수적).
     insufficient_data 는 utilization 도 없고 under 신호도 없을 때만 — swap·iowait 등 saturation 신호가
-    있으면 util 부재여도 under 로 결론낸다(데이터로 반드시 판단). 못 본 saturation 축(예: Windows load)은
-    unmeasured 에 기록 — 분류를 막지 않고 confidence 로만 노출.
+    있으면 util 부재여도 under 로 결론낸다(데이터로 반드시 판단). 못 본 saturation 축(예: Windows perflib
+    미발행)은 unmeasured 에 기록 — 분류를 막지 않고 confidence 로만 노출.
     """
     cpu = stats.cpu_p95_pct
     mem = stats.mem_p95_pct
 
-    # 못 본 saturation 축 기록 (confidence 단서) — 값이 None 인 축만. swap 은 Windows 의도 제외라
-    # "미관측"이 아니므로 제외하지 않는다(제외 != 미관측).
+    # 못 본 saturation 축 기록 (confidence 단서) — os-aware helper 가 None 을 돌려준 축만.
+    # 세 축 모두 OS별 신호 정규화(Linux load/swap/iowait, Windows run_queue/paging/disk_queue) — helper 단일 진실.
+    # Linux 는 swap 이 항상 관측돼 mem_saturation 은 None 없음(측정됨). Windows 는 해당 perflib 못 읽으면 None.
     unmeasured: list[str] = []
-    if stats.cpu_load_15m_max is None or stats.cpu_cores is None:
+    cpu_sat = cpu_saturated(stats)
+    if cpu_sat is None:
         unmeasured.append("cpu_saturation")
-    # disk_io 는 OS별 신호 정규화(Linux iowait / Windows disk_queue) — helper 단일 진실.
+    mem_sat = mem_saturated(stats)
+    if mem_sat is None:
+        unmeasured.append("mem_saturation")
     disk_sat = disk_io_saturated(stats)
     if disk_sat is None:
         unmeasured.append("disk_io")
@@ -191,17 +245,13 @@ def assess(stats: ResourceStats) -> Assessment:
         triggers.append("mem_util")
     if stats.disk_used_pct is not None and stats.disk_used_pct >= DISK_CAPACITY_UPSIZE_PCT:
         triggers.append("disk_capacity")
-    if (
-        stats.cpu_load_15m_max is not None
-        and stats.cpu_cores is not None
-        and stats.cpu_cores > 0
-        and (stats.cpu_load_15m_max / stats.cpu_cores) >= CPU_SATURATION_LOAD_RATIO
-    ):
+    # saturation 3축 — os-aware helper 단일 진실(Linux load/swap/iowait, Windows run_queue/paging/disk_queue).
+    if cpu_sat:
         triggers.append("cpu_saturation")
+    if mem_sat:
+        triggers.append("mem_saturation")
     if disk_sat:
         triggers.append("disk_io")
-    if swap_saturation(stats.os_family, stats.swap_used):
-        triggers.append("mem_saturation")
 
     if triggers:
         return Assessment("under_provisioned", triggers=triggers, unmeasured=unmeasured, low_sample=low_sample)
@@ -218,7 +268,7 @@ def assess(stats: ResourceStats) -> Assessment:
         if cpu is not None and cpu <= SHUTDOWN_CPU_P95_PCT and (stats.net_avg_kbps * 8 / 1000) <= SHUTDOWN_NET_MBPS:
             return Assessment("shutdown", unmeasured=unmeasured, low_sample=low_sample)
 
-    # 평가 불가 — utilization(cpu·mem) 둘 다 부재 + 위 under 위험 신호도 없음 (신규/표본 부재).
+    # 평가 불가 — utilization(cpu·mem) 둘 다 부재 + 위 under 위험 신호도 없음 (신규/표본 부족).
     # sufficiency 도 None(측정 축 부재)이라 low_sample 무관 — insufficient_data 가 "관측 자체 부재"를 이미 표현.
     if cpu is None and mem is None:
         return Assessment("insufficient_data")
@@ -269,7 +319,7 @@ TRIGGER_LABEL_KO: dict[str, str] = {
     "cpu_util": "CPU 이용률 초과",
     "cpu_saturation": "CPU run queue 포화",
     "mem_util": "메모리 이용률 초과",
-    "mem_saturation": "스왑 page-out(메모리 압박)",
+    "mem_saturation": "메모리 페이징 압박",  # Linux swap page-out / Windows Pages/sec (os-aware)
     "disk_capacity": "디스크 용량 임박",
     "disk_io": "디스크 I/O 포화",
 }

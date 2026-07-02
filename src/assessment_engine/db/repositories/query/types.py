@@ -117,9 +117,19 @@ _AGG: dict[str, str] = {
 # ─── chart dispatch 매핑 (router Literal로 whitelist된 metric_type만 도달) ───
 
 # CPU 누적 jiffies. delta로 % 계산 (LAG 기반). active/component 모두 분자만 다름.
-_CPU_TOTAL_EXPR = "cpu_user+cpu_nice+cpu_system+cpu_idle+cpu_iowait+cpu_irq+cpu_softirq+cpu_steal"
+# 분모(total)와 usage 분자는 성분 COALESCE — Windows 는 nice/iowait/irq/softirq/steal 이 null(OS 개념 부재)이라
+# raw 합이 X+NULL=NULL 로 전파되면 delta null -> 전량 제외돼 Windows CPU 추이 차트가 빈다(#C2, cagg·compute_cpu 동일).
+# per-component(user/system/iowait) 분자는 bare 유지 — Windows iowait 는 null 이라 d_num null 로 자연 제외(N/A),
+# COALESCE 하면 측정 0(iowait 여유)으로 오인된다. Windows 실측 축(user/system)은 non-null 이라 bare 로도 정상.
+_CPU_TOTAL_EXPR = (
+    "COALESCE(cpu_user,0)+COALESCE(cpu_nice,0)+COALESCE(cpu_system,0)+COALESCE(cpu_idle,0)"
+    "+COALESCE(cpu_iowait,0)+COALESCE(cpu_irq,0)+COALESCE(cpu_softirq,0)+COALESCE(cpu_steal,0)"
+)
 _CPU_NUMERATOR: dict[str, str] = {
-    "cpu.usage_percent": "cpu_user+cpu_nice+cpu_system+cpu_iowait+cpu_irq+cpu_softirq+cpu_steal",
+    "cpu.usage_percent": (
+        "COALESCE(cpu_user,0)+COALESCE(cpu_nice,0)+COALESCE(cpu_system,0)+COALESCE(cpu_iowait,0)"
+        "+COALESCE(cpu_irq,0)+COALESCE(cpu_softirq,0)+COALESCE(cpu_steal,0)"
+    ),
     "cpu.user_percent": "cpu_user",
     "cpu.system_percent": "cpu_system",
     "cpu.iowait_percent": "cpu_iowait",
@@ -146,12 +156,15 @@ _DATA_VOLUME_SQL_FILTER = "kind = 'data'"
 
 # 환경 시점값 capacity-weighted (시점별 sum(numerator)/sum(denominator) * 100). server_metrics 컬럼.
 # metric_trend 그룹2 — environment_utilization(mem)과 동일 capacity-weighted 정의(환경은 sum/sum).
-_ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str]] = {
-    "mem.usage_percent": ("mem_total_kb - mem_available_kb", "mem_total_kb"),
-    "mem.available_percent": ("mem_available_kb", "mem_total_kb"),
-    "mem.cached_percent": ("mem_cached_kb", "mem_total_kb"),
-    "mem.buffers_percent": ("mem_buffers_kb", "mem_total_kb"),
-    "swap.usage_percent": ("swap_total_kb - swap_free_kb", "swap_total_kb"),
+# 3-tuple (numerator, denominator, guard). guard = 분자 성분이 실측된 행만 집계에 포함(미측정 성분 null 을 0 으로
+# 삼키지 않음, #C2 값 의미론). Windows 는 mem_cached_kb/mem_buffers_kb 가 null(OS 미측정)이라 가드 없이 SUM 하면
+# COALESCE-to-0 가 "측정된 0%" 로 오도한다 -> environment_utilization 과 동일하게 IS NOT NULL 가드. 정적 상수 f-string 안전(#C5).
+_ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str, str]] = {
+    "mem.usage_percent": ("mem_total_kb - mem_available_kb", "mem_total_kb", "mem_total_kb > 0 AND mem_available_kb IS NOT NULL"),
+    "mem.available_percent": ("mem_available_kb", "mem_total_kb", "mem_total_kb > 0 AND mem_available_kb IS NOT NULL"),
+    "mem.cached_percent": ("mem_cached_kb", "mem_total_kb", "mem_total_kb > 0 AND mem_cached_kb IS NOT NULL"),
+    "mem.buffers_percent": ("mem_buffers_kb", "mem_total_kb", "mem_total_kb > 0 AND mem_buffers_kb IS NOT NULL"),
+    "swap.usage_percent": ("swap_total_kb - swap_free_kb", "swap_total_kb", "swap_total_kb IS NOT NULL AND swap_free_kb IS NOT NULL"),
 }
 
 # 물리 disk/iface 술어 — device kind 태그 기반. physical 만 집계(이중 집계 회피).

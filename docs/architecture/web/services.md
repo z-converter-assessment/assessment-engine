@@ -82,7 +82,7 @@ IP 필터 보류: `ip_internal`/`ip_external`은 평면 IP 목록만 발행돼(�
 UI badge 임계값(`mappers/shared.py` `_USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
 
 right-sizing 분류(6분류·판정 순서·합성 규칙·OS 분기·벤더 임계 출처)의 명세 단일 진실은 `docs/architecture/right-sizing.md`, 운영자 임계 카탈로그는 `right_sizing_thresholds.html`. web 계층 책임은 소비만 (P2/P4):
-- 분류 = `recommendation.assess(stats) -> Assessment`(`classify` 는 enum 호환 wrapper). mapper 권고(`_build_under_provisioned_reason`)·attention capacity 배지(`to_capacity_warning_item`)가 `assess.triggers` 를 재사용해 한국어 권고로 변환한다(임계 재계산 금지, stats 생성은 `build_resource_stats` 공용).
+- 분류 = `recommendation.assess(stats) -> Assessment`(`classify` 는 enum 호환 wrapper). mapper 권고(`_build_under_provisioned_reason`)·attention 자원 부족 카드(`to_capacity_warning_item`, 발화 원인 `active_causes`)·single_report 포화 축 카드(`_build_saturation_axes`)가 `assess.triggers`·os-aware helper 를 재사용해 한국어 표시로 변환한다(임계 재계산 금지, stats 생성은 `build_resource_stats` 공용).
 - `unmeasured` -> `is_partial`(=bool(unmeasured)) 을 ViewModel precompute, 템플릿이 "포화 수치 미관측" confidence 마커로 노출.
 
 ## 환경 개요 상단 요약 — environment_overview + attention
@@ -91,7 +91,7 @@ right-sizing 분류(6분류·판정 순서·합성 규칙·OS 분기·벤더 임
 
 | 시선 | service 메서드 | repo SQL | 시간 축 | 분류 |
 |------|----------------|----------|---------|------|
-| environment_overview | `get_dashboard_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(DASHBOARD_WINDOW_DAYS, end)` + `report_aggregate(DASHBOARD_WINDOW_DAYS)` + Redis online mget | 24h USE Method + 24h 평균 활용률 (capacity-weighted) | 자원 합계·역할 분포·활용률 도넛·프로비저닝 분포 도넛 + under_provisioned 호스트 (capacity — `to_capacity_warning_item`, trigger 5종 스왑·CPU·메모리·Load·디스크) |
+| environment_overview | `get_dashboard_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(DASHBOARD_WINDOW_DAYS, end)` + `report_aggregate(DASHBOARD_WINDOW_DAYS)` + Redis online mget | 24h USE Method + 24h 평균 활용률 (capacity-weighted) | 자원 합계·역할 분포·활용률 도넛·프로비저닝 분포 도넛 + under_provisioned 호스트 (capacity — `to_capacity_warning_item`, 발화 원인 `active_causes` os-neutral + 6축 os-aware metrics) |
 | attention.gap_warnings | `get_attention_signals` | `metric_gap_warnings(gap_min=5, recent_h=24)` 단일 SQL | 5min~24h 갭 (단기) | "한때 살아있다 끊김" |
 | attention.os_eol_warnings | `get_attention_signals` | `report_aggregate(DASHBOARD_WINDOW_DAYS)` raws + `resolve_os_eol`(endoflife.date 스냅샷, ADR 0031) | EOL 경과 한정 | 지원 종료 OS (Linux distro + Windows Server build) |
 | attention.agent_unstable | `get_attention_signals` | `agent_restart_counts_recent(since=now-1h)` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | restart_count >= `AGENT_RESTART_ALERT_THRESHOLD` |

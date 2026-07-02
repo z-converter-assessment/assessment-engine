@@ -32,6 +32,7 @@
       <dt>스왑 사용률</dt> <dd id="s-swap-pct">—</dd>
       <dt>스왑 Used</dt>   <dd id="s-swap-used">—</dd>
     </dl>
+    {% if server.os_family == 'windows' %}<p class="text-meta text-xs" style="margin:8px 0 0;">Windows 의 스왑(pagefile)은 여유 메모리가 있어도 상시 일정량 사용되므로, 사용률이 높아도 메모리 부족 신호 아님.</p>{% endif %}
     <p class="text-meta text-xs" style="margin:12px 0 0; line-height:1.8;">
       <span class="identifier text-label" style="display:inline-block; min-width:36px;">N/A</span>해당 OS 에서 미측정하는 항목<br>
       <span class="identifier text-label" style="display:inline-block; min-width:36px;">—</span>일시적으로 값 없음 (첫 수집·수집 끊김 등)

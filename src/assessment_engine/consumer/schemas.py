@@ -147,15 +147,18 @@ class InventoryInput(MessageBase):
 # ---------------------------------------------------------------------------
 
 
+# Windows 는 GetSystemTimes 로 user/system/idle 만 실측하고 nice/iowait/irq/softirq/steal 은 OS 개념 부재로
+# null 발행 (계약 값 의미론: null = 측정 불가). 8필드 모두 nullable — 하류(inbound DTO·mapper·DB model)는
+# 이미 int|None 이라 스키마만 완화하면 끝까지 정합. cpu_total 은 SQL COALESCE 성분 합으로 정규화(#C2).
 class CpuStat(BaseModel):
-    user: int = Field(ge=0)
-    nice: int = Field(ge=0)
-    system: int = Field(ge=0)
-    idle: int = Field(ge=0)
-    iowait: int = Field(ge=0)
-    irq: int = Field(ge=0)
-    softirq: int = Field(ge=0)
-    steal: int = Field(ge=0)
+    user: int | None = Field(default=None, ge=0)
+    nice: int | None = Field(default=None, ge=0)
+    system: int | None = Field(default=None, ge=0)
+    idle: int | None = Field(default=None, ge=0)
+    iowait: int | None = Field(default=None, ge=0)
+    irq: int | None = Field(default=None, ge=0)
+    softirq: int | None = Field(default=None, ge=0)
+    steal: int | None = Field(default=None, ge=0)
 
 
 class DiskIoInfo(BaseModel):
@@ -205,7 +208,8 @@ class SaturationInfo(BaseModel):
 
     disk_queue: 물리 디스크별 큐 깊이 배열 [{device, queue}] (Windows). 엔진이 per-device max 로 축약해 판정
     (디스크당 임계 — 합/정규화 불요). 빈 배열=신호 없음. Linux 는 iowait 사용이라 미발행.
-    cpu_run_queue: Processor Queue Length. mem_paging_rate: Pages/sec. (Windows 는 disk_queue 만 채우고 나머지 null)
+    cpu_run_queue: System\\Processor Queue Length gauge (엔진 run queue/core 판정).
+    mem_paging_rate: Memory Pages/sec 누적 counter (엔진이 delta/dt 로 rate 환산). 각 축은 perflib 못 읽으면 null.
     """
 
     disk_queue: list[DiskQueueEntry] | None = None

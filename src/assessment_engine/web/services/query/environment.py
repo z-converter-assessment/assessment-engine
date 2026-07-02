@@ -45,22 +45,6 @@ def _io_sum(snaps: list, *attrs: str) -> float | None:
 
 
 class EnvironmentQueryMixin(_BaseQueryServiceMixin):
-    async def get_environment_overview(self) -> EnvironmentOverview:
-        """list 화면 상단 환경 요약 — 총 N대·온라인/오프라인·자원 합계·역할 분포·평균 활용률·위험도 분포 (P2).
-
-        period_days는 보고서·right-sizing과 동일 윈도우 (AWS Compute Optimizer 표준).
-        """
-        now = datetime.now(UTC)
-        server_ids = await self.repo.list_server_ids()
-        if not server_ids:
-            return _empty_overview()
-        details = await self.repo.get_servers(server_ids)
-        util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS, end=now)
-        raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
-        await self._inject_net_baseline(raws_period, server_ids, recommendation.WINDOW_DAYS, now)
-        online_by_id = await self._online_map(server_ids, details, now)
-        return self._assemble_overview(details, util, raws_period, online_by_id)
-
     async def get_environment_realtime(self, server_ids: list[int] | None = None) -> EnvironmentRealtime:
         """list 화면 '환경 실시간 메트릭' 카드 — 각 서버 최신 스냅샷(get_latest_metric, Redis cache 우선) 집계.
 

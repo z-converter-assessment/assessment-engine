@@ -5,6 +5,7 @@
 """
 
 import json
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Literal
@@ -22,6 +23,76 @@ _SWAP_DANGER_PCT = 0.1  # 스왑 사용 자체가 이슈 — 0.1% 도 빨강 (JS
 # 보고서 view 분기 — 라우터 Pydantic Literal 정합 (#F3)
 ReportView = Literal["customer", "engineer"]
 
+# 자원 부족 원인 라벨 — trigger key -> os-neutral 축 이름 (단일 진실, P2). attention capacity 카드 active_causes·
+# environment_report 원인 집계 순서(_UNDER_CAUSE_ORDER = 본 dict 삽입순) 공유. Windows paging/run queue 포화도
+# 이 축 이름으로 잡혀 Linux swap/load 로 오라벨 0. dict 삽입순 = 표시·집계 순서.
+_CAUSE_LABEL_BY_TRIGGER: dict[str, str] = {
+    "cpu_util": "CPU 이용률",
+    "cpu_saturation": "CPU 포화",
+    "mem_util": "메모리 이용률",
+    "mem_saturation": "메모리 포화",
+    "disk_capacity": "디스크 용량",
+    "disk_io": "디스크 I/O",
+}
+
+
+@dataclass
+class SaturationAxisDisplay:
+    """os-aware 포화 축 표시 원자 — single_report 포화 축 카드·attention capacity 지표 공용 (P2 표현 단일 소스).
+
+    axis: os-neutral 축 이름(CPU 포화/메모리 포화/디스크 I/O). signal: 해당 OS 측정 신호 이름. value: 형식화
+    값('N/A'=미측정). threshold: 임계 표기. measured: 실측 여부. 포화 여부(bool)는 recommendation helper 별도 —
+    본 원자는 표시값만(포맷·라벨·임계 문자열을 한 곳에서 결정해 카드/표 간 표기 drift 차단).
+    """
+
+    axis: str
+    signal: str
+    value: str
+    threshold: str
+    measured: bool
+
+
+def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[SaturationAxisDisplay]:
+    """포화 3축(CPU·메모리·디스크 I/O) os-aware 표시값 — [cpu, mem, disk] 순 (report·attention 단일 진실, P2).
+
+    OS별 측정 신호·형식화·임계 표기를 한 곳에서 결정 — 판정(saturated bool)은 cpu_saturated/mem_saturated/
+    disk_io_saturated helper 몫(임계 재계산 없음). 값 스케일은 stats(=build_resource_stats) raw 그대로.
+    """
+    rec = recommendation
+    cores = stats.cpu_cores
+    if stats.os_family == "windows":
+        rq = stats.cpu_run_queue_p95 / cores if stats.cpu_run_queue_p95 is not None and cores else None
+        return [
+            SaturationAxisDisplay(
+                "CPU 포화", "Processor Queue Length / core",
+                f"{rq:.2f}" if rq is not None else "N/A",
+                f">= {rec.CPU_RUN_QUEUE_PER_CORE_SATURATION:g}", rq is not None,
+            ),
+            SaturationAxisDisplay(
+                "메모리 포화", "Memory Pages/sec p95",
+                f"{stats.mem_paging_rate_p95:.0f}/s" if stats.mem_paging_rate_p95 is not None else "N/A",
+                f">= {rec.MEM_PAGING_RATE_SATURATION:g}/s", stats.mem_paging_rate_p95 is not None,
+            ),
+            SaturationAxisDisplay(
+                "디스크 I/O", "Avg Disk Queue Length p95",
+                f"{stats.disk_queue_p95:.2f}" if stats.disk_queue_p95 is not None else "N/A",
+                f">= {rec.DISK_QUEUE_PER_DISK_SATURATION:g}", stats.disk_queue_p95 is not None,
+            ),
+        ]
+    ld = stats.cpu_load_15m_max / cores if stats.cpu_load_15m_max is not None and cores else None
+    return [
+        SaturationAxisDisplay(
+            "CPU 포화", "load avg / core", f"{ld:.2f}" if ld is not None else "N/A",
+            f">= {rec.CPU_SATURATION_LOAD_RATIO:g}", ld is not None,
+        ),
+        SaturationAxisDisplay("메모리 포화", "swap page-out", "발생" if stats.swap_used else "없음", "발생 시", True),
+        SaturationAxisDisplay(
+            "디스크 I/O", "iowait p95",
+            f"{stats.iowait_p95_pct:.1f}%" if stats.iowait_p95_pct is not None else "N/A",
+            f">= {rec.IOWAIT_UPSIZE_PCT:g}%", stats.iowait_p95_pct is not None,
+        ),
+    ]
+
 
 def build_confidence_notes(assessment: recommendation.Assessment) -> list[str]:
     """분류 confidence 단서 라벨 — is_partial(saturation 축 미관측) + low_sample(표본 부족) 통합 (원칙2, P2).
@@ -33,7 +104,9 @@ def build_confidence_notes(assessment: recommendation.Assessment) -> list[str]:
     if assessment.is_partial:
         notes.append("포화 수치 미관측")
     if assessment.low_sample:
-        notes.append("표본 부족")
+        # 접미구 명시 — 분류 라벨 "표본 부족"(insufficient_data, LABEL_KO)과의 문자열 충돌 방지.
+        # 여기 "표본 부족"은 분류가 아니라 이용률 p95 신뢰도 단서다 (참고자료 _thresholds_reference.html 동일 문구).
+        notes.append("표본 부족 — 이용률 신뢰도 낮음")
     return notes
 
 
@@ -237,12 +310,13 @@ def windows_legacy_version_from_build(kernel_version: str | None) -> str | None:
 
 
 def format_net_rate(kbps_total: float | None) -> str | None:
-    """환경 합산 네트워크 rate(kBps) -> 표시 문자열 — 실시간 현재 자원 현황·보고서 환경 현황 공용 단일 진실.
+    """환경 합산 네트워크 rate(kB/s) -> 표시 문자열 — 실시간 현재 자원 현황·보고서 환경 현황 공용 단일 진실.
 
-    1024 kBps 이상은 MBps 승급. None(표본 부재)은 None — 호출자가 placeholder 처리.
+    1024 kB/s 이상은 MB/s 승급. None(표본 부재)은 None — 호출자가 placeholder 처리.
+    단위 표기는 차트(chart-utils fmtKbChart)·참조 문서와 동일한 "kB/s"/"MB/s" 관습으로 통일.
     """
     if kbps_total is None:
         return None
     if kbps_total >= 1024:
-        return f"{kbps_total / 1024:.1f} MBps"
-    return f"{kbps_total:.1f} kBps"
+        return f"{kbps_total / 1024:.1f} MB/s"
+    return f"{kbps_total:.1f} kB/s"

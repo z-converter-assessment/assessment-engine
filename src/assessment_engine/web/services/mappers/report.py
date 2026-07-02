@@ -25,6 +25,7 @@ from assessment_engine.web.services.mappers.shared import (
     ReportView,
     build_confidence_notes,
     resolve_os_eol,
+    saturation_axis_displays,
 )
 from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb
 from assessment_engine.web.view_models.report import (
@@ -33,6 +34,7 @@ from assessment_engine.web.view_models.report import (
     ReportServiceUnit,
     ReportTotals,
     ReportWorkloadGroup,
+    SaturationAxis,
 )
 
 # ─── 위험도 매핑 — 양식 A KPI 3단계 압축 ────────────────────────────────
@@ -50,7 +52,6 @@ _RISK_FROM_RECOMMENDATION: dict[str, tuple[str, str, str]] = {
 }
 
 # 보고서 row 임계 — recommendation 도메인 상수 활용 + 보고서 표시 전용 임계.
-_SATURATION_BURST_RATIO = recommendation.CPU_SATURATION_LOAD_RATIO  # 1.0 — saturation 기준
 _VARIANCE_BURST_RATIO = 1.5  # peak/p95 >= 1.5 — variance burst 표시 (보고서 전용 임계)
 _REBOOT_UNSTABLE_COUNT = 3  # reboot_count >= 3 — Agent 불안정 신호 (#F10 attention 임계)
 
@@ -179,22 +180,25 @@ def build_report_summary_bullets(
             if top_cpu_avg >= recommendation.CPU_UPSIZE_P95_PCT:
                 bullets.append(f"{top_cpu_role} 계열 서버의 평균 CPU p95가 {top_cpu_avg:.0f}%로 높게 관찰됨.")
 
-        # Saturation — load_15m_max / cpu_cores 임계 초과 (saturated). 큐잉 이론 시그널 — 엔지니어용.
-        sat_hosts = [
-            f"{r.hostname}({r.saturation_ratio:.1f})"
-            for r in rows
-            if r.saturation_ratio is not None and r.saturation_ratio >= _SATURATION_BURST_RATIO
-        ]
-        if sat_hosts:
-            bullets.append(
-                f"Saturation {len(sat_hosts)}대 ({_top_phrase(sat_hosts)}) — load가 cpu_cores 초과. 처리 한계 신호."
-            )
+        # CPU 포화 — os-aware cpu_saturated(Linux load/cores / Windows run queue/cores). 분류 cpu_saturation trigger
+        # 와 동일 신호(임계 재계산 0)라 run queue 로 under_provisioned 분류된 Windows 호스트가 요약에서 누락되지
+        # 않는다(B1). build_resource_stats 필요 -> raws 있을 때만(disk_io bullet 와 동일 게이트).
+        if raws:
+            sat_hosts = [r.hostname for r in raws if recommendation.cpu_saturated(build_resource_stats(r))]
+            if sat_hosts:
+                bullets.append(
+                    f"CPU 포화 {len(sat_hosts)}대 ({_top_phrase(sat_hosts)}) — run queue/load 가 코어 처리 한계 초과."
+                )
 
-        # 변동성 큼 — cpu peak/p95 임계 초과. sizing 전략 시그널 — 엔지니어용.
+        # 변동성 큼 — cpu peak/p95 임계 초과 + peak 가 sizing 유의미 수준(downsize 헤드룸선 초과)일 때만.
+        # 미세값 지터(저부하 호스트) 오탐 방지 — _build_diagnosis 의 variance gate 와 동일 기준. sizing 전략 시그널.
         var_hosts = [
             r.hostname
             for r in rows
-            if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= _VARIANCE_BURST_RATIO
+            if r.cpu_variance_ratio is not None
+            and r.cpu_variance_ratio >= _VARIANCE_BURST_RATIO
+            and r.cpu_peak_pct is not None
+            and r.cpu_peak_pct > recommendation.CPU_DOWNSIZE_P95_PCT
         ]
         if var_hosts:
             bullets.append(
@@ -264,34 +268,57 @@ def _build_recommendation_action(assessment: recommendation.Assessment) -> str:
 
 
 def _build_diagnosis(
-    raw: ReportRowRaw, saturation: float | None, cpu_variance: float | None, mem_variance: float | None
+    raw: ReportRowRaw,
+    stats: recommendation.ResourceStats,
+    cpu_variance: float | None,
+    mem_variance: float | None,
 ) -> str:
     """saturation·variance·iowait·disk·swap·mem·cpu 종합 자동 진단 — 엔지니어 "진단" 칼럼.
 
+    saturation 3축은 os-aware helper 단일 진실 경유(assess 와 동일 신호) — Windows 도 CPU run queue·
+    메모리 페이징·디스크 큐로 진단된다(분류가 under 인데 진단이 "정상"으로 어긋나는 것 방지).
     우선순위 (가장 시급한 신호 1개 선택, 임계는 recommendation 상수·_VARIANCE_BURST_RATIO 단일 진실):
-    1. swap_used → "메모리 부족 (스왑 발생)" — paging 활성, 1차 강신호
+    1. mem_saturated (os-aware: Linux swap page-out / Windows Pages/sec) → "메모리 부족" — 1차 강신호
     2. disk_io_saturated (os-aware: Linux iowait_p95 / Windows Avg Disk Queue Length) → "디스크 I/O 병목"
-    3. saturation >= CPU_SATURATION_LOAD_RATIO → "CPU 포화"
+    3. cpu_saturated (os-aware: Linux load_15m/cores / Windows run queue/cores) → "CPU 포화"
     4. mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리 압박"
     5. cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU 압박"
-    6. cpu/mem variance >= _VARIANCE_BURST_RATIO → "부하 변동 큼"
-    7. cpu_p95 <= SHUTDOWN_CPU_P95_PCT → "거의 미사용"
-    8. cpu_p95 <= CPU_DOWNSIZE_P95_PCT and mem_p95 <= MEM_DOWNSIZE_P95_PCT → "여유 있음"
-    9. 그 외 → "정상"
+    6. worst_mount >= DISK_CAPACITY_UPSIZE_PCT → "디스크 용량 임박" (disk_capacity under 근거 노출)
+    7. cpu/mem variance >= _VARIANCE_BURST_RATIO AND peak 가 sizing 유의미 수준(downsize 헤드룸선 초과) → "부하 변동 큼"
+    8. cpu_p95 <= SHUTDOWN_CPU_P95_PCT → "거의 미사용"
+    9. cpu_p95 <= CPU_DOWNSIZE_P95_PCT and mem_p95 <= MEM_DOWNSIZE_P95_PCT → "여유 있음"
+    10. 그 외 → "정상"
     """
-    if recommendation.swap_saturation(raw.os_family, raw.swap_used):
-        return "메모리 부족 (스왑 발생)"
-    if recommendation.disk_io_saturated(build_resource_stats(raw)):
+    if recommendation.mem_saturated(stats):
+        return "메모리 부족 (페이징 과다)" if raw.os_family == "windows" else "메모리 부족 (스왑 발생)"
+    if recommendation.disk_io_saturated(stats):
         return "디스크 I/O 병목"
-    if saturation is not None and saturation >= recommendation.CPU_SATURATION_LOAD_RATIO:
+    if recommendation.cpu_saturated(stats):
         return "CPU 포화"
     if raw.mem_p95_pct is not None and raw.mem_p95_pct >= recommendation.MEM_UPSIZE_P95_PCT:
         return "메모리 압박"
     if raw.cpu_p95_pct is not None and raw.cpu_p95_pct >= recommendation.CPU_UPSIZE_P95_PCT:
         return "CPU 압박"
-    if (cpu_variance is not None and cpu_variance >= _VARIANCE_BURST_RATIO) or (
-        mem_variance is not None and mem_variance >= _VARIANCE_BURST_RATIO
-    ):
+    # 디스크 용량 임박 — worst mount >= 85%. assess 의 disk_capacity trigger 와 동일 축(임계 재계산 없음).
+    # 이 분기가 없으면 disk_capacity 단독 under 호스트(CPU/메모리 한가한 파일·백업 서버)가 진단에서
+    # "여유 있음"으로 새어 분류(자원 부족)·권고(디스크 증설)와 모순된다.
+    if raw.worst_mount_used_pct is not None and raw.worst_mount_used_pct >= recommendation.DISK_CAPACITY_UPSIZE_PCT:
+        return "디스크 용량 임박"
+    # 부하 변동 큼 — peak/p95 비율이 커도 peak 가 sizing 유의미 수준(downsize 헤드룸선 초과)일 때만 발화.
+    # 미세값 지터(예: peak 1.3%)의 큰 비율은 sizing 신호가 아니라 노이즈 — "거의 미사용"(7)을 가로채지 않게 gate.
+    cpu_burst = (
+        cpu_variance is not None
+        and cpu_variance >= _VARIANCE_BURST_RATIO
+        and raw.cpu_peak_pct is not None
+        and raw.cpu_peak_pct > recommendation.CPU_DOWNSIZE_P95_PCT
+    )
+    mem_burst = (
+        mem_variance is not None
+        and mem_variance >= _VARIANCE_BURST_RATIO
+        and raw.mem_peak_pct is not None
+        and raw.mem_peak_pct > recommendation.MEM_DOWNSIZE_P95_PCT
+    )
+    if cpu_burst or mem_burst:
         return "부하 변동 큼"
     if raw.cpu_p95_pct is not None and raw.cpu_p95_pct <= recommendation.SHUTDOWN_CPU_P95_PCT:
         return "거의 미사용"
@@ -309,7 +336,9 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
     """insufficient_data 호스트의 원인 순차 진단 — 진단 컬럼 단일 진실 (별도 카드 폐기, 호스트 권고 통합).
 
     1순위: 오프라인 — 에이전트 미가동 (메트릭 자연스러운 부재, root cause).
-    2순위: 온라인이나 메트릭 수집 누락 — 누락 메트릭 명시 (CPU·메모리·Load·iowait·디스크).
+    2순위: 온라인이나 메트릭 수집 누락 — 누락 메트릭 명시. saturation 축은 OS별 실측 축으로
+           (Linux Load·iowait / Windows run queue·디스크 큐). Windows 에 없는 loadavg·iowait 를
+           "누락"으로 나열하면 개념 부재를 수집 실패로 오도하므로 os-aware 로 구분.
     3순위: 모든 메트릭 있지만 표본 부족 (윈도우 미만).
     """
     if not is_online:
@@ -319,13 +348,42 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
         missing.append("CPU")
     if raw.mem_p95_pct is None:
         missing.append("메모리")
-    if raw.load_15m_max is None:
-        missing.append("Load")
-    if raw.iowait_p95_pct is None:
-        missing.append("iowait")
+    if raw.os_family == "windows":
+        if raw.cpu_run_queue_p95 is None:
+            missing.append("run queue")
+        if raw.disk_queue_p95 is None:
+            missing.append("디스크 큐")
+    else:
+        if raw.load_15m_max is None:
+            missing.append("Load")
+        if raw.iowait_p95_pct is None:
+            missing.append("iowait")
     if raw.worst_mount_used_pct is None:
         missing.append("디스크")
     return f"메트릭 수집 누락: {' · '.join(missing)}" if missing else "윈도우 내 표본 부족"
+
+
+def _build_saturation_axes(stats: recommendation.ResourceStats) -> list[SaturationAxis]:
+    """USE Saturation 3축 os-aware 평가 행 — single_report '포화 축 평가' 카드(P2/P3 precompute).
+
+    표시값(신호·값·임계)은 `shared.saturation_axis_displays` 단일 진실(attention capacity 지표와 공유 —
+    표기 drift 차단). 판정(포화/정상/미관측)은 os-aware helper 경유(임계 재계산 0): None=미관측.
+    """
+
+    def _st(sat: bool | None) -> tuple[str, str]:
+        if sat is None:
+            return "미관측", "text-meta"
+        return ("포화", "text-strong") if sat else ("정상", "")
+
+    sats = [
+        recommendation.cpu_saturated(stats),
+        recommendation.mem_saturated(stats),
+        recommendation.disk_io_saturated(stats),
+    ]
+    return [
+        SaturationAxis(d.axis, d.signal, d.value, d.threshold, *_st(sat))
+        for d, sat in zip(saturation_axis_displays(stats), sats, strict=True)
+    ]
 
 
 # ─── ReportRowRaw -> ReportRowItem (P2 단일 변환) ───
@@ -334,7 +392,7 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
 def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
     """ReportRowRaw -> USE Method ResourceStats — report·attention mapper 공용(단일 진실).
 
-    net baseline = server_net_io rx+tx 윈도우 평균(kBps). 둘 다 None 이면 None(idle/shutdown skip),
+    net baseline = server_net_io rx+tx 윈도우 평균(kB/s). 둘 다 None 이면 None(idle/shutdown skip),
     하나만 있으면 다른쪽 0. os_family 전달로 swap 축 OS 분기(P2). attention 의 capacity trigger 도
     동일 stats 로 recommendation.assess 를 타 임계 재계산 중복을 제거(assess.triggers 단일 진실).
     """
@@ -361,6 +419,9 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         sample_sufficiency=min(suffs) if suffs else None,
         # Windows 디스크 saturation — 가장 바쁜 디스크의 큐 p95 (disk_io_saturated os-aware 소비, 정규화 불요).
         disk_queue_p95=raw.disk_queue_p95,
+        # Windows CPU/Memory saturation — Processor Queue Length p95 / Pages/sec rate p95 (os-aware 소비).
+        cpu_run_queue_p95=raw.cpu_run_queue_p95,
+        mem_paging_rate_p95=raw.mem_paging_rate_p95,
     )
 
 
@@ -425,16 +486,12 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
     assessment = recommendation.assess(stats)  # 분류 + 근거(triggers) + 미관측 축 단일 평가
     workload_groups, service_units, listen_ports_detail = _build_workload_display(raw)
     rec = assessment.recommendation
-    is_partial = assessment.is_partial  # P4 — saturation 축 미관측(예: Windows load) confidence 단서
+    is_partial = assessment.is_partial  # P4 — saturation 축 미관측(예: Windows perflib 미발행) confidence 단서
     risk_level, risk_label, risk_badge_class = _RISK_FROM_RECOMMENDATION[rec]
     uptime_days: int | None = None
     if raw.boot_time is not None:
         delta = now - raw.boot_time
         uptime_days = max(0, int(delta.total_seconds() // 86400))
-
-    saturation = None
-    if raw.load_15m_max is not None and raw.cpu_cores and raw.cpu_cores > 0:
-        saturation = raw.load_15m_max / raw.cpu_cores
 
     cpu_variance = None
     if raw.cpu_p95_pct and raw.cpu_peak_pct and raw.cpu_p95_pct > 0:
@@ -486,7 +543,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         uptime_days=uptime_days,
         reboot_count=raw.reboot_count,
         agent_restart_count=raw.agent_restart_count,
-        saturation_ratio=saturation,
+        saturation_axes=_build_saturation_axes(stats),
         cpu_variance_ratio=cpu_variance,
         mem_variance_ratio=mem_variance,
         disk_iops_baseline=raw.disk_iops_baseline,
@@ -507,7 +564,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
             _build_insufficient_reason(raw, is_online)
             if rec == "insufficient_data"
             else (
-                ("" if is_online else "오프라인 · ") + _build_diagnosis(raw, saturation, cpu_variance, mem_variance)
+                ("" if is_online else "오프라인 · ") + _build_diagnosis(raw, stats, cpu_variance, mem_variance)
             )
         ),
         recommendation_action=_build_recommendation_action(assessment),

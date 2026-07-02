@@ -46,7 +46,12 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     CASE WHEN delta(cpu_total_ca) > 0
                          THEN GREATEST(0, delta(cpu_iowait_ca) / delta(cpu_total_ca) * 100)
                     END AS iowait_pct,
-                    mem_pct_avg, mem_pct_max, load_15m_max, swap_in_use, disk_queue_avg
+                    -- Windows Memory\\Pages/sec 는 누적 counter -> delta/time_delta 로 pages/sec rate 환산(S2).
+                    -- Linux 는 mem_paging_ca null -> null. cpu jiffies·disk/net bytes 와 동급 counter 처리.
+                    CASE WHEN time_delta(mem_paging_ca) > 0
+                         THEN GREATEST(0, delta(mem_paging_ca) / time_delta(mem_paging_ca))
+                    END AS mem_paging_rate,
+                    mem_pct_avg, mem_pct_max, load_15m_max, swap_in_use, disk_queue_avg, cpu_run_queue_avg
                 FROM server_metrics_5m
                 WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
             ),
@@ -58,7 +63,11 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     COUNT(cpu_pct) AS cpu_sample,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY iowait_pct) AS iowait_p95,
                     MAX(iowait_pct) AS iowait_peak,
-                    percentile_cont(0.95) WITHIN GROUP (ORDER BY disk_queue_avg) AS disk_queue_p95
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY disk_queue_avg) AS disk_queue_p95,
+                    -- Windows CPU saturation(Processor Queue Length gauge)·Memory saturation(pages/sec rate) p95.
+                    -- Linux 는 두 축 null -> percentile_cont 가 null 반환(load/swap 축 사용 유지).
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY cpu_run_queue_avg) AS cpu_run_queue_p95,
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY mem_paging_rate) AS mem_paging_rate_p95
                 FROM bkt GROUP BY server_id
             ),
             mem_stats AS (
@@ -103,6 +112,8 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 cs.iowait_p95   AS iowait_p95,
                 cs.iowait_peak  AS iowait_peak,
                 cs.disk_queue_p95 AS disk_queue_p95,
+                cs.cpu_run_queue_p95 AS cpu_run_queue_p95,
+                cs.mem_paging_rate_p95 AS mem_paging_rate_p95,
                 ms.mem_p95      AS mem_p95,
                 ms.mem_avg      AS mem_avg,
                 ms.mem_peak     AS mem_peak,
@@ -154,6 +165,8 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 iowait_p95_pct=r.iowait_p95,
                 iowait_peak_pct=r.iowait_peak,
                 disk_queue_p95=r.disk_queue_p95,
+                cpu_run_queue_p95=r.cpu_run_queue_p95,
+                mem_paging_rate_p95=r.mem_paging_rate_p95,
                 cpu_cores=r.cpu_cores,
                 mem_total_kb=r.mem_total_kb,
                 disks=r.disks,

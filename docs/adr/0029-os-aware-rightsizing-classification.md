@@ -13,6 +13,12 @@
 > - `assess` 판정 순서를 under(위험 신호 OR) -> idle -> shutdown -> insufficient_data -> over -> optimal 로 명시. under 가 idle/shutdown 보다 우선 — 본 ADR 의 "under = OR(누락 0)" 의도를 순서로 못 박는다. 기존 구현은 idle/shutdown 을 먼저 평가·return 해, CPU 낮고 스왑 중인 호스트(cpu_p95 <= 3% + swap)가 swap(under) 신호에 도달하기 전에 종료 권장으로 오분류됐다("누락 0" 위반). 위험 신호 수집을 idle/shutdown 앞으로 이동해 수정.
 > - 명세·임계·OS 분기·한계 단일 진실 문서 `docs/architecture/right-sizing.md` 신설 (CLAUDE.md 가 참조하던 공백을 메움). `_thresholds_reference.html` 판정 순서 표도 under=1 로 동기화.
 
+> 정정 (2026-07-02, Windows saturation 3축 os-aware 실측 — agent 계약 엄밀화 반영):
+> - agent 가 `saturation.{cpu_run_queue, mem_paging_rate, disk_queue}` 를 발행하게 되어 Windows 도 세 saturation 축을 실측한다. 본 ADR 의 "부분 평가" 전제(Windows loadavg·iowait OS 부재로 saturation 축 skip)가 os-aware 실측으로 해소됨. cpu_saturation·mem_saturation·disk_io 세 축 모두 전용 helper(`cpu_saturated`·`mem_saturated`·`disk_io_saturated`)로 OS별 신호 정규화: CPU=Linux load/cores>=1.0·Windows Processor Queue Length/cores>=2, 메모리=Linux swap page-out·Windows Pages/sec rate p95>=1000, 디스크=Linux iowait>=20%·Windows disk queue>=2.
+> - `swap_saturation` 은 Linux 전용 helper 로 유지하되, 메모리 포화 판정은 `mem_saturated` 가 os-aware 로 감싼다(Windows 는 pagefile 사용량 대신 페이징 rate). `unmeasured` 는 이제 "Windows 이므로"가 아니라 해당 perflib 미발행(예: virtio diskperf 미부착)인 축에만 기록.
+> - cpu_stat 은 Windows 에서 nice/iowait/irq/softirq/steal 을 null 발행(옛 "더미 0" 정정) — `CpuStat` nullable + cpu_total 성분 COALESCE 합 정규화(cagg·`compute_cpu`)로 Windows CPU% 실측. 이전엔 non-null 스키마라 Windows metrics 전량 DLQ 되던 blocking 결함도 해소.
+> - 남은 한계는 축 부재가 아니라 (a) Windows 메모리 페이징 절대 임계(1000 pages/sec)의 근거 취약(잠정·튜닝 대상) (b) perflib 미발행 축의 미관측 — `docs/tradeoffs.md` T14 갱신.
+
 ## Context
 
 ADR 0027 로 Windows agent 가 합류했다. agent 는 raw 값을 canonical(Linux `/proc` 모델)로 변환 발행하고 엔진은 OS 무관 단일 공식으로 계산한다(`docs/architecture/agent.md`). 그러나 right-sizing 분류(`recommendation.classify`)는 USE Method 임계를 OS 무관(OS-blind)으로 적용해 왔고, 이게 Windows 에서 두 가지 왜곡을 낳았다:

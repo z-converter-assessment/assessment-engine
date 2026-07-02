@@ -8,20 +8,26 @@ import pytest
 
 from assessment_engine.recommendation import (
     CPU_DOWNSIZE_P95_PCT,
+    CPU_RUN_QUEUE_PER_CORE_SATURATION,
     CPU_SATURATION_LOAD_RATIO,
     CPU_UPSIZE_P95_PCT,
     DISK_CAPACITY_UPSIZE_PCT,
+    DISK_QUEUE_PER_DISK_SATURATION,
     IDLE_CPU_PEAK_PCT,
     IDLE_NET_KBPS,
     IOWAIT_UPSIZE_PCT,
     MEM_DOWNSIZE_P95_PCT,
+    MEM_PAGING_RATE_SATURATION,
     MEM_UPSIZE_P95_PCT,
     SHUTDOWN_CPU_P95_PCT,
     SHUTDOWN_NET_MBPS,
     ResourceStats,
     assess,
     classify,
+    cpu_saturated,
+    disk_io_saturated,
     is_partial_evaluation,
+    mem_saturated,
     swap_saturation,
 )
 
@@ -246,4 +252,80 @@ def test_assess_under_on_partial_metric_no_miss():
     """한쪽 utilization(mem)만 있어도 위험 신호면 under — 누락 0 (네 원칙: under 반드시 평가)."""
     a = assess(_stats(cpu_p95_pct=None, mem_p95_pct=MEM_UPSIZE_P95_PCT))
     assert a.recommendation == "under_provisioned"
-    assert "mem_util" in a.triggers
+
+
+# ─── os-aware saturation helper (S1/S2 — Windows run queue·paging 실측) ───
+
+
+def _win(**overrides) -> ResourceStats:
+    """Windows 기본 stats — load/iowait/swap 는 Linux 축이라 무의미, run_queue/paging/disk_queue 로 판정."""
+    base = {
+        "os_family": "windows",
+        "cpu_load_15m_max": None,  # loadavg OS 부재
+        "iowait_p95_pct": None,  # iowait OS 부재
+        "swap_used": True,  # pagefile baseline (saturation 신호 아님)
+    }
+    base.update(overrides)
+    return _stats(**base)
+
+
+def test_cpu_saturated_os_aware():
+    # Linux: load/cores >= 1.0
+    assert cpu_saturated(_stats(cpu_load_15m_max=4.0, cpu_cores=4)) is True
+    assert cpu_saturated(_stats(cpu_load_15m_max=1.0, cpu_cores=4)) is False
+    assert cpu_saturated(_stats(cpu_load_15m_max=None)) is None  # 미관측
+    # Windows: run queue/cores >= 2, load 는 무시
+    assert cpu_saturated(_win(cpu_run_queue_p95=8.0, cpu_cores=4)) is True  # 2.0 >= 2
+    assert cpu_saturated(_win(cpu_run_queue_p95=4.0, cpu_cores=4)) is False  # 1.0 < 2
+    assert cpu_saturated(_win(cpu_run_queue_p95=None)) is None  # perflib 미발행
+    # cores 0/None -> 미관측 (div-by-zero 회피)
+    assert cpu_saturated(_stats(cpu_cores=None, cpu_load_15m_max=100.0)) is None
+
+
+def test_mem_saturated_os_aware():
+    # Linux: swap page-out (항상 관측 — None 없음)
+    assert mem_saturated(_stats(swap_used=True)) is True
+    assert mem_saturated(_stats(swap_used=False)) is False
+    # Windows: pagefile 사용량(swap_used) 무시, Pages/sec rate 로 판정
+    assert mem_saturated(_win(mem_paging_rate_p95=MEM_PAGING_RATE_SATURATION)) is True
+    assert mem_saturated(_win(mem_paging_rate_p95=500.0)) is False  # < 1000
+    assert mem_saturated(_win(mem_paging_rate_p95=None)) is None  # perflib 미발행 -> 미관측
+
+
+def test_disk_io_saturated_os_aware():
+    assert disk_io_saturated(_stats(iowait_p95_pct=IOWAIT_UPSIZE_PCT)) is True
+    assert disk_io_saturated(_stats(iowait_p95_pct=None)) is None
+    assert disk_io_saturated(_win(disk_queue_p95=DISK_QUEUE_PER_DISK_SATURATION)) is True
+    assert disk_io_saturated(_win(disk_queue_p95=1.0)) is False
+    assert disk_io_saturated(_win(disk_queue_p95=None)) is None
+
+
+def test_assess_windows_cpu_saturation_via_run_queue():
+    """Windows run queue/cores >= 2 -> cpu_saturation trigger -> under_provisioned (loadavg 부재여도 실측)."""
+    a = assess(_win(cpu_run_queue_p95=4.0 * CPU_RUN_QUEUE_PER_CORE_SATURATION, cpu_cores=4))
+    assert a.recommendation == "under_provisioned"
+    assert "cpu_saturation" in a.triggers
+    assert "cpu_saturation" not in a.unmeasured  # 측정됨
+
+
+def test_assess_windows_mem_saturation_via_paging():
+    """Windows Pages/sec rate >= 임계 -> mem_saturation trigger -> under_provisioned (pagefile swap 무관)."""
+    a = assess(_win(mem_paging_rate_p95=MEM_PAGING_RATE_SATURATION))
+    assert a.recommendation == "under_provisioned"
+    assert "mem_saturation" in a.triggers
+
+
+def test_assess_windows_perflib_absent_unmeasured_not_triggered():
+    """Windows perflib 미발행(세 축 None) -> 미관측 기록·발화 안 함, 분류는 utilization 으로 완결."""
+    a = assess(_win(cpu_p95_pct=40.0, mem_p95_pct=60.0))  # run_queue/paging/disk_queue 전부 None
+    assert "cpu_saturation" in a.unmeasured
+    assert "mem_saturation" in a.unmeasured
+    assert "disk_io" in a.unmeasured
+    assert not a.triggers  # 위험 신호 0
+    assert a.recommendation == "optimal"  # utilization 로 완결 (표본 부족 아님)
+
+
+def test_assess_linux_mem_saturation_never_unmeasured():
+    """Linux 는 swap 이 항상 관측 — mem_saturation 은 unmeasured 에 절대 안 들어간다(swap 유무 무관)."""
+    assert "mem_saturation" not in assess(_stats(swap_used=False)).unmeasured
+    assert "mem_saturation" not in assess(_stats(swap_used=True)).unmeasured

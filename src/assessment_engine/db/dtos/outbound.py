@@ -281,6 +281,10 @@ class ReportRowRaw:
     iowait_peak_pct: float | None = None
     # Windows 디스크 saturation — 물리 디스크 큐 깊이 p95 (Linux iowait 등가 축, os-aware 소비)
     disk_queue_p95: float | None = None
+    # Windows CPU saturation — Processor Queue Length p95 (Linux load 등가 축, os-aware 소비)
+    cpu_run_queue_p95: float | None = None
+    # Windows Memory saturation — Pages/sec rate p95 (Linux swap page-out 등가 축, os-aware 소비)
+    mem_paging_rate_p95: float | None = None
 
     # Inventory 합계 산정용 — query_service.get_report가 totals 계산 시 사용
     cpu_cores: int | None = None

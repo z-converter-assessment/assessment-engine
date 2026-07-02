@@ -173,8 +173,13 @@ def to_inventory_export_entry(
                 "p95_pct": stats.mem_p95_pct if stats else None,
                 "peak_pct": stats.mem_peak_pct if stats else None,
             },
+            # saturation raw 신호 — os-aware (분류 근거 가시성). Linux 는 load/swap/iowait, Windows 는
+            # run queue/paging/disk queue 축이 채워진다(반대 OS 축은 null = 미측정). 소비자가 채워진 축으로
+            # under_provisioned 근거를 확인. Windows 임계: run queue/cores>=2, Pages/sec>=1000, disk queue>=2.
             "load_15m_max": stats.load_15m_max if stats else None,
+            "cpu_run_queue_p95": stats.cpu_run_queue_p95 if stats else None,
             "swap_used": stats.swap_used if stats else False,
+            "mem_paging_rate_p95": stats.mem_paging_rate_p95 if stats else None,
             "disk_io": {
                 "iops_baseline": stats.disk_iops_baseline if stats else None,
                 "iops_p95": stats.disk_iops_p95 if stats else None,
@@ -182,6 +187,8 @@ def to_inventory_export_entry(
                 "throughput_kbps_baseline": stats.disk_throughput_kbps if stats else None,
                 "throughput_kbps_p95": stats.disk_throughput_kbps_p95 if stats else None,
                 "throughput_kbps_peak": stats.disk_throughput_kbps_peak if stats else None,
+                "iowait_p95_pct": stats.iowait_p95_pct if stats else None,
+                "queue_p95": stats.disk_queue_p95 if stats else None,
             },
             "network": {
                 "rx_kbps_baseline": stats.net_rx_kbps if stats else None,

@@ -24,8 +24,9 @@ const STORAGE_KBPS_SUGGESTED_MAX = 256;
 
 function kbps(kb) {
   if (kb == null) return '—';
-  if (kb >= 1024) return (kb / 1024).toFixed(1) + ' MBps';
-  return kb.toFixed(1) + ' kBps';
+  // 단위 표기 "kB/s"/"MB/s" 통일 (chart-utils·format_net_rate·detail/network 와 동일 관습).
+  if (kb >= 1024) return (kb / 1024).toFixed(1) + ' MB/s';
+  return kb.toFixed(1) + ' kB/s';
 }
 function iops(v) { return v == null ? '—' : v.toFixed(1) + ' IOPS'; }
 

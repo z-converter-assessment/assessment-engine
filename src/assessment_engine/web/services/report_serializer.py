@@ -27,7 +27,6 @@ from assessment_engine.web.view_models.attention import (
     AttentionRow,
     AttentionSignals,
     CapacityMetric,
-    CapacityTriggerBadge,
     CapacityWarningItem,
     EnvironmentOverview,
     RiskDonutSegment,
@@ -55,6 +54,7 @@ from assessment_engine.web.view_models.report import (
     ReportSummary,
     ReportTotals,
     ReportWorkloadGroup,
+    SaturationAxis,
 )
 from assessment_engine.web.view_models.server import IpAddr
 from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGroup, SubnetHost
@@ -88,9 +88,11 @@ def _report_row_from_dict(r: dict) -> ReportRowItem:
     data["workload_groups"] = [ReportWorkloadGroup(**g) for g in data.get("workload_groups") or []]
     data["service_units"] = [ReportServiceUnit(**u) for u in data.get("service_units") or []]
     data["listen_ports_detail"] = [ReportListenItem(**p) for p in data.get("listen_ports_detail") or []]
+    data["saturation_axes"] = [SaturationAxis(**a) for a in data.get("saturation_axes") or []]
     # 구 스냅샷 잔존 키 무시 (ReportRowItem(**data) 호환).
     for legacy in (
         "saturation_color",
+        "saturation_ratio",  # 폐기 — 구 스냅샷 dict 잔존 키 무시 (saturation_axes 로 대체)
         "cpu_variance_color",
         "mem_variance_color",
         "worst_mount_days_color",
@@ -213,6 +215,6 @@ def _attention_row_from_dict(d: dict) -> AttentionRow:
 
 def _capacity_warning_from_dict(d: dict) -> CapacityWarningItem:
     data = dict(d)
-    data["triggers"] = [CapacityTriggerBadge(**t) for t in data.get("triggers") or []]
+    # active_causes 는 list[str] — 스칼라라 별도 복원 불요. metrics 만 nested dataclass 복원.
     data["metrics"] = [CapacityMetric(**m) for m in data.get("metrics") or []]
     return CapacityWarningItem(**data)

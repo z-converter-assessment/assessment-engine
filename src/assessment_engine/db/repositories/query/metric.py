@@ -285,16 +285,17 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             params["window_start"] = start - bucket_td
             params["jitter_sec"] = BOOT_JITTER_SEC
         elif metric_type in _ENV_SCALAR_WEIGHTED:
-            num, den = _ENV_SCALAR_WEIGHTED[metric_type]
-            # swap_total=0(swap 미설정 VM)도 0-line 표시 — den=0 행 제외 시 swapless 서버
-            # 차트가 row 누락 → empty 표시(운영자 혼란)라 COALESCE 로 0% 환산.
-            # mem 은 mem_total>0 이라 영향 없음 (NULLIF 가드만 작동).
+            num, den, guard = _ENV_SCALAR_WEIGHTED[metric_type]
+            ratio = f"SUM({num})::float / NULLIF(SUM({den}), 0) * 100"
+            # swap 만 den=0(swap 미설정 VM)을 0% line 으로 표시 — den=0 행 제외 시 swapless 서버 차트가
+            # row 누락 → empty(운영자 혼란). mem 성분 null(Windows cached/buffers 미측정)은 COALESCE-to-0 로
+            # 삼키지 않고 guard(IS NOT NULL)로 제외 → gap 표시(측정 0 vs 미측정 구분, cpu iowait 분기와 대칭, #C2·A1).
+            v_expr = f"COALESCE({ratio}, 0)" if metric_type == "swap.usage_percent" else ratio
             sql = text(f"""
                 WITH per_ts AS (
-                    SELECT collected_at,
-                        COALESCE(SUM({num})::float / NULLIF(SUM({den}), 0) * 100, 0) AS v
+                    SELECT collected_at, {v_expr} AS v
                     FROM {ServerMetrics.__tablename__}
-                    WHERE collected_at >= :start AND collected_at <= :end {sid}
+                    WHERE collected_at >= :start AND collected_at <= :end {sid} AND {guard}
                     GROUP BY collected_at
                 )
                 SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind

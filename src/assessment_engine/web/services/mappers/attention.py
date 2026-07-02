@@ -19,17 +19,18 @@ from assessment_engine.web.services.mappers.report import (
 )
 from assessment_engine.web.services.mappers.server import workload_category_counter
 from assessment_engine.web.services.mappers.shared import (
+    _CAUSE_LABEL_BY_TRIGGER,
     _DONUT_SEGMENT_DEFS,
     UTIL_GAUGE_COLOR,
     build_confidence_notes,
     format_net_rate,
     resolve_os_eol,
+    saturation_axis_displays,
 )
 from assessment_engine.web.services.unit_converter import bytes_to_gb
 from assessment_engine.web.view_models.attention import (
     AttentionRow,
     CapacityMetric,
-    CapacityTriggerBadge,
     CapacityWarningItem,
     EnvironmentOverview,
     EnvironmentRealtime,
@@ -53,26 +54,12 @@ _UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재 (회색)
 # 도넛 SVG 원주 — r=42, 2*pi*r ≈ 263.89. pct 0~100을 0~_UTIL_DONUT_CIRC로 매핑.
 _UTIL_DONUT_CIRC = 263.89
 
-# capacity trigger 5종 색 — hue 명확 분리. 본문 badge와 범례 단일 진실.
-# USE Method classify 입력과 1:1 정합 — swap/CPU util/mem util/load(cpu sat)/disk capacity/iowait(disk IO sat).
-_CAPACITY_TRIGGER_COLORS: dict[str, str] = {
-    "스왑": "#dc2626",  # 빨강 — 메모리 saturation (paging 발생)
-    "CPU": "#2563eb",  # 파랑 — CPU utilization 임계 초과
-    "메모리": "#8b5cf6",  # 보라 — 메모리 utilization 임계 초과
-    "Load": "#ea580c",  # 주황 — CPU saturation (load_15m / cores >= 1.0)
-    "디스크": "#0891b2",  # 청록 — disk capacity 또는 IO saturation (iowait)
-}
-
-# inactive trigger badge 톤 — active 색은 위 dict, inactive는 본 상수.
-_CAPACITY_TRIGGER_INACTIVE_BG = "#f8fafc"
-_CAPACITY_TRIGGER_INACTIVE_FG = "#cbd5e1"
-
 # 자원 부족 카드 지표 값 색 — 위반 강조 / 정상 / 미관측(N/A) 흐림 3분기.
 # 위반은 빨강 대신 가장 진한 무채(#0f172a) + 굵기·배경(템플릿 .metric-val-active)으로 강조 — 테마(파랑·회색) 무오염.
 # 정상은 중간 회색(#475569)으로 위반과 진하기 대비. 색이 아니라 진하기·굵기·배경으로 위반을 부각.
 _METRIC_VIOLATION_COLOR = "#0f172a"
 _METRIC_NORMAL_COLOR = "#475569"
-_METRIC_UNMEASURED_COLOR = "#94a3b8"  # 미관측(N/A) 흐림 — Windows load 등 OS 부재 축
+_METRIC_UNMEASURED_COLOR = "#94a3b8"  # 미관측(N/A) 흐림 — Windows perflib 미발행 축 등
 
 
 def _pct(v: float | None) -> str:
@@ -378,57 +365,45 @@ def build_environment_realtime(
 def to_capacity_warning_item(raw):
     """ReportRowRaw -> CapacityWarningItem. caller가 under_provisioned 필터링 후 호출.
 
-    triggers list — USE Method 5종(스왑/CPU/메모리/Load/디스크) 항상 포함, active 분기.
-    active 판정은 recommendation.assess(triggers) 단일 진실 — 임계 재계산 없이 hit 한 trigger 키를
-    매핑(drift 방지). 디스크 = capacity 또는 IO 포화. 비활성 trigger 도 list 포함(시각 일관 — 5종 자원 추적).
-    swap 은 Windows pagefile 제외(assess 내부 swap_saturation, P2).
+    active_causes — 발화 trigger 의 os-neutral 원인 라벨(assess.triggers 파생, 고정 순서). 환경 요약 원인
+    집계(_under_cause_summary)의 단일 소스. active 판정은 recommendation.assess(triggers) 단일 진실 — 임계
+    재계산 없이 hit 한 trigger 키를 매핑(drift 방지). saturation 3축(CPU·메모리·디스크 I/O)은 assess 내부
+    os-aware helper 로 판정 — 메모리 포화는 Linux swap page-out / Windows Pages/sec rate, CPU 포화는 Linux
+    load / Windows run queue (P2). 지표 라벨은 os-neutral 축 이름, 값·measured 는 os-aware.
     """
-    assessment = recommendation.assess(build_resource_stats(raw))
+    stats = build_resource_stats(raw)
+    assessment = recommendation.assess(stats)
     hit = set(assessment.triggers)
     swap_active = "mem_saturation" in hit
     cpu_active = "cpu_util" in hit
     mem_active = "mem_util" in hit
     load_active = "cpu_saturation" in hit
-    disk_active = "disk_capacity" in hit or "disk_io" in hit
+    # 원인 라벨 — trigger key 를 os-neutral 축 이름으로(고정 순서, _CAUSE_LABEL_BY_TRIGGER dict 삽입순 = 표시순).
+    active_causes = [lbl for key, lbl in _CAUSE_LABEL_BY_TRIGGER.items() if key in hit]
 
-    def _badge(label: str, active: bool) -> CapacityTriggerBadge:
-        color = _CAPACITY_TRIGGER_COLORS[label]
-        if active:
-            bg, fg = color, "#fff"
-        else:
-            bg, fg = _CAPACITY_TRIGGER_INACTIVE_BG, _CAPACITY_TRIGGER_INACTIVE_FG
-        return CapacityTriggerBadge(label=label, color=color, active=active, bg_color=bg, fg_color=fg)
-
-    triggers = [
-        _badge("스왑", swap_active),
-        _badge("CPU", cpu_active),
-        _badge("메모리", mem_active),
-        _badge("Load", load_active),
-        _badge("디스크", disk_active),
-    ]
-
-    # 카드 지표 — 판단 6축 전부 노출. 미관측 축(예: Windows CPU run queue=load)은 "N/A" 흐림 placeholder, active 만 강조 (disk_io 는 Windows disk queue 로 측정).
-    # hit 재사용(임계 재계산 0). 발화 trigger 는 항상 measured(값 있어야 임계 비교).
-    load_ratio = raw.load_15m_max / raw.cpu_cores if raw.load_15m_max is not None and raw.cpu_cores else None
-    load_value = f"{load_ratio:.2f}" if load_ratio is not None else "N/A"
+    # 카드 지표 — 판단 6축 전부 노출. saturation 3축(CPU·메모리·디스크 I/O) 표시값·라벨은 os-aware 이나
+    # `shared.saturation_axis_displays` 단일 진실 경유 — single_report 포화 축 카드와 표기 공유(drift 차단, P2).
+    # 라벨은 OS 중립 축 이름(공유 테이블 헤더가 혼합 OS 행에 유효, C-E1), 값·measured 만 os-aware(M1).
+    # active 는 hit(assess.triggers) 재사용(임계 재계산 0). d_cpu/d_mem/d_disk = [cpu, mem, disk] 순.
+    d_cpu, d_mem, d_disk = saturation_axis_displays(stats)
     metrics = [
         _metric("CPU p95", _pct(raw.cpu_p95_pct), cpu_active, raw.cpu_p95_pct is not None),
         _metric("메모리 p95", _pct(raw.mem_p95_pct), mem_active, raw.mem_p95_pct is not None),
-        _metric("스왑", "발생" if raw.swap_used else "없음", swap_active, True),
-        _metric("Load/core", load_value, load_active, load_ratio is not None),
+        _metric(d_mem.axis, d_mem.value, swap_active, d_mem.measured),
+        _metric(d_cpu.axis, d_cpu.value, load_active, d_cpu.measured),
         _metric("디스크", _pct(raw.worst_mount_used_pct), "disk_capacity" in hit, raw.worst_mount_used_pct is not None),
-        _metric("iowait", _pct(raw.iowait_p95_pct), "disk_io" in hit, raw.iowait_p95_pct is not None),
+        _metric(d_disk.axis, d_disk.value, "disk_io" in hit, d_disk.measured),
     ]
     # 상위 N 절단용 심각도 — swap(paging) 최우선 > 위반 자원 수 > 최고 활용률(CPU/메모리/디스크 max).
     # 가중치 자릿수 분리(swap 1e4 > active*100(max 500) > util(max 100))로 우선순위 충돌 없음.
     util_vals = [v for v in (raw.cpu_p95_pct, raw.mem_p95_pct, raw.worst_mount_used_pct) if v is not None]
     peak_util = max(util_vals) if util_vals else 0.0
-    active_count = sum([swap_active, cpu_active, mem_active, load_active, disk_active])
-    severity_score = (10000.0 if swap_active else 0.0) + active_count * 100.0 + peak_util
+    # 심각도 = 메모리 포화(page-out/paging) 최우선 > 발화 원인 수 > 최고 활용률. 자릿수 분리로 우선순위 충돌 없음.
+    severity_score = (10000.0 if swap_active else 0.0) + len(active_causes) * 100.0 + peak_util
     return CapacityWarningItem(
         public_id=raw.public_id,
         hostname=raw.hostname,
-        triggers=triggers,
+        active_causes=active_causes,
         # 워크로드 카테고리 카운트 — role_distribution 과 동일 단일 진실 (services 이름 ∪ listen 소켓).
         services=dict(workload_category_counter(raw.services, raw.listen_ports)),
         metrics=metrics,

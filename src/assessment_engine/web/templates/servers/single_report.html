@@ -111,6 +111,30 @@
   </table>
 </section>
 
+{# USE Saturation 3축 os-aware 평가 — 위 진단·권고의 근거 수치. 축은 항상 3행 노출(E9). #}
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">포화 축 평가 (USE Saturation)</h2>
+  <div class="table-scroll">
+  <table class="detail-table" style="min-width:480px;">
+    <thead>
+      <tr><th>축</th><th>측정 신호</th><th style="text-align:right;">값 (p95)</th><th style="text-align:right;">임계</th><th>판정</th></tr>
+    </thead>
+    <tbody>
+      {% for ax in r.saturation_axes %}
+      <tr>
+        <td>{{ ax.axis }}</td>
+        <td class="text-meta">{{ ax.signal }}</td>
+        <td style="text-align:right;">{{ ax.value }}</td>
+        <td style="text-align:right;" class="text-meta">{{ ax.threshold }}</td>
+        <td class="{{ ax.status_class }}">{{ ax.status }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="text-meta text-xs" style="margin:8px 0 0;">USE Method Saturation 축 — OS별 측정 신호가 다르다(Linux load·swap·iowait / Windows run queue·paging·disk queue). "미관측"은 해당 카운터 미발행(perflib/diskperf 미부착)으로, 분류는 나머지 축·이용률로 완결. 임계 근거는 참고자료.</p>
+</section>
+
 {# 발화 가능 정보 항상 노출(E9). #}
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">운영·안정성</h2>
@@ -240,7 +264,7 @@
         <td style="text-align:right;">{% if r.cpu_peak_pct is not none %}{{ "%.1f"|format(r.cpu_peak_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if cb and cb.user_pct is not none %}{{ "%.1f"|format(cb.user_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if cb and cb.system_pct is not none %}{{ "%.1f"|format(cb.system_pct) }}%{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if cb and cb.iowait_pct is not none %}{{ "%.1f"|format(cb.iowait_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif cb and cb.iowait_pct is not none %}{{ "%.1f"|format(cb.iowait_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif r.load_15m_max is not none %}{{ "%.2f"|format(r.load_15m_max) }}{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif r.iowait_p95_pct is not none %}{{ "%.1f"|format(r.iowait_p95_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif r.iowait_peak_pct is not none %}{{ "%.1f"|format(r.iowait_peak_pct) }}%{% else %}—{% endif %}</td>
@@ -273,8 +297,8 @@
         <td style="text-align:right;">{% if r.mem_peak_pct is not none %}{{ "%.1f"|format(r.mem_peak_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if mb and mb.used_pct is not none %}{{ "%.1f"|format(mb.used_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if mb and mb.available_pct is not none %}{{ "%.1f"|format(mb.available_pct) }}%{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if mb and mb.cached_pct is not none %}{{ "%.1f"|format(mb.cached_pct) }}%{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if mb and mb.buffers_pct is not none %}{{ "%.1f"|format(mb.buffers_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif mb and mb.cached_pct is not none %}{{ "%.1f"|format(mb.cached_pct) }}%{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif mb and mb.buffers_pct is not none %}{{ "%.1f"|format(mb.buffers_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif r.swap_used %}발생{% else %}—{% endif %}</td>
       </tr>
     </tbody>
@@ -303,9 +327,9 @@
         <td style="text-align:right;">{% if r.disk_iops_baseline is not none %}{{ r.disk_iops_baseline }}{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.disk_iops_p95 is not none %}{{ "%.0f"|format(r.disk_iops_p95) }}{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.disk_iops_peak is not none %}{{ "%.0f"|format(r.disk_iops_peak) }}{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if r.disk_throughput_kbps is not none %}{{ "%.0f"|format(r.disk_throughput_kbps) }} kBps{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if r.disk_throughput_kbps_p95 is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_p95) }} kBps{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if r.disk_throughput_kbps_peak is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_peak) }} kBps{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.disk_throughput_kbps is not none %}{{ "%.0f"|format(r.disk_throughput_kbps) }} kB/s{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.disk_throughput_kbps_p95 is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_p95) }} kB/s{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.disk_throughput_kbps_peak is not none %}{{ "%.0f"|format(r.disk_throughput_kbps_peak) }} kB/s{% else %}—{% endif %}</td>
       </tr>
     </tbody>
   </table>
@@ -345,12 +369,12 @@
     </thead>
     <tbody>
       <tr>
-        <td style="text-align:right;">{% if r.net_rx_kbps is not none %}{{ "%.0f"|format(r.net_rx_kbps) }} kBps{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if r.net_rx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_rx_kbps_p95) }} kBps{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if r.net_rx_kbps_peak is not none %}{{ "%.0f"|format(r.net_rx_kbps_peak) }} kBps{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if r.net_tx_kbps is not none %}{{ "%.0f"|format(r.net_tx_kbps) }} kBps{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if r.net_tx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_tx_kbps_p95) }} kBps{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if r.net_tx_kbps_peak is not none %}{{ "%.0f"|format(r.net_tx_kbps_peak) }} kBps{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.net_rx_kbps is not none %}{{ "%.0f"|format(r.net_rx_kbps) }} kB/s{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.net_rx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_rx_kbps_p95) }} kB/s{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.net_rx_kbps_peak is not none %}{{ "%.0f"|format(r.net_rx_kbps_peak) }} kB/s{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.net_tx_kbps is not none %}{{ "%.0f"|format(r.net_tx_kbps) }} kB/s{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.net_tx_kbps_p95 is not none %}{{ "%.0f"|format(r.net_tx_kbps_p95) }} kB/s{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.net_tx_kbps_peak is not none %}{{ "%.0f"|format(r.net_tx_kbps_peak) }} kB/s{% else %}—{% endif %}</td>
       </tr>
     </tbody>
   </table>

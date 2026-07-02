@@ -21,8 +21,9 @@ const NET_Y_SUGGESTED_MAX = 2048; // B/s ≈ 2 kB/s
 
 function fmtKbps(v) {
   if (v == null) return '—';
-  if (v >= 1024) return (v / 1024).toFixed(1) + ' MBps';
-  return v.toFixed(1) + ' kBps';
+  // 단위 표기 "kB/s"/"MB/s" — 차트(fmtKbChart)·SSR(format_net_rate)와 통일.
+  if (v >= 1024) return (v / 1024).toFixed(1) + ' MB/s';
+  return v.toFixed(1) + ' kB/s';
 }
 function fmtPps(v) { return v != null ? v.toFixed(1) + ' pps' : '—'; }
 

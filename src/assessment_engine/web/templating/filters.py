@@ -39,11 +39,12 @@ def disksize_styled(gb: float | None) -> Markup:
 
 
 def kbps(kb: float | None) -> str:
+    # 단위 표기 "kB/s"/"MB/s" — 차트(fmtKbChart·fmtThroughput)·format_net_rate 와 통일.
     if kb is None:
         return "—"
     if kb >= 1024:
-        return f"{round(kb / 1024, 1)} MBps"
-    return f"{kb} kBps"
+        return f"{round(kb / 1024, 1)} MB/s"
+    return f"{kb} kB/s"
 
 
 def or_dash(value: object) -> str:

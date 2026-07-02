@@ -146,6 +146,50 @@ def test_compute_cpu_normal_when_only_agent_restart():
     assert snap.usage_pct is not None  # 정상 계산
 
 
+def _win_cpu_pair(t: datetime, user, system, idle) -> MetricPairRaw:
+    """Windows cpu_stat — nice/iowait/irq/softirq/steal 은 OS 개념 부재로 None (#C1)."""
+    return MetricPairRaw(
+        collected_at=t,
+        cpu_user=user,
+        cpu_nice=None,
+        cpu_system=system,
+        cpu_idle=idle,
+        cpu_iowait=None,
+        cpu_irq=None,
+        cpu_softirq=None,
+        cpu_steal=None,
+        mem_total_kb=None,
+        mem_free_kb=None,
+        mem_available_kb=None,
+        mem_buffers_kb=None,
+        mem_cached_kb=None,
+        swap_total_kb=None,
+        swap_free_kb=None,
+        load_1m=None,
+        load_5m=None,
+        load_15m=None,
+        boot_time=None,
+        agent_started_at=None,
+    )
+
+
+def test_compute_cpu_windows_coalesce_null_components():
+    """Windows nice/iowait/... None 이어도 cpu_total = user+system+idle COALESCE 합으로 CPU% 실측(#C2/C3).
+
+    성분 하나가 None 이라고 total 을 None 으로 만들면 Windows CPU 가 항상 N/A 가 된다.
+    user 100->300(Δ200), system 50->150(Δ100), idle 900->1500(Δ600). total Δ900. usage=100-(600/900*100)≈33.3.
+    iowait 는 None 이라 iowait_pct 는 None(N/A 보존).
+    """
+    t1 = datetime.now(UTC)
+    prev = _win_cpu_pair(t1, 100, 50, 900)
+    cur = _win_cpu_pair(t1 + timedelta(seconds=60), 300, 150, 1500)
+    snap = compute_cpu(cur, prev)
+    assert snap is not None
+    assert snap.usage_pct == pytest.approx(33.3, abs=0.1)  # null 전파로 N/A 되지 않음
+    assert snap.user_pct == pytest.approx(200 / 900 * 100, abs=0.1)
+    assert snap.iowait_pct is None  # Windows iowait 미측정 보존
+
+
 # ─── is_counter_reset helper (assessment_engine.boot_time) ─────────────────
 
 
@@ -214,29 +258,28 @@ def test_compute_mem_clips_cached_when_overflow():
 # ─── compute_swap ─────────────────────────────────────────────────────────
 
 
-def test_compute_swap_returns_none_when_total_zero():
-    pair = MetricPairRaw(
+def _swap_pair(swap_total_kb, swap_free_kb) -> MetricPairRaw:
+    return MetricPairRaw(
         collected_at=datetime.now(UTC),
-        cpu_user=0,
-        cpu_nice=0,
-        cpu_system=0,
-        cpu_idle=0,
-        cpu_iowait=0,
-        cpu_irq=0,
-        cpu_softirq=0,
-        cpu_steal=0,
-        mem_total_kb=None,
-        mem_free_kb=None,
-        mem_available_kb=None,
-        mem_buffers_kb=None,
-        mem_cached_kb=None,
-        swap_total_kb=0,
-        swap_free_kb=0,
-        load_1m=None,
-        load_5m=None,
-        load_15m=None,
+        cpu_user=0, cpu_nice=0, cpu_system=0, cpu_idle=0,
+        cpu_iowait=0, cpu_irq=0, cpu_softirq=0, cpu_steal=0,
+        mem_total_kb=None, mem_free_kb=None, mem_available_kb=None,
+        mem_buffers_kb=None, mem_cached_kb=None,
+        swap_total_kb=swap_total_kb, swap_free_kb=swap_free_kb,
+        load_1m=None, load_5m=None, load_15m=None,
     )
-    assert compute_swap(pair) is None
+
+
+def test_compute_swap_swapless_returns_zero_not_none():
+    """swap_total=0(swapless, 측정된 사실) -> 0% (미수집 None 과 구분, 차트 0-line 과 통일, #C2)."""
+    snap = compute_swap(_swap_pair(0, 0))
+    assert snap is not None
+    assert snap.usage_pct == 0.0 and snap.used_kb == 0 and snap.total_kb == 0
+
+
+def test_compute_swap_none_when_total_uncollected():
+    """swap_total=None(미수집)만 None -> 표시 '—' (일시적 값 없음)."""
+    assert compute_swap(_swap_pair(None, None)) is None
 
 
 # ─── compute_disk_io ──────────────────────────────────────────────────────

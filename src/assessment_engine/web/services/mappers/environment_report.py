@@ -13,6 +13,7 @@ from assessment_engine.db.dtos.outbound import ServerDetail
 from assessment_engine.service_classifier import SERVICE_CATEGORIES, SINGLE_INSTANCE_CATEGORIES
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
+    _CAUSE_LABEL_BY_TRIGGER,
     DIAGNOSTIC_RANGE_LABEL_KR,
     OS_FAMILY_LABEL_KO,
     RISK_LEVEL_ORDER,
@@ -355,21 +356,21 @@ def _extract_capacity_imminent(rows: list[ReportRowItem]) -> list[CapacityImmine
     return out
 
 
-# 자원 부족 trigger badge 정의 순서(스왑·CPU·메모리·Load·디스크, attention.to_capacity_warning_item) 보존 — 요약 표시 안정화.
-_UNDER_CAUSE_ORDER = ("스왑", "CPU", "메모리", "Load", "디스크")
+# 자원 부족 원인 표시 순서 — shared._CAUSE_LABEL_BY_TRIGGER 삽입순 파생(단일 진실, 병렬 리터럴 목록 제거).
+_UNDER_CAUSE_ORDER = tuple(_CAUSE_LABEL_BY_TRIGGER.values())
 
 
 def _under_cause_summary(under_hosts: list[CapacityWarningItem]) -> str:
-    """자원 부족 호스트들의 active trigger 를 원인별 집계 -> "스왑 2대 · CPU 1대".
+    """자원 부족 호스트들의 발화 원인을 집계 -> "메모리 포화 2대 · CPU 이용률 1대".
 
-    원인 라벨은 CapacityTriggerBadge.label 단일 진실 재사용 (요약 전용 매핑 신설 안 함, P2).
-    한 호스트가 복수 원인이면 각 원인에 1대씩 누적 — 합이 자원 부족 대수보다 클 수 있음(원인 가시화 목적).
+    원인 라벨은 CapacityWarningItem.active_causes(os-neutral 축 이름, attention._CAUSE_LABEL_BY_TRIGGER 단일 진실)
+    재사용 — Windows paging/run queue 포화도 Linux swap/load 로 오라벨 없이 정확히 집계(P2). 한 호스트가 복수
+    원인이면 각 원인에 1대씩 누적 — 합이 자원 부족 대수보다 클 수 있음(원인 가시화 목적).
     """
     counts: dict[str, int] = {}
     for h in under_hosts:
-        for t in h.triggers:
-            if t.active:
-                counts[t.label] = counts.get(t.label, 0) + 1
+        for cause in h.active_causes:
+            counts[cause] = counts.get(cause, 0) + 1
     return " · ".join(f"{lbl} {counts[lbl]}대" for lbl in _UNDER_CAUSE_ORDER if lbl in counts)
 
 

@@ -65,7 +65,7 @@ def _filter_attention(attention: AttentionSignals, hostnames: set[str]) -> Atten
 
 
 def _empty_overview() -> EnvironmentOverview:
-    """등록 서버 0대 — 빈 환경 요약 (단건 get_environment_overview · 대시보드 묶음 공유)."""
+    """등록 서버 0대 — 빈 환경 요약 (get_dashboard_overview · get_environment_assessment 공유)."""
     return EnvironmentOverview(
         total=0,
         online=0,

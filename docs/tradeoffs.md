@@ -392,22 +392,23 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 - 환경 진단 결과 페이지 첫 표시 느림 운영자 불만 시 → 보고서 페이지 server-side 캐시 또는 lazy fetch 전환.
 - 보고서 snapshot 필요 운영 요구 시 → `result` JSONB 에 합성 결과 저장 + size 모니터링.
 
-## T14. Windows 부분 평가 — CPU run queue 축 OS 부재 (ADR 0029)
+## T14. Windows saturation 임계 근거 비대칭 + perflib 의존 (ADR 0029)
 
-right-sizing 분류는 USE Method 의 Utilization + Saturation 두 축을 본다. Windows 는 saturation 축 중 CPU run queue(loadavg) 만 OS 부재라 못 본다 — 디스크 IO 포화는 Avg Disk Queue Length(디스크당 큐 >= 2)로 측정하고(cpu iowait 는 canonical 0이라 미사용, disk queue 로 대체), swap 은 pagefile baseline 이라 saturation 아님(P2 의도 제외). 즉 Windows 도 utilization·disk 포화·capacity 로 분류하되 CPU run queue 축만 빠진다.
+right-sizing 분류는 USE Method 의 Utilization + Saturation 두 축을 본다. saturation 3축 모두 OS별 실측 신호로 정규화된다(os-aware helper 단일 진실) — CPU 포화는 Linux loadavg / Windows Processor Queue Length, 메모리 포화는 Linux swap page-out / Windows Memory Pages/sec rate, 디스크 IO 포화는 Linux iowait / Windows Avg Disk Queue Length. Windows 도 세 포화 축을 실측하되, 신호원과 임계 근거의 성숙도가 다르다.
 
-- 포기한 것:
-  - Windows 의 CPU run queue 포화를 분류로 못 잡는다 — CPU utilization 은 낮은데 run queue 만 쌓이는 케이스를 놓칠 수 있음. 보고서는 "포화 수치 미관측" confidence 단서로 한계를 명시한다(디스크 IO 포화는 disk queue 로 잡으므로 이 한계에서 제외).
-  - Windows pagefile 사용량은 수집·표시하되 saturation 판정엔 미반영 — pagefile 압박이 실제 메모리 부족이어도 swap 축으론 신호 안 잡힘 (mem_p95 utilization 으로만 포착).
+- 받아들인 한계:
+  - Windows 메모리 포화 임계(Pages/sec p95 >= 1000)는 절대 임계 근거가 약한 rule-of-thumb 이다 — disk queue(>= 2)·CPU run queue(>= 2/core)의 Microsoft 표준 병목 기준과 달리 실측 튜닝 대상(`MEM_PAGING_RATE_SATURATION`, 잠정 상수). 너무 높으면 실제 페이징 압박을 놓치고, 낮으면 정상 페이징을 과잉 발화.
+  - saturation 축은 perflib/diskperf 의존이다 — Windows 에서 해당 카운터를 못 읽거나 미부착(예: OpenStack virtio 에 diskperf 미부착 -> disk queue 빈 배열)이면 그 축만 미관측이 된다. 분류는 utilization·capacity·측정된 나머지 포화 축으로 완결하고, 못 본 축만 "포화 수치 미관측" confidence 단서로 노출.
+  - Windows pagefile 사용량(swap_used)은 수집·표시하되 saturation 판정엔 미반영 — pagefile 은 여유 RAM 에도 상시 baseline 이라 사용량이 아닌 페이징 rate 로 판정(P2 의도).
 
 왜 받아들였나
 - Windows 가 노출하지 않는 신호를 0/baseline 으로 날조해 분류에 넣으면(예: iowait=0 을 "IO 여유"로) 더 큰 왜곡 — 미측정은 미측정으로 두는 게 정직(P1).
-- 대부분의 right-sizing 의사결정은 cpu/mem utilization 으로 충분 — saturation 은 보강 신호. utilization 축만으로도 over/idle/적정 다수 케이스 커버.
+- disk queue·CPU run queue 는 Microsoft 표준 병목 기준이 있어 임계 근거가 탄탄하나, 메모리 페이징은 절대 임계 합의가 약해 보수적 상수 + "잠정·튜닝 대상" 명시가 정직한 선택 — 근거 없는 정밀 임계보다 명시된 잠정 임계가 낫다.
 - "부분 평가" 마커가 운영자에게 confidence 한계를 명시 — 침묵하는 오분류보다 가시화된 한계가 낫다(P4).
 
 언제 다시 봐야 하는가
-- CPU run queue 병목이 Windows 운영 이슈로 부상 시 → agent 가 PerfMon `System\Processor Queue Length`(loadavg 등가)를 발행하고 `disk_io_saturated` 처럼 os-aware helper 로 통일 -> unmeasured(cpu_saturation) 자동 해제. (디스크 IO 축은 `PhysicalDisk\Avg. Disk Queue Length` 로 이미 반영 완료.)
-- Windows 메모리 압박을 pagefile 로 판정할 필요 시 → pagefile 사용률 임계(절대 baseline 초과분) 를 Windows 전용 신호로 도입 (현재는 mem_p95 utilization 으로만).
+- Windows 메모리 페이징 오탐/누락이 관측되면 → 실측 분포로 `MEM_PAGING_RATE_SATURATION` 재보정 (현재 1000 pages/sec 잠정).
+- perflib 미발행이 특정 Windows 환경에서 상시화되면 → agent 측 수집 경로 점검 (엔진은 미관측으로 정직 처리, 신호원 자체는 agent repo 이슈).
 
 ## T15. 서비스 분류 — services <-> listen_ports join key 부재 (호스트 union 으로 보완, ADR 0032)
 

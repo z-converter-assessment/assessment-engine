@@ -53,13 +53,13 @@ routing key `server.metrics`. 모두 raw 누적값. 엔진이 연속 2회 readin
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | `collection_interval_sec` | int\|null | 설정된 수집 주기(초). 표본 충분성 기준 (없으면 5분 버킷 288/day 가정 — 주기<=5분이면 무관) |
-| `cpu_stat` | object | `user/nice/system/idle/iowait/irq/softirq/steal` jiffies. Windows: user/system/idle 만 측정, `iowait` 등 = `0` (더미 — 엔진 disk saturation 은 os-aware 로 `saturation.disk_queue` 사용) |
+| `cpu_stat` | object | `user/nice/system/idle/iowait/irq/softirq/steal` jiffies (각 int\|null, `ge=0`). Windows: user/system/idle 만 측정, `nice/iowait/irq/softirq/steal` = `null` (OS 개념 부재 — 0 날조 금지). 엔진 cpu_total 은 성분 COALESCE 합으로 정규화(Windows=user+system+idle), disk saturation 은 os-aware 로 `saturation.disk_queue` 사용 |
 | 메모리·스왑 | int\|null (KB) | `mem_*_kb` / `swap_*_kb` |
 | `load_1m` / `load_5m` / `load_15m` | float\|null | Load Average. Windows `null` (OS 부재) |
 | `disk_io[]` | object | `{device, reads_completed, writes_completed, sectors_read, sectors_written, major, minor, kind}`. `kind="physical"` 만 집계. Windows: `device="PhysicalDriveN"` |
 | `mounts[]` | object | `{mount, fstype, total_bytes, free_bytes, avail_bytes, major, minor, kind}`. `kind="data"` 만 데이터 볼륨 집계. Windows: `mount=`drive letter |
 | `net_io[]` | object | `{interface, rx_bytes, tx_bytes, rx_packets, tx_packets, rx_errors, tx_errors, kind}`. `kind="physical"` 만 집계 (master/member 이중 집계 회피). Windows: `interface`=friendly name (UTF-8) |
-| `saturation` | object\|null | Windows USE Method raw 신호 `{disk_queue, cpu_run_queue, mem_paging_rate}`. `disk_queue`=물리 디스크별 `[{device, queue}]` (빈 배열=미측정) — 엔진이 per-device max 로 축약해 disk saturation 판정. `cpu_run_queue`/`mem_paging_rate`=현재 `null` (검증 후 raw 값). Linux 는 iowait/load 사용이라 미발행 |
+| `saturation` | object\|null | Windows USE Method raw 신호 `{disk_queue, cpu_run_queue, mem_paging_rate}`. `disk_queue`=물리 디스크별 `[{device, queue}]` gauge (빈 배열=diskperf 미부착 미측정) — 엔진이 per-device max p95 로 disk saturation 판정. `cpu_run_queue`=Processor Queue Length gauge (엔진 run queue/core >= 2). `mem_paging_rate`=Memory Pages/sec 누적 counter (엔진이 delta/dt 로 rate 환산 후 p95 >= 1000). 각 `null`=perflib 미발행 -> 그 축만 미관측. Linux 는 iowait/load/swap 사용이라 미발행 |
 
 ---
 
@@ -174,7 +174,7 @@ success 경로: agent worker 가 download.url 에서 패키지 fetch → install
   - CPU jiffies (GetSystemTimes idle/kernel/user): `cpu_idle`=idle, `cpu_user`=user, `cpu_system`=kernel `-` idle (Win32 kernel time 은 idle 포함 → 차감 의무, 미차감 시 CPU% 왜곡). idle/user/system 누적 단조증가.
   - 메모리(GlobalMemoryStatusEx): `mem_total_kb`=ullTotalPhys, `mem_available_kb`=ullAvailPhys, `mem_free_kb`=ullAvailPhys (Linux 의 free vs available 구분이 Windows API 에 부재 — 두 키에 동일값 발행. Linux `mem_free`(완전 해제) vs `mem_available`(재할당 가능 cache 포함) 구분을 가정한 엔진 계산은 Windows 호스트에서 used = total - free 가 cache 포함된 used 가 됨. 현재 engine 표시는 mem_available 기준이라 영향 적음). swap(pagefile): `swap_total_kb` = `(ullTotalPageFile - ullTotalPhys)/1024`, `swap_free_kb` = `(ullAvailPageFile - ullAvailPhys)/1024` (pagefile total/avail 은 phys 포함 합산이라 phys 차감 의무). pagefile 의미는 saturation 신호 아님 — `recommendation.swap_saturation(os_family, swap_used)` helper 가 Windows 제외 처리 (ADR 0029).
 - canonical 불변식 (agent 발행 의무 + 엔진 2차 강제): 누적 카운터 단조 비감소(reset 은 `boot_time` 변경으로 표현), `mem_available_kb <= mem_total_kb`, `swap_free_kb <= swap_total_kb`(used 음수 금지), per-field >= 0.
-- Windows 플랫폼 부재 필드: `load_1m/5m/15m`·`mem_buffers_kb`·`mem_cached_kb`·`listen_ports[].uid` = `null` (0 날조 금지 — 미측정 의미 보존), `cpu_stat.{nice,iowait,irq,softirq,steal}` = `0`. `os_family="windows"` 분기.
+- Windows 플랫폼 부재 필드: `load_1m/5m/15m`·`mem_buffers_kb`·`mem_cached_kb`·`listen_ports[].uid`·`cpu_stat.{nice,iowait,irq,softirq,steal}` = `null` (0 날조 금지 — 미측정 의미 보존). Windows 는 대신 `saturation.{cpu_run_queue,mem_paging_rate,disk_queue}` 로 포화 축을 os-aware 실측. `os_family="windows"` 분기.
 - 엔진 정규화 경계 (defense in depth, `consumer/metric_normalize.py`): agent 미신뢰 — 수집 진입에서 canonical 불변식 재강제. `swap_free`/`mem_available` 가 total 초과 시 total 로 클램프(used 음수 차단) + warning. CPU% 의 `cpu_idle` 은 NULL→0 날조 안 함 (idle 부재 reading 제외, report·환경 활용률 동일 규칙).
 - 옵셔널 필드: 수집 실패 시 `null` 전송. 수집 실패와 데이터 없음 미구분
 - counter reset: 재부팅 / 발행 프로세스 재시작 시 카운터 0 리셋. 엔진은 1순위로 두 시점 `boot_time` 비교 (`web/services/metrics_calculator._is_counter_reset`) -> 시스템 재부팅이면 delta 건너뛰기 (None). 옛 데이터 (`boot_time` NULL) 는 2순위로 `delta < 0` 휴리스틱 fallback (UI 에서 "—"). `agent_started_at` 만 다르면 발행 프로세스 재시작이고 /proc 카운터는 그대로라 정상 delta

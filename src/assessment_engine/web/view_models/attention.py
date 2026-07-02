@@ -24,21 +24,6 @@ class AttentionRow:
 
 
 @dataclass
-class CapacityTriggerBadge:
-    """자원 부족 trigger 하나 — 본문 한 줄에 3종 모두 표시 (active False는 비활성 시각).
-
-    color: 범례 색과 동기화 hex (mapper _CAPACITY_TRIGGER_COLORS 단일 진실).
-    bg_color/fg_color: mapper가 active/inactive 분기로 미리 결정 (P3 — 템플릿 색 분기 금지).
-    """
-
-    label: str
-    color: str
-    active: bool = True
-    bg_color: str = ""
-    fg_color: str = ""
-
-
-@dataclass
 class CapacityMetric:
     """자원 부족 카드 안 평가 지표 1개 — assess 입력 6축(CPU/메모리/스왑/Load/디스크/iowait) 전부 노출.
 
@@ -58,20 +43,16 @@ class CapacityMetric:
 class CapacityWarningItem:
     """7일 평균 자원 부족 서버 — 마이그레이션 capacity 산정 시 instance type 상향 검토.
 
-    triggers: USE Method classify 입력 5 trigger 와 1:1 정합 (스왑/CPU/메모리/Load/디스크).
-    - swap_used=True → "스왑"
-    - cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU"
-    - mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리"
-    - load_15m / cpu_cores >= CPU_SATURATION_LOAD_RATIO → "Load"
-    - disk_used >= DISK_CAPACITY_UPSIZE_PCT 또는 iowait_p95 >= IOWAIT_UPSIZE_PCT → "디스크"
-    under_provisioned 분류라 최소 1개 trigger 존재.
-    metrics: 평가 6축 측정값 — 위반 여부 무관 전부 노출(mapper precompute, P3).
+    active_causes: 발화한 trigger 의 os-neutral 원인 라벨 목록 (assess.triggers 파생, 고정 순서). 환경 요약
+      "자원 부족(메모리 포화 2대 · CPU 이용률 1대)" 원인 집계(environment_report._under_cause_summary)의 단일
+      소스. OS 무관 축 이름이라 Windows paging/run queue 포화도 정확히 집계(Linux swap/load 로 오라벨 안 함).
+    metrics: 평가 6축 측정값 — 위반 여부 무관 전부 노출(mapper precompute, P3). saturation 3축은 os-aware 값.
     services: 호스트 워크로드 카테고리 카운트 {category: n} — workload_category_counter 단일 진실.
     """
 
     public_id: str
     hostname: str
-    triggers: list[CapacityTriggerBadge] = field(default_factory=list)
+    active_causes: list[str] = field(default_factory=list)
     services: dict[str, int] = field(default_factory=dict)
     metrics: list[CapacityMetric] = field(default_factory=list)
     # 분류 confidence 단서 — is_partial(축 미관측) + low_sample(표본 부족) 통합 라벨 (shared.build_confidence_notes,
@@ -240,6 +221,6 @@ class EnvironmentRealtime:
     peak_groups: list[RealtimePeakGroup] = field(default_factory=list)
     has_peaks: bool = False
     # 환경 I/O 총량(신선 표본 합산) — rate 라 게이지 없는 원. None = 표본 전부 페어 부재.
-    io_net_value: str | None = None   # Σ(rx+tx) 처리량 값 — 동적 단위(kBps/MBps), mapper precompute
-    io_net_unit: str | None = None    # 처리량 단위 (kBps 또는 MBps)
+    io_net_value: str | None = None   # Σ(rx+tx) 처리량 값 — 동적 단위(kB/s·MB/s), mapper precompute
+    io_net_unit: str | None = None    # 처리량 단위 (kB/s 또는 MB/s)
     io_disk_iops: float | None = None  # Σ(read+write) IOPS
