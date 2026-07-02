@@ -20,6 +20,8 @@ from assessment_engine.web.services.mappers.server import (
 )
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
+    OS_FAMILY_LABEL_KO,
+    RISK_LEVEL_ORDER,
     ReportView,
     build_confidence_notes,
     resolve_os_eol,
@@ -92,13 +94,6 @@ def build_role_distribution(raws: list) -> dict[str, int]:
     return dict(counter.most_common())
 
 
-# N대 선택 맥락 OS family 표시명 (요약 텍스트 단일 진실).
-_OS_FAMILY_LABEL_KO: dict[str, str] = {"linux": "Linux", "windows": "Windows", "unknown": "미상"}
-
-# N대 비교 표 행 정렬 우선순위 — 위험 우선(위로). risk_level 단일 진실.
-_REPORT_ROW_RISK_ORDER: dict[str, int] = {"high": 0, "attention": 1, "low_usage": 2, "normal": 3}
-
-
 def build_selection_context(items: list[ReportRowItem], role_distribution: dict[str, int]) -> tuple[str, str]:
     """N대 보고서 선택 맥락 (P2) — OS family·워크로드 한 줄 요약 텍스트. 작은 N 맥락 (막대 대신).
 
@@ -106,7 +101,7 @@ def build_selection_context(items: list[ReportRowItem], role_distribution: dict[
     """
     os_counter: Counter[str] = Counter((it.os_family or "unknown") for it in items)
     os_summary = " / ".join(
-        f"{_OS_FAMILY_LABEL_KO.get(k, k)} {v}" for k, v in sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))
+        f"{OS_FAMILY_LABEL_KO.get(k, k)} {v}" for k, v in sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))
     )
     workload_summary = (
         ", ".join(f"{cat} {n}" for cat, n in sorted(role_distribution.items(), key=lambda kv: (-kv[1], kv[0])))
@@ -119,7 +114,7 @@ def sort_rows_for_report(items: list[ReportRowItem]) -> list[ReportRowItem]:
     """N대 비교 표 정렬 (P2) — 위험 우선(under->attention->normal), 동순위 cpu_p95 DESC, hostname ASC."""
     return sorted(
         items,
-        key=lambda it: (_REPORT_ROW_RISK_ORDER.get(it.risk_level, 9), -(it.cpu_p95_pct or 0.0), it.hostname),
+        key=lambda it: (RISK_LEVEL_ORDER.get(it.risk_level, 99), -(it.cpu_p95_pct or 0.0), it.hostname),
     )
 
 
