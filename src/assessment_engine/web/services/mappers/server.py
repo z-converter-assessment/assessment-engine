@@ -38,7 +38,7 @@ from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb,
 from assessment_engine.web.view_models.environment_report import (
     CpuBreakdown,
     MemoryBreakdown,
-    ServerInventory,
+    ServerInventorySnapshot,
     VolumeUsage,
 )
 from assessment_engine.web.view_models.server import (
@@ -172,12 +172,12 @@ def _os_display(os_id: str | None, os_version: str | None, kernel_version: str |
     return " ".join(parts) or "-"
 
 
-def build_server_inventory(detail, is_online: bool) -> ServerInventory:
+def build_server_inventory(detail, is_online: bool) -> ServerInventorySnapshot:
     """ServerDetail -> 개별 보고서 인벤토리 (충실 표시 — 전체 IP(IPv4/IPv6)·하드웨어·식별자, 생략·왜곡 0)."""
     # 디스크 총량 — 물리 disks 우선, 비면(Windows 등 물리 미발행) 파일시스템 mounts fallback.
     # device_filters.disk_total_bytes 단일 산식 (환경·세부 목록 보고서와 동일, Windows 포함 일관).
     disk_bytes = disk_total_bytes(detail.disks or [], detail.mounts or [])
-    return ServerInventory(
+    return ServerInventorySnapshot(
         hostname=detail.hostname,
         os_display=_os_display(detail.os_id, detail.os_version, detail.kernel_version),
         os_codename=detail.os_codename,

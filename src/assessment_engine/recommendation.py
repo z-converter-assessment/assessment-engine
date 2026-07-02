@@ -136,7 +136,7 @@ def swap_saturation(os_family: str | None, swap_used: bool) -> bool:
     return swap_used and os_family != "windows"
 
 
-def disk_io_saturated(stats: "ResourceStats") -> bool | None:
+def disk_io_saturated(stats: ResourceStats) -> bool | None:
     """디스크 I/O 포화 여부 — OS별 raw 신호를 통일 축으로 정규화 (원칙 P2, os-aware).
 
     Linux: iowait_p95 >= IOWAIT_UPSIZE_PCT (cpu 의 IO 대기 비율).

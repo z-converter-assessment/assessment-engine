@@ -10,12 +10,12 @@ from datetime import datetime
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ServerDetail
-from assessment_engine.db.repositories.base_diagnostic_repository import (
-    DIAGNOSTIC_RANGE_LABEL_KR,
-)
 from assessment_engine.service_classifier import SERVICE_CATEGORIES, SINGLE_INSTANCE_CATEGORIES
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
+    DIAGNOSTIC_RANGE_LABEL_KR,
+    OS_FAMILY_LABEL_KO,
+    RISK_LEVEL_ORDER,
     UTIL_GAUGE_COLOR,
     ReportView,
     format_net_rate,
@@ -56,13 +56,6 @@ _CLASS_ACTION_KO: dict[str, str] = {
     "insufficient_data": "평가 표본 부족",
 }
 
-# 위험도 정렬 우선순위 (Top N 선정).
-_RISK_PRIORITY: dict[str, int] = {
-    "high": 0,
-    "attention": 1,
-    "low_usage": 2,
-    "normal": 3,
-}
 
 # view 별 Top N — customer/engineer 모두 전수 노출 (운영 검토 list, N 잘림 없음).
 _TOP_RISK_N_BY_VIEW: dict[str, int | None] = {
@@ -91,9 +84,6 @@ def _count_classifications(rows: list[ReportRowItem]) -> list[ClassificationCoun
         for key, label, color, description in _PROVISIONING_SEGMENT_DEFS
     ]
 
-
-# OS family key -> 표시명. 구성 막대 라벨 단일 진실 (unknown 은 "미상").
-_OS_FAMILY_LABEL: dict[str, str] = {"linux": "Linux", "windows": "Windows", "unknown": "미상"}
 
 
 def _to_distribution_bars(
@@ -223,7 +213,7 @@ def _select_top_risks(rows: list[ReportRowItem], view: ReportView) -> list[Repor
 
     def _key(r: ReportRowItem) -> tuple[int, float]:
         return (
-            _RISK_PRIORITY.get(r.risk_level, 99),
+            RISK_LEVEL_ORDER.get(r.risk_level, 99),
             -(r.cpu_p95_pct or 0.0),
         )
 
@@ -456,12 +446,12 @@ def to_environment_report(
         c.pct = round((c.count / classified_total * 100), 1) if classified_total else 0.0
     os_dist = _count_os(details)
     # 구성 계층 (P-A) — overview 가 이미 집계한 OS family·워크로드 분포를 막대 ViewModel 로 precompute.
-    os_family_dist = _to_distribution_bars(overview.os_distribution, _OS_FAMILY_LABEL)
+    os_family_dist = _to_distribution_bars(overview.os_distribution, OS_FAMILY_LABEL_KO)
     # Linux/Windows 는 0대여도 항상 노출 (#E9 발화 — "윈도우 0대" 표기). count DESC 뒤에 0대 보강.
     _os_present = {b.label for b in os_family_dist}
     for _key in ("linux", "windows"):
-        if _OS_FAMILY_LABEL[_key] not in _os_present:
-            os_family_dist.append(DistributionBar(label=_OS_FAMILY_LABEL[_key], count=0, pct=0.0))
+        if OS_FAMILY_LABEL_KO[_key] not in _os_present:
+            os_family_dist.append(DistributionBar(label=OS_FAMILY_LABEL_KO[_key], count=0, pct=0.0))
     workload_dist = _to_distribution_bars(overview.role_distribution)
     # OS 지원 종료 OS별 집계 (customer 나열) — os_eol_warnings.meta_text="{os} · EOL {date}" 에서 os 추출, 대수 DESC.
     _eol_os = Counter(w.meta_text.split(" · ", 1)[0] for w in attention.os_eol_warnings)

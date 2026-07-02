@@ -98,6 +98,25 @@ PROVISIONING_CLASS_OPTIONS: tuple[tuple[str, str], ...] = tuple(
 # build_report_summary_bullets (report.py) + _extract_capacity_imminent (environment_report.py).
 _CAPACITY_IMMINENT_DAYS = 30
 
+# OS family 표시 라벨 — 보고서(report.py)·환경 보고서(environment_report.py) 공유.
+OS_FAMILY_LABEL_KO: dict[str, str] = {"linux": "Linux", "windows": "Windows", "unknown": "미상"}
+
+# risk_level 정렬 우선순위 (위험 우선, 낮을수록 먼저) — N대 비교 표(report.py)·환경 분포(environment_report.py) 공유.
+# 미지 키는 맨 뒤(99). risk_level 은 4값 고정이라 default 는 방어값.
+RISK_LEVEL_ORDER: dict[str, int] = {"high": 0, "attention": 1, "low_usage": 2, "normal": 3}
+
+# 진단 time_range -> 한국어 표시 라벨 (보고서·대시보드·이력 공용). 표시 라벨이라 mapper 소속
+# (도메인 상수 DiagnosticTimeRange/DIAGNOSTIC_RANGE_DAYS 는 repo base_diagnostic_repository 유지).
+DIAGNOSTIC_RANGE_LABEL_KR: dict[str, str] = {
+    "15m": "15분",
+    "1h": "1시간",
+    "6h": "6시간",
+    "24h": "1일",
+    "7d": "7일",
+    "14d": "14일",
+    "30d": "30일",
+}
+
 # ─── OS EOL — endoflife.date 스냅샷 카탈로그 기반 (scripts/snapshot_os_eol.py 생성) ───
 # 정적 JSON 을 모듈 로드 시 1회 읽음. 런타임 외부 의존 0 (폐쇄 내부망 #A0). 갱신 = 스냅샷 재실행 + commit.
 # 신뢰성: endoflife.date 는 벤더 공식 문서 기반 + 분기 검토 (ADR 0031). 미등록 OS 는 침묵 (의식적 한계).

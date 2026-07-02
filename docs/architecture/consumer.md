@@ -92,7 +92,7 @@ async def _db_retry[T](
 
 ### DB 재시도 정책
 
-3회 시도 (`attempt 0/1/2`), `5 ** (attempt + 1)` 백오프. attempt 0 실패 → 5s sleep → 1, 1 실패 → 25s sleep → 2, 2 실패 → 즉시 raise(sleep 없음). 총 sleep 합 30s + 3회 DB call. inventory/metrics 큐 TTL(없음·72h) 내에서 단기 DB 장애 회복 커버. error 큐 TTL 300s는 error 핸들러가 DB 접근 안 해 영향 없음.
+3회 시도 (`attempt 0/1/2`), `2 ** (attempt + 1)` full jitter 백오프. attempt 0 실패 → [0,2s] sleep → 1, 1 실패 → [0,4s] sleep → 2, 2 실패 → 즉시 raise(sleep 없음). 재시도 대상은 일시 장애(`OperationalError`·`InterfaceError`)만 — `IntegrityError`·영구 `DBAPIError`(`ProgrammingError`/`DataError` 등)는 즉시 raise → nack → DLQ (F6). full jitter 는 동시 재연결 쏠림(thundering herd) 방지. inventory/metrics 큐 TTL(없음·72h) 내에서 단기 DB 장애 회복 커버. error 큐 TTL 300s는 error 핸들러가 DB 접근 안 해 영향 없음.
 
 ---
 
@@ -179,6 +179,6 @@ docker compose restart consumer       # 코드 변경 후 (reload 모드 아님)
 | 증상 | 원인 |
 |------|------|
 | 메시지 처리 안 됨 | broker queue declare 실패 — 로그에 `consuming queue=...` 라인 확인 |
-| 같은 메시지 반복 처리 | timeout nack 후 재전송 — `_db_retry` 총 sleep 30s + 3회 DB call |
+| 같은 메시지 반복 처리 | timeout nack 후 재전송 — `_db_retry` 총 sleep 최대 [0,6s] + 최대 3회 DB call |
 | Pydantic ValidationError | 에이전트 새 필드 + 스키마 미반영. `extra=ignore`로 통과 또는 schema 추가 |
 | DLQ 누적 | 영구 오류. `rabbitmqadmin get queue=*.dead count=1 ackmode=ack_requeue_true`로 peek |

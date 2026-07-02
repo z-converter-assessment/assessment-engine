@@ -330,6 +330,59 @@ async def test_report_cpu_breakdown_delta_split(collect_repo, query_repo):
     assert cb.iowait_pct == pytest.approx(40 / 770 * 100, abs=0.5)
 
 
+async def test_report_breakdowns_single_equals_batch(collect_repo, query_repo):
+    """single(sid) 은 batch([sid])[sid] 의 N=1 특수화 — mount·memory·cpu 세 축 값 완전 동일 (정합성).
+
+    단독 보고서(single 경로)와 N대 선택 child(batch prefetch 경로)가 같은 서버에 대해 같은 값을 내야
+    한다. mount 는 batch 를 raw->cagg 로 통일한 뒤의 회귀 가드(예전엔 두 경로 소스가 달라 값이 갈렸다).
+    """
+    sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-eq-batch")
+    end_q = end + timedelta(minutes=1)
+
+    m_single = await query_repo.report_mount_usage(sid, period_days=1, end=end_q)
+    m_batch = (await query_repo.report_mount_usage_batch([sid], period_days=1, end=end_q)).get(sid, [])
+    assert m_single == m_batch
+
+    mem_single = await query_repo.report_memory_breakdown(sid, period_days=1, end=end_q)
+    mem_batch = (await query_repo.report_memory_breakdown_batch([sid], period_days=1, end=end_q)).get(sid)
+    assert mem_single == mem_batch
+
+    cpu_single = await query_repo.report_cpu_breakdown(sid, period_days=1, end=end_q)
+    cpu_batch = (await query_repo.report_cpu_breakdown_batch([sid], period_days=1, end=end_q)).get(sid)
+    assert cpu_single == cpu_batch
+
+
+async def test_report_mount_usage_excludes_null_avail_and_zero_total(collect_repo, query_repo):
+    """avail_bytes null·total_bytes 0 마운트는 cagg WHERE(total>0 AND avail IS NOT NULL)로 제외.
+
+    에이전트가 특정 마운트의 avail/total 을 null·0 으로 발행해도 single·batch 둘 다 동일하게 배제 —
+    소스 통일(cagg)이 에이전트 null/값 변화에 일관 반응함을 가드.
+    """
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="r-mnt-nullzero"))
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=5)
+    for i in range(6):
+        ts = base_ts + timedelta(minutes=i)
+        m = make_metrics(
+            collected_at=ts,
+            mounts=[
+                MountUsageEntry(
+                    mount="/data", total_bytes=100 * 10**9, free_bytes=(50 - i) * 10**9,
+                    avail_bytes=(50 - i) * 10**9, kind="data",
+                ),
+                MountUsageEntry(
+                    mount="/nullavail", total_bytes=100 * 10**9, free_bytes=None, avail_bytes=None, kind="data",
+                ),
+                MountUsageEntry(mount="/zerototal", total_bytes=0, free_bytes=0, avail_bytes=0, kind="data"),
+            ],
+        )
+        await collect_repo.record_metrics(sid, m)
+    end_q = datetime.now(UTC) + timedelta(minutes=1)
+    single = await query_repo.report_mount_usage(sid, period_days=1, end=end_q)
+    batch = (await query_repo.report_mount_usage_batch([sid], period_days=1, end=end_q)).get(sid, [])
+    assert {v.mount for v in single} == {"/data"}
+    assert {v.mount for v in batch} == {"/data"}
+
+
 # ─── cagg counter reset 처리 (ADR 0043 — counter_agg 정석) ────────────────────
 
 

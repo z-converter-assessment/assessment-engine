@@ -15,7 +15,7 @@ from assessment_engine.web.view_models.attention import AttentionSignals, Enviro
 from assessment_engine.web.view_models.environment_report import (
     CpuBreakdown,
     MemoryBreakdown,
-    ServerInventory,
+    ServerInventorySnapshot,
     ServiceCatalogGroup,
     ServiceHost,
     ServiceNameCount,
@@ -66,7 +66,7 @@ def _make_env_report():
 def test_env_report_roundtrip_restores_nested_dataclasses():
     """단일 보고서 nested(server_inventory·volumes·breakdown·service_catalog)가 dataclass 로 복원."""
     vm = _make_env_report()
-    vm.server_inventory = ServerInventory(
+    vm.server_inventory = ServerInventorySnapshot(
         hostname="host-1",
         os_display="Ubuntu 22.04",
         os_codename="jammy",
@@ -101,7 +101,7 @@ def test_env_report_roundtrip_restores_nested_dataclasses():
     restored = env_report_from_dict(env_report_to_dict(vm))
 
     si = restored.server_inventory
-    assert isinstance(si, ServerInventory)
+    assert isinstance(si, ServerInventorySnapshot)
     assert si.ip_internal[0].value == "10.0.0.1/24" and si.ip_internal[0].is_ipv4 is True
     assert si.ip_external[0].is_ipv4 is False  # IPv6 보존
     assert si.boot_time == datetime(2026, 5, 1, tzinfo=UTC)  # datetime 복원 (str 아님)

@@ -18,7 +18,7 @@ Warning 처리 우선순위:
 
 ruff 위반(E501 line-too-long · F841 unused · I001 import 정렬 등)은 hook 자동 차단 채널 없음 — PyCharm IDE 경고 또는 수동 `uv run ruff check <file>` 실행으로 검증. CI(`.github/workflows/ci.yml`)가 PR마다 전체 ruff check 자동 — 본 단계가 최종 안전망. 위 Warning 우선순위로 처리.
 
-## 2. Hook 강제 채널 (#F1 부속)
+## 2. Hook 강제 채널 (#F5 부속)
 
 두 종류의 hook이 강제한다 — Claude Code PostToolUse hook(편집 시점)과 git hook(commit/push 시점). 둘 다 skill(opt-in 가이드)과 별개의 게이트 — 누가 어떤 경로로 작업하든 적용.
 
@@ -28,7 +28,6 @@ PostToolUse hook이 강제하는 위반(exit 2 → system-reminder 피드백)은
 
 | 위반 | 적용 범위 | Hook |
 |------|----------|------|
-| F1 — `from __future__ import annotations` | `.py` | `conventions-check.sh` |
 | F7 — `print(` / `sys.stdout.write` | `.py` | `conventions-check.sh` |
 | C3 — `safe_*` 미경유 redis 클라이언트 직접 호출 (`redis.set/get/delete/publish/incr/exists/mget/expire/setnx`) | `.py` (`cache/redis.py` 본인 제외) | `conventions-check.sh` |
 | 글로벌 — markdown asterisk-pair bold (굵게 강조 문법) | 모든 파일 | `conventions-check.sh` |
@@ -81,7 +80,7 @@ hook 파일 자체(`.claude/hooks/*`)는 패턴 정의를 포함하므로 self-s
 
 ## 관련 문서
 
-- CLAUDE.md #F1 — 타입 어노테이션 금지·의무 (단일 진실)
+- CLAUDE.md #F1 — 타입 어노테이션 허용·주의 (from __future__·TYPE_CHECKING 허용, Pydantic 필드 타입 런타임 유지)
 - CLAUDE.md #F5 — 자동화 변환 책임 분담 (Hook·메인·에이전트 채널)
 - CLAUDE.md #F7 — 로깅 (`print` 금지의 근거 정책)
 - CLAUDE.md #C3 — Redis fail-open `safe_*` helper 의무

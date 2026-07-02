@@ -25,6 +25,7 @@ from assessment_engine.web.services.mappers.shared import (
     format_net_rate,
     resolve_os_eol,
 )
+from assessment_engine.web.services.unit_converter import bytes_to_gb
 from assessment_engine.web.view_models.attention import (
     AttentionRow,
     CapacityMetric,
@@ -261,7 +262,7 @@ def build_environment_overview(
         offline=total - online_count,
         total_vcpus=total_vcpus,
         total_memory_gb=round(total_mem_kb / 1024 / 1024, 1),
-        total_disk_gb=int(total_disk_bytes / 10**9),
+        total_disk_gb=int(bytes_to_gb(total_disk_bytes) or 0),
         # count 내림차순 + 동count는 이름 오름차순 tie-break (most_common 동순위는 삽입순=DB row 순서라 비결정적).
         os_distribution=dict(sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
         role_distribution=role_sorted,
@@ -328,10 +329,6 @@ def build_environment_realtime(
     net_kbps_total = _dict_sum("net_kbps")
     io_disk_iops = _dict_sum("disk_iops")
 
-    # 처리량 동적 단위 — storage/detail/성능추이 fmtThroughput 과 일관(kBps/MBps).
-    def _throughput_str(kbps: float) -> str:
-        return f"{kbps / 1024:.1f} MBps" if kbps >= 1024 else f"{kbps:.1f} kBps"
-
     # 값·단위 산출 = shared.format_net_rate 단일 진실 (보고서 환경 현황과 동일 규칙) — 도넛은 값/단위 분리 표시.
     _net_label = format_net_rate(net_kbps_total)
     if _net_label is None:
@@ -358,7 +355,7 @@ def build_environment_realtime(
         RealtimePeakGroup(label="메모리", peaks=_top_pct("mem_pct")),
         RealtimePeakGroup(label="디스크", peaks=_top_pct("disk_pct")),
         RealtimePeakGroup(label="디스크 I/O", peaks=_top_io("disk_iops", lambda s: f"{s['disk_iops']:.0f} IOPS")),
-        RealtimePeakGroup(label="네트워크 I/O", peaks=_top_io("net_kbps", lambda s: _throughput_str(s["net_kbps"]))),
+        RealtimePeakGroup(label="네트워크 I/O", peaks=_top_io("net_kbps", lambda s: format_net_rate(s["net_kbps"]))),
     ]
     return EnvironmentRealtime(
         total=total,

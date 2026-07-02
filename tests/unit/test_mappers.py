@@ -74,7 +74,7 @@ def test_to_disk_item_returns_none_for_non_physical():
 
 
 def test_to_disk_item_for_physical():
-    item = _to_disk_item({"name": "sda", "size_bytes": 1024**3, "type": "disk", "kind": "physical"})
+    item = _to_disk_item({"name": "sda", "size_bytes": 10**9, "type": "disk", "kind": "physical"})
     assert item.name == "sda"
     assert item.size_gb == 1.0
 
@@ -123,7 +123,7 @@ def _summary(**overrides) -> ServerSummary:
         cpu_cores=4,
         mem_total_kb=8 * 1024**2,
         ip_external=None,
-        disks=[{"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk", "kind": "physical"}],
+        disks=[{"name": "sda", "size_bytes": 100 * 10**9, "type": "disk", "kind": "physical"}],
         service_categories=[],
         last_seen_at=datetime.now(UTC),
     )
@@ -134,9 +134,9 @@ def _summary(**overrides) -> ServerSummary:
 def test_list_item_storage_total_sum():
     summary = _summary(
         disks=[
-            {"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk", "kind": "physical"},
-            {"name": "sdb", "size_bytes": 50 * 1024**3, "type": "disk", "kind": "physical"},
-            {"name": "loop0", "size_bytes": 999 * 1024**3, "type": "loop", "kind": "virtual"},  # 가상은 제외
+            {"name": "sda", "size_bytes": 100 * 10**9, "type": "disk", "kind": "physical"},
+            {"name": "sdb", "size_bytes": 50 * 10**9, "type": "disk", "kind": "physical"},
+            {"name": "loop0", "size_bytes": 999 * 10**9, "type": "loop", "kind": "virtual"},  # 가상은 제외
         ]
     )
     item = to_server_list_item(summary)
@@ -234,7 +234,7 @@ def _detail(**overrides) -> ServerDetail:
             }
         ],
         ip_external=None,
-        disks=[{"name": "sda", "size_bytes": 100 * 1024**3, "type": "disk", "kind": "physical"}],
+        disks=[{"name": "sda", "size_bytes": 100 * 10**9, "type": "disk", "kind": "physical"}],
         mounts=[],
         services=[
             {"unit": "nginx.service", "sub": "running"},

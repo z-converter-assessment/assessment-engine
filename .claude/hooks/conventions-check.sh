@@ -3,7 +3,6 @@
 # 위반 발견 시 exit 2 + stderr -> Claude에 system-reminder 피드백.
 #
 # 검사 카탈로그 (CLAUDE.md 단일 진실 위치):
-#   F1   .py    `from __future__ import annotations` 금지
 #   F7   .py    `print(` / `sys.stdout.write` 금지 (loguru 일관성)
 #   C3   .py    `safe_*` 미경유 redis 클라이언트 직접 호출 금지 (cache/redis.py 본인 제외)
 #   글로벌 *  `**...**` markdown bold 금지
@@ -47,12 +46,6 @@ fi
 
 # ─── .py 전용 검사 ─────────────────────────────────────────────────────────
 if [[ "$FILE" == *.py ]]; then
-  # F1: from __future__ import annotations 금지
-  if grep -nE '^[[:space:]]*from __future__ import .*annotations' "$FILE" >/dev/null 2>&1; then
-    MATCH=$(grep -nE '^[[:space:]]*from __future__ import .*annotations' "$FILE")
-    VIOLATIONS+=$'\n'"[F1] 'from __future__ import annotations' is forbidden project-wide."$'\n'"$MATCH"$'\n'"  Reason: Python 3.12 evaluates annotations eagerly. Deferred annotations break Pydantic/dataclass introspection + cause NameError on TYPE_CHECKING-only refs."$'\n'
-  fi
-
   # F7: print( / sys.stdout.write 금지 (loguru 일관성)
   # 정규식: 줄 시작 또는 공백 다음 print(, 또는 sys.stdout.write
   if grep -nE '(^|[^a-zA-Z_.])print\(|sys\.stdout\.write' "$FILE" >/dev/null 2>&1; then
@@ -75,7 +68,7 @@ if [ -n "$VIOLATIONS" ]; then
     echo "Convention violations in $FILE:"
     printf '%s' "$VIOLATIONS"
     echo
-    echo "  Single source of truth: .claude/CLAUDE.md (#F1 / #F7 / #C3 / global)."
+    echo "  Single source of truth: .claude/CLAUDE.md (#F7 / #C3 / global)."
   } >&2
   exit 2
 fi
