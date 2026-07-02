@@ -4,7 +4,7 @@
 키 패턴은 `WebSettings` 단일 정의(`src/assessment_engine/config.py`). `ConsumerSettings`는 `WebSettings` 상속 — consumer/web 동일 네임스페이스.
 
 ```
-src/assessment_engine/db/
+src/assessment_engine/cache/
 └── redis.py        — ConnectionPool 싱글턴 + get_redis()
 
 src/assessment_engine/config.py
@@ -26,14 +26,14 @@ src/assessment_engine/web/services/query_service.py
 | 인벤토리 캐시 | `cache:inventory:{server_id}` | 300s | consumer가 새 inventory 저장 시 즉시 DELETE |
 | 메트릭 캐시 | `cache:metrics:{server_id}` | 60s | consumer가 새 metrics 저장 시 즉시 DELETE |
 | 멱등성 | `idempotent:{message_id}` | 24h | TTL 만료만 |
-| 온라인 TTL | `online:{server_id}` | 90s | consumer가 inventory·metrics 양쪽에서 매번 갱신 |
+| 온라인 TTL | `online:{server_id}` | 300s | consumer가 inventory·metrics 양쪽에서 매번 갱신 |
 | 인증 토큰 | `token:{token}` | 1h | TTL 만료만 |
 | 직전 agent_started_at | `last_agent_start:{server_id}` | 24h | metrics 처리 시 매번 SET (직전 값과 비교 → 재시작 감지) |
 | 재시작 카운터 (1h 슬라이딩) | `agent_restarts:{server_id}` | 1h | `_track_agent_restart`가 변경 감지 시 INCR + EXPIRE reset (마지막 INCR 후 1h 유지) |
 
 ### TTL 값 근거
 
-- `online:{server_id}` 90s — metrics 발행 주기(60s)의 1.5배. 1회 발행 누락은 허용, 2회 연속 누락 시 오프라인 표시.
+- `online:{server_id}` 300s — 오프라인 판단 임계. 운영 신호 "통신 끊김"(gap_minutes 5분, `redis_ttl_online` = `config.py`)과 단일 진실 — 5분간 inventory·metrics 어느 쪽도 없으면 오프라인. Redis 장애 시 web 은 `last_seen_at > now()-300s` 로 동일 임계 판정(`query_service._assemble_list_items` fallback).
 - `cache:metrics:{server_id}` 60s — metrics 주기와 동일. consumer DELETE가 없어도 1주기 후 자연 갱신.
 - `cache:inventory:{server_id}` 300s — inventory 변경 빈도가 낮음. consumer DELETE가 즉시 반영.
 - `idempotent:{message_id}` 24h — message_id는 UUID v4이므로 24h 동안 unique 보장. broker 재전송 윈도우 충분히 커버.
@@ -55,7 +55,7 @@ src/assessment_engine/web/services/query_service.py
 ### inventory 처리 후 (consumer/handlers/)
 
 ```
-1. SET online:{server_id} 1 EX 90        — 등록 즉시 온라인 판정
+1. SET online:{server_id} 1 EX 300       — 등록 즉시 온라인 판정
 2. DELETE cache:inventory:{server_id}    — 인벤토리 변경 즉시 반영
 ```
 
@@ -64,7 +64,7 @@ src/assessment_engine/web/services/query_service.py
 ### metrics 처리 후 (consumer/handlers/)
 
 ```
-1. SET online:{server_id} 1 EX 90
+1. SET online:{server_id} 1 EX 300
 2. DELETE cache:metrics:{server_id}      — 캐시 즉시 무효화
 ```
 
@@ -164,12 +164,12 @@ async def close_pool() -> None: ...
 | 캐시 SET | TTL 적용 | silent skip (다음 요청도 MISS) |
 | 멱등성 1단 (`_check_idempotent`) | SET NX | True 반환 → 처리 진행 → DB UNIQUE(2단)이 중복 흡수 |
 | consumer cache DELETE / online SET | 정상 호출 | 로그만, 메시지 처리 정상 진행 |
-| list mget (`list_servers`) | 1회 mget | `last_seen_at > now() - 90s` fallback (TTL 임계와 동일) |
+| list mget (`list_servers`) | 1회 mget | `last_seen_at > now() - 300s` fallback (TTL 임계와 동일) |
 | 실시간 메트릭 polling (`get_latest_metric`) | 캐시 hit/miss | DB 직접 조회 (응답 정상, 느려질 뿐) |
 
 약화되는 보장:
 - 멱등성 1단: 평시 1회 RTT 차단 → 장애 시 매번 DB INSERT 시도 + UNIQUE 충돌 흡수. 트래픽 규모에서 영향 미미.
-- list 화면 online: Redis 90s TTL 기반 → DB `last_seen_at` 기반. 정밀도 거의 동일, DB N개 행 비교 부하 추가.
+- list 화면 online: Redis 300s TTL 기반 → DB `last_seen_at` 기반. 정밀도 거의 동일, DB N개 행 비교 부하 추가.
 - 실시간 메트릭 polling: 캐시 MISS 로 매 30초 요청이 DB 직접 조회. 응답 정상, 부하만 증가.
 
 약화되지 않는 보장: 데이터 정확성. 멱등성 fail-open은 1단 차단을 잃지만 시계열 4개 테이블의 `(server_id, [dim,] collected_at)` UNIQUE 제약이 중복 INSERT를 silent no-op으로 흡수.
@@ -203,5 +203,5 @@ INFO stats | grep evicted_keys                 # evict 누적 (T11: 멱등성 �
 |------|------|
 | 새 inventory 반영 안 됨 | consumer cache DELETE 실패 — `DEL cache:inventory:{id}` 수동 |
 | 같은 message_id 중복 행 | Redis 키 만료/evict — DB UNIQUE 2단이 흡수, 중복 행 없으면 정상 |
-| 온라인 뱃지 깜빡임 | metrics 주기(60s) ≈ TTL(90s) 한계 — 주기 단축 또는 TTL 연장 |
+| 온라인 뱃지 깜빡임 | TTL(300s) 안 inventory·metrics 5분 연속 미수신 — 에이전트 다운·네트워크 단절 확인 |
 | 실시간 메트릭 갱신 안 됨 | 브라우저 30초 polling(`setInterval`)이 `/metrics/latest` 재요청 — 네트워크 탭에서 주기 요청 확인 |
