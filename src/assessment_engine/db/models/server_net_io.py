@@ -22,6 +22,8 @@ class ServerNetIo(Base):
     tx_packets: Mapped[int | None] = mapped_column(BigInteger)
     rx_errors: Mapped[int | None] = mapped_column(Integer)
     tx_errors: Mapped[int | None] = mapped_column(Integer)
+    # kind — physical/loopback/bridge/veth/bond_*/vlan/tunnel/virtual (Windows coarse). 물리 집계 필터 신호.
+    kind: Mapped[str | None] = mapped_column(String(32))
 
     # counter reset 정밀 식별용 (server_metrics와 동일 정책).
     boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

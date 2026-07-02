@@ -1,17 +1,8 @@
 # 시크릿
 .env
-dev/.env
-dev/agent.env
-docker/pgadmin/pgpass
-secrets/
-
-# 빌드 산출물 — agent 바이너리는 dev-up.sh / dev/agent-build/build.sh 가 빌드
-# (sibling repo Docker cross-build) 또는 AGENT_BINARY_URL 로 fetch.
-dev/bin/assessment-agent
-
-# libvirt dev 런타임 — dev SSH keypair + cloud-init seed/디스크 staging (dev-up.sh 생성).
-dev/.ssh/
-dev/run/
+secrets/*
+!secrets/.gitkeep
+!secrets/README.md
 
 # 빌드 산출물
 dist/

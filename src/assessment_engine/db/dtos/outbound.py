@@ -7,10 +7,12 @@ from typing import Literal
 class ServerSummary:
     id: int
     public_id: str
-    composite_id: str
+    composite_id: str | None  # 감사·표시용 (식별은 agent_id, URL 은 public_id)
     hostname: str
     os_id: str | None
     os_version: str | None
+    # 레거시 Windows Server 표시명 보강용 (build -> 버전, os_version 빈값 Server 세대). _os_display 단일 소비.
+    kernel_version: str | None
     cpu_cores: int | None
     mem_total_kb: int | None
     ip_external: list[str] | None
@@ -24,7 +26,8 @@ class ServerSummary:
 class ServerDetail:
     id: int
     public_id: str
-    composite_id: str
+    agent_id: str  # 식별 단일 키 (UUID) — task.install 라우팅 대상
+    composite_id: str | None  # 감사·표시용 (식별 미사용)
     machine_id: str | None  # raw machine-id 표시 전용
     hostname: str
     agent_version: str | None
@@ -39,7 +42,7 @@ class ServerDetail:
     swap_total_kb: int | None
     boot_time: datetime | None
     agent_started_at: datetime | None
-    ip_internal: list[str]
+    interfaces: list[dict]
     ip_external: list[str] | None
     disks: list[dict]
     mounts: list[dict]
@@ -115,6 +118,7 @@ class DiskIoRaw:
     sectors_written: int
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
+    kind: str | None = None  # physical/partition/lvm/raid/virtual — 물리 판정 신호
 
 
 @dataclass
@@ -129,6 +133,7 @@ class NetIoRaw:
     tx_errors: int
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
+    kind: str | None = None  # physical/loopback/bridge/veth/... — 물리 판정 신호
 
 
 @dataclass
@@ -141,6 +146,7 @@ class MountUsageRaw:
     # 시계열 4개 테이블 메타 일관성 (#C1·#B) — 시점값이라 reset 판정 미사용, 메타 균일 위해 보존.
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
+    kind: str | None = None  # data/boot/image — 데이터 볼륨 판정 신호
 
 
 @dataclass
@@ -170,7 +176,7 @@ class NetworkWithIo:
     server_id: int
     public_id: str
     hostname: str
-    ip_internal: list[str]
+    interfaces: list[dict]
     ip_external: list[str] | None
     net_io: list[NetIoRaw]  # 인터페이스당 최대 2행 (delta 계산용)
     inventory_at: datetime | None
@@ -230,6 +236,7 @@ class MetricSeries:
     collected_at: datetime
     value: float | None
     dimension: str | None
+    kind: str | None = None  # per-dimension 차트 필터용 (device/iface/mount kind). 환경 합산선은 None.
 
 
 # ---------- Reboot / Agent restart 이벤트 (차트 vertical marker용) ----------
@@ -246,11 +253,11 @@ class ReportRowRaw:
     server_id: int
     public_id: str
     hostname: str
-    os_family: str | None  # "linux" | "windows" — Windows 미측정 통계(load/iowait) N/A 표시 분기
+    os_family: str | None  # "linux"|"windows" — Windows 미측정(load=run queue) N/A 분기 (disk 는 queue 측정)
     os_id: str | None
     os_version: str | None
     kernel_version: str | None
-    ip_internal: list[str] | None
+    interfaces: list[dict] | None
     services: list[dict] | None  # service_classifier 입력 (role 추론용)
     last_seen_at: datetime | None
 
@@ -269,9 +276,11 @@ class ReportRowRaw:
     # service_classifier listen 신호 (개별 보고서 구동 서비스 표시·role 보강).
     listen_ports: list[dict] | None = None
 
-    # I/O wait (cpu_stat.iowait jiffies / total non-idle 비율) — 디스크 병목 신호
+    # I/O wait (cpu_stat.iowait jiffies / total non-idle 비율) — Linux 디스크 병목 신호
     iowait_p95_pct: float | None = None
     iowait_peak_pct: float | None = None
+    # Windows 디스크 saturation — 물리 디스크 큐 깊이 p95 (Linux iowait 등가 축, os-aware 소비)
+    disk_queue_p95: float | None = None
 
     # Inventory 합계 산정용 — query_service.get_report가 totals 계산 시 사용
     cpu_cores: int | None = None

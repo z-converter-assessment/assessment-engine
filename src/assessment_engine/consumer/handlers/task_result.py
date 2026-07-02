@@ -44,25 +44,14 @@ def make_task_result_handler(
                 return
 
             async def commit(repo: BaseCollectRepository) -> tuple[bool, str, str | None]:
-                # 성공 보정 매칭 OS — Windows 는 메시지 build os_version, Linux 등은 task.result 미발행이라
-                # inventory 에서 대상 서버 os_id/os_version 조회 (실패+script_failed+exit_code 일 때만 1회).
-                os_family, os_id, os_version = data.os_family, None, data.os_version
-                if (
-                    data.status == "failure"
-                    and data.failure_reason == "script_failed"
-                    and data.exit_code is not None
-                    and data.os_family != "windows"
-                ):
-                    server_os = await repo.get_task_server_os(str(data.task_id))
-                    if server_os is not None:
-                        os_family, os_id, os_version = server_os
+                # 성공 보정 매칭 OS — agent 가 task.result 에 os 필드를 직접 발행 (inventory 조회 불요).
                 eff_status, eff_reason = effective_task_result(
                     status=data.status,
                     failure_reason=data.failure_reason,
                     exit_code=data.exit_code,
-                    os_family=os_family,
-                    os_version=os_version,
-                    os_id=os_id,
+                    os_family=data.os_family,
+                    os_version=data.os_version,
+                    os_id=data.os_id,
                     success_exit_codes=success_exit_codes,
                 )
                 update = TaskResultUpdate(

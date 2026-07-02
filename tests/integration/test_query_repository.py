@@ -19,7 +19,7 @@ from assessment_engine.db.dtos.inbound import (
 )
 from assessment_engine.db.repositories.collect_repository import CollectRepository
 from assessment_engine.db.repositories.query.query_repository import QueryRepository
-from tests.factories import make_inventory, make_metrics
+from tests.factories import agent_id_for, make_inventory, make_metrics
 
 
 def _bucket_aligned_base(minutes_ago: int = 7) -> datetime:
@@ -27,6 +27,7 @@ def _bucket_aligned_base(minutes_ago: int = 7) -> datetime:
     버킷에 표본 2+ 가 필요 — 1분 간격 표본이 버킷 경계에 갈리지 않도록 base 를 버킷 시작에 맞춘다(ADR 0043)."""
     t = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).replace(second=0, microsecond=0)
     return t - timedelta(minutes=t.minute % 5)
+
 
 pytestmark = pytest.mark.asyncio
 
@@ -46,6 +47,7 @@ _ALL_METRIC_TYPES = [
     "swap.usage_percent",
     "disk.read_iops",
     "disk.write_iops",
+    "disk.queue",
     "fs.usage_percent",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
@@ -332,6 +334,43 @@ async def test_metric_chart_cpu_usage_percent_returns_data(
             assert 0 <= r.value <= 100
 
 
+async def test_metric_chart_disk_queue_returns_windows_gauge(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """disk.queue — Windows sat_disk_queue gauge 를 서버간 AVG 후 time_bucket agg. 시드 큐 깊이 반영."""
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-dq-1"))
+    base = _bucket_aligned_base()
+    for i in range(2):
+        await collect_repo.record_metrics(
+            sid, make_metrics(collected_at=base + timedelta(minutes=i), sat_disk_queue=3.0 + i)
+        )
+    rows = await query_repo.metric_chart(
+        server_id=sid, metric_type="disk.queue", dimension=None,
+        time_range="1h", bucket="5m", agg="avg", end=base + timedelta(minutes=10),
+    )
+    vals = [r.value for r in rows if r.value is not None]
+    assert vals, "sat_disk_queue 값이 있으면 disk.queue 추이가 값을 반환해야 함"
+    assert all(v >= 3.0 for v in vals)  # 시드 큐 깊이(3.0, 4.0) 반영 — AVG
+
+
+async def test_metric_chart_disk_queue_excludes_null_linux(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """disk.queue — sat_disk_queue null(Linux, iowait 사용) 서버는 IS NOT NULL 필터로 제외 → 값 없음."""
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-dq-null"))
+    base = _bucket_aligned_base()
+    for i in range(2):
+        # sat_disk_queue 미지정 → None (Linux 는 disk_queue 미발행)
+        await collect_repo.record_metrics(sid, make_metrics(collected_at=base + timedelta(minutes=i)))
+    rows = await query_repo.metric_chart(
+        server_id=sid, metric_type="disk.queue", dimension=None,
+        time_range="1h", bucket="5m", agg="avg", end=base + timedelta(minutes=10),
+    )
+    assert all(r.value is None for r in rows)  # null 제외 → 값 산출 안 됨 (빈 결과 또는 value None)
+
+
 async def test_metric_chart_fs_usage_returns_per_mount(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
@@ -501,8 +540,8 @@ async def test_reboot_events_classifies_boot_time_change_as_reboot(
         )
     )
 
-    # composite_id 단일 키 (#C1)
-    sid = await collect_repo.find_server_id("q-rb-1")
+    # agent_id 단일 키 (#C1) — make_inventory 가 composite_id 라벨로 파생한 값과 일치.
+    sid = await collect_repo.find_server_id(agent_id_for("q-rb-1"))
     events = await query_repo.reboot_events(
         sid,
         start=base_ts - timedelta(minutes=1),
@@ -540,8 +579,8 @@ async def test_reboot_events_classifies_agent_only_change_as_restart(
         )
     )
 
-    # composite_id 단일 키 (#C1)
-    sid = await collect_repo.find_server_id("q-rb-2")
+    # agent_id 단일 키 (#C1) — make_inventory 가 composite_id 라벨로 파생한 값과 일치.
+    sid = await collect_repo.find_server_id(agent_id_for("q-rb-2"))
     events = await query_repo.reboot_events(
         sid,
         start=base_ts - timedelta(minutes=1),
@@ -817,7 +856,7 @@ async def test_environment_utilization_returns_averages(
             cpu_idle=70,
             mem_total_kb=100,
             mem_available_kb=50,
-            mounts=[MountUsageEntry(mount="/", total_bytes=100, free_bytes=40, avail_bytes=40)],
+            mounts=[MountUsageEntry(mount="/", total_bytes=100, free_bytes=40, avail_bytes=40, kind="data")],
             disk_io=[],
             net_io=[],
         ),
@@ -832,7 +871,9 @@ async def test_environment_utilization_returns_averages(
             cpu_idle=120,
             mem_total_kb=100,
             mem_available_kb=30,  # latest → 사용률 70%
-            mounts=[MountUsageEntry(mount="/", total_bytes=100, free_bytes=20, avail_bytes=20)],  # latest → 80%
+            mounts=[
+                MountUsageEntry(mount="/", total_bytes=100, free_bytes=20, avail_bytes=20, kind="data")
+            ],  # latest → 80%
             disk_io=[],
             net_io=[],
         ),

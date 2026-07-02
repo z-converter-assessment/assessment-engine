@@ -11,13 +11,13 @@ from assessment_engine.db.models.base import Base
 class ServerInventory(Base):
     """등록 호스트 인벤토리.
 
-    식별 단일 키 = `composite_id` (UNIQUE, #C1). `machine_id` 는 표시 전용,
-    `hostname` 은 display field (UNIQUE X), `public_id` 는 URL 노출용 (ADR 0022 정정).
+    식별 단일 키 = `agent_id` (UUID, UNIQUE, #C1) — 부팅 무관 불변. `composite_id`/`machine_id` 는
+    감사·표시 전용, `hostname` 은 display field (UNIQUE X), `public_id` 는 URL 노출용 (ADR 0022 정정).
     """
 
     __tablename__ = "server_inventory"
     __table_args__ = (
-        UniqueConstraint("composite_id", name="uq_server_inventory_composite_id"),
+        UniqueConstraint("agent_id", name="uq_server_inventory_agent_id"),
         # 서비스 카테고리 필터(category 멤버십 @>/&&) GIN — 마이그레이션 a7c3e5f1b9d4 와 동기 (alembic drift 0).
         Index("ix_server_inventory_service_categories", "service_categories", postgresql_using="gin"),
     )
@@ -29,8 +29,10 @@ class ServerInventory(Base):
         unique=True,
         nullable=False,
     )
-    # 호스트 식별 단일 키 (#C1) — agent 매칭·라우팅 (MQ queue·routing key 도 본 값).
-    composite_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # 호스트 식별 단일 키 (#C1) — agent 매칭·MQ 라우팅. UUID v4, 부팅 무관 불변 (MAC/machine_id 재발급 무관).
+    agent_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    # composite_id — SHA-256(machine_id+MAC). 감사·표시용 강등 (clone collision 진단). 식별·라우팅 미사용, nullable.
+    composite_id: Mapped[str | None] = mapped_column(String(64))
     # raw machine-id (Linux /etc/machine-id, Windows MachineGuid). 표시 전용 — 식별 미사용.
     machine_id: Mapped[str | None] = mapped_column(String(64))
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -51,7 +53,8 @@ class ServerInventory(Base):
     boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     agent_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    ip_internal: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    # 내부 인터페이스 구조화 — [{name, address, prefix, family, kind, gateway}] (토폴로지·상세 표시 소스).
+    interfaces: Mapped[list[Any] | None] = mapped_column(JSONB)
     ip_external: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     # NIC MAC 목록 (clone collision 감사용 raw 보존). 식별 미사용.
     mac_addresses: Mapped[list[str] | None] = mapped_column(ARRAY(Text))

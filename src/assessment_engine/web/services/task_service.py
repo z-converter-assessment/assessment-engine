@@ -1,7 +1,7 @@
 """원격 작업 발행 service — 운영자가 등록 호스트에 task.install 명령을 발행.
 
-흐름: web POST -> DB INSERT (이력) -> agent.tasks.<composite_id> 큐 declare (idempotent)
-      -> assessment.tasks exchange 에 task.install.<composite_id> routing key 로 publish.
+흐름: web POST -> DB INSERT (이력) -> agent.tasks.<agent_id> 큐 declare (idempotent)
+      -> assessment.tasks exchange 에 task.install.<agent_id> routing key 로 publish.
 원격 호스트의 worker 가 본 큐를 consume 해 install bundle fetch + 실행 후 task.result 발행.
 
 책임 경계:
@@ -224,11 +224,8 @@ class TaskService:
         deadline_at = datetime.now(UTC) + timedelta(seconds=web_settings.install_timeout_sec + _DEADLINE_MARGIN_SEC)
 
         zdm_host = _extract_zdm_host(zdm_ip)
-        # resolver(엔진) 가 sha256/size 산출하려고 fetch 하는 호스트. download.url·install args 는 zdm_host 유지.
-        # dev 한정 override: mock 은 web 컨테이너 자기 자신이라 host publish 포트 hairpin 불가 -> localhost fetch.
-        # prod 미설정 -> zdm_host 그대로 (엔진이 real ZDM 직접 도달).
-        _resolver_override = web_settings.zdm_resolver_host_override
-        resolve_host = _extract_zdm_host(_resolver_override) if _resolver_override else zdm_host
+        # 엔진이 sha256/size 산출하려고 fetch 하는 호스트 = download.url·install args 와 동일 (real ZDM 직접 도달).
+        resolve_host = zdm_host
 
         # OS family 별 ZDM 메타 fetch — batch 안 OS 섞이면 OS 별 1 회씩 (캐시 효과 + 정합성).
         # detail.os_family None (Linux agent minor bump 전) → fallback "linux".
@@ -266,7 +263,7 @@ class TaskService:
                     task_id = await repo.create_task(
                         TaskCreate(
                             target_server_id=server_id,
-                            target_composite_id=detail.composite_id,
+                            target_agent_id=detail.agent_id,
                             task_type=_TASK_TYPE_INSTALL,
                             params={
                                 "zdm_ip": zdm_ip,
@@ -275,7 +272,6 @@ class TaskService:
                             deadline_at=deadline_at,
                         )
                     )
-                    await session.commit()
                 except IntegrityError as e:
                     # 사전 검증 통과 후 race(동시 발행) — 극히 드묾. 부분 발행 가능성은 T1 한계.
                     logger.warning("install race conflict server_id={} public_id={}", server_id, public_id)
@@ -283,37 +279,46 @@ class TaskService:
                         f"발행 도중 다른 작업과 충돌했습니다: {detail.hostname}. 잠시 후 다시 시도하세요."
                     ) from e
 
-            await self._ensure_machine_queue(detail.composite_id)
-            await self._publish_install(
-                exchange,
-                task_id,
-                detail.composite_id,
-                zdm_host,
-                zdm_user,
-                sha256_hex,
-                size_bytes,
-                package_path,
-                install_type,
-                install_script,
-            )
+                # publish-then-commit — 발행 성공 후에만 commit. 발행 실패 시 commit 하지 않고 async with 종료가
+                # task INSERT 를 rollback -> "메시지 없는 유령 pending" 방지 (dual-write 갭 축소).
+                try:
+                    await self._ensure_machine_queue(detail.agent_id)
+                    await self._publish_install(
+                        exchange,
+                        task_id,
+                        detail.agent_id,
+                        zdm_host,
+                        zdm_user,
+                        sha256_hex,
+                        size_bytes,
+                        package_path,
+                        install_type,
+                        install_script,
+                    )
+                except (aio_pika.exceptions.AMQPError, TimeoutError) as e:
+                    logger.error("task.install publish failed server_id={} public_id={}", server_id, public_id)
+                    raise TaskPublishFailed(
+                        f"작업 발행 중 broker 오류로 취소했습니다: {detail.hostname}. 잠시 후 다시 시도하세요."
+                    ) from e
+                await session.commit()
 
             logger.info(
-                "task.install published task_id={} composite_id={} target={}",
+                "task.install published task_id={} agent_id={} target={}",
                 task_id,
-                detail.composite_id,
+                detail.agent_id,
                 public_id,
             )
             created.append(TaskCreated(target_public_id=public_id, task_id=task_id))
 
         return created
 
-    async def _ensure_machine_queue(self, composite_id: str) -> None:
+    async def _ensure_machine_queue(self, agent_id: str) -> None:
         """원격 호스트 전용 큐 declare. idempotent — 동일 인자 재선언 안전.
 
         worker 측은 declare 권한이 없어 engine 이 책임진다.
         """
-        queue_name = diagnostic_settings.agent_task_queue(composite_id)
-        routing_key = diagnostic_settings.task_install_routing_key(composite_id)
+        queue_name = diagnostic_settings.agent_task_queue(agent_id)
+        routing_key = diagnostic_settings.task_install_routing_key(agent_id)
         queue = await self.broker_channel.declare_queue(
             queue_name,
             durable=True,
@@ -330,7 +335,7 @@ class TaskService:
         self,
         exchange: aio_pika.abc.AbstractExchange,
         task_id: str,
-        composite_id: str,
+        agent_id: str,
         zdm_host: str,
         zdm_user: str,
         sha256_hex: str,
@@ -343,7 +348,7 @@ class TaskService:
         payload = {
             "message_type": "task.install",
             "task_id": task_id,
-            "composite_id": composite_id,
+            "agent_id": agent_id,
             "issued_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "download": {
                 "url": download_url,
@@ -363,7 +368,7 @@ class TaskService:
             content_type="application/json",
             message_id=str(uuid.uuid4()),
         )
-        routing_key = diagnostic_settings.task_install_routing_key(composite_id)
+        routing_key = diagnostic_settings.task_install_routing_key(agent_id)
         await exchange.publish(message, routing_key=routing_key)
 
 
@@ -377,3 +382,7 @@ class TaskDuplicatePending(Exception):
 
 class TaskNotConfigured(Exception):
     """router 가 HTTPException(503) 로 변환 — ZDM 패키지 contract 미설정."""
+
+
+class TaskPublishFailed(Exception):
+    """router 가 HTTPException(503) 로 변환 — broker publish 실패 (task INSERT 는 rollback, 유령 pending 없음)."""

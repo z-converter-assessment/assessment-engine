@@ -44,7 +44,8 @@ def _consumer_kwargs(**overrides):
 
 def test_web_settings_dev_default_passes():
     """app_env=dev면 weak default 그대로 허용 — 검증 skip."""
-    s = WebSettings(app_env="dev")  # user default "assessment", password default "changeme"
+    # _env_file=None — 코드 default 검증이 목적이라 ambient .env(로컬 dev 스택용) 배제 (CI·로컬 무관 robust).
+    s = WebSettings(app_env="dev", _env_file=None)  # user default "assessment", password default "changeme"
     assert s.app_env == "dev"
     assert s.postgres_password.get_secret_value() == "changeme"
 

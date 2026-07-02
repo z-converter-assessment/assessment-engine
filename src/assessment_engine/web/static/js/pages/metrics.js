@@ -19,6 +19,7 @@ const PERF_IOPS_SUGGESTED_MAX = 200;              // HDD 랜덤 I/O 한계(~100�
 const PERF_NET_SUGGESTED_MAX  = 10 * 1024 * 1024; // 10 MB/s — 1 Gbps 이더넷의 약 8%
 const PERF_PPS_SUGGESTED_MAX  = 10;               // pps soft ceiling (idle 환경도 보이도록)
 const PERF_DISK_KBPS_SUGGESTED_MAX = 10 * 1024;   // 10 MB/s — net 처리량 차트와 동일 절대 기준선
+const PERF_DISK_QUEUE_SUGGESTED_MAX = 5;          // Avg Disk Queue Length — 2 이상 포화(Windows), 0~5 typical
 // 처리량 동적 단위(kBps/MBps)는 ChartUtils.fmtThroughput 단일 진실 (storage/detail/환경 추이 공용).
 
 // 색상 임계값 — backend mappers._USAGE_*_PCT 단일 진실, body data-attribute 로 주입 (#E1 P4).
@@ -35,7 +36,7 @@ const chartInstances = {};
 // P4(a) sequence counter — per-chart 분리 (다른 page 와 일관). chart 별 독립 counter.
 const seqs = {
   cpu: 0, cpuClass: 0, load: 0, mem: 0, memComp: 0, swap: 0,
-  physIo: 0, diskKbps: 0, fs: 0, netIo: 0, netPps: 0,
+  physIo: 0, diskKbps: 0, diskQueue: 0, fs: 0, netIo: 0, netPps: 0,
 };
 
 /* ── 유틸 ──
@@ -183,6 +184,7 @@ const pctTicks = { callback: v => v + '%', font:{size:11}, color:'#64748b' };
 const Y_PCT   = { min:0, max:100, ticks: pctTicks };
 const Y_SWAP  = { min:0, beginAtZero:true, suggestedMax:25, ticks: pctTicks };
 const Y_LOAD  = { beginAtZero:true, suggestedMax: 1.5, ticks:{ font:{size:11}, color:'#64748b' } };
+const Y_DISK_QUEUE = { beginAtZero:true, suggestedMax: PERF_DISK_QUEUE_SUGGESTED_MAX, ticks:{ font:{size:11}, color:'#64748b' } };
 const Y_IOPS  = { beginAtZero:true, suggestedMax: PERF_IOPS_SUGGESTED_MAX, ticks:{ precision:0, font:{size:11}, color:'#64748b' } };
 const Y_DISK_KBPS = { beginAtZero:true, suggestedMax: PERF_DISK_KBPS_SUGGESTED_MAX, ticks:{ callback: v => fmtThroughput(v), font:{size:11}, color:'#64748b' } };
 const Y_NET   = { beginAtZero:true, suggestedMax: PERF_NET_SUGGESTED_MAX, ticks:{ callback: v => fmtKbChart(v), font:{size:11}, color:'#64748b' } };
@@ -261,6 +263,45 @@ async function loadLoadChart(range, anchor) {
   });
   const loadMax = computePeriodMax(safeMax);
   updateMaxLabel('load-max', loadMax != null ? loadMax / (CPU_CORES || 1) : null, v => v.toFixed(2), null);
+}
+
+// Windows Avg Disk Queue Length 추이 (server_metrics.sat_disk_queue) — iowait(CPU 분류)의 OS 보완 짝.
+// Linux 는 iowait 사용이라 disk queue 미발행 → N/A. Windows 만 실측 노출.
+async function loadDiskQueueChart(range, anchor) {
+  if (OS_FAMILY !== 'windows') {  // 디스크 대기는 Windows 신호 — Linux 는 I/O Wait(CPU 분류) 참조
+    if (chartInstances['diskqueue-canvas']) { chartInstances['diskqueue-canvas'].destroy(); delete chartInstances['diskqueue-canvas']; }
+    document.getElementById('diskqueue-canvas').style.display = 'none';
+    const e = document.getElementById('diskqueue-empty'); e.textContent = 'N/A — Linux 는 I/O Wait 참조'; e.style.display = 'flex';
+    updateMaxLabel('diskqueue-max', null, v => v.toFixed(2), null); return;
+  }
+  const seq = ++seqs.diskQueue;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const [avgRows, maxRows] = await Promise.all([fetchChart('disk.queue','avg', range, anchor), fetchChart('disk.queue','max', range, anchor)]);
+  if (seq !== seqs.diskQueue) return;
+  const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
+
+  if (chartInstances['diskqueue-canvas']) { chartInstances['diskqueue-canvas'].destroy(); delete chartInstances['diskqueue-canvas']; }
+  const canvas = document.getElementById('diskqueue-canvas');
+  const empty  = document.getElementById('diskqueue-empty');
+  if (!safeAvg.length) { canvas.style.display = 'none'; empty.textContent = '해당 기간에 수집된 데이터가 없습니다.'; empty.style.display = 'flex'; updateMaxLabel('diskqueue-max', null, v => v.toFixed(2), null); return; }
+  canvas.style.display = ''; empty.style.display = 'none';
+
+  const avgMap = {};
+  for (const r of safeAvg) avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
+  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const data   = grid.map(t => avgMap[t] ?? null);
+
+  chartInstances['diskqueue-canvas'] = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets: [{
+      label: 'Disk Queue', data,
+      borderColor: '#ef4444',
+      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
+    }] },
+    options: makePerfOptions(Y_DISK_QUEUE, v => v.toFixed(2)),
+  });
+  updateMaxLabel('diskqueue-max', computePeriodMax(safeMax), v => v.toFixed(2), null);
 }
 
 async function loadMemChart(range, anchor) {
@@ -416,8 +457,8 @@ async function loadAllCharts() {
     loadLoadChart(range, anchor),    loadMemChart(range, anchor),
     loadMemCompChart(range, anchor), loadSwapChart(range, anchor),
     loadPhysIoChart(range, anchor),  loadDiskKbpsChart(range, anchor),
-    loadFsChart(range, anchor),      loadNetIoChart(range, anchor),
-    loadNetPpsChart(range, anchor),
+    loadDiskQueueChart(range, anchor), loadFsChart(range, anchor),
+    loadNetIoChart(range, anchor),   loadNetPpsChart(range, anchor),
   ]);
 }
 

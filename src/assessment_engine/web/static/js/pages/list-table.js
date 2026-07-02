@@ -12,7 +12,7 @@ document.addEventListener('keydown', e => {
 
 // ─── ZConverter Install ────────────────────────────────────────────────────
 // 체크박스로 호스트 선택 -> POST /api/tasks/install.
-// engine 은 DB INSERT + agent.tasks.<composite_id> 큐 동적 declare + task.install publish.
+// engine 은 DB INSERT + agent.tasks.<agent_id> 큐 동적 declare + task.install publish.
 // download.url 은 운영자 입력 ZDM host + ZDM_PACKAGE_PATH 조립, sha256/size_bytes 는 ZDM_PACKAGE_* env.
 
 const installModal            = document.getElementById('install-modal');

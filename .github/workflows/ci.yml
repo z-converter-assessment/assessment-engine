@@ -1,7 +1,7 @@
 name: ci
 
 # 본 repo CI — PR 마다 회귀·정합 자동 차단.
-# 책임: 코드 quality 보증(빌드·테스트·lint). CD(배포·secret 주입·롤백)는 인프라 repo 영역 (CLAUDE.md #A0).
+# 책임: 코드 quality 보증(빌드·테스트·lint). CD(엔진 rollout)는 VM 에서 deploy.sh 실행 (ADR 0048).
 #
 # Job 정합 그래프:
 #   lint ──┬─> test-unit ─> test-integration
@@ -79,23 +79,15 @@ jobs:
       - name: Install project (frozen)
         run: uv sync --frozen --group dev
 
-      # --cov-report=term — console에 라인별 coverage 표시 (PR review 시 즉시 가시화).
-      # --cov-report=xml — codecov·sonar 등 외부 리포터 입력용 (artifact upload).
+      # --cov-report=term — console에 라인별 coverage 표시 (PR review 시 즉시 가시화). 외부 리포터(codecov 등) 미사용이라 artifact 미업로드.
       - name: pytest unit (with coverage)
-        run: uv run pytest tests/unit/ -v --cov=assessment_engine --cov-report=term --cov-report=xml:coverage-unit.xml
-
-      - name: Upload unit coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-unit
-          path: coverage-unit.xml
-          retention-days: 7
+        run: uv run pytest tests/unit/ -v --cov=assessment_engine --cov-report=term
 
   build:
     name: wheel build
     runs-on: ubuntu-latest
     needs: [lint]
-    # 산출물(wheel) 검증은 main PR에서만 — release gate. tag push 시 release.yml이 sign+publish 별도 수행.
+    # 패키징 검증은 main PR에서만 — release gate. tag push 시 release.yml 이 이미지 빌드+서명+publish 수행.
     if: github.base_ref == 'main'
     timeout-minutes: 10
     steps:
@@ -110,7 +102,7 @@ jobs:
       - name: Install uv
         run: pip install uv
 
-      # 본 repo CI 산출물 = Python wheel (ADR 0012).
+      # 패키징 검증 — release-image(Dockerfile)가 내부적으로 install 하는 wheel force-include 정합을 머지 전에 잡는다 (ADR 0048).
       # `uv build`가 sdist + wheel 둘 다 생성. wheel은 hatchling이 pyproject.toml의 packages·force-include 적용.
       - name: uv build
         run: uv build
@@ -123,13 +115,6 @@ jobs:
           /tmp/wheel-smoke/bin/pip install --quiet dist/*.whl
           /tmp/wheel-smoke/bin/python -c "import assessment_engine.web.main; import assessment_engine.consumer.main"
           /tmp/wheel-smoke/bin/python -c "from importlib.resources import files; p = files('assessment_engine'); assert (p / 'web' / 'templates' / 'base.html').is_file(); assert (p / 'web' / 'static' / 'js' / 'chart-utils.js').is_file(); assert (p / 'migrations' / 'env.py').is_file(); assert (p / '_alembic.ini').is_file()"
-
-      - name: Upload wheel artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: wheel
-          path: dist/*.whl
-          retention-days: 7
 
   test-integration:
     name: pytest (integration)
@@ -156,11 +141,4 @@ jobs:
 
       # testcontainers가 TimescaleDB 컨테이너 자동 spawn — GHA runner의 docker daemon 사용.
       - name: pytest integration (with coverage)
-        run: uv run pytest tests/integration/ -v --cov=assessment_engine --cov-report=term --cov-report=xml:coverage-integration.xml
-
-      - name: Upload integration coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-integration
-          path: coverage-integration.xml
-          retention-days: 7
+        run: uv run pytest tests/integration/ -v --cov=assessment_engine --cov-report=term

@@ -52,7 +52,7 @@ def _raw(
     os_id="ubuntu",
     os_version="22.04",
     kernel_version="5.15",
-    ip_internal=("10.0.0.1",),
+    interfaces=None,
     services=None,
     cpu_avg=None,
     cpu_p95=None,
@@ -87,7 +87,11 @@ def _raw(
         os_id=os_id,
         os_version=os_version,
         kernel_version=kernel_version,
-        ip_internal=list(ip_internal) if ip_internal else None,
+        interfaces=interfaces
+        if interfaces is not None
+        else [
+            {"name": "eth0", "address": "10.0.0.1", "prefix": 24, "family": "ipv4", "kind": "physical", "gateway": None}
+        ],
         services=list(services) if services else None,
         last_seen_at=_NOW,
         cpu_avg_pct=cpu_avg,
@@ -102,7 +106,7 @@ def _raw(
         iowait_peak_pct=iowait_peak,
         cpu_cores=cpu_cores,
         mem_total_kb=mem_total_kb,
-        disks=disks if disks is not None else [{"name": "sda", "size_bytes": 50 * 10**9}],
+        disks=disks if disks is not None else [{"name": "sda", "size_bytes": 50 * 10**9, "kind": "physical"}],
         boot_time=boot_time if boot_time is not None else _NOW - timedelta(days=30),
         worst_mount=worst_mount,
         worst_mount_used_pct=worst_used,
@@ -235,9 +239,17 @@ def test_report_totals_sum_vcpu_memory_disk():
             server_id=1,
             cpu_cores=4,
             mem_total_kb=8 * 1024 * 1024,
-            disks=[{"name": "sda", "size_bytes": 50 * 10**9}, {"name": "sdb", "size_bytes": 100 * 10**9}],
+            disks=[
+                {"name": "sda", "size_bytes": 50 * 10**9, "kind": "physical"},
+                {"name": "sdb", "size_bytes": 100 * 10**9, "kind": "physical"},
+            ],
         ),
-        _raw(server_id=2, cpu_cores=2, mem_total_kb=4 * 1024 * 1024, disks=[{"name": "vda", "size_bytes": 30 * 10**9}]),
+        _raw(
+            server_id=2,
+            cpu_cores=2,
+            mem_total_kb=4 * 1024 * 1024,
+            disks=[{"name": "vda", "size_bytes": 30 * 10**9, "kind": "physical"}],
+        ),
     ]
     t = compute_report_totals_from_raw(raws)
     assert t.total_vcpus == 6
@@ -260,6 +272,7 @@ def _detail(*, id_, hostname, cpu_cores, mem_total_kb, disk_size, role_unit=None
     return ServerDetail(
         id=id_,
         public_id=f"p{id_}",
+        agent_id=f"00000000-0000-4000-8000-{id_:012d}",
         composite_id=f"m{id_}",
         machine_id=None,
         hostname=hostname,
@@ -275,9 +288,11 @@ def _detail(*, id_, hostname, cpu_cores, mem_total_kb, disk_size, role_unit=None
         swap_total_kb=0,
         boot_time=None,
         agent_started_at=None,
-        ip_internal=["10.0.0.1"],
+        interfaces=[
+            {"name": "eth0", "address": "10.0.0.1", "prefix": 24, "family": "ipv4", "kind": "physical", "gateway": None}
+        ],
         ip_external=None,
-        disks=[{"name": "sda", "size_bytes": disk_size}],
+        disks=[{"name": "sda", "size_bytes": disk_size, "kind": "physical"}],
         mounts=[],
         services=[{"unit": role_unit, "sub": "running"}] if role_unit else [],
         listen_ports=[],
@@ -523,7 +538,7 @@ def test_bullets_iowait_signal_threshold_20pct():
     raws = [_raw(hostname="io-01", iowait_p95=25.0, cpu_p95=50.0, mem_p95=50.0)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws)
-    assert any("I/O wait" in b and "io-01" in b for b in bullets)
+    assert any("디스크 I/O 포화" in b and "io-01" in b for b in bullets)
 
 
 def test_bullets_mount_imminent_signal():
@@ -670,7 +685,7 @@ def test_bullets_customer_view_keeps_iowait_mount_reboot_eol():
     ]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws, view="customer")
-    assert any("I/O wait" in b and "db-01" in b for b in bullets)
+    assert any("디스크 I/O 포화" in b and "db-01" in b for b in bullets)
     assert any("임박" in b and "db-01" in b for b in bullets)
     assert any("재부팅" in b and "db-01" in b for b in bullets)
     assert any("EOL" in b and "db-01" in b for b in bullets)
@@ -830,6 +845,7 @@ def test_inventory_export_network_addresses_v4_v6_split():
     detail = ServerDetail(
         id=1,
         public_id="p1",
+        agent_id="00000000-0000-4000-8000-000000000001",
         composite_id="m1",
         machine_id=None,
         hostname="h",
@@ -845,7 +861,17 @@ def test_inventory_export_network_addresses_v4_v6_split():
         swap_total_kb=0,
         boot_time=None,
         agent_started_at=None,
-        ip_internal=["10.0.0.1", "fe80::1"],
+        interfaces=[
+            {
+                "name": "eth0",
+                "address": "10.0.0.1",
+                "prefix": 24,
+                "family": "ipv4",
+                "kind": "physical",
+                "gateway": None,
+            },
+            {"name": "eth0", "address": "fe80::1", "prefix": 64, "family": "ipv6", "kind": "physical", "gateway": None},
+        ],
         ip_external=["54.1.2.3"],
         disks=[],
         mounts=[],
@@ -869,6 +895,7 @@ def test_inventory_export_services_listeners_match_listen_ports():
     detail = ServerDetail(
         id=1,
         public_id="p1",
+        agent_id="00000000-0000-4000-8000-000000000001",
         composite_id="m1",
         machine_id=None,
         hostname="h",
@@ -884,7 +911,9 @@ def test_inventory_export_services_listeners_match_listen_ports():
         swap_total_kb=0,
         boot_time=None,
         agent_started_at=None,
-        ip_internal=["10.0.0.1"],
+        interfaces=[
+            {"name": "eth0", "address": "10.0.0.1", "prefix": 24, "family": "ipv4", "kind": "physical", "gateway": None}
+        ],
         ip_external=None,
         disks=[],
         mounts=[],
@@ -909,6 +938,7 @@ def test_inventory_export_services_listeners_fallback_when_no_listen_ports():
     detail = ServerDetail(
         id=1,
         public_id="p1",
+        agent_id="00000000-0000-4000-8000-000000000001",
         composite_id="m1",
         machine_id=None,
         hostname="h",
@@ -924,7 +954,9 @@ def test_inventory_export_services_listeners_fallback_when_no_listen_ports():
         swap_total_kb=0,
         boot_time=None,
         agent_started_at=None,
-        ip_internal=["10.0.0.1"],
+        interfaces=[
+            {"name": "eth0", "address": "10.0.0.1", "prefix": 24, "family": "ipv4", "kind": "physical", "gateway": None}
+        ],
         ip_external=None,
         disks=[],
         mounts=[],
@@ -1050,9 +1082,7 @@ def test_build_resource_stats_net_single_side_counts_other_as_zero():
 
 def test_build_resource_stats_sample_sufficiency_min_of_measured():
     """sufficiency = 측정된 축(p95 not None)의 min — 보수적."""
-    stats = build_resource_stats(
-        _raw(cpu_p95=50.0, cpu_sufficiency=0.4, mem_p95=50.0, mem_sufficiency=0.9)
-    )
+    stats = build_resource_stats(_raw(cpu_p95=50.0, cpu_sufficiency=0.4, mem_p95=50.0, mem_sufficiency=0.9))
     assert stats.sample_sufficiency == 0.4
 
 

@@ -1,6 +1,5 @@
 import dataclasses
 
-from loguru import logger
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,14 +30,14 @@ class CollectRepository(BaseCollectRepository):
 
     # ─── server_inventory ──────────────────────────────────────────────────
 
-    async def find_server_id(self, composite_id: str) -> int | None:
+    async def find_server_id(self, agent_id: str) -> int | None:
         result = await self.session.execute(
-            select(ServerInventory.id).where(ServerInventory.composite_id == composite_id)
+            select(ServerInventory.id).where(ServerInventory.agent_id == agent_id)
         )
         return result.scalar_one_or_none()
 
     # 비교 대상 컬럼만 SELECT (매 inventory 메시지 hot path — 불필요 컬럼 read 절약).
-    # composite_id 는 UNIQUE 키라 비교 무의미, machine_id 는 표시용(history 미추적)이라 제외.
+    # agent_id 는 UNIQUE 키라 비교 무의미, composite_id/machine_id 는 감사·표시용(history 미추적)이라 제외.
     _INVENTORY_COMPARE_COLS = (
         ServerInventory.agent_version,
         ServerInventory.os_family,
@@ -52,7 +51,7 @@ class CollectRepository(BaseCollectRepository):
         ServerInventory.swap_total_kb,
         ServerInventory.boot_time,
         ServerInventory.agent_started_at,
-        ServerInventory.ip_internal,
+        ServerInventory.interfaces,
         ServerInventory.ip_external,
         ServerInventory.disks,
         ServerInventory.mounts,
@@ -60,59 +59,18 @@ class CollectRepository(BaseCollectRepository):
         ServerInventory.listen_ports,
     )
 
-    async def _relink_rebooted_host(
-        self,
-        composite_id: str,
-        machine_id: str | None,
-        hostname: str,
-    ) -> int | None:
-        """composite_id 미등록 시, 재부팅으로 composite_id 가 바뀐 동일 호스트를 찾아 composite_id 재지정.
-
-        배경: agent 는 composite_id = sha256(machine_id + NIC MAC들) 을 부팅마다 1회 계산한다. 일부 환경
-        (예: OpenStack Windows VM)은 부팅마다 NIC MAC 이 통째로 재발급되거나 UP NIC 집합이 흔들려 같은 VM 인데
-        composite_id 가 달라진다(중복 행 발생). 안정 식별자는 machine_id(MachineGuid·/etc/machine-id) + hostname.
-
-        매칭: machine_id(not null) + hostname 일치, 후보가 정확히 1개일 때만 재연결(0=신규, 2+=모호 -> 새 행).
-        MAC 은 매칭에 쓰지 않는다 — 부팅마다 바뀌는 환경이 있어 무용. trade-off: machine_id+hostname 을 둘 다
-        공유하는 서로 다른 clone(미sysprep+미rename)은 오병합될 수 있다(둘 다 같으면 사실상 식별 불가라 수용).
-        재연결은 후보 행 composite_id 만 UPDATE -> server_id(식별·시계열 FK·history 연속) 보존. 반환: server_id|None.
-        """
-        if not machine_id:
-            return None
-        rows = (
-            await self.session.execute(
-                select(ServerInventory.id, ServerInventory.composite_id).where(
-                    ServerInventory.machine_id == machine_id,
-                    ServerInventory.hostname == hostname,
-                )
-            )
-        ).all()
-        if len(rows) != 1:
-            return None
-        cand = rows[0]
-        await self.session.execute(
-            update(ServerInventory).where(ServerInventory.id == cand.id).values(composite_id=composite_id)
-        )
-        logger.bind(
-            server_id=cand.id, old_composite_id=cand.composite_id, new_composite_id=composite_id
-        ).info("relinked rebooted host (machine_id+hostname) — composite_id changed")
-        return cand.id
-
     async def upsert_server(self, data: ServerInventoryCreate) -> int:
-        # composite_id 미등록이면 재부팅으로 composite_id 가 바뀐 동일 호스트 재연결 시도 (#C1 식별 안정화).
-        # 재연결되면 그 행 composite_id 가 data.composite_id 로 바뀌어 아래 prev 조회·upsert 가 동일 행을 잡는다.
-        if await self.find_server_id(data.composite_id) is None:
-            await self._relink_rebooted_host(data.composite_id, data.machine_id, data.hostname)
-
         # 변경 감지: 직전 행과 다를 때만 history 한 행 INSERT (앱 레벨 trigger).
+        # agent_id 가 부팅 무관 불변이라 재부팅해도 동일 agent_id 가 자연히 같은 행을 잡는다 (호스트 재연결 로직 불요).
         prev_q = await self.session.execute(
-            select(*self._INVENTORY_COMPARE_COLS).where(ServerInventory.composite_id == data.composite_id)
+            select(*self._INVENTORY_COMPARE_COLS).where(ServerInventory.agent_id == data.agent_id)
         )
         prev = prev_q.first()
 
         # values()/set_ 에 같은 dict 재사용 — 컬럼 추가 시 한 곳만 수정.
-        # composite_id 는 UNIQUE 키라 set_ 제외 (자기 덮어쓰기 무의미).
+        # agent_id 는 UNIQUE 키라 set_ 제외 (자기 덮어쓰기 무의미). composite_id 는 감사용이라 update 대상.
         row = {
+            "agent_id": data.agent_id,
             "composite_id": data.composite_id,
             "machine_id": data.machine_id,
             "hostname": data.hostname,
@@ -128,7 +86,7 @@ class CollectRepository(BaseCollectRepository):
             "swap_total_kb": data.swap_total_kb,
             "boot_time": data.boot_time,
             "agent_started_at": data.agent_started_at,
-            "ip_internal": data.ip_internal,
+            "interfaces": data.interfaces,
             "ip_external": data.ip_external,
             "mac_addresses": data.mac_addresses,
             "disks": data.disks,
@@ -138,13 +96,13 @@ class CollectRepository(BaseCollectRepository):
             "service_categories": data.service_categories,
             "last_seen_at": data.collected_at,
         }
-        update_set = {k: v for k, v in row.items() if k != "composite_id"}
+        update_set = {k: v for k, v in row.items() if k != "agent_id"}
 
         stmt = (
             pg_insert(ServerInventory)
             .values(**row)
             .on_conflict_do_update(
-                index_elements=["composite_id"],
+                index_elements=["agent_id"],
                 set_=update_set,
             )
             .returning(ServerInventory.id)
@@ -159,7 +117,7 @@ class CollectRepository(BaseCollectRepository):
 
     @staticmethod
     def _inventory_changed(prev: ServerInventory, new: ServerInventoryCreate) -> bool:
-        """변경 감지. collected_at·last_seen_at·composite_id·machine_id·hostname 제외 비교."""
+        """변경 감지. collected_at·last_seen_at·agent_id·composite_id·machine_id·hostname 제외 비교."""
         return (
             prev.agent_version != new.agent_version
             or prev.os_family != new.os_family
@@ -173,7 +131,7 @@ class CollectRepository(BaseCollectRepository):
             or prev.swap_total_kb != new.swap_total_kb
             or boot_time_changed(prev.boot_time, new.boot_time)
             or prev.agent_started_at != new.agent_started_at
-            or prev.ip_internal != new.ip_internal
+            or prev.interfaces != new.interfaces
             or prev.ip_external != new.ip_external
             or prev.disks != new.disks
             or prev.mounts != new.mounts
@@ -205,7 +163,7 @@ class CollectRepository(BaseCollectRepository):
                 swap_total_kb=data.swap_total_kb,
                 boot_time=data.boot_time,
                 agent_started_at=data.agent_started_at,
-                ip_internal=data.ip_internal,
+                interfaces=data.interfaces,
                 ip_external=data.ip_external,
                 disks=data.disks,
                 mounts=data.mounts,
@@ -218,11 +176,11 @@ class CollectRepository(BaseCollectRepository):
 
     async def ensure_server_id(
         self,
-        composite_id: str,
+        agent_id: str,
         fallback: ServerInventoryCreate,
     ) -> tuple[int, bool]:
         # 1. 이미 등록 → 그대로 사용 (placeholder upsert 금지 — 진짜 inventory 보호)
-        server_id = await self.find_server_id(composite_id)
+        server_id = await self.find_server_id(agent_id)
         if server_id is not None:
             return server_id, False
 
@@ -232,9 +190,9 @@ class CollectRepository(BaseCollectRepository):
             return new_id, True
 
         # 3. 충돌 = 다른 핸들러가 방금 INSERT. 다시 find — 이번엔 보임.
-        server_id = await self.find_server_id(composite_id)
+        server_id = await self.find_server_id(agent_id)
         if server_id is None:
-            raise RuntimeError(f"failed to ensure server_id for composite_id={composite_id} (race not resolved)")
+            raise RuntimeError(f"failed to ensure server_id for agent_id={agent_id} (race not resolved)")
         return server_id, False
 
     async def _insert_placeholder_server(self, data: ServerInventoryCreate) -> int | None:
@@ -244,6 +202,7 @@ class CollectRepository(BaseCollectRepository):
         None 으로 덮어쓰는 race(부팅 직후 inventory·metrics 거의 동시 도착) 발생 — 그래서 DO NOTHING.
         """
         row = {
+            "agent_id": data.agent_id,
             "composite_id": data.composite_id,
             "machine_id": data.machine_id,
             "hostname": data.hostname,
@@ -259,7 +218,7 @@ class CollectRepository(BaseCollectRepository):
             "swap_total_kb": data.swap_total_kb,
             "boot_time": data.boot_time,
             "agent_started_at": data.agent_started_at,
-            "ip_internal": data.ip_internal,
+            "interfaces": data.interfaces,
             "ip_external": data.ip_external,
             "mac_addresses": data.mac_addresses,
             "disks": data.disks,
@@ -272,7 +231,7 @@ class CollectRepository(BaseCollectRepository):
         stmt = (
             pg_insert(ServerInventory)
             .values(**row)
-            .on_conflict_do_nothing(index_elements=["composite_id"])
+            .on_conflict_do_nothing(index_elements=["agent_id"])
             .returning(ServerInventory.id)
         )
         result = await self.session.execute(stmt)
@@ -285,7 +244,7 @@ class CollectRepository(BaseCollectRepository):
             pg_insert(Task)
             .values(
                 target_server_id=data.target_server_id,
-                target_composite_id=data.target_composite_id,
+                target_agent_id=data.target_agent_id,
                 task_type=data.task_type,
                 params=data.params,
                 status="pending",
@@ -346,24 +305,6 @@ class CollectRepository(BaseCollectRepository):
         result = await self.session.execute(stmt)
         return (result.rowcount or 0) > 0
 
-    async def get_task_server_os(
-        self, task_public_id: str
-    ) -> tuple[str | None, str | None, str | None] | None:
-        """task 의 대상 서버 OS (os_family, os_id, os_version) — task.result 미발행 Linux 성공 보정 매칭용.
-
-        task.result 는 Windows os_version(build) 만 싣고 Linux 는 os_id/os_version 미발행이라, Linux 보정은
-        inventory 에서 대상 서버 OS 를 조회해 task_policy 키(os_id:major)를 구성한다. task 미존재 시 None.
-        """
-        stmt = (
-            select(ServerInventory.os_family, ServerInventory.os_id, ServerInventory.os_version)
-            .join(Task, Task.target_server_id == ServerInventory.id)
-            .where(Task.public_id == task_public_id)
-        )
-        row = (await self.session.execute(stmt)).first()
-        if row is None:
-            return None
-        return row.os_family, row.os_id, row.os_version
-
     # ─── 시계열 (record_metrics) ───────────────────────────────────────────
 
     async def record_metrics(
@@ -414,6 +355,9 @@ class CollectRepository(BaseCollectRepository):
                 load_1m=data.load_1m,
                 load_5m=data.load_5m,
                 load_15m=data.load_15m,
+                sat_disk_queue=data.sat_disk_queue,
+                sat_cpu_run_queue=data.sat_cpu_run_queue,
+                sat_mem_paging_rate=data.sat_mem_paging_rate,
                 boot_time=data.boot_time,
                 agent_started_at=data.agent_started_at,
             )

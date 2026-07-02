@@ -96,9 +96,7 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
         data.pop(key, None)
     if "public_id" not in data:
         data["public_id"] = ""
-    if "composite_id" not in data:
-        data["composite_id"] = data.pop("host_id", "")
-    data.pop("host_id", None)
+    data.setdefault("composite_id", None)
     data.setdefault("machine_id", None)
     data.setdefault("os_family", None)
     return enrich_server_detail(ServerDetailResponse(**data))

@@ -242,7 +242,9 @@ def test_compute_swap_returns_none_when_total_zero():
 # ─── compute_disk_io ──────────────────────────────────────────────────────
 
 
-def _disk(device, t, reads, writes, sr=0, sw=0, *, boot_time: datetime | None = None) -> DiskIoRaw:
+def _disk(
+    device, t, reads, writes, sr=0, sw=0, *, kind: str | None = "physical", boot_time: datetime | None = None
+) -> DiskIoRaw:
     return DiskIoRaw(
         device=device,
         collected_at=t,
@@ -252,6 +254,7 @@ def _disk(device, t, reads, writes, sr=0, sw=0, *, boot_time: datetime | None = 
         sectors_written=sw,
         boot_time=boot_time,
         agent_started_at=None,
+        kind=kind,
     )
 
 
@@ -259,12 +262,12 @@ def test_compute_disk_io_classifies_into_three_groups():
     t1 = datetime.now(UTC)
     t2 = t1 + timedelta(seconds=60)
     rows = [
-        _disk("sda", t2, 200, 100),
-        _disk("sda", t1, 100, 50),
-        _disk("dm-0", t2, 50, 25),
-        _disk("dm-0", t1, 0, 0),
-        _disk("sda1", t2, 30, 15),
-        _disk("sda1", t1, 0, 0),
+        _disk("sda", t2, 200, 100, kind="physical"),
+        _disk("sda", t1, 100, 50, kind="physical"),
+        _disk("dm-0", t2, 50, 25, kind="lvm"),
+        _disk("dm-0", t1, 0, 0, kind="lvm"),
+        _disk("sda1", t2, 30, 15, kind="partition"),
+        _disk("sda1", t1, 0, 0, kind="partition"),
     ]
     phys, lvm, part = compute_disk_io(rows)
     assert [s.device for s in phys] == ["sda"]
@@ -297,7 +300,9 @@ def test_compute_disk_io_returns_none_on_system_reboot():
 # ─── compute_net_io ───────────────────────────────────────────────────────
 
 
-def _net(iface, t, rx, tx, rxp=0, txp=0, *, boot_time: datetime | None = None) -> NetIoRaw:
+def _net(
+    iface, t, rx, tx, rxp=0, txp=0, *, kind: str | None = "physical", boot_time: datetime | None = None
+) -> NetIoRaw:
     return NetIoRaw(
         interface=iface,
         collected_at=t,
@@ -309,6 +314,7 @@ def _net(iface, t, rx, tx, rxp=0, txp=0, *, boot_time: datetime | None = None) -
         tx_errors=0,
         boot_time=boot_time,
         agent_started_at=None,
+        kind=kind,
     )
 
 
@@ -353,6 +359,7 @@ def test_compute_mounts_filters_virtual():
             avail_bytes=5 * 10**9,
             free_bytes=5 * 10**9,
             collected_at=now,
+            kind="data",
         ),
         MountUsageRaw(
             mount="/proc",
@@ -360,6 +367,7 @@ def test_compute_mounts_filters_virtual():
             avail_bytes=0,
             free_bytes=0,
             collected_at=now,
+            kind="virtual",
         ),
         MountUsageRaw(
             mount="/snap/core/123",
@@ -367,6 +375,7 @@ def test_compute_mounts_filters_virtual():
             avail_bytes=0,
             free_bytes=0,
             collected_at=now,
+            kind="image",
         ),
     ]
     result = compute_mounts(rows)

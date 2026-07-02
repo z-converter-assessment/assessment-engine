@@ -52,7 +52,6 @@ class WebSettings(BaseSettings):
     redis_ttl_last_agent_start: int = 86400  # 24h — 직전 agent_started_at 캐시 (재시작 감지용)
     redis_ttl_agent_restarts: int = 3600  # 1h  — 슬라이딩 윈도우 카운터
     redis_ttl_time_invariant_warned: int = 3600  # 1h  — 시계 invariant 위반 로그 쿨다운 (스팸 방지)
-    redis_ttl_clock_corrected: int = 3600  # 1h  — collected_at 보정 로그 쿨다운 (스팸 방지)
 
     # Key prefixes
     redis_key_cache_inventory: str = "cache:inventory:{}"
@@ -63,18 +62,12 @@ class WebSettings(BaseSettings):
     redis_key_token: str = "token:{}"
     redis_key_last_agent_start: str = "last_agent_start:{}"
     redis_key_agent_restarts: str = "agent_restarts:{}"
-    # {composite_id}:{hostname} 쿨다운 마커 (#C1)
+    # {agent_id}:{hostname} 쿨다운 마커 (#C1)
     redis_key_time_invariant_warned: str = "time_invariant_warned:{}:{}"
-    redis_key_clock_corrected: str = "clock_corrected:{}:{}"  # {composite_id}:{hostname} 보정 로그 쿨다운
 
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
     # 운영 alert 튜닝 노브 — env 카탈로그 미수록(env.example·env.md), 필요 시 env override.
     agent_restart_alert_threshold: int = 3
-
-    # collected_at 시계오차 보정 임계 (초, 양방향). 수신시각과 이 값 넘게 벌어지면(미래=게스트 시계 앞섬,
-    # 과거=뒤처짐) 게스트 시계 불량 — collected_at 만 수신시각으로 보정 (#F2 수신 경계 보정).
-    # 운영 튜닝 노브 — env 카탈로그 미수록, 필요 시 env override.
-    clock_skew_threshold_sec: int = 300  # 5min
 
     # 비동기 보고서 생성 워커 (web 프로세스 내 백그라운드 루프 — 발행 응답성·확장성).
     # poll: pending job 점검 주기. stale_seconds: running 잔류 job 회수 임계(생성이 이 안에 끝난다는 가정,
@@ -88,9 +81,6 @@ class WebSettings(BaseSettings):
     # 잘못된 발행 방어는 런타임(resolver 503 차단) + agent host whitelist — startup 거부 없음.
     zdm_default_ip: str = ""
     zdm_default_user: str = "admin@zconverter.com"
-    # sha256/size 산출 fetch 호스트 override (download.url·install args 는 zdm_default_ip 유지).
-    # dev 한정 — mock hairpin 불가 시 localhost fetch. prod 빈값(real ZDM 직접 도달).
-    zdm_resolver_host_override: str = ""
 
     # ZDM 패키지 contract — task.install download 필드에 박혀 agent 가 fetch.
     # sha256·size_bytes 는 publish 직전 ETag 기반 동적 산출 (cache invalidation = ETag 변경).
@@ -145,7 +135,7 @@ class ConsumerSettings(WebSettings):
 
     # 원격 작업 토폴로지 (collector exchange와 분리 — 인증·DLX 정책 독립).
     # task.install: engine 발행
-    #   routing_key=task.install.<composite_id> / queue=agent.tasks.<composite_id> (engine 동적 declare)
+    #   routing_key=task.install.<agent_id> / queue=agent.tasks.<agent_id> (engine 동적 declare)
     # task.result : 원격 호스트 발행 / queue=worker.result
     rabbitmq_task_exchange: str = "assessment.tasks"
     rabbitmq_task_queue_prefix: str = "agent.tasks"
@@ -184,15 +174,15 @@ class ConsumerSettings(WebSettings):
             f"@{self.rabbitmq_host}:{self.rabbitmq_port}/{encoded_vhost}"
         )
 
-    # 호스트별 task 큐·routing key 합성 단일 진실 — prefix(config) + composite_id(런타임).
+    # 호스트별 task 큐·routing key 합성 단일 진실 — prefix(config) + agent_id(런타임).
     # agent 와 합의된 형식이라 양쪽이 동일 규칙으로 합성해야 함 (#B). 발행 측·소비 측 모두 본 메서드 경유.
-    def agent_task_queue(self, composite_id: str) -> str:
-        """task.install 발행 대상 호스트별 큐 이름 — `{prefix}.{composite_id}`."""
-        return f"{self.rabbitmq_task_queue_prefix}.{composite_id}"
+    def agent_task_queue(self, agent_id: str) -> str:
+        """task.install 발행 대상 호스트별 큐 이름 — `{prefix}.{agent_id}`."""
+        return f"{self.rabbitmq_task_queue_prefix}.{agent_id}"
 
-    def task_install_routing_key(self, composite_id: str) -> str:
-        """task.install 호스트별 routing key — `{prefix}.{composite_id}`."""
-        return f"{self.rabbitmq_task_install_key_prefix}.{composite_id}"
+    def task_install_routing_key(self, agent_id: str) -> str:
+        """task.install 호스트별 routing key — `{prefix}.{agent_id}`."""
+        return f"{self.rabbitmq_task_install_key_prefix}.{agent_id}"
 
     @model_validator(mode="after")
     def _validate_prod_consumer_secrets(self) -> "ConsumerSettings":

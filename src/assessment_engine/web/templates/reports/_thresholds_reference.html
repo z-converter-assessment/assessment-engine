@@ -23,7 +23,7 @@
       <tr><td>p95</td><td>작은 값부터 정렬해 95% 위치의 값 — 상위 5%(일시 spike)만 초과. 분류 1차 입력. 평균보다 클 수 있음(분포 우측 꼬리).</td></tr>
       <tr><td>peak</td><td>윈도우 안 시점별 최댓값. 실제 관측 burst 강도.</td></tr>
       <tr><td>변동성</td><td>peak / p95 비율 — 클수록 burst 부하. 임계·용도는 "엔지니어 보조 지표" 절.</td></tr>
-      <tr><td>Saturation (포화)</td><td>자원이 처리 한계를 넘어 대기열이 쌓이는 신호 — CPU load(run queue)·메모리 swap(page-out)·디스크 iowait. 발생 시 이용률이 낮아도 증설 신호.</td></tr>
+      <tr><td>Saturation (포화)</td><td>자원이 처리 한계를 넘어 대기열이 쌓이는 신호 — CPU load(run queue)·메모리 swap(page-out)·디스크 IO(Linux iowait / Windows Avg Disk Queue Length). 발생 시 이용률이 낮아도 증설 신호.</td></tr>
       <tr><td>서비스 분류</td><td>호스트 구동 워크로드를 카테고리(web·db·cache·container 등)로 분류 — 서비스 이름·실행 파일·listen 포트 신호 종합. container 등 런타임 스택은 호스트당 1로 카운트.</td></tr>
       <tr><td>메모리 구성</td><td>전체 메모리 대비 used(사용)·available(가용)·cached(페이지 캐시)·buffers(버퍼) 윈도우 평균 비율. cached/buffers 는 회수 가능 영역이라 available 에 포함.</td></tr>
       <tr><td>CPU 분류</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기) 로 분해한 윈도우 평균 비율. iowait 높으면 디스크 병목.</td></tr>
@@ -65,7 +65,7 @@
       <tr><td>under_provisioned</td><td>Saturation</td><td>swap_used</td><td>true (page-out 발생)</td><td>Memory saturation 신호</td></tr>
       <tr><td>under_provisioned</td><td>Saturation</td><td>load_15m / cpu_cores</td><td>>= 1.0 (run queue)</td><td>USE Method (Brendan Gregg)</td></tr>
       <tr><td>under_provisioned</td><td>Utilization</td><td>disk worst mount %</td><td>>= 85%</td><td>Cloud Advisor storage capacity</td></tr>
-      <tr><td>under_provisioned</td><td>Saturation</td><td>iowait_p95</td><td>>= 20%</td><td>Disk IO saturation</td></tr>
+      <tr><td>under_provisioned</td><td>Saturation</td><td>disk I/O (os-aware)</td><td>Linux iowait_p95 >= 20% · Windows disk queue >= 2</td><td>USE Method — disk IO 병목</td></tr>
       <tr><td>optimal</td><td>—</td><td>위 임계 미해당</td><td>적정</td><td>USE 잔여</td></tr>
       <tr><td>insufficient_data</td><td>—</td><td>cpu_p95·mem_p95 둘 다 null 이고 under 신호도 없음</td><td>표본 부재</td><td>신규/7일 미만 (OS 메트릭 부재만으로는 미발화)</td></tr>
     </tbody>
@@ -80,7 +80,7 @@
     evidence 기반: 자원(CPU/Mem/Disk)별로 가진 축을 신호로 모은다. under_provisioned 는 위험 신호 중 하나라도 hit 되면 발화하고(OR — 누락 0), hit 된 신호를 근거(triggers)로 권고에 노출한다. over_provisioned 는 cpu·mem 이 둘 다 다운사이즈 임계 이하일 때만(AND — 보수적). saturation 못 본 Windows 를 over 로 단정하지 않는다.
   </p>
   <p class="text-md text-label" style="margin:0 0 10px; line-height:1.6;">
-    OS 분기 (Windows): swap 은 Linux page-out(메모리 압박) 신호이나 Windows pagefile 은 여유 RAM 에도 상시 사용되는 baseline 이라 saturation 신호가 아니다. 따라서 Windows 는 swap 축을 제외하고(swap_used 무시), load(CPU run queue) 는 OS 부재라 미관측 축으로 기록된다. utilization·capacity 로 분류는 완결되며("이용률 기준 평가" confidence 단서), "표본 부족"이 아니다 — cpu_p95·mem_p95 가 산출되기 때문. 동일 통계라도 Linux 는 load/swap 으로 under, Windows 는 utilization 기준으로 같은 분류 체계 안에서 결론난다. Windows agent 가 등가 카운터(Processor Queue Length 등)를 발행하면 미관측 축이 자동 채워진다.
+    OS 분기 (Windows): swap 은 Linux page-out(메모리 압박) 신호이나 Windows pagefile 은 여유 RAM 에도 상시 사용되는 baseline 이라 saturation 신호가 아니다 — swap 축 제외(swap_used 무시). 디스크 포화는 Avg Disk Queue Length(디스크당 큐 >= 2)로 측정한다(Windows cpu iowait 는 더미 0이라 미사용, disk queue 를 신호로 사용). loadavg 는 OS 부재라 CPU run queue 축만 미관측으로 기록된다("포화 수치 미관측" confidence 단서). 분류는 utilization·capacity·측정된 포화 축(disk queue 등)으로 완결되며 "표본 부족"이 아니다 — cpu_p95·mem_p95 가 산출되기 때문. 동일 통계라도 Linux 는 load/swap 으로 under, Windows 는 utilization·disk queue 기준으로 같은 분류 체계 안에서 결론난다. Windows agent 가 Processor Queue Length(loadavg 등가)를 발행하면 남은 CPU run queue 축도 자동 채워진다.
   </p>
   <div class="table-scroll">
   <table>
@@ -116,7 +116,7 @@
       </tr>
     </thead>
     <tbody>
-      <tr><td>이용률 기준 평가 — saturation 축 미관측</td><td>saturation 축(load·swap 등) 값이 미관측 (예: Windows)</td><td>이용률·capacity 만으로 분류 완결 — "표본 부족" 아님. 등가 카운터 수집 시 자동 해제.</td></tr>
+      <tr><td>포화 수치 미관측</td><td>포화 축 값이 미관측 — 예: Windows 는 loadavg 부재로 CPU run queue 축(디스크 큐·이용률은 측정됨)</td><td>이용률·capacity·측정된 포화 축으로 분류 완결 — "표본 부족" 아님. Processor Queue Length 등 등가 카운터 수집 시 자동 해제.</td></tr>
       <tr><td>표본 부족 — 이용률 신뢰도 낮음</td><td>윈도우 기대 표본 대비 실측 비율 50% 미만</td><td>p95 통계 신뢰도 저하 — 짧은 관측·수집 공백 가능성.</td></tr>
     </tbody>
   </table>
@@ -145,7 +145,7 @@
       <tr><td>under: cpu_p95 >= 70%</td><td>CPU 증설</td></tr>
       <tr><td>under: load_15m / cpu_cores >= 1.0</td><td>CPU 증설</td></tr>
       <tr><td>under: worst mount >= 85%</td><td>디스크 증설</td></tr>
-      <tr><td>under: iowait_p95 >= 20%</td><td>디스크 증설</td></tr>
+      <tr><td>under: disk I/O 포화 (Linux iowait >= 20% · Windows disk queue >= 2)</td><td>디스크 증설</td></tr>
       <tr><td>under: trigger 0건</td><td>리소스 증설 검토</td></tr>
     </tbody>
   </table>
@@ -171,7 +171,8 @@
     <tbody>
       <tr><td>변동성 (peak / p95)</td><td>peak 와 p95 비율</td><td>1.5 이상 -> burst 큼</td><td>평균보다 peak 기준 증설 권장 신호 — 오토스케일 검토</td></tr>
       <tr><td>saturation (load_15m / vCPU)</td><td>load_15m_max 를 cpu_cores 로 나눈 값</td><td>1.0 이상 -> run queue 누적</td><td>USE Method Saturation 축 — CPU 처리 한계 초과 신호</td></tr>
-      <tr><td>iowait p95</td><td>cpu iowait_pct 의 p95</td><td>20% 이상 -> disk IO saturation</td><td>USE Method — disk subsystem 병목</td></tr>
+      <tr><td>iowait p95 (Linux)</td><td>cpu iowait_pct 의 p95</td><td>20% 이상 -> disk IO saturation</td><td>USE Method — disk subsystem 병목</td></tr>
+      <tr><td>disk queue p95 (Windows)</td><td>디스크별 Avg Disk Queue Length 중 최대 디스크의 p95</td><td>2 이상 -> disk IO saturation</td><td>Microsoft 정석 — Windows disk 병목 (iowait 등가 축)</td></tr>
       <tr><td>worst mount</td><td>디스크 마운트 중 used_pct 최대</td><td>85% 이상 -> capacity 압박</td><td>Cloud Advisor storage capacity 가이드</td></tr>
       <tr><td>worst mount 잔여일</td><td>(free 용량 / 최근 일일 증가량) 선형 예측</td><td>30일 이하 -> 소진 임박</td><td>linear projection — 용량 증설·정리 시점 가시화</td></tr>
       <tr><td>disk IOPS avg/p95/peak</td><td>r/s + w/s delta 평균·p95·최댓값 (서버 단위 device 합산)</td><td>baseline / 변동성 참고</td><td>baseline 부하 + spike 폭 — IOPS 한계 산정</td></tr>
@@ -200,7 +201,7 @@
     </thead>
     <tbody>
       <tr><td>1</td><td>swap_used = true</td><td>메모리 부족 (스왑 발생)</td></tr>
-      <tr><td>2</td><td>iowait_p95 >= 20%</td><td>디스크 I/O 병목</td></tr>
+      <tr><td>2</td><td>disk I/O 포화 (Linux iowait >= 20% · Windows disk queue >= 2)</td><td>디스크 I/O 병목</td></tr>
       <tr><td>3</td><td>load_15m / cpu_cores >= 1.0</td><td>CPU 포화</td></tr>
       <tr><td>4</td><td>mem_p95 >= 80%</td><td>메모리 압박</td></tr>
       <tr><td>5</td><td>cpu_p95 >= 70%</td><td>CPU 압박</td></tr>

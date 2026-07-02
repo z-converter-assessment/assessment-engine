@@ -28,9 +28,7 @@ build/
 # compose (wheel 이미지 build 에 불필요 — Dockerfile 만 사용)
 docker-compose.yml
 docker-compose.override.yml
-
-# dev 보조 자료 (wheel 이미지에 불필요 — libvirt VM·agent 빌드·dev env·dev 스크립트)
-dev/
+docker-compose.secrets.yml
 
 # 시크릿 — 절대 이미지에 포함되면 안 됨 (CLAUDE.md #F8)
 .env
@@ -41,6 +39,7 @@ tests/
 
 # 문서 (이미지 내 불필요)
 env.example
+env.dev.example
 README.md
 .claude/
 .claudeignore

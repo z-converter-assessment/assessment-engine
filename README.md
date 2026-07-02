@@ -1,10 +1,10 @@
 # assessment-engine
 
-온프레미스 서버 인벤토리·메트릭을 수집·저장하고, 수집된 데이터를 기반으로 자원 사용량을 진단해 운영 의사결정을 보조하는 B2B 내부 포털.
+고객사 내부 네트워크의 호스트 인벤토리·시계열 메트릭을 수집·저장하고, 규칙 기반으로 호스트별 자원 적정성(right-sizing)과 운영 신호(OS 지원종료·용량 부족 등)를 진단해 자원 재배치·용량 의사결정을 보조하는 B2B 내부 포털.
 
-고객사 네트워크 내에 서버 엔진이 설치되고, 네트워크 내 각 서버의 C 기반 에이전트가 메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, web 이 수집된 데이터를 규칙 기반(USE Method right-sizing)으로 분석해 진단·보고서를 생성한다. 운영자는 web UI 에서 모니터링 화면·보고서·JSON Export·원격 설치 task 산출물을 활용해 다음 단계 의사결정을 진행한다.
+고객사 네트워크 내에 엔진이 설치되고, 각 호스트의 C 기반 에이전트가 인벤토리·메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, web 이 수집 데이터를 규칙 기반으로 분석해 호스트별 자원 적정성(right-sizing, USE Method)과 운영 신호를 진단하고 보고서·대시보드로 제공한다. 운영자는 web UI 의 모니터링 화면·보고서·JSON Export·원격 설치 task 를 활용해 자원 재배치·용량 의사결정을 진행한다.
 
-본 repo 는 엔진 자체 (애플리케이션 + 루트 docker-compose(prod base + dev override) + libvirt VM 매트릭스 등 `dev/` 격리 자산) 만 다룬다. 하드닝 prod 운영 (IaC — Terraform · Ansible 등 · systemd unit · k8s manifest) 은 본 repo 범위 밖 — 산출물·contract 를 외부 인프라에 통합.
+본 repo 는 엔진 애플리케이션, docker compose 배포(prod base · dev override 핫리로드), 엔진 rollout(`deploy.sh` — VM 에서 실행), VM 부트스트랩(`bootstrap.sh` — docker·cosign·deploy.sh 설치)으로 구성된다.
 
 ---
 
@@ -33,7 +33,7 @@
  |  - parse/idempot/persist      |  |  - cache / online TTL         |
  |  - time invariants            |  |  - idempotency SET NX         |
  |  - agent restart signals      |  |  - agent restart counter      |
- |  - task.result -> Task UPDATE |  |  - PUB/SUB metrics.events     |
+ |  - task.result -> Task UPDATE |  |  - fail-open on RedisError    |
  +--------------+----------------+  +--------------+----------------+
                 v                                  |
  +-------------------------------+                 |  SUBSCRIBE
@@ -49,16 +49,14 @@
  +--------------+----------------------------------+---------------+
  |  FastAPI (uvicorn, port 8000)                                    |
  |  - SSR  : dashboard / detail / env+server report + history       |
- |  - REST : tasks / exports                                        |
- |  - SSE  : live metrics (Consumer PUB -> Redis -> SSE)            |
+ |  - REST : tasks / exports / metrics (snapshots+timeseries)       |
+ |  - charts : client-side fetch of REST (no push)                  |
  |  - rule-based right-sizing (recommendation.py, USE Method)       |
  |  - report emit -> diagnostic_jobs static snapshot                |
  |  - publishes task.install (assessment.tasks exchange)            |
- |  - plain HTTP (dev) ; prod = external ingress (out of scope)     |
+ |  - plain HTTP ; prod TLS at external ingress                     |
  +------------------------------------------------------------------+
 ```
-
-상세 흐름: `docs/architecture/` (모듈별 deep dive).
 
 ---
 
@@ -66,20 +64,19 @@
 
 | 영역 | 기술 |
 |------|------|
-| 애플리케이션 | Python 3.12 · FastAPI · uvicorn · aio-pika · SQLAlchemy async · asyncpg · Jinja2 · loguru · httpx |
+| 애플리케이션 | Python 3.12 · FastAPI · pydantic · uvicorn · aio-pika · SQLAlchemy async · asyncpg · Jinja2 · loguru · httpx |
 | DB / 캐시 / 브로커 | TimescaleDB (PostgreSQL 16) · Redis 7 · RabbitMQ 3.13 |
 | Schema 관리 | Alembic 단일 진실 |
 | 진단 | 규칙 기반 right-sizing (USE Method, `recommendation.py` — web 인라인 계산) |
 | 관측 | loguru `LOG_FORMAT=text\|json` (구조화 로그) |
-| 패키징 | uv + hatchling. CI 산출물 = Python wheel + Docker image (GHCR) |
+| 패키징 | uv + hatchling. CI 산출물 = Docker image (GHCR, 서명·SBOM·provenance) |
 | 정적 자원 | Chart.js (CDN) · Cytoscape.js (네트워크 토폴로지, vendored) · 외부 `.js` + `defer` |
-| 에이전트 (별도 repo) | C 단일 바이너리, RabbitMQ 직접 publish |
 
 ---
 
 ## CI 파이프라인
 
-- git flow — `feature/*`·`fix/*` → `develop` PR(squash) → `develop` → `main` PR(merge) → `main`에 `v*` tag push → release (ADR 0030).
+- git flow — `feature/*`·`fix/*` → `develop` PR(squash) → `develop` → `main` PR(merge) → `main`에 `v*` tag push → release(이미지 발행) → VM에서 `deploy.sh vX.Y.Z` 실행.
 - 버전은 git tag 단일 진실 (hatch-vcs가 빌드 시 derive) — repo에 버전 미저장, bump 커밋 없음. branch protection + Conventional Commits PR title 강제.
 
 | workflow | trigger | 검증·작업 |
@@ -88,88 +85,113 @@
 | `ci.yml` | develop PR · main PR · develop push | lint(ruff+hadolint) → test-unit → test-integration (develop push·main PR), wheel build (main PR) |
 | `alembic-check.yml` | develop PR · main PR | ORM·migrations 라운드트립 정합 |
 | `codeql.yml` | main PR · 주간 cron | CodeQL SAST (SQL injection·secret leak·XSS 정적 분석, Security 탭 alert) |
-| `release.yml` | `main`에 tag `v*` push · workflow_dispatch | uv build wheel + sdist (버전=tag, hatch-vcs) + SHA256SUMS + SBOM + Sigstore signature → GitHub Release + GHCR image(multi-arch) 자동 첨부 |
+| `release.yml` | `main`에 tag `v*` push · workflow_dispatch | 멀티아치 엔진 이미지 빌드(버전=tag, hatch-vcs) → GHCR push + cosign 서명 + SBOM(SPDX) + SLSA provenance |
 
-본 repo는 CI 영역만 (코드 quality + artifact 생성). CD(배포·secret 주입·롤백)는 외부 인프라 책임.
+CI(코드 quality + 이미지 발행)는 GitHub Actions가 담당한다. 배포(rollout)는 GitHub Actions가 아니라 배포 대상 VM에서 `deploy.sh vX.Y.Z` 를 실행한다 — 내부망 outbound-only VM이라 밖에서 push하지 않고 VM이 이미지를 pull한다(아래 배포 절).
 
 ---
 
 ## 배포 산출물
 
-semver tag `v*` push 시 릴리즈가 내놓는 산출물. 배포는 compose 기준(아래 배포 절) — wheel·image·systemd 등 다른 채널·토폴로지는 `docs/operations/deployment.md`.
+semver tag `v*` push 시 릴리즈가 내놓는 산출물. 배포 매체는 docker compose 단일.
 
-| 산출물 | 위치 · 참고 문서 |
-|--------|--------------|
-| Python wheel + sdist + SHA256SUMS | GitHub Release (semver tag `v*`) · `docs/operations/release.md` |
-| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/z-converter-assessment/assessment-engine:0.1.0`+`:0.1`+`:0`+`:latest` (semver tag `v0.1.0` -> 이미지 태그는 `v` 없는 `0.1.0`, metadata-action) · ADR 0017 |
-| SBOM (CycloneDX JSON) + Sigstore signature | wheel·sdist에 첨부 — 외부 인프라가 의존성 audit + `cosign verify-blob` 무결성 검증 |
-| SBOM (SPDX, BuildKit attestation) + cosign keyless signature | image 첨부 — `cosign verify ghcr.io/z-converter-assessment/assessment-engine:0.1.0` 무결성 검증 |
-| Alembic migrations·alembic.ini | wheel·image 동봉 (`hatch.force-include`) · `docs/operations/release.md` |
-| `docker-compose.yml` (prod-safe base) + `env.example` | GitHub Release 첨부 — 빌드 없는 pull-and-run prod compose (build 키 없음, GHCR 이미지 핀). `docker compose up -d` 로 pull |
-| 환경변수·secret contract | `docs/operations/env.md` |
-| systemd unit reference | `docs/operations/deployment.md` 4절 |
-| install·실행 절차 | `docs/operations/deployment.md` |
+| 산출물 | 위치 |
+|--------|------|
+| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/z-converter-assessment/assessment-engine:0.1.0`+`:0.1`+`:0`+`:latest` (semver tag `v0.1.0` -> 이미지 태그는 `v` 없는 `0.1.0`) |
+| cosign 서명 + SBOM (SPDX) + SLSA provenance | 이미지 attestation (별도 파일 아님) — `cosign verify ghcr.io/z-converter-assessment/assessment-engine:0.1.0` 로 검증 |
+| Alembic migrations·`_alembic.ini` | 이미지 동봉 (`hatch.force-include`) — base compose migrate init-container 가 기동 전 자동 실행 |
 
 ---
 
-## 개발 환경 셋업 (IDE 자동완성·테스트·로컬 실행)
+## 개발 (dev)
 
-IDE (PyCharm·VS Code) 코드 탐색·자동완성·테스트 실행을 위한 의존성 설치. Docker compose 만 띄울 때는 불필요 — 컨테이너가 의존성을 갖고 있음. 전제: `uv` 0.4+.
+dev = base + `docker-compose.override.yml` 핫리로드. 코드 수정이 컨테이너 restart 없이 반영된다.
 
 ```bash
-# 운영 의존성 + dev 그룹(pytest·ruff·hadolint·types) 모두 설치. uv 가 .venv/ 자동 생성·editable install.
-uv sync --group dev
-
-# IDE Python interpreter 를 .venv 로 지정:
-#  - PyCharm: Settings -> Project -> Python Interpreter -> Add -> Existing -> .venv/bin/python
-#  - VS Code: Cmd-Shift-P -> "Python: Select Interpreter" -> .venv/bin/python
-
-uv run pytest tests/unit/        # 단위 (DB 의존 0)
-uv run pytest tests/integration/ # 통합 (testcontainers 가 postgres/redis 자동 spawn)
-uv run ruff check .              # lint
-uv run ruff format .             # auto-format
-uv run alembic check             # ORM·migrations 정합 (alembic-check.yml CI 와 동일)
+cp env.dev.example .env
+docker compose up -d      # web http://localhost:8000
+docker compose down -v    # 종료 (데이터 삭제)
 ```
 
-`--group dev` 누락 시 IDE 가 pytest·ruff symbol 을 못 찾는다 — 항상 명시. Docker 안 dev workflow·테스트 컨테이너: `docs/development/`.
+IDE 자동완성·테스트 (compose 만 띄울 땐 불필요. 전제 `uv` 0.4+):
+
+```bash
+uv sync --group dev               # .venv 생성 + dev 그룹(pytest·ruff·types)
+uv run pytest tests/unit/         # 단위
+uv run pytest tests/integration/  # 통합 (testcontainers)
+uv run ruff check .               # lint
+uv run alembic check              # ORM·migrations 정합
+```
 
 ---
 
 ## 운영 산출물
 
-| 산출물 | URL · 참고 문서 |
-|--------|--------------|
-| 모니터링 화면 | `/` (환경 개요 · 사이드바 "모니터링" 그룹) · `docs/products/dashboard.md` |
-| 환경 보고서 (규칙 기반 진단 통합) | `/reports/environment?view=customer\|engineer` · `docs/products/environment-report.md` |
-| 서버 보고서 (규칙 기반 진단 통합) | `/reports/servers?ids=...&view=customer\|engineer` · `docs/products/server-report.md` |
-| JSON Export | `/api/exports/inventory` · `docs/products/json-export.md` |
-| Install task | `docs/products/install-task.md` |
+| 산출물 | URL / 설명 |
+|--------|-----------|
+| 모니터링 화면 | `/` (환경 개요 · 사이드바 "모니터링" 그룹) |
+| 환경 보고서 (규칙 기반 진단 통합) | `/reports/environment?view=customer\|engineer` |
+| 서버 보고서 (규칙 기반 진단 통합) | `/reports/servers?ids=...&view=customer\|engineer` |
+| JSON Export | `POST /api/exports/inventory` |
+| Install task | 서버 상세에서 원격 설치 task 발행 (`task.install`) |
 
 ---
 
 ## 배포 (prod)
 
-릴리즈 첨부 `docker-compose.yml`(prod-safe base) + `env.example` 한 세트를 받아 secret·이미지 좌표를 채운 뒤 한 줄로 기동한다 — 빌드 없이 GHCR 이미지를 pull 한다.
+배포 대상은 내부망 운영 VM 한 대다. 최초 1회 서버 구성으로 빈 VM에서 엔진이 실행될 때까지 세팅한 뒤, 이후 배포는 새 태그 발행 + `deploy.sh` 실행만 반복한다.
+
+### 최초 서버 구성 (빈 VM에서 엔진 실행까지)
+
+Debian/Ubuntu VM(GitHub로 outbound HTTPS 가능)에서 순서대로 진행한다.
+
+1. 부트스트랩 — docker engine·compose·cosign·디렉토리·`deploy.sh`를 구성한다. `bootstrap.sh`를 받아 실행(public repo — clone 불요):
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/z-converter-assessment/assessment-engine/main/bootstrap.sh -o bootstrap.sh
+   sudo bash bootstrap.sh
+   ```
+   실행 후 `/opt/assessment-engine/`에 `.env`(env.example 템플릿)·`secrets/`·`deploy.sh`가 놓인다.
+
+2. secret 파일 배치 (강 random, 권한 600):
+   ```bash
+   cd /opt/assessment-engine
+   printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
+   printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
+   chmod 600 secrets/*
+   ```
+   랜덤이어도 잃어버리지 않는다 — 값은 `secrets/` 파일에 저장돼 앱이 자동으로 읽고, 필요 시 `sudo cat secrets/<name>`으로 확인한다(psql·RabbitMQ 관리 UI 등). 웹 포털은 무인증이라 별도 로그인이 없다. 단 `rabbitmq_password`는 외부 agent가 broker 발행에 쓰는 값이라 agent 설정에도 동일하게 넣어야 한다(불일치 시 agent 인증 실패로 데이터 미수집).
+
+3. `/opt/assessment-engine/.env` 운영값을 채운다 — `POSTGRES_USER`·`RABBITMQ_USER`(변경 권장)·`ZDM_DEFAULT_IP` 등 환경에 맞게. 비번은 위 secret 파일 채널이라 `.env`에 넣지 않는다.
+
+4. 이미지 발행 — `main`에 `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml`이 이미지를 빌드·서명해 GHCR에 발행한다 (배포할 이미지가 있어야 함).
+
+5. 배포 — VM에서:
+   ```bash
+   sudo /opt/assessment-engine/deploy.sh vX.Y.Z
+   ```
+   cosign verify → 그 태그의 compose fetch → pull → migration(init-container) → up → `/health` 확인이 진행되고, 실패 시 직전 정상 이미지로 자동 rollback. 엔진이 여기서 처음 뜬다.
+
+### 이후 배포
+
+새 버전을 올릴 때 두 단계만 반복한다:
+1. `main`에 새 태그 push → `release.yml`이 이미지 발행.
+2. VM에서 `sudo /opt/assessment-engine/deploy.sh vX.Y.Z`.
+
+되돌리기도 이전 버전으로 `deploy.sh v<이전>` 을 실행하면 된다.
+
+### 단일 호스트 수동 기동 (deploy.sh 없이)
+
+평가·runner 미구성 시. prod = base + `docker-compose.secrets.yml`(file-secret). 비번을 `./secrets/*` 파일로 주입 — 컨테이너 env에 안 뜬다.
 
 ```bash
-gh release download v0.1.2 -R z-converter-assessment/assessment-engine -D /tmp/ae   # base compose + env.example 첨부
-cd /tmp/ae && cp env.example .env
-# [필수] POSTGRES/RABBITMQ/PGADMIN secret 채움. ENGINE_IMAGE·PGDATA_HOST·MQ_DATA_HOST 등은 선택(미설정 시 base 기본값).
-docker compose up -d        # GHCR 이미지 pull. web http://localhost:8000
+cp env.example .env                         # COMPOSE_FILE 포함(base+secrets) · 평문 비번 없음
+
+mkdir -p secrets                            # 비번 파일 (강 random, 권한 600)
+printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
+printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
+chmod 600 secrets/*
+
+docker compose up -d                        # base+secrets pull-and-run. web http://localhost:8000
 ```
 
-`APP_ENV=prod` 기본이라 weak secret 은 기동 거부(fail-fast). GHCR public — 토큰 없이 pull. secret 은 `.env` 평문 또는 OS env(우선) 주입. PostgreSQL 16(timescaledb+vector)·RabbitMQ 3.13+·Redis 7+ 는 compose 가 함께 띄우거나 외부 managed 에 도달. wheel+systemd·멀티노드·업그레이드 등 다른 토폴로지·상세: `docs/operations/deployment.md`.
-
----
-
-## 문서
-
-| 디렉토리 | 용도 |
-|----------|------|
-| `docs/README.md` | 카테고리·파일 인덱스 — 어떤 문서를 언제 보는지 길잡이 |
-| `docs/development/` | 본 repo 안 dev 작업·코드 규약 (docker · dependencies · pipeline · testing · conventions) |
-| `docs/operations/` | 외부 인프라가 활용할 contract (release · deployment · env · alembic · observability) |
-| `docs/products/` | 운영 산출물 의의·근거 (dashboard · 환경 보고서 · 서버 보고서 · JSON Export · Install task) |
-| `docs/architecture/` | 컴포넌트별 deep dive (agent · consumer · rabbitmq · redis · right-sizing · db · web) |
-| `docs/adr/` | Architecture Decision Records (0001~) — "왜 이렇게 결정했나" + 트레이드오프 |
-| `docs/tradeoffs.md` | 의식적 설계 선택과 한계 (T1~T15) |
+`APP_ENV=prod` 라 secret 부재·weak 면 기동 거부(fail-fast). GHCR public — 토큰 없이 pull. 외부 디스크 볼륨은 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(선택).

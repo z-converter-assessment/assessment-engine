@@ -34,7 +34,7 @@
 - 처리량 = 합산 `SUM`
 - 로드 = `sum(load_15m)/sum(cpu_cores)` (코어 정규화 — 환경·서버 상세 동일)
 
-이후 그 시점값을 `time_bucket`의 `agg`(avg/max/p95)로 집계. 시점 분리 없이 버킷 전체를 한 번에 합하는 방식은 폐기 — 시점별 환경값을 먼저 만들고 버킷 집계한다.
+이후 그 시점값을 `time_bucket`의 `agg`(avg/max/p95)로 집계 — 시점별 환경값을 먼저 산출한 뒤 버킷 집계한다.
 
 온라인/오프라인을 별도로 판단하지 않는다 — 그 시점에 데이터가 있으면 포함, 없으면 자동 제외(데이터 유무가 곧 온라인 필터).
 
@@ -117,5 +117,5 @@ docker compose exec postgres psql -U assessment -d assessment -c \
 
 # tasks pending 조회
 docker compose exec postgres psql -U assessment -d assessment -c \
-  "SELECT public_id, target_composite_id, task_type, status, created_at FROM tasks WHERE status='pending'"
+  "SELECT public_id, target_agent_id, task_type, status, created_at FROM tasks WHERE status='pending'"
 ```

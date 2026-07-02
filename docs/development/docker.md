@@ -15,23 +15,22 @@ docker-compose.yml          — prod-safe BASE. 앱 서비스 `build:` 없음, G
                               볼륨 env 바인딩(PGDATA_HOST·MQ_DATA_HOST). 릴리즈 첨부 = 빌드 없는 pull-and-run prod compose
 docker-compose.override.yml — dev 전용. 소스 빌드(루트 Dockerfile)·`./src` bind mount·hot reload(watchfiles). `docker compose up` 시 base 에 자동 머지(override 우선). prod/release 미배포
 Dockerfile                  — 엔진 이미지 (web·consumer·migrate 공용, multi-stage wheel install·non-root). base·override·CI/release·systemd·k8s 공용 단일 이미지 (dev-prod parity — dev/prod Dockerfile 분리 안 함)
-env.example                — 배포 템플릿 (릴리즈 첨부, APP_ENV=prod·secret 필수). dev 검증 카탈로그는 dev/.env.example
-.dockerignore               — wheel build context 제외 경로 (dev/·docs/·tests/·.env 등)
-dev/dev-up.sh               — Docker -> migrate -> web 헬스체크 -> libvirt(VM 생성 + agent install) 순서 기동. COMPOSE_FILE 미지정(base+override 자동 머지), COMPOSE_PROJECT_NAME=dev
-dev/dev-down.sh             — libvirt(virsh undefine) -> docker compose down -v (dev-up.sh source 로 PROJECT_NAME 공유)
+env.example                — 배포 템플릿 (릴리즈 첨부, APP_ENV=prod·secret 필수). dev 검증 카탈로그는 루트 env.dev.example
+env.dev.example            — dev 카탈로그 (APP_ENV=dev·weak default 허용·host=compose 서비스명)
+.dockerignore               — wheel build context 제외 경로 (docs/·tests/·.env 등)
 ```
 
 compose 가 루트라 별도 `-f` 없이 base+override 자동 인식. dev 는 dev 카탈로그로, 배포는 base 단독:
 
 ```bash
-# dev (소스 트리) — dev/.env.example 카탈로그로 base+override 머지(로컬 빌드). 풀 파이프라인은 dev/dev-up.sh
-cp dev/.env.example .env && docker compose up -d   # web http://localhost:8000. 코드 수정 반영은 `up --build -d`
+# dev (소스 트리) — env.dev.example 카탈로그로 base+override 머지(로컬 빌드·핫리로드)
+cp env.dev.example .env && docker compose up -d   # web http://localhost:8000. 코드 수정 반영은 `up --build -d`
 # 배포 — 릴리즈 base + 루트 env.example(배포 템플릿) 채워서 base 단독
 cp env.example .env && docker compose -f docker-compose.yml up -d   # GHCR 이미지 pull (override 제외)
 docker compose down -v
 ```
 
-dev 코드 반복은 override.yml 의 `./src` bind mount + hot reload(web=uvicorn reload, consumer=watchfiles)로 컨테이너 restart 없이 반영 — 의존성(pyproject) 변경 시에만 `up --build`. prod base 는 bind mount 없음(이미지·wheel 불변성). dev 파이프라인은 `dev/dev-up.sh` 가 base+override 를 그대로 쓰고 libvirt VM 등 host 구성을 추가 수행.
+dev 코드 반복은 override.yml 의 `./src` bind mount + hot reload(web=uvicorn reload, consumer=watchfiles)로 컨테이너 restart 없이 반영 — 의존성(pyproject) 변경 시에만 `up --build`. prod base 는 bind mount 없음(이미지·wheel 불변성). agent 가 붙는 VM 은 본 repo 범위 밖(OpenStack 공급).
 
 prod 하드닝(APP_ENV=prod·강 secret·외부 secret 채널·HTTPS ingress)은 base 가 강제하지 않음 — infra env 주입으로 달성하거나 `docs/operations/env.md` + `config.py` `_validate_prod_*` contract (ADR 0035).
 
@@ -106,13 +105,13 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 - 멀티스테이지 빌드 미적용 — Python 슬림 이미지가 이미 작고 (~150MB), 빌드 도구가 추가로 필요 없음.
 - multi-arch 빌드도 미적용 — 운영 타겟이 Linux/x86_64로 고정.
 
-### CI 빌드 산출물 (ADR 0012)
+### CI 빌드 산출물 (ADR 0048)
 
-본 repo CI 산출물은 Docker image가 아닌 Python wheel — ADR 0012 채택 후. Dockerfile + docker-compose는 dev·기능 개발 환경 한정. prod 운영은 외부 인프라 책임 (`docs/operations/deployment.md` 4절 inline 예시 + `docs/operations/release.md`).
+본 repo CI 산출물 = 서명·SBOM·provenance 된 GHCR 엔진 이미지 (ADR 0048). Dockerfile 은 dev·prod 공용 단일 이미지(dev-prod parity), docker compose 는 dev(override 핫리로드)·prod(secrets) 배포 매체. 배포는 VM 에서 `deploy.sh` 실행 — 상세는 `docs/operations/{release,deployment}.md`.
 
 `.github/workflows/ci.yml`의 `build` job — `uv build` + 빌드된 wheel을 fresh venv에 install + import·정적 자원 포함 검증. Docker image build verify는 본 워크플로에서 제거됨 (Dockerfile 정합 자체는 dev `docker compose build`로 확인).
 
-`.github/workflows/release.yml` — semver tag(`v*`) push 시 wheel + sdist + SHA256SUMS를 GitHub Release artifact로 자동 첨부. 인프라 측은 release page·API로 다운로드. 사내 폐쇄망 mirror 필요 시 인프라 측 결정 (devpi·MinIO 등).
+`.github/workflows/release.yml` — semver tag(`v*`) push 시 서명·SBOM·provenance 된 멀티아치 엔진 이미지를 GHCR 로 발행 (ADR 0048). 배포는 VM 에서 `deploy.sh` 실행 — 상세는 `docs/operations/{release,deployment}.md`. 사내 폐쇄망은 `docker save/load` 로 대응.
 
 ---
 
@@ -128,14 +127,13 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 | `migrate` | GHCR pull (dev: override 로컬 빌드) | `alembic upgrade head` 1회 실행 후 종료 (ADR 0005). 앱 서비스 2종이 `depends_on: service_completed_successfully`로 그 뒤 기동 | dev / prod |
 | `web` | GHCR pull (dev: override 로컬 빌드) | FastAPI SSR + API + StaticFiles | dev / prod |
 | `consumer` | GHCR pull (dev: override 로컬 빌드) | aio-pika 컨슈머 (server.* + task.result 큐) | dev / prod |
-| `pgadmin` | `dpage/pgadmin4` | DB GUI (`profiles:[gui]` 전용). `docker compose --profile gui up -d pgadmin`으로 명시 호출 — idle 250 MiB 절감 | dev gui only |
 
 ### 포트 노출
 
 | 서비스 | 호스트 포트 | 컨테이너 포트 | 용도 |
 |--------|------------|--------------|------|
 | postgres | `${POSTGRES_PORT:-5432}` | 5432 | psql 직접 접속 (디버그) |
-| rabbitmq | `${RABBITMQ_PORT:-5672}` | 5672 | AMQP — libvirt VM 에이전트가 게이트웨이 `192.168.122.1:5672`로 접근 |
+| rabbitmq | `${RABBITMQ_PORT:-5672}` | 5672 | AMQP — 외부 호스트의 에이전트가 메트릭·결과 발행 |
 | rabbitmq | `${RABBITMQ_MANAGEMENT_PORT:-15672}` | 15672 | 관리 UI |
 | web | `${WEB_PORT:-8000}` | 8000 | HTTP — 브라우저 + `/static/*` 정적 자원 |
 
@@ -256,16 +254,6 @@ ADR 0005 표준: 모든 환경(dev·staging·prod) Alembic 단일 진실. `migra
 - 컨테이너 비정상 종료(OOM·프로세스 크래시·healthcheck 누적 실패) 시 Docker가 자동 재시작.
 - `docker compose down`으로 명시적으로 내릴 때는 재시작 안 함.
 - 호스트 재부팅 시 자동 기동 (Docker daemon이 enable되어 있다면).
-
----
-
-## dev/dev-up.sh / dev/dev-down.sh
-
-운영자 절차·VM 매트릭스: `docs/development/pipeline.md`. 본 절은 docker 관점 동작만:
-
-- `dev/dev-up.sh` [1/4] `docker compose up -d --build` → [2/4] migrate 완료 대기(180s) → [3/4] web 헬스체크(180s) → [4/4] libvirt Linux 5 VM.
-- 헬스체크 타임아웃 초과 시 migrate/web 로그 30라인 dump 후 exit.
-- `dev/dev-down.sh`: libvirt Linux 5 VM 제거 → `docker compose down -v`(postgres_data 삭제). 다음 dev-up은 빈 DB에서 시작 → `migrate`가 모든 schema·hypertable 신규 생성.
 
 ---
 

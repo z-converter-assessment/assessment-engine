@@ -56,11 +56,11 @@
   v
 engine web:
   1. Task INSERT (status=pending)
-  2. task.install.<composite_id> publish to assessment.tasks exchange
-  3. agent.tasks.<composite_id> 큐로 routing
+  2. task.install.<agent_id> publish to assessment.tasks exchange
+  3. agent.tasks.<agent_id> 큐로 routing
   v
 워커 VM의 agent worker:
-  1. agent.tasks.<composite_id> consume
+  1. agent.tasks.<agent_id> consume
   2. download.url(`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`) fetch (sha256·size 검증, host whitelist 통과)
   3. install.type 분기:
      - shell (Linux .tar.gz): tar 추출 후 install.script 경로 exec
@@ -83,7 +83,7 @@ list page polling → badge 자동 갱신 (success/failure)
 
 ADR 0007 — Task 별도 exchange:
 - `assessment.tasks` exchange (server.* exchange와 분리)
-- 머신별 queue `agent.tasks.<composite_id>` — 워커가 자기 머신 task만 consume
+- 머신별 queue `agent.tasks.<agent_id>` — 워커가 자기 머신 task만 consume
 - 결과는 단일 `worker.result` 큐로 통합 — engine consumer가 routing 무관 처리
 
 4 KB tail 한정 근거:
@@ -95,10 +95,6 @@ ZDM 패키지 contract:
 - `ZDM_PACKAGE_PATH`·`ZDM_PACKAGE_SCRIPT` env 가 ZDM 측 본체 패키지 layout 과 일치해야 함. sha256/size 는 엔진이 publish 직전 ZDM 에서 HEAD + (cache miss 시) GET full 로 동적 산출 (`HttpZdmPackageResolver`). ZDM 패키지 갱신 시 ETag 자동 변경으로 cache invalidation — 운영자 개입 0.
 - 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200·size mismatch) 시 install 발행 503 차단.
 - agent 측 host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 에 운영자가 박을 ZDM host 가 사전 등록되어야 함. agent config 는 deploy 시점 고정 — 새 host 도입 시 agent 재배포 필요.
-
-dev 시연 흐름 (ADR 0018):
-- `APP_ENV=dev` 일 때 web 컨테이너에 ZDM mock router 등록 — `GET {ZDM_PACKAGE_PATH}` 로 더미 tar.gz (install.sh = args echo + exit 0) 서빙. prod 등록 안 됨.
-- `ZDM_DEFAULT_IP` dev default = `192.168.122.1:8000`(libvirt 게이트웨이) — 모달 default 값 그대로 "발행" 시 libvirt VM agent worker 가 host web 8000 으로 download → install.sh exec → task.result success → list UI badge 전이. install task E2E 1 cycle 시연.
 
 ## 한계
 

@@ -189,6 +189,6 @@ git commit -m "chore(deps): fastapi bump 0.135 -> 0.136"
 - `uv.lock` — resolved 트리
 - `docs/development/docker.md` "uv sync --frozen 패턴" — Docker 빌드 안 lockfile 사용
 - `docs/development/testing.md` — pytest 실행·fixture
-- `docs/operations/release.md` — wheel 빌드·GitHub Release artifact
+- `docs/operations/release.md` — OCI 이미지 발행(GHCR)·서명·SBOM·provenance
 - `.github/workflows/ci.yml`·`alembic-check.yml` — frozen sync CI 검증
-- ADR 0012 — CI 산출물 = wheel (uv build) 정책
+- ADR 0012 — CI 산출물 wheel 정책 (ADR 0048 supersede — 현행 CI 산출물 = OCI 이미지)

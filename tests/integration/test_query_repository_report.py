@@ -55,6 +55,7 @@ async def _seed_server_with_period_metrics(
                     writes_completed=50 + i * 30,  # 분당 30 IOPS writes
                     sectors_read=2000 + i * 1000,  # 분당 500 sectors = 256000 bytes
                     sectors_written=1000 + i * 500,
+                    kind="physical",
                 ),
             ],
             mounts=[
@@ -63,6 +64,7 @@ async def _seed_server_with_period_metrics(
                     total_bytes=100 * 10**9,
                     free_bytes=(50 - i * 2) * 10**9,
                     avail_bytes=(50 - i * 2) * 10**9,  # 분당 2GB 채움 -> 25일 후 full
+                    kind="data",
                 ),
             ],
             net_io=[
@@ -74,6 +76,7 @@ async def _seed_server_with_period_metrics(
                     tx_packets=500 + i * 50,
                     rx_errors=0,
                     tx_errors=0,
+                    kind="physical",
                 ),
             ],
         )
@@ -137,6 +140,7 @@ async def test_report_mount_worst_no_consumption_returns_none(collect_repo, quer
                     total_bytes=100 * 10**9,
                     free_bytes=30 * 10**9,
                     avail_bytes=30 * 10**9,  # 고정
+                    kind="data",
                 )
             ],
         )
@@ -388,6 +392,7 @@ async def test_report_disk_io_baseline_counter_reset_segments_summed(collect_rep
                         writes_completed=0,
                         sectors_read=r * 8,
                         sectors_written=0,
+                        kind="physical",
                     )
                 ],
                 mounts=[],

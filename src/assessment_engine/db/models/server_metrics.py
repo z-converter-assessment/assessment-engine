@@ -35,6 +35,11 @@ class ServerMetrics(Base):
     load_5m: Mapped[float | None] = mapped_column(Float)
     load_15m: Mapped[float | None] = mapped_column(Float)
 
+    # saturation (USE Method raw 신호) — os-aware 임계는 recommendation. 미측정 축 NULL (Windows=disk_queue만).
+    sat_disk_queue: Mapped[float | None] = mapped_column(Float)
+    sat_cpu_run_queue: Mapped[float | None] = mapped_column(Float)
+    sat_mem_paging_rate: Mapped[float | None] = mapped_column(Float)
+
     # counter reset 정밀 식별 (#C1·#B) — boot_time 차이=재부팅,
     # agent_started_at만 차이=에이전트 재시작(/proc 카운터는 그대로).
     boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

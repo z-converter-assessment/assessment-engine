@@ -28,8 +28,8 @@ from assessment_engine.db.repositories.query.types import (
     _DATA_VOLUME_SQL_FILTER,
     _ENV_SCALAR_WEIGHTED,
     _PHYS_DISK_SQL_FILTER,
+    _PHYS_IFACE_SQL_FILTER,
     _RATE_PER_DIM_DEFS,
-    _VIRTUAL_IFACE_SQL_FILTER,
     BOOT_JITTER_SEC,
     TIME_RANGE_TD,
     AggFunc,
@@ -141,6 +141,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 sectors_written=row.sectors_written,
                 boot_time=row.boot_time,
                 agent_started_at=row.agent_started_at,
+                kind=row.kind,
             )
             for row in d_rows
         ]
@@ -158,6 +159,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 tx_errors=row.tx_errors,
                 boot_time=row.boot_time,
                 agent_started_at=row.agent_started_at,
+                kind=row.kind,
             )
             for row in n_rows
         ]
@@ -172,6 +174,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 collected_at=row.collected_at,
                 boot_time=row.boot_time,
                 agent_started_at=row.agent_started_at,
+                kind=row.kind,
             )
             for row in mu_rows
         ]
@@ -276,7 +279,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                     SELECT collected_at, SUM(d_num) * 100.0 / SUM(d_total) AS v
                     FROM valid GROUP BY collected_at HAVING SUM(d_total) > 0
                 )
-                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind
                 FROM per_ts GROUP BY ts ORDER BY ts
             """)
             params["window_start"] = start - bucket_td
@@ -294,7 +297,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                     WHERE collected_at >= :start AND collected_at <= :end {sid}
                     GROUP BY collected_at
                 )
-                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind
                 FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
             """)
         elif metric_type in _load_cols:
@@ -309,7 +312,21 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                       AND sm.{load_col} IS NOT NULL AND si.cpu_cores > 0
                     GROUP BY sm.collected_at
                 )
-                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind
+                FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
+            """)
+        elif metric_type == "disk.queue":
+            # Windows Avg Disk Queue Length — server_metrics.sat_disk_queue (per-device max 축약 gauge).
+            # Linux 는 iowait 사용이라 null 발행 -> 값 있는 서버(Windows)만 집계. 시점값 = 서버 평균 큐 깊이.
+            sql = text(f"""
+                WITH per_ts AS (
+                    SELECT collected_at, AVG(sat_disk_queue) AS v
+                    FROM {ServerMetrics.__tablename__}
+                    WHERE collected_at >= :start AND collected_at <= :end {sid}
+                      AND sat_disk_queue IS NOT NULL
+                    GROUP BY collected_at
+                )
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind
                 FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
             """)
         elif metric_type in ("disk.usage_percent", "fs.usage_percent"):
@@ -324,13 +341,13 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                           AND total_bytes > 0 AND avail_bytes IS NOT NULL
                         GROUP BY collected_at
                     )
-                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind
                     FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
                 """)
             else:
                 sql = text(f"""
                     WITH per_ts AS (
-                        SELECT collected_at, mount AS dim,
+                        SELECT collected_at, mount AS dim, MAX(kind) AS kind,
                             SUM(total_bytes - avail_bytes)::float / NULLIF(SUM(total_bytes), 0) * 100 AS v
                         FROM {ServerMountUsage.__tablename__}
                         WHERE collected_at >= :start AND collected_at <= :end {sid}
@@ -338,35 +355,35 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                           AND (CAST(:dim_filter AS text) IS NULL OR mount = :dim_filter)
                         GROUP BY collected_at, mount
                     )
-                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, dim AS dimension
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, dim AS dimension, MAX(kind) AS kind
                     FROM per_ts WHERE v IS NOT NULL GROUP BY ts, dim ORDER BY ts, dim
                 """)
                 params["dim_filter"] = dimension
         elif metric_type in _RATE_PER_DIM_DEFS:
             table, dim_col, value_col = _RATE_PER_DIM[metric_type]
             if collapse:
-                dev_filter = _PHYS_DISK_SQL_FILTER if dim_col == "device" else _VIRTUAL_IFACE_SQL_FILTER
-                dim_sel, dim_grp, out_dim = "", "", "NULL::text"
+                dev_filter = _PHYS_DISK_SQL_FILTER if dim_col == "device" else _PHYS_IFACE_SQL_FILTER
+                dim_sel, dim_grp, out_dim, kind_sel, kind_out = "", "", "NULL::text", "", "NULL::text"
             else:
                 dev_filter = f"(CAST(:dim_filter AS text) IS NULL OR {dim_col} = :dim_filter)"
-                dim_sel, dim_grp, out_dim = ", dim", ", dim", "dim"
+                dim_sel, dim_grp, out_dim, kind_sel, kind_out = ", dim", ", dim", "dim", ", kind", "MAX(kind)"
                 params["dim_filter"] = dimension
             sql = text(f"""
                 WITH raw AS (
-                    SELECT collected_at, server_id, boot_time, {dim_col} AS dim, {value_col} AS cnt
+                    SELECT collected_at, server_id, boot_time, {dim_col} AS dim, {value_col} AS cnt{kind_sel}
                     FROM {table}
                     WHERE collected_at >= :window_start AND collected_at <= :end {sid}
                       AND {dev_filter}
                 ),
                 deltas AS (
-                    SELECT collected_at, dim, boot_time,
+                    SELECT collected_at, dim{kind_sel}, boot_time,
                         LAG(boot_time) OVER w AS prev_boot,
                         cnt - LAG(cnt) OVER w AS d_val,
                         EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER w)) AS dt
                     FROM raw WINDOW w AS (PARTITION BY server_id, dim ORDER BY collected_at)
                 ),
                 rates AS (
-                    SELECT collected_at, dim,
+                    SELECT collected_at, dim{kind_sel},
                         CASE
                             WHEN dt IS NULL OR dt <= 0 THEN NULL
                             WHEN boot_time IS NOT NULL AND prev_boot IS NOT NULL
@@ -377,10 +394,10 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                     FROM deltas WHERE collected_at >= :start
                 ),
                 per_ts AS (
-                    SELECT collected_at{dim_sel}, SUM(v) AS v
-                    FROM rates WHERE v IS NOT NULL GROUP BY collected_at{dim_grp}
+                    SELECT collected_at{dim_sel}{kind_sel}, SUM(v) AS v
+                    FROM rates WHERE v IS NOT NULL GROUP BY collected_at{dim_grp}{kind_sel}
                 )
-                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, {out_dim} AS dimension
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, {out_dim} AS dimension, {kind_out} AS kind
                 FROM per_ts GROUP BY ts{dim_grp} ORDER BY ts{dim_grp}
             """)
             params["window_start"] = start - bucket_td
@@ -391,7 +408,10 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         if server_ids:
             params["server_ids"] = server_ids
         result = await self.session.execute(sql, params)
-        return [MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension) for row in result.all()]
+        return [
+            MetricSeries(collected_at=row.ts, value=row.value, dimension=row.dimension, kind=row.kind)
+            for row in result.all()
+        ]
 
     async def reboot_events(
         self,

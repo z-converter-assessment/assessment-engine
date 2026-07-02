@@ -1,6 +1,6 @@
 # ADR 0041 — collected_at 수신 경계 보정 (시계오차)
 
-상태: Accepted (2026-06-24)
+상태: Superseded by 0050 (2026-07-01) — 에이전트 UTC 정상 전제로 수신 경계 보정 제거. 아래 본문은 historical record.
 
 ## 정정 (2026-06-24): 양방향 확장
 

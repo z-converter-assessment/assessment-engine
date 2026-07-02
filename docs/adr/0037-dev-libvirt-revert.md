@@ -1,6 +1,6 @@
 # ADR 0037 — dev 가상화 OrbStack -> libvirt(KVM) 재전환
 
-상태: Accepted (2026-06-08, 전환 2026-05-31)
+상태: Superseded by ADR 0045 (2026-06-26). 원: Accepted (2026-06-08, 전환 2026-05-31)
 
 ## Context
 

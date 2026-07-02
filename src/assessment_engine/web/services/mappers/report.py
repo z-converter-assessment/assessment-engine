@@ -145,16 +145,14 @@ def build_report_summary_bullets(
     bullets: list[str] = []
     # 자원 부족 / 효율화 권장 줄 — KPI grid 에서 이미 카운트 노출. summary_bullets 에서 중복 제거 (사용자 의도).
 
-    # I/O wait 신호 — p95 임계 초과 서버 카운트. 디스크 병목 = 고객 의사결정 직결. (#F10 recommendation 상수)
-    iowait_threshold = recommendation.IOWAIT_UPSIZE_PCT
-    n_iowait = sum(1 for r in rows if r.iowait_p95_pct is not None and r.iowait_p95_pct >= iowait_threshold)
-    if n_iowait:
-        hosts = [r.hostname for r in rows if r.iowait_p95_pct is not None and r.iowait_p95_pct >= iowait_threshold][:3]
-        suffix = " 외" if n_iowait > 3 else ""
-        bullets.append(
-            f"I/O wait p95 {iowait_threshold}%+ {n_iowait}대 ({', '.join(hosts)}{suffix})"
-            " — 디스크 I/O 병목."
-        )
+    # 디스크 I/O 포화 신호 — OS별 정규화(disk_io_saturated: Linux iowait / Windows disk_queue). 디스크 병목 = 고객 의사결정 직결.
+    # build_resource_stats 는 ReportRowRaw 필요(cpu_sufficiency 등 raw 축) — raws 있을 때만 산출 (OS EOL 신호와 동일 게이트).
+    if raws:
+        disk_sat_raws = [r for r in raws if recommendation.disk_io_saturated(build_resource_stats(r))]
+        if disk_sat_raws:
+            hosts = [r.hostname for r in disk_sat_raws][:3]
+            suffix = " 외" if len(disk_sat_raws) > 3 else ""
+            bullets.append(f"디스크 I/O 포화 {len(disk_sat_raws)}대 ({', '.join(hosts)}{suffix}) — 디스크 병목.")
 
     # Mount 임박 — _CAPACITY_IMMINENT_DAYS 안 채워질 마운트가 있는 서버 카운트
     n_mount = sum(
@@ -293,7 +291,7 @@ def _build_diagnosis(
 
     우선순위 (가장 시급한 신호 1개 선택, 임계는 recommendation 상수·_VARIANCE_BURST_RATIO 단일 진실):
     1. swap_used → "메모리 부족 (스왑 발생)" — paging 활성, 1차 강신호
-    2. iowait_p95 >= IOWAIT_UPSIZE_PCT → "디스크 I/O 병목"
+    2. disk_io_saturated (os-aware: Linux iowait_p95 / Windows Avg Disk Queue Length) → "디스크 I/O 병목"
     3. saturation >= CPU_SATURATION_LOAD_RATIO → "CPU 포화"
     4. mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리 압박"
     5. cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU 압박"
@@ -304,7 +302,7 @@ def _build_diagnosis(
     """
     if recommendation.swap_saturation(raw.os_family, raw.swap_used):
         return "메모리 부족 (스왑 발생)"
-    if raw.iowait_p95_pct is not None and raw.iowait_p95_pct >= recommendation.IOWAIT_UPSIZE_PCT:
+    if recommendation.disk_io_saturated(build_resource_stats(raw)):
         return "디스크 I/O 병목"
     if saturation is not None and saturation >= recommendation.CPU_SATURATION_LOAD_RATIO:
         return "CPU 포화"
@@ -382,6 +380,8 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         net_avg_kbps=net_avg,
         os_family=raw.os_family,
         sample_sufficiency=min(suffs) if suffs else None,
+        # Windows 디스크 saturation — 가장 바쁜 디스크의 큐 p95 (disk_io_saturated os-aware 소비, 정규화 불요).
+        disk_queue_p95=raw.disk_queue_p95,
     )
 
 
@@ -478,7 +478,10 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         confidence_notes=build_confidence_notes(assessment),
         os_display=_os_display(raw.os_id, raw.os_version),
         kernel_version=raw.kernel_version,
-        internal_ip=raw.ip_internal[0] if raw.ip_internal else None,
+        internal_ip=next(
+            (i["address"] for i in raw.interfaces or [] if i.get("kind") == "physical" and i.get("family") == "ipv4"),
+            None,
+        ),
         cpu_cores=raw.cpu_cores,
         mem_total_gb=kb_to_gb(raw.mem_total_kb),
         disk_total_gb=disk_total_gb_val,

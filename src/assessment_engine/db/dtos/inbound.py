@@ -5,8 +5,9 @@ from datetime import datetime
 @dataclass
 class ServerInventoryCreate:
     # message_id는 consumer 멱등성 체크 전용 — DTO 미포함.
-    composite_id: str
-    machine_id: str | None  # raw machine-id, 표시 전용 (식별은 composite_id)
+    agent_id: str  # 식별 단일 키 (UUID str) — DB agent_id UNIQUE·MQ 라우팅
+    composite_id: str | None  # SHA-256(machine_id+MAC). 감사·표시용 강등 (식별 미사용)
+    machine_id: str | None  # raw machine-id, 표시 전용
     hostname: str
     agent_version: str
     collected_at: datetime
@@ -22,12 +23,12 @@ class ServerInventoryCreate:
     cpu_model: str | None
     mem_total_kb: int | None
     swap_total_kb: int | None
-    ip_internal: list[str]
+    interfaces: list[dict]  # JSONB — [{name, address, prefix, family, kind, gateway}]
     ip_external: list[str] | None
     mac_addresses: list[str]  # NIC MAC 목록 (clone collision 감사용, 식별 미사용)
-    disks: list[dict]  # JSONB — [{name, size_bytes, type, major, minor}]
-    mounts: list[dict]  # JSONB — [{mount, fstype, total_bytes, major, minor}]
-    services: list[dict] | None  # JSONB — [{unit, sub}] | None (non-systemd host)
+    disks: list[dict]  # JSONB — [{name, size_bytes, type, major, minor, kind}]
+    mounts: list[dict]  # JSONB — [{mount, fstype, total_bytes, major, minor, kind}]
+    services: list[dict] | None  # JSONB — [{unit, sub, pid, exe}] | None (non-systemd host)
     listen_ports: list[dict]  # JSONB — [{proto, addr, port, uid, pid, comm}]
     # 서비스 카테고리 집합 (ingest 사전계산, service_classifier.compute_service_categories). read 경로 뱃지 단일 진실.
     service_categories: list[str]
@@ -43,6 +44,7 @@ class DiskIoEntry:
     writes_completed: int | None
     sectors_read: int | None
     sectors_written: int | None
+    kind: str | None = None
 
 
 @dataclass
@@ -54,6 +56,7 @@ class NetIoEntry:
     tx_packets: int | None
     rx_errors: int | None
     tx_errors: int | None
+    kind: str | None = None
 
 
 @dataclass
@@ -64,6 +67,7 @@ class MountUsageEntry:
     avail_bytes: int | None
     major: int | None = None
     minor: int | None = None
+    kind: str | None = None
 
 
 # ─── Task DTO ──────────────────────────────────────────────────────────────
@@ -74,7 +78,7 @@ class TaskCreate:
     """task 등록 시 — web router → repository."""
 
     target_server_id: int
-    target_composite_id: str
+    target_agent_id: str  # 발행 대상 agent_id (UUID str) — MQ 라우팅·감사 기록
     task_type: str
     params: dict | None
     deadline_at: datetime | None = None  # 응답 마감 (install 발행 시 세팅, 그 외 None)
@@ -99,7 +103,7 @@ class TaskResultUpdate:
 
 @dataclass
 class ServerMetricCreate:
-    # composite_id는 consumer 가 server_id 해석에 사용 — 본 DTO 미포함.
+    # agent_id는 consumer 가 server_id 해석에 사용 — 본 DTO 미포함.
     # boot_time/agent_started_at: 시계열 행마다 저장, counter reset 정밀 식별 (#C1·#B).
     collected_at: datetime
     boot_time: datetime | None
@@ -128,6 +132,11 @@ class ServerMetricCreate:
     load_1m: float | None
     load_5m: float | None
     load_15m: float | None
+
+    # saturation (USE Method raw 신호, os-aware 임계는 recommendation) — 미측정 축 None
+    sat_disk_queue: float | None
+    sat_cpu_run_queue: float | None
+    sat_mem_paging_rate: float | None
 
     # 시계열 4개 테이블 nested 행 매핑
     disk_io: list[DiskIoEntry]
