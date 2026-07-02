@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import random
 from collections.abc import Callable, Coroutine
 from datetime import datetime
 from typing import Any
@@ -11,7 +12,7 @@ from uuid import UUID
 
 from loguru import logger
 from redis.asyncio import Redis
-from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
+from sqlalchemy.exc import DBAPIError, IntegrityError, InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.cache.redis import safe_get, safe_incr_with_ttl, safe_set, safe_set_nx
@@ -19,9 +20,16 @@ from assessment_engine.consumer.schemas import MessageBase
 from assessment_engine.consumer.settings import consumer_settings
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 
-# 일시 장애(connection·deadlock)만 retry, 영구 장애(IntegrityError = UNIQUE/FK 위반)는 즉시 raise.
-# IntegrityError 는 DBAPIError 를 상속하므로 _db_retry 에서 별도 먼저 캐치.
-_RETRYABLE_DB_EXC = (OperationalError, DBAPIError)
+# 일시 장애(connection·deadlock)만 retry. 영구 장애(IntegrityError·ProgrammingError·DataError 등)는
+# 즉시 raise -> nack -> DLQ (F6). DBAPIError 광역 포함 금지 — 영구 오류를 헛재시도시킨다.
+# OperationalError = connection·deadlock, InterfaceError = connection 단절. 둘 다 DBAPIError 상속.
+# IntegrityError(= UNIQUE/FK 위반)도 DBAPIError 상속이라 _db_retry 에서 별도 먼저 캐치.
+_RETRYABLE_DB_EXC = (OperationalError, InterfaceError)
+
+# exponential backoff + full jitter — thundering herd 방지 + 메시지 처리 블로킹 최소화.
+# base 2: attempt0 <=2s, attempt1 <=4s (기존 base 5 는 최악 25s 단일 블로킹이라 과공격적).
+_RETRY_MAX_ATTEMPTS = 3
+_RETRY_BACKOFF_BASE_SEC = 2
 
 
 def _format_db_err(e: DBAPIError) -> str:
@@ -42,7 +50,7 @@ async def _db_retry[T](
     repo_factory: Callable[[AsyncSession], BaseCollectRepository],
     fn: Callable[[BaseCollectRepository], Coroutine[Any, Any, T]],
 ) -> T:
-    for attempt in range(3):
+    for attempt in range(_RETRY_MAX_ATTEMPTS):
         try:
             async with session_factory() as session:
                 result = await fn(repo_factory(session))
@@ -53,11 +61,12 @@ async def _db_retry[T](
             logger.error("db integrity error (non-retryable) {}", _format_db_err(e))
             raise
         except _RETRYABLE_DB_EXC as e:
-            if attempt == 2:
-                logger.error("db error after 3 attempts {}", _format_db_err(e))
+            if attempt == _RETRY_MAX_ATTEMPTS - 1:
+                logger.error("db error after {} attempts {}", _RETRY_MAX_ATTEMPTS, _format_db_err(e))
                 raise
             logger.warning("db error attempt={} {}", attempt + 1, _format_db_err(e))
-            await asyncio.sleep(5 ** (attempt + 1))
+            # full jitter: [0, base^(attempt+1)] 균등 — 동시 재연결 쏠림 방지.
+            await asyncio.sleep(random.uniform(0, _RETRY_BACKOFF_BASE_SEC ** (attempt + 1)))
     raise AssertionError("unreachable")
 
 
