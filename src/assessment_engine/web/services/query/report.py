@@ -66,6 +66,15 @@ class _ChildPrefetch:
     cpu_raw: CpuBreakdownRaw
 
 
+def _collect_under_hosts(raws) -> list[CapacityWarningItem]:
+    """raws 에서 under_provisioned 분류 호스트만 CapacityWarningItem 으로 수집 — 보고서 3경로 공유."""
+    under: list[CapacityWarningItem] = []
+    for raw in raws:
+        if recommendation.classify(build_resource_stats(raw)) == "under_provisioned":
+            under.append(to_capacity_warning_item(raw))
+    return under
+
+
 class ReportQueryMixin(_BaseQueryServiceMixin):
     async def get_environment_report(
         self,
@@ -99,10 +108,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
                 period_days=period_days, end=end_dt, server_ids=server_ids
             )
             overview = self._assemble_overview(details, util, raws_window, online_by_id)
-            for raw in raws_window:
-                rec = recommendation.classify(build_resource_stats(raw))
-                if rec == "under_provisioned":
-                    under_hosts.append(to_capacity_warning_item(raw))
+            under_hosts = _collect_under_hosts(raws_window)
         else:
             overview = _empty_overview()
             base = ReportSummary(
@@ -118,12 +124,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         # 환경 시계열 추이 — 발행 모달 time_range 윈도우의 CPU·메모리 평균 버킷. 정적 스냅샷 저장.
         trend = []
         if server_ids:
-            bi, bucket_td = _BUCKET_INFO[AUTO_BUCKET.get(time_range, "1h")]
-            trend_start = end_dt - TIME_RANGE_TD[time_range]
-            cpu_series = await self.repo.metric_trend("cpu.usage_percent", trend_start, end_dt, bi, bucket_td)
-            mem_series = await self.repo.metric_trend("mem.usage_percent", trend_start, end_dt, bi, bucket_td)
-            disk_series = await self.repo.metric_trend("disk.usage_percent", trend_start, end_dt, bi, bucket_td)
-            trend = build_metric_trend(cpu_series, mem_series, disk_series)
+            trend = await self._build_report_trend(time_range, end_dt)
 
         return to_environment_report(
             view=view,
@@ -170,23 +171,14 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         overview = self._assemble_overview(details, util, raws_window, online_by_id)
 
         # under_provisioned 호스트 trigger 뱃지 — raws_window 전체 (overview.under_provisioned_hosts 는 표시용 절단).
-        under_hosts: list[CapacityWarningItem] = []
-        for raw in raws_window:
-            rec = recommendation.classify(build_resource_stats(raw))
-            if rec == "under_provisioned":
-                under_hosts.append(to_capacity_warning_item(raw))
+        under_hosts = _collect_under_hosts(raws_window)
 
         # 운영 신호 — 전체 attention 을 선택 N대 호스트로 필터 (os_eol_count 등 N대 정합).
         hostnames = {d.hostname for d in details}
         attention = _filter_attention(await self.get_attention_signals(end=end_dt, limit_each=None), hostnames)
 
         # 환경 시계열 추이 — 선택 N대 한정 (metric_trend server_ids). 환경 보고서와 동일 버킷 정책.
-        bi, bucket_td = _BUCKET_INFO[AUTO_BUCKET.get(time_range, "1h")]
-        trend_start = end_dt - TIME_RANGE_TD[time_range]
-        cpu_series = await self.repo.metric_trend("cpu.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids)
-        mem_series = await self.repo.metric_trend("mem.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids)
-        disk_series = await self.repo.metric_trend("disk.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids)
-        trend = build_metric_trend(cpu_series, mem_series, disk_series)
+        trend = await self._build_report_trend(time_range, end_dt, server_ids)
 
         return to_environment_report(
             view=view,
@@ -244,11 +236,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         if attention is None:
             attention = await self.get_attention_signals(end=end_dt, limit_each=None)
 
-        under_hosts: list[CapacityWarningItem] = []
-        for raw in raws_window:
-            rec = recommendation.classify(build_resource_stats(raw))
-            if rec == "under_provisioned":
-                under_hosts.append(to_capacity_warning_item(raw))
+        under_hosts = _collect_under_hosts(raws_window)
 
         # overview — 단일 서버 자원량. is_online 은 Redis online TTL (fail-open) 기반.
         flag = await safe_get(self.redis, web_settings.redis_key_online.format(detail.id))
@@ -272,14 +260,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         )
 
         # 시계열 추이 — 1대 한정 (환경·선택 동일 버킷 정책). 개별 서버 부하 패턴.
-        bi, bucket_td = _BUCKET_INFO[AUTO_BUCKET.get(time_range, "1h")]
-        trend_start = end_dt - TIME_RANGE_TD[time_range]
-        cpu_series = await self.repo.metric_trend("cpu.usage_percent", trend_start, end_dt, bi, bucket_td, [server_id])
-        mem_series = await self.repo.metric_trend("mem.usage_percent", trend_start, end_dt, bi, bucket_td, [server_id])
-        disk_series = await self.repo.metric_trend(
-            "disk.usage_percent", trend_start, end_dt, bi, bucket_td, [server_id]
-        )
-        trend = build_metric_trend(cpu_series, mem_series, disk_series)
+        trend = await self._build_report_trend(time_range, end_dt, [server_id])
 
         summary = to_environment_report(
             view=view,
@@ -358,6 +339,20 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             )
             results.append((pid, summary))
         return results
+
+    async def _build_report_trend(
+        self, time_range: str, end_dt: datetime, server_ids: list[int] | None = None
+    ) -> list:
+        """CPU·메모리·디스크 평균 시계열 추이 — 보고서 3경로 공유.
+
+        server_ids=None 이면 전체 환경(env 보고서), 주어지면 선택 N대/1대 한정(selection·single). 버킷 정책 동일.
+        """
+        bi, bucket_td = _BUCKET_INFO[AUTO_BUCKET.get(time_range, "1h")]
+        trend_start = end_dt - TIME_RANGE_TD[time_range]
+        cpu_series = await self.repo.metric_trend("cpu.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids)
+        mem_series = await self.repo.metric_trend("mem.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids)
+        disk_series = await self.repo.metric_trend("disk.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids)
+        return build_metric_trend(cpu_series, mem_series, disk_series)
 
     async def _assemble_report_raws(self, server_ids: list[int], period_days: float, end_dt: datetime) -> list:
         """report_aggregate + 5 baseline(mount_worst·uptime·agent_restart·disk_io·net_io) 주입 raws.
