@@ -80,7 +80,7 @@ def compute_report_totals_from_raw(raws: list) -> ReportTotals:
     return ReportTotals(
         total_vcpus=total_vcpus,
         total_memory_gb=round(total_mem_kb / 1024 / 1024, 1),
-        total_disk_gb=int(total_disk_bytes / 10**9),
+        total_disk_gb=int(bytes_to_gb(total_disk_bytes) or 0),
     )
 
 

@@ -25,6 +25,7 @@ from assessment_engine.web.services.mappers.shared import (
     format_net_rate,
     resolve_os_eol,
 )
+from assessment_engine.web.services.unit_converter import bytes_to_gb
 from assessment_engine.web.view_models.attention import (
     AttentionRow,
     CapacityMetric,
@@ -261,7 +262,7 @@ def build_environment_overview(
         offline=total - online_count,
         total_vcpus=total_vcpus,
         total_memory_gb=round(total_mem_kb / 1024 / 1024, 1),
-        total_disk_gb=int(total_disk_bytes / 10**9),
+        total_disk_gb=int(bytes_to_gb(total_disk_bytes) or 0),
         # count 내림차순 + 동count는 이름 오름차순 tie-break (most_common 동순위는 삽입순=DB row 순서라 비결정적).
         os_distribution=dict(sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
         role_distribution=role_sorted,
