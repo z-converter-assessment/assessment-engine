@@ -315,6 +315,20 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind
                 FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
             """)
+        elif metric_type == "disk.queue":
+            # Windows Avg Disk Queue Length — server_metrics.sat_disk_queue (per-device max 축약 gauge).
+            # Linux 는 iowait 사용이라 null 발행 -> 값 있는 서버(Windows)만 집계. 시점값 = 서버 평균 큐 깊이.
+            sql = text(f"""
+                WITH per_ts AS (
+                    SELECT collected_at, AVG(sat_disk_queue) AS v
+                    FROM {ServerMetrics.__tablename__}
+                    WHERE collected_at >= :start AND collected_at <= :end {sid}
+                      AND sat_disk_queue IS NOT NULL
+                    GROUP BY collected_at
+                )
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind
+                FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
+            """)
         elif metric_type in ("disk.usage_percent", "fs.usage_percent"):
             if collapse:
                 sql = text(f"""

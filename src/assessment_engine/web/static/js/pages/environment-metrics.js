@@ -15,6 +15,7 @@ const PERF_NET_SUGGESTED_MAX  = 10 * 1024 * 1024; // 10 MB/s
 const PERF_DISK_KBPS_SUGGESTED_MAX = 10 * 1024;   // 10 MB/s — net 처리량과 동일 절대 기준선
 // 처리량 동적 단위(kBps/MBps)는 ChartUtils.fmtThroughput 단일 진실 (storage/detail/개별 성능추이 공용).
 const PERF_PPS_SUGGESTED_MAX  = 10;
+const PERF_DISK_QUEUE_SUGGESTED_MAX = 5;  // Avg Disk Queue Length — 2 이상 포화(Windows), 0~5 typical
 
 const USAGE_DANGER_PCT = parseFloat(document.body.dataset.usageDangerPct) || 90;
 const USAGE_WARN_PCT   = parseFloat(document.body.dataset.usageWarnPct)   || 75;
@@ -31,7 +32,7 @@ const chartInstances = {};
 // P4(a) sequence counter — per-chart 분리.
 const seqs = {
   cpu: 0, cpuClass: 0, load: 0, mem: 0, memComp: 0, swap: 0,
-  physIo: 0, diskKbps: 0, fs: 0, netIo: 0, netPps: 0,
+  physIo: 0, diskKbps: 0, diskQueue: 0, fs: 0, netIo: 0, netPps: 0,
 };
 
 const _safe = safeArray;
@@ -159,6 +160,7 @@ const pctTicks = { callback: v => v + '%', font:{size:11}, color:'#64748b' };
 const Y_PCT   = { min:0, max:100, ticks: pctTicks };
 const Y_SWAP  = { min:0, beginAtZero:true, suggestedMax:25, ticks: pctTicks };
 const Y_LOAD  = { beginAtZero:true, suggestedMax: 1.5, ticks:{ font:{size:11}, color:'#64748b' } };
+const Y_DISK_QUEUE = { beginAtZero:true, suggestedMax: PERF_DISK_QUEUE_SUGGESTED_MAX, ticks:{ font:{size:11}, color:'#64748b' } };
 const Y_IOPS  = { beginAtZero:true, suggestedMax: PERF_IOPS_SUGGESTED_MAX, ticks:{ precision:0, font:{size:11}, color:'#64748b' } };
 const Y_DISK_KBPS = { beginAtZero:true, suggestedMax: PERF_DISK_KBPS_SUGGESTED_MAX, ticks:{ callback: v => fmtThroughput(v), font:{size:11}, color:'#64748b' } };
 const Y_NET   = { beginAtZero:true, suggestedMax: PERF_NET_SUGGESTED_MAX, ticks:{ callback: v => fmtKbChart(v), font:{size:11}, color:'#64748b' } };
@@ -229,6 +231,39 @@ async function loadLoadChart(range, anchor) {
     options: makePerfOptions(Y_LOAD, v => v.toFixed(2)),
   });
   updateMaxLabel('load-max', computePeriodMax(safeAvg), v => v.toFixed(2), null);
+}
+
+// Windows Avg Disk Queue Length 추이 (server_metrics.sat_disk_queue). Linux 는 iowait 사용이라 null →
+// 발행 서버(Windows) 없으면 빈 차트. iowait(CPU 분류)의 OS 보완 짝 — Windows 디스크 대기 실측 신호.
+async function loadDiskQueueChart(range, anchor) {
+  const seq = ++seqs.diskQueue;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const avgRows = await fetchChart('disk.queue', range, anchor);
+  if (seq !== seqs.diskQueue) return;
+  const safeAvg = _safe(avgRows);
+
+  if (chartInstances['diskqueue-canvas']) { chartInstances['diskqueue-canvas'].destroy(); delete chartInstances['diskqueue-canvas']; }
+  const canvas = document.getElementById('diskqueue-canvas');
+  const empty  = document.getElementById('diskqueue-empty');
+  if (!safeAvg.length) { canvas.style.display = 'none'; empty.style.display = 'flex'; updateMaxLabel('diskqueue-max', null, v => v.toFixed(2), null); return; }
+  canvas.style.display = ''; empty.style.display = 'none';
+
+  const avgMap = {};
+  for (const r of safeAvg) avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
+  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const data   = grid.map(t => avgMap[t] ?? null);
+
+  chartInstances['diskqueue-canvas'] = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets: [{
+      label: 'Disk Queue', data,
+      borderColor: '#ef4444',
+      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
+    }] },
+    options: makePerfOptions(Y_DISK_QUEUE, v => v.toFixed(2)),
+  });
+  updateMaxLabel('diskqueue-max', computePeriodMax(safeAvg), v => v.toFixed(2), null);
 }
 
 async function loadMemChart(range, anchor) {
@@ -389,7 +424,7 @@ async function loadAllCharts() {
     loadLoadChart(range, anchor),    loadMemChart(range, anchor),
     loadMemCompChart(range, anchor), loadSwapChart(range, anchor),
     loadPhysIoChart(range, anchor),  loadDiskKbpsChart(range, anchor),
-    loadFsChart(range, anchor),
+    loadDiskQueueChart(range, anchor), loadFsChart(range, anchor),
     loadNetIoChart(range, anchor),   loadNetPpsChart(range, anchor),
   ]);
 }
