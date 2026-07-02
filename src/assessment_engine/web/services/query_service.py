@@ -435,7 +435,7 @@ class QueryService:
             restart_counts = await self.repo.agent_restart_counts_recent(server_ids, ref - timedelta(hours=1))
         return self._assemble_attention(raws_period, gap_raws, restart_counts, ref, limit_each)
 
-    async def get_environment_overview(self) -> "EnvironmentOverview":
+    async def get_environment_overview(self) -> EnvironmentOverview:
         """list 화면 상단 환경 요약 — 총 N대·온라인/오프라인·자원 합계·역할 분포·평균 활용률·위험도 분포 (P2).
 
         period_days는 보고서·right-sizing과 동일 윈도우 (AWS Compute Optimizer 표준).
@@ -451,7 +451,7 @@ class QueryService:
         online_by_id = await self._online_map(server_ids, details, now)
         return self._assemble_overview(details, util, raws_period, online_by_id)
 
-    async def get_environment_realtime(self, server_ids: list[int] | None = None) -> "EnvironmentRealtime":
+    async def get_environment_realtime(self, server_ids: list[int] | None = None) -> EnvironmentRealtime:
         """list 화면 '환경 실시간 메트릭' 카드 — 각 서버 최신 스냅샷(get_latest_metric, Redis cache 우선) 집계.
 
         현황 모니터링 용도(right-sizing 7일 통계와 별개). server_ids=None 이면 전체 환경, 주어지면 선택 N대 한정.
@@ -736,7 +736,7 @@ class QueryService:
         view: ReportView = "customer",
         time_range: str = DIAGNOSTIC_DEFAULT_TIME_RANGE,
         anchor_at: datetime | None = None,
-    ) -> "EnvironmentReportSummary":
+    ) -> EnvironmentReportSummary | None:
         """선택 N대 보고서 — 환경 보고서 양식(`get_environment_report`)의 N대 scope 변형 (대상만 선택 서버 한정).
 
         평균 활용률은 environment_utilization 을 server_ids 로 N대 한정 호출 (전체 환경과 동일
@@ -748,10 +748,10 @@ class QueryService:
         sid_map = await self.repo.resolve_server_ids(server_public_ids)
         server_ids = [sid_map[p] for p in server_public_ids if p in sid_map]
         if not server_ids:
-            return None  # type: ignore[return-value]
+            return None
         details = await self.repo.get_servers(server_ids)
         if not details:
-            return None  # type: ignore[return-value]
+            return None
 
         # raws 1회 조립 후 get_report·overview·under_hosts 공유 (A2: report_aggregate/net_io 중복 제거).
         raws_window = await self._assemble_report_raws(server_ids, period_days, end_dt)
@@ -793,7 +793,7 @@ class QueryService:
             trend=trend,
         )
 
-    async def get_selection_attention(self, server_ids: list[int], end: datetime) -> "AttentionSignals":
+    async def get_selection_attention(self, server_ids: list[int], end: datetime) -> AttentionSignals:
         """선택 N대 한정 운영 신호 — 실시간 현황(/environment/realtime?ids=) selection 범위 필터.
 
         전체 attention 을 선택 호스트 hostname 으로 필터 (get_selection_report 와 동일 _filter_attention 채널).
@@ -809,8 +809,8 @@ class QueryService:
         time_range: str = DIAGNOSTIC_DEFAULT_TIME_RANGE,
         anchor_at: datetime | None = None,
         attention: AttentionSignals | None = None,
-        prefetch: "_ChildPrefetch | None" = None,
-    ) -> "EnvironmentReportSummary":
+        prefetch: _ChildPrefetch | None = None,
+    ) -> EnvironmentReportSummary | None:
         """단일 서버 보고서 — 환경 보고서 양식 (`get_environment_report`) 의 1대 scope 변형.
 
         anchor_at: 발행 시점 기준 시각 (None 이면 현재) — 발행 스냅샷 윈도우 재현.
@@ -824,7 +824,7 @@ class QueryService:
         end_dt = anchor_at if anchor_at is not None else datetime.now(UTC)
         sid_map = await self.repo.resolve_server_ids([server_public_id])
         if server_public_id not in sid_map:
-            return None  # type: ignore[return-value]
+            return None
         server_id = sid_map[server_public_id]
 
         # prefetch: N대 fan-out generator 가 배치 조회한 1대분 주입(A5) — raws·detail·breakdown 만 배치.
@@ -835,7 +835,7 @@ class QueryService:
             fetched = await self.repo.get_servers([server_id])
             detail = fetched[0] if fetched else None
             if detail is None:
-                return None  # type: ignore[return-value]
+                return None
             # raws 1회 조립 후 get_report·under_hosts 공유 (A2: report_aggregate 중복 제거 + net·worst_mount
             # 주입으로 단일 보고서 under 분류가 세부 행과 정합 — 기존 single 은 net 미주입이었음).
             raws_window = await self._assemble_report_raws([server_id], period_days, end_dt)

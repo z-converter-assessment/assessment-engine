@@ -75,7 +75,7 @@ class BaseDiagnosticRepository(ABC):
         ...
 
     @abstractmethod
-    async def claim_next_pending(self) -> "DiagnosticJobRecord | None":
+    async def claim_next_pending(self) -> DiagnosticJobRecord | None:
         """pending job 1건 원자적 claim — SELECT ... FOR UPDATE SKIP LOCKED + status=running.
 
         멀티워커·멀티노드 안전 (row-lock 으로 1 job = 1 워커, 큐 없이 DB 가 분산 조정). created_at

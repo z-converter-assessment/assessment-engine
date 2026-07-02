@@ -5,6 +5,9 @@ from datetime import datetime
 
 # MatchedPort 는 분류 도메인 개념 — service_classifier(domain)에 정의, 본 모듈은 ServiceItem.ports 로 소비.
 from assessment_engine.service_classifier import MatchedPort
+
+# NetIoSnapshot 은 NetworkDetailResponse.interfaces 필드 타입으로 재사용 (metric sub-module 정의).
+from assessment_engine.web.view_models.metric import NetIoSnapshot
 from assessment_engine.web.view_models.task import TaskSummaryItem
 
 
@@ -181,11 +184,6 @@ class StorageDetailResponse:
     fs_total_gb: float | None  # 파일시스템(마운트) total_gb 합 — 현재 상태 요약
     snapshot_at: datetime | None
     inventory_at: datetime | None
-
-
-# NetworkDetailResponse 는 metric.NetIoSnapshot 을 재사용 — interfaces 필드 type.
-# import 순환 방지 위해 metric sub-module 에서 NetIoSnapshot 정의를 별도로 보유 후 본 모듈 import.
-from assessment_engine.web.view_models.metric import NetIoSnapshot  # noqa: E402
 
 
 @dataclass
