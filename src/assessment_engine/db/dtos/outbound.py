@@ -253,7 +253,7 @@ class ReportRowRaw:
     server_id: int
     public_id: str
     hostname: str
-    os_family: str | None  # "linux" | "windows" — Windows 미측정 통계(load/iowait) N/A 표시 분기
+    os_family: str | None  # "linux"|"windows" — Windows 미측정(load=run queue) N/A 분기 (disk 는 queue 측정)
     os_id: str | None
     os_version: str | None
     kernel_version: str | None

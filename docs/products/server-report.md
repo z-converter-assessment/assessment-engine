@@ -97,49 +97,19 @@ AWS Compute Optimizer 임계값(CPU p95 30%) 기준으로 CPU 다운사이즈 �
 
 ## 의사결정 근거
 
-### 분류 임계값 출처
+### 분류 임계값·판정
 
-| 분류 | 트리거 조건 | 출처 |
-|------|-----------|------|
-| under_provisioned | 위험 신호 OR — CPU p95 >= 70 / 메모리 p95 >= 80 / swap 발생 / load >= cores / iowait p95 >= 20 / worst mount >= 85% (`CPU_UPSIZE_P95_PCT`·`MEM_UPSIZE_P95_PCT`·`CPU_SATURATION_LOAD_RATIO`·`IOWAIT_UPSIZE_PCT`·`DISK_CAPACITY_UPSIZE_PCT`) | USE Method + Kleinrock 큐잉 |
-| idle | CPU peak <= 1% + 네트워크 <= 1 kBps (`IDLE_CPU_PEAK_PCT`·`IDLE_NET_KBPS`) | AWS Compute Optimizer |
-| shutdown | CPU p95 <= 3% + 네트워크 <= 2 Mbps (`SHUTDOWN_CPU_P95_PCT`·`SHUTDOWN_NET_MBPS`) | Azure Advisor "underutilized VM" |
-| insufficient_data | CPU·메모리 p95 둘 다 부재 + under 신호 없음 | 평가 불가 (관측 부재) |
-| over_provisioned | CPU p95 <= 30 + 메모리 p95 <= 50 둘 다 (`CPU_DOWNSIZE_P95_PCT`·`MEM_DOWNSIZE_P95_PCT`) | AWS Compute Optimizer "over-provisioned" |
-| optimal | 위 어디에도 해당 안 함 | residual |
+6분류·트리거 조건·임계 상수·벤더 출처 상세는 `docs/architecture/right-sizing.md` 4절, 운영자 카탈로그는 `right_sizing_thresholds.html`. 판정 순서 = under -> idle -> shutdown -> insufficient_data -> over -> optimal (`recommendation.assess`, 임계 상수는 `recommendation.py`).
 
-판정 순서 = under -> idle -> shutdown -> insufficient_data -> over -> optimal (`recommendation.assess`, CLAUDE.md #E3).
+Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상시 사용은 saturation 아니라 제외. 디스크 포화는 Avg Disk Queue Length 로 측정한다(cpu iowait 는 canonical 0이라 미사용). loadavg 만 OS 부재라 CPU run queue 축이 미관측 — Windows는 utilization·capacity·disk queue 로 분류되고 swap·CPU run queue 셀만 N/A, 분류 옆에 "포화 수치 미관측" 마커 표시. 상세 `right_sizing_thresholds.html`.
 
-Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상시 사용은 saturation 아니라 제외. load/iowait도 OS 부재라 Windows는 cpu/mem utilization 축만으로 분류되고 swap·load·iowait 셀은 N/A, 분류 옆에 "부분 평가" 마커 표시. 상세 `right_sizing_thresholds.html`.
+### 지표 정의 (engineer view)
 
-### 지표 정의·임계값 (engineer view)
+engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/NET I/O baseline 로 근거를 노출한다. 각 지표 정의·임계·출처는 운영자 카탈로그 `_metric_definitions.html`·`_thresholds_reference.html`("엔지니어 보조 지표") 단일 진실.
 
-| 지표 | 정의 | 임계값 의미 | 출처 |
-|------|------|-----------|------|
-| p95 | `percentile_cont(0.95)` over period | 정상 부하의 상한선 — 일시 spike 제외 | AWS Compute Optimizer |
-| peak | 시점별 최댓값 | sizing 시 worst case | 운영 통념 |
-| CPU% | jiffies delta. boot_time 변경 시 reset 제외 | counter reset 정밀 식별 | /proc/stat 표준 |
-| MEM% | (1 - available/total) * 100 | available 우선 (cgroup·page cache 보정) | Linux `/proc/meminfo` MemAvailable 권장 |
-| Saturation | load_15m_max / vCPU | >= 1.0 이면 큐 대기 발생 | Kleinrock - Queueing Systems (1975) |
-| 변동성 (variance) | peak / p95 | >= 1.5 이면 burst 큼 — peak 기준 sizing 권장 | 본 프로젝트 휴리스틱 |
-| DISK I/O | (서버, 시점) device 합산 rate | iops·throughput baseline | `/proc/diskstats` |
-| NET I/O | interface 합산 rate | rx·tx baseline | `/proc/net/dev` |
+### 진단 칼럼 (engineer view)
 
-### 진단 칼럼 평가 순서 (engineer view)
-
-진단 라벨은 `report.py::_build_diagnosis` 단일 진실 (괄호 없는 단문):
-
-1. swap 사용 — "메모리 부족 (스왑 발생)" (paging 발생 자체가 1차 강신호)
-2. iowait p95 >= 20% — "디스크 I/O 병목"
-3. load >= cores — "CPU 포화"
-4. mem p95 >= 80% — "메모리 압박"
-5. cpu p95 >= 70% — "CPU 압박"
-6. peak/p95 >= 1.5 (burst) — "부하 변동 큼"
-7. cpu p95 <= 3% — "거의 미사용"
-8. cpu <= 30 + mem <= 50 (축소 검토) — "여유 있음"
-9. 그 외 — "정상"
-
-최상위 신호 1개만 노출 — 엔지니어가 가장 시급한 문제를 즉시 식별. 예외 2개: 표본 부족 분류 호스트는 신호 대신 원인 진단(오프라인—에이전트 미가동 / 누락 메트릭 명시 / 윈도우 내 표본 부족), 오프라인 호스트는 진단 앞에 "오프라인" 접두 (분류는 윈도우 측정 기반 유지).
+진단 라벨은 `report.py::_build_diagnosis` 단일 진실 — 최상위 신호 1개만 노출(엔지니어가 가장 시급한 문제 즉시 식별). 우선순위(swap -> disk I/O -> CPU 포화 -> mem -> cpu -> burst -> 미사용 -> 여유 -> 정상)와 임계는 `right_sizing_thresholds.html` "진단 칼럼 해석" 단일 진실. 예외: 표본 부족 호스트는 원인 진단(오프라인 / 누락 메트릭 / 윈도우 내 표본 부족), 오프라인 호스트는 "오프라인" 접두(분류는 윈도우 측정 기반 유지).
 
 ### 평가 윈도우
 

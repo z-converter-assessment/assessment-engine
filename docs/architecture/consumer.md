@@ -67,9 +67,7 @@ metrics 핸들러는 `repo.ensure_server_id(agent_id, placeholder)`로 한 번�
 
 placeholder는 `mappers.build_placeholder_inventory`가 생성. agent_id/composite_id/machine_id/hostname/agent_version만 실값, 나머지 정적 정보(OS·CPU·메모리·디스크 등)는 None/빈 배열. 다음 진짜 inventory 도착 시 ON CONFLICT DO UPDATE로 풀 정보 자동 덮어씀 (`agent_id` UNIQUE 제약).
 
-식별키 불변 (agent_id, ADR 0049): agent_id 는 agent 가 첫 실행 시 1회 생성·영구저장하는 UUID 라 재부팅·NIC MAC 재발급·machine_id 재발급과 무관하게 불변이다. 구 composite_id(=sha256(machine_id+MAC)) 식별에서는 일부 환경(OpenStack Windows VM)이 부팅마다 MAC 을 재발급해 같은 VM 이 중복 행으로 쪼개졌으나, agent_id 불변으로 그 문제 자체가 사라져 재연결 휴리스틱이 불요하다 — 동일 agent_id 가 자연히 같은 행을 upsert 한다. composite_id/machine_id 는 clone collision 진단용 감사 컬럼으로만 저장.
-
-metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 4개 시계열 테이블 INSERT를 facade로 묶어 처리. `boot_time`·`agent_started_at`은 시계열 4개 테이블 모두에 동일 시점값으로 함께 저장 → metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 비교로 시스템 재부팅 시 delta 건너뛰기 (CLAUDE.md B1). mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅 단일 테이블 SELECT 위해 보존. 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
+metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 4개 시계열 테이블 INSERT를 facade로 묶어 처리. `boot_time`·`agent_started_at`은 시계열 4개 테이블 모두에 동일 시점값으로 함께 저장 → metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 비교로 시스템 재부팅 시 delta 건너뛰기 (CLAUDE.md B1). mount_usage는 시점값(calculator 직접 활용 없음 — 보존 사유는 `db/models.md` #C1). 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
 
 → metrics drop 0. inventory one-shot 정책으로 인한 영구 미등록 시나리오 해소. 에이전트 변경 없이 엔진 단독 안전망.
 
@@ -141,9 +139,7 @@ upsert 성공 후 `SET online:{server_id} EX 90`. 첫 메트릭 수신 전(최�
 
 ### InventoryMountInfo 미사용 필드
 
-`free_bytes`, `avail_bytes`가 스키마에 있으나 `src/assessment_engine/consumer/mappers.py:to_inventory_create`에서 명시적으로 drop된다 (`{"mount": ..., "fstype": ..., "total_bytes": ...}`만 매핑). 인벤토리에는 정적 정보만 저장하고, 동적 사용량은 metrics 메시지의 `mounts[]` → `server_mount_usage` 시계열 테이블로 분리한다.
-
-`disks[].major/minor`와 inventory `mounts[].major/minor`는 mount-disk 조인 키로 활용 중 (`web/services/device_filters.find_parent_disk`, mapper의 `MountUsageItem.device_name` 채움). 반면 metrics `mounts[].major/minor`·`disk_io[].major/minor`는 시계열 테이블에 컬럼 없어 Pydantic `extra=ignore`로 통과 후 미저장 — 정확한 활용 카탈로그는 `agent.md` "활용 중인 필드" / "엔진이 받지만 사용하지 않는 필드" 표.
+inventory mounts 는 정적 정보만 저장 — `to_inventory_create` 가 `free_bytes`/`avail_bytes` 를 drop 하고, 동적 사용량은 metrics `mounts[]` -> `server_mount_usage` 시계열로 분리한다. major/minor 활용(mount-disk 조인)·미저장 필드 카탈로그는 `agent.md` "활용 중인 필드"/"엔진이 받지만 사용하지 않는 필드" 표 단일 진실.
 
 ### 부가 시그널 — 운영 가시성
 
@@ -158,7 +154,7 @@ handler 본 처리 흐름과 별개로 두 가지 부가 시그널을 발행 (�
    - `last_agent_start:{sid}` (24h)에서 직전 값 비교 → 변경 시 `agent_restarts:{sid}` (1h 슬라이딩) INCR
    - `agent_restart_alert_threshold` (기본 3) 도달 시 warning (운영자가 crash loop 인지)
    - 시스템 재부팅도 같은 카운터 — 1h 내 3회 재부팅도 unusual이라 alert 적정
-   - Redis 장애 시 silent skip (옛 휴리스틱과 동일 효과)
+   - Redis 장애 시 silent skip (fail-open — 재시작 감지 1회 누락, 다음 sample 회복)
 
 ### Disposability — SIGTERM 흐름 (#F11)
 

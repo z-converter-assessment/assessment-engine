@@ -84,7 +84,7 @@ async def test_upsert_server_same_agent_id_converges_across_reboot(
 
     agent_id 는 첫 실행 시 생성·영구저장한 불변 UUID. 재부팅으로 NIC MAC 재발급 -> composite_id 가
     바뀌어도(OpenStack Windows VM) 같은 agent_id 라 동일 row 의 composite_id·hostname 만 갱신 —
-    별도 row 생성 안 함. 옛 _relink_rebooted_host 재연결(machine_id+hostname) 불요 (ADR 0044 supersede).
+    별도 row 생성 안 함 (agent_id 불변이라 호스트 재연결 로직 불요, ADR 0049).
     """
     aid = "00000000-0000-4000-8000-000000000004"
     inv1 = make_inventory(agent_id=aid, composite_id="reboot-A", hostname="host-a", cpu_cores=4)
@@ -146,8 +146,7 @@ async def test_different_agent_id_same_machine_id_hostname_isolated(
 ):
     """agent_id 가 다르면 machine_id·hostname 이 같아도 별개 행 — clone(미sysprep) 오병합 방지.
 
-    옛 모델은 machine_id+hostname 으로 재연결했으나(ADR 0044 _relink_rebooted_host), agent_id 불변
-    UUID 는 clone 마다 고유해 오병합 위험 자체가 없다 — 재연결 로직 없이 자연 격리 (ADR 0049).
+    agent_id 불변 UUID 는 clone 마다 고유해 오병합 위험 자체가 없다 — 호스트 재연결 로직 없이 자연 격리 (ADR 0049).
     """
     sid_a = await collect_repo.upsert_server(
         make_inventory(

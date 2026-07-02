@@ -44,7 +44,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | `GET /{id}/collection-status` | 마지막 metrics·inventory 시각 |
 | `GET /{id}/metrics/latest` | 최신 dashboard (CPU/Mem/Disk/Net delta) |
 | `GET /{id}/metrics/snapshots?cursor=&limit=` | 시계열 cursor pagination (#E2) |
-| `GET /{id}/metrics/chart?metric_type=&time_range=&bucket=&agg=` | 차트 시계열 (17 metric_type dispatcher) |
+| `GET /{id}/metrics/chart?metric_type=&time_range=&bucket=&agg=` | 차트 시계열 (metric_type dispatcher, 카탈로그는 `types.py`) |
 | `GET /{id}/events/reboot?time_range=&end=` | reboot/restart vertical marker용 |
 
 ### `tasks.py` — 원격 작업 발행 + 단건 조회

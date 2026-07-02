@@ -42,7 +42,7 @@ class CapacityTriggerBadge:
 class CapacityMetric:
     """자원 부족 카드 안 평가 지표 1개 — assess 입력 6축(CPU/메모리/스왑/Load/디스크/iowait) 전부 노출.
 
-    미관측 축(예: Windows load/iowait OS 부재)도 "N/A" 흐림 placeholder 로 노출(제외 안 함 — 평가 6축 전모 제공).
+    미관측 축(예: Windows load=run queue 부재)도 "N/A" placeholder 노출(제외 안 함 — 6축 전모, disk_io 는 queue 측정).
     active(임계 위반)·measured(관측 여부) 시각 분기는 mapper precompute (P3 — 템플릿 비교 금지).
     color: mapper 결정 (active 빨강 / 정상 진함 / 미관측 흐림).
     """

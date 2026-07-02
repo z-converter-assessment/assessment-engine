@@ -291,7 +291,7 @@ def _build_diagnosis(
 
     우선순위 (가장 시급한 신호 1개 선택, 임계는 recommendation 상수·_VARIANCE_BURST_RATIO 단일 진실):
     1. swap_used → "메모리 부족 (스왑 발생)" — paging 활성, 1차 강신호
-    2. iowait_p95 >= IOWAIT_UPSIZE_PCT → "디스크 I/O 병목"
+    2. disk_io_saturated (os-aware: Linux iowait_p95 / Windows Avg Disk Queue Length) → "디스크 I/O 병목"
     3. saturation >= CPU_SATURATION_LOAD_RATIO → "CPU 포화"
     4. mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리 압박"
     5. cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU 압박"

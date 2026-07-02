@@ -56,17 +56,16 @@
 
 storage 페이지 mount → disk 매칭 + `_split_disks` (Inventory JSON Export의 `additional_disks.mount_hint`)에 활용.
 
-## 디바이스 필터 정책 — 블랙리스트 (관측성 놓침 방지)
+## 디바이스 필터 정책 — agent `kind` 태그 기반
 
-디스크·네트워크 인터페이스는 블랙리스트로 거른다 — 명백한 가상·시스템 디바이스만 제외하고 나머지는 통과. 화이트리스트(알려진 패턴만 허용)는 특이 물리 디바이스(`mpath`·`cciss`·새 NIC naming)를 조용히 놓치는 위험이 있어, 관측성에선 "놓침이 노이즈보다 치명적" 원칙으로 블랙리스트가 정석 (node_exporter `device-exclude` 등 de facto). 보안의 default-deny(화이트)와 반대 방향임에 주의 — 관측성은 "모르는 것도 일단 보여야" 안전.
+디스크·마운트·네트워크 인터페이스의 물리/논리/data/가상 판정은 agent 가 각 항목에 발행하는 `kind` 태그로 한다 (payload 계약 #B, kind taxonomy 는 `agent.md`). 엔진은 이름 정규식·major/fstype 추론 없이 kind 로만 판정 — 화면·집계·용량 단일 기준(Windows major=0 문제 해소). `device_filters` 단일 진실:
 
-- `is_physical_disk(name)` = `not (is_virtual_disk OR is_lvm_disk OR is_partition)`. 가상(`loop`/`ram`/`zram`/`fd`/`sr`/`nbd`)·논리(LVM/RAID `dm-`/`md`)·파티션 제외, 나머지(sd/vd/nvme/mmcblk/PhysicalDrive + 특이 컨트롤러) 통과. (과거 화이트리스트 `_PHYS_DISK_RE`에서 전환.)
-- `is_virtual_interface(name)` = 보수적 1번 범위만 제외 — `lo`·터널(`sit`/`tunl`/`ip6tnl`/`gre`/`gretap`/`erspan`)·`veth`·`dummy`·`ifb`·`nlmon` + Windows NDIS 필터 드라이버(`-NNNN` suffix). `docker`/`br-`/`bond`/`vlan` 회색지대는 통과(컨테이너·본딩 호스트 정보 손실 방지).
-
-마운트(데이터 볼륨) — `is_data_volume(mount, major, fstype)` 단일 진실:
-- 판단(강 -> 약): Windows drive(`^[A-Za-z]:`) -> 데이터(Windows 는 major 가 항상 0이라 drive letter 로 인정) / `major==0`(블록 디바이스 없는 가상 fs: proc·sys·tmpfs·cgroup·overlay·selinuxfs) -> 비데이터 / 부트 path(`/boot`·`/boot/efi`) -> 비데이터 / 이미지 fstype(`squashfs`·`iso9660`·`udf` = `_IMAGE_FSTYPES`) -> 비데이터 / else -> 데이터.
-- major 가 핵심 신호 — 파편화됐던 fstype 블랙리스트를 대체. `server_mount_usage.major`(메트릭)·inventory 공통. fstype 은 inventory 전용 보조(메트릭엔 fstype 없어 squashfs 류는 차트 미적용).
-- major 미전파 outbound 경로(차트 dtos 일부)는 `_VIRTUAL_MOUNT_PREFIXES`(`/proc`·`/sys`·`/snap`·`/boot` 등) path fallback — major None 일 때만 동작.
+- `is_physical_disk(kind)` = `kind=="physical"` (lvm/raid/partition/virtual 제외).
+- `is_lvm_disk(kind)` = `kind in ("lvm","raid")` — 물리 부재(Windows 등) 시 disk 차트 fallback.
+- `is_partition(kind)` = `kind=="partition"`.
+- `is_data_volume(kind)` = `kind=="data"` — 데이터 볼륨 마운트(boot/image/가상 fs 제외; 가상 fs 는 agent pre-drop).
+- `is_virtual_interface(kind)` = `kind!="physical"` — 물리 NIC 만 통과(loopback/bridge/veth/bond/vlan/tunnel 제외, master/member 이중 집계 회피).
+- `major`/`minor` 는 분류 신호 아님 — mount-disk 조인(`find_parent_disk`) 전용.
 - 집계 SQL 투영은 `types._DATA_VOLUME_SQL_FILTER` (`mount ~ '^[A-Za-z]:' OR ((major IS NULL OR major<>0) AND mount<>'/boot' AND mount NOT LIKE '/boot/%')`). `server_mount_usage.major` 활용. major NULL = 마이그레이션 전 행(path fallback). 변경 시 `is_data_volume` 과 동기화.
 
 적용 경계 — 저장은 모두 유지, 표시 경계에서만 필터:
@@ -80,16 +79,11 @@ IP 필터 보류: `ip_internal`/`ip_external`은 평면 IP 목록만 발행돼(�
 
 도메인 모듈: `assessment_engine/recommendation.py` (web·diagnostic 양쪽 import). `WINDOW_DAYS=7` 평가 윈도우(#F10)·USE Method 임계값 모두 본 모듈 코드 단일 진실(모듈 상단 명명 상수).
 
-임계값 출처 주석 명시:
-- AWS Compute Optimizer: idle (CPU peak <=1%) / over (CPU p95 <=30%, MEM p95 <=50%)
-- Azure Advisor: shutdown (CPU p95 <=3%, NET <=2Mbps)
-- GCP Recommender: headroom 30%
-- Kleinrock 큐잉 이론(1975): under (CPU p95 >=70%)
-- Linux page cache: under (MEM p95 >=80%)
-
 UI badge 임계값(`mappers/shared.py` `_USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
 
-OS 분기 (원칙 P2/P4 — evidence 기반): right-sizing 분류 단일 진실은 `recommendation.assess(stats) -> Assessment(recommendation, triggers, unmeasured)`이고, `classify`는 분류 enum만 돌려주는 호환 wrapper다. assess는 자원(CPU/Mem/Disk)별로 가진 축을 신호로 모아 under(위험 신호 OR — 하나라도 hit 되면 발화, 누락 0)/over(cpu·mem 이 둘 다 다운사이즈 임계 이하일 때만 — 보수적)/optimal 로 단일 분류를 내고 hit 신호를 근거(triggers)로 동반한다("어떤 데이터로 이 분류"). swap은 Linux page-out(메모리 압박) 신호이나 Windows pagefile은 baseline이라 `recommendation.swap_saturation(os_family, swap_used)` helper가 Windows에서 swap 축을 제외한다. load(CPU run queue)·iowait가 미관측(값 None)이면 `unmeasured`에 기록되고 `is_partial`(=bool(unmeasured))이 confidence 단서가 된다 — 분류 자체는 utilization·capacity로 완결되어 항상 under/over/optimal 결론이 나며("이용률 기준 평가" 표기), cpu_p95·mem_p95가 산출되는 한 "표본 부족"이 아니다. `insufficient_data`는 utilization(cpu·mem) 둘 다 부재 + under 신호도 없을 때만(신규/표본 부재 — swap 등 saturation 신호가 있으면 util 부재여도 under로 결론). report mapper의 권고(`_build_under_provisioned_reason`)·attention의 capacity 배지(`to_capacity_warning_item`)는 `assess.triggers`를 재사용해 임계 재계산 중복을 제거한다(stats 생성은 `build_resource_stats` 공용). os_family None(unknown)은 Linux로 취급. 분류 명세·근거(USE Method·벤더 임계 출처·한계) 단일 진실은 `docs/architecture/right-sizing.md`, 운영자 임계 카탈로그는 `right_sizing_thresholds.html`.
+right-sizing 분류(6분류·판정 순서·합성 규칙·OS 분기·벤더 임계 출처)의 명세 단일 진실은 `docs/architecture/right-sizing.md`, 운영자 임계 카탈로그는 `right_sizing_thresholds.html`. web 계층 책임은 소비만 (P2/P4):
+- 분류 = `recommendation.assess(stats) -> Assessment`(`classify` 는 enum 호환 wrapper). mapper 권고(`_build_under_provisioned_reason`)·attention capacity 배지(`to_capacity_warning_item`)가 `assess.triggers` 를 재사용해 한국어 권고로 변환한다(임계 재계산 금지, stats 생성은 `build_resource_stats` 공용).
+- `unmeasured` -> `is_partial`(=bool(unmeasured)) 을 ViewModel precompute, 템플릿이 "포화 수치 미관측" confidence 마커로 노출.
 
 ## 환경 개요 상단 요약 — environment_overview + attention
 
@@ -102,7 +96,7 @@ OS 분기 (원칙 P2/P4 — evidence 기반): right-sizing 분류 단일 진실�
 | attention.os_eol_warnings | `get_attention_signals` | `report_aggregate(DASHBOARD_WINDOW_DAYS)` raws + `resolve_os_eol`(endoflife.date 스냅샷, ADR 0031) | EOL 경과 한정 | 지원 종료 OS (Linux distro + Windows Server build) |
 | attention.agent_unstable | `get_attention_signals` | `agent_restart_counts_recent(since=now-1h)` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | restart_count >= `AGENT_RESTART_ALERT_THRESHOLD` |
 
-운영신호 카드(`AttentionSignals`)는 위 3개뿐 — public `get_attention_signals` 가 내부 `_assemble_attention` 으로 조립. disk·capacity·days_until_full 은 운영신호에서 USE Method right-sizing 으로 이동(중복 회피): capacity(under_provisioned)는 environment_overview, disk capacity/IO 는 `recommendation.classify`, days_until_full 은 보고서 스토리지 컬럼.
+운영신호 카드(`AttentionSignals`)는 위 3개뿐 — public `get_attention_signals` 가 내부 `_assemble_attention` 으로 조립. capacity·disk·days_until_full 은 각 담당이 분리 소유(중복 회피): capacity(under_provisioned)는 environment_overview, disk capacity/IO 는 `recommendation.classify`, days_until_full 은 보고서 스토리지 컬럼.
 
 설계 결정:
 - `list_server_ids()`는 정수 PK만 fetch — `list_servers`(disks JSONB 등 11컬럼) 대비 페이로드 절감 (T8 패턴 동일 적용).

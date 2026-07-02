@@ -392,12 +392,12 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 - 환경 진단 결과 페이지 첫 표시 느림 운영자 불만 시 → 보고서 페이지 server-side 캐시 또는 lazy fetch 전환.
 - 보고서 snapshot 필요 운영 요구 시 → `result` JSONB 에 합성 결과 저장 + size 모니터링.
 
-## T14. Windows 부분 평가 — saturation 축 OS 부재 (utilization 축만 분류, ADR 0029)
+## T14. Windows 부분 평가 — CPU run queue 축 OS 부재 (ADR 0029)
 
-right-sizing 분류는 USE Method 의 Utilization + Saturation 두 축을 본다. Windows 는 saturation 축 신호가 OS 부재거나 의미가 다르다 — loadavg 없음(null), iowait 개념 부재(canonical 0), swap 은 pagefile baseline 이라 saturation 아님(P2 제외). 그래서 Windows 호스트는 cpu/mem utilization 축만으로 분류한다.
+right-sizing 분류는 USE Method 의 Utilization + Saturation 두 축을 본다. Windows 는 saturation 축 중 CPU run queue(loadavg) 만 OS 부재라 못 본다 — 디스크 IO 포화는 Avg Disk Queue Length(디스크당 큐 >= 2)로 측정하고(cpu iowait 는 canonical 0이라 미사용, disk queue 로 대체), swap 은 pagefile baseline 이라 saturation 아님(P2 의도 제외). 즉 Windows 도 utilization·disk 포화·capacity 로 분류하되 CPU run queue 축만 빠진다.
 
 - 포기한 것:
-  - Windows 의 saturation 병목(디스크 IO·run queue)을 분류로 못 잡는다 — utilization 이 낮으면 IO-bound 여도 over_provisioned/optimal 로 보일 수 있음. 보고서는 "부분 평가" 마커 + saturation 셀 N/A 로 한계를 명시하지만, 분류 라벨 자체는 saturation 을 반영 못 한다.
+  - Windows 의 CPU run queue 포화를 분류로 못 잡는다 — CPU utilization 은 낮은데 run queue 만 쌓이는 케이스를 놓칠 수 있음. 보고서는 "포화 수치 미관측" confidence 단서로 한계를 명시한다(디스크 IO 포화는 disk queue 로 잡으므로 이 한계에서 제외).
   - Windows pagefile 사용량은 수집·표시하되 saturation 판정엔 미반영 — pagefile 압박이 실제 메모리 부족이어도 swap 축으론 신호 안 잡힘 (mem_p95 utilization 으로만 포착).
 
 왜 받아들였나
@@ -406,7 +406,7 @@ right-sizing 분류는 USE Method 의 Utilization + Saturation 두 축을 본다
 - "부분 평가" 마커가 운영자에게 confidence 한계를 명시 — 침묵하는 오분류보다 가시화된 한계가 낫다(P4).
 
 언제 다시 봐야 하는가
-- Windows 에서 디스크 IO 병목이 운영 이슈로 부상 시 → Windows 전용 saturation 신호(PerfMon `PhysicalDisk\Avg. Disk Queue Length` 등) 를 agent 가 canonical 매핑 + classify 에 Windows saturation 축 추가.
+- CPU run queue 병목이 Windows 운영 이슈로 부상 시 → agent 가 PerfMon `System\Processor Queue Length`(loadavg 등가)를 발행하고 `disk_io_saturated` 처럼 os-aware helper 로 통일 -> unmeasured(cpu_saturation) 자동 해제. (디스크 IO 축은 `PhysicalDisk\Avg. Disk Queue Length` 로 이미 반영 완료.)
 - Windows 메모리 압박을 pagefile 로 판정할 필요 시 → pagefile 사용률 임계(절대 baseline 초과분) 를 Windows 전용 신호로 도입 (현재는 mem_p95 utilization 으로만).
 
 ## T15. 서비스 분류 — services <-> listen_ports join key 부재 (호스트 union 으로 보완, ADR 0032)

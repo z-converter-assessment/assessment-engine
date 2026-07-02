@@ -15,7 +15,7 @@
 
 ### 구현 디테일
 
-- `upsert_server`: `pg_insert ... on_conflict_do_update`. values·set_ dict는 한 번 만들어 재사용 (컬럼 추가 시 한 곳만 수정). `agent_id` UNIQUE 키는 set_ 제외 (composite_id·machine_id 는 set_ 포함 — 최신 감사값 표시). `service_categories`(ingest 사전계산, ADR 0042)도 set_ 포함. agent_id 가 부팅 무관 불변이라 재부팅 재연결 로직 없이 동일 agent_id 가 같은 행을 잡는다 (ADR 0049, _relink 제거).
+- `upsert_server`: `pg_insert ... on_conflict_do_update`. values·set_ dict는 한 번 만들어 재사용 (컬럼 추가 시 한 곳만 수정). `agent_id` UNIQUE 키는 set_ 제외 (composite_id·machine_id 는 set_ 포함 — 최신 감사값 표시). `service_categories`(ingest 사전계산, ADR 0042)도 set_ 포함. agent_id 가 부팅 무관 불변이라 별도 호스트 재연결 로직 없이 동일 agent_id 가 같은 행을 잡는다 (ADR 0049).
 - `ensure_server_id`: `_insert_placeholder_server`는 `ON CONFLICT DO NOTHING` (placeholder가 진짜 inventory 덮어쓰는 race 방지)
 - `record_metrics`: 4 테이블 모두 `pg_insert.on_conflict_do_nothing(index_elements=...)` — 멱등성 2단 방어 (D2)
 - `create_task`: `IntegrityError` 가능 (부분 UNIQUE `uq_tasks_pending_per_server_type`) — service가 catch
@@ -34,7 +34,7 @@
 | `get_collection_status(server_id)` | last_metric_at + last_inventory_at |
 | `latest_dashboard(server_id)` | 4 raw DTO (CPU/Mem/Disk/Net delta 계산용) |
 | `metric_snapshots(server_id, cursor, limit)` | 시계열 cursor pagination |
-| `metric_chart(server_id, type, dim, range, bucket, agg, end)` | 차트 dispatcher (17 metric_type) |
+| `metric_chart(server_id, type, dim, range, bucket, agg, end)` | 차트 dispatcher (metric_type 카탈로그는 `types.py`) |
 | `reboot_events(server_id, start, end)` | server_inventory_history boot_time/agent_started_at 변경 시점 |
 | `report_aggregate(server_ids, period_days, end)` | USE Method 통계 (CPU p95/peak + MEM p95/peak + load_15m max + swap_used) — `server_metrics_5m` cagg counter_agg(ADR 0043) |
 | `report_mount_worst(server_ids, period_days, end)` | mount별 worst usage + fill_rate (days_until_full 산출) |
@@ -45,7 +45,7 @@
 | `report_cpu_breakdown(server_id, period_days, end)` | 개별 보고서 CPU 분류 (user/system/iowait, `server_metrics_5m` cagg counter_agg delta, ADR 0043) |
 | `metric_gap_warnings(gap_min, recent_h)` | 메트릭 갭(통신 끊김 운영신호) 후보 |
 | `environment_utilization(period_days, end, server_ids?)` | 환경 평균 활용률 도넛 (capacity-weighted, Σused/Σtotal). server_ids 한정 시 선택 N대·단일(selection 보고서), None 이면 전체 환경 |
-| `metric_trend(metric_type, start, end, bi, bucket_td, server_ids?, agg, dimension, collapse)` | 통일 차트 시계열 — 환경·선택·서버상세 단일 진실. metric_type 풀세트 18종 — 집계 3그룹(아래). server_ids=None 전체·[1대]=서버상세 동치·[N]=선택. collapse=False 면 device/iface/mount dimension 보존(상세 멀티라인), True 면 합산 단일선(환경). agg=avg/max/p95 |
+| `metric_trend(metric_type, start, end, bi, bucket_td, server_ids?, agg, dimension, collapse)` | 통일 차트 시계열 — 환경·선택·서버상세 단일 진실. metric_type 풀세트 — 집계 3그룹(아래). server_ids=None 전체·[1대]=서버상세 동치·[N]=선택. collapse=False 면 device/iface/mount dimension 보존(상세 멀티라인), True 면 합산 단일선(환경). agg=avg/max/p95 |
 
 ### 차트 집계 (`metric_trend`) — 시점별 1값 -> 버킷 agg, 3그룹
 
@@ -82,11 +82,11 @@ interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedel
 - `DIAGNOSTIC_RANGE_DAYS` — TimeRange -> float day 매핑 (fraction 지원)
 - `DIAGNOSTIC_RANGE_LABEL_KR` — UI 한국어 라벨
 - `CLASSIFICATION_LABEL_KR` — USE Method 분류 라벨
-- `DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"` — F10 단일 진실 (service default · UI 기본값)
+- `DIAGNOSTIC_DEFAULT_TIME_RANGE` — service default · UI 기본값 (값은 F10 · `recommendation.WINDOW_DAYS` 단일 진실)
 
 ### 타입 별칭 (`db/repositories/query/types.py`)
-- `MetricType` Literal — 17개 chart metric
-- `TimeRange` Literal — 15m/1h/6h/24h/7d/14d/30d. 14d는 right-sizing 윈도우(`recommendation.WINDOW_DAYS`)와 동일 — F10 단일 진실
+- `MetricType` Literal — chart metric (카탈로그는 `types.py` 단일 진실)
+- `TimeRange` Literal — 15m/1h/6h/24h/7d/14d/30d. 기본 7d 는 right-sizing 윈도우(`recommendation.WINDOW_DAYS`)와 동일 — F10 단일 진실
 - `BucketSize` Literal — 1m/5m/15m/30m/1h/3h/6h/12h/1d. 6h는 14d 토글 자동 매핑용
 - `AggFunc` Literal — avg/max/p95
 - `TIME_RANGE_TD` — TimeRange -> timedelta 매핑 (repo·service 공유)

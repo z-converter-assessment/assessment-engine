@@ -61,7 +61,7 @@ class CollectRepository(BaseCollectRepository):
 
     async def upsert_server(self, data: ServerInventoryCreate) -> int:
         # 변경 감지: 직전 행과 다를 때만 history 한 행 INSERT (앱 레벨 trigger).
-        # agent_id 가 부팅 무관 불변이라 재부팅 재연결(_relink) 불요 — 동일 agent_id 가 자연히 같은 행을 잡는다.
+        # agent_id 가 부팅 무관 불변이라 재부팅해도 동일 agent_id 가 자연히 같은 행을 잡는다 (호스트 재연결 로직 불요).
         prev_q = await self.session.execute(
             select(*self._INVENTORY_COMPARE_COLS).where(ServerInventory.agent_id == data.agent_id)
         )
