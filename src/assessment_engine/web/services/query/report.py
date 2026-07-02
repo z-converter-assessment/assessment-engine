@@ -452,7 +452,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
     async def get_inventory_export(
         self,
         server_ids: list[int],
-        period_days: int = 7,
+        period_days: float = recommendation.WINDOW_DAYS,
     ) -> list[InventoryExportEntry]:
         """선택 서버 N대의 정제 inventory JSON 항목 list.
 

@@ -80,8 +80,9 @@ interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedel
 상수 카탈로그 (`base_diagnostic_repository.py`):
 - `DiagnosticTimeRange` Literal — 차트 TimeRange와 동일 7개
 - `DIAGNOSTIC_RANGE_DAYS` — TimeRange -> float day 매핑 (fraction 지원)
-- `DIAGNOSTIC_RANGE_LABEL_KR` — UI 한국어 라벨
 - `CLASSIFICATION_LABEL_KR` — USE Method 분류 라벨
+
+(`DIAGNOSTIC_RANGE_LABEL_KR` time_range 한국어 표시 라벨은 표시 소속이라 `mappers/shared.py`.)
 - `DIAGNOSTIC_DEFAULT_TIME_RANGE` — service default · UI 기본값 (값은 F10 · `recommendation.WINDOW_DAYS` 단일 진실)
 
 ### 타입 별칭 (`db/repositories/query/types.py`)
