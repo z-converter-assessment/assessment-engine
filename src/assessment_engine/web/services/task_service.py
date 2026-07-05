@@ -28,17 +28,16 @@ from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from assessment_engine.cache.redis import safe_get, safe_set
+from assessment_engine.cache.redis import safe_get, safe_mget, safe_set
 from assessment_engine.db.dtos.inbound import TaskCreate
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
 from assessment_engine.web.settings import diagnostic_settings, web_settings
 
 _TASK_TYPE_INSTALL = "zconverter_install"
-# engine 측 응답 마감 = install_timeout_sec(agent wall-clock) + 네트워크 margin.
-# 경과 시 표시 timeout + 재발행 시 expire.
-_DEADLINE_MARGIN_SEC = 60
-_TASK_QUEUE_TTL_MS = 60 * 60 * 1000  # 1h — 원격 호스트가 그 사이 consume 못 하면 만료
+# engine task deadline_at 과 broker 큐 x-message-ttl 을 단일 창(install_task_deadline_sec)으로 정합 —
+# 엔진이 timeout 선언하는 시점 == broker 가 미배달 메시지 버리는 시점 (F6 관측성, zombie 지연 실행 차단).
+# 오프라인 호스트 store-and-forward 유예 = 이 창. reaper(task_reaper)가 창 경과 pending 을 능동 terminal 전이.
 _TASK_QUEUE_MAX_LEN = 100
 
 
@@ -165,6 +164,8 @@ class HttpZdmPackageResolver:
 class TaskCreated:
     target_public_id: str
     task_id: str
+    # 발행 시점 online 여부 — False 면 오프라인에 큐 적재(store-and-forward). 운영자 advisory 용(차단 아님).
+    target_online: bool
 
 
 class TaskService:
@@ -175,12 +176,14 @@ class TaskService:
         collect_repo_factory: Callable[[AsyncSession], BaseCollectRepository],
         broker_channel: AbstractChannel,
         zdm_resolver: BaseZdmPackageResolver,
+        redis: Redis,
     ):
         self.query_repo = query_repo
         self.session_factory = session_factory
         self.collect_repo_factory = collect_repo_factory
         self.broker_channel = broker_channel
         self.zdm_resolver = zdm_resolver
+        self.redis = redis
 
     async def create_install_tasks(
         self,
@@ -220,8 +223,12 @@ class TaskService:
             raise TaskDuplicatePending(
                 f"이미 설치 작업이 진행 중인 서버가 있어 전체 발행을 취소했습니다: {', '.join(busy_names)}"
             )
-        # 응답 마감 — 발행 시점 확정 (agent wall-clock + 네트워크 margin). 경과 시 표시 timeout + 다음 발행 시 expire.
-        deadline_at = datetime.now(UTC) + timedelta(seconds=web_settings.install_timeout_sec + _DEADLINE_MARGIN_SEC)
+        # deadline_at = 배달/마감 단일 창(install_task_deadline_sec) — broker 큐 x-message-ttl 과 동일 값이라
+        # 엔진 timeout 선언 시점 == broker 미배달 메시지 만료 시점. 경과분은 emit 경로 expire + reaper 가 terminal 전이.
+        deadline_at = datetime.now(UTC) + timedelta(seconds=web_settings.install_task_deadline_sec)
+
+        # 발행 시점 online 여부 — advisory(차단 아님). 오프라인은 그대로 큐 적재(store-and-forward), 운영자에게만 알림.
+        online_by_id = await self._online_targets(server_ids)
 
         zdm_host = _extract_zdm_host(zdm_ip)
         # 엔진이 sha256/size 산출하려고 fetch 하는 호스트 = download.url·install args 와 동일 (real ZDM 직접 도달).
@@ -308,9 +315,28 @@ class TaskService:
                 detail.agent_id,
                 public_id,
             )
-            created.append(TaskCreated(target_public_id=public_id, task_id=task_id))
+            created.append(
+                TaskCreated(
+                    target_public_id=public_id,
+                    task_id=task_id,
+                    target_online=online_by_id.get(server_id, True),
+                )
+            )
 
         return created
+
+    async def _online_targets(self, server_ids: list[int]) -> dict[int, bool]:
+        """server_id -> 발행 시점 online 여부. Redis online 플래그(safe_mget) 기준.
+
+        advisory 전용(발행 차단 아님) — Redis 장애(None)면 fail-open 으로 online 취급(허위 오프라인 경보 회피, #C3).
+        """
+        if not server_ids:
+            return {}
+        keys = [web_settings.redis_key_online.format(sid) for sid in server_ids]
+        flags = await safe_mget(self.redis, keys)
+        if flags is None:
+            return {sid: True for sid in server_ids}
+        return {sid: flags[i] is not None for i, sid in enumerate(server_ids)}
 
     async def _ensure_machine_queue(self, agent_id: str) -> None:
         """원격 호스트 전용 큐 declare. idempotent — 동일 인자 재선언 안전.
@@ -323,7 +349,8 @@ class TaskService:
             queue_name,
             durable=True,
             arguments={
-                "x-message-ttl": _TASK_QUEUE_TTL_MS,
+                # deadline_at 과 동일 창 = 큐 x-message-ttl. 엔진 timeout 과 미배달 만료 시점 정합.
+                "x-message-ttl": web_settings.install_task_deadline_sec * 1000,
                 "x-max-length": _TASK_QUEUE_MAX_LEN,
                 "x-overflow": "reject-publish",
             },

@@ -45,6 +45,11 @@ class DiskIoEntry:
     sectors_read: int | None
     sectors_written: int | None
     kind: str | None = None
+    # ADR 0052 await 원자료(ms 누적) + 참고
+    time_reading_ms: int | None = None
+    time_writing_ms: int | None = None
+    io_ticks_ms: int | None = None
+    weighted_io_ms: int | None = None
 
 
 @dataclass
@@ -57,6 +62,9 @@ class NetIoEntry:
     rx_errors: int | None
     tx_errors: int | None
     kind: str | None = None
+    # ADR 0052 드롭 (품질)
+    rx_drops: int | None = None
+    tx_drops: int | None = None
 
 
 @dataclass
@@ -65,9 +73,10 @@ class MountUsageEntry:
     total_bytes: int | None
     free_bytes: int | None
     avail_bytes: int | None
-    major: int | None = None
-    minor: int | None = None
     kind: str | None = None
+    # ADR 0052 inode
+    inodes_total: int | None = None
+    inodes_free: int | None = None
 
 
 # ─── Task DTO ──────────────────────────────────────────────────────────────
@@ -95,6 +104,7 @@ class TaskResultUpdate:
     status: str  # "success" | "failure"
     failure_reason: str | None
     exit_code: int | None
+    signal_no: int | None  # 시그널 사망 시 시그널 번호 (exit_code 와 상호배타)
     duration_ms: int
     stdout_tail: str
     stderr_tail: str
@@ -142,6 +152,19 @@ class ServerMetricCreate:
     disk_io: list[DiskIoEntry]
     mounts: list[MountUsageEntry]
     net_io: list[NetIoEntry]
+
+    # ADR 0052 신 host-wide 신호 (nullable, optional — agent 미발행 시 None)
+    procs_running: int | None = None
+    procs_blocked: int | None = None
+    schedstat_run_wait_ns: int | None = None
+    pswpin: int | None = None
+    pswpout: int | None = None
+    oom_kill: int | None = None
+    mem_pages_input: int | None = None
+    tcp_retrans_segs: int | None = None
+    tcp_tw: int | None = None
+    conntrack_count: int | None = None
+    conntrack_max: int | None = None
 
 
 # --- 보고서 발행 job INSERT 입력 ---

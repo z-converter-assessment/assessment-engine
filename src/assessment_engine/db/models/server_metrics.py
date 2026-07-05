@@ -40,6 +40,19 @@ class ServerMetrics(Base):
     sat_cpu_run_queue: Mapped[float | None] = mapped_column(Float)
     sat_mem_paging_rate: Mapped[float | None] = mapped_column(Float)
 
+    # ADR 0052 신 신호 (전부 nullable — agent optional 발행, 없으면 null). raw 카운터, 엔진이 델타/비율/임계 산출.
+    procs_running: Mapped[int | None] = mapped_column(Integer)  # 실행 큐 (/proc/stat)
+    procs_blocked: Mapped[int | None] = mapped_column(Integer)  # D-state IO 블록 — 근본원인 판별
+    schedstat_run_wait_ns: Mapped[int | None] = mapped_column(BigInteger)  # runqueue 대기 누적(적분)
+    pswpin: Mapped[int | None] = mapped_column(BigInteger)  # 스왑 in 누적 (/proc/vmstat)
+    pswpout: Mapped[int | None] = mapped_column(BigInteger)  # 스왑 out 누적 — Linux 메모리 포화·근본원인
+    oom_kill: Mapped[int | None] = mapped_column(BigInteger)  # OOM 누적 (4.13+)
+    mem_pages_input: Mapped[int | None] = mapped_column(BigInteger)  # Windows Pages Input raw (하드 read 폴트)
+    tcp_retrans_segs: Mapped[int | None] = mapped_column(BigInteger)  # TCP 재전송 누적 — 품질
+    tcp_tw: Mapped[int | None] = mapped_column(Integer)  # TIME_WAIT 소켓 수 (gauge)
+    conntrack_count: Mapped[int | None] = mapped_column(Integer)  # conntrack 현재
+    conntrack_max: Mapped[int | None] = mapped_column(Integer)  # conntrack 상한
+
     # counter reset 정밀 식별 (#C1·#B) — boot_time 차이=재부팅,
     # agent_started_at만 차이=에이전트 재시작(/proc 카운터는 그대로).
     boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

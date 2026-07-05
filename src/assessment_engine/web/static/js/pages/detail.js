@@ -299,9 +299,15 @@
         return;
       }
       const data = await res.json();
-      const tid = Array.isArray(data) && data[0] ? data[0].task_id : '';
+      const t0 = Array.isArray(data) && data[0] ? data[0] : null;
+      const tid = t0 ? t0.task_id : '';
       if (window.ToastUtils) {
-        ToastUtils.show(`Install 발행 완료 — task ${tid.slice(0, 8)}`, 'ok');
+        // 오프라인이면 advisory(warn) — 발행은 됐고 큐에 적재됨(재접속 시 배달, 창 넘기면 만료).
+        if (t0 && t0.target_online === false) {
+          ToastUtils.show(`Install 큐 적재 — ${hostname} 오프라인. 재접속 시 배달(미접속 시 만료) · task ${tid.slice(0, 8)}`, 'warn');
+        } else {
+          ToastUtils.show(`Install 발행 완료 — task ${tid.slice(0, 8)}`, 'ok');
+        }
       }
       closeModal();
       // 페이지 새로고침으로 최근 작업 row 갱신.

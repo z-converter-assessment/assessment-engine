@@ -43,7 +43,7 @@ def effective_task_result(
         * Windows: os_version(CurrentBuildNumber, 예 "20348") 우선 -> 없으면 family-level "windows".
                    installer exit 2 = 성공이 전 윈도우 세대 공통이라 family 키 하나로 일괄(빌드별 유지 회피).
         * Linux:   "os_id:major" (예 "rocky:9") — major = os_version 의 첫 토큰. EL9 특정이라 family 키 없음.
-                   os_id/os_version 은 task.result 미발행이라 호출처(handler)가 inventory 에서 조회해 전달.
+                   os_id/os_version 은 agent 가 task.result 에 inventory 와 동일 소스로 발행 (handler 가 그대로 전달).
 
     그 외 모든 경우는 입력을 그대로 통과 (보정 없음).
     """

@@ -19,6 +19,11 @@ class ServerDiskIo(Base):
     writes_completed: Mapped[int | None] = mapped_column(BigInteger)
     sectors_read: Mapped[int | None] = mapped_column(BigInteger)
     sectors_written: Mapped[int | None] = mapped_column(BigInteger)
+    # ADR 0052 — await 원자료 (엔진이 delta(time)/delta(count) 로 응답 지연 산출, virtio 포화 주신호). ms 누적.
+    time_reading_ms: Mapped[int | None] = mapped_column(BigInteger)
+    time_writing_ms: Mapped[int | None] = mapped_column(BigInteger)
+    io_ticks_ms: Mapped[int | None] = mapped_column(BigInteger)  # %util 참고
+    weighted_io_ms: Mapped[int | None] = mapped_column(BigInteger)  # avgqu 참고
     # kind — 물리/가상 분류 (physical/partition/lvm/raid/virtual). 물리 집계 필터 신호 (agent 공용 분류기).
     kind: Mapped[str | None] = mapped_column(String(32))
 

@@ -14,17 +14,25 @@ class MessageBase(BaseModel):
     # DB UNIQUE·MQ 라우팅(agent.tasks.{agent_id}) 키. task.result 한정 null override (worker 컨텍스트, task_id 매칭).
     agent_id: UUID
     # composite_id — SHA-256(machine_id + MAC). 감사·표시용 강등 (clone collision 진단). 식별·라우팅 미사용.
-    composite_id: str | None = Field(default=None, min_length=1, max_length=64)
+    # agent 는 digest 실패 시 "" 발행 가능 (wire 는 "" 허용) — 아래 validator 가 None 으로 정규화.
+    composite_id: str | None = Field(default=None, max_length=64)
     # machine_id — raw machine-id, 표시 전용.
     machine_id: str | None = Field(default=None, max_length=64)
     agent_version: str = Field(min_length=1, max_length=32)
     collected_at: datetime
     hostname: str = Field(min_length=1, max_length=255)
     message_id: UUID
+    # agent_started_at — 발행 프로세스 기동 시각. agent 가 항상 측정·발행 (task.result 만 null override).
     agent_started_at: datetime
-    boot_time: datetime
+    # boot_time — 부팅 시각. 판독 불가 시 null (wire nullable, null 이면 counter reset 은 delta 휴리스틱).
+    boot_time: datetime | None = None
     # OS family — 모든 메시지 진입 시점 OS 분기 단일 진실. agent 가 전 메시지에 항상 발행 (required).
     os_family: Literal["linux", "windows"]
+
+    @field_validator("composite_id", mode="before")
+    @classmethod
+    def _empty_composite_to_none(cls, v: object) -> object:
+        return None if v == "" else v
 
 
 # ---------------------------------------------------------------------------
@@ -44,11 +52,11 @@ class DiskInfo(BaseModel):
 
 
 class InventoryMountInfo(BaseModel):
+    # inventory mount = 구조(structure)만 — 동적 free/avail 은 metrics(MetricsMountInfo) 전담.
     mount: str = Field(min_length=1, max_length=255)
     total_bytes: int | None = Field(default=None, ge=0)
-    free_bytes: int | None = Field(default=None, ge=0)
-    avail_bytes: int | None = Field(default=None, ge=0)
     fstype: str | None = Field(default=None, max_length=32)
+    # major/minor — inventory 만 발행. mount-disk 조인 키(device_filters.find_parent_disk).
     major: int | None = Field(default=None, ge=0)
     minor: int | None = Field(default=None, ge=0)
     # kind — data/boot/image (가상 fs 는 agent pre-drop). 데이터 볼륨 판정 = kind=="data" (#E2).
@@ -83,7 +91,10 @@ class InterfaceInfo(BaseModel):
 
     name: str = Field(min_length=1, max_length=256)
     address: str = Field(min_length=1, max_length=64)
-    prefix: int = Field(ge=0, le=128)
+    # null = 측정 불가 (계약: 값=실측, null=측정불가). agent 가 prefix 를 못 뽑는 경로
+    # (예: NT5.2 IPv6 — GetIpAddrTable 부재)에서 null 로 발행하므로 non-null 강제하면 안 된다.
+    # 0 은 유효한 /0 실측이라 null 과 구분한다.
+    prefix: int | None = Field(default=None, ge=0, le=128)
     family: Literal["ipv4", "ipv6"]
     kind: str = Field(min_length=1, max_length=32)
     # default route 게이트웨이 IP (없으면 null — legacy Windows NT5.2 등). 토폴로지 subnet disambiguation 신호.
@@ -167,6 +178,11 @@ class DiskIoInfo(BaseModel):
     writes_completed: int | None = Field(default=None, ge=0)
     sectors_read: int | None = Field(default=None, ge=0)
     sectors_written: int | None = Field(default=None, ge=0)
+    # ADR 0052 — await 원자료(ms 누적) + %util·avgqu 참고. 엔진이 delta 로 산출.
+    time_reading_ms: int | None = Field(default=None, ge=0)
+    time_writing_ms: int | None = Field(default=None, ge=0)
+    io_ticks_ms: int | None = Field(default=None, ge=0)
+    weighted_io_ms: int | None = Field(default=None, ge=0)
     major: int | None = Field(default=None, ge=0)
     minor: int | None = Field(default=None, ge=0)
     # kind — physical/partition/lvm/raid/virtual. cagg 물리 필터 = kind=="physical" (#C5).
@@ -174,12 +190,14 @@ class DiskIoInfo(BaseModel):
 
 
 class MetricsMountInfo(BaseModel):
+    # metrics mount = 동적 사용량(usage)만 — 정적 major/minor 는 inventory(InventoryMountInfo) 전담.
     mount: str = Field(min_length=1, max_length=255)
     total_bytes: int | None = Field(default=None, ge=0)
     free_bytes: int | None = Field(default=None, ge=0)
     avail_bytes: int | None = Field(default=None, ge=0)
-    major: int | None = Field(default=None, ge=0)
-    minor: int | None = Field(default=None, ge=0)
+    # ADR 0052 — inode (작은 파일 폭증 시 바이트 남아도 먼저 소진). statvfs f_files/f_ffree.
+    inodes_total: int | None = Field(default=None, ge=0)
+    inodes_free: int | None = Field(default=None, ge=0)
     # kind — data/boot/image. cagg 데이터 볼륨 필터 = kind=="data" (#C5).
     kind: str | None = Field(default=None, max_length=32)
 
@@ -193,6 +211,9 @@ class NetIoInfo(BaseModel):
     tx_packets: int | None = Field(default=None, ge=0)
     rx_errors: int | None = Field(default=None, ge=0)
     tx_errors: int | None = Field(default=None, ge=0)
+    # ADR 0052 — 드롭 (품질 신호). 누적.
+    rx_drops: int | None = Field(default=None, ge=0)
+    tx_drops: int | None = Field(default=None, ge=0)
     # kind — physical/loopback/bridge/veth/bond_*/vlan/tunnel/virtual (Windows coarse). 물리 = kind=="physical" (#C5).
     kind: str | None = Field(default=None, max_length=32)
 
@@ -232,6 +253,19 @@ class MetricsInput(MessageBase):
     load_5m: float | None = Field(default=None, ge=0.0)
     load_15m: float | None = Field(default=None, ge=0.0)
 
+    # ADR 0052 신 host-wide 신호 (raw, optional). psi_*·cpu_per_core 는 #B 대로 미수용(extra=ignore drop, 필요 시 추가).
+    procs_running: int | None = Field(default=None, ge=0)
+    procs_blocked: int | None = Field(default=None, ge=0)
+    schedstat_run_wait_ns: int | None = Field(default=None, ge=0)
+    pswpin: int | None = Field(default=None, ge=0)
+    pswpout: int | None = Field(default=None, ge=0)
+    oom_kill: int | None = Field(default=None, ge=0)
+    mem_pages_input: int | None = Field(default=None, ge=0)  # Windows Pages Input raw
+    tcp_retrans_segs: int | None = Field(default=None, ge=0)
+    tcp_tw: int | None = Field(default=None, ge=0)
+    conntrack_count: int | None = Field(default=None, ge=0)
+    conntrack_max: int | None = Field(default=None, ge=0)
+
     disk_io: list[DiskIoInfo] = Field(default_factory=list)
     mounts: list[MetricsMountInfo] = Field(default_factory=list)
     net_io: list[NetIoInfo] = Field(default_factory=list)
@@ -252,7 +286,9 @@ class ErrorInput(MessageBase):
     # error_message — 빈 문자열 허용 (#B extra=ignore 정신 — 발행 측 NULL 인자 fallback 으로
     # 빈 문자열 가능, engine 은 통과시키고 로깅 단에서 fallback 표기). agent 측 수정 없이 흡수.
     error_message: str
-    failed_component: Literal["collect", "publish"]
+    # 실 값 collect/publish, NULL 인자 fallback 은 두 트리 모두 "agent". wire 는 non-empty 자유 문자열이라
+    # Literal 로 좁히면 "agent" 도달 시 유효 메시지를 reject/DLQ — 계약대로 자유 문자열 수용 (로깅 전용, 미저장).
+    failed_component: str = Field(min_length=1, max_length=32)
     # 에이전트가 retry 종료·복구 시점에만 채워서 발행 (평소엔 None)
     retry_count: int | None = Field(default=None, ge=0)
     first_failed_at: datetime | None = None
@@ -267,23 +303,24 @@ class ErrorInput(MessageBase):
 class TaskResultInput(MessageBase):
     """원격 작업 실행 결과 수신 메시지.
 
-    공통 메타는 MessageBase. agent_id / composite_id / boot_time / agent_started_at은
-    본 메시지에서는 null 가능 (수집 캐시와 분리된 worker 컨텍스트에서 발행 — 식별자 미산출) —
-    부모 required 필드를 nullable로 override. 결과 매칭은 task_id 로 하므로 식별자 불필요.
+    worker 가 자체 envelope 로 발행 — composite_id 미발행(MessageBase default None), boot_time/agent_started_at
+    항상 null. agent_id 는 발행하나 매칭은 task_id 라 nullable override (agent_id 부재로 유효 결과를 버리지 않음).
     """
 
     message_type: Literal["task.result"]
-    # worker 컨텍스트라 식별자(agent_id/composite_id)·부팅 메타 null 가능 — 결과 매칭은 task_id.
+    # 매칭은 task_id — agent_id 부재로 결과를 reject 하지 않도록 nullable override.
     agent_id: UUID | None = None
-    composite_id: str | None = Field(default=None, min_length=1, max_length=64)
-    boot_time: datetime | None = None
+    # task.result 는 agent_started_at 를 항상 null 발행 (MessageBase 는 required) — nullable override.
     agent_started_at: datetime | None = None
 
     task_id: UUID
     status: Literal["success", "failure"]
     # 실패 분류 문자열 (성공 시 null). 새 enum 은 silent pass — extra=ignore 정신, max_length만 강제.
     failure_reason: str | None = Field(default=None, max_length=32)
+    # exit_code/signal_no 는 POSIX wait status 반영 상호배타: 정상종료=exit_code 값/signal_no null,
+    # 시그널종료=exit_code null/signal_no 값, 미포착=둘 다 null. signal_no 는 Windows 항상 null.
     exit_code: int | None = None
+    signal_no: int | None = None
     # OS 식별자 — 성공 exit code 보정 정책(task_policy.effective_task_result)의 키. agent 가 task.result 에
     # os_family(MessageBase)·os_id·os_version 을 inventory 와 동일 소스로 발행 (Windows os_version=DisplayVersion).
     os_id: str | None = Field(default=None, max_length=64)

@@ -66,7 +66,7 @@ storage 페이지 mount → disk 매칭 + `_split_disks` (Inventory JSON Export�
 - `is_data_volume(kind)` = `kind=="data"` — 데이터 볼륨 마운트(boot/image/가상 fs 제외; 가상 fs 는 agent pre-drop).
 - `is_virtual_interface(kind)` = `kind!="physical"` — 물리 NIC 만 통과(loopback/bridge/veth/bond/vlan/tunnel 제외, master/member 이중 집계 회피).
 - `major`/`minor` 는 분류 신호 아님 — mount-disk 조인(`find_parent_disk`) 전용.
-- 집계 SQL 투영은 `types._DATA_VOLUME_SQL_FILTER` (`mount ~ '^[A-Za-z]:' OR ((major IS NULL OR major<>0) AND mount<>'/boot' AND mount NOT LIKE '/boot/%')`). `server_mount_usage.major` 활용. major NULL = 마이그레이션 전 행(path fallback). 변경 시 `is_data_volume` 과 동기화.
+- 집계 SQL 투영은 `types._DATA_VOLUME_SQL_FILTER` (`kind = 'data'`) — agent kind 태그 기반, `device_filters.is_data_volume` 의 SQL 투영. 변경 시 동기화.
 
 적용 경계 — 저장은 모두 유지, 표시 경계에서만 필터:
 - 디스크: `compute_disk_io`(스냅샷) + `to_storage_detail`(인벤토리 물리 디스크) + `query_service._filter_disk_category`(차트 `device_category=phys`).

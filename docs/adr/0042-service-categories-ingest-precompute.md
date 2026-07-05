@@ -26,7 +26,7 @@
 계산 1회(쓰기 경로) -> 모든 읽기 경로 소비. 목록 경량 유지 + 일관 보장. agent `AGENT_INVENTORY_REFRESH_SEC` 주기로 최신 추종.
 
 ### 핸드오프 문서와의 차이 (정석 우선)
-핸드오프(`docs/temp/service-badge-unify-and-query-optimization.md`)는 "service_classifier 변경 없음, ingest 가 web 모듈 호출"을 제시했으나, consumer -> web 역의존을 피하려 분류 코드를 도메인 모듈로 이전(정석)했다. 결과(ingest 사전계산·단일 진실)는 동일.
+초기 핸드오프 제안은 "service_classifier 변경 없음, ingest 가 web 모듈 호출"을 제시했으나, consumer -> web 역의존을 피하려 분류 코드를 도메인 모듈로 이전(정석)했다. 결과(ingest 사전계산·단일 진실)는 동일.
 
 ## Consequences
 

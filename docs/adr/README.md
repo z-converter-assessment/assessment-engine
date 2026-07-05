@@ -65,7 +65,9 @@
 | 0049 | 식별 단일 키를 agent_id 로 전환 (composite_id 감사용 강등) | Accepted | agent 가 첫 실행 시 생성·영구저장하는 불변 UUID `agent_id` 를 식별 단일 키로 승격. `server_inventory.agent_id` UNIQUE·MQ 큐/라우팅 `agent.tasks.{agent_id}`·수집 저장·server_id 조회·task 발행 모두 agent_id 기준. composite_id(SHA-256 machine_id+MAC)는 부팅마다 변동(OpenStack Windows VM NIC 재발급)이라 감사·표시용 nullable 강등(UNIQUE 해제). agent_id 불변이라 `_relink_rebooted_host`(0044) 제거 — 재부팅해도 동일 agent_id 가 같은 행 upsert. task.install 배달이 agent worker 구독 큐와 정합. breaking cutover(DB 초기화), 마이그레이션 e8b4d2f6a1c9. ADR 0027·0044 supersede |
 | 0050 | collected_at 수신 경계 보정 제거 (에이전트 UTC 정상 전제) | Accepted | ADR 0041 이 Windows 게스트 시계 불량을 흡수하려 도입한 `_correct_skewed_collected_at`(collected_at 을 received_at 으로 재작성)을 제거. collected_at 은 시계열 자연키라 수신시각 재작성이 D2 멱등성 2단(DB UNIQUE)을 비결정적으로 약화(T17). 에이전트 설치 서버가 UTC 정상 시각 발행을 전제하면 보정은 불필요·순손해라 제거 — collected_at 을 권위 소스로 신뢰. 설정 `clock_skew_threshold_sec`·`redis_key_clock_corrected`·`redis_ttl_clock_corrected` + 전용 테스트 삭제. `_log_time_invariants`(순수 이상 신호 로깅, 데이터 불변)는 관측 방어선으로 유지. T17 소멸. ADR 0041 supersede |
 
-트레이드오프 카탈로그(T1~T16)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
+| 0051 | install task lifecycle (오프라인 advisory·deadline<->큐TTL 정합·reaper) | Accepted | task.install 발행-저장-회신 3 결정: (1) 오프라인은 발행 게이트가 아닌 비차단 advisory — store-and-forward 유지, `TaskCreated.target_online` 응답 + UI warn 토스트(informed consent) (2) `install_task_deadline_sec`(3600) 하나로 engine `tasks.deadline_at` == broker 큐 `x-message-ttl` 단일 창 — 엔진 timeout == 미배달 만료(zombie 지연 실행 0), agent 실행 예산 `install_timeout_sec`(payload) 는 별개 (3) web lifespan `lifespan_task_reaper` 가 `expire_all_overdue_tasks` 로 deadline 경과 pending 을 emit 무관 failure(timeout) 전역 전이(유령 pending 0). T17. |
+
+트레이드오프 카탈로그(T1~T17)는 ADR 형식과 맞지 않아 `docs/tradeoffs.md`로 분리.
 
 ## 새 ADR 작성
 

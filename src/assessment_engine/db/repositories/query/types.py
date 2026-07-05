@@ -167,8 +167,10 @@ _ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str, str]] = {
     "swap.usage_percent": ("swap_total_kb - swap_free_kb", "swap_total_kb", "swap_total_kb IS NOT NULL AND swap_free_kb IS NOT NULL"),
 }
 
-# 물리 disk/iface 술어 — device kind 태그 기반. physical 만 집계(이중 집계 회피).
-# disk: partition/lvm/raid/virtual 제외. iface: loopback/bridge/veth/bond/vlan/tunnel/virtual 제외(master/member 이중 집계 회피).
-# 정적 상수 f-string 안전(#C5). cagg 정의도 동일 kind 필터.
+# 물리 disk/iface 술어 — device kind 태그 기반. 이중 집계 회피.
+# disk: physical 만 (partition/lvm/raid/virtual 제외).
+# iface: physical + bond_master. bond_master 는 본딩 집계 단위(/proc/net/dev bondN 이 슬레이브 합산 카운터를 나름)라
+#   집계 대상. bond_member(물리 leg)는 제외 — bond_master 가 이미 합산분이라 더하면 이중 집계, 빼면 본딩 호스트 net 누락.
+#   loopback/bridge/veth/vlan/tunnel/virtual 도 제외. 정적 상수 f-string 안전(#C5). cagg 정의도 동일 kind 필터.
 _PHYS_DISK_SQL_FILTER = "kind = 'physical'"
-_PHYS_IFACE_SQL_FILTER = "kind = 'physical'"
+_PHYS_IFACE_SQL_FILTER = "kind IN ('physical', 'bond_master')"

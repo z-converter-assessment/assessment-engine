@@ -62,6 +62,27 @@ def test_unknown_failure_reason_passes_through() -> None:
     assert summary.failure_label == "future_new_reason"
 
 
+def test_detail_signal_label_precomputed() -> None:
+    """시그널 사망 — signal_no 로 SIG 이름 라벨 precompute (P2). exit_code 와 상호배타."""
+    row = make_task_row(status="failure", failure_reason="script_failed", exit_code=None, signal_no=9)
+    detail = to_task_detail(row, _NOW)
+    assert detail.signal_no == 9
+    assert detail.signal_label == "SIGKILL (9)"
+
+
+def test_detail_signal_label_none_on_normal_exit() -> None:
+    """정상 종료 — signal_no None 이면 signal_label None (표시 계층에서 시그널 행 생략)."""
+    detail = to_task_detail(make_task_row(status="success", exit_code=0), _NOW)
+    assert detail.signal_no is None
+    assert detail.signal_label is None
+
+
+def test_detail_unknown_signal_number_shows_number_only() -> None:
+    """미지 시그널 번호는 이름 없이 숫자만."""
+    detail = to_task_detail(make_task_row(status="failure", exit_code=None, signal_no=99), _NOW)
+    assert detail.signal_label == "99"
+
+
 def test_detail_includes_tails() -> None:
     row = make_task_row(
         status="success",

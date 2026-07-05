@@ -1,8 +1,9 @@
 """Task 조회·UPDATE 통합 테스트 (ADR 0007).
 
 검증:
-- collect_repo.complete_task — 6 컬럼 UPDATE
-  (status·completed_at·failure_reason·exit_code·duration_ms·stdout_tail·stderr_tail)
+- collect_repo.complete_task — result 컬럼 UPDATE
+  (status·completed_at·failure_reason·exit_code·signal_no·duration_ms·stdout_tail·stderr_tail)
+- collect_repo.expire_all_overdue_tasks — deadline 경과 pending 전역 failure(timeout) 전이 (reaper)
 - query_repo.get_task_by_public_id — 단일 + JOIN server_inventory (target_public_id·target_hostname)
 - query_repo.list_recent_tasks — created_at 역순 + cursor pagination (E2)
 - query_repo.latest_tasks_by_servers — DISTINCT ON (target_server_id) 서버별 최신 1건
@@ -115,10 +116,61 @@ async def test_complete_task_failure_with_reason(collect_repo: CollectRepository
     assert row.stderr_tail == "hash mismatch"
 
 
+async def test_complete_task_stores_signal_no(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+) -> None:
+    """시그널 사망 결과 — exit_code null + signal_no 저장. query 경로도 signal_no 노출."""
+    sid = await _setup_server(collect_repo)
+    pid = await _insert_task(collect_repo, sid, _AGENT_A)
+
+    update = make_task_result_update(
+        public_id=pid, status="failure", failure_reason="script_failed", exit_code=None, signal_no=9
+    )
+    assert await collect_repo.complete_task(update) is True
+
+    row = await query_repo.get_task_by_public_id(pid)
+    assert row is not None
+    assert row.exit_code is None
+    assert row.signal_no == 9
+
+
 async def test_complete_task_unknown_public_id_returns_false(collect_repo: CollectRepository) -> None:
     update = make_task_result_update(public_id="00000000-0000-4000-8000-000000000000")
     updated = await collect_repo.complete_task(update)
     assert updated is False
+
+
+# ─── expire_all_overdue_tasks (reaper) ────────────────────────────────────
+
+
+async def test_expire_all_overdue_tasks_transitions_overdue_only(collect_repo: CollectRepository) -> None:
+    """deadline 경과 pending 만 failure(timeout) 전이. 미경과·미래 deadline 은 pending 유지."""
+    sid = await _setup_server(collect_repo)
+    past = datetime.now(UTC) - timedelta(hours=1)
+    future = datetime.now(UTC) + timedelta(hours=1)
+    overdue = await collect_repo.create_task(
+        TaskCreate(target_server_id=sid, target_agent_id=_AGENT_A, task_type="t-overdue", params=None, deadline_at=past)
+    )
+    fresh = await collect_repo.create_task(
+        TaskCreate(target_server_id=sid, target_agent_id=_AGENT_A, task_type="t-fresh", params=None, deadline_at=future)
+    )
+
+    n = await collect_repo.expire_all_overdue_tasks()
+    assert n == 1
+
+    async def _row(pid: str):
+        return (
+            await collect_repo.session.execute(
+                text("SELECT status, failure_reason FROM tasks WHERE public_id=:pid"),
+                {"pid": pid},
+            )
+        ).first()
+
+    overdue_row = await _row(overdue)
+    assert overdue_row.status == "failure"
+    assert overdue_row.failure_reason == "timeout"
+    assert (await _row(fresh)).status == "pending"
 
 
 # ─── get_task_by_public_id ────────────────────────────────────────────────

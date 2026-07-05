@@ -11,7 +11,7 @@ from assessment_engine.db.dtos.outbound import (
     ServerDetail,
 )
 from assessment_engine.service_classifier import classify, well_known_ports
-from assessment_engine.web.services.device_filters import find_parent_disk, is_data_volume
+from assessment_engine.web.services.device_filters import find_parent_disk, is_data_volume, is_physical_disk
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.server import infer_role
 
@@ -40,13 +40,15 @@ def _split_from_mounts(mounts: list[dict]) -> tuple[int | None, list[dict]]:
 def _split_disks(disks: list[dict], mounts: list[dict]) -> tuple[int | None, list[dict]]:
     """disks 중 가장 큰 1개를 boot, 나머지를 additional로 분리.
 
-    물리 disks 미발행(Windows 등)이면 data volume mounts 로 fallback(`_split_from_mounts`).
+    물리 disks(kind=physical)만 대상 — partition/lvm/raid/virtual 은 제외해 이중계산 방지(용량 정책 `disk_total_bytes`
+    와 동일 단일 leaf). 물리 disks 미발행(Windows 등)이면 data volume mounts 로 fallback(`_split_from_mounts`).
     additional의 mount_point는 find_parent_disk(mount.major/minor -> disk) 역방향 매칭.
     fstype은 동일 mount의 fstype 필드. iops_baseline은 mapper 호출자가 별도 주입.
     """
-    if not disks:
+    physical = [d for d in disks if is_physical_disk(d.get("kind"))]
+    if not physical:
         return _split_from_mounts(mounts)
-    sorted_disks = sorted(disks, key=lambda d: d.get("size_bytes") or 0, reverse=True)
+    sorted_disks = sorted(physical, key=lambda d: d.get("size_bytes") or 0, reverse=True)
     boot = sorted_disks[0]
     boot_gb = (boot["size_bytes"] // 10**9) if boot.get("size_bytes") else None
     additional: list[dict] = []

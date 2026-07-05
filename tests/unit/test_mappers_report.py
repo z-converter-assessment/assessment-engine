@@ -915,6 +915,43 @@ def test_inventory_export_network_addresses_v4_v6_split():
     assert {"scope": "external", "family": "v4", "address": "54.1.2.3"} in addrs
 
 
+def test_inventory_export_disks_physical_only():
+    # export boot/additional 디스크는 물리(kind=physical)만 — lvm/raid 는 제외해 이중계산 방지 (용량 정책 정합).
+    detail = ServerDetail(
+        id=1,
+        public_id="p1",
+        agent_id="00000000-0000-4000-8000-000000000001",
+        composite_id="m1",
+        machine_id=None,
+        hostname="h",
+        agent_version="1.0",
+        os_family=None,
+        os_id="ubuntu",
+        os_version="22.04",
+        os_codename="jammy",
+        kernel_version="5.15",
+        cpu_cores=2,
+        cpu_model="x86",
+        mem_total_kb=2 * 1024 * 1024,
+        swap_total_kb=0,
+        boot_time=None,
+        agent_started_at=None,
+        interfaces=[],
+        ip_external=None,
+        disks=[
+            {"name": "vda", "size_bytes": 100 * 10**9, "type": "disk", "kind": "physical", "major": 253, "minor": 0},
+            {"name": "dm-0", "size_bytes": 90 * 10**9, "type": "lvm", "kind": "lvm", "major": 253, "minor": 1},
+        ],
+        mounts=[],
+        services=[],
+        listen_ports=[],
+        last_seen_at=_NOW,
+    )
+    entry = to_inventory_export_entry(detail, stats=None)
+    assert entry.spec["boot_disk_gb"] == 100  # 물리 vda 가 boot
+    assert entry.spec["additional_disks"] == []  # lvm dm-0 는 제외 (물리 1개뿐)
+
+
 def test_inventory_export_services_listeners_match_listen_ports():
     """v4 — services.listeners가 listen_ports inventory 매칭으로 proto/address 채움.
 

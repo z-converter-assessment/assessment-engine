@@ -451,3 +451,22 @@ agent 불변 전제의 최선 — 호스트 워크로드 union:
 - 생성 부하가 web 요청 처리를 압박하면 → consumer 큐 워커(옵션 B)로 분리(보고서 생성 도메인 계층 추출 동반).
 - orphan child 중복이 운영 이슈로 부상하면 → child 멱등(get_latest_succeeded_by_hash 재사용) 또는 parent 재처리 전 이전 child cleanup.
 - A2(aggregate/net 중복 제거)·A3(breakdown 배치)·A5(fan-out prefetch 배치)는 적용 완료 — child fan-out 의 raws·breakdown·details 를 배치 1회 조회(`build_child_prefetched_reports` -> `get_single_server_report(prefetch=)`). A4(trend)만 보류: cpu/mem/disk 가 다른 테이블이라 단일 SQL 불가, 서버별 시계열이라 배치 불가, gather 는 QueryService composition root 대수술 + 커넥션 3배 + B 백그라운드라 응답 ROI 0. trend·online redis 는 서버별 잔존.
+
+## T17. install 배달 창 단일 정합 — deadline == 큐 TTL (ADR 0051)
+
+무엇을
+- install task 의 engine `tasks.deadline_at` 과 broker 큐 `x-message-ttl` 을 하나의 창(`install_task_deadline_sec`, 기본 3600)으로 통일. 오프라인 대상은 발행 차단이 아니라 비차단 advisory(store-and-forward + `target_online` 알림), 무회신 pending 은 reaper 가 전역 timeout 전이.
+
+왜 단일 창인가
+- 두 타임아웃이 어긋나면(옛: deadline 11분 vs 큐 TTL 1h) 엔진이 timeout 선언한 뒤에도 메시지가 큐에 생존해, 뒤늦게 재접속한 agent 가 이미 실패 처리된 task 를 실행하는 zombie 지연 실행이 생긴다. 동일 창이면 "엔진이 포기하는 시점 == broker 가 배달 포기하는 시점"이라 zombie 0.
+- 오프라인을 게이트로 막지 않는 이유: online 은 Redis TTL 스냅샷이라 stale·racy. durable 큐 + TTL 이 간헐 연결을 흡수하는 메커니즘인데 liveness 추정으로 배달을 막으면 그 이득을 버린다.
+
+포기한 것 / 한계
+- 배달 창(1h)이 곧 online-but-crashed task 의 timeout 감지 상한. agent 가 완전 소실돼 `task.result` 를 못 보내면 최대 1h pending 후 timeout(대부분 실패는 agent 가 failure 를 명시 발행하므로 즉시 반영 — 1h 대기는 agent 소실 케이스 한정).
+- 오프라인 유예도 1h bounded — 그 이상 오프라인이던 호스트가 돌아오면 메시지는 이미 만료라 재발행 필요.
+
+왜 받아들였나
+- zombie 지연 실행 제거 + 유령 pending 제거(reaper) + 오프라인 store-and-forward 유지를 한 상수로 달성. 온라인 실패 감지 지연은 실질적으로 agent 소실 케이스만이라 파급 작음.
+
+언제 다시 봐야 하는가
+- 오프라인 유예와 실행 timeout 을 독립 조절해야 하면 -> task 에 pickup(running) 신호를 추가해 "배달 TTL(길게) + 실행 deadline(픽업부터 짧게)" 2-타임아웃 모델로 분리. 현재는 pickup 신호가 없어 단일 창.

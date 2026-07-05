@@ -212,6 +212,7 @@ def make_task_result_payload(
     stdout_tail: str = "ok",
     stderr_tail: str = "",
     completed_at: datetime = _DEFAULT_TASK_COMPLETED_AT,
+    signal_no: int | None = None,
     boot_time: datetime | None = None,
     agent_started_at: datetime | None = None,
     os_family: str = "linux",
@@ -236,6 +237,7 @@ def make_task_result_payload(
         "status": status,
         "failure_reason": failure_reason,
         "exit_code": exit_code,
+        "signal_no": signal_no,
         "os_family": os_family,
         "os_version": os_version,
         "duration_ms": duration_ms,
@@ -255,12 +257,14 @@ def make_task_result_update(
     stdout_tail: str = "ok",
     stderr_tail: str = "",
     completed_at: datetime = _DEFAULT_TASK_COMPLETED_AT,
+    signal_no: int | None = None,
 ) -> TaskResultUpdate:
     return TaskResultUpdate(
         public_id=public_id,
         status=status,
         failure_reason=failure_reason,
         exit_code=exit_code,
+        signal_no=signal_no,
         duration_ms=duration_ms,
         stdout_tail=stdout_tail,
         stderr_tail=stderr_tail,
@@ -283,6 +287,7 @@ def make_task_row(
     duration_ms: int | None = 30,
     stdout_tail: str | None = "ok",
     stderr_tail: str | None = "",
+    signal_no: int | None = None,
 ) -> TaskRow:
     return TaskRow(
         public_id=public_id,
@@ -295,6 +300,7 @@ def make_task_row(
         completed_at=completed_at,
         failure_reason=failure_reason,
         exit_code=exit_code,
+        signal_no=signal_no,
         duration_ms=duration_ms,
         stdout_tail=stdout_tail,
         stderr_tail=stderr_tail,

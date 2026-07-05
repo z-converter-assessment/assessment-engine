@@ -59,7 +59,7 @@ ADR 0002 "즉시성 요구 발생 시 전환 경로" 의 옵션 C 로 전환. �
 
 ### 영향도 (CLAUDE.md F9)
 
-- 코드: `consumer/schemas.py::TaskResultInput` + `consumer/handler.py::make_task_result_handler` + `db/repositories/inbound.py::TaskResultUpdate` + `db/repositories/collect_repository.py::complete_task` + `db/models/task.py` + `web/services/task_service.py` + `web/routers/tasks.py` + `web/routers/payloads.py` + `web/main.py` lifespan + `web/deps.py::get_task_service` + `consumer/main.py` + `config.py` (WebSettings: `install_bundle_url` / `install_timeout_sec`, ConsumerSettings: `rabbitmq_task_exchange` / `rabbitmq_task_queue_prefix` / `rabbitmq_task_install_key_prefix` / `rabbitmq_queue_worker_result`).
+- 코드: `consumer/schemas.py::TaskResultInput` + `consumer/handlers/task_result.py::make_task_result_handler` + `db/dtos/inbound.py::TaskResultUpdate` + `db/repositories/collect_repository.py::complete_task` + `db/models/task.py` + `web/services/task_service.py` + `web/routers/tasks.py` + `web/main.py` lifespan + `web/deps.py::get_task_service` + `consumer/main.py` + `config.py` (WebSettings: `install_timeout_sec`, ConsumerSettings: `rabbitmq_task_exchange` / `rabbitmq_task_queue_prefix` / `rabbitmq_task_install_key_prefix` / `rabbitmq_queue_worker_result`).
 - 마이그레이션: `migrations/versions/e3a5b7c9d1f2_task_result_schema_alignment.py` — 6 컬럼 추가 + `result_message` DROP + `status` 값 정정.
 - 인프라: `dev/agent.env` + `dev/agent.env.example` + `scripts/pipeline-up.sh` REQUIRED_AGENT_KEYS 및 heredoc.
 - 문서: `docs/architecture/agent.md` (메시지 데이터 형식) + `docs/architecture/rabbitmq.md` (토폴로지 표 + 권한 모델) + `docs/adr/0002-*.md` (Superseded 표기) + 본 ADR.

@@ -139,7 +139,7 @@ upsert 성공 후 `SET online:{server_id} EX 90`. 첫 메트릭 수신 전(최�
 
 ### InventoryMountInfo 미사용 필드
 
-inventory mounts 는 정적 정보만 저장 — `to_inventory_create` 가 `free_bytes`/`avail_bytes` 를 drop 하고, 동적 사용량은 metrics `mounts[]` -> `server_mount_usage` 시계열로 분리한다. major/minor 활용(mount-disk 조인)·미저장 필드 카탈로그는 `agent.md` "활용 중인 필드"/"엔진이 받지만 사용하지 않는 필드" 표 단일 진실.
+inventory mounts 는 정적 정보(mount/kind/fstype/total_bytes/major/minor)만 저장 — 동적 사용량(free/avail)은 metrics `mounts[]` -> `server_mount_usage` 시계열 전담(agent 가 역할 분리 발행). mount-disk 조인용 major/minor 는 inventory mount 만 보유(metrics mount 는 usage 전담). 필드 카탈로그는 `agent.md` "활용 중인 필드"/"엔진이 받지만 사용하지 않는 필드" 표 단일 진실.
 
 ### 부가 시그널 — 운영 가시성
 

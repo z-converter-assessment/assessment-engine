@@ -71,6 +71,31 @@ def test_os_version_defaults_null() -> None:
     assert data.os_version is None
 
 
+def test_signal_no_captured_on_signal_death() -> None:
+    """시그널 사망 — exit_code null + signal_no 값 (POSIX wait status 상호배타)."""
+    payload = make_task_result_payload(
+        status="failure", failure_reason="script_failed", exit_code=None, signal_no=9
+    )
+    data = _validate(payload)
+    assert data.exit_code is None
+    assert data.signal_no == 9
+
+
+def test_signal_no_null_on_normal_exit() -> None:
+    """정상 종료 — exit_code 값 + signal_no null (미발행 시 default None)."""
+    data = _validate(make_task_result_payload(status="success", exit_code=0))
+    assert data.exit_code == 0
+    assert data.signal_no is None
+
+
+def test_composite_id_empty_string_normalized_to_none() -> None:
+    """agent digest 실패 시 composite_id='' 발행 (wire 허용) — MessageBase validator 가 None 으로 정규화."""
+    payload = make_task_result_payload()
+    payload["composite_id"] = ""
+    data = _validate(payload)
+    assert data.composite_id is None
+
+
 def test_failure_reason_max_length() -> None:
     payload = make_task_result_payload(status="failure", failure_reason="x" * 33)
     with pytest.raises(ValidationError):

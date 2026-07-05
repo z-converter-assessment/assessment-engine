@@ -1,6 +1,6 @@
 # ADR 0029 — OS-aware right-sizing 분류 (Windows swap 제외 + 부분 평가)
 
-상태: Accepted
+상태: Superseded by ADR 0052 (2026-07-05, 원칙 재설계) — OS-aware evidence·미측정 노출 방향은 0052 로 계승. 코드 전환은 0052 구현 시.
 
 > 정정 (2026-06-01, evidence 기반 재설계 — 본 ADR 방향 유지, 구현 진화):
 > - `classify` 의 swap short-circuit 순차 판정을 `assess(stats) -> Assessment(recommendation, triggers, unmeasured)` 로 재구성. 자원별 가진 축을 신호로 모아 under = 위험 신호 OR(누락 0) / over = cpu·mem 둘 다 낮을 때만(보수적)로 합성하고, hit 신호를 근거(triggers)로 반환("어떤 데이터로 이 분류"). `classify` 는 호환 wrapper.

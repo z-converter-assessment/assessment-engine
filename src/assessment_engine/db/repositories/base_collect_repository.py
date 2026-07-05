@@ -69,6 +69,14 @@ class BaseCollectRepository(ABC):
         """
 
     @abstractmethod
+    async def expire_all_overdue_tasks(self) -> int:
+        """deadline 경과 pending(install) 전체를 failure(timeout) 로 전이. 반환: 전이 건수.
+
+        `expire_overdue_tasks` 의 server_ids 무필터 전역 버전 — reaper 백그라운드 루프가 다음 emit 없이도
+        미배달·무회신 pending 을 terminal 로 정리(F11 관측성). race-safe (WHERE status='pending').
+        """
+
+    @abstractmethod
     async def record_metrics(
         self,
         server_id: int,

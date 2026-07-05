@@ -163,8 +163,8 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         sat_disk_queue=_max_disk_queue(data.saturation),
         sat_cpu_run_queue=data.saturation.cpu_run_queue if data.saturation else None,
         sat_mem_paging_rate=data.saturation.mem_paging_rate if data.saturation else None,
-        # disk_io major/minor는 ServerDiskIo 에 컬럼 없어 미저장 (물리 판정은 kind).
-        # mount major/minor는 ServerMountUsage 에 저장 — mount-disk 조인 보조. data-volume 판정은 kind=="data".
+        # disk_io·metrics mount 의 major/minor 는 시계열에 미저장 (물리 판정·data-volume 판정은 kind).
+        # mount-disk 조인용 major/minor 는 inventory mount(정적)만 보유.
         disk_io=[
             DiskIoEntry(
                 device=d.device,
@@ -173,6 +173,10 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
                 sectors_read=d.sectors_read,
                 sectors_written=d.sectors_written,
                 kind=d.kind,
+                time_reading_ms=d.time_reading_ms,
+                time_writing_ms=d.time_writing_ms,
+                io_ticks_ms=d.io_ticks_ms,
+                weighted_io_ms=d.weighted_io_ms,
             )
             for d in data.disk_io
         ],
@@ -182,9 +186,9 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
                 total_bytes=m.total_bytes,
                 free_bytes=m.free_bytes,
                 avail_bytes=m.avail_bytes,
-                major=m.major,
-                minor=m.minor,
                 kind=m.kind,
+                inodes_total=m.inodes_total,
+                inodes_free=m.inodes_free,
             )
             for m in data.mounts
         ],
@@ -198,7 +202,20 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
                 rx_errors=n.rx_errors,
                 tx_errors=n.tx_errors,
                 kind=n.kind,
+                rx_drops=n.rx_drops,
+                tx_drops=n.tx_drops,
             )
             for n in data.net_io
         ],
+        procs_running=data.procs_running,
+        procs_blocked=data.procs_blocked,
+        schedstat_run_wait_ns=data.schedstat_run_wait_ns,
+        pswpin=data.pswpin,
+        pswpout=data.pswpout,
+        oom_kill=data.oom_kill,
+        mem_pages_input=data.mem_pages_input,
+        tcp_retrans_segs=data.tcp_retrans_segs,
+        tcp_tw=data.tcp_tw,
+        conntrack_count=data.conntrack_count,
+        conntrack_max=data.conntrack_max,
     )

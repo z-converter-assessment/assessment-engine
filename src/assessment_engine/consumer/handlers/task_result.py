@@ -59,6 +59,7 @@ def make_task_result_handler(
                     status=eff_status,
                     failure_reason=eff_reason,
                     exit_code=data.exit_code,
+                    signal_no=data.signal_no,
                     duration_ms=data.duration_ms,
                     stdout_tail=data.stdout_tail,
                     stderr_tail=data.stderr_tail,

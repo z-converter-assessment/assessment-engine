@@ -37,8 +37,6 @@
 - mount_usage: 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅(단일 테이블 SELECT로 재부팅 인지)
 - 옛 데이터(NULL)는 d<0 휴리스틱 fallback
 
-`server_mount_usage`는 `major INT NULL`/`minor INT NULL` 컬럼 보유 (revision a9f3c7e1d5b2). agent 가 mount 메트릭에 발행하던 major/minor 를 저장 — data-volume 판단 단일 신호(`device_filters.is_data_volume`: major==0 = 블록 디바이스 없는 가상 fs / 집계 SQL `_DATA_VOLUME_SQL_FILTER`). NULL = 마이그레이션 전 행(path fallback).
-
 ## tasks 테이블 — 부분 UNIQUE (C1 + 운영자 더블클릭 방어)
 
 ```sql

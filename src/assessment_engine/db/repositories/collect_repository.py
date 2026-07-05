@@ -31,9 +31,7 @@ class CollectRepository(BaseCollectRepository):
     # ─── server_inventory ──────────────────────────────────────────────────
 
     async def find_server_id(self, agent_id: str) -> int | None:
-        result = await self.session.execute(
-            select(ServerInventory.id).where(ServerInventory.agent_id == agent_id)
-        )
+        result = await self.session.execute(select(ServerInventory.id).where(ServerInventory.agent_id == agent_id))
         return result.scalar_one_or_none()
 
     # 비교 대상 컬럼만 SELECT (매 inventory 메시지 hot path — 불필요 컬럼 read 절약).
@@ -272,6 +270,20 @@ class CollectRepository(BaseCollectRepository):
         result = await self.session.execute(stmt)
         return result.rowcount or 0
 
+    async def expire_all_overdue_tasks(self) -> int:
+        # reaper 전역 버전 — server_ids 무필터. DB now() 단일 비교(클라이언트 시각차 회피).
+        stmt = (
+            update(Task)
+            .where(
+                Task.status == "pending",
+                Task.deadline_at.is_not(None),
+                Task.deadline_at < func.now(),
+            )
+            .values(status="failure", failure_reason="timeout", completed_at=func.now())
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0
+
     async def find_pending_deadline_servers(self, server_ids: list[int]) -> list[int]:
         if not server_ids:
             return []
@@ -297,6 +309,7 @@ class CollectRepository(BaseCollectRepository):
                 completed_at=data.completed_at,
                 failure_reason=data.failure_reason,
                 exit_code=data.exit_code,
+                signal_no=data.signal_no,
                 duration_ms=data.duration_ms,
                 stdout_tail=data.stdout_tail,
                 stderr_tail=data.stderr_tail,
@@ -358,6 +371,17 @@ class CollectRepository(BaseCollectRepository):
                 sat_disk_queue=data.sat_disk_queue,
                 sat_cpu_run_queue=data.sat_cpu_run_queue,
                 sat_mem_paging_rate=data.sat_mem_paging_rate,
+                procs_running=data.procs_running,
+                procs_blocked=data.procs_blocked,
+                schedstat_run_wait_ns=data.schedstat_run_wait_ns,
+                pswpin=data.pswpin,
+                pswpout=data.pswpout,
+                oom_kill=data.oom_kill,
+                mem_pages_input=data.mem_pages_input,
+                tcp_retrans_segs=data.tcp_retrans_segs,
+                tcp_tw=data.tcp_tw,
+                conntrack_count=data.conntrack_count,
+                conntrack_max=data.conntrack_max,
                 boot_time=data.boot_time,
                 agent_started_at=data.agent_started_at,
             )

@@ -54,6 +54,8 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 - 활용하지 않는 필드는 mapper drop. 필요해진 시점에 mapper read + inbound DTO 필드 추가를 명시적 결정으로 처리.
 - `agent_version` major bump 수신 시 엔진 코드 수정 트리거. minor bump 는 silent 호환.
 - `task.result` 메시지는 발행 측 worker 컨텍스트가 수집 캐시와 분리되어 `boot_time` / `agent_started_at` 가 항상 null — 본 메시지에 한해 nullable override. 다른 메시지 타입은 required 유지.
+- `task.result` 종료 신호: `exit_code` / `signal_no` (int\|null) 상호배타 — 정상종료=exit_code / 시그널종료=signal_no / 미포착=둘 다 null (POSIX wait status). `signal_no` 는 `tasks.signal_no` 저장 + task 상세 표시(`mappers/task._signal_label` SIG 이름 라벨). Windows 는 항상 null.
+- 인바운드 DTO 는 wire 계약과 정합: `boot_time` nullable (판독 불가 시 null, `_log_time_invariants` None 가드) / `composite_id` "" -> None 정규화 (digest 실패 흡수) / error `failed_component` 자유 문자열 수용 (wire permissive, `Literal` 로 좁히면 유효 메시지 DLQ). inventory mount 는 free/avail 미발행, metrics mount 는 major/minor 미발행 — DTO·시계열 컬럼 정합 (vestigial 제거, mount-disk 조인 major/minor 는 inventory mount 만).
 
 ---
 
@@ -375,6 +377,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 | 신규 의존성(`pyproject.toml`) | (1) `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토. 워크플로 단일 진실: `docs/development/dependencies.md` |
 | 신규 차트 MetricType (net/disk rate·gauge 등) | (1) `db/repositories/query/types.py` `MetricType` Literal (+ 환경 차트면 `EnvironmentMetricType` 도) (2) rate 메트릭이면 동 파일 `_RATE_PER_DIM_DEFS` (dim_col, value_col) + `metric.py` `_RATE_PER_DIM` 매핑 / gauge 면 `metric.py` `metric_trend` 에 dispatch branch 직접 추가 — 둘 다 누락 시 `unknown metric_type` AssertionError 500 (Promise.all 한 fetch 실패가 같은 페이지 다른 차트까지 막음) (3) 페이지 JS fetch (env-metrics.js·metrics.js, seqs·Y축 suggestedMax 명명 상수·os-aware 분기) + 템플릿 차트 카드 (4) 가상 제외 필터(`device_filters`) 해당 시 표시 경계 적용 (gauge 는 미대상) (5) `test_query_repository._ALL_METRIC_TYPES` dispatch 커버 + 값 테스트 |
 | 비동기 보고서 발행 (job-claim 워커·생성 디스패치·폴링, ADR 0040) | (1) emit 라우터 `enqueue_report` 분리 (2) `report_generator.build_report_result_for_job` 생성 디스패치 (3) `report_worker.py` 루프 + `main.py` lifespan 기동·graceful (4) repo `claim_next_pending`/`mark_failed`/`recover_stale_running` (+ `BaseDiagnosticRepository` 추상) (5) GET pending/running/failed 분기 + `GET /reports/{job}/status` + `report-poll.js` + `report_pending.html` (6) `WebSettings` 워커 설정 (7) #C1·#F11·ADR 0040 (8) 단위테스트(`test_diagnostic_service`·`test_report_generator`) |
+| install task lifecycle (deadline·reaper·오프라인 advisory, ADR 0051) | (1) `task_service` 발행 (`deadline_at`·`_online_targets` advisory·큐 `x-message-ttl`) (2) `task_reaper.py` 루프 + `main.py` lifespan (3) repo `expire_all_overdue_tasks` (+ `BaseCollectRepository` 추상) (4) 설정 `install_task_deadline_sec`·`install_reaper_interval_sec`·`install_reaper_shutdown_timeout_sec` (5) 응답 `TaskCreated.target_online` + `static/js` warn 표시 (6) #F10·#F11·ADR 0051 (7) `test_task_queries` (expire·complete_task signal_no) |
 
 
 ## F10. 평가 윈도우 · 차트 시계열 옵션 — 단일 진실
@@ -388,6 +391,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 - TimeRange/BucketSize Literal 단일 진실 = `db/repositories/query/types.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
 - range -> 자동 bucket 매핑(`AUTO_BUCKET`)은 backend `types.AUTO_BUCKET` 와 frontend `chart-utils.js` 두 곳 — 값 동기화 의무 (range별 적정 분해력 단일 의미). 신규 TimeRange 도입 시 두 곳 동시 신설. SSR 정적 차트(환경 부하 추이)는 backend 매핑, 동적 fetch 차트는 frontend 매핑 적용 — 둘이 어긋나면 같은 range 가 화면별 다른 bucket.
 - 보고서 형태 산출물은 윈도우를 envelope·표제 명시 — JSON Export `period_window{days, start, end}` 의무 필드(#B 동일 원칙).
+- install task 배달/마감 창 단일 진실 = `install_task_deadline_sec` (기본 3600) — engine `tasks.deadline_at` 과 broker 큐 `x-message-ttl` 이 동일 창 (엔진 timeout 선언 == 미배달 메시지 만료, zombie 지연 실행 0). agent 실행 예산 `install_timeout_sec`(600, payload `install.timeout_sec`)는 별개 개념. ADR 0051.
 
 ## F11. Disposability — Graceful shutdown (12-factor IX)
 
@@ -397,6 +401,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 - web — uvicorn `timeout_graceful_shutdown=3s`. 진행 중 HTTP 요청 완료 후 exit. 실시간 메트릭 polling 은 다음 주기 자동 재요청이라 별도 처리 불요. task.install publish 중 SIGTERM은 aio-pika `connect_robust` transaction 보장.
 - consumer — `async with message.process(requeue=False)` 컨텍스트 안에서 모든 await 완료. 정상 exit → ACK / raise → NACK + DLQ.
 - 보고서 생성 워커 — web lifespan `lifespan_worker` 가 SIGTERM 시 stop_event 로 새 claim 중단 + 진행 중 1건은 `report_worker_shutdown_timeout_sec` 안 drain, 미완은 running 잔류 -> 다음 기동 `recover_stale_running` 가 pending 으로 회수(in-flight 손실 0, ADR 0040). job 상태는 DB(`diagnostic_jobs`)라 메모리 손실 없음 — `signal.signal`·`os._exit` 금지(아래 일관).
+- install task reaper — web lifespan `lifespan_task_reaper` 가 SIGTERM 시 stop_event 로 tick 중단(진행 중 UPDATE 1건 짧아 즉시 drain). deadline 경과 pending 을 emit 무관하게 `expire_all_overdue_tasks` 로 failure(timeout) 전역 전이 — task 상태는 DB(`tasks`)라 메모리 손실 0. `signal.signal`·`os._exit` 금지 일관. ADR 0051.
 
 금지:
 - `signal.signal(SIGTERM, ...)` 직접 핸들러 — uvicorn/asyncio 자체 처리, 중복은 종료 race.

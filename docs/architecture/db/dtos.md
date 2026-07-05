@@ -10,7 +10,7 @@
 | `ServerMetricCreate` | metrics 1건 | nested `list[DiskIoEntry]` / `list[MountUsageEntry]` / `list[NetIoEntry]` — 시계열 4테이블 행 매핑이라 컴파일 타임 타입 보장. boot_time/agent_started_at 포함 |
 | `DiskIoEntry` / `MountUsageEntry` / `NetIoEntry` | 시계열 행 nested | dict 키 오타 방지 — mapper 단계에서 차단. INSERT 시 `dataclasses.asdict(entry)`로 풀어쓰기 |
 | `TaskCreate` | task 발행 | target_server_id / target_agent_id / task_type / params (JSONB) |
-| `TaskResultUpdate` | task 결과 수신 | public_id / status / failure_reason / exit_code / duration_ms / stdout_tail / stderr_tail / completed_at |
+| `TaskResultUpdate` | task 결과 수신 | public_id / status / failure_reason / exit_code / signal_no / duration_ms / stdout_tail / stderr_tail / completed_at |
 
 ## Outbound DTO (`outbound.py`) — Repository → Service
 

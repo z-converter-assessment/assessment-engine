@@ -75,6 +75,22 @@ def to_task_summary(row: TaskRow, now: datetime) -> TaskSummaryItem:
     )
 
 
+# POSIX 시그널 번호 -> 이름. install.sh 사망 진단 표시용 (exit_code=null + signal_no=값).
+_SIGNAL_NAME: dict[int, str] = {
+    1: "SIGHUP", 2: "SIGINT", 3: "SIGQUIT", 4: "SIGILL", 5: "SIGTRAP",
+    6: "SIGABRT", 7: "SIGBUS", 8: "SIGFPE", 9: "SIGKILL", 11: "SIGSEGV",
+    13: "SIGPIPE", 14: "SIGALRM", 15: "SIGTERM", 24: "SIGXCPU", 25: "SIGXFSZ",
+}
+
+
+def _signal_label(signal_no: int | None) -> str | None:
+    """signal_no -> "SIGKILL (9)" 표시 라벨. 미지 번호는 숫자만. None 이면 None (표시 계층에서 행 생략)."""
+    if signal_no is None:
+        return None
+    name = _SIGNAL_NAME.get(signal_no)
+    return f"{name} ({signal_no})" if name else str(signal_no)
+
+
 def to_task_detail(row: TaskRow, now: datetime) -> TaskDetailItem:
     status, failure_reason, (badge_class, badge_label), failure_label = _effective_display(row, now)
     return TaskDetailItem(
@@ -88,6 +104,8 @@ def to_task_detail(row: TaskRow, now: datetime) -> TaskDetailItem:
         failure_reason=failure_reason,
         failure_label=failure_label,
         exit_code=row.exit_code,
+        signal_no=row.signal_no,
+        signal_label=_signal_label(row.signal_no),
         duration_ms=row.duration_ms,
         created_at=row.created_at,
         completed_at=row.completed_at,

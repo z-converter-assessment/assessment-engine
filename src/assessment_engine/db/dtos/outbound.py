@@ -71,6 +71,7 @@ class TaskRow:
     completed_at: datetime | None
     failure_reason: str | None
     exit_code: int | None
+    signal_no: int | None  # 시그널 사망 시 시그널 번호 (exit_code 와 상호배타)
     duration_ms: int | None
     stdout_tail: str | None
     stderr_tail: str | None

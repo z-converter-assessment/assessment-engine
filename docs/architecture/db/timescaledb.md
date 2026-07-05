@@ -68,7 +68,7 @@ timescaledb_toolkit `counter_agg` 로 사전집계한다. 5분 버킷(클라우�
 |------|------|------|
 | `server_metrics_5m` | server_id, bucket | CPU `counter_agg`(total/idle/user/system/iowait) + mem% avg/max + load max + swap |
 | `server_disk_io_5m` | server_id, device, bucket | reads/writes/sectors `counter_agg` (물리 device만) |
-| `server_net_io_5m` | server_id, interface, bucket | rx/tx bytes·packets `counter_agg` (물리 interface만) |
+| `server_net_io_5m` | server_id, interface, bucket | rx/tx bytes·packets `counter_agg` (kind in {physical, bond_master}) |
 
 counter reset(재부팅·agent재시작·wraparound)은 `counter_agg` 가 값-감소 기준 일률 처리 — boot_time gate 불요.
 가상 device/interface 는 cagg 단계 필터(물리만, types 필터 스냅샷).

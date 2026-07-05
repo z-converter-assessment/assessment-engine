@@ -41,8 +41,8 @@ class Task(Base):
     # pending -> success / failure. agent 무응답 시 deadline_at 경과로 failure(timeout) 전이.
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    # 응답 마감 (install 발행 시 now + install_timeout_sec + margin, 그 외 null). 경과 pending 은
-    # 재발행 시점에 failure(timeout) 로 전이 (부분 UNIQUE 해소).
+    # 응답 마감 (install 발행 시 now + install_task_deadline_sec, 그 외 null). 경과 pending 은
+    # reaper·재발행 양 경로가 failure(timeout) 로 전이 (부분 UNIQUE 해소).
     deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # task 종료 시각 — result 메시지 값 그대로 저장 (DB now() 미사용).
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -50,6 +50,8 @@ class Task(Base):
     # 결과 보고 메시지의 부가 필드. failure_reason enum은 consumer Pydantic Literal 단일 검증 (F3).
     failure_reason: Mapped[str | None] = mapped_column(String(32))
     exit_code: Mapped[int | None] = mapped_column(SmallInteger)
+    # install.sh 를 종료시킨 시그널 번호 (WIFSIGNALED). exit_code 와 상호배타 (정상종료=exit_code / 시그널=signal_no).
+    signal_no: Mapped[int | None] = mapped_column(SmallInteger)
     duration_ms: Mapped[int | None] = mapped_column(BigInteger)
     stdout_tail: Mapped[str | None] = mapped_column(Text)
     stderr_tail: Mapped[str | None] = mapped_column(Text)

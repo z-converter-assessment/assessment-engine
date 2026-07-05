@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from assessment_engine.cache.redis import close_pool, get_redis
+from assessment_engine.db.repositories.collect_repository import CollectRepository
 from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
 from assessment_engine.db.repositories.query.query_repository import QueryRepository
 from assessment_engine.db.session import AsyncSessionLocal
@@ -22,6 +23,7 @@ from assessment_engine.web.routers.tasks import tasks_router
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.settings import diagnostic_settings, web_settings
+from assessment_engine.web.task_reaper import lifespan_task_reaper
 from assessment_engine.web.templating import templates
 
 
@@ -83,12 +85,21 @@ async def lifespan(app: FastAPI):
         session_factory=AsyncSessionLocal,
         diagnostic_repo_factory=DiagnosticRepository,
     )
-    async with lifespan_worker(
-        diag_service=diag_service,
-        query_service_factory=_query_service_factory,
-        poll_interval_sec=web_settings.report_worker_poll_interval_sec,
-        stale_seconds=web_settings.report_worker_stale_seconds,
-        shutdown_timeout_sec=web_settings.report_worker_shutdown_timeout_sec,
+    # install task reaper — deadline 경과 pending 을 emit 무관하게 능동 timeout 전이(F6 관측성).
+    async with (
+        lifespan_worker(
+            diag_service=diag_service,
+            query_service_factory=_query_service_factory,
+            poll_interval_sec=web_settings.report_worker_poll_interval_sec,
+            stale_seconds=web_settings.report_worker_stale_seconds,
+            shutdown_timeout_sec=web_settings.report_worker_shutdown_timeout_sec,
+        ),
+        lifespan_task_reaper(
+            session_factory=AsyncSessionLocal,
+            collect_repo_factory=CollectRepository,
+            interval_sec=web_settings.install_reaper_interval_sec,
+            shutdown_timeout_sec=web_settings.install_reaper_shutdown_timeout_sec,
+        ),
     ):
         yield
 

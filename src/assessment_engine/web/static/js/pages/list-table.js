@@ -234,10 +234,20 @@ async function submitInstall() {
     }
     const data = await res.json();
     const list = Array.isArray(data) ? data : [];   // 5xx가 JSON object 반환 시 TypeError 방어
-    const lines = list.map(t => `- ${rows.find(r => r.dataset.publicId === t.target_public_id)?.dataset.hostname || t.target_public_id} -> task ${t.task_id.slice(0, 8)}`);
+    const lines = list.map(t => {
+      const host = rows.find(r => r.dataset.publicId === t.target_public_id)?.dataset.hostname || t.target_public_id;
+      // 오프라인 대상은 큐 적재 표식 — 발행은 됐고 재접속 시 배달(창 넘기면 만료).
+      const mark = t.target_online === false ? ' (오프라인·큐 적재)' : '';
+      return `- ${host} -> task ${t.task_id.slice(0, 8)}${mark}`;
+    });
+    const offline = list.filter(t => t.target_online === false).length;
+    // 하나라도 오프라인이면 advisory(warn) — 나머지는 발행 완료(ok).
+    const head = offline > 0
+      ? `${list.length}대 Install 발행 — ${offline}대 오프라인(큐 적재, 재접속 시 배달)`
+      : `${list.length}대 Install 발행 완료`;
     ToastUtils.show(
-      `${list.length}대 Install 발행 완료<br><div style="margin-top:6px; font-family:monospace; font-size:12px;">${lines.join('<br>')}</div>`,
-      'ok',
+      `${head}<br><div style="margin-top:6px; font-family:monospace; font-size:12px;">${lines.join('<br>')}</div>`,
+      offline > 0 ? 'warn' : 'ok',
     );
     hideInstallModal();
     // 행별 "최근 작업" cell polling — task 완료 시 badge 갱신.
