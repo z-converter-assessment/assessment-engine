@@ -299,35 +299,60 @@ def _over_cpu_stats(**kw) -> r.ResourceStats:
 
 
 def test_downsize_prescribable_when_confident():
-    s = _over_cpu_stats(history_hours=400.0)
+    s = _over_cpu_stats(sample_sufficiency=0.9)  # 창 충분 관측(>=0.7)
     a = r.assess_cpu(s)
     assert a.status == "over"
     assert r.downsize_prescribable(a, s) is True
 
 
 def test_downsize_gated_by_low_confidence():
-    s = _over_cpu_stats(history_hours=400.0, cpu_burst_ratio=3.0)  # 버스티 -> low_precision
+    s = _over_cpu_stats(sample_sufficiency=0.9, cpu_burst_ratio=3.0)  # 버스티 -> low_precision
     a = r.assess_cpu(s)
     assert a.status == "over"
     assert r.downsize_prescribable(a, s) is False
 
 
 def test_downsize_gated_by_rising_trend():
-    s = _over_cpu_stats(history_hours=400.0, util_trend_rising=True)
+    s = _over_cpu_stats(sample_sufficiency=0.9, util_trend_rising=True)
     a = r.assess_cpu(s)
     assert r.downsize_prescribable(a, s) is False
 
 
-def test_downsize_gated_by_short_history():
-    s = _over_cpu_stats(history_hours=100.0)  # 2주(336h) 미만
+def test_downsize_gated_by_low_sufficiency():
+    s = _over_cpu_stats(sample_sufficiency=0.4)  # 창 대비 관측 부족(<0.7)
+    a = r.assess_cpu(s)
+    assert r.downsize_prescribable(a, s) is False
+
+
+def test_downsize_gated_by_missing_sufficiency():
+    s = _over_cpu_stats()  # sample_sufficiency None(측정 축 부재) -> 처방 불가
     a = r.assess_cpu(s)
     assert r.downsize_prescribable(a, s) is False
 
 
 def test_downsize_not_over_status():
-    s = _stats(cpu_p95_pct=90.0, cpu_cores=8, cpu_load_15m_max=1.0, history_hours=400.0)
+    s = _stats(cpu_p95_pct=90.0, cpu_cores=8, cpu_load_15m_max=1.0, sample_sufficiency=0.9)
     a = r.assess_cpu(s)  # under
     assert r.downsize_prescribable(a, s) is False
+
+
+# ─── util_trend_rising_from_slopes — 상승 추세 이진화(도메인 임계 단일) ───
+
+
+def test_util_trend_rising_both_none_returns_none():
+    """cpu·mem slope 둘 다 None(표본<2 등) -> None (nonstationary 미설정)."""
+    assert r.util_trend_rising_from_slopes(None, None) is None
+
+
+def test_util_trend_rising_true_when_any_slope_over_threshold():
+    """하나라도 임계(%/day) 이상이면 상승 — 보수적(어느 코어 자원이든 성장하면 다운사이즈 보류)."""
+    assert r.util_trend_rising_from_slopes(-0.5, r.RS_UTIL_TREND_RISING_PCT_PER_DAY) is True
+    assert r.util_trend_rising_from_slopes(r.RS_UTIL_TREND_RISING_PCT_PER_DAY + 1.0, None) is True
+
+
+def test_util_trend_rising_false_when_all_below_threshold():
+    """전부 임계 미만(보합·하락) -> 비상승."""
+    assert r.util_trend_rising_from_slopes(0.0, -2.0) is False
 
 
 # ─── steal 충실도 편향 ───

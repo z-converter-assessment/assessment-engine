@@ -87,7 +87,7 @@ interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedel
 
 ### 타입 별칭 (`db/repositories/query/types.py`)
 - `MetricType` Literal — chart metric (카탈로그는 `types.py` 단일 진실)
-- `TimeRange` Literal — 15m/1h/6h/24h/7d/14d/30d. 기본 7d 는 right-sizing 윈도우(`recommendation.WINDOW_DAYS`)와 동일 — F10 단일 진실
+- `TimeRange` Literal — 15m/1h/6h/24h/7d/14d/30d. 기본 14d 는 right-sizing 윈도우(`recommendation.WINDOW_DAYS`)와 동일 — F10 단일 진실
 - `BucketSize` Literal — 1m/5m/15m/30m/1h/3h/6h/12h/1d. 6h는 14d 토글 자동 매핑용
 - `AggFunc` Literal — avg/max/p95
 - `TIME_RANGE_TD` — TimeRange -> timedelta 매핑 (repo·service 공유)

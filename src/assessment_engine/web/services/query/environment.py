@@ -28,7 +28,7 @@ from assessment_engine.web.view_models.attention import (
 from assessment_engine.web.view_models.topology import NetworkTopology
 
 # 대시보드 현황 윈도우 — 활용률 게이지·자원 적정성 분류 표시 전용 (최근 현황 모니터링).
-# right-sizing 표준 평가 윈도우(recommendation.WINDOW_DAYS=7d — 보고서 기본·서버 목록 분류)와 의도 분리.
+# right-sizing 표준 평가 윈도우(recommendation.WINDOW_DAYS=14d — 보고서 기본·서버 목록 분류)와 의도 분리.
 DASHBOARD_TIME_RANGE: TimeRange = "24h"
 DASHBOARD_WINDOW_DAYS: float = DIAGNOSTIC_RANGE_DAYS[DASHBOARD_TIME_RANGE]
 
@@ -48,7 +48,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
     async def get_environment_realtime(self, server_ids: list[int] | None = None) -> EnvironmentRealtime:
         """list 화면 '환경 실시간 메트릭' 카드 — 각 서버 최신 스냅샷(get_latest_metric, Redis cache 우선) 집계.
 
-        현황 모니터링 용도(right-sizing 7일 통계와 별개). server_ids=None 이면 전체 환경, 주어지면 선택 N대 한정.
+        현황 모니터링 용도(right-sizing 14일 통계와 별개). server_ids=None 이면 전체 환경, 주어지면 선택 N대 한정.
         조립은 _assemble_realtime 단일 진실.
         """
         now = datetime.now(UTC)
@@ -164,18 +164,21 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         return build_environment_realtime(len(server_ids), online, snapshots, last_collected)
 
     async def get_dashboard_overview(self) -> EnvironmentOverview:
-        """환경 개요(`/`) 집계 — 24h(DASHBOARD_WINDOW_DAYS) capacity-weighted 평균 활용률·자원 합계·수집 상태.
+        """환경 개요(`/`) 집계 — 두 윈도우: 자원 적정성 분류는 14일 표준(WINDOW_DAYS), 평균 활용률은 24h 현황.
 
-        right-sizing 표준 평가(7일)와 의도 분리한 최근 24h 현황 (#F10 DASHBOARD_TIME_RANGE). 운영 신호
-        (attention)는 실시간 현황 페이지(`get_attention_signals`)로 분리 — 본 메서드는 overview 단일 책임.
+        분류(risk_donut)는 서버 목록·보고서와 같은 right-sizing 표준 창(14일)이라 화면 간 정합(#E3). 평균 활용률
+        게이지만 최근 24h 모니터링(#F10 DASHBOARD_TIME_RANGE) — 분류와 의도 분리. 운영 신호(attention)는 실시간
+        현황 페이지(`get_attention_signals`)로 분리. 앵커=now(라이브 첫 화면).
         """
         now = datetime.now(UTC)
         server_ids = await self.repo.list_server_ids()
         if not server_ids:
             return _empty_overview()
         details = await self.repo.get_servers(server_ids)
-        raws_period = await self.repo.report_aggregate(server_ids, period_days=DASHBOARD_WINDOW_DAYS, end=now)
-        await self._inject_net_baseline(raws_period, server_ids, DASHBOARD_WINDOW_DAYS, now)
+        # 분류 raws — 14일 표준 창(서버 목록·보고서 정합). net baseline 도 동일 창.
+        raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
+        await self._inject_net_baseline(raws_period, server_ids, recommendation.WINDOW_DAYS, now)
+        # 활용률 게이지 — 최근 24h 현황 모니터링(분류와 별도 윈도우).
         util = await self.repo.environment_utilization(period_days=DASHBOARD_WINDOW_DAYS, end=now)
         online_by_id = await self._online_map(server_ids, details, now)
         return self._assemble_overview(details, util, raws_period, online_by_id)

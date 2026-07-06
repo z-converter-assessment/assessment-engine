@@ -6,7 +6,7 @@
 
 사이드바 "모니터링" 그룹 (네비 항목명 = 화면 제목):
 
-- 환경 개요 — `GET /` (집계 위젯: 환경 요약·평균 활용률·수집 건전성)
+- 환경 개요 — `GET /` (집계 위젯: 환경 요약·자원 적정성·평균 활용률·수집 건전성)
 - 서버 목록 — `GET /servers` (검색·필터 + 선택 N대 액션)
 - 환경 자원 평가 — `GET /environment/assessment` (자원 적정성 평가 분포 막대 + 효율화 검토 대상 + 자원 부족 표, 윈도우 override 가능)
 - 네트워크 토폴로지 — `GET /environment/topology` (인터랙티브 Cytoscape L3 subnet 그래프)
@@ -20,7 +20,7 @@
 
 ## 환경 개요 홈 (`/`)
 
-운영자가 환경 전체 상태를 한 화면에서 파악·다음 행동 결정하기 위한 entry point. 집계형 위젯만 본 페이지에 남고, 서버 목록은 `/servers`, 환경 자원 평가는 `/environment/assessment`, 그 외 환경 단위 분석은 `/environment/*` 로 분리. 정적 집계라 새로고침 시 1회 렌더. 본문 partial = `servers/_environment_overview.html` (3 카드: 환경 요약·평균 활용률·수집 건전성).
+운영자가 환경 전체 상태를 한 화면에서 파악·다음 행동 결정하기 위한 entry point. 집계형 위젯만 본 페이지에 남고, 서버 목록은 `/servers`, 환경 자원 평가는 `/environment/assessment`, 그 외 환경 단위 분석은 `/environment/*` 로 분리. 정적 집계라 새로고침 시 1회 렌더. 본문 partial = `servers/_environment_overview.html` (4 카드: 환경 요약·자원 적정성·평균 활용률·수집 건전성).
 
 ### 영역 1: 환경 요약
 
@@ -29,7 +29,15 @@
 
 답: "지금 환경에 몇 대 있고 어떻게 분포돼 있나?"
 
-### 영역 2: 환경 평균 활용률 도넛 (3개)
+### 영역 2: 자원 적정성 분포
+
+- 자원 적정성 6분류 카운트 가로 막대 (`overview.risk_donut`) — 환경 자원 평가 페이지와 `provisioning_dist_bar` 매크로 공유(단일 소스)
+- 윈도우 = `recommendation.WINDOW_DAYS`(14일) — 서버 목록·보고서 분류와 정합(#E3). 평균 활용률(24h)과 구분해 "최근 14일" 라벨 명시
+- 홈에는 분포 요약만 — 효율화 검토 대상·자원 부족 상세 표는 환경 자원 평가 페이지(`/environment/assessment`)
+
+답: "환경이 자원 관점에서 적정한가? 부족·과다 서버 분포는?"
+
+### 영역 3: 환경 평균 활용률 도넛 (3개)
 
 - CPU 24시간 평균 활용률
 - 메모리 24시간 평균
@@ -39,13 +47,13 @@
 
 답: "환경 전체 자원 활용률은 어느 수준인가?"
 
-### 영역 3: 수집 건전성
+### 영역 4: 수집 건전성
 
 - 온라인 / 오프라인 (Redis `online:{id}` TTL 기준) + 총 N대
 
 답: "지금 몇 대가 살아 있나?"
 
-자원 적정성 평가 분포·효율화·자원 부족 표는 본 홈이 아니라 환경 자원 평가 페이지(`/environment/assessment`)로 분리. 운영 신호(통신 끊김·OS EOL·에이전트 재시작)는 보고서 OS 지원 종료 카드·서버 상세 등 발화 지점에서 노출 — 홈 집계 위젯에서는 미표시.
+효율화·자원 부족 상세 표는 본 홈이 아니라 환경 자원 평가 페이지(`/environment/assessment`)로 분리(홈은 분포 요약만). 운영 신호(통신 끊김·OS EOL·에이전트 재시작)는 보고서 OS 지원 종료 카드·서버 상세 등 발화 지점에서 노출 — 홈 집계 위젯에서는 미표시.
 
 ## 서버 목록 (`/servers`)
 
@@ -81,7 +89,7 @@ list에서 N대 선택 → 다음 액션 활성화:
 - 자원 적정성 평가 막대: 자원 적정성 6분류 카운트 막대 (`overview.risk_donut`). 평가 대상 N대 표기.
 - 효율화 검토 대상 표: over/idle/shutdown 호스트 — 합산 vCPU/메모리 절감 여지.
 - 자원 부족 표: under_provisioned 호스트 6축 메트릭 + 권고. 초과 행은 더보기/접기 토글.
-- 구간·앵커 선택: `?time_range=`(15분~30일) + 기준 시각 override. 변경 즉시 `assessment.js` 가 `?fragment=result` 로 본문 swap. 기본 윈도우는 `DASHBOARD_TIME_RANGE`(24h). 보고서·서버 목록 분류 표준 평가(`recommendation.WINDOW_DAYS`=7d)와 의도 분리 — 본 평가 페이지만 대시보드 중 윈도우 override 허용(#F10).
+- 구간·앵커 선택: `?time_range=`(15분~30일) + 기준 시각 override. 변경 즉시 `assessment.js` 가 `?fragment=result` 로 본문 swap. 기본 윈도우는 `DASHBOARD_TIME_RANGE`(24h). 보고서·서버 목록 분류 표준 평가(`recommendation.WINDOW_DAYS`=14d)와 의도 분리 — 본 평가 페이지만 대시보드 중 윈도우 override 허용(#F10).
 - Windows (원칙 P2): swap 축 제외(pagefile baseline)·saturation 축 OS 부재라 utilization 축만으로 분류(부분 평가). 상세 `docs/architecture/web/services.md` "OS 분기" 절.
 
 답: "환경 안 자원 부족·자원 과다 서버는 누구이고, 무엇부터 손대야 하나?"
@@ -124,7 +132,7 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 
 대시보드 현황 윈도우 24시간:
 - `DASHBOARD_TIME_RANGE`(query_service) 단일 진실 (CLAUDE.md #F10) — 최근 현황 모니터링, bucket 은 `AUTO_BUCKET[24h]`=30m
-- 자원 적정성 표준 평가(`recommendation.WINDOW_DAYS`=7d — 보고서 기본·서버 목록 분류)와 의도 분리
+- 자원 적정성 표준 평가(`recommendation.WINDOW_DAYS`=14d — 보고서 기본·서버 목록 분류)와 의도 분리
 - 환경 개요 홈·실시간·성능 추이는 표준 윈도우 고정. 환경 자원 평가 페이지(`/environment/assessment`)만 `?time_range=` override 허용 (평가 페이지 기본값도 `DASHBOARD_TIME_RANGE`)
 
 자원 적정성 평가 분류 막대 (환경 자원 평가 페이지):

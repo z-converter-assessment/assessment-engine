@@ -51,6 +51,14 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     CASE WHEN time_delta(mem_paging_ca) > 0
                          THEN GREATEST(0, delta(mem_paging_ca) / time_delta(mem_paging_ca))
                     END AS mem_paging_rate,
+                    -- ADR 0052 신 신호 (per-bucket delta/gauge) — steal%·D-state·swap page-out·hard page-in·재전송 델타.
+                    CASE WHEN delta(cpu_total_ca) > 0
+                         THEN GREATEST(0, delta(cpu_steal_ca) / delta(cpu_total_ca) * 100)
+                    END AS steal_pct,
+                    procs_blocked_avg AS procs_blocked,
+                    delta(pswpout_ca)         AS pswpout_delta,
+                    delta(mem_pages_input_ca) AS pages_in_delta,
+                    delta(tcp_retrans_ca)     AS retrans_delta,
                     mem_pct_avg, mem_pct_max, load_15m_max, swap_in_use, disk_queue_avg, cpu_run_queue_avg
                 FROM server_metrics_5m
                 WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
@@ -58,6 +66,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             cpu_stats AS (
                 SELECT server_id,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY cpu_pct) AS cpu_p95,
+                    percentile_cont(0.5)  WITHIN GROUP (ORDER BY cpu_pct) AS cpu_median,
                     AVG(cpu_pct) AS cpu_avg,
                     MAX(cpu_pct) AS cpu_peak,
                     COUNT(cpu_pct) AS cpu_sample,
@@ -82,12 +91,79 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             load_stats AS (
                 SELECT server_id, MAX(load_15m_max) AS load_15m_max FROM bkt GROUP BY server_id
             ),
+            rs_stats AS (
+                -- ADR 0052 host-wide 신 신호 (bkt 무필터 집계) — steal p95·D-state p95·swap paging bool·재전송 총량·
+                -- 이용률 추세 기울기(regr_slope %/day, 임계 비교는 도메인 — SQL 은 raw slope 만, P1 aggregate 예외).
+                SELECT server_id,
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY steal_pct)      AS cpu_steal_p95,
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY procs_blocked)  AS procs_blocked_p95,
+                    bool_or(COALESCE(pswpout_delta, 0) > 0 OR COALESCE(pages_in_delta, 0) > 0) AS swap_paging,
+                    SUM(retrans_delta) AS retrans_total,
+                    regr_slope(cpu_pct, extract(epoch FROM bucket)) * 86400 AS cpu_trend_slope,
+                    regr_slope(mem_pct_avg, extract(epoch FROM bucket)) * 86400 AS mem_trend_slope
+                FROM bkt GROUP BY server_id
+            ),
             mount_max AS (
                 -- 서버 worst mount used_pct (period 안 최대). server_mount_usage_5m cagg (가상 mount 필터 pre-applied).
                 SELECT server_id, MAX(used_pct_max) AS worst_used_pct
                 FROM server_mount_usage_5m
                 WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
                 GROUP BY server_id
+            ),
+            mount_span AS (
+                -- ADR 0052 디스크 용량 runway 입력 — 마운트별 가용 이력 전체(하한 없이 bucket <= :end)의
+                -- 시작·종료 avail/inode + 실제 관측 span(일). runway 는 분류 14일 창과 달리 전체 이력을 쓴다
+                -- (누적 신호라 길수록 추세 정확 — 사이징 lookback 과 별개 축, 기준 정의).
+                SELECT server_id, mount,
+                    first(avail_first, bucket)       AS av_first,
+                    last(avail_last, bucket)         AS av_last,
+                    first(inodes_free_first, bucket) AS in_first,
+                    last(inodes_free_last, bucket)   AS in_last,
+                    EXTRACT(EPOCH FROM (max(bucket) - min(bucket))) / 86400.0 AS span_days
+                FROM server_mount_usage_5m
+                WHERE server_id = ANY(:sids) AND bucket <= :end
+                GROUP BY server_id, mount
+            ),
+            mount_runway AS (
+                -- 서버당 가장 빨리 소진되는 마운트(MIN runway). 감소·수평·span<=0 이면 runway null(안 참).
+                -- rate = avail 감소분 / 실제 span(일). report_mount_worst 의 worst-by-usage 와 별개 축.
+                SELECT server_id,
+                    MIN(CASE WHEN (av_first - av_last) > 0 AND span_days > 0 AND av_last >= 0
+                             THEN GREATEST(0, FLOOR(av_last / ((av_first - av_last) / span_days))) END)
+                        AS disk_runway_days,
+                    MIN(CASE WHEN (in_first - in_last) > 0 AND span_days > 0 AND in_last >= 0
+                             THEN GREATEST(0, FLOOR(in_last / ((in_first - in_last) / span_days))) END)
+                        AS inode_runway_days
+                FROM mount_span GROUP BY server_id
+            ),
+            disk_await AS (
+                -- ADR 0052 디스크 I/O await (Linux time_reading/writing 델타 / IO수 델타, 물리 device). virtio 라
+                -- %util·avgqu 대신 응답 지연이 포화 주신호. Windows disk_io 시간필드 미발행 -> null(포화 미관측).
+                SELECT server_id, bucket, MAX(await_ms) AS worst_await FROM (
+                    SELECT server_id, bucket,
+                        (delta(treading_ca) + delta(twriting_ca))
+                            / NULLIF(delta(reads_ca) + delta(writes_ca), 0) AS await_ms
+                    FROM server_disk_io_5m
+                    WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
+                ) d WHERE await_ms IS NOT NULL GROUP BY server_id, bucket
+            ),
+            disk_await_stats AS (
+                SELECT server_id, percentile_cont(0.95) WITHIN GROUP (ORDER BY worst_await) AS await_p95
+                FROM disk_await GROUP BY server_id
+            ),
+            net_quality AS (
+                -- ADR 0052 네트워크 품질 — 드롭 총량/패킷 총량, tx 패킷(재전송 분모). server_net_io_5m 물리+bond.
+                SELECT server_id,
+                    SUM(rxd) + SUM(txd) AS drops_total,
+                    SUM(rxp) + SUM(txp) AS packets_total,
+                    SUM(txp)            AS tx_packets_total
+                FROM (
+                    SELECT server_id,
+                        delta(rxd_ca) AS rxd, delta(txd_ca) AS txd,
+                        delta(rxp_ca) AS rxp, delta(txp_ca) AS txp
+                    FROM server_net_io_5m
+                    WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
+                ) n GROUP BY server_id
             )
             SELECT
                 s.id            AS server_id,
@@ -122,12 +198,29 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 mm.worst_used_pct AS worst_mount_used_pct,
                 -- 표본 충분성 — 실측 cpu/mem 버킷 / 윈도우 기대 버킷(period_days*288, 5분 cagg). p95 신뢰도 단서.
                 cs.cpu_sample::float / NULLIF(:expected_samples, 0) AS cpu_sufficiency,
-                ms.mem_sample::float / NULLIF(:expected_samples, 0) AS mem_sufficiency
+                ms.mem_sample::float / NULLIF(:expected_samples, 0) AS mem_sufficiency,
+                -- ADR 0052 신 신호 — steal p95·burst(p95/median)·D-state p95·swap paging·await p95·runway·품질·추세.
+                rs.cpu_steal_p95 AS cpu_steal_p95,
+                CASE WHEN cs.cpu_median > 0 THEN cs.cpu_p95 / cs.cpu_median END AS cpu_burst_ratio,
+                rs.procs_blocked_p95 AS procs_blocked_p95,
+                COALESCE(rs.swap_paging, false) AS swap_paging,
+                cs.cpu_sample * 5.0 / 60.0 AS history_hours,  -- 관측 버킷(5분) 누적 시간(계층3 AWS 30h floor)
+                da.await_p95 AS disk_await_p95_ms,
+                mr.disk_runway_days  AS disk_capacity_runway_days,
+                mr.inode_runway_days AS disk_inode_runway_days,
+                nq.drops_total  / NULLIF(nq.packets_total, 0)    * 100 AS net_drop_pct,
+                rs.retrans_total / NULLIF(nq.tx_packets_total, 0) * 100 AS net_retrans_pct,
+                rs.cpu_trend_slope AS cpu_trend_slope,
+                rs.mem_trend_slope AS mem_trend_slope
             FROM server_inventory s
-            LEFT JOIN cpu_stats  cs ON cs.server_id = s.id
-            LEFT JOIN mem_stats  ms ON ms.server_id = s.id
-            LEFT JOIN load_stats ls ON ls.server_id = s.id
-            LEFT JOIN mount_max  mm ON mm.server_id = s.id
+            LEFT JOIN cpu_stats   cs ON cs.server_id = s.id
+            LEFT JOIN mem_stats   ms ON ms.server_id = s.id
+            LEFT JOIN load_stats  ls ON ls.server_id = s.id
+            LEFT JOIN rs_stats    rs ON rs.server_id = s.id
+            LEFT JOIN mount_max   mm ON mm.server_id = s.id
+            LEFT JOIN mount_runway mr ON mr.server_id = s.id
+            LEFT JOIN disk_await_stats da ON da.server_id = s.id
+            LEFT JOIN net_quality nq ON nq.server_id = s.id
             WHERE s.id = ANY(:sids)
             ORDER BY s.hostname
         """)
@@ -137,6 +230,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 "sids": server_ids,
                 "start": start,
                 "end": end,
+                # runway(mount_span)는 :period_days 미사용 — 전체 이력 실제 span 기반. start/end 는 분류 14일 창.
                 "expected_samples": period_days * 288,  # 5분 버킷 윈도우 기대(24*12), cagg 사전집계
             },
         )
@@ -175,6 +269,19 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 worst_mount_used_pct=r.worst_mount_used_pct,
                 cpu_sufficiency=r.cpu_sufficiency,
                 mem_sufficiency=r.mem_sufficiency,
+                # ADR 0052 신 신호 (신 모델 rollup_host 입력, build_resource_stats 가 ResourceStats 로 배선)
+                cpu_steal_p95_pct=r.cpu_steal_p95,
+                cpu_burst_ratio=r.cpu_burst_ratio,
+                procs_blocked_p95=r.procs_blocked_p95,
+                mem_swap_paging=bool(r.swap_paging),
+                history_hours=r.history_hours,
+                disk_await_p95_ms=r.disk_await_p95_ms,
+                disk_capacity_runway_days=r.disk_capacity_runway_days,
+                disk_inode_runway_days=r.disk_inode_runway_days,
+                net_drop_pct=r.net_drop_pct,
+                net_retrans_pct=r.net_retrans_pct,
+                cpu_trend_slope=r.cpu_trend_slope,
+                mem_trend_slope=r.mem_trend_slope,
             )
             for r in result.all()
         ]

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from assessment_engine import recommendation
 from assessment_engine.db.repositories.base_diagnostic_repository import (
+    DIAGNOSTIC_DEFAULT_TIME_RANGE,
     DiagnosticTimeRange,
 )
 from assessment_engine.service_classifier import SERVICE_CATEGORIES
@@ -147,14 +148,15 @@ async def topology(
 @environment_router.get("/assessment")
 async def assessment(
     request: Request,
-    time_range: DiagnosticTimeRange = Query(DASHBOARD_TIME_RANGE),
+    time_range: DiagnosticTimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
     anchor_at: datetime | None = Query(None),
     fragment: str | None = Query(None),
     back: str | None = Query(None),
     service: QueryService = Depends(get_service),
 ):
-    """환경 자원 평가 (모니터링) — 윈도우/앵커 선택 -> 자원 적정성 분류 + 자원 부족 전체 목록.
+    """환경 자원 평가 — 14일 표준 창(WINDOW_DAYS) 분류 + 자원 부족·효율화. 윈도우/앵커 override 가능.
 
+    분류 창은 서버 목록·보고서·환경 개요 카드와 같은 14일(#F10 #E3 정합). 기본값 `DIAGNOSTIC_DEFAULT_TIME_RANGE`.
     환경 단위 `/environment` 그룹. fragment=result: 결과 partial 만 재렌더 (JS swap, 풀 reload 회피)."""
     result = await service.get_environment_assessment(time_range, anchor_at)
     qs = f"?time_range={time_range}" + (f"&anchor_at={quote(anchor_at.isoformat(), safe='')}" if anchor_at else "")
@@ -191,7 +193,9 @@ async def overview(
         "overview": overview,
         # 페이지 렌더(새로고침) 시각 — 우측 상단 표시용. UTC 전달, 템플릿 kst 필터로 표시(#F2).
         "generated_at": datetime.now(UTC),
-        "window_label": _DASHBOARD_WINDOW_LABEL,
+        "window_label": _DASHBOARD_WINDOW_LABEL,  # 평균 활용률 카드 (24h 모니터링)
+        # 자원 적정성 분류 카드 라벨 — WINDOW_DAYS 파생(14일). 활용률 24h 와 구분 (F10 단일 소스).
+        "classification_window_label": f"{recommendation.WINDOW_DAYS}일",
         "active_nav": "overview",
         "self_back": quote("/", safe=""),
     }

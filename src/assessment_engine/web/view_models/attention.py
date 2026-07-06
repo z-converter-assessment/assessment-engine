@@ -206,7 +206,7 @@ class RealtimePeakGroup:
 
 @dataclass
 class EnvironmentRealtime:
-    """list 화면 '환경 실시간 메트릭' 카드 — 현황 모니터링(최신 스냅샷). right-sizing(7일 통계)과 별개 용도.
+    """list 화면 '환경 실시간 메트릭' 카드 — 현황 모니터링(최신 스냅샷). right-sizing(14일 통계)과 별개 용도.
 
     sample_size: 평균 표본 = 최신 스냅샷이 신선(now-TTL 이내)한 서버 수 (stale 제외, 'sample_size/total' 표기).
     online/offline: 스냅샷 신선도만으로 판단 (데이터 유무가 곧 온라인 — Redis online flag 이중 게이트 없음).

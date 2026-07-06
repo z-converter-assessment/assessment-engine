@@ -1,5 +1,5 @@
-{# 환경 개요(`/`) 본문 — 정적 집계(자동 갱신 없음). 컨텍스트 의무: overview, window_label. #}
-{% from "_shared.html" import empty_state, window_meta, util_donut %}
+{# 환경 개요(`/`) 본문 — 정적 집계(자동 갱신 없음). 컨텍스트 의무: overview, window_label, classification_window_label. #}
+{% from "_shared.html" import empty_state, window_meta, util_donut, provisioning_dist_bar %}
 
 {% if overview and overview.total > 0 %}
 <section class="card no-print">
@@ -21,6 +21,20 @@
   </div>
   {% endif %}
   <div class="text-muted text-sm" style="margin-top:8px;">서비스 미식별 <strong class="text-strong">{{ overview.role_unknown_count }}</strong>대</div>
+</section>
+
+{# 자원 적정성 분류 분포 — 14일 표준 창(서버 목록·보고서 정합). 개요는 분포 요약만, 상세(효율화·부족 표)는
+   환경 자원 평가 페이지. 활용률 24h 와 윈도우 구분(우측 메타 라벨). 헤더 포맷은 평균 활용률 카드와 통일. #}
+<section class="card no-print">
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+    <h2 class="card-title" style="margin:0;">자원 적정성</h2>
+    <span class="section-meta">{{ window_meta(overview.risk_donut_total, classification_window_label) }}</span>
+  </div>
+  {% if overview.risk_donut and overview.risk_donut_total > 0 %}
+  {{ provisioning_dist_bar(overview.risk_donut) }}
+  {% else %}
+  {{ empty_state("평가된 서버가 없습니다 — 표본이 쌓이면 분류 분포가 표시됩니다.") }}
+  {% endif %}
 </section>
 
 {# 24h capacity-weighted 평균(#F10 DASHBOARD_TIME_RANGE). 순간 스냅샷은 실시간 현황 페이지. #}

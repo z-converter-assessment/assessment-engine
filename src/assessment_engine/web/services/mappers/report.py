@@ -422,6 +422,21 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         # Windows CPU/Memory saturation — Processor Queue Length p95 / Pages/sec rate p95 (os-aware 소비).
         cpu_run_queue_p95=raw.cpu_run_queue_p95,
         mem_paging_rate_p95=raw.mem_paging_rate_p95,
+        # ─── ADR 0052 신 모델(rollup_host) 입력 — report_aggregate 산출 raw 를 도메인 축으로 배선 ───
+        # cpu_percore_p95_max 는 agent per-core 미저장이라 None(도메인 단일스레드 판정 graceful skip).
+        procs_blocked_p95=raw.procs_blocked_p95,
+        mem_swap_paging=raw.mem_swap_paging,
+        mem_total_mb=(raw.mem_total_kb // 1024 if raw.mem_total_kb is not None else None),
+        disk_await_p95_ms=raw.disk_await_p95_ms,
+        disk_capacity_runway_days=raw.disk_capacity_runway_days,
+        disk_inode_runway_days=raw.disk_inode_runway_days,
+        net_retrans_pct=raw.net_retrans_pct,
+        net_drop_pct=raw.net_drop_pct,
+        history_hours=raw.history_hours,
+        cpu_burst_ratio=raw.cpu_burst_ratio,
+        # 이용률 상승 추세 — 임계 이진화는 도메인 단일(regr_slope %/day raw -> bool). 다운사이즈 정상성 게이트.
+        util_trend_rising=recommendation.util_trend_rising_from_slopes(raw.cpu_trend_slope, raw.mem_trend_slope),
+        cpu_steal_p95_pct=raw.cpu_steal_p95_pct,
     )
 
 
@@ -563,9 +578,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         diagnosis=(
             _build_insufficient_reason(raw, is_online)
             if rec == "insufficient_data"
-            else (
-                ("" if is_online else "오프라인 · ") + _build_diagnosis(raw, stats, cpu_variance, mem_variance)
-            )
+            else (("" if is_online else "오프라인 · ") + _build_diagnosis(raw, stats, cpu_variance, mem_variance))
         ),
         recommendation_action=_build_recommendation_action(assessment),
         workload_groups=workload_groups,

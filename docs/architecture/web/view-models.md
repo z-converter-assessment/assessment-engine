@@ -35,7 +35,7 @@
 
 환경 개요(`/`)에서 두 영역 노출 — `EnvironmentOverview`(환경 요약 KPI + 활용률 도넛 + 프로비저닝 분포 도넛) + `AttentionSignals`(운영신호 카드 3 카탈로그 — 통신끊김/OS지원종료/에이전트재시작). 서버 목록(`/servers`)은 행만 — 화면 분리 자체가 컨텍스트 가드(#E9).
 
-요약 위젯 윈도우는 `DASHBOARD_TIME_RANGE`(24h, #F10), right-sizing 표준 평가 윈도우는 `recommendation.WINDOW_DAYS=7` (#F10) — 의도 분리.
+요약 위젯 윈도우는 `DASHBOARD_TIME_RANGE`(24h, #F10), right-sizing 표준 평가 윈도우는 `recommendation.WINDOW_DAYS=14` (#F10) — 의도 분리.
 
 | ViewModel | 채우는 mapper | 데이터 소스 | 시간 축 | 색상 톤 |
 |-----------|---------------|-------------|---------|---------|

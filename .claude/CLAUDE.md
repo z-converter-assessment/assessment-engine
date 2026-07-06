@@ -385,8 +385,9 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/operations/
 원칙: 보고서·대시보드·차트 모두 같은 평가 윈도우·시계열 옵션 카탈로그 참조 — 화면별 의미 분기 방지.
 
 본 절 결정:
-- right-sizing 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 7). 보고서 라우터·서버 목록 분류·구간 선택 기본값(`DIAGNOSTIC_DEFAULT_TIME_RANGE`·보고서 발행 select)·ADR 0003 모두 본 상수/동일 값 참조. 변경 시 `_thresholds_reference.html` 표제도 동기화.
-- 모니터링 현황 카드 — 환경 개요(평균 활용률)·환경 자원 평가(자원 적정성 평가)는 `DASHBOARD_TIME_RANGE`("24h", query_service) 고정 — 최근 현황 모니터링, right-sizing 표준 평가와 의도 분리. 보고서 라우터·환경 자원 평가 페이지(`/environment/assessment`)만 `?time_range=` override 허용(평가 페이지 기본값도 `DASHBOARD_TIME_RANGE`). 서버 상세 차트는 실시간 모니터링이라 별도(globalRange 기본 15m, 평가 윈도우와 무관).
+- right-sizing 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 14 — AWS Compute Optimizer 기본 lookback, 계층3). 보고서 라우터·서버 목록 분류·환경 개요 자원 적정성 카드·환경 자원 평가 페이지·구간 선택 기본값(`DIAGNOSTIC_DEFAULT_TIME_RANGE`·보고서 발행 select) 모두 본 상수/동일 값 참조 — 분류는 화면 간 14일 단일(#E3, 화면별 의미 분기 0). 변경 시 `_thresholds_reference.html` 표제도 동기화.
+- 윈도우 3분리 기준 (목적별, 임의값 0): (1) 분류·신뢰도 입력 = 14일 창 — p95·burst·steal·coverage·history_hours 전부 이 창. (2) 용량 runway = 가용 이력 전체 — 누적 신호라 길수록 정확, `report_aggregate` mount_span 이 하한 없이 `bucket <= :end` 로 실제 span 기반 산출(#C5 하한 술어 의식적 예외, tradeoffs T18). (3) 모니터링 활용률 게이지 = 24h(`DASHBOARD_TIME_RANGE`) — 분류 아닌 현재 활용 스냅샷(환경 개요 평균 활용률 카드 전용). 앵커 = 라이브 now / 보고서 발행 시점. 서버 상세 차트는 실시간 모니터링이라 별도(globalRange 15m, 평가 윈도우 무관).
+- 다운사이즈 처방 이력 게이트 = 창 대비 관측 비율(`RS_DOWNSIZE_MIN_SUFFICIENCY`=0.7, `sample_sufficiency`) — 절대 시간 아님(WINDOW_DAYS 바뀌어도 문턱 불변, 미세 갭 흡수). 통계 정밀도 절대 바닥은 `RS_CONFIDENCE_MIN_HOURS`=30h(하드 컷 아닌 신뢰도 하향 트리거).
 - 환경 부하 추이(보고서 SSR 정적 차트) bucket 은 `AUTO_BUCKET[range]` 동적 — 발행 time_range 기준(예: 7d -> 3h, 24h -> 30m). 윈도우 변경 시 집계 단위 자동 추종 — 하드코딩 금지.
 - TimeRange/BucketSize Literal 단일 진실 = `db/repositories/query/types.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
 - range -> 자동 bucket 매핑(`AUTO_BUCKET`)은 backend `types.AUTO_BUCKET` 와 frontend `chart-utils.js` 두 곳 — 값 동기화 의무 (range별 적정 분해력 단일 의미). 신규 TimeRange 도입 시 두 곳 동시 신설. SSR 정적 차트(환경 부하 추이)는 backend 매핑, 동적 fetch 차트는 frontend 매핑 적용 — 둘이 어긋나면 같은 range 가 화면별 다른 bucket.

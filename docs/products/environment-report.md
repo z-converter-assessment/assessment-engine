@@ -82,7 +82,7 @@
 
 | 항목 | 내용 | source |
 |------|------|--------|
-| 평가 윈도우 | 7일 default (`recommendation.WINDOW_DAYS`) | Azure Advisor 단기 표준 (7일) — 14일·30일은 라우터 override |
+| 평가 윈도우 | 14일 default (`recommendation.WINDOW_DAYS`) | AWS Compute Optimizer 기본 lookback (14일) — 7일·30일은 라우터 override |
 | 평가 커버리지 | `evaluated_servers / total_servers` — 메트릭 데이터가 분류 가능한 정도로 누적된 서버 수 | DB 시계열 집계 |
 | 분류 분포 | over_provisioned / under_provisioned / idle / optimal 각 카운트 | `recommendation.classify` |
 | 우선 검토 권장 | 분포 중 가장 시급한 카테고리 1개 | 규칙 |
@@ -106,9 +106,9 @@ Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 
 
 운영 신호 (2축 분리): 자원 적정성 평가(축1, 디스크 capacity·IO 포함)와 별개로 AttentionSignals 3종(통신 끊김·OS 지원 종료·에이전트 재시작)이 운영 신호 축. 보고서는 그중 OS 지원 종료만 카드로 표시(통신 끊김·에이전트 재시작은 윈도우 의미 불일치로 전역 카드 미표시 — 에이전트 재시작은 engineer 호스트 상세 컬럼).
 
-### 평가 윈도우 7일
+### 평가 윈도우 14일
 
-- Azure Advisor right-sizing 단기 권장 윈도우 (7일) — AWS Compute Optimizer(14일)는 라우터 override 로 지원
+- AWS Compute Optimizer 기본 lookback (14일) — 7일·30일은 라우터 override 로 지원
 - 사용량 주기성 평탄화에 충분한 단기 구간 (7~14일 범위)
 - 사용량의 일·주 단위 주기성(주중·주말) 평탄화에 충분
 - 너무 짧으면(1~3일) 일시 부하·정기 백업을 평상 부하로 오인
@@ -123,7 +123,7 @@ Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 
 
 `total_servers` vs `evaluated_servers` 는 다른 수치다.
 - `total_servers` — 인벤토리에 등록된 모든 활성 서버 수 (최근 N 시간 안에 에이전트가 살아 있었던 서버).
-- `evaluated_servers` — 그중 분류 가능한 서버 수. 시계열 데이터가 평가 윈도우 (7일) 에 비해 너무 짧은 신규 서버나 메트릭 누적이 부족한 서버는 평가 불가.
+- `evaluated_servers` — 그중 분류 가능한 서버 수. 시계열 데이터가 평가 윈도우 (14일) 에 비해 너무 짧은 신규 서버나 메트릭 누적이 부족한 서버는 평가 불가.
 
 운영자에게 보여줘야 하는 이유: 환경 보고서가 신뢰성 있게 답한 대상의 범위 명시. "23대 평가 후 분포가 이렇다"가 "25대 전체에 적용된다"는 오해 회피.
 
@@ -145,14 +145,14 @@ Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 
 1. 위험도 3단계 압축 (customer view 한정) — `recommendation` 6분류를 high/attention/normal 3단계로 압축. shutdown·idle·over_provisioned 가 모두 "주의 필요" 로 묶임. 고객에게 더 세분된 행동을 제시하지 못함.
 2. 평균 활용률 KPI 는 산술 평균 — 환경 안 서버 부하 분포가 양극화 (절반 고부하·절반 저부하) 되면 평균은 misleading. p50·p95 분포 표시도 검토 후보.
 3. 워크로드 역할 무관 임계 — DB·캐시·앱서버 모두 같은 70%/80% 임계. DB 는 메모리 압박이 정상 운영일 수 있는데 "고위험" 으로 잡힐 가능성. 향후 역할별 임계 분기 시 정밀도 증가.
-4. 7일 윈도우 내 일회성 부하 — 단발 부하 (월 1회 배치 등) 가 그 윈도우 안에 들면 평상 부하로 오인. 외부 윈도우 (30일·90일)·요일/시간대 분리 미적용.
+4. 14일 윈도우 내 일회성 부하 — 단발 부하 (월 1회 배치 등) 가 그 윈도우 안에 들면 평상 부하로 오인. 외부 윈도우 (30일·90일)·요일/시간대 분리 미적용.
 5. 정성 요약의 표현 한정 — 결정론 템플릿이라 운영자가 추가 컨텍스트 (예: "이 서버는 신규 도입 한 달째"·"비용 절감 우선") 를 요약에 반영 불가.
 6. 인쇄 색상 — 브라우저 인쇄 시 색 처리가 브라우저별 다름. 흑백 PDF 에서 위험도 색이 비슷해 보일 수 있음. `print` CSS 에서 별도 처리.
 
 ## 한계 해결 후보 (재논의 시점)
 
 - 워크로드 역할별 임계 분기 → 별도 ADR.
-- 통계 윈도우 옵션 (7d·14d·30d) UI 토글 → 현재 7일 default 만 노출.
+- 통계 윈도우 옵션 (7d·14d·30d) UI 토글 → 현재 14일 default 만 노출.
 
 ## 관련 문서·코드
 

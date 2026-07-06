@@ -82,7 +82,7 @@ N대 selection 은 서버 간 비교를 위해 행 단위 정량 표(양식 B)�
 
 | 항목 | 내용 | source |
 |------|------|--------|
-| 평가 윈도우 | 서버 보고서 default 7일, URL `?time_range=`(15m~30d) override | `recommendation.WINDOW_DAYS` 또는 `DIAGNOSTIC_DEFAULT_TIME_RANGE` |
+| 평가 윈도우 | 서버 보고서 default 14일, URL `?time_range=`(15m~30d) override | `recommendation.WINDOW_DAYS` 또는 `DIAGNOSTIC_DEFAULT_TIME_RANGE` |
 | Anchor 시점 | 현재 또는 발행 시점 | default now |
 | 분류 | under/over/idle/shutdown/optimal/insufficient_data | `recommendation.classify` |
 | 권장 action | upsize_cpu / upsize_memory / downsize_cpu / downsize_memory / shutdown_idle / no_action | `recommendation` |
@@ -113,7 +113,7 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 
 ### 평가 윈도우
 
-- 서버 보고서 default 7일 (`recommendation.WINDOW_DAYS`). URL `?time_range=`(15m·1h·6h·24h·7d·14d·30d) override 가능. 짧은 윈도우는 단발 부하·실시간 시연 검증, 긴 윈도우는 신뢰성 증가 최근 변동 반영 늦음.
+- 서버 보고서 default 14일 (`recommendation.WINDOW_DAYS`). URL `?time_range=`(15m·1h·6h·24h·7d·14d·30d) override 가능. 짧은 윈도우는 단발 부하·실시간 시연 검증, 긴 윈도우는 신뢰성 증가 최근 변동 반영 늦음.
 
 ### view 분기 의도
 

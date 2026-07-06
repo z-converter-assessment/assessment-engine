@@ -30,7 +30,7 @@
       <tr><td>OS EOL</td><td>OS 배포판·버전의 vendor 지원 종료일(endoflife.date 기준). 임박·경과 시 보안 패치 중단 — 마이그레이션 선행 필요.</td></tr>
       <tr><td>운영 신호</td><td>자원 적정성 평가와 별도의 안정성 신호 — 데이터 수집 끊김(gap)·OS 지원 종료·에이전트 재시작·재부팅 빈도. 분류 정상이어도 발화 시 운영 조치 선행.</td></tr>
       <tr><td>신뢰도</td><td>분류 결과의 확신 수준 단서 — 미관측 축·표본 부족 시 노출. 분류 자체는 가진 데이터로 완결. 상세는 "신뢰도 단서" 절.</td></tr>
-      <tr><td>평가 윈도우</td><td>통계 산출 기간 — 보고서 표준 7일. 상세는 "평가 윈도우" 절.</td></tr>
+      <tr><td>평가 윈도우</td><td>통계 산출 기간 — 보고서 표준 14일. 상세는 "평가 윈도우" 절.</td></tr>
     </tbody>
   </table>
   </div>
@@ -67,7 +67,7 @@
       <tr><td>자원 부족 (under_provisioned)</td><td>Utilization</td><td>disk worst mount %</td><td>>= 85%</td><td>Cloud Advisor storage capacity</td></tr>
       <tr><td>자원 부족 (under_provisioned)</td><td>Saturation</td><td>disk I/O (os-aware)</td><td>Linux iowait_p95 >= 20% · Windows disk queue >= 2</td><td>USE Method — disk IO 병목</td></tr>
       <tr><td>정상 (optimal)</td><td>—</td><td>위 임계 미해당</td><td>정상</td><td>USE 잔여</td></tr>
-      <tr><td>표본 부족 (insufficient_data)</td><td>—</td><td>cpu_p95·mem_p95 둘 다 null 이고 under 신호도 없음</td><td>표본 부족</td><td>신규/7일 미만 (OS 메트릭 부재만으로는 미발화)</td></tr>
+      <tr><td>표본 부족 (insufficient_data)</td><td>—</td><td>cpu_p95·mem_p95 둘 다 null 이고 under 신호도 없음</td><td>표본 부족</td><td>신규/14일 미만 (OS 메트릭 부재만으로는 미발화)</td></tr>
     </tbody>
   </table>
   </div>
@@ -247,9 +247,9 @@
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">평가 윈도우</h2>
   <p class="text-md text-label" style="margin:0; line-height:1.6;">
-    자원 적정성 평가 표준은 <code>recommendation.WINDOW_DAYS</code> = 7일 — 보고서·서버 목록 분류 기준.
+    자원 적정성 평가 표준은 <code>recommendation.WINDOW_DAYS</code> = 14일 — 보고서·서버 목록 분류 기준.
     보고서 발행 시 <code>15m / 1h / 6h / 24h / 7d / 14d / 30d</code> 구간 선택 가능하며 분류·통계·세부 목록 모두 선택 구간으로 평가.
-    모니터링 현황 카드 — 환경 개요(평균 활용률)는 최근 24시간 고정(DASHBOARD_TIME_RANGE), 환경 자원 평가는 24시간 기본(구간 선택 가능) — 표준 평가(7일)와 의도 분리(최근 현황 모니터링).
+    모니터링 현황 카드 — 환경 개요(평균 활용률)는 최근 24시간 고정(DASHBOARD_TIME_RANGE), 환경 자원 평가는 24시간 기본(구간 선택 가능) — 표준 평가(14일)와 의도 분리(최근 현황 모니터링).
     버킷(집계 단위)은 구간별 자동 결정. 윈도우가 너무 짧으면 p95 표본 신뢰도가 낮아짐 — 단기 구간 결과는 spike 확인용으로 한정 권장.
   </p>
 </section>

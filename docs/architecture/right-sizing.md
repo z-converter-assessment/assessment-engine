@@ -7,7 +7,7 @@
 
 ## 1. 목적·범위
 
-right-sizing = 관측 부하(`WINDOW_DAYS` = 7일 통계) 대비 할당 자원의 적정성 평가. 규칙 기반 결정적 분류 — 자원(CPU/Mem/Disk)별로 "가진 축"을 신호로 모아 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다. 가진 데이터로 항상 결론을 내며("어떤 데이터로 이 분류" 설명 가능), saturation 축은 OS별 실측 신호로 정규화하되(Linux load/swap/iowait, Windows run queue/paging/disk queue) 해당 카운터를 못 읽어 값이 없는 축만 분류를 막지 않고 confidence 단서(unmeasured)로 노출한다.
+right-sizing = 관측 부하(`WINDOW_DAYS` = 14일 통계) 대비 할당 자원의 적정성 평가. 규칙 기반 결정적 분류 — 자원(CPU/Mem/Disk)별로 "가진 축"을 신호로 모아 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다. 가진 데이터로 항상 결론을 내며("어떤 데이터로 이 분류" 설명 가능), saturation 축은 OS별 실측 신호로 정규화하되(Linux load/swap/iowait, Windows run queue/paging/disk queue) 해당 카운터를 못 읽어 값이 없는 축만 분류를 막지 않고 confidence 단서(unmeasured)로 노출한다.
 
 UI badge 임계(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`, 90/75)와는 별 도메인이다 — 그쪽은 시점 사용량 시각 신호, 본 모듈은 윈도우 통계 기반 사이징 결정. 혼용 금지.
 
@@ -76,4 +76,4 @@ trigger 6키(`cpu_util`·`mem_util`·`disk_capacity`·`cpu_saturation`·`disk_io
 
 - Windows saturation 임계 근거 비대칭: disk queue(>= 2)·CPU run queue(>= 2/core)는 Microsoft 표준 병목 기준이나, 메모리 페이징 임계(Pages/sec >= 1000)는 절대 임계 근거가 약한 rule-of-thumb 이라 보수적으로 두고 실측 튜닝 대상이다(`MEM_PAGING_RATE_SATURATION`). 세 축 모두 해당 perflib 미부착·미발행 시 그 축만 미관측(confidence 단서)이며 분류는 나머지 축으로 완결. `docs/tradeoffs.md` T14.
 - 디스크 용량 환경 집계: 개별 호스트 `disk_capacity` trigger(worst mount used %)는 단일 마운트 비율이라 OS 무관하게 신뢰 가능하나, 환경 전체 디스크 활용률을 자원 총량으로 합산(Σtotal_bytes)하는 capacity-weighted 집계는 Windows 물리디스크/디바이스(major·minor) 인식이 불완전해 신뢰가 떨어진다 — 환경 p95 등 디스크 합산 지표 도입 시 주의(현재 환경 평균 활용률 disk 바만 유지, 환경 p95 는 CPU·메모리만).
-- p95 표본: 윈도우(7일)보다 데이터가 짧으면 p95 표본 신뢰도가 저하된다. cpu_p95·mem_p95 둘 다 부재면 insufficient_data.
+- p95 표본: 윈도우(14일)보다 데이터가 짧으면 p95 표본 신뢰도가 저하된다. cpu_p95·mem_p95 둘 다 부재면 insufficient_data.

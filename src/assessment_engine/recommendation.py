@@ -12,7 +12,7 @@ under(위험) 우선 우선순위로 단일 분류 하나 + 근거(triggers) + �
 
 UI badge 임계값(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인:
 - mapper 90/75 = 시점 사용량 시각 신호 (위험·주의·정상)
-- 본 모듈 = WINDOW_DAYS(7일) 통계 기반 right-sizing 결정 (idle/over/under 등)
+- 본 모듈 = WINDOW_DAYS(14일) 통계 기반 right-sizing 결정 (idle/over/under 등)
 
 합성 규칙 (단일 진실):
 - under = 위험 신호 OR (어떤 자원이든 고이용·포화·용량초과 하나라도 -> 누락 0)
@@ -26,8 +26,10 @@ from typing import Literal
 
 # ─── 임계값 ─────────────
 
-# 관찰 윈도우 — 평가·차트·보고서 공통 표준 기간 (F10 단일 진실)
-WINDOW_DAYS = 7
+# 관찰 윈도우 — 평가·차트·보고서 공통 표준 기간 (F10 단일 진실).
+# 14일 = AWS Compute Optimizer 기본 lookback (계층3) — 최근 대표 부하. 분류·신뢰도 입력이 모두 이 창.
+# runway(용량 추세)만 별도로 가용 이력 전체를 쓴다(누적 신호라 길수록 정확, report_aggregate mount_span).
+WINDOW_DAYS = 14
 
 # Idle 판정 — AWS Compute Optimizer
 IDLE_CPU_PEAK_PCT = 1
@@ -123,7 +125,7 @@ class ResourceStats:
     mem_total_mb: int | None = None  # 현재 RAM — 사이징 목표 계산용
     # 디스크 I/O
     disk_await_p95_ms: float | None = None  # 응답 지연 p95 — virtio 포화 주신호(계층3 VMware/SQL)
-    # 디스크 용량 (엔진이 mount 이력 Theil-Sen 으로 산출)
+    # 디스크 용량 (엔진이 mount 이력 전체 span 의 2점 fill_rate 로 산출 — report_aggregate mount_span)
     disk_capacity_runway_days: float | None = None  # 바이트 소진까지 남은 일수(하락·수평이면 None=안 참)
     disk_inode_runway_days: float | None = None  # inode 소진까지 남은 일수
     # 네트워크 (품질 신호)
@@ -368,13 +370,30 @@ RS_DISK_STATIC_GUARD_PCT = 85  # 계층3 monitoring 표준(major) — 추세 신
 RS_DISKIO_AWAIT_MS = 20  # 계층3 VMware(read >20ms critical) / SQL Server(~10-15ms)
 RS_NET_RETRANS_PCT = 1.0  # 계층3 monitoring(재전송 >1% 성능 영향)
 RS_NET_DROP_PCT = 0.5  # 계층3 monitoring(드롭 <0.5% 비즈니스 앱)
-RS_CONFIDENCE_MIN_HOURS = 30  # 계층3 AWS insufficient-data(14일 창 누적 30h) — 미만이면 표본 부족
-RS_DOWNSIZE_MIN_HOURS = 24 * 14  # 여유 기준 — 다운사이즈는 위험 방향이라 바닥보다 넉넉히(2주)
+RS_CONFIDENCE_MIN_HOURS = 30  # 계층3 AWS insufficient-data(14일 창 누적 30h) — 미만이면 통계 정밀도 하향(절대 바닥)
+# 여유 기준 — 다운사이즈는 위험 방향이라 창이 충분히 관측됐을 때만 처방. 절대 시간 대신 창 대비 관측 비율로
+# (관측/기대 버킷 >= 0.7) — 미세 갭 흡수 + WINDOW_DAYS 바뀌어도 문턱 불변. 0.7 = 창 30% 갭까지 허용.
+RS_DOWNSIZE_MIN_SUFFICIENCY = 0.7
 RS_BURST_RATIO_MAX = 2.0  # 여유 기준 — p95/median > 2 면 버스티(통계 정밀도 하향)
+# 여유 기준 — 이용률 최소제곱 기울기 %/day 가 이 이상이면 유의한 상승(다운사이즈 정상성 게이트).
+# Theil-Sen(강건) 대신 regr_slope(최소제곱) 산출을 임계로 이진화 — 다운사이즈 억제 방향이라 보수적 소값.
+RS_UTIL_TREND_RISING_PCT_PER_DAY = 0.2
 
 # OS별 CPU 포화선 (실행큐/코어) — Linux load 1.0 / Windows Processor Queue Length 2.0 (스케일 상이, ADR 0029 계승)
 _RS_CPU_SAT_LINE = {"windows": 2.0}
 _RS_CPU_SAT_LINE_DEFAULT = 1.0  # Linux/unknown
+
+
+def util_trend_rising_from_slopes(cpu_slope: float | None, mem_slope: float | None) -> bool | None:
+    """cpu·mem 이용률 기울기(%/day)로 상승 추세 판정 — 다운사이즈 정상성 게이트(도메인 임계 단일, 원칙 P2).
+
+    둘 중 하나라도 임계 이상이면 상승(보수적 — 어느 코어 자원이든 성장하면 다운사이즈 보류).
+    둘 다 None(표본<2 등 추세 산출 불가)이면 None -> nonstationary 미설정(다른 신뢰도 축이 짧은 이력 방어).
+    """
+    slopes = [s for s in (cpu_slope, mem_slope) if s is not None]
+    if not slopes:
+        return None
+    return any(s >= RS_UTIL_TREND_RISING_PCT_PER_DAY for s in slopes)
 
 
 ResourceKind = Literal["cpu", "memory", "disk_capacity", "disk_io", "network"]
@@ -681,8 +700,9 @@ def rollup_host(stats: ResourceStats) -> HostAssessment:
 def downsize_prescribable(assessment: ResourceAssessment, stats: ResourceStats) -> bool:
     """다운사이즈 '처방' 게이트 (ADR 0052) — over 분류는 늘 뜨나 구체 처방은 조건 만족 시만.
 
-    잘못된 다운사이즈가 최악(전제2). 신뢰도 높음(정밀·커버리지·충실도) AND 상승추세 아님 AND 넉넉한 이력.
-    미충족이면 분류는 over 유지하되 권고는 "관찰만".
+    잘못된 다운사이즈가 최악(전제2). 신뢰도 높음(정밀·커버리지·충실도) AND 상승추세 아님 AND 창이 충분히 관측됨.
+    이력 문턱은 창 대비 관측 비율(sample_sufficiency >= 0.7) — 절대 시간 아님(WINDOW_DAYS 바뀌어도 불변, 미세 갭 흡수).
+    sufficiency None(측정 축 부재)이면 처방 불가(관찰만). 미충족이면 분류는 over 유지하되 권고는 "관찰만".
     """
     if assessment.status != "over":
         return False
@@ -690,7 +710,7 @@ def downsize_prescribable(assessment: ResourceAssessment, stats: ResourceStats) 
         return False
     if assessment.confidence.nonstationary:
         return False
-    if stats.history_hours is not None and stats.history_hours < RS_DOWNSIZE_MIN_HOURS:
+    if stats.sample_sufficiency is None or stats.sample_sufficiency < RS_DOWNSIZE_MIN_SUFFICIENCY:
         return False
     return True
 

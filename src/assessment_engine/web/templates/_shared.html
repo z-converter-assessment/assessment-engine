@@ -9,6 +9,23 @@
 {# window_meta — 표제 메타 "N대 기준 · 최근 {라벨}". window_label = DASHBOARD_TIME_RANGE 윈도우 라벨(#F10). #}
 {% macro window_meta(count, window_label) %}{{ count }}대 기준 · 최근 {{ window_label }}{% endmacro %}
 
+{# provisioning_dist_bar — 자원 적정성 분류 분포 가로 누적 막대 (RiskDonutSegment list). 색·라벨·count·pct
+   전부 mapper precompute(build_risk_donut_segments, _DONUT_SEGMENT_DEFS 단일 소스) — 템플릿 산술 0 (P3).
+   환경 자원 평가(_assessment_result)·환경 개요 카드 공용. #}
+{% macro provisioning_dist_bar(segments) %}
+<div style="display:flex; flex-direction:column; gap:6px;">
+  {% for s in segments %}
+  <div style="display:flex; align-items:center; gap:8px;">
+    <div class="text-sm text-strong" style="width:104px; flex-shrink:0;">{{ s.label }}</div>
+    <div class="bar-track" style="flex:1; background:#f1f5f9; border-radius:4px; height:16px; overflow:hidden;">
+      <div class="bar-fill" style="width:{{ s.pct }}%; background:{{ s.color }}; height:100%;"></div>
+    </div>
+    <strong class="text-sm text-strong" style="width:32px; text-align:right; flex-shrink:0;">{{ s.count }}</strong>
+  </div>
+  {% endfor %}
+</div>
+{% endmacro %}
+
 {# util_donut — 활용률 게이지 도넛 1개 (UtilizationBar). 원주 263.89(r=42). dash_length·bar_color 는 mapper precompute (P3 — 템플릿 산술 0). #}
 {% macro util_donut(u) %}
 <div style="text-align:center;">

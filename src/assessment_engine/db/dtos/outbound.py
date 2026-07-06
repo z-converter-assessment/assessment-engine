@@ -325,6 +325,20 @@ class ReportRowRaw:
     cpu_sufficiency: float | None = None
     mem_sufficiency: float | None = None
 
+    # ─── ADR 0052 신 모델(rollup_host) 입력 raw — report_aggregate 산출, build_resource_stats 가 ResourceStats 배선 ───
+    cpu_steal_p95_pct: float | None = None  # steal% p95 (가상화 경합 — 충실도 편향 단서)
+    cpu_burst_ratio: float | None = None  # cpu p95/median (버스티 -> 통계 정밀도 하향)
+    procs_blocked_p95: float | None = None  # D-state 블록 p95 (IO발 CPU 로드 분리 근본원인)
+    mem_swap_paging: bool = False  # swap page-out(Linux pswpout) 또는 hard page-in(Windows) 발생
+    history_hours: float | None = None  # 관측 버킷(5분) 누적 시간 — 통계 정밀도 바닥(30h floor)
+    disk_await_p95_ms: float | None = None  # 물리 device worst await p95 (Linux, virtio 포화 주신호)
+    disk_capacity_runway_days: float | None = None  # 바이트 소진까지 남은 일수(가장 빨리 차는 마운트)
+    disk_inode_runway_days: float | None = None  # inode 소진까지 남은 일수
+    net_drop_pct: float | None = None  # 드롭/패킷 % (품질)
+    net_retrans_pct: float | None = None  # TCP 재전송/tx패킷 % (품질 — OutSegs 미수집이라 tx_packets 분모 근사)
+    cpu_trend_slope: float | None = None  # cpu 이용률 최소제곱 기울기 %/day (도메인이 상승 추세 판정)
+    mem_trend_slope: float | None = None  # mem 이용률 최소제곱 기울기 %/day
+
 
 @dataclass
 class InventoryExportEntry:

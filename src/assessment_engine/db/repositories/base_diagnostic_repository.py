@@ -5,7 +5,7 @@ from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 
 # ADR 0004 — 차트 TimeRange와 동일 7개. 짧은 윈도우(15m/1h/6h)는 USE Method 표본 부족으로
-# 의미 약하지만 차트와 토글 통합 UX 일관성을 위해 노출. 기본 "7d" — ADR 0003 WINDOW_DAYS와 동일.
+# 의미 약하지만 차트와 토글 통합 UX 일관성을 위해 노출. 기본 "14d" — recommendation.WINDOW_DAYS와 동일.
 DiagnosticTimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 
 # fraction day — SQL interval 은 fraction 지원 (interval '0.25 days' = 6h). period_days 는 float·int 호환.
@@ -30,8 +30,8 @@ CLASSIFICATION_LABEL_KR: dict[str, str] = {
     "insufficient_data": "표본 부족",
 }
 
-# 진단 발행 기본 윈도우 — service default·UI 기본값 단일 진실 (F10). WINDOW_DAYS(7d)와 정합.
-DIAGNOSTIC_DEFAULT_TIME_RANGE = "7d"
+# 진단 발행 기본 윈도우 — service default·UI 기본값 단일 진실 (F10). WINDOW_DAYS(14d)와 정합.
+DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"
 
 
 class BaseDiagnosticRepository(ABC):

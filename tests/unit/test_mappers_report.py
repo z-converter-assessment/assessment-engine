@@ -81,6 +81,19 @@ def _raw(
     net_tx=None,
     cpu_sufficiency=None,
     mem_sufficiency=None,
+    # ADR 0052 신 모델 입력 raw
+    procs_blocked_p95=None,
+    mem_swap_paging=False,
+    disk_await_p95_ms=None,
+    disk_capacity_runway_days=None,
+    disk_inode_runway_days=None,
+    net_retrans_pct=None,
+    net_drop_pct=None,
+    history_hours=None,
+    cpu_burst_ratio=None,
+    cpu_trend_slope=None,
+    mem_trend_slope=None,
+    cpu_steal_p95=None,
 ) -> ReportRowRaw:
     return ReportRowRaw(
         server_id=server_id,
@@ -124,6 +137,18 @@ def _raw(
         net_tx_kbps=net_tx,
         cpu_sufficiency=cpu_sufficiency,
         mem_sufficiency=mem_sufficiency,
+        procs_blocked_p95=procs_blocked_p95,
+        mem_swap_paging=mem_swap_paging,
+        disk_await_p95_ms=disk_await_p95_ms,
+        disk_capacity_runway_days=disk_capacity_runway_days,
+        disk_inode_runway_days=disk_inode_runway_days,
+        net_retrans_pct=net_retrans_pct,
+        net_drop_pct=net_drop_pct,
+        history_hours=history_hours,
+        cpu_burst_ratio=cpu_burst_ratio,
+        cpu_trend_slope=cpu_trend_slope,
+        mem_trend_slope=mem_trend_slope,
+        cpu_steal_p95_pct=cpu_steal_p95,
     )
 
 
@@ -497,8 +522,11 @@ def test_capacity_warning_active_causes_os_neutral_windows():
     """
     item = to_capacity_warning_item(
         _raw(
-            os_family="windows", swap_used=True, cpu_cores=4,
-            mem_paging_rate_p95=2000.0, cpu_run_queue_p95=12.0,
+            os_family="windows",
+            swap_used=True,
+            cpu_cores=4,
+            mem_paging_rate_p95=2000.0,
+            cpu_run_queue_p95=12.0,
         )
     )
     assert "메모리 포화" in item.active_causes
@@ -734,8 +762,13 @@ def test_saturation_axes_windows_os_aware_and_hit():
     """Windows: run queue/paging/disk queue 실측 신호로 3축 노출 + 임계 초과면 '포화'."""
     item = to_report_row_item(
         _raw(
-            os_family="windows", cpu_p95=40.0, mem_p95=60.0, cpu_cores=4,
-            cpu_run_queue_p95=12.0, mem_paging_rate_p95=2000.0, disk_queue_p95=3.5,
+            os_family="windows",
+            cpu_p95=40.0,
+            mem_p95=60.0,
+            cpu_cores=4,
+            cpu_run_queue_p95=12.0,
+            mem_paging_rate_p95=2000.0,
+            disk_queue_p95=3.5,
         ),
         True,
         _NOW,
@@ -752,8 +785,13 @@ def test_saturation_axes_linux_signals_and_ok():
     """Linux: load/swap/iowait 신호로 3축 노출 + 임계 미만이면 '정상'."""
     item = to_report_row_item(
         _raw(
-            os_family="linux", cpu_p95=40.0, mem_p95=60.0, cpu_cores=4,
-            load_15m_max=1.0, swap_used=False, iowait_p95=5.0,
+            os_family="linux",
+            cpu_p95=40.0,
+            mem_p95=60.0,
+            cpu_cores=4,
+            load_15m_max=1.0,
+            swap_used=False,
+            iowait_p95=5.0,
         ),
         True,
         _NOW,
@@ -769,8 +807,12 @@ def test_saturation_axes_unmeasured_when_counter_absent():
     """Windows perflib 미발행(값 None) 축은 '미관측' — 분류를 막지 않고 단서로만."""
     item = to_report_row_item(
         _raw(
-            os_family="windows", cpu_p95=40.0, mem_p95=60.0,
-            cpu_run_queue_p95=None, mem_paging_rate_p95=None, disk_queue_p95=None,
+            os_family="windows",
+            cpu_p95=40.0,
+            mem_p95=60.0,
+            cpu_run_queue_p95=None,
+            mem_paging_rate_p95=None,
+            disk_queue_p95=None,
         ),
         True,
         _NOW,
@@ -1160,6 +1202,52 @@ def test_build_resource_stats_sample_sufficiency_ignores_unmeasured_axis():
     """p95 None 인 축의 sufficiency 는 제외 — 미측정 축이 표본 판정 왜곡 금지."""
     stats = build_resource_stats(_raw(cpu_p95=50.0, cpu_sufficiency=0.8, mem_sufficiency=0.1))
     assert stats.sample_sufficiency == 0.8
+
+
+def test_build_resource_stats_wires_adr0052_signals():
+    """ADR 0052 신 raw 필드 -> ResourceStats 배선 (rollup_host 입력). mem_total_mb 는 kb/1024."""
+    stats = build_resource_stats(
+        _raw(
+            mem_total_kb=4 * 1024 * 1024,  # 4 GiB -> 4096 MB
+            procs_blocked_p95=2.0,
+            mem_swap_paging=True,
+            disk_await_p95_ms=30.0,
+            disk_capacity_runway_days=12.0,
+            disk_inode_runway_days=40.0,
+            net_retrans_pct=1.5,
+            net_drop_pct=0.3,
+            history_hours=200.0,
+            cpu_burst_ratio=1.4,
+            cpu_steal_p95=6.0,
+        )
+    )
+    assert stats.procs_blocked_p95 == 2.0
+    assert stats.mem_swap_paging is True
+    assert stats.mem_total_mb == 4096
+    assert stats.disk_await_p95_ms == 30.0
+    assert stats.disk_capacity_runway_days == 12.0
+    assert stats.disk_inode_runway_days == 40.0
+    assert stats.net_retrans_pct == 1.5
+    assert stats.net_drop_pct == 0.3
+    assert stats.history_hours == 200.0
+    assert stats.cpu_burst_ratio == 1.4
+    assert stats.cpu_steal_p95_pct == 6.0
+    # per-core 는 agent 미저장 -> None graceful
+    assert stats.cpu_percore_p95_max is None
+
+
+def test_build_resource_stats_mem_total_mb_none_when_kb_none():
+    assert build_resource_stats(_raw(mem_total_kb=None)).mem_total_mb is None
+
+
+def test_build_resource_stats_util_trend_rising_from_slopes():
+    """util_trend_rising 은 도메인 헬퍼로 slope -> bool 이진화 (임계 recommendation 단일)."""
+    # mem slope 가 임계(0.2%/day) 이상 -> 상승
+    assert build_resource_stats(_raw(cpu_trend_slope=-0.1, mem_trend_slope=0.5)).util_trend_rising is True
+    # 둘 다 임계 미만 -> 비상승
+    assert build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=-1.0)).util_trend_rising is False
+    # 둘 다 None(추세 산출 불가) -> None
+    assert build_resource_stats(_raw()).util_trend_rising is None
 
 
 # ─── format_net_rate — 실시간·보고서 네트워크 rate 표시 단일 진실 ───

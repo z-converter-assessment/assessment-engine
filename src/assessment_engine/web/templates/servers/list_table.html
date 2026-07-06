@@ -44,8 +44,8 @@
           <option value="1h">1시간</option>
           <option value="6h">6시간</option>
           <option value="24h">1일</option>
-          <option value="7d" selected>7일 (표준)</option>
-          <option value="14d">14일</option>
+          <option value="7d">7일</option>
+          <option value="14d" selected>14일 (표준)</option>
           <option value="30d">30일</option>
         </select>
       </div>
@@ -105,9 +105,9 @@
   <a href="/servers" class="clear-btn" id="filter-clear" style="align-items:center; display:{% if filters_active %}inline-flex{% else %}none{% endif %};">초기화</a>
 </form>
 
-{# 분류 윈도우 명시 — 목록 자원 적정성 분류는 7일 표준(WINDOW_DAYS). 홈·환경 평가(최근 24시간)와 윈도우가 달라
+{# 분류 윈도우 명시 — 목록 자원 적정성 분류는 14일 표준(WINDOW_DAYS). 환경 자원 평가(최근 24시간)와 윈도우가 달라
    축적 후 분류가 갈릴 수 있어 라벨로 오인 방지 (#F10). #}
-<p class="text-meta text-xs" style="margin:0 0 10px;">자원 적정성 분류는 최근 7일 표준 윈도우 기준 (홈·환경 평가는 최근 24시간).</p>
+<p class="text-meta text-xs" style="margin:0 0 10px;">자원 적정성 분류는 최근 14일 표준 윈도우 기준 (환경 자원 평가는 최근 24시간).</p>
 
 <div class="table-scroll">
 <table class="server-list-table">

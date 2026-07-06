@@ -470,3 +470,22 @@ agent 불변 전제의 최선 — 호스트 워크로드 union:
 
 언제 다시 봐야 하는가
 - 오프라인 유예와 실행 timeout 을 독립 조절해야 하면 -> task 에 pickup(running) 신호를 추가해 "배달 TTL(길게) + 실행 deadline(픽업부터 짧게)" 2-타임아웃 모델로 분리. 현재는 pickup 신호가 없어 단일 창.
+
+## T18. 용량 runway 전체 이력 집계 — cagg 하한 술어 예외 (ADR 0052)
+
+무엇을
+- `report_aggregate` 의 mount_span CTE 는 `server_mount_usage_5m` cagg 를 `WHERE server_id = ANY(:sids) AND bucket <= :end` 로 조회한다 — 다른 CTE(분류·포화·품질)가 전부 `bucket >= :start`(14일 창) 인 것과 달리 하한 술어가 없다. 용량 runway(바이트·inode 소진 일수)는 실제 관측 span 전체의 fill_rate 로 산출하기 때문이다(#C5 partition pruning 하한 술어 원칙의 의식적 예외).
+
+왜 전체 이력인가
+- CPU·메모리 이용률은 변동 신호라 최근 14일 대표 부하로 p95 를 뽑는다(오래된 데이터는 지금을 대변 못 함). 반면 디스크 용량은 누적 신호라 채워지는 속도(추세)가 곧 모델이고, 데이터가 길수록 기울기가 정확하다. 14일 창으로 자르면 완만히 차는 볼륨의 runway 를 과소·과대 추정한다. 그래서 runway 만 분류 창과 분리해 전체 이력을 쓴다(윈도우 3분리 기준, #F10).
+
+포기한 것 / 한계
+- 하한 없는 조회라 해당 서버의 데이터 볼륨 마운트 전 chunk 를 스캔한다 — cagg 보존 기간이 길어질수록 스캔량이 unbounded 로 증가. 현재는 5분 버킷·데이터 볼륨 한정이라 규모가 작아 수용하나, cagg retention 이 수개월+로 늘면 runway 조회 비용이 선형 증가한다.
+- cagg 재생성(마이그레이션) 직후엔 materialized 청크가 비어 real-time aggregation(raw hypertable)에 의존하는데, raw `server_mount_usage` 보존 기간이 필요 이력보다 짧으면 오래된 endpoint 를 잃어 runway 가 짧은 span 으로 근사된다(ADR 0043 패턴 내, 운영 관찰 대상).
+- 2점(first/last) 선형 fill_rate 라 비단조(정리 후 급락·계절 변동)에 약하다. principle 초안은 Theil-Sen 강건 추정을 명세하나 SQL O(n^2) 비용으로 미채택 — 완만·단조 증가 가정에서만 신뢰(#E3 report mapper 소비, 신뢰도 축이 짧은 이력을 흡수).
+
+왜 받아들였나
+- 용량 추세는 누적 신호라 전체 이력이 정답이고, 현재 fleet 규모(5분 버킷·데이터 볼륨 한정)에서 스캔 비용이 작다. 분류(14일)와 runway(전체)를 한 쿼리에서 서로 다른 창으로 뽑아 왕복을 줄인다.
+
+언제 다시 봐야 하는가
+- cagg retention 확대로 runway 조회가 느려지면 -> mount_span 에 실용 상한(예: 90일) 하한 술어를 넣어 pruning 복원. 비단조 추세가 오판을 일으키면 -> Theil-Sen(샘플링 점쌍) 또는 최근 구간 가중 회귀로 격상.
