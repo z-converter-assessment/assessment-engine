@@ -118,7 +118,7 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 
 환경 단위 시계열 차트 — 전 서버 capacity-weighted 평균 추이. 본문 = `servers/environment_metrics.html`.
 
-- CPU·메모리·디스크·네트워크·디스크 I/O 추이 차트 + CPU 분류 추이 + 디스크 큐 길이(Windows Avg Disk Queue Length — I/O Wait 의 OS 보완 짝, Linux 는 빈 차트).
+- CPU·메모리·파일시스템·네트워크·디스크 I/O 추이 + CPU 분류·실행 큐(os-aware Linux/Windows 2선)·디스크 I/O 포화(Linux await ms / Windows 큐 깊이 이중 축)·스왑(OS별)·TCP 재전송율.
 - 구간(globalRange)·앵커 토글 — `?time_range=` + 기준 시각, 차트 P4 동적 fetch (`AUTO_BUCKET[range]` 동적 bucket, #F10).
 - 선택 N대 진입(`?ids=`) 시 "선택 N대 성능 추이" 로 제목·집계 범위 한정.
 

@@ -255,7 +255,11 @@ class MetricsInput(MessageBase):
     load_5m: float | None = Field(default=None, ge=0.0)
     load_15m: float | None = Field(default=None, ge=0.0)
 
-    # ADR 0052 신 host-wide 신호 (raw, optional). psi_*·cpu_per_core 는 #B 대로 미수용(extra=ignore drop, 필요 시 추가).
+    # per-core CPU jiffies (cpu0..N 위치 배열) — 단일스레드 병목 감지용, server_cpu_core 정규화 저장.
+    # psi_* 는 #B 대로 미수용(extra=ignore drop, 관측용 — 분류 미사용, 필요 시 추가).
+    cpu_per_core: list[CpuStat] = Field(default_factory=list)
+
+    # ADR 0052 신 host-wide 신호 (raw, optional).
     procs_running: int | None = Field(default=None, ge=0)
     procs_blocked: int | None = Field(default=None, ge=0)
     schedstat_run_wait_ns: int | None = Field(default=None, ge=0)

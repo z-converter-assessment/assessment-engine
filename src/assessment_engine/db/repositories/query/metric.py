@@ -181,6 +181,59 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
 
         return DashboardRaw(metrics=metrics, disk_io=disk_io, net_io=net_io, mounts=mounts)
 
+    async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, dict]:
+        """서버별 실시간 포화 원자료 — CPU 실행 큐(gauge) + 디스크(Windows queue gauge / Linux await 2행 델타) +
+        메모리(Windows paging rate gauge / Linux pswpout 델타). 실시간 포화 지수·압박 카운트용 전용 경량 쿼리.
+
+        since 이후 최신 2행(delta 용) per server/device. collected_at >= since partition pruning(C5),
+        now+2m skew 상한. 공유 dashboard 무손상. reset(값-감소) 은 delta<0 -> None/0 가드.
+        """
+        if not server_ids:
+            return {}
+        sql = text("""
+            WITH m2 AS (
+                SELECT server_id, procs_running, sat_cpu_run_queue, sat_disk_queue, sat_mem_paging_rate, pswpout,
+                       row_number() OVER (PARTITION BY server_id ORDER BY collected_at DESC) AS rn
+                FROM server_metrics
+                WHERE server_id = ANY(:sids) AND collected_at >= :since AND collected_at <= now() + interval '2 minutes'
+            ),
+            m AS (
+                SELECT server_id,
+                    max(CASE WHEN rn = 1 THEN COALESCE(procs_running, sat_cpu_run_queue) END) AS run_queue,
+                    max(CASE WHEN rn = 1 THEN sat_disk_queue END)      AS disk_queue_win,
+                    max(CASE WHEN rn = 1 THEN sat_mem_paging_rate END) AS paging_win,
+                    max(CASE WHEN rn = 1 THEN pswpout END) - max(CASE WHEN rn = 2 THEN pswpout END) AS pswpout_delta
+                FROM m2 WHERE rn <= 2 GROUP BY server_id
+            ),
+            d2 AS (
+                SELECT server_id, time_reading_ms + time_writing_ms AS t, reads_completed + writes_completed AS ops,
+                       row_number() OVER (PARTITION BY server_id, device ORDER BY collected_at DESC) AS rn
+                FROM server_disk_io
+                WHERE server_id = ANY(:sids) AND collected_at >= :since
+                  AND collected_at <= now() + interval '2 minutes' AND kind = 'physical'
+            ),
+            da AS (
+                SELECT server_id,
+                    SUM(CASE WHEN rn = 1 THEN t END)   - SUM(CASE WHEN rn = 2 THEN t END)   AS t_delta,
+                    SUM(CASE WHEN rn = 1 THEN ops END) - SUM(CASE WHEN rn = 2 THEN ops END) AS ops_delta
+                FROM d2 WHERE rn <= 2 GROUP BY server_id
+            )
+            SELECT m.server_id, m.run_queue, m.disk_queue_win, m.paging_win, m.pswpout_delta,
+                   CASE WHEN da.ops_delta > 0 AND da.t_delta >= 0 THEN da.t_delta::float / da.ops_delta END AS await_ms
+            FROM m LEFT JOIN da ON da.server_id = m.server_id
+        """)
+        result = await self.session.execute(sql, {"sids": server_ids, "since": since})
+        return {
+            r.server_id: {
+                "run_queue": float(r.run_queue) if r.run_queue is not None else None,
+                "disk_queue_win": float(r.disk_queue_win) if r.disk_queue_win is not None else None,
+                "await_ms": float(r.await_ms) if r.await_ms is not None else None,
+                "paging_win": float(r.paging_win) if r.paging_win is not None else None,
+                "pswpout_delta": int(r.pswpout_delta) if r.pswpout_delta is not None else None,
+            }
+            for r in result
+        }
+
     async def metric_snapshots(
         self,
         server_id: int,
@@ -284,6 +337,26 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             """)
             params["window_start"] = start - bucket_td
             params["jitter_sec"] = BOOT_JITTER_SEC
+        elif metric_type == "swap.usage_percent" and collapse:
+            # env: Linux swap(오버플로 — 평소 0, 압박 시 상승)와 Windows pagefile(상시 baseline, 항상 사용)은
+            # 의미가 달라 os_family 로 분리한다 — 한 선 capacity-weighted 평균은 pagefile baseline 이 함대 스왑처럼
+            # 오도(예: Windows 44% + Linux 1.3%). 상세(collapse=False, 1대)는 아래 _ENV_SCALAR_WEIGHTED 단일선 유지.
+            sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
+            sql = text(f"""
+                WITH per_ts AS (
+                    SELECT sm.collected_at, si.os_family AS dim,
+                        SUM(sm.swap_total_kb - sm.swap_free_kb)::float
+                          / NULLIF(SUM(sm.swap_total_kb), 0) * 100 AS v
+                    FROM {ServerMetrics.__tablename__} sm
+                    JOIN {ServerInventory.__tablename__} si ON si.id = sm.server_id
+                    WHERE sm.collected_at >= :start AND sm.collected_at <= :end {sid_sm}
+                      AND sm.swap_total_kb IS NOT NULL AND sm.swap_free_kb IS NOT NULL AND sm.swap_total_kb > 0
+                    GROUP BY sm.collected_at, si.os_family
+                )
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value,
+                    dim AS dimension, NULL::text AS kind
+                FROM per_ts WHERE v IS NOT NULL GROUP BY ts, dim ORDER BY ts
+            """)
         elif metric_type in _ENV_SCALAR_WEIGHTED:
             num, den, guard = _ENV_SCALAR_WEIGHTED[metric_type]
             ratio = f"SUM({num})::float / NULLIF(SUM({den}), 0) * 100"
@@ -316,6 +389,26 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind
                 FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
             """)
+        elif metric_type == "cpu.run_queue":
+            # 실행 큐/코어 os-aware — Linux procs_running(R-state) / Windows Processor Queue Length(sat_cpu_run_queue).
+            # 분류(cpu_saturated)와 동일 신호. 항상 os_family dimension 반환(Linux/Windows 2선; 서버 상세=단일 OS 1선).
+            # capacity-weighted: SUM(run_queue)/SUM(cpu_cores) (load 정규화와 동일 산식). 앵커/윈도우는 :start/:end 계약.
+            sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
+            sql = text(f"""
+                WITH per_ts AS (
+                    SELECT sm.collected_at, si.os_family AS dim,
+                        SUM(COALESCE(sm.procs_running, sm.sat_cpu_run_queue))::float
+                          / NULLIF(SUM(si.cpu_cores), 0) AS v
+                    FROM {ServerMetrics.__tablename__} sm
+                    JOIN {ServerInventory.__tablename__} si ON si.id = sm.server_id
+                    WHERE sm.collected_at >= :start AND sm.collected_at <= :end {sid_sm}
+                      AND COALESCE(sm.procs_running, sm.sat_cpu_run_queue) IS NOT NULL AND si.cpu_cores > 0
+                    GROUP BY sm.collected_at, si.os_family
+                )
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value,
+                    dim AS dimension, NULL::text AS kind
+                FROM per_ts WHERE v IS NOT NULL GROUP BY ts, dim ORDER BY ts
+            """)
         elif metric_type == "disk.queue":
             # Windows Avg Disk Queue Length — server_metrics.sat_disk_queue (per-device max 축약 gauge).
             # Linux 는 iowait 사용이라 null 발행 -> 값 있는 서버(Windows)만 집계. 시점값 = 서버 평균 큐 깊이.
@@ -330,6 +423,91 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind
                 FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
             """)
+        elif metric_type == "disk.io_saturation":
+            # 디스크 I/O 포화 os-aware — 정규화 없이 raw 2선(이중 Y축). dimension=os_family:
+            #   linux  = await(ms) = Σ(Δ(time_reading+time_writing)) / Σ(Δ(reads+writes)) 물리 device 버킷 델타(CPU jiffies 방식,
+            #            boot reset gate). Windows 는 await 미발행이라 linux 만.
+            #   windows= Avg Disk Queue Length(sat_disk_queue gauge) 서버 평균. Linux 는 미발행이라 windows 만.
+            # 단위가 달라(ms vs 큐 깊이) 정규화 대신 프론트가 os별 축 분리. 앵커/윈도우는 :start/:end 계약.
+            sid_dio = "AND dio.server_id = ANY(:server_ids)" if server_ids else ""
+            sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
+            sql = text(f"""
+                WITH l_raw AS (
+                    SELECT dio.collected_at, dio.server_id, dio.device, dio.boot_time,
+                        (COALESCE(dio.time_reading_ms, 0) + COALESCE(dio.time_writing_ms, 0)) AS t,
+                        (COALESCE(dio.reads_completed, 0) + COALESCE(dio.writes_completed, 0)) AS ops
+                    FROM {ServerDiskIo.__tablename__} dio
+                    JOIN {ServerInventory.__tablename__} si ON si.id = dio.server_id
+                    WHERE si.os_family = 'linux' AND dio.kind = 'physical'
+                      AND dio.collected_at >= :window_start AND dio.collected_at <= :end {sid_dio}
+                ),
+                l_delta AS (
+                    SELECT collected_at, boot_time, LAG(boot_time) OVER w AS prev_boot,
+                        t   - LAG(t)   OVER w AS d_t,
+                        ops - LAG(ops) OVER w AS d_ops
+                    FROM l_raw WINDOW w AS (PARTITION BY server_id, device ORDER BY collected_at)
+                ),
+                l_ts AS (
+                    SELECT collected_at, SUM(d_t)::float / NULLIF(SUM(d_ops), 0) AS v
+                    FROM l_delta
+                    WHERE collected_at >= :start AND d_ops > 0 AND d_t >= 0
+                      AND (boot_time IS NULL OR prev_boot IS NULL
+                           OR ABS(EXTRACT(EPOCH FROM (boot_time - prev_boot))) <= :jitter_sec)
+                    GROUP BY collected_at
+                ),
+                w_ts AS (
+                    SELECT sm.collected_at, AVG(sm.sat_disk_queue) AS v
+                    FROM {ServerMetrics.__tablename__} sm
+                    WHERE sm.collected_at >= :start AND sm.collected_at <= :end {sid_sm}
+                      AND sm.sat_disk_queue IS NOT NULL
+                    GROUP BY sm.collected_at
+                )
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value,
+                    'linux'::text AS dimension, NULL::text AS kind
+                FROM l_ts WHERE v IS NOT NULL GROUP BY ts
+                UNION ALL
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value,
+                    'windows'::text AS dimension, NULL::text AS kind
+                FROM w_ts WHERE v IS NOT NULL GROUP BY ts
+                ORDER BY ts
+            """)
+            params["window_start"] = start - bucket_td
+            params["jitter_sec"] = BOOT_JITTER_SEC
+        elif metric_type == "net.retrans_percent":
+            # TCP 재전송율 % = Σ(Δtcp_retrans) / Σ(Δtx_packets) * 100 — 분류 net_retrans 와 동일 산식(임계 1%).
+            # retrans(server_metrics) + tx_packets(server_net_io physical+bond) 교차 테이블 버킷 델타, collected_at 조인.
+            # counter reset(재부팅)은 GREATEST(Δ,0)로 흡수(음수 델타=0, boot gate 불요). 양 OS 동일 신호라 단일선.
+            sid_sm = "AND server_id = ANY(:server_ids)" if server_ids else ""
+            sql = text(f"""
+                WITH retrans_ts AS (
+                    SELECT collected_at, SUM(d) AS retrans FROM (
+                        SELECT collected_at,
+                            GREATEST(tcp_retrans_segs - LAG(tcp_retrans_segs)
+                                     OVER (PARTITION BY server_id ORDER BY collected_at), 0) AS d
+                        FROM {ServerMetrics.__tablename__}
+                        WHERE collected_at >= :window_start AND collected_at <= :end {sid_sm}
+                    ) x WHERE d IS NOT NULL GROUP BY collected_at
+                ),
+                txp_ts AS (
+                    SELECT collected_at, SUM(d) AS txp FROM (
+                        SELECT collected_at,
+                            GREATEST(tx_packets - LAG(tx_packets)
+                                     OVER (PARTITION BY server_id, interface ORDER BY collected_at), 0) AS d
+                        FROM {ServerNetIo.__tablename__}
+                        WHERE kind IN ('physical', 'bond_master')
+                          AND collected_at >= :window_start AND collected_at <= :end {sid_sm}
+                    ) y WHERE d IS NOT NULL GROUP BY collected_at
+                ),
+                per_ts AS (
+                    SELECT r.collected_at, r.retrans::float / NULLIF(t.txp, 0) * 100 AS v
+                    FROM retrans_ts r JOIN txp_ts t USING (collected_at)
+                    WHERE r.collected_at >= :start
+                )
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value,
+                    NULL::text AS dimension, NULL::text AS kind
+                FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
+            """)
+            params["window_start"] = start - bucket_td
         elif metric_type in ("disk.usage_percent", "fs.usage_percent"):
             if collapse:
                 sql = text(f"""

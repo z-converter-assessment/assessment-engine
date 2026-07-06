@@ -1,5 +1,5 @@
 {% from "_shared.html" import empty_state, service_legend, detail_server_list %}
-{% from "reports/_resource_tables.html" import efficiency_table, under_provisioned_table %}
+{% from "reports/_resource_tables.html" import action_targets_table %}
 {# 서비스 구성 카드 — 카테고리별 서비스명·개수. 전 카테고리 노출(count 0 포함, #E9). customer·engineer 공용. #}
 {% macro service_config_card(catalog, identified_count, unknown_count) %}
 <div>
@@ -123,13 +123,13 @@
   <h3>분류 분포 ({{ summary.overview.total }}대)</h3>
   {{ classification_dist_bars(summary.classification_dist) }}
 
-  <h3>효율화 검토 대상 ({{ summary.efficiency_target_count }}대)</h3>
-  {% if summary.efficiency_target_count %}
+  <h3>효율화 검토 대상 ({{ summary.action.efficiency_count }}대)</h3>
+  {% if summary.action.efficiency_count %}
   <p class="text-sm text-label" style="margin:0 0 20px;">
-    과다 할당·유휴·종료 권장 {{ summary.efficiency_target_count }}대 — 총 {{ summary.efficiency_target_vcpus }} vCPU · {{ "%.1f" | format(summary.efficiency_target_memory_gb) }} GB 점유. 전환 시 사양 최적화 여지.
+    과다 할당·유휴 {{ summary.action.efficiency_count }}대 — 총 {{ summary.action.efficiency_vcpus }} vCPU · {{ "%.1f" | format(summary.action.efficiency_memory_gb) }} GB 점유. 전환 시 사양 최적화 여지.
   </p>
   {% else %}
-  <div style="margin-bottom:20px;">{{ empty_state("효율화 검토 대상 없음 (과다·유휴·종료 권장 0대).") }}</div>
+  <div style="margin-bottom:20px;">{{ empty_state("효율화 검토 대상 없음 (과다·유휴 0대).") }}</div>
   {% endif %}
 
   <h3>조치 필요 호스트 ({{ summary.top_risks_count }}대)</h3>
@@ -263,17 +263,13 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">자원 적정성 평가</h2>
-
-  <h3>분류 분포 ({{ summary.overview.total }}대)</h3>
+  <h2 class="card-title">자원 적정성 분포</h2>
   {{ classification_dist_bars(summary.classification_dist) }}
+</section>
 
-  <h3>효율화 검토 대상 ({{ summary.efficiency_target_count }}대)</h3>
-  {{ efficiency_table(summary.efficiency_hosts, summary.efficiency_target_count, summary.efficiency_target_vcpus, summary.efficiency_target_memory_gb, summary.efficiency_hosts_count, self_back) }}
-
-  <h3>자원 부족 ({{ summary.under_provisioned_hosts_count }}대)</h3>
-  {{ under_provisioned_table(summary.under_provisioned_hosts, summary.under_provisioned_metric_labels, self_back) }}
-
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">서버별 자원 적정성 ({{ summary.action.total }}대)</h2>
+  {{ action_targets_table(summary.action.hosts, summary.action.metric_labels, self_back) }}
 </section>
 
 <section class="card" style="margin-bottom:16px;">

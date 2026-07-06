@@ -13,31 +13,23 @@
     {% if realtime.sample_size > 0 %}
     <div style="display:flex; align-items:center; flex-wrap:wrap; gap:20px;">
       {% for u in realtime.utilization %}{{ util_donut(u) }}{% endfor %}
-      {# 네트워크·디스크 I/O — 게이지(호 채움) 아니라 절대 rate. #}
+      {# 포화 비율 도넛 — 포화·압박 호스트 수 / 표본 (채움 = 비율). 처리량 총량 도넛은 기준점 없어 폐기. #}
+      <div style="width:1px; align-self:stretch; background:#e2e8f0; margin:4px 2px;"></div>
+      {% for s in realtime.saturation_donuts %}
       <div style="text-align:center;">
         <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
           <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
-          {% if realtime.io_net_value is not none %}
-          <text x="50" y="50" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ realtime.io_net_value }}</text>
-          <text x="50" y="66" text-anchor="middle" font-size="10" fill="#94a3b8">{{ realtime.io_net_unit }}</text>
-          {% else %}
-          <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
+          {% if s.dash_length > 0 %}
+          <circle cx="50" cy="50" r="42" fill="none" style="stroke: {{ s.color }}" stroke-width="10"
+                  stroke-dasharray="{{ "%.2f"|format(s.dash_length) }} 263.89" stroke-linecap="round"
+                  transform="rotate(-90 50 50)"/>
           {% endif %}
+          <text x="50" y="48" text-anchor="middle" font-size="22" font-weight="700" fill="#1e293b">{{ s.count }}</text>
+          <text x="50" y="64" text-anchor="middle" font-size="10" fill="#94a3b8">/ {{ s.total }}대</text>
         </svg>
-        <div class="text-label text-sm" style="margin-top:4px;">네트워크</div>
+        <div class="text-label text-sm" style="margin-top:4px;">{{ s.label }}</div>
       </div>
-      <div style="text-align:center;">
-        <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
-          {% if realtime.io_disk_iops is not none %}
-          <text x="50" y="50" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ "%.0f"|format(realtime.io_disk_iops) }}</text>
-          <text x="50" y="66" text-anchor="middle" font-size="10" fill="#94a3b8">IOPS</text>
-          {% else %}
-          <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
-          {% endif %}
-        </svg>
-        <div class="text-label text-sm" style="margin-top:4px;">디스크 I/O</div>
-      </div>
+      {% endfor %}
     </div>
     {% else %}
     {{ empty_state("수집된 메트릭이 없습니다.") }}

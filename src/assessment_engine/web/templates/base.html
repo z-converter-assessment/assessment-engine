@@ -99,6 +99,18 @@
     tbody tr:hover td { background: #f1f5f9; }
     /* 세부 서버 목록 — 다열 표. 좌우 스크롤 전제라 각 셀 nowrap(좁은 칼럼 줄바꿈 방지). 행·제목행 높이는 전 테이블 표준 패딩(th/td) 통일. */
     .detail-table th, .detail-table td { white-space: nowrap; }
+    /* 정렬 가능 칼럼 헤더 — 클릭 어포던스 + 활성 방향 표식 (서버목록·서버별 자원 적정성 표 공용). */
+    th.sort-col { cursor: pointer; user-select: none; transition: background .1s; }
+    th.sort-col:hover { color: #e2e8f0; background: rgba(255,255,255,.10); }
+    th.sort-col:active { background: rgba(255,255,255,.20); }
+    /* 정렬 중인 칼럼 — 배경 강조 + 방향 삼각형(CSS border, 비유니코드). asc=위, desc=아래. */
+    th.sort-col.sort-asc, th.sort-col.sort-desc { background: rgba(255,255,255,.14); }
+    th.sort-col.sort-asc::after, th.sort-col.sort-desc::after {
+      content: ""; display: inline-block; margin-left: 5px; vertical-align: middle;
+      border-left: 4px solid transparent; border-right: 4px solid transparent;
+    }
+    th.sort-col.sort-asc::after { border-bottom: 5px solid currentColor; }
+    th.sort-col.sort-desc::after { border-top: 5px solid currentColor; }
     /* 모든 link 일관 — color + 항상 밑줄 (옅음). hover 시 강조. 별도 class (.row-link 등) 와 단일 진실 정합. */
     a { color: #666666; text-decoration: underline; text-decoration-color: #b0b0b0; text-underline-offset: 2px; }
     a:hover { text-decoration-color: #666666; }
@@ -122,7 +134,7 @@
     .rec-under_provisioned { background: #fee2e2; color: #b91c1c; }
     .rec-over_provisioned  { background: #dbeafe; color: #1d4ed8; }
     .rec-optimal           { background: #dcfce7; color: #15803d; }
-    .rec-idle, .rec-shutdown { background: #f1f5f9; color: #64748b; }
+    .rec-idle { background: #f1f5f9; color: #64748b; }
     .rec-insufficient_data { background: #e2e8f0; color: #475569; }
     .rec-swap              { background: #b91c1c; color: #fef2f2; }
     /* Task status badge — list 행별 "최근 작업" column + detail timeline 공유. mapper _TASK_STATUS_DISPLAY 단일 진실. */

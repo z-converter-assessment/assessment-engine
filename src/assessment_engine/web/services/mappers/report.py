@@ -40,11 +40,10 @@ from assessment_engine.web.view_models.report import (
 # ─── 위험도 매핑 — 양식 A KPI 3단계 압축 ────────────────────────────────
 # USE Method 분류 -> (risk_level, 한글 라벨, badge CSS 클래스).
 # under_provisioned → 고위험 (자원 부족, 즉시 조치)
-# shutdown · idle · over_provisioned → 주의 (저사용·과다 — 운영자 점검)
+# idle · over_provisioned → 주의 (미사용·과다 — 운영자 점검)
 # optimal · insufficient_data → 정상 (또는 표본 부족)
 _RISK_FROM_RECOMMENDATION: dict[str, tuple[str, str, str]] = {
     "under_provisioned": ("high", "고위험", "rec-under_provisioned"),
-    "shutdown": ("attention", "주의 필요", "rec-over_provisioned"),
     "idle": ("attention", "주의 필요", "rec-over_provisioned"),
     "over_provisioned": ("attention", "주의 필요", "rec-over_provisioned"),
     "optimal": ("normal", "정상", "rec-optimal"),
@@ -224,47 +223,17 @@ def build_report_summary_bullets(
 # ─── 자동 진단·권고 helper (양식 B 컬럼) ───
 
 
-# under trigger 키 -> 한국어 증설 권고. 표시 순서 고정(mem -> cpu -> disk). recommendation.assess
-# 가 산출한 triggers(근거)를 mapper 가 문구로 변환만 한다(P2, 임계 재계산 중복 제거).
-_TRIGGER_ACTION_KO: dict[str, str] = {
-    "mem_saturation": "메모리 증설",
-    "mem_util": "메모리 증설",
-    "cpu_util": "CPU 증설",
-    "cpu_saturation": "CPU 증설",
-    "disk_capacity": "디스크 증설",
-    "disk_io": "디스크 증설",
-}
-_TRIGGER_ACTION_ORDER = ("mem_saturation", "mem_util", "cpu_util", "cpu_saturation", "disk_capacity", "disk_io")
+def _build_recommendation_action(assessment: recommendation.Assessment, stats: recommendation.ResourceStats) -> str:
+    """recommendation 분류 -> "권고" 컬럼 단일 문구. 조치 semantic 은 recommendation.recommend_action 단일 진실.
 
-
-def _build_under_provisioned_reason(triggers: list[str]) -> str:
-    """under_provisioned hit trigger -> 한국어 증설 권고 결합 (`/` 구분) — 양식 A "권고" 컬럼.
-
-    근거(triggers)는 recommendation.assess 단일 산출 — mapper 는 키->조치 방법 변환만(P2, 원인 미표기).
-    같은 자원에 복수 trigger 가 hit 해도 방법(증설) 중복은 제거(dict.fromkeys). trigger 0건 fallback.
-    """
-    picked = [t for t in _TRIGGER_ACTION_ORDER if t in triggers]
-    reasons = list(dict.fromkeys(_TRIGGER_ACTION_KO[t] for t in picked))
-    return " / ".join(reasons) if reasons else "리소스 증설 검토"
-
-
-def _build_recommendation_action(assessment: recommendation.Assessment) -> str:
-    """recommendation 분류 -> "권고" 컬럼 단일 문구 (environment·single_report 공유 단일 진실).
-
-    under_provisioned 는 hit trigger 별 증설 권고 결합(`_build_under_provisioned_reason`), 그 외는 분류별 고정 조치.
-    customer "조치 필요 호스트"(high 만)엔 optimal/insufficient_data 미노출 — engineer 호스트 권고(전수)·
-    서버 단일 보고서엔 노출.
+    under_provisioned 는 근본원인 기반 처방(`recommendation.under_prescription`), 그 외는 도메인 조치 층
+    (유휴는 강도로 즉시 종료/통합 분기). customer "조치 필요 호스트"(high 만)엔 optimal/insufficient_data 미노출.
     """
     rec = assessment.recommendation
     if rec == "under_provisioned":
-        return _build_under_provisioned_reason(assessment.triggers)
-    return {
-        "over_provisioned": "자원 축소 검토",
-        "idle": "용도 재평가 / 종료 검토",
-        "shutdown": "종료 가능 검토",
-        "optimal": "적정 운영",
-        "insufficient_data": "표본 부족 — 수집 점검",
-    }.get(rec, "")
+        # root 기반 처방 — 근본원인(root_cause)과 정합, 하류 증상 삼중 처방 방지 (recommendation.under_prescription).
+        return recommendation.under_prescription(recommendation.rollup_host(stats))
+    return recommendation.recommend_action(rec, stats)
 
 
 def _build_diagnosis(
@@ -285,7 +254,7 @@ def _build_diagnosis(
     5. cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU 압박"
     6. worst_mount >= DISK_CAPACITY_UPSIZE_PCT → "디스크 용량 임박" (disk_capacity under 근거 노출)
     7. cpu/mem variance >= _VARIANCE_BURST_RATIO AND peak 가 sizing 유의미 수준(downsize 헤드룸선 초과) → "부하 변동 큼"
-    8. cpu_p95 <= SHUTDOWN_CPU_P95_PCT → "거의 미사용"
+    8. cpu_p95 <= IDLE_CPU_P95_PCT → "거의 미사용"
     9. cpu_p95 <= CPU_DOWNSIZE_P95_PCT and mem_p95 <= MEM_DOWNSIZE_P95_PCT → "여유 있음"
     10. 그 외 → "정상"
     """
@@ -320,7 +289,7 @@ def _build_diagnosis(
     )
     if cpu_burst or mem_burst:
         return "부하 변동 큼"
-    if raw.cpu_p95_pct is not None and raw.cpu_p95_pct <= recommendation.SHUTDOWN_CPU_P95_PCT:
+    if raw.cpu_p95_pct is not None and raw.cpu_p95_pct <= recommendation.IDLE_CPU_P95_PCT:
         return "거의 미사용"
     if (
         raw.cpu_p95_pct is not None
@@ -336,8 +305,8 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
     """insufficient_data 호스트의 원인 순차 진단 — 진단 컬럼 단일 진실 (별도 카드 폐기, 호스트 권고 통합).
 
     1순위: 오프라인 — 에이전트 미가동 (메트릭 자연스러운 부재, root cause).
-    2순위: 온라인이나 메트릭 수집 누락 — 누락 메트릭 명시. saturation 축은 OS별 실측 축으로
-           (Linux Load·iowait / Windows run queue·디스크 큐). Windows 에 없는 loadavg·iowait 를
+    2순위: 온라인이나 메트릭 수집 누락 — 누락 메트릭 명시. saturation 축은 분류가 쓰는 os-aware 축으로
+           (Linux 실행 큐 procs_running·디스크 await / Windows run queue·디스크 큐). Windows 에 없는 축을
            "누락"으로 나열하면 개념 부재를 수집 실패로 오도하므로 os-aware 로 구분.
     3순위: 모든 메트릭 있지만 표본 부족 (윈도우 미만).
     """
@@ -354,10 +323,10 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
         if raw.disk_queue_p95 is None:
             missing.append("디스크 큐")
     else:
-        if raw.load_15m_max is None:
-            missing.append("Load")
-        if raw.iowait_p95_pct is None:
-            missing.append("iowait")
+        if raw.procs_running_p95 is None:
+            missing.append("실행 큐")
+        if raw.disk_await_p95_ms is None:
+            missing.append("디스크 응답(await)")
     if raw.worst_mount_used_pct is None:
         missing.append("디스크")
     return f"메트릭 수집 누락: {' · '.join(missing)}" if missing else "윈도우 내 표본 부족"
@@ -392,7 +361,7 @@ def _build_saturation_axes(stats: recommendation.ResourceStats) -> list[Saturati
 def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
     """ReportRowRaw -> USE Method ResourceStats — report·attention mapper 공용(단일 진실).
 
-    net baseline = server_net_io rx+tx 윈도우 평균(kB/s). 둘 다 None 이면 None(idle/shutdown skip),
+    net baseline = server_net_io rx+tx 윈도우 평균(kB/s). 둘 다 None 이면 None(유휴 skip),
     하나만 있으면 다른쪽 0. os_family 전달로 swap 축 OS 분기(P2). attention 의 capacity trigger 도
     동일 stats 로 recommendation.assess 를 타 임계 재계산 중복을 제거(assess.triggers 단일 진실).
     """
@@ -423,13 +392,18 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         cpu_run_queue_p95=raw.cpu_run_queue_p95,
         mem_paging_rate_p95=raw.mem_paging_rate_p95,
         # ─── ADR 0052 신 모델(rollup_host) 입력 — report_aggregate 산출 raw 를 도메인 축으로 배선 ───
-        # cpu_percore_p95_max 는 agent per-core 미저장이라 None(도메인 단일스레드 판정 graceful skip).
+        # 가장 바쁜 코어 p95 — 단일스레드 병목 판정(RS_CPU_PERCORE_HOLD). Windows·구 agent 는 None(graceful skip).
+        cpu_percore_p95_max=raw.cpu_percore_p95_max,
         procs_blocked_p95=raw.procs_blocked_p95,
+        # Linux CPU 포화 신호(load 대체) + OOM 메모리 증거 — cpu_saturated·assess_memory os-aware 소비.
+        procs_running_p95=raw.procs_running_p95,
+        oom_occurred=raw.oom_occurred,
         mem_swap_paging=raw.mem_swap_paging,
         mem_total_mb=(raw.mem_total_kb // 1024 if raw.mem_total_kb is not None else None),
         disk_await_p95_ms=raw.disk_await_p95_ms,
         disk_capacity_runway_days=raw.disk_capacity_runway_days,
         disk_inode_runway_days=raw.disk_inode_runway_days,
+        disk_capacity_target_gb=raw.disk_capacity_target_gb,
         net_retrans_pct=raw.net_retrans_pct,
         net_drop_pct=raw.net_drop_pct,
         history_hours=raw.history_hours,
@@ -580,7 +554,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
             if rec == "insufficient_data"
             else (("" if is_online else "오프라인 · ") + _build_diagnosis(raw, stats, cpu_variance, mem_variance))
         ),
-        recommendation_action=_build_recommendation_action(assessment),
+        recommendation_action=_build_recommendation_action(assessment, stats),
         workload_groups=workload_groups,
         service_units=service_units,
         listen_ports_detail=listen_ports_detail,

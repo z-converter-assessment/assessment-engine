@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
@@ -79,6 +79,20 @@ class MountUsageEntry:
     inodes_free: int | None = None
 
 
+@dataclass
+class CpuCoreEntry:
+    # per-core jiffies — core_id = cpu_per_core[] 위치 인덱스(/proc/stat cpu0..N). server_cpu_core 저장.
+    core_id: int
+    cpu_user: int | None
+    cpu_nice: int | None
+    cpu_system: int | None
+    cpu_idle: int | None
+    cpu_iowait: int | None
+    cpu_irq: int | None
+    cpu_softirq: int | None
+    cpu_steal: int | None
+
+
 # ─── Task DTO ──────────────────────────────────────────────────────────────
 
 
@@ -148,10 +162,11 @@ class ServerMetricCreate:
     sat_cpu_run_queue: float | None
     sat_mem_paging_rate: float | None
 
-    # 시계열 4개 테이블 nested 행 매핑
+    # 시계열 nested 행 매핑 (disk_io·mounts·net_io·cpu_per_core)
     disk_io: list[DiskIoEntry]
     mounts: list[MountUsageEntry]
     net_io: list[NetIoEntry]
+    cpu_per_core: list[CpuCoreEntry] = field(default_factory=list)
 
     # ADR 0052 신 host-wide 신호 (nullable, optional — agent 미발행 시 None)
     procs_running: int | None = None

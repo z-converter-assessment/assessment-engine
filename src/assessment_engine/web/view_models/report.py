@@ -136,7 +136,7 @@ class ReportRowItem:
 
     # 양식 A "권고" 컬럼 — 분류별 권장 조치 (mapper._build_recommendation_action 단일 진실,
     # environment·single_report 공유). under 는 hit trigger 결합("메모리 증설 (스왑 발생) / CPU 증설" 등),
-    # over/idle/shutdown/optimal/insufficient 는 고정 문구.
+    # over/idle/optimal/insufficient 는 고정 문구.
     recommendation_action: str = ""
 
     # 부분 평가 — saturation 축 중 해당 OS 의 perflib 미발행 축만 미관측(os-aware, P2/P4). Windows 도 run queue/
@@ -174,7 +174,7 @@ class ReportSummary:
     period_days: int
     total: int
     online: int
-    risk_attention: int  # 주의 필요 — over_provisioned·idle·shutdown 합산
+    risk_attention: int  # 주의 필요 — over_provisioned·idle 합산
     risk_high: int  # 고위험 — under_provisioned
     # 환경 활용률 평균 KPI — 고객 보고서가 "환경 전체 활용도"를 한눈에 보여주기 위함.
     # None은 표시 단계에서 "—"로 fallback (모든 서버가 평가 불가일 때).

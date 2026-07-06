@@ -271,9 +271,7 @@ async def test_enqueue_and_emit_same_input_hash(stub_session_factory, stub_diag_
     stub_diag_repo.enqueue = AsyncMock(side_effect=_capture)
     stub_diag_repo.mark_succeeded = AsyncMock()
     service = _service(stub_session_factory, stub_diag_repo)
-    common = dict(
-        view="engineer", scope="server", server_public_ids=["a"], time_range="7d", anchor_at=_FIXED_ANCHOR
-    )
+    common = dict(view="engineer", scope="server", server_public_ids=["a"], time_range="7d", anchor_at=_FIXED_ANCHOR)
     await service.enqueue_report(**common)
     await service.emit_report(kind=REPORT_KIND_ENV, snapshot={}, **common)
     assert captured[0].input_hash == captured[1].input_hash

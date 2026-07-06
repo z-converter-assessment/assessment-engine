@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 from assessment_engine.web.services.mappers.environment_report import to_environment_report
 from assessment_engine.web.services.report_serializer import env_report_from_dict, env_report_to_dict
-from assessment_engine.web.view_models.attention import AttentionSignals, EnvironmentOverview
+from assessment_engine.web.view_models.attention import ActionTargets, AttentionSignals, EnvironmentOverview
 from assessment_engine.web.view_models.environment_report import (
     CpuBreakdown,
     MemoryBreakdown,
@@ -60,6 +60,7 @@ def _make_env_report():
         time_range="14d",
         anchor_at=datetime(2026, 5, 12, tzinfo=UTC),
         generated_at=datetime(2026, 5, 12, tzinfo=UTC),
+        action=ActionTargets(),
     )
 
 

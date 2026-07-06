@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "_shared.html" import empty_state %}
+{% block title %}참고 — API 목록{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:baseline; justify-content:space-between; margin:8px 0 8px; gap:16px;">
+  <h1>API 목록 <span class="page-meta">JSON API</span></h1>
+</div>
+<p class="text-md text-label" style="margin:0 0 20px; line-height:1.6;">
+  라우터 코드에서 자동 생성된 OpenAPI 스펙 기준 — 항상 최신입니다. 응답 스키마·예시·시험 실행은
+  <a href="/docs">Swagger (/docs)</a> · <a href="/redoc">ReDoc (/redoc)</a> 에서 확인하세요.
+  <code>*</code> 는 필수 파라미터입니다.
+</p>
+
+{% for g in groups %}
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">{{ g.label }}</h2>
+  {% for e in g.endpoints %}
+  <div style="padding:12px 0;{% if not loop.first %} border-top:1px solid #eef2f7;{% endif %}">
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <span style="display:inline-block; min-width:48px; text-align:center; padding:2px 8px; border-radius:4px;
+                   font-size:11px; font-weight:700; background:{{ e.badge_bg }}; color:{{ e.badge_fg }};">{{ e.method }}</span>
+      <code style="font-family:monospace; font-size:13px; color:#1e293b;">{{ e.path }}</code>
+    </div>
+    {% if e.summary %}<div class="text-sm" style="margin:6px 0 0; color:#334155;">{{ e.summary }}</div>{% endif %}
+    {% if e.params %}
+    <div class="text-sm text-label" style="margin:6px 0 0;">
+      파라미터
+      {% for p in e.params %}
+      <code style="margin-left:6px; font-family:monospace; color:#475569;">{{ p.name }}<span class="text-meta">:{{ p.type }}</span>{% if p.required %}<span style="color:#dc2626;">*</span>{% endif %}</code>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if e.body_fields %}
+    <div class="text-sm text-label" style="margin:4px 0 0;">
+      요청 본문
+      {% for f in e.body_fields %}<code style="margin-left:6px; font-family:monospace; color:#475569;">{{ f }}</code>{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% else %}
+{{ empty_state("노출할 JSON API가 없습니다.") }}
+{% endfor %}
+{% endblock %}

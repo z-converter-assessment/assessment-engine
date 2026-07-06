@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from uuid import NAMESPACE_DNS, uuid5
 
 from assessment_engine.db.dtos.inbound import (
+    CpuCoreEntry,
     DiskIoEntry,
     MountUsageEntry,
     NetIoEntry,
@@ -143,6 +144,7 @@ def make_metrics(
     disk_io: list[DiskIoEntry] | None = None,
     mounts: list[MountUsageEntry] | None = None,
     net_io: list[NetIoEntry] | None = None,
+    cpu_per_core: list[CpuCoreEntry] | None = None,
 ) -> ServerMetricCreate:
     """raw 누적값. 시간 흐름 시뮬은 호출자가 collected_at + 누적 카운터 증가로."""
     return ServerMetricCreate(
@@ -215,6 +217,7 @@ def make_metrics(
                 kind="physical",
             ),
         ],
+        cpu_per_core=cpu_per_core if cpu_per_core is not None else [],
     )
 
 

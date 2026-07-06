@@ -1,6 +1,7 @@
 from assessment_engine.consumer.metric_normalize import clamp_ceiling
 from assessment_engine.consumer.schemas import InventoryInput, MetricsInput, SaturationInfo
 from assessment_engine.db.dtos.inbound import (
+    CpuCoreEntry,
     DiskIoEntry,
     MountUsageEntry,
     NetIoEntry,
@@ -206,6 +207,21 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
                 tx_drops=n.tx_drops,
             )
             for n in data.net_io
+        ],
+        # per-core — 배열 위치 = core_id (/proc/stat cpu0..N 순서). server_cpu_core 행 매핑.
+        cpu_per_core=[
+            CpuCoreEntry(
+                core_id=idx,
+                cpu_user=c.user,
+                cpu_nice=c.nice,
+                cpu_system=c.system,
+                cpu_idle=c.idle,
+                cpu_iowait=c.iowait,
+                cpu_irq=c.irq,
+                cpu_softirq=c.softirq,
+                cpu_steal=c.steal,
+            )
+            for idx, c in enumerate(data.cpu_per_core)
         ],
         procs_running=data.procs_running,
         procs_blocked=data.procs_blocked,

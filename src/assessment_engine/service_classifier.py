@@ -343,8 +343,7 @@ def matched_ports(unit: str, listen_ports: list[dict], pid: int | None = None) -
     동일 포트라도 proto(tcp/tcp6/udp 등)가 다르면 별도 항목으로 반환한다.
     """
     return [
-        MatchedPort(proto=p.get("proto", ""), port=p.get("port", 0))
-        for p in _attributed_ports(unit, listen_ports, pid)
+        MatchedPort(proto=p.get("proto", ""), port=p.get("port", 0)) for p in _attributed_ports(unit, listen_ports, pid)
     ]
 
 
@@ -387,9 +386,7 @@ def detect_listen_categories(listen_ports: list[dict]) -> dict[str, list[Matched
     return out
 
 
-def compute_service_categories(
-    services: list[dict] | None, listen_ports: list[dict] | None
-) -> list[str]:
+def compute_service_categories(services: list[dict] | None, listen_ports: list[dict] | None) -> list[str]:
     """ingest 사전계산 — 호스트 서비스 카테고리 키 집합 (정렬·dedup, "unknown" 제외).
 
     services unit 이름 분류(`classify`: name->comm->port) ∪ listen 소켓 직접 분류(`detect_listen_categories`).

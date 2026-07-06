@@ -73,9 +73,7 @@ def test_os_version_defaults_null() -> None:
 
 def test_signal_no_captured_on_signal_death() -> None:
     """시그널 사망 — exit_code null + signal_no 값 (POSIX wait status 상호배타)."""
-    payload = make_task_result_payload(
-        status="failure", failure_reason="script_failed", exit_code=None, signal_no=9
-    )
+    payload = make_task_result_payload(status="failure", failure_reason="script_failed", exit_code=None, signal_no=9)
     data = _validate(payload)
     assert data.exit_code is None
     assert data.signal_no == 9

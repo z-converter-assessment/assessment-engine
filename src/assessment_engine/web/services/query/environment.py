@@ -9,11 +9,11 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 )
 from assessment_engine.db.repositories.query.types import TimeRange
 from assessment_engine.web.services.mappers.attention import (
+    build_action_targets,
     build_environment_overview,
     build_environment_realtime,
     to_capacity_warning_item,
 )
-from assessment_engine.web.services.mappers.environment_report import build_efficiency_summary
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.shared import _DONUT_SEGMENT_FROM_REC
 from assessment_engine.web.services.mappers.topology import build_network_topology
@@ -31,17 +31,6 @@ from assessment_engine.web.view_models.topology import NetworkTopology
 # right-sizing 표준 평가 윈도우(recommendation.WINDOW_DAYS=14d — 보고서 기본·서버 목록 분류)와 의도 분리.
 DASHBOARD_TIME_RANGE: TimeRange = "24h"
 DASHBOARD_WINDOW_DAYS: float = DIAGNOSTIC_RANGE_DAYS[DASHBOARD_TIME_RANGE]
-
-
-def _io_sum(snaps: list, *attrs: str) -> float | None:
-    """I/O 스냅샷 list 의 attr(들) 환경/서버 합산 — None 제외, 유효값 0개면 None(페어 부재)."""
-    total: float | None = None
-    for s in snaps:
-        for a in attrs:
-            v = getattr(s, a)
-            if v is not None:
-                total = (total or 0.0) + v
-    return None if total is None else round(total, 1)
 
 
 class EnvironmentQueryMixin(_BaseQueryServiceMixin):
@@ -65,13 +54,13 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         """report_aggregate raws -> USE Method 분류 도넛 + under_provisioned 상세, online_by_id -> online_count.
 
         분류는 `build_resource_stats`(net 반영) 단일 진실 — 호출자가 `_inject_net_baseline` 로 raw 에 net
-        baseline 을 주입한 뒤 호출한다 (get_report 세부행과 동일 입력 -> idle/shutdown 정합).
+        baseline 을 주입한 뒤 호출한다 (get_report 세부행과 동일 입력 -> 유휴 정합).
         full_under=True 면 자원 부족 호스트 전체(상위 N 절단 해제) — 자원 평가 전용 페이지용.
         """
         risk_counts: dict[str, int] = {}
         under_hosts: list[CapacityWarningItem] = []
         for raw in raws_period:
-            rec = recommendation.classify(build_resource_stats(raw))
+            rec = recommendation.classify_host(build_resource_stats(raw))
             seg = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
             risk_counts[seg] = risk_counts.get(seg, 0) + 1
             if rec == "under_provisioned":
@@ -84,11 +73,10 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
     async def get_environment_assessment(
         self, time_range: DiagnosticTimeRange, anchor_at: datetime | None = None
     ) -> EnvironmentAssessment:
-        """자원 평가 전용 — 윈도우(time_range)·앵커(anchor) 기준 자원 적정성 분류 + 효율화/자원 부족 표.
+        """자원 평가 전용 — 윈도우(time_range)·앵커(anchor) 기준 분류 분포 도넛 + 서버별 자원 적정성 통합 표.
 
         get_dashboard_overview 의 overview 조립부를 가변 윈도우·앵커로 재사용(attention/trend 제외, 경량).
-        자원 부족은 상위 N 절단 없이 전체(full_under). 효율화 검토 대상은 보고서와 동일 산식
-        (`build_efficiency_summary`) — base.rows(get_report) 단일 진실에서 도출해 보고서와 분류·정렬 일관.
+        서버별 표는 보고서와 동일 산식(`build_action_targets`) — 전 서버(모든 분류) 한 표, 분류 순서 정렬 일관.
         """
         end = anchor_at or datetime.now(UTC)
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
@@ -100,20 +88,10 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         await self._inject_net_baseline(raws_period, server_ids, period_days, end)
         util = await self.repo.environment_utilization(period_days=period_days, end=end)
         online_by_id = await self._online_map(server_ids, details, end)
-        overview = self._assemble_overview(details, util, raws_period, online_by_id, full_under=True)
-        # 효율화 검토 대상 — 진단·권고 컬럼이 ReportRowItem 파생이라 get_report 행에서 산출 (보고서와 동일 경로).
-        base = await self.get_report(server_ids, period_days, end=end, view="engineer")
-        eff = build_efficiency_summary(base.rows)
-        under = overview.under_provisioned_hosts
-        return EnvironmentAssessment(
-            overview=overview,
-            efficiency_hosts=eff.hosts,
-            efficiency_hosts_count=eff.hosts_count,
-            efficiency_target_count=eff.target_count,
-            efficiency_target_vcpus=eff.target_vcpus,
-            efficiency_target_memory_gb=eff.target_memory_gb,
-            under_provisioned_metric_labels=[m.label for m in under[0].metrics] if under else [],
-        )
+        overview = self._assemble_overview(details, util, raws_period, online_by_id)
+        # 통합 조치 대상 표 — 자원 부족/과다 할당/유휴 를 한 표에 (build_action_targets 단일 진실).
+        action = build_action_targets(raws_period)
+        return EnvironmentAssessment(overview=overview, action=action)
 
     async def _assemble_realtime(self, server_ids, details, now) -> EnvironmentRealtime:
         """각 서버 최신 스냅샷(get_latest_metric) 집계 — 신선한 데이터 있으면 포함(데이터 유무 = 온라인).
@@ -123,6 +101,8 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         """
         detail_by_id = {d.id: d for d in details}
         fresh_threshold = now - timedelta(seconds=web_settings.redis_ttl_online)
+        # 실시간 포화 원자료(CPU 실행큐·디스크 queue/await·메모리 paging) — 신선 표본 1쿼리 벌크(전용 경량 쿼리).
+        sat_map = await self.repo.latest_saturation(server_ids, fresh_threshold)
         online = 0
         snapshots: list[dict] = []
         last_collected = None
@@ -139,6 +119,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
             fs_total = sum(mt.total_gb for mt in m.mounts if mt.total_gb and mt.used_gb is not None)
             fs_used = sum(mt.used_gb for mt in m.mounts if mt.total_gb and mt.used_gb is not None)
             disk_pool_pct = round(fs_used / fs_total * 100, 1) if fs_total else None
+            sat = sat_map.get(sid, {})
             snapshots.append(
                 {
                     "hostname": d.hostname,
@@ -147,10 +128,16 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                     "cpu_pct": m.cpu.usage_pct if m.cpu else None,
                     "mem_pct": mem.usage_pct if mem else None,
                     "disk_pct": disk_pool_pct,  # 통합 풀 — 평균 도넛(fs_used/fs_total)과 동일 기준
-                    # I/O rate — CPU 와 동일 2행 페어 delta (build_dashboard 산출분). 물리 디스크·실 iface 합산.
-                    # 디스크=IOPS(작업), 네트워크=처리량(MB/s) 단일 지표만 (read/write·rx/tx 합산).
-                    "disk_iops": _io_sum(m.disk_io_phys, "read_iops", "write_iops"),
-                    "net_kbps": _io_sum(m.net_io, "rx_kbps", "tx_kbps"),
+                    # 실시간 포화 지수 (os-aware, >=1 포화) + 메모리 압박 — 부하 상위 "CPU 포화"·"디스크 I/O 포화" 랭킹.
+                    "cpu_sat_index": recommendation.cpu_saturation_index(
+                        sat.get("run_queue"), d.cpu_cores, d.os_family
+                    ),
+                    "disk_sat_index": recommendation.disk_io_saturation_index(
+                        sat.get("await_ms"), sat.get("disk_queue_win"), d.os_family
+                    ),
+                    "mem_pressure": recommendation.mem_pressure_active(
+                        sat.get("paging_win"), sat.get("pswpout_delta"), d.os_family
+                    ),
                     # capacity-weighted 평균용 가중치 (cpu=코어 가중, mem/disk=절대 총량 sum/sum).
                     "cpu_cores": d.cpu_cores,
                     "mem_used_kb": mem.used_kb if mem else None,

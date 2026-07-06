@@ -35,7 +35,7 @@
           <h2 class="chart-subtitle" style="margin:0;">CPU 사용률</h2>
           <span id="cpu-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">전 서버 capacity-weighted 평균</div>
+        <div class="chart-desc">전 서버 코어 가중 평균</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="cpu-canvas"></canvas>
           <div id="cpu-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -45,7 +45,7 @@
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
           <h2 class="chart-subtitle" style="margin:0;">CPU 분류</h2>
         </div>
-        <div class="chart-desc">User 앱 부하 / System 커널 처리 / I/O Wait 디스크 대기</div>
+        <div class="chart-desc">User 앱 / System 커널 / I/O Wait 디스크 대기 비율</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="cpuclass-canvas"></canvas>
           <div id="cpuclass-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -57,14 +57,14 @@
     <div class="perf-pair perf-row" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="chart-subtitle" style="margin:0;">코어당 로드</h2>
-          <span id="load-max" class="text-meta text-sm">최대: &mdash;</span>
+          <h2 class="chart-subtitle" style="margin:0;">실행 큐</h2>
         </div>
-        <div class="chart-desc">전 서버 15분 로드 / 코어 수 정규화 (1.0 = 코어당 포화)</div>
+        <div class="chart-desc">코어당 대기 스레드 수 — Linux 1.0 · Windows 2.0 이상 포화</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-          <canvas id="load-canvas"></canvas>
-          <div id="load-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
+          <canvas id="runqueue-canvas"></canvas>
+          <div id="runqueue-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
         </div>
+        <div id="runqueue-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; justify-content:center;"></div>
       </div>
       <div></div>
     </div>
@@ -79,7 +79,7 @@
           <h2 class="chart-subtitle" style="margin:0;">메모리 사용률</h2>
           <span id="mem-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">전 서버 capacity-weighted 평균</div>
+        <div class="chart-desc">전 서버 용량 가중 평균</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="mem-canvas"></canvas>
           <div id="mem-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -89,7 +89,7 @@
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
           <h2 class="chart-subtitle" style="margin:0;">메모리 구성</h2>
         </div>
-        <div class="chart-desc">전체 대비 Used / Available / Cached / Buffers (capacity-weighted)</div>
+        <div class="chart-desc">Used / Available · Cached / Buffers (page cache — Linux 전용)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="memcomp-canvas"></canvas>
           <div id="memcomp-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -102,13 +102,13 @@
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
           <h2 class="chart-subtitle" style="margin:0;">스왑 사용률</h2>
-          <span id="swap-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">전 서버 capacity-weighted 평균 (미설정 서버 제외). Windows pagefile 은 여유 RAM 에도 상시 baseline 이라 사용률이 높아도 메모리 부족 신호 아님 — Linux swap page-out 만 포화 신호.</div>
+        <div class="chart-desc">Linux swap(오버플로 신호, 평소 0) / Windows pagefile(상시 baseline) — OS별 분리</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="swap-canvas"></canvas>
           <div id="swap-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
         </div>
+        <div id="swap-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; justify-content:center;"></div>
       </div>
       <div></div>
     </div>
@@ -120,9 +120,9 @@
     <div class="perf-pair perf-row" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="chart-subtitle" style="margin:0;">물리 계층 I/O</h2>
+          <h2 class="chart-subtitle" style="margin:0;">디스크 읽기/쓰기 (IOPS)</h2>
         </div>
-        <div class="chart-desc">전 서버 물리 디스크 IOPS 합산 (Read/Write)</div>
+        <div class="chart-desc">게스트 디스크(virtio) 초당 I/O 작업 수 (Read/Write)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="physio-canvas"></canvas>
           <div id="physio-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -133,7 +133,7 @@
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
           <h2 class="chart-subtitle" style="margin:0;">디스크 I/O 처리량</h2>
         </div>
-        <div class="chart-desc">전 서버 물리 디스크 처리량 합산 (Read/Write)</div>
+        <div class="chart-desc">게스트 디스크(virtio) 초당 전송량 (Read/Write)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="diskkbps-canvas"></canvas>
           <div id="diskkbps-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -148,7 +148,7 @@
           <h2 class="chart-subtitle" style="margin:0;">파일시스템 사용량</h2>
           <span id="fs-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">전 서버 capacity-weighted 평균</div>
+        <div class="chart-desc">데이터 파일시스템(주로 root, df 기준) 사용률</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="fs-canvas"></canvas>
           <div id="fs-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -157,14 +157,14 @@
       </div>
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="chart-subtitle" style="margin:0;">디스크 큐 길이</h2>
-          <span id="diskqueue-max" class="text-meta text-sm">최대: &mdash;</span>
+          <h2 class="chart-subtitle" style="margin:0;">디스크 I/O 포화</h2>
         </div>
-        <div class="chart-desc">Windows Avg Disk Queue Length (디스크 대기 — 2 이상 포화). Linux 는 I/O Wait 참조</div>
+        <div class="chart-desc">Linux await(응답 ms·좌축) / Windows 큐 깊이(우축) — 20ms·2 이상 포화</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-          <canvas id="diskqueue-canvas"></canvas>
-          <div id="diskqueue-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
+          <canvas id="disksat-canvas"></canvas>
+          <div id="disksat-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
         </div>
+        <div id="disksat-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; justify-content:center;"></div>
       </div>
     </div>
   </section>
@@ -177,7 +177,7 @@
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
           <h2 class="chart-subtitle" style="margin:0;">네트워크 I/O</h2>
         </div>
-        <div class="chart-desc">전 서버 물리 인터페이스 트래픽 합산 (RX/TX)</div>
+        <div class="chart-desc">물리 인터페이스 초당 전송량 (RX/TX)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="netio-canvas"></canvas>
           <div id="netio-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -186,14 +186,14 @@
       </div>
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="chart-subtitle" style="margin:0;">네트워크 PPS</h2>
+          <h2 class="chart-subtitle" style="margin:0;">TCP 재전송율</h2>
+          <span id="retrans-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">전 서버 패킷 처리량 합산 (RX/TX)</div>
+        <div class="chart-desc">재전송 세그먼트 / 송신 패킷 비율 — 1% 이상 성능 영향</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-          <canvas id="netpps-canvas"></canvas>
-          <div id="netpps-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
+          <canvas id="retrans-canvas"></canvas>
+          <div id="retrans-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
         </div>
-        <div id="netpps-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; justify-content:center;"></div>
       </div>
     </div>
 

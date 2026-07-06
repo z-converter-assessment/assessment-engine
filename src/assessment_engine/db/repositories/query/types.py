@@ -22,6 +22,7 @@ MetricType = Literal[
     "cpu.user_percent",
     "cpu.system_percent",
     "cpu.iowait_percent",
+    "cpu.run_queue",
     "load.1m",
     "load.5m",
     "load.15m",
@@ -35,11 +36,13 @@ MetricType = Literal[
     "disk.read_kbps",
     "disk.write_kbps",
     "disk.queue",
+    "disk.io_saturation",
     "fs.usage_percent",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
     "net.rx_packets_per_sec",
     "net.tx_packets_per_sec",
+    "net.retrans_percent",
 ]
 # 환경 전체 추이 차트 metric — 대시보드 추이 + 환경 성능 추이(서버상세 성능 추이 풀세트의 환경판).
 # capacity-weighted(cpu·mem·disk·fs·swap = sum(num)/sum(den)) / 코어 정규화(load=sum(load)/sum(cores))
@@ -49,7 +52,7 @@ EnvironmentMetricType = Literal[
     "cpu.user_percent",
     "cpu.system_percent",
     "cpu.iowait_percent",
-    "load.15m",
+    "cpu.run_queue",
     "mem.usage_percent",
     "mem.available_percent",
     "mem.cached_percent",
@@ -62,10 +65,10 @@ EnvironmentMetricType = Literal[
     "disk.read_kbps",
     "disk.write_kbps",
     "disk.queue",
+    "disk.io_saturation",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
-    "net.rx_packets_per_sec",
-    "net.tx_packets_per_sec",
+    "net.retrans_percent",
 ]
 TimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d"]
@@ -160,11 +163,19 @@ _DATA_VOLUME_SQL_FILTER = "kind = 'data'"
 # 삼키지 않음, #C2 값 의미론). Windows 는 mem_cached_kb/mem_buffers_kb 가 null(OS 미측정)이라 가드 없이 SUM 하면
 # COALESCE-to-0 가 "측정된 0%" 로 오도한다 -> environment_utilization 과 동일하게 IS NOT NULL 가드. 정적 상수 f-string 안전(#C5).
 _ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str, str]] = {
-    "mem.usage_percent": ("mem_total_kb - mem_available_kb", "mem_total_kb", "mem_total_kb > 0 AND mem_available_kb IS NOT NULL"),
+    "mem.usage_percent": (
+        "mem_total_kb - mem_available_kb",
+        "mem_total_kb",
+        "mem_total_kb > 0 AND mem_available_kb IS NOT NULL",
+    ),
     "mem.available_percent": ("mem_available_kb", "mem_total_kb", "mem_total_kb > 0 AND mem_available_kb IS NOT NULL"),
     "mem.cached_percent": ("mem_cached_kb", "mem_total_kb", "mem_total_kb > 0 AND mem_cached_kb IS NOT NULL"),
     "mem.buffers_percent": ("mem_buffers_kb", "mem_total_kb", "mem_total_kb > 0 AND mem_buffers_kb IS NOT NULL"),
-    "swap.usage_percent": ("swap_total_kb - swap_free_kb", "swap_total_kb", "swap_total_kb IS NOT NULL AND swap_free_kb IS NOT NULL"),
+    "swap.usage_percent": (
+        "swap_total_kb - swap_free_kb",
+        "swap_total_kb",
+        "swap_total_kb IS NOT NULL AND swap_free_kb IS NOT NULL",
+    ),
 }
 
 # 물리 disk/iface 술어 — device kind 태그 기반. 이중 집계 회피.

@@ -261,12 +261,24 @@ def test_compute_mem_clips_cached_when_overflow():
 def _swap_pair(swap_total_kb, swap_free_kb) -> MetricPairRaw:
     return MetricPairRaw(
         collected_at=datetime.now(UTC),
-        cpu_user=0, cpu_nice=0, cpu_system=0, cpu_idle=0,
-        cpu_iowait=0, cpu_irq=0, cpu_softirq=0, cpu_steal=0,
-        mem_total_kb=None, mem_free_kb=None, mem_available_kb=None,
-        mem_buffers_kb=None, mem_cached_kb=None,
-        swap_total_kb=swap_total_kb, swap_free_kb=swap_free_kb,
-        load_1m=None, load_5m=None, load_15m=None,
+        cpu_user=0,
+        cpu_nice=0,
+        cpu_system=0,
+        cpu_idle=0,
+        cpu_iowait=0,
+        cpu_irq=0,
+        cpu_softirq=0,
+        cpu_steal=0,
+        mem_total_kb=None,
+        mem_free_kb=None,
+        mem_available_kb=None,
+        mem_buffers_kb=None,
+        mem_cached_kb=None,
+        swap_total_kb=swap_total_kb,
+        swap_free_kb=swap_free_kb,
+        load_1m=None,
+        load_5m=None,
+        load_15m=None,
     )
 
 

@@ -24,6 +24,7 @@ from assessment_engine.diagnostic.report_result import (  # noqa: F401 (re-expor
     build_report_result,
 )
 from assessment_engine.web.view_models.attention import (
+    ActionTargets,
     AttentionRow,
     AttentionSignals,
     CapacityMetric,
@@ -146,9 +147,8 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
         data["topology"] = None
     # trend 는 plain dict list (at=isoformat str) — 라운드트립 시 그대로 보존 (복원 불필요).
     data["top_risks"] = [_report_row_from_dict(r) for r in data.get("top_risks") or []]
-    data["efficiency_hosts"] = [_report_row_from_dict(r) for r in data.get("efficiency_hosts") or []]
-    uph = data.get("under_provisioned_hosts") or []
-    data["under_provisioned_hosts"] = [_capacity_warning_from_dict(c) for c in uph]
+    # 통합 조치 대상 표 — hosts nested(CapacityWarningItem, metrics 포함) 복원.
+    data["action"] = _action_targets_from_dict(data.get("action") or {})
     data["service_catalog"] = [
         ServiceCatalogGroup(
             category=g["category"],
@@ -164,9 +164,20 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
     ]
     data["attention_hosts"] = [AttentionHostItem(**a) for a in data.get("attention_hosts") or []]
     data["capacity_imminent"] = [CapacityImminentItem(**c) for c in data.get("capacity_imminent") or []]
-    # 구 스냅샷 잔존 키 무시 (EnvironmentReportSummary(**data) 호환).
-    data.pop("insufficient_hosts", None)
-    data.pop("insufficient_hosts_count", None)
+    # 구 스냅샷 잔존 키 무시 (EnvironmentReportSummary(**data) 호환) — 통합 표 이전 efficiency/under 분리 필드 포함.
+    for _k in (
+        "insufficient_hosts",
+        "insufficient_hosts_count",
+        "efficiency_hosts",
+        "efficiency_hosts_count",
+        "efficiency_target_count",
+        "efficiency_target_vcpus",
+        "efficiency_target_memory_gb",
+        "under_provisioned_hosts",
+        "under_provisioned_metric_labels",
+        "under_provisioned_hosts_count",
+    ):
+        data.pop(_k, None)
     data["anchor_at"] = _dt(data.get("anchor_at"))
     data["generated_at"] = _dt(data.get("generated_at"))
     si = data.get("server_inventory")
@@ -218,3 +229,10 @@ def _capacity_warning_from_dict(d: dict) -> CapacityWarningItem:
     # active_causes 는 list[str] — 스칼라라 별도 복원 불요. metrics 만 nested dataclass 복원.
     data["metrics"] = [CapacityMetric(**m) for m in data.get("metrics") or []]
     return CapacityWarningItem(**data)
+
+
+def _action_targets_from_dict(d: dict) -> ActionTargets:
+    data = dict(d)
+    # hosts = CapacityWarningItem list (metrics nested). 나머지(metric_labels·카운트)는 스칼라라 그대로.
+    data["hosts"] = [_capacity_warning_from_dict(c) for c in data.get("hosts") or []]
+    return ActionTargets(**data)

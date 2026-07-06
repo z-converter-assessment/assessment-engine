@@ -46,10 +46,12 @@ def build_network_topology(hosts) -> NetworkTopology:
     # subnet CIDR -> [(pid, ip, gateway)]. 한 호스트가 같은 서브넷에 여러 IP 면 멤버십 1회만.
     subnet_members: dict[str, list[tuple[str, str, str | None]]] = defaultdict(list)
     host_meta: dict[str, tuple[str, str]] = {}  # public_id -> (hostname, os_family)
+    host_roles: dict[str, list[str]] = {}  # public_id -> 워크로드 카테고리(service_categories, E7)
 
     for h in hosts:
         pid = str(h.public_id)
         host_meta[pid] = (h.hostname, h.os_family or "unknown")
+        host_roles[pid] = sorted(getattr(h, "service_categories", None) or [])
         seen_nets: set[str] = set()
         for iface_info in h.interfaces or []:
             if is_virtual_interface(iface_info.get("kind")):
@@ -78,10 +80,10 @@ def build_network_topology(hosts) -> NetworkTopology:
     # gateway disambiguation + 단독 서브넷 필터. 한 서브넷에 서로 다른 non-null gateway 2+ 면 다른 물리망으로
     # 간주해 gateway 별로 분리(사설 대역 중복 오병합 방지). null gateway 는 gateway 1개뿐인 서브넷엔 합류,
     # 모호(2+)한 서브넷에선 귀속 불가라 제외. 가상망은 kind 로 이미 제외됨.
-    surviving: dict[str, list[str]] = {}         # net_key -> pids
-    seg_pid_ip: dict[str, dict[str, str]] = {}   # net_key -> {pid: ip}
-    net_cidr: dict[str, str] = {}                # net_key -> subnet CIDR (정렬용)
-    net_label: dict[str, str] = {}               # net_key -> 표시 라벨
+    surviving: dict[str, list[str]] = {}  # net_key -> pids
+    seg_pid_ip: dict[str, dict[str, str]] = {}  # net_key -> {pid: ip}
+    net_cidr: dict[str, str] = {}  # net_key -> subnet CIDR (정렬용)
+    net_label: dict[str, str] = {}  # net_key -> 표시 라벨
     for subnet, members in subnet_members.items():
         gws = {gw for (_, _, gw) in members if gw}
         if len(gws) >= 2:
@@ -137,15 +139,14 @@ def build_network_topology(hosts) -> NetworkTopology:
                     "kind": "host",
                     "publicId": pid,
                     "osFamily": os_family,
+                    "roles": host_roles.get(pid, []),  # 워크로드 카테고리 — 노드 tooltip·색 (app tier)
                 },
                 "classes": "collapsed",
             }
         )
 
     for pid, net_key in edges:
-        elements.append(
-            {"data": {"source": f"host:{pid}", "target": f"subnet:{net_key}"}, "classes": "collapsed"}
-        )
+        elements.append({"data": {"source": f"host:{pid}", "target": f"subnet:{net_key}"}, "classes": "collapsed"})
 
     # 서브넷별 소속 서버 목록 (IP 표시) — 그래프와 별개 카드. net_members 에서 pid->ip 복원.
     subnets: list[SubnetGroup] = []
@@ -155,7 +156,13 @@ def build_network_topology(hosts) -> NetworkTopology:
         for pid in surviving[net_key]:
             hostname, os_family = host_meta[pid]
             hosts_list.append(
-                SubnetHost(hostname=hostname, ip=pid_ip.get(pid, ""), os_family=os_family, public_id=pid)
+                SubnetHost(
+                    hostname=hostname,
+                    ip=pid_ip.get(pid, ""),
+                    os_family=os_family,
+                    public_id=pid,
+                    roles=host_roles.get(pid, []),
+                )
             )
         hosts_list.sort(key=_subnet_host_sort_key)  # 서브넷 내 IP 숫자 오름차순
         subnets.append(SubnetGroup(net_key=net_label[net_key], host_count=len(hosts_list), hosts=hosts_list))

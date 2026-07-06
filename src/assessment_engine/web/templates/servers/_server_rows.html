@@ -7,7 +7,7 @@
     data-classification="{{ s.provisioning_class }}"
     data-services="{% for svc in s.known_services %}{{ svc.category }} {% endfor %}">
   <td class="no-print"><input type="checkbox" class="row-select" data-public-id="{{ s.public_id }}" data-hostname="{{ s.hostname }}"></td>
-  <td style="text-align:center; white-space:nowrap;">
+  <td style="text-align:center; white-space:nowrap;" data-sort="{{ 1 if s.is_online else 0 }}">
     {% if s.is_online %}<span class="status-on">온라인</span>{% else %}<span class="status-off">오프라인</span>{% endif %}
   </td>
   <td>

@@ -113,6 +113,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             services=r.services,
             listen_ports=r.listen_ports or [],
             last_seen_at=r.last_seen_at,
+            service_categories=r.service_categories or [],
         )
 
     async def get_server(self, server_id: int) -> ServerDetail | None:

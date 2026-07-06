@@ -16,19 +16,20 @@ from assessment_engine.web.services.device_filters import (
 @pytest.mark.parametrize(
     "kind, expected",
     [
-        ("physical", False),      # 물리 NIC — 집계 대상
-        ("bond_master", False),   # 본딩 집계 단위 — 집계 대상(가상 아님)
-        ("bond_member", True),    # 물리 leg — bond_master 가 합산분이라 이중집계 회피 제외
+        ("physical", False),  # 물리 NIC — 집계 대상
+        ("bond_master", False),  # 본딩 집계 단위 — 집계 대상(가상 아님)
+        ("bond_member", True),  # 물리 leg — bond_master 가 합산분이라 이중집계 회피 제외
         ("bridge", True),
         ("veth", True),
         ("vlan", True),
         ("tunnel", True),
         ("loopback", True),
-        (None, True),             # placeholder — 제외
+        (None, True),  # placeholder — 제외
     ],
 )
 def test_is_virtual_interface(kind, expected):
     assert is_virtual_interface(kind) is expected
+
 
 # ─── is_physical_disk ─────────────────────────────────────────────────────
 

@@ -78,7 +78,7 @@ src/assessment_engine/web/static/js/
 - 추이 차트의 면적 음영은 avg+max ghost(`buildAvgMaxDatasets`, avg dataset `fill:'+1'`)만 — avg~max 사이를 채워 burst(순간 최대−평균 차)를 시각화. 이것이 "음영"의 유일한 의미.
 - 선 아래 zero 까지 채우는 area fill(`fill:true`) 금지 — 추이 차트는 추세선만(`fill:false`). area fill 은 burst 음영과 혼동되고 값 밀집 시 가독성을 떨어뜨림.
 - 15분 구간(1분 버킷)은 버킷당 데이터 1포인트라 max=avg → ghost 음영 0. `buildAvgMaxDatasets` 가 `bMs <= BUCKET_MS['1m']` 일 때 maxRows 를 비워 전 차트 일괄 자동 비활성.
-- 코어당 로드 차트(cpu 상세·성능탭)는 raw load 를 `load / cpu_cores` 로 정규화(클라 P4 표시 변환, 서버 1대 cpu_cores 고정이라 SQL `Σload/Σcores` 와 동치) — 1.0 = 코어당 포화. 스냅샷·차트·환경 추이 모두 코어당으로 일관.
+- 서버 상세 loadavg 차트는 raw load 를 `load / cpu_cores` 로 정규화(클라 P4 표시 변환) — 1.0 = 코어당 포화(Linux 전용). 환경 성능 추이는 loadavg 대신 실행 큐(`cpu.run_queue`, os-aware — Linux procs_running / Windows Processor Queue)를 코어 정규화해 os_family 2선으로 표시.
 
 ## 색 테마 — 3색 변수 + 주색 단일 진실 (예외 0)
 - 테마색 3개 = `base.html :root` CSS 변수. `--color-title`(#3b82f6) = `.btn-primary`·`.btn-select`·task hover·게이지/막대/도넛 주색·사이드바 active 좌측 바. `--color-sidebar`(#475569) = 사이드바 바탕(hover/active 음영은 `color-mix` 파생). `--color-table-head`(#a7b2c0) = 전 테이블 제목행 배경. 색 변경 시 본 3개만 수정.

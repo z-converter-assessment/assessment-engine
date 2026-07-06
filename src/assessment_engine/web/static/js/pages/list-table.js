@@ -374,6 +374,46 @@ if (filterForm) {
     applyFilters();
   });
 
+  // ─── 칼럼 클릭 정렬 (assessment.js 와 동일 패턴) — th.sort-col 클릭 시 행 재배열 후 필터·clip 재적용. ───
+  // data-sort 있으면 그 값, 없으면 셀 텍스트. 숫자(상태 1/0 등)는 수치, 그 외는 한국어 문자열. 재클릭 방향 토글.
+  const listTable = document.querySelector('table.server-list-table');
+  listTable?.querySelector('thead')?.addEventListener('click', function (e) {
+    const th = e.target.closest('th.sort-col');
+    if (!th) return;
+    const idx = Array.from(th.parentNode.children).indexOf(th);
+    const tbody = listTable.querySelector('tbody');
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr.server-row'));
+    const asc = String(listTable.dataset.sortCol) === String(idx) ? listTable.dataset.sortAsc !== 'true' : true;
+    const keyOf = function (row) {
+      const cell = row.children[idx];
+      if (!cell) return '';
+      return cell.dataset.sort !== undefined ? cell.dataset.sort : cell.textContent.trim();
+    };
+    const numOf = function (s) {
+      const n = parseFloat(String(s).replace(/[^0-9.\-]/g, ''));
+      return s === '' || isNaN(n) ? null : n;
+    };
+    rows.sort(function (a, b) {
+      const ka = keyOf(a), kb = keyOf(b);
+      const na = numOf(ka), nb = numOf(kb);
+      let cmp;
+      if (na !== null && nb !== null) cmp = na - nb;
+      else if (na !== null) cmp = -1;
+      else if (nb !== null) cmp = 1;
+      else cmp = ka.localeCompare(kb, 'ko');
+      return asc ? cmp : -cmp;
+    });
+    rows.forEach(function (r) { tbody.appendChild(r); });
+    listTable.dataset.sortCol = idx;
+    listTable.dataset.sortAsc = asc;
+    // 방향 표식 — 활성 칼럼만 sort-asc/desc, 나머지 해제.
+    listTable.querySelectorAll('th.sort-col').forEach(function (h) { h.classList.remove('sort-asc', 'sort-desc'); });
+    th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+    expanded = false; // 정렬 후 CLIP 복귀 (상위 재적용)
+    applyFilters();
+  });
+
   // 필터 변경 시 선택 초기화 — 전체선택 후 필터를 바꾸면 깨끗한 전체해제 상태 (숨은 행이 선택에 남지 않게).
   // show-more(전체보기)·init 은 필터 변경이 아니므로 미적용 (선택 보존).
   function clearSelectionOnFilterChange() {

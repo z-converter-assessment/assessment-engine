@@ -14,6 +14,7 @@ def _stats(**kw) -> r.ResourceStats:
         cpu_p95_pct=None,
         cpu_peak_pct=None,
         cpu_load_15m_max=None,
+        procs_running_p95=None,  # Linux CPU 포화 신호(load 대체)
         cpu_cores=None,
         mem_p95_pct=None,
         swap_used=False,
@@ -29,7 +30,7 @@ def _stats(**kw) -> r.ResourceStats:
 
 
 def test_cpu_under_by_util():
-    a = r.assess_cpu(_stats(cpu_p95_pct=90.0, cpu_cores=8, cpu_load_15m_max=1.0))
+    a = r.assess_cpu(_stats(cpu_p95_pct=90.0, cpu_cores=8, procs_running_p95=1.0))
     assert a.status == "under"
     assert "cpu_util" in a.triggers
     assert a.sizing_target == 11  # ceil(90*8/70)=11 > sat ceil(1/0.7)=2
@@ -37,7 +38,7 @@ def test_cpu_under_by_util():
 
 def test_cpu_under_by_saturation_only():
     # 이용률은 낮으나(40%) load/cores=2 >= 1 -> 포화로 under
-    a = r.assess_cpu(_stats(cpu_p95_pct=40.0, cpu_cores=4, cpu_load_15m_max=8.0))
+    a = r.assess_cpu(_stats(cpu_p95_pct=40.0, cpu_cores=4, procs_running_p95=8.0))
     assert a.status == "under"
     assert "cpu_saturation" in a.triggers
     assert "cpu_util" not in a.triggers
@@ -45,19 +46,19 @@ def test_cpu_under_by_saturation_only():
 
 
 def test_cpu_over():
-    a = r.assess_cpu(_stats(cpu_p95_pct=10.0, cpu_cores=8, cpu_load_15m_max=0.5))
+    a = r.assess_cpu(_stats(cpu_p95_pct=10.0, cpu_cores=8, procs_running_p95=0.5))
     assert a.status == "over"
     assert a.sizing_target == 2  # ceil(10*8/70)=2 < 8
 
 
 def test_cpu_optimal_at_target():
-    a = r.assess_cpu(_stats(cpu_p95_pct=65.0, cpu_cores=8, cpu_load_15m_max=4.0))
+    a = r.assess_cpu(_stats(cpu_p95_pct=65.0, cpu_cores=8, procs_running_p95=4.0))
     assert a.status == "optimal"  # ceil(65*8/70)=8 == cores
 
 
 def test_cpu_percore_hold_suppresses_over():
     # 집계 10%면 over 여야 하나, 한 코어가 90% -> 다운사이즈 보류 -> optimal
-    a = r.assess_cpu(_stats(cpu_p95_pct=10.0, cpu_cores=8, cpu_load_15m_max=0.5, cpu_percore_p95_max=90.0))
+    a = r.assess_cpu(_stats(cpu_p95_pct=10.0, cpu_cores=8, procs_running_p95=0.5, cpu_percore_p95_max=90.0))
     assert a.status == "optimal"
 
 
@@ -206,17 +207,17 @@ def test_net_unmeasured():
 
 
 def test_confidence_low_precision_short_history():
-    a = r.assess_cpu(_stats(cpu_p95_pct=90.0, cpu_cores=8, cpu_load_15m_max=1.0, history_hours=10.0))
+    a = r.assess_cpu(_stats(cpu_p95_pct=90.0, cpu_cores=8, procs_running_p95=1.0, history_hours=10.0))
     assert a.confidence.low_precision is True  # 30h 미만
 
 
 def test_confidence_low_precision_bursty():
-    a = r.assess_cpu(_stats(cpu_p95_pct=90.0, cpu_cores=8, cpu_load_15m_max=1.0, cpu_burst_ratio=3.0))
+    a = r.assess_cpu(_stats(cpu_p95_pct=90.0, cpu_cores=8, procs_running_p95=1.0, cpu_burst_ratio=3.0))
     assert a.confidence.low_precision is True  # p95/median > 2
 
 
 def test_confidence_nonstationary_trend():
-    a = r.assess_cpu(_stats(cpu_p95_pct=10.0, cpu_cores=8, cpu_load_15m_max=0.5, util_trend_rising=True))
+    a = r.assess_cpu(_stats(cpu_p95_pct=10.0, cpu_cores=8, procs_running_p95=0.5, util_trend_rising=True))
     assert a.confidence.nonstationary is True
 
 
@@ -238,7 +239,7 @@ def test_root_cause_memory_swap_coupling():
     s = _stats(
         cpu_p95_pct=90.0,
         cpu_cores=8,
-        cpu_load_15m_max=1.0,
+        procs_running_p95=1.0,
         mem_p95_pct=95.0,
         mem_swap_paging=True,
         disk_await_p95_ms=40.0,
@@ -253,7 +254,7 @@ def test_root_cause_diskio_procs_blocked():
     s = _stats(
         cpu_p95_pct=90.0,
         cpu_cores=8,
-        cpu_load_15m_max=1.0,
+        procs_running_p95=1.0,
         mem_p95_pct=40.0,
         mem_swap_paging=False,
         disk_await_p95_ms=40.0,
@@ -269,7 +270,7 @@ def test_root_cause_independent_no_coupling():
     s = _stats(
         cpu_p95_pct=90.0,
         cpu_cores=8,
-        cpu_load_15m_max=1.0,
+        procs_running_p95=1.0,
         disk_capacity_runway_days=5.0,
     )
     h = r.rollup_host(s)
@@ -282,7 +283,7 @@ def test_root_cause_mem_cpu_no_swap_independent():
     s = _stats(
         cpu_p95_pct=90.0,
         cpu_cores=8,
-        cpu_load_15m_max=1.0,
+        procs_running_p95=1.0,
         mem_p95_pct=95.0,
         mem_swap_paging=False,
     )
@@ -295,7 +296,7 @@ def test_root_cause_mem_cpu_no_swap_independent():
 
 
 def _over_cpu_stats(**kw) -> r.ResourceStats:
-    return _stats(cpu_p95_pct=10.0, cpu_cores=8, cpu_load_15m_max=0.5, **kw)
+    return _stats(cpu_p95_pct=10.0, cpu_cores=8, procs_running_p95=0.5, **kw)
 
 
 def test_downsize_prescribable_when_confident():
@@ -331,7 +332,7 @@ def test_downsize_gated_by_missing_sufficiency():
 
 
 def test_downsize_not_over_status():
-    s = _stats(cpu_p95_pct=90.0, cpu_cores=8, cpu_load_15m_max=1.0, sample_sufficiency=0.9)
+    s = _stats(cpu_p95_pct=90.0, cpu_cores=8, procs_running_p95=1.0, sample_sufficiency=0.9)
     a = r.assess_cpu(s)  # under
     assert r.downsize_prescribable(a, s) is False
 
@@ -359,12 +360,12 @@ def test_util_trend_rising_false_when_all_below_threshold():
 
 
 def test_cpu_steal_biases_confidence():
-    a = r.assess_cpu(_stats(cpu_p95_pct=90.0, cpu_cores=8, cpu_load_15m_max=1.0, cpu_steal_p95_pct=10.0))
+    a = r.assess_cpu(_stats(cpu_p95_pct=90.0, cpu_cores=8, procs_running_p95=1.0, cpu_steal_p95_pct=10.0))
     assert a.confidence.biased is True  # steal >= 5% -> 충실도 편향
 
 
 def test_cpu_low_steal_no_bias():
-    a = r.assess_cpu(_stats(cpu_p95_pct=90.0, cpu_cores=8, cpu_load_15m_max=1.0, cpu_steal_p95_pct=1.0))
+    a = r.assess_cpu(_stats(cpu_p95_pct=90.0, cpu_cores=8, procs_running_p95=1.0, cpu_steal_p95_pct=1.0))
     assert a.confidence.biased is False
 
 
@@ -372,7 +373,7 @@ def test_cpu_low_steal_no_bias():
 
 
 def test_host_status_under():
-    h = r.rollup_host(_stats(cpu_p95_pct=90.0, cpu_cores=8, cpu_load_15m_max=1.0))
+    h = r.rollup_host(_stats(cpu_p95_pct=90.0, cpu_cores=8, procs_running_p95=1.0))
     assert h.host_status == "under"
 
 
@@ -383,7 +384,7 @@ def test_host_status_idle():
             cpu_p95_pct=1.0,
             cpu_peak_pct=1.0,
             cpu_cores=8,
-            cpu_load_15m_max=0.1,
+            procs_running_p95=0.1,
             mem_p95_pct=70,
             mem_total_mb=16384,
             net_avg_kbps=0.5,
@@ -392,20 +393,20 @@ def test_host_status_idle():
     assert h.host_status == "idle"
 
 
-def test_host_status_shutdown():
-    # CPU p95 <= 3% + 네트워크 낮음(mbps <= 2) 이나 peak 는 idle 문턱 초과 -> shutdown
+def test_host_status_idle_by_low_p95():
+    # CPU p95 <= 3% + 네트워크 낮음(mbps <= 2) -> 유휴 (peak 무관, Azure p95 기준)
     h = r.rollup_host(
         _stats(
             cpu_p95_pct=2.0,
             cpu_peak_pct=10.0,
             cpu_cores=8,
-            cpu_load_15m_max=0.1,
+            procs_running_p95=0.1,
             mem_p95_pct=70,
             mem_total_mb=16384,
             net_avg_kbps=100.0,
         )
     )
-    assert h.host_status == "shutdown"
+    assert h.host_status == "idle"
 
 
 def test_host_status_over():
@@ -415,7 +416,7 @@ def test_host_status_over():
             cpu_p95_pct=10.0,
             cpu_peak_pct=40.0,
             cpu_cores=8,
-            cpu_load_15m_max=0.5,
+            procs_running_p95=0.5,
             mem_p95_pct=70,
             mem_total_mb=16384,
             net_avg_kbps=500.0,
@@ -430,7 +431,7 @@ def test_host_status_optimal():
             cpu_p95_pct=65.0,
             cpu_peak_pct=80.0,
             cpu_cores=8,
-            cpu_load_15m_max=4.0,
+            procs_running_p95=4.0,
             mem_p95_pct=70,
             mem_total_mb=16384,
             net_avg_kbps=500.0,
@@ -450,7 +451,7 @@ def test_host_network_congested_flag():
             cpu_p95_pct=65.0,
             cpu_peak_pct=80.0,
             cpu_cores=8,
-            cpu_load_15m_max=4.0,
+            procs_running_p95=4.0,
             mem_p95_pct=70,
             mem_total_mb=16384,
             net_avg_kbps=500.0,
@@ -485,3 +486,54 @@ def test_labels_cover_all_triggers():
         "net_drop",
     }
     assert keys <= set(r.RS_TRIGGER_LABEL_KO)
+
+
+# ─── under_prescription — root 기반 처방 (근본원인 정합) ────────────────────
+
+
+def test_under_prescription_coupled_root_only():
+    """메모리발 결합 — root(메모리)만 처방(하류 CPU·디스크는 근본원인 칼럼이 전달, 문구엔 안 넣음). 삼중 처방 방지."""
+    s = _stats(
+        cpu_p95_pct=90.0, cpu_cores=8, procs_running_p95=8.0, mem_p95_pct=95.0, mem_total_mb=16384,
+        mem_swap_paging=True, disk_await_p95_ms=40.0, procs_blocked_p95=2.0,
+    )
+    h = r.rollup_host(s)
+    presc = r.under_prescription(h)
+    assert h.root_cause == "memory"
+    assert h.symptom_of_root  # 결합 감지됨
+    assert presc.startswith("메모리 ->")  # "메모리 -> 21.7GB" (총량 목표)
+    assert "CPU" not in presc and "디스크" not in presc  # root 만 — 하류 처방 없음
+
+
+def test_under_prescription_independent_all():
+    """결합 신호 없이 CPU·디스크 용량 각자 부족 -> 각자 처방(/ 결합, root 억제 없음)."""
+    s = _stats(cpu_p95_pct=90.0, cpu_cores=8, procs_running_p95=1.0, disk_used_pct=90.0)
+    h = r.rollup_host(s)
+    presc = r.under_prescription(h)
+    assert not h.symptom_of_root
+    assert "CPU ->" in presc and "스토리지 확장" in presc
+
+
+def test_under_prescription_empty_when_no_under():
+    assert r.under_prescription(r.rollup_host(_stats(cpu_p95_pct=50.0, cpu_cores=8, procs_running_p95=0.5))) == ""
+
+
+# ─── 디스크 용량 1년 수명 목표 ────────────────────────────────────────────
+
+
+def test_disk_capacity_target_1yr():
+    a = r.assess_disk_capacity(_stats(disk_capacity_runway_days=20.0, disk_capacity_target_gb=500.0))
+    assert a.status == "filling"
+    assert a.sizing_target == 500.0
+    assert "목표 500GB" in a.detail
+    assert r._resource_prescription("disk_capacity", a) == "스토리지 -> 500GB"
+
+
+def test_disk_capacity_target_none_when_inode_drives():
+    # inode 가 먼저 소진(runway=inode) -> 용량 확장(바이트)과 무관 -> 목표 없음
+    a = r.assess_disk_capacity(
+        _stats(disk_capacity_runway_days=100.0, disk_inode_runway_days=10.0, disk_capacity_target_gb=500.0)
+    )
+    assert a.status == "filling"
+    assert a.sizing_target is None
+    assert r._resource_prescription("disk_capacity", a) == "스토리지 확장"

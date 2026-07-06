@@ -49,6 +49,8 @@ class ServerDetail:
     services: list[dict] | None
     listen_ports: list[dict]
     last_seen_at: datetime | None
+    # ingest 사전계산 워크로드 카테고리(service_classifier 단일 진실, E7) — 토폴로지 노드 역할 주석 등 소비.
+    service_categories: list[str] | None = None
 
 
 @dataclass
@@ -329,15 +331,24 @@ class ReportRowRaw:
     cpu_steal_p95_pct: float | None = None  # steal% p95 (가상화 경합 — 충실도 편향 단서)
     cpu_burst_ratio: float | None = None  # cpu p95/median (버스티 -> 통계 정밀도 하향)
     procs_blocked_p95: float | None = None  # D-state 블록 p95 (IO발 CPU 로드 분리 근본원인)
+    procs_running_p95: float | None = None  # R-state 실행 큐 p95 (Linux CPU 포화 — load 대체)
     mem_swap_paging: bool = False  # swap page-out(Linux pswpout) 또는 hard page-in(Windows) 발생
+    oom_occurred: bool = False  # 창 안 OOM kill 발생 (메모리 under 사후 증거)
     history_hours: float | None = None  # 관측 버킷(5분) 누적 시간 — 통계 정밀도 바닥(30h floor)
     disk_await_p95_ms: float | None = None  # 물리 device worst await p95 (Linux, virtio 포화 주신호)
     disk_capacity_runway_days: float | None = None  # 바이트 소진까지 남은 일수(가장 빨리 차는 마운트)
     disk_inode_runway_days: float | None = None  # inode 소진까지 남은 일수
+    disk_capacity_target_gb: float | None = None  # 1년 수명 목표 총 용량(GB) — 소진 마운트 확장 목표
+    disk_capacity_proj_30d_pct: float | None = None  # 30일 후 예상 used%(현재 rate 외삽) — 확장 근거 근시 신호
+    disk_capacity_driving_used_pct: float | None = (
+        None  # 소진 임박/최고-used 마운트의 현재 used% (proj_30d 와 동일 마운트, 짝 표시)
+    )
+
     net_drop_pct: float | None = None  # 드롭/패킷 % (품질)
     net_retrans_pct: float | None = None  # TCP 재전송/tx패킷 % (품질 — OutSegs 미수집이라 tx_packets 분모 근사)
     cpu_trend_slope: float | None = None  # cpu 이용률 최소제곱 기울기 %/day (도메인이 상승 추세 판정)
     mem_trend_slope: float | None = None  # mem 이용률 최소제곱 기울기 %/day
+    cpu_percore_p95_max: float | None = None  # 가장 바쁜 코어의 이용률 p95 (단일스레드 병목, server_cpu_core)
 
 
 @dataclass

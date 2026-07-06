@@ -561,3 +561,90 @@ async def test_report_aggregate_adr0052_signals_absent_are_none(collect_repo, qu
     assert r.disk_inode_runway_days is None  # inodes_free 미발행
     assert r.net_retrans_pct is None  # tcp_retrans_segs 미발행
     assert r.mem_swap_paging is False  # pswpout 미발행
+
+
+# ─── ADR 0052 per-core 단일스레드 신호 ────────────────────────────────────
+
+
+async def test_report_aggregate_percore_p95_max_reflects_busy_core(collect_repo, query_repo):
+    """cpu_percore_p95_max = 가장 바쁜 코어의 p95. 코어0 90%·코어1 5% -> max ~90(집계 평균은 낮음).
+    server_cpu_core_5m cagg 코어별 counter_agg delta 로 코어별 util% 산출.
+    """
+    from assessment_engine.db.dtos.inbound import CpuCoreEntry
+
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="r-percore"))
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=9)
+    n = 10
+    for i in range(n):
+        ts = base_ts + timedelta(minutes=i)
+        m = make_metrics(
+            collected_at=ts,
+            cpu_per_core=[
+                # 코어0 바쁨: idle +100/step, system +900/step -> total 1000, util = 90%
+                CpuCoreEntry(
+                    0,
+                    cpu_user=0,
+                    cpu_nice=0,
+                    cpu_system=900 * i,
+                    cpu_idle=100 * i,
+                    cpu_iowait=0,
+                    cpu_irq=0,
+                    cpu_softirq=0,
+                    cpu_steal=0,
+                ),
+                # 코어1 유휴: idle +950/step -> util = 5%
+                CpuCoreEntry(
+                    1,
+                    cpu_user=0,
+                    cpu_nice=0,
+                    cpu_system=50 * i,
+                    cpu_idle=950 * i,
+                    cpu_iowait=0,
+                    cpu_irq=0,
+                    cpu_softirq=0,
+                    cpu_steal=0,
+                ),
+            ],
+        )
+        await collect_repo.record_metrics(sid, m)
+
+    rows = await query_repo.report_aggregate([sid], period_days=1, end=base_ts + timedelta(minutes=n))
+    assert len(rows) == 1
+    r = rows[0]
+    # 가장 바쁜 코어(0) p95 ~90 반영 — 단일스레드 보호(RS_CPU_PERCORE_HOLD=85) 발화선 위
+    assert r.cpu_percore_p95_max is not None and r.cpu_percore_p95_max >= 85.0
+
+
+async def test_report_aggregate_percore_none_when_absent(collect_repo, query_repo):
+    """per-core 미발행(구 agent·Windows) 시 cpu_percore_p95_max None — graceful skip."""
+    sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-percore-absent")
+    rows = await query_repo.report_aggregate([sid], period_days=1, end=end + timedelta(minutes=1))
+    assert rows[0].cpu_percore_p95_max is None
+
+
+# ─── ADR 0052 run-queue(procs_running) + OOM ──────────────────────────────
+
+
+async def test_report_aggregate_runqueue_and_oom(collect_repo, query_repo):
+    """Linux CPU 포화 신호 procs_running p95 + OOM 발생 bool. 실행큐 8·OOM 증가 -> p95>=8, oom True."""
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="r-runqueue-oom"))
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=9)
+    for i in range(10):
+        m = make_metrics(
+            collected_at=base_ts + timedelta(minutes=i),
+            procs_running=8,  # gauge -> p95 ~8
+            oom_kill=i,  # 단조 증가 -> delta>0 -> oom 발생
+        )
+        await collect_repo.record_metrics(sid, m)
+    rows = await query_repo.report_aggregate([sid], period_days=1, end=base_ts + timedelta(minutes=10))
+    r = rows[0]
+    assert r.procs_running_p95 is not None and r.procs_running_p95 >= 7.5
+    assert r.oom_occurred is True
+
+
+async def test_report_aggregate_runqueue_oom_absent(collect_repo, query_repo):
+    """procs_running·oom_kill 미발행 시 p95 None·oom False — graceful."""
+    sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-runqueue-absent")
+    r = (await query_repo.report_aggregate([sid], period_days=1, end=end + timedelta(minutes=1)))[0]
+    assert r.procs_running_p95 is None
+    assert r.oom_occurred is False

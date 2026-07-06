@@ -96,7 +96,7 @@ class ServerListItem:
     recommendation_label: str = ""
     recommendation_color: str = ""
     # 분류 raw enum — list 필터링 단일 진실 (optimal / over_provisioned / under_provisioned /
-    # idle / shutdown / insufficient_data). raws_period 부재 시 빈 문자열.
+    # idle / insufficient_data). raws_period 부재 시 빈 문자열.
     provisioning_class: str = ""
     # OS distro(endoflife 카탈로그 product slug) — OS 필터 단일 진실.
     # os_id_to_distro(os_id) 정규화 (rocky->rocky-linux).

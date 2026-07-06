@@ -162,12 +162,7 @@ async def assessment(
     qs = f"?time_range={time_range}" + (f"&anchor_at={quote(anchor_at.isoformat(), safe='')}" if anchor_at else "")
     ctx = {
         "overview": result.overview,
-        "efficiency_hosts": result.efficiency_hosts,
-        "efficiency_hosts_count": result.efficiency_hosts_count,
-        "efficiency_target_count": result.efficiency_target_count,
-        "efficiency_target_vcpus": result.efficiency_target_vcpus,
-        "efficiency_target_memory_gb": result.efficiency_target_memory_gb,
-        "under_provisioned_metric_labels": result.under_provisioned_metric_labels,
+        "action": result.action,
         "time_range": time_range,
         "window_label": DIAGNOSTIC_RANGE_LABEL_KR.get(time_range, time_range),
         "self_back": quote(f"/environment/assessment{qs}", safe=""),

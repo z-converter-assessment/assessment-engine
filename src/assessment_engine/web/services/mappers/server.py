@@ -242,7 +242,7 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
         # report mapper 지연 import: report.py 가 본 모듈을 import 하므로 모듈 레벨 순환 회피.
         from assessment_engine.web.services.mappers.report import build_resource_stats
 
-        rec = recommendation.classify(build_resource_stats(raw_period))
+        rec = recommendation.classify_host(build_resource_stats(raw_period))
         seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
         # 색은 _DONUT_SEGMENT_DEFS, 라벨은 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 서버목록 칼럼 한글 표시.
         for key, _label, color, _desc in _DONUT_SEGMENT_DEFS:

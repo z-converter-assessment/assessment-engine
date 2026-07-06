@@ -64,32 +64,43 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
         rq = stats.cpu_run_queue_p95 / cores if stats.cpu_run_queue_p95 is not None and cores else None
         return [
             SaturationAxisDisplay(
-                "CPU 포화", "Processor Queue Length / core",
+                "CPU 포화",
+                "Processor Queue Length / core",
                 f"{rq:.2f}" if rq is not None else "N/A",
-                f">= {rec.CPU_RUN_QUEUE_PER_CORE_SATURATION:g}", rq is not None,
+                f">= {rec.CPU_RUN_QUEUE_PER_CORE_SATURATION:g}",
+                rq is not None,
             ),
             SaturationAxisDisplay(
-                "메모리 포화", "Memory Pages/sec p95",
+                "메모리 포화",
+                "Memory Pages/sec p95",
                 f"{stats.mem_paging_rate_p95:.0f}/s" if stats.mem_paging_rate_p95 is not None else "N/A",
-                f">= {rec.MEM_PAGING_RATE_SATURATION:g}/s", stats.mem_paging_rate_p95 is not None,
+                f">= {rec.MEM_PAGING_RATE_SATURATION:g}/s",
+                stats.mem_paging_rate_p95 is not None,
             ),
             SaturationAxisDisplay(
-                "디스크 I/O", "Avg Disk Queue Length p95",
+                "디스크 I/O 포화",
+                "Avg Disk Queue Length p95",
                 f"{stats.disk_queue_p95:.2f}" if stats.disk_queue_p95 is not None else "N/A",
-                f">= {rec.DISK_QUEUE_PER_DISK_SATURATION:g}", stats.disk_queue_p95 is not None,
+                f">= {rec.DISK_QUEUE_PER_DISK_SATURATION:g}",
+                stats.disk_queue_p95 is not None,
             ),
         ]
-    ld = stats.cpu_load_15m_max / cores if stats.cpu_load_15m_max is not None and cores else None
+    rq = stats.procs_running_p95 / cores if stats.procs_running_p95 is not None and cores else None
     return [
         SaturationAxisDisplay(
-            "CPU 포화", "load avg / core", f"{ld:.2f}" if ld is not None else "N/A",
-            f">= {rec.CPU_SATURATION_LOAD_RATIO:g}", ld is not None,
+            "CPU 포화",
+            "run queue (procs_running) / core",
+            f"{rq:.2f}" if rq is not None else "N/A",
+            f">= {rec.PROCS_RUNNING_PER_CORE_SATURATION:g}",
+            rq is not None,
         ),
         SaturationAxisDisplay("메모리 포화", "swap page-out", "발생" if stats.swap_used else "없음", "발생 시", True),
         SaturationAxisDisplay(
-            "디스크 I/O", "iowait p95",
-            f"{stats.iowait_p95_pct:.1f}%" if stats.iowait_p95_pct is not None else "N/A",
-            f">= {rec.IOWAIT_UPSIZE_PCT:g}%", stats.iowait_p95_pct is not None,
+            "디스크 I/O 포화",
+            "await p95",
+            f"{stats.disk_await_p95_ms:.0f}ms" if stats.disk_await_p95_ms is not None else "N/A",
+            f"> {rec.RS_DISKIO_AWAIT_MS:g}ms",
+            stats.disk_await_p95_ms is not None,
         ),
     ]
 
@@ -104,9 +115,9 @@ def build_confidence_notes(assessment: recommendation.Assessment) -> list[str]:
     if assessment.is_partial:
         notes.append("포화 수치 미관측")
     if assessment.low_sample:
-        # 접미구 명시 — 분류 라벨 "표본 부족"(insufficient_data, LABEL_KO)과의 문자열 충돌 방지.
-        # 여기 "표본 부족"은 분류가 아니라 이용률 p95 신뢰도 단서다 (참고자료 _thresholds_reference.html 동일 문구).
-        notes.append("표본 부족 — 이용률 신뢰도 낮음")
+        # 표본 부족은 이용률·포화 p95 전 축의 통계 정밀도를 떨어뜨린다 — "이용률" 한정 없이 단순 라벨.
+        # 분류 라벨 "표본 부족"(insufficient_data)과 같은 문자열이나 다른 칼럼(신뢰도 vs 분류)이라 혼동 없음.
+        notes.append("표본 부족")
     return notes
 
 
@@ -117,9 +128,7 @@ def build_service_badge_reference() -> list[ServiceBadgeRef]:
     """
     refs: list[ServiceBadgeRef] = []
     for d in SERVICE_CATALOG:
-        named_ports = "·".join(
-            f"{name}({'/'.join(str(p) for p in ports)})" for name, ports in d.port_names.items()
-        )
+        named_ports = "·".join(f"{name}({'/'.join(str(p) for p in ports)})" for name, ports in d.port_names.items())
         refs.append(
             ServiceBadgeRef(
                 category=d.key,
@@ -131,15 +140,16 @@ def build_service_badge_reference() -> list[ServiceBadgeRef]:
         )
     return refs
 
+
 # ─── USE Method 도넛 카탈로그 — 대시보드 + 환경 보고서 + 서버 리스트 단일 진실 (T13) ────
-# USE Method recommendation enum 1:1 매핑. (key, label, hex, description) 튜플 정렬:
-#   under(빨강), over(파랑=주색), idle(회색), shutdown(보라), optimal(녹색), insufficient_data(옅은회색).
+# 자원 적정성 상태 enum 1:1 매핑. (key, label, hex, description) 튜플 정렬:
+#   under(빨강), over(파랑=주색), idle(회색), optimal(녹색), insufficient_data(옅은회색).
 # over 색 = 테마색1(var(--color-title)) 동일 주색 — 활용률 게이지와 같은 파랑, under 빨강과 대비.
+# idle = 미사용 상태(수요≈0). 종료·통합 조치는 파생 권고 층(상태 아님).
 _DONUT_SEGMENT_DEFS: list[tuple[str, str, str, str]] = [
     ("under_provisioned", "under_provisioned", "#ef4444", "자원 부족 — 사양 상향 검토"),
     ("over_provisioned", "over_provisioned", "var(--color-title)", "자원 여유 — 사양 축소 검토"),
-    ("idle", "idle", "#64748b", "사용률 매우 낮음 — 용도 재평가"),
-    ("shutdown", "shutdown", "#9333ea", "사실상 미사용 — 종료 검토"),
+    ("idle", "idle", "#64748b", "미사용 — 종료·통합 검토"),
     ("optimal", "optimal", "#22c55e", "적정"),
     ("insufficient_data", "insufficient_data", "#cbd5e1", "평가 표본 부족"),
 ]
@@ -153,7 +163,6 @@ _DONUT_SEGMENT_FROM_REC: dict[str, str] = {
     "under_provisioned": "under_provisioned",
     "over_provisioned": "over_provisioned",
     "idle": "idle",
-    "shutdown": "shutdown",
     "optimal": "optimal",
     "insufficient_data": "insufficient_data",
 }

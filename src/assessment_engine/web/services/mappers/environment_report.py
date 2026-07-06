@@ -5,7 +5,6 @@ server scope 보고서와 분리된 high-level 양식 — 분류 분포·OS 분�
 """
 
 from collections import Counter
-from dataclasses import dataclass
 from datetime import datetime
 
 from assessment_engine import recommendation
@@ -26,6 +25,7 @@ from assessment_engine.web.services.mappers.shared import (
 )
 from assessment_engine.web.services.mappers.topology import build_network_topology
 from assessment_engine.web.view_models.attention import (
+    ActionTargets,
     AttentionSignals,
     CapacityWarningItem,
     EnvironmentOverview,
@@ -46,18 +46,6 @@ from assessment_engine.web.view_models.report import ReportRowItem, ReportSummar
 # `_PROVISIONING_SEGMENT_DEFS` / `_CAPACITY_IMMINENT_DAYS` 단일 진실 = mappers/shared.py (#E8).
 # 본 모듈은 import alias 만 — 환경 보고서·대시보드 도넛·보고서 row 색 통일 (T13).
 
-# 분류별 조치 방향 — 분포 막대 desc 단일 진실 (label=분류명과 어휘 중복 회피, 조치만).
-# 대시보드 도넛(_DONUT_SEGMENT_DEFS desc)과 분리 — 보고서 ClassificationCount 에만 적용.
-_CLASS_ACTION_KO: dict[str, str] = {
-    "under_provisioned": "사양 상향(증설) 검토",
-    "over_provisioned": "사양 축소 검토",
-    "idle": "용도 재평가",
-    "shutdown": "종료 검토",
-    "optimal": "적정",
-    "insufficient_data": "평가 표본 부족",
-}
-
-
 # view 별 Top N — customer/engineer 모두 전수 노출 (운영 검토 list, N 잘림 없음).
 _TOP_RISK_N_BY_VIEW: dict[str, int | None] = {
     "customer": None,
@@ -66,7 +54,7 @@ _TOP_RISK_N_BY_VIEW: dict[str, int | None] = {
 
 
 def _count_classifications(rows: list[ReportRowItem]) -> list[ClassificationCount]:
-    """rows.recommendation 카운트 → USE Method 6 분류 ClassificationCount list (정석 1:1).
+    """rows.recommendation 카운트 → 자원 적정성 5 상태 ClassificationCount list (정석 1:1).
 
     label·color 는 _PROVISIONING_SEGMENT_DEFS — 대시보드 도넛과 시각·의미 정합 (T13).
     """
@@ -79,12 +67,11 @@ def _count_classifications(rows: list[ReportRowItem]) -> list[ClassificationCoun
             count=counts.get(key, 0),
             # 색 = 게이지 테마 단색 통일 (분류 막대 — 라벨이 의미 전달). _PROVISIONING_SEGMENT_DEFS 다색 미사용.
             color=UTIL_GAUGE_COLOR,
-            # desc = 조치 방향만 (label 분류명과 어휘 중복 회피).
-            description=_CLASS_ACTION_KO.get(key, description),
+            # desc = 조치 방향만 (label 분류명과 어휘 중복 회피). 조치 단일 진실 = recommendation 도메인.
+            description=recommendation.RECOMMENDATION_ACTION_KO.get(key, description),
         )
         for key, label, color, description in _PROVISIONING_SEGMENT_DEFS
     ]
-
 
 
 def _to_distribution_bars(
@@ -228,49 +215,6 @@ def _select_top_risks(rows: list[ReportRowItem], view: ReportView) -> list[Repor
     return sorted_rows if limit is None else sorted_rows[:limit]
 
 
-_EFFICIENCY_PRIORITY: dict[str, int] = {"shutdown": 0, "idle": 1, "over_provisioned": 2}
-def _select_efficiency_targets(rows: list[ReportRowItem]) -> list[ReportRowItem]:
-    """효율화(감축·정리) 대상 호스트 — over/idle/shutdown 전수를 정리 우선순위 순 정렬 (절단 없음).
-
-    shutdown(거의 미사용) > idle(저활용) > over(과프로비전), 동순위는 cpu_p95 ASC(저활용 우선).
-    """
-    targets = [r for r in rows if r.recommendation in _EFFICIENCY_PRIORITY]
-    return sorted(
-        targets, key=lambda r: (_EFFICIENCY_PRIORITY[r.recommendation], r.cpu_p95_pct or 0.0)
-    )
-
-
-@dataclass
-class EfficiencySummary:
-    """효율화 검토 대상 표 데이터 — 보고서·자원 평가 공용 단일 진실 (`build_efficiency_summary`).
-
-    hosts: 정리 우선순위 순 전수 (표 행, 절단 없음). target_count/vcpus/memory_gb: 대상 수·점유 자원 합.
-    """
-
-    hosts: list[ReportRowItem]
-    hosts_count: int
-    target_count: int
-    target_vcpus: int
-    target_memory_gb: float
-
-
-def build_efficiency_summary(rows: list[ReportRowItem]) -> EfficiencySummary:
-    """효율화 대상 호스트(전수) + 점유 자원 합 — over/idle/shutdown 단일 산식.
-
-    보고서(`to_environment_report`)와 자원 평가 페이지(`get_environment_assessment`)가 공유 — 분류·정렬
-    어휘 일관. hosts 는 정리 우선순위 순 전수(절단 없음), 점유 자원 합(target_*)도 동일 대상 기준.
-    """
-    hosts = _select_efficiency_targets(rows)
-    eff_rows = [r for r in rows if r.recommendation in _EFFICIENCY_PRIORITY]
-    return EfficiencySummary(
-        hosts=hosts,
-        hosts_count=len(hosts),
-        target_count=len(eff_rows),
-        target_vcpus=sum(r.cpu_cores or 0 for r in eff_rows),
-        target_memory_gb=round(sum(r.mem_total_gb or 0.0 for r in eff_rows), 1),
-    )
-
-
 def _extract_attention_hosts(
     attention: AttentionSignals,
     rows: list[ReportRowItem],
@@ -385,7 +329,6 @@ def _env_summary_bullets(
     under = classified.get("under_provisioned", 0)
     over = classified.get("over_provisioned", 0)
     idle = classified.get("idle", 0)
-    shutdown = classified.get("shutdown", 0)
     optimal = classified.get("optimal", 0)
     insufficient = classified.get("insufficient_data", 0)
 
@@ -397,7 +340,7 @@ def _env_summary_bullets(
     )
     dist_line = (
         f"자원 적정성 분류 — {ko['under_provisioned']} {under} · {ko['over_provisioned']} {over}"
-        f" · {ko['idle']} {idle} · {ko['shutdown']} {shutdown} · {ko['optimal']} {optimal}"
+        f" · {ko['idle']} {idle} · {ko['optimal']} {optimal}"
     )
     if insufficient:
         dist_line += f" · {ko['insufficient_data']} {insufficient}"
@@ -407,7 +350,7 @@ def _env_summary_bullets(
         dist_line,
     ]
     # 주요 현상 강조 — 조치 지시 없이 현상·진단만 (분류명 그대로).
-    efficiency = over + idle + shutdown
+    efficiency = over + idle
     if under:
         cause = _under_cause_summary(under_hosts)
         if cause:
@@ -415,7 +358,7 @@ def _env_summary_bullets(
         else:
             bullets.append(f"{ko['under_provisioned']} — 관측 부하 대비 할당 자원 부족")
     elif efficiency:
-        grp = f"{ko['over_provisioned']}·{ko['idle']}·{ko['shutdown']}"
+        grp = f"{ko['over_provisioned']}·{ko['idle']}"
         bullets.append(f"{grp} {efficiency}대 — 관측 부하 대비 할당 자원 여유")
     if attention.os_eol_warnings:
         bullets.append(f"OS 지원 종료 {len(attention.os_eol_warnings)}대")
@@ -432,7 +375,7 @@ def to_environment_report(
     base: ReportSummary,
     details: list[ServerDetail],
     generated_at: datetime,
-    under_provisioned_hosts: list[CapacityWarningItem] | None = None,
+    action: ActionTargets,
     trend: list[dict] | None = None,
 ) -> EnvironmentReportSummary:
     """ReportSummary + EnvironmentOverview + AttentionSignals → EnvironmentReportSummary 합성.
@@ -458,11 +401,9 @@ def to_environment_report(
     _eol_os = Counter(w.meta_text.split(" · ", 1)[0] for w in attention.os_eol_warnings)
     os_eol_breakdown_label = " · ".join(f"{os} {n}대" for os, n in _eol_os.most_common())
     top_risks = _select_top_risks(base.rows, view)
-    efficiency = build_efficiency_summary(base.rows)
     env_metrics = _build_env_metrics(overview, base.rows)
-    under_hosts = (
-        under_provisioned_hosts if under_provisioned_hosts is not None else list(overview.under_provisioned_hosts)
-    )
+    # 자원 부족 원인 집계 bullet 은 통합 표에서 under 분류 행만 필터.
+    under_hosts = [h for h in action.hosts if h.classification == "under_provisioned"]
     summary = _env_summary_bullets(overview, attention, classification_dist, under_hosts)
     # engineer 보고서 전용 — 운영 신호 호스트 통합 / capacity 임박 / 표본 부족.
     # customer 도 동일 헬퍼 호출 (로직 단일, 미사용 필드는 template 분기로 노출 안 함).
@@ -491,26 +432,19 @@ def to_environment_report(
         workload_unknown_count=overview.role_unknown_count,
         workload_identified_count=overview.total - overview.role_unknown_count,
         top_risks=top_risks,
-        efficiency_hosts=efficiency.hosts,
+        action=action,
         env_metrics=env_metrics,
         summary_bullets_env=summary,
-        under_provisioned_hosts=under_hosts,
-        under_provisioned_metric_labels=[m.label for m in under_hosts[0].metrics] if under_hosts else [],
         service_catalog=_aggregate_service_catalog(base.rows),
         attention_hosts=attention_hosts,
         capacity_imminent=capacity_imminent,
         # 템플릿 P3 회피 — 카운트 mapper precompute (#E1 P3).
         top_risks_count=len(top_risks),
-        efficiency_hosts_count=efficiency.hosts_count,
         attention_hosts_count=len(attention_hosts),
         capacity_imminent_count=len(capacity_imminent),
-        under_provisioned_hosts_count=len(under_hosts),
         evaluated_count=evaluated_count,
         os_eol_count=len(attention.os_eol_warnings),
         os_eol_breakdown_label=os_eol_breakdown_label,
-        efficiency_target_count=efficiency.target_count,
-        efficiency_target_vcpus=efficiency.target_vcpus,
-        efficiency_target_memory_gb=efficiency.target_memory_gb,
         agent_versions_label=agent_versions_label,
         topology=topology,
         trend=trend or [],

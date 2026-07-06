@@ -4,8 +4,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from assessment_engine.web.view_models.attention import (
+    ActionTargets,
     AttentionSignals,
-    CapacityWarningItem,
     EnvironmentOverview,
 )
 from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
@@ -208,13 +208,6 @@ class EnvironmentReportSummary:
     os_eol_count: int = 0  # OS 지원 종료 호스트 수 (attention.os_eol_warnings len)
     # OS 지원 종료 OS별 집계 라벨 — "debian 11 2대 · debian 12 3대" (customer 나열, mapper precompute, P3)
     os_eol_breakdown_label: str = ""
-    # 효율화 검토 대상(과다 할당·유휴·종료 권장) 호스트 수 + 점유 자원 합 — 전환 비용 논의 입력.
-    efficiency_target_count: int = 0
-    efficiency_target_vcpus: int = 0
-    efficiency_target_memory_gb: float = 0.0
-    # 효율화 대상 호스트 표(engineer) — over/idle/shutdown 정리 시급도 순 Top 30. 호스트 권고(종합) 대체.
-    efficiency_hosts: list[ReportRowItem] = field(default_factory=list)
-    efficiency_hosts_count: int = 0
     # 엔지니어 환경 구성 — 에이전트 버전 목록 (중복 제거·정렬). "어디 적용"은 미표시, 버전만 명시.
     agent_versions_label: str = ""
     # 네트워크 토폴로지 (engineer) — 물리 인터페이스 subnet 공동소속 그래프. 발행 시점 정적 스냅샷.
@@ -222,10 +215,8 @@ class EnvironmentReportSummary:
     # 환경 시계열 추이 (engineer) — 발행 모달 time_range 윈도우의 CPU·메모리 평균 버킷. 정적 스냅샷.
     # 차트 JS inline(tojson)용 plain dict: [{"at": iso, "cpu": float|None, "mem": float|None}].
     trend: list[dict] = field(default_factory=list)
-    under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list)
-    # 자원 부족 6축 테이블 헤더 라벨 — 첫 호스트 metrics 라벨 precompute (P3: 템플릿 인덱싱 회피).
-    # plain str list 라 serializer 복원 불요.
-    under_provisioned_metric_labels: list[str] = field(default_factory=list)
+    # 통합 조치 대상 표 — 자원 부족/과다 할당/유휴 한 표 (자원 평가 페이지와 동일 build_action_targets·정렬).
+    action: ActionTargets = field(default_factory=ActionTargets)
     # 서비스 구성 — 선택 N대 전체의 워크로드 카테고리별 제품명 집합 (뱃지 + 매칭 서비스명). base.rows 의
     # workload_groups 를 카테고리 기준 merge (mapper 집계, P2). 카테고리 뱃지에 정확히 매칭되는 서비스명 노출.
     service_catalog: list[ServiceCatalogGroup] = field(default_factory=list)
@@ -244,4 +235,3 @@ class EnvironmentReportSummary:
     top_risks_count: int = 0
     attention_hosts_count: int = 0
     capacity_imminent_count: int = 0
-    under_provisioned_hosts_count: int = 0

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import text
 
+from assessment_engine import recommendation  # 순수 도메인 커널 — right-sizing 정책 상수(순환 없음)
 from assessment_engine.db.dtos.outbound import (
     CpuBreakdownRaw,
     EnvironmentUtilizationRaw,
@@ -56,8 +57,10 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                          THEN GREATEST(0, delta(cpu_steal_ca) / delta(cpu_total_ca) * 100)
                     END AS steal_pct,
                     procs_blocked_avg AS procs_blocked,
+                    procs_running_avg AS procs_running,
                     delta(pswpout_ca)         AS pswpout_delta,
                     delta(mem_pages_input_ca) AS pages_in_delta,
+                    delta(oom_kill_ca)        AS oom_delta,
                     delta(tcp_retrans_ca)     AS retrans_delta,
                     mem_pct_avg, mem_pct_max, load_15m_max, swap_in_use, disk_queue_avg, cpu_run_queue_avg
                 FROM server_metrics_5m
@@ -97,7 +100,9 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 SELECT server_id,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY steal_pct)      AS cpu_steal_p95,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY procs_blocked)  AS procs_blocked_p95,
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY procs_running)  AS procs_running_p95,
                     bool_or(COALESCE(pswpout_delta, 0) > 0 OR COALESCE(pages_in_delta, 0) > 0) AS swap_paging,
+                    bool_or(COALESCE(oom_delta, 0) > 0) AS oom_occurred,
                     SUM(retrans_delta) AS retrans_total,
                     regr_slope(cpu_pct, extract(epoch FROM bucket)) * 86400 AS cpu_trend_slope,
                     regr_slope(mem_pct_avg, extract(epoch FROM bucket)) * 86400 AS mem_trend_slope
@@ -112,11 +117,12 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             ),
             mount_span AS (
                 -- ADR 0052 디스크 용량 runway 입력 — 마운트별 가용 이력 전체(하한 없이 bucket <= :end)의
-                -- 시작·종료 avail/inode + 실제 관측 span(일). runway 는 분류 14일 창과 달리 전체 이력을 쓴다
+                -- 시작·종료 avail/inode + 총 용량 + 실제 관측 span(일). runway 는 분류 14일 창과 달리 전체 이력을 쓴다
                 -- (누적 신호라 길수록 추세 정확 — 사이징 lookback 과 별개 축, 기준 정의).
                 SELECT server_id, mount,
                     first(avail_first, bucket)       AS av_first,
                     last(avail_last, bucket)         AS av_last,
+                    max(total_bytes_max)             AS total_bytes,
                     first(inodes_free_first, bucket) AS in_first,
                     last(inodes_free_last, bucket)   AS in_last,
                     EXTRACT(EPOCH FROM (max(bucket) - min(bucket))) / 86400.0 AS span_days
@@ -124,17 +130,50 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 WHERE server_id = ANY(:sids) AND bucket <= :end
                 GROUP BY server_id, mount
             ),
+            mount_calc AS (
+                -- 마운트별 runway(소진 일수) + 확장 목표 용량(GB, 두-경로). rate = avail 감소분/일.
+                -- 경로1(추세 신뢰, span >= :trend_min_span): used + rate*365 = 1년 수명 목표. 충분히 관측된 성장률만 외삽.
+                -- 경로2(자료 부족 + used >= :static_pct): used / (:headroom_pct/100) = 확장 후 headroom_pct% 착지. 이용률 기반.
+                -- 짧은 span 을 365일로 외삽하면 spike 과외삽(비현실적 값) -> 경로1 은 span 게이트, 미충족은 경로2/None.
+                SELECT server_id, mount,
+                    CASE WHEN (av_first - av_last) > 0 AND span_days > 0 AND av_last >= 0
+                         THEN GREATEST(0, FLOOR(av_last / ((av_first - av_last) / span_days))) END AS disk_runway_days,
+                    CASE WHEN (in_first - in_last) > 0 AND span_days > 0 AND in_last >= 0
+                         THEN GREATEST(0, FLOOR(in_last / ((in_first - in_last) / span_days))) END AS inode_runway_days,
+                    CASE
+                        -- 경로1(추세 신뢰, span >= :trend_min_span): used + rate*365 = 1년 수명 목표.
+                        WHEN (av_first - av_last) > 0 AND span_days >= :trend_min_span AND total_bytes > 0
+                            THEN CEIL(((total_bytes - av_last) + :target_runway * ((av_first - av_last) / span_days)) / 1e9)
+                        -- 경로2(소진 임박·짧은 span): 30일 예상 used 를 headroom(:headroom_pct)에 착지 — 근시라 현실적, 항상 값.
+                        WHEN (av_first - av_last) > 0 AND span_days > 0 AND total_bytes > 0
+                            THEN CEIL(((total_bytes - av_last) + :near_horizon * ((av_first - av_last) / span_days))
+                                      / (:headroom_pct / 100.0) / 1e9)
+                        -- 경로3(추세 없음 + 임계 초과): 이용률 headroom.
+                        WHEN total_bytes > 0 AND av_last >= 0 AND (1 - av_last::float / total_bytes) * 100 >= :static_pct
+                            THEN CEIL((total_bytes - av_last) / (:headroom_pct / 100.0) / 1e9)
+                    END AS target_gb,
+                    CASE WHEN total_bytes > 0 THEN (1 - av_last::float / total_bytes) * 100 END AS used_pct,
+                    -- 30일 후 예상 used% (현재 rate 로 근시 외삽, clamp 없이 실제값). 100% 초과 = 30일 내 소진(속도 노출).
+                    CASE WHEN (av_first - av_last) > 0 AND span_days > 0 AND total_bytes > 0
+                         THEN (1 - (av_last - :near_horizon * ((av_first - av_last) / span_days)) / total_bytes::float) * 100
+                    END AS proj_30d_pct
+                FROM mount_span
+            ),
             mount_runway AS (
-                -- 서버당 가장 빨리 소진되는 마운트(MIN runway). 감소·수평·span<=0 이면 runway null(안 참).
-                -- rate = avail 감소분 / 실제 span(일). report_mount_worst 의 worst-by-usage 와 별개 축.
-                SELECT server_id,
-                    MIN(CASE WHEN (av_first - av_last) > 0 AND span_days > 0 AND av_last >= 0
-                             THEN GREATEST(0, FLOOR(av_last / ((av_first - av_last) / span_days))) END)
-                        AS disk_runway_days,
-                    MIN(CASE WHEN (in_first - in_last) > 0 AND span_days > 0 AND in_last >= 0
-                             THEN GREATEST(0, FLOOR(in_last / ((in_first - in_last) / span_days))) END)
-                        AS inode_runway_days
-                FROM mount_span GROUP BY server_id
+                -- 서버당 가장 빨리 소진되는 마운트(MIN runway) + 조치 대상 마운트의 확장 목표·30일 예상.
+                -- 감소·수평·span<=0 이면 runway null(안 참). report_mount_worst 의 worst-by-usage 와 별개 축.
+                SELECT r.server_id, r.disk_runway_days, r.inode_runway_days, t.target_gb, t.proj_30d_pct, t.used_pct
+                FROM (
+                    SELECT server_id, MIN(disk_runway_days) AS disk_runway_days, MIN(inode_runway_days) AS inode_runway_days
+                    FROM mount_calc GROUP BY server_id
+                ) r
+                LEFT JOIN (
+                    -- 조치 대상 마운트(소진 임박 OR 임계 초과)의 목표·예상·used%. 소진 임박(runway) 우선, 없으면 최고 used.
+                    -- used%·proj_30d 를 같은 마운트에서 뽑아 표시 계층에서 짝 맞춤(worst-used 마운트와 혼입 방지).
+                    SELECT DISTINCT ON (server_id) server_id, target_gb, proj_30d_pct, used_pct
+                    FROM mount_calc WHERE disk_runway_days IS NOT NULL OR used_pct >= :static_pct
+                    ORDER BY server_id, disk_runway_days ASC NULLS LAST, used_pct DESC NULLS LAST
+                ) t ON t.server_id = r.server_id
             ),
             disk_await AS (
                 -- ADR 0052 디스크 I/O await (Linux time_reading/writing 델타 / IO수 델타, 물리 device). virtio 라
@@ -164,6 +203,23 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     FROM server_net_io_5m
                     WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
                 ) n GROUP BY server_id
+            ),
+            percore AS (
+                -- ADR 0052 단일스레드 병목 — 코어별 이용률 p95. server_cpu_core_5m cagg(코어별 counter_agg).
+                -- per-bucket 코어 util% = 1 - delta(idle)/delta(total). Windows·구 agent 는 행 없음(null).
+                SELECT server_id, core_id, percentile_cont(0.95) WITHIN GROUP (ORDER BY core_util) AS core_p95
+                FROM (
+                    SELECT server_id, core_id,
+                        CASE WHEN delta(cpu_total_ca) > 0
+                             THEN GREATEST(0, (1 - delta(cpu_idle_ca) / delta(cpu_total_ca)) * 100)
+                        END AS core_util
+                    FROM server_cpu_core_5m
+                    WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
+                ) cu WHERE core_util IS NOT NULL GROUP BY server_id, core_id
+            ),
+            percore_max AS (
+                -- 서버당 가장 바쁜 코어의 p95 — 어느 코어든 임계 넘으면 다운사이즈/유휴 보류(단일스레드 보호).
+                SELECT server_id, MAX(core_p95) AS cpu_percore_p95_max FROM percore GROUP BY server_id
             )
             SELECT
                 s.id            AS server_id,
@@ -203,15 +259,21 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 rs.cpu_steal_p95 AS cpu_steal_p95,
                 CASE WHEN cs.cpu_median > 0 THEN cs.cpu_p95 / cs.cpu_median END AS cpu_burst_ratio,
                 rs.procs_blocked_p95 AS procs_blocked_p95,
+                rs.procs_running_p95 AS procs_running_p95,
                 COALESCE(rs.swap_paging, false) AS swap_paging,
+                COALESCE(rs.oom_occurred, false) AS oom_occurred,
                 cs.cpu_sample * 5.0 / 60.0 AS history_hours,  -- 관측 버킷(5분) 누적 시간(계층3 AWS 30h floor)
                 da.await_p95 AS disk_await_p95_ms,
                 mr.disk_runway_days  AS disk_capacity_runway_days,
                 mr.inode_runway_days AS disk_inode_runway_days,
+                mr.target_gb         AS disk_capacity_target_gb,
+                mr.proj_30d_pct      AS disk_capacity_proj_30d_pct,
+                mr.used_pct          AS disk_capacity_driving_used_pct,
                 nq.drops_total  / NULLIF(nq.packets_total, 0)    * 100 AS net_drop_pct,
                 rs.retrans_total / NULLIF(nq.tx_packets_total, 0) * 100 AS net_retrans_pct,
                 rs.cpu_trend_slope AS cpu_trend_slope,
-                rs.mem_trend_slope AS mem_trend_slope
+                rs.mem_trend_slope AS mem_trend_slope,
+                pc.cpu_percore_p95_max AS cpu_percore_p95_max
             FROM server_inventory s
             LEFT JOIN cpu_stats   cs ON cs.server_id = s.id
             LEFT JOIN mem_stats   ms ON ms.server_id = s.id
@@ -221,6 +283,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             LEFT JOIN mount_runway mr ON mr.server_id = s.id
             LEFT JOIN disk_await_stats da ON da.server_id = s.id
             LEFT JOIN net_quality nq ON nq.server_id = s.id
+            LEFT JOIN percore_max pc ON pc.server_id = s.id
             WHERE s.id = ANY(:sids)
             ORDER BY s.hostname
         """)
@@ -232,6 +295,11 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 "end": end,
                 # runway(mount_span)는 :period_days 미사용 — 전체 이력 실제 span 기반. start/end 는 분류 14일 창.
                 "expected_samples": period_days * 288,  # 5분 버킷 윈도우 기대(24*12), cagg 사전집계
+                "target_runway": recommendation.RS_DISK_TARGET_RUNWAY_DAYS,  # 확장 목표 수명(일) — 1년
+                "trend_min_span": recommendation.RS_DISK_TREND_MIN_SPAN_DAYS,  # 성장률 외삽 신뢰 최소 관측 span(일)
+                "near_horizon": recommendation.RS_DISK_NEAR_HORIZON_DAYS,  # 근시 지평(30일) — 짧은 span 목표·예상 공통
+                "static_pct": recommendation.RS_DISK_STATIC_GUARD_PCT,  # 임계 초과 기준 used%(85)
+                "headroom_pct": recommendation.RS_DISK_HEADROOM_TARGET_PCT,  # 확장 후 착지 used%(70)
             },
         )
 
@@ -273,15 +341,21 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 cpu_steal_p95_pct=r.cpu_steal_p95,
                 cpu_burst_ratio=r.cpu_burst_ratio,
                 procs_blocked_p95=r.procs_blocked_p95,
+                procs_running_p95=r.procs_running_p95,
                 mem_swap_paging=bool(r.swap_paging),
+                oom_occurred=bool(r.oom_occurred),
                 history_hours=r.history_hours,
                 disk_await_p95_ms=r.disk_await_p95_ms,
                 disk_capacity_runway_days=r.disk_capacity_runway_days,
+                disk_capacity_target_gb=r.disk_capacity_target_gb,
+                disk_capacity_proj_30d_pct=r.disk_capacity_proj_30d_pct,
+                disk_capacity_driving_used_pct=r.disk_capacity_driving_used_pct,
                 disk_inode_runway_days=r.disk_inode_runway_days,
                 net_drop_pct=r.net_drop_pct,
                 net_retrans_pct=r.net_retrans_pct,
                 cpu_trend_slope=r.cpu_trend_slope,
                 mem_trend_slope=r.mem_trend_slope,
+                cpu_percore_p95_max=r.cpu_percore_p95_max,
             )
             for r in result.all()
         ]

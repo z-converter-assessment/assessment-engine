@@ -38,7 +38,7 @@ class _BaseQueryServiceMixin:
         """raws(report_aggregate)에 net I/O baseline 주입 — get_report 와 동일한 분류 입력 정합.
 
         `_assemble_overview`·under_hosts 분류가 `build_resource_stats`(net 반영)를 타려면 raw 에 net
-        baseline 이 채워져 있어야 한다. 미주입(net None) 시 idle/shutdown 판정이 구조적으로 빠져
+        baseline 이 채워져 있어야 한다. 미주입(net None) 시 유휴 판정이 구조적으로 빠져
         get_report(세부행)와 분류가 어긋난다 (#E3 build_resource_stats 단일 진실).
         """
         net_io = await self.repo.report_net_io_baseline(server_ids, period_days, end)

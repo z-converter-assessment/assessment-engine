@@ -402,9 +402,7 @@ async def test_upsert_server_history_not_appended_when_unchanged(
 ):
     """비교 컬럼 동일 + collected_at만 다름 (1h 주기 재발행 시뮬) → history 추가 없음."""
     aid = "00000000-0000-4000-8000-000000000042"
-    inv1 = make_inventory(
-        agent_id=aid, hostname="h1", cpu_cores=4, collected_at=datetime.now(UTC) - timedelta(hours=1)
-    )
+    inv1 = make_inventory(agent_id=aid, hostname="h1", cpu_cores=4, collected_at=datetime.now(UTC) - timedelta(hours=1))
     inv2 = make_inventory(
         agent_id=aid, hostname="h1", cpu_cores=4, collected_at=datetime.now(UTC)
     )  # 모든 비교 컬럼 동일

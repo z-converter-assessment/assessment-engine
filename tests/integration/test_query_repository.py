@@ -346,8 +346,13 @@ async def test_metric_chart_disk_queue_returns_windows_gauge(
             sid, make_metrics(collected_at=base + timedelta(minutes=i), sat_disk_queue=3.0 + i)
         )
     rows = await query_repo.metric_chart(
-        server_id=sid, metric_type="disk.queue", dimension=None,
-        time_range="1h", bucket="5m", agg="avg", end=base + timedelta(minutes=10),
+        server_id=sid,
+        metric_type="disk.queue",
+        dimension=None,
+        time_range="1h",
+        bucket="5m",
+        agg="avg",
+        end=base + timedelta(minutes=10),
     )
     vals = [r.value for r in rows if r.value is not None]
     assert vals, "sat_disk_queue 값이 있으면 disk.queue 추이가 값을 반환해야 함"
@@ -365,8 +370,13 @@ async def test_metric_chart_disk_queue_excludes_null_linux(
         # sat_disk_queue 미지정 → None (Linux 는 disk_queue 미발행)
         await collect_repo.record_metrics(sid, make_metrics(collected_at=base + timedelta(minutes=i)))
     rows = await query_repo.metric_chart(
-        server_id=sid, metric_type="disk.queue", dimension=None,
-        time_range="1h", bucket="5m", agg="avg", end=base + timedelta(minutes=10),
+        server_id=sid,
+        metric_type="disk.queue",
+        dimension=None,
+        time_range="1h",
+        bucket="5m",
+        agg="avg",
+        end=base + timedelta(minutes=10),
     )
     assert all(r.value is None for r in rows)  # null 제외 → 값 산출 안 됨 (빈 결과 또는 value None)
 
@@ -1053,15 +1063,27 @@ async def test_metric_trend_cached_null_component_is_gap_not_zero(
     await collect_repo.record_metrics(
         win,
         make_metrics(
-            collected_at=base_ts, mem_total_kb=1000, mem_available_kb=400,
-            mem_cached_kb=None, mem_buffers_kb=None, mounts=[], disk_io=[], net_io=[],
+            collected_at=base_ts,
+            mem_total_kb=1000,
+            mem_available_kb=400,
+            mem_cached_kb=None,
+            mem_buffers_kb=None,
+            mounts=[],
+            disk_io=[],
+            net_io=[],
         ),
     )
     await collect_repo.record_metrics(
         lin,
         make_metrics(
-            collected_at=base_ts, mem_total_kb=1000, mem_available_kb=400,
-            mem_cached_kb=250, mem_buffers_kb=50, mounts=[], disk_io=[], net_io=[],
+            collected_at=base_ts,
+            mem_total_kb=1000,
+            mem_available_kb=400,
+            mem_cached_kb=250,
+            mem_buffers_kb=50,
+            mounts=[],
+            disk_io=[],
+            net_io=[],
         ),
     )
     bi, td = "1 hour", timedelta(hours=1)

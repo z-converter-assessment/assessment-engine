@@ -11,12 +11,13 @@ from assessment_engine.db.dtos.inbound import (
 
 @dataclass
 class MetricInsertResult:
-    """record_metrics 결과 — 4개 테이블 각각 INSERT된 행 수. 멱등성 충돌 시 0."""
+    """record_metrics 결과 — 시계열 테이블 각각 INSERT된 행 수. 멱등성 충돌 시 0."""
 
     metrics: int
     disk_io: int
     net_io: int
     mount_usage: int
+    cpu_core: int = 0  # per-core 행 수 (server_cpu_core, Linux only — Windows·구 agent 는 0)
 
 
 class BaseCollectRepository(ABC):

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.boot_time import boot_time_changed
 from assessment_engine.db.dtos.inbound import (
+    CpuCoreEntry,
     DiskIoEntry,
     MountUsageEntry,
     NetIoEntry,
@@ -14,6 +15,7 @@ from assessment_engine.db.dtos.inbound import (
     TaskCreate,
     TaskResultUpdate,
 )
+from assessment_engine.db.models.server_cpu_core import ServerCpuCore
 from assessment_engine.db.models.server_disk_io import ServerDiskIo
 from assessment_engine.db.models.server_inventory import ServerInventory
 from assessment_engine.db.models.server_inventory_history import ServerInventoryHistory
@@ -333,12 +335,33 @@ class CollectRepository(BaseCollectRepository):
         disk_io_n = await self._insert_disk_io(server_id, data, data.disk_io)
         net_io_n = await self._insert_net_io(server_id, data, data.net_io)
         mount_n = await self._insert_mount_usage(server_id, data, data.mounts)
+        cpu_core_n = await self._insert_cpu_core(server_id, data, data.cpu_per_core)
         return MetricInsertResult(
             metrics=metrics_n,
             disk_io=disk_io_n,
             net_io=net_io_n,
             mount_usage=mount_n,
+            cpu_core=cpu_core_n,
         )
+
+    async def _insert_cpu_core(
+        self,
+        server_id: int,
+        data: ServerMetricCreate,
+        entries: list[CpuCoreEntry],
+    ) -> int:
+        # per-core 행 (server_cpu_core) — boot_time/agent_started_at 미보유(counter_agg reset-safe).
+        if not entries:
+            return 0
+        stmt = (
+            pg_insert(ServerCpuCore)
+            .values(
+                [{"server_id": server_id, "collected_at": data.collected_at, **dataclasses.asdict(e)} for e in entries]
+            )
+            .on_conflict_do_nothing(index_elements=["server_id", "core_id", "collected_at"])
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0
 
     async def _insert_scalar_metrics(
         self,

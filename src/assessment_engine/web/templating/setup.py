@@ -87,6 +87,7 @@ NAV_GROUPS = [
         "label": "참고",
         "links": [
             {"label": "지표·기준", "href": "/reference", "match": "thresholds"},
+            {"label": "API 목록", "href": "/reference/api", "match": "api"},
         ],
     },
 ]
@@ -94,8 +95,6 @@ env.globals["nav_groups"] = NAV_GROUPS
 
 # breadcrumb — active_nav 토큰 -> (그룹, 항목) 라벨. 각 페이지 제목 위 경로 표시 (P3 — 템플릿은 dict 조회만).
 env.globals["nav_breadcrumb"] = {
-    link["match"]: {"group": group["label"], "item": link["label"]}
-    for group in NAV_GROUPS
-    for link in group["links"]
+    link["match"]: {"group": group["label"], "item": link["label"]} for group in NAV_GROUPS for link in group["links"]
 }
 env.globals["active_nav"] = None

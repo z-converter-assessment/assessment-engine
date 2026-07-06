@@ -19,8 +19,7 @@ exports_router = APIRouter(prefix="/api/exports", tags=["exports"])
 _SIZE_CLASS_GUIDE: dict[str, str] = {
     "under_provisioned": "instance type 상향 (vCPU·RAM 증가)",
     "over_provisioned": "instance type 축소 (vCPU·RAM 감소)",
-    "idle": "운영 종료 또는 통합 검토 — 사용 거의 없음",
-    "shutdown": "운영 종료 검토 — 사용 0에 근접",
+    "idle": "운영 종료 또는 통합 검토 — 미사용",
     "optimal": "변경 불필요 — 적정 사양",
     "insufficient_data": "표본 부족 — 평가 기간 안 메트릭 부재",
 }

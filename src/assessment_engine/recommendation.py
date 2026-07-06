@@ -8,7 +8,7 @@ under(위험) 우선 우선순위로 단일 분류 하나 + 근거(triggers) + �
 (Linux load/swap/iowait, Windows run queue/paging/disk queue) 해당 카운터를 못 읽어 값이 없으면
 분류를 막지 않고 confidence 단서(unmeasured)로만 노출한다.
 
-분류 enum: idle / shutdown / over_provisioned / under_provisioned / optimal / insufficient_data.
+분류 enum(상태): idle(유휴) / over_provisioned / under_provisioned / optimal / insufficient_data.
 
 UI badge 임계값(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인:
 - mapper 90/75 = 시점 사용량 시각 신호 (위험·주의·정상)
@@ -31,13 +31,12 @@ from typing import Literal
 # runway(용량 추세)만 별도로 가용 이력 전체를 쓴다(누적 신호라 길수록 정확, report_aggregate mount_span).
 WINDOW_DAYS = 14
 
-# Idle 판정 — AWS Compute Optimizer
-IDLE_CPU_PEAK_PCT = 1
-IDLE_NET_KBPS = 1
-
-# Shutdown 권장 — Azure Advisor
-SHUTDOWN_CPU_P95_PCT = 3
-SHUTDOWN_NET_MBPS = 2
+# 유휴(상태) 진입선 — Azure Advisor 저사용 정의(cpu p95 <= 3%). 미사용 상태 단일축 — 종료·통합은 조치 층 파생.
+IDLE_CPU_P95_PCT = 3
+IDLE_NET_MBPS = 2
+# 유휴 강도 "확실"(조치 층 — 상태 아님) — AWS Compute Optimizer idle 정의(거의 0). 종료 vs 통합 권고 문구 분기용.
+IDLE_STRONG_PEAK_PCT = 1
+IDLE_STRONG_NET_KBPS = 1
 
 # Over-provisioned (다운사이즈) — AWS Compute Optimizer + GCP Recommender (headroom 30%)
 CPU_DOWNSIZE_P95_PCT = 30
@@ -49,11 +48,12 @@ CPU_UPSIZE_P95_PCT = 70  # Kleinrock — Queueing Systems (1975), Google SRE Boo
 MEM_UPSIZE_P95_PCT = 80  # Linux page cache 압박 시작점
 
 # USE Method Saturation 임계 — utilization 외 saturation 축 평가 (Brendan Gregg 정석).
-CPU_SATURATION_LOAD_RATIO = 1.0  # load_15m / cpu_cores >= 1.0 — run queue saturation (Linux)
+# Linux CPU saturation — 실행 큐(procs_running)/cores >= 1.0 (USE Method: vmstat "r" > CPU 수, 계층1).
+# load 대신 procs_running — load 는 D-state IO 블록이 섞여 오염(Gregg). procs_running 은 R-state 만(2.5.45+ 전역).
+PROCS_RUNNING_PER_CORE_SATURATION = 1.0
 # Windows CPU saturation — Processor Queue Length 를 코어 수로 정규화 후 >= 2 (Microsoft "sustained > 2 per CPU").
 # Linux loadavg 와 스케일이 다르다(loadavg = running+runnable+uninterruptible, run queue = ready 만)라 별도 상수.
 CPU_RUN_QUEUE_PER_CORE_SATURATION = 2.0
-IOWAIT_UPSIZE_PCT = 20  # iowait_p95 >= 20% — disk IO saturation (Linux)
 # Windows disk IO saturation — 디스크당 Avg Disk Queue Length >= 2 (Microsoft 정석 병목 기준).
 # agent 가 디스크별 큐를 발행 -> ingest 에서 per-device max 축약 -> 이 임계로 바로 비교 (정규화 불요).
 DISK_QUEUE_PER_DISK_SATURATION = 2.0
@@ -69,8 +69,7 @@ SAMPLE_SUFFICIENCY_RATIO = 0.5
 
 
 Recommendation = Literal[
-    "idle",
-    "shutdown",
+    "idle",  # 유휴 — 수요≈0 미사용 상태. 조치(종료·통합)는 파생 권고 층(상태 아님).
     "over_provisioned",
     "under_provisioned",
     "optimal",
@@ -101,7 +100,7 @@ class ResourceStats:
     disk_used_pct: float | None  # storage capacity utilization (worst mount)
     iowait_p95_pct: float | None  # disk IO saturation (cpu wait on IO)
     # Network
-    net_avg_kbps: float | None  # idle/shutdown 판정용 (saturation metric 미수집)
+    net_avg_kbps: float | None  # 유휴 판정용 (saturation metric 미수집)
     # OS family — 신호 의미 분기 (원칙 P2). default None = unknown -> Linux 의미(엔진 fallback 정합).
     os_family: str | None = None
     # 표본 충분성 — 측정 축(cpu/mem) 실측/기대 샘플 비율. None = 측정 축 부재(판정 불가, low_sample 무관).
@@ -120,14 +119,17 @@ class ResourceStats:
     # CPU
     cpu_percore_p95_max: float | None = None  # 코어별 p95 최대 — 단일스레드 병목 감지(집계로는 낮게 보임)
     procs_blocked_p95: float | None = None  # D-state IO 블록 p95 — 근본원인: IO발 CPU 로드 분리
+    procs_running_p95: float | None = None  # R-state 실행 큐 p95 — Linux CPU 포화 신호(load 대체, IO 오염 없음)
     # 메모리
     mem_swap_paging: bool = False  # 스왑 page-out 발생(pswpin/pswpout rate > 0) — swap 호스트 포화 + 근본원인 판별
+    oom_occurred: bool = False  # 창 안 OOM kill 발생 — 메모리 실패 사후 증거(강한 under 신호)
     mem_total_mb: int | None = None  # 현재 RAM — 사이징 목표 계산용
     # 디스크 I/O
     disk_await_p95_ms: float | None = None  # 응답 지연 p95 — virtio 포화 주신호(계층3 VMware/SQL)
     # 디스크 용량 (엔진이 mount 이력 전체 span 의 2점 fill_rate 로 산출 — report_aggregate mount_span)
     disk_capacity_runway_days: float | None = None  # 바이트 소진까지 남은 일수(하락·수평이면 None=안 참)
     disk_inode_runway_days: float | None = None  # inode 소진까지 남은 일수
+    disk_capacity_target_gb: float | None = None  # 1년 수명 목표 총 용량(GB) — 소진 마운트 확장 목표
     # 네트워크 (품질 신호)
     net_retrans_pct: float | None = None  # TCP 재전송률 %
     net_drop_pct: float | None = None  # 드롭률 %
@@ -175,28 +177,30 @@ def swap_saturation(os_family: str | None, swap_used: bool) -> bool:
 
 
 def disk_io_saturated(stats: ResourceStats) -> bool | None:
-    """디스크 I/O 포화 여부 — OS별 raw 신호를 통일 축으로 정규화 (원칙 P2, os-aware).
+    """디스크 I/O 포화 여부 — OS별 raw 신호를 지연 축으로 정규화 (원칙 P2, os-aware).
 
-    Linux: iowait_p95 >= IOWAIT_UPSIZE_PCT (cpu 의 IO 대기 비율).
-    Windows: 가장 바쁜 디스크의 큐 깊이(disk_queue_p95) >= DISK_QUEUE_PER_DISK_SATURATION.
+    Linux: await_p95 > RS_DISKIO_AWAIT_MS (IO 한 건당 응답 지연). iowait 대신 await —
+           iowait 는 게스트 CPU 스케줄링 왜곡에 오염(virtio), await 는 디바이스 지연 직접 신호(계층3).
+    Windows: 가장 바쁜 디스크의 큐 깊이(disk_queue_p95) >= DISK_QUEUE_PER_DISK_SATURATION —
+             Windows 는 await(disk read/write time) 미발행이라 diskperf 큐 깊이를 지연 대리 신호로 사용.
              agent 가 디스크별 큐를 발행 -> ingest 에서 per-device max 축약(정규화 불요).
-             Windows cpu_iowait 는 OS 개념 부재로 null 발행 — disk_queue 를 신호로 사용.
     측정 불가(값 None)면 None -> assess 가 unmeasured("disk_io")로 표시.
-    assess·report·attention 이 본 helper 단일 진실 경유 (임계 재계산 금지).
+    assess·assess_disk_io·report·attention 이 본 helper 단일 진실 경유 (임계 재계산 금지).
     """
     if stats.os_family == "windows":
         if stats.disk_queue_p95 is None:
             return None
         return stats.disk_queue_p95 >= DISK_QUEUE_PER_DISK_SATURATION
-    if stats.iowait_p95_pct is None:
+    if stats.disk_await_p95_ms is None:
         return None
-    return stats.iowait_p95_pct >= IOWAIT_UPSIZE_PCT
+    return stats.disk_await_p95_ms > RS_DISKIO_AWAIT_MS
 
 
 def cpu_saturated(stats: ResourceStats) -> bool | None:
     """CPU run queue 포화 여부 — OS별 raw 신호를 통일 축으로 정규화 (원칙 P2, os-aware).
 
-    Linux: load_15m / cpu_cores >= CPU_SATURATION_LOAD_RATIO (run queue saturation).
+    Linux: procs_running p95 / cpu_cores >= PROCS_RUNNING_PER_CORE_SATURATION (실행 큐 R-state, USE).
+           load 대신 procs_running — load 는 D-state IO 블록 오염(Gregg). 미발행(구 agent) 시 None(unmeasured).
     Windows: Processor Queue Length p95 / cpu_cores >= CPU_RUN_QUEUE_PER_CORE_SATURATION.
              Windows 는 loadavg 개념 부재 -> agent 가 Processor Queue Length 를 발행(loadavg 등가 축).
     측정 불가(값 None·cores 0)면 None -> assess 가 unmeasured("cpu_saturation")로 표시.
@@ -208,9 +212,43 @@ def cpu_saturated(stats: ResourceStats) -> bool | None:
         if stats.cpu_run_queue_p95 is None:
             return None
         return (stats.cpu_run_queue_p95 / stats.cpu_cores) >= CPU_RUN_QUEUE_PER_CORE_SATURATION
-    if stats.cpu_load_15m_max is None:
+    if stats.procs_running_p95 is None:
         return None
-    return (stats.cpu_load_15m_max / stats.cpu_cores) >= CPU_SATURATION_LOAD_RATIO
+    return (stats.procs_running_p95 / stats.cpu_cores) >= PROCS_RUNNING_PER_CORE_SATURATION
+
+
+def cpu_saturation_index(run_queue: float | None, cores: int | None, os_family: str | None) -> float | None:
+    """CPU 포화 지수 = (실행 큐 / 코어) / os별 임계. >=1.0 이면 포화 — 실시간 현황 aggregate 통합 축.
+
+    실행 큐 = Linux procs_running / Windows Processor Queue Length(COALESCE gauge, 분류 cpu_saturated 와 동일 신호).
+    임계로 나눠 정규화하므로 Linux(임계 1.0)·Windows(임계 2.0)를 한 지수로 비교·랭킹(OS 분기 없이 aggregate).
+    측정 불가(run_queue None·cores 0)면 None.
+    """
+    if run_queue is None or not cores:
+        return None
+    threshold = CPU_RUN_QUEUE_PER_CORE_SATURATION if os_family == "windows" else PROCS_RUNNING_PER_CORE_SATURATION
+    return (run_queue / cores) / threshold
+
+
+def disk_io_saturation_index(await_ms: float | None, disk_queue: float | None, os_family: str | None) -> float | None:
+    """디스크 I/O 포화 지수 = 현재값 / os별 임계. >=1.0 이면 포화 — 실시간 aggregate 통합 축.
+
+    Windows: Avg Disk Queue Length / DISK_QUEUE_PER_DISK_SATURATION. Linux: await(ms) / RS_DISKIO_AWAIT_MS.
+    분류(disk_io_saturated)와 동일 신호. 임계 정규화로 OS 무관 한 지수 랭킹.
+    """
+    if os_family == "windows":
+        return disk_queue / DISK_QUEUE_PER_DISK_SATURATION if disk_queue is not None else None
+    return await_ms / RS_DISKIO_AWAIT_MS if await_ms is not None else None
+
+
+def mem_pressure_active(paging_rate: float | None, pageout_delta: int | None, os_family: str | None) -> bool:
+    """실시간 메모리 압박 여부 — Linux page-out 발생(pswpout delta>0) / Windows Pages/sec rate >= 임계.
+
+    메모리 포화는 Linux 가 불리언(page-out 발생)이라 지수 아닌 압박 카운트로 집계(mem_saturated os-aware 정합).
+    """
+    if os_family == "windows":
+        return paging_rate is not None and paging_rate >= MEM_PAGING_RATE_SATURATION
+    return bool(pageout_delta and pageout_delta > 0)
 
 
 def mem_saturated(stats: ResourceStats) -> bool | None:
@@ -232,9 +270,9 @@ def mem_saturated(stats: ResourceStats) -> bool | None:
 def assess(stats: ResourceStats) -> Assessment:
     """USE Method evidence 분류 — 자원별 가용 축을 신호로 모아 단일 분류 + 근거 산출.
 
-    판정 순서: under(위험 신호 OR) → idle → shutdown → insufficient(데이터 없음) → over(이용률 AND) → optimal.
-    under 가 idle/shutdown 보다 우선 — 어떤 위험 신호든 하나면 발화(누락 0). CPU 가 낮아도 스왑·iowait·load·
-    mem·disk 압박이 있으면 "미사용(idle/shutdown)"이 아니라 자원 부족이다. over 는 cpu·mem 둘 다 낮을 때만(보수적).
+    판정 순서: under(위험 신호 OR) → idle(유휴) → insufficient(데이터 없음) → over(이용률 AND) → optimal.
+    under 가 유휴 보다 우선 — 어떤 위험 신호든 하나면 발화(누락 0). CPU 가 낮아도 스왑·iowait·load·
+    mem·disk 압박이 있으면 "미사용(유휴)"이 아니라 자원 부족이다. over 는 cpu·mem 둘 다 낮을 때만(보수적).
     insufficient_data 는 utilization 도 없고 under 신호도 없을 때만 — swap·iowait 등 saturation 신호가
     있으면 util 부재여도 under 로 결론낸다(데이터로 반드시 판단). 못 본 saturation 축(예: Windows perflib
     미발행)은 unmeasured 에 기록 — 분류를 막지 않고 confidence 로만 노출.
@@ -259,7 +297,7 @@ def assess(stats: ResourceStats) -> Assessment:
     # 표본 부족 — 측정 축 sufficiency < 임계. 분류를 막지 않고 confidence 단서로만 동반 (원칙2).
     low_sample = stats.sample_sufficiency is not None and stats.sample_sufficiency < SAMPLE_SUFFICIENCY_RATIO
 
-    # under_provisioned — 위험 신호 수집(OR). idle/shutdown 보다 먼저 — 어떤 위험 신호든 하나면 발화(누락 0).
+    # under_provisioned — 위험 신호 수집(OR). 유휴 보다 먼저 — 어떤 위험 신호든 하나면 발화(누락 0).
     # CPU 가 낮아도 스왑·iowait·load·mem·disk 압박이 있으면 "미사용"이 아니라 자원 부족이다
     # (예: CPU idle 인데 page-out = 메모리 부족). 가진 축만 평가해 hit 된 신호를 근거로 모은다.
     triggers: list[str] = []
@@ -280,17 +318,15 @@ def assess(stats: ResourceStats) -> Assessment:
     if triggers:
         return Assessment("under_provisioned", triggers=triggers, unmeasured=unmeasured, low_sample=low_sample)
 
-    # Idle / Shutdown — 위험 신호 0 일 때만 (진짜 미사용). net + cpu 의존, 없으면 fall-through.
-    if stats.net_avg_kbps is not None:
-        if (
-            stats.cpu_peak_pct is not None
-            and stats.cpu_peak_pct <= IDLE_CPU_PEAK_PCT
-            and stats.net_avg_kbps <= IDLE_NET_KBPS
-        ):
-            return Assessment("idle", unmeasured=unmeasured, low_sample=low_sample)
-        # net_avg_kbps(KB/s) → Mbps: x 8 / 1000
-        if cpu is not None and cpu <= SHUTDOWN_CPU_P95_PCT and (stats.net_avg_kbps * 8 / 1000) <= SHUTDOWN_NET_MBPS:
-            return Assessment("shutdown", unmeasured=unmeasured, low_sample=low_sample)
+    # 유휴 — 위험 신호 0 일 때만 (진짜 미사용). Azure 저사용 정의(cpu p95<=3%, net<=2Mbps). net+cpu 의존, 없으면
+    # fall-through. net_avg_kbps(KB/s) → Mbps: x 8 / 1000. 강도(AWS 1% 이하)는 상태 아닌 조치 층에서 분기.
+    if (
+        stats.net_avg_kbps is not None
+        and cpu is not None
+        and cpu <= IDLE_CPU_P95_PCT
+        and (stats.net_avg_kbps * 8 / 1000) <= IDLE_NET_MBPS
+    ):
+        return Assessment("idle", unmeasured=unmeasured, low_sample=low_sample)
 
     # 평가 불가 — utilization(cpu·mem) 둘 다 부재 + 위 under 위험 신호도 없음 (신규/표본 부족).
     # sufficiency 도 None(측정 축 부재)이라 low_sample 무관 — insufficient_data 가 "관측 자체 부재"를 이미 표현.
@@ -319,7 +355,6 @@ def is_partial_evaluation(stats: ResourceStats) -> bool:
 
 LABEL_KO: dict[str, str] = {
     "idle": "유휴",
-    "shutdown": "종료 권장",
     "over_provisioned": "과다 할당",
     "under_provisioned": "자원 부족",
     "optimal": "정상",
@@ -330,14 +365,77 @@ LABEL_KO: dict[str, str] = {
 # 서로 다른 분류에 다른 클래스 — over=노랑(비용), under=빨강(위험), optimal=녹색.
 BADGE_CLASS: dict[str, str] = {
     "idle": "rec-idle",
-    "shutdown": "rec-shutdown",
     "over_provisioned": "rec-over_provisioned",
     "under_provisioned": "rec-under_provisioned",
     "optimal": "rec-optimal",
     "insufficient_data": "rec-insufficient_data",
 }
 
-# under_provisioned 신호 키 -> 한국어 권고 구문 (mapper._build_under_provisioned_reason 단일 진실 보조).
+# host_status(rollup 5상태) -> Recommendation(표시 5상태). 카드 편입·도넛·배지가 rollup 단일 모델을 쓰게 해
+# classify(옛 flat)와의 불일치(카드엔 있는데 근본원인·권고 빔)를 제거 — 편입 == under_kinds 존재 == root_cause 존재.
+_HOST_STATUS_TO_REC: dict[str, Recommendation] = {
+    "under": "under_provisioned",
+    "idle": "idle",
+    "over": "over_provisioned",
+    "optimal": "optimal",
+    "insufficient": "insufficient_data",
+}
+
+
+def classify_host(stats: ResourceStats) -> Recommendation:
+    """rollup_host 기반 분류 — host_status 를 표시 5상태로. 근본원인·권고(rollup)와 항상 정합(classify 대체)."""
+    return _HOST_STATUS_TO_REC[rollup_host(stats).host_status]
+
+
+def host_status_to_recommendation(status: str) -> Recommendation:
+    """HostAssessment.host_status -> 표시 Recommendation (host 재계산 없이 변환 — 통합 조치 표용)."""
+    return _HOST_STATUS_TO_REC[status]
+
+
+# 서버별 자원 적정성 표 최초 정렬 순서 — 전 서버(모든 분류). 자원 부족(시급) > 과다 > 유휴 > 정상 > 표본 부족.
+CLASSIFICATION_ORDER: dict[str, int] = {
+    "under_provisioned": 0,
+    "over_provisioned": 1,
+    "idle": 2,
+    "optimal": 3,
+    "insufficient_data": 4,
+}
+
+
+# ─── 조치 권고 — 상태에서 파생하는 단일 진실 (상태 vs 조치 분리) ──────────────
+# 상태(LABEL_KO)는 "무엇인가", 본 층은 "그래서 뭘 하나". 표시 계층(report·environment_report)이 소비.
+# class-level 기본 문구 — 분포 막대·분류 요약(per-host stats 없는 맥락). 유휴 per-host 세분은 recommend_action.
+RECOMMENDATION_ACTION_KO: dict[str, str] = {
+    "under_provisioned": "증설 검토",
+    "over_provisioned": "축소 검토",
+    "idle": "종료·통합 검토",
+    "optimal": "적정 — 유지",
+    "insufficient_data": "표본 부족 — 관측 지속",
+}
+
+
+def is_idle_strong(stats: ResourceStats) -> bool:
+    """확실 유휴 — 거의 0 사용(AWS Compute Optimizer idle 정의: peak<=1% AND net<=1kB/s). 상태 아닌 조치 강도."""
+    return (
+        stats.cpu_peak_pct is not None
+        and stats.cpu_peak_pct <= IDLE_STRONG_PEAK_PCT
+        and stats.net_avg_kbps is not None
+        and stats.net_avg_kbps <= IDLE_STRONG_NET_KBPS
+    )
+
+
+def recommend_action(rec: Recommendation, stats: ResourceStats) -> str:
+    """상태 -> per-host 조치 권고 (단일 진실). 유휴는 강도로 분기 — 확실(거의 0)=즉시 종료 / 저사용=통합·재배치.
+
+    under_provisioned 는 근본원인 기반 처방(under_prescription)이 필요해 호출자가 먼저 분기 —
+    본 함수는 그 외 상태의 조치를 담당(호출자가 under 를 먼저 분기).
+    """
+    if rec == "idle":
+        return "즉시 종료 검토" if is_idle_strong(stats) else "통합·재배치 검토"
+    return RECOMMENDATION_ACTION_KO.get(rec, "")
+
+
+# under_provisioned 신호 키 -> 한국어 라벨 (표시용). 처방은 under_prescription(root 기반) 단일 진실.
 # triggers 를 사람용 근거로 변환할 때 참조. 표시 순서는 mapper 가 결정.
 TRIGGER_LABEL_KO: dict[str, str] = {
     "cpu_util": "CPU 이용률 초과",
@@ -366,6 +464,13 @@ RS_CPU_STEAL_BIAS_PCT = 5  # 여유 기준 — steal p95 >= 5%면 하이퍼바�
 RS_MEM_UNDER_PCT = 90  # 계층3 Azure Advisor(CPU·메모리 >= SKU 90% 시 resize)
 RS_MEM_SIZING_TARGET_PCT = 70  # 계층3 AWS 최보수(30% headroom)
 RS_DISK_RUNWAY_DAYS = 30  # 여유 기준 — 소진 30일 전 스토리지 추가 권고(lead time)
+RS_DISK_TARGET_RUNWAY_DAYS = 365  # 확장 목표 수명 — 현재 성장률로 1년 버티는 총 용량 산출(report_aggregate)
+# 성장률 외삽을 신뢰할 최소 관측 span — 사이징 창(WINDOW_DAYS)만큼은 봐야 rate 를 1년으로 외삽. 짧으면 spike 과외삽.
+RS_DISK_TREND_MIN_SPAN_DAYS = WINDOW_DAYS
+# 근시 지평 — 짧은 span 에도 신뢰 가능한 근시 외삽 기간. 30일 예상 표시 + 짧은 span 확장 목표(30일 예상->headroom) 공통.
+RS_DISK_NEAR_HORIZON_DAYS = 30
+# 자료 부족 + 임계 초과 시 확장 목표 이용률 — 확장 후 used 착지값(headroom). CPU/메모리 사이징 착지(70%)와 정합.
+RS_DISK_HEADROOM_TARGET_PCT = 70
 RS_DISK_STATIC_GUARD_PCT = 85  # 계층3 monitoring 표준(major) — 추세 신뢰도 낮을 때 fallback
 RS_DISKIO_AWAIT_MS = 20  # 계층3 VMware(read >20ms critical) / SQL Server(~10-15ms)
 RS_NET_RETRANS_PCT = 1.0  # 계층3 monitoring(재전송 >1% 성능 영향)
@@ -439,7 +544,7 @@ class ResourceAssessment:
     detail: str = ""
 
 
-HostStatus = Literal["under", "idle", "shutdown", "over", "optimal", "insufficient"]
+HostStatus = Literal["under", "idle", "over", "optimal", "insufficient"]
 
 
 @dataclass
@@ -472,8 +577,8 @@ def _base_confidence(stats: ResourceStats, *, biased: bool = False) -> Confidenc
 
 
 def _run_queue_value(stats: ResourceStats) -> float | None:
-    """사이징용 실행큐 값 — Linux load_15m / Windows Processor Queue Length."""
-    return stats.cpu_run_queue_p95 if stats.os_family == "windows" else stats.cpu_load_15m_max
+    """사이징용 실행큐 값 — Linux procs_running p95 / Windows Processor Queue Length (포화 제약 사이징)."""
+    return stats.cpu_run_queue_p95 if stats.os_family == "windows" else stats.procs_running_p95
 
 
 def _cpu_target_cores(util_pct: float, cores: int, run_queue: float | None, os_family: str | None) -> int:
@@ -510,8 +615,11 @@ def assess_cpu(stats: ResourceStats) -> ResourceAssessment:
         triggers.append("cpu_saturation")
     percore_busy = stats.cpu_percore_p95_max is not None and stats.cpu_percore_p95_max >= RS_CPU_PERCORE_HOLD_PCT
     if triggers or target > cores:
+        # under 증설 목표는 현재 코어 초과여야 유효 — 포화 주도로 util 목표가 현재 이하면 수치 사이징 불가(None).
+        up = target if target > cores else None
         return ResourceAssessment(
-            "cpu", "under", triggers=triggers, sizing_target=target, confidence=conf, detail=f"목표 {target}코어"
+            "cpu", "under", triggers=triggers, sizing_target=up, confidence=conf,
+            detail=(f"목표 {up}코어" if up else "포화 주도 — 증설(수치 미상)"),
         )
     if target < cores and not percore_busy:
         return ResourceAssessment("cpu", "over", sizing_target=target, confidence=conf, detail=f"목표 {target}코어")
@@ -525,6 +633,37 @@ def _mem_target_mb(util_pct: float, total_mb: int | None) -> int | None:
     return math.ceil(total_mb * util_pct / RS_MEM_SIZING_TARGET_PCT)
 
 
+# 포화 주도 under 증설 headroom — swap/OOM 인데 util 이 낮아 util 사이징이 현재 이하일 때 현재 총량 + 이 비율로 상향.
+# 30% = AWS/GCP advisor headroom prior(다운사이즈 headroom 과 동일 근거, 상향 방향 적용).
+RS_MEM_SATURATION_HEADROOM_PCT = 30
+
+
+def _mem_paging_active(stats: ResourceStats) -> bool:
+    """메모리 페이징 포화 os-aware — Windows Pages/sec rate(임계), Linux active page-out(mem_swap_paging).
+
+    Windows 는 pagefile paging(pages_in>0)이 여유 RAM 에도 상시 baseline 이라 raw mem_swap_paging 직접 해석 금지 —
+    os-aware helper(rate >= 임계) 경유 (swap_used 직접 해석 금지와 동일 원칙). Linux 는 active page-out 그대로.
+    """
+    if stats.os_family == "windows":
+        return bool(mem_saturated(stats))
+    return stats.mem_swap_paging
+
+
+def _mem_under_target(util_target: int | None, stats: ResourceStats) -> int | None:
+    """메모리 under 증설 목표 — util 기반 목표와 포화 headroom(현재+30%) 중 큰 값. 현재 이하/총량 미상이면 None.
+
+    이용률이 낮아도 swap/OOM 이면 현재 사양이 부족하다는 증거 — util 목표에 '현재+headroom' 을 덧대 현재 초과 보장.
+    """
+    total = stats.mem_total_mb
+    candidates = [t for t in (util_target,) if t is not None]
+    if total is not None and (_mem_paging_active(stats) or stats.oom_occurred):
+        candidates.append(math.ceil(total * (1 + RS_MEM_SATURATION_HEADROOM_PCT / 100)))
+    if not candidates:
+        return None
+    up = max(candidates)
+    return up if (total is None or up > total) else None
+
+
 def assess_memory(stats: ResourceStats) -> ResourceAssessment:
     """메모리 판정 — 이용률 90%(주신호) OR swap page-out 발생. 사이징 목표 70%.
 
@@ -533,27 +672,33 @@ def assess_memory(stats: ResourceStats) -> ResourceAssessment:
     util = stats.mem_p95_pct
     conf = _base_confidence(stats)
     if util is None:
-        # 이용률 없어도 swap 발생이면 under(데이터로 판단), 아니면 unmeasured
-        if stats.mem_swap_paging:
+        # 이용률 없어도 swap 발생·OOM 이면 under(데이터로 판단), 아니면 unmeasured
+        signals = (("mem_saturation", _mem_paging_active(stats)), ("mem_oom", stats.oom_occurred))
+        pressure = [t for t, hit in signals if hit]
+        if pressure:
             return ResourceAssessment(
-                "memory", "under", triggers=["mem_saturation"], confidence=conf, detail="이용률 미측정, 스왑 발생"
+                "memory", "under", triggers=pressure, confidence=conf, detail="이용률 미측정, 압박 발생"
             )
         conf.coverage_gap = True
         return ResourceAssessment("memory", "unmeasured", confidence=conf, detail="이용률 미측정")
     triggers: list[str] = []
     if util >= RS_MEM_UNDER_PCT:
         triggers.append("mem_util")
-    if stats.mem_swap_paging:
+    if _mem_paging_active(stats):
         triggers.append("mem_saturation")
+    if stats.oom_occurred:
+        triggers.append("mem_oom")  # OOM = 메모리 실패 사후 증거 (강한 under)
     target_mb = _mem_target_mb(util, stats.mem_total_mb)
     if triggers:
+        # under 증설 목표 — util 기반 + 포화 headroom(현재+30%) 중 큰 값으로 현재 초과 보장(_mem_under_target).
+        up = _mem_under_target(target_mb, stats)
         return ResourceAssessment(
             "memory",
             "under",
             triggers=triggers,
-            sizing_target=target_mb,
+            sizing_target=up,
             confidence=conf,
-            detail=(f"목표 {target_mb}MB" if target_mb else "증설"),
+            detail=(f"목표 {up}MB" if up else "증설(현재 사양 기준 상향)"),
         )
     if stats.mem_total_mb and target_mb and target_mb < stats.mem_total_mb:
         return ResourceAssessment(
@@ -569,45 +714,56 @@ def _min_runway(*runways: float | None) -> float | None:
 
 
 def assess_disk_capacity(stats: ResourceStats) -> ResourceAssessment:
-    """디스크 용량 판정 — 소진까지 남은 시간(runway) 30일 미만이면 filling. 추세 못 내면 정적 가드 85% fallback."""
+    """디스크 용량 판정 — 소진 runway 30일 미만이면 filling. 추세 못 내면 정적 가드 85% fallback.
+
+    확장 목표(sizing_target, GB)는 세-경로(report_aggregate 산출): 추세 신뢰(span 충분)면 1년 수명 목표 /
+    소진 임박·짧은 span 이면 30일 예상 used 를 headroom 착지(근시라 현실적) / 추세 없이 임계 초과면 이용률 headroom.
+    짧은 span 을 365일로 과외삽한 비현실적 값 방지 + 소진 임박이면 항상 구체적 목표 제공.
+    """
     conf = _base_confidence(stats)
     runway = _min_runway(stats.disk_capacity_runway_days, stats.disk_inode_runway_days)
     used = stats.disk_used_pct
+    tgt = stats.disk_capacity_target_gb
     if runway is None:
-        # 추세 못 냄(하락·수평·데이터 부족) -> 정적 가드
+        # 추세 못 냄(하락·수평·데이터 부족) -> 정적 가드. 목표는 경로3(이용률 headroom).
         if used is None:
             conf.coverage_gap = True
             return ResourceAssessment("disk_capacity", "unmeasured", confidence=conf, detail="용량 미측정")
         if used >= RS_DISK_STATIC_GUARD_PCT:
+            detail = f"used {used:.0f}% (정적 가드)" + (f", 목표 {tgt:.0f}GB" if tgt else "")
             return ResourceAssessment(
                 "disk_capacity",
                 "filling",
                 triggers=["disk_capacity"],
+                sizing_target=tgt,
                 confidence=conf,
-                detail=f"used {used:.0f}% (정적 가드)",
+                detail=detail,
             )
         return ResourceAssessment("disk_capacity", "capacity_ok", confidence=conf, detail=f"used {used:.0f}%")
     if runway < RS_DISK_RUNWAY_DAYS:
+        # 목표는 경로1(1년 수명, span 충분 시만 산출). inode 소진이 먼저면 목표 없음(용량 확장 무관).
+        rtgt = tgt if runway == stats.disk_capacity_runway_days else None
+        detail = f"{runway:.0f}일 후 소진" + (f", 목표 {rtgt:.0f}GB" if rtgt else "")
         return ResourceAssessment(
-            "disk_capacity", "filling", triggers=["disk_capacity"], confidence=conf, detail=f"{runway:.0f}일 후 소진"
+            "disk_capacity", "filling", triggers=["disk_capacity"], sizing_target=rtgt, confidence=conf, detail=detail
         )
     return ResourceAssessment("disk_capacity", "capacity_ok", confidence=conf, detail=f"{runway:.0f}일 여유")
 
 
 def assess_disk_io(stats: ResourceStats) -> ResourceAssessment:
     """디스크 I/O 판정 — await p95 > 20ms면 io_bound(표시만, 사이징 불가). virtio 간섭이라 충실도 편향."""
-    conf = _base_confidence(stats, biased=True)  # virtio 게스트 await = 하이퍼바이저·이웃 간섭 편향
-    await_ms = stats.disk_await_p95_ms
-    if await_ms is None:
+    conf = _base_confidence(stats, biased=True)  # virtio 게스트 지연 = 하이퍼바이저·이웃 간섭 편향
+    sat = disk_io_saturated(stats)  # os-aware 단일 진실 — Linux await / Windows disk queue
+    if sat is None:
         conf.coverage_gap = True
-        return ResourceAssessment(
-            "disk_io", "unmeasured", confidence=conf, detail="응답 지연 미측정(구세대 viostor 등)"
-        )
-    if await_ms > RS_DISKIO_AWAIT_MS:
-        return ResourceAssessment(
-            "disk_io", "io_bound", triggers=["disk_io"], confidence=conf, detail=f"await p95 {await_ms:.0f}ms"
-        )
-    return ResourceAssessment("disk_io", "io_ok", confidence=conf, detail=f"await p95 {await_ms:.0f}ms")
+        return ResourceAssessment("disk_io", "unmeasured", confidence=conf, detail="응답 지연/큐 미측정")
+    if stats.os_family == "windows":
+        detail = f"disk queue p95 {stats.disk_queue_p95:.1f}"
+    else:
+        detail = f"await p95 {stats.disk_await_p95_ms:.0f}ms"
+    if sat:
+        return ResourceAssessment("disk_io", "io_bound", triggers=["disk_io"], confidence=conf, detail=detail)
+    return ResourceAssessment("disk_io", "io_ok", confidence=conf, detail=detail)
 
 
 def assess_network(stats: ResourceStats) -> ResourceAssessment:
@@ -633,25 +789,21 @@ def assess_network(stats: ResourceStats) -> ResourceAssessment:
     return ResourceAssessment("network", "quality_ok", confidence=conf)
 
 
-_ROOTABLE_UNDER = ("under", "io_bound")  # 처방 대상 상태 (자원별 부족 라벨)
+_ROOTABLE_UNDER = ("under", "io_bound", "filling", "congested")  # 처방 대상 상태 (부족·병목·소진임박·혼잡)
 
 
 def _host_status(stats: ResourceStats, res: dict[str, ResourceAssessment], under_kinds: set[str]) -> HostStatus:
-    """호스트 요약 상태 — under(압박) > idle/shutdown > over > optimal > insufficient.
+    """호스트 요약 상태 — under(압박) > idle(미사용) > over > optimal > insufficient.
 
     조치는 root_cause·자원별 판정에서 나오고 이건 정렬·배지용 파생.
-    idle/shutdown 은 호스트 레벨(CPU+net, 기존 임계 재사용).
+    유휴는 호스트 레벨(CPU p95 + net, Azure 저사용 정의) 파생.
     """
     if under_kinds:
         return "under"
-    peak = stats.cpu_peak_pct
+    cpu = stats.cpu_p95_pct
     net = stats.net_avg_kbps
-    if net is not None:
-        if peak is not None and peak <= IDLE_CPU_PEAK_PCT and net <= IDLE_NET_KBPS:
-            return "idle"
-        cpu = stats.cpu_p95_pct
-        if cpu is not None and cpu <= SHUTDOWN_CPU_P95_PCT and (net * 8 / 1000) <= SHUTDOWN_NET_MBPS:
-            return "shutdown"
+    if net is not None and cpu is not None and cpu <= IDLE_CPU_P95_PCT and (net * 8 / 1000) <= IDLE_NET_MBPS:
+        return "idle"
     if any(res[k].status == "over" for k in ("cpu", "memory")):
         return "over"
     if all(a.status == "unmeasured" for a in res.values()):
@@ -678,7 +830,7 @@ def rollup_host(stats: ResourceStats) -> HostAssessment:
     disk_io_pressure = res["disk_io"].status == "io_bound"
     cpu_pressure = res["cpu"].status == "under"
     procs_blocked_high = stats.procs_blocked_p95 is not None and stats.procs_blocked_p95 >= 1.0  # D-state 존재
-    if mem_pressure and stats.mem_swap_paging and (disk_io_pressure or cpu_pressure):
+    if mem_pressure and _mem_paging_active(stats) and (disk_io_pressure or cpu_pressure):
         # 메모리발 -> 동반 디스크 I/O·CPU 는 swap 트래픽·대기의 증상
         host.root_cause = "memory"
         host.symptom_of_root = [k for k in ("disk_io", "cpu") if k in under_kinds]
@@ -695,6 +847,72 @@ def rollup_host(stats: ResourceStats) -> HostAssessment:
     host.network_congested = res["network"].status == "congested"
     host.host_status = _host_status(stats, res, under_kinds)
     return host
+
+
+# 자원 부족 처방 기본 문구 (root 자원별). 사이징 축(cpu/memory)은 목표 있으면 "-> 총량 목표"로 대체.
+_UNDER_ACTION_BASE: dict[str, str] = {
+    "cpu": "CPU 증설",
+    "memory": "메모리 증설",
+    "disk_capacity": "스토리지 확장",
+    "disk_io": "디스크 티어 상향",
+    "network": "네트워크 점검",
+}
+_SIZEABLE_LABEL: dict[str, str] = {"cpu": "CPU", "memory": "메모리"}
+_UNDER_ORDER = ("memory", "cpu", "disk_io", "disk_capacity", "network")  # 나열 순(인과 상류 우선)
+
+
+def _fmt_sizing_target(kind: str, target: int) -> str:
+    """사이징 목표 총량 표시 — cpu 코어, memory 는 1024MB 이상이면 GB(소수1, .0 제거)."""
+    if kind == "cpu":
+        return f"{target}코어"
+    if target >= 1024:
+        return f"{target / 1024:.1f}GB".replace(".0GB", "GB")
+    return f"{target}MB"
+
+
+def _resource_prescription(kind: str, ra: ResourceAssessment) -> str:
+    """자원 1개 처방 — 사이징 목표 있으면 "메모리 -> 22GB"·"스토리지 -> 500GB"(총량 목표), 없으면 기본 문구."""
+    if kind == "disk_capacity" and ra.sizing_target is not None:
+        return f"스토리지 -> {ra.sizing_target:.0f}GB"  # 1년 수명 목표 총 용량
+    if kind in _SIZEABLE_LABEL and ra.sizing_target is not None:
+        return f"{_SIZEABLE_LABEL[kind]} -> {_fmt_sizing_target(kind, ra.sizing_target)}"
+    return _UNDER_ACTION_BASE.get(kind, "")
+
+
+def _under_kinds(host: HostAssessment) -> list[str]:
+    return [k for k in _UNDER_ORDER if k in host.resources and host.resources[k].status in _ROOTABLE_UNDER]
+
+
+def under_prescription(host: HostAssessment) -> str:
+    """자원 부족 처방 (root_cause 정합) — 인과 결합이면 root 만 처방(하류는 근본원인 칼럼이 전달), 독립 부족이면 전부.
+
+    root 에만 처방해 삼중 처방 방지(ADR 0052). 근본원인 칼럼(root_cause_display)과 어휘 정합.
+    """
+    under = _under_kinds(host)
+    if not under:
+        return ""
+    if host.symptom_of_root and host.root_cause:
+        return _resource_prescription(host.root_cause, host.resources[host.root_cause])
+    return " / ".join(_resource_prescription(k, host.resources[k]) for k in under)
+
+
+def root_cause_display(host: HostAssessment) -> str:
+    """근본원인 칼럼 표시 (under_prescription 과 정합):
+
+    - 단일 부족: 그 자원명 ("CPU") — 원인이 자명.
+    - 인과 결합: "메모리 (CPU·디스크 I/O 유발)" — root + 하류 증상.
+    - 복수 독립: "CPU·디스크 I/O" — 각자 원인(단일 root 없음, 인과 함의 없이 나열).
+    - 부족 없음: "".
+    """
+    under = _under_kinds(host)
+    if not under:
+        return ""
+    if host.symptom_of_root and host.root_cause:
+        sym = "·".join(RS_RESOURCE_KIND_LABEL_KO[k] for k in host.symptom_of_root)
+        return f"{RS_RESOURCE_KIND_LABEL_KO[host.root_cause]} ({sym} 유발)"
+    if len(under) == 1:
+        return RS_RESOURCE_KIND_LABEL_KO[under[0]]
+    return "·".join(RS_RESOURCE_KIND_LABEL_KO[k] for k in under)
 
 
 def downsize_prescribable(assessment: ResourceAssessment, stats: ResourceStats) -> bool:
@@ -733,10 +951,18 @@ RS_STATUS_LABEL_KO: dict[str, str] = {
 RS_HOST_STATUS_LABEL_KO: dict[str, str] = {
     "under": "자원 부족",
     "idle": "유휴",
-    "shutdown": "종료 권장",
     "over": "과다 할당",
     "optimal": "정상",
     "insufficient": "표본 부족",
+}
+
+# 자원 kind -> 한국어 (rollup_host.root_cause 표시 — "어느 자원발인가"). 근본원인 컬럼 단일 진실.
+RS_RESOURCE_KIND_LABEL_KO: dict[str, str] = {
+    "cpu": "CPU",
+    "memory": "메모리",
+    "disk_capacity": "디스크 용량",
+    "disk_io": "디스크 I/O",
+    "network": "네트워크",
 }
 
 RS_TRIGGER_LABEL_KO: dict[str, str] = {
@@ -744,6 +970,7 @@ RS_TRIGGER_LABEL_KO: dict[str, str] = {
     "cpu_saturation": "CPU 실행 큐 포화",
     "mem_util": "메모리 이용률 초과",
     "mem_saturation": "메모리 스왑/페이징 발생",
+    "mem_oom": "OOM(메모리 부족) 발생",
     "disk_capacity": "디스크 용량 임박",
     "disk_io": "디스크 I/O 응답 지연",
     "net_retrans": "TCP 재전송 과다",

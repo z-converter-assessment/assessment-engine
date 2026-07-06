@@ -82,7 +82,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
             period_days=recommendation.WINDOW_DAYS,
             end=now,
         )
-        # net baseline 주입 — build_resource_stats 의 idle/shutdown 판정이 net 사용 (도넛·보고서와 정합).
+        # net baseline 주입 — build_resource_stats 의 유휴 판정이 net 사용 (도넛·보고서와 정합).
         await self._inject_net_baseline(raws_period, page_server_ids, recommendation.WINDOW_DAYS, now)
         raws_by_id: dict[int, object] = {r.server_id: r for r in raws_period}
 

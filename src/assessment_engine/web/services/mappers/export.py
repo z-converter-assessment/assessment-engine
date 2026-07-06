@@ -143,7 +143,7 @@ def to_inventory_export_entry(
     boot_gb, additional = _split_disks(detail.disks, detail.mounts)
     if stats is not None:
         # 분류 입력은 build_resource_stats 단일 진실 — net baseline 포함, 보고서·대시보드와 동일 분류.
-        rec = recommendation.classify(build_resource_stats(stats))
+        rec = recommendation.classify_host(build_resource_stats(stats))
     else:
         rec = "insufficient_data"
 

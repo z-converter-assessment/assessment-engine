@@ -77,9 +77,21 @@ def to_task_summary(row: TaskRow, now: datetime) -> TaskSummaryItem:
 
 # POSIX 시그널 번호 -> 이름. install.sh 사망 진단 표시용 (exit_code=null + signal_no=값).
 _SIGNAL_NAME: dict[int, str] = {
-    1: "SIGHUP", 2: "SIGINT", 3: "SIGQUIT", 4: "SIGILL", 5: "SIGTRAP",
-    6: "SIGABRT", 7: "SIGBUS", 8: "SIGFPE", 9: "SIGKILL", 11: "SIGSEGV",
-    13: "SIGPIPE", 14: "SIGALRM", 15: "SIGTERM", 24: "SIGXCPU", 25: "SIGXFSZ",
+    1: "SIGHUP",
+    2: "SIGINT",
+    3: "SIGQUIT",
+    4: "SIGILL",
+    5: "SIGTRAP",
+    6: "SIGABRT",
+    7: "SIGBUS",
+    8: "SIGFPE",
+    9: "SIGKILL",
+    11: "SIGSEGV",
+    13: "SIGPIPE",
+    14: "SIGALRM",
+    15: "SIGTERM",
+    24: "SIGXCPU",
+    25: "SIGXFSZ",
 }
 
 

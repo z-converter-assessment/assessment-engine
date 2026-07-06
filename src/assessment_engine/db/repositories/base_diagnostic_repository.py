@@ -23,7 +23,6 @@ DIAGNOSTIC_RANGE_DAYS: dict[str, float] = {
 # USE Method 분류 라벨 — mapper(view) import. 분류 추가 시 본 dict만 갱신.
 CLASSIFICATION_LABEL_KR: dict[str, str] = {
     "idle": "idle",
-    "shutdown": "shutdown 검토",
     "over_provisioned": "over-provisioned",
     "under_provisioned": "under-provisioned",
     "optimal": "optimal",

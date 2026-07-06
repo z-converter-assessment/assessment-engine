@@ -33,6 +33,7 @@ async def _query_service_factory():
     async with AsyncSessionLocal() as session:
         yield QueryService(QueryRepository(session), get_redis())
 
+
 # Composition Root에서 log sink 단일 등록 — text(dev) vs json(prod) 분기 (LOG_FORMAT env).
 setup_logging(web_settings.log_format)
 
