@@ -75,7 +75,9 @@ class InventoryServiceInfo(BaseModel):
 class InventoryListenPortInfo(BaseModel):
     proto: Literal["tcp", "tcp6", "udp", "udp6"]
     addr: str = Field(min_length=1, max_length=64)
-    port: int = Field(ge=1, le=65535)
+    # wire 계약(wire.schema.json)이 minimum:0 이라 엔진도 ge=0 으로 그 permissive superset 유지 —
+    # 엔진이 wire 가 허용하는 값을 거부하지 않는다(#B). 실측 LISTEN 포트는 >=1 이나 계약 정합 우선.
+    port: int = Field(ge=0, le=65535)
     # Windows agent 는 POSIX uid 미존재로 null 발행 — nullable (Linux 만 값). #B 플랫폼 차이.
     uid: int | None = Field(default=None, ge=0)
     pid: int | None = None
