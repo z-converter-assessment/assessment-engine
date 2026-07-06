@@ -16,7 +16,7 @@
 - ResourceStats 확장(신 신호 전부 default) · 신 임계 상수 16개(계층·출처 주석) · steal 충실도 편향
 - ResourceAssessment/HostAssessment/ConfidenceNote(4종) · assess_cpu/memory/disk_capacity/disk_io/network
 - 사이징(CPU ceil(부하/70) max 포화 · 메모리 수요/0.70) · rollup_host(근본원인) · host_status(idle/shutdown 포함) · network_congested · downsize_prescribable · RS_*_LABEL_KO
-- per-core 는 스칼라 cpu_percore_p95_max(최댓값만) 사용 -> CP2 "배열 vs JSONB" 결정 소멸(스칼라 컬럼).
+- per-core(cpu_percore_p95_max)는 defer — 도메인은 스칼라 최댓값만 소비하나 agent 가 raw 배열 발행 + per-core util 델타 필요라 미저장. 도메인 None graceful (아래 field-source 매핑).
 
 CP1 사용자 결정 대기: (1) 호환 wrapper strangler 방식 OK? (2) 보류분 — steal 은 반영, idle/shutdown·라벨도 반영 완료. 남은 건 없음(Phase B 완결).
 
@@ -48,49 +48,28 @@ ingest F9 체인 완료(전부 additive nullable, 옛 경로 무손상):
 남은(엔드포인트까지): Phase C 집계·seam — report_aggregate SQL 이 신 신호 집계(p95·await counter_agg·엔진 산출 steal/burst/trend/runway) -> ReportRowRaw -> build_resource_stats -> 신 ResourceStats. report_aggregate 는 옛 active 모델도 타는 critical 쿼리라 (additive 여도) counter_agg SQL 은 신중. 화면 이관(Phase D)은 CP3(사용자).
 
 
-정밀 분석 결과 신규 컬럼은 최소다 — 신 ResourceStats 필드 다수가 기존 컬럼 또는 엔진 산출. 기존 sat_* 는 "agent 가 worst/rate 로 축약한 scalar float" 패턴이라 신규도 이를 따른다(per-disk/per-core 배열 불요 -> CP2 소멸).
+### field-source 매핑 (Phase C 배선 참조 — 현황)
 
-신규 server_metrics scalar 컬럼 (agent worst/max 축약, sat_* 패턴):
-- cpu_max_core_pct (float) — agent 가 per-core util% 중 max 발행. 엔진 p95 -> `cpu_percore_p95_max`.
-- procs_blocked (float) — /proc/stat D-state 순간 카운트. 엔진 p95 -> `procs_blocked_p95`.
-- disk_await_ms (float) — agent 가 worst-disk await(counter delta 산출) 발행. 엔진 p95 -> `disk_await_p95_ms`.
+신 ResourceStats 필드가 어디서 오나. 커밋된 신 컬럼(migration e6b8d0f2a4c7)은 전부 raw 카운터/gauge — 엔진이 델타·비율·p95를 산출한다(agent 는 raw만 발행). 필드명은 agent 실코드(assessment-agent-temp/src/collect.c·windows-agent)와 일치 확인됨.
 
-신규 mount 컬럼 (inode):
-- inode_total / inode_free (statvfs f_files/f_ffree) -> `disk_inode_runway_days`(엔진 Theil-Sen).
+Phase C 에서 집계할 것 (신 raw 컬럼 -> ResourceStats):
+- `procs_blocked_p95` <- server_metrics.procs_blocked (gauge, p95)
+- `disk_await_p95_ms` <- server_disk_io (time_reading_ms+time_writing_ms) 델타 / (reads_completed+writes_completed) 델타, per-disk -> worst -> p95 (counter_agg). Windows await 는 saturation.disk_queue[] 시간필드인데 ETW 트랙·미저장이라 별도
+- `mem_swap_paging` <- server_metrics.pswpout 델타 > 0 (Linux). Windows 는 mem_pages_input rate
+- `net_retrans_pct` <- server_metrics.tcp_retrans_segs 델타 / 세그먼트 (counter_agg)
+- `net_drop_pct` <- server_net_io.rx_drops/tx_drops 델타 / packets 델타 (counter_agg)
+- `disk_inode_runway_days` <- server_mount_usage.inodes_free 추세 (Theil-Sen, 엔진)
 
-신규 net_io 컬럼 (품질):
-- tcp_retrans_segs/tcp_total_segs · rx_drops/tx_drops/rx_packets/tx_packets -> 엔진 % 산출 -> `net_retrans_pct`/`net_drop_pct`.
+기존 컬럼/엔진 산출 (신 컬럼 불요, agent 무관):
+- `cpu_steal_p95_pct` <- server_metrics.cpu_steal(기존) -> steal% p95
+- `mem_total_mb` <- server_metrics.mem_total_kb(기존)/1024
+- `history_hours`(윈도우 표본 span) · `cpu_burst_ratio`(cpu p95/median) · `util_trend_rising`(cpu·mem util Theil-Sen slope > 0) · `disk_capacity_runway_days`(worst mount used 추세) — 전부 query·service 산출
 
-기존 컬럼/엔진 산출 (신규 agent 신호·컬럼 불요):
-- `mem_swap_paging` <- sat_mem_paging_rate(기존, Linux=swap page-out rate) > 0 AND os != windows. build_resource_stats 산출.
-- `mem_total_mb` <- mem_total_kb(기존)/1024. query 가 carry.
-- `cpu_steal_p95_pct` <- cpu_steal(기존 jiffies) -> steal% p95. query 집계.
-- `history_hours` <- 윈도우 표본 span. query 산출.
-- `cpu_burst_ratio` <- cpu p95/median. query 에 median 추가.
-- `util_trend_rising` <- cpu·mem util Theil-Sen slope > 0. service 산출.
-- `disk_capacity_runway_days` <- worst mount used 시계열 Theil-Sen. service 산출(기존 mount 이력).
+미배선 (defer):
+- `cpu_percore_p95_max` <- agent 는 `cpu_per_core[]` raw 배열 발행하나 미저장 — per-core util 은 델타 필요라 배열 저장(JSONB)이 필요, Windows 미구현. 도메인은 None 이면 단일스레드 판정 skip(graceful)
+- Windows disk await — 구세대 viostor 5대 IOCTL 미부착, ETW 트랙
 
-F9 체인 (신규 컬럼당): ORM + Alembic(+rate 는 counter_agg cagg #C5·ADR 0043) + MetricsInput/inbound DTO + consumer handler + collect_repository INSERT + agent.md 계약. + report_aggregate SQL 집계 + ReportRowRaw + build_resource_stats 배선.
-
-의존·검증 관문: cpu_max_core_pct·procs_blocked·disk_await_ms·inode·net 품질은 agent 발행 필요(요청 문서 전달됨, 회신 대기). 나머지 7개는 엔진 단독 가능(agent 무관). Alembic 은 testcontainers(#C4)로 검증 후 apply — 자율로 apply 안 함(데이터정합성). 그래서 코드화는 (a) agent 계약 회신 + (b) testcontainer 가용 후.
-
-자율 가능 하위집합(agent 무관, 신규 컬럼 0): 엔진 산출 7필드의 query/service/build 배선 — 단 report_aggregate SQL·ReportRowRaw 확장이라 Phase C 와 맞물림. 신 모델이 아직 active 경로가 아니라 배선해도 dead 이므로, 호출처 이관(CP1 후속)과 함께 진행이 정합적.
-
-### agent 계약 확정 (회신 반영 — right-sizing-signals-agent-response.md)
-
-agent 가 전 신호 구현·실측 검증 완료(Linux 전부, Windows per-core 제외 전부). 확정 wire 필드명·정정:
-- CPU: `procs_running`·`procs_blocked`(/proc/stat) · `cpu_per_core[]`(코어별 user..steal raw 배열) · `schedstat_run_wait_ns`.
-  - 정정: per-core 는 pre-reduced max 가 아니라 raw 배열. per-core util 은 델타 필요라 배열 저장이 real. 우선순위 낮음 + Windows 미구현이라 defer(도메인 None -> 단일스레드 판정 skip, graceful). 도입 시 JSONB(코어별 jiffies) + query per-core 델타.
-- 메모리: `pswpin`·`pswpout`(/proc/vmstat) · `oom_kill`(4.13+) · (Win)`mem_pages_input`(Pages Input/sec, mmap 미혼입).
-  - 정정: `mem_swap_paging` <- pswpout delta > 0 (Linux, 신규 raw). 기존 sat_mem_paging_rate 아님. Windows 는 mem_pages_input rate.
-- 디스크 용량: `mounts[].inodes_total`·`inodes_free`.
-- 디스크 I/O: `disk_io[].time_reading_ms`·`time_writing_ms`·`io_ticks_ms`·`weighted_io_ms` + reads/writes 완료수.
-  - await = per-disk (time_reading_ms+time_writing_ms) 델타 / (reads+writes) 델타 -> worst disk. Windows = saturation.disk_queue[].(read_time+write_time)/(read_count+write_count). 엔진 산출(agent 는 raw만).
-- 네트워크: `net_io[].rx_drops`·`tx_drops` · `tcp_retrans_segs` · `tcp_tw`(TIME_WAIT) · `conntrack_count`/`conntrack_max`(모듈 없으면 null).
-- 관측용(분류 미사용): `psi_cpu/mem/io_some_total`.
-- 스키마: 신규 필드 전부 optional(required 아님) — 엔진 inbound DTO 도 optional 수용(없으면 null).
-
-계약 확정으로 Phase A 착수 관문 (1)agent 회신 해소. 남은 관문 (2)Alembic testcontainers 검증만 — 마이그레이션 작성 후 #C4 라운드트립으로 검증(Docker 필요).
+Phase C 배선 관문: report_aggregate 가 server_metrics_5m·server_disk_io_5m·server_net_io_5m continuous aggregate(cagg)를 탄다. 신 raw 컬럼이 그 cagg 에 없어서 counter_agg 로 집계하려면 cagg 재생성 마이그레이션이 필요하다(#C4·#C5) + testcontainer 검증. 되돌리기 어렵고 intricate — 사용자 검토 하에 진행.
 
 ## Phase C — 쿼리·집계
 
@@ -107,7 +86,7 @@ agent 가 전 신호 구현·실측 검증 완료(Linux 전부, Windows per-core
 
 - 단위·통합 테스트(recommendation·ingest·report_serializer 라운드트립·query dispatch).
 - `docs/architecture/right-sizing.md` 신 모델로 재작성 — 구현 완료 후(코드가 진실, F12). CLAUDE.md #E3·#F9·#F10 갱신. tradeoffs T14.
-- temp 초안 삭제: `right-sizing-principle.md` · `resource-models-summary.md` · 본 플랜(격상 완료 시).
+- temp 초안 삭제: `right-sizing-principle.md` · `right-sizing-handoff.md` · 본 플랜(격상 완료 시).
 
 ## 순서·자율성
 
