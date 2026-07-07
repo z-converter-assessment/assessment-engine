@@ -357,7 +357,7 @@ class ReportRowRaw:
 class InventoryExportEntry:
     """정제 inventory JSON 항목 — 사용처축 배치(v4). 자동화 도구(Terraform/OpenStack/Ansible/CSP SDK) 입력 표준.
 
-    스키마·정제 원칙·사용처: docs/architecture/web/export-schema.md (v4).
+    스키마·정제 원칙·사용처: docs/reference/web/export-schema.md (v4).
     벤더 중립 — assessment.recommended_size_class만 노출, 도구가 자기 도메인 instance type에 매핑.
     블록은 사용처 1:1 — spec(VM 생성) / usage(right-sizing 측정) / assessment(평가 결과) / services(보안그룹).
     """

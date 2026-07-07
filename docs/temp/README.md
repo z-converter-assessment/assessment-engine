@@ -13,7 +13,7 @@
 ## 새 파일 작성 시 의무
 
 - 본문 첫 줄에 자료 성격 명시 — 임시·외부 공유·삭제 자유.
-- 본 repo 영구 문서 참조 (`docs/architecture/...` / CLAUDE.md `#X` 절 인용 등) 사용 금지. 필요 시 본 repo 정책·구조를 self-contained 으로 풀어 박음.
+- 본 repo 영구 문서 참조 (`docs/reference/...` / CLAUDE.md `#X` 절 인용 등) 사용 금지. 필요 시 본 repo 정책·구조를 self-contained 으로 풀어 박음.
 - 본 repo 코드 path 인용 (예: `src/.../foo.py:123`) 도 외부 공유 시 의미 없으므로 추상화 권고 (코드 path 보다 "어느 모듈·어느 함수의 책임" 표현).
 
 ## 협의 완료 후 처리

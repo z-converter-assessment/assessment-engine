@@ -85,7 +85,7 @@ Phase C 배선 관문: report_aggregate 가 server_metrics_5m·server_disk_io_5m
 ## Phase E — 테스트·문서 (wrap-up)
 
 - 단위·통합 테스트(recommendation·ingest·report_serializer 라운드트립·query dispatch).
-- `docs/architecture/right-sizing.md` 신 모델로 재작성 — 구현 완료 후(코드가 진실, F12). CLAUDE.md #E3·#F9·#F10 갱신. tradeoffs T14.
+- `docs/reference/right-sizing.md` 신 모델로 재작성 — 구현 완료 후(코드가 진실, F12). CLAUDE.md #E3·#F9·#F10 갱신. tradeoffs T14.
 - temp 초안 삭제: `right-sizing-principle.md` · `right-sizing-handoff.md` · 본 플랜(격상 완료 시).
 
 ## 순서·자율성

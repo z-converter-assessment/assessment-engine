@@ -5,9 +5,9 @@
 상태: ADR 0052 자원 적정성 분류 재설계. Phase B(도메인)·Phase A(ingest) 완료·검증. Phase C/D 남음. 커밋됨 — working tree = 커밋 상태.
 
 ## 읽을 순서
-1. `docs/adr/0052-right-sizing-principle-redesign.md` — 결정(전제 2개·5자원 USE·임계·근본원인·신뢰도 4종). 영구·self-contained.
+1. `docs/decisions/adr/0052-right-sizing-principle-redesign.md` — 결정(전제 2개·5자원 USE·임계·근본원인·신뢰도 4종). 영구·self-contained.
 2. `docs/temp/right-sizing-implementation-plan.md` — 로드맵·Phase별·field-source 매핑·체크포인트·규율.
-3. `docs/temp/right-sizing-principle.md` — 상세 설계(모델·OS 신호 매트릭스·임계 근거·출처). 나중 `docs/architecture/right-sizing.md` 격상 원본.
+3. `docs/temp/right-sizing-principle.md` — 상세 설계(모델·OS 신호 매트릭스·임계 근거·출처). 나중 `docs/reference/right-sizing.md` 격상 원본.
 
 ## 완료 (커밋됨)
 - Phase B 도메인: `recommendation.py` 신 모델 — `assess_cpu/memory/disk_capacity/disk_io/network` · `rollup_host`(근본원인) · `ConfidenceNote`(4종) · `downsize_prescribable` · `RS_*` 임계(전부 계층·출처 주석) · `RS_*_LABEL_KO`. additive strangler — 기존 `assess`/`classify` 유지(Phase E 제거). 단위 테스트 51(`tests/unit/test_right_sizing_model.py`).

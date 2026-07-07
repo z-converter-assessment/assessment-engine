@@ -1,6 +1,6 @@
 """Right-sizing 분류 — USE Method (Brendan Gregg) + 공식 cloud advisor 임계값.
 
-명세·근거 단일 진실: docs/architecture/right-sizing.md (분류 정의·임계 출처·OS 분기·한계).
+명세·근거 단일 진실: docs/reference/right-sizing.md (분류 정의·임계 출처·OS 분기·한계).
 
 evidence 기반 분류: 자원(CPU/Mem/Disk)별로 "가진 축"을 평가해 신호(trigger)를 모으고,
 under(위험) 우선 우선순위로 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다.

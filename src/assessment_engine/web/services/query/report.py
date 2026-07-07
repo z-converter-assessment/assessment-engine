@@ -443,7 +443,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         각 서버는 ServerDetail + ReportRowRaw -> mapper로 변환. 누락된 server_id는 silent skip.
 
         C5: `get_servers` + `report_aggregate` 단일 SQL 각 1회 — 입력 server_ids 순서 보존.
-        스키마·정제 원칙·사용처: docs/architecture/web/export-schema.md.
+        스키마·정제 원칙·사용처: docs/reference/web/export-schema.md.
         """
         end_dt = datetime.now(UTC)
         details = await self.repo.get_servers(server_ids)

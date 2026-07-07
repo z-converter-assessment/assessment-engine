@@ -1,7 +1,7 @@
 """Inventory JSON Export mapper — ServerDetail + ReportRowRaw → InventoryExportEntry (P2).
 
 벤더 중립 정제 v2 스키마. 자동화 도구 입력으로 활용. 사용처: `/api/exports/inventory`.
-스키마·정제 원칙·사용처 deep dive: docs/products/json-export.md.
+스키마·정제 원칙·사용처 deep dive: docs/explanation/products/json-export.md.
 """
 
 from assessment_engine import recommendation

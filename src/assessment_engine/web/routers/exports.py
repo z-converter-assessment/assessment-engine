@@ -1,6 +1,6 @@
 """Exports router — 자동화 도구 입력용 정제 산출물 다운로드.
 
-스키마·정제 원칙·사용처: docs/architecture/web/export-schema.md.
+스키마·정제 원칙·사용처: docs/reference/web/export-schema.md.
 server 항목은 사용처축 배치 — identity/os/spec(VM 생성)/usage(right-sizing 측정)/assessment(평가 결과)/
 services(보안그룹). 자동화 도구가 사용처 블록을 통째로 소비.
 """
@@ -53,7 +53,7 @@ async def export_inventory(
     return {
         "inventory_export": {
             "schema_version": "4",
-            "schema_doc": "docs/architecture/web/export-schema.md",
+            "schema_doc": "docs/reference/web/export-schema.md",
             "engine_id": "zconverter-assessment-portal",
             "exported_at": now.isoformat(),
             "period_window": {
