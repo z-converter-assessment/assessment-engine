@@ -366,8 +366,8 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
     """ReportRowRaw -> USE Method ResourceStats — report·attention mapper 공용(단일 진실).
 
     net baseline = server_net_io rx+tx 윈도우 평균(kB/s). 둘 다 None 이면 None(유휴 skip),
-    하나만 있으면 다른쪽 0. os_family 전달로 swap 축 OS 분기(P2). attention 의 capacity trigger 도
-    동일 stats 로 recommendation.assess 를 타 임계 재계산 중복을 제거(assess.triggers 단일 진실).
+    하나만 있으면 다른쪽 0. os_family 전달로 포화 축 OS 분기(P2). report·attention·서버목록·환경이
+    동일 stats 로 rollup_host 를 타 화면 간 분류 정합(임계 재계산 0).
     """
     net_avg = (
         None if raw.net_rx_kbps is None and raw.net_tx_kbps is None else (raw.net_rx_kbps or 0) + (raw.net_tx_kbps or 0)

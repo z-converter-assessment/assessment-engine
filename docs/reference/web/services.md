@@ -82,7 +82,7 @@ IP 필터 보류: `ip_internal`/`ip_external`은 평면 IP 목록만 발행돼(�
 UI badge 임계값(`mappers/shared.py` `_USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
 
 right-sizing 분류(6분류·판정 순서·합성 규칙·OS 분기·벤더 임계 출처)의 명세 단일 진실은 `docs/reference/right-sizing.md`, 운영자 임계 카탈로그는 `right_sizing_thresholds.html`. web 계층 책임은 소비만 (P2/P4):
-- 분류 = `recommendation.assess(stats) -> Assessment`(`classify` 는 enum 호환 wrapper). mapper 권고(`_build_under_provisioned_reason`)·attention 자원 부족 카드(`to_capacity_warning_item`, 발화 원인 `active_causes`)·single_report 포화 축 카드(`_build_saturation_axes`)가 `assess.triggers`·os-aware helper 를 재사용해 한국어 표시로 변환한다(임계 재계산 금지, stats 생성은 `build_resource_stats` 공용).
+- 분류 = `recommendation.rollup_host(stats) -> HostAssessment`(자원 5개 per-resource + 근본원인). 배지 = `classify_host`. report 진단(`_build_diagnosis`, host.resources 상태·trigger 파생)·권고(`under_prescription(host)`)·attention 자원 부족 카드(`to_capacity_warning_item`, 발화 원인 `active_causes`)가 host.resources triggers·os-aware helper 를 재사용해 한국어 표시로 변환한다(임계 재계산 금지, stats 생성은 `build_resource_stats` 공용). 네트워크 혼잡은 host under 아닌 별도 `network_congested` 플래그.
 - `unmeasured` -> `is_partial`(=bool(unmeasured)) 을 ViewModel precompute, 템플릿이 "포화 수치 미관측" confidence 마커로 노출.
 
 ## 환경 개요 상단 요약 — environment_overview + attention

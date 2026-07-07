@@ -58,7 +58,7 @@ class CapacityWarningItem:
     active_causes: list[str] = field(default_factory=list)
     services: dict[str, int] = field(default_factory=dict)
     metrics: list[CapacityMetric] = field(default_factory=list)
-    # 분류 confidence 단서 — is_partial(축 미관측) + low_sample(표본 부족) 통합 라벨 (shared.build_confidence_notes,
+    # 분류 confidence 단서 — 포화 축 미관측 + 표본 부족 통합 라벨 (shared.build_host_confidence_notes,
     # 원칙2). 보고서 행과 동일 채널 — 카드가 list 렌더(P3). 발화 trigger(빨강)와 시각 구분.
     confidence_notes: list[str] = field(default_factory=list)
     # 증설 권고 — 근본원인 기반 처방(recommendation.under_prescription 단일 진실). 자원 부족 표 권고 칼럼.

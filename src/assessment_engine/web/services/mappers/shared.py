@@ -79,10 +79,10 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
             ),
             SaturationAxisDisplay(
                 "디스크 I/O 포화",
-                "Avg Disk Queue Length p95",
-                f"{stats.disk_queue_p95:.2f}" if stats.disk_queue_p95 is not None else "N/A",
-                f">= {rec.DISK_QUEUE_PER_DISK_SATURATION:g}",
-                stats.disk_queue_p95 is not None,
+                "await p95 (IOCTL ReadTime/WriteTime)",
+                f"{stats.disk_await_p95_ms:.0f}ms" if stats.disk_await_p95_ms is not None else "N/A",
+                f"> {rec.RS_DISKIO_AWAIT_MS:g}ms",
+                stats.disk_await_p95_ms is not None,
             ),
         ]
     rq = stats.procs_running_p95 / cores if stats.procs_running_p95 is not None and cores else None
@@ -94,7 +94,7 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
             f">= {rec.PROCS_RUNNING_PER_CORE_SATURATION:g}",
             rq is not None,
         ),
-        SaturationAxisDisplay("메모리 포화", "swap page-out", "발생" if stats.swap_used else "없음", "발생 시", True),
+        SaturationAxisDisplay("메모리 포화", "swap page-out", "발생" if stats.mem_swap_paging else "없음", "발생 시", True),
         SaturationAxisDisplay(
             "디스크 I/O 포화",
             "await p95",
@@ -105,26 +105,10 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
     ]
 
 
-def build_confidence_notes(assessment: recommendation.Assessment) -> list[str]:
-    """분류 confidence 단서 라벨 — is_partial(saturation 축 미관측) + low_sample(표본 부족) 통합 (원칙2, P2).
-
-    분류는 가진 데이터로 완결(원칙1)하고, 신뢰도를 떨어뜨리는 요인만 본 채널로 분리 노출. 보고서 행·대시보드
-    '자원 부족 상세' 카드가 동일 list 를 렌더(P3) — 비면 신뢰도 저하 요인 없음. report·attention 공용 단일 진실.
-    """
-    notes: list[str] = []
-    if assessment.is_partial:
-        notes.append("포화 수치 미관측")
-    if assessment.low_sample:
-        # 표본 부족은 이용률·포화 p95 전 축의 통계 정밀도를 떨어뜨린다 — "이용률" 한정 없이 단순 라벨.
-        # 분류 라벨 "표본 부족"(insufficient_data)과 같은 문자열이나 다른 칼럼(신뢰도 vs 분류)이라 혼동 없음.
-        notes.append("표본 부족")
-    return notes
-
-
 def build_host_confidence_notes(host: recommendation.HostAssessment) -> list[str]:
     """호스트 confidence 단서 라벨 (신 모델 rollup_host 기반) — 자원별 ConfidenceNote 를 호스트 단위 OR 종합.
 
-    build_confidence_notes(구 assess)의 신 모델 대응. coverage_gap(포화 축 미관측)·low_precision(이력<30h·버스티)를
+    구 단일-assess 대비 rollup_host 기반 — coverage_gap(포화 축 미관측)·low_precision(이력<30h·버스티)를
     호스트 단위로 노출. biased(virtio 구조 편향)는 disk_io 가 상시 True 라 표시 노이즈 -> 노트 제외
     (다운사이즈 게이트 내부용). report·attention 이 rollup_host 로 이관 후 본 함수 공용.
     """

@@ -38,14 +38,12 @@ IDLE_NET_MBPS = 2
 IDLE_STRONG_PEAK_PCT = 1
 IDLE_STRONG_NET_KBPS = 1
 
-# Over-provisioned (다운사이즈) — AWS Compute Optimizer + GCP Recommender (headroom 30%)
+# Over-provisioned (다운사이즈 여유선) + 유휴/여유 진단 표시 임계 — AWS Compute Optimizer + GCP Recommender.
 CPU_DOWNSIZE_P95_PCT = 30
 MEM_DOWNSIZE_P95_PCT = 50
-HEADROOM_PCT = 30
 
-# Under-provisioned (업사이즈) — USE Method utilization 임계
-CPU_UPSIZE_P95_PCT = 70  # Kleinrock — Queueing Systems (1975), Google SRE Book
-MEM_UPSIZE_P95_PCT = 80  # Linux page cache 압박 시작점
+# CPU 이용률 부족선 — Kleinrock 큐잉 무릎 + AWS Balanced(<70% P95). 보고서 요약 KPI 표시 임계.
+CPU_UPSIZE_P95_PCT = 70
 
 # USE Method Saturation 임계 — utilization 외 saturation 축 평가 (Brendan Gregg 정석).
 # Linux CPU saturation — 실행 큐(procs_running)/cores >= 1.0 (USE Method: vmstat "r" > CPU 수, 계층1).
@@ -62,11 +60,6 @@ DISK_QUEUE_PER_DISK_SATURATION = 2.0
 # 이 목적으로 별도 발행). Microsoft/업계 관례: sustained 5=증설 권고 / 20=체감 저하 / 100=thrashing.
 # under-provisioned 신호는 "체감 저하" 20 채택(보수적). 총 Pages/sec 1000 은 카운터·자릿수 이중 오류라 폐기.
 WIN_PAGES_INPUT_SATURATION = 20.0
-DISK_CAPACITY_UPSIZE_PCT = 85  # worst mount used_pct >= 85% — storage capacity utilization
-
-# 표본 충분성 — 측정 축(cpu/mem) 실측 5분 버킷 / 윈도우 기대 버킷(period_days*288, cagg 5분) 비율이 이 미만이면
-# 표본 부족(low_sample). 분류를 막지 않고(원칙1) confidence 단서로만 노출(원칙2). 0.5 = 실질 관측 절반 미만.
-SAMPLE_SUFFICIENCY_RATIO = 0.5
 
 
 Recommendation = Literal[
@@ -76,11 +69,6 @@ Recommendation = Literal[
     "optimal",
     "insufficient_data",  # cpu_p95·mem_p95 둘 다 부재 (신규/표본 부족)
 ]
-
-# under_provisioned 유발 신호 키 — 도메인 식별자(머신용). mapper 가 한국어 권고로 변환(P2).
-# attention 5종 trigger + iowait(disk_io) 정합. 표시 순서·라벨은 mapper 단일 진실.
-Trigger = Literal["cpu_util", "cpu_saturation", "mem_util", "mem_saturation", "disk_capacity", "disk_io"]
-
 
 @dataclass
 class ResourceStats:
@@ -142,32 +130,6 @@ class ResourceStats:
     cpu_burst_ratio: float | None = None  # p95/median — 버스티면 통계 정밀도 하향
     util_trend_rising: bool | None = None  # 이용률 유의한 상승 추세 — 다운사이즈 정상성 게이트
     cpu_steal_p95_pct: float | None = None  # 가상화 steal — 높으면 CPU 이용률·포화 오염(충실도 편향 단서)
-
-
-@dataclass
-class Assessment:
-    """evidence 기반 분류 결과 — 분류 1개 + 근거(triggers) + 미관측 축(unmeasured).
-
-    - triggers: under_provisioned 를 유발한 hit 신호 키 목록 (그 외 분류는 빈 목록).
-                "어떤 데이터로 under 판정인가"의 근거. mapper 가 한국어 권고로 변환.
-    - unmeasured: 평가하지 못한 saturation 축 키 목록 (os-aware helper 가 None 을 돌려준 축).
-                  예: Windows perflib 미발행 -> ["cpu_saturation"] 등. confidence 단서(분류는 완결).
-    """
-
-    recommendation: Recommendation
-    triggers: list[str] = field(default_factory=list)
-    unmeasured: list[str] = field(default_factory=list)
-    # 표본 부족 — 측정 축 sufficiency < SAMPLE_SUFFICIENCY_RATIO. 분류는 완결, 신뢰도 단서로만 (원칙2).
-    # is_partial(축 미관측)과 별개 confidence 축 — 둘 다 confidence_notes 로 표시 계층에 통합 노출.
-    low_sample: bool = False
-
-    @property
-    def is_partial(self) -> bool:
-        """saturation 축 일부를 못 본 "부분 평가" 인지 — confidence 단서 (원칙 P4).
-
-        분류 자체는 utilization 으로 완결됐고, 못 본 축이 있다는 사실만 표시 계층에 노출.
-        """
-        return bool(self.unmeasured)
 
 
 def disk_io_saturated(stats: ResourceStats) -> bool | None:
@@ -266,90 +228,6 @@ def mem_saturated(stats: ResourceStats) -> bool | None:
     return stats.mem_swap_paging
 
 
-def assess(stats: ResourceStats) -> Assessment:
-    """USE Method evidence 분류 — 자원별 가용 축을 신호로 모아 단일 분류 + 근거 산출.
-
-    판정 순서: under(위험 신호 OR) → idle(유휴) → insufficient(데이터 없음) → over(이용률 AND) → optimal.
-    under 가 유휴 보다 우선 — 어떤 위험 신호든 하나면 발화(누락 0). CPU 가 낮아도 스왑·iowait·load·
-    mem·disk 압박이 있으면 "미사용(유휴)"이 아니라 자원 부족이다. over 는 cpu·mem 둘 다 낮을 때만(보수적).
-    insufficient_data 는 utilization 도 없고 under 신호도 없을 때만 — swap·iowait 등 saturation 신호가
-    있으면 util 부재여도 under 로 결론낸다(데이터로 반드시 판단). 못 본 saturation 축(예: Windows perflib
-    미발행)은 unmeasured 에 기록 — 분류를 막지 않고 confidence 로만 노출.
-    """
-    cpu = stats.cpu_p95_pct
-    mem = stats.mem_p95_pct
-
-    # 못 본 saturation 축 기록 (confidence 단서) — os-aware helper 가 None 을 돌려준 축만.
-    # 세 축 OS별 신호 정규화(Linux procs_running/swap/await, Windows run_queue/pages-input/disk_queue) helper 경유.
-    # Linux 는 swap 이 항상 관측돼 mem_saturation 은 None 없음(측정됨). Windows 는 해당 perflib 못 읽으면 None.
-    unmeasured: list[str] = []
-    cpu_sat = cpu_saturated(stats)
-    if cpu_sat is None:
-        unmeasured.append("cpu_saturation")
-    mem_sat = mem_saturated(stats)
-    if mem_sat is None:
-        unmeasured.append("mem_saturation")
-    disk_sat = disk_io_saturated(stats)
-    if disk_sat is None:
-        unmeasured.append("disk_io")
-
-    # 표본 부족 — 측정 축 sufficiency < 임계. 분류를 막지 않고 confidence 단서로만 동반 (원칙2).
-    low_sample = stats.sample_sufficiency is not None and stats.sample_sufficiency < SAMPLE_SUFFICIENCY_RATIO
-
-    # under_provisioned — 위험 신호 수집(OR). 유휴 보다 먼저 — 어떤 위험 신호든 하나면 발화(누락 0).
-    # CPU 가 낮아도 스왑·iowait·load·mem·disk 압박이 있으면 "미사용"이 아니라 자원 부족이다
-    # (예: CPU idle 인데 page-out = 메모리 부족). 가진 축만 평가해 hit 된 신호를 근거로 모은다.
-    triggers: list[str] = []
-    if cpu is not None and cpu >= CPU_UPSIZE_P95_PCT:
-        triggers.append("cpu_util")
-    if mem is not None and mem >= MEM_UPSIZE_P95_PCT:
-        triggers.append("mem_util")
-    if stats.disk_used_pct is not None and stats.disk_used_pct >= DISK_CAPACITY_UPSIZE_PCT:
-        triggers.append("disk_capacity")
-    # saturation 3축 — os-aware helper 단일 진실(Linux procs_running/swap/await, Windows run_queue/paging/disk_queue).
-    if cpu_sat:
-        triggers.append("cpu_saturation")
-    if mem_sat:
-        triggers.append("mem_saturation")
-    if disk_sat:
-        triggers.append("disk_io")
-
-    if triggers:
-        return Assessment("under_provisioned", triggers=triggers, unmeasured=unmeasured, low_sample=low_sample)
-
-    # 유휴 — 위험 신호 0 일 때만 (진짜 미사용). Azure 저사용 정의(cpu p95<=3%, net<=2Mbps). net+cpu 의존, 없으면
-    # fall-through. net_avg_kbps(KB/s) → Mbps: x 8 / 1000. 강도(AWS 1% 이하)는 상태 아닌 조치 층에서 분기.
-    if (
-        stats.net_avg_kbps is not None
-        and cpu is not None
-        and cpu <= IDLE_CPU_P95_PCT
-        and (stats.net_avg_kbps * 8 / 1000) <= IDLE_NET_MBPS
-    ):
-        return Assessment("idle", unmeasured=unmeasured, low_sample=low_sample)
-
-    # 평가 불가 — utilization(cpu·mem) 둘 다 부재 + 위 under 위험 신호도 없음 (신규/표본 부족).
-    # sufficiency 도 None(측정 축 부재)이라 low_sample 무관 — insufficient_data 가 "관측 자체 부재"를 이미 표현.
-    if cpu is None and mem is None:
-        return Assessment("insufficient_data")
-
-    # over_provisioned — 보수적: cpu·mem p95 가 둘 다 있고 둘 다 다운사이즈 임계 이하일 때만.
-    # 한쪽이라도 None 이거나 높으면 over 로 단정하지 않는다(saturation 못 본 Windows 오판 회피).
-    if cpu is not None and mem is not None and cpu <= CPU_DOWNSIZE_P95_PCT and mem <= MEM_DOWNSIZE_P95_PCT:
-        return Assessment("over_provisioned", unmeasured=unmeasured, low_sample=low_sample)
-
-    return Assessment("optimal", unmeasured=unmeasured, low_sample=low_sample)
-
-
-def classify(stats: ResourceStats) -> Recommendation:
-    """분류 enum 만 — 기존 호출처 호환 wrapper (근거·confidence 필요 시 assess 사용)."""
-    return assess(stats).recommendation
-
-
-def is_partial_evaluation(stats: ResourceStats) -> bool:
-    """saturation 축 일부 미관측 여부 — 호환 wrapper (assess().is_partial)."""
-    return assess(stats).is_partial
-
-
 # ─── UI 라벨 (한국어, 양식 A 사용자 친화 표시용) ──────────────────────────
 
 LABEL_KO: dict[str, str] = {
@@ -440,15 +318,6 @@ def recommend_action(rec: Recommendation, stats: ResourceStats) -> str:
 
 
 # under_provisioned 신호 키 -> 한국어 라벨 (표시용). 처방은 under_prescription(root 기반) 단일 진실.
-# triggers 를 사람용 근거로 변환할 때 참조. 표시 순서는 mapper 가 결정.
-TRIGGER_LABEL_KO: dict[str, str] = {
-    "cpu_util": "CPU 이용률 초과",
-    "cpu_saturation": "CPU run queue 포화",
-    "mem_util": "메모리 이용률 초과",
-    "mem_saturation": "메모리 페이징 압박",  # Linux swap page-out / Windows Pages Input/sec 하드폴트 (os-aware)
-    "disk_capacity": "디스크 용량 임박",
-    "disk_io": "디스크 I/O 포화",
-}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -872,8 +741,8 @@ def rollup_host(stats: ResourceStats) -> HostAssessment:
 def host_saturation_unmeasured(host: HostAssessment) -> bool:
     """호스트 포화 축(cpu·memory·disk_io) 중 하나라도 미관측인지 — is_partial·confidence '포화 수치 미관측' 단일 진실.
 
-    disk_capacity(용량 누적)·network(품질) 미측정은 포화 축이 아니라 제외 — 구 assess.is_partial(saturation 축 한정)
-    의 신 모델 대응. Windows perflib 미발행·구세대 viostor await 미측정 등이 여기로 노출된다.
+    disk_capacity(용량 누적)·network(품질) 미측정은 포화 축이 아니라 제외 (saturation 축 한정).
+    Windows perflib 미발행·구세대 viostor await 미측정 등이 여기로 노출된다.
     """
     return any(host.resources[k].confidence.coverage_gap for k in _SATURATION_KINDS if k in host.resources)
 

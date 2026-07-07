@@ -773,7 +773,7 @@ def test_saturation_axes_windows_os_aware_and_hit():
             cpu_cores=4,
             cpu_run_queue_p95=12.0,
             mem_pages_input_rate_p95=2000.0,
-            disk_queue_p95=3.5,
+            disk_await_p95_ms=30.0,  # Windows 도 IOCTL await 통일 -> await > 20ms
         ),
         True,
         _NOW,
@@ -782,8 +782,8 @@ def test_saturation_axes_windows_os_aware_and_hit():
     assert list(axes) == ["CPU 포화", "메모리 포화", "디스크 I/O 포화"]  # 항상 3축
     assert axes["CPU 포화"].signal == "Processor Queue Length / core"
     assert axes["CPU 포화"].value == "3.00" and axes["CPU 포화"].status == "포화"  # 12/4=3 >= 2
-    assert axes["메모리 포화"].value == "2000/s" and axes["메모리 포화"].status == "포화"  # >= 1000
-    assert axes["디스크 I/O 포화"].value == "3.50" and axes["디스크 I/O 포화"].status == "포화"  # >= 2
+    assert axes["메모리 포화"].value == "2000/s" and axes["메모리 포화"].status == "포화"  # >= 20
+    assert axes["디스크 I/O 포화"].value == "30ms" and axes["디스크 I/O 포화"].status == "포화"  # await > 20
 
 
 def test_saturation_axes_linux_signals_and_ok():

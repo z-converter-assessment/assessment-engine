@@ -1,79 +1,109 @@
 # Right-sizing 분류 — 명세·판정 순서·임계 근거·OS 분기·한계
 
-> 분류 단일 진실 = `recommendation.assess(stats) -> Assessment(recommendation, triggers, unmeasured)`.
-> 본 문서는 그 명세(정의·판정 순서·임계 출처·OS 분기·한계)의 단일 진실이다.
-> 코드 상수: `src/assessment_engine/recommendation.py`. 사용자 노출 요약: `reports/_thresholds_reference.html`(보고서 참고자료).
-> 결정 기록: `docs/decisions/adr/` (OS-aware + evidence 재설계). 변경 시 본 문서·코드 상수·`_thresholds_reference.html`·결정 기록 ADR 동시 갱신(#F9).
+> 분류 단일 진실 = `recommendation.rollup_host(stats) -> HostAssessment`(자원 5개 per-resource 판정 + 근본원인 종합).
+> 표시 배지 = `classify_host(stats)` = `host_status_to_recommendation(rollup_host(stats).host_status)`.
+> 본 문서는 그 명세(정의·판정 순서·임계 출처·OS 분기·신뢰도·한계)의 단일 진실이다.
+> 코드 상수: `src/assessment_engine/recommendation.py`(`RS_*`). 사용자 노출 요약: `reports/_thresholds_reference.html`.
+> 변경 시 본 문서·코드 상수·`_thresholds_reference.html`·결정 기록(`docs/decisions/adr/`) 동시 갱신(#F9).
 
 ## 1. 목적·범위
 
-right-sizing = 관측 부하(`WINDOW_DAYS` = 14일 통계) 대비 할당 자원의 적정성 평가. 규칙 기반 결정적 분류 — 자원(CPU/Mem/Disk)별로 "가진 축"을 신호로 모아 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다. 가진 데이터로 항상 결론을 내며("어떤 데이터로 이 분류" 설명 가능), saturation 축은 OS별 실측 신호로 정규화하되(Linux procs_running/swap/await, Windows run queue/paging/disk queue) 해당 카운터를 못 읽어 값이 없는 축만 분류를 막지 않고 confidence 단서(unmeasured)로 노출한다.
+right-sizing = 관측 부하(`WINDOW_DAYS` = 14일 통계) 대비 할당 자원의 적정성 평가. 규칙 기반 결정적 분류.
+자원 5개(CPU · 메모리 · 디스크 용량 · 디스크 I/O · 네트워크)를 각각 USE(이용률·포화·오류)로 판정한 뒤, 인과
+근본원인으로 호스트 하나로 종합한다. 가진 데이터로 항상 결론을 내며, 포화 축은 OS별 실측 신호로 정규화하되
+해당 카운터를 못 읽어 값이 없는 축만 분류를 막지 않고 confidence 단서(coverage_gap)로 노출한다.
 
-UI badge 임계(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`, 90/75)와는 별 도메인이다 — 그쪽은 시점 사용량 시각 신호, 본 모듈은 윈도우 통계 기반 사이징 결정. 혼용 금지.
+UI badge 임계(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`, 90/75)와는 별 도메인이다 — 그쪽은 시점 사용량 시각
+신호, 본 모듈은 윈도우 통계 기반 사이징 결정. 혼용 금지.
 
-`classify(stats)` 는 분류 enum 만 돌려주는 호환 wrapper. 표시 파생(권고 문구·배지)은 `assess().triggers` 를 재사용한다(임계 재계산 금지).
+## 2. 자원별 판정 (per-resource USE)
 
-## 2. 분류 6종
+각 자원은 자기 어휘로 판정한다 (`assess_cpu`/`assess_memory`/`assess_disk_capacity`/`assess_disk_io`/`assess_network`).
 
-idle / shutdown / over_provisioned / under_provisioned / optimal / insufficient_data.
+- CPU: under(이용률 p95 >= 70% OR 실행 큐 포화) / over(AWS Balanced 사이징 목표 < 현재 코어, 단일스레드 보호 시 보류) / optimal. 목표 = 이용률 70% + 포화 headroom 중 큰 쪽.
+- 메모리: under(이용률 p95 >= 90% OR active page-out OR OOM) / over / optimal. 목표 = 이용률 70% 착지. swapless 다수는 이용률이 주신호.
+- 디스크 용량: filling(소진 runway < 30일 OR 정적 가드 used% >= 85%, 바이트·inode 각 축) / capacity_ok. under/over 아닌 "남은 시간" 예측(누적 자원). 확장 목표 GB 동반.
+- 디스크 I/O: io_bound(응답 지연 await p95 > 20ms) / io_ok. 증분 불가라 사이징 없음 — 티어 상향 검토 표시.
+- 네트워크: congested(품질) / quality_ok. 사이징 축 아님(vNIC 링크 속도 부재). 재전송·드롭·conntrack 은 품질 신호.
 
-## 3. 판정 순서 (단일 진실)
+## 3. 호스트 종합 + 판정 순서
 
-`assess()` 는 아래 순서로 평가하고, 먼저 매칭되는 분류로 확정한다.
+`rollup_host` 가 자원별 판정을 인과 근본원인으로 종합한다. 인과 사슬(상류 -> 하류): 메모리 -> 디스크 I/O -> CPU.
+판별 신호 = swap page-out(메모리발) / procs_blocked D-state + await(디스크발) / run queue(CPU발). root 에만 처방,
+하류(증상)는 "root 해결 후 재평가". "가장 나쁜 자원 승" 폐기 — 삼중 처방(RAM 하나 문제에 RAM+SSD+코어) 방지.
 
-| 순위 | 분류 | 조건 |
-|------|------|------|
-| 1 | under_provisioned | 위험 신호 OR (하나라도): cpu_p95 >= 70 / mem_p95 >= 80 / worst mount >= 85 / cpu 포화(Linux procs_running/cores >= 1.0 · Windows run queue/cores >= 2) / disk_io(Linux await > 20ms · Windows disk queue >= 2) / 메모리 포화(Linux swap page-out · Windows Pages Input/sec >= 20) |
-| 2 | idle | cpu_peak <= 1% AND net_avg <= 1 KB/s (위험 신호 0) |
-| 3 | shutdown | cpu_p95 <= 3% AND net_avg <= 2 Mbps (위험 신호 0) |
-| 4 | insufficient_data | cpu_p95·mem_p95 둘 다 부재 AND under 위험 신호 0 |
-| 5 | over_provisioned | cpu_p95 <= 30% AND mem_p95 <= 50% (둘 다 관측·낮음, 보수적 AND) |
-| 6 | optimal | 위 모두 미해당 |
+호스트 요약 상태(`host_status`, 정렬·배지용) 판정 순서:
 
-핵심 원칙 — under 가 idle/shutdown 보다 우선이다. saturation/압박 신호(swap·iowait·load·고이용·용량 초과)가 하나라도 있으면, CPU 가 낮아도 그 호스트는 "미사용(idle/shutdown)"이 아니라 자원 부족이다. 예: CPU 는 idle 인데 page-out(swap)이 발생 = 메모리 부족 -> under_provisioned. idle/shutdown 이 under 를 가로채면 "누락 0" 원칙이 깨지고, 스왑 중인 호스트를 종료 권장으로 오분류한다.
+| 순위 | host_status -> 배지 | 조건 |
+|------|---------------------|------|
+| 1 | under -> under_provisioned | 자원 하나라도 under/io_bound/filling (네트워크 congested 는 제외 — 아래) |
+| 2 | idle -> idle | cpu_p95 <= 3% AND net_avg <= 2 Mbps (위 under 0) |
+| 3 | over -> over_provisioned | cpu 또는 memory 가 over (위 미해당) |
+| 4 | insufficient -> insufficient_data | 전 자원 unmeasured |
+| 5 | optimal -> optimal | 그 외 |
 
-`net_avg_kbps` 가 없으면 idle/shutdown 판정은 skip(fall-through)된다. idle/shutdown 은 net + cpu 가 있어야 평가된다.
+핵심 원칙 — under 가 idle 보다 우선. 어떤 자원 압박(page-out·await·용량 소진·고이용)이 하나라도 있으면 CPU 가
+낮아도 "미사용"이 아니라 자원 부족이다.
+
+네트워크는 host under/over 축이 아니다 — 원칙상 사이징 축이 아니라 품질 신호라, 혼잡은 호스트를 "자원 부족"으로
+분류하지 않고 `HostAssessment.network_congested` 플래그로 orthogonal 노출(별도 "네트워크 혼잡" 경고).
 
 ## 4. 임계 카탈로그 (출처)
 
+모든 임계는 (계층, 출처) 추적 — 뿌리 없는 값 0. 상수는 `recommendation.py` 단일 진실(`RS_*`).
+
 | 신호(trigger key) | 임계 | USE 축 | 출처 |
 |-------------------|------|--------|------|
-| cpu_util | cpu_p95 >= 70% | Utilization | Kleinrock — Queueing Systems (1975) · Google SRE |
-| mem_util | mem_p95 >= 80% | Utilization | Linux page cache 압박 시작점 |
-| disk_capacity | worst mount used >= 85% | Utilization | Cloud Advisor storage capacity |
-| cpu_saturation | Linux procs_running/cores >= 1.0 / Windows run queue/cores >= 2 | Saturation | USE Method (Brendan Gregg) run queue · MS "Processor Queue Length sustained > 2 per CPU" (os-aware) |
-| disk_io | Linux await > 20ms / Windows Avg Disk Queue Length >= 2 | Saturation | USE Method — disk IO 병목 (os-aware) |
-| mem_saturation | Linux swap page-out / Windows Memory Pages Input/sec p95 >= 20 | Saturation | USE Method memory saturation (하드 페이지 폴트) — Windows 임계 근거는 아래 8절 (os-aware) |
-| (idle) | cpu_peak <= 1% AND net <= 1 KB/s | Utilization | AWS Compute Optimizer |
-| (shutdown) | cpu_p95 <= 3% AND net <= 2 Mbps | Utilization | Azure Advisor |
-| (over) | cpu_p95 <= 30% AND mem_p95 <= 50% | Utilization | AWS Compute Optimizer + GCP (headroom 30%) |
+| cpu_util | cpu_p95 >= 70% | Utilization | 큐잉 무릎(Kleinrock) + AWS Compute Optimizer Balanced(<70% P95) |
+| mem_util | mem_p95 >= 90% | Utilization | Azure Advisor(CPU·메모리 >= SKU 90% resize) |
+| cpu_saturation | Linux procs_running/cores >= 1.0 / Windows run queue/cores >= 2 | Saturation | USE Method run queue · MS "sustained > 2 per CPU" (os-aware) |
+| mem_saturation | Linux active page-out(pswpin/pswpout rate>0) / Windows Pages Input/sec p95 >= 20 | Saturation | USE Method(si/so) · MS 하드폴트 관례(체감 저하 20) |
+| disk_capacity | runway < 30일 OR 정적 가드 used%/inode% >= 85% | Utilization/추세 | 용량 계획(Theil-Sen 추세) + monitoring 표준 85%(major) |
+| disk_io | await p95 > 20ms (양 OS 통일) | Saturation | VMware(read >20ms critical) / SQL Server(~10-15ms) |
+| net_retrans | 재전송률 > 1% | Errors(품질) | monitoring 관행(재전송 >1% 성능 영향) |
+| net_drop | 드롭률 > 0.5% | Errors(품질) | monitoring 관행(드롭 <0.5% 비즈니스 앱) |
+| net_conntrack | conntrack count/max >= 80% | 포화(품질) | 연결테이블 고갈 임박(신규 연결 드롭) |
+| (idle) | cpu_p95 <= 3% AND net <= 2 Mbps | Utilization | Azure/AWS 저사용 |
+| (over) | AWS Balanced 사이징 목표 < 현재 | Utilization | AWS Compute Optimizer Balanced(70% 목표) |
 
-임계 상수는 `recommendation.py` 단일 진실(`CPU_UPSIZE_P95_PCT` 등). 본 표는 그 값의 표시본 — 값 변경 시 동시 갱신.
+CPU·메모리 증설·다운사이즈 사이징 목표 = 이용률 70%(AWS Balanced, 비대칭 없음). 포화 목표배수 0.7 · per-core 보류 85%.
 
-## 5. 합성 규칙
+## 5. OS 분기 (Windows)
 
-- under = 위험 신호 OR — 어떤 자원이든 고이용·포화·용량 초과가 하나라도 hit 되면 발화(누락 0). hit 된 신호(triggers)를 근거로 동반한다.
-- over = 가용 이용률 AND — cpu·mem p95 가 둘 다 있고 둘 다 다운사이즈 임계 이하일 때만(보수적). 한쪽이라도 None 이거나 높으면 over 로 단정하지 않는다(포화 축 미관측 서버 오판 회피).
-- insufficient_data = cpu_p95·mem_p95 가 둘 다 None 일 때만(진짜 평가 불가 = 신규/표본 부족). 후순위 — swap·iowait 등 saturation 신호가 있으면 util 부재여도 위 under 에서 이미 결론낸다. OS 메트릭 부재만으로는 미발화.
+포화 3축 모두 OS별 실측 신호로 정규화 — 동일 분류 체계·임계 도메인, 신호원만 상이. 전용 helper 단일 진실 경유
+(임계 재계산·직접 해석 금지), 값 None 이면 helper 가 None -> 해당 자원 coverage_gap.
 
-## 6. OS 분기 (Windows)
+- cpu_saturation: `cpu_saturated` — Linux procs_running/cores >= 1.0, Windows System\Processor Queue Length p95/cores >= 2.
+- mem_saturation: `mem_saturated` — Linux active page-out(mem_swap_paging = pswpin/pswpout rate>0, 정적 swap 점유 아님. swappiness 로 여유 RAM 에도 유휴 페이지 스왑아웃하므로 점유는 신호 아님), Windows Memory Pages Input/sec rate p95 >= 20(하드 read 폴트, 총 Pages/sec 과 달리 mmap 미혼입). pagefile 사용량 직접 해석 금지.
+- disk_io: `disk_io_saturated` — 양 OS await p95 > 20ms 통일. Windows 도 IOCTL_DISK_PERFORMANCE ReadTime/WriteTime(device 합산 counter_agg)로 await 산출(Linux time_reading/writing 등가, 같은 IOCTL 라 큐와 커버리지 동일). await 미배선/구세대 viostor(IOCTL 미부착)면 Windows 는 큐 깊이(disk_queue_p95 >= 2) 폴백.
 
-saturation 3축 모두 OS별 실측 신호로 정규화한다 — 동일 분류 체계·임계 도메인, 신호원만 상이하다. 각 축은 전용 helper 단일 진실을 경유하며(임계 재계산·직접 해석 금지), 해당 카운터 값이 None 이면 helper 가 None 을 돌려 `unmeasured` 에 기록된다.
+각 포화 축은 Windows 에서 해당 perflib 미부착·미발행이면 그 축만 coverage_gap -> `host_saturation_unmeasured`(cpu·mem·disk_io 한정) -> "포화 수치 미관측" confidence 단서. 분류 자체는 utilization·측정된 나머지 축으로 완결.
 
-- cpu_saturation: `cpu_saturated(stats)` — Linux 는 procs_running/cores >= 1.0, Windows 는 Processor Queue Length p95/cores >= 2(loadavg 등가). Windows agent 가 System\Processor Queue Length 를 발행한다. cores 부재·해당 카운터 None 이면 미관측.
-- mem_saturation: `mem_saturated(stats)` — Linux 는 swap page-out(`swap_saturation` 경유), Windows 는 Memory Pages Input/sec rate p95 >= 20. Windows pagefile 사용량은 여유 RAM 에도 상시 사용되는 baseline 이라 saturation 신호가 아니므로 사용량 대신 하드 페이지 폴트율(Pages Input/sec — 총 Pages/sec 과 달리 mmap 파일 I/O 미혼입)로 측정한다. Linux swap 은 항상 관측되어 미관측 없음. `if raw.swap_used` 직접 해석 금지.
-- disk_io: `disk_io_saturated(stats)` — Linux 는 await(디바이스 응답 지연) p95 > 20ms, Windows 는 가장 바쁜 디스크의 Avg Disk Queue Length p95 >= 2(disk_queue_p95, agent 가 디스크별 발행 -> ingest per-device max 축약). Windows cpu_iowait 는 OS 개념 부재로 null 발행이라 미사용 — disk queue 를 신호로 쓴다.
+## 6. 신뢰도 (4종) + 다운사이즈 처방 규칙
 
-각 saturation 축은 Windows 에서 해당 perflib 를 못 읽거나 미부착(예: OpenStack virtio 에 diskperf 미부착 -> disk queue 빈 배열)이면 그 축만 `unmeasured` 에 기록된다 -> `is_partial`(=bool(unmeasured)) -> ViewModel/템플릿이 "포화 수치 미관측" confidence 단서로 노출. 분류 자체는 utilization/capacity/측정된 나머지 포화 축으로 완결되며 "표본 부족"이 아니다(cpu_p95·mem_p95 가 산출되는 한). 카운터 수집이 재개되면 해당 축은 자동으로 채워진다.
+신뢰도는 분류와 별개 출력 — 측정 불확실성을 종류별로 가른다(`ConfidenceNote`):
 
-동일 통계라도 Linux 는 procs_running/swap/await 로, Windows 는 run queue/pages-input/disk queue 로 같은 분류 체계 안에서 결론난다.
+- 통계 정밀도(low_precision): 이력 < 30h(계층3 AWS insufficient-data 14일 창 누적 30h floor) OR 버스티(p95/median > 2).
+- 커버리지(coverage_gap): 필요 포화 축 미측정(is_partial). 측정된 축만으로 분류 + "포화 수치 미관측" 마커.
+- 충실도(biased): virtio 오염(steal p95 >= 5%, 게스트 await 하이퍼바이저 간섭) — 표본 늘려도 안 줄어드는 편향.
+- 정상성(nonstationary): 이용률 상승 추세 — forward-looking 결정(다운사이즈·용량 runway)에만.
+
+다운사이즈 "처방"은 over 분류가 저사용이면 늘 뜨나, 구체 처방은 신뢰도 높음(정밀·커버리지·충실도 온전) AND 상승
+추세 아님 AND 창 관측 충분(sample_sufficiency >= 0.7)일 때만. 미충족이면 과다 표시하되 권고는 "관찰만". 잘못된
+다운사이즈가 최악이라 위험 방향은 넉넉한 이력을 요구.
 
 ## 7. 근거(triggers) 재사용
 
-trigger 6키(`cpu_util`·`mem_util`·`disk_capacity`·`cpu_saturation`·`disk_io`·`mem_saturation`)는 도메인 식별자(머신용). report mapper 권고(`_build_under_provisioned_reason`)·attention 자원 부족 카드(`to_capacity_warning_item` — 발화 원인 `active_causes` os-neutral 집계)·single_report 포화 축 카드(`_build_saturation_axes`)가 `assess.triggers`·os-aware helper 를 재사용해 한국어 표시로 변환한다(P2 — 임계 재계산 금지). stats 생성은 `build_resource_stats` 공용(report·attention 단일 진실).
+per-resource 판정의 trigger 집합(`cpu_util`·`mem_util`·`disk_capacity`·`cpu_saturation`·`disk_io`·`mem_saturation`·
+`mem_oom`·`net_retrans`·`net_drop`·`net_conntrack`)은 도메인 식별자(머신용). 보고서 진단(`report._build_diagnosis`,
+host.resources 상태·trigger 파생)·권고(`under_prescription(host)`, root 정합)·attention 자원 부족 카드
+(`to_capacity_warning_item`)가 재사용해 한국어 표시로 변환(P2 — 임계 재계산 금지). stats 생성은 `build_resource_stats`
+공용(report·attention·서버목록·환경 단일 진실 — 화면 간 분류 정합).
 
 ## 8. 한계
 
-- Windows saturation 세 축 임계 근거: disk queue(>= 2)·CPU run queue(>= 2/core)는 Microsoft 표준 병목 기준, 메모리는 Pages Input/sec(하드 read 폴트, mmap 미혼입) rate p95 >= 20 — Microsoft/업계 관례 5=증설·20=체감 저하·100=thrashing 중 '체감 저하' 채택(`WIN_PAGES_INPUT_SATURATION`). 총 Pages/sec 는 mmap 파일 I/O 혼입이라 미사용. 세 축 모두 해당 perflib 미부착·미발행 시 그 축만 미관측(confidence 단서)이며 분류는 나머지 축으로 완결. `docs/explanation/tradeoffs.md` T14.
-- 디스크 용량 환경 집계: 개별 호스트 `disk_capacity` trigger(worst mount used %)는 단일 마운트 비율이라 OS 무관하게 신뢰 가능하나, 환경 전체 디스크 활용률을 자원 총량으로 합산(Σtotal_bytes)하는 capacity-weighted 집계는 Windows 물리디스크/디바이스(major·minor) 인식이 불완전해 신뢰가 떨어진다 — 환경 p95 등 디스크 합산 지표 도입 시 주의(현재 환경 평균 활용률 disk 바만 유지, 환경 p95 는 CPU·메모리만).
-- p95 표본: 윈도우(14일)보다 데이터가 짧으면 p95 표본 신뢰도가 저하된다. cpu_p95·mem_p95 둘 다 부재면 insufficient_data.
+- Windows 포화 축 임계 근거: run queue(>= 2/core)는 MS 표준, 메모리는 Pages Input/sec rate p95 >= 20(하드 read 폴트) — 총 Pages/sec(mmap 혼입) 미사용. disk await 는 구세대 viostor(fleet 실측 11대 중 5대) IOCTL 미부착이면 미측정 -> coverage_gap(별도 ETW 트랙). `docs/explanation/tradeoffs.md` T14.
+- 디스크 용량 환경 집계: 개별 호스트 판정(worst mount)은 OS 무관 신뢰 가능하나, 환경 전체 합산은 Windows 물리디스크/디바이스 인식 불완전으로 신뢰 저하 — 환경 disk 합산 지표 도입 시 주의.
+- 용량 runway 는 가용 이력 전체 span 기반(분류 14일 창과 별개 — 누적 신호라 길수록 정확). 성장 가속·월간 계절성(약 1개월 데이터)은 놓칠 수 있음.
+- net_retrans% 분모는 TCP OutSegs 대신 physical NIC tx_packets 근사(에이전트 OutSegs 미발행) — 비-TCP 프레임 혼입으로 과소평가 방향.
+- p95 표본: 윈도우(14일)보다 데이터가 짧으면 신뢰도 저하. 전 자원 unmeasured 면 insufficient_data.

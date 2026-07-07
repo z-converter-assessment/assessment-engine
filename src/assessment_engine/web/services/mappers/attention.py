@@ -65,8 +65,8 @@ _METRIC_UNMEASURED_COLOR = "#94a3b8"  # 미관측(N/A) 흐림 — Windows perfli
 # 헤더에 양 OS 임계를 표기해 해석 가능하게. 임계 상수는 recommendation 단일 진실에서 조립(F10, drift 0).
 _L = recommendation
 _CPU_SAT_LABEL = f"CPU 포화 (L>={_L.PROCS_RUNNING_PER_CORE_SATURATION:g} / W>={_L.CPU_RUN_QUEUE_PER_CORE_SATURATION:g})"
-_MEM_SAT_LABEL = f"메모리 포화 (L swap / W>={_L.WIN_PAGES_INPUT_SATURATION:g}/s)"
-_DISK_IO_LABEL = f"디스크 I/O 포화 (L>{_L.RS_DISKIO_AWAIT_MS:g}ms / W큐>={_L.DISK_QUEUE_PER_DISK_SATURATION:g})"
+_MEM_SAT_LABEL = f"메모리 포화 (L page-out / W>={_L.WIN_PAGES_INPUT_SATURATION:g}/s)"
+_DISK_IO_LABEL = f"디스크 I/O 포화 (await > {_L.RS_DISKIO_AWAIT_MS:g}ms)"
 _NET_LABEL = f"네트워크 재전송 (>{_L.RS_NET_RETRANS_PCT:g}%)"
 
 

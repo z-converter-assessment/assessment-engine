@@ -139,12 +139,12 @@ class ReportRowItem:
     # over/idle/optimal/insufficient 는 고정 문구.
     recommendation_action: str = ""
 
-    # 부분 평가 — saturation 축 중 해당 OS 의 perflib 미발행 축만 미관측(os-aware, P2/P4). Windows 도 run queue/
-    # paging/disk queue 를 실측하되 카운터를 못 읽은 축만 unmeasured. mapper 가 assessment.is_partial(=bool(unmeasured))
+    # 부분 평가 — 포화 축 중 해당 OS 의 perflib 미발행 축만 미관측(os-aware, P2/P4). Windows 도 run queue/
+    # paging/await 를 실측하되 카운터를 못 읽은 축만 coverage_gap. mapper 가 host_saturation_unmeasured(포화 축 한정)
     # 로 precompute, 템플릿은 본 bool 만 분기 (P3).
     is_partial: bool = False
 
-    # 분류 confidence 단서 — is_partial(축 미관측) + low_sample(표본 부족) 통합 라벨 (shared.build_confidence_notes).
+    # 분류 confidence 단서 — 포화 축 미관측 + 표본 부족 통합 라벨 (shared.build_host_confidence_notes).
     # 분류는 가진 데이터로 완결(원칙1), 신뢰도 저하 요인만 본 채널로 분리 노출(원칙2). 템플릿은 list 렌더만 (P3).
     confidence_notes: list[str] = field(default_factory=list)
 
