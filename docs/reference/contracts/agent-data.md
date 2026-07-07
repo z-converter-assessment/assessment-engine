@@ -62,7 +62,7 @@ routing key `server.metrics`. 모두 raw 누적값. 엔진이 연속 2회 readin
 | `mounts[]` | object | `{mount, fstype, total_bytes, free_bytes, avail_bytes, major, minor, kind}`. `kind="data"` 만 데이터 볼륨 집계. Windows: `mount=`drive letter |
 | `net_io[]` | object | `{interface, rx_bytes, tx_bytes, rx_packets, tx_packets, rx_errors, tx_errors, kind}`. `kind in {physical, bond_master}` 집계 (bond_master=본딩 집계 단위, bond_member 제외). Windows: `interface`=friendly name (UTF-8) |
 | `saturation` | object\|null | Windows USE Method raw 신호 `{disk_queue, cpu_run_queue, mem_paging_rate}`. `disk_queue`=물리 디스크별 `[{device, queue}]` gauge (빈 배열=diskperf 미부착 미측정) — 엔진이 per-device max p95 로 disk saturation 판정. `cpu_run_queue`=Processor Queue Length gauge (엔진 run queue/core >= 2). `mem_paging_rate`=Memory Pages/sec 누적 counter (레거시 — 엔진 메모리 포화는 총 Pages/sec 대신 top-level `mem_pages_input` 하드폴트 rate p95>=20 사용). 각 `null`=perflib 미발행 -> 그 축만 미관측. Linux 는 await/procs_running/swap 사용이라 미발행 |
-| host-wide | int\|null | `procs_running`/`procs_blocked`(실행큐/D-state) · `schedstat_run_wait_ns` · `pswpin`/`pswpout`(스왑 발생) · `oom_kill`(4.13+) · `mem_pages_input`(Windows Pages Input raw, mmap 미혼입) · `tcp_retrans_segs` · `tcp_tw`(TIME_WAIT) · `conntrack_count`/`conntrack_max`. 전부 raw·optional(없으면 null). `cpu_per_core[]` 는 `server_cpu_core` 저장·per-core p95 max 로 단일스레드 병목 판정에 활용, `psi_*_some_total` 만 미저장(분류 미채택) |
+| host-wide | int\|null | `procs_running`/`procs_blocked`(실행큐/D-state) · `schedstat_run_wait_ns` · `pswpin`/`pswpout`(스왑 발생) · `oom_kill`(4.13+) · `mem_pages_input`(Windows Pages Input raw, mmap 미혼입) · `tcp_retrans_segs` · `tcp_tw`(TIME_WAIT) · `conntrack_count`/`conntrack_max`. 전부 raw·optional(없으면 null). `cpu_per_core[]` 는 `server_cpu_core` 저장·per-core p95 max 로 단일스레드 병목 판정에 활용. `psi_*_some_total` 은 `server_metrics.psi_*_some_total` 컬럼에 raw 저장(분류 미사용, 관측·검증용 — agent 발행값 전부 보존 #B) |
 | `disk_io[]` await (신) | int\|null | `disk_io[]` 각 항목에 `time_reading_ms`/`time_writing_ms`(await 원자료) · `io_ticks_ms`/`weighted_io_ms`(%util·avgqu 참고) 추가. 엔진이 delta(time)/delta(count) 로 응답 지연 산출 (virtio 라 %util 대신 await 가 포화 주신호) |
 | `net_io[]` drops (신) | int\|null | `net_io[]` 각 항목에 `rx_drops`/`tx_drops` 추가 (링 버퍼 오버런·경로 손실 품질 신호) |
 | `mounts[]` inode (신) | int\|null | `mounts[]` 각 항목에 `inodes_total`/`inodes_free` 추가 (statvfs f_files/f_ffree — inode 소진 예측, 바이트와 나란히) |
@@ -202,14 +202,12 @@ success 경로: agent worker 가 download.url 에서 패키지 fetch → install
 
 ## 엔진이 받지만 사용하지 않는 필드
 
-다음 필드는 발행 측이 보내지만 엔진 핸들러 / 매퍼에서 의도적으로 무시 (Pydantic `extra=ignore` 또는 매퍼에서 명시적 drop). 활용 결정 시점에 mapper read + inbound DTO 필드 추가가 의무.
+원칙: agent 발행 metrics 값은 당장 분류·표시에 안 써도 전부 DB 에 저장한다(#B — 관측·검증·후속 활용 대비). 아래는 그 예외(구조상 저장 대상 자체가 없는 것)뿐. `psi_*_some_total`·`saturation.disk_queue[].{idle_time,query_time}` 는 저장하되 분류·표시 미사용(raw 보존) — "받지만 미저장"에서 해소됨.
 
 | 필드 | 메시지 | drop 사유 |
 |------|--------|-----------|
 | `disk_io[].major/minor` | metrics | `server_disk_io` 에 컬럼 없음. 물리 판정은 `kind` 컬럼 (Linux 는 음수 시 키 omit, Windows 는 null) |
 | `boot_time` / `agent_started_at` | error | error 는 로깅 외 활용처 없음 — counter reset 식별과 무관 |
-| `saturation.disk_queue[].{idle_time, query_time}` | metrics | `read_time`/`write_time`/`read_count`/`write_count` 는 활용(아래 "활용 중" — Windows await), `idle_time`(%util)·`query_time`(델타 분모 대체)만 미소비. IOCTL 100ns 누적 |
-| `psi_*_some_total` | metrics | PSI(cpu/memory/io some total) 발행되나 미저장 — 커널 4.20+ 편중이라 분류 미채택(관측·검증용). fleet 정합 위해 대체 신호(procs_running·pswpout·await) 단일 경로 |
 
 `mem_pages_input`(Windows Pages Input/sec, 하드 read 폴트, mmap 미혼입)이 Windows 메모리 포화 판정의 주신호다 — `mem_saturated`(rate p95>=20)·상세 스냅샷·report cagg `swap_paging` 불리언 모두 이걸 소비. 총 `mem_paging_rate`(Pages/sec)는 mmap 파일 I/O 혼입으로 부풀려져(관측 예: 82775) 포화 판정 미사용 (wire 수신만). 임계 근거는 `right-sizing.md` 8절.
 

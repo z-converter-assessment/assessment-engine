@@ -267,6 +267,37 @@ async def test_record_metrics_inserts_all_four_tables(
     assert result.mount_usage == 3
 
 
+async def test_record_metrics_stores_psi_and_disk_idle_query(
+    collect_repo: CollectRepository,
+):
+    """agent 발행값 전부 보존(#B) — PSI·disk idle/query 는 분류 미사용이나 raw 컬럼에 저장돼야."""
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="mid-store-all"))
+    ts = datetime.now(UTC)
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=ts,
+            psi_cpu_some_total=111,
+            psi_mem_some_total=222,
+            psi_io_some_total=333,
+            sat_disk_idle_time=444,
+            sat_disk_query_time=555,
+            collection_interval_sec=300,
+        ),
+    )
+    row = (
+        await collect_repo.session.execute(
+            text(
+                "SELECT psi_cpu_some_total, psi_mem_some_total, psi_io_some_total, "
+                "sat_disk_idle_time, sat_disk_query_time, collection_interval_sec FROM server_metrics "
+                "WHERE server_id = :s AND collected_at = :t"
+            ),
+            {"s": sid, "t": ts},
+        )
+    ).one()
+    assert tuple(row) == (111, 222, 333, 444, 555, 300)
+
+
 async def test_record_metrics_idempotent_on_conflict(
     collect_repo: CollectRepository,
 ):

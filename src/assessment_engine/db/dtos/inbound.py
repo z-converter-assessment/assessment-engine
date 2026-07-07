@@ -186,6 +186,13 @@ class ServerMetricCreate:
     sat_disk_write_time: int | None = None
     sat_disk_read_count: int | None = None
     sat_disk_write_count: int | None = None
+    sat_disk_idle_time: int | None = None  # %util 참고 (raw 저장만)
+    sat_disk_query_time: int | None = None  # 델타 분모 참고 (raw 저장만)
+    # PSI some total (us 누적) — 관측·검증용, raw 저장만 (분류 미사용)
+    psi_cpu_some_total: int | None = None
+    psi_mem_some_total: int | None = None
+    psi_io_some_total: int | None = None
+    collection_interval_sec: int | None = None  # agent 설정 수집 주기(초) — raw 보존
 
 
 # --- 보고서 발행 job INSERT 입력 ---

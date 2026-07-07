@@ -230,6 +230,8 @@ class DiskQueueEntry(BaseModel):
     write_time: int | None = Field(default=None, ge=0)
     read_count: int | None = Field(default=None, ge=0)
     write_count: int | None = Field(default=None, ge=0)
+    idle_time: int | None = Field(default=None, ge=0)  # %util 산출 참고 (raw 저장만)
+    query_time: int | None = Field(default=None, ge=0)  # IOCTL 조회 구간 (델타 분모 참고, raw 저장만)
 
 
 class SaturationInfo(BaseModel):
@@ -262,10 +264,9 @@ class MetricsInput(MessageBase):
     load_15m: float | None = Field(default=None, ge=0.0)
 
     # per-core CPU jiffies (cpu0..N 위치 배열) — 단일스레드 병목 감지용, server_cpu_core 정규화 저장.
-    # psi_* 는 #B 대로 미수용(extra=ignore drop, 관측용 — 분류 미사용, 필요 시 추가).
     cpu_per_core: list[CpuStat] = Field(default_factory=list)
 
-    # ADR 0052 신 host-wide 신호 (raw, optional).
+    # host-wide raw 신호 (optional). 분류·관측 무관하게 agent 발행값은 전부 저장(#B — 활용은 시점별 명시적 결정).
     procs_running: int | None = Field(default=None, ge=0)
     procs_blocked: int | None = Field(default=None, ge=0)
     schedstat_run_wait_ns: int | None = Field(default=None, ge=0)
@@ -277,6 +278,10 @@ class MetricsInput(MessageBase):
     tcp_tw: int | None = Field(default=None, ge=0)
     conntrack_count: int | None = Field(default=None, ge=0)
     conntrack_max: int | None = Field(default=None, ge=0)
+    # PSI some total (us 누적, /proc/pressure/*, 4.20+). 관측·검증용(분류 미사용) — raw 저장만.
+    psi_cpu_some_total: int | None = Field(default=None, ge=0)
+    psi_mem_some_total: int | None = Field(default=None, ge=0)
+    psi_io_some_total: int | None = Field(default=None, ge=0)
 
     disk_io: list[DiskIoInfo] = Field(default_factory=list)
     mounts: list[MetricsMountInfo] = Field(default_factory=list)

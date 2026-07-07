@@ -46,6 +46,8 @@ class ServerMetrics(Base):
     sat_disk_write_time: Mapped[int | None] = mapped_column(BigInteger)
     sat_disk_read_count: Mapped[int | None] = mapped_column(BigInteger)
     sat_disk_write_count: Mapped[int | None] = mapped_column(BigInteger)
+    sat_disk_idle_time: Mapped[int | None] = mapped_column(BigInteger)  # %util 참고 (raw)
+    sat_disk_query_time: Mapped[int | None] = mapped_column(BigInteger)  # 델타 분모 참고 (raw)
 
     # ADR 0052 신 신호 (전부 nullable — agent optional 발행, 없으면 null). raw 카운터, 엔진이 델타/비율/임계 산출.
     procs_running: Mapped[int | None] = mapped_column(Integer)  # 실행 큐 (/proc/stat)
@@ -59,6 +61,12 @@ class ServerMetrics(Base):
     tcp_tw: Mapped[int | None] = mapped_column(Integer)  # TIME_WAIT 소켓 수 (gauge)
     conntrack_count: Mapped[int | None] = mapped_column(Integer)  # conntrack 현재
     conntrack_max: Mapped[int | None] = mapped_column(Integer)  # conntrack 상한
+    # PSI some total (us 누적, 4.20+) — 관측·검증용 raw 저장(분류 미사용, agent 발행값 보존).
+    psi_cpu_some_total: Mapped[int | None] = mapped_column(BigInteger)
+    psi_mem_some_total: Mapped[int | None] = mapped_column(BigInteger)
+    psi_io_some_total: Mapped[int | None] = mapped_column(BigInteger)
+    # agent 설정 수집 주기(초) — 표본 충분성 참고. agent 발행값 보존(현재 소비 없음, expected_samples 는 5분 가정).
+    collection_interval_sec: Mapped[int | None] = mapped_column(Integer)
 
     # counter reset 정밀 식별 (#C1·#B) — boot_time 차이=재부팅,
     # agent_started_at만 차이=에이전트 재시작(/proc 카운터는 그대로).

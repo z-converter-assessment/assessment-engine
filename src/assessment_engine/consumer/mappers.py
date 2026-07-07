@@ -43,6 +43,8 @@ def _await_fields(sat: SaturationInfo | None) -> dict[str, int | None]:
         "sat_disk_write_time": _sum("write_time"),
         "sat_disk_read_count": _sum("read_count"),
         "sat_disk_write_count": _sum("write_count"),
+        "sat_disk_idle_time": _sum("idle_time"),
+        "sat_disk_query_time": _sum("query_time"),
     }
 
 
@@ -256,4 +258,8 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         tcp_tw=data.tcp_tw,
         conntrack_count=data.conntrack_count,
         conntrack_max=data.conntrack_max,
+        psi_cpu_some_total=data.psi_cpu_some_total,
+        psi_mem_some_total=data.psi_mem_some_total,
+        psi_io_some_total=data.psi_io_some_total,
+        collection_interval_sec=data.collection_interval_sec,
     )
