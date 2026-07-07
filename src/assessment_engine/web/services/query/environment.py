@@ -136,7 +136,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                         sat.get("await_ms"), sat.get("disk_queue_win"), d.os_family
                     ),
                     "mem_pressure": recommendation.mem_pressure_active(
-                        sat.get("paging_win"), sat.get("pswpout_delta"), d.os_family
+                        sat.get("pages_input_rate"), sat.get("pswpout_delta"), d.os_family
                     ),
                     # capacity-weighted 평균용 가중치 (cpu=코어 가중, mem/disk=절대 총량 sum/sum).
                     "cpu_cores": d.cpu_cores,

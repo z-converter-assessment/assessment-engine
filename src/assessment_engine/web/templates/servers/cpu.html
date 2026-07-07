@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_shared.html" import empty_state %}
 {% block title %}ZConverter Assessment — {{ server.hostname }} CPU 상세{% endblock %}
 
 {% block content %}
@@ -27,9 +26,8 @@
       <dt>I/O Wait</dt>  <dd id="s-iowait">—</dd>
     </dl>
     <dl class="kv kv-soft">
-      <dt>코어당 로드 (1분)</dt>  <dd id="s-load1">—</dd>
-      <dt>코어당 로드 (5분)</dt>  <dd id="s-load5">—</dd>
-      <dt>코어당 로드 (15분)</dt> <dd id="s-load15">—</dd>
+      <dt>실행 큐</dt>        <dd id="s-runq">—</dd>
+      <dt>코어당 실행 큐</dt> <dd id="s-runq-core">—</dd>
     </dl>
     <p class="text-meta text-xs" style="margin:12px 0 0; line-height:1.8;">
       <span class="identifier text-label" style="display:inline-block; min-width:36px;">N/A</span>해당 OS 에서 미측정하는 항목<br>
@@ -103,8 +101,7 @@
 
 <div class="card">
   <div class="chart-head">
-    <h2 class="card-title">코어당 로드 추이<span class="print-only text-muted text-sm" id="load-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    {% if server.os_family != 'windows' %}
+    <h2 class="card-title">실행 큐 추이<span class="print-only text-muted text-sm" id="load-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     <span id="load-bucket-label" class="bucket-label"></span>
     <select class="chart-select no-print" id="load-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
@@ -116,12 +113,8 @@
       <option value="30d">30일</option>
     </select>
     <input type="datetime-local" id="load-anchor" class="chart-anchor no-print" aria-label="기준 시각">
-    {% endif %}
   </div>
-  {% if server.os_family == 'windows' %}
-  <div style="padding:44px 0; text-align:center;">{{ empty_state('Windows 환경에서는 로드 평균(load average)을 측정하지 않습니다.') }}</div>
-  {% else %}
-  <div class="chart-desc">15분 로드 / 코어 수 정규화 (1.0 = 코어당 포화)</div>
+  <div class="chart-desc">코어당 실행 큐 — {% if server.os_family == 'windows' %}Windows Processor Queue Length{% else %}Linux procs_running(R-state){% endif %} / 코어 (Linux 1.0 · Windows 2.0 이상 포화)</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="load-canvas"></canvas>
   </div>
@@ -129,7 +122,6 @@
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <div id="load-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-  {% endif %}
 </div>
 
 <style>

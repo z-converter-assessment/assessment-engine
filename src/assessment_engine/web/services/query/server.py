@@ -15,7 +15,7 @@ from assessment_engine.web.services.mappers.server import (
     to_server_list_item,
     to_storage_detail,
 )
-from assessment_engine.web.services.mappers.shared import resolve_os_eol
+from assessment_engine.web.services.mappers.shared import lookup_os_eol
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin
 from assessment_engine.web.settings import web_settings
 from assessment_engine.web.view_models.metric import CollectionStatusItem
@@ -144,11 +144,13 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         sid = detail.id
         uptime = await self.repo.report_uptime_stats([sid], _DETAIL_ALL_TIME_DAYS, end_dt)
         restart = await self.repo.report_agent_restart_stats([sid], _DETAIL_ALL_TIME_DAYS, end_dt)
-        eol = resolve_os_eol(detail.os_id, detail.os_version, detail.kernel_version, end_dt.date())
+        # 인벤토리 표시 — 미래 EOL 도 노출(lookup, today-gate 없음). 경과=지원 종료됨 / 미래=종료 예정.
+        eol = lookup_os_eol(detail.os_id, detail.os_version, detail.kernel_version, end_dt.date())
+        os_eol_label = f"EOL {eol[0]} · {'지원 종료됨' if eol[2] else '지원 종료 예정'}" if eol else None
         return ServerStabilitySignals(
             reboot_count=uptime.get(sid, 0),
             agent_restart_count=restart.get(sid, 0),
-            os_eol_label=f"{eol[1]} · EOL {eol[0]}" if eol else None,
+            os_eol_label=os_eol_label,
         )
 
     async def get_storage(self, server_id: int) -> StorageDetailResponse | None:

@@ -26,6 +26,7 @@ from assessment_engine.web.templating.filters import (
     kst,
     or_dash,
     service_badge_class,
+    storagesize,
 )
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -35,6 +36,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 env: Environment = templates.env  # type: ignore[assignment]
 env.filters["kst"] = kst
 env.filters["disksize"] = disksize
+env.filters["storagesize"] = storagesize
 env.filters["disksize_styled"] = disksize_styled
 env.filters["kbps"] = kbps
 env.filters["service_badge_class"] = service_badge_class

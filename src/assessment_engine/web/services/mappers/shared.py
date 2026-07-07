@@ -72,10 +72,10 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
             ),
             SaturationAxisDisplay(
                 "메모리 포화",
-                "Memory Pages/sec p95",
-                f"{stats.mem_paging_rate_p95:.0f}/s" if stats.mem_paging_rate_p95 is not None else "N/A",
-                f">= {rec.MEM_PAGING_RATE_SATURATION:g}/s",
-                stats.mem_paging_rate_p95 is not None,
+                "Memory Pages Input/sec p95",
+                f"{stats.mem_pages_input_rate_p95:.0f}/s" if stats.mem_pages_input_rate_p95 is not None else "N/A",
+                f">= {rec.WIN_PAGES_INPUT_SATURATION:g}/s",
+                stats.mem_pages_input_rate_p95 is not None,
             ),
             SaturationAxisDisplay(
                 "디스크 I/O 포화",
@@ -267,19 +267,25 @@ def resolve_os_eol(
     EOL 미도래(아직 지원 중)는 None — 카탈로그 등록만으로 발화하면 미래 EOL(Server 2025=2034) 오발화.
     카탈로그 미등록 OS 도 None (EOL 판정 불가 = 침묵, false negative 한계는 의식적 트레이드오프).
     """
+    m = _match_eol(os_id, os_version, kernel_version)
+    if m is None:
+        return None
+    eol_iso, label = m
+    if date.fromisoformat(eol_iso) > today:
+        return None  # 미래 EOL 침묵 (아직 지원 중 — 발화하면 오경보)
+    return (eol_iso, label)
+
+
+def _match_eol(os_id: str | None, os_version: str | None, kernel_version: str | None) -> tuple[str, str] | None:
+    """카탈로그에서 (eol_iso, 제품 라벨) 매칭 — today-gate 없는 순수 조회. resolve/lookup 공용."""
     if not os_id:
         return None
-
     if os_id == "windows":
         build = (kernel_version or "").split(".")[0]
         for entry in _EOL_CATALOG.get("windows-server", []):
             if entry.get("build") == build:
-                eol_iso = entry["eol"]
-                if date.fromisoformat(eol_iso) > today:
-                    return None
-                return (eol_iso, f"Windows Server {entry['cycle']}")
+                return (entry["eol"], f"Windows Server {entry['cycle']}")
         return None
-
     product = _OS_ID_TO_EOL_PRODUCT.get(os_id)
     if product is None:
         return None
@@ -287,12 +293,23 @@ def resolve_os_eol(
     for entry in _EOL_CATALOG.get(product, []):
         cycle = entry["cycle"]
         if ver == cycle or ver.startswith(cycle + "."):
-            eol_iso = entry["eol"]
-            if date.fromisoformat(eol_iso) > today:
-                return None
             label = " ".join(p for p in [os_id, os_version] if p) or "-"
-            return (eol_iso, label)
+            return (entry["eol"], label)
     return None
+
+
+def lookup_os_eol(
+    os_id: str | None, os_version: str | None, kernel_version: str | None, today: date
+) -> tuple[str, str, bool] | None:
+    """인벤토리 표시용 EOL 조회 — 미래 EOL 도 반환. (eol_iso, 라벨, is_passed) 또는 미등록 시 None.
+
+    resolve_os_eol(발화용, 경과만)와 달리 시스템 정보 카드용 — 아직 지원 중이어도 종료 예정일 노출.
+    """
+    m = _match_eol(os_id, os_version, kernel_version)
+    if m is None:
+        return None
+    eol_iso, label = m
+    return (eol_iso, label, date.fromisoformat(eol_iso) <= today)
 
 
 # 레거시 Windows Server (build <= 9600) kernel build -> 표시용 버전 라벨.

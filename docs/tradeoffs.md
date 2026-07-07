@@ -394,20 +394,20 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ## T14. Windows saturation 임계 근거 비대칭 + perflib 의존 (ADR 0029)
 
-right-sizing 분류는 USE Method 의 Utilization + Saturation 두 축을 본다. saturation 3축 모두 OS별 실측 신호로 정규화된다(os-aware helper 단일 진실) — CPU 포화는 Linux loadavg / Windows Processor Queue Length, 메모리 포화는 Linux swap page-out / Windows Memory Pages/sec rate, 디스크 IO 포화는 Linux iowait / Windows Avg Disk Queue Length. Windows 도 세 포화 축을 실측하되, 신호원과 임계 근거의 성숙도가 다르다.
+right-sizing 분류는 USE Method 의 Utilization + Saturation 두 축을 본다. saturation 3축 모두 OS별 실측 신호로 정규화된다(os-aware helper 단일 진실) — CPU 포화는 Linux loadavg / Windows Processor Queue Length, 메모리 포화는 Linux swap page-out / Windows Memory Pages Input/sec rate, 디스크 IO 포화는 Linux iowait / Windows Avg Disk Queue Length. Windows 도 세 포화 축을 실측하되, 신호원과 임계 근거의 성숙도가 다르다.
 
 - 받아들인 한계:
-  - Windows 메모리 포화 임계(Pages/sec p95 >= 1000)는 절대 임계 근거가 약한 rule-of-thumb 이다 — disk queue(>= 2)·CPU run queue(>= 2/core)의 Microsoft 표준 병목 기준과 달리 실측 튜닝 대상(`MEM_PAGING_RATE_SATURATION`, 잠정 상수). 너무 높으면 실제 페이징 압박을 놓치고, 낮으면 정상 페이징을 과잉 발화.
+  - Windows 메모리 포화는 Memory\Pages Input/sec(하드 read 폴트, mmap 미혼입) rate p95 >= 20 로 판정한다. 총 Pages/sec 은 mmap 파일 I/O 혼입으로 부풀려져(관측 82775) 폐기 — 하드폴트만 세는 Pages Input/sec 가 순수 압박 신호. 임계 20 은 Microsoft/업계 관례(5=증설·20=체감 저하·100=thrashing)의 '체감 저하'(`WIN_PAGES_INPUT_SATURATION`). 잔여 한계: 고정 임계라 워크로드별 미세 편차 가능.
   - saturation 축은 perflib/diskperf 의존이다 — Windows 에서 해당 카운터를 못 읽거나 미부착(예: OpenStack virtio 에 diskperf 미부착 -> disk queue 빈 배열)이면 그 축만 미관측이 된다. 분류는 utilization·capacity·측정된 나머지 포화 축으로 완결하고, 못 본 축만 "포화 수치 미관측" confidence 단서로 노출.
   - Windows pagefile 사용량(swap_used)은 수집·표시하되 saturation 판정엔 미반영 — pagefile 은 여유 RAM 에도 상시 baseline 이라 사용량이 아닌 페이징 rate 로 판정(P2 의도).
 
 왜 받아들였나
 - Windows 가 노출하지 않는 신호를 0/baseline 으로 날조해 분류에 넣으면(예: iowait=0 을 "IO 여유"로) 더 큰 왜곡 — 미측정은 미측정으로 두는 게 정직(P1).
-- disk queue·CPU run queue 는 Microsoft 표준 병목 기준이 있어 임계 근거가 탄탄하나, 메모리 페이징은 절대 임계 합의가 약해 보수적 상수 + "잠정·튜닝 대상" 명시가 정직한 선택 — 근거 없는 정밀 임계보다 명시된 잠정 임계가 낫다.
+- disk queue·CPU run queue·메모리 하드폴트(Pages Input/sec) 세 축 모두 Microsoft/업계 관례 임계로 근거 추적 가능.
 - "부분 평가" 마커가 운영자에게 confidence 한계를 명시 — 침묵하는 오분류보다 가시화된 한계가 낫다(P4).
 
 언제 다시 봐야 하는가
-- Windows 메모리 페이징 오탐/누락이 관측되면 → 실측 분포로 `MEM_PAGING_RATE_SATURATION` 재보정 (현재 1000 pages/sec 잠정).
+- Windows 메모리 페이징 오탐/누락이 관측되면 → 실측 분포로 `WIN_PAGES_INPUT_SATURATION` 재보정 (현재 20 pages-input/sec, Microsoft '체감 저하' 관례).
 - perflib 미발행이 특정 Windows 환경에서 상시화되면 → agent 측 수집 경로 점검 (엔진은 미관측으로 정직 처리, 신호원 자체는 agent repo 이슈).
 
 ## T15. 서비스 분류 — services <-> listen_ports join key 부재 (호스트 union 으로 보완, ADR 0032)

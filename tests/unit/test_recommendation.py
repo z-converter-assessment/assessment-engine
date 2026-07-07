@@ -15,10 +15,10 @@ from assessment_engine.recommendation import (
     IDLE_CPU_P95_PCT,
     IDLE_NET_MBPS,
     MEM_DOWNSIZE_P95_PCT,
-    MEM_PAGING_RATE_SATURATION,
     MEM_UPSIZE_P95_PCT,
     PROCS_RUNNING_PER_CORE_SATURATION,
     RS_DISKIO_AWAIT_MS,
+    WIN_PAGES_INPUT_SATURATION,
     ResourceStats,
     assess,
     classify,
@@ -278,10 +278,10 @@ def test_mem_saturated_os_aware():
     # Linux: swap page-out (항상 관측 — None 없음)
     assert mem_saturated(_stats(swap_used=True)) is True
     assert mem_saturated(_stats(swap_used=False)) is False
-    # Windows: pagefile 사용량(swap_used) 무시, Pages/sec rate 로 판정
-    assert mem_saturated(_win(mem_paging_rate_p95=MEM_PAGING_RATE_SATURATION)) is True
-    assert mem_saturated(_win(mem_paging_rate_p95=500.0)) is False  # < 1000
-    assert mem_saturated(_win(mem_paging_rate_p95=None)) is None  # perflib 미발행 -> 미관측
+    # Windows: pagefile 사용량(swap_used) 무시, Pages Input/sec(하드폴트) rate 로 판정
+    assert mem_saturated(_win(mem_pages_input_rate_p95=WIN_PAGES_INPUT_SATURATION)) is True
+    assert mem_saturated(_win(mem_pages_input_rate_p95=10.0)) is False  # < 20
+    assert mem_saturated(_win(mem_pages_input_rate_p95=None)) is None  # perflib 미발행 -> 미관측
 
 
 def test_disk_io_saturated_os_aware():
@@ -302,7 +302,7 @@ def test_assess_windows_cpu_saturation_via_run_queue():
 
 def test_assess_windows_mem_saturation_via_paging():
     """Windows Pages/sec rate >= 임계 -> mem_saturation trigger -> under_provisioned (pagefile swap 무관)."""
-    a = assess(_win(mem_paging_rate_p95=MEM_PAGING_RATE_SATURATION))
+    a = assess(_win(mem_pages_input_rate_p95=WIN_PAGES_INPUT_SATURATION))
     assert a.recommendation == "under_provisioned"
     assert "mem_saturation" in a.triggers
 

@@ -13,7 +13,7 @@
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | `message_type` | string | 본 문서 메시지 타입별 Literal |
-| `agent_id` | string (UUID v4) | 호스트 식별 단일 키 — 첫 실행 시 생성·영구 저장하는 UUID (MAC/machine_id 재발급과 무관하게 불변). 엔진 DB UNIQUE·MQ 큐/라우팅 (`agent.tasks.{agent_id}`) 단일 진실. 전 메시지에 실제 UUID 발행 — `task.result` 도 worker 가 동일 `agent_id` 발행하므로 계약상 null 없음 (엔진 `TaskResultInput` 의 nullable override 는 방어적 잔존) |
+| `agent_id` | string (UUID v4) | 호스트 식별 단일 키 — 첫 실행 시 생성·영구 저장하는 UUID (MAC/machine_id 재발급과 무관하게 불변). 엔진 DB UNIQUE·MQ 큐/라우팅 (`agent.tasks.{agent_id}`) 단일 진실. 전 메시지에 실제 UUID 발행 — `task.result` 도 worker 가 동일 `agent_id` 발행하므로 계약상 null 없음 (엔진 `TaskResultInput` 은 nullable override 로 방어적 허용) |
 | `composite_id` | string max=64 (빈 문자열 가능) | SHA-256(`machine_id` + 정렬·dedup MAC). `inventory`/`metrics`/`error` 에 항상 문자열로 발행 (digest 실패 시 `""`, JSON null 없음). `machine_id` 가 null 이어도 MAC 기반이라 유니크 유지. `task.result` 는 미발행 (omit — worker 자체 envelope). 감사·표시용 (clone collision 진단), 식별·라우팅 미사용 — 엔진 nullable 저장 |
 | `machine_id` | string\|null max=64 | raw machine-id (Linux `/etc/machine-id`·dbus·클라우드 IMDS, Windows `MachineGuid`). 표시·감사 전용. 안정 소스 부재 시 (non-systemd+비클라우드 Linux 등) JSON null — 억지로 안 채움. 단 `task.result` 는 null 대신 빈 문자열 발행 |
 | `agent_version` | string max=32 | 발행 측 빌드 버전 (스키마 계약 버전 아님 — 릴리즈 정체성. 계약 변경은 필드/큐 구조로 표현) |
@@ -61,12 +61,12 @@ routing key `server.metrics`. 모두 raw 누적값. 엔진이 연속 2회 readin
 | `disk_io[]` | object | `{device, reads_completed, writes_completed, sectors_read, sectors_written, major, minor, kind}`. `kind="physical"` 만 집계. Windows: 시스템 전역 누적 I/O 단일 엔트리 `device="PhysicalDrive0"` (`NtQuerySystemInformation` I/O 매니저 카운터 — 단조·provider 독립, 물리 디스크별 분해 없음). NtQuery 불가 시에만 perflib per-drive `PhysicalDriveN` 폴백. `major=null`, `minor=null` |
 | `mounts[]` | object | `{mount, fstype, total_bytes, free_bytes, avail_bytes, major, minor, kind}`. `kind="data"` 만 데이터 볼륨 집계. Windows: `mount=`drive letter |
 | `net_io[]` | object | `{interface, rx_bytes, tx_bytes, rx_packets, tx_packets, rx_errors, tx_errors, kind}`. `kind in {physical, bond_master}` 집계 (bond_master=본딩 집계 단위, bond_member 제외). Windows: `interface`=friendly name (UTF-8) |
-| `saturation` | object\|null | Windows USE Method raw 신호 `{disk_queue, cpu_run_queue, mem_paging_rate}`. `disk_queue`=물리 디스크별 `[{device, queue}]` gauge (빈 배열=diskperf 미부착 미측정) — 엔진이 per-device max p95 로 disk saturation 판정. `cpu_run_queue`=Processor Queue Length gauge (엔진 run queue/core >= 2). `mem_paging_rate`=Memory Pages/sec 누적 counter (엔진이 delta/dt 로 rate 환산 후 p95 >= 1000). 각 `null`=perflib 미발행 -> 그 축만 미관측. Linux 는 iowait/load/swap 사용이라 미발행 |
+| `saturation` | object\|null | Windows USE Method raw 신호 `{disk_queue, cpu_run_queue, mem_paging_rate}`. `disk_queue`=물리 디스크별 `[{device, queue}]` gauge (빈 배열=diskperf 미부착 미측정) — 엔진이 per-device max p95 로 disk saturation 판정. `cpu_run_queue`=Processor Queue Length gauge (엔진 run queue/core >= 2). `mem_paging_rate`=Memory Pages/sec 누적 counter (레거시 — 엔진 메모리 포화는 총 Pages/sec 대신 top-level `mem_pages_input` 하드폴트 rate p95>=20 사용). 각 `null`=perflib 미발행 -> 그 축만 미관측. Linux 는 await/procs_running/swap 사용이라 미발행 |
 | ADR 0052 host-wide (신) | int\|null | `procs_running`/`procs_blocked`(실행큐/D-state) · `schedstat_run_wait_ns` · `pswpin`/`pswpout`(스왑 발생) · `oom_kill`(4.13+) · `mem_pages_input`(Windows Pages Input raw, mmap 미혼입) · `tcp_retrans_segs` · `tcp_tw`(TIME_WAIT) · `conntrack_count`/`conntrack_max`. 전부 raw·optional(없으면 null). `cpu_per_core[]`·`psi_*_some_total` 은 발행되나 엔진 미저장(#B drop — 필요 시 추가) |
 | `disk_io[]` await (신) | int\|null | `disk_io[]` 각 항목에 `time_reading_ms`/`time_writing_ms`(await 원자료) · `io_ticks_ms`/`weighted_io_ms`(%util·avgqu 참고) 추가. 엔진이 delta(time)/delta(count) 로 응답 지연 산출 (virtio 라 %util 대신 await 가 포화 주신호) |
 | `net_io[]` drops (신) | int\|null | `net_io[]` 각 항목에 `rx_drops`/`tx_drops` 추가 (링 버퍼 오버런·경로 손실 품질 신호) |
 | `mounts[]` inode (신) | int\|null | `mounts[]` 각 항목에 `inodes_total`/`inodes_free` 추가 (statvfs f_files/f_ffree — inode 소진 예측, 바이트와 나란히) |
-| Windows disk await (신, 조건부) | int\|null | `saturation.disk_queue[]` 각 항목에 `read_time`/`write_time`/`read_count`/`write_count`/`idle_time`/`query_time` 동봉(IOCTL 100ns 누적). 구세대 viostor 5대는 IOCTL 미부착 -> 미발행 -> 엔진 포화 미관측. 저장·await 산출은 별도 ETW 트랙 |
+| Windows disk await (신) | int\|null | `saturation.disk_queue[]` 각 항목에 `read_time`/`write_time`/`read_count`/`write_count`/`idle_time`/`query_time` 동봉(IOCTL 100ns 누적 = await·%util 원자료). IOCTL 부착 드라이버(win2025 등)면 실값 발행 — Linux `disk_io[].time_*` 와 동급 await 원자료다. 구세대 viostor(virtio diskperf 미부착)만 IOCTL 실패 -> 미발행(빈 배열). ETW 트랙은 이 미발행 경우 전용 보완 — IOCTL 실값이 오는 경우는 ETW 없이 바로 await 산출 가능 |
 
 ---
 
@@ -208,6 +208,10 @@ success 경로: agent worker 가 download.url 에서 패키지 fetch → install
 |------|--------|-----------|
 | `disk_io[].major/minor` | metrics | `server_disk_io` 에 컬럼 없음. 물리 판정은 `kind` 컬럼 (Linux 는 음수 시 키 omit, Windows 는 null) |
 | `boot_time` / `agent_started_at` | error | error 는 로깅 외 활용처 없음 — counter reset 식별과 무관 |
+| `saturation.disk_queue[].{read_time, write_time, idle_time, read_count, write_count, query_time}` | metrics | `DiskQueueEntry` 가 `queue` 만 파싱(`extra=ignore`). Windows await·%util 산출 원자료(IOCTL 100ns 누적)를 미저장 -> Windows disk 포화는 큐 gauge 만, Linux 처럼 await 산출 안 함. 활용 시 스키마·컬럼·await delta 계산 추가 의무 (덜 쓰는 데이터 — 활용 대상) |
+| `cpu_per_core[]` · `psi_*_some_total` | metrics | 발행되나 미저장 (#B drop, 필요 시 추가) |
+
+`mem_pages_input`(Windows Pages Input/sec, 하드 read 폴트, mmap 미혼입)이 Windows 메모리 포화 판정의 주신호다 — `mem_saturated`(rate p95>=20)·상세 스냅샷·report cagg `swap_paging` 불리언 모두 이걸 소비. 총 `mem_paging_rate`(Pages/sec)는 mmap 파일 I/O 혼입으로 부풀려져(관측 예: 82775) 포화 판정 미사용 (wire 수신만). 임계 근거는 `right-sizing.md` 8절.
 
 inventory `mounts[]` 는 발행 측이 `free_bytes`/`avail_bytes` 를 애초에 싣지 않는다 (wire 계약상 inventory=구조 / metrics=사용량 역할 분리) — 엔진이 drop 할 대상 자체가 없다.
 

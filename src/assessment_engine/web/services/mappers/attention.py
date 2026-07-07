@@ -65,7 +65,7 @@ _METRIC_UNMEASURED_COLOR = "#94a3b8"  # 미관측(N/A) 흐림 — Windows perfli
 # 헤더에 양 OS 임계를 표기해 해석 가능하게. 임계 상수는 recommendation 단일 진실에서 조립(F10, drift 0).
 _L = recommendation
 _CPU_SAT_LABEL = f"CPU 포화 (L>={_L.PROCS_RUNNING_PER_CORE_SATURATION:g} / W>={_L.CPU_RUN_QUEUE_PER_CORE_SATURATION:g})"
-_MEM_SAT_LABEL = f"메모리 포화 (L swap / W>={_L.MEM_PAGING_RATE_SATURATION:g}/s)"
+_MEM_SAT_LABEL = f"메모리 포화 (L swap / W>={_L.WIN_PAGES_INPUT_SATURATION:g}/s)"
 _DISK_IO_LABEL = f"디스크 I/O 포화 (L>{_L.RS_DISKIO_AWAIT_MS:g}ms / W큐>={_L.DISK_QUEUE_PER_DISK_SATURATION:g})"
 _NET_LABEL = f"네트워크 재전송 (>{_L.RS_NET_RETRANS_PCT:g}%)"
 
@@ -385,7 +385,7 @@ def to_capacity_warning_item(raw):
     active_causes·지표 강조 — rollup_host per-resource 트리거 집합 파생(고정 순서, 카드 편입 classify_host 와 정합).
     환경 요약 원인 집계(_under_cause_summary)의 단일 소스. 임계 재계산 없이 rollup 이 잡은 trigger 키를 매핑
     (drift 방지, runway 소진 디스크 등도 강조). saturation 3축(CPU·메모리·디스크 I/O)은 rollup 내부
-    os-aware helper 로 판정 — 메모리 포화는 Linux swap page-out / Windows Pages/sec rate, CPU 포화는 Linux
+    os-aware helper 로 판정 — 메모리 포화는 Linux swap page-out / Windows Pages Input/sec rate, CPU 포화는 Linux
     run queue(procs_running) / Windows Processor Queue (P2). 지표 라벨은 os-neutral 축 이름, 값·measured 는 os-aware.
     """
     stats = build_resource_stats(raw)

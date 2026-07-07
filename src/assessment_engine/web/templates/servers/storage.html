@@ -11,9 +11,16 @@
     <span id="metrics-stamp" class="text-meta text-xs no-print">30초마다 자동 갱신 · 최근 —</span>
   </div>
 
+  {# 스토리지 3계층 — 배정 블록(OpenStack 배정 디스크) / 파일시스템(마운트 합) / 미할당(확장 여력, 추론). 단일 산식 storage_layers_gb. #}
   <dl class="kv kv-soft" style="margin-bottom:6px;">
+    <dt>배정 디스크</dt>
+    <dd>{% if storage.disk_total_gb is not none %}{{ storage.disk_total_gb | storagesize }} <span class="text-meta text-xs">배정된 블록 디바이스</span>{% else %}-{% endif %}</dd>
     <dt>파일시스템 총 용량</dt>
-    <dd>{% if storage.fs_total_gb is not none %}{{ storage.fs_total_gb | disksize }}{% else %}-{% endif %}</dd>
+    <dd>{% if storage.fs_total_gb is not none %}{{ storage.fs_total_gb | storagesize }} <span class="text-meta text-xs">마운트된 파일시스템 합</span>{% else %}-{% endif %}</dd>
+    {% if storage.disk_unallocated_gb is not none and storage.disk_unallocated_gb > 0 %}
+    <dt>미할당</dt>
+    <dd>{{ storage.disk_unallocated_gb | storagesize }} <span class="text-meta text-xs">확장 여력 (배정 - 파일시스템, 추론)</span></dd>
+    {% endif %}
   </dl>
 
   <div class="section-title">파일시스템 사용량</div>
@@ -34,9 +41,9 @@
       <tr>
         <td>{{ m.mount }}</td>
         <td>{{ m.fstype or '-' }}</td>
-        <td>{{ m.total_gb | disksize }}</td>
-        <td>{{ m.used_gb | disksize }}</td>
-        <td>{{ m.avail_gb | disksize }}</td>
+        <td>{{ m.total_gb | storagesize }}</td>
+        <td>{{ m.used_gb | storagesize }}</td>
+        <td>{{ m.avail_gb | storagesize }}</td>
         <td>
           {% if m.usage_pct is not none %}
             {{ m.usage_pct }}%

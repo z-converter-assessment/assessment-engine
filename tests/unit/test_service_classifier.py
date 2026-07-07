@@ -27,7 +27,7 @@ from assessment_engine.service_classifier import (
         ("rabbitmq-server.service", "mq"),
         ("docker.service", "container"),
         ("prometheus.service", "monitor"),
-        ("ssh.service", "unknown"),
+        ("ssh.service", "remote"),
         ("foobar.service", "unknown"),
         ("", "unknown"),
     ],
@@ -246,7 +246,7 @@ def test_compute_categories_name_listen_union_sorted_dedup():
     from assessment_engine.service_classifier import compute_service_categories
 
     cats = compute_service_categories(
-        [{"unit": "nginx.service"}, {"unit": "sshd.service"}],  # web + unknown(제외)
+        [{"unit": "nginx.service"}, {"unit": "sshd.service"}],  # web + sshd(remote, baseline 제외)
         [{"proto": "tcp", "port": 6379, "comm": "redis-server"}],  # cache
     )
     assert cats == ["cache", "web"]
@@ -269,3 +269,16 @@ def test_compute_categories_matches_workload_counter_keyset():
     computed = sorted(compute_service_categories(services, listen))
     counter_keys = sorted(workload_category_counter(services, listen).keys())
     assert computed == counter_keys
+
+
+def test_compute_categories_excludes_baseline_keeps_workload():
+    """baseline(OS 기본·관리 — SSH·NTP·RPC) 제외, 특징 워크로드(cache·DNS 서버)만 저장 카테고리."""
+    from assessment_engine.service_classifier import compute_service_categories
+
+    cats = compute_service_categories(
+        [{"unit": "sshd.service"}, {"unit": "chronyd.service"}, {"unit": "rpcbind.service"},
+         {"unit": "redis.service"}, {"unit": "named.service"}],
+        [{"proto": "tcp", "port": 22, "comm": "sshd"}, {"proto": "udp", "port": 123, "comm": "chronyd"},
+         {"proto": "tcp", "port": 6379, "comm": "redis-server"}, {"proto": "tcp", "port": 53, "comm": "named"}],
+    )
+    assert cats == ["cache", "infra"]  # redis(cache)·named(DNS 서버=infra) — ssh/chronyd/rpcbind 제외

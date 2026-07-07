@@ -36,7 +36,7 @@ vhost: `/assessment` 단일 사용. broker 한 대를 다른 도메인 시스템
 | `server.metrics` | `assessment` | `server.metrics` | 원격 호스트 | `server.metrics.dead` | 72h | 1,000,000 |
 | `server.error` | `assessment` | `server.error` | 원격 호스트 | `server.error.dead` | 300s | 없음 |
 | `worker.result` | `assessment.tasks` | `task.result` | 원격 호스트 | `worker.result.dead` | 24h | 100,000 |
-| `agent.tasks.<agent_id>` | `assessment.tasks` | `task.install.<agent_id>` | 엔진 (web) | (없음 — 본 PR 단순화) | 1h (`x-message-ttl=3600000`) | 100 (`x-overflow=reject-publish`) |
+| `agent.tasks.<agent_id>` | `assessment.tasks` | `task.install.<agent_id>` | 엔진 (web) | (없음) | 1h (`x-message-ttl=3600000`) | 100 (`x-overflow=reject-publish`) |
 
 `server.metrics` 정책 근거:
 - 72h TTL: 1분 주기 발행 + consumer/DB 단기 장애(최대 3일) 내 회복 시 누적 메시지 정상 처리.

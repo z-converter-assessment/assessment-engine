@@ -72,7 +72,7 @@ class ListenPortItem:
     uid: int | None  # Windows agent null 호환 (POSIX uid 미존재)
     pid: int | None
     comm: str | None
-    is_well_known: bool = False  # port <= 1024. mapper에서 계산 (P2)
+    is_significant: bool = False  # port < 49152 (비동적 = 의도된 서비스 리스너). mapper 계산 (P2)
 
 
 @dataclass
@@ -138,7 +138,8 @@ class ServerDetailResponse:
     key_listen_ports: list[ListenPortItem] = field(default_factory=list)
     os_display: str = ""
     cpu_display: str = ""
-    disk_total_gb: float | None = None
+    disk_total_gb: float | None = None  # 배정 블록 — disk_total_bytes 단일 산식(물리 우선·fs fallback, #C)
+    disk_unallocated_gb: float | None = None  # 미할당 = 배정 - 파일시스템 (확장 여력 추론)
     # P3: 템플릿이 `| length` 못 쓰도록 count를 mapper에서 미리 계산
     services_count: int = 0
     listen_ports_count: int = 0
@@ -184,6 +185,9 @@ class StorageDetailResponse:
     fs_total_gb: float | None  # 파일시스템(마운트) total_gb 합 — 현재 상태 요약
     snapshot_at: datetime | None
     inventory_at: datetime | None
+    # 스토리지 3계층(storage_layers_gb 단일 산식) — 배정 블록 / 미할당(확장 여력). fs_total_gb 가 파일시스템 층.
+    disk_total_gb: float | None = None
+    disk_unallocated_gb: float | None = None
 
 
 @dataclass

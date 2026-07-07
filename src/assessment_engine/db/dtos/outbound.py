@@ -106,6 +106,8 @@ class MetricPairRaw:
     load_1m: float | None
     load_5m: float | None
     load_15m: float | None
+    # 실행 큐 gauge — Linux procs_running / Windows Processor Queue(sat_cpu_run_queue) COALESCE. 스냅샷 os-aware 표시.
+    cpu_run_queue: float | None = None
     # counter reset 정밀 식별 (calculator가 prev-cur 비교).
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
@@ -286,8 +288,8 @@ class ReportRowRaw:
     disk_queue_p95: float | None = None
     # Windows CPU saturation — Processor Queue Length p95 (Linux load 등가 축, os-aware 소비)
     cpu_run_queue_p95: float | None = None
-    # Windows Memory saturation — Pages/sec rate p95 (Linux swap page-out 등가 축, os-aware 소비)
-    mem_paging_rate_p95: float | None = None
+    # Windows Memory saturation — Pages Input/sec rate p95 (Linux swap page-out 등가 축, os-aware 소비)
+    mem_pages_input_rate_p95: float | None = None
 
     # Inventory 합계 산정용 — query_service.get_report가 totals 계산 시 사용
     cpu_cores: int | None = None

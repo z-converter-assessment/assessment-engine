@@ -25,7 +25,7 @@
 ### 영역 1: 환경 요약
 
 - 총 N대 / 자원 합계 (vCPU·메모리·디스크) KPI
-- 서비스 식별 N대 + 역할 분포 badge (web·db·cache·mq·monitor 등 카테고리별 카운트) / 서비스 미식별 M대
+- 서비스 식별 N대 + 역할 분포 badge (web·db·cache·mq·container·monitor·remote·file·mail·infra 카테고리별 카운트) / 서비스 미식별 M대
 
 답: "지금 환경에 몇 대 있고 어떻게 분포돼 있나?"
 
@@ -67,7 +67,7 @@
 - 행별 프로비저닝 — `recommendation.classify` 결과 (`under_provisioned` / `over_provisioned` / `idle` / `shutdown` / `optimal` / `insufficient_data`)
 - "최근 작업" column — install task badge (success/failure/pending) + 클릭 시 modal 로 stdout/stderr/failure_reason 디버깅. modal 본문은 server fragment endpoint (`GET /api/tasks/{id}/detail`) HTML 반환 (P3 정공)
 - 기본 표시 20대 후 "전체보기"(CLIP 초과 행 노출)/"접기" 토글 — 필터 비활성 상태에서만 적용
-- 필터(별도 행으로 분리): search(hostname) / is_online (전체·온라인·오프라인) / service (web/db/cache/mq/container/monitor) / os_id (distro) / classification (자원 적정성 6 분류) — 검색 버튼 없음, dropdown/checkbox 변경 즉시 client-side filter + URL 갱신
+- 필터(별도 행으로 분리): search(hostname) / is_online (전체·온라인·오프라인) / service (web/db/cache/mq/container/monitor/remote/file/mail/infra) / os_id (distro) / classification (자원 적정성 6 분류) — 검색 버튼 없음, dropdown/checkbox 변경 즉시 client-side filter + URL 갱신
 - pagination: page=1 default, limit=20 (max 100)
 
 답: "어떤 서버가 어떤 상태인가? 어떤 행동을 권장받나?"

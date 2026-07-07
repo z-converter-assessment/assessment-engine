@@ -86,6 +86,7 @@ def build_dashboard(raw: DashboardRaw) -> MetricDashboard:
         load_1m=cur.load_1m if cur else None,
         load_5m=cur.load_5m if cur else None,
         load_15m=cur.load_15m if cur else None,
+        cpu_run_queue=cur.cpu_run_queue if cur else None,
         memory=compute_mem(cur),
         swap=compute_swap(cur),
         disk_io_phys=phys,
@@ -132,6 +133,7 @@ def compute_cpu(cur: MetricPairRaw | None, prev: MetricPairRaw | None) -> CpuSna
         user_pct=pct(cur.cpu_user, prev.cpu_user),
         system_pct=pct(cur.cpu_system, prev.cpu_system),
         iowait_pct=pct(cur.cpu_iowait, prev.cpu_iowait),
+        steal_pct=pct(cur.cpu_steal, prev.cpu_steal),
     )
 
 

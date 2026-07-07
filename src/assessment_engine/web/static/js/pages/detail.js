@@ -12,7 +12,8 @@
 (() => {
   const SERVER_ID = document.body.dataset.serverId;
   if (!SERVER_ID) { console.error('detail.js: body data-server-id missing'); return; }
-  const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 메트릭 N/A 분기
+  const OS_FAMILY = document.body.dataset.osFamily || '';  // 디스크·메모리 포화 os-aware 표시 분기 (Linux await/page-out vs Windows queue/paging-rate)
+  const CPU_CORES = parseInt(document.body.dataset.cpuCores, 10) || 0;  // 실행 큐 코어당 정규화 (분류 기준과 동일)
 
   /* -------- 포맷 유틸 -------- */
   const fmtPct  = (v) => v != null ? v.toFixed(1) + '%' : '—';
@@ -32,7 +33,7 @@
   const show = (id) => document.getElementById(id).style.display = '';
   const hide = (id) => document.getElementById(id).style.display = 'none';
   const el    = (id) => document.getElementById(id);
-  const setTxt = (id, v) => el(id).textContent = v;
+  const setTxt = (id, v) => { const e = el(id); if (e) e.textContent = v; };  // OS 전용 값은 템플릿에서 숨겨 요소 부재 -> null-safe
 
   /* 활용률 도넛 게이지 — 단색(임계색 아님, E8 일관). pct null = 빈 게이지 + 회색 '—'. P4 동적 SVG 산술. */
   const DONUT_CIRC = 263.89;  // 2*pi*42 (r=42)
@@ -67,21 +68,30 @@
     setTxt('cpu-usage',  fmtPct(cpu.usage_pct));
     setTxt('cpu-user',   fmtPct(cpu.user_pct));
     setTxt('cpu-system', fmtPct(cpu.system_pct));
-    setTxt('cpu-iowait', ChartUtils.naWindows(OS_FAMILY, 'cpu_iowait', fmtPct(cpu.iowait_pct)));
+    setTxt('cpu-iowait', fmtPct(cpu.iowait_pct));  // Linux 전용 (Windows 는 템플릿에서 열 숨김)
     setDonut('cpu-donut-arc', 'cpu-donut-text', cpu.usage_pct);
 
-    /* Load */
-    setTxt('load-1m',  ChartUtils.naWindows(OS_FAMILY, 'load_1m', fmtLoad(d.load_1m)));
-    setTxt('load-5m',  ChartUtils.naWindows(OS_FAMILY, 'load_5m', fmtLoad(d.load_5m)));
-    setTxt('load-15m', ChartUtils.naWindows(OS_FAMILY, 'load_15m', fmtLoad(d.load_15m)));
+    /* 포화 축 (자원 적정성 분류) — 각 자원 표/섹션에 분산. os-aware: 실행큐·재전송 양 OS, Steal Linux, 디스크·페이징 OS별. */
+    // 실행 큐는 코어당 정규화해 노출 (분류가 run_queue/cores 로 판정 — raw 큐값은 코어 수 모르면 무의미). cores 부재 시 raw fallback.
+    const runqPerCore = (d.cpu_run_queue != null && CPU_CORES > 0) ? d.cpu_run_queue / CPU_CORES : d.cpu_run_queue;
+    setTxt('cpu-runq',   runqPerCore != null ? runqPerCore.toFixed(2) + ' /core' : '—');
+    setTxt('cpu-steal',  fmtPct(cpu.steal_pct));  // Linux 전용 (Windows 는 템플릿에서 라인 숨김)
+    setTxt('net-retrans', d.net_retrans_pct != null ? d.net_retrans_pct.toFixed(2) + '%' : '—');
+    if (OS_FAMILY === 'windows') {
+      setTxt('disk-sat',   d.disk_queue != null ? '큐 ' + d.disk_queue.toFixed(1) : '—');
+      setTxt('mem-paging', d.mem_pages_input_rate != null ? d.mem_pages_input_rate.toFixed(0) + ' /s' : '—');
+    } else {
+      setTxt('disk-sat',   d.disk_await_ms != null ? d.disk_await_ms.toFixed(1) + ' ms' : '—');
+      setTxt('mem-paging', d.mem_pageout != null ? (d.mem_pageout > 0 ? 'page-out 발생' : '없음') : '—');
+    }
 
     /* Memory */
     const mem = d.memory || {};
     setTxt('mem-usage',   fmtPct(mem.usage_pct));
     setTxt('mem-used',    fmtKb(mem.used_kb));
     setTxt('mem-avail',   fmtKb(mem.available_kb));
-    setTxt('mem-cached',  ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtKb(mem.cached_kb)));
-    setTxt('mem-buffers', ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtKb(mem.buffers_kb)));
+    setTxt('mem-cached',  fmtKb(mem.cached_kb));  // Linux 전용
+    setTxt('mem-buffers', fmtKb(mem.buffers_kb));  // Linux 전용
     setDonut('mem-donut-arc', 'mem-donut-text', mem.usage_pct);
 
     /* Swap */
@@ -92,6 +102,7 @@
       setTxt('swap-used',  fmtGb(swap.used_kb));
       setTxt('swap-total', fmtGb(swap.total_kb));
     }
+
 
     /* Disk I/O — 물리 / 논리·가상 (E9: 데이터 없어도 제목 노출 + placeholder) */
     const ioRow = dk => `

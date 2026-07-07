@@ -107,7 +107,7 @@ v4 = 사용처축 배치. server 항목 블록이 사용처 1:1 — `spec`(생�
     "load_15m_max":       2.3,
     "cpu_run_queue_p95":  null,
     "swap_used":          false,
-    "mem_paging_rate_p95": null,
+    "mem_pages_input_rate_p95": null,
     "disk_io": {
       "iops_baseline":            120,
       "iops_p95":                 280.0,
@@ -148,7 +148,7 @@ v4 = 사용처축 배치. server 항목 블록이 사용처 1:1 — `spec`(생�
 | 사용처 | 블록 |
 |--------|------|
 | A. VM 생성 | `os.*` + `spec` 블록 전체 (`vcpu_count`, `memory_mb`, `boot_disk_gb`, `additional_disks[]`, `addresses[]`) |
-| B. Right-sizing | `usage` 블록 전체 (`cpu`/`mem` p95·peak, saturation os-aware raw[`load_15m_max`·`cpu_run_queue_p95`·`swap_used`·`mem_paging_rate_p95`·`disk_io.iowait_p95_pct`·`disk_io.queue_p95` — Linux/Windows 축은 반대 OS 에서 null], `disk_io.*`, `network.*`) + `assessment.recommended_size_class` |
+| B. Right-sizing | `usage` 블록 전체 (`cpu`/`mem` p95·peak, saturation os-aware raw[`procs_running_p95`·`cpu_run_queue_p95`·`swap_used`·`mem_pages_input_rate_p95`·`disk_io.await_p95_ms`·`disk_io.queue_p95` — Linux/Windows 축은 반대 OS 에서 null], `disk_io.*`, `network.*`) + `assessment.recommended_size_class` |
 | C. Security Group | `services[].{category, listeners[].{port, proto, address}}` |
 | D. 보고서·감사 | envelope 전체 + `identity.*` + `period_window`로 reproducibility |
 

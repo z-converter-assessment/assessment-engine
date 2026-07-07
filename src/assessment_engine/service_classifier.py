@@ -51,8 +51,30 @@ class CategoryDef:
     single_instance: bool = False
 
 
-# ─── 단일 진실 ──────────────────────────────────────────────────────────────
-# 카테고리 순서 = 분류 우선순위 (cross-category 첫 매칭 우선). web -> db -> ... 유지.
+# ─── 분류 원칙 (카테고리 경계 단일 진실) ────────────────────────────────────
+# 차원: 각 서비스를 "이 호스트에서의 주 역할(primary role, 배포 목적)" 단일 축으로 분류 — 상호배타(한 서비스 =
+# 정확히 한 카테고리). 겸업(예: 프록시가 캐시도)이면 소프트웨어 존재 이유로 tie-break — 경계를 재현 가능하게 함.
+#
+# 카테고리 10 (앱 스택 역할 + 인프라 기능 + 플랫폼 계층):
+#   web       앱/웹 서빙 + 리버스 프록시·로드밸런서 (앱 트래픽 앞단 edge)
+#   db        범용 데이터 저장소 (RDBMS·NoSQL·범용 TSDB·검색엔진)
+#   cache     인메모리/휘발 캐시·HTTP 가속
+#   mq        메시지 브로커
+#   mail      메일 서버 (SMTP/IMAP/POP3)
+#   file      파일·오브젝트·블록 스토리지 공유
+#   remote    원격 접속·관리 (관리 표면 — 대개 전 호스트)
+#   infra     네트워크 인프라 (DNS·DHCP·NTP·디렉토리·SNMP·포워드 프록시·HA)
+#   monitor   관측 전용 도구 (수집·저장·시각화·알림)
+#   container 컨테이너 런타임·오케스트레이션 (호스트당 1)
+#
+# 경계 tie-break (모호 케이스 — 원칙 없으면 자의적으로 보이는 곳을 못박음):
+#   프록시    리버스/LB(inbound·앱 앞단)=web / 포워드·egress=infra / 캐싱이 주목적=cache
+#             -> haproxy·traefik=web · squid=infra · varnish=cache
+#   시계열    범용 TSDB(influxdb)=db / 관측 전용 설계(prometheus·victoriametrics·loki)=monitor
+#   검색엔진  elasticsearch=db (저장이 본질 — ELK 로그 용도여도) · 오브젝트 스토리지(minio)=file
+#   디렉토리  ldap/slapd=infra (인증·디렉토리 인프라 — 계층 db 로 보지 않음)
+#
+# 단일 진실 — 카테고리 순서 = 분류 우선순위 (cross-category 첫 매칭 우선). web -> db -> ... 유지.
 SERVICE_CATALOG: tuple[CategoryDef, ...] = (
     CategoryDef(
         key="web",
@@ -117,6 +139,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "cassandra": (9042, 9160),
             "influxdb": (8086,),
             "oracle": (1521,),
+            "sqlservr": (1433,),
+            "mssql": (1433,),
             "elasticsearch": (9200, 9300),
             "opensearch": (9200, 9300),
             "clickhouse": (8123, 9000),  # HTTP + native TCP
@@ -223,6 +247,138 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
         badge_class="badge-cat-monitor",
         label_ko="모니터링 / 관측",
         desc_ko="Prometheus·Grafana·Zabbix·node_exporter·Telegraf·Loki 등 메트릭·로그 수집 에이전트",
+    ),
+    CategoryDef(
+        key="remote",
+        name_keywords=(
+            "sshd",
+            "ssh",
+            "openssh",
+            "rdp",  # Windows 원격 데스크톱
+            "termservice",  # Windows Terminal Services (RDP SCM 서비스명)
+            "umrdpservice",
+            "winrm",  # Windows 원격 관리 (WS-Management)
+            "wsmprovhost",
+            "tigervnc",
+            "x11vnc",
+            "vino",  # GNOME VNC
+            "vncserver",
+            "teamviewer",
+            "anydesk",
+            "telnetd",
+        ),
+        port_names={
+            "sshd": (22,),
+            "rdp": (3389,),
+            "termservice": (3389,),
+            "winrm": (5985, 5986),
+            "vncserver": (5900, 5901),
+            "tigervnc": (5900, 5901),
+            "telnetd": (23,),
+        },
+        badge_class="badge-cat-remote",
+        label_ko="원격 접속 / 관리",
+        desc_ko="SSH·RDP·WinRM·VNC 등 원격 접속·관리 서비스 (관리 표면 — 대부분 호스트에 존재)",
+    ),
+    CategoryDef(
+        key="file",
+        name_keywords=(
+            "nfsd",
+            "nfs",
+            "rpc.mountd",
+            "rpcbind",
+            "smbd",
+            "samba",
+            "nmbd",
+            "vsftpd",
+            "proftpd",
+            "pure-ftpd",
+            "glusterd",
+            "ceph-osd",
+            "minio",  # 오브젝트 스토리지
+            "iscsid",
+            "tgtd",  # iSCSI 타깃
+        ),
+        port_names={
+            "nfsd": (2049,),
+            "rpc.mountd": (20048,),
+            "rpcbind": (111,),
+            "smbd": (445, 139),
+            "samba": (445, 139),
+            "vsftpd": (21,),
+            "proftpd": (21,),
+            "pure-ftpd": (21,),
+            "minio": (9001,),
+            "iscsid": (3260,),
+            "tgtd": (3260,),
+        },
+        badge_class="badge-cat-file",
+        label_ko="파일 / 스토리지 공유",
+        desc_ko="NFS·SMB(Samba)·FTP·iSCSI·MinIO 등 파일 공유·네트워크 스토리지",
+    ),
+    CategoryDef(
+        key="mail",
+        name_keywords=(
+            "postfix",
+            "sendmail",
+            "exim",
+            "exim4",
+            "dovecot",
+            "cyrus",
+            "opendkim",
+            "rspamd",
+            "amavis",
+            "zimbra",
+        ),
+        port_names={
+            "postfix": (25, 587, 465),
+            "sendmail": (25,),
+            "exim": (25,),
+            "exim4": (25,),
+            "dovecot": (143, 993, 110, 995),
+            "cyrus": (143, 993),
+        },
+        badge_class="badge-cat-mail",
+        label_ko="메일",
+        desc_ko="Postfix·Sendmail·Exim(SMTP)·Dovecot(IMAP/POP3) 등 메일 서버",
+    ),
+    CategoryDef(
+        key="infra",
+        name_keywords=(
+            "named",  # BIND
+            "dnsmasq",
+            "unbound",
+            "pdns",
+            "coredns",
+            "knot",
+            "dhcpd",
+            "dhcp",
+            "kea",  # ISC Kea DHCP
+            "chronyd",
+            "ntpd",
+            "slapd",  # OpenLDAP
+            "sssd",
+            "winbind",
+            "squid",
+            "privoxy",
+            "snmpd",
+            "keepalived",
+        ),
+        port_names={
+            "named": (53,),
+            "dnsmasq": (53,),
+            "unbound": (53,),
+            "coredns": (53,),
+            "dhcpd": (67,),
+            "ntpd": (123,),
+            "chronyd": (123,),
+            "slapd": (389, 636),
+            "squid": (3128,),
+            "snmpd": (161, 162),
+        },
+        badge_class="badge-cat-infra",
+        label_ko="네트워크 인프라",
+        desc_ko="DNS(BIND·dnsmasq)·DHCP·NTP·LDAP·SNMP·프록시 등 네트워크 기반 서비스",
     ),
 )
 
@@ -386,21 +542,47 @@ def detect_listen_categories(listen_ports: list[dict]) -> dict[str, list[Matched
     return out
 
 
+# ─── baseline(OS 기본·관리) 서비스 — 특징 워크로드 아님 (목록·환경분포 제외) ──────────────
+# 원격 접속(전 호스트 관리 표면) + OS 기본 인프라 클라이언트(NTP·DNS resolver·RPC·auth 클라이언트)는 거의 모든
+# 호스트에 있어 구별력이 0 — 인식(상세 live classify)은 유지하되 "이 서버의 특징" 신호로는 안 친다.
+# compute_service_categories(저장값 = 목록·환경분포·필터 소스)·workload_category_counter 에서 제외.
+_BASELINE_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "sshd", "ssh", "openssh", "rdp", "termservice", "umrdpservice", "winrm", "wsmprovhost",
+        "tigervnc", "x11vnc", "vino", "vncserver", "telnetd",
+        "chronyd", "ntpd", "ntpdate", "systemd-timesyncd", "timesyncd", "systemd-resolved", "resolved",
+        "rpcbind", "gssproxy", "sssd", "winbind",
+    }
+)
+_BASELINE_PORTS: frozenset[int] = frozenset({22, 23, 3389, 5985, 5986, 5900, 5901, 123, 111})
+
+
+def is_baseline_service(name: str | None) -> bool:
+    """OS 기본·관리 서비스(원격 접속·NTP·RPC·auth 클라이언트) 여부 — 특징 워크로드 필터. 상세는 미적용(전부 인식)."""
+    t = (name or "").lower()
+    return any(kw in t for kw in _BASELINE_KEYWORDS)
+
+
+def is_baseline_socket(p: dict) -> bool:
+    """listen 소켓이 baseline(관리·OS 기본) 인가 — comm 또는 port 기준. 특징 워크로드 필터."""
+    return is_baseline_service(p.get("comm")) or p.get("port", 0) in _BASELINE_PORTS
+
+
 def compute_service_categories(services: list[dict] | None, listen_ports: list[dict] | None) -> list[str]:
-    """ingest 사전계산 — 호스트 서비스 카테고리 키 집합 (정렬·dedup, "unknown" 제외).
+    """ingest 사전계산 — 호스트 "특징 워크로드" 카테고리 키 집합 (정렬·dedup, "unknown"·baseline 제외).
 
     services unit 이름 분류(`classify`: name->comm->port) ∪ listen 소켓 직접 분류(`detect_listen_categories`).
-    `workload_category_counter` 의 키셋과 동일 분류 로직 단일 진실 — inventory upsert 시 1회 계산해
-    `server_inventory.service_categories` 에 저장하고, 모든 read 경로(목록·상세·리포트·필터)가 본 저장값을
-    소비해 화면 간 뱃지 집합 일치(이름·comm·포트 어느 신호로 식별되든 동일). 화면별 재계산·불일치 제거.
+    baseline(OS 기본·관리 — SSH·NTP·RPC 등)은 제외 — 거의 전 호스트에 있어 특징 신호 아님(상세 live classify 는 유지).
+    inventory upsert 시 1회 계산해 `server_inventory.service_categories` 저장 -> 목록·환경분포·필터 소비(화면 간 일치).
     """
+    non_baseline_ports = [p for p in (listen_ports or []) if not is_baseline_socket(p)]
     cats: set[str] = set()
     for s in services or []:
         unit = s.get("unit") if isinstance(s, dict) else None
-        if not unit:
+        if not unit or is_baseline_service(unit):
             continue
         cat = classify(unit, listen_ports, s.get("pid"))
         if cat != "unknown":
             cats.add(cat)
-    cats |= set(detect_listen_categories(listen_ports or []).keys())
+    cats |= set(detect_listen_categories(non_baseline_ports).keys())
     return sorted(cats)

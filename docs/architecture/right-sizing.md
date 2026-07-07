@@ -7,7 +7,7 @@
 
 ## 1. 목적·범위
 
-right-sizing = 관측 부하(`WINDOW_DAYS` = 14일 통계) 대비 할당 자원의 적정성 평가. 규칙 기반 결정적 분류 — 자원(CPU/Mem/Disk)별로 "가진 축"을 신호로 모아 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다. 가진 데이터로 항상 결론을 내며("어떤 데이터로 이 분류" 설명 가능), saturation 축은 OS별 실측 신호로 정규화하되(Linux load/swap/iowait, Windows run queue/paging/disk queue) 해당 카운터를 못 읽어 값이 없는 축만 분류를 막지 않고 confidence 단서(unmeasured)로 노출한다.
+right-sizing = 관측 부하(`WINDOW_DAYS` = 14일 통계) 대비 할당 자원의 적정성 평가. 규칙 기반 결정적 분류 — 자원(CPU/Mem/Disk)별로 "가진 축"을 신호로 모아 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다. 가진 데이터로 항상 결론을 내며("어떤 데이터로 이 분류" 설명 가능), saturation 축은 OS별 실측 신호로 정규화하되(Linux procs_running/swap/await, Windows run queue/paging/disk queue) 해당 카운터를 못 읽어 값이 없는 축만 분류를 막지 않고 confidence 단서(unmeasured)로 노출한다.
 
 UI badge 임계(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`, 90/75)와는 별 도메인이다 — 그쪽은 시점 사용량 시각 신호, 본 모듈은 윈도우 통계 기반 사이징 결정. 혼용 금지.
 
@@ -23,7 +23,7 @@ idle / shutdown / over_provisioned / under_provisioned / optimal / insufficient_
 
 | 순위 | 분류 | 조건 |
 |------|------|------|
-| 1 | under_provisioned | 위험 신호 OR (하나라도): cpu_p95 >= 70 / mem_p95 >= 80 / worst mount >= 85 / cpu 포화(Linux load_15m/cores >= 1.0 · Windows run queue/cores >= 2) / disk_io(Linux iowait_p95 >= 20 · Windows disk queue >= 2) / 메모리 포화(Linux swap page-out · Windows Pages/sec >= 1000) |
+| 1 | under_provisioned | 위험 신호 OR (하나라도): cpu_p95 >= 70 / mem_p95 >= 80 / worst mount >= 85 / cpu 포화(Linux procs_running/cores >= 1.0 · Windows run queue/cores >= 2) / disk_io(Linux await > 20ms · Windows disk queue >= 2) / 메모리 포화(Linux swap page-out · Windows Pages Input/sec >= 20) |
 | 2 | idle | cpu_peak <= 1% AND net_avg <= 1 KB/s (위험 신호 0) |
 | 3 | shutdown | cpu_p95 <= 3% AND net_avg <= 2 Mbps (위험 신호 0) |
 | 4 | insufficient_data | cpu_p95·mem_p95 둘 다 부재 AND under 위험 신호 0 |
@@ -41,9 +41,9 @@ idle / shutdown / over_provisioned / under_provisioned / optimal / insufficient_
 | cpu_util | cpu_p95 >= 70% | Utilization | Kleinrock — Queueing Systems (1975) · Google SRE |
 | mem_util | mem_p95 >= 80% | Utilization | Linux page cache 압박 시작점 |
 | disk_capacity | worst mount used >= 85% | Utilization | Cloud Advisor storage capacity |
-| cpu_saturation | Linux load_15m/cores >= 1.0 / Windows run queue/cores >= 2 | Saturation | USE Method (Brendan Gregg) run queue · MS "Processor Queue Length sustained > 2 per CPU" (os-aware) |
-| disk_io | Linux iowait_p95 >= 20% / Windows Avg Disk Queue Length >= 2 | Saturation | USE Method — disk IO 병목 (os-aware) |
-| mem_saturation | Linux swap page-out / Windows Memory Pages/sec p95 >= 1000 | Saturation | USE Method memory saturation (페이징 활동) — Windows 임계는 잠정(아래 8절 한계) (os-aware) |
+| cpu_saturation | Linux procs_running/cores >= 1.0 / Windows run queue/cores >= 2 | Saturation | USE Method (Brendan Gregg) run queue · MS "Processor Queue Length sustained > 2 per CPU" (os-aware) |
+| disk_io | Linux await > 20ms / Windows Avg Disk Queue Length >= 2 | Saturation | USE Method — disk IO 병목 (os-aware) |
+| mem_saturation | Linux swap page-out / Windows Memory Pages Input/sec p95 >= 20 | Saturation | USE Method memory saturation (하드 페이지 폴트) — Windows 임계 근거는 아래 8절 (os-aware) |
 | (idle) | cpu_peak <= 1% AND net <= 1 KB/s | Utilization | AWS Compute Optimizer |
 | (shutdown) | cpu_p95 <= 3% AND net <= 2 Mbps | Utilization | Azure Advisor |
 | (over) | cpu_p95 <= 30% AND mem_p95 <= 50% | Utilization | AWS Compute Optimizer + GCP (headroom 30%) |
@@ -60,13 +60,13 @@ idle / shutdown / over_provisioned / under_provisioned / optimal / insufficient_
 
 saturation 3축 모두 OS별 실측 신호로 정규화한다 — 동일 분류 체계·임계 도메인, 신호원만 상이하다. 각 축은 전용 helper 단일 진실을 경유하며(임계 재계산·직접 해석 금지), 해당 카운터 값이 None 이면 helper 가 None 을 돌려 `unmeasured` 에 기록된다.
 
-- cpu_saturation: `cpu_saturated(stats)` — Linux 는 load_15m/cores >= 1.0, Windows 는 Processor Queue Length p95/cores >= 2(loadavg 등가). Windows agent 가 System\Processor Queue Length 를 발행한다. cores 부재·해당 카운터 None 이면 미관측.
-- mem_saturation: `mem_saturated(stats)` — Linux 는 swap page-out(`swap_saturation` 경유), Windows 는 Memory Pages/sec rate p95 >= 1000. Windows pagefile 사용량은 여유 RAM 에도 상시 사용되는 baseline 이라 saturation 신호가 아니므로 사용량 대신 페이징 rate(하드 페이지 폴트율)로 측정한다. Linux swap 은 항상 관측되어 미관측 없음. `if raw.swap_used` 직접 해석 금지.
-- disk_io: `disk_io_saturated(stats)` — Linux 는 cpu iowait_p95 >= 20%, Windows 는 가장 바쁜 디스크의 Avg Disk Queue Length p95 >= 2(disk_queue_p95, agent 가 디스크별 발행 -> ingest per-device max 축약). Windows cpu_iowait 는 OS 개념 부재로 null 발행이라 미사용 — disk queue 를 신호로 쓴다.
+- cpu_saturation: `cpu_saturated(stats)` — Linux 는 procs_running/cores >= 1.0, Windows 는 Processor Queue Length p95/cores >= 2(loadavg 등가). Windows agent 가 System\Processor Queue Length 를 발행한다. cores 부재·해당 카운터 None 이면 미관측.
+- mem_saturation: `mem_saturated(stats)` — Linux 는 swap page-out(`swap_saturation` 경유), Windows 는 Memory Pages Input/sec rate p95 >= 20. Windows pagefile 사용량은 여유 RAM 에도 상시 사용되는 baseline 이라 saturation 신호가 아니므로 사용량 대신 하드 페이지 폴트율(Pages Input/sec — 총 Pages/sec 과 달리 mmap 파일 I/O 미혼입)로 측정한다. Linux swap 은 항상 관측되어 미관측 없음. `if raw.swap_used` 직접 해석 금지.
+- disk_io: `disk_io_saturated(stats)` — Linux 는 await(디바이스 응답 지연) p95 > 20ms, Windows 는 가장 바쁜 디스크의 Avg Disk Queue Length p95 >= 2(disk_queue_p95, agent 가 디스크별 발행 -> ingest per-device max 축약). Windows cpu_iowait 는 OS 개념 부재로 null 발행이라 미사용 — disk queue 를 신호로 쓴다.
 
 각 saturation 축은 Windows 에서 해당 perflib 를 못 읽거나 미부착(예: OpenStack virtio 에 diskperf 미부착 -> disk queue 빈 배열)이면 그 축만 `unmeasured` 에 기록된다 -> `is_partial`(=bool(unmeasured)) -> ViewModel/템플릿이 "포화 수치 미관측" confidence 단서로 노출. 분류 자체는 utilization/capacity/측정된 나머지 포화 축으로 완결되며 "표본 부족"이 아니다(cpu_p95·mem_p95 가 산출되는 한). 카운터 수집이 재개되면 해당 축은 자동으로 채워진다.
 
-동일 통계라도 Linux 는 load/swap/iowait 로, Windows 는 run queue/paging/disk queue 로 같은 분류 체계 안에서 결론난다.
+동일 통계라도 Linux 는 procs_running/swap/await 로, Windows 는 run queue/pages-input/disk queue 로 같은 분류 체계 안에서 결론난다.
 
 ## 7. 근거(triggers) 재사용
 
@@ -74,6 +74,6 @@ trigger 6키(`cpu_util`·`mem_util`·`disk_capacity`·`cpu_saturation`·`disk_io
 
 ## 8. 한계
 
-- Windows saturation 임계 근거 비대칭: disk queue(>= 2)·CPU run queue(>= 2/core)는 Microsoft 표준 병목 기준이나, 메모리 페이징 임계(Pages/sec >= 1000)는 절대 임계 근거가 약한 rule-of-thumb 이라 보수적으로 두고 실측 튜닝 대상이다(`MEM_PAGING_RATE_SATURATION`). 세 축 모두 해당 perflib 미부착·미발행 시 그 축만 미관측(confidence 단서)이며 분류는 나머지 축으로 완결. `docs/tradeoffs.md` T14.
+- Windows saturation 세 축 임계 근거: disk queue(>= 2)·CPU run queue(>= 2/core)는 Microsoft 표준 병목 기준, 메모리는 Pages Input/sec(하드 read 폴트, mmap 미혼입) rate p95 >= 20 — Microsoft/업계 관례 5=증설·20=체감 저하·100=thrashing 중 '체감 저하' 채택(`WIN_PAGES_INPUT_SATURATION`). 총 Pages/sec 는 mmap 파일 I/O 혼입이라 미사용. 세 축 모두 해당 perflib 미부착·미발행 시 그 축만 미관측(confidence 단서)이며 분류는 나머지 축으로 완결. `docs/tradeoffs.md` T14.
 - 디스크 용량 환경 집계: 개별 호스트 `disk_capacity` trigger(worst mount used %)는 단일 마운트 비율이라 OS 무관하게 신뢰 가능하나, 환경 전체 디스크 활용률을 자원 총량으로 합산(Σtotal_bytes)하는 capacity-weighted 집계는 Windows 물리디스크/디바이스(major·minor) 인식이 불완전해 신뢰가 떨어진다 — 환경 p95 등 디스크 합산 지표 도입 시 주의(현재 환경 평균 활용률 disk 바만 유지, 환경 p95 는 CPU·메모리만).
 - p95 표본: 윈도우(14일)보다 데이터가 짧으면 p95 표본 신뢰도가 저하된다. cpu_p95·mem_p95 둘 다 부재면 insufficient_data.

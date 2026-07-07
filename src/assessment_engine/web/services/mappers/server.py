@@ -1,7 +1,7 @@
 """서버 표시 mapper — ServerSummary/ServerDetail/StorageWithUsage/NetworkWithIo → ViewModel (P2).
 
 본 sub-module 책임: 인벤토리·서비스·디스크·마운트·네트워크 표시 변환 + role 추론.
-다른 sub-module 이 import 하는 항목: `infer_role`, `WELL_KNOWN_PORT_MAX`, `enrich_server_detail`.
+다른 sub-module 이 import 하는 항목: `infer_role`, `DYNAMIC_PORT_MIN`, `enrich_server_detail`.
 """
 
 from collections import Counter
@@ -18,6 +18,8 @@ from assessment_engine.service_classifier import (
     SINGLE_INSTANCE_CATEGORIES,
     classify,
     detect_listen_categories,
+    is_baseline_service,
+    is_baseline_socket,
     matched_ports,
 )
 from assessment_engine.web.services.device_filters import (
@@ -54,9 +56,10 @@ from assessment_engine.web.view_models.server import (
     VolumeItem,
 )
 
-# IANA well-known port 상한. listen_port의 well-known 표시 분기에 사용.
+# IANA 동적/private 포트 하한 (49152~65535). 이 이상은 RPC 동적 할당·ephemeral 이라 "주요 포트" 표시에서 제외.
+# 그 미만(0~49151)은 system·registered·user 포트 = 의도된 서비스 리스너로 간주해 표시 (RDP 3389·Redis 6379 등 고포트 포함).
 # cache_serializer 가 본 상수를 import 해 역직렬화 후 enrich 재호출 시 동일 분기 적용.
-WELL_KNOWN_PORT_MAX = 1024
+DYNAMIC_PORT_MIN = 49152
 
 _Severity = Literal["ok", "warn", "danger"]
 
@@ -137,7 +140,7 @@ def _to_listen_port_item(p: dict) -> ListenPortItem:
         uid=p.get("uid"),
         pid=p.get("pid"),
         comm=p.get("comm"),
-        is_well_known=port <= WELL_KNOWN_PORT_MAX,
+        is_significant=port < DYNAMIC_PORT_MIN,
     )
 
 
@@ -273,6 +276,26 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
     )
 
 
+def storage_layers_gb(disks: list[dict], mounts: list[dict]) -> tuple[float | None, float | None, float | None]:
+    """스토리지 3계층 (GB) 단일 산식 — (배정 블록, 파일시스템, 미할당). 화면 공용 원칙 기준(#C kind 기반).
+
+    배정 = disk_total_bytes(물리 disk 우선 · Windows 등 물리 미발행 시 data volume fs fallback).
+    파일시스템 = data volume(kind=data) total 합. 미할당 = max(0, 배정 - 파일시스템) — 확장 여력 추론(둘 다 있을 때만).
+    소비처(시스템 정보·스토리지 탭)는 본 함수만 호출 — raw sum·재필터 금지.
+    """
+    allocated = bytes_to_gb(disk_total_bytes(disks, mounts))
+    fs_bytes = sum((m.get("total_bytes") or 0) for m in mounts if is_data_volume(m.get("kind")))
+    filesystem = bytes_to_gb(fs_bytes) if fs_bytes else None
+    unallocated = None
+    if allocated is not None and filesystem is not None:
+        unallocated = round(max(0.0, allocated - filesystem), 2)
+    return (
+        round(allocated, 2) if allocated is not None else None,
+        round(filesystem, 2) if filesystem is not None else None,
+        unallocated,
+    )
+
+
 def to_server_detail(dto: ServerDetail) -> ServerDetailResponse:
     detail = ServerDetailResponse(
         id=dto.id,
@@ -301,6 +324,10 @@ def to_server_detail(dto: ServerDetail) -> ServerDetailResponse:
     )
     # 파일시스템 항목 — inventory.mounts(가상 마운트 제외). 물리 디스크(disks)와 별개 축, 양 OS 일관(fstype 명시).
     detail.volumes = _to_volumes(dto.mounts)
+    # 스토리지 3계층 — storage_layers_gb 단일 산식(배정/파일시스템/미할당). 소비처별 재구현 금지(#C).
+    detail.disk_total_gb, detail.volume_total_gb, detail.disk_unallocated_gb = storage_layers_gb(
+        dto.disks or [], dto.mounts or []
+    )
     return enrich_server_detail(detail)
 
 
@@ -343,6 +370,8 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
     collected_ats = [u.collected_at for u in dto.mount_usage if u.collected_at is not None]
     snapshot_at = max(collected_ats) if collected_ats else None
 
+    # 스토리지 3계층 — 시스템 정보와 동일 단일 산식(배정/파일시스템/미할당). fs 층은 아래 fs_total_gb(표시 상세).
+    allocated_gb, _fs, unallocated_gb = storage_layers_gb(dto.disks or [], dto.inventory_mounts or [])
     return StorageDetailResponse(
         server_id=dto.server_id,
         public_id=dto.public_id,
@@ -352,6 +381,8 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
         fs_total_gb=sum((m.total_gb for m in mounts if m.total_gb is not None), 0.0) if mounts else None,
         snapshot_at=snapshot_at,
         inventory_at=dto.inventory_at,
+        disk_total_gb=allocated_gb,
+        disk_unallocated_gb=unallocated_gb,
     )
 
 
@@ -466,7 +497,7 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     # union(이름 ∪ listen)으로도 아무 카테고리도 못 잡았을 때만 unknown 뱃지.
     detail.show_unknown_badge = detail.services is not None and bool(detail.services) and not known
     detail.key_listen_ports = sorted(
-        [lp for lp in detail.listen_ports if lp.is_well_known and lp.port not in shown_port_numbers],
+        [lp for lp in detail.listen_ports if lp.is_significant and lp.port not in shown_port_numbers],
         key=lambda lp: (lp.port, lp.proto),
     )
 
@@ -479,8 +510,7 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     cpu_parts = [p for p in [detail.cpu_model, f"{detail.cpu_cores} cores" if detail.cpu_cores else None] if p]
     detail.cpu_display = " ".join(cpu_parts) or "-"
 
-    detail.disk_total_gb = round(sum(d.size_gb or 0.0 for d in detail.disks), 1) if detail.disks else None
-    detail.volume_total_gb = round(sum(v.total_gb or 0.0 for v in detail.volumes), 1) if detail.volumes else None
+    # disk_total_gb·volume_total_gb·disk_unallocated_gb 는 to_server_detail 에서 storage_layers_gb 단일 산식으로 설정(#C).
 
     # P3 — count는 mapper에서 한 번만 계산. 템플릿이 `| length` 못 쓰도록.
     detail.services_count = len(detail.services or [])
@@ -506,10 +536,11 @@ def workload_category_counter(
     워크로드 이중 카운트 회피. agent join key 부재(T15)로 opaque 한 service 이름을 listen 증거로 구제.
     role/뱃지/환경 분포 단일 진실.
     """
+    # baseline(OS 기본·관리 — SSH·NTP·RPC 등)은 특징 워크로드 아님 -> 제외 (compute_service_categories 와 동일 기준).
     counter: Counter[str] = Counter()
     for s in services or []:
         unit = s.get("unit") if isinstance(s, dict) else None
-        if not unit:
+        if not unit or is_baseline_service(unit):
             continue
         cat = classify(unit, listen_ports, s.get("pid"))
         if cat == "unknown":
@@ -517,7 +548,8 @@ def workload_category_counter(
         # 런타임 스택(container)은 구성 요소가 여러 서비스로 떠도 호스트당 1 (docker+containerd → 1).
         counter[cat] = 1 if cat in SINGLE_INSTANCE_CATEGORIES else counter[cat] + 1
     name_cats = set(counter)
-    for cat in detect_listen_categories(listen_ports or []):
+    non_baseline_ports = [p for p in (listen_ports or []) if not is_baseline_socket(p)]
+    for cat in detect_listen_categories(non_baseline_ports):
         if cat not in name_cats:
             counter[cat] = 1
     return counter

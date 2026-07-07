@@ -89,13 +89,7 @@ cosign verify ghcr.io/z-converter-assessment/assessment-engine:1.2.3 \
 - `docs/operations/env.md` — secret·환경변수 contract + APP_ENV=prod fail-fast 검증
 - `docs/operations/alembic.md` — schema 마이그레이션 (이미지 안 `_alembic.ini`, base compose migrate init-container)
 
-## 6. 의사결정 history
+## 6. 한계
 
-- ADR 0005 — Alembic schema 관리 단일 진실 (migrations 동봉 사유)
-- ADR 0030 — tag-derived 버전 (hatch-vcs, 버전을 repo에 저장 안 함). 정정(2026-06-08): tag derive single-source(`resolve-version` job) + stable semver 가드 + 등가성 검증
-- ADR 0048 — 엔진 rollout 을 본 repo 로 통합 (compose 매체 + VM `deploy.sh`). wheel 산출물 폐기·image 단일, release 표면 축소
-
-## 7. 한계
-
-- semver tag 정책 — stable semver `vX.Y.Z`만 지원 (prerelease/RC 미지원, `resolve-version` job 형식 가드가 거부, ADR 0030 정정). prerelease 도입 시 PEP 440/SemVer 규약 통일 별도 ADR 의무. "다음 버전" 결정은 사람이 (semver 규칙 표 참조)
-- 배포 매체 = docker compose 단일 (ADR 0048). wheel+venv·k8s 등 다른 매체는 미지원 — 필요 시 별도 ADR
+- semver tag 정책 — stable semver `vX.Y.Z`만 지원 (prerelease/RC 미지원, `resolve-version` job 형식 가드가 거부). prerelease 도입 시 PEP 440/SemVer 규약 통일 별도 ADR 의무. "다음 버전" 결정은 사람이 (semver 규칙 표 참조)
+- 배포 매체 = docker compose 단일. wheel+venv·k8s 등 다른 매체는 미지원 — 필요 시 별도 ADR

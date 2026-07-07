@@ -1,6 +1,8 @@
 # Architecture Decision Records
 
-영구·불변 의사결정 기록. 결정 변경 시 새 ADR 추가 + 이전 ADR `Status: Superseded`. 덮어쓰기 금지.
+영구·불변 의사결정 기록 — "왜 이렇게 바꿨나"의 append-only 이력 아카이브. 결정 변경 시 새 ADR 추가 + 이전 ADR `Status: Superseded`. 덮어쓰기 금지.
+
+라이브 문서(architecture·operations·products·development·`.claude/CLAUDE.md`)는 여기 의존하지 않는다 — ADR 은 이력이지 현재 사실의 출처가 아니다. 현재 사실은 라이브 문서 인라인에 있어야 한다 (docs/README.md 4원칙).
 
 ## 인덱스
 

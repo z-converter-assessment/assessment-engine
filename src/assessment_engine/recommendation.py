@@ -5,7 +5,7 @@
 evidence 기반 분류: 자원(CPU/Mem/Disk)별로 "가진 축"을 평가해 신호(trigger)를 모으고,
 under(위험) 우선 우선순위로 단일 분류 하나 + 근거(triggers) + 미관측 축(unmeasured)을 산출한다.
 가진 데이터로 항상 결론을 내며("C 로 판단" 설명 가능), saturation 축은 OS별 실측 신호로 정규화하되
-(Linux load/swap/iowait, Windows run queue/paging/disk queue) 해당 카운터를 못 읽어 값이 없으면
+(Linux procs_running/swap/await, Windows run queue/paging/disk queue) 해당 카운터를 못 읽어 값이 없으면
 분류를 막지 않고 confidence 단서(unmeasured)로만 노출한다.
 
 분류 enum(상태): idle(유휴) / over_provisioned / under_provisioned / optimal / insufficient_data.
@@ -57,10 +57,11 @@ CPU_RUN_QUEUE_PER_CORE_SATURATION = 2.0
 # Windows disk IO saturation — 디스크당 Avg Disk Queue Length >= 2 (Microsoft 정석 병목 기준).
 # agent 가 디스크별 큐를 발행 -> ingest 에서 per-device max 축약 -> 이 임계로 바로 비교 (정규화 불요).
 DISK_QUEUE_PER_DISK_SATURATION = 2.0
-# Windows memory saturation — Memory\Pages/sec(하드 페이지 폴트율) p95 >= 1000 pages/sec.
-# 잠정 임계 (Microsoft rule-of-thumb "sustained > 1000"). disk_queue/cpu_run_queue 의 MS 표준 채택과 달리
-# 절대 임계 근거가 약해 보수적으로 두고 실측 튜닝 대상 — 근거·한계는 docs/architecture/right-sizing.md.
-MEM_PAGING_RATE_SATURATION = 1000.0
+# Windows memory saturation — Memory\Pages Input/sec(하드 페이지 폴트율) p95 >= 20 pages/sec.
+# Pages Input/sec 은 디스크에서 읽어온 하드 폴트만 세어 mmap 파일 I/O 미혼입(총 Pages/sec 과 대비 — agent 가
+# 이 목적으로 별도 발행). Microsoft/업계 관례: sustained 5=증설 권고 / 20=체감 저하 / 100=thrashing.
+# under-provisioned 신호는 "체감 저하" 20 채택(보수적). 총 Pages/sec 1000 은 카운터·자릿수 이중 오류라 폐기.
+WIN_PAGES_INPUT_SATURATION = 20.0
 DISK_CAPACITY_UPSIZE_PCT = 85  # worst mount used_pct >= 85% — storage capacity utilization
 
 # 표본 충분성 — 측정 축(cpu/mem) 실측 5분 버킷 / 윈도우 기대 버킷(period_days*288, cagg 5분) 비율이 이 미만이면
@@ -112,8 +113,8 @@ class ResourceStats:
     # cpu_run_queue_p95 = Processor Queue Length p95 (ready 상태 스레드 큐 깊이 gauge, per-core 정규화 후 비교).
     cpu_run_queue_p95: float | None = None
     # Windows Memory saturation (Linux swap page-out 등가 축) — mem_saturated 가 os-aware 로 소비.
-    # mem_paging_rate_p95 = Memory\Pages/sec rate p95 (누적 counter -> pages/sec 환산된 하드 페이지 폴트율).
-    mem_paging_rate_p95: float | None = None
+    # mem_pages_input_rate_p95 = Memory\Pages Input/sec rate p95 (하드 페이지 폴트율, mmap 미혼입).
+    mem_pages_input_rate_p95: float | None = None
 
     # ─── ADR 0052 신 모델 신호 (전부 default None/False — 기존 호출처 무손상 additive) ───
     # CPU
@@ -241,13 +242,13 @@ def disk_io_saturation_index(await_ms: float | None, disk_queue: float | None, o
     return await_ms / RS_DISKIO_AWAIT_MS if await_ms is not None else None
 
 
-def mem_pressure_active(paging_rate: float | None, pageout_delta: int | None, os_family: str | None) -> bool:
-    """실시간 메모리 압박 여부 — Linux page-out 발생(pswpout delta>0) / Windows Pages/sec rate >= 임계.
+def mem_pressure_active(pages_input_rate: float | None, pageout_delta: int | None, os_family: str | None) -> bool:
+    """실시간 메모리 압박 여부 — Linux page-out 발생(pswpout delta>0) / Windows Pages Input/sec rate >= 임계.
 
     메모리 포화는 Linux 가 불리언(page-out 발생)이라 지수 아닌 압박 카운트로 집계(mem_saturated os-aware 정합).
     """
     if os_family == "windows":
-        return paging_rate is not None and paging_rate >= MEM_PAGING_RATE_SATURATION
+        return pages_input_rate is not None and pages_input_rate >= WIN_PAGES_INPUT_SATURATION
     return bool(pageout_delta and pageout_delta > 0)
 
 
@@ -255,15 +256,15 @@ def mem_saturated(stats: ResourceStats) -> bool | None:
     """메모리 포화 여부 — OS별 raw 신호를 통일 축으로 정규화 (원칙 P2, os-aware).
 
     Linux: swap page-out 발생(swap_saturation). swap 은 항상 관측되므로 None 없음(측정됨).
-    Windows: Memory\\Pages/sec rate p95 >= MEM_PAGING_RATE_SATURATION. pagefile 은 여유 RAM 에도
-             상시 baseline 이라 swap 사용량이 아닌 페이징 rate 를 saturation 신호로 사용.
-    Windows 에서 mem_paging_rate None 이면 None -> assess 가 unmeasured("mem_saturation")로 표시.
+    Windows: Memory\\Pages Input/sec rate p95 >= WIN_PAGES_INPUT_SATURATION(하드 폴트, mmap 미혼입).
+             pagefile 사용량은 여유 RAM 에도 상시 baseline 이라 사용량이 아닌 하드폴트율을 신호로 사용.
+    Windows 에서 하드폴트율 None 이면 None -> assess 가 unmeasured("mem_saturation")로 표시.
     assess·report·attention 이 본 helper 단일 진실 경유 (임계 재계산 금지).
     """
     if stats.os_family == "windows":
-        if stats.mem_paging_rate_p95 is None:
+        if stats.mem_pages_input_rate_p95 is None:
             return None
-        return stats.mem_paging_rate_p95 >= MEM_PAGING_RATE_SATURATION
+        return stats.mem_pages_input_rate_p95 >= WIN_PAGES_INPUT_SATURATION
     return swap_saturation(stats.os_family, stats.swap_used)
 
 
@@ -281,7 +282,7 @@ def assess(stats: ResourceStats) -> Assessment:
     mem = stats.mem_p95_pct
 
     # 못 본 saturation 축 기록 (confidence 단서) — os-aware helper 가 None 을 돌려준 축만.
-    # 세 축 모두 OS별 신호 정규화(Linux load/swap/iowait, Windows run_queue/paging/disk_queue) — helper 단일 진실.
+    # 세 축 OS별 신호 정규화(Linux procs_running/swap/await, Windows run_queue/pages-input/disk_queue) helper 경유.
     # Linux 는 swap 이 항상 관측돼 mem_saturation 은 None 없음(측정됨). Windows 는 해당 perflib 못 읽으면 None.
     unmeasured: list[str] = []
     cpu_sat = cpu_saturated(stats)
@@ -307,7 +308,7 @@ def assess(stats: ResourceStats) -> Assessment:
         triggers.append("mem_util")
     if stats.disk_used_pct is not None and stats.disk_used_pct >= DISK_CAPACITY_UPSIZE_PCT:
         triggers.append("disk_capacity")
-    # saturation 3축 — os-aware helper 단일 진실(Linux load/swap/iowait, Windows run_queue/paging/disk_queue).
+    # saturation 3축 — os-aware helper 단일 진실(Linux procs_running/swap/await, Windows run_queue/paging/disk_queue).
     if cpu_sat:
         triggers.append("cpu_saturation")
     if mem_sat:
@@ -441,7 +442,7 @@ TRIGGER_LABEL_KO: dict[str, str] = {
     "cpu_util": "CPU 이용률 초과",
     "cpu_saturation": "CPU run queue 포화",
     "mem_util": "메모리 이용률 초과",
-    "mem_saturation": "메모리 페이징 압박",  # Linux swap page-out / Windows Pages/sec (os-aware)
+    "mem_saturation": "메모리 페이징 압박",  # Linux swap page-out / Windows Pages Input/sec 하드폴트 (os-aware)
     "disk_capacity": "디스크 용량 임박",
     "disk_io": "디스크 I/O 포화",
 }
@@ -639,7 +640,7 @@ RS_MEM_SATURATION_HEADROOM_PCT = 30
 
 
 def _mem_paging_active(stats: ResourceStats) -> bool:
-    """메모리 페이징 포화 os-aware — Windows Pages/sec rate(임계), Linux active page-out(mem_swap_paging).
+    """메모리 페이징 포화 os-aware — Windows Pages Input/sec rate(임계), Linux active page-out(mem_swap_paging).
 
     Windows 는 pagefile paging(pages_in>0)이 여유 RAM 에도 상시 baseline 이라 raw mem_swap_paging 직접 해석 금지 —
     os-aware helper(rate >= 임계) 경유 (swap_used 직접 해석 금지와 동일 원칙). Linux 는 active page-out 그대로.

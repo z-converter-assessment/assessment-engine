@@ -247,9 +247,9 @@ def _build_diagnosis(
     saturation 3축은 os-aware helper 단일 진실 경유(assess 와 동일 신호) — Windows 도 CPU run queue·
     메모리 페이징·디스크 큐로 진단된다(분류가 under 인데 진단이 "정상"으로 어긋나는 것 방지).
     우선순위 (가장 시급한 신호 1개 선택, 임계는 recommendation 상수·_VARIANCE_BURST_RATIO 단일 진실):
-    1. mem_saturated (os-aware: Linux swap page-out / Windows Pages/sec) → "메모리 부족" — 1차 강신호
-    2. disk_io_saturated (os-aware: Linux iowait_p95 / Windows Avg Disk Queue Length) → "디스크 I/O 병목"
-    3. cpu_saturated (os-aware: Linux load_15m/cores / Windows run queue/cores) → "CPU 포화"
+    1. mem_saturated (os-aware: Linux swap page-out / Windows Pages Input/sec 하드폴트) → "메모리 부족" — 1차 강신호
+    2. disk_io_saturated (os-aware: Linux await>20ms / Windows Avg Disk Queue Length) → "디스크 I/O 병목"
+    3. cpu_saturated (os-aware: Linux procs_running/cores / Windows run queue/cores) → "CPU 포화"
     4. mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리 압박"
     5. cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU 압박"
     6. worst_mount >= DISK_CAPACITY_UPSIZE_PCT → "디스크 용량 임박" (disk_capacity under 근거 노출)
@@ -388,9 +388,9 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         sample_sufficiency=min(suffs) if suffs else None,
         # Windows 디스크 saturation — 가장 바쁜 디스크의 큐 p95 (disk_io_saturated os-aware 소비, 정규화 불요).
         disk_queue_p95=raw.disk_queue_p95,
-        # Windows CPU/Memory saturation — Processor Queue Length p95 / Pages/sec rate p95 (os-aware 소비).
+        # Windows CPU saturation — Processor Queue Length p95 / Memory 는 Pages Input/sec rate p95 (os-aware 소비).
         cpu_run_queue_p95=raw.cpu_run_queue_p95,
-        mem_paging_rate_p95=raw.mem_paging_rate_p95,
+        mem_pages_input_rate_p95=raw.mem_pages_input_rate_p95,
         # ─── ADR 0052 신 모델(rollup_host) 입력 — report_aggregate 산출 raw 를 도메인 축으로 배선 ───
         # 가장 바쁜 코어 p95 — 단일스레드 병목 판정(RS_CPU_PERCORE_HOLD). Windows·구 agent 는 None(graceful skip).
         cpu_percore_p95_max=raw.cpu_percore_p95_max,

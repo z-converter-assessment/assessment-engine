@@ -124,6 +124,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 load_1m=m.load_1m,
                 load_5m=m.load_5m,
                 load_15m=m.load_15m,
+                cpu_run_queue=(m.procs_running if m.procs_running is not None else m.sat_cpu_run_queue),
                 boot_time=m.boot_time,
                 agent_started_at=m.agent_started_at,
             )
@@ -182,8 +183,9 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         return DashboardRaw(metrics=metrics, disk_io=disk_io, net_io=net_io, mounts=mounts)
 
     async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, dict]:
-        """서버별 실시간 포화 원자료 — CPU 실행 큐(gauge) + 디스크(Windows queue gauge / Linux await 2행 델타) +
-        메모리(Windows paging rate gauge / Linux pswpout 델타). 실시간 포화 지수·압박 카운트용 전용 경량 쿼리.
+        """서버별 실시간 포화 원자료 — 자원 적정성 분류 4축: CPU 실행 큐(gauge) + 디스크(Windows queue gauge /
+        Linux await 2행 델타) + 메모리(Windows paging rate gauge / Linux pswpout 델타) + 네트워크(TCP 재전송율 =
+        tcp_retrans_segs 델타 / tx_packets 델타). 실시간 포화 지수·압박 카운트·서버 상세 스냅샷용 경량 쿼리.
 
         since 이후 최신 2행(delta 용) per server/device. collected_at >= since partition pruning(C5),
         now+2m skew 상한. 공유 dashboard 무손상. reset(값-감소) 은 delta<0 -> None/0 가드.
@@ -192,7 +194,8 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             return {}
         sql = text("""
             WITH m2 AS (
-                SELECT server_id, procs_running, sat_cpu_run_queue, sat_disk_queue, sat_mem_paging_rate, pswpout,
+                SELECT server_id, procs_running, sat_cpu_run_queue, sat_disk_queue,
+                       pswpout, tcp_retrans_segs, mem_pages_input, collected_at,
                        row_number() OVER (PARTITION BY server_id ORDER BY collected_at DESC) AS rn
                 FROM server_metrics
                 WHERE server_id = ANY(:sids) AND collected_at >= :since AND collected_at <= now() + interval '2 minutes'
@@ -201,8 +204,16 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 SELECT server_id,
                     max(CASE WHEN rn = 1 THEN COALESCE(procs_running, sat_cpu_run_queue) END) AS run_queue,
                     max(CASE WHEN rn = 1 THEN sat_disk_queue END)      AS disk_queue_win,
-                    max(CASE WHEN rn = 1 THEN sat_mem_paging_rate END) AS paging_win,
-                    max(CASE WHEN rn = 1 THEN pswpout END) - max(CASE WHEN rn = 2 THEN pswpout END) AS pswpout_delta
+                    -- Windows 메모리 압박 = Pages Input/sec(하드폴트) rate = 델타/dt. 두 행 다 있어야 산출(sparse/reset->null).
+                    CASE WHEN max(CASE WHEN rn = 1 THEN mem_pages_input END) >= max(CASE WHEN rn = 2 THEN mem_pages_input END)
+                              AND max(CASE WHEN rn = 1 THEN collected_at END) > max(CASE WHEN rn = 2 THEN collected_at END)
+                         THEN (max(CASE WHEN rn = 1 THEN mem_pages_input END) - max(CASE WHEN rn = 2 THEN mem_pages_input END))::float
+                              / EXTRACT(EPOCH FROM (max(CASE WHEN rn = 1 THEN collected_at END)
+                                                    - max(CASE WHEN rn = 2 THEN collected_at END)))
+                    END AS pages_input_rate,
+                    max(CASE WHEN rn = 1 THEN pswpout END) - max(CASE WHEN rn = 2 THEN pswpout END) AS pswpout_delta,
+                    max(CASE WHEN rn = 1 THEN tcp_retrans_segs END)
+                        - max(CASE WHEN rn = 2 THEN tcp_retrans_segs END) AS retrans_delta
                 FROM m2 WHERE rn <= 2 GROUP BY server_id
             ),
             d2 AS (
@@ -217,10 +228,24 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                     SUM(CASE WHEN rn = 1 THEN t END)   - SUM(CASE WHEN rn = 2 THEN t END)   AS t_delta,
                     SUM(CASE WHEN rn = 1 THEN ops END) - SUM(CASE WHEN rn = 2 THEN ops END) AS ops_delta
                 FROM d2 WHERE rn <= 2 GROUP BY server_id
+            ),
+            n2 AS (
+                SELECT server_id, tx_packets,
+                       row_number() OVER (PARTITION BY server_id, interface ORDER BY collected_at DESC) AS rn
+                FROM server_net_io
+                WHERE server_id = ANY(:sids) AND collected_at >= :since
+                  AND collected_at <= now() + interval '2 minutes' AND kind IN ('physical', 'bond_master')
+            ),
+            nt AS (
+                SELECT server_id,
+                    SUM(CASE WHEN rn = 1 THEN tx_packets END) - SUM(CASE WHEN rn = 2 THEN tx_packets END) AS txp_delta
+                FROM n2 WHERE rn <= 2 GROUP BY server_id
             )
-            SELECT m.server_id, m.run_queue, m.disk_queue_win, m.paging_win, m.pswpout_delta,
-                   CASE WHEN da.ops_delta > 0 AND da.t_delta >= 0 THEN da.t_delta::float / da.ops_delta END AS await_ms
-            FROM m LEFT JOIN da ON da.server_id = m.server_id
+            SELECT m.server_id, m.run_queue, m.disk_queue_win, m.pages_input_rate, m.pswpout_delta,
+                   CASE WHEN da.ops_delta > 0 AND da.t_delta >= 0 THEN da.t_delta::float / da.ops_delta END AS await_ms,
+                   CASE WHEN nt.txp_delta > 0 AND m.retrans_delta >= 0
+                        THEN m.retrans_delta::float / nt.txp_delta * 100 END AS retrans_pct
+            FROM m LEFT JOIN da ON da.server_id = m.server_id LEFT JOIN nt ON nt.server_id = m.server_id
         """)
         result = await self.session.execute(sql, {"sids": server_ids, "since": since})
         return {
@@ -228,8 +253,9 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 "run_queue": float(r.run_queue) if r.run_queue is not None else None,
                 "disk_queue_win": float(r.disk_queue_win) if r.disk_queue_win is not None else None,
                 "await_ms": float(r.await_ms) if r.await_ms is not None else None,
-                "paging_win": float(r.paging_win) if r.paging_win is not None else None,
+                "pages_input_rate": float(r.pages_input_rate) if r.pages_input_rate is not None else None,
                 "pswpout_delta": int(r.pswpout_delta) if r.pswpout_delta is not None else None,
+                "retrans_pct": float(r.retrans_pct) if r.retrans_pct is not None else None,
             }
             for r in result
         }

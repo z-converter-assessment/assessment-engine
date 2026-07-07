@@ -57,19 +57,19 @@ src/assessment_engine/web/static/js/
 ### X축 정책 (예외 0)
 - 모든 차트(대시보드·서버 상세·환경 부하 추이·보고서)는 윈도우 전체 고정 그리드. `makeBucketGrid(range, AUTO_BUCKET[range], anchor)` + `joinToGrid` — 빈 구간 null(gap, `spanGaps:false`), 최신이 오른쪽 끝 고정.
 - anchor = 마지막 데이터 시각(보고서 정적 스냅샷) 또는 사용자 선택·now(라이브).
-- "데이터 있는 범위만 그리기"(옛 environment-trend, 왼쪽부터 채움)는 폐기 — 차트 간 x축 비교 위해 단일 정책.
+- 부분 범위만 그리지 않는다(왼쪽부터 채우기 금지) — 차트 간 x축 비교 위해 전 차트 고정 그리드 단일 정책.
 
 ### 차트 컨트롤 (제목줄 통합)
-- 차트 헤더 = `.chart-head` 단일 행: 제목(h2 좌측) + bucket-label·구간·앵커·집계 컨트롤(우측, bucket-label 부터 `margin-left:auto`). 좁아지면 그룹 단위 wrap. (옛 별도 컨트롤 행 폐기.)
+- 차트 헤더 = `.chart-head` 단일 행: 제목(h2 좌측) + bucket-label·구간·앵커·집계 컨트롤(우측, bucket-label 부터 `margin-left:auto`). 좁아지면 그룹 단위 wrap.
 - 버킷 라벨 = `<span class="bucket-label">` 배지 (현재 버킷=분해력 표시 — cpu/memory/storage/network 차트 페이지 공용 클래스, base.html 단일 진실). 성능 추이(metrics)는 전역 단일 컨트롤이라 높이·정렬이 달라 별도 스타일.
-- 구간/집계 = `<select class="chart-select">` 드롭다운 (옛 `.toggle` 버튼 그룹 대체 — 너비 절약). `bindToggle` 이 select/button 자동 분기라 JS 호출 동일.
+- 구간/집계 = `<select class="chart-select">` 드롭다운 (너비 절약). `bindToggle` 이 select/button 자동 분기라 JS 호출 동일.
 - 앵커 = `<input type="datetime-local" class="chart-anchor">`. select·anchor 높이 통일(`box-sizing`).
 - 다중 차트 한 페이지(network: I/O·PPS)는 차트별 독립 구간/앵커 (공유 X).
-- 성능 추이(metrics — 서버 상세 `/{id}/metrics` + 환경 `/environment/metrics`)는 예외 — 추이 차트 10개를 2열 5쌍으로 모은 종합 뷰라, 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(카드 밖 좌상단, 버킷/구간/앵커 + '적용' 버튼 — 앵커는 적용 클릭으로 반영·구간 select 즉시. 수집 기준 표시 폐기)이 모든 차트 동기. 5행 2열을 단일 `.card.perf-merged` 로 통합(행=`.perf-pair.perf-row`, 행 구분선 #e2e8f0; 인쇄는 `.perf-merged` 내부 분기 허용 + `.perf-row` 단위 `page-break-inside:avoid`). 서버 상세는 서버 정보 카드 제거(상세 탭에서 확인). 디스크 read+write·네트워크 RX+TX 각각 통합 1 차트.
+- 성능 추이(metrics — 서버 상세 `/{id}/metrics` + 환경 `/environment/metrics`)는 예외 — 추이 차트 10개를 2열 5쌍으로 모은 종합 뷰라, 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(카드 밖 좌상단, 버킷/구간/앵커 + '적용' 버튼 — 앵커는 적용 클릭으로 반영·구간 select 즉시)이 모든 차트 동기. 5행 2열을 단일 `.card.perf-merged` 로 통합(행=`.perf-pair.perf-row`, 행 구분선 #e2e8f0; 인쇄는 `.perf-merged` 내부 분기 허용 + `.perf-row` 단위 `page-break-inside:avoid`). 서버 상세는 서버 정보 카드 제거(상세 탭에서 확인). 디스크 read+write·네트워크 RX+TX 각각 통합 1 차트.
 
 ### 범례 (칩 토글)
 - `.legend-chip` (pill 버튼 + `.legend-dot` 색점): 클릭 시 dataset show/hide, 숨김은 `aria-pressed=false`로 흐려짐. `button`+`aria-pressed`라 키보드 토글 지원.
-- comp/load 계열(고정 dimension) = `renderChipLegend` (dataset 1칩 — cpu·memory comp, metrics CPU 분류·메모리 구성). avg+max ghost = `buildAvgMaxLegend({withToggle})` (avg/max 쌍 1칩 함께 토글 — storage io·network·metrics 물리 I/O·파일시스템·네트워크). 옛 `buildNetGroupedLegend`(인터페이스별 그룹 행)·`codeLabel` 정적 범례는 폐기 — 전 차트 칩 토글로 통일.
+- comp/load 계열(고정 dimension) = `renderChipLegend` (dataset 1칩 — cpu·memory comp, metrics CPU 분류·메모리 구성). avg+max ghost = `buildAvgMaxLegend({withToggle})` (avg/max 쌍 1칩 함께 토글 — storage io·network·metrics 물리 I/O·파일시스템·네트워크). 전 차트 칩 토글로 통일 (인터페이스별 그룹 범례·정적 범례 없음).
 
 ### avg + max ghost 패턴
 1차 dataset = avg (visible). 2차 dataset = max (`borderColor:'transparent'`, `realData` 보유) — tooltip에서 `realData`로 max 표시. legend는 짝수 인덱스만.
@@ -85,7 +85,7 @@ src/assessment_engine/web/static/js/
 - JS 차트 시리즈 주색도 본 변수 추종 — `chart-utils.js` `ChartUtils.themeColor()`(getComputedStyle 로 `--color-title` 읽기, 실패 시 #3b82f6 fallback). 페이지 차트 JS(cpu/metrics/memory/environment-metrics/environment-trend/detail/network-topology)가 hex 직박 대신 본 helper 참조. SVG 게이지는 presentation attribute 가 var 미지원이라 inline `style="stroke: ..."` 로 적용.
 - 주색 `#3b82f6` 는 `--color-title` 이자 데이터 시각화 주색 — 환경 평균 활용률 도넛 게이지(`_UTIL_COLOR_GAUGE`, mappers/attention.py) · right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over, mappers/shared.py) · 서버목록 `.rec-over_provisioned` 배지가 동일 주색.
 - under_provisioned = `#ef4444` (red-500) 대비 유지. 과다프로비저닝(여유)과 활용률 게이지가 같은 파랑 — 같은 화면 두 의미지만 테마 단색화를 위한 의식적 통일.
-- 네비게이션 = 좌측 사이드바(`--color-sidebar` #475569 회색 바탕 + 흰 글씨, `_sidebar.html` + `nav_groups` 글로벌). active 항목만 좌측 주색 바. 본문 링크(`a`)는 무채 #666666(밑줄 #b0b0b0). 옛 상단 바(top navbar)는 사이드바로 대체.
+- 네비게이션 = 좌측 사이드바(`--color-sidebar` #475569 회색 바탕 + 흰 글씨, `_sidebar.html` + `nav_groups` 글로벌). active 항목만 좌측 주색 바. 본문 링크(`a`)는 무채 #666666(밑줄 #b0b0b0).
 - 버튼 3종(base.html): `.btn-primary`(주색 채움, 모달 발행 등) / `.btn-select`(흰 톤·표준 크기, 서버 선택 발행 버튼 — 활성=테마색 outline(파랑 글씨·테두리·600) 강조, 비활성=회색 글씨·테두리) / `.btn-action`(흰 톤·표준 크기·회색 글씨, 보조 액션 — 환경보고서 발행·실시간 메트릭·성능 추이·전체보기). selection 은 활성 시 파랑 outline 으로 보조 버튼(회색)과 구별되고 활성/비활성도 색으로 명확. 선택 N대 실시간 메트릭·성능 추이 버튼은 `.btn-select`(체크 시 활성) — public_id navigate(`?ids=`).
 - 상태(is_online) 표시 = 폰트색 (`.status-on` #16a34a / `.status-off` #94a3b8, 10px) — 목록·보고서 표·상세 헤더. 개별 보고서 인벤토리 상태는 일반 폰트(보고서 본문 톤 통일).
 - 운영 신호 경고 = 호박색(amber) 도메인 (`.attn-active`·`.attention-cat-item[active]` #fef3c7/#92400e). 정상(0건)은 회색 outline, 발화는 호박 채움 — 경고 의미를 색으로. 테마 파랑(브랜드)과 영역 분리.
@@ -183,7 +183,7 @@ base.html 컴포넌트와 동급의 표시 계층 단일 진실 — 페이지 �
 |--------|------|
 | `.badge` | base (변형 클래스와 함께) |
 | `.badge-ok` / `.badge-warn` / `.badge-danger` | semantic 상태 |
-| `.badge-cat-{web,db,cache,mq,container,monitor,unknown}` | 서비스 카테고리 |
+| `.badge-cat-{web,db,cache,mq,container,monitor,remote,file,mail,infra,unknown}` | 서비스 카테고리 |
 | `.rec-{under_provisioned,over_provisioned,optimal,idle,shutdown,right_size,swap,success,failure,pending,unknown,insufficient_data}` | 분류 결과 |
 | `.attn-active` | 운영 신호 발화 |
 | `.rec-badge` | table cell 안 컴팩트 badge (위 `.rec-*` 와 함께) |
