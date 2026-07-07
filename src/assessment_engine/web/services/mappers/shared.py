@@ -121,6 +121,21 @@ def build_confidence_notes(assessment: recommendation.Assessment) -> list[str]:
     return notes
 
 
+def build_host_confidence_notes(host: recommendation.HostAssessment) -> list[str]:
+    """호스트 confidence 단서 라벨 (신 모델 rollup_host 기반) — 자원별 ConfidenceNote 를 호스트 단위 OR 종합.
+
+    build_confidence_notes(구 assess)의 신 모델 대응. coverage_gap(포화 축 미관측)·low_precision(이력<30h·버스티)를
+    호스트 단위로 노출. biased(virtio 구조 편향)는 disk_io 가 상시 True 라 표시 노이즈 -> 노트 제외
+    (다운사이즈 게이트 내부용). report·attention 이 rollup_host 로 이관 후 본 함수 공용.
+    """
+    notes: list[str] = []
+    if recommendation.host_saturation_unmeasured(host):  # 포화 축(cpu·mem·disk_io) 한정 — 용량·네트워크 제외
+        notes.append("포화 수치 미관측")
+    if any(r.confidence.low_precision for r in host.resources.values()):
+        notes.append("표본 부족")
+    return notes
+
+
 def build_service_badge_reference() -> list[ServiceBadgeRef]:
     """참고자료 — 서비스 뱃지 카탈로그 표시 행 (SERVICE_CATALOG 파생, P2). 카탈로그 1곳 수정이 본 표에 자동 반영(F12).
 

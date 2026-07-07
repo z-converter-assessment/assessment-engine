@@ -130,10 +130,13 @@ class ResourceStats:
     # 디스크 용량 (엔진이 mount 이력 전체 span 의 2점 fill_rate 로 산출 — report_aggregate mount_span)
     disk_capacity_runway_days: float | None = None  # 바이트 소진까지 남은 일수(하락·수평이면 None=안 참)
     disk_inode_runway_days: float | None = None  # inode 소진까지 남은 일수
+    # worst mount inode 사용률 % — 정적 가드(바이트 85% 대칭, 수평 추세 소진 임박 발화)
+    disk_inode_used_pct: float | None = None
     disk_capacity_target_gb: float | None = None  # 1년 수명 목표 총 용량(GB) — 소진 마운트 확장 목표
     # 네트워크 (품질 신호)
     net_retrans_pct: float | None = None  # TCP 재전송률 %
     net_drop_pct: float | None = None  # 드롭률 %
+    conntrack_ratio: float | None = None  # nf_conntrack count/max — 연결테이블 고갈 임박(모듈 미로드 시 None=미측정)
     # 신뢰도 입력 (4종 불확실성)
     history_hours: float | None = None  # 관측 이력 시간 — 통계 정밀도 바닥(계층3 AWS insufficient-data)
     cpu_burst_ratio: float | None = None  # p95/median — 버스티면 통계 정밀도 하향
@@ -167,16 +170,6 @@ class Assessment:
         return bool(self.unmeasured)
 
 
-def swap_saturation(os_family: str | None, swap_used: bool) -> bool:
-    """swap/pagefile 사용이 메모리 saturation 신호인지 — Linux 한정 (원칙 P2).
-
-    Windows pagefile 은 여유 RAM 에도 상시 사용되는 baseline 이라 saturation 신호 아님.
-    Linux swap 사용은 page-out = 메모리 압박 신호. os_family None(unknown)은 Linux 로 취급.
-    assess·report mapper 의 swap 해석 단일 진실 — 본 helper 경유.
-    """
-    return swap_used and os_family != "windows"
-
-
 def disk_io_saturated(stats: ResourceStats) -> bool | None:
     """디스크 I/O 포화 여부 — OS별 raw 신호를 지연 축으로 정규화 (원칙 P2, os-aware).
 
@@ -185,16 +178,18 @@ def disk_io_saturated(stats: ResourceStats) -> bool | None:
     Windows: 가장 바쁜 디스크의 큐 깊이(disk_queue_p95) >= DISK_QUEUE_PER_DISK_SATURATION —
              Windows 는 await(disk read/write time) 미발행이라 diskperf 큐 깊이를 지연 대리 신호로 사용.
              agent 가 디스크별 큐를 발행 -> ingest 에서 per-device max 축약(정규화 불요).
+    await(응답 지연) 단일 축 통일 (ADR 0052 Phase 0): Linux/Windows 모두 disk_await_p95_ms > RS_DISKIO_AWAIT_MS.
+    Windows 도 IOCTL_DISK_PERFORMANCE ReadTime/WriteTime 로 await 산출(에이전트 발행, 같은 IOCTL 라 큐와
+    커버리지 동일). await 미배선/구세대 viostor(IOCTL 미부착)면 Windows 는 큐 깊이로 임시 폴백 —
+    await 배선·검증 후 Phase E 에서 큐 폐기(DISK_QUEUE_PER_DISK_SATURATION·disk_queue_p95 제거).
     측정 불가(값 None)면 None -> assess 가 unmeasured("disk_io")로 표시.
     assess·assess_disk_io·report·attention 이 본 helper 단일 진실 경유 (임계 재계산 금지).
     """
-    if stats.os_family == "windows":
-        if stats.disk_queue_p95 is None:
-            return None
+    if stats.disk_await_p95_ms is not None:
+        return stats.disk_await_p95_ms > RS_DISKIO_AWAIT_MS
+    if stats.os_family == "windows" and stats.disk_queue_p95 is not None:
         return stats.disk_queue_p95 >= DISK_QUEUE_PER_DISK_SATURATION
-    if stats.disk_await_p95_ms is None:
-        return None
-    return stats.disk_await_p95_ms > RS_DISKIO_AWAIT_MS
+    return None
 
 
 def cpu_saturated(stats: ResourceStats) -> bool | None:
@@ -255,7 +250,10 @@ def mem_pressure_active(pages_input_rate: float | None, pageout_delta: int | Non
 def mem_saturated(stats: ResourceStats) -> bool | None:
     """메모리 포화 여부 — OS별 raw 신호를 통일 축으로 정규화 (원칙 P2, os-aware).
 
-    Linux: swap page-out 발생(swap_saturation). swap 은 항상 관측되므로 None 없음(측정됨).
+    Linux: active page-out 발생(mem_swap_paging = pswpin/pswpout rate > 0). 정적 스왑 점유(swap_used)가
+           아니다 — Linux 는 swappiness 로 여유 RAM 에도 유휴 페이지를 스왑아웃하므로 점유는 압박 신호가
+           아니고, 실제 페이징 발생만이 포화(USE Method: saturation = paging rate, 계층1). swapless 는
+           page-out 이 없어 항상 False(이용률이 주신호). page-out 은 항상 관측되므로 None 없음(측정됨).
     Windows: Memory\\Pages Input/sec rate p95 >= WIN_PAGES_INPUT_SATURATION(하드 폴트, mmap 미혼입).
              pagefile 사용량은 여유 RAM 에도 상시 baseline 이라 사용량이 아닌 하드폴트율을 신호로 사용.
     Windows 에서 하드폴트율 None 이면 None -> assess 가 unmeasured("mem_saturation")로 표시.
@@ -265,7 +263,7 @@ def mem_saturated(stats: ResourceStats) -> bool | None:
         if stats.mem_pages_input_rate_p95 is None:
             return None
         return stats.mem_pages_input_rate_p95 >= WIN_PAGES_INPUT_SATURATION
-    return swap_saturation(stats.os_family, stats.swap_used)
+    return stats.mem_swap_paging
 
 
 def assess(stats: ResourceStats) -> Assessment:
@@ -393,6 +391,11 @@ def host_status_to_recommendation(status: str) -> Recommendation:
     return _HOST_STATUS_TO_REC[status]
 
 
+# 포화 축(USE saturation) 자원 — is_partial/confidence '포화 수치 미관측' 판정 대상. 용량(누적)·네트워크(품질)는 제외.
+# 실제 판정 helper host_saturation_unmeasured 는 HostAssessment 정의 이후(rollup_host 근처) — forward-ref 회피.
+_SATURATION_KINDS = ("cpu", "memory", "disk_io")
+
+
 # 서버별 자원 적정성 표 최초 정렬 순서 — 전 서버(모든 분류). 자원 부족(시급) > 과다 > 유휴 > 정상 > 표본 부족.
 CLASSIFICATION_ORDER: dict[str, int] = {
     "under_provisioned": 0,
@@ -476,6 +479,8 @@ RS_DISK_STATIC_GUARD_PCT = 85  # 계층3 monitoring 표준(major) — 추세 신
 RS_DISKIO_AWAIT_MS = 20  # 계층3 VMware(read >20ms critical) / SQL Server(~10-15ms)
 RS_NET_RETRANS_PCT = 1.0  # 계층3 monitoring(재전송 >1% 성능 영향)
 RS_NET_DROP_PCT = 0.5  # 계층3 monitoring(드롭 <0.5% 비즈니스 앱)
+# 계층3 monitoring — nf_conntrack count/max >= 80% = 연결테이블 고갈 임박(신규 연결 드롭 위험).
+RS_CONNTRACK_SATURATION_RATIO = 0.8
 RS_CONFIDENCE_MIN_HOURS = 30  # 계층3 AWS insufficient-data(14일 창 누적 30h) — 미만이면 통계 정밀도 하향(절대 바닥)
 # 여유 기준 — 다운사이즈는 위험 방향이라 창이 충분히 관측됐을 때만 처방. 절대 시간 대신 창 대비 관측 비율로
 # (관측/기대 버킷 >= 0.7) — 미세 갭 흡수 + WINDOW_DAYS 바뀌어도 문턱 불변. 0.7 = 창 30% 갭까지 허용.
@@ -640,14 +645,12 @@ RS_MEM_SATURATION_HEADROOM_PCT = 30
 
 
 def _mem_paging_active(stats: ResourceStats) -> bool:
-    """메모리 페이징 포화 os-aware — Windows Pages Input/sec rate(임계), Linux active page-out(mem_swap_paging).
+    """메모리 페이징 포화 os-aware — mem_saturated 단일 진실 위임 (Windows Pages Input/sec rate, Linux page-out).
 
-    Windows 는 pagefile paging(pages_in>0)이 여유 RAM 에도 상시 baseline 이라 raw mem_swap_paging 직접 해석 금지 —
-    os-aware helper(rate >= 임계) 경유 (swap_used 직접 해석 금지와 동일 원칙). Linux 는 active page-out 그대로.
+    mem_saturated 가 os-aware bool|None 을 돌려주고(Windows 미측정 None), 여기선 압박 발생 여부 bool 로 축약
+    (None=미측정 -> False, 근본원인 종합·사이징의 "페이징 발생" 판정용). 임계·신호 해석은 mem_saturated 단일.
     """
-    if stats.os_family == "windows":
-        return bool(mem_saturated(stats))
-    return stats.mem_swap_paging
+    return bool(mem_saturated(stats))
 
 
 def _mem_under_target(util_target: int | None, stats: ResourceStats) -> int | None:
@@ -724,44 +727,52 @@ def assess_disk_capacity(stats: ResourceStats) -> ResourceAssessment:
     conf = _base_confidence(stats)
     runway = _min_runway(stats.disk_capacity_runway_days, stats.disk_inode_runway_days)
     used = stats.disk_used_pct
+    inode_used = stats.disk_inode_used_pct
     tgt = stats.disk_capacity_target_gb
-    if runway is None:
-        # 추세 못 냄(하락·수평·데이터 부족) -> 정적 가드. 목표는 경로3(이용률 headroom).
-        if used is None:
-            conf.coverage_gap = True
-            return ResourceAssessment("disk_capacity", "unmeasured", confidence=conf, detail="용량 미측정")
-        if used >= RS_DISK_STATIC_GUARD_PCT:
-            detail = f"used {used:.0f}% (정적 가드)" + (f", 목표 {tgt:.0f}GB" if tgt else "")
-            return ResourceAssessment(
-                "disk_capacity",
-                "filling",
-                triggers=["disk_capacity"],
-                sizing_target=tgt,
-                confidence=conf,
-                detail=detail,
-            )
-        return ResourceAssessment("disk_capacity", "capacity_ok", confidence=conf, detail=f"used {used:.0f}%")
-    if runway < RS_DISK_RUNWAY_DAYS:
-        # 목표는 경로1(1년 수명, span 충분 시만 산출). inode 소진이 먼저면 목표 없음(용량 확장 무관).
+    if runway is not None and runway < RS_DISK_RUNWAY_DAYS:
+        # 소진 임박(추세 주도). 목표는 경로1(1년 수명, span 충분 시만). inode 소진이 먼저면 목표 없음(용량 확장 무관).
         rtgt = tgt if runway == stats.disk_capacity_runway_days else None
         detail = f"{runway:.0f}일 후 소진" + (f", 목표 {rtgt:.0f}GB" if rtgt else "")
         return ResourceAssessment(
             "disk_capacity", "filling", triggers=["disk_capacity"], sizing_target=rtgt, confidence=conf, detail=detail
         )
-    return ResourceAssessment("disk_capacity", "capacity_ok", confidence=conf, detail=f"{runway:.0f}일 여유")
+    # 정적 가드 — 축별로 그 축 추세가 없을 때(runway None = 수평·하락·데이터 부족) 사용률 >= 85%. 바이트/inode 대칭.
+    # 수평 추세 + inode 95% 소진처럼 추세 runway 로 안 잡히는 임박을 포착(계층3 monitoring 표준).
+    _guard = RS_DISK_STATIC_GUARD_PCT
+    byte_static = stats.disk_capacity_runway_days is None and used is not None and used >= _guard
+    inode_static = stats.disk_inode_runway_days is None and inode_used is not None and inode_used >= _guard
+    if byte_static:
+        detail = f"used {used:.0f}% (정적 가드)" + (f", 목표 {tgt:.0f}GB" if tgt else "")
+        return ResourceAssessment(
+            "disk_capacity", "filling", triggers=["disk_capacity"], sizing_target=tgt, confidence=conf, detail=detail
+        )
+    if inode_static:
+        # inode 소진은 용량 확장(GB)으로 안 풀림(mkfs 고정) -> 목표 없음, 파일 정리·재포맷 처방 층에서.
+        return ResourceAssessment(
+            "disk_capacity", "filling", triggers=["disk_capacity"], confidence=conf,
+            detail=f"inode used {inode_used:.0f}% (정적 가드)",
+        )
+    if runway is None and used is None and inode_used is None:
+        conf.coverage_gap = True
+        return ResourceAssessment("disk_capacity", "unmeasured", confidence=conf, detail="용량 미측정")
+    if runway is not None:
+        return ResourceAssessment("disk_capacity", "capacity_ok", confidence=conf, detail=f"{runway:.0f}일 여유")
+    return ResourceAssessment(
+        "disk_capacity", "capacity_ok", confidence=conf, detail=(f"used {used:.0f}%" if used is not None else "여유")
+    )
 
 
 def assess_disk_io(stats: ResourceStats) -> ResourceAssessment:
     """디스크 I/O 판정 — await p95 > 20ms면 io_bound(표시만, 사이징 불가). virtio 간섭이라 충실도 편향."""
     conf = _base_confidence(stats, biased=True)  # virtio 게스트 지연 = 하이퍼바이저·이웃 간섭 편향
-    sat = disk_io_saturated(stats)  # os-aware 단일 진실 — Linux await / Windows disk queue
+    sat = disk_io_saturated(stats)  # 단일 진실 — await 우선(양 OS), Windows await 미배선 시 큐 폴백
     if sat is None:
         conf.coverage_gap = True
         return ResourceAssessment("disk_io", "unmeasured", confidence=conf, detail="응답 지연/큐 미측정")
-    if stats.os_family == "windows":
-        detail = f"disk queue p95 {stats.disk_queue_p95:.1f}"
-    else:
+    if stats.disk_await_p95_ms is not None:
         detail = f"await p95 {stats.disk_await_p95_ms:.0f}ms"
+    else:
+        detail = f"disk queue p95 {stats.disk_queue_p95:.1f}"
     if sat:
         return ResourceAssessment("disk_io", "io_bound", triggers=["disk_io"], confidence=conf, detail=detail)
     return ResourceAssessment("disk_io", "io_ok", confidence=conf, detail=detail)
@@ -772,25 +783,33 @@ def assess_network(stats: ResourceStats) -> ResourceAssessment:
     conf = _base_confidence(stats)
     retrans = stats.net_retrans_pct
     drop = stats.net_drop_pct
+    conntrack = stats.conntrack_ratio
     triggers: list[str] = []
     if retrans is not None and retrans > RS_NET_RETRANS_PCT:
         triggers.append("net_retrans")
     if drop is not None and drop > RS_NET_DROP_PCT:
         triggers.append("net_drop")
+    if conntrack is not None and conntrack >= RS_CONNTRACK_SATURATION_RATIO:
+        triggers.append("net_conntrack")  # 연결테이블 고갈 임박 — 신규 연결 드롭 위험(NAT·프록시·방화벽)
     if triggers:
         parts = []
         if retrans is not None:
             parts.append(f"재전송 {retrans:.1f}%")
         if drop is not None:
             parts.append(f"드롭 {drop:.2f}%")
+        if "net_conntrack" in triggers:
+            parts.append(f"conntrack {conntrack * 100:.0f}%")
         return ResourceAssessment("network", "congested", triggers=triggers, confidence=conf, detail=" ".join(parts))
-    if retrans is None and drop is None:
+    if retrans is None and drop is None and conntrack is None:
         conf.coverage_gap = True
         return ResourceAssessment("network", "unmeasured", confidence=conf, detail="품질 신호 미측정")
     return ResourceAssessment("network", "quality_ok", confidence=conf)
 
 
-_ROOTABLE_UNDER = ("under", "io_bound", "filling", "congested")  # 처방 대상 상태 (부족·병목·소진임박·혼잡)
+# 처방 대상 상태 (부족·병목·소진임박) — 호스트 under/over 축. 네트워크 congested 는 제외:
+# 원칙상 네트워크는 사이징(under/over) 축이 아니라 품질 신호라, 호스트를 "자원 부족"으로 분류하지 않고
+# HostAssessment.network_congested 플래그로만 orthogonal 노출 (별도 "네트워크 혼잡" 경고). ADR 0052 정합.
+_ROOTABLE_UNDER = ("under", "io_bound", "filling")
 
 
 def _host_status(stats: ResourceStats, res: dict[str, ResourceAssessment], under_kinds: set[str]) -> HostStatus:
@@ -848,6 +867,15 @@ def rollup_host(stats: ResourceStats) -> HostAssessment:
     host.network_congested = res["network"].status == "congested"
     host.host_status = _host_status(stats, res, under_kinds)
     return host
+
+
+def host_saturation_unmeasured(host: HostAssessment) -> bool:
+    """호스트 포화 축(cpu·memory·disk_io) 중 하나라도 미관측인지 — is_partial·confidence '포화 수치 미관측' 단일 진실.
+
+    disk_capacity(용량 누적)·network(품질) 미측정은 포화 축이 아니라 제외 — 구 assess.is_partial(saturation 축 한정)
+    의 신 모델 대응. Windows perflib 미발행·구세대 viostor await 미측정 등이 여기로 노출된다.
+    """
+    return any(host.resources[k].confidence.coverage_gap for k in _SATURATION_KINDS if k in host.resources)
 
 
 # 자원 부족 처방 기본 문구 (root 자원별). 사이징 축(cpu/memory)은 목표 있으면 "-> 총량 목표"로 대체.
@@ -976,4 +1004,5 @@ RS_TRIGGER_LABEL_KO: dict[str, str] = {
     "disk_io": "디스크 I/O 응답 지연",
     "net_retrans": "TCP 재전송 과다",
     "net_drop": "패킷 드롭 과다",
+    "net_conntrack": "연결테이블 고갈 임박",
 }

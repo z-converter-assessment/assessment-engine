@@ -230,12 +230,15 @@ def test_report_row_is_partial_by_unmeasured_saturation():
 
 
 def test_report_row_windows_swap_not_high_risk():
-    """동일 통계(낮은 cpu/mem + swap_used)라도 Windows 는 swap 제외 -> under_provisioned(high) 로 왜곡 안 됨."""
-    stats = dict(cpu_p95=20.0, cpu_peak=25.0, mem_p95=30.0, mem_peak=35.0, swap_used=True)
+    """동일 통계(낮은 cpu/mem + active page-out)라도 Windows 는 page-out(pswpout) 축 제외 -> high 로 왜곡 안 됨.
+
+    Windows 메모리 포화는 mem_pages_input rate(하드폴트)로만 — Linux page-out 신호(mem_swap_paging)를 무시한다.
+    """
+    stats = dict(cpu_p95=20.0, cpu_peak=25.0, mem_p95=30.0, mem_peak=35.0, mem_swap_paging=True)
     linux = to_report_row_item(_raw(os_family="linux", **stats), True, _NOW)
     windows = to_report_row_item(_raw(os_family="windows", **stats), True, _NOW)
-    assert linux.risk_level == "high"  # swap short-circuit -> under_provisioned
-    assert windows.risk_level != "high"  # swap 제외 -> 저사용
+    assert linux.risk_level == "high"  # Linux active page-out -> under_provisioned
+    assert windows.risk_level != "high"  # Windows 는 page-out 축 제외 -> 저사용
     assert "스왑" not in windows.diagnosis  # 판단 컬럼도 스왑 발생 오인 안 함
 
 
@@ -1085,10 +1088,10 @@ def test_inventory_export_services_listeners_fallback_when_no_listen_ports():
 @pytest.mark.parametrize(
     "kwargs, expected",
     [
-        ({"swap_used": True}, "메모리 부족 (스왑 발생)"),
+        ({"mem_swap_paging": True}, "메모리 부족 (스왑 발생)"),  # ADR 0052: 정적 점유 아닌 active page-out
         ({"disk_await_p95_ms": 25.0}, "디스크 I/O 병목"),
         ({"cpu_cores": 4, "procs_running_p95": 5.0}, "CPU 포화"),
-        ({"mem_p95": 85.0}, "메모리 압박"),
+        ({"mem_p95": 92.0}, "메모리 압박"),  # ADR 0052: mem_util 임계 90(Azure) — 85 는 더 이상 under 아님
         ({"cpu_p95": 75.0}, "CPU 압박"),
         ({"cpu_p95": 50.0, "cpu_peak": 99.0}, "부하 변동 큼"),  # variance + peak 99>30 -> 발화
         # peak 가 sizing 유의미 수준(>30)일 때만 variance 발화 — 저부하 지터는 gate (거의 미사용 우선).
@@ -1156,25 +1159,30 @@ def _rs(**kw):
     return recommendation.ResourceStats(**base)
 
 
+def _host(status: str) -> recommendation.HostAssessment:
+    """신 모델 host_status 만 지정한 최소 HostAssessment (비-under 조치 테스트용 — resources 불요)."""
+    return recommendation.HostAssessment(resources={}, host_status=status)
+
+
 @pytest.mark.parametrize(
-    "rec, expected",
+    "status, expected",
     [
         # 비-under·비-idle 은 상태별 고정 조치 (recommendation.recommend_action 도메인 단일 진실).
-        ("over_provisioned", "축소 검토"),
+        ("over", "축소 검토"),
         ("optimal", "적정 — 유지"),
-        ("insufficient_data", "표본 부족 — 관측 지속"),
+        ("insufficient", "표본 부족 — 관측 지속"),
     ],
 )
-def test_recommendation_action_fixed_phrases(rec, expected):
-    assert _build_recommendation_action(recommendation.Assessment(rec, [], []), _rs()) == expected
+def test_recommendation_action_fixed_phrases(status, expected):
+    assert _build_recommendation_action(_host(status), _rs()) == expected
 
 
 def test_recommendation_action_idle_strong_vs_weak():
     """유휴 조치는 강도로 분기 — 확실(거의 0)=즉시 종료 / 저사용=통합·재배치 (IDLE_STRONG)."""
     strong = _rs(cpu_peak_pct=0.5, net_avg_kbps=0.5)  # peak<=1% AND net<=1kB/s
     weak = _rs(cpu_peak_pct=2.0, net_avg_kbps=100.0)
-    assert _build_recommendation_action(recommendation.Assessment("idle", [], []), strong) == "즉시 종료 검토"
-    assert _build_recommendation_action(recommendation.Assessment("idle", [], []), weak) == "통합·재배치 검토"
+    assert _build_recommendation_action(_host("idle"), strong) == "즉시 종료 검토"
+    assert _build_recommendation_action(_host("idle"), weak) == "통합·재배치 검토"
 
 
 # ─── build_resource_stats — 분류 입력 단일 진실 (report·attention·목록·도넛 공용) ───

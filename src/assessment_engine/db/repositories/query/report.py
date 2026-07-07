@@ -62,6 +62,12 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     delta(mem_pages_input_ca) AS pages_in_delta,
                     delta(oom_kill_ca)        AS oom_delta,
                     delta(tcp_retrans_ca)     AS retrans_delta,
+                    -- Windows disk await(ms) — IOCTL ReadTime/WriteTime(100ns) 합산 delta / ReadCount+WriteCount delta.
+                    -- 100ns -> ms 는 /10000. Linux/구세대 viostor 는 카운터 null -> counter_agg 무샘플 -> delta null -> await null.
+                    CASE WHEN delta(sat_disk_count_ca) > 0
+                         THEN GREATEST(0, delta(sat_disk_time_ca) / delta(sat_disk_count_ca) / 10000.0)
+                    END AS win_await_ms,
+                    conntrack_ratio_max AS conntrack_ratio,
                     mem_pct_avg, mem_pct_max, load_15m_max, swap_in_use, disk_queue_avg, cpu_run_queue_avg
                 FROM server_metrics_5m
                 WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
@@ -79,7 +85,9 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     -- Windows CPU saturation(Processor Queue Length gauge)·Memory saturation(Pages Input/sec rate) p95.
                     -- Linux 는 두 축 null -> percentile_cont 가 null 반환(load/swap 축 사용 유지).
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY cpu_run_queue_avg) AS cpu_run_queue_p95,
-                    percentile_cont(0.95) WITHIN GROUP (ORDER BY pages_input_rate) AS mem_pages_input_rate_p95
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY pages_input_rate) AS mem_pages_input_rate_p95,
+                    -- Windows disk await p95(ms) — Linux 는 win_await_ms null -> null. 최종 disk_await_p95_ms 에 COALESCE.
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY win_await_ms) AS win_await_p95
                 FROM bkt GROUP BY server_id
             ),
             mem_stats AS (
@@ -104,13 +112,15 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     bool_or(COALESCE(pswpout_delta, 0) > 0 OR COALESCE(pages_in_delta, 0) > 0) AS swap_paging,
                     bool_or(COALESCE(oom_delta, 0) > 0) AS oom_occurred,
                     SUM(retrans_delta) AS retrans_total,
+                    MAX(conntrack_ratio) AS conntrack_ratio,  -- 연결테이블 고갈 임박(count/max), 창 내 worst
                     regr_slope(cpu_pct, extract(epoch FROM bucket)) * 86400 AS cpu_trend_slope,
                     regr_slope(mem_pct_avg, extract(epoch FROM bucket)) * 86400 AS mem_trend_slope
                 FROM bkt GROUP BY server_id
             ),
             mount_max AS (
                 -- 서버 worst mount used_pct (period 안 최대). server_mount_usage_5m cagg (가상 mount 필터 pre-applied).
-                SELECT server_id, MAX(used_pct_max) AS worst_used_pct
+                -- inode used% 도 나란히 (바이트 85% 정적 가드 대칭 — 수평 추세 inode 소진 임박 포착, ADR 0052 Phase 1).
+                SELECT server_id, MAX(used_pct_max) AS worst_used_pct, MAX(inode_used_pct_max) AS worst_inode_used_pct
                 FROM server_mount_usage_5m
                 WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
                 GROUP BY server_id
@@ -263,7 +273,10 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 COALESCE(rs.swap_paging, false) AS swap_paging,
                 COALESCE(rs.oom_occurred, false) AS oom_occurred,
                 cs.cpu_sample * 5.0 / 60.0 AS history_hours,  -- 관측 버킷(5분) 누적 시간(계층3 AWS 30h floor)
-                da.await_p95 AS disk_await_p95_ms,
+                -- await p95(ms) — Linux(server_disk_io time delta) / Windows(IOCTL 100ns delta) COALESCE. 호스트는 한 OS 라 한쪽만 non-null.
+                COALESCE(da.await_p95, cs.win_await_p95) AS disk_await_p95_ms,
+                mm.worst_inode_used_pct AS disk_inode_used_pct,  -- inode 정적 가드 (바이트 85% 대칭)
+                rs.conntrack_ratio AS conntrack_ratio,  -- 연결테이블 고갈 임박(count/max)
                 mr.disk_runway_days  AS disk_capacity_runway_days,
                 mr.inode_runway_days AS disk_inode_runway_days,
                 mr.target_gb         AS disk_capacity_target_gb,
@@ -351,8 +364,10 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 disk_capacity_proj_30d_pct=r.disk_capacity_proj_30d_pct,
                 disk_capacity_driving_used_pct=r.disk_capacity_driving_used_pct,
                 disk_inode_runway_days=r.disk_inode_runway_days,
+                disk_inode_used_pct=r.disk_inode_used_pct,
                 net_drop_pct=r.net_drop_pct,
                 net_retrans_pct=r.net_retrans_pct,
+                conntrack_ratio=r.conntrack_ratio,
                 cpu_trend_slope=r.cpu_trend_slope,
                 mem_trend_slope=r.mem_trend_slope,
                 cpu_percore_p95_max=r.cpu_percore_p95_max,

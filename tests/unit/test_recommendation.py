@@ -26,7 +26,6 @@ from assessment_engine.recommendation import (
     disk_io_saturated,
     is_partial_evaluation,
     mem_saturated,
-    swap_saturation,
 )
 
 
@@ -78,9 +77,12 @@ def test_idle_not_triggered_when_net_above_2mbps():
 
 
 # 우선순위 4: under — swap_used short-circuit
-def test_under_swap_used_short_circuit():
-    """swap_used = True 면 cpu/mem 무관 즉시 under_provisioned."""
-    assert classify(_stats(cpu_p95_pct=20.0, mem_p95_pct=30.0, swap_used=True)) == "under_provisioned"
+def test_under_page_out_short_circuit():
+    """활성 page-out(mem_swap_paging) 이면 cpu/mem 무관 즉시 under_provisioned (ADR 0052 — 정적 swap 점유 아님)."""
+    assert classify(_stats(cpu_p95_pct=20.0, mem_p95_pct=30.0, mem_swap_paging=True)) == "under_provisioned"
+    # 정적 스왑 점유만(page-out 없음) 은 포화 아님 -> under 아님
+    occupied = _stats(cpu_p95_pct=20.0, mem_p95_pct=30.0, swap_used=True, mem_swap_paging=False)
+    assert classify(occupied) != "under_provisioned"
 
 
 # 우선순위 5: under — disk capacity >= 85%
@@ -186,16 +188,22 @@ def test_threshold_boundary_inclusive(case):
 # ─── OS family 분기 (원칙 P2 — Windows pagefile != Linux swap saturation) ───
 
 
-def test_swap_saturation_linux_and_unknown_passthrough():
-    # os_family None(unknown) / linux → swap_used 그대로 (옛 동작 보존)
-    assert swap_saturation(None, True) is True
-    assert swap_saturation("linux", True) is True
-    assert swap_saturation("linux", False) is False
+def test_mem_saturated_linux_uses_page_out_not_static_swap():
+    # ADR 0052: Linux 메모리 포화 = active page-out(mem_swap_paging), 정적 스왑 점유(swap_used) 아님.
+    # swappiness 로 여유 RAM 에도 유휴 페이지 스왑아웃하므로 점유는 압박 신호가 아님.
+    assert mem_saturated(_stats(os_family="linux", swap_used=True, mem_swap_paging=False)) is False
+    assert mem_saturated(_stats(os_family="linux", swap_used=False, mem_swap_paging=True)) is True
 
 
-def test_swap_saturation_windows_excluded():
-    # Windows pagefile 상시 사용은 saturation 신호 아님 → swap_used=True 여도 False
-    assert swap_saturation("windows", True) is False
+def test_mem_saturated_windows_excludes_pagefile_uses_hardfault_rate():
+    # Windows pagefile 상시 사용은 신호 아님 → 하드폴트율(pages_input rate) 로만 판정.
+    assert mem_saturated(_stats(os_family="windows", swap_used=True, mem_swap_paging=True)) is None
+    assert (
+        mem_saturated(
+            _stats(os_family="windows", swap_used=True, mem_swap_paging=True, mem_pages_input_rate_p95=50.0)
+        )
+        is True
+    )
 
 
 def test_classify_windows_swap_not_under_provisioned():
@@ -203,8 +211,8 @@ def test_classify_windows_swap_not_under_provisioned():
     # cpu 20% / mem 30% (낮음) + swap_used=True:
     #   Linux  → swap short-circuit → under_provisioned
     #   Windows→ swap 제외 → cpu/mem 낮으니 over_provisioned
-    linux = _stats(cpu_p95_pct=20.0, mem_p95_pct=30.0, swap_used=True, os_family="linux")
-    windows = _stats(cpu_p95_pct=20.0, mem_p95_pct=30.0, swap_used=True, os_family="windows")
+    linux = _stats(cpu_p95_pct=20.0, mem_p95_pct=30.0, mem_swap_paging=True, os_family="linux")
+    windows = _stats(cpu_p95_pct=20.0, mem_p95_pct=30.0, mem_swap_paging=True, os_family="windows")
     assert classify(linux) == "under_provisioned"
     assert classify(windows) == "over_provisioned"
 
@@ -275,9 +283,9 @@ def test_cpu_saturated_os_aware():
 
 
 def test_mem_saturated_os_aware():
-    # Linux: swap page-out (항상 관측 — None 없음)
-    assert mem_saturated(_stats(swap_used=True)) is True
-    assert mem_saturated(_stats(swap_used=False)) is False
+    # Linux: active page-out(mem_swap_paging, 항상 관측 — None 없음). 정적 swap 점유(swap_used) 는 신호 아님.
+    assert mem_saturated(_stats(mem_swap_paging=True)) is True
+    assert mem_saturated(_stats(mem_swap_paging=False, swap_used=True)) is False
     # Windows: pagefile 사용량(swap_used) 무시, Pages Input/sec(하드폴트) rate 로 판정
     assert mem_saturated(_win(mem_pages_input_rate_p95=WIN_PAGES_INPUT_SATURATION)) is True
     assert mem_saturated(_win(mem_pages_input_rate_p95=10.0)) is False  # < 20

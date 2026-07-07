@@ -62,7 +62,7 @@ routing key `server.metrics`. 모두 raw 누적값. 엔진이 연속 2회 readin
 | `mounts[]` | object | `{mount, fstype, total_bytes, free_bytes, avail_bytes, major, minor, kind}`. `kind="data"` 만 데이터 볼륨 집계. Windows: `mount=`drive letter |
 | `net_io[]` | object | `{interface, rx_bytes, tx_bytes, rx_packets, tx_packets, rx_errors, tx_errors, kind}`. `kind in {physical, bond_master}` 집계 (bond_master=본딩 집계 단위, bond_member 제외). Windows: `interface`=friendly name (UTF-8) |
 | `saturation` | object\|null | Windows USE Method raw 신호 `{disk_queue, cpu_run_queue, mem_paging_rate}`. `disk_queue`=물리 디스크별 `[{device, queue}]` gauge (빈 배열=diskperf 미부착 미측정) — 엔진이 per-device max p95 로 disk saturation 판정. `cpu_run_queue`=Processor Queue Length gauge (엔진 run queue/core >= 2). `mem_paging_rate`=Memory Pages/sec 누적 counter (레거시 — 엔진 메모리 포화는 총 Pages/sec 대신 top-level `mem_pages_input` 하드폴트 rate p95>=20 사용). 각 `null`=perflib 미발행 -> 그 축만 미관측. Linux 는 await/procs_running/swap 사용이라 미발행 |
-| host-wide | int\|null | `procs_running`/`procs_blocked`(실행큐/D-state) · `schedstat_run_wait_ns` · `pswpin`/`pswpout`(스왑 발생) · `oom_kill`(4.13+) · `mem_pages_input`(Windows Pages Input raw, mmap 미혼입) · `tcp_retrans_segs` · `tcp_tw`(TIME_WAIT) · `conntrack_count`/`conntrack_max`. 전부 raw·optional(없으면 null). `cpu_per_core[]`·`psi_*_some_total` 은 발행되나 엔진 미저장(#B drop — 필요 시 추가) |
+| host-wide | int\|null | `procs_running`/`procs_blocked`(실행큐/D-state) · `schedstat_run_wait_ns` · `pswpin`/`pswpout`(스왑 발생) · `oom_kill`(4.13+) · `mem_pages_input`(Windows Pages Input raw, mmap 미혼입) · `tcp_retrans_segs` · `tcp_tw`(TIME_WAIT) · `conntrack_count`/`conntrack_max`. 전부 raw·optional(없으면 null). `cpu_per_core[]` 는 `server_cpu_core` 저장·per-core p95 max 로 단일스레드 병목 판정에 활용, `psi_*_some_total` 만 미저장(분류 미채택) |
 | `disk_io[]` await (신) | int\|null | `disk_io[]` 각 항목에 `time_reading_ms`/`time_writing_ms`(await 원자료) · `io_ticks_ms`/`weighted_io_ms`(%util·avgqu 참고) 추가. 엔진이 delta(time)/delta(count) 로 응답 지연 산출 (virtio 라 %util 대신 await 가 포화 주신호) |
 | `net_io[]` drops (신) | int\|null | `net_io[]` 각 항목에 `rx_drops`/`tx_drops` 추가 (링 버퍼 오버런·경로 손실 품질 신호) |
 | `mounts[]` inode (신) | int\|null | `mounts[]` 각 항목에 `inodes_total`/`inodes_free` 추가 (statvfs f_files/f_ffree — inode 소진 예측, 바이트와 나란히) |
@@ -208,14 +208,14 @@ success 경로: agent worker 가 download.url 에서 패키지 fetch → install
 |------|--------|-----------|
 | `disk_io[].major/minor` | metrics | `server_disk_io` 에 컬럼 없음. 물리 판정은 `kind` 컬럼 (Linux 는 음수 시 키 omit, Windows 는 null) |
 | `boot_time` / `agent_started_at` | error | error 는 로깅 외 활용처 없음 — counter reset 식별과 무관 |
-| `saturation.disk_queue[].{read_time, write_time, idle_time, read_count, write_count, query_time}` | metrics | `DiskQueueEntry` 가 `queue` 만 파싱(`extra=ignore`). Windows await·%util 산출 원자료(IOCTL 100ns 누적)를 미저장 -> Windows disk 포화는 큐 gauge 만, Linux 처럼 await 산출 안 함. 활용 시 스키마·컬럼·await delta 계산 추가 의무 (덜 쓰는 데이터 — 활용 대상) |
-| `cpu_per_core[]` · `psi_*_some_total` | metrics | 발행되나 미저장 (#B drop, 필요 시 추가) |
+| `saturation.disk_queue[].{idle_time, query_time}` | metrics | `read_time`/`write_time`/`read_count`/`write_count` 는 활용(아래 "활용 중" — Windows await), `idle_time`(%util)·`query_time`(델타 분모 대체)만 미소비. IOCTL 100ns 누적 |
+| `psi_*_some_total` | metrics | PSI(cpu/memory/io some total) 발행되나 미저장 — 커널 4.20+ 편중이라 분류 미채택(관측·검증용). fleet 정합 위해 대체 신호(procs_running·pswpout·await) 단일 경로 |
 
 `mem_pages_input`(Windows Pages Input/sec, 하드 read 폴트, mmap 미혼입)이 Windows 메모리 포화 판정의 주신호다 — `mem_saturated`(rate p95>=20)·상세 스냅샷·report cagg `swap_paging` 불리언 모두 이걸 소비. 총 `mem_paging_rate`(Pages/sec)는 mmap 파일 I/O 혼입으로 부풀려져(관측 예: 82775) 포화 판정 미사용 (wire 수신만). 임계 근거는 `right-sizing.md` 8절.
 
 inventory `mounts[]` 는 발행 측이 `free_bytes`/`avail_bytes` 를 애초에 싣지 않는다 (wire 계약상 inventory=구조 / metrics=사용량 역할 분리) — 엔진이 drop 할 대상 자체가 없다.
 
-`task.result` 의 `failure_reason`/`exit_code`/`signal_no`/`duration_ms`/`stdout_tail`/`stderr_tail`/`completed_at` 는 `Task` 테이블 컬럼으로 저장. `os_codename` 은 수신하나 미저장(task 의 OS 는 `server_inventory` 소관). 표시 계층(`TaskDetailItem` -> task 상세 모달 `tasks/_detail.html` + `GET /api/tasks/{id}`)은 status·failure_reason 라벨 + exit_code·signal_no(SIG 이름 라벨, `mappers/task._signal_label`)·duration·stdout_tail·stderr_tail 노출. `signal_no` 는 값 있을 때만 "시그널" 행 표시(exit_code 와 상호배타).
+`task.result` 의 `failure_reason`/`exit_code`/`signal_no`/`install_verified`/`duration_ms`/`stdout_tail`/`stderr_tail`/`completed_at` 는 `Task` 테이블 컬럼으로 저장. `install_verified`(bool\|null)는 agent worker 가 installer 종료 후 실제 설치(데몬 기동+ZDM 등록)를 점검한 신호로, 판정 1순위(`task_policy`: True->success / False->failure, exit_code 보다 우선). 구버전 agent 미발행 시 null -> 레거시 exit_code+allowlist 폴백. `os_codename` 은 수신하나 미저장(task 의 OS 는 `server_inventory` 소관). 표시 계층(`TaskDetailItem` -> task 상세 모달 `tasks/_detail.html` + `GET /api/tasks/{id}`)은 status·failure_reason 라벨 + exit_code·signal_no(SIG 이름 라벨, `mappers/task._signal_label`)·duration·stdout_tail·stderr_tail 노출. `signal_no` 는 값 있을 때만 "시그널" 행 표시(exit_code 와 상호배타).
 
 ## 활용 중인 필드
 

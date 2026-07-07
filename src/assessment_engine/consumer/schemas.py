@@ -224,6 +224,12 @@ class DiskQueueEntry(BaseModel):
     # 물리 디스크별 순간 큐 깊이 (Windows PhysicalDriveN IOCTL_DISK_PERFORMANCE.QueueDepth). device = disks[].name.
     device: str = Field(min_length=1, max_length=128)
     queue: float | None = Field(default=None, ge=0)
+    # await 원자료 — 같은 IOCTL_DISK_PERFORMANCE 의 ReadTime/WriteTime(100ns 누적)·ReadCount/WriteCount.
+    # 엔진이 device 합산 후 counter_agg delta(time)/delta(count) 로 응답 지연 산출(Linux time_reading/writing 등가).
+    read_time: int | None = Field(default=None, ge=0)
+    write_time: int | None = Field(default=None, ge=0)
+    read_count: int | None = Field(default=None, ge=0)
+    write_count: int | None = Field(default=None, ge=0)
 
 
 class SaturationInfo(BaseModel):
@@ -327,6 +333,9 @@ class TaskResultInput(MessageBase):
     # 시그널종료=exit_code null/signal_no 값, 미포착=둘 다 null. signal_no 는 Windows 항상 null.
     exit_code: int | None = None
     signal_no: int | None = None
+    # 실제 설치 신호 — agent worker 가 installer 종료 후 데몬 기동+ZDM 등록을 점검한 결과. 판정 1순위
+    # (task_policy: True->success / False->failure, exit_code 보다 우선). 구버전 agent 미발행 시 None -> 레거시 폴백.
+    install_verified: bool | None = None
     # OS 식별자 — 성공 exit code 보정 정책(task_policy.effective_task_result)의 키. agent 가 task.result 에
     # os_family(MessageBase)·os_id·os_version 을 inventory 와 동일 소스로 발행 (Windows os_version=DisplayVersion).
     os_id: str | None = Field(default=None, max_length=64)

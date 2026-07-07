@@ -21,7 +21,7 @@ from assessment_engine.web.services.mappers.shared import (
     _CAUSE_LABEL_BY_TRIGGER,
     _DONUT_SEGMENT_DEFS,
     UTIL_GAUGE_COLOR,
-    build_confidence_notes,
+    build_host_confidence_notes,
     resolve_os_eol,
     saturation_axis_displays,
 )
@@ -389,10 +389,9 @@ def to_capacity_warning_item(raw):
     run queue(procs_running) / Windows Processor Queue (P2). 지표 라벨은 os-neutral 축 이름, 값·measured 는 os-aware.
     """
     stats = build_resource_stats(raw)
-    # 분류·근본원인·처방·지표 강조 모두 rollup_host 단일 모델 — 카드 편입(classify_host)과 정합.
-    # root 만 처방(하류는 증상). assessment 는 confidence_notes(is_partial·low_sample) 전용.
+    # 분류·근본원인·처방·지표 강조·신뢰도 전부 rollup_host 단일 모델 — 화면 간 정합(#E3, ADR 0052 Phase D).
+    # root 만 처방(하류는 증상). confidence_notes 도 host 기반(build_host_confidence_notes) — 구 assess 미경유.
     host = recommendation.rollup_host(stats)
-    assessment = recommendation.assess(stats)
     classification = recommendation.host_status_to_recommendation(host.host_status)
     # 지표 강조(active) = rollup per-resource 트리거 집합 — 분류가 잡은 축이 곧 강조 축(runway 소진 디스크 포함).
     hit = {t for r in host.resources.values() for t in r.triggers}
@@ -446,7 +445,7 @@ def to_capacity_warning_item(raw):
         # 워크로드 카테고리 카운트 — role_distribution 과 동일 단일 진실 (services 이름 ∪ listen 소켓).
         services=dict(workload_category_counter(raw.services, raw.listen_ports)),
         metrics=metrics,
-        confidence_notes=build_confidence_notes(assessment),
+        confidence_notes=build_host_confidence_notes(host),
         recommendation_action=action,
         root_cause_label=recommendation.root_cause_display(host),
         severity_score=severity_score,

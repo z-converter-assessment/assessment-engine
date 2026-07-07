@@ -98,6 +98,9 @@ class ServerListItem:
     # 분류 raw enum — list 필터링 단일 진실 (optimal / over_provisioned / under_provisioned /
     # idle / insufficient_data). raws_period 부재 시 빈 문자열.
     provisioning_class: str = ""
+    # 네트워크 혼잡 — 사이징(under/over) 축과 분리된 orthogonal 품질 플래그 (ADR 0052, 원칙 P2).
+    # 재전송>1% or 드롭>0.5%. 자원 분류 배지와 별개로 목록에 "혼잡" 마커 노출 (host under 로 오분류 금지).
+    network_congested: bool = False
     # OS distro(endoflife 카탈로그 product slug) — OS 필터 단일 진실.
     # os_id_to_distro(os_id) 정규화 (rocky->rocky-linux).
     os_distro: str = ""

@@ -39,6 +39,13 @@ class ServerMetrics(Base):
     sat_disk_queue: Mapped[float | None] = mapped_column(Float)
     sat_cpu_run_queue: Mapped[float | None] = mapped_column(Float)
     sat_mem_paging_rate: Mapped[float | None] = mapped_column(Float)
+    # Windows disk await 원자료 — saturation.disk_queue[] IOCTL_DISK_PERFORMANCE ReadTime/WriteTime(100ns 누적)·
+    # ReadCount/WriteCount 를 device 합산 저장. 엔진 counter_agg delta(time)/delta(count) 로 await 산출(Linux 등가,
+    # ADR 0052 Phase 1). IOCTL 미부착(구세대 viostor)이면 disk_queue[] 빈 배열 -> NULL(포화 미관측).
+    sat_disk_read_time: Mapped[int | None] = mapped_column(BigInteger)
+    sat_disk_write_time: Mapped[int | None] = mapped_column(BigInteger)
+    sat_disk_read_count: Mapped[int | None] = mapped_column(BigInteger)
+    sat_disk_write_count: Mapped[int | None] = mapped_column(BigInteger)
 
     # ADR 0052 신 신호 (전부 nullable — agent optional 발행, 없으면 null). raw 카운터, 엔진이 델타/비율/임계 산출.
     procs_running: Mapped[int | None] = mapped_column(Integer)  # 실행 큐 (/proc/stat)

@@ -240,12 +240,16 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
     show_unknown = False
 
     rec_label, rec_color, seg_key = "", "", ""
+    net_congested = False
     if raw_period is not None:
         # build_resource_stats 단일 진실(net baseline 포함) — 보고서·대시보드와 동일 분류 입력 (#E3).
         # report mapper 지연 import: report.py 가 본 모듈을 import 하므로 모듈 레벨 순환 회피.
         from assessment_engine.web.services.mappers.report import build_resource_stats
 
-        rec = recommendation.classify_host(build_resource_stats(raw_period))
+        # rollup_host 1회 산출 -> 분류 배지 + orthogonal 네트워크 혼잡 플래그 (classify_host 내부도 rollup_host 경유).
+        host = recommendation.rollup_host(build_resource_stats(raw_period))
+        rec = recommendation.host_status_to_recommendation(host.host_status)
+        net_congested = host.network_congested
         seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
         # 색은 _DONUT_SEGMENT_DEFS, 라벨은 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 서버목록 칼럼 한글 표시.
         for key, _label, color, _desc in _DONUT_SEGMENT_DEFS:
@@ -272,6 +276,7 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
         recommendation_label=rec_label,
         recommendation_color=rec_color,
         provisioning_class=seg_key,
+        network_congested=net_congested,
         os_distro=os_id_to_distro(dto.os_id),
     )
 

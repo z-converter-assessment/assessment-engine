@@ -25,6 +25,27 @@ def _max_disk_queue(sat: SaturationInfo | None) -> float | None:
     return max(queues) if queues else None
 
 
+def _await_fields(sat: SaturationInfo | None) -> dict[str, int | None]:
+    """per-disk IOCTL await 원자료 -> device 합산 sat_disk_{read,write}_{time,count} dict.
+
+    Windows disk_io 가 시스템 전역 단일 엔트리라 disk await 도 device 합산으로 시스템 전역 응답 지연 산출
+    (엔진 counter_agg delta(time)/delta(count)). 값 없는 축(구세대 viostor IOCTL 미부착 -> 빈 배열)은 None 유지
+    (0 날조 금지 — counter_agg 가 NULL 을 미관측으로 흡수). 축별로 하나라도 실측 있으면 그 축 합산.
+    """
+    entries = sat.disk_queue if (sat and sat.disk_queue) else []
+
+    def _sum(attr: str) -> int | None:
+        vals = [getattr(e, attr) for e in entries if getattr(e, attr) is not None]
+        return sum(vals) if vals else None
+
+    return {
+        "sat_disk_read_time": _sum("read_time"),
+        "sat_disk_write_time": _sum("write_time"),
+        "sat_disk_read_count": _sum("read_count"),
+        "sat_disk_write_count": _sum("write_count"),
+    }
+
+
 def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
     """metrics 메시지로부터 최소 정보의 placeholder inventory 생성.
 
@@ -164,6 +185,7 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         sat_disk_queue=_max_disk_queue(data.saturation),
         sat_cpu_run_queue=data.saturation.cpu_run_queue if data.saturation else None,
         sat_mem_paging_rate=data.saturation.mem_paging_rate if data.saturation else None,
+        **_await_fields(data.saturation),
         # disk_io·metrics mount 의 major/minor 는 시계열에 미저장 (물리 판정·data-volume 판정은 kind).
         # mount-disk 조인용 major/minor 는 inventory mount(정적)만 보유.
         disk_io=[

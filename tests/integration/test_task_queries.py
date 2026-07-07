@@ -135,6 +135,21 @@ async def test_complete_task_stores_signal_no(
     assert row.signal_no == 9
 
 
+async def test_complete_task_stores_install_verified(collect_repo: CollectRepository) -> None:
+    """install_verified 실값(True/False) 영속 — 판정 1순위 신호 raw 보존(감사)."""
+    sid = await _setup_server(collect_repo)
+    for verified in (True, False):
+        pid = await _insert_task(collect_repo, sid, _AGENT_A)
+        update = make_task_result_update(public_id=pid, install_verified=verified)
+        assert await collect_repo.complete_task(update) is True
+        row = (
+            await collect_repo.session.execute(
+                text("SELECT install_verified FROM tasks WHERE public_id = :p"), {"p": pid}
+            )
+        ).scalar_one()
+        assert row is verified
+
+
 async def test_complete_task_unknown_public_id_returns_false(collect_repo: CollectRepository) -> None:
     update = make_task_result_update(public_id="00000000-0000-4000-8000-000000000000")
     updated = await collect_repo.complete_task(update)

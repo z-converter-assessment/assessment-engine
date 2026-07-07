@@ -32,6 +32,9 @@
     {% else %}
       <span class="text-meta text-xs">—</span>
     {% endif %}
+    {% if s.network_congested %}
+      <span class="badge badge-warn text-xs" title="TCP 재전송 > 1% 또는 패킷 드롭 > 0.5% — 사이징 아닌 네트워크 품질 경고">네트워크 혼잡</span>
+    {% endif %}
   </td>
   <td>
     {% if s.last_task %}

@@ -119,6 +119,7 @@ class TaskResultUpdate:
     failure_reason: str | None
     exit_code: int | None
     signal_no: int | None  # 시그널 사망 시 시그널 번호 (exit_code 와 상호배타)
+    install_verified: bool | None  # 실제 설치 신호(데몬 기동+등록) — 판정 1순위, 미보고 시 None
     duration_ms: int
     stdout_tail: str
     stderr_tail: str
@@ -180,6 +181,11 @@ class ServerMetricCreate:
     tcp_tw: int | None = None
     conntrack_count: int | None = None
     conntrack_max: int | None = None
+    # Windows disk await 원자료 (device 합산, 100ns/count 누적) — 엔진 counter_agg delta 로 await 산출
+    sat_disk_read_time: int | None = None
+    sat_disk_write_time: int | None = None
+    sat_disk_read_count: int | None = None
+    sat_disk_write_count: int | None = None
 
 
 # --- 보고서 발행 job INSERT 입력 ---

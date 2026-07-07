@@ -29,6 +29,7 @@ _FAILURE_REASON_LABEL: dict[str, str] = {
     "already_done": "중복 배달",
     "unsupported_install_type": "agent 가 처리 못 하는 install type",
     "timeout": "응답 시간 초과(미수신)",
+    "install_unverified": "설치 미확인 (데몬 미기동/미등록)",
 }
 
 

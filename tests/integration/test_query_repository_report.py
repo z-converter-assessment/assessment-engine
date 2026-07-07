@@ -648,3 +648,50 @@ async def test_report_aggregate_runqueue_oom_absent(collect_repo, query_repo):
     r = (await query_repo.report_aggregate([sid], period_days=1, end=end + timedelta(minutes=1)))[0]
     assert r.procs_running_p95 is None
     assert r.oom_occurred is False
+
+
+# ─── ADR 0052 Phase 1 신 신호 값 검증 — Windows await(counter_agg) · conntrack ratio · inode used% ───
+async def test_report_aggregate_windows_await_conntrack_inode(collect_repo, query_repo):
+    """신 신호 3종 실값 검증:
+
+    - Windows disk await: IOCTL ReadTime/WriteTime(100ns) delta / (ReadCount+WriteCount) delta / 10000 = ms.
+      매 분당 count +100 · time +25_000_000(100ns) -> await = 25ms(> 20 임계). Linux disk_io time 미발행이라
+      disk_await_p95_ms 는 win_await COALESCE 로 채워짐.
+    - conntrack: count/max = 55000/65536 = 0.839(>= 0.8 고갈 임박).
+    - inode used%: 1 - 50_000/1_000_000 = 95%(>= 85 정적 가드).
+    """
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="r-new-signals"))
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=11)
+    for i in range(12):
+        ts = base_ts + timedelta(minutes=i)
+        m = make_metrics(
+            collected_at=ts,
+            # Windows await 원자료 (device 합산 누적, 100ns/count). 분당 read+write time += 25_000_000, count += 100.
+            sat_disk_read_time=i * 15_000_000,
+            sat_disk_write_time=i * 10_000_000,
+            sat_disk_read_count=i * 60,
+            sat_disk_write_count=i * 40,
+            conntrack_count=55_000,
+            conntrack_max=65_536,
+            # Linux disk_io 는 time_reading/writing 미설정 -> Linux await null (win_await 가 COALESCE 로 이김).
+            disk_io=[
+                DiskIoEntry(
+                    device="sda", reads_completed=100 + i * 50, writes_completed=50 + i * 30,
+                    sectors_read=2000 + i * 1000, sectors_written=1000 + i * 500, kind="physical",
+                ),
+            ],
+            mounts=[
+                MountUsageEntry(
+                    mount="/data", total_bytes=100 * 10**9, free_bytes=40 * 10**9, avail_bytes=40 * 10**9,
+                    kind="data", inodes_total=1_000_000, inodes_free=50_000,
+                ),
+            ],
+        )
+        await collect_repo.record_metrics(sid, m)
+
+    end = base_ts + timedelta(minutes=12)
+    r = (await query_repo.report_aggregate([sid], period_days=1, end=end))[0]
+    assert r.disk_await_p95_ms is not None, "Windows await 가 COALESCE 로 채워져야 함"
+    assert 24.0 <= r.disk_await_p95_ms <= 26.0, f"await 25ms 근방 기대, got {r.disk_await_p95_ms}"
+    assert r.conntrack_ratio is not None and 0.83 <= r.conntrack_ratio <= 0.85, f"got {r.conntrack_ratio}"
+    assert r.disk_inode_used_pct is not None and 94.0 <= r.disk_inode_used_pct <= 96.0, f"got {r.disk_inode_used_pct}"

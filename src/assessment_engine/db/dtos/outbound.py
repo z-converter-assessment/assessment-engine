@@ -337,9 +337,10 @@ class ReportRowRaw:
     mem_swap_paging: bool = False  # swap page-out(Linux pswpout) 또는 hard page-in(Windows) 발생
     oom_occurred: bool = False  # 창 안 OOM kill 발생 (메모리 under 사후 증거)
     history_hours: float | None = None  # 관측 버킷(5분) 누적 시간 — 통계 정밀도 바닥(30h floor)
-    disk_await_p95_ms: float | None = None  # 물리 device worst await p95 (Linux, virtio 포화 주신호)
+    disk_await_p95_ms: float | None = None  # worst await p95 (Linux time delta / Windows IOCTL 100ns delta COALESCE)
     disk_capacity_runway_days: float | None = None  # 바이트 소진까지 남은 일수(가장 빨리 차는 마운트)
     disk_inode_runway_days: float | None = None  # inode 소진까지 남은 일수
+    disk_inode_used_pct: float | None = None  # worst mount inode 사용률 % — 정적 가드(바이트 85% 대칭)
     disk_capacity_target_gb: float | None = None  # 1년 수명 목표 총 용량(GB) — 소진 마운트 확장 목표
     disk_capacity_proj_30d_pct: float | None = None  # 30일 후 예상 used%(현재 rate 외삽) — 확장 근거 근시 신호
     disk_capacity_driving_used_pct: float | None = (
@@ -348,6 +349,7 @@ class ReportRowRaw:
 
     net_drop_pct: float | None = None  # 드롭/패킷 % (품질)
     net_retrans_pct: float | None = None  # TCP 재전송/tx패킷 % (품질 — OutSegs 미수집이라 tx_packets 분모 근사)
+    conntrack_ratio: float | None = None  # nf_conntrack count/max — 연결테이블 고갈 임박(품질, 모듈 미로드 시 None)
     cpu_trend_slope: float | None = None  # cpu 이용률 최소제곱 기울기 %/day (도메인이 상승 추세 판정)
     mem_trend_slope: float | None = None  # mem 이용률 최소제곱 기울기 %/day
     cpu_percore_p95_max: float | None = None  # 가장 바쁜 코어의 이용률 p95 (단일스레드 병목, server_cpu_core)

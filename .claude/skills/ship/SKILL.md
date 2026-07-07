@@ -41,6 +41,7 @@ diff 가 만진 영역을 Diátaxis 목적별로 갱신한다. "무엇이 바뀌
 - doc-auditor 에이전트(`Agent(subagent_type='doc-auditor')`) 로 중복·목적 혼선·이력 서사 독립 검증. 지적사항 반영 후 재검.
 
 ### 4. 커밋
+- 한 번의 /ship 발동 = 커밋 한 방. working diff 전체를 하나의 커밋으로 — 작업을 여러 커밋으로 쪼개지 않는다.
 - 현황 선언형 메시지: 무엇을 왜 바꿨나 (feature 요지 + 문서 정합). AI 메타데이터(Co-Authored-By·Generated-with) 절대 없음.
 - feature branch 에 커밋. push·PR 은 안 한다.
 
