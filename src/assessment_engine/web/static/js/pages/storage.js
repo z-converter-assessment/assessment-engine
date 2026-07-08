@@ -24,8 +24,9 @@ const STORAGE_KBPS_SUGGESTED_MAX = 256;
 
 function kbps(kb) {
   if (kb == null) return '—';
-  if (kb >= 1024) return (kb / 1024).toFixed(1) + ' MBps';
-  return kb.toFixed(1) + ' kBps';
+  // 단위 표기 "kB/s"/"MB/s" 통일 (chart-utils·format_net_rate·detail/network 와 동일 관습).
+  if (kb >= 1024) return (kb / 1024).toFixed(1) + ' MB/s';
+  return kb.toFixed(1) + ' kB/s';
 }
 function iops(v) { return v == null ? '—' : v.toFixed(1) + ' IOPS'; }
 
@@ -54,6 +55,17 @@ async function loadIoSnapshot() {
       document.getElementById('io-phys-table').style.display = '';
     } else {
       document.getElementById('io-phys-empty').style.display = '';
+    }
+    // 디스크 I/O 포화 값 — 신호 유무로 OS 분기(Linux/Windows await ms, 구세대 viostor 만 큐). 기준 설명은 템플릿 2행 정적.
+    const satEl = document.getElementById('s-disk-sat');
+    if (satEl) {
+      if (data.disk_await_ms != null) {
+        satEl.textContent = 'await ' + data.disk_await_ms.toFixed(0) + 'ms';
+      } else if (data.disk_queue != null) {
+        satEl.textContent = 'Queue ' + data.disk_queue.toFixed(2);
+      } else {
+        satEl.textContent = '—';
+      }
     }
     const stampEl = document.getElementById('metrics-stamp');
     if (stampEl && data.collected_at)

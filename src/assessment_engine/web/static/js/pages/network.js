@@ -21,8 +21,9 @@ const NET_Y_SUGGESTED_MAX = 2048; // B/s ≈ 2 kB/s
 
 function fmtKbps(v) {
   if (v == null) return '—';
-  if (v >= 1024) return (v / 1024).toFixed(1) + ' MBps';
-  return v.toFixed(1) + ' kBps';
+  // 단위 표기 "kB/s"/"MB/s" — 차트(fmtKbChart)·SSR(format_net_rate)와 통일.
+  if (v >= 1024) return (v / 1024).toFixed(1) + ' MB/s';
+  return v.toFixed(1) + ' kB/s';
 }
 function fmtPps(v) { return v != null ? v.toFixed(1) + ' pps' : '—'; }
 
@@ -36,6 +37,9 @@ async function loadNetSnapshot() {
     }
     if (!res.ok) return;
     const data = await res.json();
+    // TCP 재전송율 — 네트워크 품질 신호(양 OS 공통, 1% 초과 혼잡). 인터페이스 I/O 유무와 별개라 가드 이전 세팅.
+    const retransEl = document.getElementById('s-net-retrans');
+    if (retransEl) retransEl.textContent = data.net_retrans_pct != null ? data.net_retrans_pct.toFixed(2) + '%' : '—';
     const netIo = data.net_io || [];
     if (!netIo.length) {
       document.getElementById('net-snapshot-empty').style.display = '';

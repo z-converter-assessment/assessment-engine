@@ -17,12 +17,17 @@ from assessment_engine.web.services.mappers.server import (
     _services_or_none,
     _to_listen_port_item,
     infer_role,
+    workload_category_counter,
+    workload_services_by_category,
 )
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
+    OS_FAMILY_LABEL_KO,
+    RISK_LEVEL_ORDER,
     ReportView,
-    build_confidence_notes,
+    build_host_confidence_notes,
     resolve_os_eol,
+    saturation_axis_displays,
 )
 from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb
 from assessment_engine.web.view_models.report import (
@@ -31,24 +36,26 @@ from assessment_engine.web.view_models.report import (
     ReportServiceUnit,
     ReportTotals,
     ReportWorkloadGroup,
+    SaturationAxis,
 )
 
 # ─── 위험도 매핑 — 양식 A KPI 3단계 압축 ────────────────────────────────
 # USE Method 분류 -> (risk_level, 한글 라벨, badge CSS 클래스).
 # under_provisioned → 고위험 (자원 부족, 즉시 조치)
-# shutdown · idle · over_provisioned → 주의 (저사용·과다 — 운영자 점검)
+# idle · over_provisioned → 주의 (미사용·과다 — 운영자 점검)
 # optimal · insufficient_data → 정상 (또는 표본 부족)
 _RISK_FROM_RECOMMENDATION: dict[str, tuple[str, str, str]] = {
     "under_provisioned": ("high", "고위험", "rec-under_provisioned"),
-    "shutdown": ("attention", "주의 필요", "rec-over_provisioned"),
     "idle": ("attention", "주의 필요", "rec-over_provisioned"),
     "over_provisioned": ("attention", "주의 필요", "rec-over_provisioned"),
     "optimal": ("normal", "정상", "rec-optimal"),
     "insufficient_data": ("normal", "정상", "rec-optimal"),
 }
 
+# 네트워크 상태 라벨 — assess_network status -> 표시(사이징 분류와 별개 품질 판정). attention 표와 동일 어휘.
+_NET_STATUS_LABEL: dict[str, str] = {"quality_ok": "정상", "congested": "혼잡", "unmeasured": "미측정"}
+
 # 보고서 row 임계 — recommendation 도메인 상수 활용 + 보고서 표시 전용 임계.
-_SATURATION_BURST_RATIO = recommendation.CPU_SATURATION_LOAD_RATIO  # 1.0 — saturation 기준
 _VARIANCE_BURST_RATIO = 1.5  # peak/p95 >= 1.5 — variance burst 표시 (보고서 전용 임계)
 _REBOOT_UNSTABLE_COUNT = 3  # reboot_count >= 3 — Agent 불안정 신호 (#F10 attention 임계)
 
@@ -80,7 +87,7 @@ def compute_report_totals_from_raw(raws: list) -> ReportTotals:
     return ReportTotals(
         total_vcpus=total_vcpus,
         total_memory_gb=round(total_mem_kb / 1024 / 1024, 1),
-        total_disk_gb=int(total_disk_bytes / 10**9),
+        total_disk_gb=int(bytes_to_gb(total_disk_bytes) or 0),
     )
 
 
@@ -92,13 +99,6 @@ def build_role_distribution(raws: list) -> dict[str, int]:
     return dict(counter.most_common())
 
 
-# N대 선택 맥락 OS family 표시명 (요약 텍스트 단일 진실).
-_OS_FAMILY_LABEL_KO: dict[str, str] = {"linux": "Linux", "windows": "Windows", "unknown": "미상"}
-
-# N대 비교 표 행 정렬 우선순위 — 위험 우선(위로). risk_level 단일 진실.
-_REPORT_ROW_RISK_ORDER: dict[str, int] = {"high": 0, "attention": 1, "low_usage": 2, "normal": 3}
-
-
 def build_selection_context(items: list[ReportRowItem], role_distribution: dict[str, int]) -> tuple[str, str]:
     """N대 보고서 선택 맥락 (P2) — OS family·워크로드 한 줄 요약 텍스트. 작은 N 맥락 (막대 대신).
 
@@ -106,7 +106,7 @@ def build_selection_context(items: list[ReportRowItem], role_distribution: dict[
     """
     os_counter: Counter[str] = Counter((it.os_family or "unknown") for it in items)
     os_summary = " / ".join(
-        f"{_OS_FAMILY_LABEL_KO.get(k, k)} {v}" for k, v in sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))
+        f"{OS_FAMILY_LABEL_KO.get(k, k)} {v}" for k, v in sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))
     )
     workload_summary = (
         ", ".join(f"{cat} {n}" for cat, n in sorted(role_distribution.items(), key=lambda kv: (-kv[1], kv[0])))
@@ -119,11 +119,16 @@ def sort_rows_for_report(items: list[ReportRowItem]) -> list[ReportRowItem]:
     """N대 비교 표 정렬 (P2) — 위험 우선(under->attention->normal), 동순위 cpu_p95 DESC, hostname ASC."""
     return sorted(
         items,
-        key=lambda it: (_REPORT_ROW_RISK_ORDER.get(it.risk_level, 9), -(it.cpu_p95_pct or 0.0), it.hostname),
+        key=lambda it: (RISK_LEVEL_ORDER.get(it.risk_level, 99), -(it.cpu_p95_pct or 0.0), it.hostname),
     )
 
 
 # ─── 정성 요약 (양식 A/B 분기) ───
+
+
+def _top_phrase(labels: list[str]) -> str:
+    """요약 불릿의 호스트 나열 — 상위 3개 + 초과 시 ' 외' (P2, 6개 신호 공통 반복 제거)."""
+    return f"{', '.join(labels[:3])}{' 외' if len(labels) > 3 else ''}"
 
 
 def build_report_summary_bullets(
@@ -150,32 +155,22 @@ def build_report_summary_bullets(
     if raws:
         disk_sat_raws = [r for r in raws if recommendation.disk_io_saturated(build_resource_stats(r))]
         if disk_sat_raws:
-            hosts = [r.hostname for r in disk_sat_raws][:3]
-            suffix = " 외" if len(disk_sat_raws) > 3 else ""
-            bullets.append(f"디스크 I/O 포화 {len(disk_sat_raws)}대 ({', '.join(hosts)}{suffix}) — 디스크 병목.")
+            phrase = _top_phrase([r.hostname for r in disk_sat_raws])
+            bullets.append(f"디스크 I/O 포화 {len(disk_sat_raws)}대 ({phrase}) — 디스크 병목.")
 
-    # Mount 임박 — _CAPACITY_IMMINENT_DAYS 안 채워질 마운트가 있는 서버 카운트
-    n_mount = sum(
-        1
+    # Mount 임박 — _CAPACITY_IMMINENT_DAYS 안 채워질 마운트가 있는 서버
+    mount_hosts = [
+        f"{r.hostname}({r.worst_mount} {r.worst_mount_days_until_full}일)"
         for r in rows
         if r.worst_mount_days_until_full is not None and r.worst_mount_days_until_full <= _CAPACITY_IMMINENT_DAYS
-    )
-    if n_mount:
-        hosts = []
-        for r in rows:
-            if r.worst_mount_days_until_full is not None and r.worst_mount_days_until_full <= _CAPACITY_IMMINENT_DAYS:
-                hosts.append(f"{r.hostname}({r.worst_mount} {r.worst_mount_days_until_full}일)")
-                if len(hosts) >= 3:
-                    break
-        suffix = " 외" if n_mount > 3 else ""
-        bullets.append(f"디스크 채움 임박 {n_mount}대 ({', '.join(hosts)}{suffix}).")
+    ]
+    if mount_hosts:
+        bullets.append(f"디스크 채움 임박 {len(mount_hosts)}대 ({_top_phrase(mount_hosts)}).")
 
     # 재부팅 빈번 — period 안 _REBOOT_UNSTABLE_COUNT 이상
-    n_reboot = sum(1 for r in rows if r.reboot_count >= _REBOOT_UNSTABLE_COUNT)
-    if n_reboot:
-        hosts = [f"{r.hostname}({r.reboot_count}회)" for r in rows if r.reboot_count >= _REBOOT_UNSTABLE_COUNT][:3]
-        suffix = " 외" if n_reboot > 3 else ""
-        bullets.append(f"재부팅 빈번 {n_reboot}대 ({', '.join(hosts)}{suffix}).")
+    reboot_hosts = [f"{r.hostname}({r.reboot_count}회)" for r in rows if r.reboot_count >= _REBOOT_UNSTABLE_COUNT]
+    if reboot_hosts:
+        bullets.append(f"재부팅 빈번 {len(reboot_hosts)}대 ({_top_phrase(reboot_hosts)}).")
 
     if view == "engineer":
         # 역할별 평균 CPU — 엔지니어가 자원 집약 역할 식별. 고객 보고서엔 정보 과다. (#F10 recommendation 상수)
@@ -189,33 +184,29 @@ def build_report_summary_bullets(
             if top_cpu_avg >= recommendation.CPU_UPSIZE_P95_PCT:
                 bullets.append(f"{top_cpu_role} 계열 서버의 평균 CPU p95가 {top_cpu_avg:.0f}%로 높게 관찰됨.")
 
-        # Saturation — load_15m_max / cpu_cores 임계 초과 (saturated). 큐잉 이론 시그널 — 엔지니어용.
-        n_sat = sum(1 for r in rows if r.saturation_ratio is not None and r.saturation_ratio >= _SATURATION_BURST_RATIO)
-        if n_sat:
-            hosts = [
-                f"{r.hostname}({r.saturation_ratio:.1f})"
-                for r in rows
-                if r.saturation_ratio is not None and r.saturation_ratio >= _SATURATION_BURST_RATIO
-            ][:3]
-            suffix = " 외" if n_sat > 3 else ""
-            bullets.append(
-                f"Saturation {n_sat}대 ({', '.join(hosts)}{suffix}) — load가 cpu_cores 초과. 처리 한계 신호."
-            )
+        # CPU 포화 — os-aware cpu_saturated(Linux load/cores / Windows run queue/cores). 분류 cpu_saturation trigger
+        # 와 동일 신호(임계 재계산 0)라 run queue 로 under_provisioned 분류된 Windows 호스트가 요약에서 누락되지
+        # 않는다(B1). build_resource_stats 필요 -> raws 있을 때만(disk_io bullet 와 동일 게이트).
+        if raws:
+            sat_hosts = [r.hostname for r in raws if recommendation.cpu_saturated(build_resource_stats(r))]
+            if sat_hosts:
+                bullets.append(
+                    f"CPU 포화 {len(sat_hosts)}대 ({_top_phrase(sat_hosts)}) — run queue/load 가 코어 처리 한계 초과."
+                )
 
-        # 변동성 큼 — cpu peak/p95 임계 초과. sizing 전략 시그널 — 엔지니어용.
-        n_var = sum(
-            1 for r in rows if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= _VARIANCE_BURST_RATIO
-        )
-        if n_var:
-            hosts = [
-                r.hostname
-                for r in rows
-                if r.cpu_variance_ratio is not None and r.cpu_variance_ratio >= _VARIANCE_BURST_RATIO
-            ][:3]
-            suffix = " 외" if n_var > 3 else ""
+        # 변동성 큼 — cpu peak/p95 임계 초과 + peak 가 sizing 유의미 수준(downsize 헤드룸선 초과)일 때만.
+        # 미세값 지터(저부하 호스트) 오탐 방지 — _build_diagnosis 의 variance gate 와 동일 기준. sizing 전략 시그널.
+        var_hosts = [
+            r.hostname
+            for r in rows
+            if r.cpu_variance_ratio is not None
+            and r.cpu_variance_ratio >= _VARIANCE_BURST_RATIO
+            and r.cpu_peak_pct is not None
+            and r.cpu_peak_pct > recommendation.CPU_DOWNSIZE_P95_PCT
+        ]
+        if var_hosts:
             bullets.append(
-                f"CPU 부하 변동 큼 {n_var}대 ({', '.join(hosts)}{suffix})"
-                " — 일시 spike 빈번 (부하 변동성 큼)."
+                f"CPU 부하 변동 큼 {len(var_hosts)}대 ({_top_phrase(var_hosts)}) — 일시 spike 빈번 (부하 변동성 큼)."
             )
 
     # OS EOL 신호 — raws 있을 때만. attention 카드와 동일 판정(resolve_os_eol): Windows build /
@@ -229,11 +220,7 @@ def build_report_summary_bullets(
                 eol_iso, label = result
                 eol_hosts.append(f"{r.hostname}({label}, EOL {eol_iso})")
         if eol_hosts:
-            shown = eol_hosts[:3]
-            suffix = " 외" if len(eol_hosts) > 3 else ""
-            bullets.append(
-                f"OS EOL {len(eol_hosts)}대 ({', '.join(shown)}{suffix}) — 보안 패치 중단됨."
-            )
+            bullets.append(f"OS EOL {len(eol_hosts)}대 ({_top_phrase(eol_hosts)}) — 보안 패치 중단됨.")
 
     return bullets
 
@@ -241,80 +228,77 @@ def build_report_summary_bullets(
 # ─── 자동 진단·권고 helper (양식 B 컬럼) ───
 
 
-# under trigger 키 -> 한국어 증설 권고. 표시 순서 고정(mem -> cpu -> disk). recommendation.assess
-# 가 산출한 triggers(근거)를 mapper 가 문구로 변환만 한다(P2, 임계 재계산 중복 제거).
-_TRIGGER_ACTION_KO: dict[str, str] = {
-    "mem_saturation": "메모리 증설",
-    "mem_util": "메모리 증설",
-    "cpu_util": "CPU 증설",
-    "cpu_saturation": "CPU 증설",
-    "disk_capacity": "디스크 증설",
-    "disk_io": "디스크 증설",
-}
-_TRIGGER_ACTION_ORDER = ("mem_saturation", "mem_util", "cpu_util", "cpu_saturation", "disk_capacity", "disk_io")
+def _build_recommendation_action(
+    host: recommendation.HostAssessment, stats: recommendation.ResourceStats
+) -> str:
+    """recommendation 분류 -> "권고" 컬럼 단일 문구. 조치 semantic 은 recommendation 단일 진실 (신 모델 host 기반).
 
-
-def _build_under_provisioned_reason(triggers: list[str]) -> str:
-    """under_provisioned hit trigger -> 한국어 증설 권고 결합 (`/` 구분) — 양식 A "권고" 컬럼.
-
-    근거(triggers)는 recommendation.assess 단일 산출 — mapper 는 키->조치 방법 변환만(P2, 원인 미표기).
-    같은 자원에 복수 trigger 가 hit 해도 방법(증설) 중복은 제거(dict.fromkeys). trigger 0건 fallback.
+    under_provisioned 는 근본원인 기반 처방(`under_prescription`, root_cause 정합·삼중 처방 방지),
+    그 외는 도메인 조치 층(유휴는 강도로 즉시 종료/통합). customer "조치 필요 호스트"(high)엔 optimal 미노출.
     """
-    picked = [t for t in _TRIGGER_ACTION_ORDER if t in triggers]
-    reasons = list(dict.fromkeys(_TRIGGER_ACTION_KO[t] for t in picked))
-    return " / ".join(reasons) if reasons else "리소스 증설 검토"
-
-
-def _build_recommendation_action(assessment: recommendation.Assessment) -> str:
-    """recommendation 분류 -> "권고" 컬럼 단일 문구 (environment·single_report 공유 단일 진실).
-
-    under_provisioned 는 hit trigger 별 증설 권고 결합(`_build_under_provisioned_reason`), 그 외는 분류별 고정 조치.
-    customer "조치 필요 호스트"(high 만)엔 optimal/insufficient_data 미노출 — engineer 호스트 권고(전수)·
-    서버 단일 보고서엔 노출.
-    """
-    rec = assessment.recommendation
+    rec = recommendation.host_status_to_recommendation(host.host_status)
     if rec == "under_provisioned":
-        return _build_under_provisioned_reason(assessment.triggers)
-    return {
-        "over_provisioned": "자원 축소 검토",
-        "idle": "용도 재평가 / 종료 검토",
-        "shutdown": "종료 가능 검토",
-        "optimal": "적정 운영",
-        "insufficient_data": "표본 부족 — 수집 점검",
-    }.get(rec, "")
+        return recommendation.under_prescription(host)
+    return recommendation.recommend_action(rec, stats)
 
 
 def _build_diagnosis(
-    raw: ReportRowRaw, saturation: float | None, cpu_variance: float | None, mem_variance: float | None
+    host: recommendation.HostAssessment,
+    raw: ReportRowRaw,
+    cpu_variance: float | None,
+    mem_variance: float | None,
 ) -> str:
-    """saturation·variance·iowait·disk·swap·mem·cpu 종합 자동 진단 — 엔지니어 "진단" 칼럼.
+    """엔지니어 "진단" 칼럼 — 신 모델(rollup_host) 자원별 판정에서 파생 -> 배지와 보장 정합 (ADR 0052 이관).
 
-    우선순위 (가장 시급한 신호 1개 선택, 임계는 recommendation 상수·_VARIANCE_BURST_RATIO 단일 진실):
-    1. swap_used → "메모리 부족 (스왑 발생)" — paging 활성, 1차 강신호
-    2. disk_io_saturated (os-aware: Linux iowait_p95 / Windows Avg Disk Queue Length) → "디스크 I/O 병목"
-    3. saturation >= CPU_SATURATION_LOAD_RATIO → "CPU 포화"
-    4. mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리 압박"
-    5. cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU 압박"
-    6. cpu/mem variance >= _VARIANCE_BURST_RATIO → "부하 변동 큼"
-    7. cpu_p95 <= SHUTDOWN_CPU_P95_PCT → "거의 미사용"
-    8. cpu_p95 <= CPU_DOWNSIZE_P95_PCT and mem_p95 <= MEM_DOWNSIZE_P95_PCT → "여유 있음"
-    9. 그 외 → "정상"
+    under 분기(1~6)는 host.resources 상태·trigger 에서 직접 읽어 분류와 어긋나지 않는다(구 assess 의 임계
+    재계산 제거). host_status != under 면 어느 자원도 under/io_bound/filling 이 아니므로 1~6 을 건너뛴다.
+    우선순위 (가장 시급한 신호 1개):
+    1. 메모리 under + 페이징/OOM (os-aware: Linux swap page-out / Windows Pages Input/sec) → "메모리 부족"
+    2. disk_io io_bound (os-aware: Linux await>20ms / Windows await·큐) → "디스크 I/O 병목"
+    3. cpu under + 실행 큐 포화 → "CPU 포화"
+    4. 메모리 under + 이용률(>=90) → "메모리 압박"
+    5. cpu under + 이용률(>=70) → "CPU 압박"
+    6. disk_capacity filling (runway<30일 or 정적 85%/inode) → "디스크 용량 임박"
+    7. network 혼잡 (품질 orthogonal, 사이징 아님) → "네트워크 혼잡"
+    8. cpu/mem variance burst (peak 가 헤드룸선 초과) → "부하 변동 큼"
+    9. host_status idle → "거의 미사용"
+    10. cpu·mem 둘 다 다운사이즈선 이하 → "여유 있음"
+    11. 그 외 → "정상"
     """
-    if recommendation.swap_saturation(raw.os_family, raw.swap_used):
-        return "메모리 부족 (스왑 발생)"
-    if recommendation.disk_io_saturated(build_resource_stats(raw)):
+    mem = host.resources["memory"]
+    cpu = host.resources["cpu"]
+    if mem.status == "under" and ("mem_saturation" in mem.triggers or "mem_oom" in mem.triggers):
+        return "메모리 부족 (페이징 과다)" if raw.os_family == "windows" else "메모리 부족 (스왑 발생)"
+    if host.resources["disk_io"].status == "io_bound":
         return "디스크 I/O 병목"
-    if saturation is not None and saturation >= recommendation.CPU_SATURATION_LOAD_RATIO:
+    if cpu.status == "under" and "cpu_saturation" in cpu.triggers:
         return "CPU 포화"
-    if raw.mem_p95_pct is not None and raw.mem_p95_pct >= recommendation.MEM_UPSIZE_P95_PCT:
+    if mem.status == "under" and "mem_util" in mem.triggers:
         return "메모리 압박"
-    if raw.cpu_p95_pct is not None and raw.cpu_p95_pct >= recommendation.CPU_UPSIZE_P95_PCT:
+    if cpu.status == "under" and "cpu_util" in cpu.triggers:
         return "CPU 압박"
-    if (cpu_variance is not None and cpu_variance >= _VARIANCE_BURST_RATIO) or (
-        mem_variance is not None and mem_variance >= _VARIANCE_BURST_RATIO
-    ):
+    if host.resources["disk_capacity"].status == "filling":
+        return "디스크 용량 임박"
+    if host.network_congested:
+        return "네트워크 혼잡"
+    # 이하 비-under 호스트 — variance/idle/여유/정상 (raw 기반, 사이징 노이즈 gate 동일).
+    # 부하 변동 큼 — peak/p95 비율이 커도 peak 가 sizing 유의미 수준(downsize 헤드룸선 초과)일 때만 발화.
+    cpu_burst = (
+        cpu_variance is not None
+        and cpu_variance >= _VARIANCE_BURST_RATIO
+        and raw.cpu_peak_pct is not None
+        and raw.cpu_peak_pct > recommendation.CPU_DOWNSIZE_P95_PCT
+    )
+    mem_burst = (
+        mem_variance is not None
+        and mem_variance >= _VARIANCE_BURST_RATIO
+        and raw.mem_peak_pct is not None
+        and raw.mem_peak_pct > recommendation.MEM_DOWNSIZE_P95_PCT
+    )
+    if cpu_burst or mem_burst:
         return "부하 변동 큼"
-    if raw.cpu_p95_pct is not None and raw.cpu_p95_pct <= recommendation.SHUTDOWN_CPU_P95_PCT:
+    # "거의 미사용"/"여유"는 순수 이용률 진술(raw) — host_status(over/optimal)과 모순 없음(near-idle=over 정합).
+    if raw.cpu_p95_pct is not None and raw.cpu_p95_pct <= recommendation.IDLE_CPU_P95_PCT:
         return "거의 미사용"
     if (
         raw.cpu_p95_pct is not None
@@ -330,7 +314,9 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
     """insufficient_data 호스트의 원인 순차 진단 — 진단 컬럼 단일 진실 (별도 카드 폐기, 호스트 권고 통합).
 
     1순위: 오프라인 — 에이전트 미가동 (메트릭 자연스러운 부재, root cause).
-    2순위: 온라인이나 메트릭 수집 누락 — 누락 메트릭 명시 (CPU·메모리·Load·iowait·디스크).
+    2순위: 온라인이나 메트릭 수집 누락 — 누락 메트릭 명시. saturation 축은 분류가 쓰는 os-aware 축으로
+           (Linux 실행 큐 procs_running·디스크 await / Windows run queue·디스크 큐). Windows 에 없는 축을
+           "누락"으로 나열하면 개념 부재를 수집 실패로 오도하므로 os-aware 로 구분.
     3순위: 모든 메트릭 있지만 표본 부족 (윈도우 미만).
     """
     if not is_online:
@@ -340,13 +326,42 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
         missing.append("CPU")
     if raw.mem_p95_pct is None:
         missing.append("메모리")
-    if raw.load_15m_max is None:
-        missing.append("Load")
-    if raw.iowait_p95_pct is None:
-        missing.append("iowait")
+    if raw.os_family == "windows":
+        if raw.cpu_run_queue_p95 is None:
+            missing.append("run queue")
+        if raw.disk_queue_p95 is None:
+            missing.append("디스크 큐")
+    else:
+        if raw.procs_running_p95 is None:
+            missing.append("실행 큐")
+        if raw.disk_await_p95_ms is None:
+            missing.append("디스크 응답(await)")
     if raw.worst_mount_used_pct is None:
         missing.append("디스크")
     return f"메트릭 수집 누락: {' · '.join(missing)}" if missing else "윈도우 내 표본 부족"
+
+
+def _build_saturation_axes(stats: recommendation.ResourceStats) -> list[SaturationAxis]:
+    """USE Saturation 3축 os-aware 평가 행 — single_report '포화 축 평가' 카드(P2/P3 precompute).
+
+    표시값(신호·값·임계)은 `shared.saturation_axis_displays` 단일 진실(attention capacity 지표와 공유 —
+    표기 drift 차단). 판정(포화/정상/미관측)은 os-aware helper 경유(임계 재계산 0): None=미관측.
+    """
+
+    def _st(sat: bool | None) -> tuple[str, str]:
+        if sat is None:
+            return "미관측", "text-meta"
+        return ("포화", "text-strong") if sat else ("정상", "")
+
+    sats = [
+        recommendation.cpu_saturated(stats),
+        recommendation.mem_saturated(stats),
+        recommendation.disk_io_saturated(stats),
+    ]
+    return [
+        SaturationAxis(d.axis, d.signal, d.value, d.threshold, *_st(sat))
+        for d, sat in zip(saturation_axis_displays(stats), sats, strict=True)
+    ]
 
 
 # ─── ReportRowRaw -> ReportRowItem (P2 단일 변환) ───
@@ -355,9 +370,9 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
 def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
     """ReportRowRaw -> USE Method ResourceStats — report·attention mapper 공용(단일 진실).
 
-    net baseline = server_net_io rx+tx 윈도우 평균(kBps). 둘 다 None 이면 None(idle/shutdown skip),
-    하나만 있으면 다른쪽 0. os_family 전달로 swap 축 OS 분기(P2). attention 의 capacity trigger 도
-    동일 stats 로 recommendation.assess 를 타 임계 재계산 중복을 제거(assess.triggers 단일 진실).
+    net baseline = server_net_io rx+tx 윈도우 평균(kB/s). 둘 다 None 이면 None(유휴 skip),
+    하나만 있으면 다른쪽 0. os_family 전달로 포화 축 OS 분기(P2). report·attention·서버목록·환경이
+    동일 stats 로 rollup_host 를 타 화면 간 분류 정합(임계 재계산 0).
     """
     net_avg = (
         None if raw.net_rx_kbps is None and raw.net_tx_kbps is None else (raw.net_rx_kbps or 0) + (raw.net_tx_kbps or 0)
@@ -382,6 +397,32 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         sample_sufficiency=min(suffs) if suffs else None,
         # Windows 디스크 saturation — 가장 바쁜 디스크의 큐 p95 (disk_io_saturated os-aware 소비, 정규화 불요).
         disk_queue_p95=raw.disk_queue_p95,
+        # Windows CPU saturation — Processor Queue Length p95 / Memory 는 Pages Input/sec rate p95 (os-aware 소비).
+        cpu_run_queue_p95=raw.cpu_run_queue_p95,
+        mem_pages_input_rate_p95=raw.mem_pages_input_rate_p95,
+        # ─── ADR 0052 신 모델(rollup_host) 입력 — report_aggregate 산출 raw 를 도메인 축으로 배선 ───
+        # 가장 바쁜 코어 p95 — 단일스레드 병목 판정(RS_CPU_PERCORE_HOLD). Windows·구 agent 는 None(graceful skip).
+        cpu_percore_p95_max=raw.cpu_percore_p95_max,
+        procs_blocked_p95=raw.procs_blocked_p95,
+        # Linux CPU 포화 신호(load 대체) + OOM 메모리 증거 — cpu_saturated·assess_memory os-aware 소비.
+        procs_running_p95=raw.procs_running_p95,
+        oom_occurred=raw.oom_occurred,
+        mem_swap_paging=raw.mem_swap_paging,
+        mem_total_mb=(raw.mem_total_kb // 1024 if raw.mem_total_kb is not None else None),
+        disk_await_p95_ms=raw.disk_await_p95_ms,
+        disk_iops_baseline=raw.disk_iops_baseline,  # 유휴 판정 활동 축 (디스크 I/O 활동량)
+        disk_capacity_runway_days=raw.disk_capacity_runway_days,
+        disk_inode_runway_days=raw.disk_inode_runway_days,
+        disk_inode_used_pct=raw.disk_inode_used_pct,
+        disk_capacity_target_gb=raw.disk_capacity_target_gb,
+        net_retrans_pct=raw.net_retrans_pct,
+        net_drop_pct=raw.net_drop_pct,
+        conntrack_ratio=raw.conntrack_ratio,
+        history_hours=raw.history_hours,
+        cpu_burst_ratio=raw.cpu_burst_ratio,
+        # 이용률 상승 추세 — 임계 이진화는 도메인 단일(regr_slope %/day raw -> bool). 다운사이즈 정상성 게이트.
+        util_trend_rising=recommendation.util_trend_rising_from_slopes(raw.cpu_trend_slope, raw.mem_trend_slope),
+        cpu_steal_p95_pct=raw.cpu_steal_p95_pct,
     )
 
 
@@ -443,19 +484,22 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
     `diagnosis`는 양식 B "판단" 컬럼 자동 해석.
     """
     stats = build_resource_stats(raw)  # net baseline·OS 분기 포함 — report·attention 공용 단일 진실
-    assessment = recommendation.assess(stats)  # 분류 + 근거(triggers) + 미관측 축 단일 평가
+    # 신 모델 rollup_host 1회 산출 — badge·진단·권고·confidence 전부 이 종합에서 파생(화면 간 정합, ADR 0052 Phase D).
+    host = recommendation.rollup_host(stats)
+    # 네트워크 상태 — 사이징과 별개 품질 판정(정상/혼잡/미측정). assess_network status 를 라벨로.
+    net_status_label = _NET_STATUS_LABEL.get(host.resources["network"].status, "미측정")
     workload_groups, service_units, listen_ports_detail = _build_workload_display(raw)
-    rec = assessment.recommendation
-    is_partial = assessment.is_partial  # P4 — saturation 축 미관측(예: Windows load) confidence 단서
+    # 특징 워크로드 카테고리·서비스명(baseline 제외) — 환경 개요 뱃지와 동일 소스. 서비스 구성 집계 정합용.
+    workload_categories = list(workload_category_counter(raw.services, raw.listen_ports).keys())
+    workload_services = workload_services_by_category(raw.services, raw.listen_ports)
+    rec = recommendation.host_status_to_recommendation(host.host_status)
+    # P4 — 포화 축 미관측(예: Windows perflib 미발행/구세대 viostor) confidence 단서 (포화 축 한정 단일 진실).
+    is_partial = recommendation.host_saturation_unmeasured(host)
     risk_level, risk_label, risk_badge_class = _RISK_FROM_RECOMMENDATION[rec]
     uptime_days: int | None = None
     if raw.boot_time is not None:
         delta = now - raw.boot_time
         uptime_days = max(0, int(delta.total_seconds() // 86400))
-
-    saturation = None
-    if raw.load_15m_max is not None and raw.cpu_cores and raw.cpu_cores > 0:
-        saturation = raw.load_15m_max / raw.cpu_cores
 
     cpu_variance = None
     if raw.cpu_p95_pct and raw.cpu_peak_pct and raw.cpu_p95_pct > 0:
@@ -475,7 +519,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         is_online=is_online,
         os_family=raw.os_family,
         is_partial=is_partial,
-        confidence_notes=build_confidence_notes(assessment),
+        confidence_notes=build_host_confidence_notes(host),
         os_display=_os_display(raw.os_id, raw.os_version),
         kernel_version=raw.kernel_version,
         internal_ip=next(
@@ -493,6 +537,9 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         mem_peak_pct=raw.mem_peak_pct,
         load_15m_max=raw.load_15m_max,
         swap_used=raw.swap_used,
+        mem_swap_paging=raw.mem_swap_paging,
+        root_cause_label=recommendation.root_cause_display(host),
+        net_status_label=net_status_label,
         recommendation=rec,
         recommendation_label=recommendation.LABEL_KO[rec],
         badge_class=recommendation.BADGE_CLASS[rec],
@@ -507,7 +554,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         uptime_days=uptime_days,
         reboot_count=raw.reboot_count,
         agent_restart_count=raw.agent_restart_count,
-        saturation_ratio=saturation,
+        saturation_axes=_build_saturation_axes(stats),
         cpu_variance_ratio=cpu_variance,
         mem_variance_ratio=mem_variance,
         disk_iops_baseline=raw.disk_iops_baseline,
@@ -527,12 +574,12 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         diagnosis=(
             _build_insufficient_reason(raw, is_online)
             if rec == "insufficient_data"
-            else (
-                ("" if is_online else "오프라인 · ") + _build_diagnosis(raw, saturation, cpu_variance, mem_variance)
-            )
+            else (("" if is_online else "오프라인 · ") + _build_diagnosis(host, raw, cpu_variance, mem_variance))
         ),
-        recommendation_action=_build_recommendation_action(assessment),
+        recommendation_action=_build_recommendation_action(host, stats),
         workload_groups=workload_groups,
+        workload_categories=workload_categories,
+        workload_services=workload_services,
         service_units=service_units,
         listen_ports_detail=listen_ports_detail,
     )

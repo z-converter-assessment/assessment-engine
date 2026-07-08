@@ -10,6 +10,7 @@ class CpuSnapshot:
     user_pct: float | None
     system_pct: float | None
     iowait_pct: float | None
+    steal_pct: float | None = None  # 가상화 경합 — 하이퍼바이저가 vCPU 시간 뺏김 (Linux 전용, Windows null)
 
 
 @dataclass
@@ -69,6 +70,7 @@ class MetricDashboard:
     load_1m: float | None
     load_5m: float | None
     load_15m: float | None
+    cpu_run_queue: float | None  # 실행 큐 gauge (Linux procs_running / Windows Processor Queue) — os-aware 포화
     memory: MemSnapshot | None
     swap: SwapSnapshot | None
     disk_io_phys: list[DiskIoSnapshot]
@@ -76,6 +78,12 @@ class MetricDashboard:
     disk_io_part: list[DiskIoSnapshot]
     net_io: list[NetIoSnapshot]
     mounts: list[MountDashSnapshot]
+    # 포화 신호 (latest_saturation 재사용, os-aware 표시) — cpu_run_queue(위)와 함께 스냅샷 포화 축.
+    disk_await_ms: float | None = None  # Linux 디스크 응답 지연 (2행 델타). Windows 는 await 미발행 -> null.
+    disk_queue: float | None = None  # Windows Avg Disk Queue Length gauge. Linux 는 null.
+    mem_pages_input_rate: float | None = None  # Windows Pages Input/sec rate(하드폴트). Linux 는 null.
+    mem_pageout: int | None = None  # Linux swap page-out 발생분 (pswpout 델타 >0 = 메모리 압박). Windows 는 null.
+    net_retrans_pct: float | None = None  # TCP 재전송율 % (양 OS) — 네트워크 포화(1% 이상 성능 영향)
 
 
 @dataclass

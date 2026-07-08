@@ -346,8 +346,13 @@ async def test_metric_chart_disk_queue_returns_windows_gauge(
             sid, make_metrics(collected_at=base + timedelta(minutes=i), sat_disk_queue=3.0 + i)
         )
     rows = await query_repo.metric_chart(
-        server_id=sid, metric_type="disk.queue", dimension=None,
-        time_range="1h", bucket="5m", agg="avg", end=base + timedelta(minutes=10),
+        server_id=sid,
+        metric_type="disk.queue",
+        dimension=None,
+        time_range="1h",
+        bucket="5m",
+        agg="avg",
+        end=base + timedelta(minutes=10),
     )
     vals = [r.value for r in rows if r.value is not None]
     assert vals, "sat_disk_queue 값이 있으면 disk.queue 추이가 값을 반환해야 함"
@@ -365,8 +370,13 @@ async def test_metric_chart_disk_queue_excludes_null_linux(
         # sat_disk_queue 미지정 → None (Linux 는 disk_queue 미발행)
         await collect_repo.record_metrics(sid, make_metrics(collected_at=base + timedelta(minutes=i)))
     rows = await query_repo.metric_chart(
-        server_id=sid, metric_type="disk.queue", dimension=None,
-        time_range="1h", bucket="5m", agg="avg", end=base + timedelta(minutes=10),
+        server_id=sid,
+        metric_type="disk.queue",
+        dimension=None,
+        time_range="1h",
+        bucket="5m",
+        agg="avg",
+        end=base + timedelta(minutes=10),
     )
     assert all(r.value is None for r in rows)  # null 제외 → 값 산출 안 됨 (빈 결과 또는 value None)
 
@@ -1032,3 +1042,57 @@ async def test_metric_trend_capacity_weighted(
     mem = await query_repo.metric_trend("mem.usage_percent", start, end, bi, td, [small, big])
     # Σused/Σtotal = (180+200)/(200+2000)*100 ≈ 17.3% (서버 동등가중이면 50%)
     assert mem and mem[-1].value is not None and 15.0 <= mem[-1].value <= 20.0
+
+
+async def test_metric_trend_cached_null_component_is_gap_not_zero(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """미측정 성분(Windows mem_cached=null)은 0% 가 아니라 gap 으로 표시 — 측정 0 과 구분 (#C2·A1).
+
+    이전 COALESCE-to-0 는 null 성분을 "측정된 0% cached" 로 오도했다. 성분 IS NOT NULL 가드로 win-only 는
+    데이터 포인트 없음(gap), 실측 host 는 값 산출. 혼재 시 win 이 분모·분자에서 함께 제외돼 실측값을 0 쪽으로
+    끌어내리지 않는다(capacity-weighted 정합, environment_utilization 과 동일 가드).
+    """
+    base_ts = _bucket_aligned_base()
+    start = base_ts - timedelta(minutes=1)
+    end = datetime.now(UTC)
+    win = await collect_repo.upsert_server(make_inventory(composite_id="q-cached-win"))
+    lin = await collect_repo.upsert_server(make_inventory(composite_id="q-cached-lin"))
+    # win: cached/buffers 미측정(null) — Windows 계약. lin: 실측.
+    await collect_repo.record_metrics(
+        win,
+        make_metrics(
+            collected_at=base_ts,
+            mem_total_kb=1000,
+            mem_available_kb=400,
+            mem_cached_kb=None,
+            mem_buffers_kb=None,
+            mounts=[],
+            disk_io=[],
+            net_io=[],
+        ),
+    )
+    await collect_repo.record_metrics(
+        lin,
+        make_metrics(
+            collected_at=base_ts,
+            mem_total_kb=1000,
+            mem_available_kb=400,
+            mem_cached_kb=250,
+            mem_buffers_kb=50,
+            mounts=[],
+            disk_io=[],
+            net_io=[],
+        ),
+    )
+    bi, td = "1 hour", timedelta(hours=1)
+    # win-only: cached 미측정 -> gap (0% 포인트 아님)
+    win_cached = await query_repo.metric_trend("mem.cached_percent", start, end, bi, td, [win])
+    assert win_cached == []
+    # 실측 host: 250/1000*100 = 25%
+    lin_cached = await query_repo.metric_trend("mem.cached_percent", start, end, bi, td, [lin])
+    assert lin_cached and lin_cached[-1].value is not None and 20.0 <= lin_cached[-1].value <= 30.0
+    # 혼재: win 이 분모에서도 제외 -> 실측 25% 유지(0 쪽으로 안 끌림)
+    mixed = await query_repo.metric_trend("mem.cached_percent", start, end, bi, td, [win, lin])
+    assert mixed and mixed[-1].value is not None and 20.0 <= mixed[-1].value <= 30.0

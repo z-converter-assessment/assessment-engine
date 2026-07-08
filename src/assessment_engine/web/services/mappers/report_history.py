@@ -3,9 +3,7 @@
 from typing import Any
 
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
-from assessment_engine.db.repositories.base_diagnostic_repository import (
-    DIAGNOSTIC_RANGE_LABEL_KR,
-)
+from assessment_engine.web.services.mappers.shared import DIAGNOSTIC_RANGE_LABEL_KR
 
 _VIEW_LABEL: dict[str, str] = {
     "customer": "고객 보고서",

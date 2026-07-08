@@ -1,6 +1,6 @@
 """Exports router — 자동화 도구 입력용 정제 산출물 다운로드.
 
-스키마·정제 원칙·사용처: docs/architecture/web/export-schema.md.
+스키마·정제 원칙·사용처: docs/reference/web/export-schema.md.
 server 항목은 사용처축 배치 — identity/os/spec(VM 생성)/usage(right-sizing 측정)/assessment(평가 결과)/
 services(보안그룹). 자동화 도구가 사용처 블록을 통째로 소비.
 """
@@ -19,8 +19,7 @@ exports_router = APIRouter(prefix="/api/exports", tags=["exports"])
 _SIZE_CLASS_GUIDE: dict[str, str] = {
     "under_provisioned": "instance type 상향 (vCPU·RAM 증가)",
     "over_provisioned": "instance type 축소 (vCPU·RAM 감소)",
-    "idle": "운영 종료 또는 통합 검토 — 사용 거의 없음",
-    "shutdown": "운영 종료 검토 — 사용 0에 근접",
+    "idle": "운영 종료 또는 통합 검토 — 미사용",
     "optimal": "변경 불필요 — 적정 사양",
     "insufficient_data": "표본 부족 — 평가 기간 안 메트릭 부재",
 }
@@ -54,7 +53,7 @@ async def export_inventory(
     return {
         "inventory_export": {
             "schema_version": "4",
-            "schema_doc": "docs/architecture/web/export-schema.md",
+            "schema_doc": "docs/reference/web/export-schema.md",
             "engine_id": "zconverter-assessment-portal",
             "exported_at": now.isoformat(),
             "period_window": {

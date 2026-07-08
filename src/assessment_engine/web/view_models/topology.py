@@ -21,6 +21,7 @@ class SubnetHost:
     ip: str  # 해당 서브넷에서 호스트가 주장한 IP (raw, "10.0.1.15")
     os_family: str  # linux/windows/unknown — 표시용
     public_id: str  # 상세 링크 (#E4)
+    roles: list[str] = field(default_factory=list)  # 워크로드 카테고리(service_categories, E7) — 서브넷별 app tier
 
 
 @dataclass

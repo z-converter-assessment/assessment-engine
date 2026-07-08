@@ -1,19 +1,20 @@
 {# 보고서 이력 결과 fragment — reports/history.html full page 와 fetch 응답 공유. #}
 {% if items %}
-<table id="report-history-table">
+<table id="report-history-table" class="sortable-table">
   <thead>
     <tr>
-      <th>발행 시각</th>
-      <th>양식</th>
-      <th>대상</th>
-      <th>윈도우</th>
+      <th class="sort-col">발행 시각</th>
+      <th class="sort-col">양식</th>
+      <th class="sort-col">대상</th>
+      <th class="sort-col">윈도우</th>
       <th>다시 보기</th>
     </tr>
   </thead>
   <tbody id="report-history-tbody">
     {% for it in items %}
     <tr>
-      <td style="white-space:nowrap;">{{ it.created_at | kst }}</td>
+      {# data-sort = ISO 타임스탬프 — 표시(KST 문자열)와 무관하게 시각순 정렬(P4 정렬 키 precompute). #}
+      <td style="white-space:nowrap;" data-sort="{{ it.created_at.isoformat() if it.created_at else '' }}">{{ it.created_at | kst }}</td>
       <td>{{ it.view_label }}</td>
       <td>
         {% if it.scope == "environment" %}

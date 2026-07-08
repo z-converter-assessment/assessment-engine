@@ -1,7 +1,7 @@
 """Inventory JSON Export mapper — ServerDetail + ReportRowRaw → InventoryExportEntry (P2).
 
 벤더 중립 정제 v2 스키마. 자동화 도구 입력으로 활용. 사용처: `/api/exports/inventory`.
-스키마·정제 원칙·사용처 deep dive: docs/products/json-export.md.
+스키마·정제 원칙·사용처 deep dive: docs/explanation/products/json-export.md.
 """
 
 from assessment_engine import recommendation
@@ -11,7 +11,7 @@ from assessment_engine.db.dtos.outbound import (
     ServerDetail,
 )
 from assessment_engine.service_classifier import classify, well_known_ports
-from assessment_engine.web.services.device_filters import find_parent_disk, is_data_volume
+from assessment_engine.web.services.device_filters import find_parent_disk, is_data_volume, is_physical_disk
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.server import infer_role
 
@@ -40,13 +40,15 @@ def _split_from_mounts(mounts: list[dict]) -> tuple[int | None, list[dict]]:
 def _split_disks(disks: list[dict], mounts: list[dict]) -> tuple[int | None, list[dict]]:
     """disks 중 가장 큰 1개를 boot, 나머지를 additional로 분리.
 
-    물리 disks 미발행(Windows 등)이면 data volume mounts 로 fallback(`_split_from_mounts`).
+    물리 disks(kind=physical)만 대상 — partition/lvm/raid/virtual 은 제외해 이중계산 방지(용량 정책 `disk_total_bytes`
+    와 동일 단일 leaf). 물리 disks 미발행(Windows 등)이면 data volume mounts 로 fallback(`_split_from_mounts`).
     additional의 mount_point는 find_parent_disk(mount.major/minor -> disk) 역방향 매칭.
     fstype은 동일 mount의 fstype 필드. iops_baseline은 mapper 호출자가 별도 주입.
     """
-    if not disks:
+    physical = [d for d in disks if is_physical_disk(d.get("kind"))]
+    if not physical:
         return _split_from_mounts(mounts)
-    sorted_disks = sorted(disks, key=lambda d: d.get("size_bytes") or 0, reverse=True)
+    sorted_disks = sorted(physical, key=lambda d: d.get("size_bytes") or 0, reverse=True)
     boot = sorted_disks[0]
     boot_gb = (boot["size_bytes"] // 10**9) if boot.get("size_bytes") else None
     additional: list[dict] = []
@@ -141,7 +143,7 @@ def to_inventory_export_entry(
     boot_gb, additional = _split_disks(detail.disks, detail.mounts)
     if stats is not None:
         # 분류 입력은 build_resource_stats 단일 진실 — net baseline 포함, 보고서·대시보드와 동일 분류.
-        rec = recommendation.classify(build_resource_stats(stats))
+        rec = recommendation.classify_host(build_resource_stats(stats))
     else:
         rec = "insufficient_data"
 
@@ -173,8 +175,17 @@ def to_inventory_export_entry(
                 "p95_pct": stats.mem_p95_pct if stats else None,
                 "peak_pct": stats.mem_peak_pct if stats else None,
             },
-            "load_15m_max": stats.load_15m_max if stats else None,
-            "swap_used": stats.swap_used if stats else False,
+            # saturation raw 신호 — os-aware 신 모델(ADR 0052) 분류 근거. 채워진 축이 그 OS 실측 신호(반대 OS 축은
+            # null=미측정). 소비자가 채워진 축으로 under_provisioned 근거 확인.
+            #   CPU 포화: Linux procs_running/cores>=1 · Windows Processor Queue/cores>=2
+            #   메모리 포화: Linux swap page-out 발생 · Windows Pages Input/sec p95>=20
+            #   디스크 I/O 포화: await p95>20ms (양 OS, Windows 는 IOCTL ReadTime/WriteTime)
+            "procs_running_p95": stats.procs_running_p95 if stats else None,  # Linux CPU 실행 큐(신 신호)
+            "cpu_run_queue_p95": stats.cpu_run_queue_p95 if stats else None,  # Windows Processor Queue Length
+            "mem_swap_paging": stats.mem_swap_paging if stats else False,  # Linux page-out 발생(신 모델 압박 신호)
+            "mem_pages_input_rate_p95": stats.mem_pages_input_rate_p95 if stats else None,  # Windows 하드폴트율
+            "load_15m_max": stats.load_15m_max if stats else None,  # (참고) Linux load — 분류 미사용
+            "swap_used": stats.swap_used if stats else False,  # (참고) 스왑 점유 — 압박 아님(page-out 이 신호)
             "disk_io": {
                 "iops_baseline": stats.disk_iops_baseline if stats else None,
                 "iops_p95": stats.disk_iops_p95 if stats else None,
@@ -182,6 +193,9 @@ def to_inventory_export_entry(
                 "throughput_kbps_baseline": stats.disk_throughput_kbps if stats else None,
                 "throughput_kbps_p95": stats.disk_throughput_kbps_p95 if stats else None,
                 "throughput_kbps_peak": stats.disk_throughput_kbps_peak if stats else None,
+                "await_p95_ms": stats.disk_await_p95_ms if stats else None,  # 디스크 I/O 포화 신호(신 모델, 양 OS)
+                "iowait_p95_pct": stats.iowait_p95_pct if stats else None,  # (참고) Linux iowait
+                "queue_p95": stats.disk_queue_p95 if stats else None,  # Windows Avg Disk Queue Length
             },
             "network": {
                 "rx_kbps_baseline": stats.net_rx_kbps if stats else None,

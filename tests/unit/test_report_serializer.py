@@ -11,11 +11,11 @@ from datetime import UTC, datetime
 
 from assessment_engine.web.services.mappers.environment_report import to_environment_report
 from assessment_engine.web.services.report_serializer import env_report_from_dict, env_report_to_dict
-from assessment_engine.web.view_models.attention import AttentionSignals, EnvironmentOverview
+from assessment_engine.web.view_models.attention import ActionTargets, AttentionSignals, EnvironmentOverview
 from assessment_engine.web.view_models.environment_report import (
     CpuBreakdown,
     MemoryBreakdown,
-    ServerInventory,
+    ServerInventorySnapshot,
     ServiceCatalogGroup,
     ServiceHost,
     ServiceNameCount,
@@ -60,13 +60,14 @@ def _make_env_report():
         time_range="14d",
         anchor_at=datetime(2026, 5, 12, tzinfo=UTC),
         generated_at=datetime(2026, 5, 12, tzinfo=UTC),
+        action=ActionTargets(),
     )
 
 
 def test_env_report_roundtrip_restores_nested_dataclasses():
     """단일 보고서 nested(server_inventory·volumes·breakdown·service_catalog)가 dataclass 로 복원."""
     vm = _make_env_report()
-    vm.server_inventory = ServerInventory(
+    vm.server_inventory = ServerInventorySnapshot(
         hostname="host-1",
         os_display="Ubuntu 22.04",
         os_codename="jammy",
@@ -101,7 +102,7 @@ def test_env_report_roundtrip_restores_nested_dataclasses():
     restored = env_report_from_dict(env_report_to_dict(vm))
 
     si = restored.server_inventory
-    assert isinstance(si, ServerInventory)
+    assert isinstance(si, ServerInventorySnapshot)
     assert si.ip_internal[0].value == "10.0.0.1/24" and si.ip_internal[0].is_ipv4 is True
     assert si.ip_external[0].is_ipv4 is False  # IPv6 보존
     assert si.boot_time == datetime(2026, 5, 1, tzinfo=UTC)  # datetime 복원 (str 아님)
@@ -159,3 +160,25 @@ def test_env_report_from_dict_drops_legacy_snapshot_keys():
     assert restored.top_risks[0].hostname == "legacy-host"
     assert not hasattr(restored, "insufficient_hosts")
     assert not hasattr(restored.top_risks[0], "saturation_color")
+
+
+def test_report_row_roundtrip_restores_saturation_axes():
+    """ReportRowItem.saturation_axes(list[SaturationAxis]) 스냅샷 라운드트립 — dict -> dataclass 복원."""
+    from assessment_engine.web.view_models.report import SaturationAxis
+
+    data = env_report_to_dict(_make_env_report())
+    row = _legacy_row_dict()
+    row["saturation_axes"] = [
+        dataclasses.asdict(SaturationAxis("CPU 포화", "load avg / core", "0.25", ">= 1", "정상", "")),
+        dataclasses.asdict(
+            SaturationAxis("메모리 포화", "Memory Pages/sec p95", "N/A", ">= 1000/s", "미관측", "text-meta")
+        ),
+    ]
+    data["top_risks"] = [row]
+
+    restored = env_report_from_dict(data)
+
+    axes = restored.top_risks[0].saturation_axes
+    assert isinstance(axes[0], SaturationAxis)  # str dict 아니라 dataclass 복원
+    assert axes[0].axis == "CPU 포화" and axes[0].status == "정상"
+    assert axes[1].status == "미관측" and axes[1].status_class == "text-meta"

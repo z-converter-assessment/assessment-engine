@@ -1,6 +1,7 @@
 from assessment_engine.consumer.metric_normalize import clamp_ceiling
 from assessment_engine.consumer.schemas import InventoryInput, MetricsInput, SaturationInfo
 from assessment_engine.db.dtos.inbound import (
+    CpuCoreEntry,
     DiskIoEntry,
     MountUsageEntry,
     NetIoEntry,
@@ -22,6 +23,29 @@ def _max_disk_queue(sat: SaturationInfo | None) -> float | None:
         return None
     queues = [e.queue for e in sat.disk_queue if e.queue is not None]
     return max(queues) if queues else None
+
+
+def _await_fields(sat: SaturationInfo | None) -> dict[str, int | None]:
+    """per-disk IOCTL await 원자료 -> device 합산 sat_disk_{read,write}_{time,count} dict.
+
+    Windows disk_io 가 시스템 전역 단일 엔트리라 disk await 도 device 합산으로 시스템 전역 응답 지연 산출
+    (엔진 counter_agg delta(time)/delta(count)). 값 없는 축(구세대 viostor IOCTL 미부착 -> 빈 배열)은 None 유지
+    (0 날조 금지 — counter_agg 가 NULL 을 미관측으로 흡수). 축별로 하나라도 실측 있으면 그 축 합산.
+    """
+    entries = sat.disk_queue if (sat and sat.disk_queue) else []
+
+    def _sum(attr: str) -> int | None:
+        vals = [getattr(e, attr) for e in entries if getattr(e, attr) is not None]
+        return sum(vals) if vals else None
+
+    return {
+        "sat_disk_read_time": _sum("read_time"),
+        "sat_disk_write_time": _sum("write_time"),
+        "sat_disk_read_count": _sum("read_count"),
+        "sat_disk_write_count": _sum("write_count"),
+        "sat_disk_idle_time": _sum("idle_time"),
+        "sat_disk_query_time": _sum("query_time"),
+    }
 
 
 def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
@@ -163,8 +187,9 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         sat_disk_queue=_max_disk_queue(data.saturation),
         sat_cpu_run_queue=data.saturation.cpu_run_queue if data.saturation else None,
         sat_mem_paging_rate=data.saturation.mem_paging_rate if data.saturation else None,
-        # disk_io major/minor는 ServerDiskIo 에 컬럼 없어 미저장 (물리 판정은 kind).
-        # mount major/minor는 ServerMountUsage 에 저장 — mount-disk 조인 보조. data-volume 판정은 kind=="data".
+        **_await_fields(data.saturation),
+        # disk_io·metrics mount 의 major/minor 는 시계열에 미저장 (물리 판정·data-volume 판정은 kind).
+        # mount-disk 조인용 major/minor 는 inventory mount(정적)만 보유.
         disk_io=[
             DiskIoEntry(
                 device=d.device,
@@ -173,6 +198,10 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
                 sectors_read=d.sectors_read,
                 sectors_written=d.sectors_written,
                 kind=d.kind,
+                time_reading_ms=d.time_reading_ms,
+                time_writing_ms=d.time_writing_ms,
+                io_ticks_ms=d.io_ticks_ms,
+                weighted_io_ms=d.weighted_io_ms,
             )
             for d in data.disk_io
         ],
@@ -182,9 +211,9 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
                 total_bytes=m.total_bytes,
                 free_bytes=m.free_bytes,
                 avail_bytes=m.avail_bytes,
-                major=m.major,
-                minor=m.minor,
                 kind=m.kind,
+                inodes_total=m.inodes_total,
+                inodes_free=m.inodes_free,
             )
             for m in data.mounts
         ],
@@ -198,7 +227,39 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
                 rx_errors=n.rx_errors,
                 tx_errors=n.tx_errors,
                 kind=n.kind,
+                rx_drops=n.rx_drops,
+                tx_drops=n.tx_drops,
             )
             for n in data.net_io
         ],
+        # per-core — 배열 위치 = core_id (/proc/stat cpu0..N 순서). server_cpu_core 행 매핑.
+        cpu_per_core=[
+            CpuCoreEntry(
+                core_id=idx,
+                cpu_user=c.user,
+                cpu_nice=c.nice,
+                cpu_system=c.system,
+                cpu_idle=c.idle,
+                cpu_iowait=c.iowait,
+                cpu_irq=c.irq,
+                cpu_softirq=c.softirq,
+                cpu_steal=c.steal,
+            )
+            for idx, c in enumerate(data.cpu_per_core)
+        ],
+        procs_running=data.procs_running,
+        procs_blocked=data.procs_blocked,
+        schedstat_run_wait_ns=data.schedstat_run_wait_ns,
+        pswpin=data.pswpin,
+        pswpout=data.pswpout,
+        oom_kill=data.oom_kill,
+        mem_pages_input=data.mem_pages_input,
+        tcp_retrans_segs=data.tcp_retrans_segs,
+        tcp_tw=data.tcp_tw,
+        conntrack_count=data.conntrack_count,
+        conntrack_max=data.conntrack_max,
+        psi_cpu_some_total=data.psi_cpu_some_total,
+        psi_mem_some_total=data.psi_mem_some_total,
+        psi_io_some_total=data.psi_io_some_total,
+        collection_interval_sec=data.collection_interval_sec,
     )

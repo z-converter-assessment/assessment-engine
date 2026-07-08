@@ -271,9 +271,7 @@ async def test_enqueue_and_emit_same_input_hash(stub_session_factory, stub_diag_
     stub_diag_repo.enqueue = AsyncMock(side_effect=_capture)
     stub_diag_repo.mark_succeeded = AsyncMock()
     service = _service(stub_session_factory, stub_diag_repo)
-    common = dict(
-        view="engineer", scope="server", server_public_ids=["a"], time_range="7d", anchor_at=_FIXED_ANCHOR
-    )
+    common = dict(view="engineer", scope="server", server_public_ids=["a"], time_range="7d", anchor_at=_FIXED_ANCHOR)
     await service.enqueue_report(**common)
     await service.emit_report(kind=REPORT_KIND_ENV, snapshot={}, **common)
     assert captured[0].input_hash == captured[1].input_hash
@@ -324,12 +322,9 @@ def test_report_result_constants_single_source():
 
 def test_report_threshold_constants_imported():
     """보고서 표시 임계 상수 mappers sub-package 안 정의 회귀 (색 카탈로그는 폐기 — 표시 미사용)."""
-    from assessment_engine import recommendation
     from assessment_engine.web.services.mappers import report as m_report
     from assessment_engine.web.services.mappers import shared as m_shared
 
     assert m_report._VARIANCE_BURST_RATIO == 1.5
     assert m_shared._CAPACITY_IMMINENT_DAYS == 30
     assert m_report._REBOOT_UNSTABLE_COUNT == 3
-    # SATURATION_BURST_RATIO 는 recommendation 상수 인용
-    assert m_report._SATURATION_BURST_RATIO == recommendation.CPU_SATURATION_LOAD_RATIO

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.boot_time import boot_time_changed
 from assessment_engine.db.dtos.inbound import (
+    CpuCoreEntry,
     DiskIoEntry,
     MountUsageEntry,
     NetIoEntry,
@@ -14,6 +15,7 @@ from assessment_engine.db.dtos.inbound import (
     TaskCreate,
     TaskResultUpdate,
 )
+from assessment_engine.db.models.server_cpu_core import ServerCpuCore
 from assessment_engine.db.models.server_disk_io import ServerDiskIo
 from assessment_engine.db.models.server_inventory import ServerInventory
 from assessment_engine.db.models.server_inventory_history import ServerInventoryHistory
@@ -31,9 +33,7 @@ class CollectRepository(BaseCollectRepository):
     # ─── server_inventory ──────────────────────────────────────────────────
 
     async def find_server_id(self, agent_id: str) -> int | None:
-        result = await self.session.execute(
-            select(ServerInventory.id).where(ServerInventory.agent_id == agent_id)
-        )
+        result = await self.session.execute(select(ServerInventory.id).where(ServerInventory.agent_id == agent_id))
         return result.scalar_one_or_none()
 
     # 비교 대상 컬럼만 SELECT (매 inventory 메시지 hot path — 불필요 컬럼 read 절약).
@@ -272,6 +272,20 @@ class CollectRepository(BaseCollectRepository):
         result = await self.session.execute(stmt)
         return result.rowcount or 0
 
+    async def expire_all_overdue_tasks(self) -> int:
+        # reaper 전역 버전 — server_ids 무필터. DB now() 단일 비교(클라이언트 시각차 회피).
+        stmt = (
+            update(Task)
+            .where(
+                Task.status == "pending",
+                Task.deadline_at.is_not(None),
+                Task.deadline_at < func.now(),
+            )
+            .values(status="failure", failure_reason="timeout", completed_at=func.now())
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0
+
     async def find_pending_deadline_servers(self, server_ids: list[int]) -> list[int]:
         if not server_ids:
             return []
@@ -297,6 +311,8 @@ class CollectRepository(BaseCollectRepository):
                 completed_at=data.completed_at,
                 failure_reason=data.failure_reason,
                 exit_code=data.exit_code,
+                signal_no=data.signal_no,
+                install_verified=data.install_verified,
                 duration_ms=data.duration_ms,
                 stdout_tail=data.stdout_tail,
                 stderr_tail=data.stderr_tail,
@@ -320,12 +336,33 @@ class CollectRepository(BaseCollectRepository):
         disk_io_n = await self._insert_disk_io(server_id, data, data.disk_io)
         net_io_n = await self._insert_net_io(server_id, data, data.net_io)
         mount_n = await self._insert_mount_usage(server_id, data, data.mounts)
+        cpu_core_n = await self._insert_cpu_core(server_id, data, data.cpu_per_core)
         return MetricInsertResult(
             metrics=metrics_n,
             disk_io=disk_io_n,
             net_io=net_io_n,
             mount_usage=mount_n,
+            cpu_core=cpu_core_n,
         )
+
+    async def _insert_cpu_core(
+        self,
+        server_id: int,
+        data: ServerMetricCreate,
+        entries: list[CpuCoreEntry],
+    ) -> int:
+        # per-core 행 (server_cpu_core) — boot_time/agent_started_at 미보유(counter_agg reset-safe).
+        if not entries:
+            return 0
+        stmt = (
+            pg_insert(ServerCpuCore)
+            .values(
+                [{"server_id": server_id, "collected_at": data.collected_at, **dataclasses.asdict(e)} for e in entries]
+            )
+            .on_conflict_do_nothing(index_elements=["server_id", "core_id", "collected_at"])
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0
 
     async def _insert_scalar_metrics(
         self,
@@ -358,6 +395,27 @@ class CollectRepository(BaseCollectRepository):
                 sat_disk_queue=data.sat_disk_queue,
                 sat_cpu_run_queue=data.sat_cpu_run_queue,
                 sat_mem_paging_rate=data.sat_mem_paging_rate,
+                sat_disk_read_time=data.sat_disk_read_time,
+                sat_disk_write_time=data.sat_disk_write_time,
+                sat_disk_read_count=data.sat_disk_read_count,
+                sat_disk_write_count=data.sat_disk_write_count,
+                sat_disk_idle_time=data.sat_disk_idle_time,
+                sat_disk_query_time=data.sat_disk_query_time,
+                psi_cpu_some_total=data.psi_cpu_some_total,
+                psi_mem_some_total=data.psi_mem_some_total,
+                psi_io_some_total=data.psi_io_some_total,
+                collection_interval_sec=data.collection_interval_sec,
+                procs_running=data.procs_running,
+                procs_blocked=data.procs_blocked,
+                schedstat_run_wait_ns=data.schedstat_run_wait_ns,
+                pswpin=data.pswpin,
+                pswpout=data.pswpout,
+                oom_kill=data.oom_kill,
+                mem_pages_input=data.mem_pages_input,
+                tcp_retrans_segs=data.tcp_retrans_segs,
+                tcp_tw=data.tcp_tw,
+                conntrack_count=data.conntrack_count,
+                conntrack_max=data.conntrack_max,
                 boot_time=data.boot_time,
                 agent_started_at=data.agent_started_at,
             )

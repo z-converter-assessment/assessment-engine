@@ -42,6 +42,9 @@
     border-radius: 2px;
     display: inline-block;
   }
+  /* 포화 신호 라인 — 각 자원 표 아래 통일 표기 (자원 적정성 분류 축). label + 값 + os-aware 기준 설명. */
+  .sat-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 5px 0; }
+  .sat-name { font-size: 12px; font-weight: 600; color: #475569; min-width: 96px; }
 </style>
 <a class="back no-print" href="{{ back_url }}">이전</a>
 
@@ -62,8 +65,6 @@
     <dd>{{ server.cpu_display }}</dd>
     <dt>Memory</dt>
     <dd>{{ server.mem_total_gb | disksize }}</dd>
-    <dt>Swap</dt>
-    <dd>{{ server.swap_total_gb | disksize }}</dd>
 
     <dt class="kv-group">네트워크</dt>
     <dt>Internal IP</dt>
@@ -73,7 +74,7 @@
       {% if server.ip_external %}
         {% for ip in server.ip_external %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}
       {% else %}
-        <span class="text-meta">내부망</span>
+        <span class="text-meta">없음</span>
       {% endif %}
     </dd>
 
@@ -96,9 +97,17 @@
     <dd>{{ server.composite_id | or_dash }}</dd>
 
     <dt class="kv-group">스토리지</dt>
-    {# volume_total_gb = 파일시스템 총 크기 합(저장 가능 총량). 물리 raw(LVM·오버헤드 포함)와 별개. #}
+    {# 배정 디스크 = 물리 블록 디바이스(virtio vda) 크기 = OpenStack 이 이 VM 에 배정한 스토리지. 파일시스템(df 사용가능)과 별개 축. #}
+    <dt>배정 디스크</dt>
+    <dd>{{ server.disk_total_gb | storagesize }} <span class="text-meta text-xs">이 VM 에 배정된 블록 디바이스</span></dd>
+    {# volume_total_gb = 마운트된 파일시스템 크기 합. 배정 디스크보다 작음(fs 오버헤드·boot·미할당). #}
     <dt>파일시스템 용량</dt>
-    <dd>{{ server.volume_total_gb | disksize }}</dd>
+    <dd>{{ server.volume_total_gb | storagesize }} <span class="text-meta text-xs">마운트된 파일시스템 합</span></dd>
+    {% if server.disk_unallocated_gb is not none and server.disk_unallocated_gb > 0 %}
+    {# 미할당 = 배정 - 파일시스템. 파티션/LVM 미할당 여유(디스크 추가 없이 확장 여지, 추론). #}
+    <dt>미할당</dt>
+    <dd>{{ server.disk_unallocated_gb | storagesize }} <span class="text-meta text-xs">확장 여력 — 배정에서 파일시스템 뺀 여유 (추정)</span></dd>
+    {% endif %}
     <dt>파일시스템</dt>
     {% if server.volumes %}
     <dd>{{ server.volumes_count }}개</dd>
@@ -112,7 +121,7 @@
           <tr>
             <td>{{ v.mount }}</td>
             <td>{{ v.fstype or '-' }}</td>
-            <td>{{ v.total_gb | disksize }}</td>
+            <td>{{ v.total_gb | storagesize }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -151,7 +160,7 @@
   </div>
 
   <div>
-    <div class="sub-label" style="margin-bottom:8px;">주요 Listen 포트</div>
+    <div class="sub-label" style="margin-bottom:8px;">주요 Listen 포트 <span class="text-meta text-xs" style="font-weight:400;">위 서비스에 귀속되지 않은 소켓만 (서비스 포트는 카테고리 뱃지에 표시)</span></div>
     {% if server.key_listen_ports %}
     <div style="display:flex; flex-wrap:wrap; gap:8px;">
       {% for p in server.key_listen_ports %}
@@ -163,7 +172,7 @@
       {% endfor %}
     </div>
     {% else %}
-    {{ empty_state("1024 이하 주요 Listen 포트가 없습니다.") }}
+    {{ empty_state("모든 Listen 포트가 위 서비스 카테고리 뱃지에 표시됨 (미귀속 포트 없음 · 동적 포트 49152+ 제외).") }}
     {% endif %}
   </div>
 </div>
@@ -184,11 +193,6 @@
   </div>
 
   <div id="metrics-content" style="display:none;">
-    <p class="text-meta text-xs" style="margin:0 0 10px; line-height:1.8;">
-      <span class="identifier text-label" style="display:inline-block; min-width:36px;">N/A</span>해당 OS 에서 미측정하는 항목<br>
-      <span class="identifier text-label" style="display:inline-block; min-width:36px;">—</span>일시적으로 값 없음 (첫 수집·수집 끊김 등)
-    </p>
-
     <!-- detail.js 가 값 갱신. -->
     <div style="display:flex; align-items:center; flex-wrap:wrap; gap:24px; margin:4px 0 20px;">
       <div style="text-align:center;">
@@ -216,7 +220,7 @@
           <text id="disk-donut-text" x="50" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#94a3b8">—</text>
           <text id="disk-donut-unit" x="50" y="66" text-anchor="middle" font-size="10" fill="#94a3b8" style="display:none;">%</text>
         </svg>
-        <div class="text-label text-sm" style="margin-top:4px;">디스크</div>
+        <div class="text-label text-sm" style="margin-top:4px;">스토리지</div>
       </div>
     </div>
 
@@ -233,10 +237,7 @@
               <th style="white-space:nowrap;">Usage</th>
               <th style="white-space:nowrap;">User</th>
               <th style="white-space:nowrap;">System</th>
-              <th style="white-space:nowrap;">I/O Wait</th>
-              <th style="white-space:nowrap;">Load 1m</th>
-              <th style="white-space:nowrap;">Load 5m</th>
-              <th style="white-space:nowrap;">Load 15m</th>
+              {% if server.os_family != 'windows' %}<th style="white-space:nowrap;">I/O Wait</th>{% endif %}
             </tr>
           </thead>
           <tbody>
@@ -244,13 +245,20 @@
               <td id="cpu-usage" style="white-space:nowrap;">—</td>
               <td id="cpu-user" style="white-space:nowrap;">—</td>
               <td id="cpu-system" style="white-space:nowrap;">—</td>
-              <td id="cpu-iowait" style="white-space:nowrap;">—</td>
-              <td id="load-1m" style="white-space:nowrap;">—</td>
-              <td id="load-5m" style="white-space:nowrap;">—</td>
-              <td id="load-15m" style="white-space:nowrap;">—</td>
+              {% if server.os_family != 'windows' %}<td id="cpu-iowait" style="white-space:nowrap;">—</td>{% endif %}
             </tr>
           </tbody>
         </table>
+      </div>
+      <div class="sat-line">
+        <span class="sat-name">실행 큐 <span class="text-meta text-xs">포화</span></span>
+        <span id="cpu-runq" class="text-sm">—</span>
+        <span class="text-meta text-xs">코어당 Linux 1(실행 대기 프로세스, procs_running) · Windows 2(Processor Queue Length) 이상 포화</span>
+      </div>
+      <div class="sat-line">
+        <span class="sat-name">Steal <span class="text-meta text-xs">포화</span></span>
+        <span id="cpu-steal" class="text-sm">—</span>
+        <span class="text-meta text-xs">하이퍼바이저가 vCPU 시간 뺏김 (가상화 경합) — Linux 전용 · Windows 는 OS 개념 부재로 미측정(N/A)</span>
       </div>
     </div>
 
@@ -267,8 +275,8 @@
               <th style="white-space:nowrap;">Usage</th>
               <th style="white-space:nowrap;">Used</th>
               <th style="white-space:nowrap;">Available</th>
-              <th style="white-space:nowrap;">Cached</th>
-              <th style="white-space:nowrap;">Buffers</th>
+              {% if server.os_family != 'windows' %}<th style="white-space:nowrap;">Cached</th>
+              <th style="white-space:nowrap;">Buffers</th>{% endif %}
             </tr>
           </thead>
           <tbody>
@@ -276,11 +284,16 @@
               <td id="mem-usage" style="white-space:nowrap;">—</td>
               <td id="mem-used" style="white-space:nowrap;">—</td>
               <td id="mem-avail" style="white-space:nowrap;">—</td>
-              <td id="mem-cached" style="white-space:nowrap;">—</td>
-              <td id="mem-buffers" style="white-space:nowrap;">—</td>
+              {% if server.os_family != 'windows' %}<td id="mem-cached" style="white-space:nowrap;">—</td>
+              <td id="mem-buffers" style="white-space:nowrap;">—</td>{% endif %}
             </tr>
           </tbody>
         </table>
+      </div>
+      <div class="sat-line">
+        <span class="sat-name">페이징 <span class="text-meta text-xs">포화</span></span>
+        <span id="mem-paging" class="text-sm">—</span>
+        <span class="text-meta text-xs">물리 메모리 압박 — Linux swap page-out 발생 · Windows Pages Input/sec(하드폴트) 초당 20 이상 (pagefile 상시 사용이라 사용량 아닌 하드폴트율로 판정)</span>
       </div>
 
       <div id="swap-section" style="display:none;">
@@ -329,6 +342,11 @@
           </table>
           <div id="disk-io-empty" class="text-meta text-sm" style="display:none;">디스크 I/O 미수집 — 연속 2회 측정 시 표시</div>
         </div>
+        <div class="sat-line">
+          <span class="sat-name">디스크 I/O 포화</span>
+          <span id="disk-sat" class="text-sm">—</span>
+          <span class="text-meta text-xs">Linux await(응답 지연) 20ms · Windows await(IOCTL) 20ms 초과 포화 (구세대 viostor 만 Avg Disk Queue Length 2 이상) · 호스트 전체</span>
+        </div>
       </div>
     </div>
 
@@ -339,7 +357,7 @@
         <a href="/servers/{{ server.public_id }}/network?back={{ self_back }}" class="btn-action btn-action-sm no-print">네트워크 상세</a>
       </div>
       <div class="group-panel">
-        <table id="net-io-table" style="margin-bottom:14px;">
+        <table id="net-io-table" style="margin-bottom:10px;">
           <thead>
             <tr>
               <th>Interface</th>
@@ -349,6 +367,11 @@
           </thead>
           <tbody id="net-io-body"></tbody>
         </table>
+        <div class="sat-line">
+          <span class="sat-name">TCP 재전송율 포화</span>
+          <span id="net-retrans" class="text-sm">—</span>
+          <span class="text-meta text-xs">1% 이상이면 네트워크 품질 저하 · 호스트 전체(TCP 전역, OS 공통)</span>
+        </div>
       </div>
     </div>
 
@@ -479,4 +502,4 @@
 <script src="/static/js/pages/detail.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} data-server-id="{{ server.public_id }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}
+{% block body_attrs %} data-server-id="{{ server.public_id }}" data-os-family="{{ server.os_family or '' }}" data-cpu-cores="{{ server.cpu_cores or '' }}"{% endblock %}

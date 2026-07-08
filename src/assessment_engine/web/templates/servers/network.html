@@ -16,7 +16,10 @@
     <dd>{% for ip in network.ip_internal %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% else %}-{% endfor %}</dd>
     <dt>External IP</dt>
     <dd>{% if network.ip_external %}{% for ip in network.ip_external %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}-{% endif %}</dd>
+    <dt>TCP 재전송율</dt>
+    <dd id="s-net-retrans">—</dd>
   </dl>
+  <p class="text-meta text-xs" style="margin:6px 0 0;">재전송율 1% 초과 시 네트워크 품질 저하(혼잡·손실) — 자원 부족과 별개의 품질 지표(양 OS 공통).</p>
 
   <div class="section-title" style="margin-top:22px; margin-bottom:14px;">인터페이스 현황</div>
   <div id="net-snapshot-loading" class="text-meta text-md">불러오는 중...</div>

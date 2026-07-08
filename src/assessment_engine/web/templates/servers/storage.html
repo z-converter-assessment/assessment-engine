@@ -11,9 +11,16 @@
     <span id="metrics-stamp" class="text-meta text-xs no-print">30초마다 자동 갱신 · 최근 —</span>
   </div>
 
+  {# 스토리지 3계층 — 배정 블록(OpenStack 배정 디스크) / 파일시스템(마운트 합) / 미할당(확장 여력, 추론). 단일 산식 storage_layers_gb. #}
   <dl class="kv kv-soft" style="margin-bottom:6px;">
+    <dt>배정 디스크</dt>
+    <dd>{% if storage.disk_total_gb is not none %}{{ storage.disk_total_gb | storagesize }} <span class="text-meta text-xs">배정된 블록 디바이스</span>{% else %}-{% endif %}</dd>
     <dt>파일시스템 총 용량</dt>
-    <dd>{% if storage.fs_total_gb is not none %}{{ storage.fs_total_gb | disksize }}{% else %}-{% endif %}</dd>
+    <dd>{% if storage.fs_total_gb is not none %}{{ storage.fs_total_gb | storagesize }} <span class="text-meta text-xs">마운트된 파일시스템 합</span>{% else %}-{% endif %}</dd>
+    {% if storage.disk_unallocated_gb is not none and storage.disk_unallocated_gb > 0 %}
+    <dt>미할당</dt>
+    <dd>{{ storage.disk_unallocated_gb | storagesize }} <span class="text-meta text-xs">확장 여력 — 배정에서 파일시스템 뺀 여유 (추정)</span></dd>
+    {% endif %}
   </dl>
 
   <div class="section-title">파일시스템 사용량</div>
@@ -34,9 +41,9 @@
       <tr>
         <td>{{ m.mount }}</td>
         <td>{{ m.fstype or '-' }}</td>
-        <td>{{ m.total_gb | disksize }}</td>
-        <td>{{ m.used_gb | disksize }}</td>
-        <td>{{ m.avail_gb | disksize }}</td>
+        <td>{{ m.total_gb | storagesize }}</td>
+        <td>{{ m.used_gb | storagesize }}</td>
+        <td>{{ m.avail_gb | storagesize }}</td>
         <td>
           {% if m.usage_pct is not none %}
             {{ m.usage_pct }}%
@@ -53,6 +60,14 @@
   {% endif %}
 
   <div class="section-title" style="margin-top:22px;">디스크 I/O</div>
+  {# 디스크 I/O 포화 — 값 + Linux/Windows 2행 항상 노출. 값은 storage.js 가 신호 유무로 채움(Linux/Windows await ms 또는 구세대 큐). #}
+  <div class="os-diff-list" style="margin:6px 0 12px;">
+    <div class="os-diff">
+      <div class="os-diff-head"><span class="os-diff-name">디스크 I/O 포화</span><span class="os-diff-val" id="s-disk-sat">—</span></div>
+      <div class="os-diff-note"><b>Linux</b>await(응답 지연) 20ms 초과 포화</div>
+      <div class="os-diff-note"><b>Windows</b>await(IOCTL ReadTime/WriteTime) 20ms 초과 — 구세대 viostor 만 Avg Disk Queue Length 2 이상 폴백</div>
+    </div>
+  </div>
   <div id="io-snapshot-loading" class="text-meta text-md">불러오는 중...</div>
   <table id="io-phys-table" style="display:none;">
     <thead>

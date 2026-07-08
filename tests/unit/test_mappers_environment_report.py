@@ -15,6 +15,7 @@ from assessment_engine.web.services.mappers import environment_report as erm
 from assessment_engine.web.services.mappers import shared as m_shared
 from assessment_engine.web.services.mappers.environment_report import to_environment_report
 from assessment_engine.web.view_models.attention import (
+    ActionTargets,
     AttentionSignals,
     EnvironmentOverview,
 )
@@ -104,11 +105,12 @@ def test_to_environment_report_precomputes_count_fields():
         time_range="14d",
         anchor_at=datetime(2026, 5, 12, tzinfo=UTC),
         generated_at=datetime(2026, 5, 12, tzinfo=UTC),
+        action=ActionTargets(),
     )
     assert result.top_risks_count == len(result.top_risks)
     assert result.attention_hosts_count == len(result.attention_hosts)
     assert result.capacity_imminent_count == len(result.capacity_imminent)
-    assert result.under_provisioned_hosts_count == len(result.under_provisioned_hosts)
+    assert result.action.total == len(result.action.hosts)
 
 
 def test_to_environment_report_precomputes_classification_pct():
@@ -158,6 +160,7 @@ def test_to_environment_report_precomputes_classification_pct():
         time_range="14d",
         anchor_at=datetime(2026, 5, 12, tzinfo=UTC),
         generated_at=datetime(2026, 5, 12, tzinfo=UTC),
+        action=ActionTargets(),
     )
     by_key = {c.key: c for c in result.classification_dist}
     assert by_key["optimal"].pct == pytest.approx(66.7, abs=0.1)
@@ -205,6 +208,7 @@ def test_to_environment_report_classification_dist_empty_rows_zero_pct():
         time_range="14d",
         anchor_at=datetime(2026, 5, 12, tzinfo=UTC),
         generated_at=datetime(2026, 5, 12, tzinfo=UTC),
+        action=ActionTargets(),
     )
     for c in result.classification_dist:
         assert c.pct == 0.0

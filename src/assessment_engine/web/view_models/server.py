@@ -5,6 +5,9 @@ from datetime import datetime
 
 # MatchedPort 는 분류 도메인 개념 — service_classifier(domain)에 정의, 본 모듈은 ServiceItem.ports 로 소비.
 from assessment_engine.service_classifier import MatchedPort
+
+# NetIoSnapshot 은 NetworkDetailResponse.interfaces 필드 타입으로 재사용 (metric sub-module 정의).
+from assessment_engine.web.view_models.metric import NetIoSnapshot
 from assessment_engine.web.view_models.task import TaskSummaryItem
 
 
@@ -69,7 +72,7 @@ class ListenPortItem:
     uid: int | None  # Windows agent null 호환 (POSIX uid 미존재)
     pid: int | None
     comm: str | None
-    is_well_known: bool = False  # port <= 1024. mapper에서 계산 (P2)
+    is_significant: bool = False  # port < 49152 (비동적 = 의도된 서비스 리스너). mapper 계산 (P2)
 
 
 @dataclass
@@ -93,8 +96,11 @@ class ServerListItem:
     recommendation_label: str = ""
     recommendation_color: str = ""
     # 분류 raw enum — list 필터링 단일 진실 (optimal / over_provisioned / under_provisioned /
-    # idle / shutdown / insufficient_data). raws_period 부재 시 빈 문자열.
+    # idle / insufficient_data). raws_period 부재 시 빈 문자열.
     provisioning_class: str = ""
+    # 네트워크 혼잡 — 사이징(under/over) 축과 분리된 orthogonal 품질 플래그 (ADR 0052, 원칙 P2).
+    # 재전송>1% or 드롭>0.5%. 자원 분류 배지와 별개로 목록에 "혼잡" 마커 노출 (host under 로 오분류 금지).
+    network_congested: bool = False
     # OS distro(endoflife 카탈로그 product slug) — OS 필터 단일 진실.
     # os_id_to_distro(os_id) 정규화 (rocky->rocky-linux).
     os_distro: str = ""
@@ -135,7 +141,8 @@ class ServerDetailResponse:
     key_listen_ports: list[ListenPortItem] = field(default_factory=list)
     os_display: str = ""
     cpu_display: str = ""
-    disk_total_gb: float | None = None
+    disk_total_gb: float | None = None  # 배정 블록 — disk_total_bytes 단일 산식(물리 우선·fs fallback, #C)
+    disk_unallocated_gb: float | None = None  # 미할당 = 배정 - 파일시스템 (확장 여력 추론)
     # P3: 템플릿이 `| length` 못 쓰도록 count를 mapper에서 미리 계산
     services_count: int = 0
     listen_ports_count: int = 0
@@ -181,11 +188,9 @@ class StorageDetailResponse:
     fs_total_gb: float | None  # 파일시스템(마운트) total_gb 합 — 현재 상태 요약
     snapshot_at: datetime | None
     inventory_at: datetime | None
-
-
-# NetworkDetailResponse 는 metric.NetIoSnapshot 을 재사용 — interfaces 필드 type.
-# import 순환 방지 위해 metric sub-module 에서 NetIoSnapshot 정의를 별도로 보유 후 본 모듈 import.
-from assessment_engine.web.view_models.metric import NetIoSnapshot  # noqa: E402
+    # 스토리지 3계층(storage_layers_gb 단일 산식) — 배정 블록 / 미할당(확장 여력). fs_total_gb 가 파일시스템 층.
+    disk_total_gb: float | None = None
+    disk_unallocated_gb: float | None = None
 
 
 @dataclass

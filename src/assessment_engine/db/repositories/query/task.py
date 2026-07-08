@@ -16,7 +16,7 @@ class TaskQueryRepository(_BaseQueryMixin, BaseTaskQueryRepository):
             SELECT
                 t.public_id, t.target_server_id, t.task_type, t.status,
                 t.created_at, t.deadline_at, t.completed_at,
-                t.failure_reason, t.exit_code, t.duration_ms,
+                t.failure_reason, t.exit_code, t.signal_no, t.duration_ms,
                 t.stdout_tail, t.stderr_tail, t.params,
                 s.public_id AS target_public_id, s.hostname AS target_hostname
             FROM tasks t
@@ -46,7 +46,7 @@ class TaskQueryRepository(_BaseQueryMixin, BaseTaskQueryRepository):
             SELECT
                 t.public_id, t.target_server_id, t.task_type, t.status,
                 t.created_at, t.deadline_at, t.completed_at,
-                t.failure_reason, t.exit_code, t.duration_ms,
+                t.failure_reason, t.exit_code, t.signal_no, t.duration_ms,
                 t.stdout_tail, t.stderr_tail, t.params,
                 s.public_id AS target_public_id, s.hostname AS target_hostname
             FROM tasks t
@@ -69,7 +69,7 @@ class TaskQueryRepository(_BaseQueryMixin, BaseTaskQueryRepository):
             SELECT DISTINCT ON (t.target_server_id)
                 t.public_id, t.target_server_id, t.task_type, t.status,
                 t.created_at, t.deadline_at, t.completed_at,
-                t.failure_reason, t.exit_code, t.duration_ms,
+                t.failure_reason, t.exit_code, t.signal_no, t.duration_ms,
                 t.stdout_tail, t.stderr_tail, t.params,
                 s.public_id AS target_public_id, s.hostname AS target_hostname
             FROM tasks t
@@ -94,6 +94,7 @@ class TaskQueryRepository(_BaseQueryMixin, BaseTaskQueryRepository):
             completed_at=row.completed_at,
             failure_reason=row.failure_reason,
             exit_code=row.exit_code,
+            signal_no=row.signal_no,
             duration_ms=row.duration_ms,
             stdout_tail=row.stdout_tail,
             stderr_tail=row.stderr_tail,

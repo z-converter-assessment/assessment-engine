@@ -43,13 +43,14 @@
     <tbody>
     {% for sn in topology.subnets %}
     <tr>
-      <td colspan="3" class="text-md" style="font-family:monospace; font-weight:600; color:#334155; padding:{% if not loop.first %}16px{% else %}0{% endif %} 0 7px; border-bottom:1px solid #e2e8f0;">{{ sn.net_key }}</td>
+      <td colspan="4" class="text-md" style="font-family:monospace; font-weight:600; color:#334155; padding:{% if not loop.first %}16px{% else %}0{% endif %} 0 7px; border-bottom:1px solid #e2e8f0;">{{ sn.net_key }}</td>
     </tr>
     {% for h in sn.hosts %}
     <tr>
       <td style="padding:4px 28px 4px 0;"><a href="/servers/{{ h.public_id }}?back={{ self_back }}">{{ h.hostname }}</a></td>
       <td class="text-label" style="padding:4px 28px 4px 0;">{{ h.ip }}</td>
-      <td class="text-label" style="padding:4px 0;">{{ h.os_family }}</td>
+      <td class="text-label" style="padding:4px 28px 4px 0;">{{ h.os_family }}</td>
+      <td style="padding:4px 0;">{% for r in h.roles %}<span class="badge {{ r | service_badge_class }}" style="margin-right:3px;">{{ r }}</span>{% else %}<span class="text-meta text-xs">—</span>{% endfor %}</td>
     </tr>
     {% endfor %}
     {% endfor %}

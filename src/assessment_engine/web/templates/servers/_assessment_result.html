@@ -1,41 +1,27 @@
 {# 환경 자원 평가 결과 partial — assessment.html include + ?fragment=result JS swap 공용. #}
-{% from "_shared.html" import empty_state %}
-{% from "reports/_resource_tables.html" import efficiency_table, under_provisioned_table %}
+{% from "_shared.html" import empty_state, provisioning_dist_bar %}
+{% from "reports/_resource_tables.html" import action_targets_table %}
 
 {# 평가 대상 수 — 컨트롤 줄 'N대 기준' 뱃지를 JS(assessment.js)가 swap 후 갱신 (윈도우별 변동). #}
 <span hidden id="assess-total" data-total="{{ overview.risk_donut_total }}"></span>
+
+{# 카드1 — 자원 적정성 분포 (분류 막대). 조치 대상 표와 별도 카드. #}
 <section class="card no-print">
-  <h2 class="card-title" style="margin:0 0 14px;">자원 적정성 평가 <span class="section-meta">{{ overview.risk_donut_total }}대</span></h2>
+  <h2 class="card-title" style="margin:0 0 14px;">자원 적정성 분포</h2>
   {% if overview.risk_donut and overview.risk_donut_total > 0 %}
-  <div style="display:flex; flex-direction:column; gap:6px;">
-    {% for s in overview.risk_donut %}
-    <div style="display:flex; align-items:center; gap:8px;">
-      <div class="text-sm text-strong" style="width:104px; flex-shrink:0;">{{ s.label }}</div>
-      <div class="bar-track" style="flex:1; background:#f1f5f9; border-radius:4px; height:16px; overflow:hidden;">
-        <div class="bar-fill" style="width:{{ s.pct }}%; background:{{ s.color }}; height:100%;"></div>
-      </div>
-      <strong class="text-sm text-strong" style="width:32px; text-align:right; flex-shrink:0;">{{ s.count }}</strong>
-    </div>
-    {% endfor %}
-  </div>
+  {{ provisioning_dist_bar(overview.risk_donut) }}
   {% else %}
   {{ empty_state("평가된 서버가 없습니다 — 표본이 쌓이면 분류 결과가 표시됩니다.") }}
   {% endif %}
 </section>
 
-{# 엔지니어 보고서와 동일 표. 초과 행은 JS(assessment.js)가 #under-wrap tbody clip + 더보기/접기. #}
+{# 카드2 — 서버별 자원 적정성 표 (전 서버, 분류 정렬순). 초과 행은 assessment.js 가 #under-wrap clip + 더보기. #}
 <section class="card no-print">
-  <h2 class="card-title" style="margin:0 0 14px;">자원 부족 <span class="section-meta">{{ overview.under_provisioned_hosts_count }}대</span></h2>
+  <h2 class="card-title" style="margin:0 0 14px;">서버별 자원 적정성</h2>
   <div id="under-wrap">
-  {{ under_provisioned_table(overview.under_provisioned_hosts, under_provisioned_metric_labels, self_back) }}
+  {{ action_targets_table(action.hosts, action.metric_labels, self_back) }}
   </div>
   <div class="no-print" id="under-more-wrap" style="margin-top:12px; text-align:center; display:none;">
     <button type="button" id="under-more-btn" class="btn-action"></button>
   </div>
-</section>
-
-{# 엔지니어 보고서와 동일 표 (reports/_resource_tables.html 공유). #}
-<section class="card no-print">
-  <h2 class="card-title" style="margin:0 0 14px;">효율화 검토 대상 <span class="section-meta">{{ efficiency_target_count }}대</span></h2>
-  {{ efficiency_table(efficiency_hosts, efficiency_target_count, efficiency_target_vcpus, efficiency_target_memory_gb, efficiency_hosts_count, self_back) }}
 </section>

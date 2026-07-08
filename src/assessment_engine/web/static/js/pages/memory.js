@@ -44,6 +44,15 @@ async function loadSnapshot() {
       document.getElementById('s-swap-pct').textContent   = swap.usage_pct  != null ? swap.usage_pct.toFixed(1) + '%' : '—';
       document.getElementById('s-swap-used').textContent  = fmtGb(swapUsedKb);
     }
+    // 메모리 압박 — 신 모델 포화 신호(스왑 점유율과 별개). Linux=page-out 발생(pswpout 델타>0), Windows=Pages Input/sec(하드폴트율).
+    const pressEl = document.getElementById('s-mem-pressure');
+    if (pressEl) {
+      if (OS_FAMILY === 'windows') {
+        pressEl.textContent = data.mem_pages_input_rate != null ? data.mem_pages_input_rate.toFixed(0) + '/s (하드폴트)' : '—';
+      } else {
+        pressEl.textContent = data.mem_pageout != null ? (data.mem_pageout > 0 ? 'page-out 발생' : '없음') : '—';
+      }
+    }
 
     const stampEl = document.getElementById('metrics-stamp');
     if (stampEl && data.collected_at) {
@@ -183,11 +192,14 @@ function updateCompBucketLabel() {
   document.getElementById('comp-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[compRange]] || '';
 }
 
+// Windows 는 Cached/Buffers 미측정(page-cache 세분 개념 부재) — Used/Available 만(빈 라인·범례 방지, OS 분기).
 const COMP_META = {
   used:      { label: 'Used',      color: ChartUtils.themeColor() },
   available: { label: 'Available', color: '#8b5cf6' },
-  cached:    { label: 'Cached',    color: '#22c55e' },
-  buffers:   { label: 'Buffers',   color: '#f59e0b' },
+  ...(OS_FAMILY === 'windows' ? {} : {
+    cached:    { label: 'Cached',    color: '#22c55e' },
+    buffers:   { label: 'Buffers',   color: '#f59e0b' },
+  }),
 };
 
 function renderCompChart(rows, range, anchorEnd) {
@@ -251,19 +263,22 @@ async function loadCompChart() {
     return p;
   };
   try {
-    const [usedRows, availRows, cachedRows, buffersRows] = await Promise.all([
+    // Windows 는 cached/buffers 미측정 — fetch skip(빈 요청·빈 라인 방지, OS 분기).
+    const reqs = [
       fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('mem.usage_percent')}`).then(r => r.json()),
       fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('mem.available_percent')}`).then(r => r.json()),
-      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('mem.cached_percent')}`).then(r => r.json()),
-      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('mem.buffers_percent')}`).then(r => r.json()),
-    ]);
+    ];
+    if (OS_FAMILY !== 'windows') {
+      reqs.push(fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('mem.cached_percent')}`).then(r => r.json()));
+      reqs.push(fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('mem.buffers_percent')}`).then(r => r.json()));
+    }
+    const [usedRows, availRows, cachedRows, buffersRows] = await Promise.all(reqs);
     if (seq !== compSeq) return;
     const toRows = (arr, dim) => safeArray(arr).map(r => ({ ...r, dimension: dim }));
     const rows = [
       ...toRows(usedRows,    'used'),
       ...toRows(availRows,   'available'),
-      ...toRows(cachedRows,  'cached'),
-      ...toRows(buffersRows, 'buffers'),
+      ...(OS_FAMILY !== 'windows' ? [...toRows(cachedRows, 'cached'), ...toRows(buffersRows, 'buffers')] : []),
     ];
     renderCompChart(rows, capturedRange, capturedAnchor);
   } catch(e) { console.error(e); }

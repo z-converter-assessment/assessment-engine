@@ -26,28 +26,13 @@
     return p.toString();
   }
 
-  // 발행 -> POST emit -> 발행된 스냅샷으로 navigate. (select 변경은 navigate 없이 발행 시점 값만 사용.)
+  // 발행 -> POST emit -> 발행된 스냅샷으로 navigate. 공용 EmitUtils(비활성·토스트·bfcache 복구 내장).
+  // (select 변경은 navigate 없이 발행 시점 값만 사용.)
   if (emit) {
-    emit.addEventListener('click', async function () {
-      emit.disabled = true;
-      const pending = window.ToastUtils ? window.ToastUtils.show('보고서 발행 중...', 'pending') : null;
-      try {
-        const res = await fetch('/reports/environment/emit?' + buildParams(), { method: 'POST' });
-        if (pending) pending.remove();
-        if (!res.ok) {
-          let msg;
-          try { msg = (await res.json()).detail; } catch (_) { msg = '요청을 처리하지 못했습니다.'; }
-          if (window.ToastUtils) window.ToastUtils.show('발행 실패: ' + (msg || '요청을 처리하지 못했습니다.'), 'err');
-          emit.disabled = false;
-          return;
-        }
-        const data = await res.json();
-        window.location.href = data.view_url;
-      } catch (e) {
-        if (pending) pending.remove();
-        if (window.ToastUtils) window.ToastUtils.show('발행 요청 실패: ' + e.message, 'err');
-        emit.disabled = false;
-      }
+    emit.addEventListener('click', function () {
+      window.EmitUtils.submitNavigate(emit, () => '/reports/environment/emit?' + buildParams(), {
+        pendingMsg: '보고서 발행 중...',
+      });
     });
   }
 })();

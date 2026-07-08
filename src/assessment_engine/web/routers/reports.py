@@ -18,6 +18,7 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
 )
 from assessment_engine.web.deps import get_diagnostic_service
 from assessment_engine.web.services.diagnostic_service import DiagnosticService, _normalize_anchor
+from assessment_engine.web.services.mappers.api_reference import build_api_reference
 from assessment_engine.web.services.mappers.report_history import to_report_history_item
 from assessment_engine.web.services.mappers.shared import build_service_badge_reference
 from assessment_engine.web.services.report_serializer import (
@@ -243,6 +244,19 @@ async def right_sizing_thresholds(
             "active_nav": "thresholds",
             "back_url": back_url,
             "service_badges": build_service_badge_reference(),
+        },
+    )
+
+
+@reference_router.get("/reference/api")
+async def api_reference(request: Request):
+    """JSON API 목록 페이지 — OpenAPI 스펙(app.openapi())에서 자동 도출. 라우터 코드 단일 진실, drift 0(F12)."""
+    return templates.TemplateResponse(
+        request=request,
+        name="reports/api_reference.html",
+        context={
+            "active_nav": "api",
+            "groups": build_api_reference(request.app.openapi()),
         },
     )
 

@@ -17,6 +17,9 @@ class BaseMetricQueryRepository(ABC):
     async def latest_dashboard(self, server_id: int) -> DashboardRaw | None: ...
 
     @abstractmethod
+    async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, dict]: ...
+
+    @abstractmethod
     async def metric_snapshots(
         self,
         server_id: int,

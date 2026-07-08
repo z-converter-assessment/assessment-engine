@@ -70,12 +70,13 @@ def make_metrics_handler(
 
             # F7: 메시지별 처리 흐름은 DEBUG — 1만 서버 시 분당 1만 line 방지.
             logger.debug(
-                "metrics stored agent_id={} rows metrics={} disk_io={} net_io={} mount_usage={}",
+                "metrics stored agent_id={} rows metrics={} disk_io={} net_io={} mount_usage={} cpu_core={}",
                 data.agent_id,
                 insert_result.metrics,
                 insert_result.disk_io,
                 insert_result.net_io,
                 insert_result.mount_usage,
+                insert_result.cpu_core,
             )
 
     return _handle

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
@@ -45,6 +45,11 @@ class DiskIoEntry:
     sectors_read: int | None
     sectors_written: int | None
     kind: str | None = None
+    # ADR 0052 await 원자료(ms 누적) + 참고
+    time_reading_ms: int | None = None
+    time_writing_ms: int | None = None
+    io_ticks_ms: int | None = None
+    weighted_io_ms: int | None = None
 
 
 @dataclass
@@ -57,6 +62,9 @@ class NetIoEntry:
     rx_errors: int | None
     tx_errors: int | None
     kind: str | None = None
+    # ADR 0052 드롭 (품질)
+    rx_drops: int | None = None
+    tx_drops: int | None = None
 
 
 @dataclass
@@ -65,9 +73,24 @@ class MountUsageEntry:
     total_bytes: int | None
     free_bytes: int | None
     avail_bytes: int | None
-    major: int | None = None
-    minor: int | None = None
     kind: str | None = None
+    # ADR 0052 inode
+    inodes_total: int | None = None
+    inodes_free: int | None = None
+
+
+@dataclass
+class CpuCoreEntry:
+    # per-core jiffies — core_id = cpu_per_core[] 위치 인덱스(/proc/stat cpu0..N). server_cpu_core 저장.
+    core_id: int
+    cpu_user: int | None
+    cpu_nice: int | None
+    cpu_system: int | None
+    cpu_idle: int | None
+    cpu_iowait: int | None
+    cpu_irq: int | None
+    cpu_softirq: int | None
+    cpu_steal: int | None
 
 
 # ─── Task DTO ──────────────────────────────────────────────────────────────
@@ -95,6 +118,8 @@ class TaskResultUpdate:
     status: str  # "success" | "failure"
     failure_reason: str | None
     exit_code: int | None
+    signal_no: int | None  # 시그널 사망 시 시그널 번호 (exit_code 와 상호배타)
+    install_verified: bool | None  # 실제 설치 신호(데몬 기동+등록) — 판정 1순위, 미보고 시 None
     duration_ms: int
     stdout_tail: str
     stderr_tail: str
@@ -138,10 +163,36 @@ class ServerMetricCreate:
     sat_cpu_run_queue: float | None
     sat_mem_paging_rate: float | None
 
-    # 시계열 4개 테이블 nested 행 매핑
+    # 시계열 nested 행 매핑 (disk_io·mounts·net_io·cpu_per_core)
     disk_io: list[DiskIoEntry]
     mounts: list[MountUsageEntry]
     net_io: list[NetIoEntry]
+    cpu_per_core: list[CpuCoreEntry] = field(default_factory=list)
+
+    # ADR 0052 신 host-wide 신호 (nullable, optional — agent 미발행 시 None)
+    procs_running: int | None = None
+    procs_blocked: int | None = None
+    schedstat_run_wait_ns: int | None = None
+    pswpin: int | None = None
+    pswpout: int | None = None
+    oom_kill: int | None = None
+    mem_pages_input: int | None = None
+    tcp_retrans_segs: int | None = None
+    tcp_tw: int | None = None
+    conntrack_count: int | None = None
+    conntrack_max: int | None = None
+    # Windows disk await 원자료 (device 합산, 100ns/count 누적) — 엔진 counter_agg delta 로 await 산출
+    sat_disk_read_time: int | None = None
+    sat_disk_write_time: int | None = None
+    sat_disk_read_count: int | None = None
+    sat_disk_write_count: int | None = None
+    sat_disk_idle_time: int | None = None  # %util 참고 (raw 저장만)
+    sat_disk_query_time: int | None = None  # 델타 분모 참고 (raw 저장만)
+    # PSI some total (us 누적) — 관측·검증용, raw 저장만 (분류 미사용)
+    psi_cpu_some_total: int | None = None
+    psi_mem_some_total: int | None = None
+    psi_io_some_total: int | None = None
+    collection_interval_sec: int | None = None  # agent 설정 수집 주기(초) — raw 보존
 
 
 # --- 보고서 발행 job INSERT 입력 ---

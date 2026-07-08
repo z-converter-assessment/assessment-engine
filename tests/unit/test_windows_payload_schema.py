@@ -1,9 +1,10 @@
 """Windows agent wire payload Pydantic 검증 (payload-schema v3.3 — Linux/Windows 동일 계약).
 
 Windows 고유값이 InventoryInput/MetricsInput wire 검증을 통과하고 DTO 로 매핑돼 reject/truncate/손실
-0 인지 회귀 가드 — POSIX uid 부재(null), /proc 부재(cpu_stat nice/iowait/irq/softirq/steal 0 · load null ·
+0 인지 회귀 가드 — POSIX uid 부재(null), OS 개념 부재(cpu_stat nice/iowait/irq/softirq/steal null · load null ·
 mem buffers/cached null), PhysicalDrive 디바이스명, NDIS 긴 net interface, mac_addresses.
-스키마를 좁히는 변경(예: cpu_stat required-실값化, load not-null)이 Windows 호환을 깨면 본 테스트가 잡는다.
+cpu_stat 은 int|None — Windows null 발행이 non-null 스키마로 DLQ 되던 결함(#C1) 회귀 가드. 스키마를
+좁히는 변경(예: cpu_stat required-실값化, load not-null)이 Windows 호환을 깨면 본 테스트가 잡는다.
 """
 
 import json
@@ -77,16 +78,16 @@ def _windows_metrics() -> dict:
         **_meta(),
         "message_type": "metrics",
         "os_family": "windows",
-        # /proc 부재 — user/system/idle 실값, nice/iowait/irq/softirq/steal 항상 0
+        # GetSystemTimes — user/system/idle 실값, nice/iowait/irq/softirq/steal 은 OS 개념 부재로 null (0 날조 금지)
         "cpu_stat": {
             "user": 1000,
-            "nice": 0,
+            "nice": None,
             "system": 500,
             "idle": 8000,
-            "iowait": 0,
-            "irq": 0,
-            "softirq": 0,
-            "steal": 0,
+            "iowait": None,
+            "irq": None,
+            "softirq": None,
+            "steal": None,
         },
         "mem_total_kb": 8388608,
         "mem_free_kb": 4000000,
@@ -180,7 +181,8 @@ def test_windows_metrics_wire_parses() -> None:
     data = MetricsInput.model_validate_json(json.dumps(_windows_metrics()))
     assert data.os_family == "windows"
     assert data.cpu_stat is not None
-    assert data.cpu_stat.iowait == 0 and data.cpu_stat.steal == 0  # /proc 부재 0
+    assert data.cpu_stat.user == 1000 and data.cpu_stat.idle == 8000  # 실측 축 보존
+    assert data.cpu_stat.iowait is None and data.cpu_stat.steal is None  # OS 개념 부재 null (0 아님, #C1)
     assert data.load_1m is None and data.load_15m is None
     assert data.mem_cached_kb is None
     assert data.net_io[0].interface == _LONG_IFACE  # 긴 인터페이스 수용
@@ -194,7 +196,8 @@ def test_windows_metrics_wire_parses() -> None:
 def test_windows_metrics_to_dto() -> None:
     data = MetricsInput.model_validate_json(json.dumps(_windows_metrics()))
     dto = to_metric_create(data)
-    assert dto.cpu_iowait == 0
+    assert dto.cpu_user == 1000 and dto.cpu_idle == 8000  # 실측 축 보존
+    assert dto.cpu_iowait is None and dto.cpu_steal is None  # OS 개념 부재 null 전파 (#C1)
     assert dto.load_1m is None
     assert dto.mem_cached_kb is None
     assert dto.disk_io[0].device == "PhysicalDrive0"
@@ -202,6 +205,27 @@ def test_windows_metrics_to_dto() -> None:
     assert dto.sat_disk_queue == 3.0
     assert dto.sat_cpu_run_queue is None
     assert dto.sat_mem_paging_rate is None
+
+
+def test_windows_metrics_saturation_measured_path() -> None:
+    """perflib 실측 시 cpu_run_queue(Processor Queue Length)·mem_paging_rate(Pages/sec)가 DTO 로 손실 없이 전파.
+
+    disk_queue 만 채우던 미측정 경로(위)와 대비 — S1/S2 로 엔진이 세 축을 os-aware 소비하려면 ingest 가
+    raw 값을 보존해야 한다. rate 환산·임계는 엔진 SQL/recommendation 몫(여기선 raw 저장만 검증).
+    """
+    payload = _windows_metrics()
+    payload["saturation"] = {
+        "disk_queue": [{"device": "PhysicalDrive0", "queue": 0.5}],
+        "cpu_run_queue": 12.0,  # Processor Queue Length gauge
+        "mem_paging_rate": 250000.0,  # Pages/sec 누적 counter (엔진이 delta/dt 로 rate 환산)
+    }
+    data = MetricsInput.model_validate_json(json.dumps(payload))
+    assert data.saturation is not None
+    assert data.saturation.cpu_run_queue == 12.0 and data.saturation.mem_paging_rate == 250000.0
+    dto = to_metric_create(data)
+    assert dto.sat_cpu_run_queue == 12.0
+    assert dto.sat_mem_paging_rate == 250000.0
+    assert dto.sat_disk_queue == 0.5  # per-device max (단일 디스크)
 
 
 def test_long_net_interface_within_limit() -> None:

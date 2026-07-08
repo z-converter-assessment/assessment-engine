@@ -75,9 +75,7 @@ async def build_report_result_for_job(
         summary = await query_service.get_environment_report(time_range, anchor, view=view)
         if summary.overview.total == 0:
             raise ReportGenerationError("no registered servers")
-        return build_report_result(
-            kind=REPORT_KIND_ENV, snapshot=env_report_to_dict(summary), view=view, aux=None
-        )
+        return build_report_result(kind=REPORT_KIND_ENV, snapshot=env_report_to_dict(summary), view=view, aux=None)
 
     # server scope — 1대(단일 양식) 또는 N대(selection + child fan-out).
     ids = p["server_public_ids"]
@@ -95,18 +93,14 @@ async def build_report_result_for_job(
             raise ReportGenerationError("server not found")
         hostname = summary.base.rows[0].hostname if summary.base.rows else valid[0]
         aux = {"attention_for_host": attention_for_host(hostname, attention)}
-        return build_report_result(
-            kind=REPORT_KIND_ENV, snapshot=env_report_to_dict(summary), view=view, aux=aux
-        )
+        return build_report_result(kind=REPORT_KIND_ENV, snapshot=env_report_to_dict(summary), view=view, aux=aux)
 
     # N대 — child 단일 보고서 N건(개별 이력 link) emit 후 selection 본문을 parent result 에.
     # child 생성 중 예외는 함수 밖으로 전파 -> 워커가 parent 를 failed 로 전이(부분 succeeded parent 차단).
     # A5: child N대 공통 데이터(raws·details·breakdown)를 배치 1회 조회 후 서버별 조립(prefetch 주입) — 생성
     # 전부 끝난 뒤 emit 하므로 생성 실패 시 emit 0(orphan child 없음). trend·online 만 서버별 잔존.
     child_jobs: dict[str, str] = {}
-    children = await query_service.build_child_prefetched_reports(
-        valid, sid_map, view, time_range, anchor, attention
-    )
+    children = await query_service.build_child_prefetched_reports(valid, sid_map, view, time_range, anchor, attention)
     for pid, child in children:
         if child is None:
             continue
@@ -124,14 +118,10 @@ async def build_report_result_for_job(
         if cid:
             child_jobs[pid] = cid
 
-    selection = await query_service.get_selection_report(
-        valid, view=view, time_range=time_range, anchor_at=anchor
-    )
+    selection = await query_service.get_selection_report(valid, view=view, time_range=time_range, anchor_at=anchor)
     if selection is None:
         raise ReportGenerationError("no valid server ids")
     aux = {"attention_by_host": attention_by_host({r.hostname for r in selection.base.rows}, attention)}
-    result = build_report_result(
-        kind=REPORT_KIND_ENV, snapshot=env_report_to_dict(selection), view=view, aux=aux
-    )
+    result = build_report_result(kind=REPORT_KIND_ENV, snapshot=env_report_to_dict(selection), view=view, aux=aux)
     result["child_jobs"] = child_jobs
     return result

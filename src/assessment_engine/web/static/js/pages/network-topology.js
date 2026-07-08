@@ -43,7 +43,9 @@
       style: {
         'background-color': function (n) { return OS_COLOR[n.data('osFamily')] || '#94a3b8'; },
         shape: 'ellipse',
-        label: 'data(label)',
+        // 라벨 = 호스트명 + (있으면) 워크로드 역할 — 서브넷을 app tier 구조로 읽히게. 색은 OS 유지.
+        label: function (n) { var r = n.data('roles'); return n.data('label') + (r && r.length ? '\n' + r.join(', ') : ''); },
+        'text-wrap': 'wrap',
         color: '#334155',
         'font-size': 10,
         'text-valign': 'bottom',

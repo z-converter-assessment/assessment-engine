@@ -109,11 +109,12 @@
     });
   }
 
-  // ── 처리량 동적 단위 포매터 (kBps → MBps) ──
+  // ── 처리량 동적 단위 포매터 (kB/s → MB/s) ──
   // 종합·환경 성능 추이(metrics·environment-metrics) Y축 단위 포매터 (B/s 기준 fmtKbChart 와 구분 — 이쪽은 kB 입력).
+  // 단위 표기 "kB/s"/"MB/s" 통일 (fmtKbChart·format_net_rate 와 동일 관습).
   function fmtThroughput(kb) {
     if (kb == null) return '—';
-    return kb >= 1024 ? (kb / 1024).toFixed(1) + ' MBps' : kb.toFixed(1) + ' kBps';
+    return kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB/s' : kb.toFixed(1) + ' kB/s';
   }
 
   // ── 토글 그룹 바인딩 ──
@@ -154,8 +155,8 @@
   function safeArray(arr) { return Array.isArray(arr) ? arr : []; }
 
   // ── Windows 미측정 메트릭 N/A (표시 경계) ──
-  // Windows 는 load avg·cpu iowait/steal·mem buffers/cached 를 측정하지 않아 payload 에서 null/0 으로 온다.
-  // os_family==='windows' + 본 키면 'N/A' 로 표시해 "측정값 0"과 구분. 부재 메트릭 카탈로그 단일 진실(JS).
+  // Windows 는 load avg·cpu iowait/steal·mem buffers/cached 를 측정하지 않아 payload 에서 null 로 온다(구 에이전트는 0).
+  // 값이 아니라 os_family==='windows' + 본 키로 판정해 'N/A' 표시 — null·0 어느 쪽이든 "측정값 0"과 구분. 부재 메트릭 카탈로그 단일 진실(JS).
   const WIN_NA_KEYS = new Set(['load_1m', 'load_5m', 'load_15m', 'cpu_iowait', 'cpu_steal', 'mem_buffers', 'mem_cached']);
   function naWindows(osFamily, key, formatted) {
     return osFamily === 'windows' && WIN_NA_KEYS.has(key) ? 'N/A' : formatted;

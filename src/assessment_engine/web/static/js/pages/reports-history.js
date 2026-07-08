@@ -9,6 +9,12 @@
 
   let inflight = 0;
 
+  // fragment 교체 후 정렬 부여 — 표가 매 swap 마다 새로 생기므로 재부여. 공용 TableUtils(정렬·zebra 단일화, 흰색 버그 방지).
+  function wireTable() {
+    const table = resultsEl.querySelector('table.sortable-table');
+    if (table && window.TableUtils) window.TableUtils.makeSortable(table);
+  }
+
   // limit 미지정(필터 변경) 이면 기본 20 으로 리셋. 더보기는 누적 limit 전달.
   async function applyFilters(limit) {
     const params = new URLSearchParams(new FormData(form));
@@ -33,6 +39,7 @@
       if (seq !== inflight) return;  // 최신 요청만 적용
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       resultsEl.innerHTML = await res.text();
+      wireTable();  // 새 표에 정렬 재부여
     } catch (e) {
       if (window.ToastUtils) ToastUtils.show('보고서 이력 fetch 실패: ' + e.message, 'err');
     }
@@ -54,4 +61,6 @@
     // 접기 — 첫 페이지(20건) 로 복귀.
     if (e.target.closest('#history-collapse-btn')) { applyFilters(); return; }
   });
+
+  wireTable();  // 초기(SSR) 표 정렬 부여
 })();
