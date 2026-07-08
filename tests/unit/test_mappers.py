@@ -79,15 +79,16 @@ def test_to_disk_item_for_physical():
     assert item.size_gb == 1.0
 
 
-def test_to_listen_port_item_well_known():
-    item = _to_listen_port_item({"proto": "tcp", "addr": "0.0.0.0", "port": 80, "uid": 0})
-    assert item.is_well_known is True
-    assert item.port == 80
+def test_to_listen_port_item_significant():
+    # 비동적 포트(< 49152)는 significant — RDP 3389·app 8080 등 고포트 포함
+    for port in (80, 3389, 8080):
+        assert _to_listen_port_item({"proto": "tcp", "addr": "0.0.0.0", "port": port, "uid": 0}).is_significant is True
 
 
-def test_to_listen_port_item_high_port():
-    item = _to_listen_port_item({"proto": "tcp", "addr": "0.0.0.0", "port": 8080, "uid": 1000})
-    assert item.is_well_known is False
+def test_to_listen_port_item_dynamic_port():
+    # 동적/ephemeral(>= 49152)은 제외 (RPC 동적 할당 등 노이즈)
+    item = _to_listen_port_item({"proto": "tcp", "addr": "0.0.0.0", "port": 49500, "uid": 1000})
+    assert item.is_significant is False
 
 
 def test_to_service_item_without_listen_ports_has_empty_ports():
@@ -238,11 +239,12 @@ def _detail(**overrides) -> ServerDetail:
         mounts=[],
         services=[
             {"unit": "nginx.service", "sub": "running"},
-            {"unit": "ssh.service", "sub": "running"},  # unknown
+            {"unit": "ssh.service", "sub": "running"},  # remote (SSH)
         ],
         listen_ports=[
             {"proto": "tcp", "addr": "0.0.0.0", "port": 80, "uid": 0, "comm": "nginx"},
             {"proto": "tcp", "addr": "0.0.0.0", "port": 22, "uid": 0, "comm": "sshd"},
+            {"proto": "tcp", "addr": "0.0.0.0", "port": 9999, "uid": 0, "comm": "customapp"},
         ],
         last_seen_at=datetime.now(UTC),
     )
@@ -266,12 +268,12 @@ def test_to_server_detail_known_services_with_ports():
 
 
 def test_to_server_detail_key_listen_ports_excludes_service_mapped():
-    """key_listen_ports = is_well_known AND 서비스 매핑 포트 제외"""
+    """key_listen_ports = is_significant(비동적) AND 서비스 매핑 포트 제외"""
     resp = to_server_detail(_detail())
-    # nginx의 80은 services에 매핑되어 chip 표시 → key_listen_ports에서 제외
-    assert all(lp.port != 80 for lp in resp.key_listen_ports)
-    # ssh 22는 unknown 카테고리라 매핑 안 됨, well-known이라 key_listen_ports에 포함
-    assert any(lp.port == 22 for lp in resp.key_listen_ports)
+    # nginx 80(web)·ssh 22(remote)는 services 에 매핑 → key_listen_ports 제외
+    assert all(lp.port not in (80, 22) for lp in resp.key_listen_ports)
+    # 9999 는 어느 서비스에도 매핑 안 됨 + 비동적 → key_listen_ports 포함
+    assert any(lp.port == 9999 for lp in resp.key_listen_ports)
 
 
 def test_enrich_server_detail_idempotent():
@@ -297,7 +299,7 @@ def test_workload_counter_listen_only_rescues_opaque_name():
     services = [{"unit": "MyCorpThing", "sub": "running"}]  # 이름 미매치
     listen = [
         {"proto": "tcp", "port": 1433, "comm": "sqlservr"},  # SQL Server
-        {"proto": "tcp", "port": 22, "comm": "sshd"},  # 비워크로드 -> 무시
+        {"proto": "tcp", "port": 22, "comm": "sshd"},  # SSH -> baseline(관리) 제외
     ]
     assert dict(workload_category_counter(services, listen)) == {"db": 1}
 

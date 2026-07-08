@@ -46,6 +46,7 @@ def get_task_service(
             http_client=request.app.state.http_client,
             redis=redis,
         ),
+        redis=redis,
     )
 
 

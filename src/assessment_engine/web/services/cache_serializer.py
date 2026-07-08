@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 
 from assessment_engine.web.services.mappers.server import (
-    WELL_KNOWN_PORT_MAX,
+    DYNAMIC_PORT_MIN,
     enrich_server_detail,
 )
 from assessment_engine.web.view_models.metric import (
@@ -33,6 +33,7 @@ _DETAIL_DISPLAY_FIELDS = frozenset(
         "os_display",
         "cpu_display",
         "disk_total_gb",
+        "disk_unallocated_gb",
         "sorted_services",
         "sorted_listen_ports",
         "services_count",
@@ -85,7 +86,7 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
             uid=p.get("uid"),
             pid=p.get("pid"),
             comm=p.get("comm"),
-            is_well_known=p.get("is_well_known", p.get("port", 0) <= WELL_KNOWN_PORT_MAX),
+            is_significant=p.get("is_significant", p.get("port", 0) < DYNAMIC_PORT_MIN),
         )
         for p in data.get("listen_ports") or []
     ]
@@ -115,6 +116,12 @@ def dashboard_from_json(raw: str) -> MetricDashboard:
         load_1m=data.get("load_1m"),
         load_5m=data.get("load_5m"),
         load_15m=data.get("load_15m"),
+        cpu_run_queue=data.get("cpu_run_queue"),
+        disk_await_ms=data.get("disk_await_ms"),
+        disk_queue=data.get("disk_queue"),
+        mem_pages_input_rate=data.get("mem_pages_input_rate"),
+        mem_pageout=data.get("mem_pageout"),
+        net_retrans_pct=data.get("net_retrans_pct"),
         memory=MemSnapshot(**data["memory"]) if data.get("memory") else None,
         swap=SwapSnapshot(**data["swap"]) if data.get("swap") else None,
         disk_io_phys=[DiskIoSnapshot(**d) for d in data.get("disk_io_phys") or []],

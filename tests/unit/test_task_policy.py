@@ -92,3 +92,33 @@ def test_null_exit_code_not_remapped() -> None:
 
 def test_success_passthrough() -> None:
     assert _eff("success", None, 0, "windows", "20348") == ("success", None)
+
+
+# ─── install_verified 우선순위 (실제 설치 신호 > exit_code, zinstall-verdict 개선) ──────────
+
+
+def _effv(status, reason, exit_code, install_verified, os_family="linux", os_version=None, os_id=None):
+    return effective_task_result(
+        status=status, failure_reason=reason, exit_code=exit_code, os_family=os_family,
+        os_version=os_version, os_id=os_id, success_exit_codes=ALLOW, install_verified=install_verified,
+    )
+
+
+def test_verified_true_absorbs_nonzero_failure_without_allowlist() -> None:
+    # 데몬 기동+등록 확인 -> non-zero exit(allowlist 밖 OS 여도) 정공 success (EL9/Windows false-failure).
+    assert _effv("failure", "script_failed", 3, True, os_id="sles", os_version="15") == ("success", None)
+
+
+def test_verified_false_overrides_exit0_success_to_failure() -> None:
+    # centos6 류 false positive — exit 0 success 보고여도 데몬 미기동이면 failure(install_unverified).
+    assert _effv("success", None, 0, False, os_id="centos", os_version="6") == ("failure", "install_unverified")
+
+
+def test_verified_false_preserves_reported_failure_reason() -> None:
+    # 실패 보고 + 미확인 -> failure 유지, 원래 사유 보존(진단 소실 방지).
+    assert _effv("failure", "script_failed", 1, False, os_id="sles", os_version="11") == ("failure", "script_failed")
+
+
+def test_verified_none_falls_back_to_allowlist() -> None:
+    # 구버전 agent(미발행) -> 레거시 exit_code + allowlist 폴백. rocky:9 exit 3 보정 유지.
+    assert _effv("failure", "script_failed", 3, None, os_id="rocky", os_version="9") == ("success", None)

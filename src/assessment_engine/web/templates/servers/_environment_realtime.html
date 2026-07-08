@@ -1,4 +1,4 @@
-{% from "_shared.html" import empty_state, util_donut %}
+{% from "_shared.html" import empty_state, util_donut, saturation_donut %}
 {# 실시간 현황 partial (최신 스냅샷, 정적 렌더). realtime 객체면 데이터 없어도 카드 항상 노출, 내부는 sample_size/has_peaks 가드로 empty_state(#E9).
    컨텍스트 의무: realtime(EnvironmentRealtime), self_back. #}
 {% if realtime %}
@@ -11,33 +11,10 @@
   </div>
   <div>
     {% if realtime.sample_size > 0 %}
+    {# 이용률 3(%) + 포화 3(호스트 수/표본) 도넛 — 구분선 없이 6개 나란히 (util_donut·saturation_donut 공용 규격). #}
     <div style="display:flex; align-items:center; flex-wrap:wrap; gap:20px;">
       {% for u in realtime.utilization %}{{ util_donut(u) }}{% endfor %}
-      {# 네트워크·디스크 I/O — 게이지(호 채움) 아니라 절대 rate. #}
-      <div style="text-align:center;">
-        <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
-          {% if realtime.io_net_value is not none %}
-          <text x="50" y="50" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ realtime.io_net_value }}</text>
-          <text x="50" y="66" text-anchor="middle" font-size="10" fill="#94a3b8">{{ realtime.io_net_unit }}</text>
-          {% else %}
-          <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
-          {% endif %}
-        </svg>
-        <div class="text-label text-sm" style="margin-top:4px;">네트워크</div>
-      </div>
-      <div style="text-align:center;">
-        <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
-          {% if realtime.io_disk_iops is not none %}
-          <text x="50" y="50" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ "%.0f"|format(realtime.io_disk_iops) }}</text>
-          <text x="50" y="66" text-anchor="middle" font-size="10" fill="#94a3b8">IOPS</text>
-          {% else %}
-          <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="600" fill="#94a3b8">—</text>
-          {% endif %}
-        </svg>
-        <div class="text-label text-sm" style="margin-top:4px;">디스크 I/O</div>
-      </div>
+      {% for s in realtime.saturation_donuts %}{{ saturation_donut(s) }}{% endfor %}
     </div>
     {% else %}
     {{ empty_state("수집된 메트릭이 없습니다.") }}

@@ -96,9 +96,25 @@
     td { padding: 11px 14px; border-top: 1px solid #f1f5f9; color: #334155; vertical-align: middle; font-size: 13px; }
     /* 내용행 zebra — 행 구분용 아주 옅은 바탕(제목행 제외). 짝수행만. hover 는 동일 스코프(specificity)로 우선. 인쇄도 exact 유지(F 인쇄 절). */
     tbody tr:nth-child(even) td { background: #fafbfc; }
+    /* 정렬·필터로 행이 재배열·숨김되는 표(sortable-table)는 :nth-child 가 숨은 행까지 세어 줄무늬가 어긋난다
+       -> JS(table-utils restripe)가 '보이는 행'만 .zebra 로 칠함. :nth-child 는 무력화. */
+    table.sortable-table tbody tr:nth-child(even) td { background: #fff; }
+    table.sortable-table tbody tr.zebra td { background: #fafbfc; }
     tbody tr:hover td { background: #f1f5f9; }
     /* 세부 서버 목록 — 다열 표. 좌우 스크롤 전제라 각 셀 nowrap(좁은 칼럼 줄바꿈 방지). 행·제목행 높이는 전 테이블 표준 패딩(th/td) 통일. */
     .detail-table th, .detail-table td { white-space: nowrap; }
+    /* 정렬 가능 칼럼 헤더 — 클릭 어포던스 + 활성 방향 표식 (서버목록·서버별 자원 적정성 표 공용). */
+    th.sort-col { cursor: pointer; user-select: none; transition: background .1s; }
+    th.sort-col:hover { color: #e2e8f0; background: rgba(255,255,255,.10); }
+    th.sort-col:active { background: rgba(255,255,255,.20); }
+    /* 정렬 중인 칼럼 — 배경 강조 + 방향 삼각형(CSS border, 비유니코드). asc=위, desc=아래. */
+    th.sort-col.sort-asc, th.sort-col.sort-desc { background: rgba(255,255,255,.14); }
+    th.sort-col.sort-asc::after, th.sort-col.sort-desc::after {
+      content: ""; display: inline-block; margin-left: 5px; vertical-align: middle;
+      border-left: 4px solid transparent; border-right: 4px solid transparent;
+    }
+    th.sort-col.sort-asc::after { border-bottom: 5px solid currentColor; }
+    th.sort-col.sort-desc::after { border-top: 5px solid currentColor; }
     /* 모든 link 일관 — color + 항상 밑줄 (옅음). hover 시 강조. 별도 class (.row-link 등) 와 단일 진실 정합. */
     a { color: #666666; text-decoration: underline; text-decoration-color: #b0b0b0; text-underline-offset: 2px; }
     a:hover { text-decoration-color: #666666; }
@@ -113,16 +129,20 @@
     .badge-cat-mq        { background: #ffffff; color: #9333ea; }
     .badge-cat-container { background: #ffffff; color: #0891b2; }
     .badge-cat-monitor   { background: #ffffff; color: #ea580c; }
+    .badge-cat-remote    { background: #ffffff; color: #4f46e5; }
+    .badge-cat-file      { background: #ffffff; color: #0d9488; }
+    .badge-cat-mail      { background: #ffffff; color: #c026d3; }
+    .badge-cat-infra     { background: #ffffff; color: #ca8a04; }
     .badge-cat-unknown   { background: #ffffff; color: #64748b; }
     /* 서비스 카테고리 뱃지 경계 — 포트 칩(.port-chip)과 동일 1px 경계로 통일. */
-    .badge-cat-web, .badge-cat-db, .badge-cat-cache, .badge-cat-mq, .badge-cat-container, .badge-cat-monitor, .badge-cat-unknown { border: 1px solid #e2e8f0; }
+    .badge-cat-web, .badge-cat-db, .badge-cat-cache, .badge-cat-mq, .badge-cat-container, .badge-cat-monitor, .badge-cat-remote, .badge-cat-file, .badge-cat-mail, .badge-cat-infra, .badge-cat-unknown { border: 1px solid #e2e8f0; }
     /* 서비스 포트 칩 — proto+port 단일 칩. 카테고리 묶음은 행 정렬(2열 grid)로 표현, 외곽 박스 없음. */
     .port-chip { display: inline-flex; align-items: center; gap: 5px; background: #f8fafc; border: 1px solid #eaeef4; border-radius: 6px; padding: 3px 8px; font-size: 12px; }
     /* USE Method 분류 badge — list/report 공유 (단일 진실). rec-swap은 메모리 부족 1차 신호 강조. */
     .rec-under_provisioned { background: #fee2e2; color: #b91c1c; }
     .rec-over_provisioned  { background: #dbeafe; color: #1d4ed8; }
     .rec-optimal           { background: #dcfce7; color: #15803d; }
-    .rec-idle, .rec-shutdown { background: #f1f5f9; color: #64748b; }
+    .rec-idle { background: #f1f5f9; color: #64748b; }
     .rec-insufficient_data { background: #e2e8f0; color: #475569; }
     .rec-swap              { background: #b91c1c; color: #fef2f2; }
     /* Task status badge — list 행별 "최근 작업" column + detail timeline 공유. mapper _TASK_STATUS_DISPLAY 단일 진실. */
@@ -176,10 +196,21 @@
     .kv dt.kv-group:first-child { margin-top: 0; padding-top: 0; border-top: none; }
     /* kv 하위 항목 — 상위(예: Available)에 속함을 들여쓰기 + 좌측 세로선으로 표현 (Cached/Buffers 등). */
     .kv dt.kv-sub { padding-left: 14px; margin-left: 6px; border-left: 2px solid #e2e8f0; }
+    /* os-diff — OS(리눅스/윈도우)별 측정·기준이 다른 지표. 값 아래 Linux/Windows 2행을 항상 노출(발현 OS만 설명 금지).
+       서버 상세 탭(cpu/memory/storage/network) 공용 단일 형식 (#E9 발화). */
+    .os-diff { padding: 7px 0; border-top: 1px solid #f1f5f9; }
+    .os-diff:first-child { border-top: none; padding-top: 0; }
+    .os-diff-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+    .os-diff-name { font-size: 13px; font-weight: 600; color: #475569; }
+    .os-diff-val { font-size: 13px; color: #0f172a; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .os-diff-note { font-size: 11px; color: #94a3b8; line-height: 1.65; margin-top: 2px; }
+    .os-diff-note b { color: #64748b; font-weight: 700; display: inline-block; min-width: 58px; }
     .back { font-size: 13px; color: #64748b; margin-bottom: 14px; display: inline-block; }
     .back:hover { color: #0f172a; text-decoration: none; }
     /* code = base monospace (line 25) + inline code 표시 (background + padding). font-family 중복 제거 — line 25 단일 진실. */
     code { background: #f1f5f9; padding: 1px 6px; border-radius: 3px; font-size: 12px; color: #475569; }
+    /* pre 안 code 는 인라인 code 박스(배경·좌우 padding)를 상속하면 블록 전체가 밀려 첫 줄이 인덴트처럼 보임 -> 리셋(pre 자체 padding 만). */
+    pre code { background: none; padding: 0; border-radius: 0; font-size: inherit; color: inherit; }
 
     /* JS 가 render 하는 dynamic 컴포넌트의 표준 utility — task-modal.js / chart legend 공통.
        inline style="font-size:Npx; color:#xxx" 직접 사용 금지. */
@@ -385,6 +416,10 @@
       tbody tr:nth-child(even) td { background: #fafbfc !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
       /* overflow 스크롤 컨테이너 — 인쇄는 스크롤 불가라 visible 로 전체 노출(테이블 잘림 방지). */
       div[style*="overflow"], .table-scroll { overflow: visible !important; }
+      /* 넓은 표(서버별 자원 적정성 = 14칼럼) 폰트·패딩 축소 — 폭 확보. 용지 방향(landscape)은 보고서 템플릿이
+         문서 전체에 @page 로 지정(named-page 방향은 브라우저 지원 불안정 -> 글로벌 @page 로 확실히). */
+      .print-landscape table { font-size: 9px; }
+      .print-landscape th, .print-landscape td { padding: 2px 4px !important; line-height: 13px !important; }
       /* 개별 보고서 2열 카드(자원 적정성+OS EOL 등) — 웹과 동일하게 2열 유지. 안쪽 section 은 card 테두리 제거(각자 영역으로 분리돼 보이는 것 방지). */
       .report-row-2 > section { border: none !important; }
       a { color: #1a1a1a !important; text-decoration: none !important; }
@@ -430,6 +465,8 @@
        chart-utils.js는 자식 script 실행 전에 로드되어야 한다. <head>에 둠. -->
   <script src="/static/js/chart-utils.js?v={{ asset_v }}"></script>
   <script src="/static/js/toast-utils.js?v={{ asset_v }}"></script>
+  <script src="/static/js/emit-utils.js?v={{ asset_v }}"></script>
+  <script src="/static/js/table-utils.js?v={{ asset_v }}"></script>
   <script src="/static/js/task-modal.js?v={{ asset_v }}" defer></script>
   <script src="/static/js/sidebar.js?v={{ asset_v }}" defer></script>
   <script src="/static/js/nav-progress.js?v={{ asset_v }}" defer></script>

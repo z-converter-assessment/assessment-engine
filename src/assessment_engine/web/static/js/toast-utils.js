@@ -1,7 +1,8 @@
 /* 토스트 알림 — install/export/report 등 작업 결과 일관 표시.
  *
  * ToastUtils.show(message, kind, duration_ms?)
- *   kind: 'ok' | 'err' | 'pending'
+ *   kind: 'ok' | 'warn' | 'err' | 'pending'
+ *     warn = advisory(비차단) — 성공했으나 운영자가 알아야 할 조건(예: 오프라인 호스트 큐 적재)
  *   duration_ms: 기본 4200ms (HTML 예시 동일). 0 전달 시 자동 dismiss 안 함 (수동 close)
  *   pending kind는 자동 dismiss 안 함 — 작업 완료 후 ok/err 호출로 갱신
  *
@@ -13,6 +14,7 @@
 
   const KIND_STYLES = {
     ok:      { bg: '#f0fdf4', color: '#166534', border: '#bbf7d0' },
+    warn:    { bg: '#fffbeb', color: '#92400e', border: '#fde68a' },
     err:     { bg: '#fef2f2', color: '#991b1b', border: '#fecaca' },
     pending: { bg: '#f1f5f9', color: '#64748b', border: '#e2e8f0' },
   };

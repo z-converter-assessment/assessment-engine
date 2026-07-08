@@ -88,6 +88,26 @@ def test_virtual_interface_dropped_by_kind():
     assert "subnet:172.17.0.0/16" not in _subnet_ids(t)
 
 
+def test_bond_master_included():
+    # 본딩 호스트 — IP 는 bond_master(bond0)에 실림. bond_master 는 집계 단위라 토폴로지 포함 (net_io 집계와 정합).
+    hosts = [
+        _host("a", "bondA", "linux", [_iface("10.0.2.10/24", kind="bond_master")]),
+        _host("b", "bondB", "linux", [_iface("10.0.2.11/24", kind="bond_master")]),
+    ]
+    t = build_network_topology(hosts)
+    assert _subnet_ids(t) == ["subnet:10.0.2.0/24"]
+
+
+def test_bond_member_excluded_by_kind():
+    # bond_member(물리 leg)는 bond_master 가 집계 단위라 이중집계 회피로 제외 — 그래프에 안 나타남.
+    hosts = [
+        _host("a", "bondA", "linux", [_iface("10.0.3.10/24", kind="bond_member")]),
+        _host("b", "bondB", "linux", [_iface("10.0.3.11/24", kind="bond_member")]),
+    ]
+    t = build_network_topology(hosts)
+    assert _subnet_ids(t) == []
+
+
 def test_singleton_subnet_dropped_and_host_isolated():
     hosts = [
         _host("a", "hostA", "linux", [_iface("10.0.1.10/24")]),

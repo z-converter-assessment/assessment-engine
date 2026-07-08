@@ -36,10 +36,11 @@ async function loadSnapshot() {
     document.getElementById('s-user').textContent   = pct(cpu.user_pct);
     document.getElementById('s-system').textContent = pct(cpu.system_pct);
     document.getElementById('s-iowait').textContent = ChartUtils.naWindows(OS_FAMILY, 'cpu_iowait', pct(cpu.iowait_pct));
-    // 코어당 정규화(load/cpu_cores) — 로드 추이 차트와 통일. 1.0 = 코어당 포화.
-    document.getElementById('s-load1').textContent  = ChartUtils.naWindows(OS_FAMILY, 'load_1m', data.load_1m  != null ? (data.load_1m  / CPU_CORES).toFixed(2) : '—');
-    document.getElementById('s-load5').textContent  = ChartUtils.naWindows(OS_FAMILY, 'load_5m', data.load_5m  != null ? (data.load_5m  / CPU_CORES).toFixed(2) : '—');
-    document.getElementById('s-load15').textContent = ChartUtils.naWindows(OS_FAMILY, 'load_15m', data.load_15m != null ? (data.load_15m / CPU_CORES).toFixed(2) : '—');
+    // Steal — 가상화 경합(하이퍼바이저 vCPU 시간 뺏김). Linux 전용, Windows 는 개념 부재로 N/A.
+    document.getElementById('s-steal').textContent = ChartUtils.naWindows(OS_FAMILY, 'cpu_steal', pct(cpu.steal_pct));
+    // 실행 큐 — os-aware(Linux procs_running / Windows Processor Queue). 코어당 = 큐/코어 (1.0 Linux·2.0 Windows 포화).
+    document.getElementById('s-runq').textContent      = data.cpu_run_queue != null ? data.cpu_run_queue.toFixed(1) : '—';
+    document.getElementById('s-runq-core').textContent = data.cpu_run_queue != null ? (data.cpu_run_queue / CPU_CORES).toFixed(2) : '—';
     const stampEl = document.getElementById('metrics-stamp');
     if (stampEl && data.collected_at) stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);
     document.getElementById('snap-body').style.display = '';
@@ -153,10 +154,11 @@ function renderCompChart(range, anchorEnd) {
   }
   canvas.style.display = ''; empty.style.display = 'none';
 
+  // Windows 는 cpu_stat 이 user/system/idle 만(iowait 개념 부재) — iowait 축 제외(빈 라인·범례 방지, OS 분기).
   const COMP_META = {
     user:   { label: 'User',     color: ChartUtils.themeColor() },
     system: { label: 'System',   color: '#f59e0b' },
-    iowait: { label: 'I/O Wait', color: '#ef4444' },
+    ...(OS_FAMILY === 'windows' ? {} : { iowait: { label: 'I/O Wait', color: '#ef4444' } }),
   };
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
@@ -205,17 +207,21 @@ async function loadCompChart() {
     return p;
   };
   try {
-    const [userRows, sysRows, ioRows] = await Promise.all([
+    // Windows 는 iowait 개념 부재 — fetch 자체 skip(빈 요청·빈 라인 방지, OS 분기).
+    const reqs = [
       fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.user_percent')}`).then(r => r.json()),
       fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.system_percent')}`).then(r => r.json()),
-      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.iowait_percent')}`).then(r => r.json()),
-    ]);
+    ];
+    if (OS_FAMILY !== 'windows') {
+      reqs.push(fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.iowait_percent')}`).then(r => r.json()));
+    }
+    const [userRows, sysRows, ioRows] = await Promise.all(reqs);
     if (seq !== compSeq) return;
     const safe = arr => Array.isArray(arr) ? arr : [];
     compAllRows = [
       ...safe(userRows).map(r => ({ ...r, dimension: 'user' })),
       ...safe(sysRows).map(r  => ({ ...r, dimension: 'system' })),
-      ...safe(ioRows).map(r   => ({ ...r, dimension: 'iowait' })),
+      ...(OS_FAMILY !== 'windows' ? safe(ioRows).map(r => ({ ...r, dimension: 'iowait' })) : []),
     ];
     renderCompChart(capturedRange, capturedAnchor);
     buildCompLegend();
@@ -245,16 +251,14 @@ function renderLoadChart(range, anchorEnd) {
   }
   canvas.style.display = ''; empty.style.display = 'none';
 
-  const LOAD_META = {
-    load1:  { label: 'Load 1m',  color: ChartUtils.themeColor() },
-    load5:  { label: 'Load 5m',  color: '#22c55e' },
-    load15: { label: 'Load 15m', color: '#f59e0b' },
+  const RUNQ_META = {
+    runq: { label: '실행 큐 (코어당)', color: ChartUtils.themeColor() },
   };
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  // P4 표시 정규화: 서버 cpu_cores(고정)로 나눠 코어당 로드 — 1.0=코어당 포화. raw load 를 "코어당"으로 표시.
-  const datasets = buildDimDatasets(rows, bMs, grid, LOAD_META, { pointRadius: 1, valueFn: v => v / CPU_CORES });
+  // cpu.run_queue 는 backend 가 이미 Σ실행큐/Σcores(코어당) 반환 — valueFn 불요. 1.0 Linux·2.0 Windows 포화.
+  const datasets = buildDimDatasets(rows, bMs, grid, RUNQ_META, { pointRadius: 1 });
 
   if (loadChart) {
     loadChart.data.labels = labels; loadChart.data.datasets = datasets;
@@ -276,7 +280,7 @@ function renderLoadChart(range, anchorEnd) {
         y: {
           ticks: { font:{size:11}, color:'#64748b' },
           grid:  { color:'#f1f5f9' },
-          beginAtZero: true, suggestedMax: 1.5,
+          beginAtZero: true, suggestedMax: 2,
         },
       },
     },
@@ -298,18 +302,9 @@ async function loadLoadChart() {
     return p;
   };
   try {
-    const [r1, r5, r15] = await Promise.all([
-      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('load.1m')}`).then(r => r.json()),
-      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('load.5m')}`).then(r => r.json()),
-      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('load.15m')}`).then(r => r.json()),
-    ]);
+    const rows = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.run_queue')}`).then(r => r.json());
     if (seq !== loadSeq) return;
-    const safe = arr => Array.isArray(arr) ? arr : [];
-    loadAllRows = [
-      ...safe(r1).map(r  => ({ ...r, dimension: 'load1' })),
-      ...safe(r5).map(r  => ({ ...r, dimension: 'load5' })),
-      ...safe(r15).map(r => ({ ...r, dimension: 'load15' })),
-    ];
+    loadAllRows = (Array.isArray(rows) ? rows : []).map(r => ({ ...r, dimension: 'runq' }));
     if (loadChart) { loadChart.destroy(); loadChart = null; }
     renderLoadChart(capturedRange, capturedAnchor);
     buildLoadLegend();
@@ -334,10 +329,8 @@ loadUsageChart();
 updateCompBucketLabel();
 loadCompChart();
 
-/* 로드 평균 — Windows 는 load average 미측정이라 차트·컨트롤·초기화 전부 생략 (SSR 안내로 대체). */
-if (OS_FAMILY !== 'windows') {
-  initAnchor('load-anchor');
-  document.getElementById('load-anchor').addEventListener('change', () => loadLoadChart());
-  updateLoadBucketLabel();
-  loadLoadChart();
-}
+/* 실행 큐 추이 — os-aware(Linux procs_running / Windows Processor Queue), 양 OS 표시. */
+initAnchor('load-anchor');
+document.getElementById('load-anchor').addEventListener('change', () => loadLoadChart());
+updateLoadBucketLabel();
+loadLoadChart();

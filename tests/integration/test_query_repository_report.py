@@ -366,11 +366,18 @@ async def test_report_mount_usage_excludes_null_avail_and_zero_total(collect_rep
             collected_at=ts,
             mounts=[
                 MountUsageEntry(
-                    mount="/data", total_bytes=100 * 10**9, free_bytes=(50 - i) * 10**9,
-                    avail_bytes=(50 - i) * 10**9, kind="data",
+                    mount="/data",
+                    total_bytes=100 * 10**9,
+                    free_bytes=(50 - i) * 10**9,
+                    avail_bytes=(50 - i) * 10**9,
+                    kind="data",
                 ),
                 MountUsageEntry(
-                    mount="/nullavail", total_bytes=100 * 10**9, free_bytes=None, avail_bytes=None, kind="data",
+                    mount="/nullavail",
+                    total_bytes=100 * 10**9,
+                    free_bytes=None,
+                    avail_bytes=None,
+                    kind="data",
                 ),
                 MountUsageEntry(mount="/zerototal", total_bytes=0, free_bytes=0, avail_bytes=0, kind="data"),
             ],
@@ -458,3 +465,233 @@ async def test_report_disk_io_baseline_counter_reset_segments_summed(collect_rep
     # counter_agg: reads delta = (150-0)+(100-0)=250 over ~5분 관측. naive last-first=100-0=100 이면 과소.
     # reset 음수 점프(150->0)가 IOPS 를 음수/0 으로 왜곡하지 않고 양수 baseline 산출.
     assert iops_baseline is not None and iops_baseline > 0
+
+
+# ─── ADR 0052 신 신호 report_aggregate 집계 ──────────────────────────────
+
+
+async def test_report_aggregate_adr0052_signals(collect_repo, query_repo):
+    """ADR 0052 신 신호가 report_aggregate 로 집계되는지 — steal p95·burst·D-state·swap paging·await·
+    runway(바이트/inode)·drop%·retrans%·history_hours. 같은 5분 버킷 다중 시점으로 counter_agg delta 성립.
+    """
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="r-rs0052"))
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=9)
+    n = 10
+    for i in range(n):
+        ts = base_ts + timedelta(minutes=i)
+        m = make_metrics(
+            collected_at=ts,
+            cpu_user=1000 + i * 100,
+            cpu_system=200 + i * 30,
+            cpu_idle=8000 + i * 400,
+            cpu_iowait=50 + i * 20,
+            cpu_steal=100 + i * 50,  # steal 단조 증가 -> steal% p95 > 0
+            procs_blocked=3,  # D-state gauge -> procs_blocked_p95 ~ 3
+            pswpout=500 + i * 40,  # swap page-out 단조 증가 -> mem_swap_paging True
+            tcp_retrans_segs=10 + i * 5,  # 재전송 단조 증가
+            disk_io=[
+                DiskIoEntry(
+                    device="sda",
+                    reads_completed=100 + i * 50,
+                    writes_completed=50 + i * 30,
+                    sectors_read=2000 + i * 1000,
+                    sectors_written=1000 + i * 500,
+                    time_reading_ms=1000 + i * 100,  # await 원자료 단조 증가
+                    time_writing_ms=500 + i * 50,
+                    kind="physical",
+                ),
+            ],
+            net_io=[
+                NetIoEntry(
+                    interface="eth0",
+                    rx_bytes=1_000_000 + i * 60_000,
+                    tx_bytes=500_000 + i * 30_000,
+                    rx_packets=1000 + i * 100,
+                    tx_packets=500 + i * 50,
+                    rx_errors=0,
+                    tx_errors=0,
+                    rx_drops=5 + i * 2,  # 드롭 단조 증가 -> drop% > 0
+                    tx_drops=2 + i,
+                    kind="physical",
+                ),
+            ],
+            mounts=[
+                MountUsageEntry(
+                    mount="/data",
+                    total_bytes=100 * 10**9,
+                    free_bytes=(50 - i * 2) * 10**9,
+                    avail_bytes=(50 - i * 2) * 10**9,  # 바이트 감소 -> runway 산출
+                    inodes_total=1_000_000,
+                    inodes_free=1_000_000 - i * 10_000,  # inode 감소 -> inode runway 산출
+                    kind="data",
+                ),
+            ],
+        )
+        await collect_repo.record_metrics(sid, m)
+
+    rows = await query_repo.report_aggregate([sid], period_days=1, end=base_ts + timedelta(minutes=n))
+    assert len(rows) == 1
+    r = rows[0]
+    # CPU 신뢰도 신호
+    assert r.cpu_steal_p95_pct is not None and r.cpu_steal_p95_pct > 0
+    assert r.cpu_burst_ratio is not None and r.cpu_burst_ratio > 0
+    assert r.history_hours is not None and r.history_hours > 0
+    # D-state + swap paging (메모리 근본원인 판별)
+    assert r.procs_blocked_p95 is not None and r.procs_blocked_p95 >= 2.5
+    assert r.mem_swap_paging is True
+    # 디스크 I/O await (Linux 물리 device)
+    assert r.disk_await_p95_ms is not None and r.disk_await_p95_ms > 0
+    # 용량 runway (바이트·inode 둘 다 감소 추세)
+    assert r.disk_capacity_runway_days is not None and r.disk_capacity_runway_days >= 0
+    assert r.disk_inode_runway_days is not None and r.disk_inode_runway_days >= 0
+    # 네트워크 품질 (드롭·재전송)
+    assert r.net_drop_pct is not None and r.net_drop_pct > 0
+    assert r.net_retrans_pct is not None and r.net_retrans_pct > 0
+
+
+async def test_report_aggregate_adr0052_signals_absent_are_none(collect_repo, query_repo):
+    """신 신호 미발행(옛 agent) 시 신 필드는 None/False graceful — 옛 경로 무손상."""
+    sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-rs0052-absent")
+    rows = await query_repo.report_aggregate([sid], period_days=1, end=end + timedelta(minutes=1))
+    assert len(rows) == 1
+    r = rows[0]
+    # 미발행 신호 — steal 은 0(기본), await/procs_blocked/runway(inode)/retrans 는 None, swap paging False.
+    assert r.procs_blocked_p95 is None
+    assert r.disk_await_p95_ms is None  # time_reading/writing 미발행
+    assert r.disk_inode_runway_days is None  # inodes_free 미발행
+    assert r.net_retrans_pct is None  # tcp_retrans_segs 미발행
+    assert r.mem_swap_paging is False  # pswpout 미발행
+
+
+# ─── ADR 0052 per-core 단일스레드 신호 ────────────────────────────────────
+
+
+async def test_report_aggregate_percore_p95_max_reflects_busy_core(collect_repo, query_repo):
+    """cpu_percore_p95_max = 가장 바쁜 코어의 p95. 코어0 90%·코어1 5% -> max ~90(집계 평균은 낮음).
+    server_cpu_core_5m cagg 코어별 counter_agg delta 로 코어별 util% 산출.
+    """
+    from assessment_engine.db.dtos.inbound import CpuCoreEntry
+
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="r-percore"))
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=9)
+    n = 10
+    for i in range(n):
+        ts = base_ts + timedelta(minutes=i)
+        m = make_metrics(
+            collected_at=ts,
+            cpu_per_core=[
+                # 코어0 바쁨: idle +100/step, system +900/step -> total 1000, util = 90%
+                CpuCoreEntry(
+                    0,
+                    cpu_user=0,
+                    cpu_nice=0,
+                    cpu_system=900 * i,
+                    cpu_idle=100 * i,
+                    cpu_iowait=0,
+                    cpu_irq=0,
+                    cpu_softirq=0,
+                    cpu_steal=0,
+                ),
+                # 코어1 유휴: idle +950/step -> util = 5%
+                CpuCoreEntry(
+                    1,
+                    cpu_user=0,
+                    cpu_nice=0,
+                    cpu_system=50 * i,
+                    cpu_idle=950 * i,
+                    cpu_iowait=0,
+                    cpu_irq=0,
+                    cpu_softirq=0,
+                    cpu_steal=0,
+                ),
+            ],
+        )
+        await collect_repo.record_metrics(sid, m)
+
+    rows = await query_repo.report_aggregate([sid], period_days=1, end=base_ts + timedelta(minutes=n))
+    assert len(rows) == 1
+    r = rows[0]
+    # 가장 바쁜 코어(0) p95 ~90 반영 — 단일스레드 보호(RS_CPU_PERCORE_HOLD=85) 발화선 위
+    assert r.cpu_percore_p95_max is not None and r.cpu_percore_p95_max >= 85.0
+
+
+async def test_report_aggregate_percore_none_when_absent(collect_repo, query_repo):
+    """per-core 미발행(구 agent·Windows) 시 cpu_percore_p95_max None — graceful skip."""
+    sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-percore-absent")
+    rows = await query_repo.report_aggregate([sid], period_days=1, end=end + timedelta(minutes=1))
+    assert rows[0].cpu_percore_p95_max is None
+
+
+# ─── ADR 0052 run-queue(procs_running) + OOM ──────────────────────────────
+
+
+async def test_report_aggregate_runqueue_and_oom(collect_repo, query_repo):
+    """Linux CPU 포화 신호 procs_running p95 + OOM 발생 bool. 실행큐 8·OOM 증가 -> p95>=8, oom True."""
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="r-runqueue-oom"))
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=9)
+    for i in range(10):
+        m = make_metrics(
+            collected_at=base_ts + timedelta(minutes=i),
+            procs_running=8,  # gauge -> p95 ~8
+            oom_kill=i,  # 단조 증가 -> delta>0 -> oom 발생
+        )
+        await collect_repo.record_metrics(sid, m)
+    rows = await query_repo.report_aggregate([sid], period_days=1, end=base_ts + timedelta(minutes=10))
+    r = rows[0]
+    assert r.procs_running_p95 is not None and r.procs_running_p95 >= 7.5
+    assert r.oom_occurred is True
+
+
+async def test_report_aggregate_runqueue_oom_absent(collect_repo, query_repo):
+    """procs_running·oom_kill 미발행 시 p95 None·oom False — graceful."""
+    sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-runqueue-absent")
+    r = (await query_repo.report_aggregate([sid], period_days=1, end=end + timedelta(minutes=1)))[0]
+    assert r.procs_running_p95 is None
+    assert r.oom_occurred is False
+
+
+# ─── ADR 0052 Phase 1 신 신호 값 검증 — Windows await(counter_agg) · conntrack ratio · inode used% ───
+async def test_report_aggregate_windows_await_conntrack_inode(collect_repo, query_repo):
+    """신 신호 3종 실값 검증:
+
+    - Windows disk await: IOCTL ReadTime/WriteTime(100ns) delta / (ReadCount+WriteCount) delta / 10000 = ms.
+      매 분당 count +100 · time +25_000_000(100ns) -> await = 25ms(> 20 임계). Linux disk_io time 미발행이라
+      disk_await_p95_ms 는 win_await COALESCE 로 채워짐.
+    - conntrack: count/max = 55000/65536 = 0.839(>= 0.8 고갈 임박).
+    - inode used%: 1 - 50_000/1_000_000 = 95%(>= 85 정적 가드).
+    """
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="r-new-signals"))
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=11)
+    for i in range(12):
+        ts = base_ts + timedelta(minutes=i)
+        m = make_metrics(
+            collected_at=ts,
+            # Windows await 원자료 (device 합산 누적, 100ns/count). 분당 read+write time += 25_000_000, count += 100.
+            sat_disk_read_time=i * 15_000_000,
+            sat_disk_write_time=i * 10_000_000,
+            sat_disk_read_count=i * 60,
+            sat_disk_write_count=i * 40,
+            conntrack_count=55_000,
+            conntrack_max=65_536,
+            # Linux disk_io 는 time_reading/writing 미설정 -> Linux await null (win_await 가 COALESCE 로 이김).
+            disk_io=[
+                DiskIoEntry(
+                    device="sda", reads_completed=100 + i * 50, writes_completed=50 + i * 30,
+                    sectors_read=2000 + i * 1000, sectors_written=1000 + i * 500, kind="physical",
+                ),
+            ],
+            mounts=[
+                MountUsageEntry(
+                    mount="/data", total_bytes=100 * 10**9, free_bytes=40 * 10**9, avail_bytes=40 * 10**9,
+                    kind="data", inodes_total=1_000_000, inodes_free=50_000,
+                ),
+            ],
+        )
+        await collect_repo.record_metrics(sid, m)
+
+    end = base_ts + timedelta(minutes=12)
+    r = (await query_repo.report_aggregate([sid], period_days=1, end=end))[0]
+    assert r.disk_await_p95_ms is not None, "Windows await 가 COALESCE 로 채워져야 함"
+    assert 24.0 <= r.disk_await_p95_ms <= 26.0, f"await 25ms 근방 기대, got {r.disk_await_p95_ms}"
+    assert r.conntrack_ratio is not None and 0.83 <= r.conntrack_ratio <= 0.85, f"got {r.conntrack_ratio}"
+    assert r.disk_inode_used_pct is not None and 94.0 <= r.disk_inode_used_pct <= 96.0, f"got {r.disk_inode_used_pct}"

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from assessment_engine import recommendation
 from assessment_engine.db.repositories.base_diagnostic_repository import (
+    DIAGNOSTIC_DEFAULT_TIME_RANGE,
     DiagnosticTimeRange,
 )
 from assessment_engine.service_classifier import SERVICE_CATEGORIES
@@ -20,7 +21,7 @@ from assessment_engine.web.services.mappers.shared import (
     DISTRO_FILTER_OPTIONS,
     PROVISIONING_CLASS_OPTIONS,
 )
-from assessment_engine.web.services.query_service import DASHBOARD_TIME_RANGE, QueryService
+from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.settings import web_settings
 from assessment_engine.web.templating import templates
 
@@ -28,9 +29,6 @@ from assessment_engine.web.templating import templates
 overview_router = APIRouter()
 servers_list_router = APIRouter(prefix="/servers")
 environment_router = APIRouter(prefix="/environment")
-
-# 대시보드 윈도우 한국어 라벨 ("1일") — window_meta 표제 "최근 {라벨}" 표기.
-_DASHBOARD_WINDOW_LABEL = DIAGNOSTIC_RANGE_LABEL_KR[DASHBOARD_TIME_RANGE]
 
 # 서버 목록 전체 로드 한도 — 기본 20행 표시(client clip), 필터는 client-side hide/show. E2 page 의식적 예외.
 _LIST_FETCH_LIMIT = 10_000
@@ -147,25 +145,21 @@ async def topology(
 @environment_router.get("/assessment")
 async def assessment(
     request: Request,
-    time_range: DiagnosticTimeRange = Query(DASHBOARD_TIME_RANGE),
+    time_range: DiagnosticTimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
     anchor_at: datetime | None = Query(None),
     fragment: str | None = Query(None),
     back: str | None = Query(None),
     service: QueryService = Depends(get_service),
 ):
-    """환경 자원 평가 (모니터링) — 윈도우/앵커 선택 -> 자원 적정성 분류 + 자원 부족 전체 목록.
+    """환경 자원 평가 — 14일 표준 창(WINDOW_DAYS) 분류 + 자원 부족·효율화. 윈도우/앵커 override 가능.
 
+    분류 창은 서버 목록·보고서·환경 개요 카드와 같은 14일(#F10 #E3 정합). 기본값 `DIAGNOSTIC_DEFAULT_TIME_RANGE`.
     환경 단위 `/environment` 그룹. fragment=result: 결과 partial 만 재렌더 (JS swap, 풀 reload 회피)."""
     result = await service.get_environment_assessment(time_range, anchor_at)
     qs = f"?time_range={time_range}" + (f"&anchor_at={quote(anchor_at.isoformat(), safe='')}" if anchor_at else "")
     ctx = {
         "overview": result.overview,
-        "efficiency_hosts": result.efficiency_hosts,
-        "efficiency_hosts_count": result.efficiency_hosts_count,
-        "efficiency_target_count": result.efficiency_target_count,
-        "efficiency_target_vcpus": result.efficiency_target_vcpus,
-        "efficiency_target_memory_gb": result.efficiency_target_memory_gb,
-        "under_provisioned_metric_labels": result.under_provisioned_metric_labels,
+        "action": result.action,
         "time_range": time_range,
         "window_label": DIAGNOSTIC_RANGE_LABEL_KR.get(time_range, time_range),
         "self_back": quote(f"/environment/assessment{qs}", safe=""),
@@ -182,7 +176,7 @@ async def overview(
     request: Request,
     service: QueryService = Depends(get_service),
 ):
-    """환경 개요 (홈, `/`) — 집계 위젯(환경 요약·평균 활용률 도넛·수집 건전성).
+    """환경 개요 (홈, `/`) — 집계 위젯(환경 요약·자원 이용·포화 6도넛·수집 건전성).
 
     서버 목록은 `/servers`, 환경 단위 분석은 `/environment/*` 로 분리. 집계형 위젯만 본 페이지에 남는다.
     운영 신호는 실시간 현황(`/environment/realtime`)으로 분리. 자동 갱신 없음 — 정적 집계라 진입 시 1회 렌더."""
@@ -191,7 +185,8 @@ async def overview(
         "overview": overview,
         # 페이지 렌더(새로고침) 시각 — 우측 상단 표시용. UTC 전달, 템플릿 kst 필터로 표시(#F2).
         "generated_at": datetime.now(UTC),
-        "window_label": _DASHBOARD_WINDOW_LABEL,
+        # 자원 적정성·이용·포화 도넛 공통 창 라벨 — WINDOW_DAYS 파생(14일). 분류·이용률·포화 한 창(#E3 정합).
+        "classification_window_label": f"{recommendation.WINDOW_DAYS}일",
         "active_nav": "overview",
         "self_back": quote("/", safe=""),
     }

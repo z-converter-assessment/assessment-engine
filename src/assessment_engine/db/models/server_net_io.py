@@ -22,6 +22,9 @@ class ServerNetIo(Base):
     tx_packets: Mapped[int | None] = mapped_column(BigInteger)
     rx_errors: Mapped[int | None] = mapped_column(Integer)
     tx_errors: Mapped[int | None] = mapped_column(Integer)
+    # ADR 0052 — 드롭 (링 버퍼 오버런·경로 손실 품질 신호, virtio 게스트도 유의미). 누적.
+    rx_drops: Mapped[int | None] = mapped_column(BigInteger)
+    tx_drops: Mapped[int | None] = mapped_column(BigInteger)
     # kind — physical/loopback/bridge/veth/bond_*/vlan/tunnel/virtual (Windows coarse). 물리 집계 필터 신호.
     kind: Mapped[str | None] = mapped_column(String(32))
 

@@ -24,7 +24,6 @@ from assessment_engine.web.services.mappers.export import to_inventory_export_en
 from assessment_engine.web.services.mappers.report import (
     _RISK_FROM_RECOMMENDATION,
     _build_recommendation_action,
-    _build_under_provisioned_reason,
     build_report_summary_bullets,
     build_resource_stats,
     build_role_distribution,
@@ -64,6 +63,9 @@ def _raw(
     swap_used=False,
     iowait_p95=None,
     iowait_peak=None,
+    cpu_run_queue_p95=None,
+    mem_pages_input_rate_p95=None,
+    disk_queue_p95=None,
     cpu_cores=2,
     mem_total_kb=2 * 1024 * 1024,
     disks=None,
@@ -78,6 +80,22 @@ def _raw(
     net_tx=None,
     cpu_sufficiency=None,
     mem_sufficiency=None,
+    # ADR 0052 신 모델 입력 raw
+    procs_blocked_p95=None,
+    mem_swap_paging=False,
+    disk_await_p95_ms=None,
+    disk_capacity_runway_days=None,
+    disk_inode_runway_days=None,
+    net_retrans_pct=None,
+    net_drop_pct=None,
+    history_hours=None,
+    cpu_burst_ratio=None,
+    cpu_trend_slope=None,
+    mem_trend_slope=None,
+    cpu_steal_p95=None,
+    cpu_percore_p95_max=None,
+    procs_running_p95=None,
+    oom_occurred=False,
 ) -> ReportRowRaw:
     return ReportRowRaw(
         server_id=server_id,
@@ -104,6 +122,9 @@ def _raw(
         swap_used=swap_used,
         iowait_p95_pct=iowait_p95,
         iowait_peak_pct=iowait_peak,
+        cpu_run_queue_p95=cpu_run_queue_p95,
+        mem_pages_input_rate_p95=mem_pages_input_rate_p95,
+        disk_queue_p95=disk_queue_p95,
         cpu_cores=cpu_cores,
         mem_total_kb=mem_total_kb,
         disks=disks if disks is not None else [{"name": "sda", "size_bytes": 50 * 10**9, "kind": "physical"}],
@@ -118,6 +139,21 @@ def _raw(
         net_tx_kbps=net_tx,
         cpu_sufficiency=cpu_sufficiency,
         mem_sufficiency=mem_sufficiency,
+        procs_blocked_p95=procs_blocked_p95,
+        mem_swap_paging=mem_swap_paging,
+        disk_await_p95_ms=disk_await_p95_ms,
+        disk_capacity_runway_days=disk_capacity_runway_days,
+        disk_inode_runway_days=disk_inode_runway_days,
+        net_retrans_pct=net_retrans_pct,
+        net_drop_pct=net_drop_pct,
+        history_hours=history_hours,
+        cpu_burst_ratio=cpu_burst_ratio,
+        cpu_trend_slope=cpu_trend_slope,
+        mem_trend_slope=mem_trend_slope,
+        cpu_steal_p95_pct=cpu_steal_p95,
+        cpu_percore_p95_max=cpu_percore_p95_max,
+        procs_running_p95=procs_running_p95,
+        oom_occurred=oom_occurred,
     )
 
 
@@ -128,7 +164,6 @@ def _raw(
     "rec, risk_level, risk_label",
     [
         ("under_provisioned", "high", "고위험"),
-        ("shutdown", "attention", "주의 필요"),
         ("idle", "attention", "주의 필요"),
         ("over_provisioned", "attention", "주의 필요"),
         ("optimal", "normal", "정상"),
@@ -142,19 +177,7 @@ def test_risk_mapping_all_recommendations(rec, risk_level, risk_label):
     assert badge.startswith("rec-")
 
 
-# ─── to_report_row_item — saturation/variance/uptime 파생 ────────────────
-
-
-def test_report_row_saturation_ratio_calculated():
-    raw = _raw(load_15m_max=4.0, cpu_cores=2)
-    item = to_report_row_item(raw, is_online=True, now=_NOW)
-    assert item.saturation_ratio == 2.0  # 4 / 2
-
-
-def test_report_row_saturation_none_when_cores_missing():
-    raw = _raw(load_15m_max=4.0, cpu_cores=None)
-    item = to_report_row_item(raw, is_online=True, now=_NOW)
-    assert item.saturation_ratio is None
+# ─── to_report_row_item — variance/uptime 파생 ────────────────
 
 
 def test_report_row_cpu_variance():
@@ -190,13 +213,15 @@ def test_report_row_under_provisioned_maps_to_high():
 
 def test_report_row_is_partial_by_unmeasured_saturation():
     """ViewModel.is_partial = saturation 축 미관측(데이터 기반, 템플릿 마커 단일 소스).
-    Windows 는 load None(미관측)이라 True, Linux 는 load·iowait 관측이라 False — os 단정 아님."""
+    Windows 는 CPU 포화 None(미관측)이라 True, Linux 는 run queue·await 관측이라 False — os 단정 아님."""
     # Windows 실측: load None -> 부분 평가 (CPU run queue 미관측)
     assert to_report_row_item(_raw(cpu_p95=40.0, mem_p95=60.0, os_family="windows"), True, _NOW).is_partial is True
-    # Linux: saturation 축(load·cores·iowait) 관측 -> 완전 평가
+    # Linux: saturation 축(run queue·cores·await) 관측 -> 완전 평가
     assert (
         to_report_row_item(
-            _raw(cpu_p95=40.0, mem_p95=60.0, os_family="linux", load_15m_max=0.5, cpu_cores=4, iowait_p95=5.0),
+            _raw(
+                cpu_p95=40.0, mem_p95=60.0, os_family="linux", procs_running_p95=0.5, cpu_cores=4, disk_await_p95_ms=5.0
+            ),
             True,
             _NOW,
         ).is_partial
@@ -205,12 +230,15 @@ def test_report_row_is_partial_by_unmeasured_saturation():
 
 
 def test_report_row_windows_swap_not_high_risk():
-    """동일 통계(낮은 cpu/mem + swap_used)라도 Windows 는 swap 제외 -> under_provisioned(high) 로 왜곡 안 됨."""
-    stats = dict(cpu_p95=20.0, cpu_peak=25.0, mem_p95=30.0, mem_peak=35.0, swap_used=True)
+    """동일 통계(낮은 cpu/mem + active page-out)라도 Windows 는 page-out(pswpout) 축 제외 -> high 로 왜곡 안 됨.
+
+    Windows 메모리 포화는 mem_pages_input rate(하드폴트)로만 — Linux page-out 신호(mem_swap_paging)를 무시한다.
+    """
+    stats = dict(cpu_p95=20.0, cpu_peak=25.0, mem_p95=30.0, mem_peak=35.0, mem_swap_paging=True)
     linux = to_report_row_item(_raw(os_family="linux", **stats), True, _NOW)
     windows = to_report_row_item(_raw(os_family="windows", **stats), True, _NOW)
-    assert linux.risk_level == "high"  # swap short-circuit -> under_provisioned
-    assert windows.risk_level != "high"  # swap 제외 -> 저사용
+    assert linux.risk_level == "high"  # Linux active page-out -> under_provisioned
+    assert windows.risk_level != "high"  # Windows 는 page-out 축 제외 -> 저사용
     assert "스왑" not in windows.diagnosis  # 판단 컬럼도 스왑 발생 오인 안 함
 
 
@@ -400,7 +428,7 @@ def test_environment_overview_utilization_dash_length(pct, expected_dash):
 
 
 def test_risk_donut_segments_order_and_colors():
-    """segments 는 _DONUT_SEGMENT_DEFS 순서 (USE Method 6 분류 정석) 고정.
+    """segments 는 _DONUT_SEGMENT_DEFS 순서 (자원 적정성 5 상태 정석) 고정.
 
     label 은 recommendation.LABEL_KO 한국어 분류명 — 보고서·대시보드 통일 (영어 enum 미노출).
     """
@@ -409,7 +437,6 @@ def test_risk_donut_segments_order_and_colors():
             "under_provisioned": 1,
             "over_provisioned": 2,
             "idle": 1,
-            "shutdown": 0,
             "optimal": 5,
             "insufficient_data": 1,
         }
@@ -418,7 +445,6 @@ def test_risk_donut_segments_order_and_colors():
         "under_provisioned",
         "over_provisioned",
         "idle",
-        "shutdown",
         "optimal",
         "insufficient_data",
     ]
@@ -426,7 +452,6 @@ def test_risk_donut_segments_order_and_colors():
         "자원 부족",
         "과다 할당",
         "유휴",
-        "종료 권장",
         "정상",
         "표본 부족",
     ]
@@ -438,12 +463,12 @@ def test_risk_donut_segments_dash_accumulates():
     """dash_offset은 이전 segments 누적 음수 — 시계방향 시작 위치."""
     segs, total, _ = build_risk_donut_segments({"under_provisioned": 1, "over_provisioned": 1, "optimal": 1})
     expected_each = _UTIL_DONUT_CIRC / 3
-    # segments order: under_provisioned[0], over_provisioned[1], idle[2], shutdown[3], optimal[4], insufficient_data[5]
+    # segments order: under_provisioned[0], over_provisioned[1], idle[2], optimal[3], insufficient_data[4]
     assert abs(segs[0].dash_length - expected_each) < 0.1
     assert segs[0].dash_offset == 0.0
     assert abs(segs[1].dash_offset - (-expected_each)) < 0.1
-    # idle·shutdown count=0 → optimal segment 가 누적 offset = -2*expected_each
-    assert abs(segs[4].dash_offset - (-2 * expected_each)) < 0.1
+    # idle count=0 → optimal segment(index 3) 가 누적 offset = -2*expected_each
+    assert abs(segs[3].dash_offset - (-2 * expected_each)) < 0.1
     assert total == 3
 
 
@@ -452,8 +477,8 @@ def test_risk_donut_segments_zero_count_zero_length():
     segs, _, _ = build_risk_donut_segments({"under_provisioned": 0, "over_provisioned": 0, "optimal": 5})
     assert segs[0].dash_length == 0
     assert segs[1].dash_offset == 0
-    # optimal segment(index 4) 가 전체 차지 — under/over/idle/shutdown count=0 이라 offset 누적 0.
-    assert abs(segs[4].dash_length - _UTIL_DONUT_CIRC) < 0.1
+    # optimal segment(index 3) 가 전체 차지 — under/over/idle count=0 이라 offset 누적 0.
+    assert abs(segs[3].dash_length - _UTIL_DONUT_CIRC) < 0.1
 
 
 def test_risk_donut_segments_empty_total():
@@ -467,11 +492,10 @@ def test_risk_donut_segments_empty_total():
 @pytest.mark.parametrize(
     "rec, expected_key",
     [
-        # USE Method 6 분류 1:1 매핑 (정석). idle·shutdown 도 별도 segment — 신호 다름 (T13).
+        # 자원 적정성 5 상태 1:1 매핑 (정석). T13.
         ("under_provisioned", "under_provisioned"),
         ("over_provisioned", "over_provisioned"),
         ("idle", "idle"),
-        ("shutdown", "shutdown"),
         ("optimal", "optimal"),
         ("insufficient_data", "insufficient_data"),
     ],
@@ -480,38 +504,39 @@ def test_donut_segment_from_rec_mapping(rec, expected_key):
     assert _DONUT_SEGMENT_FROM_REC[rec] == expected_key
 
 
-# ─── CapacityWarningItem.triggers (USE Method 5종 항상 노출) ─────────────
+# ─── CapacityWarningItem.active_causes (발화 원인 os-neutral 집계) ─────────────
 
 
-def test_capacity_warning_triggers_always_five_categories():
-    """CapacityWarningItem.triggers는 5종(스왑/CPU/메모리/Load/디스크) 항상 — USE Method classify 입력 1:1 정합."""
-    item = to_capacity_warning_item(_raw(swap_used=True))
-    labels = [t.label for t in item.triggers]
-    assert labels == ["스왑", "CPU", "메모리", "Load", "디스크"]
-    # swap만 active, 나머지 inactive
-    active = {t.label: t.active for t in item.triggers}
-    assert active == {"스왑": True, "CPU": False, "메모리": False, "Load": False, "디스크": False}
+def test_capacity_warning_active_causes_only_hit():
+    """active_causes 는 발화(hit)한 trigger 의 os-neutral 원인 라벨만 — 비발화 미포함."""
+    item = to_capacity_warning_item(_raw(mem_swap_paging=True))
+    assert item.active_causes == ["메모리 포화"]  # Linux active page-out = mem_saturation
 
 
-def test_capacity_warning_triggers_multi_active():
-    """한 서버가 swap+CPU+메모리 동시 trigger 가능 — 각 active=True 독립. Load/디스크는 _raw default 미발동."""
-    item = to_capacity_warning_item(_raw(swap_used=True, cpu_p95=95.0, mem_p95=90.0))
-    active = {t.label: t.active for t in item.triggers}
-    assert active == {"스왑": True, "CPU": True, "메모리": True, "Load": False, "디스크": False}
+def test_capacity_warning_active_causes_multi_fixed_order():
+    """복수 원인 동시 발화 — _CAUSE_LABEL_BY_TRIGGER 고정 순서(cpu_util->mem_util->mem_saturation)로 나열."""
+    item = to_capacity_warning_item(_raw(mem_swap_paging=True, cpu_p95=95.0, mem_p95=90.0))
+    assert item.active_causes == ["CPU 이용률", "메모리 이용률", "메모리 포화"]
 
 
-def test_capacity_warning_triggers_colors_hue_separated():
-    """5 카테고리 색이 hue 별 명확히 분리 — 단일 진실(`_CAPACITY_TRIGGER_COLORS`)."""
-    item = to_capacity_warning_item(_raw(swap_used=True, cpu_p95=95.0, mem_p95=90.0))
-    colors = {t.label: t.color for t in item.triggers}
-    assert colors == {
-        "스왑": "#dc2626",  # 빨강
-        "CPU": "#2563eb",  # 파랑
-        "메모리": "#8b5cf6",  # 보라
-        "Load": "#ea580c",  # 주황
-        "디스크": "#0891b2",  # 청록
-    }
-    assert len(set(colors.values())) == 5
+def test_capacity_warning_active_causes_os_neutral_windows():
+    """Windows paging/run queue 포화도 os-neutral 라벨로 집계 — Linux 'swap'/'Load' 로 오라벨 안 함(배지 제거).
+
+    Windows: swap_used 는 pagefile baseline 이라 무시, Pages/sec p95 >= 1000 -> mem_saturation,
+    run queue p95/cores(12/4=3) >= 2 -> cpu_saturation.
+    """
+    item = to_capacity_warning_item(
+        _raw(
+            os_family="windows",
+            swap_used=True,
+            cpu_cores=4,
+            mem_pages_input_rate_p95=2000.0,
+            cpu_run_queue_p95=12.0,
+        )
+    )
+    assert "메모리 포화" in item.active_causes
+    assert "CPU 포화" in item.active_causes
+    assert "스왑" not in item.active_causes and "Load" not in item.active_causes
 
 
 # ─── build_report_summary_bullets — 신호 9종 트리거 ──────────────────────
@@ -534,8 +559,8 @@ def test_bullets_skip_risk_category_count():
     assert not any("주의 필요" in b for b in bullets)
 
 
-def test_bullets_iowait_signal_threshold_20pct():
-    raws = [_raw(hostname="io-01", iowait_p95=25.0, cpu_p95=50.0, mem_p95=50.0)]
+def test_bullets_disk_io_await_signal():
+    raws = [_raw(hostname="io-01", disk_await_p95_ms=25.0, cpu_p95=50.0, mem_p95=50.0)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws)
     assert any("디스크 I/O 포화" in b and "io-01" in b for b in bullets)
@@ -556,11 +581,11 @@ def test_bullets_reboot_signal_threshold_3():
 
 
 def test_bullets_saturation_signal():
-    # Saturation 시그널은 양식 B(엔지니어)에만 노출 — 큐잉 이론 시그널.
-    raws = [_raw(hostname="sat-01", load_15m_max=5.0, cpu_cores=2, cpu_p95=50.0, mem_p95=50.0)]
+    # CPU 포화 시그널은 양식 B(엔지니어)에만 노출 — os-aware cpu_saturated(procs_running/cores>=1) 기반(B1).
+    raws = [_raw(hostname="sat-01", procs_running_p95=5.0, cpu_cores=2, cpu_p95=50.0, mem_p95=50.0)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws, view="engineer")
-    assert any("Saturation" in b and "sat-01" in b for b in bullets)
+    assert any("CPU 포화" in b and "sat-01" in b for b in bullets)
 
 
 def test_bullets_cpu_variance_signal():
@@ -594,7 +619,7 @@ def test_bullets_role_avg_cpu_signal():
 
 def test_bullets_customer_view_excludes_saturation():
     """양식 A(customer)는 Saturation 시그널 제외 — 큐잉 이론은 엔지니어 영역."""
-    raws = [_raw(hostname="sat-01", load_15m_max=5.0, cpu_cores=2, cpu_p95=50.0, mem_p95=50.0)]
+    raws = [_raw(hostname="sat-01", procs_running_p95=5.0, cpu_cores=2, cpu_p95=50.0, mem_p95=50.0)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws, view="customer")
     assert not any("Saturation" in b for b in bullets)
@@ -676,7 +701,7 @@ def test_bullets_customer_view_keeps_iowait_mount_reboot_eol():
             mem_p95=92.0,
             mem_peak=98.0,
             swap_used=True,
-            iowait_p95=30.0,
+            disk_await_p95_ms=30.0,
             worst_mount="/data",
             worst_used=90.0,
             worst_days=10,
@@ -708,45 +733,98 @@ def test_bullets_normal_fallback_empty():
 
 
 def test_capacity_warning_item_fields():
-    raw = _raw(cpu_p95=95.0, mem_p95=92.0, swap_used=True)
+    raw = _raw(cpu_p95=95.0, mem_p95=92.0, mem_swap_paging=True)
     item = to_capacity_warning_item(raw)
     assert item.public_id == raw.public_id
     assert item.hostname == raw.hostname
-    # 5종 항상 — swap/cpu/mem 임계 → active. Load/디스크는 _raw default (low load·no mount) 비활성.
-    assert [t.label for t in item.triggers] == ["스왑", "CPU", "메모리", "Load", "디스크"]
-    active = {t.label: t.active for t in item.triggers}
-    assert active["스왑"] is True
-    assert active["CPU"] is True
-    assert active["메모리"] is True
+    # 발화 원인만 os-neutral 라벨로 (Load/디스크는 _raw default 미발동).
+    assert item.active_causes == ["CPU 이용률", "메모리 이용률", "메모리 포화"]
 
 
 @pytest.mark.parametrize(
-    "cpu_p95, mem_p95, swap_used, expected_active",
+    "cpu_p95, mem_p95, mem_swap_paging, expected_causes",
     [
-        # USE Method 5종 trigger. _raw default: load_15m_max=0.5, cpu_cores=4 → Load·디스크 비활성.
-        (None, None, True, [True, False, False, False, False]),  # swap만
-        (95.0, 92.0, True, [True, True, True, False, False]),  # swap+cpu+mem
-        (95.0, 92.0, False, [False, True, True, False, False]),  # cpu+mem
-        (95.0, 60.0, False, [False, True, False, False, False]),  # CPU만
-        (50.0, 90.0, False, [False, False, True, False, False]),  # 메모리만
-        (50.0, 60.0, False, [False, False, False, False, False]),  # 비도달
+        # _raw default: procs_running=None(cpu 포화 미발동)·mount 없음(디스크 미발동). 발화 원인만 고정순 나열.
+        (None, None, True, ["메모리 포화"]),  # active page-out = mem_saturation
+        (95.0, 92.0, True, ["CPU 이용률", "메모리 이용률", "메모리 포화"]),  # cpu+mem util + page-out
+        (95.0, 92.0, False, ["CPU 이용률", "메모리 이용률"]),  # cpu+mem util
+        (95.0, 60.0, False, ["CPU 이용률"]),  # CPU util 만
+        (50.0, 90.0, False, ["메모리 이용률"]),  # 메모리 util 만
+        (50.0, 60.0, False, []),  # 비도달
     ],
 )
-def test_capacity_warning_item_triggers_active_flags(cpu_p95, mem_p95, swap_used, expected_active):
-    """triggers는 항상 5종 [스왑, CPU, 메모리, Load, 디스크]. active flag로 활성 자원 표시."""
-    raw = _raw(cpu_p95=cpu_p95, mem_p95=mem_p95, swap_used=swap_used)
+def test_capacity_warning_item_active_causes(cpu_p95, mem_p95, mem_swap_paging, expected_causes):
+    """active_causes = 발화 trigger 의 os-neutral 원인 라벨(고정 순서)."""
+    raw = _raw(cpu_p95=cpu_p95, mem_p95=mem_p95, mem_swap_paging=mem_swap_paging)
     item = to_capacity_warning_item(raw)
-    assert [t.label for t in item.triggers] == ["스왑", "CPU", "메모리", "Load", "디스크"]
-    assert [t.active for t in item.triggers] == expected_active
+    assert item.active_causes == expected_causes
 
 
-def test_capacity_warning_item_trigger_colors_from_single_source():
-    """trigger.color는 _CAPACITY_TRIGGER_COLORS와 동일 — 본문 badge와 범례 단일 진실."""
-    from assessment_engine.web.services.mappers.attention import _CAPACITY_TRIGGER_COLORS
+# ─── saturation_axes (single_report 포화 축 평가 카드, os-aware) ───────────────
 
-    item = to_capacity_warning_item(_raw(cpu_p95=95.0, mem_p95=92.0, swap_used=True))
-    for t in item.triggers:
-        assert t.color == _CAPACITY_TRIGGER_COLORS[t.label]
+
+def test_saturation_axes_windows_os_aware_and_hit():
+    """Windows: run queue/paging/disk queue 실측 신호로 3축 노출 + 임계 초과면 '포화'."""
+    item = to_report_row_item(
+        _raw(
+            os_family="windows",
+            cpu_p95=40.0,
+            mem_p95=60.0,
+            cpu_cores=4,
+            cpu_run_queue_p95=12.0,
+            mem_pages_input_rate_p95=2000.0,
+            disk_await_p95_ms=30.0,  # Windows 도 IOCTL await 통일 -> await > 20ms
+        ),
+        True,
+        _NOW,
+    )
+    axes = {a.axis: a for a in item.saturation_axes}
+    assert list(axes) == ["CPU 포화", "메모리 포화", "디스크 I/O 포화"]  # 항상 3축
+    assert axes["CPU 포화"].signal == "Processor Queue Length / core"
+    # W 태그 — Linux(실행큐)와 의미·임계 달라 값만으론 구분 불가.
+    assert axes["CPU 포화"].value == "W 3.00" and axes["CPU 포화"].status == "포화"  # 12/4=3 >= 2
+    assert axes["메모리 포화"].value == "W 2000/s" and axes["메모리 포화"].status == "포화"  # >= 20
+    assert axes["디스크 I/O 포화"].value == "30ms" and axes["디스크 I/O 포화"].status == "포화"  # await > 20 무태그
+
+
+def test_saturation_axes_linux_signals_and_ok():
+    """Linux: run queue/swap/await 신호로 3축 노출 + 임계 미만이면 '정상'."""
+    item = to_report_row_item(
+        _raw(
+            os_family="linux",
+            cpu_p95=40.0,
+            mem_p95=60.0,
+            cpu_cores=4,
+            procs_running_p95=1.0,
+            swap_used=False,
+            disk_await_p95_ms=5.0,
+        ),
+        True,
+        _NOW,
+    )
+    axes = {a.axis: a for a in item.saturation_axes}
+    # L 태그 — Windows(Processor Queue)와 의미·임계 달라 값만으론 구분 불가.
+    assert axes["CPU 포화"].signal == "run queue (procs_running) / core" and axes["CPU 포화"].value == "L 0.25"
+    assert axes["메모리 포화"].signal == "swap page-out" and axes["메모리 포화"].value == "L 없음"
+    assert axes["디스크 I/O 포화"].value == "5ms"  # await 무태그(양 OS 공통)
+    assert all(a.status == "정상" for a in item.saturation_axes)
+
+
+def test_saturation_axes_unmeasured_when_counter_absent():
+    """Windows perflib 미발행(값 None) 축은 '미관측' — 분류를 막지 않고 단서로만."""
+    item = to_report_row_item(
+        _raw(
+            os_family="windows",
+            cpu_p95=40.0,
+            mem_p95=60.0,
+            cpu_run_queue_p95=None,
+            mem_pages_input_rate_p95=None,
+            disk_queue_p95=None,
+        ),
+        True,
+        _NOW,
+    )
+    assert all(a.status == "미관측" and a.value == "N/A" for a in item.saturation_axes)
 
 
 @pytest.mark.parametrize(
@@ -886,6 +964,43 @@ def test_inventory_export_network_addresses_v4_v6_split():
     assert {"scope": "external", "family": "v4", "address": "54.1.2.3"} in addrs
 
 
+def test_inventory_export_disks_physical_only():
+    # export boot/additional 디스크는 물리(kind=physical)만 — lvm/raid 는 제외해 이중계산 방지 (용량 정책 정합).
+    detail = ServerDetail(
+        id=1,
+        public_id="p1",
+        agent_id="00000000-0000-4000-8000-000000000001",
+        composite_id="m1",
+        machine_id=None,
+        hostname="h",
+        agent_version="1.0",
+        os_family=None,
+        os_id="ubuntu",
+        os_version="22.04",
+        os_codename="jammy",
+        kernel_version="5.15",
+        cpu_cores=2,
+        cpu_model="x86",
+        mem_total_kb=2 * 1024 * 1024,
+        swap_total_kb=0,
+        boot_time=None,
+        agent_started_at=None,
+        interfaces=[],
+        ip_external=None,
+        disks=[
+            {"name": "vda", "size_bytes": 100 * 10**9, "type": "disk", "kind": "physical", "major": 253, "minor": 0},
+            {"name": "dm-0", "size_bytes": 90 * 10**9, "type": "lvm", "kind": "lvm", "major": 253, "minor": 1},
+        ],
+        mounts=[],
+        services=[],
+        listen_ports=[],
+        last_seen_at=_NOW,
+    )
+    entry = to_inventory_export_entry(detail, stats=None)
+    assert entry.spec["boot_disk_gb"] == 100  # 물리 vda 가 boot
+    assert entry.spec["additional_disks"] == []  # lvm dm-0 는 제외 (물리 1개뿐)
+
+
 def test_inventory_export_services_listeners_match_listen_ports():
     """v4 — services.listeners가 listen_ports inventory 매칭으로 proto/address 채움.
 
@@ -975,19 +1090,23 @@ def test_inventory_export_services_listeners_fallback_when_no_listen_ports():
 @pytest.mark.parametrize(
     "kwargs, expected",
     [
-        ({"swap_used": True}, "메모리 부족 (스왑 발생)"),
-        ({"iowait_p95": 25.0}, "디스크 I/O 병목"),
-        ({"cpu_cores": 4, "load_15m_max": 5.0}, "CPU 포화"),
-        ({"mem_p95": 85.0}, "메모리 압박"),
+        ({"mem_swap_paging": True}, "메모리 부족 (스왑 발생)"),  # ADR 0052: 정적 점유 아닌 active page-out
+        ({"disk_await_p95_ms": 25.0}, "디스크 I/O 병목"),
+        ({"cpu_cores": 4, "procs_running_p95": 5.0}, "CPU 포화"),
+        ({"mem_p95": 92.0}, "메모리 압박"),  # ADR 0052: mem_util 임계 90(Azure) — 85 는 더 이상 under 아님
         ({"cpu_p95": 75.0}, "CPU 압박"),
-        ({"cpu_p95": 50.0, "cpu_peak": 99.0}, "부하 변동 큼"),
+        ({"cpu_p95": 50.0, "cpu_peak": 99.0}, "부하 변동 큼"),  # variance + peak 99>30 -> 발화
+        # peak 가 sizing 유의미 수준(>30)일 때만 variance 발화 — 저부하 지터는 gate (거의 미사용 우선).
+        ({"cpu_p95": 0.8, "cpu_peak": 1.3}, "거의 미사용"),  # variance 1.6 이나 peak 1.3<30 -> 지터, gate
+        # mem burst: mem_peak>50 이면 cpu 저부하여도 variance 발화 (VM-WIN2025 패턴).
+        ({"cpu_p95": 20.0, "cpu_peak": 25.0, "mem_p95": 34.0, "mem_peak": 60.0}, "부하 변동 큼"),
         ({"cpu_p95": 2.0}, "거의 미사용"),
         ({"cpu_p95": 20.0, "mem_p95": 30.0}, "여유 있음"),
         ({"cpu_p95": 50.0, "mem_p95": 60.0}, "정상"),
     ],
 )
 def test_diagnosis_priority(kwargs, expected):
-    """우선순위: 스왑 > I/O 병목 > saturation > 메모리 압박 > CPU 압박 > 변동성 > 미사용 > 여유 > 정상."""
+    """우선순위: 스왑 > I/O > saturation > mem 압박 > cpu 압박 > 변동성(peak>헤드룸) > 미사용 > 여유 > 정상."""
     raw = _raw(**kwargs)
     item = to_report_row_item(raw, True, _NOW)
     assert item.diagnosis == expected
@@ -1026,53 +1145,58 @@ def test_report_row_item_disk_net_io_p95_peak_passthrough():
 # ─── _build_recommendation_action (양식 A 권고 컬럼 단일 진실) ─────────────
 
 
-@pytest.mark.parametrize(
-    "rec, expected",
-    [
-        # 비-under 분류는 분류별 고정 문구 (environment·single_report 공유).
-        ("over_provisioned", "자원 축소 검토"),
-        ("idle", "용도 재평가 / 종료 검토"),
-        ("shutdown", "종료 가능 검토"),
-        ("optimal", "적정 운영"),
-        ("insufficient_data", "표본 부족 — 수집 점검"),
-    ],
-)
-def test_recommendation_action_fixed_phrases(rec, expected):
-    assert _build_recommendation_action(recommendation.Assessment(rec, [], [])) == expected
+def _rs(**kw):
+    base = dict(
+        cpu_p95_pct=None,
+        cpu_peak_pct=None,
+        cpu_load_15m_max=None,
+        cpu_cores=None,
+        mem_p95_pct=None,
+        swap_used=False,
+        disk_used_pct=None,
+        iowait_p95_pct=None,
+        net_avg_kbps=None,
+    )
+    base.update(kw)
+    return recommendation.ResourceStats(**base)
+
+
+def _host(status: str) -> recommendation.HostAssessment:
+    """신 모델 host_status 만 지정한 최소 HostAssessment (비-under 조치 테스트용 — resources 불요)."""
+    return recommendation.HostAssessment(resources={}, host_status=status)
 
 
 @pytest.mark.parametrize(
-    "triggers, expected",
+    "status, expected",
     [
-        # under_provisioned 은 hit trigger(assess 산출) 별 증설 권고 결합 — mapper 는 키->문구 변환만(P2).
-        (["mem_saturation"], "메모리 증설"),
-        (["mem_util"], "메모리 증설"),
-        (["cpu_util"], "CPU 증설"),
-        (["disk_io"], "디스크 증설"),
-        (["disk_capacity"], "디스크 증설"),
-        ([], "리소스 증설 검토"),  # trigger 0건 fallback
+        # 비-under·비-idle 은 상태별 고정 조치 (recommendation.recommend_action 도메인 단일 진실).
+        ("over", "축소 검토"),
+        ("optimal", "적정 — 유지"),
+        ("insufficient", "표본 부족 — 관측 지속"),
     ],
 )
-def test_under_provisioned_reason_per_trigger(triggers, expected):
-    assert _build_under_provisioned_reason(triggers) == expected
+def test_recommendation_action_fixed_phrases(status, expected):
+    assert _build_recommendation_action(_host(status), _rs()) == expected
 
 
-def test_under_provisioned_reason_combines_and_dedups():
-    """여러 trigger '/' 결합. mem_saturation·mem_util 같은 자원은 조치(증설) 중복 제거."""
-    assert _build_under_provisioned_reason(["mem_saturation", "cpu_util"]) == "메모리 증설 / CPU 증설"
-    assert _build_under_provisioned_reason(["mem_saturation", "mem_util"]) == "메모리 증설"
+def test_recommendation_action_idle_strong_vs_weak():
+    """유휴 조치는 강도로 분기 — 확실(거의 0)=즉시 종료 / 저사용=통합·재배치 (IDLE_STRONG)."""
+    strong = _rs(cpu_peak_pct=0.5, net_avg_kbps=0.5)  # peak<=1% AND net<=1kB/s
+    weak = _rs(cpu_peak_pct=2.0, net_avg_kbps=100.0)
+    assert _build_recommendation_action(_host("idle"), strong) == "즉시 종료 검토"
+    assert _build_recommendation_action(_host("idle"), weak) == "통합·재배치 검토"
 
 
 # ─── build_resource_stats — 분류 입력 단일 진실 (report·attention·목록·도넛 공용) ───
 
 
 def test_build_resource_stats_sums_net_rx_tx():
-    """net baseline = rx+tx 합 — idle/shutdown 판정 입력."""
+    """net baseline = rx+tx 합 — 유휴 판정 입력."""
     assert build_resource_stats(_raw(net_rx=10.0, net_tx=5.0)).net_avg_kbps == 15.0
 
 
 def test_build_resource_stats_net_none_when_both_missing():
-    """rx·tx 둘 다 None 이면 net None — idle/shutdown 판정 skip (미관측을 0 으로 단정 금지)."""
+    """rx·tx 둘 다 None 이면 net None — 유휴 판정 skip (미관측을 0 으로 단정 금지)."""
     assert build_resource_stats(_raw()).net_avg_kbps is None
 
 
@@ -1092,6 +1216,57 @@ def test_build_resource_stats_sample_sufficiency_ignores_unmeasured_axis():
     assert stats.sample_sufficiency == 0.8
 
 
+def test_build_resource_stats_wires_adr0052_signals():
+    """ADR 0052 신 raw 필드 -> ResourceStats 배선 (rollup_host 입력). mem_total_mb 는 kb/1024."""
+    stats = build_resource_stats(
+        _raw(
+            mem_total_kb=4 * 1024 * 1024,  # 4 GiB -> 4096 MB
+            procs_blocked_p95=2.0,
+            mem_swap_paging=True,
+            disk_await_p95_ms=30.0,
+            disk_capacity_runway_days=12.0,
+            disk_inode_runway_days=40.0,
+            net_retrans_pct=1.5,
+            net_drop_pct=0.3,
+            history_hours=200.0,
+            cpu_burst_ratio=1.4,
+            cpu_steal_p95=6.0,
+            cpu_percore_p95_max=88.0,
+            procs_running_p95=3.0,
+            oom_occurred=True,
+        )
+    )
+    assert stats.procs_blocked_p95 == 2.0
+    assert stats.procs_running_p95 == 3.0
+    assert stats.oom_occurred is True
+    assert stats.mem_swap_paging is True
+    assert stats.mem_total_mb == 4096
+    assert stats.disk_await_p95_ms == 30.0
+    assert stats.disk_capacity_runway_days == 12.0
+    assert stats.disk_inode_runway_days == 40.0
+    assert stats.net_retrans_pct == 1.5
+    assert stats.net_drop_pct == 0.3
+    assert stats.history_hours == 200.0
+    assert stats.cpu_burst_ratio == 1.4
+    assert stats.cpu_steal_p95_pct == 6.0
+    # per-core p95 max -> 단일스레드 보호 입력 (server_cpu_core 저장 후 실값)
+    assert stats.cpu_percore_p95_max == 88.0
+
+
+def test_build_resource_stats_mem_total_mb_none_when_kb_none():
+    assert build_resource_stats(_raw(mem_total_kb=None)).mem_total_mb is None
+
+
+def test_build_resource_stats_util_trend_rising_from_slopes():
+    """util_trend_rising 은 도메인 헬퍼로 slope -> bool 이진화 (임계 recommendation 단일)."""
+    # mem slope 가 임계(0.2%/day) 이상 -> 상승
+    assert build_resource_stats(_raw(cpu_trend_slope=-0.1, mem_trend_slope=0.5)).util_trend_rising is True
+    # 둘 다 임계 미만 -> 비상승
+    assert build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=-1.0)).util_trend_rising is False
+    # 둘 다 None(추세 산출 불가) -> None
+    assert build_resource_stats(_raw()).util_trend_rising is None
+
+
 # ─── format_net_rate — 실시간·보고서 네트워크 rate 표시 단일 진실 ───
 
 
@@ -1099,10 +1274,10 @@ def test_build_resource_stats_sample_sufficiency_ignores_unmeasured_axis():
     "kbps, expected",
     [
         (None, None),
-        (0.0, "0.0 kBps"),
-        (512.0, "512.0 kBps"),
-        (1024.0, "1.0 MBps"),
-        (2560.0, "2.5 MBps"),
+        (0.0, "0.0 kB/s"),
+        (512.0, "512.0 kB/s"),
+        (1024.0, "1.0 MB/s"),
+        (2560.0, "2.5 MB/s"),
     ],
 )
 def test_format_net_rate(kbps, expected):

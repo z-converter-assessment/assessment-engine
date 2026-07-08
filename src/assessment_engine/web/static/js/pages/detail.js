@@ -12,14 +12,15 @@
 (() => {
   const SERVER_ID = document.body.dataset.serverId;
   if (!SERVER_ID) { console.error('detail.js: body data-server-id missing'); return; }
-  const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 메트릭 N/A 분기
+  const OS_FAMILY = document.body.dataset.osFamily || '';  // 디스크·메모리 포화 os-aware 표시 분기 (Linux await/page-out vs Windows queue/paging-rate)
+  const CPU_CORES = parseInt(document.body.dataset.cpuCores, 10) || 0;  // 실행 큐 코어당 정규화 (분류 기준과 동일)
 
   /* -------- 포맷 유틸 -------- */
   const fmtPct  = (v) => v != null ? v.toFixed(1) + '%' : '—';
   const fmtLoad = (v) => v != null ? v.toFixed(2) : '—';
   const fmtIops = (v) => v != null ? v.toFixed(1) + ' IOPS' : '—';
-  // 처리량 동적 단위 (kBps/MBps) — storage/network 페이지와 일관. 큰 값도 가독성 유지.
-  const fmtKbps = (v) => v == null ? '—' : (v >= 1024 ? (v / 1024).toFixed(1) + ' MBps' : v.toFixed(1) + ' kBps');
+  // 처리량 동적 단위 (kB/s → MB/s) — storage/network·차트와 단위 표기 통일. 큰 값도 가독성 유지.
+  const fmtKbps = (v) => v == null ? '—' : (v >= 1024 ? (v / 1024).toFixed(1) + ' MB/s' : v.toFixed(1) + ' kB/s');
   // swap 은 used 가 작아도 GB 소숫점1 고정 — KB/MB 자동 단위(fmtKb)는 비현실적이라 단위 통일.
   const fmtGb   = (kb) => kb != null ? (kb / 1024 / 1024).toFixed(1) + ' GB' : '—';
   const fmtPps  = (v) => v != null ? v.toFixed(1) + ' pps' : '—';
@@ -32,7 +33,7 @@
   const show = (id) => document.getElementById(id).style.display = '';
   const hide = (id) => document.getElementById(id).style.display = 'none';
   const el    = (id) => document.getElementById(id);
-  const setTxt = (id, v) => el(id).textContent = v;
+  const setTxt = (id, v) => { const e = el(id); if (e) e.textContent = v; };  // OS 전용 값은 템플릿에서 숨겨 요소 부재 -> null-safe
 
   /* 활용률 도넛 게이지 — 단색(임계색 아님, E8 일관). pct null = 빈 게이지 + 회색 '—'. P4 동적 SVG 산술. */
   const DONUT_CIRC = 263.89;  // 2*pi*42 (r=42)
@@ -67,21 +68,32 @@
     setTxt('cpu-usage',  fmtPct(cpu.usage_pct));
     setTxt('cpu-user',   fmtPct(cpu.user_pct));
     setTxt('cpu-system', fmtPct(cpu.system_pct));
-    setTxt('cpu-iowait', ChartUtils.naWindows(OS_FAMILY, 'cpu_iowait', fmtPct(cpu.iowait_pct)));
+    setTxt('cpu-iowait', fmtPct(cpu.iowait_pct));  // Linux 전용 (Windows 는 템플릿에서 열 숨김)
     setDonut('cpu-donut-arc', 'cpu-donut-text', cpu.usage_pct);
 
-    /* Load */
-    setTxt('load-1m',  ChartUtils.naWindows(OS_FAMILY, 'load_1m', fmtLoad(d.load_1m)));
-    setTxt('load-5m',  ChartUtils.naWindows(OS_FAMILY, 'load_5m', fmtLoad(d.load_5m)));
-    setTxt('load-15m', ChartUtils.naWindows(OS_FAMILY, 'load_15m', fmtLoad(d.load_15m)));
+    /* 포화 축 (자원 적정성 분류) — 각 자원 표/섹션에 분산. os-aware: 실행큐·재전송 양 OS, Steal Linux, 디스크·페이징 OS별. */
+    // 실행 큐는 코어당 정규화해 노출 (분류가 run_queue/cores 로 판정 — raw 큐값은 코어 수 모르면 무의미). cores 부재 시 raw fallback.
+    const runqPerCore = (d.cpu_run_queue != null && CPU_CORES > 0) ? d.cpu_run_queue / CPU_CORES : d.cpu_run_queue;
+    setTxt('cpu-runq',   runqPerCore != null ? runqPerCore.toFixed(2) + ' /core' : '—');
+    setTxt('cpu-steal',  OS_FAMILY === 'windows' ? 'N/A' : fmtPct(cpu.steal_pct));  // Steal 은 Linux 전용 — Windows 는 개념 부재 N/A
+    setTxt('net-retrans', d.net_retrans_pct != null ? d.net_retrans_pct.toFixed(2) + '%' : '—');
+    // 디스크 await 양 OS 통일 — await 우선(Linux server_disk_io · Windows IOCTL), 없으면 구세대 viostor 큐 폴백.
+    setTxt('disk-sat', d.disk_await_ms != null ? 'await ' + d.disk_await_ms.toFixed(1) + ' ms'
+                        : d.disk_queue != null ? '큐 ' + d.disk_queue.toFixed(1) : '—');
+    // 메모리 압박은 OS별 신호가 다름 — Linux page-out 발생 / Windows Pages Input/sec 하드폴트율.
+    if (OS_FAMILY === 'windows') {
+      setTxt('mem-paging', d.mem_pages_input_rate != null ? d.mem_pages_input_rate.toFixed(0) + ' /s' : '—');
+    } else {
+      setTxt('mem-paging', d.mem_pageout != null ? (d.mem_pageout > 0 ? 'page-out 발생' : '없음') : '—');
+    }
 
     /* Memory */
     const mem = d.memory || {};
     setTxt('mem-usage',   fmtPct(mem.usage_pct));
     setTxt('mem-used',    fmtKb(mem.used_kb));
     setTxt('mem-avail',   fmtKb(mem.available_kb));
-    setTxt('mem-cached',  ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtKb(mem.cached_kb)));
-    setTxt('mem-buffers', ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtKb(mem.buffers_kb)));
+    setTxt('mem-cached',  fmtKb(mem.cached_kb));  // Linux 전용
+    setTxt('mem-buffers', fmtKb(mem.buffers_kb));  // Linux 전용
     setDonut('mem-donut-arc', 'mem-donut-text', mem.usage_pct);
 
     /* Swap */
@@ -92,6 +104,7 @@
       setTxt('swap-used',  fmtGb(swap.used_kb));
       setTxt('swap-total', fmtGb(swap.total_kb));
     }
+
 
     /* Disk I/O — 물리 / 논리·가상 (E9: 데이터 없어도 제목 노출 + placeholder) */
     const ioRow = dk => `
@@ -214,25 +227,21 @@
   }
   function close() { modal.style.display = 'none'; }
 
-  async function publish() {
-    // PRG pattern — POST emit (record) → 응답 view_url 로 GET navigate (read-only 표시).
-    // 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
-    submitBtn.disabled = true;
-    try {
+  // PRG — POST emit(record) → view_url GET navigate. 공용 EmitUtils(비활성·토스트·bfcache 복구 내장).
+  // 다시 보기 / 북마크 / 직접 URL 은 GET 만 → record 안 됨 → 중복 방지.
+  function publish() {
+    window.EmitUtils.submitNavigate(submitBtn, () => {
       const params = new URLSearchParams();
       params.set('ids', publicId);
       params.set('view', currentView);
       params.set('time_range', rangeSel.value);
-      const res = await fetch(`/reports/servers/emit?${params.toString()}`, { method: 'POST' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const viewUrl = data.view_url + `&back=${encodeURIComponent(location.pathname)}`;
-      window.location.href = viewUrl;
-    } catch (e) {
-      if (window.ToastUtils) ToastUtils.show('보고서 발행 실패: ' + e.message, 'err');
-      submitBtn.disabled = false;
-    }
-    close();
+      return `/reports/servers/emit?${params.toString()}`;
+    }, {
+      pendingMsg: '보고서 발행 중...',
+      errPrefix: '보고서 발행 실패',
+      viewUrlTransform: (u) => u + `&back=${encodeURIComponent(location.pathname)}`,
+      onRestore: close, // bfcache 복귀 시 열린 모달도 닫음
+    });
   }
 
   // 페이지 로드 시 anchor input 기본값 채움 (대시보드 모달과 일관 UX).
@@ -245,8 +254,6 @@
   closeBtn.addEventListener('click', close);
   submitBtn.addEventListener('click', publish);
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
-  // bfcache 복귀(뒤로가기) — 발행 후 navigate 로 얼어붙은 disabled 버튼·열린 모달 초기화.
-  window.addEventListener('pageshow', e => { if (e.persisted) { submitBtn.disabled = false; close(); } });
 })();
 
 // 서버 1대 scope ZConverter Install 발행 모달 — 대시보드 #install-modal 과 동일 form.
@@ -299,9 +306,15 @@
         return;
       }
       const data = await res.json();
-      const tid = Array.isArray(data) && data[0] ? data[0].task_id : '';
+      const t0 = Array.isArray(data) && data[0] ? data[0] : null;
+      const tid = t0 ? t0.task_id : '';
       if (window.ToastUtils) {
-        ToastUtils.show(`Install 발행 완료 — task ${tid.slice(0, 8)}`, 'ok');
+        // 오프라인이면 advisory(warn) — 발행은 됐고 큐에 적재됨(재접속 시 배달, 창 넘기면 만료).
+        if (t0 && t0.target_online === false) {
+          ToastUtils.show(`Install 큐 적재 — ${hostname} 오프라인. 재접속 시 배달(미접속 시 만료) · task ${tid.slice(0, 8)}`, 'warn');
+        } else {
+          ToastUtils.show(`Install 발행 완료 — task ${tid.slice(0, 8)}`, 'ok');
+        }
       }
       closeModal();
       // 페이지 새로고침으로 최근 작업 row 갱신.

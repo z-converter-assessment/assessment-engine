@@ -87,26 +87,22 @@ metricsSelBtn?.addEventListener('click', () => {
   }
   function close() { modal.style.display = 'none'; }
 
-  async function publish() {
-    const ids = currentRows.map(r => r.dataset.publicId).join(',');
-    const params = new URLSearchParams();
-    params.set('ids', ids);
-    params.set('view', currentView);
-    params.set('time_range', rangeSel.value);
-    // PRG pattern — POST emit (record) → 응답 view_url 로 GET navigate (read-only 표시).
-    // 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
-    submitBtn.disabled = true;
-    try {
-      const res = await fetch(`/reports/servers/emit?${params.toString()}`, { method: 'POST' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const viewUrl = data.view_url + `&back=${encodeURIComponent(location.pathname + location.search)}`;
-      window.location.href = viewUrl;
-    } catch (e) {
-      if (window.ToastUtils) ToastUtils.show('서버 보고서 발행 실패: ' + e.message, 'err');
-      submitBtn.disabled = false;
-    }
-    close();
+  // PRG — POST emit(record) → view_url GET navigate. 공용 EmitUtils(비활성·토스트·bfcache 복구 내장).
+  // 다시 보기 / 북마크 / 직접 URL 은 GET 만 → record 안 됨 → 중복 방지.
+  function publish() {
+    window.EmitUtils.submitNavigate(submitBtn, () => {
+      const ids = currentRows.map(r => r.dataset.publicId).join(',');
+      const params = new URLSearchParams();
+      params.set('ids', ids);
+      params.set('view', currentView);
+      params.set('time_range', rangeSel.value);
+      return `/reports/servers/emit?${params.toString()}`;
+    }, {
+      pendingMsg: '보고서 발행 중...',
+      errPrefix: '서버 보고서 발행 실패',
+      viewUrlTransform: (u) => u + `&back=${encodeURIComponent(location.pathname + location.search)}`,
+      onRestore: close,
+    });
   }
 
   if (anchorInput && window.ChartUtils && window.ChartUtils.initAnchor) {
@@ -234,10 +230,20 @@ async function submitInstall() {
     }
     const data = await res.json();
     const list = Array.isArray(data) ? data : [];   // 5xx가 JSON object 반환 시 TypeError 방어
-    const lines = list.map(t => `- ${rows.find(r => r.dataset.publicId === t.target_public_id)?.dataset.hostname || t.target_public_id} -> task ${t.task_id.slice(0, 8)}`);
+    const lines = list.map(t => {
+      const host = rows.find(r => r.dataset.publicId === t.target_public_id)?.dataset.hostname || t.target_public_id;
+      // 오프라인 대상은 큐 적재 표식 — 발행은 됐고 재접속 시 배달(창 넘기면 만료).
+      const mark = t.target_online === false ? ' (오프라인·큐 적재)' : '';
+      return `- ${host} -> task ${t.task_id.slice(0, 8)}${mark}`;
+    });
+    const offline = list.filter(t => t.target_online === false).length;
+    // 하나라도 오프라인이면 advisory(warn) — 나머지는 발행 완료(ok).
+    const head = offline > 0
+      ? `${list.length}대 Install 발행 — ${offline}대 오프라인(큐 적재, 재접속 시 배달)`
+      : `${list.length}대 Install 발행 완료`;
     ToastUtils.show(
-      `${list.length}대 Install 발행 완료<br><div style="margin-top:6px; font-family:monospace; font-size:12px;">${lines.join('<br>')}</div>`,
-      'ok',
+      `${head}<br><div style="margin-top:6px; font-family:monospace; font-size:12px;">${lines.join('<br>')}</div>`,
+      offline > 0 ? 'warn' : 'ok',
     );
     hideInstallModal();
     // 행별 "최근 작업" cell polling — task 완료 시 badge 갱신.
@@ -356,11 +362,24 @@ if (filterForm) {
     [searchInput, onlineSel, serviceSel, osSel, classSel].forEach(function (el) {
       if (el) el.classList.toggle('active', !!(el.value || '').trim());
     });
+    // 보이는 행만 zebra 재줄무늬 — 필터·clip 으로 숨은 행 제외(흰색 어긋남 방지, table-utils).
+    if (window.TableUtils && listTable) window.TableUtils.restripe(listTable);
   }
 
   // 전체보기/접기 토글 — expanded 반전 후 재적용 (전체 노출 <-> CLIP 복귀).
   document.getElementById('show-more-btn')?.addEventListener('click', () => {
     expanded = !expanded;
+    applyFilters();
+  });
+
+  // ─── 칼럼 클릭 정렬 — 공용 TableUtils(정렬 로직·zebra 단일화). 정렬 후 필터·clip 재적용(applyFilters 끝에서 restripe). ───
+  const listTable = document.querySelector('table.server-list-table');
+  listTable?.querySelector('thead')?.addEventListener('click', function (e) {
+    const th = e.target.closest('th.sort-col');
+    if (!th) return;
+    const idx = Array.from(th.parentNode.children).indexOf(th);
+    window.TableUtils.sortByColumn(listTable, idx);
+    expanded = false; // 정렬 후 CLIP 복귀 (상위 재적용)
     applyFilters();
   });
 

@@ -94,6 +94,18 @@ class WebSettings(BaseSettings):
     redis_ttl_zdm_package_sha256: int = 6 * 60 * 60  # 6h
     install_timeout_sec: int = 600  # install.sh wall-clock timeout (원격 host worker 강제 종료)
 
+    # install task 배달/마감 창 — 두 타임아웃을 하나로 정합(F6 관측성).
+    # 이 값 하나가 (1) engine 측 task deadline_at (2) broker agent.tasks.{agent_id} 큐 x-message-ttl 를 동시에 정한다.
+    # 오프라인 호스트 store-and-forward 유예 = 이 창. 창 안에 재접속하면 큐에서 소비·실행·회신, 넘기면 큐 메시지 만료 +
+    # reaper 가 pending -> failure(timeout). install_timeout_sec(600) 는 별개 개념 — agent 가 "픽업 후" 스크립트 실행에
+    # 쓰는 wall-clock 예산(payload install.timeout_sec). 기본 3600 = 기존 큐 TTL(1h) 과 동일 -> 기존 큐 재선언 충돌 없음.
+    install_task_deadline_sec: int = 3600
+
+    # install task reaper — deadline 지난 pending 을 다음 emit 없이 능동 timeout 전이(web 프로세스 내 백그라운드 루프).
+    # interval: 점검 주기. shutdown_timeout: graceful 시 진행 중 1회 완료 대기(UPDATE 1건이라 짧게).
+    install_reaper_interval_sec: float = 60.0
+    install_reaper_shutdown_timeout_sec: float = 5.0
+
     @property
     def database_url(self) -> str:
         return (

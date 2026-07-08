@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from assessment_engine.config import WebSettings
 from assessment_engine.db.models import (  # noqa: F401  — Base.metadata 등록
     diagnostic_job,
+    server_cpu_core,
     server_disk_io,
     server_inventory,
     server_inventory_history,

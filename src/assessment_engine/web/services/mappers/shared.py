@@ -5,6 +5,7 @@
 """
 
 import json
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Literal
@@ -22,17 +23,99 @@ _SWAP_DANGER_PCT = 0.1  # 스왑 사용 자체가 이슈 — 0.1% 도 빨강 (JS
 # 보고서 view 분기 — 라우터 Pydantic Literal 정합 (#F3)
 ReportView = Literal["customer", "engineer"]
 
+# 자원 부족 원인 라벨 — trigger key -> os-neutral 축 이름 (단일 진실, P2). attention capacity 카드 active_causes·
+# environment_report 원인 집계 순서(_UNDER_CAUSE_ORDER = 본 dict 삽입순) 공유. Windows paging/run queue 포화도
+# 이 축 이름으로 잡혀 Linux swap/load 로 오라벨 0. dict 삽입순 = 표시·집계 순서.
+_CAUSE_LABEL_BY_TRIGGER: dict[str, str] = {
+    "cpu_util": "CPU 이용률",
+    "cpu_saturation": "CPU 포화",
+    "mem_util": "메모리 이용률",
+    "mem_saturation": "메모리 포화",
+    "disk_capacity": "디스크 용량",
+    "disk_io": "디스크 I/O",
+}
 
-def build_confidence_notes(assessment: recommendation.Assessment) -> list[str]:
-    """분류 confidence 단서 라벨 — is_partial(saturation 축 미관측) + low_sample(표본 부족) 통합 (원칙2, P2).
 
-    분류는 가진 데이터로 완결(원칙1)하고, 신뢰도를 떨어뜨리는 요인만 본 채널로 분리 노출. 보고서 행·대시보드
-    '자원 부족 상세' 카드가 동일 list 를 렌더(P3) — 비면 신뢰도 저하 요인 없음. report·attention 공용 단일 진실.
+@dataclass
+class SaturationAxisDisplay:
+    """os-aware 포화 축 표시 원자 — single_report 포화 축 카드·attention capacity 지표 공용 (P2 표현 단일 소스).
+
+    axis: os-neutral 축 이름(CPU 포화/메모리 포화/디스크 I/O). signal: 해당 OS 측정 신호 이름. value: 형식화
+    값('N/A'=미측정). threshold: 임계 표기. measured: 실측 여부. 포화 여부(bool)는 recommendation helper 별도 —
+    본 원자는 표시값만(포맷·라벨·임계 문자열을 한 곳에서 결정해 카드/표 간 표기 drift 차단).
+    """
+
+    axis: str
+    signal: str
+    value: str
+    threshold: str
+    measured: bool
+
+
+def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[SaturationAxisDisplay]:
+    """포화 3축(CPU·메모리·디스크 I/O) os-aware 표시값 — [cpu, mem, disk] 순 (report·attention 단일 진실, P2).
+
+    OS별 측정 신호·형식화·임계 표기를 한 곳에서 결정 — 판정(saturated bool)은 cpu_saturated/mem_saturated/
+    disk_io_saturated helper 몫(임계 재계산 없음). 값 스케일은 stats(=build_resource_stats) raw 그대로.
+    """
+    rec = recommendation
+    cores = stats.cpu_cores
+    if stats.os_family == "windows":
+        rq = stats.cpu_run_queue_p95 / cores if stats.cpu_run_queue_p95 is not None and cores else None
+        return [
+            SaturationAxisDisplay(
+                "CPU 포화",
+                "Processor Queue Length / core",
+                f"W {rq:.2f}" if rq is not None else "N/A",  # W 태그 — Linux(실행큐)와 의미·임계 달라 값만으론 구분 불가
+                f">= {rec.CPU_RUN_QUEUE_PER_CORE_SATURATION:g}",
+                rq is not None,
+            ),
+            SaturationAxisDisplay(
+                "메모리 포화",
+                "Memory Pages Input/sec p95",
+                f"W {stats.mem_pages_input_rate_p95:.0f}/s" if stats.mem_pages_input_rate_p95 is not None else "N/A",
+                f">= {rec.WIN_PAGES_INPUT_SATURATION:g}/s",
+                stats.mem_pages_input_rate_p95 is not None,
+            ),
+            SaturationAxisDisplay(
+                "디스크 I/O 포화",
+                "await p95 (IOCTL ReadTime/WriteTime)",
+                f"{stats.disk_await_p95_ms:.0f}ms" if stats.disk_await_p95_ms is not None else "N/A",
+                f"> {rec.RS_DISKIO_AWAIT_MS:g}ms",
+                stats.disk_await_p95_ms is not None,
+            ),
+        ]
+    rq = stats.procs_running_p95 / cores if stats.procs_running_p95 is not None and cores else None
+    return [
+        SaturationAxisDisplay(
+            "CPU 포화",
+            "run queue (procs_running) / core",
+            f"L {rq:.2f}" if rq is not None else "N/A",  # L 태그 — Windows(Processor Queue)와 의미·임계 달라 구분
+            f">= {rec.PROCS_RUNNING_PER_CORE_SATURATION:g}",
+            rq is not None,
+        ),
+        SaturationAxisDisplay("메모리 포화", "swap page-out", "L 발생" if stats.mem_swap_paging else "L 없음", "발생 시", True),
+        SaturationAxisDisplay(
+            "디스크 I/O 포화",
+            "await p95",
+            f"{stats.disk_await_p95_ms:.0f}ms" if stats.disk_await_p95_ms is not None else "N/A",
+            f"> {rec.RS_DISKIO_AWAIT_MS:g}ms",
+            stats.disk_await_p95_ms is not None,
+        ),
+    ]
+
+
+def build_host_confidence_notes(host: recommendation.HostAssessment) -> list[str]:
+    """호스트 confidence 단서 라벨 (신 모델 rollup_host 기반) — 자원별 ConfidenceNote 를 호스트 단위 OR 종합.
+
+    구 단일-assess 대비 rollup_host 기반 — coverage_gap(포화 축 미관측)·low_precision(이력<30h·버스티)를
+    호스트 단위로 노출. biased(virtio 구조 편향)는 disk_io 가 상시 True 라 표시 노이즈 -> 노트 제외
+    (다운사이즈 게이트 내부용). report·attention 이 rollup_host 로 이관 후 본 함수 공용.
     """
     notes: list[str] = []
-    if assessment.is_partial:
+    if recommendation.host_saturation_unmeasured(host):  # 포화 축(cpu·mem·disk_io) 한정 — 용량·네트워크 제외
         notes.append("포화 수치 미관측")
-    if assessment.low_sample:
+    if any(r.confidence.low_precision for r in host.resources.values()):
         notes.append("표본 부족")
     return notes
 
@@ -44,9 +127,7 @@ def build_service_badge_reference() -> list[ServiceBadgeRef]:
     """
     refs: list[ServiceBadgeRef] = []
     for d in SERVICE_CATALOG:
-        named_ports = "·".join(
-            f"{name}({'/'.join(str(p) for p in ports)})" for name, ports in d.port_names.items()
-        )
+        named_ports = "·".join(f"{name}({'/'.join(str(p) for p in ports)})" for name, ports in d.port_names.items())
         refs.append(
             ServiceBadgeRef(
                 category=d.key,
@@ -58,15 +139,16 @@ def build_service_badge_reference() -> list[ServiceBadgeRef]:
         )
     return refs
 
+
 # ─── USE Method 도넛 카탈로그 — 대시보드 + 환경 보고서 + 서버 리스트 단일 진실 (T13) ────
-# USE Method recommendation enum 1:1 매핑. (key, label, hex, description) 튜플 정렬:
-#   under(빨강), over(파랑=주색), idle(회색), shutdown(보라), optimal(녹색), insufficient_data(옅은회색).
+# 자원 적정성 상태 enum 1:1 매핑. (key, label, hex, description) 튜플 정렬:
+#   under(빨강), over(파랑=주색), idle(회색), optimal(녹색), insufficient_data(옅은회색).
 # over 색 = 테마색1(var(--color-title)) 동일 주색 — 활용률 게이지와 같은 파랑, under 빨강과 대비.
+# idle = 미사용 상태(수요≈0). 종료·통합 조치는 파생 권고 층(상태 아님).
 _DONUT_SEGMENT_DEFS: list[tuple[str, str, str, str]] = [
     ("under_provisioned", "under_provisioned", "#ef4444", "자원 부족 — 사양 상향 검토"),
     ("over_provisioned", "over_provisioned", "var(--color-title)", "자원 여유 — 사양 축소 검토"),
-    ("idle", "idle", "#64748b", "사용률 매우 낮음 — 용도 재평가"),
-    ("shutdown", "shutdown", "#9333ea", "사실상 미사용 — 종료 검토"),
+    ("idle", "idle", "#64748b", "미사용 — 종료·통합 검토"),
     ("optimal", "optimal", "#22c55e", "적정"),
     ("insufficient_data", "insufficient_data", "#cbd5e1", "평가 표본 부족"),
 ]
@@ -80,7 +162,6 @@ _DONUT_SEGMENT_FROM_REC: dict[str, str] = {
     "under_provisioned": "under_provisioned",
     "over_provisioned": "over_provisioned",
     "idle": "idle",
-    "shutdown": "shutdown",
     "optimal": "optimal",
     "insufficient_data": "insufficient_data",
 }
@@ -185,19 +266,25 @@ def resolve_os_eol(
     EOL 미도래(아직 지원 중)는 None — 카탈로그 등록만으로 발화하면 미래 EOL(Server 2025=2034) 오발화.
     카탈로그 미등록 OS 도 None (EOL 판정 불가 = 침묵, false negative 한계는 의식적 트레이드오프).
     """
+    m = _match_eol(os_id, os_version, kernel_version)
+    if m is None:
+        return None
+    eol_iso, label = m
+    if date.fromisoformat(eol_iso) > today:
+        return None  # 미래 EOL 침묵 (아직 지원 중 — 발화하면 오경보)
+    return (eol_iso, label)
+
+
+def _match_eol(os_id: str | None, os_version: str | None, kernel_version: str | None) -> tuple[str, str] | None:
+    """카탈로그에서 (eol_iso, 제품 라벨) 매칭 — today-gate 없는 순수 조회. resolve/lookup 공용."""
     if not os_id:
         return None
-
     if os_id == "windows":
         build = (kernel_version or "").split(".")[0]
         for entry in _EOL_CATALOG.get("windows-server", []):
             if entry.get("build") == build:
-                eol_iso = entry["eol"]
-                if date.fromisoformat(eol_iso) > today:
-                    return None
-                return (eol_iso, f"Windows Server {entry['cycle']}")
+                return (entry["eol"], f"Windows Server {entry['cycle']}")
         return None
-
     product = _OS_ID_TO_EOL_PRODUCT.get(os_id)
     if product is None:
         return None
@@ -205,12 +292,23 @@ def resolve_os_eol(
     for entry in _EOL_CATALOG.get(product, []):
         cycle = entry["cycle"]
         if ver == cycle or ver.startswith(cycle + "."):
-            eol_iso = entry["eol"]
-            if date.fromisoformat(eol_iso) > today:
-                return None
             label = " ".join(p for p in [os_id, os_version] if p) or "-"
-            return (eol_iso, label)
+            return (entry["eol"], label)
     return None
+
+
+def lookup_os_eol(
+    os_id: str | None, os_version: str | None, kernel_version: str | None, today: date
+) -> tuple[str, str, bool] | None:
+    """인벤토리 표시용 EOL 조회 — 미래 EOL 도 반환. (eol_iso, 라벨, is_passed) 또는 미등록 시 None.
+
+    resolve_os_eol(발화용, 경과만)와 달리 시스템 정보 카드용 — 아직 지원 중이어도 종료 예정일 노출.
+    """
+    m = _match_eol(os_id, os_version, kernel_version)
+    if m is None:
+        return None
+    eol_iso, label = m
+    return (eol_iso, label, date.fromisoformat(eol_iso) <= today)
 
 
 # 레거시 Windows Server (build <= 9600) kernel build -> 표시용 버전 라벨.
@@ -237,12 +335,13 @@ def windows_legacy_version_from_build(kernel_version: str | None) -> str | None:
 
 
 def format_net_rate(kbps_total: float | None) -> str | None:
-    """환경 합산 네트워크 rate(kBps) -> 표시 문자열 — 실시간 현재 자원 현황·보고서 환경 현황 공용 단일 진실.
+    """환경 합산 네트워크 rate(kB/s) -> 표시 문자열 — 실시간 현재 자원 현황·보고서 환경 현황 공용 단일 진실.
 
-    1024 kBps 이상은 MBps 승급. None(표본 부재)은 None — 호출자가 placeholder 처리.
+    1024 kB/s 이상은 MB/s 승급. None(표본 부재)은 None — 호출자가 placeholder 처리.
+    단위 표기는 차트(chart-utils fmtKbChart)·참조 문서와 동일한 "kB/s"/"MB/s" 관습으로 통일.
     """
     if kbps_total is None:
         return None
     if kbps_total >= 1024:
-        return f"{kbps_total / 1024:.1f} MBps"
-    return f"{kbps_total:.1f} kBps"
+        return f"{kbps_total / 1024:.1f} MB/s"
+    return f"{kbps_total:.1f} kB/s"

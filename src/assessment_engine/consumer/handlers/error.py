@@ -30,8 +30,7 @@ def make_error_handler(
             await _log_time_invariants(redis, data)
 
             logger.warning(
-                "agent error agent_id={} component={} code={} msg={} "
-                "retry_count={} first_failed_at={} recovered_at={}",
+                "agent error agent_id={} component={} code={} msg={} retry_count={} first_failed_at={} recovered_at={}",
                 data.agent_id,
                 data.failed_component,
                 data.error_code,

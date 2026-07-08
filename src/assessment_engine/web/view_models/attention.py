@@ -3,8 +3,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from assessment_engine.web.view_models.report import ReportRowItem
-
 
 @dataclass
 class AttentionRow:
@@ -21,28 +19,15 @@ class AttentionRow:
     mount_path: str | None = None
     meta_text: str = ""
     meta_at: datetime | None = None
-
-
-@dataclass
-class CapacityTriggerBadge:
-    """자원 부족 trigger 하나 — 본문 한 줄에 3종 모두 표시 (active False는 비활성 시각).
-
-    color: 범례 색과 동기화 hex (mapper _CAPACITY_TRIGGER_COLORS 단일 진실).
-    bg_color/fg_color: mapper가 active/inactive 분기로 미리 결정 (P3 — 템플릿 색 분기 금지).
-    """
-
-    label: str
-    color: str
-    active: bool = True
-    bg_color: str = ""
-    fg_color: str = ""
+    # OS EOL 전용 — 지원 종료 경과일(양수=지남, 마이그레이션 시급도). 다른 신호(gap/agent)는 None.
+    eol_days_over: int | None = None
 
 
 @dataclass
 class CapacityMetric:
-    """자원 부족 카드 안 평가 지표 1개 — assess 입력 6축(CPU/메모리/스왑/Load/디스크/iowait) 전부 노출.
+    """서버별 자원 적정성 표 지표 1개 — 7축 자원별 그룹(CPU·메모리 이용률·포화 / 디스크 용량·I/O / 네트워크).
 
-    미관측 축(예: Windows load=run queue 부재)도 "N/A" placeholder 노출(제외 안 함 — 6축 전모, disk_io 는 queue 측정).
+    미관측 축(예: Windows CPU 포화=run queue 부재)도 "N/A" placeholder 노출(제외 안 함 — 6축 전모).
     active(임계 위반)·measured(관측 여부) 시각 분기는 mapper precompute (P3 — 템플릿 비교 금지).
     color: mapper 결정 (active 빨강 / 정상 진함 / 미관측 흐림).
     """
@@ -58,27 +43,31 @@ class CapacityMetric:
 class CapacityWarningItem:
     """7일 평균 자원 부족 서버 — 마이그레이션 capacity 산정 시 instance type 상향 검토.
 
-    triggers: USE Method classify 입력 5 trigger 와 1:1 정합 (스왑/CPU/메모리/Load/디스크).
-    - swap_used=True → "스왑"
-    - cpu_p95 >= CPU_UPSIZE_P95_PCT → "CPU"
-    - mem_p95 >= MEM_UPSIZE_P95_PCT → "메모리"
-    - load_15m / cpu_cores >= CPU_SATURATION_LOAD_RATIO → "Load"
-    - disk_used >= DISK_CAPACITY_UPSIZE_PCT 또는 iowait_p95 >= IOWAIT_UPSIZE_PCT → "디스크"
-    under_provisioned 분류라 최소 1개 trigger 존재.
-    metrics: 평가 6축 측정값 — 위반 여부 무관 전부 노출(mapper precompute, P3).
+    active_causes: 발화한 trigger 의 os-neutral 원인 라벨 목록 (assess.triggers 파생, 고정 순서). 환경 요약
+      "자원 부족(메모리 포화 2대 · CPU 이용률 1대)" 원인 집계(environment_report._under_cause_summary)의 단일
+      소스. OS 무관 축 이름이라 Windows paging/run queue 포화도 정확히 집계(Linux swap/load 로 오라벨 안 함).
+    metrics: 평가 6축 측정값 — 위반 여부 무관 전부 노출(mapper precompute, P3). saturation 3축은 os-aware 값.
     services: 호스트 워크로드 카테고리 카운트 {category: n} — workload_category_counter 단일 진실.
     """
 
     public_id: str
     hostname: str
-    triggers: list[CapacityTriggerBadge] = field(default_factory=list)
+    # 분류 — 통합 조치 대상 표에서 under/over/idle 한 표에 섞이므로 행별 분류 노출 (classify_host 파생).
+    classification: str = "under_provisioned"  # 분류 enum 키
+    classification_label: str = "자원 부족"  # 표시 라벨 (LABEL_KO)
+    badge_class: str = "rec-under_provisioned"  # 뱃지 CSS (BADGE_CLASS)
+    classification_rank: int = 0  # 분류 칼럼 정렬값 (ACTION_PRIORITY — 자원 부족 0 > 과다 1 > 유휴 2)
+    active_causes: list[str] = field(default_factory=list)
     services: dict[str, int] = field(default_factory=dict)
     metrics: list[CapacityMetric] = field(default_factory=list)
-    # 분류 confidence 단서 — is_partial(축 미관측) + low_sample(표본 부족) 통합 라벨 (shared.build_confidence_notes,
+    # 분류 confidence 단서 — 포화 축 미관측 + 표본 부족 통합 라벨 (shared.build_host_confidence_notes,
     # 원칙2). 보고서 행과 동일 채널 — 카드가 list 렌더(P3). 발화 trigger(빨강)와 시각 구분.
     confidence_notes: list[str] = field(default_factory=list)
-    # 증설 권고 — hit trigger 별 결합 문구(report._build_under_provisioned_reason 단일 진실). 자원 부족 표 권고 칼럼.
+    # 증설 권고 — 근본원인 기반 처방(recommendation.under_prescription 단일 진실). 자원 부족 표 권고 칼럼.
     recommendation_action: str = ""
+    # 근본원인 — recommendation.root_cause_display 단일 진실. 단일 부족=자원명 / 인과 결합="메모리 (CPU 유발)" /
+    # 복수 독립="CPU·디스크 I/O" 나열. 부족 없으면 빈 문자열(표시 "—"). 삼중 처방 방지의 표시 축.
+    root_cause_label: str = ""
     # 상위 N 절단 정렬용 심각도 점수 (mapper precompute) — swap(paging) 최우선 > 위반 자원 수 >
     # 최고 활용률 max(CPU/메모리/디스크 p95·used). build_overview 가 DESC 정렬 후 hostname tie-break.
     severity_score: float = 0.0
@@ -139,7 +128,7 @@ class UtilizationBar:
 
 @dataclass
 class RiskDonutSegment:
-    """USE Method 분포 도넛 1 segment — recommend enum 6 분류 1:1.
+    """USE Method 분포 도넛 1 segment — 자원 적정성 5 상태 1:1.
 
     dash_length·dash_offset: SVG stroke-dasharray + stroke-dashoffset (다중 segment 누적) — mapper precompute (P3).
     """
@@ -178,6 +167,9 @@ class EnvironmentOverview:
     # 평균과 동일 capacity-weighted 환경 분포 기반(per_ts 95퍼센타일).
     utilization_p95: list[UtilizationBar] = field(default_factory=list)
     util_sample_size: int = 0
+    # 포화 3축 도넛 (CPU 포화·메모리 압박·디스크 I/O 포화) — 자원 적정성 창(14일) 기준 호스트 카운트/표본.
+    # 실시간현황 6도넛과 동일 시각·게이지색, 다만 스냅샷 아닌 윈도우 기준(#E3 화면 간 정합). (forward-ref 따옴표)
+    saturation_donuts: list["SaturationDonut"] = field(default_factory=list)
     risk_donut: list[RiskDonutSegment] = field(default_factory=list)
     risk_donut_total: int = 0  # 도넛 중심 표시 (분류된 서버 수)
     risk_high_count: int = 0  # 도넛 중심 강조 — "위험 N대"
@@ -187,22 +179,30 @@ class EnvironmentOverview:
 
 
 @dataclass
-class EnvironmentAssessment:
-    """환경 자원 평가 페이지(/environment/assessment) 전용 — overview + 효율화/자원 부족 표 데이터.
+class ActionTargets:
+    """통합 조치 대상 표 데이터 — 자원 부족/과다 할당/유휴 호스트를 한 표에 (build_action_targets 단일 진실).
 
-    EnvironmentOverview 에 효율화(ReportRowItem 보유) 필드를 얹지 않는 이유: overview 는 보고서 스냅샷에
-    nested 직렬화되므로(report_serializer) 표시 전용 필드로 오염시키지 않는다. 효율화 산출은 보고서와
-    동일 헬퍼(`build_efficiency_summary`)·동일 정렬 단일 진실.
+    hosts: CapacityWarningItem(6축 지표·근본원인·권고·신뢰도 + 분류)을 조치 대상 전체에. 최초 정렬 =
+      분류 우선순위(자원 부족>과다>유휴) 후 심각도. metric_labels: 첫 행 지표 라벨 precompute(P3).
+    under_count/efficiency_*: 캡션용 카운트·점유 자원 합.
     """
 
+    hosts: list[CapacityWarningItem] = field(default_factory=list)
+    metric_labels: list[str] = field(default_factory=list)
+    total: int = 0  # 표 총 행수 = len(hosts) (전 서버, P3 회피 precompute)
+    under_count: int = 0
+    efficiency_count: int = 0
+    efficiency_vcpus: int = 0
+    efficiency_memory_gb: float = 0.0
+    efficiency_disk_gb: int = 0  # 과다·유휴 호스트 점유 스토리지 합 (효율화 검토 — CPU·메모리와 함께 3자원)
+
+
+@dataclass
+class EnvironmentAssessment:
+    """환경 자원 평가 페이지(/environment/assessment) 전용 — overview(분포 도넛) + 통합 조치 대상 표."""
+
     overview: EnvironmentOverview
-    efficiency_hosts: list[ReportRowItem] = field(default_factory=list)
-    efficiency_hosts_count: int = 0
-    efficiency_target_count: int = 0
-    efficiency_target_vcpus: int = 0
-    efficiency_target_memory_gb: float = 0.0
-    # 자원 부족 표 헤더 라벨 — 첫 호스트 metrics 라벨 precompute (P3 인덱싱 회피).
-    under_provisioned_metric_labels: list[str] = field(default_factory=list)
+    action: ActionTargets = field(default_factory=ActionTargets)
 
 
 @dataclass
@@ -224,8 +224,23 @@ class RealtimePeakGroup:
 
 
 @dataclass
+class SaturationDonut:
+    """실시간 포화 비율 도넛 1개 — 포화/압박 호스트 수 / 표본. 채움 = count/total 비율(제대로 된 비율 도넛).
+
+    처리량(IOPS·MB/s) 절대 총량은 기준점 없어 폐기 — 포화 비율은 "지금 몇 대가 굶고 있나"라 실시간 유의미.
+    dash_length·color 는 mapper precompute (P3).
+    """
+
+    label: str  # "CPU 포화" / "디스크 I/O 포화" / "메모리 압박"
+    count: int  # 포화·압박 호스트 수 (분자)
+    total: int  # 신선 표본 (분모)
+    dash_length: float  # (count/total) * 원주 — SVG 채움 (precompute)
+    color: str  # count>0 강조(빨강) / 0 회색
+
+
+@dataclass
 class EnvironmentRealtime:
-    """list 화면 '환경 실시간 메트릭' 카드 — 현황 모니터링(최신 스냅샷). right-sizing(7일 통계)과 별개 용도.
+    """list 화면 '환경 실시간 메트릭' 카드 — 현황 모니터링(최신 스냅샷). right-sizing(14일 통계)과 별개 용도.
 
     sample_size: 평균 표본 = 최신 스냅샷이 신선(now-TTL 이내)한 서버 수 (stale 제외, 'sample_size/total' 표기).
     online/offline: 스냅샷 신선도만으로 판단 (데이터 유무가 곧 온라인 — Redis online flag 이중 게이트 없음).
@@ -239,7 +254,5 @@ class EnvironmentRealtime:
     last_collected_at: datetime | None = None
     peak_groups: list[RealtimePeakGroup] = field(default_factory=list)
     has_peaks: bool = False
-    # 환경 I/O 총량(신선 표본 합산) — rate 라 게이지 없는 원. None = 표본 전부 페어 부재.
-    io_net_value: str | None = None   # Σ(rx+tx) 처리량 값 — 동적 단위(kBps/MBps), mapper precompute
-    io_net_unit: str | None = None    # 처리량 단위 (kBps 또는 MBps)
-    io_disk_iops: float | None = None  # Σ(read+write) IOPS
+    # 포화 비율 도넛 (CPU 포화·디스크 I/O 포화·메모리 압박 = 포화 호스트 수/표본) — 처리량 총량 도넛 대체.
+    saturation_donuts: list[SaturationDonut] = field(default_factory=list)

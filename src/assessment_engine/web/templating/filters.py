@@ -27,6 +27,20 @@ def disksize(gb: float | None) -> str:
     return f"{gb} GB"
 
 
+def storagesize(gb: float | None) -> str:
+    """스토리지 용량 — 소수 2자리 + 상식 단위(MB/GB/TB). 시스템 정보 스토리지 전용(정밀 표기).
+
+    disk 용량은 decimal(bytes_to_gb=10^9) 기준이라 1000 단위 환산(디스크 벤더 관례). None 이면 '-'.
+    """
+    if gb is None:
+        return "-"
+    if gb >= 1000:
+        return f"{gb / 1000:.2f} TB"
+    if gb >= 1:
+        return f"{gb:.2f} GB"
+    return f"{gb * 1000:.2f} MB"
+
+
 def disksize_styled(gb: float | None) -> Markup:
     """disksize 값 + 단위(.stat-unit, 작은 폰트·옅은 색) 인라인. 값 크기에 따라 GB/TB 유동. None 이면 '-'."""
     if gb is None:
@@ -39,11 +53,12 @@ def disksize_styled(gb: float | None) -> Markup:
 
 
 def kbps(kb: float | None) -> str:
+    # 단위 표기 "kB/s"/"MB/s" — 차트(fmtKbChart·fmtThroughput)·format_net_rate 와 통일.
     if kb is None:
         return "—"
     if kb >= 1024:
-        return f"{round(kb / 1024, 1)} MBps"
-    return f"{kb} kBps"
+        return f"{round(kb / 1024, 1)} MB/s"
+    return f"{kb} kB/s"
 
 
 def or_dash(value: object) -> str:

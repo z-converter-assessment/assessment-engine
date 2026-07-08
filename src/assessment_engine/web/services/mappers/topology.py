@@ -1,4 +1,4 @@
-"""네트워크 토폴로지 mapper (P2) — 호스트별 물리 인터페이스에서 L3 subnet 공동소속 그래프 도출.
+"""네트워크 토폴로지 mapper (P2) — 호스트별 집계 대상 인터페이스(physical·bond_master)에서 L3 subnet 그래프 도출.
 
 Repository 는 interfaces 를 구조화 dict(name/address/prefix/family/kind)로 보존(P1). 본 mapper 가
 subnet 그룹핑·가상망 필터·노드/엣지 조립을 단일 책임으로 수행(P2).
@@ -8,11 +8,11 @@ subnet 그룹핑·가상망 필터·노드/엣지 조립을 단일 책임으로 
 추론이다. 실측 reachability 가 아니다 — VLAN/방화벽 격리 미반영, RFC1918 중복이면 별개 네트워크를 한
 서브넷으로 오병합할 수 있다 (caveats 로 정직 노출).
 
-가상망 제거: interface `kind` 태그(agent 공용 분류기)로 물리(physical)만 채택 — docker0/veth/bridge/tunnel/
-loopback 은 kind 로 직접 제외(과거 host-local IP 중복 휴리스틱 불요). link-local·prefix 0/32 은 안전망으로 추가 제외.
+집계 대상 필터: interface `kind` 태그로 physical + bond_master 만 채택 — 본딩 호스트는 IP 가 bond_master(bond0)에
+실려 포함. docker0/veth/bridge/vlan/tunnel/loopback/bond_member 는 제외. link-local·prefix 0/32 은 안전망으로 추가 제외.
 2대 미만 단독 서브넷은 inter-host 토폴로지에 무의미해 제외.
 
-IPv4 only (v1): 그래프는 physical IPv4 만. IPv6 는 family 로 제외.
+IPv4 only (v1): 그래프는 physical+bond_master IPv4 만. IPv6 는 family 로 제외.
 
 명세·근거 단일 진실은 본 모듈 docstring + view_models/topology.NetworkTopology.
 """
@@ -20,11 +20,12 @@ IPv4 only (v1): 그래프는 physical IPv4 만. IPv6 는 family 로 제외.
 import ipaddress
 from collections import defaultdict
 
+from assessment_engine.web.services.device_filters import is_virtual_interface
 from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGroup, SubnetHost
 
 _CAVEATS = [
     "추론 토폴로지 — 같은 서브넷(IP·prefix) 공유 기준이며, 실제 통신 가능 여부(방화벽·VLAN 격리)는 반영하지 않습니다.",
-    "물리 인터페이스(kind=physical)의 IPv4 주소만 사용합니다 — 가상 네트워크(docker·bridge·veth 등)와 IPv6는 제외했습니다.",
+    "물리·본딩(bond) 인터페이스 IPv4 주소만 사용합니다 — 가상망(docker·bridge·veth·vlan)·IPv6는 제외했습니다.",
     "사설 IP 대역 중복은 게이트웨이가 다르면 분리하나, 게이트웨이 미제공(구형 OS) 호스트는 한 서브넷으로 합쳐 보일 수 있습니다.",
 ]
 
@@ -40,19 +41,21 @@ def _subnet_host_sort_key(host):
 def build_network_topology(hosts) -> NetworkTopology:
     """hosts: ServerDetail/DTO 리스트 (public_id·hostname·os_family·interfaces 사용).
 
-    interfaces 는 구조화 dict 리스트 [{name, address, prefix, family, kind}]. 물리(kind=physical) IPv4 만 채택.
+    interfaces 는 구조화 dict 리스트 [{name, address, prefix, family, kind}]. physical+bond_master IPv4 만 채택.
     """
     # subnet CIDR -> [(pid, ip, gateway)]. 한 호스트가 같은 서브넷에 여러 IP 면 멤버십 1회만.
     subnet_members: dict[str, list[tuple[str, str, str | None]]] = defaultdict(list)
     host_meta: dict[str, tuple[str, str]] = {}  # public_id -> (hostname, os_family)
+    host_roles: dict[str, list[str]] = {}  # public_id -> 워크로드 카테고리(service_categories, E7)
 
     for h in hosts:
         pid = str(h.public_id)
         host_meta[pid] = (h.hostname, h.os_family or "unknown")
+        host_roles[pid] = sorted(getattr(h, "service_categories", None) or [])
         seen_nets: set[str] = set()
         for iface_info in h.interfaces or []:
-            if iface_info.get("kind") != "physical":
-                continue  # 가상(bridge/veth/tunnel/loopback 등) 제외 — agent kind 태그 단일 신호
+            if is_virtual_interface(iface_info.get("kind")):
+                continue  # 집계 단위(physical·bond_master)만 — bridge/veth/vlan/tunnel/loopback/bond_member 제외
             if iface_info.get("family") != "ipv4":
                 continue  # IPv4 v1 (IPv6 은 그래프 제외)
             addr = iface_info.get("address")
@@ -77,10 +80,10 @@ def build_network_topology(hosts) -> NetworkTopology:
     # gateway disambiguation + 단독 서브넷 필터. 한 서브넷에 서로 다른 non-null gateway 2+ 면 다른 물리망으로
     # 간주해 gateway 별로 분리(사설 대역 중복 오병합 방지). null gateway 는 gateway 1개뿐인 서브넷엔 합류,
     # 모호(2+)한 서브넷에선 귀속 불가라 제외. 가상망은 kind 로 이미 제외됨.
-    surviving: dict[str, list[str]] = {}         # net_key -> pids
-    seg_pid_ip: dict[str, dict[str, str]] = {}   # net_key -> {pid: ip}
-    net_cidr: dict[str, str] = {}                # net_key -> subnet CIDR (정렬용)
-    net_label: dict[str, str] = {}               # net_key -> 표시 라벨
+    surviving: dict[str, list[str]] = {}  # net_key -> pids
+    seg_pid_ip: dict[str, dict[str, str]] = {}  # net_key -> {pid: ip}
+    net_cidr: dict[str, str] = {}  # net_key -> subnet CIDR (정렬용)
+    net_label: dict[str, str] = {}  # net_key -> 표시 라벨
     for subnet, members in subnet_members.items():
         gws = {gw for (_, _, gw) in members if gw}
         if len(gws) >= 2:
@@ -136,15 +139,14 @@ def build_network_topology(hosts) -> NetworkTopology:
                     "kind": "host",
                     "publicId": pid,
                     "osFamily": os_family,
+                    "roles": host_roles.get(pid, []),  # 워크로드 카테고리 — 노드 tooltip·색 (app tier)
                 },
                 "classes": "collapsed",
             }
         )
 
     for pid, net_key in edges:
-        elements.append(
-            {"data": {"source": f"host:{pid}", "target": f"subnet:{net_key}"}, "classes": "collapsed"}
-        )
+        elements.append({"data": {"source": f"host:{pid}", "target": f"subnet:{net_key}"}, "classes": "collapsed"})
 
     # 서브넷별 소속 서버 목록 (IP 표시) — 그래프와 별개 카드. net_members 에서 pid->ip 복원.
     subnets: list[SubnetGroup] = []
@@ -154,7 +156,13 @@ def build_network_topology(hosts) -> NetworkTopology:
         for pid in surviving[net_key]:
             hostname, os_family = host_meta[pid]
             hosts_list.append(
-                SubnetHost(hostname=hostname, ip=pid_ip.get(pid, ""), os_family=os_family, public_id=pid)
+                SubnetHost(
+                    hostname=hostname,
+                    ip=pid_ip.get(pid, ""),
+                    os_family=os_family,
+                    public_id=pid,
+                    roles=host_roles.get(pid, []),
+                )
             )
         hosts_list.sort(key=_subnet_host_sort_key)  # 서브넷 내 IP 숫자 오름차순
         subnets.append(SubnetGroup(net_key=net_label[net_key], host_count=len(hosts_list), hosts=hosts_list))

@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from uuid import NAMESPACE_DNS, uuid5
 
 from assessment_engine.db.dtos.inbound import (
+    CpuCoreEntry,
     DiskIoEntry,
     MountUsageEntry,
     NetIoEntry,
@@ -128,9 +129,32 @@ def make_metrics(
     sat_disk_queue: float | None = None,
     sat_cpu_run_queue: float | None = None,
     sat_mem_paging_rate: float | None = None,
+    sat_disk_read_time: int | None = None,
+    sat_disk_write_time: int | None = None,
+    sat_disk_read_count: int | None = None,
+    sat_disk_write_count: int | None = None,
+    sat_disk_idle_time: int | None = None,
+    sat_disk_query_time: int | None = None,
+    psi_cpu_some_total: int | None = None,
+    psi_mem_some_total: int | None = None,
+    psi_io_some_total: int | None = None,
+    collection_interval_sec: int | None = None,
+    # ADR 0052 host-wide 신 신호 (raw 카운터/gauge, default None — 옛 테스트 무손상)
+    procs_running: int | None = None,
+    procs_blocked: int | None = None,
+    schedstat_run_wait_ns: int | None = None,
+    pswpin: int | None = None,
+    pswpout: int | None = None,
+    oom_kill: int | None = None,
+    mem_pages_input: int | None = None,
+    tcp_retrans_segs: int | None = None,
+    tcp_tw: int | None = None,
+    conntrack_count: int | None = None,
+    conntrack_max: int | None = None,
     disk_io: list[DiskIoEntry] | None = None,
     mounts: list[MountUsageEntry] | None = None,
     net_io: list[NetIoEntry] | None = None,
+    cpu_per_core: list[CpuCoreEntry] | None = None,
 ) -> ServerMetricCreate:
     """raw 누적값. 시간 흐름 시뮬은 호출자가 collected_at + 누적 카운터 증가로."""
     return ServerMetricCreate(
@@ -158,6 +182,27 @@ def make_metrics(
         sat_disk_queue=sat_disk_queue,
         sat_cpu_run_queue=sat_cpu_run_queue,
         sat_mem_paging_rate=sat_mem_paging_rate,
+        sat_disk_read_time=sat_disk_read_time,
+        sat_disk_write_time=sat_disk_write_time,
+        sat_disk_read_count=sat_disk_read_count,
+        sat_disk_write_count=sat_disk_write_count,
+        sat_disk_idle_time=sat_disk_idle_time,
+        sat_disk_query_time=sat_disk_query_time,
+        psi_cpu_some_total=psi_cpu_some_total,
+        psi_mem_some_total=psi_mem_some_total,
+        psi_io_some_total=psi_io_some_total,
+        collection_interval_sec=collection_interval_sec,
+        procs_running=procs_running,
+        procs_blocked=procs_blocked,
+        schedstat_run_wait_ns=schedstat_run_wait_ns,
+        pswpin=pswpin,
+        pswpout=pswpout,
+        oom_kill=oom_kill,
+        mem_pages_input=mem_pages_input,
+        tcp_retrans_segs=tcp_retrans_segs,
+        tcp_tw=tcp_tw,
+        conntrack_count=conntrack_count,
+        conntrack_max=conntrack_max,
         disk_io=disk_io
         if disk_io is not None
         else [
@@ -192,6 +237,7 @@ def make_metrics(
                 kind="physical",
             ),
         ],
+        cpu_per_core=cpu_per_core if cpu_per_core is not None else [],
     )
 
 
@@ -212,6 +258,7 @@ def make_task_result_payload(
     stdout_tail: str = "ok",
     stderr_tail: str = "",
     completed_at: datetime = _DEFAULT_TASK_COMPLETED_AT,
+    signal_no: int | None = None,
     boot_time: datetime | None = None,
     agent_started_at: datetime | None = None,
     os_family: str = "linux",
@@ -236,6 +283,7 @@ def make_task_result_payload(
         "status": status,
         "failure_reason": failure_reason,
         "exit_code": exit_code,
+        "signal_no": signal_no,
         "os_family": os_family,
         "os_version": os_version,
         "duration_ms": duration_ms,
@@ -255,12 +303,16 @@ def make_task_result_update(
     stdout_tail: str = "ok",
     stderr_tail: str = "",
     completed_at: datetime = _DEFAULT_TASK_COMPLETED_AT,
+    signal_no: int | None = None,
+    install_verified: bool | None = None,
 ) -> TaskResultUpdate:
     return TaskResultUpdate(
         public_id=public_id,
         status=status,
         failure_reason=failure_reason,
         exit_code=exit_code,
+        install_verified=install_verified,
+        signal_no=signal_no,
         duration_ms=duration_ms,
         stdout_tail=stdout_tail,
         stderr_tail=stderr_tail,
@@ -283,6 +335,7 @@ def make_task_row(
     duration_ms: int | None = 30,
     stdout_tail: str | None = "ok",
     stderr_tail: str | None = "",
+    signal_no: int | None = None,
 ) -> TaskRow:
     return TaskRow(
         public_id=public_id,
@@ -295,6 +348,7 @@ def make_task_row(
         completed_at=completed_at,
         failure_reason=failure_reason,
         exit_code=exit_code,
+        signal_no=signal_no,
         duration_ms=duration_ms,
         stdout_tail=stdout_tail,
         stderr_tail=stderr_tail,

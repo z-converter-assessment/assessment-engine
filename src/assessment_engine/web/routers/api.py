@@ -27,6 +27,7 @@ async def get_collection_status(
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
+    """서버 수집 상태 — 마지막 메트릭·인벤토리 수신 시각 + 온라인 여부 (수집 건전성 배지)."""
     return await service.get_collection_status(internal_id)
 
 
@@ -35,6 +36,7 @@ async def get_latest_metric(
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
+    """서버 최신 메트릭 스냅샷 — CPU·메모리·디스크·네트워크 + 포화 신호 최근 1건 (실시간 카드·상세 30초 폴링)."""
     result = await service.get_latest_metric(internal_id)
     if not result:
         raise HTTPException(status_code=404)
@@ -48,6 +50,7 @@ async def get_metric_snapshots(
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
+    """서버 메트릭 시계열 스냅샷 목록 — cursor(시각) 기반 시간 역순 페이지네이션 (표 스크롤용)."""
     return await service.get_metric_snapshots(internal_id, cursor, limit)
 
 
@@ -63,6 +66,7 @@ async def get_metric_chart(
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
+    """서버 단일 지표 차트 시계열 — metric_type 별 버킷 집계(agg=avg/max/p95), 구간·앵커·차원 선택."""
     return await service.get_metric_chart(
         internal_id,
         metric_type,

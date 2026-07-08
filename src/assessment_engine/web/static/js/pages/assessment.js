@@ -25,23 +25,38 @@
     const moreWrap = result.querySelector('#under-more-wrap');
     const btn = result.querySelector('#under-more-btn');
     if (!wrap) return;
+    const table = wrap.querySelector('table');
     const rows = Array.from(wrap.querySelectorAll('tbody tr')); // 서버당 1 표 행
     const serverCount = rows.length;
     if (serverCount <= UNDER_SHOWN) {
       if (moreWrap) moreWrap.style.display = 'none';
       rows.forEach((el) => { el.style.display = ''; });
-      return;
+    } else {
+      if (moreWrap) moreWrap.style.display = '';
+      const limit = underExpanded ? serverCount : UNDER_SHOWN;
+      rows.forEach((el, i) => { el.style.display = i < limit ? '' : 'none'; });
+      // 서버목록(list-table.js) '전체보기 (CLIP/total)' / '접기' 문구와 동기화.
+      if (btn) btn.textContent = underExpanded ? '접기' : `전체보기 (${UNDER_SHOWN}/${serverCount})`;
     }
-    if (moreWrap) moreWrap.style.display = '';
-    const limit = underExpanded ? serverCount : UNDER_SHOWN;
-    rows.forEach((el, i) => { el.style.display = i < limit ? '' : 'none'; });
-    if (btn) btn.textContent = underExpanded ? '접기' : `더보기 (${serverCount - UNDER_SHOWN}개 더)`;
+    // 보이는 행만 zebra 재줄무늬 — clip 으로 숨은 행 제외(흰색 어긋남 방지, table-utils).
+    if (window.TableUtils && table) window.TableUtils.restripe(table);
   }
 
-  // 더보기/접기 — 위임 (fragment swap 으로 버튼이 새로 생겨도 동작).
+  // ─── 칼럼 클릭 정렬 (조치 대상 표) — 공용 TableUtils(정렬·zebra 단일화). 정렬 후 clip 재적용(restripe 포함). ───
+  // 위임 (fragment swap 으로 요소가 새로 생겨도 동작) — 더보기/접기 + 칼럼 정렬.
   result.addEventListener('click', function (e) {
     if (e.target && e.target.id === 'under-more-btn') {
       underExpanded = !underExpanded;
+      applyUnderClip();
+      return;
+    }
+    const th = e.target.closest && e.target.closest('th.sort-col');
+    if (th) {
+      const table = th.closest('table.sortable-table');
+      if (!table) return;
+      const idx = Array.from(th.parentNode.children).indexOf(th);
+      window.TableUtils.sortByColumn(table, idx);
+      underExpanded = false;
       applyUnderClip();
     }
   });

@@ -89,8 +89,10 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
     DLQ 미전송 — 시계 문제는 reject 의미 없고 운영자 인지가 목적.
 
     F7: 같은 서버 지속 시 매 메시지 warning 방지 위해 1h 쿨다운. Redis 장애 시 fail-open (매번 출력).
+    boot_time 은 판독 불가 시 null (계약 값 의미론) — null 이면 boot_time 관련 순서 검증은 건너뛴다.
     """
-    if data.boot_time <= data.agent_started_at and data.agent_started_at <= data.collected_at:
+    boot_ok = data.boot_time is None or data.boot_time <= data.agent_started_at
+    if boot_ok and data.agent_started_at <= data.collected_at:
         return
     cooldown_key = consumer_settings.redis_key_time_invariant_warned.format(
         data.agent_id,
@@ -99,7 +101,7 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
     set_result = await safe_set_nx(redis, cooldown_key, "1", consumer_settings.redis_ttl_time_invariant_warned)
     if set_result is False:
         return  # 쿨다운 윈도우 안
-    if data.boot_time > data.agent_started_at:
+    if data.boot_time is not None and data.boot_time > data.agent_started_at:
         logger.warning(
             "time invariant violated boot_time>agent_started_at agent_id={} boot_time={} agent_started_at={}",
             data.agent_id,

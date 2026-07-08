@@ -49,6 +49,8 @@ class ServerDetail:
     services: list[dict] | None
     listen_ports: list[dict]
     last_seen_at: datetime | None
+    # ingest 사전계산 워크로드 카테고리(service_classifier 단일 진실, E7) — 토폴로지 노드 역할 주석 등 소비.
+    service_categories: list[str] | None = None
 
 
 @dataclass
@@ -71,6 +73,7 @@ class TaskRow:
     completed_at: datetime | None
     failure_reason: str | None
     exit_code: int | None
+    signal_no: int | None  # 시그널 사망 시 시그널 번호 (exit_code 와 상호배타)
     duration_ms: int | None
     stdout_tail: str | None
     stderr_tail: str | None
@@ -103,6 +106,8 @@ class MetricPairRaw:
     load_1m: float | None
     load_5m: float | None
     load_15m: float | None
+    # 실행 큐 gauge — Linux procs_running / Windows Processor Queue(sat_cpu_run_queue) COALESCE. 스냅샷 os-aware 표시.
+    cpu_run_queue: float | None = None
     # counter reset 정밀 식별 (calculator가 prev-cur 비교).
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
@@ -281,6 +286,10 @@ class ReportRowRaw:
     iowait_peak_pct: float | None = None
     # Windows 디스크 saturation — 물리 디스크 큐 깊이 p95 (Linux iowait 등가 축, os-aware 소비)
     disk_queue_p95: float | None = None
+    # Windows CPU saturation — Processor Queue Length p95 (Linux load 등가 축, os-aware 소비)
+    cpu_run_queue_p95: float | None = None
+    # Windows Memory saturation — Pages Input/sec rate p95 (Linux swap page-out 등가 축, os-aware 소비)
+    mem_pages_input_rate_p95: float | None = None
 
     # Inventory 합계 산정용 — query_service.get_report가 totals 계산 시 사용
     cpu_cores: int | None = None
@@ -320,12 +329,37 @@ class ReportRowRaw:
     cpu_sufficiency: float | None = None
     mem_sufficiency: float | None = None
 
+    # ─── ADR 0052 신 모델(rollup_host) 입력 raw — report_aggregate 산출, build_resource_stats 가 ResourceStats 배선 ───
+    cpu_steal_p95_pct: float | None = None  # steal% p95 (가상화 경합 — 충실도 편향 단서)
+    cpu_burst_ratio: float | None = None  # cpu p95/median (버스티 -> 통계 정밀도 하향)
+    procs_blocked_p95: float | None = None  # D-state 블록 p95 (IO발 CPU 로드 분리 근본원인)
+    procs_running_p95: float | None = None  # R-state 실행 큐 p95 (Linux CPU 포화 — load 대체)
+    mem_swap_paging: bool = False  # swap page-out(Linux pswpout) 또는 hard page-in(Windows) 발생
+    oom_occurred: bool = False  # 창 안 OOM kill 발생 (메모리 under 사후 증거)
+    history_hours: float | None = None  # 관측 버킷(5분) 누적 시간 — 통계 정밀도 바닥(30h floor)
+    disk_await_p95_ms: float | None = None  # worst await p95 (Linux time delta / Windows IOCTL 100ns delta COALESCE)
+    disk_capacity_runway_days: float | None = None  # 바이트 소진까지 남은 일수(가장 빨리 차는 마운트)
+    disk_inode_runway_days: float | None = None  # inode 소진까지 남은 일수
+    disk_inode_used_pct: float | None = None  # worst mount inode 사용률 % — 정적 가드(바이트 85% 대칭)
+    disk_capacity_target_gb: float | None = None  # 1년 수명 목표 총 용량(GB) — 소진 마운트 확장 목표
+    disk_capacity_proj_30d_pct: float | None = None  # 30일 후 예상 used%(현재 rate 외삽) — 확장 근거 근시 신호
+    disk_capacity_driving_used_pct: float | None = (
+        None  # 소진 임박/최고-used 마운트의 현재 used% (proj_30d 와 동일 마운트, 짝 표시)
+    )
+
+    net_drop_pct: float | None = None  # 드롭/패킷 % (품질)
+    net_retrans_pct: float | None = None  # TCP 재전송/tx패킷 % (품질 — OutSegs 미수집이라 tx_packets 분모 근사)
+    conntrack_ratio: float | None = None  # nf_conntrack count/max — 연결테이블 고갈 임박(품질, 모듈 미로드 시 None)
+    cpu_trend_slope: float | None = None  # cpu 이용률 최소제곱 기울기 %/day (도메인이 상승 추세 판정)
+    mem_trend_slope: float | None = None  # mem 이용률 최소제곱 기울기 %/day
+    cpu_percore_p95_max: float | None = None  # 가장 바쁜 코어의 이용률 p95 (단일스레드 병목, server_cpu_core)
+
 
 @dataclass
 class InventoryExportEntry:
     """정제 inventory JSON 항목 — 사용처축 배치(v4). 자동화 도구(Terraform/OpenStack/Ansible/CSP SDK) 입력 표준.
 
-    스키마·정제 원칙·사용처: docs/architecture/web/export-schema.md (v4).
+    스키마·정제 원칙·사용처: docs/reference/web/export-schema.md (v4).
     벤더 중립 — assessment.recommended_size_class만 노출, 도구가 자기 도메인 instance type에 매핑.
     블록은 사용처 1:1 — spec(VM 생성) / usage(right-sizing 측정) / assessment(평가 결과) / services(보안그룹).
     """

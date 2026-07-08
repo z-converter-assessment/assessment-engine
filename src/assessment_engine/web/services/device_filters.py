@@ -3,8 +3,12 @@
 agent 가 disk/net/mount 각 항목에 `kind` 를 발행한다 (Linux/Windows 공용 분류기). 엔진은 정규식·major
 추론 없이 kind 로만 판정한다 (화면·집계·용량 단일 기준, Windows major=0 문제 해소):
 - 물리 디스크 = kind=="physical" (partition/lvm/raid/virtual 제외).
-- 물리 인터페이스 = kind=="physical" (loopback/bridge/veth/bond/vlan/tunnel/virtual 제외; master/member 이중 집계 회피).
+- 집계 iface = kind in {physical, bond_master} — bond_member/loopback/bridge/veth/vlan/tunnel/virtual 제외.
+  bond_master(본딩 집계 단위)는 포함, bond_member(물리 leg)는 제외 — master/member 이중 집계 회피.
 - 데이터 볼륨 = kind=="data" (boot/image 제외; 가상 fs 는 agent 가 pre-drop 해 애초에 없음).
+
+계층 가시성 단일 정책 — 모든 소비처(cagg 집계·용량·상세 표시·JSON export·토폴로지)가 본 술어를 사용한다. 소비처별
+ad-hoc 재필터(정규식·kind 직접 비교) 금지 — 같은 raw 가 소비처마다 다른 계층을 뽑는 불일치를 차단.
 
 major/minor 는 물리 판정에서 빠지고 mount-disk 조인(find_parent_disk) 전용으로만 잔존.
 """
@@ -24,11 +28,12 @@ def is_partition(kind: str | None) -> bool:
 
 
 def is_virtual_interface(kind: str | None) -> bool:
-    """물리 인터페이스가 아닌 것 — loopback/bridge/veth/bond/vlan/tunnel/virtual. 표시·집계 제외 신호.
+    """집계 대상 인터페이스가 아닌 것 — loopback/bridge/veth/bond_member/vlan/tunnel/virtual. 표시·집계 제외 신호.
 
-    `not is_virtual_interface(kind)` == 물리(kind=="physical")만 통과. kind None(placeholder)도 제외.
+    `not is_virtual_interface(kind)` == 집계 대상(kind in ("physical", "bond_master"))만 통과. bond_master 는 본딩
+    집계 단위라 포함, bond_member 는 제외(master/member 이중 집계 회피). kind None(placeholder)도 제외.
     """
-    return kind != "physical"
+    return kind not in ("physical", "bond_master")
 
 
 def is_data_volume(kind: str | None) -> bool:

@@ -1,6 +1,6 @@
 """메트릭·차트 조회 mixin — 최신 대시보드·시계열 스냅샷·추이 차트·재부팅 마커."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from assessment_engine.cache.redis import safe_get, safe_set
@@ -58,6 +58,14 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
         if not raw or not raw.metrics:
             return None
         result = build_dashboard(raw)
+        # 포화 신호(디스크 await/큐·메모리 페이징) — 환경 실시간과 동일 latest_saturation 재사용(단일 호스트).
+        since = datetime.now(UTC) - timedelta(minutes=10)
+        sat = (await self.repo.latest_saturation([server_id], since)).get(server_id, {})
+        result.disk_await_ms = sat.get("await_ms")
+        result.disk_queue = sat.get("disk_queue_win")
+        result.mem_pages_input_rate = sat.get("pages_input_rate")
+        result.mem_pageout = sat.get("pswpout_delta")
+        result.net_retrans_pct = sat.get("retrans_pct")
         await safe_set(self.redis, cache_key, dashboard_to_json(result), ex=60)
         return result
 

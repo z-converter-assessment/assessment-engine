@@ -18,12 +18,11 @@ from assessment_engine.db.repositories.base_diagnostic_repository import (
     DiagnosticTimeRange,
 )
 from assessment_engine.db.repositories.query.types import _BUCKET_INFO, AUTO_BUCKET, TIME_RANGE_TD
-from assessment_engine.web.services.mappers.attention import to_capacity_warning_item
+from assessment_engine.web.services.mappers.attention import build_action_targets
 from assessment_engine.web.services.mappers.environment_report import build_metric_trend, to_environment_report
 from assessment_engine.web.services.mappers.export import to_inventory_export_entry
 from assessment_engine.web.services.mappers.report import (
     build_report_summary_bullets,
-    build_resource_stats,
     build_role_distribution,
     build_selection_context,
     compute_report_avg_p95,
@@ -43,7 +42,6 @@ from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb
 from assessment_engine.web.settings import web_settings
 from assessment_engine.web.view_models.attention import (
     AttentionSignals,
-    CapacityWarningItem,
     EnvironmentOverview,
 )
 from assessment_engine.web.view_models.environment_report import EnvironmentReportSummary
@@ -64,15 +62,6 @@ class _ChildPrefetch:
     mount_raws: list[ReportMountUsageRaw]
     mem_raw: MemoryBreakdownRaw
     cpu_raw: CpuBreakdownRaw
-
-
-def _collect_under_hosts(raws) -> list[CapacityWarningItem]:
-    """raws 에서 under_provisioned 분류 호스트만 CapacityWarningItem 으로 수집 — 보고서 3경로 공유."""
-    under: list[CapacityWarningItem] = []
-    for raw in raws:
-        if recommendation.classify(build_resource_stats(raw)) == "under_provisioned":
-            under.append(to_capacity_warning_item(raw))
-    return under
 
 
 class ReportQueryMixin(_BaseQueryServiceMixin):
@@ -96,19 +85,16 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         sid_map = await self.repo.resolve_server_ids(public_ids) if public_ids else {}
         server_ids = [sid_map[p] for p in public_ids if p in sid_map]
 
-        under_hosts: list[CapacityWarningItem] = []
+        raws_window: list = []
         if server_ids:
             details = await self.repo.get_servers(server_ids)
-            # raws 1회 조립 후 get_report·overview·under_hosts 공유 (A2: report_aggregate/net_io 중복 제거).
+            # raws 1회 조립 후 get_report·overview·조치 대상 공유 (A2: report_aggregate/net_io 중복 제거).
             # overview(평균 활용률·분류 도넛)도 선택 time_range 윈도우+anchor 기준 — 선택 N대 보고서와 동일 경로.
             raws_window = await self._assemble_report_raws(server_ids, period_days, end_dt)
             base = await self.get_report(server_ids, period_days, end=end_dt, view=view, raws=raws_window)
             online_by_id = await self._online_map(server_ids, details, end_dt)
-            util = await self.repo.environment_utilization(
-                period_days=period_days, end=end_dt, server_ids=server_ids
-            )
+            util = await self.repo.environment_utilization(period_days=period_days, end=end_dt, server_ids=server_ids)
             overview = self._assemble_overview(details, util, raws_window, online_by_id)
-            under_hosts = _collect_under_hosts(raws_window)
         else:
             overview = _empty_overview()
             base = ReportSummary(
@@ -135,7 +121,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             base=base,
             details=details,
             generated_at=datetime.now(UTC),
-            under_provisioned_hosts=under_hosts,
+            action=build_action_targets(raws_window),
             trend=trend,
         )
 
@@ -170,8 +156,6 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         util = await self.repo.environment_utilization(period_days=period_days, end=end_dt, server_ids=server_ids)
         overview = self._assemble_overview(details, util, raws_window, online_by_id)
 
-        # under_provisioned 호스트 trigger 뱃지 — raws_window 전체 (overview.under_provisioned_hosts 는 표시용 절단).
-        under_hosts = _collect_under_hosts(raws_window)
 
         # 운영 신호 — 전체 attention 을 선택 N대 호스트로 필터 (os_eol_count 등 N대 정합).
         hostnames = {d.hostname for d in details}
@@ -189,7 +173,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             base=base,
             details=details,
             generated_at=datetime.now(UTC),
-            under_provisioned_hosts=under_hosts,
+            action=build_action_targets(raws_window),
             trend=trend,
         )
 
@@ -236,7 +220,6 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         if attention is None:
             attention = await self.get_attention_signals(end=end_dt, limit_each=None)
 
-        under_hosts = _collect_under_hosts(raws_window)
 
         # overview — 단일 서버 자원량. is_online 은 Redis online TTL (fail-open) 기반.
         flag = await safe_get(self.redis, web_settings.redis_key_online.format(detail.id))
@@ -271,7 +254,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             base=base,
             details=details,
             generated_at=datetime.now(UTC),
-            under_provisioned_hosts=under_hosts,
+            action=build_action_targets(raws_window),
             trend=trend,
         )
         # 개별 보고서 충실 인벤토리 — ServerDetail 전체(전체 IP·하드웨어·식별자) 보존 (왜곡·생략 0).
@@ -340,9 +323,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             results.append((pid, summary))
         return results
 
-    async def _build_report_trend(
-        self, time_range: str, end_dt: datetime, server_ids: list[int] | None = None
-    ) -> list:
+    async def _build_report_trend(self, time_range: str, end_dt: datetime, server_ids: list[int] | None = None) -> list:
         """CPU·메모리·디스크 평균 시계열 추이 — 보고서 3경로 공유.
 
         server_ids=None 이면 전체 환경(env 보고서), 주어지면 선택 N대/1대 한정(selection·single). 버킷 정책 동일.
@@ -359,7 +340,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
 
         보고서 3경로(env·selection·single)가 get_report 세부 행·under_hosts 분류·overview 에 동일
         raws 를 공유 — report_aggregate/net_io 중복 호출 제거 + build_resource_stats(net·worst_mount
-        포함, #E3) 입력 일치로 idle/shutdown 분류 정합(세부 행·under·도넛 동일 입력).
+        포함, #E3) 입력 일치로 유휴 분류 정합(세부 행·under·도넛 동일 입력).
         """
         raws = await self.repo.report_aggregate(server_ids, period_days, end_dt)
         mount_worst = await self.repo.report_mount_worst(server_ids, period_days, end_dt)
@@ -462,7 +443,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         각 서버는 ServerDetail + ReportRowRaw -> mapper로 변환. 누락된 server_id는 silent skip.
 
         C5: `get_servers` + `report_aggregate` 단일 SQL 각 1회 — 입력 server_ids 순서 보존.
-        스키마·정제 원칙·사용처: docs/architecture/web/export-schema.md.
+        스키마·정제 원칙·사용처: docs/reference/web/export-schema.md.
         """
         end_dt = datetime.now(UTC)
         details = await self.repo.get_servers(server_ids)

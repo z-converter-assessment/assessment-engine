@@ -11,12 +11,13 @@ from assessment_engine.db.dtos.inbound import (
 
 @dataclass
 class MetricInsertResult:
-    """record_metrics 결과 — 4개 테이블 각각 INSERT된 행 수. 멱등성 충돌 시 0."""
+    """record_metrics 결과 — 시계열 테이블 각각 INSERT된 행 수. 멱등성 충돌 시 0."""
 
     metrics: int
     disk_io: int
     net_io: int
     mount_usage: int
+    cpu_core: int = 0  # per-core 행 수 (server_cpu_core, Linux only — Windows·구 agent 는 0)
 
 
 class BaseCollectRepository(ABC):
@@ -66,6 +67,14 @@ class BaseCollectRepository(ABC):
         """deadline 안 지난 활성 pending(install) 보유 server_id 목록.
 
         발행 경로가 expire 직후 호출 — all-or-nothing 사전 중복 검증. 하나라도 있으면 전체 발행 취소.
+        """
+
+    @abstractmethod
+    async def expire_all_overdue_tasks(self) -> int:
+        """deadline 경과 pending(install) 전체를 failure(timeout) 로 전이. 반환: 전이 건수.
+
+        `expire_overdue_tasks` 의 server_ids 무필터 전역 버전 — reaper 백그라운드 루프가 다음 emit 없이도
+        미배달·무회신 pending 을 terminal 로 정리(F11 관측성). race-safe (WHERE status='pending').
         """
 
     @abstractmethod

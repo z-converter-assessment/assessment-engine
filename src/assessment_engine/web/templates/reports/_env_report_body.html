@@ -1,25 +1,34 @@
 {% from "_shared.html" import empty_state, service_legend, detail_server_list %}
-{% from "reports/_resource_tables.html" import efficiency_table, under_provisioned_table %}
-{# 서비스 구성 카드 — 카테고리별 서비스명·개수. 전 카테고리 노출(count 0 포함, #E9). customer·engineer 공용. #}
-{% macro service_config_card(catalog, identified_count, unknown_count) %}
+{% from "reports/_resource_tables.html" import action_targets_table %}
+{# 서비스 구성 카드 — 카테고리별 개수. detailed=true(엔지니어): 카테고리별 서비스명 세부까지. detailed=false(고객):
+   환경 개요 서비스 뱃지와 동일 — 카테고리+개수 뱃지만(서비스명·줄구분 없음), 개수 0 카테고리 제외. #}
+{% macro service_config_card(catalog, identified_count, unknown_count, detailed=true) %}
 <div>
   <h2 class="card-title">서비스 구성</h2>
   <h3>서비스 식별 ({{ identified_count }}대)</h3>
   {% if catalog %}
+  {% if detailed %}
+  {# 카테고리 뱃지 고정폭 좌열 + 세부 서비스명 우열(flex-wrap) — grid 라 서비스명 많아 줄바꿈돼도 좌열 정렬 유지.
+     count 0 카테고리(remote 등 baseline 전용)는 미노출 — 세부뷰 아닌 곳엔 특징 워크로드만(#E9 발화 예외, 사용자 결정). #}
   <div style="display:flex; flex-direction:column;">
-    {% for g in catalog %}
-    <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:5px 0;{% if not loop.last %} border-bottom:1px solid #f1f5f9;{% endif %}">
+    {% for g in catalog %}{% if g.total_count %}
+    <div style="display:grid; grid-template-columns:108px 1fr; gap:14px; align-items:start; padding:7px 0;{% if not loop.last %} border-bottom:1px solid #f1f5f9;{% endif %}">
       <span class="badge {{ g.category | service_badge_class }}" style="min-width:96px; justify-content:center;">{{ g.category }} <strong class="text-strong">{{ g.total_count }}</strong></span>
       {% if g.services %}
-      <span style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+      <div style="display:flex; flex-wrap:wrap; gap:8px;">
         {% for s in g.services %}
         <span class="badge {{ g.category | service_badge_class }}">{{ s.name }} <strong class="text-strong">{{ s.count }}</strong></span>
         {% endfor %}
-      </span>
-      {% endif %}
+      </div>
+      {% else %}<span></span>{% endif %}
     </div>
-    {% endfor %}
+    {% endif %}{% endfor %}
   </div>
+  {% else %}
+  <div style="display:flex; flex-wrap:wrap; gap:6px;">
+    {% for g in catalog %}{% if g.total_count %}<span class="badge {{ g.category | service_badge_class }}">{{ g.category }} <strong class="text-strong">{{ g.total_count }}</strong></span>{% endif %}{% endfor %}
+  </div>
+  {% endif %}
   {% else %}
   {{ empty_state("구동 중인 것으로 분류된 서비스가 없습니다.") }}
   {% endif %}
@@ -114,7 +123,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  {{ service_config_card(summary.service_catalog, summary.workload_identified_count, summary.workload_unknown_count) }}
+  {{ service_config_card(summary.service_catalog, summary.workload_identified_count, summary.workload_unknown_count, detailed=false) }}
 </section>
 
 <section class="card" style="margin-bottom:16px;">
@@ -123,35 +132,46 @@
   <h3>분류 분포 ({{ summary.overview.total }}대)</h3>
   {{ classification_dist_bars(summary.classification_dist) }}
 
-  <h3>효율화 검토 대상 ({{ summary.efficiency_target_count }}대)</h3>
-  {% if summary.efficiency_target_count %}
+  <h3>효율화 검토 대상 ({{ summary.action.efficiency_count }}대)</h3>
+  {% if summary.action.efficiency_count %}
   <p class="text-sm text-label" style="margin:0 0 20px;">
-    과다 할당·유휴·종료 권장 {{ summary.efficiency_target_count }}대 — 총 {{ summary.efficiency_target_vcpus }} vCPU · {{ "%.1f" | format(summary.efficiency_target_memory_gb) }} GB 점유. 전환 시 사양 최적화 여지.
+    과다 할당·유휴 {{ summary.action.efficiency_count }}대 — 총 {{ summary.action.efficiency_vcpus }} vCPU · {{ "%.1f" | format(summary.action.efficiency_memory_gb) }} GB 메모리 · {{ summary.action.efficiency_disk_gb }} GB 스토리지 점유. 전환 시 사양 최적화 여지.
   </p>
   {% else %}
-  <div style="margin-bottom:20px;">{{ empty_state("효율화 검토 대상 없음 (과다·유휴·종료 권장 0대).") }}</div>
+  <div style="margin-bottom:20px;">{{ empty_state("효율화 검토 대상 없음 (과다·유휴 0대).") }}</div>
   {% endif %}
 
   <h3>조치 필요 호스트 ({{ summary.top_risks_count }}대)</h3>
+  {# 근거(근본원인)·신뢰도 동반 — 분류 결론의 이유와 확신도를 함께 노출(고객도 판단 근거 확인). 근본원인 축은
+     OS 무관 이름이나 실측 신호는 OS별 상이(리눅스 page-out·load / 윈도우 pages input·run queue) — 신뢰도 단서에 반영. #}
   {% if summary.top_risks %}
-  <table>
+  <div class="table-scroll">
+  <table style="min-width:560px;">
     <thead>
       <tr>
         <th>호스트</th>
         <th>분류</th>
+        <th>근본원인</th>
         <th>권고</th>
+        <th>네트워크 상태</th>
+        <th>신뢰도</th>
       </tr>
     </thead>
     <tbody>
       {% for r in summary.top_risks %}
       <tr>
-        <td><a href="/servers/{{ r.public_id }}?back={{ self_back }}" class="row-link">{{ r.hostname }}</a></td>
-        <td>{{ r.recommendation_label }}</td>
+        <td style="white-space:nowrap;"><a href="/servers/{{ r.public_id }}?back={{ self_back }}" class="row-link">{{ r.hostname }}</a></td>
+        <td style="white-space:nowrap;">{{ r.recommendation_label }}</td>
+        <td class="text-strong" style="white-space:nowrap;">{{ r.root_cause_label or "—" }}</td>
         <td class="text-strong">{{ r.recommendation_action or "—" }}</td>
+        {# 네트워크 상태 — 사이징과 별개 품질 판정(정상/혼잡/미측정). 혼잡만 강조. #}
+        <td style="white-space:nowrap;">{% if r.net_status_label == "혼잡" %}<span class="text-strong" style="color:#dc2626;">혼잡</span>{% else %}{{ r.net_status_label or "—" }}{% endif %}</td>
+        <td>{% if r.confidence_notes %}{% for n in r.confidence_notes %}<span class="text-meta text-sm">{{ n }}</span>{% if not loop.last %}<span class="text-meta text-sm"> · </span>{% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   {{ empty_state("조치 필요 호스트 없음.") }}
   {% endif %}
@@ -183,7 +203,7 @@
   <h3>인벤토리</h3>
   {{ inventory_cards(summary.overview) }}
   <h3 style="margin-top:18px;">메트릭</h3>
-  <div class="metric-grid metric-grid-5">
+  <div class="metric-grid metric-grid-3">
     {% for m in summary.env_metrics %}
     <div class="metric-card env-stat-card">
       <div class="metric-label">{{ m.label }}</div>
@@ -216,13 +236,16 @@
   {% if summary.os_distribution %}
   <table>
     <thead>
-      <tr><th>OS</th><th>서버 수</th></tr>
+      <tr><th>구분</th><th>배포판</th><th>버전</th><th style="text-align:right;">서버 수</th></tr>
     </thead>
     <tbody>
+      {# family -> distro -> version 정렬됨. 반복되는 family·distro 는 계층적으로 묶어(빈 셀) 가독성 향상. #}
       {% for o in summary.os_distribution %}
       <tr>
-        <td>{{ o.os_display }}</td>
-        <td>{{ o.count }}대</td>
+        <td class="text-strong">{% if loop.first or o.family != loop.previtem.family %}{{ o.family }}{% endif %}</td>
+        <td>{% if loop.first or o.distro != loop.previtem.distro or o.family != loop.previtem.family %}{{ o.distro }}{% endif %}</td>
+        <td>{{ o.version }}</td>
+        <td style="text-align:right;">{{ o.count }}대</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -263,17 +286,13 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">자원 적정성 평가</h2>
-
-  <h3>분류 분포 ({{ summary.overview.total }}대)</h3>
+  <h2 class="card-title">자원 적정성 분포</h2>
   {{ classification_dist_bars(summary.classification_dist) }}
+</section>
 
-  <h3>효율화 검토 대상 ({{ summary.efficiency_target_count }}대)</h3>
-  {{ efficiency_table(summary.efficiency_hosts, summary.efficiency_target_count, summary.efficiency_target_vcpus, summary.efficiency_target_memory_gb, summary.efficiency_hosts_count, self_back) }}
-
-  <h3>자원 부족 ({{ summary.under_provisioned_hosts_count }}대)</h3>
-  {{ under_provisioned_table(summary.under_provisioned_hosts, summary.under_provisioned_metric_labels, self_back) }}
-
+<section class="card print-landscape" style="margin-bottom:16px;">
+  <h2 class="card-title">서버별 자원 적정성 ({{ summary.action.total }}대)</h2>
+  {{ action_targets_table(summary.action.hosts, summary.action.metric_labels, self_back) }}
 </section>
 
 <section class="card" style="margin-bottom:16px;">
@@ -281,13 +300,15 @@
   {% if summary.attention.os_eol_warnings %}
   <table>
     <thead>
-      <tr><th>호스트</th><th>OS / 지원 종료</th></tr>
+      <tr><th>호스트</th><th>OS / 지원 종료</th><th style="text-align:right; white-space:nowrap;">경과</th></tr>
     </thead>
     <tbody>
       {% for row in summary.attention.os_eol_warnings %}
       <tr>
         <td><a href="{{ row.link_href }}?back={{ self_back }}" class="row-link">{{ row.link_text }}</a></td>
         <td>{{ row.meta_text }}</td>
+        {# 경과일 = EOL 지난 지 며칠 — 마이그레이션 시급도. 클수록 위험(보안 패치 중단 장기화). #}
+        <td class="text-strong" style="text-align:right; white-space:nowrap;">{% if row.eol_days_over is not none and row.eol_days_over > 0 %}{{ row.eol_days_over }}일 경과{% else %}—{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
