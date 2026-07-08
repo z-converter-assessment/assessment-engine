@@ -25,7 +25,7 @@
 
 | ViewModel | 채우는 mapper |
 |-----------|---------------|
-| `ReportRowItem` | `to_report_row_item(raw, online)` — `role`(`infer_role`, listen 보강) / `recommendation`(`classify_host`) / `recommendation_label` (한국어) / `badge_class` (`rec-{enum}`) / `os_display` / `internal_ip[0]`. 구동 서비스 차등(개별 보고서, `_build_workload_display`): `workload_groups`(customer 카테고리별 제품명) / `service_units`(engineer unit·카테고리·귀속 포트) / `listen_ports_detail`(engineer listen 소켓) |
+| `ReportRowItem` | `to_report_row_item(raw, online)` — `role`(`infer_role`, listen 보강) / `recommendation`(`classify_host`) / `recommendation_label` (한국어) / `badge_class` (`rec-{enum}`) / `root_cause_label`(`rollup_host` 인과 종합) / `net_status_label`(네트워크 품질 정상·혼잡·미측정, 사이징과 별개) / `os_display` / `internal_ip[0]`. 특징 워크로드(baseline 제외): `workload_categories`(카테고리 집합) / `workload_services`(카테고리별 서비스명) — 환경/N대 집계·세부 목록 뱃지 공유. 구동 서비스 차등(개별 보고서, `_build_workload_display`, baseline 포함 전부): `workload_groups`(customer 카테고리별 제품명) / `service_units`(engineer unit·카테고리·귀속 포트) / `listen_ports_detail`(engineer listen 소켓) |
 | `ReportSummary` | `query_service.get_report` — `rows: list[ReportRowItem]`(`sort_rows_for_report` 위험 우선 정렬) + KPI 집계 (`total`/`online`/`over`/`under`) + N대 선택 맥락 `os_family_summary`/`workload_summary`(`build_selection_context`) |
 | `MetricSeriesItem` | `to_metric_series_item` — chart API 응답 |
 

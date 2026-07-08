@@ -18,7 +18,6 @@ from assessment_engine.web.services.mappers.shared import (
     RISK_LEVEL_ORDER,
     UTIL_GAUGE_COLOR,
     ReportView,
-    format_net_rate,
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS as _PROVISIONING_SEGMENT_DEFS,
@@ -116,26 +115,33 @@ def build_metric_trend(cpu_series: list, mem_series: list, disk_series: list) ->
 
 
 def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalogGroup]:
-    """선택 N대 base.rows 의 workload_groups 를 카테고리 기준 집계 — 카테고리별 서비스명·등장 서버 수 (P2).
+    """base.rows 를 카테고리 기준 집계 — 카테고리별 특징 서비스명·등장 서버 수 (P2).
 
-    names_label 은 "nginx, gunicorn" comma-separated — split 후 서비스명별 등장 서버 수 카운트. 빈 names
-    (listen-only 탐지, T15)는 카테고리만 (services=[]). 전 카테고리 노출(count 0 포함, #E9) — 색 없이
-    "카테고리 N --- 서비스명 개수" 형식. total_count = 서비스 count 합.
+    카운트 소스 단일화 (환경 개요 뱃지·total_count·breakdown 전부 workload_category_counter 기준):
+    - total_count = 카테고리 등장 호스트 distinct (baseline OS·systemd 노이즈 제외, workload_categories).
+    - breakdown(services) = workload_services(baseline·unknown·systemd 제외, classify 일관) 서비스명별 호스트 수.
+    - listen-only(포트로만 탐지, 이름 미상 T15) 호스트는 "(포트 탐지)" 항목으로 별도 합산 -> total 과 정합.
+    single_instance(container 등, E7)은 런타임 스택을 호스트당 1로 병합. 전 카테고리 노출(count 0 포함, #E9).
     """
-    # 일반 카테고리: 서비스명별 hosts. single_instance(container 등, E7): docker+containerd 등을 1 런타임 스택으로
-    # 보아 카테고리 단위 서버당 1 (서비스명 합집합·서버 distinct 카운트) — 카테고리 카운트 정책과 일관.
     multi: dict[str, dict[str, list[ServiceHost]]] = {}
     single_names: dict[str, set[str]] = {}
     single_hosts: dict[str, list[ServiceHost]] = {}
+    cat_hosts: dict[str, set[str]] = {}  # total_count 소스 (카테고리 등장 호스트 distinct)
+    named_hosts: dict[str, set[str]] = {}  # 이름 있는 특징 서비스를 가진 호스트 (listen-only 산출용)
     for r in rows:
-        for g in r.workload_groups:
-            host = ServiceHost(hostname=r.hostname, public_id=r.public_id)
-            names = [n.strip() for n in (g.names_label or "").split(", ") if n.strip()]
-            if g.category in SINGLE_INSTANCE_CATEGORIES:
-                single_names.setdefault(g.category, set()).update(names)
-                single_hosts.setdefault(g.category, []).append(host)
+        host = ServiceHost(hostname=r.hostname, public_id=r.public_id)
+        for cat in r.workload_categories:
+            cat_hosts.setdefault(cat, set()).add(r.public_id)
+        # breakdown 은 workload_services(total 과 동일 소스) — workload_groups(baseline 포함) 대신 사용해 노이즈 제거.
+        for cat, names in r.workload_services.items():
+            if not names:
+                continue
+            named_hosts.setdefault(cat, set()).add(r.public_id)
+            if cat in SINGLE_INSTANCE_CATEGORIES:
+                single_names.setdefault(cat, set()).update(names)
+                single_hosts.setdefault(cat, []).append(host)
             else:
-                cat_map = multi.setdefault(g.category, {})
+                cat_map = multi.setdefault(cat, {})
                 for n in names:
                     cat_map.setdefault(n, []).append(host)
     groups: dict[str, list[ServiceNameCount]] = {}
@@ -144,50 +150,63 @@ def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalog
     for cat, hosts in single_hosts.items():
         label = ", ".join(sorted(single_names.get(cat, set()))) or cat
         groups[cat] = [ServiceNameCount(name=label, count=len(hosts), hosts=hosts)]
-    # 전 워크로드 카테고리 노출(count 0 포함, #E9). total_count = 서비스 count 합 (카탈로그 정의 순).
+    # listen-only 보충 — 카테고리엔 있으나(total) 이름 있는 서비스는 없는 호스트를 "(포트 탐지)"로 합산해 total 정합.
+    for cat, all_hosts in cat_hosts.items():
+        listen_only = len(all_hosts - named_hosts.get(cat, set()))
+        if listen_only:
+            groups.setdefault(cat, []).append(ServiceNameCount(name="(포트 탐지)", count=listen_only, hosts=[]))
     result = []
     for cat in SERVICE_CATEGORIES:
-        services = groups.get(cat, [])
-        result.append(ServiceCatalogGroup(category=cat, total_count=sum(s.count for s in services), services=services))
+        result.append(
+            ServiceCatalogGroup(category=cat, total_count=len(cat_hosts.get(cat, set())), services=groups.get(cat, []))
+        )
     return result
 
 
 def _count_os(details: list[ServerDetail]) -> list[OsCount]:
-    """ServerDetail.os_id + os_version 그룹 카운트, count DESC."""
-    counts: Counter[str] = Counter()
+    """ServerDetail 를 family(Linux/Windows) / distro(os_id) / version(os_version) 3단 그룹 카운트.
+
+    정렬 = family -> distro -> version (계층 묶임 — 같은 배포판 버전이 인접). 미상은 distro "unknown"·version "—".
+    """
+    counts: Counter[tuple[str, str, str]] = Counter()
     for d in details:
-        parts = [p for p in [d.os_id, d.os_version] if p]
-        label = " ".join(parts) if parts else "unknown"
-        counts[label] += 1
-    return [OsCount(os_display=label, count=n) for label, n in counts.most_common()]
+        family = "Windows" if d.os_family == "windows" else "Linux" if d.os_family == "linux" else "기타"
+        distro = d.os_id or "unknown"
+        version = d.os_version or "—"
+        counts[(family, distro, version)] += 1
+    rows = [OsCount(family=f, distro=di, version=v, count=n) for (f, di, v), n in counts.items()]
+    rows.sort(key=lambda r: (r.family, r.distro, r.version))
+    return rows
 
 
-def _build_env_metrics(overview: EnvironmentOverview, rows: list[ReportRowItem]) -> list[dict]:
-    """환경 현황 메트릭 카드 5축 (P2) — 실시간 '현재 자원 현황' 축과 동기 (CPU·메모리·디스크·네트워크·디스크 I/O).
+def _build_env_metrics(overview: EnvironmentOverview) -> list[dict]:
+    """환경 현황 메트릭 6축 (P2) — 대시보드 '자원 이용·포화' 6도넛과 동일 축(이용률 3 + 포화 3).
 
-    값은 전부 보고서 윈도우 통계 — CPU/메모리/디스크 = environment_utilization(capacity-weighted) avg(+p95),
-    네트워크/디스크 I/O = base.rows 의 per-server 윈도우 baseline 합(실시간 합산과 동일 의미, 윈도우 평균).
+    이용률(CPU/메모리/디스크) = environment_utilization capacity-weighted avg(+p95). 포화(CPU 포화·메모리 압박·
+    디스크 I/O 포화) = 자원 적정성 창 포화 호스트 수 / 표본(overview.saturation_donuts, 대시보드와 동일 판정).
+    절대 처리량 총량(네트워크·디스크 I/O rate)은 기준선 없어 건강 판단 어려워 제외 — 활용·포화가 환경 건강 정석.
     plain dict list — 스냅샷 직렬화 시 trend 와 동일하게 복원 불요. 값 부재는 "—" placeholder (#E9).
     """
     util = {b.label: b.pct for b in overview.utilization}
     util_p95 = {b.label: b.pct for b in overview.utilization_p95}
+    sat = overview.saturation_donuts  # [CPU 포화, 메모리 압박, 디스크 I/O 포화] 순 (build_environment_overview)
 
     def _pct(v: float | None) -> str:
         return f"{v:.1f}%" if v is not None else "—"
 
-    net_total: float | None = None
-    iops_total: float | None = None
-    for r in rows:
-        if r.net_rx_kbps is not None or r.net_tx_kbps is not None:
-            net_total = (net_total or 0.0) + (r.net_rx_kbps or 0.0) + (r.net_tx_kbps or 0.0)
-        if r.disk_iops_baseline is not None:
-            iops_total = (iops_total or 0.0) + r.disk_iops_baseline
+    def _sat(i: int) -> dict:
+        if i < len(sat):
+            d = sat[i]
+            return {"label": d.label, "value": f"{d.count}대", "sub": f"/ {d.total}대"}
+        return {"label": "—", "value": "—", "sub": ""}
+
     return [
-        {"label": "CPU", "value": _pct(util.get("CPU")), "sub": f"p95 {_pct(util_p95.get('CPU'))}"},
-        {"label": "메모리", "value": _pct(util.get("메모리")), "sub": f"p95 {_pct(util_p95.get('메모리'))}"},
-        {"label": "디스크", "value": _pct(util.get("디스크")), "sub": ""},
-        {"label": "네트워크", "value": format_net_rate(net_total) or "—", "sub": ""},
-        {"label": "디스크 I/O", "value": f"{iops_total:.0f} IOPS" if iops_total is not None else "—", "sub": ""},
+        {"label": "CPU 이용률", "value": _pct(util.get("CPU")), "sub": f"p95 {_pct(util_p95.get('CPU'))}"},
+        {"label": "메모리 이용률", "value": _pct(util.get("메모리")), "sub": f"p95 {_pct(util_p95.get('메모리'))}"},
+        {"label": "디스크 이용률", "value": _pct(util.get("디스크")), "sub": ""},
+        _sat(0),
+        _sat(1),
+        _sat(2),
     ]
 
 
@@ -401,7 +420,7 @@ def to_environment_report(
     _eol_os = Counter(w.meta_text.split(" · ", 1)[0] for w in attention.os_eol_warnings)
     os_eol_breakdown_label = " · ".join(f"{os} {n}대" for os, n in _eol_os.most_common())
     top_risks = _select_top_risks(base.rows, view)
-    env_metrics = _build_env_metrics(overview, base.rows)
+    env_metrics = _build_env_metrics(overview)
     # 자원 부족 원인 집계 bullet 은 통합 표에서 under 분류 행만 필터.
     under_hosts = [h for h in action.hosts if h.classification == "under_provisioned"]
     summary = _env_summary_bullets(overview, attention, classification_dist, under_hosts)

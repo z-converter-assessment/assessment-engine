@@ -139,6 +139,17 @@ class ReportRowItem:
     # over/idle/optimal/insufficient 는 고정 문구.
     recommendation_action: str = ""
 
+    # 근본원인 라벨 — rollup_host 인과 종합(recommendation.root_cause_display). 보고서 "근본원인" 칼럼(고객·엔지니어
+    # 공통 근거 요약). CapacityWarningItem.root_cause_label 과 동일 단일 진실 (화면 간 정합).
+    root_cause_label: str = ""
+
+    # 네트워크 상태 — 사이징 분류와 별개 품질 판정(정상/혼잡/미측정). 조치 필요 호스트 표(고객)의 네트워크 칼럼.
+    net_status_label: str = ""
+
+    # 메모리 page-out 발생 여부 (신 모델 포화 신호 = mem_swap_paging). 스왑 점유(swap_used)와 별개 — 실제 압박 신호.
+    # single_report 메모리 상세가 점유 대신 본 신호로 판정(서버 상세 메모리 탭·saturation_axes 와 정합).
+    mem_swap_paging: bool = False
+
     # 부분 평가 — 포화 축 중 해당 OS 의 perflib 미발행 축만 미관측(os-aware, P2/P4). Windows 도 run queue/
     # paging/await 를 실측하되 카운터를 못 읽은 축만 coverage_gap. mapper 가 host_saturation_unmeasured(포화 축 한정)
     # 로 precompute, 템플릿은 본 bool 만 분기 (P3).
@@ -154,6 +165,11 @@ class ReportRowItem:
     workload_groups: list[ReportWorkloadGroup] = field(default_factory=list)
     service_units: list[ReportServiceUnit] = field(default_factory=list)
     listen_ports_detail: list[ReportListenItem] = field(default_factory=list)
+    # 특징 워크로드 카테고리 집합 (baseline OS 서비스 제외) — 환경 개요 서비스 뱃지(workload_category_counter)와
+    # 동일 소스. 환경 보고서 서비스 구성 카드 total_count 가 이걸 써 개요 뱃지와 카운트 정합(#E7 aggregate 정책).
+    workload_categories: list[str] = field(default_factory=list)
+    # 카테고리별 특징 서비스명 (baseline·unknown 제외) — 서비스 구성 breakdown 이 total 과 같은 소스를 쓰게(정합).
+    workload_services: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass

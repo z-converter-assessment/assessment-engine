@@ -66,14 +66,14 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
             SaturationAxisDisplay(
                 "CPU 포화",
                 "Processor Queue Length / core",
-                f"{rq:.2f}" if rq is not None else "N/A",
+                f"W {rq:.2f}" if rq is not None else "N/A",  # W 태그 — Linux(실행큐)와 의미·임계 달라 값만으론 구분 불가
                 f">= {rec.CPU_RUN_QUEUE_PER_CORE_SATURATION:g}",
                 rq is not None,
             ),
             SaturationAxisDisplay(
                 "메모리 포화",
                 "Memory Pages Input/sec p95",
-                f"{stats.mem_pages_input_rate_p95:.0f}/s" if stats.mem_pages_input_rate_p95 is not None else "N/A",
+                f"W {stats.mem_pages_input_rate_p95:.0f}/s" if stats.mem_pages_input_rate_p95 is not None else "N/A",
                 f">= {rec.WIN_PAGES_INPUT_SATURATION:g}/s",
                 stats.mem_pages_input_rate_p95 is not None,
             ),
@@ -90,11 +90,11 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
         SaturationAxisDisplay(
             "CPU 포화",
             "run queue (procs_running) / core",
-            f"{rq:.2f}" if rq is not None else "N/A",
+            f"L {rq:.2f}" if rq is not None else "N/A",  # L 태그 — Windows(Processor Queue)와 의미·임계 달라 구분
             f">= {rec.PROCS_RUNNING_PER_CORE_SATURATION:g}",
             rq is not None,
         ),
-        SaturationAxisDisplay("메모리 포화", "swap page-out", "발생" if stats.mem_swap_paging else "없음", "발생 시", True),
+        SaturationAxisDisplay("메모리 포화", "swap page-out", "L 발생" if stats.mem_swap_paging else "L 없음", "발생 시", True),
         SaturationAxisDisplay(
             "디스크 I/O 포화",
             "await p95",

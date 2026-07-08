@@ -17,6 +17,8 @@ from assessment_engine.web.services.mappers.server import (
     _services_or_none,
     _to_listen_port_item,
     infer_role,
+    workload_category_counter,
+    workload_services_by_category,
 )
 from assessment_engine.web.services.mappers.shared import (
     _CAPACITY_IMMINENT_DAYS,
@@ -49,6 +51,9 @@ _RISK_FROM_RECOMMENDATION: dict[str, tuple[str, str, str]] = {
     "optimal": ("normal", "정상", "rec-optimal"),
     "insufficient_data": ("normal", "정상", "rec-optimal"),
 }
+
+# 네트워크 상태 라벨 — assess_network status -> 표시(사이징 분류와 별개 품질 판정). attention 표와 동일 어휘.
+_NET_STATUS_LABEL: dict[str, str] = {"quality_ok": "정상", "congested": "혼잡", "unmeasured": "미측정"}
 
 # 보고서 row 임계 — recommendation 도메인 상수 활용 + 보고서 표시 전용 임계.
 _VARIANCE_BURST_RATIO = 1.5  # peak/p95 >= 1.5 — variance burst 표시 (보고서 전용 임계)
@@ -405,6 +410,7 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         mem_swap_paging=raw.mem_swap_paging,
         mem_total_mb=(raw.mem_total_kb // 1024 if raw.mem_total_kb is not None else None),
         disk_await_p95_ms=raw.disk_await_p95_ms,
+        disk_iops_baseline=raw.disk_iops_baseline,  # 유휴 판정 활동 축 (디스크 I/O 활동량)
         disk_capacity_runway_days=raw.disk_capacity_runway_days,
         disk_inode_runway_days=raw.disk_inode_runway_days,
         disk_inode_used_pct=raw.disk_inode_used_pct,
@@ -480,7 +486,12 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
     stats = build_resource_stats(raw)  # net baseline·OS 분기 포함 — report·attention 공용 단일 진실
     # 신 모델 rollup_host 1회 산출 — badge·진단·권고·confidence 전부 이 종합에서 파생(화면 간 정합, ADR 0052 Phase D).
     host = recommendation.rollup_host(stats)
+    # 네트워크 상태 — 사이징과 별개 품질 판정(정상/혼잡/미측정). assess_network status 를 라벨로.
+    net_status_label = _NET_STATUS_LABEL.get(host.resources["network"].status, "미측정")
     workload_groups, service_units, listen_ports_detail = _build_workload_display(raw)
+    # 특징 워크로드 카테고리·서비스명(baseline 제외) — 환경 개요 뱃지와 동일 소스. 서비스 구성 집계 정합용.
+    workload_categories = list(workload_category_counter(raw.services, raw.listen_ports).keys())
+    workload_services = workload_services_by_category(raw.services, raw.listen_ports)
     rec = recommendation.host_status_to_recommendation(host.host_status)
     # P4 — 포화 축 미관측(예: Windows perflib 미발행/구세대 viostor) confidence 단서 (포화 축 한정 단일 진실).
     is_partial = recommendation.host_saturation_unmeasured(host)
@@ -526,6 +537,9 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         mem_peak_pct=raw.mem_peak_pct,
         load_15m_max=raw.load_15m_max,
         swap_used=raw.swap_used,
+        mem_swap_paging=raw.mem_swap_paging,
+        root_cause_label=recommendation.root_cause_display(host),
+        net_status_label=net_status_label,
         recommendation=rec,
         recommendation_label=recommendation.LABEL_KO[rec],
         badge_class=recommendation.BADGE_CLASS[rec],
@@ -564,6 +578,8 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         ),
         recommendation_action=_build_recommendation_action(host, stats),
         workload_groups=workload_groups,
+        workload_categories=workload_categories,
+        workload_services=workload_services,
         service_units=service_units,
         listen_ports_detail=listen_ports_detail,
     )

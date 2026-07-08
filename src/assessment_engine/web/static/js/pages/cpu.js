@@ -36,6 +36,8 @@ async function loadSnapshot() {
     document.getElementById('s-user').textContent   = pct(cpu.user_pct);
     document.getElementById('s-system').textContent = pct(cpu.system_pct);
     document.getElementById('s-iowait').textContent = ChartUtils.naWindows(OS_FAMILY, 'cpu_iowait', pct(cpu.iowait_pct));
+    // Steal — 가상화 경합(하이퍼바이저 vCPU 시간 뺏김). Linux 전용, Windows 는 개념 부재로 N/A.
+    document.getElementById('s-steal').textContent = ChartUtils.naWindows(OS_FAMILY, 'cpu_steal', pct(cpu.steal_pct));
     // 실행 큐 — os-aware(Linux procs_running / Windows Processor Queue). 코어당 = 큐/코어 (1.0 Linux·2.0 Windows 포화).
     document.getElementById('s-runq').textContent      = data.cpu_run_queue != null ? data.cpu_run_queue.toFixed(1) : '—';
     document.getElementById('s-runq-core').textContent = data.cpu_run_queue != null ? (data.cpu_run_queue / CPU_CORES).toFixed(2) : '—';
@@ -152,10 +154,11 @@ function renderCompChart(range, anchorEnd) {
   }
   canvas.style.display = ''; empty.style.display = 'none';
 
+  // Windows 는 cpu_stat 이 user/system/idle 만(iowait 개념 부재) — iowait 축 제외(빈 라인·범례 방지, OS 분기).
   const COMP_META = {
     user:   { label: 'User',     color: ChartUtils.themeColor() },
     system: { label: 'System',   color: '#f59e0b' },
-    iowait: { label: 'I/O Wait', color: '#ef4444' },
+    ...(OS_FAMILY === 'windows' ? {} : { iowait: { label: 'I/O Wait', color: '#ef4444' } }),
   };
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
@@ -204,17 +207,21 @@ async function loadCompChart() {
     return p;
   };
   try {
-    const [userRows, sysRows, ioRows] = await Promise.all([
+    // Windows 는 iowait 개념 부재 — fetch 자체 skip(빈 요청·빈 라인 방지, OS 분기).
+    const reqs = [
       fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.user_percent')}`).then(r => r.json()),
       fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.system_percent')}`).then(r => r.json()),
-      fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.iowait_percent')}`).then(r => r.json()),
-    ]);
+    ];
+    if (OS_FAMILY !== 'windows') {
+      reqs.push(fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.iowait_percent')}`).then(r => r.json()));
+    }
+    const [userRows, sysRows, ioRows] = await Promise.all(reqs);
     if (seq !== compSeq) return;
     const safe = arr => Array.isArray(arr) ? arr : [];
     compAllRows = [
       ...safe(userRows).map(r => ({ ...r, dimension: 'user' })),
       ...safe(sysRows).map(r  => ({ ...r, dimension: 'system' })),
-      ...safe(ioRows).map(r   => ({ ...r, dimension: 'iowait' })),
+      ...(OS_FAMILY !== 'windows' ? safe(ioRows).map(r => ({ ...r, dimension: 'iowait' })) : []),
     ];
     renderCompChart(capturedRange, capturedAnchor);
     buildCompLegend();

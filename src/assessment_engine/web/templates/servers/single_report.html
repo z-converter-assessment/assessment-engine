@@ -287,7 +287,7 @@
         <th style="text-align:right;">Available</th>
         <th style="text-align:right;">Cached</th>
         <th style="text-align:right;">Buffers</th>
-        <th style="text-align:right;">Swap 사용</th>
+        <th style="text-align:right;">페이징(page-out)</th>
       </tr>
     </thead>
     <tbody>
@@ -299,7 +299,8 @@
         <td style="text-align:right;">{% if mb and mb.available_pct is not none %}{{ "%.1f"|format(mb.available_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif mb and mb.cached_pct is not none %}{{ "%.1f"|format(mb.cached_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif mb and mb.buffers_pct is not none %}{{ "%.1f"|format(mb.buffers_pct) }}%{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif r.swap_used %}발생{% else %}—{% endif %}</td>
+        {# 신 모델 메모리 압박 = swap page-out(스왑 쓰기 발생) — 점유율 아님. 윈도우는 Pages Input(포화 축 근거 카드에 표시)이라 N/A. #}
+        <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif r.mem_swap_paging %}발생{% else %}없음{% endif %}</td>
       </tr>
     </tbody>
   </table>
@@ -395,11 +396,12 @@
 <div class="report-row-2">
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">자원 적정성 평가</h2>
-  {# 진단 칼럼은 engineer 심화 어휘라 customer 미표시. #}
+  {# 진단(engineer 심화 어휘)은 미표시하되 근본원인·신뢰도는 노출 — 분류 결론의 근거·확신도를 고객도 확인. #}
   <table class="detail-table">
     <thead>
       <tr>
         <th>분류</th>
+        <th>근본원인</th>
         <th>권고</th>
         <th>신뢰도</th>
       </tr>
@@ -407,11 +409,36 @@
     <tbody>
       <tr>
         <td>{{ r.recommendation_label }}</td>
+        <td class="text-strong">{{ r.root_cause_label or "—" }}</td>
         <td class="text-strong">{{ r.recommendation_action or "—" }}</td>
         <td>{% if r.confidence_notes %}{% for n in r.confidence_notes %}<span class="text-meta text-sm">{{ n }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
       </tr>
     </tbody>
   </table>
+</section>
+
+{# 포화 축 근거 — OS별 실측 신호(리눅스 page-out·load·await / 윈도우 pages input·run queue·disk queue)로 분류 근거 노출.
+   고객 보고서에도 근거 제공(임계 칼럼은 생략, 신호·값·판정만). 축은 항상 3행(E9). #}
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">포화 축 근거</h2>
+  <div class="table-scroll">
+  <table class="detail-table" style="min-width:420px;">
+    <thead>
+      <tr><th>축</th><th>측정 신호</th><th style="text-align:right;">값 (p95)</th><th>판정</th></tr>
+    </thead>
+    <tbody>
+      {% for ax in r.saturation_axes %}
+      <tr>
+        <td>{{ ax.axis }}</td>
+        <td class="text-meta">{{ ax.signal }}</td>
+        <td style="text-align:right;">{{ ax.value }}</td>
+        <td class="{{ ax.status_class }}">{{ ax.status }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="text-meta text-xs" style="margin:8px 0 0;">측정 신호는 OS별로 다르다(리눅스 load·swap·iowait / 윈도우 run queue·paging·disk queue). "미관측"은 해당 카운터 미발행으로, 분류는 나머지 축·이용률로 완결.</p>
 </section>
 
 {# 발화 가능 정보 항상 노출(E9). #}

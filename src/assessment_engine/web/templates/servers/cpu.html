@@ -19,20 +19,36 @@
   <hr style="border:none; border-top:1px solid #e2e8f0; margin:0 0 14px;">
   <div id="snap-loading" class="text-meta text-md">불러오는 중...</div>
   <div id="snap-body" style="display:none;">
-    <dl class="kv kv-soft" style="margin-bottom:20px;">
+    {# 양 OS 동일 지표 — 공통 표시. #}
+    <dl class="kv kv-soft" style="margin-bottom:16px;">
       <dt>CPU 사용률</dt><dd id="s-usage">—</dd>
       <dt>User</dt>      <dd id="s-user">—</dd>
       <dt>System</dt>    <dd id="s-system">—</dd>
-      <dt>I/O Wait</dt>  <dd id="s-iowait">—</dd>
     </dl>
-    <dl class="kv kv-soft">
-      <dt>실행 큐</dt>        <dd id="s-runq">—</dd>
-      <dt>코어당 실행 큐</dt> <dd id="s-runq-core">—</dd>
-    </dl>
-    <p class="text-meta text-xs" style="margin:12px 0 0; line-height:1.8;">
-      <span class="identifier text-label" style="display:inline-block; min-width:36px;">N/A</span>해당 OS 에서 미측정하는 항목<br>
-      <span class="identifier text-label" style="display:inline-block; min-width:36px;">—</span>일시적으로 값 없음 (첫 수집·수집 끊김 등)
-    </p>
+    {# OS별 측정·기준이 다른 지표 — 값 + Linux/Windows 2행 항상 노출 (서버 OS 무관, 한쪽만 설명 금지). #}
+    <div class="os-diff-list">
+      <div class="os-diff">
+        <div class="os-diff-head"><span class="os-diff-name">I/O Wait</span><span class="os-diff-val" id="s-iowait">—</span></div>
+        <div class="os-diff-note"><b>Linux</b>CPU 시간 중 디스크 대기 비율</div>
+        <div class="os-diff-note"><b>Windows</b>개념 부재 — 미측정 (N/A)</div>
+      </div>
+      <div class="os-diff">
+        <div class="os-diff-head"><span class="os-diff-name">Steal (가상화 경합)</span><span class="os-diff-val" id="s-steal">—</span></div>
+        <div class="os-diff-note"><b>Linux</b>하이퍼바이저가 vCPU 시간 뺏김 (가상화 경합)</div>
+        <div class="os-diff-note"><b>Windows</b>개념 부재 — 미측정 (N/A)</div>
+      </div>
+      <div class="os-diff">
+        <div class="os-diff-head"><span class="os-diff-name">실행 큐 (전체)</span><span class="os-diff-val" id="s-runq">—</span></div>
+        <div class="os-diff-note"><b>Linux</b>실행 가능(R-state) 프로세스 수 — procs_running</div>
+        <div class="os-diff-note"><b>Windows</b>프로세서 대기 스레드 수 — Processor Queue Length</div>
+      </div>
+      <div class="os-diff">
+        <div class="os-diff-head"><span class="os-diff-name">실행 큐 (코어당)</span><span class="os-diff-val" id="s-runq-core">—</span></div>
+        <div class="os-diff-note"><b>Linux</b>전체 / 코어 수 — 1.0 이상 포화</div>
+        <div class="os-diff-note"><b>Windows</b>전체 / 코어 수 — 2.0 이상 포화</div>
+      </div>
+    </div>
+    <p class="text-meta text-xs" style="margin:12px 0 0;">N/A = 위 Windows/Linux 설명대로 해당 OS 미측정 · — = 일시적 값 없음 (첫 수집·수집 끊김)</p>
   </div>
   <div id="snap-empty" class="text-meta text-md" style="display:none;">
     메트릭이 최소 2회 수집되면 표시됩니다.
@@ -89,7 +105,7 @@
     </select>
     <input type="datetime-local" id="comp-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
-  <div class="chart-desc">User 앱 부하 / System 커널 처리 / I/O Wait 디스크 대기</div>
+  <div class="chart-desc">User 앱 부하 / System 커널 처리 / I/O Wait 디스크 대기 — I/O Wait 는 Linux 전용(Windows 는 CPU 시간에 I/O Wait 구분이 없어 미측정, 차트 미표시)</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="comp-canvas"></canvas>
   </div>
@@ -114,7 +130,7 @@
     </select>
     <input type="datetime-local" id="load-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
-  <div class="chart-desc">코어당 실행 큐 — {% if server.os_family == 'windows' %}Windows Processor Queue Length{% else %}Linux procs_running(R-state){% endif %} / 코어 (Linux 1.0 · Windows 2.0 이상 포화)</div>
+  <div class="chart-desc">코어당 실행 큐 = 실행 대기 작업 / 코어 수 — Linux procs_running 1.0 이상 · Windows Processor Queue Length 2.0 이상 포화</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="load-canvas"></canvas>
   </div>

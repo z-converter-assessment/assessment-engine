@@ -183,8 +183,9 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         return DashboardRaw(metrics=metrics, disk_io=disk_io, net_io=net_io, mounts=mounts)
 
     async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, dict]:
-        """서버별 실시간 포화 원자료 — 자원 적정성 분류 4축: CPU 실행 큐(gauge) + 디스크(Windows queue gauge /
-        Linux await 2행 델타) + 메모리(Windows paging rate gauge / Linux pswpout 델타) + 네트워크(TCP 재전송율 =
+        """서버별 실시간 포화 원자료 — 자원 적정성 분류 4축: CPU 실행 큐(gauge) + 디스크 await 2행 델타(Linux
+        server_disk_io time / Windows IOCTL ReadTime·WriteTime, 14일 경로와 동일 신호로 통일 — 구세대 viostor 만
+        disk_queue_win 폴백) + 메모리(Windows paging rate gauge / Linux pswpout 델타) + 네트워크(TCP 재전송율 =
         tcp_retrans_segs 델타 / tx_packets 델타). 실시간 포화 지수·압박 카운트·서버 상세 스냅샷용 경량 쿼리.
 
         since 이후 최신 2행(delta 용) per server/device. collected_at >= since partition pruning(C5),
@@ -196,6 +197,9 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             WITH m2 AS (
                 SELECT server_id, procs_running, sat_cpu_run_queue, sat_disk_queue,
                        pswpout, tcp_retrans_segs, mem_pages_input, collected_at,
+                       -- Windows IOCTL await 원자료 (100ns 누적) — Linux 는 null(server_disk_io time_* 사용).
+                       (sat_disk_read_time + sat_disk_write_time)   AS win_disk_time,
+                       (sat_disk_read_count + sat_disk_write_count) AS win_disk_count,
                        row_number() OVER (PARTITION BY server_id ORDER BY collected_at DESC) AS rn
                 FROM server_metrics
                 WHERE server_id = ANY(:sids) AND collected_at >= :since AND collected_at <= now() + interval '2 minutes'
@@ -213,7 +217,16 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                     END AS pages_input_rate,
                     max(CASE WHEN rn = 1 THEN pswpout END) - max(CASE WHEN rn = 2 THEN pswpout END) AS pswpout_delta,
                     max(CASE WHEN rn = 1 THEN tcp_retrans_segs END)
-                        - max(CASE WHEN rn = 2 THEN tcp_retrans_segs END) AS retrans_delta
+                        - max(CASE WHEN rn = 2 THEN tcp_retrans_segs END) AS retrans_delta,
+                    -- Windows disk await(ms) = IOCTL time delta / count delta / 10000(100ns->ms). 두 행 다 있고 count 증가시만.
+                    -- Linux 는 win_disk_* null -> null. reset(값-감소)·sparse 는 null 가드.
+                    CASE WHEN (max(CASE WHEN rn = 1 THEN win_disk_count END) - max(CASE WHEN rn = 2 THEN win_disk_count END)) > 0
+                              AND (max(CASE WHEN rn = 1 THEN win_disk_time END) - max(CASE WHEN rn = 2 THEN win_disk_time END)) >= 0
+                              AND max(CASE WHEN rn = 1 THEN collected_at END) > max(CASE WHEN rn = 2 THEN collected_at END)
+                         THEN (max(CASE WHEN rn = 1 THEN win_disk_time END) - max(CASE WHEN rn = 2 THEN win_disk_time END))::float
+                              / (max(CASE WHEN rn = 1 THEN win_disk_count END) - max(CASE WHEN rn = 2 THEN win_disk_count END))
+                              / 10000.0
+                    END AS win_await_ms
                 FROM m2 WHERE rn <= 2 GROUP BY server_id
             ),
             d2 AS (
@@ -242,7 +255,12 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 FROM n2 WHERE rn <= 2 GROUP BY server_id
             )
             SELECT m.server_id, m.run_queue, m.disk_queue_win, m.pages_input_rate, m.pswpout_delta,
-                   CASE WHEN da.ops_delta > 0 AND da.t_delta >= 0 THEN da.t_delta::float / da.ops_delta END AS await_ms,
+                   -- await(ms) 양 OS 통일 — Linux(server_disk_io time delta) 우선, 없으면 Windows(IOCTL) win_await.
+                   -- 둘 다 null(구세대 viostor IOCTL 미부착)이면 disk_queue_win 으로 폴백(disk_io_saturation_index).
+                   COALESCE(
+                     CASE WHEN da.ops_delta > 0 AND da.t_delta >= 0 THEN da.t_delta::float / da.ops_delta END,
+                     m.win_await_ms
+                   ) AS await_ms,
                    CASE WHEN nt.txp_delta > 0 AND m.retrans_delta >= 0
                         THEN m.retrans_delta::float / nt.txp_delta * 100 END AS retrans_pct
             FROM m LEFT JOIN da ON da.server_id = m.server_id LEFT JOIN nt ON nt.server_id = m.server_id

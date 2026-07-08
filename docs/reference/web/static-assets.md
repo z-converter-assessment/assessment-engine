@@ -4,11 +4,18 @@
 
 ```
 src/assessment_engine/web/static/js/
-├── chart-utils.js              ← base.html에서 단일 로드, 전역 ChartUtils
+├── chart-utils.js              ← base.html 단일 로드, 전역 ChartUtils
+├── toast-utils.js              ← base.html 단일 로드, 전역 ToastUtils (작업 결과 토스트)
+├── emit-utils.js               ← base.html 단일 로드, 전역 EmitUtils.submitNavigate
+├── table-utils.js              ← base.html 단일 로드, 전역 TableUtils (정렬·zebra)
 └── pages/
     ├── cpu.js / memory.js / storage.js / network.js / metrics.js
     └── list-table.js           ← 서버 목록 액션 (Install·Export·보고서) + 검색·필터·더보기
 ```
+
+공용 유틸(base.html 전역 로드) — 페이지 간 공통 로직을 단일화해 재발 버그를 차단:
+- `EmitUtils.submitNavigate(btn, urlFn, opts)` — 발행/제출 버튼 -> POST -> 응답 `view_url` navigate. 버튼 비활성·pending 토스트·에러 재활성 + bfcache 복원(뒤로가기) 시 버튼 재활성을 내장. 리포트 emit(환경/서버상세/선택 N대) 3곳 공유.
+- `TableUtils.{restripe,sortByColumn,makeSortable}` — `sortable-table` 칼럼 클릭 정렬. 정렬·필터·clip 로 행이 재배열·숨김되면 CSS `:nth-child` zebra 가 숨은 행까지 세어 줄무늬가 어긋나므로(흰색 뒤섞임), sortable-table 은 :nth-child 를 무력화하고 JS 가 '보이는 행'만 `.zebra` 로 재줄무늬. 서버목록·자원적정성·발행이력 표 공유.
 
 ## ChartUtils API (chart-utils.js)
 

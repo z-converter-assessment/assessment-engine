@@ -201,6 +201,20 @@
 
 </div><!-- /stack -->
 
+{# 인쇄 전용 압축 — 화면은 그대로, 인쇄만 2장에 맞춘다. 차트 높이·여백 축소 + 섹션 내부 페이지 분할 방지.
+   4 섹션이 각각 한 덩어리로 유지되며 2섹션/장 -> 2장. 화면 레이아웃(@media screen 무영향)은 불변. #}
+<style>
+@media print {
+  .perf-stack { gap: 6px !important; }
+  .perf-stack section.card { break-inside: avoid; padding: 8px 12px !important; margin: 0 !important; }
+  .perf-stack .perf-chart { height: 122px !important; }
+  .perf-stack .perf-pair { gap: 14px !important; margin-bottom: 4px !important; }
+  .perf-stack .card-title { margin-bottom: 6px !important; }
+  .perf-stack .chart-desc { margin-bottom: 2px !important; font-size: 10px !important; }
+  .perf-stack [id$="-legend"] { margin-top: 4px !important; }
+}
+</style>
+
 {% include "_reference_link.html" %}
 
 <script src="/static/js/vendor/chart.umd.min.js?v={{ asset_v }}" defer></script>

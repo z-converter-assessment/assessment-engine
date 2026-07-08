@@ -8,6 +8,7 @@
 | `routers/api.py` | `api_router` | `/api/servers` | JSON (시계열·메트릭) |
 | `routers/tasks.py` | `tasks_router` | `/api/tasks` | JSON |
 | `routers/exports.py` | `exports_router` | `/api/exports` | JSON (다운로드) |
+| `routers/right_sizing.py` | `right_sizing_router` | `/api/right-sizing` | JSON (외부 자동화 소비 — 자원 적정성 판정) |
 | `routers/reports.py` | `reports_router` | `/reports` | HTML (SSR — 환경 보고서·이력) + JSON (POST emit) |
 | `routers/reports.py` | `reference_router` | (없음) | HTML (SSR — `/reference` 기준·임계값 참고) |
 
@@ -59,6 +60,13 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 |------|------|
 | `POST /inventory` | 정제 Inventory JSON (`docs/reference/web/export-schema.md`). envelope에 period_window + size_class_guide 포함. 클라이언트 다운로드 — 서버 stateless |
 
+### `right_sizing.py` — 자원 적정성 판정 (외부 자동화 소비)
+| 경로 | 용도 |
+|------|------|
+| `GET /api/right-sizing?hostname=&ip=&public_id=&pair=&window_days=&end=` | 서버별 자원 적정성 판정 JSON — 외부 자동화 소비. 화면·보고서와 동일 산식(`report_aggregate` -> `rollup_host`, 재계산 0). 외부는 내부 public_id 를 모르는 게 보통이라 hostname/ip 로 조회한다. 파라미터·응답 스키마·enum·권고 포맷·호스트명 충돌 안전은 `/reference/api` 상세 문서가 계약 단일 소유 |
+
+`GET /reference/api` (`reference_router`) — 위 JSON API 자동 목록(OpenAPI 파생) + right-sizing 전용 상세 사용법(파라미터·응답 필드 enum·예시·권고 포맷).
+
 ### `reports.py` — 보고서 SSR + 발행 (PRG 패턴)
 | 경로 | 용도 |
 |------|------|
@@ -79,6 +87,6 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 
 ## URL 정책
 
-URL prefix versioning (`/api/v1/...` / `/api/v2/...`) 안 함. 모든 JSON API 는 `/api/...` 직접 사용. B2B 내부 포털이라 외부 client 없음 — breaking change 시 라우터 + front-end JS + docs 동시 정정 (본 repo 안 일관). 외부 contract 도입 시 별도 결정.
+URL prefix versioning (`/api/v1/...` / `/api/v2/...`) 안 함. 모든 JSON API 는 `/api/...` 직접 사용. 대부분 API 는 내부 front-end JS 전용이라 breaking change 시 라우터 + JS + docs 동시 정정(본 repo 안 일관). 예외는 `/api/right-sizing` — 외부 자동화가 소비하는 계약이라, 응답 스키마(필드·enum·`recommendation` 구조)는 `/reference/api` 상세 문서를 계약으로 유지하고 파괴적 변경 시 소비 측 고지가 필요하다.
 
 task.install download.url 은 ZDM 측 contract (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`) 로 발행 — `docs/reference/contracts/agent-data.md` "Download URL 조립 contract" 절 단일 진실.

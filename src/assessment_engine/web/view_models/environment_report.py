@@ -31,9 +31,15 @@ class ClassificationCount:
 
 @dataclass
 class OsCount:
-    """OS distro·version 그룹별 카운트 — 환경 보고서 OS 분포 섹션."""
+    """OS 계층 그룹별 카운트 — 환경 보고서 OS 버전 분포 (family/distro/version 3단 + 대수).
 
-    os_display: str  # mapper `_os_display` 결과
+    family = Linux/Windows (os_family), distro = os_id(debian·ubuntu·rocky 등), version = os_version(세부).
+    3단 계층으로 나눠야 '리눅스인지 윈도우인지 -> 어느 배포판 -> 어느 버전'을 한눈에 판단 가능.
+    """
+
+    family: str  # "Linux" | "Windows" | "기타"
+    distro: str  # os_id (debian/ubuntu/rocky/windows ...)
+    version: str  # os_version (세부 버전, 미상은 "—")
     count: int
 
 

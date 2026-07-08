@@ -56,6 +56,17 @@ async function loadIoSnapshot() {
     } else {
       document.getElementById('io-phys-empty').style.display = '';
     }
+    // 디스크 I/O 포화 값 — 신호 유무로 OS 분기(Linux/Windows await ms, 구세대 viostor 만 큐). 기준 설명은 템플릿 2행 정적.
+    const satEl = document.getElementById('s-disk-sat');
+    if (satEl) {
+      if (data.disk_await_ms != null) {
+        satEl.textContent = 'await ' + data.disk_await_ms.toFixed(0) + 'ms';
+      } else if (data.disk_queue != null) {
+        satEl.textContent = 'Queue ' + data.disk_queue.toFixed(2);
+      } else {
+        satEl.textContent = '—';
+      }
+    }
     const stampEl = document.getElementById('metrics-stamp');
     if (stampEl && data.collected_at)
       stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);

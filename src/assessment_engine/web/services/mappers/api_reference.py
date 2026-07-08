@@ -19,6 +19,7 @@ _METHOD_STYLE = {
 
 # 태그 -> 한국어 라벨 + 표시 순서. 미정의 태그는 태그명 그대로 뒤에 붙임.
 _TAG_LABELS = [
+    ("right-sizing", "자원 적정성 판정 (프로비저닝)"),
     ("exports", "JSON Export (외부 연동)"),
     ("api", "서버·메트릭 조회 (화면 데이터)"),
     ("tasks", "설치 작업 (Install Task)"),
@@ -37,12 +38,24 @@ def _resolve_body_fields(op: dict, spec: dict) -> list[str]:
     return list((model.get("properties") or {}).keys())
 
 
+def _display_summary(op: dict) -> str:
+    """목록 표시 요약 — docstring 첫 줄(한국어) 우선. OpenAPI summary 는 FastAPI 가 함수명에서 자동 생성한
+    영어("Get Right Sizing")라 Korean UI 에 부적합 -> description(=docstring) 첫 줄을 요약으로 쓴다.
+    """
+    desc = (op.get("description") or "").strip()
+    if desc:
+        return desc.splitlines()[0].strip()
+    return op.get("summary", "")
+
+
 def build_api_reference(spec: dict) -> list[ApiGroup]:
     """OpenAPI dict -> ApiGroup list (태그별). `/api/*` JSON 엔드포인트만, 태그 정의 순서로 정렬."""
     by_tag: dict[str, list[ApiEndpoint]] = {}
     for path, ops in sorted((spec.get("paths") or {}).items()):
         if not path.startswith("/api/"):
             continue  # SSR 페이지 라우트 제외 — JSON API 만
+        if path == "/api/right-sizing":
+            continue  # 전용 상세 섹션(api_reference.html)이 대신 문서화 — 자동 목록 중복 제거
         for method, op in ops.items():
             if method not in _HTTP_METHODS:
                 continue
@@ -61,7 +74,7 @@ def build_api_reference(spec: dict) -> list[ApiGroup]:
                 ApiEndpoint(
                     method=method.upper(),
                     path=path,
-                    summary=op.get("summary", ""),
+                    summary=_display_summary(op),
                     description=op.get("description", ""),
                     badge_bg=bg,
                     badge_fg=fg,

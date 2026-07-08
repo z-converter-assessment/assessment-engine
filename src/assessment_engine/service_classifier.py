@@ -550,8 +550,11 @@ _BASELINE_KEYWORDS: frozenset[str] = frozenset(
     {
         "sshd", "ssh", "openssh", "rdp", "termservice", "umrdpservice", "winrm", "wsmprovhost",
         "tigervnc", "x11vnc", "vino", "vncserver", "telnetd",
-        "chronyd", "ntpd", "ntpdate", "systemd-timesyncd", "timesyncd", "systemd-resolved", "resolved",
+        "chronyd", "ntpd", "ntpdate", "timesyncd", "resolved",
         "rpcbind", "gssproxy", "sssd", "winbind",
+        # systemd 자체 유닛(journald·coredump·udevd·networkd 등)은 OS 제공물 — 특징 워크로드 아님. 포트 문맥
+        # classify 가 이들을 remote/file/infra 로 오귀속하는 노이즈 차단(워크로드 유닛엔 "systemd-" 접두 없음).
+        "systemd-",
     }
 )
 _BASELINE_PORTS: frozenset[int] = frozenset({22, 23, 3389, 5985, 5986, 5900, 5901, 123, 111})

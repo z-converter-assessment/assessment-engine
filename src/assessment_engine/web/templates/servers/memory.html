@@ -21,22 +21,37 @@
   <hr style="border:none; border-top:1px solid #e2e8f0; margin:0 0 14px;">
   <div id="snap-loading" class="text-meta text-md">불러오는 중...</div>
   <div id="snap-body" style="display:none;">
-    <dl class="kv kv-soft" style="margin-bottom:20px;">
+    {# 양 OS 동일 지표 — 공통 표시. #}
+    <dl class="kv kv-soft" style="margin-bottom:16px;">
       <dt>메모리 사용률</dt> <dd id="s-mem-pct">—</dd>
       <dt>Used</dt>          <dd id="s-mem-used">—</dd>
       <dt>Available</dt>     <dd id="s-mem-avail">—</dd>
-      <dt class="kv-sub text-muted">Cached</dt>  <dd id="s-mem-cached">—</dd>
-      <dt class="kv-sub text-muted">Buffers</dt> <dd id="s-mem-buffers">—</dd>
+      <dt>스왑 Used</dt>     <dd id="s-swap-used">—</dd>
     </dl>
-    <dl class="kv kv-soft">
-      <dt>스왑 사용률</dt> <dd id="s-swap-pct">—</dd>
-      <dt>스왑 Used</dt>   <dd id="s-swap-used">—</dd>
-    </dl>
-    {% if server.os_family == 'windows' %}<p class="text-meta text-xs" style="margin:8px 0 0;">Windows 의 스왑(pagefile)은 여유 메모리가 있어도 상시 일정량 사용되므로, 사용률이 높아도 메모리 부족 신호 아님.</p>{% endif %}
-    <p class="text-meta text-xs" style="margin:12px 0 0; line-height:1.8;">
-      <span class="identifier text-label" style="display:inline-block; min-width:36px;">N/A</span>해당 OS 에서 미측정하는 항목<br>
-      <span class="identifier text-label" style="display:inline-block; min-width:36px;">—</span>일시적으로 값 없음 (첫 수집·수집 끊김 등)
-    </p>
+    {# OS별 측정·의미가 다른 지표 — 값 + Linux/Windows 2행 항상 노출. #}
+    <div class="os-diff-list">
+      <div class="os-diff">
+        <div class="os-diff-head"><span class="os-diff-name">Cached</span><span class="os-diff-val" id="s-mem-cached">—</span></div>
+        <div class="os-diff-note"><b>Linux</b>회수 가능한 페이지 캐시 (Available 에 포함)</div>
+        <div class="os-diff-note"><b>Windows</b>page cache 세분 개념 부재 — 미측정 (N/A)</div>
+      </div>
+      <div class="os-diff">
+        <div class="os-diff-head"><span class="os-diff-name">Buffers</span><span class="os-diff-val" id="s-mem-buffers">—</span></div>
+        <div class="os-diff-note"><b>Linux</b>블록 I/O 버퍼 (회수 가능)</div>
+        <div class="os-diff-note"><b>Windows</b>미측정 (N/A)</div>
+      </div>
+      <div class="os-diff">
+        <div class="os-diff-head"><span class="os-diff-name">스왑 사용률</span><span class="os-diff-val" id="s-swap-pct">—</span></div>
+        <div class="os-diff-note"><b>Linux</b>스왑 점유율 — swappiness 로 여유 RAM 에도 스왑아웃, 점유 자체는 압박 아님</div>
+        <div class="os-diff-note"><b>Windows</b>pagefile 점유율 — 여유 메모리에도 상시 baseline, 점유 자체는 압박 아님</div>
+      </div>
+      <div class="os-diff">
+        <div class="os-diff-head"><span class="os-diff-name">메모리 압박 (실제 부족 신호)</span><span class="os-diff-val" id="s-mem-pressure">—</span></div>
+        <div class="os-diff-note"><b>Linux</b>swap page-out 발생 여부 (스왑 쓰기 = 실제 압박)</div>
+        <div class="os-diff-note"><b>Windows</b>Pages Input/sec 하드 페이지 폴트율 (초당 20 이상 압박)</div>
+      </div>
+    </div>
+    <p class="text-meta text-xs" style="margin:12px 0 0;">N/A = 위 Windows/Linux 설명대로 해당 OS 미측정 · — = 일시적 값 없음 (첫 수집·수집 끊김)</p>
   </div>
   <div id="snap-empty" class="text-meta text-md" style="display:none;">
     수집된 메트릭이 없습니다.
@@ -84,7 +99,7 @@
     </select>
     <input type="datetime-local" id="comp-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
-  {% if server.os_family == 'windows' %}<div class="chart-desc">Windows 는 Cached·Buffers 미측정 — Used / Available 만 표시</div>{% endif %}
+  <div class="chart-desc">전체 대비 Used / Available / Cached / Buffers — Cached·Buffers 는 page cache 라 Linux 전용(Windows 는 미측정, Used / Available 만 표시)</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="comp-canvas"></canvas>
   </div>
@@ -109,7 +124,7 @@
     </select>
     <input type="datetime-local" id="swap-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
-  {% if server.os_family == 'windows' %}<div class="chart-desc">Windows 의 스왑(pagefile)은 여유 메모리가 있어도 상시 일정량 사용되므로, 사용률이 높아도 메모리 부족 신호 아님.</div>{% endif %}
+  <div class="chart-desc">스왑 점유율 — Linux(swappiness) · Windows(pagefile) 모두 여유 메모리에도 상시 점유라 사용률 자체는 부족 신호 아님. 실제 압박은 페이징(Linux page-out · Windows Pages Input)으로 판정.</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="swap-canvas"></canvas>
   </div>

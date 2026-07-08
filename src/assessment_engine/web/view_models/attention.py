@@ -19,6 +19,8 @@ class AttentionRow:
     mount_path: str | None = None
     meta_text: str = ""
     meta_at: datetime | None = None
+    # OS EOL 전용 — 지원 종료 경과일(양수=지남, 마이그레이션 시급도). 다른 신호(gap/agent)는 None.
+    eol_days_over: int | None = None
 
 
 @dataclass
@@ -165,6 +167,9 @@ class EnvironmentOverview:
     # 평균과 동일 capacity-weighted 환경 분포 기반(per_ts 95퍼센타일).
     utilization_p95: list[UtilizationBar] = field(default_factory=list)
     util_sample_size: int = 0
+    # 포화 3축 도넛 (CPU 포화·메모리 압박·디스크 I/O 포화) — 자원 적정성 창(14일) 기준 호스트 카운트/표본.
+    # 실시간현황 6도넛과 동일 시각·게이지색, 다만 스냅샷 아닌 윈도우 기준(#E3 화면 간 정합). (forward-ref 따옴표)
+    saturation_donuts: list["SaturationDonut"] = field(default_factory=list)
     risk_donut: list[RiskDonutSegment] = field(default_factory=list)
     risk_donut_total: int = 0  # 도넛 중심 표시 (분류된 서버 수)
     risk_high_count: int = 0  # 도넛 중심 강조 — "위험 N대"
@@ -189,6 +194,7 @@ class ActionTargets:
     efficiency_count: int = 0
     efficiency_vcpus: int = 0
     efficiency_memory_gb: float = 0.0
+    efficiency_disk_gb: int = 0  # 과다·유휴 호스트 점유 스토리지 합 (효율화 검토 — CPU·메모리와 함께 3자원)
 
 
 @dataclass

@@ -1,4 +1,4 @@
-{% from "_shared.html" import empty_state, util_donut %}
+{% from "_shared.html" import empty_state, util_donut, saturation_donut %}
 {# 실시간 현황 partial (최신 스냅샷, 정적 렌더). realtime 객체면 데이터 없어도 카드 항상 노출, 내부는 sample_size/has_peaks 가드로 empty_state(#E9).
    컨텍스트 의무: realtime(EnvironmentRealtime), self_back. #}
 {% if realtime %}
@@ -11,25 +11,10 @@
   </div>
   <div>
     {% if realtime.sample_size > 0 %}
+    {# 이용률 3(%) + 포화 3(호스트 수/표본) 도넛 — 구분선 없이 6개 나란히 (util_donut·saturation_donut 공용 규격). #}
     <div style="display:flex; align-items:center; flex-wrap:wrap; gap:20px;">
       {% for u in realtime.utilization %}{{ util_donut(u) }}{% endfor %}
-      {# 포화 비율 도넛 — 포화·압박 호스트 수 / 표본 (채움 = 비율). 처리량 총량 도넛은 기준점 없어 폐기. #}
-      <div style="width:1px; align-self:stretch; background:#e2e8f0; margin:4px 2px;"></div>
-      {% for s in realtime.saturation_donuts %}
-      <div style="text-align:center;">
-        <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
-          {% if s.dash_length > 0 %}
-          <circle cx="50" cy="50" r="42" fill="none" style="stroke: {{ s.color }}" stroke-width="10"
-                  stroke-dasharray="{{ "%.2f"|format(s.dash_length) }} 263.89" stroke-linecap="round"
-                  transform="rotate(-90 50 50)"/>
-          {% endif %}
-          <text x="50" y="48" text-anchor="middle" font-size="22" font-weight="700" fill="#1e293b">{{ s.count }}</text>
-          <text x="50" y="64" text-anchor="middle" font-size="10" fill="#94a3b8">/ {{ s.total }}대</text>
-        </svg>
-        <div class="text-label text-sm" style="margin-top:4px;">{{ s.label }}</div>
-      </div>
-      {% endfor %}
+      {% for s in realtime.saturation_donuts %}{{ saturation_donut(s) }}{% endfor %}
     </div>
     {% else %}
     {{ empty_state("수집된 메트릭이 없습니다.") }}

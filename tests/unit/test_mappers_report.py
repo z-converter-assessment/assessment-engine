@@ -781,9 +781,10 @@ def test_saturation_axes_windows_os_aware_and_hit():
     axes = {a.axis: a for a in item.saturation_axes}
     assert list(axes) == ["CPU 포화", "메모리 포화", "디스크 I/O 포화"]  # 항상 3축
     assert axes["CPU 포화"].signal == "Processor Queue Length / core"
-    assert axes["CPU 포화"].value == "3.00" and axes["CPU 포화"].status == "포화"  # 12/4=3 >= 2
-    assert axes["메모리 포화"].value == "2000/s" and axes["메모리 포화"].status == "포화"  # >= 20
-    assert axes["디스크 I/O 포화"].value == "30ms" and axes["디스크 I/O 포화"].status == "포화"  # await > 20
+    # W 태그 — Linux(실행큐)와 의미·임계 달라 값만으론 구분 불가.
+    assert axes["CPU 포화"].value == "W 3.00" and axes["CPU 포화"].status == "포화"  # 12/4=3 >= 2
+    assert axes["메모리 포화"].value == "W 2000/s" and axes["메모리 포화"].status == "포화"  # >= 20
+    assert axes["디스크 I/O 포화"].value == "30ms" and axes["디스크 I/O 포화"].status == "포화"  # await > 20 무태그
 
 
 def test_saturation_axes_linux_signals_and_ok():
@@ -802,9 +803,10 @@ def test_saturation_axes_linux_signals_and_ok():
         _NOW,
     )
     axes = {a.axis: a for a in item.saturation_axes}
-    assert axes["CPU 포화"].signal == "run queue (procs_running) / core" and axes["CPU 포화"].value == "0.25"
-    assert axes["메모리 포화"].signal == "swap page-out" and axes["메모리 포화"].value == "없음"
-    assert axes["디스크 I/O 포화"].value == "5ms"
+    # L 태그 — Windows(Processor Queue)와 의미·임계 달라 값만으론 구분 불가.
+    assert axes["CPU 포화"].signal == "run queue (procs_running) / core" and axes["CPU 포화"].value == "L 0.25"
+    assert axes["메모리 포화"].signal == "swap page-out" and axes["메모리 포화"].value == "L 없음"
+    assert axes["디스크 I/O 포화"].value == "5ms"  # await 무태그(양 OS 공통)
     assert all(a.status == "정상" for a in item.saturation_axes)
 
 

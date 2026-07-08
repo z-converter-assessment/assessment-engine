@@ -31,9 +31,12 @@ from typing import Literal
 # runway(용량 추세)만 별도로 가용 이력 전체를 쓴다(누적 신호라 길수록 정확, report_aggregate mount_span).
 WINDOW_DAYS = 14
 
-# 유휴(상태) 진입선 — Azure Advisor 저사용 정의(cpu p95 <= 3%). 미사용 상태 단일축 — 종료·통합은 조치 층 파생.
+# 유휴(상태) 진입선 — 미사용 VM(종료·통합 후보) 판별. 활동(activity) 3축이 전부 quiescent 해야 유휴:
+# CPU p95(Azure Advisor 저사용 3%) · 네트워크(2 Mbps) · 디스크 I/O baseline IOPS. 메모리 사용률·디스크 용량은
+# 활동이 아닌 할당(크기)이라 유휴 신호에서 제외(baseline 메모리·큰 빈 디스크가 있어도 미사용일 수 있음).
 IDLE_CPU_P95_PCT = 3
 IDLE_NET_MBPS = 2
+IDLE_DISK_IOPS = 5  # 디스크 I/O 거의 정지(로그·주기 flush 수준). 측정된 활동만 유휴 배제, 미측정은 불배제.
 # 유휴 강도 "확실"(조치 층 — 상태 아님) — AWS Compute Optimizer idle 정의(거의 0). 종료 vs 통합 권고 문구 분기용.
 IDLE_STRONG_PEAK_PCT = 1
 IDLE_STRONG_NET_KBPS = 1
@@ -115,6 +118,7 @@ class ResourceStats:
     mem_total_mb: int | None = None  # 현재 RAM — 사이징 목표 계산용
     # 디스크 I/O
     disk_await_p95_ms: float | None = None  # 응답 지연 p95 — virtio 포화 주신호(계층3 VMware/SQL)
+    disk_iops_baseline: float | None = None  # 디스크 I/O 활동량(baseline 평균 IOPS) — 유휴 판정 활동 축(포화 아님)
     # 디스크 용량 (엔진이 mount 이력 전체 span 의 2점 fill_rate 로 산출 — report_aggregate mount_span)
     disk_capacity_runway_days: float | None = None  # 바이트 소진까지 남은 일수(하락·수평이면 None=안 참)
     disk_inode_runway_days: float | None = None  # inode 소진까지 남은 일수
@@ -189,14 +193,16 @@ def cpu_saturation_index(run_queue: float | None, cores: int | None, os_family: 
 
 
 def disk_io_saturation_index(await_ms: float | None, disk_queue: float | None, os_family: str | None) -> float | None:
-    """디스크 I/O 포화 지수 = 현재값 / os별 임계. >=1.0 이면 포화 — 실시간 aggregate 통합 축.
+    """디스크 I/O 포화 지수 = 현재값 / 임계. >=1.0 이면 포화 — 실시간 aggregate 통합 축.
 
-    Windows: Avg Disk Queue Length / DISK_QUEUE_PER_DISK_SATURATION. Linux: await(ms) / RS_DISKIO_AWAIT_MS.
-    분류(disk_io_saturated)와 동일 신호. 임계 정규화로 OS 무관 한 지수 랭킹.
+    await(ms) / RS_DISKIO_AWAIT_MS 우선(양 OS 통일 — disk_io_saturated 와 동일 로직). Windows await 미배선/
+    구세대 viostor 면 큐 깊이 / DISK_QUEUE_PER_DISK_SATURATION 폴백. 임계 정규화로 OS 무관 한 지수 랭킹.
     """
-    if os_family == "windows":
-        return disk_queue / DISK_QUEUE_PER_DISK_SATURATION if disk_queue is not None else None
-    return await_ms / RS_DISKIO_AWAIT_MS if await_ms is not None else None
+    if await_ms is not None:
+        return await_ms / RS_DISKIO_AWAIT_MS
+    if os_family == "windows" and disk_queue is not None:
+        return disk_queue / DISK_QUEUE_PER_DISK_SATURATION
+    return None
 
 
 def mem_pressure_active(pages_input_rate: float | None, pageout_delta: int | None, os_family: str | None) -> bool:
@@ -685,13 +691,23 @@ def _host_status(stats: ResourceStats, res: dict[str, ResourceAssessment], under
     """호스트 요약 상태 — under(압박) > idle(미사용) > over > optimal > insufficient.
 
     조치는 root_cause·자원별 판정에서 나오고 이건 정렬·배지용 파생.
-    유휴는 호스트 레벨(CPU p95 + net, Azure 저사용 정의) 파생.
+    유휴는 활동(activity) 3축 — CPU p95 · 네트워크 · 디스크 I/O — 이 전부 quiescent 할 때만(미사용 VM).
+    메모리 사용률·디스크 용량은 활동 아닌 할당이라 유휴 신호 제외.
     """
     if under_kinds:
         return "under"
     cpu = stats.cpu_p95_pct
     net = stats.net_avg_kbps
-    if net is not None and cpu is not None and cpu <= IDLE_CPU_P95_PCT and (net * 8 / 1000) <= IDLE_NET_MBPS:
+    net_mbps = net * 8 / 1000 if net is not None else None
+    # 디스크 I/O 활동 — baseline IOPS 가 측정됐고 quiescent 초과면 미사용 아님(유휴 배제). 미측정(None)은 배제 안 함.
+    disk_io_active = stats.disk_iops_baseline is not None and stats.disk_iops_baseline > IDLE_DISK_IOPS
+    if (
+        cpu is not None
+        and cpu <= IDLE_CPU_P95_PCT
+        and net_mbps is not None
+        and net_mbps <= IDLE_NET_MBPS
+        and not disk_io_active
+    ):
         return "idle"
     if any(res[k].status == "over" for k in ("cpu", "memory")):
         return "over"
@@ -781,17 +797,27 @@ def _under_kinds(host: HostAssessment) -> list[str]:
     return [k for k in _UNDER_ORDER if k in host.resources and host.resources[k].status in _ROOTABLE_UNDER]
 
 
-def under_prescription(host: HostAssessment) -> str:
-    """자원 부족 처방 (root_cause 정합) — 인과 결합이면 root 만 처방(하류는 근본원인 칼럼이 전달), 독립 부족이면 전부.
+def prescribed_under_kinds(host: HostAssessment) -> list[str]:
+    """처방 대상 under 자원 kind (공개, 단일 진실) — 인과 결합이면 root 만(하류 증상 억제), 독립이면 전부.
 
-    root 에만 처방해 삼중 처방 방지(ADR 0052). 근본원인 칼럼(root_cause_display)과 어휘 정합.
+    삼중 처방 방지(ADR 0052). under_prescription(문구)·right-sizing API actions(구조)가 이 결정을 공유해 drift 0.
     """
     under = _under_kinds(host)
     if not under:
-        return ""
+        return []
     if host.symptom_of_root and host.root_cause:
-        return _resource_prescription(host.root_cause, host.resources[host.root_cause])
-    return " / ".join(_resource_prescription(k, host.resources[k]) for k in under)
+        return [host.root_cause]
+    return under
+
+
+def resource_prescription(kind: str, ra: ResourceAssessment) -> str:
+    """자원 1개 처방 문구 (공개) — under_prescription·API actions 공유. 사이징 목표 있으면 "메모리 -> 22GB"."""
+    return _resource_prescription(kind, ra)
+
+
+def under_prescription(host: HostAssessment) -> str:
+    """자원 부족 처방 (root_cause 정합) — prescribed_under_kinds 처방을 "/" 결합. 근본원인 칼럼과 어휘 정합."""
+    return " / ".join(resource_prescription(k, host.resources[k]) for k in prescribed_under_kinds(host))
 
 
 def root_cause_display(host: HostAssessment) -> str:

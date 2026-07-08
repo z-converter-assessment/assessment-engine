@@ -560,6 +560,30 @@ def workload_category_counter(
     return counter
 
 
+def workload_services_by_category(
+    services: list[dict] | None,
+    listen_ports: list[dict] | None = None,
+) -> dict[str, list[str]]:
+    """카테고리별 특징 서비스명 목록 — workload_category_counter 와 동일 기준(baseline 제외 + classify, unknown 제외).
+
+    서비스 구성 breakdown 이 카테고리 카운트(total_count)와 같은 소스를 쓰게 해 total 과 종류 합 정합 + systemd/rpc
+    등 OS 노이즈 배제. listen-only 로만 탐지된 카테고리는 이름 미상이라 여기 미포함(카테고리 자체는
+    workload_category_counter 가 노출 — breakdown 에서 "(포트 탐지)"로 별도 합산). 표시명 = display_name 우선 unit.
+    """
+    by_cat: dict[str, list[str]] = {}
+    for s in services or []:
+        if not isinstance(s, dict):
+            continue
+        unit = s.get("unit")
+        if not unit or is_baseline_service(unit):
+            continue
+        cat = classify(unit, listen_ports, s.get("pid"))
+        if cat == "unknown":
+            continue
+        by_cat.setdefault(cat, []).append(s.get("display_name") or unit)
+    return by_cat
+
+
 def infer_role(services: list[dict] | None, listen_ports: list[dict] | None = None) -> str:
     """호스트 대표 역할 — `workload_category_counter` 최빈 카테고리. 비면 "unknown"."""
     counter = workload_category_counter(services, listen_ports)

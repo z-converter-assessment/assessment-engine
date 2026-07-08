@@ -1,5 +1,5 @@
-{# 환경 개요(`/`) 본문 — 정적 집계(자동 갱신 없음). 컨텍스트 의무: overview, window_label, classification_window_label. #}
-{% from "_shared.html" import empty_state, window_meta, util_donut, provisioning_dist_bar %}
+{# 환경 개요(`/`) 본문 — 정적 집계(자동 갱신 없음). 컨텍스트 의무: overview, classification_window_label. #}
+{% from "_shared.html" import empty_state, window_meta, util_donut, saturation_donut, provisioning_dist_bar %}
 
 {% if overview and overview.total > 0 %}
 <section class="card no-print">
@@ -24,7 +24,7 @@
 </section>
 
 {# 자원 적정성 분류 분포 — 14일 표준 창(서버 목록·보고서 정합). 개요는 분포 요약만, 상세(효율화·부족 표)는
-   환경 자원 평가 페이지. 활용률 24h 와 윈도우 구분(우측 메타 라벨). 헤더 포맷은 평균 활용률 카드와 통일. #}
+   환경 자원 평가 페이지. 분류·이용·포화 모두 같은 14일 창(우측 메타 라벨 통일). #}
 <section class="card no-print">
   <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
     <h2 class="card-title" style="margin:0;">자원 적정성</h2>
@@ -37,18 +37,20 @@
   {% endif %}
 </section>
 
-{# 24h capacity-weighted 평균(#F10 DASHBOARD_TIME_RANGE). 순간 스냅샷은 실시간 현황 페이지. #}
+{# 자원 이용·포화 — 자원 적정성 창(14일) 기준. 이용률 3(capacity-weighted %) + 포화 3(포화 호스트 수/표본) 도넛.
+   실시간현황 6도넛과 동일 시각·게이지색, 다만 순간 스냅샷 아닌 윈도우 기준(분류와 같은 창 — 화면 간 정합). #}
 <section class="card no-print">
   <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
-    <h2 class="card-title" style="margin:0;">평균 활용률</h2>
-    <span class="section-meta">{{ window_meta(overview.util_sample_size, window_label) }}</span>
+    <h2 class="card-title" style="margin:0;">자원 이용·포화</h2>
+    <span class="section-meta">{{ window_meta(overview.util_sample_size, classification_window_label) }}</span>
   </div>
-  {% if overview.utilization %}
+  {% if overview.utilization or overview.saturation_donuts %}
   <div style="display:flex; align-items:center; flex-wrap:wrap; gap:20px;">
     {% for u in overview.utilization %}{{ util_donut(u) }}{% endfor %}
+    {% for s in overview.saturation_donuts %}{{ saturation_donut(s) }}{% endfor %}
   </div>
   {% else %}
-  {{ empty_state("표본이 부족해 활용률을 계산할 수 없습니다.") }}
+  {{ empty_state("표본이 부족해 자원 현황을 계산할 수 없습니다.") }}
   {% endif %}
 </section>
 

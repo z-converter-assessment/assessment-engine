@@ -175,13 +175,17 @@ def to_inventory_export_entry(
                 "p95_pct": stats.mem_p95_pct if stats else None,
                 "peak_pct": stats.mem_peak_pct if stats else None,
             },
-            # saturation raw 신호 — os-aware (분류 근거 가시성). Linux 는 procs_running/swap/await, Windows 는
-            # run queue/paging/disk queue 축이 채워진다(반대 OS 축은 null = 미측정). 소비자가 채워진 축으로
-            # under_provisioned 근거를 확인. Windows 임계: run queue/cores>=2, Pages Input/sec>=20, disk queue>=2.
-            "load_15m_max": stats.load_15m_max if stats else None,
-            "cpu_run_queue_p95": stats.cpu_run_queue_p95 if stats else None,
-            "swap_used": stats.swap_used if stats else False,
-            "mem_pages_input_rate_p95": stats.mem_pages_input_rate_p95 if stats else None,
+            # saturation raw 신호 — os-aware 신 모델(ADR 0052) 분류 근거. 채워진 축이 그 OS 실측 신호(반대 OS 축은
+            # null=미측정). 소비자가 채워진 축으로 under_provisioned 근거 확인.
+            #   CPU 포화: Linux procs_running/cores>=1 · Windows Processor Queue/cores>=2
+            #   메모리 포화: Linux swap page-out 발생 · Windows Pages Input/sec p95>=20
+            #   디스크 I/O 포화: await p95>20ms (양 OS, Windows 는 IOCTL ReadTime/WriteTime)
+            "procs_running_p95": stats.procs_running_p95 if stats else None,  # Linux CPU 실행 큐(신 신호)
+            "cpu_run_queue_p95": stats.cpu_run_queue_p95 if stats else None,  # Windows Processor Queue Length
+            "mem_swap_paging": stats.mem_swap_paging if stats else False,  # Linux page-out 발생(신 모델 압박 신호)
+            "mem_pages_input_rate_p95": stats.mem_pages_input_rate_p95 if stats else None,  # Windows 하드폴트율
+            "load_15m_max": stats.load_15m_max if stats else None,  # (참고) Linux load — 분류 미사용
+            "swap_used": stats.swap_used if stats else False,  # (참고) 스왑 점유 — 압박 아님(page-out 이 신호)
             "disk_io": {
                 "iops_baseline": stats.disk_iops_baseline if stats else None,
                 "iops_p95": stats.disk_iops_p95 if stats else None,
@@ -189,8 +193,9 @@ def to_inventory_export_entry(
                 "throughput_kbps_baseline": stats.disk_throughput_kbps if stats else None,
                 "throughput_kbps_p95": stats.disk_throughput_kbps_p95 if stats else None,
                 "throughput_kbps_peak": stats.disk_throughput_kbps_peak if stats else None,
-                "iowait_p95_pct": stats.iowait_p95_pct if stats else None,
-                "queue_p95": stats.disk_queue_p95 if stats else None,
+                "await_p95_ms": stats.disk_await_p95_ms if stats else None,  # 디스크 I/O 포화 신호(신 모델, 양 OS)
+                "iowait_p95_pct": stats.iowait_p95_pct if stats else None,  # (참고) Linux iowait
+                "queue_p95": stats.disk_queue_p95 if stats else None,  # Windows Avg Disk Queue Length
             },
             "network": {
                 "rx_kbps_baseline": stats.net_rx_kbps if stats else None,

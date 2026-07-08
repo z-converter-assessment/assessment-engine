@@ -37,6 +37,9 @@ async function loadNetSnapshot() {
     }
     if (!res.ok) return;
     const data = await res.json();
+    // TCP 재전송율 — 네트워크 품질 신호(양 OS 공통, 1% 초과 혼잡). 인터페이스 I/O 유무와 별개라 가드 이전 세팅.
+    const retransEl = document.getElementById('s-net-retrans');
+    if (retransEl) retransEl.textContent = data.net_retrans_pct != null ? data.net_retrans_pct.toFixed(2) + '%' : '—';
     const netIo = data.net_io || [];
     if (!netIo.length) {
       document.getElementById('net-snapshot-empty').style.display = '';

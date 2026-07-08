@@ -87,26 +87,22 @@ metricsSelBtn?.addEventListener('click', () => {
   }
   function close() { modal.style.display = 'none'; }
 
-  async function publish() {
-    const ids = currentRows.map(r => r.dataset.publicId).join(',');
-    const params = new URLSearchParams();
-    params.set('ids', ids);
-    params.set('view', currentView);
-    params.set('time_range', rangeSel.value);
-    // PRG pattern — POST emit (record) → 응답 view_url 로 GET navigate (read-only 표시).
-    // 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
-    submitBtn.disabled = true;
-    try {
-      const res = await fetch(`/reports/servers/emit?${params.toString()}`, { method: 'POST' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const viewUrl = data.view_url + `&back=${encodeURIComponent(location.pathname + location.search)}`;
-      window.location.href = viewUrl;
-    } catch (e) {
-      if (window.ToastUtils) ToastUtils.show('서버 보고서 발행 실패: ' + e.message, 'err');
-      submitBtn.disabled = false;
-    }
-    close();
+  // PRG — POST emit(record) → view_url GET navigate. 공용 EmitUtils(비활성·토스트·bfcache 복구 내장).
+  // 다시 보기 / 북마크 / 직접 URL 은 GET 만 → record 안 됨 → 중복 방지.
+  function publish() {
+    window.EmitUtils.submitNavigate(submitBtn, () => {
+      const ids = currentRows.map(r => r.dataset.publicId).join(',');
+      const params = new URLSearchParams();
+      params.set('ids', ids);
+      params.set('view', currentView);
+      params.set('time_range', rangeSel.value);
+      return `/reports/servers/emit?${params.toString()}`;
+    }, {
+      pendingMsg: '보고서 발행 중...',
+      errPrefix: '서버 보고서 발행 실패',
+      viewUrlTransform: (u) => u + `&back=${encodeURIComponent(location.pathname + location.search)}`,
+      onRestore: close,
+    });
   }
 
   if (anchorInput && window.ChartUtils && window.ChartUtils.initAnchor) {
@@ -366,6 +362,8 @@ if (filterForm) {
     [searchInput, onlineSel, serviceSel, osSel, classSel].forEach(function (el) {
       if (el) el.classList.toggle('active', !!(el.value || '').trim());
     });
+    // 보이는 행만 zebra 재줄무늬 — 필터·clip 으로 숨은 행 제외(흰색 어긋남 방지, table-utils).
+    if (window.TableUtils && listTable) window.TableUtils.restripe(listTable);
   }
 
   // 전체보기/접기 토글 — expanded 반전 후 재적용 (전체 노출 <-> CLIP 복귀).
@@ -374,42 +372,13 @@ if (filterForm) {
     applyFilters();
   });
 
-  // ─── 칼럼 클릭 정렬 (assessment.js 와 동일 패턴) — th.sort-col 클릭 시 행 재배열 후 필터·clip 재적용. ───
-  // data-sort 있으면 그 값, 없으면 셀 텍스트. 숫자(상태 1/0 등)는 수치, 그 외는 한국어 문자열. 재클릭 방향 토글.
+  // ─── 칼럼 클릭 정렬 — 공용 TableUtils(정렬 로직·zebra 단일화). 정렬 후 필터·clip 재적용(applyFilters 끝에서 restripe). ───
   const listTable = document.querySelector('table.server-list-table');
   listTable?.querySelector('thead')?.addEventListener('click', function (e) {
     const th = e.target.closest('th.sort-col');
     if (!th) return;
     const idx = Array.from(th.parentNode.children).indexOf(th);
-    const tbody = listTable.querySelector('tbody');
-    if (!tbody) return;
-    const rows = Array.from(tbody.querySelectorAll('tr.server-row'));
-    const asc = String(listTable.dataset.sortCol) === String(idx) ? listTable.dataset.sortAsc !== 'true' : true;
-    const keyOf = function (row) {
-      const cell = row.children[idx];
-      if (!cell) return '';
-      return cell.dataset.sort !== undefined ? cell.dataset.sort : cell.textContent.trim();
-    };
-    const numOf = function (s) {
-      const n = parseFloat(String(s).replace(/[^0-9.\-]/g, ''));
-      return s === '' || isNaN(n) ? null : n;
-    };
-    rows.sort(function (a, b) {
-      const ka = keyOf(a), kb = keyOf(b);
-      const na = numOf(ka), nb = numOf(kb);
-      let cmp;
-      if (na !== null && nb !== null) cmp = na - nb;
-      else if (na !== null) cmp = -1;
-      else if (nb !== null) cmp = 1;
-      else cmp = ka.localeCompare(kb, 'ko');
-      return asc ? cmp : -cmp;
-    });
-    rows.forEach(function (r) { tbody.appendChild(r); });
-    listTable.dataset.sortCol = idx;
-    listTable.dataset.sortAsc = asc;
-    // 방향 표식 — 활성 칼럼만 sort-asc/desc, 나머지 해제.
-    listTable.querySelectorAll('th.sort-col').forEach(function (h) { h.classList.remove('sort-asc', 'sort-desc'); });
-    th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+    window.TableUtils.sortByColumn(listTable, idx);
     expanded = false; // 정렬 후 CLIP 복귀 (상위 재적용)
     applyFilters();
   });

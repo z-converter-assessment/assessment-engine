@@ -19,6 +19,7 @@ from assessment_engine.web.routers.api import api_router
 from assessment_engine.web.routers.exports import exports_router
 from assessment_engine.web.routers.pages import pages_router
 from assessment_engine.web.routers.reports import reference_router, reports_router
+from assessment_engine.web.routers.right_sizing import right_sizing_router
 from assessment_engine.web.routers.tasks import tasks_router
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.query_service import QueryService
@@ -142,6 +143,7 @@ app.include_router(tasks_router)
 app.include_router(reports_router)
 app.include_router(reference_router)
 app.include_router(exports_router)
+app.include_router(right_sizing_router)
 
 
 @app.get("/health")

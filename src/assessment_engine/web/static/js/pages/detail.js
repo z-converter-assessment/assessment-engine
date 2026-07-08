@@ -75,13 +75,15 @@
     // 실행 큐는 코어당 정규화해 노출 (분류가 run_queue/cores 로 판정 — raw 큐값은 코어 수 모르면 무의미). cores 부재 시 raw fallback.
     const runqPerCore = (d.cpu_run_queue != null && CPU_CORES > 0) ? d.cpu_run_queue / CPU_CORES : d.cpu_run_queue;
     setTxt('cpu-runq',   runqPerCore != null ? runqPerCore.toFixed(2) + ' /core' : '—');
-    setTxt('cpu-steal',  fmtPct(cpu.steal_pct));  // Linux 전용 (Windows 는 템플릿에서 라인 숨김)
+    setTxt('cpu-steal',  OS_FAMILY === 'windows' ? 'N/A' : fmtPct(cpu.steal_pct));  // Steal 은 Linux 전용 — Windows 는 개념 부재 N/A
     setTxt('net-retrans', d.net_retrans_pct != null ? d.net_retrans_pct.toFixed(2) + '%' : '—');
+    // 디스크 await 양 OS 통일 — await 우선(Linux server_disk_io · Windows IOCTL), 없으면 구세대 viostor 큐 폴백.
+    setTxt('disk-sat', d.disk_await_ms != null ? 'await ' + d.disk_await_ms.toFixed(1) + ' ms'
+                        : d.disk_queue != null ? '큐 ' + d.disk_queue.toFixed(1) : '—');
+    // 메모리 압박은 OS별 신호가 다름 — Linux page-out 발생 / Windows Pages Input/sec 하드폴트율.
     if (OS_FAMILY === 'windows') {
-      setTxt('disk-sat',   d.disk_queue != null ? '큐 ' + d.disk_queue.toFixed(1) : '—');
       setTxt('mem-paging', d.mem_pages_input_rate != null ? d.mem_pages_input_rate.toFixed(0) + ' /s' : '—');
     } else {
-      setTxt('disk-sat',   d.disk_await_ms != null ? d.disk_await_ms.toFixed(1) + ' ms' : '—');
       setTxt('mem-paging', d.mem_pageout != null ? (d.mem_pageout > 0 ? 'page-out 발생' : '없음') : '—');
     }
 
@@ -225,25 +227,21 @@
   }
   function close() { modal.style.display = 'none'; }
 
-  async function publish() {
-    // PRG pattern — POST emit (record) → 응답 view_url 로 GET navigate (read-only 표시).
-    // 다시 보기 / 북마크 / 직접 URL 은 GET 만 호출 → record 안 됨 → 중복 방지.
-    submitBtn.disabled = true;
-    try {
+  // PRG — POST emit(record) → view_url GET navigate. 공용 EmitUtils(비활성·토스트·bfcache 복구 내장).
+  // 다시 보기 / 북마크 / 직접 URL 은 GET 만 → record 안 됨 → 중복 방지.
+  function publish() {
+    window.EmitUtils.submitNavigate(submitBtn, () => {
       const params = new URLSearchParams();
       params.set('ids', publicId);
       params.set('view', currentView);
       params.set('time_range', rangeSel.value);
-      const res = await fetch(`/reports/servers/emit?${params.toString()}`, { method: 'POST' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const viewUrl = data.view_url + `&back=${encodeURIComponent(location.pathname)}`;
-      window.location.href = viewUrl;
-    } catch (e) {
-      if (window.ToastUtils) ToastUtils.show('보고서 발행 실패: ' + e.message, 'err');
-      submitBtn.disabled = false;
-    }
-    close();
+      return `/reports/servers/emit?${params.toString()}`;
+    }, {
+      pendingMsg: '보고서 발행 중...',
+      errPrefix: '보고서 발행 실패',
+      viewUrlTransform: (u) => u + `&back=${encodeURIComponent(location.pathname)}`,
+      onRestore: close, // bfcache 복귀 시 열린 모달도 닫음
+    });
   }
 
   // 페이지 로드 시 anchor input 기본값 채움 (대시보드 모달과 일관 UX).
@@ -256,8 +254,6 @@
   closeBtn.addEventListener('click', close);
   submitBtn.addEventListener('click', publish);
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
-  // bfcache 복귀(뒤로가기) — 발행 후 navigate 로 얼어붙은 disabled 버튼·열린 모달 초기화.
-  window.addEventListener('pageshow', e => { if (e.persisted) { submitBtn.disabled = false; close(); } });
 })();
 
 // 서버 1대 scope ZConverter Install 발행 모달 — 대시보드 #install-modal 과 동일 form.
