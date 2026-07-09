@@ -1,292 +1,372 @@
-# Agent (메시지 데이터 계약)
+# Agent 메시지 데이터 계약 (wire v2)
 
-정책: CLAUDE.md #B. 본 문서는 엔진이 송수신하는 메시지의 데이터 형식 단일 진실. 외부 호스트 발행 / 엔진 수신 두 방향 모두. 발행 측 2종 바이너리 — Linux x86_64 (musl 완전 static, EL6-9·Ubuntu·Debian·SUSE·Amazon 등 kernel 2.6.32+ 전 배포판 단일 커버) + Windows i686 단일 (NT5.2/Server 2003 ~ Server 2025/Win11 전 세대, 실행 시 OS 세대 감지) — 이 하나의 wire 계약을 공유하고, OS별 차이는 각 필드 설명에 명시한다. 발행 측이 데이터 형식(값=실측 / null=측정불가 의미론 포함)의 기계검증 정본을 관리하고 엔진은 그 계약을 따른다 — 본 문서는 그 계약의 엔진 측 서술이다.
+정본 = `wire.schema.v2.json`(JSON Schema draft 2020-12) + `v2-example-messages.json`(예시 6종). 본 문서는 그 계약을 사람이 읽는 카탈로그로 서술한다 — 스키마와 어긋나면 스키마가 이긴다. 정책: CLAUDE.md #B.
 
-값 의미론 (전 필드 공통): 값(0 포함) = 측정 성공한 실값. null = 측정 불가 (OS 개념 부재 또는 측정 인프라/권한 없음). 추측·대체값(`0`·`""`·`"Unknown"`)으로 채우지 않는다 — 확실히 모르면 null. 배열 지표는 측정된 축만 싣고 못 잰 축은 제외(빈 배열 = 미측정). 엔진은 이 의미론으로 해석하고 canonical 불변식을 2차 강제한다.
+`schema_version` = `"2.0"` 고정. 메시지 4종: `metrics` · `inventory` · `task.result` · `error`.
 
----
-
-## 공통 메타데이터 (`MessageBase`)
-
-모든 메시지에 공통 포함.
-
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `message_type` | string | 본 문서 메시지 타입별 Literal |
-| `agent_id` | string (UUID v4) | 호스트 식별 단일 키 — 첫 실행 시 생성·영구 저장하는 UUID (MAC/machine_id 재발급과 무관하게 불변). 엔진 DB UNIQUE·MQ 큐/라우팅 (`agent.tasks.{agent_id}`) 단일 진실. 전 메시지에 실제 UUID 발행 — `task.result` 도 worker 가 동일 `agent_id` 발행하므로 계약상 null 없음 (엔진 `TaskResultInput` 은 nullable override 로 방어적 허용) |
-| `composite_id` | string max=64 (빈 문자열 가능) | SHA-256(`machine_id` + 정렬·dedup MAC). `inventory`/`metrics`/`error` 에 항상 문자열로 발행 (digest 실패 시 `""`, JSON null 없음). `machine_id` 가 null 이어도 MAC 기반이라 유니크 유지. `task.result` 는 미발행 (omit — worker 자체 envelope). 감사·표시용 (clone collision 진단), 식별·라우팅 미사용 — 엔진 nullable 저장 |
-| `machine_id` | string\|null max=64 | raw machine-id (Linux `/etc/machine-id`·dbus·클라우드 IMDS, Windows `MachineGuid`). 표시·감사 전용. 안정 소스 부재 시 (non-systemd+비클라우드 Linux 등) JSON null — 억지로 안 채움. 단 `task.result` 는 null 대신 빈 문자열 발행 |
-| `agent_version` | string max=32 | 발행 측 빌드 버전 (스키마 계약 버전 아님 — 릴리즈 정체성. 계약 변경은 필드/큐 구조로 표현) |
-| `collected_at` | datetime (ISO 8601 UTC) | 수집 시각 |
-| `hostname` | string max=255 | 보조 식별자 (가변) |
-| `message_id` | UUID v4 | 멱등성 키 |
-| `boot_time` | datetime UTC \| null | 시스템 부팅 시각 (정적 소스 — Linux `/proc/stat btime`, Windows 부팅 시각). 프로세스 시작 시 1회 캐시, 판독 불가 시 null. `task.result` 는 항상 null (worker 컨텍스트 분리 — 하드코딩) |
-| `agent_started_at` | datetime UTC \| null | 발행 프로세스 기동 시각. `task.result` 는 항상 null (하드코딩) |
-| `os_family` | `"linux"` \| `"windows"` | OS family — 모든 메시지 진입 시점 OS 분기 단일 진실. 양 OS agent 가 전 메시지에 발행 (required). inventory 저장값이 `task.install` dispatch 단일 진실 |
-
-엔진 처리는 `consumer/handlers/`의 `_check_idempotent`(Redis SET NX 24h)로 message_id 중복 차단 후 본문 처리. fail-open 보장은 시계열 4테이블 자연키 UNIQUE(#C1)가 흡수 (#D2).
+설계 원칙:
+- 2레이어 분리 — Layer 1(wire) = 자원 네임스페이스별 raw counter/gauge 사실만. Layer 2(engine) = USE Method 해석(`recommendation.py`). USE(이용률·포화·오류 판정)를 wire 에 넣지 않는다.
+- agent = stateless. emit 시점 raw 누적 스냅샷만 싣고, rate·delta·util·await·ratio 파생은 전부 엔진.
+- null 의미론 — 값(0 포함) = 실측 성공. null = 측정불가·미지원(OS 개념 부재 또는 측정 인프라/권한 없음). 추측·대체값 금지. 배열 지표는 측정된 축만 싣는다.
+- counter = monotonic 누적(엔진이 Δ 산출). gauge = 순간값(직접 소비).
+- 인바운드 DTO 는 `extra=ignore` — 모르는 필드가 와도 통과·무시(부분 배포 비대칭 흡수).
 
 ---
 
-## server.inventory (호스트 -> 엔진, 정적 인프라 정보)
+## A. 인코딩
 
-routing key `server.inventory`. 기동 시 1회 + 주기 재발행.
+### A1. 두 형태
 
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `os_family` | `"linux"` \| `"windows"` | task.install dispatch 단일 진실 |
-| OS / kernel | string\|null | `os_id` / `os_version` / `os_codename` / `kernel_version`. Windows `os_version` = DisplayVersion -> (없으면) ReleaseId -> (없으면) `RtlGetVersion` NT `major.minor` (2012R2 `6.3`, 2003 `5.2`) -> 다 실패 시 null (빈 문자열 안 씀). Windows `os_codename` = 항상 null (개념 부재). Windows `kernel_version` = `CurrentBuildNumber[.UBR]`. Linux `os_codename` = `VERSION_CODENAME` (redhat-release 계열은 null) |
-| CPU | int\|null / string\|null | `cpu_cores` / `cpu_model` (Windows cpu_model=CPUID brand, 미지원 시 null) |
-| 메모리 / 스왑 | int\|null (KB) | `mem_total_kb` / `swap_total_kb` |
-| `disks[]` | object | `{name, size_bytes, type, major, minor, kind}`. `kind` = 물리/가상 분류 태그(하단 taxonomy) — 물리 판정 단일 신호. Windows: `name="PhysicalDriveN"`, `type="disk"`, `kind="physical"`, `major=null`, `minor=null` (dev_t 는 Linux 커널 장치번호 개념 — Windows 대응 부재, 0 날조 안 함) |
-| `mounts[]` | object | `{mount, fstype, total_bytes, major, minor, kind}` (inventory 는 구조만 — 동적 `free_bytes`/`avail_bytes` 는 metrics 전담). `kind` = data/boot/image (데이터 볼륨=`kind="data"`). Windows: `mount=`drive letter, `kind="data"`, `major=null`, `minor=null` |
-| `interfaces[]` | object | `{name, address, prefix, family, kind, gateway}` (IPv4+IPv6). address=bare IP, family=`"ipv4"`\|`"ipv6"`, kind=iface 분류(하단 taxonomy), gateway=default route IP\|null. loopback 제외. 소비: 상세 표시(`mappers/server._to_ip_addrs`) + 네트워크 토폴로지(`mappers/topology.build_network_topology` — kind in {physical, bond_master} 채택, gateway 로 중복 대역 disambiguation) |
-| `ip_external[]` | list[string]\|null | 외부 IP (bare). 미접근 시 `null` |
-| `mac_addresses[]` | list[string] | NIC MAC 목록 (감사용, 식별 미사용 — 식별은 composite_id/agent_id) |
-| `services[]` | object\|null | `{unit, sub, pid, exe}`. `null`=비-systemd/SCM 실패, 빈 배열=서비스 0개. `pid`(int\|null)로 `listen_ports[].pid` 와 조인해 unit-포트 귀속 (`service_classifier`). Linux `sub`=systemd 상태 가변값, Windows=항상 `"running"`. EL6/비-systemd·NT5 는 pid/exe `null` |
-| `listen_ports[]` | object | `{proto, addr, port, uid, pid, comm}` |
+- `metrics` / `inventory` = envelope(불변 메타) + `system.*` 네임스페이스(datapoint-array) + inventory 배열. USE 재설계 대상.
+- `task.result` / `error` = envelope + 평면 body 필드. `system.*` 재설계 비대상 — 작업/오류 이벤트.
 
----
+최상위 required(전 타입 공통) = `schema_version`(const "2.0") + `message_type`(enum inventory/metrics/task.result/error).
 
-## server.metrics (호스트 -> 엔진, `collection_interval_sec` 주기)
+### A2. system.* datapoint-array
 
-routing key `server.metrics`. 모두 raw 누적값. 엔진이 연속 2회 readings 의 차(delta) 로 CPU% / IOPS / kBps 계산.
+각 `system.<namespace>` 값 = object 또는 null. null 이면 그 네임스페이스 전체 미지원(예 Windows `system.pressure`). 네임스페이스 = `{ "<metric명>": <metric> }` 맵.
 
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `collection_interval_sec` | int\|null | 설정된 수집 주기(초). 표본 충분성 기준 (없으면 5분 버킷 288/day 가정 — 주기<=5분이면 무관) |
-| `cpu_stat` | object | `user/nice/system/idle/iowait/irq/softirq/steal` jiffies (각 int\|null, `ge=0`). Windows: user/system/idle 만 측정, `nice/iowait/irq/softirq/steal` = `null` (OS 개념 부재 — 0 날조 금지). 엔진 cpu_total 은 성분 COALESCE 합으로 정규화(Windows=user+system+idle), disk saturation 은 os-aware 로 `saturation.disk_queue` 사용 |
-| 메모리·스왑 | int\|null (KB) | `mem_*_kb` / `swap_*_kb` |
-| `load_1m` / `load_5m` / `load_15m` | float\|null | Load Average. Windows `null` (OS 부재) |
-| `disk_io[]` | object | `{device, reads_completed, writes_completed, sectors_read, sectors_written, major, minor, kind}`. `kind="physical"` 만 집계. Windows: 시스템 전역 누적 I/O 단일 엔트리 `device="PhysicalDrive0"` (`NtQuerySystemInformation` I/O 매니저 카운터 — 단조·provider 독립, 물리 디스크별 분해 없음). NtQuery 불가 시에만 perflib per-drive `PhysicalDriveN` 폴백. `major=null`, `minor=null` |
-| `mounts[]` | object | `{mount, fstype, total_bytes, free_bytes, avail_bytes, major, minor, kind}`. `kind="data"` 만 데이터 볼륨 집계. Windows: `mount=`drive letter |
-| `net_io[]` | object | `{interface, rx_bytes, tx_bytes, rx_packets, tx_packets, rx_errors, tx_errors, kind}`. `kind in {physical, bond_master}` 집계 (bond_master=본딩 집계 단위, bond_member 제외). Windows: `interface`=friendly name (UTF-8) |
-| `saturation` | object\|null | Windows USE Method raw 신호 `{disk_queue, cpu_run_queue, mem_paging_rate}`. `disk_queue`=물리 디스크별 `[{device, queue}]` gauge (빈 배열=diskperf 미부착 미측정) — 엔진이 per-device max p95 로 disk saturation 판정. `cpu_run_queue`=Processor Queue Length gauge (엔진 run queue/core >= 2). `mem_paging_rate`=Memory Pages/sec 누적 counter (레거시 — 엔진 메모리 포화는 총 Pages/sec 대신 top-level `mem_pages_input` 하드폴트 rate p95>=20 사용). 각 `null`=perflib 미발행 -> 그 축만 미관측. Linux 는 await/procs_running/swap 사용이라 미발행 |
-| host-wide | int\|null | `procs_running`/`procs_blocked`(실행큐/D-state) · `schedstat_run_wait_ns` · `pswpin`/`pswpout`(스왑 발생) · `oom_kill`(4.13+) · `mem_pages_input`(Windows Pages Input raw, mmap 미혼입) · `tcp_retrans_segs` · `tcp_tw`(TIME_WAIT) · `conntrack_count`/`conntrack_max`. 전부 raw·optional(없으면 null). `cpu_per_core[]` 는 `server_cpu_core` 저장·per-core p95 max 로 단일스레드 병목 판정에 활용. `psi_*_some_total` 은 `server_metrics.psi_*_some_total` 컬럼에 raw 저장(분류 미사용, 관측·검증용 — agent 발행값 전부 보존 #B) |
-| `disk_io[]` await (신) | int\|null | `disk_io[]` 각 항목에 `time_reading_ms`/`time_writing_ms`(await 원자료) · `io_ticks_ms`/`weighted_io_ms`(%util·avgqu 참고) 추가. 엔진이 delta(time)/delta(count) 로 응답 지연 산출 (virtio 라 %util 대신 await 가 포화 주신호) |
-| `net_io[]` drops (신) | int\|null | `net_io[]` 각 항목에 `rx_drops`/`tx_drops` 추가 (링 버퍼 오버런·경로 손실 품질 신호) |
-| `mounts[]` inode (신) | int\|null | `mounts[]` 각 항목에 `inodes_total`/`inodes_free` 추가 (statvfs f_files/f_ffree — inode 소진 예측, 바이트와 나란히) |
-| Windows disk await (신) | int\|null | `saturation.disk_queue[]` 각 항목에 `read_time`/`write_time`/`read_count`/`write_count`/`idle_time`/`query_time` 동봉(IOCTL 100ns 누적 = await·%util 원자료). IOCTL 부착 드라이버(win2025 등)면 실값 발행 — Linux `disk_io[].time_*` 와 동급 await 원자료다. 구세대 viostor(virtio diskperf 미부착)만 IOCTL 실패 -> 미발행(빈 배열). ETW 트랙은 이 미발행 경우 전용 보완 — IOCTL 실값이 오는 경우는 ETW 없이 바로 await 산출 가능 |
-
----
-
-## server.error (호스트 -> 엔진)
-
-routing key `server.error`. 호스트 측 수집·발행 실패 보고. 공통 메타데이터 전체(`composite_id` 포함) + 아래 (error 는 `os_id`/`os_version`/`os_codename` 미발행). wire 스키마 `oneOf` 가 4종(`inventory`/`metrics`/`task_result`/`error`) 전부를 강제 — CI conformance 가 전 메시지 타입 검증.
-
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `error_code` | string max=64 | 분류 코드. arg NULL 시 `"UNKNOWN"` sentinel — 항상 존재(never null). 관측 값 예: `COLLECT_INVENTORY_FAILED`·`COLLECT_METRICS_FAILED`·`PUBLISH_RETRY_EXHAUSTED`·`PUBLISH_RECOVERED`·`MACHINE_ID_UNRESOLVED` |
-| `error_message` | string | 사람이 읽을 상세. arg NULL 시 `""` sentinel — 항상 존재. engine `min_length` 미적용 — 빈 문자열 흡수 후 로깅 시 `"(empty)"` fallback (`consumer/handlers/error.py`). 의미 있는 메시지 박기는 운영 권장, contract 강제 아님 |
-| `failed_component` | string (minLength 1) | 실패 단계. 실 값 `collect`/`publish`, NULL default 는 두 트리 모두 `"agent"`. wire 스키마는 non-empty 자유 문자열, 엔진 인바운드는 `Literal["collect","publish"]` 로 좁아 `"agent"` 도달 시 reject 후 DLQ |
-| `retry_count` | int | 재시도 요약 보고 시점에만. 미해당(`<0`) 시 키 자체 omit (JSON null 아님) |
-| `first_failed_at` | datetime | 재시도 요약 보고 시점에만. 미해당 시 키 omit |
-| `recovered_at` | datetime | 복구 보고(`PUBLISH_RECOVERED`) 시점에만. 미해당 시 키 omit |
-
-null vs omit: `error_code`/`error_message`/`failed_component` 는 sentinel 로 항상 존재. `retry_count`/`first_failed_at`/`recovered_at` 는 조건부라 미해당 시 키 부재(omit) — JSON null 로 싣지 않는다 (계약 전체에서 유일한 omit-vs-null 구분 지점).
-
-엔진 처리: 파싱 + 멱등성 체크 후 로깅(`make_error_handler`). DB 저장 없음.
-
-`collected_at` 은 전 메시지·양 트리 second 정밀도 ISO 8601 UTC. wire 스키마 `iso8601` 패턴이 강제.
-
----
-
-## task.install (엔진 -> 호스트, 작업 명령)
-
-엔진이 운영자 요청을 받아 발행 (`web/services/task_service.py`).
-
-라우팅:
-- Exchange: `assessment.tasks` (direct, durable, collector exchange 와 분리)
-- Routing key: `task.install.<agent_id>` — broker 가 해당 머신 전용 큐로만 배달
-- 수신 큐: `agent.tasks.<agent_id>` (durable, `x-message-ttl=3600000`, `x-max-length=100`, `x-overflow=reject-publish`). 큐는 엔진이 task 발행 시점에 동적 declare — 수신 측은 declare 권한 없음.
-
-본 메시지는 엔진 발행이라 `MessageBase` 공통 메타와 별개로 다음 필드만 사용:
-
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `message_type` | `"task.install"` | Literal |
-| `task_id` | string (UUID v4) | 작업 고유 ID. `task.result` 회신·중복 검출·로그 추적 키. 엔진의 `Task.public_id` 그대로 |
-| `agent_id` | string (UUID) | 타겟 호스트 식별 (불변 UUID). 수신 큐 라우팅과 동일 값 |
-| `issued_at` | datetime (ISO 8601 UTC) | 발행 시각 |
-| `download.url` | string | HTTP/HTTPS URL. 운영자 입력 ZDM host + `ZDM_PACKAGE_PATH` env 로 엔진이 조립 (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`). agent 측 host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 통과 필요 |
-| `download.sha256` | string (hex 64) | 다운로드 파일 sha256. 엔진이 publish 직전 ZDM 에서 HEAD + (cache miss 시) GET full 로 동적 산출. ETag 기반 Redis cache (`HttpZdmPackageResolver`). ZDM 측 패키지 갱신 시 ETag 자동 변경 → cache miss → 자동 재계산 |
-| `download.size_bytes` | int | 예상 크기 (byte). 엔진이 HEAD Content-Length 로 산출 + GET 실측과 일치 검증 |
-| `install.type` | `"shell"` \| `"direct_exec"` \| `"msi"` | 처리 방식 enum. `shell` = archive extract 후 script 실행 (Linux .tar.gz), `direct_exec` = extract 없음, 다운로드 파일 직접 실행 (Windows .exe), `msi` = extract 없음, `msiexec /i {path} /quiet` (Windows .msi). agent 가 자기 OS 아닌 type 수신 시 `failure_reason="unsupported_install_type"` reject |
-| `install.script` | string \| null | `type=shell` 일 때만 의미 — tar 추출 후 work dir 기준 실행 스크립트 경로. `ZDM_PACKAGE_SCRIPT` env 그대로 (default `zconverter_install_source/install.sh` — ZDM 본체 패키지 layout). `direct_exec` / `msi` 일 때 null |
-| `install.args` | list[string] | 스크립트 / 실행 파일 인자. 운영자 입력 ZDM 좌표를 `["-s", ZDM_IP, "-u", ZDM_USER]` 형태로 전달. OS 무관 동일 convention (Linux install.sh / Windows .exe 양쪽 `-s` `-u` 인자 받음) |
-| `install.timeout_sec` | int | wall-clock timeout. `WebSettings.install_timeout_sec` (dev default 600) |
-
-### Download URL 조립 contract
-
-- ZDM 본체 패키지가 `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` path 에 호스트되어야 한다. ZDM 측 contract (engine repo 밖) — path 가 안정해야 하고, sha256·size 는 엔진이 자체 산출하므로 ZDM 측 매니페스트 endpoint 불필요.
-- 운영자가 모달에 입력한 zdm_ip 허용 형식: IPv4 / IPv4:port / hostname / FQDN / hostname:port / http(s) URL. 엔진이 scheme·path strip 해서 host[:port] 만 추출 (`task_service._extract_zdm_host`) → download.url 조립 시 host[:port] 사용. agent `download_url_extract_host` 가 `':'` 도 host 종료 문자로 처리해 host-only 매칭. validator 매트릭스 단일 진실: `web/routers/tasks.py::_validate_zdm_ip` + `_is_valid_host_or_host_port`. IPv6 (raw / bracket) 는 agent 측 한계로 미지원.
-- agent 측 download.c 가 host whitelist(`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 강제. 운영자가 박은 ZDM host 가 등록되지 않았으면 `failure_reason="url_not_allowed"` reject. agent config 는 deploy 시점 고정 — 새 ZDM host 도입 시 agent 재배포 필요.
-- ZDM 좌표 default 는 `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` env. 패키지 메타는 `ZDM_PACKAGE_PATH` / `ZDM_PACKAGE_SCRIPT` env (`docs/reference/contracts/env.md`). 엔진은 실 ZDM 호스트에서 직접 메타를 fetch 한다.
-
-### sha256·size 동적 산출 (HttpZdmPackageResolver)
-
-`src/assessment_engine/web/services/task_service.py` 단일 진실. 흐름:
-
-1. HEAD `http://{ZDM_IP}{ZDM_PACKAGE_PATH}` — `ETag`(또는 fallback `Last-Modified`) + `Content-Length` 추출.
-2. Redis cache 키 `cache:zdm_package:sha256:{host}:{etag}` 조회.
-   - hit: cached sha256 + HEAD Content-Length 반환 (수십 ms, GET 안 함).
-   - miss: GET full 다운로드 + streaming sha256 계산 + cache set + 반환.
-3. HEAD Content-Length 와 GET 실측 byte count 일치 검증 — 다르면 `ZdmPackageMetaError` (ZDM 측 정합성 보장).
-4. 메타 fetch 실패 (HEAD 404·connect timeout·size mismatch) 시 publish 차단 → 503 (`TaskNotConfigured`).
-
-cache 동작:
-- ZDM 패키지 갱신 → Apache 가 inode-size-mtime 기반 ETag 자동 변경 → cache miss → 자동 재계산. 운영자 개입 0.
-- TTL 6h default — ETag 자체가 invalidation 이라 길어도 안전. ETag/Last-Modified 둘 다 없는 비표준 응답이면 cache skip + 매 publish 마다 GET full.
-
----
-
-## task.result (호스트 -> 엔진, 작업 결과 보고)
-
-원격 호스트가 install 완료 시점(성공·실패 무관) 에 발행. routing key `task.result` -> 엔진 큐 `worker.result` (TTL 24h, max-length 100,000).
-
-본 메시지는 수집 컨텍스트와 분리된 worker 프로세스가 자체 envelope 로 발행한다 (공통 metadata 빌더 미경유). 공통 메타와 차이: `composite_id` 미발행(omit), `machine_id` 부재 시 null, `boot_time`/`agent_started_at` 항상 null, `agent_id` 는 실제 UUID (계약상 null 없음). 결과 매칭은 `task_id`. 엔진 `TaskResultInput` 은 `boot_time`/`agent_started_at` (+방어적으로 `agent_id`/`composite_id`) nullable override. `os_family`/`os_id`/`os_version`/`os_codename` 은 worker 가 inventory 와 동일 소스로 발행 (성공 보정 정책 매칭 키). Windows `os_codename` 은 null. wire 스키마 `task_result` 가 필드 셋을 강제.
-
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `message_type` | `"task.result"` | Literal |
-| `task_id` | UUID | `task.install` 의 동일 값 회신. 엔진 `Task.public_id` 매칭 키 |
-| `status` | `"success"` \| `"failure"` | 실행 결과 |
-| `failure_reason` | string\|null max=32 | 실패 분류. 알려진 값: `url_not_allowed` / `download_failed` / `sha256_mismatch` / `extract_failed` / `script_not_found` / `script_failed` / `script_timeout` / `insufficient_disk` / `internal_error` / `already_done` / `unsupported_install_type`. 성공 시 null. 알려지지 않은 값은 silent pass (DB 저장은 그대로) |
-| `exit_code` | int\|null | install.sh 종료 코드. 정상 종료 시 값, 시그널 사망·미실행 시 null |
-| `signal_no` | int\|null | install.sh 를 종료시킨 시그널 번호. `exit_code` 와 상호배타(아래 표). Windows 는 항상 null (POSIX 시그널 부재). Linux timeout 은 SIGTERM/SIGKILL 을 이 값으로 구분 |
-| `os_id` | string\|null max=64 | OS 식별자 (Linux distro id, Windows `"windows"`). 성공 보정 정책 매칭 키 |
-| `os_version` | string\|null max=64 | OS 버전. Windows 는 inventory 와 동일 소스라 pre-Win10(2012R2/2003)도 `6.3`/`5.2` 채워짐. 성공 보정 정책 매칭 키 |
-| `os_codename` | string\|null | OS codename. Linux=`VERSION_CODENAME` (redhat 계열 null). Windows=미발행(omit) |
-| `duration_ms` | int (>=0) | 다운로드 + 추출 + install 합계 |
-| `stdout_tail` | string max=4096 | install.sh stdout 끝부분 4 KB. agent `exec.c` 의 `out_storage[4096]` circular tail buffer 단일 진실. 미실행 시 `""` |
-| `stderr_tail` | string max=4096 | install.sh stderr 끝부분 4 KB. agent `exec.c` 의 `err_storage[4096]` 단일 진실. 미실행 시 `""` |
-| `completed_at` | datetime (ISO 8601 UTC) | 처리 완료 시각. `Task.completed_at` 컬럼에 그대로 저장 |
-
-`exit_code` / `signal_no` 는 POSIX wait status 를 반영해 상호배타:
-
-| 종료 형태 | exit_code | signal_no |
-|-----------|-----------|-----------|
-| 정상 종료 (WIFEXITED) | 값 | null |
-| 시그널 종료 (crash·timeout kill, WIFSIGNALED) | null | 값 |
-| 상태 미포착 (internal) | null | null |
-
-엔진 Inbound DTO (`consumer/schemas.py` `TaskResultInput`) 의 `max_length=8192` 는 over-provision — agent minor bump 로 tail cap 이 늘어도 (#B "minor bump silent 호환") 엔진 무수정 흡수. 현재 wire 상한은 agent 측 4 KB.
-
-엔진 처리: 멱등성 -> 성공 보정 정책(`task_policy.effective_task_result`) -> DB UPDATE (`status` / `completed_at` / `failure_reason` / `exit_code` / `signal_no` / `duration_ms` / `stdout_tail` / `stderr_tail`). `exit_code`·`signal_no` 는 raw 보존(성공 보정은 `status`/`failure_reason` 만 변경). `task_id` 미존재 시 silent ack — 운영자가 task 삭제했을 가능성, DLQ 부적합.
-
-성공 보정 정책: 일부 Windows 버전에서 ZConverter installer 가 설치 성공임에도 exit code 2 로 종료해 worker 가 `status=failure`(`script_failed`) 로 보고하는 케이스 대응. `status=failure` & `failure_reason=script_failed` & `os_family=windows` & `os_version` 이 allowlist 키와 일치 & `exit_code` 가 허용 목록에 포함일 때만 effective `status` 를 `success` 로 전환(`failure_reason`=null). `exit_code` 는 raw 보존(감사용), `status`/`failure_reason` 만 보정 저장. allowlist = `ConsumerSettings.task_install_success_exit_codes` (기본 `{"20348": [2]}` = Server 2022 / exit 2, env `TASK_INSTALL_SUCCESS_EXIT_CODES` JSON override). 보정은 Server 2022 한정 — 다른 버전·exit code 는 미보정. 운영자 가시성: 보정 태스크는 `success` 배지로 표시되며 별도 안내 라벨은 현재 없음(상세의 `exit_code=2` + 서버 로그 `task_result status remapped` 가 단서).
-
-`boot_time` / `agent_started_at` 가 null 이라 `_log_time_invariants` 검증은 본 메시지에서 호출 안 함.
-
-운영자 가시성: list.html "최근 작업" column (행별 마지막 task badge + polling 갱신) / detail.html "최근 작업" 섹션 (timeline 최근 10건 + row 클릭 modal) / Web API `GET /api/tasks/{task_id}` 단일 + `GET /api/tasks?server_public_id=...` 서버별 cursor pagination. 단일 진실: `web/services/mappers/task.py::to_task_summary` / `to_task_detail` + base.html `.rec-success`/`.rec-failure`/`.rec-pending`/`.rec-unknown`. failure_reason 한글 라벨은 `mappers/task.py::_FAILURE_REASON_LABEL` 카탈로그 (11 enum).
-
-success 경로: agent worker 가 download.url 에서 패키지 fetch → install.sh exec → task.result success 발행 → consumer 6 컬럼 UPDATE → list UI badge `success` 전이. sha256·size 는 `HttpZdmPackageResolver` 가 실 ZDM 호스트에서 HEAD/GET 으로 동적 산출하므로 별도 env 박을 필요 없음. agent download.c 는 http·https 둘 다 허용 (CURLOPT_PROTOCOLS_STR="https,http"), host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`) 매칭. 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200 등) 시 publish 503 차단.
-
----
-
-## 규약
-
-- 단위: 메모리 = `kb`, 디스크 / 네트워크 = `bytes` (`/proc` 출력 관례)
-- canonical 단위 = Linux `/proc` 모델 단일 진실 (jiffies·kB·bytes·loadavg). 모든 OS agent 가 자기 raw 값을 canonical 로 변환 발행, 엔진은 OS 무관 단일 공식으로 계산 (CPU%·mem%·swap·IOPS·kBps 동일 경로).
-- Windows agent 변환 계약 (raw Win32 -> canonical):
-  - 단위: cpu FILETIME 100ns `/100000` -> 10ms tick (HZ=100 호환), disk bytes `/512` -> sectors, mem bytes `/1024` -> kB. net/mount 은 bytes 그대로.
-  - CPU jiffies (GetSystemTimes idle/kernel/user): `cpu_idle`=idle, `cpu_user`=user, `cpu_system`=kernel `-` idle (Win32 kernel time 은 idle 포함 → 차감 의무, 미차감 시 CPU% 왜곡). idle/user/system 누적 단조증가.
-  - 메모리(GlobalMemoryStatusEx + perflib): `mem_total_kb`=ullTotalPhys, `mem_available_kb`=ullAvailPhys, `mem_free_kb`=perflib "Free & Zero Page List Bytes" (진짜 free 를 available 과 별개로 실측 — 이 카운터 없는 NT5.2 는 null). `mem_buffers_kb`/`mem_cached_kb` 는 Linux page-cache 세분 개념 부재로 null. swap(pagefile): `swap_total_kb` = `(ullTotalPageFile - ullTotalPhys)/1024`, `swap_free_kb` = `(ullAvailPageFile - ullAvailPhys)/1024` (pagefile total/avail 은 phys 포함 합산이라 phys 차감 의무). pagefile 의미는 saturation 신호 아님 — `recommendation.swap_saturation(os_family, swap_used)` helper 가 Windows 제외 처리.
-- canonical 불변식 (agent 발행 의무 + 엔진 2차 강제): 누적 카운터 단조 비감소(reset 은 `boot_time` 변경으로 표현), `mem_available_kb <= mem_total_kb`, `swap_free_kb <= swap_total_kb`(used 음수 금지), per-field >= 0.
-- Windows 플랫폼 부재 필드: `load_1m/5m/15m`·`mem_buffers_kb`·`mem_cached_kb`·`listen_ports[].uid`·`cpu_stat.{nice,iowait,irq,softirq,steal}` = `null` (0 날조 금지 — 미측정 의미 보존). Windows 는 대신 `saturation.{cpu_run_queue,mem_paging_rate,disk_queue}` 로 포화 축을 os-aware 실측. `os_family="windows"` 분기.
-- 엔진 정규화 경계 (defense in depth, `consumer/metric_normalize.py`): agent 미신뢰 — 수집 진입에서 canonical 불변식 재강제. `swap_free`/`mem_available` 가 total 초과 시 total 로 클램프(used 음수 차단) + warning. CPU% 의 `cpu_idle` 은 NULL→0 날조 안 함 (idle 부재 reading 제외, report·환경 활용률 동일 규칙).
-- 옵셔널 필드: 수집 실패 시 `null` 전송. 수집 실패와 데이터 없음 미구분
-- counter reset: 재부팅 / 발행 프로세스 재시작 시 카운터 0 리셋. 엔진은 1순위로 두 시점 `boot_time` 비교 (`web/services/metrics_calculator._is_counter_reset`) -> 시스템 재부팅이면 delta 건너뛰기 (None). 옛 데이터 (`boot_time` NULL) 는 2순위로 `delta < 0` 휴리스틱 fallback (UI 에서 "—"). `agent_started_at` 만 다르면 발행 프로세스 재시작이고 /proc 카운터는 그대로라 정상 delta
-
----
-
-## 엔진이 받지만 사용하지 않는 필드
-
-원칙: agent 발행 metrics 값은 당장 분류·표시에 안 써도 전부 DB 에 저장한다(#B — 관측·검증·후속 활용 대비). 아래는 그 예외(구조상 저장 대상 자체가 없는 것)뿐. `psi_*_some_total`·`saturation.disk_queue[].{idle_time,query_time}` 는 저장하되 분류·표시 미사용(raw 보존) — "받지만 미저장"에서 해소됨.
-
-| 필드 | 메시지 | drop 사유 |
-|------|--------|-----------|
-| `disk_io[].major/minor` | metrics | `server_disk_io` 에 컬럼 없음. 물리 판정은 `kind` 컬럼 (Linux 는 음수 시 키 omit, Windows 는 null) |
-| `boot_time` / `agent_started_at` | error | error 는 로깅 외 활용처 없음 — counter reset 식별과 무관 |
-
-`mem_pages_input`(Windows Pages Input/sec, 하드 read 폴트, mmap 미혼입)이 Windows 메모리 포화 판정의 주신호다 — `mem_saturated`(rate p95>=20)·상세 스냅샷·report cagg `swap_paging` 불리언 모두 이걸 소비. 총 `mem_paging_rate`(Pages/sec)는 mmap 파일 I/O 혼입으로 부풀려져(관측 예: 82775) 포화 판정 미사용 (wire 수신만). 임계 근거는 `right-sizing.md` 8절.
-
-inventory `mounts[]` 는 발행 측이 `free_bytes`/`avail_bytes` 를 애초에 싣지 않는다 (wire 계약상 inventory=구조 / metrics=사용량 역할 분리) — 엔진이 drop 할 대상 자체가 없다.
-
-`task.result` 의 `failure_reason`/`exit_code`/`signal_no`/`install_verified`/`duration_ms`/`stdout_tail`/`stderr_tail`/`completed_at` 는 `Task` 테이블 컬럼으로 저장. `install_verified`(bool\|null)는 agent worker 가 installer 종료 후 실제 설치(데몬 기동+ZDM 등록)를 점검한 신호로, 판정 1순위(`task_policy`: True->success / False->failure, exit_code 보다 우선). 구버전 agent 미발행 시 null -> 레거시 exit_code+allowlist 폴백. `os_codename` 은 수신하나 미저장(task 의 OS 는 `server_inventory` 소관). 표시 계층(`TaskDetailItem` -> task 상세 모달 `tasks/_detail.html` + `GET /api/tasks/{id}`)은 status·failure_reason 라벨 + exit_code·signal_no(SIG 이름 라벨, `mappers/task._signal_label`)·duration·stdout_tail·stderr_tail 노출. `signal_no` 는 값 있을 때만 "시그널" 행 표시(exit_code 와 상호배타).
-
-## 활용 중인 필드
-
-| 필드 | 메시지 | 활용 방식 |
-|------|--------|----------|
-| `disks[].major/minor` | inventory | `web/services/device_filters.find_parent_disk()` 에서 mount-disk 조인 키. Windows 는 null 이라 조인 미성립 — mount-disk 매칭·storage "Device" 컬럼은 Linux 한정, Windows 는 kind 기반 표시로 축소 |
-| `mounts[].major/minor` | inventory | `web/services/mappers.to_storage_detail` 에서 disks 와 매칭 -> `MountUsageItem.device_name` -> storage.html "Device" 컬럼 (Linux 한정, 위와 동일). inventory 만 발행 — metrics mount 는 미발행 |
-| `boot_time` (inventory) | inventory | `server_inventory.boot_time` 컬럼 저장 + `server_inventory_history` append 시 비교. detail.html / metrics.html 에 KST 표시 |
-| `agent_started_at` (inventory) | inventory | `server_inventory.agent_started_at` 컬럼 저장 + history 변경 trigger. 발행 프로세스 재시작 이벤트 감지의 1차 단서 |
-| `boot_time` (metrics) | metrics | 시계열 4 테이블 모두 (`server_metrics`·`server_disk_io`·`server_net_io`·`server_mount_usage`) `boot_time` 컬럼 저장. metrics·disk_io·net_io 는 `metrics_calculator._is_counter_reset` 이 두 시점 비교 -> 시스템 재부팅 시 delta 건너뛰기. mount_usage 는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 위해 보존 (CLAUDE.md C1 + B) |
-| `agent_started_at` (metrics) | metrics | 동일 4 테이블 컬럼 저장. boot_time 동일·agent_started_at 만 다름 -> 발행 프로세스 재시작 (counter 는 /proc 기반 그대로 -> 정상 delta) |
-| `interfaces` (inventory) | inventory | 집계 대상(kind in {physical, bond_master}) 인터페이스의 IPv4 로 subnet 공동소속 그래프 도출 (`mappers/topology.build_network_topology`, Cytoscape.js). bond_master(본딩 집계 단위, IP 가 bond0 에 실림) 포함, gateway 로 중복 사설 대역 disambiguation. bond_member·가상망은 kind 로 제외 — 실측 아닌 추론 토폴로지 |
-
----
-
-## Listen 포트 수집
-
-발행 측 수집 경로 OS별:
-- Linux: `/proc/net/tcp` / `/proc/net/udp` (IPv4/IPv6) 파싱 — `ss -tlnp` 와 동일한 커널 소켓 테이블.
-- Windows: `GetExtendedTcpTable(TCP_TABLE_OWNER_PID_LISTENER)` / `GetExtendedUdpTable(UDP_TABLE_OWNER_PID)` API 호출. `QueryFullProcessImageNameW` 로 pid -> exe 경로 -> basename 만 추출 (`comm`).
-
-### 필드 의미
-
-| 필드 | 설명 |
-|------|------|
-| `proto` | tcp / tcp6 / udp / udp6 |
-| `addr` | 바인딩 주소 (`0.0.0.0` = 모든 인터페이스, `127.0.0.1` = 루프백) |
-| `port` | 포트 번호 |
-| `uid` | 소켓 소유 유저 ID (0 = root). Linux 만 값 — Windows agent 는 POSIX uid 미존재로 `null` (엔진 nullable 수용) |
-| `pid` | 소켓을 열고 있는 프로세스 ID. Linux: 소켓 액티베이션 시 `null` (`/proc/net/tcp` inode -> /proc 매칭 실패). Windows: `GetExtendedTcpTable` 의 `dwOwningPid` 그대로 — `pid=0` = System Idle Process (Linux 의 소켓 액티베이션 의미와 다름). UI 가 `pid=0` 분기 시 OS 별 의미 해석 필요 |
-| `comm` | 프로세스명. Linux: `/proc/<pid>/comm`. Windows: `QueryFullProcessImageNameW` exe basename (`PROCESS_QUERY_LIMITED_INFORMATION` 권한 실패 시 `null`). pid 가 null 이면 null |
-
-### 데몬 모델별 동작
-
-fork 모델 (Apache prefork, sshd): 마스터 프로세스가 소켓을 열고 listen. `fork()` 로 자식을 생성해 처리. 연결 수만큼 프로세스가 늘어난다.
-
-이벤트 / 스레드 모델 (nginx, redis, Node.js): 단일 프로세스 (또는 고정 worker) 가 이벤트 루프로 다수 연결 처리. 연결이 와도 프로세스 수는 변하지 않는다.
-
-소켓 액티베이션 (systemd socket activation): systemd 가 소켓을 열어두고, 첫 연결 시점에만 데몬을 기동. 평소에는 프로세스가 없어 `pid` / `comm` 이 null. 주로 가끔 호출되는 시스템 서비스 (cups, avahi 등) 에 쓰인다.
-
-### UI 표현
-
-- `port <= 1024`: well-known 포트 (root 전용 바인딩). 서버 상세 페이지에서 강조 표시.
-- `pid` / `comm` null: Linux 는 소켓 액티베이션 소켓 / Windows 는 권한 부족으로 exe 미해상. 둘 다 UI 에서 "—" 표시.
-- `pid=0` 은 OS 별 의미 분기: Linux 평시 미발현 (pid 가 0 이면 보통 null 로 mapping), Windows 는 System Idle Process. 분기 명시 안 하면 UI 가 "PID 0" 으로 동일 표기 -> 오인.
-
----
-
-## device 분류 (kind taxonomy)
-
-발행 측 공용 분류기 하나가 각 device/interface/mount 에 `kind` 를 태그한다. 엔진은 정규식·major 추론 없이 `kind` 로만 물리/데이터 판정 (`device_filters` — 화면·집계·용량·cagg 단일 기준, Windows major/minor=null 이어도 물리 판정 성립).
-
-| 대상 | kind 값 | 판정 |
-|------|---------|------|
-| `disks[]` / `disk_io[]` | physical, partition, lvm, raid, virtual | 물리 = `kind="physical"` |
-| `interfaces[]` / `net_io[]` | physical, loopback, bridge, veth, bond_master, bond_member, vlan, tunnel, virtual | 집계 = `kind in {physical, bond_master}` (bond_master=본딩 집계 단위, bond_member 제외) |
-| `mounts[]` | data, virtual_fs, boot, image | 데이터 볼륨 = `kind="data"` |
-
-- `mounts` 의 `virtual_fs` 는 taxonomy 예약값 — 발행 측이 pseudo/virtual fs(proc/sysfs/cgroup 등)를 `/proc/filesystems` nodev 플래그로 pre-drop 하므로 실제 wire 에는 data/boot/image 만 온다.
-- Windows 는 coarse 분류 (net: physical/loopback/tunnel/virtual; disk/mount 상수 physical/data). Linux 는 세분.
-- 발행 측이 lo/loop/ram/sr·가상 fs 등 무의미 항목은 pre-drop 하고, 나머지는 kind 태그로 전송 (엔진이 관측성 유지하며 kind 로 필터).
-- `major`/`minor` 는 물리 판정에서 빠지고 mount-disk 조인(`device_filters.find_parent_disk`) 전용으로만 잔존 — Windows 는 null 이라 이 조인이 Linux 한정.
-
----
-
-## 운영 / 디버깅
-
-agent 발행 측 상태(agent 가 설치된 호스트에서):
-```bash
-sudo systemctl status assessment-agent --no-pager
-sudo journalctl -u assessment-agent --no-pager -n 50
+metric 객체:
 ```
+{ "type": "counter"|"gauge", "unit": "<base 단위>", "points": [ {"attr": {...}, "value": <number|null>}, ... ] }
+```
+datapoint = `{ "attr": {<k>:<string|number>}, "value": <number|null> }`. `attr` 옵셔널(생략 = 단일 스칼라 포인트). `value` 는 number 또는 null.
 
-end-to-end 추적: (1) 발행 측 로그 -> (2) broker 큐 적재 (`rabbitmqctl list_queues`) -> (3) consumer 처리 로그 -> (4) DB 행 -> (5) web 표시. 끊긴 단계가 원인.
+동일 metric 의 여러 차원(cpu별·device별·state별·direction별)은 `points` 배열 개별 원소로, 구분은 오직 `attr`. 이름에 방향·상태를 박지 않는다 — `rx_bytes` 금지, `network.io` + `attr.direction=receive`.
 
-발행 측 재기동: `sudo systemctl restart assessment-agent`.
+---
+
+## B. Envelope (불변 메타)
+
+`metrics`/`inventory` envelope. task.result/error 는 J절 body 표 참조.
+
+| 필드 | 타입 | 비고 |
+|------|------|------|
+| schema_version | const "2.0" | 최상위 required |
+| message_type | enum | 최상위 required |
+| agent_id | string | 첫 실행 시 1회 생성·영구저장 불변 UUID. 매칭·식별·라우팅 단일 키 |
+| message_id | string | 멱등성 키 (`idempotent:{message_id}` SET NX) |
+| collected_at | ISO8601 UTC(tzinfo-aware) | 수집 시각. 시계열 자연키 |
+| boot_time | string \| null | 판독 불가 시 null. counter reset(재부팅) 게이트 |
+| agent_started_at | string \| null | agent 재시작 = counter reset 게이트 |
+| os_family | enum linux/windows | 조건부 분기 기준 |
+| agent_version | string | 옵셔널. major bump 수신 시 엔진 코드 수정 트리거 / minor silent 호환 |
+| composite_id | string \| null | 옵셔널. SHA-256 composite hash. 감사·표시용(식별·라우팅 미사용). "" -> None 정규화 |
+| machine_id | string \| null | 옵셔널. raw machine-id 표시 전용 |
+
+metrics/inventory 필수 = `agent_id, message_id, collected_at, boot_time, agent_started_at, os_family` 6개. `agent_version`·`composite_id`·`machine_id` 는 옵셔널.
+
+호스트 정적 서술자(hostname·os_id 등)는 envelope 아니라 `inventory` 메시지가 싣는다(F절). metrics 는 정적 서술자 없이 `agent_id` 로 서버에 조인된다.
+
+---
+
+## C. Required-필드 매트릭스
+
+R=required, opt=optional, nullable=값 null 허용.
+
+| 필드 | metrics | inventory | task.result | error |
+|------|---|---|---|---|
+| schema_version / message_type | R | R | R | R |
+| agent_id / message_id / collected_at / os_family | R | R | R | R |
+| boot_time / agent_started_at | R(nullable) | R(nullable) | R(항상 null) | opt |
+| agent_version | opt | opt | R | opt |
+| composite_id | opt | opt | (없음) | opt |
+| machine_id | opt | opt | R(nullable) | opt |
+| system.cpu / memory / disk / network | R | - | - | - |
+| system.paging / filesystem / pressure / cgroup | opt | - | - | - |
+| hostname / os_id / os_version / os_codename / kernel_version / cpu_model / cpu_cores / mem_total_bytes / ip_external / services / listen_ports | - | R | - | - |
+| block_devices | - | R | - | - |
+| net_interfaces / lvm_vgs | - | opt | - | - |
+| hostname / os_id / os_version / os_codename | - | - | R | - |
+| task_id / status / failure_reason / exit_code / signal_no / duration_ms / stdout_tail / stderr_tail / completed_at | - | - | R | - |
+| task_policy | - | - | opt | - |
+| error_code / error_message / failed_component | - | - | - | R |
+| retry_count / first_failed_at / recovered_at | - | - | - | opt |
+
+Windows metrics/inventory 는 추가로 `system.pressure`=null 강제 + `lvm_vgs` 금지(H절).
+
+---
+
+## D. Base 단위
+
+OTel/Prometheus 정본. Windows-ism(100ns)·sectors·jiffies·% 는 에이전트가 base 로 정규화 후 발행.
+
+| unit | 의미 |
+|------|------|
+| s | 시간(초, float) |
+| By | 바이트 |
+| bit/s | 링크속도 |
+| 1 | ratio (0..1, % 아님) |
+| operations | I/O 연산 카운트 |
+| packets | 패킷 카운트 |
+| errors | 오류 카운트 |
+| segments | TCP 세그먼트 카운트 |
+| connections | conntrack 엔트리 카운트 |
+| events | 이벤트 카운트(oom_kill·mce) |
+| tasks | 프로세스/스레드 카운트(run_queue·blocked) |
+| cpu | 논리 CPU 개수(cpu.logical.count·cgroup.cpu.limit) |
+| inodes | inode 카운트 |
+
+---
+
+## E. Device 안정키 정책
+
+metric `attr.device` 와 inventory `block_devices[].id`/`parent`, `net_interfaces[].id` 는 이름(`dm-N`, perflib `0 C:`, Windows NIC `tap...`)이 재부팅·디스크추가에 바뀌므로 안정 id 를 조인 키로 쓴다. 단일 필드로 부족(fs UUID 없는 stripe/thin LV, GUID 없는 RAW 디스크)이라 계층 폴백 + `id_type` 라벨.
+
+디스크 폴백(non-null 보장): `dm/uuid -> partuuid -> wwid -> serial -> by-id -> by-path -> name`. dm 계열(lvm/crypt/mpath/raid)은 `/sys/block/<kname>/dm/uuid` 항상 존재.
+Windows 폴백: 디스크 `gptid -> mbrsig -> serial(RAW 포함)`, 파티션 `gptid`, 볼륨 `volguid`.
+네트워크: `id` = MAC(`id_type=mac`, OpenStack 포트 MAC). 폴백 Windows `ifguid` / Linux `by-path`. `name` 은 표시용.
+
+id_type enum:
+- block_device: `dm, partuuid, wwid, serial, by-id, by-path, fsuuid, gptid, mbrsig, volguid, name, null`.
+- net_interface: `mac, ifguid, by-path, name, null`.
+
+id + id_type 표현 (inventory vs metrics 이원):
+- inventory: `id`(값) + `id_type`(라벨) 별도 필드. `id` 는 best-effort(nullable).
+- metrics `attr.device`: `"<scheme>:<value>"` prefix 문자열. metric device attr 은 조인 키라 non-null 보장(inventory id 와 보장 수준 다름).
+- metric device prefix scheme 카탈로그: 블록 = `gptid, mbrsig, serial, wwid, by-path, dm, partuuid` / E축 참조(RAID 배열·fs 레벨) = `md, btrfsuuid, fsuuid` / 네트워크 = `mac`. (inventory id_type enum 보다 넓다 — E축 배열 참조 어휘 포함.)
+- `parent` = 부모 노드의 id. root=null. 복수 부모(stripe 멤버)면 같은 id 로 노드 반복, `parent` 만 다름.
+
+---
+
+## F. inventory 메시지
+
+`agent_id` 로 서버에 upsert. envelope + 정적 서술자 + 배열.
+
+### F1. 정적 호스트 서술자 (top-level)
+
+| 필드 | 타입 | 용도 |
+|------|------|------|
+| hostname | string | 전 화면 호스트 표시·식별 |
+| os_id | string \| null | OS 분류(almalinux/ubuntu/windows..)·서비스 분류 OS 분기 |
+| os_version | string \| null | OS EOL 판정(attention)·버전 분포·right-sizing OS 분기 |
+| os_codename | string \| null | OS 표시 라벨 |
+| kernel_version | string \| null | Windows 빌드·Linux 커널 표시·EOL |
+| cpu_model | string \| null | CPU 모델 표시 |
+| cpu_cores | integer \| null | CPU 포화(run_queue/cores)·사이징 목표. metrics `cpu.logical.count` 와 정합 |
+| mem_total_bytes | integer(By) \| null | 메모리 사이징·표시. metrics `memory.limit` 와 동치 |
+| ip_external | array \| null | 외부 IP 목록(표시) |
+
+### F2. block_devices[] (required, 정규화 평면 DAG 노드)
+
+fs -> 물리디스크 확정 매핑(parent-by-id) + 스토리지 3계층(배정/파일시스템/확장여력).
+
+| 필드 | 타입 | 비고 |
+|------|------|------|
+| name | string | 표시용(vdb, Disk0, H:). 키 아님 |
+| type | string | disk/part/lvm/crypt/raid/mpath/dynamic/volume/swap. unknown 문자열 pass-through |
+| size_bytes | integer(By) \| null | |
+| fstype | string \| null | |
+| mountpoint | string \| null | swap 노드는 `[SWAP]` 또는 pagefile 경로 |
+| parent | string \| null | 부모 id. root=null. 복수 부모면 노드 반복 |
+| id | string \| null | 안정 id(E절 폴백). best-effort |
+| id_type | enum(E절) | |
+
+swap 노드 = type=swap, size_bytes = 스왑 할당 크기(Linux 스왑 파티션 / Windows pagefile). 프로비저닝 스펙.
+
+### F3. net_interfaces[] (opt)
+
+| 필드 | 타입 | 비고 |
+|------|------|------|
+| name | string | 표시용(ens3 / Windows 불안정) |
+| id | string \| null | 안정키 = MAC |
+| id_type | enum mac/ifguid/by-path/name/null | |
+| kind | string \| null | physical/loopback/bridge/veth/bond_master/... |
+| speed_mbps | integer \| null | 링크속도(util 분모). virtio 부재 -> null |
+| addresses | array of {address, prefix(int\|null), family(ipv4/ipv6)} | 인터페이스 IP. 서버 IP 표시·토폴로지(L3 서브넷 추론)·right-sizing IP 필터 |
+| gateway | string \| null | default route gateway |
+
+### F4. lvm_vgs[] (opt, Linux 전용 — Windows 발행 금지)
+
+| 필드 | 타입 | 비고 |
+|------|------|------|
+| name | string | |
+| size_bytes | integer(By) \| null | |
+| free_bytes | integer(By) \| null | 확장 여력(3계층째) 실측 — 디스크 추가 없이 바로 붙일 여유 |
+| data_percent / metadata_percent | number \| null | 씬풀 |
+
+Windows 확장여력은 디스크크기 - 파티션합(미할당)으로 엔진이 파생.
+
+### F5. services[] (opt\|null) / listen_ports[] (required)
+
+서비스 카테고리 분류(서비스 뱃지·워크로드 역할). USE system.* 재설계 대상 아님 — 서비스 분류 전용.
+
+- `services[]` = {unit, sub, pid(int\|null), exe(string\|null)}. 열거 불가면 null.
+- `listen_ports[]` = {proto(tcp/tcp6/udp/udp6), addr, port(int), uid(int\|null), pid(int\|null), comm(string\|null)}. 분류 우선순위 name -> comm -> port. uid Windows null / pid null=소켓액티베이션(Linux)·권한부족(Windows) / port <= 1024 well-known.
+
+---
+
+## G. system.* metric 카탈로그 (metrics 메시지)
+
+type: t=counter, g=gauge.
+
+### G1. system.cpu (필수)
+
+| metric | type | unit | attr | Linux | Windows | null |
+|--------|---|---|---|---|---|---|
+| cpu.time | t | s | cpu(코어 idx), state | /proc/stat jiffies/CLK_TCK | GetSystemTimes 100ns->s | 미지원 state |
+| cpu.run_queue | g | tasks | source | procs_running | Processor Queue Length | - |
+| cpu.blocked | g | tasks | source | procs_blocked | (없음) | Windows null |
+| cpu.logical.count | g | cpu | - | nproc/sysconf | GetSystemInfo | - |
+| cpu.mce | t | events | (source) | machinecheck+mcelog | WHEA | 소스 부재 |
+
+`cpu.time` state = user/system/nice/idle/iowait/irq/softirq/steal. Windows 는 user/system/idle 만. U = 1 - rate(idle)/Σrate. run_queue.source = procs_running \| processor_queue(OS 신호원 비대칭 노출 — 엔진은 source 로 판별, os_family 분기 불요).
+
+### G2. system.memory (필수)
+
+| metric | type | unit | attr | Linux | Windows | null |
+|--------|---|---|---|---|---|---|
+| memory.usage | g | By | state | /proc/meminfo | GlobalMemoryStatusEx + Available MBytes | 미지원 state |
+| memory.limit | g | By | - | MemTotal | ullTotalPhys | - |
+| memory.commit.usage | g | By | - | Committed_AS | Committed Bytes | - |
+| memory.commit.limit | g | By | - | CommitLimit | Commit Limit | - |
+| memory.oom_kill | t | events | - | vmstat oom_kill(4.13+) | (없음) | 커널<4.13 / Windows null |
+| memory.hardware_corrupted | g | By | - | HardwareCorrupted | (WHEA) | 소스 부재 |
+
+`memory.usage` state = used/free/cached/buffered/available. available(MemAvailable / Available MBytes) = 회수 반영 실가용 — 엔진 압박 = 1 - available/limit(used% 아님). 3.14 미만 커널은 MemFree+Buffers+Cached 폴백 or null.
+
+### G3. system.paging (opt)
+
+| metric | type | unit | attr | Linux | Windows |
+|--------|---|---|---|---|---|
+| paging.operations | t | operations | direction(in/out), type(major/minor) | vmstat pswpin/pswpout, pgmajfault | Pages Input/Output/sec |
+
+swapless Linux 는 direction=out 상시 0(실측) -> PSI/commit 이 포화 커버.
+
+### G4. system.disk (필수, per device)
+
+| metric | type | unit | attr | 산출 축 |
+|--------|---|---|---|---|
+| disk.io | t | By | device, direction(read/write) | throughput |
+| disk.operations | t | operations | device, direction | IOPS |
+| disk.io_time | t | s | device | U축 = %util(busy 분율) |
+| disk.operation_time | t | s | device, direction | S축 = await(Δoperation_time/Δoperations) |
+| disk.pending_operations | g | operations | device | S축 보조 = queue |
+| disk.errors | t | errors | device, kind, class, (member) | E축 |
+
+Linux 소스: diskstats(sectors*512 -> By, io_ticks/time_reading ms->s, in_flight). Windows: perflib(Disk Read/Write Bytes/sec, Avg. Disk sec/Read·Write, Current Disk Queue Length, query_time - %Idle Time). IOCTL 성능경로 폐기.
+`disk.errors` 는 단일 counter + attr 로 통합: `{kind: mdraid, class: member_errors|degraded, member: vdf}`, `{kind: btrfs, class: corruption}`, `{kind: ext4, class: errors_count}`, Windows `{kind: eventlog}`. 정상 시 0.
+
+### G5. system.filesystem (opt, per mount)
+
+| metric | type | unit | attr | Linux | Windows | null |
+|--------|---|---|---|---|---|---|
+| filesystem.usage | g | By | device, mountpoint, type, state(used/free) | statvfs + /proc/mounts | GetDiskFreeSpaceEx | RAW/BitLocker 용량 null |
+| filesystem.inodes.usage | g | inodes | device, mountpoint, state(used/free) | statvfs | (없음) | Windows null |
+
+### G6. system.network (필수, per interface / host)
+
+| metric | type | unit | attr | Linux | Windows | null |
+|--------|---|---|---|---|---|---|
+| network.io | t | By | device, direction(receive/transmit) | /proc/net/dev | MIB_IF_ROW2 | - |
+| network.packets | t | packets | device, direction | /proc/net/dev | MIB_IF_ROW2 | - |
+| network.errors | t | errors | device, direction | /proc/net/dev errs | In/OutErrors | - |
+| network.dropped | t | packets | device, direction | /proc/net/dev drop | In/OutDiscards | - |
+| network.link.speed | g | bit/s | device | /sys/class/net/*/speed | TransmitLinkSpeed | virtio/가상 -> null |
+| network.tcp.retransmits | t | segments | (host 전역) | /proc/net/snmp RetransSegs | MIB_TCPSTATS | - |
+| network.conntrack.usage | g | connections | (host 전역) | nf_conntrack_count | (미발행) | 모듈 미로드 null |
+| network.conntrack.limit | g | connections | (host 전역) | nf_conntrack_max | (미발행) | 미로드 null |
+
+link.speed null 이면 네트워크 U(io/speed) 미산출(수용). retransmits/conntrack/errors/dropped = E축(사이징 아님). Windows 는 conntrack metric 자체 미발행(개념 부재).
+
+### G7. system.pressure (opt, PSI — Linux 4.20+)
+
+| metric | type | unit | attr | 소스 |
+|--------|---|---|---|---|
+| pressure.stall.ratio | g | 1 | resource(cpu/memory/io), scope(some/full), window(10/60/300) | /proc/pressure/* avg |
+| pressure.stall.time | t | s | resource, scope | /proc/pressure/* total(us->s) |
+
+Windows 는 `system.pressure` 네임스페이스 전체가 null. 14일 saturation canonical = `pressure.stall.time`(K절·I절).
+
+### G8. system.cgroup (opt, 컨테이너 배포 시만 — VM 이면 전체 null)
+
+| metric | type | unit | attr |
+|--------|---|---|---|
+| cgroup.cpu.limit | g | cpu | - |
+| cgroup.cpu.throttled.time | t | s | - |
+| cgroup.memory.limit | g | By | - |
+| cgroup.memory.events | t | events | type(oom/high) |
+
+---
+
+## H. os_family 조건부
+
+| 조건 | 강제 |
+|------|------|
+| message_type=metrics | required system.cpu/memory/disk/network |
+| message_type=inventory | required block_devices + F1 정적 서술자 |
+| (metrics\|inventory) AND os_family=windows | system.pressure MUST be null + lvm_vgs 금지 |
+
+Windows 비대칭: PSI 전체 null / lvm_vgs 금지 / cpu.blocked null / memory.oom_kill·hardware_corrupted null / filesystem.inodes.usage null / conntrack 미발행 / signal_no 항상 null / cpu.time state=user·system·idle 만.
+구커널(EL6/7·SLES11-12·Debian10): PSI null / memory available 3.14 미만 폴백 / oom_kill 4.13 미만 null. swapless 사각은 PSI 로 보강(폴백 대체 아님).
+
+---
+
+## I. USE 매핑 (Layer 2, 엔진 해석 — wire 아님)
+
+| 자원 | 축 | 산출 |
+|------|---|------|
+| CPU | U | 1 - rate(cpu.time[idle]) / Σrate(cpu.time) |
+| CPU | S | pressure(cpu,some) 우선, 없으면 cpu.run_queue/cpu_cores |
+| CPU | 인과 | cpu.blocked(D-state) = disk->cpu 인과 게이트 |
+| Memory | U | 1 - memory.usage[available]/memory.limit |
+| Memory | S | pressure(memory) 우선, 없으면 paging.operations[out] rate \| commit.usage/commit.limit |
+| Disk | U | rate(disk.io_time) (busy 비율) |
+| Disk | S | Δdisk.operation_time/Δdisk.operations(await) 우선, disk.pending_operations 보조 |
+| Disk | E | rate(disk.errors) |
+| Network | U | rate(network.io)/network.link.speed (speed null 시 미산출) |
+| Network | E | rate(network.errors)+dropped+tcp.retransmits+conntrack |
+
+14일 saturation canonical = `pressure.stall.time`(counter 적분). saturation(14일) = Δstall.time/Δwall(시간가중 평균 압박, 표본 손실 0). `ratio`(avg10 점표본)를 14일 창에 쓰면 표본 사이 stall 손실·평활 편향 -> 실시간 참고용만.
+E축은 사이징 숫자 미반영 — 자원 fault 시 그 자원 U/S confidence 하향(steal_biased 동형) + attention 경보로만.
+
+---
+
+## J. task.result / error body
+
+v2 envelope + 평면 body. `additionalProperties:false`.
+
+### J1. task.result
+
+발행 워커가 수집 캐시와 분리되어 `boot_time`/`agent_started_at` 항상 null. `task_id` 로 매칭(composite_id 불요).
+
+| 필드 | 타입 | required |
+|------|------|----------|
+| schema_version / message_type / message_id / agent_id / agent_version | (const/string) | R |
+| hostname / os_family | string/enum | R |
+| os_id / os_version / os_codename | string \| null | R |
+| machine_id / boot_time / agent_started_at | string \| null | R(boot_time·agent_started_at 항상 null) |
+| collected_at / completed_at | ISO8601 | R |
+| task_id / status | string | R |
+| failure_reason | string \| null | R |
+| exit_code | integer \| null | R |
+| signal_no | integer \| null | R |
+| task_policy | boolean \| null | opt |
+| duration_ms | integer >= 0 | R |
+| stdout_tail / stderr_tail | string | R |
+
+종료 신호(POSIX wait status): 정상종료=exit_code / 시그널종료=signal_no / 미포착=둘 다 null. exit_code·signal_no 상호배타, Windows signal_no 항상 null. `task_policy`(bool\|null)는 exit_code 보다 우선.
+
+### J2. error
+
+수집/발행 실패 이벤트.
+
+| 필드 | 타입 | required |
+|------|------|----------|
+| schema_version / message_type / agent_id / message_id / collected_at / os_family | | R |
+| error_code | string minLen1 | R |
+| error_message | string | R |
+| failed_component | string minLen1 | R (자유 문자열 — Literal 로 좁히면 유효 메시지 DLQ) |
+| agent_version / composite_id / machine_id / boot_time / agent_started_at | | opt |
+| retry_count | integer >= 0 | opt |
+| first_failed_at / recovered_at | ISO8601 | opt |
+
+---
+
+## K. counter reset · 멱등성
+
+- counter reset(재부팅·agent재시작·wraparound)은 값-감소로 나타난다. 게이트 = envelope `boot_time`(재부팅) + `agent_started_at`(agent 재시작) — 시계열 테이블 공통 저장, 변화 시 reset 정밀 식별.
+- 엔진 집계 = TimescaleDB continuous aggregate + timescaledb_toolkit `counter_agg` 가 값-감소 기준 reset 을 일률 처리. hand-rolled LAG + boot_time gate 부활 금지.
+- 멱등성 2단 = `safe_set_nx(idempotent:{message_id}, 24h)` 1단 fail-open + 시계열 자연키 UNIQUE + `on_conflict_do_nothing` 2단.
+
+routing key(broker 토폴로지)는 `message_type`(body 판별자)과 별개 — `docs/reference/rabbitmq.md`.

@@ -223,17 +223,20 @@ def mem_pressure_active(pages_input_rate: float | None, pageout_delta: int | Non
 
 
 def mem_saturated(stats: ResourceStats) -> bool | None:
-    """메모리 포화 여부 — OS별 raw 신호를 통일 축으로 정규화 (원칙 P2, os-aware).
+    """메모리 포화 여부 — dual-gate: 이용률 높음 AND 페이징 발생 (원칙 P2, os-aware).
 
-    Linux: active page-out 발생(mem_swap_paging = pswpin/pswpout rate > 0). 정적 스왑 점유(swap_used)가
-           아니다 — Linux 는 swappiness 로 여유 RAM 에도 유휴 페이지를 스왑아웃하므로 점유는 압박 신호가
-           아니고, 실제 페이징 발생만이 포화(USE Method: saturation = paging rate, 계층1). swapless 는
-           page-out 이 없어 항상 False(이용률이 주신호). page-out 은 항상 관측되므로 None 없음(측정됨).
-    Windows: Memory\\Pages Input/sec rate p95 >= WIN_PAGES_INPUT_SATURATION(하드 폴트, mmap 미혼입).
-             pagefile 사용량은 여유 RAM 에도 상시 baseline 이라 사용량이 아닌 하드폴트율을 신호로 사용.
-    Windows 에서 하드폴트율 None 이면 None -> assess 가 unmeasured("mem_saturation")로 표시.
+    Gate0 확정: paging 단독은 mmap/프로세스 시작의 정상 하드폴트를 오탐하고(RAM 여유 많은 mmap DB 를
+    포화로 오인), 이용률 단독은 페이지캐시로 90% 찬 정상을 오탐한다. 둘 다 참일 때만 포화 —
+    이용률 p95 >= RS_MEM_UNDER_PCT AND 페이징 발생. oom 은 별도로 즉시 under(assess_memory).
+    - Linux 페이징 = mem_swap_paging(paging_major refault rate sustained, build_resource_stats 배선).
+    - Windows 페이징 = Pages Input/sec p95 >= WIN_PAGES_INPUT_SATURATION(하드 폴트, mmap 미혼입).
+    이용률 미측정(None)이면 gate 불가 -> None(assess 가 unmeasured/oom 로 처리).
     assess·report·attention 이 본 helper 단일 진실 경유 (임계 재계산 금지).
     """
+    if stats.mem_p95_pct is None:
+        return None  # 이용률 미측정 -> dual-gate 불가
+    if stats.mem_p95_pct < RS_MEM_UNDER_PCT:
+        return False  # 이용률 낮음 -> 페이징 있어도 포화 아님(mmap/시작 폴트 오탐 차단)
     if stats.os_family == "windows":
         if stats.mem_pages_input_rate_p95 is None:
             return None
@@ -348,7 +351,7 @@ RS_CPU_SAT_HEADROOM = 0.7  # 여유 기준 — 증설 시 실행큐/코어를 �
 RS_CPU_PERCORE_HOLD_PCT = 85  # 여유 기준 — 어느 코어든 p95 >= 85%면 다운사이즈/유휴 보류(단일스레드 보호)
 RS_CPU_STEAL_BIAS_PCT = 5  # 여유 기준 — steal p95 >= 5%면 하이퍼바이저 경합으로 util/sat 오염(충실도 편향 단서)
 RS_MEM_UNDER_PCT = 90  # 계층3 Azure Advisor(CPU·메모리 >= SKU 90% 시 resize)
-RS_MEM_SIZING_TARGET_PCT = 70  # 계층3 AWS 최보수(30% headroom)
+RS_MEM_SIZING_TARGET_PCT = 80  # 계층3 AWS 기본(20% headroom) — Gate0 확정(비용 최적 방향)
 RS_DISK_RUNWAY_DAYS = 30  # 여유 기준 — 소진 30일 전 스토리지 추가 권고(lead time)
 RS_DISK_TARGET_RUNWAY_DAYS = 365  # 확장 목표 수명 — 현재 성장률로 1년 버티는 총 용량 산출(report_aggregate)
 # 성장률 외삽을 신뢰할 최소 관측 span — 사이징 창(WINDOW_DAYS)만큼은 봐야 rate 를 1년으로 외삽. 짧으면 spike 과외삽.
@@ -515,7 +518,7 @@ def assess_cpu(stats: ResourceStats) -> ResourceAssessment:
 
 
 def _mem_target_mb(util_pct: float, total_mb: int | None) -> int | None:
-    """메모리 사이징 — 이용률 70% 착지. total * util / 70 (절벽이라 CPU보다 여유 큼)."""
+    """메모리 사이징 — 이용률 80% 착지(Gate0 확정). total * util / 80."""
     if total_mb is None or util_pct <= 0:
         return None
     return math.ceil(total_mb * util_pct / RS_MEM_SIZING_TARGET_PCT)

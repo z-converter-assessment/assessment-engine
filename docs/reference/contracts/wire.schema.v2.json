@@ -151,7 +151,6 @@
         "schema_version":   { "const": "2.0" },
         "message_type":     { "const": "error" },
         "message_id":       { "type": "string", "minLength": 1 },
-        "hostname":         { "type": "string", "$comment": "add_common_metadata 공통 경로가 항상 발행(inventory/metrics/error)" },
         "agent_id":         { "type": "string", "minLength": 1 },
         "agent_version":    { "type": "string", "minLength": 1 },
         "composite_id":     { "type": ["string", "null"] },
@@ -167,7 +166,7 @@
         "first_failed_at":  { "$ref": "#/$defs/iso8601" },
         "recovered_at":     { "$ref": "#/$defs/iso8601" }
       },
-      "required": ["schema_version", "message_type", "agent_id", "message_id", "hostname", "collected_at",
+      "required": ["schema_version", "message_type", "agent_id", "message_id", "collected_at",
                    "os_family", "error_code", "error_message", "failed_component"]
     }
   },

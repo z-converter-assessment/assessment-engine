@@ -1,125 +1,148 @@
+"""인바운드 저장 DTO (wire v2 -> DB). mapper 가 datapoint-array 를 순회해 채운다.
+
+단위 canonical: 시간 s(Float), 크기 By(int). device 축 = 안정 id 문자열(이름 아님). null=미측정 보존.
+"""
+
 from dataclasses import dataclass, field
 from datetime import datetime
 
 
 @dataclass
 class ServerInventoryCreate:
-    # message_id는 consumer 멱등성 체크 전용 — DTO 미포함.
-    agent_id: str  # 식별 단일 키 (UUID str) — DB agent_id UNIQUE·MQ 라우팅
-    composite_id: str | None  # SHA-256(machine_id+MAC). 감사·표시용 강등 (식별 미사용)
-    machine_id: str | None  # raw machine-id, 표시 전용
+    # message_id 는 consumer 멱등성 체크 전용 — DTO 미포함.
+    agent_id: str  # 식별 단일 키(UUID str) — DB agent_id UNIQUE·MQ 라우팅
+    composite_id: str | None  # SHA-256 감사·표시용 강등(식별 미사용)
+    machine_id: str | None
     hostname: str
-    agent_version: str
+    agent_version: str | None
     collected_at: datetime
     boot_time: datetime | None
     agent_started_at: datetime | None
 
-    os_family: str | None  # "linux" | "windows" — task.install dispatch 단일 진실 (ADR 0020)
+    os_family: str | None  # linux|windows — task.install dispatch 단일 진실
     os_id: str | None
     os_version: str | None
     os_codename: str | None
     kernel_version: str | None
     cpu_cores: int | None
     cpu_model: str | None
-    mem_total_kb: int | None
-    swap_total_kb: int | None
-    interfaces: list[dict]  # JSONB — [{name, address, prefix, family, kind, gateway}]
+    mem_total_bytes: int | None  # v2 By (v1 kB 폐기). swap 은 block_devices type=swap 노드
+
+    # 정규화 스토리지/네트워크 그래프 — JSONB pass-through(단일행 upsert·history 미러 정합).
+    block_devices: list[dict]  # [{name,type,size_bytes,fstype,mountpoint,parent,id,id_type}]
+    net_interfaces: list[dict]  # [{name,id,id_type,kind,speed_mbps,addresses:[{address,prefix,family}],gateway}]
+    lvm_vgs: list[dict]  # [{name,size_bytes,free_bytes,data_percent,metadata_percent}] (Linux 전용)
     ip_external: list[str] | None
-    mac_addresses: list[str]  # NIC MAC 목록 (clone collision 감사용, 식별 미사용)
-    disks: list[dict]  # JSONB — [{name, size_bytes, type, major, minor, kind}]
-    mounts: list[dict]  # JSONB — [{mount, fstype, total_bytes, major, minor, kind}]
-    services: list[dict] | None  # JSONB — [{unit, sub, pid, exe}] | None (non-systemd host)
-    listen_ports: list[dict]  # JSONB — [{proto, addr, port, uid, pid, comm}]
-    # 서비스 카테고리 집합 (ingest 사전계산, service_classifier.compute_service_categories). read 경로 뱃지 단일 진실.
+    services: list[dict] | None  # [{unit,sub,pid,exe}] | None
+    listen_ports: list[dict]  # [{proto,addr,port,uid,pid,comm}]
+    # 서비스 카테고리 집합 (ingest 사전계산). read 경로 뱃지 단일 진실.
     service_categories: list[str]
 
 
-# metrics 는 inventory(JSONB dict) 와 달리 4개 시계열 테이블 행에 매핑 — dataclass 타입 보장.
+# ─── 시계열 nested 행 (datapoint-array -> dataclass 타입 보장) ───
 
 
 @dataclass
 class DiskIoEntry:
-    device: str
-    reads_completed: int | None
-    writes_completed: int | None
-    sectors_read: int | None
-    sectors_written: int | None
-    kind: str | None = None
-    # ADR 0052 await 원자료(ms 누적) + 참고
-    time_reading_ms: int | None = None
-    time_writing_ms: int | None = None
-    io_ticks_ms: int | None = None
-    weighted_io_ms: int | None = None
+    # device_id = 안정 id 문자열("<scheme>:<value>"). device_name = 표시명(nullable).
+    device_id: str
+    device_name: str | None = None
+    io_read_bytes: int | None = None  # disk.io direction=read (By counter)
+    io_write_bytes: int | None = None
+    ops_read: int | None = None  # disk.operations direction=read
+    ops_write: int | None = None
+    io_time_s: float | None = None  # disk.io_time (%util 산출, s counter)
+    op_read_time_s: float | None = None  # disk.operation_time direction=read (await 산출, s counter)
+    op_write_time_s: float | None = None
+    pending_ops: float | None = None  # disk.pending_operations (queue gauge)
 
 
 @dataclass
 class NetIoEntry:
-    interface: str
-    rx_bytes: int | None
-    tx_bytes: int | None
-    rx_packets: int | None
-    tx_packets: int | None
-    rx_errors: int | None
-    tx_errors: int | None
-    kind: str | None = None
-    # ADR 0052 드롭 (품질)
-    rx_drops: int | None = None
-    tx_drops: int | None = None
+    iface_id: str  # 안정키 = MAC ("mac:..")
+    iface_name: str | None = None
+    rx_bytes: int | None = None
+    tx_bytes: int | None = None
+    rx_packets: int | None = None
+    tx_packets: int | None = None
+    rx_errors: int | None = None
+    tx_errors: int | None = None
+    rx_dropped: int | None = None
+    tx_dropped: int | None = None
+    link_speed_bps: int | None = None  # network.link.speed (bit/s gauge, virtio null)
 
 
 @dataclass
-class MountUsageEntry:
-    mount: str
-    total_bytes: int | None
-    free_bytes: int | None
-    avail_bytes: int | None
-    kind: str | None = None
-    # ADR 0052 inode
-    inodes_total: int | None = None
+class FilesystemEntry:
+    # filesystem.usage/inodes.usage (gauge, 시점값). device_id + mountpoint 병기.
+    mountpoint: str
+    device_id: str | None = None
+    fstype: str | None = None
+    used_bytes: int | None = None
+    free_bytes: int | None = None
+    inodes_used: int | None = None
     inodes_free: int | None = None
 
 
 @dataclass
 class CpuCoreEntry:
-    # per-core jiffies — core_id = cpu_per_core[] 위치 인덱스(/proc/stat cpu0..N). server_cpu_core 저장.
+    # per-core seconds (cpu.time attr.cpu). core_id = 논리 코어 인덱스.
     core_id: int
-    cpu_user: int | None
-    cpu_nice: int | None
-    cpu_system: int | None
-    cpu_idle: int | None
-    cpu_iowait: int | None
-    cpu_irq: int | None
-    cpu_softirq: int | None
-    cpu_steal: int | None
+    cpu_user_s: float | None = None
+    cpu_nice_s: float | None = None
+    cpu_system_s: float | None = None
+    cpu_idle_s: float | None = None
+    cpu_iowait_s: float | None = None
+    cpu_irq_s: float | None = None
+    cpu_softirq_s: float | None = None
+    cpu_steal_s: float | None = None
 
 
-# ─── Task DTO ──────────────────────────────────────────────────────────────
+@dataclass
+class PressureEntry:
+    # PSI (Linux 4.20+). NK 축 = resource x scope. window(10/60/300)는 ratio 컬럼으로 평탄화.
+    resource: str  # cpu|memory|io
+    scope: str  # some|full
+    stall_time_s: float | None = None  # pressure.stall.time (counter s — 14일 saturation canonical)
+    ratio_avg10: float | None = None  # pressure.stall.ratio window=10 (gauge, 실시간 참고)
+    ratio_avg60: float | None = None
+    ratio_avg300: float | None = None
+
+
+@dataclass
+class DiskErrorEntry:
+    # disk.errors (E축, 가변 차원). 정상 시 0.
+    device_id: str
+    error_kind: str  # mdraid|btrfs|ext4|eventlog|ioerr
+    error_class: str  # member_errors|degraded|corruption|errors_count..
+    member: str | None = None
+    count: int | None = None
+
+
+# ─── Task DTO ───
 
 
 @dataclass
 class TaskCreate:
-    """task 등록 시 — web router → repository."""
+    """task 등록 시 — web router -> repository."""
 
     target_server_id: int
-    target_agent_id: str  # 발행 대상 agent_id (UUID str) — MQ 라우팅·감사 기록
+    target_agent_id: str
     task_type: str
     params: dict | None
-    deadline_at: datetime | None = None  # 응답 마감 (install 발행 시 세팅, 그 외 None)
+    deadline_at: datetime | None = None
 
 
 @dataclass
 class TaskResultUpdate:
-    """task 결과 보고 — MQ → consumer → repository.
-
-    public_id는 결과 보고 메시지의 task_id 값을 그대로 받아 Task.public_id 매칭.
-    """
+    """task 결과 보고 — MQ -> consumer -> repository. public_id = 메시지 task_id 로 Task.public_id 매칭."""
 
     public_id: str
-    status: str  # "success" | "failure"
+    status: str
     failure_reason: str | None
     exit_code: int | None
-    signal_no: int | None  # 시그널 사망 시 시그널 번호 (exit_code 와 상호배타)
-    install_verified: bool | None  # 실제 설치 신호(데몬 기동+등록) — 판정 1순위, 미보고 시 None
+    signal_no: int | None  # 시그널 사망 시 번호 (exit_code 와 상호배타)
+    task_policy: bool | None  # 실제 설치 신호(데몬 기동+등록) — exit_code 보다 우선. 미보고 시 None
     duration_ms: int
     stdout_tail: str
     stderr_tail: str
@@ -128,71 +151,53 @@ class TaskResultUpdate:
 
 @dataclass
 class ServerMetricCreate:
-    # agent_id는 consumer 가 server_id 해석에 사용 — 본 DTO 미포함.
+    # agent_id 는 consumer 가 server_id 해석에 사용 — 본 DTO 미포함.
     # boot_time/agent_started_at: 시계열 행마다 저장, counter reset 정밀 식별 (#C1·#B).
     collected_at: datetime
     boot_time: datetime | None
     agent_started_at: datetime | None
 
-    # /proc/stat CPU jiffies (raw 누적값)
-    cpu_user: int | None
-    cpu_nice: int | None
-    cpu_system: int | None
-    cpu_idle: int | None
-    cpu_iowait: int | None
-    cpu_irq: int | None
-    cpu_softirq: int | None
-    cpu_steal: int | None
+    # CPU 호스트 집계 (cpu.time attr.cpu 합산, s counter)
+    cpu_user_s: float | None = None
+    cpu_nice_s: float | None = None
+    cpu_system_s: float | None = None
+    cpu_idle_s: float | None = None
+    cpu_iowait_s: float | None = None
+    cpu_irq_s: float | None = None
+    cpu_softirq_s: float | None = None
+    cpu_steal_s: float | None = None
+    cpu_logical_count: int | None = None  # cpu.logical.count
+    cpu_run_queue: float | None = None  # cpu.run_queue (gauge)
+    cpu_blocked: float | None = None  # cpu.blocked (D-state gauge)
+    cpu_mce: int | None = None  # cpu.mce (counter)
 
-    # 메모리·스왑 (kB, /proc/meminfo)
-    mem_total_kb: int | None
-    mem_free_kb: int | None
-    mem_available_kb: int | None
-    mem_buffers_kb: int | None
-    mem_cached_kb: int | None
-    swap_total_kb: int | None
-    swap_free_kb: int | None
+    # 메모리 (By)
+    mem_free_bytes: int | None = None
+    mem_cached_bytes: int | None = None
+    mem_buffered_bytes: int | None = None
+    mem_available_bytes: int | None = None
+    mem_used_bytes: int | None = None
+    mem_limit_bytes: int | None = None  # memory.limit
+    mem_commit_usage_bytes: int | None = None
+    mem_commit_limit_bytes: int | None = None
+    mem_hardware_corrupted_bytes: int | None = None
+    mem_oom_kill: int | None = None  # counter
+    # paging (counter)
+    paging_in: int | None = None
+    paging_out: int | None = None
+    paging_major: int | None = None
+    # 네트워크 host-wide (counter/gauge)
+    net_tcp_retransmits: int | None = None
+    net_conntrack_usage: int | None = None
+    net_conntrack_limit: int | None = None
 
-    # load average (/proc/loadavg)
-    load_1m: float | None
-    load_5m: float | None
-    load_15m: float | None
-
-    # saturation (USE Method raw 신호, os-aware 임계는 recommendation) — 미측정 축 None
-    sat_disk_queue: float | None
-    sat_cpu_run_queue: float | None
-    sat_mem_paging_rate: float | None
-
-    # 시계열 nested 행 매핑 (disk_io·mounts·net_io·cpu_per_core)
-    disk_io: list[DiskIoEntry]
-    mounts: list[MountUsageEntry]
-    net_io: list[NetIoEntry]
+    # 시계열 nested 행
+    disk_io: list[DiskIoEntry] = field(default_factory=list)
+    net_io: list[NetIoEntry] = field(default_factory=list)
+    filesystems: list[FilesystemEntry] = field(default_factory=list)
     cpu_per_core: list[CpuCoreEntry] = field(default_factory=list)
-
-    # ADR 0052 신 host-wide 신호 (nullable, optional — agent 미발행 시 None)
-    procs_running: int | None = None
-    procs_blocked: int | None = None
-    schedstat_run_wait_ns: int | None = None
-    pswpin: int | None = None
-    pswpout: int | None = None
-    oom_kill: int | None = None
-    mem_pages_input: int | None = None
-    tcp_retrans_segs: int | None = None
-    tcp_tw: int | None = None
-    conntrack_count: int | None = None
-    conntrack_max: int | None = None
-    # Windows disk await 원자료 (device 합산, 100ns/count 누적) — 엔진 counter_agg delta 로 await 산출
-    sat_disk_read_time: int | None = None
-    sat_disk_write_time: int | None = None
-    sat_disk_read_count: int | None = None
-    sat_disk_write_count: int | None = None
-    sat_disk_idle_time: int | None = None  # %util 참고 (raw 저장만)
-    sat_disk_query_time: int | None = None  # 델타 분모 참고 (raw 저장만)
-    # PSI some total (us 누적) — 관측·검증용, raw 저장만 (분류 미사용)
-    psi_cpu_some_total: int | None = None
-    psi_mem_some_total: int | None = None
-    psi_io_some_total: int | None = None
-    collection_interval_sec: int | None = None  # agent 설정 수집 주기(초) — raw 보존
+    pressure: list[PressureEntry] = field(default_factory=list)
+    disk_errors: list[DiskErrorEntry] = field(default_factory=list)
 
 
 # --- 보고서 발행 job INSERT 입력 ---
@@ -200,11 +205,10 @@ class ServerMetricCreate:
 
 @dataclass
 class DiagnosticJobCreate:
-    """보고서 발행 job INSERT 입력 — id·created_at·status는 DB default가 채움.
+    """보고서 발행 job INSERT 입력 — id·created_at·status 는 DB default.
 
-    job_type: 'customer_report' / 'engineer_report' — 보고서 발행 이력 (비동기 생성, ADR 0040)
-    scope: 'server' | 'environment'
-    input_hash: sha256(scope + canonical(input_params) + job_type) — 캐시·active UNIQUE 키
+    job_type: customer_report / engineer_report. scope: server|environment.
+    input_hash: sha256(scope + canonical(input_params) + job_type) — 캐시·active UNIQUE 키.
     """
 
     scope: str

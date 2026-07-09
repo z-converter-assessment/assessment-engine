@@ -52,10 +52,11 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 본 절 결정:
 - Pydantic Input 모델 `extra=ignore` 유지 — 메시지에 새 필드가 도착해도 엔진은 통과시키고 무시. 비대칭 배포에서 reject 로 엔진이 죽지 않게 함.
 - 활용하지 않는 필드는 mapper drop. 필요해진 시점에 mapper read + inbound DTO 필드 추가를 명시적 결정으로 처리.
-- `agent_version` major bump 수신 시 엔진 코드 수정 트리거. minor bump 는 silent 호환.
+- wire 계약 버전 = envelope `schema_version` (현 "2.0"). 구조 전환은 schema_version 판별(flag-day cutover). `agent_version` major bump 수신 시 엔진 코드 수정 트리거, minor bump silent 호환.
 - `task.result` 메시지는 발행 측 worker 컨텍스트가 수집 캐시와 분리되어 `boot_time` / `agent_started_at` 가 항상 null — 본 메시지에 한해 nullable override. 다른 메시지 타입은 required 유지.
-- `task.result` 종료 신호: `exit_code` / `signal_no` (int\|null) 상호배타 — 정상종료=exit_code / 시그널종료=signal_no / 미포착=둘 다 null (POSIX wait status). `signal_no` 는 `tasks.signal_no` 저장 + task 상세 표시(`mappers/task._signal_label` SIG 이름 라벨). Windows 는 항상 null.
-- 인바운드 DTO 는 wire 계약과 정합: `boot_time` nullable (판독 불가 시 null, `_log_time_invariants` None 가드) / `composite_id` "" -> None 정규화 (digest 실패 흡수) / error `failed_component` 자유 문자열 수용 (wire permissive, `Literal` 로 좁히면 유효 메시지 DLQ). inventory mount 는 free/avail 미발행, metrics mount 는 major/minor 미발행 — DTO·시계열 컬럼 정합 (vestigial 제거, mount-disk 조인 major/minor 는 inventory mount 만).
+- `task.result` 종료 신호: `exit_code` / `signal_no` (int\|null) 상호배타 — 정상종료=exit_code / 시그널종료=signal_no / 미포착=둘 다 null (POSIX wait status). `task_policy`(bool\|null)는 exit_code 보다 우선 판정. `signal_no` 는 `tasks.signal_no` 저장 + task 상세 표시(`mappers/task._signal_label` SIG 이름 라벨). Windows signal_no 항상 null. task_id 로 매칭(composite_id 불요).
+- 인바운드 DTO 는 wire 계약과 정합: `boot_time` nullable (판독 불가 시 null, `_log_time_invariants` None 가드) / `composite_id` "" -> None 정규화 (digest 실패 흡수) / error `failed_component` 자유 문자열 수용 (wire permissive, `Literal` 로 좁히면 유효 메시지 DLQ).
+- 스토리지·디바이스 = `block_devices[]` 정규화 평면 그래프(parent-by-id 조인, major/minor 폐기) + `system.filesystem` usage(state used/free) + `lvm_vgs`(확장여력 free_bytes). 시계열·조인 device 축은 안정 id (디스크 폴백 dm/partuuid/serial/by-path / 네트워크 MAC) — 이름 아님. 상세 = `docs/reference/contracts/agent-data.md` E·F·G절.
 
 ---
 

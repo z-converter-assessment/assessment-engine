@@ -7,6 +7,16 @@ from assessment_engine.db.models.base import Base
 
 
 class ServerMetrics(Base):
+    """호스트 집계 시계열 (wire v2 system.*).
+
+    단위 canonical — CPU 시간 s(Float, cpu.time attr.cpu 합산), 메모리 By(BigInteger). 카운터(cpu 시간·
+    paging·oom·tcp 재전송)는 counter_agg 로 reset-safe 집계 (#C5) — 재부팅/재시작 gate 불요.
+
+    boot_time / agent_started_at 는 본 테이블에만 둔다 (수집 1회당 1행 = envelope) — 재부팅·에이전트 재시작
+    관측 신호 (`_log_time_invariants`·`_track_agent_restart`). 자식 시계열(disk_io·net_io·filesystem·cpu_core·
+    pressure·disk_error)은 동일 (server_id, collected_at) 로 본 행을 참조 — 메타 N중복 회피 (cpu_core 와 동일 규약).
+    """
+
     __tablename__ = "server_metrics"
     __table_args__ = (UniqueConstraint("server_id", "collected_at", name="uq_server_metrics_sid_ts"),)
 
@@ -14,61 +24,42 @@ class ServerMetrics(Base):
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)
     server_id: Mapped[int] = mapped_column(Integer, ForeignKey("server_inventory.id"), nullable=False)
 
-    cpu_user: Mapped[int | None] = mapped_column(BigInteger)
-    cpu_nice: Mapped[int | None] = mapped_column(BigInteger)
-    cpu_system: Mapped[int | None] = mapped_column(BigInteger)
-    cpu_idle: Mapped[int | None] = mapped_column(BigInteger)
-    cpu_iowait: Mapped[int | None] = mapped_column(BigInteger)
-    cpu_irq: Mapped[int | None] = mapped_column(BigInteger)
-    cpu_softirq: Mapped[int | None] = mapped_column(BigInteger)
-    cpu_steal: Mapped[int | None] = mapped_column(BigInteger)
+    # CPU host 집계 (cpu.time attr.cpu 합산, s counter). util% = 1 - delta(idle)/delta(total).
+    cpu_user_s: Mapped[float | None] = mapped_column(Float)
+    cpu_nice_s: Mapped[float | None] = mapped_column(Float)
+    cpu_system_s: Mapped[float | None] = mapped_column(Float)
+    cpu_idle_s: Mapped[float | None] = mapped_column(Float)
+    cpu_iowait_s: Mapped[float | None] = mapped_column(Float)
+    cpu_irq_s: Mapped[float | None] = mapped_column(Float)
+    cpu_softirq_s: Mapped[float | None] = mapped_column(Float)
+    cpu_steal_s: Mapped[float | None] = mapped_column(Float)
+    cpu_logical_count: Mapped[int | None] = mapped_column(Integer)  # cpu.logical.count (정규화 분모)
+    cpu_run_queue: Mapped[float | None] = mapped_column(Float)  # cpu.run_queue (실행 큐 gauge — 포화)
+    cpu_blocked: Mapped[float | None] = mapped_column(Float)  # cpu.blocked (D-state gauge — IO 대기 근본원인)
+    cpu_mce: Mapped[int | None] = mapped_column(BigInteger)  # cpu.mce (Machine Check counter)
 
-    mem_total_kb: Mapped[int | None] = mapped_column(BigInteger)
-    mem_free_kb: Mapped[int | None] = mapped_column(BigInteger)
-    mem_available_kb: Mapped[int | None] = mapped_column(BigInteger)
-    mem_buffers_kb: Mapped[int | None] = mapped_column(BigInteger)
-    mem_cached_kb: Mapped[int | None] = mapped_column(BigInteger)
-    swap_total_kb: Mapped[int | None] = mapped_column(BigInteger)
-    swap_free_kb: Mapped[int | None] = mapped_column(BigInteger)
+    # 메모리 (By). available = 실효 여유, limit = 물리 총량. commit = Windows 커밋 차지.
+    mem_free_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    mem_cached_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    mem_buffered_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    mem_available_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    mem_used_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    mem_limit_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    mem_commit_usage_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    mem_commit_limit_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    mem_hardware_corrupted_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    mem_oom_kill: Mapped[int | None] = mapped_column(BigInteger)  # counter
 
-    load_1m: Mapped[float | None] = mapped_column(Float)
-    load_5m: Mapped[float | None] = mapped_column(Float)
-    load_15m: Mapped[float | None] = mapped_column(Float)
+    # paging (counter) — in/out = 스왑 방향, major = 하드 폴트(디스크 재적재). Linux 메모리 포화 주신호.
+    paging_in: Mapped[int | None] = mapped_column(BigInteger)
+    paging_out: Mapped[int | None] = mapped_column(BigInteger)
+    paging_major: Mapped[int | None] = mapped_column(BigInteger)
 
-    # saturation (USE Method raw 신호) — os-aware 임계는 recommendation. 미측정 축 NULL (Windows=disk_queue만).
-    sat_disk_queue: Mapped[float | None] = mapped_column(Float)
-    sat_cpu_run_queue: Mapped[float | None] = mapped_column(Float)
-    sat_mem_paging_rate: Mapped[float | None] = mapped_column(Float)
-    # Windows disk await 원자료 — saturation.disk_queue[] IOCTL_DISK_PERFORMANCE ReadTime/WriteTime(100ns 누적)·
-    # ReadCount/WriteCount 를 device 합산 저장. 엔진 counter_agg delta(time)/delta(count) 로 await 산출(Linux 등가,
-    # ADR 0052 Phase 1). IOCTL 미부착(구세대 viostor)이면 disk_queue[] 빈 배열 -> NULL(포화 미관측).
-    sat_disk_read_time: Mapped[int | None] = mapped_column(BigInteger)
-    sat_disk_write_time: Mapped[int | None] = mapped_column(BigInteger)
-    sat_disk_read_count: Mapped[int | None] = mapped_column(BigInteger)
-    sat_disk_write_count: Mapped[int | None] = mapped_column(BigInteger)
-    sat_disk_idle_time: Mapped[int | None] = mapped_column(BigInteger)  # %util 참고 (raw)
-    sat_disk_query_time: Mapped[int | None] = mapped_column(BigInteger)  # 델타 분모 참고 (raw)
+    # 네트워크 host-wide. tcp_retransmits = 품질 counter. conntrack = 현재/상한 gauge (포화 근접).
+    net_tcp_retransmits: Mapped[int | None] = mapped_column(BigInteger)
+    net_conntrack_usage: Mapped[int | None] = mapped_column(Integer)
+    net_conntrack_limit: Mapped[int | None] = mapped_column(Integer)
 
-    # ADR 0052 신 신호 (전부 nullable — agent optional 발행, 없으면 null). raw 카운터, 엔진이 델타/비율/임계 산출.
-    procs_running: Mapped[int | None] = mapped_column(Integer)  # 실행 큐 (/proc/stat)
-    procs_blocked: Mapped[int | None] = mapped_column(Integer)  # D-state IO 블록 — 근본원인 판별
-    schedstat_run_wait_ns: Mapped[int | None] = mapped_column(BigInteger)  # runqueue 대기 누적(적분)
-    pswpin: Mapped[int | None] = mapped_column(BigInteger)  # 스왑 in 누적 (/proc/vmstat)
-    pswpout: Mapped[int | None] = mapped_column(BigInteger)  # 스왑 out 누적 — Linux 메모리 포화·근본원인
-    oom_kill: Mapped[int | None] = mapped_column(BigInteger)  # OOM 누적 (4.13+)
-    mem_pages_input: Mapped[int | None] = mapped_column(BigInteger)  # Windows Pages Input raw (하드 read 폴트)
-    tcp_retrans_segs: Mapped[int | None] = mapped_column(BigInteger)  # TCP 재전송 누적 — 품질
-    tcp_tw: Mapped[int | None] = mapped_column(Integer)  # TIME_WAIT 소켓 수 (gauge)
-    conntrack_count: Mapped[int | None] = mapped_column(Integer)  # conntrack 현재
-    conntrack_max: Mapped[int | None] = mapped_column(Integer)  # conntrack 상한
-    # PSI some total (us 누적, 4.20+) — 관측·검증용 raw 저장(분류 미사용, agent 발행값 보존).
-    psi_cpu_some_total: Mapped[int | None] = mapped_column(BigInteger)
-    psi_mem_some_total: Mapped[int | None] = mapped_column(BigInteger)
-    psi_io_some_total: Mapped[int | None] = mapped_column(BigInteger)
-    # agent 설정 수집 주기(초) — 표본 충분성 참고. agent 발행값 보존(현재 소비 없음, expected_samples 는 5분 가정).
-    collection_interval_sec: Mapped[int | None] = mapped_column(Integer)
-
-    # counter reset 정밀 식별 (#C1·#B) — boot_time 차이=재부팅,
-    # agent_started_at만 차이=에이전트 재시작(/proc 카운터는 그대로).
+    # envelope 관측 신호 (재부팅·에이전트 재시작 식별). 자식 시계열은 미보유 (본 행 참조).
     boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     agent_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

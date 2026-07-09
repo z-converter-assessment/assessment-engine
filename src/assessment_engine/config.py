@@ -62,8 +62,8 @@ class WebSettings(BaseSettings):
     redis_key_token: str = "token:{}"
     redis_key_last_agent_start: str = "last_agent_start:{}"
     redis_key_agent_restarts: str = "agent_restarts:{}"
-    # {agent_id}:{hostname} 쿨다운 마커 (#C1)
-    redis_key_time_invariant_warned: str = "time_invariant_warned:{}:{}"
+    # {agent_id} 쿨다운 마커 — agent_id 가 식별 단일 키 (#C1)
+    redis_key_time_invariant_warned: str = "time_invariant_warned:{}"
 
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
     # 운영 alert 튜닝 노브 — env 카탈로그 미수록(env.example·env.md), 필요 시 env override.

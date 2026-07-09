@@ -26,9 +26,10 @@ CLAUDE.md는 결정·금지를, reference는 구현 방식을 담는다 — 둘�
 ## 지도
 
 reference/ (지금 어떻게 도나):
-- `contracts/agent-data.md` — 에이전트 메시지 데이터 계약 (필드 카탈로그·값 의미론·OS별 차이). 얼어붙은 외부 인터페이스.
+- `contracts/agent-data.md` — 에이전트 메시지 데이터 계약 wire v2 (envelope + system.* datapoint-array + inventory, 필드 카탈로그·값 의미론·OS별 차이). 기계검증 정본 = `contracts/wire.schema.v2.json`(JSON Schema) + `contracts/v2-example-messages.json`(예시 6종). 얼어붙은 외부 인터페이스.
 - `contracts/env.md` — 환경변수 계약 (키 카탈로그·secret 채널·prod 검증).
 - `consumer.md` · `rabbitmq.md` · `redis.md` · `right-sizing.md` · `observability.md` — subsystem 동작 + 각자 "한계" 절.
+- `right-sizing-thresholds.md` — 자원 적정성 임계치·근거 인간가독 정본 (5자원 x USE 3축, 신호·임계·basis·robustness). `right-sizing.md` 는 판정 명세, 본 문서는 임계 수치·근거.
 - `db/` — models · dtos · repositories · timescaledb.
 - `web/` — layering · routers · services · view-models · static-assets · export-schema.
 

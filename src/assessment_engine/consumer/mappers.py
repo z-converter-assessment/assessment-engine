@@ -1,86 +1,262 @@
-from assessment_engine.consumer.metric_normalize import clamp_ceiling
-from assessment_engine.consumer.schemas import InventoryInput, MetricsInput, SaturationInfo
+"""wire v2 파싱 — datapoint-array(system.*) + inventory 배열 -> 저장 DTO.
+
+각 metric 의 points 를 attr(device/state/direction/resource/scope/window)로 조회·그룹핑한다.
+null=미측정 보존(0 날조 금지, #B). CPU host 집계는 cpu.time attr.cpu 합산 + per-core 병행 저장.
+"""
+
+from assessment_engine.consumer.schemas import Datapoint, InventoryInput, MetricsInput, Namespace
 from assessment_engine.db.dtos.inbound import (
     CpuCoreEntry,
+    DiskErrorEntry,
     DiskIoEntry,
-    MountUsageEntry,
+    FilesystemEntry,
     NetIoEntry,
+    PressureEntry,
     ServerInventoryCreate,
     ServerMetricCreate,
 )
-
-# 분류 단일 진실(service_classifier)을 ingest 가 호출 — 순수 함수라 레이어 결합 없음(인프라 DI 아님, F4).
 from assessment_engine.service_classifier import compute_service_categories
 
-
-def _max_disk_queue(sat: SaturationInfo | None) -> float | None:
-    """per-disk 큐 배열 -> 가장 큰 디스크당 큐 (saturation 판정용, 합 아님). 빈/전부 None 이면 None.
-
-    agent 가 디스크별 [{device, queue}] 발행 -> 엔진은 "가장 바쁜 디스크" 큐만 저장(server_metrics.sat_disk_queue).
-    합·정규화 우회 제거 — 디스크당 임계로 바로 판정 (recommendation.disk_io_saturated).
-    """
-    if sat is None or not sat.disk_queue:
-        return None
-    queues = [e.queue for e in sat.disk_queue if e.queue is not None]
-    return max(queues) if queues else None
+# ─── datapoint 조회 헬퍼 ───
 
 
-def _await_fields(sat: SaturationInfo | None) -> dict[str, int | None]:
-    """per-disk IOCTL await 원자료 -> device 합산 sat_disk_{read,write}_{time,count} dict.
-
-    Windows disk_io 가 시스템 전역 단일 엔트리라 disk await 도 device 합산으로 시스템 전역 응답 지연 산출
-    (엔진 counter_agg delta(time)/delta(count)). 값 없는 축(구세대 viostor IOCTL 미부착 -> 빈 배열)은 None 유지
-    (0 날조 금지 — counter_agg 가 NULL 을 미관측으로 흡수). 축별로 하나라도 실측 있으면 그 축 합산.
-    """
-    entries = sat.disk_queue if (sat and sat.disk_queue) else []
-
-    def _sum(attr: str) -> int | None:
-        vals = [getattr(e, attr) for e in entries if getattr(e, attr) is not None]
-        return sum(vals) if vals else None
-
-    return {
-        "sat_disk_read_time": _sum("read_time"),
-        "sat_disk_write_time": _sum("write_time"),
-        "sat_disk_read_count": _sum("read_count"),
-        "sat_disk_write_count": _sum("write_count"),
-        "sat_disk_idle_time": _sum("idle_time"),
-        "sat_disk_query_time": _sum("query_time"),
-    }
+def _points(ns: Namespace | None, metric: str) -> list[Datapoint]:
+    m = ns.get(metric) if ns else None
+    return m.points if m else []
 
 
-def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
-    """metrics 메시지로부터 최소 정보의 placeholder inventory 생성.
+def _match(pts: list[Datapoint], **attrs: object) -> float | None:
+    """attr 전부 일치하는 첫 point value. None 값 attr = 그 키 부재 요구(get None). 없으면 None."""
+    for p in pts:
+        if all(p.attr.get(k) == v for k, v in attrs.items()):
+            return p.value
+    return None
 
-    agent_id 미등록 상태에서 metrics 가 도착하면 drop 하지 않기 위한 임시 등록. 정적 정보는
-    None/빈 배열로 두고, 다음 진짜 inventory 도착 시 `upsert_server` ON CONFLICT DO UPDATE 로 덮어씀.
-    """
-    return ServerInventoryCreate(
-        agent_id=str(data.agent_id),
-        composite_id=data.composite_id,
-        machine_id=data.machine_id,
-        hostname=data.hostname,
-        agent_version=data.agent_version,
+
+def _scalar(ns: Namespace | None, metric: str) -> float | None:
+    """단일 point metric(attr 무관, cpu.logical.count·memory.limit·conntrack 등)의 값."""
+    pts = _points(ns, metric)
+    return pts[0].value if pts else None
+
+
+def _int(v: float | None) -> int | None:
+    return int(v) if v is not None else None
+
+
+def _state_sum(pts: list[Datapoint], state: str) -> float | None:
+    """cpu.time 을 attr.cpu 전 코어 합산(host 집계). 실측 하나라도 있으면 합, 전부 None 이면 None."""
+    vals = [p.value for p in pts if p.attr.get("state") == state and p.value is not None]
+    return sum(vals) if vals else None
+
+
+def _distinct(pts_lists: list[list[Datapoint]], key: str) -> list[str]:
+    seen: dict[str, None] = {}
+    for pts in pts_lists:
+        for p in pts:
+            v = p.attr.get(key)
+            if isinstance(v, str):
+                seen.setdefault(v, None)
+    return list(seen)
+
+
+# ─── metrics ───
+
+
+def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
+    cpu_ns, mem_ns, disk_ns, net_ns = data.system_cpu, data.system_memory, data.system_disk, data.system_network
+    pag_ns, fs_ns, pr_ns = data.system_paging, data.system_filesystem, data.system_pressure
+
+    cpu_time = _points(cpu_ns, "cpu.time")
+    mem_usage = _points(mem_ns, "memory.usage")
+    paging = _points(pag_ns, "paging.operations")
+
+    return ServerMetricCreate(
         collected_at=data.collected_at,
         boot_time=data.boot_time,
         agent_started_at=data.agent_started_at,
-        os_family=None,
-        os_id=None,
-        os_version=None,
-        os_codename=None,
-        kernel_version=None,
-        cpu_cores=None,
-        cpu_model=None,
-        mem_total_kb=None,
-        swap_total_kb=None,
-        interfaces=[],
-        ip_external=None,
-        mac_addresses=[],
-        disks=[],
-        mounts=[],
-        services=None,
-        listen_ports=[],
-        service_categories=[],  # metrics placeholder — services/listen_ports 부재. 다음 진짜 inventory 가 채움.
+        # CPU host = cpu.time attr.cpu 합산 per state (s)
+        cpu_user_s=_state_sum(cpu_time, "user"),
+        cpu_nice_s=_state_sum(cpu_time, "nice"),
+        cpu_system_s=_state_sum(cpu_time, "system"),
+        cpu_idle_s=_state_sum(cpu_time, "idle"),
+        cpu_iowait_s=_state_sum(cpu_time, "iowait"),
+        cpu_irq_s=_state_sum(cpu_time, "irq"),
+        cpu_softirq_s=_state_sum(cpu_time, "softirq"),
+        cpu_steal_s=_state_sum(cpu_time, "steal"),
+        cpu_logical_count=_int(_scalar(cpu_ns, "cpu.logical.count")),
+        cpu_run_queue=_scalar(cpu_ns, "cpu.run_queue"),
+        cpu_blocked=_scalar(cpu_ns, "cpu.blocked"),
+        cpu_mce=_int(_scalar(cpu_ns, "cpu.mce")),
+        # memory (By, state)
+        mem_free_bytes=_int(_match(mem_usage, state="free")),
+        mem_cached_bytes=_int(_match(mem_usage, state="cached")),
+        mem_buffered_bytes=_int(_match(mem_usage, state="buffered")),
+        mem_available_bytes=_int(_match(mem_usage, state="available")),
+        mem_used_bytes=_int(_match(mem_usage, state="used")),
+        mem_limit_bytes=_int(_scalar(mem_ns, "memory.limit")),
+        mem_commit_usage_bytes=_int(_scalar(mem_ns, "memory.commit.usage")),
+        mem_commit_limit_bytes=_int(_scalar(mem_ns, "memory.commit.limit")),
+        mem_hardware_corrupted_bytes=_int(_scalar(mem_ns, "memory.hardware_corrupted")),
+        mem_oom_kill=_int(_scalar(mem_ns, "memory.oom_kill")),
+        # paging (in=direction:in·type 부재 / major=direction:in·type:major / out=direction:out)
+        paging_in=_int(_match(paging, direction="in", type=None)),
+        paging_out=_int(_match(paging, direction="out", type=None)),
+        paging_major=_int(_match(paging, direction="in", type="major")),
+        # network host-wide
+        net_tcp_retransmits=_int(_scalar(net_ns, "network.tcp.retransmits")),
+        net_conntrack_usage=_int(_scalar(net_ns, "network.conntrack.usage")),
+        net_conntrack_limit=_int(_scalar(net_ns, "network.conntrack.limit")),
+        # nested 시계열
+        disk_io=_build_disk_io(disk_ns),
+        net_io=_build_net_io(net_ns),
+        filesystems=_build_filesystems(fs_ns),
+        cpu_per_core=_build_cpu_cores(cpu_time),
+        pressure=_build_pressure(pr_ns),
+        disk_errors=_build_disk_errors(disk_ns),
     )
+
+
+def _build_disk_io(disk_ns: Namespace | None) -> list[DiskIoEntry]:
+    io, ops = _points(disk_ns, "disk.io"), _points(disk_ns, "disk.operations")
+    io_time, op_time = _points(disk_ns, "disk.io_time"), _points(disk_ns, "disk.operation_time")
+    pending = _points(disk_ns, "disk.pending_operations")
+    devs = _distinct([io, ops, io_time, op_time, pending], "device")
+    return [
+        DiskIoEntry(
+            device_id=dev,
+            io_read_bytes=_int(_match(io, device=dev, direction="read")),
+            io_write_bytes=_int(_match(io, device=dev, direction="write")),
+            ops_read=_int(_match(ops, device=dev, direction="read")),
+            ops_write=_int(_match(ops, device=dev, direction="write")),
+            io_time_s=_match(io_time, device=dev),
+            op_read_time_s=_match(op_time, device=dev, direction="read"),
+            op_write_time_s=_match(op_time, device=dev, direction="write"),
+            pending_ops=_match(pending, device=dev),
+        )
+        for dev in devs
+    ]
+
+
+def _build_disk_errors(disk_ns: Namespace | None) -> list[DiskErrorEntry]:
+    out: list[DiskErrorEntry] = []
+    for p in _points(disk_ns, "disk.errors"):
+        kind, klass = p.attr.get("kind"), p.attr.get("class")
+        if not isinstance(kind, str) or not isinstance(klass, str):
+            continue
+        dev = p.attr.get("device")
+        member = p.attr.get("member")
+        out.append(
+            DiskErrorEntry(
+                device_id=str(dev) if dev is not None else "",
+                error_kind=kind,
+                error_class=klass,
+                member=str(member) if isinstance(member, str) else None,
+                count=_int(p.value),
+            )
+        )
+    return out
+
+
+def _build_net_io(net_ns: Namespace | None) -> list[NetIoEntry]:
+    io, pkts = _points(net_ns, "network.io"), _points(net_ns, "network.packets")
+    errs, drop = _points(net_ns, "network.errors"), _points(net_ns, "network.dropped")
+    speed = _points(net_ns, "network.link.speed")
+    devs = _distinct([io, pkts, errs, drop, speed], "device")
+    return [
+        NetIoEntry(
+            iface_id=dev,
+            rx_bytes=_int(_match(io, device=dev, direction="receive")),
+            tx_bytes=_int(_match(io, device=dev, direction="transmit")),
+            rx_packets=_int(_match(pkts, device=dev, direction="receive")),
+            tx_packets=_int(_match(pkts, device=dev, direction="transmit")),
+            rx_errors=_int(_match(errs, device=dev, direction="receive")),
+            tx_errors=_int(_match(errs, device=dev, direction="transmit")),
+            rx_dropped=_int(_match(drop, device=dev, direction="receive")),
+            tx_dropped=_int(_match(drop, device=dev, direction="transmit")),
+            link_speed_bps=_int(_match(speed, device=dev)),
+        )
+        for dev in devs
+    ]
+
+
+def _build_filesystems(fs_ns: Namespace | None) -> list[FilesystemEntry]:
+    usage, inodes = _points(fs_ns, "filesystem.usage"), _points(fs_ns, "filesystem.inodes.usage")
+    mounts = _distinct([usage, inodes], "mountpoint")
+    out: list[FilesystemEntry] = []
+    for mp in mounts:
+        dev = next((p.attr.get("device") for p in usage if p.attr.get("mountpoint") == mp), None)
+        ftype = next((p.attr.get("type") for p in usage if p.attr.get("mountpoint") == mp), None)
+        out.append(
+            FilesystemEntry(
+                mountpoint=mp,
+                device_id=str(dev) if isinstance(dev, str) else None,
+                fstype=str(ftype) if isinstance(ftype, str) else None,
+                used_bytes=_int(_match(usage, mountpoint=mp, state="used")),
+                free_bytes=_int(_match(usage, mountpoint=mp, state="free")),
+                inodes_used=_int(_match(inodes, mountpoint=mp, state="used")),
+                inodes_free=_int(_match(inodes, mountpoint=mp, state="free")),
+            )
+        )
+    return out
+
+
+def _build_cpu_cores(cpu_time: list[Datapoint]) -> list[CpuCoreEntry]:
+    cores = _distinct([cpu_time], "cpu")
+    out: list[CpuCoreEntry] = []
+    for c in cores:
+        if not c.isdigit():
+            continue
+        out.append(
+            CpuCoreEntry(
+                core_id=int(c),
+                cpu_user_s=_match(cpu_time, cpu=c, state="user"),
+                cpu_nice_s=_match(cpu_time, cpu=c, state="nice"),
+                cpu_system_s=_match(cpu_time, cpu=c, state="system"),
+                cpu_idle_s=_match(cpu_time, cpu=c, state="idle"),
+                cpu_iowait_s=_match(cpu_time, cpu=c, state="iowait"),
+                cpu_irq_s=_match(cpu_time, cpu=c, state="irq"),
+                cpu_softirq_s=_match(cpu_time, cpu=c, state="softirq"),
+                cpu_steal_s=_match(cpu_time, cpu=c, state="steal"),
+            )
+        )
+    return out
+
+
+def _build_pressure(pr_ns: Namespace | None) -> list[PressureEntry]:
+    ratio, time = _points(pr_ns, "pressure.stall.ratio"), _points(pr_ns, "pressure.stall.time")
+    keys: dict[tuple[str, str], None] = {}
+    for pts in (ratio, time):
+        for p in pts:
+            r, s = p.attr.get("resource"), p.attr.get("scope")
+            if isinstance(r, str) and isinstance(s, str):
+                keys.setdefault((r, s), None)
+    return [
+        PressureEntry(
+            resource=r,
+            scope=s,
+            stall_time_s=_match(time, resource=r, scope=s),
+            ratio_avg10=_match(ratio, resource=r, scope=s, window="10"),
+            ratio_avg60=_match(ratio, resource=r, scope=s, window="60"),
+            ratio_avg300=_match(ratio, resource=r, scope=s, window="300"),
+        )
+        for (r, s) in keys
+    ]
+
+
+# ─── inventory ───
+
+
+def _svc_dicts(data: InventoryInput) -> list[dict] | None:
+    if data.services is None:
+        return None
+    return [{"unit": s.unit, "sub": s.sub, "pid": s.pid, "exe": s.exe} for s in data.services]
+
+
+def _lp_dicts(data: InventoryInput) -> list[dict]:
+    return [
+        {"proto": p.proto, "addr": p.addr, "port": p.port, "uid": p.uid, "pid": p.pid, "comm": p.comm}
+        for p in data.listen_ports
+    ]
 
 
 def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
@@ -100,166 +276,79 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
         kernel_version=data.kernel_version,
         cpu_cores=data.cpu_cores,
         cpu_model=data.cpu_model,
-        mem_total_kb=data.mem_total_kb,
-        swap_total_kb=data.swap_total_kb,
-        interfaces=[
+        mem_total_bytes=data.mem_total_bytes,
+        block_devices=[
             {
-                "name": i.name,
-                "address": i.address,
-                "prefix": i.prefix,
-                "family": i.family,
-                "kind": i.kind,
-                "gateway": i.gateway,
+                "name": b.name,
+                "type": b.type,
+                "size_bytes": b.size_bytes,
+                "fstype": b.fstype,
+                "mountpoint": b.mountpoint,
+                "parent": b.parent,
+                "id": b.id,
+                "id_type": b.id_type,
             }
-            for i in data.interfaces
+            for b in data.block_devices
+        ],
+        net_interfaces=[
+            {
+                "name": n.name,
+                "id": n.id,
+                "id_type": n.id_type,
+                "kind": n.kind,
+                "speed_mbps": n.speed_mbps,
+                "addresses": [{"address": a.address, "prefix": a.prefix, "family": a.family} for a in n.addresses],
+                "gateway": n.gateway,
+            }
+            for n in data.net_interfaces
+        ],
+        lvm_vgs=[
+            {
+                "name": v.name,
+                "size_bytes": v.size_bytes,
+                "free_bytes": v.free_bytes,
+                "data_percent": v.data_percent,
+                "metadata_percent": v.metadata_percent,
+            }
+            for v in data.lvm_vgs
         ],
         ip_external=data.ip_external,
-        mac_addresses=data.mac_addresses,
-        disks=[
-            {
-                "name": d.name,
-                "size_bytes": d.size_bytes,
-                "type": d.type,
-                "major": d.major,
-                "minor": d.minor,
-                "kind": d.kind,
-            }
-            for d in data.disks
-        ],
-        mounts=[
-            {
-                "mount": m.mount,
-                "fstype": m.fstype,
-                "total_bytes": m.total_bytes,
-                "major": m.major,
-                "minor": m.minor,
-                "kind": m.kind,
-            }
-            for m in data.mounts
-        ],
-        services=[{"unit": s.unit, "sub": s.sub, "pid": s.pid, "exe": s.exe} for s in data.services]
-        if data.services is not None
-        else None,
-        listen_ports=[
-            {"proto": p.proto, "addr": p.addr, "port": p.port, "uid": p.uid, "pid": p.pid, "comm": p.comm}
-            for p in data.listen_ports
-        ],
-        # 서비스 카테고리 ingest 사전계산 — services(unit 이름) ∪ listen_ports(comm·port) 단일 산식.
+        services=_svc_dicts(data),
+        listen_ports=_lp_dicts(data),
         service_categories=compute_service_categories(
-            [{"unit": s.unit, "sub": s.sub, "pid": s.pid} for s in data.services]
-            if data.services is not None
-            else None,
+            [{"unit": s.unit, "sub": s.sub, "pid": s.pid} for s in data.services] if data.services else None,
             [{"proto": p.proto, "port": p.port, "comm": p.comm} for p in data.listen_ports],
         ),
     )
 
 
-def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
-    cpu = data.cpu_stat
-    return ServerMetricCreate(
-        # boot_time·agent_started_at은 시계열 행에 저장 — counter reset 정밀 식별 (#C1).
+def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
+    """metrics 선도착 시 최소 placeholder — 정적 정보는 None/빈 배열. 다음 진짜 inventory 가 upsert 로 덮음.
+
+    v2 metrics 는 hostname 없음 -> agent_id 를 표시명 placeholder 로.
+    """
+    return ServerInventoryCreate(
+        agent_id=str(data.agent_id),
+        composite_id=data.composite_id,
+        machine_id=data.machine_id,
+        hostname=str(data.agent_id),
+        agent_version=data.agent_version,
         collected_at=data.collected_at,
         boot_time=data.boot_time,
         agent_started_at=data.agent_started_at,
-        cpu_user=cpu.user if cpu else None,
-        cpu_nice=cpu.nice if cpu else None,
-        cpu_system=cpu.system if cpu else None,
-        cpu_idle=cpu.idle if cpu else None,
-        cpu_iowait=cpu.iowait if cpu else None,
-        cpu_irq=cpu.irq if cpu else None,
-        cpu_softirq=cpu.softirq if cpu else None,
-        cpu_steal=cpu.steal if cpu else None,
-        # canonical 정규화 경계 — available/free 가 total 초과 시 클램프 (used 음수 방지, Windows 매핑 방어).
-        mem_total_kb=data.mem_total_kb,
-        mem_free_kb=data.mem_free_kb,
-        mem_available_kb=clamp_ceiling(
-            data.mem_available_kb, data.mem_total_kb, field="mem_available_kb", composite_id=data.composite_id
-        ),
-        mem_buffers_kb=data.mem_buffers_kb,
-        mem_cached_kb=data.mem_cached_kb,
-        swap_total_kb=data.swap_total_kb,
-        swap_free_kb=clamp_ceiling(
-            data.swap_free_kb, data.swap_total_kb, field="swap_free_kb", composite_id=data.composite_id
-        ),
-        load_1m=data.load_1m,
-        load_5m=data.load_5m,
-        load_15m=data.load_15m,
-        sat_disk_queue=_max_disk_queue(data.saturation),
-        sat_cpu_run_queue=data.saturation.cpu_run_queue if data.saturation else None,
-        sat_mem_paging_rate=data.saturation.mem_paging_rate if data.saturation else None,
-        **_await_fields(data.saturation),
-        # disk_io·metrics mount 의 major/minor 는 시계열에 미저장 (물리 판정·data-volume 판정은 kind).
-        # mount-disk 조인용 major/minor 는 inventory mount(정적)만 보유.
-        disk_io=[
-            DiskIoEntry(
-                device=d.device,
-                reads_completed=d.reads_completed,
-                writes_completed=d.writes_completed,
-                sectors_read=d.sectors_read,
-                sectors_written=d.sectors_written,
-                kind=d.kind,
-                time_reading_ms=d.time_reading_ms,
-                time_writing_ms=d.time_writing_ms,
-                io_ticks_ms=d.io_ticks_ms,
-                weighted_io_ms=d.weighted_io_ms,
-            )
-            for d in data.disk_io
-        ],
-        mounts=[
-            MountUsageEntry(
-                mount=m.mount,
-                total_bytes=m.total_bytes,
-                free_bytes=m.free_bytes,
-                avail_bytes=m.avail_bytes,
-                kind=m.kind,
-                inodes_total=m.inodes_total,
-                inodes_free=m.inodes_free,
-            )
-            for m in data.mounts
-        ],
-        net_io=[
-            NetIoEntry(
-                interface=n.interface,
-                rx_bytes=n.rx_bytes,
-                tx_bytes=n.tx_bytes,
-                rx_packets=n.rx_packets,
-                tx_packets=n.tx_packets,
-                rx_errors=n.rx_errors,
-                tx_errors=n.tx_errors,
-                kind=n.kind,
-                rx_drops=n.rx_drops,
-                tx_drops=n.tx_drops,
-            )
-            for n in data.net_io
-        ],
-        # per-core — 배열 위치 = core_id (/proc/stat cpu0..N 순서). server_cpu_core 행 매핑.
-        cpu_per_core=[
-            CpuCoreEntry(
-                core_id=idx,
-                cpu_user=c.user,
-                cpu_nice=c.nice,
-                cpu_system=c.system,
-                cpu_idle=c.idle,
-                cpu_iowait=c.iowait,
-                cpu_irq=c.irq,
-                cpu_softirq=c.softirq,
-                cpu_steal=c.steal,
-            )
-            for idx, c in enumerate(data.cpu_per_core)
-        ],
-        procs_running=data.procs_running,
-        procs_blocked=data.procs_blocked,
-        schedstat_run_wait_ns=data.schedstat_run_wait_ns,
-        pswpin=data.pswpin,
-        pswpout=data.pswpout,
-        oom_kill=data.oom_kill,
-        mem_pages_input=data.mem_pages_input,
-        tcp_retrans_segs=data.tcp_retrans_segs,
-        tcp_tw=data.tcp_tw,
-        conntrack_count=data.conntrack_count,
-        conntrack_max=data.conntrack_max,
-        psi_cpu_some_total=data.psi_cpu_some_total,
-        psi_mem_some_total=data.psi_mem_some_total,
-        psi_io_some_total=data.psi_io_some_total,
-        collection_interval_sec=data.collection_interval_sec,
+        os_family=data.os_family,
+        os_id=None,
+        os_version=None,
+        os_codename=None,
+        kernel_version=None,
+        cpu_cores=None,
+        cpu_model=None,
+        mem_total_bytes=None,
+        block_devices=[],
+        net_interfaces=[],
+        lvm_vgs=[],
+        ip_external=None,
+        services=None,
+        listen_ports=[],
+        service_categories=[],
     )

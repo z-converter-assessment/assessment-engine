@@ -216,7 +216,7 @@
 
   "error": {
     "schema_version": "2.0", "message_type": "error",
-    "message_id": "9f3b0000-0000-0000-0000-000000000007", "hostname": "vm-st-lvm",
+    "message_id": "9f3b0000-0000-0000-0000-000000000007",
     "agent_id": "c1a2b3c4-0000-0000-0000-000000000001", "agent_version": "2.0.0",
     "composite_id": "sha256hex...", "machine_id": "…",
     "collected_at": "2026-07-09T09:05:00Z", "boot_time": "2026-07-08T07:23:10Z",
