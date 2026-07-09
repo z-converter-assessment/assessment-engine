@@ -36,16 +36,15 @@
 | `metric_snapshots(server_id, cursor, limit)` | 시계열 cursor pagination |
 | `metric_chart(server_id, type, dim, range, bucket, agg, end)` | 차트 dispatcher (metric_type 카탈로그는 `types.py`) |
 | `reboot_events(server_id, start, end)` | server_inventory_history boot_time/agent_started_at 변경 시점 |
-| `report_aggregate(server_ids, period_days, end)` | USE Method 통계 (CPU p95/peak + MEM p95/peak + load_15m max + swap_used) — `server_metrics_5m` cagg counter_agg |
-| `report_mount_worst(server_ids, period_days, end)` | mount별 worst usage + fill_rate (days_until_full 산출) |
+| `report_aggregate(server_ids, period_days, end)` | USE Method 통계 (CPU p95/peak + MEM p95/peak + load_15m max + swap_used) + 용량 임박 구동 마운트(`mount_runway` CTE — MIN runway 마운트 이름·runway·used%, 분류 단일 소스) — `server_metrics_5m`·`server_mount_usage_5m` cagg |
 | `report_uptime_stats(server_ids, period_days, end)` | 가동률 통계 |
-| `report_disk_io_baseline` / `report_net_io_baseline` | I/O baseline (Export `recommended_size_class` 입력) — `server_disk_io_5m`/`server_net_io_5m` cagg counter_agg(reset 일률 처리) |
+| `report_disk_io_baseline` / `report_net_io_baseline` | I/O baseline (Export `recommended_size_class` 입력, `DiskIoBaselineRaw`/`NetIoBaselineRaw` 반환) — `server_disk_io_5m`/`server_net_io_5m` cagg counter_agg(reset 일률 처리) |
 | `report_mount_usage(server_id, period_days, end)` | 개별 보고서 전체 마운트 윈도우 평균 사용률 (worst 1개 아님, 가상 mount 제외) |
 | `report_memory_breakdown(server_id, period_days, end)` | 개별 보고서 메모리 구성 (used/available/cached/buffers 전체 대비 %, 시점값 avg) |
 | `report_cpu_breakdown(server_id, period_days, end)` | 개별 보고서 CPU 분류 (user/system/iowait, `server_metrics_5m` cagg counter_agg delta) |
 | `metric_gap_warnings(gap_min, recent_h)` | 메트릭 갭(통신 끊김 운영신호) 후보 |
 | `environment_utilization(period_days, end, server_ids?)` | 환경 평균 활용률 도넛 (capacity-weighted, Σused/Σtotal). server_ids 한정 시 선택 N대·단일(selection 보고서), None 이면 전체 환경 |
-| `metric_trend(metric_type, start, end, bi, bucket_td, server_ids?, agg, dimension, collapse)` | 통일 차트 시계열 — 환경·선택·서버상세 단일 진실. metric_type 풀세트 — 집계 3그룹(아래). server_ids=None 전체·[1대]=서버상세 동치·[N]=선택. collapse=False 면 device/iface/mount dimension 보존(상세 멀티라인), True 면 합산 단일선(환경). agg=avg/max/p95 |
+| `metric_trend(metric_type, start, end, bucket, server_ids?, agg, dimension, collapse)` | 통일 차트 시계열 — 환경·선택·서버상세 단일 진실. `bucket: BucketSize`(SQL interval·경계 timedelta 는 repo 내부 `_BUCKET_INFO` 파생, 캡슐화). metric_type 풀세트 — 집계 3그룹(아래). server_ids=None 전체·[1대]=서버상세 동치·[N]=선택. collapse=False 면 device/iface/mount dimension 보존(상세 멀티라인), True 면 합산 단일선(환경). agg=avg/max/p95 |
 
 ### 차트 집계 (`metric_trend`) — 시점별 1값 -> 버킷 agg, 3그룹
 
@@ -79,21 +78,17 @@
 
 interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedelta(hours=N)` (SQLAlchemy idiomatic — Python timedelta가 PostgreSQL interval로 자동 변환·bind 파라미터 안전, C5 의무). f-string `text("interval '{N} days'")` 금지.
 
-상수 카탈로그 (`base_diagnostic_repository.py`):
-- `DiagnosticTimeRange` Literal — 차트 TimeRange와 동일 7개
-- `DIAGNOSTIC_RANGE_DAYS` — TimeRange -> float day 매핑 (fraction 지원)
-- `CLASSIFICATION_LABEL_KR` — USE Method 분류 라벨
-
-(`DIAGNOSTIC_RANGE_LABEL_KR` time_range 한국어 표시 라벨은 표시 소속이라 `mappers/shared.py`.)
-- `DIAGNOSTIC_DEFAULT_TIME_RANGE` — service default · UI 기본값 (값은 F10 · `recommendation.WINDOW_DAYS` 단일 진실)
-
-### 타입 별칭 (`db/repositories/query/types.py`)
+### 타입·윈도우 상수 (`db/repositories/query/types.py`)
 - `MetricType` Literal — chart metric (카탈로그는 `types.py` 단일 진실)
-- `TimeRange` Literal — 15m/1h/6h/24h/7d/14d/30d. 기본 14d 는 right-sizing 윈도우(`recommendation.WINDOW_DAYS`)와 동일 — F10 단일 진실
+- `TimeRange` Literal — 15m/1h/6h/24h/7d/14d/30d (차트·진단 공통). 기본 14d 는 right-sizing 윈도우(`recommendation.WINDOW_DAYS`)와 동일 — F10 단일 진실
 - `BucketSize` Literal — 1m/5m/15m/30m/1h/3h/6h/12h/1d. 6h는 14d 토글 자동 매핑용
 - `AggFunc` Literal — avg/max/p95
 - `TIME_RANGE_TD` — TimeRange -> timedelta 매핑 (repo·service 공유)
+- `DIAGNOSTIC_RANGE_DAYS` — TimeRange -> float day 매핑 (`TIME_RANGE_TD` 파생, fraction 지원)
+- `DIAGNOSTIC_DEFAULT_TIME_RANGE` — 진단 발행·분류 기본 윈도우(14d)
 - 신규 range·bucket 추가 시 backend Literal·`_BUCKET_INFO`·`chart-utils.js` `RANGE_LABEL`/`AUTO_BUCKET`/`BUCKET_LABEL`/`RANGE_MS`/`BUCKET_MS`·UI 토글 4곳 동시 갱신 의무 (F10)
+
+(`DIAGNOSTIC_RANGE_LABEL_KR` time_range 한국어 표시 라벨은 표시 소속이라 `mappers/shared.py`.)
 
 ### `list_servers` 부분 SELECT 정책
 `select(ServerInventory)` 풀 row 대신 11컬럼 명시. `mounts`/`listen_ports` JSONB는 페이지당 N행에서 직렬화 비용 큼 + 목록 미사용. 트레이드오프: `docs/explanation/tradeoffs.md` T8. 정렬은 `hostname` ASC.

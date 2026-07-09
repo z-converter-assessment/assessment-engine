@@ -38,7 +38,7 @@
       </div>
       <div class="metric-card">
         <div class="metric-label">디스크</div>
-        <div class="metric-value">{% if si.disk_total_gb %}{{ si.disk_total_gb | disksize_styled }}{% else %}—{% endif %}</div>
+        <div class="metric-value">{% if si.disk_total_gb %}{{ si.disk_total_gb | storagesize_styled }}{% else %}—{% endif %}</div>
       </div>
       </div>
     </div>

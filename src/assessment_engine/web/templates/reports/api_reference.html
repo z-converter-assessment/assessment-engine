@@ -85,8 +85,11 @@ GET /api/right-sizing?window_days=7&amp;end=2026-07-01T00:00:00Z  # 창·기준 
       <tr><td><code>resources.disk.capacity.status</code></td><td>string</td><td>아니오</td><td>3개: <code>filling</code>(용량 임박) | <code>capacity_ok</code> | <code>unmeasured</code>.</td></tr>
       <tr><td><code>resources.disk.io.status</code></td><td>string</td><td>아니오</td><td>3개: <code>io_bound</code>(병목) | <code>io_ok</code> | <code>unmeasured</code>.</td></tr>
       <tr><td><code>network.status</code></td><td>string</td><td>아니오</td><td>3개: <code>quality_ok</code> | <code>congested</code> | <code>unmeasured</code> (사이징 아닌 별도 품질 축).</td></tr>
-      <tr><td><code>*.utilization_p95_pct</code> · <code>*.worst_mount_used_pct</code></td><td>number</td><td>예</td><td>0~100(%) 실수. 표본 없으면 null.</td></tr>
-      <tr><td><code>*.sizing_target_cores/_mb/_gb</code> · <code>days_until_full</code></td><td>integer</td><td>예</td><td>양의 정수. 사이징 대상 아님·산출 불가면 null.</td></tr>
+      <tr><td><code>*.utilization_p95_pct</code></td><td>number</td><td>예</td><td>0~100(%) 실수. 표본 없으면 null.</td></tr>
+      <tr><td><code>disk.capacity.worst_mount</code> · <code>worst_mount_used_pct</code></td><td>string · number</td><td>예</td><td>용량 임박 구동 마운트(가장 빨리 소진되는 마운트) 이름·현재 used%. <code>status</code>·<code>days_until_full</code>과 동일 마운트. 임박·과사용 마운트 없으면 null.</td></tr>
+      <tr><td><code>cpu.current_cores</code> · <code>memory.current_mb</code> · <code>disk.capacity.current_gb</code></td><td>integer</td><td>예</td><td>현재 배정 총량 — 목표(sizing_target_*)와 짝. 리사이즈 = current -> target. 측정 불가면 null.</td></tr>
+      <tr><td><code>*.sizing_target_cores/_mb/_gb</code></td><td>integer</td><td>예</td><td>양의 정수. 사이징 대상 아님·산출 불가면 null.</td></tr>
+      <tr><td><code>disk.capacity.days_until_full</code></td><td>integer</td><td>예</td><td>구동 마운트 바이트 소진까지 남은 일수(분류 runway). <code>status=filling</code>은 이 값 &lt; 30(추세 없으면 정적 85% 가드로 filling·값 null). 추세 하락/수평이면 null.</td></tr>
       <tr><td><code>*.saturation.measured</code></td><td>boolean</td><td>아니오</td><td><code>true</code> | <code>false</code>. false 면 그 축 미관측(value·saturated=null).</td></tr>
       <tr><td><code>*.saturation.saturated</code></td><td>boolean</td><td>예</td><td><code>true</code> | <code>false</code> | <code>null</code> (미관측 시 null).</td></tr>
       <tr><td><code>*.saturation.signal</code></td><td>string</td><td>아니오</td><td>OS별 신호명 라벨(예 "run queue (procs_running)/core" · Windows "Processor Queue Length/core" · "await" · "Pages Input/sec" · "swap page-out").</td></tr>
@@ -134,20 +137,20 @@ GET /api/right-sizing?window_days=7&amp;end=2026-07-01T00:00:00Z  # 창·기준 
             "saturation": { "signal": "run queue (procs_running)/core", "value": 1.40, "threshold": 1.0,
                             "unit": "per_core", "measured": true, "saturated": true },
             "evidence": ["CPU 이용률 초과", "CPU 실행 큐 포화"], "confidence_notes": [],
-            "sizing_target_cores": 6, "recommendation": "CPU -> 6코어", "detail": "목표 6코어"
+            "current_cores": 4, "sizing_target_cores": 6, "recommendation": "CPU -> 6코어", "detail": "목표 6코어"
           },
           "memory": {
             "status": "under", "status_label": "부족", "utilization_p95_pct": 94.0,
             "saturation": { "signal": "swap page-out", "value": null, "threshold": null,
                             "unit": "event", "measured": true, "saturated": true },
             "evidence": ["메모리 이용률 초과", "메모리 스왑/페이징 발생"], "confidence_notes": [],
-            "sizing_target_mb": 24576, "recommendation": "메모리 -> 24GB", "detail": "목표 24576MB"
+            "current_mb": 16384, "sizing_target_mb": 24576, "recommendation": "메모리 -> 24GB", "detail": "목표 24576MB"
           },
           "disk": {
             "capacity": { "status": "capacity_ok", "status_label": "용량 여유", "worst_mount": "/",
-                          "worst_mount_used_pct": 62.0, "days_until_full": null, "evidence": [],
-                          "confidence_notes": [], "sizing_target_gb": null, "recommendation": null,
-                          "detail": "120일 여유" },
+                          "worst_mount_used_pct": 62.0, "days_until_full": 200, "evidence": [],
+                          "confidence_notes": [], "current_gb": 200, "sizing_target_gb": null, "recommendation": null,
+                          "detail": "200일 여유" },
             "io": { "status": "io_ok", "status_label": "I/O 정상",
                     "saturation": { "signal": "await", "value": 4.2, "threshold": 20,
                                     "unit": "ms", "measured": true, "saturated": false },

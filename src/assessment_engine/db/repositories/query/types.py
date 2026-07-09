@@ -86,6 +86,12 @@ TIME_RANGE_TD: dict[str, timedelta] = {
     "30d": timedelta(days=30),
 }
 
+# TimeRange → 평가 윈도우(일, float). SQL interval 은 fraction 지원(0.25 days = 6h). TIME_RANGE_TD 단일 소스 파생.
+DIAGNOSTIC_RANGE_DAYS: dict[str, float] = {r: td.total_seconds() / 86400 for r, td in TIME_RANGE_TD.items()}
+
+# 진단 발행·분류 기본 윈도우 — service default·UI 기본값 단일 진실 (#F10). recommendation.WINDOW_DAYS(14d)와 정합.
+DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"
+
 # (SQL interval 문자열, Python timedelta) — bucket 단위를 SQL과 Python 양쪽에서 사용.
 _BUCKET_INFO: dict[str, tuple[str, timedelta]] = {
     "1m": ("1 minute", timedelta(minutes=1)),

@@ -10,9 +10,9 @@ from urllib.parse import quote, unquote
 from fastapi import APIRouter, Depends, Query, Request
 
 from assessment_engine import recommendation
-from assessment_engine.db.repositories.base_diagnostic_repository import (
+from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
-    DiagnosticTimeRange,
+    TimeRange,
 )
 from assessment_engine.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.deps import get_service
@@ -145,7 +145,7 @@ async def topology(
 @environment_router.get("/assessment")
 async def assessment(
     request: Request,
-    time_range: DiagnosticTimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
+    time_range: TimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
     anchor_at: datetime | None = Query(None),
     fragment: str | None = Query(None),
     back: str | None = Query(None),

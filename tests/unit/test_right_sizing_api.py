@@ -117,6 +117,15 @@ def test_hostname_ambiguous_flag_passthrough():
     assert e2["hostname_ambiguous"] is False
 
 
+def test_current_resource_values_paired_with_target():
+    """현재 배정값(current_cores/mb/gb)이 목표와 짝 — 소비자가 current -> target 리사이즈 판단."""
+    e = build_right_sizing_entry(_under_mem_root(), is_online=True)  # cpu_cores=4, mem 8GB
+    r = e["resources"]
+    assert r["cpu"]["current_cores"] == 4
+    assert r["memory"]["current_mb"] == 8192  # 8*1024*1024 KB -> 8192 MB
+    assert "current_gb" in r["disk"]["capacity"]  # 디스크 미측정이면 null
+
+
 def test_classification_and_labels_present():
     """분류·라벨·근본원인 필드 형태."""
     e = build_right_sizing_entry(_under_mem_root(), is_online=True)

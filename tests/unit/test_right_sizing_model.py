@@ -20,7 +20,7 @@ def _stats(**kw) -> r.ResourceStats:
         swap_used=False,
         disk_used_pct=None,
         iowait_p95_pct=None,
-        net_avg_kbps=None,
+        net_avg_kbytes_per_s=None,
     )
     base.update(kw)
     return r.ResourceStats(**base)
@@ -387,7 +387,7 @@ def test_host_status_idle():
             procs_running_p95=0.1,
             mem_p95_pct=70,
             mem_total_mb=16384,
-            net_avg_kbps=0.5,
+            net_avg_kbytes_per_s=0.5,
         )
     )
     assert h.host_status == "idle"
@@ -403,7 +403,7 @@ def test_host_status_idle_by_low_p95():
             procs_running_p95=0.1,
             mem_p95_pct=70,
             mem_total_mb=16384,
-            net_avg_kbps=100.0,
+            net_avg_kbytes_per_s=100.0,
         )
     )
     assert h.host_status == "idle"
@@ -419,7 +419,7 @@ def test_host_status_over():
             procs_running_p95=0.5,
             mem_p95_pct=70,
             mem_total_mb=16384,
-            net_avg_kbps=500.0,
+            net_avg_kbytes_per_s=500.0,
         )
     )
     assert h.host_status == "over"
@@ -434,7 +434,7 @@ def test_host_status_optimal():
             procs_running_p95=4.0,
             mem_p95_pct=70,
             mem_total_mb=16384,
-            net_avg_kbps=500.0,
+            net_avg_kbytes_per_s=500.0,
         )
     )
     assert h.host_status == "optimal"
@@ -454,7 +454,7 @@ def test_host_network_congested_flag():
             procs_running_p95=4.0,
             mem_p95_pct=70,
             mem_total_mb=16384,
-            net_avg_kbps=500.0,
+            net_avg_kbytes_per_s=500.0,
             net_retrans_pct=3.0,
         )
     )

@@ -53,7 +53,7 @@
   </div>
   <div class="metric-card env-stat-card">
     <div class="metric-label">총 디스크</div>
-    <div class="metric-value-md">{{ overview.total_disk_gb | disksize_styled }}</div>
+    <div class="metric-value-md">{{ overview.total_disk_gb | storagesize_styled }}</div>
   </div>
 </div>
 {% endmacro %}

@@ -31,6 +31,7 @@ from assessment_engine.web.view_models.attention import (
     CapacityWarningItem,
     EnvironmentOverview,
     RiskDonutSegment,
+    SaturationDonut,
     UtilizationBar,
 )
 from assessment_engine.web.view_models.environment_report import (
@@ -97,6 +98,8 @@ def _report_row_from_dict(r: dict) -> ReportRowItem:
         "cpu_variance_color",
         "mem_variance_color",
         "worst_mount_days_color",
+        "worst_mount",  # 폐기 — 구 스냅샷 이름 필드 (임박은 disk_capacity_driving_mount 로 대체)
+        "worst_mount_days_until_full",  # 폐기 — 구 스냅샷 14일창 days (disk_capacity_runway_days 로 대체)
         "reboot_count_color",
         "agent_restart_count_color",
     ):
@@ -129,7 +132,6 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
     data["classification_dist"] = [ClassificationCount(**c) for c in data.get("classification_dist") or []]
     data["os_distribution"] = [OsCount(**o) for o in data.get("os_distribution") or []]
     data["os_family_dist"] = [DistributionBar(**b) for b in data.get("os_family_dist") or []]
-    data["workload_dist"] = [DistributionBar(**b) for b in data.get("workload_dist") or []]
     topo = data.get("topology")
     if topo:
         # subnets nested 복원 (SubnetGroup/SubnetHost) — 보고서 서브넷 요약 표가 .net_key/.host_count 접근.
@@ -176,6 +178,8 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
         "under_provisioned_hosts",
         "under_provisioned_metric_labels",
         "under_provisioned_hosts_count",
+        "workload_dist",  # 폐기 — 미렌더 워크로드 분포 막대 (workload_unknown/identified_count 만 표시)
+        "evaluated_count",  # 폐기 — 미렌더 평가 가능 호스트 수
     ):
         data.pop(_k, None)
     data["anchor_at"] = _dt(data.get("anchor_at"))
@@ -204,6 +208,7 @@ def _overview_from_dict(d: dict) -> EnvironmentOverview:
     data["utilization"] = [UtilizationBar(**u) for u in data.get("utilization") or []]
     data["utilization_p95"] = [UtilizationBar(**u) for u in data.get("utilization_p95") or []]
     data["risk_donut"] = [RiskDonutSegment(**s) for s in data.get("risk_donut") or []]
+    data["saturation_donuts"] = [SaturationDonut(**s) for s in data.get("saturation_donuts") or []]
     uph = data.get("under_provisioned_hosts") or []
     data["under_provisioned_hosts"] = [_capacity_warning_from_dict(c) for c in uph]
     return EnvironmentOverview(**data)

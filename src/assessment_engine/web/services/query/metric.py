@@ -4,9 +4,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from assessment_engine.cache.redis import safe_get, safe_set
-from assessment_engine.db.dtos.outbound import MetricSeries, RebootEvent
+from assessment_engine.db.dtos.outbound import MetricSeries, RebootEvent, SaturationRaw
 from assessment_engine.db.repositories.query.types import (
-    _BUCKET_INFO,
     TIME_RANGE_TD,
     AggFunc,
     BucketSize,
@@ -48,7 +47,9 @@ def _filter_disk_category(dtos: list[MetricSeries], category: DeviceCategory) ->
 
 
 class MetricQueryMixin(_BaseQueryServiceMixin):
-    async def get_latest_metric(self, server_id: int) -> MetricDashboard | None:
+    async def get_latest_metric(
+        self, server_id: int, saturation: SaturationRaw | None = None
+    ) -> MetricDashboard | None:
         cache_key = web_settings.redis_key_cache_metrics.format(server_id)
         cached = await safe_get(self.redis, cache_key)
         if cached:
@@ -58,14 +59,17 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
         if not raw or not raw.metrics:
             return None
         result = build_dashboard(raw)
-        # 포화 신호(디스크 await/큐·메모리 페이징) — 환경 실시간과 동일 latest_saturation 재사용(단일 호스트).
-        since = datetime.now(UTC) - timedelta(minutes=10)
-        sat = (await self.repo.latest_saturation([server_id], since)).get(server_id, {})
-        result.disk_await_ms = sat.get("await_ms")
-        result.disk_queue = sat.get("disk_queue_win")
-        result.mem_pages_input_rate = sat.get("pages_input_rate")
-        result.mem_pageout = sat.get("pswpout_delta")
-        result.net_retrans_pct = sat.get("retrans_pct")
+        # 포화 신호(디스크 await/큐·메모리 페이징) — 호출자가 벌크 조회분(saturation)을 넘기면 재조회 생략
+        # (B4: _assemble_realtime 이 sat_map 을 이미 벌크 조회 -> per-server 재조회 N+1 제거). 미전달 시 단일 조회.
+        sat = saturation
+        if sat is None:
+            since = datetime.now(UTC) - timedelta(minutes=10)
+            sat = (await self.repo.latest_saturation([server_id], since)).get(server_id) or SaturationRaw()
+        result.disk_await_ms = sat.await_ms
+        result.disk_queue = sat.disk_queue_win
+        result.mem_pages_input_rate = sat.pages_input_rate
+        result.mem_pageout = sat.pswpout_delta
+        result.net_retrans_pct = sat.retrans_pct
         await safe_set(self.redis, cache_key, dashboard_to_json(result), ex=60)
         return result
 
@@ -92,10 +96,9 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
         서버 상세(collapse=False, [1대])와 동일 산식 — dimension 없는 지표(cpu/mem/swap/load)는 선택 1대=상세 일치.
         """
         end_dt = end or datetime.now(UTC)
-        bi, bucket_td = _BUCKET_INFO[bucket]
         start = end_dt - TIME_RANGE_TD[time_range]
         dtos = await self.repo.metric_trend(
-            metric_type, start, end_dt, bi, bucket_td, server_ids=server_ids, agg="avg", collapse=True
+            metric_type, start, end_dt, bucket, server_ids=server_ids, agg="avg", collapse=True
         )
         return [to_metric_series_item(dto) for dto in dtos]
 

@@ -21,7 +21,6 @@ from assessment_engine.web.services.mappers.server import (
     workload_services_by_category,
 )
 from assessment_engine.web.services.mappers.shared import (
-    _CAPACITY_IMMINENT_DAYS,
     OS_FAMILY_LABEL_KO,
     RISK_LEVEL_ORDER,
     ReportView,
@@ -158,14 +157,16 @@ def build_report_summary_bullets(
             phrase = _top_phrase([r.hostname for r in disk_sat_raws])
             bullets.append(f"디스크 I/O 포화 {len(disk_sat_raws)}대 ({phrase}) — 디스크 병목.")
 
-    # Mount 임박 — _CAPACITY_IMMINENT_DAYS 안 채워질 마운트가 있는 서버
-    mount_hosts = [
-        f"{r.hostname}({r.worst_mount} {r.worst_mount_days_until_full}일)"
-        for r in rows
-        if r.worst_mount_days_until_full is not None and r.worst_mount_days_until_full <= _CAPACITY_IMMINENT_DAYS
-    ]
-    if mount_hosts:
-        bullets.append(f"디스크 채움 임박 {len(mount_hosts)}대 ({_top_phrase(mount_hosts)}).")
+    # 디스크 용량 임박 — 분류(assess_disk_capacity filling)와 동일 신호(구동 마운트 runway). 배지와 정합.
+    if raws:
+        mount_hosts = [
+            f"{r.hostname}({r.disk_capacity_driving_mount or '?'} {int(r.disk_capacity_runway_days)}일)"
+            for r in raws
+            if recommendation.assess_disk_capacity(build_resource_stats(r)).status == "filling"
+            and r.disk_capacity_runway_days is not None
+        ]
+        if mount_hosts:
+            bullets.append(f"디스크 채움 임박 {len(mount_hosts)}대 ({_top_phrase(mount_hosts)}).")
 
     # 재부팅 빈번 — period 안 _REBOOT_UNSTABLE_COUNT 이상
     reboot_hosts = [f"{r.hostname}({r.reboot_count}회)" for r in rows if r.reboot_count >= _REBOOT_UNSTABLE_COUNT]
@@ -194,15 +195,15 @@ def build_report_summary_bullets(
                     f"CPU 포화 {len(sat_hosts)}대 ({_top_phrase(sat_hosts)}) — run queue/load 가 코어 처리 한계 초과."
                 )
 
-        # 변동성 큼 — cpu peak/p95 임계 초과 + peak 가 sizing 유의미 수준(downsize 헤드룸선 초과)일 때만.
-        # 미세값 지터(저부하 호스트) 오탐 방지 — _build_diagnosis 의 variance gate 와 동일 기준. sizing 전략 시그널.
+        # 변동성 큼 — cpu peak/p95 비율 초과 + peak 가 유의미 저부하선(BURST_PEAK_FLOOR) 초과일 때만.
+        # 미세값 지터(저부하 호스트) 오탐 방지 — _build_diagnosis 의 burst gate 와 동일 기준. sizing 전략 시그널.
         var_hosts = [
             r.hostname
             for r in rows
             if r.cpu_variance_ratio is not None
             and r.cpu_variance_ratio >= _VARIANCE_BURST_RATIO
             and r.cpu_peak_pct is not None
-            and r.cpu_peak_pct > recommendation.CPU_DOWNSIZE_P95_PCT
+            and r.cpu_peak_pct > recommendation.BURST_PEAK_FLOOR_CPU_PCT
         ]
         if var_hosts:
             bullets.append(
@@ -260,10 +261,10 @@ def _build_diagnosis(
     5. cpu under + 이용률(>=70) → "CPU 압박"
     6. disk_capacity filling (runway<30일 or 정적 85%/inode) → "디스크 용량 임박"
     7. network 혼잡 (품질 orthogonal, 사이징 아님) → "네트워크 혼잡"
-    8. cpu/mem variance burst (peak 가 헤드룸선 초과) → "부하 변동 큼"
-    9. host_status idle → "거의 미사용"
-    10. cpu·mem 둘 다 다운사이즈선 이하 → "여유 있음"
-    11. 그 외 → "정상"
+    8. cpu/mem variance burst (peak 가 BURST_PEAK_FLOOR 초과) → "부하 변동 큼"
+    9. host_status == idle (활동 3축 quiescent) → "거의 미사용"
+    10. host_status == over (target<cores 다운사이즈 여유) → "여유 있음"
+    11. 그 외(optimal) → "정상"
     """
     mem = host.resources["memory"]
     cpu = host.resources["cpu"]
@@ -281,31 +282,26 @@ def _build_diagnosis(
         return "디스크 용량 임박"
     if host.network_congested:
         return "네트워크 혼잡"
-    # 이하 비-under 호스트 — variance/idle/여유/정상 (raw 기반, 사이징 노이즈 gate 동일).
-    # 부하 변동 큼 — peak/p95 비율이 커도 peak 가 sizing 유의미 수준(downsize 헤드룸선 초과)일 때만 발화.
+    # 이하 비-under 호스트 — burst/idle/여유/정상. idle·여유는 배지(host_status)에서 직접 파생해 항상 정합.
+    # 부하 변동 큼 — peak/p95 비율이 커도 peak 가 유의미 저부하선(BURST_PEAK_FLOOR) 초과일 때만 발화(지터 오탐 방지).
     cpu_burst = (
         cpu_variance is not None
         and cpu_variance >= _VARIANCE_BURST_RATIO
         and raw.cpu_peak_pct is not None
-        and raw.cpu_peak_pct > recommendation.CPU_DOWNSIZE_P95_PCT
+        and raw.cpu_peak_pct > recommendation.BURST_PEAK_FLOOR_CPU_PCT
     )
     mem_burst = (
         mem_variance is not None
         and mem_variance >= _VARIANCE_BURST_RATIO
         and raw.mem_peak_pct is not None
-        and raw.mem_peak_pct > recommendation.MEM_DOWNSIZE_P95_PCT
+        and raw.mem_peak_pct > recommendation.BURST_PEAK_FLOOR_MEM_PCT
     )
     if cpu_burst or mem_burst:
         return "부하 변동 큼"
-    # "거의 미사용"/"여유"는 순수 이용률 진술(raw) — host_status(over/optimal)과 모순 없음(near-idle=over 정합).
-    if raw.cpu_p95_pct is not None and raw.cpu_p95_pct <= recommendation.IDLE_CPU_P95_PCT:
+    # 미사용/여유 = 배지 host_status 그대로 (idle 은 활동 3축, over 는 target<cores 사이징) — 텍스트-배지 divergence 0.
+    if host.host_status == "idle":
         return "거의 미사용"
-    if (
-        raw.cpu_p95_pct is not None
-        and raw.cpu_p95_pct <= recommendation.CPU_DOWNSIZE_P95_PCT
-        and raw.mem_p95_pct is not None
-        and raw.mem_p95_pct <= recommendation.MEM_DOWNSIZE_P95_PCT
-    ):
+    if host.host_status == "over":
         return "여유 있음"
     return "정상"
 
@@ -392,7 +388,7 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         swap_used=raw.swap_used,
         disk_used_pct=raw.worst_mount_used_pct,
         iowait_p95_pct=raw.iowait_p95_pct,
-        net_avg_kbps=net_avg,
+        net_avg_kbytes_per_s=net_avg,
         os_family=raw.os_family,
         sample_sufficiency=min(suffs) if suffs else None,
         # Windows 디스크 saturation — 가장 바쁜 디스크의 큐 p95 (disk_io_saturated os-aware 소비, 정규화 불요).
@@ -548,9 +544,11 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         risk_badge_class=risk_badge_class,
         iowait_p95_pct=raw.iowait_p95_pct,
         iowait_peak_pct=raw.iowait_peak_pct,
-        worst_mount=raw.worst_mount,
         worst_mount_used_pct=raw.worst_mount_used_pct,
-        worst_mount_days_until_full=raw.worst_mount_days_until_full,
+        disk_capacity_driving_mount=raw.disk_capacity_driving_mount,
+        disk_capacity_runway_days=(
+            int(raw.disk_capacity_runway_days) if raw.disk_capacity_runway_days is not None else None
+        ),
         uptime_days=uptime_days,
         reboot_count=raw.reboot_count,
         agent_restart_count=raw.agent_restart_count,

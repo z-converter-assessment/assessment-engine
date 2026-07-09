@@ -1,36 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Literal
 
 from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 
-# ADR 0004 — 차트 TimeRange와 동일 7개. 짧은 윈도우(15m/1h/6h)는 USE Method 표본 부족으로
-# 의미 약하지만 차트와 토글 통합 UX 일관성을 위해 노출. 기본 "14d" — recommendation.WINDOW_DAYS와 동일.
-DiagnosticTimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
-
-# fraction day — SQL interval 은 fraction 지원 (interval '0.25 days' = 6h). period_days 는 float·int 호환.
-DIAGNOSTIC_RANGE_DAYS: dict[str, float] = {
-    "15m": 15 / 1440,
-    "1h": 1 / 24,
-    "6h": 6 / 24,
-    "24h": 1.0,
-    "7d": 7.0,
-    "14d": 14.0,
-    "30d": 30.0,
-}
-
-# 한국어 표시 라벨 — frontend 표시 단일 진실 (서버/클라 동일).
-# USE Method 분류 라벨 — mapper(view) import. 분류 추가 시 본 dict만 갱신.
-CLASSIFICATION_LABEL_KR: dict[str, str] = {
-    "idle": "idle",
-    "over_provisioned": "over-provisioned",
-    "under_provisioned": "under-provisioned",
-    "optimal": "optimal",
-    "insufficient_data": "표본 부족",
-}
-
-# 진단 발행 기본 윈도우 — service default·UI 기본값 단일 진실 (F10). WINDOW_DAYS(14d)와 정합.
-DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"
+# 진단 평가 윈도우 타입·상수(TimeRange/DIAGNOSTIC_RANGE_DAYS/DIAGNOSTIC_DEFAULT_TIME_RANGE)는
+# db/repositories/query/types.py 단일 진실 (#F10) — repo 인터페이스 계층에 표시/윈도우 상수 미보유.
 
 
 class BaseDiagnosticRepository(ABC):

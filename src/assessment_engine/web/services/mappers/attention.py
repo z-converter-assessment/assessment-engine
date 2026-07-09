@@ -7,6 +7,7 @@ to_capacity_warning_item 은 EnvironmentOverview.under_provisioned_hosts 로 간
 임계 분류·표시 색은 shared.py 또는 본 모듈 상단 상수 단일 진실.
 """
 
+import math
 from collections import Counter
 from datetime import date, datetime
 
@@ -51,8 +52,9 @@ _ATTN_ACTIVE_BADGE = "attn-active"
 _UTIL_COLOR_GAUGE = UTIL_GAUGE_COLOR  # 푸른 단색 (blue-500) — shared.UTIL_GAUGE_COLOR 단일 진실
 _UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재 (회색)
 
-# 도넛 SVG 원주 — r=42, 2*pi*r ≈ 263.89. pct 0~100을 0~_UTIL_DONUT_CIRC로 매핑.
-_UTIL_DONUT_CIRC = 263.89
+# 도넛 SVG 원주 — 템플릿 SVG r="42" 와 정합. pct 0~100 을 0~_UTIL_DONUT_CIRC 로 매핑(dash-array precompute).
+_DONUT_RADIUS = 42
+_UTIL_DONUT_CIRC = 2 * math.pi * _DONUT_RADIUS
 
 # 자원 부족 카드 지표 값 색 — 위반 강조 / 정상 / 미관측(N/A) 흐림 3분기.
 # 위반은 빨강(#dc2626, red-600) + 굵기로 강조 — 발화 축을 즉시 식별. 정상은 중간 회색(#475569)으로 대비.
@@ -491,9 +493,10 @@ def build_action_targets(raws) -> ActionTargets:
     items: list[CapacityWarningItem] = []
     eff_raws = []
     for raw in raws:
-        cl = recommendation.classify_host(build_resource_stats(raw))
-        items.append(to_capacity_warning_item(raw))
-        if cl in ("over_provisioned", "idle"):
+        # to_capacity_warning_item 이 이미 rollup_host 로 classification 산출 — 재계산 대신 결과 재사용(요청당 rollup 1회, #E3 동일 산식).
+        item = to_capacity_warning_item(raw)
+        items.append(item)
+        if item.classification in ("over_provisioned", "idle"):
             eff_raws.append(raw)
     items.sort(key=lambda it: (recommendation.CLASSIFICATION_ORDER[it.classification], -it.severity_score, it.hostname))
     return ActionTargets(

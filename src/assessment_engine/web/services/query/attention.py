@@ -27,6 +27,7 @@ class AttentionQueryMixin(_BaseQueryServiceMixin):
         limit_each: int | None = _ATTENTION_LIMIT_EACH,
         days_until_full_threshold: int = 30,
         end: datetime | None = None,
+        raws: list | None = None,
     ) -> AttentionSignals:
         """list 화면 운영 신호 카드 — USE Method 외 시스템 운영 이상 3 카탈로그.
 
@@ -36,6 +37,10 @@ class AttentionQueryMixin(_BaseQueryServiceMixin):
 
         디스크(capacity·IO)는 USE Method classify 통합 — 본 catalog 에서 제외 (중복 회피).
         조립은 _assemble_attention 단일 진실. 실시간 현황 페이지·보고서가 본 메서드 공유.
+
+        raws 재사용(B2): 보고서 경로가 이미 산출한 report_aggregate raws 를 넘기면 내부 재조회를 생략한다.
+        os_eol(os_id/version/kernel)·agent_unstable(public_id/hostname)만 읽어 창 독립이므로 어느 윈도우
+        raws 든 정합 — 넘기면 환경 보고서의 aggregate 2회가 1회로. 미전달(None)이면 14일 창 자체 조회.
         """
         # end=보고서 anchor(없으면 현재). os_eol 임박/경과 판정이 이 시각 기준 — 보고서 다른 지표(end_dt)와 정합.
         # gap/agent_unstable 은 보고서 미표시(C1)라 anchor 영향 없음.
@@ -43,13 +48,19 @@ class AttentionQueryMixin(_BaseQueryServiceMixin):
         # limit_each=None 이면 gap 도 전수(LIMIT NULL) — 운영신호 카드 3 카탈로그 모두 전수 출력.
         # 보고서는 gap 미표시(C1)라 전수여도 결과만 버려질 뿐(소량, 무해).
         gap_raws = await self.repo.metric_gap_warnings(gap_minutes, gap_recent_hours, limit_each)
-        server_ids = await self.repo.list_server_ids()
-        raws_period = []
+        if raws is None:
+            server_ids = await self.repo.list_server_ids()
+            raws = (
+                await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=ref)
+                if server_ids
+                else []
+            )
+        else:
+            server_ids = [r.server_id for r in raws]
         restart_counts: dict[int, int] = {}
         if server_ids:
-            raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=ref)
             restart_counts = await self.repo.agent_restart_counts_recent(server_ids, ref - timedelta(hours=1))
-        return self._assemble_attention(raws_period, gap_raws, restart_counts, ref, limit_each)
+        return self._assemble_attention(raws, gap_raws, restart_counts, ref, limit_each)
 
     def _assemble_attention(
         self, raws_period, gap_raws, restart_counts, now, limit_each: int | None

@@ -12,12 +12,13 @@ from assessment_engine.db.dtos.outbound import (
     ReportMountUsageRaw,
     ReportRowRaw,
 )
-from assessment_engine.db.repositories.base_diagnostic_repository import (
+from assessment_engine.db.repositories.query.types import (
+    AUTO_BUCKET,
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
     DIAGNOSTIC_RANGE_DAYS,
-    DiagnosticTimeRange,
+    TIME_RANGE_TD,
+    TimeRange,
 )
-from assessment_engine.db.repositories.query.types import _BUCKET_INFO, AUTO_BUCKET, TIME_RANGE_TD
 from assessment_engine.web.services.mappers.attention import build_action_targets
 from assessment_engine.web.services.mappers.environment_report import build_metric_trend, to_environment_report
 from assessment_engine.web.services.mappers.export import to_inventory_export_entry
@@ -67,7 +68,7 @@ class _ChildPrefetch:
 class ReportQueryMixin(_BaseQueryServiceMixin):
     async def get_environment_report(
         self,
-        time_range: DiagnosticTimeRange = DIAGNOSTIC_DEFAULT_TIME_RANGE,
+        time_range: TimeRange = DIAGNOSTIC_DEFAULT_TIME_RANGE,
         anchor_at: datetime | None = None,
         view: ReportView = "customer",
     ) -> EnvironmentReportSummary:
@@ -78,8 +79,6 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         """
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
         end_dt = anchor_at if anchor_at is not None else datetime.now(UTC)
-
-        attention = await self.get_attention_signals(end=end_dt, limit_each=None)
 
         public_ids = await self.repo.list_all_server_public_ids()
         sid_map = await self.repo.resolve_server_ids(public_ids) if public_ids else {}
@@ -106,6 +105,9 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
                 risk_high=0,
             )
             details = []
+
+        # 운영 신호 — 이미 산출한 raws_window 재사용(B2: os_eol/agent 는 창 독립이라 aggregate 재조회 생략).
+        attention = await self.get_attention_signals(end=end_dt, limit_each=None, raws=raws_window)
 
         # 환경 시계열 추이 — 발행 모달 time_range 윈도우의 CPU·메모리 평균 버킷. 정적 스냅샷 저장.
         trend = []
@@ -157,9 +159,12 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         overview = self._assemble_overview(details, util, raws_window, online_by_id)
 
 
-        # 운영 신호 — 전체 attention 을 선택 N대 호스트로 필터 (os_eol_count 등 N대 정합).
+        # 운영 신호 — 선택 N대 raws_window 재사용(B2). os_eol/agent 는 창 독립이라 선택 raws 로 산출 후
+        # hostname 필터 = 전체 산출 후 필터와 동일 결과(선택분만 계산, 전체 aggregate 재조회 생략).
         hostnames = {d.hostname for d in details}
-        attention = _filter_attention(await self.get_attention_signals(end=end_dt, limit_each=None), hostnames)
+        attention = _filter_attention(
+            await self.get_attention_signals(end=end_dt, limit_each=None, raws=raws_window), hostnames
+        )
 
         # 환경 시계열 추이 — 선택 N대 한정 (metric_trend server_ids). 환경 보고서와 동일 버킷 정책.
         trend = await self._build_report_trend(time_range, end_dt, server_ids)
@@ -328,52 +333,45 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
 
         server_ids=None 이면 전체 환경(env 보고서), 주어지면 선택 N대/1대 한정(selection·single). 버킷 정책 동일.
         """
-        bi, bucket_td = _BUCKET_INFO[AUTO_BUCKET.get(time_range, "1h")]
+        bucket = AUTO_BUCKET.get(time_range, "1h")
         trend_start = end_dt - TIME_RANGE_TD[time_range]
-        cpu_series = await self.repo.metric_trend("cpu.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids)
-        mem_series = await self.repo.metric_trend("mem.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids)
-        disk_series = await self.repo.metric_trend("disk.usage_percent", trend_start, end_dt, bi, bucket_td, server_ids)
+        cpu_series = await self.repo.metric_trend("cpu.usage_percent", trend_start, end_dt, bucket, server_ids)
+        mem_series = await self.repo.metric_trend("mem.usage_percent", trend_start, end_dt, bucket, server_ids)
+        disk_series = await self.repo.metric_trend("disk.usage_percent", trend_start, end_dt, bucket, server_ids)
         return build_metric_trend(cpu_series, mem_series, disk_series)
 
     async def _assemble_report_raws(self, server_ids: list[int], period_days: float, end_dt: datetime) -> list:
-        """report_aggregate + 5 baseline(mount_worst·uptime·agent_restart·disk_io·net_io) 주입 raws.
+        """report_aggregate + 4 baseline(uptime·agent_restart·disk_io·net_io) 주입 raws.
 
         보고서 3경로(env·selection·single)가 get_report 세부 행·under_hosts 분류·overview 에 동일
-        raws 를 공유 — report_aggregate/net_io 중복 호출 제거 + build_resource_stats(net·worst_mount
-        포함, #E3) 입력 일치로 유휴 분류 정합(세부 행·under·도넛 동일 입력).
+        raws 를 공유 — report_aggregate/net_io 중복 호출 제거 + build_resource_stats(#E3) 입력 일치로
+        유휴 분류 정합(세부 행·under·도넛 동일 입력). worst_mount used%·용량 임박(구동 마운트·runway)은
+        report_aggregate 단일 산출 (별도 mount_worst 쿼리 폐기).
         """
         raws = await self.repo.report_aggregate(server_ids, period_days, end_dt)
-        mount_worst = await self.repo.report_mount_worst(server_ids, period_days, end_dt)
         uptime_stats = await self.repo.report_uptime_stats(server_ids, period_days, end_dt)
         agent_restart_stats = await self.repo.report_agent_restart_stats(server_ids, period_days, end_dt)
         disk_io = await self.repo.report_disk_io_baseline(server_ids, period_days, end_dt)
         net_io = await self.repo.report_net_io_baseline(server_ids, period_days, end_dt)
         for raw in raws:
-            mount_tuple = mount_worst.get(raw.server_id)
-            if mount_tuple is not None:
-                raw.worst_mount, raw.worst_mount_used_pct, raw.worst_mount_days_until_full = mount_tuple
             raw.reboot_count = uptime_stats.get(raw.server_id, 0)
             raw.agent_restart_count = agent_restart_stats.get(raw.server_id, 0)
-            disk_tuple = disk_io.get(raw.server_id)
-            if disk_tuple is not None:
-                (
-                    raw.disk_iops_baseline,
-                    raw.disk_throughput_kbps,
-                    raw.disk_iops_p95,
-                    raw.disk_iops_peak,
-                    raw.disk_throughput_kbps_p95,
-                    raw.disk_throughput_kbps_peak,
-                ) = disk_tuple
-            net_tuple = net_io.get(raw.server_id)
-            if net_tuple is not None:
-                (
-                    raw.net_rx_kbps,
-                    raw.net_tx_kbps,
-                    raw.net_rx_kbps_p95,
-                    raw.net_rx_kbps_peak,
-                    raw.net_tx_kbps_p95,
-                    raw.net_tx_kbps_peak,
-                ) = net_tuple
+            disk_bl = disk_io.get(raw.server_id)
+            if disk_bl is not None:
+                raw.disk_iops_baseline = disk_bl.iops_baseline
+                raw.disk_throughput_kbps = disk_bl.throughput_kbps_baseline
+                raw.disk_iops_p95 = disk_bl.iops_p95
+                raw.disk_iops_peak = disk_bl.iops_peak
+                raw.disk_throughput_kbps_p95 = disk_bl.kbps_p95
+                raw.disk_throughput_kbps_peak = disk_bl.kbps_peak
+            net_bl = net_io.get(raw.server_id)
+            if net_bl is not None:
+                raw.net_rx_kbps = net_bl.rx_kbps_baseline
+                raw.net_tx_kbps = net_bl.tx_kbps_baseline
+                raw.net_rx_kbps_p95 = net_bl.rx_p95
+                raw.net_rx_kbps_peak = net_bl.rx_peak
+                raw.net_tx_kbps_p95 = net_bl.tx_p95
+                raw.net_tx_kbps_peak = net_bl.tx_peak
         return raws
 
     async def get_report(
@@ -453,26 +451,22 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
 
         # stats에 disk_io·net_io baseline + p95/peak 주입 (inventory-export 확장)
         for row in stats_rows:
-            disk_tuple = disk_io.get(row.server_id)
-            if disk_tuple is not None:
-                (
-                    row.disk_iops_baseline,
-                    row.disk_throughput_kbps,
-                    row.disk_iops_p95,
-                    row.disk_iops_peak,
-                    row.disk_throughput_kbps_p95,
-                    row.disk_throughput_kbps_peak,
-                ) = disk_tuple
-            net_tuple = net_io.get(row.server_id)
-            if net_tuple is not None:
-                (
-                    row.net_rx_kbps,
-                    row.net_tx_kbps,
-                    row.net_rx_kbps_p95,
-                    row.net_rx_kbps_peak,
-                    row.net_tx_kbps_p95,
-                    row.net_tx_kbps_peak,
-                ) = net_tuple
+            disk_bl = disk_io.get(row.server_id)
+            if disk_bl is not None:
+                row.disk_iops_baseline = disk_bl.iops_baseline
+                row.disk_throughput_kbps = disk_bl.throughput_kbps_baseline
+                row.disk_iops_p95 = disk_bl.iops_p95
+                row.disk_iops_peak = disk_bl.iops_peak
+                row.disk_throughput_kbps_p95 = disk_bl.kbps_p95
+                row.disk_throughput_kbps_peak = disk_bl.kbps_peak
+            net_bl = net_io.get(row.server_id)
+            if net_bl is not None:
+                row.net_rx_kbps = net_bl.rx_kbps_baseline
+                row.net_tx_kbps = net_bl.tx_kbps_baseline
+                row.net_rx_kbps_p95 = net_bl.rx_p95
+                row.net_rx_kbps_peak = net_bl.rx_peak
+                row.net_tx_kbps_p95 = net_bl.tx_p95
+                row.net_tx_kbps_peak = net_bl.tx_peak
 
         stats_by_id = {row.server_id: row for row in stats_rows}
         order = {sid: i for i, sid in enumerate(server_ids)}

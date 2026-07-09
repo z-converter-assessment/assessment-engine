@@ -18,7 +18,6 @@ from assessment_engine.web.view_models.server import ServiceBadgeRef
 # template_setup.py 가 본 상수를 import 해 Jinja2 globals 로 노출 → body data-attribute 단일 진실.
 _USAGE_DANGER_PCT = 90  # 사용률 위험 임계 — disk_warning · server detail badge 공통
 _USAGE_WARN_PCT = 75  # 사용률 주의 임계
-_SWAP_DANGER_PCT = 0.1  # 스왑 사용 자체가 이슈 — 0.1% 도 빨강 (JS metrics.js 동일)
 
 # 보고서 view 분기 — 라우터 Pydantic Literal 정합 (#F3)
 ReportView = Literal["customer", "engineer"]
@@ -144,7 +143,7 @@ def build_service_badge_reference() -> list[ServiceBadgeRef]:
 # 자원 적정성 상태 enum 1:1 매핑. (key, label, hex, description) 튜플 정렬:
 #   under(빨강), over(파랑=주색), idle(회색), optimal(녹색), insufficient_data(옅은회색).
 # over 색 = 테마색1(var(--color-title)) 동일 주색 — 활용률 게이지와 같은 파랑, under 빨강과 대비.
-# idle = 미사용 상태(수요≈0). 종료·통합 조치는 파생 권고 층(상태 아님).
+# idle = 미사용 상태(수요 거의 0). 종료·통합 조치는 파생 권고 층(상태 아님).
 _DONUT_SEGMENT_DEFS: list[tuple[str, str, str, str]] = [
     ("under_provisioned", "under_provisioned", "#ef4444", "자원 부족 — 사양 상향 검토"),
     ("over_provisioned", "over_provisioned", "var(--color-title)", "자원 여유 — 사양 축소 검토"),
@@ -175,10 +174,6 @@ PROVISIONING_CLASS_OPTIONS: tuple[tuple[str, str], ...] = tuple(
     (key, recommendation.LABEL_KO.get(key, key)) for key, _, _, _ in _DONUT_SEGMENT_DEFS
 )
 
-# ─── 보고서·환경 보고서 공용 capacity 임박 임계 ───
-# build_report_summary_bullets (report.py) + _extract_capacity_imminent (environment_report.py).
-_CAPACITY_IMMINENT_DAYS = 30
-
 # OS family 표시 라벨 — 보고서(report.py)·환경 보고서(environment_report.py) 공유.
 OS_FAMILY_LABEL_KO: dict[str, str] = {"linux": "Linux", "windows": "Windows", "unknown": "미상"}
 
@@ -187,7 +182,7 @@ OS_FAMILY_LABEL_KO: dict[str, str] = {"linux": "Linux", "windows": "Windows", "u
 RISK_LEVEL_ORDER: dict[str, int] = {"high": 0, "attention": 1, "low_usage": 2, "normal": 3}
 
 # 진단 time_range -> 한국어 표시 라벨 (보고서·대시보드·이력 공용). 표시 라벨이라 mapper 소속
-# (도메인 상수 DiagnosticTimeRange/DIAGNOSTIC_RANGE_DAYS 는 repo base_diagnostic_repository 유지).
+# (윈도우 타입·상수 TimeRange/DIAGNOSTIC_RANGE_DAYS 는 db/repositories/query/types.py 단일 진실 #F10).
 DIAGNOSTIC_RANGE_LABEL_KR: dict[str, str] = {
     "15m": "15분",
     "1h": "1시간",

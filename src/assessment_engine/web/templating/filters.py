@@ -42,13 +42,29 @@ def storagesize(gb: float | None) -> str:
 
 
 def disksize_styled(gb: float | None) -> Markup:
-    """disksize 값 + 단위(.stat-unit, 작은 폰트·옅은 색) 인라인. 값 크기에 따라 GB/TB 유동. None 이면 '-'."""
+    """메모리 총량 값 + 단위(.stat-unit) 인라인. 메모리는 binary(1024) 기준. 디스크는 storagesize_styled(1000)."""
     if gb is None:
         return Markup("-")
     if gb >= 1024:
         value, unit = round(gb / 1024, 1), "TB"
     else:
         value, unit = gb, "GB"
+    return Markup(f'{value} <span class="stat-unit">{unit}</span>')
+
+
+def storagesize_styled(gb: float | None) -> Markup:
+    """디스크 총량 값 + 단위(.stat-unit) 인라인. 디스크는 decimal(bytes_to_gb=10^9) 기준이라 1000 단위(벤더 관례).
+
+    disksize_styled(메모리·1024)와 base 만 다름 — 디스크 KPI/보고서 총량이 storage 탭(storagesize)과 같은 base 로.
+    """
+    if gb is None:
+        return Markup("-")
+    if gb >= 1000:
+        value, unit = round(gb / 1000, 1), "TB"
+    elif gb >= 1:
+        value, unit = round(gb), "GB"
+    else:
+        value, unit = round(gb * 1000), "MB"
     return Markup(f'{value} <span class="stat-unit">{unit}</span>')
 
 

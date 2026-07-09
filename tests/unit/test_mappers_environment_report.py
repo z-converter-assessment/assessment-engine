@@ -2,7 +2,6 @@
 
 핵심:
 - `_PROVISIONING_SEGMENT_DEFS` 는 `mappers._DONUT_SEGMENT_DEFS` 와 동일 객체 (이중 정의 단일화 회귀)
-- `_CAPACITY_IMMINENT_DAYS` 도 mappers 단일 진실 alias
 - `to_environment_report` 가 precompute count 필드 (top_risks_count, attention_hosts_count 등) 채움
 - `ClassificationCount.pct` 가 mapper precompute (templates 산술 회피, P3)
 """
@@ -25,11 +24,6 @@ from assessment_engine.web.view_models.report import ReportRowItem, ReportSummar
 def test_provisioning_segment_defs_single_truth():
     """environment_report._PROVISIONING_SEGMENT_DEFS 는 mappers.shared._DONUT_SEGMENT_DEFS alias."""
     assert erm._PROVISIONING_SEGMENT_DEFS is m_shared._DONUT_SEGMENT_DEFS
-
-
-def test_capacity_imminent_days_single_truth():
-    """environment_report._CAPACITY_IMMINENT_DAYS 는 mappers.shared._CAPACITY_IMMINENT_DAYS alias."""
-    assert erm._CAPACITY_IMMINENT_DAYS == m_shared._CAPACITY_IMMINENT_DAYS
 
 
 def _make_row(public_id: str, hostname: str, rec: str = "optimal") -> ReportRowItem:

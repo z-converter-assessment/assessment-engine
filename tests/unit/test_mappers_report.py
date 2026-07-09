@@ -72,7 +72,6 @@ def _raw(
     boot_time=None,
     worst_mount=None,
     worst_used=None,
-    worst_days=None,
     reboot_count=0,
     disk_iops=None,
     disk_throughput=None,
@@ -129,9 +128,8 @@ def _raw(
         mem_total_kb=mem_total_kb,
         disks=disks if disks is not None else [{"name": "sda", "size_bytes": 50 * 10**9, "kind": "physical"}],
         boot_time=boot_time if boot_time is not None else _NOW - timedelta(days=30),
-        worst_mount=worst_mount,
+        disk_capacity_driving_mount=worst_mount,
         worst_mount_used_pct=worst_used,
-        worst_mount_days_until_full=worst_days,
         reboot_count=reboot_count,
         disk_iops_baseline=disk_iops,
         disk_throughput_kbps=disk_throughput,
@@ -567,7 +565,16 @@ def test_bullets_disk_io_await_signal():
 
 
 def test_bullets_mount_imminent_signal():
-    raws = [_raw(hostname="full-01", worst_mount="/data", worst_used=90.0, worst_days=12, cpu_p95=50.0, mem_p95=50.0)]
+    raws = [
+        _raw(
+            hostname="full-01",
+            worst_mount="/data",
+            worst_used=90.0,
+            disk_capacity_runway_days=12.0,
+            cpu_p95=50.0,
+            mem_p95=50.0,
+        )
+    ]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws)
     assert any("임박" in b and "full-01" in b and "/data" in b for b in bullets)
@@ -704,7 +711,7 @@ def test_bullets_customer_view_keeps_iowait_mount_reboot_eol():
             disk_await_p95_ms=30.0,
             worst_mount="/data",
             worst_used=90.0,
-            worst_days=10,
+            disk_capacity_runway_days=10.0,
             reboot_count=5,
         ),
     ]
@@ -1155,7 +1162,7 @@ def _rs(**kw):
         swap_used=False,
         disk_used_pct=None,
         iowait_p95_pct=None,
-        net_avg_kbps=None,
+        net_avg_kbytes_per_s=None,
     )
     base.update(kw)
     return recommendation.ResourceStats(**base)
@@ -1181,8 +1188,8 @@ def test_recommendation_action_fixed_phrases(status, expected):
 
 def test_recommendation_action_idle_strong_vs_weak():
     """유휴 조치는 강도로 분기 — 확실(거의 0)=즉시 종료 / 저사용=통합·재배치 (IDLE_STRONG)."""
-    strong = _rs(cpu_peak_pct=0.5, net_avg_kbps=0.5)  # peak<=1% AND net<=1kB/s
-    weak = _rs(cpu_peak_pct=2.0, net_avg_kbps=100.0)
+    strong = _rs(cpu_peak_pct=0.5, net_avg_kbytes_per_s=0.5)  # peak<=1% AND net<=1kB/s
+    weak = _rs(cpu_peak_pct=2.0, net_avg_kbytes_per_s=100.0)
     assert _build_recommendation_action(_host("idle"), strong) == "즉시 종료 검토"
     assert _build_recommendation_action(_host("idle"), weak) == "통합·재배치 검토"
 
@@ -1192,16 +1199,16 @@ def test_recommendation_action_idle_strong_vs_weak():
 
 def test_build_resource_stats_sums_net_rx_tx():
     """net baseline = rx+tx 합 — 유휴 판정 입력."""
-    assert build_resource_stats(_raw(net_rx=10.0, net_tx=5.0)).net_avg_kbps == 15.0
+    assert build_resource_stats(_raw(net_rx=10.0, net_tx=5.0)).net_avg_kbytes_per_s == 15.0
 
 
 def test_build_resource_stats_net_none_when_both_missing():
     """rx·tx 둘 다 None 이면 net None — 유휴 판정 skip (미관측을 0 으로 단정 금지)."""
-    assert build_resource_stats(_raw()).net_avg_kbps is None
+    assert build_resource_stats(_raw()).net_avg_kbytes_per_s is None
 
 
 def test_build_resource_stats_net_single_side_counts_other_as_zero():
-    assert build_resource_stats(_raw(net_rx=10.0)).net_avg_kbps == 10.0
+    assert build_resource_stats(_raw(net_rx=10.0)).net_avg_kbytes_per_s == 10.0
 
 
 def test_build_resource_stats_sample_sufficiency_min_of_measured():

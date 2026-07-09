@@ -96,10 +96,11 @@ class ReportRowItem:
     iowait_p95_pct: float | None = None
     iowait_peak_pct: float | None = None
 
-    # Mount 최악 — 서버 안에서 가장 채워진 마운트 1건 (양식 B 컬럼)
-    worst_mount: str | None = None
+    # 가장 채워진 마운트 used% (most-full, 디스크 이용률 KPI 컬럼)
     worst_mount_used_pct: float | None = None
-    worst_mount_days_until_full: int | None = None
+    # 용량 임박 구동 마운트 — 분류(assess_disk_capacity)와 동일 마운트·runway (capacity_imminent 짝)
+    disk_capacity_driving_mount: str | None = None
+    disk_capacity_runway_days: int | None = None
 
     # Uptime + 재부팅 + 에이전트 재시작 (양식 B 컬럼 — anchor+window 카운트, 시스템 안정성)
     uptime_days: int | None = None

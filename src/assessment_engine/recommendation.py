@@ -39,11 +39,12 @@ IDLE_NET_MBPS = 2
 IDLE_DISK_IOPS = 5  # 디스크 I/O 거의 정지(로그·주기 flush 수준). 측정된 활동만 유휴 배제, 미측정은 불배제.
 # 유휴 강도 "확실"(조치 층 — 상태 아님) — AWS Compute Optimizer idle 정의(거의 0). 종료 vs 통합 권고 문구 분기용.
 IDLE_STRONG_PEAK_PCT = 1
-IDLE_STRONG_NET_KBPS = 1
+IDLE_STRONG_NET_KBYTES_PER_S = 1  # kB/s(킬로바이트)
 
-# Over-provisioned (다운사이즈 여유선) + 유휴/여유 진단 표시 임계 — AWS Compute Optimizer + GCP Recommender.
-CPU_DOWNSIZE_P95_PCT = 30
-MEM_DOWNSIZE_P95_PCT = 50
+# "부하 변동 큼" 서술의 peak 유의미 하한 — peak 가 이 저부하선을 넘어야 burst 로 발화(저부하 지터 오탐 방지).
+# 실제 다운사이즈(over) 판정 아님 — 그건 assess_cpu 의 target<cores(util/70 사이징). 표시 서술 gate 전용.
+BURST_PEAK_FLOOR_CPU_PCT = 30
+BURST_PEAK_FLOOR_MEM_PCT = 50
 
 # CPU 이용률 부족선 — Kleinrock 큐잉 무릎 + AWS Balanced(<70% P95). 보고서 요약 KPI 표시 임계.
 CPU_UPSIZE_P95_PCT = 70
@@ -53,7 +54,9 @@ CPU_UPSIZE_P95_PCT = 70
 # load 대신 procs_running — load 는 D-state IO 블록이 섞여 오염(Gregg). procs_running 은 R-state 만(2.5.45+ 전역).
 PROCS_RUNNING_PER_CORE_SATURATION = 1.0
 # Windows CPU saturation — Processor Queue Length 를 코어 수로 정규화 후 >= 2 (Microsoft "sustained > 2 per CPU").
-# Linux loadavg 와 스케일이 다르다(loadavg = running+runnable+uninterruptible, run queue = ready 만)라 별도 상수.
+# Linux 1.0 과 값이 다른 건 모집단이 달라서지 임계 불일치가 아니다: Linux procs_running 은 실행 중 태스크 포함
+# (R-state = running + runnable), Windows Processor Queue 는 대기(ready-to-run)만 세고 실행 중 스레드는 뺀다.
+# 즉 같은 포화 지점을 Windows 쪽은 코어당 +1 만큼 낮게 세므로 각 OS 정본 임계(1 vs 2)를 그대로 쓴다.
 CPU_RUN_QUEUE_PER_CORE_SATURATION = 2.0
 # Windows disk IO saturation — 디스크당 Avg Disk Queue Length >= 2 (Microsoft 정석 병목 기준).
 # agent 가 디스크별 큐를 발행 -> ingest 에서 per-device max 축약 -> 이 임계로 바로 비교 (정규화 불요).
@@ -63,6 +66,10 @@ DISK_QUEUE_PER_DISK_SATURATION = 2.0
 # 이 목적으로 별도 발행). Microsoft/업계 관례: sustained 5=증설 권고 / 20=체감 저하 / 100=thrashing.
 # under-provisioned 신호는 "체감 저하" 20 채택(보수적). 총 Pages/sec 1000 은 카운터·자릿수 이중 오류라 폐기.
 WIN_PAGES_INPUT_SATURATION = 20.0
+# 근본원인 인과 게이트 — procs_blocked(D-state, uninterruptible sleep) p95 >= 1 이면 "블록된 프로세스 존재".
+# 디스크발 CPU 로드(디스크 I/O 대기로 프로세스가 D-state 로 쌓임)를 판별해 root_cause 를 disk_io 로 귀속. run
+# queue(R-state)와 대비되는 blocked queue — 1(적어도 한 프로세스가 상시 블록)이 존재 임계(Gregg USE saturation).
+PROCS_BLOCKED_DSTATE_SATURATION = 1.0
 
 
 Recommendation = Literal[
@@ -92,7 +99,7 @@ class ResourceStats:
     disk_used_pct: float | None  # storage capacity utilization (worst mount)
     iowait_p95_pct: float | None  # disk IO saturation (cpu wait on IO)
     # Network
-    net_avg_kbps: float | None  # 유휴 판정용 (saturation metric 미수집)
+    net_avg_kbytes_per_s: float | None  # kB/s(킬로바이트, 킬로비트 아님). 유휴 판정용 (saturation metric 미수집)
     # OS family — 신호 의미 분기 (원칙 P2). default None = unknown -> Linux 의미(엔진 fallback 정합).
     os_family: str | None = None
     # 표본 충분성 — 측정 축(cpu/mem) 실측/기대 샘플 비율. None = 측정 축 부재(판정 불가, low_sample 무관).
@@ -245,7 +252,7 @@ LABEL_KO: dict[str, str] = {
 }
 
 # 양식 A의 RISK 색상 매핑 — report.html `.rec-{recommendation}` CSS와 짝.
-# 서로 다른 분류에 다른 클래스 — over=노랑(비용), under=빨강(위험), optimal=녹색.
+# 서로 다른 분류에 다른 클래스 — under=빨강(위험), over=파랑, optimal=녹색, idle=회색.
 BADGE_CLASS: dict[str, str] = {
     "idle": "rec-idle",
     "over_provisioned": "rec-over_provisioned",
@@ -307,8 +314,8 @@ def is_idle_strong(stats: ResourceStats) -> bool:
     return (
         stats.cpu_peak_pct is not None
         and stats.cpu_peak_pct <= IDLE_STRONG_PEAK_PCT
-        and stats.net_avg_kbps is not None
-        and stats.net_avg_kbps <= IDLE_STRONG_NET_KBPS
+        and stats.net_avg_kbytes_per_s is not None
+        and stats.net_avg_kbytes_per_s <= IDLE_STRONG_NET_KBYTES_PER_S
     )
 
 
@@ -697,8 +704,8 @@ def _host_status(stats: ResourceStats, res: dict[str, ResourceAssessment], under
     if under_kinds:
         return "under"
     cpu = stats.cpu_p95_pct
-    net = stats.net_avg_kbps
-    net_mbps = net * 8 / 1000 if net is not None else None
+    net = stats.net_avg_kbytes_per_s  # kB/s
+    net_mbps = net * 8 / 1000 if net is not None else None  # kB/s -> Mbit/s (*8 bit, /1000 mega)
     # 디스크 I/O 활동 — baseline IOPS 가 측정됐고 quiescent 초과면 미사용 아님(유휴 배제). 미측정(None)은 배제 안 함.
     disk_io_active = stats.disk_iops_baseline is not None and stats.disk_iops_baseline > IDLE_DISK_IOPS
     if (
@@ -734,7 +741,9 @@ def rollup_host(stats: ResourceStats) -> HostAssessment:
     mem_pressure = res["memory"].status == "under"
     disk_io_pressure = res["disk_io"].status == "io_bound"
     cpu_pressure = res["cpu"].status == "under"
-    procs_blocked_high = stats.procs_blocked_p95 is not None and stats.procs_blocked_p95 >= 1.0  # D-state 존재
+    procs_blocked_high = (
+        stats.procs_blocked_p95 is not None and stats.procs_blocked_p95 >= PROCS_BLOCKED_DSTATE_SATURATION
+    )
     if mem_pressure and _mem_paging_active(stats) and (disk_io_pressure or cpu_pressure):
         # 메모리발 -> 동반 디스크 I/O·CPU 는 swap 트래픽·대기의 증상
         host.root_cause = "memory"

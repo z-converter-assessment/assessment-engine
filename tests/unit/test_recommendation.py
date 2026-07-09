@@ -28,7 +28,7 @@ def _stats(**overrides) -> ResourceStats:
         "disk_used_pct": 50.0,
         "iowait_p95_pct": 5.0,
         "disk_await_p95_ms": 5.0,  # await 5ms < 20 -> io_ok(측정됨)
-        "net_avg_kbps": 100.0,
+        "net_avg_kbytes_per_s": 100.0,
     }
     base.update(overrides)
     return ResourceStats(**base)

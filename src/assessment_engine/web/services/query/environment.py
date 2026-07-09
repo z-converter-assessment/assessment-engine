@@ -4,11 +4,8 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 
 from assessment_engine import recommendation
-from assessment_engine.db.repositories.base_diagnostic_repository import (
-    DIAGNOSTIC_RANGE_DAYS,
-    DiagnosticTimeRange,
-)
-from assessment_engine.db.repositories.query.types import TimeRange
+from assessment_engine.db.dtos.outbound import SaturationRaw
+from assessment_engine.db.repositories.query.types import DIAGNOSTIC_RANGE_DAYS, TimeRange
 from assessment_engine.web.services.mappers.attention import (
     build_action_targets,
     build_environment_overview,
@@ -89,7 +86,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         )
 
     async def get_environment_assessment(
-        self, time_range: DiagnosticTimeRange, anchor_at: datetime | None = None
+        self, time_range: TimeRange, anchor_at: datetime | None = None
     ) -> EnvironmentAssessment:
         """자원 평가 전용 — 윈도우(time_range)·앵커(anchor) 기준 분류 분포 도넛 + 서버별 자원 적정성 통합 표.
 
@@ -132,51 +129,58 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         hostname 이 환경 내 2대+ 공유), warnings.ambiguous_hostnames(plain hostname 필터가 중복명 명중 -> pair/uuid
         권장), warnings.unresolved_pairs(순서쌍이 어떤 서버로도 해석 안 됨 = 오타/불일치).
         """
-        server_ids = await self.repo.list_server_ids()
-        if not server_ids:
+        all_ids = await self.repo.list_server_ids()
+        if not all_ids:
             return {"servers": [], "ambiguous_hostnames": [], "unresolved_pairs": []}
-        details = await self.repo.get_servers(server_ids)
-        raws = await self.repo.report_aggregate(server_ids, period_days=window_days, end=end)
-        await self._inject_net_baseline(raws, server_ids, window_days, end)
-        online_by_id = await self._online_map(server_ids, details, end)
+        # 전체 inventory(get_servers, cagg 조인 없는 경량) — 필터 매칭·호스트명 충돌 판정에 충분.
+        # 비싼 report_aggregate 는 매칭 확정 후 부분집합에만(B3 pushdown).
+        all_details = await self.repo.get_servers(all_ids)
         hn = {h.strip() for h in (hostnames or []) if h.strip()}
         ipset = {i.strip() for i in (ips or []) if i.strip()}
         pid = {p.strip() for p in (public_ids or []) if p.strip()}
         pairs = pairs or []
-        # 호스트명 충돌 — 전체 환경 기준(필터 무관 안전 신호). 2대+ 공유 hostname = 모호.
-        name_counts = Counter(r.hostname for r in raws)
+        # 호스트명 충돌 — 전체 환경 기준(필터 무관 안전 신호). 2대+ 공유 hostname = 모호. 전체 inventory 로 판정.
+        name_counts = Counter(d.hostname for d in all_details)
         ambiguous = {h for h, c in name_counts.items() if c > 1}
 
-        def _disc_match(raw, disc: str) -> bool:
-            return disc == raw.public_id or any((i.get("address") == disc) for i in raw.interfaces or [])
+        # 매칭 판별은 inventory(ServerDetail: hostname/public_id/interfaces 는 raw 와 동형)로 — aggregate 이전 pushdown.
+        def _disc_match(s, disc: str) -> bool:
+            return disc == s.public_id or any((i.get("address") == disc) for i in s.interfaces or [])
 
-        def _pair_match(raw) -> bool:
-            return any(raw.hostname == h and _disc_match(raw, disc) for h, disc in pairs)
+        def _pair_match(s) -> bool:
+            return any(s.hostname == h and _disc_match(s, disc) for h, disc in pairs)
 
-        def _match(raw) -> bool:
+        def _match(s) -> bool:
             if not hn and not ipset and not pid and not pairs:
                 return True
-            if hn and raw.hostname in hn:
+            if hn and s.hostname in hn:
                 return True
-            if pid and raw.public_id in pid:
+            if pid and s.public_id in pid:
                 return True
-            if ipset and any((i.get("address") in ipset) for i in raw.interfaces or []):
+            if ipset and any((i.get("address") in ipset) for i in s.interfaces or []):
                 return True
-            return bool(pairs) and _pair_match(raw)
+            return bool(pairs) and _pair_match(s)
 
-        matched = [r for r in raws if _match(r)]
+        matched_details = [d for d in all_details if _match(d)]
+        matched_ids = [d.id for d in matched_details]
+        raws: list = []
+        online_by_id: dict[int, bool] = {}
+        if matched_ids:
+            raws = await self.repo.report_aggregate(matched_ids, period_days=window_days, end=end)
+            await self._inject_net_baseline(raws, matched_ids, window_days, end)
+            online_by_id = await self._online_map(matched_ids, matched_details, end)
         servers = [
             build_right_sizing_entry(
                 raw, online_by_id.get(raw.server_id, False), hostname_ambiguous=raw.hostname in ambiguous
             )
-            for raw in matched
+            for raw in raws
         ]
-        # 안전 경고 — plain hostname 필터가 중복명을 명중(정확치 않음) / 순서쌍이 어떤 서버로도 해석 안 됨.
+        # 안전 경고 — plain hostname 필터가 중복명 명중(부정확) / 순서쌍이 어떤 서버로도 해석 안 됨(inventory 기준).
         ambiguous_in_filter = sorted(hn & ambiguous)
         unresolved = [
             f"{h}~{disc}"
             for h, disc in pairs
-            if not any(r.hostname == h and _disc_match(r, disc) for r in raws)
+            if not any(d.hostname == h and _disc_match(d, disc) for d in all_details)
         ]
         return {
             "servers": servers,
@@ -201,7 +205,9 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
             d = detail_by_id.get(sid)
             if d is None:
                 continue
-            m = await self.get_latest_metric(sid)
+            # 포화 원자료 = 벌크 sat_map 재사용(B4) — get_latest_metric 에 주입해 per-server 재조회 생략.
+            sat = sat_map.get(sid) or SaturationRaw()
+            m = await self.get_latest_metric(sid, saturation=sat)
             if not m or not m.collected_at or m.collected_at < fresh_threshold:
                 continue  # 데이터 없음/stale = 오프라인 (통일: 데이터 신선도가 곧 온라인)
             online += 1
@@ -210,7 +216,6 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
             fs_total = sum(mt.total_gb for mt in m.mounts if mt.total_gb and mt.used_gb is not None)
             fs_used = sum(mt.used_gb for mt in m.mounts if mt.total_gb and mt.used_gb is not None)
             disk_pool_pct = round(fs_used / fs_total * 100, 1) if fs_total else None
-            sat = sat_map.get(sid, {})
             snapshots.append(
                 {
                     "hostname": d.hostname,
@@ -221,13 +226,13 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                     "disk_pct": disk_pool_pct,  # 통합 풀 — 평균 도넛(fs_used/fs_total)과 동일 기준
                     # 실시간 포화 지수 (os-aware, >=1 포화) + 메모리 압박 — 부하 상위 "CPU 포화"·"디스크 I/O 포화" 랭킹.
                     "cpu_sat_index": recommendation.cpu_saturation_index(
-                        sat.get("run_queue"), d.cpu_cores, d.os_family
+                        sat.run_queue, d.cpu_cores, d.os_family
                     ),
                     "disk_sat_index": recommendation.disk_io_saturation_index(
-                        sat.get("await_ms"), sat.get("disk_queue_win"), d.os_family
+                        sat.await_ms, sat.disk_queue_win, d.os_family
                     ),
                     "mem_pressure": recommendation.mem_pressure_active(
-                        sat.get("pages_input_rate"), sat.get("pswpout_delta"), d.os_family
+                        sat.pages_input_rate, sat.pswpout_delta, d.os_family
                     ),
                     # capacity-weighted 평균용 가중치 (cpu=코어 가중, mem/disk=절대 총량 sum/sum).
                     "cpu_cores": d.cpu_cores,

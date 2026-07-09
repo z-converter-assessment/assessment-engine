@@ -206,6 +206,42 @@ class EnvironmentUtilizationRaw:
 
 
 @dataclass
+class DiskIoBaselineRaw:
+    """report_disk_io_baseline — 서버별 디스크 I/O baseline + p95/peak. baseline=SUM(delta)/SUM(dt)."""
+
+    iops_baseline: int | None
+    throughput_kbps_baseline: float | None
+    iops_p95: float | None
+    iops_peak: float | None
+    kbps_p95: float | None
+    kbps_peak: float | None
+
+
+@dataclass
+class NetIoBaselineRaw:
+    """report_net_io_baseline — 서버별 네트워크 I/O baseline + p95/peak."""
+
+    rx_kbps_baseline: float | None
+    tx_kbps_baseline: float | None
+    rx_p95: float | None
+    rx_peak: float | None
+    tx_p95: float | None
+    tx_peak: float | None
+
+
+@dataclass
+class SaturationRaw:
+    """latest_saturation — 신선 표본 실시간 포화 원자료 (os-aware). 미존재 server 는 빈 인스턴스(전 필드 None) 사용."""
+
+    run_queue: float | None = None  # CPU 실행 큐 (Linux procs_running / Windows Processor Queue)
+    disk_queue_win: float | None = None  # Windows Avg Disk Queue (await 폴백)
+    await_ms: float | None = None  # 디스크 응답 (Linux time delta / Windows IOCTL COALESCE)
+    pages_input_rate: float | None = None  # Windows Pages Input/sec rate
+    pswpout_delta: int | None = None  # Linux swap page-out 델타
+    retrans_pct: float | None = None  # TCP 재전송율 %
+
+
+@dataclass
 class ReportMountUsageRaw:
     """마운트별 윈도우 평균 사용률 — 개별 보고서 스토리지 상세 (worst 1개 아닌 전체 마운트)."""
 
@@ -298,10 +334,8 @@ class ReportRowRaw:
     inventory_mounts: list[dict] | None = None  # Windows 물리 disks 미발행 시 디스크 총량 fallback
     boot_time: datetime | None = None  # uptime_days = now - boot_time
 
-    # Mount worst — 별도 SQL(`report_mount_worst`)에서 채움. mapper는 그 결과를 zip
-    worst_mount: str | None = None
+    # 서버 안 가장 채워진 마운트의 used%(most-full, mm cagg) — 디스크 이용률 KPI. 임박(runway)과 별개 축.
     worst_mount_used_pct: float | None = None
-    worst_mount_days_until_full: int | None = None
 
     # Uptime + period 내 재부팅 횟수 — 별도 SQL(`report_uptime_stats`)에서 채움
     reboot_count: int = 0
@@ -338,7 +372,8 @@ class ReportRowRaw:
     oom_occurred: bool = False  # 창 안 OOM kill 발생 (메모리 under 사후 증거)
     history_hours: float | None = None  # 관측 버킷(5분) 누적 시간 — 통계 정밀도 바닥(30h floor)
     disk_await_p95_ms: float | None = None  # worst await p95 (Linux time delta / Windows IOCTL 100ns delta COALESCE)
-    disk_capacity_runway_days: float | None = None  # 바이트 소진까지 남은 일수(가장 빨리 차는 마운트)
+    disk_capacity_runway_days: float | None = None  # 바이트 소진까지 남은 일수(가장 빨리 차는 마운트=구동 마운트)
+    disk_capacity_driving_mount: str | None = None  # 구동 마운트 이름(runway·driving_used_pct 짝) — 임박 표시 단일 진실
     disk_inode_runway_days: float | None = None  # inode 소진까지 남은 일수
     disk_inode_used_pct: float | None = None  # worst mount inode 사용률 % — 정적 가드(바이트 85% 대칭)
     disk_capacity_target_gb: float | None = None  # 1년 수명 목표 총 용량(GB) — 소진 마운트 확장 목표

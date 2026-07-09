@@ -1,11 +1,10 @@
 """QueryRepository — 보고서·환경 요약 SQL 통합 테스트 (본 세션 v3~v5 추가분).
 
 검증 영역:
-- report_aggregate — iowait_p95/peak + inventory 합계 컬럼(cpu_cores·mem_total_kb·disks·boot_time) 추가
-- report_mount_worst — 마운트별 max_used + fill_rate days_until_full 추정
+- report_aggregate — iowait_p95/peak + inventory 컬럼(cpu_cores·mem_total_kb·disks·boot_time) + 용량 임박 구동 마운트
 - report_uptime_stats — period 안 boot_time DISTINCT count - 1
-- report_disk_io_baseline — sectors·ops delta 평균 (IOPS·throughput_kbps)
-- report_net_io_baseline — rx/tx bytes delta 평균 (kbps)
+- report_disk_io_baseline — sectors·ops delta 평균 (IOPS·throughput_kbps), DiskIoBaselineRaw
+- report_net_io_baseline — rx/tx bytes delta 평균 (kbps), NetIoBaselineRaw
 - report_mount_usage — 전체 마운트 윈도우 평균 사용률 (개별 보고서 스토리지 상세)
 - report_memory_breakdown — used/available/cached/buffers 윈도우 평균 (전체 메모리 대비)
 - report_cpu_breakdown — user/system/iowait LAG delta 비율
@@ -105,57 +104,6 @@ async def test_report_aggregate_returns_iowait_and_inventory(collect_repo, query
     assert r.boot_time is not None
 
 
-# ─── report_mount_worst — fill_rate 추정 ─────────────────────────────────
-
-
-async def test_report_mount_worst_estimates_days_until_full(collect_repo, query_repo):
-    sid, _start, end = await _seed_server_with_period_metrics(
-        collect_repo,
-        "r-mount",
-        n_points=10,
-    )
-    mount_map = await query_repo.report_mount_worst(
-        [sid],
-        period_days=1,
-        end=end + timedelta(minutes=1),
-    )
-    assert sid in mount_map
-    mount, used_pct, days_until_full = mount_map[sid]
-    assert mount == "/data"
-    assert used_pct is not None and used_pct >= 50.0  # 50% 이상 사용 중
-    # 분당 2GB 채움 + 잔여 약 32GB -> 매우 짧은 시간 안 full. period_days=1 기준 fill_rate라 days >= 0
-    assert days_until_full is not None and days_until_full >= 0
-
-
-async def test_report_mount_worst_no_consumption_returns_none(collect_repo, query_repo):
-    """avail_bytes 변동 없음 -> fill_rate 추정 불가 -> days_until_full None."""
-    sid = await collect_repo.upsert_server(make_inventory(composite_id="r-mnt-stable"))
-    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=5)
-    for i in range(5):
-        m = make_metrics(
-            collected_at=base_ts + timedelta(minutes=i),
-            mounts=[
-                MountUsageEntry(
-                    mount="/",
-                    total_bytes=100 * 10**9,
-                    free_bytes=30 * 10**9,
-                    avail_bytes=30 * 10**9,  # 고정
-                    kind="data",
-                )
-            ],
-        )
-        await collect_repo.record_metrics(sid, m)
-
-    mount_map = await query_repo.report_mount_worst(
-        [sid],
-        period_days=1,
-        end=base_ts + timedelta(hours=1),
-    )
-    if sid in mount_map:
-        _mount, _used, days = mount_map[sid]
-        assert days is None
-
-
 # ─── report_uptime_stats — boot_time DISTINCT count - 1 ──────────────────
 
 
@@ -223,7 +171,9 @@ async def test_report_disk_io_baseline_iops_and_throughput(collect_repo, query_r
         end=end + timedelta(minutes=1),
     )
     assert sid in io_map
-    iops, throughput_kbps, iops_p95, iops_peak, kbps_p95, kbps_peak = io_map[sid]
+    bl = io_map[sid]
+    iops, throughput_kbps = bl.iops_baseline, bl.throughput_kbps_baseline
+    iops_p95, iops_peak, kbps_p95, kbps_peak = bl.iops_p95, bl.iops_peak, bl.kbps_p95, bl.kbps_peak
     # 분당 50+30=80 ops + 1분 간격 -> IOPS = 80/60 ~= 1.33. floor int 변환
     assert iops is not None and iops >= 1
     assert throughput_kbps is not None and throughput_kbps > 0
@@ -261,7 +211,9 @@ async def test_report_net_io_baseline_rx_tx(collect_repo, query_repo):
         end=end + timedelta(minutes=1),
     )
     assert sid in net_map
-    rx_kbps, tx_kbps, rx_p95, rx_peak, tx_p95, tx_peak = net_map[sid]
+    bl = net_map[sid]
+    rx_kbps, tx_kbps = bl.rx_kbps_baseline, bl.tx_kbps_baseline
+    rx_p95, rx_peak, tx_p95, tx_peak = bl.rx_p95, bl.rx_peak, bl.tx_p95, bl.tx_peak
     # 분당 60000 bytes / 60s / 1024 ~= 0.97 kB/s rx
     assert rx_kbps is not None and rx_kbps > 0
     assert tx_kbps is not None and tx_kbps > 0
@@ -274,7 +226,7 @@ async def test_report_net_io_baseline_rx_tx(collect_repo, query_repo):
 
 
 async def test_all_report_queries_share_server_ids_and_period(collect_repo, query_repo):
-    """get_report·get_inventory_export가 호출하는 5개 SQL이 같은 입력으로 정합 결과."""
+    """get_report·get_inventory_export가 호출하는 4개 SQL이 같은 입력으로 정합 결과."""
     sid, _start, end = await _seed_server_with_period_metrics(
         collect_repo,
         "r-combo",
@@ -283,13 +235,13 @@ async def test_all_report_queries_share_server_ids_and_period(collect_repo, quer
     )
     end_q = end + timedelta(minutes=1)
     raws = await query_repo.report_aggregate([sid], period_days=1, end=end_q)
-    mount = await query_repo.report_mount_worst([sid], period_days=1, end=end_q)
     uptime = await query_repo.report_uptime_stats([sid], period_days=1, end=end_q)
     disk_io = await query_repo.report_disk_io_baseline([sid], period_days=1, end=end_q)
     net_io = await query_repo.report_net_io_baseline([sid], period_days=1, end=end_q)
 
     assert len(raws) == 1
-    assert sid in mount
+    # 마운트 최악 used% 는 report_aggregate 단일 산출 (별도 report_mount_worst 폐기)
+    assert raws[0].worst_mount_used_pct is not None
     assert sid in disk_io
     assert sid in net_io
     # uptime은 boot_time 변경 없으면 0 또는 누락 (둘 다 reboot_count=0 의미)
@@ -461,7 +413,7 @@ async def test_report_disk_io_baseline_counter_reset_segments_summed(collect_rep
         )
     d = await query_repo.report_disk_io_baseline([sid], 1, now)
     assert sid in d
-    iops_baseline = d[sid][0]
+    iops_baseline = d[sid].iops_baseline
     # counter_agg: reads delta = (150-0)+(100-0)=250 over ~5분 관측. naive last-first=100-0=100 이면 과소.
     # reset 음수 점프(150->0)가 IOPS 를 음수/0 으로 왜곡하지 않고 양수 baseline 산출.
     assert iops_baseline is not None and iops_baseline > 0

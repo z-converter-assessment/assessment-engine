@@ -11,7 +11,6 @@ from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ServerDetail
 from assessment_engine.service_classifier import SERVICE_CATEGORIES, SINGLE_INSTANCE_CATEGORIES
 from assessment_engine.web.services.mappers.shared import (
-    _CAPACITY_IMMINENT_DAYS,
     _CAUSE_LABEL_BY_TRIGGER,
     DIAGNOSTIC_RANGE_LABEL_KR,
     OS_FAMILY_LABEL_KO,
@@ -42,7 +41,7 @@ from assessment_engine.web.view_models.environment_report import (
 )
 from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
 
-# `_PROVISIONING_SEGMENT_DEFS` / `_CAPACITY_IMMINENT_DAYS` 단일 진실 = mappers/shared.py (#E8).
+# `_PROVISIONING_SEGMENT_DEFS` 단일 진실 = mappers/shared.py (#E8).
 # 본 모듈은 import alias 만 — 환경 보고서·대시보드 도넛·보고서 row 색 통일 (T13).
 
 # view 별 Top N — customer/engineer 모두 전수 노출 (운영 검토 list, N 잘림 없음).
@@ -296,21 +295,21 @@ def _extract_attention_hosts(
 
 
 def _extract_capacity_imminent(rows: list[ReportRowItem]) -> list[CapacityImminentItem]:
-    """디스크 capacity 임박 호스트 추출 — worst_mount_days_until_full <= 30 (engineer 보고서)."""
+    """디스크 capacity 임박 호스트 추출 — 분류(assess_disk_capacity)와 동일 구동 마운트 runway < 30일 (engineer 보고서)."""
     out: list[CapacityImminentItem] = []
     for r in rows:
-        if r.worst_mount_days_until_full is None:
+        if r.disk_capacity_runway_days is None:
             continue
-        if r.worst_mount_days_until_full > _CAPACITY_IMMINENT_DAYS:
+        if r.disk_capacity_runway_days >= recommendation.RS_DISK_RUNWAY_DAYS:
             continue
-        if not r.worst_mount:
+        if not r.disk_capacity_driving_mount:
             continue
         out.append(
             CapacityImminentItem(
                 public_id=r.public_id,
                 hostname=r.hostname,
-                worst_mount=r.worst_mount,
-                days_until_full=r.worst_mount_days_until_full,
+                worst_mount=r.disk_capacity_driving_mount,
+                days_until_full=r.disk_capacity_runway_days,
                 used_pct=r.worst_mount_used_pct,
             )
         )
@@ -415,7 +414,6 @@ def to_environment_report(
     for _key in ("linux", "windows"):
         if OS_FAMILY_LABEL_KO[_key] not in _os_present:
             os_family_dist.append(DistributionBar(label=OS_FAMILY_LABEL_KO[_key], count=0, pct=0.0))
-    workload_dist = _to_distribution_bars(overview.role_distribution)
     # OS 지원 종료 OS별 집계 (customer 나열) — os_eol_warnings.meta_text="{os} · EOL {date}" 에서 os 추출, 대수 DESC.
     _eol_os = Counter(w.meta_text.split(" · ", 1)[0] for w in attention.os_eol_warnings)
     os_eol_breakdown_label = " · ".join(f"{os} {n}대" for os, n in _eol_os.most_common())
@@ -428,9 +426,6 @@ def to_environment_report(
     # customer 도 동일 헬퍼 호출 (로직 단일, 미사용 필드는 template 분기로 노출 안 함).
     attention_hosts = _extract_attention_hosts(attention, base.rows)
     capacity_imminent = _extract_capacity_imminent(base.rows)
-    # 고객 의사결정 보조 (기존 분류·신호 단일 진실 재사용, 새 분류 도입 0).
-    insufficient_count = sum(1 for r in base.rows if r.recommendation == "insufficient_data")
-    evaluated_count = len(base.rows) - insufficient_count
     # 에이전트 버전 목록 (중복 제거·정렬, 미상 포함) — 관리 현황. 어느 호스트인지는 미표시.
     agent_versions_label = ", ".join(sorted({(d.agent_version or "미상") for d in details}))
     # 네트워크 토폴로지 — 발행 시점 정적 스냅샷 (대시보드와 동일 mapper 단일 진실).
@@ -447,7 +442,6 @@ def to_environment_report(
         classification_dist=classification_dist,
         os_distribution=os_dist,
         os_family_dist=os_family_dist,
-        workload_dist=workload_dist,
         workload_unknown_count=overview.role_unknown_count,
         workload_identified_count=overview.total - overview.role_unknown_count,
         top_risks=top_risks,
@@ -461,7 +455,6 @@ def to_environment_report(
         top_risks_count=len(top_risks),
         attention_hosts_count=len(attention_hosts),
         capacity_imminent_count=len(capacity_imminent),
-        evaluated_count=evaluated_count,
         os_eol_count=len(attention.os_eol_warnings),
         os_eol_breakdown_label=os_eol_breakdown_label,
         agent_versions_label=agent_versions_label,

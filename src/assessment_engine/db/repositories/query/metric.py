@@ -12,6 +12,7 @@ from assessment_engine.db.dtos.outbound import (
     MountUsageRaw,
     NetIoRaw,
     RebootEvent,
+    SaturationRaw,
 )
 from assessment_engine.db.models.server_disk_io import ServerDiskIo
 from assessment_engine.db.models.server_inventory import ServerInventory
@@ -182,7 +183,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
 
         return DashboardRaw(metrics=metrics, disk_io=disk_io, net_io=net_io, mounts=mounts)
 
-    async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, dict]:
+    async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, SaturationRaw]:
         """서버별 실시간 포화 원자료 — 자원 적정성 분류 4축: CPU 실행 큐(gauge) + 디스크 await 2행 델타(Linux
         server_disk_io time / Windows IOCTL ReadTime·WriteTime, 14일 경로와 동일 신호로 통일 — 구세대 viostor 만
         disk_queue_win 폴백) + 메모리(Windows paging rate gauge / Linux pswpout 델타) + 네트워크(TCP 재전송율 =
@@ -267,14 +268,14 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         """)
         result = await self.session.execute(sql, {"sids": server_ids, "since": since})
         return {
-            r.server_id: {
-                "run_queue": float(r.run_queue) if r.run_queue is not None else None,
-                "disk_queue_win": float(r.disk_queue_win) if r.disk_queue_win is not None else None,
-                "await_ms": float(r.await_ms) if r.await_ms is not None else None,
-                "pages_input_rate": float(r.pages_input_rate) if r.pages_input_rate is not None else None,
-                "pswpout_delta": int(r.pswpout_delta) if r.pswpout_delta is not None else None,
-                "retrans_pct": float(r.retrans_pct) if r.retrans_pct is not None else None,
-            }
+            r.server_id: SaturationRaw(
+                run_queue=float(r.run_queue) if r.run_queue is not None else None,
+                disk_queue_win=float(r.disk_queue_win) if r.disk_queue_win is not None else None,
+                await_ms=float(r.await_ms) if r.await_ms is not None else None,
+                pages_input_rate=float(r.pages_input_rate) if r.pages_input_rate is not None else None,
+                pswpout_delta=int(r.pswpout_delta) if r.pswpout_delta is not None else None,
+                retrans_pct=float(r.retrans_pct) if r.retrans_pct is not None else None,
+            )
             for r in result
         }
 
@@ -314,13 +315,11 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         # 시점값=그 서버값 -> 환경/선택과 동일 산식, dimension 보존.
         end_dt = end or datetime.now(UTC)
         start = end_dt - TIME_RANGE_TD[time_range]
-        bi, bucket_td = _BUCKET_INFO[bucket]
         return await self.metric_trend(
             metric_type,
             start,
             end_dt,
-            bi,
-            bucket_td,
+            bucket,
             server_ids=[server_id],
             agg=agg,
             dimension=dimension,
@@ -332,8 +331,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         metric_type: str,
         start: datetime,
         end: datetime,
-        bi: str,
-        bucket_td: timedelta,
+        bucket: BucketSize,
         server_ids: list[int] | None = None,
         agg: str = "avg",
         dimension: str | None = None,
@@ -345,6 +343,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         그 시점 데이터 있는 서버만 포함(데이터 유무가 곧 온라인 필터). server_ids=None 전체·[1대]=서버 상세·[N]=선택.
         collapse=False 면 device/iface/mount dimension 보존(멀티라인), True 면 합산 단일선(환경).
         """
+        bi, bucket_td = _BUCKET_INFO[bucket]  # SQL interval 문자열·경계 timedelta 는 repo 내부 파생(캡슐화).
         ae = _AGG[agg]
         sid = "AND server_id = ANY(:server_ids)" if server_ids else ""
         params: dict = {"start": start, "end": end}

@@ -7,8 +7,10 @@ from sqlalchemy import text
 from assessment_engine import recommendation  # 순수 도메인 커널 — right-sizing 정책 상수(순환 없음)
 from assessment_engine.db.dtos.outbound import (
     CpuBreakdownRaw,
+    DiskIoBaselineRaw,
     EnvironmentUtilizationRaw,
     MemoryBreakdownRaw,
+    NetIoBaselineRaw,
     ReportMountUsageRaw,
     ReportRowRaw,
 )
@@ -170,17 +172,18 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 FROM mount_span
             ),
             mount_runway AS (
-                -- 서버당 가장 빨리 소진되는 마운트(MIN runway) + 조치 대상 마운트의 확장 목표·30일 예상.
-                -- 감소·수평·span<=0 이면 runway null(안 참). report_mount_worst 의 worst-by-usage 와 별개 축.
-                SELECT r.server_id, r.disk_runway_days, r.inode_runway_days, t.target_gb, t.proj_30d_pct, t.used_pct
+                -- 서버당 가장 빨리 소진되는 마운트(MIN runway) + 조치 대상 마운트(이름·확장 목표·30일 예상·used%).
+                -- 감소·수평·span<=0 이면 runway null(안 참). 분류(assess_disk_capacity)·임박 표시 단일 진실.
+                SELECT r.server_id, r.disk_runway_days, r.inode_runway_days,
+                       t.mount AS driving_mount, t.target_gb, t.proj_30d_pct, t.used_pct
                 FROM (
                     SELECT server_id, MIN(disk_runway_days) AS disk_runway_days, MIN(inode_runway_days) AS inode_runway_days
                     FROM mount_calc GROUP BY server_id
                 ) r
                 LEFT JOIN (
-                    -- 조치 대상 마운트(소진 임박 OR 임계 초과)의 목표·예상·used%. 소진 임박(runway) 우선, 없으면 최고 used.
-                    -- used%·proj_30d 를 같은 마운트에서 뽑아 표시 계층에서 짝 맞춤(worst-used 마운트와 혼입 방지).
-                    SELECT DISTINCT ON (server_id) server_id, target_gb, proj_30d_pct, used_pct
+                    -- 조치 대상 마운트(소진 임박 OR 임계 초과)의 이름·목표·예상·used%. 소진 임박(runway) 우선, 없으면 최고 used.
+                    -- 이름·used%·proj_30d 를 같은 마운트에서 뽑아 표시 계층에서 짝 맞춤(runway 와 동일 마운트).
+                    SELECT DISTINCT ON (server_id) server_id, mount, target_gb, proj_30d_pct, used_pct
                     FROM mount_calc WHERE disk_runway_days IS NOT NULL OR used_pct >= :static_pct
                     ORDER BY server_id, disk_runway_days ASC NULLS LAST, used_pct DESC NULLS LAST
                 ) t ON t.server_id = r.server_id
@@ -279,6 +282,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 rs.conntrack_ratio AS conntrack_ratio,  -- 연결테이블 고갈 임박(count/max)
                 mr.disk_runway_days  AS disk_capacity_runway_days,
                 mr.inode_runway_days AS disk_inode_runway_days,
+                mr.driving_mount     AS disk_capacity_driving_mount,
                 mr.target_gb         AS disk_capacity_target_gb,
                 mr.proj_30d_pct      AS disk_capacity_proj_30d_pct,
                 mr.used_pct          AS disk_capacity_driving_used_pct,
@@ -360,6 +364,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 history_hours=r.history_hours,
                 disk_await_p95_ms=r.disk_await_p95_ms,
                 disk_capacity_runway_days=r.disk_capacity_runway_days,
+                disk_capacity_driving_mount=r.disk_capacity_driving_mount,
                 disk_capacity_target_gb=r.disk_capacity_target_gb,
                 disk_capacity_proj_30d_pct=r.disk_capacity_proj_30d_pct,
                 disk_capacity_driving_used_pct=r.disk_capacity_driving_used_pct,
@@ -374,62 +379,6 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             )
             for r in result.all()
         ]
-
-    async def report_mount_worst(
-        self,
-        server_ids: list[int],
-        period_days: int,
-        end: datetime,
-    ) -> dict[int, tuple[str | None, float | None, int | None]]:
-        """마운트별 max used_pct + fill_rate 기반 days_until_full 추정. 서버당 worst 1건만 반환.
-
-        worst = used_pct DESC 첫 행 (동률 시 days_until_full ASC). fill_rate = (avail_start - avail_end)/period_days.
-        """
-        start = end - timedelta(days=period_days)
-
-        sql = text("""
-            WITH usage_max AS (
-                -- server_mount_usage_5m cagg (가상 mount 필터 pre-applied). (server, mount)별 max used_pct.
-                SELECT server_id, mount, MAX(used_pct_max) AS max_used_pct
-                FROM server_mount_usage_5m
-                WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
-                GROUP BY server_id, mount
-            ),
-            fill_rate AS (
-                -- 윈도우 시작·종료 avail = 첫 버킷 avail_first / 마지막 버킷 avail_last (toolkit first/last).
-                SELECT server_id, mount,
-                    first(avail_first, bucket) AS avail_start,
-                    last(avail_last, bucket)   AS avail_end
-                FROM server_mount_usage_5m
-                WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
-                GROUP BY server_id, mount
-            ),
-            mount_per AS (
-                SELECT um.server_id, um.mount, um.max_used_pct,
-                    CASE WHEN (fr.avail_start - fr.avail_end) > 0
-                              AND :period_days > 0 AND fr.avail_end >= 0
-                         THEN GREATEST(0, FLOOR(
-                                fr.avail_end / ((fr.avail_start - fr.avail_end)::float / :period_days)
-                              ))::int
-                    END AS days_until_full
-                FROM usage_max um
-                LEFT JOIN fill_rate fr ON fr.server_id = um.server_id AND fr.mount = um.mount
-            ),
-            ranked AS (
-                SELECT server_id, mount, max_used_pct, days_until_full,
-                    ROW_NUMBER() OVER (PARTITION BY server_id
-                                       ORDER BY max_used_pct DESC NULLS LAST,
-                                                days_until_full ASC NULLS LAST) AS rk
-                FROM mount_per
-            )
-            SELECT server_id, mount, max_used_pct, days_until_full
-            FROM ranked WHERE rk = 1
-        """)
-        result = await self.session.execute(
-            sql,
-            {"sids": server_ids, "start": start, "end": end, "period_days": period_days},
-        )
-        return {r.server_id: (r.mount, r.max_used_pct, r.days_until_full) for r in result.all()}
 
     async def report_uptime_stats(
         self,
@@ -488,8 +437,8 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         server_ids: list[int],
         period_days: int,
         end: datetime,
-    ) -> dict[int, tuple[int | None, float | None, float | None, float | None, float | None, float | None]]:
-        """server_id -> (iops_baseline, throughput_kbps_baseline, iops_p95, iops_peak, kbps_p95, kbps_peak).
+    ) -> dict[int, DiskIoBaselineRaw]:
+        """server_id -> DiskIoBaselineRaw (iops·throughput baseline + p95/peak).
 
         baseline = SUM(delta)/SUM(dt). p95/peak = 시점별 device 합산 rate 분포. reset 행 제외(dt>0 AND delta>=0).
         """
@@ -534,13 +483,15 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         """)
         result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
         return {
-            r.server_id: (
-                int(r.iops_baseline) if r.iops_baseline is not None else None,
-                float(r.throughput_kbps_baseline) if r.throughput_kbps_baseline is not None else None,
-                float(r.iops_p95) if r.iops_p95 is not None else None,
-                float(r.iops_peak) if r.iops_peak is not None else None,
-                float(r.kbps_p95) if r.kbps_p95 is not None else None,
-                float(r.kbps_peak) if r.kbps_peak is not None else None,
+            r.server_id: DiskIoBaselineRaw(
+                iops_baseline=int(r.iops_baseline) if r.iops_baseline is not None else None,
+                throughput_kbps_baseline=(
+                    float(r.throughput_kbps_baseline) if r.throughput_kbps_baseline is not None else None
+                ),
+                iops_p95=float(r.iops_p95) if r.iops_p95 is not None else None,
+                iops_peak=float(r.iops_peak) if r.iops_peak is not None else None,
+                kbps_p95=float(r.kbps_p95) if r.kbps_p95 is not None else None,
+                kbps_peak=float(r.kbps_peak) if r.kbps_peak is not None else None,
             )
             for r in result.all()
         }
@@ -550,8 +501,8 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         server_ids: list[int],
         period_days: int,
         end: datetime,
-    ) -> dict[int, tuple[float | None, float | None, float | None, float | None, float | None, float | None]]:
-        """server_id -> (rx_kbps_baseline, tx_kbps_baseline, rx_p95, rx_peak, tx_p95, tx_peak).
+    ) -> dict[int, NetIoBaselineRaw]:
+        """server_id -> NetIoBaselineRaw (rx·tx baseline + p95/peak).
 
         baseline = SUM/SUM. p95/peak = 시점별 interface 합산 rate 분포.
         """
@@ -593,13 +544,13 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         """)
         result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
         return {
-            r.server_id: (
-                float(r.rx_kbps_baseline) if r.rx_kbps_baseline is not None else None,
-                float(r.tx_kbps_baseline) if r.tx_kbps_baseline is not None else None,
-                float(r.rx_p95) if r.rx_p95 is not None else None,
-                float(r.rx_peak) if r.rx_peak is not None else None,
-                float(r.tx_p95) if r.tx_p95 is not None else None,
-                float(r.tx_peak) if r.tx_peak is not None else None,
+            r.server_id: NetIoBaselineRaw(
+                rx_kbps_baseline=float(r.rx_kbps_baseline) if r.rx_kbps_baseline is not None else None,
+                tx_kbps_baseline=float(r.tx_kbps_baseline) if r.tx_kbps_baseline is not None else None,
+                rx_p95=float(r.rx_p95) if r.rx_p95 is not None else None,
+                rx_peak=float(r.rx_peak) if r.rx_peak is not None else None,
+                tx_p95=float(r.tx_p95) if r.tx_p95 is not None else None,
+                tx_peak=float(r.tx_peak) if r.tx_peak is not None else None,
             )
             for r in result.all()
         }

@@ -841,9 +841,8 @@ async def test_metric_gap_warnings_no_metric_excluded(
     assert all(r.hostname != "never-host" for r in rows)
 
 
-# ─── latest_disk_max_pct는 2026-05-12 cleanup으로 제거됨 ────────────────
-# risk_top 카드 dead code화 결과. mount 사용률 신호는 report_mount_worst로 흡수
-# (tests/integration/test_query_repository_report.py).
+# ─── mount 사용률 신호는 report_aggregate 가 단일 산출 ────────────────
+# worst mount used% + 용량 임박 구동 마운트(runway) 모두 report_aggregate (test_query_repository_report.py).
 
 
 # ─── environment_utilization ──────────────────────────────────────────────
@@ -1035,11 +1034,11 @@ async def test_metric_trend_capacity_weighted(
                     net_io=[],
                 ),
             )
-    bi, td = "1 hour", timedelta(hours=1)  # 전 데이터 한 버킷으로 강제
-    cpu = await query_repo.metric_trend("cpu.usage_percent", start, end, bi, td, [small, big])
-    # 버킷 Σd_num/Σd_total = (90+100)/(100+1000)*100 ≈ 17.3% (서버 동등가중이면 50%)
+    bucket = "1h"  # 전 데이터 한 버킷으로 강제
+    cpu = await query_repo.metric_trend("cpu.usage_percent", start, end, bucket, [small, big])
+    # 버킷 Σd_num/Σd_total = (90+100)/(100+1000)*100 ~ 17.3% (서버 동등가중이면 50%)
     assert cpu and cpu[-1].value is not None and 15.0 <= cpu[-1].value <= 20.0
-    mem = await query_repo.metric_trend("mem.usage_percent", start, end, bi, td, [small, big])
+    mem = await query_repo.metric_trend("mem.usage_percent", start, end, bucket, [small, big])
     # Σused/Σtotal = (180+200)/(200+2000)*100 ≈ 17.3% (서버 동등가중이면 50%)
     assert mem and mem[-1].value is not None and 15.0 <= mem[-1].value <= 20.0
 
@@ -1086,13 +1085,13 @@ async def test_metric_trend_cached_null_component_is_gap_not_zero(
             net_io=[],
         ),
     )
-    bi, td = "1 hour", timedelta(hours=1)
+    bucket = "1h"
     # win-only: cached 미측정 -> gap (0% 포인트 아님)
-    win_cached = await query_repo.metric_trend("mem.cached_percent", start, end, bi, td, [win])
+    win_cached = await query_repo.metric_trend("mem.cached_percent", start, end, bucket, [win])
     assert win_cached == []
     # 실측 host: 250/1000*100 = 25%
-    lin_cached = await query_repo.metric_trend("mem.cached_percent", start, end, bi, td, [lin])
+    lin_cached = await query_repo.metric_trend("mem.cached_percent", start, end, bucket, [lin])
     assert lin_cached and lin_cached[-1].value is not None and 20.0 <= lin_cached[-1].value <= 30.0
     # 혼재: win 이 분모에서도 제외 -> 실측 25% 유지(0 쪽으로 안 끌림)
-    mixed = await query_repo.metric_trend("mem.cached_percent", start, end, bi, td, [win, lin])
+    mixed = await query_repo.metric_trend("mem.cached_percent", start, end, bucket, [win, lin])
     assert mixed and mixed[-1].value is not None and 20.0 <= mixed[-1].value <= 30.0

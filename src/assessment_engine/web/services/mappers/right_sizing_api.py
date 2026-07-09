@@ -9,11 +9,13 @@ stats 원자료·임계 상수로 numeric(파싱 계약).
 from __future__ import annotations
 
 from assessment_engine import recommendation
+from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
     _CAUSE_LABEL_BY_TRIGGER,
     build_host_confidence_notes,
 )
+from assessment_engine.web.services.unit_converter import bytes_to_gb
 
 # ResourceStatus(도메인 enum) -> 외부 노출 한국어 라벨. 프로젝트 통일 어휘(자원 적정성 화면과 동일 개념).
 _STATUS_LABEL_KO: dict[str, str] = {
@@ -129,6 +131,7 @@ def _cpu_resource(raw, stats, host) -> dict:
         "saturation": _sat_block("cpu", stats),
         "evidence": _evidence_labels(ra.triggers),
         "confidence_notes": _res_confidence_notes(ra.confidence),
+        "current_cores": stats.cpu_cores,  # 현재 배정 — target 과 짝(현재 vs 목표)
         "sizing_target_cores": ra.sizing_target,
         "recommendation": _sizeable_recommendation("cpu", ra),
         "detail": ra.detail or None,
@@ -144,6 +147,7 @@ def _memory_resource(raw, stats, host) -> dict:
         "saturation": _sat_block("memory", stats),
         "evidence": _evidence_labels(ra.triggers),
         "confidence_notes": _res_confidence_notes(ra.confidence),
+        "current_mb": stats.mem_total_mb,  # 현재 배정 RAM — target 과 짝
         "sizing_target_mb": ra.sizing_target,
         "recommendation": _sizeable_recommendation("memory", ra),
         "detail": ra.detail or None,
@@ -153,15 +157,24 @@ def _memory_resource(raw, stats, host) -> dict:
 def _disk_resource(raw, stats, host) -> dict:
     cap = host.resources["disk_capacity"]
     io = host.resources["disk_io"]
+    # 현재 배정 디스크 총량 — 물리 disks 우선, 비면(Windows) 파일시스템 mounts fallback(disk_total_bytes 단일 산식).
+    _dbytes = disk_total_bytes(raw.disks or [], raw.inventory_mounts or [])
     return {
         "capacity": {
             "status": cap.status,
             "status_label": _STATUS_LABEL_KO.get(cap.status, cap.status),
-            "worst_mount": raw.worst_mount,
-            "worst_mount_used_pct": round(raw.worst_mount_used_pct, 1) if raw.worst_mount_used_pct is not None else None,
-            "days_until_full": raw.worst_mount_days_until_full,
+            "worst_mount": raw.disk_capacity_driving_mount,
+            "worst_mount_used_pct": (
+                round(raw.disk_capacity_driving_used_pct, 1)
+                if raw.disk_capacity_driving_used_pct is not None
+                else None
+            ),
+            "days_until_full": (
+                int(raw.disk_capacity_runway_days) if raw.disk_capacity_runway_days is not None else None
+            ),
             "evidence": _evidence_labels(cap.triggers),
             "confidence_notes": _res_confidence_notes(cap.confidence),
+            "current_gb": int(bytes_to_gb(_dbytes)) if _dbytes else None,  # 현재 배정 — target 과 짝
             "sizing_target_gb": cap.sizing_target,
             "recommendation": _sizeable_recommendation("disk_capacity", cap),
             "detail": cap.detail or None,
