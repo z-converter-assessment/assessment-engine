@@ -11,31 +11,27 @@ from typing import Literal
 
 from assessment_engine.boot_time import BOOT_TIME_JITTER_TOLERANCE
 
-# boot_time 지터 허용치(초) — boot_time.BOOT_TIME_JITTER_TOLERANCE 단일 진실 파생.
-# metric_trend(차트)와 report(도넛·집계) CPU reset-gate 가 공유하는 SQL bound param 값.
-# 둘 다 본 상수를 참조해 동일 게이트(NTP 보정 흔들림을 false-reset 으로 오판 안 함)를 보장.
+# boot_time 지터 허용치(초) — reboot_events(server_inventory_history) 의 재부팅 판정 게이트.
+# v2 child 시계열(disk_io/net_io)은 boot_time 미보유 -> rate 차트 reset 은 GREATEST(delta,0) 로 흡수(아래).
 BOOT_JITTER_SEC = int(BOOT_TIME_JITTER_TOLERANCE.total_seconds())
 
 # ─── chart metric 카탈로그 (router Literal whitelist) ───
+# v2 폐기: load.1m/5m/15m(소스 부재 -> cpu.run_queue 대체), swap.usage_percent(런타임 swap 추이 축 폐기),
+# disk.queue(sat_disk_queue 폐기 -> disk.io_saturation await 로 단일화).
 MetricType = Literal[
     "cpu.usage_percent",
     "cpu.user_percent",
     "cpu.system_percent",
     "cpu.iowait_percent",
     "cpu.run_queue",
-    "load.1m",
-    "load.5m",
-    "load.15m",
     "mem.usage_percent",
     "mem.available_percent",
     "mem.cached_percent",
     "mem.buffers_percent",
-    "swap.usage_percent",
     "disk.read_iops",
     "disk.write_iops",
     "disk.read_kbps",
     "disk.write_kbps",
-    "disk.queue",
     "disk.io_saturation",
     "fs.usage_percent",
     "net.rx_bytes_per_sec",
@@ -44,9 +40,8 @@ MetricType = Literal[
     "net.tx_packets_per_sec",
     "net.retrans_percent",
 ]
-# 환경 전체 추이 차트 metric — 대시보드 추이 + 환경 성능 추이(서버상세 성능 추이 풀세트의 환경판).
-# capacity-weighted(cpu·mem·disk·fs·swap = sum(num)/sum(den)) / 코어 정규화(load=sum(load)/sum(cores))
-# / 합산(disk·net rate).
+# 환경 전체 추이 차트 metric — 대시보드 추이 + 환경 성능 추이. capacity-weighted(cpu·mem·fs = sum/sum) /
+# 코어 정규화(run_queue) / 합산(disk·net rate).
 EnvironmentMetricType = Literal[
     "cpu.usage_percent",
     "cpu.user_percent",
@@ -57,14 +52,11 @@ EnvironmentMetricType = Literal[
     "mem.available_percent",
     "mem.cached_percent",
     "mem.buffers_percent",
-    "swap.usage_percent",
-    "disk.usage_percent",
     "fs.usage_percent",
     "disk.read_iops",
     "disk.write_iops",
     "disk.read_kbps",
     "disk.write_kbps",
-    "disk.queue",
     "disk.io_saturation",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
@@ -125,69 +117,76 @@ _AGG: dict[str, str] = {
 
 # ─── chart dispatch 매핑 (router Literal로 whitelist된 metric_type만 도달) ───
 
-# CPU 누적 jiffies. delta로 % 계산 (LAG 기반). active/component 모두 분자만 다름.
-# 분모(total)와 usage 분자는 성분 COALESCE — Windows 는 nice/iowait/irq/softirq/steal 이 null(OS 개념 부재)이라
-# raw 합이 X+NULL=NULL 로 전파되면 delta null -> 전량 제외돼 Windows CPU 추이 차트가 빈다(#C2, cagg·compute_cpu 동일).
-# per-component(user/system/iowait) 분자는 bare 유지 — Windows iowait 는 null 이라 d_num null 로 자연 제외(N/A),
-# COALESCE 하면 측정 0(iowait 여유)으로 오인된다. Windows 실측 축(user/system)은 non-null 이라 bare 로도 정상.
+# CPU 누적 시간(seconds). delta로 % 계산 (LAG 기반). 성분 COALESCE — Windows 는 nice/iowait/irq/softirq/steal
+# 이 null(OS 개념 부재)이라 raw 합이 X+NULL=NULL 로 전파되면 delta null -> 전량 제외돼 Windows CPU 추이 차트가
+# 빈다(#C2, cagg·compute_cpu 동일). per-component(user/system/iowait) 분자는 bare 유지 — Windows iowait 는 null
+# 이라 d_num null 로 자연 제외(N/A), COALESCE 하면 측정 0(iowait 여유)으로 오인.
 _CPU_TOTAL_EXPR = (
-    "COALESCE(cpu_user,0)+COALESCE(cpu_nice,0)+COALESCE(cpu_system,0)+COALESCE(cpu_idle,0)"
-    "+COALESCE(cpu_iowait,0)+COALESCE(cpu_irq,0)+COALESCE(cpu_softirq,0)+COALESCE(cpu_steal,0)"
+    "COALESCE(cpu_user_s,0)+COALESCE(cpu_nice_s,0)+COALESCE(cpu_system_s,0)+COALESCE(cpu_idle_s,0)"
+    "+COALESCE(cpu_iowait_s,0)+COALESCE(cpu_irq_s,0)+COALESCE(cpu_softirq_s,0)+COALESCE(cpu_steal_s,0)"
 )
 _CPU_NUMERATOR: dict[str, str] = {
     "cpu.usage_percent": (
-        "COALESCE(cpu_user,0)+COALESCE(cpu_nice,0)+COALESCE(cpu_system,0)+COALESCE(cpu_iowait,0)"
-        "+COALESCE(cpu_irq,0)+COALESCE(cpu_softirq,0)+COALESCE(cpu_steal,0)"
+        "COALESCE(cpu_user_s,0)+COALESCE(cpu_nice_s,0)+COALESCE(cpu_system_s,0)+COALESCE(cpu_iowait_s,0)"
+        "+COALESCE(cpu_irq_s,0)+COALESCE(cpu_softirq_s,0)+COALESCE(cpu_steal_s,0)"
     ),
-    "cpu.user_percent": "cpu_user",
-    "cpu.system_percent": "cpu_system",
-    "cpu.iowait_percent": "cpu_iowait",
+    "cpu.user_percent": "cpu_user_s",
+    "cpu.system_percent": "cpu_system_s",
+    "cpu.iowait_percent": "cpu_iowait_s",
 }
 
 # (dim_col, value_col) — disk/net rate per dimension. table 명은 metric.py 에서 결합
-# (types.py 는 ORM import 안 함 — circular 회피).
+# (types.py 는 ORM import 안 함 — circular 회피). v2: device->device_id, iface->iface_id, sectors->io_bytes(이미 By).
 _RATE_PER_DIM_DEFS: dict[str, tuple[str, str]] = {
-    "disk.read_iops": ("device", "reads_completed"),
-    "disk.write_iops": ("device", "writes_completed"),
-    # 처리량 — sectors(512B) -> KB. value 표현식이 rate SQL cnt 로 삽입(정적 상수, #C5 안전).
-    "disk.read_kbps": ("device", "sectors_read * 512.0 / 1024"),
-    "disk.write_kbps": ("device", "sectors_written * 512.0 / 1024"),
-    "net.rx_bytes_per_sec": ("interface", "rx_bytes"),
-    "net.tx_bytes_per_sec": ("interface", "tx_bytes"),
-    "net.rx_packets_per_sec": ("interface", "rx_packets"),
-    "net.tx_packets_per_sec": ("interface", "tx_packets"),
+    "disk.read_iops": ("device_id", "ops_read"),
+    "disk.write_iops": ("device_id", "ops_write"),
+    # 처리량 — v2 io_*_bytes 는 이미 By -> KB 는 /1024 (v1 sectors*512 이중환산 폐기).
+    "disk.read_kbps": ("device_id", "io_read_bytes / 1024.0"),
+    "disk.write_kbps": ("device_id", "io_write_bytes / 1024.0"),
+    "net.rx_bytes_per_sec": ("iface_id", "rx_bytes"),
+    "net.tx_bytes_per_sec": ("iface_id", "tx_bytes"),
+    "net.rx_packets_per_sec": ("iface_id", "rx_packets"),
+    "net.tx_packets_per_sec": ("iface_id", "tx_packets"),
 }
 
-# 데이터 볼륨 술어 — device kind 태그(agent 공용 분류기)의 SQL 투영. data 만 (boot/image/가상 fs 제외).
-# 가상 fs 는 agent pre-drop, Windows drive 도 kind='data' 로 통일 — major/정규식/path 추론 전부 폐기.
-# 정적 상수만이라 f-string 안전 (CLAUDE.md C5 whitelist).
-_DATA_VOLUME_SQL_FILTER = "kind = 'data'"
+# 데이터 볼륨 술어 (v2) — kind 컬럼 폐기. 가상 fs(tmpfs/overlay 등)와 /boot 를 fstype/mountpoint 로 제외.
+# fstype null(미상)은 데이터로 포함(안전). 정적 상수만이라 f-string 안전 (#C5).
+_VIRTUAL_FSTYPES = (
+    "'tmpfs','devtmpfs','overlay','squashfs','proc','sysfs','cgroup','cgroup2','mqueue','debugfs',"
+    "'tracefs','securityfs','pstore','bpf','configfs','ramfs','autofs','hugetlbfs','fusectl','nsfs',"
+    "'efivarfs','binfmt_misc'"
+)
+_DATA_VOLUME_SQL_FILTER = f"(fstype IS NULL OR fstype NOT IN ({_VIRTUAL_FSTYPES})) AND mountpoint NOT LIKE '/boot%'"
+# cagg(server_filesystem_5m) 변형 — fstype 대표값은 fstype_any 컬럼.
+_DATA_VOLUME_CAGG_FILTER = (
+    f"(fstype_any IS NULL OR fstype_any NOT IN ({_VIRTUAL_FSTYPES})) AND mountpoint NOT LIKE '/boot%'"
+)
 
-# 환경 시점값 capacity-weighted (시점별 sum(numerator)/sum(denominator) * 100). server_metrics 컬럼.
-# metric_trend 그룹2 — environment_utilization(mem)과 동일 capacity-weighted 정의(환경은 sum/sum).
-# 3-tuple (numerator, denominator, guard). guard = 분자 성분이 실측된 행만 집계에 포함(미측정 성분 null 을 0 으로
-# 삼키지 않음, #C2 값 의미론). Windows 는 mem_cached_kb/mem_buffers_kb 가 null(OS 미측정)이라 가드 없이 SUM 하면
-# COALESCE-to-0 가 "측정된 0%" 로 오도한다 -> environment_utilization 과 동일하게 IS NOT NULL 가드. 정적 상수 f-string 안전(#C5).
+# 환경 시점값 capacity-weighted (시점별 sum(numerator)/sum(denominator) * 100). server_metrics 컬럼(v2 By).
+# guard = 분자 성분이 실측된 행만 집계(미측정 성분 null 을 0 으로 삼키지 않음, #C2). Windows 는 mem_cached/buffered
+# 가 null(OS 미측정)이라 IS NOT NULL 가드로 gap 표시. swap.usage_percent 폐기(런타임 swap 추이 축 폐기).
 _ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str, str]] = {
     "mem.usage_percent": (
-        "mem_total_kb - mem_available_kb",
-        "mem_total_kb",
-        "mem_total_kb > 0 AND mem_available_kb IS NOT NULL",
+        "mem_limit_bytes - mem_available_bytes",
+        "mem_limit_bytes",
+        "mem_limit_bytes > 0 AND mem_available_bytes IS NOT NULL",
     ),
-    "mem.available_percent": ("mem_available_kb", "mem_total_kb", "mem_total_kb > 0 AND mem_available_kb IS NOT NULL"),
-    "mem.cached_percent": ("mem_cached_kb", "mem_total_kb", "mem_total_kb > 0 AND mem_cached_kb IS NOT NULL"),
-    "mem.buffers_percent": ("mem_buffers_kb", "mem_total_kb", "mem_total_kb > 0 AND mem_buffers_kb IS NOT NULL"),
-    "swap.usage_percent": (
-        "swap_total_kb - swap_free_kb",
-        "swap_total_kb",
-        "swap_total_kb IS NOT NULL AND swap_free_kb IS NOT NULL",
+    "mem.available_percent": (
+        "mem_available_bytes",
+        "mem_limit_bytes",
+        "mem_limit_bytes > 0 AND mem_available_bytes IS NOT NULL",
+    ),
+    "mem.cached_percent": ("mem_cached_bytes", "mem_limit_bytes", "mem_limit_bytes > 0 AND mem_cached_bytes IS NOT NULL"),
+    "mem.buffers_percent": (
+        "mem_buffered_bytes",
+        "mem_limit_bytes",
+        "mem_limit_bytes > 0 AND mem_buffered_bytes IS NOT NULL",
     ),
 }
 
-# 물리 disk/iface 술어 — device kind 태그 기반. 이중 집계 회피.
-# disk: physical 만 (partition/lvm/raid/virtual 제외).
-# iface: physical + bond_master. bond_master 는 본딩 집계 단위(/proc/net/dev bondN 이 슬레이브 합산 카운터를 나름)라
-#   집계 대상. bond_member(물리 leg)는 제외 — bond_master 가 이미 합산분이라 더하면 이중 집계, 빼면 본딩 호스트 net 누락.
-#   loopback/bridge/veth/vlan/tunnel/virtual 도 제외. 정적 상수 f-string 안전(#C5). cagg 정의도 동일 kind 필터.
-_PHYS_DISK_SQL_FILTER = "kind = 'physical'"
-_PHYS_IFACE_SQL_FILTER = "kind IN ('physical', 'bond_master')"
+# 물리 disk/iface 필터 (v2) — kind 컬럼 폐기. 현재는 전체 집계(no-op TRUE).
+# caveat: agent 가 partition/lvm/bond-member 를 시계열로 발행하면 collapse(환경) 합산에서 이중집계 위험.
+# 실 데이터로 발행 granularity 확인 후, 필요 시 inventory(block_devices.type / net_interfaces.kind)에서 resolve 한
+# 물리 device_id/iface_id 집합으로 필터 추가(query 시 1회 resolve, 재사용 CTE). agent 가 물리 단위만 발행하면 불요.
+_PHYS_DISK_SQL_FILTER = "TRUE"
+_PHYS_IFACE_SQL_FILTER = "TRUE"

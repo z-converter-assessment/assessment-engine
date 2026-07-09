@@ -1,16 +1,6 @@
-# [초안] v2 진단모델 Gate0 — USE 5자원 x 3축 신호·임계·근거
-
-성격: 검토용 초안 (docs/temp). 8개 결정 사용자 확정 완료(하단 "확정된 결정" 절) — /ship 시 정식 ADR 0053 으로
-승격 예정 (docs/decisions/adr/, README 인덱스 동반). 본 모델을 T3 cagg / T4 recommendation / T5 표시가 단일 진실로 따름.
-
-핵심 방향 (사용자 확정): 판정(classification)은 지금 근거 있는 고전 신호로만. PSI 는 저장만 하고 판정에는
-안 물린다 -> 운영 데이터가 쌓인 뒤 근거 갖고 별도 ADR 로 도입 (collect now, classify later).
-
----
-
 # ADR 0053 — v2 진단모델 Gate0: recommendation.py v2 신호 확정 (USE 5자원 x 3축)
 
-상태: Proposed (2026-07-09) — Builds on ADR 0052.
+상태: Accepted (2026-07-09) — Builds on ADR 0052.
 
 ADR 0052 가 원칙(전제 기반 유도 + USE 5자원 + 임계 근거 계층)을 세웠고, 본 ADR 은 그 원칙을 v2 저장
 스키마의 실제 신호에 배선하는 Gate0 확정 문서다. 여기서 축·신호·임계를 확정하면 T3(cagg 집계 컬럼)·

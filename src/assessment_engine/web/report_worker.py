@@ -82,7 +82,12 @@ async def run_report_worker(
         if rec is None:
             await _sleep_or_stop(stop_event, poll_interval_sec)
             continue
-        await _process_one(diag_service, query_service_factory, rec)
+        try:
+            await _process_one(diag_service, query_service_factory, rec)
+        except Exception:
+            # _process_one 은 생성 예외를 내부 격리하나 finish_succeeded/finish_failed 의 DB 호출은 전파 가능 —
+            # 루프에서 방어(워커 사망 방지). job 은 running 잔류 -> 다음 기동 recover_stale 가 회수(F6 격리).
+            logger.exception("report worker process failed job_id={}", rec.id)
 
     logger.info("report worker stopped")
 

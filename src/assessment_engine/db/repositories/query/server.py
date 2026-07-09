@@ -13,9 +13,9 @@ from assessment_engine.db.dtos.outbound import (
     ServerSummary,
     StorageWithUsage,
 )
+from assessment_engine.db.models.server_filesystem import ServerFilesystem
 from assessment_engine.db.models.server_inventory import ServerInventory
 from assessment_engine.db.models.server_metrics import ServerMetrics
-from assessment_engine.db.models.server_mount_usage import ServerMountUsage
 from assessment_engine.db.models.server_net_io import ServerNetIo
 from assessment_engine.db.repositories.query._base import _BaseQueryMixin
 from assessment_engine.db.repositories.query.base_server import BaseServerQueryRepository
@@ -44,7 +44,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
         limit: int,
         search: str | None,
     ) -> list[ServerSummary]:
-        # 명시 SELECT — mounts/listen_ports/services 등 큰 JSONB 는 list 화면 미사용.
+        # 명시 SELECT — listen_ports/services/net_interfaces 등 큰 JSONB 는 list 화면 미사용.
         # 뱃지는 ingest 사전계산 service_categories(text[]) 소비 — services JSONB 역직렬화 불요(경량).
         stmt = select(
             ServerInventory.id,
@@ -55,9 +55,9 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             ServerInventory.os_version,
             ServerInventory.kernel_version,
             ServerInventory.cpu_cores,
-            ServerInventory.mem_total_kb,
+            ServerInventory.mem_total_bytes,
             ServerInventory.ip_external,
-            ServerInventory.disks,
+            ServerInventory.block_devices,
             ServerInventory.service_categories,
             ServerInventory.last_seen_at,
         ).order_by(ServerInventory.hostname.asc())
@@ -76,9 +76,9 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
                 os_version=r.os_version,
                 kernel_version=r.kernel_version,
                 cpu_cores=r.cpu_cores,
-                mem_total_kb=r.mem_total_kb,
+                mem_total_bytes=r.mem_total_bytes,
                 ip_external=r.ip_external,
-                disks=r.disks or [],
+                block_devices=r.block_devices or [],
                 service_categories=r.service_categories or [],
                 last_seen_at=r.last_seen_at,
             )
@@ -102,14 +102,13 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             kernel_version=r.kernel_version,
             cpu_cores=r.cpu_cores,
             cpu_model=r.cpu_model,
-            mem_total_kb=r.mem_total_kb,
-            swap_total_kb=r.swap_total_kb,
+            mem_total_bytes=r.mem_total_bytes,
             boot_time=r.boot_time,
             agent_started_at=r.agent_started_at,
-            interfaces=r.interfaces or [],
+            net_interfaces=r.net_interfaces or [],
             ip_external=r.ip_external,
-            disks=r.disks or [],
-            mounts=r.mounts or [],
+            block_devices=r.block_devices or [],
+            lvm_vgs=r.lvm_vgs or [],
             services=r.services,
             listen_ports=r.listen_ports or [],
             last_seen_at=r.last_seen_at,
@@ -137,8 +136,8 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
                 ServerInventory.id,
                 ServerInventory.public_id,
                 ServerInventory.hostname,
-                ServerInventory.disks,
-                ServerInventory.mounts,
+                ServerInventory.block_devices,
+                ServerInventory.lvm_vgs,
                 ServerInventory.last_seen_at,
             ).where(ServerInventory.id == server_id)
         )
@@ -146,17 +145,17 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
         if not r:
             return None
 
-        rows = await self._latest_per_dimension(ServerMountUsage.__tablename__, "mount", server_id, n=1)
-        mount_usage = [
+        rows = await self._latest_per_dimension(ServerFilesystem.__tablename__, "mountpoint", server_id, n=1)
+        filesystems = [
             MountUsageRaw(
-                mount=row.mount,
-                total_bytes=row.total_bytes,
-                avail_bytes=row.avail_bytes,
+                mountpoint=row.mountpoint,
+                used_bytes=row.used_bytes,
                 free_bytes=row.free_bytes,
+                inodes_used=row.inodes_used,
+                inodes_free=row.inodes_free,
+                device_id=row.device_id,
+                fstype=row.fstype,
                 collected_at=row.collected_at,
-                boot_time=row.boot_time,
-                agent_started_at=row.agent_started_at,
-                kind=row.kind,
             )
             for row in rows
         ]
@@ -164,9 +163,9 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             server_id=r.id,
             public_id=r.public_id,
             hostname=r.hostname,
-            disks=r.disks or [],
-            inventory_mounts=r.mounts or [],
-            mount_usage=mount_usage,
+            block_devices=r.block_devices or [],
+            lvm_vgs=r.lvm_vgs or [],
+            filesystems=filesystems,
             inventory_at=r.last_seen_at,
         )
 
@@ -176,7 +175,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
                 ServerInventory.id,
                 ServerInventory.public_id,
                 ServerInventory.hostname,
-                ServerInventory.interfaces,
+                ServerInventory.net_interfaces,
                 ServerInventory.ip_external,
                 ServerInventory.last_seen_at,
             ).where(ServerInventory.id == server_id)
@@ -185,10 +184,11 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
         if not r:
             return None
 
-        rows = await self._latest_per_dimension(ServerNetIo.__tablename__, "interface", server_id, n=2)
+        rows = await self._latest_per_dimension(ServerNetIo.__tablename__, "iface_id", server_id, n=2)
         net_io = [
             NetIoRaw(
-                interface=row.interface,
+                iface_id=row.iface_id,
+                iface_name=row.iface_name,
                 collected_at=row.collected_at,
                 rx_bytes=row.rx_bytes,
                 tx_bytes=row.tx_bytes,
@@ -196,7 +196,9 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
                 tx_packets=row.tx_packets,
                 rx_errors=row.rx_errors,
                 tx_errors=row.tx_errors,
-                kind=row.kind,
+                rx_dropped=row.rx_dropped,
+                tx_dropped=row.tx_dropped,
+                link_speed_bps=row.link_speed_bps,
             )
             for row in rows
         ]
@@ -204,7 +206,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             server_id=r.id,
             public_id=r.public_id,
             hostname=r.hostname,
-            interfaces=r.interfaces or [],
+            net_interfaces=r.net_interfaces or [],
             ip_external=r.ip_external,
             net_io=net_io,
             inventory_at=r.last_seen_at,
