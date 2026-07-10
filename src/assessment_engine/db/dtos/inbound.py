@@ -38,6 +38,17 @@ class ServerInventoryCreate:
     # 서비스 카테고리 집합 (ingest 사전계산). read 경로 뱃지 단일 진실.
     service_categories: list[str]
 
+    # OS 재현 서술자 (flat) + boot 노드 + 비블록 마운트 — reproduction 완전화. agent 발행, 미해당은 None.
+    arch: str | None = None
+    bits: int | None = None
+    boot_firmware: str | None = None
+    secure_boot: bool | None = None
+    edition: str | None = None
+    timezone: str | None = None
+    rtc_utc: bool | None = None
+    boot: dict | None = None
+    nonblock_mounts: list[dict] | None = None
+
 
 # ─── 시계열 nested 행 (datapoint-array -> dataclass 타입 보장) ───
 

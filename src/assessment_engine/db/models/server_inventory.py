@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, DateTime, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -48,6 +48,15 @@ class ServerInventory(Base):
     os_codename: Mapped[str | None] = mapped_column(String(64))
     kernel_version: Mapped[str | None] = mapped_column(String(64))
 
+    # OS 재현 서술자 (flat) — 이미지/부트 기반 정확 재현용. agent 발행(uname·efivars·/etc/timezone 등).
+    arch: Mapped[str | None] = mapped_column(String(32))  # x86_64|aarch64|...
+    bits: Mapped[int | None] = mapped_column(Integer)  # 32|64
+    boot_firmware: Mapped[str | None] = mapped_column(String(8))  # uefi|bios
+    secure_boot: Mapped[bool | None] = mapped_column(Boolean)
+    edition: Mapped[str | None] = mapped_column(String(64))  # Windows EditionID (Linux null)
+    timezone: Mapped[str | None] = mapped_column(String(64))  # IANA
+    rtc_utc: Mapped[bool | None] = mapped_column(Boolean)
+
     cpu_cores: Mapped[int | None] = mapped_column(Integer)
     cpu_model: Mapped[str | None] = mapped_column(String(255))
     mem_total_bytes: Mapped[int | None] = mapped_column(BigInteger)  # v2 By (swap 은 block_devices type=swap)
@@ -61,6 +70,10 @@ class ServerInventory(Base):
     net_interfaces: Mapped[list[Any] | None] = mapped_column(JSONB)
     # LVM VG — [{name,size_bytes,free_bytes,data_percent,metadata_percent}] (Linux 전용).
     lvm_vgs: Mapped[list[Any] | None] = mapped_column(JSONB)
+    # boot 재현 서술자 — {kernel_cmdline,root_ref_type,grub_install_target} (Linux; Windows null).
+    boot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # 비블록 마운트 — [{source,target,fstype,options,fs_freq,fs_passno}] (tmpfs/nfs/cifs/bind 등, Linux).
+    nonblock_mounts: Mapped[list[Any] | None] = mapped_column(JSONB)
     ip_external: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
     services: Mapped[list[Any] | None] = mapped_column(JSONB)  # [{unit,sub,pid,exe}]

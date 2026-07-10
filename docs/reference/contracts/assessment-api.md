@@ -323,32 +323,39 @@ CPU 두 축: 사이징 목표는 이용률 목표와 run queue 포화 headroom �
 
 디스크 I/O(호스트 단위): 응답 지연이 높으면 `advisory.disk_io_tier_hint: "high_iops"`로 빠른 볼륨 타입을 권고한다. 용량과 별개 축이라 크기(gib)를 늘리지 않는다. 엔진의 I/O 지연 신호가 호스트 단위(디바이스별 아님)라 advisory도 호스트 단위다.
 
-## 6. 필드 채움 상태
+## 6. 필드별 값 제공 현황
 
-구조는 지금 확정하되 값은 단계적으로 채워진다. 소비자는 항상 `null`을 처리한다.
+계약 필드 집합은 수집 에이전트와 합의된 것이고, 구조(키 존재)는 고정이다(2절 additive). 문서화된 모든 키는 항상 존재하며 값이 없으면 `null` 이다 - 소비자는 어느 필드든 `null` 을 처리한다. 아래는 각 필드가 현재 값을 담는지, 담지 않으면 왜 `null` 인지다.
 
-지금 채워짐 (인벤토리/메트릭에서 확보):
+값이 채워짐 (인벤토리/메트릭에서 확보 - 이미지/부트 기반 정확 재현 가능):
 - identity 전체
-- reproduction.os{family, id, version, codename, kernel}
-- reproduction.network{id, name, kind, addresses, gateway, speed_mbps}
-- reproduction.storage.block_devices{id, name, type, fstype, mountpoint, parent, size_bytes}
+- reproduction.os{family, id, version, codename, kernel, arch, bits, boot_firmware, timezone}
+- reproduction.boot{kernel_cmdline, root_ref_type}
+- reproduction.network{id, name, kind, addresses, gateway, mtu, dns, routes}
+- reproduction.storage.block_devices 전 레이아웃 상세: 디스크(size_bytes, partition_table, sector_size, serial, wwn, rotational), 파티션(part_number, part_start_bytes, part_type, part_name, part_flags), 파일시스템(fstype, fs_uuid, fs_label, block_size, mountpoint, mount_options, fs_freq, fs_passno), LVM(lvm_vg, lvm_lv, lvm_segtype, lvm_stripes, lvm_stripe_size_kib), RAID(raid_level, raid_chunk_kib, raid_metadata, raid_uuid), crypt(crypt_type)
+- reproduction.storage.lvm_vgs{name, vg_uuid, extent_size_bytes}
+- reproduction.mounts[] (비블록 마운트: source, target, fstype, options, fs_freq, fs_passno)
 - sizing.axes의 current 전 축, assessment 전체, diagnostics 전체
 
-에이전트 수집 확장 후 채워짐 (별도 handoff 스펙으로 에이전트 인벤토리에 emit 필드 추가):
-- reproduction.os{arch, bits, boot_firmware, secure_boot, edition, timezone, rtc_utc}
-- reproduction.boot{kernel_cmdline, root_ref_type, grub_install_target}
-- reproduction.network{mtu, addresses[].origin, dns, routes, bond_mode, vlan_id}
-- reproduction.storage 레이아웃 상세: 디스크(sector_size, serial, wwn, rotational), 파티션(part_number, part_start_bytes, part_type, part_name, part_flags), 파일시스템(fs_uuid, fs_label, block_size, mount_options, fs_freq, fs_passno), LVM(lvm_vg, lvm_lv, lvm_segtype, lvm_stripes, lvm_stripe_size_kib과 vgs의 vg_uuid, extent_size_bytes, pv_ids), RAID(raid_level, raid_chunk_kib, raid_metadata, raid_uuid), crypt(crypt_type)
-- reproduction.mounts[] (비블록 마운트)
+호스트·OS 구성에 해당할 때만 값, 아니면 `null`:
+- reproduction.os.secure_boot: UEFI Secure Boot efivar 존재 시. 미노출 펌웨어면 null.
+- reproduction.os.rtc_utc: RTC 시각 기준 판별 가능 시. 판별 불가면 null.
+- reproduction.os.edition: Windows 에디션 전용. 리눅스는 항상 null.
+- reproduction.network{bond_mode, vlan_id, speed_mbps}: 본딩/VLAN/물리 링크 속도가 있는 인터페이스에서만.
 
-현 릴리스 재현 범위 주의: 위 "에이전트 수집 확장 후 채워짐" 목록(arch/boot_firmware/edition/timezone, 파티션/fs/LVM/RAID 레이아웃 상세, boot 노드, mounts)은 현재 릴리스에서 아직 모두 `null`이다(에이전트 emit 대기). 따라서 이미지/부트 기반 정확 재현은 아직 불가하며, 소비자는 이 필드들이 채워지기 전까지 스토리지를 블록 레벨 복제로 폴백한다. 사이징/분류(sizing/assessment/diagnostics)와 기본 재현(os family/id/version/kernel, 네트워크 주소, 스토리지 트리 크기)은 완전히 동작한다.
+현 에이전트가 아직 값을 안 실어 `null` (성격이 갈림):
+- reproduction.network.addresses[].origin (static/dhcp): getifaddrs 에 origin 정보 자체가 없다. 채우려면 netlink IFA_FLAGS 나 설정/리스 파싱 등 다른 경로가 필요한 구조적 한계.
+- reproduction.storage.lvm_vgs{size_bytes, free_bytes, pv_ids}: 에이전트가 이미 읽는 `/etc/lvm/backup` 에 PV·extent 수가 있어 파생 가능하나 현재 name·vg_uuid·extent_size 만 파싱한다. 같은 소스 파서 확장으로 채워질 미구현 갭.
+- reproduction.boot.grub_install_target: 부트로더 설치 디스크 식별 미구현(항상 null). ESP 파티션의 부모 디스크 귀속으로 채울 수 있음.
+
+소비자 규약: 위 `null` 필드가 있어도 소비자는 추측하지 않고 그대로 처리한다. 예로 lvm_vgs 여유 용량이 null 이면 확장 여력 판단을 보류한다.
 
 ## 7. 엣지 동작
 
 - 신규 서버(인벤토리만, 메트릭 없음): reproduction과 cpu/memory sizing 축의 current는 채워지고 두 축은 `uncertain`(recommended = current). 디스크 사이징 축은 메트릭 이력이 있어야 생성되므로 신규 서버엔 부재다(디스크 크기는 reproduction.storage로만 제공). `classification: insufficient_data`.
 - 오프라인 서버(`online: false`): 마지막 창 데이터로 판정한다. reproduction은 최신 인벤토리 스냅샷이다. 데이터가 stale일 수 있음은 `identity.online: false` 플래그로 판단한다(별도 신선도 note는 없다).
 - Windows 포화 축 미측정(perflib 미발행): 측정된 축으로 판정을 완결하고, 미측정 축만 `data_quality.notes`에 "포화 수치 미관측"으로 표기한다. cpu/memory가 미측정이면 해당 sizing 축이 `uncertain`.
-- 부팅 크리티컬 필드 null(arch, boot_firmware 미수집): 소비자는 추측하지 않는다. arch가 null이면 ISA를 x86_64로 가정하지 말고 재현을 보류하며 경고를 노출한다. boot_firmware가 null이면 파티션 플래그(ESP 존재 등)로 추정하되 불확실하면 보류한다. 안전 우선 원칙을 재현 축에도 적용한다.
+- 부팅 크리티컬 필드 null(arch, boot_firmware): 정상 리눅스 호스트에선 채워지나(6절), 인벤토리 결손 등으로 예외적으로 null 이면 소비자는 추측하지 않는다. arch가 null이면 ISA를 x86_64로 가정하지 말고 재현을 보류하며 경고를 노출한다. boot_firmware가 null이면 파티션 플래그(ESP 존재 등)로 추정하되 불확실하면 보류한다. 안전 우선 원칙을 재현 축에도 적용한다.
 - LVM/RAID/멀티패스 호스트: storage.block_devices가 계층을 트리로 표현한다. sizing.axes의 disk current 총량은 멀티패스 중복과 RAID 멤버 이중계산을 배제한 실 프로비저닝 크기다.
 - 바인드/다중 마운트 이중계상: sizing.axes의 disk 축은 마운트별 하나라, 서로 다른 마운트포인트가 같은 backing device를 공유(bind mount, 같은 볼륨 다중 마운트)하면 별개 축으로 이중 계상될 수 있다. 파일시스템 device_id가 발행되면(에이전트 수집 확장) `(server_id, device_id)`로 dedup 가능 - 현재는 device_id 부재라 마운트포인트 기준이며 소비자는 device_ref 트리 조인으로 같은 backing 여부를 식별한다.
 - 인벤토리 결손으로 base 수량(cpu 코어 수, 총 RAM)이 미상인 축: 그 축은 sizing.axes에서 생략된다(null 원소를 만들지 않아 4.4의 `max(current, recommended)` 불변식 유지). 소비자는 축 부재를 사이징 신호 없음으로 보고 reproduction/기존 인벤토리로 폴백한다. 모든 자원 축이 미측정이면 `classification: insufficient_data`.
@@ -366,85 +373,158 @@ POST /api/exports/inventory
 - 파일 최상위 객체는 GET /api/assessment 최상위 객체(4.1)와 구조가 동일하다 - 같은 `contract_version`, 같은 필드. 별도 래퍼로 감싸지 않는다.
 - 파일도 2절 additive-only 규약과 버전 규약의 적용 대상이다.
 
-## 9. 응답 예시 (실측 데이터)
+## 9. 워크드 예시 (복잡 스토리지 리눅스 VM — 실측)
 
-현 릴리스 실제 응답이다(테스트 fleet 서버 suse15uefi). reproduction의 arch/boot/레이아웃 상세는 아직 `null`(agent-wait, 6절)이라 현재 상태를 그대로 보여준다. 사이징/분류/진단은 실 메트릭 기반으로 완전히 채워진다. 이 서버는 classification이 `under_provisioned`인데 sizing 전 축이 `keep`인 케이스다 - 원인이 디스크 I/O 병목(await 971ms)이고 이는 크기 축이 아니라 `advisory.disk_io_tier_hint`로 나온다(4.5).
+실제 fleet 호스트 `raidlvmluks` 한 대의 `GET /api/assessment` 응답 그대로다(값 편집 없음). "꽤 모던한 리눅스 VM"(Ubuntu 24.04)이되 스토리지 레이아웃만 아주 복잡하게 잡은 검증 호스트다 - RAID1 + LVM(다중 LV) + LUKS + 별도 데이터 디스크. 방금 프로비저닝돼 부하가 없어(idle) sizing 은 전부 keep 이고, 이력이 얕아 confidence 는 medium(표본 부족)이다. block_devices 트리와 reproduction 상세가 이 예시의 초점이다.
 
-```json
+스토리지 레이아웃 (JSON 은 아래):
+
+```
+vda (30G)  Ubuntu 부트 디스크
+ |- vda1  29G ext4  /
+ |- vda14  4M (bios_grub 예약)
+ |- vda15 106M vfat /boot/efi (part_type=ESP GUID)
+ `- vda16 913M ext4 /boot
+vdb (10G) + vdc (10G)  -> mdadm RAID1 = md0 (raid_level 1) -> LVM PV -> VG "datavg"
+   |- dm-0 (lv_data)  5G ext4 /data
+   |- dm-1 (lv_logs)  3G xfs  /var/log/svc
+   `- dm-2 (lv_swap)  1G swap
+vdd (8G)  -> LUKS2 (crypt_type luks2) -> dm-3 -> ext4 /secure
+```
+
+md0 은 부모(PV member)가 vdb·vdc 둘이라 `(id, parent)` 쌍으로 노드가 두 번 나오고 `size_bytes` 는 id 당 한 번만 센다(4.3 트리 조인). swap LV(dm-2)는 lvm 노드와 swap 노드 두 형태로 나타난다(lsblk 실측 그대로).
+
+```jsonc
 {
   "contract_version": "1.0",
-  "generated_at": "2026-07-10T12:42:27.022860+00:00",
-  "window": { "days": 14, "start": "2026-06-26T12:42:26.960712+00:00", "end": "2026-07-10T12:42:26.960712+00:00", "basis": "관측 창(기본 14일). 데이터가 창보다 짧으면 assessment.data_quality 로 신뢰도 하향." },
-  "filter": { "hostname": ["suse15uefi"], "ip": [], "public_id": [], "pair": [] },
+  "generated_at": "2026-07-10T20:58:29Z",
+  "window": { "days": 14, "start": "2026-06-26T20:58:29Z", "end": "2026-07-10T20:58:29Z",
+              "basis": "관측 창(기본 14일). 데이터가 창보다 짧으면 assessment.data_quality 로 신뢰도 하향." },
+  "filter": { "hostname": ["raidlvmluks"], "ip": [], "public_id": [], "pair": [] },
   "warnings": { "ambiguous_hostnames": [], "unresolved_pairs": [], "unmatched_filters": [] },
   "count": 1,
   "servers": [{
-    "identity": { "public_id": "4a5531ec-bd5a-41d1-afb7-df3f6f3008bc", "hostname": "suse15uefi", "hostname_ambiguous": false, "primary_ip": "10.50.5.16", "os_family": "linux", "online": true },
+    "identity": { "public_id": "468d4beb-b140-406a-bb7b-f836c2d6bae0", "hostname": "raidlvmluks",
+                  "hostname_ambiguous": false, "primary_ip": "10.50.6.171", "os_family": "linux", "online": true },
     "reproduction": {
-      "os": { "family": "linux", "id": "sles", "version": "15.1", "codename": null, "kernel": "4.12.14-197.29-default", "arch": null, "bits": null, "boot_firmware": null, "secure_boot": null, "edition": null, "timezone": null, "rtc_utc": null },
-      "boot": { "kernel_cmdline": null, "root_ref_type": null, "grub_install_target": null },
-      "network": { "interfaces": [{ "id": "fa:16:3e:58:ec:cd", "id_type": "mac", "name": "eth0", "kind": "physical", "mtu": null, "addresses": [{ "address": "10.50.5.16", "prefix": 24, "family": "ipv4", "origin": null }, { "address": "fe80::f816:3eff:fe58:eccd", "prefix": 64, "family": "ipv6", "origin": null }], "gateway": "10.50.5.1", "dns": null, "routes": null, "bond_mode": null, "vlan_id": null, "speed_mbps": null }] },
+      "os": { "family": "linux", "id": "ubuntu", "version": "24.04", "codename": "noble",
+              "kernel": "6.8.0-87-generic", "arch": "x86_64", "bits": 64, "boot_firmware": "uefi",
+              "secure_boot": null, "edition": null, "timezone": "Etc/UTC", "rtc_utc": null },
+              //  ^ secure_boot/rtc_utc: 이 호스트에서 agent 가 미판별 null. edition: Windows 전용.
+      "boot": { "kernel_cmdline": "BOOT_IMAGE=/vmlinuz-6.8.0-87-generic root=LABEL=cloudimg-rootfs ro console=tty1 console=ttyS0",
+                "root_ref_type": "label", "grub_install_target": null },   // grub_install_target: agent 1차 null
+      "network": { "interfaces": [{
+        "id": "fa:16:3e:0d:b3:20", "id_type": "mac", "name": "enp3s0", "kind": "physical", "mtu": 1450,
+        "addresses": [
+          { "address": "10.50.6.171", "prefix": 24, "family": "ipv4", "origin": null },
+          { "address": "fe80::f816:3eff:fe0d:b320", "prefix": 64, "family": "ipv6", "origin": null }
+        ],  //  ^ origin(static|dhcp): agent 가 getifaddrs 로는 미판별 null(향후 netlink)
+        "gateway": "10.50.6.1", "dns": ["127.0.0.53"],
+        "routes": [ { "via": "10.50.6.1", "dest": "8.8.8.8/32" }, { "via": "10.50.6.2", "dest": "169.254.169.254/32" } ],
+        "bond_mode": null, "vlan_id": null, "speed_mbps": null }] },
       "storage": {
         "block_devices": [
-          { "id": "virtio-pci-0000:05:00.0", "id_type": "by-path", "name": "vda", "type": "disk", "parent": null, "size_bytes": 53687091200,
-            "partition_table": null, "sector_size": null, "serial": null, "wwn": null, "rotational": null,
+          // 첫 노드 vda 는 전 필드 펼침(응답의 모든 노드가 이 키를 전부 가진다 - 미해당은 null). 이후는 채워진 필드만.
+          { "id": "pci-0000:05:00.0", "id_type": "by-path", "name": "vda", "type": "disk", "parent": null,
+            "size_bytes": 32212254720, "partition_table": "gpt", "sector_size": 512,
+            "serial": null, "wwn": null, "rotational": true,
             "part_number": null, "part_start_bytes": null, "part_type": null, "part_name": null, "part_flags": null,
-            "fstype": null, "fs_uuid": null, "fs_label": null, "block_size": null, "mountpoint": null, "mount_options": null, "fs_freq": null, "fs_passno": null,
+            "fstype": null, "fs_uuid": null, "fs_label": null, "block_size": null, "mountpoint": null,
+            "mount_options": null, "fs_freq": null, "fs_passno": null,
             "lvm_vg": null, "lvm_lv": null, "lvm_segtype": null, "lvm_stripes": null, "lvm_stripe_size_kib": null,
             "raid_level": null, "raid_chunk_kib": null, "raid_metadata": null, "raid_uuid": null, "crypt_type": null },
-          { "id": "70716910-3bf5-4577-bf10-8d0313779622", "id_type": "partuuid", "name": "vda2", "type": "part", "parent": "virtio-pci-0000:05:00.0", "size_bytes": 25129123840,
-            "partition_table": null, "sector_size": null, "serial": null, "wwn": null, "rotational": null,
-            "part_number": null, "part_start_bytes": null, "part_type": null, "part_name": null, "part_flags": null,
-            "fstype": "btrfs", "fs_uuid": null, "fs_label": null, "block_size": null, "mountpoint": "/", "mount_options": null, "fs_freq": null, "fs_passno": null,
-            "lvm_vg": null, "lvm_lv": null, "lvm_segtype": null, "lvm_stripes": null, "lvm_stripe_size_kib": null,
-            "raid_level": null, "raid_chunk_kib": null, "raid_metadata": null, "raid_uuid": null, "crypt_type": null },
-          { "id": "ea4554dc-6c9d-4077-bc87-0ee83e349f24", "id_type": "partuuid", "name": "vda3", "type": "part", "parent": "virtio-pci-0000:05:00.0", "size_bytes": 13172211712,
-            "partition_table": null, "sector_size": null, "serial": null, "wwn": null, "rotational": null,
-            "part_number": null, "part_start_bytes": null, "part_type": null, "part_name": null, "part_flags": null,
-            "fstype": "xfs", "fs_uuid": null, "fs_label": null, "block_size": null, "mountpoint": "/home", "mount_options": null, "fs_freq": null, "fs_passno": null,
-            "lvm_vg": null, "lvm_lv": null, "lvm_segtype": null, "lvm_stripes": null, "lvm_stripe_size_kib": null,
-            "raid_level": null, "raid_chunk_kib": null, "raid_metadata": null, "raid_uuid": null, "crypt_type": null },
-          { "id": "b7c8d9e0-1234-5678-9abc-def012345678", "id_type": "partuuid", "name": "vda1", "type": "part", "parent": "virtio-pci-0000:05:00.0", "size_bytes": 524288000,
-            "partition_table": null, "sector_size": null, "serial": null, "wwn": null, "rotational": null,
-            "part_number": null, "part_start_bytes": null, "part_type": null, "part_name": null, "part_flags": null,
-            "fstype": "vfat", "fs_uuid": null, "fs_label": null, "block_size": null, "mountpoint": "/boot/efi", "mount_options": null, "fs_freq": null, "fs_passno": null,
-            "lvm_vg": null, "lvm_lv": null, "lvm_segtype": null, "lvm_stripes": null, "lvm_stripe_size_kib": null,
-            "raid_level": null, "raid_chunk_kib": null, "raid_metadata": null, "raid_uuid": null, "crypt_type": null },
-          { "id": "6ffae708-04ed-43be-bb23-63e4a5070789", "id_type": "partuuid", "name": "vda4", "type": "swap", "parent": null, "size_bytes": 4122976256,
-            "partition_table": null, "sector_size": null, "serial": null, "wwn": null, "rotational": null,
-            "part_number": null, "part_start_bytes": null, "part_type": null, "part_name": null, "part_flags": null,
-            "fstype": "swap", "fs_uuid": null, "fs_label": null, "block_size": null, "mountpoint": "[SWAP]", "mount_options": null, "fs_freq": null, "fs_passno": null,
-            "lvm_vg": null, "lvm_lv": null, "lvm_segtype": null, "lvm_stripes": null, "lvm_stripe_size_kib": null,
-            "raid_level": null, "raid_chunk_kib": null, "raid_metadata": null, "raid_uuid": null, "crypt_type": null }
+          // 파티션: part_type(GPT GUID)·part_flags·fs_uuid·fs_label·mount_options·block_size 실측.
+          { "id": "db72259b-2da1-485a-84b3-6311c3a8aa57", "id_type": "partuuid", "name": "vda15", "type": "part",
+            "parent": "pci-0000:05:00.0", "size_bytes": 111149056, "part_number": 15, "part_start_bytes": 5242880,
+            "part_type": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b", "part_flags": ["esp"], "fstype": "vfat",
+            "fs_uuid": "56E6-A418", "fs_label": "UEFI", "block_size": 512, "mountpoint": "/boot/efi",
+            "mount_options": ["umask=0077"], "fs_freq": 0, "fs_passno": 1 },
+          { "id": "...vda1-partuuid", "id_type": "partuuid", "name": "vda1", "type": "part",
+            "parent": "pci-0000:05:00.0", "size_bytes": 30601641472, "part_type": "...", "fstype": "ext4",
+            "mountpoint": "/", "fs_passno": 1 },
+          { "id": "...vda16", "id_type": "partuuid", "name": "vda16", "type": "part", "parent": "pci-0000:05:00.0",
+            "fstype": "ext4", "mountpoint": "/boot" },
+          { "id": "...vda14", "id_type": "partuuid", "name": "vda14", "type": "part", "parent": "pci-0000:05:00.0",
+            "part_flags": ["bios_grub"] },
+          // 데이터 디스크 2개 (RAID 멤버).
+          { "id": "185d4842-e673-4056-...", "id_type": "partuuid", "name": "vdb", "type": "disk", "parent": null,
+            "size_bytes": 10737418240, "rotational": true },
+          { "id": "4dc3bbd4-ccb0-44ae-...", "id_type": "partuuid", "name": "vdc", "type": "disk", "parent": null,
+            "size_bytes": 10737418240, "rotational": true },
+          // md0: 다중 부모(vdb·vdc) -> 2회, size 는 id 당 1회. raid_level/raid_metadata/raid_uuid 실측.
+          { "id": "md0", "id_type": "name", "name": "md0", "type": "raid", "parent": "185d4842-e673-4056-...",
+            "size_bytes": 10727981056, "raid_level": 1, "raid_metadata": "1.2",
+            "raid_uuid": "7d2e4435-cb32-bab6-194a-f999d37c457d" },
+          { "id": "md0", "id_type": "name", "name": "md0", "type": "raid", "parent": "4dc3bbd4-ccb0-44ae-...",
+            "size_bytes": 10727981056, "raid_level": 1, "raid_metadata": "1.2",
+            "raid_uuid": "7d2e4435-cb32-bab6-194a-f999d37c457d" },
+          // LVM LV: lvm_vg/lvm_lv/lvm_segtype/lvm_stripes 실측.
+          { "id": "LVM-SnS55Ved1y...grr4tOzg", "id_type": "dm", "name": "dm-0", "type": "lvm", "parent": "md0",
+            "size_bytes": 5368709120, "fstype": "ext4", "fs_uuid": "ad0b1649-f4b9-4e04-b269-bfe98fd85308",
+            "block_size": 4096, "mountpoint": "/data", "mount_options": ["defaults", "nofail"], "fs_freq": 0,
+            "fs_passno": 2, "lvm_vg": "datavg", "lvm_lv": "lv_data", "lvm_segtype": "linear", "lvm_stripes": 1 },
+          { "id": "LVM-SnS55Ved1y...ssxoYNfc", "id_type": "dm", "name": "dm-1", "type": "lvm", "parent": "md0",
+            "fstype": "xfs", "mountpoint": "/var/log/svc", "lvm_vg": "datavg", "lvm_lv": "lv_logs",
+            "lvm_segtype": "linear", "lvm_stripes": 1 },
+          { "id": "LVM-SnS55Ved1y...swap", "id_type": "dm", "name": "dm-2", "type": "lvm", "parent": "md0",
+            "fstype": "swap", "lvm_vg": "datavg", "lvm_lv": "lv_swap" },
+          { "id": "...dm-2-swap", "id_type": "dm", "name": "dm-2", "type": "swap", "parent": null,
+            "fstype": "swap", "mountpoint": "[SWAP]" },   // swap 사용면(같은 dm-2 의 swap 형태)
+          // LUKS: crypt_type luks2 실측.
+          { "id": "CRYPT-LUKS2-e34163ed...-securecrypt", "id_type": "dm", "name": "dm-3", "type": "crypt",
+            "parent": "a1c9b0dc-b310-484e-...", "size_bytes": 8573157376, "fstype": "ext4",
+            "fs_uuid": "63bb1cc6-1476-45a5-b393-1f7707850f1f", "block_size": 4096, "mountpoint": "/secure",
+            "mount_options": ["defaults", "nofail"], "fs_freq": 0, "fs_passno": 2, "crypt_type": "luks2" }
         ],
-        "lvm_vgs": []
+        "lvm_vgs": [{ "name": "datavg", "vg_uuid": "SnS55V-ed1y-yfbk-Xy3y-WQox-x5Mk-XOavBF",
+                      "size_bytes": null, "free_bytes": null, "extent_size_bytes": 4194304, "pv_ids": null }]
+                    //  ^ size_bytes/free_bytes/pv_ids: /etc/lvm/backup 에 있으나 agent 미파싱(파생 가능)
       },
-      "mounts": []
+      "mounts": [
+        { "source": "tmpfs", "target": "/run", "fstype": "tmpfs",
+          "options": ["rw", "nosuid", "nodev", "noexec", "relatime"], "fs_freq": 0, "fs_passno": 0 },
+        { "source": "tmpfs", "target": "/dev/shm", "fstype": "tmpfs", "options": ["rw", "nosuid", "nodev"],
+          "fs_freq": 0, "fs_passno": 0 }
+        // ... /run/lock, /run/user/0 (블록장치 없는 마운트 - fstab 재생성 팩트)
+      ]
     },
     "sizing": {
       "axes": [
-        { "axis": "cpu",    "current": 2,    "recommended": 2,    "unit": "vcpus", "action": "keep", "estimate_quality": "exact" },
-        { "axis": "memory", "current": 1812, "recommended": 1812, "unit": "mib",   "action": "keep", "estimate_quality": "exact" },
-        { "axis": "disk",   "mountpoint": "/",     "device_ref": "70716910-3bf5-4577-bf10-8d0313779622", "current": 22, "recommended": 22, "unit": "gib", "action": "keep", "estimate_quality": "exact", "used_pct": 6.6, "runway_days": 88, "note": null },
-        { "axis": "disk",   "mountpoint": "/home", "device_ref": "ea4554dc-6c9d-4077-bc87-0ee83e349f24", "current": 13, "recommended": 13, "unit": "gib", "action": "keep", "estimate_quality": "exact", "used_pct": 0.4, "runway_days": null, "note": null }
+        { "axis": "cpu",    "current": 1,    "recommended": 1,    "unit": "vcpus", "action": "keep", "estimate_quality": "exact" },
+        { "axis": "memory", "current": 1961, "recommended": 1961, "unit": "mib",   "action": "keep", "estimate_quality": "exact" },
+        { "axis": "disk", "mountpoint": "/",            "device_ref": "...vda1", "current": 29, "recommended": 29, "unit": "gib", "action": "keep", "estimate_quality": "exact", "used_pct": 6.6, "runway_days": null, "note": null },
+        { "axis": "disk", "mountpoint": "/data",        "device_ref": "LVM-SnS55Ved1y...grr4tOzg", "current": 5, "recommended": 5, "unit": "gib", "action": "keep", "estimate_quality": "exact", "used_pct": 0.0, "runway_days": null, "note": null },
+        { "axis": "disk", "mountpoint": "/secure",      "device_ref": "CRYPT-LUKS2-e34163ed...", "current": 8, "recommended": 8, "unit": "gib", "action": "keep", "estimate_quality": "exact", "used_pct": 0.0, "runway_days": null, "note": null },
+        { "axis": "disk", "mountpoint": "/var/log/svc", "device_ref": "LVM-SnS55Ved1y...ssxoYNfc", "current": 3, "recommended": 3, "unit": "gib", "action": "keep", "estimate_quality": "exact", "used_pct": 3.0, "runway_days": null, "note": null }
       ]
     },
-    "assessment": { "classification": "under_provisioned", "confidence": "medium", "data_quality": { "sufficient": false, "notes": ["표본 부족"] } },
+    "assessment": { "classification": "idle", "confidence": "medium",
+                    "data_quality": { "sufficient": false, "notes": ["표본 부족"] } },
     "diagnostics": {
-      "root_cause": "disk_io",
-      "root_cause_detail": "디스크 I/O",
+      "root_cause": null, "root_cause_detail": null,
       "resources": [
-        { "axis": "cpu",     "status": "optimal",     "utilization": { "eval_pct": 6.6,  "sizing_pct": 6.6 },  "saturation": { "signal": "run queue (procs_running)/core", "value": 0.6, "threshold": 1.0, "unit": "per_core", "measured": true, "saturated": false }, "confidence_notes": ["표본 부족"] },
-        { "axis": "memory",  "status": "over",        "utilization": { "eval_pct": 18.4, "sizing_pct": 22.4 }, "saturation": { "signal": "swap page-out", "value": null, "threshold": null, "unit": "event", "measured": true, "saturated": false }, "confidence_notes": ["표본 부족"] },
-        { "axis": "disk",    "status": "capacity_ok", "utilization": { "eval_pct": null, "sizing_pct": null }, "saturation": null, "confidence_notes": ["표본 부족"] },
-        { "axis": "disk_io", "status": "io_bound",    "utilization": { "eval_pct": null, "sizing_pct": null }, "saturation": { "signal": "await", "value": 971.32, "threshold": 20, "unit": "ms", "measured": true, "saturated": true }, "confidence_notes": ["표본 부족"] },
-        { "axis": "network", "status": "quality_ok",  "utilization": { "eval_pct": null, "sizing_pct": null }, "saturation": null, "confidence_notes": ["표본 부족"] }
+        { "axis": "cpu", "status": "optimal", "utilization": { "eval_pct": 0.8, "sizing_pct": 0.8 },
+          "saturation": { "signal": "run queue (procs_running)/core", "value": 1.45, "threshold": 1.0, "unit": "per_core", "measured": true, "saturated": false }, "confidence_notes": ["표본 부족"] },
+          // run queue 1.45/core 지만 이용률 0.8% 라 미포화 - idle 호스트를 실행큐 노이즈로 오증설하지 않음(dual-gate).
+        { "axis": "memory", "status": "over", "utilization": { "eval_pct": 16.8, "sizing_pct": 17.2 },
+          "saturation": { "signal": "swap page-out", "value": null, "threshold": null, "unit": "event", "measured": true, "saturated": false }, "confidence_notes": ["표본 부족"] },
+        { "axis": "disk", "status": "capacity_ok", "utilization": { "eval_pct": null, "sizing_pct": null },
+          "saturation": null, "confidence_notes": ["표본 부족"] },
+        { "axis": "disk_io", "status": "io_ok", "utilization": { "eval_pct": null, "sizing_pct": null },
+          "saturation": { "signal": "await", "value": null, "threshold": 20, "unit": "ms", "measured": false, "saturated": null }, "confidence_notes": ["표본 부족"] },
+        { "axis": "network", "status": "quality_ok", "utilization": { "eval_pct": null, "sizing_pct": null },
+          "saturation": null, "confidence_notes": ["표본 부족"] }
       ],
-      "advisory": { "disk_io_tier_hint": "high_iops", "network_congested": false }
+      "advisory": { "disk_io_tier_hint": null, "network_congested": false }
     }
   }]
 }
 ```
+
+읽는 법:
+- 스토리지: `mountpoint` 있는 노드가 실제 마운트(`/`·`/boot`·`/boot/efi`·`/data`·`/var/log/svc`·`/secure`). 트리는 `id` 로만 조인(`name`=dm-0/md0 등은 표시용·비유일). md0 은 다중 부모라 (id,parent) 쌍으로 2회. 총 프로비저닝 용량은 `type=disk` 노드(vda 30G + vdb 10G + vdc 10G + vdd 8G)의 `size_bytes` 합 - RAID 멤버·LVM LV·crypt 매핑 중복 배제. 레이아웃 상세(partition_table·part_type·raid_level·lvm_segtype·crypt_type·fs_uuid·mount_options 등)가 채워져 파티션/파일시스템/RAID/LVM/LUKS 조립을 그대로 복원할 수 있다.
+- 재현 완전성: os arch(x86_64)·boot_firmware(uefi)·kernel_cmdline·root_ref_type 이 채워져 이미지/부트 기반 재현이 가능하다. 아직 null 인 값들: secure_boot·rtc_utc(이 호스트에 efivars SecureBoot·/etc/adjtime 부재라 정상 null), addresses[].origin(getifaddrs 에 static/dhcp 정보 없음 - 구조적), lvm_vgs size/free/pv_ids(/etc/lvm/backup 에서 파생 가능하나 agent 미파싱), grub_install_target(agent 미구현). 소비자는 항상 null 을 처리한다.
+- sizing/assessment: 방금 뜬 idle 호스트라 전 축 keep, classification idle, confidence medium(표본 부족 - 이력<30h). cpu 는 실행큐가 코어당 1.45 여도 이용률 0.8% 라 미포화로 처리(idle 을 실행큐 노이즈로 오증설하지 않는 dual-gate). 부하가 쌓이면 이용률·await 등이 채워지고 confidence 가 오른다. 마운트별 disk 축은 소진 추세가 없어 전부 keep, swap/`/boot`/`/boot/efi` 는 disk 사이징 축이 아니다.
 
 ## 10. 운영 계약
 

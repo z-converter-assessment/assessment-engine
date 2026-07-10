@@ -367,6 +367,33 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
             [{"unit": s.unit, "sub": s.sub, "pid": s.pid} for s in data.services] if data.services else None,
             [{"proto": p.proto, "port": p.port, "comm": p.comm} for p in data.listen_ports],
         ),
+        arch=data.arch,
+        bits=data.bits,
+        boot_firmware=data.boot_firmware,
+        secure_boot=data.secure_boot,
+        edition=data.edition,
+        timezone=data.timezone,
+        rtc_utc=data.rtc_utc,
+        boot=(
+            {
+                "kernel_cmdline": data.boot.kernel_cmdline,
+                "root_ref_type": data.boot.root_ref_type,
+                "grub_install_target": data.boot.grub_install_target,
+            }
+            if data.boot is not None
+            else None
+        ),
+        nonblock_mounts=(
+            [
+                {
+                    "source": m.source, "target": m.target, "fstype": m.fstype,
+                    "options": m.options, "fs_freq": m.fs_freq, "fs_passno": m.fs_passno,
+                }
+                for m in data.nonblock_mounts
+            ]
+            if data.nonblock_mounts is not None
+            else None
+        ),
     )
 
 
