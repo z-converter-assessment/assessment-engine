@@ -36,13 +36,16 @@ def test_cpu_under_by_util():
     assert a.sizing_target == 11  # ceil(90*8/70)=11 > sat ceil(1/0.7)=2
 
 
-def test_cpu_under_by_saturation_only():
-    # 이용률은 낮으나(40%) load/cores=2 >= 1 -> 포화로 under
+def test_cpu_saturation_dual_gate():
+    # dual-gate: 저활동(util 40%)에서 실행 큐만 높은 건 포화 아님(procs_running 은 수집기 포함 노이즈) — 코어 증설 안 함
     a = r.assess_cpu(_stats(cpu_p95_pct=40.0, cpu_cores=4, procs_running_p95=8.0))
-    assert a.status == "under"
-    assert "cpu_saturation" in a.triggers
-    assert "cpu_util" not in a.triggers
-    assert a.sizing_target == 12  # sat ceil(8/0.7)=12 > util ceil(40*4/70)=3
+    assert a.status != "under"
+    assert "cpu_saturation" not in a.triggers
+    # util 이 실제 높으면(75%) 실행 큐 포화가 목표를 키운다 (util+포화 dual-gate 통과)
+    b = r.assess_cpu(_stats(cpu_p95_pct=75.0, cpu_cores=4, procs_running_p95=8.0))
+    assert b.status == "under"
+    assert "cpu_saturation" in b.triggers and "cpu_util" in b.triggers
+    assert b.sizing_target == 12  # sat ceil(8/0.7)=12 > util ceil(75*4/70)=5
 
 
 def test_cpu_over():
@@ -69,10 +72,11 @@ def test_cpu_unmeasured_no_util_no_sat():
 
 
 def test_cpu_windows_saturation():
-    a = r.assess_cpu(_stats(cpu_p95_pct=30.0, cpu_cores=4, cpu_run_queue_p95=10.0, os_family="windows"))
+    # dual-gate: util 실제 높음(75%) + Windows 실행 큐 포화(10/4=2.5 >= 2)
+    a = r.assess_cpu(_stats(cpu_p95_pct=75.0, cpu_cores=4, cpu_run_queue_p95=10.0, os_family="windows"))
     assert a.status == "under"
-    assert "cpu_saturation" in a.triggers  # 10/4=2.5 >= 2 (Windows 포화선)
-    assert a.sizing_target == 8  # ceil(10/(2.0*0.7))=ceil(7.14)=8
+    assert "cpu_saturation" in a.triggers
+    assert a.sizing_target == 8  # sat ceil(10/(2.0*0.7))=ceil(7.14)=8 > util ceil(75*4/70)=5
 
 
 # ─── 메모리 ───
@@ -82,11 +86,15 @@ def test_mem_under_by_util():
     a = r.assess_memory(_stats(mem_p95_pct=95.0, mem_total_mb=16384))
     assert a.status == "under"
     assert "mem_util" in a.triggers
-    assert a.sizing_target == 22236  # ceil(16384*95/70)
+    # v2(ADR 0054): 메모리 사이징 목표 80%(RS_MEM_SIZING_TARGET_PCT), 통계=near-peak.
+    # near-peak 미측정이라 p95(95) 폴백 -> ceil(16384*95/80).
+    assert a.sizing_target == 19456
 
 
 def test_mem_under_by_swap_paging():
-    a = r.assess_memory(_stats(mem_p95_pct=50.0, mem_swap_paging=True))
+    # v2(Gate0 dual-gate): mem_saturation 은 이용률 p95 >= RS_MEM_UNDER_PCT(90) AND 페이징 발생 둘 다여야 성립
+    # (paging 단독은 mmap/시작 하드폴트 오탐). 그래서 util 95% + swap page-out 으로 포화 발화.
+    a = r.assess_memory(_stats(mem_p95_pct=95.0, mem_swap_paging=True))
     assert a.status == "under"
     assert "mem_saturation" in a.triggers
 
@@ -101,12 +109,13 @@ def test_mem_swapless_high_util_primary():
 def test_mem_over():
     a = r.assess_memory(_stats(mem_p95_pct=40.0, mem_total_mb=16384))
     assert a.status == "over"
-    assert a.sizing_target == 9363  # ceil(16384*40/70) < 16384
+    assert a.sizing_target == 8192  # v2 목표 80%: ceil(16384*40/80) < 16384
 
 
 def test_mem_optimal_at_target():
-    a = r.assess_memory(_stats(mem_p95_pct=70.0, mem_total_mb=16384))
-    assert a.status == "optimal"  # ceil(16384*70/70)=16384
+    # v2 목표 80%: near-peak(=p95 폴백)이 목표%와 같으면 목표 == 현재 총량 -> optimal.
+    a = r.assess_memory(_stats(mem_p95_pct=80.0, mem_total_mb=16384))
+    assert a.status == "optimal"  # ceil(16384*80/80)=16384
 
 
 def test_mem_unmeasured():
@@ -426,13 +435,14 @@ def test_host_status_over():
 
 
 def test_host_status_optimal():
+    # v2 목표 80%: 메모리가 optimal 이려면 이용률이 목표% 근처여야(70%는 이제 over). CPU 65%/8코어 = optimal.
     h = r.rollup_host(
         _stats(
             cpu_p95_pct=65.0,
             cpu_peak_pct=80.0,
             cpu_cores=8,
             procs_running_p95=4.0,
-            mem_p95_pct=70,
+            mem_p95_pct=80,
             mem_total_mb=16384,
             net_avg_kbytes_per_s=500.0,
         )

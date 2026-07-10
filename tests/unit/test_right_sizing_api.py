@@ -6,8 +6,73 @@
 - 사이징 목표는 타입 키(target_cores/_mb/_gb)로 파싱 가능.
 """
 
+from datetime import UTC, datetime
+
+from assessment_engine.db.dtos.outbound import ReportRowRaw
 from assessment_engine.web.services.mappers.right_sizing_api import build_right_sizing_entry
-from tests.unit.test_mappers_report import _raw
+
+_NOW = datetime(2026, 5, 12, tzinfo=UTC)
+
+
+def _raw(
+    *,
+    server_id: int = 1,
+    public_id: str = "a",
+    hostname: str = "h",
+    os_family: str | None = None,
+    os_id: str = "ubuntu",
+    os_version: str = "22.04",
+    cpu_p95: float | None = None,
+    cpu_peak: float | None = None,
+    mem_p95: float | None = None,
+    cpu_cores: int | None = 2,
+    mem_total_bytes: int | None = 2 * 1024**3,  # v2 By (v1 mem_total_kb 폐기)
+    procs_running_p95: float | None = None,
+    mem_swap_paging: bool = False,
+    disk_await_p95_ms: float | None = None,
+    net_retrans_pct: float | None = None,
+    net_drop_pct: float | None = None,
+) -> ReportRowRaw:
+    """right-sizing API 테스트용 최소 v2 ReportRowRaw 빌더.
+
+    본 파일 전용(자기완결) — 시계열/inventory wire 계약이 아니라 report_aggregate 산출 outbound DTO 다.
+    v2 필드만 채운다: mem_total_bytes(v1 kB 폐기)·net_interfaces(v1 interfaces 폐기). 포화 신호는
+    procs_running_p95/disk_await_p95_ms 등 v2 축(load/iowait/swap_used 폐기).
+    """
+    return ReportRowRaw(
+        server_id=server_id,
+        public_id=public_id,
+        hostname=hostname,
+        os_family=os_family,
+        os_id=os_id,
+        os_version=os_version,
+        os_codename="jammy",
+        kernel_version="5.15",
+        net_interfaces=[
+            {
+                "id": "52:54:00:12:34:56",
+                "id_type": "mac",
+                "name": "eth0",
+                "kind": "physical",
+                "addresses": [{"address": "10.0.0.1", "prefix": 24, "family": "ipv4"}],
+            }
+        ],
+        services=None,
+        last_seen_at=_NOW,
+        cpu_p95_pct=cpu_p95,
+        cpu_avg_pct=None,
+        cpu_peak_pct=cpu_peak,
+        mem_p95_pct=mem_p95,
+        mem_avg_pct=None,
+        mem_peak_pct=None,
+        cpu_cores=cpu_cores,
+        mem_total_bytes=mem_total_bytes,
+        procs_running_p95=procs_running_p95,
+        mem_swap_paging=mem_swap_paging,
+        disk_await_p95_ms=disk_await_p95_ms,
+        net_retrans_pct=net_retrans_pct,
+        net_drop_pct=net_drop_pct,
+    )
 
 
 def _under_mem_root():
@@ -20,14 +85,14 @@ def _under_mem_root():
         procs_running_p95=6.0,  # cpu 포화
         mem_swap_paging=True,  # 메모리 page-out (근본원인 판별)
         disk_await_p95_ms=25.0,  # disk io_bound
-        mem_total_kb=8 * 1024 * 1024,
+        mem_total_bytes=8 * 1024**3,  # v2 By: 8 GiB -> mem_total_mb 8192
     )
 
 
 def test_saturation_is_raw_numeric_not_display_string():
     """saturation.value/threshold 는 number, unit 동반 — 표시 문자열('W 1.20') 누수 금지(계약)."""
     e = build_right_sizing_entry(
-        _raw(os_family="linux", cpu_p95=40.0, cpu_cores=4, procs_running_p95=6.0), is_online=True
+        _raw(os_family="linux", cpu_p95=75.0, cpu_cores=4, procs_running_p95=6.0), is_online=True
     )
     sat = e["resources"]["cpu"]["saturation"]
     assert isinstance(sat["value"], (int, float)) and sat["value"] == 1.5  # 6/4 per-core
@@ -86,10 +151,14 @@ def test_independent_under_actions_all_present():
 
 
 def test_optimal_maintain_no_actions():
-    """정상 — kind=maintain, actions/suppressed 빈 배열. 이용률 70% 목표 == 현재 사양(축소·증설 여지 없음)."""
+    """정상 — kind=maintain, actions/suppressed 빈 배열. 목표 사양 == 현재(축소·증설 여지 없음).
+
+    v2 사이징(ADR 0054): CPU 목표 70%(p95), 메모리 목표 80%(near-peak). near-peak 미측정 시 p95 폴백.
+    """
     e = build_right_sizing_entry(
-        # cpu 65% -> 목표 ceil(65*4/70)=4=현재 / mem 75% -> 목표 > 현재(축소 불가) : 둘 다 optimal
-        _raw(os_family="linux", cpu_p95=65.0, mem_p95=75.0, cpu_cores=4, procs_running_p95=1.0),
+        # cpu 65% -> 목표 ceil(65*4/70)=4=현재 / mem 85% -> 목표 ceil(2048*85/80)=2176 > 현재 2048(축소 불가):
+        # 둘 다 optimal. (v2 mem 목표 80%라 75%면 목표 1920<현재 -> over 로 새므로 near-peak 80% 위인 85% 사용)
+        _raw(os_family="linux", cpu_p95=65.0, mem_p95=85.0, cpu_cores=4, procs_running_p95=1.0),
         is_online=True,
     )
     rec = e["recommendation"]

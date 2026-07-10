@@ -25,9 +25,12 @@ depends_on: str | Sequence[str] | None = None
 # 5종 cagg — refresh 정책 공통(start_offset = WINDOW_DAYS(14) + 버퍼, end_offset 10m real-time 위임).
 _CAGGS = ("server_metrics_5m", "server_filesystem_5m", "server_disk_io_5m", "server_net_io_5m", "server_cpu_core_5m")
 
+# Windows 는 iowait/nice/irq/softirq/steal jiffie 개념 부재라 해당 컬럼 NULL — NULL+x=NULL 로 total 전체가
+# NULL 이 되면 cpu_total_ca NULL -> util 산출 불가(Windows CPU 판정 블라인드). COALESCE 로 성분별 0 처리해
+# Windows total = user+system+idle 로 성립하게. (Linux 는 전 성분 실측이라 무영향.)
 _CPU_TOTAL_S = (
-    "cpu_user_s + cpu_nice_s + cpu_system_s + cpu_idle_s "
-    "+ cpu_iowait_s + cpu_irq_s + cpu_softirq_s + cpu_steal_s"
+    "COALESCE(cpu_user_s,0) + COALESCE(cpu_nice_s,0) + COALESCE(cpu_system_s,0) + COALESCE(cpu_idle_s,0) "
+    "+ COALESCE(cpu_iowait_s,0) + COALESCE(cpu_irq_s,0) + COALESCE(cpu_softirq_s,0) + COALESCE(cpu_steal_s,0)"
 )
 
 
@@ -68,9 +71,9 @@ def upgrade() -> None:
             avg(cpu_blocked)   AS blocked_avg,
             max(cpu_blocked)   AS blocked_max,
             avg(CASE WHEN net_conntrack_limit > 0 AND net_conntrack_usage IS NOT NULL
-                     THEN net_conntrack_usage::float / net_conntrack_limit * 100 END) AS conntrack_ratio_avg,
+                     THEN net_conntrack_usage::float / net_conntrack_limit END) AS conntrack_ratio_avg,
             max(CASE WHEN net_conntrack_limit > 0 AND net_conntrack_usage IS NOT NULL
-                     THEN net_conntrack_usage::float / net_conntrack_limit * 100 END) AS conntrack_ratio_max,
+                     THEN net_conntrack_usage::float / net_conntrack_limit END) AS conntrack_ratio_max,
             max(mem_hardware_corrupted_bytes) AS hw_corrupted_max,
             count(*) AS sample_count
         FROM server_metrics

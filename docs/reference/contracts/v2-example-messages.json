@@ -2,7 +2,7 @@
   "_comment": "wire v2 canonical 예시. 값은 testbed 실측 기반(st-lvm/st-raid/dp-win2016/win2003·2008 엔진DB). wire.schema.v2.json 으로 검증됨. 4종: linux_metrics / windows_metrics / linux_inventory / windows_inventory.",
 
   "linux_metrics": {
-    "schema_version": "2.0", "message_type": "metrics",
+    "schema_version": "1.0", "message_type": "metrics",
     "agent_id": "c1a2b3c4-0000-0000-0000-000000000001", "message_id": "9f3b0000-0000-0000-0000-000000000002",
     "composite_id": "sha256hex...", "machine_id": "…",
     "collected_at": "2026-07-09T06:40:00Z", "boot_time": "2026-07-08T07:23:10Z",
@@ -86,7 +86,7 @@
   },
 
   "windows_metrics": {
-    "schema_version": "2.0", "message_type": "metrics",
+    "schema_version": "1.0", "message_type": "metrics",
     "agent_id": "dd37cfb0-8cb5-4bc7-8f1c-5674b50cd37f", "message_id": "9f3b0000-0000-0000-0000-000000000003",
     "composite_id": null, "machine_id": "…",
     "collected_at": "2026-07-09T08:10:36Z", "boot_time": "2026-07-08T22:00:00Z",
@@ -139,7 +139,7 @@
   },
 
   "linux_inventory": {
-    "schema_version": "2.0", "message_type": "inventory",
+    "schema_version": "1.0", "message_type": "inventory",
     "agent_id": "c1a2b3c4-0000-0000-0000-000000000001", "message_id": "9f3b0000-0000-0000-0000-000000000004",
     "composite_id": "sha256hex...", "machine_id": "…",
     "collected_at": "2026-07-09T06:40:00Z", "boot_time": "2026-07-08T07:23:10Z",
@@ -173,7 +173,7 @@
   },
 
   "windows_inventory": {
-    "schema_version": "2.0", "message_type": "inventory",
+    "schema_version": "1.0", "message_type": "inventory",
     "agent_id": "dd37cfb0-8cb5-4bc7-8f1c-5674b50cd37f", "message_id": "9f3b0000-0000-0000-0000-000000000005",
     "composite_id": null, "machine_id": "…",
     "collected_at": "2026-07-09T08:10:36Z", "boot_time": "2026-07-08T22:00:00Z",
@@ -203,7 +203,7 @@
   },
 
   "task_result": {
-    "schema_version": "2.0", "message_type": "task.result",
+    "schema_version": "1.0", "message_type": "task.result",
     "message_id": "9f3b0000-0000-0000-0000-000000000006", "hostname": "vm-alma9",
     "machine_id": "…", "agent_id": "c1a2b3c4-0000-0000-0000-000000000001", "agent_version": "2.0.0",
     "boot_time": null, "collected_at": "2026-07-09T09:00:00Z", "agent_started_at": null,
@@ -215,7 +215,7 @@
   },
 
   "error": {
-    "schema_version": "2.0", "message_type": "error",
+    "schema_version": "1.0", "message_type": "error",
     "message_id": "9f3b0000-0000-0000-0000-000000000007",
     "agent_id": "c1a2b3c4-0000-0000-0000-000000000001", "agent_version": "2.0.0",
     "composite_id": "sha256hex...", "machine_id": "…",

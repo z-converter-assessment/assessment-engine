@@ -13,6 +13,7 @@ session-scope async fixture를 쓰려면 pyproject의
 
 import os
 import subprocess
+import sys
 from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
 
@@ -55,7 +56,7 @@ async def engine(_postgres_container: PostgresContainer) -> AsyncIterator[AsyncE
     env["POSTGRES_DB"] = "assessment_test"
     env["APP_ENV"] = "dev"  # prod model_validator 우회 (테스트 자격은 약한 default)
     subprocess.run(
-        ["alembic", "-c", str(_REPO_ROOT / "alembic.ini"), "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "-c", str(_REPO_ROOT / "alembic.ini"), "upgrade", "head"],
         env=env,
         check=True,
         capture_output=True,

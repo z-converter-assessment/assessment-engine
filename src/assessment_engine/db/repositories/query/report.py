@@ -73,6 +73,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY cpu_pct) AS cpu_p95,
                     percentile_cont(0.5)  WITHIN GROUP (ORDER BY cpu_pct) AS cpu_median,
                     AVG(cpu_pct) AS cpu_avg, MAX(cpu_pct) AS cpu_peak, COUNT(cpu_pct) AS cpu_sample,
+                    COUNT(*) AS total_buckets,  -- 메트릭 종류 독립 관측 버킷수 — history_hours 산출(Windows CPU util NULL 무관)
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY iowait_pct) AS iowait_p95,
                     MAX(iowait_pct) AS iowait_peak,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY procs_running) AS cpu_run_queue_p95,
@@ -82,8 +83,9 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             mem_stats AS (
                 SELECT server_id,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY mem_pct_avg) AS mem_p95,
-                    -- near-peak = 버킷 최댓값(mem_pct_max)의 p99.9 — 메모리 사이징 통계(비탄력 피크 대표, 단일 이상치 제외).
-                    percentile_cont(0.999) WITHIN GROUP (ORDER BY mem_pct_max) AS mem_near_peak,
+                    -- near-peak = 버킷 최댓값(mem_pct_max)의 p95 — 메모리 사이징 통계(비탄력 피크 대표). p99.9 는
+                    -- 표본 ~210 에서 절대 max 와 사실상 동일해(단일 5분 스파이크 지배) 견고 못 함 -> p95 로 이상치 제외.
+                    percentile_cont(0.95) WITHIN GROUP (ORDER BY mem_pct_max) AS mem_near_peak,
                     AVG(mem_pct_avg) AS mem_avg, MAX(mem_pct_max) AS mem_peak, COUNT(mem_pct_avg) AS mem_sample
                 FROM bkt WHERE mem_pct_avg IS NOT NULL GROUP BY server_id
             ),
@@ -122,21 +124,21 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             ),
             mount_calc AS (
                 SELECT server_id, mountpoint,
-                    CASE WHEN (av_first - av_last) > 0 AND span_days > 0 AND av_last >= 0
+                    CASE WHEN (av_first - av_last) > 0 AND span_days >= :rate_min_span AND av_last >= 0
                          THEN GREATEST(0, FLOOR(av_last / ((av_first - av_last) / span_days))) END AS disk_runway_days,
-                    CASE WHEN (in_first - in_last) > 0 AND span_days > 0 AND in_last >= 0
+                    CASE WHEN (in_first - in_last) > 0 AND span_days >= :rate_min_span AND in_last >= 0
                          THEN GREATEST(0, FLOOR(in_last / ((in_first - in_last) / span_days))) END AS inode_runway_days,
                     CASE
                         WHEN (av_first - av_last) > 0 AND span_days >= :trend_min_span AND total_bytes > 0
                             THEN CEIL(((total_bytes - av_last) + :target_runway * ((av_first - av_last) / span_days)) / 1e9)
-                        WHEN (av_first - av_last) > 0 AND span_days > 0 AND total_bytes > 0
+                        WHEN (av_first - av_last) > 0 AND span_days >= :rate_min_span AND total_bytes > 0
                             THEN CEIL(((total_bytes - av_last) + :near_horizon * ((av_first - av_last) / span_days))
                                       / (:headroom_pct / 100.0) / 1e9)
                         WHEN total_bytes > 0 AND av_last >= 0 AND (1 - av_last::float / total_bytes) * 100 >= :static_pct
                             THEN CEIL((total_bytes - av_last) / (:headroom_pct / 100.0) / 1e9)
                     END AS target_gb,
                     CASE WHEN total_bytes > 0 THEN (1 - av_last::float / total_bytes) * 100 END AS used_pct,
-                    CASE WHEN (av_first - av_last) > 0 AND span_days > 0 AND total_bytes > 0
+                    CASE WHEN (av_first - av_last) > 0 AND span_days >= :rate_min_span AND total_bytes > 0
                          THEN (1 - (av_last - :near_horizon * ((av_first - av_last) / span_days)) / total_bytes::float) * 100
                     END AS proj_30d_pct
                 FROM mount_span
@@ -155,11 +157,13 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 ) t ON t.server_id = r.server_id
             ),
             disk_await AS (
-                -- await(ms) = Σ(Δ op_time) / Σ(Δ ops), 양 OS 통일(v2). server_disk_io_5m counter_agg.
+                -- await(ms) = Σ(Δ op_time) / Σ(Δ ops). device 가 실제 바쁜(io_time 사용률 >= :diskio_util_min)
+                -- 버킷만 — 유휴 device 의 tick 기반 await 는 writeback 큐 잔류로 폭증하나 병목 아님(FIX: util AND await).
                 SELECT server_id, bucket, MAX(await_ms) AS worst_await FROM (
                     SELECT server_id, bucket,
-                        (delta(op_rtime_ca) + delta(op_wtime_ca))
-                            / NULLIF(delta(ops_read_ca) + delta(ops_write_ca), 0) * 1000 AS await_ms
+                        CASE WHEN delta(io_time_ca) / NULLIF(time_delta(io_time_ca), 0) >= :diskio_util_min
+                             THEN (delta(op_rtime_ca) + delta(op_wtime_ca))
+                                  / NULLIF(delta(ops_read_ca) + delta(ops_write_ca), 0) * 1000 END AS await_ms
                     FROM server_disk_io_5m
                     WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_PHYS_DISK_SQL_FILTER}
                 ) d WHERE await_ms IS NOT NULL GROUP BY server_id, bucket
@@ -218,7 +222,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 rs.procs_blocked_p95, rs.procs_running_p95,
                 COALESCE(rs.swap_paging, false) AS swap_paging,
                 COALESCE(rs.oom_occurred, false) AS oom_occurred,
-                cs.cpu_sample * 5.0 / 60.0 AS history_hours,
+                cs.total_buckets * 5.0 / 60.0 AS history_hours,
                 da.await_p95 AS disk_await_p95_ms,
                 dib.iops_baseline AS disk_iops_baseline,
                 mm.worst_inode_used_pct AS disk_inode_used_pct,
@@ -254,6 +258,8 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 "expected_samples": period_days * 288,
                 "target_runway": recommendation.RS_DISK_TARGET_RUNWAY_DAYS,
                 "trend_min_span": recommendation.RS_DISK_TREND_MIN_SPAN_DAYS,
+                "rate_min_span": recommendation.RS_DISK_RATE_MIN_SPAN_DAYS,
+                "diskio_util_min": recommendation.RS_DISKIO_UTIL_MIN,
                 "near_horizon": recommendation.RS_DISK_NEAR_HORIZON_DAYS,
                 "static_pct": recommendation.RS_DISK_STATIC_GUARD_PCT,
                 "headroom_pct": recommendation.RS_DISK_HEADROOM_TARGET_PCT,
@@ -588,14 +594,14 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             )
             SELECT server_id, mountpoint, total_bytes, inode_used_pct,
                 CASE WHEN total_bytes > 0 THEN (1 - av_last::float / total_bytes) * 100 END AS used_pct,
-                CASE WHEN (av_first - av_last) > 0 AND span_days > 0 AND av_last >= 0
+                CASE WHEN (av_first - av_last) > 0 AND span_days >= :rate_min_span AND av_last >= 0
                      THEN GREATEST(0, FLOOR(av_last / ((av_first - av_last) / span_days))) END AS byte_runway_days,
-                CASE WHEN (in_first - in_last) > 0 AND span_days > 0 AND in_last >= 0
+                CASE WHEN (in_first - in_last) > 0 AND span_days >= :rate_min_span AND in_last >= 0
                      THEN GREATEST(0, FLOOR(in_last / ((in_first - in_last) / span_days))) END AS inode_runway_days,
                 CASE
                     WHEN (av_first - av_last) > 0 AND span_days >= :trend_min_span AND total_bytes > 0
                         THEN CEIL((total_bytes - av_last) + :target_runway * ((av_first - av_last) / span_days))
-                    WHEN (av_first - av_last) > 0 AND span_days > 0 AND total_bytes > 0
+                    WHEN (av_first - av_last) > 0 AND span_days >= :rate_min_span AND total_bytes > 0
                         THEN CEIL(((total_bytes - av_last) + :near_horizon * ((av_first - av_last) / span_days))
                                   / (:headroom_pct / 100.0))
                     WHEN total_bytes > 0 AND av_last >= 0 AND (1 - av_last::float / total_bytes) * 100 >= :static_pct
@@ -611,6 +617,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 "end": end,
                 "target_runway": recommendation.RS_DISK_TARGET_RUNWAY_DAYS,
                 "trend_min_span": recommendation.RS_DISK_TREND_MIN_SPAN_DAYS,
+                "rate_min_span": recommendation.RS_DISK_RATE_MIN_SPAN_DAYS,
                 "near_horizon": recommendation.RS_DISK_NEAR_HORIZON_DAYS,
                 "static_pct": recommendation.RS_DISK_STATIC_GUARD_PCT,
                 "headroom_pct": recommendation.RS_DISK_HEADROOM_TARGET_PCT,

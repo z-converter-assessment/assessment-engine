@@ -74,21 +74,6 @@ def _report_row_from_dict(r: dict) -> ReportRowItem:
     data["service_units"] = [ReportServiceUnit(**u) for u in data.get("service_units") or []]
     data["listen_ports_detail"] = [ReportListenItem(**p) for p in data.get("listen_ports_detail") or []]
     data["saturation_axes"] = [SaturationAxis(**a) for a in data.get("saturation_axes") or []]
-    # 구 스냅샷 잔존 키 무시 (ReportRowItem(**data) 호환).
-    for legacy in (
-        "saturation_color",
-        "saturation_ratio",  # 폐기 — 구 스냅샷 dict 잔존 키 무시 (saturation_axes 로 대체)
-        "cpu_variance_color",
-        "mem_variance_color",
-        "worst_mount_days_color",
-        "worst_mount",  # 폐기 — 구 스냅샷 이름 필드 (임박은 disk_capacity_driving_mount 로 대체)
-        "worst_mount_days_until_full",  # 폐기 — 구 스냅샷 14일창 days (disk_capacity_runway_days 로 대체)
-        "reboot_count_color",
-        "agent_restart_count_color",
-        "load_15m_max",  # 폐기 — load average 축 (cpu_run_queue_p95 로 대체)
-        "swap_used",  # 폐기 — 스왑 점유 축 (mem_swap_paging 으로 대체)
-    ):
-        data.pop(legacy, None)
     return ReportRowItem(**data)
 
 
@@ -151,22 +136,6 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
     ]
     data["attention_hosts"] = [AttentionHostItem(**a) for a in data.get("attention_hosts") or []]
     data["capacity_imminent"] = [CapacityImminentItem(**c) for c in data.get("capacity_imminent") or []]
-    # 구 스냅샷 잔존 키 무시 (EnvironmentReportSummary(**data) 호환) — 통합 표 이전 efficiency/under 분리 필드 포함.
-    for _k in (
-        "insufficient_hosts",
-        "insufficient_hosts_count",
-        "efficiency_hosts",
-        "efficiency_hosts_count",
-        "efficiency_target_count",
-        "efficiency_target_vcpus",
-        "efficiency_target_memory_gb",
-        "under_provisioned_hosts",
-        "under_provisioned_metric_labels",
-        "under_provisioned_hosts_count",
-        "workload_dist",  # 폐기 — 미렌더 워크로드 분포 막대 (workload_unknown/identified_count 만 표시)
-        "evaluated_count",  # 폐기 — 미렌더 평가 가능 호스트 수
-    ):
-        data.pop(_k, None)
     data["anchor_at"] = _dt(data.get("anchor_at"))
     data["generated_at"] = _dt(data.get("generated_at"))
     si = data.get("server_inventory")

@@ -1,11 +1,11 @@
-"""QueryRepository 통합 테스트 — Phase 1 정확화 검증.
+"""QueryRepository 통합 테스트 (wire v2) — 정확화 검증.
 
 검증 영역:
 - inventory query (resolve_server_id, list_servers, get_server)
 - _latest_per_dimension n=1/n=2 (get_storage, get_network, latest_dashboard)
 - collection_status
-- metric_chart dispatcher (17개 metric_type 모두 dispatch + 4개 helper SQL 정상 실행)
-- metric_chart helper 결과 정확성 (cpu_delta LAG 계산, fs_usage 시점 값, rate_per_dim)
+- metric_chart(metric_trend 위임) dispatcher — v2 MetricType 전량 dispatch + SQL 정상 실행
+- metric_trend 결과 정확성 (CPU LAG delta, fs.usage 시점 값, rate/dim, reset 흡수)
 """
 
 from datetime import UTC, datetime, timedelta
@@ -14,7 +14,7 @@ import pytest
 
 from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
-    MountUsageEntry,
+    FilesystemEntry,
     NetIoEntry,
 )
 from assessment_engine.db.repositories.collect_repository import CollectRepository
@@ -32,25 +32,29 @@ def _bucket_aligned_base(minutes_ago: int = 7) -> datetime:
 pytestmark = pytest.mark.asyncio
 
 
+# v2 MetricType 전량 (types.MetricType Literal 과 동기화 — dispatch 커버, #F9).
+# v1 폐기: load.1m/5m/15m(소스 부재 -> cpu.run_queue), swap.usage_percent, disk.queue(-> disk.io_saturation).
 _ALL_METRIC_TYPES = [
     "cpu.usage_percent",
     "cpu.user_percent",
     "cpu.system_percent",
     "cpu.iowait_percent",
-    "load.1m",
-    "load.5m",
-    "load.15m",
+    "cpu.run_queue",
     "mem.usage_percent",
     "mem.available_percent",
     "mem.cached_percent",
     "mem.buffers_percent",
-    "swap.usage_percent",
     "disk.read_iops",
     "disk.write_iops",
-    "disk.queue",
+    "disk.read_kbps",
+    "disk.write_kbps",
+    "disk.io_saturation",
     "fs.usage_percent",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
+    "net.rx_packets_per_sec",
+    "net.tx_packets_per_sec",
+    "net.retrans_percent",
 ]
 
 
@@ -67,32 +71,46 @@ async def _seed_one_server_with_metrics(
         ts = base_ts + timedelta(minutes=i)
         m = make_metrics(
             collected_at=ts,
-            # CPU jiffies 누적 — LAG delta가 양수가 되도록 시점마다 증가
-            cpu_user=1000 + i * 100,
-            cpu_idle=8000 + i * 800,
+            # CPU seconds 누적 — LAG delta가 양수가 되도록 시점마다 증가 (v2 s counter)
+            cpu_user_s=1000 + i * 100,
+            cpu_idle_s=8000 + i * 800,
             disk_io=[
+                # v2: device_id 안정키(dimension), ops/io_bytes counter (sectors*512 -> io_bytes)
                 DiskIoEntry(
-                    device="sda",
-                    reads_completed=100 + i * 50,
-                    writes_completed=50 + i * 25,
-                    sectors_read=2000 + i * 1000,
-                    sectors_written=1000 + i * 500,
+                    device_id="sda",
+                    device_name="sda",
+                    ops_read=100 + i * 50,
+                    ops_write=50 + i * 25,
+                    io_read_bytes=(2000 + i * 1000) * 512,
+                    io_write_bytes=(1000 + i * 500) * 512,
+                    op_read_time_s=1.0 + i * 0.5,
+                    op_write_time_s=0.5 + i * 0.25,
+                    io_time_s=1.0 + i * 0.5,
                 ),
             ],
-            mounts=[
-                MountUsageEntry(
-                    mount="/", total_bytes=50_000_000_000, free_bytes=20_000_000_000, avail_bytes=18_000_000_000
+            filesystems=[
+                # v2: mountpoint + used/free bytes (used=total-avail, free=avail), 실 fs=ext4
+                FilesystemEntry(
+                    mountpoint="/",
+                    fstype="ext4",
+                    used_bytes=50_000_000_000 - 18_000_000_000,
+                    free_bytes=18_000_000_000,
+                    inodes_used=100_000,
+                    inodes_free=900_000,
                 ),
             ],
             net_io=[
                 NetIoEntry(
-                    interface="eth0",
+                    iface_id="eth0",
+                    iface_name="eth0",
                     rx_bytes=1_000_000 + i * 100_000,
                     tx_bytes=500_000 + i * 50_000,
                     rx_packets=1000 + i * 100,
                     tx_packets=500 + i * 50,
                     rx_errors=0,
                     tx_errors=0,
+                    rx_dropped=0,
+                    tx_dropped=0,
                 ),
             ],
         )
@@ -176,9 +194,9 @@ async def test_get_storage_returns_only_latest_per_mount(
     sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-stor-1", n_points=3)
     storage = await query_repo.get_storage(sid)
     assert storage is not None
-    # 시드는 mount="/" 1개만. 여러 시점이라도 mount당 1행.
-    assert len(storage.mount_usage) == 1
-    assert storage.mount_usage[0].mount == "/"
+    # 시드는 mountpoint="/" 1개만. 여러 시점이라도 mount당 1행.
+    assert len(storage.filesystems) == 1
+    assert storage.filesystems[0].mountpoint == "/"
 
 
 # ─── _latest_per_dimension (n=2) — get_network ────────────────────────────
@@ -192,8 +210,8 @@ async def test_get_network_returns_at_most_2_per_interface(
     sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-net-1", n_points=5)
     network = await query_repo.get_network(sid)
     assert network is not None
-    # 시드는 interface="eth0" 1개. 5시점이지만 최신 2행.
-    eth0_rows = [r for r in network.net_io if r.interface == "eth0"]
+    # 시드는 iface_id="eth0" 1개. 5시점이지만 최신 2행.
+    eth0_rows = [r for r in network.net_io if r.iface_id == "eth0"]
     assert len(eth0_rows) == 2
 
 
@@ -231,8 +249,8 @@ async def test_latest_dashboard_returns_all_four_blocks(
     assert len(dash.disk_io) == 2
     # net_io: interface당 최신 2행
     assert len(dash.net_io) == 2
-    # mount_usage: mount당 1행
-    assert len(dash.mounts) == 1
+    # filesystems: mount당 1행
+    assert len(dash.filesystems) == 1
 
 
 async def test_latest_dashboard_missing_server(query_repo: QueryRepository):
@@ -253,17 +271,21 @@ async def test_latest_dashboard_skips_future_timestamp_rows(
         sid,
         make_metrics(
             collected_at=future_ts,
-            cpu_user=9999,
-            cpu_idle=99999,
+            cpu_user_s=9999,
+            cpu_idle_s=99999,
             disk_io=[
                 DiskIoEntry(
-                    device="sda", reads_completed=9999, writes_completed=9999, sectors_read=9999, sectors_written=9999
+                    device_id="sda", device_name="sda", ops_read=9999, ops_write=9999,
+                    io_read_bytes=9999 * 512, io_write_bytes=9999 * 512,
                 )
             ],
-            mounts=[MountUsageEntry(mount="/", total_bytes=50_000_000_000, free_bytes=1, avail_bytes=1)],
+            filesystems=[
+                FilesystemEntry(mountpoint="/", fstype="ext4", used_bytes=50_000_000_000 - 1, free_bytes=1)
+            ],
             net_io=[
                 NetIoEntry(
-                    interface="eth0",
+                    iface_id="eth0",
+                    iface_name="eth0",
                     rx_bytes=9_999_999,
                     tx_bytes=9_999_999,
                     rx_packets=9999,
@@ -279,10 +301,10 @@ async def test_latest_dashboard_skips_future_timestamp_rows(
     # 미래행 제외 후에도 정상 최신 2행 — 그리고 cur(최신)가 미래행이 아니어야 한다
     assert len(dash.metrics) == 2
     assert all(m.collected_at < future_ts for m in dash.metrics)
-    # disk_io/net_io/mount 도 미래행을 최신으로 잡지 않음
+    # disk_io/net_io/filesystem 도 미래행을 최신으로 잡지 않음
     assert all(d.collected_at < future_ts for d in dash.disk_io)
     assert all(n.collected_at < future_ts for n in dash.net_io)
-    assert all(mu.collected_at < future_ts for mu in dash.mounts)
+    assert all(mu.collected_at < future_ts for mu in dash.filesystems)
 
 
 # ─── metric_chart dispatcher — 17개 metric_type 모두 무사 dispatch ────────
@@ -334,20 +356,32 @@ async def test_metric_chart_cpu_usage_percent_returns_data(
             assert 0 <= r.value <= 100
 
 
-async def test_metric_chart_disk_queue_returns_windows_gauge(
+async def test_metric_chart_disk_io_saturation_returns_await(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    """disk.queue — Windows sat_disk_queue gauge 를 서버간 AVG 후 time_bucket agg. 시드 큐 깊이 반영."""
-    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-dq-1"))
+    """disk.io_saturation — v2 await(ms) 양 OS 통일(구 disk.queue 대체). Σ(Δop_time)/Σ(Δops)*1000.
+    시드 op_time/ops 델타 반영."""
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-dsat-1"))
     base = _bucket_aligned_base()
     for i in range(2):
         await collect_repo.record_metrics(
-            sid, make_metrics(collected_at=base + timedelta(minutes=i), sat_disk_queue=3.0 + i)
+            sid,
+            make_metrics(
+                collected_at=base + timedelta(minutes=i),
+                disk_io=[
+                    DiskIoEntry(
+                        device_id="sda", device_name="sda",
+                        ops_read=100 + i * 100, ops_write=0,
+                        op_read_time_s=1.0 + i * 1.0, op_write_time_s=0.0,
+                        io_read_bytes=0, io_write_bytes=0,
+                    )
+                ],
+            ),
         )
     rows = await query_repo.metric_chart(
         server_id=sid,
-        metric_type="disk.queue",
+        metric_type="disk.io_saturation",
         dimension=None,
         time_range="1h",
         bucket="5m",
@@ -355,30 +389,43 @@ async def test_metric_chart_disk_queue_returns_windows_gauge(
         end=base + timedelta(minutes=10),
     )
     vals = [r.value for r in rows if r.value is not None]
-    assert vals, "sat_disk_queue 값이 있으면 disk.queue 추이가 값을 반환해야 함"
-    assert all(v >= 3.0 for v in vals)  # 시드 큐 깊이(3.0, 4.0) 반영 — AVG
+    assert vals, "op_time/ops 델타가 있으면 disk.io_saturation await 가 값을 반환해야 함"
+    assert all(v >= 0 for v in vals)  # await(ms) 비음수
 
 
-async def test_metric_chart_disk_queue_excludes_null_linux(
+async def test_metric_chart_disk_io_saturation_excludes_idle_disk(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    """disk.queue — sat_disk_queue null(Linux, iowait 사용) 서버는 IS NOT NULL 필터로 제외 → 값 없음."""
-    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-dq-null"))
+    """disk.io_saturation — ops 델타 0(유휴 디스크)은 d_ops>0 필터로 제외 → await 값 없음."""
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-dsat-idle"))
     base = _bucket_aligned_base()
     for i in range(2):
-        # sat_disk_queue 미지정 → None (Linux 는 disk_queue 미발행)
-        await collect_repo.record_metrics(sid, make_metrics(collected_at=base + timedelta(minutes=i)))
+        # ops/op_time 불변 → 델타 0 → await 산출 불가
+        await collect_repo.record_metrics(
+            sid,
+            make_metrics(
+                collected_at=base + timedelta(minutes=i),
+                disk_io=[
+                    DiskIoEntry(
+                        device_id="sda", device_name="sda",
+                        ops_read=100, ops_write=0,
+                        op_read_time_s=1.0, op_write_time_s=0.0,
+                        io_read_bytes=0, io_write_bytes=0,
+                    )
+                ],
+            ),
+        )
     rows = await query_repo.metric_chart(
         server_id=sid,
-        metric_type="disk.queue",
+        metric_type="disk.io_saturation",
         dimension=None,
         time_range="1h",
         bucket="5m",
         agg="avg",
         end=base + timedelta(minutes=10),
     )
-    assert all(r.value is None for r in rows)  # null 제외 → 값 산출 안 됨 (빈 결과 또는 value None)
+    assert all(r.value is None for r in rows)  # d_ops=0 제외 → 값 산출 안 됨 (빈 결과 또는 value None)
 
 
 async def test_metric_chart_fs_usage_returns_per_mount(
@@ -427,23 +474,23 @@ async def test_metric_chart_disk_read_iops_per_device(
             assert r.value >= 0  # 음수 IOPS 없음
 
 
-async def test_metric_chart_cpu_excludes_boot_time_change_point(
+async def test_metric_chart_cpu_reset_excludes_counter_decrease(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    """metric_chart(metric_trend 위임) — boot_time jitter 초과 변경 시점은 reset 확정 → 차트 missing (CLAUDE.md B1).
+    """metric_chart(metric_trend 위임) — CPU counter reset(재부팅 후 jiffies 0 재시작 = 값 감소)은
+    d_total>0 필터로 제외 → 그 버킷 차트 missing.
 
-    재부팅 후 jiffies는 0부터 시작이지만 드물게 prev보다 큰 값일 수도. 옛 d<0 휴리스틱은
-    못 잡지만 boot_time 비교는 spike 방지.
+    v2 는 boot_time 차트 gate 폐기(metric.py) — reset 은 delta 부호로 흡수. 값이 감소하면 d_total<=0
+    이라 그 시점(재부팅 첫 측정)이 valid 에서 빠진다. 시점 1은 정상 누적 → 정상 percent.
     """
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-rst-cpu-1"))
     base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=10)
     boot_a = datetime(2026, 5, 9, 10, 0, tzinfo=UTC)
     boot_b = datetime(2026, 5, 9, 11, 0, tzinfo=UTC)
 
-    # 시점 0~1: boot_a 정상 누적 / 시점 2: boot_b + 양수 d (재부팅 후 큰 값으로 가정)
-    # 옛 휴리스틱(d<0)으론 못 잡고 boot_time 비교만 잡는 케이스
-    cases = [(0, boot_a, 1000, 8000), (5, boot_a, 1100, 8800), (10, boot_b, 2000, 16000)]
+    # 시점 0~1: 정상 누적 / 시점 2: 재부팅 counter reset(값 감소) → d_total<0 → 제외
+    cases = [(0, boot_a, 1000, 8000), (5, boot_a, 1100, 8800), (10, boot_b, 50, 400)]
     for offset, bt, cu, ci in cases:
         await collect_repo.record_metrics(
             sid,
@@ -451,8 +498,8 @@ async def test_metric_chart_cpu_excludes_boot_time_change_point(
                 collected_at=base_ts + timedelta(minutes=offset),
                 boot_time=bt,
                 agent_started_at=bt + timedelta(seconds=10),
-                cpu_user=cu,
-                cpu_idle=ci,
+                cpu_user_s=cu,
+                cpu_idle_s=ci,
             ),
         )
 
@@ -466,39 +513,40 @@ async def test_metric_chart_cpu_excludes_boot_time_change_point(
         agg="avg",
         end=end,
     )
-    # reset 처리됐으면 시점 2(boot_b 첫 측정)는 NULL → 그 버킷 차트에서 제외.
-    # 시점 1은 정상 (boot_a 동일) → 정상 percent. 결과 >= 1행, 모두 0~100.
+    # reset(값 감소) 시점 2는 d_total<=0 → valid 제외 → 그 버킷 차트에서 빠짐.
+    # 시점 1은 정상 → 정상 percent. 결과 값은 모두 0~100.
     assert all(0 <= r.value <= 100 for r in rows if r.value is not None)
     reset_bucket_ts = base_ts + timedelta(minutes=10)
     reset_bucket_in_result = any(r.collected_at.replace(tzinfo=UTC) == reset_bucket_ts.replace(second=0) for r in rows)
-    assert not reset_bucket_in_result, "reset 시점 차트에 포함됨 — boot_time 비교 미적용"
+    assert not reset_bucket_in_result, "reset(counter 감소) 시점 차트에 포함됨 — d_total>0 필터 미적용"
 
 
-async def test_metric_chart_rate_excludes_boot_time_change_point(
+async def test_metric_chart_rate_clamps_counter_decrease(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    """_chart_rate_per_dimension — boot_time 변경 시 d_val 양수여도 reset 확정 → 차트 missing."""
+    """rate 차트(rate/dim) — counter reset(값 감소)은 GREATEST(delta,0)로 0 클램프.
+
+    v2 는 boot_time 차트 gate 폐기 — child 시계열(disk_io)은 boot_time 미보유라 reset 을 GREATEST(delta,0)
+    로 흡수한다. 재부팅으로 카운터가 감소해도 음수 rate/spike 대신 0 을 낸다.
+    """
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-rst-rate-1"))
     base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=10)
-    boot_a = datetime(2026, 5, 9, 10, 0, tzinfo=UTC)
-    boot_b = datetime(2026, 5, 9, 11, 0, tzinfo=UTC)
 
-    # 시점 2의 d_val 양수(100→300)지만 boot_time 변경 → reset 확정
-    cases = [(0, boot_a, 100), (5, boot_a, 200), (10, boot_b, 300)]
-    for offset, bt, reads in cases:
+    # 시점 2 reads 감소(재부팅 counter reset) → GREATEST(50-200,0)=0
+    cases = [(0, 100), (5, 200), (10, 50)]
+    for offset, reads in cases:
         await collect_repo.record_metrics(
             sid,
             make_metrics(
                 collected_at=base_ts + timedelta(minutes=offset),
-                boot_time=bt,
-                agent_started_at=bt + timedelta(seconds=10),
                 disk_io=[
                     DiskIoEntry(
-                        device="sda", reads_completed=reads, writes_completed=0, sectors_read=0, sectors_written=0
+                        device_id="sda", device_name="sda", ops_read=reads, ops_write=0,
+                        io_read_bytes=0, io_write_bytes=0,
                     )
                 ],
-                mounts=[],
+                filesystems=[],
                 net_io=[],
             ),
         )
@@ -513,12 +561,11 @@ async def test_metric_chart_rate_excludes_boot_time_change_point(
         agg="avg",
         end=end,
     )
-    # 시점 2의 ts 버킷이 결과에 없어야 함 (reset 처리됐다면)
-    reset_bucket_ts = (base_ts + timedelta(minutes=10)).replace(second=0)
-    reset_bucket_in_result = any(r.collected_at.replace(tzinfo=UTC) == reset_bucket_ts for r in rows)
-    assert not reset_bucket_in_result, "rate 차트가 reset 시점 spike 표시 — boot_time 비교 미적용"
-    # 그 외 행은 비음수 (음수 IOPS는 옛 휴리스틱이 이미 거름)
+    # 음수/스파이크 없음 — reset 시점은 0 클램프
     assert all(r.value >= 0 for r in rows if r.value is not None)
+    reset_bucket_ts = (base_ts + timedelta(minutes=10)).replace(second=0)
+    reset_vals = [r.value for r in rows if r.collected_at.replace(tzinfo=UTC) == reset_bucket_ts]
+    assert all(v == 0 for v in reset_vals if v is not None), "reset(counter 감소) rate 가 0 클램프 아님"
 
 
 async def test_reboot_events_classifies_boot_time_change_as_reboot(
@@ -616,21 +663,23 @@ async def test_metric_chart_dimension_filter(
                 collected_at=base_ts + timedelta(minutes=i),
                 disk_io=[
                     DiskIoEntry(
-                        device="sda",
-                        reads_completed=100 + i * 10,
-                        writes_completed=0,
-                        sectors_read=0,
-                        sectors_written=0,
+                        device_id="sda",
+                        device_name="sda",
+                        ops_read=100 + i * 10,
+                        ops_write=0,
+                        io_read_bytes=0,
+                        io_write_bytes=0,
                     ),
                     DiskIoEntry(
-                        device="sdb",
-                        reads_completed=200 + i * 20,
-                        writes_completed=0,
-                        sectors_read=0,
-                        sectors_written=0,
+                        device_id="sdb",
+                        device_name="sdb",
+                        ops_read=200 + i * 20,
+                        ops_write=0,
+                        io_read_bytes=0,
+                        io_write_bytes=0,
                     ),
                 ],
-                mounts=[],
+                filesystems=[],
                 net_io=[],
             ),
         )
@@ -779,14 +828,18 @@ async def test_latest_per_dimension_excludes_data_older_than_30d(
         sid,
         make_metrics(
             collected_at=old_ts,
-            mounts=[MountUsageEntry(mount="/old", total_bytes=10**12, free_bytes=10**11, avail_bytes=10**11)],
+            filesystems=[
+                FilesystemEntry(
+                    mountpoint="/old", fstype="ext4", used_bytes=10**12 - 10**11, free_bytes=10**11
+                )
+            ],
             disk_io=[],
             net_io=[],
         ),
     )
     storage = await query_repo.get_storage(sid)
     assert storage is not None
-    mount_names = [m.mount for m in storage.mount_usage]
+    mount_names = [m.mountpoint for m in storage.filesystems]
     assert "/old" not in mount_names, "30d 이상 오래된 mount가 결과에 포함됨 — partition pruning 미적용"
 
 
@@ -860,12 +913,13 @@ async def test_environment_utilization_returns_averages(
         sid,
         make_metrics(
             collected_at=base_ts,
-            cpu_user=20,
-            cpu_system=10,
-            cpu_idle=70,
-            mem_total_kb=100,
-            mem_available_kb=50,
-            mounts=[MountUsageEntry(mount="/", total_bytes=100, free_bytes=40, avail_bytes=40, kind="data")],
+            cpu_user_s=20,
+            cpu_system_s=10,
+            cpu_idle_s=70,
+            mem_limit_bytes=100,
+            mem_available_bytes=50,
+            # v2: used=total-avail=60, free=avail=40 → used/(used+free)=60%
+            filesystems=[FilesystemEntry(mountpoint="/", fstype="ext4", used_bytes=60, free_bytes=40)],
             disk_io=[],
             net_io=[],
         ),
@@ -875,14 +929,13 @@ async def test_environment_utilization_returns_averages(
         sid,
         make_metrics(
             collected_at=base_ts + timedelta(minutes=1),
-            cpu_user=60,
-            cpu_system=20,
-            cpu_idle=120,
-            mem_total_kb=100,
-            mem_available_kb=30,  # latest → 사용률 70%
-            mounts=[
-                MountUsageEntry(mount="/", total_bytes=100, free_bytes=20, avail_bytes=20, kind="data")
-            ],  # latest → 80%
+            cpu_user_s=60,
+            cpu_system_s=20,
+            cpu_idle_s=120,
+            mem_limit_bytes=100,
+            mem_available_bytes=30,  # latest → 사용률 70%
+            # used=total-avail=80, free=avail=20 → 80%
+            filesystems=[FilesystemEntry(mountpoint="/", fstype="ext4", used_bytes=80, free_bytes=20)],
             disk_io=[],
             net_io=[],
         ),
@@ -909,11 +962,11 @@ async def test_environment_utilization_excludes_outside_window(
         sid,
         make_metrics(
             collected_at=stale_ts,
-            cpu_user=50,
-            cpu_idle=50,
-            mem_total_kb=100,
-            mem_available_kb=10,
-            mounts=[],
+            cpu_user_s=50,
+            cpu_idle_s=50,
+            mem_limit_bytes=100,
+            mem_available_bytes=10,
+            filesystems=[],
             disk_io=[],
             net_io=[],
         ),
@@ -936,12 +989,12 @@ async def test_environment_utilization_capacity_weighted(
             small,
             make_metrics(
                 collected_at=base_ts + timedelta(minutes=i),
-                cpu_user=user,
-                cpu_system=0,
-                cpu_idle=idle,
-                mem_total_kb=100,
-                mem_available_kb=10,
-                mounts=[],
+                cpu_user_s=user,
+                cpu_system_s=0,
+                cpu_idle_s=idle,
+                mem_limit_bytes=100,
+                mem_available_bytes=10,
+                filesystems=[],
                 disk_io=[],
                 net_io=[],
             ),
@@ -953,12 +1006,12 @@ async def test_environment_utilization_capacity_weighted(
             big,
             make_metrics(
                 collected_at=base_ts + timedelta(minutes=i),
-                cpu_user=user,
-                cpu_system=0,
-                cpu_idle=idle,
-                mem_total_kb=1000,
-                mem_available_kb=900,
-                mounts=[],
+                cpu_user_s=user,
+                cpu_system_s=0,
+                cpu_idle_s=idle,
+                mem_limit_bytes=1000,
+                mem_available_bytes=900,
+                filesystems=[],
                 disk_io=[],
                 net_io=[],
             ),
@@ -986,12 +1039,12 @@ async def test_environment_utilization_server_ids_filter(
                 sid_,
                 make_metrics(
                     collected_at=base_ts + timedelta(minutes=i),
-                    cpu_user=user,
-                    cpu_system=0,
-                    cpu_idle=idle,
-                    mem_total_kb=100,
-                    mem_available_kb=50,
-                    mounts=[],
+                    cpu_user_s=user,
+                    cpu_system_s=0,
+                    cpu_idle_s=idle,
+                    mem_limit_bytes=100,
+                    mem_available_bytes=50,
+                    filesystems=[],
                     disk_io=[],
                     net_io=[],
                 ),
@@ -1024,12 +1077,12 @@ async def test_metric_trend_capacity_weighted(
                 sid_,
                 make_metrics(
                     collected_at=base_ts + timedelta(minutes=i),
-                    cpu_user=user,
-                    cpu_system=0,
-                    cpu_idle=idle,
-                    mem_total_kb=mtot,
-                    mem_available_kb=mavail,
-                    mounts=[],
+                    cpu_user_s=user,
+                    cpu_system_s=0,
+                    cpu_idle_s=idle,
+                    mem_limit_bytes=mtot,
+                    mem_available_bytes=mavail,
+                    filesystems=[],
                     disk_io=[],
                     net_io=[],
                 ),
@@ -1063,11 +1116,11 @@ async def test_metric_trend_cached_null_component_is_gap_not_zero(
         win,
         make_metrics(
             collected_at=base_ts,
-            mem_total_kb=1000,
-            mem_available_kb=400,
-            mem_cached_kb=None,
-            mem_buffers_kb=None,
-            mounts=[],
+            mem_limit_bytes=1000,
+            mem_available_bytes=400,
+            mem_cached_bytes=None,
+            mem_buffered_bytes=None,
+            filesystems=[],
             disk_io=[],
             net_io=[],
         ),
@@ -1076,11 +1129,11 @@ async def test_metric_trend_cached_null_component_is_gap_not_zero(
         lin,
         make_metrics(
             collected_at=base_ts,
-            mem_total_kb=1000,
-            mem_available_kb=400,
-            mem_cached_kb=250,
-            mem_buffers_kb=50,
-            mounts=[],
+            mem_limit_bytes=1000,
+            mem_available_bytes=400,
+            mem_cached_bytes=250,
+            mem_buffered_bytes=50,
+            filesystems=[],
             disk_io=[],
             net_io=[],
         ),

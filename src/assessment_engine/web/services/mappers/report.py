@@ -417,7 +417,13 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         history_hours=raw.history_hours,
         cpu_burst_ratio=raw.cpu_burst_ratio,
         # 이용률 상승 추세 — 임계 이진화는 도메인 단일(regr_slope %/day raw -> bool). 다운사이즈 정상성 게이트.
-        util_trend_rising=recommendation.util_trend_rising_from_slopes(raw.cpu_trend_slope, raw.mem_trend_slope),
+        # span 가드 — 이력이 추세 신뢰 바닥(RS_CONFIDENCE_MIN_HOURS) 미만이면 slope 가 boot-ramp/지터에 지배돼
+        # 오탐(상승추세)이므로 추세 미판정(None). 짧은 이력은 어차피 low_precision 으로 다운사이즈 이미 보류.
+        util_trend_rising=(
+            recommendation.util_trend_rising_from_slopes(raw.cpu_trend_slope, raw.mem_trend_slope)
+            if raw.history_hours is not None and raw.history_hours >= recommendation.RS_CONFIDENCE_MIN_HOURS
+            else None
+        ),
         cpu_steal_p95_pct=raw.cpu_steal_p95_pct,
     )
 

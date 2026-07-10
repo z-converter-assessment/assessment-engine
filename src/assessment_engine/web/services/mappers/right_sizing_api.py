@@ -147,10 +147,17 @@ def _recommendation(host, stats, rec: str) -> dict:
     예: 메모리 포화가 CPU 를 유발하면 actions=[메모리 증설]만, suppressed=[cpu] — per-resource CPU 타겟을 잘못 증설하지 않게.
     per-resource sizing_target 은 진단용(각 자원 독립 가정) — 실제 프로비저닝은 본 actions 를 파싱한다.
     """
+    # disk_io io_bound = 크기로 안 풀리는 tier advisory — under/over 분류와 무관하게 orthogonal 노출
+    # (network congested 대칭, io_bound 는 사이징 축 아님). host 를 under 로 승격하지 않으므로 여기서 별도 append.
+    io_advisory = (
+        [_action("disk_io", host.resources["disk_io"], "tier_up")]
+        if host.resources["disk_io"].status == "io_bound" and "disk_io" not in host.symptom_of_root
+        else []
+    )
     if rec == "under_provisioned":
-        # under_prescription 과 동일 집합 — 인과 결합이면 root 만, 독립이면 전부.
+        # under_prescription 과 동일 집합 — 인과 결합이면 root 만, 독립이면 전부 (사이징 축만).
         kinds = recommendation.prescribed_under_kinds(host)
-        actions = [_action(k, host.resources[k], "tier_up" if k == "disk_io" else "increase") for k in kinds]
+        actions = [_action(k, host.resources[k], "increase") for k in kinds] + io_advisory
         return {
             "summary": recommendation.under_prescription(host),
             "kind": "provision",
@@ -165,10 +172,16 @@ def _recommendation(host, stats, rec: str) -> dict:
             and recommendation.downsize_prescribable(host.resources[k], stats)
             and host.resources[k].sizing_target is not None
         ]
-        # 다운사이즈 게이트 미충족이면 actions=[] (분류는 과다지만 구체 처방 보류 — 관찰만).
-        return {"summary": recommendation.recommend_action(rec, stats), "kind": "downsize", "actions": actions, "suppressed": []}
+        # 다운사이즈 게이트 미충족이면 actions=[](분류는 과다지만 구체 처방 보류). io_bound advisory 는 별개로 붙임.
+        return {
+            "summary": recommendation.recommend_action(rec, stats), "kind": "downsize",
+            "actions": actions + io_advisory, "suppressed": [],
+        }
     _kind = {"idle": "decommission", "insufficient_data": "insufficient", "optimal": "maintain"}.get(rec, "maintain")
-    return {"summary": recommendation.recommend_action(rec, stats), "kind": _kind, "actions": [], "suppressed": []}
+    return {
+        "summary": recommendation.recommend_action(rec, stats), "kind": _kind,
+        "actions": io_advisory, "suppressed": [],
+    }
 
 
 def build_right_sizing_entry(raw, is_online: bool, hostname_ambiguous: bool = False) -> dict:

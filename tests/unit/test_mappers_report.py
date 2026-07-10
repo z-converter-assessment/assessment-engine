@@ -20,7 +20,6 @@ from assessment_engine.web.services.mappers.attention import (
     to_capacity_warning_item,
     to_os_eol_warning_item,
 )
-from assessment_engine.web.services.mappers.export import to_inventory_export_entry
 from assessment_engine.web.services.mappers.report import (
     _RISK_FROM_RECOMMENDATION,
     _build_recommendation_action,
@@ -50,8 +49,9 @@ def _raw(
     os_family=None,
     os_id="ubuntu",
     os_version="22.04",
+    os_codename="jammy",
     kernel_version="5.15",
-    interfaces=None,
+    net_interfaces=None,
     services=None,
     cpu_avg=None,
     cpu_p95=None,
@@ -59,16 +59,13 @@ def _raw(
     mem_avg=None,
     mem_p95=None,
     mem_peak=None,
-    load_15m_max=None,
-    swap_used=False,
     iowait_p95=None,
     iowait_peak=None,
     cpu_run_queue_p95=None,
     mem_pages_input_rate_p95=None,
-    disk_queue_p95=None,
     cpu_cores=2,
-    mem_total_kb=2 * 1024 * 1024,
-    disks=None,
+    mem_total_kb=2 * 1024 * 1024,  # 테스트 편의 단위(KiB) — 아래에서 v2 mem_total_bytes 로 환산
+    block_devices=None,
     boot_time=None,
     worst_mount=None,
     worst_used=None,
@@ -103,11 +100,16 @@ def _raw(
         os_family=os_family,
         os_id=os_id,
         os_version=os_version,
+        os_codename=os_codename,
         kernel_version=kernel_version,
-        interfaces=interfaces
-        if interfaces is not None
+        net_interfaces=net_interfaces
+        if net_interfaces is not None
         else [
-            {"name": "eth0", "address": "10.0.0.1", "prefix": 24, "family": "ipv4", "kind": "physical", "gateway": None}
+            {
+                "id": "52:54:00:12:34:56", "id_type": "mac", "name": "eth0", "kind": "physical",
+                "speed_mbps": 1000, "gateway": None,
+                "addresses": [{"address": "10.0.0.1", "prefix": 24, "family": "ipv4"}],
+            }
         ],
         services=list(services) if services else None,
         last_seen_at=_NOW,
@@ -117,16 +119,15 @@ def _raw(
         mem_avg_pct=mem_avg,
         mem_p95_pct=mem_p95,
         mem_peak_pct=mem_peak,
-        load_15m_max=load_15m_max,
-        swap_used=swap_used,
         iowait_p95_pct=iowait_p95,
         iowait_peak_pct=iowait_peak,
         cpu_run_queue_p95=cpu_run_queue_p95,
         mem_pages_input_rate_p95=mem_pages_input_rate_p95,
-        disk_queue_p95=disk_queue_p95,
         cpu_cores=cpu_cores,
-        mem_total_kb=mem_total_kb,
-        disks=disks if disks is not None else [{"name": "sda", "size_bytes": 50 * 10**9, "kind": "physical"}],
+        mem_total_bytes=(mem_total_kb * 1024 if mem_total_kb is not None else None),
+        block_devices=block_devices
+        if block_devices is not None
+        else [{"name": "sda", "size_bytes": 50 * 10**9, "type": "disk"}],
         boot_time=boot_time if boot_time is not None else _NOW - timedelta(days=30),
         disk_capacity_driving_mount=worst_mount,
         worst_mount_used_pct=worst_used,
@@ -200,7 +201,8 @@ def test_report_row_uptime_none_when_boot_time_missing():
 
 
 def test_report_row_under_provisioned_maps_to_high():
-    raw = _raw(cpu_p95=95.0, cpu_peak=99.0, mem_p95=92.0, mem_peak=98.0, swap_used=True)
+    # cpu_p95 95 (>=70) + mem_p95 92 (>=90) 만으로도 under_provisioned. mem_swap_paging(v2 active page-out) 동반.
+    raw = _raw(cpu_p95=95.0, cpu_peak=99.0, mem_p95=92.0, mem_peak=98.0, mem_swap_paging=True)
     item = to_report_row_item(raw, is_online=True, now=_NOW)
     assert item.risk_level == "high"
     assert item.risk_label == "고위험"
@@ -228,16 +230,19 @@ def test_report_row_is_partial_by_unmeasured_saturation():
 
 
 def test_report_row_windows_swap_not_high_risk():
-    """동일 통계(낮은 cpu/mem + active page-out)라도 Windows 는 page-out(pswpout) 축 제외 -> high 로 왜곡 안 됨.
+    """v2 Gate0 dual-gate: 메모리 포화 = 이용률>=90 AND 페이징. Windows 는 page-out(mem_swap_paging) 축을
+    보지 않고 Pages Input/sec 만 본다 — 같은 mem_swap_paging 신호라도 Windows 진단은 '스왑'으로 오라벨 안 함.
 
-    Windows 메모리 포화는 mem_pages_input rate(하드폴트)로만 — Linux page-out 신호(mem_swap_paging)를 무시한다.
+    이용률 92%(>=90)라 양 OS 모두 mem_util 로 under(high)지만, 포화 원인 라벨이 갈린다:
+    Linux 는 swap page-out -> '메모리 부족 (스왑 발생)', Windows 는 pages_input 미발행이라 util 만 -> '메모리 압박'.
     """
-    stats = dict(cpu_p95=20.0, cpu_peak=25.0, mem_p95=30.0, mem_peak=35.0, mem_swap_paging=True)
+    stats = dict(cpu_p95=20.0, cpu_peak=25.0, mem_p95=92.0, mem_peak=95.0, mem_swap_paging=True)
     linux = to_report_row_item(_raw(os_family="linux", **stats), True, _NOW)
     windows = to_report_row_item(_raw(os_family="windows", **stats), True, _NOW)
-    assert linux.risk_level == "high"  # Linux active page-out -> under_provisioned
-    assert windows.risk_level != "high"  # Windows 는 page-out 축 제외 -> 저사용
-    assert "스왑" not in windows.diagnosis  # 판단 컬럼도 스왑 발생 오인 안 함
+    assert linux.risk_level == "high"  # mem_util(92>=90) + swap page-out -> under
+    assert windows.risk_level == "high"  # mem_util 단독으로도 under (dual-gate 는 포화 라벨만 좌우)
+    assert "스왑" in linux.diagnosis  # Linux page-out -> "메모리 부족 (스왑 발생)"
+    assert "스왑" not in windows.diagnosis  # Windows 는 page-out 축 제외 -> "메모리 압박"
 
 
 # ─── build_role_distribution ─────────────────────────────────────────────
@@ -265,16 +270,16 @@ def test_report_totals_sum_vcpu_memory_disk():
             server_id=1,
             cpu_cores=4,
             mem_total_kb=8 * 1024 * 1024,
-            disks=[
-                {"name": "sda", "size_bytes": 50 * 10**9, "kind": "physical"},
-                {"name": "sdb", "size_bytes": 100 * 10**9, "kind": "physical"},
+            block_devices=[
+                {"name": "sda", "size_bytes": 50 * 10**9, "type": "disk"},
+                {"name": "sdb", "size_bytes": 100 * 10**9, "type": "disk"},
             ],
         ),
         _raw(
             server_id=2,
             cpu_cores=2,
             mem_total_kb=4 * 1024 * 1024,
-            disks=[{"name": "vda", "size_bytes": 30 * 10**9, "kind": "physical"}],
+            block_devices=[{"name": "vda", "size_bytes": 30 * 10**9, "type": "disk"}],
         ),
     ]
     t = compute_report_totals_from_raw(raws)
@@ -284,7 +289,7 @@ def test_report_totals_sum_vcpu_memory_disk():
 
 
 def test_report_totals_handles_null_fields():
-    raws = [_raw(cpu_cores=None, mem_total_kb=None, disks=[])]
+    raws = [_raw(cpu_cores=None, mem_total_kb=None, block_devices=[])]
     t = compute_report_totals_from_raw(raws)
     assert t.total_vcpus == 0
     assert t.total_memory_gb == 0
@@ -295,6 +300,7 @@ def test_report_totals_handles_null_fields():
 
 
 def _detail(*, id_, hostname, cpu_cores, mem_total_kb, disk_size, role_unit=None):
+    # mem_total_kb 는 테스트 편의 단위(KiB) — v2 ServerDetail.mem_total_bytes 로 환산.
     return ServerDetail(
         id=id_,
         public_id=f"p{id_}",
@@ -310,16 +316,19 @@ def _detail(*, id_, hostname, cpu_cores, mem_total_kb, disk_size, role_unit=None
         kernel_version="5.15",
         cpu_cores=cpu_cores,
         cpu_model="x86",
-        mem_total_kb=mem_total_kb,
-        swap_total_kb=0,
+        mem_total_bytes=mem_total_kb * 1024,
         boot_time=None,
         agent_started_at=None,
-        interfaces=[
-            {"name": "eth0", "address": "10.0.0.1", "prefix": 24, "family": "ipv4", "kind": "physical", "gateway": None}
+        net_interfaces=[
+            {
+                "id": "52:54:00:12:34:56", "id_type": "mac", "name": "eth0", "kind": "physical",
+                "speed_mbps": 1000, "gateway": None,
+                "addresses": [{"address": "10.0.0.1", "prefix": 24, "family": "ipv4"}],
+            }
         ],
         ip_external=None,
-        disks=[{"name": "sda", "size_bytes": disk_size, "kind": "physical"}],
-        mounts=[],
+        block_devices=[{"name": "sda", "size_bytes": disk_size, "type": "disk"}],
+        lvm_vgs=[],
         services=[{"unit": role_unit, "sub": "running"}] if role_unit else [],
         listen_ports=[],
         last_seen_at=_NOW,
@@ -506,9 +515,12 @@ def test_donut_segment_from_rec_mapping(rec, expected_key):
 
 
 def test_capacity_warning_active_causes_only_hit():
-    """active_causes 는 발화(hit)한 trigger 의 os-neutral 원인 라벨만 — 비발화 미포함."""
-    item = to_capacity_warning_item(_raw(mem_swap_paging=True))
-    assert item.active_causes == ["메모리 포화"]  # Linux active page-out = mem_saturation
+    """active_causes 는 발화(hit)한 trigger 의 os-neutral 원인 라벨만 — 비발화(cpu·disk) 미포함.
+
+    v2 Gate0 dual-gate: 메모리 포화는 이용률>=90 AND page-out. mem_p95 92 + swap 발화 -> mem_util+mem_saturation 만.
+    """
+    item = to_capacity_warning_item(_raw(mem_p95=92.0, mem_swap_paging=True))
+    assert item.active_causes == ["메모리 이용률", "메모리 포화"]
 
 
 def test_capacity_warning_active_causes_multi_fixed_order():
@@ -520,13 +532,13 @@ def test_capacity_warning_active_causes_multi_fixed_order():
 def test_capacity_warning_active_causes_os_neutral_windows():
     """Windows paging/run queue 포화도 os-neutral 라벨로 집계 — Linux 'swap'/'Load' 로 오라벨 안 함(배지 제거).
 
-    Windows: swap_used 는 pagefile baseline 이라 무시, Pages/sec p95 >= 1000 -> mem_saturation,
-    run queue p95/cores(12/4=3) >= 2 -> cpu_saturation.
+    Windows: Pages Input/sec p95 >= WIN_PAGES_INPUT_SATURATION -> mem_saturation,
+    run queue p95/cores(12/4=3) >= 2 -> cpu_saturation. (v2 는 swap 점유 축 폐기 — 스왑 라벨 자체가 없음.)
     """
     item = to_capacity_warning_item(
         _raw(
             os_family="windows",
-            swap_used=True,
+            mem_p95=92.0,  # dual-gate 상한 게이트 — 이용률>=90 이라야 pages_input 포화가 발화
             cpu_cores=4,
             mem_pages_input_rate_p95=2000.0,
             cpu_run_queue_p95=12.0,
@@ -549,7 +561,7 @@ def test_bullets_skip_risk_category_count():
 
     iowait/mount/reboot 시그널만 노출 (사용자 의도 — 중복 줄 제거).
     """
-    raws = [_raw(hostname="db-01", cpu_p95=95.0, cpu_peak=99.0, mem_p95=92.0, mem_peak=98.0, swap_used=True)]
+    raws = [_raw(hostname="db-01", cpu_p95=95.0, cpu_peak=99.0, mem_p95=92.0, mem_peak=98.0, mem_swap_paging=True)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws)
     # "고위험" 줄은 안 나옴 — KPI grid 의 분류 카운트와 중복이라 제거됨.
@@ -589,7 +601,7 @@ def test_bullets_reboot_signal_threshold_3():
 
 def test_bullets_saturation_signal():
     # CPU 포화 시그널은 양식 B(엔지니어)에만 노출 — os-aware cpu_saturated(procs_running/cores>=1) 기반(B1).
-    raws = [_raw(hostname="sat-01", procs_running_p95=5.0, cpu_cores=2, cpu_p95=50.0, mem_p95=50.0)]
+    raws = [_raw(hostname="sat-01", procs_running_p95=5.0, cpu_cores=2, cpu_p95=85.0, mem_p95=50.0)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws, view="engineer")
     assert any("CPU 포화" in b and "sat-01" in b for b in bullets)
@@ -626,7 +638,7 @@ def test_bullets_role_avg_cpu_signal():
 
 def test_bullets_customer_view_excludes_saturation():
     """양식 A(customer)는 Saturation 시그널 제외 — 큐잉 이론은 엔지니어 영역."""
-    raws = [_raw(hostname="sat-01", procs_running_p95=5.0, cpu_cores=2, cpu_p95=50.0, mem_p95=50.0)]
+    raws = [_raw(hostname="sat-01", procs_running_p95=5.0, cpu_cores=2, cpu_p95=85.0, mem_p95=50.0)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws, view="customer")
     assert not any("Saturation" in b for b in bullets)
@@ -707,7 +719,7 @@ def test_bullets_customer_view_keeps_iowait_mount_reboot_eol():
             cpu_peak=99.0,
             mem_p95=92.0,
             mem_peak=98.0,
-            swap_used=True,
+            mem_swap_paging=True,
             disk_await_p95_ms=30.0,
             worst_mount="/data",
             worst_used=90.0,
@@ -727,9 +739,7 @@ def test_bullets_customer_view_keeps_iowait_mount_reboot_eol():
 
 def test_bullets_normal_fallback_empty():
     """모두 정상 영역 → summary_bullets 빈 list (사용자 의도 — "전체 정상" 줄 제거됨)."""
-    raws = [
-        _raw(hostname="ok-01", cpu_p95=50.0, cpu_peak=60.0, mem_p95=60.0, mem_peak=68.0, load_15m_max=0.5, cpu_cores=4)
-    ]
+    raws = [_raw(hostname="ok-01", cpu_p95=50.0, cpu_peak=60.0, mem_p95=60.0, mem_peak=68.0, cpu_cores=4)]
     items = [to_report_row_item(r, True, _NOW) for r in raws]
     bullets = build_report_summary_bullets(items, raws)
     # 모든 시그널 비활성 → bullet 0건 (정상 fallback 줄 제거됨)
@@ -752,7 +762,8 @@ def test_capacity_warning_item_fields():
     "cpu_p95, mem_p95, mem_swap_paging, expected_causes",
     [
         # _raw default: procs_running=None(cpu 포화 미발동)·mount 없음(디스크 미발동). 발화 원인만 고정순 나열.
-        (None, None, True, ["메모리 포화"]),  # active page-out = mem_saturation
+        # v2 Gate0 dual-gate: 이용률 미측정(None)이면 page-out 있어도 포화 아님 -> 발화 원인 0.
+        (None, None, True, []),
         (95.0, 92.0, True, ["CPU 이용률", "메모리 이용률", "메모리 포화"]),  # cpu+mem util + page-out
         (95.0, 92.0, False, ["CPU 이용률", "메모리 이용률"]),  # cpu+mem util
         (95.0, 60.0, False, ["CPU 이용률"]),  # CPU util 만
@@ -775,8 +786,8 @@ def test_saturation_axes_windows_os_aware_and_hit():
     item = to_report_row_item(
         _raw(
             os_family="windows",
-            cpu_p95=40.0,
-            mem_p95=60.0,
+            cpu_p95=75.0,  # CPU dual-gate — 실행 큐 포화 + util 실제 높음(>=70)이라야 '포화'
+            mem_p95=92.0,  # dual-gate 상한 게이트 — 이용률>=90 이라야 pages_input 포화가 발화
             cpu_cores=4,
             cpu_run_queue_p95=12.0,
             mem_pages_input_rate_p95=2000.0,
@@ -803,7 +814,7 @@ def test_saturation_axes_linux_signals_and_ok():
             mem_p95=60.0,
             cpu_cores=4,
             procs_running_p95=1.0,
-            swap_used=False,
+            mem_swap_paging=False,  # Linux 메모리 포화 축 — swap page-out 미발생 -> "L 없음"
             disk_await_p95_ms=5.0,
         ),
         True,
@@ -818,15 +829,18 @@ def test_saturation_axes_linux_signals_and_ok():
 
 
 def test_saturation_axes_unmeasured_when_counter_absent():
-    """Windows perflib 미발행(값 None) 축은 '미관측' — 분류를 막지 않고 단서로만."""
+    """Windows perflib 미발행(값 None) 축은 '미관측' — 분류를 막지 않고 단서로만.
+
+    메모리 축은 dual-gate 상 이용률>=90 이라야 pages_input 부재가 '미관측'으로 드러난다(이용률<90 이면 정상 확정).
+    """
     item = to_report_row_item(
         _raw(
             os_family="windows",
             cpu_p95=40.0,
-            mem_p95=60.0,
+            mem_p95=92.0,
             cpu_run_queue_p95=None,
             mem_pages_input_rate_p95=None,
-            disk_queue_p95=None,
+            disk_await_p95_ms=None,  # 디스크 I/O 포화 축(await) 미발행 -> 미관측
         ),
         True,
         _NOW,
@@ -873,243 +887,28 @@ def test_resolve_os_eol_known_eol_distros(os_id, os_version):
     assert resolve_os_eol(os_id, os_version, None, _NOW.date()) is not None
 
 
-# ─── to_inventory_export_entry v2 ─────────────────────────────────────────
-
-
-def test_inventory_export_with_stats():
-    """v4 — 사용처축 배치(spec/usage/assessment) + I/O p95/peak + services.listeners."""
-    detail = _detail(
-        id_=1,
-        hostname="db-01",
-        cpu_cores=4,
-        mem_total_kb=8 * 1024 * 1024,
-        disk_size=50 * 10**9,
-        role_unit="postgresql.service",
-    )
-    stats = _raw(
-        hostname="db-01",
-        cpu_p95=95.0,
-        cpu_peak=99.0,
-        mem_p95=92.0,
-        mem_peak=98.0,
-        load_15m_max=5.0,
-        swap_used=True,
-        disk_iops=850,
-        disk_throughput=4500.0,
-        net_rx=300.0,
-        net_tx=180.0,
-    )
-    entry = to_inventory_export_entry(detail, stats)
-    assert entry.identity["hostname"] == "db-01"
-    assert entry.identity["role"] == "db"
-    assert entry.spec["vcpu_count"] == 4
-    assert entry.usage["cpu"]["p95_pct"] == 95.0
-    # v4: assessment 블록 객체 {key, label}
-    assert entry.assessment["recommended_size_class"]["key"] == "under_provisioned"
-    assert entry.assessment["recommended_size_class"]["label"]  # 한국어 라벨 채움
-    assert entry.usage["disk_io"]["iops_baseline"] == 850
-    assert entry.usage["disk_io"]["throughput_kbps_baseline"] == 4500.0
-    assert entry.usage["network"]["rx_kbps_baseline"] == 300.0
-    # v4: services 항목에 listeners 키 (ports 대신)
-    assert all("listeners" in s for s in entry.services)
-
-
-def test_inventory_export_without_stats():
-    detail = _detail(id_=1, hostname="new-01", cpu_cores=2, mem_total_kb=2 * 1024 * 1024, disk_size=30 * 10**9)
-    entry = to_inventory_export_entry(detail, stats=None)
-    assert entry.assessment["recommended_size_class"]["key"] == "insufficient_data"
-    assert entry.usage["cpu"]["p95_pct"] is None
-    assert entry.usage["disk_io"]["iops_baseline"] is None
-    assert entry.usage["network"]["rx_kbps_baseline"] is None
-    # 본 contract에 없는 필드 (`arch`/`boot_iops_baseline`) 부재 확인
-    assert "arch" not in entry.os
-    assert "boot_iops_baseline" not in entry.usage["disk_io"]
-
-
-def test_inventory_export_network_addresses_v4_v6_split():
-    detail = ServerDetail(
-        id=1,
-        public_id="p1",
-        agent_id="00000000-0000-4000-8000-000000000001",
-        composite_id="m1",
-        machine_id=None,
-        hostname="h",
-        agent_version="1.0",
-        os_family=None,
-        os_id="ubuntu",
-        os_version="22.04",
-        os_codename="jammy",
-        kernel_version="5.15",
-        cpu_cores=2,
-        cpu_model="x86",
-        mem_total_kb=2 * 1024 * 1024,
-        swap_total_kb=0,
-        boot_time=None,
-        agent_started_at=None,
-        interfaces=[
-            {
-                "name": "eth0",
-                "address": "10.0.0.1",
-                "prefix": 24,
-                "family": "ipv4",
-                "kind": "physical",
-                "gateway": None,
-            },
-            {"name": "eth0", "address": "fe80::1", "prefix": 64, "family": "ipv6", "kind": "physical", "gateway": None},
-        ],
-        ip_external=["54.1.2.3"],
-        disks=[],
-        mounts=[],
-        services=[],
-        listen_ports=[],
-        last_seen_at=_NOW,
-    )
-    entry = to_inventory_export_entry(detail, stats=None)
-    addrs = entry.spec["addresses"]
-    assert {"scope": "internal", "family": "v4", "address": "10.0.0.1"} in addrs
-    assert {"scope": "internal", "family": "v6", "address": "fe80::1"} in addrs
-    assert {"scope": "external", "family": "v4", "address": "54.1.2.3"} in addrs
-
-
-def test_inventory_export_disks_physical_only():
-    # export boot/additional 디스크는 물리(kind=physical)만 — lvm/raid 는 제외해 이중계산 방지 (용량 정책 정합).
-    detail = ServerDetail(
-        id=1,
-        public_id="p1",
-        agent_id="00000000-0000-4000-8000-000000000001",
-        composite_id="m1",
-        machine_id=None,
-        hostname="h",
-        agent_version="1.0",
-        os_family=None,
-        os_id="ubuntu",
-        os_version="22.04",
-        os_codename="jammy",
-        kernel_version="5.15",
-        cpu_cores=2,
-        cpu_model="x86",
-        mem_total_kb=2 * 1024 * 1024,
-        swap_total_kb=0,
-        boot_time=None,
-        agent_started_at=None,
-        interfaces=[],
-        ip_external=None,
-        disks=[
-            {"name": "vda", "size_bytes": 100 * 10**9, "type": "disk", "kind": "physical", "major": 253, "minor": 0},
-            {"name": "dm-0", "size_bytes": 90 * 10**9, "type": "lvm", "kind": "lvm", "major": 253, "minor": 1},
-        ],
-        mounts=[],
-        services=[],
-        listen_ports=[],
-        last_seen_at=_NOW,
-    )
-    entry = to_inventory_export_entry(detail, stats=None)
-    assert entry.spec["boot_disk_gb"] == 100  # 물리 vda 가 boot
-    assert entry.spec["additional_disks"] == []  # lvm dm-0 는 제외 (물리 1개뿐)
-
-
-def test_inventory_export_services_listeners_match_listen_ports():
-    """v4 — services.listeners가 listen_ports inventory 매칭으로 proto/address 채움.
-
-    nginx.service(web) -> ports [80, 443] -> listen_ports에서 매칭하여 실제 proto/addr 추출.
-    매칭 실패 시 폴백 (tcp/0.0.0.0).
-    """
-    detail = ServerDetail(
-        id=1,
-        public_id="p1",
-        agent_id="00000000-0000-4000-8000-000000000001",
-        composite_id="m1",
-        machine_id=None,
-        hostname="h",
-        agent_version="1.0",
-        os_family=None,
-        os_id="ubuntu",
-        os_version="22.04",
-        os_codename="jammy",
-        kernel_version="5.15",
-        cpu_cores=2,
-        cpu_model="x86",
-        mem_total_kb=2 * 1024 * 1024,
-        swap_total_kb=0,
-        boot_time=None,
-        agent_started_at=None,
-        interfaces=[
-            {"name": "eth0", "address": "10.0.0.1", "prefix": 24, "family": "ipv4", "kind": "physical", "gateway": None}
-        ],
-        ip_external=None,
-        disks=[],
-        mounts=[],
-        services=[{"unit": "nginx.service", "sub": "running"}],
-        listen_ports=[
-            {"port": 80, "proto": "tcp", "addr": "0.0.0.0"},
-            {"port": 443, "proto": "tcp", "addr": "10.0.0.1"},
-        ],
-        last_seen_at=_NOW,
-    )
-    entry = to_inventory_export_entry(detail, stats=None)
-    nginx = next(s for s in entry.services if s["category"] == "web")
-    listener_ports = sorted(item["port"] for item in nginx["listeners"])
-    assert listener_ports == [80, 443]
-    # 443은 inventory listen_ports 매칭 — 실제 address 추출
-    p443 = next(item for item in nginx["listeners"] if item["port"] == 443)
-    assert p443["address"] == "10.0.0.1"
-
-
-def test_inventory_export_services_listeners_fallback_when_no_listen_ports():
-    """listen_ports inventory 매칭 실패 시 폴백 (tcp/0.0.0.0)."""
-    detail = ServerDetail(
-        id=1,
-        public_id="p1",
-        agent_id="00000000-0000-4000-8000-000000000001",
-        composite_id="m1",
-        machine_id=None,
-        hostname="h",
-        agent_version="1.0",
-        os_family=None,
-        os_id="ubuntu",
-        os_version="22.04",
-        os_codename="jammy",
-        kernel_version="5.15",
-        cpu_cores=2,
-        cpu_model="x86",
-        mem_total_kb=2 * 1024 * 1024,
-        swap_total_kb=0,
-        boot_time=None,
-        agent_started_at=None,
-        interfaces=[
-            {"name": "eth0", "address": "10.0.0.1", "prefix": 24, "family": "ipv4", "kind": "physical", "gateway": None}
-        ],
-        ip_external=None,
-        disks=[],
-        mounts=[],
-        services=[{"unit": "nginx.service", "sub": "running"}],
-        listen_ports=[],  # 비어있음 -> 폴백
-        last_seen_at=_NOW,
-    )
-    entry = to_inventory_export_entry(detail, stats=None)
-    nginx = next(s for s in entry.services if s["category"] == "web")
-    assert all(item["proto"] == "tcp" and item["address"] == "0.0.0.0" for item in nginx["listeners"])
-
-
 # ─── diagnosis (양식 B 판단 컬럼 자동 진단) ───────────────────────────────
 
 
 @pytest.mark.parametrize(
     "kwargs, expected",
     [
-        ({"mem_swap_paging": True}, "메모리 부족 (스왑 발생)"),  # ADR 0052: 정적 점유 아닌 active page-out
-        ({"disk_await_p95_ms": 25.0}, "디스크 I/O 병목"),
+        # v2 Gate0 dual-gate: 스왑 발생 진단은 이용률>=90 AND page-out (mem_saturation trigger). util 미측정이면 미도달.
+        ({"mem_p95": 92.0, "mem_swap_paging": True}, "메모리 부족 (스왑 발생)"),
+        ({"cpu_p95": 20.0, "mem_p95": 30.0, "disk_await_p95_ms": 25.0}, "디스크 I/O 병목"),  # 다른 축 정상
         ({"cpu_cores": 4, "procs_running_p95": 5.0}, "CPU 포화"),
         ({"mem_p95": 92.0}, "메모리 압박"),  # ADR 0052: mem_util 임계 90(Azure) — 85 는 더 이상 under 아님
         ({"cpu_p95": 75.0}, "CPU 압박"),
         ({"cpu_p95": 50.0, "cpu_peak": 99.0}, "부하 변동 큼"),  # variance + peak 99>30 -> 발화
         # peak 가 sizing 유의미 수준(>30)일 때만 variance 발화 — 저부하 지터는 gate (거의 미사용 우선).
-        ({"cpu_p95": 0.8, "cpu_peak": 1.3}, "거의 미사용"),  # variance 1.6 이나 peak 1.3<30 -> 지터, gate
+        # v2 idle 은 활동 3축(cpu·net·disk_io) 관측+quiescent 요구 — net 0 을 줘야 유휴 확정(미측정은 유휴 아님).
+        ({"cpu_p95": 0.8, "cpu_peak": 1.3, "net_rx": 0.0, "net_tx": 0.0}, "거의 미사용"),  # peak 1.3<30 -> 지터 gate
         # mem burst: mem_peak>50 이면 cpu 저부하여도 variance 발화 (VM-WIN2025 패턴).
         ({"cpu_p95": 20.0, "cpu_peak": 25.0, "mem_p95": 34.0, "mem_peak": 60.0}, "부하 변동 큼"),
-        ({"cpu_p95": 2.0}, "거의 미사용"),
+        ({"cpu_p95": 2.0, "net_rx": 0.0, "net_tx": 0.0}, "거의 미사용"),  # cpu<=3 + net quiescent -> idle
         ({"cpu_p95": 20.0, "mem_p95": 30.0}, "여유 있음"),
-        ({"cpu_p95": 50.0, "mem_p95": 60.0}, "정상"),
+        # v2 near-peak 80% 사이징: mem 85% 는 목표>=현재라 optimal. (60% 는 축소 여지 -> over/여유)
+        ({"cpu_p95": 50.0, "mem_p95": 85.0}, "정상"),
     ],
 )
 def test_diagnosis_priority(kwargs, expected):
@@ -1266,12 +1065,17 @@ def test_build_resource_stats_mem_total_mb_none_when_kb_none():
 
 def test_build_resource_stats_util_trend_rising_from_slopes():
     """util_trend_rising 은 도메인 헬퍼로 slope -> bool 이진화 (임계 recommendation 단일)."""
-    # mem slope 가 임계(0.2%/day) 이상 -> 상승
-    assert build_resource_stats(_raw(cpu_trend_slope=-0.1, mem_trend_slope=0.5)).util_trend_rising is True
+    # mem slope 가 임계(0.2%/day) 이상 -> 상승 (span 가드 통과 위해 history_hours >= 30)
+    r1 = build_resource_stats(_raw(cpu_trend_slope=-0.1, mem_trend_slope=0.5, history_hours=40.0))
+    assert r1.util_trend_rising is True
     # 둘 다 임계 미만 -> 비상승
-    assert build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=-1.0)).util_trend_rising is False
+    r2 = build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=-1.0, history_hours=40.0))
+    assert r2.util_trend_rising is False
+    # 이력 부족(span 가드) -> 추세 미판정 None (boot-ramp 오탐 차단)
+    r3 = build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=0.5, history_hours=10.0))
+    assert r3.util_trend_rising is None  # span 가드
     # 둘 다 None(추세 산출 불가) -> None
-    assert build_resource_stats(_raw()).util_trend_rising is None
+    assert build_resource_stats(_raw(history_hours=40.0)).util_trend_rising is None
 
 
 # ─── format_net_rate — 실시간·보고서 네트워크 rate 표시 단일 진실 ───

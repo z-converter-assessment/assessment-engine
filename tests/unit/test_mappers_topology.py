@@ -3,12 +3,14 @@
 build_network_topology 의 핵심 분기 회귀 가드:
   - 같은 network address 공유 -> subnet 노드 + host 엣지
   - 멀티홈(2+ subnet) host 표식
-  - 가상망 필터: kind!=physical 제외, 단독 subnet 제외, link-local/host route/prefix0 안전망 제외
+  - 가상망 필터: 집계 단위(physical·bond_master)만 채택 (bridge/veth/bond_member 등 제외),
+    단독 subnet 제외, link-local/host route/prefix0 안전망 제외
   - gateway disambiguation: 같은 CIDR 라도 서로 다른 gateway 면 분리
   - IPv4 only (family=ipv6 제외), address 파싱 실패 흡수
   - isolated_count = 그래프 미포함 호스트
-입력은 duck-typed (public_id·hostname·os_family·interfaces) — SimpleNamespace 로 최소 결합.
-interfaces 는 구조화 dict [{name, address, prefix, family, kind, gateway}] (agent 공용 iface 분류기).
+입력은 duck-typed (public_id·hostname·os_family·net_interfaces) — SimpleNamespace 로 최소 결합 (wire v2).
+net_interfaces 는 구조화 dict [{name, kind, gateway, addresses:[{address, prefix, family}]}]
+(agent 공용 iface 분류기 — 주소는 인터페이스별 addresses 리스트에 nested, gateway 는 인터페이스 레벨).
 """
 
 from types import SimpleNamespace
@@ -17,19 +19,25 @@ from assessment_engine.web.services.mappers.topology import build_network_topolo
 
 
 def _iface(cidr: str, kind: str = "physical", gateway: str | None = None) -> dict:
-    """CIDR 문자열 -> 구조화 interface dict. family(ipv4/ipv6) 자동 판정, prefix 파싱 불가는 None.
+    """CIDR 문자열 -> v2 구조화 net_interface dict. family(ipv4/ipv6) 자동 판정, prefix 파싱 불가는 None.
 
     테스트 편의 헬퍼 — agent 는 이미 구조화된 InterfaceInfo 를 발행하나, 케이스별 주소·kind·gateway 를
-    간결히 지정하려고 CIDR 문자열을 dict 로 변환한다.
+    간결히 지정하려고 CIDR 문자열을 dict 로 변환한다. v2 는 주소를 인터페이스별 addresses 리스트에 nested 로
+    담고(주소별 family/prefix), gateway·kind 는 인터페이스 레벨.
     """
     addr, _, prefix_s = cidr.partition("/")
     prefix = int(prefix_s) if prefix_s.isdigit() else None
     family = "ipv6" if ":" in addr else "ipv4"
-    return {"name": "eth0", "address": addr, "prefix": prefix, "family": family, "kind": kind, "gateway": gateway}
+    return {
+        "name": "eth0",
+        "kind": kind,
+        "gateway": gateway,
+        "addresses": [{"address": addr, "prefix": prefix, "family": family}],
+    }
 
 
 def _host(pid: str, name: str, os_family: str, ifaces: list[dict]) -> SimpleNamespace:
-    return SimpleNamespace(public_id=pid, hostname=name, os_family=os_family, interfaces=ifaces)
+    return SimpleNamespace(public_id=pid, hostname=name, os_family=os_family, net_interfaces=ifaces)
 
 
 def _subnet_ids(t) -> list[str]:
@@ -134,11 +142,9 @@ def test_ipv6_and_link_local_and_garbage_excluded():
                 # address 파싱 실패 (prefix 있어 ip_interface try/except 분기 진입) -> 흡수
                 {
                     "name": "x",
-                    "address": "garbage",
-                    "prefix": 24,
-                    "family": "ipv4",
                     "kind": "physical",
                     "gateway": None,
+                    "addresses": [{"address": "garbage", "prefix": 24, "family": "ipv4"}],
                 },
                 _iface("10.0.1.99/32"),  # host route(/32) 제외
             ],

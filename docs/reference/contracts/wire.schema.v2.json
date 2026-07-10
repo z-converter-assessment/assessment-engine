@@ -111,7 +111,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "schema_version":   { "const": "2.0" },
+        "schema_version":   { "const": "1.0" },
         "message_type":     { "const": "task.result" },
         "message_id":       { "type": "string", "minLength": 1 },
         "hostname":         { "type": "string" },
@@ -148,7 +148,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "schema_version":   { "const": "2.0" },
+        "schema_version":   { "const": "1.0" },
         "message_type":     { "const": "error" },
         "message_id":       { "type": "string", "minLength": 1 },
         "agent_id":         { "type": "string", "minLength": 1 },
@@ -173,7 +173,7 @@
 
   "required": ["schema_version", "message_type"],
   "properties": {
-    "schema_version": { "const": "2.0" },
+    "schema_version": { "const": "1.0" },
     "message_type": { "enum": ["inventory", "metrics", "task.result", "error"] }
   },
 

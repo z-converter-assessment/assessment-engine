@@ -4,8 +4,9 @@
 - success / failure 경로 양쪽 Literal 통과
 - boot_time / agent_started_at 가 null 이라도 검증 통과 (task.result 한정 nullable override)
 - 페이로드 wire JSON -> model_validate_json -> field 매핑
-- 알려지지 않은 failure_reason 도 max_length 만 강제 (silent pass)
-- 4 ERROR 회귀 (D1·D2·D4·D5) 가드 — 옛 형식("task_result" / "failed" / "task_public_id" / boot_time required) 거부
+- 알려지지 않은 failure_reason / 임의 status 도 강제 규칙(max_length·minLength)만 통과시켜 silent pass
+- 회귀 가드 — 옛 구조 형식("task_result" underscore / "task_public_id" 키 / boot_time required) 거부.
+  단 status 는 v2 에서 free string 으로 넓혀 'failed' 등 임의값은 거부 아닌 silent pass.
 """
 
 import json
@@ -136,7 +137,8 @@ def test_agent_id_nullable_for_task_result() -> None:
 
     다른 메시지 타입은 agent_id required. worker 는 결과를 task_id 로 매칭하므로 agent_id 생략 수용.
     """
-    payload = make_task_result_payload()  # agent_id 미포함 (worker 발행 현실)
+    payload = make_task_result_payload()
+    del payload["agent_id"]  # worker 발행 현실 — 식별자 미산출 (v2 factory 는 default agent_id 를 실으므로 제거)
     assert "agent_id" not in payload
     data = _validate(payload)
     assert data.agent_id is None
@@ -151,7 +153,7 @@ def test_agent_id_value_accepted_for_task_result() -> None:
     assert str(data.agent_id) == "00000000-0000-4000-8000-0000000000c1"
 
 
-# ─── ADR 0007 4 ERROR 회귀 가드 ────────────────────────────────────────────
+# ─── ADR 0007 회귀 가드 (옛 구조 거부 / status permissive 완화) ──────────────
 
 
 def test_legacy_message_type_underscore_rejected() -> None:
@@ -162,12 +164,16 @@ def test_legacy_message_type_underscore_rejected() -> None:
         _validate(payload)
 
 
-def test_legacy_status_failed_rejected() -> None:
-    """D5 — 옛 'failed' 페이로드는 거부 (Literal 'failure' 만)."""
+def test_arbitrary_status_silent_pass() -> None:
+    """v2 — status 는 free string(minLength 1, max 32)라 옛 'failed' 등 임의값 silent pass.
+
+    v1 은 Literal('success'/'failure')로 'failed' 를 거부(D5 회귀 가드)했으나, v2 wire 계약은
+    permissive free string 으로 넓혔다 — agent status 어휘 진화 시 유효 메시지 DLQ 회피. 거부 아닌 수용.
+    """
     payload = make_task_result_payload(status="failure")
     payload["status"] = "failed"
-    with pytest.raises(ValidationError):
-        _validate(payload)
+    data = _validate(payload)
+    assert data.status == "failed"
 
 
 def test_task_public_id_field_not_required() -> None:

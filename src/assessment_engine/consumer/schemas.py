@@ -17,8 +17,8 @@ class MessageBase(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     # 통일 계약 버전(engine 레포 기준, contract.CONTRACT_VERSION). 형식 major.minor, 게이트는 major. 현재 "1.0".
-    # 전환기 dual-accept — 돌아가는 fleet 의 "2.0" 을 계속 수용, 에이전트 "1.0" 이관 완료 후 "2.0" 제거.
-    schema_version: Literal["1.0", "2.0"]
+    # wire/assessment/export/task.install 4계약 공통 단일 값 — 에이전트도 "1.0" emit.
+    schema_version: Literal["1.0"]
     # agent_id — 호스트 식별 단일 키(불변 UUID). DB UNIQUE·MQ 라우팅. task.result 한정 nullable(task_id 매칭).
     agent_id: UUID
     message_id: UUID

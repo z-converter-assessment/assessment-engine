@@ -53,28 +53,34 @@ def _win(**overrides) -> ResourceStats:
 def test_mem_saturated_linux_uses_page_out_not_static_swap():
     # Linux 메모리 포화 = active page-out(mem_swap_paging), 정적 스왑 점유(swap_used) 아님.
     # swappiness 로 여유 RAM 에도 유휴 페이지 스왑아웃하므로 점유는 압박 신호가 아님.
-    assert mem_saturated(_stats(os_family="linux", swap_used=True, mem_swap_paging=False)) is False
-    assert mem_saturated(_stats(os_family="linux", swap_used=False, mem_swap_paging=True)) is True
+    # Gate0 dual-gate(v2): mem_saturated 는 이용률 p95 >= RS_MEM_UNDER_PCT(90) AND 페이징일 때만 포화.
+    # 이용률 gate 를 통과시켜(mem_p95_pct=95) 페이징 신호 자체를 검증 — swap_used 는 그래도 무시됨.
+    assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", swap_used=True, mem_swap_paging=False)) is False
+    assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", swap_used=False, mem_swap_paging=True)) is True
 
 
 def test_mem_saturated_windows_excludes_pagefile_uses_hardfault_rate():
-    # Windows pagefile 상시 사용은 신호 아님 → 하드폴트율(pages_input rate) 로만 판정.
-    assert mem_saturated(_win(mem_pages_input_rate_p95=WIN_PAGES_INPUT_SATURATION)) is True
-    assert mem_saturated(_win(mem_pages_input_rate_p95=10.0)) is False  # < 20
-    assert mem_saturated(_win(mem_pages_input_rate_p95=None)) is None  # perflib 미발행 -> 미관측
+    # Windows pagefile 상시 사용은 신호 아님 -> 하드폴트율(pages_input rate) 로만 판정.
+    # Gate0 dual-gate(v2): 이용률 gate(mem_p95_pct=95 >= 90) 통과시켜 하드폴트율 임계 자체를 검증.
+    assert mem_saturated(_win(mem_p95_pct=95.0, mem_pages_input_rate_p95=WIN_PAGES_INPUT_SATURATION)) is True
+    assert mem_saturated(_win(mem_p95_pct=95.0, mem_pages_input_rate_p95=10.0)) is False  # < 20
+    assert mem_saturated(_win(mem_p95_pct=95.0, mem_pages_input_rate_p95=None)) is None  # perflib 미발행 -> 미관측
 
 
 # ─── CPU 포화 — Linux 실행 큐 / Windows Processor Queue Length (원칙 P2) ───
 
 
 def test_cpu_saturated_os_aware():
-    # Linux: procs_running/cores >= 1.0
-    assert cpu_saturated(_stats(procs_running_p95=4.0, cpu_cores=4)) is True
-    assert cpu_saturated(_stats(procs_running_p95=1.0, cpu_cores=4)) is False
+    # dual-gate: 실행 큐 포화 AND util 실제 높음(>= under 임계) — 저활동 procs_running 노이즈(수집기 포함) 배제
+    # Linux: procs_running/cores >= 1.0 AND util 높음
+    assert cpu_saturated(_stats(procs_running_p95=4.0, cpu_cores=4, cpu_p95_pct=85.0)) is True
+    assert cpu_saturated(_stats(procs_running_p95=4.0, cpu_cores=4, cpu_p95_pct=10.0)) is False  # 저활동=노이즈
+    assert cpu_saturated(_stats(procs_running_p95=1.0, cpu_cores=4, cpu_p95_pct=85.0)) is False  # 실행큐 미달
+    assert cpu_saturated(_stats(procs_running_p95=4.0, cpu_cores=4, cpu_p95_pct=None)) is True  # util 미측정=신뢰
     assert cpu_saturated(_stats(procs_running_p95=None)) is None  # 미관측
-    # Windows: run queue/cores >= 2, load 는 무시
-    assert cpu_saturated(_win(cpu_run_queue_p95=8.0, cpu_cores=4)) is True  # 2.0 >= 2
-    assert cpu_saturated(_win(cpu_run_queue_p95=4.0, cpu_cores=4)) is False  # 1.0 < 2
+    # Windows: run queue/cores >= 2 AND util 높음
+    assert cpu_saturated(_win(cpu_run_queue_p95=8.0, cpu_cores=4, cpu_p95_pct=85.0)) is True  # 2.0 >= 2
+    assert cpu_saturated(_win(cpu_run_queue_p95=4.0, cpu_cores=4, cpu_p95_pct=85.0)) is False  # 1.0 < 2
     assert cpu_saturated(_win(cpu_run_queue_p95=None)) is None  # perflib 미발행
     # cores 0/None -> 미관측 (div-by-zero 회피)
     assert cpu_saturated(_stats(cpu_cores=None, procs_running_p95=100.0)) is None
