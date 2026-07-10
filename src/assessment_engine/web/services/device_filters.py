@@ -1,81 +1,74 @@
-"""agent device `kind` 태그 기반 물리/데이터 필터 — engine 단일 진실.
+"""스토리지·네트워크 device 분류 — block_device `type` · fstype · net_interface `kind` 단일 진실.
 
-agent 가 disk/net/mount 각 항목에 `kind` 를 발행한다 (Linux/Windows 공용 분류기). 엔진은 정규식·major
-추론 없이 kind 로만 판정한다 (화면·집계·용량 단일 기준, Windows major=0 문제 해소):
-- 물리 디스크 = kind=="physical" (partition/lvm/raid/virtual 제외).
-- 집계 iface = kind in {physical, bond_master} — bond_member/loopback/bridge/veth/vlan/tunnel/virtual 제외.
-  bond_master(본딩 집계 단위)는 포함, bond_member(물리 leg)는 제외 — master/member 이중 집계 회피.
-- 데이터 볼륨 = kind=="data" (boot/image 제외; 가상 fs 는 agent 가 pre-drop 해 애초에 없음).
+인벤토리 모델 (lsblk/df/vgs 정석 매핑):
+- block_devices[] = 정적 토폴로지 (lsblk). 평면 DAG 노드 {name,type,size_bytes,fstype,mountpoint,parent,id,id_type}.
+  type = disk/part/lvm/crypt/raid/mpath/dynamic/volume/swap. 물리 디스크 = type=="disk", 스왑 = type=="swap".
+- server_filesystem 시계열 = 동적 사용량 (df). 마운트별 used/free/inode + fstype + device_id.
+- lvm_vgs[] = 확장 여력 (vgs). VG 미할당 공간 {name,size_bytes,free_bytes,..}.
 
-계층 가시성 단일 정책 — 모든 소비처(cagg 집계·용량·상세 표시·JSON export·토폴로지)가 본 술어를 사용한다. 소비처별
-ad-hoc 재필터(정규식·kind 직접 비교) 금지 — 같은 raw 가 소비처마다 다른 계층을 뽑는 불일치를 차단.
-
-major/minor 는 물리 판정에서 빠지고 mount-disk 조인(find_parent_disk) 전용으로만 잔존.
+정적 토폴로지(무엇이 존재)와 동적 사용량(얼마나 찼나)을 분리 — 계층 가시성 단일 정책. 모든 소비처(용량·상세
+표시·export·토폴로지)가 본 술어를 공유하고 ad-hoc 재필터 금지 — 같은 raw 가 소비처마다 다른 계층을 뽑는
+불일치를 차단. device 부모-자식 조인은 노드 `parent`(부모 id)로 — major/minor 폐기.
 """
 
+# 가상 파일시스템 — 데이터 볼륨 아님(용량 집계·상세 표시 제외). df 관례. types._VIRTUAL_FSTYPES(SQL) 와 동일 집합.
+VIRTUAL_FSTYPES = frozenset(
+    {
+        "tmpfs", "devtmpfs", "overlay", "squashfs", "proc", "sysfs", "cgroup", "cgroup2", "mqueue",
+        "debugfs", "tracefs", "securityfs", "pstore", "bpf", "configfs", "ramfs", "autofs",
+        "hugetlbfs", "fusectl", "nsfs", "efivarfs", "binfmt_misc",
+    }
+)
 
-def is_physical_disk(kind: str | None) -> bool:
-    return kind == "physical"
+
+def is_physical_disk(dtype: str | None) -> bool:
+    """물리 블록 디바이스 — type=="disk" (PhysicalDrive/sd/nvme/vd). partition/lvm/raid/swap 제외."""
+    return dtype == "disk"
 
 
-def is_lvm_disk(kind: str | None) -> bool:
-    """논리 볼륨 — LVM(dm) + software RAID(md). 물리 부재 시 disk 차트 fallback 차원."""
-    return kind in ("lvm", "raid")
+def is_lvm_disk(dtype: str | None) -> bool:
+    """논리 볼륨 계층 — LVM/RAID/crypt/multipath/dynamic. 물리 부재 시 fallback 차원."""
+    return dtype in ("lvm", "raid", "crypt", "mpath", "dynamic")
 
 
-def is_partition(kind: str | None) -> bool:
-    return kind == "partition"
+def is_partition(dtype: str | None) -> bool:
+    return dtype == "part"
+
+
+def is_swap(dtype: str | None) -> bool:
+    return dtype == "swap"
 
 
 def is_virtual_interface(kind: str | None) -> bool:
-    """집계 대상 인터페이스가 아닌 것 — loopback/bridge/veth/bond_member/vlan/tunnel/virtual. 표시·집계 제외 신호.
+    """집계 대상 아닌 인터페이스 — loopback/bridge/veth/bond_member/vlan/tunnel/virtual. kind None 도 제외.
 
-    `not is_virtual_interface(kind)` == 집계 대상(kind in ("physical", "bond_master"))만 통과. bond_master 는 본딩
-    집계 단위라 포함, bond_member 는 제외(master/member 이중 집계 회피). kind None(placeholder)도 제외.
+    `not is_virtual_interface(kind)` == 집계 대상(physical/bond_master)만 통과. bond_master 포함, bond_member 제외
+    (이중 집계 회피). net_interfaces 는 kind 를 유지(block_device 와 달리).
     """
     return kind not in ("physical", "bond_master")
 
 
-def is_data_volume(kind: str | None) -> bool:
-    """영속 물리 블록 디바이스 위 데이터 파일시스템 — kind=="data" (boot/image/가상 fs 제외)."""
-    return kind == "data"
+def is_data_volume(fstype: str | None, mountpoint: str | None = None) -> bool:
+    """실 데이터 파일시스템 — 가상 fs 와 /boot 제외. types._DATA_VOLUME_SQL_FILTER(SQL) 와 동일 판정.
 
-
-def disk_total_bytes(disks: list[dict], inventory_mounts: list[dict]) -> int:
-    """디스크 총 용량(bytes) — 물리 disks 우선, 비면(Windows 등 물리 미발행) data volume 파일시스템 합.
-
-    물리 디스크가 정석 용량이나 Windows agent 는 물리 disks 미발행(파일시스템만)이라 inventory mounts 로
-    fallback. 환경·개별·세부 목록 보고서 단일 산식 (Windows 포함 일관).
+    fstype None(미상)은 데이터로 포함(안전, df 관례). /boot·/boot/efi 는 부팅 전용이라 데이터 용량서 제외.
     """
-    physical = sum((d.get("size_bytes") or 0) for d in disks if is_physical_disk(d.get("kind")))
-    if physical > 0:
-        return physical
-    return sum((m.get("total_bytes") or 0) for m in inventory_mounts if is_data_volume(m.get("kind")))
+    if fstype is not None and fstype in VIRTUAL_FSTYPES:
+        return False
+    if mountpoint is not None and mountpoint.startswith("/boot"):
+        return False
+    return True
 
 
-# ── major/minor 기반 조인 헬퍼 ──
-# Linux 디바이스 식별 표준 (POSIX). inventory.disks[]의 (major, minor)와 inventory.mounts[]의 (major, minor)
-# 비교로 "이 마운트가 어느 디스크 위인가"를 알 수 있음.
-# 같은 major + (minor가 디스크 minor이거나 그 디스크의 파티션 minor) 이면 같은 디스크.
-# SCSI/virtio 관례: minor 0,16,32,... 가 디스크 자체, 1~15 / 17~31 / ... 이 파티션.
+def disk_total_bytes(block_devices: list[dict]) -> int:
+    """물리 프로비저닝 디스크 총량(bytes) = sum block_device(type==disk) size_bytes.
+
+    물리 디스크 합이 정석(마운트 안 된 공간 누락·이중계산 회피). Windows 도 PhysicalDrive 를 type=disk 로
+    발행하므로 fallback 불요 — 양 OS 단일 산식. 환경·개별·목록 보고서 공용.
+    """
+    return sum((d.get("size_bytes") or 0) for d in (block_devices or []) if is_physical_disk(d.get("type")))
 
 
-def find_parent_disk(
-    mount_major: int | None,
-    mount_minor: int | None,
-    disks: list[dict],
-) -> str | None:
-    """mount의 (major, minor)와 매칭되는 disk의 name 반환. 없으면 None."""
-    if mount_major is None or mount_minor is None or mount_major == 0:
-        return None
-    for d in disks:
-        d_major = d.get("major")
-        d_minor = d.get("minor")
-        if d_major is None or d_minor is None:
-            continue
-        if d_major != mount_major:
-            continue
-        # 디스크 자체 또는 파티션 (minor 차이 1~15)
-        if d_minor == mount_minor or 0 < (mount_minor - d_minor) < 16:
-            return d.get("name")
-    return None
+def swap_total_bytes(block_devices: list[dict]) -> int:
+    """스왑 총량(bytes) = sum block_device(type==swap) size_bytes. v2 는 swap 을 block_device 노드로 표현."""
+    return sum((d.get("size_bytes") or 0) for d in (block_devices or []) if is_swap(d.get("type")))

@@ -7,7 +7,8 @@
 | `routers/pages/__init__.py` | `pages_router` | (없음 — sub-router 자체 prefix) | HTML (Jinja2 SSR) |
 | `routers/api.py` | `api_router` | `/api/servers` | JSON (시계열·메트릭) |
 | `routers/tasks.py` | `tasks_router` | `/api/tasks` | JSON |
-| `routers/exports.py` | `exports_router` | `/api/exports` | JSON (다운로드) |
+| `routers/assessment.py` | `assessment_router` | `/api/assessment` | JSON (재해복구/마이그레이션 소비 — 통합 프로비저닝 어세스먼트) |
+| `routers/exports.py` | `exports_router` | `/api/exports` | JSON (다운로드 — assessment 계약 파일) |
 | `routers/right_sizing.py` | `right_sizing_router` | `/api/right-sizing` | JSON (외부 자동화 소비 — 자원 적정성 판정) |
 | `routers/reports.py` | `reports_router` | `/reports` | HTML (SSR — 환경 보고서·이력) + JSON (POST emit) |
 | `routers/reports.py` | `reference_router` | (없음) | HTML (SSR — `/reference` 기준·임계값 참고) |
@@ -55,10 +56,15 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | `GET /{task_id}` | 단일 task JSON — polling / list cell 갱신 callback 용 |
 | `GET /{task_id}/detail` | 단일 task HTML fragment — task-modal body 용 (P3 정공, JS HTML 합성 폐기) |
 
-### `exports.py` — 정제 산출물
+### `assessment.py` — 프로비저닝 어세스먼트 (재해복구/마이그레이션 소비)
 | 경로 | 용도 |
 |------|------|
-| `POST /inventory` | 정제 Inventory JSON (`docs/reference/web/export-schema.md`). envelope에 period_window + size_class_guide 포함. 클라이언트 다운로드 — 서버 stateless |
+| `GET /api/assessment?hostname=&ip=&public_id=&pair=&window_days=&end=` | 통합 프로비저닝 어세스먼트 JSON — 소스 서버를 관측해 타겟 VM 재현/수정 사이징에 필요한 것을 한 응답으로(identity/reproduction/sizing axes[]/assessment/diagnostics). 화면·보고서와 동일 산식(`report_aggregate` -> `rollup_host`, 재계산 0). 외부는 public_id 를 모르는 게 보통이라 hostname/ip 로 조회. 응답 구조·필드·불변식·버전 정본 = `docs/reference/contracts/assessment-api.md` |
+
+### `exports.py` — assessment 계약 파일 전달
+| 경로 | 용도 |
+|------|------|
+| `POST /inventory` | assessment 계약을 다운로드 JSON 파일로 (`GET /api/assessment` 와 데이터 동일, `docs/reference/contracts/assessment-api.md`). 필터 body, 클라이언트 다운로드 — 서버 stateless |
 
 ### `right_sizing.py` — 자원 적정성 판정 (외부 자동화 소비)
 | 경로 | 용도 |

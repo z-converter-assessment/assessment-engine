@@ -16,9 +16,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from assessment_engine.db.repositories.base_diagnostic_repository import (
+from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
-    DiagnosticTimeRange,
+    TimeRange,
 )
 from assessment_engine.web.deps import get_diagnostic_service, get_service
 from assessment_engine.web.routers.reports import _render_job_progress
@@ -46,7 +46,7 @@ async def report(
     request: Request,
     ids: str | None = Query(None, description="comma-separated public_id 목록 (live preview). job 모드 시 무시"),
     job: str | None = Query(None, description="발행된 보고서 job_id — 정적 스냅샷 렌더"),
-    time_range: DiagnosticTimeRange = Query(
+    time_range: TimeRange = Query(
         DIAGNOSTIC_DEFAULT_TIME_RANGE, description="윈도우 (live preview). job 모드 시 input_params 사용"
     ),
     view: Literal["customer", "engineer"] = Query("customer", description="고객용(A) / 엔지니어용(B) (live preview)"),
@@ -125,7 +125,7 @@ async def _render_summary_snapshot(
 @report_multi_router.post("/servers/emit")
 async def report_emit(
     ids: str = Query(..., description="comma-separated public_id 목록 (1개=단일 양식, 2개+=N대 표)"),
-    time_range: DiagnosticTimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
+    time_range: TimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
     view: Literal["customer", "engineer"] = Query("customer"),
     anchor_at: str | None = Query(None, description="발행 기준 시각 (ISO 8601). 미명시 시 발행 시점"),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
@@ -158,7 +158,7 @@ async def single_server_report(
     request: Request,
     server_id: UUID,
     job: str | None = Query(None, description="발행된 보고서 job_id — 정적 스냅샷 렌더"),
-    time_range: DiagnosticTimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE, description="윈도우 (live preview)"),
+    time_range: TimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE, description="윈도우 (live preview)"),
     view: Literal["customer", "engineer"] = Query("customer"),
     back: str | None = Query(None),
     service: QueryService = Depends(get_service),

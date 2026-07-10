@@ -53,7 +53,7 @@ def make_task_result_handler(
                     os_version=data.os_version,
                     os_id=data.os_id,
                     success_exit_codes=success_exit_codes,
-                    install_verified=data.install_verified,  # 판정 1순위 — exit_code 보다 우선
+                    task_policy=data.task_policy,  # 판정 1순위 — exit_code 보다 우선
                 )
                 update = TaskResultUpdate(
                     public_id=str(data.task_id),
@@ -61,7 +61,7 @@ def make_task_result_handler(
                     failure_reason=eff_reason,
                     exit_code=data.exit_code,
                     signal_no=data.signal_no,
-                    install_verified=data.install_verified,  # raw 보존 (감사·표시)
+                    task_policy=data.task_policy,  # raw 보존 (감사·표시)
                     duration_ms=data.duration_ms,
                     stdout_tail=data.stdout_tail,
                     stderr_tail=data.stderr_tail,

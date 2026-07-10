@@ -94,13 +94,13 @@ def test_success_passthrough() -> None:
     assert _eff("success", None, 0, "windows", "20348") == ("success", None)
 
 
-# ─── install_verified 우선순위 (실제 설치 신호 > exit_code, zinstall-verdict 개선) ──────────
+# ─── task_policy 우선순위 (실제 설치 신호 > exit_code, zinstall-verdict 개선) ──────────
 
 
-def _effv(status, reason, exit_code, install_verified, os_family="linux", os_version=None, os_id=None):
+def _effv(status, reason, exit_code, task_policy, os_family="linux", os_version=None, os_id=None):
     return effective_task_result(
         status=status, failure_reason=reason, exit_code=exit_code, os_family=os_family,
-        os_version=os_version, os_id=os_id, success_exit_codes=ALLOW, install_verified=install_verified,
+        os_version=os_version, os_id=os_id, success_exit_codes=ALLOW, task_policy=task_policy,
     )
 
 

@@ -129,7 +129,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         if not dto:
             return None
         result = to_server_detail(dto)
-        await safe_set(self.redis, cache_key, server_detail_to_json(result), ex=300)
+        await safe_set(self.redis, cache_key, server_detail_to_json(result), ex=web_settings.redis_ttl_cache_detail)
         return result
 
     async def get_server_stability(

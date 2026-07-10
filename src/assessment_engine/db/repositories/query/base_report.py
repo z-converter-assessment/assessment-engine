@@ -5,8 +5,11 @@ from datetime import datetime
 
 from assessment_engine.db.dtos.outbound import (
     CpuBreakdownRaw,
+    DiskIoBaselineRaw,
     EnvironmentUtilizationRaw,
     MemoryBreakdownRaw,
+    MountCapacityRaw,
+    NetIoBaselineRaw,
     ReportMountUsageRaw,
     ReportRowRaw,
 )
@@ -20,15 +23,6 @@ class BaseReportQueryRepository(ABC):
         period_days: int,
         end: datetime,
     ) -> list[ReportRowRaw]: ...
-
-    @abstractmethod
-    async def report_mount_worst(
-        self,
-        server_ids: list[int],
-        period_days: int,
-        end: datetime,
-    ) -> dict[int, tuple[str | None, float | None, int | None]]:
-        """server_id -> (worst_mount, worst_mount_used_pct, worst_mount_days_until_full)."""
 
     @abstractmethod
     async def report_uptime_stats(
@@ -61,8 +55,8 @@ class BaseReportQueryRepository(ABC):
         server_ids: list[int],
         period_days: int,
         end: datetime,
-    ) -> dict[int, tuple[int | None, float | None, float | None, float | None, float | None, float | None]]:
-        """server_id -> (iops_baseline, throughput_kbps_baseline, iops_p95, iops_peak, kbps_p95, kbps_peak)."""
+    ) -> dict[int, DiskIoBaselineRaw]:
+        """server_id -> DiskIoBaselineRaw (iops·throughput baseline + p95/peak)."""
 
     @abstractmethod
     async def report_net_io_baseline(
@@ -70,8 +64,8 @@ class BaseReportQueryRepository(ABC):
         server_ids: list[int],
         period_days: int,
         end: datetime,
-    ) -> dict[int, tuple[float | None, float | None, float | None, float | None, float | None, float | None]]:
-        """server_id -> (rx_kbps_baseline, tx_kbps_baseline, rx_p95, rx_peak, tx_p95, tx_peak)."""
+    ) -> dict[int, NetIoBaselineRaw]:
+        """server_id -> NetIoBaselineRaw (rx·tx baseline + p95/peak)."""
 
     @abstractmethod
     async def report_mount_usage(
@@ -108,6 +102,14 @@ class BaseReportQueryRepository(ABC):
         end: datetime,
     ) -> dict[int, list[ReportMountUsageRaw]]:
         """N대 마운트별 윈도우 평균 — `report_mount_usage` 배치(server_id IN). child fan-out 1회 조회 (A5)."""
+
+    @abstractmethod
+    async def report_mount_capacity_batch(
+        self,
+        server_ids: list[int],
+        end: datetime,
+    ) -> dict[int, list[MountCapacityRaw]]:
+        """N대 마운트별 용량 사이징 입력 — /api/assessment per-mount 디스크 축(worst-mount 로 접지 않음)."""
 
     @abstractmethod
     async def report_memory_breakdown_batch(

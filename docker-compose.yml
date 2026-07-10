@@ -134,6 +134,12 @@ services:
     # ENTRYPOINT(python -m) + command 모듈명 -> `python -m assessment_engine.consumer`. dev hot-reload(watchfiles)는 override.yml.
     command: ["assessment_engine.consumer"]
 
+  # 전용 백그라운드 워커 — 비동기 보고서 생성 + install task reaper (web=HTTP 전담에서 분리).
+  # broker 미사용(DB job-claim 만) — depends_on 은 app-base(postgres·redis·rabbitmq·migrate) 그대로. dev hot-reload 는 override.yml.
+  worker:
+    <<: *app-base
+    command: ["assessment_engine.worker"]
+
 volumes:
   postgres_data:
   rabbitmq_data:

@@ -10,11 +10,10 @@ from pathlib import Path
 from fastapi.templating import Jinja2Templates
 from jinja2 import Environment
 
-from assessment_engine.db.repositories.base_diagnostic_repository import (
+from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
 )
 from assessment_engine.web.services.mappers.shared import (
-    _SWAP_DANGER_PCT,
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
     DIAGNOSTIC_RANGE_LABEL_KR,
@@ -27,6 +26,7 @@ from assessment_engine.web.templating.filters import (
     or_dash,
     service_badge_class,
     storagesize,
+    storagesize_styled,
 )
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -38,6 +38,7 @@ env.filters["kst"] = kst
 env.filters["disksize"] = disksize
 env.filters["storagesize"] = storagesize
 env.filters["disksize_styled"] = disksize_styled
+env.filters["storagesize_styled"] = storagesize_styled
 env.filters["kbps"] = kbps
 env.filters["service_badge_class"] = service_badge_class
 env.filters["or_dash"] = or_dash
@@ -60,7 +61,6 @@ env.globals["diagnostic_default_range_label"] = DIAGNOSTIC_RANGE_LABEL_KR.get(
 env.globals["ui_thresholds"] = {
     "usage_danger_pct": _USAGE_DANGER_PCT,
     "usage_warn_pct": _USAGE_WARN_PCT,
-    "swap_danger_pct": _SWAP_DANGER_PCT,
 }
 
 # 사이드바 네비게이션 — 8항목 3그룹 정적 트리 (불변 표시 상수). _sidebar.html 이 그룹·항목 반복 렌더.

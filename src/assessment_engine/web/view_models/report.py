@@ -64,7 +64,7 @@ class ReportRowItem:
     hostname: str
     role: str
     is_online: bool
-    os_family: str | None  # "windows" 면 load(run queue) 통계 N/A 표시 (disk 는 queue 로 측정)
+    os_family: str | None  # os-aware 신호 분기 (실행 큐·페이징·await 은 양 OS, 신호 이름만 OS별)
     os_display: str
     kernel_version: str | None
     internal_ip: str | None
@@ -75,8 +75,6 @@ class ReportRowItem:
     mem_p95_pct: float | None
     mem_avg_pct: float | None
     mem_peak_pct: float | None
-    load_15m_max: float | None
-    swap_used: bool
 
     recommendation: str  # USE Method enum 값
     recommendation_label: str  # 한국어
@@ -92,14 +90,19 @@ class ReportRowItem:
     mem_total_gb: float | None = None
     disk_total_gb: float | None = None
 
+    # CPU 실행 큐 p95 (코어당 정규화 전 raw) — os-aware CPU 포화 축 (Linux procs_running / Windows Processor Queue).
+    # single_report CPU 상세 표에 노출(양 OS, load average 대체).
+    cpu_run_queue_p95: float | None = None
+
     # I/O wait — 디스크 병목 신호 (양식 B 컬럼)
     iowait_p95_pct: float | None = None
     iowait_peak_pct: float | None = None
 
-    # Mount 최악 — 서버 안에서 가장 채워진 마운트 1건 (양식 B 컬럼)
-    worst_mount: str | None = None
+    # 가장 채워진 마운트 used% (most-full, 디스크 이용률 KPI 컬럼)
     worst_mount_used_pct: float | None = None
-    worst_mount_days_until_full: int | None = None
+    # 용량 임박 구동 마운트 — 분류(assess_disk_capacity)와 동일 마운트·runway (capacity_imminent 짝)
+    disk_capacity_driving_mount: str | None = None
+    disk_capacity_runway_days: int | None = None
 
     # Uptime + 재부팅 + 에이전트 재시작 (양식 B 컬럼 — anchor+window 카운트, 시스템 안정성)
     uptime_days: int | None = None
@@ -146,8 +149,8 @@ class ReportRowItem:
     # 네트워크 상태 — 사이징 분류와 별개 품질 판정(정상/혼잡/미측정). 조치 필요 호스트 표(고객)의 네트워크 칼럼.
     net_status_label: str = ""
 
-    # 메모리 page-out 발생 여부 (신 모델 포화 신호 = mem_swap_paging). 스왑 점유(swap_used)와 별개 — 실제 압박 신호.
-    # single_report 메모리 상세가 점유 대신 본 신호로 판정(서버 상세 메모리 탭·saturation_axes 와 정합).
+    # 메모리 page-out 발생 여부 (신 모델 포화 신호 = paging_major refault sustained). 실제 압박 신호.
+    # single_report 메모리 상세가 본 신호로 판정(서버 상세 메모리 탭·saturation_axes 와 정합).
     mem_swap_paging: bool = False
 
     # 부분 평가 — 포화 축 중 해당 OS 의 perflib 미발행 축만 미관측(os-aware, P2/P4). Windows 도 run queue/

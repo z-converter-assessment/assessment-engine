@@ -52,10 +52,11 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 본 절 결정:
 - Pydantic Input 모델 `extra=ignore` 유지 — 메시지에 새 필드가 도착해도 엔진은 통과시키고 무시. 비대칭 배포에서 reject 로 엔진이 죽지 않게 함.
 - 활용하지 않는 필드는 mapper drop. 필요해진 시점에 mapper read + inbound DTO 필드 추가를 명시적 결정으로 처리.
-- `agent_version` major bump 수신 시 엔진 코드 수정 트리거. minor bump 는 silent 호환.
+- wire 계약 버전 = envelope `schema_version` (현 "1.0", 통일 `CONTRACT_VERSION` 단일 진실 = `contract.py`). 구조 전환은 schema_version 판별(flag-day cutover). `agent_version` major bump 수신 시 엔진 코드 수정 트리거, minor bump silent 호환.
 - `task.result` 메시지는 발행 측 worker 컨텍스트가 수집 캐시와 분리되어 `boot_time` / `agent_started_at` 가 항상 null — 본 메시지에 한해 nullable override. 다른 메시지 타입은 required 유지.
-- `task.result` 종료 신호: `exit_code` / `signal_no` (int\|null) 상호배타 — 정상종료=exit_code / 시그널종료=signal_no / 미포착=둘 다 null (POSIX wait status). `signal_no` 는 `tasks.signal_no` 저장 + task 상세 표시(`mappers/task._signal_label` SIG 이름 라벨). Windows 는 항상 null.
-- 인바운드 DTO 는 wire 계약과 정합: `boot_time` nullable (판독 불가 시 null, `_log_time_invariants` None 가드) / `composite_id` "" -> None 정규화 (digest 실패 흡수) / error `failed_component` 자유 문자열 수용 (wire permissive, `Literal` 로 좁히면 유효 메시지 DLQ). inventory mount 는 free/avail 미발행, metrics mount 는 major/minor 미발행 — DTO·시계열 컬럼 정합 (vestigial 제거, mount-disk 조인 major/minor 는 inventory mount 만).
+- `task.result` 종료 신호: `exit_code` / `signal_no` (int\|null) 상호배타 — 정상종료=exit_code / 시그널종료=signal_no / 미포착=둘 다 null (POSIX wait status). `task_policy`(bool\|null)는 exit_code 보다 우선 판정. `signal_no` 는 `tasks.signal_no` 저장 + task 상세 표시(`mappers/task._signal_label` SIG 이름 라벨). Windows signal_no 항상 null. task_id 로 매칭(composite_id 불요).
+- 인바운드 DTO 는 wire 계약과 정합: `boot_time` nullable (판독 불가 시 null, `_log_time_invariants` None 가드) / `composite_id` "" -> None 정규화 (digest 실패 흡수) / error `failed_component` 자유 문자열 수용 (wire permissive, `Literal` 로 좁히면 유효 메시지 DLQ).
+- 스토리지·디바이스 = `block_devices[]` 정규화 평면 그래프(parent-by-id 조인, major/minor 폐기) + `system.filesystem` usage(state used/free) + `lvm_vgs`(확장여력 free_bytes). 시계열·조인 device 축은 안정 id (디스크 폴백 dm/partuuid/serial/by-path / 네트워크 MAC) — 이름 아님. 상세 = `docs/reference/contracts/agent-data.md` E·F·G절.
 
 ---
 
@@ -72,7 +73,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 - `server_inventory` 식별 분리: `id bigint PK` (FK 대상) / `agent_id UUID UNIQUE` (agent 매칭·식별·라우팅 단일 키 — 첫 실행 시 생성·영구저장한 불변 UUID) / `composite_id varchar(64)` (SHA-256 composite hash, 감사·표시용 nullable — 식별·라우팅 미사용) / `machine_id varchar(64)` (raw machine-id 표시 전용, nullable) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{agent_id}` / routing key `task.install.{agent_id}`.
 - 식별키 agent_id 불변: agent_id 는 첫 실행 시 1회 생성·영구저장하는 불변 UUID — 부팅마다 NIC MAC 이 재발급되는 환경(OpenStack Windows VM)에서도 동일 agent_id 가 자연히 같은 행을 upsert 한다. 별도 호스트 재연결 로직 없음. composite_id/machine_id 는 clone collision 진단용 감사 컬럼.
 - `diagnostic_jobs.job_type` (`customer_report`/`engineer_report` 둘만) + active partial UNIQUE = `(scope, input_hash, job_type)`. 발행 시점 정적 스냅샷을 `result` JSONB 에 보존. customer/engineer 모두 비동기 생성 (pending -> 워커 claim·running -> succeeded/failed). status·progress_stage·started_at·error_message + active partial UNIQUE 가 비동기 상태머신.
-- 보고서 = 발행 시점 정적 스냅샷 (재계산 0, 이력 동적변화 0). 비동기 생성 — emit 이 parent job pending enqueue 후 즉시 `?job={id}` 반환, web lifespan job-claim 워커(`report_worker.py`)가 스냅샷 ViewModel 생성·`result` JSONB 저장 (생성 불가 시 failed). 더블클릭은 active UNIQUE 로 기존 job 합류. GET `?job={id}` = succeeded 면 정적 렌더, pending/running 이면 `report-poll.js` 폴링.
+- 보고서 = 발행 시점 정적 스냅샷 (재계산 0, 이력 동적변화 0). 비동기 생성 — emit 이 parent job pending enqueue 후 즉시 `?job={id}` 반환, 전용 워커 프로세스(`worker/report_worker.py`)가 job 을 claim 해 스냅샷 ViewModel 생성·`result` JSONB 저장 (생성 불가 시 failed). 더블클릭은 active UNIQUE 로 기존 job 합류. GET `?job={id}` = succeeded 면 정적 렌더, pending/running 이면 `report-poll.js` 폴링.
 - server scope N대(ids 2개+) 발행 = 워커가 개별 단일 보고서 N건 + selection 본문을 parent 1건 처리 단위로 생성 — child 전부 성공해야 parent succeeded (부분 누락 차단). ids 1개 = 단일. 양식 통일 — 단일/N대/환경 모두 환경 보고서 양식(`EnvironmentReportSummary`) 공유, selection·단일 전용 필드는 환경에서 None/빈 list.
 - 보고서 본문 구조·요약 섹션·운영신호 정책(표시는 os_eol 만)·이력 표시 상세 = `docs/explanation/products/environment-report.md`·`server-report.md`.
 
@@ -271,13 +272,14 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/guides/con
 `Settings()` 인스턴스 단일 진실 위치:
 - `src/assessment_engine/web/settings.py` — `web_settings` (WebSettings) + `diagnostic_settings` (DiagnosticSettings, web 이 task.install 발행 위해 broker 사용)
 - `src/assessment_engine/consumer/settings.py` — `consumer_settings` (ConsumerSettings)
+- `src/assessment_engine/worker/settings.py` — `worker_settings` (WorkerSettings, 전용 백그라운드 워커 — 보고서 생성·install reaper)
 - `src/assessment_engine/db/session.py`·`cache/redis.py` + repo root `migrations/env.py` — 자체 `WebSettings()` (모든 컴포넌트 공통 db layer·캐시·schema 진입점, circular import 회피)
 
 `src/assessment_engine/config.py`는 class 정의만 — module-level instance 0 (multi-node 분리 정합, ADR/문서 패턴 정합).
 
 금지:
 - Service/Handler 안 구체 구현체 import.
-- Composition Root 외 위치에서 `Settings()` 인스턴스 생성 — 위 5 위치 (web/settings·consumer/settings·db/session·cache/redis·migrations/env)만 허용.
+- Composition Root 외 위치에서 `Settings()` 인스턴스 생성 — 위 6 위치 (web/settings·consumer/settings·worker/settings·db/session·cache/redis·migrations/env)만 허용.
 - `assessment_engine.config`에서 직접 `web_settings`·`consumer_settings`·`diagnostic_settings` import — class만 export.
 - `APP_ENV` 환경 분기를 `config.py` model_validator · entry lifespan 외 위치에 추가.
 
@@ -373,8 +375,8 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/reference/c
 | 신규 외부 의존(HTTP·외부 큐) | (1) fail-open/close 결정(#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) #F6 매트릭스 갱신 |
 | 신규 의존성(`pyproject.toml`) | (1) `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토. 워크플로 단일 진실: `docs/guides/dependencies.md` |
 | 신규 차트 MetricType (net/disk rate·gauge 등) | (1) `db/repositories/query/types.py` `MetricType` Literal (+ 환경 차트면 `EnvironmentMetricType` 도) (2) rate 메트릭이면 동 파일 `_RATE_PER_DIM_DEFS` (dim_col, value_col) + `metric.py` `_RATE_PER_DIM` 매핑 / gauge 면 `metric.py` `metric_trend` 에 dispatch branch 직접 추가 — 둘 다 누락 시 `unknown metric_type` AssertionError 500 (Promise.all 한 fetch 실패가 같은 페이지 다른 차트까지 막음) (3) 페이지 JS fetch (env-metrics.js·metrics.js, seqs·Y축 suggestedMax 명명 상수·os-aware 분기) + 템플릿 차트 카드 (4) 가상 제외 필터(`device_filters`) 해당 시 표시 경계 적용 (gauge 는 미대상) (5) `test_query_repository._ALL_METRIC_TYPES` dispatch 커버 + 값 테스트 |
-| 비동기 보고서 발행 (job-claim 워커·생성 디스패치·폴링) | (1) emit 라우터 `enqueue_report` 분리 (2) `report_generator.build_report_result_for_job` 생성 디스패치 (3) `report_worker.py` 루프 + `main.py` lifespan 기동·graceful (4) repo `claim_next_pending`/`mark_failed`/`recover_stale_running` (+ `BaseDiagnosticRepository` 추상) (5) GET pending/running/failed 분기 + `GET /reports/{job}/status` + `report-poll.js` + `report_pending.html` (6) `WebSettings` 워커 설정 (7) #C1·#F11 (8) 단위테스트(`test_diagnostic_service`·`test_report_generator`) |
-| install task lifecycle (deadline·reaper·오프라인 advisory) | (1) `task_service` 발행 (`deadline_at`·`_online_targets` advisory·큐 `x-message-ttl`) (2) `task_reaper.py` 루프 + `main.py` lifespan (3) repo `expire_all_overdue_tasks` (+ `BaseCollectRepository` 추상) (4) 설정 `install_task_deadline_sec`·`install_reaper_interval_sec`·`install_reaper_shutdown_timeout_sec` (5) 응답 `TaskCreated.target_online` + `static/js` warn 표시 (6) #F10·#F11 (7) `test_task_queries` (expire·complete_task signal_no) |
+| 비동기 보고서 발행 (job-claim 워커·생성 디스패치·폴링) | (1) emit 라우터 `enqueue_report` 분리 (2) `report_generator.build_report_result_for_job` 생성 디스패치 (3) `worker/report_worker.py` 루프 + `worker/main.py` 기동·graceful (4) repo `claim_next_pending`/`mark_failed`/`recover_stale_running` (+ `BaseDiagnosticRepository` 추상) (5) GET pending/running/failed 분기 + `GET /reports/{job}/status` + `report-poll.js` + `report_pending.html` (6) `WorkerSettings` 워커 설정 (7) #C1·#F11 (8) 단위테스트(`test_diagnostic_service`·`test_report_generator`·`test_worker`) |
+| install task lifecycle (deadline·reaper·오프라인 advisory) | (1) `task_service` 발행 (`deadline_at`·`_online_targets` advisory·큐 `x-message-ttl`) (2) `worker/task_reaper.py` 루프 + `worker/main.py` (3) repo `expire_all_overdue_tasks` (+ `BaseCollectRepository` 추상) (4) 설정 `install_task_deadline_sec`(WebSettings)·`install_reaper_interval_sec`·`install_reaper_shutdown_timeout_sec`(WorkerSettings) (5) 응답 `TaskCreated.target_online` + `static/js` warn 표시 (6) #F10·#F11 (7) `test_task_queries`·`test_worker` (expire·complete_task signal_no) |
 
 
 ## F10. 평가 윈도우 · 차트 시계열 옵션 — 단일 진실
@@ -398,8 +400,9 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/reference/c
 본 절 결정:
 - web — uvicorn `timeout_graceful_shutdown=3s`. 진행 중 HTTP 요청 완료 후 exit. 실시간 메트릭 polling 은 다음 주기 자동 재요청이라 별도 처리 불요. task.install publish 중 SIGTERM은 aio-pika `connect_robust` transaction 보장.
 - consumer — `async with message.process(requeue=False)` 컨텍스트 안에서 모든 await 완료. 정상 exit → ACK / raise → NACK + DLQ.
-- 보고서 생성 워커 — web lifespan `lifespan_worker` 가 SIGTERM 시 stop_event 로 새 claim 중단 + 진행 중 1건은 `report_worker_shutdown_timeout_sec` 안 drain, 미완은 running 잔류 -> 다음 기동 `recover_stale_running` 가 pending 으로 회수(in-flight 손실 0). job 상태는 DB(`diagnostic_jobs`)라 메모리 손실 없음 — `signal.signal`·`os._exit` 금지(아래 일관).
-- install task reaper — web lifespan `lifespan_task_reaper` 가 SIGTERM 시 stop_event 로 tick 중단(진행 중 UPDATE 1건 짧아 즉시 drain). deadline 경과 pending 을 emit 무관하게 `expire_all_overdue_tasks` 로 failure(timeout) 전역 전이 — task 상태는 DB(`tasks`)라 메모리 손실 0. `signal.signal`·`os._exit` 금지 일관..
+- 전용 워커 프로세스(`assessment_engine.worker`) — 보고서 생성 + install reaper 를 web(HTTP 전담)에서 분리한 별도 컨테이너. `worker/main.py` 가 두 루프를 공유 stop_event 로 병행 구동, consumer 와 동일 asyncio-native SIGTERM(`loop.add_signal_handler`) graceful. `signal.signal`·`os._exit` 금지(아래 일관).
+- 보고서 생성 루프 — SIGTERM 시 stop_event 로 새 claim 중단 + 진행 중 1건은 `report_worker_shutdown_timeout_sec` 안 drain, 미완은 running 잔류 -> 다음 기동 `recover_stale_running` 가 pending 으로 회수(in-flight 손실 0). job 상태는 DB(`diagnostic_jobs`)라 메모리 손실 없음.
+- install task reaper 루프 — SIGTERM 시 stop_event 로 tick 중단(진행 중 UPDATE 1건 짧아 즉시 drain). deadline 경과 pending 을 emit 무관하게 `expire_all_overdue_tasks` 로 failure(timeout) 전역 전이 — task 상태는 DB(`tasks`)라 메모리 손실 0.
 
 금지:
 - `signal.signal(SIGTERM, ...)` 직접 핸들러 — uvicorn/asyncio 자체 처리, 중복은 종료 race.

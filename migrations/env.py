@@ -21,12 +21,14 @@ from assessment_engine.config import WebSettings
 from assessment_engine.db.models import (  # noqa: F401  — Base.metadata 등록
     diagnostic_job,
     server_cpu_core,
+    server_disk_error,
     server_disk_io,
+    server_filesystem,
     server_inventory,
     server_inventory_history,
     server_metrics,
-    server_mount_usage,
     server_net_io,
+    server_pressure,
     task,
 )
 from assessment_engine.db.models.base import Base

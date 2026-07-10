@@ -293,32 +293,7 @@
       <div class="sat-line">
         <span class="sat-name">페이징 <span class="text-meta text-xs">포화</span></span>
         <span id="mem-paging" class="text-sm">—</span>
-        <span class="text-meta text-xs">물리 메모리 압박 — Linux swap page-out 발생 · Windows Pages Input/sec(하드폴트) 초당 20 이상 (pagefile 상시 사용이라 사용량 아닌 하드폴트율로 판정)</span>
-      </div>
-
-      <div id="swap-section" style="display:none;">
-        <div class="sub-label">Swap</div>
-        <div class="table-scroll" style="margin-bottom:10px;">
-          <table style="min-width:300px;">
-            <thead>
-              <tr>
-                <th style="white-space:nowrap;">Usage</th>
-                <th style="white-space:nowrap;">Used</th>
-                <th style="white-space:nowrap;">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td id="swap-usage" style="white-space:nowrap;">—</td>
-                <td id="swap-used" style="white-space:nowrap;">—</td>
-                <td id="swap-total" style="white-space:nowrap;">—</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        {% if server.os_family == 'windows' %}
-        <p class="text-meta text-xs" style="margin:0 0 4px;">Windows 의 스왑(pagefile)은 여유 메모리가 있어도 상시 일정량 사용되므로, 사용률이 높아도 메모리 부족 신호 아님.</p>
-        {% endif %}
+        <span class="text-meta text-xs">물리 메모리 압박 — 하드 페이지 폴트율(Pages Input/sec, 디스크에서 페이지 읽기) 초당 20 이상 포화 · 양 OS 공통</span>
       </div>
     </div>
 
@@ -502,4 +477,4 @@
 <script src="/static/js/pages/detail.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} data-server-id="{{ server.public_id }}" data-os-family="{{ server.os_family or '' }}" data-cpu-cores="{{ server.cpu_cores or '' }}"{% endblock %}
+{% block body_attrs %} data-server-id="{{ server.public_id }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}

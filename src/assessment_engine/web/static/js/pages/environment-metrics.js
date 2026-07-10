@@ -2,7 +2,7 @@
  * 환경 성능 추이 페이지 차트 로직 — 전체 환경(모든 서버) 차트.
  *
  * 서버 상세 성능 추이(metrics.js) 기반의 환경판. server_id 없음 — 환경 전체 집계
- * (capacity-weighted: cpu·mem·fs·swap / 합산: disk·net rate / 평균: load).
+ * (capacity-weighted: cpu·mem·fs / 합산: disk·net rate / os-split: run_queue·disk saturation).
  * fetch: GET /api/servers/environment/metrics-chart (agg 미지원 — capacity-weighted/합산 단일).
  * 외부 의존: ChartUtils (base.html), Chart.js (페이지 로드). 수집 기준은 SSR(#last-metric-ts) 고정.
  */
@@ -29,7 +29,7 @@ let globalRange = '15m';
 const chartInstances = {};
 // P4(a) sequence counter — per-chart 분리.
 const seqs = {
-  cpu: 0, cpuClass: 0, runQueue: 0, mem: 0, memComp: 0, swap: 0,
+  cpu: 0, cpuClass: 0, runQueue: 0, mem: 0, memComp: 0,
   physIo: 0, diskKbps: 0, diskSat: 0, fs: 0, netIo: 0, retrans: 0,
 };
 
@@ -339,20 +339,7 @@ async function loadMemCompChart(range, anchor) {
   renderMultiDimChart('memcomp-canvas', 'memcomp-empty', 'memcomp-legend', rows, range, anchor, MEMCOMP_META);
 }
 
-// 스왑 os-split — Linux swap(오버플로 신호, 평소 0)와 Windows pagefile(상시 baseline)은 의미가 달라 한 선 평균이
-// 오도라 OS별 2선(dimension=os_family). backend metric_trend 이 env(collapse=True)에서 os 분리 반환. % 라 Y축 공유.
-const SWAP_META = {
-  linux:   { label: 'Linux swap',       color: ChartUtils.themeColor() },
-  windows: { label: 'Windows pagefile', color: '#8b5cf6' },
-};
-async function loadSwapChart(range, anchor) {
-  const seq = ++seqs.swap;
-  const rows = await fetchChart('swap.usage_percent', range, anchor);
-  if (seq !== seqs.swap) return;
-  renderMultiDimChart('swap-canvas', 'swap-empty', 'swap-legend', _safe(rows), range, anchor, SWAP_META);
-}
-
-// 디스크 읽기/쓰기 IOPS — 환경 합산(Read/Write). 게스트 블록 디바이스(virtio, kind=physical)만 합산(이중 집계 회피).
+// 디스크 읽기/쓰기 IOPS — 환경 합산(Read/Write). 물리 블록 디바이스(type=disk)만 합산 — LVM/파티션/swap 이중집계 회피.
 async function loadPhysIoChart(range, anchor) {
   const seq = ++seqs.physIo;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
@@ -453,7 +440,7 @@ async function loadAllCharts() {
   await Promise.all([
     loadCpuChart(range, anchor),     loadCpuClassChart(range, anchor),
     loadRunQueueChart(range, anchor), loadMemChart(range, anchor),
-    loadMemCompChart(range, anchor), loadSwapChart(range, anchor),
+    loadMemCompChart(range, anchor),
     loadPhysIoChart(range, anchor),  loadDiskKbpsChart(range, anchor),
     loadDiskSaturationChart(range, anchor), loadFsChart(range, anchor),
     loadNetIoChart(range, anchor),   loadRetransChart(range, anchor),

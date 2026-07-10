@@ -1,6 +1,6 @@
 # ADR 0040 — 비동기 보고서 발행 복원 (web 내 job-claim 워커)
 
-상태: Accepted (2026-06-21)
+상태: Accepted (2026-06-21) — Amended by ADR 0055 (job-claim 워커 배치 web lifespan -> 전용 워커 프로세스, DB 상태머신 결정은 유지)
 
 ## Context
 

@@ -19,7 +19,7 @@ class DiskItem:
 
 @dataclass
 class VolumeItem:
-    """파일시스템(논리 볼륨) — inventory.mounts 기준. 물리 디스크(DiskItem)와 별개 축.
+    """파일시스템(논리 볼륨) — block_devices 중 마운트된 데이터 볼륨 노드 기준. 물리 디스크(DiskItem)와 별개 축.
 
     양 OS 일관 표시 (Linux: / ext4 등, Windows: C:\\ ntfs 등). fstype 명시.
     """
@@ -147,7 +147,7 @@ class ServerDetailResponse:
     services_count: int = 0
     listen_ports_count: int = 0
     disks_count: int = 0
-    # 파일시스템(논리 볼륨) 항목 — inventory.mounts 기준. 물리 디스크(disks)와 별개 축, 양 OS 일관(fstype 명시).
+    # 파일시스템(논리 볼륨) — block_devices 중 마운트된 데이터 볼륨 노드. 물리 디스크와 별개 축, fstype 명시.
     volumes: list[VolumeItem] = field(default_factory=list)
     volume_total_gb: float | None = None
     volumes_count: int = 0

@@ -12,13 +12,13 @@ from typing import Literal
 
 from assessment_engine import recommendation
 from assessment_engine.service_classifier import SERVICE_CATALOG
+from assessment_engine.web.services.device_filters import is_virtual_interface
 from assessment_engine.web.view_models.server import ServiceBadgeRef
 
 # ─── UI 임계값 — base.html body data-attribute 동기화 (#E1 P3 · ADR 0015) ────
 # template_setup.py 가 본 상수를 import 해 Jinja2 globals 로 노출 → body data-attribute 단일 진실.
 _USAGE_DANGER_PCT = 90  # 사용률 위험 임계 — disk_warning · server detail badge 공통
 _USAGE_WARN_PCT = 75  # 사용률 주의 임계
-_SWAP_DANGER_PCT = 0.1  # 스왑 사용 자체가 이슈 — 0.1% 도 빨강 (JS metrics.js 동일)
 
 # 보고서 view 분기 — 라우터 Pydantic Literal 정합 (#F3)
 ReportView = Literal["customer", "engineer"]
@@ -120,6 +120,71 @@ def build_host_confidence_notes(host: recommendation.HostAssessment) -> list[str
     return notes
 
 
+def primary_ip(raw) -> str | None:
+    """물리(physical/bond_master) 인터페이스의 첫 IPv4 — API identity.primary_ip. topology/상세와 동일 술어(P2 공용)."""
+    for i in raw.net_interfaces or []:
+        if is_virtual_interface(i.get("kind")):
+            continue
+        for a in i.get("addresses") or []:
+            if a.get("family") == "ipv4":
+                return a.get("address")
+    return None
+
+
+def resource_confidence_notes(c: recommendation.ConfidenceNote) -> list[str]:
+    """자원별 신뢰도 하향 사유 — biased(virtio 구조 편향)는 상시라 노이즈로 제외. right-sizing/assessment API 공용."""
+    notes: list[str] = []
+    if c.low_precision:
+        notes.append("표본 부족")
+    if c.coverage_gap:
+        notes.append("포화 수치 미관측")
+    if c.nonstationary:
+        notes.append("상승 추세")
+    return notes
+
+
+def saturation_dict(signal: str, value: float | None, threshold: float | None, unit: str, saturated: bool | None) -> dict:
+    """포화 신호 1건 — raw numeric(파싱 계약). network.signals 와 동형, value 미측정 시 null. API 공용."""
+    return {
+        "signal": signal,
+        "value": round(value, 2) if value is not None else None,
+        "threshold": threshold,
+        "unit": unit,
+        "measured": value is not None,
+        "saturated": saturated,
+    }
+
+
+def saturation_block(kind: str, stats) -> dict:
+    """자원별 포화 신호 — os-aware raw 수치(계약용 numeric). right-sizing/assessment API 공용(P2 단일 진실)."""
+    win = stats.os_family == "windows"
+    if kind == "cpu":
+        rq = stats.cpu_run_queue_p95 if win else stats.procs_running_p95
+        val = recommendation.cpu_saturation_index(rq, stats.cpu_cores, stats.os_family)
+        thr = recommendation.CPU_RUN_QUEUE_PER_CORE_SATURATION if win else recommendation.PROCS_RUNNING_PER_CORE_SATURATION
+        sig = "Processor Queue Length/core" if win else "run queue (procs_running)/core"
+        return saturation_dict(sig, val, thr, "per_core", recommendation.cpu_saturated(stats))
+    if kind == "memory":
+        if win:
+            return saturation_dict(
+                "Pages Input/sec", stats.mem_pages_input_rate_p95, recommendation.WIN_PAGES_INPUT_SATURATION,
+                "per_sec", recommendation.mem_saturated(stats),
+            )
+        # Linux swap page-out 은 발생 이벤트(수치 없음) — 판정은 saturated 로.
+        sat = recommendation.mem_saturated(stats)
+        return {"signal": "swap page-out", "value": None, "threshold": None, "unit": "event",
+                "measured": sat is not None, "saturated": sat}
+    # disk_io — await 우선(양 OS), 구세대 viostor 만 큐 폴백.
+    if stats.disk_await_p95_ms is not None:
+        return saturation_dict("await", stats.disk_await_p95_ms, recommendation.RS_DISKIO_AWAIT_MS, "ms",
+                               recommendation.disk_io_saturated(stats))
+    if stats.disk_queue_p95 is not None:
+        return saturation_dict("Avg Disk Queue Length", stats.disk_queue_p95, recommendation.DISK_QUEUE_PER_DISK_SATURATION,
+                               "queue", recommendation.disk_io_saturated(stats))
+    return {"signal": "await", "value": None, "threshold": recommendation.RS_DISKIO_AWAIT_MS, "unit": "ms",
+            "measured": False, "saturated": recommendation.disk_io_saturated(stats)}
+
+
 def build_service_badge_reference() -> list[ServiceBadgeRef]:
     """참고자료 — 서비스 뱃지 카탈로그 표시 행 (SERVICE_CATALOG 파생, P2). 카탈로그 1곳 수정이 본 표에 자동 반영(F12).
 
@@ -144,7 +209,7 @@ def build_service_badge_reference() -> list[ServiceBadgeRef]:
 # 자원 적정성 상태 enum 1:1 매핑. (key, label, hex, description) 튜플 정렬:
 #   under(빨강), over(파랑=주색), idle(회색), optimal(녹색), insufficient_data(옅은회색).
 # over 색 = 테마색1(var(--color-title)) 동일 주색 — 활용률 게이지와 같은 파랑, under 빨강과 대비.
-# idle = 미사용 상태(수요≈0). 종료·통합 조치는 파생 권고 층(상태 아님).
+# idle = 미사용 상태(수요 거의 0). 종료·통합 조치는 파생 권고 층(상태 아님).
 _DONUT_SEGMENT_DEFS: list[tuple[str, str, str, str]] = [
     ("under_provisioned", "under_provisioned", "#ef4444", "자원 부족 — 사양 상향 검토"),
     ("over_provisioned", "over_provisioned", "var(--color-title)", "자원 여유 — 사양 축소 검토"),
@@ -175,10 +240,6 @@ PROVISIONING_CLASS_OPTIONS: tuple[tuple[str, str], ...] = tuple(
     (key, recommendation.LABEL_KO.get(key, key)) for key, _, _, _ in _DONUT_SEGMENT_DEFS
 )
 
-# ─── 보고서·환경 보고서 공용 capacity 임박 임계 ───
-# build_report_summary_bullets (report.py) + _extract_capacity_imminent (environment_report.py).
-_CAPACITY_IMMINENT_DAYS = 30
-
 # OS family 표시 라벨 — 보고서(report.py)·환경 보고서(environment_report.py) 공유.
 OS_FAMILY_LABEL_KO: dict[str, str] = {"linux": "Linux", "windows": "Windows", "unknown": "미상"}
 
@@ -187,7 +248,7 @@ OS_FAMILY_LABEL_KO: dict[str, str] = {"linux": "Linux", "windows": "Windows", "u
 RISK_LEVEL_ORDER: dict[str, int] = {"high": 0, "attention": 1, "low_usage": 2, "normal": 3}
 
 # 진단 time_range -> 한국어 표시 라벨 (보고서·대시보드·이력 공용). 표시 라벨이라 mapper 소속
-# (도메인 상수 DiagnosticTimeRange/DIAGNOSTIC_RANGE_DAYS 는 repo base_diagnostic_repository 유지).
+# (윈도우 타입·상수 TimeRange/DIAGNOSTIC_RANGE_DAYS 는 db/repositories/query/types.py 단일 진실 #F10).
 DIAGNOSTIC_RANGE_LABEL_KR: dict[str, str] = {
     "15m": "15분",
     "1h": "1시간",

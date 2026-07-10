@@ -14,7 +14,7 @@ result 에 담는다 — parent 가 단일 처리 단위라 child 전부 성공 
 from datetime import datetime
 
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
-from assessment_engine.db.repositories.base_diagnostic_repository import DIAGNOSTIC_DEFAULT_TIME_RANGE
+from assessment_engine.db.repositories.query.types import DIAGNOSTIC_DEFAULT_TIME_RANGE
 from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV, build_report_result
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.query_service import QueryService

@@ -86,9 +86,9 @@
   }
 
   // ── 다중 dimension avg-only 라인 dataset 빌드 ──
-  // cpu 분류/로드·메모리 구성·종합 추이가 공유. rows: [{collected_at, value, dimension}].
+  // cpu 분류·실행 큐·메모리 구성·종합 추이가 공유. rows: [{collected_at, value, dimension}].
   // metaMap: { dim: {label, color} } — 미정의 dim 은 dim 이름·기본색(#8b5cf6).
-  // opts.valueFn: per-point 값 변환(load 코어당 정규화 등, 기본 항등). opts.pointRadius: 0(추이)·1(분류).
+  // opts.valueFn: per-point 값 변환(기본 항등). opts.pointRadius: 0(추이)·1(분류).
   function buildDimDatasets(rows, bMs, grid, metaMap = {}, opts = {}) {
     const valueFn = opts.valueFn || (v => v);
     const pointRadius = opts.pointRadius ?? 0;
@@ -155,9 +155,9 @@
   function safeArray(arr) { return Array.isArray(arr) ? arr : []; }
 
   // ── Windows 미측정 메트릭 N/A (표시 경계) ──
-  // Windows 는 load avg·cpu iowait/steal·mem buffers/cached 를 측정하지 않아 payload 에서 null 로 온다(구 에이전트는 0).
+  // Windows 는 cpu iowait/steal·mem buffers/cached 를 측정하지 않아 payload 에서 null 로 온다(구 에이전트는 0).
   // 값이 아니라 os_family==='windows' + 본 키로 판정해 'N/A' 표시 — null·0 어느 쪽이든 "측정값 0"과 구분. 부재 메트릭 카탈로그 단일 진실(JS).
-  const WIN_NA_KEYS = new Set(['load_1m', 'load_5m', 'load_15m', 'cpu_iowait', 'cpu_steal', 'mem_buffers', 'mem_cached']);
+  const WIN_NA_KEYS = new Set(['cpu_iowait', 'cpu_steal', 'mem_buffers', 'mem_cached']);
   function naWindows(osFamily, key, formatted) {
     return osFamily === 'windows' && WIN_NA_KEYS.has(key) ? 'N/A' : formatted;
   }

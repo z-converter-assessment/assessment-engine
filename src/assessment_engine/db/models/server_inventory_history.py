@@ -34,16 +34,15 @@ class ServerInventoryHistory(Base):
 
     cpu_cores: Mapped[int | None] = mapped_column(Integer)
     cpu_model: Mapped[str | None] = mapped_column(String(255))
-    mem_total_kb: Mapped[int | None] = mapped_column(BigInteger)
-    swap_total_kb: Mapped[int | None] = mapped_column(BigInteger)
+    mem_total_bytes: Mapped[int | None] = mapped_column(BigInteger)
 
     boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     agent_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    interfaces: Mapped[list[Any] | None] = mapped_column(JSONB)
+    block_devices: Mapped[list[Any] | None] = mapped_column(JSONB)
+    net_interfaces: Mapped[list[Any] | None] = mapped_column(JSONB)
+    lvm_vgs: Mapped[list[Any] | None] = mapped_column(JSONB)
     ip_external: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
-    disks: Mapped[list[Any] | None] = mapped_column(JSONB)
-    mounts: Mapped[list[Any] | None] = mapped_column(JSONB)
     services: Mapped[list[Any] | None] = mapped_column(JSONB)
     listen_ports: Mapped[list[Any] | None] = mapped_column(JSONB)

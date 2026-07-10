@@ -35,14 +35,16 @@
 | `DiskIoRaw` / `NetIoRaw` | per dimension 단일 행 (누적 카운터 + boot_time/agent_started_at) |
 | `MountUsageRaw` | per mount 단일 행 (시점값 + boot_time/agent_started_at) |
 | `MetricSeries` | 차트 시계열 단일 포인트 (`collected_at`/`value`/`dimension`) |
+| `SaturationRaw` | server별 실시간 포화 원자료 (run_queue·await·큐·paging·retrans). 미존재 server 는 빈 인스턴스(전 필드 None) sentinel |
 
 ### 보고서·산출물 raw
 
 | DTO | 용도 |
 |-----|------|
 | `ReportRowRaw` | 보고서 한 행 raw stats — service mapper(`to_report_row_item`)가 `ReportRowItem` ViewModel로 변환 |
+| `DiskIoBaselineRaw` / `NetIoBaselineRaw` | server별 I/O baseline + p95/peak (`report_disk_io_baseline`/`report_net_io_baseline` 반환, service 가 raw 에 필드 대입) |
 | `RebootEvent` | server_inventory_history에서 boot_time/agent_started_at 변경 시점 (`kind`: reboot/restart) |
-| `InventoryExportEntry` | 정제 inventory JSON 항목 — 벤더 중립 v1 스키마. ViewModel은 아니지만 fastapi 응답으로 직접 노출 |
+| `MountCapacityRaw` | 마운트별 용량 사이징 입력 (`report_mount_capacity_batch` 반환) — total/target bytes·runway·used%·inode. assessment API disk 축(per-mount) 산출 |
 
 ## Inbound DTO 타입 정책
 

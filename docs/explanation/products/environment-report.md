@@ -9,7 +9,7 @@
 환경 scope 환경 보고서 — `GET /reports/environment?view=customer|engineer&time_range=14d`. 환경 전체 KPI·자원 합계·분류 분포 high-level 한 장. customer(양식 A) vs engineer(양식 B) view 분기.
 
 발행 흐름:
-- 발행(`POST /reports/environment/emit`)은 parent job 을 pending 으로 만들고 즉시 `?job={id}` 로 이동 — web 내부 job-claim 워커가 스냅샷 생성 후 succeeded, 그때 본문 표시(생성 중엔 진행 화면 + 폴링). 발행 전 GET 은 컨트롤(보고서 양식·윈도우·앵커 select + 발행 버튼)만 노출, live preview 본문 없음. 발행된 스냅샷은 `GET /reports/environment?job={id}` 정적 렌더 (서버 scope `/reports/servers` 는 발행 전에도 live preview 본문 유지 — 환경 보고서만 컨트롤-only).
+- 발행(`POST /reports/environment/emit`)은 parent job 을 pending 으로 만들고 즉시 `?job={id}` 로 이동 — 전용 워커 프로세스가 스냅샷 생성 후 succeeded, 그때 본문 표시(생성 중엔 진행 화면 + 폴링). 발행 전 GET 은 컨트롤(보고서 양식·윈도우·앵커 select + 발행 버튼)만 노출, live preview 본문 없음. 발행된 스냅샷은 `GET /reports/environment?job={id}` 정적 렌더 (서버 scope `/reports/servers` 는 발행 전에도 live preview 본문 유지 — 환경 보고서만 컨트롤-only).
 - 워커가 발행 시점(anchor 고정) SQL 집계 + 스냅샷을 `diagnostic_jobs` 테이블 row 의 `result` JSONB 에 정적 보존 (#C1).
 - 이력 표시: 보고서 이력 `/reports/history` (customer + engineer union, view 필터).
 

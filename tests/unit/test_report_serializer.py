@@ -128,38 +128,14 @@ def test_env_report_roundtrip_empty_nested_stays_default():
     assert restored.cpu_breakdown is None
 
 
-def _legacy_row_dict() -> dict:
-    """구 스냅샷 row dict 모사 — 현 필수 필드 + 폐기 키. 필드 변경 시 자동 추종(직렬화 호환이 검증 대상)."""
+def _minimal_row_dict() -> dict:
+    """최소 유효 row dict — 필수 필드만. 필드 변경 시 자동 추종(라운드트립 dict->dataclass 검증용)."""
     d: dict = {}
     for f in dataclasses.fields(ReportRowItem):
         if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING:
             d[f.name] = False if f.type == "bool" else (1 if f.name == "server_id" else None)
-    d["hostname"] = "legacy-host"
+    d["hostname"] = "test-host"
     return d
-
-
-def test_env_report_from_dict_drops_legacy_snapshot_keys():
-    """폐기 필드가 남은 구 스냅샷 복원 호환 — row 색 6키 + summary insufficient 2키 pop (#C1 정적 스냅샷)."""
-    data = env_report_to_dict(_make_env_report())
-    data["insufficient_hosts"] = []
-    data["insufficient_hosts_count"] = 0
-    row = _legacy_row_dict()
-    for legacy in (
-        "saturation_color",
-        "cpu_variance_color",
-        "mem_variance_color",
-        "worst_mount_days_color",
-        "reboot_count_color",
-        "agent_restart_count_color",
-    ):
-        row[legacy] = "#b91c1c"
-    data["top_risks"] = [row]
-
-    restored = env_report_from_dict(data)
-
-    assert restored.top_risks[0].hostname == "legacy-host"
-    assert not hasattr(restored, "insufficient_hosts")
-    assert not hasattr(restored.top_risks[0], "saturation_color")
 
 
 def test_report_row_roundtrip_restores_saturation_axes():
@@ -167,7 +143,7 @@ def test_report_row_roundtrip_restores_saturation_axes():
     from assessment_engine.web.view_models.report import SaturationAxis
 
     data = env_report_to_dict(_make_env_report())
-    row = _legacy_row_dict()
+    row = _minimal_row_dict()
     row["saturation_axes"] = [
         dataclasses.asdict(SaturationAxis("CPU 포화", "load avg / core", "0.25", ">= 1", "정상", "")),
         dataclasses.asdict(

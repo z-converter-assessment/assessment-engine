@@ -1,7 +1,7 @@
 """JSON API 라우터.
 
 의존성 주입 정석: `internal_id`는 `resolve_internal_id` Depends로. 라우터 내 _resolve 함수 없음.
-검증 단일 경로 (F3): metric_type/time_range/bucket/agg/device_category 모두 Literal로 라우터에서.
+검증 단일 경로 (F3): metric_type/time_range/bucket/agg 모두 Literal로 라우터에서.
 """
 
 from datetime import datetime
@@ -13,7 +13,6 @@ from assessment_engine.web.deps import get_service, resolve_internal_id
 from assessment_engine.web.services.query_service import (
     AggFunc,
     BucketSize,
-    DeviceCategory,
     MetricType,
     QueryService,
     TimeRange,
@@ -62,7 +61,6 @@ async def get_metric_chart(
     bucket: BucketSize = Query("5m"),
     agg: AggFunc = Query("avg"),
     end: datetime | None = Query(None),
-    device_category: DeviceCategory | None = Query(None),
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
@@ -75,7 +73,6 @@ async def get_metric_chart(
         bucket,
         agg,
         end,
-        device_category,
     )
 
 

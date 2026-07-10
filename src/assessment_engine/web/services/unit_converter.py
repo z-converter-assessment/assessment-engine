@@ -4,17 +4,17 @@ def bytes_to_gb(b: int | None) -> float | None:
     return round(b / 10**9, 2) if b is not None else None
 
 
-# 메모리(RAM)는 binary GiB(1024^2 KB=1 GiB) — 디스크와 달리 RAM 은 binary 가 관례.
-def kb_to_gb(kb: int | None) -> float | None:
-    return round(kb / 1024**2, 1) if kb else None
+# 메모리(RAM)·스왑은 binary GiB(1024^3 B=1 GiB) — 디스크와 달리 RAM 은 binary 가 관례. v2 는 By 단위.
+def bytes_to_gib(b: int | None) -> float | None:
+    return round(b / 1024**3, 1) if b else None
+
+
+# 메모리 MB(binary MiB) — export spec.memory_mb 용.
+def bytes_to_mib(b: int | None) -> int | None:
+    return b // 1024**2 if b else None
 
 
 def usage_pct(used: int | None, total: int | None) -> float | None:
     if used is None or not total:
         return None
     return round(max(0.0, used / total * 100), 1)
-
-
-def sector_to_kbps(cur: int, prev: int, dt: float) -> float | None:
-    d = cur - prev
-    return None if d < 0 else round(d * 512 / 1024 / dt, 1)

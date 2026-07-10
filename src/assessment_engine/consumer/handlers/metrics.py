@@ -56,10 +56,9 @@ def make_metrics_handler(
 
             if auto_registered:
                 logger.info(
-                    "auto-registered server from metrics agent_id={} hostname={} "
-                    "(정적 정보는 다음 inventory 도착 시 채워짐)",
+                    "auto-registered server from metrics agent_id={} "
+                    "(hostname·정적 정보는 다음 inventory 도착 시 채워짐)",
                     data.agent_id,
-                    data.hostname,
                 )
 
             online_key = consumer_settings.redis_key_online.format(resolved_server_id)
@@ -70,13 +69,16 @@ def make_metrics_handler(
 
             # F7: 메시지별 처리 흐름은 DEBUG — 1만 서버 시 분당 1만 line 방지.
             logger.debug(
-                "metrics stored agent_id={} rows metrics={} disk_io={} net_io={} mount_usage={} cpu_core={}",
+                "metrics stored agent_id={} rows metrics={} disk_io={} net_io={} "
+                "filesystem={} cpu_core={} pressure={} disk_error={}",
                 data.agent_id,
                 insert_result.metrics,
                 insert_result.disk_io,
                 insert_result.net_io,
-                insert_result.mount_usage,
+                insert_result.filesystem,
                 insert_result.cpu_core,
+                insert_result.pressure,
+                insert_result.disk_error,
             )
 
     return _handle

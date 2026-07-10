@@ -51,6 +51,6 @@ class BaseServerQueryRepository(ABC):
     async def get_collection_status(self, server_id: int) -> CollectionStatus | None: ...
 
     @abstractmethod
-    async def list_server_ids(self, limit: int = 1000) -> list[int]:
+    async def list_server_ids(self, limit: int | None = 1000) -> list[int]:
         """등록 서버 정수 PK 모음 — ID만 필요한 batch 호출용 (risk_top 등). disks JSONB 같은 큰 컬럼 미포함 (T8)."""
         ...

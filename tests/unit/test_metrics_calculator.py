@@ -1,4 +1,4 @@
-"""metrics_calculator — delta 기반 percent/rate 계산."""
+"""metrics_calculator — delta 기반 percent/rate 계산 (wire)."""
 
 from datetime import UTC, datetime, timedelta
 
@@ -20,7 +20,6 @@ from assessment_engine.web.services.metrics_calculator import (
     compute_mem,
     compute_mounts,
     compute_net_io,
-    compute_swap,
 )
 
 _BOOT_A = datetime(2026, 1, 1, tzinfo=UTC)
@@ -69,26 +68,23 @@ def test_clip_to_remaining(raw, room, expected):
 def _cpu_pair(
     t: datetime, user, idle, *, boot_time: datetime | None = None, agent_started_at: datetime | None = None
 ) -> MetricPairRaw:
+    # v2: CPU 시간은 seconds counter(cpu_*_s), 메모리는 By(mem_*_bytes). swap/load 컬럼 폐기.
     return MetricPairRaw(
         collected_at=t,
-        cpu_user=user,
-        cpu_nice=0,
-        cpu_system=0,
-        cpu_idle=idle,
-        cpu_iowait=0,
-        cpu_irq=0,
-        cpu_softirq=0,
-        cpu_steal=0,
-        mem_total_kb=None,
-        mem_free_kb=None,
-        mem_available_kb=None,
-        mem_buffers_kb=None,
-        mem_cached_kb=None,
-        swap_total_kb=None,
-        swap_free_kb=None,
-        load_1m=None,
-        load_5m=None,
-        load_15m=None,
+        cpu_user_s=user,
+        cpu_nice_s=0,
+        cpu_system_s=0,
+        cpu_idle_s=idle,
+        cpu_iowait_s=0,
+        cpu_irq_s=0,
+        cpu_softirq_s=0,
+        cpu_steal_s=0,
+        mem_limit_bytes=None,
+        mem_free_bytes=None,
+        mem_available_bytes=None,
+        mem_buffered_bytes=None,
+        mem_cached_bytes=None,
+        mem_used_bytes=None,
         boot_time=boot_time,
         agent_started_at=agent_started_at,
     )
@@ -105,8 +101,8 @@ def test_compute_cpu_returns_unset_pcts_without_prev():
     assert snap.usage_pct is None and snap.user_pct is None
 
 
-def test_compute_cpu_calculates_percent_from_jiffies_delta():
-    """user 100 → 200 (Δ100), idle 900 → 1700 (Δ800), total Δ900. usage = 100-(800/900*100) ≈ 11.1"""
+def test_compute_cpu_calculates_percent_from_seconds_delta():
+    """user 100->200 (d100), idle 900->1700 (d800), total d900. usage = 100-(800/900*100) ~= 11.1 (v2 s counter)."""
     t1 = datetime.now(UTC)
     t2 = t1 + timedelta(seconds=60)
     prev = _cpu_pair(t1, 100, 900)
@@ -150,24 +146,20 @@ def _win_cpu_pair(t: datetime, user, system, idle) -> MetricPairRaw:
     """Windows cpu_stat — nice/iowait/irq/softirq/steal 은 OS 개념 부재로 None (#C1)."""
     return MetricPairRaw(
         collected_at=t,
-        cpu_user=user,
-        cpu_nice=None,
-        cpu_system=system,
-        cpu_idle=idle,
-        cpu_iowait=None,
-        cpu_irq=None,
-        cpu_softirq=None,
-        cpu_steal=None,
-        mem_total_kb=None,
-        mem_free_kb=None,
-        mem_available_kb=None,
-        mem_buffers_kb=None,
-        mem_cached_kb=None,
-        swap_total_kb=None,
-        swap_free_kb=None,
-        load_1m=None,
-        load_5m=None,
-        load_15m=None,
+        cpu_user_s=user,
+        cpu_nice_s=None,
+        cpu_system_s=system,
+        cpu_idle_s=idle,
+        cpu_iowait_s=None,
+        cpu_irq_s=None,
+        cpu_softirq_s=None,
+        cpu_steal_s=None,
+        mem_limit_bytes=None,
+        mem_free_bytes=None,
+        mem_available_bytes=None,
+        mem_buffered_bytes=None,
+        mem_cached_bytes=None,
+        mem_used_bytes=None,
         boot_time=None,
         agent_started_at=None,
     )
@@ -211,26 +203,23 @@ def test_is_counter_reset(cur, prev, expected):
 
 
 def _mem_pair(total, available, cached, buffers) -> MetricPairRaw:
+    # v2: total 축은 mem_limit_bytes, 회수가능 세부는 mem_cached_bytes/mem_buffered_bytes (모두 By).
     return MetricPairRaw(
         collected_at=datetime.now(UTC),
-        cpu_user=0,
-        cpu_nice=0,
-        cpu_system=0,
-        cpu_idle=0,
-        cpu_iowait=0,
-        cpu_irq=0,
-        cpu_softirq=0,
-        cpu_steal=0,
-        mem_total_kb=total,
-        mem_free_kb=None,
-        mem_available_kb=available,
-        mem_buffers_kb=buffers,
-        mem_cached_kb=cached,
-        swap_total_kb=None,
-        swap_free_kb=None,
-        load_1m=None,
-        load_5m=None,
-        load_15m=None,
+        cpu_user_s=0,
+        cpu_nice_s=0,
+        cpu_system_s=0,
+        cpu_idle_s=0,
+        cpu_iowait_s=0,
+        cpu_irq_s=0,
+        cpu_softirq_s=0,
+        cpu_steal_s=0,
+        mem_limit_bytes=total,
+        mem_free_bytes=None,
+        mem_available_bytes=available,
+        mem_buffered_bytes=buffers,
+        mem_cached_bytes=cached,
+        mem_used_bytes=None,
     )
 
 
@@ -239,7 +228,7 @@ def test_compute_mem_returns_none_when_total_missing():
 
 
 def test_compute_mem_basic():
-    """total=1000kb, available=400kb → used=600kb (60%)"""
+    """total=1000B, available=400B → used=600B (60%)"""
     snap = compute_mem(_mem_pair(1000, 400, 100, 50))
     assert snap.usage_pct == pytest.approx(60.0, abs=0.1)
     assert snap.cached_pct == pytest.approx(10.0, abs=0.1)
@@ -255,87 +244,48 @@ def test_compute_mem_clips_cached_when_overflow():
     assert snap.buffers_pct == 0.0
 
 
-# ─── compute_swap ─────────────────────────────────────────────────────────
-
-
-def _swap_pair(swap_total_kb, swap_free_kb) -> MetricPairRaw:
-    return MetricPairRaw(
-        collected_at=datetime.now(UTC),
-        cpu_user=0,
-        cpu_nice=0,
-        cpu_system=0,
-        cpu_idle=0,
-        cpu_iowait=0,
-        cpu_irq=0,
-        cpu_softirq=0,
-        cpu_steal=0,
-        mem_total_kb=None,
-        mem_free_kb=None,
-        mem_available_kb=None,
-        mem_buffers_kb=None,
-        mem_cached_kb=None,
-        swap_total_kb=swap_total_kb,
-        swap_free_kb=swap_free_kb,
-        load_1m=None,
-        load_5m=None,
-        load_15m=None,
-    )
-
-
-def test_compute_swap_swapless_returns_zero_not_none():
-    """swap_total=0(swapless, 측정된 사실) -> 0% (미수집 None 과 구분, 차트 0-line 과 통일, #C2)."""
-    snap = compute_swap(_swap_pair(0, 0))
-    assert snap is not None
-    assert snap.usage_pct == 0.0 and snap.used_kb == 0 and snap.total_kb == 0
-
-
-def test_compute_swap_none_when_total_uncollected():
-    """swap_total=None(미수집)만 None -> 표시 '—' (일시적 값 없음)."""
-    assert compute_swap(_swap_pair(None, None)) is None
-
-
 # ─── compute_disk_io ──────────────────────────────────────────────────────
 
 
 def _disk(
-    device, t, reads, writes, sr=0, sw=0, *, kind: str | None = "physical", boot_time: datetime | None = None
+    device_id, t, ops_read, ops_write, io_read=0, io_write=0, *, boot_time: datetime | None = None
 ) -> DiskIoRaw:
+    # v2: 안정키 device_id, ops_*(operations counter), io_*_bytes(By counter). device type(kind) 축 폐기.
     return DiskIoRaw(
-        device=device,
+        device_id=device_id,
         collected_at=t,
-        reads_completed=reads,
-        writes_completed=writes,
-        sectors_read=sr,
-        sectors_written=sw,
+        io_read_bytes=io_read,
+        io_write_bytes=io_write,
+        ops_read=ops_read,
+        ops_write=ops_write,
         boot_time=boot_time,
         agent_started_at=None,
-        kind=kind,
     )
 
 
-def test_compute_disk_io_classifies_into_three_groups():
+def test_compute_disk_io_groups_by_device():
+    """v2 는 device type 축이 없어 물리/LVM/파티션 분류 없이 device_id 별 flat 그룹 (device_id 정렬, 3-tuple 아님)."""
     t1 = datetime.now(UTC)
     t2 = t1 + timedelta(seconds=60)
     rows = [
-        _disk("sda", t2, 200, 100, kind="physical"),
-        _disk("sda", t1, 100, 50, kind="physical"),
-        _disk("dm-0", t2, 50, 25, kind="lvm"),
-        _disk("dm-0", t1, 0, 0, kind="lvm"),
-        _disk("sda1", t2, 30, 15, kind="partition"),
-        _disk("sda1", t1, 0, 0, kind="partition"),
+        _disk("sda", t2, 200, 100),
+        _disk("sda", t1, 100, 50),
+        _disk("dm-0", t2, 50, 25),
+        _disk("dm-0", t1, 0, 0),
+        _disk("sda1", t2, 30, 15),
+        _disk("sda1", t1, 0, 0),
     ]
-    phys, lvm, part = compute_disk_io(rows)
-    assert [s.device for s in phys] == ["sda"]
-    assert [s.device for s in lvm] == ["dm-0"]
-    assert [s.device for s in part] == ["sda1"]
+    result = compute_disk_io(rows)
+    # 단일 flat 리스트, device_id 문자열 정렬 (dm-0 < sda < sda1).
+    assert [s.device for s in result] == ["dm-0", "sda", "sda1"]
 
 
 def test_compute_disk_io_single_row_returns_none_rates():
     """페어가 없으면 rate 계산 불가 → None."""
     t1 = datetime.now(UTC)
-    snap_list, _, _ = compute_disk_io([_disk("sda", t1, 100, 50)])
-    assert snap_list[0].read_iops is None
-    assert snap_list[0].write_iops is None
+    result = compute_disk_io([_disk("sda", t1, 100, 50)])
+    assert result[0].read_iops is None
+    assert result[0].write_iops is None
 
 
 def test_compute_disk_io_returns_none_on_system_reboot():
@@ -346,20 +296,21 @@ def test_compute_disk_io_returns_none_on_system_reboot():
         _disk("sda", t2, 200, 100, boot_time=_BOOT_B),
         _disk("sda", t1, 100, 50, boot_time=_BOOT_A),
     ]
-    phys, _, _ = compute_disk_io(rows)
-    assert phys[0].read_iops is None
-    assert phys[0].write_iops is None
-    assert phys[0].read_kbps is None
+    result = compute_disk_io(rows)
+    assert result[0].read_iops is None
+    assert result[0].write_iops is None
+    assert result[0].read_kbps is None
 
 
 # ─── compute_net_io ───────────────────────────────────────────────────────
 
 
 def _net(
-    iface, t, rx, tx, rxp=0, txp=0, *, kind: str | None = "physical", boot_time: datetime | None = None
+    iface_id, t, rx, tx, rxp=0, txp=0, *, boot_time: datetime | None = None
 ) -> NetIoRaw:
+    # v2: 안정키 iface_id(mac:..), rx/tx_bytes(By counter). kind 축은 inventory 조인으로 이관(NetIoRaw 부재).
     return NetIoRaw(
-        interface=iface,
+        iface_id=iface_id,
         collected_at=t,
         rx_bytes=rx,
         tx_bytes=tx,
@@ -369,7 +320,6 @@ def _net(
         tx_errors=0,
         boot_time=boot_time,
         agent_started_at=None,
-        kind=kind,
     )
 
 
@@ -406,31 +356,29 @@ def test_compute_net_io_returns_none_on_system_reboot():
 
 
 def test_compute_mounts_filters_virtual():
+    """v2 가상 필터는 is_data_volume(fstype, mountpoint) 기준 — kind 축 폐기. proc/squashfs 제외."""
     now = datetime.now(UTC)
     rows = [
         MountUsageRaw(
-            mount="/",
-            total_bytes=10**10,
-            avail_bytes=5 * 10**9,
+            mountpoint="/",
+            used_bytes=5 * 10**9,
             free_bytes=5 * 10**9,
+            fstype="ext4",
             collected_at=now,
-            kind="data",
         ),
         MountUsageRaw(
-            mount="/proc",
-            total_bytes=0,
-            avail_bytes=0,
+            mountpoint="/proc",
+            used_bytes=0,
             free_bytes=0,
+            fstype="proc",
             collected_at=now,
-            kind="virtual",
         ),
         MountUsageRaw(
-            mount="/snap/core/123",
-            total_bytes=10**8,
-            avail_bytes=0,
+            mountpoint="/snap/core/123",
+            used_bytes=10**8,
             free_bytes=0,
+            fstype="squashfs",
             collected_at=now,
-            kind="image",
         ),
     ]
     result = compute_mounts(rows)
