@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,6 +31,13 @@ class ServerInventoryHistory(Base):
     os_version: Mapped[str | None] = mapped_column(String(64))
     os_codename: Mapped[str | None] = mapped_column(String(64))
     kernel_version: Mapped[str | None] = mapped_column(String(64))
+    arch: Mapped[str | None] = mapped_column(String(32))
+    bits: Mapped[int | None] = mapped_column(Integer)
+    boot_firmware: Mapped[str | None] = mapped_column(String(8))
+    secure_boot: Mapped[bool | None] = mapped_column(Boolean)
+    edition: Mapped[str | None] = mapped_column(String(64))
+    timezone: Mapped[str | None] = mapped_column(String(64))
+    rtc_utc: Mapped[bool | None] = mapped_column(Boolean)
 
     cpu_cores: Mapped[int | None] = mapped_column(Integer)
     cpu_model: Mapped[str | None] = mapped_column(String(255))
@@ -42,6 +49,8 @@ class ServerInventoryHistory(Base):
     block_devices: Mapped[list[Any] | None] = mapped_column(JSONB)
     net_interfaces: Mapped[list[Any] | None] = mapped_column(JSONB)
     lvm_vgs: Mapped[list[Any] | None] = mapped_column(JSONB)
+    boot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    nonblock_mounts: Mapped[list[Any] | None] = mapped_column(JSONB)
     ip_external: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
     services: Mapped[list[Any] | None] = mapped_column(JSONB)

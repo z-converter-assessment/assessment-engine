@@ -208,6 +208,27 @@ class InventoryListenPortInfo(BaseModel):
     comm: str | None = Field(default=None, max_length=64)
 
 
+class BootInfo(BaseModel):
+    """OS 재현 boot 서술자 (Linux /proc/cmdline; Windows null). grub_install_target 은 agent 1차 null."""
+
+    model_config = ConfigDict(extra="ignore")
+    kernel_cmdline: str | None = Field(default=None, max_length=4096)
+    root_ref_type: str | None = Field(default=None, max_length=16)  # uuid|label|partuuid|path
+    grub_install_target: str | None = Field(default=None, max_length=128)
+
+
+class NonblockMountInfo(BaseModel):
+    """블록장치 없는 마운트(tmpfs/nfs/cifs/9p/fuse.*/bind) — Linux 전용. fstab 재생성 팩트."""
+
+    model_config = ConfigDict(extra="ignore")
+    source: str = Field(min_length=1, max_length=512)
+    target: str = Field(min_length=1, max_length=512)
+    fstype: str | None = Field(default=None, max_length=64)
+    options: list[str] | None = None
+    fs_freq: int | None = None
+    fs_passno: int | None = None
+
+
 class InventoryInput(MessageBase):
     message_type: Literal["inventory"]
 
@@ -220,6 +241,17 @@ class InventoryInput(MessageBase):
     cpu_cores: int | None = Field(default=None, gt=0)
     mem_total_bytes: int | None = Field(default=None, ge=0)  # 단위 By(bytes)
     ip_external: list[str] | None = None
+
+    # OS 재현 서술자 (flat 최상위) — reproduction OUTPUT 계약. agent 발행(collect_inventory), timezone 은 IANA 원문.
+    arch: str | None = Field(default=None, max_length=32)  # uname machine (x86_64/aarch64)
+    bits: int | None = Field(default=None, ge=0)  # 32|64
+    boot_firmware: str | None = Field(default=None, max_length=8)  # uefi|bios
+    secure_boot: bool | None = None
+    edition: str | None = Field(default=None, max_length=64)  # Windows EditionID (Linux null)
+    timezone: str | None = Field(default=None, max_length=64)  # IANA
+    rtc_utc: bool | None = None
+    boot: BootInfo | None = None
+    nonblock_mounts: list[NonblockMountInfo] | None = None
 
     block_devices: list[BlockDeviceInfo] = Field(default_factory=list)
     net_interfaces: list[NetInterfaceInfo] = Field(default_factory=list)

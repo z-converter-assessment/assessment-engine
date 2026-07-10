@@ -144,10 +144,19 @@ id + id_type 표현 (inventory vs metrics 이원):
 | os_version | string \| null | OS EOL 판정(attention)·버전 분포·right-sizing OS 분기 |
 | os_codename | string \| null | OS 표시 라벨 |
 | kernel_version | string \| null | Windows 빌드·Linux 커널 표시·EOL |
+| arch | string \| null | ISA(x86_64/aarch64..). 재현 이미지 ISA 분기 |
+| bits | integer \| null | 32/64. 재현 |
+| boot_firmware | string \| null | uefi/bios. 재현 부팅 방식 |
+| secure_boot | bool \| null | UEFI Secure Boot 여부. 미판별 null |
+| edition | string \| null | Windows EditionID(SKU). Linux null |
+| timezone | string \| null | IANA tz. 재현 |
+| rtc_utc | bool \| null | RTC UTC(true)/localtime(false). 미판별 null |
 | cpu_model | string \| null | CPU 모델 표시 |
 | cpu_cores | integer \| null | CPU 포화(run_queue/cores)·사이징 목표. metrics `cpu.logical.count` 와 정합 |
 | mem_total_bytes | integer(By) \| null | 메모리 사이징·표시. metrics `memory.limit` 와 동치 |
 | ip_external | array \| null | 외부 IP 목록(표시) |
+| boot | object \| null | 부트로더 재현. {kernel_cmdline(string\|null), root_ref_type(uuid/label/partuuid/path/null), grub_install_target(string\|null)} |
+| nonblock_mounts | array \| null | 블록장치 없는 마운트(tmpfs 등). fstab 재생성용. 원소 {source, target, fstype, options(array), fs_freq(int), fs_passno(int)} |
 
 ### F2. block_devices[] (required, 정규화 평면 DAG 노드)
 

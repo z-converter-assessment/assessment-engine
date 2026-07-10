@@ -348,6 +348,16 @@ class ReportRowRaw:
     mem_total_bytes: int | None = None
     block_devices: list[dict] | None = None  # 합계 산정 위해 size_bytes 합산
     lvm_vgs: list[dict] | None = None  # 확장여력 (용량 처방)
+    # OS 재현 서술자 (assessment API reproduction) — server_inventory 컬럼 pass-through.
+    arch: str | None = None
+    bits: int | None = None
+    boot_firmware: str | None = None
+    secure_boot: bool | None = None
+    edition: str | None = None
+    timezone: str | None = None
+    rtc_utc: bool | None = None
+    boot: dict | None = None  # {kernel_cmdline,root_ref_type,grub_install_target}
+    nonblock_mounts: list[dict] | None = None  # [{source,target,fstype,options,fs_freq,fs_passno}]
     boot_time: datetime | None = None  # uptime_days = now - boot_time
 
     # 서버 안 가장 채워진 마운트의 used%(most-full, fs cagg) — 디스크 이용률 KPI. 임박(runway)과 별개 축.

@@ -4,8 +4,8 @@
 identity/reproduction/sizing(axes[])/assessment 가 1급, diagnostics 는 선택 소비.
 
 분류/사이징/근본원인은 도메인 단일 진실(rollup_host + recommendation) 재사용 — 화면/right-sizing API 와 값 정합.
-reproduction 은 raw 인벤토리(block_devices/net_interfaces/lvm_vgs)를 계약 OUTPUT 형태로 reshape 하고
-미배선(agent-wait) 필드는 null. sizing 은 near-peak 메모리 + p95 CPU + per-mount 디스크(도메인 assess_*).
+reproduction 은 인벤토리(os 서술자·boot·nonblock_mounts 컬럼 + block_devices/net_interfaces/lvm_vgs JSONB)를
+계약 OUTPUT 형태로 reshape. sizing 은 near-peak 메모리 + p95 CPU + per-mount 디스크(도메인 assess_*).
 """
 
 from __future__ import annotations
@@ -97,26 +97,38 @@ def _repro_lvm_vg(v: dict) -> dict:
 
 
 def _reproduction(raw) -> dict:
-    """재현 팩트 — 현 인벤토리를 계약 OUTPUT 형태로 reshape. agent-wait 필드(arch/boot/레이아웃 상세)는 null.
+    """재현 팩트 — 현 인벤토리를 계약 OUTPUT 형태로 reshape.
 
-    미배선 필드가 raw 인벤토리 JSONB 에 들어오면(에이전트 emit + 엔진 소비 배선 완료) _repro_* 의 d.get 이
-    자동 픽업 — 매퍼는 future-proof. os arch/bits/boot 등은 별도 컬럼이라 배선 시 null 리터럴을 raw.<field> 로 교체.
+    os 재현 서술자(arch/bits/boot_firmware 등)·boot·nonblock_mounts 는 server_inventory 전용 컬럼에서,
+    레이아웃 상세(block_devices/lvm_vgs 세부)는 raw JSONB 에서 _repro_* 의 d.get 으로 픽업. agent 가 아직
+    미수집한 값(addresses.origin, lvm size/free 등)은 raw 에 없어 자연히 null — 소비자는 항상 null 처리.
     """
+    boot = raw.boot or {}
     return {
         "os": {
             "family": raw.os_family, "id": raw.os_id, "version": raw.os_version,
             "codename": raw.os_codename, "kernel": raw.kernel_version,
-            # agent-wait (별도 인벤토리 컬럼, 미배선 -> null)
-            "arch": None, "bits": None, "boot_firmware": None, "secure_boot": None,
-            "edition": None, "timezone": None, "rtc_utc": None,
+            "arch": raw.arch, "bits": raw.bits, "boot_firmware": raw.boot_firmware,
+            "secure_boot": raw.secure_boot, "edition": raw.edition,
+            "timezone": raw.timezone, "rtc_utc": raw.rtc_utc,
         },
-        "boot": {"kernel_cmdline": None, "root_ref_type": None, "grub_install_target": None},
+        "boot": {
+            "kernel_cmdline": boot.get("kernel_cmdline"),
+            "root_ref_type": boot.get("root_ref_type"),
+            "grub_install_target": boot.get("grub_install_target"),
+        },
         "network": {"interfaces": [_repro_interface(i) for i in raw.net_interfaces or []]},
         "storage": {
             "block_devices": [_repro_block_device(d) for d in raw.block_devices or []],
             "lvm_vgs": [_repro_lvm_vg(v) for v in raw.lvm_vgs or []],
         },
-        "mounts": [],  # nonblock_mounts agent-wait
+        "mounts": [
+            {
+                "source": m.get("source"), "target": m.get("target"), "fstype": m.get("fstype"),
+                "options": m.get("options"), "fs_freq": m.get("fs_freq"), "fs_passno": m.get("fs_passno"),
+            }
+            for m in raw.nonblock_mounts or []
+        ],
     }
 
 

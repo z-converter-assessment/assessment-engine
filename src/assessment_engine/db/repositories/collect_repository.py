@@ -49,6 +49,13 @@ class CollectRepository(BaseCollectRepository):
         ServerInventory.os_version,
         ServerInventory.os_codename,
         ServerInventory.kernel_version,
+        ServerInventory.arch,
+        ServerInventory.bits,
+        ServerInventory.boot_firmware,
+        ServerInventory.secure_boot,
+        ServerInventory.edition,
+        ServerInventory.timezone,
+        ServerInventory.rtc_utc,
         ServerInventory.cpu_cores,
         ServerInventory.cpu_model,
         ServerInventory.mem_total_bytes,
@@ -57,6 +64,8 @@ class CollectRepository(BaseCollectRepository):
         ServerInventory.block_devices,
         ServerInventory.net_interfaces,
         ServerInventory.lvm_vgs,
+        ServerInventory.boot,
+        ServerInventory.nonblock_mounts,
         ServerInventory.ip_external,
         ServerInventory.services,
         ServerInventory.listen_ports,
@@ -88,6 +97,15 @@ class CollectRepository(BaseCollectRepository):
             "services": data.services,
             "listen_ports": data.listen_ports,
             "service_categories": data.service_categories,
+            "arch": data.arch,
+            "bits": data.bits,
+            "boot_firmware": data.boot_firmware,
+            "secure_boot": data.secure_boot,
+            "edition": data.edition,
+            "timezone": data.timezone,
+            "rtc_utc": data.rtc_utc,
+            "boot": data.boot,
+            "nonblock_mounts": data.nonblock_mounts,
             "last_seen_at": data.collected_at,
         }
 
@@ -130,6 +148,13 @@ class CollectRepository(BaseCollectRepository):
             or prev.os_version != new.os_version
             or prev.os_codename != new.os_codename
             or prev.kernel_version != new.kernel_version
+            or prev.arch != new.arch
+            or prev.bits != new.bits
+            or prev.boot_firmware != new.boot_firmware
+            or prev.secure_boot != new.secure_boot
+            or prev.edition != new.edition
+            or prev.timezone != new.timezone
+            or prev.rtc_utc != new.rtc_utc
             or prev.cpu_cores != new.cpu_cores
             or prev.cpu_model != new.cpu_model
             or prev.mem_total_bytes != new.mem_total_bytes
@@ -138,6 +163,8 @@ class CollectRepository(BaseCollectRepository):
             or prev.block_devices != new.block_devices
             or prev.net_interfaces != new.net_interfaces
             or prev.lvm_vgs != new.lvm_vgs
+            or prev.boot != new.boot
+            or prev.nonblock_mounts != new.nonblock_mounts
             or prev.ip_external != new.ip_external
             or prev.services != new.services
             or prev.listen_ports != new.listen_ports
@@ -161,6 +188,13 @@ class CollectRepository(BaseCollectRepository):
                 os_version=data.os_version,
                 os_codename=data.os_codename,
                 kernel_version=data.kernel_version,
+                arch=data.arch,
+                bits=data.bits,
+                boot_firmware=data.boot_firmware,
+                secure_boot=data.secure_boot,
+                edition=data.edition,
+                timezone=data.timezone,
+                rtc_utc=data.rtc_utc,
                 cpu_cores=data.cpu_cores,
                 cpu_model=data.cpu_model,
                 mem_total_bytes=data.mem_total_bytes,
@@ -169,6 +203,8 @@ class CollectRepository(BaseCollectRepository):
                 block_devices=data.block_devices,
                 net_interfaces=data.net_interfaces,
                 lvm_vgs=data.lvm_vgs,
+                boot=data.boot,
+                nonblock_mounts=data.nonblock_mounts,
                 ip_external=data.ip_external,
                 services=data.services,
                 listen_ports=data.listen_ports,
