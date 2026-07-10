@@ -198,6 +198,13 @@
           "os_version": { "type": ["string", "null"] },
           "os_codename": { "type": ["string", "null"] },
           "kernel_version": { "type": ["string", "null"] },
+          "arch": { "type": ["string", "null"], "$comment": "ISA(x86_64/aarch64..). 재현 이미지 ISA 분기" },
+          "bits": { "type": ["integer", "null"], "$comment": "32|64" },
+          "boot_firmware": { "type": ["string", "null"], "$comment": "uefi|bios. 재현 부팅 방식" },
+          "secure_boot": { "type": ["boolean", "null"], "$comment": "UEFI Secure Boot 여부. 미판별 null" },
+          "edition": { "type": ["string", "null"], "$comment": "Windows EditionID(SKU). Linux null" },
+          "timezone": { "type": ["string", "null"], "$comment": "IANA tz" },
+          "rtc_utc": { "type": ["boolean", "null"], "$comment": "RTC UTC(true)/localtime(false). 미판별 null" },
           "cpu_model": { "type": ["string", "null"] },
           "cpu_cores": { "type": ["integer", "null"], "$comment": "논리 코어 수(정적). metrics 는 system.cpu cpu.logical.count(gauge, unit cpu)로도 발행" },
           "mem_total_bytes": { "type": ["integer", "null"], "$comment": "총 물리 메모리(By). metrics memory.limit 와 동치이나 inventory 시점 저장용" },
@@ -214,7 +221,9 @@
           "system.cgroup":     { "$ref": "#/$defs/namespace" },
           "block_devices":     { "type": "array", "items": { "$ref": "#/$defs/block_device" } },
           "net_interfaces":    { "type": "array", "items": { "$ref": "#/$defs/net_interface" } },
-          "lvm_vgs":           { "type": "array", "items": { "$ref": "#/$defs/lvm_vg" } }
+          "lvm_vgs":           { "type": "array", "items": { "$ref": "#/$defs/lvm_vg" } },
+          "boot":              { "type": ["object", "null"], "$comment": "부트로더 재현 {kernel_cmdline, root_ref_type(uuid/label/partuuid/path/null), grub_install_target}" },
+          "nonblock_mounts":   { "type": ["array", "null"], "$comment": "블록장치 없는 마운트(tmpfs 등). fstab 재생성. 원소 {source, target, fstype, options[], fs_freq, fs_passno}" }
         }
       }
     },
