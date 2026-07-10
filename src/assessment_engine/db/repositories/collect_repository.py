@@ -1,4 +1,4 @@
-import dataclasses
+from collections.abc import Callable
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -314,7 +314,11 @@ class CollectRepository(BaseCollectRepository):
             filesystem=await self._insert_child(ServerFilesystem, server_id, data, data.filesystems),
             cpu_core=await self._insert_child(ServerCpuCore, server_id, data, data.cpu_per_core),
             pressure=await self._insert_child(ServerPressure, server_id, data, data.pressure),
-            disk_error=await self._insert_disk_error(server_id, data, data.disk_errors),
+            # member NOT NULL('') — None 을 '' 로 정규화 (NK 에 NULL 미포함, Postgres UNIQUE NULL distinct 회피).
+            disk_error=await self._insert_child(
+                ServerDiskError, server_id, data, data.disk_errors,
+                row_hook=lambda row: {**row, "member": row["member"] or ""},
+            ),
         )
 
     async def _insert_child(
@@ -322,33 +326,20 @@ class CollectRepository(BaseCollectRepository):
         model: type,
         server_id: int,
         data: ServerMetricCreate,
-        entries: list[CpuCoreEntry | DiskIoEntry | NetIoEntry | FilesystemEntry | PressureEntry],
+        entries: list[CpuCoreEntry | DiskIoEntry | NetIoEntry | FilesystemEntry | PressureEntry | DiskErrorEntry],
+        row_hook: Callable[[dict], dict] | None = None,
     ) -> int:
-        """자식 시계열 공통 bulk INSERT — dataclass 필드가 곧 컬럼. envelope 메타 미주입(본 행이 참조)."""
-        if not entries:
-            return 0
-        rows = [
-            {"server_id": server_id, "collected_at": data.collected_at, **dataclasses.asdict(e)} for e in entries
-        ]
-        stmt = pg_insert(model).values(rows).on_conflict_do_nothing()
-        result = await self.session.execute(stmt)
-        return result.rowcount or 0
+        """자식 시계열 공통 bulk INSERT — dataclass 필드가 곧 컬럼. envelope 메타 미주입(본 행이 참조).
 
-    async def _insert_disk_error(
-        self,
-        server_id: int,
-        data: ServerMetricCreate,
-        entries: list[DiskErrorEntry],
-    ) -> int:
-        # member NOT NULL('') — None 을 '' 로 정규화 (NK 에 NULL 미포함, Postgres UNIQUE NULL distinct 회피).
+        entries 는 평면 dataclass(중첩 없음) 이므로 vars(e) shallow spread — asdict 의 재귀 deepcopy 오버헤드
+        회피(메트릭 인제스트 hot path). row_hook 은 INSERT 전 행 정규화(disk_error member '' 등).
+        """
         if not entries:
             return 0
-        rows = []
-        for e in entries:
-            row = {"server_id": server_id, "collected_at": data.collected_at, **dataclasses.asdict(e)}
-            row["member"] = row["member"] or ""
-            rows.append(row)
-        stmt = pg_insert(ServerDiskError).values(rows).on_conflict_do_nothing()
+        rows = [{"server_id": server_id, "collected_at": data.collected_at, **vars(e)} for e in entries]
+        if row_hook is not None:
+            rows = [row_hook(row) for row in rows]
+        stmt = pg_insert(model).values(rows).on_conflict_do_nothing()
         result = await self.session.execute(stmt)
         return result.rowcount or 0
 

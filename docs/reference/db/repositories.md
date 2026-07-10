@@ -38,7 +38,7 @@
 | `reboot_events(server_id, start, end)` | server_inventory_history boot_time/agent_started_at 변경 시점 |
 | `report_aggregate(server_ids, period_days, end)` | USE Method 통계 (CPU p95/peak + MEM p95/peak + load_15m max + swap_used) + 용량 임박 구동 마운트(`mount_runway` CTE — MIN runway 마운트 이름·runway·used%, 분류 단일 소스) — `server_metrics_5m`·`server_mount_usage_5m` cagg |
 | `report_uptime_stats(server_ids, period_days, end)` | 가동률 통계 |
-| `report_disk_io_baseline` / `report_net_io_baseline` | I/O baseline (Export `recommended_size_class` 입력, `DiskIoBaselineRaw`/`NetIoBaselineRaw` 반환) — `server_disk_io_5m`/`server_net_io_5m` cagg counter_agg(reset 일률 처리) |
+| `report_disk_io_baseline` / `report_net_io_baseline` | I/O baseline (보고서 I/O baseline 표시 입력, `DiskIoBaselineRaw`/`NetIoBaselineRaw` 반환) — `server_disk_io_5m`/`server_net_io_5m` cagg counter_agg(reset 일률 처리, 물리 device 만 집계) |
 | `report_mount_usage(server_id, period_days, end)` | 개별 보고서 전체 마운트 윈도우 평균 사용률 (worst 1개 아님, 가상 mount 제외) |
 | `report_memory_breakdown(server_id, period_days, end)` | 개별 보고서 메모리 구성 (used/available/cached/buffers 전체 대비 %, 시점값 avg) |
 | `report_cpu_breakdown(server_id, period_days, end)` | 개별 보고서 CPU 분류 (user/system/iowait, `server_metrics_5m` cagg counter_agg delta) |

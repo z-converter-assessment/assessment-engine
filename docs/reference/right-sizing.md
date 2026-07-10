@@ -21,7 +21,7 @@ UI badge 임계(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`, 90/75)와는 별 
 각 자원은 자기 어휘로 판정한다 (`assess_cpu`/`assess_memory`/`assess_disk_capacity`/`assess_disk_io`/`assess_network`).
 
 - CPU: under(이용률 p95 >= 70% OR 실행 큐 포화) / over(AWS Balanced 사이징 목표 < 현재 코어, 단일스레드 보호 시 보류) / optimal. 목표 = 이용률 70% + 포화 headroom 중 큰 쪽.
-- 메모리: under(이용률 p95 >= 90% OR active page-out OR OOM) / over / optimal. 목표 = 이용률 70% 착지. swapless 다수는 이용률이 주신호.
+- 메모리: under(이용률 p95 >= 90% OR active page-out OR OOM) / over / optimal. 사이징 목표 = near-peak(관측 피크) 80% 착지 — 비탄력·OOM 회피라 평균 아닌 피크 통계. swapless 다수는 이용률이 주신호.
 - 디스크 용량: filling(소진 runway < 30일 OR 정적 가드 used% >= 85%, 바이트·inode 각 축) / capacity_ok. under/over 아닌 "남은 시간" 예측(누적 자원). 확장 목표 GB 동반.
 - 디스크 I/O: io_bound(응답 지연 await p95 > 20ms) / io_ok. 증분 불가라 사이징 없음 — 티어 상향 검토 표시.
 - 네트워크: congested(품질) / quality_ok. 사이징 축 아님(vNIC 링크 속도 부재). 재전송·드롭·conntrack 은 품질 신호.
@@ -66,7 +66,7 @@ UI badge 임계(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`, 90/75)와는 별 
 | (idle) | cpu_p95 <= 3% AND net <= 2 Mbps | Utilization | Azure/AWS 저사용 |
 | (over) | AWS Balanced 사이징 목표 < 현재 | Utilization | AWS Compute Optimizer Balanced(70% 목표) |
 
-CPU·메모리 증설·다운사이즈 사이징 목표 = 이용률 70%(AWS Balanced, 비대칭 없음). 포화 목표배수 0.7 · per-core 보류 85%.
+사이징 목표는 자원 특성에 맞춘 비대칭(용도적합): CPU 는 p95 이용률 착지(탄력적이라 순간 피크 흡수), 메모리는 near-peak(관측 피크) 착지(비탄력·OOM 위험이라 평균 아닌 피크 대표 통계). 증설·다운사이즈 동일 통계. 목표%·포화 배수·per-core 보류 임계 수치·근거는 `right-sizing-thresholds.md`.
 
 ## 5. OS 분기 (Windows)
 

@@ -4,6 +4,8 @@
 
 `schema_version` = `"2.0"` 고정. 메시지 4종: `metrics` · `inventory` · `task.result` · `error`.
 
+통일 버전: 시스템 전체 계약 버전은 엔진 레포 `contract.CONTRACT_VERSION`(현 `"1.0"`, major.minor)로 단일화된다(assessment API·export·task.install·wire 공통 단일 값). wire 는 현재 `"2.0"` 발행이나 엔진 consumer 는 `"1.0"`·`"2.0"` 을 함께 수용해 에이전트의 `"1.0"` 정렬을 flag-day 없이 흡수한다(게이트는 major 만 비교). task.install(engine -> agent)은 이 시스템 버전을 실어 보내 에이전트가 실행 전 major 게이트한다. 버전 규약 단일 진실 = `contract.py`.
+
 설계 원칙:
 - 2레이어 분리 — Layer 1(wire) = 자원 네임스페이스별 raw counter/gauge 사실만. Layer 2(engine) = USE Method 해석(`recommendation.py`). USE(이용률·포화·오류 판정)를 wire 에 넣지 않는다.
 - agent = stateless. emit 시점 raw 누적 스냅샷만 싣고, rate·delta·util·await·ratio 파생은 전부 엔진.

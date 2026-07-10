@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ReportRowRaw
 from assessment_engine.service_classifier import detect_listen_categories
-from assessment_engine.web.services.device_filters import disk_total_bytes
+from assessment_engine.web.services.device_filters import disk_total_bytes, is_virtual_interface
 from assessment_engine.web.services.mappers.server import (
     _os_display,
     _services_or_none,
@@ -28,7 +28,7 @@ from assessment_engine.web.services.mappers.shared import (
     resolve_os_eol,
     saturation_axis_displays,
 )
-from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb
+from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
 from assessment_engine.web.view_models.report import (
     ReportListenItem,
     ReportRowItem,
@@ -75,17 +75,17 @@ def compute_report_avg_p95(rows: list) -> tuple[float | None, float | None]:
 
 
 def compute_report_totals_from_raw(raws: list) -> ReportTotals:
-    """ReportRowRaw list -> 묶음 자원 총량. cpu_cores·mem_total_kb·디스크 총량 합산 (P2).
+    """ReportRowRaw list -> 묶음 자원 총량. cpu_cores·mem_total_bytes·디스크 총량 합산 (P2).
 
     양식 A 상단의 마이그레이션 capacity 산정 입력 — "총 N대 = 총 X vCPU·Y GB·Z TB".
-    디스크는 `disk_total_bytes` 단일 산식 — 환경 overview·세부 목록·export 와 동일 (Windows fallback 포함).
+    디스크는 `disk_total_bytes` 단일 산식 — 환경 overview·세부 목록·export 와 동일 (type=disk 합, 양 OS 일관).
     """
     total_vcpus = sum(r.cpu_cores or 0 for r in raws)
-    total_mem_kb = sum(r.mem_total_kb or 0 for r in raws)
-    total_disk_bytes = sum(disk_total_bytes(r.disks or [], r.inventory_mounts or []) for r in raws)
+    total_mem_bytes = sum(r.mem_total_bytes or 0 for r in raws)
+    total_disk_bytes = sum(disk_total_bytes(r.block_devices or []) for r in raws)
     return ReportTotals(
         total_vcpus=total_vcpus,
-        total_memory_gb=round(total_mem_kb / 1024 / 1024, 1),
+        total_memory_gb=bytes_to_gib(total_mem_bytes) or 0.0,
         total_disk_gb=int(bytes_to_gb(total_disk_bytes) or 0),
     )
 
@@ -325,13 +325,12 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
     if raw.os_family == "windows":
         if raw.cpu_run_queue_p95 is None:
             missing.append("run queue")
-        if raw.disk_queue_p95 is None:
-            missing.append("디스크 큐")
     else:
         if raw.procs_running_p95 is None:
             missing.append("실행 큐")
-        if raw.disk_await_p95_ms is None:
-            missing.append("디스크 응답(await)")
+    # 디스크 응답(await)은 양 OS 공통 포화 신호 (v2 op_time delta).
+    if raw.disk_await_p95_ms is None:
+        missing.append("디스크 응답(await)")
     if raw.worst_mount_used_pct is None:
         missing.append("디스크")
     return f"메트릭 수집 누락: {' · '.join(missing)}" if missing else "윈도우 내 표본 부족"
@@ -382,17 +381,18 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
     return recommendation.ResourceStats(
         cpu_p95_pct=raw.cpu_p95_pct,
         cpu_peak_pct=raw.cpu_peak_pct,
-        cpu_load_15m_max=raw.load_15m_max,
+        # load average 축 폐기(Gate0) -> Linux CPU 포화는 procs_running_p95, Windows 는 cpu_run_queue_p95 로 판정.
+        cpu_load_15m_max=None,
         cpu_cores=raw.cpu_cores,
         mem_p95_pct=raw.mem_p95_pct,
-        swap_used=raw.swap_used,
+        mem_near_peak_pct=raw.mem_near_peak_pct,
+        # 스왑 점유(swap_used) 축 폐기(Gate0) -> 메모리 포화는 mem_swap_paging(paging_major refault sustained) 로 판정.
+        swap_used=raw.mem_swap_paging,
         disk_used_pct=raw.worst_mount_used_pct,
         iowait_p95_pct=raw.iowait_p95_pct,
         net_avg_kbytes_per_s=net_avg,
         os_family=raw.os_family,
         sample_sufficiency=min(suffs) if suffs else None,
-        # Windows 디스크 saturation — 가장 바쁜 디스크의 큐 p95 (disk_io_saturated os-aware 소비, 정규화 불요).
-        disk_queue_p95=raw.disk_queue_p95,
         # Windows CPU saturation — Processor Queue Length p95 / Memory 는 Pages Input/sec rate p95 (os-aware 소비).
         cpu_run_queue_p95=raw.cpu_run_queue_p95,
         mem_pages_input_rate_p95=raw.mem_pages_input_rate_p95,
@@ -404,7 +404,7 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         procs_running_p95=raw.procs_running_p95,
         oom_occurred=raw.oom_occurred,
         mem_swap_paging=raw.mem_swap_paging,
-        mem_total_mb=(raw.mem_total_kb // 1024 if raw.mem_total_kb is not None else None),
+        mem_total_mb=(raw.mem_total_bytes // 1024**2 if raw.mem_total_bytes is not None else None),
         disk_await_p95_ms=raw.disk_await_p95_ms,
         disk_iops_baseline=raw.disk_iops_baseline,  # 유휴 판정 활동 축 (디스크 I/O 활동량)
         disk_capacity_runway_days=raw.disk_capacity_runway_days,
@@ -503,9 +503,8 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
     mem_variance = None
     if raw.mem_p95_pct and raw.mem_peak_pct and raw.mem_p95_pct > 0:
         mem_variance = raw.mem_peak_pct / raw.mem_p95_pct
-    # 인벤토리 디스크 총량 — 물리 disks 우선, 비면(Windows) 파일시스템 mounts fallback.
-    # device_filters.disk_total_bytes 단일 산식 (개별·환경 보고서와 동일, Windows 포함 일관).
-    _disk_bytes = disk_total_bytes(raw.disks or [], raw.inventory_mounts or [])
+    # 인벤토리 디스크 총량 — block_devices type=disk 합(disk_total_bytes 단일 산식, 개별·환경 보고서 일관, 양 OS).
+    _disk_bytes = disk_total_bytes(raw.block_devices or [])
     disk_total_gb_val: float | None = round(bytes_to_gb(_disk_bytes) or 0.0, 1) if _disk_bytes else None
     return ReportRowItem(
         server_id=raw.server_id,
@@ -519,11 +518,17 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         os_display=_os_display(raw.os_id, raw.os_version),
         kernel_version=raw.kernel_version,
         internal_ip=next(
-            (i["address"] for i in raw.interfaces or [] if i.get("kind") == "physical" and i.get("family") == "ipv4"),
+            (
+                a.get("address")
+                for i in raw.net_interfaces or []
+                if not is_virtual_interface(i.get("kind"))  # physical + bond_master (topology·상세와 동일 술어)
+                for a in i.get("addresses") or []
+                if a.get("family") == "ipv4"
+            ),
             None,
         ),
         cpu_cores=raw.cpu_cores,
-        mem_total_gb=kb_to_gb(raw.mem_total_kb),
+        mem_total_gb=bytes_to_gib(raw.mem_total_bytes),
         disk_total_gb=disk_total_gb_val,
         cpu_p95_pct=raw.cpu_p95_pct,
         cpu_avg_pct=raw.cpu_avg_pct,
@@ -531,8 +536,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         mem_p95_pct=raw.mem_p95_pct,
         mem_avg_pct=raw.mem_avg_pct,
         mem_peak_pct=raw.mem_peak_pct,
-        load_15m_max=raw.load_15m_max,
-        swap_used=raw.swap_used,
+        cpu_run_queue_p95=raw.cpu_run_queue_p95,
         mem_swap_paging=raw.mem_swap_paging,
         root_cause_label=recommendation.root_cause_display(host),
         net_status_label=net_status_label,

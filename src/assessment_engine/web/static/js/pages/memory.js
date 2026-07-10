@@ -14,10 +14,10 @@ const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
 const SERVER_ID = document.body.dataset.serverId;
 const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 메트릭 N/A 분기
 
-// 현재 상태 메모리/스왑 측정값 단위 통일 — KB 입력 -> GB 소숫점1 고정 (인벤토리 '전체 메모리 X.X GB' 와 일관).
-function fmtGb(kb) {
-  if (kb == null) return '—';
-  return (kb / 1024 / 1024).toFixed(1) + ' GB';
+// 현재 상태 메모리 측정값 단위 통일 — bytes 입력 -> GB 소숫점1 고정 (인벤토리 '전체 메모리 X.X GB' 와 일관).
+function fmtGb(bytes) {
+  if (bytes == null) return '—';
+  return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB';
 }
 
 /* ── 스냅샷 ── */
@@ -29,29 +29,18 @@ async function loadSnapshot() {
     if (!res.ok) return;
     const data = await res.json();
     const mem  = data.memory;
-    const swap = data.swap;
     if (!mem) { document.getElementById('snap-empty').style.display = ''; return; }
 
-    const usedKb = mem.total_kb != null && mem.available_kb != null ? mem.total_kb - mem.available_kb : null;
     document.getElementById('s-mem-pct').textContent     = mem.usage_pct    != null ? mem.usage_pct.toFixed(1) + '%' : '—';
-    document.getElementById('s-mem-used').textContent    = fmtGb(usedKb);
-    document.getElementById('s-mem-avail').textContent   = fmtGb(mem.available_kb);
-    document.getElementById('s-mem-cached').textContent  = ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtGb(mem.cached_kb));
-    document.getElementById('s-mem-buffers').textContent = ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtGb(mem.buffers_kb));
+    document.getElementById('s-mem-used').textContent    = fmtGb(mem.used_bytes);
+    document.getElementById('s-mem-avail').textContent   = fmtGb(mem.available_bytes);
+    document.getElementById('s-mem-cached').textContent  = ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtGb(mem.cached_bytes));
+    document.getElementById('s-mem-buffers').textContent = ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtGb(mem.buffered_bytes));
 
-    if (swap) {
-      const swapUsedKb = swap.total_kb != null && swap.used_kb != null ? swap.used_kb : null;
-      document.getElementById('s-swap-pct').textContent   = swap.usage_pct  != null ? swap.usage_pct.toFixed(1) + '%' : '—';
-      document.getElementById('s-swap-used').textContent  = fmtGb(swapUsedKb);
-    }
-    // 메모리 압박 — 신 모델 포화 신호(스왑 점유율과 별개). Linux=page-out 발생(pswpout 델타>0), Windows=Pages Input/sec(하드폴트율).
+    // 메모리 압박 — 신 모델 포화 신호(스왑 점유율과 별개). 양 OS 공통 하드 페이지 폴트율(mem_pages_input_rate).
     const pressEl = document.getElementById('s-mem-pressure');
     if (pressEl) {
-      if (OS_FAMILY === 'windows') {
-        pressEl.textContent = data.mem_pages_input_rate != null ? data.mem_pages_input_rate.toFixed(0) + '/s (하드폴트)' : '—';
-      } else {
-        pressEl.textContent = data.mem_pageout != null ? (data.mem_pageout > 0 ? 'page-out 발생' : '없음') : '—';
-      }
+      pressEl.textContent = data.mem_pages_input_rate != null ? data.mem_pages_input_rate.toFixed(0) + '/s (하드폴트)' : '—';
     }
 
     const stampEl = document.getElementById('metrics-stamp');
@@ -65,12 +54,11 @@ async function loadSnapshot() {
   }
 }
 
-/* ── avg+max ghost 차트 (mem·swap 공통) ──
- * Y축 정책: mem은 분해력 우선 0~100%, swap은 부분절대 suggestedMax=25 (낮은 사용률 0~10%도 시각화).
+/* ── avg+max ghost 차트 (메모리 사용률 추이) ──
+ * Y축 정책: mem은 분해력 우선 0~100%.
  */
 const PCT_CHARTS = [
   { id: 'mem',  metric: 'mem.usage_percent',  label: '메모리 사용률', color: ChartUtils.themeColor(), yMax: 100 },
-  { id: 'swap', metric: 'swap.usage_percent', label: '스왑 사용률',   color: '#ef4444', ySuggestedMax: 25 },
 ];
 
 function makePctLoader(def) {

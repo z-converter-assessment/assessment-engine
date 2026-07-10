@@ -259,6 +259,45 @@ def _lp_dicts(data: InventoryInput) -> list[dict]:
     ]
 
 
+def _sparse(d: dict) -> dict:
+    """None 값 키 제거 — 레이아웃 상세는 자연 노드에만 채워지므로 sparse 저장(JSONB 경량, agent 미emit 시 빈 dict)."""
+    return {k: v for k, v in d.items() if v is not None}
+
+
+def _bd_layout(b) -> dict:
+    """block_device 레이아웃 상세 (reproduction) — non-None 키만. assessment_api 가 read 시 d.get 으로 소비."""
+    return _sparse(
+        {
+            "partition_table": b.partition_table, "sector_size": b.sector_size, "serial": b.serial,
+            "wwn": b.wwn, "rotational": b.rotational,
+            "part_number": b.part_number, "part_start_bytes": b.part_start_bytes, "part_type": b.part_type,
+            "part_name": b.part_name, "part_flags": b.part_flags,
+            "fs_uuid": b.fs_uuid, "fs_label": b.fs_label, "block_size": b.block_size,
+            "mount_options": b.mount_options, "fs_freq": b.fs_freq, "fs_passno": b.fs_passno,
+            "lvm_vg": b.lvm_vg, "lvm_lv": b.lvm_lv, "lvm_segtype": b.lvm_segtype,
+            "lvm_stripes": b.lvm_stripes, "lvm_stripe_size_kib": b.lvm_stripe_size_kib,
+            "raid_level": b.raid_level, "raid_chunk_kib": b.raid_chunk_kib,
+            "raid_metadata": b.raid_metadata, "raid_uuid": b.raid_uuid, "crypt_type": b.crypt_type,
+        }
+    )
+
+
+def _ni_layout(n) -> dict:
+    """net_interface 레이아웃 상세 (reproduction) — non-None 키만. routes 는 dict 로 평탄화."""
+    return _sparse(
+        {
+            "mtu": n.mtu, "dns": n.dns,
+            "routes": [{"dest": r.dest, "via": r.via} for r in n.routes] if n.routes else None,
+            "bond_mode": n.bond_mode, "vlan_id": n.vlan_id,
+        }
+    )
+
+
+def _vg_layout(v) -> dict:
+    """lvm_vg 레이아웃 상세 (reproduction) — non-None 키만."""
+    return _sparse({"vg_uuid": v.vg_uuid, "extent_size_bytes": v.extent_size_bytes, "pv_ids": v.pv_ids})
+
+
 def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
     return ServerInventoryCreate(
         agent_id=str(data.agent_id),
@@ -287,6 +326,7 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
                 "parent": b.parent,
                 "id": b.id,
                 "id_type": b.id_type,
+                **_bd_layout(b),
             }
             for b in data.block_devices
         ],
@@ -297,8 +337,15 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
                 "id_type": n.id_type,
                 "kind": n.kind,
                 "speed_mbps": n.speed_mbps,
-                "addresses": [{"address": a.address, "prefix": a.prefix, "family": a.family} for a in n.addresses],
+                "addresses": [
+                    {
+                        "address": a.address, "prefix": a.prefix, "family": a.family,
+                        **({"origin": a.origin} if a.origin is not None else {}),
+                    }
+                    for a in n.addresses
+                ],
                 "gateway": n.gateway,
+                **_ni_layout(n),
             }
             for n in data.net_interfaces
         ],
@@ -309,6 +356,7 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
                 "free_bytes": v.free_bytes,
                 "data_percent": v.data_percent,
                 "metadata_percent": v.metadata_percent,
+                **_vg_layout(v),
             }
             for v in data.lvm_vgs
         ],

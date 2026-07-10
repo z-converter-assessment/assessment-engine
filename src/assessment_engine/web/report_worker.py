@@ -15,26 +15,20 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
 from loguru import logger
 
+from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.report_generator import (
     ReportGenerationError,
     build_report_result_for_job,
 )
-
-
-async def _sleep_or_stop(stop_event: asyncio.Event, seconds: float) -> None:
-    """poll 대기 — stop_event set 되면 즉시 깸(graceful shutdown 시 대기 단축)."""
-    try:
-        await asyncio.wait_for(stop_event.wait(), timeout=seconds)
-    except TimeoutError:
-        pass
+from assessment_engine.web.worker_lifecycle import graceful_drain, sleep_or_stop
 
 
 async def _process_one(
     diag_service: DiagnosticService,
     query_service_factory: Callable[[], AbstractAsyncContextManager[QueryService]],
-    rec,
+    rec: DiagnosticJobRecord,
 ) -> None:
     """claim 된 job 1건 생성·저장. 생성 불가 -> failed, 내부 예외 -> failed(워커 격리)."""
     try:
@@ -77,10 +71,10 @@ async def run_report_worker(
         except Exception:
             # claim 자체 실패(DB 일시 장애 등) — 루프 유지, poll 후 재시도.
             logger.exception("report worker claim failed")
-            await _sleep_or_stop(stop_event, poll_interval_sec)
+            await sleep_or_stop(stop_event, poll_interval_sec)
             continue
         if rec is None:
-            await _sleep_or_stop(stop_event, poll_interval_sec)
+            await sleep_or_stop(stop_event, poll_interval_sec)
             continue
         try:
             await _process_one(diag_service, query_service_factory, rec)
@@ -90,21 +84,6 @@ async def run_report_worker(
             logger.exception("report worker process failed job_id={}", rec.id)
 
     logger.info("report worker stopped")
-
-
-async def _drain(worker_task: asyncio.Task, stop_event: asyncio.Event, shutdown_timeout_sec: float) -> None:
-    """graceful shutdown — 새 claim 중단 + 진행 중 1건 timeout 안 완료 시도. 미완은 cancel(running 잔류 -> stale 복구).
-
-    AsyncIterator 반환 아님 — lifespan 종료부에서 await 호출용 헬퍼.
-    """
-    stop_event.set()
-    try:
-        await asyncio.wait_for(worker_task, timeout=shutdown_timeout_sec)
-    except TimeoutError:
-        worker_task.cancel()
-        logger.warning("report worker shutdown timeout — in-flight job left running (stale recovery will requeue)")
-    except asyncio.CancelledError:
-        pass
 
 
 @asynccontextmanager
@@ -133,4 +112,7 @@ async def lifespan_worker(
     try:
         yield
     finally:
-        await _drain(worker_task, stop_event, shutdown_timeout_sec)
+        await graceful_drain(
+            worker_task, stop_event, shutdown_timeout_sec,
+            "report worker shutdown timeout — in-flight job left running (stale recovery will requeue)",
+        )

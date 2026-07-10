@@ -7,7 +7,6 @@ from assessment_engine import recommendation
 from assessment_engine.cache.redis import safe_get, safe_mget
 from assessment_engine.db.dtos.outbound import (
     CpuBreakdownRaw,
-    InventoryExportEntry,
     MemoryBreakdownRaw,
     ReportMountUsageRaw,
     ReportRowRaw,
@@ -19,9 +18,9 @@ from assessment_engine.db.repositories.query.types import (
     TIME_RANGE_TD,
     TimeRange,
 )
+from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.attention import build_action_targets
 from assessment_engine.web.services.mappers.environment_report import build_metric_trend, to_environment_report
-from assessment_engine.web.services.mappers.export import to_inventory_export_entry
 from assessment_engine.web.services.mappers.report import (
     build_report_summary_bullets,
     build_role_distribution,
@@ -39,7 +38,7 @@ from assessment_engine.web.services.mappers.server import (
 )
 from assessment_engine.web.services.mappers.shared import ReportView
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin, _empty_overview, _filter_attention
-from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb
+from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
 from assessment_engine.web.settings import web_settings
 from assessment_engine.web.view_models.attention import (
     AttentionSignals,
@@ -235,9 +234,8 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             is_online = bool(detail.last_seen_at and detail.last_seen_at > threshold)
 
         # P2 단일 진실 — units helper 경유 (mapper·service 공통 단위 산식).
-        mem_total_gb = kb_to_gb(detail.mem_total_kb) or 0.0
-        disk_total_bytes = sum((d.get("size_bytes") or 0) for d in detail.disks) if detail.disks else 0
-        disk_total_gb = int(bytes_to_gb(disk_total_bytes) or 0)
+        mem_total_gb = bytes_to_gib(detail.mem_total_bytes) or 0.0
+        disk_total_gb = int(bytes_to_gb(disk_total_bytes(detail.block_devices)) or 0)
         overview = EnvironmentOverview(
             total=1,
             online=1 if is_online else 0,
@@ -428,47 +426,5 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             generated_at=datetime.now(UTC),
         )
 
-    async def get_inventory_export(
-        self,
-        server_ids: list[int],
-        period_days: float = recommendation.WINDOW_DAYS,
-    ) -> list[InventoryExportEntry]:
-        """선택 서버 N대의 정제 inventory JSON 항목 list.
-
-        Right-sizing stats(cpu_p95/peak·mem_p95/peak·load·swap)도 같이 fetch하여 export에 포함.
-        USE Method 보고서 SQL(`report_aggregate`) 재사용 — period_days 윈도우 통계.
-
-        각 서버는 ServerDetail + ReportRowRaw -> mapper로 변환. 누락된 server_id는 silent skip.
-
-        C5: `get_servers` + `report_aggregate` 단일 SQL 각 1회 — 입력 server_ids 순서 보존.
-        스키마·정제 원칙·사용처: docs/reference/web/export-schema.md.
-        """
-        end_dt = datetime.now(UTC)
-        details = await self.repo.get_servers(server_ids)
-        stats_rows = await self.repo.report_aggregate(server_ids, period_days, end_dt)
-        disk_io = await self.repo.report_disk_io_baseline(server_ids, period_days, end_dt)
-        net_io = await self.repo.report_net_io_baseline(server_ids, period_days, end_dt)
-
-        # stats에 disk_io·net_io baseline + p95/peak 주입 (inventory-export 확장)
-        for row in stats_rows:
-            disk_bl = disk_io.get(row.server_id)
-            if disk_bl is not None:
-                row.disk_iops_baseline = disk_bl.iops_baseline
-                row.disk_throughput_kbps = disk_bl.throughput_kbps_baseline
-                row.disk_iops_p95 = disk_bl.iops_p95
-                row.disk_iops_peak = disk_bl.iops_peak
-                row.disk_throughput_kbps_p95 = disk_bl.kbps_p95
-                row.disk_throughput_kbps_peak = disk_bl.kbps_peak
-            net_bl = net_io.get(row.server_id)
-            if net_bl is not None:
-                row.net_rx_kbps = net_bl.rx_kbps_baseline
-                row.net_tx_kbps = net_bl.tx_kbps_baseline
-                row.net_rx_kbps_p95 = net_bl.rx_p95
-                row.net_rx_kbps_peak = net_bl.rx_peak
-                row.net_tx_kbps_p95 = net_bl.tx_p95
-                row.net_tx_kbps_peak = net_bl.tx_peak
-
-        stats_by_id = {row.server_id: row for row in stats_rows}
-        order = {sid: i for i, sid in enumerate(server_ids)}
-        details.sort(key=lambda d: order.get(d.id, len(server_ids)))
-        return [to_inventory_export_entry(d, stats_by_id.get(d.id)) for d in details]
+    # inventory export 는 assessment 계약(/api/exports/inventory = assessment envelope 파일)으로 이관 —
+    # 사이징/재현 데이터는 get_assessment 단일 진실. 옛 v4 export mapper(size_class 등) 폐기.

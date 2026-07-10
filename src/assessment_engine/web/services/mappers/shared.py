@@ -12,6 +12,7 @@ from typing import Literal
 
 from assessment_engine import recommendation
 from assessment_engine.service_classifier import SERVICE_CATALOG
+from assessment_engine.web.services.device_filters import is_virtual_interface
 from assessment_engine.web.view_models.server import ServiceBadgeRef
 
 # ─── UI 임계값 — base.html body data-attribute 동기화 (#E1 P3 · ADR 0015) ────
@@ -117,6 +118,71 @@ def build_host_confidence_notes(host: recommendation.HostAssessment) -> list[str
     if any(r.confidence.low_precision for r in host.resources.values()):
         notes.append("표본 부족")
     return notes
+
+
+def primary_ip(raw) -> str | None:
+    """물리(physical/bond_master) 인터페이스의 첫 IPv4 — API identity.primary_ip. topology/상세와 동일 술어(P2 공용)."""
+    for i in raw.net_interfaces or []:
+        if is_virtual_interface(i.get("kind")):
+            continue
+        for a in i.get("addresses") or []:
+            if a.get("family") == "ipv4":
+                return a.get("address")
+    return None
+
+
+def resource_confidence_notes(c: recommendation.ConfidenceNote) -> list[str]:
+    """자원별 신뢰도 하향 사유 — biased(virtio 구조 편향)는 상시라 노이즈로 제외. right-sizing/assessment API 공용."""
+    notes: list[str] = []
+    if c.low_precision:
+        notes.append("표본 부족")
+    if c.coverage_gap:
+        notes.append("포화 수치 미관측")
+    if c.nonstationary:
+        notes.append("상승 추세")
+    return notes
+
+
+def saturation_dict(signal: str, value: float | None, threshold: float | None, unit: str, saturated: bool | None) -> dict:
+    """포화 신호 1건 — raw numeric(파싱 계약). network.signals 와 동형, value 미측정 시 null. API 공용."""
+    return {
+        "signal": signal,
+        "value": round(value, 2) if value is not None else None,
+        "threshold": threshold,
+        "unit": unit,
+        "measured": value is not None,
+        "saturated": saturated,
+    }
+
+
+def saturation_block(kind: str, stats) -> dict:
+    """자원별 포화 신호 — os-aware raw 수치(계약용 numeric). right-sizing/assessment API 공용(P2 단일 진실)."""
+    win = stats.os_family == "windows"
+    if kind == "cpu":
+        rq = stats.cpu_run_queue_p95 if win else stats.procs_running_p95
+        val = recommendation.cpu_saturation_index(rq, stats.cpu_cores, stats.os_family)
+        thr = recommendation.CPU_RUN_QUEUE_PER_CORE_SATURATION if win else recommendation.PROCS_RUNNING_PER_CORE_SATURATION
+        sig = "Processor Queue Length/core" if win else "run queue (procs_running)/core"
+        return saturation_dict(sig, val, thr, "per_core", recommendation.cpu_saturated(stats))
+    if kind == "memory":
+        if win:
+            return saturation_dict(
+                "Pages Input/sec", stats.mem_pages_input_rate_p95, recommendation.WIN_PAGES_INPUT_SATURATION,
+                "per_sec", recommendation.mem_saturated(stats),
+            )
+        # Linux swap page-out 은 발생 이벤트(수치 없음) — 판정은 saturated 로.
+        sat = recommendation.mem_saturated(stats)
+        return {"signal": "swap page-out", "value": None, "threshold": None, "unit": "event",
+                "measured": sat is not None, "saturated": sat}
+    # disk_io — await 우선(양 OS), 구세대 viostor 만 큐 폴백.
+    if stats.disk_await_p95_ms is not None:
+        return saturation_dict("await", stats.disk_await_p95_ms, recommendation.RS_DISKIO_AWAIT_MS, "ms",
+                               recommendation.disk_io_saturated(stats))
+    if stats.disk_queue_p95 is not None:
+        return saturation_dict("Avg Disk Queue Length", stats.disk_queue_p95, recommendation.DISK_QUEUE_PER_DISK_SATURATION,
+                               "queue", recommendation.disk_io_saturated(stats))
+    return {"signal": "await", "value": None, "threshold": recommendation.RS_DISKIO_AWAIT_MS, "unit": "ms",
+            "measured": False, "saturated": recommendation.disk_io_saturated(stats)}
 
 
 def build_service_badge_reference() -> list[ServiceBadgeRef]:

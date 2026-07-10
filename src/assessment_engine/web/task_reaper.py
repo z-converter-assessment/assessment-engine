@@ -19,14 +19,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from loguru import logger
 
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
-
-
-async def _sleep_or_stop(stop_event: asyncio.Event, seconds: float) -> None:
-    """tick 대기 — stop_event set 되면 즉시 깸(graceful shutdown 시 대기 단축)."""
-    try:
-        await asyncio.wait_for(stop_event.wait(), timeout=seconds)
-    except TimeoutError:
-        pass
+from assessment_engine.web.worker_lifecycle import graceful_drain, sleep_or_stop
 
 
 async def run_task_reaper(
@@ -53,7 +46,7 @@ async def run_task_reaper(
         except Exception:
             # reaper 격리 — 일시 DB 장애 등이 루프를 죽이면 안 됨(F6 except Exception 예외: reraise 시 reaper 사망).
             logger.exception("install task reaper tick failed")
-        await _sleep_or_stop(stop_event, interval_sec)
+        await sleep_or_stop(stop_event, interval_sec)
     logger.info("install task reaper stopped")
 
 
@@ -81,11 +74,7 @@ async def lifespan_task_reaper(
     try:
         yield
     finally:
-        stop_event.set()
-        try:
-            await asyncio.wait_for(reaper_task, timeout=shutdown_timeout_sec)
-        except TimeoutError:
-            reaper_task.cancel()
-            logger.warning("install task reaper shutdown timeout — cancelled")
-        except asyncio.CancelledError:
-            pass
+        await graceful_drain(
+            reaper_task, stop_event, shutdown_timeout_sec,
+            "install task reaper shutdown timeout — cancelled",
+        )

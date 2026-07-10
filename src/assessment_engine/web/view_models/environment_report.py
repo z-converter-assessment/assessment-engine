@@ -105,7 +105,7 @@ class MemoryBreakdown:
 
 @dataclass
 class CpuBreakdown:
-    """개별 보고서 CPU 분류 — user/system/iowait (jiffies delta 기반 %, 윈도우 평균)."""
+    """개별 보고서 CPU 분류 — user/system/iowait (cpu 시간 초 delta 기반 %, 윈도우 평균)."""
 
     user_pct: float | None
     system_pct: float | None

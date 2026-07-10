@@ -14,6 +14,9 @@ from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
     _CAUSE_LABEL_BY_TRIGGER,
     build_host_confidence_notes,
+    primary_ip,
+    resource_confidence_notes,
+    saturation_block,
 )
 from assessment_engine.web.services.unit_converter import bytes_to_gb
 
@@ -31,18 +34,6 @@ _STATUS_LABEL_KO: dict[str, str] = {
     "quality_ok": "정상",
     "unmeasured": "미관측",
 }
-
-
-def _res_confidence_notes(c: recommendation.ConfidenceNote) -> list[str]:
-    """자원별 신뢰도 하향 사유 — biased(virtio 구조 편향)는 상시라 노이즈로 제외(build_host_confidence_notes 정합)."""
-    notes: list[str] = []
-    if c.low_precision:
-        notes.append("표본 부족")
-    if c.coverage_gap:
-        notes.append("포화 수치 미관측")
-    if c.nonstationary:
-        notes.append("상승 추세")
-    return notes
 
 
 def _evidence_labels(triggers: list[str]) -> list[str]:
@@ -69,68 +60,15 @@ def _net_signal(value: float | None, threshold: float, *, inclusive: bool = Fals
     return {"value": round(value, 3), "threshold": threshold, "exceeded": exceeded, "measured": True}
 
 
-def _primary_ip(raw) -> str | None:
-    for i in raw.interfaces or []:
-        if i.get("kind") == "physical" and i.get("family") == "ipv4":
-            return i.get("address")
-    return None
-
-
-def _sat_dict(signal: str, value: float | None, threshold: float | None, unit: str, saturated: bool | None) -> dict:
-    """포화 신호 1건 — raw numeric(파싱 계약). 표시 문자열이 아니라 stats 원자료·recommendation 임계 상수.
-
-    signal = OS별 신호 이름(라벨), unit = 값 단위(per_core·per_sec·ms·queue·event), saturated = 도메인 판정(bool|None).
-    network.signals 와 동형 — value 미측정 시 null.
-    """
-    return {
-        "signal": signal,
-        "value": round(value, 2) if value is not None else None,
-        "threshold": threshold,
-        "unit": unit,
-        "measured": value is not None,
-        "saturated": saturated,
-    }
-
-
-def _sat_block(kind: str, stats) -> dict:
-    """자원별 포화 신호 — os-aware raw 수치. saturation_axis_displays(표시용 "W 1.20") 대신 계약용 numeric."""
-    win = stats.os_family == "windows"
-    if kind == "cpu":
-        rq = stats.cpu_run_queue_p95 if win else stats.procs_running_p95
-        val = recommendation.cpu_saturation_index(rq, stats.cpu_cores, stats.os_family)
-        thr = recommendation.CPU_RUN_QUEUE_PER_CORE_SATURATION if win else recommendation.PROCS_RUNNING_PER_CORE_SATURATION
-        sig = "Processor Queue Length/core" if win else "run queue (procs_running)/core"
-        return _sat_dict(sig, val, thr, "per_core", recommendation.cpu_saturated(stats))
-    if kind == "memory":
-        if win:
-            return _sat_dict(
-                "Pages Input/sec", stats.mem_pages_input_rate_p95, recommendation.WIN_PAGES_INPUT_SATURATION,
-                "per_sec", recommendation.mem_saturated(stats),
-            )
-        # Linux swap page-out 은 발생 이벤트(수치 없음) — 판정은 saturated 로.
-        sat = recommendation.mem_saturated(stats)
-        return {"signal": "swap page-out", "value": None, "threshold": None, "unit": "event",
-                "measured": sat is not None, "saturated": sat}
-    # disk_io — await 우선(양 OS), 구세대 viostor 만 큐 폴백.
-    if stats.disk_await_p95_ms is not None:
-        return _sat_dict("await", stats.disk_await_p95_ms, recommendation.RS_DISKIO_AWAIT_MS, "ms",
-                         recommendation.disk_io_saturated(stats))
-    if stats.disk_queue_p95 is not None:
-        return _sat_dict("Avg Disk Queue Length", stats.disk_queue_p95, recommendation.DISK_QUEUE_PER_DISK_SATURATION,
-                         "queue", recommendation.disk_io_saturated(stats))
-    return {"signal": "await", "value": None, "threshold": recommendation.RS_DISKIO_AWAIT_MS, "unit": "ms",
-            "measured": False, "saturated": recommendation.disk_io_saturated(stats)}
-
-
 def _cpu_resource(raw, stats, host) -> dict:
     ra = host.resources["cpu"]
     return {
         "status": ra.status,
         "status_label": _STATUS_LABEL_KO.get(ra.status, ra.status),
         "utilization_p95_pct": round(raw.cpu_p95_pct, 1) if raw.cpu_p95_pct is not None else None,
-        "saturation": _sat_block("cpu", stats),
+        "saturation": saturation_block("cpu", stats),
         "evidence": _evidence_labels(ra.triggers),
-        "confidence_notes": _res_confidence_notes(ra.confidence),
+        "confidence_notes": resource_confidence_notes(ra.confidence),
         "current_cores": stats.cpu_cores,  # 현재 배정 — target 과 짝(현재 vs 목표)
         "sizing_target_cores": ra.sizing_target,
         "recommendation": _sizeable_recommendation("cpu", ra),
@@ -144,9 +82,9 @@ def _memory_resource(raw, stats, host) -> dict:
         "status": ra.status,
         "status_label": _STATUS_LABEL_KO.get(ra.status, ra.status),
         "utilization_p95_pct": round(raw.mem_p95_pct, 1) if raw.mem_p95_pct is not None else None,
-        "saturation": _sat_block("memory", stats),
+        "saturation": saturation_block("memory", stats),
         "evidence": _evidence_labels(ra.triggers),
-        "confidence_notes": _res_confidence_notes(ra.confidence),
+        "confidence_notes": resource_confidence_notes(ra.confidence),
         "current_mb": stats.mem_total_mb,  # 현재 배정 RAM — target 과 짝
         "sizing_target_mb": ra.sizing_target,
         "recommendation": _sizeable_recommendation("memory", ra),
@@ -157,8 +95,8 @@ def _memory_resource(raw, stats, host) -> dict:
 def _disk_resource(raw, stats, host) -> dict:
     cap = host.resources["disk_capacity"]
     io = host.resources["disk_io"]
-    # 현재 배정 디스크 총량 — 물리 disks 우선, 비면(Windows) 파일시스템 mounts fallback(disk_total_bytes 단일 산식).
-    _dbytes = disk_total_bytes(raw.disks or [], raw.inventory_mounts or [])
+    # 현재 배정 디스크 총량 — block_devices type=disk size_bytes 합(disk_total_bytes 단일 산식, 양 OS).
+    _dbytes = disk_total_bytes(raw.block_devices or [])
     return {
         "capacity": {
             "status": cap.status,
@@ -173,7 +111,7 @@ def _disk_resource(raw, stats, host) -> dict:
                 int(raw.disk_capacity_runway_days) if raw.disk_capacity_runway_days is not None else None
             ),
             "evidence": _evidence_labels(cap.triggers),
-            "confidence_notes": _res_confidence_notes(cap.confidence),
+            "confidence_notes": resource_confidence_notes(cap.confidence),
             "current_gb": int(bytes_to_gb(_dbytes)) if _dbytes else None,  # 현재 배정 — target 과 짝
             "sizing_target_gb": cap.sizing_target,
             "recommendation": _sizeable_recommendation("disk_capacity", cap),
@@ -182,9 +120,9 @@ def _disk_resource(raw, stats, host) -> dict:
         "io": {
             "status": io.status,
             "status_label": _STATUS_LABEL_KO.get(io.status, io.status),
-            "saturation": _sat_block("disk_io", stats),
+            "saturation": saturation_block("disk_io", stats),
             "evidence": _evidence_labels(io.triggers),
-            "confidence_notes": _res_confidence_notes(io.confidence),
+            "confidence_notes": resource_confidence_notes(io.confidence),
             "detail": io.detail or None,
         },
     }
@@ -247,7 +185,7 @@ def build_right_sizing_entry(raw, is_online: bool, hostname_ambiguous: bool = Fa
         "hostname": raw.hostname,
         "hostname_ambiguous": hostname_ambiguous,  # 환경 내 동명 2대+ (안전 신호). true 면 public_id/순서쌍 권장.
         "public_id": raw.public_id,
-        "primary_ip": _primary_ip(raw),
+        "primary_ip": primary_ip(raw),
         "os_family": raw.os_family,
         "online": is_online,
         "classification": rec,

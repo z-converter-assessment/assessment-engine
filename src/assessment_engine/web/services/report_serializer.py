@@ -13,16 +13,14 @@ result JSONB 구조·키 단일 진실은 `diagnostic.report_result`.
 본 모듈은 그 구조 안 `snapshot` 의 ViewModel <-> dict 직렬화만 담당.
 """
 
-import dataclasses
-import json
-from datetime import datetime
-
 # result 구조 계약(키·dict 조립)은 diagnostic.report_result 단일 진실 — web view_models 에 의존하지
 # 않는 중립 모듈에 분리.
 from assessment_engine.diagnostic.report_result import (  # noqa: F401 (re-export)
     REPORT_KIND_ENV,
     build_report_result,
 )
+from assessment_engine.web.services.serialization_util import parse_dt as _dt
+from assessment_engine.web.services.serialization_util import to_jsonable as _to_jsonable
 from assessment_engine.web.view_models.attention import (
     ActionTargets,
     AttentionRow,
@@ -62,21 +60,6 @@ from assessment_engine.web.view_models.server import IpAddr
 from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGroup, SubnetHost
 
 
-def _json_default(obj: object) -> str:
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    raise TypeError(f"Cannot serialize {type(obj)}")
-
-
-def _dt(v: object) -> datetime | None:
-    return datetime.fromisoformat(v) if isinstance(v, str) else v  # type: ignore[arg-type]
-
-
-def _to_jsonable(vm: object) -> dict:
-    """dataclass ViewModel -> JSONB 저장 가능 dict (datetime -> ISO str, nested 재귀)."""
-    return json.loads(json.dumps(dataclasses.asdict(vm), default=_json_default))
-
-
 # ──────────────────────────────────────────────────────────────────────────
 # ReportSummary (server scope 보고서 base — EnvironmentReportSummary.base 직렬화·복원에 사용)
 # ──────────────────────────────────────────────────────────────────────────
@@ -102,6 +85,8 @@ def _report_row_from_dict(r: dict) -> ReportRowItem:
         "worst_mount_days_until_full",  # 폐기 — 구 스냅샷 14일창 days (disk_capacity_runway_days 로 대체)
         "reboot_count_color",
         "agent_restart_count_color",
+        "load_15m_max",  # 폐기 — load average 축 (cpu_run_queue_p95 로 대체)
+        "swap_used",  # 폐기 — 스왑 점유 축 (mem_swap_paging 으로 대체)
     ):
         data.pop(legacy, None)
     return ReportRowItem(**data)

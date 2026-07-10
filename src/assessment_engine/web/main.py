@@ -16,6 +16,7 @@ from assessment_engine.db.session import AsyncSessionLocal
 from assessment_engine.log_config import setup_logging
 from assessment_engine.web.report_worker import lifespan_worker
 from assessment_engine.web.routers.api import api_router
+from assessment_engine.web.routers.assessment import assessment_router
 from assessment_engine.web.routers.exports import exports_router
 from assessment_engine.web.routers.pages import pages_router
 from assessment_engine.web.routers.reports import reference_router, reports_router
@@ -144,6 +145,7 @@ app.include_router(reports_router)
 app.include_router(reference_router)
 app.include_router(exports_router)
 app.include_router(right_sizing_router)
+app.include_router(assessment_router)
 
 
 @app.get("/health")

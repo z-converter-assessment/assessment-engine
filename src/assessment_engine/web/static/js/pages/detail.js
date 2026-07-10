@@ -6,29 +6,26 @@
  * P4 의무 규약 적용 (해당 항목 a~d):
  *  (a) sequence counter — fetchMetrics 30초 polling in-flight 가능 → seq counter. collection-status 는 초기 1회(statusSeq).
  *  (b) capture-before-await — 본 페이지는 range/anchor 토글 없음. 단일 endpoint polling 이라 파라미터 stale 없음.
- *  (c) Array.isArray — collection-status·disk_io_phys·net_io 모두 fallback safe.
+ *  (c) Array.isArray — collection-status·disk_io·net_io 모두 fallback safe.
  *  (d) 404 분기 — /metrics/latest 404 시 metrics-no-data 표시.
  */
 (() => {
   const SERVER_ID = document.body.dataset.serverId;
   if (!SERVER_ID) { console.error('detail.js: body data-server-id missing'); return; }
-  const OS_FAMILY = document.body.dataset.osFamily || '';  // 디스크·메모리 포화 os-aware 표시 분기 (Linux await/page-out vs Windows queue/paging-rate)
-  const CPU_CORES = parseInt(document.body.dataset.cpuCores, 10) || 0;  // 실행 큐 코어당 정규화 (분류 기준과 동일)
+  const OS_FAMILY = document.body.dataset.osFamily || '';  // Steal 포화 축 os-aware 표시 (Linux 측정 · Windows 개념 부재 N/A)
 
   /* -------- 포맷 유틸 -------- */
   const fmtPct  = (v) => v != null ? v.toFixed(1) + '%' : '—';
-  const fmtLoad = (v) => v != null ? v.toFixed(2) : '—';
   const fmtIops = (v) => v != null ? v.toFixed(1) + ' IOPS' : '—';
   // 처리량 동적 단위 (kB/s → MB/s) — storage/network·차트와 단위 표기 통일. 큰 값도 가독성 유지.
   const fmtKbps = (v) => v == null ? '—' : (v >= 1024 ? (v / 1024).toFixed(1) + ' MB/s' : v.toFixed(1) + ' kB/s');
-  // swap 은 used 가 작아도 GB 소숫점1 고정 — KB/MB 자동 단위(fmtKb)는 비현실적이라 단위 통일.
-  const fmtGb   = (kb) => kb != null ? (kb / 1024 / 1024).toFixed(1) + ' GB' : '—';
   const fmtPps  = (v) => v != null ? v.toFixed(1) + ' pps' : '—';
-  function fmtKb(kb) {
-    if (kb == null) return '—';
-    if (kb >= 1024 * 1024) return (kb / 1024 / 1024).toFixed(1) + ' GB';
-    if (kb >= 1024)        return (kb / 1024).toFixed(0) + ' MB';
-    return kb + ' KB';
+  // 메모리 값은 bytes 입력 — 동적 단위 (GiB=bytes/1024^3, MiB=bytes/1024^2, KiB=bytes/1024).
+  function fmtKb(bytes) {
+    if (bytes == null) return '—';
+    if (bytes >= 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB';
+    if (bytes >= 1024 * 1024)        return (bytes / 1024 / 1024).toFixed(0) + ' MB';
+    return (bytes / 1024).toFixed(0) + ' KB';
   }
   const show = (id) => document.getElementById(id).style.display = '';
   const hide = (id) => document.getElementById(id).style.display = 'none';
@@ -71,42 +68,27 @@
     setTxt('cpu-iowait', fmtPct(cpu.iowait_pct));  // Linux 전용 (Windows 는 템플릿에서 열 숨김)
     setDonut('cpu-donut-arc', 'cpu-donut-text', cpu.usage_pct);
 
-    /* 포화 축 (자원 적정성 분류) — 각 자원 표/섹션에 분산. os-aware: 실행큐·재전송 양 OS, Steal Linux, 디스크·페이징 OS별. */
-    // 실행 큐는 코어당 정규화해 노출 (분류가 run_queue/cores 로 판정 — raw 큐값은 코어 수 모르면 무의미). cores 부재 시 raw fallback.
-    const runqPerCore = (d.cpu_run_queue != null && CPU_CORES > 0) ? d.cpu_run_queue / CPU_CORES : d.cpu_run_queue;
-    setTxt('cpu-runq',   runqPerCore != null ? runqPerCore.toFixed(2) + ' /core' : '—');
+    /* 포화 축 (자원 적정성 분류) — 각 자원 표/섹션에 분산. Steal 만 Linux 전용(Windows N/A), 나머지 양 OS. */
+    // 실행 큐는 backend 가 코어당 정규화(Σrunq/Σcores) 완료 — JS 이중 정규화 금지, 그대로 표시.
+    setTxt('cpu-runq',   d.cpu_run_queue != null ? d.cpu_run_queue.toFixed(2) + ' /core' : '—');
     setTxt('cpu-steal',  OS_FAMILY === 'windows' ? 'N/A' : fmtPct(cpu.steal_pct));  // Steal 은 Linux 전용 — Windows 는 개념 부재 N/A
     setTxt('net-retrans', d.net_retrans_pct != null ? d.net_retrans_pct.toFixed(2) + '%' : '—');
     // 디스크 await 양 OS 통일 — await 우선(Linux server_disk_io · Windows IOCTL), 없으면 구세대 viostor 큐 폴백.
     setTxt('disk-sat', d.disk_await_ms != null ? 'await ' + d.disk_await_ms.toFixed(1) + ' ms'
                         : d.disk_queue != null ? '큐 ' + d.disk_queue.toFixed(1) : '—');
-    // 메모리 압박은 OS별 신호가 다름 — Linux page-out 발생 / Windows Pages Input/sec 하드폴트율.
-    if (OS_FAMILY === 'windows') {
-      setTxt('mem-paging', d.mem_pages_input_rate != null ? d.mem_pages_input_rate.toFixed(0) + ' /s' : '—');
-    } else {
-      setTxt('mem-paging', d.mem_pageout != null ? (d.mem_pageout > 0 ? 'page-out 발생' : '없음') : '—');
-    }
+    // 메모리 압박은 하드 페이지 폴트율(Pages Input/sec) 단일 신호 — 양 OS 공통, os 분기 없음.
+    setTxt('mem-paging', d.mem_pages_input_rate != null ? d.mem_pages_input_rate.toFixed(0) + ' /s' : '—');
 
     /* Memory */
     const mem = d.memory || {};
     setTxt('mem-usage',   fmtPct(mem.usage_pct));
-    setTxt('mem-used',    fmtKb(mem.used_kb));
-    setTxt('mem-avail',   fmtKb(mem.available_kb));
-    setTxt('mem-cached',  fmtKb(mem.cached_kb));  // Linux 전용
-    setTxt('mem-buffers', fmtKb(mem.buffers_kb));  // Linux 전용
+    setTxt('mem-used',    fmtKb(mem.used_bytes));
+    setTxt('mem-avail',   fmtKb(mem.available_bytes));
+    setTxt('mem-cached',  fmtKb(mem.cached_bytes));  // Linux 전용
+    setTxt('mem-buffers', fmtKb(mem.buffered_bytes));  // Linux 전용 (wire: buffered_bytes)
     setDonut('mem-donut-arc', 'mem-donut-text', mem.usage_pct);
 
-    /* Swap */
-    const swap = d.swap || {};
-    if (swap.total_kb) {
-      show('swap-section');
-      setTxt('swap-usage', fmtPct(swap.usage_pct));
-      setTxt('swap-used',  fmtGb(swap.used_kb));
-      setTxt('swap-total', fmtGb(swap.total_kb));
-    }
-
-
-    /* Disk I/O — 물리 / 논리·가상 (E9: 데이터 없어도 제목 노출 + placeholder) */
+    /* Disk I/O (E9: 데이터 없어도 제목 노출 + placeholder) */
     const ioRow = dk => `
         <tr>
           <td>${dk.device}</td>
@@ -115,7 +97,7 @@
           <td>${fmtKbps(dk.read_kbps)}</td>
           <td>${fmtKbps(dk.write_kbps)}</td>
         </tr>`;
-    const diskIo = ChartUtils.safeArray(d.disk_io_phys);
+    const diskIo = ChartUtils.safeArray(d.disk_io);
     if (diskIo.length > 0) {
       el('disk-io-body').innerHTML = diskIo.map(ioRow).join('');
       show('disk-io-table'); hide('disk-io-empty');

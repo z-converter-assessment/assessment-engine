@@ -16,8 +16,13 @@ def get_pool() -> ConnectionPool:
         pool = ConnectionPool.from_url(
             _settings.redis_url,
             decode_responses=True,
-            socket_timeout=5,
+            socket_timeout=5,  # F6 — 명령 timeout (fail-open 경계)
             socket_connect_timeout=3,
+            # 장수 async 풀 정석: idle-cut(방화벽/서버) 로 죽은 소켓을 사용 직전 PING 검사해 spurious
+            # ConnectionResetError -> fail-open 캐시미스(#C3)를 예방. keepalive 로 TCP dead-peer 감지.
+            health_check_interval=30,
+            socket_keepalive=True,
+            max_connections=50,  # 소켓 고갈 상한 (기본 무제한)
         )
         _pool = pool
     return pool
@@ -89,13 +94,14 @@ async def safe_mget(redis: Redis, keys: list[str]) -> list[str | None] | None:
 
 
 async def safe_incr_with_ttl(redis: Redis, key: str, ttl: int) -> int | None:
-    """슬라이딩 윈도우 카운터 — INCR + EXPIRE를 pipeline으로 묶어 1 RTT.
+    """슬라이딩 윈도우 카운터 — INCR + EXPIRE를 MULTI/EXEC 트랜잭션으로 묶어 1 RTT·원자.
 
     EXPIRE를 매번 reset하므로 "마지막 INCR 후 ttl초 내 N회"를 추적 (fixed window 아님).
+    transaction=True 로 INCR/EXPIRE 원자 보장 (동일 1 RTT, 두 명령 사이 크래시로 TTL 없는 키 잔류 방지).
     실패 시 None — 호출자는 카운터를 못 읽었다고 간주 (alert는 다음 호출 기회에).
     """
     try:
-        async with redis.pipeline(transaction=False) as pipe:
+        async with redis.pipeline(transaction=True) as pipe:
             pipe.incr(key)
             pipe.expire(key, ttl)
             results = await pipe.execute()

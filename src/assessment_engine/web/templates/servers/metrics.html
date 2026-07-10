@@ -58,10 +58,10 @@
     <div class="perf-pair perf-row" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="chart-subtitle" style="margin:0;">코어당 로드{% if server.cpu_cores %} <span class="text-meta text-md" style="font-weight:400;">({{ server.cpu_cores }}코어)</span>{% endif %}</h2>
+          <h2 class="chart-subtitle" style="margin:0;">실행 큐 (코어당){% if server.cpu_cores %} <span class="text-meta text-md" style="font-weight:400;">({{ server.cpu_cores }}코어)</span>{% endif %}</h2>
           <span id="load-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">15분 로드 / 코어 수 정규화 (1.0 = 코어당 포화)</div>
+        <div class="chart-desc">실행 큐 길이 / 코어 수 정규화 (Linux 1.0 · Windows 2.0 = 코어당 포화)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="load-canvas"></canvas>
           <div id="load-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -97,21 +97,6 @@
         </div>
         <div id="memcomp-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; justify-content:center;"></div>
       </div>
-    </div>
-
-    <div class="perf-pair perf-row" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:24px; align-items:start;">
-      <div>
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="chart-subtitle" style="margin:0;">스왑 사용률</h2>
-          <span id="swap-max" class="text-meta text-sm">최대: &mdash;</span>
-        </div>
-        <div class="chart-desc">{% if server.swap_total_gb is none %}스왑 미설정 서버 — 차트의 0%는 스왑 용량 자체가 없음을 의미 (사용률 아님).{% else %}스왑 점유율 — Linux(swappiness) · Windows(pagefile) 모두 여유 메모리에도 상시 점유라 사용률 자체는 부족 신호 아님. 실제 압박은 페이징(Linux page-out · Windows Pages Input)으로 판정.{% endif %}</div>
-        <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-          <canvas id="swap-canvas"></canvas>
-          <div id="swap-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
-        </div>
-      </div>
-      <div></div>
     </div>
   </section>
 
@@ -158,10 +143,10 @@
       </div>
       <div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <h2 class="chart-subtitle" style="margin:0;">디스크 큐 길이</h2>
+          <h2 class="chart-subtitle" style="margin:0;">디스크 I/O 포화 (await)</h2>
           <span id="diskqueue-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">Windows Avg Disk Queue Length (디스크 대기 — 2 이상 포화). Linux 는 I/O Wait 참조</div>
+        <div class="chart-desc">디스크 I/O 대기 시간 (await — 요청당 평균 대기, 20ms 이상 포화). 양 OS 실측</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="diskqueue-canvas"></canvas>
           <div id="diskqueue-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -208,4 +193,4 @@
 <script src="/static/js/pages/metrics.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} data-server-id="{{ server.public_id }}" data-cpu-cores="{{ server.cpu_cores if server.cpu_cores is not none else '' }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}
+{% block body_attrs %} data-server-id="{{ server.public_id }}"{% endblock %}

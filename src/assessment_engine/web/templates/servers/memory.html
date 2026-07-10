@@ -26,7 +26,6 @@
       <dt>메모리 사용률</dt> <dd id="s-mem-pct">—</dd>
       <dt>Used</dt>          <dd id="s-mem-used">—</dd>
       <dt>Available</dt>     <dd id="s-mem-avail">—</dd>
-      <dt>스왑 Used</dt>     <dd id="s-swap-used">—</dd>
     </dl>
     {# OS별 측정·의미가 다른 지표 — 값 + Linux/Windows 2행 항상 노출. #}
     <div class="os-diff-list">
@@ -41,14 +40,9 @@
         <div class="os-diff-note"><b>Windows</b>미측정 (N/A)</div>
       </div>
       <div class="os-diff">
-        <div class="os-diff-head"><span class="os-diff-name">스왑 사용률</span><span class="os-diff-val" id="s-swap-pct">—</span></div>
-        <div class="os-diff-note"><b>Linux</b>스왑 점유율 — swappiness 로 여유 RAM 에도 스왑아웃, 점유 자체는 압박 아님</div>
-        <div class="os-diff-note"><b>Windows</b>pagefile 점유율 — 여유 메모리에도 상시 baseline, 점유 자체는 압박 아님</div>
-      </div>
-      <div class="os-diff">
         <div class="os-diff-head"><span class="os-diff-name">메모리 압박 (실제 부족 신호)</span><span class="os-diff-val" id="s-mem-pressure">—</span></div>
-        <div class="os-diff-note"><b>Linux</b>swap page-out 발생 여부 (스왑 쓰기 = 실제 압박)</div>
-        <div class="os-diff-note"><b>Windows</b>Pages Input/sec 하드 페이지 폴트율 (초당 20 이상 압박)</div>
+        <div class="os-diff-note"><b>Linux</b>major page fault (하드 폴트) 비율 — 디스크에서 페이지 재적재 (실제 압박)</div>
+        <div class="os-diff-note"><b>Windows</b>Pages Input/sec 하드 페이지 폴트율 (실제 압박)</div>
       </div>
     </div>
     <p class="text-meta text-xs" style="margin:12px 0 0;">N/A = 위 Windows/Linux 설명대로 해당 OS 미측정 · — = 일시적 값 없음 (첫 수집·수집 끊김)</p>
@@ -107,33 +101,6 @@
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <div id="comp-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-</div>
-
-<div class="card">
-  <div class="chart-head">
-    <h2 class="card-title">스왑 사용률 추이<span class="print-only text-muted text-sm" id="swap-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    <span id="swap-bucket-label" class="bucket-label"></span>
-    <select class="chart-select no-print" id="swap-range-btns" aria-label="구간 선택">
-      <option value="15m">15분</option>
-      <option value="1h">1시간</option>
-      <option value="6h">6시간</option>
-      <option value="24h">1일</option>
-      <option value="7d">7일</option>
-      <option value="14d">14일</option>
-      <option value="30d">30일</option>
-    </select>
-    <input type="datetime-local" id="swap-anchor" class="chart-anchor no-print" aria-label="기준 시각">
-  </div>
-  <div class="chart-desc">스왑 점유율 — Linux(swappiness) · Windows(pagefile) 모두 여유 메모리에도 상시 점유라 사용률 자체는 부족 신호 아님. 실제 압박은 페이징(Linux page-out · Windows Pages Input)으로 판정.</div>
-  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-    <canvas id="swap-canvas"></canvas>
-  </div>
-  <div id="swap-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
-    해당 기간에 수집된 데이터가 없습니다.
-  </div>
-  <p class="chart-caption">
-    음영 영역: 집계 구간 내 순간 최대 사용률과 평균의 차이.
-  </p>
 </div>
 
 <style>

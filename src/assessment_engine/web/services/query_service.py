@@ -1,7 +1,7 @@
 """QueryService — 6 도메인 mixin 결합 조합 모듈 (composition root 에서 단일 instance 생성).
 
 repo 계층 `db/repositories/query/query_repository.py` 와 동형 — 도메인 mixin 은 `web/services/query/` 하위.
-외부(deps·라우터)는 본 모듈에서 QueryService·외부 노출 심볼(DASHBOARD_TIME_RANGE·DeviceCategory 등)을 import.
+외부(deps·라우터)는 본 모듈에서 QueryService·외부 노출 심볼(DASHBOARD_TIME_RANGE 등)을 import.
 새 메서드 추가 시 해당 도메인 mixin 갱신 의무 — 본 조합 클래스는 결합만.
 """
 
@@ -13,7 +13,7 @@ from assessment_engine.web.services.query.environment import (
     DASHBOARD_WINDOW_DAYS,
     EnvironmentQueryMixin,
 )
-from assessment_engine.web.services.query.metric import DeviceCategory, MetricQueryMixin
+from assessment_engine.web.services.query.metric import MetricQueryMixin
 from assessment_engine.web.services.query.report import ReportQueryMixin
 from assessment_engine.web.services.query.server import ServerQueryMixin
 from assessment_engine.web.services.query.task import TaskQueryMixin
@@ -22,7 +22,6 @@ __all__ = [
     "QueryService",
     "DASHBOARD_TIME_RANGE",
     "DASHBOARD_WINDOW_DAYS",
-    "DeviceCategory",
     "AggFunc",
     "BucketSize",
     "MetricType",

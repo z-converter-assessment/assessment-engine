@@ -16,7 +16,9 @@ class MessageBase(BaseModel):
     # 계약 진화 (#B) — extra=ignore 로 agent 신규 필드 통과·무시. 자식 상속.
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
-    schema_version: Literal["2.0"]
+    # 통일 계약 버전(engine 레포 기준, contract.CONTRACT_VERSION). 형식 major.minor, 게이트는 major. 현재 "1.0".
+    # 전환기 dual-accept — 돌아가는 fleet 의 "2.0" 을 계속 수용, 에이전트 "1.0" 이관 완료 후 "2.0" 제거.
+    schema_version: Literal["1.0", "2.0"]
     # agent_id — 호스트 식별 단일 키(불변 UUID). DB UNIQUE·MQ 라우팅. task.result 한정 nullable(task_id 매칭).
     agent_id: UUID
     message_id: UUID
@@ -98,6 +100,33 @@ class BlockDeviceInfo(BaseModel):
     parent: str | None = Field(default=None, max_length=128)
     id: str | None = Field(default=None, max_length=128)
     id_type: str | None = Field(default=None, max_length=16)
+    # 레이아웃 상세 (reproduction, agent 확장 — 자연 노드타입에만 emit, 미해당은 부재). 엔진 read 시 정규화(raid_level).
+    partition_table: str | None = Field(default=None, max_length=8)  # gpt|mbr
+    sector_size: int | None = Field(default=None, ge=0)
+    serial: str | None = Field(default=None, max_length=128)
+    wwn: str | None = Field(default=None, max_length=64)
+    rotational: bool | None = None
+    part_number: int | None = Field(default=None, ge=0)
+    part_start_bytes: int | None = Field(default=None, ge=0)
+    part_type: str | None = Field(default=None, max_length=64)  # GPT GUID / MBR 0x hex
+    part_name: str | None = Field(default=None, max_length=128)
+    part_flags: list[str] | None = None
+    fs_uuid: str | None = Field(default=None, max_length=64)
+    fs_label: str | None = Field(default=None, max_length=128)
+    block_size: int | None = Field(default=None, ge=0)
+    mount_options: list[str] | None = None
+    fs_freq: int | None = None
+    fs_passno: int | None = None
+    lvm_vg: str | None = Field(default=None, max_length=128)
+    lvm_lv: str | None = Field(default=None, max_length=128)
+    lvm_segtype: str | None = Field(default=None, max_length=32)
+    lvm_stripes: int | None = Field(default=None, ge=0)
+    lvm_stripe_size_kib: int | None = Field(default=None, ge=0)
+    raid_level: int | str | None = None  # raw(raid5/linear/int) — 엔진 read 시 int|null 정규화
+    raid_chunk_kib: int | None = Field(default=None, ge=0)
+    raid_metadata: str | None = Field(default=None, max_length=16)
+    raid_uuid: str | None = Field(default=None, max_length=64)
+    crypt_type: str | None = Field(default=None, max_length=16)  # luks1|luks2
 
 
 class NetAddressInfo(BaseModel):
@@ -105,12 +134,19 @@ class NetAddressInfo(BaseModel):
     address: str = Field(min_length=1, max_length=64)
     prefix: int | None = Field(default=None, ge=0, le=128)
     family: Literal["ipv4", "ipv6"]
+    origin: str | None = Field(default=None, max_length=16)  # static|dhcp (reproduction, agent 확장)
 
     @field_validator("address", mode="before")
     @classmethod
     def _validate_address(cls, v: object) -> object:
         ip_address(str(v))  # bare IP 형식 검증
         return v
+
+
+class RouteInfo(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    dest: str = Field(min_length=1, max_length=64)  # CIDR
+    via: str | None = Field(default=None, max_length=64)
 
 
 class NetInterfaceInfo(BaseModel):
@@ -124,6 +160,12 @@ class NetInterfaceInfo(BaseModel):
     speed_mbps: int | None = Field(default=None, ge=0)
     addresses: list[NetAddressInfo] = Field(default_factory=list)
     gateway: str | None = Field(default=None, max_length=64)
+    # 레이아웃 상세 (reproduction, agent 확장). bond_mode raw(엔진 정규화).
+    mtu: int | None = Field(default=None, ge=0)
+    dns: list[str] | None = None
+    routes: list[RouteInfo] | None = None
+    bond_mode: str | None = Field(default=None, max_length=32)
+    vlan_id: int | None = Field(default=None, ge=0)
 
     @field_validator("gateway", mode="before")
     @classmethod
@@ -141,6 +183,10 @@ class LvmVgInfo(BaseModel):
     free_bytes: int | None = Field(default=None, ge=0)  # 확장 여력(3계층째)
     data_percent: float | None = Field(default=None, ge=0)
     metadata_percent: float | None = Field(default=None, ge=0)
+    # 레이아웃 상세 (reproduction, agent 확장). pv_ids = 구성 PV 의 block_device id.
+    vg_uuid: str | None = Field(default=None, max_length=64)
+    extent_size_bytes: int | None = Field(default=None, ge=0)
+    pv_ids: list[str] | None = None
 
 
 class InventoryServiceInfo(BaseModel):

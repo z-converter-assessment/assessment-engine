@@ -64,7 +64,7 @@ class ReportRowItem:
     hostname: str
     role: str
     is_online: bool
-    os_family: str | None  # "windows" 면 load(run queue) 통계 N/A 표시 (disk 는 queue 로 측정)
+    os_family: str | None  # os-aware 신호 분기 (실행 큐·페이징·await 은 양 OS, 신호 이름만 OS별)
     os_display: str
     kernel_version: str | None
     internal_ip: str | None
@@ -75,8 +75,6 @@ class ReportRowItem:
     mem_p95_pct: float | None
     mem_avg_pct: float | None
     mem_peak_pct: float | None
-    load_15m_max: float | None
-    swap_used: bool
 
     recommendation: str  # USE Method enum 값
     recommendation_label: str  # 한국어
@@ -91,6 +89,10 @@ class ReportRowItem:
     cpu_cores: int | None = None
     mem_total_gb: float | None = None
     disk_total_gb: float | None = None
+
+    # CPU 실행 큐 p95 (코어당 정규화 전 raw) — os-aware CPU 포화 축 (Linux procs_running / Windows Processor Queue).
+    # single_report CPU 상세 표에 노출(양 OS, load average 대체).
+    cpu_run_queue_p95: float | None = None
 
     # I/O wait — 디스크 병목 신호 (양식 B 컬럼)
     iowait_p95_pct: float | None = None
@@ -147,8 +149,8 @@ class ReportRowItem:
     # 네트워크 상태 — 사이징 분류와 별개 품질 판정(정상/혼잡/미측정). 조치 필요 호스트 표(고객)의 네트워크 칼럼.
     net_status_label: str = ""
 
-    # 메모리 page-out 발생 여부 (신 모델 포화 신호 = mem_swap_paging). 스왑 점유(swap_used)와 별개 — 실제 압박 신호.
-    # single_report 메모리 상세가 점유 대신 본 신호로 판정(서버 상세 메모리 탭·saturation_axes 와 정합).
+    # 메모리 page-out 발생 여부 (신 모델 포화 신호 = paging_major refault sustained). 실제 압박 신호.
+    # single_report 메모리 상세가 본 신호로 판정(서버 상세 메모리 탭·saturation_axes 와 정합).
     mem_swap_paging: bool = False
 
     # 부분 평가 — 포화 축 중 해당 OS 의 perflib 미발행 축만 미관측(os-aware, P2/P4). Windows 도 run queue/

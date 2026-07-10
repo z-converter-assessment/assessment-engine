@@ -105,6 +105,7 @@ class MetricPairRaw:
     mem_used_bytes: int | None
     # 실행 큐 gauge — Linux procs_running / Windows Processor Queue. 스냅샷 os-aware 표시.
     cpu_run_queue: float | None = None
+    cpu_logical_count: int | None = None  # 코어 수 — 실행 큐 코어당 정규화용 (calculator 가 run_queue/cores)
     # counter reset 정밀 식별 (calculator가 prev-cur 비교).
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
@@ -253,6 +254,23 @@ class ReportMountUsageRaw:
 
 
 @dataclass
+class MountCapacityRaw:
+    """마운트별 용량 사이징 raw (per-mount) — /api/assessment 디스크 축 입력.
+
+    runway/target 은 가용 이력 전체 span 산출(report_aggregate mount_calc 와 동일 산식, 임계 상수 단일 진실).
+    target_bytes = 소진 임박 시 목표 총 용량(바이트). None=안 참(유지). assess_mount_capacity 가 사이징 판정.
+    """
+
+    mountpoint: str
+    total_bytes: int | None
+    used_pct: float | None
+    byte_runway_days: float | None
+    inode_runway_days: float | None
+    inode_used_pct: float | None
+    target_bytes: int | None
+
+
+@dataclass
 class MemoryBreakdownRaw:
     """메모리 구성 윈도우 평균 — used/available/cached/buffers (전체 메모리 대비 %, 시점값 avg)."""
 
@@ -299,6 +317,7 @@ class ReportRowRaw:
     os_family: str | None  # "linux"|"windows" — os-aware 신호 분기
     os_id: str | None
     os_version: str | None
+    os_codename: str | None
     kernel_version: str | None
     net_interfaces: list[dict] | None
     services: list[dict] | None  # service_classifier 입력 (role 추론용)
@@ -311,6 +330,7 @@ class ReportRowRaw:
     mem_p95_pct: float | None
     mem_avg_pct: float | None
     mem_peak_pct: float | None
+    mem_near_peak_pct: float | None = None  # near-peak(버킷 max p99.9) — 메모리 사이징 통계(비탄력 피크 대표)
 
     # service_classifier listen 신호 (개별 보고서 구동 서비스 표시·role 보강).
     listen_ports: list[dict] | None = None
@@ -381,23 +401,6 @@ class ReportRowRaw:
     cpu_trend_slope: float | None = None  # cpu 이용률 최소제곱 기울기 %/day (도메인이 상승 추세 판정)
     mem_trend_slope: float | None = None  # mem 이용률 최소제곱 기울기 %/day
     cpu_percore_p95_max: float | None = None  # 가장 바쁜 코어의 이용률 p95 (단일스레드 병목, server_cpu_core)
-
-
-@dataclass
-class InventoryExportEntry:
-    """정제 inventory JSON 항목 — 사용처축 배치(v4). 자동화 도구(Terraform/OpenStack/Ansible/CSP SDK) 입력 표준.
-
-    스키마·정제 원칙·사용처: docs/reference/web/export-schema.md (v4).
-    벤더 중립 — assessment.recommended_size_class만 노출, 도구가 자기 도메인 instance type에 매핑.
-    블록은 사용처 1:1 — spec(VM 생성) / usage(right-sizing 측정) / assessment(평가 결과) / services(보안그룹).
-    """
-
-    identity: dict  # {"composite_id", "hostname", "role", "last_seen_at"}
-    os: dict  # {"family", "version", "kernel"}
-    spec: dict  # {"vcpu_count", "memory_mb", "boot_disk_gb", "additional_disks":[...], "addresses":[...]}
-    usage: dict  # {"cpu":{...}, "mem":{...}, "disk_io":{...}, "network":{...}}
-    assessment: dict  # {"recommended_size_class":{"key","label"}}
-    services: list[dict]  # [{"category", "unit", "listeners":[{"port","proto","address"}]}]
 
 
 @dataclass

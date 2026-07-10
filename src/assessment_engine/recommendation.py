@@ -123,6 +123,7 @@ class ResourceStats:
     mem_swap_paging: bool = False  # 스왑 page-out 발생(pswpin/pswpout rate > 0) — swap 호스트 포화 + 근본원인 판별
     oom_occurred: bool = False  # 창 안 OOM kill 발생 — 메모리 실패 사후 증거(강한 under 신호)
     mem_total_mb: int | None = None  # 현재 RAM — 사이징 목표 계산용
+    mem_near_peak_pct: float | None = None  # near-peak(버킷 max p99.9) 메모리 사이징 통계(비탄력 피크). p95=판정
     # 디스크 I/O
     disk_await_p95_ms: float | None = None  # 응답 지연 p95 — virtio 포화 주신호(계층3 VMware/SQL)
     disk_iops_baseline: float | None = None  # 디스크 I/O 활동량(baseline 평균 IOPS) — 유휴 판정 활동 축(포화 아님)
@@ -212,14 +213,17 @@ def disk_io_saturation_index(await_ms: float | None, disk_queue: float | None, o
     return None
 
 
-def mem_pressure_active(pages_input_rate: float | None, pageout_delta: int | None, os_family: str | None) -> bool:
-    """실시간 메모리 압박 여부 — Linux page-out 발생(pswpout delta>0) / Windows Pages Input/sec rate >= 임계.
+def mem_pressure_active(paging_major_rate: float | None, os_family: str | None) -> bool:
+    """실시간 메모리 압박 여부 — 하드폴트(major fault) rate 기반. Windows Pages Input/sec >= 임계 / Linux refault > 0.
 
-    메모리 포화는 Linux 가 불리언(page-out 발생)이라 지수 아닌 압박 카운트로 집계(mem_saturated os-aware 정합).
+    Linux refault·Windows Pages Input 은 paging_major_rate 로 통일(SaturationRaw). 메모리 포화는 지수 아닌 압박
+    불리언으로 집계(mem_saturated os-aware 정합).
     """
+    if paging_major_rate is None:
+        return False
     if os_family == "windows":
-        return pages_input_rate is not None and pages_input_rate >= WIN_PAGES_INPUT_SATURATION
-    return bool(pageout_delta and pageout_delta > 0)
+        return paging_major_rate >= WIN_PAGES_INPUT_SATURATION
+    return paging_major_rate > 0
 
 
 def mem_saturated(stats: ResourceStats) -> bool | None:
@@ -351,7 +355,7 @@ RS_CPU_SAT_HEADROOM = 0.7  # 여유 기준 — 증설 시 실행큐/코어를 �
 RS_CPU_PERCORE_HOLD_PCT = 85  # 여유 기준 — 어느 코어든 p95 >= 85%면 다운사이즈/유휴 보류(단일스레드 보호)
 RS_CPU_STEAL_BIAS_PCT = 5  # 여유 기준 — steal p95 >= 5%면 하이퍼바이저 경합으로 util/sat 오염(충실도 편향 단서)
 RS_MEM_UNDER_PCT = 90  # 계층3 Azure Advisor(CPU·메모리 >= SKU 90% 시 resize)
-RS_MEM_SIZING_TARGET_PCT = 80  # 계층3 AWS 기본(20% headroom) — Gate0 확정(비용 최적 방향)
+RS_MEM_SIZING_TARGET_PCT = 80  # near-peak 위 20% headroom 착지 — Gate0 목표%(통계=near-peak, 비탄력 피크)
 RS_DISK_RUNWAY_DAYS = 30  # 여유 기준 — 소진 30일 전 스토리지 추가 권고(lead time)
 RS_DISK_TARGET_RUNWAY_DAYS = 365  # 확장 목표 수명 — 현재 성장률로 1년 버티는 총 용량 산출(report_aggregate)
 # 성장률 외삽을 신뢰할 최소 관측 span — 사이징 창(WINDOW_DAYS)만큼은 봐야 rate 를 1년으로 외삽. 짧으면 spike 과외삽.
@@ -431,6 +435,7 @@ class ResourceAssessment:
     status: ResourceStatus
     triggers: list[str] = field(default_factory=list)
     sizing_target: int | None = None  # 목표 크기 (cpu=코어, memory=MB). None=사이징 불가/불요
+    sizing_floor: int | None = None  # 정확 목표 불가(포화 주도) 시 안전 상향 하한 — API recommended never-null
     confidence: ConfidenceNote = field(default_factory=ConfidenceNote)
     detail: str = ""
 
@@ -506,22 +511,27 @@ def assess_cpu(stats: ResourceStats) -> ResourceAssessment:
         triggers.append("cpu_saturation")
     percore_busy = stats.cpu_percore_p95_max is not None and stats.cpu_percore_p95_max >= RS_CPU_PERCORE_HOLD_PCT
     if triggers or target > cores:
-        # under 증설 목표는 현재 코어 초과여야 유효 — 포화 주도로 util 목표가 현재 이하면 수치 사이징 불가(None).
+        # under 증설 목표는 현재 코어 초과여야 유효 — 포화 주도로 util 목표가 현재 이하면 정확 수치 불가.
+        # 이 경우 안전 하한(floor) = 현재+1코어 로 채워 API recommended 가 null 이 되지 않게(계약 never-null).
         up = target if target > cores else None
+        floor = None if up is not None else cores + 1
         return ResourceAssessment(
-            "cpu", "under", triggers=triggers, sizing_target=up, confidence=conf,
-            detail=(f"목표 {up}코어" if up else "포화 주도 — 증설(수치 미상)"),
+            "cpu", "under", triggers=triggers, sizing_target=up, sizing_floor=floor, confidence=conf,
+            detail=(f"목표 {up}코어" if up else f"포화 주도 — 증설(최소 {cores + 1}코어)"),
         )
     if target < cores and not percore_busy:
         return ResourceAssessment("cpu", "over", sizing_target=target, confidence=conf, detail=f"목표 {target}코어")
     return ResourceAssessment("cpu", "optimal", sizing_target=cores, confidence=conf)
 
 
-def _mem_target_mb(util_pct: float, total_mb: int | None) -> int | None:
-    """메모리 사이징 — 이용률 80% 착지(Gate0 확정). total * util / 80."""
-    if total_mb is None or util_pct <= 0:
+def _mem_target_mb(near_peak_pct: float, total_mb: int | None) -> int | None:
+    """메모리 사이징 — near-peak(관측 피크)를 80%에 착지(Gate0 목표%). total * near_peak / 80.
+
+    메모리는 비탄력(초과=OOM)이라 피크 대표 통계(near-peak)로 사이징 — 판정용 p95 와 별도(fit-for-purpose).
+    """
+    if total_mb is None or near_peak_pct <= 0:
         return None
-    return math.ceil(total_mb * util_pct / RS_MEM_SIZING_TARGET_PCT)
+    return math.ceil(total_mb * near_peak_pct / RS_MEM_SIZING_TARGET_PCT)
 
 
 # 포화 주도 under 증설 headroom — swap/OOM 인데 util 이 낮아 util 사이징이 현재 이하일 때 현재 총량 + 이 비율로 상향.
@@ -554,7 +564,7 @@ def _mem_under_target(util_target: int | None, stats: ResourceStats) -> int | No
 
 
 def assess_memory(stats: ResourceStats) -> ResourceAssessment:
-    """메모리 판정 — 이용률 90%(주신호) OR swap page-out 발생. 사이징 목표 70%.
+    """메모리 판정 — 이용률 90%(주신호) OR swap page-out 발생. 사이징은 near-peak 80% 착지(비탄력).
 
     swapless(다수)는 이용률이 주신호, swap 호스트는 page-out 발생이 포화. 물리 무릎 없어 임계는 advisor prior.
     """
@@ -565,8 +575,14 @@ def assess_memory(stats: ResourceStats) -> ResourceAssessment:
         signals = (("mem_saturation", _mem_paging_active(stats)), ("mem_oom", stats.oom_occurred))
         pressure = [t for t, hit in signals if hit]
         if pressure:
+            floor = (
+                math.ceil(stats.mem_total_mb * (1 + RS_MEM_SATURATION_HEADROOM_PCT / 100))
+                if stats.mem_total_mb is not None
+                else None
+            )
             return ResourceAssessment(
-                "memory", "under", triggers=pressure, confidence=conf, detail="이용률 미측정, 압박 발생"
+                "memory", "under", triggers=pressure, sizing_floor=floor, confidence=conf,
+                detail="이용률 미측정, 압박 발생",
             )
         conf.coverage_gap = True
         return ResourceAssessment("memory", "unmeasured", confidence=conf, detail="이용률 미측정")
@@ -577,15 +593,22 @@ def assess_memory(stats: ResourceStats) -> ResourceAssessment:
         triggers.append("mem_saturation")
     if stats.oom_occurred:
         triggers.append("mem_oom")  # OOM = 메모리 실패 사후 증거 (강한 under)
-    target_mb = _mem_target_mb(util, stats.mem_total_mb)
+    # 사이징 통계는 near-peak(비탄력 피크 대표). 미측정 시 p95 로 폴백(판정 통계 재사용).
+    near_peak = stats.mem_near_peak_pct if stats.mem_near_peak_pct is not None else util
+    target_mb = _mem_target_mb(near_peak, stats.mem_total_mb)
     if triggers:
-        # under 증설 목표 — util 기반 + 포화 headroom(현재+30%) 중 큰 값으로 현재 초과 보장(_mem_under_target).
+        # under 증설 목표 — near-peak 기반 + 포화 headroom(현재+30%) 중 큰 값으로 현재 초과 보장(_mem_under_target).
         up = _mem_under_target(target_mb, stats)
+        # 정확 목표 불가 시 안전 하한(현재+30%) — API recommended never-null(floor).
+        floor = None
+        if up is None and stats.mem_total_mb is not None:
+            floor = math.ceil(stats.mem_total_mb * (1 + RS_MEM_SATURATION_HEADROOM_PCT / 100))
         return ResourceAssessment(
             "memory",
             "under",
             triggers=triggers,
             sizing_target=up,
+            sizing_floor=floor,
             confidence=conf,
             detail=(f"목표 {up}MB" if up else "증설(현재 사양 기준 상향)"),
         )
@@ -645,6 +668,62 @@ def assess_disk_capacity(stats: ResourceStats) -> ResourceAssessment:
     return ResourceAssessment(
         "disk_capacity", "capacity_ok", confidence=conf, detail=(f"used {used:.0f}%" if used is not None else "여유")
     )
+
+
+_GIB = 1024**3
+
+
+@dataclass
+class MountSizing:
+    """마운트 하나의 용량 사이징 — 디스크 축소 금지(increase/keep). /api/assessment per-mount 디스크 축 입력.
+
+    current/recommended 모두 같은 fs 총용량 기준(basis mismatch 없음). GiB(2^30) ceil(하향 오차 방지).
+    """
+
+    current_gib: int
+    recommended_gib: int
+    action: str  # "increase" | "keep" (디스크는 축소 없음)
+    estimate_quality: str  # "exact" | "floor"
+    note: str = ""  # 크기로 안 풀리는 신호(inode 소진 등) advisory -> API disk 축 note 로 노출
+
+
+def assess_mount_capacity(
+    total_bytes: int | None,
+    target_bytes: float | None,
+    byte_runway_days: float | None,
+    used_pct: float | None,
+    inode_runway_days: float | None,
+    inode_used_pct: float | None,
+) -> MountSizing | None:
+    """마운트 용량 사이징 (per-mount) — 소진 임박이면 목표 크기로 확장, 아니면 유지. 축소 없음.
+
+    assess_disk_capacity(호스트 worst-mount)의 per-mount 판(같은 filling 임계·target 산식). byte 소진 임박 ->
+    target_bytes 로 확장(산출 불가면 floor). inode 소진은 용량 확장으로 안 풀려(mkfs 고정) keep + advisory note.
+    total_bytes 미상이면 None(사이징 불가 — 축 생략).
+    """
+    if not total_bytes:
+        return None
+    current_gib = math.ceil(total_bytes / _GIB)
+    byte_filling = (byte_runway_days is not None and byte_runway_days < RS_DISK_RUNWAY_DAYS) or (
+        byte_runway_days is None and used_pct is not None and used_pct >= RS_DISK_STATIC_GUARD_PCT
+    )
+    inode_filling = (inode_runway_days is not None and inode_runway_days < RS_DISK_RUNWAY_DAYS) or (
+        inode_runway_days is None and inode_used_pct is not None and inode_used_pct >= RS_DISK_STATIC_GUARD_PCT
+    )
+    if byte_filling and target_bytes is not None:
+        rec_gib = max(current_gib, math.ceil(target_bytes / _GIB))
+        action = "increase" if rec_gib > current_gib else "keep"
+        return MountSizing(current_gib, rec_gib, action, "exact")
+    if byte_filling:
+        # 소진 임박인데 목표 산출 불가 — 안전 하한(현재를 headroom 목표%로 상향).
+        floor_gib = max(current_gib, math.ceil(current_gib / (RS_DISK_HEADROOM_TARGET_PCT / 100)))
+        return MountSizing(current_gib, floor_gib, "increase", "floor")
+    if inode_filling:
+        return MountSizing(
+            current_gib, current_gib, "keep", "exact",
+            note="inode 소진 — 파일 정리/재포맷(용량 확장 무관)",
+        )
+    return MountSizing(current_gib, current_gib, "keep", "exact")
 
 
 def assess_disk_io(stats: ResourceStats) -> ResourceAssessment:

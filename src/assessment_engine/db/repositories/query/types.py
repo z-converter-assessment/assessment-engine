@@ -184,9 +184,23 @@ _ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str, str]] = {
     ),
 }
 
-# 물리 disk/iface 필터 (v2) — kind 컬럼 폐기. 현재는 전체 집계(no-op TRUE).
-# caveat: agent 가 partition/lvm/bond-member 를 시계열로 발행하면 collapse(환경) 합산에서 이중집계 위험.
-# 실 데이터로 발행 granularity 확인 후, 필요 시 inventory(block_devices.type / net_interfaces.kind)에서 resolve 한
-# 물리 device_id/iface_id 집합으로 필터 추가(query 시 1회 resolve, 재사용 CTE). agent 가 물리 단위만 발행하면 불요.
-_PHYS_DISK_SQL_FILTER = "TRUE"
-_PHYS_IFACE_SQL_FILTER = "TRUE"
+# 물리 disk/iface 필터 (v2) — 시계열 device 집계를 물리 단위로 한정. agent 가 물리 disk 위 LVM/RAID/crypt/swap LV,
+# 물리 NIC 위 bridge/virtual 을 각각 시계열로 발행하므로, 무필터 SUM 은 물리 disk I/O 에 그 위 논리볼륨 I/O(디스크
+# 통과분)를 더해 이중·삼중집계된다. inventory 로 판정: block_device type=='disk' / net_interface kind in
+# (physical, bond_master) 만 포함. 판정은 시계열 device_id/iface_id = inventory (id_type):(id) 재구성 조인.
+# fail-open: inventory 에 매칭 안 되는 device_id/iface_id 는 유지(물리 데이터 누락 방지) — 알려진 논리/가상만 배제.
+# 상관 서브쿼리 — bare server_id/device_id/iface_id 참조라 raw hypertable·cagg 양쪽 컬럼 스코프에서 동작.
+_PHYS_DISK_SQL_FILTER = (
+    "NOT EXISTS (SELECT 1 FROM server_inventory si_pf "
+    "CROSS JOIN LATERAL jsonb_array_elements(si_pf.block_devices) bd_pf "
+    "WHERE si_pf.id = server_id "
+    "AND (bd_pf->>'id_type') || ':' || (bd_pf->>'id') = device_id "
+    "AND (bd_pf->>'type') IS DISTINCT FROM 'disk')"
+)
+_PHYS_IFACE_SQL_FILTER = (
+    "NOT EXISTS (SELECT 1 FROM server_inventory si_pf "
+    "CROSS JOIN LATERAL jsonb_array_elements(si_pf.net_interfaces) ni_pf "
+    "WHERE si_pf.id = server_id "
+    "AND (ni_pf->>'id_type') || ':' || (ni_pf->>'id') = iface_id "
+    "AND (ni_pf->>'kind') NOT IN ('physical', 'bond_master'))"
+)

@@ -8,6 +8,7 @@ from assessment_engine.db.dtos.outbound import (
     DiskIoBaselineRaw,
     EnvironmentUtilizationRaw,
     MemoryBreakdownRaw,
+    MountCapacityRaw,
     NetIoBaselineRaw,
     ReportMountUsageRaw,
     ReportRowRaw,
@@ -101,6 +102,14 @@ class BaseReportQueryRepository(ABC):
         end: datetime,
     ) -> dict[int, list[ReportMountUsageRaw]]:
         """N대 마운트별 윈도우 평균 — `report_mount_usage` 배치(server_id IN). child fan-out 1회 조회 (A5)."""
+
+    @abstractmethod
+    async def report_mount_capacity_batch(
+        self,
+        server_ids: list[int],
+        end: datetime,
+    ) -> dict[int, list[MountCapacityRaw]]:
+        """N대 마운트별 용량 사이징 입력 — /api/assessment per-mount 디스크 축(worst-mount 로 접지 않음)."""
 
     @abstractmethod
     async def report_memory_breakdown_batch(

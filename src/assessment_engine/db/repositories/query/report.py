@@ -15,6 +15,7 @@ from assessment_engine.db.dtos.outbound import (
     DiskIoBaselineRaw,
     EnvironmentUtilizationRaw,
     MemoryBreakdownRaw,
+    MountCapacityRaw,
     NetIoBaselineRaw,
     ReportMountUsageRaw,
     ReportRowRaw,
@@ -24,6 +25,8 @@ from assessment_engine.db.repositories.query.base_report import BaseReportQueryR
 from assessment_engine.db.repositories.query.types import (
     _DATA_VOLUME_CAGG_FILTER,
     _DATA_VOLUME_SQL_FILTER,
+    _PHYS_DISK_SQL_FILTER,
+    _PHYS_IFACE_SQL_FILTER,
 )
 
 
@@ -79,6 +82,8 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             mem_stats AS (
                 SELECT server_id,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY mem_pct_avg) AS mem_p95,
+                    -- near-peak = 버킷 최댓값(mem_pct_max)의 p99.9 — 메모리 사이징 통계(비탄력 피크 대표, 단일 이상치 제외).
+                    percentile_cont(0.999) WITHIN GROUP (ORDER BY mem_pct_max) AS mem_near_peak,
                     AVG(mem_pct_avg) AS mem_avg, MAX(mem_pct_max) AS mem_peak, COUNT(mem_pct_avg) AS mem_sample
                 FROM bkt WHERE mem_pct_avg IS NOT NULL GROUP BY server_id
             ),
@@ -156,12 +161,23 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                         (delta(op_rtime_ca) + delta(op_wtime_ca))
                             / NULLIF(delta(ops_read_ca) + delta(ops_write_ca), 0) * 1000 AS await_ms
                     FROM server_disk_io_5m
-                    WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
+                    WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_PHYS_DISK_SQL_FILTER}
                 ) d WHERE await_ms IS NOT NULL GROUP BY server_id, bucket
             ),
             disk_await_stats AS (
                 SELECT server_id, percentile_cont(0.95) WITHIN GROUP (ORDER BY worst_await) AS await_p95
                 FROM disk_await GROUP BY server_id
+            ),
+            disk_io_base AS (
+                -- 서버 iops baseline = Σ(Δ ops) / Σ(dt). 유휴 판정 활동 축(idle 게이트, _host_status) 입력 — 전 경로 동일.
+                SELECT server_id, CASE WHEN SUM(dt) > 0 THEN SUM(ops) / SUM(dt) END AS iops_baseline FROM (
+                    SELECT server_id, bucket,
+                        SUM(delta(ops_read_ca) + delta(ops_write_ca)) AS ops,
+                        MAX(time_delta(ops_read_ca)) AS dt
+                    FROM server_disk_io_5m
+                    WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_PHYS_DISK_SQL_FILTER}
+                    GROUP BY server_id, bucket
+                ) pb WHERE dt > 0 GROUP BY server_id
             ),
             net_quality AS (
                 SELECT server_id, SUM(rxd) + SUM(txd) AS drops_total,
@@ -170,7 +186,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     SELECT server_id, delta(rxd_ca) AS rxd, delta(txd_ca) AS txd,
                         delta(rxp_ca) AS rxp, delta(txp_ca) AS txp
                     FROM server_net_io_5m
-                    WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
+                    WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_PHYS_IFACE_SQL_FILTER}
                 ) n GROUP BY server_id
             ),
             percore AS (
@@ -187,12 +203,13 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 SELECT server_id, MAX(core_p95) AS cpu_percore_p95_max FROM percore GROUP BY server_id
             )
             SELECT
-                s.id AS server_id, s.public_id, s.hostname, s.os_family, s.os_id, s.os_version, s.kernel_version,
+                s.id AS server_id, s.public_id, s.hostname, s.os_family, s.os_id, s.os_version,
+                s.os_codename, s.kernel_version,
                 s.net_interfaces, s.services, s.listen_ports, s.last_seen_at, s.cpu_cores, s.mem_total_bytes,
                 s.block_devices, s.lvm_vgs, s.boot_time,
                 cs.cpu_p95, cs.cpu_avg, cs.cpu_peak, cs.iowait_p95, cs.iowait_peak,
                 cs.cpu_run_queue_p95, cs.mem_pages_input_rate_p95,
-                ms.mem_p95, ms.mem_avg, ms.mem_peak,
+                ms.mem_p95, ms.mem_avg, ms.mem_peak, ms.mem_near_peak,
                 mm.worst_used_pct AS worst_mount_used_pct,
                 cs.cpu_sample::float / NULLIF(:expected_samples, 0) AS cpu_sufficiency,
                 ms.mem_sample::float / NULLIF(:expected_samples, 0) AS mem_sufficiency,
@@ -203,6 +220,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 COALESCE(rs.oom_occurred, false) AS oom_occurred,
                 cs.cpu_sample * 5.0 / 60.0 AS history_hours,
                 da.await_p95 AS disk_await_p95_ms,
+                dib.iops_baseline AS disk_iops_baseline,
                 mm.worst_inode_used_pct AS disk_inode_used_pct,
                 rs.conntrack_ratio,
                 mr.disk_runway_days  AS disk_capacity_runway_days,
@@ -221,6 +239,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             LEFT JOIN mount_max   mm ON mm.server_id = s.id
             LEFT JOIN mount_runway mr ON mr.server_id = s.id
             LEFT JOIN disk_await_stats da ON da.server_id = s.id
+            LEFT JOIN disk_io_base dib ON dib.server_id = s.id
             LEFT JOIN net_quality nq ON nq.server_id = s.id
             LEFT JOIN percore_max pc ON pc.server_id = s.id
             WHERE s.id = ANY(:sids)
@@ -249,6 +268,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 os_family=r.os_family,
                 os_id=r.os_id,
                 os_version=r.os_version,
+                os_codename=r.os_codename,
                 kernel_version=r.kernel_version,
                 net_interfaces=r.net_interfaces,
                 services=r.services,
@@ -260,6 +280,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 mem_p95_pct=r.mem_p95,
                 mem_avg_pct=r.mem_avg,
                 mem_peak_pct=r.mem_peak,
+                mem_near_peak_pct=r.mem_near_peak,
                 iowait_p95_pct=r.iowait_p95,
                 iowait_peak_pct=r.iowait_peak,
                 cpu_run_queue_p95=r.cpu_run_queue_p95,
@@ -280,6 +301,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 oom_occurred=bool(r.oom_occurred),
                 history_hours=r.history_hours,
                 disk_await_p95_ms=r.disk_await_p95_ms,
+                disk_iops_baseline=int(r.disk_iops_baseline) if r.disk_iops_baseline is not None else None,
                 disk_capacity_runway_days=r.disk_capacity_runway_days,
                 disk_capacity_driving_mount=r.disk_capacity_driving_mount,
                 disk_capacity_target_gb=r.disk_capacity_target_gb,
@@ -343,14 +365,14 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         v2: server_disk_io_5m io_*_bytes(이미 By, *512 폐기)·ops. rate = delta/time_delta.
         """
         start = end - timedelta(days=period_days)
-        sql = text("""
+        sql = text(f"""
             WITH per_dev AS (
                 SELECT server_id, bucket,
                     delta(ops_read_ca) + delta(ops_write_ca)  AS ops,
                     delta(io_read_ca) + delta(io_write_ca)    AS bytes,
                     time_delta(ops_read_ca)                   AS dt
                 FROM server_disk_io_5m
-                WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
+                WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_PHYS_DISK_SQL_FILTER}
             ),
             per_bucket AS (
                 SELECT server_id, bucket, SUM(ops) AS ops, SUM(bytes) AS bytes, MAX(dt) AS dt
@@ -394,12 +416,12 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
     ) -> dict[int, NetIoBaselineRaw]:
         """server_id -> NetIoBaselineRaw (rx·tx baseline + p95/peak). baseline = SUM/SUM."""
         start = end - timedelta(days=period_days)
-        sql = text("""
+        sql = text(f"""
             WITH per_if AS (
                 SELECT server_id, bucket,
                     delta(rx_ca) AS rx_bytes, delta(tx_ca) AS tx_bytes, time_delta(rx_ca) AS dt
                 FROM server_net_io_5m
-                WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
+                WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_PHYS_IFACE_SQL_FILTER}
             ),
             per_bucket AS (
                 SELECT server_id, bucket, SUM(rx_bytes) AS rx_bytes, SUM(tx_bytes) AS tx_bytes, MAX(dt) AS dt
@@ -536,6 +558,75 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     mountpoint=r.mountpoint,
                     total_bytes=int(r.total_bytes) if r.total_bytes is not None else None,
                     used_pct=float(r.used_pct) if r.used_pct is not None else None,
+                )
+            )
+        return out
+
+    async def report_mount_capacity_batch(
+        self, server_ids: list[int], end: datetime
+    ) -> dict[int, list[MountCapacityRaw]]:
+        """마운트별 용량 사이징 입력 (per-mount) — /api/assessment 디스크 축. report_aggregate 는 호스트 worst-mount
+        로 접지만, 프로비저닝은 각 볼륨을 개별 사이징해야 해 마운트별 행을 반환(접지 않음).
+
+        runway/target 산식은 report_aggregate mount_calc 와 동일(임계 상수 recommendation.RS_* 단일 진실).
+        target_bytes = 소진 임박 시 목표 총 용량(바이트, 마운트 확장 목표). None=안 참. runway 는 가용 이력 전체
+        span(하한 없이 bucket <= :end, F10 — 누적 신호라 사이징 창과 별개).
+        """
+        sql = text(f"""
+            WITH mount_span AS (
+                SELECT server_id, mountpoint,
+                    first(free_first, bucket)       AS av_first,
+                    last(free_last, bucket)         AS av_last,
+                    max(total_bytes_max)            AS total_bytes,
+                    first(inode_free_first, bucket) AS in_first,
+                    last(inode_free_last, bucket)   AS in_last,
+                    max(inode_pct_max)              AS inode_used_pct,
+                    EXTRACT(EPOCH FROM (max(bucket) - min(bucket))) / 86400.0 AS span_days
+                FROM server_filesystem_5m
+                WHERE server_id = ANY(:sids) AND bucket <= :end AND {_DATA_VOLUME_CAGG_FILTER}
+                GROUP BY server_id, mountpoint
+            )
+            SELECT server_id, mountpoint, total_bytes, inode_used_pct,
+                CASE WHEN total_bytes > 0 THEN (1 - av_last::float / total_bytes) * 100 END AS used_pct,
+                CASE WHEN (av_first - av_last) > 0 AND span_days > 0 AND av_last >= 0
+                     THEN GREATEST(0, FLOOR(av_last / ((av_first - av_last) / span_days))) END AS byte_runway_days,
+                CASE WHEN (in_first - in_last) > 0 AND span_days > 0 AND in_last >= 0
+                     THEN GREATEST(0, FLOOR(in_last / ((in_first - in_last) / span_days))) END AS inode_runway_days,
+                CASE
+                    WHEN (av_first - av_last) > 0 AND span_days >= :trend_min_span AND total_bytes > 0
+                        THEN CEIL((total_bytes - av_last) + :target_runway * ((av_first - av_last) / span_days))
+                    WHEN (av_first - av_last) > 0 AND span_days > 0 AND total_bytes > 0
+                        THEN CEIL(((total_bytes - av_last) + :near_horizon * ((av_first - av_last) / span_days))
+                                  / (:headroom_pct / 100.0))
+                    WHEN total_bytes > 0 AND av_last >= 0 AND (1 - av_last::float / total_bytes) * 100 >= :static_pct
+                        THEN CEIL((total_bytes - av_last) / (:headroom_pct / 100.0))
+                END AS target_bytes
+            FROM mount_span
+            ORDER BY server_id, mountpoint
+        """)
+        result = await self.session.execute(
+            sql,
+            {
+                "sids": server_ids,
+                "end": end,
+                "target_runway": recommendation.RS_DISK_TARGET_RUNWAY_DAYS,
+                "trend_min_span": recommendation.RS_DISK_TREND_MIN_SPAN_DAYS,
+                "near_horizon": recommendation.RS_DISK_NEAR_HORIZON_DAYS,
+                "static_pct": recommendation.RS_DISK_STATIC_GUARD_PCT,
+                "headroom_pct": recommendation.RS_DISK_HEADROOM_TARGET_PCT,
+            },
+        )
+        out: dict[int, list[MountCapacityRaw]] = {}
+        for r in result.all():
+            out.setdefault(r.server_id, []).append(
+                MountCapacityRaw(
+                    mountpoint=r.mountpoint,
+                    total_bytes=int(r.total_bytes) if r.total_bytes is not None else None,
+                    used_pct=float(r.used_pct) if r.used_pct is not None else None,
+                    byte_runway_days=float(r.byte_runway_days) if r.byte_runway_days is not None else None,
+                    inode_runway_days=float(r.inode_runway_days) if r.inode_runway_days is not None else None,
+                    inode_used_pct=float(r.inode_used_pct) if r.inode_used_pct is not None else None,
+                    target_bytes=int(r.target_bytes) if r.target_bytes is not None else None,
                 )
             )
         return out

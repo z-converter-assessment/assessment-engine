@@ -26,7 +26,7 @@ from assessment_engine.web.services.mappers.shared import (
     resolve_os_eol,
     saturation_axis_displays,
 )
-from assessment_engine.web.services.unit_converter import bytes_to_gb
+from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
 from assessment_engine.web.view_models.attention import (
     ActionTargets,
     AttentionRow,
@@ -215,9 +215,9 @@ def build_environment_overview(
     """
     total = len(details)
     total_vcpus = sum(d.cpu_cores or 0 for d in details)
-    total_mem_kb = sum(d.mem_total_kb or 0 for d in details)
-    # 디스크 총량 — 물리 disks 우선, 비면(Windows) 파일시스템 mounts fallback (device_filters 단일 산식).
-    total_disk_bytes = sum(disk_total_bytes(d.disks or [], d.mounts or []) for d in details)
+    total_mem_bytes = sum(d.mem_total_bytes or 0 for d in details)
+    # 디스크 총량 — block_devices type=disk size_bytes 합 (양 OS 단일 산식, device_filters).
+    total_disk_bytes = sum(disk_total_bytes(d.block_devices or []) for d in details)
     # OS 구성 — os_family(windows/linux) 별 서버 수.
     os_counter: Counter[str] = Counter()
     for d in details:
@@ -304,7 +304,7 @@ def build_environment_overview(
         online=online_count,
         offline=total - online_count,
         total_vcpus=total_vcpus,
-        total_memory_gb=round(total_mem_kb / 1024 / 1024, 1),
+        total_memory_gb=bytes_to_gib(total_mem_bytes) or 0.0,
         total_disk_gb=int(bytes_to_gb(total_disk_bytes) or 0),
         # count 내림차순 + 동count는 이름 오름차순 tie-break (most_common 동순위는 삽입순=DB row 순서라 비결정적).
         os_distribution=dict(sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
@@ -335,7 +335,7 @@ def build_environment_realtime(
 
     호출자가 온라인 서버만 snapshots 로 전달 (오프라인 stale 메트릭 제외 — sample_size = len(snapshots)).
     snapshots 키: hostname/public_id + 부하상위용 서버별 값(cpu_pct/mem_pct/disk_pct + disk_iops/net_kbps)
-                + capacity-weighted 가중치(cpu_cores·mem_used_kb·mem_total_kb·fs_used_gb·fs_total_gb).
+                + capacity-weighted 가중치(cpu_cores·mem_used_bytes·mem_total_bytes·fs_used_gb·fs_total_gb).
     utilization: CPU/메모리/디스크 평균 도넛 3개 — capacity-weighted(environment_utilization 동일 정의).
     io_*: 환경 I/O 총량(신선 표본 합산) — 평균 섹션 수치 카드(rate 라 도넛 아님).
     peak_groups: 자원별(CPU/메모리/디스크/디스크 I/O/네트워크 I/O) top_n 5열 — I/O 는 2행 페어 delta(build_dashboard).
@@ -343,7 +343,7 @@ def build_environment_realtime(
 
     # capacity-weighted 평균 — 환경 전체 자원 풀 활용률(단순 산술평균 X). environment_utilization SQL 과 동일 정의:
     #   CPU = Σ(usage%·cores)/Σcores (시점 usage 라 jiffies delta 대신 코어 가중 근사),
-    #   mem = Σused_kb/Σtotal_kb, disk = Σused_gb/Σtotal_gb (전 mount 통합, worst mount 아님).
+    #   mem = Σused_bytes/Σtotal_bytes, disk = Σused_gb/Σtotal_gb (전 mount 통합, worst mount 아님).
     def _cap_weighted(value_key: str, weight_key: str) -> float | None:
         num = sum(s[value_key] * s[weight_key] for s in snapshots if s.get(value_key) is not None and s.get(weight_key))
         den = sum(s[weight_key] for s in snapshots if s.get(value_key) is not None and s.get(weight_key))
@@ -355,7 +355,7 @@ def build_environment_realtime(
         return round(used / total * 100, 1) if total else None
 
     avg_cpu = _cap_weighted("cpu_pct", "cpu_cores")
-    avg_mem = _ratio("mem_used_kb", "mem_total_kb")
+    avg_mem = _ratio("mem_used_bytes", "mem_total_bytes")
     avg_disk = _ratio("fs_used_gb", "fs_total_gb")
     util_bars = [
         UtilizationBar(label="CPU", pct=avg_cpu, bar_color=_bar_color(avg_cpu), dash_length=_dash_length(avg_cpu)),
@@ -506,10 +506,10 @@ def build_action_targets(raws) -> ActionTargets:
         under_count=sum(1 for it in items if it.classification == "under_provisioned"),
         efficiency_count=len(eff_raws),
         efficiency_vcpus=sum(r.cpu_cores or 0 for r in eff_raws),
-        efficiency_memory_gb=round(sum((r.mem_total_kb or 0) / 1024 / 1024 for r in eff_raws), 1),
-        # 점유 스토리지 합 — 물리 disks 우선, 비면(Windows) 파일시스템 mounts fallback (disk_total_bytes 단일 산식).
+        efficiency_memory_gb=round(sum((r.mem_total_bytes or 0) / 1024**3 for r in eff_raws), 1),
+        # 점유 스토리지 합 — block_devices type=disk size_bytes 합 (disk_total_bytes 단일 산식, 양 OS).
         efficiency_disk_gb=int(
-            bytes_to_gb(sum(disk_total_bytes(r.disks or [], r.inventory_mounts or []) for r in eff_raws)) or 0
+            bytes_to_gb(sum(disk_total_bytes(r.block_devices or []) for r in eff_raws)) or 0
         ),
     )
 

@@ -92,6 +92,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 mem_cached_bytes=m.mem_cached_bytes,
                 mem_used_bytes=m.mem_used_bytes,
                 cpu_run_queue=m.cpu_run_queue,
+                cpu_logical_count=m.cpu_logical_count,
                 boot_time=m.boot_time,
                 agent_started_at=m.agent_started_at,
             )
@@ -447,6 +448,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                             SUM(used_bytes)::float / NULLIF(SUM(used_bytes + free_bytes), 0) * 100 AS v
                         FROM {ServerFilesystem.__tablename__}
                         WHERE collected_at >= :start AND collected_at <= :end {sid}
+                          AND {_DATA_VOLUME_SQL_FILTER}
                           AND used_bytes IS NOT NULL AND free_bytes IS NOT NULL AND (used_bytes + free_bytes) > 0
                           AND (CAST(:dim_filter AS text) IS NULL OR mountpoint = :dim_filter)
                         GROUP BY collected_at, mountpoint

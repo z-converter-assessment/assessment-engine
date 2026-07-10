@@ -231,6 +231,9 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             last_inventory_at=row,
         )
 
-    async def list_server_ids(self, limit: int = 1000) -> list[int]:
-        result = await self.session.execute(select(ServerInventory.id).order_by(ServerInventory.id.asc()).limit(limit))
+    async def list_server_ids(self, limit: int | None = 1000) -> list[int]:
+        stmt = select(ServerInventory.id).order_by(ServerInventory.id.asc())
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        result = await self.session.execute(stmt)
         return [r for r in result.scalars().all()]

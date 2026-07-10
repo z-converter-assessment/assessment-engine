@@ -52,6 +52,8 @@ class WebSettings(BaseSettings):
     redis_ttl_last_agent_start: int = 86400  # 24h — 직전 agent_started_at 캐시 (재시작 감지용)
     redis_ttl_agent_restarts: int = 3600  # 1h  — 슬라이딩 윈도우 카운터
     redis_ttl_time_invariant_warned: int = 3600  # 1h  — 시계 invariant 위반 로그 쿨다운 (스팸 방지)
+    redis_ttl_cache_metrics: int = 60  # 1min — 최신 대시보드 스냅샷 cache-aside (실시간 폴링 주기)
+    redis_ttl_cache_detail: int = 300  # 5min — 서버 상세 ViewModel cache-aside
 
     # Key prefixes
     redis_key_cache_inventory: str = "cache:inventory:{}"
