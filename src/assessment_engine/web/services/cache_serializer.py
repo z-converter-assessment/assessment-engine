@@ -6,6 +6,7 @@ from assessment_engine.web.services.mappers.server import (
     DYNAMIC_PORT_MIN,
     enrich_server_detail,
 )
+from assessment_engine.web.services.serialization_util import json_default as _json_default
 from assessment_engine.web.view_models.metric import (
     CpuSnapshot,
     DiskIoSnapshot,
@@ -13,7 +14,6 @@ from assessment_engine.web.view_models.metric import (
     MetricDashboard,
     MountDashSnapshot,
     NetIoSnapshot,
-    SwapSnapshot,
 )
 from assessment_engine.web.view_models.server import (
     DiskItem,
@@ -43,12 +43,6 @@ _DETAIL_DISPLAY_FIELDS = frozenset(
         "volumes_count",
     }
 )
-
-
-def _json_default(obj: object) -> str:
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    raise TypeError(f"Cannot serialize {type(obj)}")
 
 
 def server_detail_to_json(v: ServerDetailResponse) -> str:
@@ -113,20 +107,13 @@ def dashboard_from_json(raw: str) -> MetricDashboard:
     return MetricDashboard(
         collected_at=datetime.fromisoformat(raw_ca) if isinstance(raw_ca, str) else None,
         cpu=CpuSnapshot(**data["cpu"]) if data.get("cpu") else None,
-        load_1m=data.get("load_1m"),
-        load_5m=data.get("load_5m"),
-        load_15m=data.get("load_15m"),
         cpu_run_queue=data.get("cpu_run_queue"),
         disk_await_ms=data.get("disk_await_ms"),
         disk_queue=data.get("disk_queue"),
         mem_pages_input_rate=data.get("mem_pages_input_rate"),
-        mem_pageout=data.get("mem_pageout"),
         net_retrans_pct=data.get("net_retrans_pct"),
         memory=MemSnapshot(**data["memory"]) if data.get("memory") else None,
-        swap=SwapSnapshot(**data["swap"]) if data.get("swap") else None,
-        disk_io_phys=[DiskIoSnapshot(**d) for d in data.get("disk_io_phys") or []],
-        disk_io_lvm=[DiskIoSnapshot(**d) for d in data.get("disk_io_lvm") or []],
-        disk_io_part=[DiskIoSnapshot(**d) for d in data.get("disk_io_part") or []],
+        disk_io=[DiskIoSnapshot(**d) for d in data.get("disk_io") or []],
         net_io=[NetIoSnapshot(**n) for n in data.get("net_io") or []],
         mounts=[MountDashSnapshot(**m) for m in data.get("mounts") or []],
     )

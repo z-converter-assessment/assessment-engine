@@ -229,7 +229,7 @@ environment:
 
 `web` healthcheck:
 - 명령으로 `python -c ...`를 쓰는 이유: `curl`이 python:3.12-slim 이미지에 없음. python 표준 라이브러리로 해결.
-- `start_period: 10s` — web lifespan(`CREATE EXTENSION + create_all + create_hypertable`)이 완료될 시간 확보. 이 구간의 실패는 `retries`에 포함되지 않는다.
+- `start_period: 10s` — web lifespan(broker channel·redis pool·http client 초기화)이 완료될 시간 확보. 스키마는 `migrate` 서비스가 선행(`depends_on: service_completed_successfully`). 이 구간의 실패는 `retries`에 포함되지 않는다.
 - 헬스 엔드포인트(`/health`)는 단순 `{"status": "ok"}` JSON. DB·Redis 연결 검사 안 함 (deep healthcheck 안 함).
 
 ### 기동 순서 (`depends_on`)

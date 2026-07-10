@@ -117,7 +117,7 @@ class UtilizationBar:
     """환경 평균 자원 활용률 도넛 1개 — list 화면 상단.
 
     pct None이면 표본 부재 ("—" 표시). bar_color·dash_length 는 P3 회피 mapper precompute
-    (dash_length = SVG stroke-dasharray, 원주 ≈ 264 에 pct 0~100 비례).
+    (dash_length = SVG stroke-dasharray, 원주 2*pi*42 에 pct 0~100 비례).
     """
 
     label: str  # "CPU" / "메모리" / "디스크"

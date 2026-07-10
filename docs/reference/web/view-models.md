@@ -29,8 +29,6 @@
 | `ReportSummary` | `query_service.get_report` — `rows: list[ReportRowItem]`(`sort_rows_for_report` 위험 우선 정렬) + KPI 집계 (`total`/`online`/`over`/`under`) + N대 선택 맥락 `os_family_summary`/`workload_summary`(`build_selection_context`) |
 | `MetricSeriesItem` | `to_metric_series_item` — chart API 응답 |
 
-`InventoryExportEntry`는 `db/dtos/outbound.py` (vendor 중립 vendor JSON 응답 — ViewModel 아님). `to_inventory_export_entry`가 변환.
-
 ## 환경 개요 상단 요약 (overview, `/`)
 
 환경 개요(`/`)에서 두 영역 노출 — `EnvironmentOverview`(환경 요약 KPI + 활용률 도넛 + 프로비저닝 분포 도넛) + `AttentionSignals`(운영신호 카드 3 카탈로그 — 통신끊김/OS지원종료/에이전트재시작). 서버 목록(`/servers`)은 행만 — 화면 분리 자체가 컨텍스트 가드(#E9).

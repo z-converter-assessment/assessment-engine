@@ -6,6 +6,7 @@ import pytest
 
 from assessment_engine.db.dtos.outbound import (
     MetricGapWarningRaw,
+    MountUsageRaw,
     ServerDetail,
     ServerSummary,
     StorageWithUsage,
@@ -122,9 +123,9 @@ def _summary(**overrides) -> ServerSummary:
         os_version="22.04",
         kernel_version=None,
         cpu_cores=4,
-        mem_total_kb=8 * 1024**2,
+        mem_total_bytes=8 * 1024**3,  # v2 By (v1 mem_total_kb 폐기)
         ip_external=None,
-        disks=[{"name": "sda", "size_bytes": 100 * 10**9, "type": "disk", "kind": "physical"}],
+        block_devices=[{"name": "sda", "size_bytes": 100 * 10**9, "type": "disk"}],
         service_categories=[],
         last_seen_at=datetime.now(UTC),
     )
@@ -134,10 +135,10 @@ def _summary(**overrides) -> ServerSummary:
 
 def test_list_item_storage_total_sum():
     summary = _summary(
-        disks=[
-            {"name": "sda", "size_bytes": 100 * 10**9, "type": "disk", "kind": "physical"},
-            {"name": "sdb", "size_bytes": 50 * 10**9, "type": "disk", "kind": "physical"},
-            {"name": "loop0", "size_bytes": 999 * 10**9, "type": "loop", "kind": "virtual"},  # 가상은 제외
+        block_devices=[
+            {"name": "sda", "size_bytes": 100 * 10**9, "type": "disk"},
+            {"name": "sdb", "size_bytes": 50 * 10**9, "type": "disk"},
+            {"name": "loop0", "size_bytes": 999 * 10**9, "type": "loop"},  # 물리 아님(type!=disk) → 제외
         ]
     )
     item = to_server_list_item(summary)
@@ -220,23 +221,25 @@ def _detail(**overrides) -> ServerDetail:
         kernel_version="5.15.0",
         cpu_cores=4,
         cpu_model="test-cpu",
-        mem_total_kb=8 * 1024**2,
-        swap_total_kb=2 * 1024**2,
+        mem_total_bytes=8 * 1024**3,  # v2 By (v1 mem_total_kb 폐기)
         boot_time=datetime(2026, 1, 1, tzinfo=UTC),
         agent_started_at=datetime(2026, 1, 1, tzinfo=UTC),
-        interfaces=[
+        # v2 net_interfaces — kind 는 인터페이스 레벨, 주소는 nested addresses[] (v1 flat address/prefix/family 폐기).
+        net_interfaces=[
             {
+                "id": "52:54:00:12:34:56",
+                "id_type": "mac",
                 "name": "eth0",
-                "address": "10.0.0.1",
-                "prefix": 24,
-                "family": "ipv4",
                 "kind": "physical",
+                "speed_mbps": 1000,
                 "gateway": "10.0.0.254",
+                "addresses": [{"address": "10.0.0.1", "prefix": 24, "family": "ipv4"}],
             }
         ],
         ip_external=None,
-        disks=[{"name": "sda", "size_bytes": 100 * 10**9, "type": "disk", "kind": "physical"}],
-        mounts=[],
+        # v2 block_devices (swap 은 type=swap 노드로 표현 — v1 swap_total_kb 폐기).
+        block_devices=[{"name": "sda", "size_bytes": 100 * 10**9, "type": "disk"}],
+        lvm_vgs=[],
         services=[
             {"unit": "nginx.service", "sub": "running"},
             {"unit": "ssh.service", "sub": "running"},  # remote (SSH)
@@ -397,13 +400,17 @@ def test_to_storage_detail_filters_virtual_mounts():
         server_id=1,
         public_id="pub-1",
         hostname="h",
-        disks=[{"name": "sda", "size_bytes": 10**11, "type": "disk", "major": 8, "minor": 0, "kind": "physical"}],
-        inventory_mounts=[
-            {"mount": "/", "fstype": "ext4", "total_bytes": 5 * 10**10, "major": 8, "minor": 1, "kind": "data"},
-            {"mount": "/proc", "fstype": "proc", "total_bytes": 0},  # 가상 (kind 부재 -> 제외)
-            {"mount": "/snap/core/123", "fstype": "squashfs", "total_bytes": 10**8},  # 가상 (kind 부재 -> 제외)
+        block_devices=[{"name": "sda", "size_bytes": 10**11, "type": "disk"}],
+        lvm_vgs=[],
+        # v2: 마운트 사용량은 filesystems(df 시계열) 단일 소스 — 가상 제외는 fstype in VIRTUAL_FSTYPES 기준.
+        filesystems=[
+            MountUsageRaw(
+                mountpoint="/", fstype="ext4", used_bytes=3 * 10**10, free_bytes=2 * 10**10,
+                collected_at=datetime.now(UTC),
+            ),
+            MountUsageRaw(mountpoint="/proc", fstype="proc"),  # 가상 fstype -> 제외
+            MountUsageRaw(mountpoint="/snap/core/123", fstype="squashfs"),  # 가상 fstype -> 제외
         ],
-        mount_usage=[],
         inventory_at=datetime.now(UTC),
     )
     resp = to_storage_detail(storage)
@@ -413,9 +420,8 @@ def test_to_storage_detail_filters_virtual_mounts():
     assert "/snap/core/123" not in paths
 
 
-# mount (major,minor) -> 부모 disk 매핑은 device_filters.find_parent_disk 로 이동(export 전용).
-# 해당 매핑 검증은 test_device_filters.py(test_find_parent_disk*)가 단일 진실 — storage detail 은
-# 더 이상 device_name 을 산출하지 않으므로 중복 테스트 제거.
+# v2 는 device 부모-자식 조인을 노드 `parent`(부모 id)로 하며 major/minor 는 폐기 — storage detail 은
+# device_name 을 산출하지 않는다. block_device 트리 술어 검증은 test_device_filters.py 단일 진실.
 
 
 # ─── attention 신호 mapper (P2 단위 변환 + badge 분기) ────────────────────

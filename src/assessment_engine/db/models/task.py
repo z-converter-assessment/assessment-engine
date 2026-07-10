@@ -55,6 +55,7 @@ class Task(Base):
     duration_ms: Mapped[int | None] = mapped_column(BigInteger)
     stdout_tail: Mapped[str | None] = mapped_column(Text)
     stderr_tail: Mapped[str | None] = mapped_column(Text)
-    # 실제 설치 신호 (agent worker 가 데몬 기동+ZDM 등록 점검) — 판정 1순위 raw 보존(감사·표시).
-    # nullable: 구버전 agent 미발행 시 null -> 판정은 레거시 exit_code 폴백.
-    install_verified: Mapped[bool | None] = mapped_column(Boolean)
+    # task_policy — agent worker 의 실제 설치 성공 판정(데몬 기동+등록 점검). 종료 판정 1순위 raw 보존.
+    # exit_code 보다 우선 (non-zero exit 이어도 policy True 면 success, exit 0 이어도 policy False 면 failure).
+    # nullable: agent 미보고 시 null -> exit_code 폴백.
+    task_policy: Mapped[bool | None] = mapped_column(Boolean)

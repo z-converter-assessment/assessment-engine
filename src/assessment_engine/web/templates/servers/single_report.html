@@ -38,7 +38,7 @@
       </div>
       <div class="metric-card">
         <div class="metric-label">디스크</div>
-        <div class="metric-value">{% if si.disk_total_gb %}{{ si.disk_total_gb | disksize_styled }}{% else %}—{% endif %}</div>
+        <div class="metric-value">{% if si.disk_total_gb %}{{ si.disk_total_gb | storagesize_styled }}{% else %}—{% endif %}</div>
       </div>
       </div>
     </div>
@@ -132,7 +132,7 @@
     </tbody>
   </table>
   </div>
-  <p class="text-meta text-xs" style="margin:8px 0 0;">USE Method Saturation 축 — OS별 측정 신호가 다르다(Linux load·swap·iowait / Windows run queue·paging·disk queue). "미관측"은 해당 카운터 미발행(perflib/diskperf 미부착)으로, 분류는 나머지 축·이용률로 완결. 임계 근거는 참고자료.</p>
+  <p class="text-meta text-xs" style="margin:8px 0 0;">USE Method Saturation 축 — 측정 신호는 실행 큐(run queue)·page-out·await(OS 공통, 카운터 출처만 OS별). "미관측"은 해당 카운터 미발행(perflib/diskperf 미부착)으로, 분류는 나머지 축·이용률로 완결. 임계 근거는 참고자료.</p>
 </section>
 
 {# 발화 가능 정보 항상 노출(E9). #}
@@ -252,7 +252,7 @@
         <th style="text-align:right;">User</th>
         <th style="text-align:right;">System</th>
         <th style="text-align:right;">I/O Wait</th>
-        <th style="text-align:right;">Load 15m</th>
+        <th style="text-align:right;">실행 큐 p95 (코어당)</th>
         <th style="text-align:right;">iowait p95</th>
         <th style="text-align:right;">iowait peak</th>
       </tr>
@@ -265,7 +265,7 @@
         <td style="text-align:right;">{% if cb and cb.user_pct is not none %}{{ "%.1f"|format(cb.user_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if cb and cb.system_pct is not none %}{{ "%.1f"|format(cb.system_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif cb and cb.iowait_pct is not none %}{{ "%.1f"|format(cb.iowait_pct) }}%{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif r.load_15m_max is not none %}{{ "%.2f"|format(r.load_15m_max) }}{% else %}—{% endif %}</td>
+        <td style="text-align:right;">{% if r.cpu_run_queue_p95 is not none %}{{ "%.2f"|format(r.cpu_run_queue_p95) }}{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif r.iowait_p95_pct is not none %}{{ "%.1f"|format(r.iowait_p95_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif r.iowait_peak_pct is not none %}{{ "%.1f"|format(r.iowait_peak_pct) }}%{% else %}—{% endif %}</td>
       </tr>
@@ -417,7 +417,7 @@
   </table>
 </section>
 
-{# 포화 축 근거 — OS별 실측 신호(리눅스 page-out·load·await / 윈도우 pages input·run queue·disk queue)로 분류 근거 노출.
+{# 포화 축 근거 — 실측 신호(run queue·page-out·await)로 분류 근거 노출.
    고객 보고서에도 근거 제공(임계 칼럼은 생략, 신호·값·판정만). 축은 항상 3행(E9). #}
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">포화 축 근거</h2>
@@ -438,7 +438,7 @@
     </tbody>
   </table>
   </div>
-  <p class="text-meta text-xs" style="margin:8px 0 0;">측정 신호는 OS별로 다르다(리눅스 load·swap·iowait / 윈도우 run queue·paging·disk queue). "미관측"은 해당 카운터 미발행으로, 분류는 나머지 축·이용률로 완결.</p>
+  <p class="text-meta text-xs" style="margin:8px 0 0;">측정 신호는 실행 큐(run queue)·page-out·await(OS 공통, 카운터 출처만 OS별). "미관측"은 해당 카운터 미발행으로, 분류는 나머지 축·이용률로 완결.</p>
 </section>
 
 {# 발화 가능 정보 항상 노출(E9). #}

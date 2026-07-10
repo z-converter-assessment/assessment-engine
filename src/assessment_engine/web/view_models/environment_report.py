@@ -105,7 +105,7 @@ class MemoryBreakdown:
 
 @dataclass
 class CpuBreakdown:
-    """개별 보고서 CPU 분류 — user/system/iowait (jiffies delta 기반 %, 윈도우 평균)."""
+    """개별 보고서 CPU 분류 — user/system/iowait (cpu 시간 초 delta 기반 %, 윈도우 평균)."""
 
     user_pct: float | None
     system_pct: float | None
@@ -166,15 +166,15 @@ class AttentionHostItem:
 
 @dataclass
 class CapacityImminentItem:
-    """디스크 capacity 임박 호스트 — worst_mount_days_until_full <= 30 (engineer 보고서).
+    """디스크 capacity 임박 호스트 — 분류(assess_disk_capacity) 구동 마운트 runway < 30일 (engineer 보고서).
 
-    linear projection 기반 — 30일 안 디스크 full 위험. 운영 계획 입력.
+    구동 마운트 = 가장 빨리 소진되는 마운트 (배지 분류와 동일 신호). 운영 계획 입력.
     """
 
     public_id: str
     hostname: str
-    worst_mount: str
-    days_until_full: int
+    worst_mount: str  # 구동 마운트 이름 (disk_capacity_driving_mount)
+    days_until_full: int  # 구동 마운트 runway (disk_capacity_runway_days)
     used_pct: float | None
 
 
@@ -200,15 +200,12 @@ class EnvironmentReportSummary:
     os_distribution: list[OsCount]
     top_risks: list[ReportRowItem]  # base.rows 위험도 정렬 Top N (기본 5)
     summary_bullets_env: list[str]  # 환경 단위 view 별 정성 요약
-    # 구성 계층 (P-A) — OS family(Windows/Linux) 구성·워크로드 카테고리 분포 막대. customer·engineer 공통.
+    # 구성 계층 (P-A) — OS family(Windows/Linux) 구성 막대. customer·engineer 공통.
     os_family_dist: list[DistributionBar] = field(default_factory=list)
-    workload_dist: list[DistributionBar] = field(default_factory=list)
     # 분류된 역할이 없는 호스트 수 (서비스 없음 또는 전부 unknown) — discoverability(#E9)
     workload_unknown_count: int = 0
     # 서비스 식별된 호스트 수 (= total - unknown) — 서비스 구성 "식별 N대" 소제목 (mapper precompute, P3)
     workload_identified_count: int = 0
-    # 고객 보고서 의사결정 보조 (mapper precompute, P3) — 모두 기존 분류·신호 단일 진실 재사용.
-    evaluated_count: int = 0  # 평가 가능 호스트 수 (표본 부족 제외) — 분포가 전체에 적용된다는 오해 방지
     # 환경 현황 메트릭 카드 5축 (engineer) — {label, value, sub} plain dict (스냅샷 복원 불요, trend 동일).
     env_metrics: list[dict] = field(default_factory=list)
     os_eol_count: int = 0  # OS 지원 종료 호스트 수 (attention.os_eol_warnings len)

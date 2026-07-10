@@ -16,13 +16,13 @@
  |  collector  : /proc scrape + inventory/metrics/error publish     |
  |  worker     : task.install consume + OS script exec + result     |
  +-----+----------------------------------------+-------------------+
-       | inventory/metrics/error + task.result  ^ task.install.<id>
+       | inventory/metrics/error + task.result  ^ task.install.<agent_id>
        | (server.* / worker.result)             | (agent consumes)
        v                                        |
  +------------------------------------------------------------------+
  |  RabbitMQ                                                        |
  |  - assessment exchange       : server.inventory/metrics/error    |
- |  - assessment.tasks exchange : task.install.<composite_id>       |
+ |  - assessment.tasks exchange : task.install.<agent_id>           |
  |                                + task.result -> worker.result    |
  |  - DLX/DLQ per exchange                                          |
  +--+----------------+----------------------------------------------+
@@ -44,7 +44,7 @@
  |  - diagnostic_jobs (report    |                 |
  |    snapshots)                 |                 |
  +--------------+----------------+                 |
-                ^  read / report emit              |
+                ^  read / emit / claim             |
                 |                                  |
  +--------------+----------------------------------+---------------+
  |  FastAPI (uvicorn, port 8000)                                    |
@@ -52,9 +52,16 @@
  |  - REST : tasks / exports / metrics (snapshots+timeseries)       |
  |  - charts : client-side fetch of REST (no push)                  |
  |  - rule-based right-sizing (recommendation.py, USE Method)       |
- |  - report emit -> diagnostic_jobs static snapshot                |
+ |  - report emit -> diagnostic_jobs (pending; worker generates)    |
  |  - publishes task.install (assessment.tasks exchange)            |
  |  - plain HTTP ; prod TLS at external ingress                     |
+ +------------------------------------------------------------------+
+ +------------------------------------------------------------------+
+ |  Worker (background process, assessment_engine.worker)           |
+ |  - report job-claim (FOR UPDATE SKIP LOCKED) -> generate         |
+ |    snapshot -> diagnostic_jobs (succeeded / failed)              |
+ |  - install task reaper : deadline-overdue pending -> timeout     |
+ |  - graceful shutdown (shared stop_event, in-flight loss 0)       |
  +------------------------------------------------------------------+
 ```
 

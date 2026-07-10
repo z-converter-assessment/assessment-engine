@@ -16,8 +16,10 @@ class MetricInsertResult:
     metrics: int
     disk_io: int
     net_io: int
-    mount_usage: int
-    cpu_core: int = 0  # per-core 행 수 (server_cpu_core, Linux only — Windows·구 agent 는 0)
+    filesystem: int
+    cpu_core: int = 0  # per-core 행 수 (server_cpu_core, Linux only)
+    pressure: int = 0  # PSI 행 수 (server_pressure, Linux 4.20+ only)
+    disk_error: int = 0  # 디스크 오류 행 수 (server_disk_error, 정상 시 0)
 
 
 class BaseCollectRepository(ABC):
@@ -83,7 +85,7 @@ class BaseCollectRepository(ABC):
         server_id: int,
         data: ServerMetricCreate,
     ) -> MetricInsertResult:
-        """metrics 메시지 1건을 4개 시계열 테이블에 INSERT. 빈 list 차원은 skip.
+        """metrics 메시지 1건을 host 집계 + 6개 자식 시계열 테이블에 INSERT. 빈 list 차원은 skip.
 
         모두 ON CONFLICT DO NOTHING — 멱등성 자연키 흡수.
         """

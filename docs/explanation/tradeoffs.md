@@ -410,25 +410,25 @@ agent 불변 전제의 최선 — 호스트 워크로드 union:
 언제 다시 봐야 하는가
 - agent 가 `services[]` 에 main pid 또는 exe basename 을 실어주면 -> listen_ports 와 pid join 으로 per-unit 정확 귀속, 행 단위까지 정확. union 보완 불필요.
 
-## T16. 비동기 보고서 발행 — web job-claim 워커
+## T16. 비동기 보고서 발행 — 전용 워커 job-claim (DB 상태머신)
 
 무엇을
-- 보고서 발행은 비동기다: emit 은 parent job 을 pending enqueue 후 즉시 `?job={id}` 반환, web lifespan 의 job-claim 워커가 생성한다. consumer 큐 워커가 아니라 web 내부 워커 + DB 상태머신 방식.
+- 보고서 발행은 비동기다: emit 은 parent job 을 pending enqueue 후 즉시 `?job={id}` 반환, 전용 워커 프로세스(`assessment_engine.worker`)가 job 을 claim 해 생성한다. consumer 큐 워커가 아니라 전용 워커 + DB 상태머신 방식.
 
-왜 큐 워커가 아니라 web 내부 워커인가
-- 보고서 생성 코드(query_service report 메서드 + mappers·view_models·serializer, 약 4900+ LOC)가 web/services 강결합. consumer(F4 BaseCollectRepository 만)로 위임하면 web 표시계층 절반을 web 비의존 패키지로 승격하는 대공사 + 양방향 의존. 워크로드가 DB 집계 I/O(수초)라 큐 분리 효용도 낮다.
+왜 consumer 큐 워커가 아니라 전용 워커 프로세스인가
+- 보고서 생성 코드(query_service report 메서드 + mappers·view_models·serializer, 약 4900+ LOC)가 web/services 강결합. consumer(F4 BaseCollectRepository 만)로 위임하면 web 표시계층 절반을 web 비의존 패키지로 승격하는 대공사 + 양방향 의존. 워크로드가 DB 집계 I/O(수초)라 큐 분리 효용도 낮다. 전용 워커는 web/services 를 그대로 재사용(단일 이미지)하면서 별도 프로세스로만 뗀다 — 추출 0.
 - 메모리 task 방식은 in-flight 손실 위험으로 기각 — job 상태를 DB 에 두고 stale 복구로 그 손실을 무효화한다(FOR UPDATE SKIP LOCKED 로 멀티노드 분산까지).
 
 포기한 것 / 한계
-- web 프로세스가 생성 부하를 짊어진다(요청과 완전 격리 아님). DB I/O 바운드라 경미하나 생성 폭주 시 web 자원 경합.
+- 워커가 web/services(application 계층)를 import 하는 패키지 의존은 단일 이미지 전제에 묶인다 — web/services 를 중립 패키지로 추출하려면 별도 ADR(현재 불필요, 런타임 무해).
 - 크래시/타임아웃으로 parent 가 running 잔류 -> stale 복구 후 재처리 시, 이전 run 에서 이미 succeeded 로 만든 child(단일 보고서)가 orphan 으로 이력에 중복될 수 있다. 데이터 정합성 허점은 아님 — parent succeeded 시 `child_jobs` 는 최신 유효분을 가리키고, orphan child 는 retention 으로 정리. child 멱등(같은 input_hash succeeded 재사용)·재처리 전 cleanup 은 드문 크래시 경로라 미구현.
 
 왜 받아들였나
 - 발행 응답을 즉시(job_id)로 만들어 N 증가에도 사용자 응답 시간 일정 — 가장 큰 요구(발행 느림) 해소. 생성은 백그라운드.
-- 추출 0 으로 큐 워커 대공사·회귀 위험 회피하면서 in-flight 손실 0·멀티노드·graceful 달성.
+- 도메인 추출 0 으로 큐 워커 대공사·회귀 위험 회피하면서 in-flight 손실 0·멀티노드·graceful 달성. 전용 프로세스라 생성 부하가 web HTTP 처리와 프로세스 격리(web 자원 경합 없음).
 
 언제 다시 봐야 하는가
-- 생성 부하가 web 요청 처리를 압박하면 -> consumer 큐 워커로 분리(보고서 생성 도메인 계층 추출 동반).
+- 생성 처리량이 부족하면 -> worker replica 를 늘려 수평 확장(SKIP LOCKED 로 중복 claim 안전, web 과 독립 스케일).
 - orphan child 중복이 운영 이슈로 부상하면 -> child 멱등(get_latest_succeeded_by_hash 재사용) 또는 parent 재처리 전 이전 child cleanup.
 - A2(aggregate/net 중복 제거)·A3(breakdown 배치)·A5(fan-out prefetch 배치)는 적용 완료 — child fan-out 의 raws·breakdown·details 를 배치 1회 조회(`build_child_prefetched_reports` -> `get_single_server_report(prefetch=)`). A4(trend)만 보류: cpu/mem/disk 가 다른 테이블이라 단일 SQL 불가, 서버별 시계열이라 배치 불가, gather 는 QueryService composition root 대수술 + 커넥션 3배 + B 백그라운드라 응답 ROI 0. trend·online redis 는 서버별 잔존.
 
@@ -469,3 +469,26 @@ agent 불변 전제의 최선 — 호스트 워크로드 union:
 
 언제 다시 봐야 하는가
 - cagg retention 확대로 runway 조회가 느려지면 -> mount_span 에 실용 상한(예: 90일) 하한 술어를 넣어 pruning 복원. 비단조 추세가 오판을 일으키면 -> Theil-Sen(샘플링 점쌍) 또는 최근 구간 가중 회귀로 격상.
+
+## T19. Assessment API — 포털 표준에서의 의식적 이탈 (pagination·캐시·인증)
+
+무엇을
+- `/api/assessment`(+ POST export)는 인터랙티브 포털의 세 표준에서 벗어난다: (1) pagination 없음 — 매칭 전량을 한 응답으로(E2 page/cursor 규약 이탈). (2) Redis 캐시 없음 — 매 요청이 매칭 fleet 전체를 `report_aggregate` 로 재계산(대시보드 캐시 경로와 달리). (3) 인증 없음 — 전체 인프라 청사진(재현 레이아웃·IP·사이징)을 관리망 격리만 신뢰하고 무인증 노출. 소비자 계약 관점의 선언은 계약 문서(contracts/assessment-api.md) 10절 — 본 절은 엔진측 설계 근거·확장 트리거만.
+
+왜 표준을 벗어났나
+- pagination: 소비자가 인터랙티브 사용자가 아니라 재해복구/마이그레이션 자동화다. fleet 프로비저닝은 원자적 전량 소비가 목적 — 페이지 슬라이스로는 부분 인프라만 재현돼 under-provision 위험. cursor/페이지는 "계속 새 데이터 유입"(시계열)이나 "사람이 스크롤"(목록) 전제인데 assessment 는 스냅샷 1회 소비라 둘 다 안 맞는다. 스코프 축소는 필터(hostname/ip/public_id/pair)로 한다.
+- 캐시 없음: assessment 는 저빈도 운영/자동화 액션(핫 대시보드 경로 아님)이라 신선도·정확성 > 지연. per-mount 디스크 + 수십 필드 스냅샷은 변동이 커 캐시 churn 이 높고, stale 사이징은 안전 최우선 원칙에 반한다. `report_aggregate` 는 cagg 사전집계라 현 fleet 규모에서 비용이 작다.
+- 무인증: 관리망 전용 내부 B2B 포털로 나머지 화면과 같은 신뢰 경계. 이 엔드포인트만 별도 토큰 게이트를 세우면 포털 전체 인증 모델과 이원화된다.
+
+포기한 것 / 한계
+- 대규모 fleet 무필터 호출은 매칭 전량 `report_aggregate` 를 캐시 없이 매번 — 현재 70 VM 규모는 수백 ms 수준이나 수천 대·고빈도 폴링이면 반복 재계산이 선형 비용.
+- 이 엔드포인트 하나가 전체 인프라를 가장 진하게 노출하는 단일 지점(재현 청사진 + IP + 토폴로지). 관리망 격리가 뚫리면 노출이 이 한 곳에 집중.
+- 전량 응답이라 응답 크기가 매칭 수에 선형 — 필터를 안 걸면 fleet 전체 JSON.
+
+왜 받아들였나
+- 소비자가 자동화의 1회 스냅샷 소비라 표준 3개(페이지·캐시·토큰)가 오히려 목적에 역행하거나 무가치. 현재 규모에서 전량·무캐시·무인증의 비용/위험이 작고, 안전 최우선(정확·신선) 원칙과 정합.
+
+언제 다시 봐야 하는가
+- 단일 필터 스코프 응답이 실용 한계(응답 크기/지연)를 넘으면 -> cursor 또는 스트리밍(NDJSON) 분할.
+- assessment 가 고빈도 자동 폴링이 되면 -> (filter, window, end-bucket) 키의 짧은 TTL 캐시 도입(대시보드 패턴 준용).
+- 외부 노출이 필요해지면 -> 앞단 인증 게이트웨이(계약 10절 명시) + 이 엔드포인트의 인프라 노출 집중도를 감안한 인가 스코프.

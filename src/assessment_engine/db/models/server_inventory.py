@@ -9,16 +9,19 @@ from assessment_engine.db.models.base import Base
 
 
 class ServerInventory(Base):
-    """등록 호스트 인벤토리.
+    """등록 호스트 인벤토리 (wire inventory).
 
     식별 단일 키 = `agent_id` (UUID, UNIQUE, #C1) — 부팅 무관 불변. `composite_id`/`machine_id` 는
-    감사·표시 전용, `hostname` 은 display field (UNIQUE X), `public_id` 는 URL 노출용 (ADR 0022 정정).
+    감사·표시 전용, `hostname` 은 display field (UNIQUE X), `public_id` 는 URL 노출용.
+
+    정규화 스토리지/네트워크 그래프는 JSONB pass-through — block_devices(스토리지 트리, swap 노드 포함)·
+    net_interfaces(주소·게이트웨이)·lvm_vgs(Linux VG). mem_total_bytes 는 v2 By canonical.
     """
 
     __tablename__ = "server_inventory"
     __table_args__ = (
         UniqueConstraint("agent_id", name="uq_server_inventory_agent_id"),
-        # 서비스 카테고리 필터(category 멤버십 @>/&&) GIN — 마이그레이션 a7c3e5f1b9d4 와 동기 (alembic drift 0).
+        # 서비스 카테고리 필터(category 멤버십 @>/&&) GIN.
         Index("ix_server_inventory_service_categories", "service_categories", postgresql_using="gin"),
     )
 
@@ -38,7 +41,7 @@ class ServerInventory(Base):
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     agent_version: Mapped[str | None] = mapped_column(String(32))
 
-    # OS family (linux / windows) — task.install OS 별 dispatch 단일 진실 (ADR 0020).
+    # OS family (linux / windows) — task.install OS 별 dispatch 단일 진실.
     os_family: Mapped[str | None] = mapped_column(String(16))
     os_id: Mapped[str | None] = mapped_column(String(64))
     os_version: Mapped[str | None] = mapped_column(String(64))
@@ -47,22 +50,21 @@ class ServerInventory(Base):
 
     cpu_cores: Mapped[int | None] = mapped_column(Integer)
     cpu_model: Mapped[str | None] = mapped_column(String(255))
-    mem_total_kb: Mapped[int | None] = mapped_column(BigInteger)
-    swap_total_kb: Mapped[int | None] = mapped_column(BigInteger)
+    mem_total_bytes: Mapped[int | None] = mapped_column(BigInteger)  # v2 By (swap 은 block_devices type=swap)
 
     boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     agent_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    # 내부 인터페이스 구조화 — [{name, address, prefix, family, kind, gateway}] (토폴로지·상세 표시 소스).
-    interfaces: Mapped[list[Any] | None] = mapped_column(JSONB)
+    # 스토리지 트리 — [{name,type,size_bytes,fstype,mountpoint,parent,id,id_type}] (type=swap 포함).
+    block_devices: Mapped[list[Any] | None] = mapped_column(JSONB)
+    # 네트워크 그래프 — [{name,id,id_type,kind,speed_mbps,addresses:[{address,prefix,family}],gateway}].
+    net_interfaces: Mapped[list[Any] | None] = mapped_column(JSONB)
+    # LVM VG — [{name,size_bytes,free_bytes,data_percent,metadata_percent}] (Linux 전용).
+    lvm_vgs: Mapped[list[Any] | None] = mapped_column(JSONB)
     ip_external: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
-    # NIC MAC 목록 (clone collision 감사용 raw 보존). 식별 미사용.
-    mac_addresses: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
-    disks: Mapped[list[Any] | None] = mapped_column(JSONB)
-    mounts: Mapped[list[Any] | None] = mapped_column(JSONB)
-    services: Mapped[list[Any] | None] = mapped_column(JSONB)
-    listen_ports: Mapped[list[Any] | None] = mapped_column(JSONB)
+    services: Mapped[list[Any] | None] = mapped_column(JSONB)  # [{unit,sub,pid,exe}]
+    listen_ports: Mapped[list[Any] | None] = mapped_column(JSONB)  # [{proto,addr,port,uid,pid,comm}]
     # 서비스 카테고리 집합 (ingest 사전계산, service_classifier.compute_service_categories 단일 진실).
     # 이름·comm·포트 어느 신호로 식별되든 동일 — 모든 read 경로가 본 저장값 소비(목록·상세·리포트·필터 뱃지 일치).
     service_categories: Mapped[list[str] | None] = mapped_column(ARRAY(Text))

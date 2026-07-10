@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — Amended by ADR 0055 (reaper 배치 web lifespan -> 전용 워커 프로세스, deadline/advisory/전이 결정은 유지)
 
 ## Context
 

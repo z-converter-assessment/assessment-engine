@@ -89,15 +89,14 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
     DLQ 미전송 — 시계 문제는 reject 의미 없고 운영자 인지가 목적.
 
     F7: 같은 서버 지속 시 매 메시지 warning 방지 위해 1h 쿨다운. Redis 장애 시 fail-open (매번 출력).
-    boot_time 은 판독 불가 시 null (계약 값 의미론) — null 이면 boot_time 관련 순서 검증은 건너뛴다.
+    boot_time·agent_started_at 은 판독 불가 시 null (계약 값 의미론) — null 축은 해당 순서 검증을 건너뛴다.
     """
+    if data.agent_started_at is None:
+        return  # 발행 기동시각 미상 — 순서 검증 불가 (task.result 등)
     boot_ok = data.boot_time is None or data.boot_time <= data.agent_started_at
     if boot_ok and data.agent_started_at <= data.collected_at:
         return
-    cooldown_key = consumer_settings.redis_key_time_invariant_warned.format(
-        data.agent_id,
-        data.hostname,
-    )
+    cooldown_key = consumer_settings.redis_key_time_invariant_warned.format(data.agent_id)
     set_result = await safe_set_nx(redis, cooldown_key, "1", consumer_settings.redis_ttl_time_invariant_warned)
     if set_result is False:
         return  # 쿨다운 윈도우 안
@@ -117,14 +116,18 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
         )
 
 
-async def _track_agent_restart(redis: Redis, server_id: int, agent_id: str, agent_started_at: datetime) -> None:
+async def _track_agent_restart(
+    redis: Redis, server_id: int, agent_id: str, agent_started_at: datetime | None
+) -> None:
     """직전 agent_started_at 과 비교 -> 변경 시 1h 슬라이딩 윈도우 카운터 INCR.
 
     threshold 도달 시 warning (agent crash loop 인지). 시스템 재부팅도 agent_started_at 변경이라
     같은 카운터 포함 (1h 내 3회면 그것도 alert 적정).
 
-    fail-open — Redis 장애 시 silent skip (정확성 미보장).
+    agent_started_at None(발행 기동시각 미상)이면 skip. fail-open — Redis 장애 시 silent skip.
     """
+    if agent_started_at is None:
+        return
     last_key = consumer_settings.redis_key_last_agent_start.format(server_id)
     counter_key = consumer_settings.redis_key_agent_restarts.format(server_id)
     current_iso = agent_started_at.isoformat()

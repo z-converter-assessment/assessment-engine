@@ -13,16 +13,14 @@ result JSONB 구조·키 단일 진실은 `diagnostic.report_result`.
 본 모듈은 그 구조 안 `snapshot` 의 ViewModel <-> dict 직렬화만 담당.
 """
 
-import dataclasses
-import json
-from datetime import datetime
-
 # result 구조 계약(키·dict 조립)은 diagnostic.report_result 단일 진실 — web view_models 에 의존하지
 # 않는 중립 모듈에 분리.
 from assessment_engine.diagnostic.report_result import (  # noqa: F401 (re-export)
     REPORT_KIND_ENV,
     build_report_result,
 )
+from assessment_engine.web.services.serialization_util import parse_dt as _dt
+from assessment_engine.web.services.serialization_util import to_jsonable as _to_jsonable
 from assessment_engine.web.view_models.attention import (
     ActionTargets,
     AttentionRow,
@@ -31,6 +29,7 @@ from assessment_engine.web.view_models.attention import (
     CapacityWarningItem,
     EnvironmentOverview,
     RiskDonutSegment,
+    SaturationDonut,
     UtilizationBar,
 )
 from assessment_engine.web.view_models.environment_report import (
@@ -61,21 +60,6 @@ from assessment_engine.web.view_models.server import IpAddr
 from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGroup, SubnetHost
 
 
-def _json_default(obj: object) -> str:
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    raise TypeError(f"Cannot serialize {type(obj)}")
-
-
-def _dt(v: object) -> datetime | None:
-    return datetime.fromisoformat(v) if isinstance(v, str) else v  # type: ignore[arg-type]
-
-
-def _to_jsonable(vm: object) -> dict:
-    """dataclass ViewModel -> JSONB 저장 가능 dict (datetime -> ISO str, nested 재귀)."""
-    return json.loads(json.dumps(dataclasses.asdict(vm), default=_json_default))
-
-
 # ──────────────────────────────────────────────────────────────────────────
 # ReportSummary (server scope 보고서 base — EnvironmentReportSummary.base 직렬화·복원에 사용)
 # ──────────────────────────────────────────────────────────────────────────
@@ -90,17 +74,6 @@ def _report_row_from_dict(r: dict) -> ReportRowItem:
     data["service_units"] = [ReportServiceUnit(**u) for u in data.get("service_units") or []]
     data["listen_ports_detail"] = [ReportListenItem(**p) for p in data.get("listen_ports_detail") or []]
     data["saturation_axes"] = [SaturationAxis(**a) for a in data.get("saturation_axes") or []]
-    # 구 스냅샷 잔존 키 무시 (ReportRowItem(**data) 호환).
-    for legacy in (
-        "saturation_color",
-        "saturation_ratio",  # 폐기 — 구 스냅샷 dict 잔존 키 무시 (saturation_axes 로 대체)
-        "cpu_variance_color",
-        "mem_variance_color",
-        "worst_mount_days_color",
-        "reboot_count_color",
-        "agent_restart_count_color",
-    ):
-        data.pop(legacy, None)
     return ReportRowItem(**data)
 
 
@@ -129,7 +102,6 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
     data["classification_dist"] = [ClassificationCount(**c) for c in data.get("classification_dist") or []]
     data["os_distribution"] = [OsCount(**o) for o in data.get("os_distribution") or []]
     data["os_family_dist"] = [DistributionBar(**b) for b in data.get("os_family_dist") or []]
-    data["workload_dist"] = [DistributionBar(**b) for b in data.get("workload_dist") or []]
     topo = data.get("topology")
     if topo:
         # subnets nested 복원 (SubnetGroup/SubnetHost) — 보고서 서브넷 요약 표가 .net_key/.host_count 접근.
@@ -164,20 +136,6 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
     ]
     data["attention_hosts"] = [AttentionHostItem(**a) for a in data.get("attention_hosts") or []]
     data["capacity_imminent"] = [CapacityImminentItem(**c) for c in data.get("capacity_imminent") or []]
-    # 구 스냅샷 잔존 키 무시 (EnvironmentReportSummary(**data) 호환) — 통합 표 이전 efficiency/under 분리 필드 포함.
-    for _k in (
-        "insufficient_hosts",
-        "insufficient_hosts_count",
-        "efficiency_hosts",
-        "efficiency_hosts_count",
-        "efficiency_target_count",
-        "efficiency_target_vcpus",
-        "efficiency_target_memory_gb",
-        "under_provisioned_hosts",
-        "under_provisioned_metric_labels",
-        "under_provisioned_hosts_count",
-    ):
-        data.pop(_k, None)
     data["anchor_at"] = _dt(data.get("anchor_at"))
     data["generated_at"] = _dt(data.get("generated_at"))
     si = data.get("server_inventory")
@@ -204,6 +162,7 @@ def _overview_from_dict(d: dict) -> EnvironmentOverview:
     data["utilization"] = [UtilizationBar(**u) for u in data.get("utilization") or []]
     data["utilization_p95"] = [UtilizationBar(**u) for u in data.get("utilization_p95") or []]
     data["risk_donut"] = [RiskDonutSegment(**s) for s in data.get("risk_donut") or []]
+    data["saturation_donuts"] = [SaturationDonut(**s) for s in data.get("saturation_donuts") or []]
     uph = data.get("under_provisioned_hosts") or []
     data["under_provisioned_hosts"] = [_capacity_warning_from_dict(c) for c in uph]
     return EnvironmentOverview(**data)

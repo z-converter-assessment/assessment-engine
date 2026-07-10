@@ -1,4 +1,4 @@
-import dataclasses
+from collections.abc import Callable
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -7,21 +7,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from assessment_engine.boot_time import boot_time_changed
 from assessment_engine.db.dtos.inbound import (
     CpuCoreEntry,
+    DiskErrorEntry,
     DiskIoEntry,
-    MountUsageEntry,
+    FilesystemEntry,
     NetIoEntry,
+    PressureEntry,
     ServerInventoryCreate,
     ServerMetricCreate,
     TaskCreate,
     TaskResultUpdate,
 )
 from assessment_engine.db.models.server_cpu_core import ServerCpuCore
+from assessment_engine.db.models.server_disk_error import ServerDiskError
 from assessment_engine.db.models.server_disk_io import ServerDiskIo
+from assessment_engine.db.models.server_filesystem import ServerFilesystem
 from assessment_engine.db.models.server_inventory import ServerInventory
 from assessment_engine.db.models.server_inventory_history import ServerInventoryHistory
 from assessment_engine.db.models.server_metrics import ServerMetrics
-from assessment_engine.db.models.server_mount_usage import ServerMountUsage
 from assessment_engine.db.models.server_net_io import ServerNetIo
+from assessment_engine.db.models.server_pressure import ServerPressure
 from assessment_engine.db.models.task import Task
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository, MetricInsertResult
 
@@ -47,29 +51,21 @@ class CollectRepository(BaseCollectRepository):
         ServerInventory.kernel_version,
         ServerInventory.cpu_cores,
         ServerInventory.cpu_model,
-        ServerInventory.mem_total_kb,
-        ServerInventory.swap_total_kb,
+        ServerInventory.mem_total_bytes,
         ServerInventory.boot_time,
         ServerInventory.agent_started_at,
-        ServerInventory.interfaces,
+        ServerInventory.block_devices,
+        ServerInventory.net_interfaces,
+        ServerInventory.lvm_vgs,
         ServerInventory.ip_external,
-        ServerInventory.disks,
-        ServerInventory.mounts,
         ServerInventory.services,
         ServerInventory.listen_ports,
     )
 
-    async def upsert_server(self, data: ServerInventoryCreate) -> int:
-        # 변경 감지: 직전 행과 다를 때만 history 한 행 INSERT (앱 레벨 trigger).
-        # agent_id 가 부팅 무관 불변이라 재부팅해도 동일 agent_id 가 자연히 같은 행을 잡는다 (호스트 재연결 로직 불요).
-        prev_q = await self.session.execute(
-            select(*self._INVENTORY_COMPARE_COLS).where(ServerInventory.agent_id == data.agent_id)
-        )
-        prev = prev_q.first()
-
-        # values()/set_ 에 같은 dict 재사용 — 컬럼 추가 시 한 곳만 수정.
-        # agent_id 는 UNIQUE 키라 set_ 제외 (자기 덮어쓰기 무의미). composite_id 는 감사용이라 update 대상.
-        row = {
+    @staticmethod
+    def _inventory_row(data: ServerInventoryCreate) -> dict:
+        """INSERT/UPDATE 공용 컬럼 dict — 컬럼 추가 시 한 곳만 수정. agent_id 는 UNIQUE 키."""
+        return {
             "agent_id": data.agent_id,
             "composite_id": data.composite_id,
             "machine_id": data.machine_id,
@@ -82,20 +78,29 @@ class CollectRepository(BaseCollectRepository):
             "kernel_version": data.kernel_version,
             "cpu_cores": data.cpu_cores,
             "cpu_model": data.cpu_model,
-            "mem_total_kb": data.mem_total_kb,
-            "swap_total_kb": data.swap_total_kb,
+            "mem_total_bytes": data.mem_total_bytes,
             "boot_time": data.boot_time,
             "agent_started_at": data.agent_started_at,
-            "interfaces": data.interfaces,
+            "block_devices": data.block_devices,
+            "net_interfaces": data.net_interfaces,
+            "lvm_vgs": data.lvm_vgs,
             "ip_external": data.ip_external,
-            "mac_addresses": data.mac_addresses,
-            "disks": data.disks,
-            "mounts": data.mounts,
             "services": data.services,
             "listen_ports": data.listen_ports,
             "service_categories": data.service_categories,
             "last_seen_at": data.collected_at,
         }
+
+    async def upsert_server(self, data: ServerInventoryCreate) -> int:
+        # 변경 감지: 직전 행과 다를 때만 history 한 행 INSERT (앱 레벨 trigger).
+        # agent_id 가 부팅 무관 불변이라 재부팅해도 동일 agent_id 가 자연히 같은 행을 잡는다 (호스트 재연결 로직 불요).
+        prev_q = await self.session.execute(
+            select(*self._INVENTORY_COMPARE_COLS).where(ServerInventory.agent_id == data.agent_id)
+        )
+        prev = prev_q.first()
+
+        row = self._inventory_row(data)
+        # agent_id 는 UNIQUE 키라 set_ 제외 (자기 덮어쓰기 무의미). composite_id 는 감사용이라 update 대상.
         update_set = {k: v for k, v in row.items() if k != "agent_id"}
 
         stmt = (
@@ -127,14 +132,13 @@ class CollectRepository(BaseCollectRepository):
             or prev.kernel_version != new.kernel_version
             or prev.cpu_cores != new.cpu_cores
             or prev.cpu_model != new.cpu_model
-            or prev.mem_total_kb != new.mem_total_kb
-            or prev.swap_total_kb != new.swap_total_kb
+            or prev.mem_total_bytes != new.mem_total_bytes
             or boot_time_changed(prev.boot_time, new.boot_time)
             or prev.agent_started_at != new.agent_started_at
-            or prev.interfaces != new.interfaces
+            or prev.block_devices != new.block_devices
+            or prev.net_interfaces != new.net_interfaces
+            or prev.lvm_vgs != new.lvm_vgs
             or prev.ip_external != new.ip_external
-            or prev.disks != new.disks
-            or prev.mounts != new.mounts
             or prev.services != new.services
             or prev.listen_ports != new.listen_ports
         )
@@ -143,7 +147,7 @@ class CollectRepository(BaseCollectRepository):
         """인벤토리 스냅샷을 history에 append.
 
         ON CONFLICT DO NOTHING — broker 재전송·동시 워커 race 로 동일 (server_id, collected_at)
-        2번째 INSERT 가 와도 silent no-op (시계열 4개 테이블과 동일 안전망).
+        2번째 INSERT 가 와도 silent no-op (시계열 테이블과 동일 안전망).
         """
         stmt = (
             pg_insert(ServerInventoryHistory)
@@ -159,14 +163,13 @@ class CollectRepository(BaseCollectRepository):
                 kernel_version=data.kernel_version,
                 cpu_cores=data.cpu_cores,
                 cpu_model=data.cpu_model,
-                mem_total_kb=data.mem_total_kb,
-                swap_total_kb=data.swap_total_kb,
+                mem_total_bytes=data.mem_total_bytes,
                 boot_time=data.boot_time,
                 agent_started_at=data.agent_started_at,
-                interfaces=data.interfaces,
+                block_devices=data.block_devices,
+                net_interfaces=data.net_interfaces,
+                lvm_vgs=data.lvm_vgs,
                 ip_external=data.ip_external,
-                disks=data.disks,
-                mounts=data.mounts,
                 services=data.services,
                 listen_ports=data.listen_ports,
             )
@@ -201,36 +204,9 @@ class CollectRepository(BaseCollectRepository):
         upsert_server(DO UPDATE)를 placeholder 가 호출하면 진짜 inventory 의 OS/CPU/Memory 를
         None 으로 덮어쓰는 race(부팅 직후 inventory·metrics 거의 동시 도착) 발생 — 그래서 DO NOTHING.
         """
-        row = {
-            "agent_id": data.agent_id,
-            "composite_id": data.composite_id,
-            "machine_id": data.machine_id,
-            "hostname": data.hostname,
-            "agent_version": data.agent_version,
-            "os_family": data.os_family,
-            "os_id": data.os_id,
-            "os_version": data.os_version,
-            "os_codename": data.os_codename,
-            "kernel_version": data.kernel_version,
-            "cpu_cores": data.cpu_cores,
-            "cpu_model": data.cpu_model,
-            "mem_total_kb": data.mem_total_kb,
-            "swap_total_kb": data.swap_total_kb,
-            "boot_time": data.boot_time,
-            "agent_started_at": data.agent_started_at,
-            "interfaces": data.interfaces,
-            "ip_external": data.ip_external,
-            "mac_addresses": data.mac_addresses,
-            "disks": data.disks,
-            "mounts": data.mounts,
-            "services": data.services,
-            "listen_ports": data.listen_ports,
-            "service_categories": data.service_categories,
-            "last_seen_at": data.collected_at,
-        }
         stmt = (
             pg_insert(ServerInventory)
-            .values(**row)
+            .values(**self._inventory_row(data))
             .on_conflict_do_nothing(index_elements=["agent_id"])
             .returning(ServerInventory.id)
         )
@@ -312,7 +288,7 @@ class CollectRepository(BaseCollectRepository):
                 failure_reason=data.failure_reason,
                 exit_code=data.exit_code,
                 signal_no=data.signal_no,
-                install_verified=data.install_verified,
+                task_policy=data.task_policy,
                 duration_ms=data.duration_ms,
                 stdout_tail=data.stdout_tail,
                 stderr_tail=data.stderr_tail,
@@ -328,39 +304,42 @@ class CollectRepository(BaseCollectRepository):
         server_id: int,
         data: ServerMetricCreate,
     ) -> MetricInsertResult:
-        # ON CONFLICT DO NOTHING — Redis 멱등성 키 만료/장애로 중복 메시지가 들어와도
-        # 자연키 UNIQUE 위반을 silent no-op (D2 2단 방어). 4개 테이블 동일 정책.
-        # boot_time/agent_started_at 은 4개 테이블에 동일 시점값 — calculator counter reset 식별용
-        # (mount_usage 는 시점값이라 직접 활용 없으나 메타데이터 일관성 위해 보존).
-        metrics_n = await self._insert_scalar_metrics(server_id, data)
-        disk_io_n = await self._insert_disk_io(server_id, data, data.disk_io)
-        net_io_n = await self._insert_net_io(server_id, data, data.net_io)
-        mount_n = await self._insert_mount_usage(server_id, data, data.mounts)
-        cpu_core_n = await self._insert_cpu_core(server_id, data, data.cpu_per_core)
+        # 모두 ON CONFLICT DO NOTHING — Redis 멱등성 키 만료/장애로 중복 메시지가 들어와도
+        # 자연키 UNIQUE 위반을 silent no-op (#D2 2단 방어). envelope 메타(boot_time/agent_started_at)는
+        # host 집계(server_metrics)에만 저장 — 자식 시계열은 동일 (server_id, collected_at) 로 본 행 참조.
         return MetricInsertResult(
-            metrics=metrics_n,
-            disk_io=disk_io_n,
-            net_io=net_io_n,
-            mount_usage=mount_n,
-            cpu_core=cpu_core_n,
+            metrics=await self._insert_scalar_metrics(server_id, data),
+            disk_io=await self._insert_child(ServerDiskIo, server_id, data, data.disk_io),
+            net_io=await self._insert_child(ServerNetIo, server_id, data, data.net_io),
+            filesystem=await self._insert_child(ServerFilesystem, server_id, data, data.filesystems),
+            cpu_core=await self._insert_child(ServerCpuCore, server_id, data, data.cpu_per_core),
+            pressure=await self._insert_child(ServerPressure, server_id, data, data.pressure),
+            # member NOT NULL('') — None 을 '' 로 정규화 (NK 에 NULL 미포함, Postgres UNIQUE NULL distinct 회피).
+            disk_error=await self._insert_child(
+                ServerDiskError, server_id, data, data.disk_errors,
+                row_hook=lambda row: {**row, "member": row["member"] or ""},
+            ),
         )
 
-    async def _insert_cpu_core(
+    async def _insert_child(
         self,
+        model: type,
         server_id: int,
         data: ServerMetricCreate,
-        entries: list[CpuCoreEntry],
+        entries: list[CpuCoreEntry | DiskIoEntry | NetIoEntry | FilesystemEntry | PressureEntry | DiskErrorEntry],
+        row_hook: Callable[[dict], dict] | None = None,
     ) -> int:
-        # per-core 행 (server_cpu_core) — boot_time/agent_started_at 미보유(counter_agg reset-safe).
+        """자식 시계열 공통 bulk INSERT — dataclass 필드가 곧 컬럼. envelope 메타 미주입(본 행이 참조).
+
+        entries 는 평면 dataclass(중첩 없음) 이므로 vars(e) shallow spread — asdict 의 재귀 deepcopy 오버헤드
+        회피(메트릭 인제스트 hot path). row_hook 은 INSERT 전 행 정규화(disk_error member '' 등).
+        """
         if not entries:
             return 0
-        stmt = (
-            pg_insert(ServerCpuCore)
-            .values(
-                [{"server_id": server_id, "collected_at": data.collected_at, **dataclasses.asdict(e)} for e in entries]
-            )
-            .on_conflict_do_nothing(index_elements=["server_id", "core_id", "collected_at"])
-        )
+        rows = [{"server_id": server_id, "collected_at": data.collected_at, **vars(e)} for e in entries]
+        if row_hook is not None:
+            rows = [row_hook(row) for row in rows]
+        stmt = pg_insert(model).values(rows).on_conflict_do_nothing()
         result = await self.session.execute(stmt)
         return result.rowcount or 0
 
@@ -374,133 +353,38 @@ class CollectRepository(BaseCollectRepository):
             .values(
                 server_id=server_id,
                 collected_at=data.collected_at,
-                cpu_user=data.cpu_user,
-                cpu_nice=data.cpu_nice,
-                cpu_system=data.cpu_system,
-                cpu_idle=data.cpu_idle,
-                cpu_iowait=data.cpu_iowait,
-                cpu_irq=data.cpu_irq,
-                cpu_softirq=data.cpu_softirq,
-                cpu_steal=data.cpu_steal,
-                mem_total_kb=data.mem_total_kb,
-                mem_free_kb=data.mem_free_kb,
-                mem_available_kb=data.mem_available_kb,
-                mem_buffers_kb=data.mem_buffers_kb,
-                mem_cached_kb=data.mem_cached_kb,
-                swap_total_kb=data.swap_total_kb,
-                swap_free_kb=data.swap_free_kb,
-                load_1m=data.load_1m,
-                load_5m=data.load_5m,
-                load_15m=data.load_15m,
-                sat_disk_queue=data.sat_disk_queue,
-                sat_cpu_run_queue=data.sat_cpu_run_queue,
-                sat_mem_paging_rate=data.sat_mem_paging_rate,
-                sat_disk_read_time=data.sat_disk_read_time,
-                sat_disk_write_time=data.sat_disk_write_time,
-                sat_disk_read_count=data.sat_disk_read_count,
-                sat_disk_write_count=data.sat_disk_write_count,
-                sat_disk_idle_time=data.sat_disk_idle_time,
-                sat_disk_query_time=data.sat_disk_query_time,
-                psi_cpu_some_total=data.psi_cpu_some_total,
-                psi_mem_some_total=data.psi_mem_some_total,
-                psi_io_some_total=data.psi_io_some_total,
-                collection_interval_sec=data.collection_interval_sec,
-                procs_running=data.procs_running,
-                procs_blocked=data.procs_blocked,
-                schedstat_run_wait_ns=data.schedstat_run_wait_ns,
-                pswpin=data.pswpin,
-                pswpout=data.pswpout,
-                oom_kill=data.oom_kill,
-                mem_pages_input=data.mem_pages_input,
-                tcp_retrans_segs=data.tcp_retrans_segs,
-                tcp_tw=data.tcp_tw,
-                conntrack_count=data.conntrack_count,
-                conntrack_max=data.conntrack_max,
+                cpu_user_s=data.cpu_user_s,
+                cpu_nice_s=data.cpu_nice_s,
+                cpu_system_s=data.cpu_system_s,
+                cpu_idle_s=data.cpu_idle_s,
+                cpu_iowait_s=data.cpu_iowait_s,
+                cpu_irq_s=data.cpu_irq_s,
+                cpu_softirq_s=data.cpu_softirq_s,
+                cpu_steal_s=data.cpu_steal_s,
+                cpu_logical_count=data.cpu_logical_count,
+                cpu_run_queue=data.cpu_run_queue,
+                cpu_blocked=data.cpu_blocked,
+                cpu_mce=data.cpu_mce,
+                mem_free_bytes=data.mem_free_bytes,
+                mem_cached_bytes=data.mem_cached_bytes,
+                mem_buffered_bytes=data.mem_buffered_bytes,
+                mem_available_bytes=data.mem_available_bytes,
+                mem_used_bytes=data.mem_used_bytes,
+                mem_limit_bytes=data.mem_limit_bytes,
+                mem_commit_usage_bytes=data.mem_commit_usage_bytes,
+                mem_commit_limit_bytes=data.mem_commit_limit_bytes,
+                mem_hardware_corrupted_bytes=data.mem_hardware_corrupted_bytes,
+                mem_oom_kill=data.mem_oom_kill,
+                paging_in=data.paging_in,
+                paging_out=data.paging_out,
+                paging_major=data.paging_major,
+                net_tcp_retransmits=data.net_tcp_retransmits,
+                net_conntrack_usage=data.net_conntrack_usage,
+                net_conntrack_limit=data.net_conntrack_limit,
                 boot_time=data.boot_time,
                 agent_started_at=data.agent_started_at,
             )
             .on_conflict_do_nothing(index_elements=["server_id", "collected_at"])
-        )
-        result = await self.session.execute(stmt)
-        return result.rowcount or 0
-
-    async def _insert_disk_io(
-        self,
-        server_id: int,
-        data: ServerMetricCreate,
-        entries: list[DiskIoEntry],
-    ) -> int:
-        if not entries:
-            return 0
-        stmt = (
-            pg_insert(ServerDiskIo)
-            .values(
-                [
-                    {
-                        "server_id": server_id,
-                        "collected_at": data.collected_at,
-                        "boot_time": data.boot_time,
-                        "agent_started_at": data.agent_started_at,
-                        **dataclasses.asdict(e),
-                    }
-                    for e in entries
-                ]
-            )
-            .on_conflict_do_nothing(index_elements=["server_id", "device", "collected_at"])
-        )
-        result = await self.session.execute(stmt)
-        return result.rowcount or 0
-
-    async def _insert_net_io(
-        self,
-        server_id: int,
-        data: ServerMetricCreate,
-        entries: list[NetIoEntry],
-    ) -> int:
-        if not entries:
-            return 0
-        stmt = (
-            pg_insert(ServerNetIo)
-            .values(
-                [
-                    {
-                        "server_id": server_id,
-                        "collected_at": data.collected_at,
-                        "boot_time": data.boot_time,
-                        "agent_started_at": data.agent_started_at,
-                        **dataclasses.asdict(e),
-                    }
-                    for e in entries
-                ]
-            )
-            .on_conflict_do_nothing(index_elements=["server_id", "interface", "collected_at"])
-        )
-        result = await self.session.execute(stmt)
-        return result.rowcount or 0
-
-    async def _insert_mount_usage(
-        self,
-        server_id: int,
-        data: ServerMetricCreate,
-        entries: list[MountUsageEntry],
-    ) -> int:
-        if not entries:
-            return 0
-        stmt = (
-            pg_insert(ServerMountUsage)
-            .values(
-                [
-                    {
-                        "server_id": server_id,
-                        "collected_at": data.collected_at,
-                        "boot_time": data.boot_time,
-                        "agent_started_at": data.agent_started_at,
-                        **dataclasses.asdict(e),
-                    }
-                    for e in entries
-                ]
-            )
-            .on_conflict_do_nothing(index_elements=["server_id", "mount", "collected_at"])
         )
         result = await self.session.execute(stmt)
         return result.rowcount or 0

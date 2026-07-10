@@ -42,7 +42,7 @@ async function loadIoSnapshot() {
     if (!res.ok) return;
     const data = await res.json();
 
-    const physDisks   = data.disk_io_phys || [];
+    const physDisks   = data.disk_io || [];
 
     const row = d => `<tr>
       <td>${d.device}</td>
@@ -157,7 +157,7 @@ async function loadPhysChart() {
   const capturedAnchor = getAnchorEnd('phys-anchor');
   const bucket = AUTO_BUCKET[capturedRange];
   const mkQ = (type, agg) => {
-    const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg, device_category: 'phys' });
+    const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg });
     if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
     return p;
   };
@@ -208,7 +208,7 @@ async function loadKbpsChart() {
   const capturedAnchor = getAnchorEnd('kbps-anchor');
   const bucket = AUTO_BUCKET[capturedRange];
   const mkQ = (type, agg) => {
-    const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg, device_category: 'phys' });
+    const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg });
     if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
     return p;
   };

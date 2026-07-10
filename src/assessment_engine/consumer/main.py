@@ -1,5 +1,7 @@
 import asyncio
+import signal
 from collections.abc import Callable, Coroutine
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
@@ -54,6 +56,14 @@ async def main() -> None:
     )
 
     redis = get_redis()
+    # graceful shutdown (F11) — asyncio.run 은 SIGTERM(docker stop)을 취소로 변환하지 않으므로 asyncio-native
+    # add_signal_handler 로 stop_event 를 set 한다(signal.signal 아님 — 이벤트 루프 안전). SIGTERM 시 stop_event 가
+    # 깨어 `async with conn` 이 정상 unwind -> 채널/커넥션 close 로 in-flight consumer drain, finally 로 redis close.
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        with suppress(NotImplementedError):  # 비 POSIX 방어
+            loop.add_signal_handler(sig, stop_event.set)
     try:
         bindings = [
             _QueueBinding(
@@ -143,6 +153,7 @@ async def main() -> None:
                     b.max_len,
                 )
 
-            await asyncio.Future()
+            await stop_event.wait()  # SIGTERM/SIGINT 까지 소비 — 이후 async with unwind 로 graceful 종료
+        logger.info("consumer stopping (signal received)")
     finally:
         await close_pool()

@@ -323,8 +323,6 @@ def test_report_result_constants_single_source():
 def test_report_threshold_constants_imported():
     """보고서 표시 임계 상수 mappers sub-package 안 정의 회귀 (색 카탈로그는 폐기 — 표시 미사용)."""
     from assessment_engine.web.services.mappers import report as m_report
-    from assessment_engine.web.services.mappers import shared as m_shared
 
     assert m_report._VARIANCE_BURST_RATIO == 1.5
-    assert m_shared._CAPACITY_IMMINENT_DAYS == 30
     assert m_report._REBOOT_UNSTABLE_COUNT == 3

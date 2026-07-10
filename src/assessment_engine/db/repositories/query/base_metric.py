@@ -1,9 +1,9 @@
 """Metric chart 도메인 추상 인터페이스 — dashboard snapshot · 시계열 · 차트 dispatch · reboot marker."""
 
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from assessment_engine.db.dtos.outbound import DashboardRaw, MetricSeries, RebootEvent
+from assessment_engine.db.dtos.outbound import DashboardRaw, MetricSeries, RebootEvent, SaturationRaw
 from assessment_engine.db.repositories.query.types import (
     AggFunc,
     BucketSize,
@@ -17,7 +17,7 @@ class BaseMetricQueryRepository(ABC):
     async def latest_dashboard(self, server_id: int) -> DashboardRaw | None: ...
 
     @abstractmethod
-    async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, dict]: ...
+    async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, SaturationRaw]: ...
 
     @abstractmethod
     async def metric_snapshots(
@@ -45,8 +45,7 @@ class BaseMetricQueryRepository(ABC):
         metric_type: str,
         start: datetime,
         end: datetime,
-        bi: str,
-        bucket_td: timedelta,
+        bucket: BucketSize,
         server_ids: list[int] | None = None,
         agg: str = "avg",
         dimension: str | None = None,

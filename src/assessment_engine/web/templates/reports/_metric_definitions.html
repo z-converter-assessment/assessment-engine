@@ -17,7 +17,7 @@
     </thead>
     <tbody>
       <tr><td>단일 집계 원칙</td><td>모든 차트(환경 성능 추이·선택 N대·서버 상세·보고서)는 한 규칙으로 계산 — 각 시점마다 그 시점 데이터를 보낸 서버로 환경값 1개(쓴 양 / 가진 양)를 만들고, 버킷은 그 시점값들의 avg/max/p95. 대상(전체·선택 N대·1대)만 다르고 산식은 동일 — 선택 1대 = 서버 상세와 같은 값.</td></tr>
-      <tr><td>capacity-weighted 평균</td><td>활용률(%)은 서버별 단순 산술평균이 아니라 자원 총량으로 가중 — 큰 서버가 더 큰 비중. CPU=각 서버 (사용률 * 코어수) 합 / 코어수 합, 메모리=sum(used_kb) / sum(total_kb), 디스크=전 mount sum(used) / sum(total). 작은 서버에 희석되지 않아 환경 실제 활용을 반영. (예: 64코어 90% + 2코어 10% -> 단순평균 50% 가 아니라 가중 87.6%.)</td></tr>
+      <tr><td>capacity-weighted 평균</td><td>활용률(%)은 서버별 단순 산술평균이 아니라 자원 총량으로 가중 — 큰 서버가 더 큰 비중. CPU=각 서버 (사용률 * 코어수) 합 / 코어수 합, 메모리=sum(used_bytes) / sum(total_bytes), 디스크=전 mount sum(used) / sum(total). 작은 서버에 희석되지 않아 환경 실제 활용을 반영. (예: 64코어 90% + 2코어 10% -> 단순평균 50% 가 아니라 가중 87.6%.)</td></tr>
       <tr><td>현재 스냅샷 vs 윈도우</td><td>"현재" 표기 지표(실시간 메트릭)는 각 서버 최신 1개 스냅샷 집계. 차트·보고서의 윈도우 지표는 선택 구간 시계열 — 보고서 표준 14일, 모니터링 현황 카드(환경 개요·환경 자원 평가)는 최근 24시간 ("평가 윈도우" 절).</td></tr>
       <tr><td>집계 대상</td><td>그 시점 데이터를 보낸 서버만 집계 — 온라인/오프라인을 따로 판단하지 않는다(데이터 유무가 곧 필터). 최신 스냅샷이 신선(now-TTL 이내)하면 포함, stale/없음이면 자동 제외.</td></tr>
       <tr><td>구간 · 버킷 · 앵커</td><td>구간(time range)=조회 시간 폭(15분~30일). 버킷=구간별 자동 집계 단위(분해력 — 구간이 길수록 버킷도 커짐). 앵커=기준 종료 시각(과거 구간 조회). 한 화면의 모든 차트에 동일 적용.</td></tr>
@@ -43,17 +43,16 @@
       </tr>
     </thead>
     <tbody>
-      <tr><td>CPU 사용률</td><td>capacity-weighted</td><td>전 서버 시점 평균(Σjiffies delta — 코어 수 내재). 100%=전 코어 포화.</td></tr>
+      <tr><td>CPU 사용률</td><td>capacity-weighted</td><td>전 서버 시점 평균(Σcpu 시간(초) delta — 코어 수 내재). 100%=전 코어 포화.</td></tr>
       <tr><td>CPU 분류</td><td>capacity-weighted</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기)로 분해한 비율. iowait 높으면 디스크 병목.</td></tr>
       <tr><td>실행 큐</td><td>코어 정규화</td><td>코어당 실행 큐 — Σ실행큐 / Σcpu_cores (Linux procs_running / Windows Processor Queue COALESCE). Linux 1.0 · Windows 2.0 이상 포화. os_family 2선.</td></tr>
-      <tr><td>메모리 사용률</td><td>capacity-weighted</td><td>Σused_kb / Σtotal_kb. cached·buffers 는 회수 가능이라 가용으로 간주.</td></tr>
+      <tr><td>메모리 사용률</td><td>capacity-weighted</td><td>Σused_bytes / Σtotal_bytes. cached·buffers 는 회수 가능이라 가용으로 간주.</td></tr>
       <tr><td>메모리 구성</td><td>capacity-weighted</td><td>전체 대비 Used·Available·Cached·Buffers 비율. Cached·Buffers 는 page cache 라 Linux 전용(Windows 미측정).</td></tr>
-      <tr><td>스왑 사용률</td><td>OS별 분리</td><td>스왑 총량 대비 사용량, OS별 2선. Linux swap 은 오버플로(사용 자체가 page-out 신호), Windows pagefile 은 상시 baseline 이라 높아도 부족 신호 아님 — 한 선 평균이 오도라 분리.</td></tr>
       <tr><td>디스크 읽기/쓰기 (IOPS)</td><td>합산(SUM)</td><td>게스트 블록 디바이스(virtio) 초당 I/O 작업 수 합산(Read/Write) — VM 이 낸 실제 디스크 작업량. LVM·파티션 중복 제외.</td></tr>
       <tr><td>디스크 I/O 처리량</td><td>합산(SUM)</td><td>게스트 블록 디바이스 read+write 처리량 합산(kB/s). IOPS 와 함께 디스크 대역 산정 입력.</td></tr>
       <tr><td>디스크 I/O 포화</td><td>OS별 (이중 축)</td><td>Linux await(디스크 응답 ms, I/O 카운터 버킷 델타) / Windows Avg Disk Queue Length(큐 깊이). 단위가 달라 정규화 없이 이중 Y축 2선. 20ms·2 이상 포화.</td></tr>
       <tr><td>파일시스템 사용량</td><td>capacity-weighted</td><td>전 mount 통합 Σused / Σtotal (가상 mount 제외).</td></tr>
-      <tr><td>네트워크 I/O</td><td>합산(SUM)</td><td>물리 인터페이스 트래픽 합산(RX/TX, bytes/s). 가상·bond/bridge master 이중계산 제외.</td></tr>
+      <tr><td>네트워크 I/O</td><td>합산(SUM)</td><td>물리 인터페이스 트래픽 합산(RX/TX, bytes/s). 물리·bond master 포함, bond member·bridge·가상은 이중계산이라 제외.</td></tr>
       <tr><td>TCP 재전송율</td><td>비율(%)</td><td>Σ재전송 세그먼트 / Σ송신 패킷 * 100. 1% 이상이면 성능 영향. 절대 패킷 수(처리량)는 네트워크 I/O 로 확인.</td></tr>
     </tbody>
   </table>

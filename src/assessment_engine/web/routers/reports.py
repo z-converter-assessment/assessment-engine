@@ -12,9 +12,9 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from assessment_engine.db.repositories.base_diagnostic_repository import (
+from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
-    DiagnosticTimeRange,
+    TimeRange,
 )
 from assessment_engine.web.deps import get_diagnostic_service
 from assessment_engine.web.services.diagnostic_service import DiagnosticService, _normalize_anchor
@@ -41,7 +41,7 @@ _VIEW_TITLES: dict[str, str] = {
 async def environment_report(
     request: Request,
     job: str | None = Query(None, description="발행된 보고서 job_id — 정적 스냅샷 렌더"),
-    time_range: DiagnosticTimeRange = Query(
+    time_range: TimeRange = Query(
         DIAGNOSTIC_DEFAULT_TIME_RANGE,
         description="윈도우 (live preview) — 7개 (15m/1h/6h/24h/7d/14d/30d)",
     ),
@@ -128,7 +128,7 @@ async def _render_environment_snapshot(
 
 @reports_router.post("/environment/emit")
 async def environment_report_emit(
-    time_range: DiagnosticTimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
+    time_range: TimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
     anchor_at: datetime | None = Query(None),
     view: Literal["customer", "engineer"] = Query("customer"),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),

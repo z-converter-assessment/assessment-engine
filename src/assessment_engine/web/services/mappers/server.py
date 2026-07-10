@@ -26,6 +26,8 @@ from assessment_engine.web.services.device_filters import (
     disk_total_bytes,
     is_data_volume,
     is_physical_disk,
+    is_swap,
+    swap_total_bytes,
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
@@ -36,7 +38,7 @@ from assessment_engine.web.services.mappers.shared import (
     windows_legacy_version_from_build,
 )
 from assessment_engine.web.services.metrics_calculator import compute_net_io
-from assessment_engine.web.services.unit_converter import bytes_to_gb, kb_to_gb, usage_pct
+from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib, usage_pct
 from assessment_engine.web.view_models.environment_report import (
     CpuBreakdown,
     MemoryBreakdown,
@@ -88,42 +90,49 @@ def _usage_badge_class(pct: float | None) -> str:
 # ─── raw dict → typed ViewModel 단일 변환 진입점 ──────────────────────────
 
 
-def _to_ip_addrs(interfaces: list[dict]) -> list[IpAddr]:
-    """interface dict 목록 → IpAddr(value=CIDR, is_ipv4). IPv4 우선 정렬(안정), loopback 제외.
+def _to_ip_addrs(net_interfaces: list[dict]) -> list[IpAddr]:
+    """net_interface 노드 목록 → IpAddr(value=CIDR, is_ipv4). IPv4 우선 정렬(안정), loopback 제외.
 
-    IPv4 는 실제 접속·식별 주력이라 상단·진하게 표시, IPv6(ULA/link-local)는 보조(연하게).
+    v2 노드는 kind 는 인터페이스 레벨, 주소는 nested addresses[]({address,prefix,family}) — 다중 IP 호스트는
+    전 주소 표출. IPv4 는 실제 접속·식별 주력이라 상단·진하게 표시, IPv6(ULA/link-local)는 보조(연하게).
     """
     items: list[IpAddr] = []
-    for i in interfaces or []:
-        if i.get("kind") == "loopback":
+    for iface in net_interfaces or []:
+        if iface.get("kind") == "loopback":
             continue  # 표시 무의미
-        addr = i.get("address", "")
-        prefix = i.get("prefix")
-        value = f"{addr}/{prefix}" if prefix is not None else addr
-        items.append(IpAddr(value=value, is_ipv4=i.get("family") == "ipv4"))
+        for a in iface.get("addresses") or []:
+            addr = a.get("address", "")
+            prefix = a.get("prefix")
+            value = f"{addr}/{prefix}" if prefix is not None else addr
+            items.append(IpAddr(value=value, is_ipv4=a.get("family") == "ipv4"))
     return sorted(items, key=lambda x: not x.is_ipv4)
 
 
-def _to_volumes(mounts: list[dict]) -> list[VolumeItem]:
-    """inventory.mounts → VolumeItem(파일시스템) 목록 (가상 마운트 제외, mount ASC).
+def _ext_ip_addrs(ips: list[str] | None) -> list[IpAddr]:
+    """외부 IP(list[str] 평문) → IpAddr. prefix/family 정보 없음 — is_ipv4 는 ':' 유무로 추정, CIDR 없이 표시."""
+    items = [IpAddr(value=s, is_ipv4=":" not in s) for s in ips or []]
+    return sorted(items, key=lambda x: not x.is_ipv4)
 
-    물리 디스크(disks)와 별개 축 — 양 OS 일관 표시 (fstype 명시).
-    Windows 는 disks 미발행이라 본 항목이 유일한 스토리지 정보.
+
+def _to_volumes(block_devices: list[dict]) -> list[VolumeItem]:
+    """block_devices(lsblk) 중 마운트된 데이터 볼륨 노드 → VolumeItem(파일시스템) 목록 (가상·부트 제외, mount ASC).
+
+    물리 디스크(type=disk)와 별개 축 — 양 OS 일관 표시 (fstype 명시). 마운트된 노드(mountpoint 有)만.
     """
     volumes: list[VolumeItem] = []
-    for m in mounts:
-        path = m.get("mount", "")
-        fstype = m.get("fstype")
-        if not is_data_volume(m.get("kind")):
-            continue
-        volumes.append(VolumeItem(mount=path, fstype=fstype, total_gb=bytes_to_gb(m.get("total_bytes"))))
+    for d in block_devices or []:
+        path = d.get("mountpoint")
+        fstype = d.get("fstype")
+        if not path or is_swap(d.get("type")) or not is_data_volume(fstype, path):
+            continue  # swap 노드(mountpoint="[SWAP]"/pagefile)는 데이터 볼륨 아님 — 별도 인벤토리 총량으로만 표시
+        volumes.append(VolumeItem(mount=path, fstype=fstype, total_gb=bytes_to_gb(d.get("size_bytes"))))
     return sorted(volumes, key=lambda v: v.mount)
 
 
 def _to_disk_item(d: dict) -> DiskItem | None:
-    """물리 디스크 아니면 None."""
+    """물리 디스크(block_device type=disk) 아니면 None."""
     name = d.get("name", "")
-    if not is_physical_disk(d.get("kind")):
+    if not is_physical_disk(d.get("type")):
         return None
     return DiskItem(
         name=name,
@@ -177,9 +186,8 @@ def _os_display(os_id: str | None, os_version: str | None, kernel_version: str |
 
 def build_server_inventory(detail, is_online: bool) -> ServerInventorySnapshot:
     """ServerDetail -> 개별 보고서 인벤토리 (충실 표시 — 전체 IP(IPv4/IPv6)·하드웨어·식별자, 생략·왜곡 0)."""
-    # 디스크 총량 — 물리 disks 우선, 비면(Windows 등 물리 미발행) 파일시스템 mounts fallback.
-    # device_filters.disk_total_bytes 단일 산식 (환경·세부 목록 보고서와 동일, Windows 포함 일관).
-    disk_bytes = disk_total_bytes(detail.disks or [], detail.mounts or [])
+    # 디스크 총량 — block_devices type=disk size_bytes 합 (양 OS 단일 산식, device_filters).
+    disk_bytes = disk_total_bytes(detail.block_devices)
     return ServerInventorySnapshot(
         hostname=detail.hostname,
         os_display=_os_display(detail.os_id, detail.os_version, detail.kernel_version),
@@ -187,11 +195,11 @@ def build_server_inventory(detail, is_online: bool) -> ServerInventorySnapshot:
         kernel_version=detail.kernel_version,
         cpu_model=detail.cpu_model,
         cpu_cores=detail.cpu_cores,
-        mem_total_gb=kb_to_gb(detail.mem_total_kb),
-        swap_total_gb=kb_to_gb(detail.swap_total_kb),
+        mem_total_gb=bytes_to_gib(detail.mem_total_bytes),
+        swap_total_gb=bytes_to_gib(swap_total_bytes(detail.block_devices)),
         disk_total_gb=int(bytes_to_gb(disk_bytes) or 0),
-        ip_internal=_to_ip_addrs(detail.interfaces),
-        ip_external=_to_ip_addrs(detail.ip_external) if detail.ip_external else [],
+        ip_internal=_to_ip_addrs(detail.net_interfaces),
+        ip_external=_ext_ip_addrs(detail.ip_external),
         boot_time=detail.boot_time,
         agent_started_at=detail.agent_started_at,
         last_seen_at=detail.last_seen_at,
@@ -204,7 +212,7 @@ def build_server_inventory(detail, is_online: bool) -> ServerInventorySnapshot:
 
 def build_volumes(raws) -> list[VolumeUsage]:
     """ReportMountUsageRaw list -> VolumeUsage (bytes -> GB). 개별 보고서 마운트별 스토리지."""
-    return [VolumeUsage(mount=r.mount, total_gb=bytes_to_gb(r.total_bytes), used_pct=r.used_pct) for r in raws]
+    return [VolumeUsage(mount=r.mountpoint, total_gb=bytes_to_gb(r.total_bytes), used_pct=r.used_pct) for r in raws]
 
 
 def build_memory_breakdown(raw) -> MemoryBreakdown:
@@ -229,9 +237,9 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
     분류 색·라벨은 shared._DONUT_SEGMENT_FROM_REC + _DONUT_SEGMENT_DEFS와 동기화 (P2 단일 진실).
     raw_period=None이면 미분류 — 빈 문자열 (페이지 2+ 등 raws_period 부재).
     """
-    physical = [d for d in dto.disks if is_physical_disk(d.get("kind"))]
-    raw_total = sum(bytes_to_gb(d.get("size_bytes")) or 0.0 for d in physical)
-    storage_total_gb = round(raw_total, 1) if physical else None
+    # 물리 디스크 총량 — disk_total_bytes 단일 산식(type=disk 합, 목록·상세·보고서 일관).
+    _disk_bytes = disk_total_bytes(dto.block_devices)
+    storage_total_gb = round(bytes_to_gb(_disk_bytes), 1) if _disk_bytes else None
 
     # 서비스 뱃지 — ingest 사전계산 저장값(service_classifier 단일 진실, #E7). 이름·comm·포트 어느 신호로
     # 식별되든 상세·리포트·필터와 동일 집합. services JSONB 행별 재분류 제거(목록 경량).
@@ -265,7 +273,7 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
         os_id=dto.os_id,
         os_version=dto.os_version,
         cpu_cores=dto.cpu_cores,
-        mem_total_gb=kb_to_gb(dto.mem_total_kb),
+        mem_total_gb=bytes_to_gib(dto.mem_total_bytes),
         storage_total_gb=storage_total_gb,
         is_online=False,
         ip_external=dto.ip_external,
@@ -281,15 +289,21 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
     )
 
 
-def storage_layers_gb(disks: list[dict], mounts: list[dict]) -> tuple[float | None, float | None, float | None]:
-    """스토리지 3계층 (GB) 단일 산식 — (배정 블록, 파일시스템, 미할당). 화면 공용 원칙 기준(#C kind 기반).
+def storage_layers_gb(block_devices: list[dict]) -> tuple[float | None, float | None, float | None]:
+    """스토리지 3계층 (GB) 단일 산식 — (배정 블록, 파일시스템, 미할당). block_devices(lsblk) 트리 기준.
 
-    배정 = disk_total_bytes(물리 disk 우선 · Windows 등 물리 미발행 시 data volume fs fallback).
-    파일시스템 = data volume(kind=data) total 합. 미할당 = max(0, 배정 - 파일시스템) — 확장 여력 추론(둘 다 있을 때만).
+    배정 = disk_total_bytes(type=disk size_bytes 합). 파일시스템 = 마운트된 데이터 볼륨 노드 size_bytes 합.
+    미할당 = max(0, 배정 - 파일시스템) — 확장 여력 추론(둘 다 있을 때만).
     소비처(시스템 정보·스토리지 탭)는 본 함수만 호출 — raw sum·재필터 금지.
     """
-    allocated = bytes_to_gb(disk_total_bytes(disks, mounts))
-    fs_bytes = sum((m.get("total_bytes") or 0) for m in mounts if is_data_volume(m.get("kind")))
+    allocated = bytes_to_gb(disk_total_bytes(block_devices))
+    fs_bytes = sum(
+        (d.get("size_bytes") or 0)
+        for d in block_devices or []
+        if d.get("mountpoint")
+        and not is_swap(d.get("type"))  # swap 노드는 파일시스템 층 아님 (별도 swap_total_bytes)
+        and is_data_volume(d.get("fstype"), d.get("mountpoint"))
+    )
     filesystem = bytes_to_gb(fs_bytes) if fs_bytes else None
     unallocated = None
     if allocated is not None and filesystem is not None:
@@ -316,67 +330,45 @@ def to_server_detail(dto: ServerDetail) -> ServerDetailResponse:
         kernel_version=dto.kernel_version,
         cpu_cores=dto.cpu_cores,
         cpu_model=dto.cpu_model,
-        mem_total_gb=kb_to_gb(dto.mem_total_kb),
-        swap_total_gb=kb_to_gb(dto.swap_total_kb),
+        mem_total_gb=bytes_to_gib(dto.mem_total_bytes),
+        swap_total_gb=bytes_to_gib(swap_total_bytes(dto.block_devices)),
         boot_time=dto.boot_time,
         agent_started_at=dto.agent_started_at,
-        ip_internal=_to_ip_addrs(dto.interfaces),
-        ip_external=_to_ip_addrs(dto.ip_external) if dto.ip_external else None,
-        disks=[item for d in dto.disks if (item := _to_disk_item(d)) is not None],
+        ip_internal=_to_ip_addrs(dto.net_interfaces),
+        ip_external=_ext_ip_addrs(dto.ip_external) if dto.ip_external else None,
+        disks=[item for d in dto.block_devices if (item := _to_disk_item(d)) is not None],
         services=_services_or_none(dto.services, listen_ports=dto.listen_ports),
         listen_ports=[_to_listen_port_item(p) for p in dto.listen_ports],
         last_seen_at=dto.last_seen_at,
     )
-    # 파일시스템 항목 — inventory.mounts(가상 마운트 제외). 물리 디스크(disks)와 별개 축, 양 OS 일관(fstype 명시).
-    detail.volumes = _to_volumes(dto.mounts)
+    # 파일시스템 항목 — block_devices 중 마운트된 데이터 볼륨 노드. 물리 디스크(type=disk)와 별개 축, 양 OS 일관(fstype 명시).
+    detail.volumes = _to_volumes(dto.block_devices)
     # 스토리지 3계층 — storage_layers_gb 단일 산식(배정/파일시스템/미할당). 소비처별 재구현 금지(#C).
     detail.disk_total_gb, detail.volume_total_gb, detail.disk_unallocated_gb = storage_layers_gb(
-        dto.disks or [], dto.mounts or []
+        dto.block_devices or []
     )
     return enrich_server_detail(detail)
 
 
 def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
-    usage_by_mount = {u.mount: u for u in dto.mount_usage}
-    physical_disks = [d for d in dto.disks if is_physical_disk(d.get("kind"))]
+    physical_disks = [d for d in dto.block_devices if is_physical_disk(d.get("type"))]
 
+    # 마운트별 사용량 — filesystems(df 시계열)가 used/free/fstype/inode 를 함께 실어 단일 루프. lsblk 트리
+    # (block_devices)는 물리 디스크 목록에만 쓰고, 마운트 사용량은 filesystems 단일 소스.
     mounts: list[MountUsageItem] = []
-    seen: set[str] = set()
-
-    for inv in dto.inventory_mounts:
-        path = inv.get("mount", "")
-        fstype = inv.get("fstype")
-        seen.add(path)
-        if not is_data_volume(inv.get("kind")):
-            continue
-        usage = usage_by_mount.get(path)
-        mounts.append(
-            _build_mount_item(
-                mount=path,
-                fstype=fstype,
-                total_bytes=inv.get("total_bytes"),
-                avail_bytes=usage.avail_bytes if usage else None,
-            )
-        )
-
-    # inventory에 없지만 시계열에 있는 mount (mount_usage 시계열 전용)
-    for path, usage in usage_by_mount.items():
-        if path in seen or not is_data_volume(usage.kind):
+    for fs in dto.filesystems:
+        path = fs.mountpoint
+        if not is_data_volume(fs.fstype, path):
             continue
         mounts.append(
-            _build_mount_item(
-                mount=path,
-                fstype=None,
-                total_bytes=usage.total_bytes,
-                avail_bytes=usage.avail_bytes,
-            )
+            _build_mount_item(mount=path, fstype=fs.fstype, used_bytes=fs.used_bytes, free_bytes=fs.free_bytes)
         )
 
-    collected_ats = [u.collected_at for u in dto.mount_usage if u.collected_at is not None]
+    collected_ats = [fs.collected_at for fs in dto.filesystems if fs.collected_at is not None]
     snapshot_at = max(collected_ats) if collected_ats else None
 
     # 스토리지 3계층 — 시스템 정보와 동일 단일 산식(배정/파일시스템/미할당). fs 층은 아래 fs_total_gb(표시 상세).
-    allocated_gb, _fs, unallocated_gb = storage_layers_gb(dto.disks or [], dto.inventory_mounts or [])
+    allocated_gb, _fs, unallocated_gb = storage_layers_gb(dto.block_devices or [])
     return StorageDetailResponse(
         server_id=dto.server_id,
         public_id=dto.public_id,
@@ -394,17 +386,17 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
 def _build_mount_item(
     mount: str,
     fstype: str | None,
-    total_bytes: int | None,
-    avail_bytes: int | None,
+    used_bytes: int | None,
+    free_bytes: int | None,
 ) -> MountUsageItem:
-    used_bytes = (total_bytes - avail_bytes) if (total_bytes and avail_bytes is not None) else None
+    total_bytes = (used_bytes + free_bytes) if (used_bytes is not None and free_bytes is not None) else None
     pct = usage_pct(used_bytes, total_bytes)
     return MountUsageItem(
         mount=mount,
         fstype=fstype,
         total_gb=bytes_to_gb(total_bytes),
         used_gb=bytes_to_gb(used_bytes),
-        avail_gb=bytes_to_gb(avail_bytes),
+        avail_gb=bytes_to_gb(free_bytes),
         usage_pct=pct,
         badge_class=_usage_badge_class(pct),
         bar_color=_MOUNT_BAR_COLOR,
@@ -417,8 +409,8 @@ def to_network_detail(dto: NetworkWithIo) -> NetworkDetailResponse:
         server_id=dto.server_id,
         public_id=dto.public_id,
         hostname=dto.hostname,
-        ip_internal=_to_ip_addrs(dto.interfaces),
-        ip_external=_to_ip_addrs(dto.ip_external) if dto.ip_external else None,
+        ip_internal=_to_ip_addrs(dto.net_interfaces),
+        ip_external=_ext_ip_addrs(dto.ip_external) if dto.ip_external else None,
         interfaces=compute_net_io(dto.net_io),
         inventory_at=dto.inventory_at,
         snapshot_at=max(collected_ats) if collected_ats else None,

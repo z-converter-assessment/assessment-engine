@@ -1,7 +1,7 @@
 """네트워크 토폴로지 mapper (P2) — 호스트별 집계 대상 인터페이스(physical·bond_master)에서 L3 subnet 그래프 도출.
 
-Repository 는 interfaces 를 구조화 dict(name/address/prefix/family/kind)로 보존(P1). 본 mapper 가
-subnet 그룹핑·가상망 필터·노드/엣지 조립을 단일 책임으로 수행(P2).
+Repository 는 net_interfaces 를 구조화 dict(kind/gateway/addresses[{address,prefix,family}])로 보존(P1). 본
+mapper 가 subnet 그룹핑·가상망 필터·노드/엣지 조립을 단일 책임으로 수행(P2).
 
 토폴로지 의미: agent 는 인터페이스 IP+prefix 만 발행한다 (LLDP/ARP/traceroute 같은 실측 인접 정보 없음).
 유일하게 도출 가능한 관계 = "두 호스트가 같은 network address(IP & prefix)면 같은 브로드캐스트 도메인"이라는
@@ -12,7 +12,7 @@ subnet 그룹핑·가상망 필터·노드/엣지 조립을 단일 책임으로 
 실려 포함. docker0/veth/bridge/vlan/tunnel/loopback/bond_member 는 제외. link-local·prefix 0/32 은 안전망으로 추가 제외.
 2대 미만 단독 서브넷은 inter-host 토폴로지에 무의미해 제외.
 
-IPv4 only (v1): 그래프는 physical+bond_master IPv4 만. IPv6 는 family 로 제외.
+IPv4 only: 그래프는 physical+bond_master 인터페이스의 IPv4 주소만. IPv6 는 family 로 제외.
 
 명세·근거 단일 진실은 본 모듈 docstring + view_models/topology.NetworkTopology.
 """
@@ -39,9 +39,9 @@ def _subnet_host_sort_key(host):
 
 
 def build_network_topology(hosts) -> NetworkTopology:
-    """hosts: ServerDetail/DTO 리스트 (public_id·hostname·os_family·interfaces 사용).
+    """hosts: ServerDetail/DTO 리스트 (public_id·hostname·os_family·net_interfaces 사용).
 
-    interfaces 는 구조화 dict 리스트 [{name, address, prefix, family, kind}]. physical+bond_master IPv4 만 채택.
+    net_interfaces 는 [{kind, gateway, addresses:[{address, prefix, family}]}]. physical+bond_master 의 IPv4 주소만 채택.
     """
     # subnet CIDR -> [(pid, ip, gateway)]. 한 호스트가 같은 서브넷에 여러 IP 면 멤버십 1회만.
     subnet_members: dict[str, list[tuple[str, str, str | None]]] = defaultdict(list)
@@ -52,30 +52,32 @@ def build_network_topology(hosts) -> NetworkTopology:
         pid = str(h.public_id)
         host_meta[pid] = (h.hostname, h.os_family or "unknown")
         host_roles[pid] = sorted(getattr(h, "service_categories", None) or [])
-        seen_nets: set[str] = set()
-        for iface_info in h.interfaces or []:
+        seen_nets: set[str] = set()  # 호스트 스코프 — 여러 인터페이스/주소가 같은 서브넷 잡아도 멤버십 1회
+        for iface_info in h.net_interfaces or []:
             if is_virtual_interface(iface_info.get("kind")):
                 continue  # 집계 단위(physical·bond_master)만 — bridge/veth/vlan/tunnel/loopback/bond_member 제외
-            if iface_info.get("family") != "ipv4":
-                continue  # IPv4 v1 (IPv6 은 그래프 제외)
-            addr = iface_info.get("address")
-            prefix = iface_info.get("prefix")
-            if addr is None or prefix is None:
-                continue
-            try:
-                iface = ipaddress.ip_interface(f"{addr}/{prefix}")
-            except ValueError:
-                continue
-            ip = iface.ip
-            if ip.is_loopback or ip.is_link_local:
-                continue  # (a) 안전망 — 루프백 / 169.254 APIPA
-            if prefix == 0 or prefix >= 32:
-                continue  # (a) netmask 부재 / host route
-            subnet = str(iface.network)  # "10.0.1.0/24"
-            if subnet in seen_nets:
-                continue
-            seen_nets.add(subnet)
-            subnet_members[subnet].append((pid, str(ip), iface_info.get("gateway")))
+            gateway = iface_info.get("gateway")  # gateway 는 인터페이스 레벨 (주소별 아님)
+            for a in iface_info.get("addresses") or []:
+                if a.get("family") != "ipv4":
+                    continue  # IPv4 only (IPv6 은 그래프 제외)
+                addr = a.get("address")
+                prefix = a.get("prefix")
+                if addr is None or prefix is None:
+                    continue
+                try:
+                    iface = ipaddress.ip_interface(f"{addr}/{prefix}")
+                except ValueError:
+                    continue
+                ip = iface.ip
+                if ip.is_loopback or ip.is_link_local:
+                    continue  # (a) 안전망 — 루프백 / 169.254 APIPA
+                if prefix == 0 or prefix >= 32:
+                    continue  # (a) netmask 부재 / host route
+                subnet = str(iface.network)  # "10.0.1.0/24"
+                if subnet in seen_nets:
+                    continue
+                seen_nets.add(subnet)
+                subnet_members[subnet].append((pid, str(ip), gateway))
 
     # gateway disambiguation + 단독 서브넷 필터. 한 서브넷에 서로 다른 non-null gateway 2+ 면 다른 물리망으로
     # 간주해 gateway 별로 분리(사설 대역 중복 오병합 방지). null gateway 는 gateway 1개뿐인 서브넷엔 합류,

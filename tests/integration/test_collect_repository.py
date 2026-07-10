@@ -18,8 +18,9 @@ from sqlalchemy import text
 
 from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
-    MountUsageEntry,
+    FilesystemEntry,
     NetIoEntry,
+    PressureEntry,
 )
 from assessment_engine.db.repositories.collect_repository import CollectRepository
 from tests.factories import make_inventory, make_metrics
@@ -213,44 +214,49 @@ async def test_record_metrics_inserts_all_four_tables(
     metrics = make_metrics(
         collected_at=datetime.now(UTC),
         disk_io=[
+            # device_id = 안정 id 문자열("<scheme>:<value>", 이름 아님). ops/By counter (v2).
             DiskIoEntry(
-                device="sda",
-                reads_completed=100,
-                writes_completed=50,
-                sectors_read=1000,
-                sectors_written=500,
+                device_id="by-path:pci-0000:00:05.0",
+                device_name="sda",
+                ops_read=100,
+                ops_write=50,
+                io_read_bytes=1000 * 512,  # 512B/sector
+                io_write_bytes=500 * 512,
             ),
             DiskIoEntry(
-                device="sdb",
-                reads_completed=200,
-                writes_completed=100,
-                sectors_read=2000,
-                sectors_written=1000,
+                device_id="by-path:pci-0000:00:06.0",
+                device_name="sdb",
+                ops_read=200,
+                ops_write=100,
+                io_read_bytes=2000 * 512,
+                io_write_bytes=1000 * 512,
             ),
         ],
-        mounts=[
-            MountUsageEntry(
-                mount="/",
-                total_bytes=50_000_000_000,
-                free_bytes=20_000_000_000,
-                avail_bytes=18_000_000_000,
+        filesystems=[
+            # used = total - avail, free = avail 상당 (v2 FilesystemEntry, 실 fs).
+            FilesystemEntry(
+                mountpoint="/",
+                fstype="ext4",
+                used_bytes=50_000_000_000 - 18_000_000_000,
+                free_bytes=18_000_000_000,
             ),
-            MountUsageEntry(
-                mount="/data",
-                total_bytes=100_000_000_000,
-                free_bytes=80_000_000_000,
-                avail_bytes=78_000_000_000,
+            FilesystemEntry(
+                mountpoint="/data",
+                fstype="ext4",
+                used_bytes=100_000_000_000 - 78_000_000_000,
+                free_bytes=78_000_000_000,
             ),
-            MountUsageEntry(
-                mount="/var",
-                total_bytes=10_000_000_000,
-                free_bytes=5_000_000_000,
-                avail_bytes=4_000_000_000,
+            FilesystemEntry(
+                mountpoint="/var",
+                fstype="ext4",
+                used_bytes=10_000_000_000 - 4_000_000_000,
+                free_bytes=4_000_000_000,
             ),
         ],
         net_io=[
             NetIoEntry(
-                interface="eth0",
+                iface_id="mac:52:54:00:12:34:56",
+                iface_name="eth0",
                 rx_bytes=1_000_000,
                 tx_bytes=500_000,
                 rx_packets=1000,
@@ -264,38 +270,44 @@ async def test_record_metrics_inserts_all_four_tables(
     assert result.metrics == 1
     assert result.disk_io == 2
     assert result.net_io == 1
-    assert result.mount_usage == 3
+    assert result.filesystem == 3
 
 
-async def test_record_metrics_stores_psi_and_disk_idle_query(
+async def test_record_metrics_stores_pressure_rows(
     collect_repo: CollectRepository,
 ):
-    """agent 발행값 전부 보존(#B) — PSI·disk idle/query 는 분류 미사용이나 raw 컬럼에 저장돼야."""
+    """agent 발행값 전부 보존(#B) — PSI 는 server_pressure 시계열(resource x scope) 로 저장.
+
+    PressureEntry(resource, scope, stall_time_s counter + ratio gauge) 로 정규화 — stall_time_s 가
+    14일 saturation canonical. make_metrics 는 pressure kwarg 미노출이라 반환 dataclass 에 직접 주입
+    (평면 dataclass, 가변).
+    """
     sid = await collect_repo.upsert_server(make_inventory(composite_id="mid-store-all"))
     ts = datetime.now(UTC)
-    await collect_repo.record_metrics(
-        sid,
-        make_metrics(
-            collected_at=ts,
-            psi_cpu_some_total=111,
-            psi_mem_some_total=222,
-            psi_io_some_total=333,
-            sat_disk_idle_time=444,
-            sat_disk_query_time=555,
-            collection_interval_sec=300,
-        ),
-    )
-    row = (
+    m = make_metrics(collected_at=ts)
+    m.pressure = [
+        PressureEntry(resource="cpu", scope="some", stall_time_s=111.0,
+                      ratio_avg10=0.1, ratio_avg60=0.05, ratio_avg300=0.01),
+        PressureEntry(resource="memory", scope="some", stall_time_s=222.0),
+        PressureEntry(resource="io", scope="full", stall_time_s=333.0),
+    ]
+    result = await collect_repo.record_metrics(sid, m)
+    assert result.pressure == 3
+
+    rows = (
         await collect_repo.session.execute(
             text(
-                "SELECT psi_cpu_some_total, psi_mem_some_total, psi_io_some_total, "
-                "sat_disk_idle_time, sat_disk_query_time, collection_interval_sec FROM server_metrics "
+                "SELECT resource, scope, stall_time_s FROM server_pressure "
                 "WHERE server_id = :s AND collected_at = :t"
             ),
             {"s": sid, "t": ts},
         )
-    ).one()
-    assert tuple(row) == (111, 222, 333, 444, 555, 300)
+    ).all()
+    assert {(r.resource, r.scope, r.stall_time_s) for r in rows} == {
+        ("cpu", "some", 111.0),
+        ("memory", "some", 222.0),
+        ("io", "full", 333.0),
+    }
 
 
 async def test_record_metrics_idempotent_on_conflict(
@@ -309,29 +321,29 @@ async def test_record_metrics_idempotent_on_conflict(
     first = await collect_repo.record_metrics(sid, m)
     second = await collect_repo.record_metrics(sid, m)
 
-    assert first.metrics == 1 and first.disk_io == 1 and first.net_io == 1 and first.mount_usage == 1
+    assert first.metrics == 1 and first.disk_io == 1 and first.net_io == 1 and first.filesystem == 1
     assert second.metrics == 0
     assert second.disk_io == 0
     assert second.net_io == 0
-    assert second.mount_usage == 0
+    assert second.filesystem == 0
 
 
 async def test_record_metrics_skips_empty_collections(
     collect_repo: CollectRepository,
 ):
-    """disk_io/mounts/net_io 빈 리스트면 해당 INSERT skip — count 0."""
+    """disk_io/filesystems/net_io 빈 리스트면 해당 INSERT skip — count 0."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="mid-rec-3"))
     m = make_metrics(
         collected_at=datetime.now(UTC),
         disk_io=[],
-        mounts=[],
+        filesystems=[],
         net_io=[],
     )
     result = await collect_repo.record_metrics(sid, m)
     assert result.metrics == 1
     assert result.disk_io == 0
     assert result.net_io == 0
-    assert result.mount_usage == 0
+    assert result.filesystem == 0
 
 
 async def test_record_metrics_independent_collected_at_succeeds(
@@ -351,17 +363,17 @@ async def test_record_metrics_independent_collected_at_succeeds(
 async def test_record_metrics_per_device_unique(
     collect_repo: CollectRepository,
 ):
-    """server_disk_io UNIQUE = (server_id, device, collected_at) — 같은 ts 다른 device는 OK."""
+    """server_disk_io UNIQUE = (server_id, device_id, collected_at) — 같은 ts 다른 device_id는 OK."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="mid-rec-5"))
     ts = datetime.now(UTC)
     m = make_metrics(
         collected_at=ts,
         disk_io=[
-            DiskIoEntry(device="sda", reads_completed=1, writes_completed=0, sectors_read=0, sectors_written=0),
-            DiskIoEntry(device="sdb", reads_completed=2, writes_completed=0, sectors_read=0, sectors_written=0),
-            DiskIoEntry(device="nvme0n1", reads_completed=3, writes_completed=0, sectors_read=0, sectors_written=0),
+            DiskIoEntry(device_id="by-path:pci-0000:00:05.0", device_name="sda", ops_read=1),
+            DiskIoEntry(device_id="by-path:pci-0000:00:06.0", device_name="sdb", ops_read=2),
+            DiskIoEntry(device_id="nvme-eui.0001", device_name="nvme0n1", ops_read=3),
         ],
-        mounts=[],
+        filesystems=[],
         net_io=[],
     )
     result = await collect_repo.record_metrics(sid, m)
@@ -371,13 +383,15 @@ async def test_record_metrics_per_device_unique(
 # ─── boot_time / agent_started_at 보존 (counter reset 정밀 식별 의존) ───────
 
 
-async def test_record_metrics_persists_boot_time_to_all_four_tables(
+async def test_record_metrics_persists_boot_time_envelope(
     collect_repo: CollectRepository,
     db_session,
 ):
-    """boot_time/agent_started_at은 시계열 4개 테이블 모두에 동일 시점값으로 저장.
-    server_metrics·disk_io·net_io는 calculator의 reset 판정에 활용. mount_usage는 시점값이라
-    calculator 활용 없으나 메타데이터 일관성 + 운영 디버깅 단일 SELECT 위해 보존 (CLAUDE.md C1).
+    """boot_time/agent_started_at은 envelope(server_metrics)에만 저장 (v2).
+
+    v1 은 4개 시계열 테이블 모두에 메타를 복제했으나, v2 는 수집 1회당 1행인 server_metrics 에만
+    두고 자식 시계열(disk_io·net_io·filesystem)은 동일 (server_id, collected_at) 로 본 행을 참조 —
+    메타 N중복 회피(CLAUDE.md C1, 모델 docstring). counter reset 판정은 envelope 행에서 읽는다.
     """
     sid = await collect_repo.upsert_server(make_inventory(composite_id="mid-bt-1"))
     ts = datetime.now(UTC)
@@ -386,18 +400,31 @@ async def test_record_metrics_persists_boot_time_to_all_four_tables(
     m = make_metrics(collected_at=ts, boot_time=boot, agent_started_at=started)
     await collect_repo.record_metrics(sid, m)
 
-    for table in ("server_metrics", "server_disk_io", "server_net_io", "server_mount_usage"):
-        row = (
+    # envelope: server_metrics 에 boot_time/agent_started_at 저장.
+    row = (
+        await db_session.execute(
+            text(
+                "SELECT boot_time, agent_started_at FROM server_metrics "
+                "WHERE server_id = :sid AND collected_at = :ts LIMIT 1"
+            ),
+            {"sid": sid, "ts": ts},
+        )
+    ).one()
+    assert row.boot_time == boot
+    assert row.agent_started_at == started
+
+    # 자식 시계열은 동일 (server_id, collected_at) 로 envelope 행을 참조 (메타 미보유).
+    for table in ("server_disk_io", "server_net_io", "server_filesystem"):
+        count = (
             await db_session.execute(
                 text(
-                    f"SELECT boot_time, agent_started_at FROM {table} "
-                    f"WHERE server_id = :sid AND collected_at = :ts LIMIT 1"
+                    f"SELECT COUNT(*) FROM {table} "
+                    "WHERE server_id = :sid AND collected_at = :ts"
                 ),
                 {"sid": sid, "ts": ts},
             )
-        ).one()
-        assert row.boot_time == boot, f"{table} boot_time mismatch"
-        assert row.agent_started_at == started, f"{table} agent_started_at mismatch"
+        ).scalar_one()
+        assert count == 1, f"{table} should reference the envelope at same (server_id, collected_at)"
 
 
 # ─── 명시 select 후 _inventory_changed 회귀 (C5) ──────────────────────────
@@ -410,11 +437,11 @@ async def test_upsert_server_history_appended_on_change(
     """C5 명시 select(_INVENTORY_COMPARE_COLS) 후에도 변경 감지 동일 — history 한 행 append.
 
     hostname 은 복합 conflict 키라 변경 시 새 row 가 되어 history append 의미가 사라짐.
-    여기서는 hostname 동일 + cpu_cores·mem_total_kb 변경으로 진짜 history 트리거 검증.
+    여기서는 hostname 동일 + cpu_cores·mem_total_bytes 변경으로 진짜 history 트리거 검증.
     """
     aid = "00000000-0000-4000-8000-000000000041"
-    inv1 = make_inventory(agent_id=aid, hostname="h1", cpu_cores=4, mem_total_kb=4_000_000)
-    inv2 = make_inventory(agent_id=aid, hostname="h1", cpu_cores=8, mem_total_kb=8_000_000)
+    inv1 = make_inventory(agent_id=aid, hostname="h1", cpu_cores=4, mem_total_bytes=4 * 1024**3)
+    inv2 = make_inventory(agent_id=aid, hostname="h1", cpu_cores=8, mem_total_bytes=8 * 1024**3)
     await collect_repo.upsert_server(inv1)
     await collect_repo.upsert_server(inv2)
     sid = await collect_repo.find_server_id(aid)

@@ -9,11 +9,16 @@ stats 원자료·임계 상수로 numeric(파싱 계약).
 from __future__ import annotations
 
 from assessment_engine import recommendation
+from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
     _CAUSE_LABEL_BY_TRIGGER,
     build_host_confidence_notes,
+    primary_ip,
+    resource_confidence_notes,
+    saturation_block,
 )
+from assessment_engine.web.services.unit_converter import bytes_to_gb
 
 # ResourceStatus(도메인 enum) -> 외부 노출 한국어 라벨. 프로젝트 통일 어휘(자원 적정성 화면과 동일 개념).
 _STATUS_LABEL_KO: dict[str, str] = {
@@ -29,18 +34,6 @@ _STATUS_LABEL_KO: dict[str, str] = {
     "quality_ok": "정상",
     "unmeasured": "미관측",
 }
-
-
-def _res_confidence_notes(c: recommendation.ConfidenceNote) -> list[str]:
-    """자원별 신뢰도 하향 사유 — biased(virtio 구조 편향)는 상시라 노이즈로 제외(build_host_confidence_notes 정합)."""
-    notes: list[str] = []
-    if c.low_precision:
-        notes.append("표본 부족")
-    if c.coverage_gap:
-        notes.append("포화 수치 미관측")
-    if c.nonstationary:
-        notes.append("상승 추세")
-    return notes
 
 
 def _evidence_labels(triggers: list[str]) -> list[str]:
@@ -67,68 +60,16 @@ def _net_signal(value: float | None, threshold: float, *, inclusive: bool = Fals
     return {"value": round(value, 3), "threshold": threshold, "exceeded": exceeded, "measured": True}
 
 
-def _primary_ip(raw) -> str | None:
-    for i in raw.interfaces or []:
-        if i.get("kind") == "physical" and i.get("family") == "ipv4":
-            return i.get("address")
-    return None
-
-
-def _sat_dict(signal: str, value: float | None, threshold: float | None, unit: str, saturated: bool | None) -> dict:
-    """포화 신호 1건 — raw numeric(파싱 계약). 표시 문자열이 아니라 stats 원자료·recommendation 임계 상수.
-
-    signal = OS별 신호 이름(라벨), unit = 값 단위(per_core·per_sec·ms·queue·event), saturated = 도메인 판정(bool|None).
-    network.signals 와 동형 — value 미측정 시 null.
-    """
-    return {
-        "signal": signal,
-        "value": round(value, 2) if value is not None else None,
-        "threshold": threshold,
-        "unit": unit,
-        "measured": value is not None,
-        "saturated": saturated,
-    }
-
-
-def _sat_block(kind: str, stats) -> dict:
-    """자원별 포화 신호 — os-aware raw 수치. saturation_axis_displays(표시용 "W 1.20") 대신 계약용 numeric."""
-    win = stats.os_family == "windows"
-    if kind == "cpu":
-        rq = stats.cpu_run_queue_p95 if win else stats.procs_running_p95
-        val = recommendation.cpu_saturation_index(rq, stats.cpu_cores, stats.os_family)
-        thr = recommendation.CPU_RUN_QUEUE_PER_CORE_SATURATION if win else recommendation.PROCS_RUNNING_PER_CORE_SATURATION
-        sig = "Processor Queue Length/core" if win else "run queue (procs_running)/core"
-        return _sat_dict(sig, val, thr, "per_core", recommendation.cpu_saturated(stats))
-    if kind == "memory":
-        if win:
-            return _sat_dict(
-                "Pages Input/sec", stats.mem_pages_input_rate_p95, recommendation.WIN_PAGES_INPUT_SATURATION,
-                "per_sec", recommendation.mem_saturated(stats),
-            )
-        # Linux swap page-out 은 발생 이벤트(수치 없음) — 판정은 saturated 로.
-        sat = recommendation.mem_saturated(stats)
-        return {"signal": "swap page-out", "value": None, "threshold": None, "unit": "event",
-                "measured": sat is not None, "saturated": sat}
-    # disk_io — await 우선(양 OS), 구세대 viostor 만 큐 폴백.
-    if stats.disk_await_p95_ms is not None:
-        return _sat_dict("await", stats.disk_await_p95_ms, recommendation.RS_DISKIO_AWAIT_MS, "ms",
-                         recommendation.disk_io_saturated(stats))
-    if stats.disk_queue_p95 is not None:
-        return _sat_dict("Avg Disk Queue Length", stats.disk_queue_p95, recommendation.DISK_QUEUE_PER_DISK_SATURATION,
-                         "queue", recommendation.disk_io_saturated(stats))
-    return {"signal": "await", "value": None, "threshold": recommendation.RS_DISKIO_AWAIT_MS, "unit": "ms",
-            "measured": False, "saturated": recommendation.disk_io_saturated(stats)}
-
-
 def _cpu_resource(raw, stats, host) -> dict:
     ra = host.resources["cpu"]
     return {
         "status": ra.status,
         "status_label": _STATUS_LABEL_KO.get(ra.status, ra.status),
         "utilization_p95_pct": round(raw.cpu_p95_pct, 1) if raw.cpu_p95_pct is not None else None,
-        "saturation": _sat_block("cpu", stats),
+        "saturation": saturation_block("cpu", stats),
         "evidence": _evidence_labels(ra.triggers),
-        "confidence_notes": _res_confidence_notes(ra.confidence),
+        "confidence_notes": resource_confidence_notes(ra.confidence),
+        "current_cores": stats.cpu_cores,  # 현재 배정 — target 과 짝(현재 vs 목표)
         "sizing_target_cores": ra.sizing_target,
         "recommendation": _sizeable_recommendation("cpu", ra),
         "detail": ra.detail or None,
@@ -141,9 +82,10 @@ def _memory_resource(raw, stats, host) -> dict:
         "status": ra.status,
         "status_label": _STATUS_LABEL_KO.get(ra.status, ra.status),
         "utilization_p95_pct": round(raw.mem_p95_pct, 1) if raw.mem_p95_pct is not None else None,
-        "saturation": _sat_block("memory", stats),
+        "saturation": saturation_block("memory", stats),
         "evidence": _evidence_labels(ra.triggers),
-        "confidence_notes": _res_confidence_notes(ra.confidence),
+        "confidence_notes": resource_confidence_notes(ra.confidence),
+        "current_mb": stats.mem_total_mb,  # 현재 배정 RAM — target 과 짝
         "sizing_target_mb": ra.sizing_target,
         "recommendation": _sizeable_recommendation("memory", ra),
         "detail": ra.detail or None,
@@ -153,15 +95,24 @@ def _memory_resource(raw, stats, host) -> dict:
 def _disk_resource(raw, stats, host) -> dict:
     cap = host.resources["disk_capacity"]
     io = host.resources["disk_io"]
+    # 현재 배정 디스크 총량 — block_devices type=disk size_bytes 합(disk_total_bytes 단일 산식, 양 OS).
+    _dbytes = disk_total_bytes(raw.block_devices or [])
     return {
         "capacity": {
             "status": cap.status,
             "status_label": _STATUS_LABEL_KO.get(cap.status, cap.status),
-            "worst_mount": raw.worst_mount,
-            "worst_mount_used_pct": round(raw.worst_mount_used_pct, 1) if raw.worst_mount_used_pct is not None else None,
-            "days_until_full": raw.worst_mount_days_until_full,
+            "worst_mount": raw.disk_capacity_driving_mount,
+            "worst_mount_used_pct": (
+                round(raw.disk_capacity_driving_used_pct, 1)
+                if raw.disk_capacity_driving_used_pct is not None
+                else None
+            ),
+            "days_until_full": (
+                int(raw.disk_capacity_runway_days) if raw.disk_capacity_runway_days is not None else None
+            ),
             "evidence": _evidence_labels(cap.triggers),
-            "confidence_notes": _res_confidence_notes(cap.confidence),
+            "confidence_notes": resource_confidence_notes(cap.confidence),
+            "current_gb": int(bytes_to_gb(_dbytes)) if _dbytes else None,  # 현재 배정 — target 과 짝
             "sizing_target_gb": cap.sizing_target,
             "recommendation": _sizeable_recommendation("disk_capacity", cap),
             "detail": cap.detail or None,
@@ -169,9 +120,9 @@ def _disk_resource(raw, stats, host) -> dict:
         "io": {
             "status": io.status,
             "status_label": _STATUS_LABEL_KO.get(io.status, io.status),
-            "saturation": _sat_block("disk_io", stats),
+            "saturation": saturation_block("disk_io", stats),
             "evidence": _evidence_labels(io.triggers),
-            "confidence_notes": _res_confidence_notes(io.confidence),
+            "confidence_notes": resource_confidence_notes(io.confidence),
             "detail": io.detail or None,
         },
     }
@@ -196,10 +147,17 @@ def _recommendation(host, stats, rec: str) -> dict:
     예: 메모리 포화가 CPU 를 유발하면 actions=[메모리 증설]만, suppressed=[cpu] — per-resource CPU 타겟을 잘못 증설하지 않게.
     per-resource sizing_target 은 진단용(각 자원 독립 가정) — 실제 프로비저닝은 본 actions 를 파싱한다.
     """
+    # disk_io io_bound = 크기로 안 풀리는 tier advisory — under/over 분류와 무관하게 orthogonal 노출
+    # (network congested 대칭, io_bound 는 사이징 축 아님). host 를 under 로 승격하지 않으므로 여기서 별도 append.
+    io_advisory = (
+        [_action("disk_io", host.resources["disk_io"], "tier_up")]
+        if host.resources["disk_io"].status == "io_bound" and "disk_io" not in host.symptom_of_root
+        else []
+    )
     if rec == "under_provisioned":
-        # under_prescription 과 동일 집합 — 인과 결합이면 root 만, 독립이면 전부.
+        # under_prescription 과 동일 집합 — 인과 결합이면 root 만, 독립이면 전부 (사이징 축만).
         kinds = recommendation.prescribed_under_kinds(host)
-        actions = [_action(k, host.resources[k], "tier_up" if k == "disk_io" else "increase") for k in kinds]
+        actions = [_action(k, host.resources[k], "increase") for k in kinds] + io_advisory
         return {
             "summary": recommendation.under_prescription(host),
             "kind": "provision",
@@ -214,10 +172,16 @@ def _recommendation(host, stats, rec: str) -> dict:
             and recommendation.downsize_prescribable(host.resources[k], stats)
             and host.resources[k].sizing_target is not None
         ]
-        # 다운사이즈 게이트 미충족이면 actions=[] (분류는 과다지만 구체 처방 보류 — 관찰만).
-        return {"summary": recommendation.recommend_action(rec, stats), "kind": "downsize", "actions": actions, "suppressed": []}
+        # 다운사이즈 게이트 미충족이면 actions=[](분류는 과다지만 구체 처방 보류). io_bound advisory 는 별개로 붙임.
+        return {
+            "summary": recommendation.recommend_action(rec, stats), "kind": "downsize",
+            "actions": actions + io_advisory, "suppressed": [],
+        }
     _kind = {"idle": "decommission", "insufficient_data": "insufficient", "optimal": "maintain"}.get(rec, "maintain")
-    return {"summary": recommendation.recommend_action(rec, stats), "kind": _kind, "actions": [], "suppressed": []}
+    return {
+        "summary": recommendation.recommend_action(rec, stats), "kind": _kind,
+        "actions": io_advisory, "suppressed": [],
+    }
 
 
 def build_right_sizing_entry(raw, is_online: bool, hostname_ambiguous: bool = False) -> dict:
@@ -234,7 +198,7 @@ def build_right_sizing_entry(raw, is_online: bool, hostname_ambiguous: bool = Fa
         "hostname": raw.hostname,
         "hostname_ambiguous": hostname_ambiguous,  # 환경 내 동명 2대+ (안전 신호). true 면 public_id/순서쌍 권장.
         "public_id": raw.public_id,
-        "primary_ip": _primary_ip(raw),
+        "primary_ip": primary_ip(raw),
         "os_family": raw.os_family,
         "online": is_online,
         "classification": rec,

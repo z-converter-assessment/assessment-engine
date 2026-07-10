@@ -2,7 +2,6 @@
 
 핵심:
 - `_PROVISIONING_SEGMENT_DEFS` 는 `mappers._DONUT_SEGMENT_DEFS` 와 동일 객체 (이중 정의 단일화 회귀)
-- `_CAPACITY_IMMINENT_DAYS` 도 mappers 단일 진실 alias
 - `to_environment_report` 가 precompute count 필드 (top_risks_count, attention_hosts_count 등) 채움
 - `ClassificationCount.pct` 가 mapper precompute (templates 산술 회피, P3)
 """
@@ -27,11 +26,6 @@ def test_provisioning_segment_defs_single_truth():
     assert erm._PROVISIONING_SEGMENT_DEFS is m_shared._DONUT_SEGMENT_DEFS
 
 
-def test_capacity_imminent_days_single_truth():
-    """environment_report._CAPACITY_IMMINENT_DAYS 는 mappers.shared._CAPACITY_IMMINENT_DAYS alias."""
-    assert erm._CAPACITY_IMMINENT_DAYS == m_shared._CAPACITY_IMMINENT_DAYS
-
-
 def _make_row(public_id: str, hostname: str, rec: str = "optimal") -> ReportRowItem:
     """ReportRowItem 최소 fixture — 분류 카운트 회귀용."""
     return ReportRowItem(
@@ -50,8 +44,8 @@ def _make_row(public_id: str, hostname: str, rec: str = "optimal") -> ReportRowI
         mem_avg_pct=20.0,
         mem_p95_pct=30.0,
         mem_peak_pct=40.0,
-        load_15m_max=None,
-        swap_used=False,
+        # v1 load_15m_max/swap_used 폐기 — v2 CPU 포화는 os-aware cpu_run_queue_p95,
+        # 메모리 압박은 mem_swap_paging(둘 다 default 존재, 본 카운트/pct 회귀와 무관).
         recommendation=rec,
         recommendation_label=rec,
         badge_class=f"rec-{rec}",

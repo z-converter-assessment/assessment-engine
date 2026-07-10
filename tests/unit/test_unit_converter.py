@@ -1,11 +1,16 @@
-"""units.py — 단위 변환 함수 단위 테스트."""
+"""unit_converter.py — 단위 변환 함수 단위 테스트 (v2 wire 계약).
+
+공개 함수 = bytes_to_gb / bytes_to_gib / bytes_to_mib / usage_pct.
+메모리/스왑은 By 단위 binary GiB(bytes_to_gib), disk IO rate 는 counter_agg 사전집계라
+unit_converter 에 rate 변환 함수 없음.
+"""
 
 import pytest
 
 from assessment_engine.web.services.unit_converter import (
     bytes_to_gb,
-    kb_to_gb,
-    sector_to_kbps,
+    bytes_to_gib,
+    bytes_to_mib,
     usage_pct,
 )
 
@@ -17,7 +22,7 @@ from assessment_engine.web.services.unit_converter import (
     [
         (None, None),
         (0, 0.0),
-        (10**9, 1.0),  # 디스크는 decimal GB(10^9) — 산업 표준. 메모리(kb_to_gb)만 binary 유지.
+        (10**9, 1.0),  # 디스크는 decimal GB(10^9) — 산업 표준. 메모리(bytes_to_gib)만 binary 유지.
         (50 * 10**9, 50.0),
         (1_073_741_824, 1.07),  # 1 GiB = 1.073e9 B -> 1.07 GB (round 2자리)
     ],
@@ -26,20 +31,37 @@ def test_bytes_to_gb(b, expected):
     assert bytes_to_gb(b) == expected
 
 
-# ─── kb_to_gb ─────────────────────────────────────────────────────────────
+# ─── bytes_to_gib (v2: 메모리/스왑 binary GiB, By 단위) ──────────────────────
 
 
 @pytest.mark.parametrize(
-    "kb, expected",
+    "b, expected",
     [
         (None, None),
-        (0, None),  # falsy → None (mem_total_kb=0 같은 비정상)
-        (1024**2, 1.0),
-        (8 * 1024**2, 8.0),
+        (0, None),  # falsy → None (mem_total_bytes=0 같은 비정상)
+        (1024**3, 1.0),  # 1 GiB = 1024^3 B -> 1.0
+        (8 * 1024**3, 8.0),
     ],
 )
-def test_kb_to_gb(kb, expected):
-    assert kb_to_gb(kb) == expected
+def test_bytes_to_gib(b, expected):
+    assert bytes_to_gib(b) == expected
+
+
+# ─── bytes_to_mib (v2: export spec.memory_mb, binary MiB int) ────────────────
+
+
+@pytest.mark.parametrize(
+    "b, expected",
+    [
+        (None, None),
+        (0, None),  # falsy → None
+        (1024**2, 1),  # 1 MiB -> 1 (int 반환)
+        (8 * 1024**2, 8),
+        (1024**3, 1024),  # 1 GiB = 1024 MiB
+    ],
+)
+def test_bytes_to_mib(b, expected):
+    assert bytes_to_mib(b) == expected
 
 
 # ─── usage_pct ────────────────────────────────────────────────────────────
@@ -59,22 +81,3 @@ def test_kb_to_gb(kb, expected):
 )
 def test_usage_pct(used, total, expected):
     assert usage_pct(used, total) == expected
-
-
-# ─── sector_to_kbps ───────────────────────────────────────────────────────
-
-
-def test_sector_to_kbps_normal():
-    # 1024 sectors * 512 bytes = 524288 bytes = 512 KB. dt=1s → 512 kBps
-    assert sector_to_kbps(1024, 0, 1.0) == 512.0
-
-
-def test_sector_to_kbps_counter_reset_returns_none():
-    # cur < prev → counter reset → None
-    assert sector_to_kbps(100, 200, 1.0) is None
-
-
-def test_sector_to_kbps_zero_dt_handled_by_caller():
-    # dt=0이면 ZeroDivisionError — 호출자가 dt>0 보장 (현재 구현 그대로)
-    with pytest.raises(ZeroDivisionError):
-        sector_to_kbps(1024, 0, 0)

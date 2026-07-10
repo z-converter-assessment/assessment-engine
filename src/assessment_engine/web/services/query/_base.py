@@ -43,16 +43,14 @@ class _BaseQueryServiceMixin:
         """
         net_io = await self.repo.report_net_io_baseline(server_ids, period_days, end)
         for raw in raws:
-            net_tuple = net_io.get(raw.server_id)
-            if net_tuple is not None:
-                (
-                    raw.net_rx_kbps,
-                    raw.net_tx_kbps,
-                    raw.net_rx_kbps_p95,
-                    raw.net_rx_kbps_peak,
-                    raw.net_tx_kbps_p95,
-                    raw.net_tx_kbps_peak,
-                ) = net_tuple
+            net_bl = net_io.get(raw.server_id)
+            if net_bl is not None:
+                raw.net_rx_kbps = net_bl.rx_kbps_baseline
+                raw.net_tx_kbps = net_bl.tx_kbps_baseline
+                raw.net_rx_kbps_p95 = net_bl.rx_p95
+                raw.net_rx_kbps_peak = net_bl.rx_peak
+                raw.net_tx_kbps_p95 = net_bl.tx_p95
+                raw.net_tx_kbps_peak = net_bl.tx_peak
 
 
 def _filter_attention(attention: AttentionSignals, hostnames: set[str]) -> AttentionSignals:

@@ -242,7 +242,7 @@
   <h2 class="card-title">엔지니어 보조 지표</h2>
   <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     분류 자체는 위 표의 임계로 결정되지만, 엔지니어 검토 시 원인 진단·증설/축소 방향을 잡으려면 보조 지표가 필요. 아래는 엔지니어 양식에 쓰이는 보조 메트릭의 정의·임계·근거. 통계 개념(평균·p95·peak)은 "보고서 용어·개념 정리" 절.
-    saturation 3축(CPU 포화·메모리 포화·디스크 I/O)은 서버별 자원 적정성 표·단일 보고서 "포화 축 근거" 카드에 os-aware 신호로 노출되고 진단·권고의 근거가 된다 — Linux 는 run queue(procs_running)/swap page-out/await, Windows 는 Processor Queue/Pages Input/await(IOCTL) 값이 담긴다. 단일 세부 보고서의 CPU/메모리 상세 표는 Load 15m·iowait·Cached·Buffers 등 Linux 전용 셀이 Windows 에서 N/A 이며(메모리 페이징 열은 Linux page-out), Windows 의 포화 근거는 포화 축 근거 카드·진단·권고로 확인한다.
+    saturation 3축(CPU 포화·메모리 포화·디스크 I/O)은 서버별 자원 적정성 표·단일 보고서 "포화 축 근거" 카드에 os-aware 신호로 노출되고 진단·권고의 근거가 된다 — Linux 는 run queue(procs_running)/swap page-out/await, Windows 는 Processor Queue/Pages Input/await(IOCTL) 값이 담긴다. 단일 세부 보고서의 CPU/메모리 상세 표는 실행 큐 p95·iowait·Cached·Buffers 등 Linux 전용 셀이 Windows 에서 N/A 이며(메모리 페이징 열은 Linux page-out), Windows 의 포화 근거는 포화 축 근거 카드·진단·권고로 확인한다.
   </p>
   <div class="table-scroll">
   <table>
