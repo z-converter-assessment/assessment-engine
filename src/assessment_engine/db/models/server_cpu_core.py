@@ -7,7 +7,7 @@ from assessment_engine.db.models.base import Base
 
 
 class ServerCpuCore(Base):
-    """per-core CPU 시간 시계열 — 단일스레드 병목 감지용 (wire v2 cpu.time attr.cpu=N).
+    """per-core CPU 시간 시계열 — 단일스레드 병목 감지용 (wire cpu.time attr.cpu=N).
 
     어느 코어든 이용률 p95 가 임계(RS_CPU_PERCORE_HOLD_PCT) 이상이면 집계 평균은 낮아도 다운사이즈/
     유휴 판정을 보류한다(단일스레드 앱 보호). server_metrics(host 집계)와 별개 정규화 테이블 —

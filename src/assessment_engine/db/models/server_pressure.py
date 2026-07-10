@@ -7,7 +7,7 @@ from assessment_engine.db.models.base import Base
 
 
 class ServerPressure(Base):
-    """PSI (Pressure Stall Information) 시계열 — Linux 4.20+ (wire v2 system.pressure).
+    """PSI (Pressure Stall Information) 시계열 — Linux 4.20+ (wire system.pressure).
 
     stall_time_s 는 counter(s, counter_agg reset-safe) — 14일 saturation 판정 canonical(자원이 실제로
     부족해 태스크가 멈춘 시간). ratio_avg10/60/300 는 gauge(0~1, 실시간 참고). NK 축 = resource x scope

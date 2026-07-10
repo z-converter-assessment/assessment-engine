@@ -7,7 +7,7 @@ from assessment_engine.db.models.base import Base
 
 
 class ServerNetIo(Base):
-    """인터페이스별 네트워크 IO 시계열 (wire v2 system.network).
+    """인터페이스별 네트워크 IO 시계열 (wire system.network).
 
     iface_id = 안정키 = MAC("mac:.."). rx/tx bytes·packets·errors·dropped 는 counter (counter_agg
     reset-safe). link_speed_bps 는 bit/s gauge — 10Gbps(1e10) > int32 라 BigInteger 필수. virtio 는 null.

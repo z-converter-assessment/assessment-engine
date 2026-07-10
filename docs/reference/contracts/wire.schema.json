@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://z-converter-assessment/wire.schema.v2.json",
-  "title": "assessment-agent wire v2 (USE Method, OTel system.* aligned)",
-  "$comment": "메시지 4종. metrics/inventory 는 v2 재설계(envelope + system.* / block_devices, datapoint-array). task.result/error 는 v1 body 를 v2 envelope 아래 그대로 유지(system.* 재설계 대상 아님) + schema_version. counter=monotonic 누적(엔진 델타), gauge=순간. base 단위 s/By/bit/s/1(ratio)/count. null=측정불가(0과 구분).",
+  "$id": "https://z-converter-assessment/wire.schema.json",
+  "title": "assessment-agent wire (USE Method, OTel system.* aligned)",
+  "$comment": "메시지 4종. metrics/inventory 는 envelope + system.* datapoint-array / block_devices 구조. task.result/error 는 envelope + body 구조(system.* 미적용) + schema_version. counter=monotonic 누적(엔진 델타), gauge=순간. base 단위 s/By/bit/s/1(ratio)/count. null=측정불가(0과 구분).",
 
   "type": "object",
   "$defs": {

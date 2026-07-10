@@ -1,4 +1,4 @@
-"""metrics_calculator — delta 기반 percent/rate 계산 (wire v2)."""
+"""metrics_calculator — delta 기반 percent/rate 계산 (wire)."""
 
 from datetime import UTC, datetime, timedelta
 

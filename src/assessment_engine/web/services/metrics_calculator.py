@@ -55,9 +55,9 @@ def _delta_rate(cur: int | None, prev: int | None, dt: float) -> float | None:
 
 
 def _delta_kbps(cur: int | None, prev: int | None, dt: float) -> float | None:
-    """누적 byte 카운터 두 시점의 처리량 (kB/s). v2 io_*_bytes·rx/tx_bytes 는 이미 By -> /1024.
+    """누적 byte 카운터 두 시점의 처리량 (kB/s). io_*_bytes·rx/tx_bytes 는 By 단위 -> /1024.
 
-    v1 sector*512 이중환산 폐기. nullable raw 라 None 가드 (io_*_bytes/rx/tx_bytes 는 v2 nullable).
+    nullable raw 라 None 가드 (io_*_bytes/rx/tx_bytes 는 nullable).
     """
     if cur is None or prev is None:
         return None

@@ -36,6 +36,14 @@ services:
     entrypoint: ["watchfiles", "--filter", "python"]
     command: ["python -m assessment_engine.consumer", "/usr/local/lib/python3.12/site-packages/assessment_engine"]
 
+  worker:
+    <<: *dev-app
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+    # dev hot-reload — consumer 와 동일 watchfiles 래퍼(uvicorn 아님).
+    entrypoint: ["watchfiles", "--filter", "python"]
+    command: ["python -m assessment_engine.worker", "/usr/local/lib/python3.12/site-packages/assessment_engine"]
+
   # 마이그레이션 — base 의 alembic entrypoint·command 유지. dev 는 build + host migrations bind mount 만 더함
   # (새 revision 을 재빌드 없이 인식).
   migrate:

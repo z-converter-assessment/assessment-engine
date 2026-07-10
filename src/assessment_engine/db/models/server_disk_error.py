@@ -7,7 +7,7 @@ from assessment_engine.db.models.base import Base
 
 
 class ServerDiskError(Base):
-    """디스크·스토리지 오류 시계열 (E축, wire v2 system.disk errors — 가변 차원).
+    """디스크·스토리지 오류 시계열 (E축, wire system.disk errors — 가변 차원).
 
     error_kind = 하위계층 종류(mdraid|btrfs|ext4|eventlog|ioerr), error_class = 구체 오류
     (degraded|corruption|member_errors|..), member = 다중 멤버 식별(RAID 디스크 등, 없으면 '').

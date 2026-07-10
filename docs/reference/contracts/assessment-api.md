@@ -350,6 +350,7 @@ CPU 두 축: 사이징 목표는 이용률 목표와 run queue 포화 headroom �
 - Windows 포화 축 미측정(perflib 미발행): 측정된 축으로 판정을 완결하고, 미측정 축만 `data_quality.notes`에 "포화 수치 미관측"으로 표기한다. cpu/memory가 미측정이면 해당 sizing 축이 `uncertain`.
 - 부팅 크리티컬 필드 null(arch, boot_firmware 미수집): 소비자는 추측하지 않는다. arch가 null이면 ISA를 x86_64로 가정하지 말고 재현을 보류하며 경고를 노출한다. boot_firmware가 null이면 파티션 플래그(ESP 존재 등)로 추정하되 불확실하면 보류한다. 안전 우선 원칙을 재현 축에도 적용한다.
 - LVM/RAID/멀티패스 호스트: storage.block_devices가 계층을 트리로 표현한다. sizing.axes의 disk current 총량은 멀티패스 중복과 RAID 멤버 이중계산을 배제한 실 프로비저닝 크기다.
+- 바인드/다중 마운트 이중계상: sizing.axes의 disk 축은 마운트별 하나라, 서로 다른 마운트포인트가 같은 backing device를 공유(bind mount, 같은 볼륨 다중 마운트)하면 별개 축으로 이중 계상될 수 있다. 파일시스템 device_id가 발행되면(에이전트 수집 확장) `(server_id, device_id)`로 dedup 가능 - 현재는 device_id 부재라 마운트포인트 기준이며 소비자는 device_ref 트리 조인으로 같은 backing 여부를 식별한다.
 - 인벤토리 결손으로 base 수량(cpu 코어 수, 총 RAM)이 미상인 축: 그 축은 sizing.axes에서 생략된다(null 원소를 만들지 않아 4.4의 `max(current, recommended)` 불변식 유지). 소비자는 축 부재를 사이징 신호 없음으로 보고 reproduction/기존 인벤토리로 폴백한다. 모든 자원 축이 미측정이면 `classification: insufficient_data`.
 
 ## 8. export 엔드포인트 (파일 다운로드)

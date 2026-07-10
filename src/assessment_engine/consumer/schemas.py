@@ -1,4 +1,4 @@
-"""인바운드 wire v2 Pydantic 스키마 — 계약 = docs/reference/contracts/agent-data.md + wire.schema.v2.json.
+"""인바운드 wire Pydantic 스키마 — 계약 = docs/reference/contracts/agent-data.md + wire.schema.json.
 
 metrics/inventory = envelope + system.* datapoint-array + inventory 배열. task.result/error = envelope + 평면 body.
 검증은 진입점 1회 (#F3). `extra=ignore` 로 v2 내부 forward-compat.
@@ -218,7 +218,7 @@ class InventoryInput(MessageBase):
     kernel_version: str | None = Field(default=None, max_length=64)
     cpu_model: str | None = Field(default=None, max_length=255)
     cpu_cores: int | None = Field(default=None, gt=0)
-    mem_total_bytes: int | None = Field(default=None, ge=0)  # v2 = By (v1 kB 폐기)
+    mem_total_bytes: int | None = Field(default=None, ge=0)  # 단위 By(bytes)
     ip_external: list[str] | None = None
 
     block_devices: list[BlockDeviceInfo] = Field(default_factory=list)

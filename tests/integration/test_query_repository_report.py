@@ -422,7 +422,10 @@ async def test_report_disk_io_baseline_counter_reset_segments_summed(collect_rep
 
 async def test_report_aggregate_adr0052_signals(collect_repo, query_repo):
     """ADR 0052 신 신호가 report_aggregate 로 집계되는지 — steal p95·burst·D-state·swap paging·await·
-    runway(바이트/inode)·drop%·retrans%·history_hours. 같은 5분 버킷 다중 시점으로 counter_agg delta 성립.
+    drop%·retrans%·history_hours. 같은 5분 버킷 다중 시점으로 counter_agg delta 성립.
+
+    runway(바이트/inode)는 fill-rate 최소 span 게이트가 있어 긴-span 전용 테스트로 분리
+    (test_report_aggregate_runway_long_span).
     """
     sid = await collect_repo.upsert_server(make_inventory(composite_id="r-rs0052"))
     base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=9)
@@ -449,6 +452,7 @@ async def test_report_aggregate_adr0052_signals(collect_repo, query_repo):
                     io_write_bytes=(1000 + i * 500) * 512,
                     op_read_time_s=(1000 + i * 100) / 1000,  # await 원자료(s) 단조 증가
                     op_write_time_s=(500 + i * 50) / 1000,
+                    io_time_s=i * 50,  # device busy s (분당 +50s -> %util 0.83 >= await 게이트 0.5)
                 ),
             ],
             net_io=[
@@ -490,12 +494,40 @@ async def test_report_aggregate_adr0052_signals(collect_repo, query_repo):
     assert r.mem_swap_paging is True
     # 디스크 I/O await (물리 device op_time delta, 양 OS 통일)
     assert r.disk_await_p95_ms is not None and r.disk_await_p95_ms > 0
-    # 용량 runway (바이트·inode 둘 다 감소 추세)
-    assert r.disk_capacity_runway_days is not None and r.disk_capacity_runway_days >= 0
-    assert r.disk_inode_runway_days is not None and r.disk_inode_runway_days >= 0
     # 네트워크 품질 (드롭·재전송)
     assert r.net_drop_pct is not None and r.net_drop_pct > 0
     assert r.net_retrans_pct is not None and r.net_retrans_pct > 0
+
+
+async def test_report_aggregate_runway_long_span(collect_repo, query_repo):
+    """용량/inode runway 는 fill-rate 최소 span(RS_DISK_RATE_MIN_SPAN_DAYS ~1.25일) 넘는 관측에서만 산출 —
+    짧은 span 외삽(노이즈) 배제. 가용 이력 전체 span(bucket <= end, 하한 없음, F10) 기반이라 period 창과 무관.
+
+    2일 span + free/inode 감소 추세 -> byte·inode runway 양수. (짧은 span 은 None: adr0052_signals 참조.)
+    """
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="r-runway-span"))
+    end = datetime.now(UTC).replace(microsecond=0)
+    base_ts = end - timedelta(days=2)
+    n = 16
+    for i in range(n):
+        ts = base_ts + timedelta(hours=i * 3)  # 0..45h span (~1.9일 > 1.25 게이트)
+        m = make_metrics(
+            collected_at=ts,
+            filesystems=[
+                FilesystemEntry(
+                    mountpoint="/data",
+                    fstype="ext4",
+                    used_bytes=(50 + i) * 10**9,
+                    free_bytes=(50 - i) * 10**9,  # free 감소 -> byte runway 산출
+                    inodes_used=i * 20_000,
+                    inodes_free=1_000_000 - i * 20_000,  # inode 감소 -> inode runway 산출
+                ),
+            ],
+        )
+        await collect_repo.record_metrics(sid, m)
+    r = (await query_repo.report_aggregate([sid], period_days=14, end=end))[0]
+    assert r.disk_capacity_runway_days is not None and r.disk_capacity_runway_days >= 0
+    assert r.disk_inode_runway_days is not None and r.disk_inode_runway_days >= 0
 
 
 async def test_report_aggregate_adr0052_signals_absent_are_none(collect_repo, query_repo):
@@ -604,8 +636,8 @@ async def test_report_aggregate_await_conntrack_inode(collect_repo, query_repo):
     """신 신호 3종 실값 검증 (v2 — await 는 물리 device op_time delta 로 양 OS 통일):
 
     - disk await: Σ(Δ op_read_time_s + Δ op_write_time_s) / Σ(Δ ops_read + Δ ops_write) * 1000 = ms.
-      매 분당 op_time += 2.5s · ops += 100 -> await = 25ms(> 20 임계).
-    - conntrack: server_metrics_5m conntrack_ratio_max = usage/limit*100 = 55000/65536*100 = 83.9(%).
+      매 분당 op_time += 2.5s · ops += 100 -> await = 25ms(> 20 임계). io_time 분당 +50s -> %util 0.83(게이트 0.5).
+    - conntrack: server_metrics_5m conntrack_ratio_max = usage/limit = 55000/65536 = 0.839 (0-1 ratio).
     - inode used%: worst mount inode_pct = used/(used+free)*100 = 950000/1000000*100 = 95%(>= 85 정적 가드).
     """
     sid = await collect_repo.upsert_server(make_inventory(composite_id="r-new-signals"))
@@ -627,6 +659,7 @@ async def test_report_aggregate_await_conntrack_inode(collect_repo, query_repo):
                     op_write_time_s=i * 1.0,
                     io_read_bytes=(2000 + i * 1000) * 512,
                     io_write_bytes=(1000 + i * 500) * 512,
+                    io_time_s=i * 50,  # device busy s (분당 +50s -> %util 0.83 >= await 게이트 0.5)
                 ),
             ],
             filesystems=[
@@ -646,5 +679,5 @@ async def test_report_aggregate_await_conntrack_inode(collect_repo, query_repo):
     r = (await query_repo.report_aggregate([sid], period_days=1, end=end))[0]
     assert r.disk_await_p95_ms is not None, "물리 device op_time delta 로 await 채워져야 함"
     assert 24.0 <= r.disk_await_p95_ms <= 26.0, f"await 25ms 근방 기대, got {r.disk_await_p95_ms}"
-    assert r.conntrack_ratio is not None and 83.0 <= r.conntrack_ratio <= 85.0, f"got {r.conntrack_ratio}"
+    assert r.conntrack_ratio is not None and 0.83 <= r.conntrack_ratio <= 0.85, f"got {r.conntrack_ratio}"
     assert r.disk_inode_used_pct is not None and 94.0 <= r.disk_inode_used_pct <= 96.0, f"got {r.disk_inode_used_pct}"

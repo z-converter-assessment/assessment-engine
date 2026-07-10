@@ -1,17 +1,17 @@
-"""비동기 보고서 생성 워커 — web 프로세스 내 백그라운드 루프 (ADR 0004 옵션 B 대신 DB 상태머신 기반).
+"""비동기 보고서 생성 워커 루프 — 전용 워커 프로세스(assessment_engine.worker)가 구동.
 
 발행(emit)은 parent job 을 pending 으로 enqueue 만 하고 즉시 반환 -> 본 워커가 claim 해서 생성한다.
-job 상태가 DB(diagnostic_jobs)에 있어 옵션 A(메모리 상태)의 in-flight 손실 문제가 없다:
+job 상태가 DB(diagnostic_jobs)에 있어 메모리 상태 기반(ADR 0004 옵션 A)의 in-flight 손실 문제가 없다:
 - 멀티노드 분산 = `claim_pending` 의 FOR UPDATE SKIP LOCKED (row-lock, 큐 없이 DB 가 조정).
 - graceful(F11) = stop_event 로 새 claim 중단, 진행 중 1건은 shutdown timeout 안 완료 시도, 미완은
   running 으로 남겨 다음 기동 `recover_stale` 가 pending 으로 회수.
 
-구체 인스턴스(QueryService·DiagnosticService)는 composition root(web/main.py lifespan)가 구성해 주입.
+구체 인스턴스(QueryService·DiagnosticService)는 composition root(worker/main.py)가 구성해 주입.
 """
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 
 from loguru import logger
 
@@ -22,7 +22,7 @@ from assessment_engine.web.services.report_generator import (
     ReportGenerationError,
     build_report_result_for_job,
 )
-from assessment_engine.web.worker_lifecycle import graceful_drain, sleep_or_stop
+from assessment_engine.worker.worker_lifecycle import sleep_or_stop
 
 
 async def _process_one(
@@ -58,11 +58,15 @@ async def run_report_worker(
     """워커 메인 루프 — 기동 시 stale 복구 1회 후 pending job 을 polling claim·생성.
 
     query_service_factory: job 마다 독립 세션의 QueryService 를 yield (생성 쿼리 트랜잭션 분리).
-    stop_event: lifespan shutdown 시 set — 루프가 다음 점검에서 종료.
+    stop_event: SIGTERM 시 set — 루프가 다음 점검에서 종료.
     """
-    recovered = await diag_service.recover_stale(stale_seconds)
-    if recovered:
-        logger.info("report worker recovered stale running jobs n={}", recovered)
+    try:
+        recovered = await diag_service.recover_stale(stale_seconds)
+        if recovered:
+            logger.info("report worker recovered stale running jobs n={}", recovered)
+    except Exception:
+        # 기동 시 DB 일시 장애 — 워커를 죽이지 않고 루프 진입(claim 이 이후 재시도). F6 격리.
+        logger.exception("report worker stale recovery failed at startup")
     logger.info("report worker started poll_interval={}s stale={}s", poll_interval_sec, stale_seconds)
 
     while not stop_event.is_set():
@@ -84,35 +88,3 @@ async def run_report_worker(
             logger.exception("report worker process failed job_id={}", rec.id)
 
     logger.info("report worker stopped")
-
-
-@asynccontextmanager
-async def lifespan_worker(
-    *,
-    diag_service: DiagnosticService,
-    query_service_factory: Callable[[], AbstractAsyncContextManager[QueryService]],
-    poll_interval_sec: float,
-    stale_seconds: int,
-    shutdown_timeout_sec: float,
-) -> AsyncIterator[None]:
-    """lifespan 안에서 `async with lifespan_worker(...):` 로 워커 기동/정리.
-
-    진입 시 백그라운드 task 시작, 이탈 시 graceful drain.
-    """
-    stop_event = asyncio.Event()
-    worker_task = asyncio.create_task(
-        run_report_worker(
-            diag_service=diag_service,
-            query_service_factory=query_service_factory,
-            poll_interval_sec=poll_interval_sec,
-            stale_seconds=stale_seconds,
-            stop_event=stop_event,
-        )
-    )
-    try:
-        yield
-    finally:
-        await graceful_drain(
-            worker_task, stop_event, shutdown_timeout_sec,
-            "report worker shutdown timeout — in-flight job left running (stale recovery will requeue)",
-        )

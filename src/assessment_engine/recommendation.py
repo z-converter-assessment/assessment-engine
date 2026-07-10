@@ -123,7 +123,7 @@ class ResourceStats:
     mem_swap_paging: bool = False  # 스왑 page-out 발생(pswpin/pswpout rate > 0) — swap 호스트 포화 + 근본원인 판별
     oom_occurred: bool = False  # 창 안 OOM kill 발생 — 메모리 실패 사후 증거(강한 under 신호)
     mem_total_mb: int | None = None  # 현재 RAM — 사이징 목표 계산용
-    mem_near_peak_pct: float | None = None  # near-peak(버킷 max p99.9) 메모리 사이징 통계(비탄력 피크). p95=판정
+    mem_near_peak_pct: float | None = None  # near-peak(버킷별 max 의 p95) 메모리 사이징(비탄력 피크). p95 util=판정
     # 디스크 I/O
     disk_await_p95_ms: float | None = None  # 응답 지연 p95 — virtio 포화 주신호(계층3 VMware/SQL)
     disk_iops_baseline: float | None = None  # 디스크 I/O 활동량(baseline 평균 IOPS) — 유휴 판정 활동 축(포화 아님)

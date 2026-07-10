@@ -1,4 +1,4 @@
-"""인바운드 저장 DTO (wire v2 -> DB). mapper 가 datapoint-array 를 순회해 채운다.
+"""인바운드 저장 DTO (wire -> DB). mapper 가 datapoint-array 를 순회해 채운다.
 
 단위 canonical: 시간 s(Float), 크기 By(int). device 축 = 안정 id 문자열(이름 아님). null=미측정 보존.
 """
@@ -26,7 +26,7 @@ class ServerInventoryCreate:
     kernel_version: str | None
     cpu_cores: int | None
     cpu_model: str | None
-    mem_total_bytes: int | None  # v2 By (v1 kB 폐기). swap 은 block_devices type=swap 노드
+    mem_total_bytes: int | None  # 단위 By(bytes). swap 은 block_devices type=swap 노드
 
     # 정규화 스토리지/네트워크 그래프 — JSONB pass-through(단일행 upsert·history 미러 정합).
     block_devices: list[dict]  # [{name,type,size_bytes,fstype,mountpoint,parent,id,id_type}]

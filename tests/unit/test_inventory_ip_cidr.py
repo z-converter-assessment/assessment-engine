@@ -1,4 +1,4 @@
-"""InventoryInput.net_interfaces 내부 IP 파싱 회귀 가드 (wire v2 — #B).
+"""InventoryInput.net_interfaces 내부 IP 파싱 회귀 가드 (wire — #B).
 
 내부 네트워크는 net_interfaces(안정키 id=MAC + 다중 addresses[])로 발행된다. IP/서브넷 수용은
 NetAddressInfo 의 bare address(ip_address 형식 검증) + prefix(0~128) + family(ipv4|ipv6)로 이관됐다.

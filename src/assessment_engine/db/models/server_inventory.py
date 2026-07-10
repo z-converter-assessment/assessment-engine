@@ -9,7 +9,7 @@ from assessment_engine.db.models.base import Base
 
 
 class ServerInventory(Base):
-    """등록 호스트 인벤토리 (wire v2 inventory).
+    """등록 호스트 인벤토리 (wire inventory).
 
     식별 단일 키 = `agent_id` (UUID, UNIQUE, #C1) — 부팅 무관 불변. `composite_id`/`machine_id` 는
     감사·표시 전용, `hostname` 은 display field (UNIQUE X), `public_id` 는 URL 노출용.

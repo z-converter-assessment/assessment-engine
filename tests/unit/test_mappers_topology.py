@@ -8,7 +8,7 @@ build_network_topology 의 핵심 분기 회귀 가드:
   - gateway disambiguation: 같은 CIDR 라도 서로 다른 gateway 면 분리
   - IPv4 only (family=ipv6 제외), address 파싱 실패 흡수
   - isolated_count = 그래프 미포함 호스트
-입력은 duck-typed (public_id·hostname·os_family·net_interfaces) — SimpleNamespace 로 최소 결합 (wire v2).
+입력은 duck-typed (public_id·hostname·os_family·net_interfaces) — SimpleNamespace 로 최소 결합 (wire).
 net_interfaces 는 구조화 dict [{name, kind, gateway, addresses:[{address, prefix, family}]}]
 (agent 공용 iface 분류기 — 주소는 인터페이스별 addresses 리스트에 nested, gateway 는 인터페이스 레벨).
 """

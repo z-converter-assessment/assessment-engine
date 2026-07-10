@@ -1,4 +1,4 @@
-"""wire v2 파싱 mapper — datapoint-array -> 저장 DTO 값 정합 (계약 예시 fixture)."""
+"""wire 파싱 mapper — datapoint-array -> 저장 DTO 값 정합 (계약 예시 fixture)."""
 
 import json
 from pathlib import Path
@@ -7,7 +7,7 @@ from assessment_engine.consumer.mappers import to_inventory_create, to_metric_cr
 from assessment_engine.consumer.schemas import InventoryInput, MetricsInput
 
 _EX = json.loads(
-    (Path(__file__).resolve().parents[2] / "docs/reference/contracts/v2-example-messages.json").read_text()
+    (Path(__file__).resolve().parents[2] / "docs/reference/contracts/wire-examples.json").read_text()
 )
 
 

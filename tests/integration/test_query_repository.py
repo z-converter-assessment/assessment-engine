@@ -1,4 +1,4 @@
-"""QueryRepository 통합 테스트 (wire v2) — 정확화 검증.
+"""QueryRepository 통합 테스트 (wire) — 정확화 검증.
 
 검증 영역:
 - inventory query (resolve_server_id, list_servers, get_server)

@@ -71,14 +71,6 @@ class WebSettings(BaseSettings):
     # 운영 alert 튜닝 노브 — env 카탈로그 미수록(env.example·env.md), 필요 시 env override.
     agent_restart_alert_threshold: int = 3
 
-    # 비동기 보고서 생성 워커 (web 프로세스 내 백그라운드 루프 — 발행 응답성·확장성).
-    # poll: pending job 점검 주기. stale_seconds: running 잔류 job 회수 임계(생성이 이 안에 끝난다는 가정,
-    # 초과 = 크래시로 간주해 재집음). shutdown_timeout: graceful 시 진행 중 1건 완료 대기(초과 시 cancel
-    # -> running 잔류 -> 다음 기동 recover_stale 회수, in-flight 손실 0).
-    report_worker_poll_interval_sec: float = 2.0
-    report_worker_stale_seconds: int = 600
-    report_worker_shutdown_timeout_sec: float = 10.0
-
     # ZDM 서버 기본 좌표 — install 모달 default (POST body 누락 시 fallback, 운영자 override 가능).
     # 잘못된 발행 방어는 런타임(resolver 503 차단) + agent host whitelist — startup 거부 없음.
     zdm_default_ip: str = ""
@@ -102,11 +94,6 @@ class WebSettings(BaseSettings):
     # reaper 가 pending -> failure(timeout). install_timeout_sec(600) 는 별개 개념 — agent 가 "픽업 후" 스크립트 실행에
     # 쓰는 wall-clock 예산(payload install.timeout_sec). 기본 3600 = 기존 큐 TTL(1h) 과 동일 -> 기존 큐 재선언 충돌 없음.
     install_task_deadline_sec: int = 3600
-
-    # install task reaper — deadline 지난 pending 을 다음 emit 없이 능동 timeout 전이(web 프로세스 내 백그라운드 루프).
-    # interval: 점검 주기. shutdown_timeout: graceful 시 진행 중 1회 완료 대기(UPDATE 1건이라 짧게).
-    install_reaper_interval_sec: float = 60.0
-    install_reaper_shutdown_timeout_sec: float = 5.0
 
     @property
     def database_url(self) -> str:
@@ -133,6 +120,26 @@ class WebSettings(BaseSettings):
         if self.postgres_user in _WEAK_VALUES:
             raise ValueError("POSTGRES_USER must not be a weak value (empty/password/admin/root/changeme) in prod.")
         return self
+
+
+class WorkerSettings(WebSettings):
+    """전용 백그라운드 워커 프로세스 설정 — 비동기 보고서 생성 + install task reaper.
+
+    web 이 HTTP 만 담당하도록 분리한 별도 컨테이너(assessment_engine.worker). DB layer(WebSettings) 상속,
+    broker 는 미사용(보고서·reaper 는 DB job-claim 만).
+    """
+
+    # 보고서 생성 루프. poll: pending job 점검 주기. stale_seconds: running 잔류 job 회수 임계(생성이 이 안에
+    # 끝난다는 가정, 초과 = 크래시로 간주해 재집음). shutdown_timeout: graceful 시 진행 중 1건 완료 대기(초과 시
+    # cancel -> running 잔류 -> 다음 기동 recover_stale 회수, in-flight 손실 0).
+    report_worker_poll_interval_sec: float = 2.0
+    report_worker_stale_seconds: int = 600
+    report_worker_shutdown_timeout_sec: float = 10.0
+
+    # install task reaper — deadline 지난 pending 을 다음 emit 없이 능동 timeout 전이.
+    # interval: 점검 주기. shutdown_timeout: graceful 시 진행 중 1회 완료 대기(UPDATE 1건이라 짧게).
+    install_reaper_interval_sec: float = 60.0
+    install_reaper_shutdown_timeout_sec: float = 5.0
 
 
 class ConsumerSettings(WebSettings):

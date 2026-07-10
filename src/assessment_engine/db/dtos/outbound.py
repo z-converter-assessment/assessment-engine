@@ -330,7 +330,7 @@ class ReportRowRaw:
     mem_p95_pct: float | None
     mem_avg_pct: float | None
     mem_peak_pct: float | None
-    mem_near_peak_pct: float | None = None  # near-peak(버킷 max p99.9) — 메모리 사이징 통계(비탄력 피크 대표)
+    mem_near_peak_pct: float | None = None  # near-peak(버킷별 max 의 p95) — 메모리 사이징 통계(비탄력 피크 대표)
 
     # service_classifier listen 신호 (개별 보고서 구동 서비스 표시·role 보강).
     listen_ports: list[dict] | None = None

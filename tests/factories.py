@@ -1,4 +1,4 @@
-"""테스트 데이터 빌더 (wire v2). factory_boy 같은 무거운 라이브러리 대신 단순 함수.
+"""테스트 데이터 빌더 (wire). factory_boy 같은 무거운 라이브러리 대신 단순 함수.
 
 본 프로젝트 규모(단일 도메인·dataclass DTO)에는 함수 빌더가 정석:
 - 명시적인 default

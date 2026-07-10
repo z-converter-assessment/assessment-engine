@@ -1,4 +1,4 @@
-"""wire v2 파싱 — datapoint-array(system.*) + inventory 배열 -> 저장 DTO.
+"""wire 파싱 — datapoint-array(system.*) + inventory 배열 -> 저장 DTO.
 
 각 metric 의 points 를 attr(device/state/direction/resource/scope/window)로 조회·그룹핑한다.
 null=미측정 보존(0 날조 금지, #B). CPU host 집계는 cpu.time attr.cpu 합산 + per-core 병행 저장.

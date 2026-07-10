@@ -1,4 +1,4 @@
-"""Windows agent wire payload Pydantic 검증 (wire v2 — Linux/Windows 동일 계약).
+"""Windows agent wire payload Pydantic 검증 (wire — Linux/Windows 동일 계약).
 
 Windows 고유값이 InventoryInput/MetricsInput wire 검증을 통과하고 DTO 로 매핑돼 reject/truncate/손실
 0 인지 회귀 가드 — POSIX uid 부재(null), OS 개념 부재(cpu.time nice/iowait/irq/softirq/steal 미발행 point ·

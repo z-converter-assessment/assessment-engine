@@ -7,7 +7,7 @@ from assessment_engine.db.models.base import Base
 
 
 class ServerMetrics(Base):
-    """호스트 집계 시계열 (wire v2 system.*).
+    """호스트 집계 시계열 (wire system.*).
 
     단위 canonical — CPU 시간 s(Float, cpu.time attr.cpu 합산), 메모리 By(BigInteger). 카운터(cpu 시간·
     paging·oom·tcp 재전송)는 counter_agg 로 reset-safe 집계 (#C5) — 재부팅/재시작 gate 불요.

@@ -140,7 +140,7 @@ _CPU_NUMERATOR: dict[str, str] = {
 _RATE_PER_DIM_DEFS: dict[str, tuple[str, str]] = {
     "disk.read_iops": ("device_id", "ops_read"),
     "disk.write_iops": ("device_id", "ops_write"),
-    # 처리량 — v2 io_*_bytes 는 이미 By -> KB 는 /1024 (v1 sectors*512 이중환산 폐기).
+    # 처리량 — io_*_bytes 는 By 단위 -> KB 는 /1024.
     "disk.read_kbps": ("device_id", "io_read_bytes / 1024.0"),
     "disk.write_kbps": ("device_id", "io_write_bytes / 1024.0"),
     "net.rx_bytes_per_sec": ("iface_id", "rx_bytes"),

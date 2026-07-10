@@ -7,7 +7,7 @@ from assessment_engine.db.models.base import Base
 
 
 class ServerFilesystem(Base):
-    """마운트별 파일시스템 사용량 시계열 (wire v2 filesystem.usage / filesystem.inodes.usage).
+    """마운트별 파일시스템 사용량 시계열 (wire filesystem.usage / filesystem.inodes.usage).
 
     gauge(시점값) — used/free By, inode used/free 개수. counter 아님(delta 미적용). 용량 runway 는
     used 추세 회귀로 산출. device_id 병기(안정키, 표시·조인용). NK = (server_id, mountpoint, collected_at).

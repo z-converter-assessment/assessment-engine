@@ -18,10 +18,9 @@
 
 | 환경 | 방식 |
 |------|------|
-| DEV | web lifespan에서 `CREATE EXTENSION IF NOT EXISTS timescaledb` → `Base.metadata.create_all` → `create_hypertable(if_not_exists => true)` |
-| PROD | Alembic 마이그레이션. `create_hypertable`은 최초 생성 마이그레이션에 수동 작성 |
+| 전 환경 (dev·staging·prod·테스트) | Alembic 마이그레이션 단일 진실. `migrate` init-container 가 `alembic upgrade head` 실행 (postgres healthy 후 1회). `CREATE EXTENSION`·`create_hypertable`·continuous aggregate 는 해당 revision 에 수동 작성 |
 
-`create_all`은 기존 테이블에 컬럼/제약(UniqueConstraint 등)을 추가하지 않음. 스키마 변경 시 `docker compose down -v` 후 재기동.
+스키마 변경은 새 Alembic revision 으로만 — web/consumer/worker lifespan 은 스키마를 만들지 않는다(schema 가정만). 로컬에서 스키마를 갈아엎으려면 `docker compose down -v` 후 재기동(migrate 가 head 까지 재적용).
 
 ## 차트 SQL 패턴 — 단일 함수 `metric_trend`
 

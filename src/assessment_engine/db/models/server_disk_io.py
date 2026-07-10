@@ -7,7 +7,7 @@ from assessment_engine.db.models.base import Base
 
 
 class ServerDiskIo(Base):
-    """디바이스별 디스크 IO 시계열 (wire v2 system.disk).
+    """디바이스별 디스크 IO 시계열 (wire system.disk).
 
     device_id = 안정 id 문자열("<scheme>:<value>", 이름 아님 — 재부팅/재발급 무관). counter_agg 로
     reset-safe 집계 (#C5). io_time/operation_time 은 s(Float) counter — %util·await 산출 원자료.

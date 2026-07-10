@@ -1,6 +1,6 @@
-"""wire v2 인바운드 Pydantic 스키마 — 계약 예시 6종 라운드트립 검증.
+"""wire 인바운드 Pydantic 스키마 — 계약 예시 6종 라운드트립 검증.
 
-정본 = docs/reference/contracts/wire.schema.v2.json + v2-example-messages.json.
+정본 = docs/reference/contracts/wire.schema.json + wire-examples.json.
 엔진 인바운드 스키마(consumer/schemas.py)가 계약 예시를 전부 수용하는지 = ingest 진입 계약 정합.
 """
 
@@ -18,7 +18,7 @@ from assessment_engine.consumer.schemas import (
 )
 
 _EXAMPLES = json.loads(
-    (Path(__file__).resolve().parents[2] / "docs/reference/contracts/v2-example-messages.json").read_text()
+    (Path(__file__).resolve().parents[2] / "docs/reference/contracts/wire-examples.json").read_text()
 )
 _MODEL_BY_TYPE = {
     "metrics": MetricsInput,

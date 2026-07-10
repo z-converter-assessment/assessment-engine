@@ -554,6 +554,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             FROM server_filesystem_5m
             WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_DATA_VOLUME_CAGG_FILTER}
             GROUP BY server_id, mountpoint
+            HAVING avg(used_pct_avg) IS NOT NULL  -- used+free 0·null 마운트 배제 (cagg used_pct CASE(합>0) -> null)
             ORDER BY server_id, used_pct DESC NULLS LAST
         """)
         result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
