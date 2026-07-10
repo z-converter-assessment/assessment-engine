@@ -104,6 +104,41 @@ async def test_report_aggregate_returns_iowait_and_inventory(collect_repo, query
     assert r.boot_time is not None
 
 
+async def test_report_aggregate_returns_reproduction_columns(collect_repo, query_repo):
+    """report_aggregate SELECT 가 server_inventory 재현 9컬럼을 ReportRowRaw 로 왕복 — SELECT 오타·매핑 누락 가드.
+
+    재현 컬럼은 server_inventory LEFT JOIN 직결이라 metric 불요. JSONB(boot/nonblock_mounts) 왕복 포함.
+    """
+    sid = await collect_repo.upsert_server(
+        make_inventory(
+            composite_id="r-repro",
+            arch="x86_64",
+            bits=64,
+            boot_firmware="uefi",
+            secure_boot=True,
+            timezone="Asia/Seoul",
+            rtc_utc=True,
+            boot={"kernel_cmdline": "ro quiet", "root_ref_type": "label", "grub_install_target": None},
+            nonblock_mounts=[
+                {"source": "tmpfs", "target": "/run", "fstype": "tmpfs",
+                 "options": ["rw", "nosuid"], "fs_freq": 0, "fs_passno": 0}
+            ],
+        )
+    )
+    rows = await query_repo.report_aggregate([sid], period_days=1, end=datetime.now(UTC))
+    assert len(rows) == 1
+    r = rows[0]
+    assert r.arch == "x86_64"
+    assert r.bits == 64
+    assert r.boot_firmware == "uefi"
+    assert r.secure_boot is True
+    assert r.timezone == "Asia/Seoul"
+    assert r.rtc_utc is True
+    assert r.boot["root_ref_type"] == "label"
+    assert r.boot["grub_install_target"] is None
+    assert r.nonblock_mounts[0]["fstype"] == "tmpfs"
+
+
 # ─── report_uptime_stats — boot_time DISTINCT count - 1 ──────────────────
 
 

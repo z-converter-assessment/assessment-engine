@@ -503,18 +503,6 @@ def matched_ports(unit: str, listen_ports: list[dict], pid: int | None = None) -
     ]
 
 
-def well_known_ports(unit: str) -> tuple[int, ...]:
-    """unit 이름에 대응하는 well-known 포트 — name substring 매칭.
-
-    export(보안그룹 자동화) 의 listener 폴백 전용. comm 무관하게 이름만으로 표준 포트 추정.
-    """
-    name = unit.lower().removesuffix(".service")
-    for service_name, ports in _NAME_PORTS.items():
-        if service_name in name:
-            return ports
-    return ()
-
-
 def detect_listen_categories(listen_ports: list[dict]) -> dict[str, list[MatchedPort]]:
     """listen 소켓을 카테고리로 직접 분류 — services unit 과 무관 (ADR 0032, T15 보완).
 

@@ -9,11 +9,6 @@ def bytes_to_gib(b: int | None) -> float | None:
     return round(b / 1024**3, 1) if b else None
 
 
-# 메모리 MB(binary MiB) — export spec.memory_mb 용.
-def bytes_to_mib(b: int | None) -> int | None:
-    return b // 1024**2 if b else None
-
-
 def usage_pct(used: int | None, total: int | None) -> float | None:
     if used is None or not total:
         return None

@@ -8,7 +8,6 @@ from assessment_engine.service_classifier import (
     SERVICE_CATEGORIES,
     classify,
     matched_ports,
-    well_known_ports,
 )
 
 # ─── classify: name 신호 (하위호환) ──────────────────────────────────────────
@@ -193,15 +192,6 @@ def test_matched_ports_unknown_service_returns_empty():
 
 def test_matched_ports_empty_listen():
     assert matched_ports("nginx.service", []) == []
-
-
-# ─── well_known_ports (export 폴백) ──────────────────────────────────────────
-
-
-def test_well_known_ports_name_substring():
-    assert well_known_ports("postgresql@14-main.service") == (5432,)
-    assert well_known_ports("nginx.service") == (80, 443)
-    assert well_known_ports("foobar.service") == ()
 
 
 # ─── 카탈로그 파생 일관성 (drift 회귀, ADR 0032) ─────────────────────────────

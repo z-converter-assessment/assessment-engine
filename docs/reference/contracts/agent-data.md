@@ -78,7 +78,8 @@ R=required, opt=optional, nullable=값 null 허용.
 | system.paging / filesystem / pressure / cgroup | opt | - | - | - |
 | hostname / os_id / os_version / os_codename / kernel_version / cpu_model / cpu_cores / mem_total_bytes / ip_external / services / listen_ports | - | R | - | - |
 | block_devices | - | R | - | - |
-| net_interfaces / lvm_vgs | - | opt | - | - |
+| net_interfaces | - | R | - | - |
+| lvm_vgs | - | opt | - | - |
 | hostname / os_id / os_version / os_codename | - | - | R | - |
 | task_id / status / failure_reason / exit_code / signal_no / duration_ms / stdout_tail / stderr_tail / completed_at | - | - | R | - |
 | task_policy | - | - | opt | - |
@@ -175,7 +176,7 @@ fs -> 물리디스크 확정 매핑(parent-by-id) + 스토리지 3계층(배정/
 
 swap 노드 = type=swap, size_bytes = 스왑 할당 크기(Linux 스왑 파티션 / Windows pagefile). 프로비저닝 스펙.
 
-### F3. net_interfaces[] (opt)
+### F3. net_interfaces[] (required)
 
 | 필드 | 타입 | 비고 |
 |------|------|------|
@@ -198,7 +199,7 @@ swap 노드 = type=swap, size_bytes = 스왑 할당 크기(Linux 스왑 파티�
 
 Windows 확장여력은 디스크크기 - 파티션합(미할당)으로 엔진이 파생.
 
-### F5. services[] (opt\|null) / listen_ports[] (required)
+### F5. services[] (required, 열거 불가면 null) / listen_ports[] (required)
 
 서비스 카테고리 분류(서비스 뱃지·워크로드 역할). USE system.* 재설계 대상 아님 — 서비스 분류 전용.
 

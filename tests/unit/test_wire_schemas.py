@@ -11,9 +11,11 @@ import pytest
 from pydantic import ValidationError
 
 from assessment_engine.consumer.schemas import (
+    BootInfo,
     ErrorInput,
     InventoryInput,
     MetricsInput,
+    NonblockMountInfo,
     TaskResultInput,
 )
 
@@ -74,3 +76,45 @@ def test_schema_version_required() -> None:
     bad = {k: v for k, v in _EXAMPLES["error"].items() if k != "schema_version"}
     with pytest.raises(ValidationError):
         ErrorInput.model_validate(bad)
+
+
+def test_inventory_reproduction_descriptors_parse() -> None:
+    """reproduction 재현 서술자 — flat 필드 + BootInfo/NonblockMountInfo nested 파싱."""
+    payload = dict(_EXAMPLES["linux_inventory"])
+    payload.update(
+        arch="x86_64",
+        bits=64,
+        boot_firmware="uefi",
+        secure_boot=True,
+        edition=None,
+        timezone="Asia/Seoul",
+        rtc_utc=True,
+        boot={"kernel_cmdline": "ro quiet", "root_ref_type": "label", "grub_install_target": None},
+        nonblock_mounts=[
+            {"source": "tmpfs", "target": "/run", "fstype": "tmpfs",
+             "options": ["rw", "nosuid"], "fs_freq": 0, "fs_passno": 0}
+        ],
+    )
+    inv = InventoryInput.model_validate(payload)
+    assert inv.arch == "x86_64"
+    assert inv.bits == 64
+    assert inv.boot_firmware == "uefi"
+    assert inv.secure_boot is True
+    assert inv.edition is None
+    assert inv.timezone == "Asia/Seoul"
+    assert inv.rtc_utc is True
+    assert isinstance(inv.boot, BootInfo)
+    assert inv.boot.root_ref_type == "label"
+    assert inv.boot.grub_install_target is None
+    assert len(inv.nonblock_mounts) == 1
+    assert isinstance(inv.nonblock_mounts[0], NonblockMountInfo)
+    assert inv.nonblock_mounts[0].fstype == "tmpfs"
+    assert inv.nonblock_mounts[0].options == ["rw", "nosuid"]
+
+
+def test_inventory_reproduction_descriptors_default_none() -> None:
+    """boot/nonblock_mounts 키 부재 시 None 기본값 (Windows/구 agent forward-compat)."""
+    inv = InventoryInput.model_validate(_EXAMPLES["linux_inventory"])
+    assert inv.boot is None
+    assert inv.nonblock_mounts is None
+    assert inv.arch is None and inv.bits is None
