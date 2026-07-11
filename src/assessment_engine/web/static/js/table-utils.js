@@ -1,3 +1,4 @@
+// @ts-check
 /* 표 정렬·zebra 줄무늬 공용 유틸 (TableUtils).
  *
  * 문제: 정렬로 행을 재배열하거나 필터/clip 으로 숨기면, CSS `:nth-child(even)` zebra 가 숨은 행까지 세어

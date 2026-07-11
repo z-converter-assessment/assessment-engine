@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 네트워크 토폴로지 카드 — Cytoscape.js 집계 뷰 렌더러 (P4: 라이브러리 옵션 조립·레이아웃·스타일·클릭 바인딩만).
  *
@@ -15,7 +16,8 @@
 (function () {
   'use strict';
 
-  var OS_COLOR = { linux: ChartUtils.themeColor(), windows: '#8b5cf6' };
+  // themeColor() 는 인자 없이 테마 primary 색 반환 (globals.d.ts 선언은 name 필수라 로컬 any 캐스트).
+  var OS_COLOR = { linux: /** @type {any} */ (ChartUtils).themeColor(), windows: '#8b5cf6' };
   // 서브넷 노드 — 연한 회색 테마색(base.html --color-table-head) 추종. getComputedStyle 실패 시 fallback.
   var SUBNET = (getComputedStyle(document.documentElement).getPropertyValue('--color-table-head').trim() || '#a7b2c0');
 
@@ -137,7 +139,7 @@
   function bindZoomControls() {
     document.querySelectorAll('[data-topo-zoom]').forEach(function (btn) {
       var action = btn.getAttribute('data-topo-zoom');
-      btn.onclick = function () {
+      /** @type {HTMLElement} */ (btn).onclick = function () {
         if (!cy) return;
         if (action === 'fit') {
           cy.fit(null, 24);
@@ -152,7 +154,7 @@
     });
   }
 
-  window.NetworkTopology = { render: render };
+  /** @type {any} */ (window).NetworkTopology = { render: render };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', render);

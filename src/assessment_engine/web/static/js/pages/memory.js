@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * memory 페이지 차트 로직.
  *
@@ -6,6 +7,10 @@
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
  * - body data-server-id (E6 외부화 규약, static-assets.md)
  */
+
+/** @typedef {import('../generated/api').components['schemas']['MetricDashboard']} MetricDashboard */
+/** @typedef {import('../generated/api').components['schemas']['MetricSeriesItem']} MetricSeriesItem */
+
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtLabel, getAnchorEnd, initAnchor,
         makeBucketGrid, bindToggle, initAutoRefresh, safeArray,
@@ -24,18 +29,18 @@ function fmtGb(bytes) {
 async function loadSnapshot() {
   try {
     const res = await fetch(`/api/servers/${SERVER_ID}/metrics/latest`);
-    document.getElementById('snap-loading').style.display = 'none';
-    if (res.status === 404) { document.getElementById('snap-empty').style.display = ''; return; }
+    /** @type {HTMLElement} */ (document.getElementById('snap-loading')).style.display = 'none';
+    if (res.status === 404) { /** @type {HTMLElement} */ (document.getElementById('snap-empty')).style.display = ''; return; }
     if (!res.ok) return;
-    const data = await res.json();
+    const data = /** @type {MetricDashboard} */ (await res.json());
     const mem  = data.memory;
-    if (!mem) { document.getElementById('snap-empty').style.display = ''; return; }
+    if (!mem) { /** @type {HTMLElement} */ (document.getElementById('snap-empty')).style.display = ''; return; }
 
-    document.getElementById('s-mem-pct').textContent     = mem.usage_pct    != null ? mem.usage_pct.toFixed(1) + '%' : '—';
-    document.getElementById('s-mem-used').textContent    = fmtGb(mem.used_bytes);
-    document.getElementById('s-mem-avail').textContent   = fmtGb(mem.available_bytes);
-    document.getElementById('s-mem-cached').textContent  = ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtGb(mem.cached_bytes));
-    document.getElementById('s-mem-buffers').textContent = ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtGb(mem.buffered_bytes));
+    /** @type {HTMLElement} */ (document.getElementById('s-mem-pct')).textContent     = mem.usage_pct    != null ? mem.usage_pct.toFixed(1) + '%' : '—';
+    /** @type {HTMLElement} */ (document.getElementById('s-mem-used')).textContent    = fmtGb(mem.used_bytes);
+    /** @type {HTMLElement} */ (document.getElementById('s-mem-avail')).textContent   = fmtGb(mem.available_bytes);
+    /** @type {HTMLElement} */ (document.getElementById('s-mem-cached')).textContent  = /** @type {string} */ (ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtGb(mem.cached_bytes)));
+    /** @type {HTMLElement} */ (document.getElementById('s-mem-buffers')).textContent = /** @type {string} */ (ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtGb(mem.buffered_bytes)));
 
     // 메모리 압박 — 신 모델 포화 신호(스왑 점유율과 별개). 양 OS 공통 하드 페이지 폴트율(mem_pages_input_rate).
     const pressEl = document.getElementById('s-mem-pressure');
@@ -47,9 +52,9 @@ async function loadSnapshot() {
     if (stampEl && data.collected_at) {
       stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);
     }
-    document.getElementById('snap-body').style.display = '';
+    /** @type {HTMLElement} */ (document.getElementById('snap-body')).style.display = '';
   } catch(e) {
-    document.getElementById('snap-loading').textContent = '불러오기 실패';
+    /** @type {HTMLElement} */ (document.getElementById('snap-loading')).textContent = '불러오기 실패';
     console.error(e);
   }
 }
@@ -58,17 +63,19 @@ async function loadSnapshot() {
  * Y축 정책: mem은 분해력 우선 0~100%.
  */
 const PCT_CHARTS = [
-  { id: 'mem',  metric: 'mem.usage_percent',  label: '메모리 사용률', color: ChartUtils.themeColor(), yMax: 100 },
+  { id: 'mem',  metric: 'mem.usage_percent',  label: '메모리 사용률', color: /** @type {any} */ (ChartUtils.themeColor)(), yMax: 100 },
 ];
 
 function makePctLoader(def) {
+  /** @type {{ range: string, chart: any, seq: number }} */
   const state = { range: '15m', chart: null, seq: 0 };
 
   function bucketLabel() {
-    document.getElementById(def.id + '-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[state.range]] || '';
+    /** @type {HTMLElement} */ (document.getElementById(def.id + '-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[state.range]] || '';
   }
 
   function makeYScale() {
+    /** @type {Record<string, unknown>} */
     const y = {
       ticks: { callback: v => v + '%', font:{size:11}, color:'#64748b' },
       grid:  { color:'#f1f5f9' },
@@ -110,9 +117,9 @@ function makePctLoader(def) {
   async function load() {
     const seq = ++state.seq;
     const capturedRange  = state.range;
-    const capturedAnchor = getAnchorEnd(def.id + '-anchor');
-    const canvas = document.getElementById(def.id + '-canvas');
-    const empty  = document.getElementById(def.id + '-empty');
+    const capturedAnchor = /** @type {any} */ (getAnchorEnd)(def.id + '-anchor');
+    const canvas = /** @type {HTMLElement} */ (document.getElementById(def.id + '-canvas'));
+    const empty  = /** @type {HTMLElement} */ (document.getElementById(def.id + '-empty'));
     const bucket = AUTO_BUCKET[capturedRange];
     const mkP = agg => {
       const p = new URLSearchParams({ metric_type: def.metric, time_range: capturedRange, bucket, agg });
@@ -120,10 +127,10 @@ function makePctLoader(def) {
       return p;
     };
     try {
-      const [avgRows, maxRows] = await Promise.all([
+      const [avgRows, maxRows] = /** @type {[MetricSeriesItem[], MetricSeriesItem[]]} */ (await Promise.all([
         fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('avg')}`).then(r => r.json()),
         fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('max')}`).then(r => r.json()),
-      ]);
+      ]));
       if (seq !== state.seq) return;
       const avg = safeArray(avgRows);
       const max = safeArray(maxRows);
@@ -135,9 +142,9 @@ function makePctLoader(def) {
       canvas.style.display = ''; empty.style.display = 'none';
 
       const bMs    = BUCKET_MS[bucket];
-      const grid   = makeBucketGrid(capturedRange, bucket, capturedAnchor);
+      const grid   = /** @type {any} */ (makeBucketGrid)(capturedRange, bucket, capturedAnchor);
       const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
-      const datasets = buildAvgMaxDatasets(avg, max, bMs, grid, { label: def.label, color: def.color });
+      const datasets = /** @type {any[]} */ (buildAvgMaxDatasets(avg, max, bMs, grid, { label: def.label, color: def.color }));
 
       if (state.chart) {
         state.chart.data.labels = labels;
@@ -146,11 +153,11 @@ function makePctLoader(def) {
         state.chart.data.datasets[1].realData = datasets[1].realData;
         state.chart.update('none');
       } else {
-        state.chart = new Chart(canvas, {
+        state.chart = new Chart(canvas, /** @type {any} */ ({
           type: 'line',
           data: { labels, datasets },
           options: makeOptions(),
-        });
+        }));
       }
     } catch(e) { console.error(e); }
   }
@@ -164,11 +171,11 @@ pctLoaders.forEach((loader, i) => {
   bindToggle(def.id + '-range-btns', v => {
     loader.state.range = v;
     loader.bucketLabel();
-    document.getElementById(def.id + '-range-print').textContent = ' — ' + RANGE_LABEL[v];
+    /** @type {HTMLElement} */ (document.getElementById(def.id + '-range-print')).textContent = ' — ' + RANGE_LABEL[v];
     loader.load();
   });
-  initAnchor(def.id + '-anchor');
-  document.getElementById(def.id + '-anchor').addEventListener('change', () => loader.load());
+  /** @type {any} */ (initAnchor)(def.id + '-anchor');
+  /** @type {HTMLElement} */ (document.getElementById(def.id + '-anchor')).addEventListener('change', () => loader.load());
 });
 
 /* ── 메모리 구성 추이 (used / available / cached / buffers %) — multi-dim ── */
@@ -177,12 +184,12 @@ let compChart = null;
 let compSeq   = 0;
 
 function updateCompBucketLabel() {
-  document.getElementById('comp-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[compRange]] || '';
+  /** @type {HTMLElement} */ (document.getElementById('comp-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[compRange]] || '';
 }
 
 // Windows 는 Cached/Buffers 미측정(page-cache 세분 개념 부재) — Used/Available 만(빈 라인·범례 방지, OS 분기).
 const COMP_META = {
-  used:      { label: 'Used',      color: ChartUtils.themeColor() },
+  used:      { label: 'Used',      color: /** @type {any} */ (ChartUtils.themeColor)() },
   available: { label: 'Available', color: '#8b5cf6' },
   ...(OS_FAMILY === 'windows' ? {} : {
     cached:    { label: 'Cached',    color: '#22c55e' },
@@ -191,8 +198,8 @@ const COMP_META = {
 };
 
 function renderCompChart(rows, range, anchorEnd) {
-  const canvas = document.getElementById('comp-canvas');
-  const empty  = document.getElementById('comp-empty');
+  const canvas = /** @type {HTMLElement} */ (document.getElementById('comp-canvas'));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById('comp-empty'));
   if (!rows.length) {
     canvas.style.display = 'none'; empty.style.display = '';
     if (compChart) { compChart.destroy(); compChart = null; }
@@ -202,7 +209,7 @@ function renderCompChart(rows, range, anchorEnd) {
   canvas.style.display = ''; empty.style.display = 'none';
 
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
-  const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
+  const grid   = /** @type {any} */ (makeBucketGrid)(range, AUTO_BUCKET[range], anchorEnd);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
   const datasets = buildDimDatasets(rows, bMs, grid, COMP_META, { pointRadius: 1 });
 
@@ -212,7 +219,7 @@ function renderCompChart(rows, range, anchorEnd) {
     buildCompLegend();
     return;
   }
-  compChart = new Chart(canvas, {
+  compChart = new Chart(canvas, /** @type {any} */ ({
     type: 'line',
     data: { labels, datasets },
     options: {
@@ -232,7 +239,7 @@ function renderCompChart(rows, range, anchorEnd) {
         },
       },
     },
-  });
+  }));
   buildCompLegend();
 }
 
@@ -243,7 +250,7 @@ function buildCompLegend() {
 async function loadCompChart() {
   const seq = ++compSeq;
   const capturedRange  = compRange;
-  const capturedAnchor = getAnchorEnd('comp-anchor');
+  const capturedAnchor = /** @type {any} */ (getAnchorEnd)('comp-anchor');
   const bucket = AUTO_BUCKET[capturedRange];
   const mkP = type => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg: 'avg' });
@@ -260,7 +267,7 @@ async function loadCompChart() {
       reqs.push(fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('mem.cached_percent')}`).then(r => r.json()));
       reqs.push(fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('mem.buffers_percent')}`).then(r => r.json()));
     }
-    const [usedRows, availRows, cachedRows, buffersRows] = await Promise.all(reqs);
+    const [usedRows, availRows, cachedRows, buffersRows] = /** @type {MetricSeriesItem[][]} */ (await Promise.all(reqs));
     if (seq !== compSeq) return;
     const toRows = (arr, dim) => safeArray(arr).map(r => ({ ...r, dimension: dim }));
     const rows = [
@@ -275,7 +282,7 @@ async function loadCompChart() {
 bindToggle('comp-range-btns', v => {
   compRange = v;
   updateCompBucketLabel();
-  document.getElementById('comp-range-print').textContent = ' — ' + RANGE_LABEL[v];
+  /** @type {HTMLElement} */ (document.getElementById('comp-range-print')).textContent = ' — ' + RANGE_LABEL[v];
   loadCompChart();
 });
 
@@ -283,8 +290,8 @@ bindToggle('comp-range-btns', v => {
 initAutoRefresh(loadSnapshot);
 
 /* ── 기준일 초기화 ── */
-initAnchor('comp-anchor');
-document.getElementById('comp-anchor').addEventListener('change', () => loadCompChart());
+/** @type {any} */ (initAnchor)('comp-anchor');
+/** @type {HTMLElement} */ (document.getElementById('comp-anchor')).addEventListener('change', () => loadCompChart());
 
 /* ── 초기 로드 ── */
 loadSnapshot();

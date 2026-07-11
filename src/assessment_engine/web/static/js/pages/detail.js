@@ -1,3 +1,4 @@
+// @ts-check
 /* detail 페이지 — server 상세 latest metrics 표시 + 30초 polling 자동 갱신.
  *
  * body data-server-id 단일 진실 (#E6 inline <script> 금지).
@@ -27,9 +28,9 @@
     if (bytes >= 1024 * 1024)        return (bytes / 1024 / 1024).toFixed(0) + ' MB';
     return (bytes / 1024).toFixed(0) + ' KB';
   }
-  const show = (id) => document.getElementById(id).style.display = '';
-  const hide = (id) => document.getElementById(id).style.display = 'none';
-  const el    = (id) => document.getElementById(id);
+  const show = (id) => /** @type {HTMLElement} */ (document.getElementById(id)).style.display = '';
+  const hide = (id) => /** @type {HTMLElement} */ (document.getElementById(id)).style.display = 'none';
+  const el    = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
   const setTxt = (id, v) => { const e = el(id); if (e) e.textContent = v; };  // OS 전용 값은 템플릿에서 숨겨 요소 부재 -> null-safe
 
   /* 활용률 도넛 게이지 — 단색(임계색 아님, E8 일관). pct null = 빈 게이지 + 회색 '—'. P4 동적 SVG 산술. */
@@ -39,13 +40,13 @@
     const unit = el(textId.replace('-text', '-unit'));  // 값 아래 작은 % 단위 (네트워크·디스크IO 도넛과 일관)
     if (pct == null) {
       arc.setAttribute('stroke-dasharray', '0 ' + DONUT_CIRC);
-      txt.textContent = '—'; txt.setAttribute('fill', '#94a3b8'); txt.setAttribute('y', 56);
+      txt.textContent = '—'; txt.setAttribute('fill', '#94a3b8'); txt.setAttribute('y', /** @type {any} */ (56));
       if (unit) unit.style.display = 'none';
       return;
     }
     const len = Math.max(0, Math.min(pct, 100)) / 100 * DONUT_CIRC;
     arc.setAttribute('stroke-dasharray', len.toFixed(2) + ' ' + DONUT_CIRC);
-    txt.textContent = pct.toFixed(1); txt.setAttribute('fill', '#1e293b'); txt.setAttribute('y', 50);
+    txt.textContent = pct.toFixed(1); txt.setAttribute('fill', '#1e293b'); txt.setAttribute('y', /** @type {any} */ (50));
     if (unit) unit.style.display = '';
   }
 
@@ -142,6 +143,7 @@
         return;
       }
       if (!res.ok) return;
+      /** @type {import('../generated/api').components['schemas']['MetricDashboard']} */
       const data = await res.json();
       if (seq !== metricsSeq) return;
       renderMetrics(data);
@@ -155,6 +157,7 @@
       const res = await fetch(`/api/servers/${SERVER_ID}/collection-status`);
       if (!res.ok) return;
       if (seq !== statusSeq) return;
+      /** @type {import('../generated/api').components['schemas']['CollectionStatusItem'] | null} */
       const data = await res.json();
       const item = Array.isArray(data) ? data[0] : data;
       if (!item) return;
@@ -182,16 +185,16 @@
 (function () {
   const card = document.getElementById('server-report-card');
   if (!card) return;
-  const modal = document.getElementById('server-report-modal');
-  const customerOpenBtn = document.getElementById('server-report-customer-open');
-  const engineerOpenBtn = document.getElementById('server-report-engineer-open');
-  const closeBtn = document.getElementById('server-report-close');
-  const submitBtn = document.getElementById('server-report-submit');
-  const titleEl = document.getElementById('server-report-title');
-  const descEl = document.getElementById('server-report-desc');
-  const rangeSel = document.getElementById('server-report-range');
+  const modal = /** @type {HTMLElement} */ (document.getElementById('server-report-modal'));
+  const customerOpenBtn = /** @type {HTMLElement} */ (document.getElementById('server-report-customer-open'));
+  const engineerOpenBtn = /** @type {HTMLElement} */ (document.getElementById('server-report-engineer-open'));
+  const closeBtn = /** @type {HTMLElement} */ (document.getElementById('server-report-close'));
+  const submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('server-report-submit'));
+  const titleEl = /** @type {HTMLElement} */ (document.getElementById('server-report-title'));
+  const descEl = /** @type {HTMLElement} */ (document.getElementById('server-report-desc'));
+  const rangeSel = /** @type {HTMLSelectElement} */ (document.getElementById('server-report-range'));
   const anchorInput = document.getElementById('server-report-anchor');
-  const publicId = card.dataset.serverPublicId;
+  const publicId = /** @type {string} */ (card.dataset.serverPublicId);
   const hostname = card.dataset.serverHostname;
   const _VIEW_TITLES = { customer: '고객 보고서 발행', engineer: '엔지니어 보고서 발행' };
   const _VIEW_DESCS = {
@@ -212,7 +215,7 @@
   // PRG — POST emit(record) → view_url GET navigate. 공용 EmitUtils(비활성·토스트·bfcache 복구 내장).
   // 다시 보기 / 북마크 / 직접 URL 은 GET 만 → record 안 됨 → 중복 방지.
   function publish() {
-    window.EmitUtils.submitNavigate(submitBtn, () => {
+    /** @type {any} */ (window.EmitUtils).submitNavigate(submitBtn, () => {
       const params = new URLSearchParams();
       params.set('ids', publicId);
       params.set('view', currentView);
@@ -227,8 +230,8 @@
   }
 
   // 페이지 로드 시 anchor input 기본값 채움 (대시보드 모달과 일관 UX).
-  if (anchorInput && window.ChartUtils && window.ChartUtils.initAnchor) {
-    window.ChartUtils.initAnchor('server-report-anchor');
+  if (anchorInput && window.ChartUtils && /** @type {any} */ (window.ChartUtils).initAnchor) {
+    /** @type {any} */ (window.ChartUtils).initAnchor('server-report-anchor');
   }
 
   customerOpenBtn.addEventListener('click', () => open('customer'));
@@ -243,12 +246,12 @@
 (function () {
   const card = document.getElementById('server-install-card');
   if (!card) return;
-  const modal = document.getElementById('server-install-modal');
-  const openBtn = document.getElementById('server-install-open');
-  const closeBtn = document.getElementById('server-install-close');
-  const submitBtn = document.getElementById('server-install-submit');
-  const zdmIpEl = document.getElementById('server-install-zdm-target');
-  const zdmUserEl = document.getElementById('server-install-zdm-account');
+  const modal = /** @type {HTMLElement} */ (document.getElementById('server-install-modal'));
+  const openBtn = /** @type {HTMLElement} */ (document.getElementById('server-install-open'));
+  const closeBtn = /** @type {HTMLElement} */ (document.getElementById('server-install-close'));
+  const submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('server-install-submit'));
+  const zdmIpEl = /** @type {HTMLInputElement} */ (document.getElementById('server-install-zdm-target'));
+  const zdmUserEl = /** @type {HTMLInputElement} */ (document.getElementById('server-install-zdm-account'));
   const publicId = card.dataset.serverPublicId;
   const hostname = card.dataset.serverHostname;
 
@@ -287,6 +290,7 @@
         else alert(`Install 발행 실패 (HTTP ${res.status}): ${detail}`);
         return;
       }
+      /** @type {import('../generated/api').components['schemas']['TaskCreated'][]} */
       const data = await res.json();
       const t0 = Array.isArray(data) && data[0] ? data[0] : null;
       const tid = t0 ? t0.task_id : '';
@@ -303,7 +307,7 @@
       setTimeout(() => location.reload(), 600);
     } catch (e) {
       if (pending) pending.remove();
-      if (window.ToastUtils) ToastUtils.show(`Install 발행 오류: ${e.message}`, 'err');
+      if (window.ToastUtils) ToastUtils.show(`Install 발행 오류: ${/** @type {Error} */ (e).message}`, 'err');
     } finally {
       submitBtn.disabled = false;
     }

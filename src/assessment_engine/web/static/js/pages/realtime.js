@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 실시간 현황 30초 자동 갱신 — fragment=realtime fetch 후 #rt-mount innerHTML 교체 + 갱신 시각 표시.
  *
@@ -14,6 +15,7 @@
 
   let seq = 0;
   async function refresh() {
+    if (!mount) return;
     const mySeq = ++seq; // capture-before-await — 더 늦은 요청이 우선
     try {
       const res = await fetch(url);

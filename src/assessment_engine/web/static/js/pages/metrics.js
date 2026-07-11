@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 성능 추이 페이지 차트 로직.
  *
@@ -22,8 +23,8 @@ const PERF_DISK_AWAIT_SUGGESTED_MAX = 20;         // 디스크 await ms — 20ms
 
 // 색상 임계값 — backend mappers._USAGE_*_PCT 단일 진실, body data-attribute 로 주입 (#E1 P4).
 // 파일시스템 사용률 게이지만 임계 색 사용. 그 외 추이 차트는 단색(검정) 통일.
-const USAGE_DANGER_PCT = parseFloat(document.body.dataset.usageDangerPct) || 90;
-const USAGE_WARN_PCT   = parseFloat(document.body.dataset.usageWarnPct)   || 75;
+const USAGE_DANGER_PCT = parseFloat(/** @type {string} */ (document.body.dataset.usageDangerPct)) || 90;
+const USAGE_WARN_PCT   = parseFloat(/** @type {string} */ (document.body.dataset.usageWarnPct))   || 75;
 const COLOR_NEUTRAL = '#64748b';
 const COLOR_WARN    = '#f59e0b';
 const COLOR_DANGER  = '#ef4444';
@@ -42,8 +43,8 @@ const seqs = {
  */
 const _safe = safeArray;
 const fmtLabel = (iso, range) => ChartUtils.fmtLabel(iso, range);
-const makeBucketGrid = (range, anchor) => ChartUtils.makeBucketGrid(range, AUTO_BUCKET[range], anchor);
-const getAnchorEnd = () => ChartUtils.getAnchorEnd('anchor-date');
+const makeBucketGrid = (range, anchor) => ChartUtils.makeBucketGrid(range, /** @type {any} */ (AUTO_BUCKET[range]), anchor);
+const getAnchorEnd = () => /** @type {any} */ (ChartUtils).getAnchorEnd('anchor-date');
 
 // network.js 의 인터페이스 정렬·RX/TX 인접 병합 — 통합 네트워크 차트(I/O·PPS) 공용.
 // avg/max 가 동일 dimension 순서를 쓰도록 함께 처리 (avg+max 쌍 어긋남 방지).
@@ -69,6 +70,9 @@ function updateMaxLabel(elId, val, fmtFn, colorFn) {
   el.style.color = colorFn ? colorFn(val) : '#64748b';
 }
 
+/**
+ * @returns {Promise<import('../generated/api').components['schemas']['MetricSeriesItem'][]>}
+ */
 async function fetchChart(metricType, agg, range, anchor) {
   const p = new URLSearchParams({
     metric_type: metricType,
@@ -139,27 +143,27 @@ function buildDatasets(avgRows, maxRows, bMs, grid, labelOverride) {
 
 // 단일/통합(avg+max) 차트 렌더 — 데이터 없으면 chart-empty(중앙) 표시.
 function setChart(canvasId, emptyId, avgRows, yAxisOpts, fmtFn, datasets, labels) {
-  const canvas = document.getElementById(canvasId);
-  const empty  = document.getElementById(emptyId);
+  const canvas = /** @type {HTMLElement} */ (document.getElementById(canvasId));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById(emptyId));
   if (chartInstances[canvasId]) { chartInstances[canvasId].destroy(); delete chartInstances[canvasId]; }
   if (!avgRows.length) {
     canvas.style.display = 'none'; empty.style.display = 'flex';
     return null;
   }
   canvas.style.display = ''; empty.style.display = 'none';
-  const chart = new Chart(canvas, {
+  const chart = new Chart(canvas, /** @type {any} */ ({
     type: 'line',
     data: { labels, datasets },
     options: makePerfOptions(yAxisOpts, fmtFn),
-  });
+  }));
   chartInstances[canvasId] = chart;
   return chart;
 }
 
 // 다중 dimension 라인(avg-only) 렌더 — CPU 분류·메모리 구성. renderChipLegend.
 function renderMultiDimChart(canvasId, emptyId, legendId, rows, range, anchor, metaMap) {
-  const canvas = document.getElementById(canvasId);
-  const empty  = document.getElementById(emptyId);
+  const canvas = /** @type {HTMLElement} */ (document.getElementById(canvasId));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById(emptyId));
   if (chartInstances[canvasId]) { chartInstances[canvasId].destroy(); delete chartInstances[canvasId]; }
   if (!rows.length) {
     canvas.style.display = 'none'; empty.style.display = 'flex';
@@ -170,8 +174,8 @@ function renderMultiDimChart(canvasId, emptyId, legendId, rows, range, anchor, m
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, anchor);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const datasets = buildDimDatasets(rows, bMs, grid, metaMap);
-  const chart = new Chart(canvas, { type: 'line', data: { labels, datasets }, options: makeMultiDimOptions() });
+  const datasets = /** @type {any} */ (buildDimDatasets(rows, bMs, grid, metaMap));
+  const chart = new Chart(canvas, /** @type {any} */ ({ type: 'line', data: { labels, datasets }, options: makeMultiDimOptions() }));
   chartInstances[canvasId] = chart;
   renderChipLegend(document.getElementById(legendId), chart);
 }
@@ -202,7 +206,7 @@ async function loadCpuChart(range, anchor) {
 }
 
 const CPUCLASS_META = {
-  user:   { label: 'User',     color: ChartUtils.themeColor() },
+  user:   { label: 'User',     color: /** @type {any} */ (ChartUtils).themeColor() },
   system: { label: 'System',   color: '#f59e0b' },
   iowait: { label: 'I/O Wait', color: '#ef4444' },  // Windows 미측정 → 빈 라인
 };
@@ -233,8 +237,8 @@ async function loadLoadChart(range, anchor) {
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
 
   if (chartInstances['load-canvas']) { chartInstances['load-canvas'].destroy(); delete chartInstances['load-canvas']; }
-  const canvas = document.getElementById('load-canvas');
-  const empty  = document.getElementById('load-empty');
+  const canvas = /** @type {HTMLElement} */ (document.getElementById('load-canvas'));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById('load-empty'));
   if (!safeAvg.length) { canvas.style.display = 'none'; empty.style.display = 'flex'; updateMaxLabel('load-max', null, v => v.toFixed(2), null); return; }
   canvas.style.display = ''; empty.style.display = 'none';
 
@@ -243,7 +247,7 @@ async function loadLoadChart(range, anchor) {
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
   const data   = grid.map(t => avgMap[t] ?? null);
 
-  chartInstances['load-canvas'] = new Chart(canvas, {
+  chartInstances['load-canvas'] = new Chart(canvas, /** @type {any} */ ({
     type: 'line',
     data: { labels, datasets: [{
       label: '실행 큐 (코어당)', data,
@@ -251,7 +255,7 @@ async function loadLoadChart(range, anchor) {
       borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
     }] },
     options: makePerfOptions(Y_RUNQ, v => v.toFixed(2)),
-  });
+  }));
   updateMaxLabel('load-max', computePeriodMax(safeMax), v => v.toFixed(2), null);
 }
 
@@ -265,8 +269,8 @@ async function loadDiskQueueChart(range, anchor) {
   const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
 
   if (chartInstances['diskqueue-canvas']) { chartInstances['diskqueue-canvas'].destroy(); delete chartInstances['diskqueue-canvas']; }
-  const canvas = document.getElementById('diskqueue-canvas');
-  const empty  = document.getElementById('diskqueue-empty');
+  const canvas = /** @type {HTMLElement} */ (document.getElementById('diskqueue-canvas'));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById('diskqueue-empty'));
   if (!safeAvg.length) { canvas.style.display = 'none'; empty.textContent = '해당 기간에 수집된 데이터가 없습니다.'; empty.style.display = 'flex'; updateMaxLabel('diskqueue-max', null, v => v.toFixed(1)+' ms', null); return; }
   canvas.style.display = ''; empty.style.display = 'none';
 
@@ -275,7 +279,7 @@ async function loadDiskQueueChart(range, anchor) {
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
   const data   = grid.map(t => avgMap[t] ?? null);
 
-  chartInstances['diskqueue-canvas'] = new Chart(canvas, {
+  chartInstances['diskqueue-canvas'] = new Chart(canvas, /** @type {any} */ ({
     type: 'line',
     data: { labels, datasets: [{
       label: '디스크 await', data,
@@ -283,7 +287,7 @@ async function loadDiskQueueChart(range, anchor) {
       borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
     }] },
     options: makePerfOptions(Y_DISK_AWAIT, v => v.toFixed(1)+' ms'),
-  });
+  }));
   updateMaxLabel('diskqueue-max', computePeriodMax(safeMax), v => v.toFixed(1)+' ms', null);
 }
 
@@ -301,7 +305,7 @@ async function loadMemChart(range, anchor) {
 }
 
 const MEMCOMP_META = {
-  used:      { label: 'Used',      color: ChartUtils.themeColor() },
+  used:      { label: 'Used',      color: /** @type {any} */ (ChartUtils).themeColor() },
   available: { label: 'Available', color: '#8b5cf6' },
   cached:    { label: 'Cached',    color: '#22c55e' },  // Windows 미측정 → 빈 라인
   buffers:   { label: 'Buffers',   color: '#f59e0b' },  // Windows 미측정 → 빈 라인
@@ -350,10 +354,10 @@ async function loadDiskKbpsChart(range, anchor) {
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
   const grid = makeBucketGrid(range, anchor);
   const [readAvg, readMax, writeAvg, writeMax] = await Promise.all([
-    fetchChart('disk.read_kbps','avg', range, anchor, 'phys'),
-    fetchChart('disk.read_kbps','max', range, anchor, 'phys'),
-    fetchChart('disk.write_kbps','avg', range, anchor, 'phys'),
-    fetchChart('disk.write_kbps','max', range, anchor, 'phys'),
+    /** @type {any} */ (fetchChart)('disk.read_kbps','avg', range, anchor, 'phys'),
+    /** @type {any} */ (fetchChart)('disk.read_kbps','max', range, anchor, 'phys'),
+    /** @type {any} */ (fetchChart)('disk.write_kbps','avg', range, anchor, 'phys'),
+    /** @type {any} */ (fetchChart)('disk.write_kbps','max', range, anchor, 'phys'),
   ]);
   if (seq !== seqs.diskKbps) return;
   const avgRows = [..._safe(readAvg).map(r => ({ ...r, dimension: `${r.dimension} Read` })), ..._safe(writeAvg).map(r => ({ ...r, dimension: `${r.dimension} Write` }))];
@@ -414,7 +418,7 @@ async function loadNetPpsChart(range, anchor) {
 
 /* ── 전체 로드 ── */
 function updateBucketLabel(range) {
-  document.getElementById('bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[range]] || '';
+  /** @type {HTMLElement} */ (document.getElementById('bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[range]] || '';
 }
 
 async function loadAllCharts() {
@@ -442,9 +446,9 @@ window.addEventListener('beforeprint', resizeAllCharts);
 window.addEventListener('afterprint', resizeAllCharts);
 
 /* ── 날짜 인풋 초기화 + 컨트롤 바인딩 ── */
-ChartUtils.initAnchor('anchor-date');
+/** @type {any} */ (ChartUtils).initAnchor('anchor-date');
 bindToggle('global-range-btns', val => { globalRange = val; loadAllCharts(); });
 // 앵커 변경 즉시 반영 — 구간 토글·상세 차트(cpu/network/storage)와 동일 (적용 버튼 없이 change 로 갱신).
-document.getElementById('anchor-date').addEventListener('change', () => loadAllCharts());
+/** @type {HTMLElement} */ (document.getElementById('anchor-date')).addEventListener('change', () => loadAllCharts());
 
 loadAllCharts();

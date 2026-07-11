@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * network 페이지 차트 로직.
  *
@@ -30,22 +31,22 @@ function fmtPps(v) { return v != null ? v.toFixed(1) + ' pps' : '—'; }
 async function loadNetSnapshot() {
   try {
     const res = await fetch(`/api/servers/${SERVER_ID}/metrics/latest`);
-    document.getElementById('net-snapshot-loading').style.display = 'none';
+    /** @type {HTMLElement} */ (document.getElementById('net-snapshot-loading')).style.display = 'none';
     if (res.status === 404) {
-      document.getElementById('net-snapshot-empty').style.display = '';
+      /** @type {HTMLElement} */ (document.getElementById('net-snapshot-empty')).style.display = '';
       return;
     }
     if (!res.ok) return;
-    const data = await res.json();
+    const data = /** @type {import('../generated/api').components['schemas']['MetricDashboard']} */ (await res.json());
     // TCP 재전송율 — 네트워크 품질 신호(양 OS 공통, 1% 초과 혼잡). 인터페이스 I/O 유무와 별개라 가드 이전 세팅.
     const retransEl = document.getElementById('s-net-retrans');
     if (retransEl) retransEl.textContent = data.net_retrans_pct != null ? data.net_retrans_pct.toFixed(2) + '%' : '—';
     const netIo = data.net_io || [];
     if (!netIo.length) {
-      document.getElementById('net-snapshot-empty').style.display = '';
+      /** @type {HTMLElement} */ (document.getElementById('net-snapshot-empty')).style.display = '';
       return;
     }
-    document.getElementById('net-snapshot-tbody').innerHTML = netIo.map(iface => `
+    /** @type {HTMLElement} */ (document.getElementById('net-snapshot-tbody')).innerHTML = netIo.map(iface => `
       <tr>
         <td>${iface.interface}</td>
         <td>${fmtKbps(iface.rx_kbps)}</td>
@@ -54,7 +55,7 @@ async function loadNetSnapshot() {
         <td>${fmtPps(iface.tx_pps)}</td>
       </tr>
     `).join('');
-    document.getElementById('net-snapshot-table').style.display = '';
+    /** @type {HTMLElement} */ (document.getElementById('net-snapshot-table')).style.display = '';
     const stampEl = document.getElementById('metrics-stamp');
     if (stampEl && data.collected_at) stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);
   } catch(e) { console.error(e); }
@@ -67,10 +68,10 @@ let netSeq    = 0;
 let netPpsSeq = 0;
 
 function updateNetBucketLabel() {
-  document.getElementById('net-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[netRange]] || '';
+  /** @type {HTMLElement} */ (document.getElementById('net-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[netRange]] || '';
 }
 function updateNetPpsBucketLabel() {
-  document.getElementById('net-pps-bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[netPpsRange]] || '';
+  /** @type {HTMLElement} */ (document.getElementById('net-pps-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[netPpsRange]] || '';
 }
 
 const fmtNetLabel = ChartUtils.fmtLabel;
@@ -89,8 +90,8 @@ function ifaceOrderedRows(rxAvg, txAvg, rxMax, txMax) {
 
 // bytes/pps 공용 차트 렌더 — spec 으로 단위(fmt)·Y축 제목·chart 인스턴스 참조 분기.
 function renderNetChartOne(spec, avgRows, maxRows, range, anchorEnd) {
-  const empty  = document.getElementById(spec.emptyId);
-  const canvas = document.getElementById(spec.canvasId);
+  const empty  = /** @type {HTMLElement} */ (document.getElementById(spec.emptyId));
+  const canvas = /** @type {HTMLElement} */ (document.getElementById(spec.canvasId));
   const cur    = spec.get();
   if (!avgRows.length) {
     canvas.style.display = 'none';
@@ -101,9 +102,10 @@ function renderNetChartOne(spec, avgRows, maxRows, range, anchorEnd) {
   canvas.style.display = '';
   empty.style.display  = 'none';
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
-  const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
+  // globals.d.ts makeBucketGrid 선언(number,number,number)이 실제(rangeKey,bucketKey,anchorEnd)와 불일치 — 로컬 캐스트.
+  const grid   = /** @type {(rangeKey: string, bucketKey: string, anchorEnd: Date | null) => number[]} */ (/** @type {unknown} */ (makeBucketGrid))(range, AUTO_BUCKET[range], anchorEnd);
   const labels = grid.map(t => fmtNetLabel(new Date(t).toISOString(), range));
-  const datasets = buildAvgMaxDatasets(avgRows, maxRows, bMs, grid);
+  const datasets = /** @type {any} */ (buildAvgMaxDatasets(avgRows, maxRows, bMs, grid));
   if (cur) {
     cur.data.labels = labels;
     cur.data.datasets = datasets;
@@ -160,7 +162,8 @@ const PPS_SPEC = {
 async function loadNetChart() {
   const seq = ++netSeq;
   const capturedRange = netRange;
-  const capturedAnchor = getAnchorEnd('net-anchor');
+  // globals.d.ts getAnchorEnd 선언(()->string|null)이 실제((inputId)->Date|null)와 불일치 — 로컬 캐스트.
+  const capturedAnchor = /** @type {(inputId: string) => (Date | null)} */ (getAnchorEnd)('net-anchor');
   const bucket = AUTO_BUCKET[capturedRange];
   const mkP = (type, agg) => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg });
@@ -168,12 +171,12 @@ async function loadNetChart() {
     return p;
   };
   try {
-    const [rxAvg, rxMax, txAvg, txMax] = await Promise.all([
+    const [rxAvg, rxMax, txAvg, txMax] = /** @type {import('../generated/api').components['schemas']['MetricSeriesItem'][][]} */ (await Promise.all([
       fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('net.rx_bytes_per_sec', 'avg')}`).then(r => r.json()),
       fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('net.rx_bytes_per_sec', 'max')}`).then(r => r.json()),
       fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('net.tx_bytes_per_sec', 'avg')}`).then(r => r.json()),
       fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('net.tx_bytes_per_sec', 'max')}`).then(r => r.json()),
-    ]);
+    ]));
     if (seq !== netSeq) return;
     const bytesRows = ifaceOrderedRows(rxAvg, txAvg, rxMax, txMax);
     renderNetChartOne(BYTES_SPEC, bytesRows.avg, bytesRows.max, capturedRange, capturedAnchor);
@@ -186,7 +189,7 @@ async function loadNetChart() {
 async function loadNetPpsChart() {
   const seq = ++netPpsSeq;
   const capturedRange = netPpsRange;
-  const capturedAnchor = getAnchorEnd('net-pps-anchor');
+  const capturedAnchor = /** @type {(inputId: string) => (Date | null)} */ (getAnchorEnd)('net-pps-anchor');
   const bucket = AUTO_BUCKET[capturedRange];
   const mkP = (type, agg) => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg });
@@ -194,12 +197,12 @@ async function loadNetPpsChart() {
     return p;
   };
   try {
-    const [prxAvg, prxMax, ptxAvg, ptxMax] = await Promise.all([
+    const [prxAvg, prxMax, ptxAvg, ptxMax] = /** @type {import('../generated/api').components['schemas']['MetricSeriesItem'][][]} */ (await Promise.all([
       fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('net.rx_packets_per_sec', 'avg')}`).then(r => r.json()),
       fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('net.rx_packets_per_sec', 'max')}`).then(r => r.json()),
       fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('net.tx_packets_per_sec', 'avg')}`).then(r => r.json()),
       fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('net.tx_packets_per_sec', 'max')}`).then(r => r.json()),
-    ]);
+    ]));
     if (seq !== netPpsSeq) return;
     const ppsRows = ifaceOrderedRows(prxAvg, ptxAvg, prxMax, ptxMax);
     renderNetChartOne(PPS_SPEC, ppsRows.avg, ppsRows.max, capturedRange, capturedAnchor);
@@ -209,16 +212,17 @@ async function loadNetPpsChart() {
   }
 }
 
-bindToggle('net-range-btns', v => { netRange = v; updateNetBucketLabel(); document.getElementById('net-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadNetChart(); });
-bindToggle('net-pps-range-btns', v => { netPpsRange = v; updateNetPpsBucketLabel(); document.getElementById('net-pps-range-print').textContent = ' — ' + RANGE_LABEL[v]; loadNetPpsChart(); });
-document.getElementById('net-anchor').addEventListener('change', () => loadNetChart());
-document.getElementById('net-pps-anchor').addEventListener('change', () => loadNetPpsChart());
+bindToggle('net-range-btns', v => { netRange = v; updateNetBucketLabel(); /** @type {HTMLElement} */ (document.getElementById('net-range-print')).textContent = ' — ' + RANGE_LABEL[v]; loadNetChart(); });
+bindToggle('net-pps-range-btns', v => { netPpsRange = v; updateNetPpsBucketLabel(); /** @type {HTMLElement} */ (document.getElementById('net-pps-range-print')).textContent = ' — ' + RANGE_LABEL[v]; loadNetPpsChart(); });
+/** @type {HTMLElement} */ (document.getElementById('net-anchor')).addEventListener('change', () => loadNetChart());
+/** @type {HTMLElement} */ (document.getElementById('net-pps-anchor')).addEventListener('change', () => loadNetPpsChart());
 
 /* ── 30초 polling 자동 갱신 (SSE 제거) ── */
 initAutoRefresh(loadNetSnapshot);
 
-initAnchor('net-anchor');
-initAnchor('net-pps-anchor');
+// globals.d.ts initAnchor 선언(onChange fn)이 실제((inputId)->void)와 불일치 — 로컬 캐스트.
+/** @type {(inputId: string) => void} */ (/** @type {unknown} */ (initAnchor))('net-anchor');
+/** @type {(inputId: string) => void} */ (/** @type {unknown} */ (initAnchor))('net-pps-anchor');
 updateNetBucketLabel();
 updateNetPpsBucketLabel();
 loadNetSnapshot();

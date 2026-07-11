@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 환경 성능 추이 페이지 차트 로직 — 전체 환경(모든 서버) 차트.
  *
@@ -15,8 +16,8 @@ const PERF_NET_SUGGESTED_MAX  = 10 * 1024 * 1024; // 10 MB/s
 const PERF_DISK_KBPS_SUGGESTED_MAX = 10 * 1024;   // 10 MB/s — net 처리량과 동일 절대 기준선
 // 처리량 동적 단위(kBps/MBps)는 ChartUtils.fmtThroughput 단일 진실 (storage/detail/개별 성능추이 공용).
 
-const USAGE_DANGER_PCT = parseFloat(document.body.dataset.usageDangerPct) || 90;
-const USAGE_WARN_PCT   = parseFloat(document.body.dataset.usageWarnPct)   || 75;
+const USAGE_DANGER_PCT = parseFloat(/** @type {string} */ (document.body.dataset.usageDangerPct)) || 90;
+const USAGE_WARN_PCT   = parseFloat(/** @type {string} */ (document.body.dataset.usageWarnPct))   || 75;
 const COLOR_NEUTRAL = '#64748b';
 const COLOR_WARN    = '#f59e0b';
 const COLOR_DANGER  = '#ef4444';
@@ -35,8 +36,8 @@ const seqs = {
 
 const _safe = safeArray;
 const fmtLabel = (iso, range) => ChartUtils.fmtLabel(iso, range);
-const makeBucketGrid = (range, anchor) => ChartUtils.makeBucketGrid(range, AUTO_BUCKET[range], anchor);
-const getAnchorEnd = () => ChartUtils.getAnchorEnd('anchor-date');
+const makeBucketGrid = (range, anchor) => ChartUtils.makeBucketGrid(range, /** @type {any} */ (AUTO_BUCKET[range]), anchor);
+const getAnchorEnd = () => /** @type {any} */ (ChartUtils).getAnchorEnd('anchor-date');
 
 // 인터페이스/device 정렬·RX/TX(또는 Read/Write) 인접 병합 — 환경 합산은 dimension 없으니 단일 라인.
 // 환경 차트는 dimension=NULL 반환 -> RX/TX·Read/Write 만 라벨 부여 (서버별 iface 라인 폭증 회피).
@@ -54,6 +55,9 @@ function updateMaxLabel(elId, val, fmtFn, colorFn) {
 }
 
 // 환경 endpoint — server_id·device_category 없음. agg 는 무시되나(capacity-weighted/합산 단일) 호출 형태 유지.
+/**
+ * @returns {Promise<import('../generated/api').components['schemas']['MetricSeriesItem'][]>}
+ */
 async function fetchChart(metricType, range, anchor) {
   const p = new URLSearchParams({
     metric_type: metricType,
@@ -117,26 +121,26 @@ function buildDatasets(avgRows, bMs, grid, labelOverride) {
 }
 
 function setChart(canvasId, emptyId, avgRows, yAxisOpts, fmtFn, datasets, labels) {
-  const canvas = document.getElementById(canvasId);
-  const empty  = document.getElementById(emptyId);
+  const canvas = /** @type {HTMLElement} */ (document.getElementById(canvasId));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById(emptyId));
   if (chartInstances[canvasId]) { chartInstances[canvasId].destroy(); delete chartInstances[canvasId]; }
   if (!avgRows.length) {
     canvas.style.display = 'none'; empty.style.display = 'flex';
     return null;
   }
   canvas.style.display = ''; empty.style.display = 'none';
-  const chart = new Chart(canvas, {
+  const chart = new Chart(canvas, /** @type {any} */ ({
     type: 'line',
     data: { labels, datasets },
     options: makePerfOptions(yAxisOpts, fmtFn),
-  });
+  }));
   chartInstances[canvasId] = chart;
   return chart;
 }
 
 function renderMultiDimChart(canvasId, emptyId, legendId, rows, range, anchor, metaMap) {
-  const canvas = document.getElementById(canvasId);
-  const empty  = document.getElementById(emptyId);
+  const canvas = /** @type {HTMLElement} */ (document.getElementById(canvasId));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById(emptyId));
   if (chartInstances[canvasId]) { chartInstances[canvasId].destroy(); delete chartInstances[canvasId]; }
   if (!rows.length) {
     canvas.style.display = 'none'; empty.style.display = 'flex';
@@ -147,8 +151,8 @@ function renderMultiDimChart(canvasId, emptyId, legendId, rows, range, anchor, m
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, anchor);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const datasets = buildDimDatasets(rows, bMs, grid, metaMap);
-  const chart = new Chart(canvas, { type: 'line', data: { labels, datasets }, options: makeMultiDimOptions() });
+  const datasets = /** @type {any} */ (buildDimDatasets(rows, bMs, grid, metaMap));
+  const chart = new Chart(canvas, /** @type {any} */ ({ type: 'line', data: { labels, datasets }, options: makeMultiDimOptions() }));
   chartInstances[canvasId] = chart;
   renderChipLegend(document.getElementById(legendId), chart);
 }
@@ -178,7 +182,7 @@ async function loadCpuChart(range, anchor) {
 }
 
 const CPUCLASS_META = {
-  user:   { label: 'User',     color: ChartUtils.themeColor() },
+  user:   { label: 'User',     color: /** @type {any} */ (ChartUtils).themeColor() },
   system: { label: 'System',   color: '#f59e0b' },
   iowait: { label: 'I/O Wait', color: '#ef4444' },
 };
@@ -201,7 +205,7 @@ async function loadCpuClassChart(range, anchor) {
 // 실행 큐/코어 os-aware — Linux procs_running(R-state) / Windows Processor Queue Length. 분류 CPU 포화 신호.
 // 한 카드에 OS별 2선(dimension=os_family). load(폐기, 분류 미사용) 대체. 앵커/윈도우/버킷은 makeBucketGrid 로 동일 적용.
 const RUNQ_META = {
-  linux:   { label: 'Linux',   color: ChartUtils.themeColor() },
+  linux:   { label: 'Linux',   color: /** @type {any} */ (ChartUtils).themeColor() },
   windows: { label: 'Windows', color: '#8b5cf6' },
 };
 function makeRunQueueOptions() {
@@ -223,8 +227,8 @@ async function loadRunQueueChart(range, anchor) {
   const rows = await fetchChart('cpu.run_queue', range, anchor);
   if (seq !== seqs.runQueue) return;
   const safe = _safe(rows);
-  const canvas = document.getElementById('runqueue-canvas');
-  const empty  = document.getElementById('runqueue-empty');
+  const canvas = /** @type {HTMLElement} */ (document.getElementById('runqueue-canvas'));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById('runqueue-empty'));
   if (chartInstances['runqueue-canvas']) { chartInstances['runqueue-canvas'].destroy(); delete chartInstances['runqueue-canvas']; }
   if (!safe.length) {
     canvas.style.display = 'none'; empty.style.display = 'flex';
@@ -235,8 +239,8 @@ async function loadRunQueueChart(range, anchor) {
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, anchor);
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const datasets = buildDimDatasets(safe, bMs, grid, RUNQ_META);
-  const chart = new Chart(canvas, { type: 'line', data: { labels, datasets }, options: makeRunQueueOptions() });
+  const datasets = /** @type {any} */ (buildDimDatasets(safe, bMs, grid, RUNQ_META));
+  const chart = new Chart(canvas, /** @type {any} */ ({ type: 'line', data: { labels, datasets }, options: makeRunQueueOptions() }));
   chartInstances['runqueue-canvas'] = chart;
   renderChipLegend(document.getElementById('runqueue-legend'), chart);
 }
@@ -245,7 +249,7 @@ async function loadRunQueueChart(range, anchor) {
 // 단위가 달라 한 축에 겹치면 스케일이 뭉개지므로 os별 축 분리(Linux/Windows 호스트는 서로 겹치지 않아 정직).
 // backend disk.io_saturation 이 os_family dimension 반환. 앵커/윈도우/버킷은 makeBucketGrid 로 동일 적용.
 const DISKSAT_META = {
-  linux:   { label: 'Linux await (ms)', color: ChartUtils.themeColor(), axis: 'yA' },
+  linux:   { label: 'Linux await (ms)', color: /** @type {any} */ (ChartUtils).themeColor(), axis: 'yA' },
   windows: { label: 'Windows 큐 깊이',   color: '#8b5cf6',              axis: 'yQ' },
 };
 async function loadDiskSaturationChart(range, anchor) {
@@ -255,8 +259,8 @@ async function loadDiskSaturationChart(range, anchor) {
   const rows = await fetchChart('disk.io_saturation', range, anchor);
   if (seq !== seqs.diskSat) return;
   const safe = _safe(rows);
-  const canvas = document.getElementById('disksat-canvas');
-  const empty  = document.getElementById('disksat-empty');
+  const canvas = /** @type {HTMLElement} */ (document.getElementById('disksat-canvas'));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById('disksat-empty'));
   if (chartInstances['disksat-canvas']) { chartInstances['disksat-canvas'].destroy(); delete chartInstances['disksat-canvas']; }
   if (!safe.length) {
     canvas.style.display = 'none'; empty.style.display = 'flex';
@@ -280,7 +284,7 @@ async function loadDiskSaturationChart(range, anchor) {
       borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
     });
   }
-  chartInstances['disksat-canvas'] = new Chart(canvas, {
+  chartInstances['disksat-canvas'] = new Chart(canvas, /** @type {any} */ ({
     type: 'line',
     data: { labels, datasets },
     options: {
@@ -298,7 +302,7 @@ async function loadDiskSaturationChart(range, anchor) {
               ticks:{ font:{size:11}, color:'#64748b' }, grid:{ drawOnChartArea:false } },
       },
     },
-  });
+  }));
   renderChipLegend(document.getElementById('disksat-legend'), chartInstances['disksat-canvas']);
 }
 
@@ -316,7 +320,7 @@ async function loadMemChart(range, anchor) {
 }
 
 const MEMCOMP_META = {
-  used:      { label: 'Used',      color: ChartUtils.themeColor() },
+  used:      { label: 'Used',      color: /** @type {any} */ (ChartUtils).themeColor() },
   available: { label: 'Available', color: '#8b5cf6' },
   cached:    { label: 'Cached',    color: '#22c55e' },
   buffers:   { label: 'Buffers',   color: '#f59e0b' },
@@ -430,7 +434,7 @@ async function loadRetransChart(range, anchor) {
 
 /* ── 전체 로드 ── */
 function updateBucketLabel(range) {
-  document.getElementById('bucket-label').textContent = BUCKET_LABEL[AUTO_BUCKET[range]] || '';
+  /** @type {HTMLElement} */ (document.getElementById('bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[range]] || '';
 }
 
 async function loadAllCharts() {
@@ -455,9 +459,9 @@ window.addEventListener('beforeprint', resizeAllCharts);
 window.addEventListener('afterprint', resizeAllCharts);
 
 /* ── 날짜 인풋 초기화 + 컨트롤 바인딩 ── */
-ChartUtils.initAnchor('anchor-date');
+/** @type {any} */ (ChartUtils).initAnchor('anchor-date');
 bindToggle('global-range-btns', val => { globalRange = val; loadAllCharts(); });
 // 앵커 변경 즉시 반영 — 구간 토글·상세 차트(cpu/network/storage)와 동일 (적용 버튼 없이 change 로 갱신).
-document.getElementById('anchor-date').addEventListener('change', () => loadAllCharts());
+/** @type {HTMLElement} */ (document.getElementById('anchor-date')).addEventListener('change', () => loadAllCharts());
 
 loadAllCharts();

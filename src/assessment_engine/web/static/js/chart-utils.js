@@ -1,3 +1,4 @@
+// @ts-check
 // 차트 템플릿 공통 유틸. 모든 차트 페이지가 import.
 // CLAUDE.md #E1 P4 의무 규약(sequence counter, capture-before-await,
 // Array.isArray 방어, 404 분기, suggestedMax 명명 상수)의 도구 모음.
@@ -52,14 +53,14 @@
 
   // ── 앵커 datetime 입력 처리 ──
   function getAnchorEnd(inputId) {
-    const val = document.getElementById(inputId).value;
+    const val = /** @type {HTMLInputElement} */ (document.getElementById(inputId)).value;
     if (!val) return null;
     const d = new Date(val + ':00+09:00');
     return d >= new Date() ? null : d;
   }
 
   function initAnchor(inputId) {
-    const input = document.getElementById(inputId);
+    const input = /** @type {HTMLInputElement} */ (document.getElementById(inputId));
     const kstNow = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 16).replace(' ', 'T');
     input.max = kstNow;
     input.value = kstNow;
@@ -89,6 +90,7 @@
   // cpu 분류·실행 큐·메모리 구성·종합 추이가 공유. rows: [{collected_at, value, dimension}].
   // metaMap: { dim: {label, color} } — 미정의 dim 은 dim 이름·기본색(#8b5cf6).
   // opts.valueFn: per-point 값 변환(기본 항등). opts.pointRadius: 0(추이)·1(분류).
+  /** @param {any} [opts] */
   function buildDimDatasets(rows, bMs, grid, metaMap = {}, opts = {}) {
     const valueFn = opts.valueFn || (v => v);
     const pointRadius = opts.pointRadius ?? 0;
@@ -124,15 +126,15 @@
     const el = document.getElementById(groupId);
     if (!el) return;
     if (el.tagName === 'SELECT') {
-      el.addEventListener('change', e => onChange(e.target.value));
+      el.addEventListener('change', e => onChange(/** @type {HTMLSelectElement} */ (e.target).value));
       return;
     }
     el.addEventListener('click', e => {
-      const btn = e.target.closest('.toggle');
+      const btn = /** @type {Element} */ (e.target).closest('.toggle');
       if (!btn) return;
       el.querySelectorAll('.toggle').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      onChange(btn.dataset.val);
+      onChange(/** @type {HTMLElement} */ (btn).dataset.val);
     });
   }
 
@@ -167,6 +169,7 @@
   // opts: { label?, color?, dashFn?(dim), pointRadius? }
   // single-dim(라벨 1개) 또는 multi-dim(dim별 색·dash) 통합.
   // 결과: [avgDataset, maxGhostDataset]쌍 N개. tooltip filter `datasetIndex % 2 === 0`로 max ghost 숨김.
+  /** @param {any} [opts] */
   function buildAvgMaxDatasets(avgRows, maxRows, bMs, grid, opts = {}) {
     // 버킷이 최소 단위(1분)면 버킷당 데이터가 1포인트라 max=avg → 음영 무의미.
     // 15분 구간(1분 버킷)에서 max ghost 비활성화 (음영·tooltip max 제거). environment 단일선과 동일하게 max=[] 처리.
@@ -204,6 +207,7 @@
 
   // ── 짝수 인덱스 avg dataset만 legend 표시 (max ghost 숨김) ──
   // opts: { codeLabel?: code 태그 사용, withToggle?: 칩(pill) 토글 — avg/max 짝 함께 hide (P4 허용 — E1 P4 절) }
+  /** @param {any} [opts] */
   function buildAvgMaxLegend(containerId, chart, opts = {}) {
     const el = document.getElementById(containerId);
     if (!el || !chart) { if (el) el.innerHTML = ''; return; }
@@ -217,7 +221,7 @@
       `).join('');
       el.querySelectorAll('.legend-chip').forEach(chip => {
         chip.addEventListener('click', () => {
-          const avgIdx = +chip.dataset.avg;
+          const avgIdx = +(/** @type {any} */ (chip)).dataset.avg;
           const hidden = !chart.getDatasetMeta(avgIdx).hidden;
           chart.getDatasetMeta(avgIdx).hidden     = hidden;
           chart.getDatasetMeta(avgIdx + 1).hidden = hidden;
@@ -259,7 +263,9 @@
     });
   }
 
-  root.ChartUtils = {
+  // globals.d.ts ChartUtilsApi 선언과 실제 구현이 일부 어긋나 로컬 any 캐스트로 우회.
+  // (COLORS 는 string[] 인데 선언은 Record<string,string>, getAnchorEnd 는 (inputId)->Date|null 인데 선언은 ()->string|null)
+  root.ChartUtils = /** @type {any} */ ({
     RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, RANGE_MS, BUCKET_MS, COLORS, themeColor,
     fmtKst, fmtLabel, fmtKbChart,
     getAnchorEnd, initAnchor,
@@ -267,5 +273,5 @@
     bindToggle, initAutoRefresh, safeArray, naWindows,
     buildAvgMaxDatasets, buildAvgMaxLegend,
     renderChipLegend,
-  };
+  });
 })(window);

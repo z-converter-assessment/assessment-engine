@@ -1,3 +1,4 @@
+// @ts-check
 /*
  * 환경 부하 추이 차트 — 보고서(정적 스냅샷) inline 렌더.
  *
@@ -9,7 +10,7 @@
  */
 (function () {
   function render() {
-    var el = document.getElementById('env-trend-chart');
+    var el = /** @type {HTMLCanvasElement | null} */ (document.getElementById('env-trend-chart'));
     if (!el || typeof Chart === 'undefined' || typeof ChartUtils === 'undefined') return;
     var raw = el.getAttribute('data-trend');
     var range = el.getAttribute('data-range') || '7d';
@@ -29,7 +30,9 @@
     var bucketKey = ChartUtils.AUTO_BUCKET[range] || '6h';
     var bMs = ChartUtils.BUCKET_MS[bucketKey];
     var anchor = new Date(pts[pts.length - 1].at);
-    var grid = ChartUtils.makeBucketGrid(range, bucketKey, anchor);
+    // 로컬 캐스트 — globals.d.ts 의 makeBucketGrid 선언(number,number,number)이 실제
+    // 시그니처(rangeKey,bucketKey,anchorEnd)와 어긋나 우회. globals_issue 로 보고.
+    var grid = /** @type {any} */ (ChartUtils).makeBucketGrid(range, bucketKey, anchor);
     var labels = grid.map(function (t) {
       return ChartUtils.fmtLabel(new Date(t).toISOString(), range);
     });
@@ -37,7 +40,8 @@
       var rows = pts.map(function (p) {
         return { collected_at: p.at, value: p[key] };
       });
-      return ChartUtils.joinToGrid(grid, rows, bMs);
+      // 로컬 캐스트 — globals.d.ts joinToGrid 는 2인자 선언이나 실제는 (grid,rows,bMs) 3인자. globals_issue 보고.
+      return /** @type {any} */ (ChartUtils).joinToGrid(grid, rows, bMs);
     }
     var cpu = series('cpu');
     var mem = series('mem');
@@ -54,7 +58,8 @@
           {
             label: 'CPU 평균',
             data: cpu,
-            borderColor: ChartUtils.themeColor(),
+            // 로컬 캐스트 — globals.d.ts themeColor(name:string) 이나 실제는 무인자. globals_issue 보고.
+            borderColor: /** @type {any} */ (ChartUtils).themeColor(),
             backgroundColor: 'transparent',
             tension: 0.2,
             spanGaps: false,
@@ -105,7 +110,8 @@
   }
 
   // 대시보드 자동갱신(list.js)이 fragment swap 후 재호출 — 보고서는 1회 렌더.
-  window.EnvTrend = { render: render };
+  // 로컬 캐스트 — EnvTrend 는 globals.d.ts Window 에 미선언(프로젝트 전역). globals_issue 보고.
+  /** @type {any} */ (window).EnvTrend = { render: render };
   if (document.readyState !== 'loading') render();
   else document.addEventListener('DOMContentLoaded', render);
 })();
