@@ -361,7 +361,7 @@ async def test_metric_chart_disk_io_saturation_returns_await(
     query_repo: QueryRepository,
 ):
     """disk.io_saturation — v2 await(ms) 양 OS 통일(구 disk.queue 대체). Σ(Δop_time)/Σ(Δops)*1000.
-    시드 op_time/ops 델타 반영."""
+    시드 op_time/ops 델타 + io_time_s(device util >= RS_DISKIO_UTIL_MIN 게이트 통과 — 60s 간격에 Δ40s=0.67)."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-dsat-1"))
     base = _bucket_aligned_base()
     for i in range(2):
@@ -374,6 +374,7 @@ async def test_metric_chart_disk_io_saturation_returns_await(
                         device_id="sda", device_name="sda",
                         ops_read=100 + i * 100, ops_write=0,
                         op_read_time_s=1.0 + i * 1.0, op_write_time_s=0.0,
+                        io_time_s=i * 40.0,  # Δ40s / 60s wall = 0.67 util >= 0.5 게이트 통과
                         io_read_bytes=0, io_write_bytes=0,
                     )
                 ],
@@ -426,6 +427,42 @@ async def test_metric_chart_disk_io_saturation_excludes_idle_disk(
         end=base + timedelta(minutes=10),
     )
     assert all(r.value is None for r in rows)  # d_ops=0 제외 → 값 산출 안 됨 (빈 결과 또는 value None)
+
+
+async def test_metric_chart_disk_io_saturation_util_gate_excludes_low_activity(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """disk.io_saturation util-gate(2-1) — ops 델타는 있으나 io_time util < RS_DISKIO_UTIL_MIN 인 저활동
+    device 는 제외. 극소 ops 로 op_time 을 나눠 await 가 폭증(writeback 잔류)해도 병목 아님 → 값 없음."""
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-dsat-lowutil"))
+    base = _bucket_aligned_base()
+    for i in range(2):
+        await collect_repo.record_metrics(
+            sid,
+            make_metrics(
+                collected_at=base + timedelta(minutes=i),
+                disk_io=[
+                    DiskIoEntry(
+                        device_id="sda", device_name="sda",
+                        ops_read=100 + i * 2, ops_write=0,      # Δ2 극소 ops
+                        op_read_time_s=i * 10.0, op_write_time_s=0.0,  # Δ10s -> await 5000ms(폭증)
+                        io_time_s=i * 3.0,  # Δ3s / 60s wall = 0.05 util < 0.5 -> 게이트 탈락
+                        io_read_bytes=0, io_write_bytes=0,
+                    )
+                ],
+            ),
+        )
+    rows = await query_repo.metric_chart(
+        server_id=sid,
+        metric_type="disk.io_saturation",
+        dimension=None,
+        time_range="1h",
+        bucket="5m",
+        agg="avg",
+        end=base + timedelta(minutes=10),
+    )
+    assert all(r.value is None for r in rows)  # 저활동 device 는 await 폭증해도 util-gate 로 제외
 
 
 async def test_metric_chart_fs_usage_returns_per_mount(

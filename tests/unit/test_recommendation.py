@@ -8,10 +8,14 @@ from assessment_engine.recommendation import (
     CPU_RUN_QUEUE_PER_CORE_SATURATION,
     DISK_QUEUE_PER_DISK_SATURATION,
     PROCS_RUNNING_PER_CORE_SATURATION,
+    RS_CONNTRACK_SATURATION_RATIO,
     RS_DISK_HEADROOM_TARGET_PCT,
     RS_DISK_RUNWAY_DAYS,
     RS_DISK_STATIC_GUARD_PCT,
     RS_DISKIO_AWAIT_MS,
+    RS_NET_DROP_PCT,
+    RS_NET_MIN_TRAFFIC_KBPS,
+    RS_NET_RETRANS_PCT,
     WIN_PAGES_INPUT_SATURATION,
     ConfidenceNote,
     HostAssessment,
@@ -26,6 +30,7 @@ from assessment_engine.recommendation import (
     host_saturation_unmeasured,
     mem_pressure_active,
     mem_saturated,
+    net_signal_active,
     root_cause_display,
 )
 
@@ -151,6 +156,30 @@ def test_disk_io_saturation_index_await_priority_queue_fallback():
 
 
 # ─── 실시간 메모리 압박 — 하드폴트(major fault) rate 기반, os-aware 임계 ───
+
+
+def test_net_signal_active_low_traffic_gate():
+    """실시간 네트워크 혼잡 신호(4-1) — assess_network 와 동일 임계·저트래픽 게이트.
+
+    retrans/drop 은 트래픽 < RS_NET_MIN_TRAFFIC_KBPS 면 억제(저트래픽 소수 이벤트 지배 방지),
+    conntrack 은 트래픽 무관 절대 신호라 게이트 제외.
+    """
+    hi = RS_NET_MIN_TRAFFIC_KBPS + 1.0
+    lo = RS_NET_MIN_TRAFFIC_KBPS - 1.0
+    over_retrans = RS_NET_RETRANS_PCT + 1.0
+    over_drop = RS_NET_DROP_PCT + 0.5
+    over_ct = RS_CONNTRACK_SATURATION_RATIO + 0.05
+    # 트래픽 충분 + retrans/drop 초과 -> 발화
+    assert net_signal_active(over_retrans, None, None, hi) is True
+    assert net_signal_active(None, over_drop, None, hi) is True
+    # 저트래픽이면 retrans/drop 초과여도 억제
+    assert net_signal_active(over_retrans, over_drop, None, lo) is False
+    # conntrack 은 저트래픽에도 발화(게이트 제외)
+    assert net_signal_active(None, None, over_ct, lo) is True
+    # net rate 미상(None)이면 저트래픽 게이트 미적용 -> 초과 신호 신뢰
+    assert net_signal_active(over_retrans, None, None, None) is True
+    # 임계 이하 + 정상 conntrack -> 미발화
+    assert net_signal_active(0.1, 0.1, 0.1, hi) is False
 
 
 def test_mem_pressure_active_os_aware():

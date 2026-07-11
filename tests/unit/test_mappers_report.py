@@ -361,7 +361,9 @@ def test_environment_overview_aggregates():
     assert ov.total_vcpus == 6
     assert ov.total_memory_gb == 12.0
     assert ov.total_disk_gb == 150
-    assert ov.role_distribution == {"db": 1, "web": 1}
+    # role_distribution = 시그니처 카테고리(web·db·cache·mq·container·monitor) 인스턴스 수, 0 포함(E9 발화)
+    assert ov.role_distribution == {"web": 1, "db": 1, "cache": 0, "mq": 0, "container": 0, "monitor": 0}
+    assert ov.workload_total == 2
 
 
 def test_environment_overview_memory_keeps_decimal():
@@ -401,7 +403,7 @@ def test_environment_overview_utilization_bar_color(pct, expected_color):
     assert len(ov.utilization) == 3
     assert ov.utilization[0].label == "CPU"
     assert ov.utilization[1].label == "메모리"
-    assert ov.utilization[2].label == "디스크"
+    assert ov.utilization[2].label == "디스크 용량"
     for bar in ov.utilization:
         assert bar.bar_color == expected_color
     assert ov.util_sample_size == 1

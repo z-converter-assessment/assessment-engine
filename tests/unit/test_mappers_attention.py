@@ -132,7 +132,7 @@ def test_realtime_mem_disk_are_used_over_total_ratio():
     r = build_environment_realtime(total=5, online=2, snapshots=_two_snaps(), last_collected_at=_NOW)
     assert r.utilization[1].label == "메모리"
     assert r.utilization[1].pct == 66.7
-    assert r.utilization[2].label == "디스크"
+    assert r.utilization[2].label == "디스크 용량"
     assert r.utilization[2].pct == 60.0
 
 
@@ -147,20 +147,34 @@ def test_realtime_online_offline_sample_size():
 
 
 def test_realtime_saturation_counts():
-    """포화 도넛 카운트 — cpu_sat_index>=1.0 / disk_sat_index>=1.0 / mem_pressure truthy.
+    """신호 도넛 카운트 — 순간 단일신호(신호명 라벨, 판정어 아님). 개요 dual-gate "포화" 도넛과 구분.
 
-    h1: cpu 1.5 포화·disk 0.5 정상·mem_pressure True / h2: cpu 0.2 정상·disk 2.0 포화·mem_pressure False.
-    -> CPU 1, 메모리 압박 1, 디스크 I/O 1 (표본 2).
+    cpu_sat_index>=1.0(실행 큐 임계) / disk_sat_index>=1.0(응답지연 임계) / mem_pressure truthy(페이징).
+    h1: cpu 1.5·disk 0.5·mem_pressure True / h2: cpu 0.2·disk 2.0·mem_pressure False.
+    -> 실행 큐 임계 1, 페이징 1, 응답지연 임계 1, 네트워크 혼잡 0 (_two_snaps 는 net_congested 미설정), 표본 2.
     """
     r = build_environment_realtime(total=5, online=2, snapshots=_two_snaps(), last_collected_at=_NOW)
     labels = {d.label: (d.count, d.total) for d in r.saturation_donuts}
-    assert labels["CPU 포화"] == (1, 2)
-    assert labels["메모리 압박"] == (1, 2)
-    assert labels["디스크 I/O 포화"] == (1, 2)
+    assert labels["실행 큐 임계"] == (1, 2)
+    assert labels["페이징"] == (1, 2)
+    assert labels["응답지연 임계"] == (1, 2)
+    assert labels["네트워크 혼잡"] == (0, 2)  # 발화 카테고리 항상 노출(E9), 미발생이라 0
     # 채움 = count/total * 원주
-    cpu_donut = next(d for d in r.saturation_donuts if d.label == "CPU 포화")
-    assert cpu_donut.dash_length == (1 / 2) * _UTIL_DONUT_CIRC
-    assert cpu_donut.color == _UTIL_COLOR_GAUGE
+    rq_donut = next(d for d in r.saturation_donuts if d.label == "실행 큐 임계")
+    assert rq_donut.dash_length == (1 / 2) * _UTIL_DONUT_CIRC
+    assert rq_donut.color == _UTIL_COLOR_GAUGE
+
+
+def test_realtime_network_congestion_donut_counts_flagged_hosts():
+    """네트워크 혼잡 신호 도넛(4-1) — 스냅샷 net_congested True 호스트 수 집계."""
+    snaps = [
+        _snap("h1", "p1", cpu_cores=1, net_congested=True),
+        _snap("h2", "p2", cpu_cores=1, net_congested=False),
+        _snap("h3", "p3", cpu_cores=1),  # net_congested 미설정 = None(미발생)
+    ]
+    r = build_environment_realtime(total=3, online=3, snapshots=snaps, last_collected_at=_NOW)
+    labels = {d.label: (d.count, d.total) for d in r.saturation_donuts}
+    assert labels["네트워크 혼잡"] == (1, 3)
 
 
 def test_realtime_peaks_sorted_descending_with_display():
