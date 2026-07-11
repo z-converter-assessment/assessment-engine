@@ -201,3 +201,19 @@ def test_classification_and_labels_present():
     assert e["classification"] == "under_provisioned"
     assert isinstance(e["classification_label"], str) and e["classification_label"]
     assert "메모리" in (e["root_cause"] or "")
+
+
+def test_evidence_labels_no_raw_enum_leak():
+    """모든 도메인 trigger key 가 한국어 라벨로 변환 — mem_oom·net_* raw 영어 enum 누출 회귀 가드.
+
+    _evidence_labels 가 _CAUSE_LABEL_BY_TRIGGER(6키) 미커버 trigger 를 raw 로 흘려 OOM·네트워크
+    근거가 사용자에게 'mem_oom'·'net_retrans' 로 뜨던 회귀를 막는다(도메인 RS_TRIGGER_LABEL_KO 폴백).
+    """
+    from assessment_engine.recommendation import RS_TRIGGER_LABEL_KO
+    from assessment_engine.web.services.mappers.right_sizing_api import _evidence_labels
+
+    all_triggers = list(RS_TRIGGER_LABEL_KO)
+    labels = _evidence_labels(all_triggers)
+    leaked = [k for k, lbl in zip(all_triggers, labels, strict=True) if k == lbl]
+    assert not leaked, f"raw enum 누출: {leaked}"
+    assert "mem_oom" not in labels and "net_retrans" not in labels
