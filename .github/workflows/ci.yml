@@ -5,11 +5,12 @@ name: ci
 #
 # Job 정합 그래프:
 #   lint ──┬─> test-unit ─> test-integration
+#          ├─> typecheck (표현계층 타입 계약 — codegen drift + tsc --checkJs)
 #          └─> build
 #
 # PR base·event별 발화 분기 (역할 분리 — 같은 검증 2회 금지):
-#   develop PR  : lint + test-unit (integration·build skip — 경량 게이트)
-#   develop push: lint + test-unit + test-integration (merge 후 통합 검증 1회 보충)
+#   develop PR  : lint + test-unit + typecheck (integration·build skip — 경량 게이트)
+#   develop push: lint + test-unit + typecheck + test-integration (merge 후 통합 검증 1회 보충)
 #   main PR     : 전부 (release gate — full 검증)
 #   main push   : ci 미발화 (main PR에서 full 통과 + branch protection이 gate 강제). 릴리즈는 main 에 tag push -> release.yml (ADR 0030)
 
@@ -82,6 +83,43 @@ jobs:
       # --cov-report=term — console에 라인별 coverage 표시 (PR review 시 즉시 가시화). 외부 리포터(codecov 등) 미사용이라 artifact 미업로드.
       - name: pytest unit (with coverage)
         run: uv run pytest tests/unit/ -v --cov=assessment_engine --cov-report=term
+
+  typecheck:
+    name: frontend typecheck
+    runs-on: ubuntu-latest
+    needs: [lint]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: uv.lock
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install project (frozen)
+        run: uv sync --frozen --group dev
+
+      # ubuntu-latest 는 node 20 + corepack 내장 — 별도 setup-node 불요. pnpm 은 package.json packageManager 핀.
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Install frontend deps (frozen)
+        run: pnpm install --frozen-lockfile
+
+      # 생성 TS 타입이 최신 OpenAPI(ViewModel)와 일치하는지 — 엔드포인트 변경 후 codegen 미실행(drift) 차단.
+      - name: codegen drift check
+        run: |
+          pnpm run codegen
+          git diff --exit-code -- src/assessment_engine/web/static/js/generated/api.ts
+
+      # tsc --checkJs — // @ts-check 클라 JS 가 생성 타입 계약을 지키는지 컴파일 강제 (보고서 500 부류 재발 차단).
+      - name: tsc typecheck
+        run: pnpm run typecheck
 
   build:
     name: wheel build
