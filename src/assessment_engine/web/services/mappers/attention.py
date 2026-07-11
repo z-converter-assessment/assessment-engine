@@ -64,16 +64,19 @@ _METRIC_NORMAL_COLOR = "#475569"
 _METRIC_UNMEASURED_COLOR = "#94a3b8"  # 미관측(N/A) 흐림 — Windows perflib 미발행 축 등
 
 
-# 포화·품질 축 헤더 — Linux(L)/Windows(W) 임계 병기. 값·단위는 os별(혼합 표라 한 칼럼에 두 OS 행 공존)이므로
-# 헤더에 양 OS 임계를 표기해 해석 가능하게. 임계 상수는 recommendation 단일 진실에서 조립(F10, drift 0).
+# 포화 신호·품질 축 헤더 — 각 열은 게이트1 raw 신호(evidence)이지 포화 판정이 아니다. 포화는 dual-gate
+# (신호 AND 이용률, recommendation.cpu_saturated/mem_saturated)라 판정은 분류·근본원인 칼럼 + 색 강조로만 표기
+# (네트워크가 재전송율·드롭율 신호 + 상태 판정을 분리하는 패턴과 동형). Linux(L)/Windows(W) 임계 병기 —
+# 값·단위 os별(혼합 표라 한 칼럼에 두 OS 행 공존), 임계 상수는 recommendation 단일 진실 조립(F10, drift 0).
 _L = recommendation
 # 이용률·용량 칼럼 임계 병기 — 값만으론 under 판정선을 모르니 헤더에 명시(p95 이용률·디스크 용량).
 _CPU_UTIL_LABEL = f"CPU p95 (>={_L.RS_CPU_UNDER_PCT:g}%)"
 _MEM_UTIL_LABEL = f"메모리 p95 (>={_L.RS_MEM_UNDER_PCT:g}%)"
 _DISK_CAP_LABEL = f"디스크 용량 (>={_L.RS_DISK_STATIC_GUARD_PCT:g}% or 30일)"
-_CPU_SAT_LABEL = f"CPU 포화 (L>={_L.PROCS_RUNNING_PER_CORE_SATURATION:g} · W>={_L.CPU_RUN_QUEUE_PER_CORE_SATURATION:g})"
-_MEM_SAT_LABEL = f"메모리 포화 (L page-out · W>={_L.WIN_PAGES_INPUT_SATURATION:g}/s)"
-_DISK_IO_LABEL = f"디스크 I/O 포화 (await > {_L.RS_DISKIO_AWAIT_MS:g}ms)"
+# 신호 컬럼(포화 판정 아님) — 헤더는 신호명 + 임계 힌트. 판정은 위 주석대로 분류·색 강조.
+_CPU_SAT_LABEL = f"실행 큐/코어 (L>={_L.PROCS_RUNNING_PER_CORE_SATURATION:g} · W>={_L.CPU_RUN_QUEUE_PER_CORE_SATURATION:g})"
+_MEM_SAT_LABEL = f"페이징 (L 스왑 · W>={_L.WIN_PAGES_INPUT_SATURATION:g}/s)"
+_DISK_IO_LABEL = f"디스크 응답지연 (await > {_L.RS_DISKIO_AWAIT_MS:g}ms)"
 # 네트워크 — 사이징과 별개 품질 축(orthogonal). 다른 자원처럼 수치 2칼럼(재전송율·드롭율) + 판정(상태) 칼럼.
 # 판정 근거 assess_network(재전송>1% or 드롭>0.5% or conntrack>=80% -> 혼잡, monitoring 표준). conntrack 은 서버 상세.
 _NET_RETRANS_LABEL = f"재전송율 (>{_L.RS_NET_RETRANS_PCT:g}%)"

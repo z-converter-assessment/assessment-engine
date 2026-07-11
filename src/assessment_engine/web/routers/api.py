@@ -20,6 +20,8 @@ from assessment_engine.web.services.query_service import (
 )
 from assessment_engine.web.view_models.metric import (
     CollectionStatusItem,
+    FleetStatus,
+    HostSearchItem,
     MetricDashboard,
     MetricSeriesItem,
 )
@@ -112,3 +114,24 @@ async def get_reboot_events(
     kind: "reboot" (시스템 재부팅 또는 첫 등록) | "restart" (에이전트만 재시작)
     """
     return await service.get_reboot_events(internal_id, time_range, end)
+
+
+# 전역 상단 바 — 서버 무관(fleet 단위)이라 별도 prefix(/api). 전 페이지 공통 폴링·검색.
+fleet_router = APIRouter(prefix="/api", tags=["api"])
+
+
+@fleet_router.get("/fleet-status")
+async def get_fleet_status(
+    service: QueryService = Depends(get_service),
+) -> FleetStatus:
+    """전역 데이터 최신성 — 온라인 대수/전체 + 마지막 수신 시각 (상단 바 폴링)."""
+    return await service.get_fleet_status()
+
+
+@fleet_router.get("/host-search")
+async def host_search(
+    q: str = Query(..., min_length=1, max_length=100),
+    service: QueryService = Depends(get_service),
+) -> list[HostSearchItem]:
+    """전역 호스트 검색(jump-to) — hostname 부분일치 상위 8건 (상단 바 검색)."""
+    return await service.search_hosts(q)

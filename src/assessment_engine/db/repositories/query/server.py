@@ -237,3 +237,14 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             stmt = stmt.limit(limit)
         result = await self.session.execute(stmt)
         return [r for r in result.scalars().all()]
+
+    async def latest_metric_at(self) -> datetime | None:
+        """fleet 전체 최신 메트릭 수집 시각 — 상단 바 데이터 최신성(#C5 window 술어로 partition pruning).
+
+        server_inventory.last_seen_at(인벤토리 하트비트, 저빈도)이 아닌 메트릭 collected_at 기준 — 실수집 신선도.
+        """
+        window_start = datetime.now(UTC) - _COLLECTION_STATUS_WINDOW
+        result = await self.session.execute(
+            select(func.max(ServerMetrics.collected_at)).where(ServerMetrics.collected_at >= window_start)
+        )
+        return result.scalar_one_or_none()

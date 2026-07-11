@@ -4,17 +4,23 @@
  *
  * 서버가 os-aware 판정을 끝낸 구조화 SaturationSignal(값·임계·saturated·4상태)을 그대로 렌더만 한다(P4).
  * 임계 재계산·os 분기·양 OS 설명 인라인 금지 — 이 호스트 OS 값만 오고, 근거는 hover(detail)로.
- * 4상태: measured(정상/포화 배지) · no_data(수집 대기) · not_applicable(N/A) · insufficient(표본 부족).
+ * 상세는 라이브 모니터링이라 신호를 데이터(값/임계)로 보여준다 — per-signal "포화" verdict 를 박지 않는다.
+ * 포화 판정은 dual-gate(신호 AND 이용률, 자원 평가 14일 창) 단일 소스 몫. 여기선 임계 이상 신호만 중립 표식.
+ * 4상태: measured(값/임계 · 임계 이상이면 표식) · no_data(수집 대기) · not_applicable(N/A) · insufficient(표본 부족).
  */
 const SignalUtils = (() => {
   /** @type {Record<string, string>} */
   const UNIT_LABEL = { per_core: '/core', ms: 'ms', '%': '%', '/s': '/s', ops: '' };
 
-  /** @param {import('./generated/api').components['schemas']['SaturationSignal']} sig */
-  function badge(sig) {
+  /**
+   * 표식 — 측정 신호는 verdict 아님: 임계 이상이면 중립 표식(badge-warn), 임계 이내면 표식 없음(null).
+   * 비측정은 가용성 상태(수집 대기/N/A/표본 부족). "포화" 단어는 dual-gate 판정 전용이라 여기 안 씀.
+   * @param {import('./generated/api').components['schemas']['SaturationSignal']} sig
+   */
+  function marker(sig) {
     switch (sig.state) {
       case 'measured':
-        return sig.saturated ? { text: '포화', cls: 'badge badge-danger' } : { text: '정상', cls: 'badge badge-ok' };
+        return sig.saturated ? { text: '임계 이상', cls: 'badge badge-warn' } : null;
       case 'not_applicable':
         return { text: 'N/A', cls: 'badge badge-muted' };
       case 'insufficient':
@@ -40,7 +46,8 @@ const SignalUtils = (() => {
   }
 
   /**
-   * 포화 신호 리스트를 컨테이너에 렌더 — 각 신호 = .sat-line(라벨 + 값/임계 + 상태 배지, 근거 hover).
+   * 포화 신호 리스트를 컨테이너에 렌더 — 각 신호 = .sat-line(라벨 + 값/임계 + 임계 이상 표식, 근거 hover).
+   * 임계 이상 신호는 값 강조색(sat-val-hi) + 중립 표식. 임계 이내는 표식 없이 값만. 포화 verdict 표기 안 함.
    * @param {HTMLElement | null} container
    * @param {ReadonlyArray<import('./generated/api').components['schemas']['SaturationSignal']> | null | undefined} signals
    */
@@ -49,14 +56,16 @@ const SignalUtils = (() => {
     const list = Array.isArray(signals) ? signals : [];
     container.innerHTML = list
       .map((sig) => {
-        const b = badge(sig);
+        const m = marker(sig);
         const title = sig.detail ? ` title="${esc(sig.detail)}"` : '';
+        const hi = sig.state === 'measured' && sig.saturated ? ' sat-val-hi' : '';
         const muted = sig.state === 'measured' ? '' : ' sat-val-muted';
+        const tag = m ? `<span class="${m.cls} sat-badge">${m.text}</span>` : '';
         return (
           `<div class="sat-line"${title}>` +
           `<span class="sat-name">${esc(sig.label)}</span>` +
-          `<span class="sat-val${muted}">${esc(valueText(sig))}</span>` +
-          `<span class="${b.cls} sat-badge">${b.text}</span>` +
+          `<span class="sat-val${hi}${muted}">${esc(valueText(sig))}</span>` +
+          tag +
           `</div>`
         );
       })

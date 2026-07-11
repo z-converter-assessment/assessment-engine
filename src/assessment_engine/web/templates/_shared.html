@@ -32,7 +32,7 @@
   <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
     <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
     {% if u.pct is not none %}
-    <circle cx="50" cy="50" r="42" fill="none"
+    <circle class="donut-arc" cx="50" cy="50" r="42" fill="none"
             style="stroke: {{ u.bar_color }}" stroke-width="10"
             stroke-dasharray="{{ "%.2f"|format(u.dash_length) }} 263.89"
             stroke-linecap="round"
@@ -54,7 +54,7 @@
   <svg viewBox="0 0 100 100" width="120" height="120" style="display:block;">
     <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="10"/>
     {% if s.dash_length > 0 %}
-    <circle cx="50" cy="50" r="42" fill="none"
+    <circle class="donut-arc" cx="50" cy="50" r="42" fill="none"
             style="stroke: {{ s.color }}" stroke-width="10"
             stroke-dasharray="{{ "%.2f"|format(s.dash_length) }} 263.89"
             stroke-linecap="round"

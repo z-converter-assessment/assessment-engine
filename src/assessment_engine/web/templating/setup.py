@@ -5,6 +5,7 @@ filter 등록을 한 곳으로 모아 다른 라우터/모듈도 동일 인스�
 """
 
 import time
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
@@ -48,6 +49,13 @@ env.filters["or_dash"] = or_dash
 # dev(app_env=dev)는 main.py 미들웨어가 매 요청 asset_v 를 재발급해 hot reload 즉시 반영 (prod 는 본 고정값 유지).
 ASSET_V: str = format(int(time.time()), "x")
 env.globals["asset_v"] = ASSET_V
+
+# 엔진(포털) 버전 — 전역 상단 바에 노출. hatch vcs 동적 버전(설치 메타데이터). 미설치/개발 트리면 "dev".
+try:
+    ENGINE_VERSION: str = version("assessment-engine")
+except PackageNotFoundError:
+    ENGINE_VERSION = "dev"
+env.globals["engine_version"] = ENGINE_VERSION
 
 # 스케줄러 자동 발행 기본 기간 라벨 — F10 단일 진실 (recommendation.WINDOW_DAYS 와 정합).
 # 진단 카드 자동 발행 안내 문구에서 노출 — 상수 변경 시 라벨도 자동 갱신.

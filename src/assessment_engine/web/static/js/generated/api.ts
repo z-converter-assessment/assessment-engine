@@ -82,6 +82,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Fleet Status
+         * @description 전역 데이터 최신성 — 온라인 대수/전체 + 마지막 수신 시각 (상단 바 폴링).
+         */
+        get: operations["get_fleet_status_api_fleet_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/host-search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Host Search
+         * @description 전역 호스트 검색(jump-to) — hostname 부분일치 상위 8건 (상단 바 검색).
+         */
+        get: operations["host_search_api_host_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/right-sizing": {
         parameters: {
             query?: never;
@@ -987,10 +1027,34 @@ export interface components {
             /** Window Label */
             window_label?: string | null;
         };
+        /**
+         * FleetStatus
+         * @description 전역 상단 바 데이터 최신성 — 온라인 대수/전체 + 마지막 메트릭 수집 시각 (전 페이지 JS 폴링). 표시 파생 없음(P1/P2).
+         */
+        FleetStatus: {
+            /** Last Collected At */
+            last_collected_at: string | null;
+            /** Online Count */
+            online_count: number;
+            /** Total Count */
+            total_count: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HostSearchItem
+         * @description 전역 호스트 검색(jump-to) 결과 1건 — hostname 부분일치. public_id 로 상세 이동(#E4).
+         */
+        HostSearchItem: {
+            /** Hostname */
+            hostname: string;
+            /** Os Id */
+            os_id: string | null;
+            /** Public Id */
+            public_id: string;
         };
         /** InstallRequest */
         InstallRequest: {
@@ -1808,6 +1872,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_fleet_status_api_fleet_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FleetStatus"];
+                };
+            };
+        };
+    };
+    host_search_api_host_search_get: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostSearchItem"][];
                 };
             };
             /** @description Validation Error */

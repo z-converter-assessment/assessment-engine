@@ -10,7 +10,7 @@ from loguru import logger
 
 from assessment_engine.cache.redis import close_pool
 from assessment_engine.log_config import setup_logging
-from assessment_engine.web.routers.api import api_router
+from assessment_engine.web.routers.api import api_router, fleet_router
 from assessment_engine.web.routers.assessment import assessment_router
 from assessment_engine.web.routers.exports import exports_router
 from assessment_engine.web.routers.pages import pages_router
@@ -104,6 +104,7 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 app.include_router(pages_router)
 app.include_router(api_router)
+app.include_router(fleet_router)
 app.include_router(tasks_router)
 app.include_router(reports_router)
 app.include_router(reference_router)

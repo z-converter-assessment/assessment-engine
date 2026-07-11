@@ -133,3 +133,21 @@ class MetricSeriesItem:
     collected_at: datetime
     value: float | None
     dimension: str | None
+
+
+@dataclass
+class FleetStatus:
+    """전역 상단 바 데이터 최신성 — 온라인 대수/전체 + 마지막 메트릭 수집 시각 (전 페이지 폴링). 파생 없음(P1)."""
+
+    online_count: int
+    total_count: int
+    last_collected_at: datetime | None
+
+
+@dataclass
+class HostSearchItem:
+    """전역 호스트 검색(jump-to) 결과 1건 — hostname 부분일치. public_id 로 상세 이동(#E4)."""
+
+    hostname: str
+    public_id: str
+    os_id: str | None

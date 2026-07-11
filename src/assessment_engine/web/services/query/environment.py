@@ -25,6 +25,7 @@ from assessment_engine.web.view_models.attention import (
     EnvironmentOverview,
     EnvironmentRealtime,
 )
+from assessment_engine.web.view_models.metric import FleetStatus, HostSearchItem
 from assessment_engine.web.view_models.topology import NetworkTopology
 
 # 대시보드 현황 윈도우 — 활용률 게이지·자원 적정성 분류 표시 전용 (최근 현황 모니터링).
@@ -354,3 +355,20 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
             return build_network_topology([])
         details = await self.repo.get_servers(server_ids)
         return build_network_topology(details)
+
+    async def get_fleet_status(self) -> FleetStatus:
+        """전역 상단 바 — 온라인 대수/전체 + 마지막 메트릭 수집 시각. 온라인·최신성 각각 단일 소스 경유."""
+        now = datetime.now(UTC)
+        server_ids = await self.repo.list_server_ids()
+        if not server_ids:
+            return FleetStatus(online_count=0, total_count=0, last_collected_at=None)
+        details = await self.repo.get_servers(server_ids)
+        online_by_id = await self._online_map(server_ids, details, now)
+        online_count = sum(1 for v in online_by_id.values() if v)
+        last_collected = await self.repo.latest_metric_at()
+        return FleetStatus(online_count=online_count, total_count=len(server_ids), last_collected_at=last_collected)
+
+    async def search_hosts(self, q: str, limit: int = 8) -> list[HostSearchItem]:
+        """전역 호스트 검색(jump-to) — hostname 부분일치. list_servers(search) 재사용, public_id 로 이동."""
+        summaries = await self.repo.list_servers(page=1, limit=limit, search=q)
+        return [HostSearchItem(hostname=s.hostname, public_id=str(s.public_id), os_id=s.os_id) for s in summaries]

@@ -27,7 +27,7 @@
       <dt>I/O Wait</dt>  <dd id="s-iowait">—</dd>
     </dl>
     {# 포화 스냅샷 — 서버가 os-aware 판정을 끝낸 신호(실행 큐 per-core, Steal, PSI)를 공통 렌더러가 4상태로 채움 (E9 빈 상태 걱정 없음). #}
-    <div class="sat-title text-meta text-xs">포화 신호 — 값 / 임계 · 근거는 각 항목 hover</div>
+    <div class="sat-title text-meta text-xs">포화 신호 — 값 / 임계 · 임계 이상은 신호일 뿐, 포화 판정은 이용률 동반(dual-gate, 자원 평가) · 근거 hover</div>
     <div id="cpu-sat-signals"></div>
   </div>
   <div id="snap-empty" class="text-meta text-md" style="display:none;">
