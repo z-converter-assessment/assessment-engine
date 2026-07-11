@@ -20,6 +20,7 @@ IPv4 only: 그래프는 physical+bond_master 인터페이스의 IPv4 주소만. 
 import ipaddress
 from collections import defaultdict
 
+from assessment_engine.service_classifier import SIGNATURE_CATEGORIES
 from assessment_engine.web.services.device_filters import is_virtual_interface
 from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGroup, SubnetHost
 
@@ -46,12 +47,15 @@ def build_network_topology(hosts) -> NetworkTopology:
     # subnet CIDR -> [(pid, ip, gateway)]. 한 호스트가 같은 서브넷에 여러 IP 면 멤버십 1회만.
     subnet_members: dict[str, list[tuple[str, str, str | None]]] = defaultdict(list)
     host_meta: dict[str, tuple[str, str]] = {}  # public_id -> (hostname, os_family)
-    host_roles: dict[str, list[str]] = {}  # public_id -> 워크로드 카테고리(service_categories, E7)
+    host_roles: dict[str, list[str]] = {}  # public_id -> 주요 워크로드 카테고리(시그니처만, 환경 개요 도넛·서버 목록 뱃지와 동일 기준)
 
     for h in hosts:
         pid = str(h.public_id)
         host_meta[pid] = (h.hostname, h.os_family or "unknown")
-        host_roles[pid] = sorted(getattr(h, "service_categories", None) or [])
+        # 시그니처 워크로드만(SIGNATURE_CATEGORIES) — file·mail·infra·remote 등 baseline·관리는 토폴로지 뱃지 노이즈라 제외.
+        host_roles[pid] = sorted(
+            c for c in (getattr(h, "service_categories", None) or []) if c in SIGNATURE_CATEGORIES
+        )
         seen_nets: set[str] = set()  # 호스트 스코프 — 여러 인터페이스/주소가 같은 서브넷 잡아도 멤버십 1회
         for iface_info in h.net_interfaces or []:
             if is_virtual_interface(iface_info.get("kind")):

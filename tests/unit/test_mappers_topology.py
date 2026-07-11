@@ -257,6 +257,21 @@ def test_roles_from_service_categories_sorted_in_node_and_subnet_host():
     assert sh_roles["b"] == ["cache"]
 
 
+def test_roles_filtered_to_signature_workloads():
+    # 토폴로지 뱃지 = 시그니처 워크로드만(환경 개요 도넛·서버 목록 뱃지와 동일 기준).
+    # file·mail·infra·remote 등 baseline·관리 카테고리는 제외 — 시그니처 없으면 빈 리스트.
+    hosts = [
+        _host_roles("a", "hostA", "linux", [_iface("10.0.1.10/24")], ["web", "file", "remote", "db"]),
+        _host_roles("b", "hostB", "linux", [_iface("10.0.1.11/24")], ["mail", "infra", "remote"]),
+    ]
+    t = build_network_topology(hosts)
+    node_roles = {
+        e["data"]["publicId"]: e["data"]["roles"] for e in t.elements if e["data"].get("kind") == "host"
+    }
+    assert node_roles["a"] == ["db", "web"]  # file·remote 제외, 시그니처만 정렬
+    assert node_roles["b"] == []  # 시그니처 0 -> 빈 리스트
+
+
 def test_roles_default_empty_when_service_categories_absent():
     # service_categories 속성 없거나 None 이면 roles 빈 리스트 (getattr 폴백).
     hosts = [
