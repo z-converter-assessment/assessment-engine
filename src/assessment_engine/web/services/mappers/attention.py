@@ -12,7 +12,7 @@ from collections import Counter
 from datetime import date, datetime
 
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import MetricGapWarningRaw
+from assessment_engine.db.dtos.outbound import FleetErrorRaw, MetricGapWarningRaw
 from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.report import (
     build_resource_stats,
@@ -34,6 +34,7 @@ from assessment_engine.web.view_models.attention import (
     CapacityWarningItem,
     EnvironmentOverview,
     EnvironmentRealtime,
+    FleetErrorItem,
     RealtimePeak,
     RealtimePeakGroup,
     RiskDonutSegment,
@@ -198,6 +199,20 @@ def _build_saturation_donut(label: str, count: int, total: int) -> SaturationDon
     return SaturationDonut(label=label, count=count, total=total, dash_length=dash, color=_UTIL_COLOR_GAUGE)
 
 
+def _build_error_fleet(err: FleetErrorRaw | None) -> list[FleetErrorItem]:
+    """환경 fleet 에러 표시자 5종 — 창내 발생 호스트 수/표본. err=None(assessment 경로)이면 빈 list."""
+    if err is None:
+        return []
+    t = err.total
+    return [
+        FleetErrorItem("cpu_mce", "머신체크(MCE)", err.mce_hosts, t, "CPU/메모리 하드웨어 정정불가 오류(machine check)"),
+        FleetErrorItem("mem_oom", "OOM Kill", err.oom_hosts, t, "메모리 부족으로 커널이 프로세스 강제 종료"),
+        FleetErrorItem("mem_corrupted", "메모리 손상(EDAC)", err.corrupted_hosts, t, "ECC 정정된 하드웨어 메모리 손상"),
+        FleetErrorItem("disk_errors", "디스크 에러", err.disk_error_hosts, t, "RAID degraded·파일시스템 손상·IO 오류"),
+        FleetErrorItem("net_errors", "NIC 에러", err.net_error_hosts, t, "네트워크 인터페이스 rx/tx 오류 프레임"),
+    ]
+
+
 def build_environment_overview(
     details: list,
     online_count: int,
@@ -206,6 +221,7 @@ def build_environment_overview(
     under_provisioned_hosts: list | None = None,
     under_limit: int | None = _UNDER_PROVISIONED_DISPLAY_MAX,
     saturation_counts: dict[str, int] | None = None,
+    error_summary: FleetErrorRaw | None = None,
 ):
     """ServerDetail list + online_count + EnvironmentUtilizationRaw + risk_counts -> EnvironmentOverview.
 
@@ -254,7 +270,7 @@ def build_environment_overview(
                 dash_length=_dash_length(utilization.mem_avg_pct),
             ),
             UtilizationBar(
-                label="디스크",
+                label="디스크 용량",  # fs used%(capacity 축) — 활용률 아님, 용량 명시 (detail 도넛과 일관)
                 pct=utilization.disk_avg_pct,
                 bar_color=_bar_color(utilization.disk_avg_pct),
                 dash_length=_dash_length(utilization.disk_avg_pct),
@@ -297,6 +313,7 @@ def build_environment_overview(
             _build_saturation_donut("CPU 포화", saturation_counts.get("cpu", 0), _sat_total),
             _build_saturation_donut("메모리 압박", saturation_counts.get("mem", 0), _sat_total),
             _build_saturation_donut("디스크 I/O 포화", saturation_counts.get("disk_io", 0), _sat_total),
+            _build_saturation_donut("네트워크 혼잡", saturation_counts.get("net", 0), _sat_total),
         ]
 
     return EnvironmentOverview(
@@ -321,6 +338,7 @@ def build_environment_overview(
         under_provisioned_hosts_count=len(_under_all),
         under_provisioned_hosts_shown=len(_under_shown),
         saturation_donuts=sat_donuts,
+        error_fleet=_build_error_fleet(error_summary),
     )
 
 
@@ -361,7 +379,7 @@ def build_environment_realtime(
         UtilizationBar(label="CPU", pct=avg_cpu, bar_color=_bar_color(avg_cpu), dash_length=_dash_length(avg_cpu)),
         UtilizationBar(label="메모리", pct=avg_mem, bar_color=_bar_color(avg_mem), dash_length=_dash_length(avg_mem)),
         UtilizationBar(
-            label="디스크", pct=avg_disk, bar_color=_bar_color(avg_disk), dash_length=_dash_length(avg_disk)
+            label="디스크 용량", pct=avg_disk, bar_color=_bar_color(avg_disk), dash_length=_dash_length(avg_disk)
         ),
     ]
 

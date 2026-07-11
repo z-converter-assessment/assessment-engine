@@ -39,24 +39,20 @@
         <div class="os-diff-note"><b>Linux</b>블록 I/O 버퍼 (회수 가능)</div>
         <div class="os-diff-note"><b>Windows</b>미측정 (N/A)</div>
       </div>
-      <div class="os-diff">
-        <div class="os-diff-head"><span class="os-diff-name">메모리 압박 (실제 부족 신호)</span><span class="os-diff-val" id="s-mem-pressure">—</span></div>
-        <div class="os-diff-note"><b>Linux</b>major page fault (하드 폴트) 비율 — 디스크에서 페이지 재적재 (실제 압박)</div>
-        <div class="os-diff-note"><b>Windows</b>Pages Input/sec 하드 페이지 폴트율 (실제 압박)</div>
-      </div>
     </div>
     <p class="text-meta text-xs" style="margin:12px 0 0;">N/A = 위 Windows/Linux 설명대로 해당 OS 미측정 · — = 일시적 값 없음 (첫 수집·수집 끊김)</p>
+    <div class="sat-title text-meta text-xs">포화 신호 — 값 / 임계 · 근거는 각 항목 hover</div>
+    <div id="mem-sat-signals"></div>
   </div>
   <div id="snap-empty" class="text-meta text-md" style="display:none;">
     수집된 메트릭이 없습니다.
   </div>
 </div>
 
-<div class="card">
-  <div class="chart-head">
-    <h2 class="card-title">메모리 사용률 추이<span class="print-only text-muted text-sm" id="mem-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    <span id="mem-bucket-label" class="bucket-label"></span>
-    <select class="chart-select no-print" id="mem-range-btns" aria-label="구간 선택">
+<div class="card no-print" style="padding:12px 16px;">
+  <div class="chart-head" style="margin:0;">
+    <span class="text-label text-sm" style="font-weight:600;">시간축</span>
+    <select class="chart-select" id="page-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
       <option value="1h">1시간</option>
       <option value="6h">6시간</option>
@@ -65,7 +61,15 @@
       <option value="14d">14일</option>
       <option value="30d">30일</option>
     </select>
-    <input type="datetime-local" id="mem-anchor" class="chart-anchor no-print" aria-label="기준 시각">
+    <input type="datetime-local" id="page-anchor" class="chart-anchor" aria-label="기준 시각">
+    <span class="text-meta text-xs">아래 모든 차트 공통 · 기준 시각 비우면 현재(live), 지정하면 그 시점 기준(과거 조사)</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="chart-head">
+    <h2 class="card-title">메모리 사용률 추이<span class="print-only text-muted text-sm" id="mem-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    <span id="mem-bucket-label" class="bucket-label"></span>
   </div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="mem-canvas"></canvas>
@@ -82,16 +86,6 @@
   <div class="chart-head">
     <h2 class="card-title">메모리 구성 추이<span class="print-only text-muted text-sm" id="comp-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     <span id="comp-bucket-label" class="bucket-label"></span>
-    <select class="chart-select no-print" id="comp-range-btns" aria-label="구간 선택">
-      <option value="15m">15분</option>
-      <option value="1h">1시간</option>
-      <option value="6h">6시간</option>
-      <option value="24h">1일</option>
-      <option value="7d">7일</option>
-      <option value="14d">14일</option>
-      <option value="30d">30일</option>
-    </select>
-    <input type="datetime-local" id="comp-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
   <div class="chart-desc">전체 대비 Used / Available / Cached / Buffers — Cached·Buffers 는 page cache 라 Linux 전용(Windows 는 미측정, Used / Available 만 표시)</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
@@ -101,6 +95,20 @@
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <div id="comp-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
+</div>
+
+<div class="card">
+  <div class="chart-head">
+    <h2 class="card-title">메모리 PSI 추이<span class="print-only text-muted text-sm" id="mem-psi-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    <span id="mem-psi-bucket-label" class="bucket-label"></span>
+  </div>
+  <div class="chart-desc">태스크가 메모리 회수 대기로 멈춘 시간 비율(%) — PSI some. Windows 미지원.</div>
+  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+    <canvas id="mem-psi-canvas"></canvas>
+  </div>
+  <div id="mem-psi-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
+    해당 기간에 수집된 데이터가 없습니다.
+  </div>
 </div>
 
 <style>

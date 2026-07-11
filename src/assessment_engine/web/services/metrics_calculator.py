@@ -15,20 +15,42 @@ from assessment_engine.boot_time import is_counter_reset
 from assessment_engine.db.dtos.outbound import (
     DashboardRaw,
     DiskIoRaw,
+    ErrorFleetRaw,
     MetricPairRaw,
     MountUsageRaw,
     NetIoRaw,
+    SaturationRaw,
+)
+from assessment_engine.recommendation import (
+    CPU_RUN_QUEUE_PER_CORE_SATURATION,
+    DISK_QUEUE_PER_DISK_SATURATION,
+    PROCS_RUNNING_PER_CORE_SATURATION,
+    RS_CONNTRACK_SATURATION_RATIO,
+    RS_CPU_STEAL_BIAS_PCT,
+    RS_DISKIO_AWAIT_MS,
+    RS_NET_DROP_PCT,
+    RS_NET_RETRANS_PCT,
+    WIN_PAGES_INPUT_SATURATION,
+    cpu_saturation_index,
+    disk_io_saturation_index,
+    mem_pressure_active,
 )
 from assessment_engine.web.services.device_filters import is_data_volume
 from assessment_engine.web.services.unit_converter import bytes_to_gb, usage_pct
 from assessment_engine.web.view_models.metric import (
     CpuSnapshot,
     DiskIoSnapshot,
+    ErrorSignal,
     MemSnapshot,
     MetricDashboard,
     MountDashSnapshot,
     NetIoSnapshot,
+    SaturationSignal,
 )
+
+# PSI ratio_avg10(대기 시간 비율 %) 표시 기준선 — 판단(right-sizing) 미사용(deferred), 스냅샷 표시 전용.
+# run_queue/await 는 도메인 판정 임계를 재사용하나, PSI 는 판단 축이 아니라 표시 기준을 여기서 명명.
+PSI_STALL_DISPLAY_PCT = 10.0
 
 # ─── 공통 helper ──────────────────────────────────────────────────────────
 
@@ -85,21 +107,181 @@ def build_dashboard(raw: DashboardRaw) -> MetricDashboard:
     cur = raw.metrics[0] if raw.metrics else None
     prev = raw.metrics[1] if len(raw.metrics) >= 2 else None
 
-    # 실행 큐는 코어당 정규화(포화 임계 '코어당 1 이상'과 정합, 보고서·환경 집계와 동일 기준, P2 서버측 파생).
-    run_queue_per_core = (
-        round(cur.cpu_run_queue / cur.cpu_logical_count, 2)
-        if (cur and cur.cpu_run_queue is not None and cur.cpu_logical_count)
-        else None
-    )
+    # 포화 신호(실행 큐 코어당 정규화 포함)는 build_saturation_signals 가 산출해 서비스가 4 리스트에 배선.
     return MetricDashboard(
         collected_at=cur.collected_at if cur else None,
         cpu=compute_cpu(cur, prev),
-        cpu_run_queue=run_queue_per_core,
         memory=compute_mem(cur),
         disk_io=compute_disk_io(raw.disk_io),
         net_io=compute_net_io(raw.net_io),
         mounts=compute_mounts(raw.filesystems),
     )
+
+
+# ─── 포화 스냅샷 신호 (os-aware 서버 판정, P2) ─────────────────────────────
+
+
+def _psi_signal(key: str, label: str, psi_val: float | None, win: bool) -> SaturationSignal:
+    """PSI 신호 — Windows 미지원(N/A), Linux 는 값/기준선. psi None = 미수집(no_data)."""
+    if win:
+        return SaturationSignal(key=key, label=label, state="not_applicable", na_reason="Windows 미지원")
+    if psi_val is None:
+        return SaturationSignal(key=key, label=label, state="no_data")
+    return SaturationSignal(
+        key=key, label=label, state="measured", value=round(psi_val, 1),
+        threshold=PSI_STALL_DISPLAY_PCT, unit="%", saturated=psi_val >= PSI_STALL_DISPLAY_PCT,
+        detail=f"PSI some(자원 대기로 멈춘 시간 비율), 표시 기준 {PSI_STALL_DISPLAY_PCT:.0f}%",
+    )
+
+
+def _ratio_signal(key: str, label: str, val: float | None, threshold: float, desc: str) -> SaturationSignal:
+    """양 OS 공통 % 비율 신호(재전송·드롭) — RS_ 임계 초과 시 saturated."""
+    return SaturationSignal(
+        key=key, label=label,
+        state="measured" if val is not None else "no_data",
+        value=round(val, 2) if val is not None else None,
+        threshold=float(threshold), unit="%", saturated=(val >= threshold) if val is not None else None,
+        detail=f"{desc}, 임계 {threshold:g}%",
+    )
+
+
+def build_saturation_signals(
+    *, os_family: str | None, run_queue_total: float | None, cores: int | None,
+    steal_pct: float | None, sat: SaturationRaw,
+) -> dict[str, list[SaturationSignal]]:
+    """자원별 포화 스냅샷 신호 4축 산출 (P2). 판정은 도메인 os-aware helper·RS_ 임계 재사용(E3 재계산 금지).
+
+    반환 {"cpu"|"mem"|"disk"|"net": [SaturationSignal]} — MetricDashboard 4 리스트에 배선.
+    """
+    win = os_family == "windows"
+
+    # CPU 실행 큐 (per-core) — cpu_saturation_index 단일 진실.
+    rq_idx = cpu_saturation_index(run_queue_total, cores, os_family)
+    rq_threshold = CPU_RUN_QUEUE_PER_CORE_SATURATION if win else PROCS_RUNNING_PER_CORE_SATURATION
+    rq_percore = (run_queue_total / cores) if (run_queue_total is not None and cores) else None
+    cpu = [
+        SaturationSignal(
+            key="cpu_run_queue", label="실행 큐",
+            state="measured" if rq_idx is not None else "no_data",
+            value=round(rq_percore, 2) if rq_percore is not None else None,
+            threshold=rq_threshold, unit="per_core",
+            saturated=(rq_idx >= 1.0) if rq_idx is not None else None,
+            detail=("Windows Processor Queue Length" if win else "Linux procs_running")
+            + f"/코어, 임계 {rq_threshold:g}",
+        )
+    ]
+    # CPU Steal (Linux 전용).
+    if win:
+        cpu.append(SaturationSignal(key="cpu_steal", label="Steal", state="not_applicable", na_reason="Windows 미지원"))
+    else:
+        cpu.append(SaturationSignal(
+            key="cpu_steal", label="Steal",
+            state="measured" if steal_pct is not None else "no_data",
+            value=round(steal_pct, 1) if steal_pct is not None else None,
+            threshold=float(RS_CPU_STEAL_BIAS_PCT), unit="%",
+            saturated=(steal_pct >= RS_CPU_STEAL_BIAS_PCT) if steal_pct is not None else None,
+            detail=f"가상화 경합(steal%), 임계 {RS_CPU_STEAL_BIAS_PCT:g}%",
+        ))
+    cpu.append(_psi_signal("cpu_psi", "PSI", sat.psi_cpu, win))
+
+    # 메모리 페이징 (os-aware) — mem_pressure_active 단일 진실.
+    paging = sat.paging_major_rate
+    paging_sat = mem_pressure_active(paging, os_family) if paging is not None else None
+    mem = [
+        SaturationSignal(
+            key="mem_paging", label="페이징",
+            state="measured" if paging is not None else "no_data",
+            value=round(paging) if paging is not None else None,
+            threshold=(WIN_PAGES_INPUT_SATURATION if win else 0.0), unit="/s", saturated=paging_sat,
+            detail=(f"Windows Pages Input/sec, 임계 {WIN_PAGES_INPUT_SATURATION:g}") if win
+            else "Linux 하드폴트(refault)/s, 발생(>0) 시 압박",
+        ),
+        _psi_signal("mem_psi", "PSI", sat.psi_mem, win),
+    ]
+
+    # 디스크 응답 지연 (await, 양 OS) — disk_io_saturation_index 단일 진실. Windows await 부재 시 큐 폴백.
+    di_idx = disk_io_saturation_index(sat.await_ms, sat.pending_ops, os_family)
+    if sat.await_ms is not None:
+        disk = [SaturationSignal(
+            key="disk_await", label="응답 지연", state="measured", value=round(sat.await_ms, 1),
+            threshold=float(RS_DISKIO_AWAIT_MS), unit="ms",
+            saturated=(di_idx >= 1.0) if di_idx is not None else None,
+            detail=f"IO 응답 지연 await, 임계 {RS_DISKIO_AWAIT_MS:g}ms",
+        )]
+    elif win and sat.pending_ops is not None:
+        disk = [SaturationSignal(
+            key="disk_await", label="디스크 큐", state="measured", value=round(sat.pending_ops, 2),
+            threshold=float(DISK_QUEUE_PER_DISK_SATURATION), unit="ops",
+            saturated=(di_idx >= 1.0) if di_idx is not None else None,
+            detail=f"Windows 큐 깊이(await 폴백), 임계 {DISK_QUEUE_PER_DISK_SATURATION:g}",
+        )]
+    else:
+        disk = [SaturationSignal(key="disk_await", label="응답 지연", state="no_data")]
+    disk.append(_psi_signal("disk_psi", "PSI(io)", sat.psi_io, win))
+
+    # 네트워크 품질 — 재전송·드롭(에러성 rate) + conntrack(연결테이블 포화). 양 OS.
+    ct_ratio = sat.conntrack_ratio
+    net = [
+        _ratio_signal("net_retrans", "재전송", sat.retrans_pct, RS_NET_RETRANS_PCT, "TCP 재전송율"),
+        _ratio_signal("net_drop", "드롭", sat.drop_pct, RS_NET_DROP_PCT, "패킷 드롭율"),
+        SaturationSignal(
+            key="net_conntrack", label="conntrack",
+            state="measured" if ct_ratio is not None else "no_data",
+            value=round(ct_ratio * 100, 1) if ct_ratio is not None else None,
+            threshold=RS_CONNTRACK_SATURATION_RATIO * 100, unit="%",
+            saturated=(ct_ratio >= RS_CONNTRACK_SATURATION_RATIO) if ct_ratio is not None else None,
+            detail=f"연결 테이블 사용률, 임계 {RS_CONNTRACK_SATURATION_RATIO * 100:.0f}%",
+        ),
+    ]
+
+    return {"cpu": cpu, "mem": mem, "disk": disk, "net": net}
+
+
+# ─── 에러 축 표시자 (Errors, 정상=0 발화 E9) ───────────────────────────────
+
+
+def _error_counter(
+    key: str, label: str, count: int, measured: bool, detail: str,
+    *, last_at=None, context: str | None = None, window_label: str,
+) -> ErrorSignal:
+    """카운트형 에러 신호 — 미측정 no_data / 발생(>0) occurred / 정상(0) clean."""
+    if not measured:
+        return ErrorSignal(key=key, label=label, state="no_data", window_label=window_label, detail=detail)
+    if count > 0:
+        return ErrorSignal(
+            key=key, label=label, state="occurred", count=count, context=context,
+            last_at=last_at, window_label=window_label, detail=detail,
+        )
+    return ErrorSignal(key=key, label=label, state="clean", count=0, window_label=window_label, detail=detail)
+
+
+def build_error_signals(err: ErrorFleetRaw, *, window_label: str) -> list[ErrorSignal]:
+    """에러 축 표시자 5종 (MCE·OOM·EDAC·NIC·디스크) — 카운트 + 종류 + 창. 정상=0 발화(E9)."""
+    signals = [
+        _error_counter("cpu_mce", "머신체크(MCE)", err.mce_count, err.measured,
+                       "CPU/메모리 하드웨어 정정불가 오류(machine check exception)", window_label=window_label),
+        _error_counter("mem_oom", "OOM Kill", err.oom_count, err.measured,
+                       "메모리 부족으로 커널이 프로세스 강제 종료", window_label=window_label),
+        _error_counter("net_errors", "NIC 에러", err.net_error_count, err.net_measured,
+                       "네트워크 인터페이스 rx/tx 오류 프레임", window_label=window_label),
+        _error_counter("disk_errors", "디스크 에러", err.disk_error_count, err.disk_err_measured,
+                       "RAID degraded·파일시스템 손상·IO 오류", last_at=err.last_error_at,
+                       context=(", ".join(err.disk_error_kinds) if err.disk_error_kinds else None),
+                       window_label=window_label),
+    ]
+    # EDAC 메모리 손상 — gauge(현재값 > 0), 카운트 아님.
+    edac_detail = "ECC 정정된 하드웨어 메모리 손상 바이트"
+    if err.corrupted_bytes is None:
+        signals.append(ErrorSignal(key="mem_corrupted", label="메모리 손상(EDAC)", state="no_data",
+                                   window_label=window_label, detail=edac_detail))
+    elif err.corrupted_bytes > 0:
+        signals.append(ErrorSignal(key="mem_corrupted", label="메모리 손상(EDAC)", state="occurred",
+                                   context=f"{err.corrupted_bytes} bytes 손상", window_label=window_label,
+                                   detail=edac_detail))
+    else:
+        signals.append(ErrorSignal(key="mem_corrupted", label="메모리 손상(EDAC)", state="clean", count=0,
+                                   window_label=window_label, detail=edac_detail))
+    return signals
 
 
 # ─── CPU ──────────────────────────────────────────────────────────────────

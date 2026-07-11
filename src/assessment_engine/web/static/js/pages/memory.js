@@ -6,14 +6,17 @@
  * - ChartUtils (base.html에서 chart-utils.js 로드)
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
  * - body data-server-id (E6 외부화 규약, static-assets.md)
+ *
+ * 시간축: 페이지 단일 range + anchor(#F10) — 2 차트(사용률·구성)가 pageTimeControl 하나를 공유해
+ * 같은 창·시점으로 그려진다(신호 간 시점 상관).
  */
 
 /** @typedef {import('../generated/api').components['schemas']['MetricDashboard']} MetricDashboard */
 /** @typedef {import('../generated/api').components['schemas']['MetricSeriesItem']} MetricSeriesItem */
 
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
-        fmtLabel, getAnchorEnd, initAnchor,
-        makeBucketGrid, bindToggle, initAutoRefresh, safeArray,
+        fmtLabel, pageTimeControl,
+        makeBucketGrid, joinToGrid, initAutoRefresh, safeArray,
         buildAvgMaxDatasets, buildDimDatasets, renderChipLegend } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
@@ -43,11 +46,9 @@ async function loadSnapshot() {
     /** @type {HTMLElement} */ (document.getElementById('s-mem-cached')).textContent  = /** @type {string} */ (ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtGb(mem.cached_bytes)));
     /** @type {HTMLElement} */ (document.getElementById('s-mem-buffers')).textContent = /** @type {string} */ (ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtGb(mem.buffered_bytes)));
 
-    // 메모리 압박 — 신 모델 포화 신호(스왑 점유율과 별개). 양 OS 공통 하드 페이지 폴트율(mem_pages_input_rate).
-    const pressEl = document.getElementById('s-mem-pressure');
-    if (pressEl) {
-      pressEl.textContent = data.mem_pages_input_rate != null ? data.mem_pages_input_rate.toFixed(0) + '/s (하드폴트)' : '—';
-    }
+    // 포화 스냅샷 신호 — 서버가 os-aware 판정(값·임계·saturated·4상태)을 끝낸 구조화 신호를 공통 렌더만(P4).
+    // JS os 분기·임계 재계산 없음(SignalUtils). 근거(metric·임계)는 각 항목 hover.
+    SignalUtils.renderSaturation(document.getElementById('mem-sat-signals'), data.mem_saturation);
 
     const stampEl = document.getElementById('metrics-stamp');
     if (stampEl && data.collected_at) {
@@ -71,12 +72,8 @@ const PCT_CHARTS = [
 
 /** @param {PctChartDef} def */
 function makePctLoader(def) {
-  /** @type {{ range: string, chart: any, seq: number }} */
-  const state = { range: '15m', chart: null, seq: 0 };
-
-  function bucketLabel() {
-    /** @type {HTMLElement} */ (document.getElementById(def.id + '-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[state.range]] || '';
-  }
+  /** @type {{ chart: any, seq: number }} */
+  const state = { chart: null, seq: 0 };
 
   function makeYScale() {
     /** @type {Record<string, unknown>} */
@@ -120,8 +117,8 @@ function makePctLoader(def) {
 
   async function load() {
     const seq = ++state.seq;
-    const capturedRange  = state.range;
-    const capturedAnchor = /** @type {any} */ (getAnchorEnd)(def.id + '-anchor');
+    const capturedRange  = timeCtl.getRange();
+    const capturedAnchor = timeCtl.getAnchor();
     const canvas = /** @type {HTMLElement} */ (document.getElementById(def.id + '-canvas'));
     const empty  = /** @type {HTMLElement} */ (document.getElementById(def.id + '-empty'));
     const bucket = AUTO_BUCKET[capturedRange];
@@ -166,31 +163,15 @@ function makePctLoader(def) {
     } catch(e) { console.error(e); }
   }
 
-  return { state, load, bucketLabel };
+  return { state, load };
 }
 
 const pctLoaders = PCT_CHARTS.map(makePctLoader);
-pctLoaders.forEach((loader, i) => {
-  const def = PCT_CHARTS[i];
-  bindToggle(def.id + '-range-btns', v => {
-    loader.state.range = v;
-    loader.bucketLabel();
-    /** @type {HTMLElement} */ (document.getElementById(def.id + '-range-print')).textContent = ' — ' + RANGE_LABEL[v];
-    loader.load();
-  });
-  /** @type {any} */ (initAnchor)(def.id + '-anchor');
-  /** @type {HTMLElement} */ (document.getElementById(def.id + '-anchor')).addEventListener('change', () => loader.load());
-});
 
 /* ── 메모리 구성 추이 (used / available / cached / buffers %) — multi-dim ── */
-let compRange = '15m';
 /** @type {any} */
 let compChart = null;
 let compSeq   = 0;
-
-function updateCompBucketLabel() {
-  /** @type {HTMLElement} */ (document.getElementById('comp-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[compRange]] || '';
-}
 
 // Windows 는 Cached/Buffers 미측정(page-cache 세분 개념 부재) — Used/Available 만(빈 라인·범례 방지, OS 분기).
 const COMP_META = {
@@ -259,8 +240,8 @@ function buildCompLegend() {
 
 async function loadCompChart() {
   const seq = ++compSeq;
-  const capturedRange  = compRange;
-  const capturedAnchor = /** @type {any} */ (getAnchorEnd)('comp-anchor');
+  const capturedRange  = timeCtl.getRange();
+  const capturedAnchor = timeCtl.getAnchor();
   const bucket = AUTO_BUCKET[capturedRange];
   const mkP = (/** @type {string} */ type) => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg: 'avg' });
@@ -289,22 +270,83 @@ async function loadCompChart() {
   } catch(e) { console.error(e); }
 }
 
-bindToggle('comp-range-btns', v => {
-  compRange = v;
-  updateCompBucketLabel();
-  /** @type {HTMLElement} */ (document.getElementById('comp-range-print')).textContent = ' — ' + RANGE_LABEL[v];
+/* ── 메모리 PSI 추이 (some 정체율 %, 단일선 — Linux 전용, Windows 는 빈 결과 -> empty state) ── */
+/** @type {any} */
+let memPsiChart = null;
+let memPsiSeq   = 0;
+
+async function loadMemPsiChart() {
+  const seq = ++memPsiSeq;
+  const range  = timeCtl.getRange();
+  const anchor = timeCtl.getAnchor();
+  const p = new URLSearchParams({ metric_type: 'mem.psi', time_range: range, bucket: AUTO_BUCKET[range], agg: 'avg' });
+  if (anchor) p.append('end', anchor.toISOString());
+  const canvas = /** @type {HTMLElement} */ (document.getElementById('mem-psi-canvas'));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById('mem-psi-empty'));
+  try {
+    /** @type {import('../generated/api').components['schemas']['MetricSeriesItem'][]} */
+    const rows = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${p}`).then(r => r.json());
+    if (seq !== memPsiSeq) return;
+    if (!Array.isArray(rows) || !rows.length) {
+      canvas.style.display = 'none'; empty.style.display = '';
+      if (memPsiChart) { memPsiChart.destroy(); memPsiChart = null; }
+      return;
+    }
+    canvas.style.display = ''; empty.style.display = 'none';
+    const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
+    const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchor);
+    const labels = grid.map((/** @type {number} */ t) => fmtLabel(new Date(t).toISOString(), range));
+    const data   = joinToGrid(grid, rows, bMs);
+    if (memPsiChart) {
+      memPsiChart.data.labels = labels; memPsiChart.data.datasets[0].data = data;
+      memPsiChart.update('none'); return;
+    }
+    memPsiChart = new Chart(canvas, {
+      type: 'line',
+      data: { labels, datasets: [{
+        label: 'PSI (정체율)', data,
+        borderColor: /** @type {any} */ (ChartUtils).themeColor(),
+        borderWidth: 2, pointRadius: 1, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
+      }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode:'index', intersect:false },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` PSI: ${ctx.parsed.y?.toFixed(1)} %` } } },
+        scales: {
+          x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
+          y: { ticks:{ callback: v => v + '%', font:{size:11}, color:'#64748b' }, grid:{ color:'#f1f5f9' }, beginAtZero: true, suggestedMax: 20 },
+        },
+      },
+    });
+  } catch(e) { console.error(e); }
+}
+
+/* ── 페이지 단일 시간축 버킷 라벨·print range (모든 차트 공통 range) ── */
+function updateBucketLabels() {
+  const r = timeCtl.getRange();
+  const bl = BUCKET_LABEL[AUTO_BUCKET[r]] || '';
+  const pr = ' — ' + RANGE_LABEL[r];
+  /** @param {string} id @param {string} t */
+  const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  for (const def of PCT_CHARTS) { set(def.id + '-bucket-label', bl); set(def.id + '-range-print', pr); }
+  set('comp-bucket-label', bl); set('comp-range-print', pr);
+  set('mem-psi-bucket-label', bl); set('mem-psi-range-print', pr);
+}
+
+/* ── 전체 차트 reload (페이지 range/anchor 변경 시) ── */
+function reloadAllCharts() {
+  updateBucketLabels();
+  pctLoaders.forEach(loader => loader.load());
   loadCompChart();
-});
+  loadMemPsiChart();
+}
 
-/* ── 30초 polling 자동 갱신 (SSE 제거) ── */
+// 페이지 단일 시간축 컨트롤러 — range 토글 + anchor 가 2 차트 전체 구동(#F10).
+const timeCtl = pageTimeControl('page-range-btns', 'page-anchor', '15m', reloadAllCharts);
+
+/* ── 30초 polling 자동 갱신 (스냅샷만) ── */
 initAutoRefresh(loadSnapshot);
-
-/* ── 기준일 초기화 ── */
-/** @type {any} */ (initAnchor)('comp-anchor');
-/** @type {HTMLElement} */ (document.getElementById('comp-anchor')).addEventListener('change', () => loadCompChart());
 
 /* ── 초기 로드 ── */
 loadSnapshot();
-pctLoaders.forEach(loader => { loader.bucketLabel(); loader.load(); });
-updateCompBucketLabel();
-loadCompChart();
+reloadAllCharts();

@@ -11,6 +11,8 @@ from sqlalchemy import select, text
 from assessment_engine.db.dtos.outbound import (
     DashboardRaw,
     DiskIoRaw,
+    ErrorFleetRaw,
+    FleetErrorRaw,
     MetricPairRaw,
     MetricSeries,
     MountUsageRaw,
@@ -59,9 +61,13 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
     _METRIC_SNAPSHOTS_WINDOW = timedelta(days=30)
 
     async def latest_dashboard(self, server_id: int) -> DashboardRaw | None:
-        exists = await self.session.execute(select(ServerInventory.id).where(ServerInventory.id == server_id))
-        if not exists.scalar_one_or_none():
+        inv = await self.session.execute(
+            select(ServerInventory.os_family).where(ServerInventory.id == server_id)
+        )
+        inv_row = inv.first()
+        if inv_row is None:
             return None
+        os_family = inv_row[0]  # os-aware 스냅샷 포화 판정 입력 (nullable)
 
         # 미래 timestamp 방어 — 시계 어긋난 agent 의 미래 collected_at 행이 "가짜 최신"으로 잡혀
         # CPU delta(연속 2행)를 깨뜨리는 것 차단 (now()+skew 상한).
@@ -151,14 +157,17 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             for row in fs_rows
         ]
 
-        return DashboardRaw(metrics=metrics, disk_io=disk_io, net_io=net_io, filesystems=filesystems)
+        return DashboardRaw(
+            metrics=metrics, disk_io=disk_io, net_io=net_io, filesystems=filesystems, os_family=os_family
+        )
 
     async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, SaturationRaw]:
-        """서버별 실시간 포화 원자료 (v2, os 통일) — 4축:
+        """서버별 실시간 포화 원자료 (v2, os 통일):
         - run_queue: 최신 cpu_run_queue gauge (Linux procs_running / Windows Processor Queue).
         - await_ms: server_disk_io op_time delta / ops delta (양 OS, ms). pending_ops 는 큐 폴백.
         - paging_major_rate: server_metrics paging_major delta / dt (하드폴트 rate, Linux refault / Windows).
         - retrans_pct / drop_pct / conntrack_ratio: 네트워크 품질·로컬 포화.
+        - psi_cpu / psi_mem / psi_io: PSI %정체(stall_time delta / wall-time delta, server_pressure some, Linux 4.20+ / null).
 
         since 이후 최신 2행(delta) per server/device. reset(값-감소)은 delta<0 -> None 가드. now+2m skew 상한.
         """
@@ -219,14 +228,45 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                     SUM(CASE WHEN rn = 1 THEN COALESCE(rx_dropped,0)+COALESCE(tx_dropped,0) END)
                       - SUM(CASE WHEN rn = 2 THEN COALESCE(rx_dropped,0)+COALESCE(tx_dropped,0) END) AS drop_delta
                 FROM n2 WHERE rn <= 2 GROUP BY server_id
+            ),
+            psi AS (
+                -- PSI %정체 = stall_time_s delta / wall-time delta * 100 (scope=some, resource cpu/memory/io).
+                -- 에이전트는 stall_time_s(counter)를 발행(ratio_avg10 gauge 는 미발행) -> 페이징과 동형 rate 산출.
+                -- Linux 4.20+ 만 행 존재 -> 미지원 OS 는 psi_* null (LEFT JOIN). reset(값-감소)·dt<=0 은 null 가드.
+                SELECT server_id,
+                    max(CASE WHEN resource = 'cpu'    THEN rate END) AS psi_cpu,
+                    max(CASE WHEN resource = 'memory' THEN rate END) AS psi_mem,
+                    max(CASE WHEN resource = 'io'     THEN rate END) AS psi_io
+                FROM (
+                    SELECT server_id, resource,
+                        CASE WHEN s1 >= s2 AND t1 > t2
+                             THEN (s1 - s2) / EXTRACT(EPOCH FROM (t1 - t2)) * 100 END AS rate
+                    FROM (
+                        SELECT server_id, resource,
+                            max(CASE WHEN rn = 1 THEN stall_time_s END) AS s1,
+                            max(CASE WHEN rn = 2 THEN stall_time_s END) AS s2,
+                            max(CASE WHEN rn = 1 THEN collected_at END) AS t1,
+                            max(CASE WHEN rn = 2 THEN collected_at END) AS t2
+                        FROM (
+                            SELECT server_id, resource, stall_time_s, collected_at,
+                                   row_number() OVER (PARTITION BY server_id, resource
+                                                      ORDER BY collected_at DESC) AS rn
+                            FROM server_pressure
+                            WHERE server_id = ANY(:sids) AND scope = 'some'
+                                  AND collected_at >= :since AND collected_at <= now() + interval '2 minutes'
+                        ) pp WHERE rn <= 2 GROUP BY server_id, resource
+                    ) pd
+                ) pr GROUP BY server_id
             )
             SELECT m.server_id, m.run_queue, m.conntrack_ratio, m.paging_major_rate, da.pending_ops,
+                   psi.psi_cpu, psi.psi_mem, psi.psi_io,
                    CASE WHEN da.ops_delta > 0 AND da.t_delta >= 0 THEN da.t_delta::float / da.ops_delta * 1000 END AS await_ms,
                    CASE WHEN nt.txp_delta > 0 AND m.retrans_delta >= 0
                         THEN m.retrans_delta::float / nt.txp_delta * 100 END AS retrans_pct,
                    CASE WHEN nt.pkt_delta > 0 AND nt.drop_delta >= 0
                         THEN nt.drop_delta::float / nt.pkt_delta * 100 END AS drop_pct
             FROM m LEFT JOIN da ON da.server_id = m.server_id LEFT JOIN nt ON nt.server_id = m.server_id
+                   LEFT JOIN psi ON psi.server_id = m.server_id
         """)
         result = await self.session.execute(sql, {"sids": server_ids, "since": since})
         return {
@@ -238,9 +278,145 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 retrans_pct=float(r.retrans_pct) if r.retrans_pct is not None else None,
                 drop_pct=float(r.drop_pct) if r.drop_pct is not None else None,
                 conntrack_ratio=float(r.conntrack_ratio) if r.conntrack_ratio is not None else None,
+                psi_cpu=float(r.psi_cpu) if r.psi_cpu is not None else None,
+                psi_mem=float(r.psi_mem) if r.psi_mem is not None else None,
+                psi_io=float(r.psi_io) if r.psi_io is not None else None,
             )
             for r in result
         }
+
+    async def latest_errors(self, server_id: int, since: datetime) -> ErrorFleetRaw:
+        """창내 에러 축 카운트 (단일 서버, bounded raw). counter delta = MAX-MIN(reset 은 >=0 자연 클램프).
+
+        server_disk_error 는 정상 시 count=0 -> delta 0 = 정상(no_data 아님). server_metrics/net_io 는 창 안
+        표본 없으면 no_data(measured=False). corrupted_bytes 는 gauge(현재값 > 0 = 메모리 손상 존재).
+        """
+        m = (
+            await self.session.execute(
+                text("""
+                    SELECT COALESCE(MAX(cpu_mce) - MIN(cpu_mce), 0) AS mce,
+                           COALESCE(MAX(mem_oom_kill) - MIN(mem_oom_kill), 0) AS oom,
+                           count(*) AS n,
+                           (SELECT mem_hardware_corrupted_bytes FROM server_metrics
+                             WHERE server_id = :sid AND collected_at >= :since
+                             ORDER BY collected_at DESC LIMIT 1) AS corrupted
+                    FROM server_metrics
+                    WHERE server_id = :sid AND collected_at >= :since
+                      AND collected_at <= now() + interval '2 minutes'
+                """),
+                {"sid": server_id, "since": since},
+            )
+        ).one()
+        net = (
+            await self.session.execute(
+                text("""
+                    SELECT COALESCE(SUM(d), 0) AS net_err, count(*) AS ifaces FROM (
+                        SELECT MAX(COALESCE(rx_errors,0)+COALESCE(tx_errors,0))
+                             - MIN(COALESCE(rx_errors,0)+COALESCE(tx_errors,0)) AS d
+                        FROM server_net_io
+                        WHERE server_id = :sid AND collected_at >= :since
+                          AND collected_at <= now() + interval '2 minutes'
+                        GROUP BY iface_id
+                    ) x
+                """),
+                {"sid": server_id, "since": since},
+            )
+        ).one()
+        de = (
+            await self.session.execute(
+                text("""
+                    SELECT COALESCE(SUM(d), 0) AS cnt,
+                           COALESCE(array_agg(DISTINCT kc) FILTER (WHERE d > 0), ARRAY[]::text[]) AS kinds,
+                           MAX(last_at) FILTER (WHERE d > 0) AS last_at
+                    FROM (
+                        SELECT error_kind || '/' || error_class AS kc,
+                               MAX(count) - MIN(count) AS d, MAX(collected_at) AS last_at
+                        FROM server_disk_error
+                        WHERE server_id = :sid AND collected_at >= :since
+                          AND collected_at <= now() + interval '2 minutes'
+                        GROUP BY device_id, error_kind, error_class, member
+                    ) x
+                """),
+                {"sid": server_id, "since": since},
+            )
+        ).one()
+        return ErrorFleetRaw(
+            measured=m.n > 0,
+            net_measured=net.ifaces > 0,
+            disk_err_measured=True,
+            mce_count=int(m.mce or 0),
+            oom_count=int(m.oom or 0),
+            corrupted_bytes=int(m.corrupted) if m.corrupted is not None else None,
+            net_error_count=int(net.net_err or 0),
+            disk_error_count=int(de.cnt or 0),
+            disk_error_kinds=list(de.kinds or []),
+            last_error_at=de.last_at,
+        )
+
+    async def fleet_error_summary(self, server_ids: list[int], since: datetime) -> FleetErrorRaw:
+        """전 서버 에러축 영향 호스트 수 (환경 개요 fleet 표시자). 창내 counter delta > 0(또는 corrupted 현재>0) 호스트 count."""
+        if not server_ids:
+            return FleetErrorRaw()
+        m = (
+            await self.session.execute(
+                text("""
+                    SELECT count(*) AS total,
+                           count(*) FILTER (WHERE mce_d > 0)  AS mce_hosts,
+                           count(*) FILTER (WHERE oom_d > 0)  AS oom_hosts,
+                           count(*) FILTER (WHERE corrupted > 0) AS corrupted_hosts
+                    FROM (
+                        SELECT server_id,
+                            COALESCE(MAX(cpu_mce) - MIN(cpu_mce), 0) AS mce_d,
+                            COALESCE(MAX(mem_oom_kill) - MIN(mem_oom_kill), 0) AS oom_d,
+                            COALESCE(MAX(mem_hardware_corrupted_bytes), 0) AS corrupted
+                        FROM server_metrics
+                        WHERE server_id = ANY(:sids) AND collected_at >= :since
+                          AND collected_at <= now() + interval '2 minutes'
+                        GROUP BY server_id
+                    ) x
+                """),
+                {"sids": server_ids, "since": since},
+            )
+        ).one()
+        net_hosts = (
+            await self.session.execute(
+                text("""
+                    SELECT count(*) FILTER (WHERE net_d > 0) FROM (
+                        SELECT server_id, SUM(d) AS net_d FROM (
+                            SELECT server_id, MAX(COALESCE(rx_errors,0)+COALESCE(tx_errors,0))
+                                            - MIN(COALESCE(rx_errors,0)+COALESCE(tx_errors,0)) AS d
+                            FROM server_net_io
+                            WHERE server_id = ANY(:sids) AND collected_at >= :since
+                              AND collected_at <= now() + interval '2 minutes'
+                            GROUP BY server_id, iface_id
+                        ) y GROUP BY server_id
+                    ) z
+                """),
+                {"sids": server_ids, "since": since},
+            )
+        ).scalar_one()
+        disk_hosts = (
+            await self.session.execute(
+                text("""
+                    SELECT count(DISTINCT server_id) FROM (
+                        SELECT server_id, MAX(count) - MIN(count) AS d
+                        FROM server_disk_error
+                        WHERE server_id = ANY(:sids) AND collected_at >= :since
+                          AND collected_at <= now() + interval '2 minutes'
+                        GROUP BY server_id, device_id, error_kind, error_class, member
+                    ) w WHERE d > 0
+                """),
+                {"sids": server_ids, "since": since},
+            )
+        ).scalar_one()
+        return FleetErrorRaw(
+            total=int(m.total or 0),
+            mce_hosts=int(m.mce_hosts or 0),
+            oom_hosts=int(m.oom_hosts or 0),
+            corrupted_hosts=int(m.corrupted_hosts or 0),
+            net_error_hosts=int(net_hosts or 0),
+            disk_error_hosts=int(disk_hosts or 0),
+        )
 
     async def metric_snapshots(
         self,
@@ -426,6 +602,35 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
             """)
             params["window_start"] = start - bucket_td
+        elif metric_type in ("cpu.psi", "mem.psi", "disk.psi"):
+            # PSI %정체 추이 = Σ(Δstall_time_s) / Σ(Δwall-time) * 100 (scope=some, resource 매핑).
+            # server_pressure (server, resource)별 stall_time_s counter. reset 은 GREATEST(Δ,0). 단일선.
+            # Linux 4.20+ 만 행 존재 -> 미지원 OS(Windows)는 빈 결과(차트 empty state).
+            psi_resource = {"cpu.psi": "cpu", "mem.psi": "memory", "disk.psi": "io"}[metric_type]
+            sid_psi = "AND server_id = ANY(:server_ids)" if server_ids else ""
+            sql = text(f"""
+                WITH l_raw AS (
+                    SELECT collected_at, server_id, stall_time_s AS s
+                    FROM server_pressure
+                    WHERE resource = :psi_resource AND scope = 'some'
+                      AND collected_at >= :window_start AND collected_at <= :end {sid_psi}
+                ),
+                l_delta AS (
+                    SELECT collected_at,
+                        GREATEST(s - LAG(s) OVER w, 0) AS d_s,
+                        EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER w)) AS dt
+                    FROM l_raw WINDOW w AS (PARTITION BY server_id ORDER BY collected_at)
+                ),
+                per_ts AS (
+                    SELECT collected_at, SUM(d_s)::float / NULLIF(SUM(dt), 0) * 100 AS v
+                    FROM l_delta WHERE collected_at >= :start AND dt > 0
+                    GROUP BY collected_at
+                )
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind
+                FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
+            """)
+            params["window_start"] = start - bucket_td
+            params["psi_resource"] = psi_resource
         elif metric_type == "fs.usage_percent":
             if collapse:
                 sql = text(f"""

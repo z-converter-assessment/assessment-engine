@@ -202,7 +202,7 @@ def _build_env_metrics(overview: EnvironmentOverview) -> list[dict]:
     return [
         {"label": "CPU 이용률", "value": _pct(util.get("CPU")), "sub": f"p95 {_pct(util_p95.get('CPU'))}"},
         {"label": "메모리 이용률", "value": _pct(util.get("메모리")), "sub": f"p95 {_pct(util_p95.get('메모리'))}"},
-        {"label": "디스크 이용률", "value": _pct(util.get("디스크")), "sub": ""},
+        {"label": "디스크 용량", "value": _pct(util.get("디스크 용량")), "sub": ""},
         _sat(0),
         _sat(1),
         _sat(2),

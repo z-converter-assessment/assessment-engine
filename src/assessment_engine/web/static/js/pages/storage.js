@@ -6,11 +6,13 @@
  * - ChartUtils (base.html에서 chart-utils.js 로드)
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
  * - body data-server-id (E6 외부화 규약, static-assets.md)
+ *
+ * 시간축: 페이지 단일 range + anchor(#F10) — 3 차트(IOPS·처리량·파일시스템)가 pageTimeControl 하나를
+ * 공유해 같은 창·시점으로 그려진다(신호 간 시점 상관).
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
-        getAnchorEnd, initAnchor,
-        makeBucketGrid, joinToGrid, bindToggle, initAutoRefresh, safeArray,
+        makeBucketGrid, joinToGrid, pageTimeControl, initAutoRefresh, safeArray,
         buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
@@ -60,17 +62,9 @@ async function loadIoSnapshot() {
     } else {
       /** @type {HTMLElement} */ (document.getElementById('io-phys-empty')).style.display = '';
     }
-    // 디스크 I/O 포화 값 — 신호 유무로 OS 분기(Linux/Windows await ms, 구세대 viostor 만 큐). 기준 설명은 템플릿 2행 정적.
-    const satEl = document.getElementById('s-disk-sat');
-    if (satEl) {
-      if (data.disk_await_ms != null) {
-        satEl.textContent = 'await ' + data.disk_await_ms.toFixed(0) + 'ms';
-      } else if (data.disk_queue != null) {
-        satEl.textContent = 'Queue ' + data.disk_queue.toFixed(2);
-      } else {
-        satEl.textContent = '—';
-      }
-    }
+    // 포화 스냅샷 신호 — 서버가 os-aware 판정(값·임계·saturated·4상태)을 끝낸 구조화 신호를 공통 렌더만(P4).
+    // JS os 분기·임계 재계산 없음(SignalUtils). 근거(metric·임계)는 각 항목 hover.
+    SignalUtils.renderSaturation(document.getElementById('disk-sat-signals'), data.disk_saturation);
     const stampEl = document.getElementById('metrics-stamp');
     if (stampEl && data.collected_at)
       stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);
@@ -80,10 +74,8 @@ async function loadIoSnapshot() {
 }
 
 /* ── I/O 추이 차트 ── */
-let physRange = '15m';
 let physChart = /** @type {any} */ (null);
 let physSeq   = 0;
-let kbpsRange = '15m';
 let kbpsChart = /** @type {any} */ (null);
 let kbpsSeq   = 0;
 
@@ -171,13 +163,10 @@ function renderIoChartTo(canvasId, emptyId, legendId, avgRows, maxRows, range, c
   return chart;
 }
 
-function updatePhysBucketLabel() {
-  /** @type {HTMLElement} */ (document.getElementById('io-phys-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[physRange]] || '';
-}
 async function loadPhysChart() {
   const seq = ++physSeq;
-  const capturedRange = physRange;
-  const capturedAnchor = /** @type {any} */ (getAnchorEnd)('phys-anchor');
+  const capturedRange = timeCtl.getRange();
+  const capturedAnchor = timeCtl.getAnchor();
   const bucket = AUTO_BUCKET[capturedRange];
   const mkQ = (/** @type {string} */ type, /** @type {string} */ agg) => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg });
@@ -208,29 +197,11 @@ async function loadPhysChart() {
   } catch(e) { console.error(e); }
 }
 
-bindToggle('io-phys-range-btns', v => {
-  physRange = v;
-  updatePhysBucketLabel();
-  /** @type {HTMLElement} */ (document.getElementById('io-phys-range-print')).textContent = ' — ' + RANGE_LABEL[v];
-  loadPhysChart();
-});
-/** @type {any} */ (initAnchor)('phys-anchor');
-/** @type {any} */ (initAnchor)('fs-anchor');
-/** @type {HTMLElement} */ (document.getElementById('phys-anchor')).addEventListener('change', () => loadPhysChart());
-/** @type {HTMLElement} */ (document.getElementById('fs-anchor')).addEventListener('change', () => loadFsChart());
-
-loadIoSnapshot();
-updatePhysBucketLabel();
-loadPhysChart();
-
 /* ── 디스크 I/O 처리량(kBps) 추이 — 위 IOPS 추이와 동일 포맷, Y축만 KB/s ── */
-function updateKbpsBucketLabel() {
-  /** @type {HTMLElement} */ (document.getElementById('io-kbps-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[kbpsRange]] || '';
-}
 async function loadKbpsChart() {
   const seq = ++kbpsSeq;
-  const capturedRange = kbpsRange;
-  const capturedAnchor = /** @type {any} */ (getAnchorEnd)('kbps-anchor');
+  const capturedRange = timeCtl.getRange();
+  const capturedAnchor = timeCtl.getAnchor();
   const bucket = AUTO_BUCKET[capturedRange];
   const mkQ = (/** @type {string} */ type, /** @type {string} */ agg) => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg });
@@ -261,25 +232,9 @@ async function loadKbpsChart() {
   } catch(e) { console.error(e); }
 }
 
-bindToggle('io-kbps-range-btns', v => {
-  kbpsRange = v;
-  updateKbpsBucketLabel();
-  /** @type {HTMLElement} */ (document.getElementById('io-kbps-range-print')).textContent = ' — ' + RANGE_LABEL[v];
-  loadKbpsChart();
-});
-/** @type {any} */ (initAnchor)('kbps-anchor');
-/** @type {HTMLElement} */ (document.getElementById('kbps-anchor')).addEventListener('change', () => loadKbpsChart());
-updateKbpsBucketLabel();
-loadKbpsChart();
-
 /* ── 파일시스템 사용량 추이 ── */
-let fsRange = '15m';
 let fsChart = /** @type {any} */ (null);
 let fsSeq   = 0;
-
-function updateFsBucketLabel() {
-  /** @type {HTMLElement} */ (document.getElementById('fs-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[fsRange]] || '';
-}
 
 /**
  * @param {any[]} avgRows
@@ -351,8 +306,8 @@ function renderFsChart(avgRows, maxRows, range, anchorEnd) {
 
 async function loadFsChart() {
   const seq = ++fsSeq;
-  const capturedRange  = fsRange;
-  const capturedAnchor = /** @type {any} */ (getAnchorEnd)('fs-anchor');
+  const capturedRange  = timeCtl.getRange();
+  const capturedAnchor = timeCtl.getAnchor();
   const mkP = (/** @type {string} */ agg) => {
     const p = new URLSearchParams({ metric_type: 'fs.usage_percent', time_range: capturedRange, bucket: AUTO_BUCKET[capturedRange], agg });
     if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
@@ -375,10 +330,135 @@ function buildFsLegend() {
   buildAvgMaxLegend('fs-legend', fsChart, { withToggle: true });
 }
 
-bindToggle('fs-range-btns', v => { fsRange = v; updateFsBucketLabel(); /** @type {HTMLElement} */ (document.getElementById('fs-range-print')).textContent = ' — ' + RANGE_LABEL[v]; loadFsChart(); });
+/* ── 디스크 I/O 포화 추이 (await ms, 단일선 — 양 OS 통일, 20ms 포화) ── */
+/** @type {any} */
+let diskSatChart = null;
+let diskSatSeq   = 0;
 
-updateFsBucketLabel();
-loadFsChart();
+async function loadDiskSatChart() {
+  const seq = ++diskSatSeq;
+  const range  = timeCtl.getRange();
+  const anchor = timeCtl.getAnchor();
+  const p = new URLSearchParams({ metric_type: 'disk.io_saturation', time_range: range, bucket: AUTO_BUCKET[range], agg: 'avg' });
+  if (anchor) p.append('end', anchor.toISOString());
+  const canvas = /** @type {HTMLElement} */ (document.getElementById('disksat-canvas'));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById('disksat-empty'));
+  try {
+    /** @type {import('../generated/api').components['schemas']['MetricSeriesItem'][]} */
+    const rows = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${p}`).then(r => r.json());
+    if (seq !== diskSatSeq) return;
+    if (!Array.isArray(rows) || !rows.length) {
+      canvas.style.display = 'none'; empty.style.display = '';
+      if (diskSatChart) { diskSatChart.destroy(); diskSatChart = null; }
+      return;
+    }
+    canvas.style.display = ''; empty.style.display = 'none';
+    const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
+    const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchor);
+    const labels = grid.map((/** @type {number} */ t) => fmtLabel(new Date(t).toISOString(), range));
+    const data   = joinToGrid(grid, rows, bMs);
+    if (diskSatChart) {
+      diskSatChart.data.labels = labels; diskSatChart.data.datasets[0].data = data;
+      diskSatChart.update('none'); return;
+    }
+    diskSatChart = new Chart(canvas, {
+      type: 'line',
+      data: { labels, datasets: [{
+        label: 'I/O 응답 지연 (await)', data,
+        borderColor: /** @type {any} */ (ChartUtils).themeColor(),
+        borderWidth: 2, pointRadius: 1, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
+      }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode:'index', intersect:false },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` await: ${ctx.parsed.y?.toFixed(1)} ms` } } },
+        scales: {
+          x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
+          y: { ticks:{ callback: v => v + ' ms', font:{size:11}, color:'#64748b' }, grid:{ color:'#f1f5f9' }, beginAtZero: true, suggestedMax: 20 },
+        },
+      },
+    });
+  } catch(e) { console.error(e); }
+}
 
-/* ── 30초 polling 자동 갱신 (SSE 제거) ── */
+/* ── 디스크 I/O PSI 추이 (some io 정체율 %, 단일선 — Linux 전용, Windows 빈 결과 empty) ── */
+/** @type {any} */
+let diskPsiChart = null;
+let diskPsiSeq   = 0;
+
+async function loadDiskPsiChart() {
+  const seq = ++diskPsiSeq;
+  const range  = timeCtl.getRange();
+  const anchor = timeCtl.getAnchor();
+  const p = new URLSearchParams({ metric_type: 'disk.psi', time_range: range, bucket: AUTO_BUCKET[range], agg: 'avg' });
+  if (anchor) p.append('end', anchor.toISOString());
+  const canvas = /** @type {HTMLElement} */ (document.getElementById('disk-psi-canvas'));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById('disk-psi-empty'));
+  try {
+    /** @type {import('../generated/api').components['schemas']['MetricSeriesItem'][]} */
+    const rows = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${p}`).then(r => r.json());
+    if (seq !== diskPsiSeq) return;
+    if (!Array.isArray(rows) || !rows.length) {
+      canvas.style.display = 'none'; empty.style.display = '';
+      if (diskPsiChart) { diskPsiChart.destroy(); diskPsiChart = null; }
+      return;
+    }
+    canvas.style.display = ''; empty.style.display = 'none';
+    const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
+    const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchor);
+    const labels = grid.map((/** @type {number} */ t) => fmtLabel(new Date(t).toISOString(), range));
+    const data   = joinToGrid(grid, rows, bMs);
+    if (diskPsiChart) {
+      diskPsiChart.data.labels = labels; diskPsiChart.data.datasets[0].data = data;
+      diskPsiChart.update('none'); return;
+    }
+    diskPsiChart = new Chart(canvas, {
+      type: 'line',
+      data: { labels, datasets: [{
+        label: 'PSI (정체율)', data,
+        borderColor: /** @type {any} */ (ChartUtils).themeColor(),
+        borderWidth: 2, pointRadius: 1, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
+      }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode:'index', intersect:false },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` PSI: ${ctx.parsed.y?.toFixed(1)} %` } } },
+        scales: {
+          x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
+          y: { ticks:{ callback: v => Number(v).toFixed(1) + '%', font:{size:11}, color:'#64748b' }, grid:{ color:'#f1f5f9' }, beginAtZero: true, suggestedMax: 20 },
+        },
+      },
+    });
+  } catch(e) { console.error(e); }
+}
+
+/* ── 페이지 단일 시간축 버킷 라벨·print range (모든 차트 공통 range) ── */
+function updateBucketLabels() {
+  const r = timeCtl.getRange();
+  const bl = BUCKET_LABEL[AUTO_BUCKET[r]] || '';
+  const pr = ' — ' + RANGE_LABEL[r];
+  /** @param {string} id @param {string} t */
+  const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  set('io-phys-bucket-label', bl); set('io-kbps-bucket-label', bl); set('fs-bucket-label', bl); set('disksat-bucket-label', bl); set('disk-psi-bucket-label', bl);
+  set('io-phys-range-print', pr); set('io-kbps-range-print', pr); set('fs-range-print', pr); set('disksat-range-print', pr); set('disk-psi-range-print', pr);
+}
+
+/* ── 전체 차트 reload (페이지 range/anchor 변경 시) ── */
+function reloadAllCharts() {
+  updateBucketLabels();
+  loadPhysChart();
+  loadKbpsChart();
+  loadFsChart();
+  loadDiskSatChart();
+  loadDiskPsiChart();
+}
+
+// 페이지 단일 시간축 컨트롤러 — range 토글 + anchor 가 3 차트 전체 구동(#F10).
+const timeCtl = pageTimeControl('page-range-btns', 'page-anchor', '15m', reloadAllCharts);
+
+/* ── 초기 로드 ── */
+loadIoSnapshot();
+reloadAllCharts();
+
+/* ── 30초 polling 자동 갱신 (스냅샷만) ── */
 initAutoRefresh(loadIoSnapshot);

@@ -1,7 +1,52 @@
 """메트릭 표시 ViewModel — dashboard snapshot + collection status + 시계열 항목."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+
+
+@dataclass
+class SaturationSignal:
+    """os-aware 포화 스냅샷 신호 — 서버 단일 판정(P2), 클라는 렌더만(P4).
+
+    이 호스트 OS 에 해당하는 값·임계만 담고(양 OS 설명 인라인 없음), 판정(saturated)은 도메인 os-aware
+    helper(cpu_saturation_index·disk_io_saturation_index·mem_pressure_active) 경유 — 임계 재계산 금지(E3).
+
+    state = 미발화 4상태 어휘:
+    - "measured": 값 있음(value/saturated 유효).
+    - "no_data": 이 신호 미수집(첫 표본·수집 끊김) — 회색 "수집 대기".
+    - "not_applicable": 이 OS/구성 미지원(예 Windows PSI·steal) — na_reason 사유.
+    - "insufficient": 측정됐으나 신뢰 표본 부족(현재 스냅샷 축엔 미사용, 향후 확장 슬롯).
+    """
+
+    # 안정 식별자 — cpu_run_queue|cpu_steal|cpu_psi|mem_paging|mem_psi|disk_await|disk_psi
+    # |net_retrans|net_drop|net_conntrack.
+    key: str
+    label: str  # 축 의미 라벨 ("실행 큐", "PSI", "응답 지연" ...)
+    state: str  # "measured" | "no_data" | "not_applicable" | "insufficient"
+    value: float | None = None  # 이 호스트 OS 의 값
+    threshold: float | None = None  # 이 호스트 OS 의 포화 임계 (표시 기준선)
+    unit: str | None = None  # "per_core" | "ms" | "%" | "/s"
+    saturated: bool | None = None  # os-aware 판정 (measured 일 때만)
+    detail: str | None = None  # hover: 이 OS metric·임계 근거 문장
+    na_reason: str | None = None  # not_applicable 사유 ("Windows 미지원")
+
+
+@dataclass
+class ErrorSignal:
+    """에러 축 표시자 (Errors) — 카운트형 신호, 정상=0 발화(E9). 서버 판정, 클라 렌더만.
+
+    시계열 차트 아님(대부분 0이라 빈 차트 안티패턴) — 카운트 + 종류 + 시점 컨텍스트.
+    state = "clean"(창내 0, 초록 이상 없음) · "occurred"(발생, 빨강 카운트) · "no_data"(표본 없음, 회색).
+    """
+
+    key: str  # cpu_mce | mem_oom | mem_corrupted | net_errors | disk_errors
+    label: str  # 표시 라벨 ("머신체크(MCE)", "OOM Kill", "디스크 에러" ...)
+    state: str  # "clean" | "occurred" | "no_data"
+    count: int | None = None  # 창내 발생 건수 (occurred)
+    context: str | None = None  # 종류·부가 (disk kinds, EDAC bytes) — 발생 시 무엇
+    last_at: datetime | None = None  # 최근 관측 시각 (시점 컨텍스트)
+    window_label: str | None = None  # 관측 창 ("최근 24h")
+    detail: str | None = None  # hover: 신호 의미·출처
 
 
 @dataclass
@@ -60,19 +105,20 @@ class MountDashSnapshot:
 class MetricDashboard:
     collected_at: datetime | None
     cpu: CpuSnapshot | None
-    cpu_run_queue: float | None  # 실행 큐 gauge (Linux procs_running / Windows Processor Queue) — os-aware 포화
     memory: MemSnapshot | None
     # 디스크 I/O 스냅샷 — device 단일 리스트. v2 시계열(server_disk_io)에 device type 축이 없어 물리/LVM/파티션
     # 분류가 불가(인벤토리 조인 없이). 표시는 전체 device flat (차트 물리필터도 현재 no-op 이라 정합).
     disk_io: list[DiskIoSnapshot]
     net_io: list[NetIoSnapshot]
     mounts: list[MountDashSnapshot]
-    # 포화 신호 (latest_saturation 재사용, os-aware 표시) — cpu_run_queue(위)와 함께 스냅샷 포화 축.
-    disk_await_ms: float | None = None  # 디스크 응답 지연 (op_time 델타, 양 OS).
-    disk_queue: float | None = None  # 디스크 큐 깊이 gauge (pending_ops, await 폴백).
-    # 하드폴트(major fault) rate — Linux refault / Windows Pages Input 통일 (paging_major_rate). 메모리 압박 축.
-    mem_pages_input_rate: float | None = None
-    net_retrans_pct: float | None = None  # TCP 재전송율 % (양 OS) — 네트워크 포화(1% 이상 성능 영향)
+    # 포화 스냅샷 신호 (os-aware 서버 판정, P2) — 자원별 SaturationSignal 리스트. 클라는 렌더만.
+    # build_saturation_signals(mappers/metric) 단일 산출. 개요·자원 탭 스냅샷 카드 공통 소비.
+    cpu_saturation: list[SaturationSignal] = field(default_factory=list)
+    mem_saturation: list[SaturationSignal] = field(default_factory=list)
+    disk_saturation: list[SaturationSignal] = field(default_factory=list)
+    net_saturation: list[SaturationSignal] = field(default_factory=list)
+    # 에러 축 표시자 (호스트 공통 fleet — MCE·OOM·EDAC·디스크·네트워크). 정상=0 발화(E9). build_error_signals 산출.
+    errors: list[ErrorSignal] = field(default_factory=list)
 
 
 @dataclass

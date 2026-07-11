@@ -184,7 +184,7 @@ swap 노드 = type=swap, size_bytes = 스왑 할당 크기(Linux 스왑 파티�
 | id | string \| null | 안정키 = MAC |
 | id_type | enum mac/ifguid/by-path/name/null | |
 | kind | string \| null | physical/loopback/bridge/veth/bond_master/... |
-| speed_mbps | integer \| null | 링크속도(util 분모). virtio 부재 -> null |
+| speed_mbps | integer \| null | 링크속도(util 분모). virtio·Windows NT5.2 부재 -> null. 이때 엔진은 metrics `network.link.speed`(bit/s)로 폴백 |
 | addresses | array of {address, prefix(int\|null), family(ipv4/ipv6)} | 인터페이스 IP. 서버 IP 표시·토폴로지(L3 서브넷 추론)·right-sizing IP 필터 |
 | gateway | string \| null | default route gateway |
 
@@ -195,7 +195,7 @@ swap 노드 = type=swap, size_bytes = 스왑 할당 크기(Linux 스왑 파티�
 | name | string | |
 | size_bytes | integer(By) \| null | |
 | free_bytes | integer(By) \| null | 확장 여력(3계층째) 실측 — 디스크 추가 없이 바로 붙일 여유 |
-| data_percent / metadata_percent | number \| null | 씬풀 |
+| data_percent / metadata_percent | number \| null | 씬풀 충전율(used/total 블록, %). VG당 thin-pool 1개일 때만 발행 (0개·다수·status 파싱 불가 시 null) |
 
 Windows 확장여력은 디스크크기 - 파티션합(미할당)으로 엔진이 파생.
 

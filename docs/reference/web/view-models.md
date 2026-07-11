@@ -16,10 +16,12 @@
 
 | ViewModel | 채우는 함수 |
 |-----------|-------------|
-| `MetricDashboard` | `metrics_calculator.build_dashboard` (DashboardRaw → CpuSnapshot/MemSnapshot/SwapSnapshot/DiskIoSnapshot/NetIoSnapshot/MountDashSnapshot) |
+| `MetricDashboard` | `build_dashboard`(활용률 스냅샷) + `build_saturation_signals`(자원별 포화 신호 4리스트) + `build_error_signals`(에러 fleet). 개요·자원 탭 스냅샷 카드 공용 |
 | `CpuSnapshot` | jiffies delta 기반 `usage_pct`/`user_pct`/`system_pct`/`iowait_pct`. boot_time reset 시 None |
 | `MemSnapshot` | 시점값 + stacked bar 누적 비율 (`cached_pct`/`buffers_pct` 100% 초과 방지 clip) |
 | `DiskIoSnapshot` / `NetIoSnapshot` | rate (`d_val / dt`). reset 시 None |
+| `SaturationSignal` | os-aware 포화 스냅샷 1개 — `label`/`value`/`threshold`/`unit`/`saturated`/`state`(4상태: measured·no_data·not_applicable·insufficient)/`detail`(hover). 판정은 도메인 os-aware helper 경유(임계 재계산 금지, #E3). 클라 `SignalUtils.renderSaturation` 렌더만 |
+| `ErrorSignal` | 에러 축 표시자 1개(카운트형, 정상=0 발화 #E9) — `label`/`state`(clean·occurred·no_data)/`count`/`context`(종류)/`window_label`. `SignalUtils.renderErrors` 렌더 |
 
 ## 보고서·산출물
 
@@ -37,7 +39,8 @@
 
 | ViewModel | 채우는 mapper | 데이터 소스 | 시간 축 | 색상 톤 |
 |-----------|---------------|-------------|---------|---------|
-| `EnvironmentOverview` | `build_environment_overview(details, online_count, utilization, risk_counts)` — `total`/`online`/`offline`/`total_vcpus`/`total_memory_gb`(float)/`total_disk_gb`/`os_distribution`(os_family별 수)/`role_distribution`(전체 서비스 카테고리 카운트, 대표 1개 아님)/`role_unknown_count`(known 역할 0인 호스트 수 — 서비스 없음·전부 unknown, 호스트 단위)/`utilization`/`util_sample_size`/`risk_donut`/`risk_donut_total`/`risk_high_count` | `list_server_ids` + `get_servers` + `environment_utilization(DASHBOARD_WINDOW_DAYS, end)` + `report_aggregate(DASHBOARD_WINDOW_DAYS)` + Redis `online:*` mget | 최근 24시간 (`DASHBOARD_TIME_RANGE`, #F10) | slate (`#f8fafc`) |
+| `EnvironmentOverview` | `build_environment_overview(details, online_count, utilization, risk_counts)` — `total`/`online`/`offline`/`total_vcpus`/`total_memory_gb`(float)/`total_disk_gb`/`os_distribution`(os_family별 수)/`role_distribution`(전체 서비스 카테고리 카운트, 대표 1개 아님)/`role_unknown_count`(known 역할 0인 호스트 수 — 서비스 없음·전부 unknown, 호스트 단위)/`utilization`/`util_sample_size`/`saturation_donuts`(CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡 4도넛)/`error_fleet`(MCE·OOM·EDAC·디스크·NIC 에러 발생 호스트 수 — 대시보드 전용)/`risk_donut`/`risk_donut_total`/`risk_high_count` | `list_server_ids` + `get_servers` + `environment_utilization` + `report_aggregate` + `fleet_error_summary` + Redis `online:*` mget | 자원 적정성 창 (`WINDOW_DAYS` 14일, #F10) | slate (`#f8fafc`) |
+| `FleetErrorItem` | 환경 fleet 에러 표시자 1개 — `label`/`affected`(발생 호스트 수)/`total`(표본). 정상=0 발화(#E9), 카운트형이라 도넛 아닌 표시자. `_build_error_fleet` | `fleet_error_summary` | 위 창 | — |
 | `UtilizationBar` | `build_environment_overview` 안에서 3종 (CPU·메모리·디스크) 생성 — `pct`/`bar_color`(단색 푸른, 값 무관)/`dash_length`(SVG dasharray, mapper 비례 산술) | `environment_utilization(DASHBOARD_WINDOW_DAYS, end)` SQL — CPU·메모리·디스크 모두 capacity-weighted (Σused/Σtotal, 자원 총량 가중 — 서버 1대=1표 아님) | 최근 24시간 | 테마색1 `var(--color-title)`·`None` 회(`#cbd5e1`) |
 | `RiskDonutSegment` | `build_risk_donut_segments` — 5 카테고리 (under/over/idle/optimal/insufficient) `key`/`label`/`color`/`count`/`dash_length`/`dash_offset` (multi-segment 누적 음수) | `report_aggregate(DASHBOARD_WINDOW_DAYS)` + net baseline 주입 -> `build_resource_stats` -> `classify_host` -> `_DONUT_SEGMENT_FROM_REC` | 최근 24시간 USE Method | `_DONUT_SEGMENT_DEFS` 색 (E8) |
 | `AttentionRow` (gap) | `to_gap_warning_item(raw, now)` — `gap_minutes` / `badge_class` (운영신호 통신끊김) | `metric_gap_warnings(gap_min, recent_h, limit)` 단일 SQL | 5min~24h 갭 | blue (`#eff6ff`) |

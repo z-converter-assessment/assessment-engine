@@ -9,8 +9,8 @@
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
-        fmtKbChart, getAnchorEnd, initAnchor,
-        makeBucketGrid, joinToGrid, bindToggle, initAutoRefresh, safeArray,
+        fmtKbChart, pageTimeControl,
+        makeBucketGrid, joinToGrid, initAutoRefresh, safeArray,
         buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
@@ -40,9 +40,9 @@ async function loadNetSnapshot() {
     }
     if (!res.ok) return;
     const data = /** @type {import('../generated/api').components['schemas']['MetricDashboard']} */ (await res.json());
-    // TCP 재전송율 — 네트워크 품질 신호(양 OS 공통, 1% 초과 혼잡). 인터페이스 I/O 유무와 별개라 가드 이전 세팅.
-    const retransEl = document.getElementById('s-net-retrans');
-    if (retransEl) retransEl.textContent = data.net_retrans_pct != null ? data.net_retrans_pct.toFixed(2) + '%' : '—';
+    // 포화 스냅샷 신호 — 서버가 os-aware 판정(값·임계·saturated·4상태)을 끝낸 구조화 신호를 공통 렌더만(P4).
+    // JS os 분기·임계 재계산 없음(SignalUtils). 근거(metric·임계)는 각 항목 hover. 인터페이스 I/O 유무와 별개라 가드 이전 세팅.
+    SignalUtils.renderSaturation(document.getElementById('net-sat-signals'), data.net_saturation);
     const netIo = data.net_io || [];
     if (!netIo.length) {
       /** @type {HTMLElement} */ (document.getElementById('net-snapshot-empty')).style.display = '';
@@ -62,21 +62,12 @@ async function loadNetSnapshot() {
     if (stampEl && data.collected_at) stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);
   } catch(e) { console.error(e); }
 }
-let netRange = '15m';
-let netPpsRange = '15m';
 /** @type {import('chart.js').Chart | null} */
 let netChart = null;
 /** @type {import('chart.js').Chart | null} */
 let netPpsChart = null;
 let netSeq    = 0;
 let netPpsSeq = 0;
-
-function updateNetBucketLabel() {
-  /** @type {HTMLElement} */ (document.getElementById('net-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[netRange]] || '';
-}
-function updateNetPpsBucketLabel() {
-  /** @type {HTMLElement} */ (document.getElementById('net-pps-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[netPpsRange]] || '';
-}
 
 /** @typedef {import('../generated/api').components['schemas']['MetricSeriesItem']} MetricSeriesItem */
 
@@ -195,9 +186,8 @@ const PPS_SPEC = /** @type {NetChartSpec} */ ({
 
 async function loadNetChart() {
   const seq = ++netSeq;
-  const capturedRange = netRange;
-  // globals.d.ts getAnchorEnd 선언(()->string|null)이 실제((inputId)->Date|null)와 불일치 — 로컬 캐스트.
-  const capturedAnchor = /** @type {(inputId: string) => (Date | null)} */ (getAnchorEnd)('net-anchor');
+  const capturedRange = timeCtl.getRange();
+  const capturedAnchor = timeCtl.getAnchor();
   const bucket = AUTO_BUCKET[capturedRange];
   /** @type {(type: string, agg: string) => URLSearchParams} */
   const mkP = (type, agg) => {
@@ -223,8 +213,8 @@ async function loadNetChart() {
 
 async function loadNetPpsChart() {
   const seq = ++netPpsSeq;
-  const capturedRange = netPpsRange;
-  const capturedAnchor = /** @type {(inputId: string) => (Date | null)} */ (getAnchorEnd)('net-pps-anchor');
+  const capturedRange = timeCtl.getRange();
+  const capturedAnchor = timeCtl.getAnchor();
   const bucket = AUTO_BUCKET[capturedRange];
   /** @type {(type: string, agg: string) => URLSearchParams} */
   const mkP = (type, agg) => {
@@ -248,19 +238,82 @@ async function loadNetPpsChart() {
   }
 }
 
-bindToggle('net-range-btns', v => { netRange = v; updateNetBucketLabel(); /** @type {HTMLElement} */ (document.getElementById('net-range-print')).textContent = ' — ' + RANGE_LABEL[v]; loadNetChart(); });
-bindToggle('net-pps-range-btns', v => { netPpsRange = v; updateNetPpsBucketLabel(); /** @type {HTMLElement} */ (document.getElementById('net-pps-range-print')).textContent = ' — ' + RANGE_LABEL[v]; loadNetPpsChart(); });
-/** @type {HTMLElement} */ (document.getElementById('net-anchor')).addEventListener('change', () => loadNetChart());
-/** @type {HTMLElement} */ (document.getElementById('net-pps-anchor')).addEventListener('change', () => loadNetPpsChart());
+/* ── 페이지 단일 시간축 버킷 라벨·print range (모든 차트 공통 range) ── */
+/* ── TCP 재전송율 추이 (%, 단일선 — 양 OS, 1% 초과면 네트워크 품질 저하) ── */
+/** @type {any} */
+let retransChart = null;
+let retransSeq   = 0;
+
+async function loadRetransChart() {
+  const seq = ++retransSeq;
+  const range  = timeCtl.getRange();
+  const anchor = timeCtl.getAnchor();
+  const p = new URLSearchParams({ metric_type: 'net.retrans_percent', time_range: range, bucket: AUTO_BUCKET[range], agg: 'avg' });
+  if (anchor) p.append('end', anchor.toISOString());
+  const canvas = /** @type {HTMLElement} */ (document.getElementById('retrans-canvas'));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById('retrans-empty'));
+  try {
+    /** @type {import('../generated/api').components['schemas']['MetricSeriesItem'][]} */
+    const rows = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${p}`).then(r => r.json());
+    if (seq !== retransSeq) return;
+    if (!Array.isArray(rows) || !rows.length) {
+      canvas.style.display = 'none'; empty.style.display = '';
+      if (retransChart) { retransChart.destroy(); retransChart = null; }
+      return;
+    }
+    canvas.style.display = ''; empty.style.display = 'none';
+    const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
+    const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchor);
+    const labels = grid.map((/** @type {number} */ t) => fmtNetLabel(new Date(t).toISOString(), range));
+    const data   = joinToGrid(grid, rows, bMs);
+    if (retransChart) {
+      retransChart.data.labels = labels; retransChart.data.datasets[0].data = data;
+      retransChart.update('none'); return;
+    }
+    retransChart = new Chart(canvas, {
+      type: 'line',
+      data: { labels, datasets: [{
+        label: 'TCP 재전송율', data,
+        borderColor: /** @type {any} */ (ChartUtils).themeColor(),
+        borderWidth: 2, pointRadius: 1, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
+      }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode:'index', intersect:false },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` 재전송율: ${ctx.parsed.y?.toFixed(2)}%` } } },
+        scales: {
+          x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
+          y: { ticks:{ callback: v => Number(v).toFixed(2) + '%', font:{size:11}, color:'#64748b' }, grid:{ color:'#f1f5f9' }, beginAtZero: true, suggestedMax: 1 },
+        },
+      },
+    });
+  } catch(e) { console.error(e); }
+}
+
+function updateBucketLabels() {
+  const r = timeCtl.getRange();
+  const bl = BUCKET_LABEL[AUTO_BUCKET[r]] || '';
+  const pr = ' — ' + RANGE_LABEL[r];
+  /** @param {string} id @param {string} t */
+  const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  set('net-bucket-label', bl); set('net-pps-bucket-label', bl); set('retrans-bucket-label', bl);
+  set('net-range-print', pr); set('net-pps-range-print', pr); set('retrans-range-print', pr);
+}
+
+/* ── 전체 차트 reload (페이지 range/anchor 변경 시) ── */
+function reloadAllCharts() {
+  updateBucketLabels();
+  loadNetChart();
+  loadNetPpsChart();
+  loadRetransChart();
+}
+
+// 페이지 단일 시간축 컨트롤러 — range 토글 + anchor 가 2 차트 전체 구동(#F10).
+const timeCtl = pageTimeControl('page-range-btns', 'page-anchor', '15m', reloadAllCharts);
 
 /* ── 30초 polling 자동 갱신 (SSE 제거) ── */
 initAutoRefresh(loadNetSnapshot);
 
-// globals.d.ts initAnchor 선언(onChange fn)이 실제((inputId)->void)와 불일치 — 로컬 캐스트.
-/** @type {(inputId: string) => void} */ (/** @type {unknown} */ (initAnchor))('net-anchor');
-/** @type {(inputId: string) => void} */ (/** @type {unknown} */ (initAnchor))('net-pps-anchor');
-updateNetBucketLabel();
-updateNetPpsBucketLabel();
+/* ── 초기 로드 ── */
 loadNetSnapshot();
-loadNetChart();
-loadNetPpsChart();
+reloadAllCharts();

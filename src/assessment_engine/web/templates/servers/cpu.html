@@ -19,39 +19,36 @@
   <hr style="border:none; border-top:1px solid #e2e8f0; margin:0 0 14px;">
   <div id="snap-loading" class="text-meta text-md">불러오는 중...</div>
   <div id="snap-body" style="display:none;">
-    {# 양 OS 동일 지표 — 공통 표시. #}
+    {# CPU 시간 구성 — usage/user/system 공통, I/O Wait 는 Windows 개념 부재 시 N/A(naWindows). #}
     <dl class="kv kv-soft" style="margin-bottom:16px;">
       <dt>CPU 사용률</dt><dd id="s-usage">—</dd>
       <dt>User</dt>      <dd id="s-user">—</dd>
       <dt>System</dt>    <dd id="s-system">—</dd>
+      <dt>I/O Wait</dt>  <dd id="s-iowait">—</dd>
     </dl>
-    {# OS별 측정·기준이 다른 지표 — 값 + Linux/Windows 2행 항상 노출 (서버 OS 무관, 한쪽만 설명 금지). #}
-    <div class="os-diff-list">
-      <div class="os-diff">
-        <div class="os-diff-head"><span class="os-diff-name">I/O Wait</span><span class="os-diff-val" id="s-iowait">—</span></div>
-        <div class="os-diff-note"><b>Linux</b>CPU 시간 중 디스크 대기 비율</div>
-        <div class="os-diff-note"><b>Windows</b>개념 부재 — 미측정 (N/A)</div>
-      </div>
-      <div class="os-diff">
-        <div class="os-diff-head"><span class="os-diff-name">Steal (가상화 경합)</span><span class="os-diff-val" id="s-steal">—</span></div>
-        <div class="os-diff-note"><b>Linux</b>하이퍼바이저가 vCPU 시간 뺏김 (가상화 경합)</div>
-        <div class="os-diff-note"><b>Windows</b>개념 부재 — 미측정 (N/A)</div>
-      </div>
-      <div class="os-diff">
-        <div class="os-diff-head"><span class="os-diff-name">실행 큐 (전체)</span><span class="os-diff-val" id="s-runq">—</span></div>
-        <div class="os-diff-note"><b>Linux</b>실행 가능(R-state) 프로세스 수 — procs_running</div>
-        <div class="os-diff-note"><b>Windows</b>프로세서 대기 스레드 수 — Processor Queue Length</div>
-      </div>
-      <div class="os-diff">
-        <div class="os-diff-head"><span class="os-diff-name">실행 큐 (코어당)</span><span class="os-diff-val" id="s-runq-core">—</span></div>
-        <div class="os-diff-note"><b>Linux</b>전체 / 코어 수 — 1.0 이상 포화</div>
-        <div class="os-diff-note"><b>Windows</b>전체 / 코어 수 — 2.0 이상 포화</div>
-      </div>
-    </div>
-    <p class="text-meta text-xs" style="margin:12px 0 0;">N/A = 위 Windows/Linux 설명대로 해당 OS 미측정 · — = 일시적 값 없음 (첫 수집·수집 끊김)</p>
+    {# 포화 스냅샷 — 서버가 os-aware 판정을 끝낸 신호(실행 큐 per-core, Steal, PSI)를 공통 렌더러가 4상태로 채움 (E9 빈 상태 걱정 없음). #}
+    <div class="sat-title text-meta text-xs">포화 신호 — 값 / 임계 · 근거는 각 항목 hover</div>
+    <div id="cpu-sat-signals"></div>
   </div>
   <div id="snap-empty" class="text-meta text-md" style="display:none;">
     메트릭이 최소 2회 수집되면 표시됩니다.
+  </div>
+</div>
+
+<div class="card no-print" style="padding:12px 16px;">
+  <div class="chart-head" style="margin:0;">
+    <span class="text-label text-sm" style="font-weight:600;">시간축</span>
+    <select class="chart-select" id="page-range-btns" aria-label="구간 선택">
+      <option value="15m">15분</option>
+      <option value="1h">1시간</option>
+      <option value="6h">6시간</option>
+      <option value="24h">1일</option>
+      <option value="7d">7일</option>
+      <option value="14d">14일</option>
+      <option value="30d">30일</option>
+    </select>
+    <input type="datetime-local" id="page-anchor" class="chart-anchor" aria-label="기준 시각">
+    <span class="text-meta text-xs">아래 모든 차트 공통 · 기준 시각 비우면 현재(live), 지정하면 그 시점 기준(과거 조사)</span>
   </div>
 </div>
 
@@ -60,16 +57,6 @@
     <div class="chart-head">
       <h2 class="card-title">CPU 사용률 추이<span class="print-only text-muted text-sm" id="usage-range-print" style="font-weight:normal;"> — 1시간</span></h2>
       <span id="usage-bucket-label" class="bucket-label"></span>
-      <select class="chart-select no-print" id="usage-range-btns" aria-label="구간 선택">
-        <option value="15m">15분</option>
-        <option value="1h">1시간</option>
-        <option value="6h">6시간</option>
-        <option value="24h">1일</option>
-        <option value="7d">7일</option>
-        <option value="14d">14일</option>
-        <option value="30d">30일</option>
-      </select>
-      <input type="datetime-local" id="usage-anchor" class="chart-anchor no-print" aria-label="기준 시각">
       <select class="chart-select no-print" id="usage-agg-btns" aria-label="집계 방식">
         <option value="avg">평균</option>
         <option value="max">최대</option>
@@ -94,16 +81,6 @@
   <div class="chart-head">
     <h2 class="card-title">CPU 분류 추이<span class="print-only text-muted text-sm" id="comp-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     <span id="comp-bucket-label" class="bucket-label"></span>
-    <select class="chart-select no-print" id="comp-range-btns" aria-label="구간 선택">
-      <option value="15m">15분</option>
-      <option value="1h">1시간</option>
-      <option value="6h">6시간</option>
-      <option value="24h">1일</option>
-      <option value="7d">7일</option>
-      <option value="14d">14일</option>
-      <option value="30d">30일</option>
-    </select>
-    <input type="datetime-local" id="comp-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
   <div class="chart-desc">User 앱 부하 / System 커널 처리 / I/O Wait 디스크 대기 — I/O Wait 는 Linux 전용(Windows 는 CPU 시간에 I/O Wait 구분이 없어 미측정, 차트 미표시)</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
@@ -119,16 +96,6 @@
   <div class="chart-head">
     <h2 class="card-title">실행 큐 추이<span class="print-only text-muted text-sm" id="load-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     <span id="load-bucket-label" class="bucket-label"></span>
-    <select class="chart-select no-print" id="load-range-btns" aria-label="구간 선택">
-      <option value="15m">15분</option>
-      <option value="1h">1시간</option>
-      <option value="6h">6시간</option>
-      <option value="24h">1일</option>
-      <option value="7d">7일</option>
-      <option value="14d">14일</option>
-      <option value="30d">30일</option>
-    </select>
-    <input type="datetime-local" id="load-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
   <div class="chart-desc">코어당 실행 큐 = 실행 대기 작업 / 코어 수 — Linux procs_running 1.0 이상 · Windows Processor Queue Length 2.0 이상 포화</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
@@ -138,6 +105,20 @@
     해당 기간에 수집된 데이터가 없습니다.
   </div>
   <div id="load-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
+</div>
+
+<div class="card">
+  <div class="chart-head">
+    <h2 class="card-title">CPU PSI 추이<span class="print-only text-muted text-sm" id="cpu-psi-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    <span id="cpu-psi-bucket-label" class="bucket-label"></span>
+  </div>
+  <div class="chart-desc">태스크가 CPU 대기로 멈춘 시간 비율(%) — PSI some, 현대 Linux 포화 신호. Windows 미지원.</div>
+  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+    <canvas id="cpu-psi-canvas"></canvas>
+  </div>
+  <div id="cpu-psi-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
+    해당 기간에 수집된 데이터가 없습니다.
+  </div>
 </div>
 
 <style>
@@ -150,4 +131,4 @@
 <script src="/static/js/pages/cpu.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} data-server-id="{{ server.public_id }}" data-cpu-cores="{{ server.cpu_cores if server.cpu_cores is not none else 4 }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}
+{% block body_attrs %} data-server-id="{{ server.public_id }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}

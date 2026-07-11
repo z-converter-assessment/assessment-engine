@@ -170,6 +170,25 @@
     });
   }
 
+  // ── 페이지 단일 시간축 컨트롤러 (#F10 페이지 단일 윈도우/앵커) ──
+  // 한 range 토글 + 한 anchor 가 페이지의 모든 차트를 구동 — 차트별 파편 컨트롤 대체. 신호 간 시점 상관
+  // 관측(이 호스트를 이 창·이 시점으로). anchor 미입력=live now, 입력=고정(과거 사건 조사). 변경 시 onChange 로 전체 reload.
+  /**
+   * @param {string} rangeBtnsId
+   * @param {string} anchorId
+   * @param {string} defaultRange
+   * @param {() => void} onChange
+   * @returns {{ getRange: () => string, getAnchor: () => Date | null }}
+   */
+  function pageTimeControl(rangeBtnsId, anchorId, defaultRange, onChange) {
+    let range = defaultRange;
+    initAnchor(anchorId);
+    bindToggle(rangeBtnsId, (/** @type {string} */ v) => { range = v; onChange(); });
+    const anchorEl = document.getElementById(anchorId);
+    if (anchorEl) anchorEl.addEventListener('change', () => onChange());
+    return { getRange: () => range, getAnchor: () => getAnchorEnd(anchorId) };
+  }
+
   // ── 30초 polling 자동 갱신 (detail 실시간 메트릭과 일관) ──
   // 탭 비활성(document.hidden) 시 tick skip — 다중 탭에서 누적 폴링 요청 차단(서버 부하 감소).
   // 숨겨졌다 다시 보이면 즉시 1회 refresh 해 멈춰있던 화면 보정 (loader 의 seq 가드가 중복 응답 흡수).
@@ -326,7 +345,7 @@
     fmtKst, fmtLabel, fmtKbChart,
     getAnchorEnd, initAnchor,
     makeBucketGrid, joinToGrid, buildDimDatasets, fmtThroughput,
-    bindToggle, initAutoRefresh, safeArray, naWindows,
+    bindToggle, pageTimeControl, initAutoRefresh, safeArray, naWindows,
     buildAvgMaxDatasets, buildAvgMaxLegend,
     renderChipLegend,
   });

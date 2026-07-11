@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
@@ -164,6 +164,7 @@ class DashboardRaw:
     disk_io: list[DiskIoRaw]  # 디바이스당 최대 2행, desc within device
     net_io: list[NetIoRaw]  # 인터페이스당 최대 2행, desc within interface
     filesystems: list[MountUsageRaw]  # 마운트당 최신 1행
+    os_family: str | None = None  # os-aware 스냅샷 포화 판정 입력 (linux|windows|null)
 
 
 # ---------- Storage / Network 풍부화 DTOs ----------
@@ -242,6 +243,42 @@ class SaturationRaw:
     retrans_pct: float | None = None  # TCP 재전송율 %
     drop_pct: float | None = None  # 드롭율 %
     conntrack_ratio: float | None = None  # conntrack 사용/상한 %
+    # PSI (Pressure Stall Info, Linux 4.20+ 전용 — Windows None) %정체: 자원 대기로 태스크가 멈춘 시간 비율
+    # (stall_time_s delta / wall-time delta * 100, scope=some). run_queue/await 와 대비되는 time-기반 포화.
+    psi_cpu: float | None = None
+    psi_mem: float | None = None
+    psi_io: float | None = None
+
+
+@dataclass
+class ErrorFleetRaw:
+    """latest_errors — 창내 하드웨어/디스크/네트워크 에러 카운트 (Errors 축, 정상 0). counter delta(max-min).
+
+    measured=False(창 안 표본 없음)면 카운트 지표 전부 no_data. corrupted_bytes 는 gauge(현재값>0=존재).
+    """
+
+    measured: bool = False  # 창 안 server_metrics 표본 존재 여부 (없으면 mce/oom/corrupted no_data)
+    net_measured: bool = False  # server_net_io 표본 존재 (없으면 net_errors no_data)
+    disk_err_measured: bool = False  # server_disk_error 는 정상 시 행 자체가 없음 -> 항상 측정된 것으로 간주(0=정상)
+    mce_count: int = 0  # cpu.mce 창내 증가분 (Machine Check)
+    oom_count: int = 0  # memory.oom_kill 창내 증가분
+    corrupted_bytes: int | None = None  # 현재 EDAC hardware corrupted (>0=메모리 손상)
+    net_error_count: int = 0  # rx_errors+tx_errors 창내 증가분 (전 iface 합)
+    disk_error_count: int = 0  # server_disk_error count 창내 증가분 (전 device/kind 합)
+    disk_error_kinds: list[str] = field(default_factory=list)  # 발생 종류 "kind/class" (예 mdraid/degraded)
+    last_error_at: datetime | None = None  # 창 안 최근 에러 관측 표본 시각 (approx 시점 컨텍스트)
+
+
+@dataclass
+class FleetErrorRaw:
+    """fleet_error_summary — 전 서버 에러축 영향 호스트 수 (환경 개요 fleet 에러 표시자). 창내 발생 호스트 count."""
+
+    total: int = 0  # 창 안 표본 있는 호스트 수 (분모)
+    mce_hosts: int = 0  # cpu.mce 발생 호스트 수
+    oom_hosts: int = 0  # memory.oom_kill 발생 호스트 수
+    corrupted_hosts: int = 0  # EDAC hardware corrupted (현재값>0) 호스트 수
+    net_error_hosts: int = 0  # NIC rx/tx 에러 발생 호스트 수
+    disk_error_hosts: int = 0  # disk error(mdraid/btrfs/ext4 등) 발생 호스트 수
 
 
 @dataclass

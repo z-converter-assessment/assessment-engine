@@ -13,7 +13,6 @@
 (() => {
   const SERVER_ID = document.body.dataset.serverId;
   if (!SERVER_ID) { console.error('detail.js: body data-server-id missing'); return; }
-  const OS_FAMILY = document.body.dataset.osFamily || '';  // Steal 포화 축 os-aware 표시 (Linux 측정 · Windows 개념 부재 N/A)
 
   /* -------- 포맷 유틸 -------- */
   /** @param {number | null | undefined} v */
@@ -81,16 +80,14 @@
     setTxt('cpu-iowait', fmtPct(cpu.iowait_pct));  // Linux 전용 (Windows 는 템플릿에서 열 숨김)
     setDonut('cpu-donut-arc', 'cpu-donut-text', cpu.usage_pct);
 
-    /* 포화 축 (자원 적정성 분류) — 각 자원 표/섹션에 분산. Steal 만 Linux 전용(Windows N/A), 나머지 양 OS. */
-    // 실행 큐는 backend 가 코어당 정규화(Σrunq/Σcores) 완료 — JS 이중 정규화 금지, 그대로 표시.
-    setTxt('cpu-runq',   d.cpu_run_queue != null ? d.cpu_run_queue.toFixed(2) + ' /core' : '—');
-    setTxt('cpu-steal',  OS_FAMILY === 'windows' ? 'N/A' : fmtPct(cpu.steal_pct));  // Steal 은 Linux 전용 — Windows 는 개념 부재 N/A
-    setTxt('net-retrans', d.net_retrans_pct != null ? d.net_retrans_pct.toFixed(2) + '%' : '—');
-    // 디스크 await 양 OS 통일 — await 우선(Linux server_disk_io · Windows IOCTL), 없으면 구세대 viostor 큐 폴백.
-    setTxt('disk-sat', d.disk_await_ms != null ? 'await ' + d.disk_await_ms.toFixed(1) + ' ms'
-                        : d.disk_queue != null ? '큐 ' + d.disk_queue.toFixed(1) : '—');
-    // 메모리 압박은 하드 페이지 폴트율(Pages Input/sec) 단일 신호 — 양 OS 공통, os 분기 없음.
-    setTxt('mem-paging', d.mem_pages_input_rate != null ? d.mem_pages_input_rate.toFixed(0) + ' /s' : '—');
+    /* 포화 스냅샷 신호 — 서버가 os-aware 판정(값·임계·saturated·4상태)을 끝낸 구조화 신호를 공통 렌더만(P4).
+       JS os 분기·임계 재계산 없음(SignalUtils). 근거(metric·임계)는 각 항목 hover. */
+    SignalUtils.renderSaturation(el('cpu-sat-signals'), d.cpu_saturation);
+    SignalUtils.renderSaturation(el('mem-sat-signals'), d.mem_saturation);
+    SignalUtils.renderSaturation(el('disk-sat-signals'), d.disk_saturation);
+    SignalUtils.renderSaturation(el('net-sat-signals'), d.net_saturation);
+    /* 에러 축 표시자 (카운트형, 정상=0 발화) — 서버 판정 완료, 렌더만. */
+    SignalUtils.renderErrors(el('error-fleet'), d.errors);
 
     /* Memory */
     /** @type {Partial<import('../generated/api').components['schemas']['MemSnapshot']>} */

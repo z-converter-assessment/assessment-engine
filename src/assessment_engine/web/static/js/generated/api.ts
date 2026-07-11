@@ -962,6 +962,31 @@ export interface components {
             /** Write Kbps */
             write_kbps: number | null;
         };
+        /**
+         * ErrorSignal
+         * @description 에러 축 표시자 (Errors) — 카운트형 신호, 정상=0 발화(E9). 서버 판정, 클라 렌더만.
+         *
+         *     시계열 차트 아님(대부분 0이라 빈 차트 안티패턴) — 카운트 + 종류 + 시점 컨텍스트.
+         *     state = "clean"(창내 0, 초록 이상 없음) · "occurred"(발생, 빨강 카운트) · "no_data"(표본 없음, 회색).
+         */
+        ErrorSignal: {
+            /** Context */
+            context?: string | null;
+            /** Count */
+            count?: number | null;
+            /** Detail */
+            detail?: string | null;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Last At */
+            last_at?: string | null;
+            /** State */
+            state: string;
+            /** Window Label */
+            window_label?: string | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1002,23 +1027,23 @@ export interface components {
             /** Collected At */
             collected_at: string | null;
             cpu: components["schemas"]["CpuSnapshot"] | null;
-            /** Cpu Run Queue */
-            cpu_run_queue: number | null;
-            /** Disk Await Ms */
-            disk_await_ms?: number | null;
+            /** Cpu Saturation */
+            cpu_saturation?: components["schemas"]["SaturationSignal"][];
             /** Disk Io */
             disk_io: components["schemas"]["DiskIoSnapshot"][];
-            /** Disk Queue */
-            disk_queue?: number | null;
-            /** Mem Pages Input Rate */
-            mem_pages_input_rate?: number | null;
+            /** Disk Saturation */
+            disk_saturation?: components["schemas"]["SaturationSignal"][];
+            /** Errors */
+            errors?: components["schemas"]["ErrorSignal"][];
+            /** Mem Saturation */
+            mem_saturation?: components["schemas"]["SaturationSignal"][];
             memory: components["schemas"]["MemSnapshot"] | null;
             /** Mounts */
             mounts: components["schemas"]["MountDashSnapshot"][];
             /** Net Io */
             net_io: components["schemas"]["NetIoSnapshot"][];
-            /** Net Retrans Pct */
-            net_retrans_pct?: number | null;
+            /** Net Saturation */
+            net_saturation?: components["schemas"]["SaturationSignal"][];
         };
         /** MetricSeriesItem */
         MetricSeriesItem: {
@@ -1522,6 +1547,39 @@ export interface components {
             /** Start */
             start: string | null;
         };
+        /**
+         * SaturationSignal
+         * @description os-aware 포화 스냅샷 신호 — 서버 단일 판정(P2), 클라는 렌더만(P4).
+         *
+         *     이 호스트 OS 에 해당하는 값·임계만 담고(양 OS 설명 인라인 없음), 판정(saturated)은 도메인 os-aware
+         *     helper(cpu_saturation_index·disk_io_saturation_index·mem_pressure_active) 경유 — 임계 재계산 금지(E3).
+         *
+         *     state = 미발화 4상태 어휘:
+         *     - "measured": 값 있음(value/saturated 유효).
+         *     - "no_data": 이 신호 미수집(첫 표본·수집 끊김) — 회색 "수집 대기".
+         *     - "not_applicable": 이 OS/구성 미지원(예 Windows PSI·steal) — na_reason 사유.
+         *     - "insufficient": 측정됐으나 신뢰 표본 부족(현재 스냅샷 축엔 미사용, 향후 확장 슬롯).
+         */
+        SaturationSignal: {
+            /** Detail */
+            detail?: string | null;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Na Reason */
+            na_reason?: string | null;
+            /** Saturated */
+            saturated?: boolean | null;
+            /** State */
+            state: string;
+            /** Threshold */
+            threshold?: number | null;
+            /** Unit */
+            unit?: string | null;
+            /** Value */
+            value?: number | null;
+        };
         /** Sizing */
         Sizing: {
             /** Axes */
@@ -1908,7 +1966,7 @@ export interface operations {
     get_metric_chart_api_servers__server_id__metrics_chart_get: {
         parameters: {
             query: {
-                metric_type: "cpu.usage_percent" | "cpu.user_percent" | "cpu.system_percent" | "cpu.iowait_percent" | "cpu.run_queue" | "mem.usage_percent" | "mem.available_percent" | "mem.cached_percent" | "mem.buffers_percent" | "disk.read_iops" | "disk.write_iops" | "disk.read_kbps" | "disk.write_kbps" | "disk.io_saturation" | "fs.usage_percent" | "net.rx_bytes_per_sec" | "net.tx_bytes_per_sec" | "net.rx_packets_per_sec" | "net.tx_packets_per_sec" | "net.retrans_percent";
+                metric_type: "cpu.usage_percent" | "cpu.user_percent" | "cpu.system_percent" | "cpu.iowait_percent" | "cpu.run_queue" | "cpu.psi" | "mem.usage_percent" | "mem.available_percent" | "mem.cached_percent" | "mem.buffers_percent" | "mem.psi" | "disk.read_iops" | "disk.write_iops" | "disk.read_kbps" | "disk.write_kbps" | "disk.io_saturation" | "disk.psi" | "fs.usage_percent" | "net.rx_bytes_per_sec" | "net.tx_bytes_per_sec" | "net.rx_packets_per_sec" | "net.tx_packets_per_sec" | "net.retrans_percent";
                 dimension?: string | null;
                 time_range?: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
                 bucket?: "1m" | "5m" | "15m" | "30m" | "1h" | "3h" | "6h" | "12h" | "1d";

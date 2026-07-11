@@ -10,10 +10,12 @@ from assessment_engine.web.services.serialization_util import json_default as _j
 from assessment_engine.web.view_models.metric import (
     CpuSnapshot,
     DiskIoSnapshot,
+    ErrorSignal,
     MemSnapshot,
     MetricDashboard,
     MountDashSnapshot,
     NetIoSnapshot,
+    SaturationSignal,
 )
 from assessment_engine.web.view_models.server import (
     DiskItem,
@@ -107,13 +109,16 @@ def dashboard_from_json(raw: str) -> MetricDashboard:
     return MetricDashboard(
         collected_at=datetime.fromisoformat(raw_ca) if isinstance(raw_ca, str) else None,
         cpu=CpuSnapshot(**data["cpu"]) if data.get("cpu") else None,
-        cpu_run_queue=data.get("cpu_run_queue"),
-        disk_await_ms=data.get("disk_await_ms"),
-        disk_queue=data.get("disk_queue"),
-        mem_pages_input_rate=data.get("mem_pages_input_rate"),
-        net_retrans_pct=data.get("net_retrans_pct"),
         memory=MemSnapshot(**data["memory"]) if data.get("memory") else None,
         disk_io=[DiskIoSnapshot(**d) for d in data.get("disk_io") or []],
         net_io=[NetIoSnapshot(**n) for n in data.get("net_io") or []],
         mounts=[MountDashSnapshot(**m) for m in data.get("mounts") or []],
+        cpu_saturation=[SaturationSignal(**s) for s in data.get("cpu_saturation") or []],
+        mem_saturation=[SaturationSignal(**s) for s in data.get("mem_saturation") or []],
+        disk_saturation=[SaturationSignal(**s) for s in data.get("disk_saturation") or []],
+        net_saturation=[SaturationSignal(**s) for s in data.get("net_saturation") or []],
+        errors=[
+            ErrorSignal(**{**e, "last_at": datetime.fromisoformat(e["last_at"]) if e.get("last_at") else None})
+            for e in data.get("errors") or []
+        ],
     )

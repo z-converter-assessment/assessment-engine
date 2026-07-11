@@ -220,7 +220,7 @@
           <text id="disk-donut-text" x="50" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#94a3b8">—</text>
           <text id="disk-donut-unit" x="50" y="66" text-anchor="middle" font-size="10" fill="#94a3b8" style="display:none;">%</text>
         </svg>
-        <div class="text-label text-sm" style="margin-top:4px;">스토리지</div>
+        <div class="text-label text-sm" style="margin-top:4px;">스토리지 용량</div>
       </div>
     </div>
 
@@ -250,16 +250,8 @@
           </tbody>
         </table>
       </div>
-      <div class="sat-line">
-        <span class="sat-name">실행 큐 <span class="text-meta text-xs">포화</span></span>
-        <span id="cpu-runq" class="text-sm">—</span>
-        <span class="text-meta text-xs">코어당 Linux 1(실행 대기 프로세스, procs_running) · Windows 2(Processor Queue Length) 이상 포화</span>
-      </div>
-      <div class="sat-line">
-        <span class="sat-name">Steal <span class="text-meta text-xs">포화</span></span>
-        <span id="cpu-steal" class="text-sm">—</span>
-        <span class="text-meta text-xs">하이퍼바이저가 vCPU 시간 뺏김 (가상화 경합) — Linux 전용 · Windows 는 OS 개념 부재로 미측정(N/A)</span>
-      </div>
+      <div class="sat-title text-meta text-xs">포화 신호 — 값 / 임계 · 근거는 각 항목 hover</div>
+      <div id="cpu-sat-signals"></div>
     </div>
 
     <div class="group-header">
@@ -290,11 +282,8 @@
           </tbody>
         </table>
       </div>
-      <div class="sat-line">
-        <span class="sat-name">페이징 <span class="text-meta text-xs">포화</span></span>
-        <span id="mem-paging" class="text-sm">—</span>
-        <span class="text-meta text-xs">물리 메모리 압박 — 하드 페이지 폴트율(Pages Input/sec, 디스크에서 페이지 읽기) 초당 20 이상 포화 · 양 OS 공통</span>
-      </div>
+      <div class="sat-title text-meta text-xs">포화 신호 — 값 / 임계 · 근거는 각 항목 hover</div>
+      <div id="mem-sat-signals"></div>
     </div>
 
     <div id="storage-group" style="display:none;">
@@ -317,11 +306,8 @@
           </table>
           <div id="disk-io-empty" class="text-meta text-sm" style="display:none;">디스크 I/O 미수집 — 연속 2회 측정 시 표시</div>
         </div>
-        <div class="sat-line">
-          <span class="sat-name">디스크 I/O 포화</span>
-          <span id="disk-sat" class="text-sm">—</span>
-          <span class="text-meta text-xs">Linux await(응답 지연) 20ms · Windows await(IOCTL) 20ms 초과 포화 (구세대 viostor 만 Avg Disk Queue Length 2 이상) · 호스트 전체</span>
-        </div>
+        <div class="sat-title text-meta text-xs">포화 신호 — 값 / 임계 · 근거는 각 항목 hover</div>
+        <div id="disk-sat-signals"></div>
       </div>
     </div>
 
@@ -342,12 +328,18 @@
           </thead>
           <tbody id="net-io-body"></tbody>
         </table>
-        <div class="sat-line">
-          <span class="sat-name">TCP 재전송율 포화</span>
-          <span id="net-retrans" class="text-sm">—</span>
-          <span class="text-meta text-xs">1% 이상이면 네트워크 품질 저하 · 호스트 전체(TCP 전역, OS 공통)</span>
-        </div>
+        <div class="sat-title text-meta text-xs">네트워크 품질 — 값 / 임계 · 근거는 각 항목 hover</div>
+        <div id="net-sat-signals"></div>
       </div>
+    </div>
+
+    <div class="group-header" style="margin-top:8px;">
+      <span class="group-label">운영 이벤트 / 에러</span>
+      <div class="group-line"></div>
+    </div>
+    <div class="group-panel">
+      <div class="text-meta text-xs" style="margin-bottom:6px;">하드웨어 · 디스크 · 네트워크 오류 — 정상 시 0, 발생 시 카운트 · 종류 (근거는 항목 hover)</div>
+      <div id="error-fleet" class="err-fleet"></div>
     </div>
 
   </div><!-- /metrics-content -->

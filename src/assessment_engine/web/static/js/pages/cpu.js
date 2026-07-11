@@ -5,21 +5,18 @@
  * 외부 의존:
  * - ChartUtils (base.html에서 chart-utils.js 로드)
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
- * - body data-server-id / data-cpu-cores (E6 외부화 규약, static-assets.md)
+ * - body data-server-id / data-os-family (E6 외부화 규약, static-assets.md)
+ *
+ * 시간축: 페이지 단일 range + anchor(#F10) — 3 차트(사용률·분류·실행큐)가 pageTimeControl 하나를 공유해
+ * 같은 창·시점으로 그려진다(신호 간 시점 상관). usage 차트만 agg(avg/max/p95) 토글 별도 보유.
  */
-// ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
-        fmtLabel, getAnchorEnd, initAnchor,
-        makeBucketGrid, joinToGrid, bindToggle, initAutoRefresh, safeArray,
-        buildDimDatasets, renderChipLegend } = /** @type {any} */ (ChartUtils);
+        fmtLabel, makeBucketGrid, joinToGrid, bindToggle, pageTimeControl,
+        initAutoRefresh, buildDimDatasets, renderChipLegend } = /** @type {any} */ (ChartUtils);
 
 // body data attribute 단일 진실 (#E6 inline <script> 금지).
 const SERVER_ID = document.body.dataset.serverId;
-const CPU_CORES = parseInt(/** @type {string} */ (document.body.dataset.cpuCores), 10) || 4;
 const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 메트릭 N/A 분기
-
-// 로드 추이는 코어당(load/cpu_cores) 정규화 — 1.0 = 코어당 run queue 1(포화). 환경 추이(Σload/Σcores)와
-// 의미 일관. suggestedMax 1.5(포화선 위 여유)로 포화 임계가 시각에 자연 노출되고, 초과 시 자동 확장.
 
 /** @param {number | null | undefined} v */
 function pct(v) { return v == null ? '—' : v.toFixed(1) + '%'; }
@@ -39,11 +36,8 @@ async function loadSnapshot() {
     /** @type {HTMLElement} */ (document.getElementById('s-user')).textContent   = pct(cpu.user_pct);
     /** @type {HTMLElement} */ (document.getElementById('s-system')).textContent = pct(cpu.system_pct);
     /** @type {HTMLElement} */ (document.getElementById('s-iowait')).textContent = /** @type {string} */ (ChartUtils.naWindows(OS_FAMILY, 'cpu_iowait', pct(cpu.iowait_pct)));
-    // Steal — 가상화 경합(하이퍼바이저 vCPU 시간 뺏김). Linux 전용, Windows 는 개념 부재로 N/A.
-    /** @type {HTMLElement} */ (document.getElementById('s-steal')).textContent = /** @type {string} */ (ChartUtils.naWindows(OS_FAMILY, 'cpu_steal', pct(cpu.steal_pct)));
-    // 실행 큐 — os-aware(Linux procs_running / Windows Processor Queue). 코어당 = 큐/코어 (1.0 Linux·2.0 Windows 포화).
-    /** @type {HTMLElement} */ (document.getElementById('s-runq')).textContent      = data.cpu_run_queue != null ? data.cpu_run_queue.toFixed(1) : '—';
-    /** @type {HTMLElement} */ (document.getElementById('s-runq-core')).textContent = data.cpu_run_queue != null ? (data.cpu_run_queue / CPU_CORES).toFixed(2) : '—';
+    // 포화 스냅샷 신호 — 실행 큐(per-core), Steal, PSI. 서버 os-aware 판정 완료(값/임계/4상태), 공통 렌더만 (P4, E3 재계산 금지).
+    SignalUtils.renderSaturation(document.getElementById('cpu-sat-signals'), data.cpu_saturation);
     const stampEl = document.getElementById('metrics-stamp');
     if (stampEl && data.collected_at) stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);
     /** @type {HTMLElement} */ (document.getElementById('snap-body')).style.display = '';
@@ -53,22 +47,17 @@ async function loadSnapshot() {
   }
 }
 
-/* ── 단일 라인 차트 (CPU 사용률) ── */
-let usageRange = '15m';
+/* ── 단일 라인 차트 (CPU 사용률) — usage 만 agg 토글 별도 ── */
 let usageAgg   = 'avg';
 /** @type {any} */
 let usageChart = null;
 let usageSeq   = 0;
 
-function updateUsageBucketLabel() {
-  /** @type {HTMLElement} */ (document.getElementById('usage-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[usageRange]] || '';
-}
-
 async function loadUsageChart() {
   const seq = ++usageSeq;
-  const capturedRange  = usageRange;
+  const capturedRange  = timeCtl.getRange();
   const capturedAgg    = usageAgg;
-  const capturedAnchor = getAnchorEnd('usage-anchor');
+  const capturedAnchor = timeCtl.getAnchor();
   const canvas = /** @type {HTMLElement} */ (document.getElementById('usage-canvas'));
   const empty  = /** @type {HTMLElement} */ (document.getElementById('usage-empty'));
   const params = new URLSearchParams({
@@ -135,20 +124,14 @@ async function loadUsageChart() {
   } catch(e) { console.error(e); }
 }
 
-bindToggle('usage-agg-btns',   (/** @type {string} */ v) => { usageAgg   = v; loadUsageChart(); });
-bindToggle('usage-range-btns', (/** @type {string} */ v) => { usageRange = v; updateUsageBucketLabel(); /** @type {HTMLElement} */ (document.getElementById('usage-range-print')).textContent = ' — ' + RANGE_LABEL[v]; loadUsageChart(); });
+bindToggle('usage-agg-btns', (/** @type {string} */ v) => { usageAgg = v; loadUsageChart(); });
 
 /* ── CPU 분류 추이 (user / system / iowait) ── */
-let compRange   = '15m';
 /** @type {any} */
 let compChart   = null;
 /** @type {any[]} */
 let compAllRows = [];
 let compSeq     = 0;
-
-function updateCompBucketLabel() {
-  /** @type {HTMLElement} */ (document.getElementById('comp-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[compRange]] || '';
-}
 
 /**
  * @param {string} range
@@ -209,8 +192,8 @@ function buildCompLegend() {
 
 async function loadCompChart() {
   const seq = ++compSeq;
-  const capturedRange  = compRange;
-  const capturedAnchor = getAnchorEnd('comp-anchor');
+  const capturedRange  = timeCtl.getRange();
+  const capturedAnchor = timeCtl.getAnchor();
   const bucket = AUTO_BUCKET[capturedRange];
   const mkP = (/** @type {string} */ type) => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg: 'avg' });
@@ -240,19 +223,12 @@ async function loadCompChart() {
   } catch(e) { console.error(e); }
 }
 
-bindToggle('comp-range-btns', (/** @type {string} */ v) => { compRange = v; updateCompBucketLabel(); /** @type {HTMLElement} */ (document.getElementById('comp-range-print')).textContent = ' — ' + RANGE_LABEL[v]; loadCompChart(); });
-
-/* ── 로드 평균 추이 ── */
-let loadRange   = '15m';
+/* ── 실행 큐 추이 (os-aware: Linux procs_running / Windows Processor Queue, 코어당) ── */
 /** @type {any} */
 let loadChart   = null;
 /** @type {any[]} */
 let loadAllRows = [];
 let loadSeq     = 0;
-
-function updateLoadBucketLabel() {
-  /** @type {HTMLElement} */ (document.getElementById('load-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[loadRange]] || '';
-}
 
 /**
  * @param {string} range
@@ -311,8 +287,8 @@ function buildLoadLegend() {
 
 async function loadLoadChart() {
   const seq = ++loadSeq;
-  const capturedRange  = loadRange;
-  const capturedAnchor = getAnchorEnd('load-anchor');
+  const capturedRange  = timeCtl.getRange();
+  const capturedAnchor = timeCtl.getAnchor();
   const bucket = AUTO_BUCKET[capturedRange];
   const mkP = (/** @type {string} */ type) => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg: 'avg' });
@@ -330,26 +306,83 @@ async function loadLoadChart() {
   } catch(e) { console.error(e); }
 }
 
-bindToggle('load-range-btns', (/** @type {string} */ v) => { loadRange = v; updateLoadBucketLabel(); /** @type {HTMLElement} */ (document.getElementById('load-range-print')).textContent = ' — ' + RANGE_LABEL[v]; loadLoadChart(); });
+/* ── CPU PSI 추이 (some 정체율 %, 단일선 — Linux 전용, Windows 빈 결과 -> empty) ── */
+/** @type {any} */
+let psiChart = null;
+let psiSeq   = 0;
 
-/* ── 30초 polling 자동 갱신 (SSE 제거) ── */
+async function loadPsiChart() {
+  const seq = ++psiSeq;
+  const range  = timeCtl.getRange();
+  const anchor = timeCtl.getAnchor();
+  const p = new URLSearchParams({ metric_type: 'cpu.psi', time_range: range, bucket: AUTO_BUCKET[range], agg: 'avg' });
+  if (anchor) p.append('end', anchor.toISOString());
+  const canvas = /** @type {HTMLElement} */ (document.getElementById('cpu-psi-canvas'));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById('cpu-psi-empty'));
+  try {
+    /** @type {import('../generated/api').components['schemas']['MetricSeriesItem'][]} */
+    const rows = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${p}`).then(r => r.json());
+    if (seq !== psiSeq) return;
+    if (!Array.isArray(rows) || !rows.length) {
+      canvas.style.display = 'none'; empty.style.display = '';
+      if (psiChart) { psiChart.destroy(); psiChart = null; }
+      return;
+    }
+    canvas.style.display = ''; empty.style.display = 'none';
+    const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
+    const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchor);
+    const labels = grid.map((/** @type {number} */ t) => fmtLabel(new Date(t).toISOString(), range));
+    const data   = joinToGrid(grid, rows, bMs);
+    if (psiChart) {
+      psiChart.data.labels = labels; psiChart.data.datasets[0].data = data;
+      psiChart.update('none'); return;
+    }
+    psiChart = new Chart(canvas, {
+      type: 'line',
+      data: { labels, datasets: [{
+        label: 'PSI (정체율)', data,
+        borderColor: /** @type {any} */ (ChartUtils).themeColor(),
+        borderWidth: 2, pointRadius: 1, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
+      }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode:'index', intersect:false },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` PSI: ${ctx.parsed.y?.toFixed(1)}%` } } },
+        scales: {
+          x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
+          y: { ticks:{ callback: v => v + '%', font:{size:11}, color:'#64748b' }, grid:{ color:'#f1f5f9' }, beginAtZero: true, suggestedMax: 20 },
+        },
+      },
+    });
+  } catch(e) { console.error(e); }
+}
+
+/* ── 페이지 단일 시간축 버킷 라벨·print range (모든 차트 공통 range) ── */
+function updateBucketLabels() {
+  const r = timeCtl.getRange();
+  const bl = BUCKET_LABEL[AUTO_BUCKET[r]] || '';
+  const pr = ' — ' + RANGE_LABEL[r];
+  /** @param {string} id @param {string} t */
+  const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  set('usage-bucket-label', bl); set('comp-bucket-label', bl); set('load-bucket-label', bl); set('cpu-psi-bucket-label', bl);
+  set('usage-range-print', pr); set('comp-range-print', pr); set('load-range-print', pr); set('cpu-psi-range-print', pr);
+}
+
+/* ── 전체 차트 reload (페이지 range/anchor 변경 시) ── */
+function reloadAllCharts() {
+  updateBucketLabels();
+  loadUsageChart();
+  loadCompChart();
+  loadLoadChart();
+  loadPsiChart();
+}
+
+// 페이지 단일 시간축 컨트롤러 — range 토글 + anchor 가 3 차트 전체 구동(#F10).
+const timeCtl = pageTimeControl('page-range-btns', 'page-anchor', '15m', reloadAllCharts);
+
+/* ── 30초 polling 자동 갱신 (스냅샷만) ── */
 initAutoRefresh(loadSnapshot);
-
-/* ── 기준일 초기화 ── */
-initAnchor('usage-anchor');
-initAnchor('comp-anchor');
-/** @type {HTMLElement} */ (document.getElementById('usage-anchor')).addEventListener('change', () => loadUsageChart());
-/** @type {HTMLElement} */ (document.getElementById('comp-anchor')).addEventListener('change', () => loadCompChart());
 
 /* ── 초기 로드 ── */
 loadSnapshot();
-updateUsageBucketLabel();
-loadUsageChart();
-updateCompBucketLabel();
-loadCompChart();
-
-/* 실행 큐 추이 — os-aware(Linux procs_running / Windows Processor Queue), 양 OS 표시. */
-initAnchor('load-anchor');
-/** @type {HTMLElement} */ (document.getElementById('load-anchor')).addEventListener('change', () => loadLoadChart());
-updateLoadBucketLabel();
-loadLoadChart();
+reloadAllCharts();

@@ -170,6 +170,8 @@ class EnvironmentOverview:
     # 포화 3축 도넛 (CPU 포화·메모리 압박·디스크 I/O 포화) — 자원 적정성 창(14일) 기준 호스트 카운트/표본.
     # 실시간현황 6도넛과 동일 시각·게이지색, 다만 스냅샷 아닌 윈도우 기준(#E3 화면 간 정합). (forward-ref 따옴표)
     saturation_donuts: list["SaturationDonut"] = field(default_factory=list)
+    # 에러축 fleet 표시자 (MCE·OOM·EDAC·디스크·NIC) — 창내 발생 호스트 수/표본. 정상=0 발화(E9). 대시보드 전용.
+    error_fleet: list["FleetErrorItem"] = field(default_factory=list)
     risk_donut: list[RiskDonutSegment] = field(default_factory=list)
     risk_donut_total: int = 0  # 도넛 중심 표시 (분류된 서버 수)
     risk_high_count: int = 0  # 도넛 중심 강조 — "위험 N대"
@@ -236,6 +238,20 @@ class SaturationDonut:
     total: int  # 신선 표본 (분모)
     dash_length: float  # (count/total) * 원주 — SVG 채움 (precompute)
     color: str  # count>0 강조(빨강) / 0 회색
+
+
+@dataclass
+class FleetErrorItem:
+    """환경 fleet 에러 표시자 1개 — 에러축(MCE·OOM·EDAC·디스크·NIC) 창내 발생 호스트 수 / 표본. 정상=0 발화(E9).
+
+    에러는 카운트형(대부분 0)이라 도넛 아닌 표시자 — affected=0 이면 '이상 없음', >0 이면 'N대 영향'.
+    """
+
+    key: str  # cpu_mce | mem_oom | mem_corrupted | disk_errors | net_errors
+    label: str  # 표시 라벨 ("머신체크(MCE)" 등)
+    affected: int  # 발생 호스트 수 (분자)
+    total: int  # 표본 (분모)
+    detail: str | None = None  # 신호 의미(hover)
 
 
 @dataclass

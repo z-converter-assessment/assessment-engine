@@ -63,7 +63,7 @@ services:
     env_file: ${ENV_FILE:-.env}
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-assessment}
-      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/assessment}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-assessment}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeme}
     ports:
       # 5672 는 외부 호스트의 agent 가 broker 로 메트릭·결과를 발행하는 통로 — 노출 필수.

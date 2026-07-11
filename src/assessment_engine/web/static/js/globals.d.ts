@@ -27,6 +27,12 @@ interface ChartUtilsApi {
   buildDimDatasets(rows: any[], bMs: number, grid: number[], metaMap?: any, opts?: any): any[];
   fmtThroughput(kb: number | null): string;
   bindToggle(groupId: string, onChange: (val: string) => void): void;
+  pageTimeControl(
+    rangeBtnsId: string,
+    anchorId: string,
+    defaultRange: string,
+    onChange: () => void,
+  ): { getRange: () => string; getAnchor: () => Date | null };
   initAutoRefresh(onRefresh: () => void, intervalMs?: number): void;
   safeArray<T>(arr: T[] | null | undefined): T[];
   naWindows(osFamily: string | null, key: string, formatted: string): string;
@@ -56,6 +62,25 @@ interface TaskModalApi {
   pollUntilFinal(taskId: string): void;
 }
 
+interface SignalUtilsApi {
+  /** 포화 스냅샷 신호(서버 os-aware 판정 완료)를 컨테이너에 4상태 렌더 (P4 렌더 전용). */
+  renderSaturation(
+    container: HTMLElement | null,
+    signals:
+      | ReadonlyArray<import("./generated/api").components["schemas"]["SaturationSignal"]>
+      | null
+      | undefined,
+  ): void;
+  /** 에러 축 표시자(카운트형, 정상=0 발화)를 컨테이너에 렌더 (P4 렌더 전용). */
+  renderErrors(
+    container: HTMLElement | null,
+    errors:
+      | ReadonlyArray<import("./generated/api").components["schemas"]["ErrorSignal"]>
+      | null
+      | undefined,
+  ): void;
+}
+
 declare global {
   // UMD 전역 (vendor min.js — <script> 로 window 에 노출).
   const Chart: typeof ChartJs & { new (ctx: unknown, cfg: ChartConfiguration): ChartJs };
@@ -67,6 +92,7 @@ declare global {
   const ToastUtils: ToastUtilsApi;
   const EmitUtils: EmitUtilsApi;
   const TaskModal: TaskModalApi;
+  const SignalUtils: SignalUtilsApi;
 
   interface Window {
     ChartUtils: ChartUtilsApi;
@@ -74,6 +100,7 @@ declare global {
     ToastUtils: ToastUtilsApi;
     EmitUtils: EmitUtilsApi;
     TaskModal: TaskModalApi;
+    SignalUtils: SignalUtilsApi;
   }
 }
 

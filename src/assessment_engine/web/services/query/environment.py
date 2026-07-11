@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import SaturationRaw
+from assessment_engine.db.dtos.outbound import FleetErrorRaw, SaturationRaw
 from assessment_engine.db.repositories.query.types import DIAGNOSTIC_RANGE_DAYS, TimeRange
 from assessment_engine.web.services.mappers.assessment_api import build_assessment_entry
 from assessment_engine.web.services.mappers.attention import (
@@ -49,7 +49,8 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         return await self._assemble_realtime(server_ids, details, now)
 
     def _assemble_overview(
-        self, details, util, raws_period, online_by_id: dict[int, bool], full_under: bool = False
+        self, details, util, raws_period, online_by_id: dict[int, bool], full_under: bool = False,
+        error_summary: FleetErrorRaw | None = None,
     ) -> EnvironmentOverview:
         """report_aggregate raws -> USE Method 분류 도넛 + under_provisioned 상세, online_by_id -> online_count.
 
@@ -59,8 +60,9 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         """
         risk_counts: dict[str, int] = {}
         under_hosts: list[CapacityWarningItem] = []
-        # 포화 3축 호스트 카운트 — 자원 적정성 창(raws_period) 기준. stats 1회 산출로 분류·포화 공용(임계 재계산 0).
-        cpu_sat = mem_sat = disk_sat = 0
+        # 포화 4축 호스트 카운트 — 자원 적정성 창(raws_period) 기준. stats 1회 산출로 분류·포화 공용(임계 재계산 0).
+        # net 혼잡은 사이징 아닌 별도 품질 플래그(assess_network congested, 단일소스) — 포화 도넛에 orthogonal 노출.
+        cpu_sat = mem_sat = disk_sat = net_cong = 0
         for raw in raws_period:
             stats = build_resource_stats(raw)
             rec = recommendation.classify_host(stats)
@@ -74,16 +76,20 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                 mem_sat += 1
             if recommendation.disk_io_saturated(stats):
                 disk_sat += 1
+            if recommendation.assess_network(stats).status == "congested":
+                net_cong += 1
         online_count = sum(1 for d in details if online_by_id.get(d.id))
         # 포화 도넛 표본 = 윈도우 내 metric 발행 호스트 수(util.sample_size). util 부재 시 분류된 호스트 수로 폴백.
         sat_total = util.sample_size if util is not None else len(raws_period)
-        sat_counts = {"cpu": cpu_sat, "mem": mem_sat, "disk_io": disk_sat, "total": sat_total}
+        sat_counts = {"cpu": cpu_sat, "mem": mem_sat, "disk_io": disk_sat, "net": net_cong, "total": sat_total}
         if full_under:
             return build_environment_overview(
-                details, online_count, util, risk_counts, under_hosts, under_limit=None, saturation_counts=sat_counts
+                details, online_count, util, risk_counts, under_hosts, under_limit=None,
+                saturation_counts=sat_counts, error_summary=error_summary,
             )
         return build_environment_overview(
-            details, online_count, util, risk_counts, under_hosts, saturation_counts=sat_counts
+            details, online_count, util, risk_counts, under_hosts,
+            saturation_counts=sat_counts, error_summary=error_summary,
         )
 
     async def get_environment_assessment(
@@ -330,7 +336,9 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         # 이용률·포화 도넛 6개 모두 자원 적정성 창(14일) 기준 — 분류·포화·이용률 한 창으로 통일(#E3 화면 간 정합).
         util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS, end=now)
         online_by_id = await self._online_map(server_ids, details, now)
-        return self._assemble_overview(details, util, raws_period, online_by_id)
+        # fleet 에러 표시자 — 분류와 동일 14일 창(#E3). 대시보드 전용(assessment 경로 미조회).
+        errors = await self.repo.fleet_error_summary(server_ids, now - timedelta(days=recommendation.WINDOW_DAYS))
+        return self._assemble_overview(details, util, raws_period, online_by_id, error_summary=errors)
 
     async def get_topology(self) -> NetworkTopology:
         """네트워크 토폴로지 — 전체 인벤토리의 L3 subnet 공동소속 그래프.

@@ -16,10 +16,9 @@
     <dd>{% for ip in network.ip_internal %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% else %}-{% endfor %}</dd>
     <dt>External IP</dt>
     <dd>{% if network.ip_external %}{% for ip in network.ip_external %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}-{% endif %}</dd>
-    <dt>TCP 재전송율</dt>
-    <dd id="s-net-retrans">—</dd>
   </dl>
-  <p class="text-meta text-xs" style="margin:6px 0 0;">재전송율 1% 초과 시 네트워크 품질 저하(혼잡·손실) — 자원 부족과 별개의 품질 지표(양 OS 공통).</p>
+  <div class="sat-title text-meta text-xs">네트워크 품질 — 값 / 임계 · 근거는 각 항목 hover</div>
+  <div id="net-sat-signals"></div>
 
   <div class="section-title" style="margin-top:22px; margin-bottom:14px;">인터페이스 현황</div>
   <div id="net-snapshot-loading" class="text-meta text-md">불러오는 중...</div>
@@ -41,11 +40,10 @@
   </div>
 </div>
 
-<div class="card">
-  <div class="chart-head">
-    <h2 class="card-title">네트워크 I/O 추이<span class="print-only text-muted text-sm" id="net-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    <span id="net-bucket-label" class="bucket-label"></span>
-    <select class="chart-select no-print" id="net-range-btns" aria-label="구간 선택">
+<div class="card no-print" style="padding:12px 16px;">
+  <div class="chart-head" style="margin:0;">
+    <span class="text-label text-sm" style="font-weight:600;">시간축</span>
+    <select class="chart-select" id="page-range-btns" aria-label="구간 선택">
       <option value="15m">15분</option>
       <option value="1h">1시간</option>
       <option value="6h">6시간</option>
@@ -54,7 +52,15 @@
       <option value="14d">14일</option>
       <option value="30d">30일</option>
     </select>
-    <input type="datetime-local" id="net-anchor" class="chart-anchor no-print" aria-label="기준 시각">
+    <input type="datetime-local" id="page-anchor" class="chart-anchor" aria-label="기준 시각">
+    <span class="text-meta text-xs">아래 모든 차트 공통 · 기준 시각 비우면 현재(live), 지정하면 그 시점 기준(과거 조사)</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="chart-head">
+    <h2 class="card-title">네트워크 I/O 추이<span class="print-only text-muted text-sm" id="net-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    <span id="net-bucket-label" class="bucket-label"></span>
   </div>
   <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="net-chart-canvas"></canvas>
@@ -72,16 +78,6 @@
   <div class="chart-head">
     <h2 class="card-title">네트워크 PPS 추이<span class="print-only text-muted text-sm" id="net-pps-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     <span id="net-pps-bucket-label" class="bucket-label"></span>
-    <select class="chart-select no-print" id="net-pps-range-btns" aria-label="구간 선택">
-      <option value="15m">15분</option>
-      <option value="1h">1시간</option>
-      <option value="6h">6시간</option>
-      <option value="24h">1일</option>
-      <option value="7d">7일</option>
-      <option value="14d">14일</option>
-      <option value="30d">30일</option>
-    </select>
-    <input type="datetime-local" id="net-pps-anchor" class="chart-anchor no-print" aria-label="기준 시각">
   </div>
   <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="net-pps-canvas"></canvas>
@@ -93,6 +89,20 @@
   <p class="chart-caption">
     음영 영역은 집계 구간 내 순간 최대 PPS와 평균의 차이.
   </p>
+</div>
+
+<div class="card">
+  <div class="chart-head">
+    <h2 class="card-title">TCP 재전송율 추이<span class="print-only text-muted text-sm" id="retrans-range-print" style="font-weight:normal;"> — 15분</span></h2>
+    <span id="retrans-bucket-label" class="bucket-label"></span>
+  </div>
+  <div class="chart-desc">재전송 세그먼트 / 송신 패킷 (%) — 호스트 전역(TCP) · 1% 초과면 네트워크 품질 저하(혼잡·손실). 스냅샷 현재값은 위 네트워크 품질 신호 참조.</div>
+  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+    <canvas id="retrans-canvas"></canvas>
+  </div>
+  <div id="retrans-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
+    해당 기간에 수집된 데이터가 없습니다.
+  </div>
 </div>
 
 <style>

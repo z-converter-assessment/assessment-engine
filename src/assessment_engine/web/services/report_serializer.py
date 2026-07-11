@@ -28,6 +28,7 @@ from assessment_engine.web.view_models.attention import (
     CapacityMetric,
     CapacityWarningItem,
     EnvironmentOverview,
+    FleetErrorItem,
     RiskDonutSegment,
     SaturationDonut,
     UtilizationBar,
@@ -163,6 +164,7 @@ def _overview_from_dict(d: dict) -> EnvironmentOverview:
     data["utilization_p95"] = [UtilizationBar(**u) for u in data.get("utilization_p95") or []]
     data["risk_donut"] = [RiskDonutSegment(**s) for s in data.get("risk_donut") or []]
     data["saturation_donuts"] = [SaturationDonut(**s) for s in data.get("saturation_donuts") or []]
+    data["error_fleet"] = [FleetErrorItem(**e) for e in data.get("error_fleet") or []]
     uph = data.get("under_provisioned_hosts") or []
     data["under_provisioned_hosts"] = [_capacity_warning_from_dict(c) for c in uph]
     return EnvironmentOverview(**data)

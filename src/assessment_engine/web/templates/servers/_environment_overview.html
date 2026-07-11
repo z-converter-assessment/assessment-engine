@@ -54,6 +54,29 @@
   {% endif %}
 </section>
 
+{# 운영 이벤트 / 에러 (fleet) — 에러축(하드웨어·디스크·네트워크) 발생 호스트 수. 정상=0 발화(E9). 분류와 같은 14일 창. #}
+{% if overview.error_fleet %}
+<section class="card no-print">
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+    <h2 class="card-title" style="margin:0;">운영 이벤트 / 에러</h2>
+    <span class="section-meta">최근 {{ classification_window_label }} · 오류 발생 호스트 / 표본 (근거는 항목 hover)</span>
+  </div>
+  <div class="err-fleet">
+    {% for e in overview.error_fleet %}
+    <div class="err-item"{% if e.detail %} title="{{ e.detail }}"{% endif %}>
+      <span class="err-label">{{ e.label }}</span>
+      {% if e.affected %}
+      <span class="badge badge-danger sat-badge">{{ e.affected }}대 영향</span>
+      <span class="err-win">/ {{ e.total }}대</span>
+      {% else %}
+      <span class="badge badge-ok sat-badge">이상 없음</span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
 {# 수집 건전성 — 온라인/오프라인 (Redis online TTL 기준). #}
 <section class="card no-print">
   <h2 class="card-title" style="margin:0 0 12px;">수집 건전성</h2>
