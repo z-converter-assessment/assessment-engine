@@ -8,6 +8,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from assessment_engine.db.dtos.outbound import RebootEvent
 from assessment_engine.db.repositories.query.types import EnvironmentMetricType
 from assessment_engine.web.deps import get_service, resolve_internal_id
 from assessment_engine.web.services.query_service import (
@@ -17,6 +18,11 @@ from assessment_engine.web.services.query_service import (
     QueryService,
     TimeRange,
 )
+from assessment_engine.web.view_models.metric import (
+    CollectionStatusItem,
+    MetricDashboard,
+    MetricSeriesItem,
+)
 
 api_router = APIRouter(prefix="/api/servers", tags=["api"])
 
@@ -25,7 +31,7 @@ api_router = APIRouter(prefix="/api/servers", tags=["api"])
 async def get_collection_status(
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
-):
+) -> CollectionStatusItem | None:
     """서버 수집 상태 — 마지막 메트릭·인벤토리 수신 시각 + 온라인 여부 (수집 건전성 배지)."""
     return await service.get_collection_status(internal_id)
 
@@ -34,7 +40,7 @@ async def get_collection_status(
 async def get_latest_metric(
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
-):
+) -> MetricDashboard:
     """서버 최신 메트릭 스냅샷 — CPU·메모리·디스크·네트워크 + 포화 신호 최근 1건 (실시간 카드·상세 30초 폴링)."""
     result = await service.get_latest_metric(internal_id)
     if not result:
@@ -48,7 +54,7 @@ async def get_metric_snapshots(
     limit: int = Query(10, ge=1, le=100),
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
-):
+) -> list[MetricSeriesItem]:
     """서버 메트릭 시계열 스냅샷 목록 — cursor(시각) 기반 시간 역순 페이지네이션 (표 스크롤용)."""
     return await service.get_metric_snapshots(internal_id, cursor, limit)
 
@@ -63,7 +69,7 @@ async def get_metric_chart(
     end: datetime | None = Query(None),
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
-):
+) -> list[MetricSeriesItem]:
     """서버 단일 지표 차트 시계열 — metric_type 별 버킷 집계(agg=avg/max/p95), 구간·앵커·차원 선택."""
     return await service.get_metric_chart(
         internal_id,
@@ -83,7 +89,7 @@ async def get_environment_metrics_chart(
     bucket: BucketSize = Query("1m"),
     ids: str | None = Query(None, description="public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경."),
     service: QueryService = Depends(get_service),
-):
+) -> list[MetricSeriesItem]:
     """환경 시계열 — 환경 성능 추이 live + 대시보드 추이. ids 면 선택 N대 한정, 없으면 전체 환경."""
     server_ids = None
     if ids:
@@ -99,7 +105,7 @@ async def get_reboot_events(
     end: datetime | None = Query(None),
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
-):
+) -> list[RebootEvent]:
     """차트 vertical marker용 — 지정 time_range 내 시스템 재부팅·에이전트 재시작 시점.
 
     응답: `[{collected_at, boot_time, agent_started_at, kind}]`

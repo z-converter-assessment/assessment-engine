@@ -43,3 +43,7 @@ htmlcov/
 # Claude Code 개인 로컬 오버라이드 (settings.json은 팀 공유, .local.json은 개인용)
 .claude/settings.local.json
 
+
+# 표현계층 타입 도구 (dev/CI 전용). 생성 타입(static/js/generated/)은 커밋 — drift 게이트 대상.
+node_modules/
+openapi.json
