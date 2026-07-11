@@ -32,7 +32,7 @@ reference/ (지금 어떻게 도나):
 - `consumer.md` · `rabbitmq.md` · `redis.md` · `right-sizing.md` · `observability.md` — subsystem 동작 + 각자 "한계" 절.
 - `right-sizing-thresholds.md` — 자원 적정성 임계치·근거 인간가독 정본 (5자원 x USE 3축, 신호·임계·basis·robustness). `right-sizing.md` 는 판정 명세, 본 문서는 임계 수치·근거.
 - `db/` — models · dtos · repositories · timescaledb.
-- `web/` — layering · routers · services · view-models · static-assets.
+- `web/` — layering · routers · services · view-models · static-assets · type-contract.
 
 guides/ (어떻게 하나):
 - `deploy.md` · `migrate.md` · `release.md` — 배포·스키마 마이그레이션·릴리즈 절차.
