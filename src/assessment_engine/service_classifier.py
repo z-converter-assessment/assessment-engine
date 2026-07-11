@@ -384,10 +384,10 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
 
 # ─── 파생 인덱스 (import 시점 1회, 재계산 0) ─────────────────────────────────
 
-# _PATTERNS 대체 — (keyword, category) 순서 = 카탈로그 등장 순 = 첫 매칭 우선.
+# (keyword, category) 순서 = 카탈로그 등장 순 = 첫 매칭 우선.
 _NAME_INDEX: tuple[tuple[str, str], ...] = tuple((kw, d.key) for d in SERVICE_CATALOG for kw in d.name_keywords)
 
-# SERVICE_PORTS 대체 — normalized 서비스명 -> well-known 포트.
+# normalized 서비스명 -> well-known 포트.
 _NAME_PORTS: dict[str, tuple[int, ...]] = {name: ports for d in SERVICE_CATALOG for name, ports in d.port_names.items()}
 
 
@@ -403,7 +403,7 @@ def _build_port_index() -> dict[int, str]:
 
 _PORT_INDEX: dict[int, str] = _build_port_index()
 
-# list 페이지 dropdown option (현 SERVICE_CATEGORIES 상수 대체).
+# list 페이지 dropdown option.
 SERVICE_CATEGORIES: tuple[str, ...] = tuple(d.key for d in SERVICE_CATALOG)
 
 # 런타임 스택 카테고리 — 카운트를 호스트당 1로 (인스턴스 합 금지). 현재 container 만.

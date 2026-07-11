@@ -8,7 +8,7 @@
 - safe_mget: keys=[]면 redis 호출 없이 즉시 [] (short-circuit)
 """
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from redis.exceptions import RedisError
@@ -16,6 +16,7 @@ from redis.exceptions import RedisError
 from assessment_engine.cache.redis import (
     safe_delete,
     safe_get,
+    safe_incr_with_ttl,
     safe_mget,
     safe_set,
     safe_set_nx,
@@ -121,3 +122,51 @@ async def test_safe_mget_returns_none_on_redis_error_for_fallback():
     redis = AsyncMock()
     redis.mget.side_effect = RedisError("oops")
     assert await safe_mget(redis, ["a", "b"]) is None
+
+
+# ─── safe_incr_with_ttl — 슬라이딩 윈도우 카운터 (INCR + EXPIRE 원자) ────────
+
+
+def _redis_with_pipe(*, execute_result=None, execute_error=None):
+    """redis.pipeline(transaction=True) as pipe async context manager mock 구성.
+
+    pipe.incr/expire는 명령 큐잉(동기), pipe.execute()는 await되어 results 반환.
+    반환: (redis mock, pipe mock) — 호출 인자 검증용.
+    """
+    pipe = MagicMock()
+    pipe.incr = MagicMock()
+    pipe.expire = MagicMock()
+    if execute_error is not None:
+        pipe.execute = AsyncMock(side_effect=execute_error)
+    else:
+        pipe.execute = AsyncMock(return_value=execute_result)
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=pipe)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    redis = MagicMock()
+    redis.pipeline = MagicMock(return_value=cm)
+    return redis, pipe
+
+
+async def test_safe_incr_with_ttl_returns_count_and_sets_ttl():
+    """정상: INCR 결과(results[0]) int 반환 + EXPIRE ttl 갱신. transaction=True 원자."""
+    redis, pipe = _redis_with_pipe(execute_result=[3, True])
+    assert await safe_incr_with_ttl(redis, "counter:agent", 900) == 3
+    redis.pipeline.assert_called_once_with(transaction=True)
+    pipe.incr.assert_called_once_with("counter:agent")
+    pipe.expire.assert_called_once_with("counter:agent", 900)
+    pipe.execute.assert_awaited_once_with()
+
+
+async def test_safe_incr_with_ttl_coerces_result_to_int():
+    """results[0]가 문자열이어도 int로 강제 변환해 반환."""
+    redis, _pipe = _redis_with_pipe(execute_result=["7", True])
+    result = await safe_incr_with_ttl(redis, "k", 60)
+    assert result == 7
+    assert isinstance(result, int)
+
+
+async def test_safe_incr_with_ttl_returns_none_on_redis_error():
+    """fail-open: RedisError → None. 호출자는 카운터 미판독으로 간주 (alert는 다음 기회)."""
+    redis, _pipe = _redis_with_pipe(execute_error=RedisError("redis down"))
+    assert await safe_incr_with_ttl(redis, "k", 60) is None

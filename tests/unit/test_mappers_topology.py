@@ -181,3 +181,127 @@ def test_gateway_disambiguates_overlapping_subnet():
     assert labels == ["10.0.1.0/24 (via 10.0.1.1)", "10.0.1.0/24 (via 10.0.1.254)"]
     assert t.subnet_count == 2
     assert t.host_count == 4
+
+
+def _host_roles(pid, name, os_family, ifaces, roles):
+    """service_categories(E7) 를 실은 duck-typed 호스트 — _host 는 해당 속성이 없어 roles 테스트용 별도 구성."""
+    return SimpleNamespace(
+        public_id=pid,
+        hostname=name,
+        os_family=os_family,
+        net_interfaces=ifaces,
+        service_categories=roles,
+    )
+
+
+def test_subnets_card_lists_member_hosts_with_ip_and_meta():
+    # subnets 카드: 그래프와 별개로 서브넷별 소속 서버 목록(hostname·IP·os_family·public_id) 제공.
+    hosts = [
+        _host("a", "hostA", "linux", [_iface("10.0.1.10/24")]),
+        _host("b", "hostB", "windows", [_iface("10.0.1.11/24")]),
+    ]
+    t = build_network_topology(hosts)
+    assert len(t.subnets) == 1
+    grp = t.subnets[0]
+    assert grp.net_key == "10.0.1.0/24"
+    assert grp.host_count == 2
+    by_pid = {sh.public_id: sh for sh in grp.hosts}
+    assert by_pid["a"].hostname == "hostA"
+    assert by_pid["a"].ip == "10.0.1.10"
+    assert by_pid["a"].os_family == "linux"
+    assert by_pid["b"].os_family == "windows"
+    assert by_pid["b"].ip == "10.0.1.11"
+
+
+def test_subnet_hosts_sorted_by_numeric_ip_ascending():
+    # 서브넷 내 호스트는 IP 숫자 오름차순 (_subnet_host_sort_key). 입력 역순이어도 정렬.
+    hosts = [
+        _host("a", "hostA", "linux", [_iface("10.0.1.200/24")]),
+        _host("b", "hostB", "linux", [_iface("10.0.1.9/24")]),
+        _host("c", "hostC", "linux", [_iface("10.0.1.50/24")]),
+    ]
+    t = build_network_topology(hosts)
+    grp = t.subnets[0]
+    assert [sh.ip for sh in grp.hosts] == ["10.0.1.9", "10.0.1.50", "10.0.1.200"]
+
+
+def test_subnet_label_uses_gateway_disambiguated_net_key():
+    # gateway 분리 시 SubnetGroup.net_key 는 CIDR 이 아닌 표시 라벨("... (via gw)").
+    hosts = [
+        _host("a", "hostA", "linux", [_iface("10.0.1.10/24", gateway="10.0.1.1")]),
+        _host("b", "hostB", "linux", [_iface("10.0.1.11/24", gateway="10.0.1.1")]),
+        _host("c", "hostC", "linux", [_iface("10.0.1.12/24", gateway="10.0.1.254")]),
+        _host("d", "hostD", "linux", [_iface("10.0.1.13/24", gateway="10.0.1.254")]),
+    ]
+    t = build_network_topology(hosts)
+    assert sorted(g.net_key for g in t.subnets) == [
+        "10.0.1.0/24 (via 10.0.1.1)",
+        "10.0.1.0/24 (via 10.0.1.254)",
+    ]
+
+
+def test_roles_from_service_categories_sorted_in_node_and_subnet_host():
+    # roles = sorted(service_categories) — host 노드 data 와 SubnetHost 양쪽에 실림.
+    hosts = [
+        _host_roles("a", "hostA", "linux", [_iface("10.0.1.10/24")], ["web", "db"]),
+        _host_roles("b", "hostB", "linux", [_iface("10.0.1.11/24")], ["cache"]),
+    ]
+    t = build_network_topology(hosts)
+    node_roles = {
+        e["data"]["publicId"]: e["data"]["roles"] for e in t.elements if e["data"].get("kind") == "host"
+    }
+    assert node_roles["a"] == ["db", "web"]  # 정렬됨
+    assert node_roles["b"] == ["cache"]
+    sh_roles = {sh.public_id: sh.roles for sh in t.subnets[0].hosts}
+    assert sh_roles["a"] == ["db", "web"]
+    assert sh_roles["b"] == ["cache"]
+
+
+def test_roles_default_empty_when_service_categories_absent():
+    # service_categories 속성 없거나 None 이면 roles 빈 리스트 (getattr 폴백).
+    hosts = [
+        _host("a", "hostA", "linux", [_iface("10.0.1.10/24")]),
+        _host_roles("b", "hostB", "linux", [_iface("10.0.1.11/24")], None),
+    ]
+    t = build_network_topology(hosts)
+    node_roles = {
+        e["data"]["publicId"]: e["data"]["roles"] for e in t.elements if e["data"].get("kind") == "host"
+    }
+    assert node_roles["a"] == []
+    assert node_roles["b"] == []
+    assert all(sh.roles == [] for sh in t.subnets[0].hosts)
+
+
+def test_caveats_exposed_on_topology():
+    # 추론 한계 caveats 는 데이터 유무와 무관하게 3건 노출 (#E9 정직 노출).
+    t = build_network_topology([])
+    assert len(t.caveats) == 3
+    assert all(isinstance(c, str) and c for c in t.caveats)
+
+
+def test_null_gateway_host_excluded_from_ambiguous_subnet():
+    # 서브넷에 non-null gateway 2+ (모호) 면 gateway 미제공 호스트는 귀속 불가라 제외 -> isolated.
+    hosts = [
+        _host("a", "hostA", "linux", [_iface("10.0.1.10/24", gateway="10.0.1.1")]),
+        _host("b", "hostB", "linux", [_iface("10.0.1.11/24", gateway="10.0.1.1")]),
+        _host("c", "hostC", "linux", [_iface("10.0.1.12/24", gateway="10.0.1.254")]),
+        _host("d", "hostD", "linux", [_iface("10.0.1.13/24", gateway="10.0.1.254")]),
+        _host("e", "hostE", "linux", [_iface("10.0.1.20/24")]),  # gateway None -> 모호 서브넷서 제외
+    ]
+    t = build_network_topology(hosts)
+    graph_pids = {e["data"]["publicId"] for e in t.elements if e["data"].get("kind") == "host"}
+    assert "e" not in graph_pids
+    assert t.host_count == 4
+    assert t.isolated_count == 1
+
+
+def test_null_gateway_host_joins_single_gateway_subnet():
+    # gateway 1종만 있는 서브넷엔 null gateway 호스트도 합류 (모호하지 않음).
+    hosts = [
+        _host("a", "hostA", "linux", [_iface("10.0.1.10/24", gateway="10.0.1.1")]),
+        _host("b", "hostB", "linux", [_iface("10.0.1.11/24")]),  # gateway None
+    ]
+    t = build_network_topology(hosts)
+    assert t.host_count == 2
+    assert t.subnet_count == 1
+    assert t.isolated_count == 0

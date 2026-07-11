@@ -231,9 +231,6 @@ _DONUT_SEGMENT_FROM_REC: dict[str, str] = {
     "insufficient_data": "insufficient_data",
 }
 
-# list 페이지 dropdown option — _DONUT_SEGMENT_DEFS 순서 그대로.
-PROVISIONING_CLASSES: tuple[str, ...] = tuple(key for key, _, _, _ in _DONUT_SEGMENT_DEFS)
-
 # list 페이지 dropdown (value, 한글 라벨) 쌍 — value=영어 enum(필터 매칭 data-classification),
 # 표시=recommendation.LABEL_KO 한글.
 PROVISIONING_CLASS_OPTIONS: tuple[tuple[str, str], ...] = tuple(

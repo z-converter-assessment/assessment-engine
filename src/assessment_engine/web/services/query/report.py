@@ -426,5 +426,5 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             generated_at=datetime.now(UTC),
         )
 
-    # inventory export 는 assessment 계약(/api/exports/inventory = assessment envelope 파일)으로 이관 —
-    # 사이징/재현 데이터는 get_assessment 단일 진실. 옛 v4 export mapper(size_class 등) 폐기.
+    # inventory export 는 assessment 계약(/api/exports/inventory = assessment envelope 파일)으로 서비스.
+    # 사이징/재현 데이터는 get_assessment 단일 진실.

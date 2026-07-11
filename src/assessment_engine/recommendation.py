@@ -347,9 +347,6 @@ def recommend_action(rec: Recommendation, stats: ResourceStats) -> str:
     return RECOMMENDATION_ACTION_KO.get(rec, "")
 
 
-# under_provisioned 신호 키 -> 한국어 라벨 (표시용). 처방은 under_prescription(root 기반) 단일 진실.
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # ADR 0052 — 자원 적정성 분류 재설계 (per-resource USE + 근본원인 종합 + 신뢰도 4종)
 #

@@ -194,6 +194,90 @@ def test_matched_ports_empty_listen():
     assert matched_ports("nginx.service", []) == []
 
 
+# ─── pid 정확 join (comm~name / well-known 폴백과 구별, ADR 0032) ─────────────
+
+
+def test_matched_ports_pid_join_attributes_unrelated_comm_and_port():
+    """pid 제공 시 comm~name 무관·비-well-known 포트라도 동일 pid 소켓을 정확 귀속.
+
+    폴백(comm~name / well-known)이라면 잡히지 않을 소켓 — pid 확정 join 특유 동작.
+    """
+    listen = [{"proto": "tcp", "port": 1433, "pid": 100, "comm": "randombin"}]
+    result = matched_ports("app.service", listen, pid=100)
+    assert {(r.proto, r.port) for r in result} == {("tcp", 1433)}
+    # 대조: pid 미제공이면 comm "randombin" 이 name "app" 과 무관 + 1433 이 name well-known 아님 -> 미귀속
+    assert matched_ports("app.service", listen) == []
+
+
+def test_matched_ports_pid_join_excludes_comm_match_with_other_pid():
+    """pid 제공 시 comm 이 name 을 포함해도 pid 가 다르면 제외 — pid 가 comm 폴백을 대체."""
+    listen = [{"proto": "tcp", "port": 80, "pid": 999, "comm": "nginx"}]
+    # pid=100 요청: 소켓 pid 999 != 100 -> 제외 (comm nginx~name 이라도 무시)
+    assert matched_ports("nginx.service", listen, pid=100) == []
+    # 대조: pid 미제공이면 comm nginx 가 name 포함 -> 귀속
+    assert {(r.proto, r.port) for r in matched_ports("nginx.service", listen)} == {("tcp", 80)}
+
+
+def test_matched_ports_pid_join_only_matching_pid_sockets():
+    """여러 pid 혼재 시 요청 pid 소켓만 귀속 (다른 pid 는 comm 매치라도 제외)."""
+    listen = [
+        {"proto": "tcp", "port": 80, "pid": 100, "comm": "nginx"},
+        {"proto": "tcp", "port": 443, "pid": 100, "comm": "nginx"},
+        {"proto": "tcp", "port": 8080, "pid": 200, "comm": "nginx"},  # 다른 pid
+    ]
+    result = matched_ports("nginx.service", listen, pid=100)
+    assert {(r.proto, r.port) for r in result} == {("tcp", 80), ("tcp", 443)}
+
+
+def test_matched_ports_pid_join_excludes_missing_pid_sockets():
+    """pid 키 없는 소켓(pid=None)은 pid join 요청 시 제외 — None != 요청 pid."""
+    listen = [
+        {"proto": "tcp", "port": 5432, "pid": 100, "comm": "x"},
+        {"proto": "tcp", "port": 5433, "comm": "x"},  # pid 키 없음
+    ]
+    result = matched_ports("postgresql.service", listen, pid=100)
+    assert {(r.proto, r.port) for r in result} == {("tcp", 5432)}
+
+
+def test_matched_ports_pid_join_dedupe_proto_port():
+    """pid join 경로도 동일 (proto, port) 중복 제거, proto 다르면 별개."""
+    listen = [
+        {"proto": "tcp", "port": 80, "pid": 100, "comm": "a"},
+        {"proto": "tcp", "port": 80, "pid": 100, "comm": "b"},  # 동일 (tcp, 80)
+        {"proto": "tcp6", "port": 80, "pid": 100, "comm": "a"},  # proto 다르면 별개
+    ]
+    result = matched_ports("app.service", listen, pid=100)
+    assert {(r.proto, r.port) for r in result} == {("tcp", 80), ("tcp6", 80)}
+    assert len(result) == 2
+
+
+# ─── classify: pid join 을 통한 comm/port 신호 ───────────────────────────────
+
+
+def test_classify_pid_join_enables_port_signal():
+    """name 무정보라도 pid 로 귀속된 소켓 포트(1433)로 db 분류 — pid 미제공이면 미귀속 unknown."""
+    listen = [{"proto": "tcp", "port": 1433, "pid": 100, "comm": "opaque"}]
+    assert classify("app.service", listen, pid=100) == "db"
+    # 대조: pid 미제공이면 comm "opaque" 무관 + 1433 name well-known 아님 -> 미귀속 -> unknown
+    assert classify("app.service", listen) == "unknown"
+
+
+def test_classify_pid_join_enables_comm_signal():
+    """pid 귀속 소켓의 comm 키워드(sqlservr)로 db 분류 — name/port 무정보에도 pid join 이 comm 신호 열어줌."""
+    # comm "sqlservr" 는 db 키워드, port 는 비표준(9999) -> comm 신호만으로 db.
+    listen = [{"proto": "tcp", "port": 9999, "pid": 100, "comm": "sqlservr"}]
+    assert classify("app.service", listen, pid=100) == "db"
+    # 대조: pid 미제공이면 comm 이 name "app" 과 무관 + 9999 미등록 -> unknown
+    assert classify("app.service", listen) == "unknown"
+
+
+def test_classify_pid_join_ignores_other_pid_socket():
+    """다른 pid 소켓은 comm/port 가 분류 신호여도 무시 — 확정 귀속만 신호."""
+    listen = [{"proto": "tcp", "port": 1433, "pid": 200, "comm": "sqlservr"}]
+    # 요청 pid=100 과 소켓 pid=200 불일치 -> 귀속 0 -> 신호 없음 -> unknown
+    assert classify("app.service", listen, pid=100) == "unknown"
+
+
 # ─── 카탈로그 파생 일관성 (drift 회귀, ADR 0032) ─────────────────────────────
 
 
