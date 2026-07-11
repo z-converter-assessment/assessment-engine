@@ -773,6 +773,28 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Assessment */
+        Assessment: {
+            /** Classification */
+            classification: string | null;
+            /** Confidence */
+            confidence: string | null;
+            data_quality: components["schemas"]["DataQuality"];
+        };
+        /** AssessmentEnvelope */
+        AssessmentEnvelope: {
+            /** Contract Version */
+            contract_version: string;
+            /** Count */
+            count: number;
+            filter: components["schemas"]["AssessmentFilter"];
+            /** Generated At */
+            generated_at: string;
+            /** Servers */
+            servers: components["schemas"]["AssessmentServer"][];
+            warnings: components["schemas"]["AssessmentWarnings"];
+            window: components["schemas"]["AssessmentWindow"];
+        };
         /**
          * AssessmentExportRequest
          * @description export 필터 — GET /api/assessment 쿼리와 동일 필드(쉼표 문자열 대신 배열). 미지정 시 전체 서버.
@@ -793,6 +815,60 @@ export interface components {
              * @default 14
              */
             window_days: number;
+        };
+        /** AssessmentFilter */
+        AssessmentFilter: {
+            /** Hostname */
+            hostname: string[] | null;
+            /** Ip */
+            ip: string[] | null;
+            /** Pair */
+            pair: string[] | null;
+            /** Public Id */
+            public_id: string[] | null;
+        };
+        /** AssessmentIdentity */
+        AssessmentIdentity: {
+            /** Hostname */
+            hostname: string | null;
+            /** Hostname Ambiguous */
+            hostname_ambiguous: boolean | null;
+            /** Online */
+            online: boolean | null;
+            /** Os Family */
+            os_family: string | null;
+            /** Primary Ip */
+            primary_ip: string | null;
+            /** Public Id */
+            public_id: string | null;
+        };
+        /** AssessmentServer */
+        AssessmentServer: {
+            assessment: components["schemas"]["Assessment"];
+            diagnostics: components["schemas"]["Diagnostics"];
+            identity: components["schemas"]["AssessmentIdentity"];
+            reproduction: components["schemas"]["Reproduction"];
+            sizing: components["schemas"]["Sizing"];
+        };
+        /** AssessmentWarnings */
+        AssessmentWarnings: {
+            /** Ambiguous Hostnames */
+            ambiguous_hostnames: string[] | null;
+            /** Unmatched Filters */
+            unmatched_filters: string[] | null;
+            /** Unresolved Pairs */
+            unresolved_pairs: string[] | null;
+        };
+        /** AssessmentWindow */
+        AssessmentWindow: {
+            /** Basis */
+            basis: string | null;
+            /** Days */
+            days: number | null;
+            /** End */
+            end: string | null;
+            /** Start */
+            start: string | null;
         };
         /** CollectionStatusItem */
         CollectionStatusItem: {
@@ -815,6 +891,63 @@ export interface components {
             usage_pct: number | null;
             /** User Pct */
             user_pct: number | null;
+        };
+        /** DataQuality */
+        DataQuality: {
+            /** Notes */
+            notes: string[] | null;
+            /** Sufficient */
+            sufficient: boolean | null;
+        };
+        /** DiagAdvisory */
+        DiagAdvisory: {
+            /** Disk Io Tier Hint */
+            disk_io_tier_hint: string | null;
+            /** Network Congested */
+            network_congested: boolean | null;
+        };
+        /** DiagResource */
+        DiagResource: {
+            /** Axis */
+            axis: string | null;
+            /** Confidence Notes */
+            confidence_notes: string[] | null;
+            saturation: components["schemas"]["DiagSaturation"] | null;
+            /** Status */
+            status: string | null;
+            utilization: components["schemas"]["DiagUtilization"];
+        };
+        /** DiagSaturation */
+        DiagSaturation: {
+            /** Measured */
+            measured: boolean | null;
+            /** Saturated */
+            saturated: boolean | null;
+            /** Signal */
+            signal: string | null;
+            /** Threshold */
+            threshold: number | null;
+            /** Unit */
+            unit: string | null;
+            /** Value */
+            value: number | null;
+        };
+        /** DiagUtilization */
+        DiagUtilization: {
+            /** Eval Pct */
+            eval_pct: number | null;
+            /** Sizing Pct */
+            sizing_pct: number | null;
+        };
+        /** Diagnostics */
+        Diagnostics: {
+            advisory: components["schemas"]["DiagAdvisory"];
+            /** Resources */
+            resources: components["schemas"]["DiagResource"][] | null;
+            /** Root Cause */
+            root_cause: string | null;
+            /** Root Cause Detail */
+            root_cause_detail: string | null;
         };
         /** DiskIoSnapshot */
         DiskIoSnapshot: {
@@ -948,6 +1081,239 @@ export interface components {
              * @enum {string}
              */
             kind: "reboot" | "restart";
+        };
+        /** ReproAddress */
+        ReproAddress: {
+            /** Address */
+            address: string | null;
+            /** Family */
+            family: string | null;
+            /** Origin */
+            origin: string | null;
+            /** Prefix */
+            prefix: number | null;
+        };
+        /** ReproBlockDevice */
+        ReproBlockDevice: {
+            /** Block Size */
+            block_size: number | null;
+            /** Crypt Type */
+            crypt_type: string | null;
+            /** Fs Freq */
+            fs_freq: number | null;
+            /** Fs Label */
+            fs_label: string | null;
+            /** Fs Passno */
+            fs_passno: number | null;
+            /** Fs Uuid */
+            fs_uuid: string | null;
+            /** Fstype */
+            fstype: string | null;
+            /** Id */
+            id: string | null;
+            /** Id Type */
+            id_type: string | null;
+            /** Lvm Lv */
+            lvm_lv: string | null;
+            /** Lvm Segtype */
+            lvm_segtype: string | null;
+            /** Lvm Stripe Size Kib */
+            lvm_stripe_size_kib: number | null;
+            /** Lvm Stripes */
+            lvm_stripes: number | null;
+            /** Lvm Vg */
+            lvm_vg: string | null;
+            /** Mount Options */
+            mount_options: string[] | null;
+            /** Mountpoint */
+            mountpoint: string | null;
+            /** Name */
+            name: string | null;
+            /** Parent */
+            parent: string | null;
+            /** Part Flags */
+            part_flags: string[] | null;
+            /** Part Name */
+            part_name: string | null;
+            /** Part Number */
+            part_number: number | null;
+            /** Part Start Bytes */
+            part_start_bytes: number | null;
+            /** Part Type */
+            part_type: string | null;
+            /** Partition Table */
+            partition_table: string | null;
+            /** Raid Chunk Kib */
+            raid_chunk_kib: number | null;
+            /** Raid Level */
+            raid_level: number | null;
+            /** Raid Metadata */
+            raid_metadata: string | null;
+            /** Raid Uuid */
+            raid_uuid: string | null;
+            /** Rotational */
+            rotational: boolean | null;
+            /** Sector Size */
+            sector_size: number | null;
+            /** Serial */
+            serial: string | null;
+            /** Size Bytes */
+            size_bytes: number | null;
+            /** Type */
+            type: string | null;
+            /** Wwn */
+            wwn: string | null;
+        };
+        /** ReproBoot */
+        ReproBoot: {
+            /** Grub Install Target */
+            grub_install_target: string | null;
+            /** Kernel Cmdline */
+            kernel_cmdline: string | null;
+            /** Root Ref Type */
+            root_ref_type: string | null;
+        };
+        /** ReproInterface */
+        ReproInterface: {
+            /** Addresses */
+            addresses: components["schemas"]["ReproAddress"][] | null;
+            /** Bond Mode */
+            bond_mode: string | null;
+            /** Dns */
+            dns: string[] | null;
+            /** Gateway */
+            gateway: string | null;
+            /** Id */
+            id: string | null;
+            /** Id Type */
+            id_type: string | null;
+            /** Kind */
+            kind: string | null;
+            /** Mtu */
+            mtu: number | null;
+            /** Name */
+            name: string | null;
+            /** Routes */
+            routes: components["schemas"]["ReproRoute"][] | null;
+            /** Speed Mbps */
+            speed_mbps: number | null;
+            /** Vlan Id */
+            vlan_id: number | null;
+        };
+        /** ReproLvmVg */
+        ReproLvmVg: {
+            /** Extent Size Bytes */
+            extent_size_bytes: number | null;
+            /** Free Bytes */
+            free_bytes: number | null;
+            /** Name */
+            name: string | null;
+            /** Pv Ids */
+            pv_ids: string[] | null;
+            /** Size Bytes */
+            size_bytes: number | null;
+            /** Vg Uuid */
+            vg_uuid: string | null;
+        };
+        /** ReproMount */
+        ReproMount: {
+            /** Fs Freq */
+            fs_freq: number | null;
+            /** Fs Passno */
+            fs_passno: number | null;
+            /** Fstype */
+            fstype: string | null;
+            /** Options */
+            options: string[] | null;
+            /** Source */
+            source: string | null;
+            /** Target */
+            target: string | null;
+        };
+        /** ReproNetwork */
+        ReproNetwork: {
+            /** Interfaces */
+            interfaces: components["schemas"]["ReproInterface"][] | null;
+        };
+        /** ReproOs */
+        ReproOs: {
+            /** Arch */
+            arch: string | null;
+            /** Bits */
+            bits: number | null;
+            /** Boot Firmware */
+            boot_firmware: string | null;
+            /** Codename */
+            codename: string | null;
+            /** Edition */
+            edition: string | null;
+            /** Family */
+            family: string | null;
+            /** Id */
+            id: string | null;
+            /** Kernel */
+            kernel: string | null;
+            /** Rtc Utc */
+            rtc_utc: boolean | null;
+            /** Secure Boot */
+            secure_boot: boolean | null;
+            /** Timezone */
+            timezone: string | null;
+            /** Version */
+            version: string | null;
+        };
+        /** ReproRoute */
+        ReproRoute: {
+            /** Dest */
+            dest: string | null;
+            /** Via */
+            via: string | null;
+        };
+        /** ReproStorage */
+        ReproStorage: {
+            /** Block Devices */
+            block_devices: components["schemas"]["ReproBlockDevice"][] | null;
+            /** Lvm Vgs */
+            lvm_vgs: components["schemas"]["ReproLvmVg"][] | null;
+        };
+        /** Reproduction */
+        Reproduction: {
+            boot: components["schemas"]["ReproBoot"];
+            /** Mounts */
+            mounts: components["schemas"]["ReproMount"][] | null;
+            network: components["schemas"]["ReproNetwork"];
+            os: components["schemas"]["ReproOs"];
+            storage: components["schemas"]["ReproStorage"];
+        };
+        /** Sizing */
+        Sizing: {
+            /** Axes */
+            axes: components["schemas"]["SizingAxis"][];
+        };
+        /** SizingAxis */
+        SizingAxis: {
+            /** Action */
+            action: string;
+            /** Axis */
+            axis: string;
+            /** Current */
+            current: number | null;
+            /** Device Ref */
+            device_ref?: string | null;
+            /** Estimate Quality */
+            estimate_quality: string;
+            /** Mountpoint */
+            mountpoint?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Recommended */
+            recommended: number | null;
+            /** Runway Days */
+            runway_days?: number | null;
+            /** Unit */
+            unit: string;
+            /** Used Pct */
+            used_pct?: number | null;
         };
         /** TaskCreated */
         TaskCreated: {
@@ -1107,7 +1473,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AssessmentEnvelope"];
                 };
             };
             /** @description Validation Error */

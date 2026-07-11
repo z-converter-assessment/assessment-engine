@@ -18,6 +18,7 @@ from assessment_engine.web.services.mappers.assessment_api import (
     build_assessment_entry,
     build_assessment_envelope,
 )
+from assessment_engine.web.view_models.assessment_api import AssessmentServer
 
 _ACTIONS = {"increase", "decrease", "keep"}
 _QUALITY = {"exact", "floor", "uncertain"}
@@ -150,6 +151,9 @@ def test_entry_contract_invariants(raw, mounts, is_online, ambiguous):
     assert set(entry) == {"identity", "reproduction", "sizing", "assessment", "diagnostics"}
     # 2. 전체 JSON 직렬화 가능 — 타입 누수(datetime/set/IP객체)·비직렬 PII 노출 즉시 검출
     json.dumps(entry)
+    # 2b. 응답 스키마(계약 타입 미러) drift 가드 — 매퍼 dict 가 AssessmentServer(extra=forbid)에 검증.
+    #     신규/누락 키나 타입 불일치 = OpenAPI 스키마와 매퍼 어긋남 = 즉시 실패.
+    AssessmentServer.model_validate(entry)
 
     # 3. identity passthrough
     ident = entry["identity"]
