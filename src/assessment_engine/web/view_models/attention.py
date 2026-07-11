@@ -169,8 +169,8 @@ class EnvironmentOverview:
     # 평균과 동일 capacity-weighted 환경 분포 기반(per_ts 95퍼센타일).
     utilization_p95: list[UtilizationBar] = field(default_factory=list)
     util_sample_size: int = 0
-    # 포화 3축 도넛 (CPU 포화·메모리 압박·디스크 I/O 포화) — 자원 적정성 창(14일) 기준 호스트 카운트/표본.
-    # 실시간현황 6도넛과 동일 시각·게이지색, 다만 스냅샷 아닌 윈도우 기준(#E3 화면 간 정합). (forward-ref 따옴표)
+    # 포화 4축 도넛 (CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡) — 자원 적정성 창(14일) 기준 호스트 카운트/표본.
+    # 실시간현황 7도넛(이용률 3 + 신호 4)과 동일 시각·게이지색, 다만 스냅샷 아닌 윈도우 기준(#E3 화면 간 정합).
     saturation_donuts: list["SaturationDonut"] = field(default_factory=list)
     # 에러축 fleet 표시자 (MCE·OOM·EDAC·디스크·NIC) — 창내 발생 호스트 수/표본. 정상=0 발화(E9). 대시보드 전용.
     error_fleet: list["FleetErrorItem"] = field(default_factory=list)

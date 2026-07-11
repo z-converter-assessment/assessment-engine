@@ -179,7 +179,7 @@ def _count_os(details: list[ServerDetail]) -> list[OsCount]:
 
 
 def _build_env_metrics(overview: EnvironmentOverview) -> list[dict]:
-    """환경 현황 메트릭 6축 (P2) — 대시보드 '자원 이용·포화' 6도넛과 동일 축(이용률 3 + 포화 3).
+    """환경 현황 메트릭 6축 (P2) — 이용률 3 + 포화 3(CPU·메모리·디스크 I/O). 대시보드 '자원 이용·포화' 도넛의 부분집합(대시보드는 포화 4로 네트워크 혼잡 포함, 보고서는 앞 3축만 — 네트워크는 rate 기준선 없어 제외).
 
     이용률(CPU/메모리/디스크) = environment_utilization capacity-weighted avg(+p95). 포화(CPU 포화·메모리 압박·
     디스크 I/O 포화) = 자원 적정성 창 포화 호스트 수 / 표본(overview.saturation_donuts, 대시보드와 동일 판정).

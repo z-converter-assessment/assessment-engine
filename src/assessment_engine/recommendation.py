@@ -413,9 +413,9 @@ RS_BURST_RATIO_MAX = 2.0  # 여유 기준 — p95/median > 2 면 버스티(통�
 # Theil-Sen(강건) 대신 regr_slope(최소제곱) 산출을 임계로 이진화 — 다운사이즈 억제 방향이라 보수적 소값.
 RS_UTIL_TREND_RISING_PCT_PER_DAY = 0.2
 
-# OS별 CPU 포화선 (실행큐/코어) — Linux load 1.0 / Windows Processor Queue Length 2.0 (스케일 상이, ADR 0029 계승)
-_RS_CPU_SAT_LINE = {"windows": 2.0}
-_RS_CPU_SAT_LINE_DEFAULT = 1.0  # Linux/unknown
+# OS별 CPU 포화선 (실행큐/코어) — 포화 판정 상수 단일 재사용(사이징 목표코어 산출도 동일 임계, 드리프트 방지).
+_RS_CPU_SAT_LINE = {"windows": CPU_RUN_QUEUE_PER_CORE_SATURATION}
+_RS_CPU_SAT_LINE_DEFAULT = PROCS_RUNNING_PER_CORE_SATURATION  # Linux/unknown
 
 
 def util_trend_rising_from_slopes(cpu_slope: float | None, mem_slope: float | None) -> bool | None:

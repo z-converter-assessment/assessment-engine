@@ -288,18 +288,21 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         result = await self.session.execute(
             sql, {"sids": server_ids, "since": since, "diskio_util_min": recommendation.RS_DISKIO_UTIL_MIN}
         )
+        def _f(v: float | None) -> float | None:
+            return float(v) if v is not None else None
+
         return {
             r.server_id: SaturationRaw(
-                run_queue=float(r.run_queue) if r.run_queue is not None else None,
-                await_ms=float(r.await_ms) if r.await_ms is not None else None,
-                pending_ops=float(r.pending_ops) if r.pending_ops is not None else None,
-                paging_major_rate=float(r.paging_major_rate) if r.paging_major_rate is not None else None,
-                retrans_pct=float(r.retrans_pct) if r.retrans_pct is not None else None,
-                drop_pct=float(r.drop_pct) if r.drop_pct is not None else None,
-                conntrack_ratio=float(r.conntrack_ratio) if r.conntrack_ratio is not None else None,
-                psi_cpu=float(r.psi_cpu) if r.psi_cpu is not None else None,
-                psi_mem=float(r.psi_mem) if r.psi_mem is not None else None,
-                psi_io=float(r.psi_io) if r.psi_io is not None else None,
+                run_queue=_f(r.run_queue),
+                await_ms=_f(r.await_ms),
+                pending_ops=_f(r.pending_ops),
+                paging_major_rate=_f(r.paging_major_rate),
+                retrans_pct=_f(r.retrans_pct),
+                drop_pct=_f(r.drop_pct),
+                conntrack_ratio=_f(r.conntrack_ratio),
+                psi_cpu=_f(r.psi_cpu),
+                psi_mem=_f(r.psi_mem),
+                psi_io=_f(r.psi_io),
             )
             for r in result
         }

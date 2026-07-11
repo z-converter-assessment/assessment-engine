@@ -330,7 +330,7 @@
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">평가 윈도우</h2>
   <p class="text-md text-label" style="margin:0; line-height:1.6;">
-    자원 적정성 평가 표준은 <code>recommendation.WINDOW_DAYS</code> = 14일 (AWS Compute Optimizer 기본 lookback) — 보고서·서버 목록 분류·환경 개요 자원 이용·포화 6도넛·환경 자원 평가가 모두 이 14일 창으로 정합(화면 간 의미 분기 0).
+    자원 적정성 평가 표준은 <code>recommendation.WINDOW_DAYS</code> = 14일 (AWS Compute Optimizer 기본 lookback) — 보고서·서버 목록 분류·환경 개요 자원 이용·포화 7도넛·환경 자원 평가가 모두 이 14일 창으로 정합(화면 간 의미 분기 0).
     보고서 발행·환경 자원 평가는 <code>15m / 1h / 6h / 24h / 7d / 14d / 30d</code> 구간·앵커 override 가능하며 분류·통계·세부 목록 모두 선택 구간으로 평가.
     실시간 현황 페이지만 최신 스냅샷(30초 갱신, 윈도우 아닌 순간값)이고, 서버 상세 차트는 실시간 모니터링이라 별도(기본 15분).
     데이터가 14일보다 짧으면 판정은 그대로 완결되고 신뢰도 단서("표본 부족", 30h 미만)가 자동으로 붙는다 — 별도 창 축소 없음. 버킷(집계 단위)은 구간별 자동 결정.

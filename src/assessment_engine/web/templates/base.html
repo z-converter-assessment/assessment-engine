@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}ZConverter Assessment{% endblock %}</title>
+  {# 인라인 SVG data-URI favicon — 새 에셋 없이 /favicon.ico 404 제거(브라우저가 link rel=icon 사용). #}
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232563eb'/%3E%3Ctext x='16' y='23' font-size='20' font-family='Arial,sans-serif' font-weight='700' text-anchor='middle' fill='white'%3EZ%3C/text%3E%3C/svg%3E">
   <style>
     :root {
       /* 테마색 (단일 진실) — Horizon(ZIASTACK) 톤: 파란 액센트 / 다크 슬레이트 사이드바 / 얇은 보더. 색 변경 시 본 변수만 수정. */

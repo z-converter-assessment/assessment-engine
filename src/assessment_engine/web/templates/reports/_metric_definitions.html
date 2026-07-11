@@ -45,15 +45,15 @@
     <tbody>
       <tr><td>CPU 사용률</td><td>capacity-weighted</td><td>전 서버 시점 평균(Σcpu 시간(초) delta — 코어 수 내재). 100%=전 코어 포화.</td></tr>
       <tr><td>CPU 분류</td><td>capacity-weighted</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기)로 분해한 비율. iowait 높으면 디스크 병목.</td></tr>
-      <tr><td>실행 큐</td><td>코어 정규화</td><td>코어당 실행 큐 — Σ실행큐 / Σcpu_cores (Linux procs_running / Windows Processor Queue COALESCE). Linux 1.0 · Windows 2.0 이상 포화. os_family 2선.</td></tr>
+      <tr><td>실행 큐</td><td>코어 정규화</td><td>코어당 실행 큐 — Σ실행큐 / Σcpu_cores (Linux procs_running / Windows Processor Queue COALESCE). os_family 2선, CPU 포화 신호 — 임계는 분류 기준 절.</td></tr>
       <tr><td>메모리 사용률</td><td>capacity-weighted</td><td>Σused_bytes / Σtotal_bytes. cached·buffers 는 회수 가능이라 가용으로 간주.</td></tr>
       <tr><td>메모리 구성</td><td>capacity-weighted</td><td>전체 대비 Used·Available·Cached·Buffers 비율. Cached·Buffers 는 page cache 라 Linux 전용(Windows 미측정).</td></tr>
       <tr><td>디스크 읽기/쓰기 (IOPS)</td><td>합산(SUM)</td><td>게스트 블록 디바이스(virtio) 초당 I/O 작업 수 합산(Read/Write) — VM 이 낸 실제 디스크 작업량. LVM·파티션 중복 제외.</td></tr>
       <tr><td>디스크 I/O 처리량</td><td>합산(SUM)</td><td>게스트 블록 디바이스 read+write 처리량 합산(kB/s). IOPS 와 함께 디스크 대역 산정 입력.</td></tr>
-      <tr><td>디스크 I/O 포화</td><td>await(ms) 양 OS</td><td>요청당 평균 응답 지연(Σ Δop_time / Σ Δops). 양 OS 통일 단일 축 — Windows 는 IOCTL_DISK_PERFORMANCE ReadTime/WriteTime, 구세대 viostor 만 Avg Disk Queue Length 폴백. 실제 바쁜 device(io_time util 기준) 만 채택. 20ms 이상 포화.</td></tr>
+      <tr><td>디스크 I/O 포화</td><td>await(ms) 양 OS</td><td>요청당 평균 응답 지연(Σ Δop_time / Σ Δops). 양 OS 통일 단일 축 — Windows 는 IOCTL_DISK_PERFORMANCE ReadTime/WriteTime, 구세대 viostor 만 Avg Disk Queue Length 폴백. 실제 바쁜 device(io_time util 기준) 만 채택 — 임계는 분류 기준 절.</td></tr>
       <tr><td>파일시스템 사용량</td><td>capacity-weighted</td><td>전 mount 통합 Σused / Σtotal (가상 mount 제외).</td></tr>
       <tr><td>네트워크 I/O</td><td>합산(SUM)</td><td>물리 인터페이스 트래픽 합산(RX/TX, bytes/s). 물리·bond master 포함, bond member·bridge·가상은 이중계산이라 제외.</td></tr>
-      <tr><td>TCP 재전송율</td><td>비율(%)</td><td>Σ재전송 세그먼트 / Σ송신 패킷 * 100. 1% 이상이면 성능 영향. 절대 패킷 수(처리량)는 네트워크 I/O 로 확인.</td></tr>
+      <tr><td>TCP 재전송율</td><td>비율(%)</td><td>Σ재전송 세그먼트 / Σ송신 패킷 * 100. 임계 초과 시 품질 저하(혼잡·손실) — 임계는 분류 기준 절. 절대 패킷 수(처리량)는 네트워크 I/O 로 확인.</td></tr>
     </tbody>
   </table>
   </div>
@@ -77,9 +77,9 @@
       </tr>
     </thead>
     <tbody>
-      <tr><td>환경 개요</td><td>환경 요약</td><td>등록 서버 수 · 총 vCPU/메모리/디스크 용량 합 + 온라인/오프라인 수 + OS·역할(서비스 분류) 분포.</td></tr>
-      <tr><td>환경 개요</td><td>자원 이용·포화 (6도넛)</td><td>이용률 3(capacity-weighted CPU·메모리·디스크 평균) + 포화 3(CPU 포화·메모리 압박·디스크 I/O 포화 호스트 수 / 표본) 도넛 — 자원 적정성 창(14일, WINDOW_DAYS). 분류와 같은 창이라 화면 간 정합. 순간 스냅샷 아닌 윈도우 통계.</td></tr>
-      <tr><td>실시간 현황</td><td>현재 자원 이용·신호 (6도넛)</td><td>온라인 서버 최신 스냅샷 — 이용률 3(capacity-weighted CPU·메모리·디스크 평균) + 신호 3(실행 큐 임계·페이징·응답지연 임계 호스트 수 / 표본). 실시간 30초 갱신, 순간 단일신호 카운트 — 개요·보고서 14일 dual-gate(이용률 동반) 포화와 다른 정의. 디스크는 전 mount 통합(worst mount 아님).</td></tr>
+      <tr><td>환경 개요</td><td>환경 요약</td><td>등록 서버 수 · 총 vCPU/메모리/디스크 용량 합 + OS 분포 + 주요 워크로드(시그니처 카테고리 인스턴스 수). 온라인/오프라인 대수는 상단 바.</td></tr>
+      <tr><td>환경 개요</td><td>자원 이용·포화 (7도넛)</td><td>이용률 3(capacity-weighted CPU·메모리·디스크 평균) + 포화 4(CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡 호스트 수 / 표본) 도넛 — 자원 적정성 창(14일, WINDOW_DAYS). 분류와 같은 창이라 화면 간 정합. dual-gate 판정(CPU·메모리 신호 AND 이용률). 순간 스냅샷 아닌 윈도우 통계.</td></tr>
+      <tr><td>실시간 현황</td><td>현재 자원 이용·신호 (7도넛)</td><td>온라인 서버 최신 스냅샷 — 이용률 3(capacity-weighted CPU·메모리·디스크 평균) + 신호 4(실행 큐 임계·페이징·응답지연 임계·네트워크 혼잡 호스트 수 / 표본). 실시간 30초 갱신, 순간 단일신호 카운트 — 개요·보고서 14일 dual-gate(이용률 동반) 포화와 다른 정의. 디스크는 전 mount 통합(worst mount 아님).</td></tr>
       <tr><td>실시간 현황</td><td>현재 부하 상위</td><td>자원별(CPU·메모리·디스크·디스크 I/O·네트워크 I/O) 서버 현재값 내림차순 상위 — 개별 호스트 랭킹(호스트명 클릭 시 상세).</td></tr>
       <tr><td>실시간 현황</td><td>환경 I/O 총량</td><td>신선 표본 네트워크 처리량·디스크 IOPS 합산(절대 총량 rate).</td></tr>
       <tr><td>실시간 현황</td><td>운영 신호</td><td>수집 끊김(gap)·OS 지원 종료(os_eol)·에이전트 불안정(재시작 빈도) 3종. 임계는 "운영 신호 임계" 절.</td></tr>

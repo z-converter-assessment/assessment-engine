@@ -163,6 +163,21 @@ def _dash_length(pct: float | None) -> float:
     return max(0.0, min(pct, 100.0)) / 100.0 * _UTIL_DONUT_CIRC
 
 
+def _donut_dash(count: float, total: float) -> float:
+    """도넛 세그먼트 dash 길이 = 비율 x 원주 (count·total 0 가드). 위험·포화·워크로드 도넛 3종 공용."""
+    return (count / total) * _UTIL_DONUT_CIRC if (total > 0 and count > 0) else 0.0
+
+
+def _donut_pct(count: float, total: float) -> float:
+    """도넛 세그먼트 백분율 (total 0 가드)."""
+    return round(count / total * 100, 1) if total > 0 else 0.0
+
+
+def _util_bar(label: str, pct: float | None) -> UtilizationBar:
+    """이용률 바 1개 — pct 로 색·dash 파생 (None 안전, _bar_color·_dash_length 가 가드)."""
+    return UtilizationBar(label=label, pct=pct, bar_color=_bar_color(pct), dash_length=_dash_length(pct))
+
+
 def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, int]:
     """카테고리별 카운트 -> (RiskDonutSegment list, total, under_count).
 
@@ -175,8 +190,8 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
     cum_offset = 0.0
     for key, label, _color, description in _DONUT_SEGMENT_DEFS:
         count = risk_counts.get(key, 0)
-        dash_length = (count / total) * _UTIL_DONUT_CIRC if (total > 0 and count > 0) else 0.0
-        pct = round(count / total * 100, 1) if total > 0 else 0.0
+        dash_length = _donut_dash(count, total)
+        pct = _donut_pct(count, total)
         segments.append(
             RiskDonutSegment(
                 key=key,
@@ -206,7 +221,7 @@ def _build_saturation_donut(label: str, count: int, total: int) -> SaturationDon
 
     실시간현황·환경개요 공용 — 스냅샷(realtime)이든 윈도우(overview) 기준이든 시각·게이지색 통일.
     """
-    dash = (count / total) * _UTIL_DONUT_CIRC if (total > 0 and count > 0) else 0.0
+    dash = _donut_dash(count, total)
     return SaturationDonut(label=label, count=count, total=total, dash_length=dash, color=_UTIL_COLOR_GAUGE)
 
 
@@ -241,6 +256,23 @@ def _error_fleet_with_eol(err: FleetErrorRaw | None, details: list, total: int) 
         )
     )
     return items
+
+
+def _workload_donut_segments(role_sorted: dict[str, int]) -> tuple[list, int]:
+    """시그니처 워크로드 인스턴스 분포 -> 누적 도넛 세그먼트 + 총합. 0 카테고리도 세그먼트 유지(범례 노출, E9)."""
+    total = sum(role_sorted.values())
+    segments: list = []
+    cum = 0.0
+    for cat, cnt in role_sorted.items():
+        dash = _donut_dash(cnt, total)
+        segments.append(
+            RiskDonutSegment(
+                key=cat, label=cat, color=_WORKLOAD_COLORS.get(cat, "#94a3b8"),
+                count=cnt, pct=_donut_pct(cnt, total), dash_length=dash, dash_offset=-cum, description="",
+            )
+        )
+        cum += dash
+    return segments, total
 
 
 def build_environment_overview(
@@ -286,40 +318,16 @@ def build_environment_overview(
     if utilization is not None:
         util_sample = utilization.sample_size
         util_bars = [
-            UtilizationBar(
-                label="CPU",
-                pct=utilization.cpu_avg_pct,
-                bar_color=_bar_color(utilization.cpu_avg_pct),
-                dash_length=_dash_length(utilization.cpu_avg_pct),
-            ),
-            UtilizationBar(
-                label="메모리",
-                pct=utilization.mem_avg_pct,
-                bar_color=_bar_color(utilization.mem_avg_pct),
-                dash_length=_dash_length(utilization.mem_avg_pct),
-            ),
-            UtilizationBar(
-                label="디스크 용량",  # fs used%(capacity 축) — 활용률 아님, 용량 명시 (detail 도넛과 일관)
-                pct=utilization.disk_avg_pct,
-                bar_color=_bar_color(utilization.disk_avg_pct),
-                dash_length=_dash_length(utilization.disk_avg_pct),
-            ),
+            _util_bar("CPU", utilization.cpu_avg_pct),
+            _util_bar("메모리", utilization.mem_avg_pct),
+            # "디스크 용량" — fs used%(capacity 축) — 활용률 아님, 용량 명시 (detail 도넛과 일관).
+            _util_bar("디스크 용량", utilization.disk_avg_pct),
         ]
         # p95 활용률 — 평균과 동일 capacity-weighted 환경 분포 기반(per_ts 95퍼센타일). CPU·메모리만 —
         # 디스크는 물리디스크/디바이스 인식이 Windows 에서 불완전해 capacity 합이 신뢰 불가라 제외.
         util_bars_p95 = [
-            UtilizationBar(
-                label="CPU",
-                pct=utilization.cpu_p95_pct,
-                bar_color=_bar_color(utilization.cpu_p95_pct),
-                dash_length=_dash_length(utilization.cpu_p95_pct),
-            ),
-            UtilizationBar(
-                label="메모리",
-                pct=utilization.mem_p95_pct,
-                bar_color=_bar_color(utilization.mem_p95_pct),
-                dash_length=_dash_length(utilization.mem_p95_pct),
-            ),
+            _util_bar("CPU", utilization.cpu_p95_pct),
+            _util_bar("메모리", utilization.mem_p95_pct),
         ]
 
     risk_segments: list = []
@@ -338,19 +346,7 @@ def build_environment_overview(
         key=lambda kv: (-kv[1], SIGNATURE_CATEGORIES.index(kv[0])),
     ))
     # 원형차트 도넛 세그먼트 — 카테고리별 인스턴스 비율(누적 dash). 0 카테고리도 세그먼트 유지(범례 노출, E9).
-    _wl_total = sum(role_sorted.values())
-    workload_segments: list = []
-    _cum = 0.0
-    for _cat, _cnt in role_sorted.items():
-        _dash = (_cnt / _wl_total) * _UTIL_DONUT_CIRC if (_wl_total > 0 and _cnt > 0) else 0.0
-        workload_segments.append(
-            RiskDonutSegment(
-                key=_cat, label=_cat, color=_WORKLOAD_COLORS.get(_cat, "#94a3b8"),
-                count=_cnt, pct=round(_cnt / _wl_total * 100, 1) if _wl_total > 0 else 0.0,
-                dash_length=_dash, dash_offset=-_cum, description="",
-            )
-        )
-        _cum += _dash
+    workload_segments, _wl_total = _workload_donut_segments(role_sorted)
 
     # 포화 3축 도넛 — 자원 적정성 창 기준 포화 호스트 카운트/표본 (호출자가 raws 순회로 산출).
     sat_donuts: list = []
@@ -424,11 +420,9 @@ def build_environment_realtime(
     avg_mem = _ratio("mem_used_bytes", "mem_total_bytes")
     avg_disk = _ratio("fs_used_gb", "fs_total_gb")
     util_bars = [
-        UtilizationBar(label="CPU", pct=avg_cpu, bar_color=_bar_color(avg_cpu), dash_length=_dash_length(avg_cpu)),
-        UtilizationBar(label="메모리", pct=avg_mem, bar_color=_bar_color(avg_mem), dash_length=_dash_length(avg_mem)),
-        UtilizationBar(
-            label="디스크 용량", pct=avg_disk, bar_color=_bar_color(avg_disk), dash_length=_dash_length(avg_disk)
-        ),
+        _util_bar("CPU", avg_cpu),
+        _util_bar("메모리", avg_mem),
+        _util_bar("디스크 용량", avg_disk),
     ]
 
     def _top_pct(key: str) -> list[RealtimePeak]:

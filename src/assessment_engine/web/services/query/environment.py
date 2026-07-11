@@ -78,14 +78,11 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         # 포화 도넛 표본 = 윈도우 내 metric 발행 호스트 수(util.sample_size). util 부재 시 분류된 호스트 수로 폴백.
         sat_total = util.sample_size if util is not None else len(raws_period)
         sat_counts = {"cpu": cpu_sat, "mem": mem_sat, "disk_io": disk_sat, "net": net_cong, "total": sat_total}
-        if full_under:
-            return build_environment_overview(
-                details, online_count, util, risk_counts, under_hosts, under_limit=None,
-                saturation_counts=sat_counts, error_summary=error_summary,
-            )
+        # full_under 면 under_limit=None(상위 N 절단 해제), 아니면 build_environment_overview 기본값 적용.
         return build_environment_overview(
             details, online_count, util, risk_counts, under_hosts,
             saturation_counts=sat_counts, error_summary=error_summary,
+            **({"under_limit": None} if full_under else {}),
         )
 
     async def get_environment_assessment(

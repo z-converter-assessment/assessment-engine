@@ -13,7 +13,7 @@ export interface paths {
         };
         /**
          * Overview
-         * @description 환경 개요 (홈, `/`) — 집계 위젯(환경 요약·자원 이용·포화 6도넛·수집 건전성).
+         * @description 환경 개요 (홈, `/`) — 집계 위젯(환경 요약·주요 워크로드·자원 적정성·자원 이용·포화 7도넛·운영 이벤트/에러).
          *
          *     서버 목록은 `/servers`, 환경 단위 분석은 `/environment/*` 로 분리. 집계형 위젯만 본 페이지에 남는다.
          *     운영 신호는 실시간 현황(`/environment/realtime`)으로 분리. 자동 갱신 없음 — 정적 집계라 진입 시 1회 렌더.
@@ -1029,7 +1029,7 @@ export interface components {
         };
         /**
          * FleetStatus
-         * @description 전역 상단 바 데이터 최신성 — 온라인 대수/전체 + 마지막 메트릭 수집 시각 (전 페이지 JS 폴링). 표시 파생 없음(P1/P2).
+         * @description 전역 상단 바 데이터 최신성 — 온라인 대수/전체 + 마지막 메트릭 수집 시각 (전 페이지 폴링). 파생 없음(P1).
          */
         FleetStatus: {
             /** Last Collected At */
