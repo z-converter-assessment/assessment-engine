@@ -335,7 +335,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         trend_start = end_dt - TIME_RANGE_TD[time_range]
         cpu_series = await self.repo.metric_trend("cpu.usage_percent", trend_start, end_dt, bucket, server_ids)
         mem_series = await self.repo.metric_trend("mem.usage_percent", trend_start, end_dt, bucket, server_ids)
-        disk_series = await self.repo.metric_trend("disk.usage_percent", trend_start, end_dt, bucket, server_ids)
+        disk_series = await self.repo.metric_trend("fs.usage_percent", trend_start, end_dt, bucket, server_ids)
         return build_metric_trend(cpu_series, mem_series, disk_series)
 
     async def _assemble_report_raws(self, server_ids: list[int], period_days: float, end_dt: datetime) -> list:

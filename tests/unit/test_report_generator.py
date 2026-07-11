@@ -183,3 +183,29 @@ async def test_build_child_prefetched_reports_missing_server_yields_none():
 
     assert dict(out)["ghost"] is None
     assert dict(out)["pa"] is not None
+
+
+@pytest.mark.asyncio
+async def test_report_trend_uses_valid_metric_types():
+    """_build_report_trend 3 콜사이트가 유효 MetricType 만 사용 — wire v2 rename 회귀 가드.
+
+    'disk.usage_percent' -> 'fs.usage_percent' 개명 후 report 콜사이트가 미추종해 보고서 3경로
+    전부 500(unsupported metric_type AssertionError) 났던 회귀를 막는다.
+    """
+    from typing import get_args
+
+    from assessment_engine.db.repositories.query.types import MetricType
+
+    seen: list[str] = []
+
+    async def _mt(metric_type, *args, **kwargs):
+        seen.append(metric_type)
+        return []
+
+    repo = MagicMock()
+    repo.metric_trend = _mt
+    svc = QueryService(repo, MagicMock())
+    await svc._build_report_trend("24h", datetime(2026, 1, 1, tzinfo=UTC), [1])
+
+    assert seen == ["cpu.usage_percent", "mem.usage_percent", "fs.usage_percent"]
+    assert set(seen) <= set(get_args(MetricType))
