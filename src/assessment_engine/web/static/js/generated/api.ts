@@ -1285,6 +1285,243 @@ export interface components {
             os: components["schemas"]["ReproOs"];
             storage: components["schemas"]["ReproStorage"];
         };
+        /** RightSizingEnvelope */
+        RightSizingEnvelope: {
+            /** Count */
+            count: number;
+            /** Engine Id */
+            engine_id: string | null;
+            filter: components["schemas"]["RsFilter"];
+            /** Generated At */
+            generated_at: string | null;
+            /** Servers */
+            servers: components["schemas"]["RightSizingServer"][];
+            warnings: components["schemas"]["RsWarnings"];
+            window: components["schemas"]["RsWindow"];
+        };
+        /** RightSizingResponse */
+        RightSizingResponse: {
+            right_sizing: components["schemas"]["RightSizingEnvelope"];
+        };
+        /** RightSizingServer */
+        RightSizingServer: {
+            /** Classification */
+            classification: string | null;
+            /** Classification Label */
+            classification_label: string | null;
+            /** Confidence Notes */
+            confidence_notes: string[] | null;
+            /** Hostname */
+            hostname: string | null;
+            /** Hostname Ambiguous */
+            hostname_ambiguous: boolean | null;
+            network: components["schemas"]["RsNetwork"];
+            /** Online */
+            online: boolean | null;
+            /** Os Family */
+            os_family: string | null;
+            /** Primary Ip */
+            primary_ip: string | null;
+            /** Public Id */
+            public_id: string | null;
+            recommendation: components["schemas"]["RsRecommendation"];
+            resources: components["schemas"]["RsResources"];
+            /** Root Cause */
+            root_cause: string | null;
+        };
+        /** RsAction */
+        RsAction: {
+            /** Op */
+            op: string | null;
+            /** Resource */
+            resource: string | null;
+            /** Target Cores */
+            target_cores?: number | null;
+            /** Target Display */
+            target_display: string | null;
+            /** Target Gb */
+            target_gb?: number | null;
+            /** Target Mb */
+            target_mb?: number | null;
+        };
+        /** RsCpuResource */
+        RsCpuResource: {
+            /** Confidence Notes */
+            confidence_notes: string[] | null;
+            /** Current Cores */
+            current_cores: number | null;
+            /** Detail */
+            detail: string | null;
+            /** Evidence */
+            evidence: string[] | null;
+            /** Recommendation */
+            recommendation: string | null;
+            saturation: components["schemas"]["RsSaturation"] | null;
+            /** Sizing Target Cores */
+            sizing_target_cores: number | null;
+            /** Status */
+            status: string | null;
+            /** Status Label */
+            status_label: string | null;
+            /** Utilization P95 Pct */
+            utilization_p95_pct: number | null;
+        };
+        /** RsDisk */
+        RsDisk: {
+            capacity: components["schemas"]["RsDiskCapacity"];
+            io: components["schemas"]["RsDiskIo"];
+        };
+        /** RsDiskCapacity */
+        RsDiskCapacity: {
+            /** Confidence Notes */
+            confidence_notes: string[] | null;
+            /** Current Gb */
+            current_gb: number | null;
+            /** Days Until Full */
+            days_until_full: number | null;
+            /** Detail */
+            detail: string | null;
+            /** Evidence */
+            evidence: string[] | null;
+            /** Recommendation */
+            recommendation: string | null;
+            /** Sizing Target Gb */
+            sizing_target_gb: number | null;
+            /** Status */
+            status: string | null;
+            /** Status Label */
+            status_label: string | null;
+            /** Worst Mount */
+            worst_mount: string | null;
+            /** Worst Mount Used Pct */
+            worst_mount_used_pct: number | null;
+        };
+        /** RsDiskIo */
+        RsDiskIo: {
+            /** Confidence Notes */
+            confidence_notes: string[] | null;
+            /** Detail */
+            detail: string | null;
+            /** Evidence */
+            evidence: string[] | null;
+            saturation: components["schemas"]["RsSaturation"] | null;
+            /** Status */
+            status: string | null;
+            /** Status Label */
+            status_label: string | null;
+        };
+        /** RsFilter */
+        RsFilter: {
+            /** Hostname */
+            hostname: string[] | null;
+            /** Ip */
+            ip: string[] | null;
+            /** Pair */
+            pair: string[] | null;
+            /** Public Id */
+            public_id: string[] | null;
+        };
+        /** RsMemoryResource */
+        RsMemoryResource: {
+            /** Confidence Notes */
+            confidence_notes: string[] | null;
+            /** Current Mb */
+            current_mb: number | null;
+            /** Detail */
+            detail: string | null;
+            /** Evidence */
+            evidence: string[] | null;
+            /** Recommendation */
+            recommendation: string | null;
+            saturation: components["schemas"]["RsSaturation"] | null;
+            /** Sizing Target Mb */
+            sizing_target_mb: number | null;
+            /** Status */
+            status: string | null;
+            /** Status Label */
+            status_label: string | null;
+            /** Utilization P95 Pct */
+            utilization_p95_pct: number | null;
+        };
+        /** RsNetSignal */
+        RsNetSignal: {
+            /** Exceeded */
+            exceeded: boolean | null;
+            /** Measured */
+            measured: boolean | null;
+            /** Threshold */
+            threshold: number | null;
+            /** Value */
+            value: number | null;
+        };
+        /** RsNetSignals */
+        RsNetSignals: {
+            conntrack_ratio: components["schemas"]["RsNetSignal"];
+            drop_pct: components["schemas"]["RsNetSignal"];
+            retransmit_pct: components["schemas"]["RsNetSignal"];
+        };
+        /** RsNetwork */
+        RsNetwork: {
+            /** Congested */
+            congested: boolean | null;
+            /** Detail */
+            detail: string | null;
+            signals: components["schemas"]["RsNetSignals"];
+            /** Status */
+            status: string | null;
+            /** Status Label */
+            status_label: string | null;
+        };
+        /** RsRecommendation */
+        RsRecommendation: {
+            /** Actions */
+            actions: components["schemas"]["RsAction"][] | null;
+            /** Kind */
+            kind: string | null;
+            /** Summary */
+            summary: string | null;
+            /** Suppressed */
+            suppressed: components["schemas"]["RsAction"][] | null;
+        };
+        /** RsResources */
+        RsResources: {
+            cpu: components["schemas"]["RsCpuResource"];
+            disk: components["schemas"]["RsDisk"];
+            memory: components["schemas"]["RsMemoryResource"];
+        };
+        /** RsSaturation */
+        RsSaturation: {
+            /** Measured */
+            measured: boolean | null;
+            /** Saturated */
+            saturated: boolean | null;
+            /** Signal */
+            signal: string | null;
+            /** Threshold */
+            threshold: number | null;
+            /** Unit */
+            unit: string | null;
+            /** Value */
+            value: number | null;
+        };
+        /** RsWarnings */
+        RsWarnings: {
+            /** Ambiguous Hostnames */
+            ambiguous_hostnames: string[] | null;
+            /** Unresolved Pairs */
+            unresolved_pairs: string[] | null;
+        };
+        /** RsWindow */
+        RsWindow: {
+            /** Basis */
+            basis: string | null;
+            /** Days */
+            days: number | null;
+            /** End */
+            end: string | null;
+            /** Start */
+            start: string | null;
+        };
         /** Sizing */
         Sizing: {
             /** Axes */
@@ -1548,7 +1785,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RightSizingResponse"];
                 };
             };
             /** @description Validation Error */

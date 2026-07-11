@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 from assessment_engine.db.dtos.outbound import ReportRowRaw
 from assessment_engine.web.services.mappers.right_sizing_api import build_right_sizing_entry
+from assessment_engine.web.view_models.right_sizing_api import RightSizingServer
 
 _NOW = datetime(2026, 5, 12, tzinfo=UTC)
 
@@ -217,3 +218,19 @@ def test_evidence_labels_no_raw_enum_leak():
     leaked = [k for k, lbl in zip(all_triggers, labels, strict=True) if k == lbl]
     assert not leaked, f"raw enum 누출: {leaked}"
     assert "mem_oom" not in labels and "net_retrans" not in labels
+
+
+def test_entry_matches_response_schema():
+    """매퍼 dict 가 응답 스키마(RightSizingServer, extra=forbid)에 검증 — 매퍼<->OpenAPI 스키마 drift 가드.
+
+    여러 시나리오(linux 포화·windows 미측정·disk io·network)로 신규/누락 키·타입 불일치를 잡는다.
+    """
+    scenarios = [
+        _raw(os_family="linux", cpu_p95=75.0, cpu_cores=4, procs_running_p95=6.0),
+        _raw(os_family="windows", cpu_p95=40.0, cpu_cores=4),
+        _raw(os_family="linux", disk_await_p95_ms=30.0),
+        _raw(os_family="linux", mem_p95=92.0, mem_total_bytes=8 * 1024**3),
+    ]
+    for raw in scenarios:
+        entry = build_right_sizing_entry(raw, is_online=True)
+        RightSizingServer.model_validate(entry)  # 위반 시 즉시 실패
