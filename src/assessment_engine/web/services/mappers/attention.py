@@ -9,10 +9,11 @@ to_capacity_warning_item 은 EnvironmentOverview.under_provisioned_hosts 로 간
 
 import math
 from collections import Counter
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import FleetErrorRaw, MetricGapWarningRaw
+from assessment_engine.service_classifier import SIGNATURE_CATEGORIES
 from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.report import (
     build_resource_stats,
@@ -52,6 +53,13 @@ _ATTN_ACTIVE_BADGE = "attn-active"
 # 않는다 — 위험도 색은 Right-sizing 분류 도넛이 별도 담당.
 _UTIL_COLOR_GAUGE = UTIL_GAUGE_COLOR  # 푸른 단색 (blue-500) — shared.UTIL_GAUGE_COLOR 단일 진실
 _UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재 (회색)
+
+# 주요 워크로드 도넛 세그먼트 색 — SIGNATURE_CATEGORIES 대응. base.html .badge-cat-* 뱃지 색의 시각적 쌍둥이
+# (SVG stroke 는 hex 필요 — CSS 클래스와 별도 소스, 값 동기화 의무).
+_WORKLOAD_COLORS: dict[str, str] = {
+    "web": "#2563eb", "db": "#e11d48", "cache": "#059669",
+    "mq": "#9333ea", "container": "#0891b2", "monitor": "#ea580c",
+}
 
 # 도넛 SVG 원주 — 템플릿 SVG r="42" 와 정합. pct 0~100 을 0~_UTIL_DONUT_CIRC 로 매핑(dash-array precompute).
 _DONUT_RADIUS = 42
@@ -216,6 +224,25 @@ def _build_error_fleet(err: FleetErrorRaw | None) -> list[FleetErrorItem]:
     ]
 
 
+def _error_fleet_with_eol(err: FleetErrorRaw | None, details: list, total: int) -> list[FleetErrorItem]:
+    """운영 이벤트 표시자 — 에러 5종(빨강) + OS EOL(앰버). err=None(assessment 경로)이면 빈 list(섹션 미표시).
+
+    OS EOL 은 런타임 fault 아닌 정적 수명/보안 리스크 -> tone="warn"(앰버)로 하드웨어 에러와 구분. 판정은
+    resolve_os_eol 단일 진실(호스트별), 경과 호스트 수 카운트.
+    """
+    items = _build_error_fleet(err)
+    if err is None:
+        return items
+    today = datetime.now(UTC).date()
+    eol = sum(1 for d in details if resolve_os_eol(d.os_id, d.os_version, d.kernel_version, today))
+    items.append(
+        FleetErrorItem(
+            "os_eol", "OS 지원 종료", eol, total, "OS 지원(보안 패치) 종료 — 취약점 노출 리스크", tone="warn"
+        )
+    )
+    return items
+
+
 def build_environment_overview(
     details: list,
     online_count: int,
@@ -242,15 +269,14 @@ def build_environment_overview(
     for d in details:
         os_counter[d.os_family or "unknown"] += 1
 
-    # 역할 분포 — 카테고리별 "그 워크로드를 돌리는 호스트 수"(호스트당 카테고리 1회, 인스턴스 수 아님).
-    # 한 서버에서 같은 카테고리가 여러 개(파일 5개 등) 인식돼도 그 카테고리는 +1 — 환경 구성 파악에 적합.
-    # 카테고리 집합은 union(services 이름 ∪ listen 소켓 탐지). known 역할 0 호스트는 role_unknown 으로 분리.
+    # 주요 워크로드 분포 — 환경 전체 인스턴스 개수(호스트 dedup 아님: 한 서버에 mq 2개면 +2). "환경에 각 워크로드가
+    # 몇 개 떠 있냐"가 핵심 정보. container 는 single_instance(런타임 스택 1). role_unknown 은 보고서 집계용 유지.
     role_counter: Counter[str] = Counter()
-    role_unknown = 0  # known 역할 0인 호스트 수 (서비스 없음 또는 전부 unknown) — 호스트 단위
+    role_unknown = 0  # 특징 워크로드 0 호스트 수 — 보고서 workload_unknown_count 용
     for d in details:
         counter = workload_category_counter(d.services, d.listen_ports)
         if counter:
-            role_counter.update(counter.keys())  # 카테고리별 호스트 1회 (dedup within host)
+            role_counter.update(counter)  # 인스턴스 합산(카테고리별 값 누적)
         else:
             role_unknown += 1
 
@@ -306,7 +332,25 @@ def build_environment_overview(
     # 마이그레이션 우선순위: swap(paging) > 위반 자원 수 > 최고 활용률. 동률은 hostname ASC tie-break.
     _under_all = sorted(under_provisioned_hosts or [], key=lambda c: (-c.severity_score, c.hostname.lower()))
     _under_shown = _under_all if under_limit is None else _under_all[:under_limit]
-    role_sorted = dict(sorted(role_counter.items(), key=lambda kv: (-kv[1], kv[0])))
+    # 시그니처 워크로드만 노출(환경 성격 규정 티어 — SIGNATURE_CATEGORIES). 0 포함(E9) — 인스턴스 개수 desc, 동수는 카탈로그 순서.
+    role_sorted = dict(sorted(
+        ((cat, role_counter.get(cat, 0)) for cat in SIGNATURE_CATEGORIES),
+        key=lambda kv: (-kv[1], SIGNATURE_CATEGORIES.index(kv[0])),
+    ))
+    # 원형차트 도넛 세그먼트 — 카테고리별 인스턴스 비율(누적 dash). 0 카테고리도 세그먼트 유지(범례 노출, E9).
+    _wl_total = sum(role_sorted.values())
+    workload_segments: list = []
+    _cum = 0.0
+    for _cat, _cnt in role_sorted.items():
+        _dash = (_cnt / _wl_total) * _UTIL_DONUT_CIRC if (_wl_total > 0 and _cnt > 0) else 0.0
+        workload_segments.append(
+            RiskDonutSegment(
+                key=_cat, label=_cat, color=_WORKLOAD_COLORS.get(_cat, "#94a3b8"),
+                count=_cnt, pct=round(_cnt / _wl_total * 100, 1) if _wl_total > 0 else 0.0,
+                dash_length=_dash, dash_offset=-_cum, description="",
+            )
+        )
+        _cum += _dash
 
     # 포화 3축 도넛 — 자원 적정성 창 기준 포화 호스트 카운트/표본 (호출자가 raws 순회로 산출).
     sat_donuts: list = []
@@ -329,8 +373,9 @@ def build_environment_overview(
         # count 내림차순 + 동count는 이름 오름차순 tie-break (most_common 동순위는 삽입순=DB row 순서라 비결정적).
         os_distribution=dict(sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
         role_distribution=role_sorted,
+        workload_donut=workload_segments,
+        workload_total=_wl_total,
         role_unknown_count=role_unknown,
-        role_identified_count=total - role_unknown,
         utilization=util_bars,
         utilization_p95=util_bars_p95,
         util_sample_size=util_sample,
@@ -341,7 +386,7 @@ def build_environment_overview(
         under_provisioned_hosts_count=len(_under_all),
         under_provisioned_hosts_shown=len(_under_shown),
         saturation_donuts=sat_donuts,
-        error_fleet=_build_error_fleet(error_summary),
+        error_fleet=_error_fleet_with_eol(error_summary, details, total),
     )
 
 
@@ -401,15 +446,18 @@ def build_environment_realtime(
         RealtimePeakGroup(label="디스크", peaks=_top_pct("disk_pct")),
     ]
 
-    # 포화 비율 도넛 — 포화/압박 호스트 수 / 표본. 색·게이지는 _build_saturation_donut 공용(환경개요와 통일).
+    # 신호 임계 초과 도넛 — 순간 단일신호(이용률 게이트 없음)라 라벨을 신호명으로(환경개요 dual-gate "포화" 도넛과 구분).
+    # "포화" 판정어는 dual-gate(자원 평가)에만 쓴다 — 여기 카운트는 임계 초과 신호 호스트 수(순간 스냅샷).
     sample = len(snapshots)
     cpu_sat_count = sum(1 for s in snapshots if (s.get("cpu_sat_index") or 0) >= 1.0)
     disk_sat_count = sum(1 for s in snapshots if (s.get("disk_sat_index") or 0) >= 1.0)
     mem_pressure_count = sum(1 for s in snapshots if s.get("mem_pressure"))
+    net_congested_count = sum(1 for s in snapshots if s.get("net_congested"))
     saturation_donuts = [
-        _build_saturation_donut("CPU 포화", cpu_sat_count, sample),
-        _build_saturation_donut("메모리 압박", mem_pressure_count, sample),
-        _build_saturation_donut("디스크 I/O 포화", disk_sat_count, sample),
+        _build_saturation_donut("실행 큐 임계", cpu_sat_count, sample),
+        _build_saturation_donut("페이징", mem_pressure_count, sample),
+        _build_saturation_donut("응답지연 임계", disk_sat_count, sample),
+        _build_saturation_donut("네트워크 혼잡", net_congested_count, sample),
     ]
     return EnvironmentRealtime(
         total=total,

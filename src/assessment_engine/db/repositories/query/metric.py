@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, text
 
+from assessment_engine import recommendation  # 순수 도메인 커널 — right-sizing 정책 상수(순환 없음)
 from assessment_engine.db.dtos.outbound import (
     DashboardRaw,
     DiskIoRaw,
@@ -62,12 +63,13 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
 
     async def latest_dashboard(self, server_id: int) -> DashboardRaw | None:
         inv = await self.session.execute(
-            select(ServerInventory.os_family).where(ServerInventory.id == server_id)
+            select(ServerInventory.os_family, ServerInventory.kernel_version).where(ServerInventory.id == server_id)
         )
         inv_row = inv.first()
         if inv_row is None:
             return None
         os_family = inv_row[0]  # os-aware 스냅샷 포화 판정 입력 (nullable)
+        kernel_version = inv_row[1]  # PSI 지원(Linux 4.20+) 판정 입력 (nullable)
 
         # 미래 timestamp 방어 — 시계 어긋난 agent 의 미래 collected_at 행이 "가짜 최신"으로 잡혀
         # CPU delta(연속 2행)를 깨뜨리는 것 차단 (now()+skew 상한).
@@ -158,7 +160,8 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         ]
 
         return DashboardRaw(
-            metrics=metrics, disk_io=disk_io, net_io=net_io, filesystems=filesystems, os_family=os_family
+            metrics=metrics, disk_io=disk_io, net_io=net_io, filesystems=filesystems,
+            os_family=os_family, kernel_version=kernel_version,
         )
 
     async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, SaturationRaw]:
@@ -198,20 +201,34 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 FROM m2 WHERE rn <= 2 GROUP BY server_id
             ),
             d2 AS (
-                SELECT server_id,
+                SELECT server_id, device_id,
                        (COALESCE(op_read_time_s,0) + COALESCE(op_write_time_s,0)) AS t,
                        (COALESCE(ops_read,0) + COALESCE(ops_write,0)) AS ops,
-                       pending_ops,
+                       COALESCE(io_time_s,0) AS iot, pending_ops, collected_at,
                        row_number() OVER (PARTITION BY server_id, device_id ORDER BY collected_at DESC) AS rn
                 FROM server_disk_io
                 WHERE server_id = ANY(:sids) AND collected_at >= :since AND collected_at <= now() + interval '2 minutes'
             ),
-            da AS (
+            dd AS (
+                -- device 별 델타 — await = Δop_time / Δops, util = Δio_time / Δwall.
                 SELECT server_id,
-                    SUM(CASE WHEN rn = 1 THEN t END)   - SUM(CASE WHEN rn = 2 THEN t END)   AS t_delta,
-                    SUM(CASE WHEN rn = 1 THEN ops END) - SUM(CASE WHEN rn = 2 THEN ops END) AS ops_delta,
+                    max(CASE WHEN rn = 1 THEN t END)   - max(CASE WHEN rn = 2 THEN t END)   AS t_delta,
+                    max(CASE WHEN rn = 1 THEN ops END) - max(CASE WHEN rn = 2 THEN ops END) AS ops_delta,
+                    max(CASE WHEN rn = 1 THEN iot END) - max(CASE WHEN rn = 2 THEN iot END) AS iot_delta,
+                    EXTRACT(EPOCH FROM (max(CASE WHEN rn = 1 THEN collected_at END)
+                                        - max(CASE WHEN rn = 2 THEN collected_at END))) AS wall,
                     max(CASE WHEN rn = 1 THEN pending_ops END) AS pending_ops
-                FROM d2 WHERE rn <= 2 GROUP BY server_id
+                FROM d2 WHERE rn <= 2 GROUP BY server_id, device_id
+            ),
+            da AS (
+                -- 실제 바쁜(io_time util >= :diskio_util_min) device 만 await 채택 후 worst(MAX) — report.py 와 동일.
+                -- 유휴 device 의 writeback 큐 잔류 await 폭증 억제(병목 아님).
+                SELECT server_id,
+                    max(CASE WHEN ops_delta > 0 AND t_delta >= 0 AND wall > 0
+                                  AND iot_delta / wall >= :diskio_util_min
+                             THEN t_delta::float / ops_delta * 1000 END) AS await_ms,
+                    max(pending_ops) AS pending_ops
+                FROM dd GROUP BY server_id
             ),
             n2 AS (
                 SELECT server_id, rx_packets, tx_packets, rx_dropped, tx_dropped,
@@ -260,7 +277,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             )
             SELECT m.server_id, m.run_queue, m.conntrack_ratio, m.paging_major_rate, da.pending_ops,
                    psi.psi_cpu, psi.psi_mem, psi.psi_io,
-                   CASE WHEN da.ops_delta > 0 AND da.t_delta >= 0 THEN da.t_delta::float / da.ops_delta * 1000 END AS await_ms,
+                   da.await_ms AS await_ms,
                    CASE WHEN nt.txp_delta > 0 AND m.retrans_delta >= 0
                         THEN m.retrans_delta::float / nt.txp_delta * 100 END AS retrans_pct,
                    CASE WHEN nt.pkt_delta > 0 AND nt.drop_delta >= 0
@@ -268,7 +285,9 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             FROM m LEFT JOIN da ON da.server_id = m.server_id LEFT JOIN nt ON nt.server_id = m.server_id
                    LEFT JOIN psi ON psi.server_id = m.server_id
         """)
-        result = await self.session.execute(sql, {"sids": server_ids, "since": since})
+        result = await self.session.execute(
+            sql, {"sids": server_ids, "since": since, "diskio_util_min": recommendation.RS_DISKIO_UTIL_MIN}
+        )
         return {
             r.server_id: SaturationRaw(
                 run_queue=float(r.run_queue) if r.run_queue is not None else None,
@@ -566,32 +585,41 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 FROM per_ts WHERE v IS NOT NULL GROUP BY ts, dim ORDER BY ts
             """)
         elif metric_type == "disk.io_saturation":
-            # 디스크 I/O 포화 — v2 await(ms) 양 OS 통일. Σ(Δ op_time) / Σ(Δ ops) 물리 device 버킷 델타.
+            # 디스크 I/O 포화 — v2 await(ms) 양 OS 통일. device 별 Δop_time/Δops, io_time util >= min 인
+            # 실제 바쁜 device 만 채택 후 worst(MAX) — report.py·disk_io_saturated 동일(유휴 device writeback await 억제).
             # child 시계열 boot_time 부재 -> reset 은 GREATEST(delta,0). 단일선(os 분기 없음).
             sid_dio = "AND server_id = ANY(:server_ids)" if server_ids else ""
             sql = text(f"""
                 WITH l_raw AS (
                     SELECT collected_at, server_id, device_id,
                         (COALESCE(op_read_time_s,0) + COALESCE(op_write_time_s,0)) AS t,
-                        (COALESCE(ops_read,0) + COALESCE(ops_write,0)) AS ops
+                        (COALESCE(ops_read,0) + COALESCE(ops_write,0)) AS ops,
+                        COALESCE(io_time_s,0) AS iot
                     FROM {ServerDiskIo.__tablename__}
                     WHERE collected_at >= :window_start AND collected_at <= :end {sid_dio} AND {_PHYS_DISK_SQL_FILTER}
                 ),
                 l_delta AS (
                     SELECT collected_at,
                         GREATEST(t   - LAG(t)   OVER w, 0) AS d_t,
-                        GREATEST(ops - LAG(ops) OVER w, 0) AS d_ops
+                        GREATEST(ops - LAG(ops) OVER w, 0) AS d_ops,
+                        GREATEST(iot - LAG(iot) OVER w, 0) AS d_iot,
+                        EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER w)) AS d_wall
                     FROM l_raw WINDOW w AS (PARTITION BY server_id, device_id ORDER BY collected_at)
                 ),
+                per_dev AS (
+                    SELECT collected_at,
+                        CASE WHEN d_ops > 0 AND d_wall > 0 AND d_iot / d_wall >= :diskio_util_min
+                             THEN d_t::float / d_ops * 1000 END AS await_ms
+                    FROM l_delta WHERE collected_at >= :start
+                ),
                 per_ts AS (
-                    SELECT collected_at, SUM(d_t)::float / NULLIF(SUM(d_ops), 0) * 1000 AS v
-                    FROM l_delta WHERE collected_at >= :start AND d_ops > 0
-                    GROUP BY collected_at
+                    SELECT collected_at, MAX(await_ms) AS v FROM per_dev GROUP BY collected_at
                 )
                 SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind
                 FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
             """)
             params["window_start"] = start - bucket_td
+            params["diskio_util_min"] = recommendation.RS_DISKIO_UTIL_MIN
         elif metric_type == "net.retrans_percent":
             # TCP 재전송율 % = Σ(Δtcp_retrans) / Σ(Δtx_packets) * 100. reset 은 GREATEST(Δ,0).
             sid_sm = "AND server_id = ANY(:server_ids)" if server_ids else ""

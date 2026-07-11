@@ -236,6 +236,23 @@ def mem_pressure_active(paging_major_rate: float | None, os_family: str | None) 
     return paging_major_rate > 0
 
 
+def net_signal_active(
+    retrans_pct: float | None, drop_pct: float | None,
+    conntrack_ratio: float | None, net_kbytes_per_s: float | None,
+) -> bool:
+    """실시간 네트워크 혼잡 신호 여부 — assess_network 트리거와 동일 임계·저트래픽 게이트(스냅샷용).
+
+    retrans/drop 은 트래픽 < RS_NET_MIN_TRAFFIC_KBPS 면 억제(저트래픽 부팅기 소수 이벤트가 비율 지배 방지),
+    conntrack(연결테이블 고갈)은 트래픽 무관 절대 신호라 게이트 제외 — assess_network 와 동형.
+    """
+    low_traffic = net_kbytes_per_s is not None and net_kbytes_per_s < RS_NET_MIN_TRAFFIC_KBPS
+    if not low_traffic and retrans_pct is not None and retrans_pct > RS_NET_RETRANS_PCT:
+        return True
+    if not low_traffic and drop_pct is not None and drop_pct > RS_NET_DROP_PCT:
+        return True
+    return conntrack_ratio is not None and conntrack_ratio >= RS_CONNTRACK_SATURATION_RATIO
+
+
 def mem_saturated(stats: ResourceStats) -> bool | None:
     """메모리 포화 여부 — dual-gate: 이용률 높음 AND 페이징 발생 (원칙 P2, os-aware).
 

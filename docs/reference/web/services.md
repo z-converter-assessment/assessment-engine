@@ -89,13 +89,13 @@ right-sizing 분류(6분류·판정 순서·합성 규칙·OS 분기·벤더 임
 
 ## 환경 개요 상단 요약 — environment_overview + attention
 
-환경 개요(`/`)에서 두 영역으로 표시. environment_overview는 환경 현황·평균·분포(도넛), attention은 즉시 조치 신호 카드. 평균 활용률·자원 적정성 평가 현황은 `DASHBOARD_TIME_RANGE`(24h, #F10) 윈도우. 개요는 3 카드섹션(환경 요약 / 환경 자원 평가=활용률+자원 적정성 평가+언더프로비저닝 / 환경 부하 추이+네트워크 토폴로지)으로 분리. 가변 윈도우·앵커로 적정성을 따로 보는 전용 페이지는 `/environment/assessment` (`get_environment_assessment(time_range, anchor)` — 개요 overview 조립부를 attention/trend 제외 경량 재사용, 자원 부족은 `full_under=True` 로 상위 N 절단 해제 전체 출력).
+환경 개요(`/`)에서 두 영역으로 표시. environment_overview는 환경 현황·평균·분포(도넛), attention은 즉시 조치 신호 카드. 평균 활용률·자원 적정성 평가 현황은 `recommendation.WINDOW_DAYS`(14일, #F10) 윈도우 — 분류와 한 창 통일. 개요는 3 카드섹션(환경 요약 / 환경 자원 평가=활용률+자원 적정성 평가+언더프로비저닝 / 환경 부하 추이+네트워크 토폴로지)으로 분리. 가변 윈도우·앵커로 적정성을 따로 보는 전용 페이지는 `/environment/assessment` (`get_environment_assessment(time_range, anchor)` — 개요 overview 조립부를 attention/trend 제외 경량 재사용, 자원 부족은 `full_under=True` 로 상위 N 절단 해제 전체 출력).
 
 | 시선 | service 메서드 | repo SQL | 시간 축 | 분류 |
 |------|----------------|----------|---------|------|
-| environment_overview | `get_dashboard_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(DASHBOARD_WINDOW_DAYS, end)` + `report_aggregate(DASHBOARD_WINDOW_DAYS)` + Redis online mget | 24h USE Method + 24h 평균 활용률 (capacity-weighted) | 자원 합계·역할 분포·활용률 도넛·프로비저닝 분포 도넛 + under_provisioned 호스트 (capacity — `to_capacity_warning_item`, 발화 원인 `active_causes` os-neutral + 6축 os-aware metrics) |
+| environment_overview | `get_dashboard_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(WINDOW_DAYS, end)` + `report_aggregate(WINDOW_DAYS)` + Redis online mget | 14일 USE Method + 14일 평균 활용률 (capacity-weighted) | 자원 합계·역할 분포·활용률 도넛·프로비저닝 분포 도넛 + under_provisioned 호스트 (capacity — `to_capacity_warning_item`, 발화 원인 `active_causes` os-neutral + 6축 os-aware metrics) |
 | attention.gap_warnings | `get_attention_signals` | `metric_gap_warnings(gap_min=5, recent_h=24)` 단일 SQL | 5min~24h 갭 (단기) | "한때 살아있다 끊김" |
-| attention.os_eol_warnings | `get_attention_signals` | `report_aggregate(DASHBOARD_WINDOW_DAYS)` raws + `resolve_os_eol`(endoflife.date 스냅샷) | EOL 경과 한정 | 지원 종료 OS (Linux distro + Windows Server build) |
+| attention.os_eol_warnings | `get_attention_signals` | `report_aggregate(WINDOW_DAYS)` raws + `resolve_os_eol`(endoflife.date 스냅샷) | EOL 경과 한정 | 지원 종료 OS (Linux distro + Windows Server build) |
 | attention.agent_unstable | `get_attention_signals` | `agent_restart_counts_recent(since=now-1h)` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | restart_count >= `AGENT_RESTART_ALERT_THRESHOLD` |
 
 운영신호 카드(`AttentionSignals`)는 위 3개뿐 — public `get_attention_signals` 가 내부 `_assemble_attention` 으로 조립. capacity·disk·days_until_full 은 각 담당이 분리 소유(중복 회피): capacity(under_provisioned)는 environment_overview, disk capacity/IO 는 `recommendation.classify`, days_until_full 은 보고서 스토리지 컬럼.

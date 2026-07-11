@@ -27,8 +27,10 @@
     const moreWrap = /** @type {HTMLElement | null} */ (result.querySelector('#under-more-wrap'));
     const btn = result.querySelector('#under-more-btn');
     if (!wrap) return;
-    const table = wrap.querySelector('table');
-    const rows = /** @type {HTMLElement[]} */ (Array.from(wrap.querySelectorAll('tbody tr'))); // 서버당 1 표 행
+    // 화면 표만 — action_targets_table 은 print-only 복제표 2개를 더 렌더한다. #under-wrap 감싸는 section 이
+    // .no-print 라 '.no-print tbody tr' 은 조상 매칭으로 print 표까지 잡힌다(3배). 화면 표만 가진 .sortable-table 로 스코프.
+    const table = /** @type {HTMLElement | null} */ (wrap.querySelector('.sortable-table'));
+    const rows = /** @type {HTMLElement[]} */ (Array.from(wrap.querySelectorAll('.sortable-table tbody tr'))); // 서버당 1 행
     const serverCount = rows.length;
     if (serverCount <= UNDER_SHOWN) {
       if (moreWrap) moreWrap.style.display = 'none';

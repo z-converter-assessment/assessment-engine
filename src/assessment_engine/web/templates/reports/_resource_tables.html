@@ -7,6 +7,7 @@
 
 {% macro action_targets_table(hosts, metric_labels, self_back) %}
 {% if hosts %}
+<p class="text-meta text-xs" style="margin:0 0 12px;">굵게+색 강조 = dual-gate 자원 적정성 판정(CPU·메모리는 신호 AND 이용률 동반, 디스크 I/O·용량은 단일 임계). 헤더 괄호 임계는 원시 신호 기준 — 강조 없이 임계만 넘은 셀은 이용률 미동반(신호만, 판정 아님).</p>
 {# 화면: 전체 통합 표(스크롤·정렬). 인쇄(no-print/print-only): 칼럼 과다로 세로/가로 모두 잘려 2표로 분할 —
    표1(분류·근거 + CPU/메모리/디스크), 표2(네트워크 + 신뢰도). 네트워크 metric 3개(재전송·드롭·상태)는 뒤쪽. #}
 <div class="table-scroll no-print" style="margin-bottom:20px;">

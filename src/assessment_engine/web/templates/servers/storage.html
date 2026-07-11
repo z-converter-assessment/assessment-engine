@@ -60,7 +60,7 @@
   {% endif %}
 
   <div class="section-title" style="margin-top:22px;">디스크 I/O</div>
-  <div class="sat-title text-meta text-xs">포화 신호 — 값 / 임계 · 임계 이상은 신호일 뿐, 포화 판정은 이용률 동반(dual-gate, 자원 평가) · 근거 hover</div>
+  <div class="sat-title text-meta text-xs">응답지연 신호 — 값 / 임계 · await 단일 임계 판정(20ms 초과, CPU·메모리와 달리 이용률 동반 조건 없음) · 실제 바쁜 device 기준 · 근거 hover</div>
   <div id="disk-sat-signals" style="margin:6px 0 12px;"></div>
   <div id="io-snapshot-loading" class="text-meta text-md">불러오는 중...</div>
   <table id="io-phys-table" style="display:none;">
@@ -141,7 +141,7 @@
     <h2 class="card-title">디스크 I/O 포화 추이<span class="print-only text-muted text-sm" id="disksat-range-print" style="font-weight:normal;"> — 15분</span></h2>
     <span id="disksat-bucket-label" class="bucket-label"></span>
   </div>
-  <div class="chart-desc">I/O 한 건당 응답 지연(await, ms) — 양 OS 통일 · 20ms 초과면 디스크 포화(가상 디스크 경합·느린 스토리지). 스냅샷 현재값은 위 포화 신호 참조.</div>
+  <div class="chart-desc">I/O 한 건당 응답 지연(await, ms) — 양 OS 통일 · 20ms 초과 = 응답지연 임계 이상 신호(가상 디스크 경합·느린 스토리지). 실제 바쁜 device 기준(유휴 device 인플레이션 제외). 포화 판정은 자원 평가.</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="disksat-canvas"></canvas>
   </div>

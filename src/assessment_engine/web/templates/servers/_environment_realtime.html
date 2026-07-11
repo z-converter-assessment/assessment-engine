@@ -11,11 +11,12 @@
   </div>
   <div>
     {% if realtime.sample_size > 0 %}
-    {# 이용률 3(%) + 포화 3(호스트 수/표본) 도넛 — 구분선 없이 6개 나란히 (util_donut·saturation_donut 공용 규격). #}
+    {# 이용률 3(%) + 신호 4(호스트 수/표본) 도넛 — 구분선 없이 7개 나란히 (util_donut·saturation_donut 공용 규격). #}
     <div style="display:flex; align-items:center; flex-wrap:wrap; gap:20px;">
       {% for u in realtime.utilization %}{{ util_donut(u) }}{% endfor %}
       {% for s in realtime.saturation_donuts %}{{ saturation_donut(s) }}{% endfor %}
     </div>
+    <p class="text-meta text-xs" style="margin:12px 0 0;">최신 스냅샷 · 신호 4개는 임계 초과 호스트 수 / 표본 — 순간 단일신호(개요·보고서 14일 dual-gate 포화와 다른 정의). 이용률 동반 판정은 환경 자원 평가.</p>
     {% else %}
     {{ empty_state("수집된 메트릭이 없습니다.") }}
     {% endif %}

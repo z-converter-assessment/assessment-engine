@@ -406,6 +406,11 @@ _PORT_INDEX: dict[int, str] = _build_port_index()
 # list 페이지 dropdown option.
 SERVICE_CATEGORIES: tuple[str, ...] = tuple(d.key for d in SERVICE_CATALOG)
 
+# 시그니처 워크로드 — 환경 성격(아키텍처)을 규정하는 티어. file·mail·infra(chronyd/sssd)·remote(sshd)는
+# 어디에나 있는 유틸/관리 서비스라 "이 환경이 어떤 느낌인가" 신호가 약해 제외. 환경 개요 "주요 워크로드"
+# 표시 필터 전용 — 목록·상세·필터·보고서는 전체 워크로드(비 baseline) 유지.
+SIGNATURE_CATEGORIES: tuple[str, ...] = ("web", "db", "cache", "mq", "container", "monitor")
+
 # 런타임 스택 카테고리 — 카운트를 호스트당 1로 (인스턴스 합 금지). 현재 container 만.
 SINGLE_INSTANCE_CATEGORIES: frozenset[str] = frozenset(d.key for d in SERVICE_CATALOG if d.single_instance)
 

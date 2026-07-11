@@ -159,10 +159,12 @@ class EnvironmentOverview:
     total_disk_gb: int
     # os_family(windows/linux/unknown) 별 서버 수. count DESC.
     os_distribution: dict[str, int] = field(default_factory=dict)
-    # 역할 분포 — 각 서버의 모든 서비스 카테고리를 카운트 (대표 1개가 아닌 전체, #E7).
+    # 주요 워크로드 분포 — 카테고리별 환경 전체 인스턴스 개수(호스트 dedup 아님, 모든 카테고리 0 포함, #E7 E9).
     role_distribution: dict[str, int] = field(default_factory=dict)
-    role_unknown_count: int = 0  # known 역할 0인 호스트 수 (서비스 없음 또는 전부 unknown)
-    role_identified_count: int = 0  # = total - role_unknown_count
+    # 주요 워크로드 원형차트 세그먼트(RiskDonutSegment 재사용 — color·count·dash precompute) + 총 인스턴스.
+    workload_donut: list = field(default_factory=list)
+    workload_total: int = 0
+    role_unknown_count: int = 0  # 특징 워크로드 0 호스트 수 (보고서 workload_unknown_count 용)
     utilization: list[UtilizationBar] = field(default_factory=list)
     # 평균과 동일 capacity-weighted 환경 분포 기반(per_ts 95퍼센타일).
     utilization_p95: list[UtilizationBar] = field(default_factory=list)
@@ -247,11 +249,12 @@ class FleetErrorItem:
     에러는 카운트형(대부분 0)이라 도넛 아닌 표시자 — affected=0 이면 '이상 없음', >0 이면 'N대 영향'.
     """
 
-    key: str  # cpu_mce | mem_oom | mem_corrupted | disk_errors | net_errors
+    key: str  # cpu_mce | mem_oom | mem_corrupted | disk_errors | net_errors | os_eol
     label: str  # 표시 라벨 ("머신체크(MCE)" 등)
     affected: int  # 발생 호스트 수 (분자)
     total: int  # 표본 (분모)
     detail: str | None = None  # 신호 의미(hover)
+    tone: str = "danger"  # "danger"(빨강, 하드웨어/런타임 에러) | "warn"(앰버, OS EOL 등 정적 리스크)
 
 
 @dataclass

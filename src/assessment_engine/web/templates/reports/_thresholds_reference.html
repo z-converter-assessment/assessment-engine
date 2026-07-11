@@ -23,7 +23,7 @@
       <tr><td>p95</td><td>작은 값부터 정렬해 95% 위치의 값 — 상위 5%(일시 spike)만 초과. 분류 1차 입력. 평균보다 클 수 있음(분포 우측 꼬리).</td></tr>
       <tr><td>peak</td><td>윈도우 안 시점별 최댓값. 실제 관측 burst 강도.</td></tr>
       <tr><td>변동성</td><td>peak / p95 비율 — 클수록 burst 부하. 임계·용도는 "엔지니어 보조 지표" 절.</td></tr>
-      <tr><td>Saturation (포화)</td><td>자원이 처리 한계를 넘어 대기열이 쌓이는 신호 — CPU run queue(Linux procs_running · Windows Processor Queue Length)·메모리 페이징(Linux swap page-out · Windows Pages Input/sec 하드폴트)·디스크 I/O await(양 OS, Windows 는 IOCTL). 발생 시 이용률이 낮아도 증설 신호. 네트워크 혼잡(재전송·드롭·conntrack)은 별도 품질 플래그(사이징 아님).</td></tr>
+      <tr><td>Saturation (포화)</td><td>자원이 처리 한계를 넘어 대기열이 쌓이는 신호 — CPU run queue(Linux procs_running · Windows Processor Queue Length)·메모리 페이징(Linux swap page-out · Windows Pages Input/sec 하드폴트)·디스크 I/O await(양 OS, Windows 는 IOCTL). 포화 판정은 축별로 다르다: CPU·메모리는 dual-gate — 신호 AND 이용률 임계(70%/90%) 동반 시에만 포화(이용률 낮으면 신호 있어도 포화 아님). 디스크 I/O 는 디바이스 활동 기반 await 라 호스트 이용률이 낮아도 발생 가능. 네트워크 혼잡(재전송·드롭·conntrack)은 별도 품질 플래그(사이징 아님).</td></tr>
       <tr><td>서비스 분류</td><td>호스트 구동 워크로드를 카테고리(web·db·cache·container 등)로 분류 — 서비스 이름·실행 파일·listen 포트 신호 종합. container 등 런타임 스택은 호스트당 1로 카운트.</td></tr>
       <tr><td>메모리 구성</td><td>전체 메모리 대비 used(사용)·available(가용)·cached(페이지 캐시)·buffers(버퍼) 윈도우 평균 비율. cached/buffers 는 회수 가능 영역이라 available 에 포함.</td></tr>
       <tr><td>CPU 분류</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기) 로 분해한 윈도우 평균 비율. iowait 높으면 디스크 병목.</td></tr>
@@ -56,7 +56,7 @@
   <table>
     <thead><tr><th>상태</th><th>조건 (입력·임계)</th><th>사이징 산식</th><th>출처</th></tr></thead>
     <tbody>
-      <tr><td>부족 (under)</td><td>cpu_p95 &gt;= 70% <span class="text-meta">OR</span> 실행 큐 포화(Linux procs_running/코어 &gt;= 1.0 · Windows Processor Queue/코어 &gt;= 2.0) <span class="text-meta">OR</span> 목표 코어 &gt; 현재</td><td>목표 = max(이용률 코어, 포화 코어). 이용률 코어 = ceil(p95 x 코어 / 70) · 포화 코어 = ceil(run_queue / (포화선 x 0.7)). 포화 주도로 목표가 현재 이하면 수치 미상(증설만)</td><td>Kleinrock(1975) 큐잉 무릎 · Google SRE · AWS Balanced(util 70%)</td></tr>
+      <tr><td>부족 (under)</td><td>cpu_p95 &gt;= 70% <span class="text-meta">OR</span> 실행 큐 포화(Linux procs_running/코어 &gt;= 1.0 · Windows Processor Queue/코어 &gt;= 2.0 — dual-gate: 이용률 70% 동반, 미측정 시 신호 단독) <span class="text-meta">OR</span> 목표 코어 &gt; 현재</td><td>목표 = max(이용률 코어, 포화 코어). 이용률 코어 = ceil(p95 x 코어 / 70) · 포화 코어 = ceil(run_queue / (포화선 x 0.7)). 포화 주도로 목표가 현재 이하면 수치 미상(증설만)</td><td>Kleinrock(1975) 큐잉 무릎 · Google SRE · AWS Balanced(util 70%)</td></tr>
       <tr><td>과다 (over)</td><td>목표 코어 &lt; 현재 <span class="text-meta">AND</span> 어느 코어도 p95 &lt; 85%(단일스레드 보호)</td><td>목표 코어로 축소 (다운사이즈 게이트 통과 시 처방)</td><td>단일스레드 보호(per-core 85%)</td></tr>
       <tr><td>정상 (optimal)</td><td>목표 == 현재 (포화·과다 아님)</td><td>현 사양 유지</td><td>—</td></tr>
       <tr><td>미측정 (unmeasured)</td><td>이용률·실행 큐 둘 다 미측정, 또는 코어 수 미상</td><td>—</td><td>coverage_gap 신뢰도</td></tr>
@@ -134,7 +134,7 @@
       </tr>
     </thead>
     <tbody>
-      <tr><td>1</td><td>자원 부족 (under_provisioned)</td><td>위험 신호 OR (하나라도): cpu_p95>=70% / mem_p95>=90% / 디스크 용량(소진 30일 이내 or 정적 85% or inode 소진) / CPU 포화(Linux procs_running/cores>=1.0 · Windows Processor Queue/cores>=2.0) / 디스크 I/O await>20ms(양 OS, 구세대 viostor 만 disk queue>=2) / 메모리 페이징(Linux swap page-out · Windows Pages Input/sec p95>=20). 유휴 보다 우선 — CPU 가 낮아도 압박 신호가 있으면 미사용이 아니라 자원 부족.</td></tr>
+      <tr><td>1</td><td>자원 부족 (under_provisioned)</td><td>위험 신호 OR (하나라도): cpu_p95>=70% / mem_p95>=90% / 디스크 용량(소진 30일 이내 or 정적 85% or inode 소진) / CPU 포화(Linux procs_running/cores>=1.0 · Windows Processor Queue/cores>=2.0 — dual-gate: 이용률 70% 동반) / 디스크 I/O await>20ms(양 OS 단일 임계, 이용률 동반 조건 없음 · 구세대 viostor 만 disk queue>=2) / 메모리 페이징(Linux swap page-out · Windows Pages Input/sec p95>=20 — dual-gate: 이용률 90% 동반). 유휴 보다 우선 — CPU 가 낮아도 압박 신호가 있으면 미사용이 아니라 자원 부족.</td></tr>
       <tr><td>2</td><td>유휴 (idle)</td><td>활동 3축 전부 quiescent — cpu_p95 <= 3% AND net <= 2 Mbps AND 디스크 baseline IOPS <= 5 (위험 신호 0). 하나라도 활동 있으면 유휴 아님(정상/과다로).</td></tr>
       <tr><td>3</td><td>표본 부족 (insufficient_data)</td><td>cpu_p95·mem_p95 둘 다 null + under 신호 없음 (평가 데이터 없음)</td></tr>
       <tr><td>4</td><td>과다 할당 (over_provisioned)</td><td>CPU 또는 메모리를 이용률 70% 목표로 다운사이즈 가능 — 필요 사양(ceil(현재 * p95 / 70)) < 현재. CPU 는 어느 코어든 p95>=85%면 보류(단일스레드 보호). 포화 축을 못 본 서버는 과다로 단정 안 함.</td></tr>

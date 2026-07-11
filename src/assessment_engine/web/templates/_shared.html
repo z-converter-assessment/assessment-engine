@@ -6,18 +6,18 @@
 <p class="empty-state">{{ message }}</p>
 {% endmacro %}
 
-{# window_meta — 표제 메타 "N대 기준 · 최근 {라벨}". window_label = DASHBOARD_TIME_RANGE 윈도우 라벨(#F10). #}
+{# window_meta — 표제 메타 "N대 기준 · 최근 {라벨}". window_label = 호출부가 넘기는 평가 윈도우 라벨(#F10). #}
 {% macro window_meta(count, window_label) %}{{ count }}대 기준 · 최근 {{ window_label }}{% endmacro %}
 
 {# provisioning_dist_bar — 자원 적정성 분류 분포 가로 누적 막대 (RiskDonutSegment list). 색·라벨·count·pct
    전부 mapper precompute(build_risk_donut_segments, _DONUT_SEGMENT_DEFS 단일 소스) — 템플릿 산술 0 (P3).
    환경 자원 평가(_assessment_result)·환경 개요 카드 공용. #}
 {% macro provisioning_dist_bar(segments) %}
-<div style="display:flex; flex-direction:column; gap:6px;">
+<div style="display:flex; flex-direction:column; gap:11px;">
   {% for s in segments %}
   <div style="display:flex; align-items:center; gap:8px;">
     <div class="text-sm text-strong" style="width:104px; flex-shrink:0;">{{ s.label }}</div>
-    <div class="bar-track" style="flex:1; background:#f1f5f9; border-radius:4px; height:16px; overflow:hidden;">
+    <div class="bar-track" style="flex:1; background:#f1f5f9; border-radius:4px; height:22px; overflow:hidden;">
       <div class="bar-fill" style="width:{{ s.pct }}%; background:{{ s.color }}; height:100%;"></div>
     </div>
     <strong class="text-sm text-strong" style="width:32px; text-align:right; flex-shrink:0;">{{ s.count }}</strong>
@@ -64,6 +64,31 @@
     <text x="50" y="64" text-anchor="middle" font-size="10" fill="#94a3b8">/ {{ s.total }}대</text>
   </svg>
   <div class="text-label" style="font-size:12px; margin-top:4px;">{{ s.label }}</div>
+</div>
+{% endmacro %}
+
+{# 주요 워크로드 원형차트 — 멀티세그먼트 도넛(카테고리별 인스턴스 비율) + 범례(색·라벨·개수, 0 포함 E9). 세그먼트 dash 는 mapper precompute (P3). #}
+{% macro workload_donut_chart(segments, total) %}
+<div class="wl-chart">
+  <svg viewBox="0 0 100 100" width="152" height="152" style="display:block; flex-shrink:0;">
+    <circle cx="50" cy="50" r="42" fill="none" stroke="#eef1f5" stroke-width="12"/>
+    {% for s in segments %}{% if s.dash_length > 0 %}
+    <circle cx="50" cy="50" r="42" fill="none" style="stroke: {{ s.color }}" stroke-width="12"
+            stroke-dasharray="{{ "%.2f"|format(s.dash_length) }} 263.89"
+            stroke-dashoffset="{{ "%.2f"|format(s.dash_offset) }}"
+            transform="rotate(-90 50 50)"/>
+    {% endif %}{% endfor %}
+    <text x="50" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ total }}</text>
+  </svg>
+  <div class="wl-legend">
+    {% for s in segments %}
+    <div class="wl-legend-item{% if not s.count %} is-zero{% endif %}">
+      <span class="wl-dot" style="background: {{ s.color }}"></span>
+      <span class="wl-legend-label">{{ s.label }}</span>
+      <span class="wl-legend-count">{{ s.count }}</span>
+    </div>
+    {% endfor %}
+  </div>
 </div>
 {% endmacro %}
 

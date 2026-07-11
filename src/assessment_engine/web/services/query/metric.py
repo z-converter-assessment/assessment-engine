@@ -49,6 +49,7 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
         cur = raw.metrics[0] if raw.metrics else None
         signals = build_saturation_signals(
             os_family=raw.os_family,
+            kernel_version=raw.kernel_version,
             run_queue_total=cur.cpu_run_queue if cur else None,
             cores=cur.cpu_logical_count if cur else None,
             steal_pct=result.cpu.steal_pct if result.cpu else None,

@@ -156,6 +156,15 @@
     .badge-cat-mail      { background: #ffffff; color: #c026d3; }
     .badge-cat-infra     { background: #ffffff; color: #ca8a04; }
     .badge-cat-unknown   { background: #ffffff; color: #64748b; }
+
+    /* 주요 워크로드 원형차트 — 멀티세그먼트 도넛 + 범례(색 dot·라벨·개수). 0 카테고리는 옅게(항상 노출, E9). */
+    .wl-chart { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; }
+    .wl-legend { display: flex; flex-direction: column; gap: 8px; }
+    .wl-legend-item { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+    .wl-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+    .wl-legend-label { color: #475569; min-width: 72px; }
+    .wl-legend-count { font-weight: 700; color: #1e293b; font-variant-numeric: tabular-nums; }
+    .wl-legend-item.is-zero { opacity: .5; }
     /* 서비스 카테고리 뱃지 경계 — 포트 칩(.port-chip)과 동일 1px 경계로 통일. */
     .badge-cat-web, .badge-cat-db, .badge-cat-cache, .badge-cat-mq, .badge-cat-container, .badge-cat-monitor, .badge-cat-remote, .badge-cat-file, .badge-cat-mail, .badge-cat-infra, .badge-cat-unknown { border: 1px solid #e2e8f0; }
     /* 서비스 포트 칩 — proto+port 단일 칩. 카테고리 묶음은 행 정렬(2열 grid)로 표현, 외곽 박스 없음. */
@@ -502,13 +511,13 @@
     /* ── 전역 모션·인터랙션 (통일) — base.html 단일 정의로 전 페이지 공통. prefers-reduced-motion 존중. ── */
     /* 카드 등장 — 은은한 fade+up (로드 시 콘텐츠 안착). */
     @keyframes card-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-    .card { animation: card-in .34s cubic-bezier(.22,1,.36,1) both; }
+    .card { animation: card-in .55s cubic-bezier(.22,1,.36,1) both; }
     /* 도넛 게이지 채우기 — 빈 호(0) -> 목표 호. util·saturation 도넛 공통(_shared 매크로 .donut-arc). */
     @keyframes donut-grow { from { stroke-dasharray: 0 263.89; } }
-    .donut-arc { animation: donut-grow .95s cubic-bezier(.22,1,.36,1) both; }
+    .donut-arc { animation: donut-grow 1.5s cubic-bezier(.22,1,.36,1) both; }
     /* 수평 분포 바 채우기 — 0 -> 목표 폭 (.bar-fill 공통). */
     @keyframes bar-grow { from { width: 0; } }
-    .bar-fill { animation: bar-grow .8s cubic-bezier(.22,1,.36,1) both; }
+    .bar-fill { animation: bar-grow 1.2s cubic-bezier(.22,1,.36,1) both; }
     /* 버튼·인터랙티브 — 통일 트랜지션 + press 피드백(눌림 시 살짝 내려앉음). */
     .btn, .btn-action, .btn-print, .btn-primary, .btn-select, .toggle, .legend-chip,
     .chart-select, .search-row button, .sidebar-item { transition: background .14s ease, color .14s ease, border-color .14s ease, box-shadow .14s ease, transform .1s ease; }

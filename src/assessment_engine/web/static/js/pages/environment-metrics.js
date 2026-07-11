@@ -298,13 +298,9 @@ async function loadRunQueueChart(range, anchor) {
   renderChipLegend(document.getElementById('runqueue-legend'), chart);
 }
 
-// 디스크 I/O 포화 os-aware — 정규화 없이 raw 2선(이중 Y축). Linux await(ms, 좌축) / Windows 큐 깊이(우축).
-// 단위가 달라 한 축에 겹치면 스케일이 뭉개지므로 os별 축 분리(Linux/Windows 호스트는 서로 겹치지 않아 정직).
-// backend disk.io_saturation 이 os_family dimension 반환. 앵커/윈도우/버킷은 makeBucketGrid 로 동일 적용.
-const DISKSAT_META = {
-  linux:   { label: 'Linux await (ms)', color: /** @type {any} */ (ChartUtils).themeColor(), axis: 'yA' },
-  windows: { label: 'Windows 큐 깊이',   color: '#8b5cf6',              axis: 'yQ' },
-};
+// 디스크 I/O 포화 — await(ms) 양 OS 통일 단일선(backend disk.io_saturation, NULL dimension).
+// 실제 바쁜 device(io_time util >= 50%) worst 만 — 유휴 device 인플레이션 제외. 앵커/윈도우/버킷 makeBucketGrid.
+const DISKSAT_SUGGESTED_MAX_MS = 20;  // RS_DISKIO_AWAIT_MS 임계선 기준 축 하한.
 /**
  * @param {string} range
  * @param {Date | null} anchor
@@ -326,39 +322,29 @@ async function loadDiskSaturationChart(range, anchor) {
   }
   canvas.style.display = ''; empty.style.display = 'none';
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const mkData = (/** @type {string} */ dim) => {
-    /** @type {Record<number, number | null>} */
-    const m = {};
-    for (const r of safe) if (r.dimension === dim) m[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
-    return grid.map(t => m[t] ?? null);
-  };
-  /** @type {any[]} */
-  const datasets = [];
-  for (const dim of ['linux', 'windows']) {
-    const data = mkData(dim);
-    if (!data.some(v => v != null)) continue;  // 해당 OS 표본 없으면 선 생략(빈 축 노출 안 함)
-    const meta = DISKSAT_META[/** @type {keyof typeof DISKSAT_META} */ (dim)];
-    datasets.push({
-      label: meta.label, data, borderColor: meta.color, backgroundColor: meta.color, yAxisID: meta.axis,
-      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
-    });
-  }
+  /** @type {Record<number, number | null>} */
+  const m = {};
+  for (const r of safe) m[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
+  const data = grid.map(t => m[t] ?? null);
   chartInstances['disksat-canvas'] = new Chart(canvas, /** @type {any} */ ({
     type: 'line',
-    data: { labels, datasets },
+    data: { labels, datasets: [{
+      label: 'await (ms)', data,
+      borderColor: /** @type {any} */ (ChartUtils).themeColor(),
+      backgroundColor: /** @type {any} */ (ChartUtils).themeColor(), yAxisID: 'yA',
+      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
+    }] },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode:'index', intersect:false },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'}` } },
+        tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` await: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1)+' ms' : '—'}` } },
       },
       scales: {
         x:  { ticks:{ maxTicksLimit:10, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
-        yA: { type:'linear', position:'left', beginAtZero:true, suggestedMax:20,
+        yA: { type:'linear', position:'left', beginAtZero:true, suggestedMax:DISKSAT_SUGGESTED_MAX_MS,
               ticks:{ callback: (/** @type {number} */ v) => v + 'ms', font:{size:11}, color:'#64748b' }, grid:{ color:'#f1f5f9' } },
-        yQ: { type:'linear', position:'right', beginAtZero:true, suggestedMax:2,
-              ticks:{ font:{size:11}, color:'#64748b' }, grid:{ drawOnChartArea:false } },
       },
     },
   }));

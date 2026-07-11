@@ -15,6 +15,7 @@ from assessment_engine.db.dtos.outbound import (
     StorageWithUsage,
 )
 from assessment_engine.service_classifier import (
+    SIGNATURE_CATEGORIES,
     SINGLE_INSTANCE_CATEGORIES,
     classify,
     detect_listen_categories,
@@ -241,9 +242,13 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
     _disk_bytes = disk_total_bytes(dto.block_devices)
     storage_total_gb = round(bytes_to_gb(_disk_bytes), 1) if _disk_bytes else None
 
-    # 서비스 뱃지 — ingest 사전계산 저장값(service_classifier 단일 진실, #E7). 이름·comm·포트 어느 신호로
-    # 식별되든 상세·리포트·필터와 동일 집합. services JSONB 행별 재분류 제거(목록 경량).
-    known = [ServiceItem(unit="", sub="", category=cat, ports=[]) for cat in dto.service_categories]
+    # 서비스 뱃지 — 시그니처 워크로드만(SIGNATURE_CATEGORIES, 환경 개요 도넛과 동일 기준). file·mail·infra·remote
+    # 등 유틸/관리 서비스는 서버 성격 신호가 약해 목록에서 제외(노이즈 감소). 상세 페이지는 live classify 로 전부.
+    known = [
+        ServiceItem(unit="", sub="", category=cat, ports=[])
+        for cat in dto.service_categories
+        if cat in SIGNATURE_CATEGORIES
+    ]
     services = known
     show_unknown = False
 

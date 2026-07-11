@@ -17,7 +17,7 @@
     <dt>External IP</dt>
     <dd>{% if network.ip_external %}{% for ip in network.ip_external %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}-{% endif %}</dd>
   </dl>
-  <div class="sat-title text-meta text-xs">네트워크 품질 — 값 / 임계 · 근거는 각 항목 hover</div>
+  <div class="sat-title text-meta text-xs">네트워크 품질 — 값 / 임계 · 재전송·드롭은 저트래픽(10KB/s 미만)에선 소수 이벤트로 비율이 튀어 임계 초과 표식 가능(참고, 혼잡 판정은 저트래픽 억제) · conntrack 은 트래픽 무관 · 근거는 각 항목 hover</div>
   <div id="net-sat-signals"></div>
 
   <div class="section-title" style="margin-top:22px; margin-bottom:14px;">인터페이스 현황</div>
@@ -96,7 +96,7 @@
     <h2 class="card-title">TCP 재전송율 추이<span class="print-only text-muted text-sm" id="retrans-range-print" style="font-weight:normal;"> — 15분</span></h2>
     <span id="retrans-bucket-label" class="bucket-label"></span>
   </div>
-  <div class="chart-desc">재전송 세그먼트 / 송신 패킷 (%) — 호스트 전역(TCP) · 1% 초과면 네트워크 품질 저하(혼잡·손실). 스냅샷 현재값은 위 네트워크 품질 신호 참조.</div>
+  <div class="chart-desc">재전송 세그먼트 / 송신 패킷 (%) — 호스트 전역(TCP) · 1% 초과 = 품질 저하 신호(혼잡·손실). 단 트래픽 10KB/s 미만 저활동에선 소수 재전송이 비율을 튀게 해 혼잡 판정에서 억제. 스냅샷 현재값은 위 네트워크 품질 신호 참조.</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="retrans-canvas"></canvas>
   </div>

@@ -97,7 +97,7 @@
     <h2 class="card-title">실행 큐 추이<span class="print-only text-muted text-sm" id="load-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     <span id="load-bucket-label" class="bucket-label"></span>
   </div>
-  <div class="chart-desc">코어당 실행 큐 = 실행 대기 작업 / 코어 수 — Linux procs_running 1.0 이상 · Windows Processor Queue Length 2.0 이상 포화</div>
+  <div class="chart-desc">코어당 실행 큐 = 실행 대기 작업 / 코어 수 — Linux procs_running 1.0 · Windows Processor Queue Length 2.0 이상 임계 초과 신호. 포화 판정은 이용률 동반(dual-gate, 자원 평가).</div>
   <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
     <canvas id="load-canvas"></canvas>
   </div>

@@ -36,7 +36,7 @@
           <h2 class="chart-subtitle" style="margin:0;">CPU 사용률</h2>
           <span id="cpu-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">100% = 전 코어 포화 (idle 제외, iowait 포함)</div>
+        <div class="chart-desc">100% = 전 코어 풀가동 (idle 제외, iowait 포함 — 연산 부하 아닌 IO 대기도 합산)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="cpu-canvas"></canvas>
           <div id="cpu-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -61,7 +61,7 @@
           <h2 class="chart-subtitle" style="margin:0;">실행 큐 (코어당){% if server.cpu_cores %} <span class="text-meta text-md" style="font-weight:400;">({{ server.cpu_cores }}코어)</span>{% endif %}</h2>
           <span id="load-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">실행 큐 길이 / 코어 수 정규화 (Linux 1.0 · Windows 2.0 = 코어당 포화)</div>
+        <div class="chart-desc">실행 큐 길이 / 코어 수 정규화 (Linux 1.0 · Windows 2.0 = 코어당 임계 초과 신호, 포화 판정은 이용률 동반)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="load-canvas"></canvas>
           <div id="load-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -146,7 +146,7 @@
           <h2 class="chart-subtitle" style="margin:0;">디스크 I/O 포화 (await)</h2>
           <span id="diskqueue-max" class="text-meta text-sm">최대: &mdash;</span>
         </div>
-        <div class="chart-desc">디스크 I/O 대기 시간 (await — 요청당 평균 대기, 20ms 이상 포화). 양 OS 실측</div>
+        <div class="chart-desc">디스크 I/O 대기 시간 (await — 요청당 평균 대기, 20ms 이상 = 임계 이상 신호). 실제 바쁜 device 기준(유휴 device 인플레이션 제외). 양 OS 실측</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="diskqueue-canvas"></canvas>
           <div id="diskqueue-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>

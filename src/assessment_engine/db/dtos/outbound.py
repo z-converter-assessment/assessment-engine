@@ -165,6 +165,7 @@ class DashboardRaw:
     net_io: list[NetIoRaw]  # 인터페이스당 최대 2행, desc within interface
     filesystems: list[MountUsageRaw]  # 마운트당 최신 1행
     os_family: str | None = None  # os-aware 스냅샷 포화 판정 입력 (linux|windows|null)
+    kernel_version: str | None = None  # PSI 지원(Linux 4.20+) 판정 입력 — 구커널 N/A 분기용
 
 
 # ---------- Storage / Network 풍부화 DTOs ----------

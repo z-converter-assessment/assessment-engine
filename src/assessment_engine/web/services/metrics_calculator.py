@@ -9,6 +9,7 @@
 - 시점 값은 그대로 변환 (mem, mount usage) — reset 무관. 단위는 By (v2).
 """
 
+import re
 from collections.abc import Callable
 
 from assessment_engine.boot_time import is_counter_reset
@@ -121,10 +122,27 @@ def build_dashboard(raw: DashboardRaw) -> MetricDashboard:
 # ─── 포화 스냅샷 신호 (os-aware 서버 판정, P2) ─────────────────────────────
 
 
-def _psi_signal(key: str, label: str, psi_val: float | None, win: bool) -> SaturationSignal:
-    """PSI 신호 — Windows 미지원(N/A), Linux 는 값/기준선. psi None = 미수집(no_data)."""
+def _psi_supported(kernel_version: str | None) -> bool | None:
+    """PSI(Pressure Stall Info) 지원 여부 — Linux 4.20+ 만 발행. 커널 미상이면 None(판정 보류)."""
+    if not kernel_version:
+        return None
+    m = re.match(r"(\d+)\.(\d+)", kernel_version)
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2))) >= (4, 20)
+
+
+def _psi_signal(key: str, label: str, psi_val: float | None, win: bool, supported: bool | None) -> SaturationSignal:
+    """PSI 신호 — Windows·구커널(Linux <4.20) 미지원(N/A), Linux 는 값/기준선. psi None = 미수집(no_data).
+
+    supported=False(구커널 확정) 는 Windows 와 동일 N/A — "수집 대기" 오인 방지. None(커널 미상)은 판정 보류.
+    """
     if win:
         return SaturationSignal(key=key, label=label, state="not_applicable", na_reason="Windows 미지원")
+    if supported is False:
+        return SaturationSignal(
+            key=key, label=label, state="not_applicable", na_reason="구커널 미지원 (PSI Linux 4.20+)"
+        )
     if psi_val is None:
         return SaturationSignal(key=key, label=label, state="no_data")
     return SaturationSignal(
@@ -146,7 +164,7 @@ def _ratio_signal(key: str, label: str, val: float | None, threshold: float, des
 
 
 def build_saturation_signals(
-    *, os_family: str | None, run_queue_total: float | None, cores: int | None,
+    *, os_family: str | None, kernel_version: str | None, run_queue_total: float | None, cores: int | None,
     steal_pct: float | None, sat: SaturationRaw,
 ) -> dict[str, list[SaturationSignal]]:
     """자원별 포화 스냅샷 신호 4축 산출 (P2). 판정은 도메인 os-aware helper·RS_ 임계 재사용(E3 재계산 금지).
@@ -154,6 +172,7 @@ def build_saturation_signals(
     반환 {"cpu"|"mem"|"disk"|"net": [SaturationSignal]} — MetricDashboard 4 리스트에 배선.
     """
     win = os_family == "windows"
+    psi_ok = _psi_supported(kernel_version)  # Linux 4.20+ = True / 구커널 = False / 미상 = None
 
     # CPU 실행 큐 (per-core) — cpu_saturation_index 단일 진실.
     rq_idx = cpu_saturation_index(run_queue_total, cores, os_family)
@@ -182,7 +201,7 @@ def build_saturation_signals(
             saturated=(steal_pct >= RS_CPU_STEAL_BIAS_PCT) if steal_pct is not None else None,
             detail=f"가상화 경합(steal%), 임계 {RS_CPU_STEAL_BIAS_PCT:g}%",
         ))
-    cpu.append(_psi_signal("cpu_psi", "PSI", sat.psi_cpu, win))
+    cpu.append(_psi_signal("cpu_psi", "PSI", sat.psi_cpu, win, psi_ok))
 
     # 메모리 페이징 (os-aware) — mem_pressure_active 단일 진실.
     paging = sat.paging_major_rate
@@ -196,7 +215,7 @@ def build_saturation_signals(
             detail=(f"Windows Pages Input/sec, 임계 {WIN_PAGES_INPUT_SATURATION:g}") if win
             else "Linux 하드폴트(refault)/s, 발생(>0) 시 압박",
         ),
-        _psi_signal("mem_psi", "PSI", sat.psi_mem, win),
+        _psi_signal("mem_psi", "PSI", sat.psi_mem, win, psi_ok),
     ]
 
     # 디스크 응답 지연 (await, 양 OS) — disk_io_saturation_index 단일 진실. Windows await 부재 시 큐 폴백.
@@ -217,7 +236,7 @@ def build_saturation_signals(
         )]
     else:
         disk = [SaturationSignal(key="disk_await", label="응답 지연", state="no_data")]
-    disk.append(_psi_signal("disk_psi", "PSI(io)", sat.psi_io, win))
+    disk.append(_psi_signal("disk_psi", "PSI(io)", sat.psi_io, win, psi_ok))
 
     # 네트워크 품질 — 재전송·드롭(에러성 rate) + conntrack(연결테이블 포화). 양 OS.
     ct_ratio = sat.conntrack_ratio

@@ -28,11 +28,6 @@ from assessment_engine.web.view_models.attention import (
 from assessment_engine.web.view_models.metric import FleetStatus, HostSearchItem
 from assessment_engine.web.view_models.topology import NetworkTopology
 
-# 대시보드 현황 윈도우 — 활용률 게이지·자원 적정성 분류 표시 전용 (최근 현황 모니터링).
-# right-sizing 표준 평가 윈도우(recommendation.WINDOW_DAYS=14d — 보고서 기본·서버 목록 분류)와 의도 분리.
-DASHBOARD_TIME_RANGE: TimeRange = "24h"
-DASHBOARD_WINDOW_DAYS: float = DIAGNOSTIC_RANGE_DAYS[DASHBOARD_TIME_RANGE]
-
 
 class EnvironmentQueryMixin(_BaseQueryServiceMixin):
     async def get_environment_realtime(self, server_ids: list[int] | None = None) -> EnvironmentRealtime:
@@ -295,6 +290,8 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
             fs_total = sum(mt.total_gb for mt in m.mounts if mt.total_gb and mt.used_gb is not None)
             fs_used = sum(mt.used_gb for mt in m.mounts if mt.total_gb and mt.used_gb is not None)
             disk_pool_pct = round(fs_used / fs_total * 100, 1) if fs_total else None
+            # 호스트 net rate(kBps) = 전 인터페이스 rx+tx 합 — 네트워크 혼잡 신호 저트래픽 게이트 입력.
+            net_rate = sum((n.rx_kbps or 0) + (n.tx_kbps or 0) for n in m.net_io) if m.net_io else None
             snapshots.append(
                 {
                     "hostname": d.hostname,
@@ -311,6 +308,9 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                         sat.await_ms, sat.pending_ops, d.os_family
                     ),
                     "mem_pressure": recommendation.mem_pressure_active(sat.paging_major_rate, d.os_family),
+                    "net_congested": recommendation.net_signal_active(
+                        sat.retrans_pct, sat.drop_pct, sat.conntrack_ratio, net_rate
+                    ),
                     # capacity-weighted 평균용 가중치 (cpu=코어 가중, mem/disk=절대 총량 sum/sum).
                     "cpu_cores": d.cpu_cores,
                     "mem_used_bytes": mem.used_bytes if mem else None,
@@ -324,11 +324,10 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         return build_environment_realtime(len(server_ids), online, snapshots, last_collected)
 
     async def get_dashboard_overview(self) -> EnvironmentOverview:
-        """환경 개요(`/`) 집계 — 두 윈도우: 자원 적정성 분류는 14일 표준(WINDOW_DAYS), 평균 활용률은 24h 현황.
+        """환경 개요(`/`) 집계 — 자원 적정성 분류·평균 활용률 모두 14일 표준 창(WINDOW_DAYS).
 
-        분류(risk_donut)는 서버 목록·보고서와 같은 right-sizing 표준 창(14일)이라 화면 간 정합(#E3). 평균 활용률
-        게이지만 최근 24h 모니터링(#F10 DASHBOARD_TIME_RANGE) — 분류와 의도 분리. 운영 신호(attention)는 실시간
-        현황 페이지(`get_attention_signals`)로 분리. 앵커=now(라이브 첫 화면).
+        분류(risk_donut)·활용률 게이지 전부 right-sizing 표준 창(14일)이라 서버 목록·보고서와 화면 간 정합(#E3).
+        운영 신호(attention)는 실시간 현황 페이지(`get_attention_signals`)로 분리. 앵커=now(라이브 첫 화면).
         """
         now = datetime.now(UTC)
         server_ids = await self.repo.list_server_ids()
@@ -341,8 +340,9 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         # 이용률·포화 도넛 6개 모두 자원 적정성 창(14일) 기준 — 분류·포화·이용률 한 창으로 통일(#E3 화면 간 정합).
         util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS, end=now)
         online_by_id = await self._online_map(server_ids, details, now)
-        # fleet 에러 표시자 — 분류와 동일 14일 창(#E3). 대시보드 전용(assessment 경로 미조회).
-        errors = await self.repo.fleet_error_summary(server_ids, now - timedelta(days=recommendation.WINDOW_DAYS))
+        # fleet 에러 표시자 — 전체 기간 조회(에러는 드문 이벤트라 창 제한 부적합).
+        # #C5 pruning 의식적 예외(에러 delta 저비용 집계).
+        errors = await self.repo.fleet_error_summary(server_ids, datetime(1970, 1, 1, tzinfo=UTC))
         return self._assemble_overview(details, util, raws_period, online_by_id, error_summary=errors)
 
     async def get_topology(self) -> NetworkTopology:

@@ -59,7 +59,7 @@
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
           <h2 class="chart-subtitle" style="margin:0;">실행 큐</h2>
         </div>
-        <div class="chart-desc">코어당 대기 스레드 수 — Linux 1.0 · Windows 2.0 이상 포화</div>
+        <div class="chart-desc">코어당 대기 스레드 수 — Linux 1.0 · Windows 2.0 이상 임계 초과 신호(포화 판정은 이용률 동반, 자원 평가)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="runqueue-canvas"></canvas>
           <div id="runqueue-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
@@ -144,7 +144,7 @@
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
           <h2 class="chart-subtitle" style="margin:0;">디스크 I/O 포화</h2>
         </div>
-        <div class="chart-desc">Linux await(응답 ms·좌축) / Windows 큐 깊이(우축) — 20ms·2 이상 포화</div>
+        <div class="chart-desc">await(응답 ms) 양 OS 통일 — 20ms 이상 임계 초과 신호. 실제 바쁜 device 기준(유휴 device 인플레이션 제외)</div>
         <div class="perf-chart" style="position:relative; height:180px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
           <canvas id="disksat-canvas"></canvas>
           <div id="disksat-empty" class="chart-empty">해당 기간에 수집된 데이터가 없습니다.</div>
