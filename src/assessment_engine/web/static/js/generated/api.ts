@@ -776,9 +776,9 @@ export interface components {
         /** Assessment */
         Assessment: {
             /** Classification */
-            classification: string | null;
+            classification: ("idle" | "over_provisioned" | "under_provisioned" | "optimal" | "insufficient_data") | null;
             /** Confidence */
-            confidence: string | null;
+            confidence: ("low" | "medium" | "high") | null;
             data_quality: components["schemas"]["DataQuality"];
         };
         /** AssessmentEnvelope */
@@ -914,7 +914,7 @@ export interface components {
             confidence_notes: string[] | null;
             saturation: components["schemas"]["DiagSaturation"] | null;
             /** Status */
-            status: string | null;
+            status: ("under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured") | null;
             utilization: components["schemas"]["DiagUtilization"];
         };
         /** DiagSaturation */
@@ -1306,7 +1306,7 @@ export interface components {
         /** RightSizingServer */
         RightSizingServer: {
             /** Classification */
-            classification: string | null;
+            classification: ("idle" | "over_provisioned" | "under_provisioned" | "optimal" | "insufficient_data") | null;
             /** Classification Label */
             classification_label: string | null;
             /** Confidence Notes */
@@ -1360,7 +1360,7 @@ export interface components {
             /** Sizing Target Cores */
             sizing_target_cores: number | null;
             /** Status */
-            status: string | null;
+            status: ("under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured") | null;
             /** Status Label */
             status_label: string | null;
             /** Utilization P95 Pct */
@@ -1388,7 +1388,7 @@ export interface components {
             /** Sizing Target Gb */
             sizing_target_gb: number | null;
             /** Status */
-            status: string | null;
+            status: ("under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured") | null;
             /** Status Label */
             status_label: string | null;
             /** Worst Mount */
@@ -1406,7 +1406,7 @@ export interface components {
             evidence: string[] | null;
             saturation: components["schemas"]["RsSaturation"] | null;
             /** Status */
-            status: string | null;
+            status: ("under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured") | null;
             /** Status Label */
             status_label: string | null;
         };
@@ -1437,7 +1437,7 @@ export interface components {
             /** Sizing Target Mb */
             sizing_target_mb: number | null;
             /** Status */
-            status: string | null;
+            status: ("under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured") | null;
             /** Status Label */
             status_label: string | null;
             /** Utilization P95 Pct */
@@ -1468,7 +1468,7 @@ export interface components {
             detail: string | null;
             signals: components["schemas"]["RsNetSignals"];
             /** Status */
-            status: string | null;
+            status: ("under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured") | null;
             /** Status Label */
             status_label: string | null;
         };
@@ -1529,16 +1529,22 @@ export interface components {
         };
         /** SizingAxis */
         SizingAxis: {
-            /** Action */
-            action: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "increase" | "decrease" | "keep";
             /** Axis */
             axis: string;
             /** Current */
             current: number | null;
             /** Device Ref */
             device_ref?: string | null;
-            /** Estimate Quality */
-            estimate_quality: string;
+            /**
+             * Estimate Quality
+             * @enum {string}
+             */
+            estimate_quality: "exact" | "floor" | "uncertain";
             /** Mountpoint */
             mountpoint?: string | null;
             /** Note */

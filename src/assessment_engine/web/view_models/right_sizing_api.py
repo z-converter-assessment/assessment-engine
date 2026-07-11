@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
+from assessment_engine.recommendation import Recommendation, ResourceStatus
+
 
 class _Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -37,7 +39,7 @@ class RsNetSignals(_Contract):
 
 
 class RsNetwork(_Contract):
-    status: str | None
+    status: ResourceStatus | None
     status_label: str | None
     congested: bool | None
     detail: str | None
@@ -62,7 +64,7 @@ class RsRecommendation(_Contract):
 
 
 class RsCpuResource(_Contract):
-    status: str | None
+    status: ResourceStatus | None
     status_label: str | None
     utilization_p95_pct: float | None
     saturation: RsSaturation | None
@@ -75,7 +77,7 @@ class RsCpuResource(_Contract):
 
 
 class RsMemoryResource(_Contract):
-    status: str | None
+    status: ResourceStatus | None
     status_label: str | None
     utilization_p95_pct: float | None
     saturation: RsSaturation | None
@@ -88,7 +90,7 @@ class RsMemoryResource(_Contract):
 
 
 class RsDiskCapacity(_Contract):
-    status: str | None
+    status: ResourceStatus | None
     status_label: str | None
     worst_mount: str | None
     worst_mount_used_pct: float | None
@@ -102,7 +104,7 @@ class RsDiskCapacity(_Contract):
 
 
 class RsDiskIo(_Contract):
-    status: str | None
+    status: ResourceStatus | None
     status_label: str | None
     saturation: RsSaturation | None
     evidence: list[str] | None
@@ -128,7 +130,7 @@ class RightSizingServer(_Contract):
     primary_ip: str | None
     os_family: str | None
     online: bool | None
-    classification: str | None
+    classification: Recommendation | None
     classification_label: str | None
     root_cause: str | None
     confidence_notes: list[str] | None

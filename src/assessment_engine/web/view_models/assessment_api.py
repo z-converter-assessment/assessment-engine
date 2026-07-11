@@ -11,7 +11,11 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
+
+from assessment_engine.recommendation import Recommendation, ResourceStatus
 
 
 class _Contract(BaseModel):
@@ -152,8 +156,8 @@ class SizingAxis(_Contract):
     current: int | None
     recommended: int | None
     unit: str
-    action: str
-    estimate_quality: str
+    action: Literal["increase", "decrease", "keep"]
+    estimate_quality: Literal["exact", "floor", "uncertain"]
     # disk 축 전용(cpu/memory 축엔 부재) — Optional 로 흡수.
     mountpoint: str | None = None
     device_ref: str | None = None
@@ -172,8 +176,8 @@ class DataQuality(_Contract):
 
 
 class Assessment(_Contract):
-    classification: str | None
-    confidence: str | None
+    classification: Recommendation | None
+    confidence: Literal["low", "medium", "high"] | None
     data_quality: DataQuality
 
 
@@ -193,7 +197,7 @@ class DiagSaturation(_Contract):
 
 class DiagResource(_Contract):
     axis: str | None
-    status: str | None
+    status: ResourceStatus | None
     utilization: DiagUtilization
     saturation: DiagSaturation | None
     confidence_notes: list[str] | None
