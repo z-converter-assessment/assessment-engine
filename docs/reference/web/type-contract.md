@@ -60,5 +60,14 @@ ViewModel 필드가 바뀔 때(rename/타입 변경) codegen 이 타입을 갱�
 - 점진 채택 상태 — `// @ts-check` 파일만 검사된다. 미채택 파일은 tsc 무검사(향후 파일별 확대).
 - `noImplicitAny:false` — 내부 로직 변수는 any 허용(계약 강제의 핵심은 fetch 경계). 전역(ChartUtils 등)은
   `globals.d.ts` 실용 선언이라 일부 반환이 permissive. 정밀화는 각 모듈 // @ts-check 로 점진.
-- assessment/right-sizing API 는 hand-built dict 응답이라 아직 명명 스키마가 없다(생성 타입상 unknown).
-  Pydantic 봉투 모델화는 별도.
+
+## frozen dict 응답 (assessment/right-sizing) — schema-only 패턴
+
+`/api/assessment`·`/api/right-sizing` 은 매퍼가 hand-built dict 를 반환하는 배포된 frozen 외부 계약이다.
+`response_model=` (검증/재구성)은 이질 구조(예: sizing.axes 의 cpu/mem vs disk)에 null 키를 더하거나 필드를
+stripping 해 출력을 바꿀 수 있어 쓰지 않는다. 대신:
+- `view_models/assessment_api.py`·`view_models/right_sizing_api.py` 에 계약 전체를 미러링한 Pydantic 모델
+  (규약대로 필드 present + nullable, `extra=forbid`).
+- 라우터 `responses={200: {"model": ...}}` 로 OpenAPI 스키마만 문서화 — 실 응답은 매퍼 dict 그대로(재구성 0).
+- drift 가드는 테스트(`test_assessment_api_properties` property·`test_right_sizing_api` 시나리오)가 매퍼 출력을
+  모델에 `model_validate` — 신규/누락 키·타입 불일치 = 즉시 실패.
