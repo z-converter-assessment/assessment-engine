@@ -241,17 +241,21 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         raws: list = []
         online_by_id: dict[int, bool] = {}
         mounts_by_id: dict = {}
+        link_speeds: dict[int, dict[str, int]] = {}
         if matched_ids:
             raws = await self.repo.report_aggregate(matched_ids, period_days=window_days, end=end)
             await self._inject_net_baseline(raws, matched_ids, window_days, end)
             online_by_id = await self._online_map(matched_ids, matched_details, end)
             mounts_by_id = await self.repo.report_mount_capacity_batch(matched_ids, end)
+            # inventory speed_mbps null(virtio/Windows NT5.2) 폴백용 최신 link.speed (agent 확정 규약).
+            link_speeds = await self.repo.latest_link_speed(matched_ids, end - timedelta(days=window_days))
         servers = [
             build_assessment_entry(
                 raw,
                 mounts_by_id.get(raw.server_id, []),
                 online_by_id.get(raw.server_id, False),
                 hostname_ambiguous=raw.hostname in ambiguous,
+                link_speeds=link_speeds.get(raw.server_id),
             )
             for raw in raws
         ]

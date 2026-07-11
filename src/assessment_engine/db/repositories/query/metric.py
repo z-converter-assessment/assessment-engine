@@ -418,6 +418,28 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             disk_error_hosts=int(disk_hosts or 0),
         )
 
+    async def latest_link_speed(self, server_ids: list[int], since: datetime) -> dict[int, dict[str, int]]:
+        """서버·iface별 최신 link_speed_bps (bit/s gauge). assessment reproduction 의 inventory speed_mbps
+        null(Windows NT5.2/virtio) 폴백용 — 엔진이 metrics network.link.speed 로 대체(agent 확정 규약)."""
+        if not server_ids:
+            return {}
+        rows = (
+            await self.session.execute(
+                text("""
+                    SELECT DISTINCT ON (server_id, iface_id) server_id, iface_id, link_speed_bps
+                    FROM server_net_io
+                    WHERE server_id = ANY(:sids) AND collected_at >= :since
+                      AND collected_at <= now() + interval '2 minutes' AND link_speed_bps IS NOT NULL
+                    ORDER BY server_id, iface_id, collected_at DESC
+                """),
+                {"sids": server_ids, "since": since},
+            )
+        ).all()
+        out: dict[int, dict[str, int]] = {}
+        for r in rows:
+            out.setdefault(r.server_id, {})[r.iface_id] = int(r.link_speed_bps)
+        return out
+
     async def metric_snapshots(
         self,
         server_id: int,
