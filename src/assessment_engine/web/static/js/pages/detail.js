@@ -16,25 +16,35 @@
   const OS_FAMILY = document.body.dataset.osFamily || '';  // Steal 포화 축 os-aware 표시 (Linux 측정 · Windows 개념 부재 N/A)
 
   /* -------- 포맷 유틸 -------- */
+  /** @param {number | null | undefined} v */
   const fmtPct  = (v) => v != null ? v.toFixed(1) + '%' : '—';
+  /** @param {number | null | undefined} v */
   const fmtIops = (v) => v != null ? v.toFixed(1) + ' IOPS' : '—';
   // 처리량 동적 단위 (kB/s → MB/s) — storage/network·차트와 단위 표기 통일. 큰 값도 가독성 유지.
+  /** @param {number | null | undefined} v */
   const fmtKbps = (v) => v == null ? '—' : (v >= 1024 ? (v / 1024).toFixed(1) + ' MB/s' : v.toFixed(1) + ' kB/s');
+  /** @param {number | null | undefined} v */
   const fmtPps  = (v) => v != null ? v.toFixed(1) + ' pps' : '—';
   // 메모리 값은 bytes 입력 — 동적 단위 (GiB=bytes/1024^3, MiB=bytes/1024^2, KiB=bytes/1024).
+  /** @param {number | null | undefined} bytes */
   function fmtKb(bytes) {
     if (bytes == null) return '—';
     if (bytes >= 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB';
     if (bytes >= 1024 * 1024)        return (bytes / 1024 / 1024).toFixed(0) + ' MB';
     return (bytes / 1024).toFixed(0) + ' KB';
   }
+  /** @param {string} id */
   const show = (id) => /** @type {HTMLElement} */ (document.getElementById(id)).style.display = '';
+  /** @param {string} id */
   const hide = (id) => /** @type {HTMLElement} */ (document.getElementById(id)).style.display = 'none';
+  /** @param {string} id */
   const el    = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
+  /** @param {string} id @param {string} v */
   const setTxt = (id, v) => { const e = el(id); if (e) e.textContent = v; };  // OS 전용 값은 템플릿에서 숨겨 요소 부재 -> null-safe
 
   /* 활용률 도넛 게이지 — 단색(임계색 아님, E8 일관). pct null = 빈 게이지 + 회색 '—'. P4 동적 SVG 산술. */
   const DONUT_CIRC = 263.89;  // 2*pi*42 (r=42)
+  /** @param {string} arcId @param {string} textId @param {number | null | undefined} pct */
   function setDonut(arcId, textId, pct) {
     const arc = el(arcId), txt = el(textId);
     const unit = el(textId.replace('-text', '-unit'));  // 값 아래 작은 % 단위 (네트워크·디스크IO 도넛과 일관)
@@ -51,6 +61,7 @@
   }
 
   /* -------- 메트릭 렌더링 -------- */
+  /** @param {import('../generated/api').components['schemas']['MetricDashboard']} d */
   function renderMetrics(d) {
     hide('metrics-loading');
     hide('metrics-no-data');
@@ -62,6 +73,7 @@
     }
 
     /* CPU */
+    /** @type {Partial<import('../generated/api').components['schemas']['CpuSnapshot']>} */
     const cpu = d.cpu || {};
     setTxt('cpu-usage',  fmtPct(cpu.usage_pct));
     setTxt('cpu-user',   fmtPct(cpu.user_pct));
@@ -81,6 +93,7 @@
     setTxt('mem-paging', d.mem_pages_input_rate != null ? d.mem_pages_input_rate.toFixed(0) + ' /s' : '—');
 
     /* Memory */
+    /** @type {Partial<import('../generated/api').components['schemas']['MemSnapshot']>} */
     const mem = d.memory || {};
     setTxt('mem-usage',   fmtPct(mem.usage_pct));
     setTxt('mem-used',    fmtKb(mem.used_bytes));
@@ -90,7 +103,7 @@
     setDonut('mem-donut-arc', 'mem-donut-text', mem.usage_pct);
 
     /* Disk I/O (E9: 데이터 없어도 제목 노출 + placeholder) */
-    const ioRow = dk => `
+    const ioRow = (/** @type {import('../generated/api').components['schemas']['DiskIoSnapshot']} */ dk) => `
         <tr>
           <td>${dk.device}</td>
           <td>${fmtIops(dk.read_iops)}</td>
@@ -126,8 +139,8 @@
 
     /* 디스크 활용률 도넛 — 전 mount 통합 풀(sum used / sum total), 환경 실시간 disk_pool_pct 와 동일 기준. */
     const fsRows = mounts.filter(m => m.total_gb && m.used_gb != null);
-    const fsTotal = fsRows.reduce((s, m) => s + m.total_gb, 0);
-    setDonut('disk-donut-arc', 'disk-donut-text', fsTotal > 0 ? fsRows.reduce((s, m) => s + m.used_gb, 0) / fsTotal * 100 : null);
+    const fsTotal = fsRows.reduce((s, m) => s + /** @type {number} */ (m.total_gb), 0);
+    setDonut('disk-donut-arc', 'disk-donut-text', fsTotal > 0 ? fsRows.reduce((s, m) => s + /** @type {number} */ (m.used_gb), 0) / fsTotal * 100 : null);
   }
 
   /* -------- AJAX -------- */
@@ -203,6 +216,7 @@
   };
   let currentView = 'customer';
 
+  /** @param {'customer' | 'engineer'} view */
   function open(view) {
     currentView = view;
     titleEl.textContent = _VIEW_TITLES[view];
@@ -224,7 +238,7 @@
     }, {
       pendingMsg: '보고서 발행 중...',
       errPrefix: '보고서 발행 실패',
-      viewUrlTransform: (u) => u + `&back=${encodeURIComponent(location.pathname)}`,
+      viewUrlTransform: (/** @type {string} */ u) => u + `&back=${encodeURIComponent(location.pathname)}`,
       onRestore: close, // bfcache 복귀 시 열린 모달도 닫음
     });
   }

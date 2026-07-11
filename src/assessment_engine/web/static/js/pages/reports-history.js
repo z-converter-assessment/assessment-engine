@@ -17,6 +17,7 @@
   }
 
   // limit 미지정(필터 변경) 이면 기본 20 으로 리셋. 더보기는 누적 limit 전달.
+  /** @param {number} [limit] */
   async function applyFilters(limit) {
     const params = new URLSearchParams(/** @type {any} */ (new FormData(form)));
     // empty 값 제거 (URL 깔끔)

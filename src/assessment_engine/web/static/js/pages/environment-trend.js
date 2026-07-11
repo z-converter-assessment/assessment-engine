@@ -17,6 +17,7 @@
     // 가이드선(grid) — 대시보드만 표시(data-grid="true"), 보고서는 미표시. 범례는 양쪽 동일(토글 제거).
     var showGrid = el.getAttribute('data-grid') === 'true';
     if (!raw) return;
+    /** @type {Array<{ at: string, [k: string]: any }>} */
     var pts;
     try {
       pts = JSON.parse(raw);
@@ -33,11 +34,12 @@
     // 로컬 캐스트 — globals.d.ts 의 makeBucketGrid 선언(number,number,number)이 실제
     // 시그니처(rangeKey,bucketKey,anchorEnd)와 어긋나 우회. globals_issue 로 보고.
     var grid = /** @type {any} */ (ChartUtils).makeBucketGrid(range, bucketKey, anchor);
-    var labels = grid.map(function (t) {
+    var labels = grid.map(function (/** @type {number} */ t) {
       return ChartUtils.fmtLabel(new Date(t).toISOString(), range);
     });
+    /** @param {string} key */
     function series(key) {
-      var rows = pts.map(function (p) {
+      var rows = pts.map(function (/** @type {{ at: string, [k: string]: any }} */ p) {
         return { collected_at: p.at, value: p[key] };
       });
       // 로컬 캐스트 — globals.d.ts joinToGrid 는 2인자 선언이나 실제는 (grid,rows,bMs) 3인자. globals_issue 보고.

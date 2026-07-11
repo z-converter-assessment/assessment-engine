@@ -14,6 +14,10 @@
  * 외부 의존: window.ToastUtils (선택 — 없으면 토스트 생략).
  */
 (function () {
+  /**
+   * @param {HTMLButtonElement} btn
+   * @param {(() => void) | undefined} onRestore
+   */
   function armRestore(btn, onRestore) {
     if (btn.dataset.emitRestoreArmed) return; // 버튼당 1회만 등록 (재클릭 시 리스너 중복 방지)
     btn.dataset.emitRestoreArmed = '1';
@@ -24,6 +28,11 @@
     });
   }
 
+  /**
+   * @param {HTMLButtonElement | null} btn
+   * @param {() => string} urlFn
+   * @param {any} opts
+   */
   async function submitNavigate(btn, urlFn, opts) {
     opts = opts || {};
     if (!btn || btn.disabled) return; // 이미 진행 중이면 무시 (더블클릭 방지)

@@ -8,6 +8,7 @@
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
  * - body data-server-id (E6 외부화 규약, static-assets.md)
  */
+/** @typedef {import('../generated/api').components['schemas']['MetricSeriesItem']} Row */
 const { AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtKbChart, fmtThroughput, safeArray, bindToggle, renderChipLegend,
         buildAvgMaxDatasets, buildAvgMaxLegend, buildDimDatasets } = ChartUtils;
@@ -28,9 +29,11 @@ const USAGE_WARN_PCT   = parseFloat(/** @type {string} */ (document.body.dataset
 const COLOR_NEUTRAL = '#64748b';
 const COLOR_WARN    = '#f59e0b';
 const COLOR_DANGER  = '#ef4444';
+/** @param {number} v @returns {string} */
 const colorByMountPct = v => v >= USAGE_DANGER_PCT ? COLOR_DANGER : v >= USAGE_WARN_PCT ? COLOR_WARN : COLOR_NEUTRAL;
 
 let globalRange = '15m';
+/** @type {Record<string, any>} */
 const chartInstances = {};
 // P4(a) sequence counter — per-chart 분리 (다른 page 와 일관). chart 별 독립 counter.
 const seqs = {
@@ -42,26 +45,32 @@ const seqs = {
  * P4(b) capture-before-await: 모든 함수가 range/anchor를 인자로 받음.
  */
 const _safe = safeArray;
+/** @param {string} iso @param {string} range */
 const fmtLabel = (iso, range) => ChartUtils.fmtLabel(iso, range);
+/** @param {string} range @param {Date|null} anchor */
 const makeBucketGrid = (range, anchor) => ChartUtils.makeBucketGrid(range, /** @type {any} */ (AUTO_BUCKET[range]), anchor);
 const getAnchorEnd = () => /** @type {any} */ (ChartUtils).getAnchorEnd('anchor-date');
 
 // network.js 의 인터페이스 정렬·RX/TX 인접 병합 — 통합 네트워크 차트(I/O·PPS) 공용.
 // avg/max 가 동일 dimension 순서를 쓰도록 함께 처리 (avg+max 쌍 어긋남 방지).
+/** @param {Row[]} rxAvg @param {Row[]} txAvg @param {Row[]} rxMax @param {Row[]} txMax */
 function ifaceOrderedRows(rxAvg, txAvg, rxMax, txMax) {
   const ra = _safe(rxAvg), ta = _safe(txAvg), rm = _safe(rxMax), tm = _safe(txMax);
   const ifaces = [...new Set([...ra, ...ta].map(r => r.dimension))].sort();
+  /** @param {Row[]} rows @param {string} suffix @param {string|null} iface */
   const pick = (rows, suffix, iface) => rows.filter(r => r.dimension === iface).map(r => ({ ...r, dimension: `${iface} ${suffix}` }));
   const avg = ifaces.flatMap(i => [...pick(ra, 'RX', i), ...pick(ta, 'TX', i)]);
   const max = ifaces.flatMap(i => [...pick(rm, 'RX', i), ...pick(tm, 'TX', i)]);
   return { avg, max };
 }
 
+/** @param {Row[]} rows */
 function computePeriodMax(rows) {
   const vals = rows.map(r => r.value).filter(v => v != null);
   return vals.length ? Math.max(...vals) : null;
 }
 
+/** @param {string} elId @param {number|null} val @param {(v: number) => string} fmtFn @param {((v: number) => string)|null} colorFn */
 function updateMaxLabel(elId, val, fmtFn, colorFn) {
   const el = document.getElementById(elId);
   if (!el) return;
@@ -71,7 +80,8 @@ function updateMaxLabel(elId, val, fmtFn, colorFn) {
 }
 
 /**
- * @returns {Promise<import('../generated/api').components['schemas']['MetricSeriesItem'][]>}
+ * @param {string} metricType @param {string} agg @param {string} range @param {Date|null} anchor
+ * @returns {Promise<Row[]>}
  */
 async function fetchChart(metricType, agg, range, anchor) {
   const p = new URLSearchParams({
@@ -87,6 +97,7 @@ async function fetchChart(metricType, agg, range, anchor) {
 }
 
 // avg+max ghost 차트 옵션 (단일/통합 메트릭)
+/** @param {any} yAxisOpts @param {(v: number) => string} fmtFn */
 function makePerfOptions(yAxisOpts, fmtFn) {
   return {
     responsive: true,
@@ -95,9 +106,9 @@ function makePerfOptions(yAxisOpts, fmtFn) {
     plugins: {
       legend: { display: false },
       tooltip: {
-        filter: item => !item.dataset.label.endsWith('__max'),
+        filter: /** @param {any} item */ (item) => !item.dataset.label.endsWith('__max'),
         callbacks: {
-          label: ctx => {
+          label: /** @param {any} ctx */ (ctx) => {
             const avg = ctx.parsed.y;
             const maxDs = ctx.chart.data.datasets[ctx.datasetIndex + 1];
             const realMax = maxDs?.realData?.[ctx.dataIndex];
@@ -125,23 +136,25 @@ function makeMultiDimOptions() {
     interaction: { mode:'index', intersect:false },
     plugins: {
       legend: { display: false },
-      tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'}%` } },
+      tooltip: { callbacks: { label: /** @param {any} ctx */ (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'}%` } },
     },
     scales: {
       x: { ticks:{ maxTicksLimit:10, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
       y: {
-        ticks: { callback: v => v + '%', font:{size:11}, color:'#64748b' },
+        ticks: { callback: /** @param {number} v */ (v) => v + '%', font:{size:11}, color:'#64748b' },
         grid:  { color:'#f1f5f9' }, beginAtZero: true,
       },
     },
   };
 }
 
+/** @param {Row[]} avgRows @param {Row[]} maxRows @param {number} bMs @param {number[]} grid @param {string|null} labelOverride */
 function buildDatasets(avgRows, maxRows, bMs, grid, labelOverride) {
   return buildAvgMaxDatasets(avgRows, maxRows, bMs, grid, { label: labelOverride, pointRadius: 0 });
 }
 
 // 단일/통합(avg+max) 차트 렌더 — 데이터 없으면 chart-empty(중앙) 표시.
+/** @param {string} canvasId @param {string} emptyId @param {Row[]} avgRows @param {any} yAxisOpts @param {(v: number) => string} fmtFn @param {any[]} datasets @param {any[]} labels */
 function setChart(canvasId, emptyId, avgRows, yAxisOpts, fmtFn, datasets, labels) {
   const canvas = /** @type {HTMLElement} */ (document.getElementById(canvasId));
   const empty  = /** @type {HTMLElement} */ (document.getElementById(emptyId));
@@ -161,6 +174,7 @@ function setChart(canvasId, emptyId, avgRows, yAxisOpts, fmtFn, datasets, labels
 }
 
 // 다중 dimension 라인(avg-only) 렌더 — CPU 분류·메모리 구성. renderChipLegend.
+/** @param {string} canvasId @param {string} emptyId @param {string} legendId @param {Row[]} rows @param {string} range @param {Date|null} anchor @param {any} metaMap */
 function renderMultiDimChart(canvasId, emptyId, legendId, rows, range, anchor, metaMap) {
   const canvas = /** @type {HTMLElement} */ (document.getElementById(canvasId));
   const empty  = /** @type {HTMLElement} */ (document.getElementById(emptyId));
@@ -181,17 +195,18 @@ function renderMultiDimChart(canvasId, emptyId, legendId, rows, range, anchor, m
 }
 
 /* ── Y축 설정 ── */
-const pctTicks = { callback: v => v + '%', font:{size:11}, color:'#64748b' };
+const pctTicks = { callback: /** @param {number} v */ (v) => v + '%', font:{size:11}, color:'#64748b' };
 const Y_PCT   = { min:0, max:100, ticks: pctTicks };
 const Y_RUNQ  = { beginAtZero:true, suggestedMax: 2, ticks:{ font:{size:11}, color:'#64748b' } };
-const Y_DISK_AWAIT = { beginAtZero:true, suggestedMax: PERF_DISK_AWAIT_SUGGESTED_MAX, ticks:{ callback: v => v.toFixed(0) + ' ms', font:{size:11}, color:'#64748b' } };
+const Y_DISK_AWAIT = { beginAtZero:true, suggestedMax: PERF_DISK_AWAIT_SUGGESTED_MAX, ticks:{ callback: /** @param {number} v */ (v) => v.toFixed(0) + ' ms', font:{size:11}, color:'#64748b' } };
 const Y_IOPS  = { beginAtZero:true, suggestedMax: PERF_IOPS_SUGGESTED_MAX, ticks:{ precision:0, font:{size:11}, color:'#64748b' } };
-const Y_DISK_KBPS = { beginAtZero:true, suggestedMax: PERF_DISK_KBPS_SUGGESTED_MAX, ticks:{ callback: v => fmtThroughput(v), font:{size:11}, color:'#64748b' } };
-const Y_NET   = { beginAtZero:true, suggestedMax: PERF_NET_SUGGESTED_MAX, ticks:{ callback: v => fmtKbChart(v), font:{size:11}, color:'#64748b' } };
-const Y_PPS   = { beginAtZero:true, suggestedMax: PERF_PPS_SUGGESTED_MAX, ticks:{ callback: v => v.toFixed(0) + ' pps', font:{size:11}, color:'#64748b' } };
+const Y_DISK_KBPS = { beginAtZero:true, suggestedMax: PERF_DISK_KBPS_SUGGESTED_MAX, ticks:{ callback: /** @param {number} v */ (v) => fmtThroughput(v), font:{size:11}, color:'#64748b' } };
+const Y_NET   = { beginAtZero:true, suggestedMax: PERF_NET_SUGGESTED_MAX, ticks:{ callback: /** @param {number} v */ (v) => fmtKbChart(v), font:{size:11}, color:'#64748b' } };
+const Y_PPS   = { beginAtZero:true, suggestedMax: PERF_PPS_SUGGESTED_MAX, ticks:{ callback: /** @param {number} v */ (v) => v.toFixed(0) + ' pps', font:{size:11}, color:'#64748b' } };
 
 /* ── 개별 차트 로더 (P4(a) per-chart seq) ── */
 
+/** @param {string} range @param {Date|null} anchor */
 async function loadCpuChart(range, anchor) {
   const seq = ++seqs.cpu;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
@@ -210,6 +225,7 @@ const CPUCLASS_META = {
   system: { label: 'System',   color: '#f59e0b' },
   iowait: { label: 'I/O Wait', color: '#ef4444' },  // Windows 미측정 → 빈 라인
 };
+/** @param {string} range @param {Date|null} anchor */
 async function loadCpuClassChart(range, anchor) {
   const seq = ++seqs.cpuClass;
   const [u, s, io] = await Promise.all([
@@ -228,6 +244,7 @@ async function loadCpuClassChart(range, anchor) {
 
 // 실행 큐 추이 (cpu.run_queue, os-aware — Linux procs_running / Windows Processor Queue) — 양 OS 표시.
 // backend 가 이미 코어당(Σ실행큐/Σcores) 반환 -> JS 이중 정규화 금지. 1.0 Linux·2.0 Windows 포화.
+/** @param {string} range @param {Date|null} anchor */
 async function loadLoadChart(range, anchor) {
   const seq = ++seqs.load;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
@@ -242,6 +259,7 @@ async function loadLoadChart(range, anchor) {
   if (!safeAvg.length) { canvas.style.display = 'none'; empty.style.display = 'flex'; updateMaxLabel('load-max', null, v => v.toFixed(2), null); return; }
   canvas.style.display = ''; empty.style.display = 'none';
 
+  /** @type {Record<number, number|null>} */
   const avgMap = {};
   for (const r of safeAvg) avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
@@ -260,6 +278,7 @@ async function loadLoadChart(range, anchor) {
 }
 
 // 디스크 I/O 포화 추이 (disk.io_saturation = await ms, 요청당 평균 대기) — 양 OS 실측 단일선.
+/** @param {string} range @param {Date|null} anchor */
 async function loadDiskQueueChart(range, anchor) {
   const seq = ++seqs.diskQueue;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
@@ -274,6 +293,7 @@ async function loadDiskQueueChart(range, anchor) {
   if (!safeAvg.length) { canvas.style.display = 'none'; empty.textContent = '해당 기간에 수집된 데이터가 없습니다.'; empty.style.display = 'flex'; updateMaxLabel('diskqueue-max', null, v => v.toFixed(1)+' ms', null); return; }
   canvas.style.display = ''; empty.style.display = 'none';
 
+  /** @type {Record<number, number|null>} */
   const avgMap = {};
   for (const r of safeAvg) avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
   const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
@@ -291,6 +311,7 @@ async function loadDiskQueueChart(range, anchor) {
   updateMaxLabel('diskqueue-max', computePeriodMax(safeMax), v => v.toFixed(1)+' ms', null);
 }
 
+/** @param {string} range @param {Date|null} anchor */
 async function loadMemChart(range, anchor) {
   const seq = ++seqs.mem;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
@@ -310,6 +331,7 @@ const MEMCOMP_META = {
   cached:    { label: 'Cached',    color: '#22c55e' },  // Windows 미측정 → 빈 라인
   buffers:   { label: 'Buffers',   color: '#f59e0b' },  // Windows 미측정 → 빈 라인
 };
+/** @param {string} range @param {Date|null} anchor */
 async function loadMemCompChart(range, anchor) {
   const seq = ++seqs.memComp;
   const [used, avail, cached, buffers] = await Promise.all([
@@ -329,6 +351,7 @@ async function loadMemCompChart(range, anchor) {
 }
 
 // 디스크 I/O — device x Read/Write 통합 (device 전체, storage.js loadPhysChart 모델).
+/** @param {string} range @param {Date|null} anchor */
 async function loadPhysIoChart(range, anchor) {
   const seq = ++seqs.physIo;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
@@ -349,6 +372,7 @@ async function loadPhysIoChart(range, anchor) {
 }
 
 // 디스크 처리량(kBps) — 물리 I/O(IOPS) 와 동일 모델, 처리량 축(동적 kBps/MBps).
+/** @param {string} range @param {Date|null} anchor */
 async function loadDiskKbpsChart(range, anchor) {
   const seq = ++seqs.diskKbps;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
@@ -368,6 +392,7 @@ async function loadDiskKbpsChart(range, anchor) {
   buildAvgMaxLegend('diskkbps-legend', chart, { withToggle: true });
 }
 
+/** @param {string} range @param {Date|null} anchor */
 async function loadFsChart(range, anchor) {
   const seq = ++seqs.fs;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
@@ -383,6 +408,7 @@ async function loadFsChart(range, anchor) {
 }
 
 // 네트워크 I/O — iface x RX/TX 통합 bytes (network.js 모델).
+/** @param {string} range @param {Date|null} anchor */
 async function loadNetIoChart(range, anchor) {
   const seq = ++seqs.netIo;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
@@ -400,6 +426,7 @@ async function loadNetIoChart(range, anchor) {
 }
 
 // 네트워크 PPS — iface x RX/TX packets.
+/** @param {string} range @param {Date|null} anchor */
 async function loadNetPpsChart(range, anchor) {
   const seq = ++seqs.netPps;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
@@ -417,6 +444,7 @@ async function loadNetPpsChart(range, anchor) {
 }
 
 /* ── 전체 로드 ── */
+/** @param {string} range */
 function updateBucketLabel(range) {
   /** @type {HTMLElement} */ (document.getElementById('bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[range]] || '';
 }

@@ -5,6 +5,8 @@
  * 외부 의존: 없음 (모달은 list_table.html에 inline markup).
  */
 
+/** @typedef {import('../generated/api').components['schemas']['TaskDetailItem']} TaskDetailItem */
+
 // Install 모달 Escape 닫기 (installModal·hideInstallModal 은 아래 Install 섹션에서 정의 — 콜백 실행 시점엔 바인딩됨).
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && installModal.style.display === 'flex') hideInstallModal();
@@ -73,8 +75,10 @@ metricsSelBtn?.addEventListener('click', () => {
   const anchorInput = /** @type {HTMLElement | null} */ (document.getElementById('multi-server-report-anchor'));
   const _VIEW_TITLES = { customer: '선택 서버 고객 보고서 발행', engineer: '선택 서버 엔지니어 보고서 발행' };
   let currentView = 'customer';
+  /** @type {HTMLElement[]} */
   let currentRows = [];
 
+  /** @param {'customer' | 'engineer'} view */
   function open(view) {
     const rows = selectedRows();
     if (!rows.length) return;
@@ -102,7 +106,7 @@ metricsSelBtn?.addEventListener('click', () => {
     }, {
       pendingMsg: '보고서 발행 중...',
       errPrefix: '서버 보고서 발행 실패',
-      viewUrlTransform: (u) => u + `&back=${encodeURIComponent(location.pathname + location.search)}`,
+      viewUrlTransform: (/** @type {string} */ u) => u + `&back=${encodeURIComponent(location.pathname + location.search)}`,
       onRestore: close,
     });
   }
@@ -181,6 +185,10 @@ function hideInstallModal() {
 
 // task cell HTML 렌더 단일 진실 — install 직후 polling + 페이지 로드 시 진행 중 추적 공용.
 // 시간 포맷 단일 진실 — ChartUtils.fmtKst (YYYY-MM-DD HH:MM:SS). toLocaleString 은 locale-dependent 라 회피.
+/**
+ * @param {Element} cell
+ * @param {TaskDetailItem} detail
+ */
 function renderTaskCell(cell, detail) {
   const created = ChartUtils.fmtKst(detail.created_at);
   // 시각 글자크기·색은 SSR(list.html task cell) 과 동일 — 11px / .text-muted(#64748b). 새로고침 전후 일관.
@@ -189,6 +197,10 @@ function renderTaskCell(cell, detail) {
 
 // install 발행 직후 행별 last_task cell polling — TaskModal.pollUntilFinal 으로 final 도달 시 cell 갱신.
 // pending row 의 cell HTML 을 미리 교체 -> 운영자가 즉시 "진행 중" 인지.
+/**
+ * @param {string} targetPublicId
+ * @param {string} taskId
+ */
 function pollAndUpdateRow(targetPublicId, taskId) {
   const row = document.querySelector(`.row-select[data-public-id="${targetPublicId}"]`)?.closest('tr');
   if (!row) return;
@@ -197,7 +209,7 @@ function pollAndUpdateRow(targetPublicId, taskId) {
   cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${taskId}"><span class="badge rec-pending">진행 중</span></a>`;
   if (!window.TaskModal) return;
   // globals.d.ts TaskModalApi.pollUntilFinal 은 (taskId) 1-arity 로 선언됐으나 실제 2번째 opts({onUpdate}) 인자 수용 — 로컬 any 캐스트로 우회.
-  /** @type {any} */ (window.TaskModal).pollUntilFinal(taskId, { onUpdate(detail) { renderTaskCell(cell, detail); } });
+  /** @type {any} */ (window.TaskModal).pollUntilFinal(taskId, { onUpdate(/** @type {TaskDetailItem} */ detail) { renderTaskCell(cell, detail); } });
 }
 
 async function submitInstall() {
@@ -300,6 +312,10 @@ if (filterForm) {
   const CLIP_SIZE = 20;
   let expanded = false;  // "더보기" 클릭 여부 (필터 비활성 상태에서만 의미)
 
+  /**
+   * @param {boolean} visible
+   * @param {number} total
+   */
   function updateShowMore(visible, total) {
     const wrap = document.getElementById('show-more-wrap');
     if (wrap) wrap.style.display = visible ? '' : 'none';
@@ -397,6 +413,7 @@ if (filterForm) {
   }
 
   // text input — typing 마다 debounce (200ms) client filter.
+  /** @type {any} */
   let debounceTimer = null;
   filterForm.querySelector('input[name=search]')?.addEventListener('input', () => {
     clearTimeout(debounceTimer);
@@ -427,8 +444,8 @@ function trackPendingTasks() {
     if (!a.querySelector('.badge.rec-pending')) return;
     const taskId = a.dataset.taskId;
     if (!taskId || !window.TaskModal) return;
-    const cell = a.closest('td');
-    /** @type {any} */ (window.TaskModal).pollUntilFinal(taskId, { onUpdate(detail) { renderTaskCell(cell, detail); } });
+    const cell = /** @type {Element} */ (a.closest('td'));
+    /** @type {any} */ (window.TaskModal).pollUntilFinal(taskId, { onUpdate(/** @type {TaskDetailItem} */ detail) { renderTaskCell(cell, detail); } });
   });
 }
 

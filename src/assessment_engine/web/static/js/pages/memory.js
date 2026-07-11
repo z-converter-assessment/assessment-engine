@@ -20,6 +20,7 @@ const SERVER_ID = document.body.dataset.serverId;
 const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 메트릭 N/A 분기
 
 // 현재 상태 메모리 측정값 단위 통일 — bytes 입력 -> GB 소숫점1 고정 (인벤토리 '전체 메모리 X.X GB' 와 일관).
+/** @param {number | null | undefined} bytes */
 function fmtGb(bytes) {
   if (bytes == null) return '—';
   return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB';
@@ -66,6 +67,9 @@ const PCT_CHARTS = [
   { id: 'mem',  metric: 'mem.usage_percent',  label: '메모리 사용률', color: /** @type {any} */ (ChartUtils.themeColor)(), yMax: 100 },
 ];
 
+/** @typedef {{ id: string, metric: string, label: string, color: any, yMax?: number, ySuggestedMax?: number }} PctChartDef */
+
+/** @param {PctChartDef} def */
 function makePctLoader(def) {
   /** @type {{ range: string, chart: any, seq: number }} */
   const state = { range: '15m', chart: null, seq: 0 };
@@ -77,7 +81,7 @@ function makePctLoader(def) {
   function makeYScale() {
     /** @type {Record<string, unknown>} */
     const y = {
-      ticks: { callback: v => v + '%', font:{size:11}, color:'#64748b' },
+      ticks: { callback: (/** @type {any} */ v) => v + '%', font:{size:11}, color:'#64748b' },
       grid:  { color:'#f1f5f9' },
       min: 0,
     };
@@ -94,9 +98,9 @@ function makePctLoader(def) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          filter: item => item.datasetIndex % 2 === 0,
+          filter: (/** @type {any} */ item) => item.datasetIndex % 2 === 0,
           callbacks: {
-            label: ctx => {
+            label: (/** @type {any} */ ctx) => {
               const avg = ctx.parsed.y;
               const maxDs = state.chart?.data.datasets[ctx.datasetIndex + 1];
               const realMax = maxDs?.realData?.[ctx.dataIndex];
@@ -121,7 +125,7 @@ function makePctLoader(def) {
     const canvas = /** @type {HTMLElement} */ (document.getElementById(def.id + '-canvas'));
     const empty  = /** @type {HTMLElement} */ (document.getElementById(def.id + '-empty'));
     const bucket = AUTO_BUCKET[capturedRange];
-    const mkP = agg => {
+    const mkP = (/** @type {string} */ agg) => {
       const p = new URLSearchParams({ metric_type: def.metric, time_range: capturedRange, bucket, agg });
       if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
       return p;
@@ -143,7 +147,7 @@ function makePctLoader(def) {
 
       const bMs    = BUCKET_MS[bucket];
       const grid   = /** @type {any} */ (makeBucketGrid)(capturedRange, bucket, capturedAnchor);
-      const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
+      const labels = grid.map((/** @type {any} */ t) => fmtLabel(new Date(t).toISOString(), capturedRange));
       const datasets = /** @type {any[]} */ (buildAvgMaxDatasets(avg, max, bMs, grid, { label: def.label, color: def.color }));
 
       if (state.chart) {
@@ -180,6 +184,7 @@ pctLoaders.forEach((loader, i) => {
 
 /* ── 메모리 구성 추이 (used / available / cached / buffers %) — multi-dim ── */
 let compRange = '15m';
+/** @type {any} */
 let compChart = null;
 let compSeq   = 0;
 
@@ -197,6 +202,11 @@ const COMP_META = {
   }),
 };
 
+/**
+ * @param {any[]} rows
+ * @param {string} range
+ * @param {Date | null | undefined} anchorEnd
+ */
 function renderCompChart(rows, range, anchorEnd) {
   const canvas = /** @type {HTMLElement} */ (document.getElementById('comp-canvas'));
   const empty  = /** @type {HTMLElement} */ (document.getElementById('comp-empty'));
@@ -210,7 +220,7 @@ function renderCompChart(rows, range, anchorEnd) {
 
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = /** @type {any} */ (makeBucketGrid)(range, AUTO_BUCKET[range], anchorEnd);
-  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const labels = grid.map((/** @type {any} */ t) => fmtLabel(new Date(t).toISOString(), range));
   const datasets = buildDimDatasets(rows, bMs, grid, COMP_META, { pointRadius: 1 });
 
   if (compChart) {
@@ -228,12 +238,12 @@ function renderCompChart(rows, range, anchorEnd) {
       interaction: { mode:'index', intersect:false },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(1)}%` } },
+        tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(1)}%` } },
       },
       scales: {
         x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
         y: {
-          ticks: { callback: v => v + '%', font:{size:11}, color:'#64748b' },
+          ticks: { callback: (/** @type {any} */ v) => v + '%', font:{size:11}, color:'#64748b' },
           grid:  { color:'#f1f5f9' },
           beginAtZero: true,
         },
@@ -252,7 +262,7 @@ async function loadCompChart() {
   const capturedRange  = compRange;
   const capturedAnchor = /** @type {any} */ (getAnchorEnd)('comp-anchor');
   const bucket = AUTO_BUCKET[capturedRange];
-  const mkP = type => {
+  const mkP = (/** @type {string} */ type) => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg: 'avg' });
     if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
     return p;
@@ -269,7 +279,7 @@ async function loadCompChart() {
     }
     const [usedRows, availRows, cachedRows, buffersRows] = /** @type {MetricSeriesItem[][]} */ (await Promise.all(reqs));
     if (seq !== compSeq) return;
-    const toRows = (arr, dim) => safeArray(arr).map(r => ({ ...r, dimension: dim }));
+    const toRows = (/** @type {any} */ arr, /** @type {string} */ dim) => safeArray(arr).map((/** @type {any} */ r) => ({ ...r, dimension: dim }));
     const rows = [
       ...toRows(usedRows,    'used'),
       ...toRows(availRows,   'available'),

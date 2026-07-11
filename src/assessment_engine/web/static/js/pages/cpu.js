@@ -21,6 +21,7 @@ const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 �
 // 로드 추이는 코어당(load/cpu_cores) 정규화 — 1.0 = 코어당 run queue 1(포화). 환경 추이(Σload/Σcores)와
 // 의미 일관. suggestedMax 1.5(포화선 위 여유)로 포화 임계가 시각에 자연 노출되고, 초과 시 자동 확장.
 
+/** @param {number | null | undefined} v */
 function pct(v) { return v == null ? '—' : v.toFixed(1) + '%'; }
 
 /* ── 스냅샷 ── */
@@ -55,6 +56,7 @@ async function loadSnapshot() {
 /* ── 단일 라인 차트 (CPU 사용률) ── */
 let usageRange = '15m';
 let usageAgg   = 'avg';
+/** @type {any} */
 let usageChart = null;
 let usageSeq   = 0;
 
@@ -88,7 +90,7 @@ async function loadUsageChart() {
     canvas.style.display = ''; empty.style.display = 'none';
     const bMs    = BUCKET_MS[AUTO_BUCKET[capturedRange]];
     const grid   = makeBucketGrid(capturedRange, AUTO_BUCKET[capturedRange], capturedAnchor);
-    const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), capturedRange));
+    const labels = grid.map((/** @type {number} */ t) => fmtLabel(new Date(t).toISOString(), capturedRange));
     const data   = joinToGrid(grid, rows, bMs);
     if (usageChart) {
       usageChart.data.labels      = labels;
@@ -133,12 +135,14 @@ async function loadUsageChart() {
   } catch(e) { console.error(e); }
 }
 
-bindToggle('usage-agg-btns',   v => { usageAgg   = v; loadUsageChart(); });
-bindToggle('usage-range-btns', v => { usageRange = v; updateUsageBucketLabel(); /** @type {HTMLElement} */ (document.getElementById('usage-range-print')).textContent = ' — ' + RANGE_LABEL[v]; loadUsageChart(); });
+bindToggle('usage-agg-btns',   (/** @type {string} */ v) => { usageAgg   = v; loadUsageChart(); });
+bindToggle('usage-range-btns', (/** @type {string} */ v) => { usageRange = v; updateUsageBucketLabel(); /** @type {HTMLElement} */ (document.getElementById('usage-range-print')).textContent = ' — ' + RANGE_LABEL[v]; loadUsageChart(); });
 
 /* ── CPU 분류 추이 (user / system / iowait) ── */
 let compRange   = '15m';
+/** @type {any} */
 let compChart   = null;
+/** @type {any[]} */
 let compAllRows = [];
 let compSeq     = 0;
 
@@ -146,6 +150,10 @@ function updateCompBucketLabel() {
   /** @type {HTMLElement} */ (document.getElementById('comp-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[compRange]] || '';
 }
 
+/**
+ * @param {string} range
+ * @param {Date | null} anchorEnd
+ */
 function renderCompChart(range, anchorEnd) {
   const canvas = /** @type {HTMLElement} */ (document.getElementById('comp-canvas'));
   const empty  = /** @type {HTMLElement} */ (document.getElementById('comp-empty'));
@@ -165,7 +173,7 @@ function renderCompChart(range, anchorEnd) {
   };
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
-  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const labels = grid.map((/** @type {number} */ t) => fmtLabel(new Date(t).toISOString(), range));
   const datasets = buildDimDatasets(rows, bMs, grid, COMP_META, { pointRadius: 1 });
 
   if (compChart) {
@@ -204,7 +212,7 @@ async function loadCompChart() {
   const capturedRange  = compRange;
   const capturedAnchor = getAnchorEnd('comp-anchor');
   const bucket = AUTO_BUCKET[capturedRange];
-  const mkP = type => {
+  const mkP = (/** @type {string} */ type) => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg: 'avg' });
     if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
     return p;
@@ -221,7 +229,7 @@ async function loadCompChart() {
     }
     const [userRows, sysRows, ioRows] = await Promise.all(reqs);
     if (seq !== compSeq) return;
-    const safe = arr => Array.isArray(arr) ? arr : [];
+    const safe = (/** @type {any} */ arr) => Array.isArray(arr) ? arr : [];
     compAllRows = [
       ...safe(userRows).map(r => ({ ...r, dimension: 'user' })),
       ...safe(sysRows).map(r  => ({ ...r, dimension: 'system' })),
@@ -232,11 +240,13 @@ async function loadCompChart() {
   } catch(e) { console.error(e); }
 }
 
-bindToggle('comp-range-btns', v => { compRange = v; updateCompBucketLabel(); /** @type {HTMLElement} */ (document.getElementById('comp-range-print')).textContent = ' — ' + RANGE_LABEL[v]; loadCompChart(); });
+bindToggle('comp-range-btns', (/** @type {string} */ v) => { compRange = v; updateCompBucketLabel(); /** @type {HTMLElement} */ (document.getElementById('comp-range-print')).textContent = ' — ' + RANGE_LABEL[v]; loadCompChart(); });
 
 /* ── 로드 평균 추이 ── */
 let loadRange   = '15m';
+/** @type {any} */
 let loadChart   = null;
+/** @type {any[]} */
 let loadAllRows = [];
 let loadSeq     = 0;
 
@@ -244,6 +254,10 @@ function updateLoadBucketLabel() {
   /** @type {HTMLElement} */ (document.getElementById('load-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[loadRange]] || '';
 }
 
+/**
+ * @param {string} range
+ * @param {Date | null} anchorEnd
+ */
 function renderLoadChart(range, anchorEnd) {
   const canvas = /** @type {HTMLElement} */ (document.getElementById('load-canvas'));
   const empty  = /** @type {HTMLElement} */ (document.getElementById('load-empty'));
@@ -260,7 +274,7 @@ function renderLoadChart(range, anchorEnd) {
   };
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
-  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const labels = grid.map((/** @type {number} */ t) => fmtLabel(new Date(t).toISOString(), range));
   // cpu.run_queue 는 backend 가 이미 Σ실행큐/Σcores(코어당) 반환 — valueFn 불요. 1.0 Linux·2.0 Windows 포화.
   const datasets = buildDimDatasets(rows, bMs, grid, RUNQ_META, { pointRadius: 1 });
 
@@ -300,7 +314,7 @@ async function loadLoadChart() {
   const capturedRange  = loadRange;
   const capturedAnchor = getAnchorEnd('load-anchor');
   const bucket = AUTO_BUCKET[capturedRange];
-  const mkP = type => {
+  const mkP = (/** @type {string} */ type) => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg: 'avg' });
     if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
     return p;
@@ -316,7 +330,7 @@ async function loadLoadChart() {
   } catch(e) { console.error(e); }
 }
 
-bindToggle('load-range-btns', v => { loadRange = v; updateLoadBucketLabel(); /** @type {HTMLElement} */ (document.getElementById('load-range-print')).textContent = ' — ' + RANGE_LABEL[v]; loadLoadChart(); });
+bindToggle('load-range-btns', (/** @type {string} */ v) => { loadRange = v; updateLoadBucketLabel(); /** @type {HTMLElement} */ (document.getElementById('load-range-print')).textContent = ' — ' + RANGE_LABEL[v]; loadLoadChart(); });
 
 /* ── 30초 polling 자동 갱신 (SSE 제거) ── */
 initAutoRefresh(loadSnapshot);

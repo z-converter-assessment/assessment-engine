@@ -17,7 +17,7 @@
   'use strict';
 
   // themeColor() 는 인자 없이 테마 primary 색 반환 (globals.d.ts 선언은 name 필수라 로컬 any 캐스트).
-  var OS_COLOR = { linux: /** @type {any} */ (ChartUtils).themeColor(), windows: '#8b5cf6' };
+  var OS_COLOR = /** @type {Record<string, string>} */ ({ linux: /** @type {any} */ (ChartUtils).themeColor(), windows: '#8b5cf6' });
   // 서브넷 노드 — 연한 회색 테마색(base.html --color-table-head) 추종. getComputedStyle 실패 시 fallback.
   var SUBNET = (getComputedStyle(document.documentElement).getPropertyValue('--color-table-head').trim() || '#a7b2c0');
 
@@ -29,7 +29,7 @@
       style: {
         'background-color': SUBNET,
         shape: 'round-rectangle',
-        label: function (n) { return n.data('label') + '  (' + n.data('hostCount') + ')'; },
+        label: function (/** @type {any} */ n) { return n.data('label') + '  (' + n.data('hostCount') + ')'; },
         color: '#fff',
         'font-size': 10,
         'font-family': 'monospace',
@@ -43,10 +43,10 @@
     {
       selector: 'node[kind = "host"]',
       style: {
-        'background-color': function (n) { return OS_COLOR[n.data('osFamily')] || '#94a3b8'; },
+        'background-color': function (/** @type {any} */ n) { return OS_COLOR[n.data('osFamily')] || '#94a3b8'; },
         shape: 'ellipse',
         // 라벨 = 호스트명 + (있으면) 워크로드 역할 — 서브넷을 app tier 구조로 읽히게. 색은 OS 유지.
-        label: function (n) { var r = n.data('roles'); return n.data('label') + (r && r.length ? '\n' + r.join(', ') : ''); },
+        label: function (/** @type {any} */ n) { var r = n.data('roles'); return n.data('label') + (r && r.length ? '\n' + r.join(', ') : ''); },
         'text-wrap': 'wrap',
         color: '#334155',
         'font-size': 10,
@@ -68,18 +68,19 @@
     },
   ];
 
+  /** @type {any} */
   var cy = null; // 직전 인스턴스 — 재렌더 시 destroy (leak 방지).
 
   // host 표시 = 인접 subnet 중 펼쳐진(expanded) 게 하나라도 있으면. edge 는 양 끝 노드가 모두 visible 일 때만.
   function applyVisibility() {
     cy.batch(function () {
-      cy.nodes('[kind = "host"]').forEach(function (h) {
-        var show = h.connectedEdges().connectedNodes('[kind = "subnet"]').some(function (s) {
+      cy.nodes('[kind = "host"]').forEach(function (/** @type {any} */ h) {
+        var show = h.connectedEdges().connectedNodes('[kind = "subnet"]').some(function (/** @type {any} */ s) {
           return s.data('expanded');
         });
         h.toggleClass('collapsed', !show);
       });
-      cy.edges().forEach(function (e) {
+      cy.edges().forEach(function (/** @type {any} */ e) {
         e.toggleClass('collapsed', e.source().hasClass('collapsed') || e.target().hasClass('collapsed'));
       });
     });
@@ -120,14 +121,14 @@
     // 초기 — subnet 만 보임(host/edge collapsed). 펼쳐진 게 없으니 subnet 노드만 배치된다.
     cy.layout(COSE).run();
 
-    cy.on('tap', 'node[kind = "subnet"]', function (evt) {
+    cy.on('tap', 'node[kind = "subnet"]', function (/** @type {any} */ evt) {
       var n = evt.target;
       n.data('expanded', !n.data('expanded'));
       applyVisibility();
       cy.layout(COSE).run();
     });
 
-    cy.on('tap', 'node[kind = "host"]', function (evt) {
+    cy.on('tap', 'node[kind = "host"]', function (/** @type {any} */ evt) {
       var pid = evt.target.data('publicId');
       if (pid) window.location.href = '/servers/' + pid;
     });

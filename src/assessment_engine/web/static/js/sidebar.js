@@ -16,6 +16,7 @@
 
   function isMobile() { return window.matchMedia('(max-width: 768px)').matches; }
 
+  /** @param {boolean} open */
   function setOpen(open) {
     document.body.classList.toggle('sidebar-open', open);
     if (toggleBtn) toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');

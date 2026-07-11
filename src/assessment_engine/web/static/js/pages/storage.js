@@ -23,12 +23,14 @@ const STORAGE_IOPS_SUGGESTED_MAX = 5;
 // 처리량(kBps) 추이 분해력 — idle 환경 작은 처리량도 보이게 (IOPS 와 동일 분해력 우선 정책).
 const STORAGE_KBPS_SUGGESTED_MAX = 256;
 
+/** @param {number|null|undefined} kb */
 function kbps(kb) {
   if (kb == null) return '—';
   // 단위 표기 "kB/s"/"MB/s" 통일 (chart-utils·format_net_rate·detail/network 와 동일 관습).
   if (kb >= 1024) return (kb / 1024).toFixed(1) + ' MB/s';
   return kb.toFixed(1) + ' kB/s';
 }
+/** @param {number|null|undefined} v */
 function iops(v) { return v == null ? '—' : v.toFixed(1) + ' IOPS'; }
 
 /* ── I/O 현황 스냅샷 ── */
@@ -46,7 +48,7 @@ async function loadIoSnapshot() {
 
     const physDisks   = data.disk_io || [];
 
-    const row = d => `<tr>
+    const row = (/** @type {NonNullable<import('../generated/api').components['schemas']['MetricDashboard']['disk_io']>[number]} */ d) => `<tr>
       <td>${d.device}</td>
       <td>${iops(d.read_iops)}</td><td>${iops(d.write_iops)}</td>
       <td>${kbps(d.read_kbps)}</td><td>${kbps(d.write_kbps)}</td>
@@ -79,14 +81,20 @@ async function loadIoSnapshot() {
 
 /* ── I/O 추이 차트 ── */
 let physRange = '15m';
-let physChart = null;
+let physChart = /** @type {any} */ (null);
 let physSeq   = 0;
 let kbpsRange = '15m';
-let kbpsChart = null;
+let kbpsChart = /** @type {any} */ (null);
 let kbpsSeq   = 0;
 
 const fmtLabel = ChartUtils.fmtLabel;
 
+/**
+ * @param {any[]} avgRows
+ * @param {any[]} maxRows
+ * @param {string} range
+ * @param {Date|null} anchorEnd
+ */
 function makeIoDatasets(avgRows, maxRows, range, anchorEnd) {
   const bucket = AUTO_BUCKET[range];
   const bMs    = BUCKET_MS[bucket];
@@ -96,6 +104,7 @@ function makeIoDatasets(avgRows, maxRows, range, anchorEnd) {
   return { labels, datasets };
 }
 
+/** @param {{yTitle?: string, suggestedMax?: number, fmt?: (v: number|null|undefined) => string}} [opts] */
 function ioChartOptions(opts) {
   opts = opts || {};
   const yTitle = opts.yTitle || 'IOPS';
@@ -107,9 +116,9 @@ function ioChartOptions(opts) {
     plugins: {
       legend: { display: false },
       tooltip: {
-        filter: item => item.datasetIndex % 2 === 0,
+        filter: (/** @type {any} */ item) => item.datasetIndex % 2 === 0,
         callbacks: {
-          label: ctx => {
+          label: (/** @type {any} */ ctx) => {
             const avgVal = ctx.parsed.y;
             if (avgVal == null) return null;
             const maxDs  = ctx.chart.data.datasets[ctx.datasetIndex + 1];
@@ -131,6 +140,17 @@ function ioChartOptions(opts) {
   };
 }
 
+/**
+ * @param {string} canvasId
+ * @param {string} emptyId
+ * @param {string} legendId
+ * @param {any[]} avgRows
+ * @param {any[]} maxRows
+ * @param {string} range
+ * @param {any} chartRef
+ * @param {Date|null} anchorEnd
+ * @param {{yTitle?: string, suggestedMax?: number, fmt?: (v: number|null|undefined) => string}} [opts]
+ */
 function renderIoChartTo(canvasId, emptyId, legendId, avgRows, maxRows, range, chartRef, anchorEnd, opts) {
   const canvas = document.getElementById(canvasId);
   const empty  = document.getElementById(emptyId);
@@ -159,7 +179,7 @@ async function loadPhysChart() {
   const capturedRange = physRange;
   const capturedAnchor = /** @type {any} */ (getAnchorEnd)('phys-anchor');
   const bucket = AUTO_BUCKET[capturedRange];
-  const mkQ = (type, agg) => {
+  const mkQ = (/** @type {string} */ type, /** @type {string} */ agg) => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg });
     if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
     return p;
@@ -174,7 +194,7 @@ async function loadPhysChart() {
         fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_iops', 'max')}`).then(r => r.json()),
       ]));
     if (seq !== physSeq) return;
-    const safe = arr => Array.isArray(arr) ? arr : [];
+    const safe = (/** @type {any} */ arr) => Array.isArray(arr) ? arr : [];
     const physAvgRows = [
       ...safe(readAvg).map(r  => ({ ...r, dimension: `${r.dimension} Read` })),
       ...safe(writeAvg).map(r => ({ ...r, dimension: `${r.dimension} Write` })),
@@ -212,7 +232,7 @@ async function loadKbpsChart() {
   const capturedRange = kbpsRange;
   const capturedAnchor = /** @type {any} */ (getAnchorEnd)('kbps-anchor');
   const bucket = AUTO_BUCKET[capturedRange];
-  const mkQ = (type, agg) => {
+  const mkQ = (/** @type {string} */ type, /** @type {string} */ agg) => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg });
     if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
     return p;
@@ -227,7 +247,7 @@ async function loadKbpsChart() {
         fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkQ('disk.write_kbps', 'max')}`).then(r => r.json()),
       ]));
     if (seq !== kbpsSeq) return;
-    const safe = arr => Array.isArray(arr) ? arr : [];
+    const safe = (/** @type {any} */ arr) => Array.isArray(arr) ? arr : [];
     const kbpsAvgRows = [
       ...safe(readAvg).map(r  => ({ ...r, dimension: `${r.dimension} Read` })),
       ...safe(writeAvg).map(r => ({ ...r, dimension: `${r.dimension} Write` })),
@@ -254,13 +274,19 @@ loadKbpsChart();
 
 /* ── 파일시스템 사용량 추이 ── */
 let fsRange = '15m';
-let fsChart = null;
+let fsChart = /** @type {any} */ (null);
 let fsSeq   = 0;
 
 function updateFsBucketLabel() {
   /** @type {HTMLElement} */ (document.getElementById('fs-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[fsRange]] || '';
 }
 
+/**
+ * @param {any[]} avgRows
+ * @param {any[]} maxRows
+ * @param {string} range
+ * @param {Date|null} anchorEnd
+ */
 function renderFsChart(avgRows, maxRows, range, anchorEnd) {
   const empty  = document.getElementById('fs-chart-empty');
   const canvas = document.getElementById('fs-chart-canvas');
@@ -297,9 +323,9 @@ function renderFsChart(avgRows, maxRows, range, anchorEnd) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          filter: item => !item.dataset.label.endsWith('__max'),
+          filter: (/** @type {any} */ item) => !item.dataset.label.endsWith('__max'),
           callbacks: {
-            label: ctx => {
+            label: (/** @type {any} */ ctx) => {
               const avg = ctx.parsed.y;
               const maxDs = ctx.chart.data.datasets[ctx.datasetIndex + 1];
               const realMax = maxDs?.realData?.[ctx.dataIndex];
@@ -313,7 +339,7 @@ function renderFsChart(avgRows, maxRows, range, anchorEnd) {
       scales: {
         x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
         y: {
-          ticks: { callback: v => v + '%', font:{size:11}, color:'#64748b' },
+          ticks: { callback: (/** @type {any} */ v) => v + '%', font:{size:11}, color:'#64748b' },
           grid:  { color:'#f1f5f9' },
           min: 0, max: 100,
         },
@@ -327,7 +353,7 @@ async function loadFsChart() {
   const seq = ++fsSeq;
   const capturedRange  = fsRange;
   const capturedAnchor = /** @type {any} */ (getAnchorEnd)('fs-anchor');
-  const mkP = agg => {
+  const mkP = (/** @type {string} */ agg) => {
     const p = new URLSearchParams({ metric_type: 'fs.usage_percent', time_range: capturedRange, bucket: AUTO_BUCKET[capturedRange], agg });
     if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
     return p;

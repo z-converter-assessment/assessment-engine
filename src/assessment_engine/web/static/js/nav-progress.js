@@ -14,7 +14,9 @@
   var bar = /** @type {HTMLElement} */ (document.getElementById('nav-progress'));
   if (!bar) return;
 
+  /** @type {ReturnType<typeof setInterval> | null} */
   var timer = null;       // trickle interval
+  /** @type {ReturnType<typeof setTimeout> | null} */
   var safety = null;      // stuck 방지 fallback
   var progress = 0;
 

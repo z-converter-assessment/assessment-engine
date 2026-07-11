@@ -43,10 +43,12 @@
     openTask(taskId);
   });
 
+  /** @param {string} s */
   function escapeHtml(s) {
-    return (s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    return (s || '').replace(/[&<>"']/g, (/** @type {string} */ c) => (/** @type {Record<string, string>} */ ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }))[c]);
   }
 
+  /** @param {string} taskId */
   async function fetchTask(taskId) {
     const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -57,12 +59,14 @@
 
   // modal body 는 server fragment endpoint 가 partial HTML 반환 (P3 정공 — JS HTML 합성 폐기).
   // polling 은 위 fetchTask (JSON) 사용 — list cell 갱신 callback 전달 위해 JSON 필요.
+  /** @param {string} taskId */
   async function fetchTaskFragment(taskId) {
     const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/detail`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.text();
   }
 
+  /** @param {string} taskId */
   async function openTask(taskId) {
     bodyEl.innerHTML = '불러오는 중...';
     titleEl.textContent = '작업 상세';

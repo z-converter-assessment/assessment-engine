@@ -30,6 +30,12 @@
     return c;
   }
 
+  /**
+   * @param {string} message
+   * @param {'ok' | 'warn' | 'err' | 'pending'} kind
+   * @param {number} [durationMs]
+   * @returns {HTMLDivElement}
+   */
   function show(message, kind, durationMs) {
     const container = ensureContainer();
     const style = KIND_STYLES[kind] || KIND_STYLES.pending;

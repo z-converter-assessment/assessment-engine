@@ -20,12 +20,14 @@ const SERVER_ID = document.body.dataset.serverId;
 // 실데이터가 본 값을 초과하면 자동 확장 (soft ceiling). Y축 단위는 fmtKbChart로 동적 표기.
 const NET_Y_SUGGESTED_MAX = 2048; // B/s ≈ 2 kB/s
 
+/** @param {number | null | undefined} v */
 function fmtKbps(v) {
   if (v == null) return '—';
   // 단위 표기 "kB/s"/"MB/s" — 차트(fmtKbChart)·SSR(format_net_rate)와 통일.
   if (v >= 1024) return (v / 1024).toFixed(1) + ' MB/s';
   return v.toFixed(1) + ' kB/s';
 }
+/** @param {number | null | undefined} v */
 function fmtPps(v) { return v != null ? v.toFixed(1) + ' pps' : '—'; }
 
 async function loadNetSnapshot() {
@@ -62,7 +64,9 @@ async function loadNetSnapshot() {
 }
 let netRange = '15m';
 let netPpsRange = '15m';
+/** @type {import('chart.js').Chart | null} */
 let netChart = null;
+/** @type {import('chart.js').Chart | null} */
 let netPpsChart = null;
 let netSeq    = 0;
 let netPpsSeq = 0;
@@ -74,21 +78,50 @@ function updateNetPpsBucketLabel() {
   /** @type {HTMLElement} */ (document.getElementById('net-pps-bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[netPpsRange]] || '';
 }
 
+/** @typedef {import('../generated/api').components['schemas']['MetricSeriesItem']} MetricSeriesItem */
+
 const fmtNetLabel = ChartUtils.fmtLabel;
+/** @type {(arr: any) => any[]} */
 const safeArr = arr => Array.isArray(arr) ? arr : [];
 
 // avg·max 를 인터페이스별 RX/TX 인접 순으로 정렬 (모든 인터페이스 유지 — 데이터 숨김 X).
 // avg/max 가 동일 인터페이스 집합을 쓰도록 함께 처리 (avg+max 쌍 어긋남 방지).
+/**
+ * @param {MetricSeriesItem[]} rxAvg
+ * @param {MetricSeriesItem[]} txAvg
+ * @param {MetricSeriesItem[]} rxMax
+ * @param {MetricSeriesItem[]} txMax
+ */
 function ifaceOrderedRows(rxAvg, txAvg, rxMax, txMax) {
   const ra = safeArr(rxAvg), ta = safeArr(txAvg), rm = safeArr(rxMax), tm = safeArr(txMax);
   const ifaces = [...new Set([...ra, ...ta].map(r => r.dimension))].sort();
+  /** @type {(rows: any[], suffix: string, iface: string) => any[]} */
   const pick = (rows, suffix, iface) => rows.filter(r => r.dimension === iface).map(r => ({ ...r, dimension: `${iface} ${suffix}` }));
   const avg = ifaces.flatMap(i => [...pick(ra, 'RX', i), ...pick(ta, 'TX', i)]);
   const max = ifaces.flatMap(i => [...pick(rm, 'RX', i), ...pick(tm, 'TX', i)]);
   return { avg, max };
 }
 
+/**
+ * @typedef {object} NetChartSpec
+ * @property {string} canvasId
+ * @property {string} emptyId
+ * @property {string} legendId
+ * @property {() => any} get
+ * @property {(c: import('chart.js').Chart | null) => void} set
+ * @property {(v: any) => string} fmt
+ * @property {string} yTitle
+ * @property {number} suggestedMax
+ */
+
 // bytes/pps 공용 차트 렌더 — spec 으로 단위(fmt)·Y축 제목·chart 인스턴스 참조 분기.
+/**
+ * @param {NetChartSpec} spec
+ * @param {any[]} avgRows
+ * @param {any[]} maxRows
+ * @param {string} range
+ * @param {Date | null} anchorEnd
+ */
 function renderNetChartOne(spec, avgRows, maxRows, range, anchorEnd) {
   const empty  = /** @type {HTMLElement} */ (document.getElementById(spec.emptyId));
   const canvas = /** @type {HTMLElement} */ (document.getElementById(spec.canvasId));
@@ -149,15 +182,16 @@ function renderNetChartOne(spec, avgRows, maxRows, range, anchorEnd) {
   }));
 }
 
+/** @type {(v: number) => string} */
 const fmtPpsChart = v => v.toFixed(1) + ' pps';
-const BYTES_SPEC = {
+const BYTES_SPEC = /** @type {NetChartSpec} */ ({
   canvasId:'net-chart-canvas', emptyId:'net-chart-empty', legendId:'net-legend',
   get:()=>netChart, set:c=>{netChart=c;}, fmt:fmtKbChart, yTitle:'처리량', suggestedMax:NET_Y_SUGGESTED_MAX,
-};
-const PPS_SPEC = {
+});
+const PPS_SPEC = /** @type {NetChartSpec} */ ({
   canvasId:'net-pps-canvas', emptyId:'net-pps-empty', legendId:'net-pps-legend',
   get:()=>netPpsChart, set:c=>{netPpsChart=c;}, fmt:fmtPpsChart, yTitle:'pps', suggestedMax:10,
-};
+});
 
 async function loadNetChart() {
   const seq = ++netSeq;
@@ -165,6 +199,7 @@ async function loadNetChart() {
   // globals.d.ts getAnchorEnd 선언(()->string|null)이 실제((inputId)->Date|null)와 불일치 — 로컬 캐스트.
   const capturedAnchor = /** @type {(inputId: string) => (Date | null)} */ (getAnchorEnd)('net-anchor');
   const bucket = AUTO_BUCKET[capturedRange];
+  /** @type {(type: string, agg: string) => URLSearchParams} */
   const mkP = (type, agg) => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg });
     if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
@@ -191,6 +226,7 @@ async function loadNetPpsChart() {
   const capturedRange = netPpsRange;
   const capturedAnchor = /** @type {(inputId: string) => (Date | null)} */ (getAnchorEnd)('net-pps-anchor');
   const bucket = AUTO_BUCKET[capturedRange];
+  /** @type {(type: string, agg: string) => URLSearchParams} */
   const mkP = (type, agg) => {
     const p = new URLSearchParams({ metric_type: type, time_range: capturedRange, bucket, agg });
     if (capturedAnchor) p.append('end', capturedAnchor.toISOString());
