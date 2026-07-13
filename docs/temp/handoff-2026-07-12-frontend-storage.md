@@ -4,7 +4,8 @@
 우리 다음 세션이 repo 를 그대로 들고 이어받는 용도라 코드 경로·CLAUDE.md 절 참조를 의도적으로 포함한다. 채택된
 결정은 wrap-up 때 영구 문서로 격상 후 본 파일 삭제.
 
-브랜치: `feature/engine-hardening`. 작업 트리에 대량 uncommitted 변경 누적 (아직 커밋 안 함 — 사용자 요청 시에만).
+브랜치: `feature/engine-hardening` (origin/develop 최신에서 파생, 정합). 프론트엔드 리뉴얼 + 스토리지 원칙 +
+본 핸드오프는 커밋 `7f8a89c`로 커밋·푸시 완료. CI/훅 정리는 별도 커밋(8절). 0~3절의 미구현 작업이 다음 세션 시작점.
 
 ---
 
@@ -169,3 +170,25 @@ vdb  40GB  HDD
 - AI 메타데이터(Co-Authored-By 등) 산출물에 금지. 메모리 기능 사용 안 함(git 추적 문서로만 컨텍스트 관리).
 - 표시 계층 P1-P4: repo=raw / service=파생 단일 / 템플릿=순수 렌더 / 차트 JS=P3 예외.
 - 단위 실무정석: 메모리·디스크 = binary(2^30) 값 + GB/TB 라벨. bytes_to_gb 도 binary.
+
+## 8. 개발 워크플로 (이번 세션 정리 — 커밋/푸시 방식)
+
+훅·CI 게이트를 정리했다. 다음 세션에서 기능 작업을 올릴 때 흐름:
+
+- 브랜치 흐름: feature -> develop PR, develop -> main PR. main·develop 다이렉트 push 금지(GitHub 룰셋 'protect'
+  + 로컬 pre-push 이중). feature 브랜치는 자유 push.
+- 로컬 게이트 최소화: pre-push 는 보호 브랜치 다이렉트 push 차단만(local-ci 제거 — push 시 테스트 안 돎).
+  commit-msg 는 AI 메타데이터(Co-Authored-By 등)만 하드 차단(type prefix·이모지는 Claude 작성 시 적용, 훅 제거).
+- Claude Code PostToolUse 훅(`conventions-check.sh`)은 유지 — 편집 시 markdown bold·비키보드 unicode·F7 print·
+  C3 redis 직접호출을 결정론 차단. (예: 비ASCII 화살표는 여기서 걸리니 `->` 사용.)
+- GitHub CI: ci·alembic·codeql·pr-title 전부 main PR 에서만 발화. develop PR/push 는 CI 0(무게이트, 통합 브랜치).
+  tag(v*) push 는 release.yml 만(빌드·cosign 서명·SBOM·GHCR, 테스트 생략). CI 는 required status check 아님(현재
+  머지를 물리 차단하진 않음 — 원하면 룰셋 'protect'에 required_status_checks 추가).
+- 커밋·push 는 명시 요청 시에만. push 는 `--no-verify` 불요(local-ci 제거됨), 단 develop/main 직접 push 는 훅·룰셋이 막음.
+
+fresh clone 로 새 세션 시작 시 setup (중요):
+- `git checkout feature/engine-hardening` — 진행 중 작업 브랜치(0~3절 미구현이 시작점).
+- `git config core.hooksPath .githooks` — 로컬 git 훅(commit-msg·pre-push) 활성화. core.hooksPath 는 로컬
+  config 라 clone 에 안 담긴다 -> 안 하면 훅 inert(단 develop/main push 는 GitHub 룰셋이 서버사이드 차단).
+  conventions-check(Claude Code)는 `.claude/settings.json` 이라 자동 적용(별도 setup 불요).
+- dev 실행: `docker compose up`(dev override 자동 머지, 소스 bind mount) 후 web 확인. 상세는 docs/guides/local-dev.md.

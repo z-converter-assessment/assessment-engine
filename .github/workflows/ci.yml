@@ -15,12 +15,10 @@ name: ci
 #   main push   : ci 미발화 (main PR에서 full 통과 + branch protection이 gate 강제). 릴리즈는 main 에 tag push -> release.yml (ADR 0030)
 
 on:
+  # CI 는 main PR 에서만 — develop 는 통합 브랜치라 게이트 없이 받고, 검증은 develop->main PR 에서 1회 full.
+  # push·develop PR 트리거 없음(로컬 push 게이트도 제거) — main PR 단일 게이트로 통일.
   pull_request:
-    branches: [main, develop]
-  # merge 후 develop 통합 검증(test-integration) 보충용 — PR이 경량 게이트라 무거운 검증을 여기서 1회.
-  # main push는 ci 미발화: main PR full 검증 완료 + branch protection이 직접 push·red merge를 차단.
-  push:
-    branches: [develop]
+    branches: [main]
 
 permissions:
   contents: read
