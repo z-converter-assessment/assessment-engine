@@ -41,7 +41,7 @@ function refreshInstallButton() {
   if (realtimeSelBtn) realtimeSelBtn.disabled = n === 0;
   if (metricsSelBtn) metricsSelBtn.disabled = n === 0;
   // 선택 개수 라이브 표시 — 0 이면 빈 문자열(숨김 효과).
-  if (selectionCountEl) selectionCountEl.textContent = n > 0 ? n + '대 선택' : '';
+  if (selectionCountEl) selectionCountEl.textContent = n > 0 ? n + '대' : '';
 }
 
 const reportCustomerBtn = /** @type {HTMLButtonElement} */ (document.getElementById('report-customer-btn'));
@@ -330,60 +330,29 @@ if (filterForm) {
   function applyFilters() {
     const rows = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('tr.server-row'));  // 매번 재조회 — 자동갱신 행 교체 후에도 정합
     const searchInput = /** @type {HTMLInputElement | null} */ (filterForm.querySelector('input[name=search]'));
-    const onlineSel = /** @type {HTMLSelectElement | null} */ (filterForm.querySelector('select[name=is_online]'));
-    const serviceSel = /** @type {HTMLSelectElement | null} */ (filterForm.querySelector('select[name=service]'));
-    const osSel = /** @type {HTMLSelectElement | null} */ (filterForm.querySelector('select[name=os_distro]'));
-    const classSel = /** @type {HTMLSelectElement | null} */ (filterForm.querySelector('select[name=classification]'));
+    // 통합 검색 — hostname·OS·워크로드·자원 적정성·EOL·온라인 여부를 한 문자열(data-search)에서 부분일치.
     const search = (searchInput?.value || '').toLowerCase().trim();
-    const onlineState = onlineSel?.value || '';  // "" / "true" / "false"
-    const service = serviceSel?.value || '';
-    const osDistro = osSel?.value || '';
-    const classification = classSel?.value || '';
-    const active = !!(search || onlineState || service || osDistro || classification);
+    const active = !!search;
     let matchCount = 0;  // 필터 통과 행 수 (clip 이전)
     rows.forEach(tr => {
-      const hostname = tr.dataset.hostname || '';
-      const rowOnline = tr.dataset.isOnline === 'true';
-      const rowOs = tr.dataset.osDistro || '';
-      const rowClass = tr.dataset.classification || '';
-      const rowServices = (tr.dataset.services || '').trim().split(/\s+/);
-      let match = true;
-      if (search && !hostname.includes(search)) match = false;
-      if (onlineState === 'true' && !rowOnline) match = false;
-      if (onlineState === 'false' && rowOnline) match = false;
-      if (service && !rowServices.includes(service)) match = false;
-      if (osDistro && rowOs !== osDistro) match = false;
-      if (classification && rowClass !== classification) match = false;
+      const hay = (tr.dataset.search || '').toLowerCase();
+      const match = !search || hay.includes(search);
       let visible = match;
       if (match) {
         matchCount += 1;
-        // 필터 비활성 + 미확장이면 CLIP_SIZE 초과 행은 숨김 (더보기 대상).
+        // 검색 비활성 + 미확장이면 CLIP_SIZE 초과 행은 숨김 (더보기 대상).
         if (!active && !expanded && matchCount > CLIP_SIZE) visible = false;
       }
-      // 전체선택이 필터 통과 행만 잡도록 표식 (clip 으로만 숨은 행은 match='1' 이라 포함).
+      // 전체선택이 검색 통과 행만 잡도록 표식 (clip 으로만 숨은 행은 match='1' 이라 포함).
       tr.dataset.filterMatch = match ? '1' : '0';
       tr.style.display = visible ? '' : 'none';
     });
-    // 전체보기 버튼 — 필터 비활성·미확장·전체가 CLIP 초과일 때만. (CLIP_SIZE/total 표기)
+    // 전체보기 버튼 — 검색 비활성·미확장·전체가 CLIP 초과일 때만. (CLIP_SIZE/total 표기)
     updateShowMore(!active && matchCount > CLIP_SIZE, matchCount);
-    // URL 갱신 — deep link / 새로고침 시 server-side filter 가 같은 query 받음 (일관).
-    const params = new URLSearchParams();
-    if (search) params.set('search', search);
-    if (onlineState) params.set('is_online', onlineState);
-    if (service) params.set('service', service);
-    if (osDistro) params.set('os_distro', osDistro);
-    if (classification) params.set('classification', classification);
-    const qs = params.toString();
-    const newUrl = qs ? `${location.pathname}?${qs}` : location.pathname;
-    history.replaceState(null, '', newUrl);
-    // thead 초기화 링크 — client 필터라 Jinja 재평가가 없어 JS 가 활성 여부로 표시 토글.
     const clearBtn = document.getElementById('filter-clear');
     if (clearBtn) clearBtn.style.display = active ? 'inline-flex' : 'none';
-    // 각 필터 위젯 — 값 선택 시 active(테마색 강조), 미선택 회색.
-    [searchInput, onlineSel, serviceSel, osSel, classSel].forEach(function (el) {
-      if (el) el.classList.toggle('active', !!(el.value || '').trim());
-    });
-    // 보이는 행만 zebra 재줄무늬 — 필터·clip 으로 숨은 행 제외(흰색 어긋남 방지, table-utils).
+    if (searchInput) searchInput.classList.toggle('active', !!search);
+    // 보이는 행만 zebra 재줄무늬 — 검색·clip 으로 숨은 행 제외(흰색 어긋남 방지, table-utils).
     if (window.TableUtils && listTable) window.TableUtils.restripe(listTable);
   }
 
@@ -450,3 +419,26 @@ function trackPendingTasks() {
 }
 
 trackPendingTasks();
+
+// ─── 뒤로가기 복원 정합 (선택 초기화) ─────────────────────────────────────
+// 액션 버튼(보고서·실시간·성능추이·Export·Install)은 클릭 시 다른 페이지로 navigate 한다.
+// 브라우저는 뒤로가기 시 체크박스 checked 를 자동 복원(session history form-state / bfcache)하는데,
+// 그 복원은 change 이벤트를 발생시키지 않아 refreshInstallButton 이 안 돌고 버튼 enabled·"N대"
+// 카운트가 desync 된다 — 체크는 살아있는데 버튼은 disabled 로 남는 "먹통". 복귀 시 선택을 항상
+// 초기화해 "뒤로 오면 깨끗한 목록" 을 결정적으로 보장 (bfcache / full-reload 브라우저 차이 무관).
+function resetSelectionOnShow() {
+  /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('.row-select')).forEach(cb => { cb.checked = false; });
+  if (selectAllCb) selectAllCb.checked = false;
+  // 열린 모달 닫기 + 발행 버튼 재활성 — navigate 직전 disable 이 history 복원에 sticky 로 남는 것 방지.
+  ['multi-server-report-modal', 'install-modal'].forEach(id => {
+    const m = document.getElementById(id);
+    if (m) m.style.display = 'none';
+  });
+  ['multi-server-report-submit', 'install-submit'].forEach(id => {
+    const b = /** @type {HTMLButtonElement | null} */ (document.getElementById(id));
+    if (b) b.disabled = false;
+  });
+  refreshInstallButton();  // 초기화된 실제 체크 상태(0) 기준으로 버튼 disabled·카운트 재계산
+}
+// pageshow 는 최초 로드·뒤로가기 복원 모두에서 발화 (persisted 여부 무관) — 두 경우 다 깨끗한 상태로 수렴.
+window.addEventListener('pageshow', resetSelectionOnShow);

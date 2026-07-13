@@ -1,20 +1,13 @@
 {# 서버목록 행 fragment — list_table.html tbody include + 라우터 ?fragment=rows 자동갱신 공용 렌더. #}
 {% for s in servers %}
 <tr class="server-row"
-    data-hostname="{{ s.hostname | lower }}"
-    data-is-online="{{ 'true' if s.is_online else 'false' }}"
-    data-os-distro="{{ s.os_distro }}"
-    data-classification="{{ s.provisioning_class }}"
-    data-services="{% for svc in s.known_services %}{{ svc.category }} {% endfor %}">
+    data-search="{{ s.hostname }} {{ s.os_display }} {% for svc in s.known_services %}{{ svc.category }} {% endfor %}{{ s.recommendation_label }}{% if s.os_eol %} 지원 종료{% endif %}{% if not s.is_online %} 오프라인{% else %} 온라인{% endif %}">
   <td class="no-print"><input type="checkbox" class="row-select" data-public-id="{{ s.public_id }}" data-hostname="{{ s.hostname }}"></td>
   <td style="text-align:center; white-space:nowrap;" data-sort="{{ 1 if s.is_online else 0 }}">
     {% if s.is_online %}<span class="status-on">온라인</span>{% else %}<span class="status-off">오프라인</span>{% endif %}
   </td>
   <td>
-    <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="row-link">{{ s.hostname }}</a>
-  </td>
-  <td>
-    {# 분류된 서비스만 칩 표시 — unknown(미분류)은 placeholder "—". #}
+    {# 분류된 워크로드 칩만 — unknown(미분류)은 placeholder "—". #}
     {% if s.known_services %}
       <span style="display:flex; flex-wrap:wrap; gap:4px;">
       {% for svc in s.known_services %}
@@ -25,7 +18,18 @@
       <span class="text-meta text-xs">—</span>
     {% endif %}
   </td>
+  <td class="host-cell">
+    <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="row-link">{{ s.hostname }}</a>
+  </td>
+  <td class="text-label" style="white-space:nowrap;">{{ s.spec_display }}</td>
   <td class="text-label">{{ s.os_display }}</td>
+  <td data-sort="{{ 1 if s.os_eol else 0 }}">
+    {% if s.os_eol %}
+      <span class="badge badge-warn" title="지원 종료 {{ s.os_eol }}">지원 종료</span>
+    {% else %}
+      <span class="text-meta text-xs">지원 중</span>
+    {% endif %}
+  </td>
   <td>
     {% if s.recommendation_label %}
       <span class="text-label text-xs">{{ s.recommendation_label }}</span>
@@ -38,15 +42,14 @@
   </td>
   <td>
     {% if s.last_task %}
-      <a class="task-cell" href="#" data-task-id="{{ s.last_task.task_id }}" title="{{ s.last_task.failure_label or '' }}">
+      <a class="task-cell" href="#" data-task-id="{{ s.last_task.task_id }}" title="{{ s.last_task.failure_label or '' }} · {{ s.last_task.created_at | kst }}">
         <span class="badge {{ s.last_task.badge_class }}">{{ s.last_task.badge_label }}</span>
-        <span class="text-muted text-xs">{{ s.last_task.created_at | kst }}</span>
       </a>
     {% else %}
       <span class="text-meta text-xs">—</span>
     {% endif %}
   </td>
-  <td class="action-col" style="white-space:nowrap;">
+  <td class="action-col" style="white-space:nowrap; text-align:right;">
     <a href="/servers/{{ s.public_id }}?back={{ self_back }}" class="btn-action text-xs" style="padding:2px 9px; white-space:nowrap;">상세</a>
   </td>
 </tr>

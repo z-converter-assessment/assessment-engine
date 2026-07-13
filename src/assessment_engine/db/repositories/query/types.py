@@ -43,19 +43,18 @@ MetricType = Literal[
     "net.tx_packets_per_sec",
     "net.retrans_percent",
 ]
-# 환경 전체 추이 차트 metric — 대시보드 추이 + 환경 성능 추이. capacity-weighted(cpu·mem·fs = sum/sum) /
-# 코어 정규화(run_queue) / 합산(disk·net rate).
+# 환경 성능 추이 차트 metric — capacity-weighted(cpu·mem = sum/sum) / 압박(psi %) / 스토리지 사용량(fs.used_bytes 합산) /
+# 활동 합산(disk·net rate) / worst-device 포화(disk.io_saturation) / 전사 품질(net.retrans).
+# 포화 축은 PSI(자원 경합으로 멈춘 시간 %)로 통일 — 간접 지표(run_queue) 대신 직접 지표. 디스크는 worst-device await 유지.
 EnvironmentMetricType = Literal[
     "cpu.usage_percent",
     "cpu.user_percent",
     "cpu.system_percent",
     "cpu.iowait_percent",
-    "cpu.run_queue",
+    "cpu.psi",
     "mem.usage_percent",
-    "mem.available_percent",
-    "mem.cached_percent",
-    "mem.buffers_percent",
-    "fs.usage_percent",
+    "mem.psi",
+    "fs.used_bytes",
     "disk.read_iops",
     "disk.write_iops",
     "disk.read_kbps",

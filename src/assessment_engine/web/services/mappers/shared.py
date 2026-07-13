@@ -111,12 +111,17 @@ def build_host_confidence_notes(host: recommendation.HostAssessment) -> list[str
     구 단일-assess 대비 rollup_host 기반 — coverage_gap(포화 축 미관측)·low_precision(이력<30h·버스티)를
     호스트 단위로 노출. biased(virtio 구조 편향)는 disk_io 가 상시 True 라 표시 노이즈 -> 노트 제외
     (다운사이즈 게이트 내부용). report·attention 이 rollup_host 로 이관 후 본 함수 공용.
+
+    '창 대비 관측 부족'은 30h 절대 바닥(low_precision)과 별개 축 — 선택 창을 다 못 덮으면(예: 14일 창에
+    2일 데이터) sample_sufficiency 가 낮아 발화. 짧은 창으로 판정 시 저커버리지를 정직하게 노출.
     """
     notes: list[str] = []
     if recommendation.host_saturation_unmeasured(host):  # 포화 축(cpu·mem·disk_io) 한정 — 용량·네트워크 제외
         notes.append("포화 수치 미관측")
     if any(r.confidence.low_precision for r in host.resources.values()):
         notes.append("표본 부족")
+    if host.sample_sufficiency is not None and host.sample_sufficiency < recommendation.RS_DOWNSIZE_MIN_SUFFICIENCY:
+        notes.append("창 대비 관측 부족")
     return notes
 
 

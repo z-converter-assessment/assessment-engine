@@ -103,9 +103,9 @@ list에서 N대 선택 → 다음 액션 활성화:
 
 L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendored) 렌더. 화면 전용 (보고서는 정적 서브넷 요약 표만, `docs/explanation/products/environment-report.md`).
 
-- 서브넷 연결도: 노드=subnet/host, 가상망·IPv6·단독 subnet 제외. OS(linux/windows)로만 구분.
-- 서브넷별 서버 표: net_key·host_count 집계.
-- 추론이라 실측 reachability 아님 — caveat 노출(#E9). 매퍼 `mappers/topology.build_network_topology` 단일 진실.
+- 서브넷 연결도: 3계층 그래프 — 라우터(게이트웨이) -> 서브넷 -> 호스트. gateway·subnet·route 엣지가 라우팅 골격으로 기본 표시, 호스트는 서브넷 클릭 시 펼침(collapsed 초기, 대규모 hairball 회피). 같은 gateway 공유 서브넷은 한 라우터 노드로 묶여 라우팅 계층이 드러남. 가상망·IPv6·단독 subnet 제외. 호스트 색=OS(linux/windows), 멀티홈(2+ 서브넷=브리지/라우터 후보)은 사각+테두리 강조. 노드 hover 시 이웃만 강조 + 상세 툴팁(인터페이스명·MAC·MTU·게이트웨이). breadthfirst 계층 레이아웃.
+- 서브넷별 소속 서버 표: 서브넷별 호스트 + 해당 세그먼트 인터페이스명·게이트웨이·주소 origin(dhcp/static)·멀티홈 여부·OS·시그니처 워크로드.
+- 추론이라 실측 reachability 아님 — caveat 노출(#E9). 매퍼 `mappers/topology.build_network_topology` 단일 진실, 렌더는 `static/js/pages/network-topology.js`(P4).
 
 답: "어떤 서버가 같은 서브넷에 묶여 있나?"
 

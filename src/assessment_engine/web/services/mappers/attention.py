@@ -67,7 +67,8 @@ _UTIL_DONUT_CIRC = 2 * math.pi * _DONUT_RADIUS
 
 # 자원 부족 카드 지표 값 색 — 위반 강조 / 정상 / 미관측(N/A) 흐림 3분기.
 # 위반은 빨강(#dc2626, red-600) + 굵기로 강조 — 발화 축을 즉시 식별. 정상은 중간 회색(#475569)으로 대비.
-_METRIC_VIOLATION_COLOR = "#dc2626"
+_METRIC_VIOLATION_COLOR = "#dc2626"  # 빨강 — 적정성 판정에 기여한 위반(CPU·메모리·디스크 용량)
+_METRIC_ADVISORY_COLOR = "#d97706"  # 주황 — 임계 초과했으나 판정 구동 아닌 참고 신호(디스크 I/O·네트워크, virtio 편향 등)
 _METRIC_NORMAL_COLOR = "#475569"
 _METRIC_UNMEASURED_COLOR = "#94a3b8"  # 미관측(N/A) 흐림 — Windows perflib 미발행 축 등
 
@@ -87,8 +88,6 @@ _MEM_SAT_LABEL = f"페이징 (L 스왑 · W>={_L.WIN_PAGES_INPUT_SATURATION:g}/s
 _DISK_IO_LABEL = f"디스크 응답지연 (await > {_L.RS_DISKIO_AWAIT_MS:g}ms)"
 # 네트워크 — 사이징과 별개 품질 축(orthogonal). 다른 자원처럼 수치 2칼럼(재전송율·드롭율) + 판정(상태) 칼럼.
 # 판정 근거 assess_network(재전송>1% or 드롭>0.5% or conntrack>=80% -> 혼잡, monitoring 표준). conntrack 은 서버 상세.
-_NET_RETRANS_LABEL = f"재전송율 (>{_L.RS_NET_RETRANS_PCT:g}%)"
-_NET_DROP_LABEL = f"드롭율 (>{_L.RS_NET_DROP_PCT:g}%)"
 _NET_LABEL = "네트워크 상태"
 _NET_STATUS_LABEL: dict[str, str] = {"quality_ok": "정상", "congested": "혼잡", "unmeasured": "미측정"}
 
@@ -114,12 +113,15 @@ def _disk_cap_value(raw) -> str:
     return f"{used:.1f}%"
 
 
-def _metric(label: str, value: str, active: bool, measured: bool) -> CapacityMetric:
-    """CapacityMetric 1개 — active(위반) 강조 / 정상 진함 / 미관측(N/A) 흐림 precompute (P3)."""
+def _metric(label: str, value: str, active: bool, measured: bool, advisory: bool = False) -> CapacityMetric:
+    """CapacityMetric 1개 — 색 precompute (P3): 미관측=흐림 / 정상=진함 / 위반 강조는 red(판정 기여) vs
+    amber(advisory=판정 구동 아닌 참고 신호, 디스크 I/O·네트워크). active 는 강조(bold) 여부, advisory 는 색만 분기."""
     if not measured:
         color = _METRIC_UNMEASURED_COLOR
+    elif active:
+        color = _METRIC_ADVISORY_COLOR if advisory else _METRIC_VIOLATION_COLOR
     else:
-        color = _METRIC_VIOLATION_COLOR if active else _METRIC_NORMAL_COLOR
+        color = _METRIC_NORMAL_COLOR
     return CapacityMetric(label=label, value=value, active=active, measured=measured, color=color)
 
 
@@ -391,16 +393,15 @@ def build_environment_realtime(
     online: int,
     snapshots: list[dict],
     last_collected_at,
-    top_n: int = 3,
+    top_n: int = 5,
 ) -> EnvironmentRealtime:
     """온라인 서버 최신 스냅샷 snapshots -> EnvironmentRealtime.
 
     호출자가 온라인 서버만 snapshots 로 전달 (오프라인 stale 메트릭 제외 — sample_size = len(snapshots)).
-    snapshots 키: hostname/public_id + 부하상위용 서버별 값(cpu_pct/mem_pct/disk_pct + disk_iops/net_kbps)
-                + capacity-weighted 가중치(cpu_cores·mem_used_bytes·mem_total_bytes·fs_used_gb·fs_total_gb).
-    utilization: CPU/메모리/디스크 평균 도넛 3개 — capacity-weighted(environment_utilization 동일 정의).
-    io_*: 환경 I/O 총량(신선 표본 합산) — 평균 섹션 수치 카드(rate 라 도넛 아님).
-    peak_groups: 자원별(CPU/메모리/디스크/디스크 I/O/네트워크 I/O) top_n 5열 — I/O 는 2행 페어 delta(build_dashboard).
+    snapshots 키: hostname/public_id + 부하상위용 서버별 값(cpu_pct/mem_pct/cpu_sat_index/disk_sat_index/
+                paging_rate/net_kbps) + capacity-weighted 가중치(cpu_cores·mem_used_bytes·mem_total_bytes).
+    utilization: CPU/메모리 평균 도넛 2개 — capacity-weighted(디스크 용량은 실시간 신호 아니라 제외).
+    peak_groups: 6축(CPU·메모리 이용률 + 실행 큐·페이징·응답 지연·네트워크) top_n — 현황 도넛과 동일 신호 랭킹.
     """
 
     # capacity-weighted 평균 — 환경 전체 자원 풀 활용률(단순 산술평균 X). environment_utilization SQL 과 동일 정의:
@@ -418,26 +419,33 @@ def build_environment_realtime(
 
     avg_cpu = _cap_weighted("cpu_pct", "cpu_cores")
     avg_mem = _ratio("mem_used_bytes", "mem_total_bytes")
-    avg_disk = _ratio("fs_used_gb", "fs_total_gb")
+    # 디스크 용량(fill%)은 실시간 신호가 아니라(느린 누적 축) 제외 — CPU·메모리 이용률만.
     util_bars = [
         _util_bar("CPU", avg_cpu),
         _util_bar("메모리", avg_mem),
-        _util_bar("디스크 용량", avg_disk),
     ]
 
-    def _top_pct(key: str) -> list[RealtimePeak]:
-        ranked = sorted((s for s in snapshots if s.get(key) is not None), key=lambda s: s[key], reverse=True)
+    def _top(key: str, fmt, positive_only: bool = False) -> list[RealtimePeak]:
+        # positive_only: 포화 지수·rate 처럼 대부분 0 인 신호는 값>0 호스트만 랭킹(유휴 0.0 나열 방지).
+        cand = [s for s in snapshots if s.get(key) is not None and (not positive_only or s[key] > 0)]
+        ranked = sorted(cand, key=lambda s: s[key], reverse=True)
         return [
-            RealtimePeak(hostname=s["hostname"], public_id=s["public_id"], value=s[key], display=f"{s[key]:.1f}%")
+            RealtimePeak(hostname=s["hostname"], public_id=s["public_id"], value=s[key], display=fmt(s[key]))
             for s in ranked[:top_n]
         ]
 
-    # 부하 상위는 이용률 순위만 — 포화 지수는 Linux(await·실행큐)/Windows(큐 깊이) 신호가 달라 한 줄 랭킹이
-    # 애매하다(포화는 카운트 도넛으로만). 처리량(IOPS·MB/s)은 기준점 없어 폐기.
+    def _fmt_net(kbps: float) -> str:
+        return f"{kbps / 1024:.1f} MB/s" if kbps >= 1024 else f"{kbps:.0f} kB/s"
+
+    # 부하 상위 6축 — 현황 도넛(이용률 2 + 포화/압박 4)과 동일 신호를 호스트 랭킹으로 매핑. 순서 = 도넛 순서.
+    # 포화 지수(실행 큐·응답 지연)는 임계 정규화(>=1.0 포화)라 "x" 표기. 페이징/네트워크는 rate.
     peak_groups = [
-        RealtimePeakGroup(label="CPU", peaks=_top_pct("cpu_pct")),
-        RealtimePeakGroup(label="메모리", peaks=_top_pct("mem_pct")),
-        RealtimePeakGroup(label="디스크", peaks=_top_pct("disk_pct")),
+        RealtimePeakGroup(label="CPU 이용률", peaks=_top("cpu_pct", lambda v: f"{v:.1f}%")),
+        RealtimePeakGroup(label="메모리 이용률", peaks=_top("mem_pct", lambda v: f"{v:.1f}%")),
+        RealtimePeakGroup(label="실행 큐", peaks=_top("cpu_sat_index", lambda v: f"{v:.2f}x", positive_only=True)),
+        RealtimePeakGroup(label="페이징", peaks=_top("paging_rate", lambda v: f"{v:.0f}/s", positive_only=True)),
+        RealtimePeakGroup(label="응답 지연", peaks=_top("disk_sat_index", lambda v: f"{v:.2f}x", positive_only=True)),
+        RealtimePeakGroup(label="네트워크", peaks=_top("net_kbps", _fmt_net, positive_only=True)),
     ]
 
     # 신호 임계 초과 도넛 — 순간 단일신호(이용률 게이트 없음)라 라벨을 신호명으로(환경개요 dual-gate "포화" 도넛과 구분).
@@ -501,9 +509,8 @@ def to_capacity_warning_item(raw):
     net_res = host.resources["network"]
     net_congested = net_res.status == "congested"
     net_measured = net_res.status != "unmeasured"
-    # 네트워크 — 수치 2칼럼(재전송율·드롭율) + 판정(상태). 상태는 '분류'처럼 정상/혼잡/미측정. conntrack 은 서버 상세.
-    retrans = raw.net_retrans_pct
-    drop = raw.net_drop_pct
+    # 네트워크 — verdict 1칼럼(정상/혼잡/미측정). host under/over 분류 축 아닌 별도 flag 라, 재전송·드롭·conntrack
+    # 을 상태로 종합(원시 수치는 서버 상세). 다른 자원(각 2칼럼)과 달리 부가신호라 1칼럼.
     net_status_value = _NET_STATUS_LABEL.get(net_res.status, net_res.status)
     metrics = [
         _metric(_CPU_UTIL_LABEL, _pct(raw.cpu_p95_pct), cpu_active, raw.cpu_p95_pct is not None),
@@ -511,13 +518,10 @@ def to_capacity_warning_item(raw):
         _metric(_MEM_UTIL_LABEL, _pct(raw.mem_p95_pct), mem_active, raw.mem_p95_pct is not None),
         _metric(_MEM_SAT_LABEL, d_mem.value, swap_active, d_mem.measured),
         _metric(_DISK_CAP_LABEL, _disk_cap_value(raw), "disk_capacity" in hit, raw.worst_mount_used_pct is not None),
-        _metric(_DISK_IO_LABEL, d_disk.value, "disk_io" in hit, d_disk.measured),
-        # 네트워크 그룹 — 근거(재전송·드롭 수치) 뒤 판정(상태). active = 각 임계 초과.
-        _metric(_NET_RETRANS_LABEL, f"{retrans:.2f}%" if retrans is not None else "N/A",
-                retrans is not None and retrans > _L.RS_NET_RETRANS_PCT, retrans is not None),
-        _metric(_NET_DROP_LABEL, f"{drop:.2f}%" if drop is not None else "N/A",
-                drop is not None and drop > _L.RS_NET_DROP_PCT, drop is not None),
-        _metric(_NET_LABEL, net_status_value, net_congested, net_measured),
+        # 디스크 I/O·네트워크는 advisory — 임계 초과해도 host under/over 판정을 구동 안 함(virtio 편향·별도 flag).
+        # 앰버로 표시해 CPU·메모리·디스크 용량의 판정 구동 위반(빨강)과 시각 구분.
+        _metric(_DISK_IO_LABEL, d_disk.value, "disk_io" in hit, d_disk.measured, advisory=True),
+        _metric(_NET_LABEL, net_status_value, net_congested, net_measured, advisory=True),
     ]
     # 상위 N 절단용 심각도 — swap(paging) 최우선 > 위반 자원 수 > 최고 활용률(CPU/메모리/디스크 max).
     # 가중치 자릿수 분리(swap 1e4 > active*100(max 500) > util(max 100))로 우선순위 충돌 없음.

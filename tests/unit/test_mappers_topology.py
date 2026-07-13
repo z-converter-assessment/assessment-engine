@@ -320,3 +320,92 @@ def test_null_gateway_host_joins_single_gateway_subnet():
     assert t.host_count == 2
     assert t.subnet_count == 1
     assert t.isolated_count == 0
+
+
+# ─── 3계층 재설계 — 게이트웨이 라우터 노드 · 멀티홈 · SubnetHost 상세 필드 ──────
+
+
+def _rich_iface(name, cidr, gateway, origin="dhcp", mac="fa:16:3e:00:00:01", mtu=1450):
+    """툴팁·표 필드까지 담은 net_interface — name/id(mac)/mtu/gateway/addresses.origin."""
+    addr, _, prefix_s = cidr.partition("/")
+    return {
+        "name": name, "id": mac, "id_type": "mac", "kind": "physical", "mtu": mtu, "gateway": gateway,
+        "addresses": [{"address": addr, "prefix": int(prefix_s), "family": "ipv4", "origin": origin}],
+    }
+
+
+def _gateways(t):
+    return {e["data"]["label"]: e["data"]["subnetCount"] for e in t.elements if e["data"].get("kind") == "gateway"}
+
+
+def _route_edges(t):
+    return {(e["data"]["source"], e["data"]["target"]) for e in t.elements if e["data"].get("kind") == "route"}
+
+
+def test_single_subnet_gateway_not_promoted_to_router_node():
+    # 서브넷당 1:1 gateway 는 유추 가능(대개 .1)이라 라우터 노드로 안 띄운다 — subnet data·표에만 노출.
+    hosts = [
+        _host("a", "hostA", "linux", [_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1")]),
+        _host("b", "hostB", "linux", [_rich_iface("ens3", "10.0.1.11/24", "10.0.1.1")]),
+    ]
+    t = build_network_topology(hosts)
+    assert _gateways(t) == {}  # 공유 아님 -> 라우터 노드 없음
+    assert _route_edges(t) == set()
+    assert t.router_count == 0  # 범례 미노출
+    sn = next(e["data"] for e in t.elements if e["data"].get("kind") == "subnet")
+    assert sn["gateway"] == "10.0.1.1"  # subnet data 엔 여전히 실림(툴팁·표용)
+
+
+def test_shared_gateway_groups_subnets_under_one_router():
+    # 서로 다른 두 서브넷이 같은 gateway 를 쓰면 한 라우터 노드(subnetCount=2)로 묶여 라우팅 계층이 드러남.
+    hosts = [
+        _host("a", "hostA", "linux", [_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1")]),
+        _host("b", "hostB", "linux", [_rich_iface("ens3", "10.0.1.11/24", "10.0.1.1")]),
+        _host("c", "hostC", "linux", [_rich_iface("ens4", "10.0.9.10/24", "10.0.1.1")]),
+        _host("d", "hostD", "linux", [_rich_iface("ens4", "10.0.9.11/24", "10.0.1.1")]),
+    ]
+    t = build_network_topology(hosts)
+    assert _gateways(t) == {"10.0.1.1": 2}
+    assert t.router_count == 1  # 공유 게이트웨이 1개 -> 라우터 범례 노출
+    assert ("gw:10.0.1.1", "subnet:10.0.1.0/24") in _route_edges(t)
+    assert ("gw:10.0.1.1", "subnet:10.0.9.0/24") in _route_edges(t)
+
+
+def test_multi_homed_host_flagged_in_node_and_subnet_host():
+    hosts = [
+        _host("a", "hostA", "linux",
+              [_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1"), _rich_iface("ens4", "10.0.2.10/24", "10.0.2.1")]),
+        _host("b", "hostB", "linux", [_rich_iface("ens3", "10.0.1.11/24", "10.0.1.1")]),
+        _host("c", "hostC", "linux", [_rich_iface("ens3", "10.0.2.11/24", "10.0.2.1")]),
+    ]
+    t = build_network_topology(hosts)
+    assert t.multi_homed_count == 1
+    host_a = next(e["data"] for e in t.elements if e["data"].get("id") == "host:a")
+    host_b = next(e["data"] for e in t.elements if e["data"].get("id") == "host:b")
+    assert host_a["multiHomed"] is True
+    assert host_b["multiHomed"] is False
+    a_rows = [h for sn in t.subnets for h in sn.hosts if h.public_id == "a"]
+    assert len(a_rows) == 2 and all(h.multi_homed for h in a_rows)
+
+
+def test_subnet_host_carries_iface_gateway_origin():
+    hosts = [
+        _host("a", "hostA", "linux", [_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1", origin="static")]),
+        _host("b", "hostB", "linux", [_rich_iface("eth0", "10.0.1.11/24", "10.0.1.1")]),
+    ]
+    t = build_network_topology(hosts)
+    row_a = next(h for sn in t.subnets for h in sn.hosts if h.public_id == "a")
+    assert row_a.iface == "ens3"
+    assert row_a.gateway == "10.0.1.1"
+    assert row_a.origin == "static"
+
+
+def test_host_node_ifaces_tooltip_payload():
+    hosts = [
+        _host("a", "hostA", "linux",
+              [_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1", mac="fa:16:3e:ab:cd:ef", mtu=9000)]),
+        _host("b", "hostB", "linux", [_rich_iface("ens3", "10.0.1.11/24", "10.0.1.1")]),
+    ]
+    t = build_network_topology(hosts)
+    host_a = next(e["data"] for e in t.elements if e["data"].get("id") == "host:a")
+    assert host_a["ifaces"] == [{"name": "ens3", "mac": "fa:16:3e:ab:cd:ef", "mtu": 9000, "gateway": "10.0.1.1"}]

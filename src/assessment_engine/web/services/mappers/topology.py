@@ -19,10 +19,21 @@ IPv4 only: 그래프는 physical+bond_master 인터페이스의 IPv4 주소만. 
 
 import ipaddress
 from collections import defaultdict
+from typing import NamedTuple
 
 from assessment_engine.service_classifier import SIGNATURE_CATEGORIES
 from assessment_engine.web.services.device_filters import is_virtual_interface
 from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGroup, SubnetHost
+
+
+class _Member(NamedTuple):
+    """서브넷 멤버십 1건 — 호스트가 특정 인터페이스/주소로 한 서브넷에 속함."""
+
+    pid: str
+    ip: str
+    gateway: str | None
+    iface: str | None  # NIC 이름 (ens3 등)
+    origin: str | None  # 주소 origin (dhcp/static/...)
 
 _CAVEATS = [
     "추론 토폴로지 — 같은 서브넷(IP·prefix) 공유 기준이며, 실제 통신 가능 여부(방화벽·VLAN 격리)는 반영하지 않습니다.",
@@ -44,10 +55,11 @@ def build_network_topology(hosts) -> NetworkTopology:
 
     net_interfaces 는 [{kind, gateway, addresses:[{address, prefix, family}]}]. physical+bond_master 의 IPv4 주소만 채택.
     """
-    # subnet CIDR -> [(pid, ip, gateway)]. 한 호스트가 같은 서브넷에 여러 IP 면 멤버십 1회만.
-    subnet_members: dict[str, list[tuple[str, str, str | None]]] = defaultdict(list)
+    # subnet CIDR -> [_Member]. 한 호스트가 같은 서브넷에 여러 IP 면 멤버십 1회만.
+    subnet_members: dict[str, list[_Member]] = defaultdict(list)
     host_meta: dict[str, tuple[str, str]] = {}  # public_id -> (hostname, os_family)
     host_roles: dict[str, list[str]] = {}  # public_id -> 주요 워크로드 카테고리(시그니처만, 환경 개요 도넛·서버 목록 뱃지와 동일 기준)
+    host_ifaces: dict[str, list[dict]] = {}  # public_id -> 물리 인터페이스 요약 dict (그래프 노드 툴팁 JSON)
 
     for h in hosts:
         pid = str(h.public_id)
@@ -56,11 +68,22 @@ def build_network_topology(hosts) -> NetworkTopology:
         host_roles[pid] = sorted(
             c for c in (getattr(h, "service_categories", None) or []) if c in SIGNATURE_CATEGORIES
         )
+        ifaces: list[dict] = []
         seen_nets: set[str] = set()  # 호스트 스코프 — 여러 인터페이스/주소가 같은 서브넷 잡아도 멤버십 1회
         for iface_info in h.net_interfaces or []:
             if is_virtual_interface(iface_info.get("kind")):
                 continue  # 집계 단위(physical·bond_master)만 — bridge/veth/vlan/tunnel/loopback/bond_member 제외
             gateway = iface_info.get("gateway")  # gateway 는 인터페이스 레벨 (주소별 아님)
+            iface_name = iface_info.get("name")
+            # 노드 툴팁용 물리 인터페이스 요약 (name/mac/mtu/gateway) — 그래프 표시만, 필터는 아래 주소 루프.
+            ifaces.append(
+                {
+                    "name": iface_name,
+                    "mac": iface_info.get("id") if iface_info.get("id_type") == "mac" else None,
+                    "mtu": iface_info.get("mtu"),
+                    "gateway": gateway,
+                }
+            )
             for a in iface_info.get("addresses") or []:
                 if a.get("family") != "ipv4":
                     continue  # IPv4 only (IPv6 은 그래프 제외)
@@ -81,32 +104,39 @@ def build_network_topology(hosts) -> NetworkTopology:
                 if subnet in seen_nets:
                     continue
                 seen_nets.add(subnet)
-                subnet_members[subnet].append((pid, str(ip), gateway))
+                subnet_members[subnet].append(
+                    _Member(pid, str(ip), gateway, iface_name, a.get("origin"))
+                )
+        host_ifaces[pid] = ifaces
 
     # gateway disambiguation + 단독 서브넷 필터. 한 서브넷에 서로 다른 non-null gateway 2+ 면 다른 물리망으로
     # 간주해 gateway 별로 분리(사설 대역 중복 오병합 방지). null gateway 는 gateway 1개뿐인 서브넷엔 합류,
     # 모호(2+)한 서브넷에선 귀속 불가라 제외. 가상망은 kind 로 이미 제외됨.
     surviving: dict[str, list[str]] = {}  # net_key -> pids
-    seg_pid_ip: dict[str, dict[str, str]] = {}  # net_key -> {pid: ip}
+    seg_member: dict[str, dict[str, _Member]] = {}  # net_key -> {pid: _Member} (표·툴팁 접근)
     net_cidr: dict[str, str] = {}  # net_key -> subnet CIDR (정렬용)
     net_label: dict[str, str] = {}  # net_key -> 표시 라벨
+    net_gateway: dict[str, str | None] = {}  # net_key -> 대표 게이트웨이 (라우터 노드용, null 이면 라우터 노드 없음)
     for subnet, members in subnet_members.items():
-        gws = {gw for (_, _, gw) in members if gw}
+        gws = {m.gateway for m in members if m.gateway}
         if len(gws) >= 2:
             groups = [
-                (f"{subnet}#{gw}", f"{subnet} (via {gw})", [(p, i) for (p, i, g) in members if g == gw])
+                (f"{subnet}#{gw}", f"{subnet} (via {gw})", gw, [m for m in members if m.gateway == gw])
                 for gw in sorted(gws)
             ]
         else:
-            groups = [(subnet, subnet, [(p, i) for (p, i, _) in members])]
-        for net_key, label, gm in groups:
-            pids = sorted({p for (p, _) in gm})
-            if len(pids) < 2:
+            groups = [(subnet, subnet, next(iter(gws)) if gws else None, list(members))]
+        for net_key, label, gw, gm in groups:
+            by_pid: dict[str, _Member] = {}
+            for m in gm:
+                by_pid.setdefault(m.pid, m)  # 호스트당 첫 멤버 (같은 net_key 다중 주소 방어)
+            if len(by_pid) < 2:
                 continue  # 단독 서브넷 -> inter-host 토폴로지 무의미
-            surviving[net_key] = pids
-            seg_pid_ip[net_key] = {p: i for (p, i) in gm}
+            surviving[net_key] = sorted(by_pid)
+            seg_member[net_key] = by_pid
             net_cidr[net_key] = subnet
             net_label[net_key] = label
+            net_gateway[net_key] = gw
 
     host_subnet_count: dict[str, int] = defaultdict(int)
     for pids in surviving.values():
@@ -115,12 +145,22 @@ def build_network_topology(hosts) -> NetworkTopology:
 
     ordered_nets = sorted(surviving, key=lambda k: ipaddress.ip_network(net_cidr[k]))  # 서브넷 주소 오름차순
 
-    # 집계 뷰: subnet 노드만 기본 표시(hostCount 라벨), host 노드/엣지는 "collapsed" 로 시작 ->
-    # network-topology.js 가 subnet 노드 클릭 시 해당 호스트를 펼친다 (대규모 호스트 hairball 회피).
+    # 3계층 뷰: gateway(라우터) + subnet 노드 + gateway->subnet 엣지가 기본 표시(라우팅 골격) ->
+    # host 노드/host->subnet 엣지는 "collapsed" 로 시작, subnet 클릭 시 펼침 (대규모 호스트 hairball 회피).
     elements: list[dict] = []
     graph_hosts: set[str] = set()
-    edges: list[tuple[str, str]] = []
+    host_edges: list[tuple[str, str]] = []
+    # 게이트웨이 노드는 "공유"(2+ 서브넷)일 때만 승격 — 서브넷당 1:1 gateway 는 유추 가능(대개 .1)이라 그래프
+    # 노드로 안 띄우고 서브넷 노드 data·툴팁·아래 표에만 노출. 공유 게이트웨이만 라우터로 올려 라우팅 계층을 드러낸다.
+    gw_subnet_count: dict[str, int] = defaultdict(int)
     for net_key in ordered_nets:
+        gw = net_gateway.get(net_key)
+        if gw:
+            gw_subnet_count[gw] += 1
+    shared_gws = {gw for gw, c in gw_subnet_count.items() if c >= 2}
+
+    for net_key in ordered_nets:
+        gw = net_gateway.get(net_key)
         elements.append(
             {
                 "data": {
@@ -128,12 +168,20 @@ def build_network_topology(hosts) -> NetworkTopology:
                     "label": net_label[net_key],
                     "kind": "subnet",
                     "hostCount": len(surviving[net_key]),
+                    "gateway": gw,
                 }
             }
         )
+        if gw in shared_gws:
+            elements.append({"data": {"source": f"gw:{gw}", "target": f"subnet:{net_key}", "kind": "route"}})
         for pid in surviving[net_key]:
             graph_hosts.add(pid)
-            edges.append((pid, net_key))
+            host_edges.append((pid, net_key))
+
+    for gw in sorted(shared_gws):
+        elements.append(
+            {"data": {"id": f"gw:{gw}", "label": gw, "kind": "gateway", "subnetCount": gw_subnet_count[gw]}}
+        )
 
     for pid in sorted(graph_hosts):
         hostname, os_family = host_meta[pid]
@@ -145,29 +193,38 @@ def build_network_topology(hosts) -> NetworkTopology:
                     "kind": "host",
                     "publicId": pid,
                     "osFamily": os_family,
-                    "roles": host_roles.get(pid, []),  # 워크로드 카테고리 — 노드 tooltip·색 (app tier)
+                    "roles": host_roles.get(pid, []),  # 워크로드 카테고리 — 노드 색·툴팁 (app tier)
+                    "multiHomed": host_subnet_count[pid] >= 2,  # 2+ 서브넷 = 브리지/라우터 후보 (강조)
+                    "ifaces": host_ifaces.get(pid, []),  # 물리 인터페이스 요약 — 노드 hover 툴팁
                 },
                 "classes": "collapsed",
             }
         )
 
-    for pid, net_key in edges:
-        elements.append({"data": {"source": f"host:{pid}", "target": f"subnet:{net_key}"}, "classes": "collapsed"})
+    for pid, net_key in host_edges:
+        elements.append(
+            {"data": {"source": f"host:{pid}", "target": f"subnet:{net_key}", "kind": "member"}, "classes": "collapsed"}
+        )
 
     # 서브넷별 소속 서버 목록 (IP 표시) — 그래프와 별개 카드. net_members 에서 pid->ip 복원.
     subnets: list[SubnetGroup] = []
     for net_key in ordered_nets:
-        pid_ip = seg_pid_ip[net_key]
+        members = seg_member[net_key]
         hosts_list = []
         for pid in surviving[net_key]:
             hostname, os_family = host_meta[pid]
+            m = members.get(pid)
             hosts_list.append(
                 SubnetHost(
                     hostname=hostname,
-                    ip=pid_ip.get(pid, ""),
+                    ip=m.ip if m else "",
                     os_family=os_family,
                     public_id=pid,
                     roles=host_roles.get(pid, []),
+                    iface=m.iface if m else None,
+                    gateway=m.gateway if m else None,
+                    origin=m.origin if m else None,
+                    multi_homed=host_subnet_count[pid] >= 2,
                 )
             )
         hosts_list.sort(key=_subnet_host_sort_key)  # 서브넷 내 IP 숫자 오름차순
@@ -181,6 +238,7 @@ def build_network_topology(hosts) -> NetworkTopology:
         subnet_count=len(surviving),
         host_count=len(graph_hosts),
         multi_homed_count=multi_homed_count,
+        router_count=len(shared_gws),
         isolated_count=isolated_count,
         subnets=subnets,
         caveats=_CAVEATS,

@@ -486,6 +486,8 @@ class HostAssessment:
     symptom_of_root: list[str] = field(default_factory=list)  # root 의 증상으로 처방 억제된 kind
     host_status: HostStatus = "optimal"  # 정렬·배지용 호스트 요약 (조치는 root_cause·자원별에서)
     network_congested: bool = False  # 네트워크 품질 경고 (사이징 아님, 별도 플래그)
+    # 창 대비 관측 비율 — 신뢰도 '창 대비 관측 부족' 노트 입력(30h 절대바닥과 별개 축)
+    sample_sufficiency: float | None = None
 
 
 def _precision_low(stats: ResourceStats) -> bool:
@@ -904,6 +906,7 @@ def rollup_host(stats: ResourceStats) -> HostAssessment:
                 host.root_cause = k
                 break
     host.network_congested = res["network"].status == "congested"
+    host.sample_sufficiency = stats.sample_sufficiency  # 창 대비 관측 비율 전달(신뢰도 노트용)
     host.host_status = _host_status(stats, res, under_kinds)
     return host
 

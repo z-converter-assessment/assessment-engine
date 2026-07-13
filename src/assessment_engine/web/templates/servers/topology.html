@@ -8,16 +8,26 @@
 <script src="/static/js/vendor/cytoscape.min.js?v={{ asset_v }}" defer></script>
 <script src="/static/js/pages/network-topology.js?v={{ asset_v }}" defer></script>
 
+<style>
+  /* 토폴로지 노드 hover 툴팁 — 그래프 컨테이너 내 절대배치 (P4 시각화 부속). */
+  #topology-tooltip { position:absolute; display:none; z-index:20; pointer-events:none; max-width:280px;
+    background:#0f172a; color:#e2e8f0; border-radius:6px; padding:8px 10px; font-size:12px; line-height:1.5;
+    box-shadow:0 4px 14px rgba(15,23,42,.28); }
+  #topology-tooltip .tt-title { font-weight:700; color:#fff; font-family:monospace; margin-bottom:2px; }
+  #topology-tooltip .tt-row { color:#cbd5e1; }
+  #topology-tooltip .tt-iface { color:#94a3b8; font-family:monospace; font-size:11px; margin-top:2px; }
+</style>
+
 <section class="card no-print">
   <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; min-height:30px; margin-bottom:12px; flex-wrap:wrap;">
     <h2 class="card-title" style="margin:0;">서브넷 연결도</h2>
     {% if topology.has_data %}<span class="section-meta">서브넷 {{ topology.subnet_count }} · 호스트 {{ topology.host_count }}</span>{% endif %}
   </div>
   {% if topology.has_data %}
-  <p class="text-muted text-sm" style="margin:0 0 10px;">서브넷 노드를 클릭하면 소속 호스트가 펼쳐집니다.</p>
   <div style="position:relative;">
     <div id="topology-graph" style="height:560px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc;"
          data-elements='{{ topology.elements | tojson }}'></div>
+    <div id="topology-tooltip"></div>
     <div style="position:absolute; top:10px; right:10px; display:flex; flex-direction:column; gap:5px; z-index:10;">
       <button type="button" class="chart-anchor" data-topo-zoom="in" title="확대" style="width:32px; height:32px; padding:0; font-size:16px; font-weight:600; text-align:center;">+</button>
       <button type="button" class="chart-anchor" data-topo-zoom="out" title="축소" style="width:32px; height:32px; padding:0; font-size:16px; font-weight:600; text-align:center;">-</button>
@@ -25,7 +35,8 @@
     </div>
   </div>
   <div class="text-muted text-xs" style="display:flex; gap:14px; flex-wrap:wrap; margin-top:10px;">
-    <span><span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:var(--color-table-head); vertical-align:middle;"></span> 서브넷</span>
+    {% if topology.router_count %}<span><span style="display:inline-block; width:11px; height:11px; transform:rotate(45deg); background:#d97706; vertical-align:middle;"></span> 라우터(게이트웨이 공유)</span>{% endif %}
+    <span><span style="display:inline-block; width:12px; height:9px; border-radius:2px; background:#475569; vertical-align:middle;"></span> 서브넷</span>
     <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--color-title); vertical-align:middle;"></span> Linux</span>
     <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#8b5cf6; vertical-align:middle;"></span> Windows</span>
   </div>
@@ -34,28 +45,42 @@
   {% endif %}
 </section>
 
-{# 서브넷별 소속 서버 목록 (IP 표시) — 그래프와 별개. 발화 가드(#E9): 데이터 없어도 제목 노출. #}
+{# 서브넷별 소속 서버 상세 (IP·인터페이스·게이트웨이) — 그래프와 별개. 발화 가드(#E9): 데이터 없어도 제목 노출. #}
 <section class="card no-print">
-  <h2 class="card-title" style="margin:0 0 14px;">서브넷별 서버</h2>
+  <h2 class="card-title" style="margin:0 0 14px;">서브넷별 소속 서버</h2>
   {% if topology.subnets %}
-  {# 단일 table — 서브넷은 colspan 헤더 행으로 구분, 전 서브넷 칼럼 너비 정렬 통일. #}
-  <table class="text-sm" style="border-collapse:collapse;">
+  {# 단일 table — 서브넷은 colspan 헤더 행으로 구분, 전 서브넷 칼럼 너비 정렬 통일. 칼럼 과다라 가로 스크롤. #}
+  <div class="table-scroll">
+  <table class="text-sm detail-table" style="border-collapse:collapse; min-width:660px;">
+    <thead>
+      <tr>
+        <th style="text-align:left; padding:0 20px 6px 0;">호스트</th>
+        <th style="text-align:left; padding:0 20px 6px 0;">IP</th>
+        <th style="text-align:left; padding:0 20px 6px 0;">인터페이스</th>
+        <th style="text-align:left; padding:0 20px 6px 0;">게이트웨이</th>
+        <th style="text-align:left; padding:0 20px 6px 0;">OS</th>
+        <th style="text-align:left; padding:0 0 6px 0;">워크로드</th>
+      </tr>
+    </thead>
     <tbody>
     {% for sn in topology.subnets %}
     <tr>
-      <td colspan="4" class="text-md" style="font-family:monospace; font-weight:600; color:#334155; padding:{% if not loop.first %}16px{% else %}0{% endif %} 0 7px; border-bottom:1px solid #e2e8f0;">{{ sn.net_key }}</td>
+      <td colspan="6" class="text-md" style="font-family:monospace; font-weight:600; color:#334155; padding:{% if not loop.first %}16px{% else %}4px{% endif %} 0 7px; border-bottom:1px solid #e2e8f0;">{{ sn.net_key }} <span class="text-meta text-xs" style="font-weight:400;">· {{ sn.host_count }}대</span></td>
     </tr>
     {% for h in sn.hosts %}
     <tr>
-      <td style="padding:4px 28px 4px 0;"><a href="/servers/{{ h.public_id }}?back={{ self_back }}">{{ h.hostname }}</a></td>
-      <td class="text-label" style="padding:4px 28px 4px 0;">{{ h.ip }}</td>
-      <td class="text-label" style="padding:4px 28px 4px 0;">{{ h.os_family }}</td>
+      <td style="padding:4px 20px 4px 0; white-space:nowrap;"><a href="/servers/{{ h.public_id }}?back={{ self_back }}">{{ h.hostname }}</a>{% if h.multi_homed %} <span style="display:inline-block; font-size:10px; font-weight:600; color:#b45309; background:#fef3c7; border-radius:3px; padding:1px 5px;">멀티홈</span>{% endif %}</td>
+      <td class="text-label" style="padding:4px 20px 4px 0; white-space:nowrap; font-family:monospace;">{{ h.ip }}{% if h.origin == 'static' %} <span style="font-size:10px; font-weight:600; color:#1d4ed8;">static</span>{% elif h.origin %} <span class="text-meta" style="font-size:10px;">{{ h.origin }}</span>{% endif %}</td>
+      <td class="text-label" style="padding:4px 20px 4px 0; white-space:nowrap;">{{ h.iface or "—" }}</td>
+      <td class="text-label" style="padding:4px 20px 4px 0; white-space:nowrap; font-family:monospace;">{{ h.gateway or "—" }}</td>
+      <td class="text-label" style="padding:4px 20px 4px 0;">{{ h.os_family }}</td>
       <td style="padding:4px 0;">{% for r in h.roles %}<span class="badge {{ r | service_badge_class }}" style="margin-right:3px;">{{ r }}</span>{% else %}<span class="text-meta text-xs">—</span>{% endfor %}</td>
     </tr>
     {% endfor %}
     {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   {{ empty_state("표시할 공유 서브넷이 없습니다 — 인벤토리가 쌓이면 서브넷별 서버가 표시됩니다.") }}
   {% endif %}

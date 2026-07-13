@@ -12,9 +12,6 @@
 {% include "servers/_environment_realtime.html" %}
 </div>
 
-{# 느린 신호라 현황 메트릭과 분리해 정적 표시 (폴링 밖). #}
-{% include "servers/_operational_signals.html" %}
-
 {% include "_reference_link.html" %}
 <script src="/static/js/pages/realtime.js?v={{ asset_v }}" defer></script>
 {% endblock %}

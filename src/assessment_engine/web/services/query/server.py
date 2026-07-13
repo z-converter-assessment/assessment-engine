@@ -67,6 +67,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         service: str | None = None,
         os_distro: str | None = None,
         classification: str | None = None,
+        os_eol: str | None = None,
     ) -> list[ServerListItem]:
         dtos = await self.repo.list_servers(page, limit, search)
         if not dtos:
@@ -93,14 +94,14 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
             # Redis 장애 fallback: last_seen_at 기반 판정 (TTL 임계와 동일)
             threshold = datetime.now(UTC) - timedelta(seconds=web_settings.redis_ttl_online)
             for dto in dtos:
-                item = to_server_list_item(dto, raws_by_id.get(dto.id))
+                item = to_server_list_item(dto, raws_by_id.get(dto.id), today=now.date())
                 item.is_online = dto.last_seen_at is not None and dto.last_seen_at > threshold
                 item.last_task = last_tasks.get(dto.id)
                 items.append(item)
         else:
             # dtos와 online_flags는 동일 길이 보장 — mget이 키 개수만큼 반환.
             for dto, flag in zip(dtos, online_flags, strict=True):
-                item = to_server_list_item(dto, raws_by_id.get(dto.id))
+                item = to_server_list_item(dto, raws_by_id.get(dto.id), today=now.date())
                 item.is_online = flag is not None
                 item.last_task = last_tasks.get(dto.id)
                 items.append(item)
@@ -114,6 +115,10 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
             items = [i for i in items if i.os_distro == os_distro]
         if classification:
             items = [i for i in items if i.provisioning_class == classification]
+        if os_eol == "eol":
+            items = [i for i in items if i.os_eol]
+        elif os_eol == "supported":
+            items = [i for i in items if not i.os_eol]
         # 1차 online(온라인 우선) · 2차 hostname ASC. online 판정은 Redis 기반이라 DB ORDER BY 불가 →
         # service 레이어 정렬(P2). repo 는 hostname ASC raw 반환(2차 기준 보존).
         items.sort(key=lambda i: (not i.is_online, i.hostname.lower()))

@@ -715,15 +715,52 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                     FROM per_ts WHERE v IS NOT NULL GROUP BY ts, dim ORDER BY ts, dim
                 """)
                 params["dim_filter"] = dimension
+        elif metric_type == "fs.used_bytes":
+            # 스토리지 사용량 — 전 서버 데이터 파일시스템 사용 bytes 합산(절대량). 용량 소비 추이(capacity planning).
+            # 활용률(fs.usage_percent, 풀 비율)과 달리 함대 전체가 실제로 쓰는 총량 -> 증가 추세가 조달 신호.
+            # 물리디스크 I/O(device 레벨)와 축이 다름 — 용량은 마운트(df) 레벨 집계가 정석. 가상 fs 제외.
+            # 수집이 staggered(collected_at 당 소수 서버)라 순간 SUM 은 undercount -> bucket 내 server+mount 별
+            # last(used) 로 정렬 후 SUM(전 함대). agg(avg/max/p95) 무의미(절대 용량 스냅샷) -> ae 미적용.
+            sql = text(f"""
+                WITH per_sm AS (
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, mountpoint,
+                        last(used_bytes, collected_at) AS used
+                    FROM {ServerFilesystem.__tablename__}
+                    WHERE collected_at >= :start AND collected_at <= :end {sid}
+                      AND {_DATA_VOLUME_SQL_FILTER}
+                      AND used_bytes IS NOT NULL
+                    GROUP BY ts, server_id, mountpoint
+                )
+                SELECT ts, SUM(used)::float AS value, NULL::text AS dimension, NULL::text AS kind
+                FROM per_sm GROUP BY ts ORDER BY ts
+            """)
         elif metric_type in _RATE_PER_DIM_DEFS:
             table, dim_col, value_col = _RATE_PER_DIM[metric_type]
             if collapse:
+                # 환경 합산 — 수집이 staggered(collected_at 당 소수 서버)라 per-instant SUM 은 undercount
+                # (합산이 아니라 서버당 평균 ~ 총량/N 로 나옴). server+device 별 버킷 평균 rate 로 정렬 후
+                # SUM(전 함대) — 시점 정렬 무관 정확한 함대 합산. agg(avg/max/p95) 무의미(합산) -> ae 미적용.
                 dev_filter = _PHYS_DISK_SQL_FILTER if dim_col == "device_id" else _PHYS_IFACE_SQL_FILTER
-                dim_sel, dim_grp, out_dim = "", "", "NULL::text"
+                tail = f"""
+                    per_sd AS (
+                        SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, dim, avg(v) AS sv
+                        FROM rates WHERE v IS NOT NULL GROUP BY 1, server_id, dim
+                    )
+                    SELECT ts, SUM(sv) AS value, NULL::text AS dimension, NULL::text AS kind
+                    FROM per_sd GROUP BY ts ORDER BY ts
+                """
             else:
+                # 서버 상세 — device/iface 별 멀티라인 보존. 단일 서버라 per-instant 합산 이슈 없음.
                 dev_filter = f"(CAST(:dim_filter AS text) IS NULL OR {dim_col} = :dim_filter)"
-                dim_sel, dim_grp, out_dim = ", dim", ", dim", "dim"
                 params["dim_filter"] = dimension
+                tail = f"""
+                    per_ts AS (
+                        SELECT collected_at, dim, SUM(v) AS v
+                        FROM rates WHERE v IS NOT NULL GROUP BY collected_at, dim
+                    )
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, dim AS dimension, NULL::text AS kind
+                    FROM per_ts GROUP BY ts, dim ORDER BY ts, dim
+                """
             sql = text(f"""
                 WITH raw AS (
                     SELECT collected_at, server_id, {dim_col} AS dim, {value_col} AS cnt
@@ -731,22 +768,17 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                     WHERE collected_at >= :window_start AND collected_at <= :end {sid} AND {dev_filter}
                 ),
                 deltas AS (
-                    SELECT collected_at, dim,
+                    SELECT collected_at, server_id, dim,
                         GREATEST(cnt - LAG(cnt) OVER w, 0) AS d_val,
                         EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER w)) AS dt
                     FROM raw WINDOW w AS (PARTITION BY server_id, dim ORDER BY collected_at)
                 ),
                 rates AS (
-                    SELECT collected_at, dim,
+                    SELECT collected_at, server_id, dim,
                         CASE WHEN dt IS NULL OR dt <= 0 OR d_val IS NULL THEN NULL ELSE d_val / dt END AS v
                     FROM deltas WHERE collected_at >= :start
                 ),
-                per_ts AS (
-                    SELECT collected_at{dim_sel}, SUM(v) AS v
-                    FROM rates WHERE v IS NOT NULL GROUP BY collected_at{dim_grp}
-                )
-                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, {out_dim} AS dimension, NULL::text AS kind
-                FROM per_ts GROUP BY ts{dim_grp} ORDER BY ts{dim_grp}
+                {tail}
             """)
             params["window_start"] = start - bucket_td
         else:

@@ -5,6 +5,7 @@
 """
 
 from collections import Counter
+from datetime import date
 from typing import Literal
 
 from assessment_engine import recommendation
@@ -36,6 +37,7 @@ from assessment_engine.web.services.mappers.shared import (
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
     os_id_to_distro,
+    resolve_os_eol,
     windows_legacy_version_from_build,
 )
 from assessment_engine.web.services.metrics_calculator import compute_net_io
@@ -232,15 +234,32 @@ def build_cpu_breakdown(raw) -> CpuBreakdown:
 # ─── 1차 매핑 (Outbound → ViewModel) ──────────────────────────────────────
 
 
-def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
+def to_server_list_item(dto: ServerSummary, raw_period=None, today: date | None = None) -> ServerListItem:
     """ServerSummary -> ServerListItem. raw_period(ReportRowRaw)가 있으면 권장 조치 분류 채움.
 
     분류 색·라벨은 shared._DONUT_SEGMENT_FROM_REC + _DONUT_SEGMENT_DEFS와 동기화 (P2 단일 진실).
     raw_period=None이면 미분류 — 빈 문자열 (페이지 2+ 등 raws_period 부재).
+    today 주어지면 OS EOL 판정(resolve_os_eol, attention 카드·보고서와 동일) — 경과 시 eol date iso.
     """
+    eol = resolve_os_eol(dto.os_id, dto.os_version, dto.kernel_version, today) if today else None
+    os_eol = eol[0] if eol else ""
     # 물리 디스크 총량 — disk_total_bytes 단일 산식(type=disk 합, 목록·상세·보고서 일관).
     _disk_bytes = disk_total_bytes(dto.block_devices)
     storage_total_gb = round(bytes_to_gb(_disk_bytes), 1) if _disk_bytes else None
+
+    # 정적 사양 한 줄 — CPU 코어 · 메모리 · 디스크. 실무정석: 값은 2진(GiB, 2^30)이되 라벨은 "GB"(free -h·df -h·
+    # 클라우드 콘솔 관습). OS·RAM·OpenStack 프로비저닝이 2진 기준이라 30GiB 디스크가 "30GB"로 떨어져 딱 맞음
+    # (10진 GB 는 32GB 로 오해 유발). 각 값 부재는 "—" (P2 precompute).
+    _mem_gib = bytes_to_gib(dto.mem_total_bytes)  # 1자리 반올림 — ServerListItem.mem_total_gb 용
+    _mem_spec = (dto.mem_total_bytes / 1024**3) if dto.mem_total_bytes else None  # 사양 표시 2자리(예약 오버헤드 가시)
+    _disk_gib = bytes_to_gib(_disk_bytes) if _disk_bytes else None
+    spec_display = " · ".join(
+        [
+            f"{dto.cpu_cores}코어" if dto.cpu_cores else "—",
+            f"{_mem_spec:.2f}GB" if _mem_spec else "—",
+            f"{_disk_gib:.0f}GB" if _disk_gib else "—",
+        ]
+    )
 
     # 서비스 뱃지 — 시그니처 워크로드만(SIGNATURE_CATEGORIES, 환경 개요 도넛과 동일 기준). file·mail·infra·remote
     # 등 유틸/관리 서비스는 서버 성격 신호가 약해 목록에서 제외(노이즈 감소). 상세 페이지는 live classify 로 전부.
@@ -278,7 +297,7 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
         os_id=dto.os_id,
         os_version=dto.os_version,
         cpu_cores=dto.cpu_cores,
-        mem_total_gb=bytes_to_gib(dto.mem_total_bytes),
+        mem_total_gb=_mem_gib,
         storage_total_gb=storage_total_gb,
         is_online=False,
         ip_external=dto.ip_external,
@@ -286,6 +305,8 @@ def to_server_list_item(dto: ServerSummary, raw_period=None) -> ServerListItem:
         known_services=known,
         show_unknown_badge=show_unknown,
         os_display=_os_display(dto.os_id, dto.os_version, dto.kernel_version),
+        spec_display=spec_display,
+        os_eol=os_eol,
         recommendation_label=rec_label,
         recommendation_color=rec_color,
         provisioning_class=seg_key,

@@ -91,6 +91,10 @@ class ServerListItem:
     known_services: list[ServiceItem] = field(default_factory=list)
     show_unknown_badge: bool = False
     os_display: str = ""
+    # 정적 사양 한 줄 — "2코어 · 16.4GB · 30GB" (CPU 코어·메모리·디스크). mapper precompute(P2), 값 부재는 "—".
+    spec_display: str = ""
+    # OS 지원 종료(EOL) — 경과 시 eol date iso("2024-06-30"), 아니면 빈 문자열. resolve_os_eol 단일 판정.
+    os_eol: str = ""
     # 권장 조치 — 7일 USE Method 분류. 색은 도넛 _DONUT_SEGMENT_DEFS와 동기화. mapper 단일 결정 (P2).
     # raws_period 부재 시 빈 문자열 (도넛/분류 데이터 없음 — 페이지 2+ 또는 신규 등록 직후).
     recommendation_label: str = ""

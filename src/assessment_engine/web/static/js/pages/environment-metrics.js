@@ -3,7 +3,8 @@
  * 환경 성능 추이 페이지 차트 로직 — 전체 환경(모든 서버) 차트.
  *
  * 서버 상세 성능 추이(metrics.js) 기반의 환경판. server_id 없음 — 환경 전체 집계
- * (capacity-weighted: cpu·mem·fs / 합산: disk·net rate / os-split: run_queue·disk saturation).
+ * (capacity-weighted: cpu·mem 이용률 / 압박: cpu·mem PSI % / 합산: disk·net rate·스토리지 사용 bytes /
+ *  worst-device: disk await 포화 / 전사 비율: net 재전송율).
  * fetch: GET /api/servers/environment/metrics-chart (agg 미지원 — capacity-weighted/합산 단일).
  * 외부 의존: ChartUtils (base.html), Chart.js (페이지 로드). 수집 기준은 SSR(#last-metric-ts) 고정.
  */
@@ -18,13 +19,6 @@ const PERF_NET_SUGGESTED_MAX  = 10 * 1024 * 1024; // 10 MB/s
 const PERF_DISK_KBPS_SUGGESTED_MAX = 10 * 1024;   // 10 MB/s — net 처리량과 동일 절대 기준선
 // 처리량 동적 단위(kBps/MBps)는 ChartUtils.fmtThroughput 단일 진실 (storage/detail/개별 성능추이 공용).
 
-const USAGE_DANGER_PCT = parseFloat(/** @type {string} */ (document.body.dataset.usageDangerPct)) || 90;
-const USAGE_WARN_PCT   = parseFloat(/** @type {string} */ (document.body.dataset.usageWarnPct))   || 75;
-const COLOR_NEUTRAL = '#64748b';
-const COLOR_WARN    = '#f59e0b';
-const COLOR_DANGER  = '#ef4444';
-const colorByMountPct = (/** @type {number} */ v) => v >= USAGE_DANGER_PCT ? COLOR_DANGER : v >= USAGE_WARN_PCT ? COLOR_WARN : COLOR_NEUTRAL;
-
 // 선택 N대 한정(있으면) — 차트 fetch 에 ids 전달. 없으면 전체 환경 (data-selection-ids 미설정/빈 문자열).
 const SELECTION_IDS = document.body.dataset.selectionIds || '';
 
@@ -33,9 +27,16 @@ let globalRange = '15m';
 const chartInstances = {};
 // P4(a) sequence counter — per-chart 분리.
 const seqs = {
-  cpu: 0, cpuClass: 0, runQueue: 0, mem: 0, memComp: 0,
-  physIo: 0, diskKbps: 0, diskSat: 0, fs: 0, netIo: 0, retrans: 0,
+  cpu: 0, cpuClass: 0, cpuPsi: 0, mem: 0, memPsi: 0,
+  physIo: 0, diskKbps: 0, diskSat: 0, storageUsed: 0, netIo: 0, retrans: 0,
 };
+
+// 절대 용량 표기 — binary(2^30/2^40) 값 + GB/TB 라벨(실무정석, 디스크 단위와 동일 base).
+const fmtBytesSize = (/** @type {number} */ b) =>
+  b >= 1024 ** 4 ? (b / 1024 ** 4).toFixed(1) + ' TB'
+  : b >= 1024 ** 3 ? (b / 1024 ** 3).toFixed(1) + ' GB'
+  : b >= 1024 ** 2 ? (b / 1024 ** 2).toFixed(0) + ' MB'
+  : Math.round(b) + ' B';
 
 const _safe = safeArray;
 const fmtLabel = (/** @type {string} */ iso, /** @type {string} */ range) => ChartUtils.fmtLabel(iso, range);
@@ -201,7 +202,8 @@ function renderMultiDimChart(canvasId, emptyId, legendId, rows, range, anchor, m
 /* ── Y축 설정 ── */
 const pctTicks = { callback: (/** @type {number} */ v) => v + '%', font:{size:11}, color:'#64748b' };
 const Y_PCT   = { min:0, max:100, ticks: pctTicks };
-const Y_RUNQ  = { beginAtZero:true, suggestedMax: 2, ticks:{ font:{size:11}, color:'#64748b' } };  // 실행 큐/코어 — Linux 1·Windows 2 포화
+const Y_PSI   = { beginAtZero:true, suggestedMax: 10, ticks: pctTicks };  // PSI some % — 작은 값도 유의미, 스파이크는 자동 확장
+const Y_STORAGE = { ticks:{ callback: (/** @type {number} */ v) => fmtBytesSize(v), font:{size:11}, color:'#64748b' } };  // 절대 용량 추이 — auto-scale(추세 가시성)
 const Y_IOPS  = { beginAtZero:true, suggestedMax: PERF_IOPS_SUGGESTED_MAX, ticks:{ precision:0, font:{size:11}, color:'#64748b' } };
 const Y_DISK_KBPS = { beginAtZero:true, suggestedMax: PERF_DISK_KBPS_SUGGESTED_MAX, ticks:{ callback: (/** @type {number} */ v) => fmtThroughput(v), font:{size:11}, color:'#64748b' } };
 const Y_NET   = { beginAtZero:true, suggestedMax: PERF_NET_SUGGESTED_MAX, ticks:{ callback: (/** @type {number} */ v) => fmtKbChart(v), font:{size:11}, color:'#64748b' } };
@@ -251,51 +253,23 @@ async function loadCpuClassChart(range, anchor) {
   renderMultiDimChart('cpuclass-canvas', 'cpuclass-empty', 'cpuclass-legend', rows, range, anchor, CPUCLASS_META);
 }
 
-// 실행 큐/코어 os-aware — Linux procs_running(R-state) / Windows Processor Queue Length. 분류 CPU 포화 신호.
-// 한 카드에 OS별 2선(dimension=os_family). load(폐기, 분류 미사용) 대체. 앵커/윈도우/버킷은 makeBucketGrid 로 동일 적용.
-const RUNQ_META = {
-  linux:   { label: 'Linux',   color: /** @type {any} */ (ChartUtils).themeColor() },
-  windows: { label: 'Windows', color: '#8b5cf6' },
-};
-function makeRunQueueOptions() {
-  return {
-    responsive: true, maintainAspectRatio: false,
-    interaction: { mode:'index', intersect:false },
-    plugins: {
-      legend: { display: false },
-      tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(2) : '—'}` } },
-    },
-    scales: {
-      x: { ticks:{ maxTicksLimit:10, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
-      y: { ...Y_RUNQ, grid:{ color:'#f1f5f9' } },
-    },
-  };
-}
+// CPU 압박 PSI — 자원 경합으로 실행 대기한 시간 % (Linux PSI some, 단일선). 실행 큐(간접 지표) 대체 직접 포화 신호.
+// Σ(Δstall)/Σ(Δwall)*100 환경 합산 (metric_trend cpu.psi). Windows 는 PSI 부재 -> 빈 결과(empty state).
 /**
  * @param {string} range
  * @param {Date | null} anchor
  */
-async function loadRunQueueChart(range, anchor) {
-  const seq = ++seqs.runQueue;
-  const rows = await fetchChart('cpu.run_queue', range, anchor);
-  if (seq !== seqs.runQueue) return;
-  const safe = _safe(rows);
-  const canvas = /** @type {HTMLElement} */ (document.getElementById('runqueue-canvas'));
-  const empty  = /** @type {HTMLElement} */ (document.getElementById('runqueue-empty'));
-  if (chartInstances['runqueue-canvas']) { chartInstances['runqueue-canvas'].destroy(); delete chartInstances['runqueue-canvas']; }
-  if (!safe.length) {
-    canvas.style.display = 'none'; empty.style.display = 'flex';
-    renderChipLegend(document.getElementById('runqueue-legend'), null);
-    return;
-  }
-  canvas.style.display = ''; empty.style.display = 'none';
-  const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
-  const grid   = makeBucketGrid(range, anchor);
-  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const datasets = /** @type {any} */ (buildDimDatasets(safe, bMs, grid, RUNQ_META));
-  const chart = new Chart(canvas, /** @type {any} */ ({ type: 'line', data: { labels, datasets }, options: makeRunQueueOptions() }));
-  chartInstances['runqueue-canvas'] = chart;
-  renderChipLegend(document.getElementById('runqueue-legend'), chart);
+async function loadCpuPsiChart(range, anchor) {
+  const seq = ++seqs.cpuPsi;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const avgRows = await fetchChart('cpu.psi', range, anchor);
+  if (seq !== seqs.cpuPsi) return;
+  const safeAvg = _safe(avgRows);
+  const datasets = buildDatasets(safeAvg, bMs, grid, 'CPU 압박');
+  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  setChart('cpupsi-canvas', 'cpupsi-empty', safeAvg, Y_PSI, v => v.toFixed(1)+'%', datasets, labels);
+  updateMaxLabel('cpupsi-max', computePeriodMax(safeAvg), v => v.toFixed(1)+'%', null);
 }
 
 // 디스크 I/O 포화 — await(ms) 양 OS 통일 단일선(backend disk.io_saturation, NULL dimension).
@@ -368,32 +342,23 @@ async function loadMemChart(range, anchor) {
   updateMaxLabel('mem-max', computePeriodMax(safeAvg), v => v.toFixed(1)+'%', null);
 }
 
-const MEMCOMP_META = {
-  used:      { label: 'Used',      color: /** @type {any} */ (ChartUtils).themeColor() },
-  available: { label: 'Available', color: '#8b5cf6' },
-  cached:    { label: 'Cached',    color: '#22c55e' },
-  buffers:   { label: 'Buffers',   color: '#f59e0b' },
-};
+// 메모리 압박 PSI — 메모리 경합으로 지연된 시간 % (Linux PSI some, 단일선). 페이징·회수 압박 직접 신호.
+// 메모리 구성(used/avail/cached/buffers) 대체 — env 레벨선 cached 상시 높아 신호 약해 폐기. Windows PSI 부재.
 /**
  * @param {string} range
  * @param {Date | null} anchor
  */
-async function loadMemCompChart(range, anchor) {
-  const seq = ++seqs.memComp;
-  const [used, avail, cached, buffers] = await Promise.all([
-    fetchChart('mem.usage_percent', range, anchor),
-    fetchChart('mem.available_percent', range, anchor),
-    fetchChart('mem.cached_percent', range, anchor),
-    fetchChart('mem.buffers_percent', range, anchor),
-  ]);
-  if (seq !== seqs.memComp) return;
-  const rows = [
-    ..._safe(used).map(r => ({ ...r, dimension: 'used' })),
-    ..._safe(avail).map(r => ({ ...r, dimension: 'available' })),
-    ..._safe(cached).map(r => ({ ...r, dimension: 'cached' })),
-    ..._safe(buffers).map(r => ({ ...r, dimension: 'buffers' })),
-  ];
-  renderMultiDimChart('memcomp-canvas', 'memcomp-empty', 'memcomp-legend', rows, range, anchor, MEMCOMP_META);
+async function loadMemPsiChart(range, anchor) {
+  const seq = ++seqs.memPsi;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const avgRows = await fetchChart('mem.psi', range, anchor);
+  if (seq !== seqs.memPsi) return;
+  const safeAvg = _safe(avgRows);
+  const datasets = buildDatasets(safeAvg, bMs, grid, '메모리 압박');
+  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  setChart('mempsi-canvas', 'mempsi-empty', safeAvg, Y_PSI, v => v.toFixed(1)+'%', datasets, labels);
+  updateMaxLabel('mempsi-max', computePeriodMax(safeAvg), v => v.toFixed(1)+'%', null);
 }
 
 // 디스크 읽기/쓰기 IOPS — 환경 합산(Read/Write). 물리 블록 디바이스(type=disk)만 합산 — LVM/파티션/swap 이중집계 회피.
@@ -448,18 +413,23 @@ async function loadDiskKbpsChart(range, anchor) {
  * @param {string} range
  * @param {Date | null} anchor
  */
-async function loadFsChart(range, anchor) {
-  const seq = ++seqs.fs;
+// 스토리지 사용량 — 전 서버 데이터 파일시스템 사용 bytes 합산(절대량, 단일선). 용량 소비 추이(capacity planning).
+// 활용률(%) 대체 — 함대가 실제로 쓰는 총량 증가 추세가 조달 신호. bytes -> GB/TB 표기(fmtBytesSize).
+/**
+ * @param {string} range
+ * @param {Date | null} anchor
+ */
+async function loadStorageUsedChart(range, anchor) {
+  const seq = ++seqs.storageUsed;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
   const grid = makeBucketGrid(range, anchor);
-  const avgRows = await fetchChart('fs.usage_percent', range, anchor);
-  if (seq !== seqs.fs) return;
+  const avgRows = await fetchChart('fs.used_bytes', range, anchor);
+  if (seq !== seqs.storageUsed) return;
   const safeAvg = _safe(avgRows);
-  const datasets = buildDatasets(safeAvg, bMs, grid, null);
+  const datasets = buildDatasets(safeAvg, bMs, grid, '스토리지 사용량');
   const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const chart = setChart('fs-canvas', 'fs-empty', safeAvg, Y_PCT, v => v.toFixed(1)+'%', datasets, labels);
-  buildAvgMaxLegend('fs-legend', chart, { withToggle: true });
-  updateMaxLabel('fs-max', computePeriodMax(safeAvg), v => v.toFixed(1)+'%', colorByMountPct);
+  setChart('storageused-canvas', 'storageused-empty', safeAvg, Y_STORAGE, fmtBytesSize, datasets, labels);
+  updateMaxLabel('storageused-max', computePeriodMax(safeAvg), fmtBytesSize, null);
 }
 
 // 네트워크 I/O — 환경 합산(RX/TX bytes).
@@ -517,10 +487,10 @@ async function loadAllCharts() {
   updateBucketLabel(range);
   await Promise.all([
     loadCpuChart(range, anchor),     loadCpuClassChart(range, anchor),
-    loadRunQueueChart(range, anchor), loadMemChart(range, anchor),
-    loadMemCompChart(range, anchor),
+    loadCpuPsiChart(range, anchor),  loadMemChart(range, anchor),
+    loadMemPsiChart(range, anchor),
     loadPhysIoChart(range, anchor),  loadDiskKbpsChart(range, anchor),
-    loadDiskSaturationChart(range, anchor), loadFsChart(range, anchor),
+    loadDiskSaturationChart(range, anchor), loadStorageUsedChart(range, anchor),
     loadNetIoChart(range, anchor),   loadRetransChart(range, anchor),
   ]);
 }

@@ -283,37 +283,33 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                 continue  # 데이터 없음/stale = 오프라인 (통일: 데이터 신선도가 곧 온라인)
             online += 1
             mem = m.memory
-            # 디스크 활용률 — 전 mount 통합 풀(sum(used)/sum(total)). 평균 도넛·탑3 동일 기준(worst mount 아님).
-            fs_total = sum(mt.total_gb for mt in m.mounts if mt.total_gb and mt.used_gb is not None)
-            fs_used = sum(mt.used_gb for mt in m.mounts if mt.total_gb and mt.used_gb is not None)
-            disk_pool_pct = round(fs_used / fs_total * 100, 1) if fs_total else None
-            # 호스트 net rate(kBps) = 전 인터페이스 rx+tx 합 — 네트워크 혼잡 신호 저트래픽 게이트 입력.
+            # 호스트 net rate(kBps) = 전 인터페이스 rx+tx 합 — 네트워크 혼잡 신호 저트래픽 게이트 + 부하 상위 랭킹 입력.
             net_rate = sum((n.rx_kbps or 0) + (n.tx_kbps or 0) for n in m.net_io) if m.net_io else None
             snapshots.append(
                 {
                     "hostname": d.hostname,
                     "public_id": d.public_id,
-                    # 부하 상위(서버별 값) — 개별 호스트 랭킹. CPU/메모리/디스크 활용률 + I/O rate.
+                    # 부하 상위(서버별 값) — 개별 호스트 랭킹. 실시간 부하 신호만(디스크 용량은 느린 신호라 제외).
                     "cpu_pct": m.cpu.usage_pct if m.cpu else None,
                     "mem_pct": mem.usage_pct if mem else None,
-                    "disk_pct": disk_pool_pct,  # 통합 풀 — 평균 도넛(fs_used/fs_total)과 동일 기준
-                    # 실시간 포화 지수 (os-aware, >=1 포화) + 메모리 압박 — 부하 상위 "CPU 포화"·"디스크 I/O 포화" 랭킹.
+                    # 실시간 포화 지수 (os-aware, >=1 포화) — 부하 상위 "실행 큐"·"응답 지연" 랭킹.
                     "cpu_sat_index": recommendation.cpu_saturation_index(
                         sat.run_queue, d.cpu_cores, d.os_family
                     ),
                     "disk_sat_index": recommendation.disk_io_saturation_index(
                         sat.await_ms, sat.pending_ops, d.os_family
                     ),
+                    # 페이징 rate(major fault/s)·네트워크 rate(kB/s) — 부하 상위 랭킹 raw + 포화 도넛(불리언) 입력.
+                    "paging_rate": sat.paging_major_rate,
+                    "net_kbps": net_rate,
                     "mem_pressure": recommendation.mem_pressure_active(sat.paging_major_rate, d.os_family),
                     "net_congested": recommendation.net_signal_active(
                         sat.retrans_pct, sat.drop_pct, sat.conntrack_ratio, net_rate
                     ),
-                    # capacity-weighted 평균용 가중치 (cpu=코어 가중, mem/disk=절대 총량 sum/sum).
+                    # capacity-weighted 평균 도넛용 가중치 (cpu=코어 가중, mem=절대 총량 sum/sum).
                     "cpu_cores": d.cpu_cores,
                     "mem_used_bytes": mem.used_bytes if mem else None,
                     "mem_total_bytes": mem.total_bytes if mem else None,
-                    "fs_used_gb": fs_used if fs_total else None,
-                    "fs_total_gb": fs_total if fs_total else None,
                 }
             )
             if last_collected is None or m.collected_at > last_collected:
