@@ -112,6 +112,10 @@ async def install(
     req: InstallRequest,
     service: TaskService = Depends(get_task_service),
 ):
+    """N대 ZConverter 설치 발행 — 서버당 task 1건. zdm_ip/zdm_user 미지정 시 서버 기본값(ZDM_DEFAULT_*) 사용.
+
+    이미 pending 인 서버가 있으면 409, 대상 서버 미존재는 404, ZDM 좌표 미해결(메타 조회 실패 등)은 503.
+    """
     try:
         return await service.create_install_tasks(
             req.target_public_ids,

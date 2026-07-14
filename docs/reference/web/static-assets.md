@@ -108,7 +108,7 @@ src/assessment_engine/web/static/js/
 - 작은 창에서 카드 무파손. 다열 영역은 `grid-template-columns:repeat(auto-fit, minmax(min(100%, Npx), 1fr))` — 폭 부족 시 자동 1열, 한쪽 칼럼 찌그러짐 0.
 - 고정 다열(`kpi-grid-2/3/4` · `metric-grid-2/3`)은 `@media (max-width:640px)` 에서 1열 (base.html).
 - 2칼럼 카드(`env-dual` · `env-pair`)는 `align-items:start`로 칼럼 독립, 같은 행 항목은 grid 정렬로 높이 일치.
-- 언더 프로비저닝 상세(환경 자원 평가 compact 표, `action_targets_table(compact=True)`) = 호스트·CPU·메모리·디스크(`spec_display`, 서버 목록과 동일 정적 배정 사양 — 권고 칼럼의 사이징 목표와 나란히 비교)·분류(근본원인 병합)·권고·네트워크 상태·신뢰도 sortable-table — host_status 를 구동한 원시 수치(5축)는 표시 안 함(환경 보고서 "서버별 자원 적정성" 전체 표에서 확인). 심각도 상위 정렬(`severity_score` = swap(paging) > 위반 자원 수 > max(CPU/메모리/디스크 util)).
+- 언더 프로비저닝 상세(`action_targets_table`, 환경 자원 평가·환경 보고서(engineer) 공유 — 두 화면 칼럼 동일) = 호스트·CPU·메모리·디스크(`spec_display`, 서버 목록과 동일 정적 배정 사양 — 권고 칼럼의 사이징 목표와 나란히 비교)·분류(근본원인 병합)·권고·네트워크 상태·디스크 I/O 상태·신뢰도 sortable-table — host_status 를 구동한 원시 수치(5축)는 표시 안 함(서버 상세 자원별 탭에서 확인). 심각도 상위 정렬(`severity_score` = swap(paging) > 위반 자원 수 > max(CPU/메모리/디스크 util)).
 - 환경 개요(`/`) 영역 = 환경 요약 / 환경 자원 평가(활용률+자원 적정성 평가+언더프로비저닝) / 환경 부하 추이+네트워크 토폴로지 — 3개 별도 카드 section. 운영 신호 카드는 3 카테고리(통신끊김/OS지원종료/에이전트재시작)를 한 행 3칼럼 grid + 카탈로그 뱃지 한 줄(nowrap).
 
 ## report.html print CSS

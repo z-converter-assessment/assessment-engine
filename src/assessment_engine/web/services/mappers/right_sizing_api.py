@@ -144,26 +144,27 @@ def _action(kind: str, ra: recommendation.ResourceAssessment, op: str) -> dict:
 def _recommendation(host, stats, rec: str) -> dict:
     """종합 권고 구조 (파싱용 견고 포맷) — 이 하나만 보고 조치를 결정한다.
 
-    actions = 실제 조치 목록(근본원인만, 증상 억제) / suppressed = 증상 자원(근본원인 해결 후 재평가, 독립 조치 금지).
-    예: 메모리 포화가 CPU 를 유발하면 actions=[메모리 증설]만, suppressed=[cpu] — per-resource CPU 타겟을 잘못 증설하지 않게.
-    per-resource sizing_target 은 진단용(각 자원 독립 가정) — 실제 프로비저닝은 본 actions 를 파싱한다.
+    actions = 관측된 under 자원 전부(자원별 독립, 인과에 의한 억제 없음 — ADR 0055, assessment API sizing.axes
+    와 동일 정책). suppressed 는 항상 빈 배열 — 과거(ADR 0052) 근본원인만 처방하던 시절의 스키마 호환 필드로
+    유지(기존 소비자가 이 키 존재를 가정할 수 있어 제거 대신 상시 empty). 인과 근거는 summary/root_cause 필드
+    (root_cause_display, "왜")가 전달 — actions 자체(무엇을)는 자원마다 독립 판정.
+    per-resource sizing_target 은 자원별 독립 목표 — actions 목록과 정합(둘 다 같은 독립 판정 소스).
     """
     # disk_io io_bound = 크기로 안 풀리는 tier advisory — under/over 분류와 무관하게 orthogonal 노출
     # (network congested 대칭, io_bound 는 사이징 축 아님). host 를 under 로 승격하지 않으므로 여기서 별도 append.
     io_advisory = (
         [_action("disk_io", host.resources["disk_io"], "tier_up")]
-        if host.resources["disk_io"].status == "io_bound" and "disk_io" not in host.symptom_of_root
+        if host.resources["disk_io"].status == "io_bound"
         else []
     )
     if rec == "under_provisioned":
-        # under_prescription 과 동일 집합 — 인과 결합이면 root 만, 독립이면 전부 (사이징 축만).
-        kinds = recommendation.prescribed_under_kinds(host)
+        kinds = recommendation.prescribed_under_kinds(host)  # 관측된 under 자원 전부(사이징 축만) — 억제 없음.
         actions = [_action(k, host.resources[k], "increase") for k in kinds] + io_advisory
         return {
             "summary": recommendation.under_prescription(host),
             "kind": "provision",
             "actions": actions,
-            "suppressed": list(host.symptom_of_root),
+            "suppressed": [],
         }
     if rec == "over_provisioned":
         actions = [
@@ -205,7 +206,7 @@ def build_right_sizing_entry(raw, is_online: bool, hostname_ambiguous: bool = Fa
         "classification": rec,
         "classification_label": recommendation.LABEL_KO[rec],
         "root_cause": recommendation.root_cause_display(host) or None,
-        # 종합 권고 — 견고한 구조(파싱 대상). actions=근본원인만·suppressed=증상. per-resource 타겟보다 이게 실행 진실.
+        # 종합 권고 — 견고한 구조(파싱 대상). actions=관측된 under 자원 전부(독립). per-resource 타겟과 정합.
         "recommendation": _recommendation(host, stats, rec),
         "confidence_notes": build_host_confidence_notes(host),
         "resources": {

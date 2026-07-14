@@ -479,11 +479,12 @@ HostStatus = Literal["under", "idle", "over", "optimal", "insufficient"]
 
 @dataclass
 class HostAssessment:
-    """호스트 종합 — 자원별 판정 dict + 근본원인 root + 증상 억제 + 호스트 요약 상태."""
+    """호스트 종합 — 자원별 판정 dict + 근본원인 root(진단 근거) + 호스트 요약 상태."""
 
     resources: dict[str, ResourceAssessment]
     root_cause: str | None = None  # 원인 자원 kind
-    symptom_of_root: list[str] = field(default_factory=list)  # root 의 증상으로 처방 억제된 kind
+    # root 의 증상으로 추정되는 kind — 근본원인 표시(root_cause_display)용 라벨일 뿐, 처방 억제에는 안 쓴다(ADR 0055).
+    symptom_of_root: list[str] = field(default_factory=list)
     host_status: HostStatus = "optimal"  # 정렬·배지용 호스트 요약 (조치는 root_cause·자원별에서)
     network_congested: bool = False  # 네트워크 품질 경고 (사이징 아님, 별도 플래그)
     # 창 대비 관측 비율 — 신뢰도 '창 대비 관측 부족' 노트 입력(30h 절대바닥과 별개 축)
@@ -832,7 +833,8 @@ def assess_network(stats: ResourceStats) -> ResourceAssessment:
 # HostAssessment.network_congested 플래그로만 orthogonal 노출 (별도 "네트워크 혼잡" 경고). ADR 0052 정합.
 # 호스트 under_provisioned/root_cause 는 사이징 가능 축(cpu under·memory under·disk_capacity filling)만 결정.
 # io_bound(disk_io)는 크기로 안 풀리는 advisory(tier hint) — network congested 와 동일한 직교 플래그라 여기서 제외
-# (사이징 처방 0인 축이 top-line 분류를 뒤집는 자기모순 방지). disk_io 는 아래 인과 로직에서 증상 억제용으로만 참조.
+# (사이징 처방 0인 축이 top-line 분류를 뒤집는 자기모순 방지). disk_io 는 아래 인과 로직에서 근본원인 라벨(진단
+# 근거)에만 참조 — ADR 0055 이후 처방(actions/advisory) 자체를 억제하는 데는 쓰이지 않는다.
 _ROOTABLE_UNDER = ("under", "filling")
 
 
@@ -868,10 +870,13 @@ def _host_status(stats: ResourceStats, res: dict[str, ResourceAssessment], under
 
 
 def rollup_host(stats: ResourceStats) -> HostAssessment:
-    """호스트 종합 — 5자원 판정 후 인과 근본원인으로 root 를 짚고 하류(증상) 처방 억제.
+    """호스트 종합 — 5자원 판정 후 인과 근본원인(root_cause)을 짚는다.
 
     인과: 메모리 -> 디스크 I/O -> CPU. 판별: swap 발생 / procs_blocked(D-state) / await. iowait 미사용.
-    root 만 처방, 하류는 "root 해결 후 재평가". 결합 신호 없이 각자 부족이면 각자(root=최상류, 증상 억제 없음).
+    root_cause·symptom_of_root 는 진단 근거(왜 부족한가)로만 쓴다 — 처방(prescribed_under_kinds 등)은
+    ADR 0055 부터 자원별 독립이라 symptom_of_root 로 억제되지 않는다(근본원인 추정이 틀려도, 즉 원인 자원만
+    고쳤을 때 하류가 실제로 해소된다는 보장이 없어도 관측된 부족을 누락하지 않는 것이 안전 우선 — assessment
+    API 사이징 정책과 통일). 결합 신호 없이 각자 부족이면 각자(root=최상류 부족 자원, 나열 순서만 결정).
     """
     res = {
         "cpu": assess_cpu(stats),
@@ -889,8 +894,7 @@ def rollup_host(stats: ResourceStats) -> HostAssessment:
         stats.procs_blocked_p95 is not None and stats.procs_blocked_p95 >= PROCS_BLOCKED_DSTATE_SATURATION
     )
     if mem_pressure and _mem_paging_active(stats) and (disk_io_pressure or cpu_pressure):
-        # 메모리발 -> 동반 디스크 I/O·CPU 는 swap 트래픽·대기의 증상. disk_io 는 사이징 축 아니나(io_bound=advisory)
-        # 메모리발 swap I/O 면 tier 권고가 오답이라 증상으로 억제(io_advisory 억제 대상).
+        # 메모리발 -> 동반 디스크 I/O·CPU 는 swap 트래픽·대기의 증상(symptom_of_root 라벨용, 처방 억제는 안 함).
         host.root_cause = "memory"
         host.symptom_of_root = [
             k for k in ("disk_io", "cpu") if k in under_kinds or (k == "disk_io" and disk_io_pressure)
@@ -955,16 +959,14 @@ def _under_kinds(host: HostAssessment) -> list[str]:
 
 
 def prescribed_under_kinds(host: HostAssessment) -> list[str]:
-    """처방 대상 under 자원 kind (공개, 단일 진실) — 인과 결합이면 root 만(하류 증상 억제), 독립이면 전부.
+    """처방 대상 under 자원 kind (공개, 단일 진실) — 관측된 under 자원 전부, 인과에 의한 억제 없음(ADR 0055).
 
-    삼중 처방 방지(ADR 0052). under_prescription(문구)·right-sizing API actions(구조)가 이 결정을 공유해 drift 0.
+    근본원인(root_cause/symptom_of_root)은 진단 근거일 뿐 처방 필터가 아니다 — 원인 자원만 고쳐도 하류가
+    실제로 해소된다는 보장이 없어(추정이 틀릴 수 있음), 관측된 부족을 누락하지 않는 쪽이 안전하다(assessment
+    API sizing.axes 와 동일 정책 — 소비처 3곳: under_prescription 문구·right-sizing API actions·assessment
+    API sizing.axes 가 전부 자원별 독립 판정을 공유해 drift 0).
     """
-    under = _under_kinds(host)
-    if not under:
-        return []
-    if host.symptom_of_root and host.root_cause:
-        return [host.root_cause]
-    return under
+    return _under_kinds(host)
 
 
 def resource_prescription(kind: str, ra: ResourceAssessment) -> str:
@@ -973,12 +975,13 @@ def resource_prescription(kind: str, ra: ResourceAssessment) -> str:
 
 
 def under_prescription(host: HostAssessment) -> str:
-    """자원 부족 처방 (root_cause 정합) — prescribed_under_kinds 처방을 " | " 결합. 근본원인 칼럼과 어휘 정합."""
+    """자원 부족 처방 — 관측된 under 자원 전부를 " | " 결합(prescribed_under_kinds, 억제 없음). 근본원인은
+    root_cause_display(별도 칼럼)가 "왜"를 전달 — 본 문구는 "무엇을"만 나열한다."""
     return " | ".join(resource_prescription(k, host.resources[k]) for k in prescribed_under_kinds(host))
 
 
 def root_cause_display(host: HostAssessment) -> str:
-    """근본원인 칼럼 표시 (under_prescription 과 정합):
+    """근본원인 칼럼 표시 — under_prescription("무엇을")의 "왜"를 전달하는 진단 근거(처방 자체엔 무영향):
 
     - 단일 부족: 그 자원명 ("CPU") — 원인이 자명.
     - 인과 결합: "메모리 (CPU·디스크 I/O 유발)" — root + 하류 증상.

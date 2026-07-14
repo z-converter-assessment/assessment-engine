@@ -1,6 +1,8 @@
 """OpenAPI 스펙 -> API 목록 ViewModel (P2). 라우터에서 자동 생성된 스펙을 표시 구조로 변환.
 
-JSON API(`/api/*`)만 노출 — SSR 페이지 라우트는 제외. 태그(api/exports)로 그룹핑.
+외부에서 실제로 호출할 가치가 있는 JSON API만 노출 — SSR 페이지 라우트(#F 범위 밖)·화면 전용 내부 데이터
+엔드포인트(`api` 태그 — 차트 fetch·fleet-status polling 등 SSR 페이지 자체 JS 전용, 외부 연동 대상 아님)는
+제외. 상세 파라미터·스키마·시험 실행은 Swagger(`/docs`)/ReDoc(`/redoc`) 단일 진실 — 본 페이지는 카탈로그만.
 스펙이 코드 단일 진실이라 drift 0 (F12) — 손으로 유지 안 함.
 """
 
@@ -17,17 +19,31 @@ _METHOD_STYLE = {
     "DELETE": ("#fee2e2", "#991b1b"),
 }
 
-# 태그 -> 한국어 라벨 + 표시 순서. 미정의 태그는 태그명 그대로 뒤에 붙임.
+# 노출 태그 화이트리스트(+ 한국어 라벨, 표시 순서) — 외부 연동 관점 유의미한 4개만. 미등재 태그(예: 화면
+# 전용 데이터 조회 "api")는 자동 제외(#F9 신규 태그 도입 시 본 목록 검토 의무).
 _TAG_LABELS = [
-    ("right-sizing", "자원 적정성 판정 (프로비저닝)"),
-    ("exports", "JSON Export (외부 연동)"),
-    ("api", "서버·메트릭 조회 (화면 데이터)"),
-    ("tasks", "설치 작업 (Install Task)"),
+    ("assessment", "통합 프로비저닝 어세스먼트"),
+    ("right-sizing", "자원 적정성 판정"),
+    ("exports", "어세스먼트 계약 다운로드"),
+    ("tasks", "설치 작업"),
 ]
+_ALLOWED_TAGS = frozenset(t for t, _ in _TAG_LABELS)
 
 
-def _resolve_body_fields(op: dict, spec: dict) -> list[str]:
-    """POST 등 요청 본문 스키마($ref)를 풀어 property 이름 목록 반환 (본문 필드 표시용)."""
+def _property_type(prop: dict) -> str:
+    """스키마 property 표시 타입 — 단순 `type` 우선, optional(`anyOf: [T, null]`) 은 null 아닌 쪽 타입."""
+    if "type" in prop:
+        return prop["type"]
+    for opt in prop.get("anyOf", []):
+        if opt.get("type") and opt["type"] != "null":
+            return opt["type"]
+    return "-"
+
+
+def _resolve_body_fields(op: dict, spec: dict) -> list[ApiParam]:
+    """POST 등 요청 본문 스키마($ref)를 풀어 필드 목록 반환 — required(스키마 `required` 배열)까지 표시해야
+    한다: required 미표시로 "전부 선택"처럼 보이면 실제로는 필수인 필드(예: InstallRequest.target_public_ids)
+    없이 호출 가능하다고 오인하기 쉽다(query/path 파라미터의 `*` 표시와 동일 원칙, 화면 간 표현 통일)."""
     rb = op.get("requestBody") or {}
     schema = (((rb.get("content") or {}).get("application/json") or {}).get("schema")) or {}
     ref = schema.get("$ref")
@@ -35,7 +51,11 @@ def _resolve_body_fields(op: dict, spec: dict) -> list[str]:
         return []
     name = ref.split("/")[-1]
     model = ((spec.get("components") or {}).get("schemas") or {}).get(name) or {}
-    return list((model.get("properties") or {}).keys())
+    required = set(model.get("required") or [])
+    return [
+        ApiParam(name=fname, location="body", required=fname in required, type=_property_type(prop))
+        for fname, prop in (model.get("properties") or {}).items()
+    ]
 
 
 def _display_summary(op: dict) -> str:
@@ -48,18 +68,32 @@ def _display_summary(op: dict) -> str:
     return op.get("summary", "")
 
 
+def _returns_json(op: dict) -> bool:
+    """성공(2xx) 응답 중 하나라도 application/json 을 포함하는지 — HTML fragment 엔드포인트(모달 등, 내부
+    UI 전용) 제외 판별. 200 하나만 보면 201 Created 등만 쓰는 엔드포인트를 오탈락시킨다."""
+    responses = op.get("responses") or {}
+    return any(
+        "application/json" in ((resp or {}).get("content") or {})
+        for code, resp in responses.items()
+        if code.startswith("2")
+    )
+
+
 def build_api_reference(spec: dict) -> list[ApiGroup]:
-    """OpenAPI dict -> ApiGroup list (태그별). `/api/*` JSON 엔드포인트만, 태그 정의 순서로 정렬."""
+    """OpenAPI dict -> ApiGroup list (태그별). `/api/*` 중 화이트리스트 태그(_ALLOWED_TAGS)의 JSON 엔드포인트만,
+    태그 정의 순서로 정렬."""
     by_tag: dict[str, list[ApiEndpoint]] = {}
     for path, ops in sorted((spec.get("paths") or {}).items()):
         if not path.startswith("/api/"):
             continue  # SSR 페이지 라우트 제외 — JSON API 만
-        if path == "/api/right-sizing":
-            continue  # 전용 상세 섹션(api_reference.html)이 대신 문서화 — 자동 목록 중복 제거
         for method, op in ops.items():
             if method not in _HTTP_METHODS:
                 continue
             tag = (op.get("tags") or ["기타"])[0]
+            if tag not in _ALLOWED_TAGS:
+                continue  # 화면 전용 내부 데이터 조회 등 — 외부 연동 카탈로그 제외
+            if not _returns_json(op):
+                continue  # HTML fragment 응답(예: task 상세 modal) — JSON API 아님
             params = [
                 ApiParam(
                     name=p.get("name", ""),
@@ -84,6 +118,7 @@ def build_api_reference(spec: dict) -> list[ApiGroup]:
             )
     order = {tag: i for i, (tag, _) in enumerate(_TAG_LABELS)}
     labels = dict(_TAG_LABELS)
-    groups = [ApiGroup(tag=t, label=labels.get(t, t), endpoints=eps) for t, eps in by_tag.items()]
-    groups.sort(key=lambda g: order.get(g.tag, len(order)))
+    # by_tag 키는 _ALLOWED_TAGS 필터를 통과한 값만이라 order/labels 양쪽에 항상 존재 (fallback 불요).
+    groups = [ApiGroup(tag=t, label=labels[t], endpoints=eps) for t, eps in by_tag.items()]
+    groups.sort(key=lambda g: order[g.tag])
     return groups

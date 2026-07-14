@@ -333,15 +333,11 @@ def test_action_targets_severity_then_hostname_tiebreak():
     assert [h.hostname for h in at.hosts] == ["alpha", "zebra"]
 
 
-def test_action_targets_counts_and_metric_labels():
-    """total = 전 행수, under_count = 자원 부족 수, metric_labels = 첫 행 지표 라벨 precompute."""
+def test_action_targets_counts():
+    """total = 전 행수, under_count = 자원 부족 수."""
     at = build_action_targets(_classified_raws())
     assert at.total == 5
     assert at.under_count == 1
-    # 첫 행(under)의 metrics 라벨과 동일 — host_status 구동 5축(CPU 이용률/포화·메모리 이용률/포화·디스크 용량).
-    # 디스크 I/O·네트워크는 host_status 미구동 orthogonal advisory 축이라 표에서 제외(각자 전용 채널로 노출).
-    assert at.metric_labels == [m.label for m in at.hosts[0].metrics]
-    assert len(at.metric_labels) == 5
 
 
 def test_action_targets_efficiency_aggregates_over_and_idle_only():
@@ -358,10 +354,9 @@ def test_action_targets_efficiency_aggregates_over_and_idle_only():
 
 
 def test_action_targets_empty_raws():
-    """빈 입력 — 행 0, 라벨 빈 list, 카운트·효율 전부 0 (items[0] 참조 가드)."""
+    """빈 입력 — 행 0, 카운트·효율 전부 0."""
     at = build_action_targets([])
     assert at.hosts == []
-    assert at.metric_labels == []
     assert at.total == 0
     assert at.under_count == 0
     assert at.efficiency_count == 0

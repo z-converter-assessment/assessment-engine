@@ -19,7 +19,7 @@ from assessment_engine.db.dtos.inbound import (
 )
 from assessment_engine.db.repositories.collect_repository import CollectRepository
 from assessment_engine.db.repositories.query.query_repository import QueryRepository
-from tests.factories import agent_id_for, make_inventory, make_metrics
+from tests.factories import _DISK_DEVICE_ID, agent_id_for, make_inventory, make_metrics
 
 
 def _bucket_aligned_base(minutes_ago: int = 7) -> datetime:
@@ -41,6 +41,7 @@ _ALL_METRIC_TYPES = [
     "cpu.iowait_percent",
     "cpu.nice_percent",
     "cpu.run_queue",
+    "cpu.saturation",
     "cpu.blocked",
     "cpu.psi",
     "mem.usage_percent",
@@ -54,6 +55,7 @@ _ALL_METRIC_TYPES = [
     "disk.read_kbps",
     "disk.write_kbps",
     "disk.io_saturation",
+    "disk.saturation",
     "disk.psi",
     "fs.usage_percent",
     "net.rx_bytes_per_sec",
@@ -1524,3 +1526,119 @@ async def test_fs_usage_percent_collapse_locf_no_first_bucket_distortion(
         assert r.value is not None
         # 60/(60+40)=60% ~ 61/(61+39)=61% 사이 — undercount 되어 0% 근처로 튀면 안 됨.
         assert 55.0 <= r.value <= 65.0, f"버킷 값이 60~61% 범위를 벗어남(LOCF 왜곡 의심): {r.value}"
+
+
+# ─── cpu.saturation / disk.saturation — 신규 서버 상세 이진(0/1) 포화 3축(엔지니어 보고서 포화 추이) ──────
+
+
+async def test_cpu_saturation_crosses_when_run_queue_over_per_core_threshold(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """cpu.saturation — cpu.saturation_hosts(환경, crossing 서버 수)와 동일 원자료·임계, 서버 1대 이진 0/1.
+
+    Linux 임계 PROCS_RUNNING_PER_CORE_SATURATION=1.0 — cpu_cores=4(make_inventory 기본) 이면 run_queue>=4 크로스.
+    """
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-cpusat-hi"))
+    await collect_repo.record_metrics(
+        sid, make_metrics(collected_at=base_ts, cpu_run_queue=5.0, filesystems=[], disk_io=[], net_io=[])
+    )
+    end = base_ts + timedelta(minutes=5)
+    rows = await query_repo.metric_chart(
+        server_id=sid, metric_type="cpu.saturation", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
+    )
+    assert rows
+    values = {r.value for r in rows}
+    assert values <= {0.0, 1.0}
+    assert 1.0 in values, "run_queue/core(1.25) >= 임계 1.0 이면 포화로 판정돼야 한다"
+
+
+async def test_cpu_saturation_stays_zero_under_threshold(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """cpu.saturation — run_queue/core 가 임계(1.0) 미만이면 항상 0.0(정상)."""
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-cpusat-lo"))
+    await collect_repo.record_metrics(
+        sid, make_metrics(collected_at=base_ts, cpu_run_queue=1.0, filesystems=[], disk_io=[], net_io=[])
+    )
+    end = base_ts + timedelta(minutes=5)
+    rows = await query_repo.metric_chart(
+        server_id=sid, metric_type="cpu.saturation", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
+    )
+    assert rows
+    assert all(r.value == 0.0 for r in rows), "run_queue/core(0.25) < 임계 1.0 이면 포화 판정이면 안 된다"
+
+
+async def test_disk_saturation_crosses_when_await_over_threshold(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """disk.saturation — disk.saturation_hosts(환경, crossing 서버 수)와 동일 원자료·임계(RS_DISKIO_AWAIT_MS=20ms).
+
+    60s 간격 delta_ops=100/delta_t=4.0s -> await=40ms(임계 20ms 초과), io_time delta=40s/60s=0.67 util 게이트 통과.
+    """
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-disksat-hi"))
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts,
+            filesystems=[],
+            net_io=[],
+            disk_io=[DiskIoEntry(device_id=_DISK_DEVICE_ID, ops_read=100, op_read_time_s=1.0, io_time_s=0.0)],
+        ),
+    )
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts + timedelta(seconds=60),
+            filesystems=[],
+            net_io=[],
+            disk_io=[DiskIoEntry(device_id=_DISK_DEVICE_ID, ops_read=200, op_read_time_s=5.0, io_time_s=40.0)],
+        ),
+    )
+    end = base_ts + timedelta(minutes=5)
+    rows = await query_repo.metric_chart(
+        server_id=sid, metric_type="disk.saturation", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
+    )
+    assert rows
+    values = {r.value for r in rows}
+    assert values <= {0.0, 1.0}
+    assert 1.0 in values, "await 40ms(임계 20ms 초과)가 포화로 판정돼야 한다"
+
+
+async def test_disk_saturation_stays_zero_under_threshold(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """disk.saturation — await 가 임계(20ms) 미만이면 항상 0.0(정상)."""
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-disksat-lo"))
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts,
+            filesystems=[],
+            net_io=[],
+            disk_io=[DiskIoEntry(device_id=_DISK_DEVICE_ID, ops_read=100, op_read_time_s=1.0, io_time_s=0.0)],
+        ),
+    )
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts + timedelta(seconds=60),
+            filesystems=[],
+            net_io=[],
+            # delta_ops=100, delta_t=0.5s -> await=5ms(임계 20ms 미만). io_time delta=40s -> util 게이트는 통과.
+            disk_io=[DiskIoEntry(device_id=_DISK_DEVICE_ID, ops_read=200, op_read_time_s=1.5, io_time_s=40.0)],
+        ),
+    )
+    end = base_ts + timedelta(minutes=5)
+    rows = await query_repo.metric_chart(
+        server_id=sid, metric_type="disk.saturation", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
+    )
+    assert rows
+    assert all(r.value == 0.0 for r in rows), "await 5ms(임계 20ms 미만)는 포화 판정이면 안 된다"

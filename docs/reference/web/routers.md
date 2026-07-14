@@ -71,7 +71,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 |------|------|
 | `GET /api/right-sizing?hostname=&ip=&public_id=&pair=&window_days=&end=` | 서버별 자원 적정성 판정 JSON — 외부 자동화 소비. 화면·보고서와 동일 산식(`report_aggregate` -> `rollup_host`, 재계산 0). 외부는 내부 public_id 를 모르는 게 보통이라 hostname/ip 로 조회한다. 파라미터·응답 스키마·enum·권고 포맷·호스트명 충돌 안전은 Swagger(`/docs`)·ReDoc(`/redoc`)가 OpenAPI 스펙(라우터 docstring·Pydantic 응답 모델) 기준 단일 소유 |
 
-`GET /reference/api` (`reference_router`) — JSON API 엔드포인트 목록(OpenAPI 파생, 메서드·경로·요약·파라미터·요청 본문 필드명만) + Swagger(`/docs`)·ReDoc(`/redoc`) 링크. 상세 스키마·enum·예시는 중복 문서화하지 않고 Swagger/ReDoc 단일 진실로 위임(#F12·docs/README 1원칙).
+`GET /reference/api` (`reference_router`) — 외부 연동 카탈로그만(OpenAPI 파생, 메서드·경로·요약·파라미터·요청 본문 필드명). 태그 화이트리스트(assessment/right-sizing/exports/tasks) + JSON 응답만 필터링 — 화면 전용 내부 데이터 조회(`api` 태그)·HTML fragment 엔드포인트는 제외(`services/mappers/api_reference.py` `_ALLOWED_TAGS`/`_returns_json`). 상세 스키마·enum·예시는 중복 문서화하지 않고 Swagger(`/docs`)·ReDoc(`/redoc`) 단일 진실로 위임(#F12·docs/README 1원칙).
 
 ### `reports.py` — 보고서 SSR + 발행 (PRG 패턴)
 | 경로 | 용도 |
@@ -79,7 +79,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | `GET /reports/environment?view=&time_range=&anchor_at=` | 환경 보고서 표시. GET 은 read-only — record 안 함 (PRG) |
 | `POST /reports/environment/emit?view=&time_range=&anchor_at=` | 환경 보고서 발행 record + `{view_url}` 응답 (JS navigate) |
 | `GET /reports/history?days=&view=&scope=&server_public_ids=&full=&fragment=` | 보고서 발행 이력. 기본 20건 + `full=1` 시 전체. `fragment=1` 시 partial HTML 만 (filter 변경 즉시 적용용) |
-| `GET /reference` | 참고 페이지 (`reference_router`) — 지표 정의(`_metric_definitions`: 활용률·집계·모니터링 화면 지표 계산 정의) + 자원 적정성 평가 임계값(`_thresholds_reference`, recommendation 단일 진실). 각 페이지 하단 `_reference_link` 가 `#metric-definitions` 앵커로 링크. 사이드바 "참고" 그룹 |
+| `GET /reference` | 참고 페이지 (`reference_router`) — 지표 정의(`_metric_definitions`) + 에이전트-엔진 데이터 계약·수집 함수 근거·assessment API 계약 요약(`_agent_contract_reference`) + 자원 적정성 평가 임계값·근거 계층·임계 상수 전체·Errors 축 설명(`_thresholds_reference`, recommendation 단일 진실) + 서비스 뱃지 카탈로그(`_service_badges`). 각 페이지 하단 `_reference_link` 는 앵커 링크 없이 "사이드바 참고 그룹에서 확인" 안내만(경량 링크, `_reference_footer.html`). 사이드바 "참고" 그룹 |
 
 ## 검증·에러 매핑
 

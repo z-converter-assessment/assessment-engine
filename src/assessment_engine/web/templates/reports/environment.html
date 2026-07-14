@@ -2,8 +2,8 @@
 {% block title %}Assessment 환경 보고서{% if report_job_id %} — {{ view_title }}{% endif %}{% endblock %}
 
 {% block content %}
-{# 서버별 자원 적정성 표(14칼럼)가 세로 A4 폭을 넘어 잘리므로 보고서 인쇄는 문서 전체를 가로(landscape)로.
-   글로벌 @page 방향 지정은 named-page 와 달리 브라우저(Chrome/Firefox/Safari PDF) 지원 안정적. #}
+{# 세부 서버 목록·자원 부족 표(9칼럼, detail-table)가 세로 A4 폭을 넘어 잘리므로 보고서 인쇄는 문서 전체를
+   가로(landscape)로. 글로벌 @page 방향 지정은 named-page 와 달리 브라우저(Chrome/Firefox/Safari PDF) 지원 안정적. #}
 <style>@media print { @page { size: A4 landscape; margin: 9mm; } }</style>
 <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; margin:8px 0 12px;">
   <h1 style="margin:0;">환경 보고서{% if report_job_id %} <span class="page-meta">{{ view_title }}</span>{% endif %}</h1>

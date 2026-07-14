@@ -111,9 +111,166 @@
     });
   }
 
+  // 포화 추이(3축 이진 0/1) — 개별 서버 보고서(engineer) "부하 추이" 옆 카드. cpu.saturation/
+  // mem.paging_pressure/disk.saturation 은 이미 0.0/1.0 판정(서버 상세 단일 진실 이식, #F10 창 일관) —
+  // 본 렌더러는 3계열을 한 차트에 구분해 보이기 위한 순수 시각 표현(lane 오프셋)만 담당, 재분류 0(P4).
+  /** @type {Record<string, number>} */
+  var LANE = { cpu: 2, mem: 1, disk: 0 }; // 위->CPU, 중간->메모리, 아래->디스크 I/O (왼쪽 부하 추이 범례 순서 정합)
+  /** @type {Record<number, string>} */
+  var LANE_LABEL = { 2: 'CPU 실행 큐', 1: '메모리 페이징', 0: '디스크 I/O' };
+  var LANE_STEP = 1.1; // band 간격 — 0.8 높이 + 0.3 여백으로 인접 lane 시각 분리
+  var LANE_HEIGHT = 0.8;
+
+  /** @param {number} lane @param {number | null} v */
+  function laneOffset(lane, v) {
+    return v === null || v === undefined ? null : lane * LANE_STEP + v * LANE_HEIGHT;
+  }
+
+  /** @param {string} hex @param {number} alpha */
+  function withAlpha(hex, alpha) {
+    var h = hex.replace('#', '');
+    if (h.length === 3) h = h.split('').map(function (c) { return c + c; }).join('');
+    var r = parseInt(h.substring(0, 2), 16);
+    var g = parseInt(h.substring(2, 4), 16);
+    var b = parseInt(h.substring(4, 6), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+  }
+
+  function renderSaturation() {
+    var el = /** @type {HTMLCanvasElement | null} */ (document.getElementById('sat-trend-chart'));
+    if (!el || typeof Chart === 'undefined' || typeof ChartUtils === 'undefined') return;
+    var raw = el.getAttribute('data-sat-trend');
+    var range = el.getAttribute('data-range') || '7d';
+    if (!raw) return;
+    /** @type {Array<{ at: string, [k: string]: any }>} */
+    var pts;
+    try {
+      pts = JSON.parse(raw);
+    } catch (e) {
+      return;
+    }
+    if (!Array.isArray(pts) || !pts.length) return;
+
+    var bucketKey = ChartUtils.AUTO_BUCKET[range] || '6h';
+    var bMs = ChartUtils.BUCKET_MS[bucketKey];
+    var anchor = new Date(pts[pts.length - 1].at);
+    var grid = /** @type {any} */ (ChartUtils).makeBucketGrid(range, bucketKey, anchor);
+    var labels = grid.map(function (/** @type {number} */ t) {
+      return ChartUtils.fmtLabel(new Date(t).toISOString(), range);
+    });
+    /** @param {string} key */
+    function rawSeries(key) {
+      var rows = pts.map(function (/** @type {{ at: string, [k: string]: any }} */ p) {
+        return { collected_at: p.at, value: p[key] };
+      });
+      return /** @type {any} */ (ChartUtils).joinToGrid(grid, rows, bMs);
+    }
+    var cpuRaw = rawSeries('cpu_sat');
+    var memRaw = rawSeries('mem_sat');
+    var diskRaw = rawSeries('disk_sat');
+
+    /** @param {any[]} rawValues @param {number} lane */
+    function laneData(rawValues, lane) {
+      return rawValues.map(function (/** @type {number | null} */ v) { return laneOffset(lane, v); });
+    }
+
+    // 이진 상태 가시성 — 선만으로는 "포화 순간"이 눈에 잘 안 띈다는 지적 반영. lane 바닥부터 stepped 선까지
+    // 옅게 채워(fill:{value: lane 바닥}) 포화 구간을 면적으로 강조 — Gantt 류 상태 타임라인과 동일 관용.
+    var cpuColor = /** @type {any} */ (ChartUtils).themeColor();
+    var memColor = '#f59e0b';
+    var diskColor = '#22c55e';
+    var existing = Chart.getChart(el);
+    if (existing) existing.destroy();
+    new Chart(el, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: /** @type {any} */ ([
+          {
+            label: 'CPU 실행 큐 포화',
+            data: laneData(cpuRaw, LANE.cpu),
+            rawValues: cpuRaw,
+            borderColor: cpuColor,
+            backgroundColor: withAlpha(cpuColor, 0.35),
+            fill: { value: LANE.cpu * LANE_STEP },
+            stepped: 'before',
+            spanGaps: false,
+            pointRadius: 0,
+            borderWidth: 1.5,
+          },
+          {
+            label: '메모리 페이징 압박',
+            data: laneData(memRaw, LANE.mem),
+            rawValues: memRaw,
+            borderColor: memColor,
+            backgroundColor: withAlpha(memColor, 0.35),
+            fill: { value: LANE.mem * LANE_STEP },
+            stepped: 'before',
+            spanGaps: false,
+            pointRadius: 0,
+            borderWidth: 1.5,
+          },
+          {
+            label: '디스크 I/O 포화',
+            data: laneData(diskRaw, LANE.disk),
+            rawValues: diskRaw,
+            borderColor: diskColor,
+            backgroundColor: withAlpha(diskColor, 0.35),
+            fill: { value: LANE.disk * LANE_STEP },
+            stepped: 'before',
+            spanGaps: false,
+            pointRadius: 0,
+            borderWidth: 1.5,
+          },
+        ]),
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          x: { ticks: { maxTicksLimit: 10, font: { size: 11 }, color: '#94a3b8' }, grid: { display: false } },
+          y: {
+            min: 0,
+            max: LANE.cpu * LANE_STEP + LANE_HEIGHT,
+            afterBuildTicks: function (/** @type {any} */ axis) {
+              axis.ticks = [0, 1, 2].map(function (lane) { return { value: lane * LANE_STEP + LANE_HEIGHT / 2 }; });
+            },
+            ticks: {
+              callback: function (/** @type {string | number} */ value) {
+                return LANE_LABEL[Math.round((Number(value) - LANE_HEIGHT / 2) / LANE_STEP)] || '';
+              },
+              font: { size: 11 }, color: '#64748b',
+            },
+            grid: { color: '#f1f5f9' },
+          },
+        },
+        plugins: {
+          legend: { position: 'bottom', onClick: function () {}, labels: { usePointStyle: true, pointStyle: 'circle', boxWidth: 8, boxHeight: 8, font: { size: 11 }, color: '#64748b' } },
+          tooltip: {
+            callbacks: {
+              label: function (/** @type {any} */ ctx) {
+                var real = ctx.dataset.rawValues ? ctx.dataset.rawValues[ctx.dataIndex] : null;
+                var state = real === 1 ? '포화' : real === 0 ? '정상' : '—';
+                return ctx.dataset.label + ': ' + state;
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
   // 대시보드 자동갱신(list-table.js)이 fragment swap 후 재호출 — 보고서는 1회 렌더.
   // 로컬 캐스트 — EnvTrend 는 globals.d.ts Window 에 미선언(프로젝트 전역). globals_issue 보고.
-  /** @type {any} */ (window).EnvTrend = { render: render };
-  if (document.readyState !== 'loading') render();
-  else document.addEventListener('DOMContentLoaded', render);
+  /** @type {any} */ (window).EnvTrend = { render: render, renderSaturation: renderSaturation };
+  if (document.readyState !== 'loading') {
+    render();
+    renderSaturation();
+  } else {
+    document.addEventListener('DOMContentLoaded', function () {
+      render();
+      renderSaturation();
+    });
+  }
 })();

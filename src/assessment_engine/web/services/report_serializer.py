@@ -27,7 +27,6 @@ from assessment_engine.web.view_models.attention import (
     ActionTargets,
     AttentionRow,
     AttentionSignals,
-    CapacityMetric,
     CapacityWarningItem,
     EnvironmentOverview,
     FleetErrorItem,
@@ -258,13 +257,13 @@ def _attention_row_from_dict(d: dict) -> AttentionRow:
 
 def _capacity_warning_from_dict(d: dict) -> CapacityWarningItem:
     data = dict(d)
-    # active_causes 는 list[str] — 스칼라라 별도 복원 불요. metrics 만 nested dataclass 복원.
-    data["metrics"] = [CapacityMetric(**m) for m in data.get("metrics") or []]
-    return CapacityWarningItem(**data)
+    # active_causes 는 list[str] — 스칼라라 별도 복원 불요. metrics(구 필드, ADR 0056 이전 스냅샷)는
+    # _drop_unknown_fields 가 걸러낸다 — CapacityMetric 자체도 폐기.
+    return CapacityWarningItem(**_drop_unknown_fields(CapacityWarningItem, data))
 
 
 def _action_targets_from_dict(d: dict) -> ActionTargets:
     data = dict(d)
-    # hosts = CapacityWarningItem list (metrics nested). 나머지(metric_labels·카운트)는 스칼라라 그대로.
+    # hosts = CapacityWarningItem list. metric_labels(구 필드)는 _drop_unknown_fields 가 걸러낸다.
     data["hosts"] = [_capacity_warning_from_dict(c) for c in data.get("hosts") or []]
-    return ActionTargets(**data)
+    return ActionTargets(**_drop_unknown_fields(ActionTargets, data))

@@ -526,8 +526,8 @@ def _storage_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExt
         _extra_row("확장 목표 용량(1년 수명)", stats.disk_capacity_target_gb, "GB"),
     ]
     return [
-        PeriodExtraGroup("부하 신호", load_rows),
         PeriodExtraGroup("통계 신뢰도", _confidence_rows(stats)),
+        PeriodExtraGroup("부하 신호", load_rows),
     ]
 
 

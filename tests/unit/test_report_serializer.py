@@ -223,3 +223,48 @@ def test_report_row_roundtrip_drops_removed_legacy_fields():
     restored = env_report_from_dict(data)
 
     assert not hasattr(restored.top_risks[0], "saturation_axes")
+
+
+def test_action_targets_roundtrip_drops_removed_metrics_fields():
+    """과거 스냅샷의 action.hosts[].metrics·action.metric_labels(ADR 0056 이전, CapacityMetric 폐기)가
+    복원을 깨지 않는다 — top_risks 와 동일 `_drop_unknown_fields` 경로."""
+    data = env_report_to_dict(_make_env_report())
+    data["action"] = {
+        "hosts": [
+            {
+                "public_id": "p1",
+                "hostname": "legacy-host",
+                "classification": "under_provisioned",
+                "classification_label": "자원 부족",
+                "badge_class": "rec-under_provisioned",
+                "classification_rank": 0,
+                "active_causes": [],
+                "services": {},
+                "metrics": [
+                    {"label": "CPU p95", "value": "90.0%", "active": True, "measured": True, "color": "#dc2626"}
+                ],
+                "confidence_notes": [],
+                "recommendation_action": "",
+                "root_cause_label": "",
+                "severity_score": 0.0,
+                "net_status_label": "",
+                "net_status_color": "",
+                "disk_io_status_label": "",
+                "disk_io_status_color": "",
+                "spec_display": "",
+            }
+        ],
+        "metric_labels": ["CPU p95"],
+        "total": 1,
+        "under_count": 1,
+        "efficiency_count": 0,
+        "efficiency_vcpus": 0,
+        "efficiency_memory_gb": 0.0,
+        "efficiency_disk_gb": 0,
+    }
+
+    restored = env_report_from_dict(data)
+
+    assert not hasattr(restored.action, "metric_labels")
+    assert not hasattr(restored.action.hosts[0], "metrics")
+    assert restored.action.hosts[0].hostname == "legacy-host"

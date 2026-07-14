@@ -26,14 +26,12 @@ from assessment_engine.web.services.mappers.shared import (
     build_host_confidence_notes,
     lookup_os_eol,
     resolve_os_eol,
-    saturation_axis_displays,
     spec_display_line,
 )
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
 from assessment_engine.web.view_models.attention import (
     ActionTargets,
     AttentionRow,
-    CapacityMetric,
     CapacityWarningItem,
     EnvironmentOverview,
     EnvironmentRealtime,
@@ -67,63 +65,12 @@ _WORKLOAD_COLORS: dict[str, str] = {
 _DONUT_RADIUS = 42
 _UTIL_DONUT_CIRC = 2 * math.pi * _DONUT_RADIUS
 
-# 자원 부족 카드 지표 값 색 — 위반(적정성 판정 기여) 강조 / 정상 / 미관측(N/A) 흐림 3분기.
-# 위반은 빨강(#dc2626, red-600) + 굵기로 강조 — 발화 축을 즉시 식별. 정상은 중간 회색(#475569)으로 대비.
-_METRIC_VIOLATION_COLOR = "#dc2626"  # 빨강 — 적정성 판정에 기여한 위반(CPU·메모리·디스크 용량)
-_METRIC_NORMAL_COLOR = "#475569"
-_METRIC_UNMEASURED_COLOR = "#94a3b8"  # 미관측(N/A) 흐림 — Windows perflib 미발행 축 등
-# 네트워크 상태 전용 색(orthogonal, metrics 목록과 분리) — 혼잡만 강조, 정상/미측정은 중립.
+# 네트워크 상태 전용 색(orthogonal) — 혼잡만 강조, 정상/미측정은 중립. disk_io_status_color 도 재사용.
 _NET_CONGESTED_COLOR = "#dc2626"
 
-# 포화 신호 축 헤더 — 각 열은 게이트1 raw 신호(evidence)이지 포화 판정이 아니다. 포화는 dual-gate
-# (신호 AND 이용률, recommendation.cpu_saturated/mem_saturated)라 판정은 분류·근본원인 칼럼 + 색 강조로만 표기.
-# Linux(L)/Windows(W) 임계 병기 — 값·단위 os별(혼합 표라 한 칼럼에 두 OS 행 공존), 임계 상수는 recommendation
-# 단일 진실 조립(F10, drift 0). 여기 실린 5개 헤더는 전부 host_status(자원 적정성 분류) 를 실제로 구동하는
-# 축만 — 디스크 I/O(await)·네트워크(재전송·드롭·conntrack)는 host_status 를 구동하지 않아(사이징 무관
-# orthogonal advisory) 칼럼에서 제외(아래 to_capacity_warning_item 참고, 네트워크는 net_status_label 전용 필드로).
-_L = recommendation
-# 이용률·용량 칼럼 임계 병기 — 값만으론 under 판정선을 모르니 헤더에 명시(p95 이용률·디스크 용량).
-_CPU_UTIL_LABEL = f"CPU p95 (>={_L.RS_CPU_UNDER_PCT:g}%)"
-_MEM_UTIL_LABEL = f"메모리 p95 (>={_L.RS_MEM_UNDER_PCT:g}%)"
-_DISK_CAP_LABEL = f"디스크 용량 (>={_L.RS_DISK_STATIC_GUARD_PCT:g}% or 30일)"
-_CPU_SAT_LABEL = f"실행 큐/코어 (L>={_L.PROCS_RUNNING_PER_CORE_SATURATION:g} · W>={_L.CPU_RUN_QUEUE_PER_CORE_SATURATION:g})"
-_MEM_SAT_LABEL = f"페이징 (L 스왑 · W>={_L.WIN_PAGES_INPUT_SATURATION:g}/s)"
 # 네트워크 상태 — 사이징과 별개 품질 축(orthogonal). 판정 근거 assess_network(재전송>1% or 드롭>0.5% or
 # conntrack>=80% -> 혼잡, monitoring 표준). conntrack 은 서버 상세. host_status 미구동이라 전용 필드로 분리.
 _NET_STATUS_LABEL: dict[str, str] = {"quality_ok": "정상", "congested": "혼잡", "unmeasured": "미측정"}
-
-
-def _pct(v: float | None) -> str:
-    """float 백분율 -> '94.0%' 표시 (소수 1자리). None(미관측)은 'N/A'."""
-    return f"{v:.1f}%" if v is not None else "N/A"
-
-
-def _disk_cap_value(raw) -> str:
-    """디스크 용량 표시 — 현재 used% + (차오르는 중이면) 30일 후 예상 used% 병기. 확장 근거를 숫자로 노출.
-
-    예: "43% (30일 100%)" = 지금 43%, 현재 성장률로 30일 뒤 소진. 목표 GB(장기 외삽)와 달리 근시라 짧은 span 도 신뢰.
-    """
-    used = raw.worst_mount_used_pct
-    if used is None:
-        return "N/A"
-    proj = raw.disk_capacity_proj_30d_pct
-    driving = raw.disk_capacity_driving_used_pct
-    # 30일 예상 병기 시엔 그 예상이 나온 마운트의 used% 로 짝 맞춤 — worst-used 마운트와 다른 마운트일 수 있어 혼입 방지.
-    if proj is not None and driving is not None and proj > driving + 1:
-        return f"{driving:.0f}% (30일 {proj:.0f}%)"
-    return f"{used:.1f}%"
-
-
-def _metric(label: str, value: str, active: bool, measured: bool) -> CapacityMetric:
-    """CapacityMetric 1개 — 색 precompute (P3): 미관측=흐림 / 정상=진함 / 위반=빨강(판정 기여, 본 목록은
-    host_status 구동 축만 실으므로 전부 빨강 — advisory 색 분기 없음). active 는 강조(bold) 여부."""
-    if not measured:
-        color = _METRIC_UNMEASURED_COLOR
-    elif active:
-        color = _METRIC_VIOLATION_COLOR
-    else:
-        color = _METRIC_NORMAL_COLOR
-    return CapacityMetric(label=label, value=value, active=active, measured=measured, color=color)
 
 
 # ─── gap (운영신호) ────────────────────────────────────────────────────────
@@ -540,36 +487,24 @@ def build_environment_realtime(
 def to_capacity_warning_item(raw):
     """ReportRowRaw -> CapacityWarningItem. build_action_targets 가 전 분류(under/over/idle/optimal/insufficient)에 대해 호출.
 
-    active_causes·지표 강조 — rollup_host per-resource 트리거 집합 파생(고정 순서, 카드 편입 classify_host 와 정합).
+    active_causes — rollup_host per-resource 트리거 집합 파생(고정 순서, 카드 편입 classify_host 와 정합).
     환경 요약 원인 집계(_under_cause_summary)의 단일 소스. 임계 재계산 없이 rollup 이 잡은 trigger 키를 매핑
-    (drift 방지, runway 소진 디스크 등도 강조). saturation 3축(CPU·메모리·디스크 I/O)은 rollup 내부
-    os-aware helper 로 판정 — 메모리 포화는 Linux swap page-out / Windows Pages Input/sec rate, CPU 포화는 Linux
-    run queue(procs_running) / Windows Processor Queue (P2). 지표 라벨은 os-neutral 축 이름, 값·measured 는 os-aware.
+    (drift 방지, runway 소진 디스크 등도 강조).
     """
     stats = build_resource_stats(raw)
-    # 분류·근본원인·처방·지표 강조·신뢰도 전부 rollup_host 단일 모델 — 화면 간 정합(#E3, ADR 0052 Phase D).
-    # root 만 처방(하류는 증상). confidence_notes 도 host 기반(build_host_confidence_notes) — 구 assess 미경유.
+    # 분류·근본원인·처방·신뢰도 전부 rollup_host 단일 모델 — 화면 간 정합(#E3). 처방은 자원별 독립(ADR 0056),
+    # confidence_notes 도 host 기반(build_host_confidence_notes) — 구 assess 미경유.
     host = recommendation.rollup_host(stats)
     classification = recommendation.host_status_to_recommendation(host.host_status)
-    # 지표 강조(active) = rollup per-resource 트리거 집합 — 분류가 잡은 축이 곧 강조 축(runway 소진 디스크 포함).
     hit = {t for r in host.resources.values() for t in r.triggers}
     swap_active = "mem_saturation" in hit
-    cpu_active = "cpu_util" in hit
-    mem_active = "mem_util" in hit
-    load_active = "cpu_saturation" in hit
     # 원인 라벨 — trigger key 를 os-neutral 축 이름으로(고정 순서, _CAUSE_LABEL_BY_TRIGGER dict 삽입순 = 표시순).
     active_causes = [lbl for key, lbl in _CAUSE_LABEL_BY_TRIGGER.items() if key in hit]
 
-    # 카드 지표 — host_status 구동 5축 전부 노출. saturation 2축(CPU·메모리) 표시값·라벨은 os-aware 이나
-    # `shared.saturation_axis_displays` 단일 진실 경유 — single_report 포화 축 카드와 표기 공유(drift 차단, P2).
-    # 라벨은 OS 중립 축 이름(공유 테이블 헤더가 혼합 OS 행에 유효, C-E1), 값·measured 만 os-aware(M1).
-    # active 는 rollup 트리거(hit) 재사용(임계 재계산 0). d_cpu/d_mem = [cpu, mem] 순(disk_io 는 host_status
-    # 미구동이라 여기서 안 씀 — root_cause_label/진단 텍스트·환경 포화 도넛에서 노출).
-    d_cpu, d_mem, _ = saturation_axis_displays(stats)
     net_res = host.resources["network"]
     net_congested = net_res.status == "congested"
-    # 네트워크 — verdict 1칼럼(정상/혼잡/미측정), host under/over 미구동 orthogonal flag 라 metrics 밖 전용
-    # 필드(net_status_label/color). 원시 수치(재전송·드롭·conntrack)는 서버 상세.
+    # 네트워크 — verdict 1칼럼(정상/혼잡/미측정), host under/over 미구동 orthogonal flag 라 전용 필드
+    # (net_status_label/color). 원시 수치(재전송·드롭·conntrack)는 서버 상세.
     net_status_value = _NET_STATUS_LABEL.get(net_res.status, net_res.status)
     net_status_color = _NET_CONGESTED_COLOR if net_congested else ""
     # 디스크 I/O — network 와 동형 orthogonal flag(io_bound/io_ok/unmeasured, host_status 미구동). RS_STATUS_LABEL_KO
@@ -580,21 +515,8 @@ def to_capacity_warning_item(raw):
     disk_io_res = host.resources["disk_io"]
     disk_io_status_value = recommendation.RS_STATUS_LABEL_KO.get(disk_io_res.status, disk_io_res.status)
     disk_io_status_color = _NET_CONGESTED_COLOR if disk_io_res.status == "io_bound" else ""
-    # 정적 배정 사양 — 서버 목록과 동일 단일 진실(spec_display_line). 환경 자원 평가 compact 표에서 권고와 대조.
+    # 정적 배정 사양 — 서버 목록과 동일 단일 진실(spec_display_line). 환경 자원 평가 표에서 권고와 대조.
     spec_display = spec_display_line(raw.cpu_cores, raw.mem_total_bytes, raw.block_devices)
-    # 자원 적정성 분류(host_status)에 실제로 관여하는 수치만 칼럼화 — CPU/메모리 이용률·포화(dual-gate under)·
-    # 디스크 용량(filling under). 디스크 I/O(await)·네트워크(재전송·드롭·conntrack)는 host_status 를 전혀
-    # 구동하지 않는 orthogonal advisory 축(recommendation._ROOTABLE_UNDER 가 명시적으로 제외) — 분류표에서
-    # 제거하고 각자 전용 채널로: 디스크 I/O 는 disk_io_status_label(아래, compact 표 전용)·root_cause_label
-    # (증상 인과 결합 시)·환경 포화 도넛, 네트워크는 net_status_label(아래, compact 표 전용)·환경 혼잡 도넛으로
-    # 노출(가시성 손실 없음, 표만 정리) — 둘 다 network 와 동형 orthogonal flag 라 대칭 처리.
-    metrics = [
-        _metric(_CPU_UTIL_LABEL, _pct(raw.cpu_p95_pct), cpu_active, raw.cpu_p95_pct is not None),
-        _metric(_CPU_SAT_LABEL, d_cpu.value, load_active, d_cpu.measured),
-        _metric(_MEM_UTIL_LABEL, _pct(raw.mem_p95_pct), mem_active, raw.mem_p95_pct is not None),
-        _metric(_MEM_SAT_LABEL, d_mem.value, swap_active, d_mem.measured),
-        _metric(_DISK_CAP_LABEL, _disk_cap_value(raw), "disk_capacity" in hit, raw.worst_mount_used_pct is not None),
-    ]
     # 상위 N 절단용 심각도 — swap(paging) 최우선 > 위반 자원 수 > 최고 활용률(CPU/메모리/디스크 max).
     # 가중치 자릿수 분리(swap 1e4 > active*100(max 500) > util(max 100))로 우선순위 충돌 없음.
     util_vals = [v for v in (raw.cpu_p95_pct, raw.mem_p95_pct, raw.worst_mount_used_pct) if v is not None]
@@ -616,7 +538,6 @@ def to_capacity_warning_item(raw):
         active_causes=active_causes,
         # 워크로드 카테고리 카운트 — role_distribution 과 동일 단일 진실 (services 이름 ∪ listen 소켓).
         services=dict(workload_category_counter(raw.services, raw.listen_ports)),
-        metrics=metrics,
         confidence_notes=build_host_confidence_notes(host),
         recommendation_action=action,
         root_cause_label=recommendation.root_cause_display(host),
@@ -632,7 +553,7 @@ def to_capacity_warning_item(raw):
 def build_action_targets(raws) -> ActionTargets:
     """서버별 자원 적정성 통합 표 — 전 서버(모든 분류) 한 표에. 최초 정렬 = 분류 순서(부족>과다>유휴>정상>표본) > 심각도.
 
-    CapacityWarningItem 단일 행 타입(분류·근본원인·권고·6축·신뢰도). 자원 평가 페이지·환경 보고서 공유 단일 진실.
+    CapacityWarningItem 단일 행 타입(분류·근본원인·권고·신뢰도). 자원 평가 페이지·환경 보고서 공유 단일 진실.
     """
     items: list[CapacityWarningItem] = []
     eff_raws = []
@@ -645,7 +566,6 @@ def build_action_targets(raws) -> ActionTargets:
     items.sort(key=lambda it: (recommendation.CLASSIFICATION_ORDER[it.classification], -it.severity_score, it.hostname))
     return ActionTargets(
         hosts=items,
-        metric_labels=[m.label for m in items[0].metrics] if items else [],
         total=len(items),
         under_count=sum(1 for it in items if it.classification == "under_provisioned"),
         efficiency_count=len(eff_raws),

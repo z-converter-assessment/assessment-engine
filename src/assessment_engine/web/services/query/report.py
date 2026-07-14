@@ -19,7 +19,11 @@ from assessment_engine.db.repositories.query.types import (
 )
 from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.attention import build_action_targets
-from assessment_engine.web.services.mappers.environment_report import build_metric_trend, to_environment_report
+from assessment_engine.web.services.mappers.environment_report import (
+    build_metric_trend,
+    build_saturation_trend,
+    to_environment_report,
+)
 from assessment_engine.web.services.mappers.report import (
     build_period_assessment,
     build_report_summary_bullets,
@@ -303,6 +307,9 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             # 네트워크 인터페이스 정적 정보 — network.html 과 동일 단일 진실(build_network_interfaces).
             # 활동(RX/TX)은 이미 report 자체 윈도우 표(net_rx_kbps 등)가 있어 라이브 스냅샷 재주입 안 함.
             summary.network_interfaces = build_network_interfaces(raw0.net_interfaces or [])
+
+            # 자원 포화 여부 3축 추이 — trend(이용률)와 동일 윈도우·bucket, 서버 1대 이진 0/1(#F10 창 일관).
+            summary.sat_trend = await self._build_report_saturation_trend(time_range, end_dt, [server_id])
         return summary
 
     async def build_child_prefetched_reports(
@@ -364,6 +371,19 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         mem_series = await self.repo.metric_trend("mem.usage_percent", trend_start, end_dt, bucket, server_ids)
         disk_series = await self.repo.metric_trend("fs.usage_percent", trend_start, end_dt, bucket, server_ids)
         return build_metric_trend(cpu_series, mem_series, disk_series)
+
+    async def _build_report_saturation_trend(self, time_range: str, end_dt: datetime, server_ids: list[int]) -> list:
+        """CPU 실행 큐·메모리 페이징·디스크 I/O 포화 이진(0/1) 시계열 — 개별 서버 보고서(engineer) 전용.
+
+        trend(이용률)와 동일 윈도우·bucket 정책. 서버 1대 스코프 고정(server_ids 필수) — 환경/선택 스코프는
+        해당 화면에 노출 지점이 없어 미도입(실사용 시점 확장, #F9).
+        """
+        bucket = AUTO_BUCKET.get(time_range, "1h")
+        trend_start = end_dt - TIME_RANGE_TD[time_range]
+        cpu_series = await self.repo.metric_trend("cpu.saturation", trend_start, end_dt, bucket, server_ids)
+        mem_series = await self.repo.metric_trend("mem.paging_pressure", trend_start, end_dt, bucket, server_ids)
+        disk_series = await self.repo.metric_trend("disk.saturation", trend_start, end_dt, bucket, server_ids)
+        return build_saturation_trend(cpu_series, mem_series, disk_series)
 
     async def _assemble_report_raws(self, server_ids: list[int], period_days: float, end_dt: datetime) -> list:
         """report_aggregate + 4 baseline(uptime·agent_restart·disk_io·net_io) 주입 raws.

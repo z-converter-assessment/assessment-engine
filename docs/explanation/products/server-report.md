@@ -52,19 +52,19 @@ KPI 6개 + 환경 총 자원 + 선택 맥락 (선택 N대의 OS 구성·워크�
 
 자동 정성 요약 (행동 시그널): 디스크 임박·I/O 병목·재부팅·OS EOL.
 
-판단 근거(임계값 전문)는 모든 보고서 공통 단일 partial(`reports/_thresholds_reference.html`)이 인쇄본 말미에 임베드 — 인쇄본 단독 검토 가능.
+판단 근거(임계값 전문)는 인쇄본에 임베드하지 않는다 — 보고서 하단은 화면 전용 경량 링크(`_reference_link.html`)만 두고, 임계값 전문은 사이드바 "참고" 그룹의 별도 페이지(`/reference`)에서 확인한다(보고서 본문 인쇄 분량 절약).
 
 ### view 분기 — engineer (양식 B)
 
 목적: 운영자·엔지니어 정량 분석 + 자원 적정성 근거 검증.
 
-구성 = 환경 보고서 본문 공유(engineer 분기 — 환경 현황 5축 메트릭·부하 추이+토폴로지·자원 적정성 평가(분류 분포·효율화 검토 대상·자원 부족 6축 상세)·OS 지원 종료·OS 버전 분포, 단일 진실 `docs/explanation/products/environment-report.md`) + 세부 서버 목록 표.
+구성 = 환경 보고서 본문 공유(engineer 분기 — 환경 현황 5축 메트릭·부하 추이+토폴로지·자원 적정성 평가(분류 분포 + 서버별 자원 적정성 통합 표)·OS 지원 종료·OS 버전 분포, 단일 진실 `docs/explanation/products/environment-report.md`) + 세부 서버 목록 표.
 
 세부 서버 목록 컬럼(engineer): customer 컬럼 + 재부팅 · 에이전트 재시작 (시스템 안정성 — anchor+window 안 카운트).
 
 인쇄 2분할도 이 컬럼 세트에 맞춰 표A(구성: 상태·서버·구동서비스·OS·OS지원종료·자원)/표B(평가: 서버·운영이벤트·프로비저닝{engineer 는 +재부팅·재시작})로 재편.
 
-효율화 검토 대상 표(본문 공유, over/idle/shutdown Top 30): 분류 · 진단 · 권고 · 신뢰도 — 분류는 `recommendation.assess`, 진단은 가장 시급한 신호 1개(`_build_diagnosis`, 표본 부족 호스트는 원인 진단·오프라인은 "오프라인" 접두), 권고는 분류+trigger 파생(`_build_recommendation_action`), 신뢰도는 `build_confidence_notes`(is_partial·low_sample). 단일 보고서 자원 적정성 평가 표와 동일 판독 프레임.
+서버별 자원 적정성 표(본문 공유, `action_targets_table`): 호스트·사양·분류(근본원인 병합)·권고(자원별 독립 처방)·네트워크 상태·디스크 I/O 상태·신뢰도. 환경 자원 평가 페이지와 칼럼 동일(#F9 정합). 단일 보고서 자원 적정성 평가 표와 동일 판독 프레임.
 
 자동 정성 요약 (customer 시그널 + engineer 추가): 역할별 평균 CPU 최고치·Saturation 발생·CPU 변동성 큼(peak/p95 1.5배+).
 
@@ -79,9 +79,9 @@ KPI 6개 + 환경 총 자원 + 선택 맥락 (선택 N대의 OS 구성·워크�
 
 ### 개별 서버 보고서 — engineer 심화 계층 (단일 deep-dive)
 
-N대 selection 은 서버 간 비교를 위해 행 단위 정량 표(양식 B)로 압축하지만, 단일 1대(`view=engineer`)는 비교 대상이 없어 그 1대를 카드 계층으로 펼친다 — 서버 인벤토리 -> 자원 적정성·운영 평가(통합 1표) -> Listen 포트 -> CPU/메모리/스토리지/네트워크 상세(이용률+포화축+마운트·인터페이스 세부) -> 에러 신호 -> 부하 추이 순(customer 는 서버 인벤토리 뒤 곧장 사용률 심화 카드들, 자원 적정성·운영 평가 표는 맨 뒤 — 순서만 다르고 "자원 적정성·운영 평가" 표 자체는 동일 패턴 공유, 컬럼 수만 차등). CPU 분류(user/system/iowait)·메모리 구성(used/available/cached/buffers)은 N대 표엔 없는 단일 전용 — repo `report_cpu_breakdown`·`report_memory_breakdown`(개별 server_id 단위). customer 단일은 이 심화를 생략하고 구성·평균 사용률·권고만(현황 파악 범위). 양식 통일상 단일·selection·환경 모두 `EnvironmentReportSummary`(kind=`env_report`) 공유 — 단일 전용 필드(`server_inventory`·`memory_breakdown`·`cpu_breakdown`·`period_assessment`·`storage_tree`·`network_interfaces`)는 selection·환경에서 None/빈 list (#C1).
+N대 selection 은 서버 간 비교를 위해 행 단위 정량 표(양식 B)로 압축하지만, 단일 1대(`view=engineer`)는 비교 대상이 없어 그 1대를 카드 계층으로 펼친다 — 서버 인벤토리 -> 자원 적정성·운영 평가(통합 1표) -> Listen 포트 -> CPU/메모리/스토리지/네트워크 상세(이용률+포화축+마운트·인터페이스 세부) -> 에러 신호 -> 이용률 추이 + 포화 여부 추이(2열, engineer 전용 — 이용률은 CPU·메모리·디스크 사용률 연속선, 포화 여부는 CPU 실행 큐·메모리 페이징·디스크 I/O 3축 이진 0/1 상태를 lane 오프셋으로 나란히) 순(customer 는 서버 인벤토리 뒤 곧장 사용률 심화 카드들, 자원 적정성·운영 평가 표는 맨 뒤 — 순서만 다르고 "자원 적정성·운영 평가" 표 자체는 동일 패턴 공유, 컬럼 수만 차등). CPU 분류(user/system/iowait)·메모리 구성(used/available/cached/buffers)은 N대 표엔 없는 단일 전용 — repo `report_cpu_breakdown`·`report_memory_breakdown`(개별 server_id 단위). customer 단일은 이 심화를 생략하고 구성·평균 사용률·권고만(현황 파악 범위). 양식 통일상 단일·selection·환경 모두 `EnvironmentReportSummary`(kind=`env_report`) 공유 — 단일 전용 필드(`server_inventory`·`memory_breakdown`·`cpu_breakdown`·`period_assessment`·`storage_tree`·`network_interfaces`)는 selection·환경에서 None/빈 list (#C1).
 
-자원 적정성·운영 평가 표(customer·engineer 공용 패턴, 컬럼 수만 차등) — 분류·진단(engineer)/근본원인(customer)·권고·신뢰도 + 운영 이벤트(윈도우 내 OOM·MCE·메모리손상·net/disk 에러 발생 유무)·네트워크 상태(사이징과 별개 품질 판정)·OS 지원종료(3상태). engineer 만 재부팅·에이전트 재시작(윈도우 카운트) 2칼럼 추가. 세부 서버 목록(N대)의 동명 신호와 같은 산식 공유 — 화면 간 정합.
+자원 적정성·운영 평가 표(customer·engineer 공용 패턴, 컬럼 수만 차등) — 분류·진단(engineer)/근본원인(customer)·권고·신뢰도 + 시스템 에러(윈도우 내 OOM·MCE·메모리손상·net/disk 에러 발생 유무)·네트워크 상태(사이징과 별개 품질 판정)·OS 지원종료(3상태). engineer 만 재부팅·에이전트 재시작(윈도우 카운트) 2칼럼 추가. 세부 서버 목록(N대)의 동명 신호와 같은 산식 공유 — 화면 간 정합.
 
 CPU/메모리/스토리지/네트워크 상세 카드(engineer 전용) — 윈도우 평균·p95·peak 정량 표 아래 이용률·포화 축 2열(`period_assessment.resources[cpu|mem|disk|net]`, 서버 세부·자원 세부 탭과 동일 신호·임계·판정 단일 진실 `build_period_assessment`, 네트워크는 포화 열만). 스토리지 카드는 마운트별 표 대신 스토리지 레이아웃 트리(`storage_tree`, `_storage_tree.html` 단일 진실)로 RAID·LVM·파티션 계층과 마운트별 사용률·inode율을 한 번에 노출 — 트리가 마운트 표를 상위호환하므로 마운트 표는 별도로 두지 않는다. 네트워크 카드는 정적 인터페이스 구성(MAC·Speed·MTU·Gateway·주소, `network_interfaces`)도 함께 노출.
 

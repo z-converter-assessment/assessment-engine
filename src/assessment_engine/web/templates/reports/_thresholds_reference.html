@@ -44,7 +44,96 @@
     임계 출처는 AWS Compute Optimizer · Azure Advisor · GCP Recommender · Kleinrock 등 산업 표준 종합.
   </p>
 
-  <h3>자원별 판정 — 입력·임계·사이징 (엄밀)</h3>
+  <h3>근거 계층 (임계 출처 등급)</h3>
+  <p class="text-md text-label" style="margin:0 0 10px; line-height:1.6;">
+    모든 임계는 4단계 중 하나로 출처를 밝힌다 — 근거 없는 값(무출처 경험값)은 0개, 전부 아래 등급으로 승격되거나
+    명시 폐기됐다.
+  </p>
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>계층</th><th>의미</th><th>예</th></tr></thead>
+    <tbody>
+      <tr><td>1 — 방법론</td><td>USE Method(Gregg) 같은 진단 프레임 자체의 정의</td><td>CPU 실행 큐 포화, PSI 개념</td></tr>
+      <tr><td>2a — 시스템·수학 법칙</td><td>큐잉이론 등 물리·수학적으로 유도되는 값</td><td>Kleinrock 큐잉 무릎(CPU 70%)</td></tr>
+      <tr><td>2b — OS 저작자 자기정의</td><td>커널·perfmon 개발자가 정의한 신호·해석</td><td>D-state(procs_blocked) 직접 세기, Windows Processor Queue Length</td></tr>
+      <tr><td>3 — 클라우드 advisor 시작값</td><td>AWS/Azure/GCP 의 권고 도구가 쓰는 시작값(물리 무릎이 없는 축)</td><td>메모리 90% resize(Azure), CPU Balanced 70%(AWS)</td></tr>
+      <tr><td>4 — 무출처 경험값</td><td>근거 없는 값 — 발견 시 2·3 으로 승격하거나 명시 폐기</td><td>(현재 0개 — 과거 Windows 페이징 절대 임계 1000 pages/sec 는 폐기하고 존재 판정으로 대체)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 style="margin-top:18px;">임계 상수 전체 (<code>recommendation.py</code> 단일 진실)</h3>
+  <p class="text-md text-label" style="margin:0 0 10px; line-height:1.6;">
+    아래는 코드 상수 그대로다 — 화면·API·보고서가 전부 이 값을 참조(재계산 0). 이름은 소스 코드와 1:1.
+  </p>
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>상수</th><th>값</th><th>의미</th></tr></thead>
+    <tbody>
+      <tr><td><code>WINDOW_DAYS</code></td><td>14</td><td>평가 창(일) — AWS Compute Optimizer 기본 lookback</td></tr>
+      <tr><td><code>RS_CPU_UNDER_PCT</code></td><td>70</td><td>CPU 부족 트리거 임계(p95)</td></tr>
+      <tr><td><code>RS_CPU_SIZING_TARGET_PCT</code></td><td>70</td><td>CPU 사이징 목표 이용률</td></tr>
+      <tr><td><code>RS_CPU_SAT_HEADROOM</code></td><td>0.7</td><td>포화 주도 증설 시 실행 큐/코어를 포화선의 이 배수 아래로</td></tr>
+      <tr><td><code>RS_CPU_PERCORE_HOLD_PCT</code></td><td>85</td><td>per-core 다운사이즈/유휴 보류 임계(단일스레드 보호)</td></tr>
+      <tr><td><code>RS_CPU_STEAL_BIAS_PCT</code></td><td>5</td><td>steal p95 편향(biased 신뢰도) 임계</td></tr>
+      <tr><td><code>PROCS_RUNNING_PER_CORE_SATURATION</code></td><td>1.0</td><td>Linux CPU 포화(run queue/core)</td></tr>
+      <tr><td><code>CPU_RUN_QUEUE_PER_CORE_SATURATION</code></td><td>2.0</td><td>Windows CPU 포화(Processor Queue/core, "윈도우 정규화 보정")</td></tr>
+      <tr><td><code>RS_MEM_UNDER_PCT</code></td><td>90</td><td>메모리 부족 트리거 임계(p95)</td></tr>
+      <tr><td><code>RS_MEM_SIZING_TARGET_PCT</code></td><td>80</td><td>메모리 사이징 목표(near-peak 착지)</td></tr>
+      <tr><td><code>RS_MEM_SATURATION_HEADROOM_PCT</code></td><td>30</td><td>페이징/OOM 발생 시 증설 headroom(현재+30%)</td></tr>
+      <tr><td><code>WIN_PAGES_INPUT_SATURATION</code></td><td>20.0</td><td>Windows 메모리 포화(Pages Input/sec p95)</td></tr>
+      <tr><td><code>RS_DISK_RUNWAY_DAYS</code></td><td>30</td><td>디스크 소진 임박 판정(runway)</td></tr>
+      <tr><td><code>RS_DISK_TARGET_RUNWAY_DAYS</code></td><td>365</td><td>디스크 확장 목표 수명(일)</td></tr>
+      <tr><td><code>RS_DISK_TREND_MIN_SPAN_DAYS</code></td><td>= WINDOW_DAYS(14)</td><td>성장률 외삽에 필요한 최소 관측 span</td></tr>
+      <tr><td><code>RS_DISK_NEAR_HORIZON_DAYS</code></td><td>30</td><td>짧은 span 일 때 근시 외삽 지평</td></tr>
+      <tr><td><code>RS_DISK_RATE_MIN_SPAN_DAYS</code></td><td>= RS_CONFIDENCE_MIN_HOURS/24(1.25)</td><td>fill-rate 외삽 절대 하한(span 이 이보다 짧으면 추세 미신뢰)</td></tr>
+      <tr><td><code>RS_DISK_HEADROOM_TARGET_PCT</code></td><td>70</td><td>자료 부족 + 임계 초과 시 확장 목표 착지 이용률</td></tr>
+      <tr><td><code>RS_DISK_STATIC_GUARD_PCT</code></td><td>85</td><td>디스크 용량 정적 가드(used%·inode%)</td></tr>
+      <tr><td><code>RS_DISKIO_AWAIT_MS</code></td><td>20</td><td>디스크 I/O 포화 임계(await p95, ms)</td></tr>
+      <tr><td><code>RS_DISKIO_UTIL_MIN</code></td><td>0.5</td><td>device 사용률 하한(await 신뢰 게이트 — 유휴 device 배제)</td></tr>
+      <tr><td><code>DISK_QUEUE_PER_DISK_SATURATION</code></td><td>2.0</td><td>Windows 디스크 I/O 포화 폴백(구세대 viostor, 큐 깊이)</td></tr>
+      <tr><td><code>RS_NET_RETRANS_PCT</code></td><td>1.0</td><td>네트워크 재전송률 혼잡 임계</td></tr>
+      <tr><td><code>RS_NET_DROP_PCT</code></td><td>0.5</td><td>네트워크 드롭률 혼잡 임계</td></tr>
+      <tr><td><code>RS_NET_MIN_TRAFFIC_KBPS</code></td><td>10.0</td><td>네트워크 품질판정 최소 트래픽 게이트(저트래픽 억제)</td></tr>
+      <tr><td><code>RS_CONNTRACK_SATURATION_RATIO</code></td><td>0.8</td><td>conntrack 고갈 임계</td></tr>
+      <tr><td><code>RS_CONFIDENCE_MIN_HOURS</code></td><td>30</td><td>통계 정밀도 절대 바닥(시간)</td></tr>
+      <tr><td><code>RS_DOWNSIZE_MIN_SUFFICIENCY</code></td><td>0.7</td><td>다운사이즈 처방 창 대비 관측 비율 문턱</td></tr>
+      <tr><td><code>RS_BURST_RATIO_MAX</code></td><td>2.0</td><td>버스티 판정(p95/median)</td></tr>
+      <tr><td><code>RS_UTIL_TREND_RISING_PCT_PER_DAY</code></td><td>0.2</td><td>상승 추세 판정(%/day)</td></tr>
+      <tr><td><code>IDLE_CPU_P95_PCT</code></td><td>3</td><td>유휴 판정 CPU 상한</td></tr>
+      <tr><td><code>IDLE_NET_MBPS</code></td><td>2</td><td>유휴 판정 네트워크 상한</td></tr>
+      <tr><td><code>IDLE_DISK_IOPS</code></td><td>5</td><td>유휴 판정 디스크 baseline IOPS 상한</td></tr>
+      <tr><td><code>IDLE_STRONG_PEAK_PCT</code></td><td>1</td><td>"확실 유휴"(즉시 종료 권고) CPU peak 상한</td></tr>
+      <tr><td><code>IDLE_STRONG_NET_KBYTES_PER_S</code></td><td>1</td><td>"확실 유휴" 네트워크 상한(kB/s)</td></tr>
+      <tr><td><code>PROCS_BLOCKED_DSTATE_SATURATION</code></td><td>1.0</td><td>근본원인 게이트(D-state 존재 임계)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 style="margin-top:18px;">Errors 축 — 분류 vs 별도 신호</h3>
+  <p class="text-md text-label" style="margin:0 0 10px; line-height:1.6;">
+    USE 의 세 번째 축(Errors)은 자원 적정성 <strong>분류</strong>(under/over/idle/optimal)에는 원칙적으로 관여하지
+    않는다 — 유일한 예외가 OOM kill(<code>mem_oom</code> 트리거, 발생 즉시 메모리 <code>under</code> 확정)이다.
+    CPU MCE·메모리 하드웨어 손상(EDAC)·파일시스템 오류·디스크 오류(mdraid/ext4)·네트워크 rx/tx 오류는 분류를
+    구동하지 않고, 별도의 병렬 신호 체계(<code>ErrorSignal</code> — "에러 신호"/"시스템 에러" 카드)로 노출된다:
+    상태는 clean(창 내 0)·occurred(발생, 카운트)·no_data(일시 미수집)·not_applicable(해당 OS 구조적 미지원,
+    예 Windows EDAC) 4종. 분류와 에러 신호는 서로 다른 질문에 답한다 — "사이징이 적절한가"와 "하드웨어·경로에
+    문제가 있었나"는 별개다.
+  </p>
+
+  <h3 style="margin-top:18px;">지금은 안 쓰는 것 (Deferred)</h3>
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>항목</th><th>왜 안 쓰나</th></tr></thead>
+    <tbody>
+      <tr><td>PSI (Pressure Stall Information)</td><td>커널 4.20+ 전용이라 구세대 Linux·Windows 전체가 null — "환경/서버 상세 모아보기" 단위에서 오인 소지. 서버 상세 실시간 스냅샷(포화 열)에서만 참고 표시, 분류 입력 아님.</td></tr>
+      <tr><td>HDD/SSD await 임계 차등</td><td>디바이스 종류별 정상 await 분포가 달라(SSD/NVMe 병렬 처리) 단일 20ms 임계가 SSD 에는 보수적·HDD 에는 낙관적일 수 있음. 디바이스 종류 메타데이터 정합 전까지 단일 임계 유지.</td></tr>
+      <tr><td>MCE 심각도 가중</td><td>correctable/uncorrectable 구분 없이 발생 유무만 본다 — EDAC 심각도별 가중은 실측 상관관계 확인 후 도입 검토.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 style="margin-top:18px;">자원별 판정 — 입력·임계·사이징 (엄밀)</h3>
   <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     자원 5축을 각각 독립 판정(<code>assess_*</code>)한 뒤 호스트로 종합(<code>rollup_host</code>). 아래는 자원별 입력 신호·판정 임계·출처와 사이징 산식.
     CPU·메모리는 목표 사양(코어/GB)을 산출하고, 디스크 용량은 목표 GB, 디스크 I/O·네트워크는 사이징 대상이 아니라 상태만 판정한다.
@@ -144,17 +233,21 @@
   </table>
   </div>
 
-  <h3 style="margin-top:18px;">호스트 종합 — 근본원인 (인과)</h3>
+  <h3 style="margin-top:18px;">호스트 종합 — 근본원인 (인과, 진단 근거)</h3>
   <p class="text-md text-label" style="margin:0 0 10px; line-height:1.6;">
-    자원별 부족을 호스트로 종합할 때 인과 상류를 짚어 root 만 처방하고 하류(증상)는 억제한다 — 삼중 처방 방지. 인과 사슬: 메모리 -&gt; 디스크 I/O -&gt; CPU. "근본원인" 칼럼·권고가 이 종합과 정합.
+    자원별 부족을 호스트로 종합할 때 인과 상류(root)를 짚어 "왜 부족한가"를 알려준다 — 단 처방(무엇을 늘릴지)은
+    자원마다 독립이다. 근본원인 추정만 믿고 하류(증상)를 억제하면, 추정이 틀렸을 때(원인 자원만 고쳐도 하류가
+    실제로 해소된다는 보장은 없다) 실제로 부족한 자원을 놓친다 — 마이그레이션 사이징 계약(assessment API)과
+    동일하게 관측된 부족은 전부 처방하고, 인과는 "근본원인" 칼럼으로만 별도 전달한다. 인과 사슬: 메모리 -&gt;
+    디스크 I/O -&gt; CPU.
   </p>
   <div class="table-scroll">
   <table>
-    <thead><tr><th>패턴</th><th>판별</th><th>근본원인 | 처방</th></tr></thead>
+    <thead><tr><th>패턴</th><th>판별</th><th>근본원인 표시 (처방은 아래 "권고" 표 — 관측된 자원 전부)</th></tr></thead>
     <tbody>
-      <tr><td>메모리발</td><td>메모리 페이징 발생 <span class="text-meta">AND</span> 동반 디스크 I/O 또는 CPU 부족</td><td>root = 메모리. 디스크 I/O·CPU 는 swap 트래픽·대기의 증상 -&gt; 처방 억제. 표시 "메모리 (CPU·디스크 I/O 유발)"</td></tr>
-      <tr><td>디스크발</td><td>디스크 I/O 병목 <span class="text-meta">AND</span> CPU 부족 <span class="text-meta">AND</span> procs_blocked(D-state) p95 &gt;= 1.0</td><td>root = 디스크 I/O. CPU 로드는 D-state 블록의 증상. 표시 "디스크 I/O (CPU 유발)"</td></tr>
-      <tr><td>독립 부족</td><td>결합 신호 없음</td><td>각자 처방 (root = 최상류 memory &gt; cpu &gt; disk_io &gt; disk_capacity). 표시 "CPU·디스크 I/O"(나열, 인과 함의 없음)</td></tr>
+      <tr><td>메모리발</td><td>메모리 페이징 발생 <span class="text-meta">AND</span> 동반 디스크 I/O 또는 CPU 부족</td><td>root = 메모리. 디스크 I/O·CPU 는 swap 트래픽·대기의 증상으로 표시(처방은 억제 안 됨). 표시 "메모리 (CPU·디스크 I/O 유발)"</td></tr>
+      <tr><td>디스크발</td><td>디스크 I/O 병목 <span class="text-meta">AND</span> CPU 부족 <span class="text-meta">AND</span> procs_blocked(D-state) p95 &gt;= 1.0</td><td>root = 디스크 I/O. CPU 로드는 D-state 블록의 증상으로 표시(처방은 억제 안 됨). 표시 "디스크 I/O (CPU 유발)"</td></tr>
+      <tr><td>독립 부족</td><td>결합 신호 없음</td><td>각자 원인 (root = 최상류 memory &gt; cpu &gt; disk_io &gt; disk_capacity, 나열 순서만 결정). 표시 "CPU·디스크 I/O"(나열, 인과 함의 없음)</td></tr>
     </tbody>
   </table>
   </div>
@@ -190,7 +283,7 @@
     권고는 분류에서 결정론으로 나온다 — 같은 분류·같은 신호면 늘 같은 문구다(환경 보고서 "조치 필요 호스트"·서버 단일 보고서 "자원 적정성 평가"가 공유, 임계 재계산 0). 세 원칙으로 처방한다.
   </p>
   <ul style="margin:0 0 12px; padding-left:22px; line-height:1.9; font-size:13px; color:#334155;">
-    <li>인과 억제 — 자원 부족은 근본원인만 처방한다. 메모리 포화가 CPU·디스크 I/O 를 끌어올린 경우 "메모리 증설"만 내고 CPU·디스크는 증상이라 억제한다(근본원인 칼럼이 인과를 전달). 같은 병목에 두세 번 처방하는 걸 막는다.</li>
+    <li>자원별 독립 처방 — 관측된 under 자원은 인과 관계와 무관하게 전부 처방한다. 메모리 포화가 CPU·디스크 I/O 를 끌어올린 경우도 "메모리 증설" + "CPU 증설"을 함께 낸다 — 근본원인 추정이 틀리면(원인만 고쳐도 하류가 실제로 해소된다는 보장은 없다) 실제 부족을 놓치는 게 더 위험하다는 안전 우선 판단(assessment API 사이징 계약과 정책 통일). 인과는 "근본원인" 칼럼이 별도로 전달한다.</li>
     <li>사이징 착지점 — 목표는 이용률 70% 착지가 기본(AWS Compute Optimizer Balanced). 메모리는 부족하면 급격히 무너져 이용률 목표와 "현재+30%" 중 큰 값을 쓴다. 디스크 용량은 현 성장률로 1년 버티는 총량, 디스크 I/O 는 수치 목표 없이 티어를 올린다.</li>
     <li>다운사이즈 게이트 — 과다는 분류는 늘 뜨지만 "코어 N개로" 같은 구체 축소는 신뢰도가 온전할 때만 낸다(정밀·커버리지·충실도 온전 + 상승 추세 아님 + 창 대비 관측 0.7 이상). 잘못 줄이는 게 최악이라, 미충족이면 축소는 보류하고 관찰만 권한다.</li>
   </ul>

@@ -736,6 +736,31 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 SELECT ts, COUNT(*) FILTER (WHERE ever) AS value, NULL::text AS dimension, NULL::text AS kind
                 FROM per_bucket GROUP BY ts ORDER BY ts
             """)
+        elif metric_type == "cpu.saturation":
+            # CPU 실행 큐 포화 여부(서버 상세, 이진 0/1) — cpu.saturation_hosts(환경, crossing 서버 수)와 동일
+            # 원자료·임계, 서버 1대 단일 시계열로 축소: recommendation.cpu_saturated 동일 판정 — Linux
+            # (procs_running/core, 임계 1.0)·Windows(Processor Queue/core, 임계 2.0, "윈도우 정규화 보정").
+            sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
+            params["procs_running_threshold"] = recommendation.PROCS_RUNNING_PER_CORE_SATURATION
+            params["cpu_run_queue_threshold"] = recommendation.CPU_RUN_QUEUE_PER_CORE_SATURATION
+            sql = text(f"""
+                WITH flags AS (
+                    SELECT sm.collected_at,
+                        (sm.cpu_run_queue::float / si.cpu_cores)
+                        / CASE WHEN si.os_family = 'windows' THEN (:cpu_run_queue_threshold)::float
+                               ELSE (:procs_running_threshold)::float END >= 1.0 AS crossed
+                    FROM {ServerMetrics.__tablename__} sm
+                    JOIN {ServerInventory.__tablename__} si ON si.id = sm.server_id
+                    WHERE sm.collected_at >= :start AND sm.collected_at <= :end {sid_sm}
+                      AND sm.cpu_run_queue IS NOT NULL AND si.cpu_cores > 0
+                ),
+                per_bucket AS (
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, bool_or(crossed) AS ever
+                    FROM flags GROUP BY ts
+                )
+                SELECT ts, (CASE WHEN ever THEN 1.0 ELSE 0.0 END) AS value, NULL::text AS dimension, NULL::text AS kind
+                FROM per_bucket ORDER BY ts
+            """)
         elif metric_type == "cpu.blocked":
             # D-state 블록(IO 대기 근본원인) gauge — Linux 전용(cpu_blocked null 인 Windows 행은 자연 제외).
             # 실행 큐와 달리 코어 정규화 없음(원자값 그대로, 실시간 스냅샷과 동일 단위).
@@ -835,6 +860,51 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 )
                 SELECT ts, COUNT(*) FILTER (WHERE ever) AS value, NULL::text AS dimension, NULL::text AS kind
                 FROM per_bucket GROUP BY ts ORDER BY ts
+            """)
+        elif metric_type == "disk.saturation":
+            # 디스크 I/O 포화 여부(서버 상세, 이진 0/1) — disk.saturation_hosts(환경, crossing 서버 수)와 동일
+            # 원자료·임계(RS_DISKIO_AWAIT_MS), 서버 1대 단일 시계열로 축소. 물리 disk only(_PHYS_DISK_SQL_FILTER)
+            # + 카운터 신뢰 조건(ops_delta>0, iot_delta 가 [0, wall] 범위 — phantom busy/reset/overflow 가드,
+            # disk.io_saturation·실시간현황 latest_saturation 과 동일 원칙). MAX(await_ms)>임계 는 device 별
+            # bool_or(await_ms>임계) 와 동치(비교가 단조라 — worst device 만 넘으면 전체 넘음).
+            sid_dio = "AND server_id = ANY(:server_ids)" if server_ids else ""
+            params["window_start"] = start - bucket_td
+            params["diskio_util_min"] = recommendation.RS_DISKIO_UTIL_MIN
+            params["diskio_await_ms"] = recommendation.RS_DISKIO_AWAIT_MS
+            sql = text(f"""
+                WITH l_raw AS (
+                    SELECT collected_at, server_id, device_id,
+                        (COALESCE(op_read_time_s,0) + COALESCE(op_write_time_s,0)) AS t,
+                        (COALESCE(ops_read,0) + COALESCE(ops_write,0)) AS ops,
+                        COALESCE(io_time_s,0) AS iot
+                    FROM {ServerDiskIo.__tablename__}
+                    WHERE collected_at >= :window_start AND collected_at <= :end {sid_dio} AND {_PHYS_DISK_SQL_FILTER}
+                ),
+                l_delta AS (
+                    SELECT collected_at,
+                        t   - LAG(t)   OVER w AS d_t,
+                        ops - LAG(ops) OVER w AS d_ops,
+                        iot - LAG(iot) OVER w AS d_iot,
+                        EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER w)) AS d_wall
+                    FROM l_raw WINDOW w AS (PARTITION BY server_id, device_id ORDER BY collected_at)
+                ),
+                per_dev AS (
+                    SELECT collected_at,
+                        CASE WHEN d_ops > 0 AND d_wall > 0 AND d_iot >= 0 AND d_iot <= d_wall
+                                  AND d_iot / d_wall >= :diskio_util_min
+                             THEN d_t::float / d_ops * 1000 END AS await_ms
+                    FROM l_delta WHERE collected_at >= :start
+                ),
+                flags AS (
+                    SELECT collected_at, bool_or(await_ms > (:diskio_await_ms)::float) AS crossed
+                    FROM per_dev GROUP BY collected_at
+                ),
+                per_bucket AS (
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, bool_or(crossed) AS ever
+                    FROM flags GROUP BY ts
+                )
+                SELECT ts, (CASE WHEN ever THEN 1.0 ELSE 0.0 END) AS value, NULL::text AS dimension, NULL::text AS kind
+                FROM per_bucket ORDER BY ts
             """)
         elif metric_type == "net.retrans_percent":
             # TCP 재전송율 % = Σ(Δtcp_retrans) / Σ(Δtx_packets) * 100. reset 은 GREATEST(Δ,0).

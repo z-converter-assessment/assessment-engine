@@ -24,32 +24,12 @@ class AttentionRow:
 
 
 @dataclass
-class CapacityMetric:
-    """서버별 자원 적정성 표 지표 1개 — 7축 자원별 그룹(CPU·메모리 이용률·포화 / 디스크 용량·I/O / 네트워크).
-
-    미관측 축(예: Windows CPU 포화=run queue 부재)도 "N/A" placeholder 노출(제외 안 함 — 6축 전모).
-    active(임계 위반)·measured(관측 여부) 시각 분기는 mapper precompute (P3 — 템플릿 비교 금지).
-    color: mapper 결정 (active 빨강 / 정상 진함 / 미관측 흐림).
-    """
-
-    label: str
-    value: str
-    active: bool
-    measured: bool
-    color: str
-
-
-@dataclass
 class CapacityWarningItem:
     """7일 평균 자원 부족 서버 — 마이그레이션 capacity 산정 시 instance type 상향 검토.
 
     active_causes: 발화한 trigger 의 os-neutral 원인 라벨 목록 (assess.triggers 파생, 고정 순서). 환경 요약
       "자원 부족(메모리 포화 2대 · CPU 이용률 1대)" 원인 집계(environment_report._under_cause_summary)의 단일
       소스. OS 무관 축 이름이라 Windows paging/run queue 포화도 정확히 집계(Linux swap/load 로 오라벨 안 함).
-    metrics: host_status(자원 적정성 분류) 를 실제로 구동하는 5축 측정값만(CPU 이용률·포화, 메모리 이용률·포화,
-      디스크 용량) — 위반 여부 무관 전부 노출(mapper precompute, P3). saturation 2축은 os-aware 값. 디스크
-      I/O·네트워크는 host_status 미구동 orthogonal 신호라 여기 없음 — 각자 전용 필드(net_status_label/
-      disk_io_status_label)로 분류 무관 항상 노출.
     services: 호스트 워크로드 카테고리 카운트 {category: n} — workload_category_counter 단일 진실.
     """
 
@@ -62,20 +42,18 @@ class CapacityWarningItem:
     classification_rank: int = 0  # 분류 칼럼 정렬값 (ACTION_PRIORITY — 자원 부족 0 > 과다 1 > 유휴 2)
     active_causes: list[str] = field(default_factory=list)
     services: dict[str, int] = field(default_factory=dict)
-    metrics: list[CapacityMetric] = field(default_factory=list)
     # 분류 confidence 단서 — 포화 축 미관측 + 표본 부족 통합 라벨 (shared.build_host_confidence_notes,
     # 원칙2). 보고서 행과 동일 채널 — 카드가 list 렌더(P3). 발화 trigger(빨강)와 시각 구분.
     confidence_notes: list[str] = field(default_factory=list)
-    # 증설 권고 — 근본원인 기반 처방(recommendation.under_prescription 단일 진실). 자원 부족 표 권고 칼럼.
+    # 증설 권고 — 자원별 독립 처방(recommendation.under_prescription 단일 진실, ADR 0056). 자원 부족 표 권고 칼럼.
     recommendation_action: str = ""
     # 근본원인 — recommendation.root_cause_display 단일 진실. 단일 부족=자원명 / 인과 결합="메모리 (CPU 유발)" /
-    # 복수 독립="CPU·디스크 I/O" 나열. 부족 없으면 빈 문자열(표시 "—"). 삼중 처방 방지의 표시 축.
+    # 복수 독립="CPU·디스크 I/O" 나열. 부족 없으면 빈 문자열(표시 "—"). 처방을 거르지 않는 진단 근거 표시 축.
     root_cause_label: str = ""
     # 상위 N 절단 정렬용 심각도 점수 (mapper precompute) — swap(paging) 최우선 > 위반 자원 수 >
     # 최고 활용률 max(CPU/메모리/디스크 p95·used). build_overview 가 DESC 정렬 후 hostname tie-break.
     severity_score: float = 0.0
-    # 네트워크 품질(정상/혼잡/미측정) — 사이징 분류 비관여(orthogonal flag, host_status 미구동) 라 `metrics`
-    # 목록과 분리된 전용 필드. 환경 자원 평가(compact 표)의 "네트워크 상태" 칼럼 전용 소스.
+    # 네트워크 품질(정상/혼잡/미측정) — 사이징 분류 비관여(orthogonal flag, host_status 미구동) 전용 필드.
     net_status_label: str = ""
     net_status_color: str = ""
     # 디스크 I/O 품질(I/O 정상/I/O 병목/미측정) — network 와 동형 orthogonal flag(host_status 미구동, 크기로
@@ -207,13 +185,12 @@ class EnvironmentOverview:
 class ActionTargets:
     """통합 조치 대상 표 데이터 — 자원 부족/과다 할당/유휴 호스트를 한 표에 (build_action_targets 단일 진실).
 
-    hosts: CapacityWarningItem(6축 지표·근본원인·권고·신뢰도 + 분류)을 조치 대상 전체에. 최초 정렬 =
-      분류 우선순위(자원 부족>과다>유휴) 후 심각도. metric_labels: 첫 행 지표 라벨 precompute(P3).
+    hosts: CapacityWarningItem(근본원인·권고·신뢰도 + 분류)을 조치 대상 전체에. 최초 정렬 =
+      분류 우선순위(자원 부족>과다>유휴) 후 심각도.
     under_count/efficiency_*: 캡션용 카운트·점유 자원 합.
     """
 
     hosts: list[CapacityWarningItem] = field(default_factory=list)
-    metric_labels: list[str] = field(default_factory=list)
     total: int = 0  # 표 총 행수 = len(hosts) (전 서버, P3 회피 precompute)
     under_count: int = 0
     efficiency_count: int = 0

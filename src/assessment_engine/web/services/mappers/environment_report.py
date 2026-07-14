@@ -113,6 +113,23 @@ def build_metric_trend(cpu_series: list, mem_series: list, disk_series: list) ->
     ]
 
 
+def build_saturation_trend(cpu_series: list, mem_series: list, disk_series: list) -> list[dict]:
+    """CPU 실행 큐·메모리 페이징·디스크 I/O 포화 이진(0/1) 시계열 세 개를 버킷 시각 기준 merge -> 차트 JS
+    inline plain dict (P2). cpu.saturation/mem.paging_pressure/disk.saturation SQL 이 이미 0.0/1.0 로 판정 —
+    mapper 는 병합만(재계산 0).
+
+    at 은 isoformat str. 표본 없는 축은 None(차트 gap — 판정 불가와 미포화 구분).
+    """
+    cpu_by = {s.collected_at: (float(s.value) if s.value is not None else None) for s in cpu_series}
+    mem_by = {s.collected_at: (float(s.value) if s.value is not None else None) for s in mem_series}
+    disk_by = {s.collected_at: (float(s.value) if s.value is not None else None) for s in disk_series}
+    timestamps = sorted(set(cpu_by) | set(mem_by) | set(disk_by))
+    return [
+        {"at": t.isoformat(), "cpu_sat": cpu_by.get(t), "mem_sat": mem_by.get(t), "disk_sat": disk_by.get(t)}
+        for t in timestamps
+    ]
+
+
 def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalogGroup]:
     """base.rows 를 카테고리 기준 집계 — 카테고리별 특징 서비스명·등장 서버 수 (P2).
 

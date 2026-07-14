@@ -556,7 +556,7 @@
       tbody tr:nth-child(even) td { background: #fafbfc !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
       /* overflow 스크롤 컨테이너 — 인쇄는 스크롤 불가라 visible 로 전체 노출(테이블 잘림 방지). */
       div[style*="overflow"], .table-scroll { overflow: visible !important; }
-      /* 넓은 표(서버별 자원 적정성 = 9칼럼) 폰트·패딩 축소 — 폭 확보. 용지 방향(landscape)은 보고서 템플릿이
+      /* 넓은 표(세부 서버 목록·자원 부족 표 등 detail-table) 폰트·패딩 축소 — 폭 확보. 용지 방향(landscape)은 보고서 템플릿이
          문서 전체에 @page 로 지정(named-page 방향은 브라우저 지원 불안정 -> 글로벌 @page 로 확실히). */
       .print-landscape table { font-size: 9px; }
       .print-landscape th, .print-landscape td { padding: 2px 4px !important; line-height: 13px !important; }
@@ -587,7 +587,8 @@
       /* 세부 서버 목록·자원 부족 표 — 칼럼 많아 A4 폭 초과. 폰트 8px·가로 패딩 축소 + 한 행 한 줄(nowrap). 세로 패딩·높이는 위 th,td 공통(전 테이블 일관). */
       .detail-table th, .detail-table td { font-size: 8px !important; padding: 2px 3px !important; white-space: nowrap !important; }
       .detail-table .badge { font-size: 7px !important; padding: 1px 3px !important; }
-      .env-dual #env-trend-chart { width: 100% !important; height: 100% !important; }
+      /* 개별 서버 보고서 — 부하 추이 + 포화 여부 추이 동일 2열 패턴(위 주석과 동형, canvas 폭 보정 공유). */
+      .env-dual #env-trend-chart, .env-dual #sat-trend-chart { width: 100% !important; height: 100% !important; }
       /* 차트 높이 축소 — 1페이지(서버정보+CPU+로드/메모리)가 A4 한 장에 들어가도록. 화면 180px -> 인쇄 100px. */
       .perf-chart { height: 100px !important; }
       /* 성능 추이 1페이지 추가 압축 — 카드 간격·내부 패딩 축소, 인쇄 부가 식별자(Composite/Machine ID) 숨김. */

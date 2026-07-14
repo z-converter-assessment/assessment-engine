@@ -8,7 +8,7 @@
 
 - 환경 개요 — `GET /` (집계 위젯: 환경 요약·주요 워크로드·자원 적정성·자원 이용·포화·시스템 에러)
 - 서버 목록 — `GET /servers` (검색·필터 + 선택 N대 액션)
-- 환경 자원 평가 — `GET /environment/assessment` (자원 적정성 평가 분포 막대 + 효율화 검토 대상 + 자원 부족 표, 윈도우 override 가능)
+- 환경 자원 평가 — `GET /environment/assessment` (자원 적정성 평가 분포 막대 + 서버별 자원 적정성 통합 표, 윈도우 override 가능)
 - 네트워크 토폴로지 — `GET /environment/topology` (인터랙티브 Cytoscape L3 subnet 그래프)
 - 실시간 현황 — `GET /environment/realtime` (현재 스냅샷 이용률 2 + 신호 4 도넛 + 서버별 실시간 부하 sortable-table)
 - 환경 성능 추이 — `GET /environment/metrics` (환경 단위 시계열 차트)
@@ -40,7 +40,7 @@
 
 - 자원 적정성 6분류 카운트 가로 막대 (`overview.risk_donut`) — 환경 자원 평가 페이지와 `provisioning_dist_bar` 매크로 공유(단일 소스)
 - 윈도우 = `recommendation.WINDOW_DAYS`(14일) — 서버 목록·보고서 분류와 정합(#E3). 이용률·포화 도넛도 같은 14일 창(화면 간 한 창 통일)
-- 홈에는 분포 요약만 — 효율화 검토 대상·자원 부족 상세 표는 환경 자원 평가 페이지(`/environment/assessment`)
+- 홈에는 분포 요약만 — 서버별 자원 적정성 상세 표는 환경 자원 평가 페이지(`/environment/assessment`)
 
 답: "환경이 자원 관점에서 적정한가? 부족·과다 서버 분포는?"
 
@@ -58,7 +58,7 @@
 
 답: "지금 손대야 할 하드웨어 이벤트가 있나?"
 
-효율화·자원 부족 상세 표는 본 홈이 아니라 환경 자원 평가 페이지(`/environment/assessment`)로 분리(홈은 분포 요약만). 운영 신호(통신 끊김·에이전트 재시작)는 실시간 현황·서버 상세 등 발화 지점에서 노출.
+서버별 자원 적정성 상세 표는 본 홈이 아니라 환경 자원 평가 페이지(`/environment/assessment`)로 분리(홈은 분포 요약만). 운영 신호(통신 끊김·에이전트 재시작)는 실시간 현황·서버 상세 등 발화 지점에서 노출.
 
 ## 서버 목록 (`/servers`)
 
@@ -92,11 +92,10 @@ list에서 N대 선택 → 다음 액션 활성화:
 
 ## 환경 자원 평가 (`/environment/assessment`)
 
-환경 전체 자원 적정성 평가 — 분류 분포 + 효율화/자원 부족 호스트 표. 엔지니어 보고서 본문과 동일 표(`reports/_resource_tables.html` 공유)를 화면용으로 노출. 본문 partial = `servers/_assessment_result.html`.
+환경 전체 자원 적정성 평가 — 분류 분포 + 서버별 자원 적정성 통합 표. 엔지니어 환경 보고서 본문과 동일 표(`reports/_resource_tables.html` 공유, `action_targets_table`)를 화면용으로 노출. 본문 partial = `servers/_assessment_result.html`.
 
-- 자원 적정성 평가 막대: 자원 적정성 6분류 카운트 막대 (`overview.risk_donut`). 평가 대상 N대 표기.
-- 효율화 검토 대상 표: over/idle/shutdown 호스트 — 합산 vCPU/메모리 절감 여지.
-- 자원 부족 표: under_provisioned 호스트 6축 메트릭 + 권고. 초과 행은 더보기/접기 토글.
+- 자원 적정성 평가 막대: 분류 카운트 막대 (`overview.risk_donut`). 평가 대상 N대 표기.
+- 서버별 자원 적정성 표: 전 서버(자원 부족·과다 할당·유휴·정상·표본 부족) 한 표에 — 호스트·사양(CPU·메모리·디스크)·분류(근본원인 병합)·권고(자원별 독립 처방)·네트워크 상태·디스크 I/O 상태·신뢰도. 초과 행은 더보기/접기 토글.
 - 구간·앵커 선택: `?time_range=`(15분~30일) + 기준 시각 override. 변경 즉시 `assessment.js` 가 `?fragment=result` 로 본문 swap. 기본 윈도우는 `DIAGNOSTIC_DEFAULT_TIME_RANGE`(14d) — 보고서·서버 목록 분류 표준 평가(`recommendation.WINDOW_DAYS`=14일)와 동일. 본 평가 페이지만 대시보드 중 윈도우 override 허용(#F10).
 - Windows (원칙 P2): swap 축 제외(pagefile baseline)·saturation 축 OS 부재라 utilization 축만으로 분류(부분 평가). 상세 `docs/reference/web/services.md` "OS 분기" 절.
 
