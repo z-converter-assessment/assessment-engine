@@ -4,13 +4,10 @@ name: alembic-check
 # 운영 정책 단일 진실: CLAUDE.md #C4 + docs/operations/alembic.md.
 
 on:
-  # paths 조건 제거 — main/develop PR 시 항상 발화. branch protection 의 required status check
-  # 등록 시 paths skip 되어 check 자체 N/A 되어 머지 block 되는 함정 회피 (특히 main PR 강화).
-  # alembic check (~10s) 부담 미약. CI 실패·이메일 폭탄 회피 우선.
-  #
-  # push 트리거 제거 — drift는 PR gate(develop·main)에서 차단. merge 후 재실행은 중복.
+  # main PR 에서만 — ORM-migration drift 는 develop->main PR 단일 게이트에서 차단. paths 조건 없이 항상
+  # 발화(required status check 가 paths skip 으로 N/A 되어 머지 block 되는 함정 회피). alembic check(~10s) 경량.
   pull_request:
-    branches: [main, develop]
+    branches: [main]
 
 permissions:
   contents: read

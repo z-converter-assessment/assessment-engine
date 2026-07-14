@@ -287,3 +287,125 @@ async def test_latest_tasks_by_servers_distinct_on(
 
 async def test_latest_tasks_by_servers_empty_input(query_repo: QueryRepository) -> None:
     assert await query_repo.latest_tasks_by_servers([]) == {}
+
+
+# ─── expire_overdue_tasks (scoped) ────────────────────────────────────────
+
+_AGENT_C = "00000000-0000-4000-8000-0000000000c3"
+
+
+async def test_expire_overdue_tasks_scopes_to_server_ids(collect_repo: CollectRepository) -> None:
+    """server_ids 스코프 만료 — 목록에 든 서버만 failure(timeout) 전이, 목록 밖 서버는 pending 유지(격리)."""
+    s1 = await _setup_server(collect_repo, agent_id=_AGENT_A, hostname="test-task-host-A")
+    s2 = await _setup_server(collect_repo, agent_id=_AGENT_B, hostname="test-task-host-B")
+    past = datetime.now(UTC) - timedelta(hours=1)
+    in_scope = await collect_repo.create_task(
+        TaskCreate(target_server_id=s1, target_agent_id=_AGENT_A, task_type="t-in", params=None, deadline_at=past)
+    )
+    out_scope = await collect_repo.create_task(
+        TaskCreate(target_server_id=s2, target_agent_id=_AGENT_B, task_type="t-out", params=None, deadline_at=past)
+    )
+
+    n = await collect_repo.expire_overdue_tasks([s1])
+    assert n == 1
+
+    async def _row(pid: str):
+        return (
+            await collect_repo.session.execute(
+                text("SELECT status, failure_reason FROM tasks WHERE public_id=:pid"),
+                {"pid": pid},
+            )
+        ).first()
+
+    in_row = await _row(in_scope)
+    assert in_row.status == "failure"
+    assert in_row.failure_reason == "timeout"
+    # 목록 밖 서버의 경과 pending 은 격리되어 pending 유지.
+    assert (await _row(out_scope)).status == "pending"
+
+
+async def test_expire_overdue_tasks_empty_list_returns_zero(collect_repo: CollectRepository) -> None:
+    """빈 리스트 -> 0 즉시 반환(early return). 경과 pending 이 있어도 건드리지 않음."""
+    sid = await _setup_server(collect_repo)
+    past = datetime.now(UTC) - timedelta(hours=1)
+    pid = await collect_repo.create_task(
+        TaskCreate(
+            target_server_id=sid, target_agent_id=_AGENT_A, task_type="t-untouched", params=None, deadline_at=past
+        )
+    )
+
+    assert await collect_repo.expire_overdue_tasks([]) == 0
+
+    status = (
+        await collect_repo.session.execute(
+            text("SELECT status FROM tasks WHERE public_id=:pid"), {"pid": pid}
+        )
+    ).scalar_one()
+    assert status == "pending"
+
+
+async def test_expire_overdue_tasks_ignores_fresh_deadline(collect_repo: CollectRepository) -> None:
+    """스코프 안이어도 미래 deadline 은 만료 안 함."""
+    sid = await _setup_server(collect_repo)
+    future = datetime.now(UTC) + timedelta(hours=1)
+    pid = await collect_repo.create_task(
+        TaskCreate(target_server_id=sid, target_agent_id=_AGENT_A, task_type="t-fresh", params=None, deadline_at=future)
+    )
+
+    assert await collect_repo.expire_overdue_tasks([sid]) == 0
+    status = (
+        await collect_repo.session.execute(
+            text("SELECT status FROM tasks WHERE public_id=:pid"), {"pid": pid}
+        )
+    ).scalar_one()
+    assert status == "pending"
+
+
+# ─── find_pending_deadline_servers ────────────────────────────────────────
+
+
+async def test_find_pending_deadline_servers_only_pending_with_deadline(
+    collect_repo: CollectRepository,
+) -> None:
+    """pending + deadline_at NOT NULL 서버만 반환. 비-pending·deadline NULL 은 제외."""
+    s1 = await _setup_server(collect_repo, agent_id=_AGENT_A, hostname="test-task-host-A")
+    s2 = await _setup_server(collect_repo, agent_id=_AGENT_B, hostname="test-task-host-B")
+    s3 = await _setup_server(collect_repo, agent_id=_AGENT_C, hostname="test-task-host-C")
+    future = datetime.now(UTC) + timedelta(hours=1)
+
+    # s1: pending + deadline -> 포함.
+    await collect_repo.create_task(
+        TaskCreate(target_server_id=s1, target_agent_id=_AGENT_A, task_type="t1", params=None, deadline_at=future)
+    )
+    # s2: pending 이지만 deadline NULL -> 제외.
+    await collect_repo.create_task(
+        TaskCreate(target_server_id=s2, target_agent_id=_AGENT_B, task_type="t2", params=None)
+    )
+    # s3: deadline 있으나 complete_task 로 success 전이 -> 비-pending 제외.
+    p3 = await collect_repo.create_task(
+        TaskCreate(target_server_id=s3, target_agent_id=_AGENT_C, task_type="t3", params=None, deadline_at=future)
+    )
+    await collect_repo.complete_task(make_task_result_update(public_id=p3, status="success", exit_code=0))
+
+    result = await collect_repo.find_pending_deadline_servers([s1, s2, s3])
+    assert result == [s1]
+
+
+async def test_find_pending_deadline_servers_distinct(collect_repo: CollectRepository) -> None:
+    """같은 서버 다건 pending(task_type 상이) 이어도 DISTINCT — 1회만 반환."""
+    sid = await _setup_server(collect_repo)
+    future = datetime.now(UTC) + timedelta(hours=1)
+    # 부분 UNIQUE (target_server_id, task_type) WHERE status=pending — task_type 상이로 공존.
+    await collect_repo.create_task(
+        TaskCreate(target_server_id=sid, target_agent_id=_AGENT_A, task_type="t-a", params=None, deadline_at=future)
+    )
+    await collect_repo.create_task(
+        TaskCreate(target_server_id=sid, target_agent_id=_AGENT_A, task_type="t-b", params=None, deadline_at=future)
+    )
+
+    result = await collect_repo.find_pending_deadline_servers([sid])
+    assert result == [sid]
+
+
+async def test_find_pending_deadline_servers_empty_input(collect_repo: CollectRepository) -> None:
+    assert await collect_repo.find_pending_deadline_servers([]) == []

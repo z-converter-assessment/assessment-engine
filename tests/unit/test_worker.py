@@ -5,11 +5,20 @@ stop_event 종료를 검증. 실제 claim/expire SQL 은 통합 테스트(test_t
 """
 
 import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 
+from loguru import logger
+
 from assessment_engine.config import WorkerSettings
+from assessment_engine.web.services.task_service import (
+    TaskNotConfigured,
+    _resolve_install_dispatch,
+)
+from assessment_engine.web.settings import web_settings
 from assessment_engine.worker.report_worker import run_report_worker
 from assessment_engine.worker.task_reaper import run_task_reaper
+from assessment_engine.worker.worker_lifecycle import graceful_drain
 
 
 class _FakeDiag:
@@ -157,3 +166,116 @@ async def test_task_reaper_stops_on_event():
     stop.set()
     await asyncio.wait_for(task, timeout=1)
     assert repo.calls >= 1
+
+
+# ─── graceful_drain (F11 — 진행 중 1건 drain, 초과 시 cancel) ────
+
+
+async def test_graceful_drain_completes_within_timeout():
+    """timeout 안에 끝나는 in-flight task 는 cancel 안 되고, stop_event 는 set 된다."""
+    stop = asyncio.Event()
+    done = asyncio.Event()
+
+    async def quick():
+        await asyncio.sleep(0.01)
+        done.set()
+        return "ok"
+
+    task = asyncio.create_task(quick())
+    messages = []
+    sink_id = logger.add(lambda m: messages.append(m.record["message"]), level="WARNING")
+    try:
+        await graceful_drain(
+            task, stop, shutdown_timeout_sec=1.0, timeout_warning="should-not-fire",
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert stop.is_set()  # 새 작업 중단 신호
+    assert done.is_set()  # 스스로 완료
+    assert not task.cancelled()
+    assert task.result() == "ok"
+    assert messages == []  # 정상 완료 -> 경고 로그 없음
+
+
+async def test_graceful_drain_cancels_on_timeout():
+    """shutdown_timeout 안에 안 끝나는 task 는 cancel + 경고 로그(F11 손실 0 핵심)."""
+    stop = asyncio.Event()
+    never = asyncio.Event()  # 스스로 set 되지 않음 -> task 무한 대기
+
+    async def stuck():
+        await never.wait()
+
+    task = asyncio.create_task(stuck())
+    messages = []
+    sink_id = logger.add(lambda m: messages.append(m.record["message"]), level="WARNING")
+    try:
+        await graceful_drain(
+            task, stop, shutdown_timeout_sec=0.02, timeout_warning="drain overrun requeue",
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert stop.is_set()
+    # cancel() 호출 후 취소가 실제로 전파되는지 확인
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+    assert task.cancelled()
+    assert any("drain overrun requeue" in m for m in messages)
+
+
+async def test_graceful_drain_swallows_already_cancelled():
+    """이미 cancel 된 task 를 drain 하면 CancelledError 를 삼키고 stop_event 만 set."""
+    stop = asyncio.Event()
+    never = asyncio.Event()
+
+    async def stuck():
+        await never.wait()
+
+    task = asyncio.create_task(stuck())
+    await asyncio.sleep(0)  # task 스케줄 진입
+    task.cancel()  # drain 전에 이미 취소
+    # graceful_drain 은 CancelledError 를 흡수 -> 예외 없이 반환해야
+    await graceful_drain(
+        task, stop, shutdown_timeout_sec=1.0, timeout_warning="w",
+    )
+    assert stop.is_set()
+
+
+# ─── _resolve_install_dispatch (OS 분기 순수함수, ADR 0019/0020) ──
+
+
+def test_resolve_install_dispatch_linux():
+    """linux = tar.gz extract + install.sh (shell), install_script 존재."""
+    package_path, install_type, install_script = _resolve_install_dispatch("linux")
+    assert package_path == web_settings.zdm_package_path
+    assert install_type == "shell"
+    assert install_script == web_settings.zdm_package_script
+    assert install_script is not None
+
+
+def test_resolve_install_dispatch_windows():
+    """windows = single .exe 직접 실행 (direct_exec), install_script 는 None (extract 없음)."""
+    package_path, install_type, install_script = _resolve_install_dispatch("windows")
+    assert package_path == web_settings.zdm_package_path_windows
+    assert install_type == "direct_exec"
+    assert install_script is None
+
+
+def test_resolve_install_dispatch_linux_windows_differ():
+    """두 OS 의 package_path·install_type 가 서로 다른 dispatch."""
+    linux = _resolve_install_dispatch("linux")
+    windows = _resolve_install_dispatch("windows")
+    assert linux[0] != windows[0]
+    assert linux[1] != windows[1]
+
+
+def test_resolve_install_dispatch_unsupported_raises():
+    """미지원 os_family 는 TaskNotConfigured (운영자 알림 — agent 미지원)."""
+    for bad in ("macos", "aix", "", "Linux", "darwin"):
+        try:
+            _resolve_install_dispatch(bad)
+        except TaskNotConfigured as e:
+            assert repr(bad) in str(e)
+        else:
+            raise AssertionError(f"expected TaskNotConfigured for os_family={bad!r}")

@@ -474,3 +474,54 @@ async def test_upsert_server_history_not_appended_when_unchanged(
         )
     ).scalar_one()
     assert count == 1, "변경 없는 재발행은 history 그대로 — noise 차단"
+
+
+async def test_upsert_server_history_appended_on_boot_change(
+    collect_repo: CollectRepository,
+    db_session,
+):
+    """_inventory_changed 가 boot(JSONB) 변경을 감지 → history append (재현 필드도 변경 감지 대상)."""
+    aid = "00000000-0000-4000-8000-000000000043"
+    inv1 = make_inventory(
+        agent_id=aid, hostname="h1",
+        boot={"kernel_cmdline": "ro quiet", "root_ref_type": "label", "grub_install_target": "i386-pc"},
+    )
+    inv2 = make_inventory(
+        agent_id=aid, hostname="h1",
+        boot={"kernel_cmdline": "ro quiet", "root_ref_type": "uuid", "grub_install_target": "i386-pc"},
+    )
+    await collect_repo.upsert_server(inv1)
+    await collect_repo.upsert_server(inv2)
+    sid = await collect_repo.find_server_id(aid)
+    count = (
+        await db_session.execute(
+            text("SELECT COUNT(*) FROM server_inventory_history WHERE server_id = :sid"),
+            {"sid": sid},
+        )
+    ).scalar_one()
+    assert count == 2, "첫 등록 + boot.root_ref_type 변경 = history 2건"
+
+
+async def test_upsert_server_persists_reproduction_columns(
+    collect_repo: CollectRepository,
+    db_session,
+):
+    """_inventory_row/_append_inventory_history 가 재현 컬럼을 server_inventory + history 양쪽에 기록."""
+    aid = "00000000-0000-4000-8000-000000000044"
+    inv = make_inventory(
+        agent_id=aid, hostname="h1", arch="x86_64", rtc_utc=True,
+        nonblock_mounts=[{"source": "tmpfs", "target": "/run", "fstype": "tmpfs",
+                          "options": ["rw", "nosuid"], "fs_freq": 0, "fs_passno": 0}],
+    )
+    sid = await collect_repo.upsert_server(inv)
+    for table, where in (("server_inventory", "id"), ("server_inventory_history", "server_id")):
+        row = (
+            await db_session.execute(
+                text(f"SELECT arch, rtc_utc, boot, nonblock_mounts FROM {table} WHERE {where} = :sid"),
+                {"sid": sid},
+            )
+        ).one()
+        assert row.arch == "x86_64", table
+        assert row.rtc_utc is True, table
+        assert row.boot is None, table  # 미지정 -> None
+        assert row.nonblock_mounts == inv.nonblock_mounts, table  # JSONB list 왕복

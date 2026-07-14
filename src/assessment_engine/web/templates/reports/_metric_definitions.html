@@ -18,7 +18,7 @@
     <tbody>
       <tr><td>단일 집계 원칙</td><td>모든 차트(환경 성능 추이·선택 N대·서버 상세·보고서)는 한 규칙으로 계산 — 각 시점마다 그 시점 데이터를 보낸 서버로 환경값 1개(쓴 양 / 가진 양)를 만들고, 버킷은 그 시점값들의 avg/max/p95. 대상(전체·선택 N대·1대)만 다르고 산식은 동일 — 선택 1대 = 서버 상세와 같은 값.</td></tr>
       <tr><td>capacity-weighted 평균</td><td>활용률(%)은 서버별 단순 산술평균이 아니라 자원 총량으로 가중 — 큰 서버가 더 큰 비중. CPU=각 서버 (사용률 * 코어수) 합 / 코어수 합, 메모리=sum(used_bytes) / sum(total_bytes), 디스크=전 mount sum(used) / sum(total). 작은 서버에 희석되지 않아 환경 실제 활용을 반영. (예: 64코어 90% + 2코어 10% -> 단순평균 50% 가 아니라 가중 87.6%.)</td></tr>
-      <tr><td>현재 스냅샷 vs 윈도우</td><td>"현재" 표기 지표(실시간 메트릭)는 각 서버 최신 1개 스냅샷 집계. 차트·보고서의 윈도우 지표는 선택 구간 시계열 — 보고서 표준 14일, 모니터링 현황 카드(환경 개요·환경 자원 평가)는 최근 24시간 ("평가 윈도우" 절).</td></tr>
+      <tr><td>현재 스냅샷 vs 윈도우</td><td>"현재" 표기 지표(실시간 메트릭)는 각 서버 최신 1개 스냅샷 집계. 차트·보고서의 윈도우 지표는 선택 구간 시계열 — 보고서 표준 14일, 모니터링 현황 카드(환경 개요·환경 자원 평가)도 14일 표준 창(앵커/구간 override 가능). "현재 스냅샷"은 실시간 현황 카드만 ("평가 윈도우" 절).</td></tr>
       <tr><td>집계 대상</td><td>그 시점 데이터를 보낸 서버만 집계 — 온라인/오프라인을 따로 판단하지 않는다(데이터 유무가 곧 필터). 최신 스냅샷이 신선(now-TTL 이내)하면 포함, stale/없음이면 자동 제외.</td></tr>
       <tr><td>구간 · 버킷 · 앵커</td><td>구간(time range)=조회 시간 폭(15분~30일). 버킷=구간별 자동 집계 단위(분해력 — 구간이 길수록 버킷도 커짐). 앵커=기준 종료 시각(과거 구간 조회). 한 화면의 모든 차트에 동일 적용.</td></tr>
       <tr><td>avg · max</td><td>avg=버킷 안 평균선(중심 경향). max=버킷 안 최댓값 ghost 선(burst 강도). 토글로 표시.</td></tr>
@@ -31,7 +31,7 @@
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">환경 성능 추이 지표</h2>
   <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
-    환경 성능 추이 페이지(좌측 네비 "환경 성능 추이")의 시계열 차트 — 전 서버 집계, 구간(기본 15분)·앵커 선택. 집계 방식은 지표 성격에 따라 셋. 활용률(%) 지표는 capacity-weighted(자원 총량 가중 Σnum/Σden, 큰 서버 비중 큼), 처리량(I/O) 지표는 합산(SUM — 절대 총량이라 가중 평균 무의미), 실행 큐는 코어 정규화(Σ실행큐/Σcpu_cores). 아래 "집계" 컬럼이 그래프별 방식.
+    환경 성능 추이 페이지(좌측 네비 "환경 성능 추이")의 시계열 차트 — 전 서버 집계, 구간(기본 15분)·앵커 선택. 서버 상세 성능 추이와 동일 신호 카탈로그를 쓰되 환경 스케일로 집계(자원별 차트 카드 CPU3·메모리2·스토리지5·네트워크4, 총 14차트) — CPU 실행 큐·메모리 구성 breakdown 은 함대 합산에서 신호가 약해지거나 더 직접적인 대체 지표(PSI)가 있어 환경 스케일에선 제외(신호 카탈로그 상세는 `services.md` "환경 성능 추이" 절). 집계 방식은 지표 성격에 따라 셋 — 활용률(%) 지표는 capacity-weighted(자원 총량 가중 Σnum/Σden, 큰 서버 비중 큼), 처리량(I/O·pps) 지표는 합산(SUM — 절대 총량이라 가중 평균 무의미), PSI·품질 비율(%)은 전사(全社) 단일 비율. 아래 "집계" 컬럼이 그래프별 방식.
   </p>
   <div class="table-scroll">
   <table>
@@ -44,16 +44,19 @@
     </thead>
     <tbody>
       <tr><td>CPU 사용률</td><td>capacity-weighted</td><td>전 서버 시점 평균(Σcpu 시간(초) delta — 코어 수 내재). 100%=전 코어 포화.</td></tr>
-      <tr><td>CPU 분류</td><td>capacity-weighted</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기)로 분해한 비율. iowait 높으면 디스크 병목.</td></tr>
-      <tr><td>실행 큐</td><td>코어 정규화</td><td>코어당 실행 큐 — Σ실행큐 / Σcpu_cores (Linux procs_running / Windows Processor Queue COALESCE). Linux 1.0 · Windows 2.0 이상 포화. os_family 2선.</td></tr>
+      <tr><td>CPU 분류</td><td>capacity-weighted</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기)·nice(저우선순위 user)로 분해한 비율. iowait 높으면 디스크 병목. iowait·nice 는 Windows 미측정.</td></tr>
+      <tr><td>CPU 압박 (PSI)</td><td>전사 단일 비율</td><td>태스크가 CPU 대기로 멈춘 시간 % (PSI some, Linux 4.20+ 전용). 실행 큐(간접 지표) 대신 직접 포화 신호. Windows 미지원(빈 차트).</td></tr>
       <tr><td>메모리 사용률</td><td>capacity-weighted</td><td>Σused_bytes / Σtotal_bytes. cached·buffers 는 회수 가능이라 가용으로 간주.</td></tr>
-      <tr><td>메모리 구성</td><td>capacity-weighted</td><td>전체 대비 Used·Available·Cached·Buffers 비율. Cached·Buffers 는 page cache 라 Linux 전용(Windows 미측정).</td></tr>
-      <tr><td>디스크 읽기/쓰기 (IOPS)</td><td>합산(SUM)</td><td>게스트 블록 디바이스(virtio) 초당 I/O 작업 수 합산(Read/Write) — VM 이 낸 실제 디스크 작업량. LVM·파티션 중복 제외.</td></tr>
-      <tr><td>디스크 I/O 처리량</td><td>합산(SUM)</td><td>게스트 블록 디바이스 read+write 처리량 합산(kB/s). IOPS 와 함께 디스크 대역 산정 입력.</td></tr>
-      <tr><td>디스크 I/O 포화</td><td>OS별 (이중 축)</td><td>Linux await(디스크 응답 ms, I/O 카운터 버킷 델타) / Windows Avg Disk Queue Length(큐 깊이). 단위가 달라 정규화 없이 이중 Y축 2선. 20ms·2 이상 포화.</td></tr>
-      <tr><td>파일시스템 사용량</td><td>capacity-weighted</td><td>전 mount 통합 Σused / Σtotal (가상 mount 제외).</td></tr>
+      <tr><td>메모리 압박 (PSI)</td><td>전사 단일 비율</td><td>태스크가 메모리 회수 대기로 멈춘 시간 % (PSI some). 페이징·회수 압박 직접 신호. Windows 미지원.</td></tr>
+      <tr><td>디스크 읽기/쓰기 (IOPS)</td><td>합산(SUM)</td><td>물리 디스크 초당 I/O 작업 수 합산(Read/Write). LVM·파티션 중복 제외.</td></tr>
+      <tr><td>디스크 I/O 처리량</td><td>합산(SUM)</td><td>물리 디스크 read+write 처리량 합산(kB/s). IOPS 와 함께 디스크 대역 산정 입력.</td></tr>
+      <tr><td>스토리지 사용량</td><td>합산(SUM)</td><td>전 서버 데이터 볼륨 파일시스템 사용 bytes 합산(절대량, GB/TB 표기). 활용률(%) 대신 절대 총량 추세 — 함대가 실제로 쓰는 용량 증가가 조달 신호.</td></tr>
+      <tr><td>디스크 I/O 포화</td><td>await(ms) 양 OS</td><td>요청당 평균 응답 지연(Σ Δop_time / Σ Δops). 양 OS 통일 단일 축 — Windows 는 IOCTL_DISK_PERFORMANCE ReadTime/WriteTime, 구세대 viostor 만 Avg Disk Queue Length 폴백. 실제 바쁜 device(io_time util 기준) 만 채택 — 임계는 분류 기준 절.</td></tr>
+      <tr><td>디스크 I/O PSI</td><td>전사 단일 비율</td><td>태스크가 디스크 I/O 대기로 멈춘 시간 % (PSI some(io)). await(포화)의 심층 보조 신호. Windows 미지원.</td></tr>
       <tr><td>네트워크 I/O</td><td>합산(SUM)</td><td>물리 인터페이스 트래픽 합산(RX/TX, bytes/s). 물리·bond master 포함, bond member·bridge·가상은 이중계산이라 제외.</td></tr>
-      <tr><td>TCP 재전송율</td><td>비율(%)</td><td>Σ재전송 세그먼트 / Σ송신 패킷 * 100. 1% 이상이면 성능 영향. 절대 패킷 수(처리량)는 네트워크 I/O 로 확인.</td></tr>
+      <tr><td>네트워크 PPS</td><td>합산(SUM)</td><td>물리 인터페이스 초당 패킷 수 합산(RX/TX). 처리량(bytes)과 별개 신호 — 소형 패킷 폭주는 bytes 축엔 안 드러남.</td></tr>
+      <tr><td>TCP 재전송율</td><td>비율(%)</td><td>Σ재전송 세그먼트 / Σ송신 패킷 * 100. 임계 초과 시 품질 저하(혼잡·손실) — 임계는 분류 기준 절. 절대 패킷 수(처리량)는 네트워크 PPS 로 확인.</td></tr>
+      <tr><td>패킷 드롭율</td><td>비율(%)</td><td>Σ(드롭 RX+TX) / Σ(송수신 패킷 RX+TX) * 100. 재전송율과 별개 품질 신호 — 링 버퍼 오버런·경로 손실.</td></tr>
     </tbody>
   </table>
   </div>
@@ -77,15 +80,14 @@
       </tr>
     </thead>
     <tbody>
-      <tr><td>환경 개요</td><td>환경 요약</td><td>등록 서버 수 · 총 vCPU/메모리/디스크 용량 합 + 온라인/오프라인 수 + OS·역할(서비스 분류) 분포.</td></tr>
-      <tr><td>환경 개요</td><td>자원 이용·포화 (6도넛)</td><td>이용률 3(capacity-weighted CPU·메모리·디스크 평균) + 포화 3(CPU 포화·메모리 압박·디스크 I/O 포화 호스트 수 / 표본) 도넛 — 자원 적정성 창(14일, WINDOW_DAYS). 분류와 같은 창이라 화면 간 정합. 순간 스냅샷 아닌 윈도우 통계.</td></tr>
-      <tr><td>환경 개요</td><td>수집 건전성</td><td>현재 온라인/오프라인 서버 수 (Redis online TTL 기준).</td></tr>
-      <tr><td>실시간 현황</td><td>현재 자원 이용·포화 (6도넛)</td><td>온라인 서버 최신 스냅샷 — 이용률 3(capacity-weighted CPU·메모리·디스크 평균) + 포화 3(CPU 포화·메모리 압박·디스크 I/O 포화 호스트 수 / 표본). 실시간 30초 갱신, 순간값(윈도우 아님). 디스크는 전 mount 통합(worst mount 아님).</td></tr>
-      <tr><td>실시간 현황</td><td>현재 부하 상위</td><td>자원별(CPU·메모리·디스크·디스크 I/O·네트워크 I/O) 서버 현재값 내림차순 상위 — 개별 호스트 랭킹(호스트명 클릭 시 상세).</td></tr>
+      <tr><td>환경 개요</td><td>환경 요약</td><td>등록 서버 수 · 총 vCPU/메모리/디스크 용량 합 + OS 분포 + 주요 워크로드(시그니처 카테고리 인스턴스 수). 온라인/오프라인 대수는 상단 바.</td></tr>
+      <tr><td>환경 개요</td><td>자원 이용·포화 (7도넛)</td><td>이용률 3(capacity-weighted CPU·메모리·디스크 평균) + 포화 4(CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡 호스트 수 / 표본) 도넛 — 자원 적정성 창(14일, WINDOW_DAYS). 분류와 같은 창이라 화면 간 정합. dual-gate 판정(CPU·메모리 신호 AND 이용률). 순간 스냅샷 아닌 윈도우 통계.</td></tr>
+      <tr><td>실시간 현황</td><td>현재 자원 이용·신호 (6도넛)</td><td>온라인 서버 최신 스냅샷 — 이용률 2(capacity-weighted CPU·메모리 평균, 디스크 용량은 느린 누적 축이라 실시간 신호에서 제외) + 신호 4(실행 큐 임계·페이징·응답지연 임계·네트워크 혼잡 호스트 수 / 표본). 실시간 30초 갱신, 순간 단일신호 카운트 — 개요·보고서 14일 dual-gate(이용률 동반) 포화와 다른 정의.</td></tr>
+      <tr><td>실시간 현황</td><td>현재 부하 상위</td><td>위 6도넛과 동일 6축(CPU 이용률·메모리 이용률·실행 큐·페이징·응답 지연·네트워크) 서버 현재값 내림차순 상위 5 — 개별 호스트 랭킹(호스트명 클릭 시 상세).</td></tr>
       <tr><td>실시간 현황</td><td>환경 I/O 총량</td><td>신선 표본 네트워크 처리량·디스크 IOPS 합산(절대 총량 rate).</td></tr>
       <tr><td>실시간 현황</td><td>운영 신호</td><td>수집 끊김(gap)·OS 지원 종료(os_eol)·에이전트 불안정(재시작 빈도) 3종. 임계는 "운영 신호 임계" 절.</td></tr>
       <tr><td>환경 자원 평가</td><td>자원 적정성 평가</td><td>자원 적정성 5상태(자원 부족·과다 할당·유휴·정상·표본 부족) 호스트 수 분포 — 표준 14일(WINDOW_DAYS) 기본, 구간·앵커 선택 가능. 분류 임계는 "분류 기준" 절.</td></tr>
-      <tr><td>환경 자원 평가</td><td>서버별 자원 적정성</td><td>전 서버 통합 표 — 호스트·분류·근본원인·권고·6축 지표(CPU 이용률·포화 / 메모리 이용률·포화 / 디스크 용량·I/O, 포화 축은 os-aware)·신뢰도. 네트워크 품질은 별도 열.</td></tr>
+      <tr><td>환경 자원 평가</td><td>서버별 자원 적정성</td><td>전 서버 통합 표(판별 결과만) — 호스트·분류(자원 부족 시 근본원인 병합)·권고·네트워크 상태(정상·혼잡·미측정)·신뢰도. 분류를 구동한 5축 원시 수치(CPU 이용률·포화 | 메모리 이용률·포화 | 디스크 용량)는 환경 보고서의 동일 이름 표(전체 표)에서 확인.</td></tr>
       <tr><td>환경 자원 평가</td><td>효율화 검토 대상</td><td>과다 할당·유휴 호스트 점유 자원 합 — 다운사이즈 여지. 분류·근본원인·신뢰도.</td></tr>
       <tr><td>서버 목록</td><td>서버 행·필터</td><td>호스트별 인벤토리·현재 활용률·자원 적정성 분류 뱃지 + OS·분류·검색 필터. (목록 행은 listen 포트 미보유라 서비스 이름 분류만.)</td></tr>
       <tr><td>네트워크 토폴로지</td><td>토폴로지 그래프</td><td>L3 subnet 공동 소속 추론 그래프(노드=subnet/host). 인벤토리 IP 기반 추론이며 실측 도달성(reachability)은 아님 — 방화벽·VLAN 격리 미반영. docker·libvirt 등 호스트 내부 가상 네트워크와 IPv6는 제외. 사설 IP 대역이 서로 다른 네트워크에서 중복되면 한 서브넷으로 합쳐 보일 수 있음.</td></tr>

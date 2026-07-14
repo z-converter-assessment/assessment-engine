@@ -39,7 +39,6 @@
 | `report_aggregate(server_ids, period_days, end)` | USE Method 통계 (CPU p95/peak + MEM p95/peak + load_15m max + swap_used) + 용량 임박 구동 마운트(`mount_runway` CTE — MIN runway 마운트 이름·runway·used%, 분류 단일 소스) — `server_metrics_5m`·`server_mount_usage_5m` cagg |
 | `report_uptime_stats(server_ids, period_days, end)` | 가동률 통계 |
 | `report_disk_io_baseline` / `report_net_io_baseline` | I/O baseline (보고서 I/O baseline 표시 입력, `DiskIoBaselineRaw`/`NetIoBaselineRaw` 반환) — `server_disk_io_5m`/`server_net_io_5m` cagg counter_agg(reset 일률 처리, 물리 device 만 집계) |
-| `report_mount_usage(server_id, period_days, end)` | 개별 보고서 전체 마운트 윈도우 평균 사용률 (worst 1개 아님, 가상 mount 제외) |
 | `report_memory_breakdown(server_id, period_days, end)` | 개별 보고서 메모리 구성 (used/available/cached/buffers 전체 대비 %, 시점값 avg) |
 | `report_cpu_breakdown(server_id, period_days, end)` | 개별 보고서 CPU 분류 (user/system/iowait, `server_metrics_5m` cagg counter_agg delta) |
 | `metric_gap_warnings(gap_min, recent_h)` | 메트릭 갭(통신 끊김 운영신호) 후보 |
@@ -53,12 +52,15 @@
 | 그룹 | metric_type | 집계 방식 (per_ts -> 버킷 {agg}) |
 |------|-------------|-----------|
 | capacity-weighted util | `cpu.*`, `mem.*`, `swap.usage`, `disk.usage`, `fs.usage_percent` | 시점별 Σnum/Σden x 100 (per_ts) -> 버킷 {agg}. 자원 총량 가중(큰 서버 큰 비중). CPU=jiffies LAG delta(boot reset 제외, `_CPU_NUMERATOR`), mem/swap=시점값 KB(`_ENV_SCALAR_WEIGHTED`), disk/fs=mount bytes(collapse=True 가상 제외 합산 / False mount 보존) |
-| 합산 rate | `disk.read/write_iops`, `net.rx/tx_bytes_per_sec`, `net.rx/tx_packets_per_sec` | 시점별 Σ(전 device LAG delta/dt rate)(per_ts) -> 버킷 {agg}. disk=물리 whole-disk 만(`_PHYS_DISK_SQL_FILTER` = `kind='physical'` — 파티션·LVM 이중계산 회피), net=집계 iface 만(`_PHYS_IFACE_SQL_FILTER` = `kind in {physical, bond_master}` — loopback·veth·터널·bond_member·bridge·vlan 제외, bond_master 는 본딩 집계 단위라 포함). collapse=False 면 device/iface 보존. boot reset·dt<=0·음수 delta 제외 |
-| 코어 정규화 | `load.1m/5m/15m` · `cpu.run_queue` | 시점별 Σ값 / Σcpu_cores (per_ts, server_inventory JOIN) -> 버킷 {agg}. 1.0=코어당 포화. `load` 는 서버 상세 loadavg 차트 전용(Linux). `cpu.run_queue` 는 os-aware 실행 큐(COALESCE(procs_running, sat_cpu_run_queue))로 환경·상세 공용, dimension=os_family(Linux/Windows 2선) |
-| os-aware 이중 축 | `disk.io_saturation` | Linux await(disk I/O time/ops 버킷 델타, ms) UNION Windows `sat_disk_queue`(큐 깊이) — dimension=os_family, 단위 달라 프론트 이중 Y축. env 디스크 I/O 포화 차트 |
+| 합산 rate | `disk.read/write_iops`, `net.rx/tx_bytes_per_sec`, `net.rx/tx_packets_per_sec` | 시점별 Σ(전 device LAG delta/dt rate)(per_ts) -> 버킷 {agg}. disk=물리 whole-disk 만(`_PHYS_DISK_SQL_FILTER` — fail-closed EXISTS, `server_inventory.block_devices` 조인해 `type='disk'` 인 항목과 `device_id` 매치되어야 통과. 매치는 `id_type:id` 우선, 실패 시 `name:name` 폴백(Windows agent 가 inventory 는 `id_type:id`, metrics 는 disk name 만 발행하는 스킴 불일치 흡수) — 파티션·LVM 이중계산 회피), net=집계 iface 만(`_PHYS_IFACE_SQL_FILTER` — 동일 EXISTS 패턴, `net_interfaces.kind in ('physical','bond_master')` — loopback·veth·터널·bond_member·bridge·vlan 제외, bond_master 는 본딩 집계 단위라 포함). collapse=False 면 device/iface 보존. boot reset·dt<=0·음수 delta 제외 |
+| 코어 정규화 | `cpu.run_queue` | 시점별 Σ실행큐 / Σcpu_cores (per_ts, server_inventory JOIN) -> 버킷 {agg}. 1.0=코어당 포화. os-aware 단일 `cpu_run_queue`(Linux procs_running / Windows Processor Queue), 환경·상세 공용, dimension=os_family(Linux/Windows 2선) |
+| 응답 지연 (양 OS 단일선) | `disk.io_saturation` | Σ(Δ op_time)/Σ(Δ ops) 물리 device 버킷 델타 = await(ms). 양 OS 통일, os 분기·dimension 없음. Windows 구세대 viostor 큐 폴백은 스냅샷 판정 전용(차트는 await) |
+| 정체율 (PSI, Linux 전용) | `cpu.psi` · `mem.psi` · `disk.psi` | Σ(Δ stall_time_s)/Σ(Δ wall-time)*100 (server_pressure scope=some, resource cpu/memory/io 매핑, GREATEST reset 흡수). 단일선, Linux 4.20+ 만 행 존재 -> 미지원 OS 빈 결과 |
 | 교차 테이블 rate | `net.retrans_percent` | Σ(Δtcp_retrans)/Σ(Δtx_packets)*100 (server_metrics + server_net_io collected_at 조인, GREATEST 로 reset 흡수). 분류 net_retrans 와 동일 산식 |
 
-집계 필터 단일 진실(`db/repositories/query/types.py`): `_DATA_VOLUME_SQL_FILTER`(`kind='data'`) · `_PHYS_DISK_SQL_FILTER`(`kind='physical'`) · `_PHYS_IFACE_SQL_FILTER`(`kind in {physical, bond_master}`) — 모두 agent kind 태그의 SQL 투영, `device_filters` 와 동기화. 모든 그룹 partition pruning(#C5) `WHERE collected_at >= window_start` + boot jitter 가드 의무.
+집계 필터 단일 진실(`db/repositories/query/types.py`): `_DATA_VOLUME_SQL_FILTER`(`kind='data'`, 단순 컬럼 비교) · `_PHYS_DISK_SQL_FILTER`/`_PHYS_IFACE_SQL_FILTER`(fail-closed EXISTS 서브쿼리, 위 표) — 모두 agent kind/type 태그의 SQL 투영, `device_filters` 와 동기화. 모든 그룹 partition pruning(#C5) `WHERE collected_at >= window_start` + boot jitter 가드 의무.
+
+`metric_trend(collapse=False)`(서버 상세 멀티라인) 의 범례 `dimension` 은 raw `id_type:id`(예: `mac:fa:16:3e:df:18:87`) 대신 `LEFT JOIN LATERAL` 로 `server_inventory.block_devices`/`net_interfaces` 조회한 사람이 읽는 `name`(예: `enp3s0`·`PhysicalDrive0`) 으로 치환(`COALESCE(dn.name, dim)`, 미매칭 시 raw 폴백) — Linux 는 id_type=mac 인터페이스가 흔해 MAC 원문 노출 시 가독성이 떨어짐. collapse=True(환경 합산)는 dimension 자체가 없어(단일선) 미적용.
 
 ## Diagnostic 계층 — `BaseDiagnosticRepository` (보고서 발행 스냅샷)
 

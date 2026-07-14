@@ -8,8 +8,9 @@ from assessment_engine.web.view_models.attention import (
     AttentionSignals,
     EnvironmentOverview,
 )
+from assessment_engine.web.view_models.metric import PeriodAssessment
 from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
-from assessment_engine.web.view_models.server import IpAddr
+from assessment_engine.web.view_models.server import IpAddr, NetworkInterfaceInfo, StorageNode
 from assessment_engine.web.view_models.topology import NetworkTopology
 
 
@@ -41,6 +42,9 @@ class OsCount:
     distro: str  # os_id (debian/ubuntu/rocky/windows ...)
     version: str  # os_version (세부 버전, 미상은 "—")
     count: int
+    # 그룹(family·distro·version) 내 실제 관측된 커널 버전 — distinct 정렬·콤마 조인(다른 패치레벨 혼재 가능,
+    # 그룹 자체를 커널로 더 쪼개지 않고 부기만). 미상은 "—".
+    kernel_versions: str = "—"
 
 
 @dataclass
@@ -82,15 +86,16 @@ class ServerInventorySnapshot:
     composite_id: str | None
     machine_id: str | None
     is_online: bool
-
-
-@dataclass
-class VolumeUsage:
-    """개별 보고서 마운트별 스토리지 — 윈도우 평균 사용률 + 총량 (worst 1개 아닌 전체)."""
-
-    mount: str
-    total_gb: float | None
-    used_pct: float | None
+    # 서버 상세·자원 상세 탭(각 세부 페이지)의 인벤토리 항목까지 종합(engineer 전용 표시, customer 는 template
+    # 분기로 식별자류 미표시 — composite_id/machine_id 와 동일 원칙).
+    public_id: str | None = None
+    agent_id: str | None = None
+    cpu_arch: str | None = None  # ISA — x86_64|aarch64 등
+    cpu_bits: int | None = None  # 32|64
+    boot_firmware: str | None = None  # bios|uefi
+    secure_boot: bool | None = None
+    os_edition: str | None = None
+    timezone: str | None = None
 
 
 @dataclass
@@ -202,10 +207,6 @@ class EnvironmentReportSummary:
     summary_bullets_env: list[str]  # 환경 단위 view 별 정성 요약
     # 구성 계층 (P-A) — OS family(Windows/Linux) 구성 막대. customer·engineer 공통.
     os_family_dist: list[DistributionBar] = field(default_factory=list)
-    # 분류된 역할이 없는 호스트 수 (서비스 없음 또는 전부 unknown) — discoverability(#E9)
-    workload_unknown_count: int = 0
-    # 서비스 식별된 호스트 수 (= total - unknown) — 서비스 구성 "식별 N대" 소제목 (mapper precompute, P3)
-    workload_identified_count: int = 0
     # 환경 현황 메트릭 카드 5축 (engineer) — {label, value, sub} plain dict (스냅샷 복원 불요, trend 동일).
     env_metrics: list[dict] = field(default_factory=list)
     os_eol_count: int = 0  # OS 지원 종료 호스트 수 (attention.os_eol_warnings len)
@@ -225,10 +226,16 @@ class EnvironmentReportSummary:
     service_catalog: list[ServiceCatalogGroup] = field(default_factory=list)
     # 개별 서버 보고서(single) 전용 — ServerDetail 충실 인벤토리 (전체 IP·하드웨어·식별자). 환경·선택은 None.
     server_inventory: ServerInventorySnapshot | None = None
-    # 개별 보고서 심화 메트릭 (single engineer) — 마운트별 스토리지·메모리 구성·CPU 분류. 그 외 빈/None.
-    volumes: list[VolumeUsage] = field(default_factory=list)
+    # 개별 보고서 심화 메트릭 (single engineer) — 메모리 구성·CPU 분류. 그 외 None.
     memory_breakdown: MemoryBreakdown | None = None
     cpu_breakdown: CpuBreakdown | None = None
+    # 개별 보고서 전용(single engineer) — 서버 상세·자원 상세 탭과 동일 단일 진실(build_period_assessment).
+    # 자원별 이용률·포화 2축 + 에러축(E) 전부. 그 외 스코프는 None.
+    period_assessment: PeriodAssessment | None = None
+    # 개별 보고서 전용(single engineer) — storage.html 과 동일 트리(build_storage_tree). 그 외 스코프는 빈 list.
+    storage_tree: list[StorageNode] = field(default_factory=list)
+    # 개별 보고서 전용(single engineer) — network.html 과 동일 정적 인터페이스 정보(build_network_interfaces).
+    network_interfaces: list[NetworkInterfaceInfo] = field(default_factory=list)
     # 엔지니어 보고서 전용 — 운영 신호 발화 호스트 통합 list (gap / os_eol / agent_unstable).
     attention_hosts: list[AttentionHostItem] = field(default_factory=list)
     # 엔지니어 보고서 전용 — 디스크 capacity 임박 (30일 안 full 위험, linear projection).

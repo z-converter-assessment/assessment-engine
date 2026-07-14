@@ -262,7 +262,7 @@ agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible 
 | `POSTGRES_PASSWORD` | `changeme` | config.py / compose | default `changeme`(weak)라 미설정 시 prod 거부. 명시 `assessment` 는 허용. 강한 secret 권장 |
 | `RABBITMQ_HOST` | `rabbitmq` | config.py | 컨슈머 broker 접속 (docker-compose 서비스명). 에이전트는 본 키 안 씀 — 외부 인프라가 broker 도달 host 별도 주입 |
 | `RABBITMQ_PORT` | `5672` | config.py / dev compose | |
-| `RABBITMQ_VHOST` | `/assessment` | config.py / compose | 전용 vhost. 에이전트와 동일 값. AMQP URL 의 `/` 는 `%2F` 인코딩 (config.py `broker_url` 자동) |
+| `RABBITMQ_VHOST` | `assessment` | config.py / compose | 전용 vhost (무슬래시). 에이전트와 동일 값. 이름에 `/` 없어 인코딩 무영향(config.py `broker_url` 은 슬래시 포함 vhost 를 `%2F`로 자동 인코딩) |
 | `RABBITMQ_USER` | `assessment` | config.py / compose | assessment 허용 — 빈값·password·admin·root·changeme 만 prod 거부 |
 | `RABBITMQ_PASSWORD` | `changeme` | config.py / compose | default `changeme`(weak)라 미설정 시 prod 거부. 명시 `assessment` 는 허용. 강한 secret 권장 |
 | `RABBITMQ_MANAGEMENT_PORT` | `15672` | dev compose | RabbitMQ 관리 콘솔 포트 노출 (config.py 미사용) |

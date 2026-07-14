@@ -17,7 +17,6 @@ from assessment_engine.db.dtos.outbound import (
     MemoryBreakdownRaw,
     MountCapacityRaw,
     NetIoBaselineRaw,
-    ReportMountUsageRaw,
     ReportRowRaw,
 )
 from assessment_engine.db.repositories.query._base import _BaseQueryMixin
@@ -102,12 +101,28 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     regr_slope(mem_pct_avg, extract(epoch FROM bucket)) * 86400 AS mem_trend_slope
                 FROM bkt GROUP BY server_id
             ),
-            mount_max AS (
-                -- 서버 worst mount used%/inode% (period 안 최대). server_filesystem_5m, 가상 fs/boot 제외.
-                SELECT server_id, MAX(used_pct_max) AS worst_used_pct, MAX(inode_pct_max) AS worst_inode_used_pct
+            mount_max_raw AS (
+                -- 마운트별 period 안 최대 used%/inode%. server_filesystem_5m, 가상 fs/boot 제외.
+                SELECT server_id, mountpoint,
+                    MAX(used_pct_max) AS used_pct_max, MAX(inode_pct_max) AS inode_pct_max
                 FROM server_filesystem_5m
                 WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_DATA_VOLUME_CAGG_FILTER}
-                GROUP BY server_id
+                GROUP BY server_id, mountpoint
+            ),
+            mount_max AS (
+                -- 서버 worst mount used%/inode% (각각 독립 MAX — 다른 마운트일 수 있음) + used% 를 낸 마운트
+                -- 이름(worst_mount, 14일 카드 "사용률" 행 표기용 — 도넛 집계%와 다른 worst-mount 산식임을 명시).
+                -- 동률이면 mountpoint 오름차순 결정적 선택(LATERAL, 부동소수 값 자체 self-match).
+                SELECT agg.server_id, agg.worst_used_pct, agg.worst_inode_used_pct, wm.mountpoint AS worst_mount
+                FROM (
+                    SELECT server_id, MAX(used_pct_max) AS worst_used_pct, MAX(inode_pct_max) AS worst_inode_used_pct
+                    FROM mount_max_raw GROUP BY server_id
+                ) agg
+                LEFT JOIN LATERAL (
+                    SELECT mountpoint FROM mount_max_raw m
+                    WHERE m.server_id = agg.server_id AND m.used_pct_max = agg.worst_used_pct
+                    ORDER BY mountpoint ASC LIMIT 1
+                ) wm ON true
             ),
             mount_span AS (
                 -- 용량 runway 입력 — 마운트별 가용 이력 전체(하한 없이 bucket <= :end)의 free/inode 시작·종료 + 총량 + span.
@@ -217,6 +232,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 cs.cpu_run_queue_p95, cs.mem_pages_input_rate_p95,
                 ms.mem_p95, ms.mem_avg, ms.mem_peak, ms.mem_near_peak,
                 mm.worst_used_pct AS worst_mount_used_pct,
+                mm.worst_mount AS disk_capacity_worst_mount,
                 cs.cpu_sample::float / NULLIF(:expected_samples, 0) AS cpu_sufficiency,
                 ms.mem_sample::float / NULLIF(:expected_samples, 0) AS mem_sufficiency,
                 rs.cpu_steal_p95,
@@ -308,6 +324,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 boot=r.boot,
                 nonblock_mounts=r.nonblock_mounts,
                 worst_mount_used_pct=r.worst_mount_used_pct,
+                disk_capacity_worst_mount=r.disk_capacity_worst_mount,
                 cpu_sufficiency=r.cpu_sufficiency,
                 mem_sufficiency=r.mem_sufficiency,
                 cpu_steal_p95_pct=r.cpu_steal_p95,
@@ -539,10 +556,6 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             mem_p95_pct=float(row.mem_p95) if row.mem_p95 is not None else None,
         )
 
-    async def report_mount_usage(self, server_id: int, period_days: float, end: datetime) -> list[ReportMountUsageRaw]:
-        """마운트별 윈도우 평균 사용률 — 개별 보고서 스토리지 상세. batch 의 N=1 특수화 (SQL 단일 진실)."""
-        return (await self.report_mount_usage_batch([server_id], period_days, end)).get(server_id, [])
-
     async def report_memory_breakdown(self, server_id: int, period_days: float, end: datetime) -> MemoryBreakdownRaw:
         """메모리 구성 윈도우 평균 — batch 의 N=1 특수화. 데이터 없으면 전 축 None."""
         return (await self.report_memory_breakdown_batch([server_id], period_days, end)).get(
@@ -554,31 +567,6 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         return (await self.report_cpu_breakdown_batch([server_id], period_days, end)).get(
             server_id, CpuBreakdownRaw(None, None, None)
         )
-
-    async def report_mount_usage_batch(
-        self, server_ids: list[int], period_days: float, end: datetime
-    ) -> dict[int, list[ReportMountUsageRaw]]:
-        """마운트별 윈도우 평균 사용률 배치 — server_filesystem_5m cagg (가상 fs/boot 제외). child fan-out 1회(A5)."""
-        start = end - timedelta(days=period_days)
-        sql = text(f"""
-            SELECT server_id, mountpoint, max(total_bytes_max) AS total_bytes, avg(used_pct_avg) AS used_pct
-            FROM server_filesystem_5m
-            WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_DATA_VOLUME_CAGG_FILTER}
-            GROUP BY server_id, mountpoint
-            HAVING avg(used_pct_avg) IS NOT NULL  -- used+free 0·null 마운트 배제 (cagg used_pct CASE(합>0) -> null)
-            ORDER BY server_id, used_pct DESC NULLS LAST
-        """)
-        result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
-        out: dict[int, list[ReportMountUsageRaw]] = {}
-        for r in result.all():
-            out.setdefault(r.server_id, []).append(
-                ReportMountUsageRaw(
-                    mountpoint=r.mountpoint,
-                    total_bytes=int(r.total_bytes) if r.total_bytes is not None else None,
-                    used_pct=float(r.used_pct) if r.used_pct is not None else None,
-                )
-            )
-        return out
 
     async def report_mount_capacity_batch(
         self, server_ids: list[int], end: datetime

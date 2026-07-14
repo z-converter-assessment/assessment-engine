@@ -6,7 +6,7 @@
 
 ## 1. 본 시스템 결정
 
-vhost: `/assessment` 단일 사용. broker 한 대를 다른 도메인 시스템과 나눠 쓸 때만 추가 vhost 도입. AMQP URL은 `amqp://user:pass@host:port/%2Fassessment` 형식 — `/`는 `%2F`로 인코딩 (config.py 자동 처리).
+vhost: `assessment` (무슬래시) 단일 사용. broker 한 대를 다른 도메인 시스템과 나눠 쓸 때만 추가 vhost 도입. AMQP URL은 `amqp://user:pass@host:port/assessment` 형식 — 이름에 `/`가 없어 인코딩 무영향(config.py 가 슬래시 포함 vhost 를 `%2F`로 자동 인코딩하는 방어 로직은 유지).
 
 권한 모델: RabbitMQ는 `(user, vhost)` 쌍에 configure/write/read 3비트를 정규식 패턴으로 부여. dev는 단일 user `assessment`가 셋 모두 보유. prod는 4-user least-privilege로 분리 (#3 dev/prod 분기).
 
@@ -20,7 +20,7 @@ vhost: `/assessment` 단일 사용. broker 한 대를 다른 도메인 시스템
 
 | 항목 | 값 |
 |------|-----|
-| Vhost | `/assessment` |
+| Vhost | `assessment` |
 | Collector exchange | `assessment` (direct, durable) — inventory/metrics/error |
 | Collector DLX | `assessment.dlx` (direct, durable) |
 | Task exchange | `assessment.tasks` (direct, durable) — task.install/task.result |
@@ -84,7 +84,7 @@ production 표준을 dev에도 적용 — namespace 격리·내구성 외 부담
 
 | 항목 | 적용 |
 |------|------|
-| Vhost `/assessment` | `docker-compose.yml` 의 `RABBITMQ_DEFAULT_VHOST` + `src/assessment_engine/config.py` 의 `rabbitmq_vhost` + agent 의 `RABBITMQ_VHOST` 모두 `/assessment` |
+| Vhost `assessment` | `docker-compose.yml` 의 `RABBITMQ_DEFAULT_VHOST` + `src/assessment_engine/config.py` 의 `rabbitmq_vhost` + agent 의 `RABBITMQ_VHOST` 모두 `assessment`(무슬래시) |
 | Collector exchange `assessment` (direct, durable) | 동일 |
 | Collector DLX `assessment.dlx` (direct, durable) | 동일 |
 | Task exchange `assessment.tasks` (direct, durable) | 동일 (web 측 lifespan + consumer 측 main.py 양쪽 declare, idempotent) |

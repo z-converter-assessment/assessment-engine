@@ -10,7 +10,6 @@ from assessment_engine.db.dtos.outbound import (
     MemoryBreakdownRaw,
     MountCapacityRaw,
     NetIoBaselineRaw,
-    ReportMountUsageRaw,
     ReportRowRaw,
 )
 
@@ -68,15 +67,6 @@ class BaseReportQueryRepository(ABC):
         """server_id -> NetIoBaselineRaw (rx·tx baseline + p95/peak)."""
 
     @abstractmethod
-    async def report_mount_usage(
-        self,
-        server_id: int,
-        period_days: float,
-        end: datetime,
-    ) -> list[ReportMountUsageRaw]:
-        """마운트별 윈도우 평균 사용률 — 개별 보고서 스토리지 상세 (worst 1개 아닌 전체, 가상 mount 제외)."""
-
-    @abstractmethod
     async def report_memory_breakdown(
         self,
         server_id: int,
@@ -93,15 +83,6 @@ class BaseReportQueryRepository(ABC):
         end: datetime,
     ) -> CpuBreakdownRaw:
         """CPU 분류 윈도우 평균 — user/system/iowait (jiffies LAG delta, counter reset 흡수)."""
-
-    @abstractmethod
-    async def report_mount_usage_batch(
-        self,
-        server_ids: list[int],
-        period_days: float,
-        end: datetime,
-    ) -> dict[int, list[ReportMountUsageRaw]]:
-        """N대 마운트별 윈도우 평균 — `report_mount_usage` 배치(server_id IN). child fan-out 1회 조회 (A5)."""
 
     @abstractmethod
     async def report_mount_capacity_batch(

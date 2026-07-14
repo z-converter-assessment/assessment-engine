@@ -3,7 +3,14 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from assessment_engine.db.dtos.outbound import DashboardRaw, MetricSeries, RebootEvent, SaturationRaw
+from assessment_engine.db.dtos.outbound import (
+    DashboardRaw,
+    ErrorFleetRaw,
+    FleetErrorRaw,
+    MetricSeries,
+    RebootEvent,
+    SaturationRaw,
+)
 from assessment_engine.db.repositories.query.types import (
     AggFunc,
     BucketSize,
@@ -18,6 +25,18 @@ class BaseMetricQueryRepository(ABC):
 
     @abstractmethod
     async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, SaturationRaw]: ...
+
+    @abstractmethod
+    async def latest_errors(self, server_id: int, since: datetime) -> ErrorFleetRaw: ...
+
+    @abstractmethod
+    async def fleet_error_summary(self, server_ids: list[int], since: datetime) -> FleetErrorRaw: ...
+
+    @abstractmethod
+    async def fleet_error_hosts(self, server_ids: list[int], since: datetime) -> set[int]: ...
+
+    @abstractmethod
+    async def latest_link_speed(self, server_ids: list[int], since: datetime) -> dict[int, dict[str, int]]: ...
 
     @abstractmethod
     async def metric_snapshots(
@@ -37,6 +56,7 @@ class BaseMetricQueryRepository(ABC):
         bucket: BucketSize,
         agg: AggFunc,
         end: datetime | None = None,
+        collapse: bool = False,
     ) -> list[MetricSeries]: ...
 
     @abstractmethod

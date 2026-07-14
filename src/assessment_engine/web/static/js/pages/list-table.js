@@ -1,8 +1,11 @@
+// @ts-check
 /**
  * 서버 목록 페이지(list_table.html) — ZConverter Install·선택 N대 액션(보고서·Export·실시간/성능추이)·검색 필터.
  *
  * 외부 의존: 없음 (모달은 list_table.html에 inline markup).
  */
+
+/** @typedef {import('../generated/api').components['schemas']['TaskDetailItem']} TaskDetailItem */
 
 // Install 모달 Escape 닫기 (installModal·hideInstallModal 은 아래 Install 섹션에서 정의 — 콜백 실행 시점엔 바인딩됨).
 document.addEventListener('keydown', e => {
@@ -15,20 +18,20 @@ document.addEventListener('keydown', e => {
 // engine 은 DB INSERT + agent.tasks.<agent_id> 큐 동적 declare + task.install publish.
 // download.url 은 운영자 입력 ZDM host + ZDM_PACKAGE_PATH 조립, sha256/size_bytes 는 ZDM_PACKAGE_* env.
 
-const installModal            = document.getElementById('install-modal');
-const installBtn              = document.getElementById('install-btn');
-const installCloseBtn         = document.getElementById('install-close');
-const installSubmitBtn        = document.getElementById('install-submit');
-const installCountEl          = document.getElementById('install-count');
-const selectAllCb      = document.getElementById('select-all');
+const installModal            = /** @type {HTMLElement} */ (document.getElementById('install-modal'));
+const installBtn              = /** @type {HTMLButtonElement} */ (document.getElementById('install-btn'));
+const installCloseBtn         = /** @type {HTMLElement} */ (document.getElementById('install-close'));
+const installSubmitBtn        = /** @type {HTMLButtonElement} */ (document.getElementById('install-submit'));
+const installCountEl          = /** @type {HTMLElement} */ (document.getElementById('install-count'));
+const selectAllCb      = /** @type {HTMLInputElement | null} */ (document.getElementById('select-all'));
 
 function selectedRows() {
-  return [...document.querySelectorAll('.row-select:checked')];
+  return /** @type {HTMLElement[]} */ ([...document.querySelectorAll('.row-select:checked')]);
 }
 
 // selection 버튼 상태 갱신 — 선택 N대면 액션 버튼 enabled.
 // CSS .btn-primary:disabled 가 시각 분기 (opacity inline 불필요).
-const selectionCountEl = document.getElementById('selection-count');
+const selectionCountEl = /** @type {HTMLElement | null} */ (document.getElementById('selection-count'));
 function refreshInstallButton() {
   const n = selectedRows().length;
   installBtn.disabled = n === 0;
@@ -38,15 +41,15 @@ function refreshInstallButton() {
   if (realtimeSelBtn) realtimeSelBtn.disabled = n === 0;
   if (metricsSelBtn) metricsSelBtn.disabled = n === 0;
   // 선택 개수 라이브 표시 — 0 이면 빈 문자열(숨김 효과).
-  if (selectionCountEl) selectionCountEl.textContent = n > 0 ? n + '대 선택' : '';
+  if (selectionCountEl) selectionCountEl.textContent = n > 0 ? n + '대' : '';
 }
 
-const reportCustomerBtn = document.getElementById('report-customer-btn');
-const reportEngineerBtn = document.getElementById('report-engineer-btn');
+const reportCustomerBtn = /** @type {HTMLButtonElement} */ (document.getElementById('report-customer-btn'));
+const reportEngineerBtn = /** @type {HTMLButtonElement} */ (document.getElementById('report-engineer-btn'));
 
 // 선택 N대 실시간/성능추이 — 환경 로직을 ids 한정으로 navigate (체크 서버 public_id 전달, #E4).
-const realtimeSelBtn = document.getElementById('realtime-sel-btn');
-const metricsSelBtn = document.getElementById('metrics-sel-btn');
+const realtimeSelBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('realtime-sel-btn'));
+const metricsSelBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('metrics-sel-btn'));
 function _selectedPublicIds() {
   return selectedRows().map(cb => cb.dataset.publicId).filter(Boolean);
 }
@@ -62,25 +65,27 @@ metricsSelBtn?.addEventListener('click', () => {
 // 선택 N대 보고서 발행 모달 — 대시보드 액션 영역 '고객 보고서' / '엔지니어 보고서' 클릭 시 open.
 // 서버 상세 모달 / 환경 보고서 모달과 동일 form (time_range + anchor). 발행 시 현재 탭 이동 (history.back 정합).
 (function () {
-  const modal = document.getElementById('multi-server-report-modal');
+  const modal = /** @type {HTMLElement} */ (document.getElementById('multi-server-report-modal'));
   if (!modal) return;
-  const closeBtn = document.getElementById('multi-server-report-close');
-  const submitBtn = document.getElementById('multi-server-report-submit');
-  const titleEl = document.getElementById('multi-server-report-title');
-  const countEl = document.getElementById('multi-server-report-count');
-  const rangeSel = document.getElementById('multi-server-report-range');
-  const anchorInput = document.getElementById('multi-server-report-anchor');
+  const closeBtn = /** @type {HTMLElement} */ (document.getElementById('multi-server-report-close'));
+  const submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('multi-server-report-submit'));
+  const titleEl = /** @type {HTMLElement} */ (document.getElementById('multi-server-report-title'));
+  const countEl = /** @type {HTMLElement} */ (document.getElementById('multi-server-report-count'));
+  const rangeSel = /** @type {HTMLSelectElement} */ (document.getElementById('multi-server-report-range'));
+  const anchorInput = /** @type {HTMLElement | null} */ (document.getElementById('multi-server-report-anchor'));
   const _VIEW_TITLES = { customer: '선택 서버 고객 보고서 발행', engineer: '선택 서버 엔지니어 보고서 발행' };
   let currentView = 'customer';
+  /** @type {HTMLElement[]} */
   let currentRows = [];
 
+  /** @param {'customer' | 'engineer'} view */
   function open(view) {
     const rows = selectedRows();
     if (!rows.length) return;
     currentView = view;
     currentRows = rows;
     titleEl.textContent = _VIEW_TITLES[view];
-    countEl.textContent = rows.length;
+    countEl.textContent = /** @type {any} */ (rows.length);
     // 발행 버튼 활성 리셋 — 직전 발행 후 navigate + back(bfcache) 시 disabled=true 가 sticky 하게 남아 먹통 방지.
     submitBtn.disabled = false;
     modal.style.display = 'flex';
@@ -90,7 +95,8 @@ metricsSelBtn?.addEventListener('click', () => {
   // PRG — POST emit(record) → view_url GET navigate. 공용 EmitUtils(비활성·토스트·bfcache 복구 내장).
   // 다시 보기 / 북마크 / 직접 URL 은 GET 만 → record 안 됨 → 중복 방지.
   function publish() {
-    window.EmitUtils.submitNavigate(submitBtn, () => {
+    // globals.d.ts EmitUtilsApi.submitNavigate 시그니처가 (url, opts) 로 선언돼 실제 (button, urlFn, opts) 3-arity 와 불일치 — 로컬 any 캐스트로 우회.
+    /** @type {any} */ (window.EmitUtils).submitNavigate(submitBtn, () => {
       const ids = currentRows.map(r => r.dataset.publicId).join(',');
       const params = new URLSearchParams();
       params.set('ids', ids);
@@ -100,13 +106,14 @@ metricsSelBtn?.addEventListener('click', () => {
     }, {
       pendingMsg: '보고서 발행 중...',
       errPrefix: '서버 보고서 발행 실패',
-      viewUrlTransform: (u) => u + `&back=${encodeURIComponent(location.pathname + location.search)}`,
+      viewUrlTransform: (/** @type {string} */ u) => u + `&back=${encodeURIComponent(location.pathname + location.search)}`,
       onRestore: close,
     });
   }
 
-  if (anchorInput && window.ChartUtils && window.ChartUtils.initAnchor) {
-    window.ChartUtils.initAnchor('multi-server-report-anchor');
+  // globals.d.ts ChartUtilsApi.initAnchor 는 (onChange) 로 선언됐으나 실제 첫 인자는 anchor element id 문자열 — 로컬 any 캐스트로 우회.
+  if (anchorInput && window.ChartUtils && /** @type {any} */ (window.ChartUtils).initAnchor) {
+    /** @type {any} */ (window.ChartUtils).initAnchor('multi-server-report-anchor');
   }
 
   reportCustomerBtn.addEventListener('click', () => open('customer'));
@@ -116,18 +123,25 @@ metricsSelBtn?.addEventListener('click', () => {
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
 })();
 
-const exportBtn = document.getElementById('export-btn');
+const exportBtn = /** @type {HTMLButtonElement} */ (document.getElementById('export-btn'));
+
+/** @typedef {import('../generated/api').components['schemas']['AssessmentExportRequest']} AssessmentExportRequest */
 
 async function exportInventory() {
   const rows = selectedRows();
   if (!rows.length) return;
   exportBtn.disabled = true;
-  const pending = ToastUtils.show(`Export 중 (${rows.length}대)...`, 'pending');
+  const pending = /** @type {HTMLElement} */ (ToastUtils.show(`Export 중 (${rows.length}대)...`, 'pending'));
   try {
+    // public_id 필터 — 미지정(빈 배열)이면 서버가 전체 환경으로 처리(AssessmentExportRequest 계약)라
+    // 반드시 선택된 서버만 채워 보낸다. 필드명은 생성 타입(api.ts) 기준 단일 진실. window_days 는 서버
+    // 기본값(14, _WINDOW_FLOOR_DAYS)과 동일 — 생성 타입이 default 있는 필드도 required 로 표기해 명시.
+    /** @type {AssessmentExportRequest} */
+    const body = { public_id: rows.map(r => /** @type {string} */ (r.dataset.publicId)), window_days: 14 };
     const res = await fetch('/api/exports/inventory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_public_ids: rows.map(r => r.dataset.publicId) }),
+      body: JSON.stringify(body),
     });
     pending.remove();
     if (!res.ok) {
@@ -149,7 +163,7 @@ async function exportInventory() {
     ToastUtils.show(`${rows.length}대 Export 완료 (inventory-export-${ts}.json)`, 'ok');
   } catch (e) {
     pending.remove();
-    ToastUtils.show('Export 실패: ' + e.message, 'err');
+    ToastUtils.show('Export 실패: ' + /** @type {Error} */ (e).message, 'err');
   } finally {
     exportBtn.disabled = false;
     refreshInstallButton();
@@ -161,11 +175,11 @@ exportBtn.addEventListener('click', exportInventory);
 function showInstallModal() {
   const rows = selectedRows();
   if (rows.length === 0) return;
-  installCountEl.textContent = rows.length;
+  installCountEl.textContent = /** @type {any} */ (rows.length);
   // 모달 open 시점 마다 defaultValue 강제 reset — 브라우저 autocomplete · cache · 이전 입력 잔존 우회.
   // value attribute 가 immutable defaultValue 라 server-side zdm_defaults 값으로 항상 복귀.
   ['install-zdm-target', 'install-zdm-account'].forEach(id => {
-    const el = document.getElementById(id);
+    const el = /** @type {HTMLInputElement | null} */ (document.getElementById(id));
     if (el && el.defaultValue) el.value = el.defaultValue;
   });
   installModal.style.display = 'flex';
@@ -177,15 +191,23 @@ function hideInstallModal() {
 }
 
 // task cell HTML 렌더 단일 진실 — install 직후 polling + 페이지 로드 시 진행 중 추적 공용.
+// 값은 뱃지만 노출(SSR _server_rows.html 과 동일) — 시각은 hover title 로만(날짜-시간 텍스트 상시 노출 금지).
 // 시간 포맷 단일 진실 — ChartUtils.fmtKst (YYYY-MM-DD HH:MM:SS). toLocaleString 은 locale-dependent 라 회피.
+/**
+ * @param {Element} cell
+ * @param {TaskDetailItem} detail
+ */
 function renderTaskCell(cell, detail) {
   const created = ChartUtils.fmtKst(detail.created_at);
-  // 시각 글자크기·색은 SSR(list.html task cell) 과 동일 — 11px / .text-muted(#64748b). 새로고침 전후 일관.
-  cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${detail.task_id}" title="${detail.failure_label || ''}"><span class="badge ${detail.badge_class}">${detail.badge_label}</span><span class="text-muted" style="font-size:11px;">${created}</span></a>`;
+  cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${detail.task_id}" title="${detail.failure_label || ''} · ${created}"><span class="badge ${detail.badge_class}">${detail.badge_label}</span></a>`;
 }
 
 // install 발행 직후 행별 last_task cell polling — TaskModal.pollUntilFinal 으로 final 도달 시 cell 갱신.
 // pending row 의 cell HTML 을 미리 교체 -> 운영자가 즉시 "진행 중" 인지.
+/**
+ * @param {string} targetPublicId
+ * @param {string} taskId
+ */
 function pollAndUpdateRow(targetPublicId, taskId) {
   const row = document.querySelector(`.row-select[data-public-id="${targetPublicId}"]`)?.closest('tr');
   if (!row) return;
@@ -193,21 +215,22 @@ function pollAndUpdateRow(targetPublicId, taskId) {
   if (!cell) return;
   cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${taskId}"><span class="badge rec-pending">진행 중</span></a>`;
   if (!window.TaskModal) return;
-  window.TaskModal.pollUntilFinal(taskId, { onUpdate(detail) { renderTaskCell(cell, detail); } });
+  // globals.d.ts TaskModalApi.pollUntilFinal 은 (taskId) 1-arity 로 선언됐으나 실제 2번째 opts({onUpdate}) 인자 수용 — 로컬 any 캐스트로 우회.
+  /** @type {any} */ (window.TaskModal).pollUntilFinal(taskId, { onUpdate(/** @type {TaskDetailItem} */ detail) { renderTaskCell(cell, detail); } });
 }
 
 async function submitInstall() {
   const rows = selectedRows();
   if (rows.length === 0) { ToastUtils.show('선택된 호스트 없음', 'err'); return; }
 
-  const zdmIp = document.getElementById('install-zdm-target').value.trim();
-  const zdmUser = document.getElementById('install-zdm-account').value.trim();
+  const zdmIp = /** @type {HTMLInputElement} */ (document.getElementById('install-zdm-target')).value.trim();
+  const zdmUser = /** @type {HTMLInputElement} */ (document.getElementById('install-zdm-account')).value.trim();
   if (!zdmIp || !zdmUser) {
-    ToastUtils.show('ZDM IP / 관리자 계정 필수', 'err');
+    ToastUtils.show('ZDM IP | 관리자 계정 필수', 'err');
     return;
   }
 
-  const pending = ToastUtils.show(`Install 발행 중 (${rows.length}대)...`, 'pending');
+  const pending = /** @type {HTMLElement} */ (ToastUtils.show(`Install 발행 중 (${rows.length}대)...`, 'pending'));
   installSubmitBtn.disabled = true;
 
   try {
@@ -228,6 +251,7 @@ async function submitInstall() {
       ToastUtils.show('Install 발행 실패: ' + (msg || '요청을 처리하지 못했습니다.'), 'err');
       return;
     }
+    /** @type {import('../generated/api').components['schemas']['TaskCreated'][]} */
     const data = await res.json();
     const list = Array.isArray(data) ? data : [];   // 5xx가 JSON object 반환 시 TypeError 방어
     const lines = list.map(t => {
@@ -250,26 +274,56 @@ async function submitInstall() {
     list.forEach(t => pollAndUpdateRow(t.target_public_id, t.task_id));
   } catch (e) {
     pending.remove();
-    ToastUtils.show('Install 요청 실패: ' + e.message, 'err');
+    ToastUtils.show('Install 요청 실패: ' + /** @type {Error} */ (e).message, 'err');
   } finally {
     installSubmitBtn.disabled = false;
   }
 }
 
-// 행 체크박스 토글 → 버튼 라벨·활성화 갱신
+// 전체선택 체크박스 시각 동기화 — 필터 통과 행(data-filter-match!='0') 기준 0개=해제 / 전부=체크 /
+// 일부=indeterminate(가로줄, 체크 아님). indeterminate 없이 두면 "체크박스 일부 해제" 시 전체선택이
+// 여전히 checked 로 남아, 다시 눌렀을 때 "전체 선택"이 아니라 "전체 해제"로 오동작하는 것처럼 보인다
+// (실제 동작은 selectedRows() 가 매번 실제 체크 상태를 재조회해 정확하지만, 시각 상태가 거짓 정보를 준다).
+function syncSelectAllState() {
+  if (!selectAllCb) return;
+  const matched = /** @type {HTMLInputElement[]} */ (
+    [...document.querySelectorAll('tr.server-row')]
+      .filter(/** @param {Element} tr */ tr => /** @type {HTMLElement} */ (tr).dataset.filterMatch !== '0')
+      .map(tr => tr.querySelector('.row-select'))
+      .filter(Boolean)
+  );
+  const checkedCount = matched.filter(cb => cb.checked).length;
+  selectAllCb.checked = matched.length > 0 && checkedCount === matched.length;
+  selectAllCb.indeterminate = checkedCount > 0 && checkedCount < matched.length;
+}
+
+// 클립(더보기 미확장)·정렬로 화면에 안 보이는(display:none) 선택 행 개수 힌트 — 선택 카운트("N대")는
+// 정확해도 화면엔 체크 표시가 안 보이는 행이 있을 수 있어(E9 발화 가드), show-more 영역에 명시.
+function updateHiddenSelectionHint() {
+  const hint = document.getElementById('hidden-selection-hint');
+  if (!hint) return;
+  const hiddenChecked = [...document.querySelectorAll('.row-select:checked')]
+    .filter(cb => /** @type {HTMLElement | null} */ (cb.closest('tr'))?.style.display === 'none').length;
+  hint.textContent = hiddenChecked > 0 ? `화면에 안 보이는 선택 ${hiddenChecked}건 (전체보기로 확인)` : '';
+  hint.style.display = hiddenChecked > 0 ? '' : 'none';
+}
+
+// 행 체크박스 토글 → 버튼 라벨·활성화 + 전체선택 시각 상태 갱신
 document.querySelectorAll('.row-select').forEach(cb => {
-  cb.addEventListener('change', refreshInstallButton);
+  cb.addEventListener('change', () => { refreshInstallButton(); syncSelectAllState(); updateHiddenSelectionHint(); });
 });
 
 // 전체 선택 토글
 if (selectAllCb) {
   selectAllCb.addEventListener('change', () => {
     // 필터 통과 행만 토글 — 필터로 숨겨진 행(예: 오프라인)은 전체선택 제외. clip 으로만 숨은 행(match)은 포함.
-    document.querySelectorAll('tr.server-row').forEach(tr => {
-      const cb = tr.querySelector('.row-select');
+    /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('tr.server-row')).forEach(tr => {
+      const cb = /** @type {HTMLInputElement | null} */ (tr.querySelector('.row-select'));
       if (cb) cb.checked = (tr.dataset.filterMatch !== '0') && selectAllCb.checked;
     });
+    selectAllCb.indeterminate = false;  // 클릭으로 전부 체크/전부 해제 중 하나로 확정 — 일부 상태 없음
     refreshInstallButton();
+    updateHiddenSelectionHint();  // 전체선택은 clip 으로 숨은 행도 체크하므로 즉시 재계산
   });
 }
 
@@ -281,89 +335,64 @@ installSubmitBtn.addEventListener('click', submitInstall);
 // Install 모달 input — 브라우저 autocomplete 우회. value attribute 값(defaultValue) 강제 적용.
 // autocomplete="off" 만으로 일부 브라우저(Chrome 일부 버전)에서 history 덮어쓰기 가능 — 2중 가드.
 ['install-zdm-target', 'install-zdm-account'].forEach(id => {
-  const el = document.getElementById(id);
+  const el = /** @type {HTMLInputElement | null} */ (document.getElementById(id));
   if (el && el.defaultValue) el.value = el.defaultValue;
 });
 
 // 필터 form 즉시 client-side 적용 — server reload 없이 row hide/show + URL 갱신.
 // tr 마다 data-* attribute (data-hostname / data-is-online / data-os-id / data-classification / data-services)
 // 가 박혀 있어 JS 가 그 값 비교. URL replaceState 로 deep link / 새로고침 시 server-side filter 와 정합.
-const filterForm = document.getElementById('filter-form');
+const filterForm = /** @type {HTMLElement} */ (document.getElementById('filter-form'));
 if (filterForm) {
   // 기본 표시 행 수 — 필터 비활성 시 처음 CLIP_SIZE 행만 보이고 "더보기"로 전체 노출.
   // 필터 활성(검색·온라인·서비스·OS·분류 중 하나라도) 시엔 clip 없이 조건 맞는 전부 노출.
   const CLIP_SIZE = 20;
   let expanded = false;  // "더보기" 클릭 여부 (필터 비활성 상태에서만 의미)
 
+  /**
+   * @param {boolean} visible
+   * @param {number} total
+   */
   function updateShowMore(visible, total) {
     const wrap = document.getElementById('show-more-wrap');
     if (wrap) wrap.style.display = visible ? '' : 'none';
     if (!visible) return;
     // 확장 상태면 "접기"(CLIP 복귀), 아니면 "전체보기 (CLIP/total)".
-    const btn = document.getElementById('show-more-btn');
-    const c = document.getElementById('show-more-count');
+    const btn = /** @type {HTMLElement | null} */ (document.getElementById('show-more-btn'));
+    const c = /** @type {HTMLElement | null} */ (document.getElementById('show-more-count'));
     if (btn && btn.firstChild) btn.firstChild.nodeValue = expanded ? '접기 ' : '전체보기 ';
     if (c) c.textContent = expanded ? '' : `(${CLIP_SIZE}/${total})`;
   }
 
   function applyFilters() {
-    const rows = document.querySelectorAll('tr.server-row');  // 매번 재조회 — 자동갱신 행 교체 후에도 정합
-    const searchInput = filterForm.querySelector('input[name=search]');
-    const onlineSel = filterForm.querySelector('select[name=is_online]');
-    const serviceSel = filterForm.querySelector('select[name=service]');
-    const osSel = filterForm.querySelector('select[name=os_distro]');
-    const classSel = filterForm.querySelector('select[name=classification]');
+    const rows = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('tr.server-row'));  // 매번 재조회 — 자동갱신 행 교체 후에도 정합
+    const searchInput = /** @type {HTMLInputElement | null} */ (filterForm.querySelector('input[name=search]'));
+    // 통합 검색 — hostname·OS·워크로드·자원 적정성·EOL·온라인 여부를 한 문자열(data-search)에서 부분일치.
     const search = (searchInput?.value || '').toLowerCase().trim();
-    const onlineState = onlineSel?.value || '';  // "" / "true" / "false"
-    const service = serviceSel?.value || '';
-    const osDistro = osSel?.value || '';
-    const classification = classSel?.value || '';
-    const active = !!(search || onlineState || service || osDistro || classification);
+    const active = !!search;
     let matchCount = 0;  // 필터 통과 행 수 (clip 이전)
     rows.forEach(tr => {
-      const hostname = tr.dataset.hostname || '';
-      const rowOnline = tr.dataset.isOnline === 'true';
-      const rowOs = tr.dataset.osDistro || '';
-      const rowClass = tr.dataset.classification || '';
-      const rowServices = (tr.dataset.services || '').trim().split(/\s+/);
-      let match = true;
-      if (search && !hostname.includes(search)) match = false;
-      if (onlineState === 'true' && !rowOnline) match = false;
-      if (onlineState === 'false' && rowOnline) match = false;
-      if (service && !rowServices.includes(service)) match = false;
-      if (osDistro && rowOs !== osDistro) match = false;
-      if (classification && rowClass !== classification) match = false;
+      const hay = (tr.dataset.search || '').toLowerCase();
+      const match = !search || hay.includes(search);
       let visible = match;
       if (match) {
         matchCount += 1;
-        // 필터 비활성 + 미확장이면 CLIP_SIZE 초과 행은 숨김 (더보기 대상).
+        // 검색 비활성 + 미확장이면 CLIP_SIZE 초과 행은 숨김 (더보기 대상).
         if (!active && !expanded && matchCount > CLIP_SIZE) visible = false;
       }
-      // 전체선택이 필터 통과 행만 잡도록 표식 (clip 으로만 숨은 행은 match='1' 이라 포함).
+      // 전체선택이 검색 통과 행만 잡도록 표식 (clip 으로만 숨은 행은 match='1' 이라 포함).
       tr.dataset.filterMatch = match ? '1' : '0';
       tr.style.display = visible ? '' : 'none';
     });
-    // 전체보기 버튼 — 필터 비활성·미확장·전체가 CLIP 초과일 때만. (CLIP_SIZE/total 표기)
+    // 전체보기 버튼 — 검색 비활성·미확장·전체가 CLIP 초과일 때만. (CLIP_SIZE/total 표기)
     updateShowMore(!active && matchCount > CLIP_SIZE, matchCount);
-    // URL 갱신 — deep link / 새로고침 시 server-side filter 가 같은 query 받음 (일관).
-    const params = new URLSearchParams();
-    if (search) params.set('search', search);
-    if (onlineState) params.set('is_online', onlineState);
-    if (service) params.set('service', service);
-    if (osDistro) params.set('os_distro', osDistro);
-    if (classification) params.set('classification', classification);
-    const qs = params.toString();
-    const newUrl = qs ? `${location.pathname}?${qs}` : location.pathname;
-    history.replaceState(null, '', newUrl);
-    // thead 초기화 링크 — client 필터라 Jinja 재평가가 없어 JS 가 활성 여부로 표시 토글.
     const clearBtn = document.getElementById('filter-clear');
     if (clearBtn) clearBtn.style.display = active ? 'inline-flex' : 'none';
-    // 각 필터 위젯 — 값 선택 시 active(테마색 강조), 미선택 회색.
-    [searchInput, onlineSel, serviceSel, osSel, classSel].forEach(function (el) {
-      if (el) el.classList.toggle('active', !!(el.value || '').trim());
-    });
-    // 보이는 행만 zebra 재줄무늬 — 필터·clip 으로 숨은 행 제외(흰색 어긋남 방지, table-utils).
+    if (searchInput) searchInput.classList.toggle('active', !!search);
+    // 보이는 행만 zebra 재줄무늬 — 검색·clip 으로 숨은 행 제외(흰색 어긋남 방지, table-utils).
     if (window.TableUtils && listTable) window.TableUtils.restripe(listTable);
+    syncSelectAllState();  // 필터 통과 행 집합(분모) 변경 가능성 반영 — 전체선택 체크/indeterminate 재계산
+    updateHiddenSelectionHint();  // clip/정렬로 display 변경 — 화면 밖 선택 힌트 재계산
   }
 
   // 전체보기/접기 토글 — expanded 반전 후 재적용 (전체 노출 <-> CLIP 복귀).
@@ -373,12 +402,12 @@ if (filterForm) {
   });
 
   // ─── 칼럼 클릭 정렬 — 공용 TableUtils(정렬 로직·zebra 단일화). 정렬 후 필터·clip 재적용(applyFilters 끝에서 restripe). ───
-  const listTable = document.querySelector('table.server-list-table');
+  const listTable = /** @type {HTMLElement | null} */ (document.querySelector('table.server-list-table'));
   listTable?.querySelector('thead')?.addEventListener('click', function (e) {
-    const th = e.target.closest('th.sort-col');
+    const th = /** @type {HTMLElement} */ (e.target).closest('th.sort-col');
     if (!th) return;
-    const idx = Array.from(th.parentNode.children).indexOf(th);
-    window.TableUtils.sortByColumn(listTable, idx);
+    const idx = Array.from(/** @type {ParentNode} */ (th.parentNode).children).indexOf(th);
+    window.TableUtils.sortByColumn(/** @type {HTMLElement} */ (listTable), idx);
     expanded = false; // 정렬 후 CLIP 복귀 (상위 재적용)
     applyFilters();
   });
@@ -386,12 +415,14 @@ if (filterForm) {
   // 필터 변경 시 선택 초기화 — 전체선택 후 필터를 바꾸면 깨끗한 전체해제 상태 (숨은 행이 선택에 남지 않게).
   // show-more(전체보기)·init 은 필터 변경이 아니므로 미적용 (선택 보존).
   function clearSelectionOnFilterChange() {
-    document.querySelectorAll('.row-select').forEach(cb => { cb.checked = false; });
-    if (selectAllCb) selectAllCb.checked = false;
+    /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('.row-select')).forEach(cb => { cb.checked = false; });
+    if (selectAllCb) { selectAllCb.checked = false; selectAllCb.indeterminate = false; }
     refreshInstallButton();
+    updateHiddenSelectionHint();
   }
 
   // text input — typing 마다 debounce (200ms) client filter.
+  /** @type {any} */
   let debounceTimer = null;
   filterForm.querySelector('input[name=search]')?.addEventListener('input', () => {
     clearTimeout(debounceTimer);
@@ -409,7 +440,7 @@ if (filterForm) {
   });
 
   // 자동갱신(replaceServerRows) 후 client 필터 재적용용 — 모듈 외부 노출.
-  window.__applyDashboardFilters = applyFilters;
+  /** @type {any} */ (window).__applyDashboardFilters = applyFilters;
   // 초기 1회 — 전체 로드된 행에 clip(20) 적용 + deep-link query(form 초기값) 반영.
   applyFilters();
 }
@@ -418,13 +449,37 @@ if (filterForm) {
 // 서버목록의 진행 중(rec-pending) task cell 을 pollUntilFinal 로 추적 — 완료까지 cell 갱신.
 // 페이지 로드 시 + install 발행 직후 호출. task-cell 모달은 delegation(task-modal.js).
 function trackPendingTasks() {
-  document.querySelectorAll('.task-cell').forEach(a => {
+  /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.task-cell')).forEach(a => {
     if (!a.querySelector('.badge.rec-pending')) return;
     const taskId = a.dataset.taskId;
     if (!taskId || !window.TaskModal) return;
-    const cell = a.closest('td');
-    window.TaskModal.pollUntilFinal(taskId, { onUpdate(detail) { renderTaskCell(cell, detail); } });
+    const cell = /** @type {Element} */ (a.closest('td'));
+    /** @type {any} */ (window.TaskModal).pollUntilFinal(taskId, { onUpdate(/** @type {TaskDetailItem} */ detail) { renderTaskCell(cell, detail); } });
   });
 }
 
 trackPendingTasks();
+
+// ─── 뒤로가기 복원 정합 (선택 초기화) ─────────────────────────────────────
+// 액션 버튼(보고서·실시간·성능추이·Export·Install)은 클릭 시 다른 페이지로 navigate 한다.
+// 브라우저는 뒤로가기 시 체크박스 checked 를 자동 복원(session history form-state / bfcache)하는데,
+// 그 복원은 change 이벤트를 발생시키지 않아 refreshInstallButton 이 안 돌고 버튼 enabled·"N대"
+// 카운트가 desync 된다 — 체크는 살아있는데 버튼은 disabled 로 남는 "먹통". 복귀 시 선택을 항상
+// 초기화해 "뒤로 오면 깨끗한 목록" 을 결정적으로 보장 (bfcache / full-reload 브라우저 차이 무관).
+function resetSelectionOnShow() {
+  /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('.row-select')).forEach(cb => { cb.checked = false; });
+  if (selectAllCb) { selectAllCb.checked = false; selectAllCb.indeterminate = false; }
+  updateHiddenSelectionHint();
+  // 열린 모달 닫기 + 발행 버튼 재활성 — navigate 직전 disable 이 history 복원에 sticky 로 남는 것 방지.
+  ['multi-server-report-modal', 'install-modal'].forEach(id => {
+    const m = document.getElementById(id);
+    if (m) m.style.display = 'none';
+  });
+  ['multi-server-report-submit', 'install-submit'].forEach(id => {
+    const b = /** @type {HTMLButtonElement | null} */ (document.getElementById(id));
+    if (b) b.disabled = false;
+  });
+  refreshInstallButton();  // 초기화된 실제 체크 상태(0) 기준으로 버튼 disabled·카운트 재계산
+}
+// pageshow 는 최초 로드·뒤로가기 복원 모두에서 발화 (persisted 여부 무관) — 두 경우 다 깨끗한 상태로 수렴.
+window.addEventListener('pageshow', resetSelectionOnShow);

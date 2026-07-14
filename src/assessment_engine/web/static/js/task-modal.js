@@ -1,3 +1,4 @@
+// @ts-check
 // Task 상세 modal + polling — base.html 의 #task-modal 요소를 채운다.
 //
 // 운영자 워크플로:
@@ -11,11 +12,12 @@
 // 본 JS 는 fetch + DOM 삽입만.
 
 (function () {
-  const modal     = document.getElementById('task-modal');
+  const modal     = /** @type {HTMLElement} */ (document.getElementById('task-modal'));
   if (!modal) return;
-  const closeBtn  = document.getElementById('task-modal-close');
-  const titleEl   = document.getElementById('task-modal-title');
-  const bodyEl    = document.getElementById('task-modal-body');
+  const closeBtn  = /** @type {HTMLElement} */ (document.getElementById('task-modal-close'));
+  const titleEl   = /** @type {HTMLElement} */ (document.getElementById('task-modal-title'));
+  const bodyEl    = /** @type {HTMLElement} */ (document.getElementById('task-modal-body'));
+  if (!closeBtn || !titleEl || !bodyEl) return;
 
   function open() {
     modal.style.display = 'flex';
@@ -31,7 +33,9 @@
 
   // 페이지의 모든 [data-task-id] 요소 클릭 -> modal open. event delegation 으로 동적 추가도 처리.
   document.addEventListener('click', e => {
-    const el = e.target.closest('[data-task-id]');
+    const el = /** @type {HTMLElement | null} */ (
+      /** @type {HTMLElement} */ (e.target).closest('[data-task-id]')
+    );
     if (!el) return;
     const taskId = el.dataset.taskId;
     if (!taskId) return;
@@ -39,24 +43,30 @@
     openTask(taskId);
   });
 
+  /** @param {string} s */
   function escapeHtml(s) {
-    return (s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    return (s || '').replace(/[&<>"']/g, (/** @type {string} */ c) => (/** @type {Record<string, string>} */ ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }))[c]);
   }
 
+  /** @param {string} taskId */
   async function fetchTask(taskId) {
     const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+    return /** @type {Promise<import('./generated/api').components['schemas']['TaskDetailItem']>} */ (
+      res.json()
+    );
   }
 
   // modal body 는 server fragment endpoint 가 partial HTML 반환 (P3 정공 — JS HTML 합성 폐기).
   // polling 은 위 fetchTask (JSON) 사용 — list cell 갱신 callback 전달 위해 JSON 필요.
+  /** @param {string} taskId */
   async function fetchTaskFragment(taskId) {
     const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/detail`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.text();
   }
 
+  /** @param {string} taskId */
   async function openTask(taskId) {
     bodyEl.innerHTML = '불러오는 중...';
     titleEl.textContent = '작업 상세';
@@ -67,13 +77,17 @@
       titleEl.textContent = `작업 ${detail.task_id.slice(0, 8)} — ${detail.target_hostname || '—'}`;
       bodyEl.innerHTML = await fetchTaskFragment(taskId);
     } catch (e) {
-      bodyEl.innerHTML = `<p class="text-danger">조회 실패: ${escapeHtml(e.message)}</p>`;
+      bodyEl.innerHTML = `<p class="text-danger">조회 실패: ${escapeHtml(/** @type {Error} */ (e).message)}</p>`;
     }
   }
 
   // 발행 직후 task 가 status='pending' 인 동안 polling. final(success/failure) 도달 시 callback.
   // 호출자: list.js install 발행 후 응답 task_ids 각각에 대해 호출.
   // 최대 cap_seconds 동안 try, interval_ms 간격.
+  /**
+   * @param {string} taskId
+   * @param {{ intervalMs?: number, capSeconds?: number, onUpdate?: (detail: any) => void }} [opts]
+   */
   async function pollUntilFinal(taskId, { intervalMs = 5000, capSeconds = 180, onUpdate } = {}) {
     const deadline = Date.now() + capSeconds * 1000;
     while (Date.now() < deadline) {

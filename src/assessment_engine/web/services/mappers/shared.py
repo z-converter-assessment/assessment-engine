@@ -50,6 +50,9 @@ class SaturationAxisDisplay:
     value: str
     threshold: str
     measured: bool
+    # 단일 게이트 crossing — 이 raw 신호값이 자기 임계를 넘었는가(값·임계와 같은 자리 산출, 단일 진실). 종합
+    # 판정(dual-gate: 이용률 AND 포화)은 cpu_saturated 등 별도 — 축 표시는 신호 자체가 임계 넘었는지(비정상)를 보임.
+    crossed: bool = False
 
 
 def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[SaturationAxisDisplay]:
@@ -60,8 +63,11 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
     """
     rec = recommendation
     cores = stats.cpu_cores
+    await_ms = stats.disk_await_p95_ms
+    disk_over = await_ms is not None and await_ms > rec.RS_DISKIO_AWAIT_MS
     if stats.os_family == "windows":
         rq = stats.cpu_run_queue_p95 / cores if stats.cpu_run_queue_p95 is not None and cores else None
+        pages = stats.mem_pages_input_rate_p95
         return [
             SaturationAxisDisplay(
                 "CPU 포화",
@@ -69,20 +75,23 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
                 f"W {rq:.2f}" if rq is not None else "N/A",  # W 태그 — Linux(실행큐)와 의미·임계 달라 값만으론 구분 불가
                 f">= {rec.CPU_RUN_QUEUE_PER_CORE_SATURATION:g}",
                 rq is not None,
+                crossed=rq is not None and rq >= rec.CPU_RUN_QUEUE_PER_CORE_SATURATION,
             ),
             SaturationAxisDisplay(
                 "메모리 포화",
                 "Memory Pages Input/sec p95",
-                f"W {stats.mem_pages_input_rate_p95:.0f}/s" if stats.mem_pages_input_rate_p95 is not None else "N/A",
+                f"W {pages:.0f}/s" if pages is not None else "N/A",
                 f">= {rec.WIN_PAGES_INPUT_SATURATION:g}/s",
-                stats.mem_pages_input_rate_p95 is not None,
+                pages is not None,
+                crossed=pages is not None and pages >= rec.WIN_PAGES_INPUT_SATURATION,
             ),
             SaturationAxisDisplay(
                 "디스크 I/O 포화",
                 "await p95 (IOCTL ReadTime/WriteTime)",
-                f"{stats.disk_await_p95_ms:.0f}ms" if stats.disk_await_p95_ms is not None else "N/A",
+                f"{await_ms:.0f}ms" if await_ms is not None else "N/A",
                 f"> {rec.RS_DISKIO_AWAIT_MS:g}ms",
-                stats.disk_await_p95_ms is not None,
+                await_ms is not None,
+                crossed=disk_over,
             ),
         ]
     rq = stats.procs_running_p95 / cores if stats.procs_running_p95 is not None and cores else None
@@ -93,14 +102,19 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
             f"L {rq:.2f}" if rq is not None else "N/A",  # L 태그 — Windows(Processor Queue)와 의미·임계 달라 구분
             f">= {rec.PROCS_RUNNING_PER_CORE_SATURATION:g}",
             rq is not None,
+            crossed=rq is not None and rq >= rec.PROCS_RUNNING_PER_CORE_SATURATION,
         ),
-        SaturationAxisDisplay("메모리 포화", "swap page-out", "L 발생" if stats.mem_swap_paging else "L 없음", "발생 시", True),
+        SaturationAxisDisplay(
+            "메모리 포화", "swap page-out", "L 발생" if stats.mem_swap_paging else "L 없음", "발생 시", True,
+            crossed=stats.mem_swap_paging,
+        ),
         SaturationAxisDisplay(
             "디스크 I/O 포화",
             "await p95",
-            f"{stats.disk_await_p95_ms:.0f}ms" if stats.disk_await_p95_ms is not None else "N/A",
+            f"{await_ms:.0f}ms" if await_ms is not None else "N/A",
             f"> {rec.RS_DISKIO_AWAIT_MS:g}ms",
-            stats.disk_await_p95_ms is not None,
+            await_ms is not None,
+            crossed=disk_over,
         ),
     ]
 
@@ -111,12 +125,17 @@ def build_host_confidence_notes(host: recommendation.HostAssessment) -> list[str
     구 단일-assess 대비 rollup_host 기반 — coverage_gap(포화 축 미관측)·low_precision(이력<30h·버스티)를
     호스트 단위로 노출. biased(virtio 구조 편향)는 disk_io 가 상시 True 라 표시 노이즈 -> 노트 제외
     (다운사이즈 게이트 내부용). report·attention 이 rollup_host 로 이관 후 본 함수 공용.
+
+    '창 대비 관측 부족'은 30h 절대 바닥(low_precision)과 별개 축 — 선택 창을 다 못 덮으면(예: 14일 창에
+    2일 데이터) sample_sufficiency 가 낮아 발화. 짧은 창으로 판정 시 저커버리지를 정직하게 노출.
     """
     notes: list[str] = []
     if recommendation.host_saturation_unmeasured(host):  # 포화 축(cpu·mem·disk_io) 한정 — 용량·네트워크 제외
         notes.append("포화 수치 미관측")
     if any(r.confidence.low_precision for r in host.resources.values()):
         notes.append("표본 부족")
+    if host.sample_sufficiency is not None and host.sample_sufficiency < recommendation.RS_DOWNSIZE_MIN_SUFFICIENCY:
+        notes.append("창 대비 관측 부족")
     return notes
 
 
@@ -231,9 +250,6 @@ _DONUT_SEGMENT_FROM_REC: dict[str, str] = {
     "insufficient_data": "insufficient_data",
 }
 
-# list 페이지 dropdown option — _DONUT_SEGMENT_DEFS 순서 그대로.
-PROVISIONING_CLASSES: tuple[str, ...] = tuple(key for key, _, _, _ in _DONUT_SEGMENT_DEFS)
-
 # list 페이지 dropdown (value, 한글 라벨) 쌍 — value=영어 enum(필터 매칭 data-classification),
 # 표시=recommendation.LABEL_KO 한글.
 PROVISIONING_CLASS_OPTIONS: tuple[tuple[str, str], ...] = tuple(
@@ -278,6 +294,8 @@ _OS_ID_TO_EOL_PRODUCT: dict[str, str] = {
     "opensuse": "opensuse",
     "amzn": "amazon-linux",
     "fedora": "fedora",
+    "ol": "oracle-linux",  # Oracle Linux /etc/os-release ID="ol"
+    "oracle": "oracle-linux",  # 일부 배포 변형 alias
 }
 
 # ─── OS distro 필터 ───
@@ -295,6 +313,7 @@ _DISTRO_LABELS: dict[str, str] = {
     "opensuse": "openSUSE",
     "amazon-linux": "Amazon Linux",
     "fedora": "Fedora",
+    "oracle-linux": "Oracle Linux",
     "windows-server": "Windows",
 }
 # 필터 드롭다운 옵션 — (slug, 라벨). 카탈로그(_EOL_CATALOG) 키 순서 단일 진실.

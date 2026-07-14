@@ -37,8 +37,9 @@ _STATUS_LABEL_KO: dict[str, str] = {
 
 
 def _evidence_labels(triggers: list[str]) -> list[str]:
-    """trigger key -> 통일 한국어 근거 라벨(_CAUSE_LABEL_BY_TRIGGER 단일 진실). 미매핑 키는 그대로."""
-    return [_CAUSE_LABEL_BY_TRIGGER.get(t, t) for t in triggers]
+    """trigger key -> 통일 한국어 근거 라벨. _CAUSE_LABEL_BY_TRIGGER(자원부족 축) 우선, 미커버 키는
+    도메인 RS_TRIGGER_LABEL_KO 폴백 — mem_oom·net_retrans/drop/conntrack 이 raw enum 으로 누출되지 않게."""
+    return [_CAUSE_LABEL_BY_TRIGGER.get(t) or recommendation.RS_TRIGGER_LABEL_KO.get(t, t) for t in triggers]
 
 
 def _sizeable_recommendation(kind: str, ra: recommendation.ResourceAssessment) -> str | None:

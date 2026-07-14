@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query
 
 from assessment_engine.web.deps import get_service
 from assessment_engine.web.services.query_service import QueryService
+from assessment_engine.web.view_models.right_sizing_api import RightSizingResponse
 
 right_sizing_router = APIRouter(prefix="/api/right-sizing", tags=["right-sizing"])
 
@@ -31,7 +32,9 @@ def _split_pairs(v: str | None) -> list[tuple[str, str]]:
     return out
 
 
-@right_sizing_router.get("")
+# responses= (response_model 아님) — OpenAPI 스키마만 문서화(생성 TS 타입 원천). frozen 계약 출력은 매퍼
+# dict 그대로, 재구성/검증 0. 매퍼-스키마 drift 는 test_right_sizing_api 골든 검증이 잡음.
+@right_sizing_router.get("", responses={200: {"model": RightSizingResponse}})
 async def get_right_sizing(
     hostname: str | None = Query(None, description="쉼표 구분 호스트명(정확 매칭·대소문자 구분). 미지정 시 전체."),
     ip: str | None = Query(None, description="쉼표 구분 IPv4 — 물리 인터페이스 매칭."),

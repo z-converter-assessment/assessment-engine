@@ -7,13 +7,16 @@
  * progressive enhancement: JS 없이도 네비게이션은 정상 동작(브라우저 기본). 본 파일은 피드백만 얹는다.
  * 마크업: base.html(#nav-progress + .nav-progress CSS). z-index 9999 로 off-canvas 사이드바보다 위.
  */
+// @ts-check
 (function () {
   'use strict';
 
-  var bar = document.getElementById('nav-progress');
+  var bar = /** @type {HTMLElement} */ (document.getElementById('nav-progress'));
   if (!bar) return;
 
+  /** @type {ReturnType<typeof setInterval> | null} */
   var timer = null;       // trickle interval
+  /** @type {ReturnType<typeof setTimeout> | null} */
   var safety = null;      // stuck 방지 fallback
   var progress = 0;
 
@@ -49,7 +52,7 @@
   document.addEventListener('click', function (e) {
     if (e.defaultPrevented) return;
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;  // 새 탭·수정키 클릭 제외
-    var a = e.target.closest('a[href]');
+    var a = /** @type {HTMLAnchorElement | null} */ (/** @type {Element} */ (e.target).closest('a[href]'));
     if (!a) return;
     if (a.target && a.target !== '_self') return;          // target=_blank 등 제외
     if (a.hasAttribute('download')) return;                // 다운로드는 이동 아님
@@ -66,7 +69,7 @@
   // 폼 전송(검색·필터 등 full-page GET/POST) — 결과 페이지 도착까지 피드백.
   document.addEventListener('submit', function (e) {
     if (e.defaultPrevented) return;                        // JS 가 가로챈(fetch) 폼 제외
-    var f = e.target;
+    var f = /** @type {HTMLFormElement} */ (e.target);
     if (f.hasAttribute('data-no-progress')) return;
     if (f.target && f.target !== '_self') return;
     start();

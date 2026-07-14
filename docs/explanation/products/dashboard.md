@@ -6,11 +6,11 @@
 
 사이드바 "모니터링" 그룹 (네비 항목명 = 화면 제목):
 
-- 환경 개요 — `GET /` (집계 위젯: 환경 요약·자원 적정성·평균 활용률·수집 건전성)
+- 환경 개요 — `GET /` (집계 위젯: 환경 요약·주요 워크로드·자원 적정성·자원 이용·포화·운영 이벤트/에러)
 - 서버 목록 — `GET /servers` (검색·필터 + 선택 N대 액션)
 - 환경 자원 평가 — `GET /environment/assessment` (자원 적정성 평가 분포 막대 + 효율화 검토 대상 + 자원 부족 표, 윈도우 override 가능)
 - 네트워크 토폴로지 — `GET /environment/topology` (인터랙티브 Cytoscape L3 subnet 그래프)
-- 실시간 현황 — `GET /environment/realtime` (현재 스냅샷 활용률 도넛 + 네트워크/디스크 I/O + 부하 상위)
+- 실시간 현황 — `GET /environment/realtime` (현재 스냅샷 이용률 3 + 신호 4 도넛 + 환경 I/O 총량 + 부하 상위)
 - 환경 성능 추이 — `GET /environment/metrics` (환경 단위 시계열 차트)
 
 공통:
@@ -20,40 +20,45 @@
 
 ## 환경 개요 홈 (`/`)
 
-운영자가 환경 전체 상태를 한 화면에서 파악·다음 행동 결정하기 위한 entry point. 집계형 위젯만 본 페이지에 남고, 서버 목록은 `/servers`, 환경 자원 평가는 `/environment/assessment`, 그 외 환경 단위 분석은 `/environment/*` 로 분리. 정적 집계라 새로고침 시 1회 렌더. 본문 partial = `servers/_environment_overview.html` (4 카드: 환경 요약·자원 적정성·평균 활용률·수집 건전성).
+운영자가 환경 전체 상태를 한 화면에서 파악·다음 행동 결정하기 위한 entry point. 집계형 위젯만 본 페이지에 남고, 서버 목록은 `/servers`, 환경 자원 평가는 `/environment/assessment`, 그 외 환경 단위 분석은 `/environment/*` 로 분리. 정적 집계라 새로고침 시 1회 렌더. 본문 partial = `servers/_environment_overview.html` (4 카드: 환경 요약 / 주요 워크로드·자원 적정성(한 행) / 자원 이용·포화 / 운영 이벤트·에러). 온라인/오프라인 대수는 상단 바 fleet 상태(`/api/fleet-status`)로 상시 표시.
 
 ### 영역 1: 환경 요약
 
-- 총 N대 / 자원 합계 (vCPU·메모리·디스크) KPI
-- 서비스 식별 N대 + 역할 분포 badge (web·db·cache·mq·container·monitor·remote·file·mail·infra 카테고리별 카운트) / 서비스 미식별 M대
+- 총 N대 / 자원 합계 (vCPU·메모리·디스크) KPI + OS 분포
 
-답: "지금 환경에 몇 대 있고 어떻게 분포돼 있나?"
+답: "지금 환경에 몇 대 있고 자원 총량은?"
 
-### 영역 2: 자원 적정성 분포
+### 영역 2: 주요 워크로드
+
+- 시그니처 카테고리(web·db·cache·mq·container·monitor) 인스턴스 분포 원형 도넛 (`overview.workload_donut`) + 단일 열 범례(카운트). 환경 성격 규정 티어만 — baseline·관리(remote·file·mail·infra)는 어디에나 있어 성격 구분에 무의미하므로 제외(`SIGNATURE_CATEGORIES`)
+- 인스턴스 합산(호스트 dedup 아님, mq 2개면 2). container 는 호스트당 1. 카운트 0 카테고리도 범례 노출(E9 — "원래 나타내는데 0대")
+- 서버 목록 badge 도 동일 시그니처 필터 적용
+
+답: "이 환경이 무슨 성격인가? 어떤 워크로드가 몇 개 떠 있나?"
+
+### 영역 3: 자원 적정성 분포
 
 - 자원 적정성 6분류 카운트 가로 막대 (`overview.risk_donut`) — 환경 자원 평가 페이지와 `provisioning_dist_bar` 매크로 공유(단일 소스)
-- 윈도우 = `recommendation.WINDOW_DAYS`(14일) — 서버 목록·보고서 분류와 정합(#E3). 평균 활용률(24h)과 구분해 "최근 14일" 라벨 명시
+- 윈도우 = `recommendation.WINDOW_DAYS`(14일) — 서버 목록·보고서 분류와 정합(#E3). 이용률·포화 도넛도 같은 14일 창(화면 간 한 창 통일)
 - 홈에는 분포 요약만 — 효율화 검토 대상·자원 부족 상세 표는 환경 자원 평가 페이지(`/environment/assessment`)
 
 답: "환경이 자원 관점에서 적정한가? 부족·과다 서버 분포는?"
 
-### 영역 3: 환경 평균 활용률 도넛 (3개)
+### 영역 4: 자원 이용·포화 도넛
 
-- CPU 24시간 평균 활용률
-- 메모리 24시간 평균
-- 디스크 평균
-- 임계 색 분기 60·80% (UI badge danger·warn 임계)
-- 윈도우는 `DASHBOARD_TIME_RANGE`(24h, query_service) 단일 진실 — 최근 현황 모니터링
+- 이용률 3(CPU·메모리·디스크 capacity-weighted 14일 평균, 색 분기 60·80% UI badge 임계) + 포화 4(CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡 호스트 수 / 표본)
+- 전부 `recommendation.WINDOW_DAYS`(14일) 창 — 분류와 한 창 통일(#E3). 포화는 dual-gate(CPU·메모리 신호 AND 이용률) 판정 호스트 수
+- 순간 스냅샷 아닌 윈도우 통계 (실시간 순간값은 `/environment/realtime`)
 
-답: "환경 전체 자원 활용률은 어느 수준인가?"
+답: "환경 전체 자원 활용·포화 수준은?"
 
-### 영역 4: 수집 건전성
+### 영역 5: 운영 이벤트 / 에러
 
-- 온라인 / 오프라인 (Redis `online:{id}` TTL 기준) + 총 N대
+- fleet 에러 발생 호스트 수 표시자 — 하드웨어(MCE·EDAC)·OOM·디스크·NIC 에러 + OS 지원 종료(EOL). 전체 기간 조회(에러는 드문 이벤트라 창 제한 부적합), 발생 대수만 badge (정상=0 발화, E9)
 
-답: "지금 몇 대가 살아 있나?"
+답: "지금 손대야 할 하드웨어·OS 이벤트가 있나?"
 
-효율화·자원 부족 상세 표는 본 홈이 아니라 환경 자원 평가 페이지(`/environment/assessment`)로 분리(홈은 분포 요약만). 운영 신호(통신 끊김·OS EOL·에이전트 재시작)는 보고서 OS 지원 종료 카드·서버 상세 등 발화 지점에서 노출 — 홈 집계 위젯에서는 미표시.
+효율화·자원 부족 상세 표는 본 홈이 아니라 환경 자원 평가 페이지(`/environment/assessment`)로 분리(홈은 분포 요약만). 운영 신호(통신 끊김·에이전트 재시작)는 실시간 현황·서버 상세 등 발화 지점에서 노출.
 
 ## 서버 목록 (`/servers`)
 
@@ -63,7 +68,7 @@
 
 - 컬럼: 선택 / 상태 (online dot) / Hostname / 서비스 (role-chip 카테고리+개수) / OS / 프로비저닝 (자원 적정성 분류) / 최근 작업 / 상세
 - 외부 IP 컬럼 없음 — 식별·분류에 미사용. 자원 인벤토리(vCPU/메모리/디스크)도 홈 "환경 요약" KPI 로 통합 (시각 노이즈 회피)
-- 서비스 컬럼 — 워크로드 카테고리별 role-chip 칩(카테고리명 + 인스턴스 개수)
+- 서비스 컬럼 — 시그니처 워크로드 카테고리(`SIGNATURE_CATEGORIES`) role-chip 칩(카테고리명 + 인스턴스 개수). 환경 개요 주요 워크로드와 동일 필터(baseline·관리 제외, 목록 노이즈 회피)
 - 행별 프로비저닝 — `recommendation.classify` 결과 (`under_provisioned` / `over_provisioned` / `idle` / `shutdown` / `optimal` / `insufficient_data`)
 - "최근 작업" column — install task badge (success/failure/pending) + 클릭 시 modal 로 stdout/stderr/failure_reason 디버깅. modal 본문은 server fragment endpoint (`GET /api/tasks/{id}/detail`) HTML 반환 (P3 정공)
 - 기본 표시 20대 후 "전체보기"(CLIP 초과 행 노출)/"접기" 토글 — 필터 비활성 상태에서만 적용
@@ -89,7 +94,7 @@ list에서 N대 선택 → 다음 액션 활성화:
 - 자원 적정성 평가 막대: 자원 적정성 6분류 카운트 막대 (`overview.risk_donut`). 평가 대상 N대 표기.
 - 효율화 검토 대상 표: over/idle/shutdown 호스트 — 합산 vCPU/메모리 절감 여지.
 - 자원 부족 표: under_provisioned 호스트 6축 메트릭 + 권고. 초과 행은 더보기/접기 토글.
-- 구간·앵커 선택: `?time_range=`(15분~30일) + 기준 시각 override. 변경 즉시 `assessment.js` 가 `?fragment=result` 로 본문 swap. 기본 윈도우는 `DASHBOARD_TIME_RANGE`(24h). 보고서·서버 목록 분류 표준 평가(`recommendation.WINDOW_DAYS`=14d)와 의도 분리 — 본 평가 페이지만 대시보드 중 윈도우 override 허용(#F10).
+- 구간·앵커 선택: `?time_range=`(15분~30일) + 기준 시각 override. 변경 즉시 `assessment.js` 가 `?fragment=result` 로 본문 swap. 기본 윈도우는 `DIAGNOSTIC_DEFAULT_TIME_RANGE`(14d) — 보고서·서버 목록 분류 표준 평가(`recommendation.WINDOW_DAYS`=14일)와 동일. 본 평가 페이지만 대시보드 중 윈도우 override 허용(#F10).
 - Windows (원칙 P2): swap 축 제외(pagefile baseline)·saturation 축 OS 부재라 utilization 축만으로 분류(부분 평가). 상세 `docs/reference/web/services.md` "OS 분기" 절.
 
 답: "환경 안 자원 부족·자원 과다 서버는 누구이고, 무엇부터 손대야 하나?"
@@ -98,9 +103,9 @@ list에서 N대 선택 → 다음 액션 활성화:
 
 L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendored) 렌더. 화면 전용 (보고서는 정적 서브넷 요약 표만, `docs/explanation/products/environment-report.md`).
 
-- 서브넷 연결도: 노드=subnet/host, 가상망·IPv6·단독 subnet 제외. OS(linux/windows)로만 구분.
-- 서브넷별 서버 표: net_key·host_count 집계.
-- 추론이라 실측 reachability 아님 — caveat 노출(#E9). 매퍼 `mappers/topology.build_network_topology` 단일 진실.
+- 서브넷 연결도: 3계층 그래프 — 라우터(게이트웨이) -> 서브넷 -> 호스트. gateway·subnet·route 엣지가 라우팅 골격으로 기본 표시, 호스트는 서브넷 클릭 시 펼침(collapsed 초기, 대규모 hairball 회피). 같은 gateway 공유 서브넷은 한 라우터 노드로 묶여 라우팅 계층이 드러남. 가상망·IPv6·단독 subnet 제외. 호스트 색=OS(linux/windows), 멀티홈(2+ 서브넷=브리지/라우터 후보)은 사각+테두리 강조. 노드 hover 시 이웃만 강조 + 상세 툴팁(인터페이스명·MAC·MTU·게이트웨이). breadthfirst 계층 레이아웃.
+- 서브넷별 소속 서버 표: 서브넷별 호스트 + 해당 세그먼트 인터페이스명·게이트웨이·주소 origin(dhcp/static)·멀티홈 여부·OS·시그니처 워크로드.
+- 추론이라 실측 reachability 아님 — caveat 노출(#E9). 매퍼 `mappers/topology.build_network_topology` 단일 진실, 렌더는 `static/js/pages/network-topology.js`(P4).
 
 답: "어떤 서버가 같은 서브넷에 묶여 있나?"
 
@@ -108,9 +113,10 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 
 최신 스냅샷 기준 현재 자원 현황 — `realtime.js` 가 30초 주기로 `?fragment=realtime` fetch 후 `#rt-mount` swap + 갱신 시각 표시 (P3 정공 — 1회 fetch 아니라 polling).
 
-- 현재 활용률 도넛 (CPU·메모리·디스크) — 환경 평균 도넛과 동일 컴포넌트·단색 게이지, 단 24h 통계 아닌 현재 스냅샷
-- 네트워크·디스크 I/O 도넛 — 게이지가 아니라 절대 rate KPI (활용률 도넛과 동일 빈 트랙·모양·폰트)
-- 현재 부하 상위 — 최신 스냅샷 호스트 순위
+- 이용률 도넛 3 (CPU·메모리·디스크) — 환경 평균 도넛과 동일 컴포넌트·단색 게이지, 단 14일 평균 통계 아닌 현재 스냅샷
+- 신호 도넛 4 (실행 큐 임계·페이징·응답지연 임계·네트워크 혼잡) — 순간 단일신호 임계 초과 호스트 수/표본. 개요·보고서 14일 dual-gate 포화와 다른 정의(신호명 라벨, 판정어 아님). 이용률 3 + 신호 4 = 7도넛
+- 환경 I/O 총량 — 네트워크 처리량·디스크 IOPS 절대 rate KPI 카드 (게이지·도넛 아님, 기준점 없는 총량)
+- 현재 부하 상위 — CPU·메모리·디스크 최신 스냅샷 호스트 순위 (자원별 탑3)
 
 답: "지금 이 순간 환경 부하는 어떤가?"
 
@@ -130,10 +136,10 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 - UI badge "warn"(노랑)·"danger"(빨강) 두 단계로 시각 구분
 - 서버 badge 임계(`_USAGE_WARN_PCT`·`_USAGE_DANGER_PCT`)와 환경 평균 임계(`_UTIL_LOW_PCT`·`_UTIL_HIGH_PCT`)는 별 도메인 — 값은 `web/services/mappers/shared.py` 단일 진실, 대시보드는 표현만
 
-대시보드 현황 윈도우 24시간:
-- `DASHBOARD_TIME_RANGE`(query_service) 단일 진실 (CLAUDE.md #F10) — 최근 현황 모니터링, bucket 은 `AUTO_BUCKET[24h]`=30m
-- 자원 적정성 표준 평가(`recommendation.WINDOW_DAYS`=14d — 보고서 기본·서버 목록 분류)와 의도 분리
-- 환경 개요 홈·실시간·성능 추이는 표준 윈도우 고정. 환경 자원 평가 페이지(`/environment/assessment`)만 `?time_range=` override 허용 (평가 페이지 기본값도 `DASHBOARD_TIME_RANGE`)
+대시보드 평가 윈도우 14일:
+- `recommendation.WINDOW_DAYS`(14일) 단일 진실 (CLAUDE.md #F10) — 분류·평균 활용률·포화 도넛 전부 한 창 통일(#E3 화면 간 정합)
+- 환경 개요 홈·성능 추이는 표준 윈도우 고정. 환경 자원 평가 페이지(`/environment/assessment`)만 `?time_range=` override 허용 (기본값 `DIAGNOSTIC_DEFAULT_TIME_RANGE`=14d)
+- 실시간 현황 페이지만 창 무관 — 최신 순간 스냅샷
 
 자원 적정성 평가 분류 막대 (환경 자원 평가 페이지):
 - 6분류(under/over/idle/shutdown/optimal/insufficient_data) 카운트 막대 — `recommendation.assess` 규칙 분류, `build_risk_donut_segments`

@@ -23,6 +23,7 @@ from assessment_engine.web.services.mappers.attention import (
 from assessment_engine.web.services.mappers.report import (
     _RISK_FROM_RECOMMENDATION,
     _build_recommendation_action,
+    build_period_assessment,
     build_report_summary_bullets,
     build_resource_stats,
     build_role_distribution,
@@ -285,7 +286,7 @@ def test_report_totals_sum_vcpu_memory_disk():
     t = compute_report_totals_from_raw(raws)
     assert t.total_vcpus == 6
     assert t.total_memory_gb == 12  # (8 + 4) GB
-    assert t.total_disk_gb == 180  # (50 + 100 + 30) GB
+    assert t.total_disk_gb == 167  # bytes_to_gb binary divisor(GB 라벨) — decimal (50+100+30)=180 아님
 
 
 def test_report_totals_handles_null_fields():
@@ -316,6 +317,8 @@ def _detail(*, id_, hostname, cpu_cores, mem_total_kb, disk_size, role_unit=None
         kernel_version="5.15",
         cpu_cores=cpu_cores,
         cpu_model="x86",
+        cpu_arch="x86_64",
+        cpu_bits=64,
         mem_total_bytes=mem_total_kb * 1024,
         boot_time=None,
         agent_started_at=None,
@@ -360,8 +363,10 @@ def test_environment_overview_aggregates():
     assert ov.offline == 1
     assert ov.total_vcpus == 6
     assert ov.total_memory_gb == 12.0
-    assert ov.total_disk_gb == 150
-    assert ov.role_distribution == {"db": 1, "web": 1}
+    assert ov.total_disk_gb == 139  # bytes_to_gb binary divisor(GB 라벨) — decimal (50+100)=150 아님
+    # role_distribution = 시그니처 카테고리(web·db·cache·mq·container·monitor) 인스턴스 수, 0 포함(E9 발화)
+    assert ov.role_distribution == {"web": 1, "db": 1, "cache": 0, "mq": 0, "container": 0, "monitor": 0}
+    assert ov.workload_total == 2
 
 
 def test_environment_overview_memory_keeps_decimal():
@@ -401,7 +406,7 @@ def test_environment_overview_utilization_bar_color(pct, expected_color):
     assert len(ov.utilization) == 3
     assert ov.utilization[0].label == "CPU"
     assert ov.utilization[1].label == "메모리"
-    assert ov.utilization[2].label == "디스크"
+    assert ov.utilization[2].label == "디스크 용량"
     for bar in ov.utilization:
         assert bar.bar_color == expected_color
     assert ov.util_sample_size == 1
@@ -778,12 +783,12 @@ def test_capacity_warning_item_active_causes(cpu_p95, mem_p95, mem_swap_paging, 
     assert item.active_causes == expected_causes
 
 
-# ─── saturation_axes (single_report 포화 축 평가 카드, os-aware) ───────────────
+# ─── build_period_assessment 포화 축(os-aware, single_report·서버 세부 공용) ──────
 
 
-def test_saturation_axes_windows_os_aware_and_hit():
-    """Windows: run queue/paging/disk queue 실측 신호로 3축 노출 + 임계 초과면 '포화'."""
-    item = to_report_row_item(
+def test_period_assessment_windows_os_aware_and_hit():
+    """Windows: run queue/paging/disk await 실측 신호로 포화 열 노출 + 임계 초과면 over=True."""
+    stats = build_resource_stats(
         _raw(
             os_family="windows",
             cpu_p95=75.0,  # CPU dual-gate — 실행 큐 포화 + util 실제 높음(>=70)이라야 '포화'
@@ -792,22 +797,20 @@ def test_saturation_axes_windows_os_aware_and_hit():
             cpu_run_queue_p95=12.0,
             mem_pages_input_rate_p95=2000.0,
             disk_await_p95_ms=30.0,  # Windows 도 IOCTL await 통일 -> await > 20ms
-        ),
-        True,
-        _NOW,
+        )
     )
-    axes = {a.axis: a for a in item.saturation_axes}
-    assert list(axes) == ["CPU 포화", "메모리 포화", "디스크 I/O 포화"]  # 항상 3축
-    assert axes["CPU 포화"].signal == "Processor Queue Length / core"
+    pa = build_period_assessment(stats)
+    cpu, mem, disk = pa.resources[0], pa.resources[1], pa.resources[2]
+    assert [r.name for r in pa.resources] == ["CPU", "메모리", "스토리지", "네트워크"]
     # W 태그 — Linux(실행큐)와 의미·임계 달라 값만으론 구분 불가.
-    assert axes["CPU 포화"].value == "W 3.00" and axes["CPU 포화"].status == "포화"  # 12/4=3 >= 2
-    assert axes["메모리 포화"].value == "W 2000/s" and axes["메모리 포화"].status == "포화"  # >= 20
-    assert axes["디스크 I/O 포화"].value == "30ms" and axes["디스크 I/O 포화"].status == "포화"  # await > 20 무태그
+    assert cpu.sat_rows[0].value == "W 3.00" and cpu.sat_rows[0].over  # 12/4=3 >= 2
+    assert mem.sat_rows[0].value == "W 2000/s" and mem.sat_rows[0].over  # >= 20
+    assert disk.sat_rows[0].value == "30ms" and disk.sat_rows[0].over  # await > 20 무태그
 
 
-def test_saturation_axes_linux_signals_and_ok():
-    """Linux: run queue/swap/await 신호로 3축 노출 + 임계 미만이면 '정상'."""
-    item = to_report_row_item(
+def test_period_assessment_linux_signals_and_ok():
+    """Linux: run queue/swap/await 신호로 포화 열 노출 + 임계 미만이면 over=False."""
+    stats = build_resource_stats(
         _raw(
             os_family="linux",
             cpu_p95=40.0,
@@ -816,24 +819,23 @@ def test_saturation_axes_linux_signals_and_ok():
             procs_running_p95=1.0,
             mem_swap_paging=False,  # Linux 메모리 포화 축 — swap page-out 미발생 -> "L 없음"
             disk_await_p95_ms=5.0,
-        ),
-        True,
-        _NOW,
+        )
     )
-    axes = {a.axis: a for a in item.saturation_axes}
+    pa = build_period_assessment(stats)
+    cpu, mem, disk = pa.resources[0], pa.resources[1], pa.resources[2]
     # L 태그 — Windows(Processor Queue)와 의미·임계 달라 값만으론 구분 불가.
-    assert axes["CPU 포화"].signal == "run queue (procs_running) / core" and axes["CPU 포화"].value == "L 0.25"
-    assert axes["메모리 포화"].signal == "swap page-out" and axes["메모리 포화"].value == "L 없음"
-    assert axes["디스크 I/O 포화"].value == "5ms"  # await 무태그(양 OS 공통)
-    assert all(a.status == "정상" for a in item.saturation_axes)
+    assert cpu.sat_rows[0].label == "실행 큐" and cpu.sat_rows[0].value == "L 0.25"
+    assert mem.sat_rows[0].label == "페이징" and mem.sat_rows[0].value == "L 없음"
+    assert disk.sat_rows[0].value == "5ms"  # await 무태그(양 OS 공통)
+    assert not any(r.over for r in cpu.sat_rows + mem.sat_rows + disk.sat_rows)
 
 
-def test_saturation_axes_unmeasured_when_counter_absent():
-    """Windows perflib 미발행(값 None) 축은 '미관측' — 분류를 막지 않고 단서로만.
+def test_period_assessment_unmeasured_when_counter_absent():
+    """Windows perflib 미발행(값 None) 축은 measured=False — 분류를 막지 않고 단서로만.
 
-    메모리 축은 dual-gate 상 이용률>=90 이라야 pages_input 부재가 '미관측'으로 드러난다(이용률<90 이면 정상 확정).
+    메모리 축은 dual-gate 상 이용률>=90 이라야 pages_input 부재가 미관측으로 드러난다(이용률<90 이면 정상 확정).
     """
-    item = to_report_row_item(
+    stats = build_resource_stats(
         _raw(
             os_family="windows",
             cpu_p95=40.0,
@@ -841,11 +843,11 @@ def test_saturation_axes_unmeasured_when_counter_absent():
             cpu_run_queue_p95=None,
             mem_pages_input_rate_p95=None,
             disk_await_p95_ms=None,  # 디스크 I/O 포화 축(await) 미발행 -> 미관측
-        ),
-        True,
-        _NOW,
+        )
     )
-    assert all(a.status == "미관측" and a.value == "N/A" for a in item.saturation_axes)
+    pa = build_period_assessment(stats)
+    cpu, mem, disk = pa.resources[0], pa.resources[1], pa.resources[2]
+    assert not any(r.measured for r in cpu.sat_rows + mem.sat_rows + disk.sat_rows)
 
 
 @pytest.mark.parametrize(

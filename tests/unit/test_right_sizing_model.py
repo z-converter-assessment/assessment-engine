@@ -511,7 +511,7 @@ def test_under_prescription_coupled_root_only():
     presc = r.under_prescription(h)
     assert h.root_cause == "memory"
     assert h.symptom_of_root  # 결합 감지됨
-    assert presc.startswith("메모리 ->")  # "메모리 -> 21.7GB" (총량 목표)
+    assert presc.startswith("메모리: ")  # "메모리: 20.8GB" (총량 목표)
     assert "CPU" not in presc and "디스크" not in presc  # root 만 — 하류 처방 없음
 
 
@@ -521,7 +521,7 @@ def test_under_prescription_independent_all():
     h = r.rollup_host(s)
     presc = r.under_prescription(h)
     assert not h.symptom_of_root
-    assert "CPU ->" in presc and "스토리지 확장" in presc
+    assert "CPU: " in presc and "스토리지 확장" in presc
 
 
 def test_under_prescription_empty_when_no_under():
@@ -536,7 +536,7 @@ def test_disk_capacity_target_1yr():
     assert a.status == "filling"
     assert a.sizing_target == 500.0
     assert "목표 500GB" in a.detail
-    assert r._resource_prescription("disk_capacity", a) == "스토리지 -> 500GB"
+    assert r._resource_prescription("disk_capacity", a) == "스토리지: 500GB"
 
 
 def test_disk_capacity_target_none_when_inode_drives():

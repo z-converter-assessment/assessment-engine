@@ -1,0 +1,29 @@
+{# 스토리지 레이아웃 트리 — StorageNode 재귀 렌더 (P3 순수: for/if/filter 만, 파생은 mapper precompute).
+   계층 들여쓰기는 중첩 ul(.stree) + CSS 가이드선. fs 노드는 사용량 2축(bytes+inode) — 게이지 막대는 단색(E8),
+   심각도는 badge(usage_class/inode_class)가 담당. #}
+{% macro storage_tree(nodes) %}
+<ul class="stree">
+  {% for n in nodes %}
+  <li class="stree-node stree-{{ n.kind }}">
+    <div class="stree-row">
+      <span class="stree-info"{% if n.gauge_info_width_px is not none %} style="flex-basis:{{ n.gauge_info_width_px }}px; width:{{ n.gauge_info_width_px }}px;"{% endif %}>
+        <span class="stree-kind">{{ n.kind_label }}</span>
+        <span class="stree-name">{{ n.name }}</span>
+        {% if n.size_gb is not none %}<span class="stree-size">{{ n.size_gb | storagesize }}</span>{% endif %}
+        {% for b in n.badges %}<span class="badge badge-neutral stree-badge">{{ b }}</span>{% endfor %}
+        {% if n.meta %}<span class="stree-meta">{{ n.meta }}</span>{% endif %}
+      </span>
+      {% if n.usage_pct is not none %}
+      <span class="stree-usage">
+        <span class="stree-bar" title="{{ n.usage_label }}"><span class="stree-bar-fill" style="width:{{ n.usage_pct }}%"></span></span>
+        <span class="badge {{ n.usage_class }} stree-badge">용량 {{ n.usage_pct }}%</span>
+        <span class="stree-usage-label text-meta">{{ n.usage_label }}</span>
+        {% if n.inode_pct is not none %}<span class="badge {{ n.inode_class }} stree-badge">inode {{ n.inode_pct }}%</span>{% endif %}
+      </span>
+      {% endif %}
+    </div>
+    {% if n.children %}{{ storage_tree(n.children) }}{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endmacro %}

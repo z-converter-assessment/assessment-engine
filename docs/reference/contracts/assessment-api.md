@@ -341,7 +341,7 @@ CPU 두 축: 사이징 목표는 이용률 목표와 run queue 포화 headroom �
 - reproduction.os.secure_boot: UEFI Secure Boot efivar 존재 시. 미노출 펌웨어면 null.
 - reproduction.os.rtc_utc: RTC 시각 기준 판별 가능 시. 판별 불가면 null.
 - reproduction.os.edition: Windows 에디션 전용. 리눅스는 항상 null.
-- reproduction.network{bond_mode, vlan_id, speed_mbps}: 본딩/VLAN/물리 링크 속도가 있는 인터페이스에서만.
+- reproduction.network{bond_mode, vlan_id, speed_mbps}: 본딩/VLAN/물리 링크 속도가 있는 인터페이스에서만. speed_mbps 는 inventory 미발행(virtio/Windows NT5.2) 시 metrics `network.link.speed`(bit/s -> Mbps)로 폴백 — 둘 다 없으면 null.
 
 현 에이전트가 아직 값을 안 실어 `null` (성격이 갈림):
 - reproduction.network.addresses[].origin (static/dhcp): getifaddrs 에 origin 정보 자체가 없다. 채우려면 netlink IFA_FLAGS 나 설정/리스 파싱 등 다른 경로가 필요한 구조적 한계.

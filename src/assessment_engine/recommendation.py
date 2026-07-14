@@ -236,6 +236,23 @@ def mem_pressure_active(paging_major_rate: float | None, os_family: str | None) 
     return paging_major_rate > 0
 
 
+def net_signal_active(
+    retrans_pct: float | None, drop_pct: float | None,
+    conntrack_ratio: float | None, net_kbytes_per_s: float | None,
+) -> bool:
+    """실시간 네트워크 혼잡 신호 여부 — assess_network 트리거와 동일 임계·저트래픽 게이트(스냅샷용).
+
+    retrans/drop 은 트래픽 < RS_NET_MIN_TRAFFIC_KBPS 면 억제(저트래픽 부팅기 소수 이벤트가 비율 지배 방지),
+    conntrack(연결테이블 고갈)은 트래픽 무관 절대 신호라 게이트 제외 — assess_network 와 동형.
+    """
+    low_traffic = net_kbytes_per_s is not None and net_kbytes_per_s < RS_NET_MIN_TRAFFIC_KBPS
+    if not low_traffic and retrans_pct is not None and retrans_pct > RS_NET_RETRANS_PCT:
+        return True
+    if not low_traffic and drop_pct is not None and drop_pct > RS_NET_DROP_PCT:
+        return True
+    return conntrack_ratio is not None and conntrack_ratio >= RS_CONNTRACK_SATURATION_RATIO
+
+
 def mem_saturated(stats: ResourceStats) -> bool | None:
     """메모리 포화 여부 — dual-gate: 이용률 높음 AND 페이징 발생 (원칙 P2, os-aware).
 
@@ -347,9 +364,6 @@ def recommend_action(rec: Recommendation, stats: ResourceStats) -> str:
     return RECOMMENDATION_ACTION_KO.get(rec, "")
 
 
-# under_provisioned 신호 키 -> 한국어 라벨 (표시용). 처방은 under_prescription(root 기반) 단일 진실.
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # ADR 0052 — 자원 적정성 분류 재설계 (per-resource USE + 근본원인 종합 + 신뢰도 4종)
 #
@@ -399,9 +413,9 @@ RS_BURST_RATIO_MAX = 2.0  # 여유 기준 — p95/median > 2 면 버스티(통�
 # Theil-Sen(강건) 대신 regr_slope(최소제곱) 산출을 임계로 이진화 — 다운사이즈 억제 방향이라 보수적 소값.
 RS_UTIL_TREND_RISING_PCT_PER_DAY = 0.2
 
-# OS별 CPU 포화선 (실행큐/코어) — Linux load 1.0 / Windows Processor Queue Length 2.0 (스케일 상이, ADR 0029 계승)
-_RS_CPU_SAT_LINE = {"windows": 2.0}
-_RS_CPU_SAT_LINE_DEFAULT = 1.0  # Linux/unknown
+# OS별 CPU 포화선 (실행큐/코어) — 포화 판정 상수 단일 재사용(사이징 목표코어 산출도 동일 임계, 드리프트 방지).
+_RS_CPU_SAT_LINE = {"windows": CPU_RUN_QUEUE_PER_CORE_SATURATION}
+_RS_CPU_SAT_LINE_DEFAULT = PROCS_RUNNING_PER_CORE_SATURATION  # Linux/unknown
 
 
 def util_trend_rising_from_slopes(cpu_slope: float | None, mem_slope: float | None) -> bool | None:
@@ -472,6 +486,8 @@ class HostAssessment:
     symptom_of_root: list[str] = field(default_factory=list)  # root 의 증상으로 처방 억제된 kind
     host_status: HostStatus = "optimal"  # 정렬·배지용 호스트 요약 (조치는 root_cause·자원별에서)
     network_congested: bool = False  # 네트워크 품질 경고 (사이징 아님, 별도 플래그)
+    # 창 대비 관측 비율 — 신뢰도 '창 대비 관측 부족' 노트 입력(30h 절대바닥과 별개 축)
+    sample_sufficiency: float | None = None
 
 
 def _precision_low(stats: ResourceStats) -> bool:
@@ -890,6 +906,7 @@ def rollup_host(stats: ResourceStats) -> HostAssessment:
                 host.root_cause = k
                 break
     host.network_congested = res["network"].status == "congested"
+    host.sample_sufficiency = stats.sample_sufficiency  # 창 대비 관측 비율 전달(신뢰도 노트용)
     host.host_status = _host_status(stats, res, under_kinds)
     return host
 
@@ -925,11 +942,11 @@ def _fmt_sizing_target(kind: str, target: int) -> str:
 
 
 def _resource_prescription(kind: str, ra: ResourceAssessment) -> str:
-    """자원 1개 처방 — 사이징 목표 있으면 "메모리 -> 22GB"·"스토리지 -> 500GB"(총량 목표), 없으면 기본 문구."""
+    """자원 1개 처방 — 사이징 목표 있으면 "메모리: 22GB"·"스토리지: 500GB"(총량 목표), 없으면 기본 문구."""
     if kind == "disk_capacity" and ra.sizing_target is not None:
-        return f"스토리지 -> {ra.sizing_target:.0f}GB"  # 1년 수명 목표 총 용량
+        return f"스토리지: {ra.sizing_target:.0f}GB"  # 1년 수명 목표 총 용량
     if kind in _SIZEABLE_LABEL and ra.sizing_target is not None:
-        return f"{_SIZEABLE_LABEL[kind]} -> {_fmt_sizing_target(kind, ra.sizing_target)}"
+        return f"{_SIZEABLE_LABEL[kind]}: {_fmt_sizing_target(kind, ra.sizing_target)}"
     return _UNDER_ACTION_BASE.get(kind, "")
 
 
@@ -951,13 +968,13 @@ def prescribed_under_kinds(host: HostAssessment) -> list[str]:
 
 
 def resource_prescription(kind: str, ra: ResourceAssessment) -> str:
-    """자원 1개 처방 문구 (공개) — under_prescription·API actions 공유. 사이징 목표 있으면 "메모리 -> 22GB"."""
+    """자원 1개 처방 문구 (공개) — under_prescription·API actions 공유. 사이징 목표 있으면 "메모리: 22GB"."""
     return _resource_prescription(kind, ra)
 
 
 def under_prescription(host: HostAssessment) -> str:
-    """자원 부족 처방 (root_cause 정합) — prescribed_under_kinds 처방을 "/" 결합. 근본원인 칼럼과 어휘 정합."""
-    return " / ".join(resource_prescription(k, host.resources[k]) for k in prescribed_under_kinds(host))
+    """자원 부족 처방 (root_cause 정합) — prescribed_under_kinds 처방을 " | " 결합. 근본원인 칼럼과 어휘 정합."""
+    return " | ".join(resource_prescription(k, host.resources[k]) for k in prescribed_under_kinds(host))
 
 
 def root_cause_display(host: HostAssessment) -> str:

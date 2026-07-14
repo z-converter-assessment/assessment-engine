@@ -23,10 +23,10 @@
       <tr><td>p95</td><td>작은 값부터 정렬해 95% 위치의 값 — 상위 5%(일시 spike)만 초과. 분류 1차 입력. 평균보다 클 수 있음(분포 우측 꼬리).</td></tr>
       <tr><td>peak</td><td>윈도우 안 시점별 최댓값. 실제 관측 burst 강도.</td></tr>
       <tr><td>변동성</td><td>peak / p95 비율 — 클수록 burst 부하. 임계·용도는 "엔지니어 보조 지표" 절.</td></tr>
-      <tr><td>Saturation (포화)</td><td>자원이 처리 한계를 넘어 대기열이 쌓이는 신호 — CPU run queue(Linux procs_running · Windows Processor Queue Length)·메모리 페이징(Linux swap page-out · Windows Pages Input/sec 하드폴트)·디스크 I/O await(양 OS, Windows 는 IOCTL). 발생 시 이용률이 낮아도 증설 신호. 네트워크 혼잡(재전송·드롭·conntrack)은 별도 품질 플래그(사이징 아님).</td></tr>
+      <tr><td>Saturation (포화)</td><td>자원이 처리 한계를 넘어 대기열이 쌓이는 신호 — CPU run queue(Linux procs_running · Windows Processor Queue Length)·메모리 페이징(Linux swap page-out · Windows Pages Input/sec 하드폴트)·디스크 I/O await(양 OS, Windows 는 IOCTL). 포화 판정은 축별로 다르다: CPU·메모리는 dual-gate — 신호 AND 이용률 임계(70%/90%) 동반 시에만 포화(이용률 낮으면 신호 있어도 포화 아님). 디스크 I/O 는 디바이스 활동 기반 await 라 호스트 이용률이 낮아도 발생 가능. 네트워크 혼잡(재전송·드롭·conntrack)은 별도 품질 플래그(사이징 아님).</td></tr>
       <tr><td>서비스 분류</td><td>호스트 구동 워크로드를 카테고리(web·db·cache·container 등)로 분류 — 서비스 이름·실행 파일·listen 포트 신호 종합. container 등 런타임 스택은 호스트당 1로 카운트.</td></tr>
       <tr><td>메모리 구성</td><td>전체 메모리 대비 used(사용)·available(가용)·cached(페이지 캐시)·buffers(버퍼) 윈도우 평균 비율. cached/buffers 는 회수 가능 영역이라 available 에 포함.</td></tr>
-      <tr><td>CPU 분류</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기) 로 분해한 윈도우 평균 비율. iowait 높으면 디스크 병목.</td></tr>
+      <tr><td>CPU 분류</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기)·nice(저우선순위 user) 로 분해한 윈도우 평균 비율. iowait 높으면 디스크 병목. iowait·nice 는 Windows 미측정(nice 개념 자체 부재).</td></tr>
       <tr><td>OS EOL</td><td>OS 배포판·버전의 vendor 지원 종료일(endoflife.date 기준). 임박·경과 시 보안 패치 중단 — 마이그레이션 선행 필요.</td></tr>
       <tr><td>운영 신호</td><td>자원 적정성 평가와 별도의 안정성 신호 — 데이터 수집 끊김(gap)·OS 지원 종료·에이전트 재시작·재부팅 빈도. 분류 정상이어도 발화 시 운영 조치 선행.</td></tr>
       <tr><td>신뢰도</td><td>분류 결과의 확신 수준 단서 — 미관측 축·표본 부족 시 노출. 분류 자체는 가진 데이터로 완결. 상세는 "신뢰도 단서" 절.</td></tr>
@@ -40,7 +40,7 @@
   <h2 class="card-title">분류 기준</h2>
   <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     환경·서버 보고서의 자원 적정성 평가는 <code>recommendation</code> 모듈 단일 진실로 결정.
-    아래 표의 임계값을 USE Method (Brendan Gregg) Utilization·Saturation 두 축으로 적용해 5 상태 (자원 부족 under_provisioned / 과다 할당 over_provisioned / 유휴 idle / 정상 optimal / 표본 부족 insufficient_data) 산출. 조치(증설·축소·종료·통합)는 상태에서 파생.
+    아래 표의 임계값을 USE Method (Brendan Gregg) Utilization·Saturation 두 축으로 적용해 5 상태 (자원 부족 under_provisioned | 과다 할당 over_provisioned | 유휴 idle | 정상 optimal | 표본 부족 insufficient_data) 산출. 조치(증설·축소·종료·통합)는 상태에서 파생.
     임계 출처는 AWS Compute Optimizer · Azure Advisor · GCP Recommender · Kleinrock 등 산업 표준 종합.
   </p>
 
@@ -56,7 +56,7 @@
   <table>
     <thead><tr><th>상태</th><th>조건 (입력·임계)</th><th>사이징 산식</th><th>출처</th></tr></thead>
     <tbody>
-      <tr><td>부족 (under)</td><td>cpu_p95 &gt;= 70% <span class="text-meta">OR</span> 실행 큐 포화(Linux procs_running/코어 &gt;= 1.0 · Windows Processor Queue/코어 &gt;= 2.0) <span class="text-meta">OR</span> 목표 코어 &gt; 현재</td><td>목표 = max(이용률 코어, 포화 코어). 이용률 코어 = ceil(p95 x 코어 / 70) · 포화 코어 = ceil(run_queue / (포화선 x 0.7)). 포화 주도로 목표가 현재 이하면 수치 미상(증설만)</td><td>Kleinrock(1975) 큐잉 무릎 · Google SRE · AWS Balanced(util 70%)</td></tr>
+      <tr><td>부족 (under)</td><td>cpu_p95 &gt;= 70% <span class="text-meta">OR</span> 실행 큐 포화(Linux procs_running/코어 &gt;= 1.0 · Windows Processor Queue/코어 &gt;= 2.0 — dual-gate: 이용률 70% 동반, 미측정 시 신호 단독) <span class="text-meta">OR</span> 목표 코어 &gt; 현재</td><td>목표 = max(이용률 코어, 포화 코어). 이용률 코어 = ceil(p95 x 코어 / 70) · 포화 코어 = ceil(run_queue / (포화선 x 0.7)). 포화 주도로 목표가 현재 이하면 수치 미상(증설만)</td><td>Kleinrock(1975) 큐잉 무릎 · Google SRE · AWS Balanced(util 70%)</td></tr>
       <tr><td>과다 (over)</td><td>목표 코어 &lt; 현재 <span class="text-meta">AND</span> 어느 코어도 p95 &lt; 85%(단일스레드 보호)</td><td>목표 코어로 축소 (다운사이즈 게이트 통과 시 처방)</td><td>단일스레드 보호(per-core 85%)</td></tr>
       <tr><td>정상 (optimal)</td><td>목표 == 현재 (포화·과다 아님)</td><td>현 사양 유지</td><td>—</td></tr>
       <tr><td>미측정 (unmeasured)</td><td>이용률·실행 큐 둘 다 미측정, 또는 코어 수 미상</td><td>—</td><td>coverage_gap 신뢰도</td></tr>
@@ -83,7 +83,7 @@
   <table>
     <thead><tr><th>상태</th><th>조건 (입력·임계)</th><th>사이징 산식</th><th>출처</th></tr></thead>
     <tbody>
-      <tr><td>용량 임박 (filling = under)</td><td>소진 runway &lt; 30일(선형 추세) <span class="text-meta">OR</span> 정적 used &gt;= 85%(추세 없을 때) <span class="text-meta">OR</span> inode 소진(추세 없이 &gt;= 85%)</td><td>3경로: 추세 신뢰(span 충분) 1년 수명 목표 GB / 소진 임박·짧은 span 30일 예상 used headroom / 추세 없이 임계 초과 이용률 headroom. inode 소진은 GB 확장 무관(목표 없음 — 파일 정리·재포맷)</td><td>Cloud Advisor storage capacity · lead time 30일 · monitoring 표준(정적 85%)</td></tr>
+      <tr><td>용량 임박 (filling = under)</td><td>소진 runway &lt; 30일(선형 추세) <span class="text-meta">OR</span> 정적 used &gt;= 85%(추세 없을 때) <span class="text-meta">OR</span> inode 소진(추세 없이 &gt;= 85%)</td><td>3경로: 추세 신뢰(span 충분) 1년 수명 목표 GB | 소진 임박·짧은 span 30일 예상 used headroom | 추세 없이 임계 초과 이용률 headroom. inode 소진은 GB 확장 무관(목표 없음 — 파일 정리·재포맷)</td><td>Cloud Advisor storage capacity · lead time 30일 · monitoring 표준(정적 85%)</td></tr>
       <tr><td>용량 여유 (capacity_ok)</td><td>runway &gt;= 30일 또는 used &lt; 85%</td><td>—</td><td>—</td></tr>
     </tbody>
   </table>
@@ -114,7 +114,7 @@
   </div>
 
   <p class="text-md text-label" style="margin:12px 0 0; line-height:1.6;">
-    화면 badge·게이지 색 임계(위험 90% / 주의 75%)는 표시 전용 도메인으로 본 분류 임계와 별개 — 색은 현재 표시값 강조, 분류는 윈도우 통계 기반 적정성 판정. 예: 마운트 87% 는 표시 "주의" 색이면서 동시에 분류 disk &gt;= 85% trigger hit — 모순이 아니라 도메인 차이.
+    화면 badge·게이지 색 임계(위험 90% | 주의 75%)는 표시 전용 도메인으로 본 분류 임계와 별개 — 색은 현재 표시값 강조, 분류는 윈도우 통계 기반 적정성 판정. 예: 마운트 87% 는 표시 "주의" 색이면서 동시에 분류 disk &gt;= 85% trigger hit — 모순이 아니라 도메인 차이.
   </p>
 
   <h3 style="margin-top:18px;">판정 순서</h3>
@@ -134,7 +134,7 @@
       </tr>
     </thead>
     <tbody>
-      <tr><td>1</td><td>자원 부족 (under_provisioned)</td><td>위험 신호 OR (하나라도): cpu_p95>=70% / mem_p95>=90% / 디스크 용량(소진 30일 이내 or 정적 85% or inode 소진) / CPU 포화(Linux procs_running/cores>=1.0 · Windows Processor Queue/cores>=2.0) / 디스크 I/O await>20ms(양 OS, 구세대 viostor 만 disk queue>=2) / 메모리 페이징(Linux swap page-out · Windows Pages Input/sec p95>=20). 유휴 보다 우선 — CPU 가 낮아도 압박 신호가 있으면 미사용이 아니라 자원 부족.</td></tr>
+      <tr><td>1</td><td>자원 부족 (under_provisioned)</td><td>위험 신호 OR (하나라도): cpu_p95>=70% | mem_p95>=90% | 디스크 용량(소진 30일 이내 or 정적 85% or inode 소진) | CPU 포화(Linux procs_running/cores>=1.0 · Windows Processor Queue/cores>=2.0 — dual-gate: 이용률 70% 동반) | 메모리 페이징(Linux swap page-out · Windows Pages Input/sec p95>=20 — dual-gate: 이용률 90% 동반). 유휴 보다 우선 — CPU 가 낮아도 압박 신호가 있으면 미사용이 아니라 자원 부족. 디스크 I/O await>20ms 는 포함 안 됨 — host_status 를 구동하지 않는 orthogonal advisory(사이징 축 아님, `_ROOTABLE_UNDER` 명시 제외). 인과 결합 시 증상으로만 참조(근본원인 종합 절).</td></tr>
       <tr><td>2</td><td>유휴 (idle)</td><td>활동 3축 전부 quiescent — cpu_p95 <= 3% AND net <= 2 Mbps AND 디스크 baseline IOPS <= 5 (위험 신호 0). 하나라도 활동 있으면 유휴 아님(정상/과다로).</td></tr>
       <tr><td>3</td><td>표본 부족 (insufficient_data)</td><td>cpu_p95·mem_p95 둘 다 null + under 신호 없음 (평가 데이터 없음)</td></tr>
       <tr><td>4</td><td>과다 할당 (over_provisioned)</td><td>CPU 또는 메모리를 이용률 70% 목표로 다운사이즈 가능 — 필요 사양(ceil(현재 * p95 / 70)) < 현재. CPU 는 어느 코어든 p95>=85%면 보류(단일스레드 보호). 포화 축을 못 본 서버는 과다로 단정 안 함.</td></tr>
@@ -150,7 +150,7 @@
   </p>
   <div class="table-scroll">
   <table>
-    <thead><tr><th>패턴</th><th>판별</th><th>근본원인 / 처방</th></tr></thead>
+    <thead><tr><th>패턴</th><th>판별</th><th>근본원인 | 처방</th></tr></thead>
     <tbody>
       <tr><td>메모리발</td><td>메모리 페이징 발생 <span class="text-meta">AND</span> 동반 디스크 I/O 또는 CPU 부족</td><td>root = 메모리. 디스크 I/O·CPU 는 swap 트래픽·대기의 증상 -&gt; 처방 억제. 표시 "메모리 (CPU·디스크 I/O 유발)"</td></tr>
       <tr><td>디스크발</td><td>디스크 I/O 병목 <span class="text-meta">AND</span> CPU 부족 <span class="text-meta">AND</span> procs_blocked(D-state) p95 &gt;= 1.0</td><td>root = 디스크 I/O. CPU 로드는 D-state 블록의 증상. 표시 "디스크 I/O (CPU 유발)"</td></tr>
@@ -198,14 +198,14 @@
   <table>
     <thead>
       <tr>
-        <th>분류 / trigger</th>
+        <th>분류 | trigger</th>
         <th>권고</th>
         <th>근거 (산식·출처)</th>
       </tr>
     </thead>
     <tbody>
       <tr><td>과다 할당 (over_provisioned)</td><td>자원 축소 검토 (게이트 통과 시 목표 사양)</td><td>이용률 70% 착지 목표 &lt; 현재. 게이트 미충족이면 관찰만 — 잘못된 축소 회피</td></tr>
-      <tr><td>유휴 (idle)</td><td>즉시 종료 검토 / 통합·재배치 검토</td><td>활동 3축 quiescent. 거의 0(strong)이면 종료, 저사용이면 통합·재배치</td></tr>
+      <tr><td>유휴 (idle)</td><td>즉시 종료 검토 | 통합·재배치 검토</td><td>활동 3축 quiescent. 거의 0(strong)이면 종료, 저사용이면 통합·재배치</td></tr>
       <tr><td>정상 (optimal)</td><td>적정 운영</td><td>다운사이즈선 초과, 압박 없음 — 조치 불필요(customer 미노출)</td></tr>
       <tr><td>표본 부족 (insufficient_data)</td><td>표본 부족 — 수집 점검</td><td>평가 데이터 부재 — 판정 보류(customer 미노출)</td></tr>
       <tr><td>under: 메모리 페이징 · mem_p95 &gt;= 90%</td><td>메모리 -&gt; 목표 GB</td><td>목표 = max(ceil(총량 x p95 / 70), 페이징 시 현재+30%). Azure Advisor 90% · AWS 최보수 30% headroom</td></tr>
@@ -234,7 +234,7 @@
   </div>
   <p class="text-md text-label" style="margin:10px 0 0; line-height:1.6;">
     판정: 세 신호 중 하나라도 임계 초과면 "혼잡"(OR 결합), 전부 미만이면 "정상", 전부 미측정이면 "미측정". 하나의 수치가 아니라 서로 다른 실패 방식이라 각각 본다 — 재전송만 보면 드롭·conntrack 혼잡을 놓친다. net error 카운터는 virtio 게스트에서 상시 0이라 미사용.
-    노출: 호스트 <code>network_congested</code> 플래그 · 서버별 자원 적정성 표 "네트워크 상태" 열(정상·혼잡·미측정) + 재전송율·드롭율 수치 열 · right-sizing API <code>network.signals</code>(값·임계·초과·측정). 서버 상세에서 conntrack 포함 전 신호.
+    노출: 호스트 <code>network_congested</code> 플래그 · 환경 자원 평가(compact 표) "네트워크 상태" 열(정상·혼잡·미측정) · right-sizing API <code>network.signals</code>(값·임계·초과·측정). host_status(자원 적정성 분류) 를 구동하지 않는 orthogonal 신호라 서버 목록·환경 보고서 "서버별 자원 적정성" 표에는 없음 — 원시 재전송율·드롭율·conntrack 수치는 서버 상세에서 확인.
   </p>
 </section>
 
@@ -242,7 +242,7 @@
   <h2 class="card-title">엔지니어 보조 지표</h2>
   <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     분류 자체는 위 표의 임계로 결정되지만, 엔지니어 검토 시 원인 진단·증설/축소 방향을 잡으려면 보조 지표가 필요. 아래는 엔지니어 양식에 쓰이는 보조 메트릭의 정의·임계·근거. 통계 개념(평균·p95·peak)은 "보고서 용어·개념 정리" 절.
-    saturation 3축(CPU 포화·메모리 포화·디스크 I/O)은 서버별 자원 적정성 표·단일 보고서 "포화 축 근거" 카드에 os-aware 신호로 노출되고 진단·권고의 근거가 된다 — Linux 는 run queue(procs_running)/swap page-out/await, Windows 는 Processor Queue/Pages Input/await(IOCTL) 값이 담긴다. 단일 세부 보고서의 CPU/메모리 상세 표는 실행 큐 p95·iowait·Cached·Buffers 등 Linux 전용 셀이 Windows 에서 N/A 이며(메모리 페이징 열은 Linux page-out), Windows 의 포화 근거는 포화 축 근거 카드·진단·권고로 확인한다.
+host_status(자원 적정성 분류)를 구동하는 saturation 2축(CPU 포화·메모리 포화)은 서버별 자원 적정성 표에 os-aware 신호로 노출되고 진단·권고의 근거가 된다 — Linux 는 run queue(procs_running)/swap page-out, Windows 는 Processor Queue/Pages Input 값이 담긴다. 디스크 I/O(await)는 host_status 미구동(advisory)이라 이 표엔 없고, 단일 서버 보고서 engineer "CPU 상세"·"메모리 상세"·"스토리지 상세"·"네트워크 상세" 카드의 이용률·포화 2열(raw 신호)·"자원 적정성 · 운영 평가" 표의 분류·진단·권고·환경 포화 도넛에서 확인한다(customer 는 "자원 적정성 · 운영 평가" 표의 분류·근본원인·권고로 결론만 노출, raw 신호 표는 없음). 단일 세부 보고서의 CPU/메모리 상세 표는 실행 큐 p95·iowait·Cached·Buffers 등 Linux 전용 셀이 Windows 에서 N/A 이며(메모리 페이징 열은 Linux page-out), Windows 의 포화 근거는 각 자원 상세 카드의 포화 열·진단·권고로 확인한다.
   </p>
   <div class="table-scroll">
   <table>
@@ -250,8 +250,8 @@
       <tr>
         <th>지표</th>
         <th>정의</th>
-        <th>임계 / 의미</th>
-        <th>근거 / 용도</th>
+        <th>임계 | 의미</th>
+        <th>근거 | 용도</th>
       </tr>
     </thead>
     <tbody>
@@ -260,8 +260,8 @@
       <tr><td>변동성 (peak / p95)</td><td>peak 와 p95 비율</td><td>1.5 이상 -> burst 큼</td><td>평균 기준 여유여도 peak 기준 부족 가능 — "진단" 칼럼 "부하 변동 큼" 신호·오토스케일 검토</td></tr>
       <tr><td>steal p95 (Linux)</td><td>하이퍼바이저가 vCPU 시간을 뺏은 비율 p95 (가상화 경합)</td><td>5% 이상 -> 이용률·포화 오염</td><td>충실도 편향(biased) 신뢰도 — 경합 환경 이용률 과소평가 방지(다운사이즈 게이트 내부)</td></tr>
       <tr><td>코어당 최대 p95 (단일스레드)</td><td>per-core 이용률 중 최대 코어의 p95</td><td>85% 이상 -> 다운사이즈/유휴 보류</td><td>단일스레드 워크로드 보호 — 전체 평균이 낮아도 한 코어 포화면 축소 금지</td></tr>
-      <tr><td>disk IOPS avg/p95/peak</td><td>r/s + w/s delta 평균·p95·최댓값 (서버 단위 device 합산)</td><td>baseline / 변동성 참고</td><td>baseline 부하 + spike 폭 — IOPS 한계 산정(단일 보고서 표시)</td></tr>
-      <tr><td>disk throughput kB/s</td><td>read+write kB/s delta (서버 단위 device 합산)</td><td>baseline / 변동성 참고</td><td>throughput baseline + spike — disk 대역 산정(단일 보고서 표시)</td></tr>
+      <tr><td>disk IOPS avg/p95/peak</td><td>r/s + w/s delta 평균·p95·최댓값 (서버 단위 device 합산)</td><td>baseline | 변동성 참고</td><td>baseline 부하 + spike 폭 — IOPS 한계 산정(단일 보고서 표시)</td></tr>
+      <tr><td>disk throughput kB/s</td><td>read+write kB/s delta (서버 단위 device 합산)</td><td>baseline | 변동성 참고</td><td>throughput baseline + spike — disk 대역 산정(단일 보고서 표시)</td></tr>
       <tr><td>net RX/TX kB/s</td><td>interface 합산 rx/tx 평균·p95·peak</td><td>유휴 판정 2 Mbps 이하 (Azure)</td><td>유휴 1차 신호 + 대역 산정</td></tr>
       <tr><td>reboot_count</td><td>윈도우 안 boot_time 변경 횟수</td><td>3 이상 -> 불안정</td><td>OS·hw·OOM 등 비정상 재부팅 빈도(세부 서버 목록 표시)</td></tr>
       <tr><td>에이전트 재시작</td><td>윈도우 안 agent_started_at 변경 횟수</td><td>빈번 -> 수집 신뢰도 저하</td><td>세부 서버 목록 시스템 안정성 칼럼 — 수집 연속성 점검</td></tr>
@@ -298,7 +298,7 @@
   </table>
   </div>
   <p class="text-md text-label" style="margin:10px 0 0; line-height:1.6;">
-    예외 2개 — 표본 부족(insufficient_data) 분류 호스트는 신호 대신 원인을 진단 (오프라인 — 에이전트 미가동 / 누락 메트릭 명시 / 윈도우 내 표본 부족). 오프라인 호스트는 진단 앞에 "오프라인" 접두 — 분류는 윈도우 측정 기반 그대로 유지.
+    예외 2개 — 표본 부족(insufficient_data) 분류 호스트는 신호 대신 원인을 진단 (오프라인 — 에이전트 미가동 | 누락 메트릭 명시 | 윈도우 내 표본 부족). 오프라인 호스트는 진단 앞에 "오프라인" 접두 — 분류는 윈도우 측정 기반 그대로 유지.
   </p>
 </section>
 
@@ -315,7 +315,7 @@
         <th>신호</th>
         <th>정의</th>
         <th>임계</th>
-        <th>근거 / 용도</th>
+        <th>근거 | 용도</th>
       </tr>
     </thead>
     <tbody>
@@ -330,7 +330,7 @@
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">평가 윈도우</h2>
   <p class="text-md text-label" style="margin:0; line-height:1.6;">
-    자원 적정성 평가 표준은 <code>recommendation.WINDOW_DAYS</code> = 14일 (AWS Compute Optimizer 기본 lookback) — 보고서·서버 목록 분류·환경 개요 자원 이용·포화 6도넛·환경 자원 평가가 모두 이 14일 창으로 정합(화면 간 의미 분기 0).
+    자원 적정성 평가 표준은 <code>recommendation.WINDOW_DAYS</code> = 14일 (AWS Compute Optimizer 기본 lookback) — 보고서·서버 목록 분류·환경 개요 자원 이용·포화 7도넛·환경 자원 평가가 모두 이 14일 창으로 정합(화면 간 의미 분기 0).
     보고서 발행·환경 자원 평가는 <code>15m / 1h / 6h / 24h / 7d / 14d / 30d</code> 구간·앵커 override 가능하며 분류·통계·세부 목록 모두 선택 구간으로 평가.
     실시간 현황 페이지만 최신 스냅샷(30초 갱신, 윈도우 아닌 순간값)이고, 서버 상세 차트는 실시간 모니터링이라 별도(기본 15분).
     데이터가 14일보다 짧으면 판정은 그대로 완결되고 신뢰도 단서("표본 부족", 30h 미만)가 자동으로 붙는다 — 별도 창 축소 없음. 버킷(집계 단위)은 구간별 자동 결정.

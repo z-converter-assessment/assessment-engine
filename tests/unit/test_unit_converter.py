@@ -1,6 +1,6 @@
 """unit_converter.py — 단위 변환 함수 단위 테스트 (v2 wire 계약).
 
-공개 함수 = bytes_to_gb / bytes_to_gib / bytes_to_mib / usage_pct.
+공개 함수 = bytes_to_gb / bytes_to_gib / usage_pct.
 메모리/스왑은 By 단위 binary GiB(bytes_to_gib), disk IO rate 는 counter_agg 사전집계라
 unit_converter 에 rate 변환 함수 없음.
 """
@@ -10,7 +10,6 @@ import pytest
 from assessment_engine.web.services.unit_converter import (
     bytes_to_gb,
     bytes_to_gib,
-    bytes_to_mib,
     usage_pct,
 )
 
@@ -22,9 +21,9 @@ from assessment_engine.web.services.unit_converter import (
     [
         (None, None),
         (0, 0.0),
-        (10**9, 1.0),  # 디스크는 decimal GB(10^9) — 산업 표준. 메모리(bytes_to_gib)만 binary 유지.
-        (50 * 10**9, 50.0),
-        (1_073_741_824, 1.07),  # 1 GiB = 1.073e9 B -> 1.07 GB (round 2자리)
+        (10**9, 0.93),  # 10^9 B(decimal 1GB) -> binary divisor(1024^3) 로는 0.93 — "GB" 라벨이되 값은 binary.
+        (50 * 10**9, 46.57),
+        (1_073_741_824, 1.0),  # 1 GiB = 1024^3 B -> 1.0 GB (round 2자리, bytes_to_gib 와 동일 base)
     ],
 )
 def test_bytes_to_gb(b, expected):
@@ -45,23 +44,6 @@ def test_bytes_to_gb(b, expected):
 )
 def test_bytes_to_gib(b, expected):
     assert bytes_to_gib(b) == expected
-
-
-# ─── bytes_to_mib (v2: export spec.memory_mb, binary MiB int) ────────────────
-
-
-@pytest.mark.parametrize(
-    "b, expected",
-    [
-        (None, None),
-        (0, None),  # falsy → None
-        (1024**2, 1),  # 1 MiB -> 1 (int 반환)
-        (8 * 1024**2, 8),
-        (1024**3, 1024),  # 1 GiB = 1024 MiB
-    ],
-)
-def test_bytes_to_mib(b, expected):
-    assert bytes_to_mib(b) == expected
 
 
 # ─── usage_pct ────────────────────────────────────────────────────────────

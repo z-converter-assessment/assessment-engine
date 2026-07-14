@@ -63,64 +63,47 @@
 <section class="card no-print">
 {% if servers %}
 {# 필터는 제목행(thead)에 인라인. client-side(list-table.js data-* 비교) — form submit 없이 즉시 hide/show. #}
-{% set filters_active = request.query_params.get('search') or request.query_params.get('is_online') or request.query_params.get('service') or request.query_params.get('os_distro') or request.query_params.get('classification') %}
+{# 통합 툴바 한 행 — 좌측 선택 카운트 + 선택 활성화 액션 버튼 + 통합 검색창. flex-wrap 으로 좁으면 자연 줄바꿈. #}
+<div class="list-toolbar no-print" style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:14px;">
+  {# 선택 카운트 — 좌측 고정 자리. 체크 시 list-table.js 가 "N대" 채움(0 이면 빈 문자열). #}
+  {# min-width 36px + 중앙 정렬 — 첫 칼럼(체크박스, width:36px 중앙)과 수직 정렬 (카운트가 체크박스 바로 위). #}
+  <span id="selection-count" style="min-width:36px; text-align:center; white-space:nowrap; font-weight:700; font-size:14px; color:var(--color-title);"></span>
 
-<div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; align-items:center;">
-  <button type="button" id="realtime-sel-btn" class="btn-select no-print" disabled title="선택 N대 실시간 현황 (현황 모니터링)">실시간 현황</button>
-  <button type="button" id="metrics-sel-btn" class="btn-select no-print" disabled title="선택 N대 성능 추이 (시계열)">성능 추이</button>
-  <button type="button" id="report-customer-btn" class="btn-select no-print" disabled title="고객 제출용 — 양식 A">고객 보고서</button>
-  <button type="button" id="report-engineer-btn" class="btn-select no-print" disabled title="엔지니어 검토용 — 양식 B">엔지니어 보고서</button>
-  <button type="button" id="export-btn" class="btn-select no-print" disabled>JSON Export</button>
-  <button type="button" id="install-btn" class="btn-select no-print" disabled>ZConverter Install</button>
-  {# 선택 개수 라이브 표시 — 체크 시 list-table.js 가 갱신, 0 이면 빈 문자열. 액션 바 우측 정렬. #}
-  <span id="selection-count" class="section-meta" style="margin-left:auto;"></span>
+  {# 선택 N대 액션 — 체크 시 list-table.js 가 활성화. #}
+  <button type="button" id="realtime-sel-btn" class="btn-select" disabled title="선택 N대 실시간 현황 (현황 모니터링)">실시간 현황</button>
+  <button type="button" id="metrics-sel-btn" class="btn-select" disabled title="선택 N대 성능 추이 (시계열)">성능 추이</button>
+  <button type="button" id="report-customer-btn" class="btn-select" disabled title="고객 제출용 — 양식 A">고객 보고서</button>
+  <button type="button" id="report-engineer-btn" class="btn-select" disabled title="엔지니어 검토용 — 양식 B">엔지니어 보고서</button>
+  <button type="button" id="export-btn" class="btn-select" disabled title="선택 N대 JSON Export">Export</button>
+  <button type="button" id="install-btn" class="btn-select" disabled title="선택 N대 ZConverter(ZDM) 설치 발행">Install</button>
+
+  {# 통합 필터 — data-search 문자열(상태·워크로드·Hostname·OS·OS 지원 종료·자원 적정성)에서 client-side 부분일치.
+     placeholder 는 실제 검색 대상 칼럼을 테이블 칼럼 순서대로 나열 (CPU·메모리·디스크·ZDM Install 은 비대상 제외). #}
+  <form method="get" id="filter-form" style="display:flex; flex:1 1 240px; min-width:240px; gap:8px; align-items:center;" onsubmit="return false;">
+    {# 입력창 안 가짜 placeholder — "필터"만 테마색, "(상태 · … · 자원 적정성)"은 placeholder 그레이. 값 입력 시 CSS 로 숨김. #}
+    <div class="filter-input-wrap">
+      <input type="text" name="search" class="list-filter" value="{{ request.query_params.get('search', '') }}" placeholder=" " aria-label="서버 목록 필터" style="width:100%;">
+      <span class="filter-ph" aria-hidden="true"><span class="filter-ph-key">필터</span>(상태 · 워크로드 · Hostname · OS · OS 지원 종료 · 자원 적정성)</span>
+    </div>
+    <a href="/servers" class="clear-btn" id="filter-clear" style="align-items:center; display:{% if request.query_params.get('search') %}inline-flex{% else %}none{% endif %};">초기화</a>
+  </form>
 </div>
-
-{# client-side 필터 (list-table.js). 값 선택 시 active 토글. #}
-<form method="get" id="filter-form" class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:14px;">
-  <input type="text" name="search" class="list-filter" value="{{ request.query_params.get('search', '') }}" placeholder="검색" aria-label="hostname 검색" style="width:90px;">
-  <select name="is_online" class="list-filter" aria-label="상태 필터">
-    <option value="">상태 전체</option>
-    <option value="true" {% if request.query_params.get('is_online') == 'true' %}selected{% endif %}>온라인</option>
-    <option value="false" {% if request.query_params.get('is_online') == 'false' %}selected{% endif %}>오프라인</option>
-  </select>
-  <select name="service" class="list-filter" aria-label="서비스 필터">
-    <option value="">서비스 전체</option>
-    {% for cat in filter_options.service_categories %}
-    <option value="{{ cat }}" {% if request.query_params.get('service') == cat %}selected{% endif %}>{{ cat }}</option>
-    {% endfor %}
-  </select>
-  <select name="os_distro" class="list-filter" aria-label="OS 필터" style="width:104px;">
-    <option value="">OS 전체</option>
-    {% for slug, label in filter_options.distro_options %}
-    <option value="{{ slug }}" {% if request.query_params.get('os_distro') == slug %}selected{% endif %}>{{ label }}</option>
-    {% endfor %}
-  </select>
-  <select name="classification" class="list-filter" aria-label="프로비저닝 필터">
-    <option value="">프로비저닝 전체</option>
-    {% for cls, cls_label in filter_options.classifications %}
-    <option value="{{ cls }}" {% if request.query_params.get('classification') == cls %}selected{% endif %}>{{ cls_label }}</option>
-    {% endfor %}
-  </select>
-  <a href="/servers" class="clear-btn" id="filter-clear" style="align-items:center; display:{% if filters_active %}inline-flex{% else %}none{% endif %};">초기화</a>
-</form>
-
-{# 분류 윈도우 명시 — 목록 자원 적정성 분류는 14일 표준(WINDOW_DAYS). 환경 자원 평가(최근 24시간)와 윈도우가 달라
-   축적 후 분류가 갈릴 수 있어 라벨로 오인 방지 (#F10). #}
-<p class="text-meta text-xs" style="margin:0 0 10px;">자원 적정성 분류는 최근 14일 표준 윈도우 기준 (환경 자원 평가는 최근 24시간).</p>
 
 <div class="table-scroll">
 <table class="server-list-table sortable-table">
   <thead>
     <tr>
       <th class="no-print" style="width:36px; text-align:center;"><input type="checkbox" id="select-all"></th>
-      <th class="sort-col" style="text-align:center; white-space:nowrap;">상태</th>
-      <th class="sort-col" style="min-width:150px;">Hostname</th>
-      <th class="sort-col" style="min-width:200px;">서비스</th>
-      <th class="sort-col" style="min-width:130px;">OS</th>
-      <th class="sort-col" style="white-space:nowrap;">프로비저닝</th>
-      <th style="min-width:240px; white-space:nowrap;">최근 작업</th>
-      <th class="action-col" style="width:1%; white-space:nowrap;"></th>
+      <th class="sort-col" style="width:64px; text-align:center; white-space:nowrap;">상태</th>
+      <th class="sort-col" style="width:94px;">워크로드</th>
+      <th class="sort-col" style="width:132px;">Hostname</th>
+      <th style="width:172px; white-space:nowrap;">CPU · 메모리 · 디스크</th>
+      <th class="sort-col" style="width:116px;">OS</th>
+      <th class="sort-col" style="width:108px; white-space:nowrap;">OS 지원 종료</th>
+      <th class="sort-col" style="width:98px; white-space:nowrap;">자원 적정성</th>
+      <th class="sort-col" style="width:92px; white-space:nowrap;">운영 이벤트</th>
+      <th class="sort-col" style="width:92px; white-space:nowrap;">ZDM Install</th>
+      <th class="action-col" style="white-space:nowrap;"></th>
     </tr>
   </thead>
   <tbody id="server-tbody">
@@ -131,6 +114,9 @@
 {# 전체보기 — 기본 N행만 표시, 클릭 시 전체 표시 (JS clip). 필터 활성 시 숨김(조건 맞는 전부 노출). #}
 <div class="no-print" id="show-more-wrap" style="display:none; margin-top:12px; text-align:center;">
   <button type="button" id="show-more-btn" class="btn-action">전체보기 <span id="show-more-count" class="text-meta" style="font-weight:400;"></span></button>
+  {# 클립(더보기)·정렬로 화면 밖에 가려진 선택 행이 있을 때만 노출 — 선택 개수와 실제 보이는 체크 표시가 어긋나는
+     것을 사용자가 알 수 있게(E9 발화 가드). list-table.js updateHiddenSelectionHint 단일 진실. #}
+  <span id="hidden-selection-hint" class="text-sm" style="display:none; margin-left:10px; color:var(--color-title); font-weight:600;"></span>
 </div>
 {% else %}
 <p class="text-muted" style="margin:0; padding:20px 0;">등록된 서버가 없습니다. 에이전트가 연결되면 표시됩니다.</p>

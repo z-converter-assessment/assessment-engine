@@ -5,7 +5,6 @@
 - report_uptime_stats — period 안 boot_time DISTINCT count - 1
 - report_disk_io_baseline — io_bytes·ops delta 평균 (IOPS·throughput_kbps), DiskIoBaselineRaw
 - report_net_io_baseline — rx/tx bytes delta 평균 (kbps), NetIoBaselineRaw
-- report_mount_usage — 전체 마운트 윈도우 평균 사용률 (개별 보고서 스토리지 상세)
 - report_memory_breakdown — used/available/cached/buffers 윈도우 평균 (전체 메모리 대비)
 - report_cpu_breakdown — user/system/iowait LAG delta 비율
 """
@@ -102,6 +101,41 @@ async def test_report_aggregate_returns_iowait_and_inventory(collect_repo, query
     assert r.mem_total_bytes == 8 * 1024**3
     assert r.block_devices and r.block_devices[0]["size_bytes"] == 100 * 10**9
     assert r.boot_time is not None
+
+
+async def test_report_aggregate_returns_reproduction_columns(collect_repo, query_repo):
+    """report_aggregate SELECT 가 server_inventory 재현 9컬럼을 ReportRowRaw 로 왕복 — SELECT 오타·매핑 누락 가드.
+
+    재현 컬럼은 server_inventory LEFT JOIN 직결이라 metric 불요. JSONB(boot/nonblock_mounts) 왕복 포함.
+    """
+    sid = await collect_repo.upsert_server(
+        make_inventory(
+            composite_id="r-repro",
+            arch="x86_64",
+            bits=64,
+            boot_firmware="uefi",
+            secure_boot=True,
+            timezone="Asia/Seoul",
+            rtc_utc=True,
+            boot={"kernel_cmdline": "ro quiet", "root_ref_type": "label", "grub_install_target": None},
+            nonblock_mounts=[
+                {"source": "tmpfs", "target": "/run", "fstype": "tmpfs",
+                 "options": ["rw", "nosuid"], "fs_freq": 0, "fs_passno": 0}
+            ],
+        )
+    )
+    rows = await query_repo.report_aggregate([sid], period_days=1, end=datetime.now(UTC))
+    assert len(rows) == 1
+    r = rows[0]
+    assert r.arch == "x86_64"
+    assert r.bits == 64
+    assert r.boot_firmware == "uefi"
+    assert r.secure_boot is True
+    assert r.timezone == "Asia/Seoul"
+    assert r.rtc_utc is True
+    assert r.boot["root_ref_type"] == "label"
+    assert r.boot["grub_install_target"] is None
+    assert r.nonblock_mounts[0]["fstype"] == "tmpfs"
 
 
 # ─── report_uptime_stats — boot_time DISTINCT count - 1 ──────────────────
@@ -248,18 +282,7 @@ async def test_all_report_queries_share_server_ids_and_period(collect_repo, quer
     assert uptime.get(sid, 0) == 0
 
 
-# ─── 개별 보고서 심화 — 마운트별 / 메모리 구성 / CPU 분류 ──────────────────
-
-
-async def test_report_mount_usage_returns_all_mounts_avg_pct(collect_repo, query_repo):
-    """worst 1개가 아닌 전체 마운트의 윈도우 평균 사용률 (free 단조감소 -> 평균 50% 이상)."""
-    sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-mnt-usage")
-    vols = await query_repo.report_mount_usage(sid, period_days=1, end=end + timedelta(minutes=1))
-    assert len(vols) == 1
-    v = vols[0]
-    assert v.mountpoint == "/data"
-    assert v.total_bytes == 100 * 10**9
-    assert v.used_pct is not None and v.used_pct >= 50.0
+# ─── 개별 보고서 심화 — 메모리 구성 / CPU 분류 ──────────────────
 
 
 async def test_report_memory_breakdown_pct_split(collect_repo, query_repo):
@@ -283,17 +306,12 @@ async def test_report_cpu_breakdown_delta_split(collect_repo, query_repo):
 
 
 async def test_report_breakdowns_single_equals_batch(collect_repo, query_repo):
-    """single(sid) 은 batch([sid])[sid] 의 N=1 특수화 — mount·memory·cpu 세 축 값 완전 동일 (정합성).
+    """single(sid) 은 batch([sid])[sid] 의 N=1 특수화 — memory·cpu 두 축 값 완전 동일 (정합성).
 
-    단독 보고서(single 경로)와 N대 선택 child(batch prefetch 경로)가 같은 서버에 대해 같은 값을 내야
-    한다. mount 는 batch 를 raw->cagg 로 통일한 뒤의 회귀 가드(예전엔 두 경로 소스가 달라 값이 갈렸다).
+    단독 보고서(single 경로)와 N대 선택 child(batch prefetch 경로)가 같은 서버에 대해 같은 값을 내야 한다.
     """
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-eq-batch")
     end_q = end + timedelta(minutes=1)
-
-    m_single = await query_repo.report_mount_usage(sid, period_days=1, end=end_q)
-    m_batch = (await query_repo.report_mount_usage_batch([sid], period_days=1, end=end_q)).get(sid, [])
-    assert m_single == m_batch
 
     mem_single = await query_repo.report_memory_breakdown(sid, period_days=1, end=end_q)
     mem_batch = (await query_repo.report_memory_breakdown_batch([sid], period_days=1, end=end_q)).get(sid)
@@ -302,42 +320,6 @@ async def test_report_breakdowns_single_equals_batch(collect_repo, query_repo):
     cpu_single = await query_repo.report_cpu_breakdown(sid, period_days=1, end=end_q)
     cpu_batch = (await query_repo.report_cpu_breakdown_batch([sid], period_days=1, end=end_q)).get(sid)
     assert cpu_single == cpu_batch
-
-
-async def test_report_mount_usage_excludes_null_avail_and_zero_total(collect_repo, query_repo):
-    """used/free null·(used+free) 0 마운트는 cagg used_pct CASE(합>0)로 배제.
-
-    에이전트가 특정 마운트의 used/free 를 null·0 으로 발행해도 single·batch 둘 다 동일하게 배제 —
-    소스 통일(cagg)이 에이전트 null/값 변화에 일관 반응함을 가드.
-    """
-    sid = await collect_repo.upsert_server(make_inventory(composite_id="r-mnt-nullzero"))
-    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=5)
-    for i in range(6):
-        ts = base_ts + timedelta(minutes=i)
-        m = make_metrics(
-            collected_at=ts,
-            filesystems=[
-                FilesystemEntry(
-                    mountpoint="/data",
-                    fstype="ext4",
-                    used_bytes=(50 + i) * 10**9,
-                    free_bytes=(50 - i) * 10**9,
-                ),
-                FilesystemEntry(
-                    mountpoint="/nullavail",
-                    fstype="ext4",
-                    used_bytes=None,
-                    free_bytes=None,
-                ),
-                FilesystemEntry(mountpoint="/zerototal", fstype="ext4", used_bytes=0, free_bytes=0),
-            ],
-        )
-        await collect_repo.record_metrics(sid, m)
-    end_q = datetime.now(UTC) + timedelta(minutes=1)
-    single = await query_repo.report_mount_usage(sid, period_days=1, end=end_q)
-    batch = (await query_repo.report_mount_usage_batch([sid], period_days=1, end=end_q)).get(sid, [])
-    assert {v.mountpoint for v in single} == {"/data"}
-    assert {v.mountpoint for v in batch} == {"/data"}
 
 
 # ─── cagg counter reset 처리 (ADR 0043 — counter_agg 정석) ────────────────────

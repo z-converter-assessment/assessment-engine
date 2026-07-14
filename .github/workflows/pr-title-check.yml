@@ -7,9 +7,10 @@ name: pr-title-check
 # breaking change: title에 "!" 또는 body에 "BREAKING CHANGE:"
 
 on:
+  # main PR 에서만 — develop PR 은 게이트 없이 받는 정책과 정합 (검증은 develop->main PR 단일 게이트).
   pull_request:
     types: [opened, edited, synchronize, reopened]
-    branches: [main, develop]
+    branches: [main]
 
 permissions:
   pull-requests: read

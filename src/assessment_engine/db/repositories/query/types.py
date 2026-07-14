@@ -23,44 +23,57 @@ MetricType = Literal[
     "cpu.user_percent",
     "cpu.system_percent",
     "cpu.iowait_percent",
+    "cpu.nice_percent",
     "cpu.run_queue",
+    "cpu.blocked",
+    "cpu.psi",
     "mem.usage_percent",
     "mem.available_percent",
     "mem.cached_percent",
     "mem.buffers_percent",
+    "mem.psi",
     "disk.read_iops",
     "disk.write_iops",
     "disk.read_kbps",
     "disk.write_kbps",
     "disk.io_saturation",
+    "disk.psi",
     "fs.usage_percent",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
     "net.rx_packets_per_sec",
     "net.tx_packets_per_sec",
     "net.retrans_percent",
+    "net.drop_percent",
 ]
-# 환경 전체 추이 차트 metric — 대시보드 추이 + 환경 성능 추이. capacity-weighted(cpu·mem·fs = sum/sum) /
-# 코어 정규화(run_queue) / 합산(disk·net rate).
+# 환경 성능 추이 차트 metric — capacity-weighted(cpu·mem = sum/sum) / 압박(psi %) / 스토리지 사용량(fs.used_bytes 합산) /
+# 활동 합산(disk·net rate·pps) / worst-device 포화(disk.io_saturation) / 전사 품질(net.retrans·net.drop).
+# 포화 축은 PSI(자원 경합으로 멈춘 시간 %)로 통일 — 간접 지표(run_queue) 대신 직접 지표. 디스크는 worst-device await 유지.
+# 서버 상세 성능 추이(MetricType 전체)와 동일 자원별 신호 카탈로그 유지 의무(#F10 화면 간 정합) — cpu.nice_percent
+# (CPU 분류 4번째 dimension)·disk.psi(스토리지 PSI)·net.rx/tx_packets_per_sec(네트워크 PPS)·net.drop_percent
+# (패킷 드롭율)도 서버 상세에 있는 신호라 여기 포함.
 EnvironmentMetricType = Literal[
     "cpu.usage_percent",
     "cpu.user_percent",
     "cpu.system_percent",
     "cpu.iowait_percent",
-    "cpu.run_queue",
+    "cpu.nice_percent",
+    "cpu.psi",
     "mem.usage_percent",
-    "mem.available_percent",
-    "mem.cached_percent",
-    "mem.buffers_percent",
-    "fs.usage_percent",
+    "mem.psi",
+    "fs.used_bytes",
     "disk.read_iops",
     "disk.write_iops",
     "disk.read_kbps",
     "disk.write_kbps",
     "disk.io_saturation",
+    "disk.psi",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
+    "net.rx_packets_per_sec",
+    "net.tx_packets_per_sec",
     "net.retrans_percent",
+    "net.drop_percent",
 ]
 TimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d"]
@@ -133,6 +146,7 @@ _CPU_NUMERATOR: dict[str, str] = {
     "cpu.user_percent": "cpu_user_s",
     "cpu.system_percent": "cpu_system_s",
     "cpu.iowait_percent": "cpu_iowait_s",
+    "cpu.nice_percent": "cpu_nice_s",  # Linux 전용(Windows null -> 분자 null, 자연 제외)
 }
 
 # (dim_col, value_col) — disk/net rate per dimension. table 명은 metric.py 에서 결합
@@ -188,19 +202,27 @@ _ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str, str]] = {
 # 물리 NIC 위 bridge/virtual 을 각각 시계열로 발행하므로, 무필터 SUM 은 물리 disk I/O 에 그 위 논리볼륨 I/O(디스크
 # 통과분)를 더해 이중·삼중집계된다. inventory 로 판정: block_device type=='disk' / net_interface kind in
 # (physical, bond_master) 만 포함. 판정은 시계열 device_id/iface_id = inventory (id_type):(id) 재구성 조인.
-# fail-open: inventory 에 매칭 안 되는 device_id/iface_id 는 유지(물리 데이터 누락 방지) — 알려진 논리/가상만 배제.
+# fail-closed: inventory 에 물리로 확인된 device_id/iface_id 만 포함 — 알려진 것만 인정(#F9 참고). Windows
+# agent 가 인벤토리엔 없는 합성/숨김 항목(디스크 id_type=aggregate 집계 pseudo-device, 인터페이스 id_type=name
+# "if7/if8/if9" 숨김 어댑터)을 시계열에는 그대로 발행하므로, fail-open(매칭 안 되면 유지)이면 이들이 물리
+# 디바이스로 오인 통과한다. 신규 미동기화 디바이스가 다음 인벤토리 수집 전까지 잠시 누락되는 트레이드오프보다
+# 합성 항목의 상시 이중집계·오염이 더 크다고 판단해 fail-closed 채택.
+# Windows 디스크는 metrics 수집기가 (id_type:id) 대신 name 으로 device_id 를 발행("name:PhysicalDrive0")—
+# inventory 는 그 디스크를 mbrsig/gptid/serial 등 다른 id_type 로 식별해 1차 조인이 실패한다(win2003·win2025·
+# win2012r2v11 전부 동일 패턴, agent 쪽 inventory/metrics 식별자 불일치). 'name:' || name 매칭을 OR 로 보강.
 # 상관 서브쿼리 — bare server_id/device_id/iface_id 참조라 raw hypertable·cagg 양쪽 컬럼 스코프에서 동작.
 _PHYS_DISK_SQL_FILTER = (
-    "NOT EXISTS (SELECT 1 FROM server_inventory si_pf "
+    "EXISTS (SELECT 1 FROM server_inventory si_pf "
     "CROSS JOIN LATERAL jsonb_array_elements(si_pf.block_devices) bd_pf "
     "WHERE si_pf.id = server_id "
-    "AND (bd_pf->>'id_type') || ':' || (bd_pf->>'id') = device_id "
-    "AND (bd_pf->>'type') IS DISTINCT FROM 'disk')"
+    "AND ((bd_pf->>'id_type') || ':' || (bd_pf->>'id') = device_id "
+    "OR 'name:' || (bd_pf->>'name') = device_id) "
+    "AND (bd_pf->>'type') = 'disk')"
 )
 _PHYS_IFACE_SQL_FILTER = (
-    "NOT EXISTS (SELECT 1 FROM server_inventory si_pf "
+    "EXISTS (SELECT 1 FROM server_inventory si_pf "
     "CROSS JOIN LATERAL jsonb_array_elements(si_pf.net_interfaces) ni_pf "
     "WHERE si_pf.id = server_id "
     "AND (ni_pf->>'id_type') || ':' || (ni_pf->>'id') = iface_id "
-    "AND (ni_pf->>'kind') NOT IN ('physical', 'bond_master'))"
+    "AND (ni_pf->>'kind') IN ('physical', 'bond_master'))"
 )

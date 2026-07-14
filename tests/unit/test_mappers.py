@@ -7,6 +7,7 @@ import pytest
 from assessment_engine.db.dtos.outbound import (
     MetricGapWarningRaw,
     MountUsageRaw,
+    ReportRowRaw,
     ServerDetail,
     ServerSummary,
     StorageWithUsage,
@@ -20,6 +21,7 @@ from assessment_engine.web.services.mappers.server import (
     _to_service_item,
     _usage_badge_class,
     _usage_severity,
+    build_server_inventory,
     enrich_server_detail,
     infer_role,
     to_server_detail,
@@ -77,7 +79,7 @@ def test_to_disk_item_returns_none_for_non_physical():
 def test_to_disk_item_for_physical():
     item = _to_disk_item({"name": "sda", "size_bytes": 10**9, "type": "disk", "kind": "physical"})
     assert item.name == "sda"
-    assert item.size_gb == 1.0
+    assert item.size_gb == 0.93  # bytes_to_gb binary divisor(GB 라벨 표기, df -h 관례) — decimal 1.0 아님
 
 
 def test_to_listen_port_item_significant():
@@ -142,7 +144,7 @@ def test_list_item_storage_total_sum():
         ]
     )
     item = to_server_list_item(summary)
-    assert item.storage_total_gb == 150.0
+    assert item.storage_total_gb == 139.7  # bytes_to_gb binary divisor(GB 라벨) — decimal (100+50)=150 아님
 
 
 def test_list_item_badges_from_service_categories():
@@ -221,6 +223,8 @@ def _detail(**overrides) -> ServerDetail:
         kernel_version="5.15.0",
         cpu_cores=4,
         cpu_model="test-cpu",
+        cpu_arch="x86_64",
+        cpu_bits=64,
         mem_total_bytes=8 * 1024**3,  # v2 By (v1 mem_total_kb 폐기)
         boot_time=datetime(2026, 1, 1, tzinfo=UTC),
         agent_started_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -259,7 +263,7 @@ def test_to_server_detail_basic():
     resp = to_server_detail(_detail())
     assert resp.hostname == "host"
     assert len(resp.disks) == 1 and resp.disks[0].name == "sda"
-    assert resp.disk_total_gb == 100.0
+    assert resp.disk_total_gb == 93.13  # bytes_to_gb binary divisor(GB 라벨) — decimal 100.0 아님
     assert resp.os_display == "ubuntu 22.04"
     assert resp.cpu_display == "test-cpu 4 cores"
 
@@ -463,3 +467,44 @@ def test_to_gap_warning_item_right_size_short_gap():
 # RiskServerItem dataclass · to_risk_server_item 함수 · latest_disk_max_pct SQL
 # · list-risk-cards.js 모두 dead. 위험도 신호는 capacity_warnings + EnvironmentOverview로
 # 흡수됨. 신규 신호 단위 테스트는 tests/unit/test_mappers_report.py.
+
+
+# ─── build_server_inventory (개별 보고서 인벤토리, raw 선택적 보강) ────────────
+
+
+def _min_raw(**overrides) -> ReportRowRaw:
+    base = dict(
+        server_id=1, public_id="p1", hostname="h", os_family="linux", os_id="ubuntu", os_version="22.04",
+        os_codename="jammy", kernel_version="5.15", net_interfaces=[], services=[], last_seen_at=None,
+        cpu_p95_pct=None, cpu_avg_pct=None, cpu_peak_pct=None, mem_p95_pct=None, mem_avg_pct=None, mem_peak_pct=None,
+    )
+    base.update(overrides)
+    return ReportRowRaw(**base)
+
+
+def test_build_server_inventory_enriches_from_raw():
+    """raw(ReportRowRaw) 제공 시 재현 필드(arch/bits/boot_firmware/secure_boot/edition/timezone) 채움."""
+    detail = _detail()
+    raw = _min_raw(boot_firmware="uefi", secure_boot=True, edition="Datacenter", timezone="Asia/Seoul")
+
+    snap = build_server_inventory(detail, True, raw)
+
+    assert snap.public_id == detail.public_id
+    assert snap.agent_id == detail.agent_id
+    assert snap.cpu_arch == detail.cpu_arch
+    assert snap.cpu_bits == detail.cpu_bits
+    assert snap.boot_firmware == "uefi"
+    assert snap.secure_boot is True
+    assert snap.os_edition == "Datacenter"
+    assert snap.timezone == "Asia/Seoul"
+
+
+def test_build_server_inventory_raw_none_leaves_reproduction_fields_none():
+    """raw 미보유 스코프(환경·N대 등) — 재현 필드만 None, 나머지 detail 파생은 정상."""
+    snap = build_server_inventory(_detail(), False, None)
+
+    assert snap.boot_firmware is None
+    assert snap.secure_boot is None
+    assert snap.os_edition is None
+    assert snap.timezone is None
+    assert snap.hostname == "host"

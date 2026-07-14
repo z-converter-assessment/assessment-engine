@@ -1,11 +1,12 @@
 {% from "_shared.html" import empty_state, service_legend, detail_server_list %}
 {% from "reports/_resource_tables.html" import action_targets_table %}
-{# 서비스 구성 카드 — 카테고리별 개수. detailed=true(엔지니어): 카테고리별 서비스명 세부까지. detailed=false(고객):
-   환경 개요 서비스 뱃지와 동일 — 카테고리+개수 뱃지만(서비스명·줄구분 없음), 개수 0 카테고리 제외. #}
-{% macro service_config_card(catalog, identified_count, unknown_count, detailed=true) %}
+{# 서비스 구성 카드 — 시그니처 워크로드(SIGNATURE_CATEGORIES) 카테고리별 개수, 서버 목록 뱃지·환경 개요 주요
+   워크로드 도넛과 동일 기준(mapper `_aggregate_service_catalog` 단일 진실). detailed=true(엔지니어): 카테고리별
+   서비스명 세부까지. detailed=false(고객): 환경 개요 서비스 뱃지와 동일 — 카테고리+개수 뱃지만(서비스명·줄구분
+   없음), 개수 0 카테고리 제외. 식별/미식별 서버 분기 없음 — 시그니처 워크로드 카탈로그 노출만. #}
+{% macro service_config_card(catalog, detailed=true) %}
 <div>
   <h2 class="card-title">서비스 구성</h2>
-  <h3>서비스 식별 ({{ identified_count }}대)</h3>
   {% if catalog %}
   {% if detailed %}
   {# 카테고리 뱃지 고정폭 좌열 + 세부 서비스명 우열(flex-wrap) — grid 라 서비스명 많아 줄바꿈돼도 좌열 정렬 유지.
@@ -32,7 +33,6 @@
   {% else %}
   {{ empty_state("구동 중인 것으로 분류된 서비스가 없습니다.") }}
   {% endif %}
-  <h3 style="margin-top:16px;">서비스 미식별 ({{ unknown_count }}대)</h3>
 </div>
 {% endmacro %}
 
@@ -123,7 +123,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  {{ service_config_card(summary.service_catalog, summary.workload_identified_count, summary.workload_unknown_count, detailed=false) }}
+  {{ service_config_card(summary.service_catalog, detailed=false) }}
 </section>
 
 <section class="card" style="margin-bottom:16px;">
@@ -161,11 +161,12 @@
       {% for r in summary.top_risks %}
       <tr>
         <td style="white-space:nowrap;"><a href="/servers/{{ r.public_id }}?back={{ self_back }}" class="row-link">{{ r.hostname }}</a></td>
-        <td style="white-space:nowrap;">{{ r.recommendation_label }}</td>
+        {# 자원 부족만 글로벌 빨강(text-danger) — 서버 목록·서버별 자원 적정성 표와 동일 강조 기준. #}
+        <td style="white-space:nowrap;">{% if r.recommendation == 'under_provisioned' %}<span class="text-danger" style="font-weight:600;">{{ r.recommendation_label }}</span>{% else %}{{ r.recommendation_label }}{% endif %}</td>
         <td class="text-strong" style="white-space:nowrap;">{{ r.root_cause_label or "—" }}</td>
         <td class="text-strong">{{ r.recommendation_action or "—" }}</td>
         {# 네트워크 상태 — 사이징과 별개 품질 판정(정상/혼잡/미측정). 혼잡만 강조. #}
-        <td style="white-space:nowrap;">{% if r.net_status_label == "혼잡" %}<span class="text-strong" style="color:#dc2626;">혼잡</span>{% else %}{{ r.net_status_label or "—" }}{% endif %}</td>
+        <td style="white-space:nowrap;">{% if r.net_status_label == "혼잡" %}<span class="text-danger" style="font-weight:600;">혼잡</span>{% else %}{{ r.net_status_label or "—" }}{% endif %}</td>
         <td>{% if r.confidence_notes %}{% for n in r.confidence_notes %}<span class="text-meta text-sm">{{ n }}</span>{% if not loop.last %}<span class="text-meta text-sm"> · </span>{% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
       </tr>
       {% endfor %}
@@ -228,7 +229,7 @@
 </section>
 
 <section class="card" style="margin-bottom:16px;">
-  {{ service_config_card(summary.service_catalog, summary.workload_identified_count, summary.workload_unknown_count) }}
+  {{ service_config_card(summary.service_catalog) }}
 </section>
 
 <section class="card" style="margin-bottom:16px;">
@@ -236,7 +237,7 @@
   {% if summary.os_distribution %}
   <table>
     <thead>
-      <tr><th>구분</th><th>배포판</th><th>버전</th><th style="text-align:right;">서버 수</th></tr>
+      <tr><th>구분</th><th>배포판</th><th>버전</th><th>커널 버전</th><th style="text-align:right;">서버 수</th></tr>
     </thead>
     <tbody>
       {# family -> distro -> version 정렬됨. 반복되는 family·distro 는 계층적으로 묶어(빈 셀) 가독성 향상. #}
@@ -245,6 +246,7 @@
         <td class="text-strong">{% if loop.first or o.family != loop.previtem.family %}{{ o.family }}{% endif %}</td>
         <td>{% if loop.first or o.distro != loop.previtem.distro or o.family != loop.previtem.family %}{{ o.distro }}{% endif %}</td>
         <td>{{ o.version }}</td>
+        <td class="text-meta">{{ o.kernel_versions }}</td>
         <td style="text-align:right;">{{ o.count }}대</td>
       </tr>
       {% endfor %}
@@ -300,7 +302,7 @@
   {% if summary.attention.os_eol_warnings %}
   <table>
     <thead>
-      <tr><th>호스트</th><th>OS / 지원 종료</th><th style="text-align:right; white-space:nowrap;">경과</th></tr>
+      <tr><th>호스트</th><th>OS | 지원 종료</th><th style="text-align:right; white-space:nowrap;">경과</th></tr>
     </thead>
     <tbody>
       {% for row in summary.attention.os_eol_warnings %}
