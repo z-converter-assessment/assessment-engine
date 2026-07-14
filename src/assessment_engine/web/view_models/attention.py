@@ -46,7 +46,9 @@ class CapacityWarningItem:
     active_causes: 발화한 trigger 의 os-neutral 원인 라벨 목록 (assess.triggers 파생, 고정 순서). 환경 요약
       "자원 부족(메모리 포화 2대 · CPU 이용률 1대)" 원인 집계(environment_report._under_cause_summary)의 단일
       소스. OS 무관 축 이름이라 Windows paging/run queue 포화도 정확히 집계(Linux swap/load 로 오라벨 안 함).
-    metrics: 평가 6축 측정값 — 위반 여부 무관 전부 노출(mapper precompute, P3). saturation 3축은 os-aware 값.
+    metrics: host_status(자원 적정성 분류) 를 실제로 구동하는 5축 측정값만(CPU 이용률·포화, 메모리 이용률·포화,
+      디스크 용량) — 위반 여부 무관 전부 노출(mapper precompute, P3). saturation 2축은 os-aware 값. 디스크
+      I/O·네트워크는 host_status 미구동 orthogonal 신호라 여기 없음 — 네트워크는 net_status_label 전용 필드.
     services: 호스트 워크로드 카테고리 카운트 {category: n} — workload_category_counter 단일 진실.
     """
 
@@ -71,6 +73,10 @@ class CapacityWarningItem:
     # 상위 N 절단 정렬용 심각도 점수 (mapper precompute) — swap(paging) 최우선 > 위반 자원 수 >
     # 최고 활용률 max(CPU/메모리/디스크 p95·used). build_overview 가 DESC 정렬 후 hostname tie-break.
     severity_score: float = 0.0
+    # 네트워크 품질(정상/혼잡/미측정) — 사이징 분류 비관여(orthogonal flag, host_status 미구동) 라 `metrics`
+    # 목록과 분리된 전용 필드. 환경 자원 평가(compact 표)의 "네트워크 상태" 칼럼 전용 소스.
+    net_status_label: str = ""
+    net_status_color: str = ""
 
 
 @dataclass
@@ -159,17 +165,25 @@ class EnvironmentOverview:
     total_disk_gb: int
     # os_family(windows/linux/unknown) 별 서버 수. count DESC.
     os_distribution: dict[str, int] = field(default_factory=dict)
-    # 역할 분포 — 각 서버의 모든 서비스 카테고리를 카운트 (대표 1개가 아닌 전체, #E7).
+    # 주요 워크로드 분포 — 카테고리별 환경 전체 인스턴스 개수(호스트 dedup 아님, 모든 카테고리 0 포함, #E7 E9).
     role_distribution: dict[str, int] = field(default_factory=dict)
-    role_unknown_count: int = 0  # known 역할 0인 호스트 수 (서비스 없음 또는 전부 unknown)
-    role_identified_count: int = 0  # = total - role_unknown_count
+    # 주요 워크로드 원형차트 세그먼트(RiskDonutSegment 재사용 — color·count·dash precompute) + 총 인스턴스.
+    workload_donut: list = field(default_factory=list)
+    workload_total: int = 0
+    role_unknown_count: int = 0  # 특징 워크로드 0 호스트 수 (보고서 workload_unknown_count 용)
     utilization: list[UtilizationBar] = field(default_factory=list)
     # 평균과 동일 capacity-weighted 환경 분포 기반(per_ts 95퍼센타일).
     utilization_p95: list[UtilizationBar] = field(default_factory=list)
     util_sample_size: int = 0
-    # 포화 3축 도넛 (CPU 포화·메모리 압박·디스크 I/O 포화) — 자원 적정성 창(14일) 기준 호스트 카운트/표본.
-    # 실시간현황 6도넛과 동일 시각·게이지색, 다만 스냅샷 아닌 윈도우 기준(#E3 화면 간 정합). (forward-ref 따옴표)
+    # 포화 4축 도넛 (CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡) — 자원 적정성 창(14일) 기준 호스트 카운트/표본.
+    # 실시간현황 7도넛(이용률 3 + 신호 4)과 동일 시각·게이지색, 다만 스냅샷 아닌 윈도우 기준(#E3 화면 간 정합).
     saturation_donuts: list["SaturationDonut"] = field(default_factory=list)
+    # 에러축 fleet 표시자 (MCE·OOM·EDAC·디스크·NIC) — 창내 발생 호스트 수/표본. 정상=0 발화(E9). 대시보드 전용.
+    error_fleet: list["FleetErrorItem"] = field(default_factory=list)
+    # OS 지원(EOL) 3상태 종합 — 서버 목록 칼럼(os_eol_status)과 동일 판정(lookup_os_eol). os_id 있는 서버만 집계.
+    os_eol_passed: int = 0  # 지원 종료(경과)
+    os_eol_unknown: int = 0  # 미상(카탈로그 미수록·미매칭 — 판정 불가)
+    os_eol_supported: int = 0  # 지원 중(매칭+미래)
     risk_donut: list[RiskDonutSegment] = field(default_factory=list)
     risk_donut_total: int = 0  # 도넛 중심 표시 (분류된 서버 수)
     risk_high_count: int = 0  # 도넛 중심 강조 — "위험 N대"
@@ -236,6 +250,21 @@ class SaturationDonut:
     total: int  # 신선 표본 (분모)
     dash_length: float  # (count/total) * 원주 — SVG 채움 (precompute)
     color: str  # count>0 강조(빨강) / 0 회색
+
+
+@dataclass
+class FleetErrorItem:
+    """환경 fleet 에러 표시자 1개 — 에러축(MCE·OOM·EDAC·디스크·NIC) 창내 발생 호스트 수 / 표본. 정상=0 발화(E9).
+
+    에러는 카운트형(대부분 0)이라 도넛 아닌 표시자 — affected=0 이면 '이상 없음', >0 이면 'N대 영향'.
+    """
+
+    key: str  # cpu_mce | mem_oom | mem_corrupted | disk_errors | net_errors | os_eol
+    label: str  # 표시 라벨 ("머신체크(MCE)" 등)
+    affected: int  # 발생 호스트 수 (분자)
+    total: int  # 표본 (분모)
+    detail: str | None = None  # 신호 의미(hover)
+    tone: str = "danger"  # "danger"(빨강, 하드웨어/런타임 에러) | "warn"(앰버, OS EOL 등 정적 리스크)
 
 
 @dataclass

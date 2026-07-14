@@ -88,18 +88,11 @@ async def environment_realtime(
             name="servers/_environment_realtime.html",
             context={"realtime": realtime, "generated_at": now, "self_back": self_back},
         )
-    # 운영 신호 — selection(ids) 이면 선택 N대 호스트로 한정, 전체면 환경 전체. limit_each=None = 3 카탈로그 전수 출력.
-    if server_ids is not None:
-        attention = await service.get_selection_attention(server_ids, now)
-    else:
-        attention = await service.get_attention_signals(end=now, limit_each=None)
     return templates.TemplateResponse(
         request=request,
         name="servers/realtime.html",
         context={
             "realtime": realtime,
-            "attention": attention,
-            "agent_restart_threshold": web_settings.agent_restart_alert_threshold,
             "generated_at": now,
             "back_url": unquote(back) if back else "/",
             "self_back": self_back,
@@ -176,7 +169,7 @@ async def overview(
     request: Request,
     service: QueryService = Depends(get_service),
 ):
-    """환경 개요 (홈, `/`) — 집계 위젯(환경 요약·자원 이용·포화 6도넛·수집 건전성).
+    """환경 개요 (홈, `/`) — 집계 위젯(환경 요약·주요 워크로드·자원 적정성·자원 이용·포화 7도넛·운영 이벤트/에러).
 
     서버 목록은 `/servers`, 환경 단위 분석은 `/environment/*` 로 분리. 집계형 위젯만 본 페이지에 남는다.
     운영 신호는 실시간 현황(`/environment/realtime`)으로 분리. 자동 갱신 없음 — 정적 집계라 진입 시 1회 렌더."""
@@ -203,6 +196,7 @@ async def servers_list(
     service_filter: str | None = Query(None, alias="service"),
     os_distro: str | None = Query(None),
     classification: str | None = Query(None),
+    os_eol: str | None = Query(None),
     fragment: str | None = Query(None),
     service: QueryService = Depends(get_service),
 ):
@@ -227,6 +221,7 @@ async def servers_list(
         service=service_filter,
         os_distro=os_distro,
         classification=classification,
+        os_eol=os_eol,
     )
     return templates.TemplateResponse(
         request=request,

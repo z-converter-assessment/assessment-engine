@@ -361,8 +361,16 @@ async def test_metric_chart_disk_io_saturation_returns_await(
     query_repo: QueryRepository,
 ):
     """disk.io_saturation — v2 await(ms) 양 OS 통일(구 disk.queue 대체). Σ(Δop_time)/Σ(Δops)*1000.
-    시드 op_time/ops 델타 반영."""
-    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-dsat-1"))
+    시드 op_time/ops 델타 + io_time_s(device util >= RS_DISKIO_UTIL_MIN 게이트 통과 — 60s 간격에 Δ40s=0.67).
+
+    device_id 는 물리 디스크 필터(`_PHYS_DISK_SQL_FILTER`)가 조인하는 "name:{block_devices.name}" 규약 —
+    inventory 에 동일 name 의 disk 노드가 있어야 chart 가 값을 낸다(tests/factories.py 상단 규약 주석)."""
+    sid = await collect_repo.upsert_server(
+        make_inventory(
+            composite_id="q-dsat-1",
+            block_devices=[{"id": "sda", "id_type": "by-path", "name": "sda", "type": "disk", "size_bytes": 10**9}],
+        )
+    )
     base = _bucket_aligned_base()
     for i in range(2):
         await collect_repo.record_metrics(
@@ -371,9 +379,10 @@ async def test_metric_chart_disk_io_saturation_returns_await(
                 collected_at=base + timedelta(minutes=i),
                 disk_io=[
                     DiskIoEntry(
-                        device_id="sda", device_name="sda",
+                        device_id="name:sda", device_name="sda",
                         ops_read=100 + i * 100, ops_write=0,
                         op_read_time_s=1.0 + i * 1.0, op_write_time_s=0.0,
+                        io_time_s=i * 40.0,  # Δ40s / 60s wall = 0.67 util >= 0.5 게이트 통과
                         io_read_bytes=0, io_write_bytes=0,
                     )
                 ],
@@ -428,6 +437,42 @@ async def test_metric_chart_disk_io_saturation_excludes_idle_disk(
     assert all(r.value is None for r in rows)  # d_ops=0 제외 → 값 산출 안 됨 (빈 결과 또는 value None)
 
 
+async def test_metric_chart_disk_io_saturation_util_gate_excludes_low_activity(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """disk.io_saturation util-gate(2-1) — ops 델타는 있으나 io_time util < RS_DISKIO_UTIL_MIN 인 저활동
+    device 는 제외. 극소 ops 로 op_time 을 나눠 await 가 폭증(writeback 잔류)해도 병목 아님 → 값 없음."""
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-dsat-lowutil"))
+    base = _bucket_aligned_base()
+    for i in range(2):
+        await collect_repo.record_metrics(
+            sid,
+            make_metrics(
+                collected_at=base + timedelta(minutes=i),
+                disk_io=[
+                    DiskIoEntry(
+                        device_id="sda", device_name="sda",
+                        ops_read=100 + i * 2, ops_write=0,      # Δ2 극소 ops
+                        op_read_time_s=i * 10.0, op_write_time_s=0.0,  # Δ10s -> await 5000ms(폭증)
+                        io_time_s=i * 3.0,  # Δ3s / 60s wall = 0.05 util < 0.5 -> 게이트 탈락
+                        io_read_bytes=0, io_write_bytes=0,
+                    )
+                ],
+            ),
+        )
+    rows = await query_repo.metric_chart(
+        server_id=sid,
+        metric_type="disk.io_saturation",
+        dimension=None,
+        time_range="1h",
+        bucket="5m",
+        agg="avg",
+        end=base + timedelta(minutes=10),
+    )
+    assert all(r.value is None for r in rows)  # 저활동 device 는 await 폭증해도 util-gate 로 제외
+
+
 async def test_metric_chart_fs_usage_returns_per_mount(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
@@ -455,8 +500,33 @@ async def test_metric_chart_disk_read_iops_per_device(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    """_chart_rate_per_dimension — disk_io의 LAG/dt 기반 IOPS. dimension=device 채워짐."""
-    sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id="q-dio-1", n_points=3)
+    """_chart_rate_per_dimension — disk_io의 LAG/dt 기반 IOPS. dimension=device 채워짐.
+
+    device_id 는 물리 디스크 필터가 조인하는 "name:{block_devices.name}" 규약(tests/factories.py 상단 주석) —
+    `_seed_one_server_with_metrics` 공용 helper 는 기본 inventory(name=vda)와 안 맞아 여기선 전용 시드 사용."""
+    sid = await collect_repo.upsert_server(
+        make_inventory(
+            composite_id="q-dio-1",
+            block_devices=[{"id": "sda", "id_type": "by-path", "name": "sda", "type": "disk", "size_bytes": 10**9}],
+        )
+    )
+    base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=3)
+    for i in range(3):
+        await collect_repo.record_metrics(
+            sid,
+            make_metrics(
+                collected_at=base_ts + timedelta(minutes=i),
+                disk_io=[
+                    DiskIoEntry(
+                        device_id="name:sda", device_name="sda",
+                        ops_read=100 + i * 50, ops_write=50 + i * 25,
+                        io_read_bytes=(2000 + i * 1000) * 512, io_write_bytes=(1000 + i * 500) * 512,
+                    )
+                ],
+                filesystems=[],
+                net_io=[],
+            ),
+        )
     end = base_ts + timedelta(minutes=10)
     rows = await query_repo.metric_chart(
         server_id=sid,
@@ -469,7 +539,7 @@ async def test_metric_chart_disk_read_iops_per_device(
     )
     assert len(rows) >= 1
     for r in rows:
-        assert r.dimension == "sda"
+        assert r.dimension == "sda"  # 범례 표시명 — raw device_id 아닌 block_devices.name 치환(COALESCE(dn.name, dim))
         if r.value is not None:
             assert r.value >= 0  # 음수 IOPS 없음
 
@@ -653,8 +723,18 @@ async def test_metric_chart_dimension_filter(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    """dimension 파라미터로 특정 device만 필터."""
-    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-dim-1"))
+    """dimension 파라미터로 특정 device만 필터.
+
+    device_id 는 물리 디스크 필터가 조인하는 "name:{block_devices.name}" 규약(tests/factories.py 상단 주석)."""
+    sid = await collect_repo.upsert_server(
+        make_inventory(
+            composite_id="q-dim-1",
+            block_devices=[
+                {"id": "sda", "id_type": "by-path", "name": "sda", "type": "disk", "size_bytes": 10**9},
+                {"id": "sdb", "id_type": "by-path", "name": "sdb", "type": "disk", "size_bytes": 10**9},
+            ],
+        )
+    )
     base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=3)
     for i in range(3):
         await collect_repo.record_metrics(
@@ -663,7 +743,7 @@ async def test_metric_chart_dimension_filter(
                 collected_at=base_ts + timedelta(minutes=i),
                 disk_io=[
                     DiskIoEntry(
-                        device_id="sda",
+                        device_id="name:sda",
                         device_name="sda",
                         ops_read=100 + i * 10,
                         ops_write=0,
@@ -671,7 +751,7 @@ async def test_metric_chart_dimension_filter(
                         io_write_bytes=0,
                     ),
                     DiskIoEntry(
-                        device_id="sdb",
+                        device_id="name:sdb",
                         device_name="sdb",
                         ops_read=200 + i * 20,
                         ops_write=0,
@@ -687,7 +767,7 @@ async def test_metric_chart_dimension_filter(
     rows_sda = await query_repo.metric_chart(
         server_id=sid,
         metric_type="disk.read_iops",
-        dimension="sda",
+        dimension="name:sda",
         time_range="15m",
         bucket="1m",
         agg="avg",
@@ -702,6 +782,7 @@ async def test_metric_chart_dimension_filter(
         agg="avg",
         end=end,
     )
+    # 범례 표시명 — raw device_id("name:sda") 아닌 block_devices.name 치환(COALESCE(dn.name, dim)).
     assert all(r.dimension == "sda" for r in rows_sda)
     assert any(r.dimension == "sdb" for r in rows_all)
 

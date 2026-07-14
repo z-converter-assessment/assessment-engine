@@ -73,7 +73,14 @@ def _repro_block_device(d: dict) -> dict:
     return out
 
 
-def _repro_interface(i: dict) -> dict:
+def _repro_interface(i: dict, link_speeds: dict[str, int] | None = None) -> dict:
+    # speed_mbps null(Windows NT5.2/virtio 는 inventory 미발행) 시 metrics link.speed(bit/s)로 폴백 — reproduction
+    # 정확도(agent 확정 규약). iface 안정 id 로 매칭. link.speed 도 null(virtio)이면 그대로 null.
+    speed = i.get("speed_mbps")
+    if speed is None and link_speeds:
+        bps = link_speeds.get(i.get("id"))
+        if bps:
+            speed = int(bps // 1_000_000)  # bit/s -> Mbps
     return {
         "id": i.get("id"), "id_type": i.get("id_type"), "name": i.get("name"), "kind": i.get("kind"),
         "mtu": i.get("mtu"),
@@ -84,7 +91,7 @@ def _repro_interface(i: dict) -> dict:
         ],
         "gateway": i.get("gateway"), "dns": i.get("dns"), "routes": i.get("routes"),
         "bond_mode": _norm_bond_mode(i.get("bond_mode")), "vlan_id": i.get("vlan_id"),
-        "speed_mbps": i.get("speed_mbps"),
+        "speed_mbps": speed,
     }
 
 
@@ -96,12 +103,12 @@ def _repro_lvm_vg(v: dict) -> dict:
     }
 
 
-def _reproduction(raw) -> dict:
+def _reproduction(raw, link_speeds: dict[str, int] | None = None) -> dict:
     """재현 팩트 — 현 인벤토리를 계약 OUTPUT 형태로 reshape.
 
     os 재현 서술자(arch/bits/boot_firmware 등)·boot·nonblock_mounts 는 server_inventory 전용 컬럼에서,
-    레이아웃 상세(block_devices/lvm_vgs 세부)는 raw JSONB 에서 _repro_* 의 d.get 으로 픽업. agent 가 아직
-    미수집한 값(addresses.origin, lvm size/free 등)은 raw 에 없어 자연히 null — 소비자는 항상 null 처리.
+    레이아웃 상세(block_devices/lvm_vgs 세부)는 raw JSONB 에서 _repro_* 의 d.get 으로 픽업. 소비자는 값 부재 시
+    null 처리(계약: 모든 키 present + nullable). speed_mbps 는 inventory null 시 link_speeds(metrics) 폴백.
     """
     boot = raw.boot or {}
     return {
@@ -117,7 +124,7 @@ def _reproduction(raw) -> dict:
             "root_ref_type": boot.get("root_ref_type"),
             "grub_install_target": boot.get("grub_install_target"),
         },
-        "network": {"interfaces": [_repro_interface(i) for i in raw.net_interfaces or []]},
+        "network": {"interfaces": [_repro_interface(i, link_speeds) for i in raw.net_interfaces or []]},
         "storage": {
             "block_devices": [_repro_block_device(d) for d in raw.block_devices or []],
             "lvm_vgs": [_repro_lvm_vg(v) for v in raw.lvm_vgs or []],
@@ -267,16 +274,20 @@ def _diagnostics(raw, stats, host) -> dict:
     }
 
 
-def build_assessment_entry(raw, mounts, is_online: bool, hostname_ambiguous: bool = False) -> dict:
+def build_assessment_entry(
+    raw, mounts, is_online: bool, hostname_ambiguous: bool = False,
+    link_speeds: dict[str, int] | None = None,
+) -> dict:
     """ReportRowRaw + per-mount 용량 + online -> /api/assessment 서버 항목 (계약 4.2).
 
     분류/사이징/근본원인 전부 rollup_host 종합에서 파생 — 화면/right-sizing API 와 값 정합(재계산 0).
+    link_speeds = iface별 최신 link.speed(bit/s) — inventory speed_mbps null 폴백(reproduction 정확도).
     """
     stats = build_resource_stats(raw)
     host = recommendation.rollup_host(stats)
     return {
         "identity": _identity(raw, is_online, hostname_ambiguous),
-        "reproduction": _reproduction(raw),
+        "reproduction": _reproduction(raw, link_speeds),
         "sizing": _sizing(raw, stats, host, mounts),
         "assessment": _assessment(host),
         "diagnostics": _diagnostics(raw, stats, host),

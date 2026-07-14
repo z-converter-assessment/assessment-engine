@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_shared.html" import empty_state %}
 {% block title %}ZConverter Assessment — {{ server.hostname }} 서버 상세{% endblock %}
 
 {% block content %}
@@ -42,9 +41,8 @@
     border-radius: 2px;
     display: inline-block;
   }
-  /* 포화 신호 라인 — 각 자원 표 아래 통일 표기 (자원 적정성 분류 축). label + 값 + os-aware 기준 설명. */
-  .sat-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 5px 0; }
-  .sat-name { font-size: 12px; font-weight: 600; color: #475569; min-width: 96px; }
+  /* .sat-line/.sat-name 은 base.html 단일 진실(min-width 128px 로 이 페이지의 "사용률 (worst mount)" 라벨까지
+     커버) — 여기서 재정의하면 다른 자원 상세 페이지와 폰트가 어긋난다. */
 </style>
 <a class="back no-print" href="{{ back_url }}">이전</a>
 
@@ -55,88 +53,76 @@
 
 <div class="card">
   <h2 class="card-title">시스템 정보</h2>
-  <dl class="kv kv-soft">
-    <dt class="kv-group">사양</dt>
-    <dt>OS</dt>
-    <dd>{{ server.os_display }}{% if server.os_codename %} ({{ server.os_codename }}){% endif %}</dd>
-    <dt>Kernel</dt>
-    <dd>{% if server.kernel_version %}{{ server.kernel_version }}{% else %}-{% endif %}</dd>
-    <dt>CPU</dt>
-    <dd>{{ server.cpu_display }}</dd>
-    <dt>Memory</dt>
-    <dd>{{ server.mem_total_gb | disksize }}</dd>
+  <div class="sysinfo-2col">
+    <dl class="kv kv-soft">
+      <dt class="kv-group">사양</dt>
+      <dt>OS</dt>
+      <dd>{{ server.os_display }}{% if server.os_codename %} ({{ server.os_codename }}){% endif %}</dd>
+      <dt>Kernel</dt>
+      <dd>{% if server.kernel_version %}{{ server.kernel_version }}{% else %}-{% endif %}</dd>
+      <dt>CPU</dt>
+      <dd>{{ server.cpu_display }}</dd>
+      <dt>Memory</dt>
+      <dd>{{ server.mem_total_gb | storagesize }}</dd>
+    </dl>
 
-    <dt class="kv-group">네트워크</dt>
-    <dt>Internal IP</dt>
-    <dd>{% for ip in server.ip_internal %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% else %}-{% endfor %}</dd>
-    <dt>External IP</dt>
-    <dd>
-      {% if server.ip_external %}
-        {% for ip in server.ip_external %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}
-      {% else %}
-        <span class="text-meta">없음</span>
+    <dl class="kv kv-soft">
+      <dt class="kv-group">스토리지</dt>
+      {# 배정 디스크 = 물리 블록 디바이스(virtio vda) 크기 = OpenStack 이 이 VM 에 배정한 스토리지. 파일시스템(df 사용가능)과 별개 축. #}
+      <dt>배정 디스크</dt>
+      <dd>{{ server.disk_total_gb | storagesize }} <span class="text-meta text-xs">이 VM 에 배정된 블록 디바이스</span></dd>
+      {# volume_total_gb = 마운트된 파일시스템 크기 합. 배정 디스크보다 작음(fs 오버헤드·boot·미할당). #}
+      <dt>파일시스템 용량</dt>
+      <dd>{{ server.volume_total_gb | storagesize }} <span class="text-meta text-xs">마운트된 파일시스템 합</span></dd>
+      {% if server.disk_unallocated_gb is not none and server.disk_unallocated_gb > 0 %}
+      {# 기타 = 배정 - 파일시스템. fs 오버헤드·boot·예약·미파티션 등 파일시스템 외 잔여(순수 미할당 아님) — "기타"가 정확. #}
+      <dt>기타</dt>
+      <dd>{{ server.disk_unallocated_gb | storagesize }}</dd>
       {% endif %}
-    </dd>
+    </dl>
+  </div>
 
-    <dt class="kv-group">운영 · 식별</dt>
-    <dt>OS EOL</dt>
-    <dd>{% if stability.os_eol_label %}{{ stability.os_eol_label }}{% else %}-{% endif %}</dd>
-    <dt>Boot Time</dt>
-    <dd>{{ server.boot_time | kst }}</dd>
-    <dt>Reboots</dt>
-    <dd>{{ stability.reboot_count }}회</dd>
-    <dt>Agent Started</dt>
-    <dd>{{ server.agent_started_at | kst }}</dd>
-    <dt>Agent Restarts</dt>
-    <dd>{{ stability.agent_restart_count }}회</dd>
-    <dt>Last Inventory</dt>
-    <dd>{{ server.last_seen_at | kst }}</dd>
-    <dt>Agent Version</dt>
-    <dd>{{ server.agent_version or '-' }}</dd>
-    <dt>Composite ID</dt>
-    <dd>{{ server.composite_id | or_dash }}</dd>
+  <div class="sysinfo-2col">
+    <dl class="kv kv-soft">
+      <dt class="kv-group">네트워크</dt>
+      <dt>Internal IP</dt>
+      <dd>{% for ip in server.ip_internal %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% else %}-{% endfor %}</dd>
+      <dt>External IP</dt>
+      <dd>
+        {% if server.ip_external %}
+          {% for ip in server.ip_external %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}
+        {% else %}
+          <span class="text-meta">없음</span>
+        {% endif %}
+      </dd>
+    </dl>
 
-    <dt class="kv-group">스토리지</dt>
-    {# 배정 디스크 = 물리 블록 디바이스(virtio vda) 크기 = OpenStack 이 이 VM 에 배정한 스토리지. 파일시스템(df 사용가능)과 별개 축. #}
-    <dt>배정 디스크</dt>
-    <dd>{{ server.disk_total_gb | storagesize }} <span class="text-meta text-xs">이 VM 에 배정된 블록 디바이스</span></dd>
-    {# volume_total_gb = 마운트된 파일시스템 크기 합. 배정 디스크보다 작음(fs 오버헤드·boot·미할당). #}
-    <dt>파일시스템 용량</dt>
-    <dd>{{ server.volume_total_gb | storagesize }} <span class="text-meta text-xs">마운트된 파일시스템 합</span></dd>
-    {% if server.disk_unallocated_gb is not none and server.disk_unallocated_gb > 0 %}
-    {# 미할당 = 배정 - 파일시스템. 파티션/LVM 미할당 여유(디스크 추가 없이 확장 여지, 추론). #}
-    <dt>미할당</dt>
-    <dd>{{ server.disk_unallocated_gb | storagesize }} <span class="text-meta text-xs">확장 여력 — 배정에서 파일시스템 뺀 여유 (추정)</span></dd>
-    {% endif %}
-    <dt>파일시스템</dt>
-    {% if server.volumes %}
-    <dd>{{ server.volumes_count }}개</dd>
-    <dd style="grid-column: 1 / -1;">
-      <table style="margin:0;">
-        <thead>
-          <tr><th>마운트</th><th>파일시스템</th><th>용량</th></tr>
-        </thead>
-        <tbody>
-          {% for v in server.volumes %}
-          <tr>
-            <td>{{ v.mount }}</td>
-            <td>{{ v.fstype or '-' }}</td>
-            <td>{{ v.total_gb | storagesize }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </dd>
-    {% else %}
-    <dd><span class="text-meta">수집된 파일시스템 정보 없음</span></dd>
-    {% endif %}
-  </dl>
+    <dl class="kv kv-soft">
+      <dt class="kv-group">운영 · 식별</dt>
+      <dt>OS EOL</dt>
+      <dd>{% if stability.os_eol_label %}{{ stability.os_eol_label }}{% else %}-{% endif %}</dd>
+      <dt>Boot Time</dt>
+      <dd>{{ server.boot_time | kst }}</dd>
+      <dt>Reboots</dt>
+      <dd>{{ stability.reboot_count }}회</dd>
+      <dt>Agent Started</dt>
+      <dd>{{ server.agent_started_at | kst }}</dd>
+      <dt>Agent Restarts</dt>
+      <dd>{{ stability.agent_restart_count }}회 <span class="text-meta text-xs">리부트 포함</span></dd>
+      <dt>Last Inventory</dt>
+      <dd>{{ server.last_seen_at | kst }}</dd>
+      <dt>Agent Version</dt>
+      <dd>{{ server.agent_version or '-' }}</dd>
+      <dt>Agent ID</dt>
+      <dd>{{ server.agent_id | or_dash }}</dd>
+    </dl>
+  </div>
 </div>
 
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 class="card-title" style="margin:0;">서비스 / 포트</h2>
-    <a href="/servers/{{ server.public_id }}/services?back={{ self_back }}" class="btn-action btn-action-sm no-print">서비스/포트 상세</a>
+    <h2 class="card-title" style="margin:0;">서비스·포트</h2>
+    <a href="/servers/{{ server.public_id }}/services?back={{ self_back }}" class="btn-action btn-action-sm no-print">서비스·포트 상세</a>
   </div>
 
   <div style="margin-bottom:16px;">
@@ -158,30 +144,13 @@
       <span class="text-meta text-md">실행 중인 서비스 없음</span>
     {% endif %}
   </div>
-
-  <div>
-    <div class="sub-label" style="margin-bottom:8px;">주요 Listen 포트 <span class="text-meta text-xs" style="font-weight:400;">위 서비스에 귀속되지 않은 소켓만 (서비스 포트는 카테고리 뱃지에 표시)</span></div>
-    {% if server.key_listen_ports %}
-    <div style="display:flex; flex-wrap:wrap; gap:8px;">
-      {% for p in server.key_listen_ports %}
-      <span class="port-chip">
-        <span class="identifier text-sm" style="color:var(--color-title);">{{ p.proto }}</span>
-        <strong>{{ p.port }}</strong>
-        {% if p.comm %}<span class="text-meta">{{ p.comm }}</span>{% endif %}
-      </span>
-      {% endfor %}
-    </div>
-    {% else %}
-    {{ empty_state("모든 Listen 포트가 위 서비스 카테고리 뱃지에 표시됨 (미귀속 포트 없음 · 동적 포트 49152+ 제외).") }}
-    {% endif %}
-  </div>
 </div>
 
 <!-- AJAX + 30초 polling (P3 예외, detail.js). -->
 <div class="card" id="realtime-metrics-card">
   <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
     <h2 class="card-title" style="margin:0;">실시간 메트릭</h2>
-    <span id="metrics-stamp" class="text-meta text-xs no-print">30초마다 자동 갱신 · 최근 —</span>
+    <span id="metrics-stamp" class="text-meta text-xs no-print">30초마다 자동 갱신</span>
   </div>
 
   <div id="metrics-loading" class="text-meta text-md" style="padding:8px 0;">
@@ -220,137 +189,88 @@
           <text id="disk-donut-text" x="50" y="56" text-anchor="middle" font-size="20" font-weight="700" fill="#94a3b8">—</text>
           <text id="disk-donut-unit" x="50" y="66" text-anchor="middle" font-size="10" fill="#94a3b8" style="display:none;">%</text>
         </svg>
-        <div class="text-label text-sm" style="margin-top:4px;">스토리지</div>
+        <div class="text-label text-sm" style="margin-top:4px;">디스크</div>
       </div>
     </div>
 
-    <div class="group-header" style="margin-top:8px;">
-      <span class="group-label">CPU</span>
-      <div class="group-line"></div>
-      <a href="/servers/{{ server.public_id }}/cpu?back={{ self_back }}" class="btn-action btn-action-sm no-print">CPU 상세</a>
-    </div>
-    <div class="group-panel">
-      <div class="table-scroll" style="margin-bottom:10px;">
-        <table style="min-width:560px;">
-          <thead>
-            <tr>
-              <th style="white-space:nowrap;">Usage</th>
-              <th style="white-space:nowrap;">User</th>
-              <th style="white-space:nowrap;">System</th>
-              {% if server.os_family != 'windows' %}<th style="white-space:nowrap;">I/O Wait</th>{% endif %}
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td id="cpu-usage" style="white-space:nowrap;">—</td>
-              <td id="cpu-user" style="white-space:nowrap;">—</td>
-              <td id="cpu-system" style="white-space:nowrap;">—</td>
-              {% if server.os_family != 'windows' %}<td id="cpu-iowait" style="white-space:nowrap;">—</td>{% endif %}
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="sat-line">
-        <span class="sat-name">실행 큐 <span class="text-meta text-xs">포화</span></span>
-        <span id="cpu-runq" class="text-sm">—</span>
-        <span class="text-meta text-xs">코어당 Linux 1(실행 대기 프로세스, procs_running) · Windows 2(Processor Queue Length) 이상 포화</span>
-      </div>
-      <div class="sat-line">
-        <span class="sat-name">Steal <span class="text-meta text-xs">포화</span></span>
-        <span id="cpu-steal" class="text-sm">—</span>
-        <span class="text-meta text-xs">하이퍼바이저가 vCPU 시간 뺏김 (가상화 경합) — Linux 전용 · Windows 는 OS 개념 부재로 미측정(N/A)</span>
-      </div>
-    </div>
-
-    <div class="group-header">
-      <span class="group-label">메모리</span>
-      <div class="group-line"></div>
-      <a href="/servers/{{ server.public_id }}/memory?back={{ self_back }}" class="btn-action btn-action-sm no-print">메모리 상세</a>
-    </div>
-    <div class="group-panel">
-      <div class="table-scroll" style="margin-bottom:10px;">
-        <table style="min-width:480px;">
-          <thead>
-            <tr>
-              <th style="white-space:nowrap;">Usage</th>
-              <th style="white-space:nowrap;">Used</th>
-              <th style="white-space:nowrap;">Available</th>
-              {% if server.os_family != 'windows' %}<th style="white-space:nowrap;">Cached</th>
-              <th style="white-space:nowrap;">Buffers</th>{% endif %}
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td id="mem-usage" style="white-space:nowrap;">—</td>
-              <td id="mem-used" style="white-space:nowrap;">—</td>
-              <td id="mem-avail" style="white-space:nowrap;">—</td>
-              {% if server.os_family != 'windows' %}<td id="mem-cached" style="white-space:nowrap;">—</td>
-              <td id="mem-buffers" style="white-space:nowrap;">—</td>{% endif %}
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="sat-line">
-        <span class="sat-name">페이징 <span class="text-meta text-xs">포화</span></span>
-        <span id="mem-paging" class="text-sm">—</span>
-        <span class="text-meta text-xs">물리 메모리 압박 — 하드 페이지 폴트율(Pages Input/sec, 디스크에서 페이지 읽기) 초당 20 이상 포화 · 양 OS 공통</span>
-      </div>
-    </div>
-
-    <div id="storage-group" style="display:none;">
-      <div class="group-header">
-        <span class="group-label">스토리지</span>
-        <div class="group-line"></div>
-        <a href="/servers/{{ server.public_id }}/storage?back={{ self_back }}" class="btn-action btn-action-sm no-print">스토리지 상세</a>
-      </div>
-      <div class="group-panel">
-        <div id="disk-io-section">
-          <table id="disk-io-table" style="margin-bottom:8px;">
-            <thead>
-              <tr>
-                <th>Device</th>
-                <th>Read IOPS</th><th>Write IOPS</th>
-                <th>Read (처리량)</th><th>Write (처리량)</th>
-              </tr>
-            </thead>
-            <tbody id="disk-io-body"></tbody>
-          </table>
-          <div id="disk-io-empty" class="text-meta text-sm" style="display:none;">디스크 I/O 미수집 — 연속 2회 측정 시 표시</div>
+    <div class="use-cols" style="margin-top:8px;">
+      <div class="use-col" id="storage-group">
+        <div class="group-header" style="margin:0 0 6px;">
+          <span class="group-label">스토리지 활동</span>
+          <div class="group-line"></div>
         </div>
-        <div class="sat-line">
-          <span class="sat-name">디스크 I/O 포화</span>
-          <span id="disk-sat" class="text-sm">—</span>
-          <span class="text-meta text-xs">Linux await(응답 지연) 20ms · Windows await(IOCTL) 20ms 초과 포화 (구세대 viostor 만 Avg Disk Queue Length 2 이상) · 호스트 전체</span>
-        </div>
+        <div id="disk-activity" class="act-lines"></div>
       </div>
-    </div>
-
-    <div id="net-io-section" style="display:none;">
-      <div class="group-header">
-        <span class="group-label">네트워크</span>
-        <div class="group-line"></div>
-        <a href="/servers/{{ server.public_id }}/network?back={{ self_back }}" class="btn-action btn-action-sm no-print">네트워크 상세</a>
-      </div>
-      <div class="group-panel">
-        <table id="net-io-table" style="margin-bottom:10px;">
-          <thead>
-            <tr>
-              <th>Interface</th>
-              <th>RX (처리량)</th><th>TX (처리량)</th>
-              <th>RX pps</th><th>TX pps</th>
-            </tr>
-          </thead>
-          <tbody id="net-io-body"></tbody>
-        </table>
-        <div class="sat-line">
-          <span class="sat-name">TCP 재전송율 포화</span>
-          <span id="net-retrans" class="text-sm">—</span>
-          <span class="text-meta text-xs">1% 이상이면 네트워크 품질 저하 · 호스트 전체(TCP 전역, OS 공통)</span>
+      <div class="use-col" id="net-io-section">
+        <div class="group-header" style="margin:0 0 6px;">
+          <span class="group-label">네트워크 활동</span>
+          <div class="group-line"></div>
         </div>
+        <div id="net-activity" class="act-lines"></div>
       </div>
     </div>
 
   </div><!-- /metrics-content -->
+</div>
+
+{% from "_shared.html" import period_status as _pstatus, period_rows as _prows %}
+<!-- 최근 N일 이용률·포화 평가 (right-sizing 분류 기준, 14일 p95 창, SSR precompute) -->
+<div class="card">
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+    <div style="display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;">
+      <h2 class="card-title" style="margin:0;">자원 이용률 · 포화 · 에러</h2>
+      {% if period %}<span style="font-size:15px; font-weight:700; color:{{ period.classification_color }};">{{ period.classification_label }}</span>{% endif %}
+    </div>
+    <span class="text-meta text-xs">최근 {{ period.window_days if period else 14 }}일</span>
+  </div>
+  {% if period %}
+    {% for res in period.resources %}
+    <div class="group-header"{% if loop.first %} style="margin-top:4px;"{% endif %}>
+      <span class="group-label">{{ res.name }}</span>
+      {% if res.verdict_label2 %}
+      <span class="res-verdict" style="color:{{ res.verdict_color }};">용량 {{ res.verdict_label }}</span>
+      <span class="res-verdict" style="color:{{ res.verdict_color2 }};">성능 {{ res.verdict_label2 }}</span>
+      {% else %}
+      <span class="res-verdict" style="color:{{ res.verdict_color }};">{{ res.verdict_label }}</span>
+      {% endif %}
+      <div class="group-line"></div>
+      <a href="/servers/{{ server.public_id }}/{{ res.detail_slug }}?back={{ self_back }}" class="btn-action btn-action-sm no-print">{{ res.name }} 상세</a>
+    </div>
+    <div class="group-panel">
+      <div class="use-cols">
+        {% if res.has_util %}
+        <div class="use-col">
+          <div class="use-col-head"><span class="use-col-label">이용률</span><span class="use-col-status">{{ _pstatus(res.util_over) }}</span></div>
+          {{ _prows(res.util_rows) }}
+        </div>
+        {% endif %}
+        <div class="use-col">
+          <div class="use-col-head"><span class="use-col-label">포화</span><span class="use-col-status">{{ _pstatus(res.sat_over) }}</span></div>
+          {{ _prows(res.sat_rows) }}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+
+    <div class="group-header" style="margin-top:8px;">
+      <span class="group-label">에러</span>
+      <div class="group-line"></div>
+    </div>
+    <div class="group-panel">
+      <div class="err-fleet">
+        {% for e in period.error_rows %}
+        <div class="err-item">
+          <span class="err-label">{{ e.label }}</span>
+          <span class="badge {{ e.badge_class }} sat-badge">{{ e.badge_text }}</span>
+          {% if e.note %}<span class="err-ctx">{{ e.note }}</span>{% endif %}
+          {% if e.sizing_signal %}<span class="err-sizing">{{ e.sizing_signal }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% else %}
+    <div class="text-meta text-md" style="padding:8px 0;">아직 평가할 메트릭이 충분하지 않습니다. 14일 창에 수집 데이터가 쌓이면 표시됩니다.</div>
+  {% endif %}
 </div>
 
 <section class="card no-print" id="server-report-card"
@@ -375,7 +295,10 @@
     </button>
   </div>
 
-  <div id="server-report-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
+  {# 배경 dim 없음 — 모달만 뜨고 뒤 카드는 그대로(사용자 결정). 다른 모달(설치 등)과 다른 예외적 처리.
+     오버레이 자체는 그대로 전체 화면을 덮어 바깥 클릭 시 닫기(detail.js e.target===modal)는 유지 —
+     투명해도 클릭 캡처는 되므로 pointer-events 조정 불요. #}
+  <div id="server-report-modal" style="display:none; position:fixed; inset:0; z-index:50; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
         <h3 id="server-report-title" class="modal-title">보고서 발행</h3>

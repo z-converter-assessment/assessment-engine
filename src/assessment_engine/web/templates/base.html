@@ -4,69 +4,94 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}ZConverter Assessment{% endblock %}</title>
+  {# 인라인 SVG data-URI favicon — 새 에셋 없이 /favicon.ico 404 제거(브라우저가 link rel=icon 사용). #}
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232563eb'/%3E%3Ctext x='16' y='23' font-size='20' font-family='Arial,sans-serif' font-weight='700' text-anchor='middle' fill='white'%3EZ%3C/text%3E%3C/svg%3E">
   <style>
     :root {
-      /* 테마색 3가지 (단일 진실) — 파란 주색 / 사이드바 회색 / 테이블 제목행 회색. 색 변경 시 본 3개만 수정. */
-      --color-title: #3b82f6;
+      /* 테마색 (단일 진실) — Horizon(ZIASTACK) 톤: 파란 액센트 / 다크 슬레이트 사이드바 / 얇은 보더. 색 변경 시 본 변수만 수정. */
+      --color-title: #2563eb;
       --color-sidebar: #475569;
-      --color-table-head: #a7b2c0;
-      /* 사이드바 색 — 흰 바탕 + 어두운 글씨(테이블 본문 톤). 상단 brand 영역만 테마 파랑(테이블 제목행 패턴). */
-      --sidebar-bg: #d2e2fc;
-      --sidebar-fg: #1a1a1a;
-      --sidebar-hover: #c6dbfa;
-      --sidebar-active: #ffffff;
-      --sidebar-width: 224px;
+      --color-table-head: #e5e7eb;
+      /* 사이드바 — 다크 슬레이트 바탕 + 밝은 글씨. 활성 항목만 액센트 파랑(흰 글씨). */
+      --sidebar-bg: #343a40;
+      --sidebar-fg: #d6dae1;
+      --sidebar-hover: #2b3036;
+      --sidebar-active: #2563eb;
+      --sidebar-width: 240px;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; color: #1a1a1a; background: #e9edf4; display: flex; align-items: stretch; min-height: 100vh; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 14px; color: #383d43; background: #e9edf3; min-height: 100vh; scrollbar-gutter: stable; }
 
     /* 전역 네비게이션 진행바 — full-page 이동(링크 클릭·폼 전송) 즉시 피드백. nav-progress.js 제어, 새 문서 로드 시 자연 소멸. */
     .nav-progress { position: fixed; top: 0; left: 0; height: 6px; width: 0; background: var(--color-title); z-index: 9999; opacity: 0; pointer-events: none; transition: width .2s ease, opacity .3s ease; box-shadow: 0 0 8px color-mix(in srgb, var(--color-title) 70%, transparent); }
     .nav-progress.is-active { opacity: 1; }
 
-    /* 사이드바 네비게이션 — _sidebar.html 마크업 + nav_groups 글로벌. 그룹·항목 동일 크기 13px. */
-    .sidebar { width: var(--sidebar-width); flex-shrink: 0; background: var(--sidebar-bg); display: flex; flex-direction: column; }
-    .sidebar-brand-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 14px 14px 18px; background: var(--color-title); }
-    .sidebar-brand { font-weight: 700; font-size: 13px; letter-spacing: -.2px; color: #ffffff; text-decoration: none; }
-    .sidebar-collapse-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex-shrink: 0; background: none; border: none; cursor: pointer; color: #ffffff; opacity: .85; }
-    .sidebar-collapse-btn:hover { opacity: 1; background: rgba(255,255,255,.2); border-radius: 4px; }
-    .sidebar-collapse-btn::before { content: ""; width: 7px; height: 7px; border-left: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); margin-left: 2px; }
-    .sidebar-nav { padding: 8px 0; overflow-y: auto; }
+    /* 사이드바 네비게이션 — 상단바(52px) 아래 고정. _sidebar.html 마크업 + nav_groups 글로벌. */
+    .sidebar { position: fixed; top: 52px; left: 0; bottom: 0; width: var(--sidebar-width); box-sizing: border-box; background: var(--sidebar-bg); display: flex; flex-direction: column; z-index: 40; overflow-y: auto; transition: transform .18s ease; border-right: 1px solid rgba(148,163,184,.18); }
+    .sidebar-nav { padding: 0 0 8px; }
     .sidebar-group { margin-bottom: 2px; }
-    .sidebar-group-label { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 8px 18px; background: none; border: none; cursor: pointer; font: inherit; font-size: 13px; color: var(--sidebar-fg); text-align: left; }
-    .sidebar-group-label::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--sidebar-fg); border-bottom: 1.5px solid var(--sidebar-fg); transform: rotate(45deg); transition: transform .15s; opacity: .7; margin-bottom: 2px; }
-    .sidebar-group.is-collapsed .sidebar-group-label::after { transform: rotate(-45deg); margin-bottom: -2px; }
-    .sidebar-items { list-style: none; background: #e6f0fe; }
-    .sidebar-group.is-collapsed .sidebar-items { display: none; }
-    .sidebar-item { display: block; padding: 7px 18px 7px 30px; color: var(--sidebar-fg); text-decoration: none; font-size: 13px; border-left: 3px solid transparent; }
+    /* 그룹 헤더 — 항목과 동일 폰트·크기·색. 계층 구분은 정렬(그룹=좌 / 항목=우)로만. 고정 높이 + 수직 중앙정렬로 그룹 간 높이 통일. */
+    .sidebar-group-label { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 40px; padding: 0 18px; background: none; border: none; cursor: pointer; font: inherit; font-size: 13px; font-weight: 400; color: var(--sidebar-fg); text-align: left; }
+    /* 폴드 캐럿 — 속 찬 삼각형. 펼침=아래(▼) / 접힘=오른쪽(▶), 회전 애니메이션. */
+    .sidebar-group-label::after { content: ""; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid currentColor; transition: transform .2s ease; opacity: .6; }
+    .sidebar-group.is-collapsed .sidebar-group-label::after { transform: rotate(-90deg); }
+    /* 아코디언 항목 — 열고닫기 max-height 트랜지션(부드러운 슬라이드). */
+    .sidebar-items { list-style: none; background: rgba(0,0,0,.14); overflow: hidden; max-height: 320px; transition: max-height .22s ease; }
+    .sidebar-group.is-collapsed .sidebar-items { max-height: 0; }
+    /* 페이지 선택(최하위 계층) — 우측 정렬. 활성 액센트 바도 우측 엣지로(정렬과 정합). */
+    .sidebar-item { display: block; padding: 7px 20px 7px 18px; color: var(--sidebar-fg); text-decoration: none; font-size: 13px; text-align: right; border-right: 3px solid transparent; }
     .sidebar-item:hover { background: var(--sidebar-hover); }
-    .sidebar-item.is-active { background: var(--sidebar-active); border-left-color: var(--color-title); border-left-width: 6px; padding-left: 27px; }
+    .sidebar-item.is-active { background: var(--sidebar-active); color: #ffffff; font-weight: 600; border-right-color: #93c5fd; border-right-width: 6px; padding-right: 17px; }
 
-    .content-area { flex: 1; min-width: 0; }
+    .content-area { margin-left: var(--sidebar-width); padding-top: 52px; min-width: 0; transition: margin-left .18s ease; }
     main { max-width: 1160px; margin: 28px auto; padding: 0 24px; }
     /* 제목 위 경로 (breadcrumb) — active_nav 기반 "그룹 / 항목". P3: nav_breadcrumb dict 조회만. */
     .breadcrumb { font-size: 12px; color: #94a3b8; margin-bottom: 8px; }
 
-    /* 데스크탑 접기 — body.sidebar-collapsed 시 사이드바 숨김 + 좌상단 펼치기(햄버거) 노출. */
-    .sidebar-toggle-btn { display: none; }
-    body.sidebar-collapsed .sidebar { display: none; }
-    body.sidebar-collapsed .sidebar-toggle-btn { display: inline-flex; }
-    body.sidebar-collapsed main { margin-top: 60px; }
+    /* 전역 상단 바 — full-width 고정. 좌: 토글+제품명 / 중: 호스트 검색 / 우: 데이터 최신성·엔진 버전. 흰 배경(콘텐츠와 정합, 다크 사이드바와 대비). topbar.js 가 폴링·검색 제어. */
+    .topbar { position: fixed; top: 0; left: 0; right: 0; height: 52px; z-index: 50; display: flex; align-items: center; padding: 0; background: #fff; border-bottom: 1px solid #e9ecf1; box-shadow: 0 1px 2px rgba(16,24,40,.04); }
+    /* 좌측(토글+제품명) 영역을 사이드바 폭과 정확히 일치 — 제목/검색 경계가 사이드바 우측 엣지와 정렬. */
+    .topbar-left { width: var(--sidebar-width); box-sizing: border-box; padding: 0 12px; display: flex; align-items: center; gap: 9px; flex-shrink: 0; }
+    .topbar-collapse { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex-shrink: 0; background: none; border: none; border-radius: 7px; cursor: pointer; color: #475569; transition: background .12s, color .12s; }
+    .topbar-collapse:hover { background: #eef2f7; color: #1f2937; }
+    .topbar-collapse span { position: relative; display: block; width: 18px; height: 2px; background: currentColor; border-radius: 2px; }
+    .topbar-collapse span::before, .topbar-collapse span::after { content: ""; position: absolute; left: 0; width: 18px; height: 2px; background: currentColor; border-radius: 2px; }
+    .topbar-collapse span::before { top: -6px; }
+    .topbar-collapse span::after { top: 6px; }
+    .topbar-brand { font-weight: 700; font-size: 15px; letter-spacing: -.3px; color: #454e5b; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .topbar-search { position: relative; flex: 0 1 360px; margin-left: 20px; }
+    .topbar-search-input { width: 100%; height: 34px; padding: 0 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f7f9fb; font-size: 13px; color: #374151; outline: none; transition: border-color .12s, box-shadow .12s, background .12s; }
+    .topbar-search-input:focus { border-color: var(--color-title); background: #fff; box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+    .topbar-search-results { position: absolute; top: 40px; left: 0; right: 0; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 8px 24px rgba(16,24,40,.12); z-index: 50; max-height: 340px; overflow-y: auto; }
+    .topbar-search-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; font-size: 13px; color: #1f2937; text-decoration: none; cursor: pointer; }
+    .topbar-search-item:hover, .topbar-search-item.active { background: #eef2fb; }
+    .topbar-search-item .th-os { font-size: 11px; color: #94a3b8; white-space: nowrap; }
+    .topbar-search-empty { padding: 10px 12px; font-size: 12px; color: #94a3b8; }
+    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 16px; flex-shrink: 0; margin-right: 22px; }
+    .topbar-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: #475569; font-variant-numeric: tabular-nums; }
+    .topbar-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; flex-shrink: 0; transition: background .2s ease; }
+    .topbar-status.live .topbar-status-dot { background: #22c55e; }
+    .topbar-status.warn .topbar-status-dot { background: #f59e0b; }
+    .topbar-status.down .topbar-status-dot { background: #ef4444; }
+    .topbar-version { font-size: 11px; color: #a0a7b4; font-variant-numeric: tabular-nums; }
+    /* 좁은 화면 — 검색 유연 축소, 버전 숨김, 제품명 축소. */
+    @media (max-width: 768px) { .topbar-search { flex: 1 1 auto; } .topbar-version { display: none; } .topbar-brand { font-size: 14px; } }
 
-    /* 좁은 화면 — 사이드바 off-canvas (햄버거 토글). 기본 숨김, body.sidebar-open 시 슬라이드 인. */
-    /* 펼치기 버튼은 프로젝트 버튼 테마(.btn-action) 따름 — 흰 배경·경계·그림자·회색 글씨. */
-    .sidebar-toggle-btn { position: fixed; top: 12px; left: 12px; z-index: 60; width: 38px; height: 38px; align-items: center; justify-content: center; background: #fff; color: #374151; border: 1px solid #e2e8f0; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; cursor: pointer; }
-    .sidebar-toggle-btn:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); }
+    /* 접기(데스크탑) — 사이드바 슬라이드 아웃 + 콘텐츠 좌여백 제거. 상단바 토글(#sidebar-collapse)이 body.sidebar-collapsed 제어. */
+    body.sidebar-collapsed .sidebar { transform: translateX(-100%); }
+    body.sidebar-collapsed .content-area { margin-left: 0; }
+    /* persist 초기 복원 순간엔 슬라이드 억제 — 로드 시 애니메이션 없이 즉시 반영(깜빡임 최소). */
+    body.no-sidebar-anim .sidebar, body.no-sidebar-anim .content-area, body.no-sidebar-anim .sidebar-items, body.no-sidebar-anim .sidebar-group-label::after { transition: none !important; }
+    .sidebar-backdrop { display: none; }
+
+    /* 좁은 화면 — 사이드바 off-canvas(상단바 아래). 기본 숨김, body.sidebar-open 시 슬라이드 인. */
     @media (max-width: 768px) {
-      body { display: block; }
-      .sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 70; transform: translateX(-100%); transition: transform .2s; box-shadow: 2px 0 8px rgba(0,0,0,.08); }
+      .content-area, body.sidebar-collapsed .content-area { margin-left: 0; }
+      .sidebar { transform: translateX(-100%); box-shadow: 2px 0 8px rgba(0,0,0,.08); }
       body.sidebar-open .sidebar { transform: translateX(0); }
-      body:not(.sidebar-collapsed) .sidebar { display: flex; }
-      .sidebar-collapse-btn { display: none; }
-      .sidebar-toggle-btn { display: inline-flex; }
-      .sidebar-backdrop { display: none; position: fixed; inset: 0; z-index: 65; background: rgba(15,23,42,.3); }
+      .sidebar-backdrop { position: fixed; inset: 0; top: 52px; z-index: 35; background: rgba(15,23,42,.3); }
       body.sidebar-open .sidebar-backdrop { display: block; }
-      main, body.sidebar-collapsed main { margin: 64px auto 28px; }
+      main { max-width: 100%; margin: 16px 0; padding: 16px; }
     }
     /* 폰트 위계 단일 진실 (static-assets.md "폰트 위계" 절). h1 > h2 > h3 영향력 차이 명확. */
     h1 { font-size: 20px; font-weight: 700; margin: 0 0 20px; color: #0f172a; }
@@ -91,8 +116,12 @@
     .table-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-title) 60%, white); border-radius: 99px; border: 1px solid #e2e8f0; min-width: 48px; }
     .table-scroll::-webkit-scrollbar-thumb:hover { background: var(--color-title); }
     /* 테이블 제목행 — 테마 파란색 배경 + 흰 글씨 (전 테이블 단일 진실). */
-    thead { background: color-mix(in srgb, var(--color-title) 60%, white); }
-    th { padding: 9px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #fff; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid var(--color-table-head); }
+    thead { background: #fbfcfd; }
+    /* 서버 목록 — table-layout:fixed 로 칼럼폭 고정(전체보기 시 행 늘어도 폭 불변). 폭은 th 인라인 지정, Hostname flex. */
+    .server-list-table { table-layout: fixed; width: 100%; min-width: 960px; }
+    /* Hostname 만 길면 말줄임(칼럼폭 유지) — 링크 셀에 한정, 체크박스·badge 셀은 제외. */
+    .server-list-table td.host-cell a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    th { padding: 11px 14px; text-align: left; font-size: 12px; font-weight: 600; color: #171a20; border-bottom: 1px solid var(--color-table-head); }
     td { padding: 11px 14px; border-top: 1px solid #f1f5f9; color: #334155; vertical-align: middle; font-size: 13px; }
     /* 내용행 zebra — 행 구분용 아주 옅은 바탕(제목행 제외). 짝수행만. hover 는 동일 스코프(specificity)로 우선. 인쇄도 exact 유지(F 인쇄 절). */
     tbody tr:nth-child(even) td { background: #fafbfc; }
@@ -105,10 +134,10 @@
     .detail-table th, .detail-table td { white-space: nowrap; }
     /* 정렬 가능 칼럼 헤더 — 클릭 어포던스 + 활성 방향 표식 (서버목록·서버별 자원 적정성 표 공용). */
     th.sort-col { cursor: pointer; user-select: none; transition: background .1s; }
-    th.sort-col:hover { color: #e2e8f0; background: rgba(255,255,255,.10); }
-    th.sort-col:active { background: rgba(255,255,255,.20); }
+    th.sort-col:hover { color: var(--color-title); background: rgba(37,99,235,.06); }
+    th.sort-col:active { background: rgba(37,99,235,.12); }
     /* 정렬 중인 칼럼 — 배경 강조 + 방향 삼각형(CSS border, 비유니코드). asc=위, desc=아래. */
-    th.sort-col.sort-asc, th.sort-col.sort-desc { background: rgba(255,255,255,.14); }
+    th.sort-col.sort-asc, th.sort-col.sort-desc { color: var(--color-title); background: rgba(37,99,235,.08); }
     th.sort-col.sort-asc::after, th.sort-col.sort-desc::after {
       content: ""; display: inline-block; margin-left: 5px; vertical-align: middle;
       border-left: 4px solid transparent; border-right: 4px solid transparent;
@@ -134,10 +163,19 @@
     .badge-cat-mail      { background: #ffffff; color: #c026d3; }
     .badge-cat-infra     { background: #ffffff; color: #ca8a04; }
     .badge-cat-unknown   { background: #ffffff; color: #64748b; }
+
+    /* 주요 워크로드 원형차트 — 멀티세그먼트 도넛 + 범례(색 dot·라벨·개수). 0 카테고리는 옅게(항상 노출, E9). */
+    .wl-chart { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; }
+    .wl-legend { display: flex; flex-direction: column; gap: 8px; }
+    .wl-legend-item { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+    .wl-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+    .wl-legend-label { color: #475569; min-width: 72px; }
+    .wl-legend-count { font-weight: 700; color: #1e293b; font-variant-numeric: tabular-nums; }
+    .wl-legend-item.is-zero { opacity: .5; }
     /* 서비스 카테고리 뱃지 경계 — 포트 칩(.port-chip)과 동일 1px 경계로 통일. */
     .badge-cat-web, .badge-cat-db, .badge-cat-cache, .badge-cat-mq, .badge-cat-container, .badge-cat-monitor, .badge-cat-remote, .badge-cat-file, .badge-cat-mail, .badge-cat-infra, .badge-cat-unknown { border: 1px solid #e2e8f0; }
     /* 서비스 포트 칩 — proto+port 단일 칩. 카테고리 묶음은 행 정렬(2열 grid)로 표현, 외곽 박스 없음. */
-    .port-chip { display: inline-flex; align-items: center; gap: 5px; background: #f8fafc; border: 1px solid #eaeef4; border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+    .port-chip { display: inline-flex; align-items: center; gap: 5px; background: #fff; border: 1px solid #eaeef4; border-radius: 6px; padding: 3px 8px; font-size: 12px; }
     /* USE Method 분류 badge — list/report 공유 (단일 진실). rec-swap은 메모리 부족 1차 신호 강조. */
     .rec-under_provisioned { background: #fee2e2; color: #b91c1c; }
     .rec-over_provisioned  { background: #dbeafe; color: #1d4ed8; }
@@ -162,10 +200,11 @@
     .task-timeline tr.task-row td:last-child { position: relative; padding-right: 24px; }
     .task-timeline tr.task-row td:last-child::after { content: "›"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #cbd5e1; font-size: 16px; transition: color .12s; }
     .task-timeline tr.task-row:hover td:last-child::after { color: var(--color-title); }
-    .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07); padding: 20px 24px; margin-bottom: 18px; }
+    .card { background: #fff; border: 1px solid #edeff2; border-radius: 8px; box-shadow: 0 1px 2px rgba(16,24,40,.05); padding: 20px 24px; margin-bottom: 18px; }
     /* 개별 고객 보고서 — 인접 섹션 2개를 같은 카드(흰 박스) 안 2열로. 안쪽 section 은 card 스타일 해제(내용만 노출). 좁은 화면은 아래 @media 640 에서 1열. */
-    .report-row-2 { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07); padding: 20px 24px; margin-bottom: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
-    .report-row-2 > section { background: none; box-shadow: none; border-radius: 0; padding: 0; margin: 0 !important; }
+    /* 2칼럼 리포트 행 — auto-fit 로 좁은 폭에서 자동 1칼럼 접힘(미디어쿼리 불요, 가로 넘침 방지). min-track=min(100%,440px)로 컨테이너보다 넓어지지 않음. */
+    .report-row-2 { background: #fff; border: 1px solid #edeff2; border-radius: 8px; box-shadow: 0 1px 2px rgba(16,24,40,.05); padding: 20px 24px; margin-bottom: 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 24px; align-items: start; }
+    .report-row-2 > section { background: none; box-shadow: none; border: none; border-radius: 0; padding: 0; margin: 0 !important; min-width: 0; }
 
     /* 카드 내부 서브섹션 구분 — 환경요약·운영신호 공통 위계 (h3 + 구분선). inline border-top 재구현 금지. */
     .card-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid #e2e8f0; }
@@ -196,6 +235,10 @@
     .kv dt.kv-group:first-child { margin-top: 0; padding-top: 0; border-top: none; }
     /* kv 하위 항목 — 상위(예: Available)에 속함을 들여쓰기 + 좌측 세로선으로 표현 (Cached/Buffers 등). */
     .kv dt.kv-sub { padding-left: 14px; margin-left: 6px; border-left: 2px solid #e2e8f0; }
+    /* 시스템 정보 2행 2열 — 사양|스토리지 한 행, 네트워크|운영·식별 한 행. 각 섹션이 독립 kv(dl)라 kv-group
+       first-child 는 자동으로 구분선 없음(칼럼 자체 헤더). 행 사이 구분선은 두 번째 sysinfo-2col 상단에. */
+    .sysinfo-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; }
+    .sysinfo-2col + .sysinfo-2col { margin-top: 14px; padding-top: 12px; border-top: 1px solid #f1f5f9; }
     /* os-diff — OS(리눅스/윈도우)별 측정·기준이 다른 지표. 값 아래 Linux/Windows 2행을 항상 노출(발현 OS만 설명 금지).
        서버 상세 탭(cpu/memory/storage/network) 공용 단일 형식 (#E9 발화). */
     .os-diff { padding: 7px 0; border-top: 1px solid #f1f5f9; }
@@ -221,9 +264,10 @@
     .text-muted  { color: #64748b; }   /* 보조 */
     .text-meta   { color: #94a3b8; }   /* 메타·부가 */
     .text-faint  { color: #cbd5e1; }   /* 흐림 */
-    .text-danger { color: #b91c1c; }   /* 위험 (under) */
+    .text-danger { color: #dc2626; }   /* 위험·문제 단일 빨강 (전 화면 통일 — 지원 종료·자원 부족·운영 이벤트·실패). inline hex 대신 본 클래스 사용 */
+    .text-warn   { color: #d97706; }   /* 경고·주의 단일 주황 — "임계 이상"(sat-val-hi·sat-status-hi)과 동일 토큰.
+                                           미상·참고 신호 등, 빨강과 구분. inline hex 대신 본 클래스 사용 */
     .text-ok     { color: #15803d; }   /* 정상 (optimal) */
-    .text-warn   { color: #92400e; }   /* 주의 (over·idle, amber) */
     .text-attn   { color: #c2410c; }   /* 운영 신호 (주황) */
     /* 텍스트 크기 유틸 — 색 유틸(.text-*)과 조합해 카드·보고서 micro 라벨/값에 적용. inline font-size 파편화 방지(static-assets 표준). 카탈로그 크기만(기본 14=body·13=td/h3 외 12·11). */
     .text-md { font-size: 13px; }
@@ -269,11 +313,48 @@
     .metric-grid-4 { grid-template-columns: repeat(4, 1fr); }
     .metric-grid-5 { grid-template-columns: repeat(5, 1fr); }
 
+    /* 스토리지 레이아웃 트리(_storage_tree.html storage_tree 매크로) — 스토리지 상세·서버 보고서 공용
+       (중첩 ul 들여쓰기 + 좌측 가이드선). 파생값은 mapper precompute(P3). */
+    .stree, .stree ul { list-style: none; margin: 0; padding: 0; }
+    .stree ul { margin-left: 16px; border-left: 1px solid #e2e8f0; padding-left: 16px; }
+    .stree-row {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 7px 0; border-bottom: 1px solid #f1f5f9;
+    }
+    .stree-kind {
+      font-size: 11px; font-weight: 600; color: #475569; background: #f1f5f9;
+      border-radius: 4px; padding: 2px 8px; min-width: 48px; text-align: center; white-space: nowrap;
+    }
+    .stree-name { font-weight: 600; color: #0f172a; font-family: var(--font-mono, ui-monospace, monospace); }
+    .stree-size { color: #334155; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .stree-meta { color: #64748b; font-size: 13px; }
+    .stree-badge { font-size: 10px; }
+    /* 좌측 정보(칩/이름/크기/배지/meta) — 게이지 없는 행은 자연 크기(폭 강제 불요, 정렬 대상이 없어서).
+       게이지 있는 행만 mapper 가 depth 를 상쇄한 폭(gauge_info_width_px)을 인라인으로 줘서, 게이지가 트리
+       depth(들여쓰기)와 무관하게 항상 같은 x 에서 시작하게 한다(우측정렬 대신 일정 인덴트, _storage_tree.html
+       인라인 style 참조). flex-grow:0 필수 — grow:1 이면 남는 공간을 info 가 먹어 게이지가 행마다 어긋난다. */
+    .stree-info { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 0 1 auto; }
+    .stree-usage { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .stree-bar { width: 110px; height: 8px; background: #f1f5f9; border-radius: 4px; overflow: hidden; }
+    .stree-bar-fill { display: block; height: 100%; background: var(--color-title); }
+    .stree-usage-label { font-size: 12px; white-space: nowrap; }
+    /* 파생·참조 노드(미할당·VG 여유·배열 구성원 참조) — 실 block_device 아니라 행 전체를 옅게 구분(칩·이름·크기
+       전부). 칩에 점선 테두리를 줘 "실 디바이스 아님"을 글자 읽기 전에 형태로 먼저 신호. */
+    .stree-unallocated .stree-kind, .stree-vg_free .stree-kind, .stree-raid_member .stree-kind {
+      background: transparent; border: 1px dashed #cbd5e1; color: #94a3b8;
+    }
+    .stree-unallocated .stree-name, .stree-vg_free .stree-name,
+    .stree-raid_member .stree-name { color: #94a3b8; font-weight: 500; }
+    .stree-unallocated .stree-size, .stree-vg_free .stree-size,
+    .stree-raid_member .stree-size { color: #94a3b8; }
+    .stree-swap .stree-name { color: #64748b; }
+
     /* KPI card — KPI 그리드 (환경 개요 요약, 보고서 분류 카운트). */
     .kpi-grid { display: grid; gap: 12px; margin-bottom: 24px; }
     .kpi-grid-2 { grid-template-columns: repeat(2, 1fr); }
     .kpi-grid-3 { grid-template-columns: repeat(3, 1fr); }
     .kpi-grid-4 { grid-template-columns: repeat(4, 1fr); }
+    .kpi-grid-5 { grid-template-columns: repeat(5, 1fr); }
     .kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; }
     .kpi span { display: block; color: #64748b; font-size: 12px; }
     .kpi strong { display: block; font-size: 24px; font-weight: 700; color: #1e293b; margin-top: 4px; }
@@ -288,6 +369,64 @@
 
     /* Empty state — 발화 가능하나 현재 데이터 없는 슬롯 (discoverability: 제목은 유지, 내용 없음을 명시). 박스 없이 회색 텍스트만. */
     .empty-state { font-size: 13px; color: #94a3b8; margin: 0; }
+    /* 차트 empty 오버레이 — position:relative 캔버스 박스 내부에 절대 위치로 완전 중앙(가로+세로). 캔버스와
+       같은 부모 아래 둬야 함(형제 블록으로 두면 박스 높이 밖에 걸려 중앙 정렬 안 됨). */
+    .chart-empty-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 100%; text-align: center; padding: 0 12px; }
+
+    /* 포화 스냅샷 신호 (SignalUtils 렌더 공통) — 라벨 + 이 호스트 OS 값/임계 + 상태 배지. 근거는 hover(title).
+       .sat-line/.sat-name 전 페이지(서버 상세·CPU/메모리/스토리지/네트워크 상세) 단일 진실 — 페이지별 재정의
+       금지(폰트 드리프트 방지). min-width 128px 는 서버 상세 카드의 "사용률 (worst mount)" 처럼 가장 긴
+       라벨까지 값 시작 x 좌표가 밀리지 않게 하는 공통 기준(#F9, 짧은 라벨 페이지는 여유 공백만 늘어남). */
+    .sat-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 5px 0; }
+    .sat-name { min-width: 128px; font-size: 13px; color: #475569; font-weight: 600; }
+    /* 추가 지표 등 라벨 길이가 들쭉날쭉한 sat-line 그룹 — 표처럼 항목|값 2열 정렬(act-lines 와 동일 grid 트릭).
+       sat-line=display:contents 로 자식 span(name·val) 이 부모 grid 셀에 직접 참여 -> 모든 행 값 시작점 정렬. */
+    .extra-grid { display: grid; grid-template-columns: max-content max-content; gap: 9px 20px; align-items: baseline; }
+    .extra-grid .sat-line { display: contents; margin: 0; }
+    .extra-grid .sat-name { min-width: 0; }
+    .sat-val { font-size: 13px; color: #1e293b; font-variant-numeric: tabular-nums; }
+    .sat-val-muted { color: #94a3b8; }
+    .sat-val-hi { color: #d97706; font-weight: 600; }   /* 임계 이상 신호값 — 글로벌 주황(text-warn)과 동일 토큰 */
+    /* 자원별 포화 상태 헤드라인 — 개별 신호 위 한 줄 요약. */
+    .sat-status { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 8px; }
+    .sat-status-label { font-size: 12px; font-weight: 700; color: #475569; }
+    .sat-status-hi { font-size: 13px; font-weight: 700; color: #d97706; }   /* 글로벌 주황 */
+    .sat-status-ok { font-size: 13px; font-weight: 600; color: #94a3b8; }
+    .sat-badge { padding: 2px 8px; font-size: 11px; }
+    .badge-muted { background: #f1f5f9; color: #64748b; }
+    /* USE 2축 컬럼 — 이용률(U) | 포화(S) 나란한 두 컬럼 (하나의 자원). 각 컬럼 = 헤더(라벨 + 임계 이상 N) +
+       그 축의 값·임계 신호 라인. 네트워크는 활동(I/O) | 포화. 디스크는 활동 라인이 컬럼 아래 전폭. */
+    .use-cols { display: flex; flex-wrap: wrap; gap: 10px 32px; margin: 2px 0 4px; }
+    .use-col { flex: 1 1 220px; min-width: 200px; }
+    .use-col-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; padding-bottom: 3px; border-bottom: 1px solid #f1f5f9; }
+    .use-col-label { font-size: 13px; font-weight: 700; color: #334155; }
+    .use-col-status { font-size: 12px; font-weight: 600; display: inline-flex; align-items: baseline; gap: 6px; }
+    .use-row { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 4px; }
+    .use-row.act-row { margin-top: 8px; }
+    .use-axis { min-width: 44px; font-size: 12px; font-weight: 700; color: #475569; flex-shrink: 0; }
+    /* 활동(I/O) 표 — device | 읽기/수신 | 쓰기/송신 3열 grid(행 간 열 정렬, 표처럼 일정 간격). 중립값.
+       act-line=display:contents 로 자식 span 이 부모 grid 셀에 직접 참여 -> 모든 행 열 정렬. */
+    .act-lines { display: grid; grid-template-columns: max-content max-content max-content; gap: 5px 20px; align-items: baseline; }
+    .act-line { display: contents; }
+    .act-dev { font-size: 12px; font-weight: 600; color: #475569; font-family: ui-monospace, monospace; }
+    .act-rw { font-size: 13px; color: #1e293b; font-variant-numeric: tabular-nums; }
+    /* 코어별 순간 사용률 칩 그리드 — CPU 상세 실시간(단일스레드 병목). 값 색은 글로벌 규칙(임계 이상=주황). */
+    .core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
+    .core-chip { border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; text-align: center; }
+    .core-chip-label { display: block; font-size: 10px; color: #94a3b8; font-family: ui-monospace, monospace; }
+    .core-chip-val { display: block; font-size: 13px; font-weight: 600; color: #1e293b; font-variant-numeric: tabular-nums; }
+    .core-chip-val.hi { color: #d97706; }
+
+    /* 에러 축 표시자 (SignalUtils.renderErrors) — 카운트형, 정상=0 발화(E9). 발생 시 종류·창 부기. */
+    .err-fleet { display: flex; flex-wrap: wrap; gap: 10px; }
+    .err-item { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid #e2e8f0; border-radius: 8px; }
+    .err-label { font-size: 13px; color: #475569; font-weight: 600; }
+    .err-ctx { font-size: 12px; color: #991b1b; }
+    .err-win { font-size: 11px; color: #94a3b8; }
+    /* OOM 발화 시 "메모리 자원 부족" — 임계 이상급 크기(13px) 빨간색으로 명확히(1건이라도 발생 시만). */
+    .err-sizing { font-size: 13px; font-weight: 700; color: #dc2626; }
+    /* 자원 소제목 옆 자원별 판정 — 어느 자원이 배지(종합) 발화 원인인지. 문제 자원만 색(inline), 정상은 muted. */
+    .res-verdict { font-size: 13px; font-weight: 700; }
 
 
     /* Chart toggle 버튼 — cpu/memory/network/storage/performance 공통 (range/anchor/agg toggle). */
@@ -296,19 +435,19 @@
     .chart-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
     .chart-head h2 { margin: 0; }  /* flex 중앙 정렬 — h2 기본 margin-bottom 이 bucket-label 과 어긋나는 것 방지 */
     /* bucket-label 부터 우측 — 구간/앵커/집계 컨트롤을 제목과 같은 줄 우측 정렬. wrap 시 그룹 단위로 내려감.
-       height/box-sizing 으로 select·anchor(30px)와 높이 통일 (inline span 은 기본 height 미적용이라 얇아짐 방지). */
-    .chart-head > span { margin-left: auto; display: inline-flex; align-items: center; height: 30px; box-sizing: border-box; }
-    /* 차트 컨트롤 드롭다운 — 구간/집계 select. 토글 버튼 줄을 좁게 대체. */
-    .chart-select { padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; color: #334155; font-size: 12px; cursor: pointer; height: 30px; box-sizing: border-box; }
+       height/box-sizing 으로 select·anchor(36px)와 높이 통일 (inline span 은 기본 height 미적용이라 얇아짐 방지). */
+    .chart-head > span { margin-left: auto; display: inline-flex; align-items: center; height: 36px; box-sizing: border-box; }
+    /* 차트 컨트롤 드롭다운 — 구간/집계 select. 크기·폰트는 서버목록 버튼(.btn-select, height 36·13px)과 통일. */
+    .chart-select { padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #334155; font-size: 13px; cursor: pointer; height: 36px; box-sizing: border-box; }
     .chart-select:hover { border-color: #94a3b8; }
-    .chart-anchor { padding: 4px 6px; border: 1px solid #e2e8f0; border-radius: 5px; font-size: 11px; color: #475569; background: #fff; cursor: pointer; height: 32px; box-sizing: border-box; }
-    /* 차트 버킷(분해력) 배지 — chart-select·chart-anchor(height 30) 와 정렬. 전 차트 페이지 공용. */
-    .bucket-label { font-size: 11px; font-weight: 500; color: #475569; background: #fff; border: 1px solid #cbd5e1; border-radius: 5px; height: 30px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 10px; }
+    .chart-anchor { padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; color: #475569; background: #fff; cursor: pointer; height: 36px; box-sizing: border-box; }
+    /* 차트 버킷(분해력) 배지 — chart-select·chart-anchor(height 36) 와 정렬. 전 차트 페이지 공용. */
+    .bucket-label { font-size: 13px; font-weight: 500; color: #475569; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; height: 36px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 12px; }
     /* 차트 하단 설명 캡션 — 전 차트 페이지 공용 (음영 영역 설명 등). */
     .chart-caption { font-size: 11px; color: #94a3b8; margin: 14px 0 0; }
     .toggle { padding: 5px 12px; border: 1px solid #e2e8f0; border-radius: 5px; background: #fff; color: #475569; font-size: 12px; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
     .toggle:hover { background: #f8fafc; border-color: #cbd5e1; }
-    .toggle.active { background: #0f172a; color: #fff; border-color: #0f172a; }
+    .toggle.active { background: var(--color-title); color: #fff; border-color: var(--color-title); }
     /* 차트 빈 데이터 플레이스홀더 — 차트 컨테이너(position:relative; height) 안에서 중앙 정렬.
        기본 숨김, 표시 시 JS 가 display:flex. canvas 와 같은 높이를 차지해 카드 크기 일관. */
     .chart-empty { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; text-align: center; color: #94a3b8; font-size: 13px; padding: 0 16px; box-sizing: border-box; }
@@ -362,23 +501,29 @@
     .btn-primary:hover:not(:disabled) { background: #2563eb; }
     .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; opacity: 0.7; }
     /* selection 발행 버튼 — 활성=테마색 채움 강조 / 비활성=회색. 색으로 활성여부 명확. */
-    .btn-select { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--color-title); border-radius: 6px; background: var(--color-title); color: #fff; font-size: 11px; font-weight: 600; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
-    .btn-select:hover:not(:disabled) { background: color-mix(in srgb, var(--color-title) 88%, black); }
-    .btn-select:disabled { background: #fff; color: #cbd5e1; border-color: #e2e8f0; cursor: not-allowed; }
+    .btn-select { display: inline-flex; align-items: center; gap: 5px; height: 36px; box-sizing: border-box; padding: 0 14px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #374151; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
+    .btn-select:hover:not(:disabled) { background: #f1f5f9; border-color: #94a3b8; }
+    .btn-select:disabled { background: #f8fafc; color: #cbd5e1; border-color: #eef1f4; cursor: not-allowed; }
     .search-row .clear-btn { padding: 5px 9px; background: #f1f5f9; color: #64748b; border: none; border-radius: 6px; font-size: 12px; cursor: pointer; }
     .search-row .clear-btn:hover { background: #e2e8f0; }
     /* thead 인라인 필터 — 제목행 각 칼럼 아래 필터 위젯 (검색·select). 테이블 제목이 필터 역할 겸함. */
     /* 서버 목록 필터 — 제목행과 분리된 별도 행. 위 선택 버튼(btn-select) 톤·크기. 미선택=회색, 값 선택 시 .active=테마색 강조. */
-    .list-filter { height: 28px; box-sizing: border-box; min-width: 0; padding: 4px 9px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #64748b; font-size: 11px; font-weight: 500; outline: none; }
+    .list-filter { height: 36px; box-sizing: border-box; min-width: 0; padding: 0 13px; border: 1px solid var(--color-title); border-radius: 6px; background: #fff; color: #475569; font-size: 13px; font-weight: 500; outline: none; }
     select.list-filter { appearance: none; -webkit-appearance: none; padding-right: 24px; cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%2364748b' stroke-width='1.5' d='M1 1l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
-    .list-filter:focus { border-color: var(--color-title); }
-    .list-filter.active { border-color: var(--color-title); color: var(--color-title); font-weight: 600; }
-    /* 초기화 = 파란 버튼 계열 (.btn-select 톤 통일). */
-    #filter-form .clear-btn { height: 28px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 4px 10px; background: var(--color-title); color: #fff; border: 1px solid var(--color-title); border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; text-decoration: none; }
-    #filter-form .clear-btn:hover { background: color-mix(in srgb, var(--color-title) 88%, black); }
+    .list-filter.active { color: var(--color-title); font-weight: 600; }
+    /* 통합 필터 오버레이 — 네이티브 placeholder 는 부분 색 불가라, '필터'만 테마색 강조한 가짜 placeholder 를
+       :placeholder-shown 로 토글(입력값 있으면 자동 숨김). 실제 placeholder 는 " "(공백)로 두고 오버레이가 문구 담당. */
+    #filter-form .filter-input-wrap { position: relative; flex: 1 1 auto; min-width: 0; display: flex; }
+    .filter-ph { position: absolute; left: 13px; right: 13px; top: 0; height: 36px; display: flex; align-items: center;
+      pointer-events: none; font-size: 13px; font-weight: 500; color: #94a3b8; white-space: nowrap; overflow: hidden; }
+    .filter-ph .filter-ph-key { color: var(--color-title); font-weight: 700; margin-right: 8px; }
+    .list-filter:not(:placeholder-shown) + .filter-ph { display: none; }
+    /* 초기화 = 중립 그레이 (필터·액션 버튼과 톤 통일, 파랑은 accent 로 아낌). */
+    #filter-form .clear-btn { height: 36px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 13px; background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none; }
+    #filter-form .clear-btn:hover { background: #e2e8f0; }
 
-    /* 차트 카드(CPU/메모리/스토리지/네트워크) 내부 행 구분 — 서브섹션 구분선 표준(.card-section)과 동일 #e2e8f0. */
-    .perf-row + .perf-row { margin-top: 24px; }
+    /* 성능 추이 자원별 카드(CPU/메모리/스토리지/네트워크) 안 perf-grid 는 servers/metrics.html 자체 <style> 이
+       화면용(auto-fit 2열)을 정의 — 여긴 인쇄 전용 재정의만(아래 @media print). */
 
     .print-only { display: none; }
 
@@ -386,7 +531,7 @@
        env-dual·env-pair·stat-grid·부하상위는 auto-fit minmax 라 자동 분기 — 여기선 고정 grid 만 보강. */
     @media (max-width: 640px) {
       .metric-grid-2, .metric-grid-3, .metric-grid-4, .metric-grid-5,
-      .kpi-grid-2, .kpi-grid-3, .kpi-grid-4, .report-row-2 { grid-template-columns: 1fr; }
+      .kpi-grid-2, .kpi-grid-3, .kpi-grid-4, .kpi-grid-5, .report-row-2 { grid-template-columns: 1fr; }
       .card { padding: 14px 16px; }
     }
 
@@ -401,9 +546,9 @@
       @page { margin: 10mm; }
       .no-print { display: none !important; }
       .print-only { display: revert !important; }
-      /* 사이드바 제외(no-print) + body flex 해제 — 본문이 전체 폭으로 출력 (사이드바 접힌 화면 전제). */
+      /* 사이드바·상단바 제외(no-print) — 본문이 전체 폭으로 출력. 고정 레이아웃 여백(margin-left·padding-top) 리셋. */
       body { display: block; background: #fff; }
-      .content-area { width: 100%; }
+      .content-area { width: 100%; margin-left: 0; padding-top: 0; }
       main { max-width: 100%; margin: 0; padding: 16px; }
       .card { box-shadow: none !important; border: 1px solid #d1d5db; page-break-inside: avoid; }
       /* 테이블 골격 — 인쇄는 box-shadow·옅은 td 경계선이 빠져 격자가 사라짐. 셀 경계선·제목행 배경 강제 출력으로 복원.
@@ -416,7 +561,7 @@
       tbody tr:nth-child(even) td { background: #fafbfc !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
       /* overflow 스크롤 컨테이너 — 인쇄는 스크롤 불가라 visible 로 전체 노출(테이블 잘림 방지). */
       div[style*="overflow"], .table-scroll { overflow: visible !important; }
-      /* 넓은 표(서버별 자원 적정성 = 14칼럼) 폰트·패딩 축소 — 폭 확보. 용지 방향(landscape)은 보고서 템플릿이
+      /* 넓은 표(서버별 자원 적정성 = 9칼럼) 폰트·패딩 축소 — 폭 확보. 용지 방향(landscape)은 보고서 템플릿이
          문서 전체에 @page 로 지정(named-page 방향은 브라우저 지원 불안정 -> 글로벌 @page 로 확실히). */
       .print-landscape table { font-size: 9px; }
       .print-landscape th, .print-landscape td { padding: 2px 4px !important; line-height: 13px !important; }
@@ -434,11 +579,12 @@
       .print-break-before { page-break-before: always; }
       /* 명시적 페이지 분기 유틸 — 이 요소 다음부터 새 페이지(개별 보고서 구동 서비스 후 자원 상세 분리). */
       .print-break-after { page-break-after: always; }
-      /* 성능 추이 — 행 카드 안 2 차트를 인쇄에서도 2열 유지 (auto-fit 이 A4 폭에서 1열로 떨어지는 것 방지). */
-      .perf-pair { grid-template-columns: repeat(2, 1fr) !important; }
-      /* 행(perf-row) 단위 page-break avoid — 행 안 2차트는 함께, 행 사이는 자유 분기. 화면 구분선은 인쇄서 제거. */
-      .perf-row { page-break-inside: avoid; }
-      .perf-row + .perf-row { margin-top: 12px !important; padding-top: 0 !important; border-top: none !important; }
+      /* 성능 추이 — 자원 카드 안 차트 그리드를 인쇄에서 4열로(landscape, metrics.html 자체 @page 로 가로 전환
+         — auto-fit 이 그대로면 세로 폭 기준이라 1~2열로 떨어짐). 차트 "행" 단위가 아니라 낱개(perf-item)에
+         page-break-inside:avoid 를 걸어 그리드 auto-flow 로 행 경계가 고정 DOM 이 아니어도 개별 차트는
+         절대 페이지 중간에 잘리지 않는다(짤림 방지가 핵심 — 같은 행 두 차트가 페이지가 갈라져도 무방). */
+      .perf-grid { grid-template-columns: repeat(4, 1fr) !important; gap: 10px !important; }
+      .perf-item { page-break-inside: avoid; }
       /* 환경 보고서 — 부하 추이 차트 + 토폴로지 서브넷 표 한 카드 2열을 인쇄에서도 2열 유지.
          minmax(0,1fr)+min-width:0 으로 1fr 암묵 min-width:auto 쏠림 방지(두 칸 균등). */
       .env-dual { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
@@ -453,12 +599,40 @@
       .perf-stack { gap: 12px !important; }
       .perf-stack .card { padding: 12px 16px !important; }
       .perf-stack h2 { font-size: 15px !important; }
+      /* 4열이라 칸이 좁음 — 차트 제목·설명은 카드 제목(위 15px)보다 더 축소해 줄바꿈/잘림 여지 최소화. */
+      .perf-stack .chart-subtitle { font-size: 10px !important; }
+      .perf-stack .chart-desc { font-size: 7px !important; line-height: 1.3 !important; min-height: 0 !important; margin-bottom: 4px !important; }
       .print-hide { display: none !important; }
       /* Chart.js 가 캔버스에 화면 폭(px)을 inline 으로 박아 인쇄 컨테이너를 넘는 것 보정 —
          캔버스를 컨테이너에 강제로 맞춰 꺾은선이 plot 경계를 넘지 않게. */
-      .perf-pair canvas { width: 100% !important; height: 100% !important; }
+      .perf-grid canvas { width: 100% !important; height: 100% !important; }
       /* 환경 부하 추이 차트(보고서 인쇄) — 동일 보정. */
       #env-trend-chart { width: 100% !important; height: 100% !important; }
+    }
+    /* ── 전역 모션·인터랙션 (통일) — base.html 단일 정의로 전 페이지 공통. prefers-reduced-motion 존중. ── */
+    /* 카드 등장 — 은은한 fade+up (로드 시 콘텐츠 안착). */
+    @keyframes card-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    .card { animation: card-in .55s cubic-bezier(.22,1,.36,1) both; }
+    /* 도넛 게이지 채우기 — 빈 호(0) -> 목표 호. util·saturation 도넛 공통(_shared 매크로 .donut-arc). */
+    @keyframes donut-grow { from { stroke-dasharray: 0 263.89; } }
+    .donut-arc { animation: donut-grow 1.5s cubic-bezier(.22,1,.36,1) both; }
+    /* 수평 분포 바 채우기 — 0 -> 목표 폭 (.bar-fill 공통). */
+    @keyframes bar-grow { from { width: 0; } }
+    .bar-fill { animation: bar-grow 1.2s cubic-bezier(.22,1,.36,1) both; }
+    /* 버튼·인터랙티브 — 통일 트랜지션 + press 피드백(눌림 시 살짝 내려앉음). */
+    .btn, .btn-action, .btn-print, .btn-primary, .btn-select, .toggle, .legend-chip,
+    .chart-select, .search-row button, .sidebar-item { transition: background .14s ease, color .14s ease, border-color .14s ease, box-shadow .14s ease, transform .1s ease; }
+    .btn:active, .btn-action:active, .btn-print:active, .toggle:active, .legend-chip:active,
+    .chart-select:active, .search-row button:active,
+    .btn-primary:active:not(:disabled), .btn-select:active:not(:disabled) { transform: translateY(1px); }
+    /* 모달 등장 — 배경 fade + 패널 살짝 확대. */
+    @keyframes modal-fade { from { opacity: 0; } }
+    @keyframes modal-pop { from { opacity: 0; transform: translateY(10px) scale(.985); } }
+    #task-modal { animation: modal-fade .18s ease both; }
+    #task-modal > div { animation: modal-pop .24s cubic-bezier(.22,1,.36,1) both; }
+    /* 접근성 — 모션 최소화 선호 시 전 애니메이션·트랜지션 무력화. */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .001ms !important; animation-delay: 0 !important; transition-duration: .001ms !important; }
     }
   </style>
   <!-- 자식 template의 inline script(<main> 안)에서 ChartUtils를 즉시 destructure하므로
@@ -467,15 +641,33 @@
   <script src="/static/js/toast-utils.js?v={{ asset_v }}"></script>
   <script src="/static/js/emit-utils.js?v={{ asset_v }}"></script>
   <script src="/static/js/table-utils.js?v={{ asset_v }}"></script>
+  <script src="/static/js/signal-utils.js?v={{ asset_v }}"></script>
   <script src="/static/js/task-modal.js?v={{ asset_v }}" defer></script>
   <script src="/static/js/sidebar.js?v={{ asset_v }}" defer></script>
   <script src="/static/js/nav-progress.js?v={{ asset_v }}" defer></script>
+  <script src="/static/js/topbar.js?v={{ asset_v }}" defer></script>
 </head>
 <body data-usage-danger-pct="{{ ui_thresholds.usage_danger_pct }}" data-usage-warn-pct="{{ ui_thresholds.usage_warn_pct }}"{% block body_attrs %}{% endblock %}>
   <div id="nav-progress" class="nav-progress no-print" aria-hidden="true"></div>
-  <button type="button" class="sidebar-toggle-btn no-print" id="sidebar-toggle" aria-label="메뉴 열기" aria-controls="sidebar" aria-expanded="false">
-    <span style="display:block; width:18px; height:2px; background:#374151; box-shadow:0 5px 0 #374151, 0 -5px 0 #374151;"></span>
-  </button>
+
+  <header class="topbar no-print">
+    <div class="topbar-left">
+      <button type="button" class="topbar-collapse" id="sidebar-collapse" aria-label="사이드바 토글" title="사이드바 토글" aria-controls="sidebar"><span></span></button>
+      <a href="/" class="topbar-brand">ZConverter Assessment</a>
+    </div>
+    <div class="topbar-search">
+      <input type="text" id="host-search-input" class="topbar-search-input" placeholder="호스트 검색..." autocomplete="off" spellcheck="false" aria-label="호스트 검색">
+      <div id="host-search-results" class="topbar-search-results" hidden></div>
+    </div>
+    <div class="topbar-right">
+      <span id="fleet-status" class="topbar-status" title="데이터 최신성 — 온라인 대수 | 마지막 수집 시각">
+        <span class="topbar-status-dot"></span>
+        <span id="fleet-status-text" class="topbar-status-text">온라인 확인 중</span>
+      </span>
+      <span class="topbar-version" title="엔진 버전">v{{ engine_version }}</span>
+    </div>
+  </header>
+
   <div class="sidebar-backdrop no-print" id="sidebar-backdrop"></div>
   {% include "_sidebar.html" %}
   <div class="content-area">

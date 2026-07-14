@@ -1,3 +1,4 @@
+// @ts-check
 // 차트 템플릿 공통 유틸. 모든 차트 페이지가 import.
 // CLAUDE.md #E1 P4 의무 규약(sequence counter, capture-before-await,
 // Array.isArray 방어, 404 분기, suggestedMax 명명 상수)의 도구 모음.
@@ -10,27 +11,34 @@
   const AUTO_BUCKET  = { '15m':'1m', '1h':'5m', '6h':'15m', '24h':'30m', '7d':'3h', '14d':'6h', '30d':'12h' };
   const BUCKET_LABEL = { '1m':'1분 집계', '5m':'5분 집계', '15m':'15분 집계', '30m':'30분 집계',
                          '1h':'1시간 집계', '3h':'3시간 집계', '6h':'6시간 집계', '12h':'12시간 집계', '1d':'1일 집계' };
+  /** @type {Record<string, number>} */
   const RANGE_MS  = { '15m':9e5, '1h':36e5, '6h':216e5, '24h':864e5, '7d':6048e5, '14d':12096e5, '30d':2592e6 };
+  /** @type {Record<string, number>} */
   const BUCKET_MS = { '1m':6e4, '5m':3e5, '15m':9e5, '30m':18e5, '1h':36e5, '3h':108e5, '6h':216e5, '12h':432e5, '1d':864e5 };
 
   // ── 색상 팔레트 ──
   // 테마색1 (base.html :root --color-title) — JS 차트 시리즈가 CSS 변수를 추종.
-  // getComputedStyle 실패·빈 값 시 #3b82f6 fallback (현행과 동일 색 — 회귀 0 보장).
+  // getComputedStyle 실패·빈 값 시 #2563eb fallback (--color-title 현행값과 동일 — 회귀 0 보장).
   function themeColor() {
     try {
       var v = getComputedStyle(document.documentElement).getPropertyValue('--color-title').trim();
-      return v || '#3b82f6';
-    } catch (e) { return '#3b82f6'; }
+      return v || '#2563eb';
+    } catch (e) { return '#2563eb'; }
   }
   const COLORS = [themeColor(),'#f59e0b','#22c55e','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
 
   // ── 시간 포매팅 (KST) ──
+  /** @param {string} isoStr */
   function fmtKst(isoStr) {
     const d = new Date(isoStr);
     const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
     return kst.toISOString().replace('T', ' ').slice(0, 19);
   }
 
+  /**
+   * @param {string} ts
+   * @param {string} range
+   */
   function fmtLabel(ts, range) {
     const d = new Date(new Date(ts).getTime() + 9 * 60 * 60 * 1000);
     const MM = String(d.getUTCMonth() + 1).padStart(2, '0');
@@ -43,6 +51,7 @@
   }
 
   // ── 처리량 포매터 (B/s → kB/s → MB/s) ──
+  /** @param {number | null} v */
   function fmtKbChart(v) {
     if (v == null) return '';
     if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + ' MB/s';
@@ -51,21 +60,28 @@
   }
 
   // ── 앵커 datetime 입력 처리 ──
+  /** @param {string} inputId */
   function getAnchorEnd(inputId) {
-    const val = document.getElementById(inputId).value;
+    const val = /** @type {HTMLInputElement} */ (document.getElementById(inputId)).value;
     if (!val) return null;
     const d = new Date(val + ':00+09:00');
     return d >= new Date() ? null : d;
   }
 
+  /** @param {string} inputId */
   function initAnchor(inputId) {
-    const input = document.getElementById(inputId);
+    const input = /** @type {HTMLInputElement} */ (document.getElementById(inputId));
     const kstNow = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 16).replace(' ', 'T');
     input.max = kstNow;
     input.value = kstNow;
   }
 
   // ── 버킷 그리드 생성 ──
+  /**
+   * @param {string} rangeKey
+   * @param {string} bucketKey
+   * @param {Date | null} [anchorEnd]
+   */
   function makeBucketGrid(rangeKey, bucketKey, anchorEnd) {
     const endMs = (anchorEnd || new Date()).getTime();
     const bMs   = BUCKET_MS[bucketKey];
@@ -76,8 +92,13 @@
     return grid;
   }
 
+  /**
+   * @param {number[]} grid
+   * @param {any[]} rows
+   * @param {number} bMs
+   */
   function joinToGrid(grid, rows, bMs) {
-    const map = {};
+    const map = /** @type {Record<number, any>} */ ({});
     for (const r of rows) {
       const t = Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs;
       map[t] = r.value;
@@ -89,13 +110,21 @@
   // cpu 분류·실행 큐·메모리 구성·종합 추이가 공유. rows: [{collected_at, value, dimension}].
   // metaMap: { dim: {label, color} } — 미정의 dim 은 dim 이름·기본색(#8b5cf6).
   // opts.valueFn: per-point 값 변환(기본 항등). opts.pointRadius: 0(추이)·1(분류).
+  /**
+   * @param {any[]} rows
+   * @param {number} bMs
+   * @param {number[]} grid
+   * @param {any} [metaMap]
+   * @param {any} [opts]
+   */
   function buildDimDatasets(rows, bMs, grid, metaMap = {}, opts = {}) {
+    /** @type {(v: any) => any} */
     const valueFn = opts.valueFn || (v => v);
     const pointRadius = opts.pointRadius ?? 0;
-    const byDim = {};
+    const byDim = /** @type {Record<string, any[]>} */ ({});
     for (const r of rows) { (byDim[r.dimension] = byDim[r.dimension] || []).push(r); }
     return Object.entries(byDim).map(([dim, pts]) => {
-      const map = {};
+      const map = /** @type {Record<number, any>} */ ({});
       for (const p of pts) { map[Math.floor(new Date(p.collected_at).getTime() / bMs) * bMs] = valueFn(p.value); }
       const meta  = metaMap[dim] || { label: dim, color: '#8b5cf6' };
       const color = meta.color || '#8b5cf6';
@@ -112,6 +141,7 @@
   // ── 처리량 동적 단위 포매터 (kB/s → MB/s) ──
   // 종합·환경 성능 추이(metrics·environment-metrics) Y축 단위 포매터 (B/s 기준 fmtKbChart 와 구분 — 이쪽은 kB 입력).
   // 단위 표기 "kB/s"/"MB/s" 통일 (fmtKbChart·format_net_rate 와 동일 관습).
+  /** @param {number | null} kb */
   function fmtThroughput(kb) {
     if (kb == null) return '—';
     return kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB/s' : kb.toFixed(1) + ' kB/s';
@@ -120,26 +150,53 @@
   // ── 토글 그룹 바인딩 ──
   // groupId 가 <select> 면 change 로, .toggle 버튼 그룹이면 click 으로 자동 분기.
   // 호출처는 (groupId, onChange(val)) 동일 — HTML 만 select/button 선택.
+  /**
+   * @param {string} groupId
+   * @param {(val: any) => void} onChange
+   */
   function bindToggle(groupId, onChange) {
     const el = document.getElementById(groupId);
     if (!el) return;
     if (el.tagName === 'SELECT') {
-      el.addEventListener('change', e => onChange(e.target.value));
+      el.addEventListener('change', e => onChange(/** @type {HTMLSelectElement} */ (e.target).value));
       return;
     }
     el.addEventListener('click', e => {
-      const btn = e.target.closest('.toggle');
+      const btn = /** @type {Element} */ (e.target).closest('.toggle');
       if (!btn) return;
       el.querySelectorAll('.toggle').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      onChange(btn.dataset.val);
+      onChange(/** @type {HTMLElement} */ (btn).dataset.val);
     });
+  }
+
+  // ── 페이지 단일 시간축 컨트롤러 (#F10 페이지 단일 윈도우/앵커) ──
+  // 한 range 토글 + 한 anchor 가 페이지의 모든 차트를 구동 — 차트별 파편 컨트롤 대체. 신호 간 시점 상관
+  // 관측(이 호스트를 이 창·이 시점으로). anchor 미입력=live now, 입력=고정(과거 사건 조사). 변경 시 onChange 로 전체 reload.
+  /**
+   * @param {string} rangeBtnsId
+   * @param {string} anchorId
+   * @param {string} defaultRange
+   * @param {() => void} onChange
+   * @returns {{ getRange: () => string, getAnchor: () => Date | null }}
+   */
+  function pageTimeControl(rangeBtnsId, anchorId, defaultRange, onChange) {
+    let range = defaultRange;
+    initAnchor(anchorId);
+    bindToggle(rangeBtnsId, (/** @type {string} */ v) => { range = v; onChange(); });
+    const anchorEl = document.getElementById(anchorId);
+    if (anchorEl) anchorEl.addEventListener('change', () => onChange());
+    return { getRange: () => range, getAnchor: () => getAnchorEnd(anchorId) };
   }
 
   // ── 30초 polling 자동 갱신 (detail 실시간 메트릭과 일관) ──
   // 탭 비활성(document.hidden) 시 tick skip — 다중 탭에서 누적 폴링 요청 차단(서버 부하 감소).
   // 숨겨졌다 다시 보이면 즉시 1회 refresh 해 멈춰있던 화면 보정 (loader 의 seq 가드가 중복 응답 흡수).
   // 폴링은 연결 상태 개념이 없어 상태 DOM 갱신 없음. stamp 는 호출처 loader 가 갱신.
+  /**
+   * @param {() => void} onRefresh
+   * @param {number} [intervalMs]
+   */
   function initAutoRefresh(onRefresh, intervalMs = 30_000) {
     const id = setInterval(() => { if (!document.hidden) onRefresh(); }, intervalMs);
     const onVisible = () => { if (!document.hidden) onRefresh(); };
@@ -152,12 +209,18 @@
   }
 
   // ── 응답 안전 변환 ──
+  /** @param {any} arr */
   function safeArray(arr) { return Array.isArray(arr) ? arr : []; }
 
   // ── Windows 미측정 메트릭 N/A (표시 경계) ──
   // Windows 는 cpu iowait/steal·mem buffers/cached 를 측정하지 않아 payload 에서 null 로 온다(구 에이전트는 0).
   // 값이 아니라 os_family==='windows' + 본 키로 판정해 'N/A' 표시 — null·0 어느 쪽이든 "측정값 0"과 구분. 부재 메트릭 카탈로그 단일 진실(JS).
-  const WIN_NA_KEYS = new Set(['cpu_iowait', 'cpu_steal', 'mem_buffers', 'mem_cached']);
+  const WIN_NA_KEYS = new Set(['cpu_iowait', 'cpu_steal', 'cpu_nice', 'mem_buffers', 'mem_cached']);
+  /**
+   * @param {string | null} osFamily
+   * @param {string} key
+   * @param {string} formatted
+   */
   function naWindows(osFamily, key, formatted) {
     return osFamily === 'windows' && WIN_NA_KEYS.has(key) ? 'N/A' : formatted;
   }
@@ -167,16 +230,23 @@
   // opts: { label?, color?, dashFn?(dim), pointRadius? }
   // single-dim(라벨 1개) 또는 multi-dim(dim별 색·dash) 통합.
   // 결과: [avgDataset, maxGhostDataset]쌍 N개. tooltip filter `datasetIndex % 2 === 0`로 max ghost 숨김.
+  /**
+   * @param {any[]} avgRows
+   * @param {any[]} maxRows
+   * @param {number} bMs
+   * @param {number[]} grid
+   * @param {any} [opts]
+   */
   function buildAvgMaxDatasets(avgRows, maxRows, bMs, grid, opts = {}) {
     // 버킷이 최소 단위(1분)면 버킷당 데이터가 1포인트라 max=avg → 음영 무의미.
     // 15분 구간(1분 버킷)에서 max ghost 비활성화 (음영·tooltip max 제거). environment 단일선과 동일하게 max=[] 처리.
     if (bMs <= BUCKET_MS['1m']) maxRows = [];
     const dims = [...new Set([...avgRows, ...maxRows].map(r => r.dimension || ''))];
-    const datasets = [];
+    const datasets = /** @type {any[]} */ ([]);
     dims.forEach((dim, i) => {
       const color = opts.color || COLORS[i % COLORS.length];
       const dash  = opts.dashFn ? opts.dashFn(dim) : [];
-      const avgMap = {}, maxMap = {};
+      const avgMap = /** @type {Record<number, any>} */ ({}), maxMap = /** @type {Record<number, any>} */ ({});
       for (const r of avgRows) if ((r.dimension || '') === dim)
         avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
       for (const r of maxRows) if ((r.dimension || '') === dim)
@@ -204,10 +274,15 @@
 
   // ── 짝수 인덱스 avg dataset만 legend 표시 (max ghost 숨김) ──
   // opts: { codeLabel?: code 태그 사용, withToggle?: 칩(pill) 토글 — avg/max 짝 함께 hide (P4 허용 — E1 P4 절) }
+  /**
+   * @param {string} containerId
+   * @param {any} chart
+   * @param {any} [opts]
+   */
   function buildAvgMaxLegend(containerId, chart, opts = {}) {
     const el = document.getElementById(containerId);
     if (!el || !chart) { if (el) el.innerHTML = ''; return; }
-    const avgDatasets = chart.data.datasets.filter((_, i) => i % 2 === 0);
+    const avgDatasets = /** @type {any[]} */ (chart.data.datasets).filter((_, i) => i % 2 === 0);
     // withToggle: cpu/memory 와 동일한 칩(pill) 토글 형식. avg/max 쌍을 1칩으로 묶어 함께 show/hide.
     if (opts.withToggle) {
       el.innerHTML = avgDatasets.map((ds, i) => `
@@ -217,7 +292,7 @@
       `).join('');
       el.querySelectorAll('.legend-chip').forEach(chip => {
         chip.addEventListener('click', () => {
-          const avgIdx = +chip.dataset.avg;
+          const avgIdx = +(/** @type {any} */ (chip)).dataset.avg;
           const hidden = !chart.getDatasetMeta(avgIdx).hidden;
           chart.getDatasetMeta(avgIdx).hidden     = hidden;
           chart.getDatasetMeta(avgIdx + 1).hidden = hidden;
@@ -242,14 +317,18 @@
 
   // 색 점 + 라벨 칩(pill) 토글 범례 — 클릭 시 dataset show/hide. 모든 차트 페이지 공용.
   // 숨김 상태는 aria-pressed=false (CSS 가 흐리게). label/checkbox 대신 button 이라 키보드 토글 자연 지원.
+  /**
+   * @param {any} container
+   * @param {any} chart
+   */
   function renderChipLegend(container, chart) {
     if (!chart) { container.innerHTML = ''; return; }
-    container.innerHTML = chart.data.datasets.map((ds, i) => `
+    container.innerHTML = /** @type {any[]} */ (chart.data.datasets).map((ds, i) => `
       <button type="button" class="legend-chip" data-idx="${i}" aria-pressed="true">
         <span class="legend-dot" style="background:${ds.borderColor};"></span>${ds.label}
       </button>
     `).join('');
-    container.querySelectorAll('.legend-chip').forEach(chip => {
+    container.querySelectorAll('.legend-chip').forEach((/** @type {any} */ chip) => {
       chip.addEventListener('click', () => {
         const meta = chart.getDatasetMeta(+chip.dataset.idx);
         meta.hidden = !meta.hidden;
@@ -259,13 +338,15 @@
     });
   }
 
-  root.ChartUtils = {
+  // globals.d.ts ChartUtilsApi 선언과 실제 구현이 일부 어긋나 로컬 any 캐스트로 우회.
+  // (COLORS 는 string[] 인데 선언은 Record<string,string>, getAnchorEnd 는 (inputId)->Date|null 인데 선언은 ()->string|null)
+  root.ChartUtils = /** @type {any} */ ({
     RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, RANGE_MS, BUCKET_MS, COLORS, themeColor,
     fmtKst, fmtLabel, fmtKbChart,
     getAnchorEnd, initAnchor,
     makeBucketGrid, joinToGrid, buildDimDatasets, fmtThroughput,
-    bindToggle, initAutoRefresh, safeArray, naWindows,
+    bindToggle, pageTimeControl, initAutoRefresh, safeArray, naWindows,
     buildAvgMaxDatasets, buildAvgMaxLegend,
     renderChipLegend,
-  };
+  });
 })(window);

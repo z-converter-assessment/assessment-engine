@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 from assessment_engine.db.dtos.outbound import ReportRowRaw
 from assessment_engine.web.services.mappers.right_sizing_api import build_right_sizing_entry
+from assessment_engine.web.view_models.right_sizing_api import RightSizingServer
 
 _NOW = datetime(2026, 5, 12, tzinfo=UTC)
 
@@ -201,3 +202,35 @@ def test_classification_and_labels_present():
     assert e["classification"] == "under_provisioned"
     assert isinstance(e["classification_label"], str) and e["classification_label"]
     assert "메모리" in (e["root_cause"] or "")
+
+
+def test_evidence_labels_no_raw_enum_leak():
+    """모든 도메인 trigger key 가 한국어 라벨로 변환 — mem_oom·net_* raw 영어 enum 누출 회귀 가드.
+
+    _evidence_labels 가 _CAUSE_LABEL_BY_TRIGGER(6키) 미커버 trigger 를 raw 로 흘려 OOM·네트워크
+    근거가 사용자에게 'mem_oom'·'net_retrans' 로 뜨던 회귀를 막는다(도메인 RS_TRIGGER_LABEL_KO 폴백).
+    """
+    from assessment_engine.recommendation import RS_TRIGGER_LABEL_KO
+    from assessment_engine.web.services.mappers.right_sizing_api import _evidence_labels
+
+    all_triggers = list(RS_TRIGGER_LABEL_KO)
+    labels = _evidence_labels(all_triggers)
+    leaked = [k for k, lbl in zip(all_triggers, labels, strict=True) if k == lbl]
+    assert not leaked, f"raw enum 누출: {leaked}"
+    assert "mem_oom" not in labels and "net_retrans" not in labels
+
+
+def test_entry_matches_response_schema():
+    """매퍼 dict 가 응답 스키마(RightSizingServer, extra=forbid)에 검증 — 매퍼<->OpenAPI 스키마 drift 가드.
+
+    여러 시나리오(linux 포화·windows 미측정·disk io·network)로 신규/누락 키·타입 불일치를 잡는다.
+    """
+    scenarios = [
+        _raw(os_family="linux", cpu_p95=75.0, cpu_cores=4, procs_running_p95=6.0),
+        _raw(os_family="windows", cpu_p95=40.0, cpu_cores=4),
+        _raw(os_family="linux", disk_await_p95_ms=30.0),
+        _raw(os_family="linux", mem_p95=92.0, mem_total_bytes=8 * 1024**3),
+    ]
+    for raw in scenarios:
+        entry = build_right_sizing_entry(raw, is_online=True)
+        RightSizingServer.model_validate(entry)  # 위반 시 즉시 실패

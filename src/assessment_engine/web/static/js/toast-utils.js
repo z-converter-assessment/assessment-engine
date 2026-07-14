@@ -1,3 +1,4 @@
+// @ts-check
 /* 토스트 알림 — install/export/report 등 작업 결과 일관 표시.
  *
  * ToastUtils.show(message, kind, duration_ms?)
@@ -29,6 +30,12 @@
     return c;
   }
 
+  /**
+   * @param {string} message
+   * @param {'ok' | 'warn' | 'err' | 'pending'} kind
+   * @param {number} [durationMs]
+   * @returns {HTMLDivElement}
+   */
   function show(message, kind, durationMs) {
     const container = ensureContainer();
     const style = KIND_STYLES[kind] || KIND_STYLES.pending;

@@ -9,6 +9,21 @@
 정적 토폴로지(무엇이 존재)와 동적 사용량(얼마나 찼나)을 분리 — 계층 가시성 단일 정책. 모든 소비처(용량·상세
 표시·export·토폴로지)가 본 술어를 공유하고 ad-hoc 재필터 금지 — 같은 raw 가 소비처마다 다른 계층을 뽑는
 불일치를 차단. device 부모-자식 조인은 노드 `parent`(부모 id)로 — major/minor 폐기.
+
+측정 원칙 (무엇을 어느 계층에서 재나 — Windows·Linux 통일 단일 규칙, 모든 화면 귀속. 기존 쿼리 노출분이
+아니라 DB 원본 필드 전체 기준):
+- 배정 용량 / 레이아웃 루트 = 물리 디스크 (block_devices type=="disk"). Linux vda / Windows PhysicalDrive0.
+  디바이스 특성(rotational=HDD/SSD·sector_size·serial)도 이 계층 속성.
+- 파일시스템 용량 = 마운트된 데이터 볼륨 (mountpoint 有 + is_data_volume). Linux part/LV / Windows volume.
+- 사용량 = 파일시스템(마운트) 계층 (server_filesystem, df/Get-Volume) — 2축: bytes(used/free) +
+  inode(inodes_used/free). inode 고갈은 bytes 여유해도 쓰기 실패라 별도 full 축. fullness 는 파일시스템
+  속성(raw 디스크는 채우는 대상이 아님) — 배정·확장·I/O·특성이 물리 디스크/VG 축을 맡는다.
+- I/O (IOPS·처리량·await 포화) = 물리 디스크 (server_disk_io type=="disk"). LV/파티션 통과분 이중집계 회피.
+- 확장 여력 = (a) lvm_vgs.free_bytes = VG 미할당(LV 확장 정밀치) + (b) 물리 디스크 미파티션 갭(배정 − 파티션 합).
+논리 계층 구조(lvm_vg·lvm_segtype·lvm_stripes·raid_level·crypt_type·partition_table·mount_options)는 block_devices
+노드 속성으로 레이아웃에 표현 — 무엇을 보든 원본에 있으면 계층에 귀속. 어느 축이든 계층 고정: 사용량=파일시스템,
+활동/용량/확장/특성=물리 디스크·VG. 소비처가 계층을 바꿔 재는 것 금지(같은 질문=같은 계층). 복잡 스택
+(disk->raid->lvm->crypt->fs)은 parent 체인, 다중 부모(RAID span·striped VG)는 디스크별 그룹으로 노출.
 """
 
 # 가상 파일시스템 — 데이터 볼륨 아님(용량 집계·상세 표시 제외). df 관례. types._VIRTUAL_FSTYPES(SQL) 와 동일 집합.

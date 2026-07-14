@@ -63,6 +63,15 @@ def make_inventory(
     lvm_vgs: list[dict] | None = None,
     services: list[dict] | None = None,
     listen_ports: list[dict] | None = None,
+    arch: str | None = None,
+    bits: int | None = None,
+    boot_firmware: str | None = None,
+    secure_boot: bool | None = None,
+    edition: str | None = None,
+    timezone: str | None = None,
+    rtc_utc: bool | None = None,
+    boot: dict | None = None,
+    nonblock_mounts: list[dict] | None = None,
 ) -> ServerInventoryCreate:
     """기본값은 placeholder가 아닌 '정상' inventory — 미지정 시 실제와 유사한 v2 값.
 
@@ -110,6 +119,15 @@ def make_inventory(
         services=services,
         listen_ports=listen_ports if listen_ports is not None else [],
         service_categories=compute_service_categories(services, listen_ports),
+        arch=arch,
+        bits=bits,
+        boot_firmware=boot_firmware,
+        secure_boot=secure_boot,
+        edition=edition,
+        timezone=timezone,
+        rtc_utc=rtc_utc,
+        boot=boot,
+        nonblock_mounts=nonblock_mounts,
     )
 
 

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 환경 보고서 live preview 발행 컨트롤(reports/environment.html, job 없는 preview 전용).
  *
@@ -7,16 +8,18 @@
  * 외부 의존: chart-utils.js(ChartUtils.initAnchor), toast(ToastUtils).
  */
 (function () {
-  const viewSel = document.getElementById('report-view');
-  const range = document.getElementById('report-range');
-  const anchor = document.getElementById('report-anchor');
-  const emit = document.getElementById('report-emit');
+  const viewSel = /** @type {HTMLSelectElement} */ (document.getElementById('report-view'));
+  const range = /** @type {HTMLSelectElement} */ (document.getElementById('report-range'));
+  const anchor = /** @type {HTMLInputElement} */ (document.getElementById('report-anchor'));
+  const emit = /** @type {HTMLButtonElement} */ (document.getElementById('report-emit'));
   if (!range || !anchor || !viewSel) return; // 발행된 스냅샷(컨트롤 없음)이면 skip
 
   // 앵커 초기값 — URL anchor_at("YYYY-MM-DDTHH:MM:SS+09:00", 이미 KST) 앞 16자만, 없으면 현재.
   const urlAnchor = new URLSearchParams(location.search).get('anchor_at');
   if (urlAnchor) anchor.value = urlAnchor.slice(0, 16);
-  else if (window.ChartUtils && window.ChartUtils.initAnchor) window.ChartUtils.initAnchor('report-anchor');
+  // globals.d.ts 의 initAnchor 시그니처(onChange 콜백)와 실제 런타임(inputId 문자열)이 달라 로컬 any 캐스트.
+  // (any 캐스트로 런타임 feature-check 도 유지 — 선언 타입상 항상 정의됨 판정 회피.)
+  else if (window.ChartUtils && (/** @type {any} */ (window.ChartUtils)).initAnchor) (/** @type {any} */ (window.ChartUtils)).initAnchor('report-anchor');
 
   function buildParams() {
     const p = new URLSearchParams();
@@ -30,7 +33,8 @@
   // (select 변경은 navigate 없이 발행 시점 값만 사용.)
   if (emit) {
     emit.addEventListener('click', function () {
-      window.EmitUtils.submitNavigate(emit, () => '/reports/environment/emit?' + buildParams(), {
+      // globals.d.ts 의 submitNavigate(url, opts) 시그니처와 실제 런타임(btn, urlFn, opts)이 달라 로컬 any 캐스트.
+      (/** @type {any} */ (window.EmitUtils)).submitNavigate(emit, () => '/reports/environment/emit?' + buildParams(), {
         pendingMsg: '보고서 발행 중...',
       });
     });

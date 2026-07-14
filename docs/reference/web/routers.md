@@ -21,14 +21,14 @@
 
 | 경로 | 핸들러 | 비고 |
 |------|--------|------|
-| `GET /` | `overview` | 환경 개요(홈) — 집계 위젯(환경 요약·자원 적정성 평가·운영 신호 + 환경 부하 추이·네트워크 토폴로지 요약). 자동 갱신 없음(정적 집계). environment_overview + attention (`docs/reference/web/services.md` "환경 개요 상단 요약") |
+| `GET /` | `overview` | 환경 개요(홈) — 집계 위젯(환경 요약·주요 워크로드·자원 적정성·자원 이용·포화 7도넛·운영 이벤트/에러). 자동 갱신 없음(정적 집계). 카드 레이아웃은 `docs/explanation/products/dashboard.md` 단일 진실. environment_overview + attention (`docs/reference/web/services.md` "환경 개요 상단 요약") |
 | `GET /servers?search=&is_online=&service=&os_id=&classification=&page=&limit=` | `servers_list` | 서버 목록 — 검색·온라인·서비스·OS·프로비저닝 필터 + 선택 N대 액션 버튼 (Install/Export/보고서). 필터 AND 조합 — service category (web/db/cache/mq/container/monitor/remote/file/mail/infra) · os_id (distro 정확 일치) · classification (under/over/idle/shutdown/optimal/insufficient_data). 검색 버튼 없음, 변경 즉시 client-side filter + URL replaceState. 기본 20행 표시 후 client clip(더보기/접기). `fragment=rows` 면 행 partial 만 |
-| `GET /environment/assessment?time_range=&anchor_at=&fragment=` | `assessment` | 환경 자원 평가 — 윈도우/앵커 선택 -> 자원 적정성 평가 + 자원 부족 전체 목록(상위 N 절단 해제). `fragment=result` 면 결과 partial 만(JS swap). time_range 기본 `DASHBOARD_TIME_RANGE` |
+| `GET /environment/assessment?time_range=&anchor_at=&fragment=` | `assessment` | 환경 자원 평가 — 윈도우/앵커 선택 -> 자원 적정성 평가 + 자원 부족 전체 목록(상위 N 절단 해제). `fragment=result` 면 결과 partial 만(JS swap). time_range 기본 `DIAGNOSTIC_DEFAULT_TIME_RANGE`(14d) |
 | `GET /environment/topology` | `topology` | 네트워크 토폴로지 — L3 subnet 공동소속 집계 그래프(subnet 노드 클릭 시 host 펼침) + 서브넷별 서버 카드 |
-| `GET /environment/metrics?ids=` | `environment_metrics` | 환경(또는 선택 N대) 성능 추이 — 10차트 live. ids(public_ids) 면 선택 N대 한정, 제목 "선택 N대" |
-| `GET /environment/realtime?ids=&fragment=` | `environment_realtime` | 환경(또는 선택 N대) 실시간 현황 — 평균 활용률 도넛 + 네트워크·디스크 I/O + 부하 상위 탑5. 정적 렌더(자동 갱신 없음). fragment=realtime 면 partial 만 |
+| `GET /environment/metrics?ids=` | `environment_metrics` | 환경(또는 선택 N대) 성능 추이 — 14차트 live. ids(public_ids) 면 선택 N대 한정, 제목 "선택 N대" |
+| `GET /environment/realtime?ids=&fragment=` | `environment_realtime` | 환경(또는 선택 N대) 실시간 현황 — 이용률 3 + 신호 4 도넛 + 환경 I/O 총량 + 부하 상위 탑3. `realtime.js` 30초 polling(fragment swap). fragment=realtime 면 partial 만 |
 | `GET /servers/{server_id}` | `get_server` | detail 탭 |
-| `GET /servers/{server_id}/{cpu,memory,services,metrics}` | 동일 helper | `_render_server_tab` 탭 공유. metrics=성능 추이(추이 차트 5행2열 `.perf-merged` 단일 카드) |
+| `GET /servers/{server_id}/{cpu,memory,services,metrics}` | 동일 helper | `_render_server_tab` 탭 공유. metrics=성능 추이(자원별 `.perf-stack` 카드 + 카드 안 `.perf-grid`/`.perf-item` 낱개 차트, 화면 2열/인쇄 4열 landscape) |
 | `GET /servers/{server_id}/{storage,network}` | 별도 핸들러 | 다른 service 메서드 |
 | `GET /servers/{server_id}/report?view=&time_range=` | `single_server_report` | 단일 server 보고서 read-only. record 안 함 (1대 단위는 발행 흐름 없음) |
 | `GET /reports/servers?ids=&view=customer\|engineer&time_range=&job=` | `report` | 선택 N대 보고서 표시 (scope=server). job 있으면 정적 스냅샷, 없으면 read-only live preview (PRG). view 파라미터로 분기 |
@@ -54,7 +54,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 |------|------|
 | `POST /install` | ZConverter Install task 발행 (다중 서버 일괄). 부분 UNIQUE pending 중복 시 409 (`TaskDuplicatePending`) |
 | `GET /{task_id}` | 단일 task JSON — polling / list cell 갱신 callback 용 |
-| `GET /{task_id}/detail` | 단일 task HTML fragment — task-modal body 용 (P3 정공, JS HTML 합성 폐기) |
+| `GET /{task_id}/detail` | 단일 task HTML fragment — task-modal body 용 (P3 정공, 서버 렌더 HTML 반환) |
 
 ### `assessment.py` — 프로비저닝 어세스먼트 (재해복구/마이그레이션 소비)
 | 경로 | 용도 |
@@ -69,9 +69,9 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 ### `right_sizing.py` — 자원 적정성 판정 (외부 자동화 소비)
 | 경로 | 용도 |
 |------|------|
-| `GET /api/right-sizing?hostname=&ip=&public_id=&pair=&window_days=&end=` | 서버별 자원 적정성 판정 JSON — 외부 자동화 소비. 화면·보고서와 동일 산식(`report_aggregate` -> `rollup_host`, 재계산 0). 외부는 내부 public_id 를 모르는 게 보통이라 hostname/ip 로 조회한다. 파라미터·응답 스키마·enum·권고 포맷·호스트명 충돌 안전은 `/reference/api` 상세 문서가 계약 단일 소유 |
+| `GET /api/right-sizing?hostname=&ip=&public_id=&pair=&window_days=&end=` | 서버별 자원 적정성 판정 JSON — 외부 자동화 소비. 화면·보고서와 동일 산식(`report_aggregate` -> `rollup_host`, 재계산 0). 외부는 내부 public_id 를 모르는 게 보통이라 hostname/ip 로 조회한다. 파라미터·응답 스키마·enum·권고 포맷·호스트명 충돌 안전은 Swagger(`/docs`)·ReDoc(`/redoc`)가 OpenAPI 스펙(라우터 docstring·Pydantic 응답 모델) 기준 단일 소유 |
 
-`GET /reference/api` (`reference_router`) — 위 JSON API 자동 목록(OpenAPI 파생) + right-sizing 전용 상세 사용법(파라미터·응답 필드 enum·예시·권고 포맷).
+`GET /reference/api` (`reference_router`) — JSON API 엔드포인트 목록(OpenAPI 파생, 메서드·경로·요약·파라미터·요청 본문 필드명만) + Swagger(`/docs`)·ReDoc(`/redoc`) 링크. 상세 스키마·enum·예시는 중복 문서화하지 않고 Swagger/ReDoc 단일 진실로 위임(#F12·docs/README 1원칙).
 
 ### `reports.py` — 보고서 SSR + 발행 (PRG 패턴)
 | 경로 | 용도 |

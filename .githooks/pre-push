@@ -1,30 +1,18 @@
 #!/usr/bin/env bash
-# git pre-push hook — 강제 게이트 2 (방식 무관): (1) main/master 직접 push 차단 (2) push 전 local-ci 통과.
+# git pre-push hook — main/master/develop 직접 push 차단 (방식 무관 강제 게이트).
 # 설치: git config core.hooksPath .githooks.
-# 작성 가이드(opt-in): .claude/skills/push/SKILL.md. 본 hook 이 최종 게이트.
-# main 은 PR 경유(base develop), release 는 develop->main PR 머지 후 main 에 tag(v*) push. 불가피 시 --no-verify.
+# feature -> develop PR, develop -> main PR 경유. release 는 main 에 tag(v*) push. 불가피 시 --no-verify.
+# 로컬 CI 는 돌리지 않는다 — 검증은 GitHub CI(main PR 에서만)로 위임, 로컬 push 게이트는 보호 브랜치 방어만.
 set -euo pipefail
 
 # stdin: <local ref> <local sha> <remote ref> <remote sha> (push 대상 ref 마다 1줄)
-PUSHING=0
 while read -r _local_ref _local_sha remote_ref _remote_sha; do
   case "$remote_ref" in
-    refs/heads/main|refs/heads/master)
-      echo "pre-push 거부: $remote_ref 직접 push 금지 — PR 경유 (base develop)." >&2
-      echo "  release 는 develop->main PR 머지 후 main 에 tag(v*) push. 불가피 시 --no-verify (권장 안 함)." >&2
+    refs/heads/main|refs/heads/master|refs/heads/develop)
+      echo "pre-push 거부: $remote_ref 직접 push 금지 — PR 경유." >&2
+      echo "  feature -> develop PR, develop -> main PR. release 는 main 에 tag(v*) push. 불가피 시 --no-verify (권장 안 함)." >&2
       exit 1
       ;;
-    refs/heads/*) PUSHING=1 ;;
   esac
 done
-
-# push 전 로컬 CI 재현 — 깨진 코드가 원격 가기 전 fail-fast (feature -> develop base 모드).
-# CI 발화 전 로컬 차단 = runner 비용·협업자 알림 noise 회피. 범위는 scripts/local-ci.sh 단일 진실.
-if [ "$PUSHING" = 1 ] && [ -x scripts/local-ci.sh ]; then
-  echo "pre-push: local-ci(develop) 실행 — 통과해야 push." >&2
-  if ! bash scripts/local-ci.sh develop; then
-    echo "pre-push 거부: local-ci 실패 — 수정 후 재 push. 불가피 시 --no-verify (권장 안 함)." >&2
-    exit 1
-  fi
-fi
 exit 0

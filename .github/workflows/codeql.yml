@@ -7,13 +7,9 @@ name: codeql
 # 결과는 Security 탭의 "Code scanning alerts"에 보고됨.
 
 on:
-  # SAST는 release gate(main PR) + 정기 cron으로 충분 — develop PR/push마다 5~10분 SAST는 과부하.
-  # default branch=main이라 cron은 main 코드만 스캔. develop 통합 코드는 develop->main PR에서 검사됨.
+  # SAST 는 main PR 에서만 — develop->main PR 단일 게이트에서 코드 자체 검사. 주기 cron 없음.
   pull_request:
     branches: [main]
-  # 새 CodeQL rule 공개·신규 CVE 패턴 감지 — 의존성 무관 코드 자체 재검사 (main 기준).
-  schedule:
-    - cron: '0 9 * * 1'
 
 permissions:
   contents: read

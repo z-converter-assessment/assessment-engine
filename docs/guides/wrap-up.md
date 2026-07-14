@@ -204,7 +204,7 @@ Self-audit 메타 인용 제외:
 - [4.6] 같은 사실(임계 상수·UNIQUE 키·routing key·환경변수 default·트랜잭션 경계)이 영구 문서 두 곳 이상 정의 0건. 단일 진실 후 나머지는 포인터(`상세는 X 절`).
 - [4.7] CLAUDE.md 본문과 `docs/reference/*` deep dive 책임 혼선 0건. CLAUDE.md = 결정·원칙·금지. deep dive = 동작·흐름·매트릭스·카탈로그.
 - [4.8] 본 명세와 다른 영구 문서(`testing.md` · `conventions.md`) 사이 중복 0건. 본 명세 = 워크플로 절차. 다른 문서 = 정책 자체.
-- [4.9] 같은 사실이 카테고리 두 곳(`architecture/` vs `operations/`)에 분산 0건. CLAUDE.md 전문 카테고리 표 정합.
+- [4.9] 같은 사실이 카테고리 두 곳(`reference/` vs `guides/` vs `explanation/`)에 분산 0건. CLAUDE.md 전문 카테고리 표 정합.
 
 간결 (3):
 - [4.10] 코드만 봐도 알 수 있는 사실(디렉토리 트리·함수 시그니처 본문·import graph·라인 수) 0건 — 코드 경로 포인터로.

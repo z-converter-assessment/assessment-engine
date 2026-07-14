@@ -196,9 +196,14 @@ Pagination 정책:
 
 Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_dash`): `docs/reference/web/services.md`.
 
-## E6. 정적 자원 — JS 외부화 의무
+## E6. 정적 자원 — JS 외부화 의무 + 타입 계약
 
 디렉토리 구조 / `chart-utils.js` base.html 단일 로드 / `ChartUtils` API / 페이지별 .js: `docs/reference/web/static-assets.md`. 외부화 강제 채널: #F5.
+
+본 절 결정:
+- 클라 JS 는 서버 ViewModel 과 타입 계약을 컴파일 강제한다 — FastAPI OpenAPI -> 생성 TS 타입(`static/js/generated/api.ts`) -> `// @ts-check` 클라 JS 를 `tsc --checkJs`. 파일별 점진 채택(`// @ts-check` opt-in), 핵심 강제 지점은 `fetch('/api/...')` 응답을 생성 타입으로 annotate 하는 fetch 경계. 메커니즘·확장·CI 게이트 단일 진실 = `docs/reference/web/type-contract.md`.
+- 서버 JSON 엔드포인트는 응답 타입을 선언한다(`response_model=` 또는 return 어노테이션) — 생성 타입의 원천. 엔드포인트/ViewModel 변경 시 `pnpm run codegen` 으로 `api.ts` 재생성·커밋(CI drift 게이트).
+- 클라는 서버 파생을 재계산하지 않는다(P2 보존) — 통계·분류·단위 변환은 서버 props 로만. 인터랙션 파생(차트 range 토글 등)만 예외(P4).
 
 ## E7. 도메인 분류 책임 (P2)
 
@@ -369,7 +374,8 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/reference/c
 | `recommendation.py` 분류 임계 변경 | (1) `recommendation.py` 임계 상수 (2) #F10 평가 윈도우 정합 (3) `docs/reference/right-sizing.md` 임계 근거 |
 | 분류 신호·OS 분기 (USE Method 축·임계·trigger) | (1) `recommendation.py` `assess_cpu`/`assess_memory`/`assess_disk_capacity`/`assess_disk_io`/`assess_network`·`rollup_host`(근본원인)·`RS_*` 임계 상수·`cpu_saturated`·`mem_saturated`·`disk_io_saturated`(os-aware) helper·`ResourceStats` 필드(`cpu_run_queue_p95`·`mem_pages_input_rate_p95`·`disk_inode_used_pct`·`conntrack_ratio` 등) (2) saturation 원자료면 `report_aggregate` SQL(cagg 집계 컬럼)·`ReportRowRaw`·`build_resource_stats` 배선 동시 (3) trigger 키 추가 시 report 진단(`_build_diagnosis`, host.resources 파생)·권고(`under_prescription`·`_resource_prescription`)·attention 원인 라벨(`_CAUSE_LABEL_BY_TRIGGER`)·`saturation_axis_displays` 동시 갱신 (4) stats 생성은 `build_resource_stats` 공용(report·attention·서버목록·도넛 단일 진실) — 직접 해석·임계 재계산 금지 (5) 표시 N/A·confidence(`host_saturation_unmeasured` 포화 축 한정·`build_host_confidence_notes`) 마커 (6) `docs/reference/right-sizing.md`(명세·근거 단일 진실) + `docs/reference/web/services.md` "OS 분기" + `_thresholds_reference.html` |
 | 환경변수 추가 | (1) `Settings` 필드 (2) `docs/reference/contracts/env.md` 카탈로그 (3) 루트 `docker-compose.yml` `environment:` (필요 시) (4) prod secret 분류면 `SecretStr` 타입 + `_validate_prod_*` 에 weak default 거부 추가 + `docs/reference/contracts/env.md` 2절·7절 |
-| ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass(P2) |
+| ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass(P2) (5) JSON API 응답 ViewModel이면 `pnpm run codegen` 으로 `static/js/generated/api.ts` 재생성·커밋 + 소비 JS annotate (타입 계약 drift 게이트, #E6) |
+| 신규 JSON API 엔드포인트 | (1) 라우터 return 타입/`response_model` 선언 (생성 타입 원천) (2) `pnpm run codegen` -> `api.ts` 재생성·커밋 (3) 소비 JS `// @ts-check` + fetch 경계 응답 annotate (4) E2 pagination 패턴(정적 row=page / 시간흐름=cursor) 택1 |
 | 보고서 스냅샷 ViewModel nested 필드 추가 (`EnvironmentReportSummary` 등 정적 스냅샷, #C1) | (1) ViewModel dataclass (2) mapper precompute (3) `report_serializer.*_from_dict` nested 복원 (dict -> dataclass, datetime/IpAddr 재구성 — 누락 시 dict 잔류로 template `.attr` 런타임 깨짐) (4) 템플릿 `.attr` 접근 (5) 라운드트립 단위 테스트(`test_report_serializer`) |
 | 신규 조건부(발화) UI 섹션 추가 | (1) 제목·카테고리 항상 노출 (2) 빈 상태 `empty_state` placeholder (3) 화면 컨텍스트 가드와 데이터 발화 가드 분리 (#E9) |
 | 신규 외부 의존(HTTP·외부 큐) | (1) fail-open/close 결정(#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) #F6 매트릭스 갱신 |
@@ -385,7 +391,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/reference/c
 
 본 절 결정:
 - right-sizing 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 14 — AWS Compute Optimizer 기본 lookback, 계층3). 보고서 라우터·서버 목록 분류·환경 개요 자원 적정성 카드·환경 자원 평가 페이지·구간 선택 기본값(`DIAGNOSTIC_DEFAULT_TIME_RANGE`·보고서 발행 select) 모두 본 상수/동일 값 참조 — 분류는 화면 간 14일 단일(#E3, 화면별 의미 분기 0). 변경 시 `_thresholds_reference.html` 표제도 동기화.
-- 윈도우 3분리 기준 (목적별, 임의값 0): (1) 분류·신뢰도 입력 = 14일 창 — p95·burst·steal·coverage·history_hours 전부 이 창. (2) 용량 runway = 가용 이력 전체 — 누적 신호라 길수록 정확, `report_aggregate` mount_span 이 하한 없이 `bucket <= :end` 로 실제 span 기반 산출(#C5 하한 술어 의식적 예외, tradeoffs T18). (3) 모니터링 활용률 게이지 = 24h(`DASHBOARD_TIME_RANGE`) — 분류 아닌 현재 활용 스냅샷(환경 개요 평균 활용률 카드 전용). 앵커 = 라이브 now / 보고서 발행 시점. 서버 상세 차트는 실시간 모니터링이라 별도(globalRange 15m, 평가 윈도우 무관).
+- 윈도우 2분리 기준 (목적별, 임의값 0): (1) 분류·신뢰도·이용률·포화 입력 = 14일 창 — p95·burst·steal·coverage·history_hours + 환경 개요 이용률·포화 도넛 6개 전부 이 창(#E3 화면 간 정합, 분류와 한 창 통일). (2) 용량 runway = 가용 이력 전체 — 누적 신호라 길수록 정확, `report_aggregate` mount_span 이 하한 없이 `bucket <= :end` 로 실제 span 기반 산출(#C5 하한 술어 의식적 예외, tradeoffs T18). 앵커 = 라이브 now / 보고서 발행 시점. 서버 상세 차트는 실시간 모니터링이라 별도(globalRange 15m, 평가 윈도우 무관). 실시간 현황 페이지(attention)는 순간 스냅샷(창 무관).
 - 다운사이즈 처방 이력 게이트 = 창 대비 관측 비율(`RS_DOWNSIZE_MIN_SUFFICIENCY`=0.7, `sample_sufficiency`) — 절대 시간 아님(WINDOW_DAYS 바뀌어도 문턱 불변, 미세 갭 흡수). 통계 정밀도 절대 바닥은 `RS_CONFIDENCE_MIN_HOURS`=30h(하드 컷 아닌 신뢰도 하향 트리거).
 - 환경 부하 추이(보고서 SSR 정적 차트) bucket 은 `AUTO_BUCKET[range]` 동적 — 발행 time_range 기준(예: 7d -> 3h, 24h -> 30m). 윈도우 변경 시 집계 단위 자동 추종 — 하드코딩 금지.
 - TimeRange/BucketSize Literal 단일 진실 = `db/repositories/query/types.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.

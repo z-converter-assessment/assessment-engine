@@ -7,12 +7,8 @@
 <!-- 구간·앵커 변경 즉시 반영 (assessment.js). -->
 <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
   <span class="bucket-label" id="assess-total-badge">{{ overview.risk_donut_total }}대 기준</span>
+  {# 분류는 14일 표준 설계 — 창은 표준 이상(14일/30일)만 제공. 짧은 창 판정은 저신뢰라 선택기에서 제외. #}
   <select class="chart-select no-print" id="assess-range" aria-label="구간 선택">
-    <option value="15m" {% if time_range == '15m' %}selected{% endif %}>15분</option>
-    <option value="1h" {% if time_range == '1h' %}selected{% endif %}>1시간</option>
-    <option value="6h" {% if time_range == '6h' %}selected{% endif %}>6시간</option>
-    <option value="24h" {% if time_range == '24h' %}selected{% endif %}>1일</option>
-    <option value="7d" {% if time_range == '7d' %}selected{% endif %}>7일</option>
     <option value="14d" {% if time_range == '14d' %}selected{% endif %}>14일</option>
     <option value="30d" {% if time_range == '30d' %}selected{% endif %}>30일</option>
   </select>

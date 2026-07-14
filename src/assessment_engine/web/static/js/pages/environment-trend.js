@@ -1,3 +1,4 @@
+// @ts-check
 /*
  * 환경 부하 추이 차트 — 보고서(정적 스냅샷) inline 렌더.
  *
@@ -9,13 +10,14 @@
  */
 (function () {
   function render() {
-    var el = document.getElementById('env-trend-chart');
+    var el = /** @type {HTMLCanvasElement | null} */ (document.getElementById('env-trend-chart'));
     if (!el || typeof Chart === 'undefined' || typeof ChartUtils === 'undefined') return;
     var raw = el.getAttribute('data-trend');
     var range = el.getAttribute('data-range') || '7d';
     // 가이드선(grid) — 대시보드만 표시(data-grid="true"), 보고서는 미표시. 범례는 양쪽 동일(토글 제거).
     var showGrid = el.getAttribute('data-grid') === 'true';
     if (!raw) return;
+    /** @type {Array<{ at: string, [k: string]: any }>} */
     var pts;
     try {
       pts = JSON.parse(raw);
@@ -29,15 +31,19 @@
     var bucketKey = ChartUtils.AUTO_BUCKET[range] || '6h';
     var bMs = ChartUtils.BUCKET_MS[bucketKey];
     var anchor = new Date(pts[pts.length - 1].at);
-    var grid = ChartUtils.makeBucketGrid(range, bucketKey, anchor);
-    var labels = grid.map(function (t) {
+    // 로컬 캐스트 — globals.d.ts 의 makeBucketGrid 선언(number,number,number)이 실제
+    // 시그니처(rangeKey,bucketKey,anchorEnd)와 어긋나 우회. globals_issue 로 보고.
+    var grid = /** @type {any} */ (ChartUtils).makeBucketGrid(range, bucketKey, anchor);
+    var labels = grid.map(function (/** @type {number} */ t) {
       return ChartUtils.fmtLabel(new Date(t).toISOString(), range);
     });
+    /** @param {string} key */
     function series(key) {
-      var rows = pts.map(function (p) {
+      var rows = pts.map(function (/** @type {{ at: string, [k: string]: any }} */ p) {
         return { collected_at: p.at, value: p[key] };
       });
-      return ChartUtils.joinToGrid(grid, rows, bMs);
+      // 로컬 캐스트 — globals.d.ts joinToGrid 는 2인자 선언이나 실제는 (grid,rows,bMs) 3인자. globals_issue 보고.
+      return /** @type {any} */ (ChartUtils).joinToGrid(grid, rows, bMs);
     }
     var cpu = series('cpu');
     var mem = series('mem');
@@ -54,7 +60,8 @@
           {
             label: 'CPU 평균',
             data: cpu,
-            borderColor: ChartUtils.themeColor(),
+            // 로컬 캐스트 — globals.d.ts themeColor(name:string) 이나 실제는 무인자. globals_issue 보고.
+            borderColor: /** @type {any} */ (ChartUtils).themeColor(),
             backgroundColor: 'transparent',
             tension: 0.2,
             spanGaps: false,
@@ -93,7 +100,7 @@
           y: {
             beginAtZero: true,
             suggestedMax: 100,
-            ticks: { callback: function (v) { return v + '%'; }, font: { size: 11 }, color: '#64748b' },
+            ticks: { callback: function (v) { return Number(v).toFixed(1) + '%'; }, font: { size: 11 }, color: '#64748b' },
             grid: { display: showGrid, color: '#f1f5f9' },
           },
         },
@@ -105,7 +112,8 @@
   }
 
   // 대시보드 자동갱신(list.js)이 fragment swap 후 재호출 — 보고서는 1회 렌더.
-  window.EnvTrend = { render: render };
+  // 로컬 캐스트 — EnvTrend 는 globals.d.ts Window 에 미선언(프로젝트 전역). globals_issue 보고.
+  /** @type {any} */ (window).EnvTrend = { render: render };
   if (document.readyState !== 'loading') render();
   else document.addEventListener('DOMContentLoaded', render);
 })();

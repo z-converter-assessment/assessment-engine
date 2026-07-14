@@ -18,6 +18,7 @@ from assessment_engine.web.services.mappers.assessment_api import (
     build_assessment_entry,
     build_assessment_envelope,
 )
+from assessment_engine.web.view_models.assessment_api import AssessmentServer
 
 _ACTIONS = {"increase", "decrease", "keep"}
 _QUALITY = {"exact", "floor", "uncertain"}
@@ -150,6 +151,9 @@ def test_entry_contract_invariants(raw, mounts, is_online, ambiguous):
     assert set(entry) == {"identity", "reproduction", "sizing", "assessment", "diagnostics"}
     # 2. 전체 JSON 직렬화 가능 — 타입 누수(datetime/set/IP객체)·비직렬 PII 노출 즉시 검출
     json.dumps(entry)
+    # 2b. 응답 스키마(계약 타입 미러) drift 가드 — 매퍼 dict 가 AssessmentServer(extra=forbid)에 검증.
+    #     신규/누락 키나 타입 불일치 = OpenAPI 스키마와 매퍼 어긋남 = 즉시 실패.
+    AssessmentServer.model_validate(entry)
 
     # 3. identity passthrough
     ident = entry["identity"]
@@ -227,3 +231,49 @@ def test_envelope_contract(rows):
     assert set(env["warnings"]) == {"ambiguous_hostnames", "unresolved_pairs", "unmatched_filters"}
     assert set(env["window"]) == {"days", "start", "end", "basis"}
     json.dumps(env)
+
+
+def test_reproduction_reshapes_os_boot_mounts():
+    """_reproduction os/boot/mounts 값 reshape — 채워진 boot dict.get 픽업 + nonblock_mounts 컴프리헨션."""
+    raw = ReportRowRaw(
+        server_id=1, public_id="00000000-0000-0000-0000-000000000001", hostname="h1",
+        os_family="linux", os_id="rocky", os_version="9.3", os_codename=None,
+        kernel_version="5.14.0", net_interfaces=None, services=None, last_seen_at=None,
+        cpu_p95_pct=None, cpu_avg_pct=None, cpu_peak_pct=None,
+        mem_p95_pct=None, mem_avg_pct=None, mem_peak_pct=None,
+        arch="aarch64", bits=64, boot_firmware="uefi", secure_boot=False,
+        edition="Datacenter", timezone="UTC", rtc_utc=True,
+        boot={"kernel_cmdline": "ro quiet", "root_ref_type": "label", "grub_install_target": None},
+        nonblock_mounts=[{"source": "tmpfs", "target": "/run", "fstype": "tmpfs",
+                          "options": ["rw"], "fs_freq": 0, "fs_passno": 0}],
+    )
+    repro = build_assessment_entry(raw, [], True)["reproduction"]
+    assert repro["os"]["arch"] == "aarch64"
+    assert repro["os"]["bits"] == 64
+    assert repro["os"]["boot_firmware"] == "uefi"
+    assert repro["os"]["secure_boot"] is False
+    assert repro["os"]["edition"] == "Datacenter"
+    assert repro["os"]["timezone"] == "UTC"
+    assert repro["os"]["rtc_utc"] is True
+    assert repro["boot"]["kernel_cmdline"] == "ro quiet"
+    assert repro["boot"]["root_ref_type"] == "label"
+    assert repro["boot"]["grub_install_target"] is None
+    assert repro["mounts"][0]["source"] == "tmpfs"
+    assert repro["mounts"][0]["fstype"] == "tmpfs"
+    assert repro["mounts"][0]["options"] == ["rw"]
+    assert repro["mounts"][0]["fs_passno"] == 0
+
+
+def test_reproduction_boot_and_mounts_null_fallback():
+    """raw.boot=None / nonblock_mounts=None 폴백 — boot or {} / nonblock_mounts or []."""
+    raw = ReportRowRaw(
+        server_id=2, public_id="00000000-0000-0000-0000-000000000002", hostname="h2",
+        os_family="windows", os_id="windows", os_version="2022", os_codename=None,
+        kernel_version=None, net_interfaces=None, services=None, last_seen_at=None,
+        cpu_p95_pct=None, cpu_avg_pct=None, cpu_peak_pct=None,
+        mem_p95_pct=None, mem_avg_pct=None, mem_peak_pct=None,
+        boot=None, nonblock_mounts=None,
+    )
+    repro = build_assessment_entry(raw, [], False)["reproduction"]
+    assert repro["boot"] == {"kernel_cmdline": None, "root_ref_type": None, "grub_install_target": None}
+    assert repro["mounts"] == []

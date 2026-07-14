@@ -8,12 +8,15 @@ from assessment_engine.web.services.mappers.server import (
 )
 from assessment_engine.web.services.serialization_util import json_default as _json_default
 from assessment_engine.web.view_models.metric import (
+    CpuCoreSnapshot,
     CpuSnapshot,
     DiskIoSnapshot,
+    ErrorSignal,
     MemSnapshot,
     MetricDashboard,
     MountDashSnapshot,
     NetIoSnapshot,
+    SaturationSignal,
 )
 from assessment_engine.web.view_models.server import (
     DiskItem,
@@ -25,6 +28,10 @@ from assessment_engine.web.view_models.server import (
     VolumeItem,
 )
 
+# pop 후 enrich_server_detail 이 재계산하는 파생 필드만 나열. 여기 넣은 필드는 캐시값을 버리고 enrich 재산출로
+# 복원되므로, enrich 가 못 만드는 필드(block_devices 등 캐시에 없는 raw 의존)는 넣지 말 것 — 넣으면 pop 후
+# 복원 불가로 None 이 된다. disk_total_gb·volume_total_gb·disk_unallocated_gb 는 storage_layers_gb(block_devices)
+# 산식이라 enrich 가 재계산 못 함 -> asdict 저장분을 그대로 보존(여기 미포함).
 _DETAIL_DISPLAY_FIELDS = frozenset(
     {
         "known_services",
@@ -32,14 +39,11 @@ _DETAIL_DISPLAY_FIELDS = frozenset(
         "key_listen_ports",
         "os_display",
         "cpu_display",
-        "disk_total_gb",
-        "disk_unallocated_gb",
         "sorted_services",
         "sorted_listen_ports",
         "services_count",
         "listen_ports_count",
         "disks_count",
-        "volume_total_gb",
         "volumes_count",
     }
 )
@@ -91,6 +95,7 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
         data.pop(key, None)
     if "public_id" not in data:
         data["public_id"] = ""
+    data.setdefault("agent_id", "")
     data.setdefault("composite_id", None)
     data.setdefault("machine_id", None)
     data.setdefault("os_family", None)
@@ -107,13 +112,18 @@ def dashboard_from_json(raw: str) -> MetricDashboard:
     return MetricDashboard(
         collected_at=datetime.fromisoformat(raw_ca) if isinstance(raw_ca, str) else None,
         cpu=CpuSnapshot(**data["cpu"]) if data.get("cpu") else None,
-        cpu_run_queue=data.get("cpu_run_queue"),
-        disk_await_ms=data.get("disk_await_ms"),
-        disk_queue=data.get("disk_queue"),
-        mem_pages_input_rate=data.get("mem_pages_input_rate"),
-        net_retrans_pct=data.get("net_retrans_pct"),
         memory=MemSnapshot(**data["memory"]) if data.get("memory") else None,
         disk_io=[DiskIoSnapshot(**d) for d in data.get("disk_io") or []],
         net_io=[NetIoSnapshot(**n) for n in data.get("net_io") or []],
         mounts=[MountDashSnapshot(**m) for m in data.get("mounts") or []],
+        disk_usage_pct=data.get("disk_usage_pct"),
+        cpu_saturation=[SaturationSignal(**s) for s in data.get("cpu_saturation") or []],
+        mem_saturation=[SaturationSignal(**s) for s in data.get("mem_saturation") or []],
+        disk_saturation=[SaturationSignal(**s) for s in data.get("disk_saturation") or []],
+        net_saturation=[SaturationSignal(**s) for s in data.get("net_saturation") or []],
+        errors=[
+            ErrorSignal(**{**e, "last_at": datetime.fromisoformat(e["last_at"]) if e.get("last_at") else None})
+            for e in data.get("errors") or []
+        ],
+        cpu_cores=[CpuCoreSnapshot(**c) for c in data.get("cpu_cores") or []],
     )

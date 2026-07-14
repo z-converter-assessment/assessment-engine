@@ -10,11 +10,14 @@ from assessment_engine.db.dtos.outbound import (
     MetricPairRaw,
     MountUsageRaw,
     NetIoRaw,
+    SaturationRaw,
 )
 from assessment_engine.web.services.metrics_calculator import (
     _clip_to_remaining,
     _delta_rate,
     _group_by_dim,
+    _psi_supported,
+    build_saturation_signals,
     compute_cpu,
     compute_disk_io,
     compute_mem,
@@ -386,3 +389,57 @@ def test_compute_mounts_filters_virtual():
     assert "/" in paths
     assert "/proc" not in paths
     assert "/snap/core/123" not in paths
+
+
+# ─── PSI 지원 판정 + 포화 신호 (구커널 N/A · 4-2) ──────────────────────────
+
+
+@pytest.mark.parametrize(
+    "kernel,expected",
+    [
+        ("5.15.0-91-generic", True),   # Linux 4.20+ = 지원
+        ("4.20.1", True),              # 정확히 경계
+        ("4.19.99", False),            # 경계 직전 = 미지원
+        ("3.10.0-1160.el7.x86_64", False),  # centos7 = 구조적 미지원
+        (None, None),                  # 커널 미상 = 판정 보류
+        ("", None),                    # 빈 문자열 = 판정 보류
+        ("garbage", None),             # 파싱 불가 = 판정 보류
+    ],
+)
+def test_psi_supported(kernel, expected):
+    assert _psi_supported(kernel) == expected
+
+
+def test_saturation_signals_old_kernel_psi_not_applicable():
+    """구커널(Linux <4.20)의 PSI 는 Windows 와 동일 not_applicable — "수집 대기" 오인 방지(4-2)."""
+    sat = SaturationRaw(psi_cpu=None, psi_mem=None, psi_io=None)
+    signals = build_saturation_signals(
+        os_family="linux", kernel_version="3.10.0-1160.el7.x86_64",
+        run_queue_total=None, cores=2, steal_pct=None, sat=sat,
+    )
+    cpu_psi = next(s for s in signals["cpu"] if s.key == "cpu_psi")
+    assert cpu_psi.state == "not_applicable"
+    assert "구커널" in (cpu_psi.na_reason or "")
+
+
+def test_saturation_signals_new_kernel_psi_no_data_when_unmeasured():
+    """신커널(4.20+)인데 PSI 값 미수집이면 not_applicable 아닌 no_data(수집 대기) — 구커널과 구분(4-2)."""
+    sat = SaturationRaw(psi_cpu=None)
+    signals = build_saturation_signals(
+        os_family="linux", kernel_version="5.15.0",
+        run_queue_total=None, cores=2, steal_pct=None, sat=sat,
+    )
+    cpu_psi = next(s for s in signals["cpu"] if s.key == "cpu_psi")
+    assert cpu_psi.state == "no_data"
+
+
+def test_saturation_signals_unknown_kernel_psi_falls_through():
+    """커널 미상이면 PSI 판정 보류 — 값 있으면 measured, 없으면 no_data(N/A 강제 안 함)."""
+    sat = SaturationRaw(psi_cpu=12.5)
+    signals = build_saturation_signals(
+        os_family="linux", kernel_version=None,
+        run_queue_total=None, cores=2, steal_pct=None, sat=sat,
+    )
+    cpu_psi = next(s for s in signals["cpu"] if s.key == "cpu_psi")
+    assert cpu_psi.state == "measured"
+    assert cpu_psi.value == 12.5

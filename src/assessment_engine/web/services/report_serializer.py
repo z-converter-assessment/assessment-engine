@@ -13,6 +13,8 @@ result JSONB 구조·키 단일 진실은 `diagnostic.report_result`.
 본 모듈은 그 구조 안 `snapshot` 의 ViewModel <-> dict 직렬화만 담당.
 """
 
+import dataclasses
+
 # result 구조 계약(키·dict 조립)은 diagnostic.report_result 단일 진실 — web view_models 에 의존하지
 # 않는 중립 모듈에 분리.
 from assessment_engine.diagnostic.report_result import (  # noqa: F401 (re-export)
@@ -28,6 +30,7 @@ from assessment_engine.web.view_models.attention import (
     CapacityMetric,
     CapacityWarningItem,
     EnvironmentOverview,
+    FleetErrorItem,
     RiskDonutSegment,
     SaturationDonut,
     UtilizationBar,
@@ -45,18 +48,22 @@ from assessment_engine.web.view_models.environment_report import (
     ServiceCatalogGroup,
     ServiceHost,
     ServiceNameCount,
-    VolumeUsage,
+)
+from assessment_engine.web.view_models.metric import (
+    PeriodAssessment,
+    PeriodErrorRow,
+    PeriodExtraGroup,
+    PeriodResource,
+    PeriodSignalRow,
 )
 from assessment_engine.web.view_models.report import (
     ReportListenItem,
     ReportRowItem,
-    ReportServiceUnit,
     ReportSummary,
     ReportTotals,
     ReportWorkloadGroup,
-    SaturationAxis,
 )
-from assessment_engine.web.view_models.server import IpAddr
+from assessment_engine.web.view_models.server import IpAddr, NetIfaceAddress, NetworkInterfaceInfo, StorageNode
 from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGroup, SubnetHost
 
 
@@ -67,14 +74,23 @@ def report_summary_to_dict(vm: ReportSummary) -> dict:
     return _to_jsonable(vm)
 
 
+def _drop_unknown_fields(cls: type, data: dict) -> dict:
+    """저장된 스냅샷에 남아있으나 현재 dataclass 에 없는 키 제거 — 보고서는 발행 시점 정적 스냅샷이라
+
+    (C1) 필드를 나중에 빼도 과거 스냅샷의 JSONB 는 옛 키를 그대로 보관한다. `cls(**data)` 가 그 키를
+    unexpected keyword argument 로 거부하지 않도록 현재 스키마 기준으로 걸러낸다(에이전트 wire 계약의
+    `extra=ignore` 와 동일 취지, #B).
+    """
+    known = {f.name for f in dataclasses.fields(cls)}
+    return {k: v for k, v in data.items() if k in known}
+
+
 def _report_row_from_dict(r: dict) -> ReportRowItem:
-    """ReportRowItem 복원 — nested 구동 서비스 3 필드(list[dataclass]) 재구성 포함."""
+    """ReportRowItem 복원 — nested 구동 서비스 2 필드(list[dataclass]) 재구성 포함."""
     data = dict(r)
     data["workload_groups"] = [ReportWorkloadGroup(**g) for g in data.get("workload_groups") or []]
-    data["service_units"] = [ReportServiceUnit(**u) for u in data.get("service_units") or []]
     data["listen_ports_detail"] = [ReportListenItem(**p) for p in data.get("listen_ports_detail") or []]
-    data["saturation_axes"] = [SaturationAxis(**a) for a in data.get("saturation_axes") or []]
-    return ReportRowItem(**data)
+    return ReportRowItem(**_drop_unknown_fields(ReportRowItem, data))
 
 
 def report_summary_from_dict(d: dict) -> ReportSummary:
@@ -84,7 +100,7 @@ def report_summary_from_dict(d: dict) -> ReportSummary:
     data["totals"] = ReportTotals(**totals) if totals else ReportTotals(0, 0.0, 0)
     data["generated_at"] = _dt(data.get("generated_at"))
     data["anchor_at"] = _dt(data.get("anchor_at"))
-    return ReportSummary(**data)
+    return ReportSummary(**_drop_unknown_fields(ReportSummary, data))
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -147,14 +163,70 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
         sid["agent_started_at"] = _dt(sid.get("agent_started_at"))
         sid["last_seen_at"] = _dt(sid.get("last_seen_at"))
         data["server_inventory"] = ServerInventorySnapshot(**sid)
-    data["volumes"] = [VolumeUsage(**v) for v in data.get("volumes") or []]
     mb = data.get("memory_breakdown")
     if mb:
         data["memory_breakdown"] = MemoryBreakdown(**mb)
     cb = data.get("cpu_breakdown")
     if cb:
         data["cpu_breakdown"] = CpuBreakdown(**cb)
-    return EnvironmentReportSummary(**data)
+    pa = data.get("period_assessment")
+    data["period_assessment"] = _period_assessment_from_dict(pa) if pa else None
+    data["storage_tree"] = [_storage_node_from_dict(n) for n in data.get("storage_tree") or []]
+    data["network_interfaces"] = [_network_interface_from_dict(n) for n in data.get("network_interfaces") or []]
+    return EnvironmentReportSummary(**_drop_unknown_fields(EnvironmentReportSummary, data))
+
+
+def _period_signal_rows(rows: list[dict] | None) -> list[PeriodSignalRow]:
+    return [PeriodSignalRow(**r) for r in rows or []]
+
+
+def _period_assessment_from_dict(d: dict) -> PeriodAssessment:
+    """PeriodAssessment 복원 — 자원별 util_rows/sat_rows/extra_groups/error_rows 중첩 재구성.
+
+    단일 서버 보고서(engineer) 전용 스냅샷 필드 — 서버 상세 페이지의 get_period_assessment 는 항상 라이브
+    재계산이라 이 복원 경로를 타지 않는다(본 함수는 report_serializer 전용).
+    """
+    resources = [
+        PeriodResource(
+            name=r["name"],
+            util_rows=_period_signal_rows(r.get("util_rows")),
+            util_over=r.get("util_over", 0),
+            sat_rows=_period_signal_rows(r.get("sat_rows")),
+            sat_over=r.get("sat_over", 0),
+            has_util=r.get("has_util", True),
+            detail_slug=r.get("detail_slug", ""),
+            verdict_label=r.get("verdict_label", ""),
+            verdict_color=r.get("verdict_color", ""),
+            extra_groups=[
+                PeriodExtraGroup(label=g["label"], rows=_period_signal_rows(g.get("rows")))
+                for g in r.get("extra_groups") or []
+            ],
+            error_rows=[PeriodErrorRow(**e) for e in r.get("error_rows") or []],
+            verdict_label2=r.get("verdict_label2", ""),
+            verdict_color2=r.get("verdict_color2", ""),
+        )
+        for r in d.get("resources") or []
+    ]
+    return PeriodAssessment(
+        resources=resources,
+        error_rows=[PeriodErrorRow(**e) for e in d.get("error_rows") or []],
+        window_days=d.get("window_days", 0),
+        classification_label=d.get("classification_label", ""),
+        classification_color=d.get("classification_color", ""),
+    )
+
+
+def _storage_node_from_dict(d: dict) -> StorageNode:
+    """StorageNode 복원 — children 재귀 트리(storage.html 과 동일 구조)."""
+    data = dict(d)
+    data["children"] = [_storage_node_from_dict(c) for c in data.get("children") or []]
+    return StorageNode(**data)
+
+
+def _network_interface_from_dict(d: dict) -> NetworkInterfaceInfo:
+    data = dict(d)
+    data["addresses"] = [NetIfaceAddress(**a) for a in data.get("addresses") or []]
+    return NetworkInterfaceInfo(**data)
 
 
 def _overview_from_dict(d: dict) -> EnvironmentOverview:
@@ -163,6 +235,7 @@ def _overview_from_dict(d: dict) -> EnvironmentOverview:
     data["utilization_p95"] = [UtilizationBar(**u) for u in data.get("utilization_p95") or []]
     data["risk_donut"] = [RiskDonutSegment(**s) for s in data.get("risk_donut") or []]
     data["saturation_donuts"] = [SaturationDonut(**s) for s in data.get("saturation_donuts") or []]
+    data["error_fleet"] = [FleetErrorItem(**e) for e in data.get("error_fleet") or []]
     uph = data.get("under_provisioned_hosts") or []
     data["under_provisioned_hosts"] = [_capacity_warning_from_dict(c) for c in uph]
     return EnvironmentOverview(**data)

@@ -78,7 +78,8 @@ R=required, opt=optional, nullable=값 null 허용.
 | system.paging / filesystem / pressure / cgroup | opt | - | - | - |
 | hostname / os_id / os_version / os_codename / kernel_version / cpu_model / cpu_cores / mem_total_bytes / ip_external / services / listen_ports | - | R | - | - |
 | block_devices | - | R | - | - |
-| net_interfaces / lvm_vgs | - | opt | - | - |
+| net_interfaces | - | R | - | - |
+| lvm_vgs | - | opt | - | - |
 | hostname / os_id / os_version / os_codename | - | - | R | - |
 | task_id / status / failure_reason / exit_code / signal_no / duration_ms / stdout_tail / stderr_tail / completed_at | - | - | R | - |
 | task_policy | - | - | opt | - |
@@ -175,7 +176,7 @@ fs -> 물리디스크 확정 매핑(parent-by-id) + 스토리지 3계층(배정/
 
 swap 노드 = type=swap, size_bytes = 스왑 할당 크기(Linux 스왑 파티션 / Windows pagefile). 프로비저닝 스펙.
 
-### F3. net_interfaces[] (opt)
+### F3. net_interfaces[] (required)
 
 | 필드 | 타입 | 비고 |
 |------|------|------|
@@ -183,7 +184,7 @@ swap 노드 = type=swap, size_bytes = 스왑 할당 크기(Linux 스왑 파티�
 | id | string \| null | 안정키 = MAC |
 | id_type | enum mac/ifguid/by-path/name/null | |
 | kind | string \| null | physical/loopback/bridge/veth/bond_master/... |
-| speed_mbps | integer \| null | 링크속도(util 분모). virtio 부재 -> null |
+| speed_mbps | integer \| null | 링크속도(util 분모). virtio·Windows NT5.2 부재 -> null. 이때 엔진은 metrics `network.link.speed`(bit/s)로 폴백 |
 | addresses | array of {address, prefix(int\|null), family(ipv4/ipv6)} | 인터페이스 IP. 서버 IP 표시·토폴로지(L3 서브넷 추론)·right-sizing IP 필터 |
 | gateway | string \| null | default route gateway |
 
@@ -194,11 +195,11 @@ swap 노드 = type=swap, size_bytes = 스왑 할당 크기(Linux 스왑 파티�
 | name | string | |
 | size_bytes | integer(By) \| null | |
 | free_bytes | integer(By) \| null | 확장 여력(3계층째) 실측 — 디스크 추가 없이 바로 붙일 여유 |
-| data_percent / metadata_percent | number \| null | 씬풀 |
+| data_percent / metadata_percent | number \| null | 씬풀 충전율(used/total 블록, %). VG당 thin-pool 1개일 때만 발행 (0개·다수·status 파싱 불가 시 null) |
 
 Windows 확장여력은 디스크크기 - 파티션합(미할당)으로 엔진이 파생.
 
-### F5. services[] (opt\|null) / listen_ports[] (required)
+### F5. services[] (required, 열거 불가면 null) / listen_ports[] (required)
 
 서비스 카테고리 분류(서비스 뱃지·워크로드 역할). USE system.* 재설계 대상 아님 — 서비스 분류 전용.
 

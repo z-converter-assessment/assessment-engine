@@ -1,3 +1,4 @@
+// @ts-check
 /* 발행/제출 -> POST -> 응답 view_url navigate 공용 헬퍼 (EmitUtils.submitNavigate).
  *
  * "버튼 disabled -> POST -> view_url 로 이동" 패턴을 한 곳으로 모은다. 이 패턴을 파일마다 복붙하면
@@ -13,6 +14,10 @@
  * 외부 의존: window.ToastUtils (선택 — 없으면 토스트 생략).
  */
 (function () {
+  /**
+   * @param {HTMLButtonElement} btn
+   * @param {(() => void) | undefined} onRestore
+   */
   function armRestore(btn, onRestore) {
     if (btn.dataset.emitRestoreArmed) return; // 버튼당 1회만 등록 (재클릭 시 리스너 중복 방지)
     btn.dataset.emitRestoreArmed = '1';
@@ -23,6 +28,11 @@
     });
   }
 
+  /**
+   * @param {HTMLButtonElement | null} btn
+   * @param {() => string} urlFn
+   * @param {any} opts
+   */
   async function submitNavigate(btn, urlFn, opts) {
     opts = opts || {};
     if (!btn || btn.disabled) return; // 이미 진행 중이면 무시 (더블클릭 방지)
@@ -47,7 +57,7 @@
       window.location.href = url;
     } catch (e) {
       if (pending) pending.remove();
-      if (window.ToastUtils) window.ToastUtils.show((opts.errPrefix || '발행 요청 실패') + ': ' + e.message, 'err');
+      if (window.ToastUtils) window.ToastUtils.show((opts.errPrefix || '발행 요청 실패') + ': ' + (/** @type {Error} */ (e)).message, 'err');
       btn.disabled = false;
     }
   }

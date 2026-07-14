@@ -1,10 +1,10 @@
 {# 환경 개요(`/`) 본문 — 정적 집계(자동 갱신 없음). 컨텍스트 의무: overview, classification_window_label. #}
-{% from "_shared.html" import empty_state, window_meta, util_donut, saturation_donut, provisioning_dist_bar %}
+{% from "_shared.html" import empty_state, window_meta, util_donut, saturation_donut, provisioning_dist_bar, workload_donut_chart %}
 
 {% if overview and overview.total > 0 %}
 <section class="card no-print">
   <h2 class="card-title">환경 요약</h2>
-  <div class="kpi-grid kpi-grid-4">
+  <div class="kpi-grid kpi-grid-5">
     <div class="kpi">
       <span>총 서버</span>
       <strong>{{ overview.total }}</strong>
@@ -13,22 +13,45 @@
     <div class="kpi"><span>총 vCPU</span><strong>{{ overview.total_vcpus }}</strong></div>
     <div class="kpi"><span>메모리</span><strong>{{ overview.total_memory_gb | disksize_styled }}</strong></div>
     <div class="kpi"><span>디스크</span><strong>{{ overview.total_disk_gb | storagesize_styled }}</strong></div>
+    {# OS 지원(EOL) — 1행 값(지원중·미상·종료), 2행 라벨. 값은 큰 숫자(상태색: 중립/amber/빨강), 라벨 작게, 중앙점 구분.
+       div 기반(.kpi span{display:block} 회피). align-items:flex-start 로 · 를 숫자 행에 정렬. #}
+    <div class="kpi">
+      <span>OS 지원</span>
+      <div style="display:flex; align-items:flex-start; gap:9px; margin-top:6px;">
+        <div style="text-align:center;">
+          <div class="text-strong" style="font-size:22px; font-weight:700;">{{ overview.os_eol_supported }}</div>
+          <div class="text-meta" style="font-size:11px;">지원중</div>
+        </div>
+        <div style="font-size:22px; color:#cbd5e1;">·</div>
+        <div style="text-align:center;">
+          <div class="text-warn" style="font-size:22px; font-weight:700;">{{ overview.os_eol_unknown }}</div>
+          <div class="text-meta" style="font-size:11px;">미상</div>
+        </div>
+        <div style="font-size:22px; color:#cbd5e1;">·</div>
+        <div style="text-align:center;">
+          <div class="text-danger" style="font-size:22px; font-weight:700;">{{ overview.os_eol_passed }}</div>
+          <div class="text-meta" style="font-size:11px;">종료</div>
+        </div>
+      </div>
+    </div>
   </div>
-  <div class="text-muted text-sm" style="margin-top:16px;">서비스 식별 <strong class="text-strong">{{ overview.role_identified_count }}</strong>대</div>
-  {% if overview.role_distribution %}
-  <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;">
-    {% for role, n in overview.role_distribution.items() %}<span class="badge {{ role | service_badge_class }}">{{ role }} <strong class="text-strong">{{ n }}</strong></span>{% endfor %}
-  </div>
-  {% endif %}
-  <div class="text-muted text-sm" style="margin-top:8px;">서비스 미식별 <strong class="text-strong">{{ overview.role_unknown_count }}</strong>대</div>
 </section>
 
-{# 자원 적정성 분류 분포 — 14일 표준 창(서버 목록·보고서 정합). 개요는 분포 요약만, 상세(효율화·부족 표)는
-   환경 자원 평가 페이지. 분류·이용·포화 모두 같은 14일 창(우측 메타 라벨 통일). #}
-<section class="card no-print">
+{# 주요 워크로드(원형차트) + 자원 적정성(분류 분포) — 한 행 2칼럼(report-row-2 auto-fit, 좁으면 1칼럼). #}
+<div class="report-row-2">
+<section>
+  <h2 class="card-title">주요 워크로드</h2>
+  {% if overview.workload_total > 0 %}
+  {{ workload_donut_chart(overview.workload_donut, overview.workload_total) }}
+  {% else %}
+  {{ empty_state("감지된 워크로드가 없습니다.") }}
+  {% endif %}
+</section>
+
+<section>
   <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
     <h2 class="card-title" style="margin:0;">자원 적정성</h2>
-    <span class="section-meta">{{ window_meta(overview.risk_donut_total, classification_window_label) }}</span>
+    <span class="section-meta">{{ window_meta(classification_window_label) }}</span>
   </div>
   {% if overview.risk_donut and overview.risk_donut_total > 0 %}
   {{ provisioning_dist_bar(overview.risk_donut) }}
@@ -36,13 +59,14 @@
   {{ empty_state("평가된 서버가 없습니다 — 표본이 쌓이면 분류 분포가 표시됩니다.") }}
   {% endif %}
 </section>
+</div>
 
-{# 자원 이용·포화 — 자원 적정성 창(14일) 기준. 이용률 3(capacity-weighted %) + 포화 3(포화 호스트 수/표본) 도넛.
-   실시간현황 6도넛과 동일 시각·게이지색, 다만 순간 스냅샷 아닌 윈도우 기준(분류와 같은 창 — 화면 간 정합). #}
+{# 자원 이용·포화 — 자원 적정성 창(14일) 기준. 이용률 3(capacity-weighted %) + 포화 4(CPU·메모리·디스크 I/O·네트워크 혼잡 호스트 수/표본) 도넛 = 7.
+   실시간현황 7도넛과 동일 시각·게이지색, 다만 순간 스냅샷 아닌 윈도우 기준(분류와 같은 창 — 화면 간 정합). #}
 <section class="card no-print">
   <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
     <h2 class="card-title" style="margin:0;">자원 이용·포화</h2>
-    <span class="section-meta">{{ window_meta(overview.util_sample_size, classification_window_label) }}</span>
+    <span class="section-meta">{{ window_meta(classification_window_label) }}</span>
   </div>
   {% if overview.utilization or overview.saturation_donuts %}
   <div style="display:flex; align-items:center; flex-wrap:wrap; gap:20px;">
@@ -54,14 +78,24 @@
   {% endif %}
 </section>
 
-{# 수집 건전성 — 온라인/오프라인 (Redis online TTL 기준). #}
+{# 운영 이벤트 / 에러 (fleet) — 에러축(하드웨어·디스크·네트워크·OS EOL) 발생 호스트 수. 전체 기간 조회(에러는 드문 이벤트라 창 제한 부적합). 정상=0 발화(E9). #}
+{% if overview.error_fleet %}
 <section class="card no-print">
-  <h2 class="card-title" style="margin:0 0 12px;">수집 건전성</h2>
-  <div class="text-label text-md" style="display:flex; flex-wrap:wrap; gap:24px;">
-    <div>온라인 <strong class="text-strong">{{ overview.online }}</strong> · 오프라인 <strong class="text-strong">{{ overview.offline }}</strong></div>
-    <div>총 <strong class="text-strong">{{ overview.total }}</strong>대</div>
+  <h2 class="card-title" style="margin:0 0 10px;">운영 이벤트</h2>
+  <div class="err-fleet">
+    {% for e in overview.error_fleet %}
+    <div class="err-item"{% if e.detail %} title="{{ e.detail }}"{% endif %}>
+      <span class="err-label">{{ e.label }}</span>
+      {% if e.affected %}
+      <span class="badge {% if e.tone == 'warn' %}badge-warn{% else %}badge-danger{% endif %} sat-badge">{{ e.affected }}대</span>
+      {% else %}
+      <span class="badge badge-ok sat-badge">이상 없음</span>
+      {% endif %}
+    </div>
+    {% endfor %}
   </div>
 </section>
+{% endif %}
 
 {% elif overview %}
 <section class="card no-print">

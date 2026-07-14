@@ -100,6 +100,12 @@ host.resources 상태·trigger 파생)·권고(`under_prescription(host)`, root 
 (`to_capacity_warning_item`)가 재사용해 한국어 표시로 변환(P2 — 임계 재계산 금지). stats 생성은 `build_resource_stats`
 공용(report·attention·서버목록·환경 단일 진실 — 화면 간 분류 정합).
 
+서버 세부 스토리지 상세 탭 '최근 N일' 카드는 `disk_capacity`/`disk_io` 두 trigger 를 배지 1개로 합치지 않고
+`PeriodResource.verdict_label`(용량)/`verdict_label2`(성능·IO) 2개로 분리 노출 — 우선순위 승자만 보이면 나머지
+축 상태가 안 보이는 문제(예: "I/O 병목"만 뜨면 용량 상태 불명) 회피. 다른 자원(CPU·메모리·네트워크)은 trigger가
+1개뿐이라 배지도 1개(`verdict_label2`는 빈 문자열). ViewModel 카탈로그: `docs/reference/web/view-models.md` "자원
+상세 탭 '최근 N일' 평가 카드" 절.
+
 ## 8. 한계
 
 - Windows 포화 축 임계 근거: run queue(>= 2/core)는 MS 표준, 메모리는 Pages Input/sec rate p95 >= 20(하드 read 폴트) — 총 Pages/sec(mmap 혼입) 미사용. disk await 는 구세대 viostor(fleet 실측 11대 중 5대) IOCTL 미부착이면 미측정 -> coverage_gap(별도 ETW 트랙). `docs/explanation/tradeoffs.md` T14.

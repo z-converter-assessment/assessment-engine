@@ -4,19 +4,19 @@
 {% block content %}
 <h1 style="margin:0 0 16px;">발행 이력</h1>
 
-<form method="get" class="search-row no-print" id="report-history-filter" style="margin:16px 0 20px;">
-  <select name="days">
+<form method="get" class="no-print" id="report-history-filter" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:16px 0 20px;">
+  <select name="days" class="chart-select" aria-label="기간 선택">
     {% for d in [1, 7, 14, 30, 90] %}
     <option value="{{ d }}" {% if d == days %}selected{% endif %}>최근 {{ d }}일</option>
     {% endfor %}
     <option value="0" {% if days == 0 %}selected{% endif %}>전체 기간</option>
   </select>
-  <select name="view">
+  <select name="view" class="chart-select" aria-label="양식 선택">
     <option value="all" {% if view == "all" %}selected{% endif %}>양식 전체</option>
     <option value="customer" {% if view == "customer" %}selected{% endif %}>고객 보고서</option>
     <option value="engineer" {% if view == "engineer" %}selected{% endif %}>엔지니어 보고서</option>
   </select>
-  <select name="scope">
+  <select name="scope" class="chart-select" aria-label="범위 선택">
     <option value="all" {% if scope == "all" %}selected{% endif %}>범위 전체</option>
     <option value="environment" {% if scope == "environment" %}selected{% endif %}>환경</option>
     <option value="selection" {% if scope == "selection" %}selected{% endif %}>선택 N대</option>

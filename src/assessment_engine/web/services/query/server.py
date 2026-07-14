@@ -18,7 +18,7 @@ from assessment_engine.web.services.mappers.server import (
 from assessment_engine.web.services.mappers.shared import lookup_os_eol
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin
 from assessment_engine.web.settings import web_settings
-from assessment_engine.web.view_models.metric import CollectionStatusItem
+from assessment_engine.web.view_models.metric import CollectionStatusItem, PeriodAssessment
 from assessment_engine.web.view_models.server import (
     NetworkDetailResponse,
     ServerDetailResponse,
@@ -67,6 +67,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         service: str | None = None,
         os_distro: str | None = None,
         classification: str | None = None,
+        os_eol: str | None = None,
     ) -> list[ServerListItem]:
         dtos = await self.repo.list_servers(page, limit, search)
         if not dtos:
@@ -88,19 +89,23 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
 
         last_tasks = await self.latest_tasks_by_servers(page_server_ids)
 
+        # 운영 이벤트 — 전체 기간 에러 발생 호스트 집합(벌크 1회, N+1 회피). since=epoch 전기간은 환경 개요
+        # 운영 이벤트 카드(fleet_error_summary 를 epoch 호출)와 동일 창 — 개요-목록 정합(#F10 화면 간 의미 단일).
+        error_hosts = await self.repo.fleet_error_hosts(page_server_ids, datetime(1970, 1, 1, tzinfo=UTC))
+
         items: list[ServerListItem] = []
         if online_flags is None:
             # Redis 장애 fallback: last_seen_at 기반 판정 (TTL 임계와 동일)
             threshold = datetime.now(UTC) - timedelta(seconds=web_settings.redis_ttl_online)
             for dto in dtos:
-                item = to_server_list_item(dto, raws_by_id.get(dto.id))
+                item = to_server_list_item(dto, raws_by_id.get(dto.id), today=now.date(), error_hosts=error_hosts)
                 item.is_online = dto.last_seen_at is not None and dto.last_seen_at > threshold
                 item.last_task = last_tasks.get(dto.id)
                 items.append(item)
         else:
             # dtos와 online_flags는 동일 길이 보장 — mget이 키 개수만큼 반환.
             for dto, flag in zip(dtos, online_flags, strict=True):
-                item = to_server_list_item(dto, raws_by_id.get(dto.id))
+                item = to_server_list_item(dto, raws_by_id.get(dto.id), today=now.date(), error_hosts=error_hosts)
                 item.is_online = flag is not None
                 item.last_task = last_tasks.get(dto.id)
                 items.append(item)
@@ -114,6 +119,9 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
             items = [i for i in items if i.os_distro == os_distro]
         if classification:
             items = [i for i in items if i.provisioning_class == classification]
+        # 3상태 필터 — eol(경과) / supported(매칭+미래) / unknown(판정 불가). 미매칭을 supported 로 뭉개지 않음.
+        if os_eol in ("eol", "supported", "unknown"):
+            items = [i for i in items if i.os_eol_status == os_eol]
         # 1차 online(온라인 우선) · 2차 hostname ASC. online 판정은 Redis 기반이라 DB ORDER BY 불가 →
         # service 레이어 정렬(P2). repo 는 hostname ASC raw 반환(2차 기준 보존).
         items.sort(key=lambda i: (not i.is_online, i.hostname.lower()))
@@ -151,6 +159,28 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
             reboot_count=uptime.get(sid, 0),
             agent_restart_count=restart.get(sid, 0),
             os_eol_label=os_eol_label,
+        )
+
+    async def get_period_assessment(self, server_id: int, end: datetime | None = None) -> PeriodAssessment | None:
+        """서버 세부 '최근 N일' 카드 — 자원별 이용률(p95)+포화 2축 (right-sizing 분류 창=WINDOW_DAYS).
+
+        ServerDetailResponse 캐시(inventory)와 분리 — 14일 집계라 매 요청 산출(목록 분류와 동일 입력·창, #E3).
+        build_resource_stats/build_period_assessment 는 report mapper 지연 import(report->server 모듈 순환 회피).
+        """
+        from assessment_engine.web.services.mappers.report import build_period_assessment, build_resource_stats
+        from assessment_engine.web.services.metrics_calculator import build_error_signals
+
+        end_dt = end or datetime.now(UTC)
+        raws = await self.repo.report_aggregate([server_id], period_days=recommendation.WINDOW_DAYS, end=end_dt)
+        if not raws:
+            return None
+        await self._inject_net_baseline(raws, [server_id], recommendation.WINDOW_DAYS, end_dt)
+        # 에러축(E) — 창 통일(14일). 실시간 카드 24h 와 분리, 분류 카드 창(WINDOW_DAYS)에 맞춤.
+        win_days = recommendation.WINDOW_DAYS
+        err = await self.repo.latest_errors(server_id, end_dt - timedelta(days=win_days))
+        errors = build_error_signals(err, window_label=f"최근 {win_days}일", os_family=raws[0].os_family)
+        return build_period_assessment(
+            build_resource_stats(raws[0]), errors, disk_worst_mount=raws[0].disk_capacity_worst_mount
         )
 
     async def get_storage(self, server_id: int) -> StorageDetailResponse | None:

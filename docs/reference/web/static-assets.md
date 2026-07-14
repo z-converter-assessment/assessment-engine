@@ -8,6 +8,7 @@ src/assessment_engine/web/static/js/
 ├── toast-utils.js              ← base.html 단일 로드, 전역 ToastUtils (작업 결과 토스트)
 ├── emit-utils.js               ← base.html 단일 로드, 전역 EmitUtils.submitNavigate
 ├── table-utils.js              ← base.html 단일 로드, 전역 TableUtils (정렬·zebra)
+├── signal-utils.js             ← base.html 단일 로드, 전역 SignalUtils (포화·에러 스냅샷 표시자 렌더)
 └── pages/
     ├── cpu.js / memory.js / storage.js / network.js / metrics.js
     └── list-table.js           ← 서버 목록 액션 (Install·Export·보고서) + 검색·필터·더보기
@@ -15,6 +16,7 @@ src/assessment_engine/web/static/js/
 
 공용 유틸(base.html 전역 로드) — 페이지 간 공통 로직을 단일화해 재발 버그를 차단:
 - `EmitUtils.submitNavigate(btn, urlFn, opts)` — 발행/제출 버튼 -> POST -> 응답 `view_url` navigate. 버튼 비활성·pending 토스트·에러 재활성 + bfcache 복원(뒤로가기) 시 버튼 재활성을 내장. 리포트 emit(환경/서버상세/선택 N대) 3곳 공유.
+- `SignalUtils.{renderSaturation,renderErrors}` — 서버가 os-aware 판정(값·임계·saturated·4상태)을 끝낸 구조화 신호(`SaturationSignal`·`ErrorSignal`)를 컨테이너에 렌더만(P4). 임계 재계산·os 분기·양 OS 설명 인라인 금지 — 이 호스트 OS 값만 오고 근거는 hover. 서버 상세 개요·자원 탭 스냅샷 카드 공유(포화=값/임계+상태 배지, 에러=카운트형 정상0 발화).
 - `TableUtils.{restripe,sortByColumn,makeSortable}` — `sortable-table` 칼럼 클릭 정렬. 정렬·필터·clip 로 행이 재배열·숨김되면 CSS `:nth-child` zebra 가 숨은 행까지 세어 줄무늬가 어긋나므로(흰색 뒤섞임), sortable-table 은 :nth-child 를 무력화하고 JS 가 '보이는 행'만 `.zebra` 로 재줄무늬. 서버목록·자원적정성·발행이력 표 공유.
 
 ## ChartUtils API (chart-utils.js)
@@ -30,6 +32,7 @@ src/assessment_engine/web/static/js/
 | `getAnchorEnd(inputId)` / `initAnchor(inputId)` | datetime input 처리 |
 | `makeBucketGrid(range, bucket, anchor)` / `joinToGrid(grid, rows, bMs)` | 버킷 그리드 + 응답 join |
 | `bindToggle(groupId, onChange)` | range/agg 컨트롤 바인딩 — element 가 `<select>`면 change, `.toggle` 버튼이면 click 자동 분기 (호출처 동일) |
+| `pageTimeControl(rangeBtnsId, anchorId, default, onChange)` | 페이지 단일 시간축 컨트롤러(#F10) — range 토글 + anchor 하나가 페이지 전 차트를 구동. `{getRange, getAnchor}` 반환. 변경 시 onChange 로 전체 reload. anchor 미입력=live now, 입력=고정(과거 조사). 서버 상세 자원 탭 공용 |
 | `initAutoRefresh(onRefresh, intervalMs)` | 30초 polling 자동 갱신 (setInterval + pagehide 정리) |
 | `safeArray(arr)` | `Array.isArray` 방어 (P4 c) |
 | `renderChipLegend(container, chart)` | 색점+라벨 칩(pill) 토글 범례 — dataset 1개당 1칩, 클릭 시 show/hide. comp/load 계열 (cpu·memory) |
@@ -40,7 +43,7 @@ src/assessment_engine/web/static/js/
 | 페이지 | 차트 인스턴스 패턴 |
 |--------|-------------------|
 | `metrics.js` | `chartInstances` 객체 + 통합 `loadAllCharts()` — 한 곳에서 모든 차트에 marker 일괄 적용 |
-| `cpu/memory/network/storage.js` | 차트 인스턴스 개별 변수 + 차트별 range/anchor — 각 loader 끝에 marker 적용 |
+| `cpu/memory/network/storage.js` | 차트 인스턴스 개별 변수 + 페이지 단일 시간축(`pageTimeControl`) — 한 range/anchor 가 페이지 전 차트 구동, `reloadAllCharts()` 로 일괄 갱신(#F10). 스냅샷 카드 포화 신호는 `SignalUtils.renderSaturation` |
 | `list-table.js` | 모달 (Install / JSON Export / 보고서) + 검색·필터·더보기/접기. 차트 없음 — 체크박스 + bulk action |
 
 ## P4 차트 JS 5 의무 규약 (loader 표준)
@@ -71,8 +74,8 @@ src/assessment_engine/web/static/js/
 - 버킷 라벨 = `<span class="bucket-label">` 배지 (현재 버킷=분해력 표시 — cpu/memory/storage/network 차트 페이지 공용 클래스, base.html 단일 진실). 성능 추이(metrics)는 전역 단일 컨트롤이라 높이·정렬이 달라 별도 스타일.
 - 구간/집계 = `<select class="chart-select">` 드롭다운 (너비 절약). `bindToggle` 이 select/button 자동 분기라 JS 호출 동일.
 - 앵커 = `<input type="datetime-local" class="chart-anchor">`. select·anchor 높이 통일(`box-sizing`).
-- 다중 차트 한 페이지(network: I/O·PPS)는 차트별 독립 구간/앵커 (공유 X).
-- 성능 추이(metrics — 서버 상세 `/{id}/metrics` + 환경 `/environment/metrics`)는 예외 — 추이 차트 10개를 2열 5쌍으로 모은 종합 뷰라, 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(카드 밖 좌상단, 버킷/구간/앵커 + '적용' 버튼 — 앵커는 적용 클릭으로 반영·구간 select 즉시)이 모든 차트 동기. 5행 2열을 단일 `.card.perf-merged` 로 통합(행=`.perf-pair.perf-row`, 행 구분선 #e2e8f0; 인쇄는 `.perf-merged` 내부 분기 허용 + `.perf-row` 단위 `page-break-inside:avoid`). 서버 상세는 서버 정보 카드 제거(상세 탭에서 확인). 디스크 read+write·네트워크 RX+TX 각각 통합 1 차트.
+- 서버 상세 자원 탭(cpu/memory/network/storage)은 페이지 단일 시간축 컨트롤(`pageTimeControl`, 카드 밖 상단 range+anchor 하나)이 그 페이지 전 차트를 같은 창·시점으로 구동(#F10, 신호 간 시점 상관). 차트별 개별 range/anchor 없음.
+- 성능 추이(metrics — 서버 상세 `/{id}/metrics` + 환경 `/environment/metrics`)는 예외 — 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(카드 밖 좌상단, 버킷/구간/앵커 + '적용' 버튼 — 앵커는 적용 클릭으로 반영·구간 select 즉시)이 모든 차트 동기. 두 페이지 모두 자원별(CPU/메모리/스토리지/네트워크) 카드를 `.perf-stack`(세로 flex)으로 나열하고, 카드 내부도 동일하게 `.perf-grid`/`.perf-item`(화면 2열 auto-fit, 인쇄는 base.html `@media print` 가 4열 landscape 로 재정의, 아래 print CSS 절) — 서버 상세·환경 두 페이지 레이아웃 단일 진실 공유. 디스크 read+write·네트워크 RX+TX 각각 통합 1 차트.
 
 ### 범례 (칩 토글)
 - `.legend-chip` (pill 버튼 + `.legend-dot` 색점): 클릭 시 dataset show/hide, 숨김은 `aria-pressed=false`로 흐려짐. `button`+`aria-pressed`라 키보드 토글 지원.
@@ -105,7 +108,7 @@ src/assessment_engine/web/static/js/
 - 작은 창에서 카드 무파손. 다열 영역은 `grid-template-columns:repeat(auto-fit, minmax(min(100%, Npx), 1fr))` — 폭 부족 시 자동 1열, 한쪽 칼럼 찌그러짐 0.
 - 고정 다열(`kpi-grid-2/3/4` · `metric-grid-2/3`)은 `@media (max-width:640px)` 에서 1열 (base.html).
 - 2칼럼 카드(`env-dual` · `env-pair`)는 `align-items:start`로 칼럼 독립, 같은 행 항목은 grid 정렬로 높이 일치.
-- 언더 프로비저닝 상세 = 호스트명 | 서비스 배지 | 평가 6축 지표 3칼럼 grid(행마다 칼럼 정렬, 각 행 1줄 강제 — 지표 칼럼만 좁으면 가로 스크롤). 박스·구분선 없음. 심각도 상위 3(`severity_score` = swap(paging) > 위반 자원 수 > max(CPU/메모리/디스크 util)).
+- 언더 프로비저닝 상세(환경 자원 평가 compact 표, `action_targets_table(compact=True)`) = 호스트·분류(근본원인 병합)·권고·네트워크 상태·신뢰도 sortable-table — host_status 를 구동한 원시 수치(5축)는 표시 안 함(환경 보고서 "서버별 자원 적정성" 전체 표에서 확인). 심각도 상위 정렬(`severity_score` = swap(paging) > 위반 자원 수 > max(CPU/메모리/디스크 util)).
 - 환경 개요(`/`) 영역 = 환경 요약 / 환경 자원 평가(활용률+자원 적정성 평가+언더프로비저닝) / 환경 부하 추이+네트워크 토폴로지 — 3개 별도 카드 section. 운영 신호 카드는 3 카테고리(통신끊김/OS지원종료/에이전트재시작)를 한 행 3칼럼 grid + 카탈로그 뱃지 한 줄(nowrap).
 
 ## report.html print CSS
@@ -120,7 +123,7 @@ src/assessment_engine/web/static/js/
 
 `.no-print` 클래스로 navbar/검색폼/버튼 인쇄 시 숨김 (base.html). 컨설턴트가 브라우저 인쇄 → PDF/PPT 캡처. 백엔드 PDF export는 미도입 (`docs/explanation/tradeoffs.md` 참조).
 
-성능 추이 인쇄(base.html `@media print`): `.perf-pair` 2열 강제(auto-fit 이 A4 폭에서 1열로 collapse 방지) + `.perf-pair canvas { width/height:100% !important }` 로 Chart.js 가 캔버스에 박은 화면 폭(px)이 인쇄 컨테이너를 넘어 꺾은선이 plot 경계를 넘는 것 보정. `beforeprint`/`afterprint` 차트 `resize()` 보강(metrics.js).
+성능 추이 인쇄(base.html `@media print`, 서버 상세 `servers/metrics.html` + 환경 `environment_metrics.html` 공용 단일 진실): `.perf-grid` 를 4열로 강제(`grid-template-columns: repeat(4, 1fr)` — auto-fit 그대로면 세로 폭 기준이라 1~2열로 collapse) + `.perf-item { page-break-inside: avoid }`(낱개 단위 — CSS Grid auto-flow 는 "행" DOM 요소가 없어 개별 아이템에 걸어야 함) + `.perf-grid canvas { width/height:100% !important }` 로 Chart.js 가 캔버스에 박은 화면 폭(px)이 인쇄 컨테이너를 넘어 꺾은선이 plot 경계를 넘는 것 보정 + `.perf-stack` 하위 `.chart-subtitle`/`.chart-desc` 축소(4열 밀도용 폰트 재정의). 두 페이지 모두 자체 `<style>@media print{ @page{ size:A4 landscape; margin:9mm } }</style>` 로 가로 전환(named-page 방향 브라우저 지원 불안정 회피, `reports/environment.html` 과 동일 기법). `beforeprint`/`afterprint` 차트 `resize()` 보강(metrics.js·environment-metrics.js).
 
 ## 의존성
 
@@ -172,6 +175,7 @@ src/assessment_engine/web/static/js/
 | `.alert-warn` + `.alert-list` | 운영 신호 발화 박스 (warn 톤) | #fef3c7 / 1px #fde68a |
 | `.card-section` | 카드 내부 서브섹션 구분 (환경요약·운영신호 공통 위계 — h3 + 구분선) | 1px #e2e8f0 top border |
 | `.empty-state` | 발화 가능하나 비어있는 슬롯 placeholder (#E9 discoverability) | 박스 없음 / 회색 텍스트 #94a3b8 |
+| `.stree` (+ `.stree-row`/`.stree-kind`/`.stree-usage` 등) | 스토리지 레이아웃 트리 (중첩 ul, `servers/_storage_tree.html` `storage_tree()` 매크로) — 스토리지 상세·서버 보고서 공용 | 좌측 가이드선 #e2e8f0 |
 
 금지: `<div style="border:1px solid #e2e8f0; border-radius:6px; padding:14px;">` 같은 inline 박스 재구현. 위 클래스로 치환. (P3 직접 위반 — 모양 통일성 + 추후 일괄 조정 시 단일 진실.)
 

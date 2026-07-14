@@ -9,10 +9,11 @@ to_capacity_warning_item 은 EnvironmentOverview.under_provisioned_hosts 로 간
 
 import math
 from collections import Counter
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import MetricGapWarningRaw
+from assessment_engine.db.dtos.outbound import FleetErrorRaw, MetricGapWarningRaw
+from assessment_engine.service_classifier import SIGNATURE_CATEGORIES
 from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.report import (
     build_resource_stats,
@@ -23,6 +24,7 @@ from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
     UTIL_GAUGE_COLOR,
     build_host_confidence_notes,
+    lookup_os_eol,
     resolve_os_eol,
     saturation_axis_displays,
 )
@@ -34,6 +36,7 @@ from assessment_engine.web.view_models.attention import (
     CapacityWarningItem,
     EnvironmentOverview,
     EnvironmentRealtime,
+    FleetErrorItem,
     RealtimePeak,
     RealtimePeakGroup,
     RiskDonutSegment,
@@ -52,32 +55,40 @@ _ATTN_ACTIVE_BADGE = "attn-active"
 _UTIL_COLOR_GAUGE = UTIL_GAUGE_COLOR  # 푸른 단색 (blue-500) — shared.UTIL_GAUGE_COLOR 단일 진실
 _UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재 (회색)
 
+# 주요 워크로드 도넛 세그먼트 색 — SIGNATURE_CATEGORIES 대응. base.html .badge-cat-* 뱃지 색의 시각적 쌍둥이
+# (SVG stroke 는 hex 필요 — CSS 클래스와 별도 소스, 값 동기화 의무).
+_WORKLOAD_COLORS: dict[str, str] = {
+    "web": "#2563eb", "db": "#e11d48", "cache": "#059669",
+    "mq": "#9333ea", "container": "#0891b2", "monitor": "#ea580c",
+}
+
 # 도넛 SVG 원주 — 템플릿 SVG r="42" 와 정합. pct 0~100 을 0~_UTIL_DONUT_CIRC 로 매핑(dash-array precompute).
 _DONUT_RADIUS = 42
 _UTIL_DONUT_CIRC = 2 * math.pi * _DONUT_RADIUS
 
-# 자원 부족 카드 지표 값 색 — 위반 강조 / 정상 / 미관측(N/A) 흐림 3분기.
+# 자원 부족 카드 지표 값 색 — 위반(적정성 판정 기여) 강조 / 정상 / 미관측(N/A) 흐림 3분기.
 # 위반은 빨강(#dc2626, red-600) + 굵기로 강조 — 발화 축을 즉시 식별. 정상은 중간 회색(#475569)으로 대비.
-_METRIC_VIOLATION_COLOR = "#dc2626"
+_METRIC_VIOLATION_COLOR = "#dc2626"  # 빨강 — 적정성 판정에 기여한 위반(CPU·메모리·디스크 용량)
 _METRIC_NORMAL_COLOR = "#475569"
 _METRIC_UNMEASURED_COLOR = "#94a3b8"  # 미관측(N/A) 흐림 — Windows perflib 미발행 축 등
+# 네트워크 상태 전용 색(orthogonal, metrics 목록과 분리) — 혼잡만 강조, 정상/미측정은 중립.
+_NET_CONGESTED_COLOR = "#dc2626"
 
-
-# 포화·품질 축 헤더 — Linux(L)/Windows(W) 임계 병기. 값·단위는 os별(혼합 표라 한 칼럼에 두 OS 행 공존)이므로
-# 헤더에 양 OS 임계를 표기해 해석 가능하게. 임계 상수는 recommendation 단일 진실에서 조립(F10, drift 0).
+# 포화 신호 축 헤더 — 각 열은 게이트1 raw 신호(evidence)이지 포화 판정이 아니다. 포화는 dual-gate
+# (신호 AND 이용률, recommendation.cpu_saturated/mem_saturated)라 판정은 분류·근본원인 칼럼 + 색 강조로만 표기.
+# Linux(L)/Windows(W) 임계 병기 — 값·단위 os별(혼합 표라 한 칼럼에 두 OS 행 공존), 임계 상수는 recommendation
+# 단일 진실 조립(F10, drift 0). 여기 실린 5개 헤더는 전부 host_status(자원 적정성 분류) 를 실제로 구동하는
+# 축만 — 디스크 I/O(await)·네트워크(재전송·드롭·conntrack)는 host_status 를 구동하지 않아(사이징 무관
+# orthogonal advisory) 칼럼에서 제외(아래 to_capacity_warning_item 참고, 네트워크는 net_status_label 전용 필드로).
 _L = recommendation
 # 이용률·용량 칼럼 임계 병기 — 값만으론 under 판정선을 모르니 헤더에 명시(p95 이용률·디스크 용량).
 _CPU_UTIL_LABEL = f"CPU p95 (>={_L.RS_CPU_UNDER_PCT:g}%)"
 _MEM_UTIL_LABEL = f"메모리 p95 (>={_L.RS_MEM_UNDER_PCT:g}%)"
 _DISK_CAP_LABEL = f"디스크 용량 (>={_L.RS_DISK_STATIC_GUARD_PCT:g}% or 30일)"
-_CPU_SAT_LABEL = f"CPU 포화 (L>={_L.PROCS_RUNNING_PER_CORE_SATURATION:g} · W>={_L.CPU_RUN_QUEUE_PER_CORE_SATURATION:g})"
-_MEM_SAT_LABEL = f"메모리 포화 (L page-out · W>={_L.WIN_PAGES_INPUT_SATURATION:g}/s)"
-_DISK_IO_LABEL = f"디스크 I/O 포화 (await > {_L.RS_DISKIO_AWAIT_MS:g}ms)"
-# 네트워크 — 사이징과 별개 품질 축(orthogonal). 다른 자원처럼 수치 2칼럼(재전송율·드롭율) + 판정(상태) 칼럼.
-# 판정 근거 assess_network(재전송>1% or 드롭>0.5% or conntrack>=80% -> 혼잡, monitoring 표준). conntrack 은 서버 상세.
-_NET_RETRANS_LABEL = f"재전송율 (>{_L.RS_NET_RETRANS_PCT:g}%)"
-_NET_DROP_LABEL = f"드롭율 (>{_L.RS_NET_DROP_PCT:g}%)"
-_NET_LABEL = "네트워크 상태"
+_CPU_SAT_LABEL = f"실행 큐/코어 (L>={_L.PROCS_RUNNING_PER_CORE_SATURATION:g} · W>={_L.CPU_RUN_QUEUE_PER_CORE_SATURATION:g})"
+_MEM_SAT_LABEL = f"페이징 (L 스왑 · W>={_L.WIN_PAGES_INPUT_SATURATION:g}/s)"
+# 네트워크 상태 — 사이징과 별개 품질 축(orthogonal). 판정 근거 assess_network(재전송>1% or 드롭>0.5% or
+# conntrack>=80% -> 혼잡, monitoring 표준). conntrack 은 서버 상세. host_status 미구동이라 전용 필드로 분리.
 _NET_STATUS_LABEL: dict[str, str] = {"quality_ok": "정상", "congested": "혼잡", "unmeasured": "미측정"}
 
 
@@ -103,11 +114,14 @@ def _disk_cap_value(raw) -> str:
 
 
 def _metric(label: str, value: str, active: bool, measured: bool) -> CapacityMetric:
-    """CapacityMetric 1개 — active(위반) 강조 / 정상 진함 / 미관측(N/A) 흐림 precompute (P3)."""
+    """CapacityMetric 1개 — 색 precompute (P3): 미관측=흐림 / 정상=진함 / 위반=빨강(판정 기여, 본 목록은
+    host_status 구동 축만 실으므로 전부 빨강 — advisory 색 분기 없음). active 는 강조(bold) 여부."""
     if not measured:
         color = _METRIC_UNMEASURED_COLOR
+    elif active:
+        color = _METRIC_VIOLATION_COLOR
     else:
-        color = _METRIC_VIOLATION_COLOR if active else _METRIC_NORMAL_COLOR
+        color = _METRIC_NORMAL_COLOR
     return CapacityMetric(label=label, value=value, active=active, measured=measured, color=color)
 
 
@@ -151,6 +165,21 @@ def _dash_length(pct: float | None) -> float:
     return max(0.0, min(pct, 100.0)) / 100.0 * _UTIL_DONUT_CIRC
 
 
+def _donut_dash(count: float, total: float) -> float:
+    """도넛 세그먼트 dash 길이 = 비율 x 원주 (count·total 0 가드). 위험·포화·워크로드 도넛 3종 공용."""
+    return (count / total) * _UTIL_DONUT_CIRC if (total > 0 and count > 0) else 0.0
+
+
+def _donut_pct(count: float, total: float) -> float:
+    """도넛 세그먼트 백분율 (total 0 가드)."""
+    return round(count / total * 100, 1) if total > 0 else 0.0
+
+
+def _util_bar(label: str, pct: float | None) -> UtilizationBar:
+    """이용률 바 1개 — pct 로 색·dash 파생 (None 안전, _bar_color·_dash_length 가 가드)."""
+    return UtilizationBar(label=label, pct=pct, bar_color=_bar_color(pct), dash_length=_dash_length(pct))
+
+
 def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, int]:
     """카테고리별 카운트 -> (RiskDonutSegment list, total, under_count).
 
@@ -163,8 +192,8 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
     cum_offset = 0.0
     for key, label, _color, description in _DONUT_SEGMENT_DEFS:
         count = risk_counts.get(key, 0)
-        dash_length = (count / total) * _UTIL_DONUT_CIRC if (total > 0 and count > 0) else 0.0
-        pct = round(count / total * 100, 1) if total > 0 else 0.0
+        dash_length = _donut_dash(count, total)
+        pct = _donut_pct(count, total)
         segments.append(
             RiskDonutSegment(
                 key=key,
@@ -194,8 +223,78 @@ def _build_saturation_donut(label: str, count: int, total: int) -> SaturationDon
 
     실시간현황·환경개요 공용 — 스냅샷(realtime)이든 윈도우(overview) 기준이든 시각·게이지색 통일.
     """
-    dash = (count / total) * _UTIL_DONUT_CIRC if (total > 0 and count > 0) else 0.0
+    dash = _donut_dash(count, total)
     return SaturationDonut(label=label, count=count, total=total, dash_length=dash, color=_UTIL_COLOR_GAUGE)
+
+
+def _build_error_fleet(err: FleetErrorRaw | None) -> list[FleetErrorItem]:
+    """환경 fleet 에러 표시자 5종 — 창내 발생 호스트 수/표본. err=None(assessment 경로)이면 빈 list."""
+    if err is None:
+        return []
+    t = err.total
+    return [
+        FleetErrorItem("cpu_mce", "머신체크(MCE)", err.mce_hosts, t, "CPU/메모리 하드웨어 정정불가 오류(machine check)"),
+        FleetErrorItem("mem_oom", "OOM Kill", err.oom_hosts, t, "메모리 부족으로 커널이 프로세스 강제 종료"),
+        FleetErrorItem("mem_corrupted", "메모리 손상(EDAC)", err.corrupted_hosts, t, "ECC 정정된 하드웨어 메모리 손상"),
+        FleetErrorItem("disk_errors", "디스크 에러", err.disk_error_hosts, t, "RAID degraded·파일시스템 손상·IO 오류"),
+        FleetErrorItem("net_errors", "NIC 에러", err.net_error_hosts, t, "네트워크 인터페이스 rx/tx 오류 프레임"),
+    ]
+
+
+def _error_fleet_with_eol(err: FleetErrorRaw | None, details: list, total: int) -> list[FleetErrorItem]:
+    """운영 이벤트 표시자 — 에러 5종(빨강) + OS EOL(앰버). err=None(assessment 경로)이면 빈 list(섹션 미표시).
+
+    OS EOL 은 런타임 fault 아닌 정적 수명/보안 리스크 -> tone="warn"(앰버)로 하드웨어 에러와 구분. 판정은
+    resolve_os_eol 단일 진실(호스트별), 경과 호스트 수 카운트.
+    """
+    items = _build_error_fleet(err)
+    if err is None:
+        return items
+    today = datetime.now(UTC).date()
+    eol = sum(1 for d in details if resolve_os_eol(d.os_id, d.os_version, d.kernel_version, today))
+    items.append(
+        FleetErrorItem(
+            "os_eol", "OS 지원 종료", eol, total, "OS 지원(보안 패치) 종료 — 취약점 노출 리스크", tone="warn"
+        )
+    )
+    return items
+
+
+def _os_eol_summary(details: list, today) -> tuple[int, int, int]:
+    """OS 지원(EOL) 3상태 종합 -> (지원 종료, 미상, 지원 중). 서버 목록 os_eol_status 와 동일 판정(lookup_os_eol).
+
+    os_id 없는 서버(인벤토리 미수집)는 EOL 종합 대상 아님 — 미상(판정 불가)과 구분해 제외.
+    lookup_os_eol: None=미상(카탈로그 미수록·미매칭) / is_passed=경과(지원 종료) / else=미래(지원 중).
+    """
+    passed = unknown = supported = 0
+    for d in details:
+        if not d.os_id:
+            continue
+        m = lookup_os_eol(d.os_id, d.os_version, d.kernel_version, today)
+        if m is None:
+            unknown += 1
+        elif m[2]:
+            passed += 1
+        else:
+            supported += 1
+    return passed, unknown, supported
+
+
+def _workload_donut_segments(role_sorted: dict[str, int]) -> tuple[list, int]:
+    """시그니처 워크로드 인스턴스 분포 -> 누적 도넛 세그먼트 + 총합. 0 카테고리도 세그먼트 유지(범례 노출, E9)."""
+    total = sum(role_sorted.values())
+    segments: list = []
+    cum = 0.0
+    for cat, cnt in role_sorted.items():
+        dash = _donut_dash(cnt, total)
+        segments.append(
+            RiskDonutSegment(
+                key=cat, label=cat, color=_WORKLOAD_COLORS.get(cat, "#94a3b8"),
+                count=cnt, pct=_donut_pct(cnt, total), dash_length=dash, dash_offset=-cum, description="",
+            )
+        )
+        cum += dash
+    return segments, total
 
 
 def build_environment_overview(
@@ -206,6 +305,7 @@ def build_environment_overview(
     under_provisioned_hosts: list | None = None,
     under_limit: int | None = _UNDER_PROVISIONED_DISPLAY_MAX,
     saturation_counts: dict[str, int] | None = None,
+    error_summary: FleetErrorRaw | None = None,
 ):
     """ServerDetail list + online_count + EnvironmentUtilizationRaw + risk_counts -> EnvironmentOverview.
 
@@ -223,15 +323,14 @@ def build_environment_overview(
     for d in details:
         os_counter[d.os_family or "unknown"] += 1
 
-    # 역할 분포 — 카테고리별 "그 워크로드를 돌리는 호스트 수"(호스트당 카테고리 1회, 인스턴스 수 아님).
-    # 한 서버에서 같은 카테고리가 여러 개(파일 5개 등) 인식돼도 그 카테고리는 +1 — 환경 구성 파악에 적합.
-    # 카테고리 집합은 union(services 이름 ∪ listen 소켓 탐지). known 역할 0 호스트는 role_unknown 으로 분리.
+    # 주요 워크로드 분포 — 환경 전체 인스턴스 개수(호스트 dedup 아님: 한 서버에 mq 2개면 +2). "환경에 각 워크로드가
+    # 몇 개 떠 있냐"가 핵심 정보. container 는 single_instance(런타임 스택 1). role_unknown 은 보고서 집계용 유지.
     role_counter: Counter[str] = Counter()
-    role_unknown = 0  # known 역할 0인 호스트 수 (서비스 없음 또는 전부 unknown) — 호스트 단위
+    role_unknown = 0  # 특징 워크로드 0 호스트 수 — 보고서 workload_unknown_count 용
     for d in details:
         counter = workload_category_counter(d.services, d.listen_ports)
         if counter:
-            role_counter.update(counter.keys())  # 카테고리별 호스트 1회 (dedup within host)
+            role_counter.update(counter)  # 인스턴스 합산(카테고리별 값 누적)
         else:
             role_unknown += 1
 
@@ -241,40 +340,16 @@ def build_environment_overview(
     if utilization is not None:
         util_sample = utilization.sample_size
         util_bars = [
-            UtilizationBar(
-                label="CPU",
-                pct=utilization.cpu_avg_pct,
-                bar_color=_bar_color(utilization.cpu_avg_pct),
-                dash_length=_dash_length(utilization.cpu_avg_pct),
-            ),
-            UtilizationBar(
-                label="메모리",
-                pct=utilization.mem_avg_pct,
-                bar_color=_bar_color(utilization.mem_avg_pct),
-                dash_length=_dash_length(utilization.mem_avg_pct),
-            ),
-            UtilizationBar(
-                label="디스크",
-                pct=utilization.disk_avg_pct,
-                bar_color=_bar_color(utilization.disk_avg_pct),
-                dash_length=_dash_length(utilization.disk_avg_pct),
-            ),
+            _util_bar("CPU", utilization.cpu_avg_pct),
+            _util_bar("메모리", utilization.mem_avg_pct),
+            # "디스크 용량" — fs used%(capacity 축) — 활용률 아님, 용량 명시 (detail 도넛과 일관).
+            _util_bar("디스크 용량", utilization.disk_avg_pct),
         ]
         # p95 활용률 — 평균과 동일 capacity-weighted 환경 분포 기반(per_ts 95퍼센타일). CPU·메모리만 —
         # 디스크는 물리디스크/디바이스 인식이 Windows 에서 불완전해 capacity 합이 신뢰 불가라 제외.
         util_bars_p95 = [
-            UtilizationBar(
-                label="CPU",
-                pct=utilization.cpu_p95_pct,
-                bar_color=_bar_color(utilization.cpu_p95_pct),
-                dash_length=_dash_length(utilization.cpu_p95_pct),
-            ),
-            UtilizationBar(
-                label="메모리",
-                pct=utilization.mem_p95_pct,
-                bar_color=_bar_color(utilization.mem_p95_pct),
-                dash_length=_dash_length(utilization.mem_p95_pct),
-            ),
+            _util_bar("CPU", utilization.cpu_p95_pct),
+            _util_bar("메모리", utilization.mem_p95_pct),
         ]
 
     risk_segments: list = []
@@ -287,7 +362,13 @@ def build_environment_overview(
     # 마이그레이션 우선순위: swap(paging) > 위반 자원 수 > 최고 활용률. 동률은 hostname ASC tie-break.
     _under_all = sorted(under_provisioned_hosts or [], key=lambda c: (-c.severity_score, c.hostname.lower()))
     _under_shown = _under_all if under_limit is None else _under_all[:under_limit]
-    role_sorted = dict(sorted(role_counter.items(), key=lambda kv: (-kv[1], kv[0])))
+    # 시그니처 워크로드만 노출(환경 성격 규정 티어 — SIGNATURE_CATEGORIES). 0 포함(E9) — 인스턴스 개수 desc, 동수는 카탈로그 순서.
+    role_sorted = dict(sorted(
+        ((cat, role_counter.get(cat, 0)) for cat in SIGNATURE_CATEGORIES),
+        key=lambda kv: (-kv[1], SIGNATURE_CATEGORIES.index(kv[0])),
+    ))
+    # 원형차트 도넛 세그먼트 — 카테고리별 인스턴스 비율(누적 dash). 0 카테고리도 세그먼트 유지(범례 노출, E9).
+    workload_segments, _wl_total = _workload_donut_segments(role_sorted)
 
     # 포화 3축 도넛 — 자원 적정성 창 기준 포화 호스트 카운트/표본 (호출자가 raws 순회로 산출).
     sat_donuts: list = []
@@ -297,8 +378,10 @@ def build_environment_overview(
             _build_saturation_donut("CPU 포화", saturation_counts.get("cpu", 0), _sat_total),
             _build_saturation_donut("메모리 압박", saturation_counts.get("mem", 0), _sat_total),
             _build_saturation_donut("디스크 I/O 포화", saturation_counts.get("disk_io", 0), _sat_total),
+            _build_saturation_donut("네트워크 혼잡", saturation_counts.get("net", 0), _sat_total),
         ]
 
+    _eol_passed, _eol_unknown, _eol_supported = _os_eol_summary(details, datetime.now(UTC).date())
     return EnvironmentOverview(
         total=total,
         online=online_count,
@@ -309,8 +392,9 @@ def build_environment_overview(
         # count 내림차순 + 동count는 이름 오름차순 tie-break (most_common 동순위는 삽입순=DB row 순서라 비결정적).
         os_distribution=dict(sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
         role_distribution=role_sorted,
+        workload_donut=workload_segments,
+        workload_total=_wl_total,
         role_unknown_count=role_unknown,
-        role_identified_count=total - role_unknown,
         utilization=util_bars,
         utilization_p95=util_bars_p95,
         util_sample_size=util_sample,
@@ -321,6 +405,10 @@ def build_environment_overview(
         under_provisioned_hosts_count=len(_under_all),
         under_provisioned_hosts_shown=len(_under_shown),
         saturation_donuts=sat_donuts,
+        error_fleet=_error_fleet_with_eol(error_summary, details, total),
+        os_eol_passed=_eol_passed,
+        os_eol_unknown=_eol_unknown,
+        os_eol_supported=_eol_supported,
     )
 
 
@@ -329,16 +417,15 @@ def build_environment_realtime(
     online: int,
     snapshots: list[dict],
     last_collected_at,
-    top_n: int = 3,
+    top_n: int = 5,
 ) -> EnvironmentRealtime:
     """온라인 서버 최신 스냅샷 snapshots -> EnvironmentRealtime.
 
     호출자가 온라인 서버만 snapshots 로 전달 (오프라인 stale 메트릭 제외 — sample_size = len(snapshots)).
-    snapshots 키: hostname/public_id + 부하상위용 서버별 값(cpu_pct/mem_pct/disk_pct + disk_iops/net_kbps)
-                + capacity-weighted 가중치(cpu_cores·mem_used_bytes·mem_total_bytes·fs_used_gb·fs_total_gb).
-    utilization: CPU/메모리/디스크 평균 도넛 3개 — capacity-weighted(environment_utilization 동일 정의).
-    io_*: 환경 I/O 총량(신선 표본 합산) — 평균 섹션 수치 카드(rate 라 도넛 아님).
-    peak_groups: 자원별(CPU/메모리/디스크/디스크 I/O/네트워크 I/O) top_n 5열 — I/O 는 2행 페어 delta(build_dashboard).
+    snapshots 키: hostname/public_id + 부하상위용 서버별 값(cpu_pct/mem_pct/cpu_sat_index/disk_sat_index/
+                paging_rate/net_kbps) + capacity-weighted 가중치(cpu_cores·mem_used_bytes·mem_total_bytes).
+    utilization: CPU/메모리 평균 도넛 2개 — capacity-weighted(디스크 용량은 실시간 신호 아니라 제외).
+    peak_groups: 6축(CPU·메모리 이용률 + 실행 큐·페이징·응답 지연·네트워크) top_n — 현황 도넛과 동일 신호 랭킹.
     """
 
     # capacity-weighted 평균 — 환경 전체 자원 풀 활용률(단순 산술평균 X). environment_utilization SQL 과 동일 정의:
@@ -356,39 +443,47 @@ def build_environment_realtime(
 
     avg_cpu = _cap_weighted("cpu_pct", "cpu_cores")
     avg_mem = _ratio("mem_used_bytes", "mem_total_bytes")
-    avg_disk = _ratio("fs_used_gb", "fs_total_gb")
+    # 디스크 용량(fill%)은 실시간 신호가 아니라(느린 누적 축) 제외 — CPU·메모리 이용률만.
     util_bars = [
-        UtilizationBar(label="CPU", pct=avg_cpu, bar_color=_bar_color(avg_cpu), dash_length=_dash_length(avg_cpu)),
-        UtilizationBar(label="메모리", pct=avg_mem, bar_color=_bar_color(avg_mem), dash_length=_dash_length(avg_mem)),
-        UtilizationBar(
-            label="디스크", pct=avg_disk, bar_color=_bar_color(avg_disk), dash_length=_dash_length(avg_disk)
-        ),
+        _util_bar("CPU", avg_cpu),
+        _util_bar("메모리", avg_mem),
     ]
 
-    def _top_pct(key: str) -> list[RealtimePeak]:
-        ranked = sorted((s for s in snapshots if s.get(key) is not None), key=lambda s: s[key], reverse=True)
+    def _top(key: str, fmt, positive_only: bool = False) -> list[RealtimePeak]:
+        # positive_only: 포화 지수·rate 처럼 대부분 0 인 신호는 값>0 호스트만 랭킹(유휴 0.0 나열 방지).
+        cand = [s for s in snapshots if s.get(key) is not None and (not positive_only or s[key] > 0)]
+        ranked = sorted(cand, key=lambda s: s[key], reverse=True)
         return [
-            RealtimePeak(hostname=s["hostname"], public_id=s["public_id"], value=s[key], display=f"{s[key]:.1f}%")
+            RealtimePeak(hostname=s["hostname"], public_id=s["public_id"], value=s[key], display=fmt(s[key]))
             for s in ranked[:top_n]
         ]
 
-    # 부하 상위는 이용률 순위만 — 포화 지수는 Linux(await·실행큐)/Windows(큐 깊이) 신호가 달라 한 줄 랭킹이
-    # 애매하다(포화는 카운트 도넛으로만). 처리량(IOPS·MB/s)은 기준점 없어 폐기.
+    def _fmt_net(kbps: float) -> str:
+        return f"{kbps / 1024:.1f} MB/s" if kbps >= 1024 else f"{kbps:.0f} kB/s"
+
+    # 부하 상위 6축 — 현황 도넛(이용률 2 + 포화/압박 4)과 동일 신호를 호스트 랭킹으로 매핑. 순서 = 도넛 순서.
+    # 포화 지수(실행 큐·응답 지연)는 임계 정규화(>=1.0 포화)라 "x" 표기. 페이징/네트워크는 rate.
     peak_groups = [
-        RealtimePeakGroup(label="CPU", peaks=_top_pct("cpu_pct")),
-        RealtimePeakGroup(label="메모리", peaks=_top_pct("mem_pct")),
-        RealtimePeakGroup(label="디스크", peaks=_top_pct("disk_pct")),
+        RealtimePeakGroup(label="CPU 이용률", peaks=_top("cpu_pct", lambda v: f"{v:.1f}%")),
+        RealtimePeakGroup(label="메모리 이용률", peaks=_top("mem_pct", lambda v: f"{v:.1f}%")),
+        RealtimePeakGroup(label="실행 큐", peaks=_top("cpu_sat_index", lambda v: f"{v:.2f}x", positive_only=True)),
+        RealtimePeakGroup(label="페이징", peaks=_top("paging_rate", lambda v: f"{v:.0f}/s", positive_only=True)),
+        RealtimePeakGroup(label="응답 지연", peaks=_top("disk_sat_index", lambda v: f"{v:.2f}x", positive_only=True)),
+        RealtimePeakGroup(label="네트워크", peaks=_top("net_kbps", _fmt_net, positive_only=True)),
     ]
 
-    # 포화 비율 도넛 — 포화/압박 호스트 수 / 표본. 색·게이지는 _build_saturation_donut 공용(환경개요와 통일).
+    # 신호 임계 초과 도넛 — 순간 단일신호(이용률 게이트 없음)라 라벨을 신호명으로(환경개요 dual-gate "포화" 도넛과 구분).
+    # "포화" 판정어는 dual-gate(자원 평가)에만 쓴다 — 여기 카운트는 임계 초과 신호 호스트 수(순간 스냅샷).
     sample = len(snapshots)
     cpu_sat_count = sum(1 for s in snapshots if (s.get("cpu_sat_index") or 0) >= 1.0)
     disk_sat_count = sum(1 for s in snapshots if (s.get("disk_sat_index") or 0) >= 1.0)
     mem_pressure_count = sum(1 for s in snapshots if s.get("mem_pressure"))
+    net_congested_count = sum(1 for s in snapshots if s.get("net_congested"))
     saturation_donuts = [
-        _build_saturation_donut("CPU 포화", cpu_sat_count, sample),
-        _build_saturation_donut("메모리 압박", mem_pressure_count, sample),
-        _build_saturation_donut("디스크 I/O 포화", disk_sat_count, sample),
+        _build_saturation_donut("실행 큐 임계", cpu_sat_count, sample),
+        _build_saturation_donut("페이징", mem_pressure_count, sample),
+        _build_saturation_donut("응답지연 임계", disk_sat_count, sample),
+        _build_saturation_donut("네트워크 혼잡", net_congested_count, sample),
     ]
     return EnvironmentRealtime(
         total=total,
@@ -429,32 +524,29 @@ def to_capacity_warning_item(raw):
     # 원인 라벨 — trigger key 를 os-neutral 축 이름으로(고정 순서, _CAUSE_LABEL_BY_TRIGGER dict 삽입순 = 표시순).
     active_causes = [lbl for key, lbl in _CAUSE_LABEL_BY_TRIGGER.items() if key in hit]
 
-    # 카드 지표 — 판단 6축 전부 노출. saturation 3축(CPU·메모리·디스크 I/O) 표시값·라벨은 os-aware 이나
+    # 카드 지표 — host_status 구동 5축 전부 노출. saturation 2축(CPU·메모리) 표시값·라벨은 os-aware 이나
     # `shared.saturation_axis_displays` 단일 진실 경유 — single_report 포화 축 카드와 표기 공유(drift 차단, P2).
     # 라벨은 OS 중립 축 이름(공유 테이블 헤더가 혼합 OS 행에 유효, C-E1), 값·measured 만 os-aware(M1).
-    # active 는 rollup 트리거(hit) 재사용(임계 재계산 0). d_cpu/d_mem/d_disk = [cpu, mem, disk] 순.
-    # 지표 순서 = 자원별 그룹(CPU 이용률·포화 / 메모리 이용률·포화 / 디스크 용량·I/O) — 근거 읽기 쉽게.
-    d_cpu, d_mem, d_disk = saturation_axis_displays(stats)
+    # active 는 rollup 트리거(hit) 재사용(임계 재계산 0). d_cpu/d_mem = [cpu, mem] 순(disk_io 는 host_status
+    # 미구동이라 여기서 안 씀 — root_cause_label/진단 텍스트·환경 포화 도넛에서 노출).
+    d_cpu, d_mem, _ = saturation_axis_displays(stats)
     net_res = host.resources["network"]
     net_congested = net_res.status == "congested"
-    net_measured = net_res.status != "unmeasured"
-    # 네트워크 — 수치 2칼럼(재전송율·드롭율) + 판정(상태). 상태는 '분류'처럼 정상/혼잡/미측정. conntrack 은 서버 상세.
-    retrans = raw.net_retrans_pct
-    drop = raw.net_drop_pct
+    # 네트워크 — verdict 1칼럼(정상/혼잡/미측정), host under/over 미구동 orthogonal flag 라 metrics 밖 전용
+    # 필드(net_status_label/color). 원시 수치(재전송·드롭·conntrack)는 서버 상세.
     net_status_value = _NET_STATUS_LABEL.get(net_res.status, net_res.status)
+    net_status_color = _NET_CONGESTED_COLOR if net_congested else ""
+    # 자원 적정성 분류(host_status)에 실제로 관여하는 수치만 칼럼화 — CPU/메모리 이용률·포화(dual-gate under)·
+    # 디스크 용량(filling under). 디스크 I/O(await)·네트워크(재전송·드롭·conntrack)는 host_status 를 전혀
+    # 구동하지 않는 orthogonal advisory 축(recommendation._ROOTABLE_UNDER 가 명시적으로 제외) — 분류표에서
+    # 제거하고 각자 전용 채널로: 디스크 I/O 는 root_cause_label/진단 텍스트(증상 인과 결합 시)·환경 포화 도넛,
+    # 네트워크는 net_status_label(아래, compact 표 전용)·환경 혼잡 도넛으로 노출(가시성 손실 없음, 표만 정리).
     metrics = [
         _metric(_CPU_UTIL_LABEL, _pct(raw.cpu_p95_pct), cpu_active, raw.cpu_p95_pct is not None),
         _metric(_CPU_SAT_LABEL, d_cpu.value, load_active, d_cpu.measured),
         _metric(_MEM_UTIL_LABEL, _pct(raw.mem_p95_pct), mem_active, raw.mem_p95_pct is not None),
         _metric(_MEM_SAT_LABEL, d_mem.value, swap_active, d_mem.measured),
         _metric(_DISK_CAP_LABEL, _disk_cap_value(raw), "disk_capacity" in hit, raw.worst_mount_used_pct is not None),
-        _metric(_DISK_IO_LABEL, d_disk.value, "disk_io" in hit, d_disk.measured),
-        # 네트워크 그룹 — 근거(재전송·드롭 수치) 뒤 판정(상태). active = 각 임계 초과.
-        _metric(_NET_RETRANS_LABEL, f"{retrans:.2f}%" if retrans is not None else "N/A",
-                retrans is not None and retrans > _L.RS_NET_RETRANS_PCT, retrans is not None),
-        _metric(_NET_DROP_LABEL, f"{drop:.2f}%" if drop is not None else "N/A",
-                drop is not None and drop > _L.RS_NET_DROP_PCT, drop is not None),
-        _metric(_NET_LABEL, net_status_value, net_congested, net_measured),
     ]
     # 상위 N 절단용 심각도 — swap(paging) 최우선 > 위반 자원 수 > 최고 활용률(CPU/메모리/디스크 max).
     # 가중치 자릿수 분리(swap 1e4 > active*100(max 500) > util(max 100))로 우선순위 충돌 없음.
@@ -482,6 +574,8 @@ def to_capacity_warning_item(raw):
         recommendation_action=action,
         root_cause_label=recommendation.root_cause_display(host),
         severity_score=severity_score,
+        net_status_label=net_status_value,
+        net_status_color=net_status_color,
     )
 
 

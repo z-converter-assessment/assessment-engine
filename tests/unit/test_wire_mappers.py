@@ -1,5 +1,6 @@
 """wire 파싱 mapper — datapoint-array -> 저장 DTO 값 정합 (계약 예시 fixture)."""
 
+import copy
 import json
 from pathlib import Path
 
@@ -98,3 +99,37 @@ def test_placeholder_uses_agent_id_for_hostname() -> None:
 
     ph = build_placeholder_inventory(MetricsInput.model_validate(_EX["linux_metrics"]))
     assert ph.hostname == str(ph.agent_id) and ph.block_devices == []
+
+
+def test_inventory_reproduction_mapped() -> None:
+    """재현 필드 발행 payload — 스칼라 passthrough + boot dict/nonblock_mounts list 조립."""
+    payload = copy.deepcopy(_EX["linux_inventory"])
+    payload.update(
+        {
+            "arch": "x86_64", "bits": 64, "boot_firmware": "uefi", "secure_boot": True,
+            "edition": None, "timezone": "Asia/Seoul", "rtc_utc": True,
+            "boot": {"kernel_cmdline": "BOOT_IMAGE=/vmlinuz root=LABEL=root ro", "root_ref_type": "label"},
+            "nonblock_mounts": [
+                {"source": "tmpfs", "target": "/run", "fstype": "tmpfs",
+                 "options": ["rw", "nosuid"], "fs_freq": 0, "fs_passno": 0}
+            ],
+        }
+    )
+    inv = to_inventory_create(InventoryInput.model_validate(payload))
+    assert inv.arch == "x86_64" and inv.bits == 64 and inv.rtc_utc is True
+    assert inv.boot == {
+        "kernel_cmdline": "BOOT_IMAGE=/vmlinuz root=LABEL=root ro",
+        "root_ref_type": "label",
+        "grub_install_target": None,  # 미발행 -> None 이지만 키는 항상 present
+    }
+    assert inv.nonblock_mounts == [
+        {"source": "tmpfs", "target": "/run", "fstype": "tmpfs",
+         "options": ["rw", "nosuid"], "fs_freq": 0, "fs_passno": 0}
+    ]
+
+
+def test_inventory_reproduction_absent_none() -> None:
+    """재현 필드 미발행 payload — None 분기 (data.boot/nonblock_mounts is None -> None)."""
+    inv = _inv("linux_inventory")  # fixture 에 재현 필드 없음
+    assert inv.arch is None and inv.bits is None and inv.rtc_utc is None
+    assert inv.boot is None and inv.nonblock_mounts is None

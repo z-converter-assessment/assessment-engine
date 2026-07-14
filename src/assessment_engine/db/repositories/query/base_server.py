@@ -1,6 +1,7 @@
 """Server 도메인 추상 인터페이스 — inventory · storage · network · collection status."""
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from assessment_engine.db.dtos.outbound import (
     CollectionStatus,
@@ -53,4 +54,9 @@ class BaseServerQueryRepository(ABC):
     @abstractmethod
     async def list_server_ids(self, limit: int | None = 1000) -> list[int]:
         """등록 서버 정수 PK 모음 — ID만 필요한 batch 호출용 (risk_top 등). disks JSONB 같은 큰 컬럼 미포함 (T8)."""
+        ...
+
+    @abstractmethod
+    async def latest_metric_at(self) -> datetime | None:
+        """fleet 전체 최신 메트릭 수집 시각 — 상단 바 데이터 최신성(메트릭 collected_at 기준)."""
         ...

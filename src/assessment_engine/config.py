@@ -145,7 +145,7 @@ class WorkerSettings(WebSettings):
 class ConsumerSettings(WebSettings):
     rabbitmq_host: str = "rabbitmq"
     rabbitmq_port: int = 5672
-    rabbitmq_vhost: str = "/assessment"  # 에이전트가 발행하는 전용 vhost
+    rabbitmq_vhost: str = "assessment"  # 에이전트가 발행하는 전용 vhost (무슬래시 — 앞 슬래시 없는 이름)
     rabbitmq_user: str = "assessment"
     # default 는 weak(changeme) — 미설정 시 prod 거부 강제 (명시 assessment 는 허용). USER 는 식별자라 default 허용.
     rabbitmq_password: SecretStr = SecretStr("changeme")
@@ -187,8 +187,8 @@ class ConsumerSettings(WebSettings):
 
     @property
     def broker_url(self) -> str:
-        # vhost의 '/'는 AMQP URL에서 %2F로 인코딩되어야 함
-        # (e.g. '/assessment' → '%2Fassessment')
+        # vhost 는 무슬래시 "assessment" 라 인코딩 무영향. replace 는 슬래시 포함 vhost 방어용 유지
+        # (AMQP URL 에서 vhost 의 '/'는 %2F 로 인코딩돼야 함).
         encoded_vhost = self.rabbitmq_vhost.replace("/", "%2F")
         return (
             f"amqp://{self.rabbitmq_user}:{self.rabbitmq_password.get_secret_value()}"

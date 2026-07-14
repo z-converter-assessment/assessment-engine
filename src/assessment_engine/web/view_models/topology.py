@@ -6,10 +6,14 @@
 elements: Cytoscape.js elements 형식(`{"data": {...}}` 리스트)으로 mapper 가 precompute.
   - 그래프 노드/엣지 조립은 결정론적 표현 변환이라 mapper(P2)에서 굳혀 둔다. 템플릿은 `| tojson`,
     network-topology.js 는 레이아웃·스타일·클릭 바인딩만(P4: 라이브러리 옵션 조립·시각화).
-  - subnet 노드 data: {id "subnet:<net>", label <net>, kind "subnet", hostCount}
-  - host 노드 data:   {id "host:<public_id>", label <hostname>, kind "host", publicId, osFamily}
-                      classes "collapsed" — 집계 뷰 초기 숨김(서브넷 노드 클릭 시 펼침)
-  - edge data:        {source "host:<public_id>", target "subnet:<net>"}, classes "collapsed"
+  3계층 뷰(gateway 라우터 -> subnet -> host): gateway·subnet 노드와 gateway->subnet 엣지가 기본 표시(라우팅
+  골격), host 노드·host->subnet 엣지는 "collapsed"(초기 숨김) — subnet 노드 클릭 시 해당 host 펼침.
+  - gateway 노드 data: {id "gw:<gw>", label <gw>, kind "gateway", subnetCount}
+  - subnet 노드 data:  {id "subnet:<net>", label <net>, kind "subnet", hostCount, gateway}
+  - host 노드 data:    {id "host:<public_id>", label <hostname>, kind "host", publicId, osFamily, roles,
+                       multiHomed(2+ 서브넷), ifaces[{name,mac,mtu,gateway}] 노드 툴팁} classes "collapsed"
+  - route 엣지 data:   {source "gw:<gw>", target "subnet:<net>", kind "route"}  (기본 표시)
+  - member 엣지 data:  {source "host:<public_id>", target "subnet:<net>", kind "member"} classes "collapsed"
 """
 
 from dataclasses import dataclass, field
@@ -21,7 +25,11 @@ class SubnetHost:
     ip: str  # 해당 서브넷에서 호스트가 주장한 IP (raw, "10.0.1.15")
     os_family: str  # linux/windows/unknown — 표시용
     public_id: str  # 상세 링크 (#E4)
-    roles: list[str] = field(default_factory=list)  # 워크로드 카테고리(service_categories, E7) — 서브넷별 app tier
+    roles: list[str] = field(default_factory=list)  # 시그니처 워크로드 카테고리 — 서브넷별 app tier
+    iface: str | None = None  # 이 서브넷에 IP 를 실은 NIC 이름 (ens3 등)
+    gateway: str | None = None  # 해당 인터페이스 게이트웨이 (그래프 라우터 노드와 정합)
+    origin: str | None = None  # 주소 origin (dhcp/static) — 고정 IP 서버 식별
+    multi_homed: bool = False  # 2+ 서브넷에 걸친 호스트 (브리지/라우터 후보)
 
 
 @dataclass
@@ -38,6 +46,7 @@ class NetworkTopology:
     host_count: int  # 그래프에 포함된 호스트 수 (1개+ 공유 서브넷 소속)
     multi_homed_count: int  # 2개+ 서브넷에 걸친 호스트 수 (라우팅/브리지 지점)
     isolated_count: int  # 공유 서브넷에 들지 못한 호스트 수 (단독·가상망만 보유)
+    router_count: int = 0  # 공유 게이트웨이(2+ 서브넷) 라우터 노드 수 — 0 이면 라우터 범례 미노출
     subnets: list[SubnetGroup] = field(default_factory=list)  # 서브넷별 소속 서버 목록 카드용
     caveats: list[str] = field(default_factory=list)  # 카드 캡션 — 추론 한계 정직 노출 (#E9)
     has_data: bool = False  # 표시할 공유 서브넷 존재 여부 — False 면 템플릿 empty_state
