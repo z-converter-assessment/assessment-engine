@@ -73,6 +73,8 @@
 
 | 0055 | 전용 백그라운드 워커 컨테이너 분리 (web = HTTP 전담) | Accepted | ADR 0040(보고서 job-claim 워커)·0051(install reaper)의 프로세스 배치 개정 — 결정(DB 상태머신·비동기·reaper)은 유지, 실행 위치만 web lifespan -> 전용 프로세스 `assessment_engine.worker`. `worker/main.py` composition root 가 두 루프를 공유 stop_event 로 병행 구동(consumer 와 동일 asyncio-native SIGTERM graceful). 루프 모듈 web/->worker/ 이전, web-only `lifespan_worker`/`lifespan_task_reaper` CM 제거. `WorkerSettings`(report_worker_*·install_reaper_*) 분리, `worker/settings.py` composition root(F4 6번째). docker-compose `worker` 서비스(consumer 미러링). 효과: 생성 부하 web HTTP 와 프로세스 격리(0040 web 경합 한계 해소)·독립 스케일. graceful in-flight 손실 0·SKIP LOCKED 멀티노드 유지. 단일 이미지 command 분기 모델 유지(worker->web.services 의존은 무해). 0040·0051 amend. |
 
+| 0056 | 자원 부족 처방 인과 억제 폐기 (자원별 독립 처방으로 3개 소비처 통일) | Accepted | ADR 0052 "root 에만 처방, 하류 억제"가 보고서(`under_prescription`)·`/api/right-sizing`(`prescribed_under_kinds` 공유)엔 적용됐지만 `/api/assessment`(ADR 0054 4항, "1회성 산출이라 재평가 루프 없음, 억제는 과소로 흐름")엔 처음부터 미적용 — 같은 호스트가 소비처마다 다른 조치를 안내하는 상태였다. `prescribed_under_kinds`를 `_under_kinds`와 동치화(관측된 under 자원 전부, 인과 무관)해 3곳 통일. root_cause/symptom_of_root 는 계산 유지·"왜 부족한가" 진단 근거로만 사용(root_cause_display), 처방 자체는 거르지 않는다. `/api/right-sizing`의 `suppressed[]`는 항상 빈 배열로 유지(스키마 호환, 차기 major 계약에서 제거 검토). ADR 0052 처방 억제 조항만 supersede(5자원 USE 판정 틀·근본원인 종합은 존속), ADR 0054 4항 원칙을 전 소비처로 확장. |
+
 트레이드오프 카탈로그(T1~T17)는 ADR 형식과 맞지 않아 `docs/explanation/tradeoffs.md`로 분리.
 
 ## 새 ADR 작성

@@ -7,7 +7,7 @@
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
  * - body data-server-id (E6 외부화 규약, static-assets.md)
  *
- * 시간축: 페이지 단일 range + anchor(#F10) — 3 차트(사용률·구성·PSI)가 pageTimeControl 하나를 공유해
+ * 시간축: 페이지 단일 range + anchor(#F10) — 3 차트(사용률·구성·압박여부)가 pageTimeControl 하나를 공유해
  * 같은 창·시점으로 그려진다(신호 간 시점 상관).
  */
 
@@ -40,11 +40,11 @@ async function loadSnapshot() {
     const mem  = data.memory;
     if (!mem) { /** @type {HTMLElement} */ (document.getElementById('snap-empty')).style.display = ''; return; }
 
-    /** @type {HTMLElement} */ (document.getElementById('s-mem-pct')).textContent     = mem.usage_pct    != null ? mem.usage_pct.toFixed(1) + '%' : '—';
-    /** @type {HTMLElement} */ (document.getElementById('s-mem-used')).textContent    = fmtGb(mem.used_bytes);
-    /** @type {HTMLElement} */ (document.getElementById('s-mem-avail')).textContent   = fmtGb(mem.available_bytes);
-    /** @type {HTMLElement} */ (document.getElementById('s-mem-cached')).textContent  = /** @type {string} */ (ChartUtils.naWindows(OS_FAMILY, 'mem_cached', fmtGb(mem.cached_bytes)));
-    /** @type {HTMLElement} */ (document.getElementById('s-mem-buffers')).textContent = /** @type {string} */ (ChartUtils.naWindows(OS_FAMILY, 'mem_buffers', fmtGb(mem.buffered_bytes)));
+    ChartUtils.setValText(document.getElementById('s-mem-pct'), mem.usage_pct != null ? mem.usage_pct.toFixed(1) + '%' : '—');
+    ChartUtils.setValText(document.getElementById('s-mem-used'), fmtGb(mem.used_bytes));
+    ChartUtils.setValText(document.getElementById('s-mem-avail'), fmtGb(mem.available_bytes));
+    ChartUtils.setNaText(document.getElementById('s-mem-cached'), OS_FAMILY, 'mem_cached', fmtGb(mem.cached_bytes));
+    ChartUtils.setNaText(document.getElementById('s-mem-buffers'), OS_FAMILY, 'mem_buffers', fmtGb(mem.buffered_bytes));
 
     // 포화 스냅샷 신호 — 서버가 os-aware 판정(값·임계·saturated·4상태)을 끝낸 구조화 신호를 공통 렌더만(P4).
     // JS os 분기·임계 재계산 없음(SignalUtils). 근거(metric·임계)는 각 항목 hover.
@@ -266,29 +266,30 @@ async function loadCompChart() {
   } catch(e) { console.error(e); }
 }
 
-/* ── 메모리 PSI 추이 (some 정체율 %, 단일선 — Linux 전용, Windows 는 빈 결과 -> empty state) ── */
+/* ── 메모리 압박 여부 추이 (이진 0/1 스텝 — recommendation.mem_pressure_active 와 동일 판정) ──
+ * Linux(refault 임계 >0)·Windows(Pages Input/sec 임계 20/s) 를 버킷별 bool_or 로 0/1 통일 — OS 무관 같은
+ * 잣대(판정 결과)로 비교 가능. backend mem.paging_pressure(서버 상세 단일 시계열, 환경 mem.paging_pressure_hosts
+ * 와 동일 원자료·임계).
+ */
 /** @type {any} */
-let memPsiChart = null;
-let memPsiSeq   = 0;
+let pagingChart = null;
+let pagingSeq   = 0;
 
-async function loadMemPsiChart() {
-  const seq = ++memPsiSeq;
+async function loadPagingChart() {
+  const seq = ++pagingSeq;
   const range  = timeCtl.getRange();
   const anchor = timeCtl.getAnchor();
-  const p = new URLSearchParams({ metric_type: 'mem.psi', time_range: range, bucket: AUTO_BUCKET[range], agg: 'avg' });
+  const p = new URLSearchParams({ metric_type: 'mem.paging_pressure', time_range: range, bucket: AUTO_BUCKET[range], agg: 'avg' });
   if (anchor) p.append('end', anchor.toISOString());
-  const canvas = /** @type {HTMLElement} */ (document.getElementById('mem-psi-canvas'));
-  const empty  = /** @type {HTMLElement} */ (document.getElementById('mem-psi-empty'));
+  const canvas = /** @type {HTMLElement} */ (document.getElementById('mem-paging-canvas'));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById('mem-paging-empty'));
   try {
     /** @type {import('../generated/api').components['schemas']['MetricSeriesItem'][]} */
     const rows = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${p}`).then(r => r.json());
-    if (seq !== memPsiSeq) return;
+    if (seq !== pagingSeq) return;
     if (!Array.isArray(rows) || !rows.length) {
-      // PSI 는 Windows 구조적 미지원(어느 기간을 골라도 항상 empty) — "해당 기간 데이터 없음"(일시적 뉘앙스)
-      // 대신 N/A(영구 사실). Linux 는 진짜 미수집 케이스라 기존 문구 유지.
-      empty.textContent = OS_FAMILY === 'windows' ? 'N/A (Windows 미지원)' : '해당 기간에 수집된 데이터가 없습니다.';
       canvas.style.display = 'none'; empty.style.display = '';
-      if (memPsiChart) { memPsiChart.destroy(); memPsiChart = null; }
+      if (pagingChart) { pagingChart.destroy(); pagingChart = null; }
       return;
     }
     canvas.style.display = ''; empty.style.display = 'none';
@@ -296,24 +297,24 @@ async function loadMemPsiChart() {
     const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchor);
     const labels = grid.map((/** @type {number} */ t) => fmtLabel(new Date(t).toISOString(), range));
     const data   = joinToGrid(grid, rows, bMs);
-    if (memPsiChart) {
-      memPsiChart.data.labels = labels; memPsiChart.data.datasets[0].data = data;
-      memPsiChart.update('none'); return;
+    if (pagingChart) {
+      pagingChart.data.labels = labels; pagingChart.data.datasets[0].data = data;
+      pagingChart.update('none'); return;
     }
-    memPsiChart = new Chart(canvas, {
+    pagingChart = new Chart(canvas, {
       type: 'line',
       data: { labels, datasets: [{
-        label: 'PSI (정체율)', data,
+        label: '메모리 압박', data,
         borderColor: /** @type {any} */ (ChartUtils).themeColor(),
-        borderWidth: 2, pointRadius: 1, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
+        borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0, fill: false, spanGaps: false, stepped: 'before',
       }] },
       options: {
         responsive: true, maintainAspectRatio: false,
         interaction: { mode:'index', intersect:false },
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` PSI: ${ctx.parsed.y?.toFixed(1)} %` } } },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` ${ctx.parsed.y >= 1 ? '압박' : '정상'}` } } },
         scales: {
           x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
-          y: { ticks:{ callback: v => Number(v).toFixed(1) + '%', font:{size:11}, color:'#64748b' }, grid:{ color:'#f1f5f9' }, beginAtZero: true, suggestedMax: 20 },
+          y: { ticks:{ stepSize:1, callback: v => Number(v) >= 1 ? '압박' : '정상', font:{size:11}, color:'#64748b' }, grid:{ color:'#f1f5f9' }, min:0, max:1 },
         },
       },
     });
@@ -328,7 +329,7 @@ function updateBucketLabels() {
   const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
   // 버킷은 3 차트 공통(단일 range/anchor) — 환경 성능 추이·CPU 상세와 동일 전역 라벨 1개.
   set('bucket-label', BUCKET_LABEL[AUTO_BUCKET[r]] || '');
-  set('mem-range-print', pr); set('comp-range-print', pr); set('mem-psi-range-print', pr);
+  set('mem-range-print', pr); set('comp-range-print', pr); set('mem-paging-range-print', pr);
 }
 
 /* ── 전체 차트 reload (페이지 range/anchor 변경 시) ── */
@@ -336,7 +337,7 @@ function reloadAllCharts() {
   updateBucketLabels();
   pctLoaders.forEach(loader => loader.load());
   loadCompChart();
-  loadMemPsiChart();
+  loadPagingChart();
 }
 
 // 페이지 단일 시간축 컨트롤러 — range 토글 + anchor 가 3 차트 전체 구동(#F10).

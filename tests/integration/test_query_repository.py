@@ -19,7 +19,7 @@ from assessment_engine.db.dtos.inbound import (
 )
 from assessment_engine.db.repositories.collect_repository import CollectRepository
 from assessment_engine.db.repositories.query.query_repository import QueryRepository
-from tests.factories import agent_id_for, make_inventory, make_metrics
+from tests.factories import _DISK_DEVICE_ID, agent_id_for, make_inventory, make_metrics
 
 
 def _bucket_aligned_base(minutes_ago: int = 7) -> datetime:
@@ -39,22 +39,47 @@ _ALL_METRIC_TYPES = [
     "cpu.user_percent",
     "cpu.system_percent",
     "cpu.iowait_percent",
+    "cpu.nice_percent",
     "cpu.run_queue",
+    "cpu.saturation",
+    "cpu.blocked",
+    "cpu.psi",
     "mem.usage_percent",
     "mem.available_percent",
     "mem.cached_percent",
     "mem.buffers_percent",
+    "mem.psi",
+    "mem.paging_pressure",
     "disk.read_iops",
     "disk.write_iops",
     "disk.read_kbps",
     "disk.write_kbps",
     "disk.io_saturation",
+    "disk.saturation",
+    "disk.psi",
     "fs.usage_percent",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
     "net.rx_packets_per_sec",
     "net.tx_packets_per_sec",
     "net.retrans_percent",
+    "net.drop_percent",
+    "net.congested",
+]
+
+# EnvironmentMetricType 전량 (types.EnvironmentMetricType Literal 과 동기화 — dispatch 커버, #F9).
+# collapse=True(환경 스케일 합산/count) 경로 전용 — server_ids=[1대]로도 dispatch SQL 자체는 검증 가능
+# (환경 전체 서버 대상 실행은 router 통합 테스트 영역).
+_ALL_ENV_METRIC_TYPES = [
+    "cpu.usage_percent",
+    "cpu.saturation_hosts",
+    "mem.usage_percent",
+    "mem.paging_pressure_hosts",
+    "fs.usage_percent",
+    "disk.saturation_hosts",
+    "net.rx_bytes_per_sec",
+    "net.tx_bytes_per_sec",
+    "net.congested_hosts",
 ]
 
 
@@ -275,13 +300,15 @@ async def test_latest_dashboard_skips_future_timestamp_rows(
             cpu_idle_s=99999,
             disk_io=[
                 DiskIoEntry(
-                    device_id="sda", device_name="sda", ops_read=9999, ops_write=9999,
-                    io_read_bytes=9999 * 512, io_write_bytes=9999 * 512,
+                    device_id="sda",
+                    device_name="sda",
+                    ops_read=9999,
+                    ops_write=9999,
+                    io_read_bytes=9999 * 512,
+                    io_write_bytes=9999 * 512,
                 )
             ],
-            filesystems=[
-                FilesystemEntry(mountpoint="/", fstype="ext4", used_bytes=50_000_000_000 - 1, free_bytes=1)
-            ],
+            filesystems=[FilesystemEntry(mountpoint="/", fstype="ext4", used_bytes=50_000_000_000 - 1, free_bytes=1)],
             net_io=[
                 NetIoEntry(
                     iface_id="eth0",
@@ -326,6 +353,27 @@ async def test_metric_chart_dispatcher_all_types(
         bucket="5m",
         agg="avg",
         end=None,
+    )
+    assert isinstance(rows, list)
+
+
+@pytest.mark.parametrize("metric_type", _ALL_ENV_METRIC_TYPES)
+async def test_metric_trend_env_dispatcher_all_types(
+    metric_type: str,
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """EnvironmentMetricType 전량이 collapse=True dispatch 를 통과 — 결과는 비어도 OK(#F9)."""
+    sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id=f"q-env-{metric_type}", n_points=3)
+    end = base_ts + timedelta(minutes=10)
+    rows = await query_repo.metric_trend(
+        metric_type,
+        base_ts,
+        end,
+        "5m",
+        server_ids=[sid],
+        agg="avg",
+        collapse=True,
     )
     assert isinstance(rows, list)
 
@@ -379,11 +427,15 @@ async def test_metric_chart_disk_io_saturation_returns_await(
                 collected_at=base + timedelta(minutes=i),
                 disk_io=[
                     DiskIoEntry(
-                        device_id="name:sda", device_name="sda",
-                        ops_read=100 + i * 100, ops_write=0,
-                        op_read_time_s=1.0 + i * 1.0, op_write_time_s=0.0,
+                        device_id="name:sda",
+                        device_name="sda",
+                        ops_read=100 + i * 100,
+                        ops_write=0,
+                        op_read_time_s=1.0 + i * 1.0,
+                        op_write_time_s=0.0,
                         io_time_s=i * 40.0,  # Δ40s / 60s wall = 0.67 util >= 0.5 게이트 통과
-                        io_read_bytes=0, io_write_bytes=0,
+                        io_read_bytes=0,
+                        io_write_bytes=0,
                     )
                 ],
             ),
@@ -417,10 +469,14 @@ async def test_metric_chart_disk_io_saturation_excludes_idle_disk(
                 collected_at=base + timedelta(minutes=i),
                 disk_io=[
                     DiskIoEntry(
-                        device_id="sda", device_name="sda",
-                        ops_read=100, ops_write=0,
-                        op_read_time_s=1.0, op_write_time_s=0.0,
-                        io_read_bytes=0, io_write_bytes=0,
+                        device_id="sda",
+                        device_name="sda",
+                        ops_read=100,
+                        ops_write=0,
+                        op_read_time_s=1.0,
+                        op_write_time_s=0.0,
+                        io_read_bytes=0,
+                        io_write_bytes=0,
                     )
                 ],
             ),
@@ -452,11 +508,15 @@ async def test_metric_chart_disk_io_saturation_util_gate_excludes_low_activity(
                 collected_at=base + timedelta(minutes=i),
                 disk_io=[
                     DiskIoEntry(
-                        device_id="sda", device_name="sda",
-                        ops_read=100 + i * 2, ops_write=0,      # Δ2 극소 ops
-                        op_read_time_s=i * 10.0, op_write_time_s=0.0,  # Δ10s -> await 5000ms(폭증)
+                        device_id="sda",
+                        device_name="sda",
+                        ops_read=100 + i * 2,
+                        ops_write=0,  # Δ2 극소 ops
+                        op_read_time_s=i * 10.0,
+                        op_write_time_s=0.0,  # Δ10s -> await 5000ms(폭증)
                         io_time_s=i * 3.0,  # Δ3s / 60s wall = 0.05 util < 0.5 -> 게이트 탈락
-                        io_read_bytes=0, io_write_bytes=0,
+                        io_read_bytes=0,
+                        io_write_bytes=0,
                     )
                 ],
             ),
@@ -518,9 +578,12 @@ async def test_metric_chart_disk_read_iops_per_device(
                 collected_at=base_ts + timedelta(minutes=i),
                 disk_io=[
                     DiskIoEntry(
-                        device_id="name:sda", device_name="sda",
-                        ops_read=100 + i * 50, ops_write=50 + i * 25,
-                        io_read_bytes=(2000 + i * 1000) * 512, io_write_bytes=(1000 + i * 500) * 512,
+                        device_id="name:sda",
+                        device_name="sda",
+                        ops_read=100 + i * 50,
+                        ops_write=50 + i * 25,
+                        io_read_bytes=(2000 + i * 1000) * 512,
+                        io_write_bytes=(1000 + i * 500) * 512,
                     )
                 ],
                 filesystems=[],
@@ -612,8 +675,12 @@ async def test_metric_chart_rate_clamps_counter_decrease(
                 collected_at=base_ts + timedelta(minutes=offset),
                 disk_io=[
                     DiskIoEntry(
-                        device_id="sda", device_name="sda", ops_read=reads, ops_write=0,
-                        io_read_bytes=0, io_write_bytes=0,
+                        device_id="sda",
+                        device_name="sda",
+                        ops_read=reads,
+                        ops_write=0,
+                        io_read_bytes=0,
+                        io_write_bytes=0,
                     )
                 ],
                 filesystems=[],
@@ -910,9 +977,7 @@ async def test_latest_per_dimension_excludes_data_older_than_30d(
         make_metrics(
             collected_at=old_ts,
             filesystems=[
-                FilesystemEntry(
-                    mountpoint="/old", fstype="ext4", used_bytes=10**12 - 10**11, free_bytes=10**11
-                )
+                FilesystemEntry(mountpoint="/old", fstype="ext4", used_bytes=10**12 - 10**11, free_bytes=10**11)
             ],
             disk_io=[],
             net_io=[],
@@ -1229,3 +1294,351 @@ async def test_metric_trend_cached_null_component_is_gap_not_zero(
     # 혼재: win 이 분모에서도 제외 -> 실측 25% 유지(0 쪽으로 안 끌림)
     mixed = await query_repo.metric_trend("mem.cached_percent", start, end, bucket, [win, lin])
     assert mixed and mixed[-1].value is not None and 20.0 <= mixed[-1].value <= 30.0
+
+
+# ─── 이번 세션 신규 SQL 정확성 — mem.paging_pressure / net.congested / fs.usage_percent LOCF ──────────
+
+
+async def test_mem_paging_pressure_crosses_on_linux_refault(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """mem.paging_pressure — Linux 는 paging_major rate > 0 이면 즉시 1.0(존재 판정, mem_pressure_active 와 동일).
+
+    mem.paging_pressure_hosts(환경, count) 와 원자료·임계 동일 — 서버 1대 단일 시계열로 축소한 버전(이진 0/1).
+    """
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-paging-hi"))
+    # p0: paging_major 기준점. p1(+1m): 증가 -> delta > 0 -> crossed.
+    await collect_repo.record_metrics(
+        sid, make_metrics(collected_at=base_ts, paging_major=1000, filesystems=[], disk_io=[], net_io=[])
+    )
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts + timedelta(minutes=1), paging_major=1100, filesystems=[], disk_io=[], net_io=[]
+        ),
+    )
+    end = base_ts + timedelta(minutes=5)
+    rows = await query_repo.metric_chart(
+        server_id=sid,
+        metric_type="mem.paging_pressure",
+        dimension=None,
+        time_range="15m",
+        bucket="1m",
+        agg="avg",
+        end=end,
+    )
+    assert rows, "paging_major 증가 구간은 최소 1개 버킷을 반환해야 한다"
+    values = {r.value for r in rows}
+    assert values <= {0.0, 1.0}, f"이진 0/1 외 값 유입: {values}"
+    assert 1.0 in values, "paging_major 증가(존재 판정)가 버킷에 반영돼야 한다"
+
+
+async def test_mem_paging_pressure_flat_stays_zero(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """mem.paging_pressure — paging_major 변화 없으면(delta=0) 항상 0.0(정상)."""
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-paging-flat"))
+    for i in range(3):
+        await collect_repo.record_metrics(
+            sid,
+            make_metrics(
+                collected_at=base_ts + timedelta(minutes=i), paging_major=1000, filesystems=[], disk_io=[], net_io=[]
+            ),
+        )
+    end = base_ts + timedelta(minutes=5)
+    rows = await query_repo.metric_chart(
+        server_id=sid,
+        metric_type="mem.paging_pressure",
+        dimension=None,
+        time_range="15m",
+        bucket="1m",
+        agg="avg",
+        end=end,
+    )
+    assert rows
+    assert all(r.value == 0.0 for r in rows), "delta=0 는 어느 버킷도 압박 판정이면 안 된다"
+
+
+_PHYS_IFACE_ID = "mac:52:54:00:12:34:56"  # tests/factories.make_inventory 기본 net_interfaces 와 동일 안정키
+
+
+async def test_net_congested_crosses_on_retrans_spike(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """net.congested — 재전송율(>1%)이 저트래픽 게이트를 넘는 트래픽에서 발생하면 1.0.
+
+    net.congested_hosts(환경, count) 와 동일 원자료·임계·OR 판정을 서버 1대 단일 시계열로 축소.
+    """
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-net-cong"))
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts,
+            net_tcp_retransmits=0,
+            filesystems=[],
+            disk_io=[],
+            net_io=[
+                NetIoEntry(
+                    iface_id=_PHYS_IFACE_ID,
+                    iface_name="eth0",
+                    rx_bytes=0,
+                    tx_bytes=0,
+                    rx_packets=0,
+                    tx_packets=1000,
+                    rx_dropped=0,
+                    tx_dropped=0,
+                )
+            ],
+        ),
+    )
+    # +1분: 재전송 50건 / 송신 패킷 1000건 증가 -> 5% (임계 1% 초과). 트래픽 800,000B/60s ≈ 13kB/s(임계 10 이상 충족).
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts + timedelta(minutes=1),
+            net_tcp_retransmits=50,
+            filesystems=[],
+            disk_io=[],
+            net_io=[
+                NetIoEntry(
+                    iface_id=_PHYS_IFACE_ID,
+                    iface_name="eth0",
+                    rx_bytes=400_000,
+                    tx_bytes=400_000,
+                    rx_packets=1000,
+                    tx_packets=2000,
+                    rx_dropped=0,
+                    tx_dropped=0,
+                )
+            ],
+        ),
+    )
+    end = base_ts + timedelta(minutes=5)
+    rows = await query_repo.metric_chart(
+        server_id=sid, metric_type="net.congested", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
+    )
+    assert rows
+    values = {r.value for r in rows}
+    assert values <= {0.0, 1.0}
+    assert 1.0 in values, "재전송율 5%(임계 1% 초과, 저트래픽 게이트 통과)가 이상으로 판정돼야 한다"
+
+
+async def test_net_congested_low_traffic_gate_suppresses_retrans(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """net.congested — 트래픽이 저트래픽 게이트(RS_NET_MIN_TRAFFIC_KBPS) 미만이면 재전송율이 임계를 넘어도 억제."""
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-net-lowtraffic"))
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts,
+            net_tcp_retransmits=0,
+            filesystems=[],
+            disk_io=[],
+            net_io=[
+                NetIoEntry(
+                    iface_id=_PHYS_IFACE_ID,
+                    iface_name="eth0",
+                    rx_bytes=0,
+                    tx_bytes=0,
+                    rx_packets=0,
+                    tx_packets=10,
+                    rx_dropped=0,
+                    tx_dropped=0,
+                )
+            ],
+        ),
+    )
+    # +1분: 재전송 5건 / 송신 패킷 10건 증가 -> 50%(임계 초과) 이나 트래픽 자체가 거의 없음(< 10 kB/s 게이트).
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts + timedelta(minutes=1),
+            net_tcp_retransmits=5,
+            filesystems=[],
+            disk_io=[],
+            net_io=[
+                NetIoEntry(
+                    iface_id=_PHYS_IFACE_ID,
+                    iface_name="eth0",
+                    rx_bytes=100,
+                    tx_bytes=100,
+                    rx_packets=10,
+                    tx_packets=20,
+                    rx_dropped=0,
+                    tx_dropped=0,
+                )
+            ],
+        ),
+    )
+    end = base_ts + timedelta(minutes=5)
+    rows = await query_repo.metric_chart(
+        server_id=sid, metric_type="net.congested", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
+    )
+    assert rows
+    assert all(r.value == 0.0 for r in rows), "저트래픽 게이트 미만이면 재전송율 임계 초과여도 억제돼야 한다"
+
+
+async def test_fs_usage_percent_collapse_locf_no_first_bucket_distortion(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """fs.usage_percent(collapse=True) — LATERAL LOCF 로 표본 사이 버킷도 직전 값을 유지해야 한다.
+
+    수정 전(bucket-scoped last())에는 표본이 없는 버킷이 undercount(0에 가까운 값)로 튀었다 — 이번 세션에
+    fs.used_bytes 와 동일 LOCF 기법으로 fs.usage_percent(collapse=True) 도 재작성.
+    """
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-fs-locf"))
+    # 5분 간격 표본 2개 — 그 사이 1분 버킷들은 직접 표본이 없다.
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts,
+            disk_io=[],
+            net_io=[],
+            filesystems=[FilesystemEntry(mountpoint="/", fstype="ext4", used_bytes=60, free_bytes=40)],
+        ),
+    )
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts + timedelta(minutes=5),
+            disk_io=[],
+            net_io=[],
+            filesystems=[FilesystemEntry(mountpoint="/", fstype="ext4", used_bytes=61, free_bytes=39)],
+        ),
+    )
+    end = base_ts + timedelta(minutes=6)
+    rows = await query_repo.metric_trend(
+        "fs.usage_percent", base_ts, end, "1m", server_ids=[sid], agg="avg", collapse=True
+    )
+    assert len(rows) >= 5, "표본 사이 버킷들도 LOCF 로 값이 채워져야 한다(gap 아님)"
+    for r in rows:
+        assert r.value is not None
+        # 60/(60+40)=60% ~ 61/(61+39)=61% 사이 — undercount 되어 0% 근처로 튀면 안 됨.
+        assert 55.0 <= r.value <= 65.0, f"버킷 값이 60~61% 범위를 벗어남(LOCF 왜곡 의심): {r.value}"
+
+
+# ─── cpu.saturation / disk.saturation — 신규 서버 상세 이진(0/1) 포화 3축(엔지니어 보고서 포화 추이) ──────
+
+
+async def test_cpu_saturation_crosses_when_run_queue_over_per_core_threshold(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """cpu.saturation — cpu.saturation_hosts(환경, crossing 서버 수)와 동일 원자료·임계, 서버 1대 이진 0/1.
+
+    Linux 임계 PROCS_RUNNING_PER_CORE_SATURATION=1.0 — cpu_cores=4(make_inventory 기본) 이면 run_queue>=4 크로스.
+    """
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-cpusat-hi"))
+    await collect_repo.record_metrics(
+        sid, make_metrics(collected_at=base_ts, cpu_run_queue=5.0, filesystems=[], disk_io=[], net_io=[])
+    )
+    end = base_ts + timedelta(minutes=5)
+    rows = await query_repo.metric_chart(
+        server_id=sid, metric_type="cpu.saturation", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
+    )
+    assert rows
+    values = {r.value for r in rows}
+    assert values <= {0.0, 1.0}
+    assert 1.0 in values, "run_queue/core(1.25) >= 임계 1.0 이면 포화로 판정돼야 한다"
+
+
+async def test_cpu_saturation_stays_zero_under_threshold(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """cpu.saturation — run_queue/core 가 임계(1.0) 미만이면 항상 0.0(정상)."""
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-cpusat-lo"))
+    await collect_repo.record_metrics(
+        sid, make_metrics(collected_at=base_ts, cpu_run_queue=1.0, filesystems=[], disk_io=[], net_io=[])
+    )
+    end = base_ts + timedelta(minutes=5)
+    rows = await query_repo.metric_chart(
+        server_id=sid, metric_type="cpu.saturation", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
+    )
+    assert rows
+    assert all(r.value == 0.0 for r in rows), "run_queue/core(0.25) < 임계 1.0 이면 포화 판정이면 안 된다"
+
+
+async def test_disk_saturation_crosses_when_await_over_threshold(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """disk.saturation — disk.saturation_hosts(환경, crossing 서버 수)와 동일 원자료·임계(RS_DISKIO_AWAIT_MS=20ms).
+
+    60s 간격 delta_ops=100/delta_t=4.0s -> await=40ms(임계 20ms 초과), io_time delta=40s/60s=0.67 util 게이트 통과.
+    """
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-disksat-hi"))
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts,
+            filesystems=[],
+            net_io=[],
+            disk_io=[DiskIoEntry(device_id=_DISK_DEVICE_ID, ops_read=100, op_read_time_s=1.0, io_time_s=0.0)],
+        ),
+    )
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts + timedelta(seconds=60),
+            filesystems=[],
+            net_io=[],
+            disk_io=[DiskIoEntry(device_id=_DISK_DEVICE_ID, ops_read=200, op_read_time_s=5.0, io_time_s=40.0)],
+        ),
+    )
+    end = base_ts + timedelta(minutes=5)
+    rows = await query_repo.metric_chart(
+        server_id=sid, metric_type="disk.saturation", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
+    )
+    assert rows
+    values = {r.value for r in rows}
+    assert values <= {0.0, 1.0}
+    assert 1.0 in values, "await 40ms(임계 20ms 초과)가 포화로 판정돼야 한다"
+
+
+async def test_disk_saturation_stays_zero_under_threshold(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """disk.saturation — await 가 임계(20ms) 미만이면 항상 0.0(정상)."""
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-disksat-lo"))
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts,
+            filesystems=[],
+            net_io=[],
+            disk_io=[DiskIoEntry(device_id=_DISK_DEVICE_ID, ops_read=100, op_read_time_s=1.0, io_time_s=0.0)],
+        ),
+    )
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts + timedelta(seconds=60),
+            filesystems=[],
+            net_io=[],
+            # delta_ops=100, delta_t=0.5s -> await=5ms(임계 20ms 미만). io_time delta=40s -> util 게이트는 통과.
+            disk_io=[DiskIoEntry(device_id=_DISK_DEVICE_ID, ops_read=200, op_read_time_s=1.5, io_time_s=40.0)],
+        ),
+    )
+    end = base_ts + timedelta(minutes=5)
+    rows = await query_repo.metric_chart(
+        server_id=sid, metric_type="disk.saturation", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
+    )
+    assert rows
+    assert all(r.value == 0.0 for r in rows), "await 5ms(임계 20ms 미만)는 포화 판정이면 안 된다"

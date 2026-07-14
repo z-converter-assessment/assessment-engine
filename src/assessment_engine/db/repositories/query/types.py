@@ -25,6 +25,7 @@ MetricType = Literal[
     "cpu.iowait_percent",
     "cpu.nice_percent",
     "cpu.run_queue",
+    "cpu.saturation",
     "cpu.blocked",
     "cpu.psi",
     "mem.usage_percent",
@@ -32,11 +33,13 @@ MetricType = Literal[
     "mem.cached_percent",
     "mem.buffers_percent",
     "mem.psi",
+    "mem.paging_pressure",
     "disk.read_iops",
     "disk.write_iops",
     "disk.read_kbps",
     "disk.write_kbps",
     "disk.io_saturation",
+    "disk.saturation",
     "disk.psi",
     "fs.usage_percent",
     "net.rx_bytes_per_sec",
@@ -45,35 +48,59 @@ MetricType = Literal[
     "net.tx_packets_per_sec",
     "net.retrans_percent",
     "net.drop_percent",
+    "net.congested",
 ]
-# 환경 성능 추이 차트 metric — capacity-weighted(cpu·mem = sum/sum) / 압박(psi %) / 스토리지 사용량(fs.used_bytes 합산) /
-# 활동 합산(disk·net rate·pps) / worst-device 포화(disk.io_saturation) / 전사 품질(net.retrans·net.drop).
-# 포화 축은 PSI(자원 경합으로 멈춘 시간 %)로 통일 — 간접 지표(run_queue) 대신 직접 지표. 디스크는 worst-device await 유지.
-# 서버 상세 성능 추이(MetricType 전체)와 동일 자원별 신호 카탈로그 유지 의무(#F10 화면 간 정합) — cpu.nice_percent
-# (CPU 분류 4번째 dimension)·disk.psi(스토리지 PSI)·net.rx/tx_packets_per_sec(네트워크 PPS)·net.drop_percent
-# (패킷 드롭율)도 서버 상세에 있는 신호라 여기 포함.
+# 환경 성능 추이 차트 metric — capacity-weighted(cpu·mem·fs = sum/sum 비율) / 활동 합산(net.rx/tx_bytes_per_sec)
+# / 판정 crossing 서버 수(cpu.saturation_hosts·mem.paging_pressure_hosts·disk.saturation_hosts·
+# net.congested_hosts).
+# CPU 는 사용률(cpu.usage_percent) + 실행 큐 포화 서버 수(cpu.saturation_hosts) 2축만 — CPU 분류(User/System/
+# I·O Wait/Nice)·CPU PSI 는 환경(여러 호스트 혼합) 단위에서 제외했다: 분류는 Linux 8-state/Windows 3-state 로
+# 구성 자체가 달라 I·O Wait·Nice 라인이 사실상 Linux 전용인데 "환경 CPU 분류"로 노출되면 오인 소지, PSI 는
+# Windows 가 전혀 미발행(Linux 4.20+ 전용)이라 "환경 CPU 압박"이 사실상 Linux 만의 값이 된다. 실행 큐는 원
+# 카운터(Linux procs_running/Windows Processor Queue Length)·임계가 달라 raw 값은 환경 단일선으로 못 묶지만,
+# os별 임계 crossing 판정(recommendation.cpu_saturation_index 와 동일 임계, >=1.0 포화)은 OS 무관 동일 의미라
+# "포화 판정 넘은 서버 수"(count)로 환경 전체 단일선 집계가 정당하다 — "윈도우 정규화 보정".
+# 서버 상세 성능 추이(MetricType 전체)는 여전히 CPU 분류·PSI·disk.io_saturation(raw await 단일선)·disk.psi·
+# disk.read/write_iops·disk.read/write_kbps·net.rx/tx_packets_per_sec·net.retrans_percent·net.drop_percent
+# 를 보유(단일 호스트라 OS 혼합 문제 없음, #F10 예외 — 화면 간 신호 카탈로그 정합 의무는 "혼합 집계가 의미
+# 있는" 신호에만 적용).
+# 네트워크는 활동량(net.rx/tx_bytes_per_sec, 물리 인터페이스만 SUM — device_filters 단일 정책, floating y축)
+# + 판정 crossing 서버 수(net.congested_hosts) 2축. PPS(rx/tx_packets_per_sec)는 디스크 IOPS·kbps 와 동일
+# 사유(이기종 NIC 를 그냥 더한 숫자는 비교 기준선 없어 해석 불가)로 제외. bytes/s 는 링크 속도 대비 이용률(%)로
+# 정규화하는 방안도 검토했으나 link_speed_bps(가상 NIC 다수·구형 OS 미보유)가 fleet 상당수에서 결측이라
+# capacity-weighted 비율 자체가 성립 안 해 raw 활동량으로 유지 — 다른 자원처럼 이론적 상한(코어 수·총 용량)이
+# 항상 실측되는 것과 다른 네트워크만의 제약. TCP 재전송율·패킷 드롭율은 net.congested_hosts(recommendation.
+# assess_network 의 실제 판정 network_congested 와 동일 원자료·임계 3종 — 재전송>1%·드롭>0.5%(저트래픽 게이트
+# 적용)·conntrack 고갈>=0.8(게이트 미적용) OR)로 통합 — 두 % 라인이 시각적으로 거의 겹쳐 구분이 안 되는 문제도
+# 함께 해결.
+# 스토리지도 동일 기준으로 정리 — disk.psi 는 CPU/메모리 PSI 와 동일 사유(Windows 미발행 + 판정 비사용)로
+# 제외. disk.read/write_iops·disk.read/write_kbps(순수 활동량 합산)도 제외 — Windows 비대칭은 없으나 여러
+# 이기종 디스크를 그냥 더한 절대 숫자(예: "IOPS 400")는 비교 기준선이 없어 그 자체로 해석 불가(높다/낮다 판단
+# 불가) — CPU/메모리 이용률(%, 0~100 척도)·응답지연(ms, 20ms 임계)과 달리 판정도 직관도 없는 숫자. disk.
+# io_saturation(worst-device MAX 단일선)은 disk.saturation_hosts(판정 crossing 서버 수)로 대체 — 동일
+# 임계(RS_DISKIO_AWAIT_MS)를 서버별로 적용, "가장 나쁜 곳 1개"보다 "몇 대가 영향받았는지"가 더 유용.
+# 스토리지는 fs.usage_percent(전 서버 사용량/전체 용량 비율, %)로 표시 — 절대 총량(fs.used_bytes)은 서버마다
+# 프로비저닝된 용량이 제각각이라 "몇 GB"만으로는 위험도를 못 읽는다(CPU/메모리 사용률과 같은 0~100 척도로
+# 통일, y축도 100% 고정). 개별 호스트 위험 판정(용량 85%/30일 runway, 다일 추세 회귀라 짧은 구간에서 계산
+# 불가)과는 별개로 함대 전체 사용률 추이를 보여주는 목적.
+# 메모리도 동일 사유로 mem.psi 제거, mem.paging_pressure_hosts 신설 — recommendation.mem_pressure_active
+# (mem_saturated dual-gate 의 실제 페이징 판정 신호원)와 동일 원자료·임계를 SQL 이식한 "판정 crossing 서버 수".
+# CPU 실행 큐와 달리 Linux 페이징은 magnitude 아닌 존재 판정이라(하드폴트 절대 rate 는 디스크 속도 의존이라
+# 보편 임계 불가, 의식적으로 존재 판정으로 후퇴시킨 설계) 애초에 연속 지수 자체가 불가능 — 다만 CPU 도 지수
+# 대신 카운트로 통일했다(강도 있는 지수보다 "몇 대"가 도메인 지식 없이 바로 읽히고 실행 가능해 일관성·이해도
+# 둘 다 낫다는 판단). count 는 분모(온라인 대수) 변동에도 왜곡되지 않는 절대치. Windows Pages Input/sec 이
+# 현재 fleet 에서 coverage_gap(perflib 미수집)이라 실측상 0 이 나올 수 있으나, 판정 로직 자체는 cross-OS 로
+# 옳고 실제 분류에 쓰이는 신호라 mem.psi(판정 비관여 참고치)보다 정합성이 높다.
 EnvironmentMetricType = Literal[
     "cpu.usage_percent",
-    "cpu.user_percent",
-    "cpu.system_percent",
-    "cpu.iowait_percent",
-    "cpu.nice_percent",
-    "cpu.psi",
+    "cpu.saturation_hosts",
     "mem.usage_percent",
-    "mem.psi",
-    "fs.used_bytes",
-    "disk.read_iops",
-    "disk.write_iops",
-    "disk.read_kbps",
-    "disk.write_kbps",
-    "disk.io_saturation",
-    "disk.psi",
+    "mem.paging_pressure_hosts",
+    "fs.usage_percent",
+    "disk.saturation_hosts",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
-    "net.rx_packets_per_sec",
-    "net.tx_packets_per_sec",
-    "net.retrans_percent",
-    "net.drop_percent",
+    "net.congested_hosts",
 ]
 TimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d"]

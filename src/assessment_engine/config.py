@@ -1,5 +1,6 @@
 import os
 from typing import Literal
+from urllib.parse import quote
 
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -97,10 +98,12 @@ class WebSettings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        return (
-            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password.get_secret_value()}"
-            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
-        )
+        # user/password 는 URL-safe 인코딩 필수 — secret 은 `openssl rand -base64` 같은 생성 방식이면
+        # `/`·`+`·`=` 를 포함할 수 있고, quote 없이 f-string 삽입 시 netloc 구분자(`:`·`@`)와 충돌해 URL
+        # 파싱이 깨진다(safe="" 로 이 문자들도 인코딩 대상에 포함).
+        user = quote(self.postgres_user, safe="")
+        password = quote(self.postgres_password.get_secret_value(), safe="")
+        return f"postgresql+asyncpg://{user}:{password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
 
     @property
     def redis_url(self) -> str:
@@ -187,13 +190,14 @@ class ConsumerSettings(WebSettings):
 
     @property
     def broker_url(self) -> str:
-        # vhost 는 무슬래시 "assessment" 라 인코딩 무영향. replace 는 슬래시 포함 vhost 방어용 유지
-        # (AMQP URL 에서 vhost 의 '/'는 %2F 로 인코딩돼야 함).
+        # user/password 는 URL-safe 인코딩 필수 — secret 이 `openssl rand -base64` 생성값이면 `/`·`+`·`=`
+        # 를 포함할 수 있고, quote 없이 삽입 시 yarl(aio-pika 내부 파서)이 netloc 을 못 갈라 "port can't be
+        # converted to integer" 로 기동 크래시(운영 실사고). safe="" 로 이 문자들도 인코딩 대상에 포함.
+        # vhost 는 별도로 "/" -> "%2F"(AMQP 표준 인코딩, quote 의 "/" 처리와 동일 결과) 유지.
+        user = quote(self.rabbitmq_user, safe="")
+        password = quote(self.rabbitmq_password.get_secret_value(), safe="")
         encoded_vhost = self.rabbitmq_vhost.replace("/", "%2F")
-        return (
-            f"amqp://{self.rabbitmq_user}:{self.rabbitmq_password.get_secret_value()}"
-            f"@{self.rabbitmq_host}:{self.rabbitmq_port}/{encoded_vhost}"
-        )
+        return f"amqp://{user}:{password}@{self.rabbitmq_host}:{self.rabbitmq_port}/{encoded_vhost}"
 
     # 호스트별 task 큐·routing key 합성 단일 진실 — prefix(config) + agent_id(런타임).
     # agent 와 합의된 형식이라 양쪽이 동일 규칙으로 합성해야 함 (#B). 발행 측·소비 측 모두 본 메서드 경유.

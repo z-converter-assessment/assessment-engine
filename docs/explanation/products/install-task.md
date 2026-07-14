@@ -4,11 +4,11 @@
 
 ## 위치
 
-- UI 진입점: 대시보드 list 페이지에서 N대 선택 → "Install" 모달(ZDM 서버 IP·관리자 계정 입력) → 발행. 또는 server detail "최근 작업" timeline에서 진행 추적
+- UI 진입점: 대시보드 list 페이지에서 N대 선택 → "Install" 모달(ZDM 서버 IP·관리자 계정 입력) → 발행. 또는 server detail "ZDM" 카드에서 단건 발행 + 이력 추적
 - 발행 경로: 사용자 트리거 (스케줄러 자동 발행 없음 — 운영자 명시 결정만)
 - 산출물 형태: 각 워커 VM의 worker가 ZDM 본체 패키지 다운로드 + `install.sh -s ZDM_IP -u ZDM_USER` 실행 + 결과를 엔진으로 보고. Task row 6 컬럼 UPDATE (status·exit_code·duration_ms·stdout_tail·stderr_tail·failure_reason)
 - OS 범위: Linux 만. Windows 호스트는 본 산출물 범위 밖 (별도 산출물 도입 시 ADR)
-- 가시성: list "최근 작업" column (success/failure/pending badge) + detail timeline + 단건 조회 `GET /api/tasks/{id}` (JSON) / detail HTML fragment `GET /api/tasks/{id}/detail` (task-modal 본문)
+- 가시성: list "ZDM Install" column (success/failure/pending badge) + detail "ZDM" 카드 표 + 단건 조회 `GET /api/tasks/{id}` (JSON) / detail HTML fragment `GET /api/tasks/{id}/detail` (task-modal 본문)
 
 ## 존재 의의
 
@@ -20,11 +20,11 @@
 
 질문 2: "어떤 서버에 설치 성공·실패했나? 실패 사유는?"
 
-발행된 task는 `Task` row에 영속 — `status` (success/failure/pending) + `exit_code` + `duration_ms` + `stdout_tail` + `stderr_tail` + `failure_reason` 6 컬럼 UPDATE. list "최근 작업" column에 badge로 노출. 클릭 시 modal에서 stdout/stderr 마지막 4 KB까지 확인 가능 — 실패 디버깅 즉시.
+발행된 task는 `Task` row에 영속 — `status` (success/failure/pending) + `exit_code` + `duration_ms` + `stdout_tail` + `stderr_tail` + `failure_reason` 6 컬럼 UPDATE. list "ZDM Install" column에 badge로 노출. 클릭 시 modal에서 stdout/stderr 마지막 4 KB까지 확인 가능 — 실패 디버깅 즉시.
 
 질문 3: "발행한 task의 진행 상황은?"
 
-발행 직후 list page가 polling 시작 → status가 pending → success/failure로 전이될 때 badge 자동 갱신. detail page "최근 작업" timeline에서 시계열 순서로 task 이력 추적.
+발행 직후 list page가 polling 시작 → status가 pending → success/failure로 전이될 때 badge 자동 갱신. detail page "ZDM" 카드 표에서 시계열 순서로 task 이력 추적, 행별 "상세" 버튼 클릭 시 modal로 stdout/stderr 확인(행 전체가 아닌 버튼만 클릭 타겟 — `data-task-id` 위임).
 
 ## 산출 정보
 
@@ -33,7 +33,7 @@
 | 항목 | 내용 | source |
 |------|------|--------|
 | target_server_id | 발행 대상 서버 (FK) | 사용자 선택 N대 |
-| task_type | `install` (현재 1종) | 고정 |
+| task_type | `zconverter_install` (현재 1종, 표시는 "ZConverter Install"로 매핑) | 고정 |
 | status 초기 | `pending` | INSERT 시점 |
 | created_at | 발행 시각 | 자동 |
 
@@ -98,7 +98,7 @@ ZDM 패키지 contract:
 
 ## 한계
 
-1. task_type이 install 1종 — 다른 작업(uninstall·rollback·재시작 등) 미지원. 향후 task_type enum 확장 시 별도 결정.
+1. task_type이 zconverter_install 1종 — 다른 작업(uninstall·rollback·재시작 등) 미지원. 향후 task_type enum 확장 시 별도 결정. 표시 라벨 매핑은 `mappers/task.py`의 `_TASK_TYPE_LABEL`(미지 값은 raw 그대로 폴백).
 2. Linux 만 지원 — Windows 호스트는 발행 대상에서 제외 (별도 산출물 도입 시 ADR).
 3. 워커 측 중복 발행 차단 — 부분 UNIQUE `uq_tasks_pending_per_server_type` (status=pending 한 서버당 1건)이 DB 레벨 차단. 다만 발행 직후 cleanup 전엔 같은 서버에 신규 task 발행 불가 — 운영 증가.
 4. ZDM 패키지 매 publish 마다 HEAD 1 회 (cache hit) 또는 GET full 44MB (cache miss). 같은 LAN 가정에 1~2s. 다른 네트워크면 ZDM_META_TOTAL_TIMEOUT_SEC 안에 끝나야 503 회피.
@@ -113,5 +113,5 @@ ZDM 패키지 contract:
 - `src/assessment_engine/web/services/task_service.py` — Task 발행
 - `src/assessment_engine/web/routers/tasks.py` — POST /api/tasks · GET 조회
 - `src/assessment_engine/consumer/handlers/` — task.result 핸들러 (6 컬럼 UPDATE)
-- `src/assessment_engine/web/static/js/pages/list-table.js` — list "최근 작업" column polling
+- `src/assessment_engine/web/static/js/pages/list-table.js` — list "ZDM Install" column polling
 - `src/assessment_engine/web/templates/base.html` — task modal (stdout/stderr 확장)

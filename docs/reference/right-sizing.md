@@ -28,9 +28,15 @@ UI badge 임계(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`, 90/75)와는 별 
 
 ## 3. 호스트 종합 + 판정 순서
 
-`rollup_host` 가 자원별 판정을 인과 근본원인으로 종합한다. 인과 사슬(상류 -> 하류): 메모리 -> 디스크 I/O -> CPU.
-판별 신호 = swap page-out(메모리발) / procs_blocked D-state + await(디스크발) / run queue(CPU발). root 에만 처방,
-하류(증상)는 "root 해결 후 재평가". "가장 나쁜 자원 승" 폐기 — 삼중 처방(RAM 하나 문제에 RAM+SSD+코어) 방지.
+`rollup_host` 가 자원별 판정을 인과 근본원인(root_cause)으로 종합한다. 인과 사슬(상류 -> 하류): 메모리 -> 디스크
+I/O -> CPU. 판별 신호 = swap page-out(메모리발) / procs_blocked D-state + await(디스크발) / run queue(CPU발).
+
+처방(`prescribed_under_kinds`/`under_prescription`)은 자원별 독립이다 — 근본원인만 처방하고 하류(증상)를
+억제하지 않는다. 근본원인 추정이 틀리면(원인 자원만 고쳐도 하류가 실제로 해소된다는 보장은 없다) 실제 부족을
+놓치는 위험이 더 크다는 안전 우선 판단 — assessment API(`/api/assessment` sizing.axes)의 마이그레이션 사이징
+정책과 통일했다. root_cause 는 "왜 부족한가"를 알려주는 진단 근거로만 쓰고, 처방 자체("무엇을 늘릴지")는
+관측된 under 자원 전부에 적용한다. "가장 나쁜 자원 승"(worst-resource-wins) 은 여전히 폐기 — 5자원 각각 독립
+판정 + 근본원인 종합이라는 구조 자체는 유지, 종합 결과가 처방을 가리지 않을 뿐.
 
 호스트 요약 상태(`host_status`, 정렬·배지용) 판정 순서:
 

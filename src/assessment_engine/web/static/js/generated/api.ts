@@ -1999,7 +1999,7 @@ export interface operations {
     get_environment_metrics_chart_api_servers_environment_metrics_chart_get: {
         parameters: {
             query: {
-                metric_type: "cpu.usage_percent" | "cpu.user_percent" | "cpu.system_percent" | "cpu.iowait_percent" | "cpu.nice_percent" | "cpu.psi" | "mem.usage_percent" | "mem.psi" | "fs.used_bytes" | "disk.read_iops" | "disk.write_iops" | "disk.read_kbps" | "disk.write_kbps" | "disk.io_saturation" | "disk.psi" | "net.rx_bytes_per_sec" | "net.tx_bytes_per_sec" | "net.rx_packets_per_sec" | "net.tx_packets_per_sec" | "net.retrans_percent" | "net.drop_percent";
+                metric_type: "cpu.usage_percent" | "cpu.saturation_hosts" | "mem.usage_percent" | "mem.paging_pressure_hosts" | "fs.usage_percent" | "disk.saturation_hosts" | "net.rx_bytes_per_sec" | "net.tx_bytes_per_sec" | "net.congested_hosts";
                 time_range?: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
                 bucket?: "1m" | "5m" | "15m" | "30m" | "1h" | "3h" | "6h" | "12h" | "1d";
                 /** @description public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경. */
@@ -2099,7 +2099,7 @@ export interface operations {
     get_metric_chart_api_servers__server_id__metrics_chart_get: {
         parameters: {
             query: {
-                metric_type: "cpu.usage_percent" | "cpu.user_percent" | "cpu.system_percent" | "cpu.iowait_percent" | "cpu.nice_percent" | "cpu.run_queue" | "cpu.blocked" | "cpu.psi" | "mem.usage_percent" | "mem.available_percent" | "mem.cached_percent" | "mem.buffers_percent" | "mem.psi" | "disk.read_iops" | "disk.write_iops" | "disk.read_kbps" | "disk.write_kbps" | "disk.io_saturation" | "disk.psi" | "fs.usage_percent" | "net.rx_bytes_per_sec" | "net.tx_bytes_per_sec" | "net.rx_packets_per_sec" | "net.tx_packets_per_sec" | "net.retrans_percent" | "net.drop_percent";
+                metric_type: "cpu.usage_percent" | "cpu.user_percent" | "cpu.system_percent" | "cpu.iowait_percent" | "cpu.nice_percent" | "cpu.run_queue" | "cpu.blocked" | "cpu.psi" | "mem.usage_percent" | "mem.available_percent" | "mem.cached_percent" | "mem.buffers_percent" | "mem.psi" | "mem.paging_pressure" | "disk.read_iops" | "disk.write_iops" | "disk.read_kbps" | "disk.write_kbps" | "disk.io_saturation" | "disk.psi" | "fs.usage_percent" | "net.rx_bytes_per_sec" | "net.tx_bytes_per_sec" | "net.rx_packets_per_sec" | "net.tx_packets_per_sec" | "net.retrans_percent" | "net.drop_percent" | "net.congested";
                 dimension?: string | null;
                 time_range?: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
                 bucket?: "1m" | "5m" | "15m" | "30m" | "1h" | "3h" | "6h" | "12h" | "1d";

@@ -388,16 +388,37 @@ def test_multi_homed_host_flagged_in_node_and_subnet_host():
     assert len(a_rows) == 2 and all(h.multi_homed for h in a_rows)
 
 
-def test_subnet_host_carries_iface_gateway_origin():
+def test_subnet_host_carries_mtu_speed_origin_and_group_gateway():
+    """SubnetHost 는 iface 이름·per-host gateway 대신 mtu/speed_mbps/origin — 게이트웨이는
+
+    SubnetGroup(서브넷당 1개, disambiguation 완료)으로 이동해 행마다 반복 안 함."""
     hosts = [
         _host("a", "hostA", "linux", [_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1", origin="static")]),
         _host("b", "hostB", "linux", [_rich_iface("eth0", "10.0.1.11/24", "10.0.1.1")]),
     ]
     t = build_network_topology(hosts)
     row_a = next(h for sn in t.subnets for h in sn.hosts if h.public_id == "a")
-    assert row_a.iface == "ens3"
-    assert row_a.gateway == "10.0.1.1"
+    assert row_a.mtu == 1450  # _rich_iface 기본값
+    assert row_a.speed_mbps is None  # _rich_iface 는 speed_mbps 미설정
     assert row_a.origin == "static"
+    assert t.subnets[0].gateway == "10.0.1.1"
+
+
+def test_subnet_host_online_status_from_online_by_id():
+    """online_by_id(내부 id -> bool) 로 SubnetHost.is_online 채움 — 미전달/미매칭은 기본 False."""
+    hosts = [
+        SimpleNamespace(id=1, public_id="a", hostname="hostA", os_family="linux",
+                         net_interfaces=[_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1")]),
+        SimpleNamespace(id=2, public_id="b", hostname="hostB", os_family="linux",
+                         net_interfaces=[_rich_iface("eth0", "10.0.1.11/24", "10.0.1.1")]),
+    ]
+    t = build_network_topology(hosts, online_by_id={1: True})
+    by_pid = {h.public_id: h for sn in t.subnets for h in sn.hosts}
+    assert by_pid["a"].is_online is True
+    assert by_pid["b"].is_online is False  # id=2 미매칭 -> False
+
+    t_none = build_network_topology(hosts)  # online_by_id 미전달
+    assert all(not h.is_online for sn in t_none.subnets for h in sn.hosts)
 
 
 def test_host_node_ifaces_tooltip_payload():

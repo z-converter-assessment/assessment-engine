@@ -108,7 +108,7 @@
 </div>
 {% endif %}
 
-<!-- 버킷/구간/앵커는 아래 5 차트 공통, 변경 즉시 반영 (환경 성능 추이와 동일 UI, #F10). -->
+<!-- 버킷/구간/앵커는 아래 2 차트 공통, 변경 즉시 반영 (환경 성능 추이와 동일 UI, #F10). -->
 <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
   <span id="bucket-label" class="bucket-label"></span>
   <select class="chart-select no-print" id="page-range-btns" aria-label="구간 선택">
@@ -126,23 +126,8 @@
 <div class="chart-grid-2col">
   <div class="card">
     <div class="chart-head">
-      <h2 class="card-title">디스크 I/O 추이<span class="print-only text-muted text-sm" id="io-phys-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+      <h2 class="card-title">디스크 처리량 추이<span class="print-only text-muted text-sm" id="io-kbps-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     </div>
-    <div class="chart-desc">Read | Write — 물리 디스크 전체 합산(개수 무관 항상 2선). 개별 디바이스 활동은 위 실시간 카드 "디바이스별 I/O" 표 참고.</div>
-    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-      <canvas id="io-phys-canvas"></canvas>
-      <div id="io-phys-chart-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
-        해당 기간에 수집된 데이터가 없습니다.
-      </div>
-    </div>
-    <div id="io-phys-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-  </div>
-
-  <div class="card">
-    <div class="chart-head">
-      <h2 class="card-title">디스크 I/O 처리량 추이<span class="print-only text-muted text-sm" id="io-kbps-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    </div>
-    <div class="chart-desc">Read | Write — 물리 디스크 전체 합산(개수 무관 항상 2선). 개별 디바이스 활동은 위 실시간 카드 "디바이스별 I/O" 표 참고.</div>
     <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
       <canvas id="io-kbps-canvas"></canvas>
       <div id="io-kbps-chart-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
@@ -154,7 +139,7 @@
 
   <div class="card">
     <div class="chart-head">
-      <h2 class="card-title">파일시스템 사용량 추이<span class="print-only text-muted text-sm" id="fs-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+      <h2 class="card-title">스토리지 용량 추이<span class="print-only text-muted text-sm" id="fs-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     </div>
     <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
       <canvas id="fs-chart-canvas"></canvas>
@@ -163,41 +148,12 @@
       </div>
     </div>
     <div id="fs-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-    <p class="chart-caption">음영 영역: 집계 구간 내 순간 최대 사용률과 평균의 차이.</p>
-  </div>
-
-  <div class="card">
-    <div class="chart-head">
-      <h2 class="card-title">디스크 I/O 포화 추이<span class="print-only text-muted text-sm" id="disksat-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    </div>
-    <div class="chart-desc">I/O 한 건당 응답 지연(await, ms) — 양 OS 통일 · 20ms 초과 = 응답지연 임계 이상 신호(가상 디스크 경합·느린 스토리지). 실제 바쁜 device 기준(유휴 device 인플레이션 제외). 포화 판정은 자원 평가.</div>
-    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-      <canvas id="disksat-canvas"></canvas>
-      <div id="disksat-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
-        해당 기간에 수집된 데이터가 없습니다.
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="chart-head">
-      <h2 class="card-title">디스크 I/O PSI 추이<span class="print-only text-muted text-sm" id="disk-psi-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    </div>
-    <div class="chart-desc">태스크가 디스크 I/O 대기로 멈춘 시간 비율(%) — PSI some(io). Windows 미지원.</div>
-    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-      <canvas id="disk-psi-canvas"></canvas>
-      {# PSI 는 Windows 구조적 미지원(항상 empty) — "해당 기간 데이터 없음"(일시적 뉘앙스) 대신 N/A(영구 사실).
-         Linux 는 진짜 미수집 케이스라 기존 문구 유지. storage.js 가 OS_FAMILY 로 최초 1회 텍스트 분기. #}
-      <div id="disk-psi-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
-        해당 기간에 수집된 데이터가 없습니다.
-      </div>
-    </div>
   </div>
 </div>
 
 <style>
   /* .toggle-group / .toggle / .stree* 는 base.html 단일 진실 (#E6 표준 컴포넌트 — 스토리지 상세·서버 보고서 공용). */
-  /* 스토리지 상세 5 차트 2열 — 화면(auto-fit 2열), 인쇄는 1열(차트 찌그러짐 방지). */
+  /* 스토리지 상세 2 차트 2열 — 화면(auto-fit 2열), 인쇄는 1열(차트 찌그러짐 방지). */
   .chart-grid-2col { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; }
   @media print { .chart-grid-2col { grid-template-columns: 1fr; } }
 </style>
@@ -208,4 +164,4 @@
 <script src="/static/js/pages/storage.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} data-server-id="{{ storage.public_id }}" data-os-family="{{ storage.os_family or '' }}"{% endblock %}
+{% block body_attrs %} data-server-id="{{ storage.public_id }}"{% endblock %}

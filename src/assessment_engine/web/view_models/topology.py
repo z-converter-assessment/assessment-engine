@@ -26,9 +26,10 @@ class SubnetHost:
     os_family: str  # linux/windows/unknown — 표시용
     public_id: str  # 상세 링크 (#E4)
     roles: list[str] = field(default_factory=list)  # 시그니처 워크로드 카테고리 — 서브넷별 app tier
-    iface: str | None = None  # 이 서브넷에 IP 를 실은 NIC 이름 (ens3 등)
-    gateway: str | None = None  # 해당 인터페이스 게이트웨이 (그래프 라우터 노드와 정합)
     origin: str | None = None  # 주소 origin (dhcp/static) — 고정 IP 서버 식별
+    mtu: int | None = None  # 이 서브넷에 IP 를 실은 인터페이스 MTU — 같은 서브넷 내 불일치 발견용
+    speed_mbps: int | None = None  # 링크 속도(Mbps) — 대역폭 병목 후보 식별용
+    is_online: bool = False  # 최신 온라인 여부 (Redis online:{id}, #E4 화면 간 정합)
     multi_homed: bool = False  # 2+ 서브넷에 걸친 호스트 (브리지/라우터 후보)
 
 
@@ -36,6 +37,7 @@ class SubnetHost:
 class SubnetGroup:
     net_key: str  # network address ("10.0.1.0/24")
     host_count: int = 0  # 본 서브넷 호스트 수 (보고서 서브넷 요약 표 — len(hosts) precompute, P3)
+    gateway: str | None = None  # 서브넷 대표 게이트웨이 — 서브넷당 1개로 이미 disambiguation 됨(mapper), 헤더 표시
     hosts: list[SubnetHost] = field(default_factory=list)  # 본 서브넷 소속 호스트 (IP 표시)
 
 

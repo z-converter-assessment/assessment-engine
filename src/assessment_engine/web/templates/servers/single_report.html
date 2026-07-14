@@ -134,7 +134,7 @@
         <th>신뢰도</th>
         <th style="text-align:right;">재부팅</th>
         <th style="text-align:right;">에이전트 재시작</th>
-        <th>운영 이벤트</th>
+        <th>시스템 에러</th>
         <th>네트워크 상태</th>
         <th>OS 지원종료</th>
       </tr>
@@ -415,18 +415,31 @@
 </section>
 {% endif %}
 
+{# 이용률 추이(부하)·포화 여부 추이(3축 이진) 나란히 — 같은 데이터를 다른 각도(연속값/판정)로 상호 보완. #}
 <section class="card" style="margin-bottom:16px;">
-  <h2 class="card-title">부하 추이</h2>
-  {% if summary.trend %}
-  <div style="height:280px;"><canvas id="env-trend-chart" data-trend='{{ summary.trend | tojson }}' data-range="{{ summary.time_range }}" data-grid="true"></canvas></div>
-  {% else %}
-  {{ empty_state("추이 표본이 아직 없습니다.") }}
-  {% endif %}
+  <div class="env-dual" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap:24px; align-items:start;">
+    <div>
+      <h2 class="card-title" style="margin:0 0 12px;">이용률 추이</h2>
+      {% if summary.trend %}
+      <div style="height:280px;"><canvas id="env-trend-chart" data-trend='{{ summary.trend | tojson }}' data-range="{{ summary.time_range }}" data-grid="true"></canvas></div>
+      {% else %}
+      {{ empty_state("추이 표본이 아직 없습니다.") }}
+      {% endif %}
+    </div>
+    <div>
+      <h2 class="card-title" style="margin:0 0 12px;">포화 여부 추이</h2>
+      {% if summary.sat_trend %}
+      <div style="height:280px;"><canvas id="sat-trend-chart" data-sat-trend='{{ summary.sat_trend | tojson }}' data-range="{{ summary.time_range }}"></canvas></div>
+      {% else %}
+      {{ empty_state("추이 표본이 아직 없습니다.") }}
+      {% endif %}
+    </div>
+  </div>
 </section>
 {% endif %}
 
 {% if view == "customer" %}
-{# 자원 적정성 · 운영 평가 — 분류 근거(분류/근본원인/권고/신뢰도) + 운영 신호(운영 이벤트/네트워크 상태/
+{# 자원 적정성 · 운영 평가 — 분류 근거(분류/근본원인/권고/신뢰도) + 운영 신호(시스템 에러/네트워크 상태/
    OS 지원종료) 한 표로 통합. 포화 축 근거(3행 raw 신호 표)·운영·안정성(별도 카드)은 여기 흡수돼 폐기 —
    고객에게는 판정 결론 한 표가 원신호 세부 표보다 유용(engineer 는 "포화 축 평가"·"자원 적정성 평가" 별도 유지). #}
 <section class="card" style="margin-bottom:16px;">
@@ -439,7 +452,7 @@
         <th>근본원인</th>
         <th>권고</th>
         <th>신뢰도</th>
-        <th>운영 이벤트</th>
+        <th>시스템 에러</th>
         <th>네트워크 상태</th>
         <th>OS 지원종료</th>
       </tr>

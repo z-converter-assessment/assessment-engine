@@ -39,6 +39,7 @@ from assessment_engine.web.services.mappers.shared import (
     _USAGE_WARN_PCT,
     lookup_os_eol,
     os_id_to_distro,
+    spec_display_line,
     windows_legacy_version_from_build,
 )
 from assessment_engine.web.services.metrics_calculator import compute_net_io
@@ -308,19 +309,9 @@ def to_server_list_item(
     _disk_bytes = disk_total_bytes(dto.block_devices)
     storage_total_gb = round(bytes_to_gb(_disk_bytes), 1) if _disk_bytes else None
 
-    # 정적 사양 한 줄 — CPU 코어 · 메모리 · 디스크. 실무정석: 값은 2진(GiB, 2^30)이되 라벨은 "GB"(free -h·df -h·
-    # 클라우드 콘솔 관습). OS·RAM·OpenStack 프로비저닝이 2진 기준이라 30GiB 디스크가 "30GB"로 떨어져 딱 맞음
-    # (10진 GB 는 32GB 로 오해 유발). 각 값 부재는 "—" (P2 precompute).
     _mem_gib = bytes_to_gib(dto.mem_total_bytes)  # 1자리 반올림 — ServerListItem.mem_total_gb 용
-    _mem_spec = (dto.mem_total_bytes / 1024**3) if dto.mem_total_bytes else None  # 사양 표시 2자리(예약 오버헤드 가시)
-    _disk_gib = bytes_to_gib(_disk_bytes) if _disk_bytes else None
-    spec_display = " · ".join(
-        [
-            f"{dto.cpu_cores}코어" if dto.cpu_cores else "—",
-            f"{_mem_spec:.2f}GB" if _mem_spec else "—",
-            f"{_disk_gib:.0f}GB" if _disk_gib else "—",
-        ]
-    )
+    # 정적 사양 한 줄 — spec_display_line 단일 진실(shared.py, 환경 자원 평가 compact 표와 공유).
+    spec_display = spec_display_line(dto.cpu_cores, dto.mem_total_bytes, dto.block_devices)
 
     # 서비스 뱃지 — 시그니처 워크로드만(SIGNATURE_CATEGORIES, 환경 개요 도넛과 동일 기준). file·mail·infra·remote
     # 등 유틸/관리 서비스는 서버 성격 신호가 약해 목록에서 제외(노이즈 감소). 상세 페이지는 live classify 로 전부.

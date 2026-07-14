@@ -263,6 +263,30 @@ def test_build_metric_trend_empty_series_returns_empty():
     assert erm.build_metric_trend([], [], []) == []
 
 
+# ---------- build_saturation_trend ----------
+
+
+def test_build_saturation_trend_merges_three_series_on_timestamps():
+    """3계열(cpu/mem/disk 포화 이진 0/1)을 버킷 시각 union 기준 merge → 정렬된 timestamp 별 1행."""
+    t1 = datetime(2026, 5, 12, 0, 0, tzinfo=UTC)
+    t2 = datetime(2026, 5, 12, 1, 0, tzinfo=UTC)
+    cpu = _series([(t1, 1.0), (t2, 0.0)])
+    mem = _series([(t1, 0.0)])
+    disk = _series([(t2, 1.0)])
+
+    out = erm.build_saturation_trend(cpu, mem, disk)
+
+    assert out == [
+        {"at": t1.isoformat(), "cpu_sat": 1.0, "mem_sat": 0.0, "disk_sat": None},
+        {"at": t2.isoformat(), "cpu_sat": 0.0, "mem_sat": None, "disk_sat": 1.0},
+    ]
+
+
+def test_build_saturation_trend_empty_series_returns_empty():
+    """모든 계열 빈 list → 빈 결과 (timestamp union 공집합)."""
+    assert erm.build_saturation_trend([], [], []) == []
+
+
 # ---------- _extract_capacity_imminent ----------
 
 

@@ -225,6 +225,31 @@
     return osFamily === 'windows' && WIN_NA_KEYS.has(key) ? 'N/A' : formatted;
   }
 
+  // "—"(no_data)·"N/A"(not_applicable) 는 둘 다 "실측값 아님" 센티널 — signal-utils.renderSaturation(포화 열)
+  // 이 이미 이 원칙으로 sat-val-muted(옅은 회색)를 적용한다. 이용률 열이 plain textContent 로 '—'/N/A 를
+  // 꽂으면 실측값과 같은 진하기(sat-val 기본색)로 보여 카드 안에서 진하기가 갈리는 문제가 있었다 — 이용률
+  // 열도 동일 센티널이면 동일 클래스를 적용해 실측값과 시각적으로 구분한다.
+  const _NOT_MEASURED = new Set(['—', 'N/A']);
+  /**
+   * @param {HTMLElement | null} el
+   * @param {string} text
+   */
+  function setValText(el, text) {
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('sat-val-muted', _NOT_MEASURED.has(text));
+  }
+
+  /**
+   * @param {HTMLElement | null} el
+   * @param {string | null} osFamily
+   * @param {string} key
+   * @param {string} formatted
+   */
+  function setNaText(el, osFamily, key, formatted) {
+    setValText(el, naWindows(osFamily, key, formatted));
+  }
+
   // ── avg+max ghost dataset 빌드 (P4 패턴) ──
   // avgRows·maxRows: [{collected_at, value, dimension?}]
   // opts: { label?, color?, dashFn?(dim), pointRadius? }
@@ -322,6 +347,7 @@
    * @param {any} chart
    */
   function renderChipLegend(container, chart) {
+    if (!container) return;
     if (!chart) { container.innerHTML = ''; return; }
     container.innerHTML = /** @type {any[]} */ (chart.data.datasets).map((ds, i) => `
       <button type="button" class="legend-chip" data-idx="${i}" aria-pressed="true">
@@ -345,7 +371,7 @@
     fmtKst, fmtLabel, fmtKbChart,
     getAnchorEnd, initAnchor,
     makeBucketGrid, joinToGrid, buildDimDatasets, fmtThroughput,
-    bindToggle, pageTimeControl, initAutoRefresh, safeArray, naWindows,
+    bindToggle, pageTimeControl, initAutoRefresh, safeArray, naWindows, setNaText, setValText,
     buildAvgMaxDatasets, buildAvgMaxLegend,
     renderChipLegend,
   });

@@ -1,10 +1,6 @@
 {#
   보고서 꼬리 참고자료 — 전 보고서 공통. 컨텍스트 의무: self_back.
-  화면은 경량 링크(_reference_link.html), 인쇄는 임계값 전문 펼침(인쇄본 단독 근거 완결).
+  화면 전용 경량 링크(_reference_link.html) — 임계값 전문은 사이드바 "참고" 그룹의 별도 페이지에서만
+  확인(인쇄 대상 아님, 보고서 본문 분량 절약).
 #}
 {% include "_reference_link.html" %}
-
-<div class="print-only" style="page-break-before: always;">
-  <h1 style="font-size:18px; margin:0 0 16px;">참고자료 — 자원 적정성 평가 임계값</h1>
-  {% include "reports/_thresholds_reference.html" %}
-</div>

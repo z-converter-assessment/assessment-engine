@@ -2,11 +2,11 @@
 // Task 상세 modal + polling — base.html 의 #task-modal 요소를 채운다.
 //
 // 운영자 워크플로:
-//   list.html "최근 작업" cell 클릭 / detail.html timeline row 클릭
+//   _server_rows.html "ZDM Install" cell 클릭 / detail.html "ZDM" 카드 상세 버튼 클릭
 //   -> data-task-id 속성에서 ID 추출 -> GET /api/tasks/{id} -> modal 채움
 //
 // install 발행 직후 status='pending' 인 task 를 polling — TaskModal.pollUntilFinal(taskId, cb).
-// 각 호출자(list.js)가 polling 결과로 cell 시각 갱신.
+// 각 호출자(list-table.js)가 polling 결과로 cell 시각 갱신.
 //
 // P4 client 연산 제한 — 표시 파생(badge_class·badge_label·failure_label)은 모두 server mapper precompute.
 // 본 JS 는 fetch + DOM 삽입만.
@@ -82,7 +82,7 @@
   }
 
   // 발행 직후 task 가 status='pending' 인 동안 polling. final(success/failure) 도달 시 callback.
-  // 호출자: list.js install 발행 후 응답 task_ids 각각에 대해 호출.
+  // 호출자: list-table.js install 발행 후 응답 task_ids 각각에 대해 호출.
   // 최대 cap_seconds 동안 try, interval_ms 간격.
   /**
    * @param {string} taskId

@@ -130,16 +130,12 @@
         해당 기간에 수집된 데이터가 없습니다.
       </div>
     </div>
-    <p class="chart-caption">
-      음영 영역: 집계 구간 내 순간 최대 사용률과 평균의 차이.
-    </p>
   </div>
 
   <div class="card">
     <div class="chart-head">
       <h2 class="card-title">메모리 구성 추이<span class="print-only text-muted text-sm" id="comp-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     </div>
-    <div class="chart-desc">전체 대비 Used | Available | Cached | Buffers — Cached·Buffers 는 page cache 라 Linux 전용(Windows 는 미측정, Used | Available 만 표시)</div>
     <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
       <canvas id="comp-canvas"></canvas>
       <div id="comp-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
@@ -151,14 +147,11 @@
 
   <div class="card">
     <div class="chart-head">
-      <h2 class="card-title">메모리 PSI 추이<span class="print-only text-muted text-sm" id="mem-psi-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+      <h2 class="card-title">메모리 압박 여부 추이<span class="print-only text-muted text-sm" id="mem-paging-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     </div>
-    <div class="chart-desc">태스크가 메모리 회수 대기로 멈춘 시간 비율(%) — PSI some. Windows 미지원.</div>
     <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-      <canvas id="mem-psi-canvas"></canvas>
-      {# PSI 는 Windows 구조적 미지원(항상 empty) — "해당 기간 데이터 없음"(일시적 뉘앙스) 대신 N/A(영구 사실).
-         Linux 는 진짜 미수집 케이스라 기존 문구 유지. memory.js 가 OS_FAMILY 로 최초 1회 텍스트 분기. #}
-      <div id="mem-psi-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+      <canvas id="mem-paging-canvas"></canvas>
+      <div id="mem-paging-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
         해당 기간에 수집된 데이터가 없습니다.
       </div>
     </div>
