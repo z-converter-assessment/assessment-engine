@@ -105,9 +105,6 @@ class ServerListItem:
     # 분류 raw enum — list 필터링 단일 진실 (optimal / over_provisioned / under_provisioned /
     # idle / insufficient_data). raws_period 부재 시 빈 문자열.
     provisioning_class: str = ""
-    # 네트워크 혼잡 — 사이징(under/over) 축과 분리된 orthogonal 품질 플래그 (ADR 0052, 원칙 P2).
-    # 재전송>1% or 드롭>0.5%. 자원 분류 배지와 별개로 목록에 "혼잡" 마커 노출 (host under 로 오분류 금지).
-    network_congested: bool = False
     # 운영 이벤트 — 전체 기간 에러 발생 유무(OOM kill·MCE·메모리 손상·net/disk 에러 5축 중 1+). 서비스가
     # fleet_error_hosts(전기간) 집합으로 세팅 (환경 개요 운영 이벤트 카드와 동일 창 — 목록에서 그 호스트 찾기).
     has_operational_event: bool = False

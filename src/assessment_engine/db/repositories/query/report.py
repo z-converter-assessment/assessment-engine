@@ -17,7 +17,6 @@ from assessment_engine.db.dtos.outbound import (
     MemoryBreakdownRaw,
     MountCapacityRaw,
     NetIoBaselineRaw,
-    ReportMountUsageRaw,
     ReportRowRaw,
 )
 from assessment_engine.db.repositories.query._base import _BaseQueryMixin
@@ -557,10 +556,6 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             mem_p95_pct=float(row.mem_p95) if row.mem_p95 is not None else None,
         )
 
-    async def report_mount_usage(self, server_id: int, period_days: float, end: datetime) -> list[ReportMountUsageRaw]:
-        """마운트별 윈도우 평균 사용률 — 개별 보고서 스토리지 상세. batch 의 N=1 특수화 (SQL 단일 진실)."""
-        return (await self.report_mount_usage_batch([server_id], period_days, end)).get(server_id, [])
-
     async def report_memory_breakdown(self, server_id: int, period_days: float, end: datetime) -> MemoryBreakdownRaw:
         """메모리 구성 윈도우 평균 — batch 의 N=1 특수화. 데이터 없으면 전 축 None."""
         return (await self.report_memory_breakdown_batch([server_id], period_days, end)).get(
@@ -572,31 +567,6 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         return (await self.report_cpu_breakdown_batch([server_id], period_days, end)).get(
             server_id, CpuBreakdownRaw(None, None, None)
         )
-
-    async def report_mount_usage_batch(
-        self, server_ids: list[int], period_days: float, end: datetime
-    ) -> dict[int, list[ReportMountUsageRaw]]:
-        """마운트별 윈도우 평균 사용률 배치 — server_filesystem_5m cagg (가상 fs/boot 제외). child fan-out 1회(A5)."""
-        start = end - timedelta(days=period_days)
-        sql = text(f"""
-            SELECT server_id, mountpoint, max(total_bytes_max) AS total_bytes, avg(used_pct_avg) AS used_pct
-            FROM server_filesystem_5m
-            WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_DATA_VOLUME_CAGG_FILTER}
-            GROUP BY server_id, mountpoint
-            HAVING avg(used_pct_avg) IS NOT NULL  -- used+free 0·null 마운트 배제 (cagg used_pct CASE(합>0) -> null)
-            ORDER BY server_id, used_pct DESC NULLS LAST
-        """)
-        result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
-        out: dict[int, list[ReportMountUsageRaw]] = {}
-        for r in result.all():
-            out.setdefault(r.server_id, []).append(
-                ReportMountUsageRaw(
-                    mountpoint=r.mountpoint,
-                    total_bytes=int(r.total_bytes) if r.total_bytes is not None else None,
-                    used_pct=float(r.used_pct) if r.used_pct is not None else None,
-                )
-            )
-        return out
 
     async def report_mount_capacity_batch(
         self, server_ids: list[int], end: datetime

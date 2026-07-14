@@ -1,9 +1,10 @@
 """report_serializer 라운드트립 — env_report_to_dict <-> env_report_from_dict 정적 스냅샷 정합.
 
 발행 시점 ViewModel 을 JSONB dict 로 저장(`env_report_to_dict`=asdict) 후 GET 시 dict 를 ViewModel 로
-복원(`env_report_from_dict`)해 정적 렌더한다. 신규 nested(server_inventory·volumes·memory_breakdown·
-cpu_breakdown·service_catalog)가 dict 가 아닌 dataclass 로 복원돼야 template 의 `.attr` 접근이 안 깨진다
-(#C1 정적 스냅샷). 본 테스트는 그 복원 정합을 고정한다.
+복원(`env_report_from_dict`)해 정적 렌더한다. 신규 nested(server_inventory·memory_breakdown·cpu_breakdown·
+service_catalog)가 dict 가 아닌 dataclass 로 복원돼야 template 의 `.attr` 접근이 안 깨진다(#C1 정적 스냅샷).
+본 테스트는 그 복원 정합과, 필드가 나중에 제거돼도 과거 스냅샷의 잔존 키가 복원을 깨지 않는지(`_drop_unknown_
+fields`)를 고정한다.
 """
 
 import dataclasses
@@ -19,7 +20,6 @@ from assessment_engine.web.view_models.environment_report import (
     ServiceCatalogGroup,
     ServiceHost,
     ServiceNameCount,
-    VolumeUsage,
 )
 from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary, ReportTotals
 from assessment_engine.web.view_models.server import IpAddr
@@ -87,7 +87,6 @@ def test_env_report_roundtrip_restores_nested_dataclasses():
         machine_id="m1",
         is_online=True,
     )
-    vm.volumes = [VolumeUsage(mount="/", total_gb=100.0, used_pct=42.5)]
     vm.memory_breakdown = MemoryBreakdown(used_pct=37.5, available_pct=62.5, cached_pct=12.5, buffers_pct=2.4)
     vm.cpu_breakdown = CpuBreakdown(user_pct=13.0, system_pct=3.9, iowait_pct=5.2)
     vm.service_catalog = [
@@ -107,7 +106,6 @@ def test_env_report_roundtrip_restores_nested_dataclasses():
     assert si.ip_external[0].is_ipv4 is False  # IPv6 보존
     assert si.boot_time == datetime(2026, 5, 1, tzinfo=UTC)  # datetime 복원 (str 아님)
 
-    assert isinstance(restored.volumes[0], VolumeUsage) and restored.volumes[0].used_pct == 42.5
     assert isinstance(restored.memory_breakdown, MemoryBreakdown)
     assert restored.memory_breakdown.available_pct == 62.5
     assert isinstance(restored.cpu_breakdown, CpuBreakdown) and restored.cpu_breakdown.iowait_pct == 5.2
@@ -123,9 +121,81 @@ def test_env_report_roundtrip_empty_nested_stays_default():
     """nested 미설정(환경·selection 양식)도 라운드트립 안전 — None/[] 보존 (단일만 채움)."""
     restored = env_report_from_dict(env_report_to_dict(_make_env_report()))
     assert restored.server_inventory is None
-    assert restored.volumes == []
     assert restored.memory_breakdown is None
     assert restored.cpu_breakdown is None
+
+
+def test_env_report_roundtrip_restores_period_assessment_storage_network():
+    """단일 보고서(engineer) 전용 — period_assessment(재귀 nested)·storage_tree(재귀)·network_interfaces
+    가 dict 가 아닌 dataclass 로 복원 (single_report CPU/메모리/스토리지/네트워크 상세 카드가 `.attr` 로 접근)."""
+    from assessment_engine.web.view_models.metric import (
+        PeriodAssessment,
+        PeriodErrorRow,
+        PeriodExtraGroup,
+        PeriodResource,
+        PeriodSignalRow,
+    )
+    from assessment_engine.web.view_models.server import NetIfaceAddress, NetworkInterfaceInfo, StorageNode
+
+    vm = _make_env_report()
+    row = PeriodSignalRow(label="사용률", value="70.0%", threshold="임계 70%", over=True, measured=True)
+    vm.period_assessment = PeriodAssessment(
+        resources=[
+            PeriodResource(
+                name="CPU",
+                util_rows=[row],
+                util_over=1,
+                sat_rows=[row],
+                sat_over=1,
+                has_util=True,
+                detail_slug="cpu",
+                verdict_label="자원 부족",
+                verdict_color="#dc2626",
+                extra_groups=[PeriodExtraGroup(label="부하 신호", rows=[row])],
+                error_rows=[
+                    PeriodErrorRow(
+                        key="mem_oom", label="OOM Kill", badge_text="1건", badge_class="badge-danger",
+                        note="14일 내 1회", sizing_signal="메모리 자원 부족",
+                    )
+                ],
+            )
+        ],
+        error_rows=[],
+        window_days=14,
+        classification_label="자원 부족",
+        classification_color="#dc2626",
+    )
+    child = StorageNode(name="vda1", kind="part", kind_label="파티션", size_gb=100.0, mount="/", usage_pct=42.5)
+    vm.storage_tree = [StorageNode(name="vda", kind="disk", kind_label="디스크", size_gb=100.0, children=[child])]
+    addr = NetIfaceAddress(value="10.0.0.1/24", is_ipv4=True)
+    vm.network_interfaces = [NetworkInterfaceInfo(name="eth0", mac="aa:bb:cc:dd:ee:ff", addresses=[addr])]
+
+    restored = env_report_from_dict(env_report_to_dict(vm))
+
+    pa = restored.period_assessment
+    assert isinstance(pa, PeriodAssessment)
+    cpu = pa.resources[0]
+    assert isinstance(cpu, PeriodResource) and isinstance(cpu.util_rows[0], PeriodSignalRow)
+    grp = cpu.extra_groups[0]
+    assert isinstance(grp, PeriodExtraGroup) and isinstance(grp.rows[0], PeriodSignalRow)
+    assert isinstance(cpu.error_rows[0], PeriodErrorRow)
+    assert cpu.error_rows[0].sizing_signal == "메모리 자원 부족"
+
+    root = restored.storage_tree[0]
+    assert isinstance(root, StorageNode)
+    assert isinstance(root.children[0], StorageNode) and root.children[0].usage_pct == 42.5
+
+    iface = restored.network_interfaces[0]
+    assert isinstance(iface, NetworkInterfaceInfo)
+    assert isinstance(iface.addresses[0], NetIfaceAddress) and iface.addresses[0].value == "10.0.0.1/24"
+
+
+def test_env_report_roundtrip_empty_period_assessment_and_storage_stay_default():
+    """environment·selection 양식(단일 전용 필드 미설정)도 안전 — None/빈 list 보존."""
+    restored = env_report_from_dict(env_report_to_dict(_make_env_report()))
+    assert restored.period_assessment is None
+    assert restored.storage_tree == []
+    assert restored.network_interfaces == []
 
 
 def _minimal_row_dict() -> dict:
@@ -138,23 +208,18 @@ def _minimal_row_dict() -> dict:
     return d
 
 
-def test_report_row_roundtrip_restores_saturation_axes():
-    """ReportRowItem.saturation_axes(list[SaturationAxis]) 스냅샷 라운드트립 — dict -> dataclass 복원."""
-    from assessment_engine.web.view_models.report import SaturationAxis
+def test_report_row_roundtrip_drops_removed_legacy_fields():
+    """과거 스냅샷에 남은 폐기 필드(saturation_axes — ReportRowItem 에서 제거됨)가 복원을 깨지 않는다.
 
+    보고서는 발행 시점 정적 JSONB 스냅샷(#C1) — 필드를 나중에 빼도 옛 스냅샷은 그 키를 그대로 들고 있다.
+    `_drop_unknown_fields` 가 현재 스키마에 없는 키를 걸러내 `ReportRowItem(**data)` 가 unexpected keyword
+    argument 로 실패하지 않아야 한다.
+    """
     data = env_report_to_dict(_make_env_report())
     row = _minimal_row_dict()
-    row["saturation_axes"] = [
-        dataclasses.asdict(SaturationAxis("CPU 포화", "load avg / core", "0.25", ">= 1", "정상", "")),
-        dataclasses.asdict(
-            SaturationAxis("메모리 포화", "Memory Pages/sec p95", "N/A", ">= 1000/s", "미관측", "text-meta")
-        ),
-    ]
+    row["saturation_axes"] = [{"axis": "CPU 포화", "signal": "load avg / core", "value": "0.25"}]
     data["top_risks"] = [row]
 
     restored = env_report_from_dict(data)
 
-    axes = restored.top_risks[0].saturation_axes
-    assert isinstance(axes[0], SaturationAxis)  # str dict 아니라 dataclass 복원
-    assert axes[0].axis == "CPU 포화" and axes[0].status == "정상"
-    assert axes[1].status == "미관측" and axes[1].status_class == "text-meta"
+    assert not hasattr(restored.top_risks[0], "saturation_axes")

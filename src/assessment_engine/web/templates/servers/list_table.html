@@ -114,6 +114,9 @@
 {# 전체보기 — 기본 N행만 표시, 클릭 시 전체 표시 (JS clip). 필터 활성 시 숨김(조건 맞는 전부 노출). #}
 <div class="no-print" id="show-more-wrap" style="display:none; margin-top:12px; text-align:center;">
   <button type="button" id="show-more-btn" class="btn-action">전체보기 <span id="show-more-count" class="text-meta" style="font-weight:400;"></span></button>
+  {# 클립(더보기)·정렬로 화면 밖에 가려진 선택 행이 있을 때만 노출 — 선택 개수와 실제 보이는 체크 표시가 어긋나는
+     것을 사용자가 알 수 있게(E9 발화 가드). list-table.js updateHiddenSelectionHint 단일 진실. #}
+  <span id="hidden-selection-hint" class="text-sm" style="display:none; margin-left:10px; color:var(--color-title); font-weight:600;"></span>
 </div>
 {% else %}
 <p class="text-muted" style="margin:0; padding:20px 0;">등록된 서버가 없습니다. 에이전트가 연결되면 표시됩니다.</p>

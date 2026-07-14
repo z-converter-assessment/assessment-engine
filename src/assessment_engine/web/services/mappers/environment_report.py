@@ -9,7 +9,7 @@ from datetime import datetime
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ServerDetail
-from assessment_engine.service_classifier import SERVICE_CATEGORIES, SINGLE_INSTANCE_CATEGORIES
+from assessment_engine.service_classifier import SIGNATURE_CATEGORIES, SINGLE_INSTANCE_CATEGORIES
 from assessment_engine.web.services.mappers.shared import (
     _CAUSE_LABEL_BY_TRIGGER,
     DIAGNOSTIC_RANGE_LABEL_KR,
@@ -116,6 +116,11 @@ def build_metric_trend(cpu_series: list, mem_series: list, disk_series: list) ->
 def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalogGroup]:
     """base.rows 를 카테고리 기준 집계 — 카테고리별 특징 서비스명·등장 서버 수 (P2).
 
+    시그니처 워크로드만(SIGNATURE_CATEGORIES) — 서버 목록 뱃지·환경 개요 주요 워크로드 도넛과 동일 기준
+    (mappers/server.py `to_server_list_item` 참고). file·mail·infra·remote 등 유틸/관리 카테고리는 서버 성격
+    신호가 약해 제외 — "서비스 구성" 섹션이 "주요 워크로드"라는 같은 개념을 화면마다 다른 카테고리 집합으로
+    보여주는 화면 간 불일치를 방지.
+
     카운트 소스 단일화 (환경 개요 뱃지·total_count·breakdown 전부 workload_category_counter 기준):
     - total_count = 카테고리 등장 호스트 distinct (baseline OS·systemd 노이즈 제외, workload_categories).
     - breakdown(services) = workload_services(baseline·unknown·systemd 제외, classify 일관) 서비스명별 호스트 수.
@@ -130,10 +135,12 @@ def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalog
     for r in rows:
         host = ServiceHost(hostname=r.hostname, public_id=r.public_id)
         for cat in r.workload_categories:
+            if cat not in SIGNATURE_CATEGORIES:
+                continue
             cat_hosts.setdefault(cat, set()).add(r.public_id)
         # breakdown 은 workload_services(total 과 동일 소스) — workload_groups(baseline 포함) 대신 사용해 노이즈 제거.
         for cat, names in r.workload_services.items():
-            if not names:
+            if cat not in SIGNATURE_CATEGORIES or not names:
                 continue
             named_hosts.setdefault(cat, set()).add(r.public_id)
             if cat in SINGLE_INSTANCE_CATEGORIES:
@@ -155,7 +162,7 @@ def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalog
         if listen_only:
             groups.setdefault(cat, []).append(ServiceNameCount(name="(포트 탐지)", count=listen_only, hosts=[]))
     result = []
-    for cat in SERVICE_CATEGORIES:
+    for cat in SIGNATURE_CATEGORIES:
         result.append(
             ServiceCatalogGroup(category=cat, total_count=len(cat_hosts.get(cat, set())), services=groups.get(cat, []))
         )
@@ -166,14 +173,25 @@ def _count_os(details: list[ServerDetail]) -> list[OsCount]:
     """ServerDetail 를 family(Linux/Windows) / distro(os_id) / version(os_version) 3단 그룹 카운트.
 
     정렬 = family -> distro -> version (계층 묶임 — 같은 배포판 버전이 인접). 미상은 distro "unknown"·version "—".
+    커널 버전은 그룹을 더 쪼개지 않고(패치레벨 차이로 행이 과도히 분열되는 것 방지) distinct 값을 부기(콤마 조인).
     """
     counts: Counter[tuple[str, str, str]] = Counter()
+    kernels: dict[tuple[str, str, str], set[str]] = {}
     for d in details:
         family = "Windows" if d.os_family == "windows" else "Linux" if d.os_family == "linux" else "기타"
         distro = d.os_id or "unknown"
         version = d.os_version or "—"
-        counts[(family, distro, version)] += 1
-    rows = [OsCount(family=f, distro=di, version=v, count=n) for (f, di, v), n in counts.items()]
+        key = (family, distro, version)
+        counts[key] += 1
+        if d.kernel_version:
+            kernels.setdefault(key, set()).add(d.kernel_version)
+    rows = [
+        OsCount(
+            family=f, distro=di, version=v, count=n,
+            kernel_versions=", ".join(sorted(kernels.get((f, di, v), set()))) or "—",
+        )
+        for (f, di, v), n in counts.items()
+    ]
     rows.sort(key=lambda r: (r.family, r.distro, r.version))
     return rows
 
@@ -442,8 +460,6 @@ def to_environment_report(
         classification_dist=classification_dist,
         os_distribution=os_dist,
         os_family_dist=os_family_dist,
-        workload_unknown_count=overview.role_unknown_count,
-        workload_identified_count=overview.total - overview.role_unknown_count,
         top_risks=top_risks,
         action=action,
         env_metrics=env_metrics,

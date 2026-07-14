@@ -134,7 +134,7 @@
       </tr>
     </thead>
     <tbody>
-      <tr><td>1</td><td>자원 부족 (under_provisioned)</td><td>위험 신호 OR (하나라도): cpu_p95>=70% | mem_p95>=90% | 디스크 용량(소진 30일 이내 or 정적 85% or inode 소진) | CPU 포화(Linux procs_running/cores>=1.0 · Windows Processor Queue/cores>=2.0 — dual-gate: 이용률 70% 동반) | 디스크 I/O await>20ms(양 OS 단일 임계, 이용률 동반 조건 없음 · 구세대 viostor 만 disk queue>=2) | 메모리 페이징(Linux swap page-out · Windows Pages Input/sec p95>=20 — dual-gate: 이용률 90% 동반). 유휴 보다 우선 — CPU 가 낮아도 압박 신호가 있으면 미사용이 아니라 자원 부족.</td></tr>
+      <tr><td>1</td><td>자원 부족 (under_provisioned)</td><td>위험 신호 OR (하나라도): cpu_p95>=70% | mem_p95>=90% | 디스크 용량(소진 30일 이내 or 정적 85% or inode 소진) | CPU 포화(Linux procs_running/cores>=1.0 · Windows Processor Queue/cores>=2.0 — dual-gate: 이용률 70% 동반) | 메모리 페이징(Linux swap page-out · Windows Pages Input/sec p95>=20 — dual-gate: 이용률 90% 동반). 유휴 보다 우선 — CPU 가 낮아도 압박 신호가 있으면 미사용이 아니라 자원 부족. 디스크 I/O await>20ms 는 포함 안 됨 — host_status 를 구동하지 않는 orthogonal advisory(사이징 축 아님, `_ROOTABLE_UNDER` 명시 제외). 인과 결합 시 증상으로만 참조(근본원인 종합 절).</td></tr>
       <tr><td>2</td><td>유휴 (idle)</td><td>활동 3축 전부 quiescent — cpu_p95 <= 3% AND net <= 2 Mbps AND 디스크 baseline IOPS <= 5 (위험 신호 0). 하나라도 활동 있으면 유휴 아님(정상/과다로).</td></tr>
       <tr><td>3</td><td>표본 부족 (insufficient_data)</td><td>cpu_p95·mem_p95 둘 다 null + under 신호 없음 (평가 데이터 없음)</td></tr>
       <tr><td>4</td><td>과다 할당 (over_provisioned)</td><td>CPU 또는 메모리를 이용률 70% 목표로 다운사이즈 가능 — 필요 사양(ceil(현재 * p95 / 70)) < 현재. CPU 는 어느 코어든 p95>=85%면 보류(단일스레드 보호). 포화 축을 못 본 서버는 과다로 단정 안 함.</td></tr>
@@ -234,7 +234,7 @@
   </div>
   <p class="text-md text-label" style="margin:10px 0 0; line-height:1.6;">
     판정: 세 신호 중 하나라도 임계 초과면 "혼잡"(OR 결합), 전부 미만이면 "정상", 전부 미측정이면 "미측정". 하나의 수치가 아니라 서로 다른 실패 방식이라 각각 본다 — 재전송만 보면 드롭·conntrack 혼잡을 놓친다. net error 카운터는 virtio 게스트에서 상시 0이라 미사용.
-    노출: 호스트 <code>network_congested</code> 플래그 · 서버별 자원 적정성 표 "네트워크 상태" 열(정상·혼잡·미측정) + 재전송율·드롭율 수치 열 · right-sizing API <code>network.signals</code>(값·임계·초과·측정). 서버 상세에서 conntrack 포함 전 신호.
+    노출: 호스트 <code>network_congested</code> 플래그 · 환경 자원 평가(compact 표) "네트워크 상태" 열(정상·혼잡·미측정) · right-sizing API <code>network.signals</code>(값·임계·초과·측정). host_status(자원 적정성 분류) 를 구동하지 않는 orthogonal 신호라 서버 목록·환경 보고서 "서버별 자원 적정성" 표에는 없음 — 원시 재전송율·드롭율·conntrack 수치는 서버 상세에서 확인.
   </p>
 </section>
 
@@ -242,7 +242,7 @@
   <h2 class="card-title">엔지니어 보조 지표</h2>
   <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     분류 자체는 위 표의 임계로 결정되지만, 엔지니어 검토 시 원인 진단·증설/축소 방향을 잡으려면 보조 지표가 필요. 아래는 엔지니어 양식에 쓰이는 보조 메트릭의 정의·임계·근거. 통계 개념(평균·p95·peak)은 "보고서 용어·개념 정리" 절.
-    saturation 3축(CPU 포화·메모리 포화·디스크 I/O)은 서버별 자원 적정성 표·단일 보고서 "포화 축 근거" 카드에 os-aware 신호로 노출되고 진단·권고의 근거가 된다 — Linux 는 run queue(procs_running)/swap page-out/await, Windows 는 Processor Queue/Pages Input/await(IOCTL) 값이 담긴다. 단일 세부 보고서의 CPU/메모리 상세 표는 실행 큐 p95·iowait·Cached·Buffers 등 Linux 전용 셀이 Windows 에서 N/A 이며(메모리 페이징 열은 Linux page-out), Windows 의 포화 근거는 포화 축 근거 카드·진단·권고로 확인한다.
+host_status(자원 적정성 분류)를 구동하는 saturation 2축(CPU 포화·메모리 포화)은 서버별 자원 적정성 표에 os-aware 신호로 노출되고 진단·권고의 근거가 된다 — Linux 는 run queue(procs_running)/swap page-out, Windows 는 Processor Queue/Pages Input 값이 담긴다. 디스크 I/O(await)는 host_status 미구동(advisory)이라 이 표엔 없고, 단일 서버 보고서 engineer "CPU 상세"·"메모리 상세"·"스토리지 상세"·"네트워크 상세" 카드의 이용률·포화 2열(raw 신호)·"자원 적정성 · 운영 평가" 표의 분류·진단·권고·환경 포화 도넛에서 확인한다(customer 는 "자원 적정성 · 운영 평가" 표의 분류·근본원인·권고로 결론만 노출, raw 신호 표는 없음). 단일 세부 보고서의 CPU/메모리 상세 표는 실행 큐 p95·iowait·Cached·Buffers 등 Linux 전용 셀이 Windows 에서 N/A 이며(메모리 페이징 열은 Linux page-out), Windows 의 포화 근거는 각 자원 상세 카드의 포화 열·진단·권고로 확인한다.
   </p>
   <div class="table-scroll">
   <table>

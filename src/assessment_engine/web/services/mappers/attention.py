@@ -66,30 +66,29 @@ _WORKLOAD_COLORS: dict[str, str] = {
 _DONUT_RADIUS = 42
 _UTIL_DONUT_CIRC = 2 * math.pi * _DONUT_RADIUS
 
-# 자원 부족 카드 지표 값 색 — 위반 강조 / 정상 / 미관측(N/A) 흐림 3분기.
+# 자원 부족 카드 지표 값 색 — 위반(적정성 판정 기여) 강조 / 정상 / 미관측(N/A) 흐림 3분기.
 # 위반은 빨강(#dc2626, red-600) + 굵기로 강조 — 발화 축을 즉시 식별. 정상은 중간 회색(#475569)으로 대비.
 _METRIC_VIOLATION_COLOR = "#dc2626"  # 빨강 — 적정성 판정에 기여한 위반(CPU·메모리·디스크 용량)
-_METRIC_ADVISORY_COLOR = "#d97706"  # 주황 — 임계 초과했으나 판정 구동 아닌 참고 신호(디스크 I/O·네트워크, virtio 편향 등)
 _METRIC_NORMAL_COLOR = "#475569"
 _METRIC_UNMEASURED_COLOR = "#94a3b8"  # 미관측(N/A) 흐림 — Windows perflib 미발행 축 등
+# 네트워크 상태 전용 색(orthogonal, metrics 목록과 분리) — 혼잡만 강조, 정상/미측정은 중립.
+_NET_CONGESTED_COLOR = "#dc2626"
 
-
-# 포화 신호·품질 축 헤더 — 각 열은 게이트1 raw 신호(evidence)이지 포화 판정이 아니다. 포화는 dual-gate
-# (신호 AND 이용률, recommendation.cpu_saturated/mem_saturated)라 판정은 분류·근본원인 칼럼 + 색 강조로만 표기
-# (네트워크가 재전송율·드롭율 신호 + 상태 판정을 분리하는 패턴과 동형). Linux(L)/Windows(W) 임계 병기 —
-# 값·단위 os별(혼합 표라 한 칼럼에 두 OS 행 공존), 임계 상수는 recommendation 단일 진실 조립(F10, drift 0).
+# 포화 신호 축 헤더 — 각 열은 게이트1 raw 신호(evidence)이지 포화 판정이 아니다. 포화는 dual-gate
+# (신호 AND 이용률, recommendation.cpu_saturated/mem_saturated)라 판정은 분류·근본원인 칼럼 + 색 강조로만 표기.
+# Linux(L)/Windows(W) 임계 병기 — 값·단위 os별(혼합 표라 한 칼럼에 두 OS 행 공존), 임계 상수는 recommendation
+# 단일 진실 조립(F10, drift 0). 여기 실린 5개 헤더는 전부 host_status(자원 적정성 분류) 를 실제로 구동하는
+# 축만 — 디스크 I/O(await)·네트워크(재전송·드롭·conntrack)는 host_status 를 구동하지 않아(사이징 무관
+# orthogonal advisory) 칼럼에서 제외(아래 to_capacity_warning_item 참고, 네트워크는 net_status_label 전용 필드로).
 _L = recommendation
 # 이용률·용량 칼럼 임계 병기 — 값만으론 under 판정선을 모르니 헤더에 명시(p95 이용률·디스크 용량).
 _CPU_UTIL_LABEL = f"CPU p95 (>={_L.RS_CPU_UNDER_PCT:g}%)"
 _MEM_UTIL_LABEL = f"메모리 p95 (>={_L.RS_MEM_UNDER_PCT:g}%)"
 _DISK_CAP_LABEL = f"디스크 용량 (>={_L.RS_DISK_STATIC_GUARD_PCT:g}% or 30일)"
-# 신호 컬럼(포화 판정 아님) — 헤더는 신호명 + 임계 힌트. 판정은 위 주석대로 분류·색 강조.
 _CPU_SAT_LABEL = f"실행 큐/코어 (L>={_L.PROCS_RUNNING_PER_CORE_SATURATION:g} · W>={_L.CPU_RUN_QUEUE_PER_CORE_SATURATION:g})"
 _MEM_SAT_LABEL = f"페이징 (L 스왑 · W>={_L.WIN_PAGES_INPUT_SATURATION:g}/s)"
-_DISK_IO_LABEL = f"디스크 응답지연 (await > {_L.RS_DISKIO_AWAIT_MS:g}ms)"
-# 네트워크 — 사이징과 별개 품질 축(orthogonal). 다른 자원처럼 수치 2칼럼(재전송율·드롭율) + 판정(상태) 칼럼.
-# 판정 근거 assess_network(재전송>1% or 드롭>0.5% or conntrack>=80% -> 혼잡, monitoring 표준). conntrack 은 서버 상세.
-_NET_LABEL = "네트워크 상태"
+# 네트워크 상태 — 사이징과 별개 품질 축(orthogonal). 판정 근거 assess_network(재전송>1% or 드롭>0.5% or
+# conntrack>=80% -> 혼잡, monitoring 표준). conntrack 은 서버 상세. host_status 미구동이라 전용 필드로 분리.
 _NET_STATUS_LABEL: dict[str, str] = {"quality_ok": "정상", "congested": "혼잡", "unmeasured": "미측정"}
 
 
@@ -114,13 +113,13 @@ def _disk_cap_value(raw) -> str:
     return f"{used:.1f}%"
 
 
-def _metric(label: str, value: str, active: bool, measured: bool, advisory: bool = False) -> CapacityMetric:
-    """CapacityMetric 1개 — 색 precompute (P3): 미관측=흐림 / 정상=진함 / 위반 강조는 red(판정 기여) vs
-    amber(advisory=판정 구동 아닌 참고 신호, 디스크 I/O·네트워크). active 는 강조(bold) 여부, advisory 는 색만 분기."""
+def _metric(label: str, value: str, active: bool, measured: bool) -> CapacityMetric:
+    """CapacityMetric 1개 — 색 precompute (P3): 미관측=흐림 / 정상=진함 / 위반=빨강(판정 기여, 본 목록은
+    host_status 구동 축만 실으므로 전부 빨강 — advisory 색 분기 없음). active 는 강조(bold) 여부."""
     if not measured:
         color = _METRIC_UNMEASURED_COLOR
     elif active:
-        color = _METRIC_ADVISORY_COLOR if advisory else _METRIC_VIOLATION_COLOR
+        color = _METRIC_VIOLATION_COLOR
     else:
         color = _METRIC_NORMAL_COLOR
     return CapacityMetric(label=label, value=value, active=active, measured=measured, color=color)
@@ -525,28 +524,29 @@ def to_capacity_warning_item(raw):
     # 원인 라벨 — trigger key 를 os-neutral 축 이름으로(고정 순서, _CAUSE_LABEL_BY_TRIGGER dict 삽입순 = 표시순).
     active_causes = [lbl for key, lbl in _CAUSE_LABEL_BY_TRIGGER.items() if key in hit]
 
-    # 카드 지표 — 판단 6축 전부 노출. saturation 3축(CPU·메모리·디스크 I/O) 표시값·라벨은 os-aware 이나
+    # 카드 지표 — host_status 구동 5축 전부 노출. saturation 2축(CPU·메모리) 표시값·라벨은 os-aware 이나
     # `shared.saturation_axis_displays` 단일 진실 경유 — single_report 포화 축 카드와 표기 공유(drift 차단, P2).
     # 라벨은 OS 중립 축 이름(공유 테이블 헤더가 혼합 OS 행에 유효, C-E1), 값·measured 만 os-aware(M1).
-    # active 는 rollup 트리거(hit) 재사용(임계 재계산 0). d_cpu/d_mem/d_disk = [cpu, mem, disk] 순.
-    # 지표 순서 = 자원별 그룹(CPU 이용률·포화 / 메모리 이용률·포화 / 디스크 용량·I/O) — 근거 읽기 쉽게.
-    d_cpu, d_mem, d_disk = saturation_axis_displays(stats)
+    # active 는 rollup 트리거(hit) 재사용(임계 재계산 0). d_cpu/d_mem = [cpu, mem] 순(disk_io 는 host_status
+    # 미구동이라 여기서 안 씀 — root_cause_label/진단 텍스트·환경 포화 도넛에서 노출).
+    d_cpu, d_mem, _ = saturation_axis_displays(stats)
     net_res = host.resources["network"]
     net_congested = net_res.status == "congested"
-    net_measured = net_res.status != "unmeasured"
-    # 네트워크 — verdict 1칼럼(정상/혼잡/미측정). host under/over 분류 축 아닌 별도 flag 라, 재전송·드롭·conntrack
-    # 을 상태로 종합(원시 수치는 서버 상세). 다른 자원(각 2칼럼)과 달리 부가신호라 1칼럼.
+    # 네트워크 — verdict 1칼럼(정상/혼잡/미측정), host under/over 미구동 orthogonal flag 라 metrics 밖 전용
+    # 필드(net_status_label/color). 원시 수치(재전송·드롭·conntrack)는 서버 상세.
     net_status_value = _NET_STATUS_LABEL.get(net_res.status, net_res.status)
+    net_status_color = _NET_CONGESTED_COLOR if net_congested else ""
+    # 자원 적정성 분류(host_status)에 실제로 관여하는 수치만 칼럼화 — CPU/메모리 이용률·포화(dual-gate under)·
+    # 디스크 용량(filling under). 디스크 I/O(await)·네트워크(재전송·드롭·conntrack)는 host_status 를 전혀
+    # 구동하지 않는 orthogonal advisory 축(recommendation._ROOTABLE_UNDER 가 명시적으로 제외) — 분류표에서
+    # 제거하고 각자 전용 채널로: 디스크 I/O 는 root_cause_label/진단 텍스트(증상 인과 결합 시)·환경 포화 도넛,
+    # 네트워크는 net_status_label(아래, compact 표 전용)·환경 혼잡 도넛으로 노출(가시성 손실 없음, 표만 정리).
     metrics = [
         _metric(_CPU_UTIL_LABEL, _pct(raw.cpu_p95_pct), cpu_active, raw.cpu_p95_pct is not None),
         _metric(_CPU_SAT_LABEL, d_cpu.value, load_active, d_cpu.measured),
         _metric(_MEM_UTIL_LABEL, _pct(raw.mem_p95_pct), mem_active, raw.mem_p95_pct is not None),
         _metric(_MEM_SAT_LABEL, d_mem.value, swap_active, d_mem.measured),
         _metric(_DISK_CAP_LABEL, _disk_cap_value(raw), "disk_capacity" in hit, raw.worst_mount_used_pct is not None),
-        # 디스크 I/O·네트워크는 advisory — 임계 초과해도 host under/over 판정을 구동 안 함(virtio 편향·별도 flag).
-        # 앰버로 표시해 CPU·메모리·디스크 용량의 판정 구동 위반(빨강)과 시각 구분.
-        _metric(_DISK_IO_LABEL, d_disk.value, "disk_io" in hit, d_disk.measured, advisory=True),
-        _metric(_NET_LABEL, net_status_value, net_congested, net_measured, advisory=True),
     ]
     # 상위 N 절단용 심각도 — swap(paging) 최우선 > 위반 자원 수 > 최고 활용률(CPU/메모리/디스크 max).
     # 가중치 자릿수 분리(swap 1e4 > active*100(max 500) > util(max 100))로 우선순위 충돌 없음.
@@ -574,6 +574,8 @@ def to_capacity_warning_item(raw):
         recommendation_action=action,
         root_cause_label=recommendation.root_cause_display(host),
         severity_score=severity_score,
+        net_status_label=net_status_value,
+        net_status_color=net_status_color,
     )
 
 

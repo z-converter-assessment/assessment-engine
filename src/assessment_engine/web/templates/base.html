@@ -313,6 +313,42 @@
     .metric-grid-4 { grid-template-columns: repeat(4, 1fr); }
     .metric-grid-5 { grid-template-columns: repeat(5, 1fr); }
 
+    /* 스토리지 레이아웃 트리(_storage_tree.html storage_tree 매크로) — 스토리지 상세·서버 보고서 공용
+       (중첩 ul 들여쓰기 + 좌측 가이드선). 파생값은 mapper precompute(P3). */
+    .stree, .stree ul { list-style: none; margin: 0; padding: 0; }
+    .stree ul { margin-left: 16px; border-left: 1px solid #e2e8f0; padding-left: 16px; }
+    .stree-row {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 7px 0; border-bottom: 1px solid #f1f5f9;
+    }
+    .stree-kind {
+      font-size: 11px; font-weight: 600; color: #475569; background: #f1f5f9;
+      border-radius: 4px; padding: 2px 8px; min-width: 48px; text-align: center; white-space: nowrap;
+    }
+    .stree-name { font-weight: 600; color: #0f172a; font-family: var(--font-mono, ui-monospace, monospace); }
+    .stree-size { color: #334155; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .stree-meta { color: #64748b; font-size: 13px; }
+    .stree-badge { font-size: 10px; }
+    /* 좌측 정보(칩/이름/크기/배지/meta) — 게이지 없는 행은 자연 크기(폭 강제 불요, 정렬 대상이 없어서).
+       게이지 있는 행만 mapper 가 depth 를 상쇄한 폭(gauge_info_width_px)을 인라인으로 줘서, 게이지가 트리
+       depth(들여쓰기)와 무관하게 항상 같은 x 에서 시작하게 한다(우측정렬 대신 일정 인덴트, _storage_tree.html
+       인라인 style 참조). flex-grow:0 필수 — grow:1 이면 남는 공간을 info 가 먹어 게이지가 행마다 어긋난다. */
+    .stree-info { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 0 1 auto; }
+    .stree-usage { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .stree-bar { width: 110px; height: 8px; background: #f1f5f9; border-radius: 4px; overflow: hidden; }
+    .stree-bar-fill { display: block; height: 100%; background: var(--color-title); }
+    .stree-usage-label { font-size: 12px; white-space: nowrap; }
+    /* 파생·참조 노드(미할당·VG 여유·배열 구성원 참조) — 실 block_device 아니라 행 전체를 옅게 구분(칩·이름·크기
+       전부). 칩에 점선 테두리를 줘 "실 디바이스 아님"을 글자 읽기 전에 형태로 먼저 신호. */
+    .stree-unallocated .stree-kind, .stree-vg_free .stree-kind, .stree-raid_member .stree-kind {
+      background: transparent; border: 1px dashed #cbd5e1; color: #94a3b8;
+    }
+    .stree-unallocated .stree-name, .stree-vg_free .stree-name,
+    .stree-raid_member .stree-name { color: #94a3b8; font-weight: 500; }
+    .stree-unallocated .stree-size, .stree-vg_free .stree-size,
+    .stree-raid_member .stree-size { color: #94a3b8; }
+    .stree-swap .stree-name { color: #64748b; }
+
     /* KPI card — KPI 그리드 (환경 개요 요약, 보고서 분류 카운트). */
     .kpi-grid { display: grid; gap: 12px; margin-bottom: 24px; }
     .kpi-grid-2 { grid-template-columns: repeat(2, 1fr); }
@@ -525,7 +561,7 @@
       tbody tr:nth-child(even) td { background: #fafbfc !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
       /* overflow 스크롤 컨테이너 — 인쇄는 스크롤 불가라 visible 로 전체 노출(테이블 잘림 방지). */
       div[style*="overflow"], .table-scroll { overflow: visible !important; }
-      /* 넓은 표(서버별 자원 적정성 = 14칼럼) 폰트·패딩 축소 — 폭 확보. 용지 방향(landscape)은 보고서 템플릿이
+      /* 넓은 표(서버별 자원 적정성 = 9칼럼) 폰트·패딩 축소 — 폭 확보. 용지 방향(landscape)은 보고서 템플릿이
          문서 전체에 @page 로 지정(named-page 방향은 브라우저 지원 불안정 -> 글로벌 @page 로 확실히). */
       .print-landscape table { font-size: 9px; }
       .print-landscape th, .print-landscape td { padding: 2px 4px !important; line-height: 13px !important; }

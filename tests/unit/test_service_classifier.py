@@ -210,12 +210,12 @@ def test_matched_ports_pid_join_attributes_unrelated_comm_and_port():
 
 
 def test_matched_ports_pid_join_excludes_comm_match_with_other_pid():
-    """pid 제공 시 comm 이 name 을 포함해도 pid 가 다르면 제외 — pid 가 comm 폴백을 대체."""
+    """pid 있는 포트는 comm 폴백 대상이 아니다 — 소유 pid 유닛에만 귀속(요청 pid 무관하게 comm 매치 무시)."""
     listen = [{"proto": "tcp", "port": 80, "pid": 999, "comm": "nginx"}]
     # pid=100 요청: 소켓 pid 999 != 100 -> 제외 (comm nginx~name 이라도 무시)
     assert matched_ports("nginx.service", listen, pid=100) == []
-    # 대조: pid 미제공이면 comm nginx 가 name 포함 -> 귀속
-    assert {(r.proto, r.port) for r in matched_ports("nginx.service", listen)} == {("tcp", 80)}
+    # pid 미제공이어도 포트 자체에 소유 pid(999)가 있으면 comm 폴백 미적용 — 폴백은 pid 없는 포트 전용.
+    assert matched_ports("nginx.service", listen) == []
 
 
 def test_matched_ports_pid_join_only_matching_pid_sockets():

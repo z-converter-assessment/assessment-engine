@@ -148,7 +148,6 @@ async def test_build_child_prefetched_reports_matches_per_server():
     raw2 = MagicMock(server_id=2)
     qs._assemble_report_raws = AsyncMock(return_value=[raw1, raw2])
     qs.repo.get_servers = AsyncMock(return_value=[MagicMock(id=1), MagicMock(id=2)])
-    qs.repo.report_mount_usage_batch = AsyncMock(return_value={1: [], 2: []})
     qs.repo.report_memory_breakdown_batch = AsyncMock(return_value={})
     qs.repo.report_cpu_breakdown_batch = AsyncMock(return_value={})
 

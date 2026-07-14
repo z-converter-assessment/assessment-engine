@@ -40,6 +40,8 @@
 
 스토리지 "사용률" 행만 다른 자원(호스트 p95 집계)과 다른 산식 — worst-mount(가장 채워진 마운트 1개, `disk_worst_mount` 파라미터로 라벨에 마운트명 병기) — 실시간 카드 도넛(`disk_usage_pct`, 전체 마운트 가중평균)과 의도적으로 다른 값(#F9 명시 표기).
 
+단일 서버 보고서(`/servers/{id}/report?view=engineer`)도 동일 `build_period_assessment` 를 호출해 `EnvironmentReportSummary.period_assessment` 에 정적 스냅샷으로 저장 — CPU/메모리/스토리지/네트워크 상세 카드가 이용률·포화 2열로 노출(라이브 조회 아닌 발행 시점 고정, #C1).
+
 ## 스토리지 레이아웃 트리 / 네트워크 인터페이스 정보
 
 | ViewModel | 채우는 mapper | 핵심 파생 |
@@ -49,17 +51,19 @@
 
 `StorageDetailResponse.tree`/`NetworkDetailResponse.interfaces_info` 가 각각 소비. 둘 다 `os_family`(N/A 표시 OS 분기, #E6 `data-os-family`) 동반.
 
+단일 서버 보고서(engineer)도 동일 `build_storage_tree`/`build_network_interfaces` 를 호출해 `EnvironmentReportSummary.storage_tree`/`network_interfaces` 에 정적 스냅샷으로 저장(발행 시점 1회 조회, `_storage_tree.html` `storage_tree()` 매크로 재사용) — 스토리지 상세 카드가 마운트별 표 대신 이 트리를 노출.
+
 ## 보고서·산출물
 
 | ViewModel | 채우는 mapper |
 |-----------|---------------|
-| `ReportRowItem` | `to_report_row_item(raw, online)` — `role`(`infer_role`, listen 보강) / `recommendation`(`classify_host`) / `recommendation_label` (한국어) / `badge_class` (`rec-{enum}`) / `root_cause_label`(`rollup_host` 인과 종합) / `net_status_label`(네트워크 품질 정상·혼잡·미측정, 사이징과 별개) / `os_display` / `internal_ip[0]`. 특징 워크로드(baseline 제외): `workload_categories`(카테고리 집합) / `workload_services`(카테고리별 서비스명) — 환경/N대 집계·세부 목록 뱃지 공유. 구동 서비스 차등(개별 보고서, `_build_workload_display`, baseline 포함 전부): `workload_groups`(customer 카테고리별 제품명) / `service_units`(engineer unit·카테고리·귀속 포트) / `listen_ports_detail`(engineer listen 소켓) |
+| `ReportRowItem` | `to_report_row_item(raw, online, now, has_operational_event=False)` — `role`(`infer_role`, listen 보강) / `recommendation`(`classify_host`) / `recommendation_label` (한국어) / `badge_class` (`rec-{enum}`) / `root_cause_label`(`rollup_host` 인과 종합) / `net_status_label`(네트워크 품질 정상·혼잡·미측정, 사이징과 별개) / `os_display` / `internal_ip[0]`. 특징 워크로드(baseline 제외): `workload_categories`(카테고리 집합) / `signature_workload_categories`(`SIGNATURE_CATEGORIES` 부분집합 — 세부 서버 목록 "구동 서비스" 열 전용, 서버 목록 뱃지와 동일 기준) / `workload_services`(카테고리별 서비스명) — 환경/N대 집계·세부 목록 뱃지 공유. 구동 서비스 차등(개별 보고서, `_build_workload_display`, baseline 포함 전부): `workload_groups`(customer 카테고리별 제품명) / `listen_ports_detail`(engineer Listen 포트 카드 — listen 소켓 원시 표). `os_eol`/`os_eol_status`(`lookup_os_eol(...,  now.date())` 3상태 — 보고서 발행 기준 시각, live "오늘" 아님) / `has_operational_event`(보고서 window 기준 `latest_errors` — 세부 서버 목록 전용, caller 가 `get_report(fetch_operational_events=True)` 로 명시 요청할 때만 계산, 기본 False — 환경 전체 스코프는 N+1 회피로 미계산) |
 | `ReportSummary` | `query_service.get_report` — `rows: list[ReportRowItem]`(`sort_rows_for_report` 위험 우선 정렬) + KPI 집계 (`total`/`online`/`over`/`under`) + N대 선택 맥락 `os_family_summary`/`workload_summary`(`build_selection_context`) |
 | `MetricSeriesItem` | `to_metric_series_item` — chart API 응답 |
 
 ## 환경 개요 상단 요약 (overview, `/`)
 
-환경 개요(`/`)에서 두 영역 노출 — `EnvironmentOverview`(환경 요약 KPI + 활용률 도넛 + 프로비저닝 분포 도넛) + `AttentionSignals`(운영신호 카드 3 카탈로그 — 통신끊김/OS지원종료/에이전트재시작). 서버 목록(`/servers`)은 행만 — 화면 분리 자체가 컨텍스트 가드(#E9).
+환경 개요(`/`)는 `EnvironmentOverview`(환경 요약 KPI + 활용률 도넛 + 프로비저닝 분포 도넛)만 노출 — 서버 목록(`/servers`)은 행만, 화면 분리 자체가 컨텍스트 가드(#E9). `AttentionSignals`(운영신호 3 카탈로그 — 통신끊김/OS지원종료/에이전트재시작, `get_attention_signals`)는 현재 단일/선택 보고서의 `attention_for_host` 교차 참조(`report_page.py`)에서만 소비 — 독립 라이브 카드로는 렌더되지 않는다.
 
 요약 위젯·right-sizing 분류 모두 `recommendation.WINDOW_DAYS`(14일, #F10) — 한 창 통일(#E3 화면 간 정합).
 
@@ -70,8 +74,7 @@
 | `UtilizationBar` | `build_environment_overview` 안에서 3종 (CPU·메모리·디스크) 생성 — `pct`/`bar_color`(단색 푸른, 값 무관)/`dash_length`(SVG dasharray, mapper 비례 산술) | `environment_utilization(WINDOW_DAYS, end)` SQL — CPU·메모리·디스크 모두 capacity-weighted (Σused/Σtotal, 자원 총량 가중 — 서버 1대=1표 아님) | 최근 14일 | 테마색1 `var(--color-title)`·`None` 회(`#cbd5e1`) |
 | `RiskDonutSegment` | `build_risk_donut_segments` — 5 카테고리 (under/over/idle/optimal/insufficient) `key`/`label`/`color`/`count`/`dash_length`/`dash_offset` (multi-segment 누적 음수) | `report_aggregate(WINDOW_DAYS)` + net baseline 주입 -> `build_resource_stats` -> `classify_host` -> `_DONUT_SEGMENT_FROM_REC` | 최근 14일 USE Method | `_DONUT_SEGMENT_DEFS` 색 (E8) |
 | `AttentionRow` (gap) | `to_gap_warning_item(raw, now)` — `gap_minutes` / `badge_class` (운영신호 통신끊김) | `metric_gap_warnings(gap_min, recent_h, limit)` 단일 SQL | 5min~24h 갭 | blue (`#eff6ff`) |
-| `CapacityWarningItem` | `to_capacity_warning_item(raw)` — `active_causes`(발화 원인 os-neutral 라벨, `_CAUSE_LABEL_BY_TRIGGER` 파생 — 환경 요약 원인 집계 `_under_cause_summary` 단일 소스)·`metrics`(6축 os-aware). caller가 `under_provisioned` 필터링 -> EnvironmentOverview.under_provisioned_hosts (운영신호 아님, USE Method) | `report_aggregate(WINDOW_DAYS)` + `build_resource_stats` -> `rollup_host`(triggers) | 최근 14일 USE Method | blue (`#eff6ff`) |
-| `SaturationAxis` | `_build_saturation_axes(raw, stats)` — single_report '포화 축 평가' 카드 3행(CPU/메모리/디스크 I/O). `axis`(os-neutral)/`signal`(OS별 측정 신호)/`value`/`threshold`/`status`(포화·정상·미관측)/`status_class`. os-aware helper 판정 재사용 | `report_aggregate` + `build_resource_stats` -> os-aware helper | 발행 윈도우 | — |
+| `CapacityWarningItem` | `to_capacity_warning_item(raw)` — `active_causes`(발화 원인 os-neutral 라벨, `_CAUSE_LABEL_BY_TRIGGER` 파생 — 환경 요약 원인 집계 `_under_cause_summary` 단일 소스)·`metrics`(host_status 구동 5축만 — CPU 이용률·포화/메모리 이용률·포화/디스크 용량, os-aware. 디스크 I/O·네트워크는 host_status 미구동이라 제외)·`net_status_label`+`net_status_color`(네트워크 품질, metrics 와 분리된 전용 필드 — compact 표 전용). caller가 `under_provisioned` 필터링 -> EnvironmentOverview.under_provisioned_hosts (운영신호 아님, USE Method) | `report_aggregate(WINDOW_DAYS)` + `build_resource_stats` -> `rollup_host`(triggers) | 최근 14일 USE Method | blue (`#eff6ff`) |
 | `AttentionRow` (os_eol) | `to_os_eol_warning_item(raw, now)` — `resolve_os_eol`(endoflife 카탈로그) EOL 경과 시 반환 (운영신호) | `os_id`/`os_version`/`kernel_version` + endoflife 스냅샷 카탈로그 | endoflife.date 스냅샷 (Linux distro + Windows Server build) | blue (`#eff6ff`) |
 | `AttentionRow` (agent_unstable) | `to_agent_unstable_item(public_id, hostname, restart_count)` — caller가 임계 필터링 | `agent_restart_counts_recent(since=now-1h)` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | blue (`#eff6ff`) |
 | `AttentionSignals` | `query_service.get_attention_signals` 묶음 (내부 `_assemble_attention` 조립) — 운영신호 3 카탈로그(gap·os_eol·agent_unstable). `has_any` property로 빈 카드 분기 | 위 3 builder(gap/os_eol/agent_unstable) | — | blue (`#eff6ff`) |

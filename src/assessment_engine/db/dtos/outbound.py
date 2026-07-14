@@ -312,15 +312,6 @@ class FleetErrorRaw:
 
 
 @dataclass
-class ReportMountUsageRaw:
-    """마운트별 윈도우 평균 사용률 — 개별 보고서 스토리지 상세 (worst 1개 아닌 전체 마운트)."""
-
-    mountpoint: str
-    total_bytes: int | None
-    used_pct: float | None
-
-
-@dataclass
 class MountCapacityRaw:
     """마운트별 용량 사이징 raw (per-mount) — /api/assessment 디스크 축 입력.
 

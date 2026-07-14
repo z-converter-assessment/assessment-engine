@@ -125,15 +125,14 @@ def test_realtime_cpu_capacity_weighted_not_arithmetic():
 
 
 def test_realtime_mem_disk_are_used_over_total_ratio():
-    """메모리·디스크 평균 = Σused/Σtotal*100 (byte·GB 풀 비율, 스냅샷 산술평균 아님).
+    """메모리 평균 = Σused/Σtotal*100 (byte 풀 비율, 스냅샷 산술평균 아님). 디스크 용량은 실시간 신호가
 
-    mem = 4e9/6e9*100 = 66.7, disk = 120/200*100 = 60.0 (round 1).
+    아니라(느린 누적 축) utilization 도넛에서 제외 — CPU·메모리 2개만. mem = 4e9/6e9*100 = 66.7 (round 1).
     """
     r = build_environment_realtime(total=5, online=2, snapshots=_two_snaps(), last_collected_at=_NOW)
     assert r.utilization[1].label == "메모리"
     assert r.utilization[1].pct == 66.7
-    assert r.utilization[2].label == "디스크 용량"
-    assert r.utilization[2].pct == 60.0
+    assert len(r.utilization) == 2
 
 
 def test_realtime_online_offline_sample_size():
@@ -180,7 +179,7 @@ def test_realtime_network_congestion_donut_counts_flagged_hosts():
 def test_realtime_peaks_sorted_descending_with_display():
     """peak_groups 자원별 top — value DESC 정렬 + display '{pct}%' precompute."""
     r = build_environment_realtime(total=5, online=2, snapshots=_two_snaps(), last_collected_at=_NOW)
-    cpu_group = next(g for g in r.peak_groups if g.label == "CPU")
+    cpu_group = next(g for g in r.peak_groups if g.label == "CPU 이용률")
     assert [p.hostname for p in cpu_group.peaks] == ["h2", "h1"]
     assert [p.value for p in cpu_group.peaks] == [80.0, 50.0]
     assert [p.display for p in cpu_group.peaks] == ["80.0%", "50.0%"]
@@ -200,7 +199,7 @@ def test_realtime_top_n_truncates_and_skips_none():
     ]
     r = build_environment_realtime(total=3, online=3, snapshots=snaps, last_collected_at=None, top_n=1)
     assert r.utilization[0].pct == 50.0
-    cpu_group = next(g for g in r.peak_groups if g.label == "CPU")
+    cpu_group = next(g for g in r.peak_groups if g.label == "CPU 이용률")
     assert [p.hostname for p in cpu_group.peaks] == ["c"]
     assert r.sample_size == 3
 
@@ -266,22 +265,23 @@ def test_action_targets_counts_and_metric_labels():
     at = build_action_targets(_classified_raws())
     assert at.total == 5
     assert at.under_count == 1
-    # 첫 행(under)의 metrics 라벨과 동일 (9축: CPU 이용률/포화·메모리 이용률/포화·디스크 용량/IO·네트워크 3)
+    # 첫 행(under)의 metrics 라벨과 동일 — host_status 구동 5축(CPU 이용률/포화·메모리 이용률/포화·디스크 용량).
+    # 디스크 I/O·네트워크는 host_status 미구동 orthogonal advisory 축이라 표에서 제외(각자 전용 채널로 노출).
     assert at.metric_labels == [m.label for m in at.hosts[0].metrics]
-    assert len(at.metric_labels) == 9
+    assert len(at.metric_labels) == 5
 
 
 def test_action_targets_efficiency_aggregates_over_and_idle_only():
     """효율 집계 = over_provisioned·idle 분류만 합산 (under/optimal/insufficient 제외).
 
     over(cores2·mem2GiB·disk50e9) + idle(cores2·mem2GiB·disk50e9) 2대:
-      count=2 / vcpus=4 / mem=4.0GB / disk=int(bytes_to_gb(100e9))=100.
+      count=2 / vcpus=4 / mem=4.0GB / disk=int(bytes_to_gb(100e9))=93 (binary divisor, GB 라벨 표기 관례).
     """
     at = build_action_targets(_classified_raws())
     assert at.efficiency_count == 2
     assert at.efficiency_vcpus == 4
     assert at.efficiency_memory_gb == 4.0
-    assert at.efficiency_disk_gb == 100
+    assert at.efficiency_disk_gb == 93
 
 
 def test_action_targets_empty_raws():

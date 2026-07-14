@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ReportRowRaw
-from assessment_engine.service_classifier import detect_listen_categories
+from assessment_engine.service_classifier import SIGNATURE_CATEGORIES, detect_listen_categories
 from assessment_engine.web.services.device_filters import disk_total_bytes, is_virtual_interface
 from assessment_engine.web.services.mappers.server import (
     _os_display,
@@ -27,6 +27,7 @@ from assessment_engine.web.services.mappers.shared import (
     RISK_LEVEL_ORDER,
     ReportView,
     build_host_confidence_notes,
+    lookup_os_eol,
     resolve_os_eol,
     saturation_axis_displays,
 )
@@ -42,10 +43,8 @@ from assessment_engine.web.view_models.metric import (
 from assessment_engine.web.view_models.report import (
     ReportListenItem,
     ReportRowItem,
-    ReportServiceUnit,
     ReportTotals,
     ReportWorkloadGroup,
-    SaturationAxis,
 )
 
 # ─── 위험도 매핑 — 양식 A KPI 3단계 압축 ────────────────────────────────
@@ -344,29 +343,6 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
     if raw.worst_mount_used_pct is None:
         missing.append("디스크")
     return f"메트릭 수집 누락: {' · '.join(missing)}" if missing else "윈도우 내 표본 부족"
-
-
-def _build_saturation_axes(stats: recommendation.ResourceStats) -> list[SaturationAxis]:
-    """USE Saturation 3축 os-aware 평가 행 — single_report '포화 축 평가' 카드(P2/P3 precompute).
-
-    표시값(신호·값·임계)은 `shared.saturation_axis_displays` 단일 진실(attention capacity 지표와 공유 —
-    표기 drift 차단). 판정(포화/정상/미관측)은 os-aware helper 경유(임계 재계산 0): None=미관측.
-    """
-
-    def _st(sat: bool | None) -> tuple[str, str]:
-        if sat is None:
-            return "미관측", "text-meta"
-        return ("포화", "text-strong") if sat else ("정상", "")
-
-    sats = [
-        recommendation.cpu_saturated(stats),
-        recommendation.mem_saturated(stats),
-        recommendation.disk_io_saturated(stats),
-    ]
-    return [
-        SaturationAxis(d.axis, d.signal, d.value, d.threshold, *_st(sat))
-        for d, sat in zip(saturation_axis_displays(stats), sats, strict=True)
-    ]
 
 
 # ─── 서버 세부 '최근 N일' 평가 카드 (이용률+포화 2축, 14일 p95) — right-sizing 분류 기준 ───
@@ -763,24 +739,14 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
 
 def _build_workload_display(
     raw: ReportRowRaw,
-) -> tuple[list[ReportWorkloadGroup], list[ReportServiceUnit], list[ReportListenItem]]:
+) -> tuple[list[ReportWorkloadGroup], list[ReportListenItem]]:
     """개별 서버 보고서 구동 서비스 표시 precompute (P2) — 차등 구성.
 
     customer: 워크로드 카테고리별 제품명 묶음 (의미 중심, 포트 숨김).
-    engineer: 등록 서비스(systemd unit) 전체 표 + listen 포트 전체 표 (사실 중심, 최대 상세).
+    engineer: listen 포트 전체 표 (사실 중심, 최대 상세 — Listen 포트 카드).
     service_classifier 단일 진실 (#E7) — listen-only 카테고리는 detect_listen_categories 로 보강(이름 미상).
     """
     services = _services_or_none(raw.services, raw.listen_ports) or []
-    # engineer — 등록 unit 전체 (unknown 포함, 최대 상세). 귀속 포트 join 은 mapper precompute (P3).
-    units = [
-        ReportServiceUnit(
-            unit=si.unit or "(이름 없음)",
-            category=si.category,
-            ports_label=", ".join(f"{p.port}/{p.proto}" for p in si.ports),
-        )
-        for si in services
-    ]
-    units.sort(key=lambda u: (u.category, u.unit))
     # engineer — listen 포트 전체 (raw 표시본)
     listen = [
         ReportListenItem(port=lp.port, proto=lp.proto, comm=lp.comm or "", addr=lp.addr, uid=lp.uid, pid=lp.pid)
@@ -807,25 +773,33 @@ def _build_workload_display(
         )
         for cat in sorted(by_cat)
     ]
-    return groups, units, listen
+    return groups, listen
 
 
-def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> ReportRowItem:
+def to_report_row_item(
+    raw: ReportRowRaw, is_online: bool, now: datetime, has_operational_event: bool = False
+) -> ReportRowItem:
     """ReportRowRaw(repo) + is_online + now -> ReportRowItem(ViewModel) — P2 단일 변환.
 
-    `now`로 uptime_days 계산 (now - boot_time).
+    `now`로 uptime_days 계산 (now - boot_time) + OS EOL 판정 기준 시각(now.date()) — 정적 스냅샷이라
+    렌더 시점 "오늘" 아닌 보고서 발행 기준(anchor/generated_at)으로 고정(#C1 스냅샷 불변).
     표시 파생 (role / recommendation / risk_level / badge_class / os_display / internal_ip[0])은 모두 여기서.
     USE Method 분류(`recommendation`)는 양식 B(엔지니어용)·`risk_level`은 양식 A(고객용) KPI/표 노출.
     `diagnosis`는 양식 B "판단" 컬럼 자동 해석.
+    has_operational_event — 호출자가 보고서 창(window) 기준 latest_errors 로 사전 판정해 주입(세부 서버
+    목록 전용, N+1 회피 위해 여기선 조회 안 함).
     """
+    eol = lookup_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())
+    os_eol, os_eol_status = ("", "unknown") if eol is None else (eol[0], "eol" if eol[2] else "supported")
     stats = build_resource_stats(raw)  # net baseline·OS 분기 포함 — report·attention 공용 단일 진실
     # 신 모델 rollup_host 1회 산출 — badge·진단·권고·confidence 전부 이 종합에서 파생(화면 간 정합, ADR 0052 Phase D).
     host = recommendation.rollup_host(stats)
     # 네트워크 상태 — 사이징과 별개 품질 판정(정상/혼잡/미측정). assess_network status 를 라벨로.
     net_status_label = _NET_STATUS_LABEL.get(host.resources["network"].status, "미측정")
-    workload_groups, service_units, listen_ports_detail = _build_workload_display(raw)
+    workload_groups, listen_ports_detail = _build_workload_display(raw)
     # 특징 워크로드 카테고리·서비스명(baseline 제외) — 환경 개요 뱃지와 동일 소스. 서비스 구성 집계 정합용.
     workload_categories = list(workload_category_counter(raw.services, raw.listen_ports).keys())
+    signature_workload_categories = [c for c in workload_categories if c in SIGNATURE_CATEGORIES]
     workload_services = workload_services_by_category(raw.services, raw.listen_ports)
     rec = recommendation.host_status_to_recommendation(host.host_status)
     # P4 — 포화 축 미관측(예: Windows perflib 미발행/구세대 viostor) confidence 단서 (포화 축 한정 단일 진실).
@@ -856,6 +830,9 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         confidence_notes=build_host_confidence_notes(host),
         os_display=_os_display(raw.os_id, raw.os_version),
         kernel_version=raw.kernel_version,
+        os_eol=os_eol,
+        os_eol_status=os_eol_status,
+        has_operational_event=has_operational_event,
         internal_ip=next(
             (
                 a.get("address")
@@ -895,7 +872,6 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         uptime_days=uptime_days,
         reboot_count=raw.reboot_count,
         agent_restart_count=raw.agent_restart_count,
-        saturation_axes=_build_saturation_axes(stats),
         cpu_variance_ratio=cpu_variance,
         mem_variance_ratio=mem_variance,
         disk_iops_baseline=raw.disk_iops_baseline,
@@ -920,7 +896,7 @@ def to_report_row_item(raw: ReportRowRaw, is_online: bool, now: datetime) -> Rep
         recommendation_action=_build_recommendation_action(host, stats),
         workload_groups=workload_groups,
         workload_categories=workload_categories,
+        signature_workload_categories=signature_workload_categories,
         workload_services=workload_services,
-        service_units=service_units,
         listen_ports_detail=listen_ports_detail,
     )

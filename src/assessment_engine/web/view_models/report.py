@@ -18,15 +18,6 @@ class ReportWorkloadGroup:
 
 
 @dataclass
-class ReportServiceUnit:
-    """개별 보고서 engineer — 등록 서비스(systemd unit) 1행. unit·카테고리·귀속 listen 포트."""
-
-    unit: str
-    category: str
-    ports_label: str = ""  # "80/tcp, 443/tcp" — 귀속 포트 join, mapper precompute (P3)
-
-
-@dataclass
 class ReportListenItem:
     """개별 보고서 engineer — listen 소켓 1행. port·proto·process (raw listen_ports 표시본)."""
 
@@ -36,23 +27,6 @@ class ReportListenItem:
     addr: str = ""
     uid: int | None = None
     pid: int | None = None
-
-
-@dataclass
-class SaturationAxis:
-    """USE Saturation 축 1개 — single_report '포화 축 평가' 카드 행 (os-aware precompute, P2/P3).
-
-    단일 서버 deep-dive 전용 — 분류 진단·권고의 근거 수치를 OS별 실측 신호로 노출. 3축(CPU/메모리/디스크 I/O)
-    을 OS 무관 축 이름으로 통일하고, 측정 신호 이름·값·임계·판정은 os-aware. 미관측(perflib 미발행)은 status
-    '미관측'. E9 발화 가능 정보 노출 — 축은 항상 3행 노출(값 없어도).
-    """
-
-    axis: str  # os-neutral 축 이름 (CPU 포화 / 메모리 포화 / 디스크 I/O)
-    signal: str  # 해당 OS 측정 신호 이름 (Linux load avg / Windows Processor Queue Length 등)
-    value: str  # 형식화 값 (미관측 'N/A')
-    threshold: str  # 임계 표기
-    status: str  # '포화' | '정상' | '미관측'
-    status_class: str  # 템플릿 CSS 클래스 (mapper 결정, P3 — 템플릿 비교 금지)
 
 
 @dataclass
@@ -109,10 +83,6 @@ class ReportRowItem:
     reboot_count: int = 0
     agent_restart_count: int = 0
 
-    # USE Saturation 3축 os-aware 평가 — single_report '포화 축 평가' 카드(분류 근거 수치 노출). mapper precompute.
-    # (구 saturation_ratio(load/cores 단일값)는 미렌더·Linux 전용이라 폐기 — saturation_axes 가 os-aware 대체.)
-    saturation_axes: list[SaturationAxis] = field(default_factory=list)
-
     # 이상치 변동성 — peak/p95 비율. 1.5 이상이면 변동 큼.
     cpu_variance_ratio: float | None = None
     mem_variance_ratio: float | None = None
@@ -150,7 +120,7 @@ class ReportRowItem:
     net_status_label: str = ""
 
     # 메모리 page-out 발생 여부 (신 모델 포화 신호 = paging_major refault sustained). 실제 압박 신호.
-    # single_report 메모리 상세가 본 신호로 판정(서버 상세 메모리 탭·saturation_axes 와 정합).
+    # single_report 메모리 상세가 본 신호로 판정(서버 상세 메모리 탭·period_assessment 포화 축과 정합).
     mem_swap_paging: bool = False
 
     # 부분 평가 — 포화 축 중 해당 OS 의 perflib 미발행 축만 미관측(os-aware, P2/P4). Windows 도 run queue/
@@ -163,16 +133,28 @@ class ReportRowItem:
     confidence_notes: list[str] = field(default_factory=list)
 
     # 구동 서비스 (P-A 구성 계층) — 개별 서버 보고서(single_report)에서만 렌더. N대 표·환경 보고서는 미사용.
-    # customer: workload_groups (카테고리별 제품명) / engineer: service_units(등록 unit) + listen_ports_detail.
+    # customer: workload_groups (카테고리별 제품명) / engineer: listen_ports_detail(Listen 포트 카드).
     # mapper 가 service_classifier 로 precompute (P2), 템플릿은 순수 렌더 (P3).
     workload_groups: list[ReportWorkloadGroup] = field(default_factory=list)
-    service_units: list[ReportServiceUnit] = field(default_factory=list)
     listen_ports_detail: list[ReportListenItem] = field(default_factory=list)
     # 특징 워크로드 카테고리 집합 (baseline OS 서비스 제외) — 환경 개요 서비스 뱃지(workload_category_counter)와
     # 동일 소스. 환경 보고서 서비스 구성 카드 total_count 가 이걸 써 개요 뱃지와 카운트 정합(#E7 aggregate 정책).
     workload_categories: list[str] = field(default_factory=list)
+    # workload_categories 를 시그니처(SIGNATURE_CATEGORIES)만으로 좁힌 부분집합 — 세부 서버 목록 "구동 서비스"
+    # 열 전용. 서버 목록 뱃지·환경 개요 주요 워크로드 도넛과 동일 기준(mapper 단일 진실, 화면 간 정합).
+    signature_workload_categories: list[str] = field(default_factory=list)
     # 카테고리별 특징 서비스명 (baseline·unknown 제외) — 서비스 구성 breakdown 이 total 과 같은 소스를 쓰게(정합).
     workload_services: dict[str, list[str]] = field(default_factory=dict)
+
+    # OS 지원 종료 — ServerListItem 과 동일 3상태 판정(lookup_os_eol, mapper 가 report 기준 시각(now)으로 계산
+    # — live "오늘"이 아니라 정적 스냅샷 발행 시점 기준, #C1 스냅샷 불변). os_eol=매칭 iso(경과·미래 무관),
+    # os_eol_status: "eol"(경과)/"supported"(매칭+미래)/"unknown"(카탈로그 미수록·미매칭 — 판정 불가).
+    os_eol: str = ""
+    os_eol_status: str = ""
+    # 운영 이벤트 — 보고서 창(window) 내 에러 발생 유무(OOM kill·MCE·메모리 손상·net/disk 에러 5축 중 1+).
+    # ServerListItem.has_operational_event(전기간)과 달리 이 보고서의 window_days 창에 한정(latest_errors,
+    # since=window_start) — 세부 서버 목록(N대 선택 보고서 전용)만 채움, 환경 전체 보고서는 N+1 회피로 미채움.
+    has_operational_event: bool = False
 
 
 @dataclass

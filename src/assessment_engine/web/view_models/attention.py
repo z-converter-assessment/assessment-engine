@@ -46,7 +46,9 @@ class CapacityWarningItem:
     active_causes: 발화한 trigger 의 os-neutral 원인 라벨 목록 (assess.triggers 파생, 고정 순서). 환경 요약
       "자원 부족(메모리 포화 2대 · CPU 이용률 1대)" 원인 집계(environment_report._under_cause_summary)의 단일
       소스. OS 무관 축 이름이라 Windows paging/run queue 포화도 정확히 집계(Linux swap/load 로 오라벨 안 함).
-    metrics: 평가 6축 측정값 — 위반 여부 무관 전부 노출(mapper precompute, P3). saturation 3축은 os-aware 값.
+    metrics: host_status(자원 적정성 분류) 를 실제로 구동하는 5축 측정값만(CPU 이용률·포화, 메모리 이용률·포화,
+      디스크 용량) — 위반 여부 무관 전부 노출(mapper precompute, P3). saturation 2축은 os-aware 값. 디스크
+      I/O·네트워크는 host_status 미구동 orthogonal 신호라 여기 없음 — 네트워크는 net_status_label 전용 필드.
     services: 호스트 워크로드 카테고리 카운트 {category: n} — workload_category_counter 단일 진실.
     """
 
@@ -71,6 +73,10 @@ class CapacityWarningItem:
     # 상위 N 절단 정렬용 심각도 점수 (mapper precompute) — swap(paging) 최우선 > 위반 자원 수 >
     # 최고 활용률 max(CPU/메모리/디스크 p95·used). build_overview 가 DESC 정렬 후 hostname tie-break.
     severity_score: float = 0.0
+    # 네트워크 품질(정상/혼잡/미측정) — 사이징 분류 비관여(orthogonal flag, host_status 미구동) 라 `metrics`
+    # 목록과 분리된 전용 필드. 환경 자원 평가(compact 표)의 "네트워크 상태" 칼럼 전용 소스.
+    net_status_label: str = ""
+    net_status_color: str = ""
 
 
 @dataclass

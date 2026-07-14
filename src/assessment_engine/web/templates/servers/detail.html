@@ -295,7 +295,10 @@
     </button>
   </div>
 
-  <div id="server-report-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:50; align-items:center; justify-content:center;">
+  {# 배경 dim 없음 — 모달만 뜨고 뒤 카드는 그대로(사용자 결정). 다른 모달(설치 등)과 다른 예외적 처리.
+     오버레이 자체는 그대로 전체 화면을 덮어 바깥 클릭 시 닫기(detail.js e.target===modal)는 유지 —
+     투명해도 클릭 캡처는 되므로 pointer-events 조정 불요. #}
+  <div id="server-report-modal" style="display:none; position:fixed; inset:0; z-index:50; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:8px; padding:24px; width:480px; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
         <h3 id="server-report-title" class="modal-title">보고서 발행</h3>

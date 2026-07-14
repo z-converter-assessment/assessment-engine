@@ -69,9 +69,9 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 ### `right_sizing.py` — 자원 적정성 판정 (외부 자동화 소비)
 | 경로 | 용도 |
 |------|------|
-| `GET /api/right-sizing?hostname=&ip=&public_id=&pair=&window_days=&end=` | 서버별 자원 적정성 판정 JSON — 외부 자동화 소비. 화면·보고서와 동일 산식(`report_aggregate` -> `rollup_host`, 재계산 0). 외부는 내부 public_id 를 모르는 게 보통이라 hostname/ip 로 조회한다. 파라미터·응답 스키마·enum·권고 포맷·호스트명 충돌 안전은 `/reference/api` 상세 문서가 계약 단일 소유 |
+| `GET /api/right-sizing?hostname=&ip=&public_id=&pair=&window_days=&end=` | 서버별 자원 적정성 판정 JSON — 외부 자동화 소비. 화면·보고서와 동일 산식(`report_aggregate` -> `rollup_host`, 재계산 0). 외부는 내부 public_id 를 모르는 게 보통이라 hostname/ip 로 조회한다. 파라미터·응답 스키마·enum·권고 포맷·호스트명 충돌 안전은 Swagger(`/docs`)·ReDoc(`/redoc`)가 OpenAPI 스펙(라우터 docstring·Pydantic 응답 모델) 기준 단일 소유 |
 
-`GET /reference/api` (`reference_router`) — 위 JSON API 자동 목록(OpenAPI 파생) + right-sizing 전용 상세 사용법(파라미터·응답 필드 enum·예시·권고 포맷).
+`GET /reference/api` (`reference_router`) — JSON API 엔드포인트 목록(OpenAPI 파생, 메서드·경로·요약·파라미터·요청 본문 필드명만) + Swagger(`/docs`)·ReDoc(`/redoc`) 링크. 상세 스키마·enum·예시는 중복 문서화하지 않고 Swagger/ReDoc 단일 진실로 위임(#F12·docs/README 1원칙).
 
 ### `reports.py` — 보고서 SSR + 발행 (PRG 패턴)
 | 경로 | 용도 |

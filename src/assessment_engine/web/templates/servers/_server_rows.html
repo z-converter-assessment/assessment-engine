@@ -46,9 +46,6 @@
     {% else %}
       <span class="text-meta text-sm">—</span>
     {% endif %}
-    {% if s.network_congested %}
-      <span class="badge badge-warn text-xs" title="TCP 재전송 > 1% 또는 패킷 드롭 > 0.5% — 사이징 아닌 네트워크 품질 경고">네트워크 혼잡</span>
-    {% endif %}
   </td>
   {# 운영 이벤트 — 전체 기간 에러 발생 유무(OOM kill·MCE·메모리 손상·net/disk 에러). 문제=text-danger(단일 빨강), 없음=회색. #}
   <td data-sort="{{ 1 if s.has_operational_event else 0 }}">

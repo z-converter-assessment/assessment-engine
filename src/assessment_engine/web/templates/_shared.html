@@ -109,19 +109,23 @@
 {% endmacro %}
 
 {# detail_server_list — 세부 서버 목록 표. 환경·선택 보고서 공유. child_jobs/attention_by_host 는 selection 만 값(환경은 default {}). #}
+{% macro _os_eol_cell(r) %}{% if r.os_eol_status == 'eol' %}<span class="text-danger" style="font-weight:600;" title="지원 종료 {{ r.os_eol }}">지원 종료</span>{% elif r.os_eol_status == 'supported' %}<span class="text-meta text-sm" title="지원 중{% if r.os_eol %} · EOL {{ r.os_eol }}{% endif %}">지원 중</span>{% else %}<span class="text-warn text-sm" style="font-weight:600;" title="EOL 카탈로그 미수록·미매칭 — 지원 여부 미판정(확인 필요)">미상</span>{% endif %}{% endmacro %}
+{% macro _op_event_cell(r) %}{% if r.has_operational_event %}<span class="text-danger" style="font-weight:600;" title="보고서 창 내 에러 이벤트 발생(OOM kill·MCE·메모리 손상·네트워크/디스크 에러)">문제 있음</span>{% else %}<span class="text-meta text-sm">이상 없음</span>{% endif %}{% endmacro %}
 {% macro detail_server_list(rows, view, time_range, self_back, child_jobs, attention_by_host, total, show_report_link) %}
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">세부 서버 목록</h2>
-  {# 구동 서비스 = 특징 워크로드 카테고리(baseline 제외, workload_categories) — 상단 서비스 구성·대시보드 뱃지와 동일 필터.
-     화면: 전체 통합 표. 인쇄(print-only): 칼럼 과다로 2분할 — 표A(구성: 상태·서버·서비스·OS·인벤토리·프로비저닝),
-     표B(자원·안정성: 서버·CPU·MEM·디스크{% if view == "engineer" %}·재부팅·재시작{% endif %}). #}
+  {# 구동 서비스 = 시그니처 워크로드만(signature_workload_categories) — 서버 목록 뱃지·환경 개요 도넛과 동일 기준.
+     OS 지원종료·운영 이벤트는 보고서 window(anchor·period_days) 기준 산정(mapper to_report_row_item/get_report
+     fetch_operational_events) — 서버 목록의 전기간 판정과는 다른 창. 화면: 전체 통합 표. 인쇄(print-only):
+     칼럼 과다로 2분할 — 표A(구성: 상태·서버·서비스·OS·OS지원종료·인벤토리), 표B(평가: 서버·운영이벤트·
+     프로비저닝{% if view == "engineer" %}·재부팅·재시작{% endif %}). #}
   <div class="table-scroll no-print">
   <table class="detail-table" style="min-width:100%;">
     <thead>
       <tr>
-        <th>상태</th><th>서버</th><th>구동 서비스</th><th>OS</th>
+        <th>상태</th><th>서버</th><th>구동 서비스</th><th>OS</th><th>OS 지원종료</th>
         <th>인벤토리</th>
-        <th style="text-align:right;">CPU 평균</th><th style="text-align:right;">MEM 평균</th><th style="text-align:right;">디스크 최대</th>
+        <th>운영 이벤트</th>
         <th>프로비저닝</th>
         {% if view == "engineer" %}<th style="text-align:right;">재부팅</th><th style="text-align:right;">재시작</th>{% endif %}
         {% if show_report_link %}<th class="no-print">개별 보고서</th>{% endif %}
@@ -133,13 +137,13 @@
       <tr>
         <td style="text-align:center;">{% if r.is_online %}<span class="status-on">온라인</span>{% else %}<span class="status-off">오프라인</span>{% endif %}</td>
         <td>{{ r.hostname }}</td>
-        <td>{% if r.workload_categories %}{% for cat in r.workload_categories %}<span class="badge {{ cat | service_badge_class }}">{{ cat }}</span>{% if not loop.last %} {% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
+        <td>{% if r.signature_workload_categories %}{% for cat in r.signature_workload_categories %}<span class="badge {{ cat | service_badge_class }}">{{ cat }}</span>{% if not loop.last %} {% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
         <td>{{ r.os_display }}</td>
+        <td>{{ _os_eol_cell(r) }}</td>
         <td style="line-height:1.5; white-space:nowrap;">{% if r.cpu_cores is not none %}{{ r.cpu_cores }} vCPU{% else %}—{% endif %}{% if r.mem_total_gb is not none %} · {{ "%.1f"|format(r.mem_total_gb) }} GB{% endif %}{% if r.disk_total_gb is not none %} · {{ "%.0f"|format(r.disk_total_gb) }} GB{% endif %}</td>
-        <td style="text-align:right;">{% if r.cpu_avg_pct is not none %}{{ "%.1f"|format(r.cpu_avg_pct) }}%{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if r.mem_avg_pct is not none %}{{ "%.1f"|format(r.mem_avg_pct) }}%{% else %}—{% endif %}</td>
-        <td style="text-align:right;">{% if r.worst_mount_used_pct is not none %}{{ "%.1f"|format(r.worst_mount_used_pct) }}%{% else %}—{% endif %}</td>
-        <td>{% if r.recommendation_label %}<span class="text-label">{{ r.recommendation_label }}</span>{% else %}<span class="text-meta">—</span>{% endif %}</td>
+        <td>{{ _op_event_cell(r) }}</td>
+        {# 자원 부족만 글로벌 빨강(text-danger) — 서버 목록·환경 보고서와 동일 강조 기준. #}
+        <td>{% if r.recommendation == 'under_provisioned' %}<span class="text-danger" style="font-weight:600;">{{ r.recommendation_label }}</span>{% elif r.recommendation_label %}<span class="text-label">{{ r.recommendation_label }}</span>{% else %}<span class="text-meta">—</span>{% endif %}</td>
         {% if view == "engineer" %}<td style="text-align:right;">{{ r.reboot_count }}</td>
         <td style="text-align:right;">{{ r.agent_restart_count }}</td>{% endif %}
         {% if show_report_link %}<td class="no-print"><a href="/servers/{{ r.public_id }}/report?{% if child %}job={{ child }}{% else %}view={{ view }}&time_range={{ time_range }}{% endif %}&back={{ self_back }}" class="btn-action" style="padding:4px 11px; white-space:nowrap;">보고서</a></td>{% endif %}
@@ -152,29 +156,28 @@
   {# 인쇄 전용 2분할 #}
   <div class="print-only">
     <table class="detail-table" style="width:100%; margin-bottom:12px;">
-      <thead><tr><th>상태</th><th>서버</th><th>구동 서비스</th><th>OS</th><th>인벤토리</th><th>프로비저닝</th></tr></thead>
+      <thead><tr><th>상태</th><th>서버</th><th>구동 서비스</th><th>OS</th><th>OS 지원종료</th><th>인벤토리</th></tr></thead>
       <tbody>
         {% for r in rows %}
         <tr>
           <td style="text-align:center;">{% if r.is_online %}온라인{% else %}오프라인{% endif %}</td>
           <td>{{ r.hostname }}</td>
-          <td>{% if r.workload_categories %}{% for cat in r.workload_categories %}<span class="badge {{ cat | service_badge_class }}">{{ cat }}</span>{% if not loop.last %} {% endif %}{% endfor %}{% else %}—{% endif %}</td>
+          <td>{% if r.signature_workload_categories %}{% for cat in r.signature_workload_categories %}<span class="badge {{ cat | service_badge_class }}">{{ cat }}</span>{% if not loop.last %} {% endif %}{% endfor %}{% else %}—{% endif %}</td>
           <td>{{ r.os_display }}</td>
+          <td>{{ _os_eol_cell(r) }}</td>
           <td style="white-space:nowrap;">{% if r.cpu_cores is not none %}{{ r.cpu_cores }} vCPU{% else %}—{% endif %}{% if r.mem_total_gb is not none %} · {{ "%.1f"|format(r.mem_total_gb) }} GB{% endif %}{% if r.disk_total_gb is not none %} · {{ "%.0f"|format(r.disk_total_gb) }} GB{% endif %}</td>
-          <td>{{ r.recommendation_label or "—" }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     <table class="detail-table" style="width:100%;">
-      <thead><tr><th>서버</th><th style="text-align:right;">CPU 평균</th><th style="text-align:right;">MEM 평균</th><th style="text-align:right;">디스크 최대</th>{% if view == "engineer" %}<th style="text-align:right;">재부팅</th><th style="text-align:right;">재시작</th>{% endif %}</tr></thead>
+      <thead><tr><th>서버</th><th>운영 이벤트</th><th>프로비저닝</th>{% if view == "engineer" %}<th style="text-align:right;">재부팅</th><th style="text-align:right;">재시작</th>{% endif %}</tr></thead>
       <tbody>
         {% for r in rows %}
         <tr>
           <td>{{ r.hostname }}</td>
-          <td style="text-align:right;">{% if r.cpu_avg_pct is not none %}{{ "%.1f"|format(r.cpu_avg_pct) }}%{% else %}—{% endif %}</td>
-          <td style="text-align:right;">{% if r.mem_avg_pct is not none %}{{ "%.1f"|format(r.mem_avg_pct) }}%{% else %}—{% endif %}</td>
-          <td style="text-align:right;">{% if r.worst_mount_used_pct is not none %}{{ "%.1f"|format(r.worst_mount_used_pct) }}%{% else %}—{% endif %}</td>
+          <td>{{ _op_event_cell(r) }}</td>
+          <td>{% if r.recommendation == 'under_provisioned' %}<span class="text-danger" style="font-weight:600;">{{ r.recommendation_label }}</span>{% else %}{{ r.recommendation_label or "—" }}{% endif %}</td>
           {% if view == "engineer" %}<td style="text-align:right;">{{ r.reboot_count }}</td><td style="text-align:right;">{{ r.agent_restart_count }}</td>{% endif %}
         </tr>
         {% endfor %}

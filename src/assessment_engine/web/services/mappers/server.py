@@ -48,7 +48,6 @@ from assessment_engine.web.view_models.environment_report import (
     CpuBreakdown,
     MemoryBreakdown,
     ServerInventorySnapshot,
-    VolumeUsage,
 )
 from assessment_engine.web.view_models.server import (
     DiskItem,
@@ -236,8 +235,10 @@ def _os_display(os_id: str | None, os_version: str | None, kernel_version: str |
     return " ".join(parts) or "-"
 
 
-def build_server_inventory(detail, is_online: bool) -> ServerInventorySnapshot:
-    """ServerDetail -> 개별 보고서 인벤토리 (충실 표시 — 전체 IP(IPv4/IPv6)·하드웨어·식별자, 생략·왜곡 0)."""
+def build_server_inventory(detail, is_online: bool, raw=None) -> ServerInventorySnapshot:
+    """ServerDetail(+선택적 ReportRowRaw) -> 개별 보고서 인벤토리 (충실 표시 — 전체 IP(IPv4/IPv6)·하드웨어·
+    식별자, 생략·왜곡 0). raw 는 ReportRowRaw — server_inventory 재현 필드(arch/bits/boot_firmware/
+    secure_boot/edition/timezone) 보강용, 없으면 그 필드들만 None(환경/N대 등 raw 미보유 스코프 대비)."""
     # 디스크 총량 — block_devices type=disk size_bytes 합 (양 OS 단일 산식, device_filters).
     disk_bytes = disk_total_bytes(detail.block_devices)
     return ServerInventorySnapshot(
@@ -259,12 +260,15 @@ def build_server_inventory(detail, is_online: bool) -> ServerInventorySnapshot:
         composite_id=detail.composite_id,
         machine_id=detail.machine_id,
         is_online=is_online,
+        public_id=detail.public_id,
+        agent_id=detail.agent_id,
+        cpu_arch=detail.cpu_arch,
+        cpu_bits=detail.cpu_bits,
+        boot_firmware=raw.boot_firmware if raw is not None else None,
+        secure_boot=raw.secure_boot if raw is not None else None,
+        os_edition=raw.edition if raw is not None else None,
+        timezone=raw.timezone if raw is not None else None,
     )
-
-
-def build_volumes(raws) -> list[VolumeUsage]:
-    """ReportMountUsageRaw list -> VolumeUsage (bytes -> GB). 개별 보고서 마운트별 스토리지."""
-    return [VolumeUsage(mount=r.mountpoint, total_gb=bytes_to_gb(r.total_bytes), used_pct=r.used_pct) for r in raws]
 
 
 def build_memory_breakdown(raw) -> MemoryBreakdown:
@@ -329,16 +333,16 @@ def to_server_list_item(
     show_unknown = False
 
     rec_label, rec_color, seg_key = "", "", ""
-    net_congested = False
     if raw_period is not None:
         # build_resource_stats 단일 진실(net baseline 포함) — 보고서·대시보드와 동일 분류 입력 (#E3).
         # report mapper 지연 import: report.py 가 본 모듈을 import 하므로 모듈 레벨 순환 회피.
         from assessment_engine.web.services.mappers.report import build_resource_stats
 
-        # rollup_host 1회 산출 -> 분류 배지 + orthogonal 네트워크 혼잡 플래그 (classify_host 내부도 rollup_host 경유).
+        # rollup_host 1회 산출 -> 분류 배지(classify_host 내부도 rollup_host 경유). 네트워크 혼잡(orthogonal,
+        # host_status 미구동)은 목록 배지에서 뺀다 — 분류 칼럼에 붙어 분류의 일부처럼 보이나 실은 별개 트리거
+        # (재전송·드롭 임계)라 화면만으로 근거를 확인할 수 없었다. 필요 시 서버 상세에서 확인.
         host = recommendation.rollup_host(build_resource_stats(raw_period))
         rec = recommendation.host_status_to_recommendation(host.host_status)
-        net_congested = host.network_congested
         seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
         # 색은 _DONUT_SEGMENT_DEFS, 라벨은 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 서버목록 칼럼 한글 표시.
         for key, _label, color, _desc in _DONUT_SEGMENT_DEFS:
@@ -368,7 +372,6 @@ def to_server_list_item(
         recommendation_label=rec_label,
         recommendation_color=rec_color,
         provisioning_class=seg_key,
-        network_congested=net_congested,
         has_operational_event=error_hosts is not None and dto.id in error_hosts,
         os_distro=os_id_to_distro(dto.os_id),
     )

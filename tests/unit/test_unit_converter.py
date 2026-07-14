@@ -21,9 +21,9 @@ from assessment_engine.web.services.unit_converter import (
     [
         (None, None),
         (0, 0.0),
-        (10**9, 1.0),  # 디스크는 decimal GB(10^9) — 산업 표준. 메모리(bytes_to_gib)만 binary 유지.
-        (50 * 10**9, 50.0),
-        (1_073_741_824, 1.07),  # 1 GiB = 1.073e9 B -> 1.07 GB (round 2자리)
+        (10**9, 0.93),  # 10^9 B(decimal 1GB) -> binary divisor(1024^3) 로는 0.93 — "GB" 라벨이되 값은 binary.
+        (50 * 10**9, 46.57),
+        (1_073_741_824, 1.0),  # 1 GiB = 1024^3 B -> 1.0 GB (round 2자리, bytes_to_gib 와 동일 base)
     ],
 )
 def test_bytes_to_gb(b, expected):

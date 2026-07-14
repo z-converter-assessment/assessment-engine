@@ -125,16 +125,23 @@ metricsSelBtn?.addEventListener('click', () => {
 
 const exportBtn = /** @type {HTMLButtonElement} */ (document.getElementById('export-btn'));
 
+/** @typedef {import('../generated/api').components['schemas']['AssessmentExportRequest']} AssessmentExportRequest */
+
 async function exportInventory() {
   const rows = selectedRows();
   if (!rows.length) return;
   exportBtn.disabled = true;
   const pending = /** @type {HTMLElement} */ (ToastUtils.show(`Export 중 (${rows.length}대)...`, 'pending'));
   try {
+    // public_id 필터 — 미지정(빈 배열)이면 서버가 전체 환경으로 처리(AssessmentExportRequest 계약)라
+    // 반드시 선택된 서버만 채워 보낸다. 필드명은 생성 타입(api.ts) 기준 단일 진실. window_days 는 서버
+    // 기본값(14, _WINDOW_FLOOR_DAYS)과 동일 — 생성 타입이 default 있는 필드도 required 로 표기해 명시.
+    /** @type {AssessmentExportRequest} */
+    const body = { public_id: rows.map(r => /** @type {string} */ (r.dataset.publicId)), window_days: 14 };
     const res = await fetch('/api/exports/inventory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_public_ids: rows.map(r => r.dataset.publicId) }),
+      body: JSON.stringify(body),
     });
     pending.remove();
     if (!res.ok) {
@@ -273,9 +280,37 @@ async function submitInstall() {
   }
 }
 
-// 행 체크박스 토글 → 버튼 라벨·활성화 갱신
+// 전체선택 체크박스 시각 동기화 — 필터 통과 행(data-filter-match!='0') 기준 0개=해제 / 전부=체크 /
+// 일부=indeterminate(가로줄, 체크 아님). indeterminate 없이 두면 "체크박스 일부 해제" 시 전체선택이
+// 여전히 checked 로 남아, 다시 눌렀을 때 "전체 선택"이 아니라 "전체 해제"로 오동작하는 것처럼 보인다
+// (실제 동작은 selectedRows() 가 매번 실제 체크 상태를 재조회해 정확하지만, 시각 상태가 거짓 정보를 준다).
+function syncSelectAllState() {
+  if (!selectAllCb) return;
+  const matched = /** @type {HTMLInputElement[]} */ (
+    [...document.querySelectorAll('tr.server-row')]
+      .filter(/** @param {Element} tr */ tr => /** @type {HTMLElement} */ (tr).dataset.filterMatch !== '0')
+      .map(tr => tr.querySelector('.row-select'))
+      .filter(Boolean)
+  );
+  const checkedCount = matched.filter(cb => cb.checked).length;
+  selectAllCb.checked = matched.length > 0 && checkedCount === matched.length;
+  selectAllCb.indeterminate = checkedCount > 0 && checkedCount < matched.length;
+}
+
+// 클립(더보기 미확장)·정렬로 화면에 안 보이는(display:none) 선택 행 개수 힌트 — 선택 카운트("N대")는
+// 정확해도 화면엔 체크 표시가 안 보이는 행이 있을 수 있어(E9 발화 가드), show-more 영역에 명시.
+function updateHiddenSelectionHint() {
+  const hint = document.getElementById('hidden-selection-hint');
+  if (!hint) return;
+  const hiddenChecked = [...document.querySelectorAll('.row-select:checked')]
+    .filter(cb => /** @type {HTMLElement | null} */ (cb.closest('tr'))?.style.display === 'none').length;
+  hint.textContent = hiddenChecked > 0 ? `화면에 안 보이는 선택 ${hiddenChecked}건 (전체보기로 확인)` : '';
+  hint.style.display = hiddenChecked > 0 ? '' : 'none';
+}
+
+// 행 체크박스 토글 → 버튼 라벨·활성화 + 전체선택 시각 상태 갱신
 document.querySelectorAll('.row-select').forEach(cb => {
-  cb.addEventListener('change', refreshInstallButton);
+  cb.addEventListener('change', () => { refreshInstallButton(); syncSelectAllState(); updateHiddenSelectionHint(); });
 });
 
 // 전체 선택 토글
@@ -286,7 +321,9 @@ if (selectAllCb) {
       const cb = /** @type {HTMLInputElement | null} */ (tr.querySelector('.row-select'));
       if (cb) cb.checked = (tr.dataset.filterMatch !== '0') && selectAllCb.checked;
     });
+    selectAllCb.indeterminate = false;  // 클릭으로 전부 체크/전부 해제 중 하나로 확정 — 일부 상태 없음
     refreshInstallButton();
+    updateHiddenSelectionHint();  // 전체선택은 clip 으로 숨은 행도 체크하므로 즉시 재계산
   });
 }
 
@@ -354,6 +391,8 @@ if (filterForm) {
     if (searchInput) searchInput.classList.toggle('active', !!search);
     // 보이는 행만 zebra 재줄무늬 — 검색·clip 으로 숨은 행 제외(흰색 어긋남 방지, table-utils).
     if (window.TableUtils && listTable) window.TableUtils.restripe(listTable);
+    syncSelectAllState();  // 필터 통과 행 집합(분모) 변경 가능성 반영 — 전체선택 체크/indeterminate 재계산
+    updateHiddenSelectionHint();  // clip/정렬로 display 변경 — 화면 밖 선택 힌트 재계산
   }
 
   // 전체보기/접기 토글 — expanded 반전 후 재적용 (전체 노출 <-> CLIP 복귀).
@@ -377,8 +416,9 @@ if (filterForm) {
   // show-more(전체보기)·init 은 필터 변경이 아니므로 미적용 (선택 보존).
   function clearSelectionOnFilterChange() {
     /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('.row-select')).forEach(cb => { cb.checked = false; });
-    if (selectAllCb) selectAllCb.checked = false;
+    if (selectAllCb) { selectAllCb.checked = false; selectAllCb.indeterminate = false; }
     refreshInstallButton();
+    updateHiddenSelectionHint();
   }
 
   // text input — typing 마다 debounce (200ms) client filter.
@@ -428,7 +468,8 @@ trackPendingTasks();
 // 초기화해 "뒤로 오면 깨끗한 목록" 을 결정적으로 보장 (bfcache / full-reload 브라우저 차이 무관).
 function resetSelectionOnShow() {
   /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('.row-select')).forEach(cb => { cb.checked = false; });
-  if (selectAllCb) selectAllCb.checked = false;
+  if (selectAllCb) { selectAllCb.checked = false; selectAllCb.indeterminate = false; }
+  updateHiddenSelectionHint();
   // 열린 모달 닫기 + 발행 버튼 재활성 — navigate 직전 disable 이 history 복원에 sticky 로 남는 것 방지.
   ['multi-server-report-modal', 'install-modal'].forEach(id => {
     const m = document.getElementById(id);

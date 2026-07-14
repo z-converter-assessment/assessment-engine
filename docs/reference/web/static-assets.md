@@ -108,7 +108,7 @@ src/assessment_engine/web/static/js/
 - 작은 창에서 카드 무파손. 다열 영역은 `grid-template-columns:repeat(auto-fit, minmax(min(100%, Npx), 1fr))` — 폭 부족 시 자동 1열, 한쪽 칼럼 찌그러짐 0.
 - 고정 다열(`kpi-grid-2/3/4` · `metric-grid-2/3`)은 `@media (max-width:640px)` 에서 1열 (base.html).
 - 2칼럼 카드(`env-dual` · `env-pair`)는 `align-items:start`로 칼럼 독립, 같은 행 항목은 grid 정렬로 높이 일치.
-- 언더 프로비저닝 상세 = 호스트명 | 서비스 배지 | 평가 6축 지표 3칼럼 grid(행마다 칼럼 정렬, 각 행 1줄 강제 — 지표 칼럼만 좁으면 가로 스크롤). 박스·구분선 없음. 심각도 상위 3(`severity_score` = swap(paging) > 위반 자원 수 > max(CPU/메모리/디스크 util)).
+- 언더 프로비저닝 상세(환경 자원 평가 compact 표, `action_targets_table(compact=True)`) = 호스트·분류(근본원인 병합)·권고·네트워크 상태·신뢰도 sortable-table — host_status 를 구동한 원시 수치(5축)는 표시 안 함(환경 보고서 "서버별 자원 적정성" 전체 표에서 확인). 심각도 상위 정렬(`severity_score` = swap(paging) > 위반 자원 수 > max(CPU/메모리/디스크 util)).
 - 환경 개요(`/`) 영역 = 환경 요약 / 환경 자원 평가(활용률+자원 적정성 평가+언더프로비저닝) / 환경 부하 추이+네트워크 토폴로지 — 3개 별도 카드 section. 운영 신호 카드는 3 카테고리(통신끊김/OS지원종료/에이전트재시작)를 한 행 3칼럼 grid + 카탈로그 뱃지 한 줄(nowrap).
 
 ## report.html print CSS
@@ -175,6 +175,7 @@ src/assessment_engine/web/static/js/
 | `.alert-warn` + `.alert-list` | 운영 신호 발화 박스 (warn 톤) | #fef3c7 / 1px #fde68a |
 | `.card-section` | 카드 내부 서브섹션 구분 (환경요약·운영신호 공통 위계 — h3 + 구분선) | 1px #e2e8f0 top border |
 | `.empty-state` | 발화 가능하나 비어있는 슬롯 placeholder (#E9 discoverability) | 박스 없음 / 회색 텍스트 #94a3b8 |
+| `.stree` (+ `.stree-row`/`.stree-kind`/`.stree-usage` 등) | 스토리지 레이아웃 트리 (중첩 ul, `servers/_storage_tree.html` `storage_tree()` 매크로) — 스토리지 상세·서버 보고서 공용 | 좌측 가이드선 #e2e8f0 |
 
 금지: `<div style="border:1px solid #e2e8f0; border-radius:6px; padding:14px;">` 같은 inline 박스 재구현. 위 클래스로 치환. (P3 직접 위반 — 모양 통일성 + 추후 일괄 조정 시 단일 진실.)
 
