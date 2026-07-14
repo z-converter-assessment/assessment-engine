@@ -25,10 +25,10 @@
 | `GET /servers?search=&is_online=&service=&os_id=&classification=&page=&limit=` | `servers_list` | 서버 목록 — 검색·온라인·서비스·OS·프로비저닝 필터 + 선택 N대 액션 버튼 (Install/Export/보고서). 필터 AND 조합 — service category (web/db/cache/mq/container/monitor/remote/file/mail/infra) · os_id (distro 정확 일치) · classification (under/over/idle/shutdown/optimal/insufficient_data). 검색 버튼 없음, 변경 즉시 client-side filter + URL replaceState. 기본 20행 표시 후 client clip(더보기/접기). `fragment=rows` 면 행 partial 만 |
 | `GET /environment/assessment?time_range=&anchor_at=&fragment=` | `assessment` | 환경 자원 평가 — 윈도우/앵커 선택 -> 자원 적정성 평가 + 자원 부족 전체 목록(상위 N 절단 해제). `fragment=result` 면 결과 partial 만(JS swap). time_range 기본 `DIAGNOSTIC_DEFAULT_TIME_RANGE`(14d) |
 | `GET /environment/topology` | `topology` | 네트워크 토폴로지 — L3 subnet 공동소속 집계 그래프(subnet 노드 클릭 시 host 펼침) + 서브넷별 서버 카드 |
-| `GET /environment/metrics?ids=` | `environment_metrics` | 환경(또는 선택 N대) 성능 추이 — 14차트 live. ids(public_ids) 면 선택 N대 한정, 제목 "선택 N대" |
-| `GET /environment/realtime?ids=&fragment=` | `environment_realtime` | 환경(또는 선택 N대) 실시간 현황 — 이용률 3 + 신호 4 도넛 + 환경 I/O 총량 + 부하 상위 탑3. `realtime.js` 30초 polling(fragment swap). fragment=realtime 면 partial 만 |
+| `GET /environment/metrics?ids=` | `environment_metrics` | 환경(또는 선택 N대) 성능 추이 — 8차트 live. ids(public_ids) 면 선택 N대 한정, 제목 "선택 N대" |
+| `GET /environment/realtime?ids=&fragment=` | `environment_realtime` | 환경(또는 선택 N대) 실시간 현황 — 이용률 2(CPU·메모리) + 신호 4 도넛 + 서버별 실시간 부하 sortable-table(7축 호스트당 1행 — 디스크 이용률은 표 전용, 도넛 없음. 칼럼 클릭 정렬). `realtime.js` 30초 polling(fragment swap). fragment=realtime 면 partial 만 |
 | `GET /servers/{server_id}` | `get_server` | detail 탭 |
-| `GET /servers/{server_id}/{cpu,memory,services,metrics}` | 동일 helper | `_render_server_tab` 탭 공유. metrics=성능 추이(자원별 `.perf-stack` 카드 + 카드 안 `.perf-grid`/`.perf-item` 낱개 차트, 화면 2열/인쇄 4열 landscape) |
+| `GET /servers/{server_id}/{cpu,memory,services,metrics}` | 동일 helper | `_render_server_tab` 탭 공유. metrics=성능 추이(자원별 `.perf-stack` 카드 + 카드 안 `.perf-grid`/`.perf-item` 낱개 차트, 화면·인쇄 모두 2열 — 인쇄는 A4 portrait 1페이지, `static-assets.md` 단일 진실) |
 | `GET /servers/{server_id}/{storage,network}` | 별도 핸들러 | 다른 service 메서드 |
 | `GET /servers/{server_id}/report?view=&time_range=` | `single_server_report` | 단일 server 보고서 read-only. record 안 함 (1대 단위는 발행 흐름 없음) |
 | `GET /reports/servers?ids=&view=customer\|engineer&time_range=&job=` | `report` | 선택 N대 보고서 표시 (scope=server). job 있으면 정적 스냅샷, 없으면 read-only live preview (PRG). view 파라미터로 분기 |

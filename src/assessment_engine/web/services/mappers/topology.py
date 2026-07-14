@@ -31,9 +31,10 @@ class _Member(NamedTuple):
 
     pid: str
     ip: str
-    gateway: str | None
-    iface: str | None  # NIC 이름 (ens3 등)
+    gateway: str | None  # gateway disambiguation 용(#L120) — 표 렌더는 SubnetGroup.gateway(서브넷 대표값)로
     origin: str | None  # 주소 origin (dhcp/static/...)
+    mtu: int | None
+    speed_mbps: int | None
 
 _CAVEATS = [
     "추론 토폴로지 — 같은 서브넷(IP·prefix) 공유 기준이며, 실제 통신 가능 여부(방화벽·VLAN 격리)는 반영하지 않습니다.",
@@ -50,19 +51,23 @@ def _subnet_host_sort_key(host):
         return (1, 0)
 
 
-def build_network_topology(hosts) -> NetworkTopology:
+def build_network_topology(hosts, online_by_id: dict[int, bool] | None = None) -> NetworkTopology:
     """hosts: ServerDetail/DTO 리스트 (public_id·hostname·os_family·net_interfaces 사용).
 
     net_interfaces 는 [{kind, gateway, addresses:[{address, prefix, family}]}]. physical+bond_master 의 IPv4 주소만 채택.
+    online_by_id: 내부 id -> 온라인 여부 (`_online_map` 단일 진실). 미전달(None)이면 전부 오프라인 표시
+    (서브넷별 소속 서버 표 전용 — 그래프 노드는 온라인 상태 미표시).
     """
     # subnet CIDR -> [_Member]. 한 호스트가 같은 서브넷에 여러 IP 면 멤버십 1회만.
     subnet_members: dict[str, list[_Member]] = defaultdict(list)
+    host_id: dict[str, int] = {}  # public_id -> 내부 id (온라인 조회 online_by_id 키)
     host_meta: dict[str, tuple[str, str]] = {}  # public_id -> (hostname, os_family)
     host_roles: dict[str, list[str]] = {}  # public_id -> 주요 워크로드 카테고리(시그니처만, 환경 개요 도넛·서버 목록 뱃지와 동일 기준)
     host_ifaces: dict[str, list[dict]] = {}  # public_id -> 물리 인터페이스 요약 dict (그래프 노드 툴팁 JSON)
 
     for h in hosts:
         pid = str(h.public_id)
+        host_id[pid] = getattr(h, "id", None)  # 온라인 조회 키 — 테스트 duck-type 은 id 없어 getattr 폴백
         host_meta[pid] = (h.hostname, h.os_family or "unknown")
         # 시그니처 워크로드만(SIGNATURE_CATEGORIES) — file·mail·infra·remote 등 baseline·관리는 토폴로지 뱃지 노이즈라 제외.
         host_roles[pid] = sorted(
@@ -75,6 +80,8 @@ def build_network_topology(hosts) -> NetworkTopology:
                 continue  # 집계 단위(physical·bond_master)만 — bridge/veth/vlan/tunnel/loopback/bond_member 제외
             gateway = iface_info.get("gateway")  # gateway 는 인터페이스 레벨 (주소별 아님)
             iface_name = iface_info.get("name")
+            mtu = iface_info.get("mtu")
+            speed_mbps = iface_info.get("speed_mbps")
             # 노드 툴팁용 물리 인터페이스 요약 (name/mac/mtu/gateway) — 그래프 표시만, 필터는 아래 주소 루프.
             ifaces.append(
                 {
@@ -105,7 +112,7 @@ def build_network_topology(hosts) -> NetworkTopology:
                     continue
                 seen_nets.add(subnet)
                 subnet_members[subnet].append(
-                    _Member(pid, str(ip), gateway, iface_name, a.get("origin"))
+                    _Member(pid, str(ip), gateway, a.get("origin"), mtu, speed_mbps)
                 )
         host_ifaces[pid] = ifaces
 
@@ -221,14 +228,20 @@ def build_network_topology(hosts) -> NetworkTopology:
                     os_family=os_family,
                     public_id=pid,
                     roles=host_roles.get(pid, []),
-                    iface=m.iface if m else None,
-                    gateway=m.gateway if m else None,
                     origin=m.origin if m else None,
+                    mtu=m.mtu if m else None,
+                    speed_mbps=m.speed_mbps if m else None,
+                    is_online=bool(online_by_id and online_by_id.get(host_id.get(pid))),
                     multi_homed=host_subnet_count[pid] >= 2,
                 )
             )
         hosts_list.sort(key=_subnet_host_sort_key)  # 서브넷 내 IP 숫자 오름차순
-        subnets.append(SubnetGroup(net_key=net_label[net_key], host_count=len(hosts_list), hosts=hosts_list))
+        subnets.append(
+            SubnetGroup(
+                net_key=net_label[net_key], host_count=len(hosts_list),
+                gateway=net_gateway.get(net_key), hosts=hosts_list,
+            )
+        )
 
     multi_homed_count = sum(1 for pid in graph_hosts if host_subnet_count[pid] >= 2)
     isolated_count = len(host_meta) - len(graph_hosts)

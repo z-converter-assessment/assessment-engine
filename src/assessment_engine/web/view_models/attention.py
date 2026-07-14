@@ -48,7 +48,8 @@ class CapacityWarningItem:
       소스. OS 무관 축 이름이라 Windows paging/run queue 포화도 정확히 집계(Linux swap/load 로 오라벨 안 함).
     metrics: host_status(자원 적정성 분류) 를 실제로 구동하는 5축 측정값만(CPU 이용률·포화, 메모리 이용률·포화,
       디스크 용량) — 위반 여부 무관 전부 노출(mapper precompute, P3). saturation 2축은 os-aware 값. 디스크
-      I/O·네트워크는 host_status 미구동 orthogonal 신호라 여기 없음 — 네트워크는 net_status_label 전용 필드.
+      I/O·네트워크는 host_status 미구동 orthogonal 신호라 여기 없음 — 각자 전용 필드(net_status_label/
+      disk_io_status_label)로 분류 무관 항상 노출.
     services: 호스트 워크로드 카테고리 카운트 {category: n} — workload_category_counter 단일 진실.
     """
 
@@ -77,6 +78,16 @@ class CapacityWarningItem:
     # 목록과 분리된 전용 필드. 환경 자원 평가(compact 표)의 "네트워크 상태" 칼럼 전용 소스.
     net_status_label: str = ""
     net_status_color: str = ""
+    # 디스크 I/O 품질(I/O 정상/I/O 병목/미측정) — network 와 동형 orthogonal flag(host_status 미구동, 크기로
+    # 안 풀리는 advisory/tier hint). root_cause_label 은 이미 under_provisioned 로 분류된 호스트의 인과
+    # 기여분만 노출해 CPU·메모리는 정상인데 디스크만 io_bound 인 호스트는 안 드러남 — network 와 동일하게
+    # 전용 필드로 분리해 분류 무관 항상 노출(환경 자원 평가 compact 표 "디스크 I/O 상태" 칼럼 전용 소스).
+    disk_io_status_label: str = ""
+    disk_io_status_color: str = ""
+    # 정적 배정 사양 한 줄("4코어 · 8.00GB · 100GB") — 서버 목록 `ServerListItem.spec_display` 와 동일 산식.
+    # 환경 자원 평가(compact 표)에서 호스트 옆에 노출해 권고(recommendation_action, 예: "CPU: 11코어")와
+    # 현재 배정을 한눈에 비교 — 사용률 아닌 배정량(P1 raw 스냅샷과 무관, inventory 사양).
+    spec_display: str = ""
 
 
 @dataclass
@@ -220,21 +231,33 @@ class EnvironmentAssessment:
 
 
 @dataclass
-class RealtimePeak:
-    """실시간 '현재 부하 상위' 1개 셀 — 자원별 랭킹. value=정렬용 raw, display=표시 문자열(mapper precompute)."""
+class RealtimeLoadCell:
+    """실시간 부하 표 셀 — 정렬용 raw + 표시 문자열. value=None 은 미측정("—", 정렬 시 맨 뒤, P2 precompute).
 
-    hostname: str
-    public_id: str
-    value: float  # 정렬용 raw 값 (%·IOPS·kbps 등 자원별)
-    display: str  # 표시 문자열 — "{pct}%" / "{iops} IOPS" / "{mbps} MB/s" (P3 precompute)
+    color: 강조색(P2 precompute, P3 템플릿은 적용만) — 판정 있는 축(네트워크 혼잡 등) 전용, 빈 문자열은 무강조.
+    """
+
+    value: float | None
+    display: str
+    color: str = ""
 
 
 @dataclass
-class RealtimePeakGroup:
-    """부하 상위 3열 grid 의 1열 — 한 자원의 탑 N (내림차순). label=자원명."""
+class RealtimeLoadRow:
+    """서버별 실시간 부하 표 1행 — 호스트당 7축 전체 노출(top-N 절단 없음, 서버 목록과 동일 sortable-table 관례).
 
-    label: str
-    peaks: list[RealtimePeak] = field(default_factory=list)
+    칼럼 클릭 정렬로 특정 축 부하 순 랭킹을 볼 수 있게 — 7개 분리 top-N 리스트 대신 한 표로 통합.
+    """
+
+    hostname: str
+    public_id: str
+    cpu: RealtimeLoadCell
+    mem: RealtimeLoadCell
+    run_queue: RealtimeLoadCell
+    paging: RealtimeLoadCell
+    disk_util: RealtimeLoadCell  # 디스크 I/O 이용률 % (Utilization 축, worst device busy%)
+    disk_io: RealtimeLoadCell  # 디스크 응답지연 (Saturation 축, await 지수)
+    network: RealtimeLoadCell  # 네트워크 혼잡 판정(정상/혼잡) — net_signal_active, 처리량 아님(판정 대상과 표시값 일치)
 
 
 @dataclass
@@ -281,7 +304,6 @@ class EnvironmentRealtime:
     sample_size: int  # 평균 표본 = 최신 스냅샷 신선(now-TTL 이내) 서버 수 (avg 분자)
     utilization: list[UtilizationBar] = field(default_factory=list)
     last_collected_at: datetime | None = None
-    peak_groups: list[RealtimePeakGroup] = field(default_factory=list)
-    has_peaks: bool = False
+    load_rows: list[RealtimeLoadRow] = field(default_factory=list)
     # 포화 비율 도넛 (CPU 포화·디스크 I/O 포화·메모리 압박 = 포화 호스트 수/표본) — 처리량 총량 도넛 대체.
     saturation_donuts: list[SaturationDonut] = field(default_factory=list)

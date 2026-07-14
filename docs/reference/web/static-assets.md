@@ -75,7 +75,7 @@ src/assessment_engine/web/static/js/
 - 구간/집계 = `<select class="chart-select">` 드롭다운 (너비 절약). `bindToggle` 이 select/button 자동 분기라 JS 호출 동일.
 - 앵커 = `<input type="datetime-local" class="chart-anchor">`. select·anchor 높이 통일(`box-sizing`).
 - 서버 상세 자원 탭(cpu/memory/network/storage)은 페이지 단일 시간축 컨트롤(`pageTimeControl`, 카드 밖 상단 range+anchor 하나)이 그 페이지 전 차트를 같은 창·시점으로 구동(#F10, 신호 간 시점 상관). 차트별 개별 range/anchor 없음.
-- 성능 추이(metrics — 서버 상세 `/{id}/metrics` + 환경 `/environment/metrics`)는 예외 — 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(카드 밖 좌상단, 버킷/구간/앵커 + '적용' 버튼 — 앵커는 적용 클릭으로 반영·구간 select 즉시)이 모든 차트 동기. 두 페이지 모두 자원별(CPU/메모리/스토리지/네트워크) 카드를 `.perf-stack`(세로 flex)으로 나열하고, 카드 내부도 동일하게 `.perf-grid`/`.perf-item`(화면 2열 auto-fit, 인쇄는 base.html `@media print` 가 4열 landscape 로 재정의, 아래 print CSS 절) — 서버 상세·환경 두 페이지 레이아웃 단일 진실 공유. 디스크 read+write·네트워크 RX+TX 각각 통합 1 차트.
+- 성능 추이(metrics — 서버 상세 `/{id}/metrics` + 환경 `/environment/metrics`)는 예외 — 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(카드 밖 좌상단, 버킷/구간/앵커 + '적용' 버튼 — 앵커는 적용 클릭으로 반영·구간 select 즉시)이 모든 차트 동기. 두 페이지 모두 자원별(CPU/메모리/스토리지/네트워크) 카드를 `.perf-stack`(세로 flex)으로 나열하고, 카드 내부도 동일하게 `.perf-grid`/`.perf-item`(화면 2열 auto-fit, 인쇄는 페이지 로컬 스코프가 2열 portrait 로 재정의, 아래 print CSS 절) — 서버 상세·환경 두 페이지 레이아웃 단일 진실 공유. 서버 상세는 CPU(2)·메모리(3)·스토리지(2)·네트워크(2) 9차트, 환경은 자원당 2개 8차트 — 디스크 read+write·네트워크 RX+TX 각각 통합 1 차트.
 
 ### 범례 (칩 토글)
 - `.legend-chip` (pill 버튼 + `.legend-dot` 색점): 클릭 시 dataset show/hide, 숨김은 `aria-pressed=false`로 흐려짐. `button`+`aria-pressed`라 키보드 토글 지원.
@@ -88,7 +88,7 @@ src/assessment_engine/web/static/js/
 - 추이 차트의 면적 음영은 avg+max ghost(`buildAvgMaxDatasets`, avg dataset `fill:'+1'`)만 — avg~max 사이를 채워 burst(순간 최대−평균 차)를 시각화. 이것이 "음영"의 유일한 의미.
 - 선 아래 zero 까지 채우는 area fill(`fill:true`) 금지 — 추이 차트는 추세선만(`fill:false`). area fill 은 burst 음영과 혼동되고 값 밀집 시 가독성을 떨어뜨림.
 - 15분 구간(1분 버킷)은 버킷당 데이터 1포인트라 max=avg → ghost 음영 0. `buildAvgMaxDatasets` 가 `bMs <= BUCKET_MS['1m']` 일 때 maxRows 를 비워 전 차트 일괄 자동 비활성.
-- 서버 상세 loadavg 차트는 raw load 를 `load / cpu_cores` 로 정규화(클라 P4 표시 변환) — 1.0 = 코어당 포화(Linux 전용). 환경 성능 추이는 loadavg 대신 실행 큐(`cpu.run_queue`, os-aware — Linux procs_running / Windows Processor Queue)를 코어 정규화해 os_family 2선으로 표시.
+- 실행 큐 차트(`cpu.run_queue`, os-aware — Linux procs_running / Windows Processor Queue Length)는 backend 가 이미 Σ실행큐/Σcores(코어당, 1.0 Linux·2.0 Windows 포화)로 반환 — 클라는 값 그대로 표시. 서버 상세는 연속값 단일선(`cpu.js`), 환경 성능 추이는 같은 임계 판정을 SQL 로 이식한 crossing 서버 수(`cpu.saturation_hosts`, count) 단일선 — 스코프별 표현 단위 차이는 `services.md` "서버 상세 성능 추이" 절.
 
 ## 색 테마 — 3색 변수 + 주색 단일 진실 (예외 0)
 - 테마색 3개 = `base.html :root` CSS 변수. `--color-title`(#3b82f6) = `.btn-primary`·`.btn-select`·task hover·게이지/막대/도넛 주색·사이드바 active 좌측 바. `--color-sidebar`(#475569) = 사이드바 바탕(hover/active 음영은 `color-mix` 파생). `--color-table-head`(#a7b2c0) = 전 테이블 제목행 배경. 색 변경 시 본 3개만 수정.
@@ -108,7 +108,7 @@ src/assessment_engine/web/static/js/
 - 작은 창에서 카드 무파손. 다열 영역은 `grid-template-columns:repeat(auto-fit, minmax(min(100%, Npx), 1fr))` — 폭 부족 시 자동 1열, 한쪽 칼럼 찌그러짐 0.
 - 고정 다열(`kpi-grid-2/3/4` · `metric-grid-2/3`)은 `@media (max-width:640px)` 에서 1열 (base.html).
 - 2칼럼 카드(`env-dual` · `env-pair`)는 `align-items:start`로 칼럼 독립, 같은 행 항목은 grid 정렬로 높이 일치.
-- 언더 프로비저닝 상세(환경 자원 평가 compact 표, `action_targets_table(compact=True)`) = 호스트·분류(근본원인 병합)·권고·네트워크 상태·신뢰도 sortable-table — host_status 를 구동한 원시 수치(5축)는 표시 안 함(환경 보고서 "서버별 자원 적정성" 전체 표에서 확인). 심각도 상위 정렬(`severity_score` = swap(paging) > 위반 자원 수 > max(CPU/메모리/디스크 util)).
+- 언더 프로비저닝 상세(환경 자원 평가 compact 표, `action_targets_table(compact=True)`) = 호스트·CPU·메모리·디스크(`spec_display`, 서버 목록과 동일 정적 배정 사양 — 권고 칼럼의 사이징 목표와 나란히 비교)·분류(근본원인 병합)·권고·네트워크 상태·신뢰도 sortable-table — host_status 를 구동한 원시 수치(5축)는 표시 안 함(환경 보고서 "서버별 자원 적정성" 전체 표에서 확인). 심각도 상위 정렬(`severity_score` = swap(paging) > 위반 자원 수 > max(CPU/메모리/디스크 util)).
 - 환경 개요(`/`) 영역 = 환경 요약 / 환경 자원 평가(활용률+자원 적정성 평가+언더프로비저닝) / 환경 부하 추이+네트워크 토폴로지 — 3개 별도 카드 section. 운영 신호 카드는 3 카테고리(통신끊김/OS지원종료/에이전트재시작)를 한 행 3칼럼 grid + 카탈로그 뱃지 한 줄(nowrap).
 
 ## report.html print CSS
@@ -123,7 +123,7 @@ src/assessment_engine/web/static/js/
 
 `.no-print` 클래스로 navbar/검색폼/버튼 인쇄 시 숨김 (base.html). 컨설턴트가 브라우저 인쇄 → PDF/PPT 캡처. 백엔드 PDF export는 미도입 (`docs/explanation/tradeoffs.md` 참조).
 
-성능 추이 인쇄(base.html `@media print`, 서버 상세 `servers/metrics.html` + 환경 `environment_metrics.html` 공용 단일 진실): `.perf-grid` 를 4열로 강제(`grid-template-columns: repeat(4, 1fr)` — auto-fit 그대로면 세로 폭 기준이라 1~2열로 collapse) + `.perf-item { page-break-inside: avoid }`(낱개 단위 — CSS Grid auto-flow 는 "행" DOM 요소가 없어 개별 아이템에 걸어야 함) + `.perf-grid canvas { width/height:100% !important }` 로 Chart.js 가 캔버스에 박은 화면 폭(px)이 인쇄 컨테이너를 넘어 꺾은선이 plot 경계를 넘는 것 보정 + `.perf-stack` 하위 `.chart-subtitle`/`.chart-desc` 축소(4열 밀도용 폰트 재정의). 두 페이지 모두 자체 `<style>@media print{ @page{ size:A4 landscape; margin:9mm } }</style>` 로 가로 전환(named-page 방향 브라우저 지원 불안정 회피, `reports/environment.html` 과 동일 기법). `beforeprint`/`afterprint` 차트 `resize()` 보강(metrics.js·environment-metrics.js).
+성능 추이 인쇄(서버 상세 `servers/metrics.html` + 환경 `environment_metrics.html` 공용 패턴, 둘 다 A4 portrait 1페이지): base.html 공통 규칙은 페이지 무관 `.perf-item { page-break-inside: avoid }`(낱개 단위 — CSS Grid auto-flow 는 "행" DOM 요소가 없어 개별 아이템에 걸어야 함) + `.perf-grid canvas { width/height:100% !important }`(Chart.js 가 캔버스에 박은 화면 폭(px)이 인쇄 컨테이너를 넘어 꺾은선이 plot 경계를 넘는 것 보정) 둘뿐. 열 수(2열)·간격·카드 패딩·폰트 축소·차트 높이는 페이지별 로컬 스코프(`.metrics-print`/`.env-metrics-print`)가 전담 — 두 페이지 각자 `<style>@media print{ @page{ size:A4 portrait; margin:8mm } }</style>` 로 세로 고정(named-page 방향 브라우저 지원 불안정 회피, 문서 전체 `@page` 로 확실히). `beforeprint`/`afterprint` 차트 `resize()` 보강(metrics.js·environment-metrics.js).
 
 ## 의존성
 

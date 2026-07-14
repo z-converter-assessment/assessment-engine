@@ -270,7 +270,7 @@ async function submitInstall() {
       offline > 0 ? 'warn' : 'ok',
     );
     hideInstallModal();
-    // 행별 "최근 작업" cell polling — task 완료 시 badge 갱신.
+    // 행별 "ZDM Install" cell polling — task 완료 시 badge 갱신.
     list.forEach(t => pollAndUpdateRow(t.target_public_id, t.task_id));
   } catch (e) {
     pending.remove();

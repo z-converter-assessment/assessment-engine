@@ -1,5 +1,5 @@
 // @ts-check
-// 보고서 이력 즉시 필터 + 더보기 — 서버 목록 (list.js) 와 동일 UX 의도.
+// 보고서 이력 즉시 필터 + 더보기 — 서버 목록 (list-table.js) 와 동일 UX 의도.
 // form change → fetch HTML fragment → 결과 영역 (#report-history-results) 교체 + URL replaceState.
 // "더보기" → 전체보기(limit=total)로 fragment 재조회 후 교체, "접기" → 첫 페이지(20건) 복귀 (page reload 없음). shown/total 카운트는 서버 precompute.
 

@@ -196,7 +196,11 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
     async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, SaturationRaw]:
         """서버별 실시간 포화 원자료 (v2, os 통일):
         - run_queue: 최신 cpu_run_queue gauge (Linux procs_running / Windows Processor Queue).
-        - await_ms: server_disk_io op_time delta / ops delta (양 OS, ms). pending_ops 는 큐 폴백.
+        - await_ms: server_disk_io op_time delta / ops delta (양 OS, ms, 물리 disk only — `_PHYS_DISK_SQL_FILTER`
+          fail-closed, chart/report_aggregate 와 동일). pending_ops 는 큐 폴백.
+        - disk_io_util_pct: 물리 disk worst device io_time delta / wall-time delta * 100 (USE Method Utilization
+          축, 0% 도 실측). 합성/숨김 pseudo-device(예: Windows aggregate:system) 제외 — 실측치인 척 대체하면
+          진짜 물리 device 카운터 이상(phantom busy 등)이 은폐된다.
         - paging_major_rate: server_metrics paging_major delta / dt (하드폴트 rate, Linux refault / Windows).
         - retrans_pct / drop_pct / conntrack_ratio: 네트워크 품질·로컬 포화.
         - psi_cpu / psi_mem / psi_io: PSI %정체(stall_time delta / wall-time delta, server_pressure some, Linux 4.20+ / null).
@@ -205,7 +209,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         """
         if not server_ids:
             return {}
-        sql = text("""
+        sql = text(f"""
             WITH m2 AS (
                 SELECT server_id, cpu_run_queue, paging_major, net_tcp_retransmits, collected_at,
                        net_conntrack_usage, net_conntrack_limit,
@@ -230,6 +234,9 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 FROM m2 WHERE rn <= 2 GROUP BY server_id
             ),
             d2 AS (
+                -- 물리 disk 만(합성/숨김 pseudo-device 제외, chart/report_aggregate 와 동일 fail-closed 필터) —
+                -- 미필터면 Windows aggregate:system 같은 pseudo-device 가 실측 0%/await 로 위장해 진짜 물리
+                -- 디바이스(PhysicalDrive0 등) 카운터 이상 시 그걸로 대체돼 버림(오탐 은폐, N/A 여야 할 게 값으로 보임).
                 SELECT server_id, device_id,
                        (COALESCE(op_read_time_s,0) + COALESCE(op_write_time_s,0)) AS t,
                        (COALESCE(ops_read,0) + COALESCE(ops_write,0)) AS ops,
@@ -237,6 +244,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                        row_number() OVER (PARTITION BY server_id, device_id ORDER BY collected_at DESC) AS rn
                 FROM server_disk_io
                 WHERE server_id = ANY(:sids) AND collected_at >= :since AND collected_at <= now() + interval '2 minutes'
+                      AND {_PHYS_DISK_SQL_FILTER}
             ),
             dd AS (
                 -- device 별 델타 — await = Δop_time / Δops, util = Δio_time / Δwall.
@@ -252,11 +260,26 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             da AS (
                 -- 실제 바쁜(io_time util >= :diskio_util_min) device 만 await 채택 후 worst(MAX) — report.py 와 동일.
                 -- 유휴 device 의 writeback 큐 잔류 await 폭증 억제(병목 아님).
+                -- disk_io_util_pct(Δio_time/Δwall*100) 는 worst(MAX) device 채택 — 유휴(0%)도 실측값이라 await 같은
+                -- util 하한 게이트는 없음. 단 ops_delta > 0 요구(await 와 동일 원칙) — 연산 0건인데 io_time 만 증가하는
+                -- 건 물리적으로 모순(구세대 virtio 드라이버 phantom busy 카운터 실측, 완료 연산 없이 바쁨 시간만 누적) —
+                -- 그대로 보이면 오탐이라 그 device 는 미측정 처리. d2 가 이미 물리 disk only(_PHYS_DISK_SQL_FILTER)라
+                -- 합성 pseudo-device 로 위장 대체될 일은 없음 — 유일한 물리 device 가 phantom busy 면 host 전체 None.
+                -- iot_delta < 0(카운터 리셋/역행) 또는 iot_delta > wall(busy 시간이 경과시간을 초과 — agent-data.md
+                -- disk.io_time 계약상 %util busy 분율은 [0, wall] 이어야 정상, 초과는 카운터 이상)도 None 가드 —
+                -- await 와 동일 원칙(reset·overflow 흡수).
+                -- pending_ops(await 폴백, Windows 전용)도 동일 신뢰 조건 요구 — io_time 카운터가 깨진 device 는
+                -- io_time 만 못 믿는 게 아니라 그 device 자체를 못 믿는다(보수적 원칙). 게이트 없이 max(pending_ops)
+                -- 그대로 쓰면 phantom busy/overflow device 의 다른 카운터(대기열 깊이)까지 진짜인 척 새어나가
+                -- disk_io_saturation_index 폴백을 오염시킨다.
                 SELECT server_id,
                     max(CASE WHEN ops_delta > 0 AND t_delta >= 0 AND wall > 0
-                                  AND iot_delta / wall >= :diskio_util_min
+                                  AND iot_delta / wall >= :diskio_util_min AND iot_delta <= wall
                              THEN t_delta::float / ops_delta * 1000 END) AS await_ms,
-                    max(pending_ops) AS pending_ops
+                    max(CASE WHEN ops_delta > 0 AND wall > 0 AND iot_delta >= 0 AND iot_delta <= wall
+                             THEN iot_delta / wall * 100 END) AS disk_io_util_pct,
+                    max(CASE WHEN ops_delta > 0 AND wall > 0 AND iot_delta >= 0 AND iot_delta <= wall
+                             THEN pending_ops END) AS pending_ops
                 FROM dd GROUP BY server_id
             ),
             n2 AS (
@@ -306,7 +329,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             )
             SELECT m.server_id, m.run_queue, m.conntrack_ratio, m.paging_major_rate, da.pending_ops,
                    psi.psi_cpu, psi.psi_mem, psi.psi_io,
-                   da.await_ms AS await_ms,
+                   da.await_ms AS await_ms, da.disk_io_util_pct AS disk_io_util_pct,
                    CASE WHEN nt.txp_delta > 0 AND m.retrans_delta >= 0
                         THEN m.retrans_delta::float / nt.txp_delta * 100 END AS retrans_pct,
                    CASE WHEN nt.pkt_delta > 0 AND nt.drop_delta >= 0
@@ -324,6 +347,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             r.server_id: SaturationRaw(
                 run_queue=_f(r.run_queue),
                 await_ms=_f(r.await_ms),
+                disk_io_util_pct=_f(r.disk_io_util_pct),
                 pending_ops=_f(r.pending_ops),
                 paging_major_rate=_f(r.paging_major_rate),
                 retrans_pct=_f(r.retrans_pct),
@@ -683,6 +707,35 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, dim AS dimension, NULL::text AS kind
                 FROM per_ts WHERE v IS NOT NULL GROUP BY ts, dim ORDER BY ts
             """)
+        elif metric_type == "cpu.saturation_hosts":
+            # 실행 큐 포화 서버 수 — cpu_saturation_index(값/os별 임계, >=1.0 포화)와 동일 판정이지만 환경 집계는
+            # 메모리 압박 서버 수와 일관되게 "판정 crossing 서버 수"(count)로 통일 — 연속 지수(강도)보다 카운트가
+            # 도메인 지식(임계 의미) 없이 바로 읽히고 "몇 대 봐야 하는지"를 직접 답해 운영상 더 실행 가능함.
+            # Linux(procs_running, 임계1.0)·Windows(Processor Queue, 임계2.0) — "윈도우 정규화 보정".
+            # 버킷 먼저 묶고 그 안에서 server 별 "한 번이라도 넘었는지"(bool_or) 후 distinct server 수 — raw
+            # collected_at 별로 먼저 세고 avg 내면 서버들이 비동기 보고라 매 시점 사실상 1대만 잡혀(다른 서버는
+            # 그 시점에 값이 없음) 3/7 같은 소수 카운트가 나온다(오류). 버킷 우선이라 항상 정수.
+            sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
+            params["procs_running_threshold"] = recommendation.PROCS_RUNNING_PER_CORE_SATURATION
+            params["cpu_run_queue_threshold"] = recommendation.CPU_RUN_QUEUE_PER_CORE_SATURATION
+            sql = text(f"""
+                WITH flags AS (
+                    SELECT sm.collected_at, sm.server_id,
+                        (sm.cpu_run_queue::float / si.cpu_cores)
+                        / CASE WHEN si.os_family = 'windows' THEN (:cpu_run_queue_threshold)::float
+                               ELSE (:procs_running_threshold)::float END >= 1.0 AS crossed
+                    FROM {ServerMetrics.__tablename__} sm
+                    JOIN {ServerInventory.__tablename__} si ON si.id = sm.server_id
+                    WHERE sm.collected_at >= :start AND sm.collected_at <= :end {sid_sm}
+                      AND sm.cpu_run_queue IS NOT NULL AND si.cpu_cores > 0
+                ),
+                per_bucket AS (
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, bool_or(crossed) AS ever
+                    FROM flags GROUP BY ts, server_id
+                )
+                SELECT ts, COUNT(*) FILTER (WHERE ever) AS value, NULL::text AS dimension, NULL::text AS kind
+                FROM per_bucket GROUP BY ts ORDER BY ts
+            """)
         elif metric_type == "cpu.blocked":
             # D-state 블록(IO 대기 근본원인) gauge — Linux 전용(cpu_blocked null 인 Windows 행은 자연 제외).
             # 실행 큐와 달리 코어 정규화 없음(원자값 그대로, 실시간 스냅샷과 동일 단위).
@@ -735,6 +788,54 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             """)
             params["window_start"] = start - bucket_td
             params["diskio_util_min"] = recommendation.RS_DISKIO_UTIL_MIN
+        elif metric_type == "disk.saturation_hosts":
+            # 디스크 I/O 포화 서버 수 — disk.io_saturation(worst-device await, 환경 단일 MAX선)과 동일 판정
+            # 임계(RS_DISKIO_AWAIT_MS)를 서버별로 적용해 "판정 crossing 서버 수"(count)로 집계 — CPU 실행 큐·
+            # 메모리 페이징과 동형(도메인 지식 없이 바로 읽히고, MAX 단일선보다 문제의 확산 범위가 드러남).
+            # 물리 disk only(_PHYS_DISK_SQL_FILTER) + 카운터 신뢰 조건(ops_delta>0, iot_delta 가 [0, wall]
+            # 범위 — phantom busy/reset/overflow 가드, 실시간현황 latest_saturation 과 동일 원칙) 적용.
+            # 버킷 우선 bool_or count(cpu.saturation_hosts·mem.paging_pressure_hosts 와 동형, 항상 정수) —
+            # raw per_ts 먼저 세면 서버 비동기 보고라 소수 카운트 오류(오늘 발견·수정한 버그와 동일 원인).
+            sid_dio = "AND server_id = ANY(:server_ids)" if server_ids else ""
+            params["window_start"] = start - bucket_td
+            params["diskio_util_min"] = recommendation.RS_DISKIO_UTIL_MIN
+            params["diskio_await_ms"] = recommendation.RS_DISKIO_AWAIT_MS
+            sql = text(f"""
+                WITH l_raw AS (
+                    SELECT collected_at, server_id, device_id,
+                        (COALESCE(op_read_time_s,0) + COALESCE(op_write_time_s,0)) AS t,
+                        (COALESCE(ops_read,0) + COALESCE(ops_write,0)) AS ops,
+                        COALESCE(io_time_s,0) AS iot
+                    FROM {ServerDiskIo.__tablename__}
+                    WHERE collected_at >= :window_start AND collected_at <= :end {sid_dio} AND {_PHYS_DISK_SQL_FILTER}
+                ),
+                l_delta AS (
+                    SELECT collected_at, server_id,
+                        t   - LAG(t)   OVER w AS d_t,
+                        ops - LAG(ops) OVER w AS d_ops,
+                        iot - LAG(iot) OVER w AS d_iot,
+                        EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER w)) AS d_wall
+                    FROM l_raw WINDOW w AS (PARTITION BY server_id, device_id ORDER BY collected_at)
+                ),
+                per_dev AS (
+                    SELECT collected_at, server_id,
+                        CASE WHEN d_ops > 0 AND d_wall > 0 AND d_iot >= 0 AND d_iot <= d_wall
+                                  AND d_iot / d_wall >= :diskio_util_min
+                             THEN d_t::float / d_ops * 1000 END AS await_ms
+                    FROM l_delta WHERE collected_at >= :start
+                ),
+                flags AS (
+                    SELECT collected_at, server_id,
+                        bool_or(await_ms > (:diskio_await_ms)::float) AS crossed
+                    FROM per_dev GROUP BY collected_at, server_id
+                ),
+                per_bucket AS (
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, bool_or(crossed) AS ever
+                    FROM flags GROUP BY ts, server_id
+                )
+                SELECT ts, COUNT(*) FILTER (WHERE ever) AS value, NULL::text AS dimension, NULL::text AS kind
+                FROM per_bucket GROUP BY ts ORDER BY ts
+            """)
         elif metric_type == "net.retrans_percent":
             # TCP 재전송율 % = Σ(Δtcp_retrans) / Σ(Δtx_packets) * 100. reset 은 GREATEST(Δ,0).
             sid_sm = "AND server_id = ANY(:server_ids)" if server_ids else ""
@@ -797,6 +898,180 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 FROM rate_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
             """)
             params["window_start"] = start - bucket_td
+        elif metric_type == "net.congested":
+            # 네트워크 이상 여부(서버 상세, 이진 0/1) — net.congested_hosts(환경, 판정 crossing 서버 수)와
+            # 동일 원자료·임계·OR 판정, 서버 1대 단일 시계열로 축소(mem.paging_pressure 와 동일 원칙).
+            sid_nc = "AND server_id = ANY(:server_ids)" if server_ids else ""
+            params["window_start"] = start - bucket_td
+            params["min_traffic_kbps"] = recommendation.RS_NET_MIN_TRAFFIC_KBPS
+            params["retrans_threshold"] = recommendation.RS_NET_RETRANS_PCT
+            params["drop_threshold"] = recommendation.RS_NET_DROP_PCT
+            params["conntrack_threshold"] = recommendation.RS_CONNTRACK_SATURATION_RATIO
+            sql = text(f"""
+                WITH tcp_raw AS (
+                    SELECT collected_at, server_id, net_tcp_retransmits AS retrans,
+                        net_conntrack_usage, net_conntrack_limit
+                    FROM {ServerMetrics.__tablename__}
+                    WHERE collected_at >= :window_start AND collected_at <= :end {sid_nc}
+                ),
+                tcp_deltas AS (
+                    SELECT collected_at, server_id,
+                        GREATEST(retrans - LAG(retrans) OVER w, 0) AS d_retrans,
+                        CASE WHEN net_conntrack_limit > 0
+                             THEN net_conntrack_usage::float / net_conntrack_limit END AS conntrack_ratio
+                    FROM tcp_raw WINDOW w AS (PARTITION BY server_id ORDER BY collected_at)
+                ),
+                net_raw AS (
+                    SELECT collected_at, server_id, iface_id,
+                        tx_packets, rx_packets, rx_dropped, tx_dropped, rx_bytes, tx_bytes
+                    FROM {ServerNetIo.__tablename__}
+                    WHERE {_PHYS_IFACE_SQL_FILTER}
+                      AND collected_at >= :window_start AND collected_at <= :end {sid_nc}
+                ),
+                iface_deltas AS (
+                    SELECT collected_at, server_id,
+                        GREATEST(tx_packets - LAG(tx_packets) OVER w, 0) AS d_txp,
+                        GREATEST(rx_packets - LAG(rx_packets) OVER w, 0) AS d_rxp,
+                        GREATEST(rx_dropped - LAG(rx_dropped) OVER w, 0) AS d_rxd,
+                        GREATEST(tx_dropped - LAG(tx_dropped) OVER w, 0) AS d_txd,
+                        GREATEST(rx_bytes - LAG(rx_bytes) OVER w, 0) AS d_rxb,
+                        GREATEST(tx_bytes - LAG(tx_bytes) OVER w, 0) AS d_txb,
+                        EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER w)) AS dt
+                    FROM net_raw WINDOW w AS (PARTITION BY server_id, iface_id ORDER BY collected_at)
+                ),
+                net_deltas AS (
+                    SELECT collected_at, server_id,
+                        SUM(d_txp) AS d_txp,
+                        SUM(d_rxd) + SUM(d_txd) AS d_drop,
+                        SUM(d_rxp) + SUM(d_txp) AS d_pkt,
+                        (SUM(d_rxb) + SUM(d_txb)) / 1024.0 / NULLIF(MAX(dt), 0) AS kbytes_per_s
+                    FROM iface_deltas GROUP BY collected_at, server_id
+                ),
+                joined AS (
+                    SELECT n.collected_at, n.d_txp, n.d_drop, n.d_pkt, n.kbytes_per_s,
+                        t.d_retrans, t.conntrack_ratio
+                    FROM net_deltas n
+                    LEFT JOIN tcp_deltas t USING (collected_at, server_id)
+                    WHERE n.collected_at >= :start
+                ),
+                flags AS (
+                    SELECT collected_at,
+                        (kbytes_per_s IS NULL OR kbytes_per_s >= (:min_traffic_kbps)::float) AS has_traffic,
+                        d_retrans::float / NULLIF(d_txp, 0) * 100 AS retrans_pct,
+                        d_drop::float / NULLIF(d_pkt, 0) * 100 AS drop_pct,
+                        conntrack_ratio
+                    FROM joined
+                ),
+                crossed AS (
+                    SELECT collected_at,
+                        (has_traffic AND (
+                            (retrans_pct IS NOT NULL AND retrans_pct > (:retrans_threshold)::float)
+                            OR (drop_pct IS NOT NULL AND drop_pct > (:drop_threshold)::float)
+                        ))
+                        OR (conntrack_ratio IS NOT NULL AND conntrack_ratio >= (:conntrack_threshold)::float) AS congested
+                    FROM flags
+                ),
+                per_bucket AS (
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, bool_or(congested) AS ever
+                    FROM crossed GROUP BY ts
+                )
+                SELECT ts, (CASE WHEN ever THEN 1.0 ELSE 0.0 END) AS value, NULL::text AS dimension, NULL::text AS kind
+                FROM per_bucket ORDER BY ts
+            """)
+        elif metric_type == "net.congested_hosts":
+            # 네트워크 이상 서버 수 — recommendation.assess_network 의 실제 판정(HostAssessment.
+            # network_congested)과 동일 원자료·임계 3종을 SQL 이식: 재전송율(net_retrans_pct, 임계
+            # RS_NET_RETRANS_PCT)·드롭율(net_drop_pct, 임계 RS_NET_DROP_PCT)은 저트래픽 게이트(RS_NET_
+            # MIN_TRAFFIC_KBPS 미만이면 부팅기 소수 이벤트가 비율을 지배해 억제) 적용, conntrack 고갈
+            # (net_conntrack_usage/limit, 임계 RS_CONNTRACK_SATURATION_RATIO)은 트래픽량과 무관한 절대
+            # 신호라 게이트 제외 — assess_network 와 동일 OR 판정. TCP 재전송율·패킷 드롭율 2개 % 라인이
+            # 시각적으로 거의 겹쳐 구분이 안 되는 문제도 판정 crossing 서버 수(count)로 흡수해 해결.
+            # server_metrics(재전송·conntrack)와 server_net_io(드롭·물리 iface 트래픽)는 같은 agent
+            # 보고 주기라 (collected_at, server_id) 로 조인. reset(카운터 감소)은 GREATEST(Δ,0) 흡수 —
+            # iface 별로 delta 를 먼저 구한 뒤 server 로 SUM(net.retrans_percent·net.drop_percent 와 동일
+            # per-iface-then-sum 순서, server SUM 을 먼저 하면 한 iface 의 reset 이 다른 iface 정상 증가분에
+            # 묻혀 GREATEST 클램프가 안 먹는다).
+            # 버킷 먼저 묶고 서버별 bool_or 후 count — cpu.saturation_hosts 와 동일 staggered-report 대응.
+            sid_nc = "AND server_id = ANY(:server_ids)" if server_ids else ""
+            params["window_start"] = start - bucket_td
+            params["min_traffic_kbps"] = recommendation.RS_NET_MIN_TRAFFIC_KBPS
+            params["retrans_threshold"] = recommendation.RS_NET_RETRANS_PCT
+            params["drop_threshold"] = recommendation.RS_NET_DROP_PCT
+            params["conntrack_threshold"] = recommendation.RS_CONNTRACK_SATURATION_RATIO
+            sql = text(f"""
+                WITH tcp_raw AS (
+                    SELECT collected_at, server_id, net_tcp_retransmits AS retrans,
+                        net_conntrack_usage, net_conntrack_limit
+                    FROM {ServerMetrics.__tablename__}
+                    WHERE collected_at >= :window_start AND collected_at <= :end {sid_nc}
+                ),
+                tcp_deltas AS (
+                    SELECT collected_at, server_id,
+                        GREATEST(retrans - LAG(retrans) OVER w, 0) AS d_retrans,
+                        CASE WHEN net_conntrack_limit > 0
+                             THEN net_conntrack_usage::float / net_conntrack_limit END AS conntrack_ratio
+                    FROM tcp_raw WINDOW w AS (PARTITION BY server_id ORDER BY collected_at)
+                ),
+                net_raw AS (
+                    SELECT collected_at, server_id, iface_id,
+                        tx_packets, rx_packets, rx_dropped, tx_dropped, rx_bytes, tx_bytes
+                    FROM {ServerNetIo.__tablename__}
+                    WHERE {_PHYS_IFACE_SQL_FILTER}
+                      AND collected_at >= :window_start AND collected_at <= :end {sid_nc}
+                ),
+                iface_deltas AS (
+                    -- iface 별로 delta 를 먼저 구해야 한 iface 의 counter reset 이 GREATEST(Δ,0) 에 걸려도
+                    -- 다른 iface 의 정상 증가분과 섞이지 않는다(net.retrans_percent·net.drop_percent 와 동일
+                    -- per-iface-then-sum 순서 — server 레벨 SUM 을 먼저 하면 reset 이 합계 안에 묻혀버림).
+                    SELECT collected_at, server_id,
+                        GREATEST(tx_packets - LAG(tx_packets) OVER w, 0) AS d_txp,
+                        GREATEST(rx_packets - LAG(rx_packets) OVER w, 0) AS d_rxp,
+                        GREATEST(rx_dropped - LAG(rx_dropped) OVER w, 0) AS d_rxd,
+                        GREATEST(tx_dropped - LAG(tx_dropped) OVER w, 0) AS d_txd,
+                        GREATEST(rx_bytes - LAG(rx_bytes) OVER w, 0) AS d_rxb,
+                        GREATEST(tx_bytes - LAG(tx_bytes) OVER w, 0) AS d_txb,
+                        EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER w)) AS dt
+                    FROM net_raw WINDOW w AS (PARTITION BY server_id, iface_id ORDER BY collected_at)
+                ),
+                net_deltas AS (
+                    SELECT collected_at, server_id,
+                        SUM(d_txp) AS d_txp,
+                        SUM(d_rxd) + SUM(d_txd) AS d_drop,
+                        SUM(d_rxp) + SUM(d_txp) AS d_pkt,
+                        (SUM(d_rxb) + SUM(d_txb)) / 1024.0 / NULLIF(MAX(dt), 0) AS kbytes_per_s
+                    FROM iface_deltas GROUP BY collected_at, server_id
+                ),
+                joined AS (
+                    SELECT n.collected_at, n.server_id, n.d_txp, n.d_drop, n.d_pkt, n.kbytes_per_s,
+                        t.d_retrans, t.conntrack_ratio
+                    FROM net_deltas n
+                    LEFT JOIN tcp_deltas t USING (collected_at, server_id)
+                    WHERE n.collected_at >= :start
+                ),
+                flags AS (
+                    SELECT collected_at, server_id,
+                        (kbytes_per_s IS NULL OR kbytes_per_s >= (:min_traffic_kbps)::float) AS has_traffic,
+                        d_retrans::float / NULLIF(d_txp, 0) * 100 AS retrans_pct,
+                        d_drop::float / NULLIF(d_pkt, 0) * 100 AS drop_pct,
+                        conntrack_ratio
+                    FROM joined
+                ),
+                crossed AS (
+                    SELECT collected_at, server_id,
+                        (has_traffic AND (
+                            (retrans_pct IS NOT NULL AND retrans_pct > (:retrans_threshold)::float)
+                            OR (drop_pct IS NOT NULL AND drop_pct > (:drop_threshold)::float)
+                        ))
+                        OR (conntrack_ratio IS NOT NULL AND conntrack_ratio >= (:conntrack_threshold)::float) AS congested
+                    FROM flags
+                ),
+                per_bucket AS (
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, bool_or(congested) AS ever
+                    FROM crossed GROUP BY ts, server_id
+                )
+                SELECT ts, COUNT(*) FILTER (WHERE ever) AS value, NULL::text AS dimension, NULL::text AS kind
+                FROM per_bucket GROUP BY ts ORDER BY ts
+            """)
         elif metric_type in ("cpu.psi", "mem.psi", "disk.psi"):
             # PSI %정체 추이 = Σ(Δstall_time_s) / Σ(Δwall-time) * 100 (scope=some, resource 매핑).
             # server_pressure (server, resource)별 stall_time_s counter. reset 은 GREATEST(Δ,0). 단일선.
@@ -826,20 +1101,136 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             """)
             params["window_start"] = start - bucket_td
             params["psi_resource"] = psi_resource
+        elif metric_type == "mem.paging_pressure":
+            # 메모리 압박 여부(서버 상세, 이진 0/1) — mem.paging_pressure_hosts(환경, 판정 crossing 서버 수)와
+            # 동일 원자료·임계, 서버 1대 단일 시계열로 축소: recommendation.mem_pressure_active 동일 판정
+            # (Linux refault 임계 "> 0"·Windows Pages Input/sec 임계 WIN_PAGES_INPUT_SATURATION=20/s). Linux
+            # 페이징은 magnitude 아닌 존재 판정이라(하드폴트 절대 rate 는 디스크 속도 의존이라 보편 임계 불가)
+            # raw rate 를 그대로 선으로 그리면 OS 간 척도가 달라 비교 불가 — 버킷 안에서 한 번이라도 넘었는지
+            # (bool_or)를 1.0/0.0 스텝으로 표시해야 Linux·Windows 를 같은 잣대(판정 결과)로 비교 가능.
+            # reset(카운터 감소)은 GREATEST(Δ,0) 흡수.
+            sid_mp = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
+            params["window_start"] = start - bucket_td
+            params["win_paging_threshold"] = recommendation.WIN_PAGES_INPUT_SATURATION
+            sql = text(f"""
+                WITH raw AS (
+                    SELECT sm.collected_at, sm.server_id, si.os_family, sm.paging_major AS p
+                    FROM {ServerMetrics.__tablename__} sm
+                    JOIN {ServerInventory.__tablename__} si ON si.id = sm.server_id
+                    WHERE sm.collected_at >= :window_start AND sm.collected_at <= :end {sid_mp}
+                      AND sm.paging_major IS NOT NULL
+                ),
+                deltas AS (
+                    SELECT collected_at, os_family,
+                        GREATEST(p - LAG(p) OVER w, 0) AS d_p,
+                        EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER w)) AS dt
+                    FROM raw WINDOW w AS (PARTITION BY server_id ORDER BY collected_at)
+                ),
+                rates AS (
+                    SELECT collected_at, os_family, d_p::float / dt AS rate
+                    FROM deltas WHERE collected_at >= :start AND dt > 0
+                ),
+                flags AS (
+                    SELECT collected_at,
+                        (os_family = 'windows' AND rate >= (:win_paging_threshold)::float)
+                        OR (os_family != 'windows' AND rate > 0) AS crossed
+                    FROM rates
+                ),
+                per_bucket AS (
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, bool_or(crossed) AS ever
+                    FROM flags GROUP BY ts
+                )
+                SELECT ts, (CASE WHEN ever THEN 1.0 ELSE 0.0 END) AS value, NULL::text AS dimension, NULL::text AS kind
+                FROM per_bucket ORDER BY ts
+            """)
+        elif metric_type == "mem.paging_pressure_hosts":
+            # 메모리 압박 서버 수 — recommendation.mem_pressure_active(mem_saturated dual-gate 의 실제 페이징
+            # 신호원) 동일 원자료·임계를 SQL 로 이식: paging_major(하드폴트 카운터) rate 가 os별 임계를 넘는
+            # 서버 수. Linux(refault, 임계 "> 0")·Windows(Pages Input/sec, 임계 WIN_PAGES_INPUT_SATURATION=20/s).
+            # CPU 실행 큐와 달리 Linux 쪽이 magnitude 아닌 존재 판정이라(하드폴트 절대 rate 는 디스크 속도
+            # 의존이라 보편 임계 불가, 의식적으로 존재 판정으로 후퇴시킨 설계) 정규화 지수 대신 "판정 crossing
+            # 서버 수"(count)로 집계 — 분모(온라인 대수) 변동에 왜곡 없는 절대치, 실제 판정에 쓰는 신호라
+            # mem.psi(장식적 참고치, 판정 비관여)보다 정합. reset(카운터 감소)은 GREATEST(Δ,0) 흡수 — PSI 와 동일.
+            # 버킷 먼저 묶고 그 안에서 server 별 "한 번이라도 넘었는지"(bool_or) 후 distinct server 수 — raw
+            # collected_at 별로 먼저 세고 avg 내면 서버들이 비동기 보고라 매 시점 사실상 1대만 잡혀 소수 카운트가
+            # 나온다(오류, cpu.saturation_hosts 와 동일 수정). 버킷 우선이라 항상 정수.
+            sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
+            params["window_start"] = start - bucket_td
+            params["win_paging_threshold"] = recommendation.WIN_PAGES_INPUT_SATURATION
+            sql = text(f"""
+                WITH raw AS (
+                    SELECT sm.collected_at, sm.server_id, si.os_family, sm.paging_major AS p
+                    FROM {ServerMetrics.__tablename__} sm
+                    JOIN {ServerInventory.__tablename__} si ON si.id = sm.server_id
+                    WHERE sm.collected_at >= :window_start AND sm.collected_at <= :end {sid_sm}
+                      AND sm.paging_major IS NOT NULL
+                ),
+                deltas AS (
+                    SELECT collected_at, server_id, os_family,
+                        GREATEST(p - LAG(p) OVER w, 0) AS d_p,
+                        EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER w)) AS dt
+                    FROM raw WINDOW w AS (PARTITION BY server_id ORDER BY collected_at)
+                ),
+                rates AS (
+                    SELECT collected_at, server_id, os_family, d_p::float / dt AS rate
+                    FROM deltas WHERE collected_at >= :start AND dt > 0
+                ),
+                flags AS (
+                    SELECT collected_at, server_id,
+                        (os_family = 'windows' AND rate >= (:win_paging_threshold)::float)
+                        OR (os_family != 'windows' AND rate > 0) AS crossed
+                    FROM rates
+                ),
+                per_bucket AS (
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, bool_or(crossed) AS ever
+                    FROM flags GROUP BY ts, server_id
+                )
+                SELECT ts, COUNT(*) FILTER (WHERE ever) AS value, NULL::text AS dimension, NULL::text AS kind
+                FROM per_bucket GROUP BY ts ORDER BY ts
+            """)
         elif metric_type == "fs.usage_percent":
             if collapse:
+                # 환경 사용률 — per-instant GROUP BY collected_at 는 staggered 수집(server 별 보고 시각이
+                # 제각각)에서 그 시점 보고 안 한 server 가 빠져 fs.used_bytes 와 동일 왜곡(창 첫/끝 bucket 이
+                # 부분 서버만 반영해 튐, F5 로 재확인 후 수정). LATERAL 로 각 bucket·server+mount 조합마다
+                # "그 bucket 끝 시점까지의 마지막 값"(LOCF)을 끌어와 Σused/Σ(used+free) — lookback
+                # (:window_start = start - 1bucket)으로 첫 bucket 도 직전 값을 확보.
+                sid_fs = "AND server_id = ANY(:server_ids)" if server_ids else ""
+                sid_fs_sf = "AND sf.server_id = ANY(:server_ids)" if server_ids else ""
+                params["window_start"] = start - bucket_td
                 sql = text(f"""
-                    WITH per_ts AS (
-                        SELECT collected_at,
-                            SUM(used_bytes)::float / NULLIF(SUM(used_bytes + free_bytes), 0) * 100 AS v
+                    WITH targets AS (
+                        SELECT DISTINCT server_id, mountpoint
                         FROM {ServerFilesystem.__tablename__}
-                        WHERE collected_at >= :start AND collected_at <= :end {sid}
+                        WHERE collected_at >= :window_start AND collected_at <= :end {sid_fs}
                           AND {_DATA_VOLUME_SQL_FILTER}
-                          AND used_bytes IS NOT NULL AND free_bytes IS NOT NULL AND (used_bytes + free_bytes) > 0
-                        GROUP BY collected_at
+                    ),
+                    buckets AS (
+                        SELECT generate_series(
+                            time_bucket(interval '{bi}', (:start)::timestamptz),
+                            time_bucket(interval '{bi}', (:end)::timestamptz),
+                            interval '{bi}'
+                        ) AS ts
+                    ),
+                    per_bucket AS (
+                        SELECT b.ts, t.server_id, t.mountpoint, lv.used AS used, lv.free AS free
+                        FROM buckets b
+                        CROSS JOIN targets t
+                        LEFT JOIN LATERAL (
+                            SELECT sf.used_bytes AS used, sf.free_bytes AS free
+                            FROM {ServerFilesystem.__tablename__} sf
+                            WHERE sf.server_id = t.server_id AND sf.mountpoint = t.mountpoint
+                              AND sf.collected_at >= :window_start
+                              AND sf.collected_at < b.ts + interval '{bi}' {sid_fs_sf}
+                              AND sf.used_bytes IS NOT NULL AND sf.free_bytes IS NOT NULL
+                            ORDER BY sf.collected_at DESC
+                            LIMIT 1
+                        ) lv ON true
                     )
-                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind
-                    FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
+                    SELECT ts,
+                        SUM(used)::float / NULLIF(SUM(used + free), 0) * 100 AS value,
+                        NULL::text AS dimension, NULL::text AS kind
+                    FROM per_bucket GROUP BY ts HAVING SUM(used + free) > 0 ORDER BY ts
                 """)
             else:
                 sql = text(f"""
@@ -857,25 +1248,6 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                     FROM per_ts WHERE v IS NOT NULL GROUP BY ts, dim ORDER BY ts, dim
                 """)
                 params["dim_filter"] = dimension
-        elif metric_type == "fs.used_bytes":
-            # 스토리지 사용량 — 전 서버 데이터 파일시스템 사용 bytes 합산(절대량). 용량 소비 추이(capacity planning).
-            # 활용률(fs.usage_percent, 풀 비율)과 달리 함대 전체가 실제로 쓰는 총량 -> 증가 추세가 조달 신호.
-            # 물리디스크 I/O(device 레벨)와 축이 다름 — 용량은 마운트(df) 레벨 집계가 정석. 가상 fs 제외.
-            # 수집이 staggered(collected_at 당 소수 서버)라 순간 SUM 은 undercount -> bucket 내 server+mount 별
-            # last(used) 로 정렬 후 SUM(전 함대). agg(avg/max/p95) 무의미(절대 용량 스냅샷) -> ae 미적용.
-            sql = text(f"""
-                WITH per_sm AS (
-                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, mountpoint,
-                        last(used_bytes, collected_at) AS used
-                    FROM {ServerFilesystem.__tablename__}
-                    WHERE collected_at >= :start AND collected_at <= :end {sid}
-                      AND {_DATA_VOLUME_SQL_FILTER}
-                      AND used_bytes IS NOT NULL
-                    GROUP BY ts, server_id, mountpoint
-                )
-                SELECT ts, SUM(used)::float AS value, NULL::text AS dimension, NULL::text AS kind
-                FROM per_sm GROUP BY ts ORDER BY ts
-            """)
         elif metric_type in _RATE_PER_DIM_DEFS:
             table, dim_col, value_col = _RATE_PER_DIM[metric_type]
             # 물리 device/iface 필터 — collapse 여부 무관 항상 적용(물리 디스크 위 LVM/RAID/crypt LV, 물리 NIC

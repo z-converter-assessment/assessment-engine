@@ -109,15 +109,13 @@
 
 <div class="chart-grid-2col">
   <div class="card">
-    <div style="margin-bottom:14px;">
-      <div class="chart-head">
-        <h2 class="card-title">CPU 사용률 추이<span class="print-only text-muted text-sm" id="usage-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-        <select class="chart-select no-print" id="usage-agg-btns" aria-label="집계 방식">
-          <option value="avg">평균</option>
-          <option value="max">최대</option>
-          <option value="p95">p95</option>
-        </select>
-      </div>
+    <div class="chart-head">
+      <h2 class="card-title">CPU 사용률 추이<span class="print-only text-muted text-sm" id="usage-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+      <select class="chart-select no-print" id="usage-agg-btns" aria-label="집계 방식" style="margin-left:auto;">
+        <option value="avg">평균</option>
+        <option value="max">최대</option>
+        <option value="p95">p95</option>
+      </select>
     </div>
     <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
       <canvas id="usage-canvas"></canvas>
@@ -125,18 +123,12 @@
         해당 기간에 수집된 데이터가 없습니다.
       </div>
     </div>
-    <ul class="text-meta text-xs" style="margin:8px 0 0; line-height:1.9; padding-left:14px;">
-      <li><b class="text-muted">평균</b>: 집계 구간 내 평균 사용률 — 전반적인 부하 수준 파악</li>
-      <li><b class="text-muted">최대</b>: 구간 내 순간 최고값 — 스파이크 탐지</li>
-      <li><b class="text-muted">p95</b>: 상위 5% 이상치를 제외한 최대값 — 일시적 노이즈 없는 피크 기준</li>
-    </ul>
   </div>
 
   <div class="card">
     <div class="chart-head">
       <h2 class="card-title">CPU 분류 추이<span class="print-only text-muted text-sm" id="comp-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     </div>
-    <div class="chart-desc">User 앱 부하 | System 커널 처리 | I/O Wait 디스크 대기 | Nice 저우선순위 user — I/O Wait·Nice 는 Linux 전용(Windows 는 CPU 시간에 두 축 구분이 없어 미측정, 차트 미표시)</div>
     <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
       <canvas id="comp-canvas"></canvas>
       <div id="comp-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
@@ -148,28 +140,11 @@
 
   <div class="card">
     <div class="chart-head">
-      <h2 class="card-title">실행 큐·D-state 추이<span class="print-only text-muted text-sm" id="load-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+      <h2 class="card-title">실행 큐 추이<span class="print-only text-muted text-sm" id="load-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     </div>
-    <div class="chart-desc">코어당 실행 큐 = 실행 대기 작업 / 코어 수 — Linux procs_running 1.0 · Windows Processor Queue Length 2.0 이상 임계 초과 신호. D-state 블록 = IO 대기 프로세스 수(근본원인, Linux 전용) — 포화 판정은 이용률 동반(dual-gate, 자원 평가).</div>
     <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
       <canvas id="load-canvas"></canvas>
       <div id="load-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
-        해당 기간에 수집된 데이터가 없습니다.
-      </div>
-    </div>
-    <div id="load-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-  </div>
-
-  <div class="card">
-    <div class="chart-head">
-      <h2 class="card-title">CPU PSI 추이<span class="print-only text-muted text-sm" id="cpu-psi-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    </div>
-    <div class="chart-desc">태스크가 CPU 대기로 멈춘 시간 비율(%) — PSI some, 현대 Linux 포화 신호. Windows 미지원.</div>
-    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-      <canvas id="cpu-psi-canvas"></canvas>
-      {# PSI 는 Windows 구조적 미지원(항상 empty) — "해당 기간 데이터 없음"(일시적 뉘앙스) 대신 N/A(영구 사실).
-         Linux 는 진짜 미수집 케이스라 기존 문구 유지. cpu.js 가 OS_FAMILY 로 최초 1회 텍스트 분기. #}
-      <div id="cpu-psi-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
         해당 기간에 수집된 데이터가 없습니다.
       </div>
     </div>

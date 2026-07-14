@@ -111,7 +111,7 @@
     });
   }
 
-  // 대시보드 자동갱신(list.js)이 fragment swap 후 재호출 — 보고서는 1회 렌더.
+  // 대시보드 자동갱신(list-table.js)이 fragment swap 후 재호출 — 보고서는 1회 렌더.
   // 로컬 캐스트 — EnvTrend 는 globals.d.ts Window 에 미선언(프로젝트 전역). globals_issue 보고.
   /** @type {any} */ (window).EnvTrend = { render: render };
   if (document.readyState !== 'loading') render();

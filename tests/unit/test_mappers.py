@@ -29,7 +29,7 @@ from assessment_engine.web.services.mappers.server import (
     to_storage_detail,
     workload_category_counter,
 )
-from assessment_engine.web.services.mappers.shared import windows_legacy_version_from_build
+from assessment_engine.web.services.mappers.shared import spec_display_line, windows_legacy_version_from_build
 
 # ─── 임계값·severity ──────────────────────────────────────────────────────
 
@@ -497,6 +497,12 @@ def test_build_server_inventory_enriches_from_raw():
     assert snap.secure_boot is True
     assert snap.os_edition == "Datacenter"
     assert snap.timezone == "Asia/Seoul"
+
+
+def test_spec_display_line_missing_values_show_dash():
+    """cpu_cores/mem_total_bytes/block_devices 부재는 각자 "—" — 서버 목록·환경 자원 평가 compact 표 공용."""
+    assert spec_display_line(None, None, None) == "— · — · —"
+    assert spec_display_line(4, None, []) == "4코어 · — · —"
 
 
 def test_build_server_inventory_raw_none_leaves_reproduction_fields_none():

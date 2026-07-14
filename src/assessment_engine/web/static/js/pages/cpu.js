@@ -55,11 +55,11 @@ async function loadSnapshot() {
     const data = await res.json();
     const cpu = data.cpu;
     if (!cpu) { /** @type {HTMLElement} */ (document.getElementById('snap-empty')).style.display = ''; return; }
-    /** @type {HTMLElement} */ (document.getElementById('s-usage')).textContent  = pct(cpu.usage_pct);
-    /** @type {HTMLElement} */ (document.getElementById('s-user')).textContent   = pct(cpu.user_pct);
-    /** @type {HTMLElement} */ (document.getElementById('s-system')).textContent = pct(cpu.system_pct);
-    /** @type {HTMLElement} */ (document.getElementById('s-iowait')).textContent = /** @type {string} */ (ChartUtils.naWindows(OS_FAMILY, 'cpu_iowait', pct(cpu.iowait_pct)));
-    /** @type {HTMLElement} */ (document.getElementById('s-nice')).textContent = /** @type {string} */ (ChartUtils.naWindows(OS_FAMILY, 'cpu_nice', pct(cpu.nice_pct)));
+    ChartUtils.setValText(document.getElementById('s-usage'), pct(cpu.usage_pct));
+    ChartUtils.setValText(document.getElementById('s-user'), pct(cpu.user_pct));
+    ChartUtils.setValText(document.getElementById('s-system'), pct(cpu.system_pct));
+    ChartUtils.setNaText(document.getElementById('s-iowait'), OS_FAMILY, 'cpu_iowait', pct(cpu.iowait_pct));
+    ChartUtils.setNaText(document.getElementById('s-nice'), OS_FAMILY, 'cpu_nice', pct(cpu.nice_pct));
     renderCoreGrid(data.cpu_cores);
     // 포화 스냅샷 신호 — 실행 큐(per-core), Steal, PSI. 서버 os-aware 판정 완료(값/임계/4상태), 공통 렌더만 (P4, E3 재계산 금지).
     SignalUtils.renderSaturation(document.getElementById('cpu-sat-signals'), data.cpu_saturation);
@@ -171,13 +171,12 @@ function renderCompChart(range, anchorEnd) {
   }
   canvas.style.display = ''; empty.style.display = 'none';
 
-  // Windows 는 cpu_stat 이 user/system/idle 만(iowait·nice 개념 부재) — 두 축 제외(빈 라인·범례 방지, OS 분기).
+  // Windows 는 cpu_stat 이 user/system/idle 만(iowait 개념 부재) — 해당 축 제외(빈 라인·범례 방지, OS 분기).
   const COMP_META = {
     user:   { label: 'User',     color: /** @type {any} */ (ChartUtils).themeColor() },
     system: { label: 'System',   color: '#f59e0b' },
     ...(OS_FAMILY === 'windows' ? {} : {
       iowait: { label: 'I/O Wait', color: '#ef4444' },
-      nice:   { label: 'Nice',     color: '#8b5cf6' },
     }),
   };
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
@@ -235,16 +234,14 @@ async function loadCompChart() {
     ];
     if (OS_FAMILY !== 'windows') {
       reqs.push(fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.iowait_percent')}`).then(r => r.json()));
-      reqs.push(fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.nice_percent')}`).then(r => r.json()));
     }
-    const [userRows, sysRows, ioRows, niceRows] = await Promise.all(reqs);
+    const [userRows, sysRows, ioRows] = await Promise.all(reqs);
     if (seq !== compSeq) return;
     const safe = (/** @type {any} */ arr) => Array.isArray(arr) ? arr : [];
     compAllRows = [
       ...safe(userRows).map(r => ({ ...r, dimension: 'user' })),
       ...safe(sysRows).map(r  => ({ ...r, dimension: 'system' })),
       ...(OS_FAMILY !== 'windows' ? safe(ioRows).map(r => ({ ...r, dimension: 'iowait' })) : []),
-      ...(OS_FAMILY !== 'windows' ? safe(niceRows).map(r => ({ ...r, dimension: 'nice' })) : []),
     ];
     renderCompChart(capturedRange, capturedAnchor);
     buildCompLegend();
@@ -273,10 +270,8 @@ function renderLoadChart(range, anchorEnd) {
   }
   canvas.style.display = ''; empty.style.display = 'none';
 
-  // D-state 블록 — 실행 큐와 나란히(근본원인 상관: CPU 부하가 실제로 IO 대기발인지). Linux 전용(Windows null 자연 제외).
   const RUNQ_META = {
     runq: { label: '실행 큐 (코어당)', color: /** @type {any} */ (ChartUtils).themeColor() },
-    ...(OS_FAMILY === 'windows' ? {} : { blocked: { label: 'D-state 블록', color: '#8b5cf6' } }),
   };
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
@@ -311,10 +306,6 @@ function renderLoadChart(range, anchorEnd) {
   });
 }
 
-function buildLoadLegend() {
-  renderChipLegend(document.getElementById('load-legend'), loadChart);
-}
-
 async function loadLoadChart() {
   const seq = ++loadSeq;
   const capturedRange  = timeCtl.getRange();
@@ -326,74 +317,12 @@ async function loadLoadChart() {
     return p;
   };
   try {
-    const reqs = [fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.run_queue')}`).then(r => r.json())];
-    if (OS_FAMILY !== 'windows') {
-      reqs.push(fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.blocked')}`).then(r => r.json()));
-    }
-    const [runqRows, blockedRows] = await Promise.all(reqs);
+    const runqRows = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${mkP('cpu.run_queue')}`).then(r => r.json());
     if (seq !== loadSeq) return;
     const safe = (/** @type {any} */ arr) => Array.isArray(arr) ? arr : [];
-    loadAllRows = [
-      ...safe(runqRows).map(r => ({ ...r, dimension: 'runq' })),
-      ...(OS_FAMILY !== 'windows' ? safe(blockedRows).map(r => ({ ...r, dimension: 'blocked' })) : []),
-    ];
+    loadAllRows = safe(runqRows).map(r => ({ ...r, dimension: 'runq' }));
     if (loadChart) { loadChart.destroy(); loadChart = null; }
     renderLoadChart(capturedRange, capturedAnchor);
-    buildLoadLegend();
-  } catch(e) { console.error(e); }
-}
-
-/* ── CPU PSI 추이 (some 정체율 %, 단일선 — Linux 전용, Windows 빈 결과 -> empty) ── */
-/** @type {any} */
-let psiChart = null;
-let psiSeq   = 0;
-
-async function loadPsiChart() {
-  const seq = ++psiSeq;
-  const range  = timeCtl.getRange();
-  const anchor = timeCtl.getAnchor();
-  const p = new URLSearchParams({ metric_type: 'cpu.psi', time_range: range, bucket: AUTO_BUCKET[range], agg: 'avg' });
-  if (anchor) p.append('end', anchor.toISOString());
-  const canvas = /** @type {HTMLElement} */ (document.getElementById('cpu-psi-canvas'));
-  const empty  = /** @type {HTMLElement} */ (document.getElementById('cpu-psi-empty'));
-  try {
-    /** @type {import('../generated/api').components['schemas']['MetricSeriesItem'][]} */
-    const rows = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${p}`).then(r => r.json());
-    if (seq !== psiSeq) return;
-    if (!Array.isArray(rows) || !rows.length) {
-      // PSI 는 Windows 구조적 미지원(어느 기간을 골라도 항상 empty) — "해당 기간 데이터 없음"(일시적 뉘앙스)
-      // 대신 N/A(영구 사실). Linux 는 진짜 미수집 케이스라 기존 문구 유지.
-      empty.textContent = OS_FAMILY === 'windows' ? 'N/A (Windows 미지원)' : '해당 기간에 수집된 데이터가 없습니다.';
-      canvas.style.display = 'none'; empty.style.display = '';
-      if (psiChart) { psiChart.destroy(); psiChart = null; }
-      return;
-    }
-    canvas.style.display = ''; empty.style.display = 'none';
-    const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
-    const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchor);
-    const labels = grid.map((/** @type {number} */ t) => fmtLabel(new Date(t).toISOString(), range));
-    const data   = joinToGrid(grid, rows, bMs);
-    if (psiChart) {
-      psiChart.data.labels = labels; psiChart.data.datasets[0].data = data;
-      psiChart.update('none'); return;
-    }
-    psiChart = new Chart(canvas, {
-      type: 'line',
-      data: { labels, datasets: [{
-        label: 'PSI (정체율)', data,
-        borderColor: /** @type {any} */ (ChartUtils).themeColor(),
-        borderWidth: 2, pointRadius: 1, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
-      }] },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode:'index', intersect:false },
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` PSI: ${ctx.parsed.y?.toFixed(1)}%` } } },
-        scales: {
-          x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
-          y: { ticks:{ callback: v => Number(v).toFixed(1) + '%', font:{size:11}, color:'#64748b' }, grid:{ color:'#f1f5f9' }, beginAtZero: true, suggestedMax: 20 },
-        },
-      },
-    });
   } catch(e) { console.error(e); }
 }
 
@@ -403,9 +332,9 @@ function updateBucketLabels() {
   const pr = ' — ' + RANGE_LABEL[r];
   /** @param {string} id @param {string} t */
   const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
-  // 버킷은 4 차트 공통(단일 range/anchor) — 환경 성능 추이와 동일 전역 라벨 1개.
+  // 버킷은 3 차트 공통(단일 range/anchor) — 환경 성능 추이와 동일 전역 라벨 1개.
   set('bucket-label', BUCKET_LABEL[AUTO_BUCKET[r]] || '');
-  set('usage-range-print', pr); set('comp-range-print', pr); set('load-range-print', pr); set('cpu-psi-range-print', pr);
+  set('usage-range-print', pr); set('comp-range-print', pr); set('load-range-print', pr);
 }
 
 /* ── 전체 차트 reload (페이지 range/anchor 변경 시) ── */
@@ -414,7 +343,6 @@ function reloadAllCharts() {
   loadUsageChart();
   loadCompChart();
   loadLoadChart();
-  loadPsiChart();
 }
 
 // 페이지 단일 시간축 컨트롤러 — range 토글 + anchor 가 3 차트 전체 구동(#F10).

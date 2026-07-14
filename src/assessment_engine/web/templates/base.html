@@ -183,7 +183,7 @@
     .rec-idle { background: #f1f5f9; color: #64748b; }
     .rec-insufficient_data { background: #e2e8f0; color: #475569; }
     .rec-swap              { background: #b91c1c; color: #fef2f2; }
-    /* Task status badge — list 행별 "최근 작업" column + detail timeline 공유. mapper _TASK_STATUS_DISPLAY 단일 진실. */
+    /* Task status badge — list 행별 "ZDM Install" column + detail "ZDM" 카드 공유. mapper _TASK_STATUS_DISPLAY 단일 진실. */
     .rec-success           { background: #dcfce7; color: #15803d; }
     .rec-failure           { background: #fee2e2; color: #b91c1c; }
     .rec-pending           { background: #dbeafe; color: #1d4ed8; }
@@ -193,13 +193,7 @@
     /* row-link / task-cell — base a 스타일 (color + 밑줄) 그대로 상속. task-cell 은 inline-flex 부수 layout. */
     .task-cell             { display: inline-flex; align-items: center; gap: 6px; }
     .task-cell:hover .badge { filter: brightness(0.95); }
-    /* 서버 상세 최근 작업 row — 클릭 시 task 상세 모달. 시각 affordance: hover 시 음영 강조 + 우측 ">" 화살표. */
-    .task-timeline tr.task-row { transition: background .12s, box-shadow .12s; }
-    .task-timeline tr.task-row:hover td { background: #dbeafe; }
-    .task-timeline tr.task-row:hover { box-shadow: inset 3px 0 0 var(--color-title); }
-    .task-timeline tr.task-row td:last-child { position: relative; padding-right: 24px; }
-    .task-timeline tr.task-row td:last-child::after { content: "›"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #cbd5e1; font-size: 16px; transition: color .12s; }
-    .task-timeline tr.task-row:hover td:last-child::after { color: var(--color-title); }
+    /* 서버 상세 ZDM 작업 — task 상세 모달은 행 마지막 칸 "상세" 버튼(.btn-action)에서만 열림(행 전체 클릭 아님). */
     .card { background: #fff; border: 1px solid #edeff2; border-radius: 8px; box-shadow: 0 1px 2px rgba(16,24,40,.05); padding: 20px 24px; margin-bottom: 18px; }
     /* 개별 고객 보고서 — 인접 섹션 2개를 같은 카드(흰 박스) 안 2열로. 안쪽 section 은 card 스타일 해제(내용만 노출). 좁은 화면은 아래 @media 640 에서 1열. */
     /* 2칼럼 리포트 행 — auto-fit 로 좁은 폭에서 자동 1칼럼 접힘(미디어쿼리 불요, 가로 넘침 방지). min-track=min(100%,440px)로 컨테이너보다 넓어지지 않음. */
@@ -269,6 +263,7 @@
                                            미상·참고 신호 등, 빨강과 구분. inline hex 대신 본 클래스 사용 */
     .text-ok     { color: #15803d; }   /* 정상 (optimal) */
     .text-attn   { color: #c2410c; }   /* 운영 신호 (주황) */
+    .text-origin-static { color: #1d4ed8; } /* IP origin=static 배지 — 서버 상세 network.html·topology.html 단일 진실 */
     /* 텍스트 크기 유틸 — 색 유틸(.text-*)과 조합해 카드·보고서 micro 라벨/값에 적용. inline font-size 파편화 방지(static-assets 표준). 카탈로그 크기만(기본 14=body·13=td/h3 외 12·11). */
     .text-md { font-size: 13px; }
     .text-sm { font-size: 12px; }
@@ -470,7 +465,7 @@
     .btn-print { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #374151; font-size: 13px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; }
     .btn-print:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); }
 
-    /* 진단 액션 버튼 — list.html(환경 진단) / detail.html(서버 진단) 공통 패턴. inline 중복 방지. */
+    /* 진단 액션 버튼 — list_table.html(환경 진단) / detail.html(서버 진단) 공통 패턴. inline 중복 방지. */
     .btn-action { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #374151; font-size: 13px; font-weight: 500; text-decoration: none; box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: background .12s, box-shadow .12s; cursor: pointer; }
     .btn-action:hover { background: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,.10); text-decoration: none; }
     .btn-action svg { width: 14px; height: 14px; }
@@ -579,11 +574,11 @@
       .print-break-before { page-break-before: always; }
       /* 명시적 페이지 분기 유틸 — 이 요소 다음부터 새 페이지(개별 보고서 구동 서비스 후 자원 상세 분리). */
       .print-break-after { page-break-after: always; }
-      /* 성능 추이 — 자원 카드 안 차트 그리드를 인쇄에서 4열로(landscape, metrics.html 자체 @page 로 가로 전환
-         — auto-fit 이 그대로면 세로 폭 기준이라 1~2열로 떨어짐). 차트 "행" 단위가 아니라 낱개(perf-item)에
+      /* 성능 추이(metrics.html·environment_metrics.html) — 차트 "행" 단위가 아니라 낱개(perf-item)에
          page-break-inside:avoid 를 걸어 그리드 auto-flow 로 행 경계가 고정 DOM 이 아니어도 개별 차트는
-         절대 페이지 중간에 잘리지 않는다(짤림 방지가 핵심 — 같은 행 두 차트가 페이지가 갈라져도 무방). */
-      .perf-grid { grid-template-columns: repeat(4, 1fr) !important; gap: 10px !important; }
+         절대 페이지 중간에 잘리지 않는다(짤림 방지가 핵심 — 같은 행 두 차트가 페이지가 갈라져도 무방).
+         열 수·간격·카드 폰트 축소는 두 페이지 각자 로컬 스코프(`.metrics-print`/`.env-metrics-print`)가
+         전담(portrait 1페이지, 둘 다 A4 세로) — 본 파일엔 페이지 무관 공통 규칙만 둔다. */
       .perf-item { page-break-inside: avoid; }
       /* 환경 보고서 — 부하 추이 차트 + 토폴로지 서브넷 표 한 카드 2열을 인쇄에서도 2열 유지.
          minmax(0,1fr)+min-width:0 으로 1fr 암묵 min-width:auto 쏠림 방지(두 칸 균등). */
@@ -679,7 +674,7 @@
     </main>
   </div>
 
-  <!-- Task 상세 modal — list.html "최근 작업" cell / detail.html timeline row 클릭 시 채워짐.
+  <!-- Task 상세 modal — list_table.html "ZDM Install" cell / detail.html "ZDM" 카드 상세 버튼 클릭 시 채워짐.
        data-task-id 속성 가진 element 클릭 → TaskModal.open(taskId) 자동 호출. -->
   <div id="task-modal" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:60; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:8px; padding:20px 24px; width:640px; max-width:92vw; max-height:88vh; overflow:auto; box-shadow:0 10px 30px rgba(0,0,0,0.15);">

@@ -238,7 +238,7 @@
         }
       }
       closeModal();
-      // 페이지 새로고침으로 최근 작업 row 갱신.
+      // 페이지 새로고침으로 ZDM 카드 표 row 갱신.
       setTimeout(() => location.reload(), 600);
     } catch (e) {
       if (pending) pending.remove();
