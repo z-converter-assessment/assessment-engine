@@ -13,13 +13,19 @@ secrets/postgres_password    # PostgreSQL 비밀번호
 secrets/rabbitmq_password    # RabbitMQ 비밀번호
 ```
 
-생성 예 (강 random + 권한 600, trailing newline 없이):
+생성 예 (강 random + 권한 644, trailing newline 없이):
 
 ```bash
 printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
 printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
-chmod 600 secrets/*
+chmod 644 secrets/*
 ```
+
+권한은 644(world-readable) — 600으로 두면 postgres 공식 이미지가 non-root `postgres` 유저로 전환한
+뒤 `POSTGRES_PASSWORD_FILE` 을 읽다가 Permission denied 로 기동 실패한다(Docker Compose file-secret은
+Swarm과 달리 호스트 파일 권한을 컨테이너 안에 그대로 반영). 보안 경계는 호스트 계정 격리(secrets/
+디렉토리 자체가 0700 root 소유)로 충분 — 파일 자체를 world-readable 로 둬도 root 외 호스트 계정은
+디렉토리 진입 자체가 막힌다.
 
 ## 기동
 
@@ -37,4 +43,5 @@ docker compose up -d
 ## 금지
 
 이 디렉토리의 실제 secret 파일은 절대 git 에 commit 하지 않는다 (`.gitignore` 가 `secrets/*` ignore,
-`.gitkeep`·`README.md` 만 추적). 호스트 디스크 평문은 파일 권한 600·디스크 암호화로 보호한다.
+`.gitkeep`·`README.md` 만 추적). 호스트 디스크 평문은 `secrets/` 디렉토리 권한 0700(root 소유)·디스크
+암호화로 보호한다(파일 자체는 컨테이너 non-root 유저 호환을 위해 644).

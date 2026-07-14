@@ -32,11 +32,12 @@ sudo bash bootstrap.sh
 부트스트랩 후 2 가지를 채운다:
 
 1. `$DEPLOY_DIR/.env` — bootstrap 가 raw 에서 받은 `env.example` 템플릿. `POSTGRES_USER`·`RABBITMQ_USER`·`ZDM_DEFAULT_IP` 등 운영값 (secret 은 제외 — file 채널).
-2. `$DEPLOY_DIR/secrets/*` — 강 random 비번 (권한 600):
+2. `$DEPLOY_DIR/secrets/*` — 강 random 비번 (권한 644 — postgres 공식 이미지가 non-root 유저로 `*_FILE` 을
+   읽어 600이면 Permission denied 로 기동 실패. 보안 경계는 `secrets/` 디렉토리 0700 root 소유가 담당):
    ```bash
    printf '%s' "$(openssl rand -base64 32)" > $DEPLOY_DIR/secrets/postgres_password
    printf '%s' "$(openssl rand -base64 32)" > $DEPLOY_DIR/secrets/rabbitmq_password
-   chmod 600 $DEPLOY_DIR/secrets/*
+   chmod 644 $DEPLOY_DIR/secrets/*
    ```
 
 ## 3. rollout (`deploy.sh`)
@@ -67,7 +68,7 @@ cp env.example .env               # COMPOSE_FILE 포함(base+secrets 자동 머�
 mkdir -p secrets
 printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
 printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
-chmod 600 secrets/*
+chmod 644 secrets/*
 # ENGINE_IMAGE 로 배포 버전 핀 (미설정 시 base 기본 = __ENGINE_VERSION__ placeholder, 정확 버전 명시 권장):
 echo 'ENGINE_IMAGE=ghcr.io/z-converter-assessment/assessment-engine:0.1.0' >> .env
 docker compose up -d              # base+secrets pull-and-run. web http://localhost:8000
@@ -75,7 +76,7 @@ docker compose up -d              # base+secrets pull-and-run. web http://localh
 
 GHCR public — 토큰 없이 pull. `APP_ENV=prod` 기본이라 secret 부재·weak 면 기동 거부(fail-fast). 영속 볼륨을 외부 디스크에 두려면 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(미설정 시 named volume).
 
-비번은 file-secret 채널 단일 — `./secrets/*`(600)이 `/run/secrets/*` 로 마운트돼 app 은 `secrets_dir`, postgres 는 `*_FILE`, rabbitmq 는 entrypoint wrapper 로 읽는다. secret 이 컨테이너 env(`docker inspect`)에 안 뜬다.
+비번은 file-secret 채널 단일 — `./secrets/*`(644)이 `/run/secrets/*` 로 마운트돼 app 은 `secrets_dir`, postgres 는 `*_FILE`, rabbitmq 는 entrypoint wrapper 로 읽는다. secret 이 컨테이너 env(`docker inspect`)에 안 뜬다. 644인 이유 — Docker Compose file-secret 은 Swarm 과 달리 호스트 파일 권한을 컨테이너 안에 그대로 반영하는데, postgres 공식 이미지는 non-root `postgres` 유저로 전환한 뒤 그 파일을 읽어 600이면 Permission denied.
 
 ## 5. 운영 contract 한눈
 

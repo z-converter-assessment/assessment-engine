@@ -159,12 +159,12 @@ Debian/Ubuntu VM(GitHub로 outbound HTTPS 가능)에서 순서대로 진행한�
    ```
    실행 후 `/opt/assessment-engine/`에 `.env`(env.example 템플릿)·`secrets/`·`deploy.sh`가 놓인다.
 
-2. secret 파일 배치 (강 random, 권한 600):
+2. secret 파일 배치 (강 random, 권한 644 — postgres 공식 이미지가 non-root 유저로 읽으므로 600이면 Permission denied 로 기동 실패):
    ```bash
    cd /opt/assessment-engine
    printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
    printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
-   chmod 600 secrets/*
+   chmod 644 secrets/*
    ```
    랜덤이어도 잃어버리지 않는다 — 값은 `secrets/` 파일에 저장돼 앱이 자동으로 읽고, 필요 시 `sudo cat secrets/<name>`으로 확인한다(psql·RabbitMQ 관리 UI 등). 웹 포털은 무인증이라 별도 로그인이 없다. 단 `rabbitmq_password`는 외부 agent가 broker 발행에 쓰는 값이라 agent 설정에도 동일하게 넣어야 한다(불일치 시 agent 인증 실패로 데이터 미수집).
 
@@ -193,10 +193,10 @@ Debian/Ubuntu VM(GitHub로 outbound HTTPS 가능)에서 순서대로 진행한�
 ```bash
 cp env.example .env                         # COMPOSE_FILE 포함(base+secrets) · 평문 비번 없음
 
-mkdir -p secrets                            # 비번 파일 (강 random, 권한 600)
+mkdir -p secrets                            # 비번 파일 (강 random, 권한 644 — non-root 컨테이너 유저 호환)
 printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
 printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
-chmod 600 secrets/*
+chmod 644 secrets/*
 
 docker compose up -d                        # base+secrets pull-and-run. web http://localhost:8000
 ```
