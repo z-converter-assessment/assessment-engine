@@ -2,9 +2,10 @@
 /**
  * 환경 성능 추이 페이지 차트 로직 — 전체 환경(모든 서버) 차트.
  *
- * 서버 상세 성능 추이(metrics.js) 기반의 환경판. server_id 없음 — 환경 전체 집계
- * (capacity-weighted: cpu·mem 이용률 / 압박: cpu·mem PSI % / 합산: disk·net rate·스토리지 사용 bytes /
- *  worst-device: disk await 포화 / 전사 비율: net 재전송율).
+ * 서버 상세 성능 추이(metrics.js) 기반의 환경판 — 동일 신호 카탈로그, 표시 단위만 환경 스케일(합산/가중평균).
+ * server_id 없음 — 환경 전체 집계 (capacity-weighted: cpu·mem 이용률·CPU 분류(User/System/I/O Wait/Nice) /
+ * 압박: cpu·mem·disk PSI % / 합산: disk·net rate·pps·스토리지 사용 bytes / worst-device: disk await 포화 /
+ * 전사 비율: net 재전송율·드롭율).
  * fetch: GET /api/servers/environment/metrics-chart (agg 미지원 — capacity-weighted/합산 단일).
  * 외부 의존: ChartUtils (base.html), Chart.js (페이지 로드). 수집 기준은 SSR(#last-metric-ts) 고정.
  */
@@ -17,6 +18,7 @@ const { AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
 const PERF_IOPS_SUGGESTED_MAX = 200;              // HDD 랜덤 I/O 한계 기준 (환경 합산이라 자동 확장 가능)
 const PERF_NET_SUGGESTED_MAX  = 10 * 1024 * 1024; // 10 MB/s
 const PERF_DISK_KBPS_SUGGESTED_MAX = 10 * 1024;   // 10 MB/s — net 처리량과 동일 절대 기준선
+const PERF_PPS_SUGGESTED_MAX  = 10;               // pps soft ceiling (idle 환경도 보이도록, 서버 상세와 동일 — suggestedMax 는 floor 라 fleet 합산도 자동 확장)
 // 처리량 동적 단위(kBps/MBps)는 ChartUtils.fmtThroughput 단일 진실 (storage/detail/개별 성능추이 공용).
 
 // 선택 N대 한정(있으면) — 차트 fetch 에 ids 전달. 없으면 전체 환경 (data-selection-ids 미설정/빈 문자열).
@@ -28,7 +30,7 @@ const chartInstances = {};
 // P4(a) sequence counter — per-chart 분리.
 const seqs = {
   cpu: 0, cpuClass: 0, cpuPsi: 0, mem: 0, memPsi: 0,
-  physIo: 0, diskKbps: 0, diskSat: 0, storageUsed: 0, netIo: 0, retrans: 0,
+  physIo: 0, diskKbps: 0, diskSat: 0, diskPsi: 0, storageUsed: 0, netIo: 0, netPps: 0, retrans: 0, drop: 0,
 };
 
 // 절대 용량 표기 — binary(2^30/2^40) 값 + GB/TB 라벨(실무정석, 디스크 단위와 동일 base).
@@ -208,6 +210,8 @@ const Y_IOPS  = { beginAtZero:true, suggestedMax: PERF_IOPS_SUGGESTED_MAX, ticks
 const Y_DISK_KBPS = { beginAtZero:true, suggestedMax: PERF_DISK_KBPS_SUGGESTED_MAX, ticks:{ callback: (/** @type {number} */ v) => fmtThroughput(v), font:{size:11}, color:'#64748b' } };
 const Y_NET   = { beginAtZero:true, suggestedMax: PERF_NET_SUGGESTED_MAX, ticks:{ callback: (/** @type {number} */ v) => fmtKbChart(v), font:{size:11}, color:'#64748b' } };
 const Y_RETRANS = { beginAtZero:true, suggestedMax: 1, ticks:{ callback: (/** @type {number} */ v) => v.toFixed(2) + '%', font:{size:11}, color:'#64748b' } };  // 1% = 성능 영향 임계
+const Y_DROP    = { beginAtZero:true, suggestedMax: 0.5, ticks:{ callback: (/** @type {number} */ v) => v.toFixed(2) + '%', font:{size:11}, color:'#64748b' } };
+const Y_PPS     = { beginAtZero:true, suggestedMax: PERF_PPS_SUGGESTED_MAX, ticks:{ callback: (/** @type {number} */ v) => v.toFixed(0) + ' pps', font:{size:11}, color:'#64748b' } };
 
 /* ── 개별 차트 로더 ── */
 
@@ -232,6 +236,7 @@ const CPUCLASS_META = {
   user:   { label: 'User',     color: /** @type {any} */ (ChartUtils).themeColor() },
   system: { label: 'System',   color: '#f59e0b' },
   iowait: { label: 'I/O Wait', color: '#ef4444' },
+  nice:   { label: 'Nice',     color: '#8b5cf6' },
 };
 /**
  * @param {string} range
@@ -239,16 +244,18 @@ const CPUCLASS_META = {
  */
 async function loadCpuClassChart(range, anchor) {
   const seq = ++seqs.cpuClass;
-  const [u, s, io] = await Promise.all([
+  const [u, s, io, nice] = await Promise.all([
     fetchChart('cpu.user_percent', range, anchor),
     fetchChart('cpu.system_percent', range, anchor),
     fetchChart('cpu.iowait_percent', range, anchor),
+    fetchChart('cpu.nice_percent', range, anchor),
   ]);
   if (seq !== seqs.cpuClass) return;
   const rows = [
     ..._safe(u).map(r => ({ ...r, dimension: 'user' })),
     ..._safe(s).map(r => ({ ...r, dimension: 'system' })),
     ..._safe(io).map(r => ({ ...r, dimension: 'iowait' })),
+    ..._safe(nice).map(r => ({ ...r, dimension: 'nice' })),
   ];
   renderMultiDimChart('cpuclass-canvas', 'cpuclass-empty', 'cpuclass-legend', rows, range, anchor, CPUCLASS_META);
 }
@@ -323,6 +330,24 @@ async function loadDiskSaturationChart(range, anchor) {
     },
   }));
   renderChipLegend(document.getElementById('disksat-legend'), chartInstances['disksat-canvas']);
+}
+
+// 디스크 I/O PSI — 태스크가 디스크 I/O 대기로 멈춘 시간 % (Linux PSI some(io) 단일선). await(포화)의 심층
+// 보조 신호 — CPU/메모리 PSI 와 동일 위계(서버 상세와 신호 카탈로그 정합, Windows 미지원).
+/**
+ * @param {string} range
+ * @param {Date | null} anchor
+ */
+async function loadDiskPsiChart(range, anchor) {
+  const seq = ++seqs.diskPsi;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const avgRows = await fetchChart('disk.psi', range, anchor);
+  if (seq !== seqs.diskPsi) return;
+  const safeAvg = _safe(avgRows);
+  const datasets = buildDatasets(safeAvg, bMs, grid, '디스크 I/O 압박');
+  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  setChart('diskpsi-canvas', 'diskpsi-empty', safeAvg, Y_PSI, v => v.toFixed(1)+'%', datasets, labels);
 }
 
 /**
@@ -456,6 +481,30 @@ async function loadNetIoChart(range, anchor) {
   buildAvgMaxLegend('netio-legend', chart, { withToggle: true });
 }
 
+// 네트워크 PPS — 환경 합산(RX/TX packets). 처리량(bytes)과 별개 신호 — 소형 패킷 폭주는 bytes 축엔 안 드러남.
+/**
+ * @param {string} range
+ * @param {Date | null} anchor
+ */
+async function loadNetPpsChart(range, anchor) {
+  const seq = ++seqs.netPps;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const [rx, tx] = await Promise.all([
+    fetchChart('net.rx_packets_per_sec', range, anchor),
+    fetchChart('net.tx_packets_per_sec', range, anchor),
+  ]);
+  if (seq !== seqs.netPps) return;
+  const rows = [
+    ..._safe(rx).map(r => ({ ...r, dimension: 'RX' })),
+    ..._safe(tx).map(r => ({ ...r, dimension: 'TX' })),
+  ];
+  const datasets = buildDatasets(rows, bMs, grid, null);
+  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const chart = setChart('netpps-canvas', 'netpps-empty', rows, Y_PPS, v => v.toFixed(1)+' pps', datasets, labels);
+  buildAvgMaxLegend('netpps-legend', chart, { withToggle: true });
+}
+
 // TCP 재전송율 % — 네트워크 "문제" 신호(활동 아닌 품질). Σ(Δretrans)/Σ(Δtx_packets)*100, 분류 net_retrans 와 동일 산식.
 // 처리량(PPS) 대체 — 절대 패킷 수는 처리량 중복이라 폐기, 재전송율이 성능 영향 신호(>1%). 양 OS 동일 신호 단일선.
 /**
@@ -475,6 +524,23 @@ async function loadRetransChart(range, anchor) {
   updateMaxLabel('retrans-max', computePeriodMax(safeAvg), v => v.toFixed(2)+'%', null);
 }
 
+// 패킷 드롭율 % — 환경 합산(재전송과 별개 품질 신호, 링 버퍼 오버런·경로 손실).
+/**
+ * @param {string} range
+ * @param {Date | null} anchor
+ */
+async function loadDropChart(range, anchor) {
+  const seq = ++seqs.drop;
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const avgRows = await fetchChart('net.drop_percent', range, anchor);
+  if (seq !== seqs.drop) return;
+  const safeAvg = _safe(avgRows);
+  const datasets = buildDatasets(safeAvg, bMs, grid, '드롭율');
+  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  setChart('drop-canvas', 'drop-empty', safeAvg, Y_DROP, v => v.toFixed(2)+'%', datasets, labels);
+}
+
 /* ── 전체 로드 ── */
 /** @param {string} range */
 function updateBucketLabel(range) {
@@ -490,8 +556,10 @@ async function loadAllCharts() {
     loadCpuPsiChart(range, anchor),  loadMemChart(range, anchor),
     loadMemPsiChart(range, anchor),
     loadPhysIoChart(range, anchor),  loadDiskKbpsChart(range, anchor),
-    loadDiskSaturationChart(range, anchor), loadStorageUsedChart(range, anchor),
-    loadNetIoChart(range, anchor),   loadRetransChart(range, anchor),
+    loadDiskSaturationChart(range, anchor), loadDiskPsiChart(range, anchor),
+    loadStorageUsedChart(range, anchor),
+    loadNetIoChart(range, anchor),   loadNetPpsChart(range, anchor),
+    loadRetransChart(range, anchor), loadDropChart(range, anchor),
   ]);
 }
 

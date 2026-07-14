@@ -47,13 +47,17 @@ MetricType = Literal[
     "net.drop_percent",
 ]
 # 환경 성능 추이 차트 metric — capacity-weighted(cpu·mem = sum/sum) / 압박(psi %) / 스토리지 사용량(fs.used_bytes 합산) /
-# 활동 합산(disk·net rate) / worst-device 포화(disk.io_saturation) / 전사 품질(net.retrans).
+# 활동 합산(disk·net rate·pps) / worst-device 포화(disk.io_saturation) / 전사 품질(net.retrans·net.drop).
 # 포화 축은 PSI(자원 경합으로 멈춘 시간 %)로 통일 — 간접 지표(run_queue) 대신 직접 지표. 디스크는 worst-device await 유지.
+# 서버 상세 성능 추이(MetricType 전체)와 동일 자원별 신호 카탈로그 유지 의무(#F10 화면 간 정합) — cpu.nice_percent
+# (CPU 분류 4번째 dimension)·disk.psi(스토리지 PSI)·net.rx/tx_packets_per_sec(네트워크 PPS)·net.drop_percent
+# (패킷 드롭율)도 서버 상세에 있는 신호라 여기 포함.
 EnvironmentMetricType = Literal[
     "cpu.usage_percent",
     "cpu.user_percent",
     "cpu.system_percent",
     "cpu.iowait_percent",
+    "cpu.nice_percent",
     "cpu.psi",
     "mem.usage_percent",
     "mem.psi",
@@ -63,9 +67,13 @@ EnvironmentMetricType = Literal[
     "disk.read_kbps",
     "disk.write_kbps",
     "disk.io_saturation",
+    "disk.psi",
     "net.rx_bytes_per_sec",
     "net.tx_bytes_per_sec",
+    "net.rx_packets_per_sec",
+    "net.tx_packets_per_sec",
     "net.retrans_percent",
+    "net.drop_percent",
 ]
 TimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d"]

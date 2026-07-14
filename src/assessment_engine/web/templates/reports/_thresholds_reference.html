@@ -26,7 +26,7 @@
       <tr><td>Saturation (포화)</td><td>자원이 처리 한계를 넘어 대기열이 쌓이는 신호 — CPU run queue(Linux procs_running · Windows Processor Queue Length)·메모리 페이징(Linux swap page-out · Windows Pages Input/sec 하드폴트)·디스크 I/O await(양 OS, Windows 는 IOCTL). 포화 판정은 축별로 다르다: CPU·메모리는 dual-gate — 신호 AND 이용률 임계(70%/90%) 동반 시에만 포화(이용률 낮으면 신호 있어도 포화 아님). 디스크 I/O 는 디바이스 활동 기반 await 라 호스트 이용률이 낮아도 발생 가능. 네트워크 혼잡(재전송·드롭·conntrack)은 별도 품질 플래그(사이징 아님).</td></tr>
       <tr><td>서비스 분류</td><td>호스트 구동 워크로드를 카테고리(web·db·cache·container 등)로 분류 — 서비스 이름·실행 파일·listen 포트 신호 종합. container 등 런타임 스택은 호스트당 1로 카운트.</td></tr>
       <tr><td>메모리 구성</td><td>전체 메모리 대비 used(사용)·available(가용)·cached(페이지 캐시)·buffers(버퍼) 윈도우 평균 비율. cached/buffers 는 회수 가능 영역이라 available 에 포함.</td></tr>
-      <tr><td>CPU 분류</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기) 로 분해한 윈도우 평균 비율. iowait 높으면 디스크 병목.</td></tr>
+      <tr><td>CPU 분류</td><td>CPU 시간을 user(응용)·system(커널)·iowait(디스크 대기)·nice(저우선순위 user) 로 분해한 윈도우 평균 비율. iowait 높으면 디스크 병목. iowait·nice 는 Windows 미측정(nice 개념 자체 부재).</td></tr>
       <tr><td>OS EOL</td><td>OS 배포판·버전의 vendor 지원 종료일(endoflife.date 기준). 임박·경과 시 보안 패치 중단 — 마이그레이션 선행 필요.</td></tr>
       <tr><td>운영 신호</td><td>자원 적정성 평가와 별도의 안정성 신호 — 데이터 수집 끊김(gap)·OS 지원 종료·에이전트 재시작·재부팅 빈도. 분류 정상이어도 발화 시 운영 조치 선행.</td></tr>
       <tr><td>신뢰도</td><td>분류 결과의 확신 수준 단서 — 미관측 축·표본 부족 시 노출. 분류 자체는 가진 데이터로 완결. 상세는 "신뢰도 단서" 절.</td></tr>
