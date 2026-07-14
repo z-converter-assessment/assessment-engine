@@ -22,8 +22,8 @@
   {% for addr in iface.addresses %}
   <div class="sat-line">
     <span class="sat-name">{% if loop.first %}주소{% endif %}</span>
-    {# origin 색 폰트 — topology.html "서브넷별 소속 서버" 표와 동일 단일 진실(static=#1d4ed8 파랑, 그 외=text-meta). #}
-    <span class="sat-val">{% if addr.is_ipv4 %}{{ addr.value }}{% else %}<span class="text-meta">{{ addr.value }}</span>{% endif %}{% if addr.origin == 'static' %} <span style="font-size:10px; font-weight:600; color:#1d4ed8;">{{ addr.origin }}</span>{% elif addr.origin %} <span class="text-meta" style="font-size:10px;">{{ addr.origin }}</span>{% endif %}</span>
+    {# origin 색 폰트 — topology.html "서브넷별 소속 서버" 표와 동일 단일 진실(.text-origin-static 클래스 공유). #}
+    <span class="sat-val">{% if addr.is_ipv4 %}{{ addr.value }}{% else %}<span class="text-meta">{{ addr.value }}</span>{% endif %}{% if addr.origin == 'static' %} <span class="text-origin-static" style="font-size:10px; font-weight:600;">{{ addr.origin }}</span>{% elif addr.origin %} <span class="text-meta" style="font-size:10px;">{{ addr.origin }}</span>{% endif %}</span>
   </div>
   {% endfor %}
   {% endfor %}
@@ -112,7 +112,7 @@
 </div>
 {% endif %}
 
-<!-- 버킷/구간/앵커는 아래 4 차트 공통, 변경 즉시 반영 (환경 성능 추이와 동일 UI, #F10). -->
+<!-- 버킷/구간/앵커는 아래 2 차트 공통, 변경 즉시 반영 (환경 성능 추이와 동일 UI, #F10). -->
 <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
   <span id="bucket-label" class="bucket-label"></span>
   <select class="chart-select no-print" id="page-range-btns" aria-label="구간 선택">
@@ -139,44 +139,15 @@
       </div>
     </div>
     <div id="net-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-    <p class="chart-caption">음영 영역은 집계 구간 내 순간 최대 처리량과 평균의 차이.</p>
   </div>
 
   <div class="card">
     <div class="chart-head">
-      <h2 class="card-title">네트워크 PPS 추이<span class="print-only text-muted text-sm" id="net-pps-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+      <h2 class="card-title">네트워크 이상 여부 추이<span class="print-only text-muted text-sm" id="net-congested-range-print" style="font-weight:normal;"> — 1시간</span></h2>
     </div>
     <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-      <canvas id="net-pps-canvas"></canvas>
-      <div id="net-pps-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
-        해당 기간에 수집된 데이터가 없습니다.
-      </div>
-    </div>
-    <div id="net-pps-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-    <p class="chart-caption">음영 영역은 집계 구간 내 순간 최대 PPS와 평균의 차이.</p>
-  </div>
-
-  <div class="card">
-    <div class="chart-head">
-      <h2 class="card-title">TCP 재전송율 추이<span class="print-only text-muted text-sm" id="retrans-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    </div>
-    <div class="chart-desc">재전송 세그먼트 / 송신 패킷 (%) — 호스트 전역(TCP) · 1% 초과 = 품질 저하 신호(혼잡·손실). 단 트래픽 저활동에선 소수 재전송이 비율을 튀게 해 혼잡 판정에서 억제. 스냅샷 현재값은 위 실시간 메트릭 포화 신호 참조.</div>
-    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-      <canvas id="retrans-canvas"></canvas>
-      <div id="retrans-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
-        해당 기간에 수집된 데이터가 없습니다.
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="chart-head">
-      <h2 class="card-title">패킷 드롭율 추이<span class="print-only text-muted text-sm" id="drop-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    </div>
-    <div class="chart-desc">드롭 패킷 / 전체 송수신 패킷 (%) — 호스트 전역(인터페이스 합산) · 링 버퍼 오버런·경로 손실 신호. 스냅샷 현재값은 위 실시간 메트릭 포화 신호 참조.</div>
-    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-      <canvas id="drop-canvas"></canvas>
-      <div id="drop-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+      <canvas id="net-congested-canvas"></canvas>
+      <div id="net-congested-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
         해당 기간에 수집된 데이터가 없습니다.
       </div>
     </div>

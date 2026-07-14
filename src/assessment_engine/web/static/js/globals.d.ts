@@ -36,6 +36,8 @@ interface ChartUtilsApi {
   initAutoRefresh(onRefresh: () => void, intervalMs?: number): void;
   safeArray<T>(arr: T[] | null | undefined): T[];
   naWindows(osFamily: string | null, key: string, formatted: string): string;
+  setNaText(el: HTMLElement | null, osFamily: string | null, key: string, formatted: string): void;
+  setValText(el: HTMLElement | null, text: string): void;
   buildAvgMaxDatasets(avgRows: any[], maxRows: any[], bMs: number, grid: number[], opts?: any): any[];
   buildAvgMaxLegend(containerId: string, chart: any, opts?: any): any;
   renderChipLegend(container: any, chart: any): void;

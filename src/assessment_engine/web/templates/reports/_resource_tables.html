@@ -1,8 +1,9 @@
-{# 서버별 자원 적정성 표 — 환경 보고서·환경 자원 평가 페이지 공유. 제목·카운트는 호출부 렌더. #}
+{# 서버별 자원 적정성 표 — 환경 보고서·환경 자원 평가 페이지 공유(두 화면 동일 칼럼, #F9 정합). 제목·카운트는 호출부 렌더. #}
 {% from "_shared.html" import empty_state %}
 
 {# 서버별 자원 적정성 통합 표 — 전 서버(자원 부족/과다/유휴/정상/표본 부족) 한 표에.
-   hosts = CapacityWarningItem(분류[부족 시 근본원인 병합]·권고·5축(host_status 구동 축만)·신뢰도).
+   hosts = CapacityWarningItem(분류[부족 시 근본원인 병합]·권고·신뢰도). 5축 원시 수치는 서버 상세 자원별
+   탭에서 확인(본 표는 판별 결과만).
    sortable-table + th.sort-col = assessment.js 칼럼 클릭 정렬. #}
 {% macro _conf_cell(c) %}{% if c.confidence_notes %}{% for n in c.confidence_notes %}<span class="text-meta text-sm">{{ n }}</span>{% if not loop.last %}<span class="text-meta text-sm"> · </span>{% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}{% endmacro %}
 
@@ -10,18 +11,20 @@
    그 외 분류는 무채(root_cause_label 는 자원 부족일 때만 값이라 사실상 항상 빈 문자열). #}
 {% macro _classification_cell(c) %}{% if c.classification_rank == 0 %}<span class="text-danger" style="font-weight:600;">{{ c.classification_label }}{% if c.root_cause_label %} - {{ c.root_cause_label }}{% endif %}</span>{% else %}{{ c.classification_label }}{% if c.root_cause_label %} <span class="text-meta">— {{ c.root_cause_label }}</span>{% endif %}{% endif %}{% endmacro %}
 
-{% macro action_targets_table(hosts, metric_labels, self_back, compact=False) %}
+{% macro action_targets_table(hosts, self_back) %}
 {% if hosts %}
-{% if compact %}
-{# compact — 환경 자원 평가 페이지용. 판별 결과만(수치 임계 축·범례 제거): 분류·권고·네트워크 상태·신뢰도. #}
+{# 판별 결과만(수치 임계 축·범례 제거): 호스트·사양·분류·권고·네트워크 상태·디스크 I/O 상태·신뢰도. 네트워크·
+   디스크 I/O 는 host_status 미구동 orthogonal flag 라 동형 대칭 처리(둘 다 전용 필드, 분류 무관 항상 노출). #}
 <div class="table-scroll">
 <table class="detail-table sortable-table" style="width:100%;">
   <thead>
     <tr>
       <th class="sort-col" style="white-space:nowrap;">호스트</th>
+      <th class="sort-col" style="white-space:nowrap;">CPU · 메모리 · 디스크</th>
       <th class="sort-col" style="white-space:nowrap;">분류</th>
       <th class="sort-col" style="white-space:nowrap;">권고</th>
       <th class="sort-col" style="white-space:nowrap;">네트워크 상태</th>
+      <th class="sort-col" style="white-space:nowrap;">디스크 I/O 상태</th>
       <th class="sort-col" style="white-space:nowrap;">신뢰도</th>
     </tr>
   </thead>
@@ -29,45 +32,17 @@
     {% for c in hosts %}
     <tr>
       <td style="white-space:nowrap;"><a href="/servers/{{ c.public_id }}?back={{ self_back }}" class="row-link">{{ c.hostname }}</a></td>
+      <td class="text-label" style="white-space:nowrap;">{{ c.spec_display }}</td>
       <td style="white-space:nowrap;" data-sort="{{ c.classification_rank }}">{{ _classification_cell(c) }}</td>
       <td class="text-strong" style="white-space:nowrap;">{{ c.recommendation_action or "—" }}</td>
       <td style="white-space:nowrap;{% if c.net_status_color %} color:{{ c.net_status_color }}; font-weight:600;{% endif %}">{{ c.net_status_label or "—" }}</td>
+      <td style="white-space:nowrap;{% if c.disk_io_status_color %} color:{{ c.disk_io_status_color }}; font-weight:600;{% endif %}">{{ c.disk_io_status_label or "—" }}</td>
       <td style="white-space:nowrap;">{{ _conf_cell(c) }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
 </div>
-{% else %}
-<p class="text-meta text-xs" style="margin:0 0 12px;">빨강 = 자원 적정성 분류에 실제로 관여하는 위반(CPU·메모리·디스크 용량) — 표시된 수치는 전부 분류 판정 입력.</p>
-{# 자원 적정성 분류 판정에 관여하는 5축만 칼럼화(host_status 구동 축) — 디스크 I/O·네트워크는 판정 비관여
-   orthogonal 신호라 제외(네트워크는 별도 표시, 디스크 I/O 는 근본원인/진단 텍스트·환경 포화 도넛). 칼럼 수가
-   줄어(5축) 화면·인쇄 모두 한 표로 충분 — 별도 인쇄 2표 분할 불요. #}
-<div class="table-scroll" style="margin-bottom:20px;">
-<table class="detail-table sortable-table" style="width:100%; min-width:680px;">
-  <thead>
-    <tr>
-      <th class="sort-col" style="white-space:nowrap;">호스트</th>
-      <th class="sort-col" style="white-space:nowrap;">분류</th>
-      <th class="sort-col" style="white-space:nowrap;">권고</th>
-      {% for m in metric_labels %}<th class="sort-col" style="white-space:nowrap;">{{ m }}</th>{% endfor %}
-      <th class="sort-col" style="white-space:nowrap;">신뢰도</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for c in hosts %}
-    <tr>
-      <td style="white-space:nowrap;"><a href="/servers/{{ c.public_id }}?back={{ self_back }}" class="row-link">{{ c.hostname }}</a></td>
-      <td style="white-space:nowrap;" data-sort="{{ c.classification_rank }}">{{ _classification_cell(c) }}</td>
-      <td class="text-strong" style="white-space:nowrap;">{{ c.recommendation_action or "—" }}</td>
-      {% for m in c.metrics %}<td style="color:{{ m.color }}; white-space:nowrap;{% if m.active %} font-weight:600;{% endif %}">{{ m.value }}</td>{% endfor %}
-      <td style="white-space:nowrap;">{{ _conf_cell(c) }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-</div>
-{% endif %}{# /compact #}
 {% else %}
 <div style="margin-bottom:20px;">{{ empty_state("평가된 서버가 없습니다.") }}</div>
 {% endif %}

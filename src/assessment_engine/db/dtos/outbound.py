@@ -269,6 +269,11 @@ class SaturationRaw:
     run_queue: float | None = None  # CPU 실행 큐 (Linux procs_running / Windows Processor Queue)
     await_ms: float | None = None  # 디스크 응답 (op_time delta / ops delta)
     pending_ops: float | None = None  # 디스크 큐 깊이 (await 폴백)
+    # 디스크 I/O 이용률 % (물리 disk only — 합성/숨김 pseudo-device 제외, worst device io_time delta / wall-time
+    # delta * 100, USE Method Utilization 축, 0~100 범위). await 와 동일 원칙으로 ops_delta > 0 요구(연산 0건인데
+    # io_time 만 증가하면 구세대 virtio phantom busy 카운터 오탐), io_time delta 가 wall-time 초과(overflow, 카운터
+    # 이상)도 미측정 None. 정상 활동이면 0%도 유효 실측.
+    disk_io_util_pct: float | None = None
     paging_major_rate: float | None = None  # 하드폴트 rate (Linux refault / Windows Pages Input)
     retrans_pct: float | None = None  # TCP 재전송율 %
     drop_pct: float | None = None  # 드롭율 %

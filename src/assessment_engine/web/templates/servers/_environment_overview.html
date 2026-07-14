@@ -78,10 +78,10 @@
   {% endif %}
 </section>
 
-{# 운영 이벤트 / 에러 (fleet) — 에러축(하드웨어·디스크·네트워크·OS EOL) 발생 호스트 수. 전체 기간 조회(에러는 드문 이벤트라 창 제한 부적합). 정상=0 발화(E9). #}
+{# 시스템 에러 (fleet) — 에러축(하드웨어·디스크·네트워크) 발생 호스트 수. 전체 기간 조회(에러는 드문 이벤트라 창 제한 부적합). 정상=0 발화(E9). #}
 {% if overview.error_fleet %}
 <section class="card no-print">
-  <h2 class="card-title" style="margin:0 0 10px;">운영 이벤트</h2>
+  <h2 class="card-title" style="margin:0 0 10px;">시스템 에러</h2>
   <div class="err-fleet">
     {% for e in overview.error_fleet %}
     <div class="err-item"{% if e.detail %} title="{{ e.detail }}"{% endif %}>

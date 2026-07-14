@@ -15,6 +15,16 @@ _TASK_STATUS_DISPLAY: dict[str, tuple[str, str]] = {
 }
 _TASK_STATUS_UNKNOWN: tuple[str, str] = ("rec-unknown", "—")
 
+# task_type -> 사람이 읽는 라벨. 미지 값(향후 신규 타입)은 raw 그대로 폴백(표시 불가 방지).
+_TASK_TYPE_LABEL: dict[str, str] = {
+    "zconverter_install": "ZConverter Install",
+}
+
+
+def _task_type_label(task_type: str) -> str:
+    return _TASK_TYPE_LABEL.get(task_type, task_type)
+
+
 # failure_reason -> 한글 라벨. agent.md task.result 절 단일 진실. "timeout" 은 engine deadline 만료 (agent 미발행).
 _FAILURE_REASON_LABEL: dict[str, str] = {
     "url_not_allowed": "URL 화이트리스트 위반",
@@ -65,7 +75,7 @@ def to_task_summary(row: TaskRow, now: datetime) -> TaskSummaryItem:
     status, _reason, (badge_class, badge_label), failure_label = _effective_display(row, now)
     return TaskSummaryItem(
         task_id=row.public_id,
-        task_type=row.task_type,
+        task_type=_task_type_label(row.task_type),
         status=status,
         badge_class=badge_class,
         badge_label=badge_label,
@@ -110,7 +120,7 @@ def to_task_detail(row: TaskRow, now: datetime) -> TaskDetailItem:
         task_id=row.public_id,
         target_public_id=row.target_public_id,
         target_hostname=row.target_hostname,
-        task_type=row.task_type,
+        task_type=_task_type_label(row.task_type),
         status=status,
         badge_class=badge_class,
         badge_label=badge_label,

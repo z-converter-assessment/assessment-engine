@@ -83,6 +83,20 @@ def test_detail_unknown_signal_number_shows_number_only() -> None:
     assert detail.signal_label == "99"
 
 
+def test_summary_task_type_known_label() -> None:
+    """task_type 카탈로그 히트 — 사람이 읽는 라벨로 치환 (mapper _TASK_TYPE_LABEL)."""
+    row = make_task_row(task_type="zconverter_install")
+    summary = to_task_summary(row, _NOW)
+    assert summary.task_type == "ZConverter Install"
+
+
+def test_summary_task_type_unknown_passes_through() -> None:
+    """알려지지 않은 task_type 은 raw 그대로 (표시 불가 방지 — failure_reason 과 동일 폴백 정책)."""
+    row = make_task_row(task_type="future_new_task")
+    summary = to_task_summary(row, _NOW)
+    assert summary.task_type == "future_new_task"
+
+
 def test_detail_includes_tails() -> None:
     row = make_task_row(
         status="success",

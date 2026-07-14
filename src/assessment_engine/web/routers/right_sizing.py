@@ -58,7 +58,8 @@ async def get_right_sizing(
     응답(servers[]) 서버별 필드:
     - classification / classification_label: 호스트 종합 분류(자원 부족·과다·유휴·적정·표본 부족).
     - root_cause: 근본원인(인과 결합 시 "메모리 (CPU 유발)" 형태).
-    - recommendation: 종합 권고 구조 {summary, kind, actions[], suppressed[]} — actions 만 파싱해 실행(근본원인만).
+    - recommendation: 종합 권고 구조 {summary, kind, actions[], suppressed[]} — actions 만 파싱해 실행(관측된
+      under 자원 전부, 자원별 독립). suppressed 는 항상 빈 배열(구 스키마 호환 필드). root_cause 가 인과 근거.
     - confidence_notes: 신뢰도 하향 사유(표본 부족·포화 수치 미관측 등).
     - resources.cpu / .memory: status·이용률 p95·saturation(OS별 신호·값·임계·포화)·evidence·사이징 목표.
     - resources.disk.capacity: 소진 임박(worst mount·잔여일)·사이징 목표(GB). .disk.io: await 포화.

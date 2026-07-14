@@ -45,7 +45,8 @@
   {% endif %}
 </section>
 
-{# 서브넷별 소속 서버 상세 (IP·인터페이스·게이트웨이) — 그래프와 별개. 발화 가드(#E9): 데이터 없어도 제목 노출. #}
+{# 서브넷별 소속 서버 상세 (IP·MTU·속도·온라인) — 그래프와 별개. 게이트웨이는 서브넷당 이미 1개로
+   disambiguation 돼 있어(mapper) 행마다 반복 안 하고 서브넷 헤더행에 1회만. 발화 가드(#E9): 데이터 없어도 제목 노출. #}
 <section class="card no-print">
   <h2 class="card-title" style="margin:0 0 14px;">서브넷별 소속 서버</h2>
   {% if topology.subnets %}
@@ -55,9 +56,10 @@
     <thead>
       <tr>
         <th style="text-align:left; padding:0 20px 6px 0;">호스트</th>
+        <th style="text-align:left; padding:0 20px 6px 0;">온라인</th>
         <th style="text-align:left; padding:0 20px 6px 0;">IP</th>
-        <th style="text-align:left; padding:0 20px 6px 0;">인터페이스</th>
-        <th style="text-align:left; padding:0 20px 6px 0;">게이트웨이</th>
+        <th style="text-align:right; padding:0 20px 6px 0;">MTU</th>
+        <th style="text-align:right; padding:0 20px 6px 0;" title="인터페이스 협상 링크 속도 상한 — 실측 처리량 아님">링크 속도</th>
         <th style="text-align:left; padding:0 20px 6px 0;">OS</th>
         <th style="text-align:left; padding:0 0 6px 0;">워크로드</th>
       </tr>
@@ -65,14 +67,15 @@
     <tbody>
     {% for sn in topology.subnets %}
     <tr>
-      <td colspan="6" class="text-md" style="font-family:monospace; font-weight:600; color:#334155; padding:{% if not loop.first %}16px{% else %}4px{% endif %} 0 7px; border-bottom:1px solid #e2e8f0;">{{ sn.net_key }} <span class="text-meta text-xs" style="font-weight:400;">· {{ sn.host_count }}대</span></td>
+      <td colspan="7" class="text-md" style="font-family:monospace; font-weight:600; color:#334155; padding:{% if not loop.first %}16px{% else %}4px{% endif %} 0 7px; border-bottom:1px solid #e2e8f0;">{{ sn.net_key }} <span class="text-meta text-xs" style="font-weight:400;">· {{ sn.host_count }}대 · 게이트웨이 {{ sn.gateway or "—" }}</span></td>
     </tr>
     {% for h in sn.hosts %}
     <tr>
       <td style="padding:4px 20px 4px 0; white-space:nowrap;"><a href="/servers/{{ h.public_id }}?back={{ self_back }}">{{ h.hostname }}</a>{% if h.multi_homed %} <span style="display:inline-block; font-size:10px; font-weight:600; color:#b45309; background:#fef3c7; border-radius:3px; padding:1px 5px;">멀티홈</span>{% endif %}</td>
-      <td class="text-label" style="padding:4px 20px 4px 0; white-space:nowrap; font-family:monospace;">{{ h.ip }}{% if h.origin == 'static' %} <span style="font-size:10px; font-weight:600; color:#1d4ed8;">static</span>{% elif h.origin %} <span class="text-meta" style="font-size:10px;">{{ h.origin }}</span>{% endif %}</td>
-      <td class="text-label" style="padding:4px 20px 4px 0; white-space:nowrap;">{{ h.iface or "—" }}</td>
-      <td class="text-label" style="padding:4px 20px 4px 0; white-space:nowrap; font-family:monospace;">{{ h.gateway or "—" }}</td>
+      <td style="padding:4px 20px 4px 0; white-space:nowrap;">{% if h.is_online %}<span class="status-on">온라인</span>{% else %}<span class="status-off">오프라인</span>{% endif %}</td>
+      <td class="text-label" style="padding:4px 20px 4px 0; white-space:nowrap; font-family:monospace;">{{ h.ip }}{% if h.origin == 'static' %} <span class="text-origin-static" style="font-size:10px; font-weight:600;">static</span>{% elif h.origin %} <span class="text-meta" style="font-size:10px;">{{ h.origin }}</span>{% endif %}</td>
+      <td class="text-label" style="padding:4px 20px 4px 0; text-align:right;">{% if h.mtu is not none %}{{ h.mtu }}{% else %}—{% endif %}</td>
+      <td class="text-label" style="padding:4px 20px 4px 0; text-align:right; white-space:nowrap;">{% if h.speed_mbps is not none %}{{ h.speed_mbps }} Mbps{% else %}—{% endif %}</td>
       <td class="text-label" style="padding:4px 20px 4px 0;">{{ h.os_family }}</td>
       <td style="padding:4px 0;">{% for r in h.roles %}<span class="badge {{ r | service_badge_class }}" style="margin-right:3px;">{{ r }}</span>{% else %}<span class="text-meta text-xs">—</span>{% endfor %}</td>
     </tr>

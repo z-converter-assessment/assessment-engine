@@ -219,6 +219,10 @@ class EnvironmentReportSummary:
     # 환경 시계열 추이 (engineer) — 발행 모달 time_range 윈도우의 CPU·메모리 평균 버킷. 정적 스냅샷.
     # 차트 JS inline(tojson)용 plain dict: [{"at": iso, "cpu": float|None, "mem": float|None}].
     trend: list[dict] = field(default_factory=list)
+    # 개별 보고서 전용(single engineer) — 자원 포화 여부 3축(CPU 실행 큐/메모리 페이징/디스크 I/O) 시계열.
+    # trend 와 동일 발행 윈도우·bucket, 원자료·임계는 recommendation.cpu_saturated/mem_pressure_active/
+    # disk_io_saturated 와 동일(서버 상세 단일 진실 이식). plain dict 이진 0/1(포화/정상) — 그 외 스코프는 빈 list.
+    sat_trend: list[dict] = field(default_factory=list)
     # 통합 조치 대상 표 — 자원 부족/과다 할당/유휴 한 표 (자원 평가 페이지와 동일 build_action_targets·정렬).
     action: ActionTargets = field(default_factory=ActionTargets)
     # 서비스 구성 — 선택 N대 전체의 워크로드 카테고리별 제품명 집합 (뱃지 + 매칭 서비스명). base.rows 의

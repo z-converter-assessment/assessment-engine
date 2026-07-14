@@ -289,6 +289,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                 {
                     "hostname": d.hostname,
                     "public_id": d.public_id,
+                    "os_family": d.os_family,
                     # 부하 상위(서버별 값) — 개별 호스트 랭킹. 실시간 부하 신호만(디스크 용량은 느린 신호라 제외).
                     "cpu_pct": m.cpu.usage_pct if m.cpu else None,
                     "mem_pct": mem.usage_pct if mem else None,
@@ -299,6 +300,8 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                     "disk_sat_index": recommendation.disk_io_saturation_index(
                         sat.await_ms, sat.pending_ops, d.os_family
                     ),
+                    # 디스크 I/O 이용률(worst device busy%, USE Method Utilization 축) — 응답지연(Saturation)과 별개.
+                    "disk_util_pct": sat.disk_io_util_pct,
                     # 페이징 rate(major fault/s)·네트워크 rate(kB/s) — 부하 상위 랭킹 raw + 포화 도넛(불리언) 입력.
                     "paging_rate": sat.paging_major_rate,
                     "net_kbps": net_rate,
@@ -347,7 +350,8 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         if not server_ids:
             return build_network_topology([])
         details = await self.repo.get_servers(server_ids)
-        return build_network_topology(details)
+        online_by_id = await self._online_map(server_ids, details, datetime.now(UTC))
+        return build_network_topology(details, online_by_id)
 
     async def get_fleet_status(self) -> FleetStatus:
         """전역 상단 바 — 온라인 대수/전체 + 마지막 메트릭 수집 시각. 온라인·최신성 각각 단일 소스 경유."""

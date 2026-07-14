@@ -12,7 +12,8 @@ from typing import Literal
 
 from assessment_engine import recommendation
 from assessment_engine.service_classifier import SERVICE_CATALOG
-from assessment_engine.web.services.device_filters import is_virtual_interface
+from assessment_engine.web.services.device_filters import disk_total_bytes, is_virtual_interface
+from assessment_engine.web.services.unit_converter import bytes_to_gib
 from assessment_engine.web.view_models.server import ServiceBadgeRef
 
 # ─── UI 임계값 — base.html body data-attribute 동기화 (#E1 P3 · ADR 0015) ────
@@ -148,6 +149,24 @@ def primary_ip(raw) -> str | None:
             if a.get("family") == "ipv4":
                 return a.get("address")
     return None
+
+
+def spec_display_line(cpu_cores: int | None, mem_total_bytes: int | None, block_devices: list[dict] | None) -> str:
+    """정적 배정 사양 한 줄("4코어 · 8.00GB · 100GB") — 서버 목록·환경 자원 평가 compact 표 공용(P2 단일 진실).
+
+    실무정석: 값은 2진(GiB, 2^30)이되 라벨은 "GB"(free -h·df -h·클라우드 콘솔 관습) — OS·RAM·OpenStack
+    프로비저닝이 2진 기준이라 30GiB 디스크가 "30GB"로 떨어져 딱 맞음. 각 값 부재는 "—".
+    """
+    disk_bytes = disk_total_bytes(block_devices)
+    mem_spec = (mem_total_bytes / 1024**3) if mem_total_bytes else None
+    disk_gib = bytes_to_gib(disk_bytes) if disk_bytes else None
+    return " · ".join(
+        [
+            f"{cpu_cores}코어" if cpu_cores else "—",
+            f"{mem_spec:.2f}GB" if mem_spec else "—",
+            f"{disk_gib:.0f}GB" if disk_gib else "—",
+        ]
+    )
 
 
 def resource_confidence_notes(c: recommendation.ConfidenceNote) -> list[str]:

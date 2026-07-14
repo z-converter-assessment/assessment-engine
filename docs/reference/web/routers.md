@@ -25,10 +25,10 @@
 | `GET /servers?search=&is_online=&service=&os_id=&classification=&page=&limit=` | `servers_list` | 서버 목록 — 검색·온라인·서비스·OS·프로비저닝 필터 + 선택 N대 액션 버튼 (Install/Export/보고서). 필터 AND 조합 — service category (web/db/cache/mq/container/monitor/remote/file/mail/infra) · os_id (distro 정확 일치) · classification (under/over/idle/shutdown/optimal/insufficient_data). 검색 버튼 없음, 변경 즉시 client-side filter + URL replaceState. 기본 20행 표시 후 client clip(더보기/접기). `fragment=rows` 면 행 partial 만 |
 | `GET /environment/assessment?time_range=&anchor_at=&fragment=` | `assessment` | 환경 자원 평가 — 윈도우/앵커 선택 -> 자원 적정성 평가 + 자원 부족 전체 목록(상위 N 절단 해제). `fragment=result` 면 결과 partial 만(JS swap). time_range 기본 `DIAGNOSTIC_DEFAULT_TIME_RANGE`(14d) |
 | `GET /environment/topology` | `topology` | 네트워크 토폴로지 — L3 subnet 공동소속 집계 그래프(subnet 노드 클릭 시 host 펼침) + 서브넷별 서버 카드 |
-| `GET /environment/metrics?ids=` | `environment_metrics` | 환경(또는 선택 N대) 성능 추이 — 14차트 live. ids(public_ids) 면 선택 N대 한정, 제목 "선택 N대" |
-| `GET /environment/realtime?ids=&fragment=` | `environment_realtime` | 환경(또는 선택 N대) 실시간 현황 — 이용률 3 + 신호 4 도넛 + 환경 I/O 총량 + 부하 상위 탑3. `realtime.js` 30초 polling(fragment swap). fragment=realtime 면 partial 만 |
+| `GET /environment/metrics?ids=` | `environment_metrics` | 환경(또는 선택 N대) 성능 추이 — 8차트 live. ids(public_ids) 면 선택 N대 한정, 제목 "선택 N대" |
+| `GET /environment/realtime?ids=&fragment=` | `environment_realtime` | 환경(또는 선택 N대) 실시간 현황 — 이용률 2(CPU·메모리) + 신호 4 도넛 + 서버별 실시간 부하 sortable-table(7축 호스트당 1행 — 디스크 이용률은 표 전용, 도넛 없음. 칼럼 클릭 정렬). `realtime.js` 30초 polling(fragment swap). fragment=realtime 면 partial 만 |
 | `GET /servers/{server_id}` | `get_server` | detail 탭 |
-| `GET /servers/{server_id}/{cpu,memory,services,metrics}` | 동일 helper | `_render_server_tab` 탭 공유. metrics=성능 추이(자원별 `.perf-stack` 카드 + 카드 안 `.perf-grid`/`.perf-item` 낱개 차트, 화면 2열/인쇄 4열 landscape) |
+| `GET /servers/{server_id}/{cpu,memory,services,metrics}` | 동일 helper | `_render_server_tab` 탭 공유. metrics=성능 추이(자원별 `.perf-stack` 카드 + 카드 안 `.perf-grid`/`.perf-item` 낱개 차트, 화면·인쇄 모두 2열 — 인쇄는 A4 portrait 1페이지, `static-assets.md` 단일 진실) |
 | `GET /servers/{server_id}/{storage,network}` | 별도 핸들러 | 다른 service 메서드 |
 | `GET /servers/{server_id}/report?view=&time_range=` | `single_server_report` | 단일 server 보고서 read-only. record 안 함 (1대 단위는 발행 흐름 없음) |
 | `GET /reports/servers?ids=&view=customer\|engineer&time_range=&job=` | `report` | 선택 N대 보고서 표시 (scope=server). job 있으면 정적 스냅샷, 없으면 read-only live preview (PRG). view 파라미터로 분기 |
@@ -71,7 +71,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 |------|------|
 | `GET /api/right-sizing?hostname=&ip=&public_id=&pair=&window_days=&end=` | 서버별 자원 적정성 판정 JSON — 외부 자동화 소비. 화면·보고서와 동일 산식(`report_aggregate` -> `rollup_host`, 재계산 0). 외부는 내부 public_id 를 모르는 게 보통이라 hostname/ip 로 조회한다. 파라미터·응답 스키마·enum·권고 포맷·호스트명 충돌 안전은 Swagger(`/docs`)·ReDoc(`/redoc`)가 OpenAPI 스펙(라우터 docstring·Pydantic 응답 모델) 기준 단일 소유 |
 
-`GET /reference/api` (`reference_router`) — JSON API 엔드포인트 목록(OpenAPI 파생, 메서드·경로·요약·파라미터·요청 본문 필드명만) + Swagger(`/docs`)·ReDoc(`/redoc`) 링크. 상세 스키마·enum·예시는 중복 문서화하지 않고 Swagger/ReDoc 단일 진실로 위임(#F12·docs/README 1원칙).
+`GET /reference/api` (`reference_router`) — 외부 연동 카탈로그만(OpenAPI 파생, 메서드·경로·요약·파라미터·요청 본문 필드명). 태그 화이트리스트(assessment/right-sizing/exports/tasks) + JSON 응답만 필터링 — 화면 전용 내부 데이터 조회(`api` 태그)·HTML fragment 엔드포인트는 제외(`services/mappers/api_reference.py` `_ALLOWED_TAGS`/`_returns_json`). 상세 스키마·enum·예시는 중복 문서화하지 않고 Swagger(`/docs`)·ReDoc(`/redoc`) 단일 진실로 위임(#F12·docs/README 1원칙).
 
 ### `reports.py` — 보고서 SSR + 발행 (PRG 패턴)
 | 경로 | 용도 |
@@ -79,7 +79,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | `GET /reports/environment?view=&time_range=&anchor_at=` | 환경 보고서 표시. GET 은 read-only — record 안 함 (PRG) |
 | `POST /reports/environment/emit?view=&time_range=&anchor_at=` | 환경 보고서 발행 record + `{view_url}` 응답 (JS navigate) |
 | `GET /reports/history?days=&view=&scope=&server_public_ids=&full=&fragment=` | 보고서 발행 이력. 기본 20건 + `full=1` 시 전체. `fragment=1` 시 partial HTML 만 (filter 변경 즉시 적용용) |
-| `GET /reference` | 참고 페이지 (`reference_router`) — 지표 정의(`_metric_definitions`: 활용률·집계·모니터링 화면 지표 계산 정의) + 자원 적정성 평가 임계값(`_thresholds_reference`, recommendation 단일 진실). 각 페이지 하단 `_reference_link` 가 `#metric-definitions` 앵커로 링크. 사이드바 "참고" 그룹 |
+| `GET /reference` | 참고 페이지 (`reference_router`) — 지표 정의(`_metric_definitions`) + 에이전트-엔진 데이터 계약·수집 함수 근거·assessment API 계약 요약(`_agent_contract_reference`) + 자원 적정성 평가 임계값·근거 계층·임계 상수 전체·Errors 축 설명(`_thresholds_reference`, recommendation 단일 진실) + 서비스 뱃지 카탈로그(`_service_badges`). 각 페이지 하단 `_reference_link` 는 앵커 링크 없이 "사이드바 참고 그룹에서 확인" 안내만(경량 링크, `_reference_footer.html`). 사이드바 "참고" 그룹 |
 
 ## 검증·에러 매핑
 

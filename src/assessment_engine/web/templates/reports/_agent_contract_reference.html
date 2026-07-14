@@ -1,0 +1,184 @@
+{# 에이전트-엔진 데이터 계약 + 수집 함수 근거 + assessment API 계약 — "지표·기준" 페이지 3개 섹션.
+   정본은 docs/reference/contracts/agent-data.md·assessment-api.md·별도 agent repo 소스 — 본 섹션은 그
+   요약을 화면에 노출(가시성보다 완결성 우선, 근거 제공 목적). #}
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">에이전트-엔진 데이터 계약 (wire 스키마)</h2>
+  <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
+    에이전트(원격 호스트 설치형, C 언어 — Linux 정적 바이너리 · Windows PE)가 RabbitMQ 로 발행하는 메시지
+    형식. 정본 스키마는 별도 agent repo <code>schema/wire.schema.json</code>(JSON Schema)·<code>schema/metric-vocab.json</code>(어휘 정본, CI 드리프트 검증) — 엔진 쪽 사람이 읽는 카탈로그는
+    <code>docs/reference/contracts/agent-data.md</code>(전체 384행 — envelope·메시지별 required 매트릭스·
+    metric 카탈로그·USE 매핑까지). 본 절은 그 핵심만 발췌한다.
+  </p>
+
+  <h3 style="margin-top:18px;">Envelope (모든 메시지 공통, 불변 메타)</h3>
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>필드</th><th>의미</th></tr></thead>
+    <tbody>
+      <tr><td><code>schema_version</code></td><td>wire 계약 버전("1.0") — major 다르면 엔진이 구조 전환(flag-day) 트리거, minor 는 silent 호환.</td></tr>
+      <tr><td><code>message_type</code></td><td><code>inventory</code> / <code>metrics</code> / <code>task.result</code> / <code>error</code> 4종.</td></tr>
+      <tr><td><code>agent_id</code></td><td>불변 식별 UUID — 최초 실행 시 1회 생성해 로컬 저장(원자적 temp+fsync+rename), 재부팅·NIC MAC 재발급에도 불변. MQ 라우팅 단일 키.</td></tr>
+      <tr><td><code>message_id</code></td><td>메시지 UUID v4 — 멱등성 1단(Redis SET NX 24h) 키.</td></tr>
+      <tr><td><code>collected_at</code></td><td>수집 시각(ISO 8601, tz-aware) — 시계열 자연키의 일부.</td></tr>
+      <tr><td><code>boot_time</code> / <code>agent_started_at</code></td><td>재부팅·에이전트 재시작 판별(카운터 reset 정밀 식별). <code>task.result</code> 메시지는 발행 worker 컨텍스트가 수집 캐시와 분리돼 항상 null.</td></tr>
+      <tr><td><code>os_family</code></td><td><code>linux</code> / <code>windows</code> — os-aware 분기(임계·필드 존재 여부)의 단일 출처.</td></tr>
+      <tr><td><code>agent_version</code></td><td>에이전트 semver — major bump 는 엔진 코드 수정 트리거.</td></tr>
+      <tr><td><code>composite_id</code></td><td>machine_id + MAC 목록 SHA-256 — 식별·라우팅 미사용, clone collision 감사·표시 전용(nullable).</td></tr>
+      <tr><td><code>machine_id</code></td><td>raw machine-id 표시 전용(nullable).</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 style="margin-top:18px;">메시지 타입 4종</h3>
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>타입</th><th>주기</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td><code>inventory</code></td><td>기본 3600초(+15% jitter) — 정적 구성 변경 시 즉시 재발행 트리거도 존재</td><td>정적 호스트 서술자(OS·CPU 모델·펌웨어 등 15필드) + <code>block_devices[]</code>(파티션/LVM/RAID/crypt 트리) + <code>net_interfaces[]</code> + <code>lvm_vgs[]</code> + <code>services[]</code>/<code>listen_ports[]</code>.</td></tr>
+      <tr><td><code>metrics</code></td><td>기본 60초(<code>AGENT_INTERVAL_SEC</code>)</td><td><code>system.*</code> datapoint-array(<code>{type, unit, points:[{attr, value}]}</code>) — CPU/메모리/paging/디스크/파일시스템/네트워크/PSI/cgroup 8그룹.</td></tr>
+      <tr><td><code>task.result</code></td><td>task.install 수신 후 1회</td><td>설치 스크립트 실행 결과 — <code>exit_code</code>/<code>signal_no</code> 상호배타(POSIX wait status), stdout/stderr 4KB tail.</td></tr>
+      <tr><td><code>error</code></td><td>비정기(장애 시)</td><td><code>failed_component</code>(자유 문자열, wire permissive) + 메시지.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 style="margin-top:18px;">Metric 카탈로그 (8그룹, <code>system.*</code>)</h3>
+  <p class="text-md text-label" style="margin:0 0 8px; line-height:1.6;">
+    그룹별 정확한 unit·attr·Linux/Windows 소스·null 조건은 <code>agent-data.md</code> G절 표 단일 진실. 요지:
+  </p>
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>그룹</th><th>대표 metric</th><th>Windows 특이사항</th></tr></thead>
+    <tbody>
+      <tr><td>cpu</td><td>user/system/iowait/nice/steal/irq(s 카운터)·run_queue·blocked·psi·mce</td><td>iowait 개념 없음(Processor Queue Length 로 대체) · blocked·mce·psi 는 항상 null</td></tr>
+      <tr><td>memory</td><td>free/available/cached/buffered/committed/hardware_corrupted/oom_kill</td><td>cached/buffered/hardware_corrupted/oom_kill 개념 없음 → null</td></tr>
+      <tr><td>paging</td><td>in/out/major(counter)</td><td>Pages Input/Output/sec(perflib) — major fault 개념 없어 major 는 항상 null</td></tr>
+      <tr><td>disk</td><td>read/write ops·bytes·op_time(await 산출)·io_time(util 산출)·pending_ops</td><td>동일 카탈로그, PhysicalDisk perflib 카운터 기반</td></tr>
+      <tr><td>filesystem</td><td>usage(used/free bytes)·inode usage</td><td>inode 개념 없음(NTFS) → null</td></tr>
+      <tr><td>network</td><td>rx/tx bytes·packets·errors·dropped·link.speed·tcp.retransmits·conntrack</td><td>conntrack 개념 없음 → null</td></tr>
+      <tr><td>pressure (PSI)</td><td>cpu/memory/io 의 stall time·ratio</td><td>커널 4.20+ 전용 개념(<code>/proc/pressure/*</code>) — Windows 전체 null, 구세대 Linux 커널도 null</td></tr>
+      <tr><td>cgroup</td><td>CPU throttle·memory current/max</td><td>Windows 미해당 → null</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 style="margin-top:18px;">안정키 정책 (device 식별)</h3>
+  <p class="text-md text-label" style="margin:0; line-height:1.6;">
+    디스크·네트워크 시계열은 major/minor·인터페이스명 같은 휘발성 식별자 대신 안정키를 쓴다 — 디스크는
+    dm-uuid → partuuid → wwid → serial → by-id → by-path → name 폴백 체인, 네트워크는 MAC 주소. 물리
+    disk(<code>type=disk</code>)·물리 iface(<code>kind in physical/bond_master</code>)만 시계열 집계에
+    포함해 LVM/RAID/crypt·가상 브리지의 이중집계를 배제한다(ADR 0054 5항).
+  </p>
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">에이전트 수집 함수 — Linux / Windows 근거</h2>
+  <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
+    각 필드가 실제로 무슨 함수·정보원을 통해 수집되는지 — 별도 agent repo(<code>src/</code> Linux,
+    <code>windows-agent/src/</code> Windows) 소스 코드 기준. Windows 는 WMI 를 전혀 쓰지 않는다 — perflib
+    raw 카운터(<code>RegQueryValueExA(HKEY_PERFORMANCE_DATA)</code>) · Native API(<code>NtQuerySystemInformation</code>) ·
+    IOCTL · 레지스트리를 직접 호출한다.
+  </p>
+
+  <h3 style="margin-top:18px;">Linux — <code>/proc</code>·<code>/sys</code> 직접 파싱</h3>
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>항목</th><th>함수(파일:라인)</th><th>정보원</th></tr></thead>
+    <tbody>
+      <tr><td>CPU jiffies(user/nice/system/idle/iowait/irq/softirq/steal)</td><td><code>metrics_collect_cpu</code>(collect_metrics.c:116)</td><td><code>/proc/stat</code> per-cpu 행, <code>sysconf(_SC_CLK_TCK)</code> 로 s 환산</td></tr>
+      <tr><td>CPU run_queue / blocked</td><td><code>metrics_collect_cpu</code>(collect_metrics.c:146,154)</td><td><code>/proc/stat</code> procs_running/procs_blocked</td></tr>
+      <tr><td>CPU MCE</td><td><code>proc_interrupts_mce</code>(collect_metrics.c:91)</td><td><code>/proc/interrupts</code> "MCE:" 행 per-CPU 합산</td></tr>
+      <tr><td>메모리 free/available/cached/buffered</td><td><code>metrics_collect_memory</code>(collect_metrics.c:170)</td><td><code>/proc/meminfo</code></td></tr>
+      <tr><td>oom_kill / pswpin / pswpout / pgmajfault</td><td><code>metrics_collect_memory</code>(collect_metrics.c:197)</td><td><code>/proc/vmstat</code></td></tr>
+      <tr><td>EDAC correctable/uncorrectable</td><td><code>metrics_collect_memory_errors</code>(collect_metrics.c:388)</td><td><code>/sys/devices/system/edac/mc*/ce_count</code>·<code>ue_count</code></td></tr>
+      <tr><td>디스크 I/O ops/bytes/시간/큐</td><td><code>metrics_collect_disk</code>(collect_metrics.c:45)</td><td><code>/proc/diskstats</code></td></tr>
+      <tr><td>파일시스템 usage/inode</td><td><code>metrics_collect_filesystem</code>(collect_metrics.c:301)</td><td><code>/proc/self/mountinfo</code> 실마운트 열거 + <code>statvfs()</code></td></tr>
+      <tr><td>네트워크 I/O/packets/errors/dropped/speed</td><td><code>metrics_collect_network</code>(collect_metrics.c:220)</td><td><code>/proc/net/dev</code> + <code>/sys/class/net/&lt;if&gt;/speed</code></td></tr>
+      <tr><td>TCP 재전송(network.tcp.retransmits)</td><td><code>snmp_tcp_retranssegs</code>(collect_util.c:395)</td><td><code>/proc/net/snmp</code> Tcp: RetransSegs</td></tr>
+      <tr><td>conntrack usage/limit</td><td><code>metrics_collect_network</code>(collect_metrics.c:264)</td><td><code>/proc/sys/net/netfilter/nf_conntrack_count</code>·<code>_max</code></td></tr>
+      <tr><td>PSI(pressure.stall)</td><td><code>metrics_collect_pressure</code>(collect_metrics.c:273)</td><td><code>/proc/pressure/{cpu,memory,io}</code>(커널 4.20+, 없으면 null)</td></tr>
+      <tr><td>cgroup CPU throttle/memory</td><td><code>metrics_collect_cgroup</code>(collect_metrics.c:413)</td><td><code>/sys/fs/cgroup/cpu.stat</code>(v2)/<code>cpu/cpu.stat</code>(v1)·<code>memory.current</code>/<code>memory.max</code></td></tr>
+      <tr><td>boot_time</td><td><code>cached_boot_time_iso</code>(collect_model.c:34)</td><td><code>/proc/stat</code> "btime " 행</td></tr>
+      <tr><td>block_devices(파티션/LVM/RAID/crypt)</td><td><code>inv_collect_block_devices</code>(collect_inventory.c:1787) 외 다수</td><td><code>/sys/block</code> 열거 + GPT/MBR 직접 <code>pread()</code> 파싱 + <code>/sys/block/*/dm/uuid</code>(LVM/crypt/mpath) + <code>/etc/lvm/backup/&lt;vg&gt;</code> 텍스트 파싱 + <code>DM_TABLE_STATUS</code> ioctl(thin-pool)</td></tr>
+      <tr><td>net_interfaces(토폴로지)</td><td><code>inv_collect_net_interfaces</code>(collect_inventory.c:2002)</td><td><code>/sys/class/net</code> + <code>getifaddrs()</code> + netlink <code>RTM_GETADDR</code>(주소 origin static/dhcp) + <code>/proc/net/route</code></td></tr>
+      <tr><td>services(systemd units)</td><td><code>inv_collect_services</code>(collect_inventory.c:475)</td><td><code>systemctl list-units</code> + 배치 <code>systemctl show</code>. systemd 부재 시 <code>/var/lock/subsys</code> 폴백</td></tr>
+      <tr><td>listen_ports</td><td><code>inv_collect_listen_ports</code>(collect_inventory.c:760)</td><td><code>/proc/net/{tcp,tcp6,udp,udp6}</code> + <code>/proc/*/fd</code> socket inode 역매핑</td></tr>
+      <tr><td>OS 식별/machine_id</td><td><code>add_os_release</code>(collect_inventory.c:284)/<code>resolve_machine_id</code>(collect_model.c:306)</td><td><code>/etc/os-release</code>(폴백: redhat-release 등) / <code>/etc/machine-id</code> → dbus → 클라우드 IMDS</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 style="margin-top:18px;">Windows — perflib · Native API · IOCTL · 레지스트리</h3>
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>항목</th><th>함수(파일:라인)</th><th>카운터/API</th></tr></thead>
+    <tbody>
+      <tr><td>CPU per-cpu user/system/idle</td><td><code>metrics_collect_cpu</code>(windows-agent/collect_metrics.c:55)</td><td><code>NtQuerySystemInformation(SystemProcessorPerformanceInformation)</code></td></tr>
+      <tr><td>CPU run_queue</td><td>同上(:96)</td><td>perflib <code>\System\Processor Queue Length</code></td></tr>
+      <tr><td>메모리 available/free/limit</td><td><code>metrics_collect_memory</code>(collect_metrics.c:128)</td><td><code>GlobalMemoryStatusEx</code> + perflib <code>\Memory\Free &amp; Zero Page List Bytes</code></td></tr>
+      <tr><td>commit usage/limit</td><td>同上</td><td>perflib <code>\Memory\Committed Bytes</code>·<code>\Memory\Commit Limit</code></td></tr>
+      <tr><td>paging in/out</td><td>同上(:157)</td><td>perflib <code>\Memory\Pages Input/sec</code>·<code>\Memory\Pages Output/sec</code></td></tr>
+      <tr><td>디스크 I/O/큐/시간 (per-disk)</td><td><code>metrics_collect_disk</code>(collect_metrics.c:186)</td><td>perflib <code>\PhysicalDisk(N)\% Idle Time</code>·<code>Avg. Disk sec/Read|Write</code>·<code>Current Disk Queue Length</code>·<code>Disk Reads|Writes/sec</code></td></tr>
+      <tr><td>네트워크 I/O/packets/errors/speed</td><td><code>metrics_collect_network</code>(collect_metrics.c:281)</td><td><code>GetIfTable2</code>(NT6+) 우선, <code>GetIfTable</code>(NT5.2) 폴백</td></tr>
+      <tr><td>TCP 재전송</td><td>同上(:348)</td><td><code>GetTcpStatistics().dwRetransSegs</code></td></tr>
+      <tr><td>파일시스템 usage</td><td><code>metrics_collect_filesystem</code>(collect_metrics.c:359)</td><td><code>GetLogicalDriveStringsW</code> + <code>GetDiskFreeSpaceExW</code> + <code>GetVolumeInformationW</code></td></tr>
+      <tr><td>boot_time</td><td><code>get_boot_time_iso8601</code>(util.c:235)</td><td><code>NtQuerySystemInformation(SystemTimeOfDayInformation)</code>.BootTime, 실패 시 현재시각−uptime 역산</td></tr>
+      <tr><td>block_devices(물리디스크/파티션/볼륨)</td><td><code>inv_collect_block_devices</code>(collect_inventory.c:779)</td><td><code>IOCTL_DISK_GET_LENGTH_INFO</code>·<code>IOCTL_DISK_GET_DRIVE_LAYOUT_EX</code>(GPT/MBR)·<code>FindFirstVolumeW</code>·<code>IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS</code></td></tr>
+      <tr><td>디스크 안정키</td><td><code>win_disk_id</code>(collect_util.c:425)</td><td>GPT DiskId → MBR Signature → <code>IOCTL_STORAGE_QUERY_PROPERTY</code>(serial)</td></tr>
+      <tr><td>pagefile(swap 노드)</td><td><code>inv_collect_block_devices</code> 하단(collect_inventory.c:852)</td><td><code>NtQuerySystemInformation(SystemPageFileInformation)</code></td></tr>
+      <tr><td>net_interfaces</td><td><code>inv_collect_net_interfaces</code>(collect_inventory.c:939)</td><td><code>GetAdaptersAddresses</code>(GAA) + <code>GetIpForwardTable</code></td></tr>
+      <tr><td>services</td><td><code>inv_collect_services</code>(collect_inventory.c:155)</td><td>SCM <code>OpenSCManagerW</code> + <code>EnumServicesStatusExW</code></td></tr>
+      <tr><td>listen_ports</td><td><code>inv_collect_listen_ports</code>(collect_inventory.c:363)</td><td><code>GetExtendedTcpTable</code>/<code>GetExtendedUdpTable</code></td></tr>
+      <tr><td>OS 버전/machine_id</td><td><code>os_version_info</code>(collect_inventory.c:48)/<code>resolve_machine_id</code>(collect_model.c:132)</td><td>레지스트리 <code>CurrentVersion\DisplayVersion</code> 등 / <code>Cryptography\MachineGuid</code></td></tr>
+      <tr><td>CPU 모델 문자열</td><td><code>cpu_model_string</code>(collect_inventory.c:102)</td><td><code>__cpuid</code>(brand string leaves) — WMI 미사용</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="text-md text-label" style="margin:12px 0 0; line-height:1.6;">
+    수집 주기: metrics 기본 60초(<code>AGENT_INTERVAL_SEC</code>), inventory 기본 3600초 + 15% jitter
+    (<code>AGENT_INVENTORY_REFRESH_SEC</code>). task.install 실행: 큐 <code>agent.tasks.&#123;agent_id&#125;</code> polling →
+    호스트 화이트리스트 검증 + SHA-256 검증 다운로드 → tar 추출 → <code>install.sh</code> 실행(기본 timeout 600초,
+    <code>RLIMIT_*</code> 적용, SIGTERM 후 5초 뒤 SIGKILL) → <code>task.result</code> 발행.
+  </p>
+</section>
+
+<section class="card" style="margin-bottom:16px;">
+  <h2 class="card-title">Assessment API 계약 (<code>GET /api/assessment</code>)</h2>
+  <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
+    재해복구/마이그레이션 에이전트가 타겟 VM 을 재현(소스 레이아웃 그대로) 또는 수정 사이징(관측 부하 맞춤)으로
+    생성하는 데 필요한 것을 한 응답으로 반환하는 외부 연동 계약. 정본은
+    <code>docs/reference/contracts/assessment-api.md</code>(538행) — 파라미터 전체·JSON 예시·엣지 케이스는
+    거기서 확인. 본 절은 설계 원칙과 사이징 모델만 요약한다.
+  </p>
+
+  <h3 style="margin-top:18px;">설계 원칙</h3>
+  <ul style="margin:0 0 12px; padding-left:22px; line-height:1.9; font-size:13px; color:#334155;">
+    <li>안전 &gt; 정확 &gt; 절감 — 과소 사이징(대상이 부하를 못 받는 상황)을 절대 만들지 않는 게 최우선. 셋이 충돌하면 항상 안전이 이긴다.</li>
+    <li>플랫폼 중립 — vCPU·MiB·GiB 같은 원시 수량으로 응답, 특정 하이퍼바이저·클라우드 SKU 이름에 묶이지 않는다.</li>
+    <li>재현 범위 — 레이아웃 청사진(OS·스토리지·네트워크 구성)까지만. 데이터 이관 자체는 계약 범위 밖.</li>
+    <li>계약 규약(never-change) — <code>contract_version</code>(major.minor)은 additive-only. 필드 추가는 minor, 구조 파괴는 major(현 1.0). 소비자는 모르는 axis 를 <code>max(current, recommended)</code>로, 모르는 enum 을 미상/보수적 등급으로 처리해야 한다(하위 호환 의무).</li>
+  </ul>
+
+  <h3 style="margin-top:18px;">응답 구조 (서버 항목 5계층)</h3>
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>계층</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td>identity</td><td>hostname·public_id·온라인 상태 — 소비자가 자기 인벤토리와 매칭하는 키.</td></tr>
+      <tr><td>reproduction</td><td>OS·부팅·네트워크·스토리지(block_devices 트리 + lvm_vgs + mounts) — 소스 레이아웃 그대로 재현하기 위한 팩트.</td></tr>
+      <tr><td>sizing</td><td>자기서술 <code>axes[]</code> 배열(cpu/memory 호스트 1축 + disk 마운트별 N축) — current/recommended/action/estimate_quality.</td></tr>
+      <tr><td>assessment</td><td>classification/confidence/data_quality — right-sizing 판정 결과.</td></tr>
+      <tr><td>diagnostics</td><td>root_cause·자원별 상태·advisory — 선택 소비(파싱 안 해도 sizing 계약은 완결).</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 style="margin-top:18px;">사이징 모델</h3>
+  <ul style="margin:0; padding-left:22px; line-height:1.9; font-size:13px; color:#334155;">
+    <li>CPU 는 p95(탄력 자원 — 순간 초과를 실행 큐로 흡수), 메모리는 near-peak(5분 버킷 max 의 p99.9 — 비탄력 자원, 평균 기반은 실제 최대 상주치를 과소평가해 OOM 위험).</li>
+    <li>디스크는 마운트별(per-mount) 사이징 — host-worst 단일값 폐기, 절대 축소하지 않음(never-shrink).</li>
+    <li>자원별 독립 처방 — 근본원인(diagnostics.root_cause)은 메타 정보로만 노출하고 sizing.axes 는 인과와 무관하게 관측된 부족 전부를 반영한다. 1회성 마이그레이션 산출이라 재평가 루프가 없어, 인과 추정을 믿고 억제하면 틀렸을 때 과소 사이징으로 흐른다 — 이 원칙을 보고서·<code>/api/right-sizing</code>에도 동일 적용(아래 "분류 기준" 절).</li>
+  </ul>
+</section>

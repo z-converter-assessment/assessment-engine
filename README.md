@@ -49,7 +49,7 @@
  +--------------+----------------------------------+---------------+
  |  FastAPI (uvicorn, port 8000)                                    |
  |  - SSR  : dashboard / detail / env+server report + history       |
- |  - REST : tasks / exports / metrics (snapshots+timeseries)       |
+ |  - REST : assessment / right-sizing / tasks / exports / metrics  |
  |  - charts : client-side fetch of REST (no push)                  |
  |  - rule-based right-sizing (recommendation.py, USE Method)       |
  |  - report emit -> diagnostic_jobs (pending; worker generates)    |
@@ -88,11 +88,13 @@
 
 | workflow | trigger | 검증·작업 |
 |----------|---------|------|
-| `pr-title-check.yml` | PR (target main/develop) opened·edited | PR title이 Conventional Commits 형식 (`feat:`·`fix:`·`docs:` 등) 강제 |
-| `ci.yml` | develop PR · main PR · develop push | lint(ruff+hadolint) → test-unit → test-integration (develop push·main PR), wheel build (main PR) |
-| `alembic-check.yml` | develop PR · main PR | ORM·migrations 라운드트립 정합 |
-| `codeql.yml` | main PR · 주간 cron | CodeQL SAST (SQL injection·secret leak·XSS 정적 분석, Security 탭 alert) |
+| `pr-title-check.yml` | main PR opened·edited·synchronize·reopened | PR title이 Conventional Commits 형식 (`feat:`·`fix:`·`docs:` 등) 강제 |
+| `ci.yml` | main PR | lint(ruff+hadolint) → test-unit·frontend typecheck·wheel build(병렬) → test-integration |
+| `alembic-check.yml` | main PR | ORM·migrations 라운드트립 정합 |
+| `codeql.yml` | main PR | CodeQL SAST (SQL injection·secret leak·XSS 정적 분석, Security 탭 alert) |
 | `release.yml` | `main`에 tag `v*` push · workflow_dispatch | 멀티아치 엔진 이미지 빌드(버전=tag, hatch-vcs) → GHCR push + cosign 서명 + SBOM(SPDX) + SLSA provenance |
+
+develop PR·push 는 CI 게이트가 없다 — develop 는 통합 브랜치로 게이트 없이 받고, 검증은 develop→main PR 에서 1회로 통일한다.
 
 CI(코드 quality + 이미지 발행)는 GitHub Actions가 담당한다. 배포(rollout)는 GitHub Actions가 아니라 배포 대상 VM에서 `deploy.sh vX.Y.Z` 를 실행한다 — 내부망 outbound-only VM이라 밖에서 push하지 않고 VM이 이미지를 pull한다(아래 배포 절).
 

@@ -501,8 +501,10 @@ def test_labels_cover_all_triggers():
 # ─── under_prescription — root 기반 처방 (근본원인 정합) ────────────────────
 
 
-def test_under_prescription_coupled_root_only():
-    """메모리발 결합 — root(메모리)만 처방(하류 CPU·디스크는 근본원인 칼럼이 전달, 문구엔 안 넣음). 삼중 처방 방지."""
+def test_under_prescription_coupled_root_still_lists_symptom_resources():
+    """메모리발 결합 — root_cause 는 "메모리"로 잡히지만, 처방(under_prescription)은 자원별 독립이라 CPU 도
+    함께 나열된다(ADR 0055 — 인과 추정이 틀려도 관측된 부족을 누락하지 않는 게 안전 우선). 근본원인은
+    root_cause_display(별도 칼럼)가 "메모리 (CPU 유발)" 식으로 전달."""
     s = _stats(
         cpu_p95_pct=90.0, cpu_cores=8, procs_running_p95=8.0, mem_p95_pct=95.0, mem_total_mb=16384,
         mem_swap_paging=True, disk_await_p95_ms=40.0, procs_blocked_p95=2.0,
@@ -510,9 +512,9 @@ def test_under_prescription_coupled_root_only():
     h = r.rollup_host(s)
     presc = r.under_prescription(h)
     assert h.root_cause == "memory"
-    assert h.symptom_of_root  # 결합 감지됨
+    assert h.symptom_of_root  # 인과 결합은 여전히 감지(진단 근거용)
     assert presc.startswith("메모리: ")  # "메모리: 20.8GB" (총량 목표)
-    assert "CPU" not in presc and "디스크" not in presc  # root 만 — 하류 처방 없음
+    assert "CPU" in presc  # 증상이어도 처방엔 포함 — 억제 없음
 
 
 def test_under_prescription_independent_all():

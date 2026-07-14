@@ -45,6 +45,10 @@ async def environment_metrics(
     valid_pids = await _resolve_selection_pids(service, ids)
     selection_ids = ",".join(valid_pids)
     path = "/environment/metrics" + (f"?ids={selection_ids}" if selection_ids else "")
+    # 판정 crossing 서버 수 차트(cpu.saturation_hosts·mem.paging_pressure_hosts) Y축 고정 상한 — 전체 서버 수
+    # (선택 N대 진입이어도 fleet 전체 규모 기준, "이론상 최대치"를 보여주는 게 목적이라 selection 과 무관).
+    # get_fleet_status 재사용(상단 바와 동일 total_count 산식, #F4 서비스 경유 — repo 직접 호출 금지).
+    total_hosts = (await service.get_fleet_status()).total_count
     return templates.TemplateResponse(
         request=request,
         name="servers/environment_metrics.html",
@@ -56,6 +60,7 @@ async def environment_metrics(
             "self_back": quote(path, safe=""),
             "selection_ids": selection_ids,
             "selection_count": len(valid_pids),
+            "total_hosts": total_hosts,
         },
     )
 
