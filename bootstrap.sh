@@ -94,7 +94,7 @@ cat <<EOF
 [bootstrap] secret 파일을 아래처럼 배치할 것 (없으면 APP_ENV=prod 기동 거부):
   printf '%s' "\$(openssl rand -base64 32)" > $DEPLOY_DIR/secrets/postgres_password
   printf '%s' "\$(openssl rand -base64 32)" > $DEPLOY_DIR/secrets/rabbitmq_password
-  chmod 600 $DEPLOY_DIR/secrets/*
+  chmod 644 $DEPLOY_DIR/secrets/*
 EOF
 
 # ─── (3) deploy.sh 배치 (raw 에서 받아 배치) ───────────────────────────────
