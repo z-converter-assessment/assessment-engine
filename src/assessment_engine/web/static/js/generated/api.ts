@@ -141,7 +141,8 @@ export interface paths {
          *     응답(servers[]) 서버별 필드:
          *     - classification / classification_label: 호스트 종합 분류(자원 부족·과다·유휴·적정·표본 부족).
          *     - root_cause: 근본원인(인과 결합 시 "메모리 (CPU 유발)" 형태).
-         *     - recommendation: 종합 권고 구조 {summary, kind, actions[], suppressed[]} — actions 만 파싱해 실행(근본원인만).
+         *     - recommendation: 종합 권고 구조 {summary, kind, actions[], suppressed[]} — actions 만 파싱해 실행(관측된
+         *       under 자원 전부, 자원별 독립). suppressed 는 항상 빈 배열(구 스키마 호환 필드). root_cause 가 인과 근거.
          *     - confidence_notes: 신뢰도 하향 사유(표본 부족·포화 수치 미관측 등).
          *     - resources.cpu / .memory: status·이용률 p95·saturation(OS별 신호·값·임계·포화)·evidence·사이징 목표.
          *     - resources.disk.capacity: 소진 임박(worst mount·잔여일)·사이징 목표(GB). .disk.io: await 포화.
@@ -316,7 +317,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Install */
+        /**
+         * Install
+         * @description N대 ZConverter 설치 발행 — 서버당 task 1건. zdm_ip/zdm_user 미지정 시 서버 기본값(ZDM_DEFAULT_*) 사용.
+         *
+         *     이미 pending 인 서버가 있으면 409, 대상 서버 미존재는 404, ZDM 좌표 미해결(메타 조회 실패 등)은 503.
+         */
         post: operations["install_api_tasks_install_post"];
         delete?: never;
         options?: never;
@@ -2099,7 +2105,7 @@ export interface operations {
     get_metric_chart_api_servers__server_id__metrics_chart_get: {
         parameters: {
             query: {
-                metric_type: "cpu.usage_percent" | "cpu.user_percent" | "cpu.system_percent" | "cpu.iowait_percent" | "cpu.nice_percent" | "cpu.run_queue" | "cpu.blocked" | "cpu.psi" | "mem.usage_percent" | "mem.available_percent" | "mem.cached_percent" | "mem.buffers_percent" | "mem.psi" | "mem.paging_pressure" | "disk.read_iops" | "disk.write_iops" | "disk.read_kbps" | "disk.write_kbps" | "disk.io_saturation" | "disk.psi" | "fs.usage_percent" | "net.rx_bytes_per_sec" | "net.tx_bytes_per_sec" | "net.rx_packets_per_sec" | "net.tx_packets_per_sec" | "net.retrans_percent" | "net.drop_percent" | "net.congested";
+                metric_type: "cpu.usage_percent" | "cpu.user_percent" | "cpu.system_percent" | "cpu.iowait_percent" | "cpu.nice_percent" | "cpu.run_queue" | "cpu.saturation" | "cpu.blocked" | "cpu.psi" | "mem.usage_percent" | "mem.available_percent" | "mem.cached_percent" | "mem.buffers_percent" | "mem.psi" | "mem.paging_pressure" | "disk.read_iops" | "disk.write_iops" | "disk.read_kbps" | "disk.write_kbps" | "disk.io_saturation" | "disk.saturation" | "disk.psi" | "fs.usage_percent" | "net.rx_bytes_per_sec" | "net.tx_bytes_per_sec" | "net.rx_packets_per_sec" | "net.tx_packets_per_sec" | "net.retrans_percent" | "net.drop_percent" | "net.congested";
                 dimension?: string | null;
                 time_range?: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
                 bucket?: "1m" | "5m" | "15m" | "30m" | "1h" | "3h" | "6h" | "12h" | "1d";
