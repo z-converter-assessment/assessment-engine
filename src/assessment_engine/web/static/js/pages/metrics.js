@@ -2,11 +2,13 @@
 /**
  * 성능 추이 페이지 차트 로직.
  *
- * 각 상세 페이지(cpu/memory/storage/network)의 추이 차트를 모은 종합 2열 뷰.
+ * 각 상세 페이지(cpu/memory/storage/network)의 추이 차트를 자원별 카드에 모은 종합 뷰 — 4자원(CPU/메모리/
+ * 스토리지/네트워크) x 최대 5개, 자원별 상세 탭과 동일 차트 목록·OS 분기(#F9 자원 탭 차트 추가 시 본 페이지도
+ * 동시 갱신 의무 — 개별 탭에만 추가하고 여기 누락하면 "모아보기"라는 페이지 존재 의미가 깨짐).
  * 외부 의존:
  * - ChartUtils (base.html에서 chart-utils.js 로드)
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
- * - body data-server-id (E6 외부화 규약, static-assets.md)
+ * - body data-server-id/data-os-family (E6 외부화 규약, static-assets.md)
  */
 /** @typedef {import('../generated/api').components['schemas']['MetricSeriesItem']} Row */
 const { AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
@@ -14,6 +16,7 @@ const { AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         buildAvgMaxDatasets, buildAvgMaxLegend, buildDimDatasets } = ChartUtils;
 
 const SERVER_ID = document.body.dataset.serverId;
+const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 메트릭 N/A 분기(PSI 등)
 
 const PERF_IOPS_SUGGESTED_MAX = 200;              // HDD 랜덤 I/O 한계(~100–200 IOPS) 기준
 const PERF_NET_SUGGESTED_MAX  = 10 * 1024 * 1024; // 10 MB/s — 1 Gbps 이더넷의 약 8%
@@ -37,8 +40,10 @@ let globalRange = '15m';
 const chartInstances = {};
 // P4(a) sequence counter — per-chart 분리 (다른 page 와 일관). chart 별 독립 counter.
 const seqs = {
-  cpu: 0, cpuClass: 0, load: 0, mem: 0, memComp: 0,
-  physIo: 0, diskKbps: 0, diskQueue: 0, fs: 0, netIo: 0, netPps: 0,
+  cpu: 0, cpuClass: 0, load: 0, cpuPsi: 0,
+  mem: 0, memComp: 0, memPsi: 0,
+  physIo: 0, diskKbps: 0, diskQueue: 0, diskPsi: 0, fs: 0,
+  netIo: 0, netPps: 0, retrans: 0, drop: 0,
 };
 
 /* ── 유틸 ──
@@ -81,9 +86,11 @@ function updateMaxLabel(elId, val, fmtFn, colorFn) {
 
 /**
  * @param {string} metricType @param {string} agg @param {string} range @param {Date|null} anchor
+ * @param {boolean} [collapse] dimension(device/iface) 합산 1선 — 스토리지 IOPS·처리량 등 물리 디바이스
+ *   개수 무관 항상 Read/Write 2선(storage.js 와 동일 정책, 개수 많으면 지저분해지는 문제 회피).
  * @returns {Promise<Row[]>}
  */
-async function fetchChart(metricType, agg, range, anchor) {
+async function fetchChart(metricType, agg, range, anchor, collapse) {
   const p = new URLSearchParams({
     metric_type: metricType,
     time_range:  range,
@@ -91,6 +98,7 @@ async function fetchChart(metricType, agg, range, anchor) {
     agg,
   });
   if (anchor) p.append('end', anchor.toISOString());
+  if (collapse) p.append('collapse', 'true');
   const res = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${p}`);
   if (res.status === 404 || !res.ok) return [];  // P4(d): 데이터 부재 → 빈 배열
   return res.json();
@@ -115,7 +123,7 @@ function makePerfOptions(yAxisOpts, fmtFn) {
             const label = ctx.dataset.label ? ` ${ctx.dataset.label}:` : '';
             const avgStr = avg != null ? fmtFn(avg) : '—';
             return realMax != null
-              ? `${label} 평균 ${avgStr} / 최대 ${fmtFn(realMax)}`
+              ? `${label} 평균 ${avgStr} | 최대 ${fmtFn(realMax)}`
               : `${label} ${avgStr}`;
           }
         }
@@ -141,7 +149,7 @@ function makeMultiDimOptions() {
     scales: {
       x: { ticks:{ maxTicksLimit:10, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
       y: {
-        ticks: { callback: /** @param {number} v */ (v) => v + '%', font:{size:11}, color:'#64748b' },
+        ticks: { callback: /** @param {number} v */ (v) => Number(v).toFixed(1) + '%', font:{size:11}, color:'#64748b' },
         grid:  { color:'#f1f5f9' }, beginAtZero: true,
       },
     },
@@ -194,8 +202,84 @@ function renderMultiDimChart(canvasId, emptyId, legendId, rows, range, anchor, m
   renderChipLegend(document.getElementById(legendId), chart);
 }
 
+// 다중 dimension 라인(avg-only, 커스텀 Y축/포맷) — 실행 큐·D-state / 디스크 IOPS·처리량(Read/Write 2선,
+// collapse=true) 공용. renderMultiDimChart 와 달리 % 고정이 아니라 yAxisOpts/fmtFn 을 받는다.
+/** @param {string} canvasId @param {string} emptyId @param {string} legendId @param {Row[]} rows
+ *  @param {string} range @param {Date|null} anchor @param {any} metaMap @param {any} yAxisOpts @param {(v: number) => string} fmtFn */
+function renderDimLineChart(canvasId, emptyId, legendId, rows, range, anchor, metaMap, yAxisOpts, fmtFn) {
+  const canvas = /** @type {HTMLElement} */ (document.getElementById(canvasId));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById(emptyId));
+  if (chartInstances[canvasId]) { chartInstances[canvasId].destroy(); delete chartInstances[canvasId]; }
+  if (!rows.length) {
+    canvas.style.display = 'none'; empty.style.display = 'flex';
+    renderChipLegend(document.getElementById(legendId), null);
+    return;
+  }
+  canvas.style.display = ''; empty.style.display = 'none';
+  const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid   = makeBucketGrid(range, anchor);
+  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const datasets = /** @type {any} */ (buildDimDatasets(rows, bMs, grid, metaMap, { pointRadius: 0 }));
+  const chart = new Chart(canvas, /** @type {any} */ ({
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode:'index', intersect:false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: /** @param {any} ctx */ (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? fmtFn(ctx.parsed.y) : '—'}` } },
+      },
+      scales: {
+        x: { ticks:{ maxTicksLimit:10, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
+        y: { ...yAxisOpts, grid:{ color:'#f1f5f9' } },
+      },
+    },
+  }));
+  chartInstances[canvasId] = chart;
+  renderChipLegend(document.getElementById(legendId), chart);
+}
+
+// 단일선 차트(avg-only) — PSI(cpu/mem/disk)·TCP 재전송율·패킷 드롭율·디스크 await 공용. winEmptyText 있으면
+// Windows 는 빈 결과를 "N/A(구조적 미지원)"으로(no_data 와 구분 — cpu.js/memory.js/storage.js 동일 원칙),
+// 없으면 일반 "해당 기간에 수집된 데이터가 없습니다."
+/** @param {string} metricType @param {string} canvasId @param {string} emptyId @param {'cpuPsi'|'memPsi'|'diskPsi'|'diskQueue'|'retrans'|'drop'} seqKey
+ *  @param {string} label @param {any} yAxisOpts @param {(v: number) => string} fmtFn @param {string|null} winEmptyText
+ *  @param {string} range @param {Date|null} anchor */
+async function loadSingleLineChart(metricType, canvasId, emptyId, seqKey, label, yAxisOpts, fmtFn, winEmptyText, range, anchor) {
+  const seq = ++seqs[seqKey];
+  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
+  const grid = makeBucketGrid(range, anchor);
+  const rows = _safe(await fetchChart(metricType, 'avg', range, anchor));
+  if (seq !== seqs[seqKey]) return;
+  const canvas = /** @type {HTMLElement} */ (document.getElementById(canvasId));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById(emptyId));
+  if (chartInstances[canvasId]) { chartInstances[canvasId].destroy(); delete chartInstances[canvasId]; }
+  if (!rows.length) {
+    if (winEmptyText) empty.textContent = OS_FAMILY === 'windows' ? winEmptyText : '해당 기간에 수집된 데이터가 없습니다.';
+    canvas.style.display = 'none'; empty.style.display = 'flex';
+    return;
+  }
+  canvas.style.display = ''; empty.style.display = 'none';
+  /** @type {Record<number, number|null>} */
+  const map = {};
+  for (const r of rows) map[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
+  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
+  const data   = grid.map(t => map[t] ?? null);
+  chartInstances[canvasId] = new Chart(canvas, /** @type {any} */ ({
+    type: 'line',
+    data: { labels, datasets: [{
+      label, data,
+      borderColor: /** @type {any} */ (ChartUtils).themeColor(),
+      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
+    }] },
+    options: makePerfOptions(yAxisOpts, fmtFn),
+  }));
+}
+
 /* ── Y축 설정 ── */
-const pctTicks = { callback: /** @param {number} v */ (v) => v + '%', font:{size:11}, color:'#64748b' };
+const pctTicks = { callback: /** @param {number} v */ (v) => Number(v).toFixed(1) + '%', font:{size:11}, color:'#64748b' };
 const Y_PCT   = { min:0, max:100, ticks: pctTicks };
 const Y_RUNQ  = { beginAtZero:true, suggestedMax: 2, ticks:{ font:{size:11}, color:'#64748b' } };
 const Y_DISK_AWAIT = { beginAtZero:true, suggestedMax: PERF_DISK_AWAIT_SUGGESTED_MAX, ticks:{ callback: /** @param {number} v */ (v) => v.toFixed(0) + ' ms', font:{size:11}, color:'#64748b' } };
@@ -203,6 +287,11 @@ const Y_IOPS  = { beginAtZero:true, suggestedMax: PERF_IOPS_SUGGESTED_MAX, ticks
 const Y_DISK_KBPS = { beginAtZero:true, suggestedMax: PERF_DISK_KBPS_SUGGESTED_MAX, ticks:{ callback: /** @param {number} v */ (v) => fmtThroughput(v), font:{size:11}, color:'#64748b' } };
 const Y_NET   = { beginAtZero:true, suggestedMax: PERF_NET_SUGGESTED_MAX, ticks:{ callback: /** @param {number} v */ (v) => fmtKbChart(v), font:{size:11}, color:'#64748b' } };
 const Y_PPS   = { beginAtZero:true, suggestedMax: PERF_PPS_SUGGESTED_MAX, ticks:{ callback: /** @param {number} v */ (v) => v.toFixed(0) + ' pps', font:{size:11}, color:'#64748b' } };
+// PSI(cpu/mem/disk 공용, some 정체율 %) · TCP 재전송율 · 패킷 드롭율 — 각 상세 페이지(cpu.js/memory.js/
+// storage.js/network.js)와 동일 suggestedMax.
+const Y_PSI     = { beginAtZero:true, suggestedMax: 20, ticks:{ callback: /** @param {number} v */ (v) => v.toFixed(1) + '%', font:{size:11}, color:'#64748b' } };
+const Y_RETRANS = { beginAtZero:true, suggestedMax: 1,  ticks:{ callback: /** @param {number} v */ (v) => Number(v).toFixed(2) + '%', font:{size:11}, color:'#64748b' } };
+const Y_DROP    = { beginAtZero:true, suggestedMax: 0.5, ticks:{ callback: /** @param {number} v */ (v) => Number(v).toFixed(2) + '%', font:{size:11}, color:'#64748b' } };
 
 /* ── 개별 차트 로더 (P4(a) per-chart seq) ── */
 
@@ -220,95 +309,71 @@ async function loadCpuChart(range, anchor) {
   updateMaxLabel('cpu-max', computePeriodMax(safeMax), v => v.toFixed(1)+'%', null);
 }
 
-const CPUCLASS_META = {
+// Windows 는 cpu_stat 이 user/system/idle 만(iowait·nice 개념 부재) — 두 축 제외(cpu.js 와 동일 OS 분기).
+const CPUCLASS_META_BASE = {
   user:   { label: 'User',     color: /** @type {any} */ (ChartUtils).themeColor() },
   system: { label: 'System',   color: '#f59e0b' },
-  iowait: { label: 'I/O Wait', color: '#ef4444' },  // Windows 미측정 → 빈 라인
 };
 /** @param {string} range @param {Date|null} anchor */
 async function loadCpuClassChart(range, anchor) {
   const seq = ++seqs.cpuClass;
-  const [u, s, io] = await Promise.all([
+  const isWin = OS_FAMILY === 'windows';
+  const reqs = [
     fetchChart('cpu.user_percent','avg', range, anchor),
     fetchChart('cpu.system_percent','avg', range, anchor),
-    fetchChart('cpu.iowait_percent','avg', range, anchor),
-  ]);
+  ];
+  if (!isWin) {
+    reqs.push(fetchChart('cpu.iowait_percent','avg', range, anchor));
+    reqs.push(fetchChart('cpu.nice_percent','avg', range, anchor));
+  }
+  const [u, s, io, nice] = await Promise.all(reqs);
   if (seq !== seqs.cpuClass) return;
   const rows = [
     ..._safe(u).map(r => ({ ...r, dimension: 'user' })),
     ..._safe(s).map(r => ({ ...r, dimension: 'system' })),
-    ..._safe(io).map(r => ({ ...r, dimension: 'iowait' })),
+    ...(!isWin ? _safe(io).map(r => ({ ...r, dimension: 'iowait' })) : []),
+    ...(!isWin ? _safe(nice).map(r => ({ ...r, dimension: 'nice' })) : []),
   ];
-  renderMultiDimChart('cpuclass-canvas', 'cpuclass-empty', 'cpuclass-legend', rows, range, anchor, CPUCLASS_META);
+  const meta = {
+    ...CPUCLASS_META_BASE,
+    ...(!isWin ? { iowait: { label: 'I/O Wait', color: '#ef4444' }, nice: { label: 'Nice', color: '#8b5cf6' } } : {}),
+  };
+  renderMultiDimChart('cpuclass-canvas', 'cpuclass-empty', 'cpuclass-legend', rows, range, anchor, meta);
 }
 
-// 실행 큐 추이 (cpu.run_queue, os-aware — Linux procs_running / Windows Processor Queue) — 양 OS 표시.
-// backend 가 이미 코어당(Σ실행큐/Σcores) 반환 -> JS 이중 정규화 금지. 1.0 Linux·2.0 Windows 포화.
+// 실행 큐·D-state 추이 (cpu.run_queue os-aware 코어당 + cpu.blocked Linux 전용 근본원인) — cpu.js 의
+// renderLoadChart/loadLoadChart 와 동일 2선 모델(D-state 는 Windows 미발행 자연 제외).
+const RUNQ_META = { runq: { label: '실행 큐 (코어당)', color: /** @type {any} */ (ChartUtils).themeColor() } };
 /** @param {string} range @param {Date|null} anchor */
 async function loadLoadChart(range, anchor) {
   const seq = ++seqs.load;
-  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
-  const grid = makeBucketGrid(range, anchor);
-  const [avgRows, maxRows] = await Promise.all([fetchChart('cpu.run_queue','avg', range, anchor), fetchChart('cpu.run_queue','max', range, anchor)]);
+  const isWin = OS_FAMILY === 'windows';
+  const reqs = [fetchChart('cpu.run_queue','avg', range, anchor), fetchChart('cpu.run_queue','max', range, anchor)];
+  if (!isWin) reqs.push(fetchChart('cpu.blocked','avg', range, anchor));
+  const [runqAvg, runqMax, blockedAvg] = await Promise.all(reqs);
   if (seq !== seqs.load) return;
-  const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
-
-  if (chartInstances['load-canvas']) { chartInstances['load-canvas'].destroy(); delete chartInstances['load-canvas']; }
-  const canvas = /** @type {HTMLElement} */ (document.getElementById('load-canvas'));
-  const empty  = /** @type {HTMLElement} */ (document.getElementById('load-empty'));
-  if (!safeAvg.length) { canvas.style.display = 'none'; empty.style.display = 'flex'; updateMaxLabel('load-max', null, v => v.toFixed(2), null); return; }
-  canvas.style.display = ''; empty.style.display = 'none';
-
-  /** @type {Record<number, number|null>} */
-  const avgMap = {};
-  for (const r of safeAvg) avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
-  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const data   = grid.map(t => avgMap[t] ?? null);
-
-  chartInstances['load-canvas'] = new Chart(canvas, /** @type {any} */ ({
-    type: 'line',
-    data: { labels, datasets: [{
-      label: '실행 큐 (코어당)', data,
-      borderColor: '#f59e0b',
-      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
-    }] },
-    options: makePerfOptions(Y_RUNQ, v => v.toFixed(2)),
-  }));
-  updateMaxLabel('load-max', computePeriodMax(safeMax), v => v.toFixed(2), null);
+  const rows = [
+    ..._safe(runqAvg).map(r => ({ ...r, dimension: 'runq' })),
+    ...(!isWin ? _safe(blockedAvg).map(r => ({ ...r, dimension: 'blocked' })) : []),
+  ];
+  const meta = { ...RUNQ_META, ...(!isWin ? { blocked: { label: 'D-state 블록', color: '#8b5cf6' } } : {}) };
+  renderDimLineChart('load-canvas', 'load-empty', 'load-legend', rows, range, anchor, meta, Y_RUNQ, v => v.toFixed(2));
+  updateMaxLabel('load-max', computePeriodMax(_safe(runqMax)), v => v.toFixed(2), null);
 }
 
-// 디스크 I/O 포화 추이 (disk.io_saturation = await ms, 요청당 평균 대기) — 양 OS 실측 단일선.
+// CPU PSI 추이 (some 정체율 %) — Linux 4.20+ 전용, Windows·구커널은 N/A.
+/** @param {string} range @param {Date|null} anchor */
+async function loadCpuPsiChart(range, anchor) {
+  await loadSingleLineChart('cpu.psi', 'cpupsi-canvas', 'cpupsi-empty', 'cpuPsi',
+    'PSI (정체율)', Y_PSI, v => v.toFixed(1)+'%', 'N/A (Windows 미지원)', range, anchor);
+}
+
+// 디스크 I/O 포화 추이 (disk.io_saturation = await ms, 요청당 평균 대기) — 양 OS 실측, storage.js
+// loadDiskSatChart 와 동일 단일선(avg+max ghost 아님 — 개별 탭과 시각 모델 통일).
 /** @param {string} range @param {Date|null} anchor */
 async function loadDiskQueueChart(range, anchor) {
-  const seq = ++seqs.diskQueue;
-  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
-  const grid = makeBucketGrid(range, anchor);
-  const [avgRows, maxRows] = await Promise.all([fetchChart('disk.io_saturation','avg', range, anchor), fetchChart('disk.io_saturation','max', range, anchor)]);
-  if (seq !== seqs.diskQueue) return;
-  const safeAvg = _safe(avgRows), safeMax = _safe(maxRows);
-
-  if (chartInstances['diskqueue-canvas']) { chartInstances['diskqueue-canvas'].destroy(); delete chartInstances['diskqueue-canvas']; }
-  const canvas = /** @type {HTMLElement} */ (document.getElementById('diskqueue-canvas'));
-  const empty  = /** @type {HTMLElement} */ (document.getElementById('diskqueue-empty'));
-  if (!safeAvg.length) { canvas.style.display = 'none'; empty.textContent = '해당 기간에 수집된 데이터가 없습니다.'; empty.style.display = 'flex'; updateMaxLabel('diskqueue-max', null, v => v.toFixed(1)+' ms', null); return; }
-  canvas.style.display = ''; empty.style.display = 'none';
-
-  /** @type {Record<number, number|null>} */
-  const avgMap = {};
-  for (const r of safeAvg) avgMap[Math.floor(new Date(r.collected_at).getTime() / bMs) * bMs] = r.value;
-  const labels = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const data   = grid.map(t => avgMap[t] ?? null);
-
-  chartInstances['diskqueue-canvas'] = new Chart(canvas, /** @type {any} */ ({
-    type: 'line',
-    data: { labels, datasets: [{
-      label: '디스크 await', data,
-      borderColor: '#ef4444',
-      borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
-    }] },
-    options: makePerfOptions(Y_DISK_AWAIT, v => v.toFixed(1)+' ms'),
-  }));
-  updateMaxLabel('diskqueue-max', computePeriodMax(safeMax), v => v.toFixed(1)+' ms', null);
+  await loadSingleLineChart('disk.io_saturation', 'diskqueue-canvas', 'diskqueue-empty', 'diskQueue',
+    '디스크 await', Y_DISK_AWAIT, v => v.toFixed(1)+' ms', null, range, anchor);
 }
 
 /** @param {string} range @param {Date|null} anchor */
@@ -350,46 +415,55 @@ async function loadMemCompChart(range, anchor) {
   renderMultiDimChart('memcomp-canvas', 'memcomp-empty', 'memcomp-legend', rows, range, anchor, MEMCOMP_META);
 }
 
-// 디스크 I/O — device x Read/Write 통합 (device 전체, storage.js loadPhysChart 모델).
+// 메모리 PSI 추이 (some 정체율 %) — Linux 4.20+ 전용, Windows·구커널은 N/A.
+/** @param {string} range @param {Date|null} anchor */
+async function loadMemPsiChart(range, anchor) {
+  await loadSingleLineChart('mem.psi', 'mempsi-canvas', 'mempsi-empty', 'memPsi',
+    'PSI (정체율)', Y_PSI, v => v.toFixed(1)+'%', 'N/A (Windows 미지원)', range, anchor);
+}
+
+// 디스크 I/O — Read/Write 합산 2선(collapse=true, 물리 디바이스 개수 무관 항상 2선 — storage.js 와 동일
+// 정책, 개별 디바이스 활동은 자원 상세 탭 자체의 실시간 카드에서만 확인).
+const IO_DIM_META = {
+  read:  { label: 'Read',  color: /** @type {any} */ (ChartUtils).themeColor() },
+  write: { label: 'Write', color: '#f59e0b' },
+};
 /** @param {string} range @param {Date|null} anchor */
 async function loadPhysIoChart(range, anchor) {
   const seq = ++seqs.physIo;
-  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
-  const grid = makeBucketGrid(range, anchor);
-  const [readAvg, readMax, writeAvg, writeMax] = await Promise.all([
-    fetchChart('disk.read_iops','avg', range, anchor),
-    fetchChart('disk.read_iops','max', range, anchor),
-    fetchChart('disk.write_iops','avg', range, anchor),
-    fetchChart('disk.write_iops','max', range, anchor),
+  const [readRows, writeRows] = await Promise.all([
+    fetchChart('disk.read_iops','avg', range, anchor, true),
+    fetchChart('disk.write_iops','avg', range, anchor, true),
   ]);
   if (seq !== seqs.physIo) return;
-  const avgRows = [..._safe(readAvg).map(r => ({ ...r, dimension: `${r.dimension} Read` })), ..._safe(writeAvg).map(r => ({ ...r, dimension: `${r.dimension} Write` }))];
-  const maxRows = [..._safe(readMax).map(r => ({ ...r, dimension: `${r.dimension} Read` })), ..._safe(writeMax).map(r => ({ ...r, dimension: `${r.dimension} Write` }))];
-  const datasets = buildDatasets(avgRows, maxRows, bMs, grid, null);
-  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const chart = setChart('physio-canvas', 'physio-empty', avgRows, Y_IOPS, v => Math.round(v)+' IOPS', datasets, labels);
-  buildAvgMaxLegend('physio-legend', chart, { withToggle: true });
+  const rows = [
+    ..._safe(readRows).map(r => ({ ...r, dimension: 'read' })),
+    ..._safe(writeRows).map(r => ({ ...r, dimension: 'write' })),
+  ];
+  renderDimLineChart('physio-canvas', 'physio-empty', 'physio-legend', rows, range, anchor, IO_DIM_META, Y_IOPS, v => Math.round(v)+' IOPS');
 }
 
-// 디스크 처리량(kBps) — 물리 I/O(IOPS) 와 동일 모델, 처리량 축(동적 kBps/MBps).
+// 디스크 처리량(kBps) — 물리 I/O(IOPS) 와 동일 collapse=true 2선 모델, 처리량 축(동적 kBps/MBps).
 /** @param {string} range @param {Date|null} anchor */
 async function loadDiskKbpsChart(range, anchor) {
   const seq = ++seqs.diskKbps;
-  const bMs = BUCKET_MS[AUTO_BUCKET[range]];
-  const grid = makeBucketGrid(range, anchor);
-  const [readAvg, readMax, writeAvg, writeMax] = await Promise.all([
-    /** @type {any} */ (fetchChart)('disk.read_kbps','avg', range, anchor, 'phys'),
-    /** @type {any} */ (fetchChart)('disk.read_kbps','max', range, anchor, 'phys'),
-    /** @type {any} */ (fetchChart)('disk.write_kbps','avg', range, anchor, 'phys'),
-    /** @type {any} */ (fetchChart)('disk.write_kbps','max', range, anchor, 'phys'),
+  const [readRows, writeRows] = await Promise.all([
+    fetchChart('disk.read_kbps','avg', range, anchor, true),
+    fetchChart('disk.write_kbps','avg', range, anchor, true),
   ]);
   if (seq !== seqs.diskKbps) return;
-  const avgRows = [..._safe(readAvg).map(r => ({ ...r, dimension: `${r.dimension} Read` })), ..._safe(writeAvg).map(r => ({ ...r, dimension: `${r.dimension} Write` }))];
-  const maxRows = [..._safe(readMax).map(r => ({ ...r, dimension: `${r.dimension} Read` })), ..._safe(writeMax).map(r => ({ ...r, dimension: `${r.dimension} Write` }))];
-  const datasets = buildDatasets(avgRows, maxRows, bMs, grid, null);
-  const labels   = grid.map(t => fmtLabel(new Date(t).toISOString(), range));
-  const chart = setChart('diskkbps-canvas', 'diskkbps-empty', avgRows, Y_DISK_KBPS, fmtThroughput, datasets, labels);
-  buildAvgMaxLegend('diskkbps-legend', chart, { withToggle: true });
+  const rows = [
+    ..._safe(readRows).map(r => ({ ...r, dimension: 'read' })),
+    ..._safe(writeRows).map(r => ({ ...r, dimension: 'write' })),
+  ];
+  renderDimLineChart('diskkbps-canvas', 'diskkbps-empty', 'diskkbps-legend', rows, range, anchor, IO_DIM_META, Y_DISK_KBPS, fmtThroughput);
+}
+
+// 디스크 I/O PSI 추이 (some io 정체율 %) — Linux 전용, Windows 는 N/A.
+/** @param {string} range @param {Date|null} anchor */
+async function loadDiskPsiChart(range, anchor) {
+  await loadSingleLineChart('disk.psi', 'diskpsi-canvas', 'diskpsi-empty', 'diskPsi',
+    'PSI (정체율)', Y_PSI, v => v.toFixed(1)+'%', 'N/A (Windows 미지원)', range, anchor);
 }
 
 /** @param {string} range @param {Date|null} anchor */
@@ -443,6 +517,20 @@ async function loadNetPpsChart(range, anchor) {
   buildAvgMaxLegend('netpps-legend', chart, { withToggle: true });
 }
 
+// TCP 재전송율 (%, 단일선 — 양 OS, 1% 초과면 네트워크 품질 저하).
+/** @param {string} range @param {Date|null} anchor */
+async function loadRetransChart(range, anchor) {
+  await loadSingleLineChart('net.retrans_percent', 'retrans-canvas', 'retrans-empty', 'retrans',
+    'TCP 재전송율', Y_RETRANS, v => v.toFixed(2)+'%', null, range, anchor);
+}
+
+// 패킷 드롭율 (%, 단일선 — 양 OS, 링 버퍼 오버런·경로 손실 신호).
+/** @param {string} range @param {Date|null} anchor */
+async function loadDropChart(range, anchor) {
+  await loadSingleLineChart('net.drop_percent', 'drop-canvas', 'drop-empty', 'drop',
+    '패킷 드롭율', Y_DROP, v => v.toFixed(2)+'%', null, range, anchor);
+}
+
 /* ── 전체 로드 ── */
 /** @param {string} range */
 function updateBucketLabel(range) {
@@ -456,11 +544,14 @@ async function loadAllCharts() {
   updateBucketLabel(range);
   await Promise.all([
     loadCpuChart(range, anchor),     loadCpuClassChart(range, anchor),
-    loadLoadChart(range, anchor),    loadMemChart(range, anchor),
-    loadMemCompChart(range, anchor),
+    loadLoadChart(range, anchor),    loadCpuPsiChart(range, anchor),
+    loadMemChart(range, anchor),     loadMemCompChart(range, anchor),
+    loadMemPsiChart(range, anchor),
     loadPhysIoChart(range, anchor),  loadDiskKbpsChart(range, anchor),
-    loadDiskQueueChart(range, anchor), loadFsChart(range, anchor),
+    loadDiskQueueChart(range, anchor), loadDiskPsiChart(range, anchor),
+    loadFsChart(range, anchor),
     loadNetIoChart(range, anchor),   loadNetPpsChart(range, anchor),
+    loadRetransChart(range, anchor), loadDropChart(range, anchor),
   ]);
 }
 

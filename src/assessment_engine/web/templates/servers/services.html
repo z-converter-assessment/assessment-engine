@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}ZConverter Assessment — {{ server.hostname }} 서비스/포트{% endblock %}
+{% block title %}ZConverter Assessment — {{ server.hostname }} 서비스·포트{% endblock %}
 
 {% block content %}
 <a class="back no-print" href="{{ back_url }}">이전</a>
-<h1>{{ server.hostname }} — 서비스 / 포트</h1>
+<h1>{{ server.hostname }} — 서비스·포트</h1>
 
 {# 서비스(해석된 워크로드)와 Listen 포트(raw 소켓)를 별개 카드로 분리 — agent pid 미발행(T15)으로 unit/port join 불가, union 시 sparse 빈칸·중복. #}
 
@@ -41,7 +41,11 @@
           </td>
           <td>
             {% if svc.ports %}
-              {% for p in svc.ports %}{{ p.proto }}/{{ p.port }}{% if not loop.last %}, {% endif %}{% endfor %}
+            <span style="display:flex; flex-wrap:wrap; gap:6px;">
+              {% for p in svc.ports %}
+              <span class="port-chip"><span class="identifier text-sm" style="color:var(--color-title);">{{ p.proto }}</span><strong>{{ p.port }}</strong></span>
+              {% endfor %}
+            </span>
             {% else %}
               <span class="text-meta">—</span>
             {% endif %}

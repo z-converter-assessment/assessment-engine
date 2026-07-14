@@ -6,8 +6,8 @@
 
 | ViewModel | 채우는 mapper | 핵심 파생 |
 |-----------|---------------|-----------|
-| `ServerListItem` | `to_server_list_item` | `os_display` / `mem_total_gb` / `storage_total_gb` / `is_online` / `known_services` (카테고리 dedup) / `show_unknown_badge` / `recommendation_label`(영어 enum 풀네임 — 도넛 범례와 동일, `_DONUT_SEGMENT_DEFS` label) / `recommendation_color` / `provisioning_class` |
-| `ServerDetailResponse` | `to_server_detail` + `enrich_server_detail` | `os_display` / `cpu_display` / `disk_total_gb` / `services` (ServiceItem) / `sorted_listen_ports` |
+| `ServerListItem` | `to_server_list_item` | `os_display` / `mem_total_gb` / `storage_total_gb` / `is_online` / `known_services` (카테고리 dedup) / `show_unknown_badge` / `recommendation_label`(영어 enum 풀네임 — 도넛 범례와 동일, `_DONUT_SEGMENT_DEFS` label) / `recommendation_color` / `provisioning_class` / `os_eol_status`(3상태 — eol·supported·unknown, 카탈로그 미매칭을 "지원 중"으로 단정 안 함) / `has_operational_event`(전기간 에러 발생 유무, `fleet_error_hosts` 집합) |
+| `ServerDetailResponse` | `to_server_detail` + `enrich_server_detail` | `os_display` / `cpu_display` / `disk_total_gb` / `services` (ServiceItem) / `sorted_listen_ports` / `agent_id`(식별 단일 키 표시) / `cpu_arch`+`cpu_bits`(ISA·비트, pass-through) |
 | `ServiceItem` | mapper | `category` (`service_classifier.classify`) / `matched_ports` (port 리스트) / `display_name` |
 | `ListenPortItem` | mapper | `is_well_known` (boolean) — 템플릿 분기는 이걸로 |
 | `MountUsageItem` | `_build_mount_item` | `device_name` (`find_parent_disk`) / `usage_pct` / `bar_color` (임계값 분류) |
@@ -21,7 +21,33 @@
 | `MemSnapshot` | 시점값 + stacked bar 누적 비율 (`cached_pct`/`buffers_pct` 100% 초과 방지 clip) |
 | `DiskIoSnapshot` / `NetIoSnapshot` | rate (`d_val / dt`). reset 시 None |
 | `SaturationSignal` | os-aware 포화 스냅샷 1개 — `label`/`value`/`threshold`/`unit`/`saturated`/`state`(4상태: measured·no_data·not_applicable·insufficient)/`detail`(hover). 판정은 도메인 os-aware helper 경유(임계 재계산 금지, #E3). 클라 `SignalUtils.renderSaturation` 렌더만 |
-| `ErrorSignal` | 에러 축 표시자 1개(카운트형, 정상=0 발화 #E9) — `label`/`state`(clean·occurred·no_data)/`count`/`context`(종류)/`window_label`. `SignalUtils.renderErrors` 렌더 |
+| `ErrorSignal` | 에러 축 표시자 1개(카운트형, 정상=0 발화 #E9) — `label`/`state`(4상태: clean·occurred·no_data·not_applicable — no_data 는 일시 미수집, not_applicable 은 이 OS 구조적 미지원)/`count`/`context`(종류)/`window_label`. `SignalUtils.renderErrors` 렌더 |
+| `CpuCoreSnapshot` | `build_dashboard` | 코어별 순간 `usage_pct` — 단일스레드 병목 실시간(Linux 전용, Windows 빈 list). CPU 상세 전용 축 |
+
+`MetricDashboard` 추가 필드(개요·자원 탭 공용 스냅샷 카드): `disk_io`/`net_io` 는 물리 디바이스만(`device_filters` 단일 진실, LV·파티션·가상 인터페이스는 이중집계 제외) · `disk_usage_pct`(데이터 볼륨 파일시스템 used/total 집계 %, 실시간 카드 도넛) · `cpu_cores`(위 표).
+
+## 자원 상세 탭 '최근 N일' 평가 카드 (CPU/메모리/스토리지/네트워크, 14일 창)
+
+서버 세부(`/servers/{id}`) 및 4개 자원 상세 탭(`/cpu`·`/memory`·`/storage`·`/network`)이 공유하는 이용률(U)+포화(S)+에러(E) 3축 카드 — `build_period_assessment(stats, errors, disk_worst_mount=)`(mappers/report.py) 단일 산출, `query/server.py.get_period_assessment` 경유 각 라우터가 조회(`server_detail.py`). 실시간 스냅샷 카드(순간)와 분리 — 이쪽은 `recommendation.WINDOW_DAYS`(14일, #F10) 통계 기준의 분류·판정 근거.
+
+| ViewModel | 핵심 필드 |
+|-----------|-----------|
+| `PeriodAssessment` | `resources`([cpu, mem, disk, net] 순 `PeriodResource` 4개) / `error_rows`(전 자원 통합 `PeriodErrorRow`) / `window_days` / `classification_label`+`classification_color`(종합 배지 — `classify_host` 과 동일 단일 진실, 목록-세부 정합) |
+| `PeriodResource` | `util_rows`/`sat_rows`(`PeriodSignalRow` 리스트, over 개수 = `util_over`/`sat_over`) / `has_util`(네트워크만 False — 처리량 축이라 용량% 없음) / `detail_slug` / `verdict_label`+`verdict_color`(자원별 판정, `rollup_host` 재사용) / `extra_groups`(자원별 상세 탭 전용 "신뢰도" 카드, `PeriodExtraGroup`) / `error_rows`(메모리만 채움 — `mem_` 접두 필터) / `verdict_label2`+`verdict_color2`(스토리지 전용 — 용량 축과 독립된 성능/IO 축 2번째 배지, 나머지 자원은 빈 문자열) |
+| `PeriodSignalRow` | `label`/`value`/`threshold`(형식화 문자열, 템플릿 계산 0)/`over`(임계 이상)/`measured`(False면 N/A muted) |
+| `PeriodExtraGroup` | `label`("부하 신호"/"통계 신뢰도" 등) + `rows`(`PeriodSignalRow`) — 성격별 그룹 |
+| `PeriodErrorRow` | `key`(`mem_oom` 등 — 자원별 탭이 자기 자원 접두만 필터)/`label`/`badge_text`+`badge_class`/`note`/`sizing_signal`(OOM 발생 시 "메모리 자원 부족", 그 외 "") |
+
+스토리지 "사용률" 행만 다른 자원(호스트 p95 집계)과 다른 산식 — worst-mount(가장 채워진 마운트 1개, `disk_worst_mount` 파라미터로 라벨에 마운트명 병기) — 실시간 카드 도넛(`disk_usage_pct`, 전체 마운트 가중평균)과 의도적으로 다른 값(#F9 명시 표기).
+
+## 스토리지 레이아웃 트리 / 네트워크 인터페이스 정보
+
+| ViewModel | 채우는 mapper | 핵심 파생 |
+|-----------|---------------|-----------|
+| `StorageNode` | `build_storage_tree(block_devices, lvm_vgs, filesystems)` | 물리 디스크 루트 트리 — `kind`(block_device type 또는 파생 `unallocated`/`vg_free`)+`kind_label` / 계층별 자기 속성만(`meta`) / 마운트 노드만 사용량 2축(`usage_pct`+`usage_label`+`usage_class`, `inode_pct`+`inode_label`+`inode_class`) / `gauge_info_width_px`(깊이 들여쓰기 상쇄, 게이지 x좌표 통일). 다중 부모(RAID span·striped VG)는 디스크별 그룹으로 반복 노출(DAG, 순수 트리 불가) |
+| `NetworkInterfaceInfo` | `build_network_interfaces` | 물리 인터페이스만(`device_filters.is_virtual_interface`) 정적 구성 — `mac`/`mtu`/`speed_mbps`/`gateway`/`dns`/`addresses`(`NetIfaceAddress` — CIDR+`is_ipv4`+`origin`). 활동(RX/TX/pps)은 `NetIoSnapshot` 별개 축(실시간 카드) |
+
+`StorageDetailResponse.tree`/`NetworkDetailResponse.interfaces_info` 가 각각 소비. 둘 다 `os_family`(N/A 표시 OS 분기, #E6 `data-os-family`) 동반.
 
 ## 보고서·산출물
 

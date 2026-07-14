@@ -33,6 +33,9 @@ class BaseMetricQueryRepository(ABC):
     async def fleet_error_summary(self, server_ids: list[int], since: datetime) -> FleetErrorRaw: ...
 
     @abstractmethod
+    async def fleet_error_hosts(self, server_ids: list[int], since: datetime) -> set[int]: ...
+
+    @abstractmethod
     async def latest_link_speed(self, server_ids: list[int], since: datetime) -> dict[int, dict[str, int]]: ...
 
     @abstractmethod
@@ -53,6 +56,7 @@ class BaseMetricQueryRepository(ABC):
         bucket: BucketSize,
         agg: AggFunc,
         end: datetime | None = None,
+        collapse: bool = False,
     ) -> list[MetricSeries]: ...
 
     @abstractmethod

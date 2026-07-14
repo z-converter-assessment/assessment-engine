@@ -69,6 +69,7 @@ async def get_metric_chart(
     bucket: BucketSize = Query("5m"),
     agg: AggFunc = Query("avg"),
     end: datetime | None = Query(None),
+    collapse: bool = Query(False, description="dimension(device/mount) 합산 1선 — 스토리지 IOPS·처리량 추이 등"),
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ) -> list[MetricSeriesItem]:
@@ -81,6 +82,7 @@ async def get_metric_chart(
         bucket,
         agg,
         end,
+        collapse,
     )
 
 

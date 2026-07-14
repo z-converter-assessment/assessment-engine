@@ -4,7 +4,7 @@
 {% if overview and overview.total > 0 %}
 <section class="card no-print">
   <h2 class="card-title">환경 요약</h2>
-  <div class="kpi-grid kpi-grid-4">
+  <div class="kpi-grid kpi-grid-5">
     <div class="kpi">
       <span>총 서버</span>
       <strong>{{ overview.total }}</strong>
@@ -13,6 +13,27 @@
     <div class="kpi"><span>총 vCPU</span><strong>{{ overview.total_vcpus }}</strong></div>
     <div class="kpi"><span>메모리</span><strong>{{ overview.total_memory_gb | disksize_styled }}</strong></div>
     <div class="kpi"><span>디스크</span><strong>{{ overview.total_disk_gb | storagesize_styled }}</strong></div>
+    {# OS 지원(EOL) — 1행 값(지원중·미상·종료), 2행 라벨. 값은 큰 숫자(상태색: 중립/amber/빨강), 라벨 작게, 중앙점 구분.
+       div 기반(.kpi span{display:block} 회피). align-items:flex-start 로 · 를 숫자 행에 정렬. #}
+    <div class="kpi">
+      <span>OS 지원</span>
+      <div style="display:flex; align-items:flex-start; gap:9px; margin-top:6px;">
+        <div style="text-align:center;">
+          <div class="text-strong" style="font-size:22px; font-weight:700;">{{ overview.os_eol_supported }}</div>
+          <div class="text-meta" style="font-size:11px;">지원중</div>
+        </div>
+        <div style="font-size:22px; color:#cbd5e1;">·</div>
+        <div style="text-align:center;">
+          <div class="text-warn" style="font-size:22px; font-weight:700;">{{ overview.os_eol_unknown }}</div>
+          <div class="text-meta" style="font-size:11px;">미상</div>
+        </div>
+        <div style="font-size:22px; color:#cbd5e1;">·</div>
+        <div style="text-align:center;">
+          <div class="text-danger" style="font-size:22px; font-weight:700;">{{ overview.os_eol_passed }}</div>
+          <div class="text-meta" style="font-size:11px;">종료</div>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -30,7 +51,7 @@
 <section>
   <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
     <h2 class="card-title" style="margin:0;">자원 적정성</h2>
-    <span class="section-meta">{{ window_meta(overview.risk_donut_total, classification_window_label) }}</span>
+    <span class="section-meta">{{ window_meta(classification_window_label) }}</span>
   </div>
   {% if overview.risk_donut and overview.risk_donut_total > 0 %}
   {{ provisioning_dist_bar(overview.risk_donut) }}
@@ -45,7 +66,7 @@
 <section class="card no-print">
   <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
     <h2 class="card-title" style="margin:0;">자원 이용·포화</h2>
-    <span class="section-meta">{{ window_meta(overview.util_sample_size, classification_window_label) }}</span>
+    <span class="section-meta">{{ window_meta(classification_window_label) }}</span>
   </div>
   {% if overview.utilization or overview.saturation_donuts %}
   <div style="display:flex; align-items:center; flex-wrap:wrap; gap:20px;">
@@ -60,7 +81,7 @@
 {# 운영 이벤트 / 에러 (fleet) — 에러축(하드웨어·디스크·네트워크·OS EOL) 발생 호스트 수. 전체 기간 조회(에러는 드문 이벤트라 창 제한 부적합). 정상=0 발화(E9). #}
 {% if overview.error_fleet %}
 <section class="card no-print">
-  <h2 class="card-title" style="margin:0 0 10px;">운영 이벤트 / 에러</h2>
+  <h2 class="card-title" style="margin:0 0 10px;">운영 이벤트</h2>
   <div class="err-fleet">
     {% for e in overview.error_fleet %}
     <div class="err-item"{% if e.detail %} title="{{ e.detail }}"{% endif %}>

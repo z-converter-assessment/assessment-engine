@@ -73,7 +73,7 @@ GET /api/right-sizing?window_days=7&amp;end=2026-07-01T00:00:00Z  # 창·기준 
   <p class="text-sm text-label" style="margin:0 0 8px; line-height:1.6;">최상위 <code>right_sizing.servers[]</code> 각 서버 객체. 중첩은 <code>.</code> 로 표기. "값" 열은 파싱 시 올 수 있는 값의 전체 집합 (그 외 값은 오지 않음).</p>
   <div class="table-scroll">
   <table style="margin-bottom:16px;">
-    <thead><tr><th>필드</th><th>타입</th><th>null</th><th>올 수 있는 값 / 설명</th></tr></thead>
+    <thead><tr><th>필드</th><th>타입</th><th>null</th><th>올 수 있는 값 | 설명</th></tr></thead>
     <tbody>
       <tr><td><code>online</code> · <code>hostname_ambiguous</code></td><td>boolean</td><td>아니오</td><td><code>true</code> | <code>false</code> (2개). hostname_ambiguous=true 면 동명 서버 2대+.</td></tr>
       <tr><td><code>classification</code></td><td>string</td><td>아니오</td><td>5개: <code>under_provisioned</code> | <code>over_provisioned</code> | <code>idle</code> | <code>optimal</code> | <code>insufficient_data</code>. <code>classification_label</code>=그 한국어.</td></tr>
@@ -93,7 +93,7 @@ GET /api/right-sizing?window_days=7&amp;end=2026-07-01T00:00:00Z  # 창·기준 
       <tr><td><code>*.saturation.measured</code></td><td>boolean</td><td>아니오</td><td><code>true</code> | <code>false</code>. false 면 그 축 미관측(value·saturated=null).</td></tr>
       <tr><td><code>*.saturation.saturated</code></td><td>boolean</td><td>예</td><td><code>true</code> | <code>false</code> | <code>null</code> (미관측 시 null).</td></tr>
       <tr><td><code>*.saturation.signal</code></td><td>string</td><td>아니오</td><td>OS별 신호명 라벨(예 "run queue (procs_running)/core" · Windows "Processor Queue Length/core" · "await" · "Pages Input/sec" · "swap page-out").</td></tr>
-      <tr><td><code>*.saturation.value / threshold</code></td><td>number</td><td>value 예 / threshold 자원별</td><td>raw 수치(문자열 아님 — 파싱 계약). value 미측정 시 null(Linux swap page-out 은 이벤트라 상시 null, saturated 로 판정). threshold 는 임계 상수.</td></tr>
+      <tr><td><code>*.saturation.value / threshold</code></td><td>number</td><td>value 예 | threshold 자원별</td><td>raw 수치(문자열 아님 — 파싱 계약). value 미측정 시 null(Linux swap page-out 은 이벤트라 상시 null, saturated 로 판정). threshold 는 임계 상수.</td></tr>
       <tr><td><code>*.saturation.unit</code></td><td>string</td><td>아니오</td><td>value 단위: <code>per_core</code> | <code>per_sec</code> | <code>ms</code> | <code>queue</code> | <code>event</code>.</td></tr>
       <tr><td><code>*.evidence</code></td><td>string[]</td><td>아니오</td><td>한국어 근거 라벨 배열(예 ["CPU 이용률 초과","CPU 실행 큐 포화"]). 없으면 <code>[]</code>.</td></tr>
       <tr><td><code>network.signals.{retransmit_pct,drop_pct,conntrack_ratio}</code></td><td>object</td><td>아니오</td><td>각 <code>{value:number|null, threshold:number, exceeded:boolean|null, measured:boolean}</code>. 임계 = 재전송 1.0·드롭 0.5·conntrack 0.8. 미측정이면 value·exceeded=null.</td></tr>
@@ -182,7 +182,7 @@ GET /api/right-sizing?window_days=7&amp;end=2026-07-01T00:00:00Z  # 창·기준 
   </p>
   <div class="table-scroll">
   <table style="margin-bottom:10px;">
-    <thead><tr><th>필드</th><th>타입</th><th>값 / 의미</th></tr></thead>
+    <thead><tr><th>필드</th><th>타입</th><th>값 | 의미</th></tr></thead>
     <tbody>
       <tr><td><code>summary</code></td><td>string</td><td>사람용 요약(예 <code>메모리 -&gt; 24GB</code>). 표시 전용 — 파싱하지 말 것.</td></tr>
       <tr><td><code>kind</code></td><td>string</td><td>5개: <code>provision</code>(증설) | <code>downsize</code>(축소) | <code>decommission</code>(종료·통합) | <code>maintain</code>(적정) | <code>insufficient</code>(표본 부족).</td></tr>
@@ -199,7 +199,7 @@ GET /api/right-sizing?window_days=7&amp;end=2026-07-01T00:00:00Z  # 창·기준 
     파싱 예: <code>kind</code> 로 방향 결정 -&gt; <code>actions[]</code> 순회하며 <code>resource</code> + <code>target_cores/_mb/_gb</code> 로 자원별 목표 총량 적용. <code>suppressed</code> 자원은 건드리지 않는다. (예: 메모리 근본원인이면 actions=[{memory, target_mb}], suppressed=["cpu","disk_io"] — 메모리만 증설.)
   </p>
 
-  <h3>null / '—' 표기 규약</h3>
+  <h3>null | '—' 표기 규약</h3>
   <p class="text-sm text-label" style="margin:0; line-height:1.7;">
     JSON <code>null</code> = 해당 값이 없거나 아직 측정되지 않음(N/A). 즉 필드의 원래 타입(number·string·integer·boolean)에
     <code>null</code> 이 허용된다는 뜻이다. 화면(보고서·표)에서는 이 <code>null</code> 이 <code>—</code>(대시)로 표시된다 —
@@ -223,7 +223,7 @@ GET /api/right-sizing?window_days=7&amp;end=2026-07-01T00:00:00Z  # 창·기준 
     <div class="text-sm text-label" style="margin:6px 0 0;">
       파라미터
       {% for p in e.params %}
-      <code style="margin-left:6px; color:#475569;">{{ p.name }}<span class="text-meta">:{{ p.type }}</span>{% if p.required %}<span style="color:#dc2626;">*</span>{% endif %}</code>
+      <code style="margin-left:6px; color:#475569;">{{ p.name }}<span class="text-meta">:{{ p.type }}</span>{% if p.required %}<span class="text-danger">*</span>{% endif %}</code>
       {% endfor %}
     </div>
     {% endif %}

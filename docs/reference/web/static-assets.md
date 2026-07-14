@@ -75,7 +75,7 @@ src/assessment_engine/web/static/js/
 - 구간/집계 = `<select class="chart-select">` 드롭다운 (너비 절약). `bindToggle` 이 select/button 자동 분기라 JS 호출 동일.
 - 앵커 = `<input type="datetime-local" class="chart-anchor">`. select·anchor 높이 통일(`box-sizing`).
 - 서버 상세 자원 탭(cpu/memory/network/storage)은 페이지 단일 시간축 컨트롤(`pageTimeControl`, 카드 밖 상단 range+anchor 하나)이 그 페이지 전 차트를 같은 창·시점으로 구동(#F10, 신호 간 시점 상관). 차트별 개별 range/anchor 없음.
-- 성능 추이(metrics — 서버 상세 `/{id}/metrics` + 환경 `/environment/metrics`)는 예외 — 추이 차트 10개를 2열 5쌍으로 모은 종합 뷰라, 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(카드 밖 좌상단, 버킷/구간/앵커 + '적용' 버튼 — 앵커는 적용 클릭으로 반영·구간 select 즉시)이 모든 차트 동기. 5행 2열을 단일 `.card.perf-merged` 로 통합(행=`.perf-pair.perf-row`, 행 구분선 #e2e8f0; 인쇄는 `.perf-merged` 내부 분기 허용 + `.perf-row` 단위 `page-break-inside:avoid`). 서버 상세는 서버 정보 카드 제거(상세 탭에서 확인). 디스크 read+write·네트워크 RX+TX 각각 통합 1 차트.
+- 성능 추이(metrics — 서버 상세 `/{id}/metrics` + 환경 `/environment/metrics`)는 예외 — 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(카드 밖 좌상단, 버킷/구간/앵커 + '적용' 버튼 — 앵커는 적용 클릭으로 반영·구간 select 즉시)이 모든 차트 동기. 두 페이지 모두 자원별(CPU/메모리/스토리지/네트워크) 카드를 `.perf-stack`(세로 flex)으로 나열하되 카드 내부 그리드는 별개 — 서버 상세는 `.perf-grid`/`.perf-item`(화면 2열 auto-fit, 인쇄는 base.html `@media print` 가 4열 landscape 로 재정의, 아래 print CSS 절), 환경은 `.perf-pair.perf-row`(auto-fit, 인쇄 열수 재배치 없이 카드 단위 `break-inside:avoid`만). 디스크 read+write·네트워크 RX+TX 각각 통합 1 차트.
 
 ### 범례 (칩 토글)
 - `.legend-chip` (pill 버튼 + `.legend-dot` 색점): 클릭 시 dataset show/hide, 숨김은 `aria-pressed=false`로 흐려짐. `button`+`aria-pressed`라 키보드 토글 지원.
@@ -123,7 +123,9 @@ src/assessment_engine/web/static/js/
 
 `.no-print` 클래스로 navbar/검색폼/버튼 인쇄 시 숨김 (base.html). 컨설턴트가 브라우저 인쇄 → PDF/PPT 캡처. 백엔드 PDF export는 미도입 (`docs/explanation/tradeoffs.md` 참조).
 
-성능 추이 인쇄(base.html `@media print`): `.perf-pair` 2열 강제(auto-fit 이 A4 폭에서 1열로 collapse 방지) + `.perf-pair canvas { width/height:100% !important }` 로 Chart.js 가 캔버스에 박은 화면 폭(px)이 인쇄 컨테이너를 넘어 꺾은선이 plot 경계를 넘는 것 보정. `beforeprint`/`afterprint` 차트 `resize()` 보강(metrics.js).
+서버 상세 성능 추이(`servers/metrics.html`) 인쇄(base.html `@media print`): `.perf-grid` 를 4열로 강제(`grid-template-columns: repeat(4, 1fr)` — auto-fit 그대로면 세로 폭 기준이라 1~2열로 collapse) + `.perf-item { page-break-inside: avoid }`(낱개 단위 — CSS Grid auto-flow 는 "행" DOM 요소가 없어 개별 아이템에 걸어야 함) + `.perf-grid canvas { width/height:100% !important }` 로 Chart.js 가 캔버스에 박은 화면 폭(px)이 인쇄 컨테이너를 넘어 꺾은선이 plot 경계를 넘는 것 보정 + `.perf-stack` 하위 `.chart-subtitle`/`.chart-desc` 축소(4열 밀도용 폰트 재정의). 페이지 자체 `<style>@media print{ @page{ size:A4 landscape; margin:9mm } }</style>` 로 가로 전환(named-page 방향 브라우저 지원 불안정 회피, `reports/environment.html` 과 동일 기법). `beforeprint`/`afterprint` 차트 `resize()` 보강(metrics.js).
+
+환경 성능 추이(`environment_metrics.html`) 인쇄는 열 재배치 없이 `.perf-stack section.card { break-inside: avoid }`(자원 카드 단위) + 폰트·간격 축소만 — 세로(portrait) 유지, `@page` 재정의 없음.
 
 ## 의존성
 

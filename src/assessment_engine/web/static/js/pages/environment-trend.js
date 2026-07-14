@@ -100,7 +100,7 @@
           y: {
             beginAtZero: true,
             suggestedMax: 100,
-            ticks: { callback: function (v) { return v + '%'; }, font: { size: 11 }, color: '#64748b' },
+            ticks: { callback: function (v) { return Number(v).toFixed(1) + '%'; }, font: { size: 11 }, color: '#64748b' },
             grid: { display: showGrid, color: '#f1f5f9' },
           },
         },

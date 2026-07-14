@@ -184,6 +184,7 @@ function hideInstallModal() {
 }
 
 // task cell HTML 렌더 단일 진실 — install 직후 polling + 페이지 로드 시 진행 중 추적 공용.
+// 값은 뱃지만 노출(SSR _server_rows.html 과 동일) — 시각은 hover title 로만(날짜-시간 텍스트 상시 노출 금지).
 // 시간 포맷 단일 진실 — ChartUtils.fmtKst (YYYY-MM-DD HH:MM:SS). toLocaleString 은 locale-dependent 라 회피.
 /**
  * @param {Element} cell
@@ -191,8 +192,7 @@ function hideInstallModal() {
  */
 function renderTaskCell(cell, detail) {
   const created = ChartUtils.fmtKst(detail.created_at);
-  // 시각 글자크기·색은 SSR(list.html task cell) 과 동일 — 11px / .text-muted(#64748b). 새로고침 전후 일관.
-  cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${detail.task_id}" title="${detail.failure_label || ''}"><span class="badge ${detail.badge_class}">${detail.badge_label}</span><span class="text-muted" style="font-size:11px;">${created}</span></a>`;
+  cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${detail.task_id}" title="${detail.failure_label || ''} · ${created}"><span class="badge ${detail.badge_class}">${detail.badge_label}</span></a>`;
 }
 
 // install 발행 직후 행별 last_task cell polling — TaskModal.pollUntilFinal 으로 final 도달 시 cell 갱신.
@@ -219,7 +219,7 @@ async function submitInstall() {
   const zdmIp = /** @type {HTMLInputElement} */ (document.getElementById('install-zdm-target')).value.trim();
   const zdmUser = /** @type {HTMLInputElement} */ (document.getElementById('install-zdm-account')).value.trim();
   if (!zdmIp || !zdmUser) {
-    ToastUtils.show('ZDM IP / 관리자 계정 필수', 'err');
+    ToastUtils.show('ZDM IP | 관리자 계정 필수', 'err');
     return;
   }
 

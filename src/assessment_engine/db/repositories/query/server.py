@@ -102,6 +102,8 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             kernel_version=r.kernel_version,
             cpu_cores=r.cpu_cores,
             cpu_model=r.cpu_model,
+            cpu_arch=r.arch,
+            cpu_bits=r.bits,
             mem_total_bytes=r.mem_total_bytes,
             boot_time=r.boot_time,
             agent_started_at=r.agent_started_at,
@@ -139,6 +141,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
                 ServerInventory.block_devices,
                 ServerInventory.lvm_vgs,
                 ServerInventory.last_seen_at,
+                ServerInventory.os_family,
             ).where(ServerInventory.id == server_id)
         )
         r = inv_result.one_or_none()
@@ -167,6 +170,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             lvm_vgs=r.lvm_vgs or [],
             filesystems=filesystems,
             inventory_at=r.last_seen_at,
+            os_family=r.os_family,
         )
 
     async def get_network(self, server_id: int) -> NetworkWithIo | None:
@@ -178,11 +182,16 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
                 ServerInventory.net_interfaces,
                 ServerInventory.ip_external,
                 ServerInventory.last_seen_at,
+                ServerInventory.os_family,
             ).where(ServerInventory.id == server_id)
         )
         r = inv_result.one_or_none()
         if not r:
             return None
+
+        # 인벤토리 speed_mbps null(virtio·Windows NT5.2) 폴백 — metrics network.link.speed 최신값(bit/s) 재사용.
+        link_speeds = await self.latest_link_speed([server_id], datetime.now(UTC) - timedelta(days=30))
+        link_speed_by_iface = link_speeds.get(server_id, {})
 
         rows = await self._latest_per_dimension(ServerNetIo.__tablename__, "iface_id", server_id, n=2)
         net_io = [
@@ -210,6 +219,8 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             ip_external=r.ip_external,
             net_io=net_io,
             inventory_at=r.last_seen_at,
+            os_family=r.os_family,
+            link_speed_by_iface=link_speed_by_iface,
         )
 
     async def get_collection_status(self, server_id: int) -> CollectionStatus | None:

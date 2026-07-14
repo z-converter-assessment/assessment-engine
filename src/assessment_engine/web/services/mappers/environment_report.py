@@ -354,7 +354,7 @@ def _env_summary_bullets(
     # gap/agent_unstable 전역 신호는 window 의미 불일치로 보고서·요약 미표시.
     ko = recommendation.LABEL_KO
     resource = (
-        f"vCPU {overview.total_vcpus} / 메모리 {overview.total_memory_gb:.1f} GB / 디스크 {overview.total_disk_gb} GB"
+        f"vCPU {overview.total_vcpus} | 메모리 {overview.total_memory_gb:.1f} GB | 디스크 {overview.total_disk_gb} GB"
     )
     dist_line = (
         f"자원 적정성 분류 — {ko['under_provisioned']} {under} · {ko['over_provisioned']} {over}"
@@ -364,7 +364,7 @@ def _env_summary_bullets(
         dist_line += f" · {ko['insufficient_data']} {insufficient}"
     bullets = [
         f"등록 서버 {overview.total}대 ({resource})",
-        f"온라인 {overview.online}대 / 오프라인 {overview.offline}대",
+        f"온라인 {overview.online}대 | 오프라인 {overview.offline}대",
         dist_line,
     ]
     # 주요 현상 강조 — 조치 지시 없이 현상·진단만 (분류명 그대로).

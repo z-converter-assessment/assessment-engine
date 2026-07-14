@@ -919,10 +919,22 @@ export interface components {
             /** Last Metric At */
             last_metric_at: string | null;
         };
+        /**
+         * CpuCoreSnapshot
+         * @description 코어별 순간 사용률 — 단일스레드 병목 실시간 표시(Linux 전용, Windows 는 빈 list). CPU 상세 전용.
+         */
+        CpuCoreSnapshot: {
+            /** Core Id */
+            core_id: number;
+            /** Usage Pct */
+            usage_pct: number | null;
+        };
         /** CpuSnapshot */
         CpuSnapshot: {
             /** Iowait Pct */
             iowait_pct: number | null;
+            /** Nice Pct */
+            nice_pct?: number | null;
             /** Steal Pct */
             steal_pct?: number | null;
             /** System Pct */
@@ -1007,7 +1019,9 @@ export interface components {
          * @description 에러 축 표시자 (Errors) — 카운트형 신호, 정상=0 발화(E9). 서버 판정, 클라 렌더만.
          *
          *     시계열 차트 아님(대부분 0이라 빈 차트 안티패턴) — 카운트 + 종류 + 시점 컨텍스트.
-         *     state = "clean"(창내 0, 초록 이상 없음) · "occurred"(발생, 빨강 카운트) · "no_data"(표본 없음, 회색).
+         *     state = "clean"(창내 0, 초록 이상 없음) · "occurred"(발생, 빨강 카운트) · "no_data"(표본 없음, 회색 —
+         *     일시적 미수집, 나중에 나타날 수 있음) · "not_applicable"(이 OS 구조적 미지원, 회색 — 영구히 N/A. 예:
+         *     Windows EDAC — WHEA 소스 미구현. no_data 와 구분해 "수집 대기"로 오인 표시 안 함).
          */
         ErrorSignal: {
             /** Context */
@@ -1091,12 +1105,16 @@ export interface components {
             /** Collected At */
             collected_at: string | null;
             cpu: components["schemas"]["CpuSnapshot"] | null;
+            /** Cpu Cores */
+            cpu_cores?: components["schemas"]["CpuCoreSnapshot"][];
             /** Cpu Saturation */
             cpu_saturation?: components["schemas"]["SaturationSignal"][];
             /** Disk Io */
             disk_io: components["schemas"]["DiskIoSnapshot"][];
             /** Disk Saturation */
             disk_saturation?: components["schemas"]["SaturationSignal"][];
+            /** Disk Usage Pct */
+            disk_usage_pct?: number | null;
             /** Errors */
             errors?: components["schemas"]["ErrorSignal"][];
             /** Mem Saturation */
@@ -1981,7 +1999,7 @@ export interface operations {
     get_environment_metrics_chart_api_servers_environment_metrics_chart_get: {
         parameters: {
             query: {
-                metric_type: "cpu.usage_percent" | "cpu.user_percent" | "cpu.system_percent" | "cpu.iowait_percent" | "cpu.run_queue" | "mem.usage_percent" | "mem.available_percent" | "mem.cached_percent" | "mem.buffers_percent" | "fs.usage_percent" | "disk.read_iops" | "disk.write_iops" | "disk.read_kbps" | "disk.write_kbps" | "disk.io_saturation" | "net.rx_bytes_per_sec" | "net.tx_bytes_per_sec" | "net.retrans_percent";
+                metric_type: "cpu.usage_percent" | "cpu.user_percent" | "cpu.system_percent" | "cpu.iowait_percent" | "cpu.psi" | "mem.usage_percent" | "mem.psi" | "fs.used_bytes" | "disk.read_iops" | "disk.write_iops" | "disk.read_kbps" | "disk.write_kbps" | "disk.io_saturation" | "net.rx_bytes_per_sec" | "net.tx_bytes_per_sec" | "net.retrans_percent";
                 time_range?: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
                 bucket?: "1m" | "5m" | "15m" | "30m" | "1h" | "3h" | "6h" | "12h" | "1d";
                 /** @description public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경. */
@@ -2081,12 +2099,14 @@ export interface operations {
     get_metric_chart_api_servers__server_id__metrics_chart_get: {
         parameters: {
             query: {
-                metric_type: "cpu.usage_percent" | "cpu.user_percent" | "cpu.system_percent" | "cpu.iowait_percent" | "cpu.run_queue" | "cpu.psi" | "mem.usage_percent" | "mem.available_percent" | "mem.cached_percent" | "mem.buffers_percent" | "mem.psi" | "disk.read_iops" | "disk.write_iops" | "disk.read_kbps" | "disk.write_kbps" | "disk.io_saturation" | "disk.psi" | "fs.usage_percent" | "net.rx_bytes_per_sec" | "net.tx_bytes_per_sec" | "net.rx_packets_per_sec" | "net.tx_packets_per_sec" | "net.retrans_percent";
+                metric_type: "cpu.usage_percent" | "cpu.user_percent" | "cpu.system_percent" | "cpu.iowait_percent" | "cpu.nice_percent" | "cpu.run_queue" | "cpu.blocked" | "cpu.psi" | "mem.usage_percent" | "mem.available_percent" | "mem.cached_percent" | "mem.buffers_percent" | "mem.psi" | "disk.read_iops" | "disk.write_iops" | "disk.read_kbps" | "disk.write_kbps" | "disk.io_saturation" | "disk.psi" | "fs.usage_percent" | "net.rx_bytes_per_sec" | "net.tx_bytes_per_sec" | "net.rx_packets_per_sec" | "net.tx_packets_per_sec" | "net.retrans_percent" | "net.drop_percent";
                 dimension?: string | null;
                 time_range?: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
                 bucket?: "1m" | "5m" | "15m" | "30m" | "1h" | "3h" | "6h" | "12h" | "1d";
                 agg?: "avg" | "max" | "p95";
                 end?: string | null;
+                /** @description dimension(device/mount) 합산 1선 — 스토리지 IOPS·처리량 추이 등 */
+                collapse?: boolean;
             };
             header?: never;
             path: {
@@ -2748,6 +2768,7 @@ export interface operations {
                 service?: string | null;
                 os_distro?: string | null;
                 classification?: string | null;
+                os_eol?: string | null;
                 fragment?: string | null;
             };
             header?: never;

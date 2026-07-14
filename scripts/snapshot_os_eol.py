@@ -40,6 +40,7 @@ _LINUX_PRODUCTS = [
     "opensuse",
     "amazon-linux",
     "fedora",
+    "oracle-linux",
 ]
 
 

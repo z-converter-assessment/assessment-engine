@@ -14,6 +14,7 @@ from collections.abc import Callable
 
 from assessment_engine.boot_time import is_counter_reset
 from assessment_engine.db.dtos.outbound import (
+    CpuCoreRaw,
     DashboardRaw,
     DiskIoRaw,
     ErrorFleetRaw,
@@ -25,6 +26,7 @@ from assessment_engine.db.dtos.outbound import (
 from assessment_engine.recommendation import (
     CPU_RUN_QUEUE_PER_CORE_SATURATION,
     DISK_QUEUE_PER_DISK_SATURATION,
+    PROCS_BLOCKED_DSTATE_SATURATION,
     PROCS_RUNNING_PER_CORE_SATURATION,
     RS_CONNTRACK_SATURATION_RATIO,
     RS_CPU_STEAL_BIAS_PCT,
@@ -36,9 +38,14 @@ from assessment_engine.recommendation import (
     disk_io_saturation_index,
     mem_pressure_active,
 )
-from assessment_engine.web.services.device_filters import is_data_volume
+from assessment_engine.web.services.device_filters import (
+    is_data_volume,
+    is_physical_disk,
+    is_virtual_interface,
+)
 from assessment_engine.web.services.unit_converter import bytes_to_gb, usage_pct
 from assessment_engine.web.view_models.metric import (
+    CpuCoreSnapshot,
     CpuSnapshot,
     DiskIoSnapshot,
     ErrorSignal,
@@ -104,19 +111,65 @@ def _clip_to_remaining(raw_pct: float | None, remaining_room: float) -> float | 
 # ─── 진입점 ───────────────────────────────────────────────────────────────
 
 
+def _composite_dev_id(node: dict) -> str | None:
+    """block_device/net_interface 노드 -> 시계열 조인 키 {id_type}:{id} (disk_io.device_id·net_io.iface_id 형식)."""
+    did, dtype = node.get("id"), node.get("id_type")
+    return f"{dtype}:{did}" if did and dtype else None
+
+
+def _physical_dev_names(nodes: list[dict] | None, keep: Callable[[dict], bool]) -> dict[str, str] | None:
+    """물리 계층 {조인키: 친숙 이름(name)} 맵 — keep(node) 통과분. 인벤토리 부재(None)면 필터 안 함.
+
+    시계열 device_name/iface_name 은 null 이라 조인키로 폴백 -> 인벤토리 name(vda·enp3s0)으로 표시명 해결.
+    조인키는 {id_type}:{id} 우선 + name:{name} 폴백 둘 다 등록 — 계약(agent-data.md E절) 상 inventory id_type
+    (예 Windows 디스크 gptid)과 metric 컬렉터 device_id(perflib 등 별도 하위계층이라 gptid 미접근 시 name: 폴백,
+    카탈로그 밖) 가 서로 다른 폴백 사슬을 골라 갈릴 수 있음 — 실측(win2025 disk_io: name:PhysicalDrive0 vs
+    inventory gptid:...) 확인. 두 키 중 먼저 매치되는 쪽으로 물리 필터가 전체 드롭되지 않게 방어.
+    """
+    if not nodes:
+        return None
+    result: dict[str, str] = {}
+    for n in nodes:
+        if not keep(n):
+            continue
+        name = n.get("name")
+        display = name or _composite_dev_id(n)
+        if cid := _composite_dev_id(n):
+            result[cid] = display
+        if name:
+            result[f"name:{name}"] = display
+    return result
+
+
 def build_dashboard(raw: DashboardRaw) -> MetricDashboard:
     cur = raw.metrics[0] if raw.metrics else None
     prev = raw.metrics[1] if len(raw.metrics) >= 2 else None
 
-    # 포화 신호(실행 큐 코어당 정규화 포함)는 build_saturation_signals 가 산출해 서비스가 4 리스트에 배선.
+    # I/O 활동 축 = 물리 디스크·인터페이스 단일 규칙(device_filters). 인벤토리 조인키로 좁힘 — 인벤토리 부재면
+    # 필터 없이 전체(None). LV/파티션·loopback/veth 통과분 이중집계 제외. name 맵으로 표시명(vda) 해결.
+    phys_disks = _physical_dev_names(raw.block_devices, lambda n: is_physical_disk(n.get("type")))
+    phys_ifaces = _physical_dev_names(raw.net_interfaces, lambda n: not is_virtual_interface(n.get("kind")))
+
+    mounts = compute_mounts(raw.filesystems)
+    # 실시간 카드 = 순간 도넛(이용률) + 활동(I/O). 이용률·포화 2축 분류는 14일 p95 창이라 별도 SSR 카드
+    # (PeriodAssessment)로 분리 — 순간 도넛 값(disk_usage_pct)만 여기서 산출.
     return MetricDashboard(
         collected_at=cur.collected_at if cur else None,
         cpu=compute_cpu(cur, prev),
         memory=compute_mem(cur),
-        disk_io=compute_disk_io(raw.disk_io),
-        net_io=compute_net_io(raw.net_io),
-        mounts=compute_mounts(raw.filesystems),
+        disk_io=compute_disk_io(raw.disk_io, phys_disks),
+        net_io=compute_net_io(raw.net_io, phys_ifaces),
+        mounts=mounts,
+        disk_usage_pct=_aggregate_disk_usage(mounts),
+        cpu_cores=compute_cpu_cores(raw.cpu_cores),
     )
+
+
+def _aggregate_disk_usage(mounts: list[MountDashSnapshot]) -> float | None:
+    """디스크 이용률 % = 데이터 볼륨 파일시스템 used/total 집계. compute_mounts 가 가상 fs 이미 제외 -> 합산만."""
+    total = sum((m.total_gb or 0) for m in mounts if m.total_gb)
+    used = sum((m.used_gb or 0) for m in mounts if m.total_gb and m.used_gb is not None)
+    return round(used / total * 100, 1) if total > 0 else None
 
 
 # ─── 포화 스냅샷 신호 (os-aware 서버 판정, P2) ─────────────────────────────
@@ -165,7 +218,7 @@ def _ratio_signal(key: str, label: str, val: float | None, threshold: float, des
 
 def build_saturation_signals(
     *, os_family: str | None, kernel_version: str | None, run_queue_total: float | None, cores: int | None,
-    steal_pct: float | None, sat: SaturationRaw,
+    steal_pct: float | None, sat: SaturationRaw, blocked: float | None = None,
 ) -> dict[str, list[SaturationSignal]]:
     """자원별 포화 스냅샷 신호 4축 산출 (P2). 판정은 도메인 os-aware helper·RS_ 임계 재사용(E3 재계산 금지).
 
@@ -202,6 +255,21 @@ def build_saturation_signals(
             detail=f"가상화 경합(steal%), 임계 {RS_CPU_STEAL_BIAS_PCT:g}%",
         ))
     cpu.append(_psi_signal("cpu_psi", "PSI", sat.psi_cpu, win, psi_ok))
+    # D-state 블록(IO 대기 근본원인) — Linux 전용(cpu.blocked, Windows 미발행). 순간 gauge, delta 불요.
+    if win:
+        cpu.append(SaturationSignal(
+            key="cpu_blocked", label="D-state 블록", state="not_applicable", na_reason="Windows 미지원",
+        ))
+    else:
+        cpu.append(SaturationSignal(
+            key="cpu_blocked", label="D-state 블록",
+            state="measured" if blocked is not None else "no_data",
+            value=round(blocked, 1) if blocked is not None else None,
+            threshold=float(PROCS_BLOCKED_DSTATE_SATURATION), unit=None,
+            saturated=(blocked >= PROCS_BLOCKED_DSTATE_SATURATION) if blocked is not None else None,
+            detail=f"IO 대기(D-state) 프로세스 수 — 임계 {PROCS_BLOCKED_DSTATE_SATURATION:g}, "
+            "CPU 부하가 실제로 IO 대기발인지 근본원인 근거",
+        ))
 
     # 메모리 페이징 (os-aware) — mem_pressure_active 단일 진실.
     paging = sat.paging_major_rate
@@ -238,19 +306,27 @@ def build_saturation_signals(
         disk = [SaturationSignal(key="disk_await", label="응답 지연", state="no_data")]
     disk.append(_psi_signal("disk_psi", "PSI(io)", sat.psi_io, win, psi_ok))
 
-    # 네트워크 품질 — 재전송·드롭(에러성 rate) + conntrack(연결테이블 포화). 양 OS.
+    # 네트워크 품질 — 재전송·드롭(에러성 rate, 양 OS) + conntrack(연결테이블 포화, Linux nf_conntrack 전용 —
+    # agent-data.md #B "conntrack 미발행" Windows 구조적 미지원, 절대 나타나지 않을 값이라 no_data("수집 대기")
+    # 아닌 not_applicable).
     ct_ratio = sat.conntrack_ratio
-    net = [
-        _ratio_signal("net_retrans", "재전송", sat.retrans_pct, RS_NET_RETRANS_PCT, "TCP 재전송율"),
-        _ratio_signal("net_drop", "드롭", sat.drop_pct, RS_NET_DROP_PCT, "패킷 드롭율"),
-        SaturationSignal(
+    if win:
+        conntrack_sig = SaturationSignal(
+            key="net_conntrack", label="conntrack", state="not_applicable", na_reason="Windows 미지원",
+        )
+    else:
+        conntrack_sig = SaturationSignal(
             key="net_conntrack", label="conntrack",
             state="measured" if ct_ratio is not None else "no_data",
             value=round(ct_ratio * 100, 1) if ct_ratio is not None else None,
             threshold=RS_CONNTRACK_SATURATION_RATIO * 100, unit="%",
             saturated=(ct_ratio >= RS_CONNTRACK_SATURATION_RATIO) if ct_ratio is not None else None,
             detail=f"연결 테이블 사용률, 임계 {RS_CONNTRACK_SATURATION_RATIO * 100:.0f}%",
-        ),
+        )
+    net = [
+        _ratio_signal("net_retrans", "재전송", sat.retrans_pct, RS_NET_RETRANS_PCT, "TCP 재전송율"),
+        _ratio_signal("net_drop", "드롭", sat.drop_pct, RS_NET_DROP_PCT, "패킷 드롭율"),
+        conntrack_sig,
     ]
 
     return {"cpu": cpu, "mem": mem, "disk": disk, "net": net}
@@ -274,7 +350,9 @@ def _error_counter(
     return ErrorSignal(key=key, label=label, state="clean", count=0, window_label=window_label, detail=detail)
 
 
-def build_error_signals(err: ErrorFleetRaw, *, window_label: str) -> list[ErrorSignal]:
+def build_error_signals(
+    err: ErrorFleetRaw, *, window_label: str, os_family: str | None = None
+) -> list[ErrorSignal]:
     """에러 축 표시자 5종 (MCE·OOM·EDAC·NIC·디스크) — 카운트 + 종류 + 창. 정상=0 발화(E9)."""
     signals = [
         _error_counter("cpu_mce", "머신체크(MCE)", err.mce_count, err.measured,
@@ -288,9 +366,13 @@ def build_error_signals(err: ErrorFleetRaw, *, window_label: str) -> list[ErrorS
                        context=(", ".join(err.disk_error_kinds) if err.disk_error_kinds else None),
                        window_label=window_label),
     ]
-    # EDAC 메모리 손상 — gauge(현재값 > 0), 카운트 아님.
+    # EDAC 메모리 손상 — gauge(현재값 > 0), 카운트 아님. Windows 는 WHEA 소스 미구현이라 구조적 미지원(계약
+    # agent-data.md #B: "memory.hardware_corrupted null") — no_data("수집 대기")로 오인 표시 금지, not_applicable.
     edac_detail = "ECC 정정된 하드웨어 메모리 손상 바이트"
-    if err.corrupted_bytes is None:
+    if os_family == "windows":
+        signals.append(ErrorSignal(key="mem_corrupted", label="메모리 손상(EDAC)", state="not_applicable",
+                                   window_label=window_label, detail="Windows 미지원(WHEA 소스 부재)"))
+    elif err.corrupted_bytes is None:
         signals.append(ErrorSignal(key="mem_corrupted", label="메모리 손상(EDAC)", state="no_data",
                                    window_label=window_label, detail=edac_detail))
     elif err.corrupted_bytes > 0:
@@ -343,7 +425,35 @@ def compute_cpu(cur: MetricPairRaw | None, prev: MetricPairRaw | None) -> CpuSna
         system_pct=pct(cur.cpu_system_s, prev.cpu_system_s),
         iowait_pct=pct(cur.cpu_iowait_s, prev.cpu_iowait_s),
         steal_pct=pct(cur.cpu_steal_s, prev.cpu_steal_s),
+        nice_pct=pct(cur.cpu_nice_s, prev.cpu_nice_s),
     )
+
+
+def compute_cpu_cores(pairs: list[CpuCoreRaw]) -> list[CpuCoreSnapshot]:
+    """코어별 순간 사용률 — host 집계(compute_cpu)와 동일 산식(1 - delta(idle)/delta(total)), core_id 그룹.
+
+    Linux 전용(Windows 는 pairs 항상 빈 list). boot_time 미보유 child 시계열이라 d<0 자연 가드(#C1 fallback,
+    disk_io/net_io 와 동일 관례) — 재부팅으로 카운터 리셋되면 delta_total<=0 -> None.
+    """
+    by_core = _group_by_dim(pairs, key=lambda r: str(r.core_id))
+    result: list[CpuCoreSnapshot] = []
+    for core_id, rows in sorted(by_core.items(), key=lambda kv: int(kv[0])):
+        rows_sorted = sorted(rows, key=lambda r: r.collected_at, reverse=True)
+        if len(rows_sorted) < 2:
+            result.append(CpuCoreSnapshot(core_id=int(core_id), usage_pct=None))
+            continue
+        cur, prev = rows_sorted[0], rows_sorted[1]
+        vals_cur = [cur.cpu_user_s, cur.cpu_nice_s, cur.cpu_system_s, cur.cpu_idle_s,
+                    cur.cpu_iowait_s, cur.cpu_irq_s, cur.cpu_softirq_s, cur.cpu_steal_s]
+        vals_prev = [prev.cpu_user_s, prev.cpu_nice_s, prev.cpu_system_s, prev.cpu_idle_s,
+                     prev.cpu_iowait_s, prev.cpu_irq_s, prev.cpu_softirq_s, prev.cpu_steal_s]
+        delta_total = sum(v for v in vals_cur if v is not None) - sum(v for v in vals_prev if v is not None)
+        if delta_total <= 0 or cur.cpu_idle_s is None or prev.cpu_idle_s is None:
+            result.append(CpuCoreSnapshot(core_id=int(core_id), usage_pct=None))
+            continue
+        idle_pct = max(0.0, (cur.cpu_idle_s - prev.cpu_idle_s) / delta_total * 100)
+        result.append(CpuCoreSnapshot(core_id=int(core_id), usage_pct=round(max(0.0, 100.0 - idle_pct), 1)))
+    return result
 
 
 # ─── Memory (시점 값, By) ──────────────────────────────────────────────────
@@ -390,14 +500,19 @@ def compute_mem(cur: MetricPairRaw | None) -> MemSnapshot | None:
 # ─── Disk I/O / Net I/O — 누적 카운터 페어 → rate ─────────────────────────
 
 
-def compute_disk_io(pairs: list[DiskIoRaw]) -> list[DiskIoSnapshot]:
-    """device_id별로 그룹 → 페어 rate. v2 는 device type 축 부재라 물리/LVM/파티션 분류 없이 전체 flat."""
+def compute_disk_io(pairs: list[DiskIoRaw], dev_names: dict[str, str] | None = None) -> list[DiskIoSnapshot]:
+    """device_id별 그룹 -> 페어 rate. dev_names(=block_devices type=disk 조인키->이름) 주면 물리 디스크만 통과.
+
+    None(인벤토리 부재)이면 전체 flat(폴백). LV/파티션/RAID 통과분은 물리 필터로 이중집계 제외. 표시명은 맵 name.
+    """
+    if dev_names is not None:
+        pairs = [p for p in pairs if p.device_id in dev_names]
     by_device = _group_by_dim(pairs, key=lambda r: r.device_id)
-    return [_disk_io_snapshot(rows) for _did, rows in sorted(by_device.items())]
+    return [_disk_io_snapshot(rows, dev_names) for _did, rows in sorted(by_device.items())]
 
 
-def _disk_io_snapshot(rows: list[DiskIoRaw]) -> DiskIoSnapshot:
-    display = rows[0].device_name or rows[0].device_id
+def _disk_io_snapshot(rows: list[DiskIoRaw], dev_names: dict[str, str] | None = None) -> DiskIoSnapshot:
+    display = (dev_names or {}).get(rows[0].device_id) or rows[0].device_name or rows[0].device_id
     if len(rows) < 2:
         return DiskIoSnapshot(device=display, read_iops=None, write_iops=None, read_kbps=None, write_kbps=None)
     cur, prev = rows[0], rows[1]
@@ -416,14 +531,19 @@ def _disk_io_snapshot(rows: list[DiskIoRaw]) -> DiskIoSnapshot:
     )
 
 
-def compute_net_io(pairs: list[NetIoRaw]) -> list[NetIoSnapshot]:
-    """iface_id별 그룹 -> 페어 rate. v2 NetIoRaw 에 kind 축 부재라 IF 전체 노출(가상 필터는 inventory 조인)."""
+def compute_net_io(pairs: list[NetIoRaw], iface_names: dict[str, str] | None = None) -> list[NetIoSnapshot]:
+    """iface_id별 그룹 -> 페어 rate. iface_names(=net_interfaces physical/bond_master 조인키->이름) 주면 물리만.
+
+    None(인벤토리 부재)이면 전체 노출(폴백). loopback/veth/bridge/bond_member 는 물리 필터로 제외. 표시명은 맵 name.
+    """
+    if iface_names is not None:
+        pairs = [p for p in pairs if p.iface_id in iface_names]
     by_iface = _group_by_dim(pairs, key=lambda r: r.iface_id)
-    return [_net_io_snapshot(rows) for _iid, rows in sorted(by_iface.items())]
+    return [_net_io_snapshot(rows, iface_names) for _iid, rows in sorted(by_iface.items())]
 
 
-def _net_io_snapshot(rows: list[NetIoRaw]) -> NetIoSnapshot:
-    display = rows[0].iface_name or rows[0].iface_id
+def _net_io_snapshot(rows: list[NetIoRaw], iface_names: dict[str, str] | None = None) -> NetIoSnapshot:
+    display = (iface_names or {}).get(rows[0].iface_id) or rows[0].iface_name or rows[0].iface_id
     if len(rows) < 2:
         return NetIoSnapshot(interface=display, rx_kbps=None, tx_kbps=None, rx_pps=None, tx_pps=None)
     cur, prev = rows[0], rows[1]

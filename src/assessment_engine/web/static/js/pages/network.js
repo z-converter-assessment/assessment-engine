@@ -6,6 +6,9 @@
  * - ChartUtils (base.html에서 chart-utils.js 로드)
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
  * - body data-server-id (E6 외부화 규약, static-assets.md)
+ *
+ * 시간축: 페이지 단일 range + anchor(#F10) — 4 차트(I/O·PPS·재전송율·드롭율)가 pageTimeControl 하나를
+ * 공유해 같은 창·시점으로 그려진다(신호 간 시점 상관).
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
@@ -30,37 +33,38 @@ function fmtKbps(v) {
 /** @param {number | null | undefined} v */
 function fmtPps(v) { return v != null ? v.toFixed(1) + ' pps' : '—'; }
 
-async function loadNetSnapshot() {
+async function loadSnapshot() {
   try {
     const res = await fetch(`/api/servers/${SERVER_ID}/metrics/latest`);
-    /** @type {HTMLElement} */ (document.getElementById('net-snapshot-loading')).style.display = 'none';
-    if (res.status === 404) {
-      /** @type {HTMLElement} */ (document.getElementById('net-snapshot-empty')).style.display = '';
-      return;
-    }
+    /** @type {HTMLElement} */ (document.getElementById('snap-loading')).style.display = 'none';
+    if (res.status === 404) { /** @type {HTMLElement} */ (document.getElementById('snap-empty')).style.display = ''; return; }
     if (!res.ok) return;
     const data = /** @type {import('../generated/api').components['schemas']['MetricDashboard']} */ (await res.json());
     // 포화 스냅샷 신호 — 서버가 os-aware 판정(값·임계·saturated·4상태)을 끝낸 구조화 신호를 공통 렌더만(P4).
     // JS os 분기·임계 재계산 없음(SignalUtils). 근거(metric·임계)는 각 항목 hover. 인터페이스 I/O 유무와 별개라 가드 이전 세팅.
     SignalUtils.renderSaturation(document.getElementById('net-sat-signals'), data.net_saturation);
     const netIo = data.net_io || [];
-    if (!netIo.length) {
+    if (netIo.length) {
+      /** @type {HTMLElement} */ (document.getElementById('net-snapshot-tbody')).innerHTML = netIo.map(iface => `
+        <tr>
+          <td>${iface.interface}</td>
+          <td>${fmtKbps(iface.rx_kbps)}</td>
+          <td>${fmtKbps(iface.tx_kbps)}</td>
+          <td>${fmtPps(iface.rx_pps)}</td>
+          <td>${fmtPps(iface.tx_pps)}</td>
+        </tr>
+      `).join('');
+      /** @type {HTMLElement} */ (document.getElementById('net-snapshot-table')).style.display = '';
+      /** @type {HTMLElement} */ (document.getElementById('net-snapshot-empty')).style.display = 'none';
+    } else {
+      /** @type {HTMLElement} */ (document.getElementById('net-snapshot-table')).style.display = 'none';
       /** @type {HTMLElement} */ (document.getElementById('net-snapshot-empty')).style.display = '';
-      return;
     }
-    /** @type {HTMLElement} */ (document.getElementById('net-snapshot-tbody')).innerHTML = netIo.map(iface => `
-      <tr>
-        <td>${iface.interface}</td>
-        <td>${fmtKbps(iface.rx_kbps)}</td>
-        <td>${fmtKbps(iface.tx_kbps)}</td>
-        <td>${fmtPps(iface.rx_pps)}</td>
-        <td>${fmtPps(iface.tx_pps)}</td>
-      </tr>
-    `).join('');
-    /** @type {HTMLElement} */ (document.getElementById('net-snapshot-table')).style.display = '';
-    const stampEl = document.getElementById('metrics-stamp');
-    if (stampEl && data.collected_at) stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);
-  } catch(e) { console.error(e); }
+    /** @type {HTMLElement} */ (document.getElementById('snap-body')).style.display = '';
+  } catch(e) {
+    /** @type {HTMLElement} */ (document.getElementById('snap-loading')).textContent = '불러오기 실패';
+    console.error(e);
+  }
 }
 /** @type {import('chart.js').Chart | null} */
 let netChart = null;
@@ -154,7 +158,7 @@ function renderNetChartOne(spec, avgRows, maxRows, range, anchorEnd) {
               const maxDs = c?.data.datasets[ctx.datasetIndex + 1];
               const realMax = maxDs?.realData?.[ctx.dataIndex];
               if (realMax != null)
-                return ` ${ctx.dataset.label}: 평균 ${spec.fmt(avg)} / 최대 ${spec.fmt(realMax)}`;
+                return ` ${ctx.dataset.label}: 평균 ${spec.fmt(avg)} | 최대 ${spec.fmt(realMax)}`;
               return ` ${ctx.dataset.label}: ${spec.fmt(avg)}`;
             }
           },
@@ -238,7 +242,6 @@ async function loadNetPpsChart() {
   }
 }
 
-/* ── 페이지 단일 시간축 버킷 라벨·print range (모든 차트 공통 range) ── */
 /* ── TCP 재전송율 추이 (%, 단일선 — 양 OS, 1% 초과면 네트워크 품질 저하) ── */
 /** @type {any} */
 let retransChart = null;
@@ -290,14 +293,65 @@ async function loadRetransChart() {
   } catch(e) { console.error(e); }
 }
 
+/* ── 패킷 드롭율 추이 (%, 단일선 — 양 OS, 링 버퍼 오버런·경로 손실 신호) ── */
+/** @type {any} */
+let dropChart = null;
+let dropSeq   = 0;
+
+async function loadDropChart() {
+  const seq = ++dropSeq;
+  const range  = timeCtl.getRange();
+  const anchor = timeCtl.getAnchor();
+  const p = new URLSearchParams({ metric_type: 'net.drop_percent', time_range: range, bucket: AUTO_BUCKET[range], agg: 'avg' });
+  if (anchor) p.append('end', anchor.toISOString());
+  const canvas = /** @type {HTMLElement} */ (document.getElementById('drop-canvas'));
+  const empty  = /** @type {HTMLElement} */ (document.getElementById('drop-empty'));
+  try {
+    /** @type {import('../generated/api').components['schemas']['MetricSeriesItem'][]} */
+    const rows = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${p}`).then(r => r.json());
+    if (seq !== dropSeq) return;
+    if (!Array.isArray(rows) || !rows.length) {
+      canvas.style.display = 'none'; empty.style.display = '';
+      if (dropChart) { dropChart.destroy(); dropChart = null; }
+      return;
+    }
+    canvas.style.display = ''; empty.style.display = 'none';
+    const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
+    const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchor);
+    const labels = grid.map((/** @type {number} */ t) => fmtNetLabel(new Date(t).toISOString(), range));
+    const data   = joinToGrid(grid, rows, bMs);
+    if (dropChart) {
+      dropChart.data.labels = labels; dropChart.data.datasets[0].data = data;
+      dropChart.update('none'); return;
+    }
+    dropChart = new Chart(canvas, {
+      type: 'line',
+      data: { labels, datasets: [{
+        label: '패킷 드롭율', data,
+        borderColor: /** @type {any} */ (ChartUtils).themeColor(),
+        borderWidth: 2, pointRadius: 1, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false,
+      }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode:'index', intersect:false },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` 드롭율: ${ctx.parsed.y?.toFixed(2)}%` } } },
+        scales: {
+          x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
+          y: { ticks:{ callback: v => Number(v).toFixed(2) + '%', font:{size:11}, color:'#64748b' }, grid:{ color:'#f1f5f9' }, beginAtZero: true, suggestedMax: 0.5 },
+        },
+      },
+    });
+  } catch(e) { console.error(e); }
+}
+
 function updateBucketLabels() {
   const r = timeCtl.getRange();
-  const bl = BUCKET_LABEL[AUTO_BUCKET[r]] || '';
   const pr = ' — ' + RANGE_LABEL[r];
   /** @param {string} id @param {string} t */
   const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
-  set('net-bucket-label', bl); set('net-pps-bucket-label', bl); set('retrans-bucket-label', bl);
-  set('net-range-print', pr); set('net-pps-range-print', pr); set('retrans-range-print', pr);
+  // 버킷은 4 차트 공통(단일 range/anchor) — 환경 성능 추이·CPU/메모리/스토리지 상세와 동일 전역 라벨 1개.
+  set('bucket-label', BUCKET_LABEL[AUTO_BUCKET[r]] || '');
+  set('net-range-print', pr); set('net-pps-range-print', pr); set('retrans-range-print', pr); set('drop-range-print', pr);
 }
 
 /* ── 전체 차트 reload (페이지 range/anchor 변경 시) ── */
@@ -306,14 +360,15 @@ function reloadAllCharts() {
   loadNetChart();
   loadNetPpsChart();
   loadRetransChart();
+  loadDropChart();
 }
 
-// 페이지 단일 시간축 컨트롤러 — range 토글 + anchor 가 2 차트 전체 구동(#F10).
+// 페이지 단일 시간축 컨트롤러 — range 토글 + anchor 가 4 차트 전체 구동(#F10).
 const timeCtl = pageTimeControl('page-range-btns', 'page-anchor', '15m', reloadAllCharts);
 
-/* ── 30초 polling 자동 갱신 (SSE 제거) ── */
-initAutoRefresh(loadNetSnapshot);
+/* ── 30초 polling 자동 갱신 (스냅샷만) ── */
+initAutoRefresh(loadSnapshot);
 
 /* ── 초기 로드 ── */
-loadNetSnapshot();
+loadSnapshot();
 reloadAllCharts();

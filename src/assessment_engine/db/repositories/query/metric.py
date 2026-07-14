@@ -10,6 +10,7 @@ from sqlalchemy import select, text
 
 from assessment_engine import recommendation  # 순수 도메인 커널 — right-sizing 정책 상수(순환 없음)
 from assessment_engine.db.dtos.outbound import (
+    CpuCoreRaw,
     DashboardRaw,
     DiskIoRaw,
     ErrorFleetRaw,
@@ -21,6 +22,7 @@ from assessment_engine.db.dtos.outbound import (
     RebootEvent,
     SaturationRaw,
 )
+from assessment_engine.db.models.server_cpu_core import ServerCpuCore
 from assessment_engine.db.models.server_disk_io import ServerDiskIo
 from assessment_engine.db.models.server_filesystem import ServerFilesystem
 from assessment_engine.db.models.server_inventory import ServerInventory
@@ -63,13 +65,20 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
 
     async def latest_dashboard(self, server_id: int) -> DashboardRaw | None:
         inv = await self.session.execute(
-            select(ServerInventory.os_family, ServerInventory.kernel_version).where(ServerInventory.id == server_id)
+            select(
+                ServerInventory.os_family,
+                ServerInventory.kernel_version,
+                ServerInventory.block_devices,
+                ServerInventory.net_interfaces,
+            ).where(ServerInventory.id == server_id)
         )
         inv_row = inv.first()
         if inv_row is None:
             return None
         os_family = inv_row[0]  # os-aware 스냅샷 포화 판정 입력 (nullable)
         kernel_version = inv_row[1]  # PSI 지원(Linux 4.20+) 판정 입력 (nullable)
+        block_devices = inv_row[2]  # 물리 디스크 필터 입력 (I/O 활동 축, nullable)
+        net_interfaces = inv_row[3]  # 물리 인터페이스 필터 입력 (nullable)
 
         # 미래 timestamp 방어 — 시계 어긋난 agent 의 미래 collected_at 행이 "가짜 최신"으로 잡혀
         # CPU delta(연속 2행)를 깨뜨리는 것 차단 (now()+skew 상한).
@@ -101,6 +110,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 mem_used_bytes=m.mem_used_bytes,
                 cpu_run_queue=m.cpu_run_queue,
                 cpu_logical_count=m.cpu_logical_count,
+                cpu_blocked=m.cpu_blocked,
                 boot_time=m.boot_time,
                 agent_started_at=m.agent_started_at,
             )
@@ -123,6 +133,23 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 pending_ops=row.pending_ops,
             )
             for row in d_rows
+        ]
+
+        c_rows = await self._latest_per_dimension(ServerCpuCore.__tablename__, "core_id", server_id, n=2)
+        cpu_cores = [
+            CpuCoreRaw(
+                core_id=row.core_id,
+                collected_at=row.collected_at,
+                cpu_user_s=row.cpu_user_s,
+                cpu_nice_s=row.cpu_nice_s,
+                cpu_system_s=row.cpu_system_s,
+                cpu_idle_s=row.cpu_idle_s,
+                cpu_iowait_s=row.cpu_iowait_s,
+                cpu_irq_s=row.cpu_irq_s,
+                cpu_softirq_s=row.cpu_softirq_s,
+                cpu_steal_s=row.cpu_steal_s,
+            )
+            for row in c_rows
         ]
 
         n_rows = await self._latest_per_dimension(ServerNetIo.__tablename__, "iface_id", server_id, n=2)
@@ -162,6 +189,8 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         return DashboardRaw(
             metrics=metrics, disk_io=disk_io, net_io=net_io, filesystems=filesystems,
             os_family=os_family, kernel_version=kernel_version,
+            block_devices=block_devices, net_interfaces=net_interfaces,
+            cpu_cores=cpu_cores,
         )
 
     async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, SaturationRaw]:
@@ -440,6 +469,70 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             disk_error_hosts=int(disk_hosts or 0),
         )
 
+    async def fleet_error_hosts(self, server_ids: list[int], since: datetime) -> set[int]:
+        """에러 발생 server_id 집합 (서버 목록 "운영 이벤트" 칼럼). 5축(mce·oom·corrupted·net·disk) 중
+        하나라도 창내 counter delta > 0(또는 corrupted 현재>0)이면 포함 — fleet_error_summary 와 동일 소스·delta.
+
+        #C5 예외: since=epoch 전체기간 스캔이나 에러 delta 는 저비용(fleet_error_summary 와 동일 예외).
+        3 소스 각각 SELECT 후 Python 합집합.
+        """
+        if not server_ids:
+            return set()
+        hosts: set[int] = set()
+        m_rows = (
+            await self.session.execute(
+                text("""
+                    SELECT server_id FROM (
+                        SELECT server_id,
+                            COALESCE(MAX(cpu_mce) - MIN(cpu_mce), 0) AS mce_d,
+                            COALESCE(MAX(mem_oom_kill) - MIN(mem_oom_kill), 0) AS oom_d,
+                            COALESCE(MAX(mem_hardware_corrupted_bytes), 0) AS corrupted
+                        FROM server_metrics
+                        WHERE server_id = ANY(:sids) AND collected_at >= :since
+                          AND collected_at <= now() + interval '2 minutes'
+                        GROUP BY server_id
+                    ) x
+                    WHERE mce_d > 0 OR oom_d > 0 OR corrupted > 0
+                """),
+                {"sids": server_ids, "since": since},
+            )
+        ).scalars()
+        hosts.update(m_rows)
+        net_rows = (
+            await self.session.execute(
+                text("""
+                    SELECT server_id FROM (
+                        SELECT server_id, SUM(d) AS net_d FROM (
+                            SELECT server_id, MAX(COALESCE(rx_errors,0)+COALESCE(tx_errors,0))
+                                            - MIN(COALESCE(rx_errors,0)+COALESCE(tx_errors,0)) AS d
+                            FROM server_net_io
+                            WHERE server_id = ANY(:sids) AND collected_at >= :since
+                              AND collected_at <= now() + interval '2 minutes'
+                            GROUP BY server_id, iface_id
+                        ) y GROUP BY server_id
+                    ) z WHERE net_d > 0
+                """),
+                {"sids": server_ids, "since": since},
+            )
+        ).scalars()
+        hosts.update(net_rows)
+        disk_rows = (
+            await self.session.execute(
+                text("""
+                    SELECT DISTINCT server_id FROM (
+                        SELECT server_id, MAX(count) - MIN(count) AS d
+                        FROM server_disk_error
+                        WHERE server_id = ANY(:sids) AND collected_at >= :since
+                          AND collected_at <= now() + interval '2 minutes'
+                        GROUP BY server_id, device_id, error_kind, error_class, member
+                    ) w WHERE d > 0
+                """),
+                {"sids": server_ids, "since": since},
+            )
+        ).scalars()
+        hosts.update(disk_rows)
+        return {int(h) for h in hosts}
+
     async def latest_link_speed(self, server_ids: list[int], since: datetime) -> dict[int, dict[str, int]]:
         """서버·iface별 최신 link_speed_bps (bit/s gauge). assessment reproduction 의 inventory speed_mbps
         null(Windows NT5.2/virtio) 폴백용 — 엔진이 metrics network.link.speed 로 대체(agent 확정 규약)."""
@@ -493,8 +586,11 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         bucket: BucketSize,
         agg: AggFunc,
         end: datetime | None = None,
+        collapse: bool = False,
     ) -> list[MetricSeries]:
-        # 서버 상세 차트 = metric_trend(collapse=False, server_ids=[1대]) 위임.
+        # 서버 상세 차트 = metric_trend(server_ids=[1대]) 위임. collapse=True — 물리 디바이스/마운트 수와
+        # 무관하게 1대 서버 내에서 dimension 합산 1선(스토리지 IOPS·처리량 추이 — 디바이스 많으면 멀티라인
+        # 지저분해지는 문제, 환경 합산과 동일 SQL 재사용). collapse=False(기본) 는 기존 dimension 별 멀티라인.
         end_dt = end or datetime.now(UTC)
         start = end_dt - TIME_RANGE_TD[time_range]
         return await self.metric_trend(
@@ -505,7 +601,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             server_ids=[server_id],
             agg=agg,
             dimension=dimension,
-            collapse=False,
+            collapse=collapse,
         )
 
     async def metric_trend(
@@ -587,6 +683,22 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, dim AS dimension, NULL::text AS kind
                 FROM per_ts WHERE v IS NOT NULL GROUP BY ts, dim ORDER BY ts
             """)
+        elif metric_type == "cpu.blocked":
+            # D-state 블록(IO 대기 근본원인) gauge — Linux 전용(cpu_blocked null 인 Windows 행은 자연 제외).
+            # 실행 큐와 달리 코어 정규화 없음(원자값 그대로, 실시간 스냅샷과 동일 단위).
+            sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
+            sql = text(f"""
+                WITH per_ts AS (
+                    SELECT sm.collected_at, si.os_family AS dim, AVG(sm.cpu_blocked) AS v
+                    FROM {ServerMetrics.__tablename__} sm
+                    JOIN {ServerInventory.__tablename__} si ON si.id = sm.server_id
+                    WHERE sm.collected_at >= :start AND sm.collected_at <= :end {sid_sm}
+                      AND sm.cpu_blocked IS NOT NULL
+                    GROUP BY sm.collected_at, si.os_family
+                )
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, dim AS dimension, NULL::text AS kind
+                FROM per_ts WHERE v IS NOT NULL GROUP BY ts, dim ORDER BY ts
+            """)
         elif metric_type == "disk.io_saturation":
             # 디스크 I/O 포화 — v2 await(ms) 양 OS 통일. device 별 Δop_time/Δops, io_time util >= min 인
             # 실제 바쁜 device 만 채택 후 worst(MAX) — report.py·disk_io_saturated 동일(유휴 device writeback await 억제).
@@ -653,6 +765,36 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 )
                 SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind
                 FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
+            """)
+            params["window_start"] = start - bucket_td
+        elif metric_type == "net.drop_percent":
+            # 패킷 드롭율 % = Σ(Δrx_dropped+Δtx_dropped) / Σ(Δrx_packets+Δtx_packets) * 100 — report.py
+            # net_drop_pct 와 동일 산식(분모 rx+tx 전체 — retrans% 는 tx 만이라 다름). reset 은 GREATEST(Δ,0).
+            sid_nd = "AND server_id = ANY(:server_ids)" if server_ids else ""
+            sql = text(f"""
+                WITH raw AS (
+                    SELECT collected_at, server_id, iface_id, rx_dropped, tx_dropped, rx_packets, tx_packets
+                    FROM {ServerNetIo.__tablename__}
+                    WHERE {_PHYS_IFACE_SQL_FILTER}
+                      AND collected_at >= :window_start AND collected_at <= :end {sid_nd}
+                ),
+                deltas AS (
+                    SELECT collected_at,
+                        GREATEST(rx_dropped - LAG(rx_dropped) OVER w, 0) AS d_rxd,
+                        GREATEST(tx_dropped - LAG(tx_dropped) OVER w, 0) AS d_txd,
+                        GREATEST(rx_packets - LAG(rx_packets) OVER w, 0) AS d_rxp,
+                        GREATEST(tx_packets - LAG(tx_packets) OVER w, 0) AS d_txp
+                    FROM raw WINDOW w AS (PARTITION BY server_id, iface_id ORDER BY collected_at)
+                ),
+                per_ts AS (
+                    SELECT collected_at, SUM(d_rxd) + SUM(d_txd) AS drop_sum, SUM(d_rxp) + SUM(d_txp) AS pkt_sum
+                    FROM deltas WHERE collected_at >= :start GROUP BY collected_at
+                ),
+                rate_ts AS (
+                    SELECT collected_at, drop_sum::float / NULLIF(pkt_sum, 0) * 100 AS v FROM per_ts
+                )
+                SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, NULL::text AS dimension, NULL::text AS kind
+                FROM rate_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
             """)
             params["window_start"] = start - bucket_td
         elif metric_type in ("cpu.psi", "mem.psi", "disk.psi"):
@@ -736,11 +878,14 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             """)
         elif metric_type in _RATE_PER_DIM_DEFS:
             table, dim_col, value_col = _RATE_PER_DIM[metric_type]
+            # 물리 device/iface 필터 — collapse 여부 무관 항상 적용(물리 디스크 위 LVM/RAID/crypt LV, 물리 NIC
+            # 위 bridge/virtual 관통 이중집계 방지, device_filters 단일 정책).
+            phys_filter = _PHYS_DISK_SQL_FILTER if dim_col == "device_id" else _PHYS_IFACE_SQL_FILTER
             if collapse:
                 # 환경 합산 — 수집이 staggered(collected_at 당 소수 서버)라 per-instant SUM 은 undercount
                 # (합산이 아니라 서버당 평균 ~ 총량/N 로 나옴). server+device 별 버킷 평균 rate 로 정렬 후
                 # SUM(전 함대) — 시점 정렬 무관 정확한 함대 합산. agg(avg/max/p95) 무의미(합산) -> ae 미적용.
-                dev_filter = _PHYS_DISK_SQL_FILTER if dim_col == "device_id" else _PHYS_IFACE_SQL_FILTER
+                dev_filter = phys_filter
                 tail = f"""
                     per_sd AS (
                         SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, dim, avg(v) AS sv
@@ -750,16 +895,45 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                     FROM per_sd GROUP BY ts ORDER BY ts
                 """
             else:
-                # 서버 상세 — device/iface 별 멀티라인 보존. 단일 서버라 per-instant 합산 이슈 없음.
-                dev_filter = f"(CAST(:dim_filter AS text) IS NULL OR {dim_col} = :dim_filter)"
+                # 서버 상세 — device/iface 별 멀티라인 보존(물리만). 단일 서버라 per-instant 합산 이슈 없음.
+                dev_filter = f"{phys_filter} AND (CAST(:dim_filter AS text) IS NULL OR {dim_col} = :dim_filter)"
                 params["dim_filter"] = dimension
+                # 범례 표시명 — raw id_type:id(예: "mac:fa:16:..") 대신 inventory 의 사람이 읽는 name(예:
+                # "enp3s0"/"PhysicalDrive0")으로 치환. Linux 는 id_type=mac 인터페이스가 흔해 MAC 그대로 노출되면
+                # 가독성이 떨어진다는 지적 반영. 매칭 안 되면(신규 미동기화 등) raw dim 폴백(COALESCE).
+                if dim_col == "device_id":
+                    name_join = """
+                        LEFT JOIN LATERAL (
+                            SELECT elem->>'name' AS name
+                            FROM server_inventory si_dn, jsonb_array_elements(si_dn.block_devices) elem
+                            WHERE si_dn.id = per_ts.server_id
+                              AND ((elem->>'id_type') || ':' || (elem->>'id') = per_ts.dim
+                                   OR 'name:' || (elem->>'name') = per_ts.dim)
+                              AND (elem->>'type') = 'disk'
+                            LIMIT 1
+                        ) dn ON true
+                    """
+                else:
+                    name_join = """
+                        LEFT JOIN LATERAL (
+                            SELECT elem->>'name' AS name
+                            FROM server_inventory si_dn, jsonb_array_elements(si_dn.net_interfaces) elem
+                            WHERE si_dn.id = per_ts.server_id
+                              AND (elem->>'id_type') || ':' || (elem->>'id') = per_ts.dim
+                              AND (elem->>'kind') IN ('physical', 'bond_master')
+                            LIMIT 1
+                        ) dn ON true
+                    """
                 tail = f"""
                     per_ts AS (
-                        SELECT collected_at, dim, SUM(v) AS v
-                        FROM rates WHERE v IS NOT NULL GROUP BY collected_at, dim
+                        SELECT collected_at, server_id, dim, SUM(v) AS v
+                        FROM rates WHERE v IS NOT NULL GROUP BY collected_at, server_id, dim
                     )
-                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value, dim AS dimension, NULL::text AS kind
-                    FROM per_ts GROUP BY ts, dim ORDER BY ts, dim
+                    SELECT time_bucket(interval '{bi}', collected_at) AS ts, {ae} AS value,
+                        COALESCE(dn.name, dim) AS dimension, NULL::text AS kind
+                    FROM per_ts
+                    {name_join}
+                    GROUP BY ts, dim, dn.name ORDER BY ts, dim
                 """
             sql = text(f"""
                 WITH raw AS (

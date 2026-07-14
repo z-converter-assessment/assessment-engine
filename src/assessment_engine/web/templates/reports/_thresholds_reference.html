@@ -40,7 +40,7 @@
   <h2 class="card-title">분류 기준</h2>
   <p class="text-md text-label" style="margin:0 0 12px; line-height:1.6;">
     환경·서버 보고서의 자원 적정성 평가는 <code>recommendation</code> 모듈 단일 진실로 결정.
-    아래 표의 임계값을 USE Method (Brendan Gregg) Utilization·Saturation 두 축으로 적용해 5 상태 (자원 부족 under_provisioned / 과다 할당 over_provisioned / 유휴 idle / 정상 optimal / 표본 부족 insufficient_data) 산출. 조치(증설·축소·종료·통합)는 상태에서 파생.
+    아래 표의 임계값을 USE Method (Brendan Gregg) Utilization·Saturation 두 축으로 적용해 5 상태 (자원 부족 under_provisioned | 과다 할당 over_provisioned | 유휴 idle | 정상 optimal | 표본 부족 insufficient_data) 산출. 조치(증설·축소·종료·통합)는 상태에서 파생.
     임계 출처는 AWS Compute Optimizer · Azure Advisor · GCP Recommender · Kleinrock 등 산업 표준 종합.
   </p>
 
@@ -83,7 +83,7 @@
   <table>
     <thead><tr><th>상태</th><th>조건 (입력·임계)</th><th>사이징 산식</th><th>출처</th></tr></thead>
     <tbody>
-      <tr><td>용량 임박 (filling = under)</td><td>소진 runway &lt; 30일(선형 추세) <span class="text-meta">OR</span> 정적 used &gt;= 85%(추세 없을 때) <span class="text-meta">OR</span> inode 소진(추세 없이 &gt;= 85%)</td><td>3경로: 추세 신뢰(span 충분) 1년 수명 목표 GB / 소진 임박·짧은 span 30일 예상 used headroom / 추세 없이 임계 초과 이용률 headroom. inode 소진은 GB 확장 무관(목표 없음 — 파일 정리·재포맷)</td><td>Cloud Advisor storage capacity · lead time 30일 · monitoring 표준(정적 85%)</td></tr>
+      <tr><td>용량 임박 (filling = under)</td><td>소진 runway &lt; 30일(선형 추세) <span class="text-meta">OR</span> 정적 used &gt;= 85%(추세 없을 때) <span class="text-meta">OR</span> inode 소진(추세 없이 &gt;= 85%)</td><td>3경로: 추세 신뢰(span 충분) 1년 수명 목표 GB | 소진 임박·짧은 span 30일 예상 used headroom | 추세 없이 임계 초과 이용률 headroom. inode 소진은 GB 확장 무관(목표 없음 — 파일 정리·재포맷)</td><td>Cloud Advisor storage capacity · lead time 30일 · monitoring 표준(정적 85%)</td></tr>
       <tr><td>용량 여유 (capacity_ok)</td><td>runway &gt;= 30일 또는 used &lt; 85%</td><td>—</td><td>—</td></tr>
     </tbody>
   </table>
@@ -114,7 +114,7 @@
   </div>
 
   <p class="text-md text-label" style="margin:12px 0 0; line-height:1.6;">
-    화면 badge·게이지 색 임계(위험 90% / 주의 75%)는 표시 전용 도메인으로 본 분류 임계와 별개 — 색은 현재 표시값 강조, 분류는 윈도우 통계 기반 적정성 판정. 예: 마운트 87% 는 표시 "주의" 색이면서 동시에 분류 disk &gt;= 85% trigger hit — 모순이 아니라 도메인 차이.
+    화면 badge·게이지 색 임계(위험 90% | 주의 75%)는 표시 전용 도메인으로 본 분류 임계와 별개 — 색은 현재 표시값 강조, 분류는 윈도우 통계 기반 적정성 판정. 예: 마운트 87% 는 표시 "주의" 색이면서 동시에 분류 disk &gt;= 85% trigger hit — 모순이 아니라 도메인 차이.
   </p>
 
   <h3 style="margin-top:18px;">판정 순서</h3>
@@ -134,7 +134,7 @@
       </tr>
     </thead>
     <tbody>
-      <tr><td>1</td><td>자원 부족 (under_provisioned)</td><td>위험 신호 OR (하나라도): cpu_p95>=70% / mem_p95>=90% / 디스크 용량(소진 30일 이내 or 정적 85% or inode 소진) / CPU 포화(Linux procs_running/cores>=1.0 · Windows Processor Queue/cores>=2.0 — dual-gate: 이용률 70% 동반) / 디스크 I/O await>20ms(양 OS 단일 임계, 이용률 동반 조건 없음 · 구세대 viostor 만 disk queue>=2) / 메모리 페이징(Linux swap page-out · Windows Pages Input/sec p95>=20 — dual-gate: 이용률 90% 동반). 유휴 보다 우선 — CPU 가 낮아도 압박 신호가 있으면 미사용이 아니라 자원 부족.</td></tr>
+      <tr><td>1</td><td>자원 부족 (under_provisioned)</td><td>위험 신호 OR (하나라도): cpu_p95>=70% | mem_p95>=90% | 디스크 용량(소진 30일 이내 or 정적 85% or inode 소진) | CPU 포화(Linux procs_running/cores>=1.0 · Windows Processor Queue/cores>=2.0 — dual-gate: 이용률 70% 동반) | 디스크 I/O await>20ms(양 OS 단일 임계, 이용률 동반 조건 없음 · 구세대 viostor 만 disk queue>=2) | 메모리 페이징(Linux swap page-out · Windows Pages Input/sec p95>=20 — dual-gate: 이용률 90% 동반). 유휴 보다 우선 — CPU 가 낮아도 압박 신호가 있으면 미사용이 아니라 자원 부족.</td></tr>
       <tr><td>2</td><td>유휴 (idle)</td><td>활동 3축 전부 quiescent — cpu_p95 <= 3% AND net <= 2 Mbps AND 디스크 baseline IOPS <= 5 (위험 신호 0). 하나라도 활동 있으면 유휴 아님(정상/과다로).</td></tr>
       <tr><td>3</td><td>표본 부족 (insufficient_data)</td><td>cpu_p95·mem_p95 둘 다 null + under 신호 없음 (평가 데이터 없음)</td></tr>
       <tr><td>4</td><td>과다 할당 (over_provisioned)</td><td>CPU 또는 메모리를 이용률 70% 목표로 다운사이즈 가능 — 필요 사양(ceil(현재 * p95 / 70)) < 현재. CPU 는 어느 코어든 p95>=85%면 보류(단일스레드 보호). 포화 축을 못 본 서버는 과다로 단정 안 함.</td></tr>
@@ -150,7 +150,7 @@
   </p>
   <div class="table-scroll">
   <table>
-    <thead><tr><th>패턴</th><th>판별</th><th>근본원인 / 처방</th></tr></thead>
+    <thead><tr><th>패턴</th><th>판별</th><th>근본원인 | 처방</th></tr></thead>
     <tbody>
       <tr><td>메모리발</td><td>메모리 페이징 발생 <span class="text-meta">AND</span> 동반 디스크 I/O 또는 CPU 부족</td><td>root = 메모리. 디스크 I/O·CPU 는 swap 트래픽·대기의 증상 -&gt; 처방 억제. 표시 "메모리 (CPU·디스크 I/O 유발)"</td></tr>
       <tr><td>디스크발</td><td>디스크 I/O 병목 <span class="text-meta">AND</span> CPU 부족 <span class="text-meta">AND</span> procs_blocked(D-state) p95 &gt;= 1.0</td><td>root = 디스크 I/O. CPU 로드는 D-state 블록의 증상. 표시 "디스크 I/O (CPU 유발)"</td></tr>
@@ -198,14 +198,14 @@
   <table>
     <thead>
       <tr>
-        <th>분류 / trigger</th>
+        <th>분류 | trigger</th>
         <th>권고</th>
         <th>근거 (산식·출처)</th>
       </tr>
     </thead>
     <tbody>
       <tr><td>과다 할당 (over_provisioned)</td><td>자원 축소 검토 (게이트 통과 시 목표 사양)</td><td>이용률 70% 착지 목표 &lt; 현재. 게이트 미충족이면 관찰만 — 잘못된 축소 회피</td></tr>
-      <tr><td>유휴 (idle)</td><td>즉시 종료 검토 / 통합·재배치 검토</td><td>활동 3축 quiescent. 거의 0(strong)이면 종료, 저사용이면 통합·재배치</td></tr>
+      <tr><td>유휴 (idle)</td><td>즉시 종료 검토 | 통합·재배치 검토</td><td>활동 3축 quiescent. 거의 0(strong)이면 종료, 저사용이면 통합·재배치</td></tr>
       <tr><td>정상 (optimal)</td><td>적정 운영</td><td>다운사이즈선 초과, 압박 없음 — 조치 불필요(customer 미노출)</td></tr>
       <tr><td>표본 부족 (insufficient_data)</td><td>표본 부족 — 수집 점검</td><td>평가 데이터 부재 — 판정 보류(customer 미노출)</td></tr>
       <tr><td>under: 메모리 페이징 · mem_p95 &gt;= 90%</td><td>메모리 -&gt; 목표 GB</td><td>목표 = max(ceil(총량 x p95 / 70), 페이징 시 현재+30%). Azure Advisor 90% · AWS 최보수 30% headroom</td></tr>
@@ -250,8 +250,8 @@
       <tr>
         <th>지표</th>
         <th>정의</th>
-        <th>임계 / 의미</th>
-        <th>근거 / 용도</th>
+        <th>임계 | 의미</th>
+        <th>근거 | 용도</th>
       </tr>
     </thead>
     <tbody>
@@ -260,8 +260,8 @@
       <tr><td>변동성 (peak / p95)</td><td>peak 와 p95 비율</td><td>1.5 이상 -> burst 큼</td><td>평균 기준 여유여도 peak 기준 부족 가능 — "진단" 칼럼 "부하 변동 큼" 신호·오토스케일 검토</td></tr>
       <tr><td>steal p95 (Linux)</td><td>하이퍼바이저가 vCPU 시간을 뺏은 비율 p95 (가상화 경합)</td><td>5% 이상 -> 이용률·포화 오염</td><td>충실도 편향(biased) 신뢰도 — 경합 환경 이용률 과소평가 방지(다운사이즈 게이트 내부)</td></tr>
       <tr><td>코어당 최대 p95 (단일스레드)</td><td>per-core 이용률 중 최대 코어의 p95</td><td>85% 이상 -> 다운사이즈/유휴 보류</td><td>단일스레드 워크로드 보호 — 전체 평균이 낮아도 한 코어 포화면 축소 금지</td></tr>
-      <tr><td>disk IOPS avg/p95/peak</td><td>r/s + w/s delta 평균·p95·최댓값 (서버 단위 device 합산)</td><td>baseline / 변동성 참고</td><td>baseline 부하 + spike 폭 — IOPS 한계 산정(단일 보고서 표시)</td></tr>
-      <tr><td>disk throughput kB/s</td><td>read+write kB/s delta (서버 단위 device 합산)</td><td>baseline / 변동성 참고</td><td>throughput baseline + spike — disk 대역 산정(단일 보고서 표시)</td></tr>
+      <tr><td>disk IOPS avg/p95/peak</td><td>r/s + w/s delta 평균·p95·최댓값 (서버 단위 device 합산)</td><td>baseline | 변동성 참고</td><td>baseline 부하 + spike 폭 — IOPS 한계 산정(단일 보고서 표시)</td></tr>
+      <tr><td>disk throughput kB/s</td><td>read+write kB/s delta (서버 단위 device 합산)</td><td>baseline | 변동성 참고</td><td>throughput baseline + spike — disk 대역 산정(단일 보고서 표시)</td></tr>
       <tr><td>net RX/TX kB/s</td><td>interface 합산 rx/tx 평균·p95·peak</td><td>유휴 판정 2 Mbps 이하 (Azure)</td><td>유휴 1차 신호 + 대역 산정</td></tr>
       <tr><td>reboot_count</td><td>윈도우 안 boot_time 변경 횟수</td><td>3 이상 -> 불안정</td><td>OS·hw·OOM 등 비정상 재부팅 빈도(세부 서버 목록 표시)</td></tr>
       <tr><td>에이전트 재시작</td><td>윈도우 안 agent_started_at 변경 횟수</td><td>빈번 -> 수집 신뢰도 저하</td><td>세부 서버 목록 시스템 안정성 칼럼 — 수집 연속성 점검</td></tr>
@@ -298,7 +298,7 @@
   </table>
   </div>
   <p class="text-md text-label" style="margin:10px 0 0; line-height:1.6;">
-    예외 2개 — 표본 부족(insufficient_data) 분류 호스트는 신호 대신 원인을 진단 (오프라인 — 에이전트 미가동 / 누락 메트릭 명시 / 윈도우 내 표본 부족). 오프라인 호스트는 진단 앞에 "오프라인" 접두 — 분류는 윈도우 측정 기반 그대로 유지.
+    예외 2개 — 표본 부족(insufficient_data) 분류 호스트는 신호 대신 원인을 진단 (오프라인 — 에이전트 미가동 | 누락 메트릭 명시 | 윈도우 내 표본 부족). 오프라인 호스트는 진단 앞에 "오프라인" 접두 — 분류는 윈도우 측정 기반 그대로 유지.
   </p>
 </section>
 
@@ -315,7 +315,7 @@
         <th>신호</th>
         <th>정의</th>
         <th>임계</th>
-        <th>근거 / 용도</th>
+        <th>근거 | 용도</th>
       </tr>
     </thead>
     <tbody>

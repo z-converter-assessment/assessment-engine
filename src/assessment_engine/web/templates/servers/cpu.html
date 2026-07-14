@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_shared.html" import period_status as _pstatus, period_rows as _prows %}
 {% block title %}ZConverter Assessment — {{ server.hostname }} CPU 상세{% endblock %}
 
 {% block content %}
@@ -6,123 +7,180 @@
 <h1>{{ server.hostname }} — CPU 상세</h1>
 
 <div class="card">
+  <h2 class="card-title" style="margin:0 0 14px;">CPU 정보</h2>
+  {# 페이지 내 폰트 통일 — 다른 카드(실시간 메트릭·자원 이용률·포화·신뢰도)와 동일 .sat-line 패턴(kv/kv-soft 대신). #}
+  <div class="sat-line"><span class="sat-name">모델</span><span class="sat-val">{{ server.cpu_model or '-' }}</span></div>
+  <div class="sat-line"><span class="sat-name">코어 수</span><span class="sat-val">{% if server.cpu_cores is not none %}{{ server.cpu_cores }} 코어{% else %}-{% endif %}</span></div>
+  <div class="sat-line"><span class="sat-name">아키텍처</span><span class="sat-val">{{ server.cpu_arch or '-' }}</span></div>
+  <div class="sat-line"><span class="sat-name">비트</span><span class="sat-val">{% if server.cpu_bits is not none %}{{ server.cpu_bits }}비트{% else %}-{% endif %}</span></div>
+</div>
+
+<div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-    <h2 class="card-title" style="margin:0;">현재 상태</h2>
-    <span id="metrics-stamp" class="text-meta no-print text-xs">30초마다 자동 갱신 · 최근 —</span>
+    <h2 class="card-title" style="margin:0;">실시간 메트릭</h2>
+    <span id="metrics-stamp" class="text-meta no-print text-xs">30초마다 자동 갱신</span>
   </div>
-  <dl class="kv kv-soft" style="margin-bottom:16px;">
-    <dt>모델</dt>
-    <dd>{{ server.cpu_model or '-' }}</dd>
-    <dt>코어 수</dt>
-    <dd>{% if server.cpu_cores is not none %}{{ server.cpu_cores }} 코어{% else %}-{% endif %}</dd>
-  </dl>
-  <hr style="border:none; border-top:1px solid #e2e8f0; margin:0 0 14px;">
   <div id="snap-loading" class="text-meta text-md">불러오는 중...</div>
   <div id="snap-body" style="display:none;">
-    {# CPU 시간 구성 — usage/user/system 공통, I/O Wait 는 Windows 개념 부재 시 N/A(naWindows). #}
-    <dl class="kv kv-soft" style="margin-bottom:16px;">
-      <dt>CPU 사용률</dt><dd id="s-usage">—</dd>
-      <dt>User</dt>      <dd id="s-user">—</dd>
-      <dt>System</dt>    <dd id="s-system">—</dd>
-      <dt>I/O Wait</dt>  <dd id="s-iowait">—</dd>
-    </dl>
-    {# 포화 스냅샷 — 서버가 os-aware 판정을 끝낸 신호(실행 큐 per-core, Steal, PSI)를 공통 렌더러가 4상태로 채움 (E9 빈 상태 걱정 없음). #}
-    <div class="sat-title text-meta text-xs">포화 신호 — 값 / 임계 · 임계 이상은 신호일 뿐, 포화 판정은 이용률 동반(dual-gate, 자원 평가) · 근거 hover</div>
-    <div id="cpu-sat-signals"></div>
+    {# 이용률|포화 2열 — 순간값, 평가 없음(색·상태줄 없음, 14일 카드가 평가 전담). 폰트 통일(.sat-line 공용). #}
+    <div class="use-cols">
+      <div class="use-col">
+        <div class="use-col-head"><span class="use-col-label">이용률</span></div>
+        {# CPU 시간 구성 — usage/user/system 공통, I/O Wait 는 Windows 개념 부재 시 N/A(naWindows). #}
+        <div class="sat-line"><span class="sat-name">CPU 사용률</span><span class="sat-val" id="s-usage">—</span></div>
+        <div class="sat-line"><span class="sat-name">User</span><span class="sat-val" id="s-user">—</span></div>
+        <div class="sat-line"><span class="sat-name">System</span><span class="sat-val" id="s-system">—</span></div>
+        <div class="sat-line"><span class="sat-name">I/O Wait</span><span class="sat-val" id="s-iowait">—</span></div>
+        <div class="sat-line"><span class="sat-name">Nice</span><span class="sat-val" id="s-nice">—</span></div>
+        {# 코어별 순간 사용률 — 단일스레드 병목 실시간(server_cpu_core). 미발행 시(코어 데이터 없음) 섹션째 숨김(JS). #}
+        <div id="cpu-core-section" style="display:none; margin-top:10px;">
+          <div id="cpu-core-grid" class="core-grid"></div>
+        </div>
+      </div>
+      <div class="use-col">
+        <div class="use-col-head"><span class="use-col-label">포화</span></div>
+        {# 포화 스냅샷 — 값·임계만(평가 없음). 공통 렌더러가 4상태 처리(E9 빈 상태 걱정 없음). #}
+        <div id="cpu-sat-signals"></div>
+      </div>
+    </div>
   </div>
   <div id="snap-empty" class="text-meta text-md" style="display:none;">
     메트릭이 최소 2회 수집되면 표시됩니다.
   </div>
 </div>
 
-<div class="card no-print" style="padding:12px 16px;">
-  <div class="chart-head" style="margin:0;">
-    <span class="text-label text-sm" style="font-weight:600;">시간축</span>
-    <select class="chart-select" id="page-range-btns" aria-label="구간 선택">
-      <option value="15m">15분</option>
-      <option value="1h">1시간</option>
-      <option value="6h">6시간</option>
-      <option value="24h">1일</option>
-      <option value="7d">7일</option>
-      <option value="14d">14일</option>
-      <option value="30d">30일</option>
-    </select>
-    <input type="datetime-local" id="page-anchor" class="chart-anchor" aria-label="기준 시각">
-    <span class="text-meta text-xs">아래 모든 차트 공통 · 기준 시각 비우면 현재(live), 지정하면 그 시점 기준(과거 조사)</span>
-  </div>
-</div>
-
+<!-- 자원 이용률·포화 (right-sizing 분류 기준, 14일 p95 창) — 서버 세부와 동일 데이터(resource_period=CPU), SSR. -->
 <div class="card">
-  <div style="margin-bottom:14px;">
-    <div class="chart-head">
-      <h2 class="card-title">CPU 사용률 추이<span class="print-only text-muted text-sm" id="usage-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-      <span id="usage-bucket-label" class="bucket-label"></span>
-      <select class="chart-select no-print" id="usage-agg-btns" aria-label="집계 방식">
-        <option value="avg">평균</option>
-        <option value="max">최대</option>
-        <option value="p95">p95</option>
-      </select>
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+    <div style="display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;">
+      <h2 class="card-title" style="margin:0;">자원 이용률 · 포화</h2>
+      {% if resource_period %}<span class="res-verdict" style="color:{{ resource_period.verdict_color }};">{{ resource_period.verdict_label }}</span>{% endif %}
+    </div>
+    <span class="text-meta text-xs">최근 {{ period.window_days if period else 14 }}일</span>
+  </div>
+  {% if resource_period %}
+  <div class="use-cols">
+    <div class="use-col">
+      <div class="use-col-head"><span class="use-col-label">이용률</span><span class="use-col-status">{{ _pstatus(resource_period.util_over) }}</span></div>
+      {{ _prows(resource_period.util_rows) }}
+    </div>
+    <div class="use-col">
+      <div class="use-col-head"><span class="use-col-label">포화</span><span class="use-col-status">{{ _pstatus(resource_period.sat_over) }}</span></div>
+      {{ _prows(resource_period.sat_rows) }}
     </div>
   </div>
-  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-    <canvas id="usage-canvas"></canvas>
-  </div>
-  <div id="usage-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
-    해당 기간에 수집된 데이터가 없습니다.
-  </div>
-  <ul class="text-meta text-xs" style="margin:8px 0 0; line-height:1.9; padding-left:14px;">
-    <li><b class="text-muted">평균</b>: 집계 구간 내 평균 사용률 — 전반적인 부하 수준 파악</li>
-    <li><b class="text-muted">최대</b>: 구간 내 순간 최고값 — 스파이크 탐지</li>
-    <li><b class="text-muted">p95</b>: 상위 5% 이상치를 제외한 최대값 — 일시적 노이즈 없는 피크 기준</li>
-  </ul>
+  {% else %}
+  <div class="text-meta text-md" style="padding:8px 0;">아직 평가할 메트릭이 충분하지 않습니다. 14일 창에 수집 데이터가 쌓이면 표시됩니다.</div>
+  {% endif %}
 </div>
 
+{% if resource_period and resource_period.extra_groups %}
+<!-- 신뢰도 — 이용률·포화 헤드라인 수치를 얼마나 믿을지 보완하는 원신호(부하 신호·통계 신뢰도), 14일 창 동일 데이터. -->
 <div class="card">
-  <div class="chart-head">
-    <h2 class="card-title">CPU 분류 추이<span class="print-only text-muted text-sm" id="comp-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    <span id="comp-bucket-label" class="bucket-label"></span>
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+    <h2 class="card-title" style="margin:0;">신뢰도</h2>
+    <span class="text-meta text-xs">최근 {{ period.window_days if period else 14 }}일</span>
   </div>
-  <div class="chart-desc">User 앱 부하 / System 커널 처리 / I/O Wait 디스크 대기 — I/O Wait 는 Linux 전용(Windows 는 CPU 시간에 I/O Wait 구분이 없어 미측정, 차트 미표시)</div>
-  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-    <canvas id="comp-canvas"></canvas>
+  <div class="use-cols">
+    {% for g in resource_period.extra_groups %}
+    <div class="use-col">
+      <div class="use-col-head"><span class="use-col-label">{{ g.label }}</span></div>
+      <div class="extra-grid">{{ _prows(g.rows) }}</div>
+    </div>
+    {% endfor %}
   </div>
-  <div id="comp-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
-    해당 기간에 수집된 데이터가 없습니다.
-  </div>
-  <div id="comp-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
+</div>
+{% endif %}
+
+<!-- 버킷/구간/앵커는 아래 4 차트 공통, 변경 즉시 반영 (환경 성능 추이와 동일 UI, #F10). -->
+<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+  <span id="bucket-label" class="bucket-label"></span>
+  <select class="chart-select no-print" id="page-range-btns" aria-label="구간 선택">
+    <option value="15m">15분</option>
+    <option value="1h">1시간</option>
+    <option value="6h">6시간</option>
+    <option value="24h">1일</option>
+    <option value="7d">7일</option>
+    <option value="14d">14일</option>
+    <option value="30d">30일</option>
+  </select>
+  <input type="datetime-local" id="page-anchor" class="chart-anchor no-print" aria-label="기준 시각">
 </div>
 
-<div class="card">
-  <div class="chart-head">
-    <h2 class="card-title">실행 큐 추이<span class="print-only text-muted text-sm" id="load-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    <span id="load-bucket-label" class="bucket-label"></span>
+<div class="chart-grid-2col">
+  <div class="card">
+    <div style="margin-bottom:14px;">
+      <div class="chart-head">
+        <h2 class="card-title">CPU 사용률 추이<span class="print-only text-muted text-sm" id="usage-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+        <select class="chart-select no-print" id="usage-agg-btns" aria-label="집계 방식">
+          <option value="avg">평균</option>
+          <option value="max">최대</option>
+          <option value="p95">p95</option>
+        </select>
+      </div>
+    </div>
+    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="usage-canvas"></canvas>
+      <div id="usage-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+        해당 기간에 수집된 데이터가 없습니다.
+      </div>
+    </div>
+    <ul class="text-meta text-xs" style="margin:8px 0 0; line-height:1.9; padding-left:14px;">
+      <li><b class="text-muted">평균</b>: 집계 구간 내 평균 사용률 — 전반적인 부하 수준 파악</li>
+      <li><b class="text-muted">최대</b>: 구간 내 순간 최고값 — 스파이크 탐지</li>
+      <li><b class="text-muted">p95</b>: 상위 5% 이상치를 제외한 최대값 — 일시적 노이즈 없는 피크 기준</li>
+    </ul>
   </div>
-  <div class="chart-desc">코어당 실행 큐 = 실행 대기 작업 / 코어 수 — Linux procs_running 1.0 · Windows Processor Queue Length 2.0 이상 임계 초과 신호. 포화 판정은 이용률 동반(dual-gate, 자원 평가).</div>
-  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-    <canvas id="load-canvas"></canvas>
-  </div>
-  <div id="load-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
-    해당 기간에 수집된 데이터가 없습니다.
-  </div>
-  <div id="load-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-</div>
 
-<div class="card">
-  <div class="chart-head">
-    <h2 class="card-title">CPU PSI 추이<span class="print-only text-muted text-sm" id="cpu-psi-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    <span id="cpu-psi-bucket-label" class="bucket-label"></span>
+  <div class="card">
+    <div class="chart-head">
+      <h2 class="card-title">CPU 분류 추이<span class="print-only text-muted text-sm" id="comp-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    </div>
+    <div class="chart-desc">User 앱 부하 | System 커널 처리 | I/O Wait 디스크 대기 | Nice 저우선순위 user — I/O Wait·Nice 는 Linux 전용(Windows 는 CPU 시간에 두 축 구분이 없어 미측정, 차트 미표시)</div>
+    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="comp-canvas"></canvas>
+      <div id="comp-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+        해당 기간에 수집된 데이터가 없습니다.
+      </div>
+    </div>
+    <div id="comp-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
   </div>
-  <div class="chart-desc">태스크가 CPU 대기로 멈춘 시간 비율(%) — PSI some, 현대 Linux 포화 신호. Windows 미지원.</div>
-  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-    <canvas id="cpu-psi-canvas"></canvas>
+
+  <div class="card">
+    <div class="chart-head">
+      <h2 class="card-title">실행 큐·D-state 추이<span class="print-only text-muted text-sm" id="load-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    </div>
+    <div class="chart-desc">코어당 실행 큐 = 실행 대기 작업 / 코어 수 — Linux procs_running 1.0 · Windows Processor Queue Length 2.0 이상 임계 초과 신호. D-state 블록 = IO 대기 프로세스 수(근본원인, Linux 전용) — 포화 판정은 이용률 동반(dual-gate, 자원 평가).</div>
+    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="load-canvas"></canvas>
+      <div id="load-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+        해당 기간에 수집된 데이터가 없습니다.
+      </div>
+    </div>
+    <div id="load-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
   </div>
-  <div id="cpu-psi-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
-    해당 기간에 수집된 데이터가 없습니다.
+
+  <div class="card">
+    <div class="chart-head">
+      <h2 class="card-title">CPU PSI 추이<span class="print-only text-muted text-sm" id="cpu-psi-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    </div>
+    <div class="chart-desc">태스크가 CPU 대기로 멈춘 시간 비율(%) — PSI some, 현대 Linux 포화 신호. Windows 미지원.</div>
+    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="cpu-psi-canvas"></canvas>
+      {# PSI 는 Windows 구조적 미지원(항상 empty) — "해당 기간 데이터 없음"(일시적 뉘앙스) 대신 N/A(영구 사실).
+         Linux 는 진짜 미수집 케이스라 기존 문구 유지. cpu.js 가 OS_FAMILY 로 최초 1회 텍스트 분기. #}
+      <div id="cpu-psi-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+        해당 기간에 수집된 데이터가 없습니다.
+      </div>
+    </div>
   </div>
 </div>
 
 <style>
   /* .toggle-group / .toggle 은 base.html 단일 진실 (#E6 표준 컴포넌트). */
+  /* CPU 상세 4 차트 2열 — 화면(auto-fit 2열), 인쇄는 1열(차트 찌그러짐 방지). */
+  .chart-grid-2col { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; }
+  @media print { .chart-grid-2col { grid-template-columns: 1fr; } }
 </style>
 
 {% include "_reference_link.html" %}

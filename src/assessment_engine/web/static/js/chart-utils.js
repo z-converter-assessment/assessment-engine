@@ -215,7 +215,7 @@
   // ── Windows 미측정 메트릭 N/A (표시 경계) ──
   // Windows 는 cpu iowait/steal·mem buffers/cached 를 측정하지 않아 payload 에서 null 로 온다(구 에이전트는 0).
   // 값이 아니라 os_family==='windows' + 본 키로 판정해 'N/A' 표시 — null·0 어느 쪽이든 "측정값 0"과 구분. 부재 메트릭 카탈로그 단일 진실(JS).
-  const WIN_NA_KEYS = new Set(['cpu_iowait', 'cpu_steal', 'mem_buffers', 'mem_cached']);
+  const WIN_NA_KEYS = new Set(['cpu_iowait', 'cpu_steal', 'cpu_nice', 'mem_buffers', 'mem_cached']);
   /**
    * @param {string | null} osFamily
    * @param {string} key

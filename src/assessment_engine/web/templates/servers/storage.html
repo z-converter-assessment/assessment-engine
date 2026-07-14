@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% from "_shared.html" import empty_state, period_status as _pstatus, period_rows as _prows %}
+{% from "servers/_storage_tree.html" import storage_tree %}
 {% block title %}ZConverter Assessment — {{ storage.hostname }} 스토리지{% endblock %}
 
 {% block content %}
@@ -6,166 +8,233 @@
 <h1>{{ storage.hostname }} — 스토리지</h1>
 
 <div class="card">
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-    <h2 class="card-title" style="margin:0;">현재 상태</h2>
-    <span id="metrics-stamp" class="text-meta text-xs no-print">30초마다 자동 갱신 · 최근 —</span>
-  </div>
+  <h2 class="card-title" style="margin:0 0 14px;">스토리지 정보</h2>
+  {# 페이지 내 폰트 통일 — 다른 카드(실시간 메트릭·자원 이용률·포화·신뢰도)와 동일 .sat-line 패턴(kv/kv-soft 대신).
+     정밀 미할당·확장 여력(VG·미파티션 갭)은 아래 레이아웃 트리가 디스크·VG별로 노출 — 요약의 추정 미할당(배정−
+     파일시스템)과 라벨 충돌 회피로 트리 단일화. #}
+  <div class="sat-line"><span class="sat-name">배정 디스크</span><span class="sat-val">{% if storage.disk_total_gb is not none %}{{ storage.disk_total_gb | storagesize }} <span class="text-meta text-xs">물리 디스크 합</span>{% else %}-{% endif %}</span></div>
+  <div class="sat-line"><span class="sat-name">파일시스템 총 용량</span><span class="sat-val">{% if storage.fs_total_gb is not none %}{{ storage.fs_total_gb | storagesize }} <span class="text-meta text-xs">마운트된 파일시스템 합</span>{% else %}-{% endif %}</span></div>
 
-  {# 스토리지 3계층 — 배정 블록(OpenStack 배정 디스크) / 파일시스템(마운트 합) / 미할당(확장 여력, 추론). 단일 산식 storage_layers_gb. #}
-  <dl class="kv kv-soft" style="margin-bottom:6px;">
-    <dt>배정 디스크</dt>
-    <dd>{% if storage.disk_total_gb is not none %}{{ storage.disk_total_gb | storagesize }} <span class="text-meta text-xs">배정된 블록 디바이스</span>{% else %}-{% endif %}</dd>
-    <dt>파일시스템 총 용량</dt>
-    <dd>{% if storage.fs_total_gb is not none %}{{ storage.fs_total_gb | storagesize }} <span class="text-meta text-xs">마운트된 파일시스템 합</span>{% else %}-{% endif %}</dd>
-    {% if storage.disk_unallocated_gb is not none and storage.disk_unallocated_gb > 0 %}
-    <dt>미할당</dt>
-    <dd>{{ storage.disk_unallocated_gb | storagesize }} <span class="text-meta text-xs">확장 여력 — 배정에서 파일시스템 뺀 여유 (추정)</span></dd>
-    {% endif %}
-  </dl>
-
-  <div class="section-title">파일시스템 사용량</div>
-  {% if storage.mounts %}
-  <table>
-    <thead>
-      <tr>
-        <th>Mount Point</th>
-        <th>Filesystem</th>
-        <th>Total</th>
-        <th>Used</th>
-        <th>Available</th>
-        <th>Usage</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for m in storage.mounts %}
-      <tr>
-        <td>{{ m.mount }}</td>
-        <td>{{ m.fstype or '-' }}</td>
-        <td>{{ m.total_gb | storagesize }}</td>
-        <td>{{ m.used_gb | storagesize }}</td>
-        <td>{{ m.avail_gb | storagesize }}</td>
-        <td>
-          {% if m.usage_pct is not none %}
-            {{ m.usage_pct }}%
-          {% else %}
-            <span class="text-meta text-sm">수집 대기 중</span>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="section-title" style="margin-top:16px;">레이아웃</div>
+  <div class="text-meta text-xs" style="margin-bottom:8px;">물리 디스크 - 파티션 - 논리 볼륨 - 파일시스템 계층</div>
+  {% if storage.tree %}
+  {{ storage_tree(storage.tree) }}
   {% else %}
-  <p class="text-meta text-md">마운트 정보 없음</p>
+  {{ empty_state("수집된 스토리지 레이아웃이 없습니다. 에이전트가 인벤토리를 전송하면 표시됩니다.") }}
   {% endif %}
-
-  <div class="section-title" style="margin-top:22px;">디스크 I/O</div>
-  <div class="sat-title text-meta text-xs">응답지연 신호 — 값 / 임계 · await 단일 임계 판정(20ms 초과, CPU·메모리와 달리 이용률 동반 조건 없음) · 실제 바쁜 device 기준 · 근거 hover</div>
-  <div id="disk-sat-signals" style="margin:6px 0 12px;"></div>
-  <div id="io-snapshot-loading" class="text-meta text-md">불러오는 중...</div>
-  <table id="io-phys-table" style="display:none;">
-    <thead>
-      <tr><th>Device</th><th>Read IOPS</th><th>Write IOPS</th><th>Read (처리량)</th><th>Write (처리량)</th></tr>
-    </thead>
-    <tbody id="io-phys-tbody"></tbody>
-  </table>
-  <div id="io-phys-empty" class="text-meta text-md" style="display:none;">
-    수집된 I/O 데이터가 없습니다. 에이전트가 최소 2회 메트릭을 전송하면 표시됩니다.
-  </div>
-</div>
-
-<div class="card no-print" style="padding:12px 16px;">
-  <div class="chart-head" style="margin:0;">
-    <span class="text-label text-sm" style="font-weight:600;">시간축</span>
-    <select class="chart-select" id="page-range-btns" aria-label="구간 선택">
-      <option value="15m">15분</option>
-      <option value="1h">1시간</option>
-      <option value="6h">6시간</option>
-      <option value="24h">1일</option>
-      <option value="7d">7일</option>
-      <option value="14d">14일</option>
-      <option value="30d">30일</option>
-    </select>
-    <input type="datetime-local" id="page-anchor" class="chart-anchor" aria-label="기준 시각">
-    <span class="text-meta text-xs">아래 모든 차트 공통 · 기준 시각 비우면 현재(live), 지정하면 그 시점 기준(과거 조사)</span>
-  </div>
 </div>
 
 <div class="card">
-  <div class="chart-head">
-    <h2 class="card-title">디스크 I/O 추이<span class="print-only text-muted text-sm" id="io-phys-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    <span id="io-phys-bucket-label" class="bucket-label"></span>
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+    <h2 class="card-title" style="margin:0;">실시간 메트릭</h2>
+    <span id="metrics-stamp" class="text-meta no-print text-xs">30초마다 자동 갱신</span>
   </div>
-  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-    <canvas id="io-phys-canvas"></canvas>
+  <div id="snap-loading" class="text-meta text-md">불러오는 중...</div>
+  <div id="snap-body" style="display:none;">
+    {# 이용률|포화 2열 — 순간값, 평가 없음(색·상태줄 없음, 14일 카드가 평가 전담). 폰트 통일(.sat-line 공용). #}
+    <div class="use-cols">
+      <div class="use-col">
+        <div class="use-col-head"><span class="use-col-label">이용률</span></div>
+        <div class="sat-line"><span class="sat-name">전체 사용률</span><span class="sat-val" id="s-disk-usage">—</span></div>
+      </div>
+      <div class="use-col">
+        <div class="use-col-head"><span class="use-col-label">포화</span></div>
+        {# 포화 스냅샷 — 값·임계만(평가 없음). 공통 렌더러가 4상태 처리(E9 빈 상태 걱정 없음). await 단일 임계
+           판정(20ms 초과, CPU·메모리와 달리 이용률 동반 조건 없음) · 실제 바쁜 device 기준. #}
+        <div id="disk-sat-signals"></div>
+      </div>
+    </div>
+    <div class="section-title" style="margin-top:16px;">디바이스별 I/O</div>
+    <table id="io-phys-table" style="display:none;">
+      <thead>
+        <tr><th>Device</th><th>Read IOPS</th><th>Write IOPS</th><th>Read (처리량)</th><th>Write (처리량)</th></tr>
+      </thead>
+      <tbody id="io-phys-tbody"></tbody>
+    </table>
+    <div id="io-phys-empty" class="text-meta text-md" style="display:none;">
+      수집된 I/O 데이터가 없습니다.
+    </div>
   </div>
-  <div id="io-phys-chart-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
-    해당 기간에 수집된 데이터가 없습니다.
-  </div>
-  <div id="io-phys-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-  <p class="chart-caption">음영 영역: 집계 구간 내 순간 최대 IOPS와 평균의 차이.</p>
-</div>
-
-<div class="card">
-  <div class="chart-head">
-    <h2 class="card-title">디스크 I/O 처리량 추이<span class="print-only text-muted text-sm" id="io-kbps-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    <span id="io-kbps-bucket-label" class="bucket-label"></span>
-  </div>
-  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-    <canvas id="io-kbps-canvas"></canvas>
-  </div>
-  <div id="io-kbps-chart-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
-    해당 기간에 수집된 데이터가 없습니다.
-  </div>
-  <div id="io-kbps-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-  <p class="chart-caption">음영 영역: 집계 구간 내 순간 최대 처리량과 평균의 차이.</p>
-</div>
-
-<div class="card">
-  <div class="chart-head">
-    <h2 class="card-title">파일시스템 사용량 추이<span class="print-only text-muted text-sm" id="fs-range-print" style="font-weight:normal;"> — 15분</span></h2>
-    <span id="fs-bucket-label" class="bucket-label"></span>
-  </div>
-  <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-    <canvas id="fs-chart-canvas"></canvas>
-  </div>
-  <div id="fs-chart-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
-    해당 기간에 수집된 데이터가 없습니다.
-  </div>
-  <div id="fs-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-  <p class="chart-caption">음영 영역: 집계 구간 내 순간 최대 사용률과 평균의 차이.</p>
-</div>
-
-<div class="card">
-  <div class="chart-head">
-    <h2 class="card-title">디스크 I/O 포화 추이<span class="print-only text-muted text-sm" id="disksat-range-print" style="font-weight:normal;"> — 15분</span></h2>
-    <span id="disksat-bucket-label" class="bucket-label"></span>
-  </div>
-  <div class="chart-desc">I/O 한 건당 응답 지연(await, ms) — 양 OS 통일 · 20ms 초과 = 응답지연 임계 이상 신호(가상 디스크 경합·느린 스토리지). 실제 바쁜 device 기준(유휴 device 인플레이션 제외). 포화 판정은 자원 평가.</div>
-  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-    <canvas id="disksat-canvas"></canvas>
-  </div>
-  <div id="disksat-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
-    해당 기간에 수집된 데이터가 없습니다.
+  <div id="snap-empty" class="text-meta text-md" style="display:none;">
+    메트릭이 최소 2회 수집되면 표시됩니다.
   </div>
 </div>
 
+<!-- 자원 이용률·포화 (right-sizing 분류 기준, 14일 p95 창) — 서버 세부와 동일 데이터(resource_period=스토리지, 용량+I/O 통합), SSR. -->
 <div class="card">
-  <div class="chart-head">
-    <h2 class="card-title">디스크 I/O PSI 추이<span class="print-only text-muted text-sm" id="disk-psi-range-print" style="font-weight:normal;"> — 15분</span></h2>
-    <span id="disk-psi-bucket-label" class="bucket-label"></span>
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+    <div style="display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;">
+      <h2 class="card-title" style="margin:0;">자원 이용률 · 포화</h2>
+      {% if resource_period and resource_period.verdict_label2 %}
+      <span class="res-verdict" style="color:{{ resource_period.verdict_color }};">용량 {{ resource_period.verdict_label }}</span>
+      <span class="res-verdict" style="color:{{ resource_period.verdict_color2 }};">성능 {{ resource_period.verdict_label2 }}</span>
+      {% elif resource_period %}
+      <span class="res-verdict" style="color:{{ resource_period.verdict_color }};">{{ resource_period.verdict_label }}</span>
+      {% endif %}
+    </div>
+    <span class="text-meta text-xs">최근 {{ period.window_days if period else 14 }}일</span>
   </div>
-  <div class="chart-desc">태스크가 디스크 I/O 대기로 멈춘 시간 비율(%) — PSI some(io). Windows 미지원.</div>
-  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-    <canvas id="disk-psi-canvas"></canvas>
+  {% if resource_period %}
+  <div class="use-cols">
+    <div class="use-col">
+      <div class="use-col-head"><span class="use-col-label">이용률</span><span class="use-col-status">{{ _pstatus(resource_period.util_over) }}</span></div>
+      {{ _prows(resource_period.util_rows) }}
+    </div>
+    <div class="use-col">
+      <div class="use-col-head"><span class="use-col-label">포화</span><span class="use-col-status">{{ _pstatus(resource_period.sat_over) }}</span></div>
+      {{ _prows(resource_period.sat_rows) }}
+    </div>
   </div>
-  <div id="disk-psi-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
-    해당 기간에 수집된 데이터가 없습니다.
+  {% else %}
+  <div class="text-meta text-md" style="padding:8px 0;">아직 평가할 메트릭이 충분하지 않습니다. 14일 창에 수집 데이터가 쌓이면 표시됩니다.</div>
+  {% endif %}
+</div>
+
+{% if resource_period and resource_period.extra_groups %}
+<!-- 신뢰도 — 이용률·포화 헤드라인 수치를 얼마나 믿을지 보완하는 원신호(부하 신호·통계 신뢰도), 14일 창 동일 데이터. -->
+<div class="card">
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+    <h2 class="card-title" style="margin:0;">신뢰도</h2>
+    <span class="text-meta text-xs">최근 {{ period.window_days if period else 14 }}일</span>
+  </div>
+  <div class="use-cols">
+    {% for g in resource_period.extra_groups %}
+    <div class="use-col">
+      <div class="use-col-head"><span class="use-col-label">{{ g.label }}</span></div>
+      <div class="extra-grid">{{ _prows(g.rows) }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- 버킷/구간/앵커는 아래 5 차트 공통, 변경 즉시 반영 (환경 성능 추이와 동일 UI, #F10). -->
+<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+  <span id="bucket-label" class="bucket-label"></span>
+  <select class="chart-select no-print" id="page-range-btns" aria-label="구간 선택">
+    <option value="15m">15분</option>
+    <option value="1h">1시간</option>
+    <option value="6h">6시간</option>
+    <option value="24h">1일</option>
+    <option value="7d">7일</option>
+    <option value="14d">14일</option>
+    <option value="30d">30일</option>
+  </select>
+  <input type="datetime-local" id="page-anchor" class="chart-anchor no-print" aria-label="기준 시각">
+</div>
+
+<div class="chart-grid-2col">
+  <div class="card">
+    <div class="chart-head">
+      <h2 class="card-title">디스크 I/O 추이<span class="print-only text-muted text-sm" id="io-phys-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    </div>
+    <div class="chart-desc">Read | Write — 물리 디스크 전체 합산(개수 무관 항상 2선). 개별 디바이스 활동은 위 실시간 카드 "디바이스별 I/O" 표 참고.</div>
+    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="io-phys-canvas"></canvas>
+      <div id="io-phys-chart-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+        해당 기간에 수집된 데이터가 없습니다.
+      </div>
+    </div>
+    <div id="io-phys-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
+  </div>
+
+  <div class="card">
+    <div class="chart-head">
+      <h2 class="card-title">디스크 I/O 처리량 추이<span class="print-only text-muted text-sm" id="io-kbps-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    </div>
+    <div class="chart-desc">Read | Write — 물리 디스크 전체 합산(개수 무관 항상 2선). 개별 디바이스 활동은 위 실시간 카드 "디바이스별 I/O" 표 참고.</div>
+    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="io-kbps-canvas"></canvas>
+      <div id="io-kbps-chart-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+        해당 기간에 수집된 데이터가 없습니다.
+      </div>
+    </div>
+    <div id="io-kbps-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
+  </div>
+
+  <div class="card">
+    <div class="chart-head">
+      <h2 class="card-title">파일시스템 사용량 추이<span class="print-only text-muted text-sm" id="fs-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    </div>
+    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="fs-chart-canvas"></canvas>
+      <div id="fs-chart-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+        해당 기간에 수집된 데이터가 없습니다.
+      </div>
+    </div>
+    <div id="fs-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
+    <p class="chart-caption">음영 영역: 집계 구간 내 순간 최대 사용률과 평균의 차이.</p>
+  </div>
+
+  <div class="card">
+    <div class="chart-head">
+      <h2 class="card-title">디스크 I/O 포화 추이<span class="print-only text-muted text-sm" id="disksat-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    </div>
+    <div class="chart-desc">I/O 한 건당 응답 지연(await, ms) — 양 OS 통일 · 20ms 초과 = 응답지연 임계 이상 신호(가상 디스크 경합·느린 스토리지). 실제 바쁜 device 기준(유휴 device 인플레이션 제외). 포화 판정은 자원 평가.</div>
+    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="disksat-canvas"></canvas>
+      <div id="disksat-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+        해당 기간에 수집된 데이터가 없습니다.
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="chart-head">
+      <h2 class="card-title">디스크 I/O PSI 추이<span class="print-only text-muted text-sm" id="disk-psi-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    </div>
+    <div class="chart-desc">태스크가 디스크 I/O 대기로 멈춘 시간 비율(%) — PSI some(io). Windows 미지원.</div>
+    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="disk-psi-canvas"></canvas>
+      {# PSI 는 Windows 구조적 미지원(항상 empty) — "해당 기간 데이터 없음"(일시적 뉘앙스) 대신 N/A(영구 사실).
+         Linux 는 진짜 미수집 케이스라 기존 문구 유지. storage.js 가 OS_FAMILY 로 최초 1회 텍스트 분기. #}
+      <div id="disk-psi-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+        해당 기간에 수집된 데이터가 없습니다.
+      </div>
+    </div>
   </div>
 </div>
 
 <style>
-  /* .toggle-group / .toggle 은 base.html 단일 진실 (#E6). */
+  /* .toggle-group / .toggle 은 base.html 단일 진실 (#E6 표준 컴포넌트). */
+  /* 스토리지 상세 5 차트 2열 — 화면(auto-fit 2열), 인쇄는 1열(차트 찌그러짐 방지). */
+  .chart-grid-2col { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; }
+  @media print { .chart-grid-2col { grid-template-columns: 1fr; } }
+
+  /* 스토리지 레이아웃 트리 — 중첩 ul 들여쓰기 + 좌측 가이드선. 파생값은 mapper precompute(P3). */
+  .stree, .stree ul { list-style: none; margin: 0; padding: 0; }
+  .stree ul { margin-left: 16px; border-left: 1px solid #e2e8f0; padding-left: 16px; }
+  .stree-row {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 7px 0; border-bottom: 1px solid #f1f5f9;
+  }
+  .stree-kind {
+    font-size: 11px; font-weight: 600; color: #475569; background: #f1f5f9;
+    border-radius: 4px; padding: 2px 8px; min-width: 48px; text-align: center; white-space: nowrap;
+  }
+  .stree-name { font-weight: 600; color: #0f172a; font-family: var(--font-mono, ui-monospace, monospace); }
+  .stree-size { color: #334155; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stree-meta { color: #64748b; font-size: 13px; }
+  .stree-badge { font-size: 10px; }
+  /* 좌측 정보(칩/이름/크기/배지/meta) — 게이지 없는 행은 자연 크기(폭 강제 불요, 정렬 대상이 없어서).
+     게이지 있는 행만 mapper 가 depth 를 상쇄한 폭(gauge_info_width_px)을 인라인으로 줘서, 게이지가 트리
+     depth(들여쓰기)와 무관하게 항상 같은 x 에서 시작하게 한다(우측정렬 대신 일정 인덴트, _storage_tree.html
+     인라인 style 참조). flex-grow:0 필수 — grow:1 이면 남는 공간을 info 가 먹어 게이지가 행마다 어긋난다. */
+  .stree-info { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 0 1 auto; }
+  .stree-usage { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .stree-bar { width: 110px; height: 8px; background: #f1f5f9; border-radius: 4px; overflow: hidden; }
+  .stree-bar-fill { display: block; height: 100%; background: var(--color-title); }
+  .stree-usage-label { font-size: 12px; white-space: nowrap; }
+  /* 파생·참조 노드(미할당·VG 여유·배열 구성원 참조) — 실 block_device 아니라 행 전체를 옅게 구분(칩·이름·크기
+     전부). 칩에 점선 테두리를 줘 "실 디바이스 아님"을 글자 읽기 전에 형태로 먼저 신호. */
+  .stree-unallocated .stree-kind, .stree-vg_free .stree-kind, .stree-raid_member .stree-kind {
+    background: transparent; border: 1px dashed #cbd5e1; color: #94a3b8;
+  }
+  .stree-unallocated .stree-name, .stree-vg_free .stree-name,
+  .stree-raid_member .stree-name { color: #94a3b8; font-weight: 500; }
+  .stree-unallocated .stree-size, .stree-vg_free .stree-size,
+  .stree-raid_member .stree-size { color: #94a3b8; }
+  .stree-swap .stree-name { color: #64748b; }
 </style>
 
 {% include "_reference_link.html" %}
@@ -174,4 +243,4 @@
 <script src="/static/js/pages/storage.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} data-server-id="{{ storage.public_id }}"{% endblock %}
+{% block body_attrs %} data-server-id="{{ storage.public_id }}" data-os-family="{{ storage.os_family or '' }}"{% endblock %}

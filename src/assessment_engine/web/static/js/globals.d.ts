@@ -63,7 +63,7 @@ interface TaskModalApi {
 }
 
 interface SignalUtilsApi {
-  /** 포화 스냅샷 신호(서버 os-aware 판정 완료)를 컨테이너에 4상태 렌더 (P4 렌더 전용). */
+  /** 포화 스냅샷 신호(순간값)를 컨테이너에 4상태 렌더 — 평가 없음, 값/임계/가용성만(P4 렌더 전용). */
   renderSaturation(
     container: HTMLElement | null,
     signals:
@@ -78,6 +78,16 @@ interface SignalUtilsApi {
       | ReadonlyArray<import("./generated/api").components["schemas"]["ErrorSignal"]>
       | null
       | undefined,
+  ): void;
+  /** 활동(I/O) 라인 렌더 — 디스크 어태치별 R/W(+IOPS)·네트워크 인터페이스별 RX/TX (P4 렌더 전용). */
+  renderActivity(
+    container: HTMLElement | null,
+    items:
+      | ReadonlyArray<import("./generated/api").components["schemas"]["DiskIoSnapshot"]>
+      | ReadonlyArray<import("./generated/api").components["schemas"]["NetIoSnapshot"]>
+      | null
+      | undefined,
+    kind: "disk" | "net",
   ): void;
 }
 

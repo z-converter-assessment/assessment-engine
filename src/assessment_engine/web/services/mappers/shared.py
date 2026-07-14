@@ -50,6 +50,9 @@ class SaturationAxisDisplay:
     value: str
     threshold: str
     measured: bool
+    # 단일 게이트 crossing — 이 raw 신호값이 자기 임계를 넘었는가(값·임계와 같은 자리 산출, 단일 진실). 종합
+    # 판정(dual-gate: 이용률 AND 포화)은 cpu_saturated 등 별도 — 축 표시는 신호 자체가 임계 넘었는지(비정상)를 보임.
+    crossed: bool = False
 
 
 def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[SaturationAxisDisplay]:
@@ -60,8 +63,11 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
     """
     rec = recommendation
     cores = stats.cpu_cores
+    await_ms = stats.disk_await_p95_ms
+    disk_over = await_ms is not None and await_ms > rec.RS_DISKIO_AWAIT_MS
     if stats.os_family == "windows":
         rq = stats.cpu_run_queue_p95 / cores if stats.cpu_run_queue_p95 is not None and cores else None
+        pages = stats.mem_pages_input_rate_p95
         return [
             SaturationAxisDisplay(
                 "CPU 포화",
@@ -69,20 +75,23 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
                 f"W {rq:.2f}" if rq is not None else "N/A",  # W 태그 — Linux(실행큐)와 의미·임계 달라 값만으론 구분 불가
                 f">= {rec.CPU_RUN_QUEUE_PER_CORE_SATURATION:g}",
                 rq is not None,
+                crossed=rq is not None and rq >= rec.CPU_RUN_QUEUE_PER_CORE_SATURATION,
             ),
             SaturationAxisDisplay(
                 "메모리 포화",
                 "Memory Pages Input/sec p95",
-                f"W {stats.mem_pages_input_rate_p95:.0f}/s" if stats.mem_pages_input_rate_p95 is not None else "N/A",
+                f"W {pages:.0f}/s" if pages is not None else "N/A",
                 f">= {rec.WIN_PAGES_INPUT_SATURATION:g}/s",
-                stats.mem_pages_input_rate_p95 is not None,
+                pages is not None,
+                crossed=pages is not None and pages >= rec.WIN_PAGES_INPUT_SATURATION,
             ),
             SaturationAxisDisplay(
                 "디스크 I/O 포화",
                 "await p95 (IOCTL ReadTime/WriteTime)",
-                f"{stats.disk_await_p95_ms:.0f}ms" if stats.disk_await_p95_ms is not None else "N/A",
+                f"{await_ms:.0f}ms" if await_ms is not None else "N/A",
                 f"> {rec.RS_DISKIO_AWAIT_MS:g}ms",
-                stats.disk_await_p95_ms is not None,
+                await_ms is not None,
+                crossed=disk_over,
             ),
         ]
     rq = stats.procs_running_p95 / cores if stats.procs_running_p95 is not None and cores else None
@@ -93,14 +102,19 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
             f"L {rq:.2f}" if rq is not None else "N/A",  # L 태그 — Windows(Processor Queue)와 의미·임계 달라 구분
             f">= {rec.PROCS_RUNNING_PER_CORE_SATURATION:g}",
             rq is not None,
+            crossed=rq is not None and rq >= rec.PROCS_RUNNING_PER_CORE_SATURATION,
         ),
-        SaturationAxisDisplay("메모리 포화", "swap page-out", "L 발생" if stats.mem_swap_paging else "L 없음", "발생 시", True),
+        SaturationAxisDisplay(
+            "메모리 포화", "swap page-out", "L 발생" if stats.mem_swap_paging else "L 없음", "발생 시", True,
+            crossed=stats.mem_swap_paging,
+        ),
         SaturationAxisDisplay(
             "디스크 I/O 포화",
             "await p95",
-            f"{stats.disk_await_p95_ms:.0f}ms" if stats.disk_await_p95_ms is not None else "N/A",
+            f"{await_ms:.0f}ms" if await_ms is not None else "N/A",
             f"> {rec.RS_DISKIO_AWAIT_MS:g}ms",
-            stats.disk_await_p95_ms is not None,
+            await_ms is not None,
+            crossed=disk_over,
         ),
     ]
 
@@ -280,6 +294,8 @@ _OS_ID_TO_EOL_PRODUCT: dict[str, str] = {
     "opensuse": "opensuse",
     "amzn": "amazon-linux",
     "fedora": "fedora",
+    "ol": "oracle-linux",  # Oracle Linux /etc/os-release ID="ol"
+    "oracle": "oracle-linux",  # 일부 배포 변형 alias
 }
 
 # ─── OS distro 필터 ───
@@ -297,6 +313,7 @@ _DISTRO_LABELS: dict[str, str] = {
     "opensuse": "openSUSE",
     "amazon-linux": "Amazon Linux",
     "fedora": "Fedora",
+    "oracle-linux": "Oracle Linux",
     "windows-server": "Windows",
 }
 # 필터 드롭다운 옵션 — (slug, 라벨). 카탈로그(_EOL_CATALOG) 키 순서 단일 진실.

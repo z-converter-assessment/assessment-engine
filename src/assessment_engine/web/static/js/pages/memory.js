@@ -7,7 +7,7 @@
  * - Chart.js (페이지에서 chart.umd.min.js 로드)
  * - body data-server-id (E6 외부화 규약, static-assets.md)
  *
- * 시간축: 페이지 단일 range + anchor(#F10) — 2 차트(사용률·구성)가 pageTimeControl 하나를 공유해
+ * 시간축: 페이지 단일 range + anchor(#F10) — 3 차트(사용률·구성·PSI)가 pageTimeControl 하나를 공유해
  * 같은 창·시점으로 그려진다(신호 간 시점 상관).
  */
 
@@ -50,10 +50,6 @@ async function loadSnapshot() {
     // JS os 분기·임계 재계산 없음(SignalUtils). 근거(metric·임계)는 각 항목 hover.
     SignalUtils.renderSaturation(document.getElementById('mem-sat-signals'), data.mem_saturation);
 
-    const stampEl = document.getElementById('metrics-stamp');
-    if (stampEl && data.collected_at) {
-      stampEl.textContent = '30초마다 자동 갱신 · 최근 ' + ChartUtils.fmtKst(data.collected_at);
-    }
     /** @type {HTMLElement} */ (document.getElementById('snap-body')).style.display = '';
   } catch(e) {
     /** @type {HTMLElement} */ (document.getElementById('snap-loading')).textContent = '불러오기 실패';
@@ -78,7 +74,7 @@ function makePctLoader(def) {
   function makeYScale() {
     /** @type {Record<string, unknown>} */
     const y = {
-      ticks: { callback: (/** @type {any} */ v) => v + '%', font:{size:11}, color:'#64748b' },
+      ticks: { callback: (/** @type {any} */ v) => Number(v).toFixed(1) + '%', font:{size:11}, color:'#64748b' },
       grid:  { color:'#f1f5f9' },
       min: 0,
     };
@@ -102,7 +98,7 @@ function makePctLoader(def) {
               const maxDs = state.chart?.data.datasets[ctx.datasetIndex + 1];
               const realMax = maxDs?.realData?.[ctx.dataIndex];
               if (realMax != null)
-                return ` ${def.label}: 평균 ${avg?.toFixed(1)}% / 최대 ${realMax?.toFixed(1)}%`;
+                return ` ${def.label}: 평균 ${avg?.toFixed(1)}% | 최대 ${realMax?.toFixed(1)}%`;
               return ` ${def.label}: ${avg?.toFixed(1)}%`;
             },
           },
@@ -224,7 +220,7 @@ function renderCompChart(rows, range, anchorEnd) {
       scales: {
         x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
         y: {
-          ticks: { callback: (/** @type {any} */ v) => v + '%', font:{size:11}, color:'#64748b' },
+          ticks: { callback: (/** @type {any} */ v) => Number(v).toFixed(1) + '%', font:{size:11}, color:'#64748b' },
           grid:  { color:'#f1f5f9' },
           beginAtZero: true,
         },
@@ -288,6 +284,9 @@ async function loadMemPsiChart() {
     const rows = await fetch(`/api/servers/${SERVER_ID}/metrics/chart?${p}`).then(r => r.json());
     if (seq !== memPsiSeq) return;
     if (!Array.isArray(rows) || !rows.length) {
+      // PSI 는 Windows 구조적 미지원(어느 기간을 골라도 항상 empty) — "해당 기간 데이터 없음"(일시적 뉘앙스)
+      // 대신 N/A(영구 사실). Linux 는 진짜 미수집 케이스라 기존 문구 유지.
+      empty.textContent = OS_FAMILY === 'windows' ? 'N/A (Windows 미지원)' : '해당 기간에 수집된 데이터가 없습니다.';
       canvas.style.display = 'none'; empty.style.display = '';
       if (memPsiChart) { memPsiChart.destroy(); memPsiChart = null; }
       return;
@@ -314,7 +313,7 @@ async function loadMemPsiChart() {
         plugins: { legend: { display: false }, tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` PSI: ${ctx.parsed.y?.toFixed(1)} %` } } },
         scales: {
           x: { ticks:{ maxTicksLimit:12, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
-          y: { ticks:{ callback: v => v + '%', font:{size:11}, color:'#64748b' }, grid:{ color:'#f1f5f9' }, beginAtZero: true, suggestedMax: 20 },
+          y: { ticks:{ callback: v => Number(v).toFixed(1) + '%', font:{size:11}, color:'#64748b' }, grid:{ color:'#f1f5f9' }, beginAtZero: true, suggestedMax: 20 },
         },
       },
     });
@@ -324,13 +323,12 @@ async function loadMemPsiChart() {
 /* ── 페이지 단일 시간축 버킷 라벨·print range (모든 차트 공통 range) ── */
 function updateBucketLabels() {
   const r = timeCtl.getRange();
-  const bl = BUCKET_LABEL[AUTO_BUCKET[r]] || '';
   const pr = ' — ' + RANGE_LABEL[r];
   /** @param {string} id @param {string} t */
   const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
-  for (const def of PCT_CHARTS) { set(def.id + '-bucket-label', bl); set(def.id + '-range-print', pr); }
-  set('comp-bucket-label', bl); set('comp-range-print', pr);
-  set('mem-psi-bucket-label', bl); set('mem-psi-range-print', pr);
+  // 버킷은 3 차트 공통(단일 range/anchor) — 환경 성능 추이·CPU 상세와 동일 전역 라벨 1개.
+  set('bucket-label', BUCKET_LABEL[AUTO_BUCKET[r]] || '');
+  set('mem-range-print', pr); set('comp-range-print', pr); set('mem-psi-range-print', pr);
 }
 
 /* ── 전체 차트 reload (페이지 range/anchor 변경 시) ── */
@@ -341,7 +339,7 @@ function reloadAllCharts() {
   loadMemPsiChart();
 }
 
-// 페이지 단일 시간축 컨트롤러 — range 토글 + anchor 가 2 차트 전체 구동(#F10).
+// 페이지 단일 시간축 컨트롤러 — range 토글 + anchor 가 3 차트 전체 구동(#F10).
 const timeCtl = pageTimeControl('page-range-btns', 'page-anchor', '15m', reloadAllCharts);
 
 /* ── 30초 polling 자동 갱신 (스냅샷만) ── */

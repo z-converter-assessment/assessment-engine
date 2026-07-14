@@ -126,7 +126,7 @@ function makeMultiDimOptions() {
     scales: {
       x: { ticks:{ maxTicksLimit:10, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
       y: {
-        ticks: { callback: (/** @type {number} */ v) => v + '%', font:{size:11}, color:'#64748b' },
+        ticks: { callback: (/** @type {number} */ v) => Number(v).toFixed(1) + '%', font:{size:11}, color:'#64748b' },
         grid:  { color:'#f1f5f9' }, beginAtZero: true,
       },
     },
@@ -200,7 +200,7 @@ function renderMultiDimChart(canvasId, emptyId, legendId, rows, range, anchor, m
 }
 
 /* ── Y축 설정 ── */
-const pctTicks = { callback: (/** @type {number} */ v) => v + '%', font:{size:11}, color:'#64748b' };
+const pctTicks = { callback: (/** @type {number} */ v) => Number(v).toFixed(1) + '%', font:{size:11}, color:'#64748b' };
 const Y_PCT   = { min:0, max:100, ticks: pctTicks };
 const Y_PSI   = { beginAtZero:true, suggestedMax: 10, ticks: pctTicks };  // PSI some % — 작은 값도 유의미, 스파이크는 자동 확장
 const Y_STORAGE = { ticks:{ callback: (/** @type {number} */ v) => fmtBytesSize(v), font:{size:11}, color:'#64748b' } };  // 절대 용량 추이 — auto-scale(추세 가시성)
@@ -318,7 +318,7 @@ async function loadDiskSaturationChart(range, anchor) {
       scales: {
         x:  { ticks:{ maxTicksLimit:10, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
         yA: { type:'linear', position:'left', beginAtZero:true, suggestedMax:DISKSAT_SUGGESTED_MAX_MS,
-              ticks:{ callback: (/** @type {number} */ v) => v + 'ms', font:{size:11}, color:'#64748b' }, grid:{ color:'#f1f5f9' } },
+              ticks:{ callback: (/** @type {number} */ v) => Number(v).toFixed(0) + 'ms', font:{size:11}, color:'#64748b' }, grid:{ color:'#f1f5f9' } },
       },
     },
   }));

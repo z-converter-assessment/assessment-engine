@@ -28,7 +28,7 @@
 | `GET /environment/metrics?ids=` | `environment_metrics` | 환경(또는 선택 N대) 성능 추이 — 10차트 live. ids(public_ids) 면 선택 N대 한정, 제목 "선택 N대" |
 | `GET /environment/realtime?ids=&fragment=` | `environment_realtime` | 환경(또는 선택 N대) 실시간 현황 — 이용률 3 + 신호 4 도넛 + 환경 I/O 총량 + 부하 상위 탑3. `realtime.js` 30초 polling(fragment swap). fragment=realtime 면 partial 만 |
 | `GET /servers/{server_id}` | `get_server` | detail 탭 |
-| `GET /servers/{server_id}/{cpu,memory,services,metrics}` | 동일 helper | `_render_server_tab` 탭 공유. metrics=성능 추이(추이 차트 5행2열 `.perf-merged` 단일 카드) |
+| `GET /servers/{server_id}/{cpu,memory,services,metrics}` | 동일 helper | `_render_server_tab` 탭 공유. metrics=성능 추이(자원별 `.perf-stack` 카드 + 카드 안 `.perf-grid`/`.perf-item` 낱개 차트, 화면 2열/인쇄 4열 landscape) |
 | `GET /servers/{server_id}/{storage,network}` | 별도 핸들러 | 다른 service 메서드 |
 | `GET /servers/{server_id}/report?view=&time_range=` | `single_server_report` | 단일 server 보고서 read-only. record 안 함 (1대 단위는 발행 흐름 없음) |
 | `GET /reports/servers?ids=&view=customer\|engineer&time_range=&job=` | `report` | 선택 N대 보고서 표시 (scope=server). job 있으면 정적 스냅샷, 없으면 read-only live preview (PRG). view 파라미터로 분기 |

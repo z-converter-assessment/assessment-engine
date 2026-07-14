@@ -6,8 +6,14 @@
 <p class="empty-state">{{ message }}</p>
 {% endmacro %}
 
-{# window_meta — 표제 메타 "N대 기준 · 최근 {라벨}". window_label = 호출부가 넘기는 평가 윈도우 라벨(#F10). #}
-{% macro window_meta(count, window_label) %}{{ count }}대 기준 · 최근 {{ window_label }}{% endmacro %}
+{# window_meta — 표제 메타 "최근 {라벨}". window_label = 호출부가 넘기는 평가 윈도우 라벨(#F10). #}
+{% macro window_meta(window_label) %}최근 {{ window_label }}{% endmacro %}
+
+{# period_status/period_rows — 14일 평가 카드(PeriodResource) 컬럼 헤더 상태 + 신호 행. 서버 세부·CPU 등
+   자원별 상세 탭 공용(단일 진실) — 임계 이상은 값 색(sat-val-hi, 글로벌 주황) 단일 신호, 뱃지 중복 표기 안 함.
+   threshold 빈 문자열(정보성 값, 임계 없음)이면 괄호 자체 생략. #}
+{% macro period_status(over) %}{% if over > 0 %}<span class="sat-status-hi">임계 이상</span>{% else %}<span class="sat-status-ok">정상</span>{% endif %}{% endmacro %}
+{% macro period_rows(rows) %}{% for r in rows %}<div class="sat-line"><span class="sat-name">{{ r.label }}</span><span class="sat-val{% if r.over %} sat-val-hi{% endif %}{% if not r.measured %} sat-val-muted{% endif %}">{{ r.value }}{% if r.threshold %} ({{ r.threshold }}){% endif %}</span></div>{% endfor %}{% endmacro %}
 
 {# provisioning_dist_bar — 자원 적정성 분류 분포 가로 누적 막대 (RiskDonutSegment list). 색·라벨·count·pct
    전부 mapper precompute(build_risk_donut_segments, _DONUT_SEGMENT_DEFS 단일 소스) — 템플릿 산술 0 (P3).

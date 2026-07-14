@@ -38,6 +38,8 @@ class ServerDetail:
     kernel_version: str | None
     cpu_cores: int | None
     cpu_model: str | None
+    cpu_arch: str | None  # ISA — x86_64|aarch64 등 (server_inventory.arch)
+    cpu_bits: int | None  # 32|64 (server_inventory.bits)
     mem_total_bytes: int | None
     boot_time: datetime | None
     agent_started_at: datetime | None
@@ -106,9 +108,26 @@ class MetricPairRaw:
     # 실행 큐 gauge — Linux procs_running / Windows Processor Queue. 스냅샷 os-aware 표시.
     cpu_run_queue: float | None = None
     cpu_logical_count: int | None = None  # 코어 수 — 실행 큐 코어당 정규화용 (calculator 가 run_queue/cores)
+    cpu_blocked: float | None = None  # D-state gauge(IO 대기 근본원인) — 실행 큐와 동일 gauge, delta 불요
     # counter reset 정밀 식별 (calculator가 prev-cur 비교).
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
+
+
+@dataclass
+class CpuCoreRaw:
+    """per-core CPU 시간 원자료 (server_cpu_core, Linux 전용 — Windows 미발행). 단일스레드 병목 실시간 표시."""
+
+    core_id: int
+    collected_at: datetime
+    cpu_user_s: float | None = None
+    cpu_nice_s: float | None = None
+    cpu_system_s: float | None = None
+    cpu_idle_s: float | None = None
+    cpu_iowait_s: float | None = None
+    cpu_irq_s: float | None = None
+    cpu_softirq_s: float | None = None
+    cpu_steal_s: float | None = None
 
 
 @dataclass
@@ -166,6 +185,11 @@ class DashboardRaw:
     filesystems: list[MountUsageRaw]  # 마운트당 최신 1행
     os_family: str | None = None  # os-aware 스냅샷 포화 판정 입력 (linux|windows|null)
     kernel_version: str | None = None  # PSI 지원(Linux 4.20+) 판정 입력 — 구커널 N/A 분기용
+    # 물리 device/interface 필터 입력 (raw passthrough, P1) — build_dashboard 가 {id_type}:{id} 합성해
+    # disk_io/net_io 를 물리 계층으로 좁힌다 (I/O 활동 축 = 물리 디스크·인터페이스 단일 규칙, device_filters).
+    block_devices: list[dict] | None = None
+    net_interfaces: list[dict] | None = None
+    cpu_cores: list[CpuCoreRaw] = field(default_factory=list)  # 코어당 최대 2행 — 단일스레드 병목 실시간 표시
 
 
 # ---------- Storage / Network 풍부화 DTOs ----------
@@ -180,6 +204,7 @@ class StorageWithUsage:
     lvm_vgs: list[dict]  # 확장여력
     filesystems: list[MountUsageRaw]  # 마운트별 최신 사용량 시계열
     inventory_at: datetime | None
+    os_family: str | None = None  # OS 분기 표시(Windows PSI N/A 등, #E6 data-os-family)
 
 
 @dataclass
@@ -191,6 +216,10 @@ class NetworkWithIo:
     ip_external: list[str] | None
     net_io: list[NetIoRaw]  # 인터페이스당 최대 2행 (delta 계산용)
     inventory_at: datetime | None
+    os_family: str | None = None  # OS 분기 표시(conntrack N/A 등, #E6 data-os-family)
+    # iface_id -> 최신 link_speed_bps(bit/s) — 인벤토리 speed_mbps null(virtio·Windows NT5.2) 폴백용
+    # (latest_link_speed 재사용, environment.py 와 동일 목적).
+    link_speed_by_iface: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -400,6 +429,10 @@ class ReportRowRaw:
 
     # 서버 안 가장 채워진 마운트의 used%(most-full, fs cagg) — 디스크 이용률 KPI. 임박(runway)과 별개 축.
     worst_mount_used_pct: float | None = None
+    # worst_mount_used_pct 를 낸 마운트 이름 — 14일 카드 "사용률" 행이 실시간 도넛(전체 가중평균)과 다른
+    # worst-mount 산식임을 명시 표기하는 용도. disk_capacity_driving_mount(runway 임박 구동 마운트)와는 별개
+    # 축이라 다른 마운트일 수 있음(하나는 정적 최대%, 하나는 소진 추세 기준).
+    disk_capacity_worst_mount: str | None = None
 
     # Uptime + period 내 재부팅 횟수 — 별도 SQL(`report_uptime_stats`)에서 채움
     reboot_count: int = 0

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_shared.html" import empty_state, period_status as _pstatus, period_rows as _prows %}
 {% block title %}ZConverter Assessment — {{ network.hostname }} 네트워크{% endblock %}
 
 {% block content %}
@@ -6,107 +7,187 @@
 <h1>{{ network.hostname }} — 네트워크</h1>
 
 <div class="card">
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-    <h2 class="card-title" style="margin:0;">현재 상태</h2>
-    <span id="metrics-stamp" class="text-meta text-xs no-print">30초마다 자동 갱신 · 최근 —</span>
+  <h2 class="card-title" style="margin:0 0 14px;">네트워크 정보</h2>
+  {% if network.ip_external %}
+  <div class="sat-line"><span class="sat-name">External IP</span><span class="sat-val">{% for ip in network.ip_external %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</span></div>
+  {% endif %}
+  {% if network.interfaces_info %}
+  {% for iface in network.interfaces_info %}
+  <div class="section-title" style="margin-top:16px;">{{ iface.name }}</div>
+  <div class="sat-line"><span class="sat-name">MAC</span><span class="sat-val">{{ iface.mac or '-' }}</span></div>
+  <div class="sat-line"><span class="sat-name">MTU</span><span class="sat-val">{% if iface.mtu is not none %}{{ iface.mtu }}{% else %}-{% endif %}</span></div>
+  <div class="sat-line"><span class="sat-name">속도</span><span class="sat-val">{% if iface.speed_mbps is not none %}{{ iface.speed_mbps }} Mbps{% else %}-{% endif %}</span></div>
+  <div class="sat-line"><span class="sat-name">게이트웨이</span><span class="sat-val">{{ iface.gateway or '-' }}</span></div>
+  {% if iface.dns %}<div class="sat-line"><span class="sat-name">DNS</span><span class="sat-val">{{ iface.dns | join(', ') }}</span></div>{% endif %}
+  {% for addr in iface.addresses %}
+  <div class="sat-line">
+    <span class="sat-name">{% if loop.first %}주소{% endif %}</span>
+    {# origin 색 폰트 — topology.html "서브넷별 소속 서버" 표와 동일 단일 진실(static=#1d4ed8 파랑, 그 외=text-meta). #}
+    <span class="sat-val">{% if addr.is_ipv4 %}{{ addr.value }}{% else %}<span class="text-meta">{{ addr.value }}</span>{% endif %}{% if addr.origin == 'static' %} <span style="font-size:10px; font-weight:600; color:#1d4ed8;">{{ addr.origin }}</span>{% elif addr.origin %} <span class="text-meta" style="font-size:10px;">{{ addr.origin }}</span>{% endif %}</span>
   </div>
-
-  <dl class="kv kv-soft">
-    <dt>Internal IP</dt>
-    <dd>{% for ip in network.ip_internal %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% else %}-{% endfor %}</dd>
-    <dt>External IP</dt>
-    <dd>{% if network.ip_external %}{% for ip in network.ip_external %}{% if ip.is_ipv4 %}{{ ip.value }}{% else %}<span class="text-meta">{{ ip.value }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}-{% endif %}</dd>
-  </dl>
-  <div class="sat-title text-meta text-xs">네트워크 품질 — 값 / 임계 · 재전송·드롭은 저트래픽(10KB/s 미만)에선 소수 이벤트로 비율이 튀어 임계 초과 표식 가능(참고, 혼잡 판정은 저트래픽 억제) · conntrack 은 트래픽 무관 · 근거는 각 항목 hover</div>
-  <div id="net-sat-signals"></div>
-
-  <div class="section-title" style="margin-top:22px; margin-bottom:14px;">인터페이스 현황</div>
-  <div id="net-snapshot-loading" class="text-meta text-md">불러오는 중...</div>
-  <table id="net-snapshot-table" style="display:none;">
-    <thead>
-      <tr>
-        <th>Interface</th>
-        <th>RX (처리량)</th>
-        <th>TX (처리량)</th>
-        <th>RX (pps)</th>
-        <th>TX (pps)</th>
-      </tr>
-    </thead>
-    <tbody id="net-snapshot-tbody"></tbody>
-  </table>
-  <div id="net-snapshot-empty" class="text-meta text-md" style="display:none;">
-    수집된 네트워크 I/O 데이터가 없습니다.
-    에이전트가 최소 2회 메트릭을 전송하면 표시됩니다.
-  </div>
-</div>
-
-<div class="card no-print" style="padding:12px 16px;">
-  <div class="chart-head" style="margin:0;">
-    <span class="text-label text-sm" style="font-weight:600;">시간축</span>
-    <select class="chart-select" id="page-range-btns" aria-label="구간 선택">
-      <option value="15m">15분</option>
-      <option value="1h">1시간</option>
-      <option value="6h">6시간</option>
-      <option value="24h">1일</option>
-      <option value="7d">7일</option>
-      <option value="14d">14일</option>
-      <option value="30d">30일</option>
-    </select>
-    <input type="datetime-local" id="page-anchor" class="chart-anchor" aria-label="기준 시각">
-    <span class="text-meta text-xs">아래 모든 차트 공통 · 기준 시각 비우면 현재(live), 지정하면 그 시점 기준(과거 조사)</span>
-  </div>
+  {% endfor %}
+  {% endfor %}
+  {% else %}
+  {{ empty_state("수집된 인터페이스 정보가 없습니다. 에이전트가 인벤토리를 전송하면 표시됩니다.") }}
+  {% endif %}
 </div>
 
 <div class="card">
-  <div class="chart-head">
-    <h2 class="card-title">네트워크 I/O 추이<span class="print-only text-muted text-sm" id="net-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    <span id="net-bucket-label" class="bucket-label"></span>
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+    <h2 class="card-title" style="margin:0;">실시간 메트릭</h2>
+    <span id="metrics-stamp" class="text-meta no-print text-xs">30초마다 자동 갱신</span>
   </div>
-  <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-    <canvas id="net-chart-canvas"></canvas>
+  <div id="snap-loading" class="text-meta text-md">불러오는 중...</div>
+  <div id="snap-body" style="display:none;">
+    {# 네트워크는 이용률 축 없음(처리량=활동, 용량% 개념 부재) — 포화(품질 신호)만. 포화 스냅샷 — 값·임계만
+       (평가 없음). 공통 렌더러가 4상태 처리(E9 빈 상태 걱정 없음). #}
+    <div class="use-col-head"><span class="use-col-label">포화</span></div>
+    <div id="net-sat-signals"></div>
+
+    <div class="section-title" style="margin-top:16px;">인터페이스별 I/O</div>
+    <table id="net-snapshot-table" style="display:none;">
+      <thead>
+        <tr>
+          <th>Interface</th>
+          <th>RX (처리량)</th>
+          <th>TX (처리량)</th>
+          <th>RX (pps)</th>
+          <th>TX (pps)</th>
+        </tr>
+      </thead>
+      <tbody id="net-snapshot-tbody"></tbody>
+    </table>
+    <div id="net-snapshot-empty" class="text-meta text-md" style="display:none;">
+      수집된 네트워크 I/O 데이터가 없습니다.
+    </div>
   </div>
-  <div id="net-chart-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
-    해당 기간에 수집된 데이터가 없습니다.
+  <div id="snap-empty" class="text-meta text-md" style="display:none;">
+    메트릭이 최소 2회 수집되면 표시됩니다.
   </div>
-  <div id="net-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-  <p class="chart-caption">
-    음영 영역은 집계 구간 내 순간 최대 처리량과 평균의 차이.
-  </p>
 </div>
 
+<!-- 자원 이용률·포화 (right-sizing 분류 기준, 14일 p95 창) — 서버 세부와 동일 데이터(resource_period=네트워크), SSR.
+     네트워크는 이용률 축 없음(has_util=False) — 포화(품질) 컬럼만. -->
 <div class="card">
-  <div class="chart-head">
-    <h2 class="card-title">네트워크 PPS 추이<span class="print-only text-muted text-sm" id="net-pps-range-print" style="font-weight:normal;"> — 1시간</span></h2>
-    <span id="net-pps-bucket-label" class="bucket-label"></span>
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+    <div style="display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;">
+      <h2 class="card-title" style="margin:0;">자원 이용률 · 포화</h2>
+      {% if resource_period %}<span class="res-verdict" style="color:{{ resource_period.verdict_color }};">{{ resource_period.verdict_label }}</span>{% endif %}
+    </div>
+    <span class="text-meta text-xs">최근 {{ period.window_days if period else 14 }}일</span>
   </div>
-  <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-    <canvas id="net-pps-canvas"></canvas>
+  {% if resource_period %}
+  <div class="use-cols">
+    {% if resource_period.has_util %}
+    <div class="use-col">
+      <div class="use-col-head"><span class="use-col-label">이용률</span><span class="use-col-status">{{ _pstatus(resource_period.util_over) }}</span></div>
+      {{ _prows(resource_period.util_rows) }}
+    </div>
+    {% endif %}
+    <div class="use-col">
+      <div class="use-col-head"><span class="use-col-label">포화</span><span class="use-col-status">{{ _pstatus(resource_period.sat_over) }}</span></div>
+      {{ _prows(resource_period.sat_rows) }}
+    </div>
   </div>
-  <div id="net-pps-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
-    해당 기간에 수집된 데이터가 없습니다.
-  </div>
-  <div id="net-pps-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
-  <p class="chart-caption">
-    음영 영역은 집계 구간 내 순간 최대 PPS와 평균의 차이.
-  </p>
+  {% else %}
+  <div class="text-meta text-md" style="padding:8px 0;">아직 평가할 메트릭이 충분하지 않습니다. 14일 창에 수집 데이터가 쌓이면 표시됩니다.</div>
+  {% endif %}
 </div>
 
+{% if resource_period and resource_period.extra_groups %}
+<!-- 신뢰도 — 포화 헤드라인 수치를 얼마나 믿을지 보완하는 원신호(부하 신호·통계 신뢰도), 14일 창 동일 데이터. -->
 <div class="card">
-  <div class="chart-head">
-    <h2 class="card-title">TCP 재전송율 추이<span class="print-only text-muted text-sm" id="retrans-range-print" style="font-weight:normal;"> — 15분</span></h2>
-    <span id="retrans-bucket-label" class="bucket-label"></span>
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+    <h2 class="card-title" style="margin:0;">신뢰도</h2>
+    <span class="text-meta text-xs">최근 {{ period.window_days if period else 14 }}일</span>
   </div>
-  <div class="chart-desc">재전송 세그먼트 / 송신 패킷 (%) — 호스트 전역(TCP) · 1% 초과 = 품질 저하 신호(혼잡·손실). 단 트래픽 10KB/s 미만 저활동에선 소수 재전송이 비율을 튀게 해 혼잡 판정에서 억제. 스냅샷 현재값은 위 네트워크 품질 신호 참조.</div>
-  <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
-    <canvas id="retrans-canvas"></canvas>
+  <div class="use-cols">
+    {% for g in resource_period.extra_groups %}
+    <div class="use-col">
+      <div class="use-col-head"><span class="use-col-label">{{ g.label }}</span></div>
+      <div class="extra-grid">{{ _prows(g.rows) }}</div>
+    </div>
+    {% endfor %}
   </div>
-  <div id="retrans-empty" class="text-meta text-md" style="display:none; text-align:center; padding:40px 0;">
-    해당 기간에 수집된 데이터가 없습니다.
+</div>
+{% endif %}
+
+<!-- 버킷/구간/앵커는 아래 4 차트 공통, 변경 즉시 반영 (환경 성능 추이와 동일 UI, #F10). -->
+<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+  <span id="bucket-label" class="bucket-label"></span>
+  <select class="chart-select no-print" id="page-range-btns" aria-label="구간 선택">
+    <option value="15m">15분</option>
+    <option value="1h">1시간</option>
+    <option value="6h">6시간</option>
+    <option value="24h">1일</option>
+    <option value="7d">7일</option>
+    <option value="14d">14일</option>
+    <option value="30d">30일</option>
+  </select>
+  <input type="datetime-local" id="page-anchor" class="chart-anchor no-print" aria-label="기준 시각">
+</div>
+
+<div class="chart-grid-2col">
+  <div class="card">
+    <div class="chart-head">
+      <h2 class="card-title">네트워크 I/O 추이<span class="print-only text-muted text-sm" id="net-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    </div>
+    <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="net-chart-canvas"></canvas>
+      <div id="net-chart-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+        해당 기간에 수집된 데이터가 없습니다.
+      </div>
+    </div>
+    <div id="net-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
+    <p class="chart-caption">음영 영역은 집계 구간 내 순간 최대 처리량과 평균의 차이.</p>
+  </div>
+
+  <div class="card">
+    <div class="chart-head">
+      <h2 class="card-title">네트워크 PPS 추이<span class="print-only text-muted text-sm" id="net-pps-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    </div>
+    <div style="position:relative; height:260px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="net-pps-canvas"></canvas>
+      <div id="net-pps-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+        해당 기간에 수집된 데이터가 없습니다.
+      </div>
+    </div>
+    <div id="net-pps-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;"></div>
+    <p class="chart-caption">음영 영역은 집계 구간 내 순간 최대 PPS와 평균의 차이.</p>
+  </div>
+
+  <div class="card">
+    <div class="chart-head">
+      <h2 class="card-title">TCP 재전송율 추이<span class="print-only text-muted text-sm" id="retrans-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    </div>
+    <div class="chart-desc">재전송 세그먼트 / 송신 패킷 (%) — 호스트 전역(TCP) · 1% 초과 = 품질 저하 신호(혼잡·손실). 단 트래픽 저활동에선 소수 재전송이 비율을 튀게 해 혼잡 판정에서 억제. 스냅샷 현재값은 위 실시간 메트릭 포화 신호 참조.</div>
+    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="retrans-canvas"></canvas>
+      <div id="retrans-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+        해당 기간에 수집된 데이터가 없습니다.
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="chart-head">
+      <h2 class="card-title">패킷 드롭율 추이<span class="print-only text-muted text-sm" id="drop-range-print" style="font-weight:normal;"> — 1시간</span></h2>
+    </div>
+    <div class="chart-desc">드롭 패킷 / 전체 송수신 패킷 (%) — 호스트 전역(인터페이스 합산) · 링 버퍼 오버런·경로 손실 신호. 스냅샷 현재값은 위 실시간 메트릭 포화 신호 참조.</div>
+    <div style="position:relative; height:240px; print-color-adjust:exact; -webkit-print-color-adjust:exact;">
+      <canvas id="drop-canvas"></canvas>
+      <div id="drop-empty" class="text-meta text-md chart-empty-overlay" style="display:none;">
+        해당 기간에 수집된 데이터가 없습니다.
+      </div>
+    </div>
   </div>
 </div>
 
 <style>
-  /* .toggle-group / .toggle 은 base.html 단일 진실 (#E6). */
+  /* .toggle-group / .toggle 은 base.html 단일 진실 (#E6 표준 컴포넌트). */
+  /* 네트워크 상세 4 차트 2열 — 화면(auto-fit 2열), 인쇄는 1열(차트 찌그러짐 방지). */
+  .chart-grid-2col { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; }
+  @media print { .chart-grid-2col { grid-template-columns: 1fr; } }
 </style>
 
 {% include "_reference_link.html" %}
@@ -115,4 +196,4 @@
 <script src="/static/js/pages/network.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 
-{% block body_attrs %} data-server-id="{{ network.public_id }}"{% endblock %}
+{% block body_attrs %} data-server-id="{{ network.public_id }}" data-os-family="{{ network.os_family or '' }}"{% endblock %}

@@ -71,6 +71,7 @@
     .topbar-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: #475569; font-variant-numeric: tabular-nums; }
     .topbar-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; flex-shrink: 0; transition: background .2s ease; }
     .topbar-status.live .topbar-status-dot { background: #22c55e; }
+    .topbar-status.warn .topbar-status-dot { background: #f59e0b; }
     .topbar-status.down .topbar-status-dot { background: #ef4444; }
     .topbar-version { font-size: 11px; color: #a0a7b4; font-variant-numeric: tabular-nums; }
     /* 좁은 화면 — 검색 유연 축소, 버전 숨김, 제품명 축소. */
@@ -174,7 +175,7 @@
     /* 서비스 카테고리 뱃지 경계 — 포트 칩(.port-chip)과 동일 1px 경계로 통일. */
     .badge-cat-web, .badge-cat-db, .badge-cat-cache, .badge-cat-mq, .badge-cat-container, .badge-cat-monitor, .badge-cat-remote, .badge-cat-file, .badge-cat-mail, .badge-cat-infra, .badge-cat-unknown { border: 1px solid #e2e8f0; }
     /* 서비스 포트 칩 — proto+port 단일 칩. 카테고리 묶음은 행 정렬(2열 grid)로 표현, 외곽 박스 없음. */
-    .port-chip { display: inline-flex; align-items: center; gap: 5px; background: #f8fafc; border: 1px solid #eaeef4; border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+    .port-chip { display: inline-flex; align-items: center; gap: 5px; background: #fff; border: 1px solid #eaeef4; border-radius: 6px; padding: 3px 8px; font-size: 12px; }
     /* USE Method 분류 badge — list/report 공유 (단일 진실). rec-swap은 메모리 부족 1차 신호 강조. */
     .rec-under_provisioned { background: #fee2e2; color: #b91c1c; }
     .rec-over_provisioned  { background: #dbeafe; color: #1d4ed8; }
@@ -234,6 +235,10 @@
     .kv dt.kv-group:first-child { margin-top: 0; padding-top: 0; border-top: none; }
     /* kv 하위 항목 — 상위(예: Available)에 속함을 들여쓰기 + 좌측 세로선으로 표현 (Cached/Buffers 등). */
     .kv dt.kv-sub { padding-left: 14px; margin-left: 6px; border-left: 2px solid #e2e8f0; }
+    /* 시스템 정보 2행 2열 — 사양|스토리지 한 행, 네트워크|운영·식별 한 행. 각 섹션이 독립 kv(dl)라 kv-group
+       first-child 는 자동으로 구분선 없음(칼럼 자체 헤더). 행 사이 구분선은 두 번째 sysinfo-2col 상단에. */
+    .sysinfo-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; }
+    .sysinfo-2col + .sysinfo-2col { margin-top: 14px; padding-top: 12px; border-top: 1px solid #f1f5f9; }
     /* os-diff — OS(리눅스/윈도우)별 측정·기준이 다른 지표. 값 아래 Linux/Windows 2행을 항상 노출(발현 OS만 설명 금지).
        서버 상세 탭(cpu/memory/storage/network) 공용 단일 형식 (#E9 발화). */
     .os-diff { padding: 7px 0; border-top: 1px solid #f1f5f9; }
@@ -259,9 +264,10 @@
     .text-muted  { color: #64748b; }   /* 보조 */
     .text-meta   { color: #94a3b8; }   /* 메타·부가 */
     .text-faint  { color: #cbd5e1; }   /* 흐림 */
-    .text-danger { color: #b91c1c; }   /* 위험 (under) */
+    .text-danger { color: #dc2626; }   /* 위험·문제 단일 빨강 (전 화면 통일 — 지원 종료·자원 부족·운영 이벤트·실패). inline hex 대신 본 클래스 사용 */
+    .text-warn   { color: #d97706; }   /* 경고·주의 단일 주황 — "임계 이상"(sat-val-hi·sat-status-hi)과 동일 토큰.
+                                           미상·참고 신호 등, 빨강과 구분. inline hex 대신 본 클래스 사용 */
     .text-ok     { color: #15803d; }   /* 정상 (optimal) */
-    .text-warn   { color: #92400e; }   /* 주의 (over·idle, amber) */
     .text-attn   { color: #c2410c; }   /* 운영 신호 (주황) */
     /* 텍스트 크기 유틸 — 색 유틸(.text-*)과 조합해 카드·보고서 micro 라벨/값에 적용. inline font-size 파편화 방지(static-assets 표준). 카탈로그 크기만(기본 14=body·13=td/h3 외 12·11). */
     .text-md { font-size: 13px; }
@@ -312,6 +318,7 @@
     .kpi-grid-2 { grid-template-columns: repeat(2, 1fr); }
     .kpi-grid-3 { grid-template-columns: repeat(3, 1fr); }
     .kpi-grid-4 { grid-template-columns: repeat(4, 1fr); }
+    .kpi-grid-5 { grid-template-columns: repeat(5, 1fr); }
     .kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; }
     .kpi span { display: block; color: #64748b; font-size: 12px; }
     .kpi strong { display: block; font-size: 24px; font-weight: 700; color: #1e293b; margin-top: 4px; }
@@ -326,15 +333,53 @@
 
     /* Empty state — 발화 가능하나 현재 데이터 없는 슬롯 (discoverability: 제목은 유지, 내용 없음을 명시). 박스 없이 회색 텍스트만. */
     .empty-state { font-size: 13px; color: #94a3b8; margin: 0; }
+    /* 차트 empty 오버레이 — position:relative 캔버스 박스 내부에 절대 위치로 완전 중앙(가로+세로). 캔버스와
+       같은 부모 아래 둬야 함(형제 블록으로 두면 박스 높이 밖에 걸려 중앙 정렬 안 됨). */
+    .chart-empty-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 100%; text-align: center; padding: 0 12px; }
 
-    /* 포화 스냅샷 신호 (SignalUtils 렌더 공통) — 라벨 + 이 호스트 OS 값/임계 + 상태 배지. 근거는 hover(title). */
+    /* 포화 스냅샷 신호 (SignalUtils 렌더 공통) — 라벨 + 이 호스트 OS 값/임계 + 상태 배지. 근거는 hover(title).
+       .sat-line/.sat-name 전 페이지(서버 상세·CPU/메모리/스토리지/네트워크 상세) 단일 진실 — 페이지별 재정의
+       금지(폰트 드리프트 방지). min-width 128px 는 서버 상세 카드의 "사용률 (worst mount)" 처럼 가장 긴
+       라벨까지 값 시작 x 좌표가 밀리지 않게 하는 공통 기준(#F9, 짧은 라벨 페이지는 여유 공백만 늘어남). */
     .sat-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 5px 0; }
-    .sat-name { min-width: 84px; font-size: 13px; color: #475569; font-weight: 600; }
+    .sat-name { min-width: 128px; font-size: 13px; color: #475569; font-weight: 600; }
+    /* 추가 지표 등 라벨 길이가 들쭉날쭉한 sat-line 그룹 — 표처럼 항목|값 2열 정렬(act-lines 와 동일 grid 트릭).
+       sat-line=display:contents 로 자식 span(name·val) 이 부모 grid 셀에 직접 참여 -> 모든 행 값 시작점 정렬. */
+    .extra-grid { display: grid; grid-template-columns: max-content max-content; gap: 9px 20px; align-items: baseline; }
+    .extra-grid .sat-line { display: contents; margin: 0; }
+    .extra-grid .sat-name { min-width: 0; }
     .sat-val { font-size: 13px; color: #1e293b; font-variant-numeric: tabular-nums; }
     .sat-val-muted { color: #94a3b8; }
-    .sat-val-hi { color: #b45309; font-weight: 600; }
+    .sat-val-hi { color: #d97706; font-weight: 600; }   /* 임계 이상 신호값 — 글로벌 주황(text-warn)과 동일 토큰 */
+    /* 자원별 포화 상태 헤드라인 — 개별 신호 위 한 줄 요약. */
+    .sat-status { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 8px; }
+    .sat-status-label { font-size: 12px; font-weight: 700; color: #475569; }
+    .sat-status-hi { font-size: 13px; font-weight: 700; color: #d97706; }   /* 글로벌 주황 */
+    .sat-status-ok { font-size: 13px; font-weight: 600; color: #94a3b8; }
     .sat-badge { padding: 2px 8px; font-size: 11px; }
     .badge-muted { background: #f1f5f9; color: #64748b; }
+    /* USE 2축 컬럼 — 이용률(U) | 포화(S) 나란한 두 컬럼 (하나의 자원). 각 컬럼 = 헤더(라벨 + 임계 이상 N) +
+       그 축의 값·임계 신호 라인. 네트워크는 활동(I/O) | 포화. 디스크는 활동 라인이 컬럼 아래 전폭. */
+    .use-cols { display: flex; flex-wrap: wrap; gap: 10px 32px; margin: 2px 0 4px; }
+    .use-col { flex: 1 1 220px; min-width: 200px; }
+    .use-col-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; padding-bottom: 3px; border-bottom: 1px solid #f1f5f9; }
+    .use-col-label { font-size: 13px; font-weight: 700; color: #334155; }
+    .use-col-status { font-size: 12px; font-weight: 600; display: inline-flex; align-items: baseline; gap: 6px; }
+    .use-row { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 4px; }
+    .use-row.act-row { margin-top: 8px; }
+    .use-axis { min-width: 44px; font-size: 12px; font-weight: 700; color: #475569; flex-shrink: 0; }
+    /* 활동(I/O) 표 — device | 읽기/수신 | 쓰기/송신 3열 grid(행 간 열 정렬, 표처럼 일정 간격). 중립값.
+       act-line=display:contents 로 자식 span 이 부모 grid 셀에 직접 참여 -> 모든 행 열 정렬. */
+    .act-lines { display: grid; grid-template-columns: max-content max-content max-content; gap: 5px 20px; align-items: baseline; }
+    .act-line { display: contents; }
+    .act-dev { font-size: 12px; font-weight: 600; color: #475569; font-family: ui-monospace, monospace; }
+    .act-rw { font-size: 13px; color: #1e293b; font-variant-numeric: tabular-nums; }
+    /* 코어별 순간 사용률 칩 그리드 — CPU 상세 실시간(단일스레드 병목). 값 색은 글로벌 규칙(임계 이상=주황). */
+    .core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
+    .core-chip { border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; text-align: center; }
+    .core-chip-label { display: block; font-size: 10px; color: #94a3b8; font-family: ui-monospace, monospace; }
+    .core-chip-val { display: block; font-size: 13px; font-weight: 600; color: #1e293b; font-variant-numeric: tabular-nums; }
+    .core-chip-val.hi { color: #d97706; }
 
     /* 에러 축 표시자 (SignalUtils.renderErrors) — 카운트형, 정상=0 발화(E9). 발생 시 종류·창 부기. */
     .err-fleet { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -342,6 +387,10 @@
     .err-label { font-size: 13px; color: #475569; font-weight: 600; }
     .err-ctx { font-size: 12px; color: #991b1b; }
     .err-win { font-size: 11px; color: #94a3b8; }
+    /* OOM 발화 시 "메모리 자원 부족" — 임계 이상급 크기(13px) 빨간색으로 명확히(1건이라도 발생 시만). */
+    .err-sizing { font-size: 13px; font-weight: 700; color: #dc2626; }
+    /* 자원 소제목 옆 자원별 판정 — 어느 자원이 배지(종합) 발화 원인인지. 문제 자원만 색(inline), 정상은 muted. */
+    .res-verdict { font-size: 13px; font-weight: 700; }
 
 
     /* Chart toggle 버튼 — cpu/memory/network/storage/performance 공통 (range/anchor/agg toggle). */
@@ -350,14 +399,14 @@
     .chart-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
     .chart-head h2 { margin: 0; }  /* flex 중앙 정렬 — h2 기본 margin-bottom 이 bucket-label 과 어긋나는 것 방지 */
     /* bucket-label 부터 우측 — 구간/앵커/집계 컨트롤을 제목과 같은 줄 우측 정렬. wrap 시 그룹 단위로 내려감.
-       height/box-sizing 으로 select·anchor(30px)와 높이 통일 (inline span 은 기본 height 미적용이라 얇아짐 방지). */
-    .chart-head > span { margin-left: auto; display: inline-flex; align-items: center; height: 30px; box-sizing: border-box; }
-    /* 차트 컨트롤 드롭다운 — 구간/집계 select. 토글 버튼 줄을 좁게 대체. */
-    .chart-select { padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; color: #334155; font-size: 12px; cursor: pointer; height: 30px; box-sizing: border-box; }
+       height/box-sizing 으로 select·anchor(36px)와 높이 통일 (inline span 은 기본 height 미적용이라 얇아짐 방지). */
+    .chart-head > span { margin-left: auto; display: inline-flex; align-items: center; height: 36px; box-sizing: border-box; }
+    /* 차트 컨트롤 드롭다운 — 구간/집계 select. 크기·폰트는 서버목록 버튼(.btn-select, height 36·13px)과 통일. */
+    .chart-select { padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #334155; font-size: 13px; cursor: pointer; height: 36px; box-sizing: border-box; }
     .chart-select:hover { border-color: #94a3b8; }
-    .chart-anchor { padding: 4px 6px; border: 1px solid #e2e8f0; border-radius: 5px; font-size: 11px; color: #475569; background: #fff; cursor: pointer; height: 32px; box-sizing: border-box; }
-    /* 차트 버킷(분해력) 배지 — chart-select·chart-anchor(height 30) 와 정렬. 전 차트 페이지 공용. */
-    .bucket-label { font-size: 11px; font-weight: 500; color: #475569; background: #fff; border: 1px solid #cbd5e1; border-radius: 5px; height: 30px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 10px; }
+    .chart-anchor { padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; color: #475569; background: #fff; cursor: pointer; height: 36px; box-sizing: border-box; }
+    /* 차트 버킷(분해력) 배지 — chart-select·chart-anchor(height 36) 와 정렬. 전 차트 페이지 공용. */
+    .bucket-label { font-size: 13px; font-weight: 500; color: #475569; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; height: 36px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 12px; }
     /* 차트 하단 설명 캡션 — 전 차트 페이지 공용 (음영 영역 설명 등). */
     .chart-caption { font-size: 11px; color: #94a3b8; margin: 14px 0 0; }
     .toggle { padding: 5px 12px; border: 1px solid #e2e8f0; border-radius: 5px; background: #fff; color: #475569; font-size: 12px; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
@@ -423,16 +472,22 @@
     .search-row .clear-btn:hover { background: #e2e8f0; }
     /* thead 인라인 필터 — 제목행 각 칼럼 아래 필터 위젯 (검색·select). 테이블 제목이 필터 역할 겸함. */
     /* 서버 목록 필터 — 제목행과 분리된 별도 행. 위 선택 버튼(btn-select) 톤·크기. 미선택=회색, 값 선택 시 .active=테마색 강조. */
-    .list-filter { height: 36px; box-sizing: border-box; min-width: 0; padding: 0 13px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; color: #475569; font-size: 13px; font-weight: 500; outline: none; }
+    .list-filter { height: 36px; box-sizing: border-box; min-width: 0; padding: 0 13px; border: 1px solid var(--color-title); border-radius: 6px; background: #fff; color: #475569; font-size: 13px; font-weight: 500; outline: none; }
     select.list-filter { appearance: none; -webkit-appearance: none; padding-right: 24px; cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%2364748b' stroke-width='1.5' d='M1 1l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
-    .list-filter:focus { border-color: var(--color-title); }
-    .list-filter.active { border-color: var(--color-title); color: var(--color-title); font-weight: 600; }
+    .list-filter.active { color: var(--color-title); font-weight: 600; }
+    /* 통합 필터 오버레이 — 네이티브 placeholder 는 부분 색 불가라, '필터'만 테마색 강조한 가짜 placeholder 를
+       :placeholder-shown 로 토글(입력값 있으면 자동 숨김). 실제 placeholder 는 " "(공백)로 두고 오버레이가 문구 담당. */
+    #filter-form .filter-input-wrap { position: relative; flex: 1 1 auto; min-width: 0; display: flex; }
+    .filter-ph { position: absolute; left: 13px; right: 13px; top: 0; height: 36px; display: flex; align-items: center;
+      pointer-events: none; font-size: 13px; font-weight: 500; color: #94a3b8; white-space: nowrap; overflow: hidden; }
+    .filter-ph .filter-ph-key { color: var(--color-title); font-weight: 700; margin-right: 8px; }
+    .list-filter:not(:placeholder-shown) + .filter-ph { display: none; }
     /* 초기화 = 중립 그레이 (필터·액션 버튼과 톤 통일, 파랑은 accent 로 아낌). */
     #filter-form .clear-btn { height: 36px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 13px; background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none; }
     #filter-form .clear-btn:hover { background: #e2e8f0; }
 
-    /* 차트 카드(CPU/메모리/스토리지/네트워크) 내부 행 구분 — 서브섹션 구분선 표준(.card-section)과 동일 #e2e8f0. */
-    .perf-row + .perf-row { margin-top: 24px; }
+    /* 성능 추이 자원별 카드(CPU/메모리/스토리지/네트워크) 안 perf-grid 는 servers/metrics.html 자체 <style> 이
+       화면용(auto-fit 2열)을 정의 — 여긴 인쇄 전용 재정의만(아래 @media print). */
 
     .print-only { display: none; }
 
@@ -440,7 +495,7 @@
        env-dual·env-pair·stat-grid·부하상위는 auto-fit minmax 라 자동 분기 — 여기선 고정 grid 만 보강. */
     @media (max-width: 640px) {
       .metric-grid-2, .metric-grid-3, .metric-grid-4, .metric-grid-5,
-      .kpi-grid-2, .kpi-grid-3, .kpi-grid-4, .report-row-2 { grid-template-columns: 1fr; }
+      .kpi-grid-2, .kpi-grid-3, .kpi-grid-4, .kpi-grid-5, .report-row-2 { grid-template-columns: 1fr; }
       .card { padding: 14px 16px; }
     }
 
@@ -488,11 +543,12 @@
       .print-break-before { page-break-before: always; }
       /* 명시적 페이지 분기 유틸 — 이 요소 다음부터 새 페이지(개별 보고서 구동 서비스 후 자원 상세 분리). */
       .print-break-after { page-break-after: always; }
-      /* 성능 추이 — 행 카드 안 2 차트를 인쇄에서도 2열 유지 (auto-fit 이 A4 폭에서 1열로 떨어지는 것 방지). */
-      .perf-pair { grid-template-columns: repeat(2, 1fr) !important; }
-      /* 행(perf-row) 단위 page-break avoid — 행 안 2차트는 함께, 행 사이는 자유 분기. 화면 구분선은 인쇄서 제거. */
-      .perf-row { page-break-inside: avoid; }
-      .perf-row + .perf-row { margin-top: 12px !important; padding-top: 0 !important; border-top: none !important; }
+      /* 성능 추이 — 자원 카드 안 차트 그리드를 인쇄에서 4열로(landscape, metrics.html 자체 @page 로 가로 전환
+         — auto-fit 이 그대로면 세로 폭 기준이라 1~2열로 떨어짐). 차트 "행" 단위가 아니라 낱개(perf-item)에
+         page-break-inside:avoid 를 걸어 그리드 auto-flow 로 행 경계가 고정 DOM 이 아니어도 개별 차트는
+         절대 페이지 중간에 잘리지 않는다(짤림 방지가 핵심 — 같은 행 두 차트가 페이지가 갈라져도 무방). */
+      .perf-grid { grid-template-columns: repeat(4, 1fr) !important; gap: 10px !important; }
+      .perf-item { page-break-inside: avoid; }
       /* 환경 보고서 — 부하 추이 차트 + 토폴로지 서브넷 표 한 카드 2열을 인쇄에서도 2열 유지.
          minmax(0,1fr)+min-width:0 으로 1fr 암묵 min-width:auto 쏠림 방지(두 칸 균등). */
       .env-dual { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
@@ -507,10 +563,13 @@
       .perf-stack { gap: 12px !important; }
       .perf-stack .card { padding: 12px 16px !important; }
       .perf-stack h2 { font-size: 15px !important; }
+      /* 4열이라 칸이 좁음 — 차트 제목·설명은 카드 제목(위 15px)보다 더 축소해 줄바꿈/잘림 여지 최소화. */
+      .perf-stack .chart-subtitle { font-size: 10px !important; }
+      .perf-stack .chart-desc { font-size: 7px !important; line-height: 1.3 !important; min-height: 0 !important; margin-bottom: 4px !important; }
       .print-hide { display: none !important; }
       /* Chart.js 가 캔버스에 화면 폭(px)을 inline 으로 박아 인쇄 컨테이너를 넘는 것 보정 —
          캔버스를 컨테이너에 강제로 맞춰 꺾은선이 plot 경계를 넘지 않게. */
-      .perf-pair canvas { width: 100% !important; height: 100% !important; }
+      .perf-grid canvas { width: 100% !important; height: 100% !important; }
       /* 환경 부하 추이 차트(보고서 인쇄) — 동일 보정. */
       #env-trend-chart { width: 100% !important; height: 100% !important; }
     }
@@ -565,7 +624,7 @@
       <div id="host-search-results" class="topbar-search-results" hidden></div>
     </div>
     <div class="topbar-right">
-      <span id="fleet-status" class="topbar-status" title="데이터 최신성 — 온라인 대수 / 마지막 수집 시각">
+      <span id="fleet-status" class="topbar-status" title="데이터 최신성 — 온라인 대수 | 마지막 수집 시각">
         <span class="topbar-status-dot"></span>
         <span id="fleet-status-text" class="topbar-status-text">온라인 확인 중</span>
       </span>

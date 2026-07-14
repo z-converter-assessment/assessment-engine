@@ -165,7 +165,7 @@
         <td class="text-strong" style="white-space:nowrap;">{{ r.root_cause_label or "—" }}</td>
         <td class="text-strong">{{ r.recommendation_action or "—" }}</td>
         {# 네트워크 상태 — 사이징과 별개 품질 판정(정상/혼잡/미측정). 혼잡만 강조. #}
-        <td style="white-space:nowrap;">{% if r.net_status_label == "혼잡" %}<span class="text-strong" style="color:#dc2626;">혼잡</span>{% else %}{{ r.net_status_label or "—" }}{% endif %}</td>
+        <td style="white-space:nowrap;">{% if r.net_status_label == "혼잡" %}<span class="text-danger" style="font-weight:600;">혼잡</span>{% else %}{{ r.net_status_label or "—" }}{% endif %}</td>
         <td>{% if r.confidence_notes %}{% for n in r.confidence_notes %}<span class="text-meta text-sm">{{ n }}</span>{% if not loop.last %}<span class="text-meta text-sm"> · </span>{% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
       </tr>
       {% endfor %}
@@ -300,7 +300,7 @@
   {% if summary.attention.os_eol_warnings %}
   <table>
     <thead>
-      <tr><th>호스트</th><th>OS / 지원 종료</th><th style="text-align:right; white-space:nowrap;">경과</th></tr>
+      <tr><th>호스트</th><th>OS | 지원 종료</th><th style="text-align:right; white-space:nowrap;">경과</th></tr>
     </thead>
     <tbody>
       {% for row in summary.attention.os_eol_warnings %}

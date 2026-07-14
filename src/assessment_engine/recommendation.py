@@ -942,11 +942,11 @@ def _fmt_sizing_target(kind: str, target: int) -> str:
 
 
 def _resource_prescription(kind: str, ra: ResourceAssessment) -> str:
-    """자원 1개 처방 — 사이징 목표 있으면 "메모리 -> 22GB"·"스토리지 -> 500GB"(총량 목표), 없으면 기본 문구."""
+    """자원 1개 처방 — 사이징 목표 있으면 "메모리: 22GB"·"스토리지: 500GB"(총량 목표), 없으면 기본 문구."""
     if kind == "disk_capacity" and ra.sizing_target is not None:
-        return f"스토리지 -> {ra.sizing_target:.0f}GB"  # 1년 수명 목표 총 용량
+        return f"스토리지: {ra.sizing_target:.0f}GB"  # 1년 수명 목표 총 용량
     if kind in _SIZEABLE_LABEL and ra.sizing_target is not None:
-        return f"{_SIZEABLE_LABEL[kind]} -> {_fmt_sizing_target(kind, ra.sizing_target)}"
+        return f"{_SIZEABLE_LABEL[kind]}: {_fmt_sizing_target(kind, ra.sizing_target)}"
     return _UNDER_ACTION_BASE.get(kind, "")
 
 
@@ -968,13 +968,13 @@ def prescribed_under_kinds(host: HostAssessment) -> list[str]:
 
 
 def resource_prescription(kind: str, ra: ResourceAssessment) -> str:
-    """자원 1개 처방 문구 (공개) — under_prescription·API actions 공유. 사이징 목표 있으면 "메모리 -> 22GB"."""
+    """자원 1개 처방 문구 (공개) — under_prescription·API actions 공유. 사이징 목표 있으면 "메모리: 22GB"."""
     return _resource_prescription(kind, ra)
 
 
 def under_prescription(host: HostAssessment) -> str:
-    """자원 부족 처방 (root_cause 정합) — prescribed_under_kinds 처방을 "/" 결합. 근본원인 칼럼과 어휘 정합."""
-    return " / ".join(resource_prescription(k, host.resources[k]) for k in prescribed_under_kinds(host))
+    """자원 부족 처방 (root_cause 정합) — prescribed_under_kinds 처방을 " | " 결합. 근본원인 칼럼과 어휘 정합."""
+    return " | ".join(resource_prescription(k, host.resources[k]) for k in prescribed_under_kinds(host))
 
 
 def root_cause_display(host: HostAssessment) -> str:

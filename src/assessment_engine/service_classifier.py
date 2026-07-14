@@ -436,8 +436,13 @@ def _attributed_ports(unit: str, listen_ports: list[dict], pid: int | None = Non
     """unit 에 귀속된 listen_port dict 목록.
 
     pid 제공 시(agent 가 services 에 pid 발행) 동일 pid 소켓을 정확 join — services<->listen_ports 확정 귀속.
-    pid 부재(비-systemd EL6·Windows NT5)면 comm~name 양방향 substring -> name well-known 포트 순 fallback.
+    pid 부재(비-systemd EL6·Windows NT5·소켓 액티베이션)면 comm~name substring -> name well-known 포트 순 fallback.
     동일 (proto, port) 중복 제거. comm/port 신호 분류·`matched_ports` 공용 진입점.
+
+    comm=="systemd" 제외: 소켓 액티베이션 리스너(pid null)의 보유자는 systemd 매니저라 comm="systemd" 인데,
+    generic "systemd" 가 양방향 substring 으로 모든 systemd-*.socket 유닛명에 오매칭돼 매니저가 든 22(ssh) 등
+    타 소켓을 흡입 -> 최저 well-known 포트로 오분류(예: 전 systemd 소켓 remote)되는 누출을 차단. 매니저 placeholder
+    는 특정 유닛 소유 증거가 아니므로 귀속 대상 아님. systemd-resolved 등 자기 comm 데몬은 정상 매칭(영향 0).
     """
     result: list[dict] = []
     seen: set[tuple[str, int]] = set()
@@ -462,7 +467,9 @@ def _attributed_ports(unit: str, listen_ports: list[dict], pid: int | None = Non
         if key in seen:
             continue
         comm = (p.get("comm") or "").lower()
-        if (comm and (name in comm or comm in name)) or port in well_known:
+        # comm=="systemd"(소켓 액티베이션 매니저 placeholder)는 귀속 제외 — substring 오매칭 누출 차단(docstring).
+        comm_match = bool(comm) and comm != "systemd" and (name in comm or comm in name)
+        if comm_match or port in well_known:
             result.append(p)
             seen.add(key)
 
@@ -498,14 +505,37 @@ def classify(unit: str, listen_ports: list[dict] | None = None, pid: int | None 
 
 
 def matched_ports(unit: str, listen_ports: list[dict], pid: int | None = None) -> list[MatchedPort]:
-    """서비스 유닛에 해당하는 listen 포트 목록을 반환한다.
+    """서비스 유닛에 연관된 listen 포트 — 단일 규칙(전 화면 공유).
 
-    pid 제공 시 동일 pid 소켓을 정확 join, 없으면 comm~name -> well-known 포트 fallback.
-    동일 포트라도 proto(tcp/tcp6/udp 등)가 다르면 별도 항목으로 반환한다.
+    포트 귀속 규칙:
+    - 포트에 소유 pid 가 있으면 그 pid 유닛에만 귀속(정확). 다른 유닛엔 안 붙임 — .service/.socket·동일 comm 유닛
+      간 이중 귀속 차단(예: 22 는 ssh.service(pid) 만, sshd-unix-local.socket/sshd-vsock.socket 엔 미귀속).
+    - 포트에 pid 가 없으면(소켓 액티베이션 pid null·비-systemd) 소유 프로세스 부재라, 유닛 카테고리(classify)로
+      매핑되는 포트(_PORT_INDEX 동일 카테고리)만 fallback 귀속 — ssh.socket(remote)->22, systemd-resolved(infra)->53.
+      카테고리 없는(unknown) 유닛엔 미귀속(68 DHCP 등 OS 내부 포트 노이즈 제거).
+    동일 포트라도 proto(tcp/tcp6/udp) 다르면 별도 항목.
     """
-    return [
-        MatchedPort(proto=p.get("proto", ""), port=p.get("port", 0)) for p in _attributed_ports(unit, listen_ports, pid)
-    ]
+    seen: set[tuple[str, int]] = set()
+    result: list[MatchedPort] = []
+    cat: str | None = None
+    for p in sorted(listen_ports, key=lambda x: (x.get("port", 0), x.get("proto", ""))):
+        port, proto, p_pid = p.get("port", 0), p.get("proto", ""), p.get("pid")
+        key = (proto, port)
+        if key in seen:
+            continue
+        if p_pid is not None:
+            # 소유 프로세스 있는 포트 — 그 pid 유닛에만
+            if pid is not None and p_pid == pid:
+                result.append(MatchedPort(proto=proto, port=port))
+                seen.add(key)
+            continue
+        # pid 없는 포트(소유 프로세스 부재) — 카테고리-일관 fallback
+        if cat is None:
+            cat = classify(unit, listen_ports)
+        if cat != "unknown" and _PORT_INDEX.get(port) == cat:
+            result.append(MatchedPort(proto=proto, port=port))
+            seen.add(key)
+    return result
 
 
 def detect_listen_categories(listen_ports: list[dict]) -> dict[str, list[MatchedPort]]:

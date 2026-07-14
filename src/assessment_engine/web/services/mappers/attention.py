@@ -24,6 +24,7 @@ from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
     UTIL_GAUGE_COLOR,
     build_host_confidence_notes,
+    lookup_os_eol,
     resolve_os_eol,
     saturation_axis_displays,
 )
@@ -260,6 +261,26 @@ def _error_fleet_with_eol(err: FleetErrorRaw | None, details: list, total: int) 
     return items
 
 
+def _os_eol_summary(details: list, today) -> tuple[int, int, int]:
+    """OS 지원(EOL) 3상태 종합 -> (지원 종료, 미상, 지원 중). 서버 목록 os_eol_status 와 동일 판정(lookup_os_eol).
+
+    os_id 없는 서버(인벤토리 미수집)는 EOL 종합 대상 아님 — 미상(판정 불가)과 구분해 제외.
+    lookup_os_eol: None=미상(카탈로그 미수록·미매칭) / is_passed=경과(지원 종료) / else=미래(지원 중).
+    """
+    passed = unknown = supported = 0
+    for d in details:
+        if not d.os_id:
+            continue
+        m = lookup_os_eol(d.os_id, d.os_version, d.kernel_version, today)
+        if m is None:
+            unknown += 1
+        elif m[2]:
+            passed += 1
+        else:
+            supported += 1
+    return passed, unknown, supported
+
+
 def _workload_donut_segments(role_sorted: dict[str, int]) -> tuple[list, int]:
     """시그니처 워크로드 인스턴스 분포 -> 누적 도넛 세그먼트 + 총합. 0 카테고리도 세그먼트 유지(범례 노출, E9)."""
     total = sum(role_sorted.values())
@@ -361,6 +382,7 @@ def build_environment_overview(
             _build_saturation_donut("네트워크 혼잡", saturation_counts.get("net", 0), _sat_total),
         ]
 
+    _eol_passed, _eol_unknown, _eol_supported = _os_eol_summary(details, datetime.now(UTC).date())
     return EnvironmentOverview(
         total=total,
         online=online_count,
@@ -385,6 +407,9 @@ def build_environment_overview(
         under_provisioned_hosts_shown=len(_under_shown),
         saturation_donuts=sat_donuts,
         error_fleet=_error_fleet_with_eol(error_summary, details, total),
+        os_eol_passed=_eol_passed,
+        os_eol_unknown=_eol_unknown,
+        os_eol_supported=_eol_supported,
     )
 
 

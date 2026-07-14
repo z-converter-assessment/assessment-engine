@@ -93,8 +93,11 @@ class ServerListItem:
     os_display: str = ""
     # 정적 사양 한 줄 — "2코어 · 16.4GB · 30GB" (CPU 코어·메모리·디스크). mapper precompute(P2), 값 부재는 "—".
     spec_display: str = ""
-    # OS 지원 종료(EOL) — 경과 시 eol date iso("2024-06-30"), 아니면 빈 문자열. resolve_os_eol 단일 판정.
+    # OS 지원 종료(EOL) — 카탈로그 매칭 시 eol date iso("2024-06-30", 경과·미래 무관), 미매칭 시 빈 문자열.
     os_eol: str = ""
+    # EOL 3상태 — "eol"(경과) / "supported"(매칭+미래) / "unknown"(카탈로그 미수록·미매칭 = 판정 불가).
+    # 미매칭을 "지원 중"으로 단정하지 않기 위한 분리 (lookup_os_eol 매칭 여부 + is_passed 기반).
+    os_eol_status: str = ""
     # 권장 조치 — 7일 USE Method 분류. 색은 도넛 _DONUT_SEGMENT_DEFS와 동기화. mapper 단일 결정 (P2).
     # raws_period 부재 시 빈 문자열 (도넛/분류 데이터 없음 — 페이지 2+ 또는 신규 등록 직후).
     recommendation_label: str = ""
@@ -105,6 +108,9 @@ class ServerListItem:
     # 네트워크 혼잡 — 사이징(under/over) 축과 분리된 orthogonal 품질 플래그 (ADR 0052, 원칙 P2).
     # 재전송>1% or 드롭>0.5%. 자원 분류 배지와 별개로 목록에 "혼잡" 마커 노출 (host under 로 오분류 금지).
     network_congested: bool = False
+    # 운영 이벤트 — 전체 기간 에러 발생 유무(OOM kill·MCE·메모리 손상·net/disk 에러 5축 중 1+). 서비스가
+    # fleet_error_hosts(전기간) 집합으로 세팅 (환경 개요 운영 이벤트 카드와 동일 창 — 목록에서 그 호스트 찾기).
+    has_operational_event: bool = False
     # OS distro(endoflife 카탈로그 product slug) — OS 필터 단일 진실.
     # os_id_to_distro(os_id) 정규화 (rocky->rocky-linux).
     os_distro: str = ""
@@ -116,6 +122,7 @@ class ServerListItem:
 class ServerDetailResponse:
     id: int
     public_id: str
+    agent_id: str  # 식별 단일 키(UUID) — 매칭·라우팅·upsert. 표시용 실질 식별자
     composite_id: str | None  # 감사·표시용 (식별은 agent_id, URL 은 public_id)
     machine_id: str | None  # raw machine-id 표시 전용
     hostname: str
@@ -127,6 +134,8 @@ class ServerDetailResponse:
     kernel_version: str | None
     cpu_cores: int | None
     cpu_model: str | None
+    cpu_arch: str | None  # ISA — x86_64|aarch64 등 (server_inventory.arch pass-through)
+    cpu_bits: int | None  # 32|64 (server_inventory.bits pass-through)
     mem_total_gb: float | None
     swap_total_gb: float | None
     boot_time: datetime | None
@@ -183,6 +192,37 @@ class MountUsageItem:
 
 
 @dataclass
+class StorageNode:
+    """스토리지 레이아웃 트리 노드 — block_device 또는 파생(미할당 갭·VG 여유). 계층별 자기 속성만 노출.
+
+    device_filters 측정 원칙 계층 귀속: 디스크=특성(SSD/HDD·partition_table)·배정 용량 / 파티션·LV=fstype·mount·
+    소속 VG·segtype / fs(마운트 노드)=사용량 2축(bytes+inode) / VG=free_bytes(확장 여력) / RAID·crypt=표식.
+    kind = block_device type("disk"/"part"/"lvm"/"raid"/"crypt"/"swap"/"volume"/"mpath"/"dynamic") 또는
+    파생("unallocated" 미파티션 갭 · "vg_free" VG 미할당). 라벨·메타·배지·사용량 전부 mapper precompute (P2).
+    다중 부모(RAID span·striped VG)는 순수 트리 불가(DAG) — 디스크별 그룹으로 노출(같은 노드가 여러 디스크에 반복).
+    """
+
+    name: str
+    kind: str
+    kind_label: str  # "디스크"/"파티션"/"LV"/"RAID"/"암호화"/"스왑"/"볼륨"/"미할당"/"VG 여유"
+    size_gb: float | None
+    meta: str = ""  # 계층 속성 한 줄 ("SSD · GPT" / "ext4 · /boot" / "linear · VG rhel")
+    badges: list[str] = field(default_factory=list)  # ["LUKS"], ["RAID5"] 표식
+    # 파일시스템 사용량 2축 — 마운트된 데이터 볼륨 노드만 (아니면 usage_pct None). inode 는 Windows/미측정 시 None.
+    mount: str = ""
+    usage_pct: float | None = None
+    usage_label: str = ""  # "6.2 / 28.8 GB"
+    usage_class: str = ""  # _usage_badge_class severity (ok/warn/danger)
+    inode_pct: float | None = None
+    inode_label: str = ""  # "1%"
+    inode_class: str = ""
+    children: list["StorageNode"] = field(default_factory=list)
+    # 게이지(usage_pct) 있는 행에만 설정 — 트리 depth 들여쓰기를 상쇄해 모든 게이지 시작 x 를 통일하는
+    # .stree-info 폭(px). None = 게이지 없음(폭 고정 불요, 자연 크기). mapper precompute(P3 계산 회피).
+    gauge_info_width_px: int | None = None
+
+
+@dataclass
 class StorageDetailResponse:
     server_id: int
     public_id: str
@@ -195,6 +235,36 @@ class StorageDetailResponse:
     # 스토리지 3계층(storage_layers_gb 단일 산식) — 배정 블록 / 미할당(확장 여력). fs_total_gb 가 파일시스템 층.
     disk_total_gb: float | None = None
     disk_unallocated_gb: float | None = None
+    # 레이아웃 트리 — 물리 디스크 루트(+ 디스크 미도달 논리 볼륨 그룹). 계층 조립·속성 precompute(P2).
+    tree: list[StorageNode] = field(default_factory=list)
+    os_family: str | None = None  # OS 분기 표시(Windows I/O PSI N/A 등, #E6 data-os-family)
+
+
+@dataclass
+class NetIfaceAddress:
+    """인터페이스 주소 1개 — CIDR 표시값 + IPv4 여부 + 할당 방식(dhcp/static, 미상 시 빈 문자열)."""
+
+    value: str  # "10.50.1.42/24"
+    is_ipv4: bool
+    origin: str = ""  # "dhcp" / "static" / "" (미상)
+
+
+@dataclass
+class NetworkInterfaceInfo:
+    """네트워크 인터페이스 정적 속성 — net_interfaces(agent) 원본 노드 1개당 표시 단위(P2 precompute).
+
+    실 활동(RX/TX 처리량·pps)은 NetIoSnapshot 별개 축(실시간 카드) — 본 dataclass 는 구성 정보만
+    (MAC·MTU·속도·게이트웨이·DNS·주소). 물리(kind=physical/bond_master)만 노출 — 가상은 제외
+    (device_filters.is_virtual_interface 단일 진실, loopback·bridge·veth·vlan 등).
+    """
+
+    name: str
+    mac: str = ""
+    mtu: int | None = None
+    speed_mbps: int | None = None
+    gateway: str = ""
+    dns: list[str] = field(default_factory=list)
+    addresses: list[NetIfaceAddress] = field(default_factory=list)
 
 
 @dataclass
@@ -207,3 +277,6 @@ class NetworkDetailResponse:
     interfaces: list[NetIoSnapshot]
     inventory_at: datetime | None
     snapshot_at: datetime | None
+    # 인터페이스 정적 정보(MAC·MTU·속도·게이트웨이·DNS·주소) — 레이아웃 카드 "네트워크 정보"에서 소비.
+    interfaces_info: list[NetworkInterfaceInfo] = field(default_factory=list)
+    os_family: str | None = None  # OS 분기 표시(conntrack N/A 등, #E6 data-os-family)

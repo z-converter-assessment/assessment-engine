@@ -114,7 +114,7 @@ right-sizing 분류(6분류·판정 순서·합성 규칙·OS 분기·벤더 임
 |------|--------------|------|
 | 10차트 | `get_environment_metric_chart(server_ids=None)` -> `metric_trend(server_ids?, collapse=True)` (풀세트 18 metric_type, 3그룹 집계 — `db/repositories.md`) | live fetch `GET /api/servers/environment/metrics-chart`(`ids` 면 N대 resolve), range 토글(기본 15m). 발행/스냅샷 아님. 컨트롤(버킷/구간/앵커/적용)은 카드 밖 좌상단 단일 — 앵커는 '적용' 버튼으로 반영, 구간 select 는 즉시 |
 
-서버 상세 성능 추이(`metrics.js`)와 동일 함수(`metric_trend`) — 환경은 `collapse=True`(dimension 합산 단일선), 상세는 `collapse=False, server_ids=[1대]`(device/iface/mount 보존). server_ids=[1대] 는 per_ts 합산 대상이 1서버라 시점값=그 서버값 -> 환경 선택 1대 = 서버 상세 동일. `data-selection-ids` 있으면 fetch 에 `ids` 전달. 5행2열을 단일 `.perf-merged` 카드로 통합(행=`.perf-row`, `static-assets.md`). 페이지 하단 `_reference_link.html`(수치 정의 참고자료 링크).
+서버 상세 성능 추이(`metrics.js`)와 동일 함수(`metric_trend`) — 환경은 `collapse=True`(dimension 합산 단일선), 상세는 `collapse=False, server_ids=[1대]`(device/iface/mount 보존). server_ids=[1대] 는 per_ts 합산 대상이 1서버라 시점값=그 서버값 -> 환경 선택 1대 = 서버 상세 동일. `data-selection-ids` 있으면 fetch 에 `ids` 전달. 레이아웃은 두 페이지가 별개(`static-assets.md` "차트 컨트롤" 절) — 환경(`environment_metrics.html`)은 `.perf-pair.perf-row`(auto-fit, 인쇄 시 열 재배치 없이 `.perf-stack section.card` 단위 `break-inside:avoid`), 서버 상세(`servers/metrics.html`)는 `.perf-grid`/`.perf-item`(화면 2열, 인쇄 4열 landscape). 페이지 하단 `_reference_link.html`(수치 정의 참고자료 링크).
 
 ### 실시간 현황 (live) — `/environment/realtime`
 

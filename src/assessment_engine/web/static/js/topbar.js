@@ -1,9 +1,9 @@
 // @ts-check
 /*
  * 전역 상단 바 (base.html, 전 페이지 공통) — 두 가지:
- *  1) 데이터 최신성 폴링: /api/fleet-status 30초 폴링 -> 온라인 N/M · 마지막 수신 + 점 색(fresh/stale/down).
+ *  1) fleet 상태 폴링: /api/fleet-status 30초 폴링 -> N/M (온라인/전체) · 마지막 수신 + 점 색(온라인 유무).
  *  2) 호스트 검색(jump-to): /api/host-search?q= 디바운스 -> 드롭다운 -> public_id 로 상세 이동. Ctrl+K 포커스.
- * 서버 파생 재계산 없음(P4) — 카운트·시각은 서버(FleetStatus) 그대로, 최신성 색만 클라 임계.
+ * 서버 파생 재계산 없음(P4) — 카운트·시각은 서버(FleetStatus) 그대로, 점 색만 온라인 유무로 분기.
  */
 (function () {
   'use strict';
@@ -33,22 +33,20 @@
     return Math.floor(h / 24) + '일 전';
   }
 
-  var LIVE_THRESHOLD_S = 180; // 최근 수집 3분 내면 live(초록) · 그 이상이거나 무응답이면 down(빨강)
-
   /** @param {import('./generated/api').components['schemas']['FleetStatus'] | null} st */
   function renderStatus(st) {
     if (!statusEl || !statusText) return;
-    statusEl.classList.remove('live', 'down');
+    statusEl.classList.remove('live', 'warn', 'down');
     if (!st) {
       statusText.textContent = '수집 상태 불명';
       statusEl.classList.add('down');
       return;
     }
-    var secs = st.last_collected_at ? (Date.now() - new Date(st.last_collected_at).getTime()) / 1000 : Infinity;
-    var live = st.online_count > 0 && secs < LIVE_THRESHOLD_S;
-    statusEl.classList.add(live ? 'live' : 'down');
+    // 점 색 3상태 — 전부 온라인=live(초록), 일부 온라인=warn(주황), 하나도 없음=down(빨강). 최신성은 title 로만.
+    var cls = st.online_count === 0 ? 'down' : (st.online_count === st.total_count ? 'live' : 'warn');
+    statusEl.classList.add(cls);
     statusEl.title = '데이터 최신성 — 마지막 수집 ' + (agoKo(st.last_collected_at) || '기록 없음');
-    statusText.textContent = '온라인 ' + st.online_count + '/' + st.total_count;
+    statusText.textContent = st.online_count + '/' + st.total_count + ' (온라인/전체)';
   }
 
   function pollStatus() {

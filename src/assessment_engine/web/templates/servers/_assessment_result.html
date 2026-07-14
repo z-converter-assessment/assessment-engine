@@ -19,7 +19,7 @@
 <section class="card no-print">
   <h2 class="card-title" style="margin:0 0 14px;">서버별 자원 적정성</h2>
   <div id="under-wrap">
-  {{ action_targets_table(action.hosts, action.metric_labels, self_back) }}
+  {{ action_targets_table(action.hosts, action.metric_labels, self_back, compact=True) }}
   </div>
   <div class="no-print" id="under-more-wrap" style="margin-top:12px; text-align:center; display:none;">
     <button type="button" id="under-more-btn" class="btn-action"></button>

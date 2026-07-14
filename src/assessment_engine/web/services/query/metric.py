@@ -18,7 +18,6 @@ from assessment_engine.web.services.cache_serializer import (
 from assessment_engine.web.services.mappers.metric import to_metric_series_item
 from assessment_engine.web.services.metrics_calculator import (
     build_dashboard,
-    build_error_signals,
     build_saturation_signals,
 )
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin
@@ -53,17 +52,15 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
             run_queue_total=cur.cpu_run_queue if cur else None,
             cores=cur.cpu_logical_count if cur else None,
             steal_pct=result.cpu.steal_pct if result.cpu else None,
+            blocked=cur.cpu_blocked if cur else None,
             sat=sat,
         )
         result.cpu_saturation = signals["cpu"]
         result.mem_saturation = signals["mem"]
         result.disk_saturation = signals["disk"]
         result.net_saturation = signals["net"]
-        # 에러 축 표시자 (최근 24h 모니터링 창) — 단일 개요 조회에서만. bulk 환경 realtime(saturation 전달)은
-        # per-host 에러 미표시라 skip (per-server latest_errors N+1 회피).
-        if saturation is None:
-            err = await self.repo.latest_errors(server_id, datetime.now(UTC) - timedelta(hours=24))
-            result.errors = build_error_signals(err, window_label="최근 24h")
+        # 에러 축(E)은 서버 세부 '자원 이용률·포화·에러' 카드(14일 창, SSR get_period_assessment)로 통합 — 실시간
+        # 스냅샷은 이용률(도넛)·포화·활동만. per-server latest_errors N+1 회피 겸.
         await safe_set(self.redis, cache_key, dashboard_to_json(result), ex=web_settings.redis_ttl_cache_metrics)
         return result
 
@@ -105,10 +102,13 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
         bucket: BucketSize,
         agg: AggFunc,
         end: datetime | None = None,
+        collapse: bool = False,
     ) -> list[MetricSeriesItem]:
         # 검증은 라우터의 Query(MetricType) Literal Pydantic 단계에서 이미 처리됨.
         # device/mount 선별은 repo SQL 단계 (fs.usage_percent 데이터볼륨 필터). 표시 계층 재필터 없음.
-        dtos = await self.repo.metric_chart(server_id, metric_type, dimension, time_range, bucket, agg, end)
+        # collapse=True — 물리 디바이스 수 무관 1선 합산(스토리지 IOPS·처리량 추이, 디바이스 많으면 멀티라인
+        # 지저분 문제 회피). 기본 False 유지 — 기존 페이지(cpu/memory/network) 회귀 없음.
+        dtos = await self.repo.metric_chart(server_id, metric_type, dimension, time_range, bucket, agg, end, collapse)
         return [to_metric_series_item(dto) for dto in dtos]
 
     async def get_reboot_events(
