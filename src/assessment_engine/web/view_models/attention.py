@@ -169,10 +169,11 @@ class EnvironmentOverview:
     saturation_donuts: list["SaturationDonut"] = field(default_factory=list)
     # 에러축 fleet 표시자 (MCE·OOM·EDAC·디스크·NIC) — 창내 발생 호스트 수/표본. 정상=0 발화(E9). 대시보드 전용.
     error_fleet: list["FleetErrorItem"] = field(default_factory=list)
-    # OS 지원(EOL) 3상태 종합 — 서버 목록 칼럼(os_eol_status)과 동일 판정(lookup_os_eol). os_id 있는 서버만 집계.
-    os_eol_passed: int = 0  # 지원 종료(경과)
+    # OS 지원(EOL) 4상태 종합 — 서버 목록 칼럼(os_eol_status)과 동일 판정(lookup_os_eol). os_id 있는 서버만 집계.
+    os_eol_passed: int = 0  # 지원 종료(연장지원까지 경과 — 보안 패치 중단)
+    os_eol_extended: int = 0  # 연장지원(메인스트림 종료·보안 패치 유지 — Windows Server LTSC 전용)
     os_eol_unknown: int = 0  # 미상(카탈로그 미수록·미매칭 — 판정 불가)
-    os_eol_supported: int = 0  # 지원 중(매칭+미래)
+    os_eol_supported: int = 0  # 지원 중(메인스트림 지원 중)
     risk_donut: list[RiskDonutSegment] = field(default_factory=list)
     risk_donut_total: int = 0  # 도넛 중심 표시 (분류된 서버 수)
     risk_high_count: int = 0  # 도넛 중심 강조 — "위험 N대"

@@ -77,6 +77,9 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         online_count = sum(1 for d in details if online_by_id.get(d.id))
         # 포화 도넛 표본 = 윈도우 내 metric 발행 호스트 수(util.sample_size). util 부재 시 분류된 호스트 수로 폴백.
         sat_total = util.sample_size if util is not None else len(raws_period)
+        # 분자(cpu_sat 등)는 raws_period(cagg 버킷) 순회, 분모는 raw 테이블 기준이라 원천이 달라, prod raw 보존
+        # < WINDOW_DAYS 구성에서 분자>분모(도넛 비율 >100%) 가능 — 최소 방어로 분모를 최대 분자 이상으로 클램프.
+        sat_total = max(sat_total, cpu_sat, mem_sat, disk_sat, net_cong)
         sat_counts = {"cpu": cpu_sat, "mem": mem_sat, "disk_io": disk_sat, "net": net_cong, "total": sat_total}
         # full_under 면 under_limit=None(상위 N 절단 해제), 아니면 build_environment_overview 기본값 적용.
         return build_environment_overview(

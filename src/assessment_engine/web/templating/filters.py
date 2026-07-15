@@ -68,14 +68,5 @@ def storagesize_styled(gb: float | None) -> Markup:
     return Markup(f'{value} <span class="stat-unit">{unit}</span>')
 
 
-def kbps(kb: float | None) -> str:
-    # 단위 표기 "kB/s"/"MB/s" — 차트(fmtKbChart·fmtThroughput)·format_net_rate 와 통일.
-    if kb is None:
-        return "—"
-    if kb >= 1024:
-        return f"{round(kb / 1024, 1)} MB/s"
-    return f"{kb} kB/s"
-
-
 def or_dash(value: object) -> str:
     return str(value) if value is not None else "-"

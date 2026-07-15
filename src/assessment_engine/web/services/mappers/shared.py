@@ -5,15 +5,16 @@
 """
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from assessment_engine import recommendation
 from assessment_engine.service_classifier import SERVICE_CATALOG
 from assessment_engine.web.services.device_filters import disk_total_bytes, is_virtual_interface
-from assessment_engine.web.services.unit_converter import bytes_to_gib
+from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
 from assessment_engine.web.view_models.server import ServiceBadgeRef
 
 # ─── UI 임계값 — base.html body data-attribute 동기화 (#E1 P3 · ADR 0015) ────
@@ -158,13 +159,15 @@ def spec_display_line(cpu_cores: int | None, mem_total_bytes: int | None, block_
     프로비저닝이 2진 기준이라 30GiB 디스크가 "30GB"로 떨어져 딱 맞음. 각 값 부재는 "—".
     """
     disk_bytes = disk_total_bytes(block_devices)
-    mem_spec = (mem_total_bytes / 1024**3) if mem_total_bytes else None
-    disk_gib = bytes_to_gib(disk_bytes) if disk_bytes else None
+    # 메모리 = RAM 계열 bytes_to_gib(1dp, 카탈로그 단일진실 — 인라인 나눗셈 대신 함수 경유로 base 변경 시 한 곳).
+    # 디스크 = bytes_to_gb(카탈로그). compact 표는 정수 표기(.0f)라 두 함수의 소수 자릿수는 포맷이 덮음.
+    mem_gib = bytes_to_gib(mem_total_bytes)
+    disk_gb = bytes_to_gb(disk_bytes) if disk_bytes else None
     return " · ".join(
         [
             f"{cpu_cores}코어" if cpu_cores else "—",
-            f"{mem_spec:.2f}GB" if mem_spec else "—",
-            f"{disk_gib:.0f}GB" if disk_gib else "—",
+            f"{mem_gib:.1f}GB" if mem_gib else "—",
+            f"{disk_gb:.0f}GB" if disk_gb else "—",
         ]
     )
 
@@ -350,40 +353,55 @@ def os_id_to_distro(os_id: str | None) -> str:
     return _OS_ID_TO_EOL_PRODUCT.get(os_id, os_id)
 
 
-def resolve_os_eol(
-    os_id: str | None,
-    os_version: str | None,
-    kernel_version: str | None,
-    today: date,
-) -> tuple[str, str] | None:
-    """OS EOL 단일 판정 — 카탈로그 조회 + EOL 이미 경과면 (eol_iso, 제품 라벨), 아니면 None.
+class OsEolInfo(NamedTuple):
+    """OS 지원 종료 판정 결과 — 대표 eol/메인스트림 종료일/라벨/상태. 미매칭(판정 불가)은 None 으로 표현.
 
-    attention OS EOL 카드 + 보고서 정성 요약 공용 (P2 단일 판정 — 두 표시 경로 일관).
-    - Windows: os_id=="windows" -> windows-server 카탈로그, kernel build == latest build 매칭
-      (운영=Server 가정, build <-> 제품 1:1). kernel_version "26100.8457" -> build "26100".
-    - Linux: os_id -> product slug, os_version == cycle 또는 startswith(cycle+".") (rocky "9.7" -> "9").
-    EOL 미도래(아직 지원 중)는 None — 카탈로그 등록만으로 발화하면 미래 EOL(Server 2025=2034) 오발화.
-    카탈로그 미등록 OS 도 None (EOL 판정 불가 = 침묵, false negative 한계는 의식적 트레이드오프).
+    status 4상태 중 unknown 은 여기 안 담김(None) — 담기는 건 eol/extended/supported 3상태:
+    - "eol"        연장지원까지 종료(보안 패치 중단). eol 경과.
+    - "extended"   메인스트림 지원 종료, 연장지원 단계(보안 패치는 유지). support 경과 + eol 미도래.
+    - "supported"  메인스트림 지원 중. support 미도래(또는 support 미수록 + eol 미도래).
+    support_iso 는 메인스트림 종료일(있으면) — 현재 Windows Server 만 채움(Linux 카탈로그 미수록 -> None).
     """
-    m = _match_eol(os_id, os_version, kernel_version)
-    if m is None:
-        return None
-    eol_iso, label = m
-    if date.fromisoformat(eol_iso) > today:
-        return None  # 미래 EOL 침묵 (아직 지원 중 — 발화하면 오경보)
-    return (eol_iso, label)
+
+    eol_iso: str
+    support_iso: str | None
+    label: str
+    status: str  # "eol" | "extended" | "supported"
 
 
-def _match_eol(os_id: str | None, os_version: str | None, kernel_version: str | None) -> tuple[str, str] | None:
-    """카탈로그에서 (eol_iso, 제품 라벨) 매칭 — today-gate 없는 순수 조회. resolve/lookup 공용."""
+def _classify_eol(support_iso: str | None, eol_iso: str, today: date) -> str:
+    """support/eol 2 날짜 -> 3상태. support 없으면 eol 단일 판정(Linux — extended 개념 없음)."""
+    if date.fromisoformat(eol_iso) <= today:
+        return "eol"
+    if support_iso and date.fromisoformat(support_iso) <= today:
+        return "extended"
+    return "supported"
+
+
+def _eol_info(os_id: str | None, os_version: str | None, kernel_version: str | None, today: date) -> OsEolInfo | None:
+    """카탈로그 매칭 + support/eol 2단계 상태 판정 단일 진실. 미매칭(판정 불가)은 None.
+
+    - Windows: os_id=="windows" -> windows-server 카탈로그, kernel build == latest build 매칭
+      (운영=Server 가정). kernel_version "26100.8457" -> build "26100". 커널 빌드 하나가 복수 채널에
+      겹치면(예: 17763 = SAC "1809-sac" + LTSC "2019") 후보 전체로 정직하게 판정 — 후보 전부 eol 경과면
+      "eol", 전부 support 경과면 "extended", 아니면 "supported". 대표 라벨·날짜는 eol 최장(LTSC) 후보로
+      표시(불확실하면 과소지원 오판정보다 안전 쪽 — #E9 침묵 원칙과 동일 방향).
+    - Linux: os_id -> product slug, os_version == cycle 또는 startswith(cycle+"."). support 미수록이라
+      extended 없이 eol/supported 2상태(기존 동작 유지).
+    카탈로그 미등록 OS 는 None (판정 불가 = 침묵, false negative 한계는 의식적 트레이드오프).
+    """
     if not os_id:
         return None
     if os_id == "windows":
         build = (kernel_version or "").split(".")[0]
-        for entry in _EOL_CATALOG.get("windows-server", []):
-            if entry.get("build") == build:
-                return (entry["eol"], f"Windows Server {entry['cycle']}")
-        return None
+        matches = [e for e in _EOL_CATALOG.get("windows-server", []) if e.get("build") == build]
+        if not matches:
+            return None
+        rep = max(matches, key=lambda e: e["eol"])  # 대표 = eol 최장(LTSC) — 표시 라벨·날짜
+        all_eol_passed = all(date.fromisoformat(e["eol"]) <= today for e in matches)
+        all_support_passed = all(e.get("support") and date.fromisoformat(e["support"]) <= today for e in matches)
+        status = "eol" if all_eol_passed else ("extended" if all_support_passed else "supported")
+        return OsEolInfo(rep["eol"], rep.get("support"), f"Windows Server {rep['cycle']}", status)
     product = _OS_ID_TO_EOL_PRODUCT.get(os_id)
     if product is None:
         return None
@@ -392,22 +410,38 @@ def _match_eol(os_id: str | None, os_version: str | None, kernel_version: str | 
         cycle = entry["cycle"]
         if ver == cycle or ver.startswith(cycle + "."):
             label = " ".join(p for p in [os_id, os_version] if p) or "-"
-            return (entry["eol"], label)
+            status = _classify_eol(entry.get("support"), entry["eol"], today)
+            return OsEolInfo(entry["eol"], entry.get("support"), label, status)
     return None
+
+
+def resolve_os_eol(
+    os_id: str | None,
+    os_version: str | None,
+    kernel_version: str | None,
+    today: date,
+) -> tuple[str, str] | None:
+    """OS 지원 종료 발화 판정 — 연장지원까지 끝난(보안 패치 중단) 경우만 (eol_iso, 제품 라벨), 아니면 None.
+
+    attention OS EOL 카드 + 보고서 정성 요약 공용 (P2 단일 판정). 연장지원(extended) 단계는 보안 패치가
+    유지되므로 여기서 발화하지 않는다 — 발화는 status=="eol"(완전 종료) 한정. extended 는 서버별 상태
+    칼럼(지원 중/연장지원/종료)으로만 노출(lookup_os_eol).
+    """
+    info = _eol_info(os_id, os_version, kernel_version, today)
+    if info is None or info.status != "eol":
+        return None
+    return (info.eol_iso, info.label)
 
 
 def lookup_os_eol(
     os_id: str | None, os_version: str | None, kernel_version: str | None, today: date
-) -> tuple[str, str, bool] | None:
-    """인벤토리 표시용 EOL 조회 — 미래 EOL 도 반환. (eol_iso, 라벨, is_passed) 또는 미등록 시 None.
+) -> OsEolInfo | None:
+    """인벤토리 표시용 EOL 조회 — 미래 EOL·연장지원도 반환. OsEolInfo 또는 미등록 시 None.
 
-    resolve_os_eol(발화용, 경과만)와 달리 시스템 정보 카드용 — 아직 지원 중이어도 종료 예정일 노출.
+    resolve_os_eol(발화용, 완전 종료만)와 달리 시스템 정보 카드·서버 목록 상태 칼럼용 — 아직 지원 중이어도
+    종료 예정일과 3상태(supported/extended/eol)를 노출.
     """
-    m = _match_eol(os_id, os_version, kernel_version)
-    if m is None:
-        return None
-    eol_iso, label = m
-    return (eol_iso, label, date.fromisoformat(eol_iso) <= today)
+    return _eol_info(os_id, os_version, kernel_version, today)
 
 
 # 레거시 Windows Server (build <= 9600) kernel build -> 표시용 버전 라벨.
@@ -433,14 +467,20 @@ def windows_legacy_version_from_build(kernel_version: str | None) -> str | None:
     return _WINDOWS_LEGACY_BUILD_LABEL.get(build)
 
 
-def format_net_rate(kbps_total: float | None) -> str | None:
-    """환경 합산 네트워크 rate(kB/s) -> 표시 문자열 — 실시간 현재 자원 현황·보고서 환경 현황 공용 단일 진실.
+# ProductName(CurrentVersion 원문) -> 짧은 표시 라벨. os_version(DisplayVersion)이 LTSC/SAC 를 구분 못 하고
+# 동일 값("1809")을 공유하는 한계를 product_name 의 연도/세대 토큰으로 보강 — Server 는 연도(2019·2012 R2),
+# client 는 세대(10·11). SAC(Server Core 반기 채널)는 MS 가 ProductName 에 연도를 의도적으로 안 박으므로
+# ("Windows Server Datacenter") 미매칭 -> None 반환해 호출자가 os_version 폴백(SAC 는 그쪽이 정확).
+_WIN_SERVER_YEAR_RE = re.compile(r"Windows Server (\d{4})(?:\s+(R2))?", re.IGNORECASE)
+_WIN_CLIENT_GEN_RE = re.compile(r"Windows (10|11)\b", re.IGNORECASE)
 
-    1024 kB/s 이상은 MB/s 승급. None(표본 부재)은 None — 호출자가 placeholder 처리.
-    단위 표기는 차트(chart-utils fmtKbChart)·참조 문서와 동일한 "kB/s"/"MB/s" 관습으로 통일.
-    """
-    if kbps_total is None:
+
+def windows_short_label_from_product_name(product_name: str | None) -> str | None:
+    """product_name 원문 -> 짧은 표시 라벨("2019"·"2012 R2"·"10"). SAC(연도 없음)·미매칭은 None(os_version 폴백)."""
+    if not product_name:
         return None
-    if kbps_total >= 1024:
-        return f"{kbps_total / 1024:.1f} MB/s"
-    return f"{kbps_total:.1f} kB/s"
+    m = _WIN_SERVER_YEAR_RE.search(product_name)
+    if m:
+        return f"{m.group(1)} R2" if m.group(2) else m.group(1)
+    m = _WIN_CLIENT_GEN_RE.search(product_name)
+    return m.group(1) if m else None

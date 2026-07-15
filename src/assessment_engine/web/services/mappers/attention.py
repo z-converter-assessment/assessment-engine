@@ -133,7 +133,8 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
 
     risk_counts 예: {"under_provisioned": 1, "over_provisioned": 2, "optimal": 7} (키 = _DONUT_SEGMENT_DEFS 6종).
     누락 키는 0으로 취급. dash_length·dash_offset은 누적 비례 계산.
-    under_count는 도넛 중앙 강조용 (가장 시급한 카테고리).
+    under_count(자원 부족 카테고리 수)는 EnvironmentOverview.risk_high_count 로 전달되는 요약 신호 —
+    risk 분포는 막대(provisioning_dist_bar)로 렌더돼 도넛 중앙 라벨은 없다(옛 중앙 강조 규약 폐기, #E8).
     """
     total = sum(risk_counts.values())
     segments: list = []
@@ -189,24 +190,26 @@ def _build_error_fleet(err: FleetErrorRaw | None) -> list[FleetErrorItem]:
     ]
 
 
-def _os_eol_summary(details: list, today) -> tuple[int, int, int]:
-    """OS 지원(EOL) 3상태 종합 -> (지원 종료, 미상, 지원 중). 서버 목록 os_eol_status 와 동일 판정(lookup_os_eol).
+def _os_eol_summary(details: list, today) -> tuple[int, int, int, int]:
+    """OS 지원(EOL) 4상태 종합 -> (지원 종료, 연장지원, 미상, 지원 중). 서버 목록 os_eol_status 와 동일 판정.
 
     os_id 없는 서버(인벤토리 미수집)는 EOL 종합 대상 아님 — 미상(판정 불가)과 구분해 제외.
-    lookup_os_eol: None=미상(카탈로그 미수록·미매칭) / is_passed=경과(지원 종료) / else=미래(지원 중).
+    lookup_os_eol: None=미상(카탈로그 미수록·미매칭) / status eol=완전 종료 / extended=연장지원 / supported=지원 중.
     """
-    passed = unknown = supported = 0
+    passed = extended = unknown = supported = 0
     for d in details:
         if not d.os_id:
             continue
-        m = lookup_os_eol(d.os_id, d.os_version, d.kernel_version, today)
-        if m is None:
+        info = lookup_os_eol(d.os_id, d.os_version, d.kernel_version, today)
+        if info is None:
             unknown += 1
-        elif m[2]:
+        elif info.status == "eol":
             passed += 1
+        elif info.status == "extended":
+            extended += 1
         else:
             supported += 1
-    return passed, unknown, supported
+    return passed, extended, unknown, supported
 
 
 def _workload_donut_segments(role_sorted: dict[str, int]) -> tuple[list, int]:
@@ -310,7 +313,7 @@ def build_environment_overview(
             _build_saturation_donut("네트워크 혼잡", saturation_counts.get("net", 0), _sat_total),
         ]
 
-    _eol_passed, _eol_unknown, _eol_supported = _os_eol_summary(details, datetime.now(UTC).date())
+    _eol_passed, _eol_extended, _eol_unknown, _eol_supported = _os_eol_summary(details, datetime.now(UTC).date())
     return EnvironmentOverview(
         total=total,
         online=online_count,
@@ -336,6 +339,7 @@ def build_environment_overview(
         saturation_donuts=sat_donuts,
         error_fleet=_build_error_fleet(error_summary),
         os_eol_passed=_eol_passed,
+        os_eol_extended=_eol_extended,
         os_eol_unknown=_eol_unknown,
         os_eol_supported=_eol_supported,
     )

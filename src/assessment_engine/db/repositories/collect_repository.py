@@ -54,6 +54,7 @@ class CollectRepository(BaseCollectRepository):
         ServerInventory.boot_firmware,
         ServerInventory.secure_boot,
         ServerInventory.edition,
+        ServerInventory.product_name,
         ServerInventory.timezone,
         ServerInventory.rtc_utc,
         ServerInventory.cpu_cores,
@@ -102,6 +103,7 @@ class CollectRepository(BaseCollectRepository):
             "boot_firmware": data.boot_firmware,
             "secure_boot": data.secure_boot,
             "edition": data.edition,
+            "product_name": data.product_name,
             "timezone": data.timezone,
             "rtc_utc": data.rtc_utc,
             "boot": data.boot,
@@ -153,6 +155,7 @@ class CollectRepository(BaseCollectRepository):
             or prev.boot_firmware != new.boot_firmware
             or prev.secure_boot != new.secure_boot
             or prev.edition != new.edition
+            or prev.product_name != new.product_name
             or prev.timezone != new.timezone
             or prev.rtc_utc != new.rtc_utc
             or prev.cpu_cores != new.cpu_cores
@@ -193,6 +196,7 @@ class CollectRepository(BaseCollectRepository):
                 boot_firmware=data.boot_firmware,
                 secure_boot=data.secure_boot,
                 edition=data.edition,
+                product_name=data.product_name,
                 timezone=data.timezone,
                 rtc_utc=data.rtc_utc,
                 cpu_cores=data.cpu_cores,

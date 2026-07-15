@@ -932,6 +932,11 @@ export interface components {
         CpuCoreSnapshot: {
             /** Core Id */
             core_id: number;
+            /**
+             * Hot
+             * @default false
+             */
+            hot: boolean;
             /** Usage Pct */
             usage_pct: number | null;
         };

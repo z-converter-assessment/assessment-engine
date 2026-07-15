@@ -84,22 +84,32 @@ def _drop_unknown_fields(cls: type, data: dict) -> dict:
     return {k: v for k, v in data.items() if k in known}
 
 
+def _build(cls, data: dict):
+    """dict -> dataclass 재구성 단일 진입점 — 모든 nested `cls(**data)` 는 본 helper 경유 의무.
+
+    `_drop_unknown_fields` 를 항상 적용해 필드 제거 마이그레이션 후 과거 스냅샷의 잔존 키가 TypeError 로
+    복원을 깨지 않는다(#C1 정적 스냅샷 removal-tolerance). 명시 kwargs 재구성(PeriodResource 등 get(key,
+    default))은 이미 제거 내성이 있어 본 helper 불요 — spread(`**`)만 본 함수로.
+    """
+    return cls(**_drop_unknown_fields(cls, data))
+
+
 def _report_row_from_dict(r: dict) -> ReportRowItem:
     """ReportRowItem 복원 — nested 구동 서비스 2 필드(list[dataclass]) 재구성 포함."""
     data = dict(r)
-    data["workload_groups"] = [ReportWorkloadGroup(**g) for g in data.get("workload_groups") or []]
-    data["listen_ports_detail"] = [ReportListenItem(**p) for p in data.get("listen_ports_detail") or []]
-    return ReportRowItem(**_drop_unknown_fields(ReportRowItem, data))
+    data["workload_groups"] = [_build(ReportWorkloadGroup, g) for g in data.get("workload_groups") or []]
+    data["listen_ports_detail"] = [_build(ReportListenItem, p) for p in data.get("listen_ports_detail") or []]
+    return _build(ReportRowItem, data)
 
 
 def report_summary_from_dict(d: dict) -> ReportSummary:
     data = dict(d)
     data["rows"] = [_report_row_from_dict(r) for r in data.get("rows") or []]
     totals = data.get("totals")
-    data["totals"] = ReportTotals(**totals) if totals else ReportTotals(0, 0.0, 0)
+    data["totals"] = _build(ReportTotals, totals) if totals else ReportTotals(0, 0.0, 0)
     data["generated_at"] = _dt(data.get("generated_at"))
     data["anchor_at"] = _dt(data.get("anchor_at"))
-    return ReportSummary(**_drop_unknown_fields(ReportSummary, data))
+    return _build(ReportSummary, data)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -114,9 +124,9 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
     data["overview"] = _overview_from_dict(data["overview"])
     data["attention"] = _attention_from_dict(data["attention"])
     data["base"] = report_summary_from_dict(data["base"])
-    data["classification_dist"] = [ClassificationCount(**c) for c in data.get("classification_dist") or []]
-    data["os_distribution"] = [OsCount(**o) for o in data.get("os_distribution") or []]
-    data["os_family_dist"] = [DistributionBar(**b) for b in data.get("os_family_dist") or []]
+    data["classification_dist"] = [_build(ClassificationCount, c) for c in data.get("classification_dist") or []]
+    data["os_distribution"] = [_build(OsCount, o) for o in data.get("os_distribution") or []]
+    data["os_family_dist"] = [_build(DistributionBar, b) for b in data.get("os_family_dist") or []]
     topo = data.get("topology")
     if topo:
         # subnets nested 복원 (SubnetGroup/SubnetHost) — 보고서 서브넷 요약 표가 .net_key/.host_count 접근.
@@ -125,11 +135,11 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
             SubnetGroup(
                 net_key=s["net_key"],
                 host_count=s.get("host_count", 0),
-                hosts=[SubnetHost(**h) for h in s.get("hosts") or []],
+                hosts=[_build(SubnetHost, h) for h in s.get("hosts") or []],
             )
             for s in topo.get("subnets") or []
         ]
-        data["topology"] = NetworkTopology(**topo)
+        data["topology"] = _build(NetworkTopology, topo)
     else:
         data["topology"] = None
     # trend 는 plain dict list (at=isoformat str) — 라운드트립 시 그대로 보존 (복원 불필요).
@@ -142,41 +152,41 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
             total_count=g.get("total_count", 0),
             services=[
                 ServiceNameCount(
-                    name=s["name"], count=s["count"], hosts=[ServiceHost(**h) for h in s.get("hosts") or []]
+                    name=s["name"], count=s["count"], hosts=[_build(ServiceHost, h) for h in s.get("hosts") or []]
                 )
                 for s in g.get("services") or []
             ],
         )
         for g in data.get("service_catalog") or []
     ]
-    data["attention_hosts"] = [AttentionHostItem(**a) for a in data.get("attention_hosts") or []]
-    data["capacity_imminent"] = [CapacityImminentItem(**c) for c in data.get("capacity_imminent") or []]
+    data["attention_hosts"] = [_build(AttentionHostItem, a) for a in data.get("attention_hosts") or []]
+    data["capacity_imminent"] = [_build(CapacityImminentItem, c) for c in data.get("capacity_imminent") or []]
     data["anchor_at"] = _dt(data.get("anchor_at"))
     data["generated_at"] = _dt(data.get("generated_at"))
     si = data.get("server_inventory")
     if si:
         sid = dict(si)
-        sid["ip_internal"] = [IpAddr(**a) for a in sid.get("ip_internal") or []]
-        sid["ip_external"] = [IpAddr(**a) for a in sid.get("ip_external") or []]
+        sid["ip_internal"] = [_build(IpAddr, a) for a in sid.get("ip_internal") or []]
+        sid["ip_external"] = [_build(IpAddr, a) for a in sid.get("ip_external") or []]
         sid["boot_time"] = _dt(sid.get("boot_time"))
         sid["agent_started_at"] = _dt(sid.get("agent_started_at"))
         sid["last_seen_at"] = _dt(sid.get("last_seen_at"))
-        data["server_inventory"] = ServerInventorySnapshot(**sid)
+        data["server_inventory"] = _build(ServerInventorySnapshot, sid)
     mb = data.get("memory_breakdown")
     if mb:
-        data["memory_breakdown"] = MemoryBreakdown(**mb)
+        data["memory_breakdown"] = _build(MemoryBreakdown, mb)
     cb = data.get("cpu_breakdown")
     if cb:
-        data["cpu_breakdown"] = CpuBreakdown(**cb)
+        data["cpu_breakdown"] = _build(CpuBreakdown, cb)
     pa = data.get("period_assessment")
     data["period_assessment"] = _period_assessment_from_dict(pa) if pa else None
     data["storage_tree"] = [_storage_node_from_dict(n) for n in data.get("storage_tree") or []]
     data["network_interfaces"] = [_network_interface_from_dict(n) for n in data.get("network_interfaces") or []]
-    return EnvironmentReportSummary(**_drop_unknown_fields(EnvironmentReportSummary, data))
+    return _build(EnvironmentReportSummary, data)
 
 
 def _period_signal_rows(rows: list[dict] | None) -> list[PeriodSignalRow]:
-    return [PeriodSignalRow(**r) for r in rows or []]
+    return [_build(PeriodSignalRow, r) for r in rows or []]
 
 
 def _period_assessment_from_dict(d: dict) -> PeriodAssessment:
@@ -200,7 +210,7 @@ def _period_assessment_from_dict(d: dict) -> PeriodAssessment:
                 PeriodExtraGroup(label=g["label"], rows=_period_signal_rows(g.get("rows")))
                 for g in r.get("extra_groups") or []
             ],
-            error_rows=[PeriodErrorRow(**e) for e in r.get("error_rows") or []],
+            error_rows=[_build(PeriodErrorRow, e) for e in r.get("error_rows") or []],
             verdict_label2=r.get("verdict_label2", ""),
             verdict_color2=r.get("verdict_color2", ""),
         )
@@ -208,7 +218,7 @@ def _period_assessment_from_dict(d: dict) -> PeriodAssessment:
     ]
     return PeriodAssessment(
         resources=resources,
-        error_rows=[PeriodErrorRow(**e) for e in d.get("error_rows") or []],
+        error_rows=[_build(PeriodErrorRow, e) for e in d.get("error_rows") or []],
         window_days=d.get("window_days", 0),
         classification_label=d.get("classification_label", ""),
         classification_color=d.get("classification_color", ""),
@@ -219,25 +229,25 @@ def _storage_node_from_dict(d: dict) -> StorageNode:
     """StorageNode 복원 — children 재귀 트리(storage.html 과 동일 구조)."""
     data = dict(d)
     data["children"] = [_storage_node_from_dict(c) for c in data.get("children") or []]
-    return StorageNode(**data)
+    return _build(StorageNode, data)
 
 
 def _network_interface_from_dict(d: dict) -> NetworkInterfaceInfo:
     data = dict(d)
-    data["addresses"] = [NetIfaceAddress(**a) for a in data.get("addresses") or []]
-    return NetworkInterfaceInfo(**data)
+    data["addresses"] = [_build(NetIfaceAddress, a) for a in data.get("addresses") or []]
+    return _build(NetworkInterfaceInfo, data)
 
 
 def _overview_from_dict(d: dict) -> EnvironmentOverview:
     data = dict(d)
-    data["utilization"] = [UtilizationBar(**u) for u in data.get("utilization") or []]
-    data["utilization_p95"] = [UtilizationBar(**u) for u in data.get("utilization_p95") or []]
-    data["risk_donut"] = [RiskDonutSegment(**s) for s in data.get("risk_donut") or []]
-    data["saturation_donuts"] = [SaturationDonut(**s) for s in data.get("saturation_donuts") or []]
-    data["error_fleet"] = [FleetErrorItem(**e) for e in data.get("error_fleet") or []]
+    data["utilization"] = [_build(UtilizationBar, u) for u in data.get("utilization") or []]
+    data["utilization_p95"] = [_build(UtilizationBar, u) for u in data.get("utilization_p95") or []]
+    data["risk_donut"] = [_build(RiskDonutSegment, s) for s in data.get("risk_donut") or []]
+    data["saturation_donuts"] = [_build(SaturationDonut, s) for s in data.get("saturation_donuts") or []]
+    data["error_fleet"] = [_build(FleetErrorItem, e) for e in data.get("error_fleet") or []]
     uph = data.get("under_provisioned_hosts") or []
     data["under_provisioned_hosts"] = [_capacity_warning_from_dict(c) for c in uph]
-    return EnvironmentOverview(**data)
+    return _build(EnvironmentOverview, data)
 
 
 def _attention_from_dict(d: dict) -> AttentionSignals:
@@ -252,18 +262,18 @@ def _attention_from_dict(d: dict) -> AttentionSignals:
 def _attention_row_from_dict(d: dict) -> AttentionRow:
     data = dict(d)
     data["meta_at"] = _dt(data.get("meta_at"))
-    return AttentionRow(**data)
+    return _build(AttentionRow, data)
 
 
 def _capacity_warning_from_dict(d: dict) -> CapacityWarningItem:
     data = dict(d)
     # active_causes 는 list[str] — 스칼라라 별도 복원 불요. metrics(구 필드, ADR 0056 이전 스냅샷)는
     # _drop_unknown_fields 가 걸러낸다 — CapacityMetric 자체도 폐기.
-    return CapacityWarningItem(**_drop_unknown_fields(CapacityWarningItem, data))
+    return _build(CapacityWarningItem, data)
 
 
 def _action_targets_from_dict(d: dict) -> ActionTargets:
     data = dict(d)
     # hosts = CapacityWarningItem list. metric_labels(구 필드)는 _drop_unknown_fields 가 걸러낸다.
     data["hosts"] = [_capacity_warning_from_dict(c) for c in data.get("hosts") or []]
-    return ActionTargets(**_drop_unknown_fields(ActionTargets, data))
+    return _build(ActionTargets, data)

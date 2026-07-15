@@ -201,7 +201,9 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         - disk_io_util_pct: 물리 disk worst device io_time delta / wall-time delta * 100 (USE Method Utilization
           축, 0% 도 실측). 합성/숨김 pseudo-device(예: Windows aggregate:system) 제외 — 실측치인 척 대체하면
           진짜 물리 device 카운터 이상(phantom busy 등)이 은폐된다.
-        - paging_major_rate: server_metrics paging_major delta / dt (하드폴트 rate, Linux refault / Windows).
+        - paging_major_rate: 하드폴트 rate, os-aware 컬럼 선택 — Linux paging_major(refault) / Windows paging_in
+          (Pages Input/sec. Windows 는 paging.operations 를 direction=in 만 발행, type=major 포인트 없음 —
+          paging_major 컬럼은 Windows 에서 항상 NULL, report_aggregate pages_input_rate 산식과 동일 소스 통일).
         - retrans_pct / drop_pct / conntrack_ratio: 네트워크 품질·로컬 포화.
         - psi_cpu / psi_mem / psi_io: PSI %정체(stall_time delta / wall-time delta, server_pressure some, Linux 4.20+ / null).
 
@@ -211,11 +213,15 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             return {}
         sql = text(f"""
             WITH m2 AS (
-                SELECT server_id, cpu_run_queue, paging_major, net_tcp_retransmits, collected_at,
-                       net_conntrack_usage, net_conntrack_limit,
-                       row_number() OVER (PARTITION BY server_id ORDER BY collected_at DESC) AS rn
-                FROM server_metrics
-                WHERE server_id = ANY(:sids) AND collected_at >= :since AND collected_at <= now() + interval '2 minutes'
+                SELECT sm.server_id, sm.cpu_run_queue,
+                       CASE WHEN si.os_family = 'windows' THEN sm.paging_in ELSE sm.paging_major END AS paging_val,
+                       sm.net_tcp_retransmits, sm.collected_at,
+                       sm.net_conntrack_usage, sm.net_conntrack_limit,
+                       row_number() OVER (PARTITION BY sm.server_id ORDER BY sm.collected_at DESC) AS rn
+                FROM server_metrics sm
+                JOIN {ServerInventory.__tablename__} si ON si.id = sm.server_id
+                WHERE sm.server_id = ANY(:sids) AND sm.collected_at >= :since
+                      AND sm.collected_at <= now() + interval '2 minutes'
             ),
             m AS (
                 SELECT server_id,
@@ -225,9 +231,9 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                     CASE WHEN max(CASE WHEN rn = 1 THEN net_conntrack_limit END) > 0
                          THEN max(CASE WHEN rn = 1 THEN net_conntrack_usage END)::float
                               / max(CASE WHEN rn = 1 THEN net_conntrack_limit END) END AS conntrack_ratio,
-                    CASE WHEN max(CASE WHEN rn = 1 THEN paging_major END) >= max(CASE WHEN rn = 2 THEN paging_major END)
+                    CASE WHEN max(CASE WHEN rn = 1 THEN paging_val END) >= max(CASE WHEN rn = 2 THEN paging_val END)
                               AND max(CASE WHEN rn = 1 THEN collected_at END) > max(CASE WHEN rn = 2 THEN collected_at END)
-                         THEN (max(CASE WHEN rn = 1 THEN paging_major END) - max(CASE WHEN rn = 2 THEN paging_major END))::float
+                         THEN (max(CASE WHEN rn = 1 THEN paging_val END) - max(CASE WHEN rn = 2 THEN paging_val END))::float
                               / EXTRACT(EPOCH FROM (max(CASE WHEN rn = 1 THEN collected_at END)
                                                     - max(CASE WHEN rn = 2 THEN collected_at END)))
                     END AS paging_major_rate
@@ -1178,17 +1184,20 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             # 페이징은 magnitude 아닌 존재 판정이라(하드폴트 절대 rate 는 디스크 속도 의존이라 보편 임계 불가)
             # raw rate 를 그대로 선으로 그리면 OS 간 척도가 달라 비교 불가 — 버킷 안에서 한 번이라도 넘었는지
             # (bool_or)를 1.0/0.0 스텝으로 표시해야 Linux·Windows 를 같은 잣대(판정 결과)로 비교 가능.
-            # reset(카운터 감소)은 GREATEST(Δ,0) 흡수.
+            # reset(카운터 감소)은 GREATEST(Δ,0) 흡수. 하드폴트 원자료 컬럼은 os-aware(Windows 는 paging.operations
+            # 를 direction=in 만 발행해 paging_major 가 항상 NULL — Linux=paging_major(refault) / Windows=paging_in
+            # (Pages Input), report_aggregate pages_input_rate 산식과 동일 소스 통일).
             sid_mp = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
             params["window_start"] = start - bucket_td
             params["win_paging_threshold"] = recommendation.WIN_PAGES_INPUT_SATURATION
             sql = text(f"""
                 WITH raw AS (
-                    SELECT sm.collected_at, sm.server_id, si.os_family, sm.paging_major AS p
+                    SELECT sm.collected_at, sm.server_id, si.os_family,
+                           CASE WHEN si.os_family = 'windows' THEN sm.paging_in ELSE sm.paging_major END AS p
                     FROM {ServerMetrics.__tablename__} sm
                     JOIN {ServerInventory.__tablename__} si ON si.id = sm.server_id
                     WHERE sm.collected_at >= :window_start AND sm.collected_at <= :end {sid_mp}
-                      AND sm.paging_major IS NOT NULL
+                      AND (CASE WHEN si.os_family = 'windows' THEN sm.paging_in ELSE sm.paging_major END) IS NOT NULL
                 ),
                 deltas AS (
                     SELECT collected_at, os_family,
@@ -1223,17 +1232,20 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             # mem.psi(장식적 참고치, 판정 비관여)보다 정합. reset(카운터 감소)은 GREATEST(Δ,0) 흡수 — PSI 와 동일.
             # 버킷 먼저 묶고 그 안에서 server 별 "한 번이라도 넘었는지"(bool_or) 후 distinct server 수 — raw
             # collected_at 별로 먼저 세고 avg 내면 서버들이 비동기 보고라 매 시점 사실상 1대만 잡혀 소수 카운트가
-            # 나온다(오류, cpu.saturation_hosts 와 동일 수정). 버킷 우선이라 항상 정수.
+            # 나온다(오류, cpu.saturation_hosts 와 동일 수정). 버킷 우선이라 항상 정수. 하드폴트 원자료 컬럼은
+            # os-aware(mem.paging_pressure 와 동일 사유 — Windows paging_major 는 항상 NULL, Linux=paging_major
+            # (refault) / Windows=paging_in(Pages Input)).
             sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
             params["window_start"] = start - bucket_td
             params["win_paging_threshold"] = recommendation.WIN_PAGES_INPUT_SATURATION
             sql = text(f"""
                 WITH raw AS (
-                    SELECT sm.collected_at, sm.server_id, si.os_family, sm.paging_major AS p
+                    SELECT sm.collected_at, sm.server_id, si.os_family,
+                           CASE WHEN si.os_family = 'windows' THEN sm.paging_in ELSE sm.paging_major END AS p
                     FROM {ServerMetrics.__tablename__} sm
                     JOIN {ServerInventory.__tablename__} si ON si.id = sm.server_id
                     WHERE sm.collected_at >= :window_start AND sm.collected_at <= :end {sid_sm}
-                      AND sm.paging_major IS NOT NULL
+                      AND (CASE WHEN si.os_family = 'windows' THEN sm.paging_in ELSE sm.paging_major END) IS NOT NULL
                 ),
                 deltas AS (
                     SELECT collected_at, server_id, os_family,

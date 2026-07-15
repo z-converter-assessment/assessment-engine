@@ -149,7 +149,8 @@ id + id_type 표현 (inventory vs metrics 이원):
 | bits | integer \| null | 32/64. 재현 |
 | boot_firmware | string \| null | uefi/bios. 재현 부팅 방식 |
 | secure_boot | bool \| null | UEFI Secure Boot 여부. 미판별 null |
-| edition | string \| null | Windows EditionID(SKU). Linux null |
+| edition | string \| null | Windows EditionID(SKU). Linux null. 서버 상세 os_display 조합 표시 |
+| product_name | string \| null | Windows CurrentVersion ProductName 원문(예 "Windows Server 2019 Standard"). Linux null. os_display 짧은 라벨(연도/세대) 파싱 소스 — DisplayVersion(os_version)이 LTSC/SAC 를 "1809" 로 뭉뚱그리는 한계 보강. agent 무가공 발행(교정은 엔진 몫) |
 | timezone | string \| null | IANA tz. 재현 |
 | rtc_utc | bool \| null | RTC UTC(true)/localtime(false). 미판별 null |
 | cpu_model | string \| null | CPU 모델 표시 |

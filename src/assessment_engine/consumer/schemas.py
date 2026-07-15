@@ -248,6 +248,8 @@ class InventoryInput(MessageBase):
     boot_firmware: str | None = Field(default=None, max_length=8)  # uefi|bios
     secure_boot: bool | None = None
     edition: str | None = Field(default=None, max_length=64)  # Windows EditionID (Linux null)
+    # CurrentVersion ProductName 원문(Windows only, Linux null, agent 버퍼 128B) — 교정 없이 실측 그대로.
+    product_name: str | None = Field(default=None, max_length=128)
     timezone: str | None = Field(default=None, max_length=64)  # IANA
     rtc_utc: bool | None = None
     boot: BootInfo | None = None

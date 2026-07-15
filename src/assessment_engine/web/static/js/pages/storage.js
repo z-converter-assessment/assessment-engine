@@ -11,7 +11,7 @@
  * 같은 창·시점으로 그려진다(신호 간 시점 상관).
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
-const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
+const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, fmtThroughput,
         makeBucketGrid, pageTimeControl, initAutoRefresh, safeArray,
         buildAvgMaxDatasets, buildAvgMaxLegend, buildDimDatasets, renderChipLegend } = ChartUtils;
 
@@ -32,13 +32,7 @@ const IO_DIM_META = {
   write: { label: 'Write', color: '#f59e0b' },
 };
 
-/** @param {number|null|undefined} kb */
-function kbps(kb) {
-  if (kb == null) return '—';
-  // 단위 표기 "kB/s"/"MB/s" 통일 (chart-utils·format_net_rate·detail/network 와 동일 관습).
-  if (kb >= 1024) return (kb / 1024).toFixed(1) + ' MB/s';
-  return kb.toFixed(1) + ' kB/s';
-}
+// 디스크 처리량 표시 — ChartUtils.fmtThroughput 단일 진실(kB/s 입력, "kB/s"/"MB/s" 관습). 로컬 재구현 제거.
 /** @param {number|null|undefined} v */
 function iops(v) { return v == null ? '—' : v.toFixed(1) + ' IOPS'; }
 
@@ -58,7 +52,7 @@ async function loadSnapshot() {
     const row = (/** @type {NonNullable<import('../generated/api').components['schemas']['MetricDashboard']['disk_io']>[number]} */ d) => `<tr>
       <td>${d.device}</td>
       <td>${iops(d.read_iops)}</td><td>${iops(d.write_iops)}</td>
-      <td>${kbps(d.read_kbps)}</td><td>${kbps(d.write_kbps)}</td>
+      <td>${fmtThroughput(d.read_kbps)}</td><td>${fmtThroughput(d.write_kbps)}</td>
     </tr>`;
 
     if (physDisks.length) {
@@ -165,7 +159,7 @@ async function loadKbpsChart() {
     ];
     kbpsChart = renderIoDimChart(
       'io-kbps-canvas', 'io-kbps-chart-empty', 'io-kbps-legend', kbpsChart, rows, capturedRange, capturedAnchor,
-      { suggestedMax: STORAGE_KBPS_SUGGESTED_MAX, fmt: kbps },
+      { suggestedMax: STORAGE_KBPS_SUGGESTED_MAX, fmt: fmtThroughput },
     );
   } catch(e) { console.error(e); }
 }

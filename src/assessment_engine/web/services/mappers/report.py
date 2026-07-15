@@ -550,6 +550,7 @@ def build_period_assessment(
     errors: list[ErrorSignal] | None = None,
     *,
     disk_worst_mount: str | None = None,
+    window_days: int | None = None,
 ) -> PeriodAssessment:
     """서버 세부 '최근 N일' 카드 — 자원별 이용률(p95) + 포화(os-aware) 2축 + 에러축(E) (P2 precompute).
 
@@ -647,7 +648,9 @@ def build_period_assessment(
     mem_error_rows = [r for r in error_rows if r.key.startswith("mem_")]
 
     return PeriodAssessment(
-        window_days=rec.WINDOW_DAYS,
+        # 실제 집계창 주입(호출자) — 서버 상세=WINDOW_DAYS(14), 단일 보고서=선택 range(period_days). 미주입 시
+        # WINDOW_DAYS 폴백. 하드코딩 시 보고서 스냅샷 window_days 가 실제 창과 decouple(P2 지속경로 정합).
+        window_days=window_days if window_days is not None else rec.WINDOW_DAYS,
         error_rows=error_rows,
         classification_label=cls_label,
         classification_color=cls_color,
@@ -789,8 +792,8 @@ def to_report_row_item(
     has_operational_event — 호출자가 보고서 창(window) 기준 latest_errors 로 사전 판정해 주입(세부 서버
     목록 전용, N+1 회피 위해 여기선 조회 안 함).
     """
-    eol = lookup_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())
-    os_eol, os_eol_status = ("", "unknown") if eol is None else (eol[0], "eol" if eol[2] else "supported")
+    info = lookup_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())
+    os_eol, os_eol_status = ("", "unknown") if info is None else (info.eol_iso, info.status)
     stats = build_resource_stats(raw)  # net baseline·OS 분기 포함 — report·attention 공용 단일 진실
     # 신 모델 rollup_host 1회 산출 — badge·진단·권고·confidence 전부 이 종합에서 파생(화면 간 정합, ADR 0052 Phase D).
     host = recommendation.rollup_host(stats)
@@ -828,7 +831,7 @@ def to_report_row_item(
         os_family=raw.os_family,
         is_partial=is_partial,
         confidence_notes=build_host_confidence_notes(host),
-        os_display=_os_display(raw.os_id, raw.os_version),
+        os_display=_os_display(raw.os_id, raw.os_version, raw.kernel_version, raw.product_name),
         kernel_version=raw.kernel_version,
         os_eol=os_eol,
         os_eol_status=os_eol_status,
@@ -856,6 +859,7 @@ def to_report_row_item(
         mem_swap_paging=raw.mem_swap_paging,
         root_cause_label=recommendation.root_cause_display(host),
         net_status_label=net_status_label,
+        net_congested=host.network_congested,
         recommendation=rec,
         recommendation_label=recommendation.LABEL_KO[rec],
         badge_class=recommendation.BADGE_CLASS[rec],

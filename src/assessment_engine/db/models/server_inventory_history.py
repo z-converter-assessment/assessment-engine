@@ -36,6 +36,7 @@ class ServerInventoryHistory(Base):
     boot_firmware: Mapped[str | None] = mapped_column(String(8))
     secure_boot: Mapped[bool | None] = mapped_column(Boolean)
     edition: Mapped[str | None] = mapped_column(String(64))
+    product_name: Mapped[str | None] = mapped_column(String(128))
     timezone: Mapped[str | None] = mapped_column(String(64))
     rtc_utc: Mapped[bool | None] = mapped_column(Boolean)
 

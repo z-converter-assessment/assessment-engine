@@ -152,9 +152,16 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         sid = detail.id
         uptime = await self.repo.report_uptime_stats([sid], _DETAIL_ALL_TIME_DAYS, end_dt)
         restart = await self.repo.report_agent_restart_stats([sid], _DETAIL_ALL_TIME_DAYS, end_dt)
-        # 인벤토리 표시 — 미래 EOL 도 노출(lookup, today-gate 없음). 경과=지원 종료됨 / 미래=종료 예정.
-        eol = lookup_os_eol(detail.os_id, detail.os_version, detail.kernel_version, end_dt.date())
-        os_eol_label = f"EOL {eol[0]} · {'지원 종료됨' if eol[2] else '지원 종료 예정'}" if eol else None
+        # 인벤토리 표시 — 미래 EOL·연장지원도 노출(lookup, today-gate 없음). 완전 종료 / 연장지원 / 종료 예정 3분기.
+        info = lookup_os_eol(detail.os_id, detail.os_version, detail.kernel_version, end_dt.date())
+        os_eol_label = None
+        if info is not None:
+            _phase = {
+                "eol": "지원 종료됨",
+                "extended": "메인스트림 종료(연장지원 중)",
+                "supported": "지원 종료 예정",
+            }.get(info.status, "지원 종료 예정")
+            os_eol_label = f"EOL {info.eol_iso} · {_phase}"
         return ServerStabilitySignals(
             reboot_count=uptime.get(sid, 0),
             agent_restart_count=restart.get(sid, 0),
@@ -180,7 +187,8 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         err = await self.repo.latest_errors(server_id, end_dt - timedelta(days=win_days))
         errors = build_error_signals(err, window_label=f"최근 {win_days}일", os_family=raws[0].os_family)
         return build_period_assessment(
-            build_resource_stats(raws[0]), errors, disk_worst_mount=raws[0].disk_capacity_worst_mount
+            build_resource_stats(raws[0]), errors, disk_worst_mount=raws[0].disk_capacity_worst_mount,
+            window_days=win_days,
         )
 
     async def get_storage(self, server_id: int) -> StorageDetailResponse | None:

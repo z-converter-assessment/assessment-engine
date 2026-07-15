@@ -29,6 +29,7 @@ from assessment_engine.recommendation import (
     PROCS_BLOCKED_DSTATE_SATURATION,
     PROCS_RUNNING_PER_CORE_SATURATION,
     RS_CONNTRACK_SATURATION_RATIO,
+    RS_CPU_PERCORE_HOLD_PCT,
     RS_CPU_STEAL_BIAS_PCT,
     RS_DISKIO_AWAIT_MS,
     RS_NET_DROP_PCT,
@@ -452,7 +453,9 @@ def compute_cpu_cores(pairs: list[CpuCoreRaw]) -> list[CpuCoreSnapshot]:
             result.append(CpuCoreSnapshot(core_id=int(core_id), usage_pct=None))
             continue
         idle_pct = max(0.0, (cur.cpu_idle_s - prev.cpu_idle_s) / delta_total * 100)
-        result.append(CpuCoreSnapshot(core_id=int(core_id), usage_pct=round(max(0.0, 100.0 - idle_pct), 1)))
+        usage = round(max(0.0, 100.0 - idle_pct), 1)
+        # hot precompute — 임계 단일 진실(RS_CPU_PERCORE_HOLD_PCT). 클라(cpu.js)는 플래그만 읽어 P4 임계 재선언 제거.
+        result.append(CpuCoreSnapshot(core_id=int(core_id), usage_pct=usage, hot=usage >= RS_CPU_PERCORE_HOLD_PCT))
     return result
 
 

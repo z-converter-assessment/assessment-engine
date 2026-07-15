@@ -33,7 +33,6 @@ from assessment_engine.web.services.device_filters import (
     swap_total_bytes,
 )
 from assessment_engine.web.services.mappers.shared import (
-    _DONUT_SEGMENT_DEFS,
     _DONUT_SEGMENT_FROM_REC,
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
@@ -41,6 +40,7 @@ from assessment_engine.web.services.mappers.shared import (
     os_id_to_distro,
     spec_display_line,
     windows_legacy_version_from_build,
+    windows_short_label_from_product_name,
 )
 from assessment_engine.web.services.metrics_calculator import compute_net_io
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib, usage_pct
@@ -227,11 +227,23 @@ def _services_or_none(
     return [_to_service_item(s, listen_ports) for s in raw]
 
 
-def _os_display(os_id: str | None, os_version: str | None, kernel_version: str | None = None) -> str:
+def _os_display(
+    os_id: str | None,
+    os_version: str | None,
+    kernel_version: str | None = None,
+    product_name: str | None = None,
+) -> str:
     ver = os_version
-    if os_id == "windows" and not ver:
-        # 레거시 Windows Server 는 os_version 빈값 -> kernel build 로 버전 보강 ("windows 2012").
-        ver = windows_legacy_version_from_build(kernel_version)
+    if os_id == "windows":
+        # 티어 1: ProductName 연도/세대 라벨("2019"·"2012 R2") — os_version(DisplayVersion)이 LTSC/SAC 를
+        # 구분 못 하고 "1809" 를 공유하는 한계 보강. SAC(연도 없음)·미매칭·product_name 부재는 None -> 폴백.
+        short = windows_short_label_from_product_name(product_name)
+        if short:
+            ver = short
+        elif not ver:
+            # 티어 3: os_version 빈값(레거시 Server 2012 R2 이하) -> kernel build 로 보강 ("windows 2012").
+            ver = windows_legacy_version_from_build(kernel_version)
+        # 티어 2(else): os_version 그대로 — SAC 는 여기서 "1809" 로 정확히 표시.
     parts = [p for p in [os_id, ver] if p]
     return " ".join(parts) or "-"
 
@@ -244,7 +256,7 @@ def build_server_inventory(detail, is_online: bool, raw=None) -> ServerInventory
     disk_bytes = disk_total_bytes(detail.block_devices)
     return ServerInventorySnapshot(
         hostname=detail.hostname,
-        os_display=_os_display(detail.os_id, detail.os_version, detail.kernel_version),
+        os_display=_os_display(detail.os_id, detail.os_version, detail.kernel_version, detail.product_name),
         os_codename=detail.os_codename,
         kernel_version=detail.kernel_version,
         cpu_model=detail.cpu_model,
@@ -293,18 +305,17 @@ def to_server_list_item(
 ) -> ServerListItem:
     """ServerSummary -> ServerListItem. raw_period(ReportRowRaw)가 있으면 권장 조치 분류 채움.
 
-    분류 색·라벨은 shared._DONUT_SEGMENT_FROM_REC + _DONUT_SEGMENT_DEFS와 동기화 (P2 단일 진실).
+    분류 라벨은 recommendation.LABEL_KO, provisioning_class(raw enum)는 shared._DONUT_SEGMENT_FROM_REC 경유 (P2 단일 진실).
     raw_period=None이면 미분류 — 빈 문자열 (페이지 2+ 등 raws_period 부재).
     today 주어지면 OS EOL 3상태 판정(lookup_os_eol) — 카탈로그 매칭 여부로 "지원 중"과 "미상(판정 불가)" 분리.
     카탈로그 미수록(oracle 외 tencent 등)·미매칭을 "지원 중"으로 단정하지 않는다.
     """
-    # (eol_iso, label, is_passed) 또는 미매칭 시 None. os_eol 은 매칭 iso(경과·미래 무관), status 는 3상태.
-    eol = lookup_os_eol(dto.os_id, dto.os_version, dto.kernel_version, today) if today else None
-    if eol is None:
+    # OsEolInfo 또는 미매칭 시 None. os_eol 은 매칭 iso(경과·미래 무관), status 는 eol/extended/supported/unknown.
+    info = lookup_os_eol(dto.os_id, dto.os_version, dto.kernel_version, today) if today else None
+    if info is None:
         os_eol, os_eol_status = "", ("unknown" if today else "")
     else:
-        os_eol = eol[0]
-        os_eol_status = "eol" if eol[2] else "supported"
+        os_eol, os_eol_status = info.eol_iso, info.status
     # 물리 디스크 총량 — disk_total_bytes 단일 산식(type=disk 합, 목록·상세·보고서 일관).
     _disk_bytes = disk_total_bytes(dto.block_devices)
     storage_total_gb = round(bytes_to_gb(_disk_bytes), 1) if _disk_bytes else None
@@ -323,7 +334,7 @@ def to_server_list_item(
     services = known
     show_unknown = False
 
-    rec_label, rec_color, seg_key = "", "", ""
+    rec_label, seg_key = "", ""
     if raw_period is not None:
         # build_resource_stats 단일 진실(net baseline 포함) — 보고서·대시보드와 동일 분류 입력 (#E3).
         # report mapper 지연 import: report.py 가 본 모듈을 import 하므로 모듈 레벨 순환 회피.
@@ -335,12 +346,9 @@ def to_server_list_item(
         host = recommendation.rollup_host(build_resource_stats(raw_period))
         rec = recommendation.host_status_to_recommendation(host.host_status)
         seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
-        # 색은 _DONUT_SEGMENT_DEFS, 라벨은 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 서버목록 칼럼 한글 표시.
-        for key, _label, color, _desc in _DONUT_SEGMENT_DEFS:
-            if key == seg_key:
-                rec_color = color
-                rec_label = recommendation.LABEL_KO.get(seg_key, seg_key)
-                break
+        # 라벨은 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 서버목록 칼럼 한글 표시. 색은 목록이
+        # provisioning_class 기반 under-only 강조(#E, _server_rows.html)라 분류색 미사용(다색 배지는 상세/보고서).
+        rec_label = recommendation.LABEL_KO.get(seg_key, seg_key)
 
     return ServerListItem(
         id=dto.id,
@@ -356,12 +364,11 @@ def to_server_list_item(
         services=services,
         known_services=known,
         show_unknown_badge=show_unknown,
-        os_display=_os_display(dto.os_id, dto.os_version, dto.kernel_version),
+        os_display=_os_display(dto.os_id, dto.os_version, dto.kernel_version, dto.product_name),
         spec_display=spec_display,
         os_eol=os_eol,
         os_eol_status=os_eol_status,
         recommendation_label=rec_label,
-        recommendation_color=rec_color,
         provisioning_class=seg_key,
         has_operational_event=error_hosts is not None and dto.id in error_hosts,
         os_distro=os_id_to_distro(dto.os_id),
@@ -369,11 +376,13 @@ def to_server_list_item(
 
 
 def storage_layers_gb(block_devices: list[dict]) -> tuple[float | None, float | None, float | None]:
-    """스토리지 3계층 (GB) 단일 산식 — (배정 블록, 파일시스템, 미할당). block_devices(lsblk) 트리 기준.
+    """스토리지 블록 계층 3분 (GB) 단일 산식 — (배정 블록, 볼륨 배정, 미할당). block_devices(lsblk) 트리 기준.
 
-    배정 = disk_total_bytes(type=disk size_bytes 합). 파일시스템 = 마운트된 데이터 볼륨 노드 size_bytes 합.
-    미할당 = max(0, 배정 - 파일시스템) — 확장 여력 추론(둘 다 있을 때만).
-    소비처(시스템 정보·스토리지 탭)는 본 함수만 호출 — raw sum·재필터 금지.
+    배정 = disk_total_bytes(type=disk size_bytes 합). 볼륨 배정 = 마운트된 데이터 볼륨 노드 size_bytes 합(블록크기).
+    미할당 = max(0, 배정 - 볼륨 배정) — 확장 여력 추론(둘 다 있을 때만).
+    본 함수는 lsblk 블록크기 계층 단일 소스(시스템 정보 카드 "배정 디스크/볼륨 배정 크기/기타"). df 기반 실용량은
+    별개 축 — 스토리지 탭 "파일시스템 총 용량"은 to_storage_detail 이 MountUsageItem(df used+free)로 산출한다
+    (fs 포맷 오버헤드만큼 볼륨 배정보다 작음, 그 탭 per-mount df 행과 정합). 두 축은 라벨로 구분(값 다름은 의도).
     """
     allocated = bytes_to_gb(disk_total_bytes(block_devices))
     fs_bytes = sum(
@@ -645,8 +654,9 @@ def to_server_detail(dto: ServerDetail) -> ServerDetailResponse:
         cpu_model=dto.cpu_model,
         cpu_arch=dto.cpu_arch,
         cpu_bits=dto.cpu_bits,
-        # 시스템 정보 Memory 표시 — 소수 2자리(bytes_to_gb, 동일 2^30 base). storagesize 필터(.2f)와 조합.
-        mem_total_gb=bytes_to_gb(dto.mem_total_bytes),
+        # Memory 표시 — RAM 계열 단일진실 bytes_to_gib(1dp, 카탈로그). 인접 스왑(bytes_to_gib)·환경 KPI·보고서와
+        # 정밀도 통일. disksize 필터(소스 정밀도 그대로)와 조합 — detail.html 은 storagesize(.2f 강제) 아닌 disksize.
+        mem_total_gb=bytes_to_gib(dto.mem_total_bytes),
         swap_total_gb=bytes_to_gib(swap_total_bytes(dto.block_devices)),
         boot_time=dto.boot_time,
         agent_started_at=dto.agent_started_at,
@@ -656,6 +666,8 @@ def to_server_detail(dto: ServerDetail) -> ServerDetailResponse:
         services=_services_or_none(dto.services, listen_ports=dto.listen_ports),
         listen_ports=[_to_listen_port_item(p) for p in dto.listen_ports],
         last_seen_at=dto.last_seen_at,
+        product_name=dto.product_name,
+        edition=dto.edition,
     )
     # 파일시스템 항목 — block_devices 중 마운트된 데이터 볼륨 노드. 물리 디스크(type=disk)와 별개 축, 양 OS 일관(fstype 명시).
     detail.volumes = _to_volumes(dto.block_devices)
@@ -683,7 +695,8 @@ def to_storage_detail(dto: StorageWithUsage) -> StorageDetailResponse:
     collected_ats = [fs.collected_at for fs in dto.filesystems if fs.collected_at is not None]
     snapshot_at = max(collected_ats) if collected_ats else None
 
-    # 스토리지 3계층 — 시스템 정보와 동일 단일 산식(배정/파일시스템/미할당). fs 층은 아래 fs_total_gb(표시 상세).
+    # 배정/미할당(블록 계층)만 storage_layers_gb 공유 — 시스템 정보 카드와 동일 값. 볼륨 배정 층(_fs)은 미사용:
+    # 이 탭의 "파일시스템 총 용량"은 df 실용량(fs_total_gb, 아래)이라 별개 축(블록크기가 아니라 df used+free).
     allocated_gb, _fs, unallocated_gb = storage_layers_gb(dto.block_devices or [])
     return StorageDetailResponse(
         server_id=dto.server_id,
@@ -815,7 +828,7 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     detail.sorted_services = sorted(detail.services or [], key=lambda s: s.unit) if detail.services else []
     detail.sorted_listen_ports = sorted(detail.listen_ports, key=lambda lp: (lp.port, lp.proto))
 
-    detail.os_display = _os_display(detail.os_id, detail.os_version, detail.kernel_version)
+    detail.os_display = _os_display(detail.os_id, detail.os_version, detail.kernel_version, detail.product_name)
 
     cpu_parts = [p for p in [detail.cpu_model, f"{detail.cpu_cores} cores" if detail.cpu_cores else None] if p]
     detail.cpu_display = " ".join(cpu_parts) or "-"

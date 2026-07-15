@@ -260,7 +260,7 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 | polling 흐름 (예: detail page metrics/latest 30초 polling / storage snapshot) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
 
 폴링 흐름 JS render 의무:
-- inline `style="color:#xxx"` 금지 — base.html 색 전용 유틸 (중립 톤 `.text-strong`/`.text-label`/`.text-muted`/`.text-meta`/`.text-faint` + 의미색 `.text-danger`/`.text-ok`/`.text-warn`/`.text-attn`, 모두 color-only · size 는 부모 상속) 사용. font-size 는 위계 제목·값 컴포넌트(`.stat-*`/`.metric-*`/`.kpi-*`/`.pre-output`) 우선, 그 외 보조 텍스트는 size 유틸(`.text-md`/`.text-sm`/`.text-xs`)을 색 유틸과 조합.
+- inline `style="color:#xxx"` 금지 — base.html 색 전용 유틸 (중립 톤 `.text-strong`/`.text-label`/`.text-muted`/`.text-meta`/`.text-faint` + 의미색 `.text-danger`/`.text-ok`/`.text-warn`/`.text-attn`/`.text-unknown`(판정 불가 전용 보라 — 경고 `.text-warn`과 다른 범주), 모두 color-only · size 는 부모 상속) 사용. font-size 는 위계 제목·값 컴포넌트(`.stat-*`/`.metric-*`/`.kpi-*`/`.pre-output`) 우선, 그 외 보조 텍스트는 size 유틸(`.text-md`/`.text-sm`/`.text-xs`)을 색 유틸과 조합.
 - layout 관련 inline style (display:flex / grid / table 등) 허용 — 모듈별 부수 정렬, utility class 화 강제 X.
 - 동일 데이터의 SSR template 이 있으면 그쪽이 우선 (server 단일 진실 정공).
 
