@@ -492,3 +492,25 @@ agent 불변 전제의 최선 — 호스트 워크로드 union:
 - 단일 필터 스코프 응답이 실용 한계(응답 크기/지연)를 넘으면 -> cursor 또는 스트리밍(NDJSON) 분할.
 - assessment 가 고빈도 자동 폴링이 되면 -> (filter, window, end-bucket) 키의 짧은 TTL 캐시 도입(대시보드 패턴 준용).
 - 외부 노출이 필요해지면 -> 앞단 인증 게이트웨이(계약 10절 명시) + 이 엔드포인트의 인프라 노출 집중도를 감안한 인가 스코프.
+
+## T20. 실시간 스냅샷 포화 축 — 윈도우 분류 경로와의 미세 원자료·경계 불일치
+
+무엇을
+- 포화 판정에는 두 경로가 있다: (A) 윈도우(14일) 분류·환경·보고서 = `recommendation` 도메인의 os-aware verdict helper(`cpu_saturated`·`mem_saturated`·`disk_io_saturated`, dual-gate) 경유(#E3). (B) 실시간 현황·서버 상세 순간 스냅샷 = sibling index/active helper(`cpu_saturation_index`·`mem_pressure_active`·`disk_io_saturation_index`·`net_signal_active`, 목적상 single-gate) 경유. 두 경로가 같은 `RS_*` 상수를 공유하나, 두 축에서 미세하게 어긋나 같은 서버가 화면 간 다른 포화 판정을 낼 수 있다.
+- 네트워크(실무 심각도 중): 서버 상세 실시간 네트워크 축(`metrics_calculator.build_saturation_signals`)이 단일 진실 `net_signal_active` 를 경유하지 않고 ratio 비교를 직접 조립한다. 두 이탈 — (1) 저트래픽 게이트 부재: `net_signal_active`/`assess_network` 는 트래픽 < `RS_NET_MIN_TRAFFIC_KBPS`(10 kB/s)면 retrans/drop 을 억제하나, 실시간 net 축은 무조건 임계 비교(`SaturationRaw` 에 net traffic 필드가 없어 구조적으로 게이트 불가). (2) 경계 연산자: 실시간은 `>=`, `net_signal_active` 는 strict `>`. -> 유휴 저트래픽 서버의 retrans 1.5% 나 정확히 1.0%/0.5% 경계값이 서버 상세엔 "혼잡", 환경/보고서엔 "정상".
+- 디스크 await(실무 심각도 하): `disk_io_saturated` 는 `await_p95 > RS_DISKIO_AWAIT_MS`(strict `>`), `disk_io_saturation_index` 소비 게이트는 `>= 1.0`(실질 `await >= 20`). await == 20.000ms 정확값에서만 갈린다(measure-zero) — index docstring "동일 로직" 선언과의 latent slip.
+
+왜 이대로 두나
+- 두 경로는 목적이 다르다: 윈도우 분류는 dual-gate(신호 AND 이용률)로 오탐을 억제하는 결론이고, 실시간은 순간 단일 신호 crossing 을 그대로 보여주는 스냅샷(30초 갱신)이다. single-gate 는 위반이 아니라 실시간의 의도된 정의(#E3 취지 "임계 재계산·직접 해석 금지"는 두 경로 모두 충족 — 같은 도메인 상수 재사용, 소비처 임계 재선언 0).
+- 네트워크 게이트/경계 정합은 `SaturationRaw` 에 net traffic(kB/s) 필드를 추가해야 근본 수정된다(스키마·배선 변경). 실무 발현이 저트래픽+경계값이라 희소해, HIGH(Windows 실시간 메모리 배선 — 이미 수정)와 달리 즉시성이 낮아 의식적 유예.
+
+포기한 것 / 한계
+- 저트래픽이면서 retrans/drop 이 임계 근처인 서버는 서버 상세 실시간 네트워크가 "혼잡", 같은 서버의 환경 요약·보고서는 "정상"으로 갈릴 수 있다(화면 간 네트워크 판정 불일치).
+- disk await 정확히 20.000ms 서버는 윈도우 분류=비포화, 실시간=포화(measure-zero라 실측 조우 거의 없음).
+
+왜 받아들였나
+- 실시간(순간 스냅샷)과 윈도우(통계 분류)는 애초에 다른 축이고, 불일치가 저트래픽·경계 measure-zero 라는 희소 지점에만 발현. 근본 정합은 원자료 스키마 확장을 요구해 비용 대비 즉시 이득이 작다.
+
+언제 다시 봐야 하는가
+- 화면 간 네트워크 판정 불일치가 실제 운영 혼선을 부르면 -> `SaturationRaw` 에 net traffic 필드 추가 후 실시간 net 축을 `net_signal_active` 경유로 교체(저트래픽 억제 + strict `>` 통일).
+- disk await 경계를 정합하려면 -> index 소비 게이트를 `> 1.0` 으로 좁히거나 `disk_io_saturated` 를 `>=` 로 통일(docstring "동일 로직" 선언과 일치).
