@@ -57,13 +57,13 @@
     <dl class="kv kv-soft">
       <dt class="kv-group">사양</dt>
       <dt>OS</dt>
-      <dd>{{ server.os_display }}{% if server.os_codename %} ({{ server.os_codename }}){% endif %}</dd>
+      <dd>{{ server.os_display }}{% if server.edition %} {{ server.edition }}{% endif %}{% if server.os_codename %} ({{ server.os_codename }}){% endif %}</dd>
       <dt>Kernel</dt>
       <dd>{% if server.kernel_version %}{{ server.kernel_version }}{% else %}-{% endif %}</dd>
       <dt>CPU</dt>
       <dd>{{ server.cpu_display }}</dd>
       <dt>Memory</dt>
-      <dd>{{ server.mem_total_gb | storagesize }}</dd>
+      <dd>{{ server.mem_total_gb | disksize }}</dd>
     </dl>
 
     <dl class="kv kv-soft">
@@ -71,11 +71,12 @@
       {# 배정 디스크 = 물리 블록 디바이스(virtio vda) 크기 = OpenStack 이 이 VM 에 배정한 스토리지. 파일시스템(df 사용가능)과 별개 축. #}
       <dt>배정 디스크</dt>
       <dd>{{ server.disk_total_gb | storagesize }} <span class="text-meta text-xs">이 VM 에 배정된 블록 디바이스</span></dd>
-      {# volume_total_gb = 마운트된 파일시스템 크기 합. 배정 디스크보다 작음(fs 오버헤드·boot·미할당). #}
-      <dt>파일시스템 용량</dt>
-      <dd>{{ server.volume_total_gb | storagesize }} <span class="text-meta text-xs">마운트된 파일시스템 합</span></dd>
+      {# volume_total_gb = 마운트된 데이터 볼륨의 블록 배정 크기 합(lsblk size). df 실용량 아님 — fs 포맷 오버헤드는
+         여기 안 나타나고 스토리지 탭(df 기반 "파일시스템 용량")에만 반영. 라벨을 df 계열과 구분해 "볼륨 배정 크기". #}
+      <dt>볼륨 배정 크기</dt>
+      <dd>{{ server.volume_total_gb | storagesize }} <span class="text-meta text-xs">마운트된 볼륨 블록 크기 합</span></dd>
       {% if server.disk_unallocated_gb is not none and server.disk_unallocated_gb > 0 %}
-      {# 기타 = 배정 - 파일시스템. fs 오버헤드·boot·예약·미파티션 등 파일시스템 외 잔여(순수 미할당 아님) — "기타"가 정확. #}
+      {# 기타 = 배정 디스크 - 볼륨 배정. 미파티션 갭·비데이터 파티션(boot 등) — 블록 계층 잔여. fs 포맷 오버헤드 아님. #}
       <dt>기타</dt>
       <dd>{{ server.disk_unallocated_gb | storagesize }}</dd>
       {% endif %}

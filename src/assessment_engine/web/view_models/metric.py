@@ -149,6 +149,9 @@ class CpuCoreSnapshot:
 
     core_id: int
     usage_pct: float | None
+    # 코어 하이라이트 플래그 — usage_pct >= RS_CPU_PERCORE_HOLD_PCT(85, 단일스레드 병목 임계). 서버 precompute 로
+    # 클라(cpu.js)의 임계 재선언(P4 위반) 제거 — 임계 단일 진실은 recommendation.RS_CPU_PERCORE_HOLD_PCT.
+    hot: bool = False
 
 
 @dataclass

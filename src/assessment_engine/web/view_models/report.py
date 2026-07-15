@@ -117,7 +117,10 @@ class ReportRowItem:
     root_cause_label: str = ""
 
     # 네트워크 상태 — 사이징 분류와 별개 품질 판정(정상/혼잡/미측정). 조치 필요 호스트 표(고객)의 네트워크 칼럼.
+    # net_status_label 은 표시 텍스트 전용. 혼잡 강조 분기는 net_congested(안정 bool)로 — 템플릿이 로컬라이즈
+    # 문자열("혼잡") 비교하면 라벨 변경 시 조용히 fall-through(P3: 템플릿은 안정 enum/bool 로만 분기).
     net_status_label: str = ""
+    net_congested: bool = False
 
     # 메모리 page-out 발생 여부 (신 모델 포화 신호 = paging_major refault sustained). 실제 압박 신호.
     # single_report 메모리 상세가 본 신호로 판정(서버 상세 메모리 탭·period_assessment 포화 축과 정합).
@@ -146,9 +149,9 @@ class ReportRowItem:
     # 카테고리별 특징 서비스명 (baseline·unknown 제외) — 서비스 구성 breakdown 이 total 과 같은 소스를 쓰게(정합).
     workload_services: dict[str, list[str]] = field(default_factory=dict)
 
-    # OS 지원 종료 — ServerListItem 과 동일 3상태 판정(lookup_os_eol, mapper 가 report 기준 시각(now)으로 계산
+    # OS 지원 종료 — ServerListItem 과 동일 4상태 판정(lookup_os_eol, mapper 가 report 기준 시각(now)으로 계산
     # — live "오늘"이 아니라 정적 스냅샷 발행 시점 기준, #C1 스냅샷 불변). os_eol=매칭 iso(경과·미래 무관),
-    # os_eol_status: "eol"(경과)/"supported"(매칭+미래)/"unknown"(카탈로그 미수록·미매칭 — 판정 불가).
+    # os_eol_status: "eol"/"extended"(연장지원)/"supported"/"unknown"(카탈로그 미수록·미매칭 — 판정 불가).
     os_eol: str = ""
     os_eol_status: str = ""
     # 운영 이벤트 — 보고서 창(window) 내 에러 발생 유무(OOM kill·MCE·메모리 손상·net/disk 에러 5축 중 1+).

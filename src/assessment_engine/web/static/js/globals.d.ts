@@ -25,7 +25,7 @@ interface ChartUtilsApi {
   makeBucketGrid(rangeKey: string, bucketKey: string, anchorEnd?: Date | null): number[];
   joinToGrid(grid: number[], rows: any[], bMs: number): Array<number | null>;
   buildDimDatasets(rows: any[], bMs: number, grid: number[], metaMap?: any, opts?: any): any[];
-  fmtThroughput(kb: number | null): string;
+  fmtThroughput(kb: number | null | undefined): string;
   bindToggle(groupId: string, onChange: (val: string) => void): void;
   pageTimeControl(
     rangeBtnsId: string,

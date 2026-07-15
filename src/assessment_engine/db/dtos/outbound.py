@@ -13,6 +13,8 @@ class ServerSummary:
     os_version: str | None
     # 레거시 Windows Server 표시명 보강용 (build -> 버전, os_version 빈값 Server 세대). _os_display 단일 소비.
     kernel_version: str | None
+    # CurrentVersion ProductName 원문(Windows only) — os_display 짧은 라벨(연도/세대) 파싱 소스. _os_display 단일 소비.
+    product_name: str | None
     cpu_cores: int | None
     mem_total_bytes: int | None
     ip_external: list[str] | None
@@ -52,6 +54,9 @@ class ServerDetail:
     last_seen_at: datetime | None
     # ingest 사전계산 워크로드 카테고리(service_classifier 단일 진실, E7) — 토폴로지 노드 역할 주석 등 소비.
     service_categories: list[str] | None = None
+    # CurrentVersion ProductName 원문(Windows only) — os_display 짧은 라벨 파싱 소스. _os_display 단일 소비.
+    product_name: str | None = None
+    edition: str | None = None  # Windows EditionID(SKU) — os_display 상세 조합 표시용(single_report.html 동형)
 
 
 @dataclass
@@ -274,7 +279,9 @@ class SaturationRaw:
     # io_time 만 증가하면 구세대 virtio phantom busy 카운터 오탐), io_time delta 가 wall-time 초과(overflow, 카운터
     # 이상)도 미측정 None. 정상 활동이면 0%도 유효 실측.
     disk_io_util_pct: float | None = None
-    paging_major_rate: float | None = None  # 하드폴트 rate (Linux refault / Windows Pages Input)
+    # 하드폴트 rate — os-aware 소스(Linux refault=paging_major / Windows Pages Input=paging_in, latest_saturation
+    # SQL 이 os_family 로 컬럼 선택. Windows 는 paging_major 컬럼 자체가 항상 NULL, 겸용 아님).
+    paging_major_rate: float | None = None
     retrans_pct: float | None = None  # TCP 재전송율 %
     drop_pct: float | None = None  # 드롭율 %
     conntrack_ratio: float | None = None  # conntrack 사용/상한 %
@@ -417,6 +424,8 @@ class ReportRowRaw:
     boot_firmware: str | None = None
     secure_boot: bool | None = None
     edition: str | None = None
+    # CurrentVersion ProductName 원문(Windows only) — os_display 짧은 라벨 파싱 소스(_os_display 단일 소비).
+    product_name: str | None = None
     timezone: str | None = None
     rtc_utc: bool | None = None
     boot: dict | None = None  # {kernel_cmdline,root_ref_type,grub_install_target}

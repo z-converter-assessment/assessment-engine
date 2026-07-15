@@ -259,8 +259,10 @@
     .text-meta   { color: #94a3b8; }   /* 메타·부가 */
     .text-faint  { color: #cbd5e1; }   /* 흐림 */
     .text-danger { color: #dc2626; }   /* 위험·문제 단일 빨강 (전 화면 통일 — 지원 종료·자원 부족·운영 이벤트·실패). inline hex 대신 본 클래스 사용 */
-    .text-warn   { color: #d97706; }   /* 경고·주의 단일 주황 — "임계 이상"(sat-val-hi·sat-status-hi)과 동일 토큰.
-                                           미상·참고 신호 등, 빨강과 구분. inline hex 대신 본 클래스 사용 */
+    .text-warn   { color: #d97706; }   /* 경고·주의 단일 주황 — "임계 이상"(sat-val-hi·sat-status-hi)과 동일 토큰,
+                                           연장지원 등 실제 경고성 상태. 빨강(문제)과 구분. inline hex 대신 본 클래스 사용 */
+    .text-unknown { color: #7c3aed; }  /* 판정 불가(미상) 단일 보라 — 경고(text-warn)와 다른 범주(위험도 아닌 데이터
+                                           부재). OS 지원 미상 등 "모름"과 "경고"가 같은 화면에 공존할 때 구분 필수 */
     .text-ok     { color: #15803d; }   /* 정상 (optimal) */
     .text-attn   { color: #c2410c; }   /* 운영 신호 (주황) */
     .text-origin-static { color: #1d4ed8; } /* IP origin=static 배지 — 서버 상세 network.html·topology.html 단일 진실 */

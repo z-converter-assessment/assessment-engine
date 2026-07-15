@@ -104,7 +104,7 @@
       <tr><td>net_interfaces(토폴로지)</td><td><code>inv_collect_net_interfaces</code>(collect_inventory.c:2002)</td><td><code>/sys/class/net</code> + <code>getifaddrs()</code> + netlink <code>RTM_GETADDR</code>(주소 origin static/dhcp) + <code>/proc/net/route</code></td></tr>
       <tr><td>services(systemd units)</td><td><code>inv_collect_services</code>(collect_inventory.c:475)</td><td><code>systemctl list-units</code> + 배치 <code>systemctl show</code>. systemd 부재 시 <code>/var/lock/subsys</code> 폴백</td></tr>
       <tr><td>listen_ports</td><td><code>inv_collect_listen_ports</code>(collect_inventory.c:760)</td><td><code>/proc/net/{tcp,tcp6,udp,udp6}</code> + <code>/proc/*/fd</code> socket inode 역매핑</td></tr>
-      <tr><td>OS 식별/machine_id</td><td><code>add_os_release</code>(collect_inventory.c:284)/<code>resolve_machine_id</code>(collect_model.c:306)</td><td><code>/etc/os-release</code>(폴백: redhat-release 등) / <code>/etc/machine-id</code> → dbus → 클라우드 IMDS</td></tr>
+      <tr><td>OS 식별/machine_id</td><td><code>add_os_release</code>(collect_inventory.c:284)/<code>resolve_machine_id</code>(collect_model.c:327)</td><td><code>/etc/os-release</code>(폴백: redhat-release 등) / <code>/etc/machine-id</code> → dbus → 클라우드 IMDS</td></tr>
     </tbody>
   </table>
   </div>
@@ -130,7 +130,8 @@
       <tr><td>net_interfaces</td><td><code>inv_collect_net_interfaces</code>(collect_inventory.c:939)</td><td><code>GetAdaptersAddresses</code>(GAA) + <code>GetIpForwardTable</code></td></tr>
       <tr><td>services</td><td><code>inv_collect_services</code>(collect_inventory.c:155)</td><td>SCM <code>OpenSCManagerW</code> + <code>EnumServicesStatusExW</code></td></tr>
       <tr><td>listen_ports</td><td><code>inv_collect_listen_ports</code>(collect_inventory.c:363)</td><td><code>GetExtendedTcpTable</code>/<code>GetExtendedUdpTable</code></td></tr>
-      <tr><td>OS 버전/machine_id</td><td><code>os_version_info</code>(collect_inventory.c:48)/<code>resolve_machine_id</code>(collect_model.c:132)</td><td>레지스트리 <code>CurrentVersion\DisplayVersion</code> 등 / <code>Cryptography\MachineGuid</code></td></tr>
+      <tr><td>OS 버전/machine_id</td><td><code>os_version_info</code>(collect_inventory.c:48)/<code>resolve_machine_id</code>(collect_model.c:164)</td><td>레지스트리 <code>CurrentVersion\DisplayVersion</code> 등 / <code>Cryptography\MachineGuid</code></td></tr>
+      <tr><td>edition/product_name</td><td><code>inv_collect_os_repro</code>(collect_inventory.c:477)</td><td>레지스트리 <code>CurrentVersion\EditionID</code>(SKU) / <code>CurrentVersion\ProductName</code> 원문(무가공 — 엔진이 os_display 짧은 라벨 파싱)</td></tr>
       <tr><td>CPU 모델 문자열</td><td><code>cpu_model_string</code>(collect_inventory.c:102)</td><td><code>__cpuid</code>(brand string leaves) — WMI 미사용</td></tr>
     </tbody>
   </table>

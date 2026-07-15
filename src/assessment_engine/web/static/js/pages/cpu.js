@@ -21,9 +21,6 @@ const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 �
 /** @param {number | null | undefined} v */
 function pct(v) { return v == null ? '—' : v.toFixed(1) + '%'; }
 
-// 코어별 순간 사용률 하이라이트 임계 — recommendation.RS_CPU_PERCORE_HOLD_PCT(85%) 와 동일 값(단일스레드 병목 기준).
-const CORE_HOLD_PCT = 85;
-
 /** 코어별 사용률 칩 렌더 — 데이터 없으면(Windows 미발행 등) 섹션째 숨김(E9: 항상 노출 아닌 예외 — 코어 축 자체가
  * 이 OS/서버에 존재하지 않는 구조적 부재라 표시 대상이 아님, N/A 나열보다 섹션 생략이 더 정확).
  * @param {ReadonlyArray<import('../generated/api').components['schemas']['CpuCoreSnapshot']> | null | undefined} cores */
@@ -35,7 +32,7 @@ function renderCoreGrid(cores) {
   section.style.display = '';
   grid.innerHTML = list
     .map((c) => {
-      const hi = c.usage_pct != null && c.usage_pct >= CORE_HOLD_PCT;
+      const hi = c.hot;  // 서버 precompute (RS_CPU_PERCORE_HOLD_PCT 단일 진실) — 클라 임계 재선언 없음(P4).
       return (
         `<div class="core-chip"><span class="core-chip-label">core${c.core_id}</span>` +
         `<span class="core-chip-val${hi ? ' hi' : ''}">${pct(c.usage_pct)}</span></div>`

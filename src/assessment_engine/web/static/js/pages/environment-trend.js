@@ -27,7 +27,7 @@
     if (!Array.isArray(pts) || !pts.length) return;
 
     // 윈도우 전체 고정 그리드 — 서버 상세 차트와 동일 정책(makeBucketGrid + joinToGrid).
-    // 빈 구간은 null(gap), 최신(마지막 pt)이 오른쪽 끝. 데이터 있는 범위만 그리던 옛 방식 폐기.
+    // 빈 구간은 null(gap), 최신(마지막 pt)이 오른쪽 끝.
     var bucketKey = ChartUtils.AUTO_BUCKET[range] || '6h';
     var bMs = ChartUtils.BUCKET_MS[bucketKey];
     var anchor = new Date(pts[pts.length - 1].at);

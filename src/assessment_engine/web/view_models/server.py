@@ -95,13 +95,14 @@ class ServerListItem:
     spec_display: str = ""
     # OS 지원 종료(EOL) — 카탈로그 매칭 시 eol date iso("2024-06-30", 경과·미래 무관), 미매칭 시 빈 문자열.
     os_eol: str = ""
-    # EOL 3상태 — "eol"(경과) / "supported"(매칭+미래) / "unknown"(카탈로그 미수록·미매칭 = 판정 불가).
-    # 미매칭을 "지원 중"으로 단정하지 않기 위한 분리 (lookup_os_eol 매칭 여부 + is_passed 기반).
+    # EOL 4상태 — "eol"(연장지원까지 경과) / "extended"(메인스트림 종료·연장지원 단계, Windows Server 전용) /
+    # "supported"(메인스트림 지원 중) / "unknown"(카탈로그 미수록·미매칭 = 판정 불가). 미매칭을 "지원 중"으로
+    # 단정하지 않기 위한 분리 (lookup_os_eol 매칭 여부 + status 기반).
     os_eol_status: str = ""
-    # 권장 조치 — 7일 USE Method 분류. 색은 도넛 _DONUT_SEGMENT_DEFS와 동기화. mapper 단일 결정 (P2).
+    # 권장 조치 — USE Method 분류 한국어 라벨(recommendation.LABEL_KO 단일 진실). mapper 단일 결정 (P2).
+    # 목록 색은 provisioning_class 기반 under-only 강조(#E, _server_rows.html) — 분류 다색은 상세/보고서 전용.
     # raws_period 부재 시 빈 문자열 (도넛/분류 데이터 없음 — 페이지 2+ 또는 신규 등록 직후).
     recommendation_label: str = ""
-    recommendation_color: str = ""
     # 분류 raw enum — list 필터링 단일 진실 (optimal / over_provisioned / under_provisioned /
     # idle / insufficient_data). raws_period 부재 시 빈 문자열.
     provisioning_class: str = ""
@@ -144,6 +145,9 @@ class ServerDetailResponse:
     listen_ports: list[ListenPortItem]
     last_seen_at: datetime | None
     # 이하 mapper(enrich_server_detail) 파생 필드 — default 필수 (dataclass 순서 제약)
+    # Windows only pass-through — product_name 은 os_display 짧은 라벨 파싱 소스, edition 은 상세 조합 표시(SKU).
+    product_name: str | None = None
+    edition: str | None = None
     sorted_services: list[ServiceItem] = field(default_factory=list)  # P3: unit ASC 정렬
     sorted_listen_ports: list[ListenPortItem] = field(default_factory=list)  # P3: port ASC 정렬
     known_services: list[ServiceItem] = field(default_factory=list)

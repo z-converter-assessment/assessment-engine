@@ -372,6 +372,7 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
         boot_firmware=data.boot_firmware,
         secure_boot=data.secure_boot,
         edition=data.edition,
+        product_name=data.product_name,
         timezone=data.timezone,
         rtc_utc=data.rtc_utc,
         boot=(

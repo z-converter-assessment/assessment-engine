@@ -44,6 +44,9 @@ class ServerInventoryCreate:
     boot_firmware: str | None = None
     secure_boot: bool | None = None
     edition: str | None = None
+    # CurrentVersion ProductName 원문(Windows only, Linux null) — 교정 없이 실측 그대로(agent 측 무가공 원칙).
+    # os_display 짧은 라벨(연도/세대 토큰) 파싱 소스 — mappers/shared.py windows_short_label_from_product_name.
+    product_name: str | None = None
     timezone: str | None = None
     rtc_utc: bool | None = None
     boot: dict | None = None

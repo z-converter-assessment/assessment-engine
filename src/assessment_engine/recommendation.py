@@ -226,8 +226,10 @@ def disk_io_saturation_index(await_ms: float | None, disk_queue: float | None, o
 def mem_pressure_active(paging_major_rate: float | None, os_family: str | None) -> bool:
     """실시간 메모리 압박 여부 — 하드폴트(major fault) rate 기반. Windows Pages Input/sec >= 임계 / Linux refault > 0.
 
-    Linux refault·Windows Pages Input 은 paging_major_rate 로 통일(SaturationRaw). 메모리 포화는 지수 아닌 압박
-    불리언으로 집계(mem_saturated os-aware 정합).
+    Linux refault·Windows Pages Input 은 paging_major_rate 파라미터로 정규화 전달(SaturationRaw, run_queue 와
+    동일한 OS-neutral 관례) — 호출자(latest_saturation SQL)가 os_family 로 물리 컬럼(Linux paging_major /
+    Windows paging_in)을 미리 선택해 넘긴다. 메모리 포화는 지수 아닌 압박 불리언으로 집계(mem_saturated
+    os-aware 정합).
     """
     if paging_major_rate is None:
         return False

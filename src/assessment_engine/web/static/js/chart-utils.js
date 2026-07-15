@@ -140,8 +140,8 @@
 
   // ── 처리량 동적 단위 포매터 (kB/s → MB/s) ──
   // 종합·환경 성능 추이(metrics·environment-metrics) Y축 단위 포매터 (B/s 기준 fmtKbChart 와 구분 — 이쪽은 kB 입력).
-  // 단위 표기 "kB/s"/"MB/s" 통일 (fmtKbChart·format_net_rate 와 동일 관습).
-  /** @param {number | null} kb */
+  // 단위 표기 "kB/s"/"MB/s" 통일 (fmtKbChart 와 동일 관습).
+  /** @param {number | null | undefined} kb */
   function fmtThroughput(kb) {
     if (kb == null) return '—';
     return kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB/s' : kb.toFixed(1) + ' kB/s';

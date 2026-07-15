@@ -1363,6 +1363,107 @@ async def test_mem_paging_pressure_flat_stays_zero(
     assert all(r.value == 0.0 for r in rows), "delta=0 는 어느 버킷도 압박 판정이면 안 된다"
 
 
+async def test_mem_paging_pressure_crosses_on_windows_pages_input(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """회귀: Windows 는 paging.operations 를 direction=in 만 발행(type=major 없음) -> server_metrics.paging_major
+    가 항상 NULL. mem.paging_pressure SQL 이 os_family 로 paging_in(Pages Input)을 선택해야 Windows 도 발화한다
+    (paging_major 만 읽던 이전 버전은 이 케이스에서 rows 가 항상 빈 리스트).
+
+    임계 WIN_PAGES_INPUT_SATURATION=20/s — p0->p1(+1m) delta 2000 -> rate 2000/60s ~= 33.3/s > 20 이면 crossed.
+    """
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-paging-win", os_family="windows"))
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(collected_at=base_ts, paging_in=1000, paging_major=None, filesystems=[], disk_io=[], net_io=[]),
+    )
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts + timedelta(minutes=1),
+            paging_in=3000,
+            paging_major=None,
+            filesystems=[],
+            disk_io=[],
+            net_io=[],
+        ),
+    )
+    end = base_ts + timedelta(minutes=5)
+    rows = await query_repo.metric_chart(
+        server_id=sid,
+        metric_type="mem.paging_pressure",
+        dimension=None,
+        time_range="15m",
+        bucket="1m",
+        agg="avg",
+        end=end,
+    )
+    assert rows, "Windows paging_in 급증 구간은 최소 1개 버킷을 반환해야 한다(paging_major NULL 이라도)"
+    assert 1.0 in {r.value for r in rows}, "Windows Pages Input 임계 초과가 버킷에 반영돼야 한다"
+
+
+async def test_mem_paging_pressure_hosts_counts_windows(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """회귀: mem.paging_pressure_hosts(환경 집계)도 Windows paging_in 을 선택해 카운트에 반영해야 한다."""
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-paging-win-hosts", os_family="windows"))
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(collected_at=base_ts, paging_in=1000, paging_major=None, filesystems=[], disk_io=[], net_io=[]),
+    )
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts + timedelta(minutes=1),
+            paging_in=3000,
+            paging_major=None,
+            filesystems=[],
+            disk_io=[],
+            net_io=[],
+        ),
+    )
+    end = base_ts + timedelta(minutes=5)
+    rows = await query_repo.metric_trend("mem.paging_pressure_hosts", base_ts, end, "1m", server_ids=[sid], agg="avg")
+    assert rows
+    assert max(r.value for r in rows if r.value is not None) >= 1, "Windows 호스트가 압박 카운트에 잡혀야 한다"
+
+
+async def test_latest_saturation_windows_paging_uses_pages_input(
+    collect_repo: CollectRepository,
+    query_repo: QueryRepository,
+):
+    """회귀(HIGH): latest_saturation(실시간 환경/서버 상세 원자료) 이 Windows 는 paging_major(항상 NULL) 대신
+    paging_in 을 읽어 paging_major_rate 를 산출해야 한다 — 그래야 mem_pressure_active(실시간)가 report_aggregate
+    기반 mem_saturated(윈도우 사이징)와 같은 Windows 호스트에 대해 상반된 진단을 내지 않는다."""
+    base_ts = _bucket_aligned_base(minutes_ago=10)
+    sid = await collect_repo.upsert_server(make_inventory(composite_id="q-latest-sat-win", os_family="windows"))
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(collected_at=base_ts, paging_in=1000, paging_major=None, filesystems=[], disk_io=[], net_io=[]),
+    )
+    await collect_repo.record_metrics(
+        sid,
+        make_metrics(
+            collected_at=base_ts + timedelta(minutes=1),
+            paging_in=3000,
+            paging_major=None,
+            filesystems=[],
+            disk_io=[],
+            net_io=[],
+        ),
+    )
+    since = base_ts - timedelta(minutes=1)
+    result = await query_repo.latest_saturation([sid], since)
+    sat = result[sid]
+    # delta=2000(3000-1000) / dt=60s = 33.33.../s — paging_major 는 두 행 모두 None 이라 paging_in 델타에서만 나온다.
+    assert sat.paging_major_rate is not None, "Windows 는 paging_in 델타로 rate 가 산출돼야 한다(paging_major 무관)"
+    assert 33.0 <= sat.paging_major_rate <= 33.5
+
+
 _PHYS_IFACE_ID = "mac:52:54:00:12:34:56"  # tests/factories.make_inventory 기본 net_interfaces 와 동일 안정키
 
 

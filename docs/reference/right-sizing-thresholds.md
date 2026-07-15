@@ -60,7 +60,7 @@
   오인하고(예: RAM 88GB 남는 서버에 메모리 증설 권고), 사용률만 보면 페이지캐시로 90% 찬 정상 서버를 오인한다.
   둘 다 참이면 "메모리가 빡빡한데 실제로 디스크 폴트 비용을 치르고 있다" = 진짜 압박이다.
 - oom_kill(메모리 부족으로 프로세스가 강제 종료된 사후 증거)은 gate 없이 즉시 under 확정. swap 런타임 추이는
-  폐기했다(swappiness 유휴 스왑아웃 오탐) -- swap 은 용량만 보고, 압박은 위 dual-gate 로 판정.
+  압박 신호로 쓰지 않는다(swappiness 유휴 스왑아웃 오탐) -- swap 은 용량만 보고, 압박은 위 dual-gate 로 판정.
 - 스파이크 방어: paging 은 창 전체 delta rate(단일 버킷 무시), dual-gate 로 mmap/swappiness 오탐 이중 차단.
 
 ## Disk 용량

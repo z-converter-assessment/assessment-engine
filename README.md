@@ -77,7 +77,7 @@
 | 진단 | 규칙 기반 right-sizing (USE Method, `recommendation.py` — web 인라인 계산) |
 | 관측 | loguru `LOG_FORMAT=text\|json` (구조화 로그) |
 | 패키징 | uv + hatchling. CI 산출물 = Docker image (GHCR, 서명·SBOM·provenance) |
-| 정적 자원 | Chart.js (CDN) · Cytoscape.js (네트워크 토폴로지, vendored) · 외부 `.js` + `defer` |
+| 정적 자원 | Chart.js · Cytoscape.js (네트워크 토폴로지) — 둘 다 vendored (`static/js/vendor/`, 내부망 offline) · 외부 `.js` + `defer` |
 
 ---
 

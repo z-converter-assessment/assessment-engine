@@ -6,8 +6,8 @@
 
 | ViewModel | 채우는 mapper | 핵심 파생 |
 |-----------|---------------|-----------|
-| `ServerListItem` | `to_server_list_item` | `os_display` / `mem_total_gb` / `storage_total_gb` / `is_online` / `known_services` (카테고리 dedup) / `show_unknown_badge` / `recommendation_label`(영어 enum 풀네임 — 도넛 범례와 동일, `_DONUT_SEGMENT_DEFS` label) / `recommendation_color` / `provisioning_class` / `os_eol_status`(3상태 — eol·supported·unknown, 카탈로그 미매칭을 "지원 중"으로 단정 안 함) / `has_operational_event`(전기간 에러 발생 유무, `fleet_error_hosts` 집합) |
-| `ServerDetailResponse` | `to_server_detail` + `enrich_server_detail` | `os_display` / `cpu_display` / `disk_total_gb` / `services` (ServiceItem) / `sorted_listen_ports` / `agent_id`(식별 단일 키 표시) / `cpu_arch`+`cpu_bits`(ISA·비트, pass-through) |
+| `ServerListItem` | `to_server_list_item` | `os_display` / `mem_total_gb` / `storage_total_gb` / `is_online` / `known_services` (카테고리 dedup) / `show_unknown_badge` / `recommendation_label`(한국어 분류명 `recommendation.LABEL_KO`) / `provisioning_class`(raw enum — 목록 색은 이 필드 기반 under-only 강조, 분류 다색 배지는 상세/보고서 전용) / `os_eol_status`(4상태 — eol·extended(연장지원)·supported·unknown, 카탈로그 미매칭을 "지원 중"으로 단정 안 함) / `has_operational_event`(전기간 에러 발생 유무, `fleet_error_hosts` 집합) |
+| `ServerDetailResponse` | `to_server_detail` + `enrich_server_detail` | `os_display`(Windows 는 `product_name` 연도/세대 라벨 우선 — `_os_display` 4단 폴백) / `edition`(Windows SKU pass-through, `detail.html` os_display 조합 표시) / `cpu_display` / `disk_total_gb` / `services` (ServiceItem) / `sorted_listen_ports` / `agent_id`(식별 단일 키 표시) / `cpu_arch`+`cpu_bits`(ISA·비트, pass-through) |
 | `ServiceItem` | mapper | `category` (`service_classifier.classify`) / `matched_ports` (port 리스트) / `display_name` |
 | `ListenPortItem` | mapper | `is_well_known` (boolean) — 템플릿 분기는 이걸로 |
 | `MountUsageItem` | `_build_mount_item` | `device_name` (`find_parent_disk`) / `usage_pct` / `bar_color` (임계값 분류) |
@@ -57,7 +57,7 @@
 
 | ViewModel | 채우는 mapper |
 |-----------|---------------|
-| `ReportRowItem` | `to_report_row_item(raw, online, now, has_operational_event=False)` — `role`(`infer_role`, listen 보강) / `recommendation`(`classify_host`) / `recommendation_label` (한국어) / `badge_class` (`rec-{enum}`) / `root_cause_label`(`rollup_host` 인과 종합) / `net_status_label`(네트워크 품질 정상·혼잡·미측정, 사이징과 별개) / `os_display` / `internal_ip[0]`. 특징 워크로드(baseline 제외): `workload_categories`(카테고리 집합) / `signature_workload_categories`(`SIGNATURE_CATEGORIES` 부분집합 — 세부 서버 목록 "구동 서비스" 열 전용, 서버 목록 뱃지와 동일 기준) / `workload_services`(카테고리별 서비스명) — 환경/N대 집계·세부 목록 뱃지 공유. 구동 서비스 차등(개별 보고서, `_build_workload_display`, baseline 포함 전부): `workload_groups`(customer 카테고리별 제품명) / `listen_ports_detail`(engineer Listen 포트 카드 — listen 소켓 원시 표). `os_eol`/`os_eol_status`(`lookup_os_eol(...,  now.date())` 3상태 — 보고서 발행 기준 시각, live "오늘" 아님) / `has_operational_event`(보고서 window 기준 `latest_errors` — 세부 서버 목록 전용, caller 가 `get_report(fetch_operational_events=True)` 로 명시 요청할 때만 계산, 기본 False — 환경 전체 스코프는 N+1 회피로 미계산) |
+| `ReportRowItem` | `to_report_row_item(raw, online, now, has_operational_event=False)` — `role`(`infer_role`, listen 보강) / `recommendation`(`classify_host`) / `recommendation_label` (한국어) / `badge_class` (`rec-{enum}`) / `root_cause_label`(`rollup_host` 인과 종합) / `net_status_label`(네트워크 품질 정상·혼잡·미측정, 사이징과 별개) / `os_display` / `internal_ip[0]`. 특징 워크로드(baseline 제외): `workload_categories`(카테고리 집합) / `signature_workload_categories`(`SIGNATURE_CATEGORIES` 부분집합 — 세부 서버 목록 "구동 서비스" 열 전용, 서버 목록 뱃지와 동일 기준) / `workload_services`(카테고리별 서비스명) — 환경/N대 집계·세부 목록 뱃지 공유. 구동 서비스 차등(개별 보고서, `_build_workload_display`, baseline 포함 전부): `workload_groups`(customer 카테고리별 제품명) / `listen_ports_detail`(engineer Listen 포트 카드 — listen 소켓 원시 표). `os_eol`/`os_eol_status`(`lookup_os_eol(...,  now.date())` 4상태 eol·extended·supported·unknown — 보고서 발행 기준 시각, live "오늘" 아님) / `has_operational_event`(보고서 window 기준 `latest_errors` — 세부 서버 목록 전용, caller 가 `get_report(fetch_operational_events=True)` 로 명시 요청할 때만 계산, 기본 False — 환경 전체 스코프는 N+1 회피로 미계산) |
 | `ReportSummary` | `query_service.get_report` — `rows: list[ReportRowItem]`(`sort_rows_for_report` 위험 우선 정렬) + KPI 집계 (`total`/`online`/`over`/`under`) + N대 선택 맥락 `os_family_summary`/`workload_summary`(`build_selection_context`) |
 | `MetricSeriesItem` | `to_metric_series_item` — chart API 응답 |
 
@@ -89,7 +89,7 @@
 - `disk_threshold_pct = 85` — disk_warnings 진입 임계 (service 기본값)
 - `days_until_full_threshold = 30` — 디스크 잔여 신호 진입 임계 (service 기본값)
 - `agent_restart_alert_threshold = 3` — 1h 윈도우 재시작 임계 (web_settings)
-- `resolve_os_eol` (mapper, shared) — endoflife.date 스냅샷 카탈로그(`os_eol_catalog.json`) 조회 + EOL 경과 판정 단일 진실. Linux: `os_id`->endoflife product slug(`_OS_ID_TO_EOL_PRODUCT`), `os_version`->cycle. Windows: `kernel build`->windows-server latest build (운영=Server 가정). attention 카드 + 보고서 정성 요약 공용.
+- `_eol_info` (mapper, shared) — endoflife.date 스냅샷 카탈로그(`os_eol_catalog.json`) 조회 + support(메인스트림 종료)·eol(연장지원 종료) 2 날짜로 상태 판정 단일 진실. Linux: `os_id`->endoflife product slug(`_OS_ID_TO_EOL_PRODUCT`), `os_version`->cycle (support 미수록 -> extended 없이 eol/supported 2상태). Windows: `kernel build`->windows-server latest build (운영=Server 가정), support/eol 분리라 연장지원(extended) 상태 존재. 빌드가 복수 채널 겹치면 후보 전체로 정직 판정(전부 eol 경과=종료 / 전부 support 경과=연장지원 / 아니면 지원 중). 래퍼: `resolve_os_eol`(발화용 — status==eol 만 반환, attention 카드·보고서 요약) / `lookup_os_eol`(표시용 — OsEolInfo(eol_iso·support_iso·label·status) 반환, 서버 목록·상세·보고서 상태 칼럼).
 
 활용률 게이지 색 카탈로그 (mapper 상수):
 - `UTIL_GAUGE_COLOR = "var(--color-title)"` (shared 단일 진실, attention `_UTIL_COLOR_GAUGE` alias) — 주색(테마색1). 활용률 정도는 게이지 길이(`dash_length`)로, 색은 값 무관 단일. Right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over)·서버목록 `.rec-over_provisioned` 배지가 동일 주색 공유 (테마 통일, static-assets.md "색 테마"). under(`#ef4444`)와 대비.

@@ -22,7 +22,6 @@ from assessment_engine.web.services.mappers.shared import (
 from assessment_engine.web.templating.filters import (
     disksize,
     disksize_styled,
-    kbps,
     kst,
     or_dash,
     service_badge_class,
@@ -40,7 +39,6 @@ env.filters["disksize"] = disksize
 env.filters["storagesize"] = storagesize
 env.filters["disksize_styled"] = disksize_styled
 env.filters["storagesize_styled"] = storagesize_styled
-env.filters["kbps"] = kbps
 env.filters["service_badge_class"] = service_badge_class
 env.filters["or_dash"] = or_dash
 
